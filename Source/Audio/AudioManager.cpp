@@ -1,0 +1,329 @@
+#include "pch.h"
+#include "AudioManager.h"
+#include "AudioClip.h"
+#include "AudioListener.h"
+#include <xaudio2.h>
+#include <xaudio2fx.h>
+
+#pragma comment(lib, "xaudio2.lib")
+
+namespace
+{
+	IXAudio2* s_Engine = nullptr;
+	IXAudio2MasteringVoice* s_Master = nullptr;
+	bool s_Tried = false;
+	bool s_HasMeter = false;
+	UINT32 s_OutChannels = 2;
+	bool s_Muted = false;
+	bool s_EngineStopped = false;
+	bool s_WasPlaying = false;
+
+	struct OneShot { IXAudio2SourceVoice* Voice; std::shared_ptr<AudioClip> Clip; };
+	std::vector<OneShot> s_OneShots;
+	IXAudio2SourceVoice* s_Preview = nullptr;
+	std::shared_ptr<AudioClip> s_PreviewClip;
+
+	Vec3 s_ListenerPos(0, 0, 0), s_ListenerRight(1, 0, 0);
+
+	// 통계 (최근 값)
+	float s_PeakHold = 0.0f;
+	double s_PeakTime = 0.0;
+	int s_Frames = 0, s_ClipFrames = 0;
+	AudioManager::Stats s_Stats;
+
+	void UpdateListener()
+	{
+		// AudioListener 가 있으면 그 Transform, 없으면 Game 뷰 카메라
+		if (AudioListener* l = AudioListener::Active())
+		{
+			Transform* t = l->GetGameObject()->GetTransform();
+			s_ListenerPos = t->GetPosition();
+			s_ListenerRight = t->GetRight();
+			return;
+		}
+		if (auto cam = DisplayManager::GetI()->GetActiveCamera())
+		{
+			const XMFLOAT3 p = cam->GetPosition();
+			const XMFLOAT3 look = cam->GetLook();
+			s_ListenerPos = Vec3(p.x, p.y, p.z);
+			Vec3 right = Vec3(0, 1, 0).Cross(Vec3(look.x, look.y, look.z));   // 왼손 좌표계: up x forward = right
+			if (right.LengthSquared() > 1e-6f)
+			{
+				right.Normalize();
+				s_ListenerRight = right;
+			}
+		}
+	}
+}
+
+namespace AudioManager
+{
+	bool Init()
+	{
+		if (s_Engine || s_Tried)
+			return s_Engine != nullptr;
+		s_Tried = true;
+		HRESULT hr = ::XAudio2Create(&s_Engine, 0, XAUDIO2_DEFAULT_PROCESSOR);
+		if (FAILED(hr))
+		{
+			EditorLog::Write("Audio", "XAudio2Create failed hr=0x%08X - audio disabled", (unsigned)hr);
+			s_Engine = nullptr;
+			return false;
+		}
+		hr = s_Engine->CreateMasteringVoice(&s_Master);
+		if (FAILED(hr))
+		{
+			EditorLog::Write("Audio", "CreateMasteringVoice failed hr=0x%08X (no audio device?) - audio disabled", (unsigned)hr);
+			s_Engine->Release();
+			s_Engine = nullptr;
+			return false;
+		}
+		XAUDIO2_VOICE_DETAILS details = {};
+		s_Master->GetVoiceDetails(&details);
+		s_OutChannels = details.InputChannels;
+
+		// 출력 레벨 측정기 (Stats 의 Level / Clipping)
+		IUnknown* meter = nullptr;
+		if (SUCCEEDED(::XAudio2CreateVolumeMeter(&meter)))
+		{
+			XAUDIO2_EFFECT_DESCRIPTOR desc = { meter, TRUE, s_OutChannels };
+			XAUDIO2_EFFECT_CHAIN chain = { 1, &desc };
+			s_HasMeter = SUCCEEDED(s_Master->SetEffectChain(&chain));
+			meter->Release();
+		}
+		s_Master->SetVolume(s_Muted ? 0.0f : 1.0f);
+		EditorLog::Write("Audio", "XAudio2 ready: %u output channels, %u Hz, meter %s", s_OutChannels, details.InputSampleRate, s_HasMeter ? "on" : "off");
+		return true;
+	}
+
+	void Shutdown()
+	{
+		StopAllOneShots();
+		StopPreview();
+		if (s_Master) { s_Master->DestroyVoice(); s_Master = nullptr; }
+		if (s_Engine) { s_Engine->Release(); s_Engine = nullptr; }
+	}
+
+	bool IsAvailable() { return s_Engine != nullptr; }
+
+	IXAudio2SourceVoice* CreateVoice(const AudioClip& clip)
+	{
+		if (!Init())
+			return nullptr;
+		IXAudio2SourceVoice* voice = nullptr;
+		const HRESULT hr = s_Engine->CreateSourceVoice(&voice, &clip.Format, 0, 3.0f);
+		if (FAILED(hr))
+		{
+			EditorLog::Write("Audio", "CreateSourceVoice failed for %s hr=0x%08X", clip.Path.c_str(), (unsigned)hr);
+			return nullptr;
+		}
+		return voice;
+	}
+
+	void DestroyVoice(IXAudio2SourceVoice*& voice)
+	{
+		if (voice)
+		{
+			voice->Stop();
+			voice->FlushSourceBuffers();
+			voice->DestroyVoice();
+			voice = nullptr;
+		}
+	}
+
+	bool Submit(IXAudio2SourceVoice* voice, const AudioClip& clip, bool loop)
+	{
+		if (voice == nullptr || clip.Data.empty())
+			return false;
+		XAUDIO2_BUFFER buffer = {};
+		buffer.AudioBytes = (UINT32)clip.Data.size();
+		buffer.pAudioData = clip.Data.data();
+		buffer.Flags = XAUDIO2_END_OF_STREAM;
+		buffer.LoopCount = loop ? XAUDIO2_LOOP_INFINITE : 0;
+		return SUCCEEDED(voice->SubmitSourceBuffer(&buffer));
+	}
+
+	void ApplyMix(IXAudio2SourceVoice* voice, int inputChannels, float volume, float pan)
+	{
+		if (voice == nullptr || inputChannels <= 0)
+			return;
+		pan = std::clamp(pan, -1.0f, 1.0f);
+		volume = (std::max)(0.0f, volume);
+		// 밸런스 팬: 가운데 = 양쪽 그대로, 한쪽으로 갈수록 반대쪽이 줄어든다 (Unity 의 Stereo Pan)
+		const float left = volume * (pan > 0.0f ? 1.0f - pan : 1.0f);
+		const float right = volume * (pan < 0.0f ? 1.0f + pan : 1.0f);
+		std::vector<float> m((size_t)inputChannels * s_OutChannels, 0.0f);
+		auto at = [&](int in, int out) -> float& { return m[(size_t)out * inputChannels + in]; };   // [출력][입력]
+		if (s_OutChannels >= 2)
+		{
+			if (inputChannels == 1)
+			{
+				at(0, 0) = left;
+				at(0, 1) = right;
+			}
+			else
+			{
+				at(0, 0) = left;
+				at(1, 1) = right;
+			}
+		}
+		else
+			for (int i = 0; i < inputChannels; ++i)
+				at(i, 0) = volume / inputChannels;
+		voice->SetOutputMatrix(nullptr, (UINT32)inputChannels, s_OutChannels, m.data());
+	}
+
+	void SetPitch(IXAudio2SourceVoice* voice, float pitch)
+	{
+		if (voice)
+			voice->SetFrequencyRatio(std::clamp(fabsf(pitch), XAUDIO2_MIN_FREQ_RATIO, 3.0f));
+	}
+
+	void Spatialize(const Vec3& sourcePos, float minDistance, float maxDistance, int rolloff, float& gain, float& pan)
+	{
+		minDistance = (std::max)(0.01f, minDistance);
+		maxDistance = (std::max)(minDistance + 0.01f, maxDistance);
+		const Vec3 d = sourcePos - s_ListenerPos;
+		const float dist = d.Length();
+		if (rolloff == 1)   // Linear Rolloff
+			gain = std::clamp(1.0f - (dist - minDistance) / (maxDistance - minDistance), 0.0f, 1.0f);
+		else                // Logarithmic Rolloff: 최소 거리 밖에서 거리에 반비례, 최대 거리 뒤로는 더 줄지 않음
+			gain = dist <= minDistance ? 1.0f : minDistance / (std::min)(dist, maxDistance);
+		pan = dist > 1e-4f ? std::clamp(d.Dot(s_ListenerRight) / dist, -1.0f, 1.0f) : 0.0f;
+	}
+
+	Vec3 ListenerPosition() { return s_ListenerPos; }
+
+	void PlayOneShot(const std::shared_ptr<AudioClip>& clip, float volume, float pan, float pitch)
+	{
+		if (clip == nullptr)
+			return;
+		IXAudio2SourceVoice* voice = CreateVoice(*clip);
+		if (voice == nullptr)
+			return;
+		ApplyMix(voice, clip->Channels, volume, pan);
+		SetPitch(voice, pitch);
+		Submit(voice, *clip, false);
+		voice->Start();
+		s_OneShots.push_back({ voice, clip });
+	}
+
+	void StopAllOneShots()
+	{
+		for (OneShot& o : s_OneShots)
+			DestroyVoice(o.Voice);
+		s_OneShots.clear();
+	}
+
+	void PlayPreview(const std::shared_ptr<AudioClip>& clip)
+	{
+		StopPreview();
+		if (clip == nullptr)
+			return;
+		s_Preview = CreateVoice(*clip);
+		if (s_Preview == nullptr)
+			return;
+		s_PreviewClip = clip;
+		ApplyMix(s_Preview, clip->Channels, 1.0f, 0.0f);
+		Submit(s_Preview, *clip, false);
+		s_Preview->Start();
+		EditorLog::Write("Audio", "preview %s", clip->Path.c_str());
+	}
+
+	void StopPreview()
+	{
+		DestroyVoice(s_Preview);
+		s_PreviewClip.reset();
+	}
+
+	bool IsPreviewPlaying()
+	{
+		if (s_Preview == nullptr)
+			return false;
+		XAUDIO2_VOICE_STATE st = {};
+		s_Preview->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+		return st.BuffersQueued > 0;
+	}
+
+	void SetMuted(bool muted)
+	{
+		s_Muted = muted;
+		if (s_Master)
+			s_Master->SetVolume(muted ? 0.0f : 1.0f);
+	}
+
+	bool IsMuted() { return s_Muted; }
+
+	void Update()
+	{
+		UpdateListener();
+		if (s_Engine == nullptr)
+			return;
+
+		// 편집기 일시정지 = 오디오도 멈춤 (Unity 와 같음), 미리 듣기는 Play 중이 아닐 때만 쓰이므로 영향 없음
+		const bool pause = Application::IsPlaying() && Application::IsPaused();
+		if (pause && !s_EngineStopped) { s_Engine->StopEngine(); s_EngineStopped = true; }
+		if (!pause && s_EngineStopped) { s_Engine->StartEngine(); s_EngineStopped = false; }
+
+		// Play 가 끝나면 남은 One Shot 정리
+		const bool playing = Application::IsPlaying();
+		if (s_WasPlaying && !playing)
+			StopAllOneShots();
+		s_WasPlaying = playing;
+
+		// 끝난 One Shot 정리
+		for (size_t i = 0; i < s_OneShots.size();)
+		{
+			XAUDIO2_VOICE_STATE st = {};
+			s_OneShots[i].Voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+			if (st.BuffersQueued == 0)
+			{
+				DestroyVoice(s_OneShots[i].Voice);
+				s_OneShots.erase(s_OneShots.begin() + i);
+			}
+			else
+				++i;
+		}
+		if (s_Preview && !IsPreviewPlaying())
+			StopPreview();
+
+		// 통계
+		s_Stats.Available = true;
+		XAUDIO2_PERFORMANCE_DATA perf = {};
+		s_Engine->GetPerformanceData(&perf);
+		s_Stats.ActiveVoices = (int)perf.ActiveSourceVoiceCount;
+		if (perf.TotalCyclesSinceLastQuery > 0)
+			s_Stats.DspLoadPercent = 100.0f * (float)perf.AudioCyclesSinceLastQuery / (float)perf.TotalCyclesSinceLastQuery;
+		if (s_HasMeter)
+		{
+			float peaks[8] = {}, rms[8] = {};
+			XAUDIO2FX_VOLUMEMETER_LEVELS levels = {};
+			levels.pPeakLevels = peaks;
+			levels.pRMSLevels = rms;
+			levels.ChannelCount = (std::min)(s_OutChannels, 8u);
+			if (SUCCEEDED(s_Master->GetEffectParameters(0, &levels, sizeof(levels))))
+			{
+				float peak = 0.0f;
+				for (UINT32 c = 0; c < levels.ChannelCount; ++c)
+					peak = (std::max)(peak, peaks[c]);
+				const double now = ImGui::GetTime();
+				if (peak >= s_PeakHold || now - s_PeakTime > 0.5)
+				{
+					s_PeakHold = peak;
+					s_PeakTime = now;
+				}
+				++s_Frames;
+				if (peak >= 1.0f)
+					++s_ClipFrames;
+				if (s_Frames >= 120)
+				{
+					s_Stats.ClippingPercent = 100.0f * s_ClipFrames / s_Frames;
+					s_Frames = s_ClipFrames = 0;
+				}
+				s_Stats.LevelDb = s_PeakHold > 1e-4f ? 20.0f * log10f(s_PeakHold) : -80.0f;
+			}
+		}
+	}
+
+	Stats GetStats() { return s_Stats; }
+}

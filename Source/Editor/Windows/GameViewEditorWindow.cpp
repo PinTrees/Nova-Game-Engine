@@ -6,6 +6,7 @@
 #include "RenderStats.h"
 #include "Animator.h"
 #include "AnimationPlayer.h"
+#include "AudioManager.h"
 #include <fstream>
 
 namespace
@@ -368,6 +369,8 @@ void GameViewEditorWindow::DrawToolbar(float width)
 		g.Mute = !g.Mute;
 		SaveSettings();
 	}
+	if (AudioManager::IsMuted() != g.Mute)
+		AudioManager::SetMuted(g.Mute);
 
 	// 가운데: Play Focused ▾ + 🐞 (남은 공간의 가운데)
 	static const char* kPlayModes[] = { "Play Focused", "Play Maximized", "Play Unfocused" };
@@ -683,9 +686,12 @@ void GameViewEditorWindow::DrawStats(ImVec2 viewMin, ImVec2 viewMax)
 
 	line((w - ImGui::CalcTextSize("Statistics").x) * 0.5f, cT, "Statistics"); y += lh + 2.0f;
 	ImFont* bold = UnityGUI::BoldFont();
-	dl->AddText(bold, bold->FontSize, ImVec2(a.x + 6.0f, y), cT, g.Mute ? "Audio (muted, no audio system):" : "Audio (no audio system):"); y += lh;
-	line(14.0f, cD, "Level: -80.0 dB"); line(170.0f, cD, "DSP load: 0.0%"); y += lh;
-	line(14.0f, cD, "Clipping: 0.0%"); line(170.0f, cD, "Stream load: 0.0%"); y += lh + 4.0f;
+	const AudioManager::Stats as = AudioManager::GetStats();
+	dl->AddText(bold, bold->FontSize, ImVec2(a.x + 6.0f, y), cT, !as.Available ? "Audio (not started):" : (g.Mute ? "Audio (muted):" : "Audio:")); y += lh;
+	snprintf(buf, sizeof(buf), "Level: %.1f dB%s", as.LevelDb, g.Mute ? " (MUTED)" : ""); line(14.0f, cD, buf);
+	snprintf(buf, sizeof(buf), "DSP load: %.1f%%", as.DspLoadPercent); line(170.0f, cD, buf); y += lh;
+	snprintf(buf, sizeof(buf), "Clipping: %.1f%%", as.ClippingPercent); line(14.0f, cD, buf);
+	snprintf(buf, sizeof(buf), "Voices: %d", as.ActiveVoices); line(170.0f, cD, buf); y += lh + 4.0f;
 
 	dl->AddText(bold, bold->FontSize, ImVec2(a.x + 6.0f, y), cT, "Graphics:");
 	if (Application::IsPlaying())

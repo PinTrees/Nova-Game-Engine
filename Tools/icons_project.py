@@ -5,6 +5,17 @@ def _svg(body):
 
 
 PROJECT_ICONS = {
+    # Audio Source: 스피커 + 음파 (노란색, Unity 의 Audio Source 아이콘 색)
+    "audio_source": _svg('''<polygon points="1.5,6 4.5,6 8.5,2.5 8.5,13.5 4.5,10 1.5,10" fill="#E8B84A"/>
+  <path d="M10.5 5.5 Q12.2 8 10.5 10.5" fill="none" stroke="#E8B84A" stroke-width="1.3" stroke-linecap="round"/>
+  <path d="M12.3 3.8 Q15.3 8 12.3 12.2" fill="none" stroke="#E8B84A" stroke-width="1.3" stroke-linecap="round"/>'''),
+    # Audio Listener: 귀 모양
+    "audio_listener": _svg('''<path d="M5 13.5 Q3.5 13.5 3.5 11.5 M4 6.5 Q4 2 8 2 Q12.5 2 12.5 6.5 Q12.5 9 10 10.5 Q8.5 11.5 8.5 13 Q8.5 14.5 6.8 14.5" fill="none" stroke="#C8C8C8" stroke-width="1.3" stroke-linecap="round"/>
+  <path d="M6.5 7 Q6.5 4.5 8.3 4.5 Q10 4.5 10 6.3 Q10 7.5 8.8 8" fill="none" stroke="#C8C8C8" stroke-width="1.1" stroke-linecap="round"/>'''),
+    # Audio Clip 에셋: 문서 + 파형
+    "audio_clip": _svg('''<path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z" fill="#D9A441"/>
+  <polygon points="10,1.5 13,4.5 10,4.5" fill="#A87A25"/>
+  <polyline points="4.5,9.5 5.5,9.5 6.3,7 7.1,12 7.9,6 8.7,11 9.5,8 10.3,9.5 11.5,9.5" fill="none" stroke="#3A2A0A" stroke-width="1" stroke-linejoin="round"/>'''),
     # Game 뷰 툴바: 키보드 (단축키 토글)
     "keyboard": _svg('''<rect x="1" y="4" width="14" height="8.5" rx="1.2" fill="none" stroke="#C8C8C8" stroke-width="1.1"/>
   <rect x="3" y="6" width="1.6" height="1.4" fill="#C8C8C8"/>

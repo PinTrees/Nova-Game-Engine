@@ -31,6 +31,8 @@ namespace
 		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Volume",              "Volume",                "Miscellaneous", "volume",            true  },
+		{ "AudioSource",         "Audio Source",          "Audio",         "audio_source",      false },
+		{ "AudioListener",       "Audio Listener",        "Audio",         "audio_listener",    true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },

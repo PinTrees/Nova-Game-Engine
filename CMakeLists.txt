@@ -108,6 +108,7 @@ set(ENGINE_MODULE_DIRS
     Source/Physics
     Source/Scene
     Source/Terrain
+    Source/Audio
     Source/Scripting
     Source/Editor
     Source/Editor/Windows

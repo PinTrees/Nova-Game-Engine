@@ -15,6 +15,8 @@
 #include "Terrain.h"
 #include "TerrainCollider.h"
 #include "Volume.h"
+#include "AudioSource.h"
+#include "AudioListener.h"
 
 ComponentFactory::ComponentFactory()
 {
@@ -70,4 +72,6 @@ void ComponentFactory::InitBuiltInComponents()
 	RegisterComponent("Terrain", []() { return std::make_shared<Terrain>(); });
 	RegisterComponent("TerrainCollider", []() { return std::make_shared<TerrainCollider>(); });
 	RegisterComponent("Volume", []() { return std::make_shared<Volume>(); });
+	RegisterComponent("AudioSource", []() { return std::make_shared<AudioSource>(); });
+	RegisterComponent("AudioListener", []() { return std::make_shared<AudioListener>(); });
 }

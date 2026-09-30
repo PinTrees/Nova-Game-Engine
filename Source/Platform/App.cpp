@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.h"
 #include "GraphicsSettings.h"
+#include "AudioManager.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
 #include <WindowsX.h>
@@ -55,6 +56,7 @@ App::App(HINSTANCE hInstance)
 
 App::~App()
 {
+	AudioManager::Shutdown();
 	if (_deviceContext)
 		_deviceContext->ClearState();
 }
@@ -97,10 +99,12 @@ int32 App::Run()
 				// Editor Update
 				SceneViewManager::GetI()->Update();
 				EditorGUIManager::GetI()->Update();
+				AudioManager::Update();   // 리스너 위치, 일시정지, One Shot 정리, 통계
 
 				// OnPreCull, 렌더 직전 매트릭스 연산 등
 				
-				DisplayManager::GetI()->GetActiveCamera()->ViewUpdate();
+				if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())   // 카메라가 없는 씬도 있다
+					activeCamera->ViewUpdate();
 				LightManager::GetI()->ViewUpdates();
 				LightManager::GetI()->EditorViewUpdates();
 
@@ -291,6 +295,9 @@ bool App::Init()
 		char prefabLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_PREFAB_TEST", prefabLog, sizeof(prefabLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunPrefabTest(SceneManager::GetI()->GetCurrentScene(), prefabLog);
+		char audioLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_AUDIO_TEST", audioLog, sizeof(audioLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunAudioTest(SceneManager::GetI()->GetCurrentScene(), audioLog);
 	}
 
 	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.

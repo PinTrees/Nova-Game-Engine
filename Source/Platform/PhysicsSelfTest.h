@@ -23,4 +23,7 @@ namespace PhysicsSelfTest
 
 	// (개발/검증용) NOVA_PREFAB_TEST=<로그 파일>: 프리팹 생성/인스턴스/오버라이드/Apply/Revert/에셋 변경 반영/Unpack 검사
 	void RunPrefabTest(Scene* scene, const char* logPath);
+
+	// (개발/검증용) NOVA_AUDIO_TEST=<로그 파일>: 패키지 효과음 읽기, 재생/반복/정지/피치/One Shot/직렬화, 3D 감쇠 검사
+	void RunAudioTest(Scene* scene, const char* logPath);
 }

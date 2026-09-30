@@ -7,6 +7,8 @@
 #include "UndoSystem.h"
 #include "VolumeProfile.h"
 #include "VolumeEditor.h"
+#include "AudioClip.h"
+#include "AudioManager.h"
 #include "RenderPipelineSettings.h"
 #include "UnityGUI.h"
 
@@ -63,6 +65,34 @@ void InspectorEditorWindow::OnRender()
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::ANIMATOR_CONTROLLER)
 		{
 			AnimatorInspector::DrawController(SelectionManager::GetSelectAnimatorController());
+		}
+		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::AUDIO_CLIP)
+		{
+			// AudioClip Inspector: 정보 + 미리 듣기 (Unity 의 오디오 임포트 설정 하단 미리보기에 해당)
+			const std::string rel = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(SelectionManager::GetSelectedFile()));
+			if (auto clip = AudioClip::Load(rel))
+			{
+				UnityGUI::Label((clip->Name() + " (Audio Clip)").c_str(), 0, true);
+				char buf[64];
+				UnityGUI::ValueLabel("Channels", clip->Channels == 1 ? "Mono" : (clip->Channels == 2 ? "Stereo" : std::to_string(clip->Channels).c_str()));
+				snprintf(buf, sizeof(buf), "%d Hz", clip->Frequency);
+				UnityGUI::ValueLabel("Sample Rate", buf);
+				snprintf(buf, sizeof(buf), "%u bit %s", clip->Format.wBitsPerSample, clip->Format.wFormatTag == 3 ? "float" : "PCM");
+				UnityGUI::ValueLabel("Format", buf);
+				snprintf(buf, sizeof(buf), "%.3f s", clip->Length);
+				UnityGUI::ValueLabel("Length", buf);
+				snprintf(buf, sizeof(buf), "%.1f KB", clip->Data.size() / 1024.0);
+				UnityGUI::ValueLabel("Size", buf);
+				UnityGUI::Spacing(6.0f);
+				const bool playing = AudioManager::IsPreviewPlaying();
+				if (UnityGUI::CenterButton(playing ? "Stop##clipPreview" : "Play##clipPreview", 140.0f))
+				{
+					if (playing) AudioManager::StopPreview();
+					else AudioManager::PlayPreview(clip);
+				}
+			}
+			else
+				UnityGUI::HelpBox("This WAV file could not be loaded (supported: PCM 8/16/24/32-bit, 32-bit float).", true);
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::VOLUME_PROFILE)
 		{

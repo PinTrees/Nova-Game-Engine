@@ -11,6 +11,8 @@
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
 #include "Volume.h"
+#include "AudioSource.h"
+#include "AudioListener.h"
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
 #include "SkinnedMesh.h"
@@ -328,8 +330,16 @@ GameObject* GameObjectFactory::CreateCamera(const std::string& name)
 {
 	GameObject* obj = new GameObject(name);
 	obj->AddComponent<Camera>();
+	obj->AddComponent<AudioListener>();   // Unity 처럼 카메라에 Audio Listener
 	if (name == "Main Camera")
 		obj->SetTag("MainCamera");
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateAudioSource()
+{
+	GameObject* obj = new GameObject("Audio Source");
+	obj->AddComponent<AudioSource>();
 	return obj;
 }
 

@@ -111,7 +111,13 @@ namespace GameObjectMenu
 			ImGui::EndMenu();
 		}
 
-		DisabledSubMenu("Audio", { "Audio Source", "Audio Reverb Zone" });
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("Audio"))
+		{
+			if (ImGui::MenuItem("Audio Source")) add(GameObjectFactory::CreateAudioSource());
+			Disabled("Audio Reverb Zone");
+			ImGui::EndMenu();
+		}
 		DisabledSubMenu("Video", { "Video Player" });
 		DisabledSubMenu("UI (Canvas)", { "Canvas", "Text", "Image", "Button", "Panel" });
 		DisabledSubMenu("AI", { "Navigation" });

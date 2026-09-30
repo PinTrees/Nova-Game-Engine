@@ -10,6 +10,8 @@
 #include "UnityGUI.h"
 #include "SkinnedMesh.h"
 #include "VolumeProfile.h"
+#include "AudioClip.h"
+#include "AudioManager.h"
 #include <shellapi.h>
 
 std::wstring ProjectEditorWindow::solutionDirectory = L"";
@@ -29,7 +31,7 @@ namespace
 	const ImU32 kHover     = IM_COL32(69, 69, 69, 255);
 	constexpr float kToolbarH = 24.0f, kCrumbH = 22.0f, kBottomH = 20.0f, kRowH = 18.0f;
 
-	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Text, Other };
+	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Audio, Text, Other };
 
 	Kind KindOf(const std::wstring& ext, bool dir)
 	{
@@ -43,6 +45,7 @@ namespace
 		if (ext == L".terraindata") return Kind::TerrainData;
 		if (ext == L".terrainlayer") return Kind::TerrainLayer;
 		if (ext == L".volumeprofile") return Kind::VolumeProfile;
+		if (ext == L".wav") return Kind::Audio;
 		if (ext == L".txt" || ext == L".json" || ext == L".md") return Kind::Text;
 		return Kind::Other;
 	}
@@ -61,13 +64,14 @@ namespace
 		case Kind::TerrainData: return "terrain";
 		case Kind::TerrainLayer: return "asset_terrain_layer";
 		case Kind::VolumeProfile: return "volume_profile";
+		case Kind::Audio: return "audio_clip";
 		default: return "asset_text";
 		}
 	}
 
 	// 타입 필터 (툴바의 도형 아이콘)
-	const char* kFilterNames[] = { "All", "Scene", "Prefab", "Material", "Model", "Texture", "AnimatorController", "TerrainData", "TerrainLayer", "VolumeProfile" };
-	const Kind kFilterKinds[] = { Kind::Other, Kind::Scene, Kind::Prefab, Kind::Material, Kind::Model, Kind::Texture, Kind::Controller, Kind::TerrainData, Kind::TerrainLayer, Kind::VolumeProfile };
+	const char* kFilterNames[] = { "All", "Scene", "Prefab", "Material", "Model", "Texture", "AnimatorController", "TerrainData", "TerrainLayer", "VolumeProfile", "AudioClip" };
+	const Kind kFilterKinds[] = { Kind::Other, Kind::Scene, Kind::Prefab, Kind::Material, Kind::Model, Kind::Texture, Kind::Controller, Kind::TerrainData, Kind::TerrainLayer, Kind::VolumeProfile, Kind::Audio };
 
 	// 목록에서 숨기는 파일: 가져오기 캐시, 메타, 숨김 파일
 	bool IsHidden(const fs::path& p, const std::wstring& ext)
@@ -825,6 +829,11 @@ void ProjectEditorWindow::Open(const Entry& e)
 	case Kind::TerrainData:
 	case Kind::TerrainLayer:
 	case Kind::VolumeProfile:
+		break;
+	case Kind::Audio:
+		// 더블클릭 = 미리 듣기
+		SelectionManager::SetSelectedFile(e.Path.wstring());
+		AudioManager::PlayPreview(AudioClip::Load(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(e.Path.wstring()))));
 		break;   // 에디터 안에서 다루는 에셋 (Inspector 로 확인)
 	default:
 		::ShellExecuteW(nullptr, L"open", e.Path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

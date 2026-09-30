@@ -20,6 +20,7 @@ enum class SelectionSubType
     FBX,
     ANIMATOR_CONTROLLER,
     VOLUME_PROFILE,
+    AUDIO_CLIP,
 };
 
 // Animator 창 선택 (State >= 0 이면 상태, Transition >= 0 이면 전이)

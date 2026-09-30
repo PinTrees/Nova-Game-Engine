@@ -644,6 +644,25 @@ namespace UnityGUI
 		return changed;
 	}
 
+	void SliderCaptions(const char* left, const char* right)
+	{
+		// 바로 위 Slider 행의 트랙 양 끝 아래에 작은 글자 (Unity 의 Priority High/Low, Stereo Pan Left/Right)
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x;
+		const float fieldX = p.x + FieldOffset(w);
+		const float fieldW = (std::max)(20.0f, w - FieldOffset(w) - 12.0f);
+		const float sliderW = fieldW - 48.0f - 6.0f;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		ImFont* font = ImGui::GetFont();
+		const float fs = floorf(ImGui::GetFontSize() * 0.85f);
+		const float y = p.y - 5.0f;
+		dl->AddText(font, fs, ImVec2(fieldX + 2.0f, y), kTextDim, left);
+		const float rw = font->CalcTextSizeA(fs, FLT_MAX, 0.0f, right).x;
+		dl->AddText(font, fs, ImVec2(floorf(fieldX + sliderW - 2.0f - rw), y), kTextDim, right);
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, 9.0f));
+	}
+
 	void EmptyListBox(const char* header, const char* emptyText)
 	{
 		ImVec2 p = ImGui::GetCursorScreenPos();

@@ -54,6 +54,8 @@ public:
 	// Unity 의 GameObject > Volume: Global Volume / Box Volume / Sphere Volume (Local = Is Trigger 콜라이더)
 	enum class VolumeShape { Global, Box, Sphere };
 	static GameObject* CreateVolume(VolumeShape shape);
+	// Unity 의 GameObject > Audio > Audio Source
+	static GameObject* CreateAudioSource();
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

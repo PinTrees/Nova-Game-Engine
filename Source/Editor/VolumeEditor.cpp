@@ -3,6 +3,7 @@
 #include "VolumeProfile.h"
 #include "UnityGUI.h"
 #include "UndoSystem.h"
+#include "ObjectPicker.h"
 #include <filesystem>
 #include <set>
 
@@ -216,8 +217,21 @@ namespace VolumeEditor
 		bool changed = false;
 
 		ImGui::PushID(label);
+		// ⊙ = Object Picker 창 (Select Volume Profile). 키는 이 필드의 ImGui ID
+		const std::string pickerKey = "profile:" + std::to_string(ImGui::GetID("##picker"));
 		if (pressed == -1)
-			ImGui::OpenPopup("##pickProfile");
+		{
+			ObjectPicker::Options opt;
+			opt.TypeName = "Volume Profile";
+			opt.Icon = "volume_profile";
+			opt.Items = AllProfiles();
+			opt.Current = path;
+			opt.Describe = [](const std::string& p) {
+				auto vp = VolumeProfile::Load(p);
+				return vp ? std::to_string(vp->Components.size()) + " overrides" : std::string("(cannot load)");
+			};
+			ObjectPicker::Open(pickerKey, std::move(opt));
+		}
 		else if (pressed == 0)
 		{
 			path = VolumeProfile::CreateAsset("Assets\\Settings\\", newBaseName);
@@ -258,28 +272,11 @@ namespace VolumeEditor
 			SelectionManager::SetSelectedFile(PathManager::GetI()->GetMovePathW(string_to_wstring(profile->Path)));
 		ImGui::SetCursorScreenPos(after);
 
-		ImGui::SetNextWindowSizeConstraints(ImVec2(280, 0), ImVec2(520, 400));
-		if (ImGui::BeginPopup("##pickProfile"))
+		std::string picked;
+		if (ObjectPicker::Poll(pickerKey, picked) && picked != path)
 		{
-			ImGui::TextDisabled("Select Volume Profile");
-			ImGui::Separator();
-			if (ImGui::Selectable("None", path.empty()))
-			{
-				path.clear();
-				changed = true;
-			}
-			for (const std::string& p : AllProfiles())
-			{
-				const std::string name = fs::path(p).stem().string();
-				if (ImGui::Selectable((name + "##" + p).c_str(), p == path))
-				{
-					path = p;
-					changed = true;
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("%s", p.c_str());
-			}
-			ImGui::EndPopup();
+			path = picked;
+			changed = true;
 		}
 		ImGui::PopID();
 		if (changed)

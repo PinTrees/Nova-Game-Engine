@@ -5,6 +5,7 @@
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
 #include "GameViewEditorWindow.h"
+#include "ObjectPicker.h"
 #include "GraphicsBackendFactory.h"
 #include "HubProject.h"
 #include "EditorTheme.h"
@@ -555,6 +556,7 @@ void EditorGUIManager::RenderEditorWindows()
     } 
 
     GameViewEditorWindow::DrawMaximized();
+    ObjectPicker::Draw();
     ProjectSettingsWindow::Draw();
 }
 

@@ -1,0 +1,137 @@
+<p align="center">
+  <img src="ProjectSetting/logo/nova-logo-256.png" width="120" alt="NOVA logo"/>
+</p>
+
+<h1 align="center">NOVA Game Engine</h1>
+
+<p align="center">
+  Unity 에디터를 본뜬 C++20 / DirectX 11 3D 게임 엔진 + 에디터<br/>
+  <sub>Claude(Opus 5.5)와 함께 기능 하나하나를 Unity 와 1:1 에 가깝게 만들어 가는 프로젝트</sub>
+</p>
+
+<p align="center">
+  <img src="docs/images/editor_terrain.webp" width="900" alt="NOVA 에디터 - 터레인 편집"/>
+</p>
+
+---
+
+## 특징
+
+Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동작**을 최대한 그대로 따라 합니다. Unity 를 써 본 사람이라면 설명 없이 쓸 수 있는 것이 목표입니다.
+
+| 분야 | 내용 |
+|---|---|
+| **에디터** | Hub(프로젝트 목록/생성) → 에디터, 도킹 레이아웃(Hierarchy · Scene/Game · Inspector · Project/Console/Animator), 시작 로딩 창, Undo/Redo, 에디터 전용 로그(`Logs/Editor.log`) |
+| **Scene 뷰** | Move/Rotate/Scale/Rect/Transform 핸들, Pivot/Center·Local/Global, 스냅, Scene Camera 패널(시야각·Near/Far·속도), 우클릭 비행(WASD·QE), Alt 궤도, F 포커스 |
+| **Game 뷰** | 해상도(Free/비율/고정 + 사용자 추가), Scale, Display 1~8, Play Focused/Maximized/Unfocused, Stats(FPS·Batches·Tris·Audio) |
+| **Hierarchy / Inspector** | 부모/자식, 복제·잘라내기·붙여넣기, 이름 바꾸기, Unity 식 컴포넌트 헤더와 Add Component 메뉴, Object Picker 창(⊙) |
+| **Project 창** | 2단 레이아웃(폴더 트리 + 목록/격자), breadcrumb, 검색·타입 필터, FBX 하위 에셋, 생성/이름 바꾸기/휴지통 삭제, 드래그 앤 드롭 |
+| **프리팹** | Hierarchy → Project 끌어 놓아 만들기, 인스턴스(파란 표시), 오버라이드 저장/Apply All/Revert All/Unpack, 에셋 변경 자동 반영 |
+| **렌더링** | Forward 렌더링, 방향광/점광/스포트광 그림자, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일) |
+| **후처리 (URP Volume)** | Volume(Global/Local) + Volume Profile 에셋, Project Settings 의 Default Volume Profile, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain, FXAA |
+| **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 기반 Rigidbody, Box/Sphere/Capsule/Mesh/Terrain Collider, 트리거, 레이캐스트 |
+| **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
+| **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
+| **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
+
+## 스크린샷
+
+| | |
+|:---:|:---:|
+| <img src="docs/images/animator.webp" width="440"/><br/>Animator 창 | <img src="docs/images/terrain_lod.webp" width="440"/><br/>터레인 쿼드트리 LOD |
+| <img src="docs/images/project_window.webp" width="440"/><br/>Project 창 (2단 레이아웃) | <img src="docs/images/prefab.webp" width="440"/><br/>프리팹 인스턴스 |
+| <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
+| <img src="docs/images/audio_source.webp" width="440"/><br/>Audio Source | <img src="docs/images/physics.webp" width="440"/><br/>물리 (지형 위의 공) |
+
+<p align="center">
+  <img src="docs/images/postprocess_compare.webp" width="900" alt="후처리 전/후"/><br/>
+  후처리 적용 전 / 후 (Bloom, Vignette, ACES, 채도·대비)
+</p>
+
+<p align="center">
+  <img src="docs/images/loading.webp" width="420" alt="시작 로딩 창"/><br/>
+  시작 로딩 창
+</p>
+
+## 빌드
+
+### 필요한 것
+- Windows 10 / 11 (x64)
+- Visual Studio 2022 이상 — **C++를 사용한 데스크톱 개발** 워크로드 (MSVC, Windows 10/11 SDK, CMake 포함)
+- DirectX 11 을 지원하는 GPU
+
+외부 라이브러리(Assimp, DirectXTex, Effects11, ImGui, nlohmann/json, Jolt Physics)는 저장소에 들어 있어 따로 설치할 필요가 없습니다.
+
+### 빌드 방법
+```bat
+build.bat
+```
+- CMake 로 `build/` 에 Visual Studio 솔루션을 만들고 Debug x64 로 컴파일합니다 (Debug 도 `/O2` 최적화).
+- 결과: `Binaries/NovaEngine.exe`
+- `build.bat` 안의 `CMAKE_PATH` 는 Visual Studio 에 포함된 CMake 경로입니다. 설치 위치가 다르면 이 줄을 고쳐 주세요.
+- Visual Studio 에서 직접 열려면 `build/NovaEngine.sln` 을 사용합니다.
+
+## 실행
+
+| 명령 | 동작 |
+|---|---|
+| `NovaEngine.exe` | **NOVA Hub** — 프로젝트 목록, 새 프로젝트 만들기, 열기 |
+| `NovaEngine.exe --project "<프로젝트 폴더>"` | 그 프로젝트를 에디터로 열기 |
+| `NovaEngine.exe --editor` | 엔진 폴더의 샘플 프로젝트로 에디터 열기 (엔진 개발용) |
+
+작업 디렉터리는 `Binaries/` 입니다 (실행 파일이 시작할 때 자동으로 맞춥니다).
+
+새 프로젝트 구조는 Unity 와 같습니다: `Assets/`(씬·에셋), `ProjectSettings/`(프로젝트 설정), `UserSettings/`(개인 설정, Game 뷰 등).
+
+## 단축키 (Unity 와 같음)
+
+| 키 | 동작 |
+|---|---|
+| `Q` `W` `E` `R` `T` `Y` | Hand / Move / Rotate / Scale / Rect / Transform 도구 |
+| 우클릭 + `W` `A` `S` `D` / `Q` `E` | Scene 카메라 비행 (Shift = 빠르게, 휠 = 속도) |
+| `Alt` + 좌클릭 드래그 | 궤도 회전 |
+| 가운데 버튼 드래그 | 화면 이동 |
+| `F` | 선택한 오브젝트로 포커스 |
+| `Ctrl+Z` / `Ctrl+Y` | 실행 취소 / 다시 실행 |
+| `Ctrl+S` / `Ctrl+Shift+S` | 씬 저장 / 다른 이름으로 저장 |
+| `Ctrl+D` · `Ctrl+C` · `Ctrl+X` · `Ctrl+V` | 복제 · 복사 · 잘라내기 · 붙여넣기 |
+| `F2` · `Delete` | 이름 바꾸기 · 삭제 |
+| `Ctrl+P` | Play / Stop |
+
+## 폴더 구조
+
+```
+Source/
+  Platform/   앱 루프, 윈도우, 로딩 창, 자체 검사(PhysicsSelfTest)
+  Core/       경로, 로그(EditorLog), 공용 유틸
+  Graphics/   DX11 렌더러, 이펙트, 셰이더 캐시, 후처리(Volume), 렌더 통계
+  Scene/      GameObject, 컴포넌트(Transform, Camera, Light, Renderer, Collider, Volume ...), 씬, 프리팹
+  Physics/    Jolt Physics 연동
+  Animation/  스키닝, 애니메이션 클립, Animator 컨트롤러
+  Terrain/    TerrainData, 쿼드트리 LOD 렌더러
+  Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
+  Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator ...), Undo
+  Hub/        프로젝트 Hub
+Shaders/      HLSL (FX11 이펙트)
+Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain, Audio)
+ProjectSetting/  에디터 아이콘(SVG → PNG), 폰트, 로고
+Tools/        아이콘/로고/테스트 효과음 생성 스크립트
+```
+
+## 개발 문서
+
+- [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — 현재 구조, 기능별 구현 설명, 규칙, 자체 검사(`NOVA_*_TEST` 환경 변수) 방법
+- [`PROJECT_HANDOVER.md`](PROJECT_HANDOVER.md) — 이전 구조와 배경 기록
+
+## 사용한 오픈소스
+
+| 라이브러리 | 용도 |
+|---|---|
+| [Dear ImGui](https://github.com/ocornut/imgui) (docking) · [imgui-node-editor](https://github.com/thedmd/imgui-node-editor) | 에디터 UI |
+| [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 물리 |
+| [Assimp](https://github.com/assimp/assimp) | FBX / 모델 가져오기 |
+| [DirectXTex](https://github.com/microsoft/DirectXTex) · [Effects11](https://github.com/microsoft/FX11) | 텍스처, 셰이더 이펙트 |
+| [nlohmann/json](https://github.com/nlohmann/json) | 씬/에셋 저장 |
+| [Pretendard](https://github.com/orioncactus/pretendard) (SIL OFL) · [Font Awesome](https://fontawesome.com) | 폰트, 아이콘 |
+
+에디터 아이콘과 테스트 효과음은 `Tools/` 의 스크립트로 직접 그리거나 합성한 것입니다. Unity 의 아이콘·에셋은 사용하지 않았습니다.

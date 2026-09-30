@@ -1,4 +1,7 @@
 #include "pch.h"
+#include "AudioSource.h"
+#include "AudioClip.h"
+#include "AudioManager.h"
 #include "PhysicsSelfTest.h"
 #include "GameObjectFactory.h"
 #include "MonoBehaviour.h"
@@ -710,6 +713,115 @@ namespace PhysicsSelfTest
 
 namespace PhysicsSelfTest
 {
+	void RunAudioTest(Scene* scene, const char* logPath)
+	{
+		FILE* fp = nullptr;
+		fopen_s(&fp, logPath, "w");
+		if (fp == nullptr || scene == nullptr)
+			return;
+		int failures = 0;
+		auto expect = [&](const char* what, bool ok) { fprintf(fp, "  %s %s\n", ok ? "PASS" : "FAIL", what); fflush(fp); failures += !ok; };
+		auto wait = [](int ms) { ::Sleep(ms); AudioManager::Update(); };
+
+		// 1) 패키지 효과음 읽기
+		const char* kClips[] = { "Beep", "Coin", "Jump", "Explosion", "Click", "BGM_Loop" };
+		for (const char* name : kClips)
+		{
+			const std::string path = std::string("Resources\\Packages\\Audio\\SFX\\") + name + ".wav";
+			auto clip = AudioClip::Load(path);
+			fprintf(fp, "  clip %s: %s\n", name, clip ? (std::to_string(clip->Frequency) + " Hz, " + std::to_string(clip->Channels) + " ch, " + std::to_string(clip->Length) + " s").c_str() : "LOAD FAILED");
+			expect((std::string("load ") + name).c_str(), clip && clip->Frequency == 44100 && clip->Samples > 0);
+		}
+		expect("FindAll lists package clips", AudioClip::FindAll().size() >= 6);
+
+		// 2) 오디오 장치
+		const bool device = AudioManager::Init();
+		fprintf(fp, "  audio device: %s\n", device ? "available" : "NOT available (skipping playback checks)");
+		if (device)
+		{
+			GameObject* go = new GameObject("A_AudioTest");
+			scene->AddRootGameObject(go);
+			AudioSource* src = go->AddComponent<AudioSource>();
+			src->SetPlayOnAwake(false);
+
+			// 3) 한 번 재생: 재생 중 → 샘플 진행 → 끝나면 멈춤
+			src->SetClip("Resources\\Packages\\Audio\\SFX\\Beep.wav");
+			src->Play();
+			wait(120);
+			const uint64_t played = src->GetSamplesPlayed();
+			fprintf(fp, "  Beep samples after 120ms = %llu (time %.3fs)\n", (unsigned long long)played, src->GetTime());
+			expect("Beep is playing", src->IsPlaying());
+			expect("Beep samples advance", played > 1000);
+			wait(350);
+			expect("Beep finished (0.25s clip)", !src->IsPlaying());
+
+			// 4) 반복 재생 + 통계 (보이스 수, 출력 레벨)
+			src->SetClip("Resources\\Packages\\Audio\\SFX\\BGM_Loop.wav");
+			src->SetLoop(true);
+			src->Play();
+			wait(300);
+			AudioManager::Stats st = AudioManager::GetStats();
+			fprintf(fp, "  BGM stats: voices %d, level %.1f dB, DSP %.2f%%\n", st.ActiveVoices, st.LevelDb, st.DspLoadPercent);
+			expect("stats see an active voice", st.ActiveVoices >= 1);
+			expect("output level is audible (> -40 dB)", st.LevelDb > -40.0f);
+			wait(2000);   // 2초 클립을 넘겨도 계속 재생
+			fprintf(fp, "  BGM time after 2.3s = %.3fs\n", src->GetTime());
+			expect("looping clip keeps playing past its length", src->IsPlaying() && src->GetSamplesPlayed() > (uint64_t)(2.1 * 44100));
+			src->Stop();
+			expect("Stop", !src->IsPlaying());
+
+			// 5) 피치 2 = 두 배 빠르게 소비
+			src->SetLoop(false);
+			src->SetClip("Resources\\Packages\\Audio\\SFX\\Explosion.wav");
+			src->SetPitch(1.0f);
+			src->Play();
+			wait(200);
+			const uint64_t normal = src->GetSamplesPlayed();
+			src->SetPitch(2.0f);
+			src->Play();
+			wait(200);
+			const uint64_t fast = src->GetSamplesPlayed();
+			src->Stop();
+			fprintf(fp, "  samples in 200ms: pitch 1 = %llu, pitch 2 = %llu (ratio %.2f)\n", (unsigned long long)normal, (unsigned long long)fast, normal ? (double)fast / normal : 0.0);
+			expect("pitch 2 plays about twice as fast", normal > 0 && (double)fast / normal > 1.6 && (double)fast / normal < 2.5);
+			src->SetPitch(1.0f);
+
+			// 6) PlayOneShot (끝나면 자동 정리)
+			src->PlayOneShot(AudioClip::Load("Resources\\Packages\\Audio\\SFX\\Coin.wav"));
+			wait(80);
+			const int oneShotVoices = AudioManager::GetStats().ActiveVoices;
+			wait(600);
+			fprintf(fp, "  one shot voices: during %d, after %d\n", oneShotVoices, AudioManager::GetStats().ActiveVoices);
+			expect("PlayOneShot plays and is cleaned up", oneShotVoices >= 1 && AudioManager::GetStats().ActiveVoices == 0);
+
+			// 7) 직렬화
+			json j = src->toJson();
+			AudioSource copy;
+			copy.fromJson(j);
+			expect("toJson/fromJson keeps clip and settings", copy.GetClipPath() == src->GetClipPath() && copy.GetPitch() == src->GetPitch() && copy.GetClip() != nullptr);
+
+			scene->DestroyGameObject(go);
+		}
+
+		// 8) 3D 계산 (장치와 무관): 리스너 오른쪽 10m, 최소 1 / 최대 500
+		{
+			AudioManager::Update();   // 리스너 = AudioListener 또는 Game 뷰 카메라
+			const Vec3 l = AudioManager::ListenerPosition();
+			float gain = 0, pan = 0;
+			AudioManager::Spatialize(l + Vec3(10, 0, 0), 1.0f, 500.0f, 0, gain, pan);
+			fprintf(fp, "  3D log rolloff at 10m right: gain %.3f pan %.2f (listener %.1f %.1f %.1f)\n", gain, pan, l.x, l.y, l.z);
+			expect("logarithmic rolloff = min/distance", fabsf(gain - 0.1f) < 0.01f);
+			expect("source on the right pans right", pan > 0.9f);
+			AudioManager::Spatialize(l + Vec3(-6, 0, 0), 1.0f, 11.0f, 1, gain, pan);
+			expect("linear rolloff halfway = 0.5 and pans left", fabsf(gain - 0.5f) < 0.01f && pan < -0.9f);
+			AudioManager::Spatialize(l + Vec3(0.5f, 0, 0), 1.0f, 500.0f, 0, gain, pan);
+			expect("inside min distance = full volume", gain == 1.0f);
+		}
+
+		fprintf(fp, "%s (%d failures)\n", failures == 0 ? "ALL PASS" : "FAILED", failures);
+		fclose(fp);
+	}
+
 	void RunPrefabTest(Scene* scene, const char* logPath)
 	{
 		FILE* fp = nullptr;
