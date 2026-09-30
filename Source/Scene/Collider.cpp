@@ -27,6 +27,9 @@ void Collider::SerializeCommon(json& j) const
 	j["isTrigger"] = m_IsTrigger;
 	j["providesContacts"] = m_ProvidesContacts;
 	j["center"] = { m_Center.x, m_Center.y, m_Center.z };
+	j["layerOverridePriority"] = m_LayerOverridePriority;
+	j["includeLayers"] = m_IncludeLayers;
+	j["excludeLayers"] = m_ExcludeLayers;
 }
 
 void Collider::DeserializeCommon(const json& j)
@@ -34,6 +37,9 @@ void Collider::DeserializeCommon(const json& j)
 	m_Enabled = j.value("enabled", true);
 	m_IsTrigger = j.value("isTrigger", false);
 	m_ProvidesContacts = j.value("providesContacts", false);
+	m_LayerOverridePriority = j.value("layerOverridePriority", 0);
+	m_IncludeLayers = j.value("includeLayers", 0u);
+	m_ExcludeLayers = j.value("excludeLayers", 0u);
 	if (j.contains("center") && j.at("center").is_array() && j.at("center").size() == 3)
 	{
 		m_Center.x = j.at("center")[0].get<float>();
@@ -50,6 +56,16 @@ void Collider::DrawCommonInspector(bool withCenter)
 	UnityGUI::ObjectField("Material", "None (Physics Material)");
 	if (withCenter)
 		UnityGUI::Vector3("Center", &m_Center.x);
+}
+
+void Collider::DrawLayerOverrides()
+{
+	if (UnityGUI::FoldoutPlain("Layer Overrides", 0, false))
+	{
+		UnityGUI::Int("Layer Override Priority", &m_LayerOverridePriority, 1);
+		UnityGUI::MaskField("Include Layers", &m_IncludeLayers, 1);
+		UnityGUI::MaskField("Exclude Layers", &m_ExcludeLayers, 1);
+	}
 }
 
 bool Collider::ShouldDrawGizmo() const

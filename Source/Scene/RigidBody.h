@@ -23,6 +23,8 @@ private:
 	int m_CollisionDetection = 0;      // CollisionDetection
 	bool m_FreezePosition[3] = { false, false, false };
 	bool m_FreezeRotation[3] = { false, false, false };
+	uint32 m_IncludeLayers = 0;        // Layer Overrides (비트 i = UnityGUI::LayerNames() 의 i 번째 레이어)
+	uint32 m_ExcludeLayers = 0;
 
 	// Play 전에 설정된 속도 (바디가 만들어질 때 적용)
 	Vec3 m_PendingVelocity = Vec3::Zero;
@@ -56,6 +58,10 @@ public:
 	bool IsRotationFrozen(int axis) const { return m_FreezeRotation[axis]; }
 	void SetFreezePosition(int axis, bool freeze) { m_FreezePosition[axis] = freeze; }
 	void SetFreezeRotation(int axis, bool freeze) { m_FreezeRotation[axis] = freeze; }
+	uint32 GetIncludeLayers() const { return m_IncludeLayers; }
+	uint32 GetExcludeLayers() const { return m_ExcludeLayers; }
+	void SetIncludeLayers(uint32 mask) { m_IncludeLayers = mask; }
+	void SetExcludeLayers(uint32 mask) { m_ExcludeLayers = mask; }
 
 	// ---- Unity API ----
 	Vec3 GetVelocity();                           // Rigidbody.linearVelocity

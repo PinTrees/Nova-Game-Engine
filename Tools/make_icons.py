@@ -23,6 +23,10 @@ def svg16(body):
 ICONS = {
     "arrow_right": svg16(f'  <polygon points="5.2,3 11.2,8 5.2,13" fill="{G}"/>'),
     "arrow_down": svg16(f'  <polygon points="3,5.2 13,5.2 8,11.2" fill="{G}"/>'),
+    "arrow_left": svg16(f'  <polygon points="10.8,3 4.8,8 10.8,13" fill="{G}"/>'),
+    "search": svg16(
+        f'  <circle cx="6.8" cy="6.8" r="4.3" fill="none" stroke="{G}" stroke-width="1.5"/>\n'
+        f'  <line x1="10" y1="10" x2="13.8" y2="13.8" stroke="{G}" stroke-width="1.7" stroke-linecap="round"/>'),
     "dropdown": svg16(f'  <polygon points="4,6 12,6 8,10.6" fill="{G}"/>'),
     "help": svg16(
         f'  <circle cx="8" cy="8" r="6.4" fill="none" stroke="{G}" stroke-width="1.2"/>\n'
@@ -121,10 +125,12 @@ ICONS = {
     "mesh_collider": svg16(
         '  <polygon points="8,1.6 14.2,5.2 12.6,13.4 3.4,13.4 1.8,5.2" fill="#6FD46F" fill-opacity="0.22" stroke="#6FD46F" stroke-width="1.3" stroke-linejoin="round"/>\n'
         '  <path d="M8 1.6 L8 8.4 L1.8 5.2 M8 8.4 L14.2 5.2 M8 8.4 L3.4 13.4 M8 8.4 L12.6 13.4" fill="none" stroke="#6FD46F" stroke-width="0.9"/>'),
+    # Unity Rigidbody 아이콘: 초록/검정 4분할 공
     "rigidbody": svg16(
-        '  <path d="M8 1.6 L13.8 4.8 L13.8 11.2 L8 14.4 L2.2 11.2 L2.2 4.8 Z" fill="#8FB4D9" fill-opacity="0.35" stroke="#C4C4C4" stroke-width="1.2" stroke-linejoin="round"/>\n'
-        '  <path d="M2.2 4.8 L8 8 L13.8 4.8 M8 8 L8 14.4" fill="none" stroke="#C4C4C4" stroke-width="1.0"/>\n'
-        '  <circle cx="8" cy="8" r="1.6" fill="#E8B84A"/>'),
+        '  <circle cx="8" cy="8" r="6.6" fill="#1E1E1E"/>\n'
+        '  <path d="M8 8 L8 1.4 A6.6 6.6 0 0 0 1.4 8 Z" fill="#8BD13F"/>\n'
+        '  <path d="M8 8 L8 14.6 A6.6 6.6 0 0 0 14.6 8 Z" fill="#8BD13F"/>\n'
+        '  <circle cx="8" cy="8" r="6.6" fill="none" stroke="#DADADA" stroke-width="1.0"/>'),
     "edit_collider": svg16(
         '  <polyline points="3,12.6 5.4,4.2 12.4,6.4 10.2,12.8 3,12.6" fill="none" stroke="#E6E6E6" stroke-width="1.3" stroke-linejoin="round"/>\n'
         '  <circle cx="3" cy="12.6" r="1.6" fill="#E6E6E6"/>\n'

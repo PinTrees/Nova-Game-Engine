@@ -18,6 +18,7 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Geometry/AABox.h>
@@ -134,6 +135,10 @@ struct PhysicsManager::JoltWorld
 		Collider* collider = nullptr;
 		GameObject* owner = nullptr;     // 바디를 소유한 GameObject (Rigidbody 가 있는 부모일 수 있음)
 		bool trigger = false;
+		uint32 layerBit = 1;             // 콜라이더가 붙은 GameObject 의 레이어 비트
+		uint32 excludeMask = 0;          // 콜라이더 + Rigidbody 의 Exclude Layers
+		uint32 includeMask = 0;          // 콜라이더 + Rigidbody 의 Include Layers
+		int priority = 0;                // Layer Override Priority
 	};
 
 	struct BodyRecord
@@ -193,6 +198,36 @@ struct PhysicsManager::JoltWorld
 			t.trigger = trigger;
 			t.bodyA = b1.GetID();
 			t.bodyB = b2.GetID();
+		}
+
+		// Layer Overrides: 상대 레이어가 Exclude 에 있으면 접촉을 만들지 않는다.
+		// 두 콜라이더의 설정이 충돌하면 Layer Override Priority 가 높은 쪽을 따른다 (Unity 와 동일).
+		JPH::ValidateResult OnContactValidate(const JPH::Body& b1, const JPH::Body& b2, JPH::RVec3Arg, const JPH::CollideShapeResult& r) override
+		{
+			JPH::uint32 c1 = 0, c2 = 0;
+			if (!DecodeCollider(b1.GetShape()->GetSubShapeUserData(r.mSubShapeID1), c1) ||
+				!DecodeCollider(b2.GetShape()->GetSubShapeUserData(r.mSubShapeID2), c2))
+				return JPH::ValidateResult::AcceptContact;
+			auto i1 = world->colliders.find(c1);
+			auto i2 = world->colliders.find(c2);
+			if (i1 == world->colliders.end() || i2 == world->colliders.end())
+				return JPH::ValidateResult::AcceptContact;
+			const ColliderEntry& A = i1->second;
+			const ColliderEntry& B = i2->second;
+
+			// 각 콜라이더가 상대를 어떻게 보는지: -1 제외, +1 포함, 0 의견 없음
+			auto opinion = [](const ColliderEntry& self, const ColliderEntry& other) {
+				if (self.excludeMask & other.layerBit) return -1;
+				if (self.includeMask & other.layerBit) return 1;
+				return 0;
+			};
+			const int a = opinion(A, B), b = opinion(B, A);
+			int decision = 0;
+			if (a != 0 && b != 0 && a != b)
+				decision = A.priority >= B.priority ? a : b;
+			else
+				decision = a != 0 ? a : b;
+			return decision < 0 ? JPH::ValidateResult::RejectContact : JPH::ValidateResult::AcceptContact;
 		}
 
 		void OnContactAdded(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m, JPH::ContactSettings& s) override { Handle(b1, b2, m, s); }
@@ -428,6 +463,8 @@ namespace
 			HashCombine(h, rb->IsKinematic());
 			HashCombine(h, (size_t)rb->GetInterpolation());
 			HashCombine(h, (size_t)rb->GetCollisionDetection());
+			HashCombine(h, rb->GetExcludeLayers());
+			HashCombine(h, rb->GetIncludeLayers());
 			for (int i = 0; i < 3; ++i)
 			{
 				HashCombine(h, rb->IsPositionFrozen(i));
@@ -438,6 +475,10 @@ namespace
 		{
 			HashCombine(h, (size_t)c);
 			HashCombine(h, c->IsTrigger());
+			HashCombine(h, c->GetExcludeLayers());
+			HashCombine(h, c->GetIncludeLayers());
+			HashCombine(h, (size_t)c->GetLayerOverridePriority());
+			HashCombine(h, c->GetGameObject()->GetLayerIndex());
 			HashVec(h, c->GetCenter());
 			if (auto* b = dynamic_cast<BoxCollider*>(c)) HashVec(h, b->GetSize());
 			if (auto* s = dynamic_cast<SphereCollider*>(c)) HashFloat(h, s->GetRadius());
@@ -688,6 +729,10 @@ void PhysicsManager::StepSimulation(float dt)
 			// Unity: 볼록이 아닌 Mesh Collider 는 트리거가 될 수 없다
 			MeshCollider* mc = dynamic_cast<MeshCollider*>(c);
 			e.trigger = c->IsTrigger() && !(mc != nullptr && !mc->IsConvex());
+			e.layerBit = 1u << (c->GetGameObject()->GetLayerIndex() & 31);
+			e.excludeMask = c->GetExcludeLayers() | (rb ? rb->GetExcludeLayers() : 0u);
+			e.includeMask = c->GetIncludeLayers() | (rb ? rb->GetIncludeLayers() : 0u);
+			e.priority = c->GetLayerOverridePriority();
 			w.colliders[(JPH::uint32)c->GetInstanceID()] = e;
 		}
 

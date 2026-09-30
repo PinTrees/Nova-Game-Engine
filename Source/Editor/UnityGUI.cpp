@@ -193,6 +193,72 @@ namespace UnityGUI
 		return changed;
 	}
 
+	const char* const* LayerNames(int* count)
+	{
+		static const char* kLayers[] = { "Default", "TransparentFX", "Ignore Raycast", "Water", "UI" };
+		if (count) *count = 5;
+		return kLayers;
+	}
+
+	bool MaskField(const char* label, uint32* mask, int indent)
+	{
+		int count = 0;
+		const char* const* names = LayerNames(&count);
+		const uint32 all = (1u << count) - 1u;
+		const uint32 m = *mask & all;
+
+		// 미리보기 글자: Unity 와 같이 Nothing / Everything / 레이어 하나의 이름 / Mixed...
+		std::string preview;
+		if (m == 0) preview = "Nothing";
+		else if (m == all) preview = "Everything";
+		else
+		{
+			int n = 0, last = 0;
+			for (int i = 0; i < count; ++i) if (m & (1u << i)) { ++n; last = i; }
+			preview = n == 1 ? names[last] : "Mixed...";
+		}
+
+		Row r = BeginRow(label, indent);
+		bool changed = false;
+		ImGui::PushID(label);
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, FramePadY()));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 3.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(kDropBg));
+		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, V4(kDropBgHover));
+		ImGui::PushStyleColor(ImGuiCol_FrameBgActive, V4(kDropBg));
+		ImGui::PushStyleColor(ImGuiCol_Border, V4(kDropBorder));
+		ImGui::PushStyleColor(ImGuiCol_Text, V4(kTextBright));
+		ImGui::PushStyleColor(ImGuiCol_PopupBg, V4(IM_COL32(48, 48, 48, 255)));
+
+		ImGui::SetNextItemWidth(r.fieldW);
+		if (ImGui::BeginCombo("##mask", preview.c_str(), ImGuiComboFlags_NoArrowButton))
+		{
+			if (ImGui::MenuItem("Nothing", nullptr, m == 0)) { *mask = 0; changed = true; }
+			if (ImGui::MenuItem("Everything", nullptr, m == all)) { *mask = all; changed = true; }
+			for (int i = 0; i < count; ++i)
+			{
+				const bool on = (m & (1u << i)) != 0;
+				if (ImGui::MenuItem(names[i], nullptr, on))
+				{
+					*mask = on ? (m & ~(1u << i)) : (m | (1u << i));
+					changed = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		ImVec2 rmin = ImGui::GetItemRectMin(), rmax = ImGui::GetItemRectMax();
+		DrawIcon(ImGui::GetWindowDrawList(), "dropdown", ImVec2(rmax.x - 18.0f, rmin.y + 3.0f), 12.0f);
+
+		ImGui::PopStyleColor(6);
+		ImGui::PopStyleVar(5);
+		ImGui::PopID();
+		EndRow(r);
+		return changed;
+	}
+
 	bool Toggle(const char* label, bool* value, int indent)
 	{
 		Row r = BeginRow(label, indent);
@@ -840,7 +906,8 @@ namespace UnityGUI
 	bool GameObjectHeader(bool* active, std::string* name, bool* isStatic, std::string* tag, int* layer)
 	{
 		static const char* kTags[] = { "Untagged", "Respawn", "Finish", "EditorOnly", "MainCamera", "Player", "GameController" };
-		static const char* kLayers[] = { "Default", "TransparentFX", "Ignore Raycast", "Water", "UI" };
+		int layerCount = 0;
+		const char* const* kLayers = LayerNames(&layerCount);
 
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		float w = ImGui::GetContentRegionAvail().x;
@@ -922,7 +989,7 @@ namespace UnityGUI
 		const float layerLabelX = nameX + half + 12.0f;
 		dl->AddText(ImVec2(layerLabelX, TextY(row2, kRowHeight, ImGui::GetFontSize())), kText, "Layer");
 		int layerIdx = std::clamp(*layer, 0, 4);
-		if (combo("layer", layerLabelX + 34.0f, p.x + w - 12.0f - (layerLabelX + 34.0f), kLayers, 5, &layerIdx)) { *layer = layerIdx; changed = true; }
+		if (combo("layer", layerLabelX + 34.0f, p.x + w - 12.0f - (layerLabelX + 34.0f), kLayers, layerCount, &layerIdx)) { *layer = layerIdx; changed = true; }
 
 		ImGui::PopStyleVar();
 		ImGui::PopID();

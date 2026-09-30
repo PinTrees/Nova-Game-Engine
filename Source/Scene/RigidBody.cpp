@@ -130,8 +130,8 @@ void RigidBody::OnInspectorGUI()
 	}
 	if (UnityGUI::FoldoutPlain("Layer Overrides", 0, false))
 	{
-		UnityGUI::ObjectField("Include Layers", "Nothing", 1);
-		UnityGUI::ObjectField("Exclude Layers", "Nothing", 1);
+		UnityGUI::MaskField("Include Layers", &m_IncludeLayers, 1);
+		UnityGUI::MaskField("Exclude Layers", &m_ExcludeLayers, 1);
 	}
 	if (UnityGUI::FoldoutPlain("Info", 0, false))
 	{
@@ -166,6 +166,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(RigidBody)
 	j["collisionDetection"] = m_CollisionDetection;
 	j["freezePosition"] = { m_FreezePosition[0], m_FreezePosition[1], m_FreezePosition[2] };
 	j["freezeRotation"] = { m_FreezeRotation[0], m_FreezeRotation[1], m_FreezeRotation[2] };
+	j["includeLayers"] = m_IncludeLayers;
+	j["excludeLayers"] = m_ExcludeLayers;
 	return j;
 }
 
@@ -181,6 +183,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(RigidBody)
 	m_IsKinematic = j.value("isKinematic", false);
 	m_Interpolation = j.value("interpolation", 0);
 	m_CollisionDetection = j.value("collisionDetection", 0);
+	m_IncludeLayers = j.value("includeLayers", 0u);
+	m_ExcludeLayers = j.value("excludeLayers", 0u);
 	if (j.contains("freezePosition") && j["freezePosition"].is_array() && j["freezePosition"].size() == 3)
 		for (int i = 0; i < 3; ++i) m_FreezePosition[i] = j["freezePosition"][i].get<bool>();
 	if (j.contains("freezeRotation") && j["freezeRotation"].is_array() && j["freezeRotation"].size() == 3)

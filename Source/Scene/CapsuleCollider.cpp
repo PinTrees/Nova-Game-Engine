@@ -61,7 +61,7 @@ void CapsuleCollider::OnInspectorGUI()
 	if (UnityGUI::Float("Height", &m_Height)) SetHeight(m_Height);
 	static const char* dirs[] = { "X-Axis", "Y-Axis", "Z-Axis" };
 	UnityGUI::Dropdown("Direction", &m_Direction, dirs, 3);
-	UnityGUI::FoldoutPlain("Layer Overrides", 0, false);
+	DrawLayerOverrides();
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(CapsuleCollider)

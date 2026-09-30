@@ -24,6 +24,10 @@ namespace UnityGUI
 	bool Toggle(const char* label, bool* value, int indent = 0);
 	// "Freeze Position  [ ]X [ ]Y [ ]Z" 처럼 축별 체크박스 3개
 	bool Toggle3(const char* label, bool* xyz, int indent = 0);
+	// 레이어 마스크 드롭다운 (Nothing / Everything / 레이어별 체크). 비트 i = LayerNames() 의 i 번째 레이어
+	bool MaskField(const char* label, uint32* mask, int indent = 0);
+	// 프로젝트 레이어 이름 목록 (GameObject 헤더의 Layer 드롭다운과 같은 순서)
+	const char* const* LayerNames(int* count);
 	// 읽기 전용 값 표시 (Rigidbody 의 Info 등)
 	void ValueLabel(const char* label, const char* value, int indent = 0);
 	bool Float(const char* label, float* value, int indent = 0, const char* innerLabel = nullptr);

@@ -38,7 +38,7 @@ void SphereCollider::OnInspectorGUI()
 {
 	DrawCommonInspector();
 	UnityGUI::Float("Radius", &m_Radius);
-	UnityGUI::FoldoutPlain("Layer Overrides", 0, false);
+	DrawLayerOverrides();
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(SphereCollider)

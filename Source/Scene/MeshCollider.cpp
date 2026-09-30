@@ -86,7 +86,7 @@ void MeshCollider::OnInspectorGUI()
 				meshName = wstring_to_string(std::filesystem::path(path).stem().wstring());
 		}
 	UnityGUI::ObjectField("Mesh", meshName.c_str(), 0, "mesh_small");
-	UnityGUI::FoldoutPlain("Layer Overrides", 0, false);
+	DrawLayerOverrides();
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(MeshCollider)

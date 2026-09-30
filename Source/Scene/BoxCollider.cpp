@@ -41,7 +41,7 @@ void BoxCollider::OnInspectorGUI()
 {
     DrawCommonInspector();
     UnityGUI::Vector3("Size", &m_Size.x);
-    UnityGUI::FoldoutPlain("Layer Overrides", 0, false);
+    DrawLayerOverrides();
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(BoxCollider)

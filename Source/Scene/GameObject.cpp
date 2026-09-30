@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "GameObject.h"
+#include "AddComponentMenu.h"
 #include "Transform.h"
 #include "EditorGUI.h"
 #include "UnityGUI.h"
@@ -232,28 +233,22 @@ void GameObject::OnInspectorGUI()
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availX - btnW) * 0.5f);
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
         if (ImGui::Button("Add Component", ImVec2(btnW, 26.0f)))
+            AddComponentMenu::Open(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+        // (개발/검증용) NOVA_DEV_ADDCOMP=1 | <카테고리> | ?<검색어> 이면 처음 한 번 팝업을 자동으로 연다
+        static bool s_DevOpened = false;
+        char preset[64] = {};
+        if (!s_DevOpened && ImGui::GetFrameCount() > 120 && ::GetEnvironmentVariableA("NOVA_DEV_ADDCOMP", preset, sizeof(preset)) > 0)   // 시작 직후 포커스 변경으로 닫히지 않게 잠시 뒤에 연다
         {
-            ImGui::OpenPopup("add_component_popup");
+            s_DevOpened = true;
+            AddComponentMenu::Open(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+            if (strcmp(preset, "1") != 0)
+                AddComponentMenu::DevPreset(preset);
         }
         ImGui::PopStyleVar();
     }
 
-    if (ImGui::BeginPopup("add_component_popup"))
-    {
-        std::vector<std::string> componentTypes = ComponentFactory::Instance().GetComponentTypes();
-        for (const auto& type : componentTypes)
-        {
-            if (ImGui::MenuItem(type.c_str()))
-            {
-                auto newComponent = ComponentFactory::Instance().CreateComponent(type);
-                if (newComponent)
-                {
-                    m_ComponentsToAdd.push_back(newComponent);
-                }
-            }
-        }
-        ImGui::EndPopup();
-    }
+    // Unity 의 Add Component 팝업 (검색 + 카테고리)
+    AddComponentMenu::Draw(this, [this](std::shared_ptr<Component> c) { m_ComponentsToAdd.push_back(c); });
 }
 
 void to_json(json& j, const GameObject& obj)

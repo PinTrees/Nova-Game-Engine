@@ -240,6 +240,8 @@ bool App::Init()
 		GameObject* ball = add(GameObjectFactory::CreateSphere(), Vec3(-3.0f, 0.5f, 3.0f), "PhysBall");
 		ball->AddComponent<RigidBody>()->SetVelocity(Vec3(0.0f, 0.0f, -4.0f));
 		add(GameObjectFactory::CreateCapsule(), Vec3(-1.5f, 4.0f, 3.0f), "PhysCapsule")->AddComponent<RigidBody>();
+		RigidBody* ghost = add(GameObjectFactory::CreateSphere(), Vec3(3.0f, 3.0f, -2.0f), "PhysGhost")->AddComponent<RigidBody>();
+		ghost->SetExcludeLayers(1u << 0);   // Default 레이어 제외 → 바닥을 통과
 		GameObject* trigger = add(GameObjectFactory::CreateCube(), Vec3(-3.0f, 0.5f, 0.0f), "PhysTrigger");
 		trigger->GetComponent<BoxCollider>()->SetIsTrigger(true);
 		trigger->GetTransform()->SetLocalScale(Vec3(2.0f, 1.0f, 1.0f));
