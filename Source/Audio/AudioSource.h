@@ -70,9 +70,13 @@ public:
 	void SetPitch(float p) { m_Pitch = std::clamp(p, -3.0f, 3.0f); }
 	float GetPitch() const { return m_Pitch; }
 	void SetMute(bool m) { m_Mute = m; }
+	bool GetMute() const { return m_Mute; }
 	void SetPlayOnAwake(bool b) { m_PlayOnAwake = b; }
+	bool GetPlayOnAwake() const { return m_PlayOnAwake; }
 	void SetSpatialBlend(float b) { m_SpatialBlend = std::clamp(b, 0.0f, 1.0f); }
+	float GetSpatialBlend() const { return m_SpatialBlend; }
 	void SetStereoPan(float p) { m_StereoPan = std::clamp(p, -1.0f, 1.0f); }
+	float GetStereoPan() const { return m_StereoPan; }
 	void SetDistances(float minD, float maxD) { m_MinDistance = minD; m_MaxDistance = maxD; }
 
 	virtual void OnInspectorGUI() override;

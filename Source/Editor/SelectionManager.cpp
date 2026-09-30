@@ -61,6 +61,10 @@ void SelectionManager::SetSelectedFile(const std::wstring& filePath)
 		m_SelectFile_FbxModel = ResourceManager::GetI()->LoadFbxModel(cutPath);
 		m_SelectedSubType = SelectionSubType::FBX;
 	}
+	else if (path.extension() == ".cs")
+	{
+		m_SelectedSubType = SelectionSubType::SCRIPT;
+	}
 	else if (path.extension() == ".wav" || path.extension() == ".WAV")
 	{
 		m_SelectedSubType = SelectionSubType::AUDIO_CLIP;

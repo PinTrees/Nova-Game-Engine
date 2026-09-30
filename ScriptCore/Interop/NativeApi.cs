@@ -1,0 +1,115 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace NovaEngine.Interop
+{
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TimeData
+    {
+        public float deltaTime;
+        public float unscaledDeltaTime;
+        public float time;
+        public float unscaledTime;
+        public float fixedDeltaTime;
+        public float timeScale;
+        public float realtimeSinceStartup;
+        public int frameCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RaycastData
+    {
+        public Vector3 point;
+        public Vector3 normal;
+        public float distance;
+        public ulong gameObject;
+    }
+
+    // 네이티브(C++)가 채워 주는 함수 표. 순서와 시그니처는 Source/Scripting/ScriptBindings.cpp 의 NativeApiTable 과 반드시 같아야 한다.
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct NativeApiTable
+    {
+        public int Size;   // sizeof(NativeApiTable) (C++), 불일치 검사용
+
+        // 로그: level 0 Log, 1 Warning, 2 Error / 메시지, 스택, 파일, 줄
+        public delegate* unmanaged<int, byte*, byte*, byte*, int, void> Log;
+
+        // GameObject
+        public delegate* unmanaged<ulong, int> GO_IsValid;
+        public delegate* unmanaged<ulong, byte*> GO_GetName;
+        public delegate* unmanaged<ulong, byte*, void> GO_SetName;
+        public delegate* unmanaged<ulong, int, int> GO_GetActive;         // 0 activeSelf, 1 activeInHierarchy
+        public delegate* unmanaged<ulong, int, void> GO_SetActive;
+        public delegate* unmanaged<ulong, byte*> GO_GetTag;
+        public delegate* unmanaged<ulong, byte*, void> GO_SetTag;
+        public delegate* unmanaged<byte*, int, ulong> GO_Find;             // 0 이름, 1 태그
+        public delegate* unmanaged<byte*, ulong> GO_Create;
+        public delegate* unmanaged<int, ulong> GO_CreatePrimitive;
+        public delegate* unmanaged<ulong, float, void> GO_Destroy;
+        public delegate* unmanaged<ulong, int, Vector3*, Quaternion*, ulong, ulong> GO_Instantiate;
+        public delegate* unmanaged<ulong, byte*, int> GO_HasComponent;
+        public delegate* unmanaged<ulong, byte*, IntPtr> GO_AddComponent;  // 스크립트면 새 인스턴스 핸들, 네이티브 컴포넌트면 1
+        public delegate* unmanaged<ulong, byte*, void> GO_RemoveComponent;
+
+        // Transform: 벡터 속성 0 position, 1 localPosition, 2 localScale, 3 eulerAngles, 4 localEulerAngles, 5 lossyScale, 6 forward, 7 right, 8 up
+        public delegate* unmanaged<ulong, int, Vector3*, void> TR_GetVector;
+        public delegate* unmanaged<ulong, int, Vector3*, void> TR_SetVector;
+        public delegate* unmanaged<ulong, int, Quaternion*, void> TR_GetQuat;   // 0 rotation, 1 localRotation
+        public delegate* unmanaged<ulong, int, Quaternion*, void> TR_SetQuat;
+        public delegate* unmanaged<ulong, ulong> TR_GetParent;
+        public delegate* unmanaged<ulong, ulong, int, void> TR_SetParent;
+        public delegate* unmanaged<ulong, int> TR_GetChildCount;
+        public delegate* unmanaged<ulong, int, ulong> TR_GetChild;
+
+        // Time / Input / Screen
+        public delegate* unmanaged<TimeData*, void> Time_Get;
+        public delegate* unmanaged<int, int, int> Input_GetKey;            // 가상 키 코드, 0 누르는 중 1 눌림 2 뗌
+        public delegate* unmanaged<int, int, int> Input_GetMouseButton;
+        public delegate* unmanaged<Vector4*, void> Input_GetMouse;         // xy 위치(게임 화면 픽셀, 왼쪽 아래 원점), zw 휠
+        public delegate* unmanaged<int*, int*, void> Screen_Get;
+
+        // Rigidbody
+        public delegate* unmanaged<ulong, int, Vector3*, void> RB_GetVector;   // 0 velocity, 1 angularVelocity, 2 worldCenterOfMass
+        public delegate* unmanaged<ulong, int, Vector3*, void> RB_SetVector;
+        public delegate* unmanaged<ulong, int, Vector3*, int, void> RB_AddForce; // 0 힘, 1 토크
+        public delegate* unmanaged<ulong, int, float> RB_GetFloat;             // 0 mass, 1 linearDamping, 2 angularDamping
+        public delegate* unmanaged<ulong, int, float, void> RB_SetFloat;
+        public delegate* unmanaged<ulong, int, int> RB_GetBool;                // 0 useGravity, 1 isKinematic, 2 isSleeping
+        public delegate* unmanaged<ulong, int, int, void> RB_SetBool;
+        public delegate* unmanaged<ulong, int, Vector4*, void> RB_Move;         // 0 MovePosition, 1 MoveRotation
+
+        // AudioSource
+        public delegate* unmanaged<ulong, int, void> AS_Call;                  // 0 Play, 1 Stop, 2 Pause, 3 UnPause
+        public delegate* unmanaged<ulong, int, float> AS_GetFloat;             // 0 volume, 1 pitch, 2 panStereo, 3 spatialBlend, 4 time
+        public delegate* unmanaged<ulong, int, float, void> AS_SetFloat;
+        public delegate* unmanaged<ulong, int, int> AS_GetBool;                // 0 isPlaying, 1 loop, 2 mute, 3 playOnAwake
+        public delegate* unmanaged<ulong, int, int, void> AS_SetBool;
+        public delegate* unmanaged<ulong, byte*, float, void> AS_PlayOneShot;
+        public delegate* unmanaged<ulong, byte*> AS_GetClip;
+        public delegate* unmanaged<ulong, byte*, void> AS_SetClip;
+        public delegate* unmanaged<byte*, float> Audio_ClipLength;
+
+        // Animator: kind 0 float, 1 int, 2 bool, 3 trigger
+        public delegate* unmanaged<ulong, byte*, int, float, void> AN_SetParam;
+        public delegate* unmanaged<ulong, byte*, int, float> AN_GetParam;
+
+        // Physics / Camera
+        public delegate* unmanaged<Vector3*, Vector3*, float, RaycastData*, int> PH_Raycast;
+        public delegate* unmanaged<ulong> Camera_Main;
+
+        // 스크립트 컴포넌트: C# 에서 enabled 를 바꾸면 네이티브 컴포넌트(Inspector 체크박스)도 바꾼다
+        public delegate* unmanaged<IntPtr, int, void> Script_SetEnabled;
+    }
+
+    internal static unsafe class Native
+    {
+        internal static NativeApiTable Api;
+
+        // 네이티브가 돌려주는 UTF-8 문자열 (네이티브 쪽 버퍼, 다음 호출 전까지 유효) → C# 문자열
+        internal static string Str(byte* p) => p == null ? null : Marshal.PtrToStringUTF8((IntPtr)p);
+
+        // C# 문자열 → 널 끝 UTF-8 (호출하는 동안만 쓰는 임시 버퍼)
+        internal static byte[] Utf8(string s) => Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");
+    }
+}

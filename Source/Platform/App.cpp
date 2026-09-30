@@ -2,6 +2,7 @@
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "AudioManager.h"
+#include "ScriptEngine.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
 #include <WindowsX.h>
@@ -56,6 +57,7 @@ App::App(HINSTANCE hInstance)
 
 App::~App()
 {
+	ScriptEngine::Shutdown();
 	AudioManager::Shutdown();
 	if (_deviceContext)
 		_deviceContext->ClearState();
@@ -91,6 +93,7 @@ int32 App::Run()
 				// Update
 				if (Application::ShouldUpdateGame())
 				{
+					ScriptEngine::BeginFrame();   // C# 입력 상태 / 시간
 					UpdateScene(_timer.DeltaTime()); 
 					SceneManager::GetI()->UpdateScene(); 
 					PhysicsManager::GetI()->Update(_timer.DeltaTime()); 
@@ -100,6 +103,7 @@ int32 App::Run()
 				SceneViewManager::GetI()->Update();
 				EditorGUIManager::GetI()->Update();
 				AudioManager::Update();   // 리스너 위치, 일시정지, One Shot 정리, 통계
+				ScriptEngine::Update();   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
 
 				// OnPreCull, 렌더 직전 매트릭스 연산 등
 				
@@ -298,6 +302,9 @@ bool App::Init()
 		char audioLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_AUDIO_TEST", audioLog, sizeof(audioLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunAudioTest(SceneManager::GetI()->GetCurrentScene(), audioLog);
+		char scriptLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_SCRIPT_TEST", scriptLog, sizeof(scriptLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunScriptTest(SceneManager::GetI()->GetCurrentScene(), scriptLog);
 	}
 
 	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
@@ -319,8 +326,12 @@ bool App::Init()
 	// (개발/검증용) NOVA_AUTOPLAY=1 이면 시작 직후 Play 모드로 들어간다.
 	if (::GetEnvironmentVariableA("NOVA_AUTOPLAY", nullptr, 0) > 0)
 	{
-		Application::SetPlaying(true);
-		SceneManager::GetI()->HandlePlay();
+		ScriptEngine::Init();   // 스크립트를 먼저 읽어야 Play 의 Awake/Start 가 C# 까지 간다
+		if (ScriptEngine::CanEnterPlayMode())
+		{
+			Application::SetPlaying(true);
+			SceneManager::GetI()->HandlePlay();
+		}
 	}
 
 	log << "App::Init -> TimeManager..." << std::endl; log.flush();

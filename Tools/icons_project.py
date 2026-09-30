@@ -5,6 +5,18 @@ def _svg(body):
 
 
 PROJECT_ICONS = {
+    # C# 스크립트 에셋: 문서 + "#"
+    "script_cs": _svg('''<path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z" fill="#E6E6E6"/>
+  <polygon points="10,1.5 13,4.5 10,4.5" fill="#B0B0B0"/>
+  <rect x="3" y="7" width="10" height="7.5" fill="#3E7D3E"/>
+  <line x1="6.3" y1="8" x2="5.7" y2="13.5" stroke="#FFFFFF" stroke-width="0.9"/>
+  <line x1="8.9" y1="8" x2="8.3" y2="13.5" stroke="#FFFFFF" stroke-width="0.9"/>
+  <line x1="4.8" y1="9.7" x2="10.4" y2="9.7" stroke="#FFFFFF" stroke-width="0.9"/>
+  <line x1="4.5" y1="11.9" x2="10.1" y2="11.9" stroke="#FFFFFF" stroke-width="0.9"/>'''),
+    # Console 오류: 빨간 팔각형 + !
+    "console_error": _svg('''<polygon points="5.2,1.5 10.8,1.5 14.5,5.2 14.5,10.8 10.8,14.5 5.2,14.5 1.5,10.8 1.5,5.2" fill="#E0463C"/>
+  <rect x="7.1" y="4" width="1.8" height="5.5" rx="0.6" fill="#FFFFFF"/>
+  <circle cx="8" cy="11.6" r="1.1" fill="#FFFFFF"/>'''),
     # Audio Source: 스피커 + 음파 (노란색, Unity 의 Audio Source 아이콘 색)
     "audio_source": _svg('''<polygon points="1.5,6 4.5,6 8.5,2.5 8.5,13.5 4.5,10 1.5,10" fill="#E8B84A"/>
   <path d="M10.5 5.5 Q12.2 8 10.5 10.5" fill="none" stroke="#E8B84A" stroke-width="1.3" stroke-linecap="round"/>

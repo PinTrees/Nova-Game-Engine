@@ -9,6 +9,8 @@
 #include "VolumeEditor.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
+#include "ScriptEngine.h"
+#include <fstream>
 #include "RenderPipelineSettings.h"
 #include "UnityGUI.h"
 
@@ -65,6 +67,37 @@ void InspectorEditorWindow::OnRender()
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::ANIMATOR_CONTROLLER)
 		{
 			AnimatorInspector::DrawController(SelectionManager::GetSelectAnimatorController());
+		}
+		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::SCRIPT)
+		{
+			// Unity 의 MonoScript Inspector: 이름 + Open + 코드 (읽기 전용)
+			const std::wstring file = SelectionManager::GetSelectedFile();
+			const std::string name = std::filesystem::path(file).stem().string();
+			UnityGUI::Label((name + " (Mono Script)").c_str(), 0, true);
+			if (UnityGUI::CenterButton("Open##openScript", 140.0f))
+				ScriptEngine::OpenInCodeEditor(file, 1);
+			const ScriptEngine::ClassInfo* ci = ScriptEngine::FindClass(name);
+			if (ScriptEngine::IsCompiling())
+				UnityGUI::HelpBox("Compiling scripts...", false);
+			else if (ci == nullptr)
+				UnityGUI::HelpBox("No MonoBehaviour scripts in the file, or their names do not match the file name.", true);
+			static std::wstring s_File;
+			static std::string s_Text;
+			static double s_Time = -10.0;
+			if (s_File != file || ImGui::GetTime() - s_Time > 1.0)
+			{
+				std::ifstream in(file, std::ios::binary);
+				s_Text = in ? std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()) : std::string();
+				if (s_Text.size() > 60000) s_Text = s_Text.substr(0, 60000) + "\n...";
+				s_File = file;
+				s_Time = ImGui::GetTime();
+			}
+			ImGui::Spacing();
+			ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.16f, 0.16f, 0.16f, 1.0f));
+			ImGui::BeginChild("##scriptText", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
+			ImGui::TextUnformatted(s_Text.c_str());
+			ImGui::EndChild();
+			ImGui::PopStyleColor();
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::AUDIO_CLIP)
 		{

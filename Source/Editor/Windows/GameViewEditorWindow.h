@@ -25,6 +25,12 @@ public:
 	static void SetDockRect(const ImVec2& min, const ImVec2& max);
 	static void DrawMaximized();   // Play Maximized 중이면 도킹 영역 전체를 덮어 그린다
 
+	// C# Input / Screen 용: Game 뷰가 입력을 받는지(포커스), 마우스 → 게임 화면 픽셀(왼쪽 아래 원점), 화면 크기, 휠
+	static bool HasInputFocus();
+	static bool MouseToGame(float& x, float& y);
+	static void GameSize(int& w, int& h);
+	static float ScrollDelta();
+
 private:
 	void DrawContent();
 	void DrawToolbar(float width);

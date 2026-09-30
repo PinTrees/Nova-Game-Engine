@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "EditorApp.h"
 #include "Volume.h"
+#include "ScriptEngine.h"
 #include "SceneToolbar.h"
 #include "EngineInfo.h"
 #include "MathHelper.h"
@@ -107,6 +108,8 @@ bool EditorApp::Init()
 	//_ssao = make_shared<class Ssao>(_device, _deviceContext, _clientWidth, _clientHeight, _camera.GetFovY(), _camera.GetFarZ());
 
 	log << "EditorApp::Init -> BuildScreenQuadGeometryBuffers..." << std::endl; log.flush();
+	LoadingScreen::SetProgress(0.95f, L"Loading scripts");
+	ScriptEngine::Init();   // .NET 런타임 + Assembly-CSharp (바뀌었으면 백그라운드 컴파일 시작)
 	LoadingScreen::SetProgress(0.96f, L"Preparing editor windows");
 	BuildScreenQuadGeometryBuffers();
 

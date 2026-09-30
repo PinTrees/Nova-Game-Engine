@@ -33,6 +33,7 @@ namespace UnityGUI
 	bool Float(const char* label, float* value, int indent = 0, const char* innerLabel = nullptr);
 	bool Int(const char* label, int* value, int indent = 0);
 	bool Slider(const char* label, float* value, float minV, float maxV, int indent = 0);   // 슬라이더 + 숫자 입력
+	bool TextField(const char* label, std::string* value, int indent = 0);   // 한 줄 문자열
 	// 바로 위 Slider 트랙 양 끝 아래의 작은 설명 글자 (예: High / Low, Left / Right, 2D / 3D)
 	void SliderCaptions(const char* left, const char* right);
 	bool Vector3(const char* label, float* xyz, bool showLinkIcon = false, int indent = 0);

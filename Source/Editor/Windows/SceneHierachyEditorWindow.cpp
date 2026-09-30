@@ -1,4 +1,7 @@
 ﻿#include "pch.h"
+#include "Debug.h"
+#include "ScriptEngine.h"
+#include "CSharpScript.h"
 #include "UndoSystem.h"
 #include "SceneHierachyEditorWindow.h"
 #include <filesystem>
@@ -497,6 +500,23 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 			Undo::SetActionName("Instantiate Prefab");
 			if (GameObject* g = PrefabUtility::InstantiatePrefab(static_cast<const char*>(payload->Data), scene, gameObject))
 				SelectionManager::SetSelectedGameObject(g);
+		}
+		// C# 스크립트(.cs)를 오브젝트에 놓으면 그 클래스를 컴포넌트로 붙인다 (Unity)
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE"))
+		{
+			const std::filesystem::path file(static_cast<const char*>(payload->Data));
+			if (_stricmp(file.extension().string().c_str(), ".cs") == 0)
+			{
+				const std::string cls = file.stem().string();
+				if (ScriptEngine::FindClass(cls))
+				{
+					Undo::SetActionName("Add Component");
+					gameObject->AddComponent(CSharpScript::Create(cls));
+					SelectionManager::SetSelectedGameObject(gameObject);
+				}
+				else
+					Debug::Write(LogType::Error, "Can't add script behaviour '" + cls + "'. The script needs to derive from MonoBehaviour and its class name must match the file name (or fix compile errors).");
+			}
 		}
 		ImGui::EndDragDropTarget();
 	}

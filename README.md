@@ -32,6 +32,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 기반 Rigidbody, Box/Sphere/Capsule/Mesh/Terrain Collider, 트리거, 레이캐스트 |
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
 | **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
+| **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API (`NovaEngine` 네임스페이스: GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, AudioSource, Animator, Physics.Raycast, 코루틴, Invoke …), Assets 의 `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`public` / `[SerializeField]`, `[Range]`, `[Header]`, enum, Color, GameObject 참조), 컴파일 오류는 Console(파일:줄) 에 표시되고 Play 를 막음 |
 | **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
 
 ## 스크린샷
@@ -59,6 +60,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 - Windows 10 / 11 (x64)
 - Visual Studio 2022 이상 — **C++를 사용한 데스크톱 개발** 워크로드 (MSVC, Windows 10/11 SDK, CMake 포함)
 - DirectX 11 을 지원하는 GPU
+- [.NET SDK 8 이상](https://dotnet.microsoft.com/download) — C# 스크립팅 (없으면 스크립트 없이 동작)
 
 외부 라이브러리(Assimp, DirectXTex, Effects11, ImGui, nlohmann/json, Jolt Physics)는 저장소에 들어 있어 따로 설치할 필요가 없습니다.
 
@@ -82,6 +84,31 @@ build.bat
 작업 디렉터리는 `Binaries/` 입니다 (실행 파일이 시작할 때 자동으로 맞춥니다).
 
 새 프로젝트 구조는 Unity 와 같습니다: `Assets/`(씬·에셋), `ProjectSettings/`(프로젝트 설정), `UserSettings/`(개인 설정, Game 뷰 등).
+
+## C# 스크립트
+
+Project 창 우클릭 > **Create > Scripting > MonoBehaviour Script** 로 만들고, 더블클릭하면 VS Code(없으면 기본 프로그램)로 열립니다. 저장하면 에디터가 자동으로 다시 컴파일합니다. GameObject 에 끌어 놓거나 Add Component > Scripts 로 붙입니다.
+
+```csharp
+using NovaEngine;
+
+public class Spinner : MonoBehaviour
+{
+    [Range(0, 360)] public float speed = 90f;
+    public GameObject target;
+
+    void Update()
+    {
+        transform.Rotate(0, speed * Time.deltaTime, 0);
+        if (Input.GetKeyDown(KeyCode.Space))
+            Debug.Log("Space!");
+    }
+
+    void OnCollisionEnter(Collision collision) => Debug.Log($"hit {collision.gameObject.name}");
+}
+```
+
+Unity 코드는 `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 대부분 그대로 동작합니다. 프로젝트 루트의 `Assembly-CSharp.csproj` 는 에디터가 만들며, VS Code / Visual Studio 에서 자동 완성에 쓰입니다.
 
 ## 단축키 (Unity 와 같음)
 
@@ -110,6 +137,8 @@ Source/
   Animation/  스키닝, 애니메이션 클립, Animator 컨트롤러
   Terrain/    TerrainData, 쿼드트리 LOD 렌더러
   Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
+  Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
+ScriptCore/   C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
   Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator ...), Undo
   Hub/        프로젝트 Hub
 Shaders/      HLSL (FX11 이펙트)

@@ -5,6 +5,7 @@
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
 #include "GameViewEditorWindow.h"
+#include "ScriptEngine.h"
 #include "ObjectPicker.h"
 #include "GraphicsBackendFactory.h"
 #include "HubProject.h"
@@ -250,9 +251,13 @@ void EditorGUIManager::DrawToolbar(float y)
         {
             if (!playing)
             {
-                Application::SetPaused(false);
-                Application::SetPlaying(true);
-                SceneManager::GetI()->HandlePlay();
+                // 스크립트 컴파일 중이면 기다리고, 컴파일 오류가 있으면 Play 에 들어가지 않는다 (Unity)
+                if (ScriptEngine::CanEnterPlayMode())
+                {
+                    Application::SetPaused(false);
+                    Application::SetPlaying(true);
+                    SceneManager::GetI()->HandlePlay();
+                }
             }
             else
             {
@@ -358,12 +363,17 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::Separator();
             if (ImGui::MenuItem("Play / Stop", "Ctrl+P"))
             {
-                bool isPlaying = Application::IsPlaying();
-                Application::SetPlaying(!isPlaying);
-                if (!isPlaying)
-                    SceneManager::GetI()->HandlePlay();
+                if (!Application::IsPlaying())
+                {
+                    if (ScriptEngine::CanEnterPlayMode())   // 컴파일 오류가 있으면 들어가지 않는다
+                    {
+                        Application::SetPlaying(true);
+                        SceneManager::GetI()->HandlePlay();
+                    }
+                }
                 else
                 {
+                    Application::SetPlaying(false);
                     SelectionManager::ClearSelection();
                     SceneManager::GetI()->HandleStop();
                 }
@@ -521,6 +531,8 @@ void EditorGUIManager::RenderEditorWindows()
         {
             s_WasPlaying = playing;
             GameViewEditorWindow::OnPlayModeChanged(playing);
+            if (!playing)
+                ScriptEngine::OnPlayModeChanged(false);   // Play 중에 바뀐 스크립트를 이제 다시 읽는다
         }
     }
 

@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "CSharpScript.h"
+#include "ScriptEngine.h"
 #include "AudioSource.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
@@ -166,6 +168,32 @@ namespace
 
 namespace PhysicsSelfTest
 {
+	void RunScriptTest(Scene* scene, const char* logPath)
+	{
+		// C# 스크립트(Assets/Scripts/ScriptSelfTest.cs, Helper.cs)가 스스로 검사하고 결과를 logPath 에 쓴다.
+		// 여기서는 장면만 만든다: 바닥, 떨어지는 공(Rigidbody + Helper), ScriptTester(ScriptSelfTest, speed=42, target=Ball)
+		ScriptEngine::Init();
+		GameObject* ground = GameObjectFactory::CreateCube("Ground");
+		ground->GetTransform()->SetPosition(Vec3(0, -0.5f, 0));
+		ground->GetTransform()->SetLocalScale(Vec3(10, 1, 10));
+		scene->AddRootGameObject(ground);
+
+		GameObject* ball = GameObjectFactory::CreateSphere("Ball");
+		ball->GetTransform()->SetPosition(Vec3(0, 3, 0));
+		ball->AddComponent<RigidBody>();
+		ball->AddComponent(CSharpScript::Create("Helper"));
+		scene->AddRootGameObject(ball);
+
+		GameObject* tester = GameObjectFactory::CreateEmpty("ScriptTester");
+		auto script = CSharpScript::Create("ScriptSelfTest");
+		script->SetFieldValue("speed", 42.0f);
+		script->SetFieldValue("target", ball->GetFileID());
+		tester->AddComponent(script);
+		scene->AddRootGameObject(tester);
+		EditorLog::Write("Script", "script test scene ready (%d classes loaded)", (int)ScriptEngine::Classes().size());
+		(void)logPath;
+	}
+
 	void Build(Scene* scene)
 	{
 		FILE* fp = Log();

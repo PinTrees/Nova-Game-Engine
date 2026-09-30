@@ -65,6 +65,7 @@ public:
 	static uint64 NewFileID();
 	const string& GetName() { return m_Name; }
 	bool IsActive() const { return m_IsActive; }
+	void SetActive(bool active) { m_IsActive = active; }
 	void SetName(const string& name) { m_Name = name; }
 	vector<GameObject*> GetChildren() { return m_pChildGameObjects; }
 	int GetChildCount() { return m_pChildGameObjects.size(); }
@@ -93,6 +94,14 @@ public:
 	uint8 GetLayerIndex() { return m_LayerIndex; } 
 
 	void ApplyPendingComponents();
+	// 업데이트 도중(스크립트의 AddComponent 등) 컴포넌트를 붙일 때: 바로 이 GameObject 소속으로 만들고, 목록에는 프레임 끝에 넣는다
+	void QueueComponent(const std::shared_ptr<Component>& component)
+	{
+		if (component == nullptr)
+			return;
+		component->SetGameObject(this);
+		m_ComponentsToAdd.push_back(component);
+	}
 	template <class T>
 	T* AddComponent()
 	{

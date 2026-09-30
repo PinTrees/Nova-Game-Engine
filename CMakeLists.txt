@@ -144,6 +144,21 @@ target_link_libraries(${ENGINE_NAME} PRIVATE
     imm32
 )
 
+# ---------------------------------------------------------------------------
+# C# 스크립팅 API (ScriptCore → Binaries/Scripting/NovaScriptCore.dll). .NET SDK(8+) 가 있으면 함께 빌드한다.
+find_program(DOTNET_EXE dotnet)
+if(DOTNET_EXE)
+    add_custom_target(NovaScriptCore ALL
+        COMMAND "${DOTNET_EXE}" build "${CMAKE_CURRENT_SOURCE_DIR}/ScriptCore/NovaScriptCore.csproj" -c Release --nologo -v q -nodeReuse:false
+                -o "${CMAKE_CURRENT_SOURCE_DIR}/Binaries/Scripting"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/ScriptCore"
+        COMMENT "Building NovaScriptCore (C# scripting API)"
+        VERBATIM)
+    add_dependencies(${ENGINE_NAME} NovaScriptCore)
+else()
+    message(WARNING ".NET SDK (dotnet) not found - C# scripting will be disabled")
+endif()
+
 # Post-build copy DLLs
 add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

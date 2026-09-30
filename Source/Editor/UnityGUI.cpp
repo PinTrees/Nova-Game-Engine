@@ -644,6 +644,23 @@ namespace UnityGUI
 		return changed;
 	}
 
+	bool TextField(const char* label, std::string* value, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		char buf[1024];
+		strncpy_s(buf, value->c_str(), _TRUNCATE);
+		PushFieldStyle();
+		ImGui::SetNextItemWidth(r.fieldW);
+		const bool changed = ImGui::InputText("##text", buf, sizeof(buf));
+		PopFieldStyle();
+		if (changed)
+			*value = buf;
+		ImGui::PopID();
+		EndRow(r);
+		return changed;
+	}
+
 	void SliderCaptions(const char* left, const char* right)
 	{
 		// 바로 위 Slider 행의 트랙 양 끝 아래에 작은 글자 (Unity 의 Priority High/Low, Stereo Pan Left/Right)

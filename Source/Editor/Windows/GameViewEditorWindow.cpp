@@ -131,6 +131,12 @@ namespace
 	ImVec2 s_DockMin(0, 0), s_DockMax(0, 0);
 	float s_SmoothDt = 1.0f / 60.0f;
 
+	// C# 입력용: 마지막으로 그린 게임 이미지 위치와 크기, 포커스, 휠
+	ImVec2 s_ImgMin(0, 0), s_ImgMax(1, 1);
+	int s_GameW = 1, s_GameH = 1;
+	bool s_InputFocus = false;
+	float s_Scroll = 0.0f;
+
 	// ---------------------------------------------------------------- 툴바 그리기 (Unity 6 다크 테마)
 	const ImU32 kBar = IM_COL32(40, 40, 40, 255);
 	const ImU32 kField = IM_COL32(56, 56, 56, 255);
@@ -217,6 +223,20 @@ void GameViewEditorWindow::OnPlayModeChanged(bool playing)
 		ImGui::SetWindowFocus(s_Instance->GetImGuiName().c_str());   // Play Focused: Game 탭을 앞으로
 }
 
+bool GameViewEditorWindow::HasInputFocus() { return s_InputFocus || s_Maximized; }
+
+bool GameViewEditorWindow::MouseToGame(float& x, float& y)
+{
+	const ImVec2 m = ImGui::GetIO().MousePos;
+	const float w = (std::max)(1.0f, s_ImgMax.x - s_ImgMin.x), h = (std::max)(1.0f, s_ImgMax.y - s_ImgMin.y);
+	x = (m.x - s_ImgMin.x) / w * (float)s_GameW;
+	y = (1.0f - (m.y - s_ImgMin.y) / h) * (float)s_GameH;   // Unity: 왼쪽 아래가 (0,0)
+	return m.x >= s_ImgMin.x && m.x <= s_ImgMax.x && m.y >= s_ImgMin.y && m.y <= s_ImgMax.y;
+}
+
+void GameViewEditorWindow::GameSize(int& w, int& h) { w = s_GameW; h = s_GameH; }
+float GameViewEditorWindow::ScrollDelta() { return s_Scroll; }
+
 void GameViewEditorWindow::SetDockRect(const ImVec2& min, const ImVec2& max)
 {
 	s_DockMin = min;
@@ -260,6 +280,8 @@ void GameViewEditorWindow::OnRender()
 
 void GameViewEditorWindow::DrawContent()
 {
+	// Game 창(또는 Play Maximized 창)이 포커스일 때만 게임이 키보드/마우스를 받는다 (Unity 와 같음)
+	s_InputFocus = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	const ImVec2 pos = ImGui::GetCursorScreenPos();
 	const ImVec2 avail = ImGui::GetContentRegionAvail();
 	if (avail.x < 40.0f || avail.y < kBarH + 10.0f)
@@ -616,6 +638,11 @@ void GameViewEditorWindow::DrawView(ImVec2 pos, ImVec2 size)
 	m_Pan.y = std::clamp(m_Pan.y, -maxPanY, maxPanY);
 	const ImVec2 imgMin(floorf(pos.x + (size.x - disp.x) * 0.5f + m_Pan.x), floorf(pos.y + (size.y - disp.y) * 0.5f + m_Pan.y));
 	const ImVec2 imgMax(imgMin.x + disp.x, imgMin.y + disp.y);
+	s_ImgMin = imgMin;
+	s_ImgMax = imgMax;
+	s_GameW = (int)rtW;
+	s_GameH = (int)rtH;
+	s_Scroll = hovered ? ImGui::GetIO().MouseWheel : 0.0f;
 
 	// 이 디스플레이를 그리는 카메라
 	DisplayManager::GetI()->SetActiveDisplay(g.Display);

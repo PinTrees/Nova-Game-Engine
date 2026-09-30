@@ -26,4 +26,7 @@ namespace PhysicsSelfTest
 
 	// (개발/검증용) NOVA_AUDIO_TEST=<로그 파일>: 패키지 효과음 읽기, 재생/반복/정지/피치/One Shot/직렬화, 3D 감쇠 검사
 	void RunAudioTest(Scene* scene, const char* logPath);
+
+	// (개발/검증용) NOVA_SCRIPT_TEST=<로그 파일> + NOVA_AUTOPLAY=1: C# 스크립트 자체 검사 장면 (검사 코드는 프로젝트의 ScriptSelfTest.cs)
+	void RunScriptTest(Scene* scene, const char* logPath);
 }

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NOVA 엔진의 C# 스크립팅 API (Unity 의 UnityEngine.dll 에 해당).
+    엔진(C++)이 .NET 런타임을 띄워 이 어셈블리를 읽고, 프로젝트 스크립트(Assembly-CSharp.dll)는 이것을 참조한다.
+    빌드: CMake(build.bat)가 dotnet build 로 Binaries/Scripting 에 출력한다.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>NovaEngine</RootNamespace>
+    <AssemblyName>NovaScriptCore</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <!-- 네이티브 호스트(hostfxr)가 이 라이브러리를 직접 읽도록 runtimeconfig.json 을 만든다 -->
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+    <RollForward>Major</RollForward>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+</Project>

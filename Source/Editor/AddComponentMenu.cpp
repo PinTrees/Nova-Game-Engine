@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "AddComponentMenu.h"
 #include "ComponentFactory.h"
+#include "ScriptEngine.h"
+#include "CSharpScript.h"
 #include "UnityGUI.h"
 #include "EditorTheme.h"
 #include <algorithm>
@@ -42,7 +44,7 @@ namespace
 	// 메뉴에 보이지 않는 타입 (항상 있거나 직접 붙일 수 없는 기반 클래스)
 	bool IsHidden(const std::string& type)
 	{
-		return type == "Transform" || type == "Collider" || type == "Component" || type == "MonoBehaviour";
+		return type == "Transform" || type == "Collider" || type == "Component" || type == "MonoBehaviour" || type == "CSharpScript";
 	}
 
 	std::vector<Entry> BuildEntries()
@@ -63,6 +65,9 @@ namespace
 				}
 			out.push_back(e);
 		}
+		// 프로젝트 C# 스크립트 (Unity 의 Add Component > Scripts)
+		for (const ScriptEngine::ClassInfo& c : ScriptEngine::Classes())
+			out.push_back(Entry{ "script:" + c.FullName, c.Name, "Scripts", "script_cs", false });
 		std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.display < b.display; });
 		return out;
 	}
@@ -331,7 +336,9 @@ namespace AddComponentMenu
 			}
 			else if (row.kind == RowKind::Component && row.entry)
 			{
-				if (auto c = ComponentFactory::Instance().CreateComponent(row.entry->type))
+				if (row.entry->type.rfind("script:", 0) == 0)
+					onAdd(CSharpScript::Create(row.entry->type.substr(7)));
+				else if (auto c = ComponentFactory::Instance().CreateComponent(row.entry->type))
 					onAdd(c);
 				ImGui::CloseCurrentPopup();
 			}

@@ -12,6 +12,7 @@
 #include "VolumeProfile.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
+#include "ScriptEngine.h"
 #include <shellapi.h>
 
 std::wstring ProjectEditorWindow::solutionDirectory = L"";
@@ -31,7 +32,7 @@ namespace
 	const ImU32 kHover     = IM_COL32(69, 69, 69, 255);
 	constexpr float kToolbarH = 24.0f, kCrumbH = 22.0f, kBottomH = 20.0f, kRowH = 18.0f;
 
-	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Audio, Text, Other };
+	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Audio, Script, Text, Other };
 
 	Kind KindOf(const std::wstring& ext, bool dir)
 	{
@@ -46,6 +47,7 @@ namespace
 		if (ext == L".terrainlayer") return Kind::TerrainLayer;
 		if (ext == L".volumeprofile") return Kind::VolumeProfile;
 		if (ext == L".wav") return Kind::Audio;
+		if (ext == L".cs") return Kind::Script;
 		if (ext == L".txt" || ext == L".json" || ext == L".md") return Kind::Text;
 		return Kind::Other;
 	}
@@ -65,13 +67,14 @@ namespace
 		case Kind::TerrainLayer: return "asset_terrain_layer";
 		case Kind::VolumeProfile: return "volume_profile";
 		case Kind::Audio: return "audio_clip";
+		case Kind::Script: return "script_cs";
 		default: return "asset_text";
 		}
 	}
 
 	// 타입 필터 (툴바의 도형 아이콘)
-	const char* kFilterNames[] = { "All", "Scene", "Prefab", "Material", "Model", "Texture", "AnimatorController", "TerrainData", "TerrainLayer", "VolumeProfile", "AudioClip" };
-	const Kind kFilterKinds[] = { Kind::Other, Kind::Scene, Kind::Prefab, Kind::Material, Kind::Model, Kind::Texture, Kind::Controller, Kind::TerrainData, Kind::TerrainLayer, Kind::VolumeProfile, Kind::Audio };
+	const char* kFilterNames[] = { "All", "Scene", "Prefab", "Material", "Model", "Texture", "AnimatorController", "TerrainData", "TerrainLayer", "VolumeProfile", "AudioClip", "MonoScript" };
+	const Kind kFilterKinds[] = { Kind::Other, Kind::Scene, Kind::Prefab, Kind::Material, Kind::Model, Kind::Texture, Kind::Controller, Kind::TerrainData, Kind::TerrainLayer, Kind::VolumeProfile, Kind::Audio, Kind::Script };
 
 	// 목록에서 숨기는 파일: 가져오기 캐시, 메타, 숨김 파일
 	bool IsHidden(const fs::path& p, const std::wstring& ext)
@@ -357,6 +360,20 @@ void ProjectEditorWindow::DrawCreateMenu(const fs::path& dir)
 		m_RenamePath = p;   // Unity 처럼 바로 이름 바꾸기
 		strncpy_s(m_RenameBuffer, wstring_to_string(fs::path(p).filename().wstring()).c_str(), _TRUNCATE);
 		m_RenameFrames = 0;
+	}
+	// Unity 6: Create > Scripting > MonoBehaviour Script (만든 뒤 바로 이름 바꾸기, 이름을 바꾸면 클래스 이름도 따라감)
+	if (ImGui::BeginMenu("Scripting"))
+	{
+		if (ImGui::MenuItem("MonoBehaviour Script"))
+		{
+			const std::wstring p = ScriptEngine::CreateScriptAsset(dir.wstring());
+			InvalidateCache();
+			m_RenamePath = p;
+			strncpy_s(m_RenameBuffer, wstring_to_string(fs::path(p).stem().wstring()).c_str(), _TRUNCATE);
+			m_RenameFrames = 0;
+			SelectionManager::SetSelectedFile(p);
+		}
+		ImGui::EndMenu();
 	}
 	ImGui::Separator();
 	if (ImGui::MenuItem("Material"))
@@ -659,6 +676,8 @@ void ProjectEditorWindow::DrawEntryRow(const Entry& e, float x, float& y, float 
 				if (to != e.Path && !fs::exists(to))
 				{
 					fs::rename(e.Path, to, ec);
+					if (!ec && _wcsicmp(to.extension().c_str(), L".cs") == 0)
+						ScriptEngine::RenameScriptClass(to.wstring(), e.Path.stem().string());
 					EditorLog::Write("Project", "rename %s -> %s %s", RelativeDisplayPath(e.Path).c_str(), RelativeDisplayPath(to).c_str(), ec ? ec.message().c_str() : "ok");
 					if (!ec && selected)
 						SelectionManager::SetSelectedFile(to.wstring());
@@ -829,6 +848,9 @@ void ProjectEditorWindow::Open(const Entry& e)
 	case Kind::TerrainData:
 	case Kind::TerrainLayer:
 	case Kind::VolumeProfile:
+		break;
+	case Kind::Script:
+		ScriptEngine::OpenInCodeEditor(e.Path.wstring(), 1);   // VS Code (프로젝트 폴더 + 파일), 없으면 기본 프로그램
 		break;
 	case Kind::Audio:
 		// 더블클릭 = 미리 듣기

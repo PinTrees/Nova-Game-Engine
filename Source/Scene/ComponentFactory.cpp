@@ -17,6 +17,7 @@
 #include "Volume.h"
 #include "AudioSource.h"
 #include "AudioListener.h"
+#include "CSharpScript.h"
 
 ComponentFactory::ComponentFactory()
 {
@@ -74,4 +75,5 @@ void ComponentFactory::InitBuiltInComponents()
 	RegisterComponent("Volume", []() { return std::make_shared<Volume>(); });
 	RegisterComponent("AudioSource", []() { return std::make_shared<AudioSource>(); });
 	RegisterComponent("AudioListener", []() { return std::make_shared<AudioListener>(); });
+	RegisterComponent("CSharpScript", []() { return std::make_shared<CSharpScript>(); });   // C# 스크립트 (씬에서 읽을 때)
 }
