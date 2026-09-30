@@ -9,6 +9,8 @@
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
+#include "SceneCulling.h"
+#include "FrameProfiler.h"
 #include "PlayerRuntime.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
@@ -102,6 +104,7 @@ int32 App::Run()
 				// Update
 				if (Application::ShouldUpdateGame())
 				{
+					FRAME_PROFILE("GameUpdate");
 					ScriptEngine::BeginFrame();   // C# 입력 상태 / 시간
 					UpdateScene(_timer.DeltaTime()); 
 					SceneManager::GetI()->UpdateScene(); 
@@ -155,9 +158,16 @@ int32 App::Run()
 					activeCamera->ViewUpdate();
 				LightManager::GetI()->ViewUpdates();
 				LightManager::GetI()->EditorViewUpdates();
+				{
+					FRAME_PROFILE("CullingUpdate");
+					SceneCulling::Update(SceneManager::GetI()->GetCurrentScene());   // 절두체 컬링 옥트리 (움직인 렌더러만 다시 넣음)
+				}
 
 				// Render
-				RenderApplication();
+				{
+					FRAME_PROFILE("RenderApplication");
+					RenderApplication();
+				}
 
 				if (Application::IsPlayer())
 				{
@@ -177,7 +187,10 @@ int32 App::Run()
 				EditorGUIManager::GetI()->RenderAfter();
 
 				// Render End
-				HR(_swapChain->Present(0, 0));
+				{
+					FRAME_PROFILE("Present");
+					HR(_swapChain->Present(0, 0));
+				}
 
 				// 첫 프레임(도킹 배치가 잡히도록 두 번째 프레임)이 그려지면 에디터 창을 보이고 로딩 창을 닫는다
 				if (_deferredShow && ++_shownFrames >= 2)
@@ -194,6 +207,7 @@ int32 App::Run()
 				SceneManager::GetI()->LastUpdate();
 
 				TaskSystem::ExecuteMainThreadTasks();
+				FrameProfiler::EndFrame();
 			}
 			else
 			{

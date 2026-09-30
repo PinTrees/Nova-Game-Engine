@@ -17,6 +17,8 @@
 #include "ShadowMap.h"
 #include "ShadowRenderer.h"
 #include "SceneGrid.h"
+#include "SceneCulling.h"
+#include "FrameProfiler.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
@@ -247,6 +249,7 @@ static ShadowRenderer::FrameData s_EditorShadow;
 
 void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
 {
+	FRAME_PROFILE("GameView render");
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
@@ -272,7 +275,11 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
 		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
 			gameCamPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_GameShadow,
-			[]() { SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow(); });
+			[]() {
+				// 그림자 조각마다 빛의 절두체로 컬링
+				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			});
 		_deviceContext->RSSetState(0);
 		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		_deviceContext->RSSetViewports(1, &viewport);
@@ -286,6 +293,9 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 	// Draw Scene Objects
+	// 카메라 절두체 컬링 (깊이 사전 패스와 본 패스가 같이 쓴다)
+	SceneCulling::SetEditorView(false);
+	SceneCulling::Cull(camera->View() * camera->Proj(), false);
 	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadowNormal();
 
 	_deviceContext->RSSetState(0);
@@ -371,6 +381,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera)
 {
+	FRAME_PROFILE("SceneView render");
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
@@ -393,7 +404,10 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
 		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
 			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
-			[]() { SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow(); });
+			[]() {
+				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			});
 		_deviceContext->RSSetState(0);
 		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		_deviceContext->RSSetViewports(1, &viewport);
@@ -407,6 +421,8 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 	// Draw Scene Objects
+	SceneCulling::SetEditorView(true);
+	SceneCulling::Cull(camera->View() * camera->Proj(), false);
 	SceneManager::GetI()->GetCurrentScene()->_Editor_RenderSceneShadowNormal(); 
 
 	_deviceContext->RSSetState(0);

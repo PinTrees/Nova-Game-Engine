@@ -44,4 +44,8 @@ namespace Undo
 
 	// 실행한 Undo/Redo 수 (검사용)
 	int HistoryCount();
+
+	// 마지막으로 확정한 씬 JSON 의 해시 (확정할 때만 다시 계산). 씬을 추적하지 않으면 false
+	//  SceneManager 가 "저장 안 된 변경(*)" 판단에 쓴다 → 매 프레임 씬 전체를 직렬화하지 않는다
+	bool CommittedSceneHash(size_t& outHash);
 }

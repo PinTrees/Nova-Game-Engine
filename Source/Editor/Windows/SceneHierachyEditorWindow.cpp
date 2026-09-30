@@ -368,12 +368,14 @@ void SceneHierachyEditorWindow::OnRender()
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::BeginChild("##HierList", ImVec2(0, 0), false);
 
+	// 행 목록: 펼친 트리를 한 줄로 (검색 중이면 이름이 맞는 오브젝트만 평평하게)
+	m_Rows.clear();
 	if (m_SceneOpen || !query.empty())
 	{
 		if (query.empty())
 		{
 			for (GameObject* g : currentScene->GetRootGameObjects())
-				DrawGameObject(g, 1);
+				CollectRows(g, 1);
 		}
 		else
 		{
@@ -381,11 +383,18 @@ void SceneHierachyEditorWindow::OnRender()
 			for (GameObject* root : currentScene->GetRootGameObjects())
 				CollectAll(root, all);
 			for (GameObject* g : all)
-			{
 				if (ToLowerCopy(g->GetName()).find(query) != std::string::npos)
-					DrawGameObject(g, 0);
-			}
+					m_Rows.push_back({ g, 0 });
 		}
+	}
+	// 가상 스크롤: 스크롤 영역에 보이는 행만 그린다 (오브젝트가 수천 개여도 한 화면 분량만)
+	{
+		ImGuiListClipper clipper;
+		clipper.Begin((int)m_Rows.size(), kRowHeight);
+		while (clipper.Step())
+			for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i)
+				DrawGameObject(m_Rows[i].Object, m_Rows[i].Depth);
+		clipper.End();
 	}
 
 	// 남은 빈 영역: 드롭 대상 + 선택 해제 + 컨텍스트 메뉴
@@ -562,16 +571,19 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 	else
 		dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(isPrefab ? EditorTheme::Rgb(126, 181, 255) : EditorTheme::Rgb(225, 225, 225)), gameObject->GetName().c_str());
 
-	// 다음 행 위치 복원
-	ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + kRowHeight));
-
-	if (hasChild && open)
-	{
-		for (GameObject* child : gameObject->GetChildren())
-			DrawGameObject(child, depth + 1);
-	}
+	// 다음 행 위치 (한 행 높이만큼 차지했다고 알린다 → 목록 가상 스크롤의 높이 계산)
+	ImGui::SetCursorScreenPos(ImVec2(p.x, p.y));
+	ImGui::Dummy(ImVec2(w, kRowHeight));
 
 	ImGui::PopID();
+}
+
+void SceneHierachyEditorWindow::CollectRows(GameObject* gameObject, int depth)
+{
+	m_Rows.push_back({ gameObject, depth });
+	if (gameObject->m_Editor_HierachOpened && gameObject->GetChildCount() > 0)
+		for (GameObject* child : gameObject->GetChildren())
+			CollectRows(child, depth + 1);
 }
 
 void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, GameObject* parent)

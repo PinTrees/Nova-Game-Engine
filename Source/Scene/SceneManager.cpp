@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SceneManager.h"
+#include "UndoSystem.h"
 #include "Scene.h"
 #include "LightManager.h"
 #include "GameObjectFactory.h"
@@ -145,6 +146,15 @@ bool SceneManager::IsCurrentSceneDirty()
 	// Play 중의 변화는 저장 대상이 아니므로 Play 직전 상태를 유지한다
 	if (Application::IsPlaying())
 		return m_Dirty;
+	// 에디터: Undo 가 조작이 끝날 때 확정한 씬 JSON 의 해시를 쓴다 (씬 전체 직렬화는 변경이 확정될 때만).
+	//  예전에는 0.25 초마다 여기서 씬 전체를 JSON 으로 만들어 오브젝트가 수천 개면 프레임마다 수백 ms 가 걸렸다
+	size_t committed = 0;
+	if (Undo::CommittedSceneHash(committed))
+	{
+		m_CheckedHash = committed;
+		m_Dirty = m_CheckedHash != m_SavedHash || TerrainData::AnyDirty();
+		return m_Dirty;
+	}
 	const double now = ::GetTickCount64() / 1000.0;
 	if (m_LastDirtyCheck < 0.0 || now - m_LastDirtyCheck > 0.25)
 	{

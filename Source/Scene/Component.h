@@ -62,6 +62,10 @@ public:
 public:
 	GameObject* GetGameObject() { return m_pGameObject; }
 
+	// 절두체 컬링 (SceneCulling): 추적 중인 렌더러는 CullStamp == SceneCulling::Stamp 일 때만 그린다
+	uint32_t CullStamp = 0;
+	bool CullTracked = false;
+
 private:
 	friend class GameObject;
 	void SetGameObject(GameObject* gameObject) { m_pGameObject = gameObject; }

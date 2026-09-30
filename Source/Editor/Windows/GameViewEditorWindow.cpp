@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "SceneCulling.h"
 #include "GameViewEditorWindow.h"
 #include "MathHelper.h"
 #include "App.h"
@@ -719,7 +720,7 @@ void GameViewEditorWindow::DrawStats(ImVec2 viewMin, ImVec2 viewMax)
 
 	const float w = 300.0f;
 	const float lh = ImGui::GetFontSize() + 1.0f;
-	const float h = lh * 14.0f + 20.0f;
+	const float h = lh * 15.0f + 20.0f;
 	const ImVec2 a(viewMax.x - w - 10.0f, viewMin.y + 8.0f);
 	const ImVec2 b(a.x + w, a.y + h);
 	ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -752,6 +753,11 @@ void GameViewEditorWindow::DrawStats(ImVec2 viewMin, ImVec2 viewMax)
 	snprintf(buf, sizeof(buf), "SetPass calls: %d", f.DrawCalls); line(14.0f, cT, buf);
 	snprintf(buf, sizeof(buf), "Shadow casters: %d", f.ShadowCasters); line(150.0f, cT, buf); y += lh;
 	snprintf(buf, sizeof(buf), "Visible skinned meshes: %d", f.VisibleSkinnedMeshes); line(14.0f, cT, buf); y += lh;
+	{
+		const SceneCulling::Stats& cs = SceneCulling::LastStats(false);
+		snprintf(buf, sizeof(buf), "Frustum culling: %d / %d visible (octree %d nodes)", cs.Visible, cs.Objects, cs.Nodes);
+		line(14.0f, cT, buf); y += lh;
+	}
 	snprintf(buf, sizeof(buf), "Animation components playing: %d", animPlaying); line(14.0f, cT, buf); y += lh;
 	snprintf(buf, sizeof(buf), "Animator components playing: %d", animatorPlaying); line(14.0f, cT, buf); y += lh;
 }

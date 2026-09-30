@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "UndoSystem.h"
+#include "FrameProfiler.h"
 #include "EditorGUIManager.h"
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
@@ -159,6 +160,7 @@ void EditorGUIManager::Update()
 
     for (auto& window : m_pEditorWindows)
     {
+        FRAME_PROFILE("Update " + window->GetTitle());
         window->Update();
     }
 }
@@ -557,6 +559,7 @@ void EditorGUIManager::RenderEditorWindows()
 
     for (auto& window : m_pEditorWindows)
     {
+        FRAME_PROFILE("Window " + window->GetTitle());
         window->Render();
     }
 

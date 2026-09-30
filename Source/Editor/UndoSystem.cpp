@@ -32,6 +32,8 @@ namespace
 	};
 	std::map<std::string, Tracker> s_Trackers;
 
+	size_t s_CommittedHash = 0;
+
 	std::string CaptureScene()
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
@@ -173,6 +175,22 @@ namespace Undo
 	std::string UndoName() { return s_Undo.empty() ? std::string() : s_Undo.back().Name; }
 	std::string RedoName() { return s_Redo.empty() ? std::string() : s_Redo.back().Name; }
 	int HistoryCount() { return (int)s_Undo.size(); }
+
+	bool CommittedSceneHash(size_t& outHash)
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		if (scene == nullptr || s_Scene != scene || s_SceneCommitted.empty())
+			return false;
+		// 확정 문자열이 바뀌었을 때만 다시 계산 (내용이 같으면 크기·앞뒤 일부가 같다 → 전체 비교 대신 해시를 새로)
+		static std::string s_Last;
+		if (s_Last.size() != s_SceneCommitted.size() || s_Last != s_SceneCommitted)
+		{
+			s_Last = s_SceneCommitted;
+			s_CommittedHash = std::hash<std::string>()(s_SceneCommitted);
+		}
+		outHash = s_CommittedHash;
+		return true;
+	}
 
 	bool PerformUndo()
 	{

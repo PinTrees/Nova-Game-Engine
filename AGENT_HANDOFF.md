@@ -159,6 +159,13 @@
 - 검사: scratchpad `make_shadow_scene.py` → ScriptTest `Assets/Scenes/Shadows.scene`(격자 울타리, 70 m 까지 기둥 두 줄, 낮은 해).
 - 미구현: 캐스케이드 사이 섞기, 캐스케이드 디버그 색 보기, Contact Shadows, 그림자 받는 투명 물체.
 
+**절두체 컬링 + Hierarchy 가상 스크롤 (2026-10-01)**:
+- `Source/Scene/SceneCulling.*`: Mesh Renderer / Skinned Mesh Renderer 의 월드 AABB 를 느슨한 옥트리(칸의 2 배 영역, 중심이 든 칸 하나에만)에 둔다. `Update`(App 루프, 그리기 전) = 위치·메시가 바뀐 렌더러만 다시 넣고 사라진 것은 뺌(포인터를 건드리지 않음), 뿌리 밖이면 전체 다시 짓기. `Cull(ViewProj, shadow)` = 노드 상자가 밖이면 통째로 버림 / 완전히 안이면 통째로 받음, 보이는 렌더러는 `Component::CullStamp = Stamp`. Scene 의 모든 그리기 루프(본·그림자·노멀깊이, Game/Scene, 인스턴싱 묶기 포함)가 `SceneCulling::IsVisible` 로 거른다. 그림자는 조각마다 빛 절두체(가까운 면 제외), 카메라 컬링은 깊이 사전 패스 직전 한 번(본 패스와 공용). 지형·나무는 각자 컬링. Skinned 는 기본 자세 상자를 넉넉히(애니메이션). Game 뷰 Stats 에 "Frustum culling: 보임 / 전체".
+- 측정(상자·구 1600 개, Scene 뷰): 모두 보이는 방향 136 ms, 등 돌린 방향 6 ms(끄면 165 ms). 옥트리 갱신 2.3 ms, 조회 노드 36~554 개 → 순회 비용은 작고, 남은 비용은 보이는 물체마다의 그리기 제출(패스 × 물체 수만큼 Effects11 Apply + 상수 버퍼·리소스 바인딩)이다. 다음 단계 = Scene 뷰 인스턴싱/배칭.
+- Hierarchy: 펼친 트리를 포인터 목록(`m_Rows`)으로 편 뒤 `ImGuiListClipper` 로 보이는 행만 그린다.
+- "저장 안 된 변경(*)" 판단: 예전에는 `SceneManager::IsCurrentSceneDirty` 가 0.25 초마다 씬 전체를 JSON 으로 만들어 1600 개면 프레임당 약 820 ms(프레임이 0.25 초보다 길어 매 프레임). 지금은 Undo 가 조작이 끝날 때 확정한 씬 JSON 의 해시(`Undo::CommittedSceneHash`)를 쓴다 → Hierarchy 0.5 ms. 단, Undo 확정 자체(마우스를 뗄 때 씬 직렬화)는 여전히 오브젝트 수에 비례한다.
+- 개발용: `NOVA_DEV_PROFILE=1` = `Source/Core/FrameProfiler.h` 구간(창별 Render/Update, Scene/Game 뷰 그리기, 컬링 갱신, Present)의 프레임당 평균 ms 와 컬링 결과를 3 초마다 Editor.log 에. `NOVA_DEV_NOCULL=1` = 컬링 끄기(비교용). 검사 씬: scratchpad `make_cull_scene.py` → `Assets/Scenes/Culling.scene`.
+
 **숲: 인스턴싱 + LOD + Paint Trees (2026-10-01)**:
 - 구조: `TreeDesc`(`Source/Scene/TreeDesc.*`) = 나무 한 종류의 설정(모양 TreeParams + 수피·잎 색 + 바람 + LOD 거리 + Cast Shadows, Inspector·JSON·프리셋). `Tree` 컴포넌트는 TreeDesc 하나를 갖고, 지형(`TerrainData::TreePrototypes`)도 TreeDesc 목록을 갖는다. 그리기는 모두 `TreeRenderer`(`Source/Scene/TreeRenderer.*`)가 맡고 Scene 의 각 패스 끝에서 `TreeRenderer::DrawAll(pass, editor)` 한 번(본 패스·그림자·SSAO 깊이 × Game/Scene).
 - 모으기: 켜진 Tree 컴포넌트(`Tree::All()`) + 활성 지형의 나무 인스턴스. 같은 `TreeDesc::Hash()`(모양+보이는 값)끼리 묶고, 종류마다 메시·범위를 한 번 준비(`prepare`)한 뒤 나무마다 절두체(그림자는 가까운 면 제외 5 면) → LOD. 인스턴스 = 월드 행렬 + (색 변화, 바람 위상, LOD 섞기 문턱, 쪽) 80 바이트. 지형 나무 월드 행렬은 높이·나무·위치가 바뀔 때만 다시 계산(`TerrainCache`).

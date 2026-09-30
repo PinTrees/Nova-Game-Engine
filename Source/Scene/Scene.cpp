@@ -5,6 +5,7 @@
 #include "MathHelper.h"
 #include "Tree.h"
 #include "TreeRenderer.h"
+#include "SceneCulling.h"
 
 Scene::Scene()
 	: m_VecRootGameObjects(),
@@ -68,11 +69,13 @@ void Scene::RenderScene()
                 
                 if (meshRenderer)
                 {
+                    if (!SceneCulling::IsVisible(meshRenderer.get()))
+                        continue;   // 절두체 밖
                     // map<인스턴싱 ID,gameObject> 변수에 추가
                     const InstanceID instanceId = meshRenderer->GetInstanceID();
                     cache[instanceId].emplace_back(gameObject);
                 }
-                else 
+                else if (SceneCulling::IsVisible(component.get()))
                 {
                     component->Render();
                 }
@@ -108,7 +111,8 @@ void Scene::RenderScene()
         {
             for (auto& component : gameObject->GetComponents())
             {
-                component->Render(); 
+                if (SceneCulling::IsVisible(component.get()))   // 절두체 밖 렌더러는 건너뜀
+                    component->Render();
             }
         }
     }
@@ -126,7 +130,7 @@ void Scene::RenderSceneShadow()
         for (const auto& gameObject : m_ArrGameObjects[0])
         {
             auto meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer == nullptr)
+            if (meshRenderer == nullptr || !SceneCulling::IsVisible(meshRenderer))
                 continue;
 
             // map<인스턴싱 ID,gameObject> 변수에 추가
@@ -168,10 +172,10 @@ void Scene::RenderSceneShadow()
         for (auto& gameObject : m_ArrGameObjects[0])
         {
             MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer) meshRenderer->RenderShadow();
+            if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->RenderShadow();
 
             SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-            if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadow();
+            if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadow();
 
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
         }
@@ -189,7 +193,7 @@ void Scene::RenderSceneShadowNormal()
         for (const auto& gameObject : m_ArrGameObjects[0])
         {
             auto meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer == nullptr)
+            if (meshRenderer == nullptr || !SceneCulling::IsVisible(meshRenderer))
                 continue;
 
             // map<인스턴싱 ID,gameObject> 변수에 추가
@@ -230,10 +234,10 @@ void Scene::RenderSceneShadowNormal()
         for (const auto& gameObject : m_ArrGameObjects[0])
         {
             MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer) meshRenderer->RenderShadowNormal();
+            if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->RenderShadowNormal();
 
             SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-            if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadowNormal();
+            if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadowNormal();
 
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
         }
@@ -247,10 +251,10 @@ void Scene::_Editor_RenderScene()
     for (auto& gameObject : m_ArrGameObjects[0])
     {
         MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-        if (meshRenderer) meshRenderer->_Editor_Render();
+        if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->_Editor_Render();
 
         SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-        if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_Render();
+        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->_Editor_Render();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_Render();
     }
@@ -263,10 +267,10 @@ void Scene::_Editor_RenderSceneShadowNormal()
     for (const auto& gameObject : m_ArrGameObjects[0])
     {
         MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>(); 
-        if (meshRenderer) meshRenderer->_Editor_RenderShadowNormal();  
+        if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->_Editor_RenderShadowNormal();  
 
         SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-        if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_RenderShadowNormal();
+        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->_Editor_RenderShadowNormal();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_RenderShadowNormal();
 } 
