@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "UndoSystem.h"
 #include "SceneHierachyEditorWindow.h"
 #include <filesystem>
 #include <algorithm>
@@ -156,6 +157,20 @@ void SceneHierachyEditorWindow::DrawContextMenu(Scene* scene, GameObject* target
 	if (ImGui::MenuItem("Rename", nullptr, false, hasTarget)) BeginRename(target);
 	if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasTarget)) DuplicateObject(scene, target);
 	if (ImGui::MenuItem("Delete", "Del", false, hasTarget)) m_PendingDelete = target;
+
+	GameObject* prefabRoot = hasTarget ? PrefabUtility::GetInstanceRoot(target) : nullptr;
+	ImGui::Separator();
+	if (ImGui::BeginMenu("Prefab", prefabRoot != nullptr))
+	{
+		if (ImGui::MenuItem("Select Asset"))
+			SelectionManager::SetSelectedFile(PathManager::GetI()->GetMovePathW(string_to_wstring(prefabRoot->GetPrefabLink().Asset)));
+		if (ImGui::MenuItem("Unpack Completely"))
+		{
+			Undo::SetActionName("Unpack Prefab");
+			PrefabUtility::UnpackCompletely(prefabRoot);
+		}
+		ImGui::EndMenu();
+	}
 
 	ImGui::Separator();
 	ImGui::MenuItem("Select All", nullptr, false, false);
@@ -389,6 +404,13 @@ void SceneHierachyEditorWindow::OnRender()
 			GameObject* droppedObject = *(GameObject**)payload->Data;
 			droppedObject->SetParent(nullptr);
 		}
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("PREFAB_FILE"))
+		{
+			EditorLog::Write("DragDrop", "drop prefab %s on hierarchy", static_cast<const char*>(payload->Data));
+			Undo::SetActionName("Instantiate Prefab");
+			if (GameObject* g = PrefabUtility::InstantiatePrefab(static_cast<const char*>(payload->Data), currentScene, nullptr))
+				SelectionManager::SetSelectedGameObject(g);
+		}
 		ImGui::EndDragDropTarget();
 	}
 	GameObjectMenu::PushContextStyle();
@@ -469,6 +491,13 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 			if (droppedObject != gameObject)
 				droppedObject->SetParent(gameObject);
 		}
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("PREFAB_FILE"))
+		{
+			EditorLog::Write("DragDrop", "drop prefab %s on hierarchy", static_cast<const char*>(payload->Data));
+			Undo::SetActionName("Instantiate Prefab");
+			if (GameObject* g = PrefabUtility::InstantiatePrefab(static_cast<const char*>(payload->Data), scene, gameObject))
+				SelectionManager::SetSelectedGameObject(g);
+		}
 		ImGui::EndDragDropTarget();
 	}
 
@@ -486,7 +515,8 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 	}
 
 	// 아이콘 + 이름
-	dl->AddText(ImVec2(x0 + 20.0f, ty), ImGui::GetColorU32(EditorTheme::Rgb(150, 190, 230)), ICON_FA_CUBE);
+	const bool isPrefab = PrefabUtility::IsPartOfPrefabInstance(gameObject);
+	dl->AddText(ImVec2(x0 + 20.0f, ty), ImGui::GetColorU32(isPrefab ? EditorTheme::Rgb(92, 160, 255) : EditorTheme::Rgb(150, 190, 230)), ICON_FA_CUBE);
 	if (m_RenameTarget == gameObject)
 	{
 		// 이름 바꾸기 입력창: Enter/포커스 해제 시 적용, Esc 취소
@@ -510,7 +540,7 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 		}
 	}
 	else
-		dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(EditorTheme::Rgb(225, 225, 225)), gameObject->GetName().c_str());
+		dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(isPrefab ? EditorTheme::Rgb(126, 181, 255) : EditorTheme::Rgb(225, 225, 225)), gameObject->GetName().c_str());
 
 	// 다음 행 위치 복원
 	ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + kRowHeight));

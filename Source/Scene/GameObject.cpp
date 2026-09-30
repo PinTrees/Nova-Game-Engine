@@ -199,6 +199,13 @@ void GameObject::OnInspectorGUI()
         m_LayerIndex = (uint8)layer;
     }
 
+    // Unity 의 프리팹 행: Prefab  [Open] [Select] [Overrides ▾]  (인스턴스 루트만)
+    std::set<std::string> overriddenKeys;
+    if (m_Prefab.IsValid())
+        overriddenKeys = PrefabUtility::GetOverriddenComponentKeys(this);
+    if (PrefabUtility::GetInstanceRoot(this) == this)
+        UnityGUI::PrefabInstanceRow(this);
+
     for (auto it = m_Components.begin(); it != m_Components.end(); ++it)
     {
         ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 1));
@@ -239,7 +246,22 @@ void GameObject::OnInspectorGUI()
             ImGui::EndDragDropTarget();
         }
 
+        const float headerTop = ImGui::GetCursorScreenPos().y;
         (*it)->RenderInspectorGUI();
+
+        // 이 컴포넌트에 프리팹 오버라이드가 있으면 헤더 왼쪽에 파란 막대 (Unity 와 같음)
+        if (!overriddenKeys.empty())
+        {
+            std::string type = (*it)->toJson().value("type", std::string());
+            int index = 0;
+            for (auto p = m_Components.begin(); p != it; ++p)
+                if ((*p)->toJson().value("type", std::string()) == type) ++index;
+            if (overriddenKeys.count(type + "#" + std::to_string(index)))
+            {
+                const float x = ImGui::GetWindowPos().x + 1.0f;
+                ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(x, headerTop), ImVec2(x + 2.0f, headerTop + 22.0f), IM_COL32(64, 150, 255, 255));
+            }
+        }
     }
 
     // 재질 Inspector (Unity 처럼 컴포넌트들 아래에 표시)
@@ -297,13 +319,35 @@ void to_json(json& j, const GameObject& obj)
     for (const GameObject* child : obj.m_pChildGameObjects)
     {
         json childJson;
-        to_json(childJson, *child);  
-        j["children"].push_back(childJson);  
+        to_json(childJson, *child);
+        j["children"].push_back(childJson);
+    }
+
+    // 프리팹 인스턴스: 연결 정보 + 에셋과 다른 속성 목록 (씬을 다시 읽을 때 에셋 값에 이것만 덮어쓴다)
+    if (obj.m_Prefab.IsValid())
+    {
+        json overrides = json::array();
+        for (const auto& o : PrefabUtility::ComputeOverrides(j, obj.m_Prefab))
+            overrides.push_back(o);
+        j["prefab"] = { { "asset", obj.m_Prefab.Asset }, { "source", obj.m_Prefab.Source }, { "root", obj.m_Prefab.Root }, { "overrides", overrides } };
     }
 }
 
 void from_json(const json& j, GameObject& obj)
 {
+    // 프리팹 인스턴스 루트: 현재 에셋 값 + 저장된 오버라이드로 다시 조립한 JSON 으로 만든다 (에셋 변경이 반영됨)
+    if (PrefabUtility::NeedsMerge(j))
+    {
+        from_json(PrefabUtility::MergeWithAsset(j), obj);
+        return;
+    }
+    if (j.contains("prefab") && j["prefab"].is_object())
+    {
+        obj.m_Prefab.Asset = j["prefab"].value("asset", std::string());
+        obj.m_Prefab.Source = j["prefab"].value("source", (uint64)0);
+        obj.m_Prefab.Root = j["prefab"].value("root", false);
+        obj.m_Prefab.Revision = PrefabUtility::CurrentRevision(obj.m_Prefab.Asset);   // 방금 현재 에셋으로 조립됨
+    }
     obj.m_Name = j.at("name").get<std::string>();
     if (j.contains("fileID") && j["fileID"].is_number_unsigned())
         obj.m_FileID = j["fileID"].get<uint64>();

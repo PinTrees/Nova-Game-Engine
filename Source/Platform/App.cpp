@@ -29,6 +29,10 @@ namespace
 	App* gApp = 0;
 }
 
+
+// 창이 작업 영역보다 커서 최대화로 열어야 하는지
+static bool s_StartMaximized = false;
+
 LRESULT CALLBACK
 MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
@@ -119,7 +123,7 @@ int32 App::Run()
 				if (_deferredShow && ++_shownFrames >= 2)
 				{
 					_deferredShow = false;
-					::ShowWindow(_hMainWnd, SW_SHOW);
+					::ShowWindow(_hMainWnd, s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW);
 					::UpdateWindow(_hMainWnd);
 					::SetForegroundWindow(_hMainWnd);
 					LoadingScreen::End();
@@ -284,6 +288,9 @@ bool App::Init()
 		char terrainLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_TERRAIN_TEST", terrainLog, sizeof(terrainLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunTerrainTest(SceneManager::GetI()->GetCurrentScene(), terrainLog);
+		char prefabLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_PREFAB_TEST", prefabLog, sizeof(prefabLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunPrefabTest(SceneManager::GetI()->GetCurrentScene(), prefabLog);
 	}
 
 	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
@@ -321,6 +328,22 @@ void App::OnResize()
 	assert(_deviceContext);
 	assert(_device);
 	assert(_swapChain);
+	if (_clientWidth <= 0 || _clientHeight <= 0)
+		return;   // 최소화 등
+
+	// 백버퍼를 실제 창 크기로 바꾼다. 이전에는 처음 크기 그대로 두고 화면에 늘려 그려서,
+	// 창 크기가 바뀌면 그려진 위치와 마우스 좌표가 어긋났다 (창 크기에 따라 클릭 위치가 틀어지던 문제).
+	_deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+	_renderTargetView.Reset();
+	_depthStencilView.Reset();
+	_depthStencilBuffer.Reset();
+	_deviceContext->Flush();
+	const HRESULT resizeHr = _swapChain->ResizeBuffers(0, (UINT)_clientWidth, (UINT)_clientHeight, DXGI_FORMAT_UNKNOWN, 0);
+	{
+		DXGI_SWAP_CHAIN_DESC scd = {};
+		_swapChain->GetDesc(&scd);
+		EditorLog::Write("App", "resize backbuffer to %d x %d (hr=0x%08X, now %u x %u)", _clientWidth, _clientHeight, (unsigned)resizeHr, scd.BufferDesc.Width, scd.BufferDesc.Height);
+	}
 
 	CreateRenderTargetView();
 	CreateDepthStencilView();
@@ -529,12 +552,25 @@ bool App::InitMainWindow()
 	int32 width  = R.right - R.left;
 	int32 height = R.bottom - R.top;
 
+	// 요청 크기가 작업 영역(작업 표시줄 제외)보다 크면 창이 작업 표시줄 아래로 들어가 하단 UI 가 가려진다.
+	// 그런 경우에는 작업 영역에 맞추고 최대화 상태로 연다 (Unity 에디터와 같음).
+	RECT work = {};
+	::SystemParametersInfo(SPI_GETWORKAREA, 0, &work, 0);
+	const int32 workW = work.right - work.left;
+	const int32 workH = work.bottom - work.top;
+	if (workW > 0 && workH > 0 && (width > workW || height > workH))
+	{
+		width = min(width, workW);
+		height = min(height, workH);
+		s_StartMaximized = true;
+	}
+
 	int32 posX = CW_USEDEFAULT;
 	int32 posY = CW_USEDEFAULT;
-	if (_centerWindow)
+	if (_centerWindow || s_StartMaximized)   // 작업 영역에 맞춘 창은 CW_USEDEFAULT 의 계단식 오프셋을 받으면 다시 밖으로 나간다
 	{
-		posX = max(0, (::GetSystemMetrics(SM_CXSCREEN) - width) / 2);
-		posY = max(0, (::GetSystemMetrics(SM_CYSCREEN) - height) / 2);
+		posX = work.left + max(0, (workW - width) / 2);
+		posY = work.top + max(0, (workH - height) / 2);
 	}
 
 	_hMainWnd = ::CreateWindow(L"NovaEngineWindow", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, posX, posY, width, height, 0, 0, _hAppInst, 0); 
@@ -552,7 +588,7 @@ bool App::InitMainWindow()
 	_deferredShow = LoadingScreen::IsActive();
 	if (!_deferredShow)
 	{
-		::ShowWindow(_hMainWnd, SW_SHOW);
+		::ShowWindow(_hMainWnd, s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW);
 		::UpdateWindow(_hMainWnd);
 	}
 
@@ -693,7 +729,7 @@ void App::CreateRenderTargetView()
 	log << "    GetBuffer hr: " << hr << std::endl; log.flush();
 	CHECK(hr);
 
-	hr = _device->CreateRenderTargetView(backBuffer.Get(), nullptr, _renderTargetView.GetAddressOf());
+	hr = _device->CreateRenderTargetView(backBuffer.Get(), nullptr, _renderTargetView.ReleaseAndGetAddressOf());
 	log << "    CreateRenderTargetView hr: " << hr << std::endl; log.flush();
 	CHECK(hr);
 }
@@ -728,7 +764,7 @@ void App::CreateDepthStencilView()
 		desc.CPUAccessFlags = 0;
 		desc.MiscFlags = 0;
 
-		HRESULT hr = _device->CreateTexture2D(&desc, nullptr, _depthStencilBuffer.GetAddressOf());
+		HRESULT hr = _device->CreateTexture2D(&desc, nullptr, _depthStencilBuffer.ReleaseAndGetAddressOf());
 		log << "    CreateTexture2D DSV hr: " << hr << std::endl; log.flush();
 		CHECK(hr);
 	}
@@ -740,7 +776,7 @@ void App::CreateDepthStencilView()
 		desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 		desc.Texture2D.MipSlice = 0;
 
-		HRESULT hr = _device->CreateDepthStencilView(_depthStencilBuffer.Get(), nullptr, _depthStencilView.GetAddressOf());
+		HRESULT hr = _device->CreateDepthStencilView(_depthStencilBuffer.Get(), nullptr, _depthStencilView.ReleaseAndGetAddressOf());
 		log << "    CreateDepthStencilView hr: " << hr << std::endl; log.flush();
 		CHECK(hr);
 	}

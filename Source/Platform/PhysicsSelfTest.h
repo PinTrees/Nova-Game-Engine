@@ -20,4 +20,7 @@ namespace PhysicsSelfTest
 
 	// (개발/검증용) NOVA_TERRAIN_TEST=<로그 파일>: 브러시로 지형을 만들고(언덕/고원/다듬기/텍스처) 물리 공을 올려 둔다
 	void RunTerrainTest(Scene* scene, const char* logPath);
+
+	// (개발/검증용) NOVA_PREFAB_TEST=<로그 파일>: 프리팹 생성/인스턴스/오버라이드/Apply/Revert/에셋 변경 반영/Unpack 검사
+	void RunPrefabTest(Scene* scene, const char* logPath);
 }

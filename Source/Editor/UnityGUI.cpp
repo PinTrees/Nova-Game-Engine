@@ -1000,3 +1000,76 @@ namespace UnityGUI
 		return changed;
 	}
 }
+
+namespace UnityGUI
+{
+	void PrefabInstanceRow(GameObject* root)
+	{
+		if (root == nullptr)
+			return;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x;
+		const float h = 22.0f;
+		dl->AddText(ImVec2(p.x + 44.0f, TextY(p.y, h, ImGui::GetFontSize())), kText, "Prefab");
+
+		auto button = [&](const char* id, const char* text, float x, float bw, bool enabled) {
+			ImGui::SetCursorScreenPos(ImVec2(x, p.y + 1.0f));
+			bool pressed = ImGui::InvisibleButton(id, ImVec2(bw, h - 2.0f)) && enabled;
+			const bool hovered = enabled && ImGui::IsItemHovered();
+			dl->AddRectFilled(ImVec2(x, p.y + 1.0f), ImVec2(x + bw, p.y + h - 1.0f), hovered ? kDropBgHover : kDropBg, 3.0f);
+			dl->AddRect(ImVec2(x, p.y + 1.0f), ImVec2(x + bw, p.y + h - 1.0f), kDropBorder, 3.0f);
+			const ImVec2 ts = ImGui::CalcTextSize(text);
+			dl->AddText(ImVec2(x + (bw - ts.x) * 0.5f, TextY(p.y, h, ImGui::GetFontSize())), enabled ? kTextBright : kTextDim, text);
+			return pressed;
+		};
+		const float x0 = p.x + 110.0f;
+		const float bw = (std::max)(50.0f, (w - 120.0f) / 3.0f - 4.0f);
+		button("##prefabOpen", "Open", x0, bw, false);   // 프리팹 모드(에셋 단독 편집)는 아직 없음
+		if (button("##prefabSelect", "Select", x0 + bw + 4.0f, bw, true))
+			SelectionManager::SetSelectedFile(PathManager::GetI()->GetMovePathW(string_to_wstring(root->GetPrefabLink().Asset)));
+		if (button("##prefabOverrides", "Overrides", x0 + (bw + 4.0f) * 2.0f, bw, true))
+			ImGui::OpenPopup("##prefabOverridesPopup");
+		DrawIcon(dl, "dropdown", ImVec2(x0 + (bw + 4.0f) * 2.0f + bw - 16.0f, p.y + 6.0f), 10.0f);
+
+		ImGui::SetNextWindowSizeConstraints(ImVec2(320, 0), ImVec2(520, 420));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+		if (ImGui::BeginPopup("##prefabOverridesPopup"))
+		{
+			const std::vector<std::string> overrides = PrefabUtility::GetOverrideDescriptions(root);
+			ImGui::TextUnformatted(("Review, Revert or Apply Overrides on '" + root->GetName() + "'").c_str());
+			ImGui::Separator();
+			if (overrides.empty())
+				ImGui::TextDisabled("No Overrides");
+			for (size_t i = 0; i < overrides.size() && i < 40; ++i)
+				ImGui::BulletText("%s", overrides[i].c_str());
+			if (overrides.size() > 40)
+				ImGui::TextDisabled("... and %zu more", overrides.size() - 40);
+			ImGui::Separator();
+			// 씬을 다시 만드는 작업이라 이번 프레임의 Inspector 가 끝난 뒤 실행
+			const uint64 id = root->GetFileID();
+			if (ImGui::Button("Revert All", ImVec2(120, 0)))
+			{
+				SceneManager::GetI()->AddLastUpdate([id]() {
+					if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+						PrefabUtility::RevertAll(scene->FindByFileID(id));
+				});
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Apply All", ImVec2(120, 0)))
+			{
+				SceneManager::GetI()->AddLastUpdate([id]() {
+					if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+						PrefabUtility::ApplyAll(scene->FindByFileID(id));
+				});
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+		ImGui::PopStyleVar();
+
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, h + 4.0f));
+	}
+}

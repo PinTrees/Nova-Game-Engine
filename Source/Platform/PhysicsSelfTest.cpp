@@ -707,3 +707,107 @@ namespace PhysicsSelfTest
 		fclose(fp);
 	}
 }
+
+namespace PhysicsSelfTest
+{
+	void RunPrefabTest(Scene* scene, const char* logPath)
+	{
+		FILE* fp = nullptr;
+		fopen_s(&fp, logPath, "w");
+		if (fp == nullptr || scene == nullptr)
+			return;
+		int failures = 0;
+		auto expect = [&](const char* what, bool ok) { fprintf(fp, "  %s %s\n", ok ? "PASS" : "FAIL", what); fflush(fp); failures += !ok; };
+		auto find = [&](uint64 id) { return SceneManager::GetI()->GetCurrentScene()->FindByFileID(id); };
+
+		// 1) 원본: 큐브 + 자식 구
+		GameObject* root = GameObjectFactory::CreateCube("P_Root");
+		GameObject* child = GameObjectFactory::CreateSphere("P_Child");
+		scene->AddRootGameObject(root);
+		scene->AddRootGameObject(child);
+		child->SetParent(root, false);
+		child->GetTransform()->SetLocalPosition(Vec3(0, 1.5f, 0));
+		root->GetTransform()->SetPosition(Vec3(-6, 0.5f, 6));
+
+		const std::string dir = std::filesystem::path(logPath).parent_path().string();
+		const std::string asset = dir + "\\TestPrefab.prefab";
+		expect("create prefab asset", PrefabUtility::SaveAsPrefabAssetAndConnect(root, asset));
+		expect("source object became instance root", PrefabUtility::GetInstanceRoot(child) == root);
+		fprintf(fp, "  asset objects = %d\n", PrefabUtility::CountAssetObjects(asset));
+
+		// 2) 인스턴스 두 개
+		GameObject* a = PrefabUtility::InstantiatePrefab(asset, scene);
+		GameObject* b = PrefabUtility::InstantiatePrefab(asset, scene);
+		expect("instantiate A and B", a && b && a->GetChildCount() == 1 && b->GetChildCount() == 1);
+		a->GetTransform()->SetPosition(Vec3(-3, 0.5f, 6));
+		b->GetTransform()->SetPosition(Vec3(0, 0.5f, 6));
+		const uint64 aID = a->GetFileID(), bID = b->GetFileID();
+		const uint64 aChildID = a->GetChildren()[0]->GetFileID(), bChildID = b->GetChildren()[0]->GetFileID();
+		expect("instances have their own fileIDs", aID != bID && aID != root->GetFileID() && aChildID != bChildID);
+
+		// 3) 오버라이드: A 자식의 크기, 루트 위치는 오버라이드가 아니어야 함
+		a->GetChildren()[0]->GetTransform()->SetLocalScale(Vec3(2, 2, 2));
+		{
+			json jc = *a->GetChildren()[0];
+			bool scaleOverride = false;
+			for (const auto& o : jc["prefab"]["overrides"]) { fprintf(fp, "  A child override: %s\n", o.get<std::string>().c_str()); scaleOverride |= o.get<std::string>() == "Transform#0/m_LocalScale"; }
+			expect("A child scale is an override", scaleOverride);
+			json ja = *a;
+			expect("root position is not listed as override", ja["prefab"]["overrides"].empty());
+		}
+
+		// 4) 씬을 JSON 으로 다시 만들어도 (저장/불러오기, Undo 와 같은 경로) 값과 연결이 유지
+		{
+			json sj = *SceneManager::GetI()->GetCurrentScene();
+			SceneManager::GetI()->RestoreSceneState(sj.dump());
+			GameObject* a2 = find(aID);
+			expect("reload keeps instance and override", a2 && a2->GetPrefabLink().Root && a2->GetChildCount() == 1 &&
+				fabsf(a2->GetChildren()[0]->GetTransform()->GetLocalScale().x - 2.0f) < 1e-4f && fabsf(a2->GetTransform()->GetPosition().x + 3.0f) < 1e-4f);
+		}
+
+		// 5) Apply All (A) → B 에 전파
+		expect("apply all", PrefabUtility::ApplyAll(find(aID)));
+		{
+			GameObject* b2 = find(bID);
+			const float bs = b2 && b2->GetChildCount() ? b2->GetChildren()[0]->GetTransform()->GetLocalScale().x : -1.0f;
+			fprintf(fp, "  B child scale after apply = %.3f\n", bs);
+			expect("B got the applied scale", fabsf(bs - 2.0f) < 1e-4f);
+			expect("B root position unchanged", b2 && fabsf(b2->GetTransform()->GetPosition().x) < 1e-4f);
+			json ja = *find(aID)->GetChildren()[0];
+			expect("A has no overrides after apply", ja["prefab"]["overrides"].empty());
+		}
+
+		// 6) B 에서 이름과 컴포넌트 추가 → Revert All 로 되돌리기
+		{
+			GameObject* b2 = find(bID);
+			b2->GetChildren()[0]->SetName("Renamed");
+			b2->GetChildren()[0]->AddComponent<RigidBody>();
+			const auto desc = PrefabUtility::GetOverrideDescriptions(b2);
+			for (const auto& d : desc) fprintf(fp, "  B override: %s\n", d.c_str());
+			expect("B has name + added component overrides", desc.size() >= 2);
+			PrefabUtility::RevertAll(b2);
+			GameObject* b3 = find(bID);
+			expect("revert restores name and removes added component", b3 && b3->GetChildren()[0]->GetName() == "P_Child" && b3->GetChildren()[0]->GetComponent<RigidBody>() == nullptr);
+		}
+
+		// 7) 에셋 파일을 직접 바꾸면 다시 읽을 때 인스턴스에 반영
+		{
+			std::ifstream in(asset);
+			json j = json::parse(in);
+			in.close();
+			j["root"]["children"][0]["name"] = "ChangedInAsset";
+			std::ofstream(asset) << j.dump(2);
+			json sj = *SceneManager::GetI()->GetCurrentScene();
+			SceneManager::GetI()->RestoreSceneState(sj.dump());
+			GameObject* b4 = find(bID);
+			expect("asset change propagates on reload", b4 && b4->GetChildren()[0]->GetName() == "ChangedInAsset");
+		}
+
+		// 8) Unpack
+		PrefabUtility::UnpackCompletely(find(bID));
+		expect("unpack clears links", !PrefabUtility::IsPartOfPrefabInstance(find(bID)) && !PrefabUtility::IsPartOfPrefabInstance(find(bChildID)));
+
+		fprintf(fp, "RESULT: %s (%d failures)\n", failures == 0 ? "ALL PASS" : "FAILED", failures);
+		fclose(fp);
+	}
+}

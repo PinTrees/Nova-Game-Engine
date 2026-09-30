@@ -86,6 +86,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 		log.flush();
 
 		EditorLog::Init();
+		// PNG/JPG 디코딩(WIC)에 COM 이 필요하다. 지금까지는 Hub 가 만든 텍스처 캐시(DDS)에 기대어 우연히 동작했다.
+		const HRESULT comHr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+		EditorLog::Write("App", "CoInitializeEx hr=0x%08X", (unsigned)comHr);
 		EditorLog::Write("App", "editor start, project=%s", wstring_to_string(projectPath).c_str());
 		EditorApp theApp(hInstance);
 		

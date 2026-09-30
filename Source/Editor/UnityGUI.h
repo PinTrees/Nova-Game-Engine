@@ -72,6 +72,9 @@ bool Foldout(const char* label, int indent = 0, bool defaultOpen = true, bool he
 	};
 	HeaderResult ComponentHeader(const char* id, const char* title, const char* iconName, bool* open, bool* enabled, bool canRemove);
 
+	// 프리팹 인스턴스 루트의 행: Prefab  [Open] [Select] [Overrides ▾] (Apply All / Revert All)
+	void PrefabInstanceRow(class GameObject* instanceRoot);
+
 	// GameObject 헤더 (아이콘, 활성 체크, 이름, Static, Tag, Layer)
 	bool GameObjectHeader(bool* active, std::string* name, bool* isStatic, std::string* tag, int* layer);
 }

@@ -47,6 +47,11 @@ ComPtr<ID3D11ShaderResourceView> ResourceManager::LoadTexture(wstring filename)
 	{
 		srv = Utils::LoadTexture(m_Device, path.c_str());
 		m_TextureSRV[filename] = srv;
+		if (srv == nullptr)
+		{
+			std::error_code ec;
+			EditorLog::Write("Texture", "load failed: %s -> %s (file exists: %d)", wstring_to_string(filename).c_str(), wstring_to_string(path).c_str(), (int)std::filesystem::exists(path, ec));
+		}
 	}
 
 	return srv;
@@ -151,7 +156,7 @@ shared_ptr<MeshFile> ResourceManager::LoadMeshFile(string filename)
 	{
 		LoadingScreen::SetStatus(L"Importing " + std::filesystem::path(string_to_wstring(filename)).filename().wstring());
 		MeshFile* meshFile = MeshFile::LoadFromMetaFile(filename); 
-		// ¸ÞÅ¸ÆÄÀÏ ÀÐ±â ¿À·ù
+		// ï¿½ï¿½Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½Ð±ï¿½ ï¿½ï¿½ï¿½ï¿½
 		if (meshFile == nullptr)
 			return nullptr;
 
