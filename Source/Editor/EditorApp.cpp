@@ -1,5 +1,7 @@
 ﻿#include "pch.h"
 #include "EditorApp.h"
+#include "Volume.h"
+#include "SceneToolbar.h"
 #include "EngineInfo.h"
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
@@ -79,7 +81,8 @@ bool EditorApp::Init()
 			L"../Shaders/32. InstancedBasic.fx", L"../Shaders/21. Sky.fx", L"../Shaders/23. NormalMap.fx", L"../Shaders/23. DisplacementMap.fx",
 			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
 			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
-			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx" };
+			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx",
+			L"../Shaders/41. PostProcess.fx" };
 		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
 		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
 	}
@@ -318,7 +321,22 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	// PostProcessing - SSAO
 	PostProcessingManager::GetI()->RenderSSAO(camera);
 
-	ID3D11RenderTargetView* renderTargets[1] = { renderTargetView };
+	// Volume 후처리: 필요하면 씬을 HDR 타깃에 그린 뒤 마지막에 뷰 타깃으로 합성한다
+	auto& post = PostProcessingManager::GetI()->GamePost();
+	auto& stack = PostProcessingManager::GetI()->GameStack();
+	{
+		const XMFLOAT3 gameCamPos = camera->GetPosition();
+		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
+	}
+	PostProcessPass::CameraOptions postOptions;
+	postOptions.PostProcessing = camera->PostProcessingEnabled();
+	postOptions.Fxaa = camera->AntiAliasingMode() != 0;   // SMAA 는 아직 없어 FXAA 로
+	postOptions.Dithering = camera->DitheringEnabled();
+	postOptions.StopNaNs = camera->StopNaNsEnabled();
+	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
+	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
+
+	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
@@ -326,7 +344,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
 		if (camera && camera->UsesSolidBackground())
 			memcpy(gameClear, camera->GetBackgroundColor(), sizeof(gameClear));
-		_deviceContext->ClearRenderTargetView(renderTargetView, gameClear);
+		_deviceContext->ClearRenderTargetView(sceneTarget, gameClear);
 	}
 
 	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
@@ -373,6 +391,15 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 	ID3D11ShaderResourceView* nullSRV[128] = { 0 };
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+
+	if (usePost)
+	{
+		post.Execute(stack, postOptions, renderTargetView);
+		// 이후 그리기(있다면)를 위해 원래 타깃과 뷰포트로 되돌린다
+		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
+		_deviceContext->OMSetRenderTargets(1, outTargets, _depthStencilView.Get());
+		_deviceContext->RSSetViewports(1, &viewport);
+	}
 }
 
 void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera)
@@ -494,13 +521,23 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	// PostProcessing - SSAO
 	PostProcessingManager::GetI()->_Editor_RenderSSAO(camera);
 
-	ID3D11RenderTargetView* renderTargets[1] = { renderTargetView };
+	// Volume 후처리 (Scene 뷰: 툴바 Effects > Post Processing 이 켜져 있을 때, 카메라 옵션은 기본)
+	auto& post = PostProcessingManager::GetI()->EditorPost();
+	auto& stack = PostProcessingManager::GetI()->EditorStack();
+	const XMFLOAT3 camPos = camera->GetPosition();
+	VolumeManager::Update(stack, Vec3(camPos.x, camPos.y, camPos.z));
+	PostProcessPass::CameraOptions postOptions;
+	postOptions.PostProcessing = SceneToolbar::PostProcessingVisible() && !RenderManager::GetI()->WireFrameMode;
+	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
+	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
+
+	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
 		// Scene 뷰: 투명으로 지운 뒤 SceneViewOverlay 가 뒤에 그린 하늘 그라디언트가 비쳐 보이게 한다.
 		const float sceneClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		_deviceContext->ClearRenderTargetView(renderTargetView, sceneClear);
+		_deviceContext->ClearRenderTargetView(sceneTarget, sceneClear);
 	}
 
 	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
@@ -554,6 +591,14 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	ID3D11ShaderResourceView* nullSRV[128] = { 0 };
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+
+	if (usePost)
+	{
+		post.Execute(stack, postOptions, renderTargetView);
+		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
+		_deviceContext->OMSetRenderTargets(1, outTargets, _depthStencilView.Get());
+		_deviceContext->RSSetViewports(1, &viewport);
+	}
 }
 
 void EditorApp::OnMouseDown(WPARAM btnState, int32 x, int32 y)

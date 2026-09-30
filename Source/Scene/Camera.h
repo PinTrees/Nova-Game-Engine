@@ -33,13 +33,14 @@ private:
 	Frustum m_Frustum;
 
 	// Unity(URP) 카메라 Inspector 항목. Projection/FOV/Size/Clipping/Background 는 실제로 동작하고,
-	// 나머지(Rendering, Stack, Volumes, Output 등)는 값 저장만 하는 UI 용 항목이다.
+	// Post Processing / Anti-aliasing(FXAA) / Stop NaNs / Dithering 은 Volume 후처리 패스가 쓴다.
+	// 나머지(Stack, Volume Mask, Output 등)는 값 저장만 하는 UI 용 항목이다.
 	float m_orthoSize = 5.0f;
 	bool  m_fovVerticalAxis = true;
 	bool  m_physicalCamera = false;
 	int   m_renderType = 0;          // Base / Overlay
 	int   m_renderer = 0;
-	bool  m_postProcessing = false;
+	bool  m_postProcessing = true;   // 새 카메라는 켬 (Unity URP 템플릿의 Main Camera 와 같음)
 	int   m_antiAliasing = 0;
 	bool  m_stopNaNs = false;
 	bool  m_dithering = false;
@@ -131,6 +132,10 @@ public:
 
 	// 배경 (Game 뷰 클리어 색에 사용)
 	bool UsesSolidBackground() const { return m_backgroundType == 1; }
+	bool PostProcessingEnabled() const { return m_postProcessing; }
+	int AntiAliasingMode() const { return m_antiAliasing; }   // 0 없음, 1 FXAA, 2 SMAA(=FXAA 로 처리)
+	bool DitheringEnabled() const { return m_dithering; }
+	bool StopNaNsEnabled() const { return m_stopNaNs; }
 	const float* GetBackgroundColor() const { return m_backgroundColor; }
 	float GetOrthoSize() const { return m_orthoSize; }
 	virtual void OnDrawGizmos() override;

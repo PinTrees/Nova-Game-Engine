@@ -72,6 +72,18 @@ bool Foldout(const char* label, int indent = 0, bool defaultOpen = true, bool he
 	};
 	HeaderResult ComponentHeader(const char* id, const char* title, const char* iconName, bool* open, bool* enabled, bool canRemove);
 
+	// ---- Volume ----
+	// 행 앞(레이블 왼쪽)의 체크박스 (Volume 파라미터별 Override). 커서는 움직이지 않으니 바로 이어서 행 위젯을 그린다.
+	bool LeadingCheckbox(const char* id, bool* value, int indent = 1);
+	// 오브젝트 필드 + 오른쪽 버튼들 (예: Profile [필드 ⊙][New][Clone]).
+	// 반환: -2 = 아무것도 안 누름, -1 = ⊙, 0.. = 버튼 순번. fieldMin/Max = 끌어 놓기 대상 영역
+	int ObjectFieldButtons(const char* label, const char* text, const char* iconName, const char* const* buttons, int buttonCount,
+		ImVec2* fieldMin = nullptr, ImVec2* fieldMax = nullptr, int indent = 0);
+	// Volume 효과 헤더: [▼][✓] 이름 ........ ALL NONE ⋮ (⋮ 메뉴 = Reset / Remove)
+	HeaderAction VolumeEffectHeader(const char* id, const char* title, bool* open, bool* active, bool* all, bool* none);
+	// 가운데 정렬 버튼 (예: Add Override)
+	bool CenterButton(const char* label, float width = 230.0f);
+
 	// 프리팹 인스턴스 루트의 행: Prefab  [Open] [Select] [Overrides ▾] (Apply All / Revert All)
 	void PrefabInstanceRow(class GameObject* instanceRoot);
 

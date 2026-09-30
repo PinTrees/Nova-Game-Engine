@@ -146,6 +146,146 @@ namespace
 	{
 		return ImGui::MenuItem(label, nullptr, value);
 	}
+
+	// ---- Scene 카메라 설정 (사용자별 저장) ----
+	SceneCameraSettings s_Cam;
+	SceneCameraSettings s_AppliedCam;
+	bool s_CamLoaded = false;
+
+	std::wstring CameraSettingsFile()
+	{
+		wchar_t buf[MAX_PATH] = {};
+		if (::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH) == 0)
+			return L"SceneCamera.json";
+		return std::wstring(buf) + L"\\NOVA\\Editor\\SceneCamera.json";
+	}
+
+	void LoadCameraSettings()
+	{
+		s_CamLoaded = true;
+		std::ifstream in(CameraSettingsFile());
+		if (!in)
+			return;
+		json j = json::parse(in, nullptr, false);
+		if (j.is_discarded() || !j.is_object())
+			return;
+		s_Cam.FieldOfView = std::clamp(j.value("fieldOfView", s_Cam.FieldOfView), 4.0f, 120.0f);
+		s_Cam.NearClip = (std::max)(0.01f, j.value("nearClip", s_Cam.NearClip));
+		s_Cam.FarClip = (std::max)(s_Cam.NearClip + 0.1f, j.value("farClip", s_Cam.FarClip));
+		s_Cam.Easing = j.value("easing", s_Cam.Easing);
+		s_Cam.Acceleration = j.value("acceleration", s_Cam.Acceleration);
+		s_Cam.SpeedMin = (std::max)(0.001f, j.value("speedMin", s_Cam.SpeedMin));
+		s_Cam.SpeedMax = (std::max)(s_Cam.SpeedMin, j.value("speedMax", s_Cam.SpeedMax));
+		s_Cam.Speed = std::clamp(j.value("speed", s_Cam.Speed), s_Cam.SpeedMin, s_Cam.SpeedMax);
+	}
+
+	void SaveCameraSettings()
+	{
+		const std::filesystem::path file(CameraSettingsFile());
+		std::error_code ec;
+		std::filesystem::create_directories(file.parent_path(), ec);
+		json j;
+		j["fieldOfView"] = s_Cam.FieldOfView;
+		j["nearClip"] = s_Cam.NearClip;
+		j["farClip"] = s_Cam.FarClip;
+		j["easing"] = s_Cam.Easing;
+		j["acceleration"] = s_Cam.Acceleration;
+		j["speed"] = s_Cam.Speed;
+		j["speedMin"] = s_Cam.SpeedMin;
+		j["speedMax"] = s_Cam.SpeedMax;
+		std::ofstream os(file, std::ios::trunc);
+		if (os)
+			os << j.dump(4);
+	}
+
+	// Unity 의 Scene Camera 오버레이 패널 (어두운 창, 레이블 | 값)
+	void DrawCameraPanel(EditorCamera* camera)
+	{
+		SceneCameraSettings& c = s_Cam;
+		bool changed = false;
+		const float labelW = 128.0f;
+		auto label = [&](const char* text) {
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(text);
+			ImGui::SameLine(labelW);
+			ImGui::SetNextItemWidth(-1);
+		};
+
+		ImGui::PushFont(UnityGUI::BoldFont());
+		ImGui::TextUnformatted("Scene Camera");
+		ImGui::PopFont();
+		ImGui::Separator();
+
+		label("Field of View");
+		changed |= ImGui::SliderFloat("##fov", &c.FieldOfView, 4.0f, 120.0f, "%.0f");
+
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted("Clipping Planes");
+		ImGui::SameLine(labelW);
+		const float half = (ImGui::GetContentRegionAvail().x - 8.0f) * 0.5f;
+		ImGui::TextUnformatted("Near");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(half - ImGui::CalcTextSize("Near").x - 6.0f);
+		changed |= ImGui::DragFloat("##near", &c.NearClip, 0.01f, 0.01f, 100.0f, "%.2f");
+		ImGui::SameLine();
+		ImGui::TextUnformatted("Far");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(-1);
+		changed |= ImGui::DragFloat("##far", &c.FarClip, 10.0f, 1.0f, 1000000.0f, "%.0f");
+
+		ImGui::Spacing();
+		ImGui::PushFont(UnityGUI::BoldFont());
+		ImGui::TextUnformatted("Navigation");
+		ImGui::PopFont();
+		label("Camera Easing");
+		changed |= ImGui::Checkbox("##easing", &c.Easing);
+		label("Camera Acceleration");
+		changed |= ImGui::Checkbox("##accel", &c.Acceleration);
+		label("Camera Speed");
+		changed |= ImGui::SliderFloat("##speed", &c.Speed, c.SpeedMin, c.SpeedMax, "%.2f", ImGuiSliderFlags_Logarithmic);
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextUnformatted("");
+		ImGui::SameLine(labelW);
+		ImGui::TextUnformatted("Min");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(half - ImGui::CalcTextSize("Min").x - 6.0f);
+		changed |= ImGui::DragFloat("##smin", &c.SpeedMin, 0.01f, 0.001f, 100.0f, "%.3f");
+		ImGui::SameLine();
+		ImGui::TextUnformatted("Max");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(-1);
+		changed |= ImGui::DragFloat("##smax", &c.SpeedMax, 0.05f, 0.01f, 1000.0f, "%.2f");
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		if (ImGui::Button("Reset", ImVec2(80, 0)))
+		{
+			c = SceneCameraSettings();
+			changed = true;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Reset Scene Camera") && camera != nullptr)
+		{
+			camera->LookAt(XMFLOAT3(7.0f, 5.0f, -19.0f), XMFLOAT3(0.0f, 1.0f, -5.0f), XMFLOAT3(0.0f, 1.0f, 0.0f));
+			camera->UpdateViewMatrix();
+		}
+
+		if (changed)
+		{
+			c.FieldOfView = std::clamp(c.FieldOfView, 4.0f, 120.0f);
+			c.NearClip = std::clamp(c.NearClip, 0.01f, 100.0f);
+			c.FarClip = (std::max)(c.FarClip, c.NearClip + 0.1f);
+			c.SpeedMin = (std::max)(0.001f, c.SpeedMin);
+			c.SpeedMax = (std::max)(c.SpeedMin, c.SpeedMax);
+			c.Speed = std::clamp(c.Speed, c.SpeedMin, c.SpeedMax);
+			ApplyCameraLens(camera);
+		}
+		// 드래그/입력이 끝났을 때 저장
+		if (changed && !ImGui::IsAnyItemActive())
+			SaveCameraSettings();
+		if (ImGui::IsItemDeactivatedAfterEdit() || (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ImGui::IsWindowHovered()))
+			SaveCameraSettings();
+	}
 }
 
 namespace SceneToolbar
@@ -158,6 +298,26 @@ namespace SceneToolbar
 	bool GridVisible() { return s.grid; }
 	bool SnapEnabled() { return s.gridSnap || ImGui::GetIO().KeyCtrl; }
 	float SnapIncrement() { return (std::max)(0.001f, s.snapIncrement); }
+	bool PostProcessingVisible() { return s.effects && s.fxPost; }
+
+	SceneCameraSettings& CameraSettings()
+	{
+		if (!s_CamLoaded)
+			LoadCameraSettings();
+		return s_Cam;
+	}
+
+	void ApplyCameraLens(EditorCamera* camera, bool force)
+	{
+		if (camera == nullptr)
+			return;
+		const SceneCameraSettings& c = CameraSettings();
+		if (!force && c.FieldOfView == s_AppliedCam.FieldOfView && c.NearClip == s_AppliedCam.NearClip && c.FarClip == s_AppliedCam.FarClip)
+			return;
+		s_AppliedCam = c;
+		camera->SetLens(XMConvertToRadians(c.FieldOfView), camera->GetAspect(), c.NearClip, c.FarClip);
+		EditorLog::Write("Camera", "scene camera lens fov %.1f near %.3f far %.1f", c.FieldOfView, c.NearClip, c.FarClip);
+	}
 
 	void HandleShortcuts(bool viewHovered)
 	{
@@ -347,15 +507,19 @@ namespace SceneToolbar
 			Check("Grid Snapping", &s.gridSnap);
 			EndDrop();
 		}
-		if (BeginDrop("cam_menu", camX, bottom, 190.0f))
+		// 카메라 드롭다운 = Scene Camera 패널 (시야각, 클리핑, 이동 속도)
+		ImGui::SetNextWindowPos(ImVec2(camX + 37.0f, bottom), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		ImGui::SetNextWindowSize(ImVec2(330.0f, 0.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10, 8));
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 5));
+		ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.22f, 0.22f, 0.22f, 1.0f));
+		if (ImGui::BeginPopup("cam_menu"))
 		{
-			if (ImGui::MenuItem("Reset Scene Camera") && camera != nullptr)
-			{
-				camera->LookAt(XMFLOAT3(7.0f, 5.0f, -19.0f), XMFLOAT3(0.0f, 1.0f, -5.0f), XMFLOAT3(0.0f, 1.0f, 0.0f));
-				camera->UpdateViewMatrix();
-			}
-			EndDrop();
+			DrawCameraPanel(camera);
+			ImGui::EndPopup();
 		}
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar(2);
 		if (BeginDrop("giz_menu", gizX - 30.0f, bottom, 190.0f))
 		{
 			Check("Gizmos", &s.gizmos);

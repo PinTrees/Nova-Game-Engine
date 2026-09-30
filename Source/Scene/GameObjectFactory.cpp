@@ -10,6 +10,7 @@
 #include "SphereCollider.h"
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
+#include "Volume.h"
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
 #include "SkinnedMesh.h"
@@ -371,6 +372,24 @@ GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, 
 	// 에디터에서도 기본 상태의 첫 프레임 포즈로 보이게 한다 (Play 전)
 	animator->Rebind();
 	return root;
+}
+
+GameObject* GameObjectFactory::CreateVolume(VolumeShape shape)
+{
+	static const char* kNames[] = { "Global Volume", "Box Volume", "Sphere Volume" };
+	GameObject* obj = new GameObject(kNames[(int)shape]);
+	Volume* volume = obj->AddComponent<Volume>();
+	if (shape == VolumeShape::Box)
+	{
+		volume->SetMode(Volume::Mode::Local);
+		obj->AddComponent<BoxCollider>()->SetIsTrigger(true);
+	}
+	else if (shape == VolumeShape::Sphere)
+	{
+		volume->SetMode(Volume::Mode::Local);
+		obj->AddComponent<SphereCollider>()->SetIsTrigger(true);
+	}
+	return obj;
 }
 
 GameObject* GameObjectFactory::CreateTerrain(const std::string& name)

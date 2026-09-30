@@ -3,6 +3,7 @@
 #include "EditorGUIManager.h"
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
+#include "ProjectSettingsWindow.h"
 #include "GraphicsBackendFactory.h"
 #include "HubProject.h"
 #include "EditorTheme.h"
@@ -370,6 +371,8 @@ void EditorGUIManager::RenderEditorWindows()
                 SelectionManager::ClearSelection();
             }
             ImGui::Separator();
+            if (ImGui::MenuItem("Project Settings..."))
+                ProjectSettingsWindow::Open("Graphics");
             // 렌더링 API 선택 (다음 실행부터 적용)
             if (ImGui::BeginMenu("Graphics API"))
             {
@@ -535,6 +538,8 @@ void EditorGUIManager::RenderEditorWindows()
     { 
         dialog->Render(); 
     } 
+
+    ProjectSettingsWindow::Draw();
 }
 
 void EditorGUIManager::RenderAfter()

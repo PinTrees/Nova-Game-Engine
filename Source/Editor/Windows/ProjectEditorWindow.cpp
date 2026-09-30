@@ -9,6 +9,7 @@
 #include "UndoSystem.h"
 #include "UnityGUI.h"
 #include "SkinnedMesh.h"
+#include "VolumeProfile.h"
 #include <shellapi.h>
 
 std::wstring ProjectEditorWindow::solutionDirectory = L"";
@@ -28,7 +29,7 @@ namespace
 	const ImU32 kHover     = IM_COL32(69, 69, 69, 255);
 	constexpr float kToolbarH = 24.0f, kCrumbH = 22.0f, kBottomH = 20.0f, kRowH = 18.0f;
 
-	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, Text, Other };
+	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Text, Other };
 
 	Kind KindOf(const std::wstring& ext, bool dir)
 	{
@@ -41,6 +42,7 @@ namespace
 		if (ext == L".controller") return Kind::Controller;
 		if (ext == L".terraindata") return Kind::TerrainData;
 		if (ext == L".terrainlayer") return Kind::TerrainLayer;
+		if (ext == L".volumeprofile") return Kind::VolumeProfile;
 		if (ext == L".txt" || ext == L".json" || ext == L".md") return Kind::Text;
 		return Kind::Other;
 	}
@@ -58,13 +60,14 @@ namespace
 		case Kind::Controller: return "animator_controller";
 		case Kind::TerrainData: return "terrain";
 		case Kind::TerrainLayer: return "asset_terrain_layer";
+		case Kind::VolumeProfile: return "volume_profile";
 		default: return "asset_text";
 		}
 	}
 
 	// 타입 필터 (툴바의 도형 아이콘)
-	const char* kFilterNames[] = { "All", "Scene", "Prefab", "Material", "Model", "Texture", "AnimatorController", "TerrainData", "TerrainLayer" };
-	const Kind kFilterKinds[] = { Kind::Other, Kind::Scene, Kind::Prefab, Kind::Material, Kind::Model, Kind::Texture, Kind::Controller, Kind::TerrainData, Kind::TerrainLayer };
+	const char* kFilterNames[] = { "All", "Scene", "Prefab", "Material", "Model", "Texture", "AnimatorController", "TerrainData", "TerrainLayer", "VolumeProfile" };
+	const Kind kFilterKinds[] = { Kind::Other, Kind::Scene, Kind::Prefab, Kind::Material, Kind::Model, Kind::Texture, Kind::Controller, Kind::TerrainData, Kind::TerrainLayer, Kind::VolumeProfile };
 
 	// 목록에서 숨기는 파일: 가져오기 캐시, 메타, 숨김 파일
 	bool IsHidden(const fs::path& p, const std::wstring& ext)
@@ -369,6 +372,12 @@ void ProjectEditorWindow::DrawCreateMenu(const fs::path& dir)
 		const std::wstring p = UniquePath(dir, L"New Terrain Layer", L".terrainlayer");
 		TerrainLayer::Create(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(p)), "Resources\\Packages\\Terrain\\Layers\\Grass.png");
 		SelectionManager::SetSelectedFile(p);
+		InvalidateCache();
+	}
+	if (ImGui::MenuItem("Volume Profile"))
+	{
+		const std::string rel = VolumeProfile::CreateAsset(wstring_to_string(dir.wstring()), "New Volume Profile");
+		SelectionManager::SetSelectedFile(PathManager::GetI()->GetMovePathW(string_to_wstring(rel)));
 		InvalidateCache();
 	}
 }
@@ -815,6 +824,7 @@ void ProjectEditorWindow::Open(const Entry& e)
 	case Kind::Material:
 	case Kind::TerrainData:
 	case Kind::TerrainLayer:
+	case Kind::VolumeProfile:
 		break;   // 에디터 안에서 다루는 에셋 (Inspector 로 확인)
 	default:
 		::ShellExecuteW(nullptr, L"open", e.Path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

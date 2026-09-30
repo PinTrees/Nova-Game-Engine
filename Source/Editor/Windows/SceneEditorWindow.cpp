@@ -63,7 +63,9 @@ void SceneEditorWindow::InitRenderTarget(UINT width, UINT height)
     if (FAILED(hr)) { /* ���� ó�� */ }
 
     float aspectRatio = static_cast<float>(width) / height;
-    m_Camera->SetLens(0.25f * MathHelper::Pi, aspectRatio, 1.0f, 1000.0f);
+    // 시야각/클리핑은 툴바 카메라 드롭다운(Scene Camera 설정)을 따른다
+    const SceneToolbar::SceneCameraSettings& cam = SceneToolbar::CameraSettings();
+    m_Camera->SetLens(XMConvertToRadians(cam.FieldOfView), aspectRatio, cam.NearClip, cam.FarClip);
     PostProcessingManager::GetI()->_EditorSetSSAO(width, height, m_Camera);
     RenderManager::GetI()->SetEditorViewport(width, height);
 }

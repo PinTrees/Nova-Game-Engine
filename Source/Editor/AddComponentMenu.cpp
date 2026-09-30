@@ -30,6 +30,7 @@ namespace
 		{ "MeshCollider",        "Mesh Collider",         "Physics",       "mesh_collider",     false },
 		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
+		{ "Volume",              "Volume",                "Miscellaneous", "volume",            true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },

@@ -116,8 +116,17 @@ namespace GameObjectMenu
 		DisabledSubMenu("UI (Canvas)", { "Canvas", "Text", "Image", "Button", "Panel" });
 		DisabledSubMenu("AI", { "Navigation" });
 		DisabledSubMenu("UI Toolkit", { "UI Document" });
-		DisabledSubMenu("Rendering", { "Volume", "Reflection Probe" });
-		DisabledSubMenu("Volume", { "Global Volume", "Box Volume", "Sphere Volume", "Convex Mesh Volume" });
+		DisabledSubMenu("Rendering", { "Reflection Probe" });
+
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("Volume"))
+		{
+			if (ImGui::MenuItem("Global Volume")) add(GameObjectFactory::CreateVolume(GameObjectFactory::VolumeShape::Global));
+			if (ImGui::MenuItem("Box Volume")) add(GameObjectFactory::CreateVolume(GameObjectFactory::VolumeShape::Box));
+			if (ImGui::MenuItem("Sphere Volume")) add(GameObjectFactory::CreateVolume(GameObjectFactory::VolumeShape::Sphere));
+			Disabled("Convex Mesh Volume");
+			ImGui::EndMenu();
+		}
 
 		if (ImGui::MenuItem("Camera"))
 			add(GameObjectFactory::CreateCamera("Camera"));

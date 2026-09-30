@@ -61,6 +61,10 @@ void SelectionManager::SetSelectedFile(const std::wstring& filePath)
 		m_SelectFile_FbxModel = ResourceManager::GetI()->LoadFbxModel(cutPath);
 		m_SelectedSubType = SelectionSubType::FBX;
 	}
+	else if (path.extension() == ".volumeprofile")
+	{
+		m_SelectedSubType = SelectionSubType::VOLUME_PROFILE;
+	}
 	else if (path.extension() == ".controller")
 	{
 		string cutPath = PathManager::GetI()->GetCutSolutionPath(wstring_to_string(filePath));

@@ -5,6 +5,18 @@ def _svg(body):
 
 
 PROJECT_ICONS = {
+    # Volume 컴포넌트: 겹친 반투명 상자
+    "volume": _svg('''<rect x="1.5" y="4.5" width="9" height="9" rx="1" fill="#6FA8DC" fill-opacity="0.35" stroke="#9CC6EE" stroke-width="1.1"/>
+  <rect x="5.5" y="1.5" width="9" height="9" rx="1" fill="#6FA8DC" fill-opacity="0.55" stroke="#C8DFF5" stroke-width="1.1"/>'''),
+    # Volume Profile 에셋: 문서 + 슬라이더 3개
+    "volume_profile": _svg('''<path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z" fill="#5E7FA3"/>
+  <polygon points="10,1.5 13,4.5 10,4.5" fill="#3F5C7D"/>
+  <line x1="5" y1="7" x2="11" y2="7" stroke="#DDE8F4" stroke-width="1"/>
+  <circle cx="7" cy="7" r="1.2" fill="#FFFFFF"/>
+  <line x1="5" y1="9.5" x2="11" y2="9.5" stroke="#DDE8F4" stroke-width="1"/>
+  <circle cx="9.5" cy="9.5" r="1.2" fill="#FFFFFF"/>
+  <line x1="5" y1="12" x2="11" y2="12" stroke="#DDE8F4" stroke-width="1"/>
+  <circle cx="6" cy="12" r="1.2" fill="#FFFFFF"/>'''),
     "folder": _svg('''<path d="M1.5 3.5 H6 L7.5 5 H14.5 V13.5 H1.5 Z" fill="#BDBDBD"/>
   <rect x="1.5" y="6" width="13" height="7.5" fill="#D6D6D6"/>'''),
     "folder_open": _svg('''<path d="M1.5 3.5 H6 L7.5 5 H13.5 V7 H1.5 Z" fill="#BDBDBD"/>

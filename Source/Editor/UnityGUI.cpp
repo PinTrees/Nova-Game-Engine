@@ -1003,6 +1003,156 @@ namespace UnityGUI
 
 namespace UnityGUI
 {
+	// ---------- Volume ----------
+	bool LeadingCheckbox(const char* id, bool* value, int indent)
+	{
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		bool changed = false;
+		CheckBox(id, value, ImVec2(p.x + kBaseIndent + indent * kNestIndent - 20.0f, p.y + 2.0f), &changed);
+		ImGui::SetCursorScreenPos(p);
+		return changed;
+	}
+
+	int ObjectFieldButtons(const char* label, const char* text, const char* iconName, const char* const* buttons, int buttonCount, ImVec2* fieldMin, ImVec2* fieldMax, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		int result = -2;
+
+		// 오른쪽 버튼들의 폭을 먼저 잰다
+		float buttonsW = 0.0f;
+		std::vector<float> widths;
+		for (int i = 0; i < buttonCount; ++i)
+		{
+			widths.push_back(ImGui::CalcTextSize(buttons[i]).x + 16.0f);
+			buttonsW += widths.back() + 4.0f;
+		}
+		const ImVec2 p0(r.fieldX, r.p.y);
+		const ImVec2 p1((std::max)(r.fieldX + 60.0f, r.fieldX + r.fieldW - buttonsW), r.p.y + kRowHeight);
+		dl->AddRectFilled(p0, p1, kFieldBg, 3.0f);
+		dl->AddRect(p0, p1, kFieldBorder, 3.0f);
+		float tx = p0.x + 6.0f;
+		if (iconName)
+		{
+			DrawIcon(dl, iconName, ImVec2(p0.x + 4.0f, p0.y + 1.0f), 16.0f);
+			tx += 20.0f;
+		}
+		const bool hasValue = text && strncmp(text, "None", 4) != 0;
+		ImVec4 clip(p0.x, p0.y, p1.x - 22.0f, p1.y);
+		dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(tx, TextY(p0.y, kRowHeight, ImGui::GetFontSize())), hasValue ? kTextBright : kTextDim, text, nullptr, 0.0f, &clip);
+		ImGui::SetCursorScreenPos(ImVec2(p1.x - 20.0f, p0.y));
+		if (ImGui::InvisibleButton("##pick", ImVec2(20.0f, kRowHeight)))
+			result = -1;
+		DrawIcon(dl, "target", ImVec2(p1.x - 18.0f, p0.y + 1.0f), 16.0f, ImGui::IsItemHovered() ? IM_COL32_WHITE : IM_COL32(196, 196, 196, 255));
+
+		float bx = p1.x + 4.0f;
+		for (int i = 0; i < buttonCount; ++i)
+		{
+			ImGui::PushID(i);
+			ImGui::SetCursorScreenPos(ImVec2(bx, p0.y));
+			if (ImGui::InvisibleButton("##btn", ImVec2(widths[i], kRowHeight)))
+				result = i;
+			const bool hovered = ImGui::IsItemHovered();
+			dl->AddRectFilled(ImVec2(bx, p0.y), ImVec2(bx + widths[i], p1.y), hovered ? kDropBgHover : kDropBg, 3.0f);
+			dl->AddRect(ImVec2(bx, p0.y), ImVec2(bx + widths[i], p1.y), kDropBorder, 3.0f);
+			dl->AddText(ImVec2(floorf(bx + 8.0f), TextY(p0.y, kRowHeight, ImGui::GetFontSize())), kTextBright, buttons[i]);
+			bx += widths[i] + 4.0f;
+			ImGui::PopID();
+		}
+		if (fieldMin) *fieldMin = p0;
+		if (fieldMax) *fieldMax = p1;
+		ImGui::PopID();
+		EndRow(r);
+		return result;
+	}
+
+	HeaderAction VolumeEffectHeader(const char* id, const char* title, bool* open, bool* active, bool* all, bool* none)
+	{
+		HeaderAction action = HeaderAction::None;
+		if (all) *all = false;
+		if (none) *none = false;
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x;
+		const float h = 22.0f;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		ImGui::PushID(id);
+
+		ImGui::SetNextItemAllowOverlap();
+		if (ImGui::InvisibleButton("##band", ImVec2(w, h)))
+			*open = !*open;
+		dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), kHeaderBg);
+		dl->AddLine(p, ImVec2(p.x + w, p.y), kSeparator);
+		dl->AddLine(ImVec2(p.x, p.y + h - 1), ImVec2(p.x + w, p.y + h - 1), kSeparator);
+		DrawIcon(dl, *open ? "arrow_down" : "arrow_right", ImVec2(p.x + 8.0f, p.y + 6.0f), 10.0f);
+		bool ch = false;
+		ImGui::SetNextItemAllowOverlap();
+		CheckBox("##active", active, ImVec2(p.x + 24.0f, p.y + 4.0f), &ch);
+		ImFont* bold = BoldFont();
+		dl->AddText(bold, bold->FontSize, ImVec2(p.x + 44.0f, TextY(p.y, h, bold->FontSize)), *active ? kTextBright : kTextDim, title);
+
+		// 오른쪽: ALL  NONE  ⋮  (Unity 의 Volume 효과 헤더)
+		auto textButton = [&](const char* text, float right, const char* bid) {
+			const ImVec2 ts = ImGui::CalcTextSize(text);
+			const ImVec2 bp(p.x + w - right - ts.x, p.y + 3.0f);
+			ImGui::SetCursorScreenPos(bp);
+			ImGui::SetNextItemAllowOverlap();
+			const bool clicked = ImGui::InvisibleButton(bid, ImVec2(ts.x, 16.0f));
+			dl->AddText(ImVec2(bp.x, TextY(p.y, h, ImGui::GetFontSize())), ImGui::IsItemHovered() ? kTextBright : kTextDim, text);
+			return clicked;
+		};
+		if (none && all)   // 기본 프로파일은 Override 가 없으므로 ALL/NONE 을 숨긴다 (nullptr)
+		{
+			*none = textButton("NONE", 30.0f, "##none");
+			*all = textButton("ALL", 30.0f + ImGui::CalcTextSize("NONE").x + 10.0f, "##all");
+		}
+		{
+			const ImVec2 ip(p.x + w - 22.0f, p.y + 3.0f);
+			ImGui::SetCursorScreenPos(ip);
+			ImGui::SetNextItemAllowOverlap();
+			if (ImGui::InvisibleButton("##kebab", ImVec2(16, 16)))
+				ImGui::OpenPopup("##fxmenu");
+			DrawIcon(dl, "kebab", ip, 16.0f, ImGui::IsItemHovered() ? IM_COL32_WHITE : IM_COL32(196, 196, 196, 255));
+		}
+		ImGui::PushStyleColor(ImGuiCol_PopupBg, V4(IM_COL32(48, 48, 48, 255)));
+		if (ImGui::BeginPopup("##fxmenu"))
+		{
+			if (ImGui::MenuItem("Reset"))
+				action = HeaderAction::Reset;
+			ImGui::Separator();
+			if (ImGui::MenuItem("Remove"))
+				action = HeaderAction::Remove;
+			ImGui::EndPopup();
+		}
+		ImGui::PopStyleColor();
+
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, h));
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+		return action;
+	}
+
+	bool CenterButton(const char* label, float width)
+	{
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x;
+		const float h = 22.0f;
+		const float x = p.x + floorf((w - width) * 0.5f);
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		ImGui::SetCursorScreenPos(ImVec2(x, p.y));
+		const bool clicked = ImGui::InvisibleButton(label, ImVec2(width, h));
+		const bool hovered = ImGui::IsItemHovered();
+		dl->AddRectFilled(ImVec2(x, p.y), ImVec2(x + width, p.y + h), hovered ? kDropBgHover : kDropBg, 3.0f);
+		dl->AddRect(ImVec2(x, p.y), ImVec2(x + width, p.y + h), kDropBorder, 3.0f);
+		const char* end = strstr(label, "##");   // ## 뒤는 ID 용
+		const ImVec2 ts = ImGui::CalcTextSize(label, end);
+		dl->AddText(ImVec2(floorf(x + (width - ts.x) * 0.5f), TextY(p.y, h, ImGui::GetFontSize())), kTextBright, label, end);
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, h + 4.0f));
+		return clicked;
+	}
+
 	void PrefabInstanceRow(GameObject* root)
 	{
 		if (root == nullptr)

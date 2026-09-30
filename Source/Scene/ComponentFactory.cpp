@@ -14,6 +14,7 @@
 #include "Animator.h"
 #include "Terrain.h"
 #include "TerrainCollider.h"
+#include "Volume.h"
 
 ComponentFactory::ComponentFactory()
 {
@@ -68,4 +69,5 @@ void ComponentFactory::InitBuiltInComponents()
 	RegisterComponent("Animator", []() { return std::make_shared<Animator>(); });
 	RegisterComponent("Terrain", []() { return std::make_shared<Terrain>(); });
 	RegisterComponent("TerrainCollider", []() { return std::make_shared<TerrainCollider>(); });
+	RegisterComponent("Volume", []() { return std::make_shared<Volume>(); });
 }

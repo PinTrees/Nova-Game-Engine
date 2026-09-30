@@ -12,6 +12,23 @@ namespace SceneToolbar
 
 	constexpr float kTopBarHeight = 26.0f;
 
+	// Scene 카메라 설정 (툴바 카메라 드롭다운 = Unity 의 Scene Camera 패널).
+	// 사용자별 설정이라 %LOCALAPPDATA%/NOVA/Editor/SceneCamera.json 에 저장한다.
+	struct SceneCameraSettings
+	{
+		float FieldOfView = 60.0f;     // 세로 시야각 (도)
+		float NearClip = 0.3f;
+		float FarClip = 10000.0f;
+		bool Easing = true;            // 이동 시작/멈춤을 부드럽게
+		bool Acceleration = true;      // 누르고 있을수록 빨라짐
+		float Speed = 1.0f;            // 비행(우클릭 + WASD) 속도 배율
+		float SpeedMin = 0.01f;
+		float SpeedMax = 2.0f;
+	};
+	SceneCameraSettings& CameraSettings();
+	// 설정을 카메라 투영에 반영 (바뀌었을 때만 실제로 SetLens)
+	void ApplyCameraLens(EditorCamera* camera, bool force = false);
+
 	Tool CurrentTool();
 	void SetTool(Tool tool);
 	PivotMode Pivot();
@@ -21,6 +38,7 @@ namespace SceneToolbar
 	bool GridVisible();        // Grid 드롭다운의 Show Grid
 	bool SnapEnabled();        // Ctrl 누름 또는 스냅 토글
 	float SnapIncrement();     // 이동 스냅 간격(유닛)
+	bool PostProcessingVisible();   // Effects 토글 + Effects 메뉴의 Post Processing (Scene 뷰 후처리 표시)
 
 	// Scene 창 콘텐츠 맨 위에 툴바를 그린다 (현재 커서 위치, 폭 = width). 그린 뒤 커서는 툴바 아래로 이동한다.
 	void DrawTopBar(float width, EditorCamera* camera);

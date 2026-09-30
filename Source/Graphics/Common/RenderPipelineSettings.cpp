@@ -1,0 +1,99 @@
+#include "pch.h"
+#include "RenderPipelineSettings.h"
+#include "VolumeProfile.h"
+#include <filesystem>
+#include <fstream>
+
+namespace fs = std::filesystem;
+using json = nlohmann::json;
+
+namespace
+{
+	bool s_Loaded = false;
+	std::string s_DefaultProfile;
+
+	std::wstring SettingsFile()
+	{
+		return PathManager::GetI()->GetMovePathW(L"ProjectSettings\\GraphicsSettings.json");
+	}
+
+	void Load()
+	{
+		s_Loaded = true;
+		s_DefaultProfile.clear();
+		std::ifstream in(SettingsFile());
+		if (!in)
+			return;
+		json j = json::parse(in, nullptr, false);
+		if (!j.is_discarded() && j.is_object())
+			s_DefaultProfile = j.value("defaultVolumeProfile", std::string());
+	}
+
+	void Save()
+	{
+		const fs::path file(SettingsFile());
+		std::error_code ec;
+		fs::create_directories(file.parent_path(), ec);
+		json j = json::object();
+		{
+			// 다른 키가 있으면 보존
+			std::ifstream in(file);
+			if (in)
+			{
+				json old = json::parse(in, nullptr, false);
+				if (!old.is_discarded() && old.is_object())
+					j = old;
+			}
+		}
+		j["defaultVolumeProfile"] = s_DefaultProfile;
+		std::ofstream os(file, std::ios::trunc);
+		if (os)
+			os << j.dump(4);
+	}
+}
+
+namespace RenderPipelineSettings
+{
+	const std::string& DefaultVolumeProfilePath()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_DefaultProfile;
+	}
+
+	void SetDefaultVolumeProfilePath(const std::string& path)
+	{
+		if (!s_Loaded)
+			Load();
+		s_DefaultProfile = path;
+		Save();
+		EditorLog::Write("Volume", "default volume profile = %s", path.empty() ? "(none)" : path.c_str());
+	}
+
+	std::shared_ptr<VolumeProfile> DefaultVolumeProfile()
+	{
+		const std::string& path = DefaultVolumeProfilePath();
+		return path.empty() ? nullptr : VolumeProfile::Load(path);
+	}
+
+	std::shared_ptr<VolumeProfile> EnsureDefaultVolumeProfile()
+	{
+		if (auto existing = DefaultVolumeProfile())
+			return existing;
+		const std::string path = VolumeProfile::CreateAsset("Assets\\Settings\\", "DefaultVolumeProfile");
+		auto profile = VolumeProfile::Load(path);
+		if (profile == nullptr)
+			return nullptr;
+		// Unity 처럼 모든 효과를 기본값으로 담아 둔다 (여기 값이 모든 씬의 기준값)
+		for (const std::string& type : VolumeComponent::Types())
+			profile->Add(type);
+		profile->Save();
+		SetDefaultVolumeProfilePath(path);
+		return profile;
+	}
+
+	void Reload()
+	{
+		Load();
+	}
+}

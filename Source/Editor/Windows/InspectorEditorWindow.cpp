@@ -5,6 +5,10 @@
 #include "AnimatorInspector.h"
 #include "AnimatorController.h"
 #include "UndoSystem.h"
+#include "VolumeProfile.h"
+#include "VolumeEditor.h"
+#include "RenderPipelineSettings.h"
+#include "UnityGUI.h"
 
 namespace fs = std::filesystem;
 
@@ -59,6 +63,19 @@ void InspectorEditorWindow::OnRender()
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::ANIMATOR_CONTROLLER)
 		{
 			AnimatorInspector::DrawController(SelectionManager::GetSelectAnimatorController());
+		}
+		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::VOLUME_PROFILE)
+		{
+			// .volumeprofile 에셋: 제목 + 효과 목록 (기본 프로파일이면 Override 체크 없이)
+			const std::string rel = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(SelectionManager::GetSelectedFile()));
+			if (auto profile = VolumeProfile::Load(rel))
+			{
+				UnityGUI::Label((profile->Name() + " (Volume Profile)").c_str(), 0, true);
+				const bool isDefault = _stricmp(RenderPipelineSettings::DefaultVolumeProfilePath().c_str(), profile->Path.c_str()) == 0;
+				if (isDefault)
+					UnityGUI::HelpBox("This is the Default Volume Profile (Project Settings > Graphics). Its values apply to every scene and can be overridden by Volumes.", false);
+				VolumeEditor::DrawProfile(profile, isDefault);
+			}
 		}
 	}
 	else if (SelectionManager::GetSelectedObjectType() == SelectionType::ANIMATOR)

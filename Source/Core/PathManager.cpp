@@ -55,7 +55,10 @@ namespace
 		size_t pos = movePath.find_first_not_of(L"\\/");
 		if (pos == std::wstring::npos) return false;
 		std::wstring rel = movePath.substr(pos);
-		return StartsWithNoCase(rel, L"ProjectSetting") || StartsWithNoCase(rel, L"Resources") || StartsWithNoCase(rel, L"Shaders");
+		// 첫 폴더 이름 전체를 비교한다 ("ProjectSettings\..." 는 프로젝트 폴더 — 엔진의 "ProjectSetting" 과 다름)
+		const size_t sep = rel.find_first_of(L"\\/");
+		const std::wstring first = sep == std::wstring::npos ? rel : rel.substr(0, sep);
+		return _wcsicmp(first.c_str(), L"ProjectSetting") == 0 || _wcsicmp(first.c_str(), L"Resources") == 0 || _wcsicmp(first.c_str(), L"Shaders") == 0;
 	}
 }
 
