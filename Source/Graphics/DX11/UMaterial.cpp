@@ -4,7 +4,28 @@
 
 UMaterial::UMaterial()
 	: m_ResourcePath("")
+	, Ambient(0.8f, 0.8f, 0.8f, 1.0f)
+	, Diffuse(0.8f, 0.8f, 0.8f, 1.0f)
+	, Specular(0.2f, 0.2f, 0.2f, 16.0f)
+	, Reflect(0.0f, 0.0f, 0.0f, 1.0f)
 {
+	// 초기화되지 않은 값으로 재질 파일이 만들어지던 문제를 방지 (알파 0 이면 오브젝트가 투명하게 보임)
+	Mat.Ambient = Ambient;
+	Mat.Diffuse = Diffuse;
+	Mat.Specular = Specular;
+	Mat.Reflect = Reflect;
+}
+
+shared_ptr<UMaterial> UMaterial::GetDefault()
+{
+	static shared_ptr<UMaterial> s_Default;
+	if (s_Default == nullptr)
+	{
+		s_Default = make_shared<UMaterial>();
+		s_Default->m_ResourcePath = "builtin:Default-Material";
+		s_Default->m_shaderSetting.UseShadowMap = 1;
+	}
+	return s_Default;
 }
 
 UMaterial::~UMaterial()
@@ -58,6 +79,10 @@ UMaterial* UMaterial::Load(string fullPath)
 void UMaterial::Save(UMaterial* material)
 {
 	if (material == nullptr)
+		return;
+
+	// 내장 재질은 파일로 저장하지 않는다
+	if (IsBuiltinPath(material->m_ResourcePath))
 		return;
 
 	// JSON ��ü ����

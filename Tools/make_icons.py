@@ -99,6 +99,44 @@ ICONS = {
         '  <circle cx="16" cy="10.6" r="1.8" fill="#FFFFFF"/>\n'
         '  <rect x="14.6" y="14" width="2.8" height="9" rx="1.2" fill="#FFFFFF"/>\n'
         '</svg>\n'),
+    "mesh_filter": svg16(
+        '  <rect x="1.8" y="1.8" width="12.4" height="12.4" rx="1" fill="none" stroke="#4EA8FF" stroke-width="1.5"/>\n'
+        '  <line x1="8" y1="1.8" x2="8" y2="14.2" stroke="#4EA8FF" stroke-width="1.3"/>\n'
+        '  <line x1="1.8" y1="8" x2="14.2" y2="8" stroke="#4EA8FF" stroke-width="1.3"/>'),
+    "mesh_renderer": svg16(
+        '  <rect x="1.8" y="1.8" width="12.4" height="12.4" rx="1" fill="none" stroke="#4EA8FF" stroke-width="1.5"/>\n'
+        '  <line x1="8" y1="1.8" x2="8" y2="14.2" stroke="#4EA8FF" stroke-width="1.3"/>\n'
+        '  <line x1="1.8" y1="8" x2="14.2" y2="8" stroke="#4EA8FF" stroke-width="1.3"/>\n'
+        '  <circle cx="11.6" cy="4.6" r="1.7" fill="#E8B84A"/>'),
+    "box_collider": svg16(
+        '  <path d="M8 1.6 L14 4.8 L14 11.2 L8 14.4 L2 11.2 L2 4.8 Z" fill="#6FD46F" fill-opacity="0.25" stroke="#6FD46F" stroke-width="1.4"/>\n'
+        '  <path d="M2 4.8 L8 8 L14 4.8" fill="none" stroke="#6FD46F" stroke-width="1.2"/>\n'
+        '  <line x1="8" y1="8" x2="8" y2="14.4" stroke="#6FD46F" stroke-width="1.2"/>'),
+    "sphere_collider": svg16(
+        '  <circle cx="8" cy="8" r="6.2" fill="#6FD46F" fill-opacity="0.22" stroke="#6FD46F" stroke-width="1.4"/>\n'
+        '  <ellipse cx="8" cy="8" rx="6.2" ry="2.4" fill="none" stroke="#6FD46F" stroke-width="1.1"/>'),
+    "edit_collider": svg16(
+        '  <polyline points="3,12.6 5.4,4.2 12.4,6.4 10.2,12.8 3,12.6" fill="none" stroke="#E6E6E6" stroke-width="1.3" stroke-linejoin="round"/>\n'
+        '  <circle cx="3" cy="12.6" r="1.6" fill="#E6E6E6"/>\n'
+        '  <circle cx="5.4" cy="4.2" r="1.6" fill="#E6E6E6"/>\n'
+        '  <circle cx="12.4" cy="6.4" r="1.6" fill="#E6E6E6"/>\n'
+        '  <circle cx="10.2" cy="12.8" r="1.6" fill="#E6E6E6"/>'),
+    "handle": svg16(
+        '  <line x1="3" y1="6" x2="13" y2="6" stroke="#8C8C8C" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="3" y1="10" x2="13" y2="10" stroke="#8C8C8C" stroke-width="1.4" stroke-linecap="round"/>'),
+    "list": svg16(
+        '  <line x1="3" y1="4.5" x2="13" y2="4.5" stroke="#C4C4C4" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="3" y1="8" x2="13" y2="8" stroke="#C4C4C4" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="3" y1="11.5" x2="13" y2="11.5" stroke="#C4C4C4" stroke-width="1.4" stroke-linecap="round"/>'),
+    "material_ball": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">\n'
+        '  <circle cx="16" cy="16" r="14" fill="#E4E4E4"/>\n'
+        '  <circle cx="13" cy="12.5" r="9" fill="#FFFFFF" fill-opacity="0.85"/>\n'
+        '</svg>\n'),
+    "mesh_small": svg16(
+        '  <rect x="2.4" y="2.4" width="11.2" height="11.2" rx="1" fill="none" stroke="#4EA8FF" stroke-width="1.4"/>\n'
+        '  <line x1="8" y1="2.4" x2="8" y2="13.6" stroke="#4EA8FF" stroke-width="1.2"/>\n'
+        '  <line x1="2.4" y1="8" x2="13.6" y2="8" stroke="#4EA8FF" stroke-width="1.2"/>'),
     "component": svg16(
         '  <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="#C4C4C4" stroke-width="1.3"/>\n'
         '  <line x1="5" y1="6" x2="11" y2="6" stroke="#C4C4C4" stroke-width="1.2"/>\n'

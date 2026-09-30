@@ -6,7 +6,6 @@ class BoxCollider
 {
 private:
 	Vec3 m_Size;
-	Vec3 m_Offset;
 
 public:
 	BoxCollider();
@@ -19,6 +18,7 @@ public:
 public:
 	virtual void OnDrawGizmos() override;
 	virtual void OnInspectorGUI() override;
+	virtual const char* InspectorIconName() const override { return "box_collider"; }
 
 public:
 	GENERATE_COMPONENT_BODY(BoxCollider)

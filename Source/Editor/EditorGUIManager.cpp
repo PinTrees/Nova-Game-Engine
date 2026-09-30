@@ -5,6 +5,7 @@
 #include "GraphicsBackendFactory.h"
 #include "HubProject.h"
 #include "EditorTheme.h"
+#include "GameObjectMenu.h"
 #include "ComponentFactory.h"
 #include <shellapi.h>
 
@@ -420,44 +421,8 @@ void EditorGUIManager::RenderEditorWindows()
         // 3. GameObject Menu
         if (ImGui::BeginMenu("GameObject"))
         {
-            Scene* currentScene = SceneManager::GetI()->GetCurrentScene();
-            auto AddObj = [&](GameObject* obj) {
-                if (currentScene && obj) {
-                    GameObject* selected = SelectionManager::GetSelectedGameObject();
-                    if (selected)
-                        obj->SetParent(selected);
-                    else
-                        currentScene->AddRootGameObject(obj);
-                    SelectionManager::SetSelectedGameObject(obj);
-                }
-            };
-
-            if (ImGui::MenuItem("Create Empty"))
-            {
-                AddObj(GameObjectFactory::CreateEmpty());
-            }
-
-            if (ImGui::BeginMenu("3D Object"))
-            {
-                if (ImGui::MenuItem("Cube")) AddObj(GameObjectFactory::CreateCube());
-                if (ImGui::MenuItem("Sphere")) AddObj(GameObjectFactory::CreateSphere());
-                if (ImGui::MenuItem("Cylinder")) AddObj(GameObjectFactory::CreateCylinder());
-                if (ImGui::MenuItem("Plane")) AddObj(GameObjectFactory::CreatePlane());
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::BeginMenu("Light"))
-            {
-                if (ImGui::MenuItem("Directional Light")) AddObj(GameObjectFactory::CreateDirectionalLight());
-                if (ImGui::MenuItem("Point Light")) AddObj(GameObjectFactory::CreatePointLight());
-                if (ImGui::MenuItem("Spot Light")) AddObj(GameObjectFactory::CreateSpotLight());
-                ImGui::EndMenu();
-            }
-
-            if (ImGui::MenuItem("Camera"))
-            {
-                AddObj(GameObjectFactory::CreateCamera());
-            }
+            // Hierarchy 의 [+] / 우클릭 메뉴와 같은 생성 항목 (선택한 오브젝트의 자식으로 생성)
+            GameObjectMenu::DrawCreateItems(SceneManager::GetI()->GetCurrentScene(), SelectionManager::GetSelectedGameObject());
             ImGui::EndMenu();
         }
 

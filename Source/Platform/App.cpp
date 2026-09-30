@@ -14,6 +14,7 @@
 #include "ConsoleEditorWindow.h"
 #include "AnimatorEditorWindow.h"
 #include "DisplayManager.h"
+#include "GameObjectFactory.h"
 
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
@@ -199,6 +200,39 @@ bool App::Init()
 					break;
 				}
 			}
+		}
+	}
+
+	// (개발/검증용) NOVA_DEV_CREATE=cube,sphere,capsule,cylinder,plane,quad 이면 시작 시 기본 도형을 만들어 씬에 저장한다.
+	{
+		char list[256] = {};
+		if (::GetEnvironmentVariableA("NOVA_DEV_CREATE", list, sizeof(list)) > 0 && SceneManager::GetI()->GetCurrentScene())
+		{
+			Scene* scene = SceneManager::GetI()->GetCurrentScene();
+			std::string names = list;
+			float x = -4.0f;
+			size_t pos = 0;
+			while (pos <= names.size())
+			{
+				size_t next = names.find(',', pos);
+				std::string n = names.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+				GameObject* g = nullptr;
+				if (n == "cube") g = GameObjectFactory::CreateCube();
+				else if (n == "sphere") g = GameObjectFactory::CreateSphere();
+				else if (n == "capsule") g = GameObjectFactory::CreateCapsule();
+				else if (n == "cylinder") g = GameObjectFactory::CreateCylinder();
+				else if (n == "plane") g = GameObjectFactory::CreatePlane();
+				else if (n == "quad") g = GameObjectFactory::CreateQuad();
+				if (g)
+				{
+					g->GetTransform()->SetPosition(Vec3(x, 0.5f, 0.0f));
+					scene->AddRootGameObject(g);
+					x += 1.6f;
+				}
+				if (next == std::string::npos) break;
+				pos = next + 1;
+			}
+			Scene::Save(scene);
 		}
 	}
 

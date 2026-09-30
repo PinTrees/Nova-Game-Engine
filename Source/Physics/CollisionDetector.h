@@ -13,6 +13,9 @@ public:
 public:
     void DetectCollision(std::vector<Contact*>& contacts, std::unordered_map<unsigned int, Collider*>& colliders);
 
+    // 두 콜라이더가 겹쳐 있는지만 검사한다 (접촉 정보를 만들지 않음). Trigger / Collision 이벤트 판정에 사용.
+    bool Overlaps(Collider* a, Collider* b);
+
 private:
     bool CheckSphereSphereCollision(std::vector<Contact*>& contacts, SphereCollider* sphere1, SphereCollider* sphere2);
     bool CheckSphereBoxCollision(std::vector<Contact*>& contacts, SphereCollider* sphere, BoxCollider* box);

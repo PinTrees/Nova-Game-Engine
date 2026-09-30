@@ -3,6 +3,8 @@
 #include "Transform.h"
 #include "EditorGUI.h"
 #include "UnityGUI.h"
+#include "MeshFilter.h"
+#include "MeshRenderer.h"
 
 atomic<uint64> GameObject::g_NextInstanceID = 0;
 
@@ -217,8 +219,12 @@ void GameObject::OnInspectorGUI()
         (*it)->RenderInspectorGUI();
     }
 
-    EditorGUI::ComponentDivider(); 
-    ImGui::Dummy(ImVec2(0, 18)); 
+    // 재질 Inspector (Unity 처럼 컴포넌트들 아래에 표시)
+    if (MeshRenderer* meshRenderer = GetComponent<MeshRenderer>())
+        meshRenderer->DrawMaterialInspectors();
+
+    EditorGUI::ComponentDivider();
+    ImGui::Dummy(ImVec2(0, 18));
     // Unity 처럼 가운데 정렬된 넓은 Add Component 버튼
     {
         const float availX = ImGui::GetContentRegionAvail().x;
@@ -310,6 +316,22 @@ void from_json(const json& j, GameObject& obj)
                 obj.AddComponent(component);
             }
             // 알 수 없거나 등록되지 않은 컴포넌트는 건너뛰어 크래시 방지
+        }
+    }
+
+    // 이전 버전에서 저장된 씬: MeshRenderer 가 직접 가진 메시를 MeshFilter 로 옮긴다 (Unity 구조)
+    if (MeshRenderer* mr = obj.GetComponent<MeshRenderer>())
+    {
+        if (mr->HasOwnMesh() && obj.GetComponent<MeshFilter>() == nullptr)
+        {
+            wstring path; int subset = 0;
+            shared_ptr<Mesh> mesh = mr->TakeOwnMesh(path, subset);
+            auto filter = std::make_shared<MeshFilter>();
+            filter->SetMesh(mesh, path, subset);
+            obj.AddComponent(filter);
+            // Unity 순서: Transform, Mesh Filter, Mesh Renderer ...
+            if (obj.m_Components.size() > 2)
+                std::rotate(obj.m_Components.begin() + 1, obj.m_Components.end() - 1, obj.m_Components.end());
         }
     }
 

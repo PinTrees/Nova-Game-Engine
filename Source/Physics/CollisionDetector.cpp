@@ -16,6 +16,8 @@ void CollisionDetector::DetectCollision(std::vector<Contact*>& contacts, std::un
 		for (auto j = std::next(i, 1); j != colliders.end(); ++j)
 		{
 			Collider* colliderPtrJ = j->second;
+			if (colliderPtrI->IsTrigger() || colliderPtrJ->IsTrigger())
+				continue;   // Is Trigger: ÌÜµÍ≥ºÏãúÌÇ§Í≥† Ïù¥Î≤§Ìä∏Îßå Î∞úÏÉùÏãúÌÇ®Îã§ (PhysicsManager)
 			if (typeid(*colliderPtrI) == typeid(SphereCollider))
 			{
 				SphereCollider* collider1 = static_cast<SphereCollider*>(colliderPtrI);
@@ -51,6 +53,25 @@ void CollisionDetector::DetectCollision(std::vector<Contact*>& contacts, std::un
 }
 
 
+bool CollisionDetector::Overlaps(Collider* a, Collider* b)
+{
+	std::vector<Contact*> temp;
+	bool hit = false;
+	SphereCollider* sa = dynamic_cast<SphereCollider*>(a);
+	SphereCollider* sb = dynamic_cast<SphereCollider*>(b);
+	BoxCollider* ba = dynamic_cast<BoxCollider*>(a);
+	BoxCollider* bb = dynamic_cast<BoxCollider*>(b);
+
+	if (sa && sb) hit = CheckSphereSphereCollision(temp, sa, sb);
+	else if (sa && bb) hit = CheckSphereBoxCollision(temp, sa, bb);
+	else if (ba && sb) hit = CheckSphereBoxCollision(temp, sb, ba);
+	else if (ba && bb) hit = CheckBoxBoxCollision(temp, ba, bb);
+
+	for (Contact* c : temp)
+		delete c;
+	return hit;
+}
+
 bool CollisionDetector::CheckSphereSphereCollision(std::vector<Contact*>& contacts, SphereCollider* sphere1, SphereCollider* sphere2)
 {
 	Transform* sphere1Tr = sphere1->GetGameObject()->GetTransform();
@@ -64,13 +85,13 @@ bool CollisionDetector::CheckSphereSphereCollision(std::vector<Contact*>& contac
 
 	/* µŒ ±∏ ªÁ¿Ã¿« ∞≈∏Æ∏¶ ±∏«—¥Ÿ */
 	float distanceSquared =
-		(sphere1Tr->GetPosition() - sphere2Tr->GetPosition()).LengthSquared();
+		(sphere1->GetWorldCenter() - sphere2->GetWorldCenter()).LengthSquared();
 
 	/* µŒ ±∏ ªÁ¿Ã¿« ∞≈∏Æ∞° µŒ ±∏¿« π›¡ˆ∏ß¿« «’∫∏¥Ÿ ¿€¥Ÿ∏È √Êµπ¿Ã πﬂª˝«— ∞Õ¿Ã¥Ÿ */
 	float radiusSum = sphere1Radius + sphere2Radius;
 	if (distanceSquared < radiusSum * radiusSum)
 	{
-		Vector3 centerToCenter = sphere1Tr->GetPosition() - sphere2Tr->GetPosition();
+		Vector3 centerToCenter = sphere1->GetWorldCenter() - sphere2->GetWorldCenter();
 		centerToCenter.Normalize();
 
 		/* √Êµπ ¡§∫∏∏¶ ª˝º∫«—¥Ÿ */
@@ -78,8 +99,8 @@ bool CollisionDetector::CheckSphereSphereCollision(std::vector<Contact*>& contac
 		newContact->bodies[0] = sphere1Rb;
 		newContact->bodies[1] = sphere2Rb;
 		newContact->normal = centerToCenter;
-		newContact->contactPoint[0] = Vector3(sphere1Tr->GetPosition() - centerToCenter * sphere1Radius);
-		newContact->contactPoint[1] = Vector3(sphere2Tr->GetPosition() + centerToCenter * sphere2Radius);
+		newContact->contactPoint[0] = Vector3(sphere1->GetWorldCenter() - centerToCenter * sphere1Radius);
+		newContact->contactPoint[1] = Vector3(sphere2->GetWorldCenter() + centerToCenter * sphere2Radius);
 		newContact->penetration = radiusSum - sqrtf(distanceSquared);
 		newContact->restitution = objectRestitution;
 		newContact->friction = friction;
@@ -106,7 +127,9 @@ bool CollisionDetector::CheckSphereBoxCollision(std::vector<Contact*>& contacts,
 
 	/* ±∏¿« ¡ﬂΩ…¿ª ¡˜¿∞∏È√º¿« ∑Œƒ√ ¡¬«•∞Ë∑Œ ∫Ø»Ø«—¥Ÿ */
 	Matrix sphereInBoxLocalMatrix = sphereTr->GetWorldMatrix() * boxTr->GetWorldMatrix().Invert();
-	Vec3 sphereInBoxLocalPosition = Vec3(sphereInBoxLocalMatrix._41, sphereInBoxLocalMatrix._42, sphereInBoxLocalMatrix._43); 
+	const Vec3 sphereCenterWorld = sphere->GetWorldCenter();
+	// Íµ¨Ïùò Center ÏôÄ ÏÉÅÏûêÏùò Center Î•º Î™®Îëê Î∞òÏòÅÌïú ÏÉÅÏûê Î°úÏª¨ Ï¢åÌëú
+	Vec3 sphereInBoxLocalPosition = Vec3::Transform(sphereCenterWorld, boxTr->GetWorldMatrix().Invert()) - box->GetCenter();
 	Vec3 sphereInBoxLocalScale = Vec3(
 		Vec3(sphereInBoxLocalMatrix._11, sphereInBoxLocalMatrix._12, sphereInBoxLocalMatrix._13).Length(),
 		Vec3(sphereInBoxLocalMatrix._21, sphereInBoxLocalMatrix._22, sphereInBoxLocalMatrix._23).Length(),
@@ -147,20 +170,20 @@ bool CollisionDetector::CheckSphereBoxCollision(std::vector<Contact*>& contacts,
 		closestPoint.z = sphereInBoxLocalPosition.z;
 
 	/* ±∏ø° ∞°¿Â ∞°±ÓøÓ ¡˜¿∞∏È√º ¿ß¿« ¡°¿ª ø˘µÂ ¡¬«•∞Ë∑Œ ∫Ø»Ø«—¥Ÿ */
-	Vec3 closestPointWorld = Vec3::Transform(closestPoint, boxTr->GetWorldMatrix()); 
+	Vec3 closestPointWorld = Vec3::Transform(closestPoint + box->GetCenter(), boxTr->GetWorldMatrix()); 
 
 	/* ¿ß¿« ∞·∞˙øÕ ±∏¿« ¡ﬂΩ… ªÁ¿Ã¿« ∞≈∏Æ∞° ±∏¿« π›¡ˆ∏ß∫∏¥Ÿ ¿€¥Ÿ∏È √Êµπ¿Ã πﬂª˝«— ∞Õ¿Ã¥Ÿ */
 	// ¡§±≥«— ∞ËªÍ¿ª ¿ß«ÿ ø˘µÂ¡¬«•∏¶ ªÁøÎ«’¥œ¥Ÿ.
-	float distanceSquared = (closestPointWorld - sphereTr->GetPosition()).LengthSquared(); 
+	float distanceSquared = (closestPointWorld - sphereCenterWorld).LengthSquared(); 
 	if (distanceSquared < sphereRadius * sphereRadius) 
 	{
 		/* √Êµπ ¡§∫∏∏¶ ª˝º∫«—¥Ÿ */
 		Contact* newContact = new Contact;
 		newContact->bodies[0] = sphereRb;
 		newContact->bodies[1] = boxRb;
-		newContact->normal = sphereTr->GetPosition() - closestPointWorld;
+		newContact->normal = sphereCenterWorld - closestPointWorld;
 		newContact->normal.Normalize();
-		newContact->contactPoint[0] = Vec3(sphereTr->GetPosition() - newContact->normal * sphereOriginal);
+		newContact->contactPoint[0] = Vec3(sphereCenterWorld - newContact->normal * sphereOriginal);
 		newContact->contactPoint[1] = Vec3(closestPointWorld);
 		newContact->penetration = sphereRadius - sqrtf(distanceSquared); 
 		newContact->restitution = objectRestitution;

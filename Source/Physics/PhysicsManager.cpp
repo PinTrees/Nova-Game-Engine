@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "PhysicsManager.h"
+#include "MonoBehaviour.h"
 #include "Debug.h"
 #include "CollisionDetector.h"
 #include "CollisionResolver.h"
@@ -43,7 +44,12 @@ void PhysicsManager::Start()
 		auto rigidBody = gameObject->GetComponent<RigidBody>();
 
 		if (rigidBody == nullptr)
+		{
+			// RigidBody 가 없는 콜라이더는 정적 콜라이더로 등록 (이벤트 판정 전용)
+			if (BoxCollider* sb = gameObject->GetComponent<BoxCollider>()) m_StaticColliders.push_back(sb);
+			if (SphereCollider* ss = gameObject->GetComponent<SphereCollider>()) m_StaticColliders.push_back(ss);
 			continue;
+		}
 
 		BoxCollider* box = gameObject->GetComponent<BoxCollider>();
 		SphereCollider* sphere = gameObject->GetComponent<SphereCollider>();
@@ -89,14 +95,90 @@ void PhysicsManager::Update(float deltaTime)
 	}
 
 	/* �浹���� ó���Ѵ� */
-	m_Detector->DetectCollision(m_Contacts, m_Colliders); 
-	m_Resolver->ResolveCollision(m_Contacts, deltaTime);  
+	m_Detector->DetectCollision(m_Contacts, m_Colliders);
+	m_Resolver->ResolveCollision(m_Contacts, deltaTime);
+
+	/* Unity 의 OnTriggerEnter/Stay/Exit, OnCollisionEnter/Stay/Exit 이벤트 */
+	UpdateOverlapEvents();
+}
+
+void PhysicsManager::DispatchEvent(Collider* self, Collider* other, bool trigger, int kind)
+{
+	if (self == nullptr || other == nullptr || self->GetGameObject() == nullptr)
+		return;
+	for (const auto& component : self->GetGameObject()->GetComponents())
+	{
+		MonoBehaviour* script = dynamic_cast<MonoBehaviour*>(component.get());
+		if (script == nullptr)
+			continue;
+		if (trigger)
+		{
+			if (kind == 0) script->OnTriggerEnter(other);
+			else if (kind == 1) script->OnTriggerStay(other);
+			else script->OnTriggerExit(other);
+		}
+		else
+		{
+			if (kind == 0) script->OnCollisionEnter(other);
+			else if (kind == 1) script->OnCollisionStay(other);
+			else script->OnCollisionExit(other);
+		}
+	}
+}
+
+void PhysicsManager::UpdateOverlapEvents()
+{
+	// 판정 대상: RigidBody 가 있는 콜라이더 + 정적 콜라이더. 두 물체 중 적어도 하나는 RigidBody 가 있어야 한다 (Unity 와 동일).
+	std::vector<Collider*> all;
+	for (auto& c : m_Colliders) all.push_back(c.second);
+	size_t rigidCount = all.size();
+	for (Collider* s : m_StaticColliders) all.push_back(s);
+
+	std::map<ULONGLONG, OverlapPair> current;
+	for (size_t i = 0; i < all.size(); ++i)
+	{
+		for (size_t j = i + 1; j < all.size(); ++j)
+		{
+			if (i >= rigidCount && j >= rigidCount)
+				continue;   // 정적 - 정적은 이벤트 없음
+			Collider* a = all[i];
+			Collider* b = all[j];
+			if (!a->IsEnabled() || !b->IsEnabled())
+				continue;
+			if (m_Detector->Overlaps(a, b))
+			{
+				UINT ida = a->GetInstanceID(), idb = b->GetInstanceID();
+				COLLIDER_ID key;
+				key.Left_id = (std::min)(ida, idb);
+				key.RIght_id = (std::max)(ida, idb);
+				current[key.ID] = { a, b, a->IsTrigger() || b->IsTrigger() };
+			}
+		}
+	}
+
+	for (auto& kv : current)
+	{
+		int kind = m_PrevOverlaps.find(kv.first) == m_PrevOverlaps.end() ? 0 : 1;
+		DispatchEvent(kv.second.a, kv.second.b, kv.second.trigger, kind);
+		DispatchEvent(kv.second.b, kv.second.a, kv.second.trigger, kind);
+	}
+	for (auto& kv : m_PrevOverlaps)
+	{
+		if (current.find(kv.first) == current.end())
+		{
+			DispatchEvent(kv.second.a, kv.second.b, kv.second.trigger, 2);
+			DispatchEvent(kv.second.b, kv.second.a, kv.second.trigger, 2);
+		}
+	}
+	m_PrevOverlaps = std::move(current);
 }
 
 void PhysicsManager::Exit()
 {
 	m_RigidBodies.clear();
 	m_Colliders.clear();
+	m_StaticColliders.clear();
+	m_PrevOverlaps.clear();
 }
 
 void PhysicsManager::DebugRender()

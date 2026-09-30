@@ -3,6 +3,7 @@
 #include "GameObject.h"
 #include "Transform.h"
 #include "MeshRenderer.h"
+#include "MeshFilter.h"
 #include "Camera.h"
 #include "Light.h"
 #include "BoxCollider.h"
@@ -56,6 +57,95 @@ static std::shared_ptr<Mesh> BuildMeshFromGeometry(const GeometryGenerator::Mesh
 	return mesh;
 }
 
+// Unity 캡슐: 반지름 0.5, 전체 높이 2 (원통 구간 1 + 양쪽 반구)
+static void CreateCapsuleData(GeometryGenerator::MeshData& data, float radius, float cylinderHeight, uint32 slices, uint32 ringsPerHemisphere)
+{
+	const float pi = 3.14159265358979f;
+	const uint32 ringCount = ringsPerHemisphere * 2 + 2;      // 위/아래 반구 (극점 포함)
+	std::vector<std::pair<float, float>> rings;              // (phi, y 오프셋)
+	for (uint32 i = 0; i <= ringsPerHemisphere; ++i)
+		rings.push_back({ (pi * 0.5f) * i / ringsPerHemisphere, +cylinderHeight * 0.5f });
+	for (uint32 i = 0; i <= ringsPerHemisphere; ++i)
+		rings.push_back({ pi * 0.5f + (pi * 0.5f) * i / ringsPerHemisphere, -cylinderHeight * 0.5f });
+	(void)ringCount;
+
+	for (size_t i = 0; i < rings.size(); ++i)
+	{
+		float phi = rings[i].first;
+		float v = (float)i / (float)(rings.size() - 1);
+		for (uint32 j = 0; j <= slices; ++j)
+		{
+			float theta = 2.0f * pi * j / slices;
+			XMFLOAT3 n(sinf(phi) * cosf(theta), cosf(phi), sinf(phi) * sinf(theta));
+			XMFLOAT3 p(radius * n.x, radius * n.y + rings[i].second, radius * n.z);
+			XMFLOAT3 t(-sinf(theta), 0.0f, cosf(theta));
+			data.vertices.push_back(GeometryGenerator::Vertex(p, n, t, XMFLOAT2((float)j / slices, v)));
+		}
+	}
+
+	const uint32 ringVertexCount = slices + 1;
+	for (uint32 i = 0; i + 1 < rings.size(); ++i)
+	{
+		for (uint32 j = 0; j < slices; ++j)
+		{
+			data.indices.push_back(i * ringVertexCount + j);
+			data.indices.push_back(i * ringVertexCount + j + 1);
+			data.indices.push_back((i + 1) * ringVertexCount + j);
+			data.indices.push_back((i + 1) * ringVertexCount + j);
+			data.indices.push_back(i * ringVertexCount + j + 1);
+			data.indices.push_back((i + 1) * ringVertexCount + j + 1);
+		}
+	}
+}
+
+// Unity 쿼드: XY 평면의 1x1 사각형
+static void CreateQuadData(GeometryGenerator::MeshData& data)
+{
+	data.vertices.push_back(GeometryGenerator::Vertex(-0.5f, -0.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f));
+	data.vertices.push_back(GeometryGenerator::Vertex(-0.5f, +0.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f));
+	data.vertices.push_back(GeometryGenerator::Vertex(+0.5f, +0.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f));
+	data.vertices.push_back(GeometryGenerator::Vertex(+0.5f, -0.5f, 0.0f, 0.0f, 0.0f, -1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f));
+	const uint32 idx[6] = { 0, 1, 2, 0, 2, 3 };
+	data.indices.assign(idx, idx + 6);
+}
+
+static const wchar_t* BuiltinName(PrimitiveType type)
+{
+	switch (type)
+	{
+	case PrimitiveType::Cube: return L"Cube";
+	case PrimitiveType::Sphere: return L"Sphere";
+	case PrimitiveType::Capsule: return L"Capsule";
+	case PrimitiveType::Cylinder: return L"Cylinder";
+	case PrimitiveType::Plane: return L"Plane";
+	case PrimitiveType::Quad: return L"Quad";
+	}
+	return L"";
+}
+
+std::wstring GameObjectFactory::GetBuiltinMeshPath(PrimitiveType type)
+{
+	return std::wstring(L"builtin:") + BuiltinName(type);
+}
+
+bool GameObjectFactory::IsBuiltinMeshPath(const std::wstring& path)
+{
+	return path.rfind(L"builtin:", 0) == 0;
+}
+
+std::shared_ptr<Mesh> GameObjectFactory::LoadBuiltinMesh(const std::wstring& path)
+{
+	if (!IsBuiltinMeshPath(path))
+		return nullptr;
+	std::wstring name = path.substr(8);
+	for (int i = 0; i <= (int)PrimitiveType::Quad; ++i)
+	{
+		if (name == BuiltinName((PrimitiveType)i))
+			return GetPrimitiveMesh((PrimitiveType)i);
+	}
+	return nullptr;
+}
+
 std::shared_ptr<Mesh> GameObjectFactory::GetPrimitiveMesh(PrimitiveType type)
 {
 	auto it = s_PrimitiveMeshes.find(type);
@@ -81,11 +171,25 @@ std::shared_ptr<Mesh> GameObjectFactory::GetPrimitiveMesh(PrimitiveType type)
 		mesh = BuildMeshFromGeometry(data, "Sphere");
 		break;
 	}
+	case PrimitiveType::Capsule:
+	{
+		GeometryGenerator::MeshData data;
+		CreateCapsuleData(data, 0.5f, 1.0f, 24, 8);
+		mesh = BuildMeshFromGeometry(data, "Capsule");
+		break;
+	}
 	case PrimitiveType::Cylinder:
 	{
 		GeometryGenerator::MeshData data;
-		geoGen.CreateCylinder(0.5f, 0.5f, 1.0f, 24, 24, data);
+		geoGen.CreateCylinder(0.5f, 0.5f, 2.0f, 24, 1, data);   // Unity 원통: 반지름 0.5, 높이 2
 		mesh = BuildMeshFromGeometry(data, "Cylinder");
+		break;
+	}
+	case PrimitiveType::Quad:
+	{
+		GeometryGenerator::MeshData data;
+		CreateQuadData(data);
+		mesh = BuildMeshFromGeometry(data, "Quad");
 		break;
 	}
 	case PrimitiveType::Plane:
@@ -111,12 +215,20 @@ GameObject* GameObjectFactory::CreateEmpty(const std::string& name)
 	return obj;
 }
 
-GameObject* GameObjectFactory::CreateCube(const std::string& name)
+GameObject* GameObjectFactory::CreatePrimitive(PrimitiveType type, const std::string& name)
 {
 	GameObject* obj = new GameObject(name);
+	// Unity 와 같은 구조: MeshFilter(메시) + MeshRenderer(재질). 내장 메시는 "builtin:" 경로로 씬에 저장된다.
+	auto filter = obj->AddComponent<MeshFilter>();
+	filter->SetMesh(GetPrimitiveMesh(type), GetBuiltinMeshPath(type), 0);
 	auto mr = obj->AddComponent<MeshRenderer>();
-	mr->SetMesh(GetPrimitiveMesh(PrimitiveType::Cube));
+	mr->SetBuiltinMesh(GetBuiltinMeshPath(type), GetPrimitiveMesh(type));
+	return obj;
+}
 
+GameObject* GameObjectFactory::CreateCube(const std::string& name)
+{
+	GameObject* obj = CreatePrimitive(PrimitiveType::Cube, name);
 	auto col = obj->AddComponent<BoxCollider>();
 	col->SetSize(Vec3(1.0f, 1.0f, 1.0f));
 	return obj;
@@ -124,32 +236,33 @@ GameObject* GameObjectFactory::CreateCube(const std::string& name)
 
 GameObject* GameObjectFactory::CreateSphere(const std::string& name)
 {
-	GameObject* obj = new GameObject(name);
-	auto mr = obj->AddComponent<MeshRenderer>();
-	mr->SetMesh(GetPrimitiveMesh(PrimitiveType::Sphere));
-
+	GameObject* obj = CreatePrimitive(PrimitiveType::Sphere, name);
 	auto col = obj->AddComponent<SphereCollider>();
 	col->SetRadius(0.5f);
 	return obj;
 }
 
+GameObject* GameObjectFactory::CreateCapsule(const std::string& name)
+{
+	return CreatePrimitive(PrimitiveType::Capsule, name);
+}
+
 GameObject* GameObjectFactory::CreateCylinder(const std::string& name)
 {
-	GameObject* obj = new GameObject(name);
-	auto mr = obj->AddComponent<MeshRenderer>();
-	mr->SetMesh(GetPrimitiveMesh(PrimitiveType::Cylinder));
-	return obj;
+	return CreatePrimitive(PrimitiveType::Cylinder, name);
 }
 
 GameObject* GameObjectFactory::CreatePlane(const std::string& name)
 {
-	GameObject* obj = new GameObject(name);
-	auto mr = obj->AddComponent<MeshRenderer>();
-	mr->SetMesh(GetPrimitiveMesh(PrimitiveType::Plane));
-
+	GameObject* obj = CreatePrimitive(PrimitiveType::Plane, name);
 	auto col = obj->AddComponent<BoxCollider>();
 	col->SetSize(Vec3(10.0f, 0.01f, 10.0f));
 	return obj;
+}
+
+GameObject* GameObjectFactory::CreateQuad(const std::string& name)
+{
+	return CreatePrimitive(PrimitiveType::Quad, name);
 }
 
 GameObject* GameObjectFactory::CreateDirectionalLight(const std::string& name)

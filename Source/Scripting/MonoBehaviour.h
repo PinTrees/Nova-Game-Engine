@@ -62,7 +62,11 @@ public:
 
 	// Physics callbacks
 	virtual void OnCollisionEnter(Collider* other) {}
+	virtual void OnCollisionStay(Collider* other) {}
+	virtual void OnCollisionExit(Collider* other) {}
 	virtual void OnTriggerEnter(Collider* other) {}
+	virtual void OnTriggerStay(Collider* other) {}
+	virtual void OnTriggerExit(Collider* other) {}
 
 	// 100% Automated Inspector GUI
 	virtual void OnInspectorGUI() override;

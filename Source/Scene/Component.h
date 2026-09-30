@@ -49,6 +49,8 @@ public:
 	virtual bool UsesUnityInspector() const { return false; }
 	// 헤더 아이콘 이름(ProjectSetting/icons/svg/png/<이름>.png). nullptr 이면 타입 기본 아이콘
 	virtual const char* InspectorIconName() const { return nullptr; }
+	// 헤더 제목 (예: "Cube (Mesh Filter)"). 기본은 m_InspectorTitleName
+	virtual std::string InspectorTitle() const { return m_InspectorTitleName; }
 	// 헤더에 활성 체크박스를 표시할지 (Transform 은 표시하지 않음)
 	virtual bool HasEnabledToggle() const { return true; }
 	bool IsEnabled() const { return m_Enabled; }

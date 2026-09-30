@@ -28,7 +28,8 @@ namespace UnityGUI
 	bool Vector3(const char* label, float* xyz, bool showLinkIcon = false, int indent = 0);
 	bool Vector2Pair(const char* label, const char* n0, float* a, const char* n1, float* b, int indent = 0);   // "X 0  Y 0" 형태
 	bool Color(const char* label, float* rgba, int indent = 0);
-	void ObjectField(const char* label, const char* text, int indent = 0);
+	// 오브젝트 필드. 오른쪽 ⊙ 버튼을 누르면 true. iconName 이 있으면 필드 안쪽 왼쪽에 아이콘을 표시한다.
+	bool ObjectField(const char* label, const char* text, int indent = 0, const char* iconName = nullptr);
 	void Label(const char* label, int indent = 0, bool bold = false);
 	void EmptyListBox(const char* header, const char* emptyText);
 	// 체크박스 + 텍스트가 왼쪽에 붙는 행 (예: Light 의 "Cookie"). withTargetIcon 이면 텍스트 앞에 ⊙ 아이콘.
@@ -40,7 +41,19 @@ namespace UnityGUI
 
 	// ---- 섹션 ----
 	// SRP 스타일 접이식 서브 섹션 (예: Projection, Rendering). 열려 있으면 true.
-	bool Foldout(const char* label, int indent = 0, bool defaultOpen = true, bool help = true);
+bool Foldout(const char* label, int indent = 0, bool defaultOpen = true, bool help = true);
+	// 배경 밴드 없이 화살표 + 굵은 글자만 있는 폴드아웃 (MeshRenderer 의 Lighting / Probes 등)
+	bool FoldoutPlain(const char* label, int indent = 0, bool defaultOpen = true);
+	// "Materials" 폴드아웃 + 오른쪽 크기 입력 필드
+	bool MaterialsHeader(const char* label, int* count);
+	// [= Element N ] [ 오브젝트 필드 ⊙ ]
+	bool ElementRow(const char* label, const char* text, const char* iconName);
+	// 리스트 하단 + / - 버튼
+	void PlusMinus(bool* plus, bool* minus);
+	// 레이블 + 아이콘 버튼 (예: Edit Collider). 눌리면 true
+	bool IconButtonRow(const char* label, const char* iconName, int indent = 0);
+	// 재질 Inspector (컴포넌트 아래에 표시): 헤더 + Shader 행
+	void MaterialPanel(const char* name, const char* shaderName);
 
 	// 컴포넌트 헤더 (Transform, Camera 등)
 	enum class HeaderAction { None, Reset, Remove };

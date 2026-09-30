@@ -1,5 +1,8 @@
 #include "pch.h"
 #include "MeshRenderer.h"
+#include "MeshFilter.h"
+#include "UnityGUI.h"
+#include "GameObjectFactory.h"
 #include "Effects.h"
 #include "ShaderSetting.h"
 #include "MathHelper.h"
@@ -12,7 +15,7 @@ MeshRenderer::MeshRenderer()
 	m_Mesh(nullptr),
 	m_MaterialPaths({})
 {
-	m_InspectorTitleName = "MeshRenderer";
+	m_InspectorTitleName = "Mesh Renderer";
 	m_InspectorIconPath = L"mesh_renderer.png";
 }
 
@@ -22,6 +25,7 @@ MeshRenderer::~MeshRenderer()
 
 void MeshRenderer::Render()
 {
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -89,6 +93,7 @@ void MeshRenderer::Render()
 
 void MeshRenderer::RenderInstancing(shared_ptr<class InstancingBuffer>& buffer)
 {
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -160,6 +165,9 @@ void MeshRenderer::RenderInstancing(shared_ptr<class InstancingBuffer>& buffer)
 
 void MeshRenderer::RenderShadow()
 {
+	if (m_CastShadows == 1)
+		return;   // Cast Shadows: Off
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -203,6 +211,9 @@ void MeshRenderer::RenderShadow()
 
 void MeshRenderer::RenderShadowInstancing(shared_ptr<class InstancingBuffer>& buffer)
 {
+	if (m_CastShadows == 1)
+		return;   // Cast Shadows: Off
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -239,6 +250,7 @@ void MeshRenderer::RenderShadowInstancing(shared_ptr<class InstancingBuffer>& bu
 
 void MeshRenderer::RenderShadowNormal()
 {
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -283,6 +295,7 @@ void MeshRenderer::RenderShadowNormal()
 
 void MeshRenderer::RenderShadowNormalInstancing(shared_ptr<class InstancingBuffer>& buffer)
 {
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -337,6 +350,7 @@ void MeshRenderer::RenderShadowNormalInstancing(shared_ptr<class InstancingBuffe
 
 void MeshRenderer::_Editor_Render()
 {
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -404,6 +418,7 @@ void MeshRenderer::_Editor_Render()
 
 void MeshRenderer::_Editor_RenderShadowNormal()
 {
+	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
 
@@ -446,67 +461,97 @@ void MeshRenderer::_Editor_RenderShadowNormal()
 	}
 }
 
+void MeshRenderer::SyncMeshFromFilter()
+{
+	if (m_pGameObject == nullptr)
+		return;
+	MeshFilter* filter = m_pGameObject->GetComponent<MeshFilter>();
+	if (filter != nullptr)
+	{
+		m_Mesh = filter->GetMesh();
+		m_MeshSubsetIndex = filter->GetSubsetIndex();
+	}
+}
+
 void MeshRenderer::OnInspectorGUI()
 {
-	auto changed = EditorGUI::MeshField("Mesh", m_Mesh, m_MeshPath, m_MeshSubsetIndex);
+	using namespace UnityGUI;
+	static const char* kCast[] = { "On", "Off", "Two Sided", "Shadows Only" };
+	static const char* kGI[] = { "Light Probes" };
+	static const char* kProbes[] = { "Off", "Blend Probes", "Use Proxy Volume", "Custom Provided" };
+	static const char* kMotion[] = { "Camera Motion", "Per Object Motion", "Force No Motion" };
+	static const char* kLayerMask[] = { "Default", "Nothing", "Everything" };
+	static const char* kMask[] = { "None", "Visible Inside Mask", "Visible Outside Mask" };
 
-	if (m_Mesh)
+	// ---- Materials ----
+	int count = (int)m_pMaterials.size();
+	bool open = MaterialsHeader("Materials", &count);
+	if (count != (int)m_pMaterials.size())
 	{
-		EditorGUI::Label("  V: " + to_string(m_Mesh->Vertices.size()) + ", I: " + to_string(m_Mesh->Indices.size()));
+		while ((int)m_pMaterials.size() < count) { m_pMaterials.push_back(UMaterial::GetDefault()); m_MaterialPaths.push_back(L"builtin:Default-Material"); }
+		while ((int)m_pMaterials.size() > count) { m_pMaterials.pop_back(); m_MaterialPaths.pop_back(); }
 	}
-
-	EditorGUI::LabelHeader("Materials");
-
-	// πËø≠¿« ∞¢ ø‰º“¿« ≥Ù¿Ã∏¶ ∞ËªÍ
-	float itemHeight = 24;
-	float totalHeight = itemHeight * m_pMaterials.size(); // ¿⁄Ωƒ ø‰º“µÈ¿« √— ≥Ù¿Ã 
-
-	ImGui::Dummy(ImVec2(4, 0));
-	ImGui::SameLine();
-
-	if (ImGui::BeginChild("Materials List Box",
-		ImVec2(ImGui::GetContentRegionAvail().x - 8, 4 + totalHeight), true,
-		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+	if (open)
 	{
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 0)); // X, Y ∞£∞›¿ª 2∑Œ º≥¡§
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0)); // «¡∑π¿” ∆–µ˘µµ 2∑Œ º≥¡§
-
-		for (int i = 0; i < m_pMaterials.size(); ++i)
+		for (int i = 0; i < (int)m_pMaterials.size(); ++i)
 		{
+			std::string label = "Element " + std::to_string(i);
+			std::string name = m_pMaterials[i] ? std::filesystem::path(m_pMaterials[i]->GetName()).stem().string() : "None (Material)";
+			if (m_pMaterials[i] && UMaterial::IsBuiltinPath(m_pMaterials[i]->GetName()) == false && name.empty())
+				name = "None (Material)";
+			if (m_pMaterials[i] && m_pMaterials[i]->GetName().rfind("builtin:", 0) == 0)
+				name = m_pMaterials[i]->GetName().substr(8);
 			ImGui::PushID(i);
-
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 4));
-			bool isDelete = EditorGUI::Button("-", Vec2(20, 20), Color(0.20f, 0.20f, 0.20f, 1.0f));
-			ImGui::PopStyleVar();
-
-			if (isDelete)
-			{
-				m_pMaterials.erase(m_pMaterials.begin() + i);
-				m_MaterialPaths.erase(m_MaterialPaths.begin() + i);
-				--i;
-
-				ImGui::PopID();
-				continue;
-			}
-
-			ImGui::SameLine();
-			ImGui::Dummy(ImVec2(0, 24));
-			ImGui::SameLine();
-			EditorGUI::MaterialField("Element " + to_string(i), m_pMaterials[i], m_MaterialPaths[i]);
-
+			ElementRow(label.c_str(), name.c_str(), nullptr);
 			ImGui::PopID();
 		}
-
-		ImGui::PopStyleVar(2);
+		bool plus = false, minus = false;
+		PlusMinus(&plus, &minus);
+		if (plus) { m_pMaterials.push_back(UMaterial::GetDefault()); m_MaterialPaths.push_back(L"builtin:Default-Material"); }
+		if (minus && !m_pMaterials.empty()) { m_pMaterials.pop_back(); m_MaterialPaths.pop_back(); }
 	}
-	ImGui::EndChild();
 
-	ImGui::Dummy(ImVec2(4, 0));
-	ImGui::SameLine();
-	if (EditorGUI::Button("Add"))
+	// ---- Lighting ----
+	if (FoldoutPlain("Lighting"))
 	{
-		m_pMaterials.push_back(nullptr);
-		m_MaterialPaths.push_back(L"");
+		Dropdown("Cast Shadows", &m_CastShadows, kCast, 4, 0);
+		Toggle("Static Shadow Caster", &m_StaticShadowCaster);
+		Toggle("Contribute Global Illumination", &m_ContributeGI);
+		Dropdown("Receive Global Illumination", &m_ReceiveGI, kGI, 1, 1, true);
+	}
+
+	// ---- Probes ----
+	if (FoldoutPlain("Probes"))
+	{
+		Dropdown("Light Probes", &m_LightProbes, kProbes, 4, 0);
+		ObjectField("Anchor Override", "None (Transform)", 0);
+	}
+
+	// ---- Additional Settings ----
+	if (FoldoutPlain("Additional Settings"))
+	{
+		Dropdown("Motion Vectors", &m_MotionVectors, kMotion, 3, 0);
+		Toggle("Dynamic Occlusion", &m_DynamicOcclusion);
+		Dropdown("Rendering Layer Mask", &m_RenderingLayerMask, kLayerMask, 3, 0);
+	}
+
+	// ---- 2D ----
+	if (FoldoutPlain("2D"))
+		Dropdown("Mask Interaction", &m_MaskInteraction, kMask, 3, 0);
+}
+
+void MeshRenderer::DrawMaterialInspectors()
+{
+	for (auto& material : m_pMaterials)
+	{
+		if (material == nullptr)
+			continue;
+		std::string name = material->GetName();
+		if (name.rfind("builtin:", 0) == 0)
+			name = name.substr(8);
+		else
+			name = std::filesystem::path(name).stem().string();
+		UnityGUI::MaterialPanel(name.c_str(), "NOVA/Lit (Forward)");
 	}
 }
 
@@ -516,17 +561,43 @@ GENERATE_COMPONENT_FUNC_TOJSON(MeshRenderer)
 
 	SERIALIZE_TYPE(j, MeshRenderer);
 	SERIALIZE_INT(j, m_MeshSubsetIndex, "subsetIndex");
-	SERIALIZE_WSTRING(j, m_MeshPath, "meshPath");
+	// Í∞ôÏùÄ GameObject Ïóê MeshFilter Í∞Ä ÏûàÏúºÎ©¥ Î©îÏãúÎäî ÌïÑÌÑ∞Í∞Ä Ï†ÄÏû•ÌïúÎã§
+	if (m_pGameObject != nullptr && m_pGameObject->GetComponent<MeshFilter>() != nullptr)
+		j["meshPath"] = "";
+	else
+		SERIALIZE_WSTRING(j, m_MeshPath, "meshPath");
 	SERIALIZE_WSTRING_ARRAY(j, m_MaterialPaths, "m_MaterialPaths");
 
 	// Shader
 	SERIALIZE_WSTRING(j, m_ShaderPath, "shaderPath");
+
+	j["enabled"] = m_Enabled;
+	j["castShadows"] = m_CastShadows;
+	j["staticShadowCaster"] = m_StaticShadowCaster;
+	j["contributeGI"] = m_ContributeGI;
+	j["receiveGI"] = m_ReceiveGI;
+	j["lightProbes"] = m_LightProbes;
+	j["motionVectors"] = m_MotionVectors;
+	j["dynamicOcclusion"] = m_DynamicOcclusion;
+	j["renderingLayerMask"] = m_RenderingLayerMask;
+	j["maskInteraction"] = m_MaskInteraction;
 	return j;
 }
 
 GENERATE_COMPONENT_FUNC_FROMJSON(MeshRenderer)
 {
 	DE_SERIALIZE_WSTRING(j, m_ShaderPath, "shaderPath");
+
+	m_Enabled = j.value("enabled", true);
+	m_CastShadows = j.value("castShadows", 0);
+	m_StaticShadowCaster = j.value("staticShadowCaster", false);
+	m_ContributeGI = j.value("contributeGI", false);
+	m_ReceiveGI = j.value("receiveGI", 0);
+	m_LightProbes = j.value("lightProbes", 1);
+	m_MotionVectors = j.value("motionVectors", 1);
+	m_DynamicOcclusion = j.value("dynamicOcclusion", true);
+	m_RenderingLayerMask = j.value("renderingLayerMask", 0);
+	m_MaskInteraction = j.value("maskInteraction", 0);
 
 	DE_SERIALIZE_INT(j, m_MeshSubsetIndex, "subsetIndex");
 	DE_SERIALIZE_WSTRING(j, m_MeshPath, "meshPath");
@@ -545,5 +616,13 @@ GENERATE_COMPONENT_FUNC_FROMJSON(MeshRenderer)
 			if (material != nullptr)
 				m_pMaterials.push_back(material);
 		}
+	}
+
+	// ÎÇ¥Ïû• ÎèÑÌòïÏù∏Îç∞ Ïû¨ÏßàÏù¥ ÏóÜÏúºÎ©¥(Ïù¥Ï†Ñ Î≤ÑÏ†ÑÏóêÏÑú Ï†ÄÏû•Ìïú Ïî¨ Îì±) Í∏∞Î≥∏ Ïû¨ÏßàÏùÑ Î∂ôÏù∏Îã§
+	if (m_pMaterials.empty() && GameObjectFactory::IsBuiltinMeshPath(m_MeshPath))
+	{
+		m_pMaterials.push_back(UMaterial::GetDefault());
+		m_MaterialPaths.clear();
+		m_MaterialPaths.push_back(L"builtin:Default-Material");
 	}
 }

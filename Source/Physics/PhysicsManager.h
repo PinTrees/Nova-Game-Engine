@@ -50,6 +50,16 @@ private:
 	std::unordered_map<unsigned int, Collider*> m_Colliders;
 	std::vector<Contact*> m_Contacts;
 
+	// RigidBody 없이 콜라이더만 있는 오브젝트(정적 콜라이더). 트리거/충돌 이벤트 판정에만 참여한다.
+	std::vector<Collider*> m_StaticColliders;
+
+	// 이전 프레임에 겹쳐 있던 콜라이더 쌍 (Enter / Stay / Exit 판정용)
+	struct OverlapPair { Collider* a; Collider* b; bool trigger; };
+	std::map<ULONGLONG, OverlapPair> m_PrevOverlaps;
+
+	void UpdateOverlapEvents();
+	void DispatchEvent(Collider* self, Collider* other, bool trigger, int kind);   // kind: 0 Enter, 1 Stay, 2 Exit
+
 	CollisionDetector* m_Detector; 
 	CollisionResolver* m_Resolver;
 

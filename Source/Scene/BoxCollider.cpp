@@ -1,11 +1,11 @@
 #include "pch.h"
 #include "BoxCollider.h"
+#include "UnityGUI.h"
 
 BoxCollider::BoxCollider()
-    : m_Size(Vec3::One),
-    m_Offset(Vec3::Zero)
+    : m_Size(Vec3::One)
 {
-    m_InspectorTitleName = "BoxCollider";
+    m_InspectorTitleName = "Box Collider";
 }
 
 BoxCollider::~BoxCollider()
@@ -15,32 +15,30 @@ BoxCollider::~BoxCollider()
 
 Vec3 BoxCollider::GetSize()
 {
-    return m_Size; 
+    return m_Size;
 }
 
 void BoxCollider::OnDrawGizmos()
 {
-    Gizmo::DrawCube(m_pGameObject->GetComponent<Transform>()->GetWorldMatrix(), m_Size); 
+    // Center 만큼 이동한 위치에 크기 m_Size 상자를 그린다
+    XMMATRIX world = m_pGameObject->GetComponent<Transform>()->GetWorldMatrix();
+    XMMATRIX centered = XMMatrixTranslation(m_Center.x, m_Center.y, m_Center.z) * world;
+    Gizmo::DrawCube(centered, m_Size);
 }
 
 void BoxCollider::OnInspectorGUI()
 {
-    if (ImGui::DragFloat3("Size", &m_Size.x))
-    {
-    }
-
-    if (ImGui::DragFloat3("Offset", &m_Offset.x))
-    {
-    }
+    DrawCommonInspector();
+    UnityGUI::Vector3("Size", &m_Size.x);
+    UnityGUI::FoldoutPlain("Layer Overrides", 0, false);
 }
-
 
 GENERATE_COMPONENT_FUNC_TOJSON(BoxCollider)
 {
     json j;
     j["type"] = "BoxCollider";
     j["size"] = { m_Size.x, m_Size.y, m_Size.z };
-    j["offset"] = { m_Offset.x, m_Offset.y, m_Offset.z };
+    SerializeCommon(j);
     return j;
 }
 
@@ -52,11 +50,13 @@ GENERATE_COMPONENT_FUNC_FROMJSON(BoxCollider)
         m_Size.y = j.at("size")[1];
         m_Size.z = j.at("size")[2];
     }
+    DeserializeCommon(j);
 
-    if (j.contains("offset"))
+    // 이전 버전의 "offset" 은 Center 로 이전
+    if (!j.contains("center") && j.contains("offset"))
     {
-        m_Offset.x = j.at("offset")[0];
-        m_Offset.y = j.at("offset")[1];
-        m_Offset.z = j.at("offset")[2];
+        m_Center.x = j.at("offset")[0];
+        m_Center.y = j.at("offset")[1];
+        m_Center.z = j.at("offset")[2];
     }
 }

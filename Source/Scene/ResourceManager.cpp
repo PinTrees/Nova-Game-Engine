@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ResourceManager.h"
+#include "GameObjectFactory.h"
 #include "Utils.h"
 
 SINGLE_BODY(ResourceManager)
@@ -53,6 +54,9 @@ ComPtr<ID3D11ShaderResourceView> ResourceManager::LoadTexture(wstring filename)
 
 shared_ptr<UMaterial> ResourceManager::LoadMaterial(string filename)
 {
+	if (UMaterial::IsBuiltinPath(filename))
+		return UMaterial::GetDefault();
+
 	shared_ptr<UMaterial> material = nullptr;
 
 	if (m_Materials.find(filename) != m_Materials.end())
@@ -79,6 +83,10 @@ shared_ptr<UMaterial> ResourceManager::LoadMaterial(string filename)
 
 shared_ptr<Mesh> ResourceManager::LoadMesh(wstring filename, int index)
 {
+	// 엔진 내장 메시(builtin:Cube 등)는 파일 없이 코드로 만든다
+	if (GameObjectFactory::IsBuiltinMeshPath(filename))
+		return GameObjectFactory::LoadBuiltinMesh(filename);
+
 	tuple<wstring, int> key = make_tuple(filename, index); 
 	shared_ptr<Mesh> mesh = nullptr;
 

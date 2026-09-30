@@ -58,7 +58,9 @@ namespace
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			ImFont* font = bold ? UnityGUI::BoldFont() : ImGui::GetFont();
 			float fs = font ? font->FontSize : ImGui::GetFontSize();
-			dl->AddText(font, fs, ImVec2(r.p.x + kBaseIndent + indent * kNestIndent, TextY(r.p.y, kRowHeight, fs)), kText, label);
+			const float lx = r.p.x + kBaseIndent + indent * kNestIndent;
+			ImVec4 clip(r.p.x, r.p.y, r.fieldX - 6.0f, r.p.y + kRowHeight);   // 레이블은 필드 열 직전까지만 표시
+			dl->AddText(font, fs, ImVec2(lx, TextY(r.p.y, kRowHeight, fs)), kText, label, nullptr, 0.0f, &clip);
 		}
 		ImGui::SetCursorScreenPos(ImVec2(r.fieldX, r.p.y));
 		return r;
@@ -325,6 +327,191 @@ namespace UnityGUI
 		return changed;
 	}
 
+	bool FoldoutPlain(const char* label, int indent, bool defaultOpen)
+	{
+		ImGuiStorage* st = ImGui::GetStateStorage();
+		ImGuiID id = ImGui::GetID(label);
+		bool open = st->GetBool(id, defaultOpen);
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		float w = ImGui::GetContentRegionAvail().x;
+		const float h = kRowStep;
+
+		ImGui::PushID(label);
+		if (ImGui::InvisibleButton("##fold", ImVec2(w, h)))
+		{
+			open = !open;
+			st->SetBool(id, open);
+		}
+		ImGui::PopID();
+
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		float x = p.x + 6.0f + indent * kNestIndent;
+		DrawIcon(dl, open ? "arrow_down" : "arrow_right", ImVec2(x, p.y + 5.0f), 10.0f);
+		ImFont* bold = BoldFont();
+		dl->AddText(bold, bold->FontSize, ImVec2(x + 15.0f, TextY(p.y, h, bold->FontSize)), kTextBright, label);
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+		return open;
+	}
+
+	bool MaterialsHeader(const char* label, int* count)
+	{
+		ImGuiStorage* st = ImGui::GetStateStorage();
+		ImGuiID id = ImGui::GetID(label);
+		bool open = st->GetBool(id, true);
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		float w = ImGui::GetContentRegionAvail().x;
+		const float h = kRowStep;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+
+		ImGui::PushID(label);
+		ImGui::SetNextItemAllowOverlap();
+		if (ImGui::InvisibleButton("##fold", ImVec2(w, h)))
+		{
+			open = !open;
+			st->SetBool(id, open);
+		}
+		float x = p.x + 6.0f;
+		DrawIcon(dl, open ? "arrow_down" : "arrow_right", ImVec2(x, p.y + 5.0f), 10.0f);
+		ImFont* bold = BoldFont();
+		dl->AddText(bold, bold->FontSize, ImVec2(x + 15.0f, TextY(p.y, h, bold->FontSize)), kTextBright, label);
+
+		// 오른쪽 크기 입력 (Unity: Materials  [1])
+		ImGui::SetCursorScreenPos(ImVec2(p.x + w - 12.0f - 62.0f, p.y + 1.0f));
+		PushFieldStyle();
+		ImGui::SetNextItemWidth(62.0f);
+		ImGui::InputScalar("##count", ImGuiDataType_S32, count, nullptr, nullptr, "%d", ImGuiInputTextFlags_AutoSelectAll);
+		PopFieldStyle();
+		ImGui::PopID();
+		if (*count < 0) *count = 0;
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h));
+		return open;
+	}
+
+	bool ElementRow(const char* label, const char* text, const char* iconName)
+	{
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		float w = ImGui::GetContentRegionAvail().x;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const float h = 26.0f;
+		const float x0 = p.x + 14.0f, x1 = p.x + w - 12.0f;
+		dl->AddRectFilled(ImVec2(x0, p.y + 1.0f), ImVec2(x1, p.y + h), IM_COL32(50, 50, 50, 255), 2.0f);
+		dl->AddRect(ImVec2(x0, p.y + 1.0f), ImVec2(x1, p.y + h), kFieldBorder, 2.0f);
+		DrawIcon(dl, "handle", ImVec2(x0 + 2.0f, p.y + 5.0f), 16.0f);
+		dl->AddText(ImVec2(x0 + 22.0f, TextY(p.y + 1.0f, h - 1.0f, ImGui::GetFontSize())), kText, label);
+
+		// 오브젝트 필드
+		float fx0 = x0 + (x1 - x0) * 0.40f;
+		float fx1 = x1 - 6.0f;
+		ImVec2 f0(fx0, p.y + 4.0f), f1(fx1, p.y + h - 3.0f);
+		dl->AddRectFilled(f0, f1, kFieldBg, 3.0f);
+		dl->AddRect(f0, f1, kFieldBorder, 3.0f);
+		float tx = f0.x + 6.0f;
+		if (iconName)
+		{
+			DrawIcon(dl, iconName, ImVec2(f0.x + 4.0f, f0.y + 1.0f), 16.0f);
+			tx += 20.0f;
+		}
+		bool hasValue = text && strncmp(text, "None", 4) != 0;
+		dl->AddText(ImVec2(tx, TextY(f0.y, f1.y - f0.y, ImGui::GetFontSize())), hasValue ? kTextBright : kTextDim, text);
+		ImGui::PushID(label);
+		ImGui::SetCursorScreenPos(ImVec2(f1.x - 20.0f, f0.y));
+		bool clicked = ImGui::InvisibleButton("##pick", ImVec2(20.0f, f1.y - f0.y));
+		DrawIcon(dl, "target", ImVec2(f1.x - 18.0f, f0.y + 1.0f), 16.0f, ImGui::IsItemHovered() ? IM_COL32_WHITE : IM_COL32(196, 196, 196, 255));
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, h + 2.0f));
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 2.0f));
+		return clicked;
+	}
+
+	void PlusMinus(bool* plus, bool* minus)
+	{
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		float w = ImGui::GetContentRegionAvail().x;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const float x1 = p.x + w - 12.0f;
+		const float bw = 28.0f, bh = 22.0f;
+		ImGui::PushID("plusminus");
+		for (int i = 0; i < 2; ++i)
+		{
+			ImVec2 b0(x1 - bw * (2 - i), p.y + 1.0f), b1(b0.x + bw, b0.y + bh);
+			ImGui::SetCursorScreenPos(b0);
+			bool clicked = ImGui::InvisibleButton(i == 0 ? "##plus" : "##minus", ImVec2(bw, bh));
+			bool hover = ImGui::IsItemHovered();
+			dl->AddRectFilled(b0, b1, hover ? IM_COL32(72, 72, 72, 255) : IM_COL32(58, 58, 58, 255), 2.0f);
+			dl->AddRect(b0, b1, kFieldBorder, 2.0f);
+			DrawIcon(dl, i == 0 ? "plus" : "minus", ImVec2(b0.x + 6.0f, b0.y + 3.0f), 16.0f);
+			if (clicked)
+			{
+				if (i == 0 && plus) *plus = true;
+				if (i == 1 && minus) *minus = true;
+			}
+		}
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, bh + 6.0f));
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + bh + 6.0f));
+	}
+
+	bool IconButtonRow(const char* label, const char* iconName, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		ImVec2 b0(r.fieldX, r.p.y);
+		ImVec2 b1(b0.x + 34.0f, b0.y + 24.0f);
+		ImGui::SetCursorScreenPos(b0);
+		bool clicked = ImGui::InvisibleButton("##btn", ImVec2(34.0f, 24.0f));
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		dl->AddRectFilled(b0, b1, ImGui::IsItemHovered() ? IM_COL32(30, 30, 30, 255) : IM_COL32(24, 24, 24, 255), 3.0f);
+		dl->AddRect(b0, b1, IM_COL32(20, 20, 20, 255), 3.0f);
+		DrawIcon(dl, iconName, ImVec2(b0.x + 9.0f, b0.y + 4.0f), 16.0f);
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(r.p);
+		ImGui::Dummy(ImVec2(r.w, 28.0f));
+		ImGui::SetCursorScreenPos(ImVec2(r.p.x, r.p.y + 28.0f));
+		return clicked;
+	}
+
+	void MaterialPanel(const char* name, const char* shaderName)
+	{
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		float w = ImGui::GetContentRegionAvail().x;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const float headerH = 44.0f;
+		dl->AddRectFilled(p, ImVec2(p.x + w, p.y + headerH), kHeaderBg);
+		dl->AddLine(p, ImVec2(p.x + w, p.y), kSeparator);
+		DrawIcon(dl, "material_ball", ImVec2(p.x + 12.0f, p.y + 6.0f), 32.0f);
+		ImFont* bold = BoldFont();
+		std::string title = std::string(name) + " (Material)";
+		dl->AddText(bold, bold->FontSize, ImVec2(p.x + 52.0f, TextY(p.y, headerH - 8.0f, bold->FontSize)), kTextBright, title.c_str());
+		DrawIcon(dl, "help", ImVec2(p.x + w - 66.0f, p.y + 5.0f), 16.0f);
+		DrawIcon(dl, "presets", ImVec2(p.x + w - 44.0f, p.y + 5.0f), 16.0f);
+		DrawIcon(dl, "kebab", ImVec2(p.x + w - 22.0f, p.y + 5.0f), 16.0f);
+
+		// Shader 행: [Shader] [ 드롭다운 ] [Edit...] [≡]
+		const float rowY = p.y + 24.0f;
+		dl->AddText(ImVec2(p.x + 52.0f, TextY(rowY, kRowHeight, ImGui::GetFontSize())), kText, "Shader");
+		float fx0 = p.x + 104.0f;
+		float fx1 = p.x + w - 96.0f;
+		dl->AddRectFilled(ImVec2(fx0, rowY), ImVec2(fx1, rowY + kRowHeight), IM_COL32(64, 64, 64, 255), 3.0f);
+		dl->AddRect(ImVec2(fx0, rowY), ImVec2(fx1, rowY + kRowHeight), kDropBorder, 3.0f);
+		dl->AddText(ImVec2(fx0 + 6.0f, TextY(rowY, kRowHeight, ImGui::GetFontSize())), kTextDim, shaderName);
+		DrawIcon(dl, "dropdown", ImVec2(fx1 - 16.0f, rowY + 3.0f), 12.0f, IM_COL32(150, 150, 150, 255));
+		ImVec2 e0(fx1 + 6.0f, rowY), e1(e0.x + 44.0f, rowY + kRowHeight);
+		dl->AddRectFilled(e0, e1, IM_COL32(72, 72, 72, 255), 3.0f);
+		dl->AddRect(e0, e1, kDropBorder, 3.0f);
+		dl->AddText(ImVec2(e0.x + 6.0f, TextY(rowY, kRowHeight, ImGui::GetFontSize())), kTextBright, "Edit...");
+		ImVec2 l0(e1.x + 4.0f, rowY), l1(l0.x + 30.0f, rowY + kRowHeight);
+		dl->AddRectFilled(l0, l1, IM_COL32(72, 72, 72, 255), 3.0f);
+		dl->AddRect(l0, l1, kDropBorder, 3.0f);
+		DrawIcon(dl, "list", ImVec2(l0.x + 4.0f, rowY + 1.0f), 16.0f);
+		DrawIcon(dl, "dropdown", ImVec2(l0.x + 18.0f, rowY + 3.0f), 10.0f, IM_COL32(150, 150, 150, 255));
+
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, headerH + 34.0f));
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + headerH + 34.0f));
+	}
+
 	bool Slider(const char* label, float* value, float minV, float maxV, int indent)
 	{
 		Row r = BeginRow(label, indent);
@@ -480,17 +667,30 @@ namespace UnityGUI
 		return changed;
 	}
 
-	void ObjectField(const char* label, const char* text, int indent)
+	bool ObjectField(const char* label, const char* text, int indent, const char* iconName)
 	{
 		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		ImVec2 p0(r.fieldX, r.p.y);
 		ImVec2 p1(r.fieldX + r.fieldW, r.p.y + kRowHeight);
 		dl->AddRectFilled(p0, p1, kFieldBg, 3.0f);
 		dl->AddRect(p0, p1, kFieldBorder, 3.0f);
-		dl->AddText(ImVec2(p0.x + 6.0f, TextY(p0.y, kRowHeight, ImGui::GetFontSize())), kTextDim, text);
-		DrawIcon(dl, "target", ImVec2(p1.x - 18.0f, p0.y + 1.0f), 16.0f);
+		float tx = p0.x + 6.0f;
+		if (iconName)
+		{
+			DrawIcon(dl, iconName, ImVec2(p0.x + 4.0f, p0.y + 1.0f), 16.0f);
+			tx += 20.0f;
+		}
+		bool hasValue = text && strncmp(text, "None", 4) != 0;
+		dl->AddText(ImVec2(tx, TextY(p0.y, kRowHeight, ImGui::GetFontSize())), hasValue ? kTextBright : kTextDim, text);
+
+		ImGui::SetCursorScreenPos(ImVec2(p1.x - 20.0f, p0.y));
+		bool clicked = ImGui::InvisibleButton("##pick", ImVec2(20.0f, kRowHeight));
+		DrawIcon(dl, "target", ImVec2(p1.x - 18.0f, p0.y + 1.0f), 16.0f, ImGui::IsItemHovered() ? IM_COL32_WHITE : IM_COL32(196, 196, 196, 255));
+		ImGui::PopID();
 		EndRow(r);
+		return clicked;
 	}
 
 	void Label(const char* label, int indent, bool bold)

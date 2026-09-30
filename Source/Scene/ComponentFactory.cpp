@@ -3,6 +3,7 @@
 #include "Camera.h"
 #include "Light.h"
 #include "MeshRenderer.h"
+#include "MeshFilter.h"
 #include "SkinnedMeshRenderer.h"
 #include "RigidBody.h"
 #include "BoxCollider.h"
@@ -51,6 +52,7 @@ void ComponentFactory::InitBuiltInComponents()
 {
 	RegisterComponent("Camera", []() { return std::make_shared<Camera>(); });
 	RegisterComponent("Light", []() { return std::make_shared<Light>(); });
+	RegisterComponent("MeshFilter", []() { return std::make_shared<MeshFilter>(); });
 	RegisterComponent("MeshRenderer", []() { return std::make_shared<MeshRenderer>(); });
 	RegisterComponent("SkinnedMeshRenderer", []() { return std::make_shared<SkinnedMeshRenderer>(); });
 	RegisterComponent("RigidBody", []() { return std::make_shared<RigidBody>(); });

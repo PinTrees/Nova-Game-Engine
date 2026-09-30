@@ -53,6 +53,7 @@ public:
 public:
 	uint64 GetInstanceID() const { return m_InstanceID; }
 	const string& GetName() { return m_Name; }
+	void SetName(const string& name) { m_Name = name; }
 	vector<GameObject*> GetChildren() { return m_pChildGameObjects; }
 	int GetChildCount() { return m_pChildGameObjects.size(); }
 	Transform* GetTransform() { return m_pTransform; }

@@ -18,6 +18,7 @@ public:
 public:
 	virtual void OnDrawGizmos() override;
 	virtual void OnInspectorGUI() override;
+	virtual const char* InspectorIconName() const override { return "sphere_collider"; }
 
 	GENERATE_COMPONENT_BODY(SphereCollider)
 };

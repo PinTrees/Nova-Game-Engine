@@ -27,7 +27,8 @@ void Component::RenderInspectorGUI()
 	if (const char* custom = InspectorIconName()) icon = custom;
 
 	string headerId = "ComponentHeader" + to_string(GetInstanceID());
-	UnityGUI::HeaderResult header = UnityGUI::ComponentHeader(headerId.c_str(), m_InspectorTitleName.c_str(), icon,
+	const std::string title = InspectorTitle();
+	UnityGUI::HeaderResult header = UnityGUI::ComponentHeader(headerId.c_str(), title.c_str(), icon,
 		&m_InspectorOpened, HasEnabledToggle() ? &m_Enabled : nullptr, type != "Transform");
 
 	if (header.action == UnityGUI::HeaderAction::Reset) Reset();

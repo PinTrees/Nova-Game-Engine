@@ -35,6 +35,10 @@ public:
 	string GetName();
 
 public:
+	// 엔진 내장 기본 재질 (Unity 의 Default-Material 과 같은 밝은 회색). 씬에는 "builtin:Default-Material" 로 저장된다.
+	static shared_ptr<UMaterial> GetDefault();
+	static bool IsBuiltinPath(const string& path) { return path.rfind("builtin:", 0) == 0; }
+
 	static void Create(string fullPath);
 	static UMaterial* Load(string fullPath);
 	static void Save(UMaterial* material);

@@ -5,6 +5,7 @@
 #include "EditorGUI.h"
 #include "EditorTheme.h"
 #include "GameObjectFactory.h"
+#include "GameObjectMenu.h"
 
 // Unity Hierarchy 창: 상단 [+ ▾] / 검색 행, 씬 이름 헤더 행, 그 아래 GameObject 트리
 namespace
@@ -28,39 +29,173 @@ SceneHierachyEditorWindow::~SceneHierachyEditorWindow()
 {
 }
 
-void SceneHierachyEditorWindow::DrawCreateMenu(Scene* scene, GameObject* parent)
+namespace
 {
-	auto AddObj = [&](GameObject* obj)
+	// 클립보드: Copy/Cut 한 GameObject(하위 포함)를 JSON 으로 보관한다.
+	std::string s_ClipJson;
+	uint64_t s_CutSourceId = 0;
+
+	void CollectAll(GameObject* g, std::vector<GameObject*>& out)
 	{
-		if (parent != nullptr)
-			obj->SetParent(parent);
+		out.push_back(g);
+		for (GameObject* c : g->GetChildren())
+			CollectAll(c, out);
+	}
+
+	GameObject* FindById(Scene* scene, uint64_t id)
+	{
+		std::vector<GameObject*> all;
+		for (GameObject* root : scene->GetRootGameObjects())
+			CollectAll(root, all);
+		for (GameObject* g : all)
+			if (g->GetInstanceID() == id) return g;
+		return nullptr;
+	}
+
+	// "Cube" -> "Cube (1)", "Cube (1)" -> "Cube (2)" (같은 부모 아래에서 겹치지 않게)
+	std::string UniqueCopyName(Scene* scene, GameObject* source)
+	{
+		std::string base = source->GetName();
+		size_t p = base.rfind(" (");
+		if (p != std::string::npos && !base.empty() && base.back() == ')')
+			base = base.substr(0, p);
+
+		std::vector<GameObject*> siblings;
+		if (source->GetParent())
+			siblings = source->GetParent()->GetChildren();
 		else
-			scene->AddRootGameObject(obj);
-		SelectionManager::SetSelectedGameObject(obj);
-	};
+			siblings = scene->GetRootGameObjects();
 
-	if (ImGui::MenuItem("Create Empty"))
-		AddObj(GameObjectFactory::CreateEmpty());
-
-	if (ImGui::BeginMenu("3D Object"))
-	{
-		if (ImGui::MenuItem("Cube")) AddObj(GameObjectFactory::CreateCube());
-		if (ImGui::MenuItem("Sphere")) AddObj(GameObjectFactory::CreateSphere());
-		if (ImGui::MenuItem("Cylinder")) AddObj(GameObjectFactory::CreateCylinder());
-		if (ImGui::MenuItem("Plane")) AddObj(GameObjectFactory::CreatePlane());
-		ImGui::EndMenu();
+		for (int n = 1;; ++n)
+		{
+			std::string candidate = base + " (" + std::to_string(n) + ")";
+			bool used = false;
+			for (GameObject* s : siblings)
+				if (s->GetName() == candidate) { used = true; break; }
+			if (!used) return candidate;
+		}
 	}
+}
 
-	if (ImGui::BeginMenu("Light"))
+void SceneHierachyEditorWindow::CopyObject(GameObject* target, bool cut)
+{
+	if (target == nullptr)
+		return;
+	json j = *target;
+	s_ClipJson = j.dump();
+	s_CutSourceId = cut ? target->GetInstanceID() : 0;
+}
+
+GameObject* SceneHierachyEditorWindow::PasteObject(Scene* scene, GameObject* parent)
+{
+	if (s_ClipJson.empty() || scene == nullptr)
+		return nullptr;
+
+	json j = json::parse(s_ClipJson, nullptr, false);
+	if (j.is_discarded())
+		return nullptr;
+
+	GameObject* g = new GameObject();
+	from_json(j, *g);
+	scene->AddRootGameObject(g);
+	if (parent != nullptr)
+		g->SetParent(parent);
+
+	// Cut 은 붙여넣는 순간 원본을 제거한다
+	if (s_CutSourceId != 0)
 	{
-		if (ImGui::MenuItem("Directional Light")) AddObj(GameObjectFactory::CreateDirectionalLight());
-		if (ImGui::MenuItem("Point Light")) AddObj(GameObjectFactory::CreatePointLight());
-		if (ImGui::MenuItem("Spot Light")) AddObj(GameObjectFactory::CreateSpotLight());
-		ImGui::EndMenu();
+		GameObject* source = FindById(scene, s_CutSourceId);
+		if (source != nullptr && source != g)
+			GameObject::Destroy(source);
+		s_CutSourceId = 0;
+		s_ClipJson.clear();
 	}
+	SelectionManager::SetSelectedGameObject(g);
+	return g;
+}
 
-	if (ImGui::MenuItem("Camera"))
-		AddObj(GameObjectFactory::CreateCamera());
+GameObject* SceneHierachyEditorWindow::DuplicateObject(Scene* scene, GameObject* target)
+{
+	if (target == nullptr || scene == nullptr)
+		return nullptr;
+
+	json j = *target;
+	GameObject* g = new GameObject();
+	from_json(j, *g);
+	g->SetName(UniqueCopyName(scene, target));
+	scene->AddRootGameObject(g);
+	if (target->GetParent() != nullptr)
+		g->SetParent(target->GetParent());
+	SelectionManager::SetSelectedGameObject(g);
+	return g;
+}
+
+void SceneHierachyEditorWindow::BeginRename(GameObject* target)
+{
+	if (target == nullptr)
+		return;
+	m_RenameTarget = target;
+	m_RenameFrames = 0;
+	strncpy_s(m_RenameBuffer, target->GetName().c_str(), _TRUNCATE);
+}
+
+// Unity Hierarchy 컨텍스트 메뉴 (target: 우클릭한 오브젝트, 빈 곳이면 nullptr)
+void SceneHierachyEditorWindow::DrawContextMenu(Scene* scene, GameObject* target)
+{
+	const bool hasTarget = (target != nullptr);
+	const bool hasClipboard = !s_ClipJson.empty();
+
+	if (ImGui::MenuItem("Cut", "Ctrl+X", false, hasTarget)) CopyObject(target, true);
+	if (ImGui::MenuItem("Copy", "Ctrl+C", false, hasTarget)) CopyObject(target, false);
+	if (ImGui::MenuItem("Paste", "Ctrl+V", false, hasClipboard)) PasteObject(scene, target);
+	ImGui::MenuItem("Paste Special", nullptr, false, false);
+	if (ImGui::MenuItem("Rename", nullptr, false, hasTarget)) BeginRename(target);
+	if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasTarget)) DuplicateObject(scene, target);
+	if (ImGui::MenuItem("Delete", "Del", false, hasTarget)) m_PendingDelete = target;
+
+	ImGui::Separator();
+	ImGui::MenuItem("Select All", nullptr, false, false);
+	if (ImGui::MenuItem("Deselect All", nullptr, false, SelectionManager::GetSelectedGameObject() != nullptr))
+		SelectionManager::SetSelectedGameObject(nullptr);
+	ImGui::MenuItem("Invert Selection", nullptr, false, false);
+	ImGui::MenuItem("Select Children", nullptr, false, false);
+
+	ImGui::Separator();
+	ImGui::MenuItem("Find References in Scene", nullptr, false, false);
+
+	ImGui::Separator();
+	ImGui::MenuItem("Set as Default Parent", nullptr, false, false);
+
+	ImGui::Separator();
+	GameObjectMenu::DrawCreateItems(scene, target);
+}
+
+// Hierarchy 에 포커스가 있을 때의 단축키
+void SceneHierachyEditorWindow::HandleShortcuts(Scene* scene)
+{
+	ImGuiIO& io = ImGui::GetIO();
+	if (!m_WindowFocused || io.WantTextInput || m_RenameTarget != nullptr)
+		return;
+
+	GameObject* selected = SelectionManager::GetSelectedGameObject();
+	if (io.KeyCtrl && !io.KeyShift)
+	{
+		if (ImGui::IsKeyPressed(ImGuiKey_C, false)) CopyObject(selected, false);
+		if (ImGui::IsKeyPressed(ImGuiKey_X, false)) CopyObject(selected, true);
+		if (ImGui::IsKeyPressed(ImGuiKey_V, false)) PasteObject(scene, selected);
+		if (ImGui::IsKeyPressed(ImGuiKey_D, false)) DuplicateObject(scene, selected);
+	}
+	if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_N, false))
+	{
+		GameObject* g = GameObjectFactory::CreateEmpty();
+		scene->AddRootGameObject(g);
+		SelectionManager::SetSelectedGameObject(g);
+	}
+	if (selected != nullptr)
+	{
+		if (ImGui::IsKeyPressed(ImGuiKey_Delete, false)) m_PendingDelete = selected;
+		if (ImGui::IsKeyPressed(ImGuiKey_F2, false)) BeginRename(selected);
+	}
 }
 
 void SceneHierachyEditorWindow::DrawToolbar(Scene* scene)
@@ -78,11 +213,14 @@ void SceneHierachyEditorWindow::DrawToolbar(Scene* scene)
 
 	if (ImGui::Button(ICON_FA_PLUS "  " ICON_FA_CHEVRON_DOWN, ImVec2(44.0f, 20.0f)))
 		ImGui::OpenPopup("HierarchyAddMenu");
+	GameObjectMenu::PushContextStyle();
+	GameObjectMenu::SetMenuWidth(190.0f);
 	if (ImGui::BeginPopup("HierarchyAddMenu"))
 	{
-		DrawCreateMenu(scene, nullptr);
+		GameObjectMenu::DrawCreateItems(scene, nullptr);
 		ImGui::EndPopup();
 	}
+	GameObjectMenu::PopContextStyle();
 
 	ImGui::SameLine(0, 6.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0f);
@@ -133,6 +271,7 @@ void SceneHierachyEditorWindow::OnRender()
 	m_WindowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	m_PendingDelete = nullptr;
 
+	HandleShortcuts(currentScene);
 	DrawToolbar(currentScene);
 	DrawSceneHeader(currentScene);
 
@@ -153,7 +292,10 @@ void SceneHierachyEditorWindow::OnRender()
 		}
 		else
 		{
-			for (GameObject* g : currentScene->GetAllGameObjects())
+			std::vector<GameObject*> all;
+			for (GameObject* root : currentScene->GetRootGameObjects())
+				CollectAll(root, all);
+			for (GameObject* g : all)
 			{
 				if (ToLowerCopy(g->GetName()).find(query) != std::string::npos)
 					DrawGameObject(g, 0);
@@ -182,11 +324,14 @@ void SceneHierachyEditorWindow::OnRender()
 		}
 		ImGui::EndDragDropTarget();
 	}
+	GameObjectMenu::PushContextStyle();
+	GameObjectMenu::SetMenuWidth(330.0f);
 	if (ImGui::BeginPopupContextItem("##HierEmptyContext", ImGuiPopupFlags_MouseButtonRight))
 	{
-		DrawCreateMenu(currentScene, nullptr);
+		DrawContextMenu(currentScene, nullptr);
 		ImGui::EndPopup();
 	}
+	GameObjectMenu::PopContextStyle();
 
 	ImGui::EndChild();
 	ImGui::PopStyleVar(2);
@@ -223,15 +368,19 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 		SelectionManager::SetSelectedGameObject(gameObject);
 	ImGui::PopStyleColor(3);
 
-	// 컨텍스트 메뉴
+	// 컨텍스트 메뉴 (우클릭하면 해당 오브젝트가 선택된다)
+	if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+		SelectionManager::SetSelectedGameObject(gameObject);
+	GameObjectMenu::PushContextStyle();
+	GameObjectMenu::SetMenuWidth(330.0f);
 	if (ImGui::BeginPopupContextItem("##ctx", ImGuiPopupFlags_MouseButtonRight))
 	{
-		DrawCreateMenu(scene, gameObject);
-		ImGui::Separator();
-		if (ImGui::MenuItem("Delete"))
-			m_PendingDelete = gameObject;
+		DrawContextMenu(scene, gameObject);
 		ImGui::EndPopup();
 	}
+	GameObjectMenu::PopContextStyle();
+	if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		BeginRename(gameObject);
 
 	// 드래그 & 드롭
 	if (ImGui::BeginDragDropSource())
@@ -271,7 +420,30 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 
 	// 아이콘 + 이름
 	dl->AddText(ImVec2(x0 + 20.0f, ty), ImGui::GetColorU32(EditorTheme::Rgb(150, 190, 230)), ICON_FA_CUBE);
-	dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(EditorTheme::Rgb(225, 225, 225)), gameObject->GetName().c_str());
+	if (m_RenameTarget == gameObject)
+	{
+		// 이름 바꾸기 입력창: Enter/포커스 해제 시 적용, Esc 취소
+		ImGui::SetCursorScreenPos(ImVec2(x0 + 38.0f, p.y + 1.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 1.0f));
+		ImGui::SetNextItemWidth((std::max)(60.0f, w - (x0 - p.x) - 44.0f));
+		if (m_RenameFrames == 0)
+			ImGui::SetKeyboardFocusHere();
+		bool enter = ImGui::InputText("##rename", m_RenameBuffer, sizeof(m_RenameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+		ImGui::PopStyleVar(2);
+		bool lostFocus = (m_RenameFrames > 1) && !ImGui::IsItemActive();
+		++m_RenameFrames;
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+			m_RenameTarget = nullptr;
+		else if (enter || lostFocus)
+		{
+			if (m_RenameBuffer[0] != 0)
+				gameObject->SetName(m_RenameBuffer);
+			m_RenameTarget = nullptr;
+		}
+	}
+	else
+		dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(EditorTheme::Rgb(225, 225, 225)), gameObject->GetName().c_str());
 
 	// 다음 행 위치 복원
 	ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + kRowHeight));
@@ -283,20 +455,6 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 	}
 
 	ImGui::PopID();
-}
-
-void SceneHierachyEditorWindow::PopupContextMenu()
-{
-	Scene* currentScene = SceneManager::GetI()->GetCurrentScene();
-
-	if (currentScene == nullptr)
-		return;
-
-	if (ImGui::BeginPopupContextWindow("##SceneHierarchyContextMenu"))
-	{
-		DrawCreateMenu(currentScene, nullptr);
-		ImGui::EndPopup();
-	}
 }
 
 void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, GameObject* parent)
