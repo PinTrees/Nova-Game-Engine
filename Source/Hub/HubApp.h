@@ -2,6 +2,8 @@
 #include "App.h"
 #include "HubProject.h"
 #include <string>
+#include <wrl/client.h>
+#include <d3d11.h>
 #include <vector>
 
 // NOVA Hub: 프로그램을 인자 없이 실행했을 때 가장 먼저 뜨는 프로젝트 관리 창.
@@ -39,6 +41,8 @@ private:
 	char m_NewLocation[512] = {};
 	int  m_NewTemplate = 0;
 	std::string m_NewError;
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_Logo;   // NOVA 로고
 
 	std::string m_Status;
 	bool   m_StatusIsError = false;

@@ -388,11 +388,17 @@ bool App::InitMainWindow()
 	// DPI 인식을 설정
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); 
 
-	HICON hIcon = LoadIcon(_hAppInst, MAKEINTRESOURCE(IDI_MAIN_ICON));
+	// 작업 표시줄(큰 아이콘)과 제목 표시줄(작은 아이콘)에 각각 알맞은 크기의 로고 아이콘을 사용한다.
+	HICON hIcon = (HICON)LoadImage(_hAppInst, MAKEINTRESOURCE(IDI_MAIN_ICON), IMAGE_ICON,
+		GetSystemMetrics(SM_CXICON), GetSystemMetrics(SM_CYICON), LR_DEFAULTCOLOR);
+	HICON hIconSmall = (HICON)LoadImage(_hAppInst, MAKEINTRESOURCE(IDI_MAIN_ICON), IMAGE_ICON,
+		GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR);
 	if (!hIcon)
 	{
 		hIcon = (HICON)LoadImage(NULL, L"ProjectSetting\\icon.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
 	}
+	if (!hIconSmall)
+		hIconSmall = hIcon;
 	if (!hIcon)
 	{
 		hIcon = LoadIcon(0, IDI_APPLICATION);
@@ -439,7 +445,7 @@ bool App::InitMainWindow()
 	}
 
 	SendMessage(_hMainWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
-	SendMessage(_hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
+	SendMessage(_hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
 
 	::ShowWindow(_hMainWnd, SW_SHOW);
 	::UpdateWindow(_hMainWnd);

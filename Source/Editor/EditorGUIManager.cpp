@@ -168,16 +168,28 @@ void EditorGUIManager::DrawToolbar(float y)
         const float bh = 24.0f;
         const float by = (h - bh) * 0.5f;
 
-        // 좌측: 프로젝트 이름
-        if (!PathManager::GetProjectOverride().empty())
+        // 좌측: 로고 + 프로젝트 이름
         {
-            std::filesystem::path root(PathManager::GetProjectOverride());
-            if (!root.has_filename() && root.has_parent_path()) root = root.parent_path();
-            std::string label = std::string(ICON_FA_CUBES "  ") + wstring_to_string(root.filename().wstring());
-            ImGui::SetCursorPos(ImVec2(12.0f, (h - ImGui::GetFontSize()) * 0.5f));
-            ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::TextDim());
-            ImGui::TextUnformatted(label.c_str());
-            ImGui::PopStyleColor();
+            static ComPtr<ID3D11ShaderResourceView> s_LogoSrv;
+            if (!s_LogoSrv)
+                s_LogoSrv = ResourceManager::GetI()->LoadTexture(L"\\ProjectSetting\\logo\\nova-logo-64.png");
+            ID3D11ShaderResourceView* logo = s_LogoSrv.Get();
+            float x = 12.0f;
+            if (logo)
+            {
+                ImGui::SetCursorPos(ImVec2(x, (h - 20.0f) * 0.5f));
+                ImGui::Image((ImTextureID)logo, ImVec2(20.0f, 20.0f));
+                x += 28.0f;
+            }
+            if (!PathManager::GetProjectOverride().empty())
+            {
+                std::filesystem::path root(PathManager::GetProjectOverride());
+                if (!root.has_filename() && root.has_parent_path()) root = root.parent_path();
+                ImGui::SetCursorPos(ImVec2(x, (h - ImGui::GetFontSize()) * 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::TextDim());
+                ImGui::TextUnformatted(wstring_to_string(root.filename().wstring()).c_str());
+                ImGui::PopStyleColor();
+            }
         }
 
         // 중앙: Play / Pause / Step

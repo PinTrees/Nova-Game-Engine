@@ -29,6 +29,8 @@
 
 개발/검증용 환경 변수(에디터): `NOVA_SELECT=<오브젝트 이름>`(시작 시 선택 → Inspector 확인), `NOVA_AUTOPLAY=1`(시작 직후 Play).
 
+**로고**: `ProjectSetting/logo/nova-logo.svg`(아이콘), `nova-logo-horizontal.svg`(워드마크 포함), PNG(32~512). 디자인은 굵은 기하학적 "N" + 우상단 노바 버스트(8갈래 별)이며 `python Tools/make_logo.py`가 SVG와 PNG/ICO(`ProjectSetting/icon.ico`, `Source/Platform/icon.ico`)를 함께 다시 만든다(Pillow, numpy 필요; 도형 좌표는 스크립트 상수 한 곳). 작업 표시줄/제목 표시줄 아이콘은 `NovaEngine.rc`의 ICO 를 큰/작은 크기로 각각 로드(`App::InitMainWindow`), Hub 상단·설치 카드와 에디터 툴바 좌측에도 로고 표시. 아이콘을 바꾼 뒤에는 `NovaEngine.rc`를 touch 해야 exe 아이콘이 갱신되며, 탐색기/작업 표시줄은 아이콘 캐시 때문에 늦게 바뀔 수 있다.
+
 **초기 프로젝트 화면(Unity 새 3D 프로젝트와 같은 첫 화면)**: 새 프로젝트를 처음 열면 `Assets/Scenes/SampleScene.scene`(Main Camera + Directional Light)을 자동 생성·저장하고 `EditorSettings.json`에 기록한다(`SceneManager::LoadStartupScene`). 화면 구성은 메뉴바(File/Edit/Assets/GameObject/Component/Window/Help) → 툴바(프로젝트 이름, Play/Pause/Step, Layout ▾) → Hierarchy(검색, 씬 이름 헤더, 트리) | Scene(하늘/지평선 그라디언트, 그리드, 카메라·라이트 기즈모) / Game | Inspector, 하단 Project(breadcrumb) / Console / Animator. 스타일 상수는 `Source/Editor/EditorTheme.h`(폰트 15px, 색상), 씬 뷰 오버레이는 `Source/Editor/SceneViewOverlay.*`. 저장된 도킹 배치는 `Binaries/nova_layout_v2.ini`(구조를 바꾸면 파일 이름의 버전을 올려 초기화). 창만 캡처해 확인할 때는 `PrintWindow`(PW_RENDERFULLCONTENT) 사용.
 
 - 소스: `Source/Hub/` (`HubApp` UI, `HubProject` 프로젝트 목록·생성·프로세스 실행). 목록 저장 위치는 `%LOCALAPPDATA%/NOVA/Hub/projects.json`. Hub 로그는 `Binaries/hub_log.txt` (에디터는 `run_log.txt`).

@@ -160,6 +160,8 @@ bool HubApp::Init()
 
 	EditorGUIManager::GetI()->Init(true);
 
+	m_Logo = Utils::LoadTexture(_device, PathManager::GetI()->GetEnginePathW() + L"ProjectSetting\\logo\\nova-logo-128.png");
+
 	HubProjectRegistry::Load();
 	std::string defaultLocation = ToUtf8(HubProjectRegistry::DefaultLocation());
 	strncpy_s(m_NewLocation, defaultLocation.c_str(), _TRUNCATE);
@@ -314,8 +316,12 @@ void HubApp::DrawTopBar(float S, float width)
 	ImVec2 origin = ImGui::GetWindowPos();
 
 	ImFont* bold = ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : ImGui::GetFont();
-	ImVec2 pos(origin.x + 16.0f * S, origin.y + 8.0f * S);
-	dl->AddText(bold, bold->FontSize, pos, kColText, ICON_FA_CUBES "  NOVA Hub");
+	const float logoSize = 30.0f * S;
+	ImVec2 logoPos(origin.x + 14.0f * S, origin.y + 8.0f * S);
+	if (m_Logo)
+		dl->AddImage((ImTextureID)m_Logo.Get(), logoPos, ImVec2(logoPos.x + logoSize, logoPos.y + logoSize));
+	ImVec2 pos(logoPos.x + logoSize + 10.0f * S, origin.y + 8.0f * S);
+	dl->AddText(bold, bold->FontSize, pos, kColText, "NOVA Hub");
 
 	std::string version = std::string("v") + ENGINE_VERSION_A;
 	ImVec2 vs = ImGui::CalcTextSize(version.c_str());
@@ -625,7 +631,8 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 		dl->AddRect(p0, p1, kColBorder, 8.0f * S);
 
 		const float fs = ImGui::GetFontSize();
-		dl->AddText(ImVec2(p0.x + 20.0f * S, p0.y + 18.0f * S), kColText, ICON_FA_CUBES);
+		if (m_Logo)
+			dl->AddImage((ImTextureID)m_Logo.Get(), ImVec2(p0.x + 16.0f * S, p0.y + 16.0f * S), ImVec2(p0.x + 48.0f * S, p0.y + 48.0f * S));
 		dl->AddText(ImVec2(p0.x + 56.0f * S, p0.y + 14.0f * S), kColText, ENGINE_VERSION_LABEL_A);
 		dl->AddText(ImVec2(p0.x + 56.0f * S, p0.y + 14.0f * S + fs + 4.0f * S), kColSubText,
 			(ToUtf8(PathManager::GetI()->GetEnginePathW()) + "Binaries").c_str());
