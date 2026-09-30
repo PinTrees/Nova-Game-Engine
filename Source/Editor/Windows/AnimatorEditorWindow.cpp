@@ -3,6 +3,7 @@
 #include "AnimatorController.h"
 #include "Animator.h"
 #include "UnityGUI.h"
+#include "UndoSystem.h"
 #include "ImGui/imgui_internal.h"
 
 using namespace AnimatorTypes;
@@ -411,7 +412,13 @@ void AnimatorEditorWindow::OnRender()
 {
 	ResolveTarget();
 	if (m_Controller)
+	{
 		SyncSelection();
+		std::weak_ptr<AnimatorController> weak = m_Controller;
+		Undo::WatchAsset("controller:" + m_Controller->Path, m_Controller->Name(),
+			[weak]() { auto c = weak.lock(); return c ? c->ToJsonString() : std::string(); },
+			[weak](const std::string& text) { if (auto c = weak.lock()) { c->ApplyJson(text); c->Commit(); } });
+	}
 
 	const ImVec2 pos = ImGui::GetCursorScreenPos();
 	const ImVec2 avail = ImGui::GetContentRegionAvail();

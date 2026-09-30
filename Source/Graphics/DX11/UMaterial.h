@@ -48,6 +48,8 @@ public:
 
 public:
 	void SetBaseMap(TextureMgr texMgr, wstring fullPath);
+	// 저장된 경로로 텍스처를 다시 읽는다 (Undo 로 값을 되돌린 뒤)
+	void ReloadTextures();
 	void SetNormalMap(TextureMgr texMgr, wstring fullPath);
 
 	ID3D11ShaderResourceView* GetBaseMapSRV() { return BaseMapSRV.Get(); }

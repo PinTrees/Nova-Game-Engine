@@ -55,6 +55,8 @@ public:
 	 
 	void AddRootGameObject(GameObject* gameObject);
 	vector<GameObject*> GetRootGameObjects() { return m_VecRootGameObjects; }
+	// 저장되는 고유 ID 로 찾기 (없으면 nullptr)
+	GameObject* FindByFileID(uint64 fileID) const;
 	vector<GameObject*> GetAllGameObjects() const { return m_ArrGameObjects[0]; }
 
 	// 오브젝트와 모든 자손을 전체 목록(렌더/업데이트/물리 대상)에 등록 (이미 있으면 건너뜀)

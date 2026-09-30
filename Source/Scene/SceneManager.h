@@ -50,6 +50,8 @@ public:
 	void MarkCurrentSceneSaved();
 	// 저장하지 않은 변경을 버리고 파일에서 다시 읽는다
 	void DiscardChanges();
+	// Undo/Redo: 현재 씬을 JSON 상태로 다시 만든다 (경로 유지, 선택/Hierarchy 펼침 상태는 fileID 로 이어 간다)
+	void RestoreSceneState(const std::string& sceneJson);
 	void HandlePlay();
 	void HandleStop();
 	void CreateScene();

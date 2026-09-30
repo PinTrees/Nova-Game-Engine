@@ -89,7 +89,7 @@ public:
 	float GetFovX()const;
 
 	void SetFovY(float fovY) { m_fovY = fovY; ProjUpdate(); }
-	void SetAspect(float aspect) { m_aspect = aspect; ProjUpdate(); }
+	void SetAspect(float aspect) { if (aspect > 1e-4f && std::isfinite(aspect)) { m_aspect = aspect; ProjUpdate(); } }
 	void SetNearZ(float nearZ) { m_nearZ = nearZ; ProjUpdate(); }
 	void SetFarZ(float farZ) { m_farZ = farZ; ProjUpdate(); }
 

@@ -98,6 +98,8 @@ GameObject* SceneHierachyEditorWindow::PasteObject(Scene* scene, GameObject* par
 
 	GameObject* g = new GameObject();
 	from_json(j, *g);
+	if (s_CutSourceId == 0)
+		g->RegenerateFileIDs();   // 복사 붙여넣기는 새 오브젝트 (잘라내기는 같은 오브젝트가 옮겨 간다)
 	scene->AddRootGameObject(g);
 	if (parent != nullptr)
 		g->SetParent(parent, false);
@@ -123,6 +125,7 @@ GameObject* SceneHierachyEditorWindow::DuplicateObject(Scene* scene, GameObject*
 	json j = *target;
 	GameObject* g = new GameObject();
 	from_json(j, *g);
+	g->RegenerateFileIDs();
 	g->SetName(UniqueCopyName(scene, target));
 	scene->AddRootGameObject(g);
 	if (target->GetParent() != nullptr)

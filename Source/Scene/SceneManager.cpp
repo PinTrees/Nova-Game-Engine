@@ -136,7 +136,7 @@ bool SceneManager::IsCurrentSceneDirty()
 	{
 		m_LastDirtyCheck = now;
 		m_CheckedHash = ComputeSceneHash();
-		m_Dirty = m_CheckedHash != m_SavedHash || TerrainData::AnyDirty();   // 지형 편집은 .terraindata 에 저장된다
+		m_Dirty = m_CheckedHash != m_SavedHash || TerrainData::AnyDirty();
 	}
 	return m_Dirty;
 }
@@ -250,4 +250,39 @@ void SceneManager::LoadStartupScene()
 	}
 
 	LoadScene(L"");
+}
+
+void SceneManager::RestoreSceneState(const std::string& sceneJson)
+{
+	if (m_pCurrScene == nullptr)
+		return;
+	json j = json::parse(sceneJson, nullptr, false);
+	if (j.is_discarded())
+		return;
+
+	// 선택과 Hierarchy 펼침 상태를 fileID 로 기억
+	GameObject* selected = SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT ? SelectionManager::GetSelectedGameObject() : nullptr;
+	const uint64 selectedID = selected ? selected->GetFileID() : 0;
+	std::unordered_set<uint64> expanded;
+	for (GameObject* go : m_pCurrScene->GetAllGameObjects())
+		if (go->m_Editor_HierachOpened)
+			expanded.insert(go->GetFileID());
+
+	const wstring scenePath = m_pCurrScene->GetScenePath();
+	if (selected)
+		SelectionManager::ClearSelection();
+	delete m_pCurrScene;
+	m_pCurrScene = new Scene();
+	m_pCurrScene->SetScenePath(scenePath);
+	from_json(j, *m_pCurrScene);
+	if (!scenePath.empty())
+		m_Scenes[scenePath] = m_pCurrScene;
+
+	for (GameObject* go : m_pCurrScene->GetAllGameObjects())
+		go->m_Editor_HierachOpened = expanded.count(go->GetFileID()) > 0;
+	if (GameObject* again = m_pCurrScene->FindByFileID(selectedID))
+		SelectionManager::SetSelectedGameObject(again);
+
+	DisplayManager::GetI()->Init();
+	m_LastDirtyCheck = -1.0;   // "*" 표시를 바로 다시 계산
 }

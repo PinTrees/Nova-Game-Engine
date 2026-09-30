@@ -96,7 +96,7 @@ std::string AnimatorController::Name() const
 	return std::filesystem::path(Path).stem().string();
 }
 
-bool AnimatorController::Save() const
+std::string AnimatorController::ToJsonString() const
 {
 	json j;
 	json params = json::array();
@@ -133,14 +133,19 @@ bool AnimatorController::Save() const
 		layers.push_back(lj);
 	}
 	j["layers"] = layers;
+	return j.dump(4);
+}
 
+bool AnimatorController::Save() const
+{
+	const std::string text = ToJsonString();
 	const std::wstring file = FilePath(Path);
 	std::error_code ec;
 	std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
 	std::ofstream os(file, std::ios::binary | std::ios::trunc);
 	if (!os)
 		return false;
-	os << j.dump(4);
+	os << text;
 	return true;
 }
 
@@ -163,6 +168,19 @@ std::shared_ptr<AnimatorController> AnimatorController::Load(const std::string& 
 
 	auto c = std::make_shared<AnimatorController>();
 	c->Path = path;
+	c->ApplyJson(j.dump());
+	Cache()[path] = c;
+	return c;
+}
+
+void AnimatorController::ApplyJson(const std::string& text)
+{
+	json j = json::parse(text, nullptr, false);
+	if (j.is_discarded())
+		return;
+	AnimatorController* c = this;
+	c->Parameters.clear();
+	c->Layers.clear();
 	if (j.contains("parameters"))
 		for (const auto& pj : j["parameters"])
 		{
@@ -229,8 +247,6 @@ std::shared_ptr<AnimatorController> AnimatorController::Load(const std::string& 
 		}
 	if (c->Layers.empty())
 		c->Layers.push_back(AnimatorLayer());
-	Cache()[path] = c;
-	return c;
 }
 
 std::shared_ptr<AnimatorController> AnimatorController::Create(const std::string& rawPath)

@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "UndoSystem.h"
 #include "EditorGUIManager.h"
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
@@ -345,6 +346,13 @@ void EditorGUIManager::RenderEditorWindows()
         // 2. Edit Menu
         if (ImGui::BeginMenu("Edit"))
         {
+            const std::string undoLabel = Undo::CanUndo() ? "Undo " + Undo::UndoName() : std::string("Undo");
+            const std::string redoLabel = Undo::CanRedo() ? "Redo " + Undo::RedoName() : std::string("Redo");
+            if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, Undo::CanUndo() && !Application::IsPlaying()))
+                Undo::PerformUndo();
+            if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Y", false, Undo::CanRedo() && !Application::IsPlaying()))
+                Undo::PerformRedo();
+            ImGui::Separator();
             if (ImGui::MenuItem("Play / Stop", "Ctrl+P"))
             {
                 bool isPlaying = Application::IsPlaying();

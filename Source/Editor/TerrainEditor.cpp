@@ -5,6 +5,7 @@
 #include "UnityGUI.h"
 #include "SceneViewOverlay.h"
 #include "EditorCamera.h"
+#include "UndoSystem.h"
 
 namespace
 {
@@ -19,6 +20,120 @@ namespace
 	float s_TargetHeight = 10.0f;       // Set Height (미터, 지형 기준)
 	int s_SelectedLayer = 0;
 	bool s_Painting = false;
+
+	// ---- Undo: 한 획(누르고 뗄 때까지)을 한 단계로. 바뀐 사각형 영역만 저장한다 ----
+	struct Rect { int x0 = INT_MAX, z0 = INT_MAX, x1 = -1, z1 = -1; bool Valid() const { return x1 >= x0 && z1 >= z0; } };
+	std::shared_ptr<TerrainData> s_StrokeData;
+	std::vector<float> s_StrokeHeights;
+	std::vector<uint8_t> s_StrokeControl;
+	Rect s_HeightRect, s_ControlRect;
+	std::string s_StrokeName;
+
+	void Grow(Rect& r, int x0, int z0, int x1, int z1)
+	{
+		r.x0 = (std::min)(r.x0, x0); r.z0 = (std::min)(r.z0, z0);
+		r.x1 = (std::max)(r.x1, x1); r.z1 = (std::max)(r.z1, z1);
+	}
+
+	template <typename T>
+	std::vector<T> CropOf(const std::vector<T>& src, int width, int channels, const Rect& r)
+	{
+		std::vector<T> out;
+		out.reserve((size_t)(r.x1 - r.x0 + 1) * (r.z1 - r.z0 + 1) * channels);
+		for (int z = r.z0; z <= r.z1; ++z)
+			out.insert(out.end(), src.begin() + ((size_t)z * width + r.x0) * channels, src.begin() + ((size_t)z * width + r.x1 + 1) * channels);
+		return out;
+	}
+
+	template <typename T>
+	void PasteCrop(std::vector<T>& dst, int width, int channels, const Rect& r, const std::vector<T>& crop)
+	{
+		const size_t row = (size_t)(r.x1 - r.x0 + 1) * channels;
+		for (int z = r.z0; z <= r.z1; ++z)
+			std::copy(crop.begin() + (size_t)(z - r.z0) * row, crop.begin() + (size_t)(z - r.z0 + 1) * row, dst.begin() + ((size_t)z * width + r.x0) * channels);
+	}
+
+	void BeginStroke(const std::shared_ptr<TerrainData>& data, const char* name)
+	{
+		s_StrokeData = data;
+		s_StrokeHeights = data->Heights;
+		s_StrokeControl = data->Control;
+		s_HeightRect = Rect();
+		s_ControlRect = Rect();
+		s_StrokeName = name;
+	}
+
+	void EndStroke()
+	{
+		auto data = s_StrokeData;
+		s_StrokeData = nullptr;
+		if (data == nullptr)
+			return;
+		const int res = data->HeightmapResolution, cres = data->ControlResolution;
+		if (s_HeightRect.Valid() && s_StrokeHeights.size() == data->Heights.size())
+		{
+			const Rect r = s_HeightRect;
+			auto before = std::make_shared<std::vector<float>>(CropOf(s_StrokeHeights, res, 1, r));
+			auto after = std::make_shared<std::vector<float>>(CropOf(data->Heights, res, 1, r));
+			Undo::Record rec;
+			rec.Name = s_StrokeName;
+			rec.Bytes = (before->size() + after->size()) * sizeof(float);
+			auto apply = [data, r, res](const std::vector<float>& crop) {
+				if (data->HeightmapResolution != res) return;
+				PasteCrop(data->Heights, res, 1, r, crop);
+				data->OnHeightsChanged(r.x0, r.z0, r.x1, r.z1);
+			};
+			rec.UndoAction = [apply, before]() { apply(*before); };
+			rec.RedoAction = [apply, after]() { apply(*after); };
+			Undo::Push(std::move(rec));
+		}
+		if (s_ControlRect.Valid() && s_StrokeControl.size() == data->Control.size())
+		{
+			const Rect r = s_ControlRect;
+			auto before = std::make_shared<std::vector<uint8_t>>(CropOf(s_StrokeControl, cres, 4, r));
+			auto after = std::make_shared<std::vector<uint8_t>>(CropOf(data->Control, cres, 4, r));
+			Undo::Record rec;
+			rec.Name = s_StrokeName;
+			rec.Bytes = before->size() + after->size();
+			auto apply = [data, r, cres](const std::vector<uint8_t>& crop) {
+				if (data->ControlResolution != cres) return;
+				PasteCrop(data->Control, cres, 4, r, crop);
+				data->OnControlChanged(r.x0, r.z0, r.x1, r.z1);
+			};
+			rec.UndoAction = [apply, before]() { apply(*before); };
+			rec.RedoAction = [apply, after]() { apply(*after); };
+			Undo::Push(std::move(rec));
+		}
+		s_StrokeHeights.clear();
+		s_StrokeControl.clear();
+	}
+
+	// 전체 상태 기록 (Flatten All, 레이어 추가/제거, 크기/해상도 변경)
+	struct TerrainState
+	{
+		int Res = 0;
+		Vec3 Size;
+		std::vector<float> Heights;
+		std::vector<uint8_t> Control;
+		std::vector<std::shared_ptr<TerrainLayer>> Layers;
+	};
+	std::shared_ptr<TerrainState> Snapshot(const TerrainData& d)
+	{
+		auto s = std::make_shared<TerrainState>();
+		s->Res = d.HeightmapResolution; s->Size = d.Size; s->Heights = d.Heights; s->Control = d.Control; s->Layers = d.Layers;
+		return s;
+	}
+	void PushFullRecord(const char* name, const std::shared_ptr<TerrainData>& data, const std::shared_ptr<TerrainState>& before)
+	{
+		auto after = Snapshot(*data);
+		Undo::Record rec;
+		rec.Name = name;
+		rec.Bytes = (before->Heights.size() + after->Heights.size()) * sizeof(float) + before->Control.size() + after->Control.size();
+		auto apply = [data](const TerrainState& s) { data->RestoreState(s.Res, s.Size, s.Heights, s.Control, s.Layers); };
+		rec.UndoAction = [apply, before]() { apply(*before); };
+		rec.RedoAction = [apply, after]() { apply(*after); };
+		Undo::Push(std::move(rec));
+	}
 
 	const ImU32 kText = IM_COL32(210, 210, 210, 255);
 	const ImU32 kTextDim = IM_COL32(150, 150, 150, 255);
@@ -262,7 +377,7 @@ namespace
 	}
 
 	// ---- Paint Texture: 레이어 목록 ----
-	void DrawLayers(TerrainData& data)
+	void DrawLayers(TerrainData& data, const std::shared_ptr<TerrainData>& owner)
 	{
 		UnityGUI::Label("Terrain Layers", 0, true);
 		ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -315,7 +430,11 @@ namespace
 					for (auto& l : data.Layers)
 						used |= l && l->Path == path;
 					if (ImGui::MenuItem(std::filesystem::path(path).stem().string().c_str(), nullptr, false, !used))
+					{
+						auto before = Snapshot(data);
 						AddLayer(data, path);
+						PushFullRecord("Add Terrain Layer", owner, before);
+					}
 				}
 				ImGui::EndMenu();
 			}
@@ -324,11 +443,17 @@ namespace
 				// 선택한 레이어의 텍스처로 새 레이어 에셋을 만든다 (텍스처는 아래 Diffuse 에서 바꾼다)
 				const std::string diffuse = data.Layers.empty() ? std::string() : data.Layers[s_SelectedLayer]->DiffusePath;
 				auto layer = TerrainLayer::Create(UniqueAssetPath("New Layer", ".terrainlayer"), diffuse);
+				auto before = Snapshot(data);
 				AddLayer(data, layer->Path);
+				PushFullRecord("Create Terrain Layer", owner, before);
 				s_SelectedLayer = (int)data.Layers.size() - 1;
 			}
 			if (ImGui::MenuItem("Remove Layer", nullptr, false, !data.Layers.empty()))
+			{
+				auto before = Snapshot(data);
 				RemoveLayer(data, s_SelectedLayer);
+				PushFullRecord("Remove Terrain Layer", owner, before);
+			}
 			ImGui::EndPopup();
 		}
 		ImGui::PopStyleVar();
@@ -397,7 +522,17 @@ namespace
 			changed |= Float("Terrain Length", &size.z, 1);
 			changed |= Float("Terrain Height", &size.y, 1);
 			if (changed)
+			{
+				// 크기만 바뀌므로 가벼운 기록 (입력 한 번 = 한 단계)
+				const Vec3 before = data->Size;
 				data->SetSize(size);
+				const Vec3 after = data->Size;
+				Undo::Record rec;
+				rec.Name = "Terrain Size";
+				rec.UndoAction = [data, before]() { data->SetSize(before); };
+				rec.RedoAction = [data, after]() { data->SetSize(after); };
+				Undo::Push(std::move(rec));
+			}
 		}
 		if (Foldout("Texture Resolutions (On Terrain Data)"))
 		{
@@ -406,7 +541,11 @@ namespace
 			int cur = 4;
 			for (int i = 0; i < 8; ++i) if (kRes[i] == data->HeightmapResolution) cur = i;
 			if (Dropdown("Heightmap Resolution", &cur, kResNames, 8, 1))
+			{
+				auto before = Snapshot(*data);
 				data->SetHeightmapResolution(kRes[cur]);
+				PushFullRecord("Heightmap Resolution", data, before);
+			}
 			char buf[64];
 			sprintf_s(buf, "%d x %d", data->ControlResolution, data->ControlResolution);
 			ValueLabel("Control Texture Resolution", buf, 1);
@@ -493,14 +632,16 @@ namespace TerrainEditor
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
 				if (ImGui::Button("Flatten All", ImVec2(120, 0)))
 				{
+					auto before = Snapshot(*data);
 					std::fill(data->Heights.begin(), data->Heights.end(), s_TargetHeight / data->Size.y);
 					data->OnHeightsChanged(0, 0, data->HeightmapResolution - 1, data->HeightmapResolution - 1);
+					PushFullRecord("Flatten Terrain", data, before);
 				}
 			}
 			if (s_PaintTool == PaintTool::PaintTexture)
 			{
 				UnityGUI::Spacing(4);
-				DrawLayers(*data);
+				DrawLayers(*data, data);
 			}
 			break;
 		}
@@ -561,6 +702,7 @@ namespace TerrainEditor
 						px[c] = (uint8_t)std::lround(std::clamp(w[c], 0.0f, 1.0f) * 255.0f);
 				}
 			data->OnControlChanged(x0, z0, x1, z1);
+			Grow(s_ControlRect, x0, z0, x1, z1);
 			return;
 		}
 
@@ -617,6 +759,7 @@ namespace TerrainEditor
 				h = std::clamp(h, 0.0f, 1.0f);
 			}
 		data->OnHeightsChanged(x0, z0, x1, z1);
+		Grow(s_HeightRect, x0, z0, x1, z1);
 	}
 
 	bool SceneGUI(EditorCamera* camera, const ImVec2& viewMin, const ImVec2& viewMax, bool viewHovered)
@@ -625,6 +768,8 @@ namespace TerrainEditor
 		Terrain* terrain = selected ? selected->GetComponent<Terrain>() : nullptr;
 		if (terrain == nullptr || s_Tool != Tool::PaintTerrain || terrain->GetTerrainData() == nullptr || camera == nullptr)
 		{
+			if (s_Painting)
+				EndStroke();
 			s_Painting = false;
 			return false;
 		}
@@ -679,10 +824,16 @@ namespace TerrainEditor
 			if (s_PaintTool == PaintTool::SetHeight && io.KeyShift)
 				s_TargetHeight = terrain->SampleHeight(hit);   // Shift + 클릭 = 목표 높이 샘플
 			else
+			{
 				s_Painting = true;
+				BeginStroke(terrain->GetTerrainData(), PaintToolName(s_PaintTool));
+			}
 		}
-		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) && s_Painting)
+		{
 			s_Painting = false;
+			EndStroke();
+		}
 		if (s_Painting && onTerrain)
 			ApplyBrush(terrain, s_PaintTool, hit, (std::min)(io.DeltaTime, 0.1f), io.KeyShift);
 		return true;

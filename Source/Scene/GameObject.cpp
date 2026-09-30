@@ -6,11 +6,29 @@
 #include "UnityGUI.h"
 #include "MeshFilter.h"
 #include "MeshRenderer.h"
+#include <random>
 
 atomic<uint64> GameObject::g_NextInstanceID = 0;
 
+uint64 GameObject::NewFileID()
+{
+	static std::mt19937_64 rng(std::random_device{}() ^ (uint64)::GetTickCount64());
+	uint64 id = 0;
+	while (id == 0)
+		id = rng();
+	return id;
+}
+
+void GameObject::RegenerateFileIDs()
+{
+	m_FileID = NewFileID();
+	for (GameObject* child : m_pChildGameObjects)
+		child->RegenerateFileIDs();
+}
+
 GameObject::GameObject()
-	: m_InstanceID(g_NextInstanceID++)
+	: m_FileID(NewFileID())
+	, m_InstanceID(g_NextInstanceID++)
 	, m_LayerIndex(0)
 	, m_pParentGameObject(nullptr)
     , m_IsActive(true)
@@ -21,6 +39,7 @@ GameObject::GameObject()
 
 GameObject::GameObject(const string& name)
 	: m_Name(name)
+	, m_FileID(NewFileID())
 	, m_InstanceID(g_NextInstanceID++)
 	, m_LayerIndex(0)
 	, m_pParentGameObject(nullptr)
@@ -261,6 +280,7 @@ void to_json(json& j, const GameObject& obj)
     j = json
     {
         { "name", obj.m_Name },
+        { "fileID", obj.m_FileID },
         { "active", obj.m_IsActive },
         { "tag", obj.m_Tag },
         { "layer", (int)obj.m_LayerIndex },
@@ -285,6 +305,8 @@ void to_json(json& j, const GameObject& obj)
 void from_json(const json& j, GameObject& obj)
 {
     obj.m_Name = j.at("name").get<std::string>();
+    if (j.contains("fileID") && j["fileID"].is_number_unsigned())
+        obj.m_FileID = j["fileID"].get<uint64>();
     obj.m_IsActive = j.value("active", true);
     obj.m_Tag = j.value("tag", std::string("Untagged"));
     obj.m_LayerIndex = (uint8)j.value("layer", 0);

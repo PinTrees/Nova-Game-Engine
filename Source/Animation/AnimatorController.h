@@ -92,6 +92,9 @@ public:
 	std::string Name() const;
 
 	bool Save() const;
+	// Undo 용: 전체 상태를 JSON 문자열로 / 문자열에서 그대로 되돌리기 (경로와 캐시는 유지)
+	std::string ToJsonString() const;
+	void ApplyJson(const std::string& text);
 	void MarkChanged() { ++Revision; }
 	// 편집 후 호출: Revision 증가 + 파일 저장
 	void Commit() { MarkChanged(); Save(); }

@@ -70,6 +70,9 @@ public:
 	const Node& GetNode(int depth, int x, int z) const { return m_Nodes[depth][(size_t)z * ((size_t)1 << depth) + x]; }
 	void SetHeightmapResolution(int resolution);   // 기존 높이를 보간해 옮긴다
 	void SetSize(const Vec3& size);
+	// Undo: 해상도/크기/높이/컨트롤/레이어를 한꺼번에 되돌린다
+	void RestoreState(int resolution, const Vec3& size, const std::vector<float>& heights, const std::vector<uint8_t>& control,
+		const std::vector<std::shared_ptr<TerrainLayer>>& layers);
 
 	// ---- 높이 (지형 로컬 좌표, 미터) ----
 	float GetHeightSample(int x, int z) const;     // 격자점 (정규화 0~1)

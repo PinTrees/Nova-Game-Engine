@@ -3,6 +3,8 @@
 #include <filesystem>
 #include "SkinnedMesh.h"
 #include "AnimatorInspector.h"
+#include "AnimatorController.h"
+#include "UndoSystem.h"
 
 namespace fs = std::filesystem;
 
@@ -40,6 +42,10 @@ void InspectorEditorWindow::OnRender()
 			if (material == nullptr)
 				return;
 
+			std::weak_ptr<UMaterial> weak = material;
+			Undo::WatchAsset("material:" + std::to_string((uintptr_t)material.get()), "Material",
+				[weak]() { auto m = weak.lock(); if (!m) return std::string(); json j = *m; return j.dump(); },
+				[weak](const std::string& text) { if (auto m = weak.lock()) { from_json(json::parse(text), *m); m->ReloadTextures(); UMaterial::Save(m.get()); } });
 			material->OnInspectorGUI();
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::FBX)
@@ -57,6 +63,14 @@ void InspectorEditorWindow::OnRender()
 	}
 	else if (SelectionManager::GetSelectedObjectType() == SelectionType::ANIMATOR)
 	{
-		AnimatorInspector::DrawSelection(SelectionManager::GetAnimatorSelection());
+		const AnimatorSelection& sel = SelectionManager::GetAnimatorSelection();
+		if (sel.Controller)
+		{
+			std::weak_ptr<AnimatorController> weak = sel.Controller;
+			Undo::WatchAsset("controller:" + sel.Controller->Path, sel.Controller->Name(),
+				[weak]() { auto c = weak.lock(); return c ? c->ToJsonString() : std::string(); },
+				[weak](const std::string& text) { if (auto c = weak.lock()) { c->ApplyJson(text); c->Commit(); } });
+		}
+		AnimatorInspector::DrawSelection(sel);
 	}
 }

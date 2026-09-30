@@ -100,6 +100,12 @@ void UMaterial::Save(UMaterial* material)
 	os.close();
 }
 
+void UMaterial::ReloadTextures()
+{
+	BaseMapSRV = m_BaseMapPath.empty() ? nullptr : ResourceManager::GetI()->LoadTexture(m_BaseMapPath);
+	NormalMapSRV = m_NormalMapPath.empty() ? nullptr : ResourceManager::GetI()->LoadTexture(m_NormalMapPath);
+}
+
 void UMaterial::SetBaseMap(TextureMgr texMgr, wstring fullPath)
 {
 	ComPtr<ID3D11ShaderResourceView> baseMapSRV = texMgr.CreateTexture(fullPath);

@@ -482,3 +482,13 @@ void from_json(const json& j, Scene& scene)
         scene.AddRootGameObject(gameObject);   // 저장된 자식 오브젝트까지 렌더/업데이트 목록에 등록
     }
 }
+
+GameObject* Scene::FindByFileID(uint64 fileID) const
+{
+    if (fileID == 0)
+        return nullptr;
+    for (GameObject* go : m_ArrGameObjects[0])
+        if (go && go->GetFileID() == fileID)
+            return go;
+    return nullptr;
+}

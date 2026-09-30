@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SceneGizmoTools.h"
+#include "UndoSystem.h"
 #include "SceneToolbar.h"
 #include "EditorCamera.h"
 #include "SelectionManager.h"
@@ -591,6 +592,13 @@ namespace
 	void BeginDrag(GameObject* go, const Handle& h, const Vec3& handlePos, const Vec3 ax[3], const Vec3& grab)
 	{
 		Transform* tr = go->GetTransform();
+		switch (h.kind)
+		{
+		case Kind::RotAxis: case Kind::RotView: Undo::SetActionName("Rotate"); break;
+		case Kind::ScaleAxis: case Kind::ScaleUniform: Undo::SetActionName("Scale"); break;
+		case Kind::RectCorner: case Kind::RectEdge: case Kind::RectBody: Undo::SetActionName("Rect Transform"); break;
+		default: Undo::SetActionName("Move"); break;
+		}
 		d = DragState();
 		d.active = true;
 		d.h = h;

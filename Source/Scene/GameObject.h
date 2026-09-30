@@ -14,6 +14,7 @@ class Transform;
 class GameObject
 {
 private:
+	uint64 m_FileID;		// 저장되는 고유 ID (씬 파일/Undo/프리팹이 오브젝트를 다시 찾을 때). 실행마다 바뀌는 InstanceID 와 다르다
 	uint64 m_InstanceID;	// ���� �ν��Ͻ� ID
 	static atomic<uint64> g_NextInstanceID;
 
@@ -52,6 +53,11 @@ public:
 
 public:
 	uint64 GetInstanceID() const { return m_InstanceID; }
+	uint64 GetFileID() const { return m_FileID; }
+	void SetFileID(uint64 id) { m_FileID = id; }
+	// 복제/붙여넣기/프리팹 배치 뒤: 자기와 자식 모두 새 ID
+	void RegenerateFileIDs();
+	static uint64 NewFileID();
 	const string& GetName() { return m_Name; }
 	bool IsActive() const { return m_IsActive; }
 	void SetName(const string& name) { m_Name = name; }

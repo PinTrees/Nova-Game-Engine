@@ -115,6 +115,8 @@ float Camera::GetFarWindowHeight()const
 void Camera::SetLens(float fovY, float aspect, float zn, float zf)
 {
 	// cache properties
+	if (!(aspect > 1e-4f) || !std::isfinite(aspect))
+		aspect = 1.0f;   // 크기 0 인 뷰에서 온 값 (투영 행렬 assert 방지)
 	m_fovY = fovY;
 	m_aspect = aspect;
 	m_nearZ = zn;
@@ -551,7 +553,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(Camera)
 	 
 	SERIALIZE_FLOAT(j, m_nearZ, "nearZ");
 	SERIALIZE_FLOAT(j, m_farZ, "farZ"); 
-	SERIALIZE_FLOAT(j, m_aspect, "aspect"); 
+	// aspect 는 화면 크기에서 매 프레임 정해지는 값이라 저장하지 않는다 (Unity 와 같음, 저장하면 열자마자 씬이 "*" 로 바뀐다)
 	SERIALIZE_FLOAT(j, m_fovY, "fovY");
 
 	j["enabled"] = m_Enabled;
@@ -587,7 +589,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Camera)
 
 	DE_SERIALIZE_FLOAT(j, m_nearZ, "nearZ");
 	DE_SERIALIZE_FLOAT(j, m_farZ, "farZ");
-	DE_SERIALIZE_FLOAT(j, m_aspect, "aspect");
+	// aspect 는 저장하지 않는다 (화면 크기에서 정해짐)
 	DE_SERIALIZE_FLOAT(j, m_fovY, "fovY");
 
 	m_Enabled = j.value("enabled", true);

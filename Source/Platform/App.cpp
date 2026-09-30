@@ -19,6 +19,7 @@
 
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
+#include "UndoSystem.h"
 
 namespace
 {
@@ -104,6 +105,7 @@ int32 App::Run()
 
 				//Editor Render
 				EditorGUIManager::GetI()->RenderEditorWindows();
+				Undo::Update();   // Ctrl+Z / Ctrl+Y, 조작이 끝난 변경을 기록
 
 				ImGui::Render(); 
 				ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 

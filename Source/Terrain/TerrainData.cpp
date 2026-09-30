@@ -570,3 +570,23 @@ bool TerrainData::AnyDirty()
 			return true;
 	return false;
 }
+
+void TerrainData::RestoreState(int resolution, const Vec3& size, const std::vector<float>& heights, const std::vector<uint8_t>& control,
+	const std::vector<std::shared_ptr<TerrainLayer>>& layers)
+{
+	if (resolution != HeightmapResolution)
+	{
+		m_HeightTex = nullptr;
+		m_HeightSRV = nullptr;
+	}
+	HeightmapResolution = resolution;
+	Size = size;
+	Heights = heights;
+	Control = control;
+	Layers = layers;
+	m_HeightDirty = m_HeightFullUpload = true;
+	m_ControlDirty = m_ControlFullUpload = true;
+	RebuildAllNodes();
+	++Revision;
+	Dirty = true;
+}
