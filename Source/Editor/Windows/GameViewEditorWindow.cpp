@@ -7,6 +7,7 @@
 #include "Animator.h"
 #include "AnimationPlayer.h"
 #include "AudioManager.h"
+#include "UISystem.h"
 #include <fstream>
 
 namespace
@@ -582,6 +583,7 @@ void GameViewEditorWindow::RenderScene(Camera* camera)
 	::QueryPerformanceCounter(&t0);
 	RenderStats::Begin();
 	Application::GetI()->GetApp()->OnSceneRender(rtv, camera);
+	UISystem::RenderGameView(rtv, m_Width, m_Height, g.Display);   // Screen Space - Overlay 캔버스 (맨 위)
 	::QueryPerformanceCounter(&t1);
 	RenderStats::Current.RenderMs = (double)(t1.QuadPart - t0.QuadPart) * 1000.0 / (double)freq.QuadPart;
 	RenderStats::End();

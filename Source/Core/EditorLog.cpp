@@ -4,6 +4,8 @@
 #include <cstdarg>
 #include <crtdbg.h>
 #include <share.h>
+#include <DbgHelp.h>
+#pragma comment(lib, "dbghelp.lib")
 
 namespace
 {
@@ -23,11 +25,46 @@ namespace
 		return FALSE;   // 기본 처리(대화 상자) 계속
 	}
 
-	// 처리되지 않은 예외 (충돌): 코드와 주소를 남긴다
+	// 처리되지 않은 예외 (충돌): 코드와 주소, 그리고 호출 스택(함수 이름 + 파일:줄, PDB 가 있으면)을 남긴다
 	LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info)
 	{
-		if (info && info->ExceptionRecord)
-			EditorLog::Write("CRASH", "unhandled exception 0x%08X at %p", (unsigned)info->ExceptionRecord->ExceptionCode, info->ExceptionRecord->ExceptionAddress);
+		if (info == nullptr || info->ExceptionRecord == nullptr)
+			return EXCEPTION_CONTINUE_SEARCH;
+		EditorLog::Write("CRASH", "unhandled exception 0x%08X at %p", (unsigned)info->ExceptionRecord->ExceptionCode, info->ExceptionRecord->ExceptionAddress);
+		if (info->ContextRecord == nullptr)
+			return EXCEPTION_CONTINUE_SEARCH;
+
+		HANDLE process = ::GetCurrentProcess();
+		HANDLE thread = ::GetCurrentThread();
+		::SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+		::SymInitialize(process, nullptr, TRUE);
+		CONTEXT ctx = *info->ContextRecord;
+		STACKFRAME64 frame = {};
+		frame.AddrPC.Offset = ctx.Rip;
+		frame.AddrPC.Mode = AddrModeFlat;
+		frame.AddrFrame.Offset = ctx.Rbp;
+		frame.AddrFrame.Mode = AddrModeFlat;
+		frame.AddrStack.Offset = ctx.Rsp;
+		frame.AddrStack.Mode = AddrModeFlat;
+		for (int i = 0; i < 24; ++i)
+		{
+			if (!::StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread, &frame, &ctx, nullptr, ::SymFunctionTableAccess64, ::SymGetModuleBase64, nullptr) || frame.AddrPC.Offset == 0)
+				break;
+			char buffer[sizeof(SYMBOL_INFO) + 256] = {};
+			SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(buffer);
+			sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+			sym->MaxNameLen = 255;
+			DWORD64 symOffset = 0;
+			const char* name = ::SymFromAddr(process, frame.AddrPC.Offset, &symOffset, sym) ? sym->Name : "?";
+			IMAGEHLP_LINE64 line = {};
+			line.SizeOfStruct = sizeof(line);
+			DWORD lineOffset = 0;
+			if (::SymGetLineFromAddr64(process, frame.AddrPC.Offset, &lineOffset, &line))
+				EditorLog::Write("CRASH", "  #%d %s  (%s:%lu)", i, name, line.FileName, line.LineNumber);
+			else
+				EditorLog::Write("CRASH", "  #%d %s  [%p]", i, name, (void*)frame.AddrPC.Offset);
+		}
+		::SymCleanup(process);
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 }

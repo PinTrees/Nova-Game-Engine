@@ -26,11 +26,19 @@ namespace ScriptEngine
 		std::vector<long long> OptionValues;
 	};
 
+	// Button 의 On Click () 에서 고를 수 있는 public 메서드 (반환 void, 인자 없음 또는 int/float/string/bool 하나)
+	struct MethodInfo
+	{
+		std::string Name;
+		std::string ParamType;   // "", "int", "float", "string", "bool"
+	};
+
 	struct ClassInfo
 	{
 		std::string Name;
 		std::string FullName;
 		std::vector<FieldInfo> Fields;
+		std::vector<MethodInfo> Methods;
 	};
 
 	enum class State { NotStarted, Unavailable, Idle, Compiling };
@@ -76,6 +84,10 @@ namespace ScriptEngine
 	void InvokeCollision(void* handle, bool trigger, int phase, uint64_t otherGameObject);
 	std::string GetFieldsJson(void* handle);
 	void SetFieldsJson(void* handle, const std::string& json);
+	// UI: 이 GameObject 의 스크립트(className)에서 메서드 호출 (Button On Click 의 저장된 호출). 찾으면 true
+	bool InvokeMethod(uint64_t gameObjectId, const std::string& className, const std::string& method, const std::string& argument);
+	// UI: C# 에서 AddListener 로 등록한 이벤트 실행 (kind 0 = Button.onClick)
+	void InvokeUIEvent(uint64_t gameObjectId, int kind);
 
 	// ---- 입력 (Game 뷰가 포커스일 때만) ----
 	bool KeyState(int vk, int mode);           // mode 0 누르는 중, 1 이번 프레임 눌림, 2 이번 프레임 뗌

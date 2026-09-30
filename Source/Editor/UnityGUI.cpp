@@ -661,6 +661,43 @@ namespace UnityGUI
 		return changed;
 	}
 
+	bool TextArea(const char* label, std::string* value, float height, int indent)
+	{
+		// Unity 의 여러 줄 텍스트 (Text 컴포넌트의 Text): 레이블 행 아래에 폭 전체 입력 상자
+		if (label && label[0])
+		{
+			Row r = BeginRow(label, indent);
+			EndRow(r);
+		}
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x;
+		ImGui::PushID(label ? label : "##area");
+		static std::string s_Buffer;
+		s_Buffer = *value;
+		s_Buffer.reserve(s_Buffer.size() + 4096);
+		s_Buffer.resize(s_Buffer.size() + 4096, '\0');
+		ImGui::SetCursorScreenPos(ImVec2(p.x + kBaseIndent + indent * kNestIndent, p.y));
+		PushFieldStyle();
+		const bool changed = ImGui::InputTextMultiline("##area", s_Buffer.data(), s_Buffer.size(),
+			ImVec2(w - kBaseIndent - indent * kNestIndent - 12.0f, height));
+		PopFieldStyle();
+		if (changed)
+			*value = std::string(s_Buffer.c_str());
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + height + 4.0f));
+		ImGui::Dummy(ImVec2(w, 0.0f));
+		return changed;
+	}
+
+	bool FloatCell(const char* id, float* value, ImVec2 pos, float width)
+	{
+		ImGui::SetCursorScreenPos(pos);
+		ImGui::PushID(id);
+		const bool changed = FloatInput("##cell", value, width);
+		ImGui::PopID();
+		return changed;
+	}
+
 	void SliderCaptions(const char* left, const char* right)
 	{
 		// 바로 위 Slider 행의 트랙 양 끝 아래에 작은 글자 (Unity 의 Priority High/Low, Stereo Pan Left/Right)

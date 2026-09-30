@@ -3,6 +3,7 @@
 #include "GraphicsSettings.h"
 #include "AudioManager.h"
 #include "ScriptEngine.h"
+#include "UISystem.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
 #include <WindowsX.h>
@@ -105,6 +106,7 @@ int32 App::Run()
 				EditorGUIManager::GetI()->Update();
 				AudioManager::Update();   // 리스너 위치, 일시정지, One Shot 정리, 통계
 				ScriptEngine::Update();   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
+				UISystem::Update();       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 
 				// OnPreCull, 렌더 직전 매트릭스 연산 등
 				

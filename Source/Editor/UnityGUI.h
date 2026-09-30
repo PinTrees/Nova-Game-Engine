@@ -34,6 +34,10 @@ namespace UnityGUI
 	bool Int(const char* label, int* value, int indent = 0);
 	bool Slider(const char* label, float* value, float minV, float maxV, int indent = 0);   // 슬라이더 + 숫자 입력
 	bool TextField(const char* label, std::string* value, int indent = 0);   // 한 줄 문자열
+	// 여러 줄 문자열 (레이블 행 아래 폭 전체 상자, 예: Text 컴포넌트의 Text)
+	bool TextArea(const char* label, std::string* value, float height = 60.0f, int indent = 0);
+	// 행 구조 없이 원하는 위치에 숫자 입력 칸 하나 (RectTransform 의 Pos X / Width 칸 등). 커서는 호출자가 관리
+	bool FloatCell(const char* id, float* value, ImVec2 pos, float width);
 	// 바로 위 Slider 트랙 양 끝 아래의 작은 설명 글자 (예: High / Low, Left / Right, 2D / 3D)
 	void SliderCaptions(const char* left, const char* right);
 	bool Vector3(const char* label, float* xyz, bool showLinkIcon = false, int indent = 0);

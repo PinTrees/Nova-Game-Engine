@@ -190,8 +190,10 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from icons_scene_toolbar import SCENE_TOOLBAR_ICONS
     from icons_project import PROJECT_ICONS
+    from icons_ui import UI_ICONS
     ICONS.update(SCENE_TOOLBAR_ICONS)
     ICONS.update(PROJECT_ICONS)
+    ICONS.update(UI_ICONS)
     os.makedirs(SVG_DIR, exist_ok=True)
     for name, svg in ICONS.items():
         with open(os.path.join(SVG_DIR, name + ".svg"), "w", encoding="utf-8", newline="\n") as f:

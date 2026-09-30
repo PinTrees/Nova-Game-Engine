@@ -2,6 +2,7 @@
 #include "EditorApp.h"
 #include "Volume.h"
 #include "ScriptEngine.h"
+#include "UISystem.h"
 #include "SceneToolbar.h"
 #include "EngineInfo.h"
 #include "MathHelper.h"
@@ -83,7 +84,7 @@ bool EditorApp::Init()
 			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
 			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
 			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx",
-			L"../Shaders/41. PostProcess.fx" };
+			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx" };
 		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
 		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
 	}
@@ -630,6 +631,15 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 		post.Execute(stack, postOptions, renderTargetView);
 		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
 		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
+		_deviceContext->RSSetViewports(1, &viewport);
+	}
+
+	// UI 캔버스: Unity 처럼 월드(1 픽셀 = 1 단위)에 놓인 사각형으로 (씬 깊이로 가려짐)
+	{
+		ID3D11RenderTargetView* uiTargets[1] = { renderTargetView };
+		_deviceContext->OMSetRenderTargets(1, uiTargets, viewDsv);
+		const XMFLOAT3 cp = camera->GetPosition();
+		UISystem::RenderSceneView(renderTargetView, (UINT)viewport.Width, (UINT)viewport.Height, camera->View(), camera->Proj(), Vec3(cp.x, cp.y, cp.z));
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
 }

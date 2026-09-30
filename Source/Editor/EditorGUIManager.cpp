@@ -5,6 +5,7 @@
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
 #include "PreferencesWindow.h"
+#include "AddComponentMenu.h"
 #include "GameViewEditorWindow.h"
 #include "ScriptEngine.h"
 #include "ObjectPicker.h"
@@ -452,8 +453,8 @@ void EditorGUIManager::RenderEditorWindows()
             GameObject* selected = SelectionManager::GetSelectedGameObject();
             for (const std::string& type : ComponentFactory::Instance().GetComponentTypes())
             {
-                if (type == "Transform") continue;
-                if (ImGui::MenuItem(type.c_str(), nullptr, false, selected != nullptr))
+                if (!AddComponentMenu::IsListed(type)) continue;   // C++ 예제 스크립트/기반 타입은 숨김 (스크립트는 Add Component > Scripts 의 C# 만)
+                if (ImGui::MenuItem(AddComponentMenu::DisplayName(type).c_str(), nullptr, false, selected != nullptr))
                 {
                     auto component = ComponentFactory::Instance().CreateComponent(type);
                     if (component)

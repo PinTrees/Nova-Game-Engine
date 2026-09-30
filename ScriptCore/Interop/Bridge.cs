@@ -109,6 +109,7 @@ namespace NovaEngine.Interop
         static void UnloadInternal()
         {
             ScriptRegistry.Clear();
+            NovaEngine.UI.UIEvents.Clear();   // 리스너가 게임 어셈블리를 붙잡지 않게
             s_Types.Clear();
             s_Fields.Clear();
             s_Game = null;
@@ -173,6 +174,17 @@ namespace NovaEngine.Interop
                             w.WriteEndObject();
                         }
                         w.WriteEndArray();
+                        // Button On Click () 에서 고를 수 있는 메서드
+                        w.WriteStartArray("methods");
+                        foreach (MethodInfo mi in UIMethodsOf(t))
+                        {
+                            w.WriteStartObject();
+                            w.WriteString("name", mi.Name);
+                            var ps = mi.GetParameters();
+                            w.WriteString("param", ps.Length == 0 ? "" : ParamKind(ps[0].ParameterType));
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
                         w.WriteEndObject();
                     }
                     w.WriteEndArray();
@@ -185,6 +197,74 @@ namespace NovaEngine.Interop
                 LogException(e);
                 return IntPtr.Zero;
             }
+        }
+
+        // Unity UnityEvent 가 Inspector 에서 고를 수 있는 것과 같은 조건: public, void, 인자 0개 또는 int/float/string/bool 하나
+        static IEnumerable<MethodInfo> UIMethodsOf(Type t)
+        {
+            var seen = new HashSet<string>();
+            for (Type c = t; c != null && c != typeof(MonoBehaviour); c = c.BaseType)
+                foreach (MethodInfo mi in c.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
+                {
+                    if (mi.IsSpecialName || mi.IsGenericMethodDefinition || mi.ReturnType != typeof(void)) continue;
+                    var ps = mi.GetParameters();
+                    if (ps.Length > 1 || (ps.Length == 1 && ParamKind(ps[0].ParameterType) == null)) continue;
+                    if (seen.Add(mi.Name + "/" + ps.Length)) yield return mi;
+                }
+        }
+
+        static string ParamKind(Type t)
+        {
+            if (t == typeof(int)) return "int";
+            if (t == typeof(float)) return "float";
+            if (t == typeof(string)) return "string";
+            if (t == typeof(bool)) return "bool";
+            return null;
+        }
+
+        // Button On Click (): GameObject 의 스크립트 className 에서 method(argument) 호출. 1 = 찾아서 호출함
+        [UnmanagedCallersOnly]
+        public static int InvokeMethod(ulong gameObjectId, byte* classNameUtf8, byte* methodUtf8, byte* argumentUtf8)
+        {
+            string className = Native.Str(classNameUtf8), method = Native.Str(methodUtf8), arg = Native.Str(argumentUtf8) ?? "";
+            foreach (MonoBehaviour mb in ScriptRegistry.Get(gameObjectId).ToArray())
+            {
+                Type t = mb.GetType();
+                if (t.Name != className && t.FullName != className) continue;
+                foreach (MethodInfo mi in UIMethodsOf(t))
+                {
+                    if (mi.Name != method) continue;
+                    var ps = mi.GetParameters();
+                    object[] args = null;
+                    if (ps.Length == 1)
+                    {
+                        string kind = ParamKind(ps[0].ParameterType);
+                        var inv = System.Globalization.CultureInfo.InvariantCulture;
+                        args = new object[] { kind switch {
+                            "int" => int.TryParse(arg, System.Globalization.NumberStyles.Integer, inv, out int i) ? i : 0,
+                            "float" => float.TryParse(arg, System.Globalization.NumberStyles.Float, inv, out float f) ? f : 0f,
+                            "bool" => arg == "true" || arg == "1",
+                            _ => (object)arg } };
+                    }
+                    try { mi.Invoke(mb, args); }
+                    catch (TargetInvocationException e) { LogException(e.InnerException ?? e); }
+                    catch (Exception e) { LogException(e); }
+                    return 1;
+                }
+            }
+            return 0;
+        }
+
+        // C# 에서 AddListener 로 등록한 UI 이벤트 (kind 0 = Button.onClick)
+        [UnmanagedCallersOnly]
+        public static void InvokeUIEvent(ulong gameObjectId, int kind)
+        {
+            try
+            {
+                if (kind < 0) NovaEngine.UI.UIEvents.Clear();   // Play 시작/끝: 이전 리스너 정리
+                else NovaEngine.UI.UIEvents.Invoke(gameObjectId, kind);
+            }
+            catch (Exception e) { LogException(e); }
         }
 
         // 엔진 C# API 목록 (NOVA Code 자동 완성): NovaEngine 네임스페이스의 공개 타입과 멤버(이름, 타입)

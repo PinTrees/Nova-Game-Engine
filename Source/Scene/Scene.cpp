@@ -22,7 +22,9 @@ Scene::~Scene()
 
 void Scene::Enter()
 {
-    for (auto& gameObject : m_ArrGameObjects[0])
+    // 스크립트(Awake/Start)가 오브젝트를 만들거나 부모를 바꾸면 목록이 늘어나므로 복사본을 돈다
+    const std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    for (auto& gameObject : objects)
     {
         for (auto& component : gameObject->GetComponents())
         {
@@ -33,7 +35,7 @@ void Scene::Enter()
     // Unity 와 같이 Start 에서 Rigidbody 를 바로 쓸 수 있도록 물리 바디를 먼저 만든다
     PhysicsManager::GetI()->Start();
 
-    for (auto& gameObject : m_ArrGameObjects[0])
+    for (auto& gameObject : objects)
     {
         for (auto& component : gameObject->GetComponents())
         {
@@ -272,16 +274,20 @@ void Scene::RenderSceneGizmos()
 
 void Scene::LastFramUpdate()
 {
-    for (auto& gameObject : m_ArrGameObjects[0])
+    const std::vector<GameObject*> objects = m_ArrGameObjects[0];   // 편집 동작이 목록을 바꿀 수 있어 복사본
+    for (auto& gameObject : objects)
     {
-        gameObject->LastUpdate(); 
-        gameObject->ApplyPendingComponents(); 
+        gameObject->LastUpdate();
+        gameObject->ApplyPendingComponents();
     }
 }
 
 void Scene::UpdateScene()
 {
-    for (auto& gameObject : m_ArrGameObjects[0])
+    // 스크립트의 Update 가 오브젝트를 만들거나 부모를 바꾸면(transform.SetParent) 목록이 늘어나므로 복사본을 돈다.
+    // 새 오브젝트는 다음 프레임부터 업데이트된다 (Unity 와 같음)
+    const std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    for (auto& gameObject : objects)
     {
         for (auto& component : gameObject->GetComponents())
         {
@@ -289,7 +295,7 @@ void Scene::UpdateScene()
         }
     }
 
-    for (auto& gameObject : m_ArrGameObjects[0])
+    for (auto& gameObject : objects)
     {
         for (auto& component : gameObject->GetComponents())
         {

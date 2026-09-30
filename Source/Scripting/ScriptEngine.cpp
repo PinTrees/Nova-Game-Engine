@@ -48,6 +48,8 @@ namespace
 		Fn_GetFields GetFieldsJson = nullptr;
 		Fn_SetFields SetFieldsJson = nullptr;
 		Fn_GetJson GetApiJson = nullptr;   // 선택 (NOVA Code 자동 완성)
+		int(__stdcall* InvokeMethod)(uint64_t, const char*, const char*, const char*) = nullptr;   // UI Button
+		void(__stdcall* InvokeUIEvent)(uint64_t, int) = nullptr;
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -207,6 +209,10 @@ namespace
 		// 없어도 스크립팅은 동작한다 (자동 완성만 키워드/문서 단어로)
 		if (load(dll.c_str(), type, L"GetApiJson", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.GetApiJson) < 0)
 			m.GetApiJson = nullptr;
+		if (load(dll.c_str(), type, L"InvokeMethod", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.InvokeMethod) < 0)
+			m.InvokeMethod = nullptr;
+		if (load(dll.c_str(), type, L"InvokeUIEvent", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.InvokeUIEvent) < 0)
+			m.InvokeUIEvent = nullptr;
 
 		std::vector<uint8_t> table(ScriptBindings::TableSize());
 		ScriptBindings::Fill(table.data());
@@ -459,6 +465,9 @@ namespace
 					for (const json& o : f["optionValues"]) fi.OptionValues.push_back(o.get<long long>());
 				ci.Fields.push_back(std::move(fi));
 			}
+			if (c.contains("methods") && c["methods"].is_array())
+				for (const json& mt : c["methods"])
+					ci.Methods.push_back({ mt.value("name", std::string()), mt.value("param", std::string()) });
 			s_Classes.push_back(std::move(ci));
 		}
 	}
@@ -607,6 +616,8 @@ namespace ScriptEngine
 		memset(s_Keys, 0, sizeof(s_Keys));
 		memset(s_PrevKeys, 0, sizeof(s_PrevKeys));
 		ScriptBindings::Reset();
+		if (s_AssemblyLoaded && m.InvokeUIEvent)
+			m.InvokeUIEvent(0, -1);   // 이전 Play 의 button.onClick 리스너 정리
 		if (!playing && s_PendingReload && IsAvailable())
 			LoadAssembly();
 	}
@@ -810,6 +821,19 @@ namespace ScriptEngine
 	{
 		if (handle && m.SetFieldsJson)
 			m.SetFieldsJson(handle, j.c_str());
+	}
+
+	bool InvokeMethod(uint64_t gameObjectId, const std::string& className, const std::string& method, const std::string& argument)
+	{
+		if (!s_AssemblyLoaded || m.InvokeMethod == nullptr)
+			return false;
+		return m.InvokeMethod(gameObjectId, className.c_str(), method.c_str(), argument.c_str()) != 0;
+	}
+
+	void InvokeUIEvent(uint64_t gameObjectId, int kind)
+	{
+		if (s_AssemblyLoaded && m.InvokeUIEvent)
+			m.InvokeUIEvent(gameObjectId, kind);
 	}
 
 	bool KeyState(int vk, int mode)

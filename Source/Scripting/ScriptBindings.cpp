@@ -13,6 +13,8 @@
 #include "AudioClip.h"
 #include "AudioManager.h"
 #include "PhysicsManager.h"
+#include "UIScriptBindings.h"
+#include "UISystem.h"
 
 // C# 쪽 NativeApiTable(ScriptCore/Interop/NativeApi.cs)과 같은 순서·형식. 하나라도 어긋나면 Initialize 가 크기 불일치로 거부한다.
 namespace
@@ -94,6 +96,12 @@ namespace
 		uint64(*Camera_Main)();
 
 		void(*Script_SetEnabled)(void*, int);
+
+		// UI (Source/UI/UIScriptBindings.cpp)
+		int(*UI_GetVec)(uint64, int, Vec4*);
+		void(*UI_SetVec)(uint64, int, Vec4*);
+		u8* (*UI_GetString)(uint64, int);
+		void(*UI_SetString)(uint64, int, u8*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -165,7 +173,11 @@ namespace
 			Scene* scene = CurrentScene();
 			if (scene == nullptr)
 				return;
-			scene->AddRootGameObject(g);
+			// 그 사이 스크립트가 transform.SetParent 로 부모를 정했으면 루트로 넣지 않는다 (씬 목록 등록만)
+			if (g->GetParent() != nullptr)
+				scene->RegisterGameObjectTree(g);
+			else
+				scene->AddRootGameObject(g);
 			if (parent)
 				if (GameObject* p = scene->FindByFileID(parent))
 					g->SetParent(p, worldStays);
@@ -219,6 +231,9 @@ namespace
 			return c->GetType() == type;
 		};
 		for (const auto& c : g->GetComponents())
+			if (c && match(c.get()))
+				return c.get();
+		for (const auto& c : g->GetPendingComponents())   // 같은 프레임에 AddComponent 한 것
 			if (c && match(c.get()))
 				return c.get();
 		return nullptr;
@@ -338,6 +353,7 @@ namespace
 		auto c = ComponentFactory::Instance().CreateComponent(t);
 		if (c == nullptr)
 			return nullptr;
+		UISystem::QueueRectTransformFor(g, c.get());   // Unity: UI 컴포넌트를 붙이면 RectTransform 도 바로 생긴다
 		g->QueueComponent(c);
 		if (Application::IsPlaying())
 		{
@@ -633,7 +649,14 @@ namespace ScriptBindings
 		t.AN_SetParam = AN_SetParam; t.AN_GetParam = AN_GetParam;
 		t.PH_Raycast = PH_Raycast; t.Camera_Main = Camera_Main;
 		t.Script_SetEnabled = Script_SetEnabled;
+		t.UI_GetVec = UIScriptBindings::GetVec;
+		t.UI_SetVec = UIScriptBindings::SetVec;
+		t.UI_GetString = UIScriptBindings::GetString;
+		t.UI_SetString = UIScriptBindings::SetString;
 	}
+
+	GameObject* FindObject(uint64 fileID) { return Find(fileID); }
+	const char* ReturnString(const std::string& s) { return Ret(s); }
 
 	void BeginFrame()
 	{

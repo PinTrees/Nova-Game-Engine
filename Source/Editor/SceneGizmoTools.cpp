@@ -7,6 +7,7 @@
 #include "MeshFilter.h"
 #include "MeshRenderer.h"
 #include "Mesh.h"
+#include "RectTransform.h"
 #include <unordered_map>
 
 // Unity Scene 뷰 조작 핸들 구현.
@@ -64,6 +65,7 @@ namespace
 		Vec3 startPos;             // 오브젝트 월드 위치
 		Quaternion startRot;       // 월드 회전
 		Vec3 startLocalScale;
+		Vec2 startSizeDelta;   // UI(RectTransform): Rect 도구는 크기를 바꾼다
 		Matrix startWorld;
 		Vec3 handlePos;            // 핸들 위치 (Pivot 이면 startPos, Center 면 바운드 중심)
 
@@ -205,6 +207,14 @@ namespace
 	// 메시 로컬 AABB (없으면 단위 큐브)
 	void LocalBounds(GameObject* go, Vec3& bmin, Vec3& bmax)
 	{
+		// UI 요소: RectTransform 사각형 (F 포커스, Rect 도구가 UI 크기에 맞게)
+		if (RectTransform* rt = go ? go->GetComponent<RectTransform>() : nullptr)
+		{
+			const Vec2 mn = rt->GetRectMin(), mx = rt->GetRectMin() + rt->GetRectSize();
+			bmin = Vec3(mn.x, mn.y, -0.5f);
+			bmax = Vec3(mx.x, mx.y, 0.5f);
+			return;
+		}
 		static std::unordered_map<const Mesh*, std::pair<Vec3, Vec3>> cache;
 		Mesh* mesh = ObjectMesh(go);
 		if (mesh == nullptr || mesh->Vertices.empty())
@@ -607,6 +617,8 @@ namespace
 		d.startPos = tr->GetPosition();
 		d.startRot = tr->GetRotation();
 		d.startLocalScale = tr->GetLocalScale();
+		if (RectTransform* rt = tr->GetGameObject()->GetComponent<RectTransform>())
+			d.startSizeDelta = rt->GetSizeDelta();
 		d.startWorld = tr->GetWorldMatrix();
 		d.handlePos = handlePos;
 
@@ -814,6 +826,17 @@ namespace
 			};
 			if (moveI) axisScale(i, maxI);
 			if (moveJ) axisScale(j, maxJ);
+
+			// UI 요소: Unity 처럼 크기(Width/Height)를 바꾸고 반대쪽 변을 고정
+			if (RectTransform* rt = tr->GetGameObject()->GetComponent<RectTransform>(); rt && !rt->IsDrivenByCanvas())
+			{
+				const Vec2 startSize(d.bmax.x - d.bmin.x, d.bmax.y - d.bmin.y);
+				const Vec2 newSize(startSize.x * g.x, startSize.y * g.y);
+				rt->SetSizeDelta(d.startSizeDelta + (newSize - startSize));
+				Vec3 fixedScaled(fixedP.x * g.x, fixedP.y * g.y, fixedP.z * g.z);
+				tr->SetPosition(d.startPos + Vec3::TransformNormal(fixedP - fixedScaled, d.startWorld));
+				break;
+			}
 
 			Vec3 sc = d.startLocalScale;
 			sc.x *= g.x; sc.y *= g.y; sc.z *= g.z;

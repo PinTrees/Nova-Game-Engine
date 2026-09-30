@@ -2,6 +2,7 @@
 #include "GameObjectMenu.h"
 #include "GameObjectFactory.h"
 #include "EditorTheme.h"
+#include "UISystem.h"
 
 namespace GameObjectMenu
 {
@@ -119,7 +120,30 @@ namespace GameObjectMenu
 			ImGui::EndMenu();
 		}
 		DisabledSubMenu("Video", { "Video Player" });
-		DisabledSubMenu("UI (Canvas)", { "Canvas", "Text", "Image", "Button", "Panel" });
+		// Unity 6 의 GameObject > UI (Canvas): 캔버스가 없으면 Canvas + EventSystem 을 함께 만든다
+		auto uiItems = [&]() {
+			auto create = [&](const char* kind) { UISystem::Create(kind, scene, parent); };
+			if (ImGui::MenuItem("Image")) create("Image");
+			if (ImGui::MenuItem("Text")) create("Text");
+			Disabled("Raw Image");
+			if (ImGui::MenuItem("Panel")) create("Panel");
+			Disabled("Toggle");
+			Disabled("Slider");
+			Disabled("Scrollbar");
+			Disabled("Scroll View");
+			if (ImGui::MenuItem("Button")) create("Button");
+			Disabled("Dropdown");
+			Disabled("Input Field");
+			ImGui::Separator();
+			if (ImGui::MenuItem("Canvas")) create("Canvas");
+			if (ImGui::MenuItem("Event System")) create("EventSystem");
+		};
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("UI (Canvas)"))
+		{
+			uiItems();
+			ImGui::EndMenu();
+		}
 		DisabledSubMenu("AI", { "Navigation" });
 		DisabledSubMenu("UI Toolkit", { "UI Document" });
 		DisabledSubMenu("Rendering", { "Reflection Probe" });
@@ -138,7 +162,12 @@ namespace GameObjectMenu
 			add(GameObjectFactory::CreateCamera("Camera"));
 
 		Disabled("Visual Scripting Scene Variables");
-		DisabledSubMenu("UI", { "Text", "Image", "Button" });
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("UI"))
+		{
+			uiItems();
+			ImGui::EndMenu();
+		}
 		DisabledSubMenu("Navigation", { "NavMesh Surface", "NavMesh Modifier" });
 	}
 }

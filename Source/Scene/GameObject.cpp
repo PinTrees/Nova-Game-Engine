@@ -2,6 +2,7 @@
 #include "GameObject.h"
 #include "AddComponentMenu.h"
 #include "Transform.h"
+#include "RectTransform.h"
 #include "EditorGUI.h"
 #include "UnityGUI.h"
 #include "MeshFilter.h"
@@ -206,8 +207,12 @@ void GameObject::OnInspectorGUI()
     if (PrefabUtility::GetInstanceRoot(this) == this)
         UnityGUI::PrefabInstanceRow(this);
 
+    // UI 오브젝트는 Unity 처럼 Transform 대신 Rect Transform 만 보인다 (Transform 은 RectTransform 이 매 프레임 계산)
+    const bool hasRect = GetComponent<RectTransform>() != nullptr;
     for (auto it = m_Components.begin(); it != m_Components.end(); ++it)
     {
+        if (hasRect && (*it).get() == static_cast<Component*>(m_pTransform))
+            continue;
         ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 1));
         if (ImGui::BeginDragDropTarget())
         {

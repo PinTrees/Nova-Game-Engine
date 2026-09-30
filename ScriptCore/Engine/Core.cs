@@ -156,6 +156,9 @@ namespace NovaEngine
         public unsafe Component GetComponent(Type type)
         {
             if (type == typeof(Transform) || type == typeof(Component)) return transform;
+            // 추상 UI 타입: 실제 컴포넌트로 (Image → Text 순)
+            if (type == typeof(UI.Graphic)) return GetComponent(typeof(UI.Image)) ?? GetComponent(typeof(UI.Text));
+            if (type == typeof(UI.Selectable)) return GetComponent(typeof(UI.Button));
             if (typeof(MonoBehaviour).IsAssignableFrom(type) || type == typeof(Behaviour))
             {
                 foreach (var s in ScriptRegistry.Get(m_Id)) if (type.IsInstanceOfType(s)) return s;
@@ -258,6 +261,12 @@ namespace NovaEngine
             if (t == typeof(Camera)) return "Camera";
             if (t == typeof(Light)) return "Light";
             if (t == typeof(MeshRenderer)) return "MeshRenderer";
+            // UI
+            if (t == typeof(RectTransform)) return "RectTransform";
+            if (t == typeof(Canvas)) return "Canvas";
+            if (typeof(UI.Image).IsAssignableFrom(t)) return "UIImage";
+            if (typeof(UI.Text).IsAssignableFrom(t)) return "Text";   // TMPro.TextMeshProUGUI 포함
+            if (typeof(UI.Button).IsAssignableFrom(t)) return "Button";
             return null;
         }
 

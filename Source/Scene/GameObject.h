@@ -18,14 +18,14 @@ class GameObject
 private:
 	PrefabLink m_Prefab;	// 프리팹 인스턴스 연결 (없으면 일반 오브젝트)
 	uint64 m_FileID;		// 저장되는 고유 ID (씬 파일/Undo/프리팹이 오브젝트를 다시 찾을 때). 실행마다 바뀌는 InstanceID 와 다르다
-	uint64 m_InstanceID;	// ���� �ν��Ͻ� ID
+	uint64 m_InstanceID;	// ���� �ν��Ͻ� ID
 	static atomic<uint64> g_NextInstanceID;
 
 	string m_Name;
 
 	uint8 m_LayerIndex;
 	vector<shared_ptr<Component>> m_Components;
-	vector<shared_ptr<Component>> m_ComponentsToAdd;	// �ӽ� �����
+	vector<shared_ptr<Component>> m_ComponentsToAdd;	// �ӽ� �����
 
 	vector<MonoBehaviour*> m_Scripts;
 
@@ -160,6 +160,18 @@ public:
 		return nullptr;
 	}
 	vector<shared_ptr<Component>>& GetComponents() { return m_Components; }
+	// 이번 프레임에 붙였지만 아직 목록에 들어가지 않은 컴포넌트 (스크립트의 AddComponent 직후 GetComponent 용)
+	const vector<shared_ptr<Component>>& GetPendingComponents() const { return m_ComponentsToAdd; }
+	template <class T>
+	T* GetComponentIncludingPending()
+	{
+		if (T* c = GetComponent<T>())
+			return c;
+		for (auto& component : m_ComponentsToAdd)
+			if (T* c = dynamic_cast<T*>(component.get()))
+				return c;
+		return nullptr;
+	}
 
 private:
 	friend class GameObject;

@@ -39,6 +39,15 @@ namespace
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
 		{ "Animator",            "Animator",              "Miscellaneous", "animator",          true  },
+		// UI (Unity 의 UI / Layout / Event 분류)
+		{ "UIImage",             "Image",                 "UI",            "ui_image",          true  },
+		{ "Text",                "Text",                  "UI",            "ui_text",           true  },
+		{ "Button",              "Button",                "UI",            "ui_button",         true  },
+		{ "RectTransform",       "Rect Transform",        "Layout",        "rect_transform",    true  },
+		{ "Canvas",              "Canvas",                "Layout",        "canvas",            true  },
+		{ "CanvasScaler",        "Canvas Scaler",         "Layout",        "canvas_scaler",     true  },
+		{ "GraphicRaycaster",    "Graphic Raycaster",     "Event",         "graphic_raycaster", true  },
+		{ "EventSystem",         "Event System",          "Event",         "event_system",      true  },
 	};
 
 	// 메뉴에 보이지 않는 타입 (항상 있거나 직접 붙일 수 없는 기반 클래스)
@@ -52,20 +61,12 @@ namespace
 		std::vector<Entry> out;
 		for (const std::string& type : ComponentFactory::Instance().GetComponentTypes())
 		{
-			if (IsHidden(type))
-				continue;
-			Entry e{ type, type, "Scripts", "component", false };
+			// 표에 있는 네이티브 컴포넌트만 (REGISTER_SCRIPT 로 등록된 C++ 예제 스크립트는 보이지 않는다)
 			for (const KnownInfo& k : kKnown)
-				if (type == k.type)
-				{
-					e.display = k.display;
-					e.category = k.category;
-					e.icon = k.icon;
-					e.single = k.single;
-				}
-			out.push_back(e);
+				if (type == k.type && !IsHidden(type))
+					out.push_back(Entry{ type, k.display, k.category, k.icon, k.single });
 		}
-		// 프로젝트 C# 스크립트 (Unity 의 Add Component > Scripts)
+		// Scripts 는 프로젝트 C# 스크립트만 (Unity 의 Add Component > Scripts)
 		for (const ScriptEngine::ClassInfo& c : ScriptEngine::Classes())
 			out.push_back(Entry{ "script:" + c.FullName, c.Name, "Scripts", "script_cs", false });
 		std::sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) { return a.display < b.display; });
@@ -350,5 +351,23 @@ namespace AddComponentMenu
 		ImGui::EndPopup();
 		ImGui::PopStyleVar(4);
 		ImGui::PopStyleColor(2);
+	}
+
+	bool IsListed(const std::string& type)
+	{
+		if (IsHidden(type))
+			return false;
+		for (const KnownInfo& k : kKnown)
+			if (type == k.type)
+				return true;
+		return false;
+	}
+
+	std::string DisplayName(const std::string& type)
+	{
+		for (const KnownInfo& k : kKnown)
+			if (type == k.type)
+				return k.display;
+		return type;
 	}
 }

@@ -17,4 +17,9 @@ namespace AddComponentMenu
 
 	// 매 프레임 호출. 컴포넌트를 고르면 onAdd 로 새 컴포넌트를 넘긴다.
 	void Draw(GameObject* target, const std::function<void(std::shared_ptr<Component>)>& onAdd);
+
+	// 메뉴에 보이는 네이티브 컴포넌트인지 (C++ 예제 스크립트 등 등록만 된 타입은 숨김 — 스크립트는 C# 만)
+	bool IsListed(const std::string& type);
+	// 표시 이름 (예: "RigidBody" → "Rigidbody"), 모르면 그대로
+	std::string DisplayName(const std::string& type);
 }

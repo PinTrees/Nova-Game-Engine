@@ -33,6 +33,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
 | **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
 | **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API (`NovaEngine` 네임스페이스: GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, AudioSource, Animator, Physics.Raycast, 코루틴, Invoke …), Assets 의 `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`public` / `[SerializeField]`, `[Range]`, `[Header]`, enum, Color, GameObject 참조), 컴파일 오류는 Console(파일:줄) 에 표시되고 Play 를 막음 |
+| **UI (UGUI)** | Canvas(Screen Space - Overlay, Sort Order) · Canvas Scaler(Constant Pixel Size / Scale With Screen Size) · Graphic Raycaster · Event System, Rect Transform(기준점 프리셋, Pos/Width 또는 Left/Right, Pivot), Image(Simple / Sliced / Filled 가로·세로·원형), Text(한글 포함 기본 글꼴, 줄바꿈·정렬·Best Fit), Button(Color Tint, On Click () 에 C# 메서드). GameObject > UI (Canvas) 메뉴, Scene 뷰에 캔버스 표시, Rect 도구로 크기 조절 |
 | **코드 편집기 (NOVA Code)** | 에디터에 내장된 C# IDE(기본 External Script Editor): Explorer, 탭, 구문 강조, 엔진 API 자동 완성, 찾기/바꾸기, 줄 이동, 저장하면 바로 컴파일, 컴파일 오류를 그 줄에 밑줄로. **Edit > Preferences > External Tools** 에서 Visual Studio / VS Code / Rider / 직접 지정으로 바꿀 수 있음 |
 | **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
 
@@ -45,6 +46,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
 | <img src="docs/images/audio_source.webp" width="440"/><br/>Audio Source | <img src="docs/images/physics.webp" width="440"/><br/>물리 (지형 위의 공) |
 | <img src="docs/images/nova_code.webp" width="440"/><br/>NOVA Code (내장 C# IDE, 자동 완성) | <img src="docs/images/nova_code_error.webp" width="440"/><br/>NOVA Code 컴파일 오류 표시 |
+| <img src="docs/images/ui_editor.webp" width="440"/><br/>UI Button (Rect Transform / Image / Button Inspector) | <img src="docs/images/ui_game.webp" width="440"/><br/>UI Play: 버튼 클릭 → 점수·체력 바 (C#) |
 
 <p align="center">
   <img src="docs/images/postprocess_compare.webp" width="900" alt="후처리 전/후"/><br/>
@@ -123,6 +125,29 @@ public class Spinner : MonoBehaviour
 }
 ```
 
+UI 는 `using NovaEngine.UI;` (Unity 의 `UnityEngine.UI`) 이고, `TMPro.TextMeshProUGUI` 도 같은 Text 로 쓸 수 있습니다.
+
+```csharp
+using NovaEngine;
+using NovaEngine.UI;
+
+public class ScoreUI : MonoBehaviour
+{
+    public GameObject scoreText, hpBar, button;
+    int score;
+
+    void Start()
+    {
+        button.GetComponent<Button>().onClick.AddListener(() =>
+        {
+            score++;
+            scoreText.GetComponent<Text>().text = "점수: " + score;
+            hpBar.GetComponent<Image>().fillAmount -= 0.1f;   // Image Type = Filled
+        });
+    }
+}
+```
+
 Unity 코드는 `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 대부분 그대로 동작합니다. 프로젝트 루트의 `Assembly-CSharp.csproj` 는 에디터가 만들며, VS Code / Visual Studio 에서 자동 완성에 쓰입니다.
 
 ## 단축키 (Unity 와 같음)
@@ -165,6 +190,7 @@ Source/
   Terrain/    TerrainData, 쿼드트리 LOD 렌더러
   Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
   Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
+  UI/         UGUI: Canvas, RectTransform, Image, Text, Button, 글꼴 아틀라스, UI 그리기(42. UI.fx), 입력/레이아웃(UISystem)
   Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator/Preferences ...), Undo, EditorPrefs
     NovaCode/ 내장 C# IDE: CodeEditor(편집 위젯), CSharpLanguage(구문 강조·자동 완성), NovaCodeWindow(창), ExternalScriptEditor(편집기 선택/실행)
   Hub/        프로젝트 Hub

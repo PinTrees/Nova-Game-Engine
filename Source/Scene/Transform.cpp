@@ -2,6 +2,7 @@
 #include "Transform.h"
 #include "UnityGUI.h"
 #include "EditorGUI.h"
+#include "RectTransform.h"
 
 // Unity 와 같은 오일러 순서(Z → X → Y). 라디안 입력
 Quaternion Transform::CreateQuaternion(double x, double y, double z)
@@ -327,6 +328,22 @@ GENERATE_COMPONENT_FUNC_TOJSON(Transform)
 	SERIALIZE_VECTOR3(j, m_Scale);
 	SERIALIZE_VECTOR3(j, m_EulerAngles);
 	SERIALIZE_VECTOR3(j, m_Position);
+
+	// UI 오브젝트: 위치(x, y)는 RectTransform 이 Game 뷰 크기로 매 프레임 계산하는 값이므로 크기와 무관한 값으로 저장한다
+	// (창 크기만 바뀌어도 씬이 "*" 로 바뀌지 않게. 불러오면 첫 레이아웃에서 다시 계산된다)
+	if (m_pGameObject)
+		if (RectTransform* rt = m_pGameObject->GetComponent<RectTransform>())
+		{
+			j["m_LocalPosition"] = { 0.0f, 0.0f, m_LocalPosition.z };
+			j["m_Position"] = { 0.0f, 0.0f, 0.0f };
+			if (rt->IsDrivenByCanvas())   // 루트 캔버스: 크기(배율)도 Canvas Scaler 가 정한다
+			{
+				j["m_LocalScale"] = { 1.0f, 1.0f, 1.0f };
+				j["m_Scale"] = { 1.0f, 1.0f, 1.0f };
+			}
+			else
+				j["m_Scale"] = { m_LocalScale.x, m_LocalScale.y, m_LocalScale.z };
+		}
 
 	return j;
 }

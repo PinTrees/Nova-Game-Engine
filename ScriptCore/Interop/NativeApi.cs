@@ -100,6 +100,17 @@ namespace NovaEngine.Interop
 
         // 스크립트 컴포넌트: C# 에서 enabled 를 바꾸면 네이티브 컴포넌트(Inspector 체크박스)도 바꾼다
         public delegate* unmanaged<IntPtr, int, void> Script_SetEnabled;
+
+        // UI (Source/UI/UIScriptBindings.cpp 의 번호표와 같아야 한다)
+        //  벡터: 0 anchoredPosition, 1 sizeDelta, 2 anchorMin, 3 anchorMax, 4 pivot, 5 rect(x,y,w,h), 6 offsetMin, 7 offsetMax
+        //        Graphic(+0 Image, +100 Text): 10 color, 11 raycastTarget, 12 enabled
+        //        Image: 20 fillAmount, 21 type, 22 fillMethod, 23 fillOrigin, 24 preserveAspect, 25 SetNativeSize
+        //        Text: 30 fontSize, 31 alignment, 32 lineSpacing, 33 fontStyle / Button: 40 interactable, 41 enabled / Canvas: 50 sortingOrder, 51 scaleFactor
+        //  문자열: 0 Text.text, 1 Text.font, 2 Image.sprite
+        public delegate* unmanaged<ulong, int, Vector4*, int> UI_GetVec;
+        public delegate* unmanaged<ulong, int, Vector4*, void> UI_SetVec;
+        public delegate* unmanaged<ulong, int, byte*> UI_GetString;
+        public delegate* unmanaged<ulong, int, byte*, void> UI_SetString;
     }
 
     internal static unsafe class Native
