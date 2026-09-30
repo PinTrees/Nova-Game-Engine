@@ -1,80 +1,99 @@
 #pragma once
 #include "Component.h"
 
-class Transform;
+enum class ForceMode;
 
+// Unity Ïùò Rigidbody. Ïã§Ï†ú ÏãúÎÆ¨Î†àÏù¥ÏÖòÏùÄ PhysicsManager(Jolt Physics)Í∞Ä Îã¥ÎãπÌïòÍ≥†,
+// Ïù¥ Ïª¥Ìè¨ÎÑåÌä∏Îäî ÏÑ§Ï†ï Í∞íÍ≥º Unity Ïä§ÌÉÄÏùº API(velocity, AddForce, MovePosition ...)Î•º Ï†úÍ≥µÌïúÎã§.
 class RigidBody : public Component
 {
+public:
+	enum class Interpolation { None, Interpolate, Extrapolate };
+	enum class CollisionDetection { Discrete, Continuous, ContinuousDynamic, ContinuousSpeculative };
+
 private:
-	float m_Mass;						// ¡˙∑Æ
-	float m_InverseMass;				// ¡˙∑Æ¿« ø™ºˆ - ¿˚∫–Ωƒø° »∞øÎ
+	float m_Mass = 1.0f;
+	float m_LinearDamping = 0.0f;      // Unity 6: Linear Damping (Íµ¨ Drag)
+	float m_AngularDamping = 0.05f;    // Unity 6: Angular Damping (Íµ¨ Angular Drag)
+	bool m_AutomaticCenterOfMass = true;
+	bool m_AutomaticTensor = true;
+	bool m_UseGravity = true;
+	bool m_IsKinematic = false;
+	int m_Interpolation = 0;           // Interpolation
+	int m_CollisionDetection = 0;      // CollisionDetection
+	bool m_FreezePosition[3] = { false, false, false };
+	bool m_FreezeRotation[3] = { false, false, false };
 
-	// Fixed
-	/* ∞¸º∫ ∏∏‡∆Æ ø™≈Ÿº≠ */
-	Matrix3 m_InverseInertiaTensor;			// ∑Œƒ√ ¡¬«•∞Ë ±‚¡ÿ
-	Matrix3 m_InverseInertiaTensorWorld;	// ø˘µÂ ¡¬«•∞Ë ±‚¡ÿ
+	// Play Ï†ÑÏóê ÏÑ§Ï†ïÎêú ÏÜçÎèÑ (Î∞îÎîîÍ∞Ä ÎßåÎì§Ïñ¥Ïßà Îïå Ï†ÅÏö©)
+	Vec3 m_PendingVelocity = Vec3::Zero;
+	Vec3 m_PendingAngularVelocity = Vec3::Zero;
 
-	Vec3 m_Velocity;				// º±º”µµ
-	Vec3 m_RotationVelocity;		// ∞¢º”µµ
-
-	Vec3 m_Acceleration;			// ∞°º”µµ - ¡ﬂ∑¬
-	Vec3 m_PrevAcceleration;		// ¡˜¿¸ «¡∑π¿”ø°º≠ ∞≠√º¿« ∞°º”µµ - ¡ﬂ∑¬ ∞°º”µµ + ø‹∫Œ »˚ø° ¿««— ∞°º”µµ∏¶ ¿˙¿Â«—¥Ÿ
-
-	float m_LinearDamping;			// º±º”µµ ¥Ô«Œ
-	float m_AngularDamping;			// ∞¢º”µµ ¥Ô«Œ
-
-	/* ∞≠√ºø° ∞°«ÿ¡¯ »˚ & ≈‰≈© */
-	Vec3 m_Force;
-	Vec3 m_Torque;
-	
-	bool m_IsKinematic;				// ≈∞≥◊∆Ω ø©∫Œ
-	bool m_AutomaticTensor;
-	bool m_UseGravity;
+	// PhysicsManager Í∞Ä Í¥ÄÎ¶¨ÌïòÎäî Jolt Î∞îÎîî ID (ÏóÜÏúºÎ©¥ 0xffffffff)
+	uint32 m_BodyId = 0xffffffff;
 
 public:
 	RigidBody();
 	virtual ~RigidBody();
 
 public:
-	void SetInertiaTensor(const Matrix3 mat);
-	void SetInverseInertiaTensor(const Matrix3& mat); 
-	Matrix3 GetInverseInertiaTensor() const { return m_InverseInertiaTensor; }   
-	Matrix3 GetInverseInertiaTensorWorld() const { return m_InverseInertiaTensorWorld; }  
-
-	void SetKinematic(bool isKinematic) { m_IsKinematic = isKinematic; }
-	bool IsKinematic() const { return m_IsKinematic; }
-
-	void SetAcceleration(Vec3 vec) { m_Acceleration = vec; }
-
-	void SetVelocity(const Vec3& velocity) { m_Velocity = velocity; }
-	Vec3 GetVelocity() const { return m_Velocity; }
-
-	Vec3 GetRotationVelocity();
-	void SetRotationVelocity(const Vec3& rotation);
-
+	// ---- ÏÑ§Ï†ï ----
 	void SetMass(float mass);
 	float GetMass() const { return m_Mass; }
+	float GetInverseMass() const { return m_Mass > 0.0f ? 1.0f / m_Mass : 0.0f; }
+	void SetLinearDamping(float d) { m_LinearDamping = (std::max)(0.0f, d); }
+	float GetLinearDamping() const { return m_LinearDamping; }
+	void SetAngularDamping(float d) { m_AngularDamping = (std::max)(0.0f, d); }
+	float GetAngularDamping() const { return m_AngularDamping; }
+	void SetUseGravity(bool use) { m_UseGravity = use; }
+	bool GetUseGravity() const { return m_UseGravity; }
+	void SetKinematic(bool isKinematic) { m_IsKinematic = isKinematic; }
+	bool IsKinematic() const { return m_IsKinematic; }
+	Interpolation GetInterpolation() const { return (Interpolation)m_Interpolation; }
+	void SetInterpolation(Interpolation i) { m_Interpolation = (int)i; }
+	CollisionDetection GetCollisionDetection() const { return (CollisionDetection)m_CollisionDetection; }
+	void SetCollisionDetection(CollisionDetection c) { m_CollisionDetection = (int)c; }
+	bool IsPositionFrozen(int axis) const { return m_FreezePosition[axis]; }
+	bool IsRotationFrozen(int axis) const { return m_FreezeRotation[axis]; }
+	void SetFreezePosition(int axis, bool freeze) { m_FreezePosition[axis] = freeze; }
+	void SetFreezeRotation(int axis, bool freeze) { m_FreezeRotation[axis] = freeze; }
 
-	float GetInverseMass() const { return m_InverseMass; }
+	// ---- Unity API ----
+	Vec3 GetVelocity();                           // Rigidbody.linearVelocity
+	void SetVelocity(const Vec3& velocity);
+	Vec3 GetAngularVelocity();                    // Rigidbody.angularVelocity (rad/s, ÏõîÎìú)
+	void SetAngularVelocity(const Vec3& w);
+	void AddForce(const Vec3& force, ForceMode mode);
+	void AddForce(const Vec3& force);             // ForceMode.Force
+	void AddTorque(const Vec3& torque, ForceMode mode);
+	void AddTorque(const Vec3& torque);
+	void AddForceAtPosition(const Vec3& force, const Vec3& position, ForceMode mode);
+	void MovePosition(const Vec3& position);
+	void MoveRotation(const Quaternion& rotation);
+	bool IsSleeping();
+	void Sleep();
+	void WakeUp();
+	Vec3 GetWorldCenterOfMass();
 
-	void ApplyTorque(const Vec3& torque);
-	void ApplyForce(const Vec3& force);
+	// Ïù¥Ï†Ñ API Ìò∏Ìôò
+	void ApplyForce(const Vec3& force) { AddForce(force); }
 	void ApplyImpulse(const Vec3& impulse);
-	
-	void TransformInertiaTensor();
+	void ApplyTorque(const Vec3& torque) { AddTorque(torque); }
+	Vec3 GetRotationVelocity() { return GetAngularVelocity(); }
+	void SetRotationVelocity(const Vec3& w) { SetAngularVelocity(w); }
 
+	// ---- PhysicsManager Ï†ÑÏö© ----
+	uint32 _GetBodyId() const { return m_BodyId; }
+	void _SetBodyId(uint32 id) { m_BodyId = id; }
+	Vec3 _TakePendingVelocity() { Vec3 v = m_PendingVelocity; m_PendingVelocity = Vec3::Zero; return v; }
+	Vec3 _TakePendingAngularVelocity() { Vec3 v = m_PendingAngularVelocity; m_PendingAngularVelocity = Vec3::Zero; return v; }
 
 public:
-	virtual void Awake() override;
-	void Integrate(float deltaTime);
-
-
-public:
-	virtual void OnDrawGizmos() override;
 	virtual void OnInspectorGUI() override;
+	virtual bool UsesUnityInspector() const override { return true; }
+	virtual bool HasEnabledToggle() const override { return false; }
+	virtual const char* InspectorIconName() const override { return "rigidbody"; }
 
-	GENERATE_COMPONENT_BODY(RigidBody) 
+	GENERATE_COMPONENT_BODY(RigidBody)
 };
 
-REGISTER_COMPONENT(RigidBody); 
-
+REGISTER_COMPONENT(RigidBody);

@@ -115,6 +115,16 @@ ICONS = {
     "sphere_collider": svg16(
         '  <circle cx="8" cy="8" r="6.2" fill="#6FD46F" fill-opacity="0.22" stroke="#6FD46F" stroke-width="1.4"/>\n'
         '  <ellipse cx="8" cy="8" rx="6.2" ry="2.4" fill="none" stroke="#6FD46F" stroke-width="1.1"/>'),
+    "capsule_collider": svg16(
+        '  <rect x="4.4" y="1.4" width="7.2" height="13.2" rx="3.6" fill="#6FD46F" fill-opacity="0.22" stroke="#6FD46F" stroke-width="1.4"/>\n'
+        '  <ellipse cx="8" cy="8" rx="3.6" ry="1.3" fill="none" stroke="#6FD46F" stroke-width="1.0"/>'),
+    "mesh_collider": svg16(
+        '  <polygon points="8,1.6 14.2,5.2 12.6,13.4 3.4,13.4 1.8,5.2" fill="#6FD46F" fill-opacity="0.22" stroke="#6FD46F" stroke-width="1.3" stroke-linejoin="round"/>\n'
+        '  <path d="M8 1.6 L8 8.4 L1.8 5.2 M8 8.4 L14.2 5.2 M8 8.4 L3.4 13.4 M8 8.4 L12.6 13.4" fill="none" stroke="#6FD46F" stroke-width="0.9"/>'),
+    "rigidbody": svg16(
+        '  <path d="M8 1.6 L13.8 4.8 L13.8 11.2 L8 14.4 L2.2 11.2 L2.2 4.8 Z" fill="#8FB4D9" fill-opacity="0.35" stroke="#C4C4C4" stroke-width="1.2" stroke-linejoin="round"/>\n'
+        '  <path d="M2.2 4.8 L8 8 L13.8 4.8 M8 8 L8 14.4" fill="none" stroke="#C4C4C4" stroke-width="1.0"/>\n'
+        '  <circle cx="8" cy="8" r="1.6" fill="#E8B84A"/>'),
     "edit_collider": svg16(
         '  <polyline points="3,12.6 5.4,4.2 12.4,6.4 10.2,12.8 3,12.6" fill="none" stroke="#E6E6E6" stroke-width="1.3" stroke-linejoin="round"/>\n'
         '  <circle cx="3" cy="12.6" r="1.6" fill="#E6E6E6"/>\n'

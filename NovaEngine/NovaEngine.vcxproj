@@ -183,8 +183,6 @@
     <ClInclude Include="..\Source\Scene\BoxCollider.h" />
     <ClInclude Include="..\Source\Scene\Camera.h" />
     <ClInclude Include="..\Source\Scene\Collider.h" />
-    <ClInclude Include="..\Source\Physics\CollisionDetector.h" />
-    <ClInclude Include="..\Source\Physics\CollisionResolver.h" />
     <ClInclude Include="..\Source\Scene\Component.h" />
     <ClInclude Include="..\Source\Scene\ComponentFactory.h" />
     <ClInclude Include="..\Source\Editor\Windows\ConsoleEditorWindow.h" />
@@ -236,6 +234,8 @@
     <ClInclude Include="..\Source\Graphics\DX11\MeshGeometry.h" />
     <ClInclude Include="..\Source\Scene\MeshRenderer.h" />
     <ClInclude Include="..\Source\Scene\MeshFilter.h" />
+    <ClInclude Include="..\Source\Scene\CapsuleCollider.h" />
+    <ClInclude Include="..\Source\Scene\MeshCollider.h" />
     <ClInclude Include="..\Source\Editor\GameObjectMenu.h" />
     <ClInclude Include="..\Source\Editor\SceneToolbar.h" />
     <ClInclude Include="..\Source\Editor\SceneGizmoTools.h" />
@@ -335,8 +335,6 @@
     <ClCompile Include="..\Source\Scene\BoxCollider.cpp" />
     <ClCompile Include="..\Source\Scene\Camera.cpp" />
     <ClCompile Include="..\Source\Scene\Collider.cpp" />
-    <ClCompile Include="..\Source\Physics\CollisionDetector.cpp" />
-    <ClCompile Include="..\Source\Physics\CollisionResolver.cpp" />
     <ClCompile Include="..\Source\Scene\Component.cpp" />
     <ClCompile Include="..\Source\Scene\ComponentFactory.cpp" />
     <ClCompile Include="..\Source\Editor\Windows\ConsoleEditorWindow.cpp" />
@@ -408,6 +406,8 @@
     <ClCompile Include="..\Source\Graphics\DX11\MeshGeometry.cpp" />
     <ClCompile Include="..\Source\Scene\MeshRenderer.cpp" />
     <ClCompile Include="..\Source\Scene\MeshFilter.cpp" />
+    <ClCompile Include="..\Source\Scene\CapsuleCollider.cpp" />
+    <ClCompile Include="..\Source\Scene\MeshCollider.cpp" />
     <ClCompile Include="..\Source\Editor\GameObjectMenu.cpp" />
     <ClCompile Include="..\Source\Editor\SceneToolbar.cpp" />
     <ClCompile Include="..\Source\Editor\SceneGizmoTools.cpp" />

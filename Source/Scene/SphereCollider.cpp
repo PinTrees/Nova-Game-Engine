@@ -19,10 +19,19 @@ float SphereCollider::GetRadius()
 
 void SphereCollider::OnDrawGizmos()
 {
+	if (!ShouldDrawGizmo())
+		return;
+	// Unity 와 같이 반지름은 가장 큰 스케일 축을 따른다
 	Transform* transform = m_pGameObject->GetTransform();
-	XMMATRIX world = transform->GetWorldMatrix();
-	XMMATRIX centered = XMMatrixTranslation(m_Center.x, m_Center.y, m_Center.z) * world;
-    Gizmo::DrawSphere(centered, m_Radius);
+	Matrix world = transform->GetWorldMatrix();
+	Vec3 s = transform->GetScale();
+	float r = m_Radius * (std::max)((std::max)(fabsf(s.x), fabsf(s.y)), fabsf(s.z));
+	Vec3 c = Vec3::Transform(m_Center, world);
+	Vec3 ax = world.Right(), ay = world.Up(), az = world.Backward();
+	ax.Normalize(); ay.Normalize(); az.Normalize();
+	GizmoCircle(c, ax, ay, r);
+	GizmoCircle(c, ay, az, r);
+	GizmoCircle(c, az, ax, r);
 }
 
 void SphereCollider::OnInspectorGUI()

@@ -56,8 +56,9 @@ private:																  \
 #define GENERATE_COMPONENT_FUNC_TOJSON(CLASS)	json CLASS::toJson() const
 #define GENERATE_COMPONENT_FUNC_FROMJSON(CLASS)	void CLASS::fromJson(const json& j)
 
+// inline 변수: 헤더를 여러 번역 단위(PCH 를 쓰지 않는 파일 포함)에서 포함해도 한 번만 정의/등록된다
 #define REGISTER_COMPONENT(CLASS)													\
-const bool CLASS::registered =														\
+inline const bool CLASS::registered =														\
     ComponentFactory::Instance().RegisterComponent(#CLASS, CLASS::CreateInstance);	\
 
 //Component Requied Func

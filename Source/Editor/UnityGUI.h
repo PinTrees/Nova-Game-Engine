@@ -22,6 +22,10 @@ namespace UnityGUI
 	// ---- 행 위젯 (레이블 + 필드) ----
 	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent = 0, bool disabled = false);
 	bool Toggle(const char* label, bool* value, int indent = 0);
+	// "Freeze Position  [ ]X [ ]Y [ ]Z" 처럼 축별 체크박스 3개
+	bool Toggle3(const char* label, bool* xyz, int indent = 0);
+	// 읽기 전용 값 표시 (Rigidbody 의 Info 등)
+	void ValueLabel(const char* label, const char* value, int indent = 0);
 	bool Float(const char* label, float* value, int indent = 0, const char* innerLabel = nullptr);
 	bool Int(const char* label, int* value, int indent = 0);
 	bool Slider(const char* label, float* value, float minV, float maxV, int indent = 0);   // 슬라이더 + 숫자 입력

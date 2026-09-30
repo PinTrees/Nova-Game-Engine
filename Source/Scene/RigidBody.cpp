@@ -1,206 +1,188 @@
 #include "pch.h"
 #include "RigidBody.h"
-#include "Debug.h"
-#include "EditorGUI.h"
+#include "PhysicsManager.h"
+#include "UnityGUI.h"
 
 RigidBody::RigidBody()
-	: m_Velocity(0.0f, 0.0f, 0.0f),
-	m_Acceleration(0.0f, 0.0f, 0.0f),
-	m_Mass(1.0f),
-	m_InverseMass(0.0f),
-	m_Force(Vec3::Zero),
-	m_Torque(Vec3::Zero),
-	m_IsKinematic(false),
-	m_AngularDamping(0.99f),
-	m_LinearDamping(0.99f)
 {
-	m_InspectorTitleName = "RigidBody";
-	m_InspectorIconPath = L"rigidbody.png"; 
+	m_InspectorTitleName = "Rigidbody";
 }
 
 RigidBody::~RigidBody()
 {
 }
 
-// Fixed
-void RigidBody::SetInertiaTensor(const Matrix3 mat) 
+void RigidBody::SetMass(float mass)
 {
-	m_InverseInertiaTensor = mat.inverse(); 
-	TransformInertiaTensor();
+	m_Mass = (std::max)(1e-7f, mass);
 }
 
-// Fixed
-void RigidBody::SetInverseInertiaTensor(const Matrix3& mat)
+// ------------------------------------------------------------------ ì†ë„
+Vec3 RigidBody::GetVelocity()
 {
-	m_InverseInertiaTensor = mat;
-	TransformInertiaTensor();
+	Vec3 v;
+	if (PhysicsManager::GetI()->GetLinearVelocity(this, v))
+		return v;
+	return m_PendingVelocity;
 }
 
-void RigidBody::ApplyTorque(const Vec3& torque)
+void RigidBody::SetVelocity(const Vec3& velocity)
 {
-	m_Torque += torque;
+	if (!PhysicsManager::GetI()->SetLinearVelocity(this, velocity))
+		m_PendingVelocity = velocity;
 }
 
-void RigidBody::ApplyForce(const Vec3& force)
+Vec3 RigidBody::GetAngularVelocity()
 {
-	Vec3 acceleration = force / m_Mass;
-	m_Acceleration += acceleration;
+	Vec3 w;
+	if (PhysicsManager::GetI()->GetAngularVelocity(this, w))
+		return w;
+	return m_PendingAngularVelocity;
+}
+
+void RigidBody::SetAngularVelocity(const Vec3& w)
+{
+	if (!PhysicsManager::GetI()->SetAngularVelocity(this, w))
+		m_PendingAngularVelocity = w;
+}
+
+// ------------------------------------------------------------------ í˜
+void RigidBody::AddForce(const Vec3& force, ForceMode mode)
+{
+	if (PhysicsManager::GetI()->AddForce(this, force, mode))
+		return;
+	// ë°”ë””ê°€ ì•„ì§ ì—†ìœ¼ë©´ ìˆœê°„ ì†ë„ ë³€í™” ëª¨ë“œë§Œ ë³´ê´€í•œë‹¤ (Play ì „ í˜¸ì¶œ)
+	if (mode == ForceMode::Impulse)
+		m_PendingVelocity += force / m_Mass;
+	else if (mode == ForceMode::VelocityChange)
+		m_PendingVelocity += force;
+}
+
+void RigidBody::AddForce(const Vec3& force)
+{
+	AddForce(force, ForceMode::Force);
+}
+
+void RigidBody::AddTorque(const Vec3& torque, ForceMode mode)
+{
+	PhysicsManager::GetI()->AddTorque(this, torque, mode);
+}
+
+void RigidBody::AddTorque(const Vec3& torque)
+{
+	AddTorque(torque, ForceMode::Force);
+}
+
+void RigidBody::AddForceAtPosition(const Vec3& force, const Vec3& position, ForceMode mode)
+{
+	PhysicsManager::GetI()->AddForceAtPosition(this, force, position, mode);
 }
 
 void RigidBody::ApplyImpulse(const Vec3& impulse)
 {
-	if (m_IsKinematic)
-		return;
-
-	m_Velocity += impulse / m_Mass;
+	AddForce(impulse, ForceMode::Impulse);
 }
 
-Vec3 RigidBody::GetRotationVelocity()
+void RigidBody::MovePosition(const Vec3& position)
 {
-	Matrix worldMatrix = GetGameObject()->GetTransform()->GetWorldMatrix();
-	 
-	Matrix3 rotationMatrix;
-	for (int i = 0; i < 3; ++i)
-		for (int j = 0; j < 3; ++j)
-			rotationMatrix.entries[3 * i + j] = worldMatrix.m[i][j]; 
-	
-	// ·ÎÄÃ È¸Àü ¼Óµµ¸¦ ¿ùµå È¸Àü ¼Óµµ·Î º¯È¯
-	return  rotationMatrix * m_RotationVelocity;
+	if (!PhysicsManager::GetI()->MovePosition(this, position))
+		GetGameObject()->GetTransform()->SetPosition(position);
 }
 
-// Fixed
-void RigidBody::SetRotationVelocity(const Vec3& vec)
+void RigidBody::MoveRotation(const Quaternion& rotation)
 {
-	Matrix worldMatrix = GetGameObject()->GetTransform()->GetWorldMatrix(); 
-
-	Matrix3 rotationMatrix;
-	for (int i = 0; i < 3; ++i)
-		for (int j = 0; j < 3; ++j)
-			rotationMatrix.entries[3 * i + j] = worldMatrix.m[i][j];
-
-	// º¯È¯ Çà·ÄÀÇ ÀüÄ¡ Çà·ÄÀ» °öÇÕ´Ï´Ù.
-	m_RotationVelocity = rotationMatrix.transpose() * vec;
+	if (!PhysicsManager::GetI()->MoveRotation(this, rotation))
+		GetGameObject()->GetTransform()->SetRotation(rotation);
 }
 
-void RigidBody::SetMass(float mass)
+bool RigidBody::IsSleeping() { return PhysicsManager::GetI()->IsSleeping(this); }
+void RigidBody::Sleep() { PhysicsManager::GetI()->Sleep(this); }
+void RigidBody::WakeUp() { PhysicsManager::GetI()->WakeUp(this); }
+
+Vec3 RigidBody::GetWorldCenterOfMass()
 {
-	m_Mass = mass;
-
-	if (m_Mass > 0) 
-		m_InverseMass = 1.0f / m_Mass;
-	else
-		m_InverseMass = 0;
+	return PhysicsManager::GetI()->GetWorldCenterOfMass(this);
 }
 
-// Fixed
-void RigidBody::TransformInertiaTensor()
-{
-	Matrix worldMatrix = GetGameObject()->GetTransform()->GetWorldMatrix();
-
-	Matrix3 rotationMatrix;
-	for (int i = 0; i < 3; ++i)
-		for (int j = 0; j < 3; ++j)
-			rotationMatrix.entries[3 * i + j] = worldMatrix.m[i][j];
-
-	m_InverseInertiaTensorWorld = (rotationMatrix * m_InverseInertiaTensor) * rotationMatrix.transpose();
-}
-
-void RigidBody::Awake()
-{
-
-}
-
-void RigidBody::Integrate(float deltaTime)
-{
-	if (m_IsKinematic)
-		return;
-
-	/* °­Ã¼ÀÇ Áú·®ÀÌ ¹«ÇÑ´ë¶ó¸é ÀûºĞÀ» ÇÏÁö ¾Ê´Â´Ù */
-	if (m_InverseMass <= 0.0f)
-		return;
-
-	/* °¡¼Óµµ¸¦ °è»êÇÑ´Ù */
-	m_PrevAcceleration = m_Acceleration;
-	m_PrevAcceleration += m_Force * m_InverseMass;
-
-	/* °¢°¡¼Óµµ¸¦ °è»êÇÑ´Ù */
-	Vec3 angularAcceleration = m_InverseInertiaTensorWorld * m_Torque;
-
-	/* ¼Óµµ & °¢¼Óµµ¸¦ ¾÷µ¥ÀÌÆ®ÇÑ´Ù */
-	m_Velocity += m_PrevAcceleration * deltaTime;
-	m_RotationVelocity += angularAcceleration * deltaTime;
-
-	/* µå·¡±×¸¦ Àû¿ëÇÑ´Ù */
-	m_Velocity *= powf(m_LinearDamping, deltaTime);
-	m_RotationVelocity *= powf(m_AngularDamping, deltaTime);
-
-	/* À§Ä¡ ¾÷µ¥ÀÌÆ® */
-	GetGameObject()->GetTransform()->Translate(m_Velocity * deltaTime);
-
-	/* ¹æÇâÀ» ¾÷µ¥ÀÌÆ®ÇÑ´Ù */
-	auto m_Orientation = GetGameObject()->GetTransform()->GetRotation(); 
-	m_Orientation += RotateByScaledVector(m_Orientation, m_RotationVelocity, deltaTime * 0.5f);     
-	m_Orientation.Normalize();   
-
-	/* ¾÷µ¥ÀÌÆ® µÈ È¸ÀüÀ» Æ®·£½ºÆû¿¡ ¼³Á¤ */
-	GetGameObject()->GetTransform()->SetRotation(m_Orientation);  
-
-	/* ¿ùµå ÁÂÇ¥°è ±âÁØÀÇ °ü¼º ÅÙ¼­¸¦ ¾÷µ¥ÀÌÆ®ÇÑ´Ù */
-	TransformInertiaTensor();
-
-	/* °­Ã¼¿¡ Àû¿ëµÈ Èû°ú ÅäÅ©´Â Á¦°ÅÇÑ´Ù */
-	m_Force = Vec3::Zero;
-	m_Torque = Vec3::Zero;
-}
-
-void RigidBody::OnDrawGizmos()
-{
-	if (m_Mass == 0)
-		return;
-
-	Transform* tr = GetGameObject()->GetTransform();
-	Gizmo::DrawArrow(tr->GetPosition(), m_Velocity * 0.1f, ImVec4(0, 0, 255, 255));
-	Gizmo::DrawArrow(tr->GetPosition(), m_RotationVelocity, ImVec4(0, 255, 0, 255));
-}
-
+// ------------------------------------------------------------------ Inspector (Unity 6 Rigidbody)
 void RigidBody::OnInspectorGUI()
 {
-	if (EditorGUI::FloatField("Mass", m_Mass)) {
+	if (UnityGUI::Float("Mass", &m_Mass))
 		SetMass(m_Mass);
+	if (UnityGUI::Float("Linear Damping", &m_LinearDamping))
+		SetLinearDamping(m_LinearDamping);
+	if (UnityGUI::Float("Angular Damping", &m_AngularDamping))
+		SetAngularDamping(m_AngularDamping);
+	UnityGUI::Toggle("Automatic Center Of Mass", &m_AutomaticCenterOfMass);
+	UnityGUI::Toggle("Automatic Tensor", &m_AutomaticTensor);
+	UnityGUI::Toggle("Use Gravity", &m_UseGravity);
+	UnityGUI::Toggle("Is Kinematic", &m_IsKinematic);
+
+	static const char* interp[] = { "None", "Interpolate", "Extrapolate" };
+	UnityGUI::Dropdown("Interpolate", &m_Interpolation, interp, 3);
+	static const char* detect[] = { "Discrete", "Continuous", "Continuous Dynamic", "Continuous Speculative" };
+	UnityGUI::Dropdown("Collision Detection", &m_CollisionDetection, detect, 4);
+
+	if (UnityGUI::FoldoutPlain("Constraints", 0, false))
+	{
+		UnityGUI::Toggle3("Freeze Position", m_FreezePosition, 1);
+		UnityGUI::Toggle3("Freeze Rotation", m_FreezeRotation, 1);
 	}
-	EditorGUI::FloatField("Linear Damping", m_LinearDamping);
-	EditorGUI::FloatField("Angular Damping", m_AngularDamping);
-	EditorGUI::BoolField("Automatic Tensor", m_AutomaticTensor);
-	EditorGUI::BoolField("Use Gravity", m_UseGravity);
-	EditorGUI::BoolField("Is Kinematic", m_IsKinematic);
-}	
+	if (UnityGUI::FoldoutPlain("Layer Overrides", 0, false))
+	{
+		UnityGUI::ObjectField("Include Layers", "Nothing", 1);
+		UnityGUI::ObjectField("Exclude Layers", "Nothing", 1);
+	}
+	if (UnityGUI::FoldoutPlain("Info", 0, false))
+	{
+		char buf[128];
+		Vec3 v = GetVelocity();
+		Vec3 w = GetAngularVelocity();
+		sprintf_s(buf, "%.3f", v.Length());
+		UnityGUI::ValueLabel("Speed", buf, 1);
+		sprintf_s(buf, "X %.3f   Y %.3f   Z %.3f", v.x, v.y, v.z);
+		UnityGUI::ValueLabel("Linear Velocity", buf, 1);
+		sprintf_s(buf, "X %.3f   Y %.3f   Z %.3f", w.x, w.y, w.z);
+		UnityGUI::ValueLabel("Angular Velocity", buf, 1);
+		Vec3 com = GetWorldCenterOfMass();
+		sprintf_s(buf, "X %.3f   Y %.3f   Z %.3f", com.x, com.y, com.z);
+		UnityGUI::ValueLabel("World Center of Mass", buf, 1);
+		UnityGUI::ValueLabel("Sleep State", PhysicsManager::GetI()->IsSimulating() ? (IsSleeping() ? "Asleep" : "Awake") : "-", 1);
+	}
+}
 
 GENERATE_COMPONENT_FUNC_TOJSON(RigidBody)
 {
 	json j = {};
-
 	SERIALIZE_TYPE(j, RigidBody);
-
-	SERIALIZE_FLOAT(j, m_Mass, "mass");
-	SERIALIZE_FLOAT(j, m_LinearDamping, "m_LinearDamping");
-	SERIALIZE_FLOAT(j, m_AngularDamping, "angularDamping");
-	SERIALIZE_BOOL(j, m_AutomaticTensor, "m_AutomaticTensor");
-	SERIALIZE_BOOL(j, m_UseGravity, "m_UseGravity");
-	SERIALIZE_BOOL(j, m_IsKinematic, "isKinematic");
-
+	j["mass"] = m_Mass;
+	j["linearDamping"] = m_LinearDamping;
+	j["angularDamping"] = m_AngularDamping;
+	j["automaticCenterOfMass"] = m_AutomaticCenterOfMass;
+	j["automaticTensor"] = m_AutomaticTensor;
+	j["useGravity"] = m_UseGravity;
+	j["isKinematic"] = m_IsKinematic;
+	j["interpolation"] = m_Interpolation;
+	j["collisionDetection"] = m_CollisionDetection;
+	j["freezePosition"] = { m_FreezePosition[0], m_FreezePosition[1], m_FreezePosition[2] };
+	j["freezeRotation"] = { m_FreezeRotation[0], m_FreezeRotation[1], m_FreezeRotation[2] };
 	return j;
 }
 
 GENERATE_COMPONENT_FUNC_FROMJSON(RigidBody)
 {
-	DE_SERIALIZE_FLOAT(j, m_Mass, "mass");  
-
-	DE_SERIALIZE_FLOAT(j, m_LinearDamping, "m_LinearDamping");
-	DE_SERIALIZE_FLOAT(j, m_AngularDamping, "angularDamping");
-	DE_SERIALIZE_FLOAT(j, m_LinearDamping, "m_LinearDamping");
-	DE_SERIALIZE_BOOL(j, m_AutomaticTensor, "m_AutomaticTensor");
-	DE_SERIALIZE_BOOL(j, m_UseGravity, "m_UseGravity");
-	DE_SERIALIZE_BOOL(j, m_IsKinematic, "isKinematic");
-
-	SetMass(m_Mass);
+	SetMass(j.value("mass", 1.0f));
+	// ì´ì „ í˜•ì‹: m_LinearDamping / angularDamping ì€ 0.99 ê°™ì€ "ìœ ì§€ ë¹„ìœ¨"ì´ì—ˆìœ¼ë¯€ë¡œ ìƒˆ ì˜ë¯¸(ê°ì‡  ê³„ìˆ˜)ë¡œ ì˜®ê¸°ì§€ ì•ŠëŠ”ë‹¤
+	m_LinearDamping = j.value("linearDamping", 0.0f);
+	m_AngularDamping = j.contains("linearDamping") ? j.value("angularDamping", 0.05f) : 0.05f;
+	m_AutomaticCenterOfMass = j.value("automaticCenterOfMass", true);
+	m_AutomaticTensor = j.value("automaticTensor", true);
+	m_UseGravity = j.value("useGravity", true);   // ì´ì „ í˜•ì‹ì˜ m_UseGravity ëŠ” ì´ˆê¸°í™”ë˜ì§€ ì•Šì€ ê°’ì´ ì €ì¥ë˜ì—ˆì„ ìˆ˜ ìˆì–´ ë¬´ì‹œí•œë‹¤
+	m_IsKinematic = j.value("isKinematic", false);
+	m_Interpolation = j.value("interpolation", 0);
+	m_CollisionDetection = j.value("collisionDetection", 0);
+	if (j.contains("freezePosition") && j["freezePosition"].is_array() && j["freezePosition"].size() == 3)
+		for (int i = 0; i < 3; ++i) m_FreezePosition[i] = j["freezePosition"][i].get<bool>();
+	if (j.contains("freezeRotation") && j["freezeRotation"].is_array() && j["freezeRotation"].size() == 3)
+		for (int i = 0; i < 3; ++i) m_FreezeRotation[i] = j["freezeRotation"][i].get<bool>();
 }

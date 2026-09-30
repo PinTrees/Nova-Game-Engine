@@ -204,6 +204,38 @@ namespace UnityGUI
 		return changed;
 	}
 
+	bool Toggle3(const char* label, bool* xyz, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		bool changed = false;
+		ImGui::PushID(label);
+		static const char* names[3] = { "X", "Y", "Z" };
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const float fs = ImGui::GetFontSize();
+		for (int i = 0; i < 3; ++i)
+		{
+			const float x = r.fieldX + i * 34.0f;
+			ImGui::PushID(i);
+			bool c = false;
+			CheckBox("##t3", &xyz[i], ImVec2(x, r.p.y + 2.0f), &c);
+			changed |= c;
+			ImGui::PopID();
+			dl->AddText(ImVec2(floorf(x + 18.0f), TextY(r.p.y, kRowHeight, fs)), kText, names[i]);
+		}
+		ImGui::PopID();
+		EndRow(r);
+		return changed;
+	}
+
+	void ValueLabel(const char* label, const char* value, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		const float fs = ImGui::GetFontSize();
+		ImVec4 clip(r.fieldX, r.p.y, r.p.x + r.w, r.p.y + kRowHeight);
+		ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), fs, ImVec2(floorf(r.fieldX + 2.0f), TextY(r.p.y, kRowHeight, fs)), kTextDim, value, nullptr, 0.0f, &clip);
+		EndRow(r);
+	}
+
 	bool Float(const char* label, float* value, int indent, const char* innerLabel)
 	{
 		Row r = BeginRow(label, indent);

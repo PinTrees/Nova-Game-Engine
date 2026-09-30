@@ -187,22 +187,6 @@ bool App::Init()
 	log << "App::Init -> LoadScene..." << std::endl; log.flush();
 	SceneManager::GetI()->LoadStartupScene();
 
-	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
-	{
-		char selectName[128] = {};
-		if (::GetEnvironmentVariableA("NOVA_SELECT", selectName, sizeof(selectName)) > 0 && SceneManager::GetI()->GetCurrentScene())
-		{
-			for (GameObject* go : SceneManager::GetI()->GetCurrentScene()->GetAllGameObjects())
-			{
-				if (go->GetName() == selectName)
-				{
-					SelectionManager::SetSelectedGameObject(go);
-					break;
-				}
-			}
-		}
-	}
-
 	// (개발/검증용) NOVA_DEV_CREATE=cube,sphere,capsule,cylinder,plane,quad 이면 시작 시 기본 도형을 만들어 씬에 저장한다.
 	{
 		char list[256] = {};
@@ -233,6 +217,47 @@ bool App::Init()
 				pos = next + 1;
 			}
 			Scene::Save(scene);
+		}
+	}
+
+	// (개발/검증용) NOVA_DEV_PHYSICS=1 이면 물리 확인용 오브젝트를 씬에 추가한다 (저장하지 않음).
+	if (::GetEnvironmentVariableA("NOVA_DEV_PHYSICS", nullptr, 0) > 0 && SceneManager::GetI()->GetCurrentScene())
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		auto add = [&](GameObject* g, const Vec3& pos, const std::string& name) {
+			g->SetName(name);
+			g->GetTransform()->SetPosition(pos);
+			scene->AddRootGameObject(g);
+			return g;
+		};
+		GameObject* floor = add(GameObjectFactory::CreatePlane(), Vec3(0.0f, 0.0f, 0.0f), "PhysFloor");
+		floor->GetTransform()->SetLocalScale(Vec3(2.0f, 1.0f, 2.0f));
+		for (int i = 0; i < 4; ++i)
+			add(GameObjectFactory::CreateCube(), Vec3(0.0f, 0.5f + i * 1.05f, 3.0f), "PhysStack" + std::to_string(i))->AddComponent<RigidBody>();
+		GameObject* tilted = add(GameObjectFactory::CreateCube(), Vec3(3.0f, 6.0f, 3.0f), "PhysTilted");
+		tilted->GetTransform()->SetLocalEulerAngles(Vec3(30.0f, 20.0f, 45.0f));
+		tilted->AddComponent<RigidBody>();
+		GameObject* ball = add(GameObjectFactory::CreateSphere(), Vec3(-3.0f, 0.5f, 3.0f), "PhysBall");
+		ball->AddComponent<RigidBody>()->SetVelocity(Vec3(0.0f, 0.0f, -4.0f));
+		add(GameObjectFactory::CreateCapsule(), Vec3(-1.5f, 4.0f, 3.0f), "PhysCapsule")->AddComponent<RigidBody>();
+		GameObject* trigger = add(GameObjectFactory::CreateCube(), Vec3(-3.0f, 0.5f, 0.0f), "PhysTrigger");
+		trigger->GetComponent<BoxCollider>()->SetIsTrigger(true);
+		trigger->GetTransform()->SetLocalScale(Vec3(2.0f, 1.0f, 1.0f));
+	}
+
+	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
+	{
+		char selectName[128] = {};
+		if (::GetEnvironmentVariableA("NOVA_SELECT", selectName, sizeof(selectName)) > 0 && SceneManager::GetI()->GetCurrentScene())
+		{
+			for (GameObject* go : SceneManager::GetI()->GetCurrentScene()->GetAllGameObjects())
+			{
+				if (go->GetName() == selectName)
+				{
+					SelectionManager::SetSelectedGameObject(go);
+					break;
+				}
+			}
 		}
 	}
 

@@ -121,6 +121,8 @@ namespace ed = ax::NodeEditor;
 #include "Transform.h"
 #include "Collider.h"
 #include "BoxCollider.h"
+#include "CapsuleCollider.h"
+#include "MeshCollider.h"
 #include "PhysicsManager.h"
 #include "TimeManager.h"
 

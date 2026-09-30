@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "Collider.h"
 #include "UnityGUI.h"
+#include "SceneViewOverlay.h"
+#include "SelectionManager.h"
 
 Collider::Collider()
 	: m_Center(Vec3::Zero)
@@ -40,13 +42,38 @@ void Collider::DeserializeCommon(const json& j)
 	}
 }
 
-void Collider::DrawCommonInspector()
+void Collider::DrawCommonInspector(bool withCenter)
 {
 	UnityGUI::IconButtonRow("Edit Collider", "edit_collider");
 	UnityGUI::Toggle("Is Trigger", &m_IsTrigger);
 	UnityGUI::Toggle("Provides Contacts", &m_ProvidesContacts);
 	UnityGUI::ObjectField("Material", "None (Physics Material)");
-	UnityGUI::Vector3("Center", &m_Center.x);
+	if (withCenter)
+		UnityGUI::Vector3("Center", &m_Center.x);
+}
+
+bool Collider::ShouldDrawGizmo() const
+{
+	return m_Enabled && m_pGameObject != nullptr && SceneViewOverlay::IsActive() &&
+		SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT &&
+		SelectionManager::GetSelectedGameObject() == m_pGameObject;
+}
+
+ImU32 Collider::GizmoColor()
+{
+	return IM_COL32(145, 244, 139, 210);   // Unity 콜라이더 기즈모 색
+}
+
+void Collider::GizmoCircle(const Vec3& c, const Vec3& u, const Vec3& v, float r, float a0, float a1, int segments)
+{
+	Vec3 prev = c + (u * cosf(a0) + v * sinf(a0)) * r;
+	for (int i = 1; i <= segments; ++i)
+	{
+		float t = a0 + (a1 - a0) * i / segments;
+		Vec3 p = c + (u * cosf(t) + v * sinf(t)) * r;
+		SceneViewOverlay::DrawLine(XMFLOAT3(prev.x, prev.y, prev.z), XMFLOAT3(p.x, p.y, p.z), GizmoColor(), 1.0f);
+		prev = p;
+	}
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(Collider)

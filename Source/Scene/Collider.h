@@ -1,6 +1,8 @@
 #pragma once
 #include "Component.h"
 
+// Unity Collider 공통 부분 (Is Trigger, Provides Contacts, Material, Center).
+// 형상 파라미터는 파생 클래스(Box/Sphere/Capsule/Mesh)가 가지며, PhysicsManager 가 Jolt 형상으로 변환한다.
 class Collider
 	: public Component
 {
@@ -12,7 +14,12 @@ protected:
 	// 공통 직렬화 / 공통 Inspector 항목 (Is Trigger, Provides Contacts, Material, Center)
 	void SerializeCommon(json& j) const;
 	void DeserializeCommon(const json& j);
-	void DrawCommonInspector();
+	void DrawCommonInspector(bool withCenter = true);
+
+	// ---- Scene 뷰 와이어 기즈모 (Unity 콜라이더 색) ----
+	bool ShouldDrawGizmo() const;   // 선택된 GameObject 의 콜라이더만 표시 (Unity 와 동일)
+	static ImU32 GizmoColor();
+	static void GizmoCircle(const Vec3& center, const Vec3& u, const Vec3& v, float radius, float a0 = 0.0f, float a1 = XM_2PI, int segments = 48);
 
 public:
 	Collider();
@@ -32,4 +39,3 @@ public:
 public:
 	GENERATE_COMPONENT_BODY(Collider)
 };
-

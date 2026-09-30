@@ -29,6 +29,9 @@ void Scene::Enter()
         }
     }
 
+    // Unity 와 같이 Start 에서 Rigidbody 를 바로 쓸 수 있도록 물리 바디를 먼저 만든다
+    PhysicsManager::GetI()->Start();
+
     for (auto& gameObject : m_ArrGameObjects[0])
     {
         for (auto& component : gameObject->GetComponents())
@@ -36,8 +39,6 @@ void Scene::Enter()
             component->Start();
         }
     }
-
-    PhysicsManager::GetI()->Start();
 }
 
 void Scene::Exit()

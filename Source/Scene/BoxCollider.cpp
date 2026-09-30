@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "BoxCollider.h"
+#include "SceneViewOverlay.h"
 #include "UnityGUI.h"
 
 BoxCollider::BoxCollider()
@@ -20,10 +21,20 @@ Vec3 BoxCollider::GetSize()
 
 void BoxCollider::OnDrawGizmos()
 {
-    // Center 만큼 이동한 위치에 크기 m_Size 상자를 그린다
-    XMMATRIX world = m_pGameObject->GetComponent<Transform>()->GetWorldMatrix();
-    XMMATRIX centered = XMMatrixTranslation(m_Center.x, m_Center.y, m_Center.z) * world;
-    Gizmo::DrawCube(centered, m_Size);
+    if (!ShouldDrawGizmo())
+        return;
+    // Center 를 중심으로 하는 크기 m_Size 상자의 12 모서리 (오브젝트의 월드 행렬 적용)
+    Matrix world = m_pGameObject->GetTransform()->GetWorldMatrix();
+    Vec3 h = m_Size * 0.5f;
+    Vec3 c[8];
+    for (int i = 0; i < 8; ++i)
+    {
+        Vec3 local(m_Center.x + ((i & 1) ? h.x : -h.x), m_Center.y + ((i & 2) ? h.y : -h.y), m_Center.z + ((i & 4) ? h.z : -h.z));
+        c[i] = Vec3::Transform(local, world);
+    }
+    static const int edges[12][2] = { {0,1},{2,3},{4,5},{6,7},{0,2},{1,3},{4,6},{5,7},{0,4},{1,5},{2,6},{3,7} };
+    for (const auto& e : edges)
+        SceneViewOverlay::DrawLine(XMFLOAT3(c[e[0]].x, c[e[0]].y, c[e[0]].z), XMFLOAT3(c[e[1]].x, c[e[1]].y, c[e[1]].z), GizmoColor(), 1.0f);
 }
 
 void BoxCollider::OnInspectorGUI()

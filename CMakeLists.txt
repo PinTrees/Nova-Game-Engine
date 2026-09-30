@@ -25,6 +25,30 @@ if(MSVC)
     string(REPLACE "/JMC" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
+# ---------------------------------------------------------------------------
+# Jolt Physics (ThirdParty/JoltPhysics, MIT) - Rigidbody / Collider 시뮬레이션
+# 엔진과 같은 런타임(/MD)과 위에서 지정한 Debug 최적화 플래그를 그대로 쓰도록 옵션을 맞춘다.
+# ---------------------------------------------------------------------------
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+set(OVERRIDE_CXX_FLAGS OFF CACHE BOOL "" FORCE)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(ENABLE_ALL_WARNINGS OFF CACHE BOOL "" FORCE)
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
+set(CPP_EXCEPTIONS_ENABLED ON CACHE BOOL "" FORCE)
+set(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(PROFILER_IN_DEBUG_AND_RELEASE OFF CACHE BOOL "" FORCE)
+set(JPH_USE_DX12 OFF CACHE BOOL "" FORCE)
+set(JPH_USE_VK OFF CACHE BOOL "" FORCE)
+set(JPH_USE_MTL OFF CACHE BOOL "" FORCE)
+set(JPH_USE_CPU_COMPUTE OFF CACHE BOOL "" FORCE)
+set(TARGET_UNIT_TESTS OFF CACHE BOOL "" FORCE)
+set(TARGET_HELLO_WORLD OFF CACHE BOOL "" FORCE)
+set(TARGET_PERFORMANCE_TEST OFF CACHE BOOL "" FORCE)
+set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
+set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/JoltPhysics/Build" "${CMAKE_BINARY_DIR}/JoltPhysics")
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/Binaries")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/Binaries")
@@ -63,6 +87,9 @@ set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/ThirdParty/ImGui/ImGuiNodeEditor/imgui_node_editor_api.cpp"
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON
 )
+
+# Jolt 헤더를 Windows.h(min/max 매크로)보다 먼저 포함해야 하므로 물리 백엔드는 PCH 를 쓰지 않는다
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/Physics/PhysicsManager.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
 # Precompiled Header for our engine files
 target_precompile_headers(${ENGINE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/pch.h")
@@ -104,6 +131,7 @@ target_link_directories(${ENGINE_NAME} PRIVATE
 
 # System and Core Libraries
 target_link_libraries(${ENGINE_NAME} PRIVATE
+    Jolt
     d3d11
     dxgi
     d3dcompiler

@@ -8,6 +8,8 @@
 #include "Light.h"
 #include "BoxCollider.h"
 #include "SphereCollider.h"
+#include "CapsuleCollider.h"
+#include "MeshCollider.h"
 #include "GeometryGenerator.h"
 #include "Mesh.h"
 
@@ -242,27 +244,33 @@ GameObject* GameObjectFactory::CreateSphere(const std::string& name)
 	return obj;
 }
 
+// Unity 와 같은 기본 콜라이더: Capsule/Cylinder = Capsule Collider, Plane/Quad = Mesh Collider
 GameObject* GameObjectFactory::CreateCapsule(const std::string& name)
 {
-	return CreatePrimitive(PrimitiveType::Capsule, name);
+	GameObject* obj = CreatePrimitive(PrimitiveType::Capsule, name);
+	obj->AddComponent<CapsuleCollider>();
+	return obj;
 }
 
 GameObject* GameObjectFactory::CreateCylinder(const std::string& name)
 {
-	return CreatePrimitive(PrimitiveType::Cylinder, name);
+	GameObject* obj = CreatePrimitive(PrimitiveType::Cylinder, name);
+	obj->AddComponent<CapsuleCollider>();
+	return obj;
 }
 
 GameObject* GameObjectFactory::CreatePlane(const std::string& name)
 {
 	GameObject* obj = CreatePrimitive(PrimitiveType::Plane, name);
-	auto col = obj->AddComponent<BoxCollider>();
-	col->SetSize(Vec3(10.0f, 0.01f, 10.0f));
+	obj->AddComponent<MeshCollider>();
 	return obj;
 }
 
 GameObject* GameObjectFactory::CreateQuad(const std::string& name)
 {
-	return CreatePrimitive(PrimitiveType::Quad, name);
+	GameObject* obj = CreatePrimitive(PrimitiveType::Quad, name);
+	obj->AddComponent<MeshCollider>();
+	return obj;
 }
 
 GameObject* GameObjectFactory::CreateDirectionalLight(const std::string& name)

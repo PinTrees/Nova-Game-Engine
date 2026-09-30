@@ -8,6 +8,8 @@
 #include "RigidBody.h"
 #include "BoxCollider.h"
 #include "SphereCollider.h"
+#include "CapsuleCollider.h"
+#include "MeshCollider.h"
 #include "AnimationPlayer.h"
 #include "TerrainTool.h"
 
@@ -58,6 +60,8 @@ void ComponentFactory::InitBuiltInComponents()
 	RegisterComponent("RigidBody", []() { return std::make_shared<RigidBody>(); });
 	RegisterComponent("BoxCollider", []() { return std::make_shared<BoxCollider>(); });
 	RegisterComponent("SphereCollider", []() { return std::make_shared<SphereCollider>(); });
+	RegisterComponent("CapsuleCollider", []() { return std::make_shared<CapsuleCollider>(); });
+	RegisterComponent("MeshCollider", []() { return std::make_shared<MeshCollider>(); });
 	RegisterComponent("AnimationPlayer", []() { return std::make_shared<AnimationPlayer>(); });
 	RegisterComponent("TerrainTool", []() { return std::make_shared<TerrainTool>(); });
 }

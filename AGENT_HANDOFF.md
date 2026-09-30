@@ -27,7 +27,7 @@
 | `NovaEngine.exe --editor` | 프로젝트 없이 엔진 폴더의 `Assets/`(샘플 프로젝트)로 에디터 실행 – 엔진 개발/디버깅용 |
 | `NovaEngine.exe --create-project "<위치>" "<이름>"` | GUI 없이 프로젝트만 생성하고 종료(자동화/테스트용, 결과는 `Binaries/hub_log.txt`에 `CREATE_OK`/`CREATE_FAILED`). 이름은 ASCII 권장 |
 
-개발/검증용 환경 변수(에디터): `NOVA_SELECT=<오브젝트 이름>`(시작 시 선택 → Inspector 확인), `NOVA_AUTOPLAY=1`(시작 직후 Play).
+개발/검증용 환경 변수(에디터): `NOVA_SELECT=<오브젝트 이름>`(시작 시 선택 → Inspector 확인), `NOVA_AUTOPLAY=1`(시작 직후 Play), `NOVA_TOOL=0..5`(시작 도구), `NOVA_DEV_PHYSICS=1`(물리 확인용 오브젝트 추가, 저장 안 함), `NOVA_PHYSICS_LOG=<파일>`(충돌/트리거 이벤트와 바디 위치 기록).
 
 **Inspector(Unity 스타일)**: `Source/Editor/UnityGUI.*` 가 Unity Inspector 위젯(행=레이블 열 41% | 필드 열, 행 18px/간격 20px, Dropdown/Toggle/Float/Int/Slider/Vector3/Color/ObjectField/Foldout/ComponentHeader/GameObjectHeader/EmptyListBox)을 제공한다. `Component::RenderInspectorGUI`가 헤더(접기 화살표, 아이콘, 활성 체크, ?/프리셋/⋮ 메뉴)를 그리고, `UsesUnityInspector()`가 true 인 컴포넌트(Transform, Camera)만 본문에 UnityGUI 를 쓴다. 나머지 컴포넌트(Light, MeshRenderer 등)는 기존 EditorGUI 본문이라 **아직 Unity 스타일로 옮기지 않음**(같은 방식으로 `OnInspectorGUI`를 UnityGUI 로 교체하면 된다). Camera 는 URP 카메라 Inspector 항목(Render Type, Projection, Rendering, Stack, Environment, Output)을 모두 표시·저장하며, Projection/FOV/Size/Clipping/Background(Game 뷰 클리어 색)만 실제 동작하고 나머지는 값 저장용 UI 항목이다. GameObject 는 Tag/Layer/Static/Active 를 저장한다. 기본 카메라 값은 Unity 기본(FOV 60, Near 0.3, Far 1000).
 
@@ -41,7 +41,9 @@
 
 **Scene 조작 핸들**: `Source/Editor/SceneGizmoTools.*` — Move(축 화살표, 평면 사각형, 가운데 화면 평면 이동), Rotate(카메라 쪽 절반만 보이는 축 링 + 바깥 시선 축 링, 드래그 중 부채꼴), Scale(로컬 축 + 가운데 균일 크기), Rect(카메라를 향한 로컬 평면의 사각형: 모서리/변 드래그 시 반대쪽 고정, 안쪽 드래그 이동), Transform(이동+회전+균일 크기). Pivot/Center, Local/Global, Ctrl(또는 툴바 Grid Snapping) 스냅(이동 = Grid Size, 회전 15°, 크기 0.1) 반영. Scene 뷰 클릭 선택(메시 삼각형 레이캐스트, 메시 없는 오브젝트는 화면 위치 근처 클릭), 빈 곳 클릭 시 선택 해제, 가운데 버튼/Hand 패닝, Alt+좌드래그 궤도, 휠 줌, F 포커스. 기존 `Gizmo::DrawTransformHandler` 는 더 이상 호출하지 않는다. `Gizmo.cpp` 의 화면 좌표는 `SceneViewOverlay::GetViewRect` 로 이미지 영역(툴바 제외)을 쓴다. Undo 는 아직 없다. 개발용 `NOVA_TOOL=0..5` 로 시작 도구 지정.
 
-**MeshFilter / MeshRenderer / Collider Inspector**: `MeshFilter`(제목 "<메시> (Mesh Filter)", 내장 도형 선택 팝업), `MeshRenderer`(Materials 리스트, Lighting/Probes/Additional Settings/2D — Cast Shadows Off 만 실제 적용), `BoxCollider`/`SphereCollider`(Edit Collider, Is Trigger, Provides Contacts, Material, Center, Size/Radius) 를 Unity Inspector 와 같은 모양으로 구현했고 재질 패널(`UnityGUI::MaterialPanel`)이 컴포넌트 아래에 표시된다. 물리: `Is Trigger` 콜라이더는 충돌 해결에서 제외되고 `OnTriggerEnter/Stay/Exit`, 일반 콜라이더는 `OnCollisionEnter/Stay/Exit` 이벤트가 MonoBehaviour 로 전달된다(RigidBody 가 하나 이상 있어야 함. RigidBody 없는 콜라이더는 이벤트 판정에만 참여하는 정적 콜라이더로 등록). Center 는 구-구/구-상자 판정에 반영되지만 상자-상자(SAT) 판정에는 아직 반영되지 않는다. **Rigidbody 물리 자체는 자체 구현(단순)** 이라 Unity(PhysX)와 같은 결과를 내려면 Jolt/PhysX 등 물리 라이브러리 도입이 필요하다.
+**물리 (Jolt Physics v5.6.0)**: `ThirdParty/JoltPhysics`(MIT, `Jolt/` 소스 + `Build/CMakeLists.txt` 만 포함, `VERSION.txt`)를 CMake `add_subdirectory` 로 빌드해 링크한다(동적 런타임 /MD, 엔진과 같은 Debug /O2, RTTI·예외 ON, 디버그 렌더러·프로파일러·GPU 컴퓨트 OFF). 레거시 `NovaEngine/NovaEngine.vcxproj` 는 Jolt 를 링크하지 않으므로 **빌드는 `build.bat`(CMake)만 지원**. `Source/Physics/PhysicsManager.cpp` 만 Jolt 헤더를 쓰며 Windows.h 의 min/max 매크로보다 먼저 Jolt 를 포함해야 해서 **PCH 를 끈 파일**이다(그래서 `REGISTER_COMPONENT` 는 `inline` 변수로 바꿨다). 동작: Play 시작(Scene::Enter, Awake 뒤·Start 전)에 Collider/Rigidbody 가 있는 GameObject 마다 바디 생성 — Rigidbody 없음=Static, Is Kinematic=Kinematic(MoveKinematic 으로 Transform 추종), 그 외 Dynamic. 자식 콜라이더는 가장 가까운 부모 Rigidbody 의 복합 형상에 들어간다. 고정 간격 0.02초마다 FixedUpdate → Transform 변경 반영(사용자가 옮기면 텔레포트) → 시뮬레이션 → Dynamic 결과를 Transform 에 기록 → 이벤트. 매 스텝 형상/설정 해시가 바뀌면 바디를 다시 만든다(런타임 AddComponent/Destroy/값 변경 대응, 속도 유지). 트리거는 접촉을 `ContactSettings::mIsSensor` 로 바꿔 통과시키고 `OnTriggerEnter/Stay/Exit`, 일반 접촉은 Dynamic 이 끼어 있을 때만 `OnCollisionEnter/Stay/Exit`(콜라이더의 GameObject 와 Rigidbody 소유자 양쪽에 전달, 잠든 바디 쌍은 유지). Rigidbody: Mass, Linear/Angular Damping, Use Gravity, Is Kinematic, Interpolate(보간 구현), Collision Detection(Continuous 계열=LinearCast), Constraints(Freeze → Jolt AllowedDOFs), Info; API: `GetVelocity/SetVelocity`, `Get/SetAngularVelocity`, `AddForce(force, ForceMode)`, `AddTorque`, `AddForceAtPosition`, `MovePosition/MoveRotation`, `Sleep/WakeUp/IsSleeping`. `PhysicsManager::Raycast(origin, dir, hit, maxDistance, hitTriggers)`(Unity Physics.Raycast). 기본 마찰 0.6, 반발 0(Unity 기본 재질), 중력 -9.81. 미구현: Physics Material 에셋, 레이어 충돌 행렬/Layer Overrides, Joint, CharacterController, 충돌 정보 객체(Collision: 접촉점/충격량 — 이벤트 인자는 상대 Collider*), Automatic Center Of Mass/Tensor 끄기, Extrapolate(보간과 동일 처리 안 함), 런타임 스케일 변경 외 부모-자식 Rigidbody 조합의 세부 동작.
+
+**MeshFilter / MeshRenderer / Collider Inspector**: `MeshFilter`(제목 "<메시> (Mesh Filter)", 내장 도형 선택 팝업), `MeshRenderer`(Materials 리스트, Lighting/Probes/Additional Settings/2D — Cast Shadows Off 만 실제 적용), `BoxCollider`/`SphereCollider`(Edit Collider, Is Trigger, Provides Contacts, Material, Center, Size/Radius) 를 Unity Inspector 와 같은 모양으로 구현했고 재질 패널(`UnityGUI::MaterialPanel`)이 컴포넌트 아래에 표시된다. Capsule Collider(Radius/Height/Direction), Mesh Collider(Convex, Cooking Options, 메시는 MeshFilter 에서)도 있다. 콜라이더 와이어는 Unity 처럼 **선택된 오브젝트만** 연두색으로 그린다. 기본 도형 콜라이더는 Unity 와 동일(Cube=Box, Sphere=Sphere, Capsule/Cylinder=Capsule, Plane/Quad=Mesh).
 
 **폰트**: `EditorTheme::FontFile()` 가 `ProjectSetting/fonts/Pretendard-Regular.ttf` + `Pretendard-SemiBold.ttf`(또는 Bold)를 찾아 있으면 사용하고, 없으면 Segoe UI + 맑은 고딕으로 대체한다. 현재 저장소에는 `Pretendard-Regular.otf` / `Pretendard-SemiBold.otf`(SIL OFL, 라이선스 `Pretendard-LICENSE.txt`, 출처 github.com/orioncactus/pretendard)가 들어 있어 Pretendard 가 적용된 상태이며 .otf(CFF)도 ImGui 의 stb_truetype 로 렌더링된다. 본문 14px, 글자를 또렷하게 하려고 오버샘플링 1 + 픽셀 스냅 + RasterizerMultiply 1.2 이며, UnityGUI 의 텍스트 y 좌표와 프레임 패딩은 정수 픽셀로 맞춘다(반 픽셀에 걸리면 흐려짐). 폰트 파일을 추가/교체하면 `nova_layout_v2.ini` 삭제는 필요 없다.
 
@@ -88,7 +90,7 @@ Nova-Game-Engine/
 │  │   ├─ DX11/    D3D11에 묶인 코드 (Effects, Shader, ShaderCache, RenderStates, Vertex, Mesh, Sky, Ssao, ShadowMap, Terrain …)
 │  │   └─ OpenGL/  자리 표시자(미구현 스텁)
 │  ├─ Animation/   SkinnedData/Mesh/Model, FBXLoader, LoadM3d, AnimationHelper
-│  ├─ Physics/     PhysicsManager, CollisionDetector/Resolver, Octree
+│  ├─ Physics/     PhysicsManager (Jolt 백엔드), Octree
 │  ├─ Scene/       Scene, SceneManager, GameObject(+Factory), Component(+Factory), Transform, Camera, Light, MeshRenderer, Collider 등
 │  ├─ Scripting/   MonoBehaviour, ScriptField(Field<T> 자동 리플렉션), SampleScripts
 │  ├─ Editor/      EditorApp, EditorGUI(+Manager/Style/ResourceManager), EditorWindow, Gizmo, SelectionManager …
@@ -182,7 +184,7 @@ Nova-Game-Engine/
 ### 4.6 (P3) 오픈소스 엔진 참고 업그레이드 (사용자 허용)
 사용자가 "GitHub의 좋은 오픈소스 엔진 예제를 참고해 업그레이드해도 된다"고 승인함. 후보: Hazel(TheCherno), Wicked Engine, The Forge, Godot(에디터 UX), Flax/Stride(구조), bgfx(RHI 참고), Dear ImGui 예제·ImGuizmo(기즈모)·ImGuiFileDialog.
 - **라이선스를 확인하고**(MIT/Apache/zlib만 코드 차용, GPL 코드는 복사 금지) 출처를 `THIRD_PARTY_NOTICES.md`에 기록.
-- 우선 후보: ImGuizmo로 Scene 기즈모 개선, 에셋 파이프라인(메타 파일/GUID), 프리팹, Undo/Redo, 셀렉션 하이라이트, 물리(예: Jolt/Bullet 연동 검토).
+- 우선 후보: ImGuizmo로 Scene 기즈모 개선, 에셋 파이프라인(메타 파일/GUID), 프리팹, Undo/Redo, 셀렉션 하이라이트, Joint/CharacterController/Physics Material.
 
 ---
 

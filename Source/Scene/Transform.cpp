@@ -206,6 +206,12 @@ void Transform::SetRotation(Quaternion q)
 {
 	if (HasParent())
 	{
+		// world = local * parent  →  local = world * inverse(parent)
+		Quaternion parentInv;
+		_parent->GetRotation().Inverse(parentInv);
+		Quaternion local = q * parentInv;
+		local.Normalize();
+		SetLocalRotation(local);
 	}
 	else
 	{

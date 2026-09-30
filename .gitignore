@@ -347,3 +347,6 @@ Output
 Binaries
 build/
 *.dir/
+
+# Jolt Physics 의 CMake 폴더 (위의 build/ 규칙에서 제외)
+!/ThirdParty/JoltPhysics/Build/

@@ -1,83 +1,86 @@
 #pragma once
 
 class GameObject;
-class CollisionDetector;
-class CollisionResolver;
+class Collider;
+class RigidBody;
 
-union COLLIDER_ID
+// Unity 의 ForceMode
+enum class ForceMode
 {
-	struct
-	{
-		UINT Left_id;
-		UINT RIght_id;
-	};
-
-	ULONGLONG ID;
+	Force,           // 질량을 고려한 연속적인 힘 (N)
+	Acceleration,    // 질량을 무시한 연속적인 가속도 (m/s²)
+	Impulse,         // 질량을 고려한 순간 충격량 (N·s)
+	VelocityChange,  // 질량을 무시한 순간 속도 변화 (m/s)
 };
 
-struct Contact
+// Unity 의 RaycastHit
+struct RaycastHit
 {
-	RigidBody* bodies[2];		// Pointers to the involved rigid bodies
-	Vec3 normal;				// Normal at the point of contact
-	Vec3 contactPoint[2];		// Contact points on each body
-	float penetration;			// Depth of penetration
-	float restitution;			// Restitution coefficient
-	float friction;				// Friction coefficient
-	float normalImpulseSum;		// Accumulated normal impulse
-	float tangentImpulseSum1;	// Accumulated tangential impulse for the first tangent
-	float tangentImpulseSum2;	// Accumulated tangential impulse for the second tangent
+	Vec3 point;
+	Vec3 normal;
+	float distance = 0.0f;
+	Collider* collider = nullptr;
+	GameObject* gameObject = nullptr;
 };
 
-struct ContactInfo
-{
-	float pointX;
-	float pointY;
-	float pointZ;
-	float normalX;
-	float normalY;
-	float normalZ;
-};
-
+// Jolt Physics 기반 물리 시스템 (Unity 의 PhysX 역할).
+//  - Play 모드에 들어가면 Collider / RigidBody 가 있는 GameObject 마다 Jolt 바디를 만든다.
+//    RigidBody 없음 = Static, Is Kinematic = Kinematic, 그 외 = Dynamic.
+//    자식 오브젝트의 Collider 는 가장 가까운 부모 RigidBody 의 복합 형상에 포함된다 (Unity 와 동일).
+//  - 고정 시간 간격(Fixed Timestep, 기본 0.02초)마다 FixedUpdate → 시뮬레이션 → 충돌/트리거 이벤트 순서로 진행한다.
+//  - Jolt 헤더는 PhysicsManager.cpp 안에서만 사용한다 (JoltWorld 는 내부 구현).
 class PhysicsManager
 {
 	SINGLE_HEADER(PhysicsManager)
 
-private:
-	float m_GravityAcceleration;
-	map<ULONGLONG, bool>	mMapColInfo;	// �浹ü ���� ���� ������ �浹 ���� 
-
-	std::unordered_map<unsigned int, RigidBody*> m_RigidBodies;
-	std::unordered_map<unsigned int, Collider*> m_Colliders;
-	std::vector<Contact*> m_Contacts;
-
-	// RigidBody 없이 콜라이더만 있는 오브젝트(정적 콜라이더). 트리거/충돌 이벤트 판정에만 참여한다.
-	std::vector<Collider*> m_StaticColliders;
-
-	// 이전 프레임에 겹쳐 있던 콜라이더 쌍 (Enter / Stay / Exit 판정용)
-	struct OverlapPair { Collider* a; Collider* b; bool trigger; };
-	std::map<ULONGLONG, OverlapPair> m_PrevOverlaps;
-
-	void UpdateOverlapEvents();
-	void DispatchEvent(Collider* self, Collider* other, bool trigger, int kind);   // kind: 0 Enter, 1 Stay, 2 Exit
-
-	CollisionDetector* m_Detector; 
-	CollisionResolver* m_Resolver;
-
 public:
-	void SetGravity(float gravity) { m_GravityAcceleration = gravity; }
-	float GetGravity() const { return m_GravityAcceleration; }
+	struct JoltWorld;
+
+private:
+	std::unique_ptr<JoltWorld> m_World;
+	bool m_JoltInitialized = false;
+
+	Vec3 m_Gravity = Vec3(0.0f, -9.81f, 0.0f);
+	float m_FixedTimestep = 0.02f;
+	float m_MaxAllowedTimestep = 0.3333f;
+	float m_Accumulator = 0.0f;
+	int m_StepCount = 0;
 
 public:
 	void Init();
-	void Start();
-	void Update(float deltaTime);
-	void Exit();
+	void Start();                  // Play 시작 (Scene::Enter)
+	void Update(float deltaTime);  // 매 프레임: 고정 간격으로 나누어 시뮬레이션
+	void Exit();                   // Play 종료 (Scene::Exit)
 
-	// Editor Only
-public:
-	void DebugRender();
+	bool IsSimulating() const { return m_World != nullptr; }
+
+	// ---- 설정 (Unity: Project Settings > Physics / Time) ----
+	void SetGravity(const Vec3& gravity);
+	Vec3 GetGravity() const { return m_Gravity; }
+	void SetFixedTimestep(float seconds) { m_FixedTimestep = (std::max)(0.001f, seconds); }
+	float GetFixedTimestep() const { return m_FixedTimestep; }
+
+	// ---- Unity 의 Physics.Raycast ----
+	bool Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance = 1000.0f, bool hitTriggers = false);
+
+	// ---- RigidBody 가 호출하는 바디 조작 (바디가 없으면 false / 기본값) ----
+	bool GetLinearVelocity(RigidBody* rb, Vec3& out);
+	bool SetLinearVelocity(RigidBody* rb, const Vec3& v);
+	bool GetAngularVelocity(RigidBody* rb, Vec3& out);
+	bool SetAngularVelocity(RigidBody* rb, const Vec3& w);
+	bool AddForce(RigidBody* rb, const Vec3& force, ForceMode mode);
+	bool AddTorque(RigidBody* rb, const Vec3& torque, ForceMode mode);
+	bool AddForceAtPosition(RigidBody* rb, const Vec3& force, const Vec3& position, ForceMode mode);
+	bool MovePosition(RigidBody* rb, const Vec3& position);
+	bool MoveRotation(RigidBody* rb, const Quaternion& rotation);
+	bool IsSleeping(RigidBody* rb);
+	void Sleep(RigidBody* rb);
+	void WakeUp(RigidBody* rb);
+	Vec3 GetWorldCenterOfMass(RigidBody* rb);
+
+	// Editor
+	void DebugRender() {}
 
 private:
-	void GetContactInfo(std::vector<ContactInfo*>& contactInfo) const;
+	void StepSimulation(float dt);
 };
-
