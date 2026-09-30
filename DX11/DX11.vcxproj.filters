@@ -258,55 +258,55 @@
     <ClCompile Include="..\Source\Math\MathHelper.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\GeometryGenerator.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\GeometryGenerator.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\LightHelper.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\LightHelper.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Waves.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\Waves.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Core\GameTimer.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Effects.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Effects.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Vertex.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Vertex.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Core\Utils.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\RenderStates.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\RenderStates.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\BlurFilter.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\BlurFilter.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Terrain.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Terrain.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Sky.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Sky.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\ParticleSystem.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\ParticleSystem.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\ShadowMap.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\ShadowMap.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Physics\Octree.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Ssao.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Ssao.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\MeshGeometry.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\MeshGeometry.cpp">
       <Filter>0. Engine\Mesh\97. Model</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\TextureMgr.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\TextureMgr.cpp">
       <Filter>0. Engine\Mesh\97. Model</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Animation\AnimationHelper.cpp">
@@ -324,10 +324,10 @@
     <ClCompile Include="..\Source\Scene\MeshRenderer.cpp">
       <Filter>0. Engine\Component\Renderer\MeshRenderer</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Shader.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Shader.cpp">
       <Filter>0. Engine\Shader</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\NormalMapSkinnedShader.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.cpp">
       <Filter>0. Engine\Shader\NormalMapSkinned</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Animation\FBXLoader.cpp">
@@ -345,7 +345,7 @@
     <ClCompile Include="..\Source\Animation\SkinnedMesh.cpp">
       <Filter>0. Engine\Mesh\SkinnedMesh</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\Mesh.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\Mesh.cpp">
       <Filter>0. Engine\Mesh\Mesh</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Scene\Scene.cpp">
@@ -415,7 +415,7 @@
     <ClCompile Include="..\Source\Math\SimpleMath.cpp">
       <Filter>0. Engine\00. Header</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\RenderManager.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\RenderManager.cpp">
       <Filter>0. Engine\Manager\RenderManager</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Physics\PhysicsManager.cpp">
@@ -436,7 +436,7 @@
     <ClCompile Include="..\Source\Editor\Gizmo.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\UMaterial.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\UMaterial.cpp">
       <Filter>0. Engine\Shader\Material</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Editor\SelectionManager.cpp">
@@ -463,7 +463,7 @@
     <ClCompile Include="..\Source\Editor\EditorCamera.cpp">
       <Filter>0. Engine\Component\0. Editor\EditorCamera</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\PostProcessingManager.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\PostProcessingManager.cpp">
       <Filter>0. Engine\Manager\PostProcessingManager</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Editor\Windows\GameViewEditorWindow.cpp">
@@ -514,7 +514,7 @@
     <ClCompile Include="..\Source\Core\PathManager.cpp">
       <Filter>0. Engine\Manager\PathManager</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\InstancingBuffer.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\InstancingBuffer.cpp">
       <Filter>0. Engine\InstancingBuffer</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Scene\Light.cpp">
@@ -523,7 +523,7 @@
     <ClCompile Include="..\Source\Scene\LightManager.cpp">
       <Filter>0. Engine\Manager\LightManager</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\ShaderSetting.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\ShaderSetting.cpp">
       <Filter>0. Engine\00. Header</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Editor\EditorGUI.cpp" />
@@ -537,7 +537,7 @@
     <ClCompile Include="..\Source\Core\File.cpp">
       <Filter>0. Engine\System</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\MeshUtility.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\MeshUtility.cpp">
       <Filter>0. Engine\System</Filter>
     </ClCompile>
     <ClCompile Include="MeshFilter.cpp">
@@ -549,7 +549,7 @@
     <ClCompile Include="..\Source\Editor\EditorDailog.cpp">
       <Filter>0. Engine\ImguiContainer\1. Base\EditorDialog</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\DisplayManager.cpp">
+    <ClCompile Include="..\Source\Graphics\Common\DisplayManager.cpp">
       <Filter>0. Engine\Manager\DisplayManager</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Scene\AnimationPlayer.cpp">
@@ -569,55 +569,55 @@
     <ClInclude Include="..\Source\Math\MathHelper.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\GeometryGenerator.h">
+    <ClInclude Include="..\Source\Graphics\Common\GeometryGenerator.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\LightHelper.h">
+    <ClInclude Include="..\Source\Graphics\Common\LightHelper.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Waves.h">
+    <ClInclude Include="..\Source\Graphics\Common\Waves.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Core\GameTimer.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Effects.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Effects.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Vertex.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Vertex.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Core\Utils.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\RenderStates.h">
+    <ClInclude Include="..\Source\Graphics\DX11\RenderStates.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\BlurFilter.h">
+    <ClInclude Include="..\Source\Graphics\DX11\BlurFilter.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Terrain.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Terrain.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Sky.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Sky.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\ParticleSystem.h">
+    <ClInclude Include="..\Source\Graphics\DX11\ParticleSystem.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\ShadowMap.h">
+    <ClInclude Include="..\Source\Graphics\DX11\ShadowMap.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Physics\Octree.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Ssao.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Ssao.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\MeshGeometry.h">
+    <ClInclude Include="..\Source\Graphics\DX11\MeshGeometry.h">
       <Filter>0. Engine\Mesh\97. Model</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\TextureMgr.h">
+    <ClInclude Include="..\Source\Graphics\DX11\TextureMgr.h">
       <Filter>0. Engine\Mesh\97. Model</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Animation\AnimationHelper.h">
@@ -635,10 +635,10 @@
     <ClInclude Include="..\Source\Scene\MeshRenderer.h">
       <Filter>0. Engine\Component\Renderer\MeshRenderer</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Shader.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Shader.h">
       <Filter>0. Engine\Shader</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\NormalMapSkinnedShader.h">
+    <ClInclude Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.h">
       <Filter>0. Engine\Shader\NormalMapSkinned</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Animation\FBXLoader.h">
@@ -657,7 +657,7 @@
     <ClInclude Include="..\Source\Animation\SkinnedMesh.h">
       <Filter>0. Engine\Mesh\SkinnedMesh</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\Mesh.h">
+    <ClInclude Include="..\Source\Graphics\DX11\Mesh.h">
       <Filter>0. Engine\Mesh\Mesh</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Scene\Scene.h">
@@ -730,7 +730,7 @@
     <ClInclude Include="..\Source\Core\Types.h">
       <Filter>0. Engine\00. Header</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\RenderManager.h">
+    <ClInclude Include="..\Source\Graphics\DX11\RenderManager.h">
       <Filter>0. Engine\Manager\RenderManager</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Physics\PhysicsManager.h">
@@ -751,7 +751,7 @@
     <ClInclude Include="..\Source\Editor\Gizmo.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\UMaterial.h">
+    <ClInclude Include="..\Source\Graphics\DX11\UMaterial.h">
       <Filter>0. Engine\Shader\Material</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Editor\SelectionManager.h">
@@ -778,7 +778,7 @@
     <ClInclude Include="..\Source\Editor\EditorCamera.h">
       <Filter>0. Engine\Component\0. Editor\EditorCamera</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\PostProcessingManager.h">
+    <ClInclude Include="..\Source\Graphics\Common\PostProcessingManager.h">
       <Filter>0. Engine\Manager\PostProcessingManager</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Editor\Windows\GameViewEditorWindow.h">
@@ -835,7 +835,7 @@
     <ClInclude Include="..\Source\Core\PathManager.h">
       <Filter>0. Engine\Manager\PathManager</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\InstancingBuffer.h">
+    <ClInclude Include="..\Source\Graphics\DX11\InstancingBuffer.h">
       <Filter>0. Engine\InstancingBuffer</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Scene\Light.h">
@@ -844,7 +844,7 @@
     <ClInclude Include="..\Source\Scene\LightManager.h">
       <Filter>0. Engine\Manager\LightManager</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\ShaderSetting.h">
+    <ClInclude Include="..\Source\Graphics\Common\ShaderSetting.h">
       <Filter>0. Engine\00. Header</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Editor\EditorGUI.h" />
@@ -858,7 +858,7 @@
     <ClInclude Include="..\Source\Core\File.h">
       <Filter>0. Engine\System</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\MeshUtility.h">
+    <ClInclude Include="..\Source\Graphics\Common\MeshUtility.h">
       <Filter>0. Engine\System</Filter>
     </ClInclude>
     <ClInclude Include="MeshFilter.h">
@@ -870,7 +870,7 @@
     <ClInclude Include="..\Source\Editor\EditorDailog.h">
       <Filter>0. Engine\ImguiContainer\1. Base\EditorDialog</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\DisplayManager.h">
+    <ClInclude Include="..\Source\Graphics\Common\DisplayManager.h">
       <Filter>0. Engine\Manager\DisplayManager</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Scene\AnimationPlayer.h">
@@ -976,7 +976,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\Source\Platform\DX11.rc" />
+    <ResourceCompile Include="..\Source\Platform\MimicEngine.rc" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Source\Math\SimpleMath.inl">

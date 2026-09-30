@@ -1,5 +1,8 @@
 ﻿#include "pch.h"
 #include "EditorGUIManager.h"
+#include "EngineInfo.h"
+#include "GraphicsSettings.h"
+#include "GraphicsBackendFactory.h"
 
 #include "EditorWindow.h"
 #include "imgui_internal.h"
@@ -196,6 +199,24 @@ void EditorGUIManager::RenderEditorWindows()
             {
                 SelectionManager::ClearSelection();
             }
+            ImGui::Separator();
+            // 렌더링 API 선택 (다음 실행부터 적용)
+            if (ImGui::BeginMenu("Graphics API"))
+            {
+                for (int i = 0; i < static_cast<int>(GraphicsAPI::Count); ++i)
+                {
+                    GraphicsAPI api = static_cast<GraphicsAPI>(i);
+                    bool supported = GraphicsBackendFactory::Create(api)->IsSupported();
+                    bool selected = (GraphicsSettings::GetRequestedAPI() == api);
+                    std::string label = GraphicsAPIToString(api);
+                    if (!supported) label += " (not implemented)";
+                    if (ImGui::MenuItem(label.c_str(), nullptr, selected, supported))
+                        GraphicsSettings::SetRequestedAPI(api);
+                }
+                ImGui::Separator();
+                ImGui::TextDisabled("Active: %s (restart to apply)", GraphicsAPIToString(GraphicsSettings::GetActiveAPI()));
+                ImGui::EndMenu();
+            }
             ImGui::EndMenu();
         }
 
@@ -260,7 +281,7 @@ void EditorGUIManager::RenderEditorWindows()
         // 5. Help Menu
         if (ImGui::BeginMenu("Help"))
         {
-            if (ImGui::MenuItem("About DX11 Engine"))
+            if (ImGui::MenuItem("About " ENGINE_NAME_A))
             {
             }
             ImGui::EndMenu();

@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "EditorApp.h"
+#include "EngineInfo.h"
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
 #include "Effects.h"
@@ -15,7 +16,7 @@
 EditorApp::EditorApp(HINSTANCE hInstance)
 	: App(hInstance)
 {
-	_mainWindowCaption = L"DX11 Game Engine Editor";
+	_mainWindowCaption = ENGINE_NAME_W L" Editor";
 
 	_lastMousePos.x = 0;
 	_lastMousePos.y = 0;

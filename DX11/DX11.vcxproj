@@ -99,7 +99,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -117,7 +117,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -135,7 +135,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -157,7 +157,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -180,7 +180,7 @@
     <ClInclude Include="..\Source\Editor\Windows\AnimatorEditorWindow.h" />
     <ClInclude Include="..\Source\Platform\App.h" />
     <ClInclude Include="..\Source\Platform\Application.h" />
-    <ClInclude Include="..\Source\Graphics\BlurFilter.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\BlurFilter.h" />
     <ClInclude Include="..\Source\Scene\BoxCollider.h" />
     <ClInclude Include="..\Source\Scene\Camera.h" />
     <ClInclude Include="..\Source\Scene\Collider.h" />
@@ -191,7 +191,7 @@
     <ClInclude Include="..\Source\Editor\Windows\ConsoleEditorWindow.h" />
     <ClInclude Include="..\Source\Core\Debug.h" />
     <ClInclude Include="..\Source\Core\define.h" />
-    <ClInclude Include="..\Source\Graphics\DisplayManager.h" />
+    <ClInclude Include="..\Source\Graphics\Common\DisplayManager.h" />
     <ClInclude Include="..\Source\Editor\EditorCamera.h" />
     <ClInclude Include="..\Source\Editor\EditorDailog.h" />
     <ClInclude Include="..\Source\Editor\EditorGUI.h" />
@@ -201,13 +201,13 @@
     <ClInclude Include="..\Source\Editor\EditorSettingManager.h" />
     <ClInclude Include="..\Source\Editor\EditorUtility.h" />
     <ClInclude Include="..\Source\Editor\EditorWindow.h" />
-    <ClInclude Include="..\Source\Graphics\Effects.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Effects.h" />
     <ClInclude Include="..\Source\Animation\FBXLoader.h" />
     <ClInclude Include="..\Source\Core\File.h" />
     <ClInclude Include="..\Source\Scene\GameObject.h" />
     <ClInclude Include="..\Source\Core\GameTimer.h" />
     <ClInclude Include="..\Source\Editor\Windows\GameViewEditorWindow.h" />
-    <ClInclude Include="..\Source\Graphics\GeometryGenerator.h" />
+    <ClInclude Include="..\Source\Graphics\Common\GeometryGenerator.h" />
     <ClInclude Include="..\Source\Editor\Gizmo.h" />
     <ClInclude Include="..\Source\ThirdParty\ImGui\imconfig.h" />
     <ClInclude Include="..\Source\ThirdParty\ImGui\imgui.h" />
@@ -225,29 +225,29 @@
     <ClInclude Include="..\Source\ThirdParty\ImGui\imstb_truetype.h" />
     <ClInclude Include="..\Source\Core\InputManager.h" />
     <ClInclude Include="..\Source\Editor\Windows\InspectorEditorWindow.h" />
-    <ClInclude Include="..\Source\Graphics\InstancingBuffer.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\InstancingBuffer.h" />
     <ClInclude Include="..\Source\Core\JsonUtility.h" />
     <ClInclude Include="..\Source\Scene\Light.h" />
-    <ClInclude Include="..\Source\Graphics\LightHelper.h" />
+    <ClInclude Include="..\Source\Graphics\Common\LightHelper.h" />
     <ClInclude Include="..\Source\Scene\LightManager.h" />
     <ClInclude Include="..\Source\Animation\LoadM3d.h" />
     <ClInclude Include="..\Source\Math\MathHelper.h" />
     <ClInclude Include="..\Source\Math\Matrix3.h" />
-    <ClInclude Include="..\Source\Graphics\Mesh.h" />
-    <ClInclude Include="..\Source\Graphics\MeshGeometry.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Mesh.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\MeshGeometry.h" />
     <ClInclude Include="..\Source\Scene\MeshRenderer.h" />
     <ClInclude Include="..\Source\Editor\Dialogs\MeshSelectEditorDialog.h" />
-    <ClInclude Include="..\Source\Graphics\MeshUtility.h" />
-    <ClInclude Include="..\Source\Graphics\NormalMapSkinnedShader.h" />
+    <ClInclude Include="..\Source\Graphics\Common\MeshUtility.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.h" />
     <ClInclude Include="..\Source\Physics\Octree.h" />
-    <ClInclude Include="..\Source\Graphics\ParticleSystem.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\ParticleSystem.h" />
     <ClInclude Include="..\Source\Core\PathManager.h" />
     <ClInclude Include="..\Source\Platform\pch.h" />
     <ClInclude Include="..\Source\Physics\PhysicsManager.h" />
-    <ClInclude Include="..\Source\Graphics\PostProcessingManager.h" />
+    <ClInclude Include="..\Source\Graphics\Common\PostProcessingManager.h" />
     <ClInclude Include="..\Source\Editor\Windows\ProjectEditorWindow.h" />
-    <ClInclude Include="..\Source\Graphics\RenderManager.h" />
-    <ClInclude Include="..\Source\Graphics\RenderStates.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\RenderManager.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\RenderStates.h" />
     <ClInclude Include="..\Source\Platform\resource.h" />
     <ClInclude Include="..\Source\Scene\ResourceManager.h" />
     <ClInclude Include="..\Source\Scene\RigidBody.h" />
@@ -257,33 +257,46 @@
     <ClInclude Include="..\Source\Scene\SceneManager.h" />
     <ClInclude Include="..\Source\Editor\SceneViewManager.h" />
     <ClInclude Include="..\Source\Editor\SelectionManager.h" />
-    <ClInclude Include="..\Source\Graphics\Shader.h" />
-    <ClInclude Include="..\Source\Graphics\ShaderCache.h" />
-    <ClInclude Include="..\Source\Graphics\ShaderSetting.h" />
-    <ClInclude Include="..\Source\Graphics\ShadowMap.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Shader.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\ShaderCache.h" />
+    <ClInclude Include="..\Source\Graphics\Common\ShaderSetting.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\ShadowMap.h" />
     <ClInclude Include="..\Source\Math\SimpleMath.h" />
     <ClInclude Include="..\Source\Editor\Dialogs\SkeletonAvataSelectEditorDailog.h" />
     <ClInclude Include="..\Source\Animation\SkinnedData.h" />
     <ClInclude Include="..\Source\Animation\SkinnedMesh.h" />
     <ClInclude Include="..\Source\Scene\SkinnedMeshRenderer.h" />
     <ClInclude Include="..\Source\Animation\SkinnedModel.h" />
-    <ClInclude Include="..\Source\Graphics\Sky.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Sky.h" />
     <ClInclude Include="..\Source\Scene\SphereCollider.h" />
-    <ClInclude Include="..\Source\Graphics\Ssao.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Ssao.h" />
     <ClInclude Include="..\Source\Core\Task.h" />
     <ClInclude Include="..\Source\Core\TaskSystem.h" />
-    <ClInclude Include="..\Source\Graphics\Terrain.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Terrain.h" />
     <ClInclude Include="..\Source\Scene\TerrainTool.h" />
-    <ClInclude Include="..\Source\Graphics\TextureMgr.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\TextureMgr.h" />
     <ClInclude Include="..\Source\Core\TimeManager.h" />
     <ClInclude Include="..\Source\Scene\Transform.h" />
     <ClInclude Include="..\Source\Core\Types.h" />
-    <ClInclude Include="..\Source\Graphics\UMaterial.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\UMaterial.h" />
     <ClInclude Include="..\Source\Core\Utils.h" />
     <ClInclude Include="..\Source\Math\VectorUtils.h" />
     <ClInclude Include="..\Source\Math\vector_ex.h" />
-    <ClInclude Include="..\Source\Graphics\Vertex.h" />
-    <ClInclude Include="..\Source\Graphics\Waves.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\Vertex.h" />
+    <ClInclude Include="..\Source\Graphics\Common\Waves.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\Source\Graphics\Common\GraphicsSettings.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\GraphicsBackendFactory.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\Source\Graphics\Common\GraphicsAPI.h" />
+    <ClInclude Include="..\Source\Graphics\Common\GraphicsSettings.h" />
+    <ClInclude Include="..\Source\Graphics\Common\IGraphicsBackend.h" />
+    <ClInclude Include="..\Source\Graphics\Common\GraphicsBackendFactory.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\DX11GraphicsBackend.h" />
+    <ClInclude Include="..\Source\Graphics\OpenGL\OpenGLGraphicsBackend.h" />
+    <ClInclude Include="..\Source\Core\EngineInfo.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\Source\Editor\EditorApp.cpp" />
@@ -295,7 +308,7 @@
     <ClCompile Include="..\Source\Editor\Windows\AnimatorEditorWindow.cpp" />
     <ClCompile Include="..\Source\Platform\App.cpp" />
     <ClCompile Include="..\Source\Platform\Application.cpp" />
-    <ClCompile Include="..\Source\Graphics\BlurFilter.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\BlurFilter.cpp" />
     <ClCompile Include="..\Source\Scene\BoxCollider.cpp" />
     <ClCompile Include="..\Source\Scene\Camera.cpp" />
     <ClCompile Include="..\Source\Scene\Collider.cpp" />
@@ -306,7 +319,7 @@
     <ClCompile Include="..\Source\Editor\Windows\ConsoleEditorWindow.cpp" />
     <ClCompile Include="..\Source\Core\Debug.cpp" />
     <ClCompile Include="..\Source\Core\define.cpp" />
-    <ClCompile Include="..\Source\Graphics\DisplayManager.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\DisplayManager.cpp" />
     <ClCompile Include="..\Source\Editor\EditorCamera.cpp" />
     <ClCompile Include="..\Source\Editor\EditorDailog.cpp" />
     <ClCompile Include="..\Source\Editor\EditorGUI.cpp" />
@@ -316,12 +329,12 @@
     <ClCompile Include="..\Source\Editor\EditorSettingManager.cpp" />
     <ClCompile Include="..\Source\Editor\EditorUtility.cpp" />
     <ClCompile Include="..\Source\Editor\EditorWindow.cpp" />
-    <ClCompile Include="..\Source\Graphics\Effects.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Effects.cpp" />
     <ClCompile Include="..\Source\Animation\FBXLoader.cpp" />
     <ClCompile Include="..\Source\Core\File.cpp" />
     <ClCompile Include="..\Source\Scene\GameObject.cpp" />
     <ClCompile Include="..\Source\Editor\Windows\GameViewEditorWindow.cpp" />
-    <ClCompile Include="..\Source\Graphics\GeometryGenerator.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\GeometryGenerator.cpp" />
     <ClCompile Include="..\Source\Editor\Gizmo.cpp" />
     <ClCompile Include="..\Source\ThirdParty\ImGui\imgui.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
@@ -358,24 +371,24 @@
     </ClCompile>
     <ClCompile Include="..\Source\Core\InputManager.cpp" />
     <ClCompile Include="..\Source\Editor\Windows\InspectorEditorWindow.cpp" />
-    <ClCompile Include="..\Source\Graphics\InstancingBuffer.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\InstancingBuffer.cpp" />
     <ClCompile Include="..\Source\Core\JsonUtility.cpp" />
     <ClCompile Include="..\Source\Scene\Light.cpp" />
-    <ClCompile Include="..\Source\Graphics\LightHelper.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\LightHelper.cpp" />
     <ClCompile Include="..\Source\Scene\LightManager.cpp" />
     <ClCompile Include="..\Source\Animation\LoadM3d.cpp" />
     <ClCompile Include="..\Source\Platform\Main.cpp" />
     <ClCompile Include="..\Source\Core\GameTimer.cpp" />
     <ClCompile Include="..\Source\Math\MathHelper.cpp" />
     <ClCompile Include="..\Source\Math\Matrix3.cpp" />
-    <ClCompile Include="..\Source\Graphics\Mesh.cpp" />
-    <ClCompile Include="..\Source\Graphics\MeshGeometry.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Mesh.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\MeshGeometry.cpp" />
     <ClCompile Include="..\Source\Scene\MeshRenderer.cpp" />
     <ClCompile Include="..\Source\Editor\Dialogs\MeshSelectEditorDialog.cpp" />
-    <ClCompile Include="..\Source\Graphics\MeshUtility.cpp" />
-    <ClCompile Include="..\Source\Graphics\NormalMapSkinnedShader.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\MeshUtility.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.cpp" />
     <ClCompile Include="..\Source\Physics\Octree.cpp" />
-    <ClCompile Include="..\Source\Graphics\ParticleSystem.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\ParticleSystem.cpp" />
     <ClCompile Include="..\Source\Core\PathManager.cpp" />
     <ClCompile Include="..\Source\Platform\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
@@ -384,10 +397,10 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="..\Source\Physics\PhysicsManager.cpp" />
-    <ClCompile Include="..\Source\Graphics\PostProcessingManager.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\PostProcessingManager.cpp" />
     <ClCompile Include="..\Source\Editor\Windows\ProjectEditorWindow.cpp" />
-    <ClCompile Include="..\Source\Graphics\RenderManager.cpp" />
-    <ClCompile Include="..\Source\Graphics\RenderStates.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\RenderManager.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\RenderStates.cpp" />
     <ClCompile Include="..\Source\Scene\ResourceManager.cpp" />
     <ClCompile Include="..\Source\Scene\RigidBody.cpp" />
     <ClCompile Include="..\Source\Scene\Scene.cpp" />
@@ -396,32 +409,32 @@
     <ClCompile Include="..\Source\Scene\SceneManager.cpp" />
     <ClCompile Include="..\Source\Editor\SceneViewManager.cpp" />
     <ClCompile Include="..\Source\Editor\SelectionManager.cpp" />
-    <ClCompile Include="..\Source\Graphics\Shader.cpp" />
-    <ClCompile Include="..\Source\Graphics\ShaderCache.cpp" />
-    <ClCompile Include="..\Source\Graphics\ShaderSetting.cpp" />
-    <ClCompile Include="..\Source\Graphics\ShadowMap.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Shader.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\ShaderCache.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\ShaderSetting.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\ShadowMap.cpp" />
     <ClCompile Include="..\Source\Math\SimpleMath.cpp" />
     <ClCompile Include="..\Source\Editor\Dialogs\SkeletonAvataSelectEditorDailog.cpp" />
     <ClCompile Include="..\Source\Animation\SkinnedData.cpp" />
     <ClCompile Include="..\Source\Animation\SkinnedMesh.cpp" />
     <ClCompile Include="..\Source\Scene\SkinnedMeshRenderer.cpp" />
     <ClCompile Include="..\Source\Animation\SkinnedModel.cpp" />
-    <ClCompile Include="..\Source\Graphics\Sky.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Sky.cpp" />
     <ClCompile Include="..\Source\Scene\SphereCollider.cpp" />
-    <ClCompile Include="..\Source\Graphics\Ssao.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Ssao.cpp" />
     <ClCompile Include="..\Source\Core\Task.cpp" />
     <ClCompile Include="..\Source\Core\TaskSystem.cpp" />
-    <ClCompile Include="..\Source\Graphics\Terrain.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Terrain.cpp" />
     <ClCompile Include="..\Source\Scene\TerrainTool.cpp" />
-    <ClCompile Include="..\Source\Graphics\TextureMgr.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\TextureMgr.cpp" />
     <ClCompile Include="..\Source\Core\TimeManager.cpp" />
     <ClCompile Include="..\Source\Scene\Transform.cpp" />
-    <ClCompile Include="..\Source\Graphics\UMaterial.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\UMaterial.cpp" />
     <ClCompile Include="..\Source\Core\Utils.cpp" />
     <ClCompile Include="..\Source\Math\VectorUtils.cpp" />
     <ClCompile Include="..\Source\Math\vector_ex.cpp" />
-    <ClCompile Include="..\Source\Graphics\Vertex.cpp" />
-    <ClCompile Include="..\Source\Graphics\Waves.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\Vertex.cpp" />
+    <ClCompile Include="..\Source\Graphics\Common\Waves.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_bezier_math.inl" />
@@ -718,7 +731,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\Source\Platform\DX11.rc" />
+    <ResourceCompile Include="..\Source\Platform\MimicEngine.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

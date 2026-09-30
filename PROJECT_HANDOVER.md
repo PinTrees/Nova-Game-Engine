@@ -271,3 +271,13 @@ Source/ (또는 Engine/)
 | 씬 관리 | `DX11/Scene.h/cpp`, `DX11/SceneManager.h/cpp`, `DX11/GameObject.h/cpp` | `Source/Scene/` |
 | 에디터 윈도우 | `DX11/*EditorWindow.h/cpp`, `DX11/ProjectHubWindow.h/cpp` | `Source/Editor/Windows/` |
 | Unity 인스펙터 GUI | `DX11/EditorGUI.h/cpp`, `DX11/EditorGUIManager.h/cpp` | `Source/Editor/` |
+
+---
+
+## 6. 최신 구조 및 렌더링 로드맵 (업데이트)
+
+- **엔진 이름**: Mimic Engine (`Binaries/MimicEngine.exe`). 이름은 `CMakeLists.txt`의 `ENGINE_NAME`과 `Source/Core/EngineInfo.h`에서만 관리.
+- **폴더 구조**: `DX11/` 플랫 구조는 `Source/{Core,Math,Graphics,Animation,Physics,Scene,Scripting,Editor,ThirdParty,Platform}`으로 분리 완료. 모든 모듈 폴더가 include 경로에 등록되어 `#include "Xxx.h"`는 그대로 동작. (`DX11/`에는 레거시 VS 프로젝트 파일만 남음 – 빌드 검증은 CMake 기준)
+- **Graphics 분리**: `Graphics/Common`(API 중립: 인터페이스, 설정, 지오메트리 생성 등), `Graphics/DX11`(D3D11 종속 코드), `Graphics/OpenGL`(자리 표시자).
+- **API 선택**: `Edit > Graphics API`에서 선택 → `ProjectSetting/GraphicsSettings.json` 저장 → 다음 실행 시 적용. 미구현 API를 고르면 DirectX 11로 대체.
+- **후속 단계(RHI)**: 현재 Scene/Editor 코드가 `ID3D11*` 타입을 직접 사용(약 50개 파일). OpenGL을 붙이려면 (1) 디바이스/스왑체인/백버퍼를 `IGraphicsBackend`로 이동, (2) Buffer/Texture/Shader/PipelineState 추상 인터페이스 도입, (3) Scene/Editor의 D3D 타입 제거, (4) `OpenGLGraphicsBackend` 구현 순으로 진행. 이후 SRP 유사 렌더 파이프라인 계층을 그 위에 올릴 것.

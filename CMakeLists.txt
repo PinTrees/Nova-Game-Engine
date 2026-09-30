@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(DX11Engine VERSION 1.0.0 LANGUAGES CXX)
+project(MimicEngine VERSION 0.1.0 LANGUAGES CXX)
+
+# 엔진/실행 파일 이름 (변경 시 Source/Core/EngineInfo.h 도 함께 수정)
+set(ENGINE_NAME MimicEngine)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,7 +43,7 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX ".*[0-9][0-9]\\..*\\.cpp$")
 list(FILTER ENGINE_HEADERS EXCLUDE REGEX ".*[0-9][0-9]\\..*\\.h$")
 
 # Create executable (Windows GUI Subsystem with Application Icon)
-add_executable(DX11 WIN32 ${ENGINE_SOURCES} ${ENGINE_HEADERS} "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/DX11.rc")
+add_executable(${ENGINE_NAME} WIN32 ${ENGINE_SOURCES} ${ENGINE_HEADERS} "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/MimicEngine.rc")
 
 # Visual Studio 솔루션 탐색기에서 폴더 트리 유지
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" PREFIX "Source" FILES ${ENGINE_SOURCES} ${ENGINE_HEADERS})
@@ -62,7 +65,7 @@ set_source_files_properties(
 )
 
 # Precompiled Header for our engine files
-target_precompile_headers(DX11 PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/pch.h")
+target_precompile_headers(${ENGINE_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/pch.h")
 
 # Include directories (match DX11.vcxproj)
 # 기존 #include "Xxx.h" 형태를 유지하기 위해 모든 모듈 폴더를 include 경로에 등록
@@ -71,6 +74,9 @@ set(ENGINE_MODULE_DIRS
     Source/Core
     Source/Math
     Source/Graphics
+    Source/Graphics/Common
+    Source/Graphics/DX11
+    Source/Graphics/OpenGL
     Source/Animation
     Source/Physics
     Source/Scene
@@ -85,18 +91,18 @@ set(ENGINE_MODULE_DIRS
 )
 list(TRANSFORM ENGINE_MODULE_DIRS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
-target_include_directories(DX11 PRIVATE
+target_include_directories(${ENGINE_NAME} PRIVATE
     ${ENGINE_MODULE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include"
 )
 
 # Library search directories
-target_link_directories(DX11 PRIVATE
+target_link_directories(${ENGINE_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Lib"
 )
 
 # System and Core Libraries
-target_link_libraries(DX11 PRIVATE
+target_link_libraries(${ENGINE_NAME} PRIVATE
     d3d11
     dxgi
     d3dcompiler
@@ -108,8 +114,8 @@ target_link_libraries(DX11 PRIVATE
 )
 
 # Post-build copy DLLs
-add_custom_command(TARGET DX11 POST_BUILD
+add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assimp-vc143-mtd.dll"
-    "$<TARGET_FILE_DIR:DX11>/assimp-vc143-mtd.dll"
+    "$<TARGET_FILE_DIR:${ENGINE_NAME}>/assimp-vc143-mtd.dll"
 )

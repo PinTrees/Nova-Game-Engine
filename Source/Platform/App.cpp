@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "App.h"
+#include "GraphicsSettings.h"
+#include "IGraphicsBackend.h"
 #include "resource.h"
 #include <WindowsX.h>
 #include <sstream>
@@ -138,7 +140,8 @@ bool App::Init()
 	if (!InitMainWindow())
 		return false;
 
-	log << "App::Init -> InitDirect3D..." << std::endl; log.flush();
+	GraphicsSettings::Init();
+	log << "App::Init -> InitDirect3D (backend: " << GraphicsSettings::GetBackend()->GetName() << ", requested: " << GraphicsAPIToString(GraphicsSettings::GetRequestedAPI()) << ")..." << std::endl; log.flush();
 	if (!InitDirect3D())
 		return false;
 
@@ -382,7 +385,7 @@ bool App::InitMainWindow()
 	wc.hCursor       = LoadCursor(0, IDC_ARROW);
 	wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
 	wc.lpszMenuName  = 0;
-	wc.lpszClassName = L"DX11";
+	wc.lpszClassName = L"MimicEngineWindow";
 
 	if (!RegisterClass(&wc))
 	{
@@ -396,7 +399,7 @@ bool App::InitMainWindow()
 	int32 width  = R.right - R.left;
 	int32 height = R.bottom - R.top;
 
-	_hMainWnd = ::CreateWindow(L"DX11", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, _hAppInst, 0); 
+	_hMainWnd = ::CreateWindow(L"MimicEngineWindow", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, _hAppInst, 0); 
 	
 	if (_hMainWnd == nullptr)
 	{

@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "ProjectHubWindow.h"
+#include "EngineInfo.h"
+#include "GraphicsSettings.h"
 #include "EditorGUI.h"
 #include "PathManager.h"
 #include "SceneManager.h"
@@ -44,7 +46,7 @@ void ProjectHubWindow::LoadProjectList()
 					info.Name = item.value("name", "Unnamed Project");
 					info.Path = string_to_wstring(item.value("path", ""));
 					info.LastModified = item.value("modified", "2026-09-30");
-					info.EngineVersion = item.value("version", "DX11 2026.1 (C++20)");
+					info.EngineVersion = item.value("version", ENGINE_VERSION_LABEL_A);
 					m_Projects.push_back(info);
 				}
 			}
@@ -68,10 +70,10 @@ void ProjectHubWindow::LoadProjectList()
 	if (!foundCurrent)
 	{
 		ProjectInfo current;
-		current.Name = "DX11 Engine Core";
+		current.Name = ENGINE_NAME_A " Core";
 		current.Path = currentRoot;
 		current.LastModified = "2026-09-30";
-		current.EngineVersion = "DX11 2026.1 (C++20)";
+		current.EngineVersion = ENGINE_VERSION_LABEL_A;
 		m_Projects.insert(m_Projects.begin(), current);
 		SaveProjectList();
 	}
@@ -150,7 +152,7 @@ void ProjectHubWindow::OnRender()
 		ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.9f, 1.0f), "Installed Editor Versions");
 		ImGui::Separator();
 		ImGui::Spacing();
-		ImGui::Text("  %s DX11 Game Engine 2026.1 (C++20 DirectX 11.0)", ICON_FA_CHECK);
+		ImGui::Text("  %s " ENGINE_VERSION_LABEL_A "  [%s]", ICON_FA_CHECK, GraphicsAPIToString(GraphicsSettings::GetActiveAPI()));
 		ImGui::Text("  Location: %s", PathManager::GetI()->GetContentPathS().c_str());
 		ImGui::Spacing();
 		ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Build Engine: CMake 3.20+ / MSVC 19.44");
@@ -183,7 +185,7 @@ void ProjectHubWindow::RenderProjectsTab()
 		p.Name = "Imported Project";
 		p.Path = dir;
 		p.LastModified = "Just now";
-		p.EngineVersion = "DX11 2026.1 (C++20)";
+		p.EngineVersion = ENGINE_VERSION_LABEL_A;
 		m_Projects.push_back(p);
 		SaveProjectList();
 	}
@@ -329,7 +331,7 @@ void ProjectHubWindow::CreateProject(const std::string& name, const std::wstring
 	newProj.Name = name;
 	newProj.Path = targetDir;
 	newProj.LastModified = "Just now";
-	newProj.EngineVersion = "DX11 2026.1 (C++20)";
+	newProj.EngineVersion = ENGINE_VERSION_LABEL_A;
 	m_Projects.insert(m_Projects.begin(), newProj);
 	SaveProjectList();
 
