@@ -4,6 +4,7 @@
 #include "EditorCamera.h"
 #include "MathHelper.h"
 #include "SceneViewOverlay.h"
+#include "SceneToolbar.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -124,57 +125,15 @@ void SceneEditorWindow::OnRender()
 {
     ImVec2 windowSize = ImGui::GetContentRegionAvail();
 
-    // ���ʿ� ���η� �� �޴� ��ġ
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0)); // â ���� �е� ����
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));   // �׸� �� ���� ����
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // ��ư ���� �е� ����
-    ImGui::BeginChild("LeftPanel", ImVec2(24, windowSize.y), false, ImGuiWindowFlags_NoDecoration); // �׵θ� ����
-
-    bool isWireframeMode = RenderManager::GetI()->WireFrameMode;
-    bool isInstancingMode = RenderManager::GetI()->InstancingMode;
-
-    if (isWireframeMode)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); // ���õ� ��ư ����
-    }
-
-    if (ImGui::Button("W", ImVec2(24, 24)))
-    {
-        RenderManager::GetI()->WireFrameMode = !RenderManager::GetI()->WireFrameMode;
-    }
-
-    if (isWireframeMode)
-    {
-        ImGui::PopStyleColor(); // ����� ���� ����
-    }
-
-    if (isInstancingMode)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); // ���õ� ��ư ����
-    }
-
-    if (ImGui::Button("I", ImVec2(24, 25)))
-    {
-        RenderManager::GetI()->InstancingMode = !RenderManager::GetI()->InstancingMode;
-    }
-
-    if (isInstancingMode)
-    {
-        ImGui::PopStyleColor(); // ����� ���� ����
-    }
-
-    // �ٸ� ��ư�� �߰� ����
-    ImGui::EndChild();
-    ImGui::PopStyleVar(3); // �� ���� ��Ÿ�� ���� ����
-
-    ImGui::SameLine();
-
-    // ������ ���� ����
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-    ImGui::BeginChild("MainArea", ImVec2(windowSize.x - 24, windowSize.y), false, ImGuiWindowFlags_NoDecoration);
+    // 상단 툴바: Pivot/Local, 스냅, 드로우 모드, 2D, 라이팅, 이펙트, 그리드, 카메라, 기즈모 (Unity Scene 뷰와 동일한 구성)
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    SceneToolbar::DrawTopBar(windowSize.x, m_Camera);
     ImGui::PopStyleVar();
 
     windowSize = ImGui::GetContentRegionAvail();
+    if (windowSize.x < 1.0f || windowSize.y < 1.0f)
+        return;
+
     if (windowWidth != windowSize.x || windowHeight != windowSize.y)
     {
         windowWidth = static_cast<UINT>(windowSize.x);
@@ -184,18 +143,36 @@ void SceneEditorWindow::OnRender()
 
     RenderScene();
 
-    // ImGui â�� ���� Ÿ�� �ؽ�ó�� ǥ��
-    // 하늘 그라디언트(이미지 뒤) → 씬 렌더 이미지 → 그리드/기즈모 오버레이
+    // 하늘 그라디언트(이미지 뒤) → 씬 렌더 이미지 → 그리드/기즈모 오버레이 → 도구 팔레트
     ImVec2 imageMin = ImGui::GetCursorScreenPos();
     ImVec2 imageMax(imageMin.x + windowSize.x, imageMin.y + windowSize.y);
     SceneViewOverlay::DrawBackground(imageMin, imageMax, m_Camera);
 
     ImGui::Image(reinterpret_cast<void*>(shaderResourceView), windowSize);
+    ImGuiIO& io = ImGui::GetIO();
+    const ImVec2 mouse = io.MousePos;
+    const bool overPalette = mouse.x < imageMin.x + 40.0f && mouse.y < imageMin.y + 180.0f;
+    const bool viewHovered = ImGui::IsItemHovered() && !overPalette;
 
     SceneViewOverlay::Begin(imageMin, imageMax, m_Camera);
-    SceneViewOverlay::DrawGrid();
-    SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
+    if (SceneToolbar::GridVisible())
+        SceneViewOverlay::DrawGrid();
+    if (SceneToolbar::GizmosVisible())
+        SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
     SceneViewOverlay::End();
 
-    ImGui::EndChild(); // MainArea ����
+    // 도구 단축키(Q/W/E/R/T/Y), Hand 도구 이동(좌클릭 드래그), 마우스 휠 줌
+    SceneToolbar::HandleShortcuts(viewHovered);
+    if (viewHovered && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+    {
+        if (SceneToolbar::CurrentTool() == SceneToolbar::Tool::View && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            m_Camera->Strafe(-io.MouseDelta.x * 0.03f);
+            m_Camera->Pedestal(io.MouseDelta.y * 0.03f);
+        }
+        if (io.MouseWheel != 0.0f)
+            m_Camera->Walk(io.MouseWheel * 2.0f);
+    }
+
+    SceneToolbar::DrawToolPalette(imageMin, imageMax);
 }

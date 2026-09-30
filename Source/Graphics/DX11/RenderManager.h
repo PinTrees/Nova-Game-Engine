@@ -32,8 +32,8 @@ public:
 public:
 	static const int SMapSize = 2048;
 
-	bool WireFrameMode;
-	bool InstancingMode;
+	bool WireFrameMode = false;
+	bool InstancingMode = false;
 public:
 	void Init();
 

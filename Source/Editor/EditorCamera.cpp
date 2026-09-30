@@ -264,6 +264,14 @@ XMMATRIX EditorCamera::ViewProj()const
 	return ::XMMatrixMultiply(View(), Proj());
 }
 
+void EditorCamera::Pedestal(float d)
+{
+	XMVECTOR s = ::XMVectorReplicate(d);
+	XMVECTOR u = ::XMLoadFloat3(&_up);
+	XMVECTOR p = ::XMLoadFloat3(&_position);
+	::XMStoreFloat3(&_position, XMVectorMultiplyAdd(s, u, p));
+}
+
 void EditorCamera::Strafe(float d)
 {
 	// mPosition += d*mRight

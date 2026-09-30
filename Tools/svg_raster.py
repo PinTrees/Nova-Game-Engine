@@ -74,9 +74,56 @@ def apply(m, p):
     return (m[0] * p[0] + m[2] * p[1] + m[4], m[1] * p[0] + m[3] * p[1] + m[5])
 
 
+import math
+
+
+def arc_points(p0, rx, ry, rot_deg, large, sweep, p1, steps=32):
+    """SVG 타원 호(endpoint parameterization)를 점 리스트로 변환 (p0 는 제외, p1 포함)."""
+    x1, y1 = p0
+    x2, y2 = p1
+    if rx == 0 or ry == 0 or (x1 == x2 and y1 == y2):
+        return [p1]
+    rx, ry = abs(rx), abs(ry)
+    phi = math.radians(rot_deg)
+    cp, sp = math.cos(phi), math.sin(phi)
+    dx, dy = (x1 - x2) / 2.0, (y1 - y2) / 2.0
+    x1p = cp * dx + sp * dy
+    y1p = -sp * dx + cp * dy
+    lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry)
+    if lam > 1:
+        k = math.sqrt(lam)
+        rx, ry = rx * k, ry * k
+    num_ = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p
+    den = rx * rx * y1p * y1p + ry * ry * x1p * x1p
+    co = math.sqrt(max(0.0, num_ / den)) if den else 0.0
+    if large == sweep:
+        co = -co
+    cxp = co * rx * y1p / ry
+    cyp = -co * ry * x1p / rx
+    cx = cp * cxp - sp * cyp + (x1 + x2) / 2.0
+    cy = sp * cxp + cp * cyp + (y1 + y2) / 2.0
+
+    def ang(ux, uy, vx, vy):
+        a = math.atan2(ux * vy - uy * vx, ux * vx + uy * vy)
+        return a
+    th1 = ang(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry)
+    dth = ang((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry)
+    if not sweep and dth > 0:
+        dth -= 2 * math.pi
+    elif sweep and dth < 0:
+        dth += 2 * math.pi
+    out = []
+    for i in range(1, steps + 1):
+        t = th1 + dth * i / steps
+        ex, ey = rx * math.cos(t), ry * math.sin(t)
+        out.append((cp * ex - sp * ey + cx, sp * ex + cp * ey + cy))
+    out[-1] = p1
+    return out
+
+
 def flatten_path(d):
     """경로를 서브패스(점 리스트, 닫힘 여부)들로 펼친다."""
-    tokens = re.findall(r"[MmLlHhVvCcQqZz]|-?\d*\.?\d+(?:[eE][-+]?\d+)?", d)
+    tokens = re.findall(r"[MmLlHhVvCcQqAaZz]|-?\d*\.?\d+(?:[eE][-+]?\d+)?", d)
     i = 0
     cmd = None
     cur = (0.0, 0.0)
@@ -146,6 +193,12 @@ def flatten_path(d):
                 u = s / 32.0
                 a, b, cc, dd = (1 - u) ** 3, 3 * (1 - u) ** 2 * u, 3 * (1 - u) * u * u, u ** 3
                 pts.append((a * cur[0] + b * x1 + cc * x2 + dd * x, a * cur[1] + b * y1 + cc * y2 + dd * y))
+            cur = (x, y)
+        elif c == "A":
+            rx, ry, rot, laf, sf, x, y = (num() for _ in range(7))
+            if rel:
+                x, y = cur[0] + x, cur[1] + y
+            pts.extend(arc_points(cur, rx, ry, rot, int(laf), int(sf), (x, y)))
             cur = (x, y)
         else:
             i += 1

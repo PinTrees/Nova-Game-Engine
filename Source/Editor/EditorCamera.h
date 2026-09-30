@@ -48,6 +48,8 @@ public:
 	// Strafe/Walk the camera a distance d.
 	void Strafe(float d);
 	void Walk(float d);
+	// 카메라 위쪽(Up) 방향으로 d 만큼 이동 (Hand 도구 패닝)
+	void Pedestal(float d);
 
 	// Rotate the camera.
 	void Pitch(float angle);

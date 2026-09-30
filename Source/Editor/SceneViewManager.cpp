@@ -26,16 +26,19 @@ void SceneViewManager::Update()
 
 	float camSpeed = 50;
 
-	if (INPUT_KEY_HOLD(KEY::W))
+	// Unity 처럼 우클릭을 누르고 있을 때만 WASD 로 카메라를 이동한다 (도구 단축키 W/E/R 와 충돌 방지)
+	const bool flyMode = INPUT_KEY_HOLD(KEY::Mouse1);
+
+	if (flyMode && INPUT_KEY_HOLD(KEY::W))
 		sceneCamera->Walk(camSpeed * DT);
 
-	if (INPUT_KEY_HOLD(KEY::S))
+	if (flyMode && INPUT_KEY_HOLD(KEY::S))
 		sceneCamera->Walk(-camSpeed * DT);
 
-	if (INPUT_KEY_HOLD(KEY::A))
+	if (flyMode && INPUT_KEY_HOLD(KEY::A))
 		sceneCamera->Strafe(-camSpeed * DT);
 
-	if (INPUT_KEY_HOLD(KEY::D))
+	if (flyMode && INPUT_KEY_HOLD(KEY::D))
 		sceneCamera->Strafe(camSpeed * DT);
 
 	if (INPUT_KEY_DOWN(KEY::Mouse1))

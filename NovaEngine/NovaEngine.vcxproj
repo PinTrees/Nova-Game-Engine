@@ -237,6 +237,7 @@
     <ClInclude Include="..\Source\Scene\MeshRenderer.h" />
     <ClInclude Include="..\Source\Scene\MeshFilter.h" />
     <ClInclude Include="..\Source\Editor\GameObjectMenu.h" />
+    <ClInclude Include="..\Source\Editor\SceneToolbar.h" />
     <ClInclude Include="..\Source\Editor\Dialogs\MeshSelectEditorDialog.h" />
     <ClInclude Include="..\Source\Graphics\Common\MeshUtility.h" />
     <ClInclude Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.h" />
@@ -407,6 +408,7 @@
     <ClCompile Include="..\Source\Scene\MeshRenderer.cpp" />
     <ClCompile Include="..\Source\Scene\MeshFilter.cpp" />
     <ClCompile Include="..\Source\Editor\GameObjectMenu.cpp" />
+    <ClCompile Include="..\Source\Editor\SceneToolbar.cpp" />
     <ClCompile Include="..\Source\Editor\Dialogs\MeshSelectEditorDialog.cpp" />
     <ClCompile Include="..\Source\Graphics\Common\MeshUtility.cpp" />
     <ClCompile Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.cpp" />
