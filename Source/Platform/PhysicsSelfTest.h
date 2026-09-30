@@ -8,4 +8,7 @@ class Scene;
 namespace PhysicsSelfTest
 {
 	void Build(Scene* scene);
+
+	// (개발/검증용) NOVA_PARENT_TEST=<로그 파일>: 부모 변경 시 월드 위치 유지, 자식 저장/다시 읽기 검사
+	void RunParentTest(Scene* scene, const char* logPath);
 }

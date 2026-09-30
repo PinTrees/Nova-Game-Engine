@@ -268,6 +268,12 @@ bool App::Init()
 	if (::GetEnvironmentVariableA("NOVA_PHYSICS_TEST", nullptr, 0) > 0 && SceneManager::GetI()->GetCurrentScene())
 		PhysicsSelfTest::Build(SceneManager::GetI()->GetCurrentScene());
 
+	{
+		char parentLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_PARENT_TEST", parentLog, sizeof(parentLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunParentTest(SceneManager::GetI()->GetCurrentScene(), parentLog);
+	}
+
 	// (개발/검증용) NOVA_AUTOPLAY=1 이면 시작 직후 Play 모드로 들어간다.
 	if (::GetEnvironmentVariableA("NOVA_AUTOPLAY", nullptr, 0) > 0)
 	{

@@ -53,48 +53,51 @@ void GameObject::Destroy(GameObject* gameobject_ptr)
     }); 
 }
 
-void GameObject::SetParent(GameObject* parent)
+void GameObject::SetParent(GameObject* parent, bool worldPositionStays)
 {
-    if (nullptr == parent) // rootGameObject로
+    if (parent == m_pParentGameObject)
+        return;
+    // 자기 자신이나 자손 밑으로는 옮길 수 없다
+    for (GameObject* p = parent; p != nullptr; p = p->GetParent())
+        if (p == this)
+            return;
+
+    Transform* transform = GetTransform();
+    const Vec3 worldPos = transform->GetPosition();
+    const Quaternion worldRot = transform->GetRotation();
+    const Vec3 worldScale = transform->GetScale();
+    Scene* scene = SceneManager::GetI()->GetCurrentScene();
+
+    // 이전 부모(또는 루트 목록)에서 떼어낸다
+    if (m_pParentGameObject != nullptr)
     {
-        if (nullptr == m_pParentGameObject)
-        {
-            // 이미 rootGameObject이므로 처리X
-        }
-        else
-        {
-            // 부모오브젝트에서 RemoveChild(this) 후 자기 자신 rootGameObject로 추가
-            m_pParentGameObject->RemoveChild(this);
-            m_pParentGameObject->GetTransform()->RemoveChild(this->GetComponent_SP<Transform>());
-
-            m_pParentGameObject = nullptr;
-            GetTransform()->SetParent(nullptr);
-
-            SceneManager::GetI()->GetCurrentScene()->AddRootGameObject(this);
-        }
+        m_pParentGameObject->RemoveChild(this);
+        m_pParentGameObject->GetTransform()->RemoveChild(GetComponent_SP<Transform>());
     }
-    else // 다른 GameObject의 자식으로
+    else if (scene != nullptr)
     {
-        if (nullptr == m_pParentGameObject)
-        {
-            // rootGameObject였던 오브젝트에서 제거
-            SceneManager::GetI()->GetCurrentScene()->RemoveRootGameObjects(this);
-        }
-        else
-        {
-            // 원래 parent에서 자식 제거
-            m_pParentGameObject->RemoveChild(this);
-            m_pParentGameObject->GetTransform()->RemoveChild(this->GetComponent_SP<Transform>());
-        }
-        // parent 변경 후 parent의 자식으로 추가
-        m_pParentGameObject = parent;
-        GetTransform()->SetParent(parent->GetComponent_SP<Transform>());
-
-        parent->SetChild(this);
-        parent->GetTransform()->AddChild(this->GetComponent_SP<Transform>());
+        scene->RemoveRootGameObjects(this);
     }
 
-    GetTransform()->UpdateTransform();
+    m_pParentGameObject = parent;
+    if (parent != nullptr)
+    {
+        transform->SetParent(parent->GetComponent_SP<Transform>());
+        parent->SetChild(this);   // Transform 자식 목록에도 추가된다
+        if (scene != nullptr)
+            scene->RegisterGameObjectTree(this);   // 씬에 처음 들어오는 오브젝트도 렌더/업데이트 목록에 등록
+    }
+    else
+    {
+        transform->SetParent(nullptr);
+        if (scene != nullptr)
+            scene->AddRootGameObject(this);
+    }
+
+    if (worldPositionStays)
+        transform->SetWorldPose(worldPos, worldRot, worldScale);
+    else
+        transform->UpdateTransform();
 }
 
 void GameObject::SetChild(GameObject* child)

@@ -62,7 +62,7 @@ namespace GameObjectMenu
 			if (obj == nullptr || scene == nullptr)
 				return;
 			if (parent != nullptr)
-				obj->SetParent(parent);
+				obj->SetParent(parent, false);   // Unity: 자식으로 만들면 부모 원점에 놓인다
 			else
 				scene->AddRootGameObject(obj);
 			SelectionManager::SetSelectedGameObject(obj);

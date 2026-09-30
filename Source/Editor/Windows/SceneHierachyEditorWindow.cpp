@@ -100,7 +100,7 @@ GameObject* SceneHierachyEditorWindow::PasteObject(Scene* scene, GameObject* par
 	from_json(j, *g);
 	scene->AddRootGameObject(g);
 	if (parent != nullptr)
-		g->SetParent(parent);
+		g->SetParent(parent, false);
 
 	// Cut 은 붙여넣는 순간 원본을 제거한다
 	if (s_CutSourceId != 0)
@@ -126,7 +126,7 @@ GameObject* SceneHierachyEditorWindow::DuplicateObject(Scene* scene, GameObject*
 	g->SetName(UniqueCopyName(scene, target));
 	scene->AddRootGameObject(g);
 	if (target->GetParent() != nullptr)
-		g->SetParent(target->GetParent());
+		g->SetParent(target->GetParent(), false);   // 원본과 같은 로컬 값 → 같은 자리
 	SelectionManager::SetSelectedGameObject(g);
 	return g;
 }
@@ -545,7 +545,7 @@ void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, G
 		}
 		else
 		{
-			newGameObject->SetParent(parent);
+			newGameObject->SetParent(parent, false);
 		}
 	}
 }

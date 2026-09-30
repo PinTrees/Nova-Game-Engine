@@ -68,6 +68,8 @@ public:
 
 	Vec3 GetPosition() { return m_Position; }
 	void SetPosition(const Vec3& position);
+	// 월드 위치/회전/크기가 주어진 값이 되도록 로컬 값을 다시 계산한다 (부모 변경 시 제자리 유지용)
+	void SetWorldPose(const Vec3& position, const Quaternion& rotation, const Vec3& lossyScale);
 	void SetPosition(float x, float y, float z) { SetPosition(Vec3(x, y, z)); }
 
 	void Translate(const Vec3& position) { SetPosition(GetPosition() + position); }

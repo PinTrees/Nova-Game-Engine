@@ -258,3 +258,48 @@ namespace PhysicsSelfTest
 		Probe(summary, M::Summary);
 	}
 }
+
+namespace PhysicsSelfTest
+{
+	void RunParentTest(Scene* scene, const char* logPath)
+	{
+		FILE* fp = nullptr;
+		fopen_s(&fp, logPath, "w");
+		if (fp == nullptr || scene == nullptr)
+			return;
+		auto world = [](GameObject* g) {
+			Transform* t = g->GetTransform();
+			Vec3 p = t->GetPosition(), e = t->GetEulerAngle(), s = t->GetScale();
+			char buf[256];
+			sprintf_s(buf, "pos(%.3f %.3f %.3f) rot(%.2f %.2f %.2f) scale(%.3f %.3f %.3f)", p.x, p.y, p.z, e.x, e.y, e.z, s.x, s.y, s.z);
+			return std::string(buf);
+		};
+
+		GameObject* parent = Add(scene, GameObjectFactory::CreateCube(), "P_Parent", Vec3(2, 1, 0), Vec3(0, 45, 0), Vec3(2, 1, 1));
+		GameObject* child = Add(scene, GameObjectFactory::CreateSphere(), "P_Child", Vec3(4, 2, 1), Vec3(10, 20, 30));
+		GameObject* grand = Add(scene, GameObjectFactory::CreateCapsule(), "P_Grand", Vec3(-1, 3, 2));
+
+		fprintf(fp, "before  child %s\n", world(child).c_str());
+		child->SetParent(parent);                  // Hierarchy 에서 드래그하는 것과 같은 동작 (월드 유지)
+		fprintf(fp, "after   child %s  local(%.3f %.3f %.3f)\n", world(child).c_str(), child->GetTransform()->GetLocalPosition().x, child->GetTransform()->GetLocalPosition().y, child->GetTransform()->GetLocalPosition().z);
+		fprintf(fp, "before  grand %s\n", world(grand).c_str());
+		grand->SetParent(child);
+		fprintf(fp, "after   grand %s\n", world(grand).c_str());
+		parent->SetParent(child);                  // 자손 밑으로 옮기기 → 무시되어야 함
+		fprintf(fp, "cycle-guard parent->parent=%s\n", parent->GetParent() ? parent->GetParent()->GetName().c_str() : "(root)");
+		grand->SetParent(nullptr);                 // 루트로 꺼내기 (월드 유지)
+		fprintf(fp, "to-root grand %s roots=%zu all=%zu\n", world(grand).c_str(), scene->GetRootGameObjects().size(), scene->GetAllGameObjects().size());
+		grand->SetParent(child);
+
+		// 저장 → 다시 읽기
+		json j = *scene;
+		Scene* loaded = new Scene();
+		from_json(j, *loaded);
+		for (GameObject* g : loaded->GetAllGameObjects())
+			if (g->GetName().rfind("P_", 0) == 0)
+				fprintf(fp, "reload  %-9s parent=%-9s %s\n", g->GetName().c_str(), g->GetParent() ? g->GetParent()->GetName().c_str() : "(root)", world(g).c_str());
+		fprintf(fp, "reload counts: all=%zu (original all=%zu)\n", loaded->GetAllGameObjects().size(), scene->GetAllGameObjects().size());
+		fclose(fp);
+		delete loaded;
+	}
+}

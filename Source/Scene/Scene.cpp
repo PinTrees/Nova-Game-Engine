@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Scene.h"
+#include <functional>
 #include "InstancingBuffer.h"
 #include "MathHelper.h"
 
@@ -391,12 +392,30 @@ void Scene::DestroyComponent(Component* component)
 
 void Scene::DestroyGameObject(GameObject* gameobject)
 {
-    auto it1 = std::find(m_VecRootGameObjects.begin(), m_VecRootGameObjects.end(), gameobject);  
-    auto it2 = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), gameobject);
-    
-    gameobject->OnDestroy();
-    if (it1 != m_VecRootGameObjects.end())  m_VecRootGameObjects.erase(it1); 
-    if (it2 != m_ArrGameObjects[0].end())  m_ArrGameObjects[0].erase(it2);
+    if (gameobject == nullptr)
+        return;
+
+    // 부모의 자식 목록에서 떼어낸다
+    if (GameObject* parent = gameobject->GetParent())
+    {
+        parent->RemoveChild(gameobject);
+        parent->GetTransform()->RemoveChild(gameobject->GetComponent_SP<Transform>());
+    }
+    auto it1 = std::find(m_VecRootGameObjects.begin(), m_VecRootGameObjects.end(), gameobject);
+    if (it1 != m_VecRootGameObjects.end())
+        m_VecRootGameObjects.erase(it1);
+
+    // 자손까지 모두 제거 (Unity: 부모를 지우면 자식도 함께 지워진다)
+    std::function<void(GameObject*)> removeTree = [&](GameObject* g)
+    {
+        for (GameObject* child : g->GetChildren())
+            removeTree(child);
+        g->OnDestroy();
+        auto it2 = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
+        if (it2 != m_ArrGameObjects[0].end())
+            m_ArrGameObjects[0].erase(it2);
+    };
+    removeTree(gameobject);
 }
 
 void Scene::AddRootGameObject(GameObject* gameObject)
@@ -404,8 +423,19 @@ void Scene::AddRootGameObject(GameObject* gameObject)
     if (gameObject == nullptr)
         return;
 
-	m_VecRootGameObjects.push_back(gameObject);
-    m_ArrGameObjects[0].push_back(gameObject);
+    if (std::find(m_VecRootGameObjects.begin(), m_VecRootGameObjects.end(), gameObject) == m_VecRootGameObjects.end())
+        m_VecRootGameObjects.push_back(gameObject);
+    RegisterGameObjectTree(gameObject);   // 자식이 있는 오브젝트(붙여넣기, 씬 로드)도 자손까지 등록
+}
+
+void Scene::RegisterGameObjectTree(GameObject* gameObject)
+{
+    if (gameObject == nullptr)
+        return;
+    if (std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), gameObject) == m_ArrGameObjects[0].end())
+        m_ArrGameObjects[0].push_back(gameObject);
+    for (GameObject* child : gameObject->GetChildren())
+        RegisterGameObjectTree(child);
 }
 
 void Scene::RemoveRootGameObjects(GameObject* gameObject)
@@ -434,8 +464,7 @@ void from_json(const json& j, Scene& scene)
     for (const auto& gameObjectJson : j.at("rootGameObjects"))
     {
         GameObject* gameObject = new GameObject();
-        from_json(gameObjectJson, *gameObject); 
-        scene.m_VecRootGameObjects.push_back(gameObject);
-        scene.m_ArrGameObjects[0].push_back(gameObject);
+        from_json(gameObjectJson, *gameObject);
+        scene.AddRootGameObject(gameObject);   // 저장된 자식 오브젝트까지 렌더/업데이트 목록에 등록
     }
 }

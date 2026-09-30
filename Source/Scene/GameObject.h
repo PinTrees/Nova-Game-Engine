@@ -59,7 +59,9 @@ public:
 	int GetChildCount() { return m_pChildGameObjects.size(); }
 	Transform* GetTransform() { return m_pTransform; }
 	
-	void SetParent(GameObject* parent);
+	// 부모 변경. worldPositionStays = true 면 월드 위치/회전/크기를 유지한다 (Unity 의 Transform.SetParent 와 동일).
+	// 새로 만든 오브젝트를 자식으로 넣을 때는 false (로컬 값 그대로 부모 기준에 놓임).
+	void SetParent(GameObject* parent, bool worldPositionStays = true);
 	GameObject* GetParent() { return m_pParentGameObject; }
 
 	void Awake();
@@ -141,6 +143,7 @@ public:
 
 private:
 	friend class GameObject;
+	friend class Scene;   // Scene::DestroyGameObject 가 부모의 자식 목록을 정리한다
 	void SetChild(GameObject* child);
 	void RemoveChild(GameObject* child);
 	void SetParentImmediate(GameObject* g) { m_pParentGameObject = g; }

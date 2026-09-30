@@ -94,9 +94,9 @@ Vec3 Transform::ToEulerAngles(Quaternion q)
 
 void Transform::UpdateTransform()
 {
-	// ·ÎÄÃ º¯È¯ Çà·Ä »ı¼º 
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 
 	Matrix S = Matrix::CreateScale(m_LocalScale);
-	// ·ÎÄÃ ¿ÀÀÏ·¯ °¢À» ÄõÅÍ´Ï¾ğÀ¸·Î º¯È¯
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ï·ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Í´Ï¾ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¯
 	// íšŒì „ì˜ ê¸°ì¤€ ê°’ì€ ì¿¼í„°ë‹ˆì–¸ (ì˜¤ì¼ëŸ¬ â†’ ì¿¼í„°ë‹ˆì–¸ ì™•ë³µ ì˜¤ì°¨/ì§ë²Œ ë½ ì—†ìŒ)
 	Matrix QR = Matrix::CreateFromQuaternion(m_LocalRotation);
 
@@ -113,7 +113,21 @@ void Transform::UpdateTransform()
 		m_WorldMatrix = m_LocalMatrix;
 	}
 
-	m_WorldMatrix.Decompose(m_Scale, m_Rotation, m_Position);
+	// ì›”ë“œ ìœ„ì¹˜/íšŒì „/í¬ê¸°: í–‰ë ¬ ë¶„í•´(Decompose)ëŠ” ë¹„ê· ì¼ ìŠ¤ì¼€ì¼ ë¶€ëª¨ ì•„ë˜ì—ì„œ ê¸°ìš¸ì–´ì§„ í–‰ë ¬ì´ë©´ ì‹¤íŒ¨í•˜ê³ 
+	// ê°’ì„ ê°±ì‹ í•˜ì§€ ì•Šìœ¼ë¯€ë¡œ, Unity ì²˜ëŸ¼ ê³„ì¸µì„ ë”°ë¼ ì§ì ‘ í•©ì„±í•œë‹¤.
+	m_Position = Vec3(m_WorldMatrix._41, m_WorldMatrix._42, m_WorldMatrix._43);
+	if (HasParent())
+	{
+		m_Rotation = m_LocalRotation * _parent->GetRotation();   // ë¡œì»¬ íšŒì „ â†’ ë¶€ëª¨ íšŒì „ ìˆœì„œ
+		m_Rotation.Normalize();
+		const Vec3 ps = _parent->GetScale();
+		m_Scale = Vec3(m_LocalScale.x * ps.x, m_LocalScale.y * ps.y, m_LocalScale.z * ps.z);   // Unity ì˜ lossyScale ê³¼ ê°™ì€ ê·¼ì‚¬
+	}
+	else
+	{
+		m_Rotation = m_LocalRotation;
+		m_Scale = m_LocalScale;
+	}
 	m_EulerAngles = ToEulerAngles(m_Rotation);
 	for (float* v : { &m_EulerAngles.x, &m_EulerAngles.y, &m_EulerAngles.z })
 	{
@@ -233,24 +247,46 @@ void Transform::SetPosition(const Vec3& worldPosition)
 	}
 }
 
-/* ¿ùµå ÁÂÇ¥°èÀÇ x, y, z Ãà Áß ÇÏ³ª¸¦ ´ÜÀ§ º¤ÅÍÈ­ÇÏ¿© ¹İÈ¯ÇÑ´Ù. */
+/* ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ç¥ï¿½ï¿½ï¿½ï¿½ x, y, z ï¿½ï¿½ ï¿½ï¿½ ï¿½Ï³ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½È­ï¿½Ï¿ï¿½ ï¿½ï¿½È¯ï¿½Ñ´ï¿½. */
+void Transform::SetWorldPose(const Vec3& position, const Quaternion& rotation, const Vec3& lossyScale)
+{
+	// í–‰ë ¬ ë¶„í•´(ë¹„ê· ì¼ ìŠ¤ì¼€ì¼ + íšŒì „ì´ë©´ ê¸°ìš¸ì–´ì§ ë•Œë¬¸ì— ì‹¤íŒ¨í•  ìˆ˜ ìˆìŒ) ëŒ€ì‹  ìœ„ì¹˜/íšŒì „/í¬ê¸°ë¥¼ ë”°ë¡œ ì—­ë³€í™˜í•œë‹¤ (Unity ì™€ ê°™ì€ ë°©ì‹)
+	if (HasParent())
+	{
+		m_LocalPosition = Vec3::Transform(position, _parent->GetWorldMatrix().Invert());
+		Quaternion parentInv;
+		_parent->GetRotation().Inverse(parentInv);
+		Quaternion local = rotation * parentInv;
+		const Vec3 ps = _parent->GetScale();
+		auto safeDiv = [](float a, float b) { return fabsf(b) > 1e-6f ? a / b : a; };
+		m_LocalScale = Vec3(safeDiv(lossyScale.x, ps.x), safeDiv(lossyScale.y, ps.y), safeDiv(lossyScale.z, ps.z));
+		SetLocalRotation(local);   // UpdateTransform í¬í•¨
+	}
+	else
+	{
+		m_LocalPosition = position;
+		m_LocalScale = lossyScale;
+		SetLocalRotation(rotation);
+	}
+}
+
 Vec3 Transform::GetAxis(int index) const
 {
-	// ÀÔ·Â°ª °Ë»ç
-	if (index < 0 || index > 2)  // 3x3 ¶Ç´Â 4x4 Çà·ÄÀÇ À¯È¿ÇÑ Ãà ÀÎµ¦½º´Â 0, 1, 2
+	// ï¿½Ô·Â°ï¿½ ï¿½Ë»ï¿½
+	if (index < 0 || index > 2)  // 3x3 ï¿½Ç´ï¿½ 4x4 ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½È¿ï¿½ï¿½ ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ 0, 1, 2
 	{
 		std::cout << "RigidBody::getAxis::Out of index" << std::endl;
 		return Vector3();
 	}
 
-	// ¿ùµå ¸ÅÆ®¸¯½º¿¡¼­ Ãà º¤ÅÍ ÃßÃâ
+	// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	Vector3 axis(
 		m_WorldMatrix(index, 0),
 		m_WorldMatrix(index, 1),
 		m_WorldMatrix(index, 2)
 	);
 
-	axis.Normalize();  // º¤ÅÍ¸¦ Á¤±ÔÈ­
+	axis.Normalize();  // ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½ï¿½ï¿½ï¿½È­
 
 	return axis;
 }
