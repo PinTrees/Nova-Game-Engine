@@ -99,7 +99,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -117,7 +117,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -135,7 +135,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -157,7 +157,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -171,263 +171,263 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="EditorApp.h" />
-    <ClInclude Include="GameObjectFactory.h" />
-    <ClInclude Include="ProjectHubWindow.h" />
-    <ClInclude Include="AnimationClipSelectEditorDialog.h" />
-    <ClInclude Include="AnimationPlayer.h" />
-    <ClInclude Include="AnimationHelper.h" />
-    <ClInclude Include="AnimatorEditorWindow.h" />
-    <ClInclude Include="App.h" />
-    <ClInclude Include="Application.h" />
-    <ClInclude Include="BlurFilter.h" />
-    <ClInclude Include="BoxCollider.h" />
-    <ClInclude Include="Camera.h" />
-    <ClInclude Include="Collider.h" />
-    <ClInclude Include="CollisionDetector.h" />
-    <ClInclude Include="CollisionResolver.h" />
-    <ClInclude Include="Component.h" />
-    <ClInclude Include="ComponentFactory.h" />
-    <ClInclude Include="ConsoleEditorWindow.h" />
-    <ClInclude Include="Debug.h" />
-    <ClInclude Include="define.h" />
-    <ClInclude Include="DisplayManager.h" />
-    <ClInclude Include="EditorCamera.h" />
-    <ClInclude Include="EditorDailog.h" />
-    <ClInclude Include="EditorGUI.h" />
-    <ClInclude Include="EditorGUIManager.h" />
-    <ClInclude Include="EditorGUIResourceManager.h" />
-    <ClInclude Include="EditorGUIStyle.h" />
-    <ClInclude Include="EditorSettingManager.h" />
-    <ClInclude Include="EditorUtility.h" />
-    <ClInclude Include="EditorWindow.h" />
-    <ClInclude Include="Effects.h" />
-    <ClInclude Include="FBXLoader.h" />
-    <ClInclude Include="File.h" />
-    <ClInclude Include="GameObject.h" />
-    <ClInclude Include="GameTimer.h" />
-    <ClInclude Include="GameViewEditorWindow.h" />
-    <ClInclude Include="GeometryGenerator.h" />
-    <ClInclude Include="Gizmo.h" />
-    <ClInclude Include="imconfig.h" />
-    <ClInclude Include="imgui.h" />
-    <ClInclude Include="ImGuiNodeEditor\crude_json.h" />
-    <ClInclude Include="ImGuiNodeEditor\imgui_bezier_math.h" />
-    <ClInclude Include="ImGuiNodeEditor\imgui_canvas.h" />
-    <ClInclude Include="ImGuiNodeEditor\imgui_extra_math.h" />
-    <ClInclude Include="ImGuiNodeEditor\imgui_node_editor.h" />
-    <ClInclude Include="ImGuiNodeEditor\imgui_node_editor_internal.h" />
-    <ClInclude Include="imgui_impl_dx11.h" />
-    <ClInclude Include="imgui_impl_win32.h" />
-    <ClInclude Include="imgui_internal.h" />
-    <ClInclude Include="imstb_rectpack.h" />
-    <ClInclude Include="imstb_textedit.h" />
-    <ClInclude Include="imstb_truetype.h" />
-    <ClInclude Include="InputManager.h" />
-    <ClInclude Include="InspectorEditorWindow.h" />
-    <ClInclude Include="InstancingBuffer.h" />
-    <ClInclude Include="JsonUtility.h" />
-    <ClInclude Include="Light.h" />
-    <ClInclude Include="LightHelper.h" />
-    <ClInclude Include="LightManager.h" />
-    <ClInclude Include="LoadM3d.h" />
-    <ClInclude Include="MathHelper.h" />
-    <ClInclude Include="Matrix3.h" />
-    <ClInclude Include="Mesh.h" />
-    <ClInclude Include="MeshGeometry.h" />
-    <ClInclude Include="MeshRenderer.h" />
-    <ClInclude Include="MeshSelectEditorDialog.h" />
-    <ClInclude Include="MeshUtility.h" />
-    <ClInclude Include="NormalMapSkinnedShader.h" />
-    <ClInclude Include="Octree.h" />
-    <ClInclude Include="ParticleSystem.h" />
-    <ClInclude Include="PathManager.h" />
-    <ClInclude Include="pch.h" />
-    <ClInclude Include="PhysicsManager.h" />
-    <ClInclude Include="PostProcessingManager.h" />
-    <ClInclude Include="ProjectEditorWindow.h" />
-    <ClInclude Include="RenderManager.h" />
-    <ClInclude Include="RenderStates.h" />
-    <ClInclude Include="resource.h" />
-    <ClInclude Include="ResourceManager.h" />
-    <ClInclude Include="RigidBody.h" />
-    <ClInclude Include="Scene.h" />
-    <ClInclude Include="SceneEditorWindow.h" />
-    <ClInclude Include="SceneHierachyEditorWindow.h" />
-    <ClInclude Include="SceneManager.h" />
-    <ClInclude Include="SceneViewManager.h" />
-    <ClInclude Include="SelectionManager.h" />
-    <ClInclude Include="Shader.h" />
-    <ClInclude Include="ShaderCache.h" />
-    <ClInclude Include="ShaderSetting.h" />
-    <ClInclude Include="ShadowMap.h" />
-    <ClInclude Include="SimpleMath.h" />
-    <ClInclude Include="SkeletonAvataSelectEditorDailog.h" />
-    <ClInclude Include="SkinnedData.h" />
-    <ClInclude Include="SkinnedMesh.h" />
-    <ClInclude Include="SkinnedMeshRenderer.h" />
-    <ClInclude Include="SkinnedModel.h" />
-    <ClInclude Include="Sky.h" />
-    <ClInclude Include="SphereCollider.h" />
-    <ClInclude Include="Ssao.h" />
-    <ClInclude Include="Task.h" />
-    <ClInclude Include="TaskSystem.h" />
-    <ClInclude Include="Terrain.h" />
-    <ClInclude Include="TerrainTool.h" />
-    <ClInclude Include="TextureMgr.h" />
-    <ClInclude Include="TimeManager.h" />
-    <ClInclude Include="Transform.h" />
-    <ClInclude Include="Types.h" />
-    <ClInclude Include="UMaterial.h" />
-    <ClInclude Include="Utils.h" />
-    <ClInclude Include="VectorUtils.h" />
-    <ClInclude Include="vector_ex.h" />
-    <ClInclude Include="Vertex.h" />
-    <ClInclude Include="Waves.h" />
+    <ClInclude Include="..\Source\Editor\EditorApp.h" />
+    <ClInclude Include="..\Source\Scene\GameObjectFactory.h" />
+    <ClInclude Include="..\Source\Editor\Windows\ProjectHubWindow.h" />
+    <ClInclude Include="..\Source\Editor\Dialogs\AnimationClipSelectEditorDialog.h" />
+    <ClInclude Include="..\Source\Scene\AnimationPlayer.h" />
+    <ClInclude Include="..\Source\Animation\AnimationHelper.h" />
+    <ClInclude Include="..\Source\Editor\Windows\AnimatorEditorWindow.h" />
+    <ClInclude Include="..\Source\Platform\App.h" />
+    <ClInclude Include="..\Source\Platform\Application.h" />
+    <ClInclude Include="..\Source\Graphics\BlurFilter.h" />
+    <ClInclude Include="..\Source\Scene\BoxCollider.h" />
+    <ClInclude Include="..\Source\Scene\Camera.h" />
+    <ClInclude Include="..\Source\Scene\Collider.h" />
+    <ClInclude Include="..\Source\Physics\CollisionDetector.h" />
+    <ClInclude Include="..\Source\Physics\CollisionResolver.h" />
+    <ClInclude Include="..\Source\Scene\Component.h" />
+    <ClInclude Include="..\Source\Scene\ComponentFactory.h" />
+    <ClInclude Include="..\Source\Editor\Windows\ConsoleEditorWindow.h" />
+    <ClInclude Include="..\Source\Core\Debug.h" />
+    <ClInclude Include="..\Source\Core\define.h" />
+    <ClInclude Include="..\Source\Graphics\DisplayManager.h" />
+    <ClInclude Include="..\Source\Editor\EditorCamera.h" />
+    <ClInclude Include="..\Source\Editor\EditorDailog.h" />
+    <ClInclude Include="..\Source\Editor\EditorGUI.h" />
+    <ClInclude Include="..\Source\Editor\EditorGUIManager.h" />
+    <ClInclude Include="..\Source\Editor\EditorGUIResourceManager.h" />
+    <ClInclude Include="..\Source\Editor\EditorGUIStyle.h" />
+    <ClInclude Include="..\Source\Editor\EditorSettingManager.h" />
+    <ClInclude Include="..\Source\Editor\EditorUtility.h" />
+    <ClInclude Include="..\Source\Editor\EditorWindow.h" />
+    <ClInclude Include="..\Source\Graphics\Effects.h" />
+    <ClInclude Include="..\Source\Animation\FBXLoader.h" />
+    <ClInclude Include="..\Source\Core\File.h" />
+    <ClInclude Include="..\Source\Scene\GameObject.h" />
+    <ClInclude Include="..\Source\Core\GameTimer.h" />
+    <ClInclude Include="..\Source\Editor\Windows\GameViewEditorWindow.h" />
+    <ClInclude Include="..\Source\Graphics\GeometryGenerator.h" />
+    <ClInclude Include="..\Source\Editor\Gizmo.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imconfig.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imgui.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\crude_json.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_bezier_math.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_canvas.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_extra_math.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_node_editor.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_node_editor_internal.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imgui_impl_dx11.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imgui_impl_win32.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imgui_internal.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imstb_rectpack.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imstb_textedit.h" />
+    <ClInclude Include="..\Source\ThirdParty\ImGui\imstb_truetype.h" />
+    <ClInclude Include="..\Source\Core\InputManager.h" />
+    <ClInclude Include="..\Source\Editor\Windows\InspectorEditorWindow.h" />
+    <ClInclude Include="..\Source\Graphics\InstancingBuffer.h" />
+    <ClInclude Include="..\Source\Core\JsonUtility.h" />
+    <ClInclude Include="..\Source\Scene\Light.h" />
+    <ClInclude Include="..\Source\Graphics\LightHelper.h" />
+    <ClInclude Include="..\Source\Scene\LightManager.h" />
+    <ClInclude Include="..\Source\Animation\LoadM3d.h" />
+    <ClInclude Include="..\Source\Math\MathHelper.h" />
+    <ClInclude Include="..\Source\Math\Matrix3.h" />
+    <ClInclude Include="..\Source\Graphics\Mesh.h" />
+    <ClInclude Include="..\Source\Graphics\MeshGeometry.h" />
+    <ClInclude Include="..\Source\Scene\MeshRenderer.h" />
+    <ClInclude Include="..\Source\Editor\Dialogs\MeshSelectEditorDialog.h" />
+    <ClInclude Include="..\Source\Graphics\MeshUtility.h" />
+    <ClInclude Include="..\Source\Graphics\NormalMapSkinnedShader.h" />
+    <ClInclude Include="..\Source\Physics\Octree.h" />
+    <ClInclude Include="..\Source\Graphics\ParticleSystem.h" />
+    <ClInclude Include="..\Source\Core\PathManager.h" />
+    <ClInclude Include="..\Source\Platform\pch.h" />
+    <ClInclude Include="..\Source\Physics\PhysicsManager.h" />
+    <ClInclude Include="..\Source\Graphics\PostProcessingManager.h" />
+    <ClInclude Include="..\Source\Editor\Windows\ProjectEditorWindow.h" />
+    <ClInclude Include="..\Source\Graphics\RenderManager.h" />
+    <ClInclude Include="..\Source\Graphics\RenderStates.h" />
+    <ClInclude Include="..\Source\Platform\resource.h" />
+    <ClInclude Include="..\Source\Scene\ResourceManager.h" />
+    <ClInclude Include="..\Source\Scene\RigidBody.h" />
+    <ClInclude Include="..\Source\Scene\Scene.h" />
+    <ClInclude Include="..\Source\Editor\Windows\SceneEditorWindow.h" />
+    <ClInclude Include="..\Source\Editor\Windows\SceneHierachyEditorWindow.h" />
+    <ClInclude Include="..\Source\Scene\SceneManager.h" />
+    <ClInclude Include="..\Source\Editor\SceneViewManager.h" />
+    <ClInclude Include="..\Source\Editor\SelectionManager.h" />
+    <ClInclude Include="..\Source\Graphics\Shader.h" />
+    <ClInclude Include="..\Source\Graphics\ShaderCache.h" />
+    <ClInclude Include="..\Source\Graphics\ShaderSetting.h" />
+    <ClInclude Include="..\Source\Graphics\ShadowMap.h" />
+    <ClInclude Include="..\Source\Math\SimpleMath.h" />
+    <ClInclude Include="..\Source\Editor\Dialogs\SkeletonAvataSelectEditorDailog.h" />
+    <ClInclude Include="..\Source\Animation\SkinnedData.h" />
+    <ClInclude Include="..\Source\Animation\SkinnedMesh.h" />
+    <ClInclude Include="..\Source\Scene\SkinnedMeshRenderer.h" />
+    <ClInclude Include="..\Source\Animation\SkinnedModel.h" />
+    <ClInclude Include="..\Source\Graphics\Sky.h" />
+    <ClInclude Include="..\Source\Scene\SphereCollider.h" />
+    <ClInclude Include="..\Source\Graphics\Ssao.h" />
+    <ClInclude Include="..\Source\Core\Task.h" />
+    <ClInclude Include="..\Source\Core\TaskSystem.h" />
+    <ClInclude Include="..\Source\Graphics\Terrain.h" />
+    <ClInclude Include="..\Source\Scene\TerrainTool.h" />
+    <ClInclude Include="..\Source\Graphics\TextureMgr.h" />
+    <ClInclude Include="..\Source\Core\TimeManager.h" />
+    <ClInclude Include="..\Source\Scene\Transform.h" />
+    <ClInclude Include="..\Source\Core\Types.h" />
+    <ClInclude Include="..\Source\Graphics\UMaterial.h" />
+    <ClInclude Include="..\Source\Core\Utils.h" />
+    <ClInclude Include="..\Source\Math\VectorUtils.h" />
+    <ClInclude Include="..\Source\Math\vector_ex.h" />
+    <ClInclude Include="..\Source\Graphics\Vertex.h" />
+    <ClInclude Include="..\Source\Graphics\Waves.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="EditorApp.cpp" />
-    <ClCompile Include="GameObjectFactory.cpp" />
-    <ClCompile Include="ProjectHubWindow.cpp" />
-    <ClCompile Include="AnimationClipSelectEditorDialog.cpp" />
-    <ClCompile Include="AnimationPlayer.cpp" />
-    <ClCompile Include="AnimationHelper.cpp" />
-    <ClCompile Include="AnimatorEditorWindow.cpp" />
-    <ClCompile Include="App.cpp" />
-    <ClCompile Include="Application.cpp" />
-    <ClCompile Include="BlurFilter.cpp" />
-    <ClCompile Include="BoxCollider.cpp" />
-    <ClCompile Include="Camera.cpp" />
-    <ClCompile Include="Collider.cpp" />
-    <ClCompile Include="CollisionDetector.cpp" />
-    <ClCompile Include="CollisionResolver.cpp" />
-    <ClCompile Include="Component.cpp" />
-    <ClCompile Include="ComponentFactory.cpp" />
-    <ClCompile Include="ConsoleEditorWindow.cpp" />
-    <ClCompile Include="Debug.cpp" />
-    <ClCompile Include="define.cpp" />
-    <ClCompile Include="DisplayManager.cpp" />
-    <ClCompile Include="EditorCamera.cpp" />
-    <ClCompile Include="EditorDailog.cpp" />
-    <ClCompile Include="EditorGUI.cpp" />
-    <ClCompile Include="EditorGUIManager.cpp" />
-    <ClCompile Include="EditorGUIResourceManager.cpp" />
-    <ClCompile Include="EditorGUIStyle.cpp" />
-    <ClCompile Include="EditorSettingManager.cpp" />
-    <ClCompile Include="EditorUtility.cpp" />
-    <ClCompile Include="EditorWindow.cpp" />
-    <ClCompile Include="Effects.cpp" />
-    <ClCompile Include="FBXLoader.cpp" />
-    <ClCompile Include="File.cpp" />
-    <ClCompile Include="GameObject.cpp" />
-    <ClCompile Include="GameViewEditorWindow.cpp" />
-    <ClCompile Include="GeometryGenerator.cpp" />
-    <ClCompile Include="Gizmo.cpp" />
-    <ClCompile Include="imgui.cpp">
+    <ClCompile Include="..\Source\Editor\EditorApp.cpp" />
+    <ClCompile Include="..\Source\Scene\GameObjectFactory.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\ProjectHubWindow.cpp" />
+    <ClCompile Include="..\Source\Editor\Dialogs\AnimationClipSelectEditorDialog.cpp" />
+    <ClCompile Include="..\Source\Scene\AnimationPlayer.cpp" />
+    <ClCompile Include="..\Source\Animation\AnimationHelper.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\AnimatorEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Platform\App.cpp" />
+    <ClCompile Include="..\Source\Platform\Application.cpp" />
+    <ClCompile Include="..\Source\Graphics\BlurFilter.cpp" />
+    <ClCompile Include="..\Source\Scene\BoxCollider.cpp" />
+    <ClCompile Include="..\Source\Scene\Camera.cpp" />
+    <ClCompile Include="..\Source\Scene\Collider.cpp" />
+    <ClCompile Include="..\Source\Physics\CollisionDetector.cpp" />
+    <ClCompile Include="..\Source\Physics\CollisionResolver.cpp" />
+    <ClCompile Include="..\Source\Scene\Component.cpp" />
+    <ClCompile Include="..\Source\Scene\ComponentFactory.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\ConsoleEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Core\Debug.cpp" />
+    <ClCompile Include="..\Source\Core\define.cpp" />
+    <ClCompile Include="..\Source\Graphics\DisplayManager.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorCamera.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorDailog.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorGUI.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorGUIManager.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorGUIResourceManager.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorGUIStyle.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorSettingManager.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorUtility.cpp" />
+    <ClCompile Include="..\Source\Editor\EditorWindow.cpp" />
+    <ClCompile Include="..\Source\Graphics\Effects.cpp" />
+    <ClCompile Include="..\Source\Animation\FBXLoader.cpp" />
+    <ClCompile Include="..\Source\Core\File.cpp" />
+    <ClCompile Include="..\Source\Scene\GameObject.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\GameViewEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Graphics\GeometryGenerator.cpp" />
+    <ClCompile Include="..\Source\Editor\Gizmo.cpp" />
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="ImGuiNodeEditor\crude_json.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\crude_json.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="ImGuiNodeEditor\imgui_canvas.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_canvas.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="ImGuiNodeEditor\imgui_node_editor.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_node_editor.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="ImGuiNodeEditor\imgui_node_editor_api.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_node_editor_api.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="imgui_demo.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui_demo.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="imgui_draw.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui_draw.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="imgui_impl_dx11.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui_impl_dx11.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="imgui_impl_win32.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui_impl_win32.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="imgui_tables.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui_tables.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="imgui_widgets.cpp">
+    <ClCompile Include="..\Source\ThirdParty\ImGui\imgui_widgets.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="InputManager.cpp" />
-    <ClCompile Include="InspectorEditorWindow.cpp" />
-    <ClCompile Include="InstancingBuffer.cpp" />
-    <ClCompile Include="JsonUtility.cpp" />
-    <ClCompile Include="Light.cpp" />
-    <ClCompile Include="LightHelper.cpp" />
-    <ClCompile Include="LightManager.cpp" />
-    <ClCompile Include="LoadM3d.cpp" />
-    <ClCompile Include="Main.cpp" />
-    <ClCompile Include="GameTimer.cpp" />
-    <ClCompile Include="MathHelper.cpp" />
-    <ClCompile Include="Matrix3.cpp" />
-    <ClCompile Include="Mesh.cpp" />
-    <ClCompile Include="MeshGeometry.cpp" />
-    <ClCompile Include="MeshRenderer.cpp" />
-    <ClCompile Include="MeshSelectEditorDialog.cpp" />
-    <ClCompile Include="MeshUtility.cpp" />
-    <ClCompile Include="NormalMapSkinnedShader.cpp" />
-    <ClCompile Include="Octree.cpp" />
-    <ClCompile Include="ParticleSystem.cpp" />
-    <ClCompile Include="PathManager.cpp" />
-    <ClCompile Include="pch.cpp">
+    <ClCompile Include="..\Source\Core\InputManager.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\InspectorEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Graphics\InstancingBuffer.cpp" />
+    <ClCompile Include="..\Source\Core\JsonUtility.cpp" />
+    <ClCompile Include="..\Source\Scene\Light.cpp" />
+    <ClCompile Include="..\Source\Graphics\LightHelper.cpp" />
+    <ClCompile Include="..\Source\Scene\LightManager.cpp" />
+    <ClCompile Include="..\Source\Animation\LoadM3d.cpp" />
+    <ClCompile Include="..\Source\Platform\Main.cpp" />
+    <ClCompile Include="..\Source\Core\GameTimer.cpp" />
+    <ClCompile Include="..\Source\Math\MathHelper.cpp" />
+    <ClCompile Include="..\Source\Math\Matrix3.cpp" />
+    <ClCompile Include="..\Source\Graphics\Mesh.cpp" />
+    <ClCompile Include="..\Source\Graphics\MeshGeometry.cpp" />
+    <ClCompile Include="..\Source\Scene\MeshRenderer.cpp" />
+    <ClCompile Include="..\Source\Editor\Dialogs\MeshSelectEditorDialog.cpp" />
+    <ClCompile Include="..\Source\Graphics\MeshUtility.cpp" />
+    <ClCompile Include="..\Source\Graphics\NormalMapSkinnedShader.cpp" />
+    <ClCompile Include="..\Source\Physics\Octree.cpp" />
+    <ClCompile Include="..\Source\Graphics\ParticleSystem.cpp" />
+    <ClCompile Include="..\Source\Core\PathManager.cpp" />
+    <ClCompile Include="..\Source\Platform\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="PhysicsManager.cpp" />
-    <ClCompile Include="PostProcessingManager.cpp" />
-    <ClCompile Include="ProjectEditorWindow.cpp" />
-    <ClCompile Include="RenderManager.cpp" />
-    <ClCompile Include="RenderStates.cpp" />
-    <ClCompile Include="ResourceManager.cpp" />
-    <ClCompile Include="RigidBody.cpp" />
-    <ClCompile Include="Scene.cpp" />
-    <ClCompile Include="SceneEditorWindow.cpp" />
-    <ClCompile Include="SceneHierachyEditorWindow.cpp" />
-    <ClCompile Include="SceneManager.cpp" />
-    <ClCompile Include="SceneViewManager.cpp" />
-    <ClCompile Include="SelectionManager.cpp" />
-    <ClCompile Include="Shader.cpp" />
-    <ClCompile Include="ShaderCache.cpp" />
-    <ClCompile Include="ShaderSetting.cpp" />
-    <ClCompile Include="ShadowMap.cpp" />
-    <ClCompile Include="SimpleMath.cpp" />
-    <ClCompile Include="SkeletonAvataSelectEditorDailog.cpp" />
-    <ClCompile Include="SkinnedData.cpp" />
-    <ClCompile Include="SkinnedMesh.cpp" />
-    <ClCompile Include="SkinnedMeshRenderer.cpp" />
-    <ClCompile Include="SkinnedModel.cpp" />
-    <ClCompile Include="Sky.cpp" />
-    <ClCompile Include="SphereCollider.cpp" />
-    <ClCompile Include="Ssao.cpp" />
-    <ClCompile Include="Task.cpp" />
-    <ClCompile Include="TaskSystem.cpp" />
-    <ClCompile Include="Terrain.cpp" />
-    <ClCompile Include="TerrainTool.cpp" />
-    <ClCompile Include="TextureMgr.cpp" />
-    <ClCompile Include="TimeManager.cpp" />
-    <ClCompile Include="Transform.cpp" />
-    <ClCompile Include="UMaterial.cpp" />
-    <ClCompile Include="Utils.cpp" />
-    <ClCompile Include="VectorUtils.cpp" />
-    <ClCompile Include="vector_ex.cpp" />
-    <ClCompile Include="Vertex.cpp" />
-    <ClCompile Include="Waves.cpp" />
+    <ClCompile Include="..\Source\Physics\PhysicsManager.cpp" />
+    <ClCompile Include="..\Source\Graphics\PostProcessingManager.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\ProjectEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Graphics\RenderManager.cpp" />
+    <ClCompile Include="..\Source\Graphics\RenderStates.cpp" />
+    <ClCompile Include="..\Source\Scene\ResourceManager.cpp" />
+    <ClCompile Include="..\Source\Scene\RigidBody.cpp" />
+    <ClCompile Include="..\Source\Scene\Scene.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\SceneEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Editor\Windows\SceneHierachyEditorWindow.cpp" />
+    <ClCompile Include="..\Source\Scene\SceneManager.cpp" />
+    <ClCompile Include="..\Source\Editor\SceneViewManager.cpp" />
+    <ClCompile Include="..\Source\Editor\SelectionManager.cpp" />
+    <ClCompile Include="..\Source\Graphics\Shader.cpp" />
+    <ClCompile Include="..\Source\Graphics\ShaderCache.cpp" />
+    <ClCompile Include="..\Source\Graphics\ShaderSetting.cpp" />
+    <ClCompile Include="..\Source\Graphics\ShadowMap.cpp" />
+    <ClCompile Include="..\Source\Math\SimpleMath.cpp" />
+    <ClCompile Include="..\Source\Editor\Dialogs\SkeletonAvataSelectEditorDailog.cpp" />
+    <ClCompile Include="..\Source\Animation\SkinnedData.cpp" />
+    <ClCompile Include="..\Source\Animation\SkinnedMesh.cpp" />
+    <ClCompile Include="..\Source\Scene\SkinnedMeshRenderer.cpp" />
+    <ClCompile Include="..\Source\Animation\SkinnedModel.cpp" />
+    <ClCompile Include="..\Source\Graphics\Sky.cpp" />
+    <ClCompile Include="..\Source\Scene\SphereCollider.cpp" />
+    <ClCompile Include="..\Source\Graphics\Ssao.cpp" />
+    <ClCompile Include="..\Source\Core\Task.cpp" />
+    <ClCompile Include="..\Source\Core\TaskSystem.cpp" />
+    <ClCompile Include="..\Source\Graphics\Terrain.cpp" />
+    <ClCompile Include="..\Source\Scene\TerrainTool.cpp" />
+    <ClCompile Include="..\Source\Graphics\TextureMgr.cpp" />
+    <ClCompile Include="..\Source\Core\TimeManager.cpp" />
+    <ClCompile Include="..\Source\Scene\Transform.cpp" />
+    <ClCompile Include="..\Source\Graphics\UMaterial.cpp" />
+    <ClCompile Include="..\Source\Core\Utils.cpp" />
+    <ClCompile Include="..\Source\Math\VectorUtils.cpp" />
+    <ClCompile Include="..\Source\Math\vector_ex.cpp" />
+    <ClCompile Include="..\Source\Graphics\Vertex.cpp" />
+    <ClCompile Include="..\Source\Graphics\Waves.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="ImGuiNodeEditor\imgui_bezier_math.inl" />
-    <None Include="ImGuiNodeEditor\imgui_extra_math.inl" />
-    <None Include="ImGuiNodeEditor\imgui_node_editor_internal.inl" />
-    <None Include="SimpleMath.inl" />
+    <None Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_bezier_math.inl" />
+    <None Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_extra_math.inl" />
+    <None Include="..\Source\ThirdParty\ImGui\ImGuiNodeEditor\imgui_node_editor_internal.inl" />
+    <None Include="..\Source\Math\SimpleMath.inl" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="..\Shaders\02. Color.fx">
@@ -718,7 +718,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="DX11.rc" />
+    <ResourceCompile Include="..\Source\Platform\DX11.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
