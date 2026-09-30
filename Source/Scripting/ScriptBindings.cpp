@@ -17,6 +17,7 @@
 #include "UISystem.h"
 #include "BuildSettings.h"
 #include "PlayerRuntime.h"
+#include "ParticleSystem.h"
 
 // C# 쪽 NativeApiTable(ScriptCore/Interop/NativeApi.cs)과 같은 순서·형식. 하나라도 어긋나면 Initialize 가 크기 불일치로 거부한다.
 namespace
@@ -113,6 +114,15 @@ namespace
 		int(*App_Info)(int);
 		u8* (*App_ProductName)();
 		void(*App_Quit)();
+
+		// Particle System
+		void(*PS_Call)(uint64, int, int);
+		float(*PS_GetFloat)(uint64, int);
+		void(*PS_SetFloat)(uint64, int, float);
+		void(*PS_GetCurve)(uint64, int, Vec4*);
+		void(*PS_SetCurve)(uint64, int, int, float, float);
+		int(*PS_GetColor)(uint64, int, Vec4*, Vec4*);
+		void(*PS_SetColor)(uint64, int, int, Vec4*, Vec4*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -693,6 +703,160 @@ namespace
 		if (Application::IsPlayer())
 			PlayerRuntime::Quit();
 	}
+
+	// ---------------------------------------------------------------- Particle System
+	// 번호표는 ScriptCore/Interop/NativeApi.cs 주석과 같다
+	ParticleSystem* PS(uint64 id)
+	{
+		GameObject* g = Find(id);
+		return g ? g->GetComponentIncludingPending<ParticleSystem>() : nullptr;   // AddComponent 직후에도
+	}
+
+	void PS_Call(uint64 id, int op, int arg)
+	{
+		ParticleSystem* ps = PS(id);
+		if (ps == nullptr) return;
+		switch (op)
+		{
+		case 0: ps->Play(arg != 0); break;
+		case 1: ps->Stop((arg & 1) != 0, (arg & 2) != 0); break;
+		case 2: ps->Pause(arg != 0); break;
+		case 3: ps->Clear(arg != 0); break;
+		case 4: ps->Emit(arg); break;
+		default: ps->Restart(); break;
+		}
+	}
+
+	MinMaxCurve* PSCurve(ParticleSystem* ps, int prop)
+	{
+		switch (prop)
+		{
+		case 0: return &ps->StartDelay;
+		case 1: return &ps->StartLifetime;
+		case 2: return &ps->StartSpeed;
+		case 3: return &ps->StartSize;
+		case 4: return &ps->StartRotation;
+		case 5: return &ps->GravityModifier;
+		case 6: return &ps->RateOverTime;
+		case 7: return &ps->RateOverDistance;
+		default: return nullptr;
+		}
+	}
+
+	float PS_GetFloat(uint64 id, int prop)
+	{
+		ParticleSystem* ps = PS(id);
+		if (ps == nullptr) return 0.0f;
+		switch (prop)
+		{
+		case 0: return ps->GetTime();
+		case 1: return (float)ps->ParticleCount();
+		case 2: return ps->Duration;
+		case 3: return ps->SimulationSpeed;
+		case 4: return (float)ps->MaxParticles;
+		case 5: return ps->IsPlaying() ? 1.0f : 0.0f;
+		case 6: return ps->IsPaused() ? 1.0f : 0.0f;
+		case 7: return ps->IsStopped() ? 1.0f : 0.0f;
+		case 8: return ps->IsEmitting() ? 1.0f : 0.0f;
+		case 9: return ps->Looping ? 1.0f : 0.0f;
+		case 10: return ps->PlayOnAwake ? 1.0f : 0.0f;
+		case 11: return (float)ps->SimulationSpace;
+		case 12: return ps->EmissionEnabled ? 1.0f : 0.0f;
+		case 13: return ps->ShapeEnabled ? 1.0f : 0.0f;
+		case 14: return ps->ShapeRadius;
+		case 15: return ps->ShapeAngle;
+		case 16: return (float)(int)ps->Shape;
+		case 17:
+		{
+			std::vector<ParticleSystem*> group;
+			ps->CollectHierarchy(group);
+			for (ParticleSystem* p : group)
+				if (p->IsAlive()) return 1.0f;
+			return 0.0f;
+		}
+		case 18: return ps->ShapeArc;
+		case 19: return ps->ColorEnabled ? 1.0f : 0.0f;
+		case 20: return ps->IsAlive() ? 1.0f : 0.0f;
+		default: return 0.0f;
+		}
+	}
+
+	void PS_SetFloat(uint64 id, int prop, float v)
+	{
+		ParticleSystem* ps = PS(id);
+		if (ps == nullptr) return;
+		switch (prop)
+		{
+		case 0: ps->SetTime(v); break;
+		case 2: ps->Duration = (std::max)(0.05f, v); break;
+		case 3: ps->SimulationSpeed = (std::max)(0.0f, v); break;
+		case 4: ps->MaxParticles = (std::max)(0, (int)v); break;
+		case 9: ps->Looping = v != 0.0f; break;
+		case 10: ps->PlayOnAwake = v != 0.0f; break;
+		case 11: ps->SimulationSpace = v != 0.0f ? 1 : 0; break;
+		case 12: ps->EmissionEnabled = v != 0.0f; break;
+		case 13: ps->ShapeEnabled = v != 0.0f; break;
+		case 14: ps->ShapeRadius = (std::max)(0.0001f, v); break;
+		case 15: ps->ShapeAngle = std::clamp(v, 0.0f, 90.0f); break;
+		case 16: ps->Shape = (ParticleSystem::ShapeType)std::clamp((int)v, 0, 5); break;
+		case 18: ps->ShapeArc = std::clamp(v, 0.0f, 360.0f); break;
+		case 19: ps->ColorEnabled = v != 0.0f; break;
+		default: break;
+		}
+	}
+
+	void PS_GetCurve(uint64 id, int prop, Vec4* out)
+	{
+		ParticleSystem* ps = PS(id);
+		MinMaxCurve* c = ps ? PSCurve(ps, prop) : nullptr;
+		if (c == nullptr || out == nullptr) return;
+		*out = Vec4((float)(int)c->Mode, c->ConstantMin, c->ConstantMax, c->Multiplier);
+	}
+
+	void PS_SetCurve(uint64 id, int prop, int mode, float minV, float maxV)
+	{
+		ParticleSystem* ps = PS(id);
+		MinMaxCurve* c = ps ? PSCurve(ps, prop) : nullptr;
+		if (c == nullptr) return;
+		// 스크립트에서는 상수 모드만 (곡선은 Inspector 에서)
+		c->Mode = mode == (int)ParticleCurveMode::TwoConstants ? ParticleCurveMode::TwoConstants : ParticleCurveMode::Constant;
+		c->ConstantMin = minV;
+		c->ConstantMax = maxV;
+	}
+
+	MinMaxGradient* PSColor(ParticleSystem* ps, int prop)
+	{
+		return prop == 0 ? &ps->StartColor : prop == 1 ? &ps->ColorOverLifetime : nullptr;
+	}
+
+	int PS_GetColor(uint64 id, int prop, Vec4* colorMin, Vec4* colorMax)
+	{
+		ParticleSystem* ps = PS(id);
+		MinMaxGradient* g = ps ? PSColor(ps, prop) : nullptr;
+		if (g == nullptr) return 0;
+		if (colorMin) *colorMin = g->ColorMin;
+		if (colorMax) *colorMax = g->ColorMax;
+		return (int)g->Mode;
+	}
+
+	void PS_SetColor(uint64 id, int prop, int mode, Vec4* colorMin, Vec4* colorMax)
+	{
+		ParticleSystem* ps = PS(id);
+		MinMaxGradient* g = ps ? PSColor(ps, prop) : nullptr;
+		if (g == nullptr) return;
+		if (colorMin) g->ColorMin = *colorMin;
+		if (colorMax) g->ColorMax = *colorMax;
+		if (prop == 1)
+		{
+			// Color over Lifetime 은 그라디언트: 한 색이면 그 색에서 투명으로 사라지게
+			const Vec4 c = g->ColorMax;
+			g->Mode = ParticleGradientMode::Gradient;
+			g->GradientMax.Colors = { { 0, c.x, c.y, c.z }, { 1, c.x, c.y, c.z } };
+			g->GradientMax.Alphas = { { 0, c.w }, { 1, 0.0f } };
+			return;
+		}
+		g->Mode = mode == (int)ParticleGradientMode::TwoColors ? ParticleGradientMode::TwoColors : ParticleGradientMode::Color;
+	}
 }
 
 namespace ScriptBindings
@@ -737,6 +901,13 @@ namespace ScriptBindings
 		t.App_Info = App_Info;
 		t.App_ProductName = App_ProductName;
 		t.App_Quit = App_Quit;
+		t.PS_Call = PS_Call;
+		t.PS_GetFloat = PS_GetFloat;
+		t.PS_SetFloat = PS_SetFloat;
+		t.PS_GetCurve = PS_GetCurve;
+		t.PS_SetCurve = PS_SetCurve;
+		t.PS_GetColor = PS_GetColor;
+		t.PS_SetColor = PS_SetColor;
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

@@ -18,6 +18,18 @@ namespace UnityGUI
 
 	// ---- 레이아웃 ----
 	void Spacing(float height);
+	// 직접 그리는 필드용 행: 레이블을 그리고 필드 열 위치를 돌려준다. 다 그린 뒤 EndFieldRow (height = 행 높이)
+	struct FieldRow
+	{
+		ImVec2 p;        // 행 시작 (화면 좌표)
+		float w;         // 행 폭
+		float fieldX;    // 필드 열 시작 x
+		float fieldW;    // 필드 열 폭
+	};
+	FieldRow BeginFieldRow(const char* label, int indent = 0);
+	void EndFieldRow(const FieldRow& row, float height = kRowStep);
+	// 필드 스타일(어두운 상자)을 입힌 숫자 칸. 행 안의 원하는 위치에
+	bool FloatBox(const char* id, float* value, ImVec2 pos, float width);
 
 	// ---- 행 위젯 (레이블 + 필드) ----
 	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent = 0, bool disabled = false);

@@ -97,7 +97,15 @@ namespace GameObjectMenu
 			ImGui::EndMenu();
 		}
 
-		DisabledSubMenu("Effects", { "Particle System", "Trail", "Line" });
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("Effects"))
+		{
+			if (ImGui::MenuItem("Particle System")) add(GameObjectFactory::CreateParticleSystem());
+			Disabled("Particle System Force Field");
+			Disabled("Trail");
+			Disabled("Line");
+			ImGui::EndMenu();
+		}
 
 		SetMenuWidth(190.0f);
 		if (ImGui::BeginMenu("Light"))

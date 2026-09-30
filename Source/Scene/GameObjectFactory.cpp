@@ -13,6 +13,7 @@
 #include "Volume.h"
 #include "AudioSource.h"
 #include "AudioListener.h"
+#include "ParticleSystem.h"
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
 #include "SkinnedMesh.h"
@@ -340,6 +341,14 @@ GameObject* GameObjectFactory::CreateAudioSource()
 {
 	GameObject* obj = new GameObject("Audio Source");
 	obj->AddComponent<AudioSource>();
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateParticleSystem(const std::string& name)
+{
+	GameObject* obj = new GameObject(name);
+	obj->GetTransform()->SetLocalEulerAngles(Vec3(-90.0f, 0.0f, 0.0f));
+	obj->AddComponent<ParticleSystem>();
 	return obj;
 }
 

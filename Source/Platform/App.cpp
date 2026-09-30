@@ -4,6 +4,7 @@
 #include "AudioManager.h"
 #include "ScriptEngine.h"
 #include "UISystem.h"
+#include "ParticleSystem.h"
 #include "PlayerRuntime.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
@@ -109,6 +110,7 @@ int32 App::Run()
 				AudioManager::Update();   // 리스너 위치, 일시정지, One Shot 정리, 통계
 				ScriptEngine::Update();   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
 				UISystem::Update();       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
+				ParticleSystem::UpdateAll();   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
 
 				// OnPreCull, 렌더 직전 매트릭스 연산 등
 				
@@ -138,7 +140,7 @@ int32 App::Run()
 				EditorGUIManager::GetI()->RenderAfter();
 
 				// Render End
-				HR(_swapChain->Present(0, 0)); 
+				HR(_swapChain->Present(0, 0));
 
 				// 첫 프레임(도킹 배치가 잡히도록 두 번째 프레임)이 그려지면 에디터 창을 보이고 로딩 창을 닫는다
 				if (_deferredShow && ++_shownFrames >= 2)

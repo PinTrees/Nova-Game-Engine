@@ -148,6 +148,25 @@ namespace UnityGUI
 		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + height));
 	}
 
+	FieldRow BeginFieldRow(const char* label, int indent)
+	{
+		const Row r = BeginRow(label, indent);
+		return FieldRow{ r.p, r.w, r.fieldX, r.fieldW };
+	}
+
+	void EndFieldRow(const FieldRow& row, float height)
+	{
+		ImGui::SetCursorScreenPos(row.p);
+		ImGui::Dummy(ImVec2(row.w, height));
+		ImGui::SetCursorScreenPos(ImVec2(row.p.x, row.p.y + height));
+	}
+
+	bool FloatBox(const char* id, float* value, ImVec2 pos, float width)
+	{
+		ImGui::SetCursorScreenPos(pos);
+		return FloatInput(id, value, width);
+	}
+
 	// ---------- 행 위젯 ----------
 	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent, bool disabled)
 	{

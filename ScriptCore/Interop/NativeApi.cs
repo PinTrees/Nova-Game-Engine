@@ -122,6 +122,21 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<int, int> App_Info;                   // 0 = 플레이어인지
         public delegate* unmanaged<byte*> App_ProductName;
         public delegate* unmanaged<void> App_Quit;
+
+        // Particle System
+        //  Call: 0 Play(arg 자식 포함), 1 Stop(arg 비트 1 자식 포함, 2 지우기), 2 Pause, 3 Clear, 4 Emit(arg 개수), 5 Restart
+        //  float: 0 time, 1 particleCount, 2 duration, 3 simulationSpeed, 4 maxParticles, 5 isPlaying, 6 isPaused, 7 isStopped,
+        //         8 isEmitting, 9 loop, 10 playOnAwake, 11 simulationSpace, 12 emission.enabled, 13 shape.enabled, 14 shape.radius,
+        //         15 shape.angle, 16 shape.shapeType(NOVA 순서), 17 IsAlive(자식 포함), 18 shape.arc, 19 colorOverLifetime.enabled, 20 IsAlive(자신만)
+        //  곡선: 0 startDelay, 1 startLifetime, 2 startSpeed, 3 startSize, 4 startRotation(도), 5 gravityModifier, 6 rateOverTime, 7 rateOverDistance
+        //  색: 0 startColor, 1 colorOverLifetime
+        public delegate* unmanaged<ulong, int, int, void> PS_Call;
+        public delegate* unmanaged<ulong, int, float> PS_GetFloat;
+        public delegate* unmanaged<ulong, int, float, void> PS_SetFloat;
+        public delegate* unmanaged<ulong, int, Vector4*, void> PS_GetCurve;           // x mode, y min, z max, w multiplier
+        public delegate* unmanaged<ulong, int, int, float, float, void> PS_SetCurve;  // mode, min, max
+        public delegate* unmanaged<ulong, int, Vector4*, Vector4*, int> PS_GetColor;  // → mode
+        public delegate* unmanaged<ulong, int, int, Vector4*, Vector4*, void> PS_SetColor;
     }
 
     internal static unsafe class Native

@@ -34,6 +34,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
 | **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API (`NovaEngine` 네임스페이스: GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, AudioSource, Animator, Physics.Raycast, 코루틴, Invoke …), Assets 의 `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`public` / `[SerializeField]`, `[Range]`, `[Header]`, enum, Color, GameObject 참조), 컴파일 오류는 Console(파일:줄) 에 표시되고 Play 를 막음 |
 | **UI (UGUI)** | Canvas(Screen Space - Overlay, Sort Order) · Canvas Scaler(Constant Pixel Size / Scale With Screen Size) · Graphic Raycaster · Event System, Rect Transform(기준점 프리셋, Pos/Width 또는 Left/Right, Pivot), Image(Simple / Sliced / Filled 가로·세로·원형), Text(한글 포함 기본 글꼴, 줄바꿈·정렬·Best Fit), Button(Color Tint, On Click () 에 C# 메서드), Toggle, Slider(가로·세로, 드래그·클릭), Input Field(한글 IME, 캐럿·선택, Enter/포커스 해제 시 On End Edit), Scroll View(Scroll Rect: 드래그·휠·관성·Elastic), Mask / Rect Mask 2D(잘라내기). GameObject > UI (Canvas) 메뉴, Scene 뷰에 캔버스 표시, Rect 도구로 크기 조절 |
+| **파티클 (Particle System)** | Unity Shuriken 과 같은 모듈: Main(Duration, Looping, Prewarm, Start Lifetime/Speed/Size/Rotation/Color, Gravity, Simulation Space, Max Particles, Stop Action), Emission(Rate over Time/Distance, Bursts), Shape(Sphere, Hemisphere, Cone, Box, Circle, Edge), Velocity / Limit Velocity / Force / Color / Size / Rotation over Lifetime, Noise, Texture Sheet Animation, Renderer(Billboard, Stretched, Horizontal, Vertical, Alpha Blended / Additive, 정렬). 값마다 Constant / Curve / Random Between Two Constants / Two Curves, 곡선·그라디언트 편집기. 선택하면 Scene 뷰에서 미리 재생(Particle Effect 창), GPU 인스턴싱으로 그리기, 내장 텍스처(부드러운 원, 빛, 연기, 반짝임, 불꽃 플립북), C# `ParticleSystem` API |
 | **빌드 (Build Settings)** | File > Build Settings(Scenes In Build 목록: 체크·끌어서 순서·Add Open Scenes), Player Settings(회사·제품 이름, 버전, Fullscreen Window / Maximized / Windowed, 해상도, Run In Background), Build / Build And Run → 독립 실행 `<제품>.exe` + `<제품>_Data`(쓰는 에셋만 복사), C# `SceneManager.LoadScene`, `Application.Quit` |
 | **코드 편집기 (NOVA Code)** | 에디터에 내장된 C# IDE(기본 External Script Editor): Explorer, 탭, 구문 강조, 엔진 API 자동 완성, 찾기/바꾸기, 줄 이동, 저장하면 바로 컴파일, 컴파일 오류를 그 줄에 밑줄로. **Edit > Preferences > External Tools** 에서 Visual Studio / VS Code / Rider / 직접 지정으로 바꿀 수 있음 |
 | **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
@@ -163,6 +164,19 @@ public class ScoreUI : MonoBehaviour
 }
 ```
 
+파티클도 Unity 와 같은 모양입니다 (모듈 구조체의 값을 바꾸면 바로 반영).
+
+```csharp
+var ps = GetComponent<ParticleSystem>();
+var main = ps.main;
+main.startColor = new ParticleSystem.MinMaxGradient(Color.yellow, Color.red);   // Random Between Two Colors
+main.startSize = new ParticleSystem.MinMaxCurve(0.2f, 0.5f);
+var emission = ps.emission;
+emission.rateOverTime = 50f;
+ps.Emit(30);      // 즉시 30개
+ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
+```
+
 Unity 코드는 `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 대부분 그대로 동작합니다. 프로젝트 루트의 `Assembly-CSharp.csproj` 는 에디터가 만들며, VS Code / Visual Studio 에서 자동 완성에 쓰입니다.
 
 ## 단축키 (Unity 와 같음)
@@ -207,6 +221,7 @@ Source/
   Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
   UI/         UGUI: Canvas, RectTransform, Image, Text, Button, Toggle, Slider, InputField, ScrollRect, Mask, 글꼴 아틀라스, UI 그리기(42. UI.fx), 입력/레이아웃(UISystem)
   Build/      Build Settings / Player Settings, 빌드 파이프라인(의존 에셋 수집·복사), 빌드된 게임 실행(PlayerRuntime)
+  Effects/    Particle System: 시뮬레이션, 곡선/그라디언트 값, 인스턴싱 렌더러(43. Particle.fx), Inspector·미리보기 편집기
   Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator/Preferences ...), Undo, EditorPrefs
     NovaCode/ 내장 C# IDE: CodeEditor(편집 위젯), CSharpLanguage(구문 강조·자동 완성), NovaCodeWindow(창), ExternalScriptEditor(편집기 선택/실행)
   Hub/        프로젝트 Hub

@@ -33,6 +33,7 @@ namespace
 		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Volume",              "Volume",                "Miscellaneous", "volume",            true  },
+		{ "ParticleSystem",      "Particle System",       "Effects",       "particle_system",   true  },
 		{ "AudioSource",         "Audio Source",          "Audio",         "audio_source",      false },
 		{ "AudioListener",       "Audio Listener",        "Audio",         "audio_listener",    true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },

@@ -254,6 +254,7 @@ namespace NovaEngine
             if (t == typeof(Rigidbody)) return "RigidBody";
             if (t == typeof(AudioSource)) return "AudioSource";
             if (t == typeof(AudioListener)) return "AudioListener";
+            if (t == typeof(ParticleSystem)) return "ParticleSystem";
             if (t == typeof(Animator)) return "Animator";
             if (t == typeof(Collider)) return "Collider";
             if (t == typeof(BoxCollider)) return "BoxCollider";

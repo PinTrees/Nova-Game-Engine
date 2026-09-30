@@ -3,12 +3,12 @@
 class Camera;
 class ParticleEffect;
 
-class ParticleSystem
+class StreamOutParticles
 {
 public:
 
-	ParticleSystem();
-	~ParticleSystem();
+	StreamOutParticles();
+	~StreamOutParticles();
 
 	// Time elapsed since the system was reset.
 	float GetAge() const;

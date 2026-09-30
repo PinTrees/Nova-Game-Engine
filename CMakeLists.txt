@@ -112,6 +112,7 @@ set(ENGINE_MODULE_DIRS
     Source/Scripting
     Source/UI
     Source/Build
+    Source/Effects
     Source/Editor
     Source/Editor/Windows
     Source/Editor/Dialogs

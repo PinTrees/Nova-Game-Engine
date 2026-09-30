@@ -1,10 +1,10 @@
 #include "pch.h"
-#include "ParticleSystem.h"
+#include "StreamOutParticles.h"
 #include "Camera.h"
 #include "Effects.h"
 #include "Vertex.h"
 
-ParticleSystem::ParticleSystem()
+StreamOutParticles::StreamOutParticles()
 {
 	_firstRun = true;
 	_gameTime = 0.0f;
@@ -16,32 +16,32 @@ ParticleSystem::ParticleSystem()
 	_emitDirW = XMFLOAT3(0.0f, 1.0f, 0.0f);
 }
 
-ParticleSystem::~ParticleSystem()
+StreamOutParticles::~StreamOutParticles()
 {
 
 }
 
-float ParticleSystem::GetAge() const
+float StreamOutParticles::GetAge() const
 {
 	return _age;
 }
 
-void ParticleSystem::SetEyePos(const XMFLOAT3& eyePosW)
+void StreamOutParticles::SetEyePos(const XMFLOAT3& eyePosW)
 {
 	_eyePosW = eyePosW;
 }
 
-void ParticleSystem::SetEmitPos(const XMFLOAT3& emitPosW)
+void StreamOutParticles::SetEmitPos(const XMFLOAT3& emitPosW)
 {
 	_emitPosW = emitPosW;
 }
 
-void ParticleSystem::SetEmitDir(const XMFLOAT3& emitDirW)
+void StreamOutParticles::SetEmitDir(const XMFLOAT3& emitDirW)
 {
 	_emitDirW = emitDirW;
 }
 
-void ParticleSystem::Init(ComPtr<ID3D11Device> device, shared_ptr<ParticleEffect> fx,
+void StreamOutParticles::Init(ComPtr<ID3D11Device> device, shared_ptr<ParticleEffect> fx,
 	ComPtr<ID3D11ShaderResourceView> texArraySRV,
 	ComPtr<ID3D11ShaderResourceView> randomTexSRV,
 	uint32 maxParticles)
@@ -56,13 +56,13 @@ void ParticleSystem::Init(ComPtr<ID3D11Device> device, shared_ptr<ParticleEffect
 	BuildVB(device);
 }
 
-void ParticleSystem::Reset()
+void StreamOutParticles::Reset()
 {
 	_firstRun = true;
 	_age = 0.0f;
 }
 
-void ParticleSystem::Update(float dt, float gameTime)
+void StreamOutParticles::Update(float dt, float gameTime)
 {
 	_gameTime = gameTime;
 	_timeStep = dt;
@@ -70,7 +70,7 @@ void ParticleSystem::Update(float dt, float gameTime)
 	_age += dt;
 }
 
-void ParticleSystem::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& cam)
+void StreamOutParticles::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& cam)
 {
 	XMMATRIX VP = cam.ViewProj();
 
@@ -146,7 +146,7 @@ void ParticleSystem::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& cam)
 	}
 }
 
-void ParticleSystem::BuildVB(ComPtr<ID3D11Device> device)
+void StreamOutParticles::BuildVB(ComPtr<ID3D11Device> device)
 {
 	//
 	// Create the buffer to kick-off the particle system.

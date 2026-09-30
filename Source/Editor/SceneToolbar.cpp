@@ -299,6 +299,7 @@ namespace SceneToolbar
 	bool SnapEnabled() { return s.gridSnap || ImGui::GetIO().KeyCtrl; }
 	float SnapIncrement() { return (std::max)(0.001f, s.snapIncrement); }
 	bool PostProcessingVisible() { return s.effects && s.fxPost; }
+	bool ParticlesVisible() { return s.effects && s.fxParticles; }
 
 	SceneCameraSettings& CameraSettings()
 	{

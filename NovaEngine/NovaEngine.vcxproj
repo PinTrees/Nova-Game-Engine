@@ -245,7 +245,7 @@
     <ClInclude Include="..\Source\Graphics\Common\MeshUtility.h" />
     <ClInclude Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.h" />
     <ClInclude Include="..\Source\Physics\Octree.h" />
-    <ClInclude Include="..\Source\Graphics\DX11\ParticleSystem.h" />
+    <ClInclude Include="..\Source\Graphics\DX11\StreamOutParticles.h" />
     <ClInclude Include="..\Source\Core\PathManager.h" />
     <ClInclude Include="..\Source\Platform\pch.h" />
     <ClInclude Include="..\Source\Physics\PhysicsManager.h" />
@@ -419,7 +419,7 @@
     <ClCompile Include="..\Source\Graphics\Common\MeshUtility.cpp" />
     <ClCompile Include="..\Source\Graphics\DX11\NormalMapSkinnedShader.cpp" />
     <ClCompile Include="..\Source\Physics\Octree.cpp" />
-    <ClCompile Include="..\Source\Graphics\DX11\ParticleSystem.cpp" />
+    <ClCompile Include="..\Source\Graphics\DX11\StreamOutParticles.cpp" />
     <ClCompile Include="..\Source\Core\PathManager.cpp" />
     <ClCompile Include="..\Source\Platform\pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>

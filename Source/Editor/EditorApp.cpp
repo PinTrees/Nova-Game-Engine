@@ -3,6 +3,7 @@
 #include "Volume.h"
 #include "ScriptEngine.h"
 #include "UISystem.h"
+#include "ParticleRenderer.h"
 #include "PlayerRuntime.h"
 #include "SceneToolbar.h"
 #include "EngineInfo.h"
@@ -86,7 +87,7 @@ bool EditorApp::Init()
 			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
 			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
 			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx",
-			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx" };
+			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx" };
 		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
 		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
 	}
@@ -422,6 +423,10 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
+	// 입자 (투명): 불투명 물체 다음, 후처리 전 → Bloom 이 Additive 불꽃을 빛나게 한다
+	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+	_deviceContext->RSSetViewports(1, &viewport);
+
 	//_sky->Draw(_deviceContext, _camera);
 
 	_deviceContext->RSSetState(0);
@@ -618,6 +623,11 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
+
+	// 입자 (Scene 뷰: 선택한 시스템의 미리보기 포함)
+	if (SceneToolbar::ParticlesVisible())
+		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+	_deviceContext->RSSetViewports(1, &viewport);
 
 	//_sky->Draw(_deviceContext, _camera);
 

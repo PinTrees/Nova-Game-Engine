@@ -291,7 +291,7 @@
     <ClCompile Include="..\Source\Graphics\DX11\Sky.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="..\Source\Graphics\DX11\ParticleSystem.cpp">
+    <ClCompile Include="..\Source\Graphics\DX11\StreamOutParticles.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
     <ClCompile Include="..\Source\Graphics\DX11\ShadowMap.cpp">
@@ -602,7 +602,7 @@
     <ClInclude Include="..\Source\Graphics\DX11\Sky.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="..\Source\Graphics\DX11\ParticleSystem.h">
+    <ClInclude Include="..\Source\Graphics\DX11\StreamOutParticles.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
     <ClInclude Include="..\Source\Graphics\DX11\ShadowMap.h">

@@ -191,9 +191,11 @@ def main():
     from icons_scene_toolbar import SCENE_TOOLBAR_ICONS
     from icons_project import PROJECT_ICONS
     from icons_ui import UI_ICONS
+    from icons_effects import EFFECT_ICONS
     ICONS.update(SCENE_TOOLBAR_ICONS)
     ICONS.update(PROJECT_ICONS)
     ICONS.update(UI_ICONS)
+    ICONS.update(EFFECT_ICONS)
     os.makedirs(SVG_DIR, exist_ok=True)
     for name, svg in ICONS.items():
         with open(os.path.join(SVG_DIR, name + ".svg"), "w", encoding="utf-8", newline="\n") as f:

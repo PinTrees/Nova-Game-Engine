@@ -7,6 +7,7 @@
 #include "SceneToolbar.h"
 #include "SceneGizmoTools.h"
 #include "TerrainEditor.h"
+#include "ParticleSystemEditor.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -170,7 +171,11 @@ void SceneEditorWindow::OnRender()
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 mouse = io.MousePos;
     const bool overPalette = mouse.x < imageMin.x + 40.0f && mouse.y < imageMin.y + 170.0f;
-    const bool viewHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && !overPalette;
+    // 선택한 Particle System 의 "Particle Effect" 창 위 클릭은 선택/카메라 조작으로 넘기지 않는다
+    ImVec2 effectMin, effectMax;
+    const bool overEffect = ParticleSystemEditor::OverlayRect(imageMin, imageMax, effectMin, effectMax) &&
+        mouse.x >= effectMin.x && mouse.x <= effectMax.x && mouse.y >= effectMin.y && mouse.y <= effectMax.y;
+    const bool viewHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && !overPalette && !overEffect;
 
     SceneViewOverlay::Begin(imageMin, imageMax, m_Camera);
     if (SceneToolbar::GridVisible())
@@ -187,4 +192,5 @@ void SceneEditorWindow::OnRender()
     SceneGizmoTools::Update(m_Camera, imageMin, imageMax, viewHovered);
 
     SceneToolbar::DrawToolPalette(imageMin, imageMax);
+    ParticleSystemEditor::DrawOverlay(imageMin, imageMax);
 }
