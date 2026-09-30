@@ -116,7 +116,10 @@ void Camera::SetLens(float fovY, float aspect, float zn, float zf)
 {
 	// cache properties
 	if (!(aspect > 1e-4f) || !std::isfinite(aspect))
+	{
+		EditorLog::Write("Camera", "SetLens: invalid aspect %f replaced with 1", aspect);
 		aspect = 1.0f;   // 크기 0 인 뷰에서 온 값 (투영 행렬 assert 방지)
+	}
 	m_fovY = fovY;
 	m_aspect = aspect;
 	m_nearZ = zn;

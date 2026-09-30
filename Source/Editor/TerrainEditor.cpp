@@ -61,6 +61,7 @@ namespace
 		s_HeightRect = Rect();
 		s_ControlRect = Rect();
 		s_StrokeName = name;
+		EditorLog::Write("Terrain", "stroke begin '%s' on %s (brush %d, size %.1f, opacity %.0f)", name, data->Name().c_str(), s_BrushShape, s_BrushSize, s_Opacity);
 	}
 
 	void EndStroke()
@@ -69,6 +70,8 @@ namespace
 		s_StrokeData = nullptr;
 		if (data == nullptr)
 			return;
+		EditorLog::Write("Terrain", "stroke end '%s' heights rect (%d,%d)-(%d,%d) control rect (%d,%d)-(%d,%d)", s_StrokeName.c_str(),
+			s_HeightRect.x0, s_HeightRect.z0, s_HeightRect.x1, s_HeightRect.z1, s_ControlRect.x0, s_ControlRect.z0, s_ControlRect.x1, s_ControlRect.z1);
 		const int res = data->HeightmapResolution, cres = data->ControlResolution;
 		if (s_HeightRect.Valid() && s_StrokeHeights.size() == data->Heights.size())
 		{

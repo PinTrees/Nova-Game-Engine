@@ -71,6 +71,7 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 				if (SUCCEEDED(D3DCreateBlob(data.size(), blob.GetAddressOf())))
 				{
 					LoadingScreen::OnShader(filename, true);
+					EditorLog::Write("Shader", "cache hit %s", wstring_to_string(src.filename().wstring()).c_str());
 					memcpy(blob->GetBufferPointer(), data.data(), data.size());
 					outBlob = blob;
 					return S_OK;
@@ -80,8 +81,11 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 	}
 
 	LoadingScreen::OnShader(filename, false);   // 컴파일은 오래 걸린다 (로딩 창에 표시)
+	const ULONGLONG compileStart = ::GetTickCount64();
 	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, nullptr,
 		"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
+	EditorLog::Write("Shader", "compiled %s in %llu ms (hr=0x%08X)%s%s", wstring_to_string(src.filename().wstring()).c_str(), ::GetTickCount64() - compileStart, (unsigned)hr,
+		outMsgs ? "\n" : "", outMsgs ? (const char*)outMsgs->GetBufferPointer() : "");
 
 	if (SUCCEEDED(hr) && outBlob)
 	{

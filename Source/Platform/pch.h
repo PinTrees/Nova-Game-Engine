@@ -95,6 +95,7 @@ namespace ed = ax::NodeEditor;
 
 #include "PathManager.h"
 #include "LoadingScreen.h"
+#include "EditorLog.h"
 #include "ResourceManager.h"
 #include "InputManager.h"
 

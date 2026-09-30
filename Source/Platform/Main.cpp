@@ -85,6 +85,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 		log << "Starting EditorApp..." << std::endl;
 		log.flush();
 
+		EditorLog::Init();
+		EditorLog::Write("App", "editor start, project=%s", wstring_to_string(projectPath).c_str());
 		EditorApp theApp(hInstance);
 		
 		log << "Calling theApp.Init()..." << std::endl;
@@ -102,6 +104,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 
 		int ret = theApp.Run();
 		log << "theApp.Run() exited with code: " << ret << std::endl;
+		EditorLog::Shutdown();
 		return ret;
 	}
 	catch (const std::exception& e)

@@ -19,6 +19,7 @@ GameViewEditorWindow::~GameViewEditorWindow()
 void GameViewEditorWindow::InitRenderTarget(UINT width, UINT height)
 {
     // ì°½ì´ ì•„ì§ ë°°ì¹˜ë˜ì§€ ì•Šì•˜ê±°ë‚˜ ìˆ¨ê²¨ì§„ í”„ë ˆì„: í¬ê¸° 0 ì´ë©´ ë§Œë“¤ì§€ ì•ŠëŠ”ë‹¤ (ì¢…íš¡ë¹„ 0 â†’ íˆ¬ì˜ í–‰ë ¬ assert)
+    EditorLog::Write("View", "Game view render target %u x %u%s", width, height, (width == 0 || height == 0) ? " (skipped: zero size)" : "");
     if (width == 0 || height == 0)
         return;
     CleanUpRenderTarget(); // ÀÌÀü ·»´õ Å¸°ÙÀÌ ÀÖÀ¸¸é Á¤¸® 

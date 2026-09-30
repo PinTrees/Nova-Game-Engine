@@ -31,6 +31,10 @@ void ConsoleEditorWindow::OnRender()
     {
         Debug::ClearAll();
     }
+    ImGui::SameLine();
+    // Unity 의 Console ⋮ > Open Editor Log: 에디터 전용 디버그 로그 파일
+    if (ImGui::Button("Open Editor Log"))
+        EditorLog::OpenInEditor();
 
     // Add other control buttons here as needed
     // e.g., if (ImGui::Button("AnotherButton")) { ... }

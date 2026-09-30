@@ -160,6 +160,7 @@ namespace Undo
 {
 	void Push(Record record)
 	{
+		EditorLog::Write("Undo", "record '%s' (%zu bytes, history %zu)", record.Name.c_str(), record.Bytes, s_Undo.size() + 1);
 		s_Bytes += record.Bytes;
 		s_Undo.push_back(std::move(record));
 		s_Redo.clear();
@@ -182,6 +183,7 @@ namespace Undo
 		Record r = std::move(s_Undo.back());
 		s_Undo.pop_back();
 		s_Bytes -= (std::min)(s_Bytes, r.Bytes);
+		EditorLog::Write("Undo", "undo '%s'", r.Name.c_str());
 		if (r.UndoAction)
 			r.UndoAction();
 		s_Redo.push_back(std::move(r));
@@ -195,6 +197,7 @@ namespace Undo
 			return false;
 		Record r = std::move(s_Redo.back());
 		s_Redo.pop_back();
+		EditorLog::Write("Undo", "redo '%s'", r.Name.c_str());
 		if (r.RedoAction)
 			r.RedoAction();
 		s_Bytes += r.Bytes;
@@ -205,6 +208,7 @@ namespace Undo
 
 	void Clear()
 	{
+		EditorLog::Write("Undo", "clear history (%zu undo, %zu redo)", s_Undo.size(), s_Redo.size());
 		s_Undo.clear();
 		s_Redo.clear();
 		s_Bytes = 0;

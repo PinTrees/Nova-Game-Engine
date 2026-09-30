@@ -223,6 +223,7 @@ namespace LoadingScreen
 
 	void SetProgress(float progress, const std::wstring& status)
 	{
+		EditorLog::Write("Startup", "%3d%% %s", (int)(progress * 100.0f + 0.5f), wstring_to_string(status).c_str());
 		if (!s_Active)
 			return;
 		std::lock_guard<std::mutex> g(s.Lock);
@@ -233,6 +234,7 @@ namespace LoadingScreen
 
 	void SetStatus(const std::wstring& status)
 	{
+		EditorLog::Write("Startup", "%s", wstring_to_string(status).c_str());
 		if (!s_Active)
 			return;
 		std::lock_guard<std::mutex> g(s.Lock);

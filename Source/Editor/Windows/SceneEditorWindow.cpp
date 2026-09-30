@@ -33,6 +33,7 @@ SceneEditorWindow::~SceneEditorWindow()
 void SceneEditorWindow::InitRenderTarget(UINT width, UINT height)
 {
     // 창이 아직 배치되지 않았거나 숨겨진 프레임: 크기 0 이면 만들지 않는다 (종횡비 0 → 투영 행렬 assert)
+    EditorLog::Write("View", "Scene view render target %u x %u%s", width, height, (width == 0 || height == 0) ? " (skipped: zero size)" : "");
     if (width == 0 || height == 0)
         return;
     CleanUpRenderTarget(); // ���� ���� Ÿ���� ������ ����

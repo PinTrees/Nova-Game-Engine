@@ -97,6 +97,7 @@ bool SceneManager::SaveCurrentScene(bool saveAs)
 	}
 
 	const bool ok = (saveAs || m_pCurrScene->GetScenePath().empty()) ? Scene::SaveNewScene(m_pCurrScene) : Scene::Save(m_pCurrScene);
+	EditorLog::Write("Scene", "save %s -> %s", wstring_to_string(m_pCurrScene->GetScenePath()).c_str(), ok ? "ok" : "failed");
 	if (ok)
 	{
 		TerrainData::SaveAllDirty();   // Unity 처럼 씬 저장 때 편집한 지형 데이터도 저장
@@ -285,4 +286,6 @@ void SceneManager::RestoreSceneState(const std::string& sceneJson)
 
 	DisplayManager::GetI()->Init();
 	m_LastDirtyCheck = -1.0;   // "*" 표시를 바로 다시 계산
+	EditorLog::Write("Scene", "restored state (%zu bytes, %zu objects, selection %s)", sceneJson.size(), m_pCurrScene->GetAllGameObjects().size(),
+		SelectionManager::GetSelectedGameObject() ? SelectionManager::GetSelectedGameObject()->GetName().c_str() : "none");
 }
