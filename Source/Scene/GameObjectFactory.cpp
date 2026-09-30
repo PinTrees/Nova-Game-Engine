@@ -10,6 +10,9 @@
 #include "SphereCollider.h"
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
+#include "AnimationPlayer.h"
+#include "SkinnedMeshRenderer.h"
+#include "SkinnedMesh.h"
 #include "GeometryGenerator.h"
 #include "Mesh.h"
 
@@ -325,4 +328,29 @@ GameObject* GameObjectFactory::CreateCamera(const std::string& name)
 	if (name == "Main Camera")
 		obj->SetTag("MainCamera");
 	return obj;
+}
+
+GameObject* GameObjectFactory::CreateCharacter(const std::string& name, const std::string& modelPath, const std::string& clipPath)
+{
+	GameObject* root = new GameObject(name);
+	auto file = ResourceManager::GetI()->LoadMeshFile(modelPath);
+	if (file != nullptr)
+	{
+		for (int i = 0; i < (int)file->SkinnedMeshs.size(); ++i)
+		{
+			const std::string childName = file->SkinnedMeshs[i]->Name.empty() ? "Mesh" + std::to_string(i) : file->SkinnedMeshs[i]->Name;
+			GameObject* child = new GameObject(childName);
+			child->AddComponent<SkinnedMeshRenderer>()->SetSkinnedMesh(string_to_wstring(modelPath), i);
+			child->SetParentImmediate(root);
+			child->GetTransform()->SetParent(root->GetComponent_SP<Transform>());
+			root->SetChild(child);
+			child->GetTransform()->UpdateTransform();
+		}
+	}
+	AnimationPlayer* animation = root->AddComponent<AnimationPlayer>();
+	if (!clipPath.empty())
+		animation->SetClip(clipPath, 0);
+	// 에디터에서도 첫 프레임 포즈로 보이게 한다 (Play 전)
+	animation->Sample();
+	return root;
 }

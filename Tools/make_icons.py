@@ -130,6 +130,20 @@ ICONS = {
     "mesh_collider": svg16(
         '  <polygon points="8,1.6 14.2,5.2 12.6,13.4 3.4,13.4 1.8,5.2" fill="#6FD46F" fill-opacity="0.22" stroke="#6FD46F" stroke-width="1.3" stroke-linejoin="round"/>\n'
         '  <path d="M8 1.6 L8 8.4 L1.8 5.2 M8 8.4 L14.2 5.2 M8 8.4 L3.4 13.4 M8 8.4 L12.6 13.4" fill="none" stroke="#6FD46F" stroke-width="0.9"/>'),
+    # Animation 컴포넌트 (재생 버튼 원)
+    "animation": svg16(
+        '  <circle cx="8" cy="8" r="6.6" fill="none" stroke="#9BD6A0" stroke-width="1.3"/>\n'
+        '  <polygon points="6.3,5 11.3,8 6.3,11" fill="#9BD6A0"/>'),
+    # Animation Clip 에셋 (필름 + 재생)
+    "animation_clip": svg16(
+        '  <rect x="1.6" y="3" width="12.8" height="10" rx="1.2" fill="none" stroke="#C4C4C4" stroke-width="1.2"/>\n'
+        '  <line x1="1.6" y1="5.6" x2="14.4" y2="5.6" stroke="#C4C4C4" stroke-width="1"/>\n'
+        '  <polygon points="6.6,7.2 10.6,9.4 6.6,11.6" fill="#9BD6A0"/>'),
+    # Skinned Mesh Renderer (사람 실루엣 + 메시)
+    "skinned_mesh_renderer": svg16(
+        '  <circle cx="8" cy="3.4" r="2" fill="#4EA8FF"/>\n'
+        '  <path d="M4 14.6 L5.2 7.2 L10.8 7.2 L12 14.6" fill="none" stroke="#4EA8FF" stroke-width="1.4" stroke-linejoin="round"/>\n'
+        '  <line x1="2.4" y1="8.6" x2="13.6" y2="8.6" stroke="#4EA8FF" stroke-width="1.2" stroke-linecap="round"/>'),
     # Unity Rigidbody 아이콘: 초록/검정 4분할 공
     "rigidbody": svg16(
         '  <circle cx="8" cy="8" r="6.6" fill="#1E1E1E"/>\n'

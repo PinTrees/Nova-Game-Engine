@@ -226,6 +226,8 @@ void GameObject::OnInspectorGUI()
     // 재질 Inspector (Unity 처럼 컴포넌트들 아래에 표시)
     if (MeshRenderer* meshRenderer = GetComponent<MeshRenderer>())
         meshRenderer->DrawMaterialInspectors();
+    if (SkinnedMeshRenderer* skinned = GetComponent<SkinnedMeshRenderer>())
+        skinned->DrawMaterialInspectors();
 
     EditorGUI::ComponentDivider();
     ImGui::Dummy(ImVec2(0, 18));

@@ -14,7 +14,7 @@ private:
 	ComPtr<ID3D11Device> m_Device;
 	map<wstring, ComPtr<ID3D11ShaderResourceView>>	m_TextureSRV;
 	map<string, shared_ptr<UMaterial>>				m_Materials;
-	map<wstring, shared_ptr<SkinnedMesh>>			m_SkinnedMeshs;
+	map<tuple<wstring, int>, shared_ptr<SkinnedMesh>>	m_SkinnedMeshs;   // (경로, 번호)
 
 	map<string, shared_ptr<MeshFile>>						m_FbxFiles;
 	map<string, shared_ptr<MeshFile>>						m_MeshFiles;

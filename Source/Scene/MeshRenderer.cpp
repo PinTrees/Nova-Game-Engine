@@ -542,10 +542,12 @@ void MeshRenderer::OnInspectorGUI()
 
 void MeshRenderer::DrawMaterialInspectors()
 {
+	std::vector<UMaterial*> shown;   // 같은 재질은 패널을 한 번만 (Unity 와 동일)
 	for (auto& material : m_pMaterials)
 	{
-		if (material == nullptr)
+		if (material == nullptr || std::find(shown.begin(), shown.end(), material.get()) != shown.end())
 			continue;
+		shown.push_back(material.get());
 		std::string name = material->GetName();
 		if (name.rfind("builtin:", 0) == 0)
 			name = name.substr(8);

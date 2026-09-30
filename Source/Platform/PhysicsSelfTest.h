@@ -11,4 +11,7 @@ namespace PhysicsSelfTest
 
 	// (개발/검증용) NOVA_PARENT_TEST=<로그 파일>: 부모 변경 시 월드 위치 유지, 자식 저장/다시 읽기 검사
 	void RunParentTest(Scene* scene, const char* logPath);
+
+	// (개발/검증용) NOVA_ANIM_TEST=<로그 파일>: 기본 캐릭터 + Idle 을 씬에 추가하고 가져오기/스키닝 결과를 기록
+	void RunAnimationTest(Scene* scene, const char* logPath);
 }

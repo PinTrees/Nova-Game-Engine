@@ -42,6 +42,11 @@ public:
 	MeshGeometry	ModelMesh;
 	SkinnedData		SkinnedData;
 
+	// 스킨 본 팔레트: 정점의 boneIndices 가 가리키는 본의 이름과 역바인드(Offset) 행렬 (행 벡터)
+	// 최종 본 행렬 = BoneOffsets[k] * (본 노드의 전역 행렬)
+	std::vector<std::string>	BoneNames;
+	std::vector<XMFLOAT4X4>		BoneOffsets;
+
 	BouncingBall	Ball;
 	wstring			Path;
 	string			Name;
@@ -65,8 +70,8 @@ public:
 	string				Name;
 
 	// metadata setting
-	bool				UseImportAnimation;  
-	float				ScaleFactor; 
+	bool				UseImportAnimation = true;
+	float				ScaleFactor = 1.0f;
 
 public:
 	void OnInspectorGUI();

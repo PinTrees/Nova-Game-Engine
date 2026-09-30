@@ -3,6 +3,10 @@
 #include "GameObjectFactory.h"
 #include "MonoBehaviour.h"
 #include "CapsuleCollider.h"
+#include "AnimationPose.h"
+#include "SkinnedMesh.h"
+#include "SkinnedMeshRenderer.h"
+#include "AnimationPlayer.h"
 
 namespace
 {
@@ -301,5 +305,114 @@ namespace PhysicsSelfTest
 		fprintf(fp, "reload counts: all=%zu (original all=%zu)\n", loaded->GetAllGameObjects().size(), scene->GetAllGameObjects().size());
 		fclose(fp);
 		delete loaded;
+	}
+}
+
+namespace PhysicsSelfTest
+{
+	// CPU 로 스키닝한 정점들의 AABB (애니메이션/단위/좌표축 확인용)
+	static void SkinnedBounds(SkinnedMeshRenderer* r, Vec3& mn, Vec3& mx)
+	{
+		mn = Vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+		mx = Vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+		auto mesh = r->GetMesh();
+		const auto& bones = r->GetFinalTransforms();
+		if (mesh == nullptr || bones.empty())
+			return;
+		Matrix world = r->GetGameObject()->GetTransform()->GetWorldMatrix();
+		for (size_t i = 0; i < mesh->Vertices.size(); i += 7)
+		{
+			const auto& v = mesh->Vertices[i];
+			float w[4] = { v.weights.x, v.weights.y, v.weights.z, 1.0f - v.weights.x - v.weights.y - v.weights.z };
+			XMVECTOR p = XMVectorZero();
+			for (int k = 0; k < 4; ++k)
+			{
+				if (w[k] <= 0.0f) continue;
+				size_t bi = (std::min)((size_t)v.boneIndices[k], bones.size() - 1);
+				p += w[k] * XMVector3TransformCoord(XMLoadFloat3(&v.pos), XMLoadFloat4x4(&bones[bi]));
+			}
+			Vec3 q = Vec3::Transform(Vec3(p), world);
+			mn = Vec3::Min(mn, q);
+			mx = Vec3::Max(mx, q);
+		}
+	}
+
+	void RunAnimationTest(Scene* scene, const char* logPath)
+	{
+		FILE* fp = nullptr;
+		fopen_s(&fp, logPath, "w");
+		if (fp == nullptr || scene == nullptr)
+			return;
+
+		struct Case { const char* name; const char* model; const char* clip; float x; };
+		const Case cases[] = {
+			{ "A_Character", GameObjectFactory::kDefaultCharacterModel, GameObjectFactory::kDefaultCharacterIdle, 0.0f },
+			{ "A_Rapier", "Resources\\Packages\\Character\\Animations\\Rapier_Idle.fbx", "Resources\\Packages\\Character\\Animations\\Rapier_Idle.fbx", 2.0f },
+		};
+		for (const Case& c : cases)
+		{
+			const double t0 = (double)::GetTickCount64();
+			auto file = ResourceManager::GetI()->LoadMeshFile(c.model);
+			const double t1 = (double)::GetTickCount64();
+			fprintf(fp, "== %s  model=%s  load=%.0fms\n", c.name, c.model, t1 - t0); fflush(fp);
+			if (file == nullptr) { fprintf(fp, "  model load failed\n"); fflush(fp); continue; }
+			fprintf(fp, "  skinnedMeshes=%zu staticMeshes=%zu skeletons=%zu clipsInModel=%zu\n", file->SkinnedMeshs.size(), file->Meshs.size(), file->Avatas.size(), file->SkinnedData.AnimationClips.size()); fflush(fp);
+			for (auto& sm : file->SkinnedMeshs)
+				fprintf(fp, "  skinned '%s' verts=%zu indices=%zu subsets=%zu bones=%zu\n", sm->Name.c_str(), sm->Vertices.size(), sm->Indices.size(), sm->Subsets.size(), sm->BoneNames.size()); fflush(fp);
+			if (!file->Avatas.empty())
+				fprintf(fp, "  skeleton nodes=%zu unitScale=%.4f\n", file->Avatas[0]->NodeNames.size(), file->Avatas[0]->UnitScale); fflush(fp);
+
+			auto clipFile = ResourceManager::GetI()->LoadMeshFile(c.clip);
+			if (clipFile && !clipFile->SkinnedData.AnimationClips.empty() && !file->Avatas.empty())
+			{
+				auto clip = clipFile->SkinnedData.AnimationClips[0];
+				auto map = AnimationPose::MapChannels(*clip, *file->Avatas[0]);
+				int mapped = 0;
+				for (int m : map) mapped += m >= 0;
+				fprintf(fp, "  clip '%s' duration=%.3fs channels=%zu mappedToModel=%d\n", clip->Name.c_str(), clip->Duration, clip->Channels.size(), mapped); fflush(fp);
+			}
+
+
+
+			GameObject* character = GameObjectFactory::CreateCharacter(c.name, c.model, c.clip);
+			character->GetTransform()->SetPosition(Vec3(c.x, 0.0f, 0.0f));
+			scene->AddRootGameObject(character);
+			AnimationPlayer* anim = character->GetComponent<AnimationPlayer>();
+
+			for (GameObject* child : character->GetChildren())
+			{
+				SkinnedMeshRenderer* r = child->GetComponent<SkinnedMeshRenderer>();
+				if (r == nullptr) continue;
+				int unmapped = 0;
+				Vec3 mn, mx;
+				r->ResetToBindPose();
+				SkinnedBounds(r, mn, mx);
+				fprintf(fp, "  [%s] bind   bounds (%.3f %.3f %.3f) - (%.3f %.3f %.3f) size(%.3f %.3f %.3f)\n", child->GetName().c_str(), mn.x, mn.y, mn.z, mx.x, mx.y, mx.z, mx.x - mn.x, mx.y - mn.y, mx.z - mn.z); fflush(fp);
+				if (anim && anim->Play())
+				{
+					for (float t : { 0.0f, 0.5f, 1.0f })
+					{
+						anim->SetTime(t);
+						anim->Sample();
+						SkinnedBounds(r, mn, mx);
+						fprintf(fp, "  [%s] t=%.1f  bounds (%.3f %.3f %.3f) - (%.3f %.3f %.3f)\n", child->GetName().c_str(), t, mn.x, mn.y, mn.z, mx.x, mx.y, mx.z); fflush(fp);
+					}
+					// 두 시점의 본 행렬 차이 (애니메이션이 실제로 움직이는지)
+					anim->SetTime(0.0f); anim->Sample();
+					auto a = r->GetFinalTransforms();
+					anim->SetTime(0.7f); anim->Sample();
+					auto b = r->GetFinalTransforms();
+					float diff = 0.0f;
+					for (size_t k = 0; k < a.size() && k < b.size(); ++k)
+						for (int e = 0; e < 16; ++e)
+							diff = (std::max)(diff, fabsf((&a[k]._11)[e] - (&b[k]._11)[e]));
+					fprintf(fp, "  [%s] max bone matrix change t0→t0.7 = %.4f (bones=%zu)\n", child->GetName().c_str(), diff, a.size()); fflush(fp);
+					anim->Stop();
+					anim->Sample();
+				}
+				(void)unmapped;
+			}
+		}
+		fclose(fp);
 	}
 }

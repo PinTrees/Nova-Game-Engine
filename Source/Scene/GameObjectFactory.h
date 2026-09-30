@@ -40,6 +40,13 @@ public:
 	static GameObject* CreateSpotLight(const std::string& name = "Spot Light");
 	static GameObject* CreateCamera(const std::string& name = "Main Camera");
 
+	// 엔진 패키지의 기본 캐릭터 (Resources/Packages/Character). 루트에 Animation(기본 Idle 반복),
+	// 자식에 스킨 메시마다 Skinned Mesh Renderer 를 둔다 (Unity 에서 FBX 를 씬에 끌어다 놓은 구조와 같음).
+	static constexpr const char* kDefaultCharacterModel = "Resources\\Packages\\Character\\Model_Unity_Ver1.FBX";
+	static constexpr const char* kDefaultCharacterIdle = "Resources\\Packages\\Character\\Animations\\GhostSamurai_APose_Idle.FBX";
+	static GameObject* CreateCharacter(const std::string& name = "Character",
+		const std::string& modelPath = kDefaultCharacterModel, const std::string& clipPath = kDefaultCharacterIdle);
+
 private:
 	static GameObject* CreatePrimitive(PrimitiveType type, const std::string& name);
 

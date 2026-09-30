@@ -61,7 +61,7 @@ cbuffer cbPerObject
 
 cbuffer cbSkinned
 {
-    float4x4 gBoneTransforms[96];
+    float4x4 gBoneTransforms[256];   // NOVA: 스킨 본 최대 256 개
 };
 
 // Nonnumeric values cannot be added to a cbuffer.

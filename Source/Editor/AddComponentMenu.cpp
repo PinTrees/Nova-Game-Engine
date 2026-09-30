@@ -22,7 +22,7 @@ namespace
 	const KnownInfo kKnown[] = {
 		{ "MeshFilter",          "Mesh Filter",           "Mesh",          "mesh_filter",       true  },
 		{ "MeshRenderer",        "Mesh Renderer",         "Mesh",          "mesh_renderer",     true  },
-		{ "SkinnedMeshRenderer", "Skinned Mesh Renderer", "Mesh",          "mesh_renderer",     true  },
+		{ "SkinnedMeshRenderer", "Skinned Mesh Renderer", "Mesh",          "skinned_mesh_renderer", true  },
 		{ "RigidBody",           "Rigidbody",             "Physics",       "rigidbody",         true  },
 		{ "BoxCollider",         "Box Collider",          "Physics",       "box_collider",      false },
 		{ "SphereCollider",      "Sphere Collider",       "Physics",       "sphere_collider",   false },
@@ -30,7 +30,7 @@ namespace
 		{ "MeshCollider",        "Mesh Collider",         "Physics",       "mesh_collider",     false },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
-		{ "AnimationPlayer",     "Animation Player",      "Animation",     "component",         false },
+		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
 		{ "TerrainTool",         "Terrain Tool",          "Miscellaneous", "component",         false },
 	};
 

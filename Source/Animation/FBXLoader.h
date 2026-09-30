@@ -2,6 +2,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
+#include <assimp/config.h>
 
 #include "Vertex.h"
 #include "MeshGeometry.h"
@@ -59,11 +60,13 @@ private:
         vector<Vertex::PosNormalTexTan2>& vertices,
         vector<USHORT>& indices, MeshGeometry::Subset& subset);
 
+    // 스킨 메시: 정점의 본 인덱스는 SkinnedMesh 의 본 팔레트(boneNames) 인덱스
     void ProcessMeshSkinned(
         aiMesh* mesh,
         const aiScene* scene,
-        vector<Vertex::PosNormalTexTanSkinned>& vertices, 
-        vector<USHORT>& indices, MeshGeometry::Subset& subset);
+        vector<Vertex::PosNormalTexTanSkinned>& vertices,
+        vector<USHORT>& indices, MeshGeometry::Subset& subset,
+        vector<string>& boneNames, vector<XMFLOAT4X4>& boneOffsets);
 
     void ParseBonesFromNodes(aiNode* node, std::map<std::string, int>& boneMapping); 
     void ParseBoneOffsets(const aiScene* scene, const std::map<std::string, int>& boneMapping, std::vector<XMFLOAT4X4>& boneOffsets);

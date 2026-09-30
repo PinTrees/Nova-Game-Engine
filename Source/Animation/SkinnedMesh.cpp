@@ -96,7 +96,28 @@ void SkinnedMesh::from_byte(ifstream& inStream)
 		inStream.read(reinterpret_cast<char*>(&subset.FaceCount), sizeof(subset.FaceCount));
 	}
 
-	Setup(); 
+	// 5. 본 팔레트 (이름 + 역바인드 행렬)
+	uint32_t boneCount = 0;
+	inStream.read(reinterpret_cast<char*>(&boneCount), sizeof(boneCount));
+	BoneNames.resize(boneCount);
+	for (auto& name : BoneNames)
+	{
+		uint32_t n = 0;
+		inStream.read(reinterpret_cast<char*>(&n), sizeof(n));
+		name.resize(n);
+		if (n) inStream.read(&name[0], n);
+	}
+	BoneOffsets.resize(boneCount);
+	if (boneCount) inStream.read(reinterpret_cast<char*>(BoneOffsets.data()), boneCount * sizeof(XMFLOAT4X4));
+
+	// 6. 재질 (FBX 의 기본 색)
+	uint32_t matCount = 0;
+	inStream.read(reinterpret_cast<char*>(&matCount), sizeof(matCount));
+	Mat.resize(matCount);
+	if (matCount) inStream.read(reinterpret_cast<char*>(Mat.data()), matCount * sizeof(Material));
+
+	if (!Vertices.empty() && !Indices.empty())
+		Setup();
 }
 
 void SkinnedMesh::to_byte(ofstream& outStream)
@@ -141,6 +162,22 @@ void SkinnedMesh::to_byte(ofstream& outStream)
 		outStream.write(reinterpret_cast<const char*>(&subset.FaceStart), sizeof(subset.FaceStart));
 		outStream.write(reinterpret_cast<const char*>(&subset.FaceCount), sizeof(subset.FaceCount));
 	}
+
+	// 5. 본 팔레트
+	uint32_t boneCount = (uint32_t)BoneNames.size();
+	outStream.write(reinterpret_cast<const char*>(&boneCount), sizeof(boneCount));
+	for (const auto& name : BoneNames)
+	{
+		uint32_t n = (uint32_t)name.size();
+		outStream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+		outStream.write(name.data(), n);
+	}
+	if (boneCount) outStream.write(reinterpret_cast<const char*>(BoneOffsets.data()), boneCount * sizeof(XMFLOAT4X4));
+
+	// 6. 재질
+	uint32_t matCount = (uint32_t)Mat.size();
+	outStream.write(reinterpret_cast<const char*>(&matCount), sizeof(matCount));
+	if (matCount) outStream.write(reinterpret_cast<const char*>(Mat.data()), matCount * sizeof(Material));
 }
 
 
@@ -164,6 +201,29 @@ MeshFile::~MeshFile()
 {
 }
 
+// 캐시(.mesh / .animations / .skeletons) 형식 버전. 구조가 바뀌면 값을 올린다 → 이전 캐시는 자동으로 다시 가져오기.
+static const uint32_t kMeshCacheMagic = 0x3743564E;   // "NVC7"
+
+static bool ReadCacheMagic(ifstream& in)
+{
+	uint32_t magic = 0;
+	in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+	return in.good() && magic == kMeshCacheMagic;
+}
+
+static void WriteCacheMagic(ofstream& out)
+{
+	out.write(reinterpret_cast<const char*>(&kMeshCacheMagic), sizeof(kMeshCacheMagic));
+}
+
+static bool IsCacheCurrent(const string& path)
+{
+	if (!filesystem::exists(path))
+		return false;
+	ifstream in(path, ios::binary);
+	return ReadCacheMagic(in);
+}
+
 MeshFile* MeshFile::LoadFromMetaFile(string path)
 {
 	MeshFile* loadMeshFile = new MeshFile; 
@@ -181,12 +241,25 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 
 	// Parsing
 	string load_path_mesh = loadMeshFile->FullPath + ".mesh";
-	string load_path_animations = loadMeshFile->FullPath + ".animations"; 
+	string load_path_animations = loadMeshFile->FullPath + ".animations";
 	string load_path_skeletone = loadMeshFile->FullPath + ".skeletons";
+
+	if (!IsCacheCurrent(load_path_mesh) || !IsCacheCurrent(load_path_animations) || !IsCacheCurrent(load_path_skeletone))
+	{
+		if (!filesystem::exists(loadMeshFile->FullPath))
+		{
+			delete loadMeshFile;
+			return nullptr;
+		}
+		loadMeshFile->UseImportAnimation = true;
+		loadMeshFile->ImportFile();   // FBX → 캐시 (현재 형식)
+		return loadMeshFile;
+	}
 
 	if (filesystem::exists(load_path_mesh))
 	{
-		ifstream mesh_instream(load_path_mesh, ios::binary); 
+		ifstream mesh_instream(load_path_mesh, ios::binary);
+		ReadCacheMagic(mesh_instream);
 		loadMeshFile->load_mesh(mesh_instream); 
 		mesh_instream.close(); 
 	}
@@ -195,6 +268,7 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 		try
 		{
 			ifstream animation_instream(load_path_animations, ios::binary);
+			ReadCacheMagic(animation_instream);
 			loadMeshFile->load_animations(animation_instream);
 			animation_instream.close();
 		}
@@ -208,6 +282,7 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 		try
 		{
 			ifstream skeletons_instream(load_path_skeletone, ios::binary);
+			ReadCacheMagic(skeletons_instream);
 			loadMeshFile->load_skeletone(skeletons_instream);
 			skeletons_instream.close(); 
 		}
@@ -259,49 +334,36 @@ void MeshFile::OnInspectorGUI()
 
 }
 
-void MeshFile::ImportFile() 
+void MeshFile::ImportFile()
 {
-	// Load ==========================
+	// FBX → 메시 / 스켈레톤 / 애니메이션
 	FBXLoader fbxLoader;
-
-	// Load Mesh data
 	Meshs.clear();
-	SkinnedMeshs.clear(); 
-	fbxLoader.LoadModelFbx(FullPath, this); 
-
-	// Load Skeleton data
+	SkinnedMeshs.clear();
+	fbxLoader.LoadModelFbx(FullPath, this);
 	Avatas.clear();
-	fbxLoader.LoadSkeletonAvata(FullPath, Avatas);  
-	 
-	// Load Animation data
-	if (UseImportAnimation) 
-	{
-		SkinnedData.AnimationClips.clear(); 
-		fbxLoader.LoadAnimation(FullPath, SkinnedData); 
-	}
-
-	// Save ========================
-	
-	// Save Mesh data
-	wstring save_path_mesh = Path + L".mesh";
-	ofstream out_stream_mesh(PathManager::GetI()->GetMovePathS(wstring_to_string(save_path_mesh)), ios::binary);
-	save_mesh(out_stream_mesh);
-	out_stream_mesh.close();
-
-	// Save Animation data
+	fbxLoader.LoadSkeletonAvata(FullPath, Avatas);
+	SkinnedData.AnimationClips.clear();
 	if (UseImportAnimation)
+		fbxLoader.LoadAnimation(FullPath, SkinnedData);
+
+	// 캐시 저장 (FBX 옆에 .mesh / .animations / .skeletons)
+	auto open = [&](const wstring& suffix) { return ofstream(PathManager::GetI()->GetMovePathS(wstring_to_string(Path + suffix)), ios::binary); };
 	{
-		wstring save_path_animations = Path + L".animations";
-		ofstream out_stream_animations(PathManager::GetI()->GetMovePathS(wstring_to_string(save_path_animations)), ios::binary);
-		save_animations(out_stream_animations);
-		out_stream_animations.close();
+		ofstream out = open(L".mesh");
+		WriteCacheMagic(out);
+		save_mesh(out);
 	}
-	
-	// Save Skeleton data
-	wstring save_path_skeletons = Path + L".skeletons";
-	ofstream out_stream_skeletons(PathManager::GetI()->GetMovePathS(wstring_to_string(save_path_skeletons)), ios::binary); 
-	save_skeletone(out_stream_skeletons); 
-	out_stream_skeletons.close(); 
+	{
+		ofstream out = open(L".animations");
+		WriteCacheMagic(out);
+		save_animations(out);
+	}
+	{
+		ofstream out = open(L".skeletons");
+		WriteCacheMagic(out);
+		save_skeletone(out);
+	}
 }
 
 

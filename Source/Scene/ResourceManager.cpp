@@ -112,26 +112,15 @@ shared_ptr<Mesh> ResourceManager::LoadMesh(wstring filename, int index)
 
 shared_ptr<SkinnedMesh> ResourceManager::LoadSkinnedMesh(wstring filename, int index)
 {
-	shared_ptr<SkinnedMesh> mesh = nullptr;
-
-	if (m_SkinnedMeshs.find(filename) != m_SkinnedMeshs.end())
-	{
-		mesh = m_SkinnedMeshs[filename];
-	} 
-	else
-	{
-		auto meshFile = LoadMeshFile(wstring_to_string(filename));  
-		if (meshFile)
-		{
-			if (meshFile->SkinnedMeshs.size() > index)
-			{
-				mesh = std::shared_ptr<SkinnedMesh>(meshFile->SkinnedMeshs[index]);
-				m_SkinnedMeshs[filename] = mesh;    
-			}
-		}
-	}
-
-	return mesh;
+	// 같은 FBX 안의 여러 스킨 메시를 구분하도록 (경로, 번호) 로 캐시
+	const auto key = make_tuple(filename, index);
+	auto it = m_SkinnedMeshs.find(key);
+	if (it != m_SkinnedMeshs.end())
+		return it->second;
+	auto meshFile = LoadMeshFile(wstring_to_string(filename));
+	if (meshFile == nullptr || index < 0 || index >= (int)meshFile->SkinnedMeshs.size())
+		return nullptr;
+	return m_SkinnedMeshs[key] = meshFile->SkinnedMeshs[index];
 }
 
 shared_ptr<MeshFile> ResourceManager::LoadFbxModel(string filename)
@@ -186,6 +175,8 @@ shared_ptr<AnimationClip> ResourceManager::LoadAnimationClip(string filename, in
 		if (meshFile == nullptr)
 			return nullptr;
 
+		if (index < 0 || index >= (int)meshFile->SkinnedData.AnimationClips.size())
+			return nullptr;
 		return m_AnimationClips[key] = meshFile->SkinnedData.AnimationClips[index];
 	}
 }
@@ -205,6 +196,8 @@ shared_ptr<SkeletonAvataData> ResourceManager::LoadSkeletonAvata(string filepath
 		if (meshFile == nullptr)
 			return nullptr;
 
+		if (index < 0 || index >= (int)meshFile->Avatas.size())
+			return nullptr;
 		return m_SkeletonAvatas[key] = meshFile->Avatas[index]; 
 	}
 }

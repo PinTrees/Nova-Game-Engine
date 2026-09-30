@@ -47,6 +47,24 @@ public:
 /// "Walk", "Run", "Attack", "Defend"�� ���� �ִϸ��̼� Ŭ���� ���� �� �� �ֽ��ϴ�.
 /// AnimationClip�� �ִϸ��̼� Ŭ���� �����ϱ� ���� ��� ���� ���� BoneAnimation�� �ʿ�� �մϴ�.
 ///</summary>
+// 노드 하나의 애니메이션 트랙 (위치/회전/크기 키를 따로 가진다, 시간 단위: 초)
+struct VecKey { float Time; XMFLOAT3 Value; };
+struct QuatKey { float Time; XMFLOAT4 Value; };
+
+struct AnimationChannel
+{
+	std::string				NodeName;		// 대상 노드(본) 이름 - 재생할 때 스켈레톤의 같은 이름 노드에 적용
+	std::vector<VecKey>		Positions;
+	std::vector<QuatKey>	Rotations;
+	std::vector<VecKey>		Scales;
+
+	// 시간 t 의 로컬 행렬 (Scale * Rotation * Translation, 행 벡터)
+	void Sample(float t, XMFLOAT4X4& outLocal) const;
+
+	void to_byte(std::ofstream& outStream) const;
+	void from_byte(std::ifstream& inStream);
+};
+
 struct AnimationClip
 {
 	float GetClipStartTime()const;
@@ -55,7 +73,9 @@ struct AnimationClip
 	void Interpolate(float t, vector<XMFLOAT4X4>& boneTransforms)const;
 
 public:
-	vector<BoneAnimation>	BoneAnimations;			// �Ľ̵�
+	vector<AnimationChannel> Channels;				// 노드 이름별 트랙
+	float					Duration = 0.0f;		// 길이 (초)
+	vector<BoneAnimation>	BoneAnimations;			// (이전 형식, 사용 안 함) �Ľ̵�
 	string					Name;					// �Ľ̵�
 
 
@@ -109,12 +129,18 @@ public:
 
 
 
+// 모델의 노드 계층 (스켈레톤). 인덱스 순서는 부모가 항상 자식보다 앞선다 (깊이 우선).
 class SkeletonAvataData
 {
 public:
 	string								Name;
-	vector<int>							BoneHierarchy;		
-	vector<XMFLOAT4X4>					BoneOffsets;		
+	vector<int>							BoneHierarchy;		// 부모 노드 인덱스 (-1 = 루트)
+	vector<XMFLOAT4X4>					BoneOffsets;		// (이전 형식, 사용 안 함)
+	vector<string>						NodeNames;			// 노드 이름
+	vector<XMFLOAT4X4>					BindLocal;			// 바인드 포즈의 로컬 행렬 (행 벡터)
+	float								UnitScale = 1.0f;	// 파일 단위 → 미터 (FBX cm 이면 0.01, Unity 의 Convert Units)
+
+	int FindNode(const string& name) const;
 
 public:
 	void from_byte(ifstream& inStream); 

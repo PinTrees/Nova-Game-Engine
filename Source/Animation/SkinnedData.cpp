@@ -131,6 +131,8 @@ float AnimationClip::GetClipStartTime()const
 
 float AnimationClip::GetClipEndTime()const
 {
+	if (!Channels.empty())
+		return Duration;
 	// Find largest end time over all bones in this clip.
 	float t = 0.0f;
 	for (UINT i = 0; i < BoneAnimations.size(); ++i)
@@ -149,38 +151,140 @@ void AnimationClip::Interpolate(float t, std::vector<XMFLOAT4X4>& boneTransforms
 	}
 }
 
+namespace
+{
+	template <class K>
+	size_t FindKey(const std::vector<K>& keys, float t)
+	{
+		// t Ïù¥ÌïòÏù∏ ÎßàÏßÄÎßâ ÌÇ§ (keys Îäî ÏãúÍ∞ÑÏàú)
+		size_t lo = 0, hi = keys.size();
+		while (hi - lo > 1)
+		{
+			size_t mid = (lo + hi) / 2;
+			if (keys[mid].Time <= t) lo = mid; else hi = mid;
+		}
+		return lo;
+	}
+}
+
+void AnimationChannel::Sample(float t, XMFLOAT4X4& outLocal) const
+{
+	if (!std::isfinite(t))
+		t = 0.0f;
+	// Îëê ÌÇ§ ÏÇ¨Ïù¥ Î≥¥Í∞Ñ ÎπÑÏú® (NaN/Î¨¥ÌïúÎåÄ Î∞©ÏßÄ)
+	auto factor = [t](float a, float b) {
+		const float f = (t - a) / (b - a);
+		return std::isfinite(f) ? std::clamp(f, 0.0f, 1.0f) : 0.0f;
+	};
+	XMVECTOR S = XMVectorSet(1, 1, 1, 0), R = XMQuaternionIdentity(), T = XMVectorZero();
+	if (!Scales.empty())
+	{
+		size_t i = FindKey(Scales, t);
+		if (i + 1 < Scales.size() && Scales[i + 1].Time > Scales[i].Time)
+		{
+			float f = factor(Scales[i].Time, Scales[i + 1].Time);
+			S = XMVectorLerp(XMLoadFloat3(&Scales[i].Value), XMLoadFloat3(&Scales[i + 1].Value), f);
+		}
+		else S = XMLoadFloat3(&Scales[i].Value);
+	}
+	if (!Rotations.empty())
+	{
+		size_t i = FindKey(Rotations, t);
+		if (i + 1 < Rotations.size() && Rotations[i + 1].Time > Rotations[i].Time)
+		{
+			float f = factor(Rotations[i].Time, Rotations[i + 1].Time);
+			R = XMQuaternionSlerp(XMLoadFloat4(&Rotations[i].Value), XMLoadFloat4(&Rotations[i + 1].Value), f);
+		}
+		else R = XMLoadFloat4(&Rotations[i].Value);
+	}
+	if (!Positions.empty())
+	{
+		size_t i = FindKey(Positions, t);
+		if (i + 1 < Positions.size() && Positions[i + 1].Time > Positions[i].Time)
+		{
+			float f = factor(Positions[i].Time, Positions[i + 1].Time);
+			T = XMVectorLerp(XMLoadFloat3(&Positions[i].Value), XMLoadFloat3(&Positions[i + 1].Value), f);
+		}
+		else T = XMLoadFloat3(&Positions[i].Value);
+	}
+	XMStoreFloat4x4(&outLocal, XMMatrixScalingFromVector(S) * XMMatrixRotationQuaternion(XMQuaternionNormalize(R)) * XMMatrixTranslationFromVector(T));
+}
+
+namespace
+{
+	void WriteString(std::ofstream& o, const std::string& s)
+	{
+		uint32_t n = (uint32_t)s.size();
+		o.write(reinterpret_cast<const char*>(&n), sizeof(n));
+		o.write(s.data(), n);
+	}
+	void ReadString(std::ifstream& in, std::string& s)
+	{
+		uint32_t n = 0;
+		in.read(reinterpret_cast<char*>(&n), sizeof(n));
+		s.resize(n);
+		if (n) in.read(&s[0], n);
+	}
+	template <class T>
+	void WriteVec(std::ofstream& o, const std::vector<T>& v)
+	{
+		uint32_t n = (uint32_t)v.size();
+		o.write(reinterpret_cast<const char*>(&n), sizeof(n));
+		if (n) o.write(reinterpret_cast<const char*>(v.data()), n * sizeof(T));
+	}
+	template <class T>
+	void ReadVec(std::ifstream& in, std::vector<T>& v)
+	{
+		uint32_t n = 0;
+		in.read(reinterpret_cast<char*>(&n), sizeof(n));
+		v.resize(n);
+		if (n) in.read(reinterpret_cast<char*>(v.data()), n * sizeof(T));
+	}
+}
+
+void AnimationChannel::to_byte(std::ofstream& o) const
+{
+	WriteString(o, NodeName);
+	WriteVec(o, Positions);
+	WriteVec(o, Rotations);
+	WriteVec(o, Scales);
+}
+
+void AnimationChannel::from_byte(std::ifstream& in)
+{
+	ReadString(in, NodeName);
+	ReadVec(in, Positions);
+	ReadVec(in, Rotations);
+	ReadVec(in, Scales);
+}
+
+int SkeletonAvataData::FindNode(const string& name) const
+{
+	for (size_t i = 0; i < NodeNames.size(); ++i)
+		if (NodeNames[i] == name)
+			return (int)i;
+	return -1;
+}
+
 void AnimationClip::to_byte(std::ofstream& outStream) const
 {
-	// æ÷¥œ∏ﬁ¿Ãº« ¿Ã∏ß ±Ê¿ÃøÕ µ•¿Ã≈Õ æ≤±‚
-	uint32_t nameLength = Name.size();
-	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(nameLength));
-	outStream.write(Name.c_str(), nameLength);
-
-	// BoneAnimations æ≤±‚
-	uint32_t boneAnimCount = BoneAnimations.size();
-	outStream.write(reinterpret_cast<const char*>(&boneAnimCount), sizeof(boneAnimCount));
-	for (const auto& boneAnim : BoneAnimations)
-	{
-		boneAnim.to_byte(outStream); // BoneAnimation ≈¨∑°Ω∫¿« to_byte »£√‚ 
-	}
+	WriteString(outStream, Name);
+	outStream.write(reinterpret_cast<const char*>(&Duration), sizeof(Duration));
+	uint32_t n = (uint32_t)Channels.size();
+	outStream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+	for (const auto& c : Channels)
+		c.to_byte(outStream);
 }
 
 void AnimationClip::from_byte(std::ifstream& inStream)
 {
-	// æ÷¥œ∏ﬁ¿Ãº« ¿Ã∏ß ¿–±‚
-	uint32_t nameLength;
-	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(nameLength));
-	Name.resize(nameLength);
-	inStream.read(&Name[0], nameLength);
-
-	// BoneAnimations ¿–±‚
-	uint32_t boneAnimCount;
-	inStream.read(reinterpret_cast<char*>(&boneAnimCount), sizeof(boneAnimCount));
-	BoneAnimations.resize(boneAnimCount);
-	for (auto& boneAnim : BoneAnimations)
-	{
-		boneAnim.from_byte(inStream); // BoneAnimation ≈¨∑°Ω∫¿« from_byte »£√‚
-	}
+	ReadString(inStream, Name);
+	inStream.read(reinterpret_cast<char*>(&Duration), sizeof(Duration));
+	uint32_t n = 0;
+	inStream.read(reinterpret_cast<char*>(&n), sizeof(n));
+	Channels.resize(n);
+	for (auto& c : Channels)
+		c.from_byte(inStream);
 }
 
 
@@ -331,43 +435,27 @@ void SkeletonAvataData::from_byte(ifstream& inStream)
 {
 	if (!inStream.is_open())
 		return;
-
-	// Name ≈©±‚ ¿–±‚ π◊ µ•¿Ã≈Õ ¿–±‚
-	size_t nameSize;
-	inStream.read(reinterpret_cast<char*>(&nameSize), sizeof(size_t));
-	Name.resize(nameSize);
-	inStream.read(reinterpret_cast<char*>(&Name[0]), nameSize);
-
-	// BoneHierarchy ≈©±‚ ¿–±‚ π◊ µ•¿Ã≈Õ ¿–±‚
-	size_t hierarchySize;
-	inStream.read(reinterpret_cast<char*>(&hierarchySize), sizeof(size_t));
-	BoneHierarchy.resize(hierarchySize);
-	inStream.read(reinterpret_cast<char*>(BoneHierarchy.data()), hierarchySize * sizeof(int));
-
-	// BoneOffsets ≈©±‚ ¿–±‚ π◊ µ•¿Ã≈Õ ¿–±‚
-	size_t offsetsSize;
-	inStream.read(reinterpret_cast<char*>(&offsetsSize), sizeof(size_t));
-	BoneOffsets.resize(offsetsSize);
-	inStream.read(reinterpret_cast<char*>(BoneOffsets.data()), offsetsSize * sizeof(XMFLOAT4X4));
+	ReadString(inStream, Name);
+	ReadVec(inStream, BoneHierarchy);
+	uint32_t n = 0;
+	inStream.read(reinterpret_cast<char*>(&n), sizeof(n));
+	NodeNames.resize(n);
+	for (auto& name : NodeNames)
+		ReadString(inStream, name);
+	ReadVec(inStream, BindLocal);
+	inStream.read(reinterpret_cast<char*>(&UnitScale), sizeof(UnitScale));
 }
 
 void SkeletonAvataData::to_byte(ofstream& outStream)
 {
 	if (!outStream.is_open())
 		return;
-
-	// Name ≈©±‚øÕ µ•¿Ã≈Õ æ≤±‚
-	size_t nameSize = Name.size();
-	outStream.write(reinterpret_cast<const char*>(&nameSize), sizeof(size_t));
-	outStream.write(Name.data(), nameSize);
-
-	// BoneHierarchy ≈©±‚øÕ µ•¿Ã≈Õ æ≤±‚
-	size_t hierarchySize = BoneHierarchy.size();
-	outStream.write(reinterpret_cast<const char*>(&hierarchySize), sizeof(size_t));
-	outStream.write(reinterpret_cast<const char*>(BoneHierarchy.data()), hierarchySize * sizeof(int));
-
-	// BoneOffsets ≈©±‚øÕ µ•¿Ã≈Õ æ≤±‚
-	size_t offsetsSize = BoneOffsets.size();
-	outStream.write(reinterpret_cast<const char*>(&offsetsSize), sizeof(size_t));
-	outStream.write(reinterpret_cast<const char*>(BoneOffsets.data()), offsetsSize * sizeof(XMFLOAT4X4));
+	WriteString(outStream, Name);
+	WriteVec(outStream, BoneHierarchy);
+	uint32_t n = (uint32_t)NodeNames.size();
+	outStream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+	for (const auto& name : NodeNames)
+		WriteString(outStream, name);
+	WriteVec(outStream, BindLocal);
+	outStream.write(reinterpret_cast<const char*>(&UnitScale), sizeof(UnitScale));
 }

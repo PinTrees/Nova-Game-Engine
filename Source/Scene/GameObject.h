@@ -143,7 +143,8 @@ public:
 
 private:
 	friend class GameObject;
-	friend class Scene;   // Scene::DestroyGameObject 가 부모의 자식 목록을 정리한다
+	friend class Scene;
+	friend class GameObjectFactory;   // Scene::DestroyGameObject 가 부모의 자식 목록을 정리한다
 	void SetChild(GameObject* child);
 	void RemoveChild(GameObject* child);
 	void SetParentImmediate(GameObject* g) { m_pParentGameObject = g; }

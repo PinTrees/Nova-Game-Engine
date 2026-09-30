@@ -185,6 +185,7 @@ bool App::Init()
 	SceneManager::GetI()->Init();
 	PhysicsManager::GetI()->Init();
 
+	{ extern void FbxDumpRun(); FbxDumpRun(); }   // (개발/검증용) NOVA_FBX_DUMP
 	log << "App::Init -> LoadScene..." << std::endl; log.flush();
 	SceneManager::GetI()->LoadStartupScene();
 
@@ -248,6 +249,19 @@ bool App::Init()
 		trigger->GetTransform()->SetLocalScale(Vec3(2.0f, 1.0f, 1.0f));
 	}
 
+	// (개발/검증용) NOVA_PHYSICS_TEST=<로그 파일> 이면 물리 자체 검사 장면을 추가한다 (저장하지 않음)
+	if (::GetEnvironmentVariableA("NOVA_PHYSICS_TEST", nullptr, 0) > 0 && SceneManager::GetI()->GetCurrentScene())
+		PhysicsSelfTest::Build(SceneManager::GetI()->GetCurrentScene());
+
+	{
+		char parentLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_PARENT_TEST", parentLog, sizeof(parentLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunParentTest(SceneManager::GetI()->GetCurrentScene(), parentLog);
+		char animLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_ANIM_TEST", animLog, sizeof(animLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunAnimationTest(SceneManager::GetI()->GetCurrentScene(), animLog);
+	}
+
 	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
 	{
 		char selectName[128] = {};
@@ -262,16 +276,6 @@ bool App::Init()
 				}
 			}
 		}
-	}
-
-	// (개발/검증용) NOVA_PHYSICS_TEST=<로그 파일> 이면 물리 자체 검사 장면을 추가한다 (저장하지 않음)
-	if (::GetEnvironmentVariableA("NOVA_PHYSICS_TEST", nullptr, 0) > 0 && SceneManager::GetI()->GetCurrentScene())
-		PhysicsSelfTest::Build(SceneManager::GetI()->GetCurrentScene());
-
-	{
-		char parentLog[512] = {};
-		if (::GetEnvironmentVariableA("NOVA_PARENT_TEST", parentLog, sizeof(parentLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
-			PhysicsSelfTest::RunParentTest(SceneManager::GetI()->GetCurrentScene(), parentLog);
 	}
 
 	// (개발/검증용) NOVA_AUTOPLAY=1 이면 시작 직후 Play 모드로 들어간다.

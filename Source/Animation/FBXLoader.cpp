@@ -79,150 +79,193 @@ void OptimizeVertices(std::vector<Vertex::PosNormalTexTanSkinned>& vertices, std
 }
 
 
-bool FBXLoader::LoadModelFbx(const std::string& filename, MeshFile* model)
+// 모델/스켈레톤/애니메이션 모두 같은 설정으로 읽어야 노드 이름·좌표계가 일치한다.
+//  - 왼손 좌표계(DirectX)로 변환, 삼각형화, 정점 가중치 최대 4 개
+//  - 16 비트 인덱스를 쓰므로 메시를 65000 정점 이하로 나눈다
+//  - FBX 피벗 보조 노드($AssimpFbx$)를 만들지 않는다: 노드 변환과 애니메이션 키가 같은 값(PreRotation 포함)이 되어 이름으로 바로 연결된다
+static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string& path, bool withMeshes)
 {
-    Assimp::Importer importer; 
-
-    const aiScene* scene = importer.ReadFile( 
-        filename
-        , aiProcess_ConvertToLeftHanded
-        | aiProcessPreset_TargetRealtime_MaxQuality 
-        | 0
-    ); 
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+    importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);   // PreRotation 등을 노드 변환·애니메이션 키에 합쳐 넣는다
+    importer.SetPropertyInteger(AI_CONFIG_PP_SLM_VERTEX_LIMIT, 65000);
+    importer.SetPropertyInteger(AI_CONFIG_PP_SLM_TRIANGLE_LIMIT, 1000000);
+    importer.SetPropertyInteger(AI_CONFIG_PP_LBW_MAX_WEIGHTS, 4);
+    unsigned flags = aiProcess_ConvertToLeftHanded | aiProcess_Triangulate | aiProcess_LimitBoneWeights;
+    if (withMeshes)
+        flags |= aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |
+                 aiProcess_SplitLargeMeshes | aiProcess_ImproveCacheLocality | aiProcess_SortByPType | aiProcess_ValidateDataStructure;
+    const aiScene* scene = importer.ReadFile(path, flags);
+    if (!scene || !scene->mRootNode)
     {
         printf("ERROR::ASSIMP:: %s\n", importer.GetErrorString());
+        return nullptr;
+    }
+    return scene;
+}
+
+static XMFLOAT4X4 ToRowMajor(const aiMatrix4x4& m)
+{
+    // Assimp 는 열 벡터 규약 → DirectX(행 벡터) 로 전치
+    XMFLOAT4X4 r;
+    XMStoreFloat4x4(&r, XMMatrixTranspose(XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(&m))));
+    return r;
+}
+
+bool FBXLoader::LoadModelFbx(const std::string& filename, MeshFile* model)
+{
+    Assimp::Importer importer;
+    const aiScene* scene = ReadFbxScene(importer, filename, true);
+    if (scene == nullptr)
         return false;
-    }
-
-    if (scene->mRootNode)
-    {
-        ParsingMeshNode(scene->mRootNode, scene, model);
-    }
-
+    ParsingMeshNode(scene->mRootNode, scene, model);
     return true;
 }
 
-bool FBXLoader::LoadSkeletonAvata(const std::string& filepath, vector<shared_ptr<SkeletonAvataData>>& skeletones) 
+// 노드 계층 전체를 스켈레톤으로 (깊이 우선 → 부모 인덱스가 항상 자식보다 작다)
+static void CollectNodes(const aiNode* node, int parent, SkeletonAvataData& skel)
+{
+    const int index = (int)skel.NodeNames.size();
+    skel.NodeNames.push_back(node->mName.C_Str());
+    skel.BoneHierarchy.push_back(parent);
+    skel.BindLocal.push_back(ToRowMajor(node->mTransformation));
+    for (unsigned i = 0; i < node->mNumChildren; ++i)
+        CollectNodes(node->mChildren[i], index, skel);
+}
+
+bool FBXLoader::LoadSkeletonAvata(const std::string& filepath, vector<shared_ptr<SkeletonAvataData>>& skeletones)
 {
     Assimp::Importer importer;
-
-    const aiScene* scene = importer.ReadFile(
-        filepath
-        , aiProcess_ConvertToLeftHanded
-        | aiProcessPreset_TargetRealtime_MaxQuality
-        | 0
-    );
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-    {
-        printf("ERROR::ASSIMP:: %s\n", importer.GetErrorString());
+    const aiScene* scene = ReadFbxScene(importer, filepath, false);
+    if (scene == nullptr)
         return false;
-    }
 
-    // Skeleton ������ �ʱ�ȭ �� �� ���� �Ľ�
     shared_ptr<SkeletonAvataData> skeletonData = make_shared<SkeletonAvataData>();
-    skeletonData->Name = filesystem::path(filepath).filename().string(); 
+    skeletonData->Name = filesystem::path(filepath).filename().string();
+    CollectNodes(scene->mRootNode, -1, *skeletonData);
 
-    map<string, int> boneMapping; 
-    ParseBonesFromNodes(scene->mRootNode, boneMapping); 
+    // 파일 단위 → 미터 (Unity 의 Convert Units). FBX UnitScaleFactor 는 cm 기준 (cm = 1, m = 100)
+    double unit = 1.0;
+    if (scene->mMetaData != nullptr)
+    {
+        float f = 0.0f;
+        double d = 0.0;
+        if (scene->mMetaData->Get("UnitScaleFactor", d) && d > 0.0) unit = d;
+        else if (scene->mMetaData->Get("UnitScaleFactor", f) && f > 0.0f) unit = f;
+    }
+    skeletonData->UnitScale = (float)(unit * 0.01);
 
-    skeletonData->BoneHierarchy.resize(boneMapping.size(), -1);  
-    ParseBoneHierarchy(scene->mRootNode, boneMapping, skeletonData->BoneHierarchy, -1); 
-    ParseBoneOffsets(scene, boneMapping, skeletonData->BoneOffsets);  
-      
-    skeletones.push_back(skeletonData); 
-
+    skeletones.push_back(skeletonData);
     return true;
+}
+
+// 포함한 Assimp 헤더와 DLL 의 키 구조체 크기가 다를 수 있다 (DLL 쪽 aiQuatKey 에 mInterpolation 이 있어 32 바이트).
+// 키 시간이 유한하고 증가하며, 쿼터니언 길이가 1 인 간격을 찾아 그 간격으로 읽는다.
+static size_t DetectQuatKeyStride(const aiQuatKey* keys, unsigned count)
+{
+    const size_t candidates[] = { sizeof(aiQuatKey), 32, 40 };
+    if (count < 2)
+        return sizeof(aiQuatKey);
+    for (size_t stride : candidates)
+    {
+        bool ok = true;
+        double prev = -1e300;
+        for (unsigned k = 0; k < (std::min)(count, 6u) && ok; ++k)
+        {
+            const aiQuatKey* key = reinterpret_cast<const aiQuatKey*>(reinterpret_cast<const unsigned char*>(keys) + k * stride);
+            const double t = key->mTime;
+            const aiQuaternion& q = key->mValue;
+            const double len = q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z;
+            ok = std::isfinite(t) && t >= prev && fabs(len - 1.0) < 0.05;
+            prev = t;
+        }
+        if (ok)
+            return stride;
+    }
+    return sizeof(aiQuatKey);
+}
+
+static size_t DetectVectorKeyStride(const aiVectorKey* keys, unsigned count)
+{
+    const size_t candidates[] = { sizeof(aiVectorKey), 24, 32 };
+    if (count < 2)
+        return sizeof(aiVectorKey);
+    for (size_t stride : candidates)
+    {
+        bool ok = true;
+        double prev = -1e300;
+        for (unsigned k = 0; k < (std::min)(count, 6u) && ok; ++k)
+        {
+            const aiVectorKey* key = reinterpret_cast<const aiVectorKey*>(reinterpret_cast<const unsigned char*>(keys) + k * stride);
+            ok = std::isfinite(key->mTime) && key->mTime >= prev && std::isfinite(key->mValue.x) && std::isfinite(key->mValue.y) && std::isfinite(key->mValue.z);
+            prev = key->mTime;
+        }
+        if (ok)
+            return stride;
+    }
+    return sizeof(aiVectorKey);
+}
+
+template <class K>
+static const K& KeyAt(const K* keys, size_t stride, unsigned index)
+{
+    return *reinterpret_cast<const K*>(reinterpret_cast<const unsigned char*>(keys) + index * stride);
 }
 
 bool FBXLoader::LoadAnimation(const std::string& filename, SkinnedData& skinnedData)
 {
     Assimp::Importer importer;
-
-    const aiScene* scene = importer.ReadFile(
-        filename,
-        aiProcessPreset_TargetRealtime_Fast | 
-        aiProcess_LimitBoneWeights |
-        aiProcess_ConvertToLeftHanded |
-        aiProcess_Triangulate
-    );
-
-    if (!scene || !(scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->HasAnimations())
-    {
-        printf("ERROR::ASSIMP:: %s\n", importer.GetErrorString());
+    const aiScene* scene = ReadFbxScene(importer, filename, false);
+    if (scene == nullptr || !scene->HasAnimations())
         return false;
-    }
 
-    map<string, int> boneMapping;
-    ParseBonesFromNodes(scene->mRootNode, boneMapping); 
-
-    skinnedData.BoneHierarchy.resize(boneMapping.size(), -1); 
-    ParseBoneHierarchy(scene->mRootNode, boneMapping, skinnedData.BoneHierarchy, -1); 
-    ParseBoneOffsets(scene, boneMapping, skinnedData.BoneOffsets);
-
-    // �ִϸ��̼��� �Ľ�
-    for (UINT animIndex = 0; animIndex < scene->mNumAnimations; ++animIndex)
+    for (unsigned a = 0; a < scene->mNumAnimations; ++a)
     {
-        aiAnimation* animation = scene->mAnimations[animIndex];
-        shared_ptr<AnimationClip> animationClip = make_shared<AnimationClip>();
-        animationClip->Name = animation->mName.C_Str(); 
-        
-        for (UINT channelIndex = 0; channelIndex < animation->mNumChannels; ++channelIndex)
+        const aiAnimation* anim = scene->mAnimations[a];
+        const double tps = anim->mTicksPerSecond > 0.0 ? anim->mTicksPerSecond : 25.0;
+        shared_ptr<AnimationClip> clip = make_shared<AnimationClip>();
+        clip->Name = anim->mName.length > 0 ? anim->mName.C_Str() : filesystem::path(filename).stem().string();
+        // "Take 001" 같은 이름 대신 "파일명|클립명" 형태의 앞부분 정리
+        size_t bar = clip->Name.find('|');
+        if (bar != string::npos) clip->Name = clip->Name.substr(bar + 1);
+        clip->Duration = (float)(anim->mDuration / tps);
+
+        for (unsigned c = 0; c < anim->mNumChannels; ++c)
         {
-            aiNodeAnim* nodeAnim = animation->mChannels[channelIndex];
-            string boneName = nodeAnim->mNodeName.C_Str();
-
-            BoneAnimation boneAnim;
-
-            // Ű�������� �Ľ�
-            for (UINT keyIndex = 0; keyIndex < nodeAnim->mNumPositionKeys; ++keyIndex)
+            const aiNodeAnim* ch = anim->mChannels[c];
+            AnimationChannel channel;
+            channel.NodeName = ch->mNodeName.C_Str();
+            const size_t posStride = DetectVectorKeyStride(ch->mPositionKeys, ch->mNumPositionKeys);
+            const size_t rotStride = DetectQuatKeyStride(ch->mRotationKeys, ch->mNumRotationKeys);
+            const size_t sclStride = DetectVectorKeyStride(ch->mScalingKeys, ch->mNumScalingKeys);
+            for (unsigned k = 0; k < ch->mNumPositionKeys; ++k)
             {
-                Keyframe keyframe;
-                keyframe.TimePos = (float)nodeAnim->mPositionKeys[keyIndex].mTime;
-
-                keyframe.Translation = XMFLOAT3(
-                    nodeAnim->mPositionKeys[keyIndex].mValue.x,
-                    nodeAnim->mPositionKeys[keyIndex].mValue.y,
-                    nodeAnim->mPositionKeys[keyIndex].mValue.z
-                );
-
-                // ���� ������� Scale �� Rotation Ű������ �߰�
-                keyframe.Scale = XMFLOAT3(
-                    nodeAnim->mScalingKeys[keyIndex].mValue.x,
-                    nodeAnim->mScalingKeys[keyIndex].mValue.y,
-                    nodeAnim->mScalingKeys[keyIndex].mValue.z
-                );
-
-                keyframe.RotationQuat = XMFLOAT4(
-                    nodeAnim->mRotationKeys[keyIndex].mValue.x,
-                    nodeAnim->mRotationKeys[keyIndex].mValue.y,
-                    nodeAnim->mRotationKeys[keyIndex].mValue.z,
-                    nodeAnim->mRotationKeys[keyIndex].mValue.w
-                );
-
-                boneAnim.Keyframes.push_back(keyframe);
+                const auto& key = KeyAt(ch->mPositionKeys, posStride, k);
+                channel.Positions.push_back({ (float)(key.mTime / tps), XMFLOAT3(key.mValue.x, key.mValue.y, key.mValue.z) });
             }
-
-            // �� �ִϸ��̼��� �ִϸ��̼� Ŭ���� �߰�
-            animationClip->BoneAnimations.push_back(boneAnim);
+            for (unsigned k = 0; k < ch->mNumRotationKeys; ++k)
+            {
+                const auto& key = KeyAt(ch->mRotationKeys, rotStride, k);
+                channel.Rotations.push_back({ (float)(key.mTime / tps), XMFLOAT4(key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w) });
+            }
+            for (unsigned k = 0; k < ch->mNumScalingKeys; ++k)
+            {
+                const auto& key = KeyAt(ch->mScalingKeys, sclStride, k);
+                channel.Scales.push_back({ (float)(key.mTime / tps), XMFLOAT3(key.mValue.x, key.mValue.y, key.mValue.z) });
+            }
+            clip->Channels.push_back(std::move(channel));
         }
-        //animationClip.Duration = static_cast<float>(animation->mDuration);
-        //animationClip.TicksPerSecond = static_cast<float>(animation->mTicksPerSecond ? animation->mTicksPerSecond : 25.0);
-
-        // SkinnedData�� �ִϸ��̼� Ŭ�� �߰�
-        skinnedData.AnimationClips.push_back(animationClip); 
+        skinnedData.AnimationClips.push_back(clip);
     }
-
-    return false;
+    return true;
 }
 
 void FBXLoader::ParsingMeshNode(aiNode* node, const aiScene* scene, MeshFile* model)
 {
     if (node->mNumMeshes > 0) 
     {
-        if (scene->mMeshes[node->mMeshes[0]]->HasBones())
+        bool anySkinned = false, anyStatic = false;
+        for (UINT i = 0; i < node->mNumMeshes; ++i)
+            (scene->mMeshes[node->mMeshes[i]]->HasBones() ? anySkinned : anyStatic) = true;
+        if (anySkinned)
         {
             shared_ptr<SkinnedMesh> mesh = make_shared<SkinnedMesh>(); 
             model->SkinnedMeshs.push_back(mesh); 
@@ -247,19 +290,22 @@ void FBXLoader::ParsingMeshNode(aiNode* node, const aiScene* scene, MeshFile* mo
                     mesh->Mat[i].Specular = XMFLOAT4(color.r, color.g, color.b, 1.0f);
             }
 
-            mesh->Vertices.clear(); 
-            for (UINT i = 0; i < node->mNumMeshes; ++i) 
+            mesh->Vertices.clear();
+            for (UINT i = 0; i < node->mNumMeshes; ++i)
             {
                 aiMesh* aiMesh = scene->mMeshes[node->mMeshes[i]];
+                if (!aiMesh->HasBones())
+                    continue;   // 본 없는 메시는 아래에서 정적 메시로
 
                 MeshGeometry::Subset subset; 
-                ProcessMeshSkinned(aiMesh, scene, mesh->Vertices, mesh->Indices, subset); 
+                subset.Id = i;
+                ProcessMeshSkinned(aiMesh, scene, mesh->Vertices, mesh->Indices, subset, mesh->BoneNames, mesh->BoneOffsets);
                 mesh->Subsets.push_back(subset);
             }
             //OptimizeVertices(mesh->Vertices, mesh->Indices); 
             mesh->Setup(); 
         }
-        else
+        if (anyStatic)
         {
             shared_ptr<Mesh> mesh_ptr = make_shared<Mesh>(); 
 
@@ -289,6 +335,8 @@ void FBXLoader::ParsingMeshNode(aiNode* node, const aiScene* scene, MeshFile* mo
             {
                 uint32 index = node->mMeshes[i];
                 aiMesh* aiMesh = scene->mMeshes[index]; 
+                if (aiMesh->HasBones())
+                    continue;   // 스킨 메시는 위에서 처리
 
                 MeshGeometry::Subset subset; 
                 ProcessMesh(aiMesh, scene, mesh_ptr->Vertices, mesh_ptr->Indices, subset); 
@@ -348,106 +396,80 @@ void FBXLoader::ProcessMesh(
 }
 
 void FBXLoader::ProcessMeshSkinned(
-    aiMesh* mesh, 
-    const aiScene* scene, 
-    vector<Vertex::PosNormalTexTanSkinned>& vertices, 
+    aiMesh* mesh,
+    const aiScene* scene,
+    vector<Vertex::PosNormalTexTanSkinned>& vertices,
     vector<USHORT>& indices,
-    MeshGeometry::Subset& subset)
+    MeshGeometry::Subset& subset,
+    vector<string>& boneNames, vector<XMFLOAT4X4>& boneOffsets)
 {
-    subset.Name = mesh->mName.C_Str(); 
-    subset.VertexStart = vertices.size();
-    subset.FaceStart = indices.size() / 3; 
-    subset.VertexCount = mesh->mNumVertices; 
+    subset.Name = mesh->mName.C_Str();
+    subset.VertexStart = (UINT)vertices.size();
+    subset.FaceStart = (UINT)(indices.size() / 3);
+    subset.VertexCount = mesh->mNumVertices;
     subset.FaceCount = mesh->mNumFaces;
-    subset.MaterialIndex = mesh->mMaterialIndex; 
+    subset.MaterialIndex = mesh->mMaterialIndex;
 
-    const uint32 startVertex = vertices.size();
-
-    for (uint32 i = 0; i < mesh->mNumVertices; ++i) 
+    const size_t startVertex = vertices.size();
+    for (uint32 i = 0; i < mesh->mNumVertices; ++i)
     {
-        Vertex::PosNormalTexTanSkinned vertex;
+        Vertex::PosNormalTexTanSkinned vertex = {};
         vertex.pos = XMFLOAT3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
-
-        // Normal
         if (mesh->HasNormals())
-            ::memcpy(&vertex.normal, &mesh->mNormals[i], sizeof(XMFLOAT3));
-
-        if (mesh->HasTangentsAndBitangents()) 
-            vertex.tangentU = XMFLOAT4( 
-                mesh->mTangents[i].x, 
-                mesh->mTangents[i].y, 
-                mesh->mTangents[i].z, 
-                1.0f 
-            );
-
+            vertex.normal = XMFLOAT3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+        if (mesh->HasTangentsAndBitangents())
+            vertex.tangentU = XMFLOAT4(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z, 1.0f);
         if (mesh->HasTextureCoords(0))
-            ::memcpy(&vertex.tex, &mesh->mTextureCoords[0][i], sizeof(Vec2));
-        
-        // Color Parsing (�÷� ������ �Ľ�)
-        //if (mesh->HasVertexColors(0))
-        //{
-        //    aiColor4D color = mesh->mColors[0][i];
-        //    vertex.color[0] = static_cast<BYTE>(color.r * 255.0f); // Red
-        //    vertex.color[1] = static_cast<BYTE>(color.g * 255.0f); // Green
-        //    vertex.color[2] = static_cast<BYTE>(color.b * 255.0f); // Blue
-        //    vertex.color[3] = static_cast<BYTE>(color.a * 255.0f); // Alpha
-        //}
-        //else
-        //{
-        //    vertex.color[0] = 255; // Red
-        //    vertex.color[1] = 255; // Green
-        //    vertex.color[2] = 255; // Blue
-        //    vertex.color[3] = 255; // Alpha 
-        //}
-
-        memset(vertex.boneIndices, 0, sizeof(vertex.boneIndices));
-        vertex.weights = XMFLOAT3(0.0f, 0.0f, 0.0f);
-        vertices.push_back(vertex); // �� ���ؽ� �߰�
+            vertex.tex = XMFLOAT2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
+        vertices.push_back(vertex);
     }
 
-    for (UINT i = 0; i < mesh->mNumBones; ++i)
+    // 정점별 (본, 가중치) 모으기 → 큰 것 4 개만 남기고 합이 1 이 되게 정규화
+    std::vector<std::vector<std::pair<float, int>>> influences(mesh->mNumVertices);
+    for (UINT b = 0; b < mesh->mNumBones; ++b)
     {
-        aiBone* bone = mesh->mBones[i];
-        int boneID = i;
-    
-        for (UINT j = 0; j < bone->mNumWeights; ++j)
+        const aiBone* bone = mesh->mBones[b];
+        const std::string name = bone->mName.C_Str();
+        int palette = -1;
+        for (size_t k = 0; k < boneNames.size(); ++k)
+            if (boneNames[k] == name) { palette = (int)k; break; }
+        if (palette < 0)
         {
-            UINT vertexID = bone->mWeights[j].mVertexId; // �������� ���� �ùٸ� ���ؽ� ����  
-            float weight = bone->mWeights[j].mWeight;
-    
-            // Assign the bone weight and index to the vertex 
-            for (int k = 0; k < 4; ++k)
-            {
-                if (vertices[vertexID].weights.x == 0.0f)
-                {
-                    vertices[vertexID].weights.x = weight;
-                    vertices[vertexID].boneIndices[k] = (BYTE)boneID;
-                    break;
-                }
-                else if (vertices[vertexID].weights.y == 0.0f)
-                {
-                    vertices[vertexID].weights.y = weight;
-                    vertices[vertexID].boneIndices[k] = (BYTE)boneID;
-                    break;
-                }
-                else if (vertices[vertexID].weights.z == 0.0f)
-                {
-                    vertices[vertexID].weights.z = weight;
-                    vertices[vertexID].boneIndices[k] = (BYTE)boneID;
-                    break;
-                }
-            }
+            palette = (int)boneNames.size();
+            boneNames.push_back(name);
+            boneOffsets.push_back(ToRowMajor(bone->mOffsetMatrix));
+        }
+        for (UINT w = 0; w < bone->mNumWeights; ++w)
+        {
+            const aiVertexWeight& vw = bone->mWeights[w];
+            if (vw.mVertexId < mesh->mNumVertices && vw.mWeight > 0.0f)
+                influences[vw.mVertexId].push_back({ vw.mWeight, palette });
         }
     }
+    for (uint32 i = 0; i < mesh->mNumVertices; ++i)
+    {
+        auto& inf = influences[i];
+        std::sort(inf.begin(), inf.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+        if (inf.size() > 4) inf.resize(4);
+        float sum = 0.0f;
+        for (const auto& p : inf) sum += p.first;
+        Vertex::PosNormalTexTanSkinned& v = vertices[startVertex + i];
+        float wts[4] = { 0, 0, 0, 0 };
+        for (size_t k = 0; k < inf.size(); ++k)
+        {
+            wts[k] = sum > 0.0f ? inf[k].first / sum : 0.0f;
+            v.boneIndices[k] = (BYTE)(std::min)(inf[k].second, 255);
+        }
+        if (inf.empty())
+            wts[0] = 1.0f;   // 가중치 없는 정점은 팔레트 0 번에 고정
+        v.weights = XMFLOAT3(wts[0], wts[1], wts[2]);   // 네 번째 가중치 = 1 - 합 (셰이더)
+    }
 
-    // �ε��� �߰�
     for (UINT i = 0; i < mesh->mNumFaces; ++i)
     {
-        aiFace face = mesh->mFaces[i];
+        const aiFace& face = mesh->mFaces[i];
         for (UINT j = 0; j < face.mNumIndices; ++j)
-        {
-            indices.push_back(face.mIndices[j]); // ���ؽ��� �������� ���Ͽ� �ùٸ� �ε��� ���� 
-        }
+            indices.push_back((USHORT)face.mIndices[j]);
     }
 }
 

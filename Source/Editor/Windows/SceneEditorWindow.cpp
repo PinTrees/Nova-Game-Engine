@@ -15,6 +15,11 @@ SceneEditorWindow::SceneEditorWindow()
     m_Camera = new EditorCamera;
     // Unity 기본 씬 뷰처럼 원점 근처를 비스듬히 내려다보는 초기 시점
     m_Camera->LookAt(XMFLOAT3(7.0f, 5.0f, -19.0f), XMFLOAT3(0.0f, 1.0f, -5.0f), XMFLOAT3(0.0f, 1.0f, 0.0f));
+    // (개발/검증용) NOVA_SCENE_CAM="x y z tx ty tz" 로 시작 시점 지정
+    char cam[128] = {};
+    float c[6];
+    if (::GetEnvironmentVariableA("NOVA_SCENE_CAM", cam, sizeof(cam)) > 0 && sscanf_s(cam, "%f %f %f %f %f %f", &c[0], &c[1], &c[2], &c[3], &c[4], &c[5]) == 6)
+        m_Camera->LookAt(XMFLOAT3(c[0], c[1], c[2]), XMFLOAT3(c[3], c[4], c[5]), XMFLOAT3(0.0f, 1.0f, 0.0f));
     InitRenderTarget(windowWidth, windowHeight);
     SceneViewManager::GetI()->m_LastActiveSceneEditorWindow = this;
 }

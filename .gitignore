@@ -350,3 +350,8 @@ build/
 
 # Jolt Physics 의 CMake 폴더 (위의 build/ 규칙에서 제외)
 !/ThirdParty/JoltPhysics/Build/
+
+# FBX 가져오기 캐시 (엔진이 자동으로 다시 만든다)
+/Resources/Packages/**/*.mesh
+/Resources/Packages/**/*.animations
+/Resources/Packages/**/*.skeletons
