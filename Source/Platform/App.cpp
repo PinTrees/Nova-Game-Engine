@@ -15,6 +15,7 @@
 #include "GameViewEditorWindow.h"
 #include "ConsoleEditorWindow.h"
 #include "AnimatorEditorWindow.h"
+#include "NovaCodeWindow.h"
 #include "DisplayManager.h"
 #include "GameObjectFactory.h"
 #include "PhysicsSelfTest.h"
@@ -204,6 +205,7 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new ProjectEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new ConsoleEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
+	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);

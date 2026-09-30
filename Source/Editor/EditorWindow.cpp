@@ -34,7 +34,8 @@ void EditorWindow::Render()
 
     // 창의 크기를 설정
     ImGui::SetNextWindowSize(ImVec2(window_width, window_height), ImGuiCond_FirstUseEver);
-    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse;
+    ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse | ExtraWindowFlags();
+    BeforeBegin();
 
     EditorGUI::EditorWindowStylePush();
 
@@ -68,7 +69,13 @@ void EditorWindow::Render()
     // 윈도우를 시작합니다
     string windowTitleName = GetImGuiName();
 
-    if (ImGui::Begin(windowTitleName.c_str(), &m_IsOpened, windowFlags)) 
+    const ImVec2 padding = WindowPaddingOverride();
+    if (padding.x >= 0.0f)
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
+    const bool visible = ImGui::Begin(windowTitleName.c_str(), &m_IsOpened, windowFlags);
+    if (padding.x >= 0.0f)
+        ImGui::PopStyleVar();   // Begin 이 이미 읽었다
+    if (visible)
     {
         if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
         {

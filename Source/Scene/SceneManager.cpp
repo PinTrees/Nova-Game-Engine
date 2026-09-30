@@ -6,6 +6,7 @@
 #include "EditorSettingManager.h"
 #include "SelectionManager.h"
 #include "Debug.h"
+#include "NovaCodeWindow.h"
 
 
 SINGLE_BODY(SceneManager)
@@ -81,6 +82,9 @@ void SceneManager::HandleSaveScene()
 	// GetAsyncKeyState 기반이라 한글 입력(IME) 상태에서도 동작한다. Ctrl 과 S 를 같은 프레임에 눌러도 되도록 TAP 도 허용.
 	const bool ctrl = (INPUT_KEY_HOLD(KEY::CTRL)) || (INPUT_KEY_DOWN(KEY::CTRL));
 	if (!ctrl || !(INPUT_KEY_DOWN(KEY::S)))
+		return;
+	// NOVA Code 에서의 Ctrl+S 는 스크립트 저장이다
+	if (NovaCodeWindow::IsFocused())
 		return;
 	const bool shift = (INPUT_KEY_HOLD(KEY::LSHIFT)) || (INPUT_KEY_DOWN(KEY::LSHIFT)) || (::GetAsyncKeyState(VK_RSHIFT) & 0x8000);
 	SaveCurrentScene(shift);

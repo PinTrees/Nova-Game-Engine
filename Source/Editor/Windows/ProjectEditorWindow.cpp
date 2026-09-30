@@ -850,7 +850,7 @@ void ProjectEditorWindow::Open(const Entry& e)
 	case Kind::VolumeProfile:
 		break;
 	case Kind::Script:
-		ScriptEngine::OpenInCodeEditor(e.Path.wstring(), 1);   // VS Code (프로젝트 폴더 + 파일), 없으면 기본 프로그램
+		ScriptEngine::OpenInCodeEditor(e.Path.wstring(), 1);   // Preferences 의 External Script Editor (기본 NOVA Code)
 		break;
 	case Kind::Audio:
 		// 더블클릭 = 미리 듣기

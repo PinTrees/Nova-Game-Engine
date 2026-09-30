@@ -31,6 +31,7 @@ public:
 
 public:
 	void RegisterWindow(EditorWindow* window);
+	EditorWindow* FindWindow(const std::string& title) const;
 	void RegisterEditorDialog(EditorDialog* dialog);
 	void RemoveEditorDialog(EditorDialog* dialog);
 };

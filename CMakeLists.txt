@@ -114,6 +114,7 @@ set(ENGINE_MODULE_DIRS
     Source/Editor/Windows
     Source/Editor/Dialogs
     Source/Editor/NodeEditor
+    Source/Editor/NovaCode
     Source/ThirdParty/ImGui
     Source/ThirdParty/ImGui/ImGuiNodeEditor
     Source/Hub

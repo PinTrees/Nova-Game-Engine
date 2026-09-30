@@ -3,6 +3,7 @@
 #include "ScriptEngine.h"
 #include "ScriptBindings.h"
 #include "GameViewEditorWindow.h"
+#include "ExternalScriptEditor.h"
 #include <DotNet/hostfxr.h>
 #include <DotNet/coreclr_delegates.h>
 #include <filesystem>
@@ -46,6 +47,7 @@ namespace
 		Fn_InvokeCollision InvokeCollision = nullptr;
 		Fn_GetFields GetFieldsJson = nullptr;
 		Fn_SetFields SetFieldsJson = nullptr;
+		Fn_GetJson GetApiJson = nullptr;   // 선택 (NOVA Code 자동 완성)
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -202,6 +204,9 @@ namespace
 		get(L"SetFieldsJson", (void**)&m.SetFieldsJson);
 		if (!ok)
 			return false;
+		// 없어도 스크립팅은 동작한다 (자동 완성만 키워드/문서 단어로)
+		if (load(dll.c_str(), type, L"GetApiJson", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.GetApiJson) < 0)
+			m.GetApiJson = nullptr;
 
 		std::vector<uint8_t> table(ScriptBindings::TableSize());
 		ScriptBindings::Fill(table.data());
@@ -741,28 +746,27 @@ namespace ScriptEngine
 
 	void OpenInCodeEditor(const std::wstring& file, int line)
 	{
-		if (file.empty())
-			return;
-		// VS Code: 프로젝트 폴더를 작업 공간으로 열고 파일:줄로 이동 (IntelliSense 가 Assembly-CSharp.csproj 를 쓴다)
-		std::vector<std::wstring> candidates;
-		wchar_t buf[MAX_PATH] = {};
-		if (::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH) > 0)
-			candidates.push_back(std::wstring(buf) + L"\\Programs\\Microsoft VS Code\\Code.exe");
-		if (::GetEnvironmentVariableW(L"ProgramFiles", buf, MAX_PATH) > 0)
-			candidates.push_back(std::wstring(buf) + L"\\Microsoft VS Code\\Code.exe");
-		std::error_code ec;
-		for (const std::wstring& code : candidates)
-		{
-			if (!fs::exists(code, ec))
-				continue;
-			std::wstring root = ProjectRoot();
-			if (!root.empty() && (root.back() == L'\\' || root.back() == L'/'))
-				root.pop_back();
-			const std::wstring args = L"\"" + root + L"\" -g \"" + file + L":" + std::to_wstring((std::max)(1, line)) + L"\"";
-			::ShellExecuteW(nullptr, L"open", code.c_str(), args.c_str(), nullptr, SW_SHOWNORMAL);
-			return;
-		}
-		::ShellExecuteW(nullptr, L"open", file.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+		// Preferences > External Tools > External Script Editor 에서 고른 편집기 (기본: NOVA Code)
+		ExternalScriptEditor::Open(file, line);
+	}
+
+	void RegenerateProjectFiles()
+	{
+		WriteCsproj();
+		EditorLog::Write("Script", "project files regenerated (%s)", ToUtf8(CsprojPath()).c_str());
+	}
+
+	std::string GetApiJson()
+	{
+		return IsAvailable() && m.GetApiJson ? TakeString(m.GetApiJson()) : std::string();
+	}
+
+	std::vector<std::wstring> ScriptFilePaths()
+	{
+		std::vector<std::wstring> out;
+		for (const fs::path& p : ScriptFiles())
+			out.push_back(p.wstring());
+		return out;
 	}
 
 	// ---------------------------------------------------------------- 관리 코드 호출

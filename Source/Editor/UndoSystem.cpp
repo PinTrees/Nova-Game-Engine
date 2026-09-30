@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "UndoSystem.h"
+#include "NovaCodeWindow.h"
 
 namespace
 {
@@ -244,7 +245,7 @@ namespace Undo
 
 		ImGuiIO& io = ImGui::GetIO();
 		// 단축키 (글자 입력 중이면 입력 칸의 자체 Undo 에 맡긴다)
-		if (!io.WantTextInput && io.KeyCtrl)
+		if (!io.WantTextInput && io.KeyCtrl && !NovaCodeWindow::IsFocused())   // NOVA Code 는 자체 Undo
 		{
 			if (ImGui::IsKeyPressed(ImGuiKey_Z, false) && !io.KeyShift)
 				PerformUndo();

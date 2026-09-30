@@ -33,6 +33,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
 | **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
 | **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API (`NovaEngine` 네임스페이스: GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, AudioSource, Animator, Physics.Raycast, 코루틴, Invoke …), Assets 의 `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`public` / `[SerializeField]`, `[Range]`, `[Header]`, enum, Color, GameObject 참조), 컴파일 오류는 Console(파일:줄) 에 표시되고 Play 를 막음 |
+| **코드 편집기 (NOVA Code)** | 에디터에 내장된 C# IDE(기본 External Script Editor): Explorer, 탭, 구문 강조, 엔진 API 자동 완성, 찾기/바꾸기, 줄 이동, 저장하면 바로 컴파일, 컴파일 오류를 그 줄에 밑줄로. **Edit > Preferences > External Tools** 에서 Visual Studio / VS Code / Rider / 직접 지정으로 바꿀 수 있음 |
 | **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
 
 ## 스크린샷
@@ -43,6 +44,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | <img src="docs/images/project_window.webp" width="440"/><br/>Project 창 (2단 레이아웃) | <img src="docs/images/prefab.webp" width="440"/><br/>프리팹 인스턴스 |
 | <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
 | <img src="docs/images/audio_source.webp" width="440"/><br/>Audio Source | <img src="docs/images/physics.webp" width="440"/><br/>물리 (지형 위의 공) |
+| <img src="docs/images/nova_code.webp" width="440"/><br/>NOVA Code (내장 C# IDE, 자동 완성) | <img src="docs/images/nova_code_error.webp" width="440"/><br/>NOVA Code 컴파일 오류 표시 |
 
 <p align="center">
   <img src="docs/images/postprocess_compare.webp" width="900" alt="후처리 전/후"/><br/>
@@ -87,7 +89,20 @@ build.bat
 
 ## C# 스크립트
 
-Project 창 우클릭 > **Create > Scripting > MonoBehaviour Script** 로 만들고, 더블클릭하면 VS Code(없으면 기본 프로그램)로 열립니다. 저장하면 에디터가 자동으로 다시 컴파일합니다. GameObject 에 끌어 놓거나 Add Component > Scripts 로 붙입니다.
+Project 창 우클릭 > **Create > Scripting > MonoBehaviour Script** 로 만들고, 더블클릭하면 내장 코드 편집기 **NOVA Code** 로 열립니다 (Console 의 오류 더블클릭도 그 줄로). 저장(`Ctrl+S`)하면 에디터가 바로 다시 컴파일합니다. GameObject 에 끌어 놓거나 Add Component > Scripts 로 붙입니다.
+
+다른 편집기를 쓰려면 **Edit > Preferences... > External Tools > External Script Editor** 에서 고릅니다 (Unity 와 같음).
+
+| External Script Editor | 여는 방법 |
+|---|---|
+| NOVA Code (built-in) — 기본값 | 에디터 안의 NOVA Code 탭 |
+| Visual Studio (설치된 버전을 vswhere 로 찾음) | `devenv /edit 파일 /command "Edit.GoTo 줄"` |
+| Visual Studio Code | 프로젝트 폴더 + `-g 파일:줄` |
+| JetBrains Rider | `--line 줄 파일` |
+| Open by file extension | Windows 에서 .cs 에 연결된 프로그램 |
+| Browse... | 직접 고른 exe + 인자 (`$(File)`, `$(Line)`, `$(ProjectPath)`) |
+
+설정은 사용자별로 `%LOCALAPPDATA%\NOVA\Editor\EditorPrefs.json` 에 저장됩니다 (Unity 의 EditorPrefs).
 
 ```csharp
 using NovaEngine;
@@ -125,6 +140,18 @@ Unity 코드는 `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 �
 | `F2` · `Delete` | 이름 바꾸기 · 삭제 |
 | `Ctrl+P` | Play / Stop |
 
+NOVA Code 안에서는 (VS Code 와 같음):
+
+| 키 | 동작 |
+|---|---|
+| `Ctrl+S` / `Ctrl+Shift+S` | 저장 / 모두 저장 (저장하면 바로 컴파일) |
+| `Ctrl+Space` | 자동 완성 (`.` 뒤와 입력 중에도 자동으로 뜸) |
+| `Ctrl+F` / `Ctrl+H` / `F3` | 찾기 / 바꾸기 / 다음 찾기 |
+| `Ctrl+G` | 줄로 이동 |
+| `Ctrl+/` · `Ctrl+D` | 주석 토글 · 줄 복제 |
+| `Tab` / `Shift+Tab` | 들여쓰기 / 내어쓰기 (여러 줄 선택 가능) |
+| `Ctrl+W` · `Ctrl+B` · `Ctrl+휠` | 탭 닫기 · Explorer 토글 · 글꼴 크기 |
+
 ## 폴더 구조
 
 ```
@@ -138,9 +165,10 @@ Source/
   Terrain/    TerrainData, 쿼드트리 LOD 렌더러
   Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
   Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
-ScriptCore/   C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
-  Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator ...), Undo
+  Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator/Preferences ...), Undo, EditorPrefs
+    NovaCode/ 내장 C# IDE: CodeEditor(편집 위젯), CSharpLanguage(구문 강조·자동 완성), NovaCodeWindow(창), ExternalScriptEditor(편집기 선택/실행)
   Hub/        프로젝트 Hub
+ScriptCore/   C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
 Shaders/      HLSL (FX11 이펙트)
 Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain, Audio)
 ProjectSetting/  에디터 아이콘(SVG → PNG), 폰트, 로고

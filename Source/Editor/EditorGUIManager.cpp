@@ -4,6 +4,7 @@
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
+#include "PreferencesWindow.h"
 #include "GameViewEditorWindow.h"
 #include "ScriptEngine.h"
 #include "ObjectPicker.h"
@@ -116,6 +117,13 @@ void EditorGUIManager::Init(bool hubMode)
         };
         loadTextFont(false);   // Fonts[0]: 일반
         loadTextFont(true);    // Fonts[1]: 굵게 (UnityGUI::BoldFont)
+
+        // Fonts[2]: 코드 편집기(NOVA Code) 고정폭 — Consolas + 한글은 맑은 고딕 (주석/문자열의 한글)
+        ImFontConfig codeCfg = textCfg;
+        codeCfg.RasterizerMultiply = 1.1f;
+        const char* codeFont = std::filesystem::exists("C:\\Windows\\Fonts\\consola.ttf") ? "C:\\Windows\\Fonts\\consola.ttf" : "C:\\Windows\\Fonts\\cour.ttf";
+        io.Fonts->AddFontFromFileTTF(codeFont, 16.0f, &codeCfg, io.Fonts->GetGlyphRangesDefault());
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 15.0f, &mergeCfg, hangulRanges);
     }
     else
     {
@@ -385,6 +393,8 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::Separator();
             if (ImGui::MenuItem("Project Settings..."))
                 ProjectSettingsWindow::Open("Graphics");
+            if (ImGui::MenuItem("Preferences..."))
+                PreferencesWindow::Open();
             // 렌더링 API 선택 (다음 실행부터 적용)
             if (ImGui::BeginMenu("Graphics API"))
             {
@@ -570,6 +580,7 @@ void EditorGUIManager::RenderEditorWindows()
     GameViewEditorWindow::DrawMaximized();
     ObjectPicker::Draw();
     ProjectSettingsWindow::Draw();
+    PreferencesWindow::Draw();
 }
 
 void EditorGUIManager::RenderAfter()
@@ -594,6 +605,14 @@ void EditorGUIManager::OnResize(Vec2 size)
 void EditorGUIManager::RegisterWindow(EditorWindow* window)
 {
     m_pEditorWindows.push_back(window);
+}
+
+EditorWindow* EditorGUIManager::FindWindow(const std::string& title) const
+{
+    for (EditorWindow* w : m_pEditorWindows)
+        if (w->GetTitle() == title)
+            return w;
+    return nullptr;
 }
 
 void EditorGUIManager::RegisterEditorDialog(EditorDialog* dialog)

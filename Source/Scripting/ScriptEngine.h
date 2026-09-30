@@ -58,8 +58,14 @@ namespace ScriptEngine
 	std::wstring CreateScriptAsset(const std::wstring& directory, const std::string& className = "NewMonoBehaviourScript");
 	// .cs 이름을 바꾼 뒤: 파일 안의 클래스 이름도 새 이름으로 (Unity 가 새 스크립트를 이름 지을 때와 같음)
 	void RenameScriptClass(const std::wstring& newPath, const std::string& oldClassName);
-	// 코드 편집기에서 열기 (VS Code 가 있으면 파일:줄, 없으면 기본 프로그램)
+	// 코드 편집기에서 열기 (Preferences > External Tools 에서 고른 편집기, 기본은 내장 NOVA Code)
 	void OpenInCodeEditor(const std::wstring& file, int line = 0);
+	// Assembly-CSharp.csproj 다시 쓰기 (Preferences 의 Regenerate project files)
+	void RegenerateProjectFiles();
+	// 엔진 C# API 목록 JSON (NOVA Code 자동 완성용). 스크립팅이 없으면 빈 문자열
+	std::string GetApiJson();
+	// Assets 아래의 .cs 파일들 (절대 경로, 정렬)
+	std::vector<std::wstring> ScriptFilePaths();
 
 	// ---- 관리 코드 호출 (CSharpScript 가 쓴다) ----
 	void* CreateInstance(const std::string& className, uint64_t gameObjectId, void* nativeComponent, const std::string& fieldsJson, bool enabled);

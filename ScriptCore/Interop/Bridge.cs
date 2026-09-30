@@ -187,6 +187,67 @@ namespace NovaEngine.Interop
             }
         }
 
+        // 엔진 C# API 목록 (NOVA Code 자동 완성): NovaEngine 네임스페이스의 공개 타입과 멤버(이름, 타입)
+        [UnmanagedCallersOnly]
+        public static IntPtr GetApiJson()
+        {
+            try
+            {
+                const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.FlattenHierarchy;
+                using var ms = new MemoryStream();
+                using (var w = new Utf8JsonWriter(ms))
+                {
+                    w.WriteStartObject();
+                    w.WriteStartArray("types");
+                    foreach (Type t in typeof(Bridge).Assembly.GetExportedTypes().OrderBy(t => t.Name))
+                    {
+                        if (t.Namespace != "NovaEngine" || t.IsNested || t.Name.EndsWith("Attribute")) continue;
+                        w.WriteStartObject();
+                        w.WriteString("name", TypeName(t));
+                        w.WriteStartArray("members");
+                        var seen = new HashSet<string>();
+                        foreach (MemberInfo mi in t.GetMembers(flags))
+                        {
+                            string type;
+                            switch (mi)
+                            {
+                                case FieldInfo f: type = TypeName(f.FieldType); break;
+                                case PropertyInfo p: type = TypeName(p.PropertyType); break;
+                                case MethodInfo m when !m.IsSpecialName: type = TypeName(m.ReturnType); break;
+                                case EventInfo e: type = TypeName(e.EventHandlerType); break;
+                                default: continue;
+                            }
+                            if (mi.DeclaringType == typeof(object) || !seen.Add(mi.Name)) continue;
+                            w.WriteStartObject();
+                            w.WriteString("n", mi.Name);
+                            w.WriteString("t", type);
+                            w.WriteEndObject();
+                        }
+                        w.WriteEndArray();
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
+                    w.WriteEndObject();
+                }
+                return Marshal.StringToCoTaskMemUTF8(Encoding.UTF8.GetString(ms.ToArray()));
+            }
+            catch (Exception e)
+            {
+                LogException(e);
+                return IntPtr.Zero;
+            }
+        }
+
+        // List`1 → List, Vector3[] → Vector3 (자동 완성에서 '.' 뒤 멤버를 찾을 이름)
+        static string TypeName(Type t)
+        {
+            if (t == null) return "";
+            if (t.IsArray || t.IsByRef) return TypeName(t.GetElementType());
+            string n = t.Name;
+            int tick = n.IndexOf('`');
+            return tick >= 0 ? n.Substring(0, tick) : n;
+        }
+
         [UnmanagedCallersOnly]
         public static IntPtr CreateInstance(byte* classNameUtf8, ulong gameObjectId, IntPtr nativeComponent, byte* fieldsJsonUtf8, int enabled)
         {

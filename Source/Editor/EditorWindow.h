@@ -24,6 +24,10 @@ public:
 	string GetImGuiName() const;
 
 protected:
+	// ImGui::Begin 직전 (SetNextWindowSize/DockID/Focus 등을 창이 직접 정할 때)
+	virtual void BeforeBegin() {}
+	virtual ImGuiWindowFlags ExtraWindowFlags() const { return 0; }
+	virtual ImVec2 WindowPaddingOverride() const { return ImVec2(-1.0f, -1.0f); }   // x < 0 = 기본 여백
 	virtual void PushStyle() {}
 	virtual void OnRender() {}
 	virtual void PopStyle() {}

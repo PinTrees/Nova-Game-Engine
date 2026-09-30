@@ -3,6 +3,7 @@
 #include <mutex>
 #include <cstdarg>
 #include <crtdbg.h>
+#include <share.h>
 
 namespace
 {
@@ -44,7 +45,8 @@ namespace EditorLog
 		const std::wstring prev = std::filesystem::absolute(L"Logs\\Editor-prev.log", ec).wstring();
 		std::filesystem::remove(prev, ec);
 		std::filesystem::rename(s_Path, prev, ec);
-		_wfopen_s(&s_File, s_Path.c_str(), L"w, ccs=UTF-8");
+		// 다른 프로그램(메모장, 진단 스크립트)이 실행 중에도 읽을 수 있게 쓰기만 막는다 (_wfopen_s 는 읽기도 막음)
+		s_File = _wfsopen(s_Path.c_str(), L"w, ccs=UTF-8", _SH_DENYWR);
 		s_Start = ::GetTickCount64();
 		s_MainThread = ::GetCurrentThreadId();
 		_CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
