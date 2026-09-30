@@ -8,6 +8,7 @@
 //  builtin:Smoke             뭉게뭉게한 연기 덩어리
 //  builtin:Spark             가느다란 십자 반짝임
 //  builtin:Flame-Sheet       4x4 불꽃 플립북 (Texture Sheet Animation 4 x 4 로 쓴다)
+//  builtin:Trail             꼬리용: 폭 방향 가운데가 밝은 띠 (Trails 기본)
 namespace ParticleTextures
 {
 	ID3D11ShaderResourceView* Get(const std::string& path);

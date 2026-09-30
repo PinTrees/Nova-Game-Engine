@@ -6,7 +6,7 @@ namespace
 {
 	std::map<std::string, ComPtr<ID3D11ShaderResourceView>> s_Builtins;
 
-	const char* kNames[] = { "builtin:Default-Particle", "builtin:Glow", "builtin:Smoke", "builtin:Spark", "builtin:Flame-Sheet" };
+	const char* kNames[] = { "builtin:Default-Particle", "builtin:Glow", "builtin:Smoke", "builtin:Spark", "builtin:Flame-Sheet", "builtin:Trail" };
 
 	// 밉맵까지 만든다 (멀리 있는 작은 입자가 반짝이지 않게)
 	ComPtr<ID3D11ShaderResourceView> MakeTexture(const std::vector<uint32>& rgba, int w, int h)
@@ -142,6 +142,20 @@ namespace
 		return px;
 	}
 
+	// 꼬리: 길이 방향(u)은 그대로, 폭 방향(v)은 가운데가 밝고 가장자리로 부드럽게 사라진다
+	std::vector<uint32> TrailTex(int n)
+	{
+		std::vector<uint32> px(n * n);
+		for (int y = 0; y < n; ++y)
+			for (int x = 0; x < n; ++x)
+			{
+				const float v = fabsf((y + 0.5f) / n * 2.0f - 1.0f);
+				const float a = 1.0f - Smooth(0.25f, 1.0f, v);
+				px[y * n + x] = Pack(1, 1, 1, a);
+			}
+		return px;
+	}
+
 	// 4x4 프레임: 아래가 넓고 위로 갈수록 가늘어지는 불꽃 (프레임마다 노이즈를 위로 흘려 일렁임)
 	std::vector<uint32> FlameSheet(int frame)
 	{
@@ -183,6 +197,7 @@ namespace
 		s_Builtins["builtin:Smoke"] = MakeTexture(Smoke(128), 128, 128);
 		s_Builtins["builtin:Spark"] = MakeTexture(Spark(64), 64, 64);
 		s_Builtins["builtin:Flame-Sheet"] = MakeTexture(FlameSheet(64), 256, 256);
+		s_Builtins["builtin:Trail"] = MakeTexture(TrailTex(32), 32, 32);
 		EditorLog::Write("Particles", "builtin textures created (%zu)", s_Builtins.size());
 	}
 }

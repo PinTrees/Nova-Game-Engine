@@ -17,11 +17,21 @@ namespace
 		XMFLOAT4 UV;
 	};
 
+	// 꼬리 정점 (43. Particle.fx 의 TrailIn)
+	struct TrailVertex
+	{
+		XMFLOAT3 Pos;
+		XMFLOAT2 UV;
+		XMFLOAT4 Color;
+	};
+
 	struct Batch
 	{
 		ParticleSystem* System;
 		UINT Start;
 		UINT Count;
+		UINT TrailStart = 0;
+		UINT TrailCount = 0;   // 정점 수 (삼각형 목록)
 		float Distance;
 	};
 
@@ -31,6 +41,10 @@ namespace
 	ComPtr<ID3D11Buffer> s_Buffer;
 	UINT s_Capacity = 0;
 	std::vector<Instance> s_Instances;
+	ComPtr<ID3D11InputLayout> s_TrailLayout;
+	ComPtr<ID3D11Buffer> s_TrailBuffer;
+	UINT s_TrailCapacity = 0;
+	std::vector<TrailVertex> s_TrailVertices;
 	int s_LastDrawCalls = 0;
 	int s_LastParticles = 0;
 
@@ -64,7 +78,80 @@ namespace
 			EditorLog::Write("Particles", "particle input layout failed");
 			return false;
 		}
+		D3DX11_PASS_DESC trailPass = {};
+		s_Effect->GetFX()->GetTechniqueByName("TrailAlphaTech")->GetPassByIndex(0)->GetDesc(&trailPass);
+		const D3D11_INPUT_ELEMENT_DESC trailDesc[] = {
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		};
+		if (FAILED(device->CreateInputLayout(trailDesc, _countof(trailDesc), trailPass.pIAInputSignature, trailPass.IAInputSignatureSize, s_TrailLayout.GetAddressOf())))
+			EditorLog::Write("Particles", "trail input layout failed - trails are not drawn");
 		return true;
+	}
+
+	bool EnsureTrailBuffer(UINT count)
+	{
+		if (count <= s_TrailCapacity && s_TrailBuffer)
+			return true;
+		s_TrailCapacity = (std::max)(count, (std::max)(s_TrailCapacity * 2u, 4096u));
+		D3D11_BUFFER_DESC bd = {};
+		bd.ByteWidth = s_TrailCapacity * sizeof(TrailVertex);
+		bd.Usage = D3D11_USAGE_DYNAMIC;
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		s_TrailBuffer.Reset();
+		return SUCCEEDED(Application::GetI()->GetDevice()->CreateBuffer(&bd, nullptr, s_TrailBuffer.GetAddressOf()));
+	}
+
+	// 한 시스템의 꼬리를 카메라를 향한 띠(삼각형 목록)로. 머리(입자 위치)에서 꼬리 끝으로 u = 0 → 1
+	void BuildTrails(ParticleSystem* ps, const Matrix& toWorld, float sizeScale, const Vec3& camPos)
+	{
+		const bool world = ps->TrailsInWorld();
+		std::vector<Vec3> pts;
+		for (const ParticleSystem::Trail& tr : ps->Trails())
+		{
+			if (!tr.Used || tr.Points.empty())
+				continue;
+			pts.clear();
+			auto toW = [&](const Vec3& p) { return world ? p : Vec3::Transform(p, toWorld); };
+			pts.push_back(toW(tr.Head));
+			for (int i = (int)tr.Points.size() - 1; i >= 0; --i)
+			{
+				const Vec3 p = toW(tr.Points[i].Position);
+				if ((p - pts.back()).LengthSquared() > 1e-8f)
+					pts.push_back(p);
+			}
+			if (pts.size() < 2)
+				continue;
+			const int n = (int)pts.size();
+			const float width = tr.Width * (world ? 1.0f : sizeScale);
+			std::vector<Vec3> left(n), right(n);
+			std::vector<XMFLOAT4> colors(n);
+			for (int i = 0; i < n; ++i)
+			{
+				const float u = (float)i / (n - 1);
+				Vec3 dir = pts[(std::min)(i + 1, n - 1)] - pts[(std::max)(i - 1, 0)];
+				Vec3 side = dir.Cross(camPos - pts[i]);
+				if (side.LengthSquared() < 1e-12f)
+					side = Vec3(0, 1, 0).Cross(dir);
+				side.Normalize();
+				const float w = (std::max)(0.0f, width * ps->TrailWidthOverTrail.Evaluate(u, 0.5f)) * 0.5f;
+				left[i] = pts[i] - side * w;
+				right[i] = pts[i] + side * w;
+				const Vec4 c = ps->TrailColorOverTrail.Evaluate(u, 0.5f);
+				colors[i] = XMFLOAT4(tr.Color.x * c.x, tr.Color.y * c.y, tr.Color.z * c.z, tr.Color.w * c.w);
+			}
+			for (int i = 0; i + 1 < n; ++i)
+			{
+				const float u0 = (float)i / (n - 1), u1 = (float)(i + 1) / (n - 1);
+				const TrailVertex a{ XMFLOAT3(left[i].x, left[i].y, left[i].z), XMFLOAT2(u0, 0), colors[i] };
+				const TrailVertex b{ XMFLOAT3(right[i].x, right[i].y, right[i].z), XMFLOAT2(u0, 1), colors[i] };
+				const TrailVertex c{ XMFLOAT3(left[i + 1].x, left[i + 1].y, left[i + 1].z), XMFLOAT2(u1, 0), colors[i + 1] };
+				const TrailVertex d{ XMFLOAT3(right[i + 1].x, right[i + 1].y, right[i + 1].z), XMFLOAT2(u1, 1), colors[i + 1] };
+				s_TrailVertices.insert(s_TrailVertices.end(), { a, b, c, b, d, c });
+			}
+		}
 	}
 
 	bool EnsureBuffer(UINT count)
@@ -106,9 +193,11 @@ namespace ParticleRenderer
 
 		std::vector<Batch> batches;
 		s_Instances.clear();
+		s_TrailVertices.clear();
 		for (ParticleSystem* ps : ParticleSystem::All())
 		{
-			if (ps->ParticleCount() == 0 || !ps->RendererEnabled || !ps->ActiveInHierarchy())
+			// 입자가 없어도 남은 꼬리(Die with Particles 꺼짐)는 그린다
+			if ((ps->ParticleCount() == 0 && ps->Trails().empty()) || !ps->RendererEnabled || !ps->ActiveInHierarchy())
 				continue;
 			const Matrix toWorld = ps->SimulationToWorld();
 			// Local 공간: 오브젝트 크기도 입자 크기에 곱한다 (Unity 의 Scaling Mode = Local 과 비슷하게)
@@ -179,11 +268,16 @@ namespace ParticleRenderer
 				s_Instances.push_back(inst);
 				++b.Count;
 			}
-			if (b.Count > 0)
+			b.TrailStart = (UINT)s_TrailVertices.size();
+			if (!ps->Trails().empty())
+				BuildTrails(ps, toWorld, sizeScale, camPos);
+			b.TrailCount = (UINT)s_TrailVertices.size() - b.TrailStart;
+			if (b.Count > 0 || b.TrailCount > 0)
 				batches.push_back(b);
 		}
-		if (batches.empty() || !Init() || !EnsureBuffer((UINT)s_Instances.size()))
+		if (batches.empty() || !Init() || !EnsureBuffer((UINT)(std::max)((size_t)1, s_Instances.size())))
 			return;
+		const bool drawTrails = !s_TrailVertices.empty() && s_TrailLayout && EnsureTrailBuffer((UINT)s_TrailVertices.size());
 
 		// 먼 시스템부터 (투명 물체끼리의 순서)
 		std::stable_sort(batches.begin(), batches.end(), [](const Batch& a, const Batch& b) { return a.Distance > b.Distance; });
@@ -194,6 +288,11 @@ namespace ParticleRenderer
 			return;
 		memcpy(mapped.pData, s_Instances.data(), s_Instances.size() * sizeof(Instance));
 		ctx->Unmap(s_Buffer.Get(), 0);
+		if (drawTrails && SUCCEEDED(ctx->Map(s_TrailBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+		{
+			memcpy(mapped.pData, s_TrailVertices.data(), s_TrailVertices.size() * sizeof(TrailVertex));
+			ctx->Unmap(s_TrailBuffer.Get(), 0);
+		}
 
 		ID3D11RenderTargetView* rtvs[1] = { rtv };
 		ctx->OMSetRenderTargets(1, rtvs, dsv);
@@ -216,10 +315,30 @@ namespace ParticleRenderer
 		ID3DX11EffectScalarVariable* lengthVar = fx->GetVariableByName("gLengthScale")->AsScalar();
 		ID3DX11EffectPass* alphaPass = fx->GetTechniqueByName("AlphaTech")->GetPassByIndex(0);
 		ID3DX11EffectPass* addPass = fx->GetTechniqueByName("AdditiveTech")->GetPassByIndex(0);
+		ID3DX11EffectPass* trailAlphaPass = fx->GetTechniqueByName("TrailAlphaTech")->GetPassByIndex(0);
+		ID3DX11EffectPass* trailAddPass = fx->GetTechniqueByName("TrailAdditiveTech")->GetPassByIndex(0);
 
 		for (const Batch& b : batches)
 		{
 			ParticleSystem* ps = b.System;
+			// 꼬리 먼저 (입자가 꼬리 위에 보이도록)
+			if (drawTrails && b.TrailCount > 0)
+			{
+				const UINT tstride = sizeof(TrailVertex), toffset = 0;
+				ID3D11Buffer* tvb = s_TrailBuffer.Get();
+				ctx->IASetInputLayout(s_TrailLayout.Get());
+				ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				ctx->IASetVertexBuffers(0, 1, &tvb, &tstride, &toffset);
+				texVar->SetResource(ParticleTextures::Get(ps->TrailTexture));
+				(ps->Blend == ParticleSystem::BlendMode::Additive ? trailAddPass : trailAlphaPass)->Apply(0, ctx);
+				ctx->Draw(b.TrailCount, b.TrailStart);
+				++s_LastDrawCalls;
+				ctx->IASetInputLayout(s_Layout.Get());
+				ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+				ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+			}
+			if (b.Count == 0)
+				continue;
 			texVar->SetResource(ParticleTextures::Get(ps->Texture));
 			modeVar->SetInt((int)ps->Render);
 			speedVar->SetFloat(ps->SpeedScale);

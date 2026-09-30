@@ -5,6 +5,7 @@
 #include "UnityGUI.h"
 #include "ObjectPicker.h"
 #include "UISprites.h"
+#include "GameObjectFactory.h"
 
 using namespace ParticleSystemEditor;
 
@@ -22,6 +23,274 @@ namespace
 	bool EnumRow(const char* label, int* value, const char* const* items, int count, int indent = 0)
 	{
 		return UnityGUI::Dropdown(label, value, items, count, indent);
+	}
+
+	// 텍스처 [ 이름 ⊙ ] (⊙ = 선택 창, Project 의 이미지를 끌어 놓기). 바뀌면 true
+	bool TextureField(const char* label, std::string* value, const std::string& key)
+	{
+		bool changed = false;
+		const std::string text = value->empty() ? "None (Texture 2D)" : ParticleTextures::DisplayName(*value);
+		ImVec2 fmin, fmax;
+		const int pressed = UnityGUI::ObjectFieldButtons(label, text.c_str(), "texture", nullptr, 0, &fmin, &fmax);
+		const ImVec2 after = ImGui::GetCursorScreenPos();
+		if (pressed == -1)
+		{
+			ObjectPicker::Options opt;
+			opt.TypeName = "Texture";
+			opt.Icon = "texture";
+			opt.Items = ParticleTextures::FindAll();
+			opt.Current = *value;
+			opt.Describe = [](const std::string& p) {
+				return ParticleTextures::IsBuiltin(p) ? std::string("Built-in particle texture") : p;
+			};
+			ObjectPicker::Open(key, std::move(opt));
+		}
+		std::string picked;
+		if (ObjectPicker::Poll(key, picked))
+		{
+			*value = picked;
+			changed = true;
+		}
+		ImGui::PushID(label);
+		ImGui::SetCursorScreenPos(fmin);
+		ImGui::InvisibleButton("##texDrop", ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE"))
+			{
+				std::string dropped(static_cast<const char*>(payload->Data));
+				const std::string root = wstring_to_string(PathManager::GetI()->GetContentPathW());
+				if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0)
+					dropped = dropped.substr(root.size());
+				if (UISprites::IsImagePath(dropped))
+				{
+					*value = dropped;
+					changed = true;
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::PopID();
+		ImGui::SetCursorScreenPos(after);
+		return changed;
+	}
+}
+namespace
+{
+	const ImU32 kDim = IM_COL32(140, 140, 140, 255);
+
+	// 오브젝트 칸 모양 (이름 + 아이콘). 반환: GAME_OBJECT 를 끌어 놓았으면 그 오브젝트
+	GameObject* ObjectSlot(const char* id, const char* text, ImVec2 pos, float width, bool missing)
+	{
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImVec2 b(pos.x + width, pos.y + UnityGUI::kRowHeight);
+		dl->AddRectFilled(pos, b, IM_COL32(42, 42, 42, 255), 3.0f);
+		dl->AddRect(pos, b, IM_COL32(26, 26, 26, 255), 3.0f);
+		UnityGUI::DrawIcon(dl, "gameobject", ImVec2(pos.x + 3.0f, pos.y + 1.0f), 16.0f);
+		dl->AddText(ImVec2(pos.x + 22.0f, pos.y + 2.0f), missing ? IM_COL32(220, 110, 110, 255) : IM_COL32(230, 230, 230, 255), text);
+		ImGui::SetCursorScreenPos(pos);
+		ImGui::InvisibleButton(id, ImVec2(width, UnityGUI::kRowHeight));
+		GameObject* dropped = nullptr;
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* p = ImGui::AcceptDragDropPayload("GAME_OBJECT"))
+				dropped = *static_cast<GameObject* const*>(p->Data);
+			ImGui::EndDragDropTarget();
+		}
+		return dropped;
+	}
+
+	bool RemoveButton(const char* id, ImVec2 pos)
+	{
+		ImGui::SetCursorScreenPos(pos);
+		const bool clicked = ImGui::InvisibleButton(id, ImVec2(16, UnityGUI::kRowHeight));
+		ImGui::GetWindowDrawList()->AddText(ImVec2(pos.x + 4.0f, pos.y + 1.0f), ImGui::IsItemHovered() ? IM_COL32_WHITE : kDim, "x");
+		return clicked;
+	}
+
+	// 새 자식 GameObject (부모 원점, 월드 회전 없음)
+	GameObject* CreateChild(GameObject* parent, const std::string& name)
+	{
+		GameObject* go = GameObjectFactory::CreateEmpty(name);
+		go->SetParent(parent, false);
+		go->GetTransform()->SetRotation(Quaternion::Identity);
+		return go;
+	}
+
+	void DrawCollision(ParticleSystem& ps)
+	{
+		if (!ModuleHeader("##collision", "Collision", &ps.CollisionEnabled))
+			return;
+		static const char* kTypes[] = { "Planes", "World" };
+		int type = (int)ps.CollisionMode;
+		if (UnityGUI::Dropdown("Type", &type, kTypes, 2))
+			ps.CollisionMode = (ParticleSystem::CollisionType)type;
+		if (ps.CollisionMode == ParticleSystem::CollisionType::Planes)
+		{
+			UnityGUI::Label("Planes");
+			int remove = -1;
+			for (int i = 0; i < (int)ps.CollisionPlanes.size(); ++i)
+			{
+				ImGui::PushID(i);
+				UnityGUI::FieldRow row = UnityGUI::BeginFieldRow(("  Plane " + std::to_string(i)).c_str(), 1);
+				GameObject* go = ps.FindSceneObject(ps.CollisionPlanes[i]);
+				if (GameObject* dropped = ObjectSlot("##plane", go ? go->GetName().c_str() : "Missing (Transform)", ImVec2(row.fieldX, row.p.y), row.fieldW - 20.0f, go == nullptr))
+					ps.CollisionPlanes[i] = dropped->GetFileID();
+				if (RemoveButton("##rm", ImVec2(row.fieldX + row.fieldW - 16.0f, row.p.y)))
+					remove = i;
+				UnityGUI::EndFieldRow(row);
+				ImGui::PopID();
+			}
+			if (remove >= 0)
+				ps.CollisionPlanes.erase(ps.CollisionPlanes.begin() + remove);
+			bool plus = false, minus = false;
+			UnityGUI::PlusMinus(&plus, &minus);
+			if (plus && ps.GetGameObject())
+			{
+				// Unity 처럼 + 는 새 평면 오브젝트를 자식으로 만든다 (위쪽 = 월드 +Y)
+				GameObject* plane = CreateChild(ps.GetGameObject(), "Collision Plane " + std::to_string(ps.CollisionPlanes.size()));
+				ps.CollisionPlanes.push_back(plane->GetFileID());
+			}
+			if (minus && !ps.CollisionPlanes.empty())
+				ps.CollisionPlanes.pop_back();
+			if (UnityGUI::Float("Visualization Size", &ps.CollisionPlaneGizmoSize))
+				ps.CollisionPlaneGizmoSize = (std::max)(0.1f, ps.CollisionPlaneGizmoSize);
+		}
+		else
+			UnityGUI::HelpBox("World: Collider 가 있는 물체에 부딪힙니다 (물리가 도는 Play 모드에서만).", false);
+		CurveField("Dampen", &ps.CollisionDampen);
+		CurveField("Bounce", &ps.CollisionBounce);
+		CurveField("Lifetime Loss", &ps.CollisionLifetimeLoss);
+		UnityGUI::Float("Min Kill Speed", &ps.CollisionMinKillSpeed);
+		UnityGUI::Float("Max Kill Speed", &ps.CollisionMaxKillSpeed);
+		if (UnityGUI::Float("Radius Scale", &ps.CollisionRadiusScale))
+			ps.CollisionRadiusScale = (std::max)(0.0f, ps.CollisionRadiusScale);
+		ModuleEnd();
+	}
+
+	void DrawSubEmitters(ParticleSystem& ps)
+	{
+		if (!ModuleHeader("##subEmitters", "Sub Emitters", &ps.SubEmittersEnabled))
+			return;
+		// 대상 후보: 자식(손자 포함)의 Particle System
+		std::vector<ParticleSystem*> children;
+		ps.CollectHierarchy(children);
+		children.erase(children.begin());
+		static const char* kTypes[] = { "Birth", "Collision", "Death" };
+		int remove = -1;
+		for (int i = 0; i < (int)ps.SubEmitters.size(); ++i)
+		{
+			ParticleSystem::SubEmitter& s = ps.SubEmitters[i];
+			ImGui::PushID(i);
+			if (i > 0)
+				UnityGUI::Spacing(4.0f);
+			int type = (int)s.Type;
+			if (UnityGUI::Dropdown("Type", &type, kTypes, 3))
+				s.Type = (ParticleSystem::SubEmitterType)type;
+			// Emitter: 자식 Particle System 목록
+			{
+				UnityGUI::FieldRow row = UnityGUI::BeginFieldRow("Emitter");
+				GameObject* go = ps.FindSceneObject(s.Target);
+				const std::string text = go ? go->GetName() : "None (Particle System)";
+				ImGui::SetCursorScreenPos(ImVec2(row.fieldX, row.p.y));
+				ImGui::SetNextItemWidth(row.fieldW - 20.0f);
+				if (ImGui::BeginCombo("##emitter", text.c_str()))
+				{
+					for (ParticleSystem* c : children)
+						if (ImGui::Selectable(c->GetGameObject()->GetName().c_str(), c->GetGameObject() == go))
+							s.Target = c->GetGameObject()->GetFileID();
+					if (children.empty())
+						ImGui::TextDisabled("(no child Particle System)");
+					ImGui::EndCombo();
+				}
+				if (RemoveButton("##rm", ImVec2(row.fieldX + row.fieldW - 16.0f, row.p.y)))
+					remove = i;
+				UnityGUI::EndFieldRow(row);
+			}
+			// Inherit: Color / Size / Rotation (여러 개)
+			{
+				UnityGUI::FieldRow row = UnityGUI::BeginFieldRow("Inherit");
+				std::string text;
+				if (s.Inherit == 0) text = "Nothing";
+				else
+				{
+					if (s.Inherit & ParticleSystem::InheritColor) text += "Color ";
+					if (s.Inherit & ParticleSystem::InheritSize) text += "Size ";
+					if (s.Inherit & ParticleSystem::InheritRotation) text += "Rotation";
+				}
+				ImGui::SetCursorScreenPos(ImVec2(row.fieldX, row.p.y));
+				ImGui::SetNextItemWidth(row.fieldW);
+				if (ImGui::BeginCombo("##inherit", text.c_str()))
+				{
+					auto flag = [&](const char* name, int bit) {
+						bool on = (s.Inherit & bit) != 0;
+						if (ImGui::MenuItem(name, nullptr, on, true))
+							s.Inherit ^= bit;
+					};
+					flag("Color", ParticleSystem::InheritColor);
+					flag("Size", ParticleSystem::InheritSize);
+					flag("Rotation", ParticleSystem::InheritRotation);
+					ImGui::EndCombo();
+				}
+				UnityGUI::EndFieldRow(row);
+			}
+			if (UnityGUI::Slider("Emit Probability", &s.Probability, 0.0f, 1.0f))
+				s.Probability = std::clamp(s.Probability, 0.0f, 1.0f);
+			ImGui::PopID();
+		}
+		if (remove >= 0)
+			ps.SubEmitters.erase(ps.SubEmitters.begin() + remove);
+		bool plus = false, minus = false;
+		UnityGUI::PlusMinus(&plus, &minus);
+		if (plus && ps.GetGameObject())
+		{
+			// + : 불꽃처럼 한 번에 터지는 자식 Particle System 을 만들어 Death 로 연결
+			GameObject* child = GameObjectFactory::CreateEmpty("SubEmitter" + std::to_string(ps.SubEmitters.size()));
+			ParticleSystem* sub = child->AddComponent<ParticleSystem>();
+			sub->PlayOnAwake = false;
+			sub->Looping = false;
+			sub->Duration = 1.0f;
+			sub->RateOverTime = MinMaxCurve(0.0f);
+			sub->Bursts = { ParticleSystem::Burst() };
+			sub->StartLifetime.Mode = ParticleCurveMode::TwoConstants; sub->StartLifetime.ConstantMin = 0.5f; sub->StartLifetime.ConstantMax = 1.2f;
+			sub->StartSpeed.Mode = ParticleCurveMode::TwoConstants; sub->StartSpeed.ConstantMin = 2.0f; sub->StartSpeed.ConstantMax = 5.0f;
+			sub->StartSize.Mode = ParticleCurveMode::TwoConstants; sub->StartSize.ConstantMin = 0.05f; sub->StartSize.ConstantMax = 0.15f;
+			sub->GravityModifier = MinMaxCurve(0.5f);
+			sub->SimulationSpace = 1;
+			sub->Shape = ParticleSystem::ShapeType::Sphere;
+			sub->ShapeRadius = 0.1f;
+			sub->Texture = "builtin:Glow";
+			sub->Blend = ParticleSystem::BlendMode::Additive;
+			sub->ColorEnabled = true;
+			child->SetParent(ps.GetGameObject(), false);
+			ParticleSystem::SubEmitter s;
+			s.Target = child->GetFileID();
+			ps.SubEmitters.push_back(s);
+		}
+		if (minus && !ps.SubEmitters.empty())
+			ps.SubEmitters.pop_back();
+		ModuleEnd();
+	}
+
+	void DrawTrails(ParticleSystem& ps)
+	{
+		if (!ModuleHeader("##trails", "Trails", &ps.TrailsEnabled))
+			return;
+		UnityGUI::ValueLabel("Mode", "Particles");
+		if (UnityGUI::Slider("Ratio", &ps.TrailRatio, 0.0f, 1.0f))
+			ps.TrailRatio = std::clamp(ps.TrailRatio, 0.0f, 1.0f);
+		CurveField("Lifetime", &ps.TrailLifetime, 0, false);
+		if (UnityGUI::Float("Minimum Vertex Distance", &ps.TrailMinVertexDistance))
+			ps.TrailMinVertexDistance = (std::max)(0.001f, ps.TrailMinVertexDistance);
+		UnityGUI::Toggle("World Space", &ps.TrailWorldSpace);
+		UnityGUI::Toggle("Die with Particles", &ps.TrailDieWithParticles);
+		UnityGUI::ValueLabel("Texture Mode", "Stretch");
+		UnityGUI::Toggle("Size affects Width", &ps.TrailSizeAffectsWidth);
+		UnityGUI::Toggle("Inherit Particle Color", &ps.TrailInheritParticleColor);
+		GradientField("Color over Lifetime", &ps.TrailColorOverLifetime);
+		CurveField("Width over Trail", &ps.TrailWidthOverTrail);
+		GradientField("Color over Trail", &ps.TrailColorOverTrail);
+		ModuleEnd();
 	}
 }
 
@@ -277,9 +546,9 @@ void ParticleSystem::DrawModules()
 		ModuleEnd();
 	}
 
-	ModuleHeader("##collision", "Collision", nullptr, false, false);
+	DrawCollision(*this);
 	ModuleHeader("##triggers", "Triggers", nullptr, false, false);
-	ModuleHeader("##subEmitters", "Sub Emitters", nullptr, false, false);
+	DrawSubEmitters(*this);
 
 	// ---- Texture Sheet Animation
 	if (ModuleHeader("##sheet", "Texture Sheet Animation", &SheetEnabled))
@@ -307,7 +576,7 @@ void ParticleSystem::DrawModules()
 	}
 
 	ModuleHeader("##lights", "Lights", nullptr, false, false);
-	ModuleHeader("##trails", "Trails", nullptr, false, false);
+	DrawTrails(*this);
 	ModuleHeader("##customData", "Custom Data", nullptr, false, false);
 
 	// ---- Renderer
@@ -322,53 +591,14 @@ void ParticleSystem::DrawModules()
 			UnityGUI::Float("Speed Scale", &SpeedScale, 1);
 			UnityGUI::Float("Length Scale", &LengthScale, 1);
 		}
-		// Texture [ 이름 ⊙ ] (⊙ = 선택 창, Project 의 이미지를 끌어 놓기)
+		if (TextureField("Texture", &Texture, "particleTex:" + std::to_string((uintptr_t)this)) && Texture == "builtin:Flame-Sheet")
 		{
-			const std::string text = Texture.empty() ? "None (Texture 2D)" : ParticleTextures::DisplayName(Texture);
-			ImVec2 fmin, fmax;
-			const int pressed = UnityGUI::ObjectFieldButtons("Texture", text.c_str(), "texture", nullptr, 0, &fmin, &fmax);
-			const ImVec2 after = ImGui::GetCursorScreenPos();
-			const std::string key = "particleTex:" + std::to_string((uintptr_t)this);
-			if (pressed == -1)
-			{
-				ObjectPicker::Options opt;
-				opt.TypeName = "Texture";
-				opt.Icon = "texture";
-				opt.Items = ParticleTextures::FindAll();
-				opt.Current = Texture;
-				opt.Describe = [](const std::string& p) {
-					return ParticleTextures::IsBuiltin(p) ? std::string("Built-in particle texture") : p;
-				};
-				ObjectPicker::Open(key, std::move(opt));
-			}
-			std::string picked;
-			if (ObjectPicker::Poll(key, picked))
-			{
-				Texture = picked;
-				// 불꽃 플립북을 고르면 4 x 4 칸으로 (Unity 에서 시트 텍스처를 쓸 때 하는 설정)
-				if (Texture == "builtin:Flame-Sheet")
-				{
-					SheetEnabled = true;
-					SheetTilesX = SheetTilesY = 4;
-				}
-			}
-			ImGui::SetCursorScreenPos(fmin);
-			ImGui::InvisibleButton("##texDrop", ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE"))
-				{
-					std::string dropped(static_cast<const char*>(payload->Data));
-					const std::string root = wstring_to_string(PathManager::GetI()->GetContentPathW());
-					if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0)
-						dropped = dropped.substr(root.size());
-					if (UISprites::IsImagePath(dropped))
-						Texture = dropped;
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::SetCursorScreenPos(after);
+			// 불꽃 플립북을 고르면 4 x 4 칸으로 (Unity 에서 시트 텍스처를 쓸 때 하는 설정)
+			SheetEnabled = true;
+			SheetTilesX = SheetTilesY = 4;
 		}
+		if (TrailsEnabled)
+			TextureField("Trail Texture", &TrailTexture, "particleTrailTex:" + std::to_string((uintptr_t)this));
 		static const char* kBlend[] = { "Alpha Blended", "Additive" };
 		int blend = (int)Blend;
 		if (EnumRow("Blend Mode", &blend, kBlend, 2))

@@ -85,6 +85,14 @@ namespace NovaEngine
         public EmissionModule emission => new EmissionModule(this);
         public ShapeModule shape => new ShapeModule(this);
         public ColorOverLifetimeModule colorOverLifetime => new ColorOverLifetimeModule(this);
+        public TrailModule trails => new TrailModule(this);
+        public CollisionModule collision => new CollisionModule(this);
+        public SubEmittersModule subEmitters => new SubEmittersModule(this);
+
+        // 켜기/끄기만 (나머지 값은 Inspector)
+        public struct TrailModule { readonly ParticleSystem s; internal TrailModule(ParticleSystem p) { s = p; } public bool enabled { get => s.F(21) != 0f; set => s.F(21, value ? 1f : 0f); } }
+        public struct CollisionModule { readonly ParticleSystem s; internal CollisionModule(ParticleSystem p) { s = p; } public bool enabled { get => s.F(22) != 0f; set => s.F(22, value ? 1f : 0f); } }
+        public struct SubEmittersModule { readonly ParticleSystem s; internal SubEmittersModule(ParticleSystem p) { s = p; } public bool enabled { get => s.F(23) != 0f; set => s.F(23, value ? 1f : 0f); } }
 
         public struct MainModule
         {

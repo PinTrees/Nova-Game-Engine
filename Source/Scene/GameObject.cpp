@@ -22,9 +22,28 @@ uint64 GameObject::NewFileID()
 
 void GameObject::RegenerateFileIDs()
 {
+	std::unordered_map<uint64, uint64> map;
+	RegenerateFileIDs(map);
+	RemapFileIDs(map);
+}
+
+void GameObject::RegenerateFileIDs(std::unordered_map<uint64, uint64>& map)
+{
+	const uint64 old = m_FileID;
 	m_FileID = NewFileID();
+	map[old] = m_FileID;
 	for (GameObject* child : m_pChildGameObjects)
-		child->RegenerateFileIDs();
+		child->RegenerateFileIDs(map);
+}
+
+void GameObject::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	for (auto& c : m_Components)
+		c->RemapFileIDs(map);
+	for (auto& c : m_ComponentsToAdd)
+		c->RemapFileIDs(map);
+	for (GameObject* child : m_pChildGameObjects)
+		child->RemapFileIDs(map);
 }
 
 GameObject::GameObject()

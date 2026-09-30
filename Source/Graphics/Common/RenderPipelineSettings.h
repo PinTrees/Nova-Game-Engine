@@ -15,6 +15,9 @@ namespace RenderPipelineSettings
 
 	// 기본 프로파일이 없으면 모든 효과(기본값)를 담은 Assets/Settings/DefaultVolumeProfile.volumeprofile 을 만들어 지정한다
 	std::shared_ptr<VolumeProfile> EnsureDefaultVolumeProfile();
+	// 새 씬의 Global Volume 이 쓰는 프로파일 (Unity URP 의 SampleSceneProfile 처럼 Bloom 이 켜져 있다).
+	// Assets/Settings/SampleSceneProfile.volumeprofile 이 없으면 만든다. 경로를 돌려준다
+	std::string EnsureSampleSceneProfile();
 
 	void Reload();   // 프로젝트를 연 뒤 한 번 (파일에서 다시 읽기)
 }

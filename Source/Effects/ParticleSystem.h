@@ -17,6 +17,19 @@ public:
 	enum class SortMode { None = 0, ByDistance, OldestInFront, YoungestInFront };
 	enum class StopAction { None = 0, Disable, Destroy };
 
+	enum class SubEmitterType { Birth = 0, Collision, Death };
+	enum SubEmitterInherit { InheritNothing = 0, InheritColor = 1, InheritSize = 2, InheritRotation = 4 };
+	enum class CollisionType { Planes = 0, World };
+
+	// 하위 이미터: 대상 = 자식 GameObject 의 Particle System (fileID). 대상은 스스로 방출하지 않고 이 시스템의 사건 때만 뿜는다
+	struct SubEmitter
+	{
+		SubEmitterType Type = SubEmitterType::Death;
+		uint64 Target = 0;
+		int Inherit = InheritNothing;   // 비트 조합
+		float Probability = 1.0f;
+	};
+
 	struct Burst
 	{
 		float Time = 0.0f;
@@ -107,6 +120,22 @@ public:
 	float NoiseOctaveMultiplier = 0.5f;
 	float NoiseOctaveScale = 2.0f;
 
+	// Collision (Planes: 목록의 GameObject 위치·위쪽(+Y)이 평면, World: 물리 콜라이더 — Play 모드에서만)
+	bool CollisionEnabled = false;
+	CollisionType CollisionMode = CollisionType::Planes;
+	std::vector<uint64> CollisionPlanes;   // GameObject fileID
+	MinMaxCurve CollisionDampen = MinMaxCurve(0.0f);
+	MinMaxCurve CollisionBounce = MinMaxCurve(1.0f);
+	MinMaxCurve CollisionLifetimeLoss = MinMaxCurve(0.0f);
+	float CollisionMinKillSpeed = 0.0f;
+	float CollisionMaxKillSpeed = 10000.0f;
+	float CollisionRadiusScale = 1.0f;
+	float CollisionPlaneGizmoSize = 1.0f;   // Scene 뷰에 보이는 평면 격자 크기
+
+	// Sub Emitters
+	bool SubEmittersEnabled = false;
+	std::vector<SubEmitter> SubEmitters;
+
 	// Texture Sheet Animation
 	bool SheetEnabled = false;
 	int SheetTilesX = 1, SheetTilesY = 1;
@@ -116,6 +145,20 @@ public:
 	MinMaxCurve SheetFrameOverTime = MinMaxCurve::Curve(ParticleCurve::Linear(0.0f, 1.0f));
 	MinMaxCurve SheetStartFrame = MinMaxCurve(0.0f);
 	float SheetCycles = 1.0f;
+
+	// Trails (입자마다 꼬리: 지나온 위치를 이어 카메라를 향한 띠로)
+	bool TrailsEnabled = false;
+	float TrailRatio = 1.0f;                     // 꼬리를 가질 입자 비율
+	MinMaxCurve TrailLifetime = MinMaxCurve(1.0f);   // 입자 수명에 대한 비율
+	float TrailMinVertexDistance = 0.2f;
+	bool TrailWorldSpace = false;
+	bool TrailDieWithParticles = true;
+	bool TrailSizeAffectsWidth = true;
+	bool TrailInheritParticleColor = true;
+	MinMaxGradient TrailColorOverLifetime;
+	MinMaxCurve TrailWidthOverTrail = MinMaxCurve(1.0f);
+	MinMaxGradient TrailColorOverTrail;
+	std::string TrailTexture = "builtin:Trail";
 
 	// Renderer
 	bool RendererEnabled = true;
@@ -144,6 +187,21 @@ public:
 		float Random[4] = {};   // 입자마다 고정된 난수 (Random Between Two ... 용)
 		float SheetFrame = 0.0f;
 		int SheetRow = 0;
+		int Trail = -1;              // m_Trails 칸 (-1 = 꼬리 없음)
+		float BirthAccumulator = 0.0f;   // Birth 하위 이미터 방출 누적
+	};
+
+	// 꼬리: 점은 저장 공간(TrailWorld 면 월드, 아니면 시뮬레이션 공간), 머리는 입자의 현재 위치
+	struct TrailPoint { Vec3 Position; float Time; };
+	struct Trail
+	{
+		std::vector<TrailPoint> Points;   // 오래된 것부터
+		bool Used = false;
+		bool Orphan = false;              // 입자가 죽은 뒤 남은 꼬리 (Die with Particles 꺼짐)
+		float Lifetime = 1.0f;            // 초
+		float Width = 1.0f;
+		Vec4 Color = Vec4(1, 1, 1, 1);
+		Vec3 Head;                        // 마지막 머리 위치 (Orphan 일 때 사용)
 	};
 
 	ParticleSystem();
@@ -163,11 +221,22 @@ public:
 	bool IsPaused() const { return m_Paused; }
 	bool IsStopped() const { return !m_Playing && !m_Paused; }   // Unity: Stop 직후에도 true (남은 입자는 IsAlive)
 	bool IsEmitting() const { return m_Playing && m_Emitting; }
-	bool IsAlive() const { return m_Playing || !m_Particles.empty(); }
+	bool IsAlive() const { return m_Playing || !m_Particles.empty() || m_OrphanTrails > 0; }
 	int ParticleCount() const { return (int)m_Particles.size(); }
 	float GetTime() const { return m_Time; }
 	void SetTime(float t) { m_Time = std::clamp(t, 0.0f, Duration); }
 	const std::vector<Particle>& Particles() const { return m_Particles; }
+	const std::vector<Trail>& Trails() const { return m_Trails; }
+	bool TrailsInWorld() const { return TrailWorldSpace || SimulationSpace == 1; }
+	float TotalTime() const { return m_TotalTime; }
+	// 하위 이미터로 쓰이는지 (부모 쪽 Particle System 의 Sub Emitters 목록에 있음) — 그러면 스스로 방출하지 않는다
+	bool IsSubEmitterTarget();
+	// 부모의 사건(탄생/충돌/소멸)으로 월드 위치에서 방출
+	void EmitFromParent(const Vec3& worldPosition, int count, const Vec4* color, float sizeScale, float rotation);
+	// Death / Collision 사건 때 뿜는 개수: Bursts 합 (없으면 Rate over Time 1초 분량)
+	int SubEmitterBurstCount();
+	// 기즈모·Inspector 용: 충돌 평면의 GameObject
+	GameObject* FindSceneObject(uint64 fileID);
 
 	// dt 초만큼 진행 (SimulationSpeed 적용 전)
 	void Simulate(float dt);
@@ -186,9 +255,16 @@ public:
 	virtual const char* InspectorIconName() const override { return "particle_system"; }
 	virtual void OnDrawGizmos() override;
 	virtual bool HasEnabledToggle() const override;
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
 
 private:
 	std::vector<Particle> m_Particles;
+	std::vector<Trail> m_Trails;
+	std::vector<int> m_FreeTrails;
+	int m_OrphanTrails = 0;
+	// Advance 때 한 번 찾아 둔다 (fileID → 오브젝트)
+	std::vector<std::pair<const SubEmitter*, ParticleSystem*>> m_SubTargets;
+	std::vector<GameObject*> m_PlaneObjects;
 	bool m_Playing = false;
 	bool m_Paused = false;
 	bool m_Emitting = false;
@@ -204,8 +280,16 @@ private:
 
 	float Random01();
 	void EmitInternal(int count, float systemT);
+	void SpawnParticle(const Vec3& simPosition, Vec3 simDirection, float systemT, const Vec4* colorMul, float sizeScale, float rotationAdd);
 	void Advance(float dt);
 	void RunStopAction();
+	int AllocTrail(const Particle& p);
+	void ReleaseTrail(int index, bool keepAsOrphan);
+	void UpdateTrail(Particle& p, float t);
+	void UpdateOrphanTrails();
+	bool Collide(Particle& p, const Vec3& oldSimPos, const Matrix& toWorld, const Matrix& toSim, float t, Vec3& hitWorld);
+	void FireSubEmitters(SubEmitterType type, const Particle& p, const Vec3& worldPosition);
+	void ClearTrails();
 	Matrix ShapeMatrix() const;
 	void ShapeSample(Vec3& position, Vec3& direction);
 

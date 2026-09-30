@@ -80,15 +80,17 @@ void ParticleSystem::Start()
 {
 	// Play 시작: 에디터 미리보기로 남은 입자를 지우고 Play On Awake 면 재생 (자식은 각자의 Start 에서)
 	m_Particles.clear();
+	ClearTrails();
 	m_Playing = m_Paused = m_Emitting = false;
 	m_StopActionPending = false;
-	if (PlayOnAwake && Application::IsPlaying())
+	if (PlayOnAwake && Application::IsPlaying() && !IsSubEmitterTarget())
 		Play(false);
 }
 
 void ParticleSystem::OnDestroy()
 {
 	m_Particles.clear();
+	ClearTrails();
 	m_Playing = false;
 }
 
@@ -142,6 +144,8 @@ void ParticleSystem::Play(bool withChildren)
 		}
 		if (ps->m_Playing)
 			continue;
+		if (ps->IsSubEmitterTarget())
+			continue;   // 부모의 사건 때만 뿜는다 (Unity 와 같음)
 		ps->m_Playing = true;
 		ps->m_Emitting = true;
 		ps->m_StopActionPending = false;
@@ -181,7 +185,10 @@ void ParticleSystem::Stop(bool withChildren, bool clear)
 		ps->m_Emitting = false;
 		ps->m_Paused = false;
 		if (clear)
+		{
 			ps->m_Particles.clear();
+			ps->ClearTrails();
+		}
 	}
 }
 
@@ -205,7 +212,10 @@ void ParticleSystem::Clear(bool withChildren)
 	else
 		group.push_back(this);
 	for (ParticleSystem* ps : group)
+	{
 		ps->m_Particles.clear();
+		ps->ClearTrails();
+	}
 }
 
 void ParticleSystem::Restart()
@@ -328,34 +338,263 @@ void ParticleSystem::EmitInternal(int count, float systemT)
 	Matrix toSim = ShapeMatrix();
 	if (SimulationSpace == 1 && m_pGameObject)
 		toSim = toSim * m_pGameObject->GetTransform()->GetWorldMatrix();
-	const int sheetFrames = SheetEnabled ? (SheetAnimation == 1 ? (std::max)(1, SheetTilesX) : (std::max)(1, SheetTilesX) * (std::max)(1, SheetTilesY)) : 1;
 	for (int i = 0; i < count; ++i)
 	{
-		Particle p;
-		for (float& r : p.Random)
-			r = Random01();
 		Vec3 pos, dir;
 		ShapeSample(pos, dir);
-		p.Position = Vec3::Transform(pos, toSim);
-		dir = Vec3::TransformNormal(dir, toSim);
-		if (dir.LengthSquared() > 1e-10f)
-			dir.Normalize();
-		p.Velocity = dir * StartSpeed.Evaluate(systemT, Random01());
-		p.Lifetime = (std::max)(0.001f, StartLifetime.Evaluate(systemT, Random01()));
-		p.StartSize = (std::max)(0.0f, StartSize.Evaluate(systemT, Random01()));
-		p.Size = p.StartSize;
-		p.Rotation = StartRotation.Evaluate(systemT, Random01());
-		if (FlipRotation > 0.0f && Random01() < FlipRotation)
-		{
-			p.Rotation = -p.Rotation;
-			p.Direction = -1.0f;
-		}
-		p.StartColor = StartColor.Evaluate(systemT, Random01());
-		p.Color = p.StartColor;
-		p.SheetFrame = SheetEnabled ? std::clamp(SheetStartFrame.Evaluate(0.0f, Random01()), 0.0f, (float)(sheetFrames - 1)) : 0.0f;
-		p.SheetRow = SheetEnabled && SheetAnimation == 1 ? (SheetRandomRow ? (int)(Random01() * (std::max)(1, SheetTilesY)) : SheetRowIndex) : 0;
-		m_Particles.push_back(p);
+		SpawnParticle(Vec3::Transform(pos, toSim), Vec3::TransformNormal(dir, toSim), systemT, nullptr, 1.0f, 0.0f);
 	}
+}
+
+void ParticleSystem::SpawnParticle(const Vec3& simPosition, Vec3 simDirection, float systemT, const Vec4* colorMul, float sizeScale, float rotationAdd)
+{
+	const int sheetFrames = SheetEnabled ? (SheetAnimation == 1 ? (std::max)(1, SheetTilesX) : (std::max)(1, SheetTilesX) * (std::max)(1, SheetTilesY)) : 1;
+	Particle p;
+	for (float& r : p.Random)
+		r = Random01();
+	if (simDirection.LengthSquared() > 1e-10f)
+		simDirection.Normalize();
+	p.Position = simPosition;
+	p.Velocity = simDirection * StartSpeed.Evaluate(systemT, Random01());
+	p.Lifetime = (std::max)(0.001f, StartLifetime.Evaluate(systemT, Random01()));
+	p.StartSize = (std::max)(0.0f, StartSize.Evaluate(systemT, Random01())) * sizeScale;
+	p.Size = p.StartSize;
+	p.Rotation = StartRotation.Evaluate(systemT, Random01()) + rotationAdd;
+	if (FlipRotation > 0.0f && Random01() < FlipRotation)
+	{
+		p.Rotation = -p.Rotation;
+		p.Direction = -1.0f;
+	}
+	p.StartColor = StartColor.Evaluate(systemT, Random01());
+	if (colorMul)
+		p.StartColor = Vec4(p.StartColor.x * colorMul->x, p.StartColor.y * colorMul->y, p.StartColor.z * colorMul->z, p.StartColor.w * colorMul->w);
+	p.Color = p.StartColor;
+	p.SheetFrame = SheetEnabled ? std::clamp(SheetStartFrame.Evaluate(0.0f, Random01()), 0.0f, (float)(sheetFrames - 1)) : 0.0f;
+	p.SheetRow = SheetEnabled && SheetAnimation == 1 ? (SheetRandomRow ? (int)(Random01() * (std::max)(1, SheetTilesY)) : SheetRowIndex) : 0;
+	if (TrailsEnabled && Random01() < TrailRatio)
+		p.Trail = AllocTrail(p);
+	m_Particles.push_back(p);
+}
+
+// ------------------------------------------------------------------ 하위 이미터
+void ParticleSystem::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	// 복제한 시스템은 복제된 자식을 가리키도록 (묶음 밖 오브젝트는 그대로)
+	for (SubEmitter& s : SubEmitters)
+		if (auto it = map.find(s.Target); it != map.end())
+			s.Target = it->second;
+	for (uint64& id : CollisionPlanes)
+		if (auto it = map.find(id); it != map.end())
+			id = it->second;
+}
+
+GameObject* ParticleSystem::FindSceneObject(uint64 fileID)
+{
+	Scene* scene = SceneManager::GetI()->GetCurrentScene();
+	return fileID != 0 && scene ? scene->FindByFileID(fileID) : nullptr;
+}
+
+bool ParticleSystem::IsSubEmitterTarget()
+{
+	if (m_pGameObject == nullptr)
+		return false;
+	const uint64 id = m_pGameObject->GetFileID();
+	for (GameObject* g = m_pGameObject->GetParent(); g != nullptr; g = g->GetParent())
+		if (ParticleSystem* ps = g->GetComponent<ParticleSystem>())
+			if (ps->SubEmittersEnabled)
+				for (const SubEmitter& s : ps->SubEmitters)
+					if (s.Target == id)
+						return true;
+	return false;
+}
+
+int ParticleSystem::SubEmitterBurstCount()
+{
+	float count = 0.0f;
+	for (const Burst& b : Bursts)
+		count += (std::max)(0.0f, b.Count.Evaluate(0.0f, Random01()));
+	if (count <= 0.0f)
+		count = (std::max)(0.0f, RateOverTime.Evaluate(0.0f, Random01()));   // Burst 가 없으면 1초 분량
+	return (int)(count + 0.5f);
+}
+
+void ParticleSystem::EmitFromParent(const Vec3& worldPosition, int count, const Vec4* color, float sizeScale, float rotation)
+{
+	count = (std::min)(count, (std::max)(0, MaxParticles - (int)m_Particles.size()));
+	if (count <= 0 || m_pGameObject == nullptr)
+		return;
+	// 도형은 이 시스템의 회전/크기로, 위치는 부모 입자가 있던 곳
+	const Matrix world = m_pGameObject->GetTransform()->GetWorldMatrix();
+	Matrix shapeToWorld = ShapeMatrix() * world;
+	shapeToWorld.Translation(Vec3(0, 0, 0));
+	Matrix toSim = Matrix::Identity;
+	if (SimulationSpace == 0)
+		world.Invert(toSim);
+	for (int i = 0; i < count; ++i)
+	{
+		Vec3 pos, dir;
+		ShapeSample(pos, dir);
+		const Vec3 wp = worldPosition + Vec3::TransformNormal(pos, shapeToWorld);
+		const Vec3 wd = Vec3::TransformNormal(dir, shapeToWorld);
+		SpawnParticle(Vec3::Transform(wp, toSim), Vec3::TransformNormal(wd, toSim), 0.0f, color, sizeScale, rotation);
+	}
+}
+
+void ParticleSystem::FireSubEmitters(SubEmitterType type, const Particle& p, const Vec3& worldPosition)
+{
+	for (const auto& [sub, target] : m_SubTargets)
+	{
+		if (sub->Type != type || target == nullptr || Random01() > sub->Probability)
+			continue;
+		target->EmitFromParent(worldPosition, target->SubEmitterBurstCount(), (sub->Inherit & InheritColor) ? &p.Color : nullptr,
+			(sub->Inherit & InheritSize) ? p.Size : 1.0f, (sub->Inherit & InheritRotation) ? p.Rotation : 0.0f);
+	}
+}
+
+// ------------------------------------------------------------------ 꼬리
+int ParticleSystem::AllocTrail(const Particle& p)
+{
+	int index;
+	if (!m_FreeTrails.empty())
+	{
+		index = m_FreeTrails.back();
+		m_FreeTrails.pop_back();
+	}
+	else
+	{
+		index = (int)m_Trails.size();
+		m_Trails.emplace_back();
+	}
+	Trail& t = m_Trails[index];
+	t.Points.clear();
+	t.Used = true;
+	t.Orphan = false;
+	t.Lifetime = (std::max)(0.01f, TrailLifetime.Evaluate(0.0f, p.Random[3]) * p.Lifetime);
+	return index;
+}
+
+void ParticleSystem::ReleaseTrail(int index, bool keepAsOrphan)
+{
+	if (index < 0 || index >= (int)m_Trails.size() || !m_Trails[index].Used)
+		return;
+	Trail& t = m_Trails[index];
+	if (keepAsOrphan && !t.Points.empty())
+	{
+		t.Orphan = true;   // 남은 꼬리는 머리 없이 사라질 때까지
+		++m_OrphanTrails;
+		return;
+	}
+	t.Used = false;
+	t.Points.clear();
+	m_FreeTrails.push_back(index);
+}
+
+void ParticleSystem::ClearTrails()
+{
+	m_Trails.clear();
+	m_FreeTrails.clear();
+	m_OrphanTrails = 0;
+}
+
+void ParticleSystem::UpdateTrail(Particle& p, float t)
+{
+	if (p.Trail < 0 || p.Trail >= (int)m_Trails.size())
+		return;
+	Trail& tr = m_Trails[p.Trail];
+	const Vec3 head = (TrailsInWorld() && SimulationSpace == 0) ? Vec3::Transform(p.Position, SimulationToWorld()) : p.Position;
+	const float minDist = (std::max)(0.001f, TrailMinVertexDistance);
+	if (tr.Points.empty() || (tr.Points.back().Position - head).LengthSquared() >= minDist * minDist)
+		tr.Points.push_back({ head, m_TotalTime });
+	while (tr.Points.size() > 1 && m_TotalTime - tr.Points.front().Time > tr.Lifetime)
+		tr.Points.erase(tr.Points.begin());
+	tr.Head = head;
+	tr.Width = TrailSizeAffectsWidth ? p.Size : 1.0f;
+	const Vec4 c = TrailColorOverLifetime.Evaluate(t, p.Random[1]);
+	tr.Color = TrailInheritParticleColor ? Vec4(p.Color.x * c.x, p.Color.y * c.y, p.Color.z * c.z, p.Color.w * c.w) : c;
+}
+
+void ParticleSystem::UpdateOrphanTrails()
+{
+	if (m_OrphanTrails <= 0)
+		return;
+	for (int i = 0; i < (int)m_Trails.size(); ++i)
+	{
+		Trail& tr = m_Trails[i];
+		if (!tr.Used || !tr.Orphan)
+			continue;
+		while (!tr.Points.empty() && m_TotalTime - tr.Points.front().Time > tr.Lifetime)
+			tr.Points.erase(tr.Points.begin());
+		if (tr.Points.empty())
+		{
+			tr.Used = false;
+			tr.Orphan = false;
+			m_FreeTrails.push_back(i);
+			--m_OrphanTrails;
+		}
+	}
+}
+
+// ------------------------------------------------------------------ 충돌
+bool ParticleSystem::Collide(Particle& p, const Vec3& oldSimPos, const Matrix& toWorld, const Matrix& toSim, float t, Vec3& hitWorld)
+{
+	const bool local = SimulationSpace == 0;
+	const Vec3 oldW = local ? Vec3::Transform(oldSimPos, toWorld) : oldSimPos;
+	const Vec3 newW = local ? Vec3::Transform(p.Position, toWorld) : p.Position;
+	const float radius = (std::max)(0.0f, p.Size * 0.5f * CollisionRadiusScale);
+	bool hit = false;
+	Vec3 normal, surface;
+	if (CollisionMode == CollisionType::Planes)
+	{
+		for (GameObject* plane : m_PlaneObjects)
+		{
+			if (plane == nullptr)
+				continue;
+			const Vec3 origin = plane->GetTransform()->GetPosition();
+			Vec3 n = plane->GetTransform()->GetUp();
+			const float dOld = (oldW - origin).Dot(n), dNew = (newW - origin).Dot(n);
+			// 평면 위쪽에서 들어올 때만 (반지름만큼 떨어진 곳이 닿는 면)
+			if (dNew < radius && dOld >= radius - 1e-3f)
+			{
+				hit = true;
+				normal = n;
+				surface = newW + n * (radius - dNew);
+				break;
+			}
+		}
+	}
+	else if (Application::IsPlaying())
+	{
+		Vec3 dir = newW - oldW;
+		const float len = dir.Length();
+		RaycastHit rh;
+		if (len > 1e-6f && PhysicsManager::GetI()->Raycast(oldW, dir / len, rh, len + radius, false))
+		{
+			hit = true;
+			normal = rh.normal;
+			normal.Normalize();
+			surface = rh.point + normal * radius;
+		}
+	}
+	if (!hit)
+		return false;
+
+	Vec3 vW = local ? Vec3::TransformNormal(p.Velocity, toWorld) : p.Velocity;
+	const float vn = vW.Dot(normal);
+	if (vn < 0.0f)
+	{
+		const float bounce = (std::max)(0.0f, CollisionBounce.Evaluate(t, p.Random[0]));
+		const float dampen = std::clamp(CollisionDampen.Evaluate(t, p.Random[1]), 0.0f, 1.0f);
+		vW -= normal * (vn * (1.0f + bounce));
+		vW *= 1.0f - dampen;
+	}
+	p.Velocity = local ? Vec3::TransformNormal(vW, toSim) : vW;
+	p.Position = local ? Vec3::Transform(surface, toSim) : surface;
+	p.Age += std::clamp(CollisionLifetimeLoss.Evaluate(t, p.Random[2]), 0.0f, 1.0f) * p.Lifetime;
+	const float speed = vW.Length();
+	if (speed < CollisionMinKillSpeed || speed > CollisionMaxKillSpeed)
+		p.Age = p.Lifetime;   // 다음 진행에서 사라진다 (Death 하위 이미터도 그때)
+	hitWorld = surface - normal * radius;
+	return true;
 }
 
 // ------------------------------------------------------------------ 진행
@@ -365,6 +604,25 @@ void ParticleSystem::Advance(float dt)
 		return;
 	m_TotalTime += dt;
 	const float duration = (std::max)(0.05f, Duration);
+
+	// 하위 이미터 대상과 충돌 평면을 한 번 찾아 둔다 (자기 자신은 대상이 될 수 없다)
+	m_SubTargets.clear();
+	if (SubEmittersEnabled)
+		for (const SubEmitter& s : SubEmitters)
+		{
+			GameObject* go = FindSceneObject(s.Target);
+			ParticleSystem* target = go ? go->GetComponent<ParticleSystem>() : nullptr;
+			if (target && target != this)
+				m_SubTargets.push_back({ &s, target });
+		}
+	m_PlaneObjects.clear();
+	if (CollisionEnabled && CollisionMode == CollisionType::Planes)
+		for (uint64 id : CollisionPlanes)
+			if (GameObject* go = FindSceneObject(id))
+				m_PlaneObjects.push_back(go);
+	bool hasBirth = false;
+	for (const auto& st : m_SubTargets)
+		hasBirth = hasBirth || st.first->Type == SubEmitterType::Birth;
 
 	// ---- 방출 (Start Delay → 시스템 시간 [이전, 지금) 구간의 Rate / Burst)
 	if (m_Playing && m_Emitting)
@@ -459,11 +717,15 @@ void ParticleSystem::Advance(float dt)
 		p.Age += dt;
 		if (p.Age >= p.Lifetime)
 		{
+			if (!m_SubTargets.empty())
+				FireSubEmitters(SubEmitterType::Death, p, local ? Vec3::Transform(p.Position, toWorld) : p.Position);
+			ReleaseTrail(p.Trail, !TrailDieWithParticles);
 			p = m_Particles.back();
 			m_Particles.pop_back();
 			continue;
 		}
 		const float t = p.Age / p.Lifetime;
+		const Vec3 oldPosition = p.Position;
 
 		const float g = GravityModifier.Evaluate(sysT, p.Random[0]);
 		if (g != 0.0f)
@@ -506,6 +768,28 @@ void ParticleSystem::Advance(float dt)
 			noise = worldDir(noise * strength);
 		}
 		p.Position += ((p.Velocity + p.AnimatedVelocity) * speedModifier + noise) * dt;
+		if (CollisionEnabled)
+		{
+			Vec3 hitWorld;
+			if (Collide(p, oldPosition, toWorld, toSim, t, hitWorld) && !m_SubTargets.empty())
+				FireSubEmitters(SubEmitterType::Collision, p, hitWorld);
+		}
+		if (hasBirth)
+		{
+			// Birth: 사는 동안 입자를 따라 대상의 Rate over Time 만큼 계속 뿜는다
+			const Vec3 world = local ? Vec3::Transform(p.Position, toWorld) : p.Position;
+			for (const auto& [sub, target] : m_SubTargets)
+			{
+				if (sub->Type != SubEmitterType::Birth)
+					continue;
+				p.BirthAccumulator += (std::max)(0.0f, target->RateOverTime.Evaluate(t, p.Random[0])) * dt;
+				const int n = (int)p.BirthAccumulator;
+				p.BirthAccumulator -= n;
+				if (n > 0 && Random01() <= sub->Probability)
+					target->EmitFromParent(world, n, (sub->Inherit & InheritColor) ? &p.Color : nullptr,
+						(sub->Inherit & InheritSize) ? p.Size : 1.0f, (sub->Inherit & InheritRotation) ? p.Rotation : 0.0f);
+			}
+		}
 		if (RotationEnabled)
 			p.Rotation += AngularVelocity.Evaluate(t, p.Random[2]) * p.Direction * dt;
 		p.Size = p.StartSize * (SizeEnabled ? (std::max)(0.0f, SizeOverLifetime.Evaluate(t, p.Random[1])) : 1.0f);
@@ -522,8 +806,19 @@ void ParticleSystem::Advance(float dt)
 			const float start = SheetStartFrame.Evaluate(0.0f, p.Random[3]);
 			p.SheetFrame = std::clamp(start + SheetFrameOverTime.Evaluate(cycle, p.Random[0]) * sheetFrames, 0.0f, (float)(sheetFrames - 1));
 		}
+		if (p.Trail >= 0)
+		{
+			if (TrailsEnabled)
+				UpdateTrail(p, t);
+			else
+			{
+				ReleaseTrail(p.Trail, false);   // 실행 중에 Trails 를 끈 경우
+				p.Trail = -1;
+			}
+		}
 		++i;
 	}
+	UpdateOrphanTrails();
 
 	// 반복하지 않는 시스템: 방출이 끝나고 입자가 모두 사라지면 멈춤
 	if (m_Playing && !m_Emitting && m_Particles.empty())
@@ -537,7 +832,7 @@ void ParticleSystem::Simulate(float dt)
 {
 	if (dt <= 0.0f || m_Paused)
 		return;
-	if (!m_Playing && m_Particles.empty())
+	if (!IsAlive())
 	{
 		if (m_StopActionPending)
 			RunStopAction();
@@ -597,7 +892,31 @@ void ParticleSystem::OnDrawGizmos()
 	if (SceneViewOverlay::Project(XMFLOAT3(tr->GetPosition().x, tr->GetPosition().y, tr->GetPosition().z), sp))
 		UnityGUI::DrawIcon(ImGui::GetWindowDrawList(), "particle_system", ImVec2(sp.x - 12.0f, sp.y - 12.0f), 24.0f, IM_COL32(255, 255, 255, 220));
 
-	if (SelectionManager::GetSelectedGameObject() != m_pGameObject || !ShapeEnabled)
+	if (SelectionManager::GetSelectedGameObject() != m_pGameObject)
+		return;
+	// 충돌 평면: 평면 위의 격자 (Unity 의 Visualization = Grid)
+	if (CollisionEnabled && CollisionMode == CollisionType::Planes)
+	{
+		const ImU32 planeCol = IM_COL32(120, 230, 140, 200);
+		for (uint64 id : CollisionPlanes)
+		{
+			GameObject* go = FindSceneObject(id);
+			if (go == nullptr)
+				continue;
+			Transform* pt = go->GetTransform();
+			const Vec3 o = pt->GetPosition(), r = pt->GetRight(), f = pt->GetLook();
+			const float h = (std::max)(0.1f, CollisionPlaneGizmoSize) * 5.0f;
+			for (int k = -5; k <= 5; ++k)
+			{
+				const float s = h * k / 5.0f;
+				const Vec3 a1 = o + r * s - f * h, b1 = o + r * s + f * h;
+				const Vec3 a2 = o + f * s - r * h, b2 = o + f * s + r * h;
+				SceneViewOverlay::DrawLine(XMFLOAT3(a1.x, a1.y, a1.z), XMFLOAT3(b1.x, b1.y, b1.z), planeCol);
+				SceneViewOverlay::DrawLine(XMFLOAT3(a2.x, a2.y, a2.z), XMFLOAT3(b2.x, b2.y, b2.z), planeCol);
+			}
+		}
+	}
+	if (!ShapeEnabled)
 		return;
 	const Matrix m = ShapeMatrix() * tr->GetWorldMatrix();
 	const ImU32 col = IM_COL32(148, 205, 255, 255);
@@ -714,6 +1033,18 @@ GENERATE_COMPONENT_FUNC_TOJSON(ParticleSystem)
 	j["textureSheetAnimation"] = { { "enabled", SheetEnabled }, { "tilesX", SheetTilesX }, { "tilesY", SheetTilesY }, { "animation", SheetAnimation },
 		{ "randomRow", SheetRandomRow }, { "rowIndex", SheetRowIndex }, { "frameOverTime", SheetFrameOverTime }, { "startFrame", SheetStartFrame },
 		{ "cycles", SheetCycles } };
+	j["collision"] = { { "enabled", CollisionEnabled }, { "type", (int)CollisionMode }, { "planes", CollisionPlanes },
+		{ "dampen", CollisionDampen }, { "bounce", CollisionBounce }, { "lifetimeLoss", CollisionLifetimeLoss },
+		{ "minKillSpeed", CollisionMinKillSpeed }, { "maxKillSpeed", CollisionMaxKillSpeed }, { "radiusScale", CollisionRadiusScale },
+		{ "planeGizmoSize", CollisionPlaneGizmoSize } };
+	json subs = json::array();
+	for (const SubEmitter& s : SubEmitters)
+		subs.push_back({ { "type", (int)s.Type }, { "target", s.Target }, { "inherit", s.Inherit }, { "probability", s.Probability } });
+	j["subEmitters"] = { { "enabled", SubEmittersEnabled }, { "emitters", subs } };
+	j["trails"] = { { "enabled", TrailsEnabled }, { "ratio", TrailRatio }, { "lifetime", TrailLifetime }, { "minVertexDistance", TrailMinVertexDistance },
+		{ "worldSpace", TrailWorldSpace }, { "dieWithParticles", TrailDieWithParticles }, { "sizeAffectsWidth", TrailSizeAffectsWidth },
+		{ "inheritParticleColor", TrailInheritParticleColor }, { "colorOverLifetime", TrailColorOverLifetime }, { "widthOverTrail", TrailWidthOverTrail },
+		{ "colorOverTrail", TrailColorOverTrail }, { "texture", TrailTexture } };
 	j["renderer"] = { { "enabled", RendererEnabled }, { "renderMode", (int)Render }, { "speedScale", SpeedScale }, { "lengthScale", LengthScale },
 		{ "texture", Texture }, { "blendMode", (int)Blend }, { "sortMode", (int)Sort }, { "sortingFudge", SortingFudge } };
 	return j;
@@ -845,6 +1176,55 @@ GENERATE_COMPONENT_FUNC_FROMJSON(ParticleSystem)
 		Read(t, "frameOverTime", SheetFrameOverTime);
 		Read(t, "startFrame", SheetStartFrame);
 		Read(t, "cycles", SheetCycles);
+	}
+	if (j.contains("collision"))
+	{
+		const json& c = j["collision"];
+		Read(c, "enabled", CollisionEnabled);
+		CollisionMode = (CollisionType)std::clamp(c.value("type", 0), 0, 1);
+		CollisionPlanes.clear();
+		if (c.contains("planes") && c["planes"].is_array())
+			for (const json& id : c["planes"])
+				CollisionPlanes.push_back(id.get<uint64>());
+		Read(c, "dampen", CollisionDampen);
+		Read(c, "bounce", CollisionBounce);
+		Read(c, "lifetimeLoss", CollisionLifetimeLoss);
+		Read(c, "minKillSpeed", CollisionMinKillSpeed);
+		Read(c, "maxKillSpeed", CollisionMaxKillSpeed);
+		Read(c, "radiusScale", CollisionRadiusScale);
+		Read(c, "planeGizmoSize", CollisionPlaneGizmoSize);
+	}
+	if (j.contains("subEmitters"))
+	{
+		const json& s = j["subEmitters"];
+		Read(s, "enabled", SubEmittersEnabled);
+		SubEmitters.clear();
+		if (s.contains("emitters") && s["emitters"].is_array())
+			for (const json& e : s["emitters"])
+			{
+				SubEmitter sub;
+				sub.Type = (SubEmitterType)std::clamp(e.value("type", 2), 0, 2);
+				sub.Target = e.value("target", (uint64)0);
+				sub.Inherit = e.value("inherit", 0);
+				sub.Probability = e.value("probability", 1.0f);
+				SubEmitters.push_back(sub);
+			}
+	}
+	if (j.contains("trails"))
+	{
+		const json& t = j["trails"];
+		Read(t, "enabled", TrailsEnabled);
+		Read(t, "ratio", TrailRatio);
+		Read(t, "lifetime", TrailLifetime);
+		Read(t, "minVertexDistance", TrailMinVertexDistance);
+		Read(t, "worldSpace", TrailWorldSpace);
+		Read(t, "dieWithParticles", TrailDieWithParticles);
+		Read(t, "sizeAffectsWidth", TrailSizeAffectsWidth);
+		Read(t, "inheritParticleColor", TrailInheritParticleColor);
+		Read(t, "colorOverLifetime", TrailColorOverLifetime);
+		Read(t, "widthOverTrail", TrailWidthOverTrail);
+		Read(t, "colorOverTrail", TrailColorOverTrail);
+		Read(t, "texture", TrailTexture);
 	}
 	if (j.contains("renderer"))
 	{

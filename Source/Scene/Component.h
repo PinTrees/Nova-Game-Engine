@@ -56,6 +56,8 @@ public:
 	bool IsEnabled() const { return m_Enabled; }
 	void SetEnabled(bool enabled) { m_Enabled = enabled; }
 	virtual void OnDrawGizmos() { }
+	// 복제/프리팹 배치로 GameObject fileID 가 바뀔 때: 옛 ID → 새 ID (복사한 묶음 안을 가리키던 참조를 고친다)
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) { }
 	virtual void OnDestroy() { }
 public:
 	GameObject* GetGameObject() { return m_pGameObject; }

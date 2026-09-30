@@ -92,6 +92,35 @@ namespace RenderPipelineSettings
 		return profile;
 	}
 
+	std::string EnsureSampleSceneProfile()
+	{
+		const std::string path = "Assets\\Settings\\SampleSceneProfile.volumeprofile";
+		std::error_code ec;
+		if (std::filesystem::exists(PathManager::GetI()->GetMovePathW(string_to_wstring(path)), ec))
+			return path;
+		const std::string created = VolumeProfile::CreateAsset("Assets\\Settings\\", "SampleSceneProfile");
+		auto profile = VolumeProfile::Load(created);
+		if (profile == nullptr)
+			return std::string();
+		auto set = [](VolumeComponent* c, const char* key, float v) {
+			if (VolumeParameter* p = c ? c->Find(key) : nullptr)
+			{
+				p->Override = true;
+				p->Value[0] = v;
+			}
+		};
+		// Bloom: 밝은 곳(더하기 입자, 빛나는 색)이 번진다
+		VolumeComponent* bloom = profile->Add("Bloom");
+		set(bloom, "threshold", 0.9f);
+		set(bloom, "intensity", 1.0f);
+		set(bloom, "scatter", 0.7f);
+		set(profile->Add("Tonemapping"), "mode", 1.0f);   // Neutral
+		set(profile->Add("Vignette"), "intensity", 0.2f);
+		profile->Save();
+		EditorLog::Write("Volume", "sample scene profile created %s", created.c_str());
+		return created;
+	}
+
 	void Reload()
 	{
 		Load();

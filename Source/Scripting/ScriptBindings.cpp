@@ -777,6 +777,9 @@ namespace
 		case 18: return ps->ShapeArc;
 		case 19: return ps->ColorEnabled ? 1.0f : 0.0f;
 		case 20: return ps->IsAlive() ? 1.0f : 0.0f;
+		case 21: return ps->TrailsEnabled ? 1.0f : 0.0f;
+		case 22: return ps->CollisionEnabled ? 1.0f : 0.0f;
+		case 23: return ps->SubEmittersEnabled ? 1.0f : 0.0f;
 		default: return 0.0f;
 		}
 	}
@@ -801,6 +804,9 @@ namespace
 		case 16: ps->Shape = (ParticleSystem::ShapeType)std::clamp((int)v, 0, 5); break;
 		case 18: ps->ShapeArc = std::clamp(v, 0.0f, 360.0f); break;
 		case 19: ps->ColorEnabled = v != 0.0f; break;
+		case 21: ps->TrailsEnabled = v != 0.0f; break;
+		case 22: ps->CollisionEnabled = v != 0.0f; break;
+		case 23: ps->SubEmittersEnabled = v != 0.0f; break;
 		default: break;
 		}
 	}

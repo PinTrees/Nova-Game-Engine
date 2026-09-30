@@ -127,7 +127,8 @@ namespace NovaEngine.Interop
         //  Call: 0 Play(arg 자식 포함), 1 Stop(arg 비트 1 자식 포함, 2 지우기), 2 Pause, 3 Clear, 4 Emit(arg 개수), 5 Restart
         //  float: 0 time, 1 particleCount, 2 duration, 3 simulationSpeed, 4 maxParticles, 5 isPlaying, 6 isPaused, 7 isStopped,
         //         8 isEmitting, 9 loop, 10 playOnAwake, 11 simulationSpace, 12 emission.enabled, 13 shape.enabled, 14 shape.radius,
-        //         15 shape.angle, 16 shape.shapeType(NOVA 순서), 17 IsAlive(자식 포함), 18 shape.arc, 19 colorOverLifetime.enabled, 20 IsAlive(자신만)
+        //         15 shape.angle, 16 shape.shapeType(NOVA 순서), 17 IsAlive(자식 포함), 18 shape.arc, 19 colorOverLifetime.enabled, 20 IsAlive(자신만),
+        //         21 trails.enabled, 22 collision.enabled, 23 subEmitters.enabled
         //  곡선: 0 startDelay, 1 startLifetime, 2 startSpeed, 3 startSize, 4 startRotation(도), 5 gravityModifier, 6 rateOverTime, 7 rateOverDistance
         //  색: 0 startColor, 1 colorOverLifetime
         public delegate* unmanaged<ulong, int, int, void> PS_Call;

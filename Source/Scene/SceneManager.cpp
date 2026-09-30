@@ -11,6 +11,8 @@
 #include "BuildSettings.h"
 #include "UISystem.h"
 #include "ScriptEngine.h"
+#include "Volume.h"
+#include "RenderPipelineSettings.h"
 
 
 SINGLE_BODY(SceneManager)
@@ -264,6 +266,19 @@ void SceneManager::CreateScene()
 
 	GameObject* light = GameObjectFactory::CreateDirectionalLight("Directional Light");
 	m_pCurrScene->AddRootGameObject(light);
+
+	// Unity URP 기본 씬처럼 Global Volume (Bloom 이 켜진 SampleSceneProfile)
+	if (!Application::IsPlayer() && !PathManager::GetProjectOverride().empty())
+	{
+		const std::string profile = RenderPipelineSettings::EnsureSampleSceneProfile();
+		if (!profile.empty())
+		{
+			GameObject* volume = GameObjectFactory::CreateVolume(GameObjectFactory::VolumeShape::Global);
+			if (Volume* v = volume->GetComponent<Volume>())
+				v->SetProfile(profile);
+			m_pCurrScene->AddRootGameObject(volume);
+		}
+	}
 
 	DisplayManager::GetI()->Init();	MarkCurrentSceneSaved();   // 새 씬은 바뀐 내용이 생길 때부터 * 표시
 }

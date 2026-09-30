@@ -99,6 +99,23 @@ float4 PS(VertexOut pin) : SV_Target
     return gTexture.Sample(samParticle, pin.Tex) * pin.Color;
 }
 
+// Trails: CPU 가 만든 월드 공간 띠 (정점 = 위치, UV, 색)
+struct TrailIn
+{
+    float3 PosW : POSITION;
+    float2 Tex : TEXCOORD;
+    float4 Color : COLOR;
+};
+
+VertexOut TrailVS(TrailIn vin)
+{
+    VertexOut vout;
+    vout.PosH = mul(float4(vin.PosW, 1.0f), gViewProj);
+    vout.Tex = vin.Tex;
+    vout.Color = vin.Color;
+    return vout;
+}
+
 // 알파 채널: 아래 값을 덮어 쓰지 않고 쌓는다 (Scene 뷰는 투명 배경 위에 합성되고, Game 뷰는 1 로 유지)
 BlendState AlphaBlend
 {
@@ -145,6 +162,32 @@ technique11 AlphaTech
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS()));
         SetBlendState(AlphaBlend, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
+        SetDepthStencilState(DepthTestNoWrite, 0);
+        SetRasterizerState(NoCull);
+    }
+}
+
+technique11 TrailAlphaTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TrailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS()));
+        SetBlendState(AlphaBlend, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
+        SetDepthStencilState(DepthTestNoWrite, 0);
+        SetRasterizerState(NoCull);
+    }
+}
+
+technique11 TrailAdditiveTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TrailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS()));
+        SetBlendState(AdditiveBlend, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
         SetDepthStencilState(DepthTestNoWrite, 0);
         SetRasterizerState(NoCull);
     }
