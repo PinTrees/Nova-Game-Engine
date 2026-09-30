@@ -255,32 +255,11 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="01. InitDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="02. BoxDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="MathHelper.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="03. HillsDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="GeometryGenerator.cpp">
       <Filter>2. Game\01. Common</Filter>
-    </ClCompile>
-    <ClCompile Include="04. ShapesDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="05. SkullDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="06. WavesDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="07. LightingDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
     </ClCompile>
     <ClCompile Include="LightHelper.cpp">
       <Filter>2. Game\01. Common</Filter>
@@ -291,26 +270,11 @@
     <ClCompile Include="GameTimer.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="08. CrateDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="Effects.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
     <ClCompile Include="Vertex.cpp">
       <Filter>0. Engine\98. Utils</Filter>
-    </ClCompile>
-    <ClCompile Include="09. TexturedHillsAndWavesDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="10. BlendDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="11. MirrorDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="12. TreeBillboardDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
     </ClCompile>
     <ClCompile Include="Utils.cpp">
       <Filter>0. Engine\98. Utils</Filter>
@@ -318,44 +282,8 @@
     <ClCompile Include="RenderStates.cpp">
       <Filter>0. Engine\98. Utils</Filter>
     </ClCompile>
-    <ClCompile Include="13. VecAddDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="14. BlurDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="BlurFilter.cpp">
       <Filter>0. Engine\98. Utils</Filter>
-    </ClCompile>
-    <ClCompile Include="15. BasicTessellation.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="16. BasicTriangleTessellation.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="17. BezierTessellation.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="18. CameraDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="19. InstancingAndCullingDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="20. PickingDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="21. CubeMapDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="22. DynamicCubeMapDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="23. NormalDisplacementMapDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
-    <ClCompile Include="24. TerrainDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
     </ClCompile>
     <ClCompile Include="Terrain.cpp">
       <Filter>2. Game\01. Common</Filter>
@@ -363,26 +291,14 @@
     <ClCompile Include="Sky.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="25. ParticlesDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="ParticleSystem.cpp">
       <Filter>2. Game\01. Common</Filter>
-    </ClCompile>
-    <ClCompile Include="26. ShadowsDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
     </ClCompile>
     <ClCompile Include="ShadowMap.cpp">
       <Filter>2. Game\01. Common</Filter>
     </ClCompile>
-    <ClCompile Include="27. AmbientOcclusionDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="Octree.cpp">
       <Filter>2. Game\01. Common</Filter>
-    </ClCompile>
-    <ClCompile Include="28. SsaoDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
     </ClCompile>
     <ClCompile Include="Ssao.cpp">
       <Filter>2. Game\01. Common</Filter>
@@ -393,14 +309,8 @@
     <ClCompile Include="TextureMgr.cpp">
       <Filter>0. Engine\Mesh\97. Model</Filter>
     </ClCompile>
-    <ClCompile Include="30. QuatDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
-    </ClCompile>
     <ClCompile Include="AnimationHelper.cpp">
       <Filter>0. Engine\98. Utils</Filter>
-    </ClCompile>
-    <ClCompile Include="31. SkinnedMeshDemo.cpp">
-      <Filter>2. Game\Demo</Filter>
     </ClCompile>
     <ClCompile Include="Transform.cpp">
       <Filter>0. Engine\Component\Transform</Filter>
@@ -498,9 +408,7 @@
     <ClCompile Include="Main.cpp">
       <Filter>0. Engine</Filter>
     </ClCompile>
-    <ClCompile Include="29. MeshViewDemo.cpp">
-      <Filter>2. Game\App</Filter>
-    </ClCompile>
+    <ClCompile Include="EditorApp.cpp" />
     <ClCompile Include="pch.cpp">
       <Filter>0. Engine\00. Header</Filter>
     </ClCompile>
@@ -658,32 +566,11 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="01. InitDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="02. BoxDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="MathHelper.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="03. HillsDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="GeometryGenerator.h">
       <Filter>2. Game\01. Common</Filter>
-    </ClInclude>
-    <ClInclude Include="04. ShapesDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="05. SkullDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="06. WavesDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="07. LightingDemo.h">
-      <Filter>2. Game\Demo</Filter>
     </ClInclude>
     <ClInclude Include="LightHelper.h">
       <Filter>2. Game\01. Common</Filter>
@@ -694,26 +581,11 @@
     <ClInclude Include="GameTimer.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="08. CrateDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="Effects.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
     <ClInclude Include="Vertex.h">
       <Filter>0. Engine\98. Utils</Filter>
-    </ClInclude>
-    <ClInclude Include="09. TexturedHillsAndWavesDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="10. BlendDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="11. MirrorDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="12. TreeBillboardDemo.h">
-      <Filter>2. Game\Demo</Filter>
     </ClInclude>
     <ClInclude Include="Utils.h">
       <Filter>0. Engine\98. Utils</Filter>
@@ -721,44 +593,8 @@
     <ClInclude Include="RenderStates.h">
       <Filter>0. Engine\98. Utils</Filter>
     </ClInclude>
-    <ClInclude Include="13. VecAddDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="14. BlurDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="BlurFilter.h">
       <Filter>0. Engine\98. Utils</Filter>
-    </ClInclude>
-    <ClInclude Include="15. BasicTessellation.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="16. BasicTriangleTessellation.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="17. BezierTessellation.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="18. CameraDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="19. InstancingAndCullingDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="20. PickingDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="21. CubeMapDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="22. DynamicCubeMapDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="23. NormalDisplacementMapDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
-    <ClInclude Include="24. TerrainDemo.h">
-      <Filter>2. Game\Demo</Filter>
     </ClInclude>
     <ClInclude Include="Terrain.h">
       <Filter>2. Game\01. Common</Filter>
@@ -766,26 +602,14 @@
     <ClInclude Include="Sky.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="25. ParticlesDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="ParticleSystem.h">
       <Filter>2. Game\01. Common</Filter>
-    </ClInclude>
-    <ClInclude Include="26. ShadowsDemo.h">
-      <Filter>2. Game\Demo</Filter>
     </ClInclude>
     <ClInclude Include="ShadowMap.h">
       <Filter>2. Game\01. Common</Filter>
     </ClInclude>
-    <ClInclude Include="27. AmbientOcclusionDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="Octree.h">
       <Filter>2. Game\01. Common</Filter>
-    </ClInclude>
-    <ClInclude Include="28. SsaoDemo.h">
-      <Filter>2. Game\Demo</Filter>
     </ClInclude>
     <ClInclude Include="Ssao.h">
       <Filter>2. Game\01. Common</Filter>
@@ -796,14 +620,8 @@
     <ClInclude Include="TextureMgr.h">
       <Filter>0. Engine\Mesh\97. Model</Filter>
     </ClInclude>
-    <ClInclude Include="30. QuatDemo.h">
-      <Filter>2. Game\Demo</Filter>
-    </ClInclude>
     <ClInclude Include="AnimationHelper.h">
       <Filter>0. Engine\98. Utils</Filter>
-    </ClInclude>
-    <ClInclude Include="31. SkinnedMeshDemo.h">
-      <Filter>2. Game\Demo</Filter>
     </ClInclude>
     <ClInclude Include="Transform.h">
       <Filter>0. Engine\Component\Transform</Filter>
@@ -902,9 +720,7 @@
     <ClInclude Include="InspectorEditorWindow.h">
       <Filter>0. Engine\ImguiContainer\0. Editor\Window\InspectorEditorWindow</Filter>
     </ClInclude>
-    <ClInclude Include="29. MeshViewDemo.h">
-      <Filter>2. Game\App</Filter>
-    </ClInclude>
+    <ClInclude Include="EditorApp.h" />
     <ClInclude Include="pch.h">
       <Filter>0. Engine\00. Header</Filter>
     </ClInclude>

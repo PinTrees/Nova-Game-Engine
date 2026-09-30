@@ -11,9 +11,9 @@ class Scene
 private:
 	wstring m_ScenePath;
 
-	vector<GameObject*> m_ArrGameObjects[(UINT)32];		// ÅÂ±× ±â¹İ ¹è¿­ - Ãæµ¹ Ã³¸® ÃÖÀûÈ­
+	vector<GameObject*> m_ArrGameObjects[(UINT)32];		// íƒœê·¸ ê¸°ë°˜ ë°°ì—´ - ì¶©ëŒ ì²˜ë¦¬ ìµœì í™”
 	
-	vector<GameObject*> m_VecAllGameObjects;			// ¹Ì ±¸Çö
+	vector<GameObject*> m_VecAllGameObjects;			// ë¯¸ êµ¬í˜„
 	vector<GameObject*> m_VecRootGameObjects;
 
 	vector<GameObject*> m_CullingGameObjects;
@@ -24,6 +24,7 @@ public:
 
 public:
 	wstring GetScenePath() const { return m_ScenePath; }
+	void SetScenePath(const wstring& path) { m_ScenePath = path; }
 
 public:
 	void Enter();

@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "EditorWindow.h"
 #include "EditorGUI.h"
 #include "imgui_internal.h" 
@@ -17,24 +17,26 @@ EditorWindow::~EditorWindow()
 
 void EditorWindow::Render()
 {
-    // È­¸éÀÇ ³Êºñ¿Í ³ôÀÌ¸¦ °¡Á®¿É´Ï´Ù.
+    if (!m_IsOpened)
+        return;
+    // È­ï¿½ï¿½ï¿½ï¿½ ï¿½Êºï¿½ï¿½ ï¿½ï¿½ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½É´Ï´ï¿½.
     ImGuiIO& io = ImGui::GetIO();
 
-    float window_width = 400.0f;  // Ã¢ÀÇ ³Êºñ
-    float window_height = 300.0f; // Ã¢ÀÇ ³ôÀÌ
+    float window_width = 400.0f;  // Ã¢ï¿½ï¿½ ï¿½Êºï¿½
+    float window_height = 300.0f; // Ã¢ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 
-    // Ã¢ÀÇ Å©±â¸¦ ¼³Á¤
+    // Ã¢ï¿½ï¿½ Å©ï¿½â¸¦ ï¿½ï¿½ï¿½ï¿½
     ImGui::SetNextWindowSize(ImVec2(window_width, window_height), ImGuiCond_FirstUseEver);
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse;
 
     EditorGUI::EditorWindowStylePush();
 
-    // ½ºÅ¸ÀÏ ¼³Á¤ ½ÃÀÛ
+    // ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
     EDITOR_GUI_STYLE_TAB_ROUNDING; 
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 12.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 5));      // ¾ÆÀÌÅÛ °£ ÆÐµù ¼³Á¤
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 5));      // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Ðµï¿½ ï¿½ï¿½ï¿½ï¿½
 
     ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
@@ -56,19 +58,19 @@ void EditorWindow::Render()
     EDITOR_GUI_COLOR_TAB_HEADER_BG;   
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f)); 
 
-    // À©µµ¿ì¸¦ ½ÃÀÛÇÕ´Ï´Ù
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ì¸¦ ï¿½ï¿½ï¿½ï¿½ï¿½Õ´Ï´ï¿½
     string windowTitleName = "";
     if (m_Icon != "") windowTitleName = "   " + m_Icon + "  " + m_WindowTitleName + "   " + "  ";
     else windowTitleName = "   " + m_WindowTitleName + "   " + "  ";
 
-    if (ImGui::Begin(windowTitleName.c_str(), NULL, windowFlags)) 
+    if (ImGui::Begin(windowTitleName.c_str(), &m_IsOpened, windowFlags)) 
     {
         if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
         {
             ImGui::OpenPopup("ContextMenu");
         }
 
-        // ÄÁÅØ½ºÆ® ¸Þ´º ·»´õ¸µ
+        // ï¿½ï¿½ï¿½Ø½ï¿½Æ® ï¿½Þ´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         if (ImGui::BeginPopup("ContextMenu"))
         {
             if (ImGui::MenuItem("Add Tab"))
@@ -79,15 +81,15 @@ void EditorWindow::Render()
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
-        OnRender(); // ÁÖ¿ä ·»´õ¸µ ÇÔ¼ö È£Ãâ
+        OnRender(); // ï¿½Ö¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ô¼ï¿½ È£ï¿½ï¿½
         
         ImGui::PopStyleVar();
     }
     ImGui::End();
 
-    // ½ºÅ¸ÀÏ º¹±¸
-    ImGui::PopStyleVar(5);    // WindowRounding, TabRounding, PopupRounding º¹±¸ 
-    ImGui::PopStyleColor(15); // PushStyleColor·Î ÁöÁ¤ÇÑ ¸ðµç »ö»ó º¹±¸ 
+    // ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+    ImGui::PopStyleVar(5);    // WindowRounding, TabRounding, PopupRounding ï¿½ï¿½ï¿½ï¿½ 
+    ImGui::PopStyleColor(15); // PushStyleColorï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 
 
     EditorGUI::EditorWindowStylePop();
 }

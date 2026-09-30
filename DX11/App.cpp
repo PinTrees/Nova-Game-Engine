@@ -10,6 +10,7 @@
 #include "GameViewEditorWindow.h"
 #include "ConsoleEditorWindow.h"
 #include "AnimatorEditorWindow.h"
+#include "ProjectHubWindow.h"
 #include "DisplayManager.h"
 
 #include "EditorGUIResourceManager.h"
@@ -87,7 +88,7 @@ int32 App::Run()
 				SceneViewManager::GetI()->Update();
 				EditorGUIManager::GetI()->Update();
 
-				// OnPreCull, ·»´õ Á÷Àü ¸ÅÆ®¸¯½º ¿¬»ê µî
+				// OnPreCull, ë Œë” ì§ì „ ë§¤íŠ¸ë¦­ìŠ¤ ì—°ì‚° ë“±
 				
 				DisplayManager::GetI()->GetActiveCamera()->ViewUpdate();
 				LightManager::GetI()->ViewUpdates();
@@ -153,6 +154,7 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new ProjectEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new ConsoleEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
+	EditorGUIManager::GetI()->RegisterWindow(new ProjectHubWindow);
 
 	// Singleton Init
 	ResourceManager::GetI()->Init(_device);
@@ -346,7 +348,7 @@ void App::SetScreenSize(UINT width, UINT height)
 
 bool App::InitMainWindow()
 {
-	// DPI ÀÎ½ÄÀ» ¼³Á¤
+	// DPI ì¸ì‹ì„ ì„¤ì •
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); 
 
 	WNDCLASS wc;

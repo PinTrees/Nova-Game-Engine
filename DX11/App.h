@@ -3,8 +3,6 @@
 #include "GameTimer.h"
 #include <string>
 
-#define _DEBUG 
-
 class EditorCamera;
 class Camera;
 

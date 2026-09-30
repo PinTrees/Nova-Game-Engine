@@ -34,5 +34,6 @@ private:
 	static void RenderFileEntry_FBX(const std::filesystem::directory_entry& entry, bool isSelected);
 	static void RenderFileEntry_PNG(const std::filesystem::directory_entry& entry, bool isSelected);
 	static void RenderFileEntry_MAT(const std::filesystem::directory_entry& entry, bool isSelected);
+	static void RenderFileEntry_Scene(const std::filesystem::directory_entry& entry, bool isSelected);
 };
 

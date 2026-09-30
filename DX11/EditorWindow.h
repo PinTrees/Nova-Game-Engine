@@ -8,6 +8,7 @@ private:
 	string m_Icon; 
 
 	bool m_IsDocked; 
+	bool m_IsOpened = true;
 	ImVec2 dockedPos; 
 
 public:
@@ -16,6 +17,10 @@ public:
 
 	void Render();
 	virtual void Update() {}
+
+	bool GetIsOpened() const { return m_IsOpened; }
+	void SetIsOpened(bool opened) { m_IsOpened = opened; }
+	const string& GetTitle() const { return m_WindowTitleName; }
 
 protected:
 	virtual void PushStyle() {}

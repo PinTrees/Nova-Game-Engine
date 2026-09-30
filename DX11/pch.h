@@ -42,6 +42,9 @@ using namespace DirectX;
 using namespace Microsoft::WRL;
 
 // IMGUI
+#ifndef IMGUI_DEFINE_MATH_OPERATORS
+#define IMGUI_DEFINE_MATH_OPERATORS
+#endif
 #include "ImGui/imgui.h"
 #include "ImGui/imgui_impl_dx11.h" 
 #include "ImGui/imgui_impl_win32.h" 

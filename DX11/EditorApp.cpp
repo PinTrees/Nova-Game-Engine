@@ -1,5 +1,5 @@
-#include "pch.h"
-#include "29. MeshViewDemo.h"
+ï»¿#include "pch.h"
+#include "EditorApp.h"
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
 #include "Effects.h"
@@ -12,10 +12,10 @@
 #include "LightManager.h"
 #include "Light.h"
 
-MeshViewDemo::MeshViewDemo(HINSTANCE hInstance)
+EditorApp::EditorApp(HINSTANCE hInstance)
 	: App(hInstance)
 {
-	_mainWindowCaption = L"Fake Unity - 0.0.1";
+	_mainWindowCaption = L"DX11 Game Engine Editor";
 
 	_lastMousePos.x = 0;
 	_lastMousePos.y = 0;
@@ -42,14 +42,14 @@ MeshViewDemo::MeshViewDemo(HINSTANCE hInstance)
 	_originalLightDir[2] = _dirLights[2].Direction;
 }
 
-MeshViewDemo::~MeshViewDemo()
+EditorApp::~EditorApp()
 {
 	Effects::DestroyAll();
 	InputLayouts::DestroyAll();
 	RenderStates::DestroyAll();
 }
 
-bool MeshViewDemo::Init()
+bool EditorApp::Init()
 {
 	if (!App::Init())
 		return false;
@@ -85,7 +85,7 @@ bool MeshViewDemo::Init()
 		if (meshRenderer == nullptr)
 			continue;
 
-		IsMesh = true; // CreateScene¿¡¼­ Camera, Light¸¦ Ãß°¡ÇÏ¹Ç·Î MeshRenderer°¡ ¾øÀ» ½Ã¿¡´Â ÀÎÇÇ´ÏÆ¼¿¡¼­ ÀÓÀÇÀÇ °ªÀ¸·Î ¹Ù²ãÁà¾ßÇÔ
+		IsMesh = true; // CreateSceneï¿½ï¿½ï¿½ï¿½ Camera, Lightï¿½ï¿½ ï¿½ß°ï¿½ï¿½Ï¹Ç·ï¿½ MeshRendererï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ã¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ç´ï¿½Æ¼ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ù²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 		Transform* transform = meshRenderer->GetGameObject()->GetTransform();
 
@@ -138,7 +138,7 @@ bool MeshViewDemo::Init()
 	return true;
 }
 
-void MeshViewDemo::OnResize()
+void EditorApp::OnResize()
 {
 	App::OnResize();
 
@@ -150,56 +150,124 @@ void MeshViewDemo::OnResize()
 	//}
 }
 
-void MeshViewDemo::UpdateScene(float dt)
+void EditorApp::UpdateScene(float dt)
 {
 	//_camera.UpdateViewMatrix();
 }
 
-void MeshViewDemo::RenderApplication()
+void EditorApp::RenderApplication()
 {
 
 }
 
-void MeshViewDemo::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
+void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
 {
-	vector<DirectionalLight>& dirLight = LightManager::GetI()->GetDirLights();
-	vector<PointLight>& pointLight = LightManager::GetI()->GetPointLights();
-	vector<SpotLight>& spotLight = LightManager::GetI()->GetSpotLights();
-	vector<shared_ptr<Light>>& lights = LightManager::GetI()->GetLights();
-	BuildShadowTransform();
+	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
+	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
+	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
+	//BuildShadowTransform();
 
 	RenderManager::GetI()->CameraViewMatrix = camera->View();
 	RenderManager::GetI()->CameraProjectionMatrix = camera->Proj();
-	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj()); 
+	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
 
-	// LateUpdate ·ÎÁ÷ÀÌ ¾ø¾î¼­ ÁÖ¼®Ã³¸®
-	if (lights.size() > 0 && dirLight.size() > 0)
-		RenderManager::GetI()->DirectinalLightViewProjection = lights[0]->GetLightViewProj();
-
-	// ¿ÍÀÌ¾îÇÁ·¹ÀÓ Á¦¾îÃ³·³ ÀüÃ¼ ±×¸²ÀÚ¸Ê Á¦¾îµµ °¡´ÉÇÏ°Ô
+	// ï¿½ï¿½ï¿½Ì¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ã³ï¿½ï¿½ ï¿½ï¿½Ã¼ ï¿½×¸ï¿½ï¿½Ú¸ï¿½ ï¿½ï¿½ï¿½îµµ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
-	shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext);
-
 	auto viewport = RenderManager::GetI()->Viewport;
-
-	// Light¼ö ¸¸Å­ ShadowMapÀ» ±×·Á¾ßÇÔ.
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
-	Effects::BuildShadowMapFX->SetViewProj(RenderManager::GetI()->DirectinalLightViewProjection);
 
-	if (RenderManager::GetI()->WireFrameMode)
-		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+	// shadowMaps
+	vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
+	// ï¿½ï¿½ï¿½Äµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Å­
+	{
+		XMMATRIX toTexSpace(
+			0.5f, 0.0f, 0.0f, 0.0f,
+			0.0f, -0.5f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.5f, 0.5f, 0.0f, 1.0f);
 
-	// Draw Scene Objects
-	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+		// Dir
+		RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Directional].clear();
+		for (int i = 0; i < dirLights.size(); i++)
+		{
+			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Directional, i);
 
-	_deviceContext->RSSetState(0);
+			XMMATRIX VP = sortedLights[i]->GetLightViewProjection(0);
 
-	_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-	_deviceContext->RSSetViewports(1, &viewport);
+			RenderManager::GetI()->LightViewProjection = VP;
+			RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Directional].push_back(VP * toTexSpace);
+
+			if (RenderManager::GetI()->WireFrameMode)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+
+			// Draw Scene Objects
+			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+
+			_deviceContext->RSSetState(0);
+
+			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->RSSetViewports(1, &viewport);
+		}
+
+		// Spot
+		RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Spot].clear();
+		int startIndex = dirLights.size();
+		for (int i = 0; i < spotLights.size(); i++)
+		{
+			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Spot, i);
+
+			XMMATRIX VP = sortedLights[startIndex + i]->GetLightViewProjection(0);
+
+			RenderManager::GetI()->LightViewProjection = VP;
+			RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Spot].push_back(VP * toTexSpace);
+
+			if (RenderManager::GetI()->WireFrameMode)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+
+			// Draw Scene Objects
+			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+
+			_deviceContext->RSSetState(0);
+
+			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->RSSetViewports(1, &viewport);
+		}
+
+		// Point
+		RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point].clear();
+		startIndex = dirLights.size() + spotLights.size();
+		for (int i = 0; i < pointLights.size(); i++)
+		{
+			int shadowIndex = i * 6;
+			for (int j = 0; j < 6; j++)
+			{
+				shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Point, shadowIndex + j);
+
+				XMMATRIX VP = sortedLights[startIndex + shadowIndex + i]->GetLightViewProjection(j);
+
+				RenderManager::GetI()->LightViewProjection = VP;
+				RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point].push_back(VP * toTexSpace);
+
+				if (RenderManager::GetI()->WireFrameMode)
+					_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+
+				// Draw Scene Objects
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+
+				_deviceContext->RSSetState(0);
+
+				_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+				_deviceContext->RSSetViewports(1, &viewport);
+			}
+		}
+	}
 
 	// PostProcessing - SSAO
 	auto ssao = PostProcessingManager::GetI()->GetSSAO();
-	ssao->SetNormalDepthRenderTarget(_depthStencilView.Get()); 
+	ssao->SetNormalDepthRenderTarget(_depthStencilView.Get());
+
+	if (RenderManager::GetI()->WireFrameMode)
+		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 	// Draw Scene Objects
 	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadowNormal();
@@ -218,19 +286,33 @@ void MeshViewDemo::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camer
 
 	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-	if (dirLight.size() > 0) Effects::InstancedBasicFX->SetDirLights(dirLight.data(), dirLight.size());
-
+	// cbPerFrame
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
-	Effects::InstancedBasicFX->SetShadowMap(shadowMap->DepthMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
 
-	RenderManager::GetI()->shadowTransform = XMLoadFloat4x4(&_shadowTransform);
+	// lights
+	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
+	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
+	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
+
+	// shadowMaps
+	Effects::InstancedBasicFX->SetDirShadowMaps(shadowMap->DepthMapSRVArray(LightType::Directional).data(), dirLights.size());
+	Effects::InstancedBasicFX->SetSpotShadowMaps(shadowMap->DepthMapSRVArray(LightType::Spot).data(), spotLights.size());
+	Effects::InstancedBasicFX->SetPointShadowMaps(shadowMap->DepthMapSRVArray(LightType::Point).data(), pointLights.size());
+	
+	// shadowTransforms
+	auto& dirShadowTransforms = RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Directional];
+	auto& spotShadowTransforms = RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Spot];
+	auto& pointShadowTransforms = RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point];
+	Effects::InstancedBasicFX->SetDirShadowTransforms(dirShadowTransforms.data(), dirLights.size());
+	Effects::InstancedBasicFX->SetSpotShadowTransforms(spotShadowTransforms.data(), spotLights.size());
+	Effects::InstancedBasicFX->SetPointShadowTransforms(pointShadowTransforms.data(), pointLights.size());
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;
 
-	_deviceContext->IASetInputLayout(InputLayouts::PosNormalTexTan.Get());
+	_deviceContext->IASetInputLayout(InputLayouts::InstancedBasic.Get());
 
 	SceneManager::GetI()->GetCurrentScene()->RenderScene();
 
@@ -246,44 +328,106 @@ void MeshViewDemo::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camer
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
 }
 
-void MeshViewDemo::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera)
+void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera)
 {
-	vector<DirectionalLight>& dirLight = LightManager::GetI()->GetDirLights();
-	vector<PointLight>& pointLight = LightManager::GetI()->GetPointLights();
-	vector<SpotLight>& spotLight = LightManager::GetI()->GetSpotLights();
-	vector<shared_ptr<Light>>& lights = LightManager::GetI()->GetLights();
-	BuildShadowTransform();
+	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
+	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
+	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
 
 	RenderManager::GetI()->EditorCameraViewMatrix = camera->View();
 	RenderManager::GetI()->EditorCameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->EditorCameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
-	//RenderManager::GetI()->directinalLightViewProjection = XMMatrixMultiply(XMLoadFloat4x4(&_lightView), XMLoadFloat4x4(&_lightProj));
 
-	// LateUpdate ·ÎÁ÷ÀÌ ¾ø¾î¼­ ÁÖ¼®Ã³¸®
-	if(lights.size() > 0 && dirLight.size() > 0)
-		RenderManager::GetI()->DirectinalLightViewProjection = lights[0]->GetLightViewProj();
-
-	// ¿ÍÀÌ¾îÇÁ·¹ÀÓ Á¦¾îÃ³·³ ÀüÃ¼ ±×¸²ÀÚ¸Ê Á¦¾îµµ °¡´ÉÇÏ°Ô
-	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
-	shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext);
-
+	auto shadowMap = RenderManager::GetI()->EditorShadowMap;
 	auto viewport = RenderManager::GetI()->EditorViewport;
-
-	// Light¼ö ¸¸Å­ ShadowMapÀ» ±×·Á¾ßÇÔ.
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
-	Effects::BuildShadowMapFX->SetViewProj(RenderManager::GetI()->DirectinalLightViewProjection);
 
-	if (RenderManager::GetI()->WireFrameMode)
-		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+	// shadowMaps
+	vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
+	// ï¿½ï¿½ï¿½Äµï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Å­
+	{
+		XMMATRIX toTexSpace(
+			0.5f, 0.0f, 0.0f, 0.0f,
+			0.0f, -0.5f, 0.0f, 0.0f,
+			0.0f, 0.0f, 1.0f, 0.0f,
+			0.5f, 0.5f, 0.0f, 1.0f);
 
-	// Draw Scene Objects
-	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+		// Dir
+		RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Directional].clear();
+		for (int i = 0; i < dirLights.size(); i++)
+		{
+			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Directional, i);
+			XMMATRIX V = sortedLights[i]->GetEditorLightView();
+			XMMATRIX VP = sortedLights[i]->GetEditorLightViewProjection(0);
 
-	_deviceContext->RSSetState(0);
+			RenderManager::GetI()->LightViewProjection = VP;
+			RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Directional].push_back(VP * toTexSpace);
 
-	_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-	_deviceContext->RSSetViewports(1, &viewport);
+			if (RenderManager::GetI()->WireFrameMode)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
+			// Draw Scene Objects
+			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+
+			_deviceContext->RSSetState(0);
+
+			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->RSSetViewports(1, &viewport);
+		}
+
+		// Spot
+		RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Spot].clear();
+		int startIndex = dirLights.size();
+		for (int i = 0; i < spotLights.size(); i++)
+		{
+			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Spot, i);
+
+			XMMATRIX VP = sortedLights[startIndex + i]->GetEditorLightViewProjection(0);
+
+			RenderManager::GetI()->LightViewProjection = VP;
+			RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Spot].push_back(VP * toTexSpace);
+
+			if (RenderManager::GetI()->WireFrameMode)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+
+			// Draw Scene Objects
+			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+
+			_deviceContext->RSSetState(0);
+
+			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->RSSetViewports(1, &viewport);
+		}
+
+		// Point
+		RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point].clear();
+		startIndex = dirLights.size() + spotLights.size();
+		for (int i = 0; i < pointLights.size(); i++)
+		{
+			int shadowIndex = i * 6;
+			for (int j = 0; j < 6; j++)
+			{
+				shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Point, shadowIndex + j);
+
+				XMMATRIX VP = sortedLights[startIndex + shadowIndex + i]->GetEditorLightViewProjection(j);
+
+				RenderManager::GetI()->LightViewProjection = VP;
+				RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point].push_back(VP * toTexSpace);
+
+				if (RenderManager::GetI()->WireFrameMode)
+					_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+
+				// Draw Scene Objects
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+
+				_deviceContext->RSSetState(0);
+
+				_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+				_deviceContext->RSSetViewports(1, &viewport);
+			}
+		}
+	}
+	
 	// PostProcessing - SSAO
 	auto ssao = PostProcessingManager::GetI()->_EditorGetSSAO();
 	ssao->SetNormalDepthRenderTarget(_depthStencilView.Get());
@@ -306,22 +450,35 @@ void MeshViewDemo::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetVie
 
 	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
 
-	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	//float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-	//Effects::InstancedBasicFX->SetDirLights(_dirLights,1);
-	if (dirLight.size() > 0) Effects::InstancedBasicFX->SetDirLights(dirLight.data(), dirLight.size());
-
+	// cbPerFrame
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
-	Effects::InstancedBasicFX->SetShadowMap(shadowMap->DepthMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
 
-	RenderManager::GetI()->shadowTransform = XMLoadFloat4x4(&_shadowTransform);
+	// lights
+	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
+	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
+	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
+
+	// shadowMaps
+	Effects::InstancedBasicFX->SetDirShadowMaps(shadowMap->DepthMapSRVArray(LightType::Directional).data(), dirLights.size());
+	Effects::InstancedBasicFX->SetSpotShadowMaps(shadowMap->DepthMapSRVArray(LightType::Spot).data(), spotLights.size());
+	Effects::InstancedBasicFX->SetPointShadowMaps(shadowMap->DepthMapSRVArray(LightType::Point).data(), pointLights.size());
+	
+	// shadowTransforms
+	auto& dirShadowTransforms = RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Directional];
+	auto& spotShadowTransforms = RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Spot];
+	auto& pointShadowTransforms = RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point];
+	Effects::InstancedBasicFX->SetDirShadowTransforms(dirShadowTransforms.data(), dirLights.size());
+	Effects::InstancedBasicFX->SetSpotShadowTransforms(spotShadowTransforms.data(), spotLights.size());
+	Effects::InstancedBasicFX->SetPointShadowTransforms(pointShadowTransforms.data(), pointLights.size());
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;
 
-	_deviceContext->IASetInputLayout(InputLayouts::PosNormalTexTan.Get());
+	_deviceContext->IASetInputLayout(InputLayouts::InstancedBasic.Get());
 
 	if (RenderManager::GetI()->WireFrameMode)
 		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
@@ -333,6 +490,11 @@ void MeshViewDemo::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetVie
 
 	//_sky->Draw(_deviceContext, _camera);
 
+	// Texture2D ï¿½ï¿½ï¿½ï¿½ È­ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ï¿½)
+	DrawScreenQuad(shadowMap->DepthMapSRVArray(LightType::Directional)[0]);
+	//DrawScreenQuad(ssao->AmbientSRV().Get());
+	//DrawScreenQuad(PostProcessingManager::GetI()->_EditorGetSSAO()->GetRandomVectorSRV());
+
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
@@ -340,7 +502,7 @@ void MeshViewDemo::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetVie
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
 }
 
-void MeshViewDemo::OnMouseDown(WPARAM btnState, int32 x, int32 y)
+void EditorApp::OnMouseDown(WPARAM btnState, int32 x, int32 y)
 {
 	_lastMousePos.x = x;
 	_lastMousePos.y = y;
@@ -348,12 +510,12 @@ void MeshViewDemo::OnMouseDown(WPARAM btnState, int32 x, int32 y)
 	SetCapture(_hMainWnd);
 }
 
-void MeshViewDemo::OnMouseUp(WPARAM btnState, int32 x, int32 y)
+void EditorApp::OnMouseUp(WPARAM btnState, int32 x, int32 y)
 {
 	ReleaseCapture();
 }
 
-void MeshViewDemo::OnMouseMove(WPARAM btnState, int32 x, int32 y)
+void EditorApp::OnMouseMove(WPARAM btnState, int32 x, int32 y)
 {
 	if ((btnState & MK_LBUTTON) != 0)
 	{
@@ -369,7 +531,7 @@ void MeshViewDemo::OnMouseMove(WPARAM btnState, int32 x, int32 y)
 	_lastMousePos.y = y;
 }
 
-void MeshViewDemo::DrawSceneToSsaoNormalDepthMap()
+void EditorApp::DrawSceneToSsaoNormalDepthMap()
 {
 	//XMMATRIX view = _camera.View();
 	//XMMATRIX proj = _camera.Proj();
@@ -453,7 +615,7 @@ void MeshViewDemo::DrawSceneToSsaoNormalDepthMap()
 	//_deviceContext->RSSetState(0);
 }
 
-void MeshViewDemo::DrawSceneToShadowMap()
+void EditorApp::DrawSceneToShadowMap()
 {
 	//XMMATRIX view = XMLoadFloat4x4(&_lightView);
 	//XMMATRIX proj = XMLoadFloat4x4(&_lightProj);
@@ -532,7 +694,7 @@ void MeshViewDemo::DrawSceneToShadowMap()
 	//_deviceContext->RSSetState(0);
 }
 
-void MeshViewDemo::DrawScreenQuad(ComPtr<ID3D11ShaderResourceView> srv)
+void EditorApp::DrawScreenQuad(ComPtr<ID3D11ShaderResourceView> srv)
 {
 	uint32 stride = sizeof(Vertex::Basic32);
 	uint32 offset = 0;
@@ -563,7 +725,7 @@ void MeshViewDemo::DrawScreenQuad(ComPtr<ID3D11ShaderResourceView> srv)
 	}
 }
 
-void MeshViewDemo::BuildShadowTransform()
+void EditorApp::BuildShadowTransform()
 {
 	// Only the first "main" light casts a shadow.
 	XMVECTOR lightDir = ::XMLoadFloat3(&_dirLights[0].Direction);
@@ -600,7 +762,7 @@ void MeshViewDemo::BuildShadowTransform()
 	::XMStoreFloat4x4(&_shadowTransform, S);
 }
 
-void MeshViewDemo::BuildScreenQuadGeometryBuffers()
+void EditorApp::BuildScreenQuadGeometryBuffers()
 {
 	GeometryGenerator::MeshData quad;
 
@@ -645,3 +807,4 @@ void MeshViewDemo::BuildScreenQuadGeometryBuffers()
 	iinitData.pSysMem = &quad.indices[0];
 	HR(_device->CreateBuffer(&ibd, &iinitData, _screenQuadIB.GetAddressOf()));
 }
+

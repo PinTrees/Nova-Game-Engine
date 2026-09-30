@@ -3,6 +3,8 @@
 #include "Utils.h"
 #include <functional> // std::hash
 #include "EditorGUI.h"
+#include "SceneManager.h"
+#include "PathManager.h"
 
 bool isDragging = false;
 
@@ -76,24 +78,24 @@ ProjectEditorWindow::~ProjectEditorWindow()
 
 void ProjectEditorWindow::OnRender()
 {
-    // ÇöÀç °æ·Î¸¦ »ó´Ü¿¡ Ç¥½Ã
+    // í˜„ìž¬ ê²½ë¡œë¥¼ ìƒë‹¨ì— í‘œì‹œ
     string aa = wstring_to_string(currentDirectory);
     ImGui::Text("Current Directory: %s", aa.c_str());
 
-    static float leftPaneWidth = 250.0f; // ÁÂÃø ÆÐ³ÎÀÇ ÃÊ±â ³Êºñ
-    float minPaneWidth = 100.0f;         // ÃÖ¼Ò ÆÐ³Î ³Êºñ
-    float maxPaneWidth = ImGui::GetWindowWidth() - minPaneWidth; // ÃÖ´ë ÆÐ³Î ³Êºñ
+    static float leftPaneWidth = 250.0f; // ì¢Œì¸¡ íŒ¨ë„ì˜ ì´ˆê¸° ë„ˆë¹„
+    float minPaneWidth = 100.0f;         // ìµœì†Œ íŒ¨ë„ ë„ˆë¹„
+    float maxPaneWidth = ImGui::GetWindowWidth() - minPaneWidth; // ìµœëŒ€ íŒ¨ë„ ë„ˆë¹„
 
-    // ½ºÇÃ¸®ÅÍÀÇ µÎ²²¿Í µå·¡±× »óÅÂ º¯¼ö
+    // ìŠ¤í”Œë¦¬í„°ì˜ ë‘ê»˜ì™€ ë“œëž˜ê·¸ ìƒíƒœ ë³€ìˆ˜
     float splitterWidth = 4.0f;
     static bool isSplitterActive = false;
 
-    // ÁÂÃø Æú´õ Æ®¸® ºä
+    // ì¢Œì¸¡ í´ë” íŠ¸ë¦¬ ë·°
     ImGui::BeginChild("FolderTree", ImVec2(leftPaneWidth, 0), true);
     DisplayDirectoryTree(solutionDirectory);
     ImGui::EndChild();
 
-    // ½ºÇÃ¸®ÅÍ Ã³¸®
+    // ìŠ¤í”Œë¦¬í„° ì²˜ë¦¬
     ImGui::SameLine();
     ImGui::InvisibleButton("Splitter", ImVec2(splitterWidth, -1));
     if (ImGui::IsItemActive())
@@ -113,18 +115,18 @@ void ProjectEditorWindow::OnRender()
         if (leftPaneWidth > maxPaneWidth) leftPaneWidth = maxPaneWidth;
     }
 
-    // ÆÐµù Á¦°Å
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0)); // ¾ÆÀÌÅÛ °£°Ý ÆÐµùÀ» Á¦°Å
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0)); // ÇÁ·¹ÀÓ ³»ºÎ ÆÐµùÀ» Á¦°Å
+    // íŒ¨ë”© ì œê±°
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0)); // ì•„ì´í…œ ê°„ê²© íŒ¨ë”©ì„ ì œê±°
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0)); // í”„ë ˆìž„ ë‚´ë¶€ íŒ¨ë”©ì„ ì œê±°
 
-    // ½ºÇÃ¸®ÅÍ ½Ã°¢Àû Ç¥½Ã (¼±ÅÃ »çÇ×)
+    // ìŠ¤í”Œë¦¬í„° ì‹œê°ì  í‘œì‹œ (ì„ íƒ ì‚¬í•­)
     ImGui::SameLine(0, 0);
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     ImVec2 splitterMin = ImGui::GetItemRectMin();
     ImVec2 splitterMax = ImGui::GetItemRectMax();
     drawList->AddRectFilled(splitterMin, splitterMax, ImGui::GetColorU32(ImGuiCol_Separator));
 
-    // ÆÐµù º¹±¸
+    // íŒ¨ë”© ë³µêµ¬
     ImGui::PopStyleVar(2);
 
     ImGui::SameLine();
@@ -135,7 +137,7 @@ void ProjectEditorWindow::OnRender()
         ImGui::OpenPopup("ItemContextMenu");
     }
 
-    // ¸¶¿ì½º ¹öÆ°ÀÌ ³õ¾ÆÁ³À» ¶§ µå·¡±× »óÅÂ ÃÊ±âÈ­
+    // ë§ˆìš°ìŠ¤ ë²„íŠ¼ì´ ë†“ì•„ì¡Œì„ ë•Œ ë“œëž˜ê·¸ ìƒíƒœ ì´ˆê¸°í™”
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
     {
         isDragging = false;
@@ -177,7 +179,7 @@ void ProjectEditorWindow::DisplayDirectoryTree(const std::wstring& directory)
         {
             if (ImGui::TreeNode(filename.c_str()))
             {
-                if (ImGui::IsItemHovered() && ImGui::IsItemClicked()) // °æ·Î º¯°æ
+                if (ImGui::IsItemHovered() && ImGui::IsItemClicked()) // ê²½ë¡œ ë³€ê²½
                 {
                     currentDirectory = entry.path().wstring();
                 }
@@ -191,7 +193,7 @@ void ProjectEditorWindow::DisplayDirectoryTree(const std::wstring& directory)
 
 void ProjectEditorWindow::DisplayDirectoryContents(const std::wstring& directory)
 {
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.15f, 0.15f, 1.0f)); // ¾îµÎ¿î È¸»ö
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.15f, 0.15f, 1.0f)); // ì–´ë‘ìš´ íšŒìƒ‰
 
     ImGui::BeginChild("DirectoryContents", ImVec2(0, 0), true);
     for (const auto& entry : fs::directory_iterator(directory))
@@ -253,6 +255,12 @@ void ProjectEditorWindow::RenderFileEntry(const fs::directory_entry& entry, bool
         EditorGUI::RowSizedBox(8);
         RenderFileEntry_MAT(entry, isSelected);
     }
+    else if (extention == ".scene" || extention == ".SCENE")
+    {
+        EditorGUI::Image(L"\\ProjectSetting\\icons\\icon_gameobject.png", ImVec2(20, 20));
+        EditorGUI::RowSizedBox(8);
+        RenderFileEntry_Scene(entry, isSelected);
+    }
     else if (extention == ".txt" || extention == ".TXT")
     {
         EditorGUI::Image(L"\\ProjectSetting\\icons\\icon_text.png", ImVec2(18, 18));
@@ -313,7 +321,7 @@ void ProjectEditorWindow::RenderFileEntry_Directory(const fs::directory_entry& e
         currentDirectory = entry.path().wstring();
     }
 
-    // µå·¡±× ¾Ø µå·Ó Å¸°Ù ¼³Á¤
+    // ë“œëž˜ê·¸ ì•¤ ë“œë¡­ íƒ€ê²Ÿ ì„¤ì •
     if (!isSelected && ImGui::BeginDragDropTarget())
     {
         if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MAT_FILE"))
@@ -344,17 +352,17 @@ void ProjectEditorWindow::RenderFileEntry_FBX(const fs::directory_entry& entry, 
         | (isSelected ? ImGuiTreeNodeFlags_DefaultOpen : 0)
         | (isSelected ? ImGuiTreeNodeFlags_Selected : 0);
 
-    // TreeNodeÀÇ »óÅÂ¸¦ °ü¸®
+    // TreeNodeì˜ ìƒíƒœë¥¼ ê´€ë¦¬
     bool treeNodeOpened = ImGui::TreeNodeEx(wstring_to_string(filename).c_str(), treeFlag);
 
     if (!isSelected && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
     {
-        // ÆÄÀÏ ¼±ÅÃ Ã³¸®
+        // íŒŒì¼ ì„ íƒ ì²˜ë¦¬
         SelectionManager::SetSelectedFile(entry.path().wstring());
         isSelected = true;
     }
 
-    // Æ®¸® ³ëµå¿¡ ´ëÇÑ µå·¡±× ¾Ø µå·Ó ¼Ò½º ¼³Á¤
+    // íŠ¸ë¦¬ ë…¸ë“œì— ëŒ€í•œ ë“œëž˜ê·¸ ì•¤ ë“œë¡­ ì†ŒìŠ¤ ì„¤ì •
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
     {
         const std::wstring filePath = entry.path().wstring();
@@ -377,7 +385,7 @@ void ProjectEditorWindow::RenderFileEntry_FBX(const fs::directory_entry& entry, 
                 SelectionManager::SetSelectedFile(filename + L"\\" + subsetName);
             }
 
-            // ¼­ºê¼Â¿¡ ´ëÇÑ µå·¡±× ¾Ø µå·Ó ¼Ò½º ¼³Á¤
+            // ì„œë¸Œì…‹ì— ëŒ€í•œ ë“œëž˜ê·¸ ì•¤ ë“œë¡­ ì†ŒìŠ¤ ì„¤ì •
             if (ImGui::IsItemActive() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
             {
                 const std::string subsetPath = entry.path().string() + "\\" + std::to_string(i);
@@ -400,7 +408,7 @@ void ProjectEditorWindow::RenderFileEntry_FBX(const fs::directory_entry& entry, 
                 SelectionManager::SetSelectedFile(filename + L"\\" + subsetName);
             }
 
-            // ¼­ºê¼Â¿¡ ´ëÇÑ µå·¡±× ¾Ø µå·Ó ¼Ò½º ¼³Á¤
+            // ì„œë¸Œì…‹ì— ëŒ€í•œ ë“œëž˜ê·¸ ì•¤ ë“œë¡­ ì†ŒìŠ¤ ì„¤ì •
             if (ImGui::IsItemActive() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
             {
                 const std::string subsetPath = entry.path().string() + "\\" + std::to_string(i);
@@ -435,26 +443,26 @@ void ProjectEditorWindow::RenderFileEntry_PNG(const fs::directory_entry& entry, 
 
     if (!isSelected && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
     {
-        // ÆÄÀÏ ¼±ÅÃ Ã³¸®
+        // íŒŒì¼ ì„ íƒ ì²˜ë¦¬
         SelectionManager::SetSelectedFile(entry.path().wstring());
         isSelected = true;
     }
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
     {
-        // ´õºí Å¬¸¯ Ã³¸®
+        // ë”ë¸” í´ë¦­ ì²˜ë¦¬
 
         std::wstring command = L"ms-photos:viewer?filePath=" + entry.path().wstring();
         ShellExecute(0, 0, command.c_str(), 0, 0, SW_SHOWNORMAL);
     }
     else if (isSelected && ImGui::BeginDragDropSource())
     {
-        // µå·¡±× ¾Ø µå¶ø Ã³¸®
+        // ë“œëž˜ê·¸ ì•¤ ë“œëž ì²˜ë¦¬
 
         const std::string filePath = wstring_to_string(entry.path().wstring());
         const std::string filename_d = wstring_to_string(entry.path().filename().wstring());
 
-        // ÆÄÀÏ °æ·Î¸¦ ÆäÀÌ·Îµå·Î ¼³Á¤
+        // íŒŒì¼ ê²½ë¡œë¥¼ íŽ˜ì´ë¡œë“œë¡œ ì„¤ì •
         ImGui::SetDragDropPayload("PNG_FILE", filePath.c_str(), (filePath.size() + 1) * sizeof(char));
         ImGui::Text("Dragging %s", filename_d.c_str());
         ImGui::EndDragDropSource();
@@ -469,14 +477,14 @@ void ProjectEditorWindow::RenderFileEntry_MAT(const fs::directory_entry& entry, 
 
     if (!isSelected && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0))
     {
-        // ÆÄÀÏ ¼±ÅÃ Ã³¸®
+        // íŒŒì¼ ì„ íƒ ì²˜ë¦¬
         SelectionManager::SetSelectedFile(entry.path().wstring());
         isSelected = true;
     }
 
     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
     {
-        // ´õºí Å¬¸¯ Ã³¸®
+        // ë”ë¸” í´ë¦­ ì²˜ë¦¬
     }
 
     if (ImGui::BeginDragDropSource())
@@ -500,4 +508,20 @@ void ProjectEditorWindow::RenderFileEntry_MAT(const fs::directory_entry& entry, 
     //    ImGui::Text("Dragging %s", filename_d.c_str());
     //    ImGui::EndDragDropSource();
     //}
+}
+
+void ProjectEditorWindow::RenderFileEntry_Scene(const fs::directory_entry& entry, bool isSelected)
+{
+    wstring filename = entry.path().filename().wstring();
+
+    if (ImGui::Selectable(wstring_to_string(filename).c_str(), isSelected))
+    {
+        SelectionManager::SetSelectedFile(entry.path().wstring());
+    }
+
+    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+    {
+        std::wstring relPath = PathManager::GetI()->GetCutSolutionPath(entry.path().wstring());
+        SceneManager::GetI()->LoadScene(relPath);
+    }
 }

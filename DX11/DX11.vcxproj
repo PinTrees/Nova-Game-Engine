@@ -142,6 +142,9 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)Libraries\Lib\</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y /d "$(SolutionDir)assimp-vc143-mtd.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -163,44 +166,19 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(SolutionDir)Libraries\Lib\</AdditionalLibraryDirectories>
     </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y /d "$(SolutionDir)assimp-vc143-mtd.dll" "$(OutDir)"</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="02. BoxDemo.h" />
-    <ClInclude Include="03. HillsDemo.h" />
-    <ClInclude Include="04. ShapesDemo.h" />
-    <ClInclude Include="05. SkullDemo.h" />
-    <ClInclude Include="06. WavesDemo.h" />
-    <ClInclude Include="07. LightingDemo.h" />
-    <ClInclude Include="08. CrateDemo.h" />
-    <ClInclude Include="09. TexturedHillsAndWavesDemo.h" />
-    <ClInclude Include="10. BlendDemo.h" />
-    <ClInclude Include="11. MirrorDemo.h" />
-    <ClInclude Include="12. TreeBillboardDemo.h" />
-    <ClInclude Include="13. VecAddDemo.h" />
-    <ClInclude Include="14. BlurDemo.h" />
-    <ClInclude Include="15. BasicTessellation.h" />
-    <ClInclude Include="16. BasicTriangleTessellation.h" />
-    <ClInclude Include="17. BezierTessellation.h" />
-    <ClInclude Include="18. CameraDemo.h" />
-    <ClInclude Include="19. InstancingAndCullingDemo.h" />
-    <ClInclude Include="20. PickingDemo.h" />
-    <ClInclude Include="21. CubeMapDemo.h" />
-    <ClInclude Include="22. DynamicCubeMapDemo.h" />
-    <ClInclude Include="23. NormalDisplacementMapDemo.h" />
-    <ClInclude Include="24. TerrainDemo.h" />
-    <ClInclude Include="25. ParticlesDemo.h" />
-    <ClInclude Include="26. ShadowsDemo.h" />
-    <ClInclude Include="27. AmbientOcclusionDemo.h" />
-    <ClInclude Include="28. SsaoDemo.h" />
-    <ClInclude Include="29. MeshViewDemo.h" />
-    <ClInclude Include="30. QuatDemo.h" />
-    <ClInclude Include="31. SkinnedMeshDemo.h" />
+    <ClInclude Include="EditorApp.h" />
+    <ClInclude Include="GameObjectFactory.h" />
+    <ClInclude Include="ProjectHubWindow.h" />
     <ClInclude Include="AnimationClipSelectEditorDialog.h" />
     <ClInclude Include="AnimationPlayer.h" />
     <ClInclude Include="AnimationHelper.h" />
     <ClInclude Include="AnimatorEditorWindow.h" />
     <ClInclude Include="App.h" />
-    <ClInclude Include="01. InitDemo.h" />
     <ClInclude Include="Application.h" />
     <ClInclude Include="BlurFilter.h" />
     <ClInclude Include="BoxCollider.h" />
@@ -308,42 +286,14 @@
     <ClInclude Include="Waves.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="02. BoxDemo.cpp" />
-    <ClCompile Include="03. HillsDemo.cpp" />
-    <ClCompile Include="04. ShapesDemo.cpp" />
-    <ClCompile Include="05. SkullDemo.cpp" />
-    <ClCompile Include="06. WavesDemo.cpp" />
-    <ClCompile Include="07. LightingDemo.cpp" />
-    <ClCompile Include="08. CrateDemo.cpp" />
-    <ClCompile Include="09. TexturedHillsAndWavesDemo.cpp" />
-    <ClCompile Include="10. BlendDemo.cpp" />
-    <ClCompile Include="11. MirrorDemo.cpp" />
-    <ClCompile Include="12. TreeBillboardDemo.cpp" />
-    <ClCompile Include="13. VecAddDemo.cpp" />
-    <ClCompile Include="14. BlurDemo.cpp" />
-    <ClCompile Include="15. BasicTessellation.cpp" />
-    <ClCompile Include="16. BasicTriangleTessellation.cpp" />
-    <ClCompile Include="17. BezierTessellation.cpp" />
-    <ClCompile Include="18. CameraDemo.cpp" />
-    <ClCompile Include="19. InstancingAndCullingDemo.cpp" />
-    <ClCompile Include="20. PickingDemo.cpp" />
-    <ClCompile Include="21. CubeMapDemo.cpp" />
-    <ClCompile Include="22. DynamicCubeMapDemo.cpp" />
-    <ClCompile Include="23. NormalDisplacementMapDemo.cpp" />
-    <ClCompile Include="24. TerrainDemo.cpp" />
-    <ClCompile Include="25. ParticlesDemo.cpp" />
-    <ClCompile Include="26. ShadowsDemo.cpp" />
-    <ClCompile Include="27. AmbientOcclusionDemo.cpp" />
-    <ClCompile Include="28. SsaoDemo.cpp" />
-    <ClCompile Include="29. MeshViewDemo.cpp" />
-    <ClCompile Include="30. QuatDemo.cpp" />
-    <ClCompile Include="31. SkinnedMeshDemo.cpp" />
+    <ClCompile Include="EditorApp.cpp" />
+    <ClCompile Include="GameObjectFactory.cpp" />
+    <ClCompile Include="ProjectHubWindow.cpp" />
     <ClCompile Include="AnimationClipSelectEditorDialog.cpp" />
     <ClCompile Include="AnimationPlayer.cpp" />
     <ClCompile Include="AnimationHelper.cpp" />
     <ClCompile Include="AnimatorEditorWindow.cpp" />
     <ClCompile Include="App.cpp" />
-    <ClCompile Include="01. InitDemo.cpp" />
     <ClCompile Include="Application.cpp" />
     <ClCompile Include="BlurFilter.cpp" />
     <ClCompile Include="BoxCollider.cpp" />

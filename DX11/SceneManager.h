@@ -1,4 +1,8 @@
 #pragma once
+#include <string>
+#include <map>
+#include <vector>
+#include <functional>
 
 class Scene;
 
@@ -8,15 +12,16 @@ class SceneManager
 
 private:
 	Scene* m_pCurrScene;
-	std::map<wstring, Scene*> m_Scenes;
+	std::map<std::wstring, Scene*> m_Scenes;
 
 	// Editor
-	vector<function<void()>>		m_Editor_LastUpdateActions;
+	std::vector<std::function<void()>> m_Editor_LastUpdateActions;
+	std::string m_PlayModeSceneSnapshot;
 
 public:
 	void Init();
 
-	void LoadScene(wstring scenePath);
+	void LoadScene(std::wstring scenePath);
 
 	void UpdateScene();
 	void RenderScene();
@@ -25,13 +30,11 @@ public:
 	Scene* GetCurrentScene() { return m_pCurrScene; }
 
 public:
-	void AddLastUpdate(function<void()> action) { m_Editor_LastUpdateActions.push_back(action); } 
+	void AddLastUpdate(std::function<void()> action) { m_Editor_LastUpdateActions.push_back(action); } 
+	
 	// Editor
 	void HandleSaveScene();
 	void HandlePlay();
 	void HandleStop();
-
-private:
 	void CreateScene();
 };
-

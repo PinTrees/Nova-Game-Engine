@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "GameObject.h"
 #include "Transform.h"
 #include "EditorGUI.h"
@@ -51,15 +51,15 @@ void GameObject::Destroy(GameObject* gameobject_ptr)
 
 void GameObject::SetParent(GameObject* parent)
 {
-    if (nullptr == parent) // rootGameObject·Î
+    if (nullptr == parent) // rootGameObjectï¿½ï¿½
     {
         if (nullptr == m_pParentGameObject)
         {
-            // ÀÌ¹Ì rootGameObjectÀÌ¹Ç·Î Ã³¸®X
+            // ï¿½Ì¹ï¿½ rootGameObjectï¿½Ì¹Ç·ï¿½ Ã³ï¿½ï¿½X
         }
         else
         {
-            // ºÎ¸ð¿ÀºêÁ§Æ®¿¡¼­ RemoveChild(this) ÈÄ ÀÚ±â ÀÚ½Å rootGameObject·Î Ãß°¡
+            // ï¿½Î¸ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ RemoveChild(this) ï¿½ï¿½ ï¿½Ú±ï¿½ ï¿½Ú½ï¿½ rootGameObjectï¿½ï¿½ ï¿½ß°ï¿½
             m_pParentGameObject->RemoveChild(this);
             m_pParentGameObject->GetTransform()->RemoveChild(this->GetComponent_SP<Transform>());
 
@@ -69,20 +69,20 @@ void GameObject::SetParent(GameObject* parent)
             SceneManager::GetI()->GetCurrentScene()->AddRootGameObject(this);
         }
     }
-    else // ´Ù¸¥ GameObjectÀÇ ÀÚ½ÄÀ¸·Î
+    else // ï¿½Ù¸ï¿½ GameObjectï¿½ï¿½ ï¿½Ú½ï¿½ï¿½ï¿½ï¿½ï¿½
     {
         if (nullptr == m_pParentGameObject)
         {
-            // rootGameObject¿´´ø ¿ÀºêÁ§Æ®¿¡¼­ Á¦°Å
+            // rootGameObjectï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
             SceneManager::GetI()->GetCurrentScene()->RemoveRootGameObjects(this);
         }
         else
         {
-            // ¿ø·¡ parent¿¡¼­ ÀÚ½Ä Á¦°Å
+            // ï¿½ï¿½ï¿½ï¿½ parentï¿½ï¿½ï¿½ï¿½ ï¿½Ú½ï¿½ ï¿½ï¿½ï¿½ï¿½
             m_pParentGameObject->RemoveChild(this);
             m_pParentGameObject->GetTransform()->RemoveChild(this->GetComponent_SP<Transform>());
         }
-        // parent º¯°æ ÈÄ parentÀÇ ÀÚ½ÄÀ¸·Î Ãß°¡
+        // parent ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ parentï¿½ï¿½ ï¿½Ú½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½
         m_pParentGameObject = parent;
         GetTransform()->SetParent(parent->GetComponent_SP<Transform>());
 
@@ -166,7 +166,7 @@ void GameObject::ApplyPendingComponents()
 
 void GameObject::OnInspectorGUI()
 {
-    // °ÔÀÓ ¿ÀºêÁ§Æ® ÀÌ¸§ º¯°æ ÀÎÇ² ÇÊµå
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ç² ï¿½Êµï¿½
     ImGui::Dummy(ImVec2(0, 4));
     ImGui::Dummy(ImVec2(2, 0));
     ImGui::SameLine();
@@ -174,7 +174,7 @@ void GameObject::OnInspectorGUI()
     ImGui::SameLine();
     if (EditorGUI::InputField(m_Name))
     {
-        // ÀÌ¸§ º¯°æ ½Ã ÇÊ¿äÇÑ Ãß°¡ ÀÛ¾÷ÀÌ ÀÖÀ¸¸é ¿©±â¿¡ Ãß°¡
+        // ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ ï¿½Ê¿ï¿½ï¿½ï¿½ ï¿½ß°ï¿½ ï¿½Û¾ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½â¿¡ ï¿½ß°ï¿½
     }
 
     ImGui::Dummy(ImVec2(0, 4));
@@ -188,7 +188,7 @@ void GameObject::OnInspectorGUI()
                 Component* component = *(Component**)payload->Data; 
                 int componentInstanceId = component->GetInstanceID();
 
-                // µå·¡±×µÈ ÄÄÆ÷³ÍÆ®¸¦ ÇöÀç ÀÎµ¦½º À§Ä¡·Î ÀÌµ¿
+                // ï¿½å·¡ï¿½×µï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½Ìµï¿½
                 if (componentInstanceId != (*it)->GetInstanceID())
                 {
                     auto draggedIt = std::find_if(m_Components.begin(), m_Components.end(),
@@ -207,9 +207,9 @@ void GameObject::OnInspectorGUI()
                             auto draggedIt = m_Components.begin() + draggedIndex; 
                             auto targetIt = m_Components.begin() + targetIndex; 
 
-                            // ÄÄÆ÷³ÍÆ®¸¦ Å¸°Ù À§Ä¡¿¡ »ðÀÔÇÏ°í ±âÁ¸ À§Ä¡¿¡¼­ Á¦°Å
+                            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
                             m_Components.insert(targetIt, *draggedIt);
-                            // »ðÀÔ ÈÄ, ¿ø·¡ À§Ä¡ÀÇ ¿ä¼Ò¸¦ Á¦°ÅÇØ¾ß ÇÏ¹Ç·Î, draggedIt Àç°è»ê ÇÊ¿ä
+                            // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½, ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½Ò¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ø¾ï¿½ ï¿½Ï¹Ç·ï¿½, draggedIt ï¿½ï¿½ï¿½ï¿½ ï¿½Ê¿ï¿½
                             m_Components.erase(m_Components.begin() + (draggedIndex > targetIndex ? draggedIndex + 1 : draggedIndex));
                         });
                     }
@@ -276,7 +276,7 @@ void from_json(const json& j, GameObject& obj)
 {
     obj.m_Name = j.at("name").get<std::string>();
 
-    // ÄÄÆ÷³ÍÆ® º¹¿ø
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½
     for (const auto& compJson : j.at("components"))
     {
         if (compJson.is_null())
@@ -294,7 +294,7 @@ void from_json(const json& j, GameObject& obj)
         }
         else
         {
-            // ComponentFactory¸¦ »ç¿ëÇÏ¿© ÄÄÆ÷³ÍÆ® »ý¼º
+            // ComponentFactoryï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Ï¿ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½
             component = ComponentFactory::Instance().CreateComponent(type);
             component->fromJson(compJson);
             obj.AddComponent(component);

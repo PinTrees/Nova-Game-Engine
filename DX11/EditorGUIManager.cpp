@@ -1,10 +1,15 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "EditorGUIManager.h"
 
 #include "EditorWindow.h"
 #include "EditorGUI.h"
 #include "App.h"
 
+#include "GameObjectFactory.h"
+#include "EditorUtility.h"
+#include "Scene.h"
+#include "PathManager.h"
+#include "SelectionManager.h"
 SINGLE_BODY(EditorGUIManager)
 
 EditorGUIManager::EditorGUIManager()
@@ -52,9 +57,9 @@ void EditorGUIManager::Init()
     float fontSize = 24.0f;
 
     ImFontConfig config;
-    config.MergeMode = true; // ±âÁ¸ ÆùÆ®¿Í ÇÕÃÄ »ç¿ë 
+    config.MergeMode = true; // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ 
     config.PixelSnapH = true;
-    static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome ¹üÀ§   
+    static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome ï¿½ï¿½ï¿½ï¿½   
     string fa_path = PathManager::GetI()->GetContentPathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
     
     // Load Fonts
@@ -91,32 +96,163 @@ void EditorGUIManager::RenderEditorWindows()
     ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
 
     if (ImGui::BeginMainMenuBar())
-    {
-        // ¸Þ´º¹ÙÀÇ ½ÇÁ¦ ³ôÀÌ¸¦ °è»êÇÕ´Ï´Ù.
+        // 1. File Menu
+        if (ImGui::BeginMenu("File"))
+        {
+            if (ImGui::MenuItem("New Scene", "Ctrl+N"))
+            {
+                SceneManager::GetI()->CreateScene();
+            }
+            if (ImGui::MenuItem("Open Scene...", "Ctrl+O"))
+            {
+                std::wstring filePath = EditorUtility::OpenFileDialog(PathManager::GetI()->GetMovePathW(L"Assets\\"), L"Open Scene", std::vector<std::wstring>{ L"scene" });
+                if (!filePath.empty())
+                {
+                    std::wstring relPath = PathManager::GetI()->GetCutSolutionPath(filePath);
+                    SceneManager::GetI()->LoadScene(relPath);
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Project Hub...", "Ctrl+H"))
+            {
+                for (auto& w : m_pEditorWindows)
+                {
+                    if (w->GetTitle() == "Unity Hub")
+                        w->SetIsOpened(true);
+                }
+            }
+            ImGui::Separator();            if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+            {
+                Scene* curr = SceneManager::GetI()->GetCurrentScene();
+                if (curr)
+                {
+                    if (curr->GetScenePath().empty())
+                        Scene::SaveNewScene(curr);
+                    else
+                        Scene::Save(curr);
+                }
+            }
+            if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
+            {
+                Scene* curr = SceneManager::GetI()->GetCurrentScene();
+                if (curr)
+                    Scene::SaveNewScene(curr);
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Exit", "Alt+F4"))
+            {
+                ::PostQuitMessage(0);
+            }
+            ImGui::EndMenu();
+        }
+
+        // 2. Edit Menu
+        if (ImGui::BeginMenu("Edit"))
+        {
+            if (ImGui::MenuItem("Play / Stop", "Ctrl+P"))
+            {
+                bool isPlaying = Application::IsPlaying();
+                Application::SetPlaying(!isPlaying);
+                if (!isPlaying)
+                    SceneManager::GetI()->HandlePlay();
+                else
+                {
+                    SelectionManager::ClearSelection();
+                    SceneManager::GetI()->HandleStop();
+                }
+            }
+            if (ImGui::MenuItem("Clear Selection"))
+            {
+                SelectionManager::ClearSelection();
+            }
+            ImGui::EndMenu();
+        }
+
+        // 3. GameObject Menu
+        if (ImGui::BeginMenu("GameObject"))
+        {
+            Scene* currentScene = SceneManager::GetI()->GetCurrentScene();
+            auto AddObj = [&](GameObject* obj) {
+                if (currentScene && obj) {
+                    GameObject* selected = SelectionManager::GetSelectedGameObject();
+                    if (selected)
+                        obj->SetParent(selected);
+                    else
+                        currentScene->AddRootGameObject(obj);
+                    SelectionManager::SetSelectedGameObject(obj);
+                }
+            };
+
+            if (ImGui::MenuItem("Create Empty"))
+            {
+                AddObj(GameObjectFactory::CreateEmpty());
+            }
+
+            if (ImGui::BeginMenu("3D Object"))
+            {
+                if (ImGui::MenuItem("Cube")) AddObj(GameObjectFactory::CreateCube());
+                if (ImGui::MenuItem("Sphere")) AddObj(GameObjectFactory::CreateSphere());
+                if (ImGui::MenuItem("Cylinder")) AddObj(GameObjectFactory::CreateCylinder());
+                if (ImGui::MenuItem("Plane")) AddObj(GameObjectFactory::CreatePlane());
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::BeginMenu("Light"))
+            {
+                if (ImGui::MenuItem("Directional Light")) AddObj(GameObjectFactory::CreateDirectionalLight());
+                if (ImGui::MenuItem("Point Light")) AddObj(GameObjectFactory::CreatePointLight());
+                if (ImGui::MenuItem("Spot Light")) AddObj(GameObjectFactory::CreateSpotLight());
+                ImGui::EndMenu();
+            }
+
+            if (ImGui::MenuItem("Camera"))
+            {
+                AddObj(GameObjectFactory::CreateCamera());
+            }
+            ImGui::EndMenu();
+        }
+
+        // 4. Window Menu
+        if (ImGui::BeginMenu("Window"))
+        {
+            for (auto& window : m_pEditorWindows)
+            {
+                bool opened = window->GetIsOpened();
+                if (ImGui::MenuItem(window->GetTitle().c_str(), nullptr, &opened))
+                {
+                    window->SetIsOpened(opened);
+                }
+            }
+            ImGui::EndMenu();
+        }
+
+        // 5. Help Menu
+        if (ImGui::BeginMenu("Help"))
+        {
+            if (ImGui::MenuItem("About DX11 Engine"))
+            {
+            }
+            ImGui::EndMenu();
+        }
+
+        // Center Toolbar (Play / Stop)
         float menuBarHeight = ImGui::GetFrameHeight();
-    
-        float imageHeight = 12;
-        float buttonPaddingX = 20;
-        float buttonPaddingY = 11;
+        float imageHeight = 14;
+        float buttonPaddingX = 16;
+        float buttonPaddingY = 8;
         float buttonHeight = imageHeight + buttonPaddingY * 2;
         float centerOffset = (menuBarHeight - buttonHeight) * 0.5f;
-    
-        EditorTextStyle textStyle;
-        textStyle.FontSize = 22;
-        textStyle.Bold = true;
-        ImGui::SetCursorPosY(-6);
-        EditorGUI::Label("Unity Imitation 0.0.1", textStyle);
+        float centerPos = ImGui::GetWindowWidth() * 0.5f - 60.0f;
+        if (centerPos > ImGui::GetCursorPosX())
+            ImGui::SetCursorPosX(centerPos);
 
-        // Play
-        ImGui::Dummy(ImVec2(24, 0));
         ImGui::SetCursorPosY(centerOffset);
         if (EditorGUI::ImageButton(L"\\ProjectSetting\\icons\\icon_editor_play.png", ImVec2(imageHeight, imageHeight), ImVec2(buttonPaddingX, buttonPaddingY)))
         {
             Application::SetPlaying(true);
             SceneManager::GetI()->HandlePlay();
         }
-        // Stop
-        ImGui::Dummy(ImVec2(2, 0));
+        ImGui::Dummy(ImVec2(4, 0));
         ImGui::SetCursorPosY(centerOffset);
         if (EditorGUI::ImageButton(L"\\ProjectSetting\\icons\\icon_editor_stop.png", ImVec2(imageHeight, imageHeight), ImVec2(buttonPaddingX, buttonPaddingY)))
         {
@@ -124,27 +260,18 @@ void EditorGUIManager::RenderEditorWindows()
             SelectionManager::ClearSelection();
             SceneManager::GetI()->HandleStop();
         }
-        // Step
-        ImGui::Dummy(ImVec2(2, 0));
-        ImGui::SetCursorPosY(centerOffset);
-        if (EditorGUI::ImageButton(L"\\ProjectSetting\\icons\\icon_editor_stop.png", ImVec2(imageHeight, imageHeight), ImVec2(buttonPaddingX, buttonPaddingY)))
-        {
-            // Step ±â´É
-        }
-    }
-    // ¸Þ´º¹Ù ³ôÀÌ ¹× »ö»ó ½ºÅ¸ÀÏ º¹¿ø
     ImGui::EndMainMenuBar();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(4);
 
-    // Ã¢ÀÇ ÀüÃ¼ Å©±â¿Í À§Ä¡ ¼³Á¤
-    // ÇÁ·¹ÀÓ°ú ¹è°æÀ» Á¦°ÅÇÏ´Â ÇÃ·¡±× ¼³Á¤
+    // Ã¢ï¿½ï¿½ ï¿½ï¿½Ã¼ Å©ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ ï¿½ï¿½ï¿½ï¿½
+    // ï¿½ï¿½ï¿½ï¿½ï¿½Ó°ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½Ã·ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoDecoration |
         ImGuiWindowFlags_NoBackground;
 
-    // ÀüÃ¼ È­¸é Å©±â·Î DockSpace Ã¢ ¼³Á¤    
+    // ï¿½ï¿½Ã¼ È­ï¿½ï¿½ Å©ï¿½ï¿½ï¿½ DockSpace Ã¢ ï¿½ï¿½ï¿½ï¿½    
     Vec2 screenSize = Application::GetI()->GetApp()->GetScreenSize();
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + 48)); 
@@ -222,85 +349,95 @@ void EditorGUIManager::SetStyle_Base()
 {
     ImGuiStyle* style = &ImGui::GetStyle(); 
     
-    style->DockingSeparatorSize = 4.0f;
+    style->WindowPadding = ImVec2(8.0f, 8.0f);
+    style->FramePadding = ImVec2(6.0f, 4.0f);
+    style->ItemSpacing = ImVec2(6.0f, 4.0f);
+    style->ItemInnerSpacing = ImVec2(4.0f, 4.0f);
+    style->IndentSpacing = 16.0f;
+    style->ScrollbarSize = 14.0f;
+    style->GrabMinSize = 10.0f;
+
+    style->WindowRounding = 0.0f;
+    style->ChildRounding = 0.0f;
+    style->FrameRounding = 3.0f;
+    style->PopupRounding = 4.0f;
+    style->ScrollbarRounding = 9.0f;
+    style->GrabRounding = 3.0f;
+    style->TabRounding = 4.0f;
+    style->DockingSeparatorSize = 3.0f;
     
     ImVec4* colors = style->Colors;
 
-    colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-    colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-    
-    colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.06f, 0.94f);
+    // Unity Dark Theme Color Palette
+    const ImVec4 unityDark       = ImVec4(0.15f, 0.15f, 0.15f, 1.00f); // #262626 Panel Background
+    const ImVec4 unityMid        = ImVec4(0.22f, 0.22f, 0.22f, 1.00f); // #383838 Window/Tab Background
+    const ImVec4 unityLight      = ImVec4(0.33f, 0.33f, 0.33f, 1.00f); // #545454 Buttons/Frames
+    const ImVec4 unityHighlight  = ImVec4(0.40f, 0.40f, 0.40f, 1.00f); // #666666 Hover
+    const ImVec4 unityActive     = ImVec4(0.28f, 0.28f, 0.28f, 1.00f); // #484848 Active
+    const ImVec4 unityBlue       = ImVec4(0.18f, 0.44f, 0.75f, 1.00f); // #2E70BF Unity Selection Blue
+    const ImVec4 unityAccentBlue = ImVec4(0.18f, 0.55f, 0.95f, 1.00f); // #2E8CF2 Active tab underline
 
-    colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
-    
-    colors[ImGuiCol_Border] = ImVec4(0.07, 0.07f, 0.07f, 1.0f);         // µµÅ· µð¹ÙÀÌµå ±âº» ÄÃ·¯
-    colors[ImGuiCol_BorderShadow] = ImVec4(0.07f, 0.07f, 0.07f, 0.0f);  // µµÅ· µð¹ÙÀÌµå ±âº» ÄÃ·¯
+    colors[ImGuiCol_Text]                  = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_TextDisabled]          = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
+    colors[ImGuiCol_WindowBg]              = unityDark;
+    colors[ImGuiCol_ChildBg]               = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_PopupBg]               = ImVec4(0.18f, 0.18f, 0.18f, 0.98f);
+    colors[ImGuiCol_Border]                = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_BorderShadow]          = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.29f, 0.48f, 0.54f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-    colors[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
+    colors[ImGuiCol_FrameBg]               = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered]        = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
+    colors[ImGuiCol_FrameBgActive]         = ImVec4(0.24f, 0.24f, 0.24f, 1.00f);
 
-    colors[ImGuiCol_TitleBg] = ImVec4(0.07f, 0.07f, 0.07f, 1.00f);          // µµÅ· ÅÇ ±âº» ¹è°æ
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.07f, 0.07f, 0.07f, 1.00f);    // µµÅ· ÅÇ Å¸ÀÌÆ² ¾×Æ¼ºê ¹è°æ
-    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.07f, 0.07f, 0.07f, 1.0f);  // µµÅ· ÅÇ ¸®½ºÆ® ¹è°æ 
-    
-    colors[ImGuiCol_MenuBarBg] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
-    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
-    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
-    colors[ImGuiCol_CheckMark] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    
-    colors[ImGuiCol_SliderGrab] = ImVec4(0.24f, 0.52f, 0.88f, 1.00f);
-    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
+    colors[ImGuiCol_TitleBg]               = unityMid;
+    colors[ImGuiCol_TitleBgActive]         = unityMid;
+    colors[ImGuiCol_TitleBgCollapsed]      = unityMid;
 
-    colors[ImGuiCol_Button] = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.06f, 0.53f, 0.98f, 1.00f);
+    colors[ImGuiCol_MenuBarBg]             = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg]           = ImVec4(0.12f, 0.12f, 0.12f, 0.60f);
+    colors[ImGuiCol_ScrollbarGrab]         = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive]   = ImVec4(0.55f, 0.55f, 0.55f, 1.00f);
 
-    colors[ImGuiCol_Header] = ImVec4(0.26f, 0.59f, 0.98f, 0.31f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.80f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    
-    colors[ImGuiCol_Separator]          = ImVec4(0.07f, 0.07f, 0.07f, 1.0f);
-    colors[ImGuiCol_SeparatorHovered]   = ImVec4(0.07f, 0.07f, 0.07f, 1.f);
-    colors[ImGuiCol_SeparatorActive]    = ImVec4(0.07f, 0.07f, 0.07f, 1.f);
+    colors[ImGuiCol_CheckMark]             = unityAccentBlue;
+    colors[ImGuiCol_SliderGrab]            = unityLight;
+    colors[ImGuiCol_SliderGrabActive]      = unityBlue;
 
-    colors[ImGuiCol_ResizeGrip]         = ImVec4(0.26f, 0.59f, 0.98f, 0.0f);    // ¿ìÃø ÇÏ´Ü Å©±âÁ¶Àý °¡´É ÈùÆ®
-    colors[ImGuiCol_ResizeGripHovered]  = ImVec4(0.26f, 0.59f, 0.98f, 0.0f);
-    colors[ImGuiCol_ResizeGripActive]   = ImVec4(0.26f, 0.59f, 0.98f, 0.0f);
+    colors[ImGuiCol_Button]                = unityLight;
+    colors[ImGuiCol_ButtonHovered]         = unityHighlight;
+    colors[ImGuiCol_ButtonActive]          = unityActive;
 
-    colors[ImGuiCol_TabHovered] = colors[ImGuiCol_HeaderHovered];
-    colors[ImGuiCol_Tab] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f); 
-    colors[ImGuiCol_TabSelected] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
-    colors[ImGuiCol_TabSelectedOverline] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    colors[ImGuiCol_Header]                = unityBlue;
+    colors[ImGuiCol_HeaderHovered]         = ImVec4(0.22f, 0.50f, 0.82f, 0.85f);
+    colors[ImGuiCol_HeaderActive]          = ImVec4(0.16f, 0.40f, 0.70f, 1.00f);
 
-    colors[ImGuiCol_TabDimmed] = colors[ImGuiCol_Tab];
-    colors[ImGuiCol_TabDimmedSelected] = colors[ImGuiCol_TabSelected];
-    colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.50f, 0.50f, 0.50f, 0.00f);
+    colors[ImGuiCol_Separator]             = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_SeparatorHovered]      = unityAccentBlue;
+    colors[ImGuiCol_SeparatorActive]       = unityBlue;
 
-    colors[ImGuiCol_DockingPreview] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_ResizeGrip]            = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_ResizeGripHovered]     = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_ResizeGripActive]      = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    colors[ImGuiCol_PlotLines] = ImVec4(0.61f, 0.61f, 0.61f, 0.00f);
-    colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-    colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-    colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-    
-    colors[ImGuiCol_TableHeaderBg] = ImVec4(0.19f, 0.19f, 0.20f, 0.00f);
-    colors[ImGuiCol_TableBorderStrong] = ImVec4(0.31f, 0.31f, 0.35f, 0.00f);   // Prefer using Alpha=1.0 here
-    colors[ImGuiCol_TableBorderLight] = ImVec4(0.23f, 0.23f, 0.25f, 0.00f);   // Prefer using Alpha=1.0 here
+    // Unity Tab Styling
+    colors[ImGuiCol_Tab]                   = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
+    colors[ImGuiCol_TabHovered]            = ImVec4(0.24f, 0.24f, 0.24f, 1.00f);
+    colors[ImGuiCol_TabSelected]           = unityMid;
+    colors[ImGuiCol_TabSelectedOverline]   = unityAccentBlue;
+    colors[ImGuiCol_TabDimmed]             = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+    colors[ImGuiCol_TabDimmedSelected]     = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+    colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
 
-    colors[ImGuiCol_TableRowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-    colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.0f);
-    colors[ImGuiCol_TextLink] = colors[ImGuiCol_HeaderActive];
-    colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-    colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-    
-    //colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    colors[ImGuiCol_NavHighlight] = ImVec4(0.0f, 0.0f, 0.0f, 1.00f);                // µµÅ· µð¹ÙÀÌµå ¹Ù ¾×Æ¼ºê »ö»ó
-    colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);    // 
-    colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);        
-    colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+    colors[ImGuiCol_DockingPreview]        = ImVec4(0.18f, 0.44f, 0.75f, 0.70f);
+    colors[ImGuiCol_DockingEmptyBg]        = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+
+    colors[ImGuiCol_TableHeaderBg]         = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
+    colors[ImGuiCol_TableBorderStrong]     = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_TableBorderLight]      = ImVec4(0.16f, 0.16f, 0.16f, 0.50f);
+    colors[ImGuiCol_TableRowBg]            = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    colors[ImGuiCol_TableRowBgAlt]         = ImVec4(1.00f, 1.00f, 1.00f, 0.03f);
+
+    colors[ImGuiCol_TextSelectedBg]        = ImVec4(0.18f, 0.44f, 0.75f, 0.50f);
+    colors[ImGuiCol_DragDropTarget]        = unityAccentBlue;
+    colors[ImGuiCol_NavHighlight]          = unityAccentBlue;
 }

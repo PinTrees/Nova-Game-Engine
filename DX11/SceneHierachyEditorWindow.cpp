@@ -1,7 +1,8 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "SceneHierachyEditorWindow.h"
 #include <filesystem>
 #include "EditorGUI.h"
+#include "GameObjectFactory.h"
 
 SceneHierachyEditorWindow::SceneHierachyEditorWindow()
 	: EditorWindow("Hierachy", ICON_FA_LIST)
@@ -21,28 +22,62 @@ void SceneHierachyEditorWindow::OnRender()
 
 	// Top Tab Bar
 	ImGui::BeginChild("##FixedTopBar", ImVec2(0, 30), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-	EditorGUI::IconButton_FA(ICON_FA_PLUS, EditorGUI::DefaultTextStyle, ImVec2(30, 30), 30);
+	if (EditorGUI::IconButton_FA(ICON_FA_PLUS, EditorGUI::DefaultTextStyle, ImVec2(30, 30), 30))
+	{
+		ImGui::OpenPopup("HierarchyAddMenu");
+	}
 	EditorGUI::Divider(Color(0.2f, 0.2f, 0.2f, 1.0f), 4.0f);
+
+	auto RenderCreateMenu = [&](GameObject* parent = nullptr) {
+		auto AddObj = [&](GameObject* obj) {
+			if (parent != nullptr) {
+				obj->SetParent(parent);
+			} else {
+				currentScene->AddRootGameObject(obj);
+			}
+			SelectionManager::SetSelectedGameObject(obj);
+		};
+
+		if (ImGui::MenuItem("Create Empty"))
+		{
+			AddObj(GameObjectFactory::CreateEmpty());
+		}
+
+		if (ImGui::BeginMenu("3D Object"))
+		{
+			if (ImGui::MenuItem("Cube")) AddObj(GameObjectFactory::CreateCube());
+			if (ImGui::MenuItem("Sphere")) AddObj(GameObjectFactory::CreateSphere());
+			if (ImGui::MenuItem("Cylinder")) AddObj(GameObjectFactory::CreateCylinder());
+			if (ImGui::MenuItem("Plane")) AddObj(GameObjectFactory::CreatePlane());
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Light"))
+		{
+			if (ImGui::MenuItem("Directional Light")) AddObj(GameObjectFactory::CreateDirectionalLight());
+			if (ImGui::MenuItem("Point Light")) AddObj(GameObjectFactory::CreatePointLight());
+			if (ImGui::MenuItem("Spot Light")) AddObj(GameObjectFactory::CreateSpotLight());
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::MenuItem("Camera"))
+		{
+			AddObj(GameObjectFactory::CreateCamera());
+		}
+	};
+
+	if (ImGui::BeginPopup("HierarchyAddMenu"))
+	{
+		RenderCreateMenu(nullptr);
+		ImGui::EndPopup();
+	}
+
 	ImGui::EndChild();
 
-	// Top tab bar - Context menu
+	// Top tab bar - Context menu (right click)
 	if (ImGui::BeginPopupContextItem("##TopBarContextMenu", ImGuiMouseButton_Right))
 	{
-		if (ImGui::MenuItem("Add Camera"))
-		{
-			GameObject* newCamera = new GameObject("Camera");
-			currentScene->AddRootGameObject(newCamera);
-		}
-		if (ImGui::MenuItem("Add Directional Light"))
-		{
-			GameObject* newLight = new GameObject("Directional Light");
-			currentScene->AddRootGameObject(newLight);
-		}
-		if (ImGui::MenuItem("Add Empty GameObject"))
-		{
-			GameObject* newEmpty = new GameObject("GameObject");
-			currentScene->AddRootGameObject(newEmpty);
-		}
+		RenderCreateMenu(nullptr);
 		ImGui::EndPopup();
 	}
 
@@ -53,7 +88,7 @@ void SceneHierachyEditorWindow::OnRender()
 	}
 	ImGui::EndChild();
 
-	// ³²Àº ¿µ¿ªÀ» µå·¡±× ¾Ø µå·Ó ¹× ¿ìÅ¬¸¯ ÄÁÅØ½ºÆ® ¸Ş´º·Î ¼³Á¤
+	// ë‚¨ì€ ì˜ì—­ì„ ë“œë˜ê·¸ ì•¤ ë“œë¡­ ë° ìš°í´ë¦­ ì»¨í…ìŠ¤íŠ¸ ë©”ë‰´ë¡œ ì„¤ì •
 	ImGui::BeginChild("##SceneHierachyDropContainer", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse); 
  
 	if (ImGui::BeginDragDropTarget())
@@ -81,10 +116,10 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject)
 	ImGui::PushID(gameObject->GetInstanceID()); 
 	bool isSelected = (SelectionManager::GetSelectedGameObject() == gameObject);
 
-	ImGui::PushStyleColor(ImGuiCol_Button, isSelected ? ImVec4(0.172f, 0.36f, 0.529f, 1.0f) : EDITOR_GUI_COLOR_TRANSPARENT);     // ±âº» ¹öÆ° »ö»ó 
-	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isSelected ? ImVec4(0.172f, 0.36f, 0.529f, 1.0f) : EDITOR_GUI_COLOR_BUTTON_HOBER);			// È£¹ö ½Ã »ö»ó 
-	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.172f, 0.36f, 0.529f, 1.0f));				// Å¬¸¯ ½Ã »ö»ó 
-	ImGui::PushStyleColor(ImGuiCol_Text, EDITOR_GUI_COLOR_LABEL);									// ÅØ½ºÆ® »ö»ó
+	ImGui::PushStyleColor(ImGuiCol_Button, isSelected ? ImVec4(0.172f, 0.36f, 0.529f, 1.0f) : EDITOR_GUI_COLOR_TRANSPARENT);     // ê¸°ë³¸ ë²„íŠ¼ ìƒ‰ìƒ 
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, isSelected ? ImVec4(0.172f, 0.36f, 0.529f, 1.0f) : EDITOR_GUI_COLOR_BUTTON_HOBER);			// í˜¸ë²„ ì‹œ ìƒ‰ìƒ 
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.172f, 0.36f, 0.529f, 1.0f));				// í´ë¦­ ì‹œ ìƒ‰ìƒ 
+	ImGui::PushStyleColor(ImGuiCol_Text, EDITOR_GUI_COLOR_LABEL);									// í…ìŠ¤íŠ¸ ìƒ‰ìƒ
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 
 	ImVec2 availableSize = ImGui::GetContentRegionAvail();
@@ -94,15 +129,49 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject)
 		SelectionManager::SetSelectedGameObject(gameObject);
 	}
 
-	// ¿ìÅ¬¸¯ ÄÁÅØ½ºÆ® ¸Ş´º ¿­±â
+	// Context menu
 	if (ImGui::BeginPopupContextItem(gamobject_entry_id.c_str()))
 	{
-		if (ImGui::MenuItem("Delete GameObject"))
-		{ 
-			GameObject::Destroy(gameObject); 
-			SelectionManager::SetSelectedGameObject(nullptr); 
+		auto AddChildObj = [&](GameObject* child) {
+			child->SetParent(gameObject);
+			SelectionManager::SetSelectedGameObject(child);
+		};
+
+		if (ImGui::MenuItem("Create Empty (Child)"))
+		{
+			AddChildObj(GameObjectFactory::CreateEmpty());
 		}
-		
+
+		if (ImGui::BeginMenu("3D Object"))
+		{
+			if (ImGui::MenuItem("Cube")) AddChildObj(GameObjectFactory::CreateCube());
+			if (ImGui::MenuItem("Sphere")) AddChildObj(GameObjectFactory::CreateSphere());
+			if (ImGui::MenuItem("Cylinder")) AddChildObj(GameObjectFactory::CreateCylinder());
+			if (ImGui::MenuItem("Plane")) AddChildObj(GameObjectFactory::CreatePlane());
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Light"))
+		{
+			if (ImGui::MenuItem("Directional Light")) AddChildObj(GameObjectFactory::CreateDirectionalLight());
+			if (ImGui::MenuItem("Point Light")) AddChildObj(GameObjectFactory::CreatePointLight());
+			if (ImGui::MenuItem("Spot Light")) AddChildObj(GameObjectFactory::CreateSpotLight());
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::MenuItem("Camera"))
+		{
+			AddChildObj(GameObjectFactory::CreateCamera());
+		}
+
+		ImGui::Separator();
+
+		if (ImGui::MenuItem("Delete GameObject"))
+		{
+			GameObject::Destroy(gameObject);
+			SelectionManager::SetSelectedGameObject(nullptr);
+		}
+
 		ImGui::EndPopup();
 	}
 
@@ -171,7 +240,7 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject)
 	
 	ImGui::PopStyleVar(1);  
 	ImGui::PopStyleColor(4);
-	ImGui::PopID(); // ImGui ID ½ºÅÃ¿¡¼­ ÆË
+	ImGui::PopID(); // ImGui ID ìŠ¤íƒì—ì„œ íŒ
 }
 
 void SceneHierachyEditorWindow::PopupContextMenu()
@@ -185,7 +254,7 @@ void SceneHierachyEditorWindow::PopupContextMenu()
 	{
 		if (ImGui::MenuItem("Add Camera"))
 		{
-			// Ä«¸Ş¶ó Ãß°¡ ·ÎÁ÷
+			// ì¹´ë©”ë¼ ì¶”ê°€ ë¡œì§
 			GameObject* newCamera = new GameObject("Camera");
 			currentScene->AddRootGameObject(newCamera);
 			//newCamera->AddComponent<CameraComponent>();
@@ -193,13 +262,13 @@ void SceneHierachyEditorWindow::PopupContextMenu()
 		}
 		if (ImGui::MenuItem("Add Directinal Light"))
 		{
-			// ¶óÀÌÆ® Ãß°¡ ·ÎÁ÷
+			// ë¼ì´íŠ¸ ì¶”ê°€ ë¡œì§
 			GameObject* newLight = new GameObject("Directinal Light");
 			currentScene->AddRootGameObject(newLight);
 		}
 		if (ImGui::MenuItem("Add Empty GameObject"))
 		{
-			// ºó °ÔÀÓ ¿ÀºêÁ§Æ® Ãß°¡ ·ÎÁ÷
+			// ë¹ˆ ê²Œì„ ì˜¤ë¸Œì íŠ¸ ì¶”ê°€ ë¡œì§
 			GameObject* newEmpty = new GameObject("GameObject");
 			currentScene->AddRootGameObject(newEmpty);
 		}
@@ -209,7 +278,7 @@ void SceneHierachyEditorWindow::PopupContextMenu()
 
 void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, GameObject* parent)
 {
-	// ÆÄÀÏ °æ·Î À¯È¿¼º °Ë»ç
+	// íŒŒì¼ ê²½ë¡œ ìœ íš¨ì„± ê²€ì‚¬
 	std::filesystem::path path(filePath);
 	if (!std::filesystem::exists(path))
 	{
@@ -217,7 +286,7 @@ void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, G
 		return;
 	}
 
-	// ÆÄÀÏ ÀÌ¸§ ÃßÃâ (È®ÀåÀÚ Á¦¿Ü)
+	// íŒŒì¼ ì´ë¦„ ì¶”ì¶œ (í™•ì¥ì ì œì™¸)
 	std::string fileName = path.stem().string();
 
 	GameObject* newGameObject = new GameObject(fileName);

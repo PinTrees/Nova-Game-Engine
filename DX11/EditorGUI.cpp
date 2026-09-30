@@ -29,26 +29,26 @@ void EditorGUI::Image(wstring path, ImVec2 size)
 bool EditorGUI::Checkbox(bool& active)
 {
     bool isDirty = false;
-    // Ã¼Å©¹Ú½º Å©±â ¼³Á¤
+    // ì²´í¬ë°•ìŠ¤ í¬ê¸° ì„¤ì •
 
-    // ½ºÅ¸ÀÏ Àû¿ë
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));         // ±âº» ¹è°æ »ö»ó
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));  // È£¹ö ½Ã ¹è°æ »ö»ó
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.30f, 0.30f, 1.0f));   // Å¬¸¯ ½Ã ¹è°æ »ö»ó
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));            // Å×µÎ¸® »ö»ó
+    // ìŠ¤íƒ€ì¼ ì ìš©
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));         // ê¸°ë³¸ ë°°ê²½ ìƒ‰ìƒ
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));  // í˜¸ë²„ ì‹œ ë°°ê²½ ìƒ‰ìƒ
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.30f, 0.30f, 0.30f, 1.0f));   // í´ë¦­ ì‹œ ë°°ê²½ ìƒ‰ìƒ
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));            // í…Œë‘ë¦¬ ìƒ‰ìƒ
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);  // ¶ó¿îµù Àû¿ë
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f); // Å×µÎ¸® µÎ²² Àû¿ë
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);  // ë¼ìš´ë”© ì ìš©
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f); // í…Œë‘ë¦¬ ë‘ê»˜ ì ìš©
 
-    // 20x20 Å©±âÀÇ ¹öÆ°À» Ã¼Å©¹Ú½º·Î »ç¿ë
+    // 20x20 í¬ê¸°ì˜ ë²„íŠ¼ì„ ì²´í¬ë°•ìŠ¤ë¡œ ì‚¬ìš©
     if (ImGui::Button("##Checkbox", EDITOR_GUI_SIZE_CHECKBOX))
     {
         active = !active; 
         isDirty = true;
     }
 
-    // Ã¼Å© »óÅÂ¿¡ µû¶ó Ã¼Å© Ç¥½Ã ±×¸®±â
-    // Ã¼Å© Ç¥½Ã (V Ç¥½Ã¸¦ ±×¸®´Â ºÎºĞ)
+    // ì²´í¬ ìƒíƒœì— ë”°ë¼ ì²´í¬ í‘œì‹œ ê·¸ë¦¬ê¸°
+    // ì²´í¬ í‘œì‹œ (V í‘œì‹œë¥¼ ê·¸ë¦¬ëŠ” ë¶€ë¶„)
     if (active)
     {
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -56,13 +56,13 @@ bool EditorGUI::Checkbox(bool& active)
         ImVec2 p_max = ImGui::GetItemRectMax();
   
         ImVec2 center = ImVec2((p_min.x + p_max.x) * 0.5f, (p_min.y + p_max.y) * 0.5f);
-        draw_list->AddLine(ImVec2(p_min.x + 4, center.y), ImVec2(center.x - 2, p_max.y - 4), ImColor(255, 255, 255, 255), 2.0f); // ¿ŞÂÊ ¾Æ·¡·Î
-        draw_list->AddLine(ImVec2(center.x - 2, p_max.y - 4), ImVec2(p_max.x - 4, p_min.y + 4), ImColor(255, 255, 255, 255), 2.0f); // ¿À¸¥ÂÊ À§·Î
+        draw_list->AddLine(ImVec2(p_min.x + 4, center.y), ImVec2(center.x - 2, p_max.y - 4), ImColor(255, 255, 255, 255), 2.0f); // ì™¼ìª½ ì•„ë˜ë¡œ
+        draw_list->AddLine(ImVec2(center.x - 2, p_max.y - 4), ImVec2(p_max.x - 4, p_min.y + 4), ImColor(255, 255, 255, 255), 2.0f); // ì˜¤ë¥¸ìª½ ìœ„ë¡œ
     }
 
-    // ½ºÅ¸ÀÏ º¹¿ø
-    ImGui::PopStyleVar(2);  // ¶ó¿îµù°ú Å×µÎ¸® º¹¿ø
-    ImGui::PopStyleColor(4); // »ö»ó º¹¿ø
+    // ìŠ¤íƒ€ì¼ ë³µì›
+    ImGui::PopStyleVar(2);  // ë¼ìš´ë”©ê³¼ í…Œë‘ë¦¬ ë³µì›
+    ImGui::PopStyleColor(4); // ìƒ‰ìƒ ë³µì›
 
     return isDirty;
 }
@@ -121,39 +121,39 @@ void EditorGUI::LabelHeader(string text)
 
 bool EditorGUI::Button(string text, Vec2 size, Color color)
 {
-    // Unity ¹öÆ° »ö»ó¿¡ ¸Â´Â ImGui »ö»ó ¼³Á¤
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(color.x, color.y, color.z, color.w));  // (±âº» ¹öÆ° ¹è°æ)
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));    // (¸¶¿ì½º ¿Ã·ÈÀ» ¶§)
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));     // (Å¬¸¯ÇßÀ» ¶§)
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));                // (ÅØ½ºÆ®)
+    // Unity ë²„íŠ¼ ìƒ‰ìƒì— ë§ëŠ” ImGui ìƒ‰ìƒ ì„¤ì •
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(color.x, color.y, color.z, color.w));  // (ê¸°ë³¸ ë²„íŠ¼ ë°°ê²½)
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));    // (ë§ˆìš°ìŠ¤ ì˜¬ë ¸ì„ ë•Œ)
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));     // (í´ë¦­í–ˆì„ ë•Œ)
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));                // (í…ìŠ¤íŠ¸)
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 0));  // ÆĞµù (ÁÂ¿ì, »óÇÏ) 2px ¼³Á¤
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));  // ÆĞµù (ÁÂ¿ì, »óÇÏ) 2px ¼³Á¤
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);         // ¶ó¿îµå °ª 2 Àû¿ë
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.4f);       // Å×µÎ¸® µÎ²² 1 Àû¿ë
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 0));  // íŒ¨ë”© (ì¢Œìš°, ìƒí•˜) 2px ì„¤ì •
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));  // íŒ¨ë”© (ì¢Œìš°, ìƒí•˜) 2px ì„¤ì •
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);         // ë¼ìš´ë“œ ê°’ 2 ì ìš©
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.4f);       // í…Œë‘ë¦¬ ë‘ê»˜ 1 ì ìš©
 
     bool clicked = ImGui::Button(text.c_str(), ImVec2(size.x, size.y));
 
-    ImGui::PopStyleVar(4);   // ¶ó¿îµå¿Í Å×µÎ¸® µÎ²² ½ºÅ¸ÀÏ º¹¿ø
-    ImGui::PopStyleColor(5); // Å×µÎ¸®¿Í ¹öÆ° »ö»ó ½ºÅ¸ÀÏ º¹¿ø (ÃÑ 5°³ÀÇ ½ºÅ¸ÀÏ ÆË)
+    ImGui::PopStyleVar(4);   // ë¼ìš´ë“œì™€ í…Œë‘ë¦¬ ë‘ê»˜ ìŠ¤íƒ€ì¼ ë³µì›
+    ImGui::PopStyleColor(5); // í…Œë‘ë¦¬ì™€ ë²„íŠ¼ ìƒ‰ìƒ ìŠ¤íƒ€ì¼ ë³µì› (ì´ 5ê°œì˜ ìŠ¤íƒ€ì¼ íŒ)
 
     return clicked;
 }
 
 bool EditorGUI::IconButton_FA(string text, EditorTextStyle guiStyle, ImVec2 size, int iconSize, ImVec4 backgroundColor)
 {
-    // Unity ¹öÆ° »ö»ó¿¡ ¸Â´Â ImGui »ö»ó ¼³Á¤
-    ImGui::PushStyleColor(ImGuiCol_Button, backgroundColor);                 // (±âº» ¹öÆ° ¹è°æ)
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));   // (¸¶¿ì½º ¿Ã·ÈÀ» ¶§)
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));    // (Å¬¸¯ÇßÀ» ¶§)
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.9f, 1.0f));               // (ÅØ½ºÆ®)
+    // Unity ë²„íŠ¼ ìƒ‰ìƒì— ë§ëŠ” ImGui ìƒ‰ìƒ ì„¤ì •
+    ImGui::PushStyleColor(ImGuiCol_Button, backgroundColor);                 // (ê¸°ë³¸ ë²„íŠ¼ ë°°ê²½)
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));   // (ë§ˆìš°ìŠ¤ ì˜¬ë ¸ì„ ë•Œ)
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));    // (í´ë¦­í–ˆì„ ë•Œ)
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.9f, 0.9f, 0.9f, 1.0f));               // (í…ìŠ¤íŠ¸)
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 0));  // ÆĞµù (ÁÂ¿ì, »óÇÏ) 2px ¼³Á¤
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));  // ÆĞµù (ÁÂ¿ì, »óÇÏ) 2px ¼³Á¤
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);         // ¶ó¿îµå °ª 2 Àû¿ë
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.4f);       // Å×µÎ¸® µÎ²² 1 Àû¿ë
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 0));  // íŒ¨ë”© (ì¢Œìš°, ìƒí•˜) 2px ì„¤ì •
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));  // íŒ¨ë”© (ì¢Œìš°, ìƒí•˜) 2px ì„¤ì •
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 2.0f);         // ë¼ìš´ë“œ ê°’ 2 ì ìš©
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.4f);       // í…Œë‘ë¦¬ ë‘ê»˜ 1 ì ìš©
 
     EditorTextStyle style; 
     style.FontSize = iconSize;
@@ -168,56 +168,56 @@ bool EditorGUI::IconButton_FA(string text, EditorTextStyle guiStyle, ImVec2 size
         ImGui::PopFont();
     }
 
-    ImGui::PopStyleVar(4);   // ¶ó¿îµå¿Í Å×µÎ¸® µÎ²² ½ºÅ¸ÀÏ º¹¿ø
-    ImGui::PopStyleColor(5); // Å×µÎ¸®¿Í ¹öÆ° »ö»ó ½ºÅ¸ÀÏ º¹¿ø (ÃÑ 5°³ÀÇ ½ºÅ¸ÀÏ ÆË)
+    ImGui::PopStyleVar(4);   // ë¼ìš´ë“œì™€ í…Œë‘ë¦¬ ë‘ê»˜ ìŠ¤íƒ€ì¼ ë³µì›
+    ImGui::PopStyleColor(5); // í…Œë‘ë¦¬ì™€ ë²„íŠ¼ ìƒ‰ìƒ ìŠ¤íƒ€ì¼ ë³µì› (ì´ 5ê°œì˜ ìŠ¤íƒ€ì¼ íŒ)
 
     return clicked;
 }
 
 bool EditorGUI::ImageButton(wstring path, ImVec2 size, ImVec2 padding)
 {
-    // Texture ·Îµå
+    // Texture ë¡œë“œ
     ComPtr<ID3D11ShaderResourceView> icon = ResourceManager::GetI()->LoadTexture(path);
     if (!icon)
         return false;
 
-    // Unity ¹öÆ° »ö»ó¿¡ ¸Â´Â ImGui »ö»ó ¼³Á¤
+    // Unity ë²„íŠ¼ ìƒ‰ìƒì— ë§ëŠ” ImGui ìƒ‰ìƒ ì„¤ì •
     Color color = Color(0.31f, 0.31f, 0.31f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(color.x, color.y, color.z, color.w));  // (±âº» ¹öÆ° ¹è°æ)
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));    // (¸¶¿ì½º ¿Ã·ÈÀ» ¶§)
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));     // (Å¬¸¯ÇßÀ» ¶§)
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(color.x, color.y, color.z, color.w));  // (ê¸°ë³¸ ë²„íŠ¼ ë°°ê²½)
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));    // (ë§ˆìš°ìŠ¤ ì˜¬ë ¸ì„ ë•Œ)
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));     // (í´ë¦­í–ˆì„ ë•Œ)
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);       // ÆĞµù 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);         // ¶ó¿îµå °ª 2 Àû¿ë
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);       // Å×µÎ¸® µÎ²² 1 Àû¿ë
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, padding);       // íŒ¨ë”© 
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);         // ë¼ìš´ë“œ ê°’ 2 ì ìš©
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);       // í…Œë‘ë¦¬ ë‘ê»˜ 1 ì ìš©
 
     bool clicked = ImGui::ImageButton((void*)icon.Get(), size);
 
-    ImGui::PopStyleVar(3);   // ¶ó¿îµå¿Í Å×µÎ¸® µÎ²² ½ºÅ¸ÀÏ º¹¿ø
-    ImGui::PopStyleColor(4); // Å×µÎ¸®¿Í ¹öÆ° »ö»ó ½ºÅ¸ÀÏ º¹¿ø (ÃÑ 5°³ÀÇ ½ºÅ¸ÀÏ ÆË)
+    ImGui::PopStyleVar(3);   // ë¼ìš´ë“œì™€ í…Œë‘ë¦¬ ë‘ê»˜ ìŠ¤íƒ€ì¼ ë³µì›
+    ImGui::PopStyleColor(4); // í…Œë‘ë¦¬ì™€ ë²„íŠ¼ ìƒ‰ìƒ ìŠ¤íƒ€ì¼ ë³µì› (ì´ 5ê°œì˜ ìŠ¤íƒ€ì¼ íŒ)
 
     return clicked;
 }
 
 bool EditorGUI::ComponentHeader(string title, wstring icon, bool& isOpened)
 {
-    // Ã¢ÀÇ ³Êºñ¸¦ °¡Á®¿Í ¹öÆ° Å©±â·Î ¼³Á¤
+    // ì°½ì˜ ë„ˆë¹„ë¥¼ ê°€ì ¸ì™€ ë²„íŠ¼ í¬ê¸°ë¡œ ì„¤ì •
     ImVec2 availableSize = ImGui::GetContentRegionAvail();
 
-    // È¸»ö ¹è°æ»ö ¼³Á¤
-    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.24f, 0.24f, 0.24f, 1.0f));            // ±âº» »óÅÂ
-    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));     // ¸¶¿ì½º ¿À¹ö ½Ã
-    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));      // Å¬¸¯ »óÅÂ
+    // íšŒìƒ‰ ë°°ê²½ìƒ‰ ì„¤ì •
+    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.24f, 0.24f, 0.24f, 1.0f));            // ê¸°ë³¸ ìƒíƒœ
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.37f, 0.37f, 0.37f, 1.0f));     // ë§ˆìš°ìŠ¤ ì˜¤ë²„ ì‹œ
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.43f, 0.43f, 0.43f, 1.0f));      // í´ë¦­ ìƒíƒœ
 
-    // ÆĞµù°ú µÕ±Û±â ¼³Á¤
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 2));   // ÆĞµùÀ» ¼öÁ÷À¸·Î Á¶Á¤ÇÏ¿© ³ôÀÌ Á¦¾î
+    // íŒ¨ë”©ê³¼ ë‘¥ê¸€ê¸° ì„¤ì •
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 2));   // íŒ¨ë”©ì„ ìˆ˜ì§ìœ¼ë¡œ ì¡°ì •í•˜ì—¬ ë†’ì´ ì œì–´
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
-    ImGui::PushStyleColor(ImGuiCol_Button, EDITOR_GUI_COLOR_BUTTON_BG);             // ±âº» ¹öÆ° »ö»ó 
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EDITOR_GUI_COLOR_BUTTON_HOBER);   // È£¹ö ½Ã »ö»ó 
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, EDITOR_GUI_COLOR_BUTTON_BG);       // Å¬¸¯ ½Ã »ö»ó 
+    ImGui::PushStyleColor(ImGuiCol_Button, EDITOR_GUI_COLOR_BUTTON_BG);             // ê¸°ë³¸ ë²„íŠ¼ ìƒ‰ìƒ 
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EDITOR_GUI_COLOR_BUTTON_HOBER);   // í˜¸ë²„ ì‹œ ìƒ‰ìƒ 
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, EDITOR_GUI_COLOR_BUTTON_BG);       // í´ë¦­ ì‹œ ìƒ‰ìƒ 
     string component_inspector_id = "##ComponentInspectorHeaderButton" + title;
     if (ImGui::Button(component_inspector_id.c_str(), ImVec2(availableSize.x, 32)))
     {
@@ -242,9 +242,9 @@ bool EditorGUI::ComponentHeader(string title, wstring icon, bool& isOpened)
     ImGui::SetCursorPosX(88); 
     EditorGUI::LabelHeader(title);  
 
-    // ½ºÅ¸ÀÏ º¹¿ø
+    // ìŠ¤íƒ€ì¼ ë³µì›
     ImGui::PopStyleVar(3);
-    ImGui::PopStyleColor(3);    // »ö»ó º¹¿ø (3°³ÀÇ »ö»ó)
+    ImGui::PopStyleColor(3);    // ìƒ‰ìƒ ë³µì› (3ê°œì˜ ìƒ‰ìƒ)
 
     return isOpened;
 }
@@ -330,9 +330,9 @@ bool EditorGUI::FloatField(string title, float& v, ImVec2 size)
             string float_id = "##" + title + "Float";
             ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x);
 
-            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));            // µå·¡±× ÇÊµå ¹è°æÀ» Åõ¸íÇÏ°Ô ¼³Á¤
-            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));     // È£¹ö ½Ã ¹è°æ»öµµ Åõ¸íÇÏ°Ô ¼³Á¤
-            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));      // Å¬¸¯ ½Ã ¹è°æ»öµµ Åõ¸íÇÏ°Ô ¼³Á¤
+            ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));            // ë“œë˜ê·¸ í•„ë“œ ë°°ê²½ì„ íˆ¬ëª…í•˜ê²Œ ì„¤ì •
+            ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));     // í˜¸ë²„ ì‹œ ë°°ê²½ìƒ‰ë„ íˆ¬ëª…í•˜ê²Œ ì„¤ì •
+            ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));      // í´ë¦­ ì‹œ ë°°ê²½ìƒ‰ë„ íˆ¬ëª…í•˜ê²Œ ì„¤ì •
             ImGui::PushStyleColor(ImGuiCol_Text, EDITOR_GUI_COLOR_LABEL_A);       
 
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 4);
@@ -371,9 +371,9 @@ bool EditorGUI::FloatField(string title, float& v)
         string field_id = "##" + title; 
         ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x); 
 
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));            // µå·¡±× ÇÊµå ¹è°æÀ» Åõ¸íÇÏ°Ô ¼³Á¤ 
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));     // È£¹ö ½Ã ¹è°æ»öµµ Åõ¸íÇÏ°Ô ¼³Á¤ 
-        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));      // Å¬¸¯ ½Ã ¹è°æ»öµµ Åõ¸íÇÏ°Ô ¼³Á¤ 
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0, 0, 0, 0));            // ë“œë˜ê·¸ í•„ë“œ ë°°ê²½ì„ íˆ¬ëª…í•˜ê²Œ ì„¤ì • 
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0, 0, 0, 0));     // í˜¸ë²„ ì‹œ ë°°ê²½ìƒ‰ë„ íˆ¬ëª…í•˜ê²Œ ì„¤ì • 
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0, 0, 0, 0));      // í´ë¦­ ì‹œ ë°°ê²½ìƒ‰ë„ íˆ¬ëª…í•˜ê²Œ ì„¤ì • 
 
         if (ImGui::DragFloat(id.c_str(), &v, 0.1f, -FLT_MAX, FLT_MAX, "%.3f"))
         {
@@ -392,39 +392,83 @@ bool EditorGUI::FloatField(string title, float& v)
 
 bool EditorGUI::Vector3Field(string title, Vec3& vec3)
 {
-    EditorGUI::FieldStylePush();
-    ImGui::Dummy(ImVec2(0, 2));
-
     bool isDirty = false;
-    float fieldWidth = EDITOR_GUI_LARGE_FIELD_WIDTH; 
+    float fieldWidth = EDITOR_GUI_LARGE_FIELD_WIDTH;
 
     EDITOR_GUI_FIELD_PADDING;
     EditorGUI::Label(title);
-    EDITOR_GUI_FIELD_SPACING(fieldWidth); 
+    EDITOR_GUI_FIELD_SPACING(fieldWidth);
 
-    string id = title + "Vector3 Field";
-    if (ImGui::BeginChild(id.c_str(), ImVec2(fieldWidth, FIELD_DEFAULT_HEIGHT), true,
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+    ImGui::PushID(title.c_str());
+
+    float itemSpacing = 6.0f;
+    float totalItemWidth = (fieldWidth - itemSpacing * 2.0f) / 3.0f;
+    float btnWidth = 18.0f;
+    float inputWidth = totalItemWidth - btnWidth;
+
+    float resetVal = (title == "Scale") ? 1.0f : 0.0f;
+
+    auto DrawAxis = [&](const char* axisLabel, float& val, const ImVec4& colorNormal, const ImVec4& colorHover, const ImVec4& colorActive)
     {
-        float inputWidth = (fieldWidth - 8) / 3;
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2, 0));
 
-        if (EditorGUI::FloatField("X", vec3.x, ImVec2(inputWidth - 6, 0)))
-            isDirty = true;
-        ImGui::SameLine();
-        ImGui::Dummy(ImVec2(10, 0));
-        ImGui::SameLine();
-        if (EditorGUI::FloatField("Y", vec3.y, ImVec2(inputWidth - 6, 0)))
-            isDirty = true;
-        ImGui::SameLine();
-        ImGui::Dummy(ImVec2(10, 0));
-        ImGui::SameLine();
-        if (EditorGUI::FloatField("Z", vec3.z, ImVec2(inputWidth - 6, 0)))
-            isDirty = true;
-    }
-    ImGui::EndChild();
+        // Unity Colored Axis Button/Badge
+        ImGui::PushStyleColor(ImGuiCol_Button, colorNormal);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colorHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, colorActive);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
 
-    ImGui::Dummy(ImVec2(0, 2)); 
-    EditorGUI::FieldStylePop();
+        if (ImGui::Button(axisLabel, ImVec2(btnWidth, 22.0f)))
+        {
+            val = resetVal;
+            isDirty = true;
+        }
+        ImGui::PopStyleColor(4);
+
+        ImGui::SameLine();
+
+        // Dark Input Drag Box
+        ImGui::PushItemWidth(inputWidth);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.18f, 0.18f, 0.18f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.24f, 0.24f, 0.24f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, EDITOR_GUI_COLOR_LABEL_A);
+
+        std::string dragId = std::string("##") + axisLabel;
+        if (ImGui::DragFloat(dragId.c_str(), &val, 0.1f, -FLT_MAX, FLT_MAX, "%.2f"))
+        {
+            isDirty = true;
+        }
+
+        ImGui::PopStyleColor(4);
+        ImGui::PopItemWidth();
+        ImGui::PopStyleVar(2);
+    };
+
+    // X: Unity Red #E04343
+    DrawAxis("X", vec3.x,
+        ImVec4(0.85f, 0.24f, 0.24f, 1.0f),
+        ImVec4(0.95f, 0.32f, 0.32f, 1.0f),
+        ImVec4(0.75f, 0.18f, 0.18f, 1.0f));
+
+    ImGui::SameLine(0, itemSpacing);
+
+    // Y: Unity Green #66BB6A
+    DrawAxis("Y", vec3.y,
+        ImVec4(0.35f, 0.72f, 0.36f, 1.0f),
+        ImVec4(0.42f, 0.82f, 0.44f, 1.0f),
+        ImVec4(0.28f, 0.62f, 0.28f, 1.0f));
+
+    ImGui::SameLine(0, itemSpacing);
+
+    // Z: Unity Blue #42A5F5
+    DrawAxis("Z", vec3.z,
+        ImVec4(0.26f, 0.58f, 0.96f, 1.0f),
+        ImVec4(0.35f, 0.68f, 1.0f, 1.0f),
+        ImVec4(0.20f, 0.48f, 0.82f, 1.0f));
+
+    ImGui::PopID();
 
     return isDirty;
 }
@@ -442,7 +486,7 @@ bool EditorGUI::MaterialField(string title, shared_ptr<UMaterial>& material, wst
     if (ImGui::BeginChild("Meterial Field", ImVec2(fieldWidth, FIELD_DEFAULT_HEIGHT), true,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse));
     {
-        // Material ÀÌ¸§ ¶Ç´Â "None" Ãâ·Â
+        // Material ì´ë¦„ ë˜ëŠ” "None" ì¶œë ¥
         if (material == nullptr)
         {
             EditorGUI::Label("None");
@@ -682,25 +726,25 @@ void EditorGUI::DropFieldStylePush()
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
 
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);          // Â÷ÀÏµå Ã¢ ¶ó¿îµå 
-    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.4f);        // Â÷ÀÏµå Ã¢ ¶ó¿îµå 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 4.f);        // Â÷ÀÏµå Ã¢ Å×µÎ¸® µÎ²²
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 0));  // Â÷ÀÏµå Ã¢ ³»ºÎ ÆĞµù
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 4.0f);          // ì°¨ì¼ë“œ ì°½ ë¼ìš´ë“œ 
+    ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.4f);        // ì°¨ì¼ë“œ ì°½ ë¼ìš´ë“œ 
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 4.f);        // ì°¨ì¼ë“œ ì°½ í…Œë‘ë¦¬ ë‘ê»˜
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4, 0));  // ì°¨ì¼ë“œ ì°½ ë‚´ë¶€ íŒ¨ë”©
 }
 void EditorGUI::DropFieldStylePop()
 {
-    // Àû¿ëÇÑ ½ºÅ¸ÀÏ º¯¼ö ¹× »ö»ó º¹¿ø
+    // ì ìš©í•œ ìŠ¤íƒ€ì¼ ë³€ìˆ˜ ë° ìƒ‰ìƒ ë³µì›
     ImGui::PopStyleVar(4);
     ImGui::PopStyleColor(2);
 }
 
 void EditorGUI::FieldStylePush()
 {
-    // Â÷ÀÏµå Ã¢ÀÇ ¹è°æ »ö»ó°ú Å×µÎ¸® »ö»ó Àû¿ë
+    // ì°¨ì¼ë“œ ì°½ì˜ ë°°ê²½ ìƒ‰ìƒê³¼ í…Œë‘ë¦¬ ìƒ‰ìƒ ì ìš©
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.f, 0.f, 0.f, 0.f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.f, 0.f, 0.f, 0.f));
 
-    // Â÷ÀÏµå Ã¢ÀÇ ¶ó¿îµù°ú ³»ºÎ ÆĞµù Àû¿ë
+    // ì°¨ì¼ë“œ ì°½ì˜ ë¼ìš´ë”©ê³¼ ë‚´ë¶€ íŒ¨ë”© ì ìš©
     ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.f);
@@ -719,7 +763,7 @@ void EditorGUI::ComponentBlockStylePush()
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.219f, 0.219f, 0.219f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
 
-    // Å×µÎ¸® µÎ²² ¼³Á¤
+    // í…Œë‘ë¦¬ ë‘ê»˜ ì„¤ì •
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f); 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);  
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f); 
@@ -737,19 +781,19 @@ void EditorGUI::ComponentBlockStylePop()
 
 void EditorGUI::EditorWindowStylePush()
 {
-    // ÁøÇÑ È¸»ö ¹è°æ »ö»ó (#333333 in hex) ¼³Á¤
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));  // Unity ½ºÅ¸ÀÏÀÇ ÁøÇÑ È¸»ö ¹è°æ
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);  // »ó´Ü ¸ğ¼­¸® µÕ±Û°Ô (6.0f·Î Á¶Àı)
+    // ì§„í•œ íšŒìƒ‰ ë°°ê²½ ìƒ‰ìƒ (#333333 in hex) ì„¤ì •
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));  // Unity ìŠ¤íƒ€ì¼ì˜ ì§„í•œ íšŒìƒ‰ ë°°ê²½
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);  // ìƒë‹¨ ëª¨ì„œë¦¬ ë‘¥ê¸€ê²Œ (6.0fë¡œ ì¡°ì ˆ)
 
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);                   // Å×µÎ¸® µÎ²² ¼³Á¤
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));     // Å×µÎ¸® »ö»ó (¾îµÎ¿î È¸»ö)
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);                   // í…Œë‘ë¦¬ ë‘ê»˜ ì„¤ì •
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));     // í…Œë‘ë¦¬ ìƒ‰ìƒ (ì–´ë‘ìš´ íšŒìƒ‰)
 
-    // Ã¢ ÆĞµù ¼³Á¤ (0À¸·Î ¼³Á¤ÇÏ¿© ³»ºÎ ¿©¹é Á¦°Å)
+    // ì°½ íŒ¨ë”© ì„¤ì • (0ìœ¼ë¡œ ì„¤ì •í•˜ì—¬ ë‚´ë¶€ ì—¬ë°± ì œê±°)
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 }
 void EditorGUI::EditorWindowStylePop()
 {
-    // ½ºÅ¸ÀÏ º¹¿ø
-    ImGui::PopStyleVar(3);  // Å×µÎ¸® µÎ²² ¹× ¶ó¿îµù º¹¿ø
-    ImGui::PopStyleColor(2);  // ¹è°æ »ö»ó°ú Å×µÎ¸® »ö»ó º¹¿ø
+    // ìŠ¤íƒ€ì¼ ë³µì›
+    ImGui::PopStyleVar(3);  // í…Œë‘ë¦¬ ë‘ê»˜ ë° ë¼ìš´ë”© ë³µì›
+    ImGui::PopStyleColor(2);  // ë°°ê²½ ìƒ‰ìƒê³¼ í…Œë‘ë¦¬ ìƒ‰ìƒ ë³µì›
 }

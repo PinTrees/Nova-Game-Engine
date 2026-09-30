@@ -1,4 +1,4 @@
-#include "pch.h"
+ï»¿#include "pch.h"
 #include "PathManager.h"
 
 SINGLE_BODY(PathManager)
@@ -16,13 +16,46 @@ PathManager::~PathManager()
 
 void PathManager::Init()
 {
-	GetCurrentDirectory(MAX_PATH, _szContentPath); // ÇöÀç ½ÇÇàÆÄÀÏÀÇ °æ·Î ÀúÀå
+	std::filesystem::path currentPath = std::filesystem::current_path();
 
-	// °æ·Î ÀÌµ¿À» ÇÏ´Â ÀÌÀ¯´Â °ÔÀÓÆú´õ¸¦ º¯°æ,
-	// visual studio µð¹ö±× ¸ðµå·Î ½ÇÇà ½Ã °æ·Î ÀÌ»óÀÌ ¾ø°ÔÇÏ±â À§ÇØ
+	if (std::filesystem::exists(currentPath / "Assets"))
+	{
+		std::wstring rootStr = currentPath.wstring();
+		if (rootStr.back() != L'\\' && rootStr.back() != L'/')
+			rootStr += L"\\";
+		wcscpy_s(_szContentPath, MAX_PATH, rootStr.c_str());
+		return;
+	}
+
+	if (currentPath.has_parent_path() && std::filesystem::exists(currentPath.parent_path() / "Assets"))
+	{
+		std::wstring rootStr = currentPath.parent_path().wstring();
+		if (rootStr.back() != L'\\' && rootStr.back() != L'/')
+			rootStr += L"\\";
+		wcscpy_s(_szContentPath, MAX_PATH, rootStr.c_str());
+		return;
+	}
+
+	wchar_t exePathBuf[MAX_PATH] = { 0 };
+	GetModuleFileNameW(NULL, exePathBuf, MAX_PATH);
+	std::filesystem::path checkDir = std::filesystem::path(exePathBuf).parent_path();
+	for (int i = 0; i < 3; ++i)
+	{
+		if (std::filesystem::exists(checkDir / "Assets"))
+		{
+			std::wstring rootStr = checkDir.wstring();
+			if (rootStr.back() != L'\\' && rootStr.back() != L'/')
+				rootStr += L"\\";
+			wcscpy_s(_szContentPath, MAX_PATH, rootStr.c_str());
+			return;
+		}
+		if (checkDir.has_parent_path())
+			checkDir = checkDir.parent_path();
+	}
+
+	GetCurrentDirectory(MAX_PATH, _szContentPath);
 	int ilen = wcslen(_szContentPath);
-
-	for (int i = ilen - 1; i >= 0; i--) // »óÀ§Æú´õ ÀÌµ¿
+	for (int i = ilen - 1; i >= 0; i--)
 	{
 		if ('\\' == _szContentPath[i])
 		{
@@ -30,7 +63,6 @@ void PathManager::Init()
 			break;
 		}
 	}
-
 	wcscat_s(_szContentPath, MAX_PATH, L"\\");
 }
 
@@ -53,7 +85,7 @@ wstring PathManager::GetMovePathW(wstring movePath)
 	wstring path = _szContentPath;
 	path += movePath;
 
-	// ÃÖ´ë Æú´õ °æ·Î Á¦ÇÑ °Ë»ç
+	// ï¿½Ö´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ë»ï¿½
 	if (path.size() > MAX_PATH)
 		assert(false);
 
@@ -67,7 +99,7 @@ string PathManager::GetMovePathS(string movePath)
 
 	string result = wstring_to_string(path);
 
-	// ÃÖ´ë Æú´õ °æ·Î Á¦ÇÑ °Ë»ç
+	// ï¿½Ö´ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ë»ï¿½
 	if (result.size() > MAX_PATH)
 		assert(false);
 
@@ -99,3 +131,4 @@ string PathManager::GetCutSolutionPath(string path)
 
 	return result;
 }
+

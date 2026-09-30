@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include "App.h"
 #include "Waves.h"
 #include "LightHelper.h"
@@ -9,11 +9,11 @@
 #include "Octree.h"
 #include "TextureMgr.h"
 
-class MeshViewDemo : public App
+class EditorApp : public App
 {
 public:
-	MeshViewDemo(HINSTANCE hInstance);
-	~MeshViewDemo();
+	EditorApp(HINSTANCE hInstance);
+	~EditorApp();
 
 	bool Init();
 	void OnResize();
