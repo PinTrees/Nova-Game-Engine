@@ -32,8 +32,8 @@ file(GLOB_RECURSE ENGINE_HEADERS
 list(FILTER ENGINE_SOURCES EXCLUDE REGEX ".*[0-9][0-9]\\..*\\.cpp$")
 list(FILTER ENGINE_HEADERS EXCLUDE REGEX ".*[0-9][0-9]\\..*\\.h$")
 
-# Create executable (Windows GUI Subsystem)
-add_executable(DX11 WIN32 ${ENGINE_SOURCES} ${ENGINE_HEADERS})
+# Create executable (Windows GUI Subsystem with Application Icon)
+add_executable(DX11 WIN32 ${ENGINE_SOURCES} ${ENGINE_HEADERS} "${CMAKE_CURRENT_SOURCE_DIR}/DX11/DX11.rc")
 
 # Disable PCH for ImGui and ImGuiNodeEditor third-party files
 set_source_files_properties(

@@ -73,6 +73,7 @@ public:
 	Vec3 GetUp() { return XMVector3Normalize(m_WorldMatrix.Up()); } 
 	Vec3 GetDown() { return XMVector3Normalize(m_WorldMatrix.Down()); }
 	Vec3 GetLook() { return XMVector3Normalize(m_WorldMatrix.Backward()); }
+	Vec3 GetForward() { return GetLook(); }
 	Vec3 GetBackward() { return XMVector3Normalize(m_WorldMatrix.Forward()); }
 	Matrix GetWorldMatrix() { return m_WorldMatrix; }
 

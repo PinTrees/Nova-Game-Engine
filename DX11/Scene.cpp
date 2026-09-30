@@ -29,6 +29,14 @@ void Scene::Enter()
         }
     }
 
+    for (auto& gameObject : m_ArrGameObjects[0])
+    {
+        for (auto& component : gameObject->GetComponents())
+        {
+            component->Start();
+        }
+    }
+
     PhysicsManager::GetI()->Start();
 }
 
@@ -39,22 +47,22 @@ void Scene::Exit()
 
 void Scene::RenderScene()
 {
-    if (RenderManager::GetI()->InstancingMode) // if¹®¿¡ Editor¿¡¼­ ÀÎ½ºÅÏ½ÌÀ» »ç¿ëÇÒ °ÍÀÎÁö¿¡ ´ëÇÑ boolÇü º¯¼ö·Î ÀÎ½ºÅÏ½Ì »ç¿ë¿©ºÎ ÆÇ´Ü
+    if (RenderManager::GetI()->InstancingMode) // ifë¬¸ì— Editorì—ì„œ ì¸ìŠ¤í„´ì‹±ì„ ì‚¬ìš©í•  ê²ƒì¸ì§€ì— ëŒ€í•œ boolí˜• ë³€ìˆ˜ë¡œ ì¸ìŠ¤í„´ì‹± ì‚¬ìš©ì—¬ë¶€ íŒë‹¨
     {
         map<InstanceID, vector<GameObject*>> cache;
 
-        for (const auto& gameObject : m_ArrGameObjects[0]) // cullingObejcts·Î º¯°æ¿¹Á¤, play¾Æ´Ò¶§µµ ¾÷µ¥ÀÌÆ®ÇÒ ÇÔ¼ö Ãß°¡ÇØ¾ßÇÔ Light, camera
+        for (const auto& gameObject : m_ArrGameObjects[0]) // cullingObejctsë¡œ ë³€ê²½ì˜ˆì •, playì•„ë‹ë•Œë„ ì—…ë°ì´íŠ¸í•  í•¨ìˆ˜ ì¶”ê°€í•´ì•¼í•¨ Light, camera
         {
             for (auto& component : gameObject->GetComponents())
             {
 
-                // ÄÄÆ÷³ÍÆ® ¸¶´Ù MeshRendererÀÎÁö Ã¼Å©
+                // ì»´í¬ë„ŒíŠ¸ ë§ˆë‹¤ MeshRendererì¸ì§€ ì²´í¬
                 shared_ptr<MeshRenderer> meshRenderer = dynamic_pointer_cast<MeshRenderer>(component);
                 //MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
                 
                 if (meshRenderer)
                 {
-                    // map<ÀÎ½ºÅÏ½Ì ID,gameObject> º¯¼ö¿¡ Ãß°¡
+                    // map<ì¸ìŠ¤í„´ì‹± ID,gameObject> ë³€ìˆ˜ì— ì¶”ê°€
                     const InstanceID instanceId = meshRenderer->GetInstanceID();
                     cache[instanceId].emplace_back(gameObject);
                 }
@@ -65,11 +73,11 @@ void Scene::RenderScene()
             }
         }
 
-        // °°Àº ¿ÀºêÁ§Æ®µé ³¢¸® world¹è¿­¿¡ ÀúÀå ÈÄ world¹è¿­À» ÀÎÀÚ°ªÀ¸·Î ³Ñ±â¸é¼­ ÀÎ½ºÅÏ½Ì ·»´õ
+        // ê°™ì€ ì˜¤ë¸Œì íŠ¸ë“¤ ë¼ë¦¬ worldë°°ì—´ì— ì €ì¥ í›„ worldë°°ì—´ì„ ì¸ìê°’ìœ¼ë¡œ ë„˜ê¸°ë©´ì„œ ì¸ìŠ¤í„´ì‹± ë Œë”
         for (auto& pair : cache)
         {
             const vector<GameObject*>& vec = pair.second;
-            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix °ªÀ» °¡Áö°í ÀÖ´Â ÀÎ½ºÅÏ½Ì ¹öÆÛ, ·»´õ·Î ³Ñ°Ü¾ßÇÔ
+            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix ê°’ì„ ê°€ì§€ê³  ìˆëŠ” ì¸ìŠ¤í„´ì‹± ë²„í¼, ë Œë”ë¡œ ë„˜ê²¨ì•¼í•¨
             {
                 //const InstanceID instanceId = pair.first;
 
@@ -79,7 +87,7 @@ void Scene::RenderScene()
                     InstancingData data;
                     data.world = gameObject->GetTransform()->GetWorldMatrix();
 
-                    // Mesh¿Í MaterialÀÇ Á¶ÇÕ ¾ÆÀÌµğ ¹è¿­ÀÇ data º¤ÅÍ¿¡ data(¿ùµåÁÂÇ¥µé)ÀúÀå
+                    // Meshì™€ Materialì˜ ì¡°í•© ì•„ì´ë”” ë°°ì—´ì˜ data ë²¡í„°ì— data(ì›”ë“œì¢Œí‘œë“¤)ì €ì¥
                     buffer->AddData(data);
                     //AddData(instanceId, data);
                 }
@@ -112,16 +120,16 @@ void Scene::RenderSceneShadow()
             if (meshRenderer == nullptr)
                 continue;
 
-            // map<ÀÎ½ºÅÏ½Ì ID,gameObject> º¯¼ö¿¡ Ãß°¡
+            // map<ì¸ìŠ¤í„´ì‹± ID,gameObject> ë³€ìˆ˜ì— ì¶”ê°€
             const InstanceID instanceId = meshRenderer->GetInstanceID();
             cache[instanceId].emplace_back(gameObject);
         }
 
-        // °°Àº ¿ÀºêÁ§Æ®µé ³¢¸® world¹è¿­¿¡ ÀúÀå ÈÄ world¹è¿­À» ÀÎÀÚ°ªÀ¸·Î ³Ñ±â¸é¼­ ÀÎ½ºÅÏ½Ì ·»´õ
+        // ê°™ì€ ì˜¤ë¸Œì íŠ¸ë“¤ ë¼ë¦¬ worldë°°ì—´ì— ì €ì¥ í›„ worldë°°ì—´ì„ ì¸ìê°’ìœ¼ë¡œ ë„˜ê¸°ë©´ì„œ ì¸ìŠ¤í„´ì‹± ë Œë”
         for (auto& pair : cache)
         {
             const vector<GameObject*>& vec = pair.second;
-            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix °ªÀ» °¡Áö°í ÀÖ´Â ÀÎ½ºÅÏ½Ì ¹öÆÛ, ·»´õ·Î ³Ñ°Ü¾ßÇÔ
+            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix ê°’ì„ ê°€ì§€ê³  ìˆëŠ” ì¸ìŠ¤í„´ì‹± ë²„í¼, ë Œë”ë¡œ ë„˜ê²¨ì•¼í•¨
             {
                 //const InstanceID instanceId = pair.first;
 
@@ -131,7 +139,7 @@ void Scene::RenderSceneShadow()
                     InstancingData data;
                     data.world = gameObject->GetTransform()->GetWorldMatrix();
 
-                    // Mesh¿Í MaterialÀÇ Á¶ÇÕ ¾ÆÀÌµğ ¹è¿­ÀÇ data º¤ÅÍ¿¡ data(¿ùµåÁÂÇ¥µé)ÀúÀå
+                    // Meshì™€ Materialì˜ ì¡°í•© ì•„ì´ë”” ë°°ì—´ì˜ data ë²¡í„°ì— data(ì›”ë“œì¢Œí‘œë“¤)ì €ì¥
                     buffer->AddData(data);
                     //AddData(instanceId, data);
                 }
@@ -166,16 +174,16 @@ void Scene::RenderSceneShadowNormal()
             if (meshRenderer == nullptr)
                 continue;
 
-            // map<ÀÎ½ºÅÏ½Ì ID,gameObject> º¯¼ö¿¡ Ãß°¡
+            // map<ì¸ìŠ¤í„´ì‹± ID,gameObject> ë³€ìˆ˜ì— ì¶”ê°€
             const InstanceID instanceId = meshRenderer->GetInstanceID();
             cache[instanceId].emplace_back(gameObject);
         }
 
-        // °°Àº ¿ÀºêÁ§Æ®µé ³¢¸® world¹è¿­¿¡ ÀúÀå ÈÄ world¹è¿­À» ÀÎÀÚ°ªÀ¸·Î ³Ñ±â¸é¼­ ÀÎ½ºÅÏ½Ì ·»´õ
+        // ê°™ì€ ì˜¤ë¸Œì íŠ¸ë“¤ ë¼ë¦¬ worldë°°ì—´ì— ì €ì¥ í›„ worldë°°ì—´ì„ ì¸ìê°’ìœ¼ë¡œ ë„˜ê¸°ë©´ì„œ ì¸ìŠ¤í„´ì‹± ë Œë”
         for (auto& pair : cache)
         {
             const vector<GameObject*>& vec = pair.second;
-            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix °ªÀ» °¡Áö°í ÀÖ´Â ÀÎ½ºÅÏ½Ì ¹öÆÛ, ·»´õ·Î ³Ñ°Ü¾ßÇÔ
+            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix ê°’ì„ ê°€ì§€ê³  ìˆëŠ” ì¸ìŠ¤í„´ì‹± ë²„í¼, ë Œë”ë¡œ ë„˜ê²¨ì•¼í•¨
             {
                 //const InstanceID instanceId = pair.first;
 
@@ -185,7 +193,7 @@ void Scene::RenderSceneShadowNormal()
                     InstancingData data;
                     data.world = gameObject->GetTransform()->GetWorldMatrix();
 
-                    // Mesh¿Í MaterialÀÇ Á¶ÇÕ ¾ÆÀÌµğ ¹è¿­ÀÇ data º¤ÅÍ¿¡ data(¿ùµåÁÂÇ¥µé)ÀúÀå
+                    // Meshì™€ Materialì˜ ì¡°í•© ì•„ì´ë”” ë°°ì—´ì˜ data ë²¡í„°ì— data(ì›”ë“œì¢Œí‘œë“¤)ì €ì¥
                     buffer->AddData(data);
                     //AddData(instanceId, data);
                 }
@@ -317,13 +325,13 @@ void Scene::Save(Scene* scene)
         os << j.dump(4);
         os.close();
 
-        // ÀúÀåµÊ
-        // ¸¶Áö¸· ¿ÀÇÂ ¾ÀÀ» ÇöÀç ¾ÀÀ¸·Î º¯°æ
+        // ì €ì¥ë¨
+        // ë§ˆì§€ë§‰ ì˜¤í”ˆ ì”¬ì„ í˜„ì¬ ì”¬ìœ¼ë¡œ ë³€ê²½
         EditorSettingManager::SetLastOpenedScenePath(scene->m_ScenePath);
     }
     else
     {
-        // ÀúÀå ½ÇÆĞ Ã³¸®
+        // ì €ì¥ ì‹¤íŒ¨ ì²˜ë¦¬
     }
 }
 
@@ -346,13 +354,13 @@ void Scene::SaveNewScene(Scene* scene)
             os << j.dump(4); 
             os.close();
 
-            // ÀúÀåµÊ
-            // ¸¶Áö¸· ¿ÀÇÂ ¾ÀÀ» ÇöÀç ¾ÀÀ¸·Î º¯°æ
+            // ì €ì¥ë¨
+            // ë§ˆì§€ë§‰ ì˜¤í”ˆ ì”¬ì„ í˜„ì¬ ì”¬ìœ¼ë¡œ ë³€ê²½
             EditorSettingManager::SetLastOpenedScenePath(filePath);
         }
         else 
         {
-            // ÀúÀå ½ÇÆĞ Ã³¸®
+            // ì €ì¥ ì‹¤íŒ¨ ì²˜ë¦¬
         }
     }
 }
@@ -361,7 +369,7 @@ void Scene::DestroyComponent(Component* component)
 {
     if (component->GetType() == "Transform")
     {
-        // µğ¹ö±×
+        // ë””ë²„ê·¸
         return;
     }
 

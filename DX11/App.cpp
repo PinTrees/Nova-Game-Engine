@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "App.h"
+#include "resource.h"
 #include <WindowsX.h>
 #include <sstream>
 
@@ -351,13 +352,23 @@ bool App::InitMainWindow()
 	// DPI 인식을 설정
 	SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); 
 
+	HICON hIcon = LoadIcon(_hAppInst, MAKEINTRESOURCE(IDI_MAIN_ICON));
+	if (!hIcon)
+	{
+		hIcon = (HICON)LoadImage(NULL, L"ProjectSetting\\icon.ico", IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+	}
+	if (!hIcon)
+	{
+		hIcon = LoadIcon(0, IDI_APPLICATION);
+	}
+
 	WNDCLASS wc;
 	wc.style         = CS_HREDRAW | CS_VREDRAW;
 	wc.lpfnWndProc   = MainWndProc; 
 	wc.cbClsExtra    = 0;
 	wc.cbWndExtra    = 0;
 	wc.hInstance     = _hAppInst;
-	wc.hIcon         = LoadIcon(0, IDI_APPLICATION);
+	wc.hIcon         = hIcon;
 	wc.hCursor       = LoadCursor(0, IDC_ARROW);
 	wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
 	wc.lpszMenuName  = 0;
@@ -382,6 +393,9 @@ bool App::InitMainWindow()
 		::MessageBox(0, L"CreateWindow Failed.", 0, 0);
 		return false;
 	}
+
+	SendMessage(_hMainWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+	SendMessage(_hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
 
 	::ShowWindow(_hMainWnd, SW_SHOW);
 	::UpdateWindow(_hMainWnd);

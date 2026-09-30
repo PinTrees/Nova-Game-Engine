@@ -77,8 +77,8 @@ namespace ed = ax::NodeEditor;
 
 // ENGINE
 #include "ComponentFactory.h"
-#include "PostProcessingManager.h";
-#include "DisplayManager.h";
+#include "PostProcessingManager.h"
+#include "DisplayManager.h"
 #include "Task.h"
 
 // EDITOR - ONLY
