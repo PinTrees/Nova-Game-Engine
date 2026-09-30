@@ -2,8 +2,9 @@
 // 44. TreeCommon.fx  (NOVA 나무 공통 - InstancedBasic / BuildShadowMap / SsaoNormalDepth 에서 include)
 //
 // 텍스처 없이 수학식만으로 그리는 나무 (SpeedTree 처럼 절차적으로 만든 메시 + 절차적 셰이더)
-//  - 수피: 가지 방향으로 길게 늘인 3D 값 노이즈 → 세로 골(능선), 노이즈 기울기로 법선, 위를 향한 면에 이끼
-//  - 잎: 카드(사각형) 하나에 잎 여러 장을 거리 함수(SDF)로 그린다. 밖은 clip → 잎 모양 텍스처가 필요 없다
+//  - 수피: 세로 균열 높이 타일(실행 중에 굽는다) → 기울기로 법선, 위를 향한 면에 이끼 (값 노이즈)
+//  - 잎: 카드 하나에 잎 여러 장을 거리 함수(SDF)로 실행 중에 텍스처로 한 번 구워 두고, 픽셀은 한 번 읽어 알파 컷
+//    (픽셀마다 잎을 반복 계산하면 바늘잎처럼 잎이 많을 때 그림자 캐스케이드·깊이 패스까지 곱해져 매우 무겁다)
 //  - 바람: Unreal/SpeedTree 처럼 계층 흔들림 (줄기 → 1차 가지 → 2차 가지 → 잎 떨림).
 //          가지는 붙은 지점에서 부모의 흔들림 값을 물려받아 관절이 떨어지지 않는다
 // 세 효과가 같은 TreeWorldPos 를 쓰므로 깊이 사전 패스·그림자·본 패스의 위치가 정확히 같다.
@@ -97,107 +98,55 @@ float TreeValueNoise(float3 p)
 }
 
 // ---------------------------------------------------------------- 수피
-// 둘레 방향으로 주기가 period 칸인 2D 값 노이즈 (u 가 0 → 1 로 한 바퀴 돌아도 이음매가 없다)
-float TreeNoisePeriodic(float2 p, float period)
-{
-    const float2 i = floor(p);
-    const float2 f = frac(p);
-    const float2 u = f * f * (3.0f - 2.0f * f);
-    const float x0 = i.x - period * floor(i.x / period);
-    const float x1 = (x0 + 1.0f) - period * floor((x0 + 1.0f) / period);
-    const float a = TreeHash13(float3(x0, i.y, period)), b = TreeHash13(float3(x1, i.y, period));
-    const float c = TreeHash13(float3(x0, i.y + 1.0f, period)), d = TreeHash13(float3(x1, i.y + 1.0f, period));
-    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
-}
+// ---------------------------------------------------------------- 구운 텍스처 (TreeTextures.cpp 가 실행 중에 식으로 만든다)
+// 잎 아틀라스 (2x2 변형): r = 잎맥에서 거리(±, 0.5 = 가운데), g = 잎 안 위치(0 꼭지 → 1 끝), b = 잎 번호(0 = 잔가지), a = 덮임
+Texture2D gTreeLeafTex;
+// 수피 타일 (가로·세로 kBarkCells = 8 칸): rg = 기울기 / 16 + 0.5 (칸 단위), b = 높이
+Texture2D gTreeBarkTex;
+static const float kTreeBarkCells = 8.0f;
 
-// 수피 높이 (0 = 틈, 1 = 껍질 판). uv = (둘레 0~1, 길이 m), r0 = 가지 밑동 반지름
-//  세로로 6 배 늘인 노이즈의 0.5 등고선 = 위아래로 구불구불 이어지는 틈 (참나무 껍질처럼)
-float TreeBarkHeightUV(float2 uv, float r0)
+SamplerState samTreeLeaf
 {
-    const float freq = gTreeBarkParams.y;
-    const float cells = max(3.0f, round(6.2831853f * r0 * freq));
-    const float2 p = float2(uv.x * cells, uv.y * freq * 0.16f);
-    const float n = TreeNoisePeriodic(p, cells) * 0.65f + TreeNoisePeriodic(float2(p.x * 2.0f, p.y * 2.0f + 5.7f), cells * 2.0f) * 0.35f;
-    const float crack = smoothstep(0.012f, 0.08f, abs(n - 0.5f));
-    const float plate = TreeNoisePeriodic(float2(p.x * 3.0f, p.y * 5.0f + 3.1f), cells * 3.0f);
-    return crack * lerp(0.7f, 1.0f, plate);
-}
-
-// ---------------------------------------------------------------- 잎 (SDF)
-// 잎 한 장의 거리 (< 0 = 안). p, base = 카드 uv, dir = 잎 방향, len/width = uv 단위
-float TreeLeafSDF(float2 p, float2 base, float2 dir, float len, float width, float shape, out float along, out float across)
-{
-    const float2 d = p - base;
-    along = dot(d, dir) / len;
-    across = dot(d, float2(-dir.y, dir.x));
-    const float a = saturate(along);
-    float profile;
-    if (shape < 0.5f)
-        profile = pow(sin(3.14159f * pow(a, 0.8f)), 0.65f) * (1.0f - 0.15f * a);   // Broad: 넓고 끝이 뾰족
-    else if (shape < 1.5f)
-        profile = pow(sin(3.14159f * a), 0.9f);                                   // Oval: 버들잎처럼 길쭉
-    else
-        profile = 1.0f - a * 0.6f;                                                // Needle: 가는 바늘
-    const float dAcross = abs(across) - width * profile;
-    const float dAlong = max(-along, along - 1.0f) * len;
-    return max(dAcross, dAlong);
-}
-
-struct TreeLeafHit
-{
-    float Dist;     // < 0 = 잎 또는 잔가지 위
-    float Along;    // 잎 안에서 0(꼭지) ~ 1(끝)
-    float Across;   // 가운데 잎맥에서 떨어진 거리 (uv)
-    float Id;       // 카드 안 잎 번호 (색 변화용)
-    bool Twig;      // 가운데 잔가지
+    Filter = ANISOTROPIC;
+    MaxAnisotropy = 8;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
 };
 
-// 카드 하나 = 가운데 잔가지 + 양옆으로 번갈아 난 잎 N 장 + 끝 잎 한 장
-TreeLeafHit TreeLeafCluster(float2 uv, float seed)
+SamplerState samTreeBark
 {
-    const float shape = gTreeLeafColor2.a;
-    const int count = clamp((int) gTreeLeafParams.z, 1, 16);
-    const float size = gTreeLeafParams.w;
-    const bool needle = shape > 1.5f;
+    Filter = ANISOTROPIC;
+    MaxAnisotropy = 8;
+    AddressU = WRAP;
+    AddressV = WRAP;
+};
 
-    TreeLeafHit hit;
-    hit.Dist = 1000.0f;
-    hit.Along = 0.0f;
-    hit.Across = 0.0f;
-    hit.Id = 0.0f;
-    hit.Twig = false;
+// 카드 uv(v = 0 이 잔가지 쪽) → 아틀라스 칸 하나. 시드로 네 변형 중 하나 + 좌우 뒤집기
+float4 TreeLeafSample(float2 uv, float seed)
+{
+    const float cell = floor(frac(seed) * 4.0f);
+    const float2 offset = float2(fmod(cell, 2.0f), floor(cell * 0.5f)) * 0.5f;
+    float2 c = float2(uv.x, 1.0f - uv.y);
+    if (frac(seed * 7.31f) > 0.5f)
+        c.x = 1.0f - c.x;
+    return gTreeLeafTex.Sample(samTreeLeaf, offset + (0.004f + saturate(c) * 0.992f) * 0.5f);
+}
 
-    // 잔가지: 아래(0)에서 0.85 까지 가는 선
-    const float twigTop = needle ? 0.95f : 0.85f;
-    const float twigD = max(abs(uv.x - 0.5f) - lerp(0.014f, 0.006f, saturate(uv.y / twigTop)), max(-uv.y, uv.y - twigTop));
-    if (twigD < 0.0f)
-    {
-        hit.Dist = twigD;
-        hit.Twig = true;
-    }
+// 잎 자르기 (본 패스·그림자·깊이 패스 공용)
+void TreeLeafClip(float2 uv, float seed)
+{
+    clip(TreeLeafSample(uv, seed).a - 0.5f);
+}
 
-    [loop]
-    for (int i = 0; i <= count; ++i)
-    {
-        const float r = TreeHash11(seed * 91.7f + i * 7.13f);
-        const bool tip = i == count;   // 마지막 = 끝 잎 (위로)
-        const float t = tip ? 1.0f : (i + 0.5f) / count;
-        const float side = (i & 1) ? 1.0f : -1.0f;
-        float angle = tip ? 0.0f : side * radians(lerp(needle ? 62.0f : 58.0f, needle ? 40.0f : 32.0f, t) + (r - 0.5f) * 14.0f);
-        const float2 dir = float2(sin(angle), cos(angle));
-        const float len = size * (tip ? 0.9f : lerp(1.0f, 0.78f, t)) * (0.88f + 0.24f * r) * (needle ? 0.8f : 1.0f);
-        const float width = needle ? 0.012f : size * (shape < 0.5f ? 0.34f : 0.2f);
-        const float2 base = float2(0.5f, (tip ? twigTop : lerp(0.1f, twigTop - 0.06f, t)));
-        float along, across;
-        const float d = TreeLeafSDF(uv, base, dir, len, width, shape, along, across);
-        if (d < hit.Dist)
-        {
-            hit.Dist = d;
-            hit.Along = along;
-            hit.Across = across / max(width, 0.001f);
-            hit.Id = (float) i + r;
-            hit.Twig = false;
-        }
-    }
-    return hit;
+// 수피: uv = (둘레 0~1, 길이 m), r0 = 가지 밑동 반지름. 둘레에 타일을 정수 번 두르고 세로로 늘인다
+//  반환: xy = 기울기 (1 m 당, 둘레 / 가지 방향), z = 높이
+float3 TreeBarkSample(float2 uv, float r0)
+{
+    const float freq = gTreeBarkParams.y;
+    const float circumference = 6.2831853f * r0;
+    const float tiles = max(1.0f, round(circumference * freq / kTreeBarkCells));
+    const float alongScale = freq * 0.16f;   // 세로 칸 = 가로 칸의 약 6 배 길이
+    const float4 t = gTreeBarkTex.Sample(samTreeBark, float2(uv.x * tiles, uv.y * alongScale / kTreeBarkCells));
+    const float2 g = (t.rg - 0.5f) * 16.0f;  // 칸 당 높이 변화
+    return float3(g.x * (kTreeBarkCells * tiles / circumference), g.y * alongScale, t.b);
 }

@@ -178,8 +178,7 @@ void SceneEditorWindow::OnRender()
     const bool viewHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && !overPalette && !overEffect;
 
     SceneViewOverlay::Begin(imageMin, imageMax, m_Camera);
-    if (SceneToolbar::GridVisible())
-        SceneViewOverlay::DrawGrid();
+    // 바닥 격자는 3D 패스(EditorApp::_Editor_OnSceneRender → SceneGrid)에서 깊이 검사하며 그린다
     if (SceneToolbar::GizmosVisible())
         SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
     // Terrain 이 선택되고 Paint Terrain 도구가 켜져 있으면 브러시로 칠한다 (Unity 처럼 이동 핸들/클릭 선택은 쉰다)

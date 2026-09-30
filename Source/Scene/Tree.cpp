@@ -5,6 +5,7 @@
 #include "RenderManager.h"
 #include "UMaterial.h"
 #include "UnityGUI.h"
+#include "TreeTextures.h"
 #include <chrono>
 #include <map>
 
@@ -54,6 +55,8 @@ namespace
 		ID3DX11EffectVectorVariable* LeafColor = nullptr;
 		ID3DX11EffectVectorVariable* LeafColor2 = nullptr;
 		ID3DX11EffectVectorVariable* LeafParams = nullptr;
+		ID3DX11EffectShaderResourceVariable* LeafTex = nullptr;
+		ID3DX11EffectShaderResourceVariable* BarkTex = nullptr;
 
 		void Bind(ID3DX11Effect* fx, const char* bark, const char* leaf)
 		{
@@ -69,6 +72,8 @@ namespace
 			LeafColor = fx->GetVariableByName("gTreeLeafColor")->AsVector();
 			LeafColor2 = fx->GetVariableByName("gTreeLeafColor2")->AsVector();
 			LeafParams = fx->GetVariableByName("gTreeLeafParams")->AsVector();
+			LeafTex = fx->GetVariableByName("gTreeLeafTex")->AsShaderResource();
+			BarkTex = fx->GetVariableByName("gTreeBarkTex")->AsShaderResource();
 		}
 		bool Valid() const { return Bark && Bark->IsValid() && Leaf && Leaf->IsValid(); }
 	};
@@ -334,6 +339,11 @@ void Tree::DrawPass(Pass pass, bool editor)
 	SetVec(v.LeafColor, XMFLOAT4(LeafColor.x, LeafColor.y, LeafColor.z, LeafVariation));
 	SetVec(v.LeafColor2, XMFLOAT4(LeafColor2.x, LeafColor2.y, LeafColor2.z, (float)(int)Params.Leaf));
 	SetVec(v.LeafParams, XMFLOAT4(LeafTransmission, LeafSmoothness, (float)std::clamp(Params.LeavesPerCard, 1, 16), LeafLength));
+	// 실행 중에 식으로 구운 텍스처 (같은 조합은 한 번만 굽는다)
+	if (v.LeafTex && v.LeafTex->IsValid())
+		v.LeafTex->SetResource(TreeTextures::Leaf((int)Params.Leaf, Params.LeavesPerCard, LeafLength));
+	if (v.BarkTex && v.BarkTex->IsValid())
+		v.BarkTex->SetResource(TreeTextures::Bark());
 
 	// ---- 그리기 (수피 → 잎). 기법이 바꾼 깊이/래스터 상태는 되돌린다
 	ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();

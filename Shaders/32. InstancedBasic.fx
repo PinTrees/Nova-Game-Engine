@@ -807,25 +807,22 @@ float4 TreeBarkPS(TreeVertexOut pin) : SV_Target
     const float3 axisL = normalize(pin.AxisL);
     const float3 TL = normalize(cross(axisL, NL) + 1e-5f);
     const float3 BL = cross(NL, TL);
-    // TL = 둘레(u 증가) 방향, BL = 가지 방향(v 증가)
-    const float e = 0.006f;
+    // TL = 둘레(u 증가) 방향, BL = 가지 방향(v 증가). 구운 타일에서 높이·기울기를 한 번 읽는다
     const float r0 = max(pin.BranchRadius, 0.005f);
-    const float detail = saturate(1.5f - distToEye / 40.0f);
-    const float h0 = TreeBarkHeightUV(pin.UV, r0);
-    const float hT = TreeBarkHeightUV(pin.UV + float2(e / (6.2831853f * r0), 0.0f), r0);
-    const float hB = TreeBarkHeightUV(pin.UV + float2(0.0f, e), r0);
-    NL = normalize(NL - (TL * (hT - h0) + BL * (hB - h0)) * (gTreeBarkParams.x * detail / e));
+    const float3 bark = TreeBarkSample(pin.UV, r0);
+    const float h0 = bark.z;
+    NL = normalize(NL - (TL * bark.x + BL * bark.y) * gTreeBarkParams.x);
     float3 N = normalize(mul(NL, (float3x3) gTreeWorldInvTranspose));
 
     // 색: 골은 어둡고 능선은 밝게, 가끔 밝은 반점, 위를 향한 면에 이끼
-    float3 bark = ToLinear(gTreeBarkColor.rgb);
-    float3 albedo = bark * lerp(0.38f, 1.08f, h0);
+    const float3 barkColor = ToLinear(gTreeBarkColor.rgb);
+    float3 albedo = barkColor * lerp(0.38f, 1.08f, h0);
     // 반점: 양수 = 밝은 반점, 음수 = 둘레 방향으로 긴 어두운 줄무늬 (자작나무)
     const float fleckAmount = abs(gTreeBarkParams.w);
     const float alongL = dot(pin.PosL, axisL);
     const float3 fq = gTreeBarkParams.w >= 0.0f ? pin.PosL * 9.0f : (pin.PosL - axisL * alongL) * 3.0f + axisL * (alongL * 25.0f);
     const float fleck = smoothstep(0.74f, 0.86f, TreeValueNoise(fq + 5.1f));
-    albedo = lerp(albedo, gTreeBarkParams.w >= 0.0f ? bark * 1.6f : bark * 0.12f, fleck * fleckAmount);
+    albedo = lerp(albedo, gTreeBarkParams.w >= 0.0f ? barkColor * 1.6f : barkColor * 0.12f, fleck * fleckAmount);
     const float mossNoise = TreeValueNoise(pin.PosL * 2.3f + 11.7f);
     const float moss = saturate((N.y + 0.15f) * 1.6f) * smoothstep(0.35f, 0.75f, mossNoise + gTreeBarkColor.a * 0.5f) * gTreeBarkColor.a;
     albedo = lerp(albedo, ToLinear(gTreeMossColor.rgb) * lerp(0.7f, 1.1f, h0), moss);
@@ -845,8 +842,12 @@ float4 TreeBarkPS(TreeVertexOut pin) : SV_Target
 
 float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
 {
-    const TreeLeafHit hit = TreeLeafCluster(pin.UV, pin.Seed);
-    clip(-hit.Dist);
+    const float4 leaf = TreeLeafSample(pin.UV, pin.Seed);
+    clip(leaf.a - 0.5f);
+    const bool twig = leaf.b < 0.05f;
+    const float along = leaf.g;
+    const float across = leaf.r * 2.0f - 1.0f;
+    const float leafId = leaf.b;
 
     // 잎 법선은 생성기가 수관 구 쪽으로 굽혀 둔 값 (양면 모두 같은 법선 → 덩어리가 부드럽게 빛을 받음)
     float3 N = normalize(pin.NormalW);
@@ -857,7 +858,7 @@ float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
     float3 albedo;
     float smoothness = gTreeLeafParams.y;
     float3 transmission;
-    if (hit.Twig)
+    if (twig)
     {
         albedo = ToLinear(gTreeBarkColor.rgb) * 0.8f;
         smoothness = 0.2f;
@@ -866,11 +867,11 @@ float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
     else
     {
         // 잎마다 두 색 사이에서 조금씩 다르게, 가장자리는 밝게, 잎맥은 연하게
-        const float v = TreeHash11(pin.Seed * 37.3f + hit.Id * 3.1f);
+        const float v = TreeHash11(pin.Seed * 37.3f + leafId * 31.0f);
         float3 c = lerp(ToLinear(gTreeLeafColor.rgb), ToLinear(gTreeLeafColor2.rgb), saturate(v * gTreeLeafColor.a * 1.4f));
-        c *= lerp(0.8f, 1.1f, saturate(hit.Along));
-        const float midrib = 1.0f - smoothstep(0.03f, 0.12f, abs(hit.Across));
-        const float veins = (1.0f - smoothstep(0.0f, 0.08f, abs(frac(hit.Along * 7.0f - abs(hit.Across) * 1.6f) - 0.5f) - 0.4f)) * (1.0f - midrib) * 0.5f;
+        c *= lerp(0.8f, 1.1f, saturate(along));
+        const float midrib = 1.0f - smoothstep(0.03f, 0.12f, abs(across));
+        const float veins = (1.0f - smoothstep(0.0f, 0.08f, abs(frac(along * 7.0f - abs(across) * 1.6f) - 0.5f) - 0.4f)) * (1.0f - midrib) * 0.5f;
         c *= 1.0f + midrib * 0.35f + veins * 0.15f;
         albedo = c;
         transmission = c * gTreeLeafParams.x * 1.6f;
@@ -878,7 +879,7 @@ float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
         // 잎을 살짝 접힌 모양으로: 잎맥에서 멀수록 법선을 옆으로
         const float3 up = normalize(pin.AxisW);
         const float3 right = normalize(cross(up, N) + 1e-5f);
-        N = normalize(N + right * (hit.Across * 0.35f));
+        N = normalize(N + right * (across * 0.35f));
     }
 
     LitSurface surf;

@@ -32,7 +32,6 @@ public:
 	// Unity 스타일 하늘/지평선 그라디언트 (이미지 뒤에 그린다)
 	static void DrawBackground(const ImVec2& viewMin, const ImVec2& viewMax, EditorCamera* camera);
 
-	static void DrawGrid();
 	static void DrawLine(const XMFLOAT3& a, const XMFLOAT3& b, ImU32 color, float thickness = 1.0f);
 	// 카메라 원점에서 far 사각형으로 모이는 피라미드 형태(Unity 카메라 기즈모)
 	static void DrawFrustum(const XMMATRIX& worldMatrix, float nearZ, float farZ, float fovYDegrees, ImU32 color);

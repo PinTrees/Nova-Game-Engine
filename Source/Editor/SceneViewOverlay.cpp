@@ -108,49 +108,6 @@ void SceneViewOverlay::DrawLine(const XMFLOAT3& a, const XMFLOAT3& b, ImU32 colo
 	dl->PopClipRect();
 }
 
-void SceneViewOverlay::DrawGrid()
-{
-	const float extent = 60.0f;       // 카메라 주변 ±60 유닛
-	const float fadeDist = 70.0f;
-	const float cx = floorf(s_CameraPos.x);
-	const float cz = floorf(s_CameraPos.z);
-
-	auto fadeAlpha = [&](float x, float z, float base)
-	{
-		float dx = x - s_CameraPos.x, dz = z - s_CameraPos.z;
-		float d = sqrtf(dx * dx + dz * dz);
-		return std::clamp(1.0f - d / fadeDist, 0.0f, 1.0f) * base;
-	};
-
-	// 1 유닛 간격선 (세그먼트를 잘게 나눠 거리별 페이드 근사)
-	const int segments = 6;
-	for (int i = -(int)extent; i <= (int)extent; ++i)
-	{
-		float x = cx + i;
-		float z = cz + i;
-		bool majorX = (((int)x) % 10 == 0);
-		bool majorZ = (((int)z) % 10 == 0);
-
-		for (int s = 0; s < segments; ++s)
-		{
-			float t0 = -extent + (2.0f * extent) * s / segments;
-			float t1 = -extent + (2.0f * extent) * (s + 1) / segments;
-
-			// x 고정, z 방향 선
-			float zmid = cz + (t0 + t1) * 0.5f;
-			float a1 = fadeAlpha(x, zmid, majorX ? 0.85f : 0.55f);
-			if (a1 > 0.02f)
-				DrawLine(XMFLOAT3(x, 0, cz + t0), XMFLOAT3(x, 0, cz + t1), IM_COL32(92, 98, 106, (int)(a1 * 255)));
-
-			// z 고정, x 방향 선
-			float xmid = cx + (t0 + t1) * 0.5f;
-			float a2 = fadeAlpha(xmid, z, majorZ ? 0.85f : 0.55f);
-			if (a2 > 0.02f)
-				DrawLine(XMFLOAT3(cx + t0, 0, z), XMFLOAT3(cx + t1, 0, z), IM_COL32(92, 98, 106, (int)(a2 * 255)));
-		}
-	}
-}
-
 void SceneViewOverlay::DrawFrustum(const XMMATRIX& worldMatrix, float nearZ, float farZ, float fovYDegrees, ImU32 color)
 {
 	(void)nearZ;

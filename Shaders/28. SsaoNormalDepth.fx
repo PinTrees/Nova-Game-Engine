@@ -292,7 +292,7 @@ float4 TreeNormalDepthBarkPS(TreeNormalDepthOut pin) : SV_Target
 
 float4 TreeNormalDepthLeafPS(TreeNormalDepthOut pin) : SV_Target
 {
-    clip(-TreeLeafCluster(pin.UV, pin.Seed).Dist);
+    TreeLeafClip(pin.UV, pin.Seed);
     return float4(normalize(pin.NormalV), pin.PosV.z);
 }
 

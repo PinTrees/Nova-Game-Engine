@@ -464,7 +464,7 @@ TreeShadowOut TreeShadowVS(TreeVertexIn vin)
 
 void TreeShadowLeafPS(TreeShadowOut pin)
 {
-    clip(-TreeLeafCluster(pin.UV, pin.Seed).Dist);
+    TreeLeafClip(pin.UV, pin.Seed);
 }
 
 technique11 TreeShadowBarkTech

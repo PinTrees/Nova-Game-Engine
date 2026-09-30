@@ -16,6 +16,7 @@
 #include "Sky.h"
 #include "ShadowMap.h"
 #include "ShadowRenderer.h"
+#include "SceneGrid.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
@@ -88,7 +89,7 @@ bool EditorApp::Init()
 			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
 			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
 			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx",
-			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx" };
+			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx", L"../Shaders/45. SceneGrid.fx" };
 		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
 		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
 	}
@@ -467,6 +468,10 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 		_deviceContext->RSSetState(0);
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
+
+	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
+	if (SceneToolbar::GridVisible())
+		SceneGrid::Draw(_deviceContext.Get(), camera->View() * camera->Proj(), camera->GetPosition());
 
 	if (SceneToolbar::ParticlesVisible())
 		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
