@@ -26,7 +26,6 @@ private:
 	Vec3 m_Position;
 	Quaternion m_Rotation;
 
-	Quaternion CreateQuaternion(double roll, double pitch, double yaw);
 
 public:
 	Transform();
@@ -37,8 +36,15 @@ public:
 
 	void UpdateTransform();
 
+	// ---- 회전 규약 (Unity 와 동일) ----
+	// 오일러 각 (x, y, z) 는 Z → X → Y 순서로 적용한다 (= XMQuaternionRotationRollPitchYaw, Unity 의 Quaternion.Euler).
+	// 회전의 기준 값은 쿼터니언(m_LocalRotation)이고, 오일러 각은 표시/입력용이다.
+	static Quaternion EulerToQuaternion(const Vec3& degrees);
+	static Quaternion CreateQuaternion(double x, double y, double z);   // 라디안
 	static Vec3 ToEulerRadians(Quaternion q);
 	static Vec3 ToEulerAngles(Quaternion q);
+	// q 를 오일러 각으로 바꾸되, 같은 회전을 나타내는 값 중 hint 와 가장 가까운 값을 고른다 (179° → -179° 같은 튐 방지)
+	static Vec3 ToEulerAnglesNear(Quaternion q, const Vec3& hint);
 
 	// Local
 	Vec3 GetLocalScale() { return m_LocalScale; }

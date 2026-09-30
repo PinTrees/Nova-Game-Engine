@@ -3,25 +3,17 @@
 #include "UnityGUI.h"
 #include "EditorGUI.h"
 
-// This is not in game format, it is in mathematical format.
-Quaternion Transform::CreateQuaternion(double roll, double pitch, double yaw) // roll (x), pitch (y), yaw (z), angles are in radians
+// Unity 와 같은 오일러 순서(Z → X → Y). 라디안 입력
+Quaternion Transform::CreateQuaternion(double x, double y, double z)
 {
-	// Abbreviations for the various angular functions
-
-	double cr = cos(roll * 0.5);
-	double sr = sin(roll * 0.5);
-	double cp = cos(pitch * 0.5);
-	double sp = sin(pitch * 0.5);
-	double cy = cos(yaw * 0.5);
-	double sy = sin(yaw * 0.5);
-
-	Quaternion q;
-	q.w = cr * cp * cy + sr * sp * sy;
-	q.x = sr * cp * cy - cr * sp * sy;
-	q.y = cr * sp * cy + sr * cp * sy;
-	q.z = cr * cp * sy - sr * sp * cy;
-
+	Quaternion q = XMQuaternionRotationRollPitchYaw((float)x, (float)y, (float)z);
+	q.Normalize();
 	return q;
+}
+
+Quaternion Transform::EulerToQuaternion(const Vec3& d)
+{
+	return CreateQuaternion(XMConvertToRadians(d.x), XMConvertToRadians(d.y), XMConvertToRadians(d.z));
 }
 
 Transform::Transform()
@@ -46,35 +38,45 @@ void Transform::Update()
 
 Vec3 Transform::ToEulerRadians(Quaternion q)
 {
-	Vec3 radians;
+	// 행렬 M = Rz * Rx * Ry (행 벡터) 에서: M32 = -sin(x), M31 = cos(x)sin(y), M33 = cos(x)cos(y), M12 = sin(z)cos(x), M22 = cos(z)cos(x)
+	q.Normalize();
+	Matrix m = Matrix::CreateFromQuaternion(q);
+	Vec3 r;
+	// asin 대신 atan2 로 x 를 구해 ±90° 부근에서도 정밀도를 유지한다
+	const float cx = sqrtf(m._31 * m._31 + m._33 * m._33);
+	r.x = atan2f(-m._32, cx);
+	if (cx > 1e-6f)
+	{
+		r.y = atan2f(m._31, m._33);
+		r.z = atan2f(m._12, m._22);
+	}
+	else
+	{
+		// 짐벌 락 (x = ±90°): z 를 0 으로 두고 y 에 합친다
+		r.y = atan2f(-m._13, m._11);
+		r.z = 0.0f;
+	}
+	return r;
+}
 
-	//// roll (x-axis rotation)
-	//double sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
-	//double cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
-	//radians.x = std::atan2(sinr_cosp, cosr_cosp);
-
-	//// pitch (y-axis rotation)
-	//double sinp = 2 * (q.w * q.y + q.x * q.z);
-	////double cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-	//radians.y = std::asin(sinp);
-
-	//// yaw (z-axis rotation)
-	//double siny_cosp = 2 * (q.w * q.z + q.x * q.y);
-	//double cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-	//radians.z = std::atan2(siny_cosp, cosy_cosp);
-
-	double sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z);
-	double cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y);
-	radians.x = std::atan2(sinr_cosp, cosr_cosp);
-
-	double sinp = 2.0 * (q.w * q.y - q.z * q.x);
-	radians.y = std::asin(std::clamp(sinp, -1.0, 1.0));  // -1 <= sin(pitch) <= 1�� ����
-
-	double siny_cosp = 2.0 * (q.w * q.z + q.x * q.y);
-	double cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z);
-	radians.z = std::atan2(siny_cosp, cosy_cosp);
-
-	return radians;
+Vec3 Transform::ToEulerAnglesNear(Quaternion q, const Vec3& hint)
+{
+	const Vec3 a = ToEulerAngles(q);
+	// 같은 회전의 두 번째 표현: (180 - x, y + 180, z + 180)
+	const Vec3 b(180.0f - a.x, a.y + 180.0f, a.z + 180.0f);
+	auto wrapNear = [](float v, float h) {
+		while (v - h > 180.0f) v -= 360.0f;
+		while (v - h < -180.0f) v += 360.0f;
+		return v;
+	};
+	auto nearest = [&](const Vec3& e) { return Vec3(wrapNear(e.x, hint.x), wrapNear(e.y, hint.y), wrapNear(e.z, hint.z)); };
+	const Vec3 na = nearest(a), nb = nearest(b);
+	const float da = (na - hint).LengthSquared(), db = (nb - hint).LengthSquared();
+	Vec3 r = da <= db ? na : nb;
+	// 부동소수점 잡음 정리 (-0.0 → 0)
+	for (float* v : { &r.x, &r.y, &r.z })
+		if (fabsf(*v) < 1e-4f) *v = 0.0f;
+	return r;
 }
 
 Vec3 Transform::ToEulerAngles(Quaternion q)
@@ -95,8 +97,8 @@ void Transform::UpdateTransform()
 	// ���� ��ȯ ��� ���� 
 	Matrix S = Matrix::CreateScale(m_LocalScale);
 	// ���� ���Ϸ� ���� ���ʹϾ����� ��ȯ
-	Quaternion q = CreateQuaternion(m_LocalEulerRadians.x, m_LocalEulerRadians.y, m_LocalEulerRadians.z);
-	Matrix QR = Matrix::CreateFromQuaternion(q);
+	// 회전의 기준 값은 쿼터니언 (오일러 → 쿼터니언 왕복 오차/짐벌 락 없음)
+	Matrix QR = Matrix::CreateFromQuaternion(m_LocalRotation);
 
 	Matrix T = Matrix::CreateTranslation(m_LocalPosition);
 
@@ -113,6 +115,11 @@ void Transform::UpdateTransform()
 
 	m_WorldMatrix.Decompose(m_Scale, m_Rotation, m_Position);
 	m_EulerAngles = ToEulerAngles(m_Rotation);
+	for (float* v : { &m_EulerAngles.x, &m_EulerAngles.y, &m_EulerAngles.z })
+	{
+		if (*v < 0.0f) *v += 360.0f;
+		if (fabsf(*v) < 1e-4f || fabsf(*v - 360.0f) < 1e-4f) *v = 0.0f;
+	}
 
 	// Children
 	for (const shared_ptr<Transform>& child : _children)
@@ -156,9 +163,11 @@ void Transform::SetLocalEulerRadians(const Vec3& radians)
 
 void Transform::SetLocalRotation(Quaternion q)
 {
+	q.Normalize();
 	m_LocalRotation = q;
-	m_LocalEulerAngles = ToEulerAngles(q);
-	m_LocalEulerRadians = ToEulerRadians(q);
+	// 표시용 오일러 각은 이전 값과 가장 가까운 표현을 쓴다 (Unity Inspector 와 같은 동작)
+	m_LocalEulerAngles = ToEulerAnglesNear(q, m_LocalEulerAngles);
+	m_LocalEulerRadians = Vec3(XMConvertToRadians(m_LocalEulerAngles.x), XMConvertToRadians(m_LocalEulerAngles.y), XMConvertToRadians(m_LocalEulerAngles.z));
 	UpdateTransform();
 }
 
@@ -189,17 +198,7 @@ void Transform::SetScale(const Vec3& worldScale)
 
 void Transform::SetEulerAngle(const Vec3& worldRotation)
 {
-	if (HasParent())
-	{
-		Matrix inverseMatrix = _parent->GetWorldMatrix().Invert();
-		Vec3 rotation = Vec3::TransformNormal(worldRotation, inverseMatrix);
-
-		SetLocalEulerAngles(rotation);
-	}
-	else
-	{
-		SetLocalEulerAngles(worldRotation);
-	}
+	SetRotation(EulerToQuaternion(worldRotation));
 }
 
 void Transform::SetRotation(Quaternion q)
@@ -307,6 +306,13 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Transform)
 	DE_SERIALIZE_VECTOR3(j, m_EulerAngles);
 	DE_SERIALIZE_VECTOR3(j, m_Position);
 	DE_SERIALIZE_VECTOR3_D(j, m_Scale, Vec3::One);
+
+	if (!j.contains("m_LocalRotation"))
+		m_LocalRotation = EulerToQuaternion(m_LocalEulerAngles);
+	m_LocalRotation.Normalize();
+	if (fabsf(EulerToQuaternion(m_LocalEulerAngles).Dot(m_LocalRotation)) < 0.99999f)
+		m_LocalEulerAngles = ToEulerAnglesNear(m_LocalRotation, m_LocalEulerAngles);   // 이전 버전(다른 오일러 규약)으로 저장된 씬
+	m_LocalEulerRadians = Vec3(XMConvertToRadians(m_LocalEulerAngles.x), XMConvertToRadians(m_LocalEulerAngles.y), XMConvertToRadians(m_LocalEulerAngles.z));
 
 	UpdateTransform();
 }

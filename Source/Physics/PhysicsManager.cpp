@@ -581,6 +581,15 @@ void PhysicsManager::Start()
 	w.physics->Init(8192, 0, 8192, 8192, w.bpLayers, w.objVsBp, w.objPair);
 	w.physics->SetContactListener(&w.listener);
 	w.physics->SetGravity(ToJ(m_Gravity));
+	{
+		// 정지 접촉 시 허용하는 겹침 (Jolt 기본 2cm → 5mm). Unity 처럼 물체가 바닥에 눈에 띄게 파묻히지 않게 한다
+		JPH::PhysicsSettings settings = w.physics->GetPhysicsSettings();
+		settings.mPenetrationSlop = 0.005f;
+		w.physics->SetPhysicsSettings(settings);
+	}
+	// Unity(PhysX) 기본값과 같이 마찰/반발 계수는 두 값의 평균으로 합친다 (Jolt 기본: 마찰 = 기하 평균, 반발 = 최댓값)
+	w.physics->SetCombineFriction([](const JPH::Body& a, const JPH::SubShapeID&, const JPH::Body& b, const JPH::SubShapeID&) { return 0.5f * (a.GetFriction() + b.GetFriction()); });
+	w.physics->SetCombineRestitution([](const JPH::Body& a, const JPH::SubShapeID&, const JPH::Body& b, const JPH::SubShapeID&) { return 0.5f * (a.GetRestitution() + b.GetRestitution()); });
 	m_Accumulator = 0.0f;
 	m_StepCount = 0;
 
@@ -794,6 +803,7 @@ void PhysicsManager::StepSimulation(float dt)
 			bcs.mLinearDamping = rb->GetLinearDamping();
 			bcs.mAngularDamping = rb->GetAngularDamping();
 			bcs.mGravityFactor = rb->GetUseGravity() ? 1.0f : 0.0f;
+			bcs.mMaxAngularVelocity = 50.0f;   // Unity Physics.defaultMaxAngularSpeed (rad/s)
 			bcs.mCollideKinematicVsNonDynamic = kinematic;   // 키네마틱 ↔ 정적 트리거 이벤트 (Unity 와 동일)
 			if (rb->GetCollisionDetection() != RigidBody::CollisionDetection::Discrete)
 				bcs.mMotionQuality = JPH::EMotionQuality::LinearCast;

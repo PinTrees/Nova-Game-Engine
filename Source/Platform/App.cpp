@@ -15,6 +15,7 @@
 #include "AnimatorEditorWindow.h"
 #include "DisplayManager.h"
 #include "GameObjectFactory.h"
+#include "PhysicsSelfTest.h"
 
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
@@ -262,6 +263,10 @@ bool App::Init()
 			}
 		}
 	}
+
+	// (개발/검증용) NOVA_PHYSICS_TEST=<로그 파일> 이면 물리 자체 검사 장면을 추가한다 (저장하지 않음)
+	if (::GetEnvironmentVariableA("NOVA_PHYSICS_TEST", nullptr, 0) > 0 && SceneManager::GetI()->GetCurrentScene())
+		PhysicsSelfTest::Build(SceneManager::GetI()->GetCurrentScene());
 
 	// (개발/검증용) NOVA_AUTOPLAY=1 이면 시작 직후 Play 모드로 들어간다.
 	if (::GetEnvironmentVariableA("NOVA_AUTOPLAY", nullptr, 0) > 0)

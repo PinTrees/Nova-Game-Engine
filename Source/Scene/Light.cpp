@@ -35,10 +35,27 @@ void Light::OnDestroy()
 	LightManager::GetI()->DeleteLight(this->GetInstanceID());
 }
 
+// forward(+Z) ê°€ dir ì„ í–¥í•˜ëŠ” íšŒì „ (ì™¼ì† ì¢Œí‘œê³„)
+static Quaternion LookRotation(const XMFLOAT3& dir)
+{
+	Vec3 f(dir.x, dir.y, dir.z);
+	if (f.LengthSquared() < 1e-8f)
+		return Quaternion::Identity;
+	f.Normalize();
+	Vec3 upRef = fabsf(f.y) > 0.99f ? Vec3(1, 0, 0) : Vec3(0, 1, 0);
+	Vec3 right = upRef.Cross(f);
+	right.Normalize();
+	Vec3 up = f.Cross(right);
+	Matrix m(right.x, right.y, right.z, 0, up.x, up.y, up.z, 0, f.x, f.y, f.z, 0, 0, 0, 0, 1);
+	Quaternion q = Quaternion::CreateFromRotationMatrix(m);
+	q.Normalize();
+	return q;
+}
+
 void Light::SetDirLight(DirectionalLight light)
 {
 	m_DirectionalDesc = light;
-	m_pGameObject->GetTransform()->SetLocalEulerRadians(light.Direction);
+	m_pGameObject->GetTransform()->SetLocalRotation(LookRotation(light.Direction));
 }
 
 void Light::SetPointLight(PointLight light)
@@ -50,7 +67,7 @@ void Light::SetPointLight(PointLight light)
 void Light::SetSpotLight(SpotLight light)
 {
 	m_SpotDesc = light;
-	m_pGameObject->GetTransform()->SetLocalEulerRadians(light.Direction);
+	m_pGameObject->GetTransform()->SetLocalRotation(LookRotation(light.Direction));
 	m_pGameObject->GetTransform()->SetLocalPosition(light.Position);
 }
 
@@ -114,15 +131,11 @@ void Light::ViewUpdate()
 		// light pos = camera position + ((camerafarZ * 2) * light.dir)
 		// light pos´Â camera positionÀ» Áß½ÉÀ¸·Î CameraFarZ(¹İÁö¸§) ³¡¿¡ À§Ä¡ÇØ¾ßÇÔ
 
-		r = m_pGameObject->GetTransform()->GetLocalEulerRadians();
+		// ê·¸ë¦¼ììš© ê´‘ì› ìœ„ì¹˜: ì¹´ë©”ë¼ ìœ„ì¹˜ì—ì„œ ë¹›ì´ ì˜¤ëŠ” ë°©í–¥(forward ì˜ ë°˜ëŒ€)ìœ¼ë¡œ FarZ ë§Œí¼ ë–¨ì–´ì§„ ê³³
+		r = XMVector3Normalize(lookDir);
 		tempPos = XMLoadFloat3(&gameCameraPos);
 		cameraFarZ = SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetFarZ();
-	
-		XMVECTOR scsPos = XMVectorSet(
-			-cameraFarZ * std::cosf(r.x) * std::sinf(r.y),
-			cameraFarZ * std::sinf(r.x),
-			-cameraFarZ * std::cosf(r.x) * std::cosf(r.y),
-			0);
+		XMVECTOR scsPos = XMVectorScale(XMVector3Normalize(lookDir), -cameraFarZ);
 
 		pos = scsPos + tempPos;
 
@@ -148,7 +161,7 @@ void Light::ViewUpdate()
 		XMStoreFloat3(&m_PointDesc.Position, pos);
 		break;
 	case LightType::Spot:
-		r = m_pGameObject->GetTransform()->GetLocalEulerRadians();
+		r = XMVector3Normalize(lookDir);   // ìŠ¤í¬íŠ¸ë¼ì´íŠ¸ ë°©í–¥ = forward
 
 		m_LightView[0] = ::XMMatrixLookAtLH(pos, target, upDir);
 
@@ -190,15 +203,11 @@ void Light::EditorViewUpdate()
 		// light pos = camera position + ((camerafarZ * 2) * light.dir)
 		// light pos´Â camera positionÀ» Áß½ÉÀ¸·Î CameraFarZ(¹İÁö¸§) ³¡¿¡ À§Ä¡ÇØ¾ßÇÔ
 
-		r = m_pGameObject->GetTransform()->GetLocalEulerRadians();
+		// ê·¸ë¦¼ììš© ê´‘ì› ìœ„ì¹˜: ì¹´ë©”ë¼ ìœ„ì¹˜ì—ì„œ ë¹›ì´ ì˜¤ëŠ” ë°©í–¥(forward ì˜ ë°˜ëŒ€)ìœ¼ë¡œ FarZ ë§Œí¼ ë–¨ì–´ì§„ ê³³
+		r = XMVector3Normalize(lookDir);
 		tempPos = XMLoadFloat3(&editorCameraPos);
 		cameraFarZ = SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetFarZ();
-		
-		XMVECTOR scsPos = XMVectorSet(
-			-cameraFarZ * std::cosf(r.x) * std::sinf(r.y), 
-			cameraFarZ * std::sinf(r.x),
-			-cameraFarZ * std::cosf(r.x) * std::cosf(r.y),
-			0);
+		XMVECTOR scsPos = XMVectorScale(XMVector3Normalize(lookDir), -cameraFarZ);
 
 		pos = scsPos + tempPos;
 
@@ -226,7 +235,7 @@ void Light::EditorViewUpdate()
 		XMStoreFloat3(&m_PointDesc.Position, pos);
 		break;
 	case LightType::Spot:
-		r = m_pGameObject->GetTransform()->GetLocalEulerRadians();
+		r = XMVector3Normalize(lookDir);   // ìŠ¤í¬íŠ¸ë¼ì´íŠ¸ ë°©í–¥ = forward
 
 		m_EditorLightView[0] = ::XMMatrixLookAtLH(pos, target, upDir);
 

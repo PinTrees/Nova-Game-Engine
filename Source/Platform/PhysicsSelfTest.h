@@ -1,0 +1,11 @@
+#pragma once
+
+class Scene;
+
+// (개발/검증용) 물리 자체 검사 장면.
+// NOVA_PHYSICS_TEST=<로그 파일 경로> 로 에디터를 실행하면 시작 씬에 검사용 오브젝트를 추가하고(저장하지 않음),
+// Play 중 고정 스텝마다 위치/속도/각속도/회전을 기록해 이론값과 비교할 수 있게 한다.
+namespace PhysicsSelfTest
+{
+	void Build(Scene* scene);
+}
