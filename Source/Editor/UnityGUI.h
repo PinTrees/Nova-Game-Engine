@@ -20,7 +20,7 @@ namespace UnityGUI
 	void Spacing(float height);
 
 	// ---- 행 위젯 (레이블 + 필드) ----
-	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent = 0);
+	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent = 0, bool disabled = false);
 	bool Toggle(const char* label, bool* value, int indent = 0);
 	bool Float(const char* label, float* value, int indent = 0, const char* innerLabel = nullptr);
 	bool Int(const char* label, int* value, int indent = 0);
@@ -30,7 +30,13 @@ namespace UnityGUI
 	bool Color(const char* label, float* rgba, int indent = 0);
 	void ObjectField(const char* label, const char* text, int indent = 0);
 	void Label(const char* label, int indent = 0, bool bold = false);
-	void EmptyListBox(const char* header, const char* emptyText);   // Unity 의 비어 있는 리스트 박스 (예: Camera Stack)
+	void EmptyListBox(const char* header, const char* emptyText);
+	// 체크박스 + 텍스트가 왼쪽에 붙는 행 (예: Light 의 "Cookie"). withTargetIcon 이면 텍스트 앞에 ⊙ 아이콘.
+	bool ToggleLeft(const char* text, bool* value, int indent = 1, bool disabled = false, bool withTargetIcon = false);
+	// 경고/정보 박스 (아이콘 + 자동 줄바꿈 텍스트)
+	void HelpBox(const char* text, bool warning = true, int indent = 0);
+	// 색온도 그라디언트 바 + Kelvin 숫자 입력. 값이 바뀌면 true.
+	bool TemperatureBar(const char* label, float* kelvin, float minK, float maxK, int indent = 0);   // Unity 의 비어 있는 리스트 박스 (예: Camera Stack)
 
 	// ---- 섹션 ----
 	// SRP 스타일 접이식 서브 섹션 (예: Projection, Rendering). 열려 있으면 true.

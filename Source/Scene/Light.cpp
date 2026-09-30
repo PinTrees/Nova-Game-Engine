@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.h"
 #include "Light.h"
+#include "UnityGUI.h"
 #include "SceneViewOverlay.h"
 #include "LightManager.h"
 #include "Transform.h"
@@ -310,79 +311,122 @@ string Light::GetStringLightType(LightType type)
 	}
 }
 
-void Light::OnInspectorGUI()
+const char* Light::InspectorIconName() const
 {
-	bool ProjectionChanged = false; // ProjectionMatrix∏¶ ¡∂¡§«œ¥¬ ∫Øºˆ∞™¿Ã ∫Ø∞Ê Ω√
-
-	// LightType º±≈√GUI
-	if (ImGui::BeginCombo("LightType", GetStringLightType(m_LightType).c_str())) // The second parameter is the previewed value
-	{
-		for (int n = 0; n < (int)LightType::End; n++)
-		{
-			bool is_selected = ((int)m_LightType == n); // You can store your selection somewhere
-			if (ImGui::Selectable(GetStringLightType((LightType)n).c_str(), is_selected))
-			{
-				m_LightType = (LightType)n;
-				ProjectionChanged = true;
-			}
-
-			if (is_selected)
-				ImGui::SetItemDefaultFocus(); // Set the initial focus when opening the combo (scrolling + for keyboard navigation support)
-		}
-		ImGui::EndCombo();
-	}
-
-	// LightType¿« ∞™¿ª ¡∂¡§«œ¥¬ GUI
 	switch (m_LightType)
 	{
-	case LightType::Directional:
-		ImGui::Text("Ambient");
-		ImGui::DragFloat4("##Ambient", reinterpret_cast<float*>(&m_DirectionalDesc.Ambient), 0.1f);
-		ImGui::Text("Diffuse");
-		ImGui::DragFloat4("##Diffuse", reinterpret_cast<float*>(&m_DirectionalDesc.Diffuse), 0.1f);
-		ImGui::Text("Specular");
-		ImGui::DragFloat4("##Specular", reinterpret_cast<float*>(&m_DirectionalDesc.Specular), 0.1f);
-		break;
-	case LightType::Point:
-		ImGui::Text("Ambient");
-		ImGui::DragFloat4("##Ambient", reinterpret_cast<float*>(&m_PointDesc.Ambient), 0.1f);
-		ImGui::Text("Diffuse");
-		ImGui::DragFloat4("##Diffuse", reinterpret_cast<float*>(&m_PointDesc.Diffuse), 0.1f);
-		ImGui::Text("Specular");
-		ImGui::DragFloat4("##Specular", reinterpret_cast<float*>(&m_PointDesc.Specular), 0.1f);
-		ImGui::Text("Range");
-		if (ImGui::DragFloat("##Range", reinterpret_cast<float*>(&m_PointDesc.Range), 0.1f))
+	case LightType::Point: return "light_point";
+	case LightType::Spot: return "light_spot";
+	default: return "light_directional";
+	}
+}
+
+XMFLOAT4* Light::CurrentDiffuse()
+{
+	switch (m_LightType)
+	{
+	case LightType::Point: return &m_PointDesc.Diffuse;
+	case LightType::Spot: return &m_SpotDesc.Diffuse;
+	default: return &m_DirectionalDesc.Diffuse;
+	}
+}
+
+// ÏÉâÏò®ÎèÑ(K) ‚Üí RGB (Tanner Helland Í∑ºÏÇ¨)
+static void KelvinToRGB(float kelvin, float rgb[3])
+{
+	float t = std::clamp(kelvin, 1000.0f, 40000.0f) / 100.0f;
+	float r = t <= 66.0f ? 255.0f : 329.698727446f * powf(t - 60.0f, -0.1332047592f);
+	float g = t <= 66.0f ? 99.4708025861f * logf(t) - 161.1195681661f : 288.1221695283f * powf(t - 60.0f, -0.0755148492f);
+	float b = t >= 66.0f ? 255.0f : (t <= 19.0f ? 0.0f : 138.5177312231f * logf(t - 10.0f) - 305.0447927307f);
+	rgb[0] = std::clamp(r, 0.0f, 255.0f) / 255.0f;
+	rgb[1] = std::clamp(g, 0.0f, 255.0f) / 255.0f;
+	rgb[2] = std::clamp(b, 0.0f, 255.0f) / 255.0f;
+}
+
+void Light::OnInspectorGUI()
+{
+	static const char* kTypes[] = { "Spot", "Directional", "Point" };
+	static const LightType kTypeMap[] = { LightType::Spot, LightType::Directional, LightType::Point };
+	static const char* kModes[] = { "Realtime", "Mixed", "Baked" };
+	static const char* kAppearance[] = { "Color", "Filter and Temperature" };
+	static const char* kRenderingLayers[] = { "Default" };
+	static const char* kCulling[] = { "Everything", "Nothing", "Default", "TransparentFX", "Ignore Raycast", "Water", "UI" };
+	static const char* kShadow[] = { "No Shadows", "Hard Shadows", "Soft Shadows" };
+
+	bool projectionChanged = false;
+
+	if (UnityGUI::Foldout("General"))
+	{
+		int typeIndex = 1;
+		for (int i = 0; i < 3; ++i)
+			if (kTypeMap[i] == m_LightType) typeIndex = i;
+		if (UnityGUI::Dropdown("Type", &typeIndex, kTypes, 3, 1))
 		{
-			ProjectionChanged = true;
+			m_LightType = kTypeMap[typeIndex];
+			projectionChanged = true;
 		}
-		ImGui::Text("Att");
-		ImGui::DragFloat3("##Att", reinterpret_cast<float*>(&m_PointDesc.Att), 0.1f);
-		break;
-	case LightType::Spot:
-		ImGui::Text("Ambient");
-		ImGui::DragFloat4("##Ambient", reinterpret_cast<float*>(&m_SpotDesc.Ambient), 0.1f);
-		ImGui::Text("Diffuse");
-		ImGui::DragFloat4("##Diffuse", reinterpret_cast<float*>(&m_SpotDesc.Diffuse), 0.1f);
-		ImGui::Text("Specular");
-		ImGui::DragFloat4("##Specular", reinterpret_cast<float*>(&m_SpotDesc.Specular), 0.1f);
-		ImGui::Text("Range");
-		if (ImGui::DragFloat("##Range", reinterpret_cast<float*>(&m_SpotDesc.Range), 0.1f))
-		{
-			ProjectionChanged = true;
-		}
-		ImGui::Text("Spot");
-		if (ImGui::DragFloat("##Spot", reinterpret_cast<float*>(&m_SpotDesc.Spot), 0.1f))
-		{
-			ProjectionChanged = true;
-		}
-		ImGui::Text("Att");
-		ImGui::DragFloat3("##Att", reinterpret_cast<float*>(&m_SpotDesc.Att), 0.1f);
-		break;
-	default:
-		break;
+		UnityGUI::Dropdown("Mode", &m_Mode, kModes, 3, 1);
 	}
 
-	if (ProjectionChanged)
+	if (UnityGUI::Foldout("Emission"))
+	{
+		UnityGUI::Dropdown("Light Appearance", &m_ColorMode, kAppearance, 2, 1);
+
+		XMFLOAT4* diffuse = CurrentDiffuse();
+		if (m_ColorMode == 0)
+		{
+			float c[4] = { diffuse->x, diffuse->y, diffuse->z, 1.0f };
+			if (UnityGUI::Color("Color", c, 1))
+			{
+				diffuse->x = c[0]; diffuse->y = c[1]; diffuse->z = c[2];
+			}
+		}
+		else
+		{
+			bool changed = UnityGUI::Color("Filter", m_Filter, 2);
+			changed |= UnityGUI::TemperatureBar("Temperature", &m_Temperature, 1000.0f, 12000.0f, 2);
+			if (changed)
+			{
+				float k[3];
+				KelvinToRGB(m_Temperature, k);
+				diffuse->x = k[0] * m_Filter[0];
+				diffuse->y = k[1] * m_Filter[1];
+				diffuse->z = k[2] * m_Filter[2];
+			}
+		}
+
+		if (UnityGUI::Float("Intensity", &m_Intensity, 1))
+			m_Intensity = (std::max)(m_Intensity, 0.0f);
+		UnityGUI::Float("Indirect Multiplier", &m_IndirectMultiplier, 1);
+
+		if (m_LightType != LightType::Directional)
+			UnityGUI::HelpBox("Realtime indirect bounce shadowing is only supported for Directional lights.", true, 0);
+
+		if (m_LightType == LightType::Point)
+		{
+			if (UnityGUI::Float("Range", &m_PointDesc.Range, 1)) projectionChanged = true;
+		}
+		else if (m_LightType == LightType::Spot)
+		{
+			if (UnityGUI::Float("Range", &m_SpotDesc.Range, 1)) projectionChanged = true;
+			if (UnityGUI::Float("Spot Angle", &m_SpotDesc.Spot, 1)) projectionChanged = true;
+		}
+
+		bool cookie = false;
+		UnityGUI::ToggleLeft("Cookie", &cookie, 1, true, true);
+	}
+
+	if (UnityGUI::Foldout("Rendering"))
+	{
+		int layers = 0;
+		UnityGUI::Dropdown("Rendering Layers", &layers, kRenderingLayers, 1, 1, true);
+		UnityGUI::Dropdown("Culling Mask", &m_CullingMask, kCulling, 7, 1);
+	}
+
+	if (UnityGUI::Foldout("Shadows"))
+		UnityGUI::Dropdown("Shadow Type", &m_ShadowType, kShadow, 3, 1);
+
+	if (projectionChanged)
 	{
 		ProjUpdate();
 		EditorProjUpdate();
@@ -432,6 +476,16 @@ GENERATE_COMPONENT_FUNC_TOJSON(Light)
 	j["spotLightSpot"] = m_SpotDesc.Spot;
 	j["spotLightAtt"] = { m_SpotDesc.Att.x,m_SpotDesc.Att.y,m_SpotDesc.Att.z };
 
+	j["enabled"] = m_Enabled;
+	j["intensity"] = m_Intensity;
+	j["indirectMultiplier"] = m_IndirectMultiplier;
+	j["mode"] = m_Mode;
+	j["colorMode"] = m_ColorMode;
+	j["temperature"] = m_Temperature;
+	j["filter"] = { m_Filter[0], m_Filter[1], m_Filter[2], m_Filter[3] };
+	j["cullingMask"] = m_CullingMask;
+	j["shadowType"] = m_ShadowType;
+
 	return j;
 }
 
@@ -441,6 +495,17 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Light)
 	{
 		m_LightType = j.at("lightType").get<LightType>();
 	}
+
+	m_Enabled = j.value("enabled", true);
+	m_Intensity = j.value("intensity", 1.0f);
+	m_IndirectMultiplier = j.value("indirectMultiplier", 1.0f);
+	m_Mode = j.value("mode", 0);
+	m_ColorMode = j.value("colorMode", 0);
+	m_Temperature = j.value("temperature", 6570.0f);
+	m_CullingMask = j.value("cullingMask", 0);
+	m_ShadowType = j.value("shadowType", 0);
+	if (j.contains("filter") && j.at("filter").is_array() && j.at("filter").size() == 4)
+		for (int i = 0; i < 4; ++i) m_Filter[i] = j.at("filter")[i].get<float>();
 
 	// Directional
 	{

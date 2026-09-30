@@ -47,6 +47,8 @@ public:
 	virtual void OnInspectorGUI() { }
 	// Unity 스타일 Inspector(UnityGUI)로 본문을 그리는 컴포넌트는 true (기존 스타일 push 를 생략)
 	virtual bool UsesUnityInspector() const { return false; }
+	// 헤더 아이콘 이름(ProjectSetting/icons/svg/png/<이름>.png). nullptr 이면 타입 기본 아이콘
+	virtual const char* InspectorIconName() const { return nullptr; }
 	// 헤더에 활성 체크박스를 표시할지 (Transform 은 표시하지 않음)
 	virtual bool HasEnabledToggle() const { return true; }
 	bool IsEnabled() const { return m_Enabled; }

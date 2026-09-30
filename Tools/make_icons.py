@@ -70,6 +70,35 @@ ICONS = {
     "camera": svg16(
         '  <rect x="0.8" y="4.2" width="9.6" height="7.6" rx="1.4" fill="#6FC3F7"/>\n'
         '  <polygon points="10.9,8 15.4,4.7 15.4,11.3" fill="#6FC3F7"/>'),
+    "light_directional": svg16(
+        '  <circle cx="8" cy="8" r="3.1" fill="#F5C542"/>\n'
+        '  <line x1="8" y1="1.2" x2="8" y2="3.4" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="8" y1="12.6" x2="8" y2="14.8" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="1.2" y1="8" x2="3.4" y2="8" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="12.6" y1="8" x2="14.8" y2="8" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="3.2" y1="3.2" x2="4.7" y2="4.7" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="11.3" y1="11.3" x2="12.8" y2="12.8" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="12.8" y1="3.2" x2="11.3" y2="4.7" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>\n'
+        '  <line x1="4.7" y1="11.3" x2="3.2" y2="12.8" stroke="#F5C542" stroke-width="1.4" stroke-linecap="round"/>'),
+    "light_point": svg16(
+        '  <circle cx="8" cy="6.4" r="4.4" fill="#F7D65A"/>\n'
+        '  <rect x="5.7" y="10.4" width="4.6" height="3.4" rx="1" fill="#B9B9B9"/>\n'
+        '  <rect x="6.5" y="13.4" width="3" height="1.4" rx="0.7" fill="#8E8E8E"/>'),
+    "light_spot": svg16(
+        '  <polygon points="8,1.8 13.6,12.6 2.4,12.6" fill="#F5C542" fill-opacity="0.9"/>\n'
+        '  <ellipse cx="8" cy="12.6" rx="5.6" ry="1.7" fill="#F7D65A"/>'),
+    "warning": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">\n'
+        '  <polygon points="16,3.5 29.5,27.5 2.5,27.5" fill="#F5C542" stroke="#F5C542" stroke-width="2.4" stroke-linejoin="round"/>\n'
+        '  <rect x="14.6" y="11" width="2.8" height="9.6" rx="1.2" fill="#3A3A3A"/>\n'
+        '  <circle cx="16" cy="24" r="1.7" fill="#3A3A3A"/>\n'
+        '</svg>\n'),
+    "info_box": (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">\n'
+        '  <circle cx="16" cy="16" r="12.5" fill="#4C8DFF"/>\n'
+        '  <circle cx="16" cy="10.6" r="1.8" fill="#FFFFFF"/>\n'
+        '  <rect x="14.6" y="14" width="2.8" height="9" rx="1.2" fill="#FFFFFF"/>\n'
+        '</svg>\n'),
     "component": svg16(
         '  <rect x="2" y="2" width="12" height="12" rx="2" fill="none" stroke="#C4C4C4" stroke-width="1.3"/>\n'
         '  <line x1="5" y1="6" x2="11" y2="6" stroke="#C4C4C4" stroke-width="1.2"/>\n'

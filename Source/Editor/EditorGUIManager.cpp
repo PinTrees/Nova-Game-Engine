@@ -87,21 +87,29 @@ void EditorGUIManager::Init(bool hubMode)
     // Load Fonts
     if (!hubMode)
     {
-        // 본문 폰트: Segoe UI(라틴, Unity 의 Inter 와 가장 비슷한 시스템 폰트) + 맑은 고딕(한글) + Font Awesome(아이콘)
+        // 본문 폰트: Pretendard(있을 때) 또는 Segoe UI + 맑은 고딕(한글), 그리고 Font Awesome(아이콘)
+        static const ImWchar textRanges[] = { 0x0020, 0x00FF, 0x2010, 0x2027, 0x2190, 0x21FF, 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
         static const ImWchar hangulRanges[] = { 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
-        ImFontConfig mergeCfg;
+
+        ImFontConfig textCfg;                 // 글자를 또렷하게: 가로 오버샘플링을 줄이고 픽셀에 맞춘다
+        textCfg.OversampleH = 1;
+        textCfg.OversampleV = 1;
+        textCfg.PixelSnapH = true;
+        textCfg.RasterizerMultiply = 1.2f;   // 힌팅 없는 래스터라이저에서 획이 가늘어 보이는 것을 보정
+        ImFontConfig mergeCfg = textCfg;
         mergeCfg.MergeMode = true;
-        mergeCfg.PixelSnapH = true;
 
-        // Fonts[0]: 일반
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesDefault());
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, &mergeCfg, hangulRanges);
-        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 1, &config, icons_ranges);
-
-        // Fonts[1]: 굵게 (UnityGUI::BoldFont)
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesDefault());
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgunbd.ttf", fontSize, &mergeCfg, hangulRanges);
-        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 1, &config, icons_ranges);
+        auto loadTextFont = [&](bool bold)
+        {
+            bool pretendard = false;
+            std::string file = EditorTheme::FontFile(bold, pretendard);
+            io.Fonts->AddFontFromFileTTF(file.c_str(), fontSize, &textCfg, pretendard ? textRanges : io.Fonts->GetGlyphRangesDefault());
+            if (!pretendard)
+                io.Fonts->AddFontFromFileTTF(bold ? "C:\\Windows\\Fonts\\malgunbd.ttf" : "C:\\Windows\\Fonts\\malgun.ttf", fontSize, &mergeCfg, hangulRanges);
+            io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 1, &config, icons_ranges);
+        };
+        loadTextFont(false);   // Fonts[0]: 일반
+        loadTextFont(true);    // Fonts[1]: 굵게 (UnityGUI::BoldFont)
     }
     else
     {

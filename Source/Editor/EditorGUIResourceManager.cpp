@@ -68,7 +68,8 @@ ImFont* EditorGUIResourceManager::LoadFont(EditorTextStyle style)
 
 void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
 {
-    const string& fontPath = container.FontStyle.Bold ? "C:\\Windows\\Fonts\\segoeuib.ttf" : "C:\\Windows\\Fonts\\segoeui.ttf";
+    bool isPretendardFont = false;
+    const string fontPath = EditorTheme::FontFile(container.FontStyle.Bold, isPretendardFont);
     const EditorTextStyle& style = container.FontStyle;
 
     string fontKey = to_string(style.FontSize) + (style.Bold ? "_bold" : "_regular");
@@ -77,26 +78,30 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
     auto fontPromise = make_shared<promise<ImFont*>>(); 
     future<ImFont*> fontFuture = fontPromise->get_future();
 
-    TaskSystem::mainThreadTasks.push([fontKey, fontPath, style, fontPromise, this]()
+    TaskSystem::mainThreadTasks.push([fontKey, fontPath, style, fontPromise, isPretendardFont, this]()
     {
         ImFontConfig config;
         config.MergeMode = true; // ���� ��Ʈ�� ���� ��� 
         config.PixelSnapH = true;
         static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome ����   
 
+        static const ImWchar textRanges[] = { 0x0020, 0x00FF, 0x2010, 0x2027, 0x2190, 0x21FF, 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
         ImGuiIO& io = ImGui::GetIO(); 
         ImFont* font = io.Fonts->AddFontFromFileTTF( 
             fontPath.c_str(), 
             style.FontSize, 
             NULL, 
-            io.Fonts->GetGlyphRangesDefault() 
+            isPretendardFont ? textRanges : io.Fonts->GetGlyphRangesDefault() 
         );
-        // 한글은 맑은 고딕으로 병합
+        static const ImWchar textRanges_dummy[] = { 0 };
+        (void)textRanges_dummy;
+        // 한글은 맑은 고딕으로 병합 (Pretendard 는 한글을 포함하므로 생략)
         static const ImWchar hangulRanges[] = { 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
         ImFontConfig hangulCfg;
         hangulCfg.MergeMode = true;
         hangulCfg.PixelSnapH = true;
-        io.Fonts->AddFontFromFileTTF(style.Bold ? "C:\\Windows\\Fonts\\malgunbd.ttf" : "C:\\Windows\\Fonts\\malgun.ttf", style.FontSize, &hangulCfg, hangulRanges);
+        if (!isPretendardFont)
+            io.Fonts->AddFontFromFileTTF(style.Bold ? "C:\\Windows\\Fonts\\malgunbd.ttf" : "C:\\Windows\\Fonts\\malgun.ttf", style.FontSize, &hangulCfg, hangulRanges);
         // Font Awesome ��Ʈ �߰�
         string fa_path = PathManager::GetI()->GetEnginePathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
         io.Fonts->AddFontFromFileTTF( 

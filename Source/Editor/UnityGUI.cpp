@@ -25,6 +25,11 @@ namespace
 	const ImU32 kSeparator   = IM_COL32(30, 30, 30, 255);
 	const ImU32 kFocus       = IM_COL32(62, 125, 190, 255);
 
+	// 행 높이(18px) 안에서 글자를 세로 중앙에 두기 위한 정수 패딩
+	float FramePadY() { return floorf((UnityGUI::kRowHeight - ImGui::GetFontSize()) * 0.5f); }
+	// 텍스트 그리기 y 위치를 정수 픽셀로 맞춘다
+	float TextY(float rowTop, float rowH, float fontSize) { return floorf(rowTop + (rowH - fontSize) * 0.5f + 0.5f); }
+
 	ImVec4 V4(ImU32 c) { return ImGui::ColorConvertU32ToFloat4(c); }
 
 	struct Row
@@ -53,7 +58,7 @@ namespace
 			ImDrawList* dl = ImGui::GetWindowDrawList();
 			ImFont* font = bold ? UnityGUI::BoldFont() : ImGui::GetFont();
 			float fs = font ? font->FontSize : ImGui::GetFontSize();
-			dl->AddText(font, fs, ImVec2(r.p.x + kBaseIndent + indent * kNestIndent, r.p.y + (kRowHeight - fs) * 0.5f), kText, label);
+			dl->AddText(font, fs, ImVec2(r.p.x + kBaseIndent + indent * kNestIndent, TextY(r.p.y, kRowHeight, fs)), kText, label);
 		}
 		ImGui::SetCursorScreenPos(ImVec2(r.fieldX, r.p.y));
 		return r;
@@ -71,7 +76,7 @@ namespace
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(padX, (kRowHeight - ImGui::GetFontSize()) * 0.5f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(padX, FramePadY()));
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(kFieldBg));
 		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, V4(IM_COL32(50, 50, 50, 255)));
 		ImGui::PushStyleColor(ImGuiCol_FrameBgActive, V4(IM_COL32(50, 50, 50, 255)));
@@ -142,7 +147,7 @@ namespace UnityGUI
 	}
 
 	// ---------- 행 위젯 ----------
-	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent)
+	bool Dropdown(const char* label, int* index, const char* const* items, int count, int indent, bool disabled)
 	{
 		Row r = BeginRow(label, indent);
 		bool changed = false;
@@ -150,7 +155,7 @@ namespace UnityGUI
 
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, (kRowHeight - ImGui::GetFontSize()) * 0.5f));
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, FramePadY()));
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 3.0f));
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 2.0f));
 		ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(kDropBg));
@@ -161,6 +166,7 @@ namespace UnityGUI
 		ImGui::PushStyleColor(ImGuiCol_PopupBg, V4(IM_COL32(48, 48, 48, 255)));
 
 		int cur = std::clamp(*index, 0, (std::max)(0, count - 1));
+		if (disabled) ImGui::BeginDisabled();
 		ImGui::SetNextItemWidth(r.fieldW);
 		if (ImGui::BeginCombo("##dd", items[cur], ImGuiComboFlags_NoArrowButton))
 		{
@@ -176,6 +182,7 @@ namespace UnityGUI
 		}
 		ImVec2 rmin = ImGui::GetItemRectMin(), rmax = ImGui::GetItemRectMax();
 		DrawIcon(ImGui::GetWindowDrawList(), "dropdown", ImVec2(rmax.x - 18.0f, rmin.y + 3.0f), 12.0f);
+		if (disabled) ImGui::EndDisabled();
 
 		ImGui::PopStyleColor(6);
 		ImGui::PopStyleVar(5);
@@ -205,7 +212,7 @@ namespace UnityGUI
 		if (innerLabel)
 		{
 			ImVec2 rmin = ImGui::GetItemRectMin();
-			ImGui::GetWindowDrawList()->AddText(ImVec2(rmin.x + 6.0f, rmin.y + (kRowHeight - ImGui::GetFontSize()) * 0.5f), kTextDim, innerLabel);
+			ImGui::GetWindowDrawList()->AddText(ImVec2(rmin.x + 6.0f, TextY(rmin.y, kRowHeight, ImGui::GetFontSize())), kTextDim, innerLabel);
 		}
 		ImGui::PopID();
 		ImGui::PopID();
@@ -223,6 +230,98 @@ namespace UnityGUI
 		PopFieldStyle();
 		ImGui::PopID();
 		EndRow(r);
+		return changed;
+	}
+
+	bool ToggleLeft(const char* text, bool* value, int indent, bool disabled, bool withTargetIcon)
+	{
+		Row r;
+		r.p = ImGui::GetCursorScreenPos();
+		r.w = ImGui::GetContentRegionAvail().x;
+		bool changed = false;
+		ImGui::PushID(text);
+		float x = r.p.x + kBaseIndent + indent * kNestIndent;
+		if (disabled) ImGui::BeginDisabled();
+		CheckBox("##tl", value, ImVec2(x, r.p.y + 2.0f), &changed);
+		if (disabled) ImGui::EndDisabled();
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		float tx = x + 20.0f;
+		ImU32 col = disabled ? kTextDim : kText;
+		if (withTargetIcon)
+		{
+			DrawIcon(dl, "target", ImVec2(tx - 2.0f, r.p.y + 3.0f), 12.0f, col);
+			tx += 14.0f;
+		}
+		dl->AddText(ImVec2(tx, TextY(r.p.y, kRowHeight, ImGui::GetFontSize())), col, text);
+		ImGui::PopID();
+		EndRow(r);
+		return changed;
+	}
+
+	void HelpBox(const char* text, bool warning, int indent)
+	{
+		ImVec2 p = ImGui::GetCursorScreenPos();
+		float w = ImGui::GetContentRegionAvail().x;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const float x0 = p.x + kBaseIndent - 2.0f + indent * kNestIndent;
+		const float x1 = p.x + w - 12.0f;
+		const float iconW = 34.0f;
+		float wrap = x1 - x0 - iconW - 10.0f;
+		ImVec2 ts = ImGui::CalcTextSize(text, nullptr, false, wrap);
+		float h = (std::max)(ts.y + 14.0f, 38.0f);
+		dl->AddRectFilled(ImVec2(x0, p.y + 2.0f), ImVec2(x1, p.y + 2.0f + h), IM_COL32(58, 58, 58, 255), 3.0f);
+		dl->AddRect(ImVec2(x0, p.y + 2.0f), ImVec2(x1, p.y + 2.0f + h), IM_COL32(30, 30, 30, 255), 3.0f);
+		DrawIcon(dl, warning ? "warning" : "info_box", ImVec2(x0 + 6.0f, p.y + 2.0f + (h - 26.0f) * 0.5f), 26.0f);
+		ImGui::PushTextWrapPos(0.0f);
+		dl->AddText(nullptr, 0.0f, ImVec2(x0 + iconW + 6.0f, floorf(p.y + 2.0f + (h - ts.y) * 0.5f)), kTextBright, text, nullptr, wrap);
+		ImGui::PopTextWrapPos();
+		ImGui::SetCursorScreenPos(p);
+		ImGui::Dummy(ImVec2(w, h + 6.0f));
+		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 6.0f));
+	}
+
+	bool TemperatureBar(const char* label, float* kelvin, float minK, float maxK, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		bool changed = false;
+
+		// 그라디언트 바 (주황 → 흰색 → 하늘색)
+		ImVec2 p0(r.fieldX, r.p.y);
+		ImVec2 p1(r.fieldX + r.fieldW, r.p.y + kRowHeight);
+		ImGui::SetCursorScreenPos(p0);
+		ImGui::InvisibleButton("##bar", ImVec2(r.fieldW, kRowHeight));
+		if (ImGui::IsItemActive())
+		{
+			float t = std::clamp((ImGui::GetIO().MousePos.x - p0.x) / r.fieldW, 0.0f, 1.0f);
+			*kelvin = minK + (maxK - minK) * t;
+			changed = true;
+		}
+		const ImU32 cOrange = IM_COL32(255, 118, 0, 255), cWhite = IM_COL32(255, 255, 255, 255), cBlue = IM_COL32(150, 190, 255, 255);
+		float mid = p0.x + r.fieldW * 0.5f;
+		dl->AddRectFilledMultiColor(p0, ImVec2(mid, p1.y), cOrange, cWhite, cWhite, cOrange);
+		dl->AddRectFilledMultiColor(ImVec2(mid, p0.y), p1, cWhite, cBlue, cBlue, cWhite);
+		dl->AddRect(p0, p1, kFieldBorder);
+		float t = std::clamp((*kelvin - minK) / (maxK - minK), 0.0f, 1.0f);
+		float mx = floorf(p0.x + r.fieldW * t);
+		dl->AddRectFilled(ImVec2(mx - 1.0f, p0.y - 1.0f), ImVec2(mx + 1.0f, p1.y + 1.0f), IM_COL32(60, 60, 60, 255));
+		dl->AddRect(ImVec2(mx - 2.0f, p0.y - 1.0f), ImVec2(mx + 2.0f, p1.y + 1.0f), IM_COL32(230, 230, 230, 255));
+		EndRow(r);
+
+		// 두 번째 행: Kelvin 숫자 입력 + "Kelvin" 텍스트
+		ImVec2 q = ImGui::GetCursorScreenPos();
+		ImGui::SetCursorScreenPos(ImVec2(r.fieldX, q.y));
+		float inputW = r.fieldW - 58.0f;
+		ImGui::PushID("kelvin");
+		changed |= FloatInput("##k", kelvin, inputW);
+		ImGui::PopID();
+		dl->AddText(ImVec2(r.fieldX + inputW + 8.0f, TextY(q.y, kRowHeight, ImGui::GetFontSize())), kText, "Kelvin");
+		ImGui::SetCursorScreenPos(q);
+		ImGui::Dummy(ImVec2(r.w, kRowStep));
+		ImGui::SetCursorScreenPos(ImVec2(q.x, q.y + kRowStep));
+
+		ImGui::PopID();
 		return changed;
 	}
 
@@ -306,7 +405,7 @@ namespace UnityGUI
 			*v += ImGui::GetIO().MouseDelta.x * speed;
 			changed = true;
 		}
-		ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + 1.0f, p.y + (kRowHeight - ImGui::GetFontSize()) * 0.5f), kText, axis);
+		ImGui::GetWindowDrawList()->AddText(ImVec2(p.x + 1.0f, TextY(p.y, kRowHeight, ImGui::GetFontSize())), kText, axis);
 
 		ImGui::SetCursorScreenPos(ImVec2(p.x + labelW + 1.0f, p.y));
 		ImGui::PushID(axis);
@@ -389,7 +488,7 @@ namespace UnityGUI
 		ImVec2 p1(r.fieldX + r.fieldW, r.p.y + kRowHeight);
 		dl->AddRectFilled(p0, p1, kFieldBg, 3.0f);
 		dl->AddRect(p0, p1, kFieldBorder, 3.0f);
-		dl->AddText(ImVec2(p0.x + 6.0f, p0.y + (kRowHeight - ImGui::GetFontSize()) * 0.5f), kTextDim, text);
+		dl->AddText(ImVec2(p0.x + 6.0f, TextY(p0.y, kRowHeight, ImGui::GetFontSize())), kTextDim, text);
 		DrawIcon(dl, "target", ImVec2(p1.x - 18.0f, p0.y + 1.0f), 16.0f);
 		EndRow(r);
 	}
@@ -407,6 +506,7 @@ namespace UnityGUI
 		ImGuiID id = ImGui::GetID(label);
 		bool open = st->GetBool(id, defaultOpen);
 
+		Spacing(5.0f);
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		float w = ImGui::GetContentRegionAvail().x;
 		const float h = 20.0f;
@@ -426,7 +526,7 @@ namespace UnityGUI
 		float x = p.x + 8.0f + indent * kNestIndent + 6.0f;
 		DrawIcon(dl, open ? "arrow_down" : "arrow_right", ImVec2(x, p.y + 5.0f), 10.0f);
 		ImFont* bold = BoldFont();
-		dl->AddText(bold, bold->FontSize, ImVec2(x + 16.0f, p.y + (h - bold->FontSize) * 0.5f), kTextBright, label);
+		dl->AddText(bold, bold->FontSize, ImVec2(x + 16.0f, TextY(p.y, h, bold->FontSize)), kTextBright, label);
 		if (help)
 			DrawIcon(dl, "help", ImVec2(p.x + w - 24.0f, p.y + 2.0f), 16.0f);
 
@@ -467,7 +567,7 @@ namespace UnityGUI
 			x += 12.0f;
 
 		ImFont* bold = BoldFont();
-		dl->AddText(bold, bold->FontSize, ImVec2(x, p.y + (h - bold->FontSize) * 0.5f), kTextBright, title);
+		dl->AddText(bold, bold->FontSize, ImVec2(x, TextY(p.y, h, bold->FontSize)), kTextBright, title);
 
 		// 우측 아이콘: ? / 프리셋 / ⋮
 		auto iconButton = [&](const char* name, float offsetFromRight, const char* btnId) -> bool
@@ -546,13 +646,13 @@ namespace UnityGUI
 		ImGui::SetCursorScreenPos(ImVec2(nameX + nameW + 8.0f, row1 + 2.0f));
 		CheckBox("##static", isStatic, ImVec2(nameX + nameW + 8.0f, row1 + 2.0f), &chg);
 		changed |= chg;
-		dl->AddText(ImVec2(nameX + nameW + 28.0f, row1 + (kRowHeight - ImGui::GetFontSize()) * 0.5f), kText, "Static");
+		dl->AddText(ImVec2(nameX + nameW + 28.0f, TextY(row1, kRowHeight, ImGui::GetFontSize())), kText, "Static");
 		DrawIcon(dl, "dropdown", ImVec2(p.x + w - 20.0f, row1 + 3.0f), 12.0f);
 
 		// 2행: Tag [ ▾ ]  Layer [ ▾ ]
 		const float row2 = p.y + 32.0f;
 		const float half = (w - 68.0f - 12.0f) * 0.5f;
-		dl->AddText(ImVec2(p.x + 44.0f, row2 + (kRowHeight - ImGui::GetFontSize()) * 0.5f), kText, "Tag");
+		dl->AddText(ImVec2(p.x + 44.0f, TextY(row2, kRowHeight, ImGui::GetFontSize())), kText, "Tag");
 
 		auto combo = [&](const char* id, float x, float width, const char* const* items, int count, int* cur) -> bool
 		{
@@ -561,7 +661,7 @@ namespace UnityGUI
 			ImGui::PushID(id);
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, (kRowHeight - ImGui::GetFontSize()) * 0.5f));
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6.0f, FramePadY()));
 			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(2.0f, 3.0f));
 			ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(kDropBg));
 			ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, V4(kDropBgHover));
@@ -588,7 +688,7 @@ namespace UnityGUI
 		if (combo("tag", nameX, half, kTags, 7, &tagIdx)) { *tag = kTags[tagIdx]; changed = true; }
 
 		const float layerLabelX = nameX + half + 12.0f;
-		dl->AddText(ImVec2(layerLabelX, row2 + (kRowHeight - ImGui::GetFontSize()) * 0.5f), kText, "Layer");
+		dl->AddText(ImVec2(layerLabelX, TextY(row2, kRowHeight, ImGui::GetFontSize())), kText, "Layer");
 		int layerIdx = std::clamp(*layer, 0, 4);
 		if (combo("layer", layerLabelX + 34.0f, p.x + w - 12.0f - (layerLabelX + 34.0f), kLayers, 5, &layerIdx)) { *layer = layerIdx; changed = true; }
 

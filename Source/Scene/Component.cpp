@@ -24,6 +24,7 @@ void Component::RenderInspectorGUI()
 	const char* icon = "component";
 	if (type == "Transform") icon = "transform";
 	else if (type == "Camera") icon = "camera";
+	if (const char* custom = InspectorIconName()) icon = custom;
 
 	string headerId = "ComponentHeader" + to_string(GetInstanceID());
 	UnityGUI::HeaderResult header = UnityGUI::ComponentHeader(headerId.c_str(), m_InspectorTitleName.c_str(), icon,

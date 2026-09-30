@@ -13,6 +13,16 @@ private:
 	PointLight m_PointDesc;
 	SpotLight m_SpotDesc;
 
+	// Unity(URP) Light Inspector 항목. Color/Intensity/Type/Range 는 실제로 적용되고, 나머지는 값 저장용이다.
+	float m_Intensity = 1.0f;
+	float m_IndirectMultiplier = 1.0f;
+	int   m_Mode = 0;            // Realtime / Mixed / Baked
+	int   m_ColorMode = 0;       // 0 Color, 1 Filter and Temperature
+	float m_Temperature = 6570.0f;
+	float m_Filter[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+	int   m_CullingMask = 0;
+	int   m_ShadowType = 0;      // No Shadows / Hard / Soft
+
 	vector<XMMATRIX> m_LightView;
 	XMMATRIX m_LightProj;
 
@@ -22,6 +32,8 @@ private:
 	// shadowTransform => world * (lightV * lightP * toTexSpace)
 
 	void ProjUpdate();
+	void ApplyIntensity(XMFLOAT4& c) const { c.x *= m_Intensity; c.y *= m_Intensity; c.z *= m_Intensity; }
+	XMFLOAT4* CurrentDiffuse();
 	void EditorProjUpdate();
 	string GetStringLightType(LightType type);
 
@@ -44,6 +56,8 @@ public:
 	virtual void OnDestroy() override;
 
 	virtual void OnInspectorGUI() override;
+	virtual bool UsesUnityInspector() const override { return true; }
+	virtual const char* InspectorIconName() const override;
 	virtual void OnDrawGizmos() override;
 
 	void ViewUpdate();
@@ -53,9 +67,10 @@ public:
 	void SetPointLight(PointLight light);
 	void SetSpotLight(SpotLight light);
 
-	DirectionalLight GetDirLight() { return m_DirectionalDesc; }
-	PointLight GetPointLight() { return m_PointDesc; }
-	SpotLight GetSpotLight() { return m_SpotDesc; }
+	// 렌더링에 넘기는 값은 Intensity 가 곱해진 복사본
+	DirectionalLight GetDirLight() { DirectionalLight d = m_DirectionalDesc; ApplyIntensity(d.Diffuse); ApplyIntensity(d.Specular); return d; }
+	PointLight GetPointLight() { PointLight d = m_PointDesc; ApplyIntensity(d.Diffuse); ApplyIntensity(d.Specular); return d; }
+	SpotLight GetSpotLight() { SpotLight d = m_SpotDesc; ApplyIntensity(d.Diffuse); ApplyIntensity(d.Specular); return d; }
 
 	float GetRange();
 
