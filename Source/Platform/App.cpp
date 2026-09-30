@@ -36,6 +36,7 @@ MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
 App::App(HINSTANCE hInstance)
 {
+	_hAppInst = hInstance;   // 리소스(아이콘) 로드와 윈도우 클래스 등록에 필요
 	//ZeroMemory(&_viewport, sizeof(D3D11_VIEWPORT));
 
 	// Get a pointer to the application object so we can forward 
