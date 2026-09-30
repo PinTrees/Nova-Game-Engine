@@ -15,28 +15,34 @@ EditorWindow::~EditorWindow()
 {
 }
 
+string EditorWindow::GetImGuiName() const
+{
+    if (m_Icon != "") return "   " + m_Icon + "  " + m_WindowTitleName + "   " + "  ";
+    return "   " + m_WindowTitleName + "   " + "  ";
+}
+
 void EditorWindow::Render()
 {
     if (!m_IsOpened)
         return;
-    // ȭ���� �ʺ�� ���̸� �����ɴϴ�.
+    // 화면의 너비와 높이를 가져옵니다.
     ImGuiIO& io = ImGui::GetIO();
 
-    float window_width = 400.0f;  // â�� �ʺ�
-    float window_height = 300.0f; // â�� ����
+    float window_width = 400.0f;  // 창의 너비
+    float window_height = 300.0f; // 창의 높이
 
-    // â�� ũ�⸦ ����
+    // 창의 크기를 설정
     ImGui::SetNextWindowSize(ImVec2(window_width, window_height), ImGuiCond_FirstUseEver);
     ImGuiWindowFlags windowFlags = ImGuiWindowFlags_NoCollapse;
 
     EditorGUI::EditorWindowStylePush();
 
-    // ��Ÿ�� ���� ����
+    // 스타일 설정 시작
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
     EDITOR_GUI_STYLE_TAB_ROUNDING; 
     ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 12.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 5));      // ������ �� �е� ����
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 5));      // 아이템 간 패딩 설정
 
     ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
@@ -58,10 +64,8 @@ void EditorWindow::Render()
     EDITOR_GUI_COLOR_TAB_HEADER_BG;   
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f)); 
 
-    // �����츦 �����մϴ�
-    string windowTitleName = "";
-    if (m_Icon != "") windowTitleName = "   " + m_Icon + "  " + m_WindowTitleName + "   " + "  ";
-    else windowTitleName = "   " + m_WindowTitleName + "   " + "  ";
+    // 윈도우를 시작합니다
+    string windowTitleName = GetImGuiName();
 
     if (ImGui::Begin(windowTitleName.c_str(), &m_IsOpened, windowFlags)) 
     {
@@ -70,7 +74,7 @@ void EditorWindow::Render()
             ImGui::OpenPopup("ContextMenu");
         }
 
-        // ���ؽ�Ʈ �޴� ������
+        // 컨텍스트 메뉴 렌더링
         if (ImGui::BeginPopup("ContextMenu"))
         {
             if (ImGui::MenuItem("Add Tab"))
@@ -81,15 +85,15 @@ void EditorWindow::Render()
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
-        OnRender(); // �ֿ� ������ �Լ� ȣ��
+        OnRender(); // 주요 렌더링 함수 호출
         
         ImGui::PopStyleVar();
     }
     ImGui::End();
 
-    // ��Ÿ�� ����
-    ImGui::PopStyleVar(5);    // WindowRounding, TabRounding, PopupRounding ���� 
-    ImGui::PopStyleColor(15); // PushStyleColor�� ������ ��� ���� ���� 
+    // 스타일 복구
+    ImGui::PopStyleVar(5);    // WindowRounding, TabRounding, PopupRounding 복구 
+    ImGui::PopStyleColor(15); // PushStyleColor로 지정한 모든 색상 복구 
 
     EditorGUI::EditorWindowStylePop();
 }

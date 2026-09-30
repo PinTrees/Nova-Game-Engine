@@ -21,6 +21,7 @@ public:
 	bool GetIsOpened() const { return m_IsOpened; }
 	void SetIsOpened(bool opened) { m_IsOpened = opened; }
 	const string& GetTitle() const { return m_WindowTitleName; }
+	string GetImGuiName() const;
 
 protected:
 	virtual void PushStyle() {}

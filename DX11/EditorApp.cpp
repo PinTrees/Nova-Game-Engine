@@ -51,23 +51,31 @@ EditorApp::~EditorApp()
 
 bool EditorApp::Init()
 {
+	std::ofstream log("run_log.txt", std::ios::app);
+	log << "EditorApp::Init -> App::Init..." << std::endl; log.flush();
 	if (!App::Init())
 		return false;
 
-	// Must init Effects first since InputLayouts depend on shader signatures.
+	log << "EditorApp::Init -> Effects::InitAll..." << std::endl; log.flush();
 	Effects::InitAll(_device, L"../Shaders/28. Basic.fx");
+	log << "EditorApp::Init -> Shaders::InitAll..." << std::endl; log.flush();
 	Shaders::InitAll(_device);
+	log << "EditorApp::Init -> InputLayouts::InitAll..." << std::endl; log.flush();
 	InputLayouts::InitAll(_device);
+	log << "EditorApp::Init -> RenderStates::InitAll..." << std::endl; log.flush();
 	RenderStates::InitAll(_device);
 
+	log << "EditorApp::Init -> _texMgr.Init..." << std::endl; log.flush();
 	_texMgr.Init(_device);
 
+	log << "EditorApp::Init -> _sky..." << std::endl; log.flush();
 	_sky = make_shared<Sky>(_device, L"../Resources/Textures/desertcube1024.dds", 5000.0f);
 	//_smap = make_shared<ShadowMap>(_device, SMapSize, SMapSize);
 
 	//_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 	//_ssao = make_shared<class Ssao>(_device, _deviceContext, _clientWidth, _clientHeight, _camera.GetFovY(), _camera.GetFarZ());
 
+	log << "EditorApp::Init -> BuildScreenQuadGeometryBuffers..." << std::endl; log.flush();
 	BuildScreenQuadGeometryBuffers();
 
 	//
@@ -85,7 +93,7 @@ bool EditorApp::Init()
 		if (meshRenderer == nullptr)
 			continue;
 
-		IsMesh = true; // CreateScene���� Camera, Light�� �߰��ϹǷ� MeshRenderer�� ���� �ÿ��� ���Ǵ�Ƽ���� ������ ������ �ٲ������
+		IsMesh = true; // CreateScene에서 Camera, Light를 추가하므로 MeshRenderer가 없을 시에는 인피니티에서 임의의 값으로 바꿔줘야함
 
 		Transform* transform = meshRenderer->GetGameObject()->GetTransform();
 
@@ -171,14 +179,14 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	RenderManager::GetI()->CameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
 
-	// ���̾������� ����ó�� ��ü �׸��ڸ� ��� �����ϰ�
+	// 와이어프레임 제어처럼 전체 그림자맵 제어도 가능하게
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
 	auto viewport = RenderManager::GetI()->Viewport;
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
 	// shadowMaps
 	vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
-	// ���ĵ� ���� �� ��ŭ
+	// 정렬된 빛의 수 만큼
 	{
 		XMMATRIX toTexSpace(
 			0.5f, 0.0f, 0.0f, 0.0f,
@@ -344,7 +352,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	// shadowMaps
 	vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
-	// ���ĵ� ���� �� ��ŭ
+	// 정렬된 빛의 수 만큼
 	{
 		XMMATRIX toTexSpace(
 			0.5f, 0.0f, 0.0f, 0.0f,
@@ -490,7 +498,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	//_sky->Draw(_deviceContext, _camera);
 
-	// Texture2D ���� ȭ������ ���� (�����)
+	// Texture2D 작은 화면으로 렌더 (디버깅)
 	DrawScreenQuad(shadowMap->DepthMapSRVArray(LightType::Directional)[0]);
 	//DrawScreenQuad(ssao->AmbientSRV().Get());
 	//DrawScreenQuad(PostProcessingManager::GetI()->_EditorGetSSAO()->GetRandomVectorSRV());

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Shader.h"
 #include <fstream>
+#include "ShaderCache.h"
 #include "Utils.h" 
 
 Shader::Shader(ComPtr<ID3D11Device> device, const std::wstring& filename)
@@ -16,7 +17,7 @@ Shader::Shader(ComPtr<ID3D11Device> device, const std::wstring& filename)
 
 	m_FileName = filename;
 
-	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), 0, D3D_COMPILE_STANDARD_FILE_INCLUDE, 0, "fx_5_0", shaderFlags, 0, compiledShader.GetAddressOf(), compilationMsgs.GetAddressOf());
+	HRESULT hr = ShaderCache::CompileEffect(filename, shaderFlags, compiledShader, compilationMsgs);
 
 	// compilationMsgs can store errors or warnings.
 	if (FAILED(hr))

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Effects.h"
 #include <fstream>
+#include "ShaderCache.h"
 #include "Utils.h"
 
 
@@ -17,7 +18,7 @@ Effect::Effect(ComPtr<ID3D11Device> device, const std::wstring& filename)
 	ComPtr<ID3D10Blob> compiledShader = 0;
 	ComPtr<ID3D10Blob> compilationMsgs = 0;
 
-	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), 0, D3D_COMPILE_STANDARD_FILE_INCLUDE, 0, "fx_5_0", shaderFlags, 0, compiledShader.GetAddressOf(), compilationMsgs.GetAddressOf());
+	HRESULT hr = ShaderCache::CompileEffect(filename, shaderFlags, compiledShader, compilationMsgs);
 
 	// compilationMsgs can store errors or warnings.
 	if (FAILED(hr))

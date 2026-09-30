@@ -1,5 +1,9 @@
-#pragma once
+ï»¿#pragma once
 #include <functional>
+#include <unordered_map>
+#include <string>
+#include <vector>
+#include <memory>
 #include "Component.h"
 
 class ComponentFactory
@@ -7,41 +11,17 @@ class ComponentFactory
     using CreateComponentFn = std::function<std::shared_ptr<Component>()>;
 
 private:
-    ComponentFactory() = default;
+    ComponentFactory();
     std::unordered_map<std::string, CreateComponentFn> m_FactoryMap;
-    std::vector<HMODULE> m_LoadedLibraries;     // ³ªÁß¿¡ »ç¿ë - ÄÄÆ÷³ÍÆ® dll
+    std::vector<HMODULE> m_LoadedLibraries;
 
 public:
-    static ComponentFactory& Instance()
-    {
-        static ComponentFactory instance;
-        return instance;
-    }
+    static ComponentFactory& Instance();
 
-    bool RegisterComponent(const std::string& type, CreateComponentFn fn)
-    {
-        m_FactoryMap[type] = fn;
-        return true;
-    }
+    bool RegisterComponent(const std::string& type, CreateComponentFn fn);
+    std::shared_ptr<Component> CreateComponent(const std::string& type);
+    std::vector<std::string> GetComponentTypes() const;
 
-    std::shared_ptr<Component> CreateComponent(const std::string& type)
-    {
-        auto it = m_FactoryMap.find(type);
-        if (it != m_FactoryMap.end())
-        {
-            return it->second();
-        }
-        return nullptr;
-    }
-
-    std::vector<std::string> GetComponentTypes() const
-    {
-        std::vector<std::string> types;
-        for (const auto& pair : m_FactoryMap)
-        {
-            types.push_back(pair.first);
-        }
-        return types;
-    }
+private:
+    void InitBuiltInComponents();
 };
-

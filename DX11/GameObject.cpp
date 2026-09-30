@@ -51,15 +51,15 @@ void GameObject::Destroy(GameObject* gameobject_ptr)
 
 void GameObject::SetParent(GameObject* parent)
 {
-    if (nullptr == parent) // rootGameObject��
+    if (nullptr == parent) // rootGameObject로
     {
         if (nullptr == m_pParentGameObject)
         {
-            // �̹� rootGameObject�̹Ƿ� ó��X
+            // 이미 rootGameObject이므로 처리X
         }
         else
         {
-            // �θ������Ʈ���� RemoveChild(this) �� �ڱ� �ڽ� rootGameObject�� �߰�
+            // 부모오브젝트에서 RemoveChild(this) 후 자기 자신 rootGameObject로 추가
             m_pParentGameObject->RemoveChild(this);
             m_pParentGameObject->GetTransform()->RemoveChild(this->GetComponent_SP<Transform>());
 
@@ -69,20 +69,20 @@ void GameObject::SetParent(GameObject* parent)
             SceneManager::GetI()->GetCurrentScene()->AddRootGameObject(this);
         }
     }
-    else // �ٸ� GameObject�� �ڽ�����
+    else // 다른 GameObject의 자식으로
     {
         if (nullptr == m_pParentGameObject)
         {
-            // rootGameObject���� ������Ʈ���� ����
+            // rootGameObject였던 오브젝트에서 제거
             SceneManager::GetI()->GetCurrentScene()->RemoveRootGameObjects(this);
         }
         else
         {
-            // ���� parent���� �ڽ� ����
+            // 원래 parent에서 자식 제거
             m_pParentGameObject->RemoveChild(this);
             m_pParentGameObject->GetTransform()->RemoveChild(this->GetComponent_SP<Transform>());
         }
-        // parent ���� �� parent�� �ڽ����� �߰�
+        // parent 변경 후 parent의 자식으로 추가
         m_pParentGameObject = parent;
         GetTransform()->SetParent(parent->GetComponent_SP<Transform>());
 
@@ -166,7 +166,7 @@ void GameObject::ApplyPendingComponents()
 
 void GameObject::OnInspectorGUI()
 {
-    // ���� ������Ʈ �̸� ���� ��ǲ �ʵ�
+    // 게임 오브젝트 이름 변경 인풋 필드
     ImGui::Dummy(ImVec2(0, 4));
     ImGui::Dummy(ImVec2(2, 0));
     ImGui::SameLine();
@@ -174,7 +174,7 @@ void GameObject::OnInspectorGUI()
     ImGui::SameLine();
     if (EditorGUI::InputField(m_Name))
     {
-        // �̸� ���� �� �ʿ��� �߰� �۾��� ������ ���⿡ �߰�
+        // 이름 변경 시 필요한 추가 작업이 있으면 여기에 추가
     }
 
     ImGui::Dummy(ImVec2(0, 4));
@@ -188,7 +188,7 @@ void GameObject::OnInspectorGUI()
                 Component* component = *(Component**)payload->Data; 
                 int componentInstanceId = component->GetInstanceID();
 
-                // �巡�׵� ������Ʈ�� ���� �ε��� ��ġ�� �̵�
+                // 드래그된 컴포넌트를 현재 인덱스 위치로 이동
                 if (componentInstanceId != (*it)->GetInstanceID())
                 {
                     auto draggedIt = std::find_if(m_Components.begin(), m_Components.end(),
@@ -207,9 +207,9 @@ void GameObject::OnInspectorGUI()
                             auto draggedIt = m_Components.begin() + draggedIndex; 
                             auto targetIt = m_Components.begin() + targetIndex; 
 
-                            // ������Ʈ�� Ÿ�� ��ġ�� �����ϰ� ���� ��ġ���� ����
+                            // 컴포넌트를 타겟 위치에 삽입하고 기존 위치에서 제거
                             m_Components.insert(targetIt, *draggedIt);
-                            // ���� ��, ���� ��ġ�� ��Ҹ� �����ؾ� �ϹǷ�, draggedIt ���� �ʿ�
+                            // 삽입 후, 원래 위치의 요소를 제거해야 하므로, draggedIt 재계산 필요
                             m_Components.erase(m_Components.begin() + (draggedIndex > targetIndex ? draggedIndex + 1 : draggedIndex));
                         });
                     }
@@ -276,7 +276,7 @@ void from_json(const json& j, GameObject& obj)
 {
     obj.m_Name = j.at("name").get<std::string>();
 
-    // ������Ʈ ����
+    // 컴포넌트 복원
     for (const auto& compJson : j.at("components"))
     {
         if (compJson.is_null())
@@ -294,10 +294,14 @@ void from_json(const json& j, GameObject& obj)
         }
         else
         {
-            // ComponentFactory�� ����Ͽ� ������Ʈ ����
+            // ComponentFactory를 사용하여 컴포넌트 생성
             component = ComponentFactory::Instance().CreateComponent(type);
-            component->fromJson(compJson);
-            obj.AddComponent(component);
+            if (component != nullptr)
+            {
+                component->fromJson(compJson);
+                obj.AddComponent(component);
+            }
+            // 알 수 없거나 등록되지 않은 컴포넌트는 건너뛰어 크래시 방지
         }
     }
 

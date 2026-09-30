@@ -85,7 +85,7 @@ wstring PathManager::GetMovePathW(wstring movePath)
 	wstring path = _szContentPath;
 	path += movePath;
 
-	// �ִ� ���� ��� ���� �˻�
+	// 최대 폴더 경로 제한 검사
 	if (path.size() > MAX_PATH)
 		assert(false);
 
@@ -99,7 +99,7 @@ string PathManager::GetMovePathS(string movePath)
 
 	string result = wstring_to_string(path);
 
-	// �ִ� ���� ��� ���� �˻�
+	// 최대 폴더 경로 제한 검사
 	if (result.size() > MAX_PATH)
 		assert(false);
 

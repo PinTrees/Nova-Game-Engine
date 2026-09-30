@@ -2,6 +2,7 @@
 #include "EditorGUIManager.h"
 
 #include "EditorWindow.h"
+#include "imgui_internal.h"
 #include "EditorGUI.h"
 #include "App.h"
 
@@ -57,9 +58,9 @@ void EditorGUIManager::Init()
     float fontSize = 24.0f;
 
     ImFontConfig config;
-    config.MergeMode = true; // ���� ��Ʈ�� ���� ��� 
+    config.MergeMode = true; // 기존 폰트와 합쳐 사용 
     config.PixelSnapH = true;
-    static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome ����   
+    static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome 범위   
     string fa_path = PathManager::GetI()->GetContentPathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
     
     // Load Fonts
@@ -87,6 +88,31 @@ void EditorGUIManager::Update()
     }
 }
 
+// imgui.ini가 없을 때 Unity 기본 레이아웃(Hierarchy | Scene/Game | Inspector, 하단 Project/Console)으로 도킹
+void EditorGUIManager::BuildDefaultLayout(ImGuiID dockspaceId, ImVec2 size)
+{
+    ImGui::DockBuilderRemoveNode(dockspaceId);
+    ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dockspaceId, size);
+
+    ImGuiID center = dockspaceId;
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.16f, nullptr, &center);
+    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.28f, nullptr, &center);
+
+    for (auto& w : m_pEditorWindows)
+    {
+        const std::string& t = w->GetTitle();
+        ImGuiID target = center;
+        if (t == "Hierachy") target = left;
+        else if (t == "Inspector") target = right;
+        else if (t == "Project" || t == "Console" || t == "Animator") target = bottom;
+        else if (t == "Unity Hub") continue;
+        ImGui::DockBuilderDockWindow(w->GetImGuiName().c_str(), target);
+    }
+    ImGui::DockBuilderFinish(dockspaceId);
+}
+
 void EditorGUIManager::RenderEditorWindows()
 {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(18.0f, 18.0f));
@@ -96,6 +122,10 @@ void EditorGUIManager::RenderEditorWindows()
     ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
 
     if (ImGui::BeginMainMenuBar())
+    {
+        const float menuBarHeight = ImGui::GetFrameHeight();
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(16.0f, 4.0f));
+
         // 1. File Menu
         if (ImGui::BeginMenu("File"))
         {
@@ -121,7 +151,8 @@ void EditorGUIManager::RenderEditorWindows()
                         w->SetIsOpened(true);
                 }
             }
-            ImGui::Separator();            if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+            ImGui::Separator();
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
             {
                 Scene* curr = SceneManager::GetI()->GetCurrentScene();
                 if (curr)
@@ -235,8 +266,9 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::EndMenu();
         }
 
+        ImGui::PopStyleVar();
+
         // Center Toolbar (Play / Stop)
-        float menuBarHeight = ImGui::GetFrameHeight();
         float imageHeight = 14;
         float buttonPaddingX = 16;
         float buttonPaddingY = 8;
@@ -260,18 +292,19 @@ void EditorGUIManager::RenderEditorWindows()
             SelectionManager::ClearSelection();
             SceneManager::GetI()->HandleStop();
         }
-    ImGui::EndMainMenuBar();
+        ImGui::EndMainMenuBar();
+    }
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(4);
 
-    // â�� ��ü ũ��� ��ġ ����
-    // �����Ӱ� ����� �����ϴ� �÷��� ����
+    // 창의 전체 크기와 위치 설정
+    // 프레임과 배경을 제거하는 플래그 설정
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoDecoration |
         ImGuiWindowFlags_NoBackground;
 
-    // ��ü ȭ�� ũ��� DockSpace â ����    
+    // 전체 화면 크기로 DockSpace 창 설정    
     Vec2 screenSize = Application::GetI()->GetApp()->GetScreenSize();
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + 48)); 
@@ -287,6 +320,8 @@ void EditorGUIManager::RenderEditorWindows()
     if (ImGui::Begin("##DockSpace", NULL, window_flags))
     {
         ImGuiID dockspace_id = ImGui::GetID("RootDockspace");  
+        if (ImGui::DockBuilderGetNode(dockspace_id) == nullptr)
+            BuildDefaultLayout(dockspace_id, ImVec2(viewport->Size.x, viewport->Size.y - 48));
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None); 
     }
 

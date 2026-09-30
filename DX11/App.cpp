@@ -133,19 +133,26 @@ int32 App::Run()
 
 bool App::Init()
 {
+	std::ofstream log("run_log.txt", std::ios::app);
+	log << "App::Init -> InitMainWindow..." << std::endl; log.flush();
 	if (!InitMainWindow())
 		return false;
 
+	log << "App::Init -> InitDirect3D..." << std::endl; log.flush();
 	if (!InitDirect3D())
 		return false;
 
+	log << "App::Init -> PathManager..." << std::endl; log.flush();
 	PathManager::GetI()->Init();
 
+	log << "App::Init -> EditorSettingManager..." << std::endl; log.flush();
 	EditorSettingManager::Init();
 
+	log << "App::Init -> RenderManager..." << std::endl; log.flush();
 	RenderManager::GetI()->Init();
 	PostProcessingManager::GetI()->Init();
 
+	log << "App::Init -> EditorGUIManager..." << std::endl; log.flush();
 	EditorGUIManager::GetI()->Init();
 	EditorGUIManager::GetI()->OnResize(GetScreenSize());
 	EditorGUIManager::GetI()->RegisterWindow(new SceneEditorWindow);  
@@ -157,13 +164,15 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new ProjectHubWindow);
 
-	// Singleton Init
+	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);
 	InputManager::GetI()->Init();
 
+	log << "App::Init -> SceneManager..." << std::endl; log.flush();
 	SceneManager::GetI()->Init();
 	PhysicsManager::GetI()->Init();
 
+	log << "App::Init -> LoadScene..." << std::endl; log.flush();
 	if (!EditorSettingManager::GetSetting()->LastOpenedScenePath.empty())
 	{
 		SceneManager::GetI()->LoadScene(EditorSettingManager::GetSetting()->LastOpenedScenePath);
@@ -173,9 +182,10 @@ bool App::Init()
 		SceneManager::GetI()->LoadScene(L"");
 	}
 
-	// TimeManager Init
+	log << "App::Init -> TimeManager..." << std::endl; log.flush();
 	TimeManager::GetI()->Init();
 
+	log << "App::Init finished successfully!" << std::endl; log.flush();
 	return true;
 }
  
@@ -405,8 +415,12 @@ bool App::InitMainWindow()
 
 bool App::InitDirect3D()
 {
+	std::ofstream log("run_log.txt", std::ios::app);
+	log << "  InitDirect3D -> CreateDeviceAndSwapChain..." << std::endl; log.flush();
 	CreateDeviceAndSwapChain();	
+	log << "  InitDirect3D -> OnResize..." << std::endl; log.flush();
 	OnResize();
+	log << "  InitDirect3D finished successfully!" << std::endl; log.flush();
 
 	return true;
 }
@@ -492,24 +506,54 @@ void App::CreateDeviceAndSwapChain()
 		_deviceContext.GetAddressOf()
 	);
 
+	if (FAILED(hr) && (createDeviceFlags & D3D11_CREATE_DEVICE_DEBUG))
+	{
+		createDeviceFlags &= ~D3D11_CREATE_DEVICE_DEBUG;
+		hr = ::D3D11CreateDeviceAndSwapChain(
+			nullptr,
+			_driverType,
+			nullptr,
+			createDeviceFlags,
+			nullptr,
+			0,
+			D3D11_SDK_VERSION,
+			&desc,
+			_swapChain.GetAddressOf(),
+			_device.GetAddressOf(),
+			nullptr,
+			_deviceContext.GetAddressOf()
+		);
+	}
+
+	std::ofstream log("run_log.txt", std::ios::app);
+	log << "    D3D11CreateDeviceAndSwapChain final hr: " << hr << std::endl; log.flush();
+
 	CHECK(hr);
 }
 
 
 void App::CreateRenderTargetView()
 {
+	std::ofstream log("run_log.txt", std::ios::app);
+	log << "    CreateRenderTargetView entry..." << std::endl; log.flush();
+
 	HRESULT hr;
 
 	ComPtr<ID3D11Texture2D> backBuffer = nullptr;
 	hr = _swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)backBuffer.GetAddressOf());
+	log << "    GetBuffer hr: " << hr << std::endl; log.flush();
 	CHECK(hr);
 
 	hr = _device->CreateRenderTargetView(backBuffer.Get(), nullptr, _renderTargetView.GetAddressOf());
+	log << "    CreateRenderTargetView hr: " << hr << std::endl; log.flush();
 	CHECK(hr);
 }
 
 void App::CreateDepthStencilView()
 {
+	std::ofstream log("run_log.txt", std::ios::app);
+	log << "    CreateDepthStencilView entry..." << std::endl; log.flush();
+
 	{
 		D3D11_TEXTURE2D_DESC desc = { 0 };
 		ZeroMemory(&desc, sizeof(desc));
@@ -536,6 +580,7 @@ void App::CreateDepthStencilView()
 		desc.MiscFlags = 0;
 
 		HRESULT hr = _device->CreateTexture2D(&desc, nullptr, _depthStencilBuffer.GetAddressOf());
+		log << "    CreateTexture2D DSV hr: " << hr << std::endl; log.flush();
 		CHECK(hr);
 	}
 
@@ -546,8 +591,8 @@ void App::CreateDepthStencilView()
 		desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 		desc.Texture2D.MipSlice = 0;
 
-		//HRESULT hr = _device->CreateDepthStencilView(_depthStencilBuffer.Get(), &desc, _depthStencilView.GetAddressOf());
 		HRESULT hr = _device->CreateDepthStencilView(_depthStencilBuffer.Get(), nullptr, _depthStencilView.GetAddressOf());
+		log << "    CreateDepthStencilView hr: " << hr << std::endl; log.flush();
 		CHECK(hr);
 	}
 }

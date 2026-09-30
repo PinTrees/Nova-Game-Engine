@@ -18,6 +18,7 @@ public:
 
 	void Update();
 	void RenderEditorWindows();
+	void BuildDefaultLayout(ImGuiID dockspaceId, ImVec2 size);
 	void RenderAfter();
 	void OnResize(Vec2 size); 
 

@@ -234,7 +234,6 @@
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="Matrix3.h" />
     <ClInclude Include="Mesh.h" />
-    <ClInclude Include="MeshFilter.h" />
     <ClInclude Include="MeshGeometry.h" />
     <ClInclude Include="MeshRenderer.h" />
     <ClInclude Include="MeshSelectEditorDialog.h" />
@@ -259,6 +258,7 @@
     <ClInclude Include="SceneViewManager.h" />
     <ClInclude Include="SelectionManager.h" />
     <ClInclude Include="Shader.h" />
+    <ClInclude Include="ShaderCache.h" />
     <ClInclude Include="ShaderSetting.h" />
     <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="SimpleMath.h" />
@@ -369,7 +369,6 @@
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="Matrix3.cpp" />
     <ClCompile Include="Mesh.cpp" />
-    <ClCompile Include="MeshFilter.cpp" />
     <ClCompile Include="MeshGeometry.cpp" />
     <ClCompile Include="MeshRenderer.cpp" />
     <ClCompile Include="MeshSelectEditorDialog.cpp" />
@@ -398,6 +397,7 @@
     <ClCompile Include="SceneViewManager.cpp" />
     <ClCompile Include="SelectionManager.cpp" />
     <ClCompile Include="Shader.cpp" />
+    <ClCompile Include="ShaderCache.cpp" />
     <ClCompile Include="ShaderSetting.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="SimpleMath.cpp" />

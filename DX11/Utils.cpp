@@ -19,7 +19,38 @@ ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device,
 	else if (ext == L".tga" || ext == L".TGA")
 		hr = ::LoadFromTGAFile(path.c_str(), &md, img);
 	else // png, jpg, jpeg, bmp
-		hr = ::LoadFromWICFile(path.c_str(), WIC_FLAGS_NONE, &md, img);
+	{
+		// 디코딩된 텍스처(밉맵 포함)를 DDS로 캐시해 두 번째 실행부터 PNG 디코딩을 생략
+		fs::path cacheDir = L"TextureCache";
+		fs::path cacheFile = cacheDir / (fs::path(path).stem().wstring() + L"_" + std::to_wstring(std::hash<wstring>{}(fs::path(path).lexically_normal().wstring())) + L".dds");
+
+		std::error_code ec;
+		bool cacheValid = fs::exists(cacheFile, ec) && fs::exists(path, ec) &&
+			fs::last_write_time(cacheFile, ec) >= fs::last_write_time(path, ec);
+
+		hr = E_FAIL;
+		if (cacheValid)
+			hr = ::LoadFromDDSFile(cacheFile.c_str(), DDS_FLAGS_NONE, &md, img);
+
+		if (FAILED(hr))
+		{
+			hr = ::LoadFromWICFile(path.c_str(), WIC_FLAGS_NONE, &md, img);
+			if (SUCCEEDED(hr))
+			{
+				if (md.mipLevels == 1 && md.width > 1 && md.height > 1)
+				{
+					ScratchImage mipped;
+					if (SUCCEEDED(::GenerateMipMaps(img.GetImages(), img.GetImageCount(), md, TEX_FILTER_DEFAULT, 0, mipped)))
+					{
+						img = std::move(mipped);
+						md = img.GetMetadata();
+					}
+				}
+				fs::create_directories(cacheDir, ec);
+				::SaveToDDSFile(img.GetImages(), img.GetImageCount(), md, DDS_FLAGS_NONE, cacheFile.c_str());
+			}
+		}
+	}
 
 	CHECK(hr);
 

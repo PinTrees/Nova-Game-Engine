@@ -13,6 +13,7 @@ using json = nlohmann::json;
 ProjectHubWindow::ProjectHubWindow()
 	: EditorWindow("Unity Hub", ICON_FA_FOLDER_OPEN)
 {
+	SetIsOpened(false); // 기본은 닫힘 (File > Project Hub... 또는 Ctrl+H)
 	LoadProjectList();
 	std::wstring contentPath = PathManager::GetI()->GetContentPathW();
 	wcscpy_s(m_NewProjectLocation, contentPath.c_str());
@@ -243,7 +244,26 @@ void ProjectHubWindow::RenderProjectsTab()
 			if (ImGui::Button("Open"))
 			{
 				m_StatusMessage = "Loaded project: " + p.Name;
-				SceneManager::GetI()->LoadScene(L"Assets\\TestScene.scene");
+				// 프로젝트 폴더에서 첫 번째 .scene 파일을 열고, 없으면 새 씬을 생성
+				std::wstring scenePath;
+				std::error_code ec;
+				std::filesystem::path root = std::filesystem::path(p.Path) / L"Assets";
+				if (!std::filesystem::exists(root, ec)) root = p.Path;
+				if (std::filesystem::exists(root, ec))
+				{
+					for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec))
+					{
+						if (entry.is_regular_file(ec) && entry.path().extension() == L".scene")
+						{
+							scenePath = PathManager::GetI()->GetCutSolutionPath(entry.path().wstring());
+							break;
+						}
+					}
+				}
+				if (scenePath.empty())
+					SceneManager::GetI()->CreateScene();
+				else
+					SceneManager::GetI()->LoadScene(scenePath);
 			}
 			ImGui::SameLine();
 			if (ImGui::Button("CMake Build"))
