@@ -435,7 +435,7 @@ technique11 TerrainShadowTech
 }
 
 //=============================================================================
-// NOVA 나무 (Tree 컴포넌트) - 그림자맵 패스. 잎은 본 패스와 같은 잎 모양(SDF)으로 잘라 낸다
+// NOVA 나무 (Tree / 지형 나무) - 그림자맵 패스 (인스턴싱). 잎은 구운 잎 텍스처로, 임포스터는 빛을 보는 사각형으로
 //=============================================================================
 #include "44. TreeCommon.fx"
 
@@ -451,11 +451,11 @@ struct TreeShadowOut
     float Seed : TEXCOORD1;
 };
 
-TreeShadowOut TreeShadowVS(TreeVertexIn vin)
+TreeShadowOut TreeShadowVS(TreeVertexIn vin, TreeInstanceIn inst)
 {
     TreeShadowOut vout;
     float3 normalW;
-    const float3 posW = TreeWorldPos(vin, normalW);
+    const float3 posW = TreeWorldPos(vin, inst, normalW);
     vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
     vout.UV = vin.UV;
     vout.Seed = vin.Phase.z;
@@ -465,6 +465,20 @@ TreeShadowOut TreeShadowVS(TreeVertexIn vin)
 void TreeShadowLeafPS(TreeShadowOut pin)
 {
     TreeLeafClip(pin.UV, pin.Seed);
+}
+
+// 임포스터: 빛을 바라보는 사각형 (gTreeViewPos = 빛 쪽). 깊이 바이어스만 (법선 = 빛 방향)
+float4 TreeImpostorShadowVS(uint vid : SV_VertexID, TreeInstanceIn inst, out float2 uv : TEXCOORD0) : SV_POSITION
+{
+    const TreeImpostorGeom g = TreeImpostorVertex(vid, inst);
+    uv = g.UV;
+    const float3 L = gShadowLight.w > 0.5f ? normalize(gShadowLight.xyz - g.PosW) : gShadowLight.xyz;
+    return mul(float4(ApplyShadowBias(g.PosW, L), 1.0f), gViewProj);
+}
+
+void TreeImpostorShadowPS(float4 posH : SV_POSITION, float2 uv : TEXCOORD0)
+{
+    clip(gTreeImpostorAlbedo.Sample(samTreeImpostor, uv).a - gTreeImpostor.w);
 }
 
 technique11 TreeShadowBarkTech
@@ -485,6 +499,17 @@ technique11 TreeShadowLeafTech
         SetVertexShader(CompileShader(vs_5_0, TreeShadowVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TreeShadowLeafPS()));
+        SetRasterizerState(TreeShadowCullNone);
+    }
+}
+
+technique11 TreeShadowImpostorTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeImpostorShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeImpostorShadowPS()));
         SetRasterizerState(TreeShadowCullNone);
     }
 }

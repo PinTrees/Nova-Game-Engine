@@ -79,5 +79,6 @@ struct TreeMeshData
 
 namespace TreeGenerator
 {
-	void Generate(const TreeParams& params, TreeMeshData& out);
+	// lod 0 = 전체, 1 = 중간 단계 (링 변·잔가지·잎 카드를 줄임, 같은 seed 면 모양은 같다)
+	void Generate(const TreeParams& params, TreeMeshData& out, int lod = 0);
 }

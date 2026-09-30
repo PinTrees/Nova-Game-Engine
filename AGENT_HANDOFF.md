@@ -159,6 +159,18 @@
 - 검사: scratchpad `make_shadow_scene.py` → ScriptTest `Assets/Scenes/Shadows.scene`(격자 울타리, 70 m 까지 기둥 두 줄, 낮은 해).
 - 미구현: 캐스케이드 사이 섞기, 캐스케이드 디버그 색 보기, Contact Shadows, 그림자 받는 투명 물체.
 
+**숲: 인스턴싱 + LOD + Paint Trees (2026-10-01)**:
+- 구조: `TreeDesc`(`Source/Scene/TreeDesc.*`) = 나무 한 종류의 설정(모양 TreeParams + 수피·잎 색 + 바람 + LOD 거리 + Cast Shadows, Inspector·JSON·프리셋). `Tree` 컴포넌트는 TreeDesc 하나를 갖고, 지형(`TerrainData::TreePrototypes`)도 TreeDesc 목록을 갖는다. 그리기는 모두 `TreeRenderer`(`Source/Scene/TreeRenderer.*`)가 맡고 Scene 의 각 패스 끝에서 `TreeRenderer::DrawAll(pass, editor)` 한 번(본 패스·그림자·SSAO 깊이 × Game/Scene).
+- 모으기: 켜진 Tree 컴포넌트(`Tree::All()`) + 활성 지형의 나무 인스턴스. 같은 `TreeDesc::Hash()`(모양+보이는 값)끼리 묶고, 종류마다 메시·범위를 한 번 준비(`prepare`)한 뒤 나무마다 절두체(그림자는 가까운 면 제외 5 면) → LOD. 인스턴스 = 월드 행렬 + (색 변화, 바람 위상, LOD 섞기 문턱, 쪽) 80 바이트. 지형 나무 월드 행렬은 높이·나무·위치가 바뀔 때만 다시 계산(`TerrainCache`).
+- LOD: 거리 ÷ 나무 높이 배율로 LodDistance(35) / BillboardDistance(90) / CullDistance(800) 비교. 경계 앞뒤 10% 는 두 단계 모두 그리고 `TreeLodClip`(화면 디더, 나가는 단계 = 디더 ≥ t, 들어오는 단계 = 디더 < t)로 나눈다. 그림자는 섞지 않고 한 단계. LOD1 = `TreeGenerator::Generate(params, out, 1)`: 난수 순서는 같게 두고 링 변을 줄이고(줄기 절반, 가지 4/3 변) 0.6 m 미만 잔가지를 빼고 잎 카드를 절반(1.45 배 크게) → 같은 seed 면 모양이 같다.
+- 임포스터: 처음 필요할 때 LOD0 을 물체 공간(바람 0)에서 8 방향 정사영으로 알베도(감마)+법선(물체 공간, a = AO) 아틀라스(2048x256, 밉 6)에 MRT 로 굽는다(`TreeBarkBakeTech/TreeLeafBakeTech`). 그릴 때는 정점 버퍼 없이 인스턴스마다 사각형 6 정점(`TreeImpostorVertex`): 바라볼 방향(카메라, 그림자 패스는 빛 방향 `gShadowLight`)에 가까운 프레임을 고르고 Y 축 기준으로 돌린다. 법선을 인스턴스 회전으로 월드로 바꿔 `ShadeLit` 로 다시 조명(그림자·SSAO 받음). 알파 문턱 0.35.
+- 셰이더: `44. TreeCommon.fx` 의 `TreeInstanceIn`(WORLD0~3 + INSTANCE, 슬롯 1), `TreeWorldPos(v, inst)`, 줄기 흔들림은 인스턴스 높이 배율에 비례. InstancedBasic 의 나무 PS 는 표면 함수(`TreeBarkSurface/TreeLeafSurface`)로 나눠 본 패스와 굽기가 같이 쓴다. 색 변화(인스턴스 x)는 잎 0.78~1.22, 수피 0.9~1.1 배.
+- 지형 데이터: `.terraindata` 버전 2 = 뒤에 프로토타입 JSON 문자열 + `TerrainTreeInstance`(X, Z 0~1, 높이·폭 배율, 회전, 색 변화, 종류) 배열. 버전 1 파일도 읽는다. `ReadString` 한도를 16 MB 로(프로토타입 JSON).
+- Paint Trees(`TerrainEditor`): 종류 목록(썸네일 = 임포스터 앞면, `TreeRenderer::Thumbnail`), Add Tree(프리셋)/Remove, Brush Size, Tree Density(최소 간격 8 m → 1.5 m), Height/Width Min·Max(Lock Width), Color Variation, Random Rotation, Mass Place Trees(개수), Remove All, 통계(보이는 수 / LOD 별 / 드로 콜), 고른 종류의 설정(바꾸면 그 종류 전부 바로). 클릭·끌기 = 브러시 반지름 1/4 마다 빈 곳에 간격을 지키며 추가, Shift = 지우기, Ctrl = 고른 종류만 지우기, 한 획 = Undo 한 단계.
+- 개발용: `NOVA_DEV_TREES=<수>` — 첫 지형에 (없으면) Oak/Pine/Birch 프로토타입을 넣고 그만큼 흩뿌림(저장 안 함). 검사 씬: scratchpad `make_forest_scene.py` → ScriptTest `Assets/Scenes/Forest.scene`(400 x 60 x 400 언덕, 풀/흙 레이어).
+- 측정: 나무 1500 그루(Oak/Pine/Birch) Scene 뷰 230 FPS. 손으로 두 번 칠한 85 그루 = 드로 콜 5.
+- 미구현: 나무 충돌(Terrain Collider 에 나무), 나무 GPU 컬링/간접 그리기, 임포스터 프레임 사이 섞기(지금은 가까운 프레임 하나), 바람 영향 받는 임포스터, Paint Details(풀).
+
 **Scene 뷰 격자 (2026-10-01)**: 예전에는 `SceneViewOverlay::DrawGrid` 가 ImGui 선을 이미지 위에 덧그려 물체 앞에도 보였다(기둥·줄기가 반투명해 보임). 지금은 `Source/Editor/SceneGrid.*` + `Shaders/45. SceneGrid.fx` 가 `_Editor_OnSceneRender` 에서 불투명 물체·하늘 다음, 입자 전에 y = 0 평면(카메라 주변 ±80)을 깊이 검사(LessEqual, 쓰기 없음, 바닥 메시와 겹침 방지용 음수 DepthBias)하며 그린다. 선 = fwidth 1 픽셀, 10 칸마다 진한 선, 70 유닛에서 사라짐, 칸이 3 픽셀보다 작으면 가는 선을 지움. 색·알파(92,98,106 / 0.55·0.85)는 예전과 같다. 툴바 Grid 토글을 따른다.
 
 **나무 생성기 (Tree, 2026-10-01)**: 텍스처 없는 절차적 나무 (SpeedTree / Weber-Penn 방식 + Unreal 식 계층 바람)

@@ -6,6 +6,8 @@
 #include "SceneViewOverlay.h"
 #include "EditorCamera.h"
 #include "UndoSystem.h"
+#include "TreeRenderer.h"
+#include <random>
 
 namespace
 {
@@ -249,6 +251,246 @@ namespace
 			data.Control[i + 3] = 0;
 		}
 		data.OnControlChanged(0, 0, data.ControlResolution - 1, data.ControlResolution - 1);
+	}
+
+	// ================================================================ Paint Trees (Unity 의 나무 칠하기)
+	void DescriptionBox(const char* text);
+	int s_TreeProto = 0;
+	float s_TreeDensity = 50.0f;          // 0~100: 나무 사이 최소 간격 8 m → 1.5 m
+	float s_TreeHeightMin = 0.8f, s_TreeHeightMax = 1.25f;
+	bool s_LockWidth = true;
+	float s_TreeWidthMin = 0.8f, s_TreeWidthMax = 1.25f;
+	float s_ColorVariation = 0.4f;
+	bool s_RandomRotation = true;
+	int s_MassPlaceCount = 1000;
+	bool s_TreeStroke = false;
+	Vec3 s_LastTreePos;
+	std::vector<TerrainTreeInstance> s_TreeStrokeBefore;
+	std::mt19937 s_TreeRng(1234567u);
+
+	float Rand01() { return std::uniform_real_distribution<float>(0.0f, 1.0f)(s_TreeRng); }
+	float TreeSpacing() { return 8.0f + (1.5f - 8.0f) * std::clamp(s_TreeDensity, 0.0f, 100.0f) / 100.0f; }
+
+	TerrainTreeInstance MakeTree(float x, float z, int proto)
+	{
+		TerrainTreeInstance t;
+		t.X = x;
+		t.Z = z;
+		t.HeightScale = s_TreeHeightMin + (s_TreeHeightMax - s_TreeHeightMin) * Rand01();
+		t.WidthScale = s_LockWidth ? t.HeightScale : s_TreeWidthMin + (s_TreeWidthMax - s_TreeWidthMin) * Rand01();
+		t.Rotation = s_RandomRotation ? Rand01() * XM_2PI : 0.0f;
+		t.Tint = std::clamp(0.5f + (Rand01() - 0.5f) * s_ColorVariation, 0.0f, 1.0f);
+		t.Prototype = proto;
+		return t;
+	}
+
+	// 가까이(m) 다른 나무가 있으면 true
+	bool TreeNearby(const TerrainData& data, float lx, float lz, float spacing)
+	{
+		const float s2 = spacing * spacing;
+		for (const TerrainTreeInstance& t : data.TreeInstances)
+		{
+			const float dx = t.X * data.Size.x - lx, dz = t.Z * data.Size.z - lz;
+			if (dx * dx + dz * dz < s2)
+				return true;
+		}
+		return false;
+	}
+
+	void PushTreeUndo(const char* name, const std::shared_ptr<TerrainData>& data, std::vector<TerrainTreeInstance> before)
+	{
+		auto b = std::make_shared<std::vector<TerrainTreeInstance>>(std::move(before));
+		auto a = std::make_shared<std::vector<TerrainTreeInstance>>(data->TreeInstances);
+		Undo::Record rec;
+		rec.Name = name;
+		rec.Bytes = (b->size() + a->size()) * sizeof(TerrainTreeInstance);
+		rec.UndoAction = [data, b]() { data->TreeInstances = *b; data->OnTreesChanged(); };
+		rec.RedoAction = [data, a]() { data->TreeInstances = *a; data->OnTreesChanged(); };
+		Undo::Push(std::move(rec));
+	}
+
+	// 브러시 한 번: 칠하기(빈 곳에 간격을 지키며 몇 그루) / Shift = 지우기 / Ctrl = 고른 종류만 지우기
+	void PaintTreesAt(Terrain* terrain, const Vec3& worldPos, bool erase, bool selectedOnly)
+	{
+		auto data = terrain->GetTerrainData();
+		if (!data)
+			return;
+		const Vec3 local = worldPos - terrain->GetPosition();
+		const float r = s_BrushSize * 0.5f;
+		if (erase)
+		{
+			const size_t before = data->TreeInstances.size();
+			auto& v = data->TreeInstances;
+			v.erase(std::remove_if(v.begin(), v.end(), [&](const TerrainTreeInstance& t) {
+				const float dx = t.X * data->Size.x - local.x, dz = t.Z * data->Size.z - local.z;
+				return dx * dx + dz * dz <= r * r && (!selectedOnly || t.Prototype == s_TreeProto);
+			}), v.end());
+			if (v.size() != before)
+				data->OnTreesChanged();
+			return;
+		}
+		if (data->TreePrototypes.empty())
+			return;
+		const int proto = std::clamp(s_TreeProto, 0, (int)data->TreePrototypes.size() - 1);
+		const float spacing = TreeSpacing();
+		const float target = XM_PI * r * r / (spacing * spacing) * 0.55f;   // 브러시를 채울 대략의 수
+		const int perStep = (std::max)(1, (int)ceilf(target * 0.3f));
+		int placed = 0;
+		for (int attempt = 0; attempt < perStep * 6 && placed < perStep; ++attempt)
+		{
+			const float a = Rand01() * XM_2PI, d = sqrtf(Rand01()) * r;
+			const float lx = local.x + cosf(a) * d, lz = local.z + sinf(a) * d;
+			if (lx < 0 || lz < 0 || lx > data->Size.x || lz > data->Size.z || TreeNearby(*data, lx, lz, spacing))
+				continue;
+			data->TreeInstances.push_back(MakeTree(lx / data->Size.x, lz / data->Size.z, proto));
+			++placed;
+		}
+		if (placed > 0)
+			data->OnTreesChanged();
+	}
+
+	void DrawTreeTool(Terrain* terrain, const std::shared_ptr<TerrainData>& data)
+	{
+		using namespace UnityGUI;
+		DescriptionBox("Click to paint trees.\nHold shift and click to erase trees.\nHold Ctrl and click to erase only trees of the selected type.");
+
+		// ---- 나무 종류 (썸네일 = 구운 임포스터 앞면)
+		Label("Trees", 0, true);
+		{
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			const ImVec2 p = ImGui::GetCursorScreenPos();
+			const float w = ImGui::GetContentRegionAvail().x;
+			const float cell = 64.0f;
+			const int perRow = (std::max)(1, (int)((w - 28) / (cell + 6)));
+			const int count = (int)data->TreePrototypes.size();
+			const int rows = (std::max)(1, (count + perRow - 1) / perRow);
+			const ImVec2 box0(p.x + 14, p.y + 2), box1(p.x + w - 10, p.y + rows * (cell + 20) + 10);
+			dl->AddRectFilled(box0, box1, kBoxBg, 3.0f);
+			dl->AddRect(box0, box1, kBorder, 3.0f);
+			int presetCount = 0;
+			const char* const* presetNames = TreeParams::PresetNames(presetCount);
+			for (int i = 0; i < count; ++i)
+			{
+				const ImVec2 a(box0.x + 5 + (i % perRow) * (cell + 6), box0.y + 4 + (i / perRow) * (cell + 20)), b(a.x + cell, a.y + cell);
+				ImGui::SetCursorScreenPos(a);
+				ImGui::PushID(i);
+				if (ImGui::InvisibleButton("##proto", ImVec2(cell, cell + 16)))
+					s_TreeProto = i;
+				ImGui::PopID();
+				dl->AddRectFilled(a, b, IM_COL32(30, 32, 34, 255));
+				ImVec2 uv0, uv1;
+				if (ImTextureID tex = TreeRenderer::Thumbnail(data->TreePrototypes[i], uv0, uv1))
+					dl->AddImage(tex, a, b, uv0, uv1);
+				const TreeDesc& d = data->TreePrototypes[i];
+				char name[48];
+				snprintf(name, sizeof(name), "%s %d", d.Preset >= 0 && d.Preset < presetCount ? presetNames[d.Preset] : "Tree", d.Params.Seed);
+				dl->AddText(ImVec2(a.x + 2, b.y + 1), kText, name);
+				if (i == s_TreeProto)
+					dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 17), kSelected, 0.0f, 0, 2.0f);
+			}
+			if (count == 0)
+				dl->AddText(ImVec2(box0.x + 10, box0.y + 10), kTextDim, "No trees. Add Tree to start painting.");
+			ImGui::SetCursorScreenPos(p);
+			ImGui::Dummy(ImVec2(w, box1.y - p.y + 4));
+		}
+		// ---- 추가 / 제거
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+		if (ImGui::Button("Add Tree", ImVec2(100, 0)))
+			ImGui::OpenPopup("##addTree");
+		ImGui::SameLine();
+		const bool hasProto = !data->TreePrototypes.empty();
+		ImGui::BeginDisabled(!hasProto);
+		if (ImGui::Button("Remove", ImVec2(100, 0)) && hasProto)
+		{
+			const int idx = std::clamp(s_TreeProto, 0, (int)data->TreePrototypes.size() - 1);
+			data->TreePrototypes.erase(data->TreePrototypes.begin() + idx);
+			auto& v = data->TreeInstances;
+			v.erase(std::remove_if(v.begin(), v.end(), [&](const TerrainTreeInstance& t) { return t.Prototype == idx; }), v.end());
+			for (auto& t : v)
+				if (t.Prototype > idx)
+					--t.Prototype;
+			s_TreeProto = (std::max)(0, idx - 1);
+			data->OnTreesChanged();
+		}
+		ImGui::EndDisabled();
+		if (ImGui::BeginPopup("##addTree"))
+		{
+			int presetCount = 0;
+			const char* const* names = TreeParams::PresetNames(presetCount);
+			for (int i = 0; i < presetCount; ++i)
+				if (ImGui::MenuItem(names[i]))
+				{
+					TerrainEditor::AddTreePrototype(*data, i);
+					s_TreeProto = (int)data->TreePrototypes.size() - 1;
+				}
+			ImGui::EndPopup();
+		}
+
+		// ---- 브러시 / 배치 설정
+		Spacing(6);
+		float maxSize = (std::min)(500.0f, (std::max)(data->Size.x, data->Size.z));
+		Slider("Brush Size", &s_BrushSize, 1.0f, maxSize);
+		s_BrushSize = std::clamp(s_BrushSize, 1.0f, maxSize);
+		Slider("Tree Density", &s_TreeDensity, 0.0f, 100.0f);
+		Slider("Tree Height Min", &s_TreeHeightMin, 0.1f, 3.0f);
+		Slider("Tree Height Max", &s_TreeHeightMax, 0.1f, 3.0f);
+		s_TreeHeightMax = (std::max)(s_TreeHeightMax, s_TreeHeightMin);
+		Toggle("Lock Width to Height", &s_LockWidth);
+		if (!s_LockWidth)
+		{
+			Slider("Tree Width Min", &s_TreeWidthMin, 0.1f, 3.0f, 1);
+			Slider("Tree Width Max", &s_TreeWidthMax, 0.1f, 3.0f, 1);
+			s_TreeWidthMax = (std::max)(s_TreeWidthMax, s_TreeWidthMin);
+		}
+		Slider("Color Variation", &s_ColorVariation, 0.0f, 1.0f);
+		Toggle("Random Tree Rotation", &s_RandomRotation);
+
+		Spacing(4);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+		if (ImGui::Button("Mass Place Trees", ImVec2(150, 0)) && hasProto)
+			ImGui::OpenPopup("##massPlace");
+		ImGui::SameLine();
+		ImGui::BeginDisabled(data->TreeInstances.empty());
+		if (ImGui::Button("Remove All Trees", ImVec2(150, 0)))
+		{
+			auto before = data->TreeInstances;
+			data->TreeInstances.clear();
+			data->OnTreesChanged();
+			PushTreeUndo("Remove All Trees", data, std::move(before));
+		}
+		ImGui::EndDisabled();
+		if (ImGui::BeginPopup("##massPlace"))
+		{
+			ImGui::TextUnformatted("Number of Trees");
+			ImGui::SetNextItemWidth(160);
+			ImGui::InputInt("##count", &s_MassPlaceCount);
+			s_MassPlaceCount = std::clamp(s_MassPlaceCount, 1, 200000);
+			if (ImGui::Button("Place", ImVec2(160, 0)))
+			{
+				TerrainEditor::MassPlaceTrees(terrain, s_MassPlaceCount);
+				ImGui::CloseCurrentPopup();
+			}
+			ImGui::EndPopup();
+		}
+
+		// ---- 통계
+		{
+			const TreeRenderer::Stats& st = TreeRenderer::LastStats(true);
+			char info[256];
+			snprintf(info, sizeof(info), "%d trees on this terrain (%d types).\nScene view: %d visible = %d full mesh, %d mid mesh, %d billboards, %d draw calls.",
+				(int)data->TreeInstances.size(), (int)data->TreePrototypes.size(), st.Trees, st.Lod0, st.Lod1, st.Billboards, st.DrawCalls);
+			Spacing(4);
+			HelpBox(info, false);
+		}
+
+		// ---- 고른 나무 종류 설정 (바꾸면 모든 같은 종류가 바로 바뀐다)
+		if (hasProto)
+		{
+			TreeDesc& d = data->TreePrototypes[std::clamp(s_TreeProto, 0, (int)data->TreePrototypes.size() - 1)];
+			if (FoldoutPlain("Selected Tree Settings", 0, false))
+				if (d.DrawInspector())
+					data->OnTreesChanged();
+		}
 	}
 
 	// ---- 도구 막대 (Unity: 버튼 5개가 붙은 막대) ----
@@ -570,6 +812,38 @@ namespace
 
 namespace TerrainEditor
 {
+	void AddTreePrototype(TerrainData& data, int preset)
+	{
+		TreeDesc d;
+		d.ApplyPreset(preset);
+		d.Params.Seed = 1 + (int)data.TreePrototypes.size() * 7;
+		d.Invalidate();
+		data.TreePrototypes.push_back(d);
+		data.OnTreesChanged();
+	}
+
+	int MassPlaceTrees(Terrain* terrain, int count)
+	{
+		auto data = terrain ? terrain->GetTerrainData() : nullptr;
+		if (!data || data->TreePrototypes.empty() || count <= 0)
+			return 0;
+		auto before = data->TreeInstances;
+		const float spacing = TreeSpacing();
+		int placed = 0;
+		for (int attempt = 0; attempt < count * 4 && placed < count; ++attempt)
+		{
+			const float x = Rand01(), z = Rand01();
+			if (TreeNearby(*data, x * data->Size.x, z * data->Size.z, spacing))
+				continue;
+			data->TreeInstances.push_back(MakeTree(x, z, (int)(Rand01() * data->TreePrototypes.size()) % (int)data->TreePrototypes.size()));
+			++placed;
+		}
+		data->OnTreesChanged();
+		PushTreeUndo("Mass Place Trees", data, std::move(before));
+		EditorLog::Write("Terrain", "mass placed %d trees (asked %d, spacing %.1f m) on %s", placed, count, spacing, data->Name().c_str());
+		return placed;
+	}
+
 	void SetTool(Tool tool) { s_Tool = tool; }
 	void SetPaintTool(PaintTool tool) { s_PaintTool = tool; }
 	void SetBrush(int shape, float size, float opacity) { s_BrushShape = shape; s_BrushSize = size; s_Opacity = opacity; }
@@ -655,7 +929,12 @@ namespace TerrainEditor
 			DescriptionBox("Click the edges to create neighbor terrains.\n(Not supported yet.)");
 			break;
 		case Tool::PaintTrees:
-			DescriptionBox("Click to paint trees.\n(Not supported yet.)");
+			if (data == nullptr)
+			{
+				UnityGUI::HelpBox("Terrain has no Terrain Data. Assign one in Terrain Settings.", true);
+				break;
+			}
+			DrawTreeTool(terrain, data);
 			break;
 		case Tool::PaintDetails:
 			DescriptionBox("Click to paint details (grass, flowers).\n(Not supported yet.)");
@@ -769,14 +1048,16 @@ namespace TerrainEditor
 	{
 		GameObject* selected = SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT ? SelectionManager::GetSelectedGameObject() : nullptr;
 		Terrain* terrain = selected ? selected->GetComponent<Terrain>() : nullptr;
-		if (terrain == nullptr || s_Tool != Tool::PaintTerrain || terrain->GetTerrainData() == nullptr || camera == nullptr)
+		const bool treeTool = s_Tool == Tool::PaintTrees;
+		if (terrain == nullptr || (s_Tool != Tool::PaintTerrain && !treeTool) || terrain->GetTerrainData() == nullptr || camera == nullptr)
 		{
 			if (s_Painting)
 				EndStroke();
 			s_Painting = false;
+			s_TreeStroke = false;
 			return false;
 		}
-		if (!PaintToolSupported(s_PaintTool))
+		if (!treeTool && !PaintToolSupported(s_PaintTool))
 			return true;
 
 		// 마우스 광선
@@ -822,6 +1103,30 @@ namespace TerrainEditor
 
 		// 칠하기 (왼쪽 버튼, Alt/오른쪽 버튼은 카메라 조작)
 		const bool canStart = viewHovered && onTerrain && !io.KeyAlt && !ImGui::IsMouseDown(ImGuiMouseButton_Right);
+		if (treeTool)
+		{
+			// 나무: 누른 곳에서 한 번, 끌면 브러시 반지름의 1/4 만큼 움직일 때마다 한 번. 한 획 = Undo 한 단계
+			if (canStart && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			{
+				s_TreeStroke = true;
+				s_TreeStrokeBefore = terrain->GetTerrainData()->TreeInstances;
+				s_LastTreePos = Vec3(1e30f, 0, 0);
+			}
+			if (s_TreeStroke && onTerrain && (hit - s_LastTreePos).Length() >= s_BrushSize * 0.25f)
+			{
+				PaintTreesAt(terrain, hit, io.KeyShift || io.KeyCtrl, io.KeyCtrl);
+				s_LastTreePos = hit;
+			}
+			if (s_TreeStroke && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			{
+				s_TreeStroke = false;
+				auto data = terrain->GetTerrainData();
+				if (data->TreeInstances.size() != s_TreeStrokeBefore.size())
+					PushTreeUndo(io.KeyShift || io.KeyCtrl ? "Erase Trees" : "Paint Trees", data, std::move(s_TreeStrokeBefore));
+				s_TreeStrokeBefore.clear();
+			}
+			return true;
+		}
 		if (canStart && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
 			if (s_PaintTool == PaintTool::SetHeight && io.KeyShift)

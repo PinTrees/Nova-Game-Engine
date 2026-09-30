@@ -253,7 +253,7 @@ technique11 TerrainNormalDepthTech
 }
 
 //=============================================================================
-// NOVA 나무 (Tree 컴포넌트) - SSAO 노멀/깊이 패스 (gView, gWorldViewProj = ViewProj)
+// NOVA 나무 (Tree / 지형 나무) - SSAO 노멀/깊이 패스 (gView, gWorldViewProj = ViewProj). 본 패스와 같은 LOD 디더·잎 자르기
 //=============================================================================
 #include "44. TreeCommon.fx"
 
@@ -269,31 +269,66 @@ struct TreeNormalDepthOut
     float3 NormalV : NORMAL;
     float2 UV : TEXCOORD0;
     float Seed : TEXCOORD1;
+    float2 Fade : TEXCOORD2;
 };
 
-TreeNormalDepthOut TreeNormalDepthVS(TreeVertexIn vin)
+TreeNormalDepthOut TreeNormalDepthVS(TreeVertexIn vin, TreeInstanceIn inst)
 {
     TreeNormalDepthOut vout;
     float3 normalW;
-    const float3 posW = TreeWorldPos(vin, normalW);
+    const float3 posW = TreeWorldPos(vin, inst, normalW);
     vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
     vout.NormalV = mul(normalW, (float3x3) gView);
     // 본 패스(TreeVS)와 똑같이 월드 위치 × CPU 에서 곱한 ViewProj
     vout.PosH = mul(float4(posW, 1.0f), gWorldViewProj);
     vout.UV = vin.UV;
     vout.Seed = vin.Phase.z;
+    vout.Fade = inst.Extra.zw;
     return vout;
 }
 
 float4 TreeNormalDepthBarkPS(TreeNormalDepthOut pin) : SV_Target
 {
+    TreeLodClip(pin.PosH.xy, pin.Fade);
     return float4(normalize(pin.NormalV), pin.PosV.z);
 }
 
 float4 TreeNormalDepthLeafPS(TreeNormalDepthOut pin) : SV_Target
 {
+    TreeLodClip(pin.PosH.xy, pin.Fade);
     TreeLeafClip(pin.UV, pin.Seed);
     return float4(normalize(pin.NormalV), pin.PosV.z);
+}
+
+struct TreeImpostorNDOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosV : POSITION;
+    float2 UV : TEXCOORD0;
+    float3 AxisX : TEXCOORD1;
+    float3 AxisZ : TEXCOORD2;
+    float2 Fade : TEXCOORD3;
+};
+
+TreeImpostorNDOut TreeImpostorNormalDepthVS(uint vid : SV_VertexID, TreeInstanceIn inst)
+{
+    const TreeImpostorGeom g = TreeImpostorVertex(vid, inst);
+    TreeImpostorNDOut vout;
+    vout.PosV = mul(float4(g.PosW, 1.0f), gView).xyz;
+    vout.PosH = mul(float4(g.PosW, 1.0f), gWorldViewProj);
+    vout.UV = g.UV;
+    vout.AxisX = g.AxisX;
+    vout.AxisZ = g.AxisZ;
+    vout.Fade = inst.Extra.zw;
+    return vout;
+}
+
+float4 TreeImpostorNormalDepthPS(TreeImpostorNDOut pin) : SV_Target
+{
+    TreeLodClip(pin.PosH.xy, pin.Fade);
+    clip(gTreeImpostorAlbedo.Sample(samTreeImpostor, pin.UV).a - gTreeImpostor.w);
+    const float3 n = TreeImpostorNormalW(gTreeImpostorNormal.Sample(samTreeImpostor, pin.UV).rgb, pin.AxisX, pin.AxisZ);
+    return float4(normalize(mul(n, (float3x3) gView)), pin.PosV.z);
 }
 
 technique11 TreeNormalDepthBarkTech
@@ -313,6 +348,17 @@ technique11 TreeNormalDepthLeafTech
         SetVertexShader(CompileShader(vs_5_0, TreeNormalDepthVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TreeNormalDepthLeafPS()));
+        SetRasterizerState(TreeNormalDepthCullNone);
+    }
+}
+
+technique11 TreeNormalDepthImpostorTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeImpostorNormalDepthVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeImpostorNormalDepthPS()));
         SetRasterizerState(TreeNormalDepthCullNone);
     }
 }

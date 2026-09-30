@@ -33,7 +33,7 @@ namespace
 	}
 
 	constexpr uint32_t kMagic = 0x4454564E;   // "NVTD"
-	constexpr uint32_t kVersion = 1;
+	constexpr uint32_t kVersion = 2;   // 2: 나무 프로토타입(JSON) + 인스턴스
 
 	template <typename T> void WritePod(std::ofstream& os, const T& v) { os.write(reinterpret_cast<const char*>(&v), sizeof(T)); }
 	template <typename T> bool ReadPod(std::ifstream& is, T& v) { is.read(reinterpret_cast<char*>(&v), sizeof(T)); return (bool)is; }
@@ -41,7 +41,7 @@ namespace
 	bool ReadString(std::ifstream& is, std::string& s)
 	{
 		uint32_t n = 0;
-		if (!ReadPod(is, n) || n > 4096) return false;
+		if (!ReadPod(is, n) || n > (1u << 24)) return false;   // 나무 프로토타입 JSON 도 이 형식
 		s.resize(n);
 		is.read(s.data(), n);
 		return (bool)is;
@@ -491,6 +491,14 @@ bool TerrainData::Save()
 		packed[i] = (uint16_t)std::lround(std::clamp(Heights[i], 0.0f, 1.0f) * 65535.0f);
 	os.write(reinterpret_cast<const char*>(packed.data()), packed.size() * sizeof(uint16_t));
 	os.write(reinterpret_cast<const char*>(Control.data()), Control.size());
+	// 나무: 프로토타입 설정(JSON 문자열) + 인스턴스 배열
+	nlohmann::json protos = nlohmann::json::array();
+	for (const TreeDesc& d : TreePrototypes)
+		protos.push_back(d.ToJson());
+	WriteString(os, protos.dump());
+	WritePod(os, (int32_t)TreeInstances.size());
+	if (!TreeInstances.empty())
+		os.write(reinterpret_cast<const char*>(TreeInstances.data()), TreeInstances.size() * sizeof(TerrainTreeInstance));
 	Dirty = false;
 	return (bool)os;
 }
@@ -538,6 +546,27 @@ std::shared_ptr<TerrainData> TerrainData::Load(const std::string& rawPath)
 	is.read(reinterpret_cast<char*>(data->Control.data()), data->Control.size());
 	if (!is)
 		return nullptr;
+	if (version >= 2)
+	{
+		std::string protos;
+		int32_t treeCount = 0;
+		if (ReadString(is, protos) && ReadPod(is, treeCount) && treeCount >= 0 && treeCount < 10000000)
+		{
+			const nlohmann::json j = nlohmann::json::parse(protos, nullptr, false);
+			if (j.is_array())
+				for (const auto& p : j)
+				{
+					TreeDesc d;
+					d.FromJson(p);
+					data->TreePrototypes.push_back(d);
+				}
+			data->TreeInstances.resize((size_t)treeCount);
+			if (treeCount > 0)
+				is.read(reinterpret_cast<char*>(data->TreeInstances.data()), (size_t)treeCount * sizeof(TerrainTreeInstance));
+			if (!is)
+				data->TreeInstances.clear();
+		}
+	}
 	data->RebuildAllNodes();
 	DataCache()[path] = data;
 	return data;

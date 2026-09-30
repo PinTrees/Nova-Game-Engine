@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include "TreeDesc.h"
 
 // Unity 의 TerrainLayer 에셋 (.terrainlayer, JSON): 지형에 칠하는 텍스처 한 장과 타일 크기
 class TerrainLayer
@@ -28,6 +29,17 @@ private:
 	bool m_DiffuseLoaded = false;
 };
 
+// 지형에 칠한 나무 한 그루 (Unity 의 TreeInstance). 위치는 지형 기준 0~1, 높이는 그릴 때 지형에서 읽는다
+struct TerrainTreeInstance
+{
+	float X = 0.0f, Z = 0.0f;
+	float HeightScale = 1.0f, WidthScale = 1.0f;
+	float Rotation = 0.0f;      // 라디안 (Y 축)
+	float Tint = 0.5f;          // 색 변화 (0.5 = 그대로)
+	int32_t Prototype = 0;      // TreePrototypes 번호
+};
+static_assert(sizeof(TerrainTreeInstance) == 28, "저장 형식");
+
 // Unity 의 TerrainData 에셋 (.terraindata, 바이너리).
 //  - 높이맵: (해상도 x 해상도) 정규화 높이 0~1, 실제 높이 = 값 * Size.y. 인덱스 [z * 해상도 + x].
 //  - 컨트롤(스플랫) 맵: 레이어 4개의 가중치 (RGBA8).
@@ -53,6 +65,12 @@ public:
 	int ControlResolution = 512;
 	std::vector<uint8_t> Control;                 // RGBA
 	std::vector<std::shared_ptr<TerrainLayer>> Layers;
+
+	// 나무 (Paint Trees): 프로토타입 = 나무 한 종류의 설정, 인스턴스 = 칠한 나무 한 그루
+	std::vector<TreeDesc> TreePrototypes;
+	std::vector<TerrainTreeInstance> TreeInstances;
+	unsigned TreeRevision = 0;  // 나무가 바뀔 때마다 증가 (TreeRenderer 의 위치 캐시)
+	void OnTreesChanged() { ++TreeRevision; Dirty = true; }
 
 	unsigned Revision = 0;      // 높이가 바뀔 때마다 증가 (물리 형상 재생성 판단)
 	bool Dirty = false;         // 저장하지 않은 변경

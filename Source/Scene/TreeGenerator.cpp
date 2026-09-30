@@ -155,7 +155,9 @@ namespace
 		std::vector<uint32_t> LeafI;
 		std::vector<XMFLOAT3> LeafNormals;   // 카드 평면 법선 (나중에 수관 구 쪽으로 굽힌다)
 
-		Builder(const TreeParams& p, TreeMeshData& m) : P(p), M(m), R(p.Seed) {}
+		int Lod = 0;   // 1 = 가지 링·잔가지·잎 카드를 줄인 중간 단계 (난수 순서는 그대로 → 모양이 같다)
+
+		Builder(const TreeParams& p, TreeMeshData& m, int lod) : P(p), M(m), R(p.Seed), Lod(lod) {}
 
 		// 가지 가중치: 1차 가지는 끝으로 갈수록 크게, 길이가 길수록 크게
 		static float Weight1(float t, float length) { return powf(t, 1.5f) * (std::min)(1.0f, length / 4.0f); }
@@ -212,7 +214,13 @@ namespace
 			}
 
 			// ---- 관(링을 이은 원통). 링 방향은 평행 이동으로 이어 비틀림이 없게
-			const int sides = level == 0 ? (std::max)(5, P.RadialSegments) : (level == 1 ? (std::max)(4, P.RadialSegments * 2 / 3) : 4);
+			//  LOD1: 링 변을 줄이고 짧은 잔가지(0.6 m 미만)는 그리지 않는다 (난수를 쓰지 않는 부분이라 모양은 그대로)
+			const bool emitBark = Lod == 0 || level <= 1 || length >= 0.6f;
+			if (emitBark)
+			{
+			const int sides = Lod == 0
+				? (level == 0 ? (std::max)(5, P.RadialSegments) : (level == 1 ? (std::max)(4, P.RadialSegments * 2 / 3) : 4))
+				: (level == 0 ? (std::max)(5, P.RadialSegments / 2) : (level == 1 ? 4 : 3));
 			const uint32_t base = (uint32_t)M.Vertices.size();
 			XMVECTOR n = Perpendicular(XMLoadFloat3(&nodes[0].Dir));
 			const float ao = level == 0 ? 1.0f : (level == 1 ? 0.9f : 0.8f);
@@ -259,6 +267,7 @@ namespace
 				for (int k = 0; k < sides; ++k)
 					AddTri(M.Indices, M.Vertices, ring + k, ring + k + 1, tipIndex, ld);
 			}
+			}   // emitBark
 
 			// ---- 자식 가지
 			if (level < P.Levels)
@@ -347,8 +356,15 @@ namespace
 				n = XMVector3Normalize(XMVectorAdd(XMVectorScale(n, cosf(roll)), XMVectorScale(XMVector3Cross(up, n), sinf(roll))));
 				const XMVECTOR right = XMVector3Normalize(XMVector3Cross(up, n));
 
-				const float size = P.LeafCardSize * (0.8f + 0.4f * R.U());
+				float size = P.LeafCardSize * (0.8f + 0.4f * R.U());
 				const float seed = R.U();
+				// LOD1: 카드 두 장 중 한 장만, 대신 크게 (난수는 모두 쓴 뒤에 건너뛴다)
+				if (Lod > 0)
+				{
+					if (c & 1)
+						continue;
+					size *= 1.45f;
+				}
 				float w1, w2;
 				Winds(level, tl, length, wi, w1, w2);
 
@@ -409,7 +425,7 @@ namespace
 
 namespace TreeGenerator
 {
-	void Generate(const TreeParams& params, TreeMeshData& out)
+	void Generate(const TreeParams& params, TreeMeshData& out, int lod)
 	{
 		out = TreeMeshData();
 		TreeParams p = params;
@@ -421,7 +437,7 @@ namespace TreeGenerator
 		for (auto& l : p.L)
 			l.Count = std::clamp(l.Count, 0, 80);
 
-		Builder b(p, out);
+		Builder b(p, out, lod);
 		const float lean = XMConvertToRadians(p.Lean);
 		const XMVECTOR dir = XMVectorSet(0.0f, cosf(lean), sinf(lean), 0.0f);
 		WindInfo wi;

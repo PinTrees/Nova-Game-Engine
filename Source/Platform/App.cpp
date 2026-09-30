@@ -6,6 +6,9 @@
 #include "UISystem.h"
 #include "ParticleSystem.h"
 #include "Tree.h"
+#include "Terrain.h"
+#include "TerrainData.h"
+#include "TerrainEditor.h"
 #include "PlayerRuntime.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
@@ -131,6 +134,18 @@ int32 App::Run()
 									}
 						if (::GetEnvironmentVariableA("NOVA_DEV_FILE", devName, sizeof(devName)) > 0)
 							SelectionManager::SetSelectedFile(PathManager::GetI()->GetMovePathW(string_to_wstring(devName)));
+						// NOVA_DEV_TREES=<수>: 첫 지형에 (없으면) Oak/Pine/Birch 프로토타입을 넣고 그만큼 흩뿌린다 (저장은 하지 않음)
+						if (::GetEnvironmentVariableA("NOVA_DEV_TREES", devName, sizeof(devName)) > 0 && !Terrain::GetActiveTerrains().empty())
+						{
+							Terrain* terrain = Terrain::GetActiveTerrains()[0];
+							if (auto data = terrain->GetTerrainData())
+							{
+								if (data->TreePrototypes.empty())
+									for (int preset : { 0, 1, 2 })
+										TerrainEditor::AddTreePrototype(*data, preset);
+								TerrainEditor::MassPlaceTrees(terrain, atoi(devName));
+							}
+						}
 					}
 				}
 

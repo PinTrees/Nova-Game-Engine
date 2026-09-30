@@ -1,6 +1,7 @@
 #pragma once
 
 class Terrain;
+class TerrainData;
 class EditorCamera;
 
 // Unity Terrain Inspector 의 편집 도구.
@@ -22,6 +23,10 @@ namespace TerrainEditor
 
 	// 브러시 한 번 적용 (월드 위치, 경과 시간). 검사/스크립트용으로도 쓴다.
 	void ApplyBrush(Terrain* terrain, PaintTool tool, const Vec3& worldPosition, float deltaTime, bool shift);
+
+	// 나무: 프리셋으로 프로토타입 추가, 지형 전체에 무작위로 count 그루 (간격 = Tree Density). 놓은 수를 돌려준다
+	void AddTreePrototype(TerrainData& data, int preset);
+	int MassPlaceTrees(Terrain* terrain, int count);
 
 	// 현재 설정 (검사용)
 	void SetTool(Tool tool);

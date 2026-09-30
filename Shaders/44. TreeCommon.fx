@@ -8,20 +8,31 @@
 //  - 바람: Unreal/SpeedTree 처럼 계층 흔들림 (줄기 → 1차 가지 → 2차 가지 → 잎 떨림).
 //          가지는 붙은 지점에서 부모의 흔들림 값을 물려받아 관절이 떨어지지 않는다
 // 세 효과가 같은 TreeWorldPos 를 쓰므로 깊이 사전 패스·그림자·본 패스의 위치가 정확히 같다.
+//
+// 숲 (TreeRenderer.cpp): 같은 모양·색의 나무는 인스턴싱으로 한 번에 그린다 (정점 = 메시, 인스턴스 = 월드 행렬 + 값).
+//  LOD: 가까이 = 전체 메시(LOD0), 중간 = 가지·잎 카드를 줄인 메시(LOD1), 멀리 = 8 방향에서 구운 빌보드(임포스터).
+//  단계가 바뀌는 구간은 화면 디더로 두 단계를 섞는다 (Unity 의 LOD Cross Fade).
 //=============================================================================
 
 cbuffer cbTree
 {
-    float4x4 gTreeWorld;
-    float4x4 gTreeWorldInvTranspose;
     float4 gTreeWind;          // xyz = 바람 방향(월드) * 세기(0~1), w = 시간(초)
-    float4 gTreeWindParams;    // x = 줄기 흔들림(m), y = 가지 흔들림(m), z = 잎 떨림(m), w = 나무마다 다른 위상
+    float4 gTreeWindParams;    // x = 줄기 흔들림(m, 높이 1 배 나무 기준), y = 가지 흔들림(m), z = 잎 떨림(m)
     float4 gTreeBarkColor;     // rgb = 수피 색(감마), a = 이끼 양
     float4 gTreeBarkParams;    // x = 골 깊이, y = 골 주파수(1/m), z = smoothness, w = 밝은 반점 양
     float4 gTreeMossColor;     // rgb = 이끼 색(감마)
     float4 gTreeLeafColor;     // rgb = 잎 색(감마), a = 색 변화
     float4 gTreeLeafColor2;    // rgb = 두 번째 잎 색(감마), a = 모양 (0 Broad, 1 Oval, 2 Needle)
     float4 gTreeLeafParams;    // x = 투과(뒤에서 비치는 빛), y = smoothness, z = 카드당 잎 수, w = 잎 길이(카드 비율)
+    float4 gTreeImpostor;      // x = 프레임 수, y = 프레임 한 변(m, 물체 공간), z = 프레임 중심 높이(m), w = 알파 문턱
+    float4 gTreeViewPos;       // 빌보드가 바라볼 곳: w = 0 이면 xyz = 위치(카메라/광원), w = 1 이면 xyz = 그쪽 방향(방향광)
+};
+
+// 인스턴스 (나무 한 그루): 월드 행렬 + x = 색 변화(0.5 = 그대로), y = 바람 위상, z = LOD 섞기 문턱, w = 섞기 쪽(0 나가는 단계, 1 들어오는 단계)
+struct TreeInstanceIn
+{
+    row_major float4x4 World : WORLD;
+    float4 Extra : INSTANCE;
 };
 
 struct TreeVertexIn
@@ -37,17 +48,16 @@ struct TreeVertexIn
 static const float kTreeTau = 6.2831853f;
 
 // ---------------------------------------------------------------- 바람
-float3 TreeWindOffset(TreeVertexIn v, float3 normalW)
+float3 TreeWindOffset(TreeVertexIn v, float3 normalW, float ph, float heightScale)
 {
     const float t = gTreeWind.w;
     const float strength = length(gTreeWind.xyz);
     const float3 dir = strength > 0.0001f ? gTreeWind.xyz / strength : float3(1.0f, 0.0f, 0.0f);
     const float3 side = float3(-dir.z, 0.0f, dir.x);
-    const float ph = gTreeWindParams.w;
 
     // 줄기: 바람 쪽으로 기운 채 돌풍(두 사인의 곱)에 따라 천천히 흔들린다
     const float gust = 0.65f + 0.35f * sin(t * 0.73f + ph) * sin(t * 1.37f + ph * 2.1f);
-    float3 offset = dir * (strength * gTreeWindParams.x * v.Wind.x * (gust + 0.25f * sin(t * 1.9f + ph)));
+    float3 offset = dir * (strength * gTreeWindParams.x * heightScale * v.Wind.x * (gust + 0.25f * sin(t * 1.9f + ph)));
 
     // 1차 가지: 가지마다 위상이 다른 흔들림 (바람 방향 + 옆 + 위아래)
     const float p1 = v.Phase.x * kTreeTau;
@@ -64,12 +74,84 @@ float3 TreeWindOffset(TreeVertexIn v, float3 normalW)
     return offset;
 }
 
-// 바람이 적용된 월드 위치 (세 효과가 모두 이 함수를 쓴다)
-float3 TreeWorldPos(TreeVertexIn v, out float3 normalW)
+// 바람이 적용된 월드 위치 (세 효과가 모두 이 함수를 쓴다). 나무는 Y 축 회전 + 크기라 법선은 월드 3x3 로 충분
+float3 TreeWorldPos(TreeVertexIn v, TreeInstanceIn inst, out float3 normalW)
 {
-    normalW = normalize(mul(v.NormalL, (float3x3) gTreeWorldInvTranspose));
-    const float3 posW = mul(float4(v.PosL, 1.0f), gTreeWorld).xyz;
-    return posW + TreeWindOffset(v, normalW);
+    normalW = normalize(mul(v.NormalL, (float3x3) inst.World));
+    const float3 posW = mul(float4(v.PosL, 1.0f), inst.World).xyz;
+    return posW + TreeWindOffset(v, normalW, inst.Extra.y * kTreeTau, length(inst.World[1].xyz));
+}
+
+// ---------------------------------------------------------------- LOD 섞기 (화면 디더)
+float TreeDither(float2 pixel)
+{
+    return frac(52.9829189f * frac(dot(floor(pixel), float2(0.06711056f, 0.00583715f))));
+}
+
+// fade = (문턱, 쪽). 나가는 단계는 디더 >= 문턱, 들어오는 단계는 디더 < 문턱 인 픽셀만 → 두 단계가 겹치지 않고 나뉜다
+void TreeLodClip(float2 pixel, float2 fade)
+{
+    const float d = TreeDither(pixel);
+    clip(fade.y < 0.5f ? d - fade.x : fade.x - d - 0.0001f);
+}
+
+// ---------------------------------------------------------------- 임포스터 (빌보드)
+// 구운 아틀라스: 가로로 프레임 N 개. gTreeImpostorAlbedo rgb = 알베도(감마), a = 덮임 / gTreeImpostorNormal rgb = 물체 공간 법선, a = AO
+Texture2D gTreeImpostorAlbedo;
+Texture2D gTreeImpostorNormal;
+
+SamplerState samTreeImpostor
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+};
+
+struct TreeImpostorGeom
+{
+    float3 PosW;
+    float2 UV;      // 아틀라스
+    float3 AxisX;   // 물체 X, Z 축 (월드, 정규화) → 구운 법선을 월드로
+    float3 AxisZ;
+};
+
+// vid 0~5 (삼각형 둘) → 빌보드 꼭짓점. 바라볼 방향(gTreeViewPos)에 가장 가까운 프레임을 고르고, 세로축(Y) 기준으로 돌린다
+TreeImpostorGeom TreeImpostorVertex(uint vid, TreeInstanceIn inst)
+{
+    const float2 corners[6] = { float2(-1, -1), float2(-1, 1), float2(1, 1), float2(-1, -1), float2(1, 1), float2(1, -1) };
+    const float2 c = corners[vid];
+    const float3 center = inst.World[3].xyz;
+    const float scaleXZ = length(inst.World[0].xyz);
+    const float scaleY = length(inst.World[1].xyz);
+    const float3 ax = inst.World[0].xyz / max(scaleXZ, 1e-5f);
+    const float3 az = inst.World[2].xyz / max(length(inst.World[2].xyz), 1e-5f);
+
+    float3 toView = gTreeViewPos.w > 0.5f ? gTreeViewPos.xyz : gTreeViewPos.xyz - center;
+    toView.y = 0.0f;
+    toView = dot(toView, toView) > 1e-8f ? normalize(toView) : az;
+
+    // 물체 공간 방위 (0 = 물체 +Z 쪽에서 봄) → 가까운 프레임
+    const float frames = gTreeImpostor.x;
+    const float azimuth = atan2(dot(toView, ax), dot(toView, az));
+    float frame = round(azimuth / (kTreeTau / frames));
+    frame = frame - frames * floor(frame / frames);
+
+    // 화면 오른쪽 = cross(위, 앞) (앞 = 보는 쪽 → 나무)
+    const float3 right = normalize(cross(float3(0, 1, 0), -toView));
+    const float halfSize = gTreeImpostor.y * 0.5f;
+
+    TreeImpostorGeom g;
+    g.PosW = center + right * (c.x * halfSize * scaleXZ) + float3(0, 1, 0) * ((gTreeImpostor.z + c.y * halfSize) * scaleY);
+    g.UV = float2((frame + c.x * 0.5f + 0.5f) / frames, 0.5f - c.y * 0.5f);
+    g.AxisX = ax;
+    g.AxisZ = az;
+    return g;
+}
+
+float3 TreeImpostorNormalW(float3 packed, float3 ax, float3 az)
+{
+    const float3 n = packed * 2.0f - 1.0f;
+    return normalize(ax * n.x + float3(0, 1, 0) * n.y + az * n.z);
 }
 
 // ---------------------------------------------------------------- 노이즈

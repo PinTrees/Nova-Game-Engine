@@ -4,6 +4,7 @@
 #include "InstancingBuffer.h"
 #include "MathHelper.h"
 #include "Tree.h"
+#include "TreeRenderer.h"
 
 Scene::Scene()
 	: m_VecRootGameObjects(),
@@ -111,6 +112,9 @@ void Scene::RenderScene()
             }
         }
     }
+
+    // 나무 (Tree 컴포넌트 + 지형 나무): 인스턴싱 + LOD
+    TreeRenderer::DrawAll(TreeRenderer::Pass::Main, false);
 }
 
 void Scene::RenderSceneShadow()
@@ -156,7 +160,6 @@ void Scene::RenderSceneShadow()
         for (const auto& gameObject : m_ArrGameObjects[0])
         {
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
-            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadow();
         }
 
     }
@@ -171,9 +174,10 @@ void Scene::RenderSceneShadow()
             if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadow();
 
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
-            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadow();
         }
     }
+
+    TreeRenderer::DrawAll(TreeRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
 }
 
 void Scene::RenderSceneShadowNormal()
@@ -219,7 +223,6 @@ void Scene::RenderSceneShadowNormal()
         for (const auto& gameObject : m_ArrGameObjects[0])
         {
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
-            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadowNormal();
         }
     }
     else
@@ -233,9 +236,10 @@ void Scene::RenderSceneShadowNormal()
             if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadowNormal();
 
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
-            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadowNormal();
         }
     }
+
+    TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, false);
 }
 
 void Scene::_Editor_RenderScene()
@@ -249,8 +253,9 @@ void Scene::_Editor_RenderScene()
         if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_Render();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_Render();
-        if (Tree* tree = gameObject->GetComponent<Tree>()) tree->_Editor_Render();
     }
+
+    TreeRenderer::DrawAll(TreeRenderer::Pass::Main, true);
 }
 
 void Scene::_Editor_RenderSceneShadowNormal()
@@ -264,8 +269,9 @@ void Scene::_Editor_RenderSceneShadowNormal()
         if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_RenderShadowNormal();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_RenderShadowNormal();
-        if (Tree* tree = gameObject->GetComponent<Tree>()) tree->_Editor_RenderShadowNormal();
 } 
+
+    TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, true);
 }
 
 void Scene::RenderSceneGizmos()

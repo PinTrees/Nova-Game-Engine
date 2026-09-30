@@ -750,151 +750,231 @@ technique11 TerrainTech
 }
 
 //=============================================================================
-// NOVA 나무 (Tree 컴포넌트) - 본 패스. 텍스처 없이 수피/잎을 식으로 그린다 (44. TreeCommon.fx)
+// NOVA 나무 (Tree / 지형 나무) - 본 패스. 수피·잎은 실행 중에 식으로 구운 텍스처 (44. TreeCommon.fx)
+//  인스턴싱 (TreeRenderer.cpp): 정점 = 나무 메시, 인스턴스 = 월드 행렬 + 색 변화·바람 위상·LOD 섞기
 //=============================================================================
 #include "44. TreeCommon.fx"
 
 RasterizerState TreeLeafCullNone
 {
-    CullMode = None;   // 잎 카드는 양면
+    CullMode = None;   // 잎 카드·빌보드는 양면
 };
 
 struct TreeVertexOut
 {
     float4 PosH : SV_POSITION;
     float3 PosW : POSITION0;
-    float3 PosL : POSITION1;     // 바람 전 물체 공간 (수피 무늬가 흔들림을 따라 미끄러지지 않게)
+    float3 PosL : POSITION1;     // 바람 전 물체 공간 (반점 무늬가 흔들림을 따라 미끄러지지 않게)
     float3 NormalW : NORMAL;
     float3 AxisW : TANGENT;
     float2 UV : TEXCOORD0;
     float4 SsaoPosH : TEXCOORD1;
     float AO : TEXCOORD2;
     float Seed : TEXCOORD3;
-    float3 NormalL : TEXCOORD4;  // 물체 공간 (수피 무늬 법선 계산)
-    float3 AxisL : TEXCOORD5;
-    float BranchRadius : TEXCOORD6;
+    float3 AxisL : TEXCOORD4;
+    float BranchRadius : TEXCOORD5;
+    float Tint : TEXCOORD6;
+    float2 Fade : TEXCOORD7;
 };
 
-TreeVertexOut TreeVS(TreeVertexIn vin)
+TreeVertexOut TreeVS(TreeVertexIn vin, TreeInstanceIn inst)
 {
     TreeVertexOut vout;
     float3 normalW;
-    const float3 posW = TreeWorldPos(vin, normalW);
+    const float3 posW = TreeWorldPos(vin, inst, normalW);
     vout.PosW = posW;
     vout.PosL = vin.PosL;
     vout.NormalW = normalW;
-    vout.AxisW = normalize(mul(vin.Axis.xyz, (float3x3) gTreeWorld));
-    vout.NormalL = vin.NormalL;
+    vout.AxisW = normalize(mul(vin.Axis.xyz, (float3x3) inst.World));
     vout.AxisL = vin.Axis.xyz;
     vout.BranchRadius = vin.Phase.w;
     vout.UV = vin.UV;
     vout.AO = vin.Axis.w;
     vout.Seed = vin.Phase.z;
+    vout.Tint = inst.Extra.x;
+    vout.Fade = inst.Extra.zw;
     // 깊이 사전 패스(SsaoNormalDepth)와 같은 식: 월드 위치 × CPU 에서 곱한 ViewProj
     vout.PosH = mul(float4(posW, 1.0f), gViewProj);
     vout.SsaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
     return vout;
 }
 
-float4 TreeBarkPS(TreeVertexOut pin) : SV_Target
+// ---------------------------------------------------------------- 표면 (본 패스와 임포스터 굽기가 같이 쓴다)
+struct TreeSurf
 {
-    const float3 toEye = gEyePosW - pin.PosW;
-    const float distToEye = length(toEye);
-    const float3 V = toEye / max(distToEye, 0.0001f);
+    float3 Albedo;        // 선형
+    float3 N;             // 월드
+    float Smoothness;
+    float Occlusion;
+    float3 Transmission;
+    bool Reflections;
+};
 
-    // 물체 공간에서 무늬 높이 → 법선 (가까운 두 점과의 차이). 멀면 무늬를 줄여 반짝임 방지
-    float3 NL = normalize(pin.NormalL);
-    const float3 axisL = normalize(pin.AxisL);
-    const float3 TL = normalize(cross(axisL, NL) + 1e-5f);
-    const float3 BL = cross(NL, TL);
-    // TL = 둘레(u 증가) 방향, BL = 가지 방향(v 증가). 구운 타일에서 높이·기울기를 한 번 읽는다
-    const float r0 = max(pin.BranchRadius, 0.005f);
-    const float3 bark = TreeBarkSample(pin.UV, r0);
+TreeSurf TreeBarkSurface(TreeVertexOut pin)
+{
+    // 월드 접선 틀: T = 둘레(u 증가), B = 가지 방향(v 증가). 구운 타일에서 높이·기울기를 한 번 읽는다
+    const float3 N0 = normalize(pin.NormalW);
+    const float3 T = normalize(cross(normalize(pin.AxisW), N0) + 1e-5f);
+    const float3 B = cross(N0, T);
+    const float3 bark = TreeBarkSample(pin.UV, max(pin.BranchRadius, 0.005f));
     const float h0 = bark.z;
-    NL = normalize(NL - (TL * bark.x + BL * bark.y) * gTreeBarkParams.x);
-    float3 N = normalize(mul(NL, (float3x3) gTreeWorldInvTranspose));
 
-    // 색: 골은 어둡고 능선은 밝게, 가끔 밝은 반점, 위를 향한 면에 이끼
+    TreeSurf s;
+    s.N = normalize(N0 - (T * bark.x + B * bark.y) * gTreeBarkParams.x);
+
+    // 색: 골은 어둡고 판은 밝게, 반점(밝은 / 음수면 자작나무 줄무늬), 위를 향한 면에 이끼
     const float3 barkColor = ToLinear(gTreeBarkColor.rgb);
     float3 albedo = barkColor * lerp(0.38f, 1.08f, h0);
-    // 반점: 양수 = 밝은 반점, 음수 = 둘레 방향으로 긴 어두운 줄무늬 (자작나무)
+    const float3 axisL = normalize(pin.AxisL);
     const float fleckAmount = abs(gTreeBarkParams.w);
     const float alongL = dot(pin.PosL, axisL);
     const float3 fq = gTreeBarkParams.w >= 0.0f ? pin.PosL * 9.0f : (pin.PosL - axisL * alongL) * 3.0f + axisL * (alongL * 25.0f);
     const float fleck = smoothstep(0.74f, 0.86f, TreeValueNoise(fq + 5.1f));
     albedo = lerp(albedo, gTreeBarkParams.w >= 0.0f ? barkColor * 1.6f : barkColor * 0.12f, fleck * fleckAmount);
     const float mossNoise = TreeValueNoise(pin.PosL * 2.3f + 11.7f);
-    const float moss = saturate((N.y + 0.15f) * 1.6f) * smoothstep(0.35f, 0.75f, mossNoise + gTreeBarkColor.a * 0.5f) * gTreeBarkColor.a;
+    const float moss = saturate((s.N.y + 0.15f) * 1.6f) * smoothstep(0.35f, 0.75f, mossNoise + gTreeBarkColor.a * 0.5f) * gTreeBarkColor.a;
     albedo = lerp(albedo, ToLinear(gTreeMossColor.rgb) * lerp(0.7f, 1.1f, h0), moss);
 
-    LitSurface surf;
-    surf.Albedo = albedo;
-    surf.Metallic = 0.0f;
-    surf.Smoothness = gTreeBarkParams.z * lerp(0.6f, 1.0f, h0);
-    surf.Occlusion = pin.AO * lerp(0.55f, 1.0f, h0);   // 골 안쪽은 어둡게
-    surf.Emission = float3(0, 0, 0);
-    surf.Transmission = float3(0, 0, 0);
-    surf.Highlights = true;
-    surf.Reflections = true;
-    surf.ReceiveShadows = true;
-    return FinishLit(ShadeLit(surf, pin.PosW, N, V, pin.SsaoPosH), 1.0f, distToEye);
+    s.Albedo = albedo * lerp(0.9f, 1.1f, pin.Tint);
+    s.Smoothness = gTreeBarkParams.z * lerp(0.6f, 1.0f, h0);
+    s.Occlusion = pin.AO * lerp(0.55f, 1.0f, h0);   // 골 안쪽은 어둡게
+    s.Transmission = float3(0, 0, 0);
+    s.Reflections = true;
+    return s;
 }
 
-float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
+TreeSurf TreeLeafSurface(TreeVertexOut pin)
 {
     const float4 leaf = TreeLeafSample(pin.UV, pin.Seed);
     clip(leaf.a - 0.5f);
     const bool twig = leaf.b < 0.05f;
     const float along = leaf.g;
     const float across = leaf.r * 2.0f - 1.0f;
-    const float leafId = leaf.b;
 
+    TreeSurf s;
     // 잎 법선은 생성기가 수관 구 쪽으로 굽혀 둔 값 (양면 모두 같은 법선 → 덩어리가 부드럽게 빛을 받음)
-    float3 N = normalize(pin.NormalW);
-    const float3 toEye = gEyePosW - pin.PosW;
-    const float distToEye = length(toEye);
-    const float3 V = toEye / max(distToEye, 0.0001f);
-
-    float3 albedo;
-    float smoothness = gTreeLeafParams.y;
-    float3 transmission;
+    s.N = normalize(pin.NormalW);
+    s.Smoothness = gTreeLeafParams.y;
+    s.Occlusion = pin.AO;
+    s.Reflections = false;
     if (twig)
     {
-        albedo = ToLinear(gTreeBarkColor.rgb) * 0.8f;
-        smoothness = 0.2f;
-        transmission = float3(0, 0, 0);
+        s.Albedo = ToLinear(gTreeBarkColor.rgb) * 0.8f;
+        s.Smoothness = 0.2f;
+        s.Transmission = float3(0, 0, 0);
     }
     else
     {
-        // 잎마다 두 색 사이에서 조금씩 다르게, 가장자리는 밝게, 잎맥은 연하게
-        const float v = TreeHash11(pin.Seed * 37.3f + leafId * 31.0f);
+        // 잎마다 두 색 사이에서 조금씩 다르게, 끝으로 갈수록 밝게, 잎맥은 연하게
+        const float v = TreeHash11(pin.Seed * 37.3f + leaf.b * 31.0f);
         float3 c = lerp(ToLinear(gTreeLeafColor.rgb), ToLinear(gTreeLeafColor2.rgb), saturate(v * gTreeLeafColor.a * 1.4f));
         c *= lerp(0.8f, 1.1f, saturate(along));
         const float midrib = 1.0f - smoothstep(0.03f, 0.12f, abs(across));
         const float veins = (1.0f - smoothstep(0.0f, 0.08f, abs(frac(along * 7.0f - abs(across) * 1.6f) - 0.5f) - 0.4f)) * (1.0f - midrib) * 0.5f;
-        c *= 1.0f + midrib * 0.35f + veins * 0.15f;
-        albedo = c;
-        transmission = c * gTreeLeafParams.x * 1.6f;
+        c *= (1.0f + midrib * 0.35f + veins * 0.15f) * lerp(0.78f, 1.22f, pin.Tint);
+        s.Albedo = c;
+        s.Transmission = c * gTreeLeafParams.x * 1.6f;
 
         // 잎을 살짝 접힌 모양으로: 잎맥에서 멀수록 법선을 옆으로
         const float3 up = normalize(pin.AxisW);
-        const float3 right = normalize(cross(up, N) + 1e-5f);
-        N = normalize(N + right * (across * 0.35f));
+        const float3 right = normalize(cross(up, s.N) + 1e-5f);
+        s.N = normalize(s.N + right * (across * 0.35f));
     }
-
-    LitSurface surf;
-    surf.Albedo = albedo;
-    surf.Metallic = 0.0f;
-    surf.Smoothness = smoothness;
-    surf.Occlusion = pin.AO;
-    surf.Emission = float3(0, 0, 0);
-    surf.Transmission = transmission;
-    surf.Highlights = true;
-    surf.Reflections = false;
-    surf.ReceiveShadows = true;
-    return FinishLit(ShadeLit(surf, pin.PosW, N, V, pin.SsaoPosH), 1.0f, distToEye);
+    return s;
 }
 
+float4 TreeLit(TreeSurf s, float3 posW, float4 ssaoPosH)
+{
+    const float3 toEye = gEyePosW - posW;
+    const float distToEye = length(toEye);
+    LitSurface surf;
+    surf.Albedo = s.Albedo;
+    surf.Metallic = 0.0f;
+    surf.Smoothness = s.Smoothness;
+    surf.Occlusion = s.Occlusion;
+    surf.Emission = float3(0, 0, 0);
+    surf.Transmission = s.Transmission;
+    surf.Highlights = true;
+    surf.Reflections = s.Reflections;
+    surf.ReceiveShadows = true;
+    return FinishLit(ShadeLit(surf, posW, s.N, toEye / max(distToEye, 0.0001f), ssaoPosH), 1.0f, distToEye);
+}
+
+float4 TreeBarkPS(TreeVertexOut pin) : SV_Target
+{
+    TreeLodClip(pin.PosH.xy, pin.Fade);
+    return TreeLit(TreeBarkSurface(pin), pin.PosW, pin.SsaoPosH);
+}
+
+float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
+{
+    TreeLodClip(pin.PosH.xy, pin.Fade);
+    return TreeLit(TreeLeafSurface(pin), pin.PosW, pin.SsaoPosH);
+}
+
+// ---------------------------------------------------------------- 임포스터 굽기 (물체 공간 = 월드, 바람 0)
+struct TreeBakeOut
+{
+    float4 Albedo : SV_Target0;   // rgb = 알베도(감마), a = 덮임
+    float4 Normal : SV_Target1;   // rgb = 법선 * 0.5 + 0.5, a = AO
+};
+
+TreeBakeOut TreeBake(TreeSurf s)
+{
+    TreeBakeOut o;
+    o.Albedo = float4(ToGamma(s.Albedo), 1.0f);
+    o.Normal = float4(s.N * 0.5f + 0.5f, s.Occlusion);
+    return o;
+}
+
+TreeBakeOut TreeBarkBakePS(TreeVertexOut pin) { return TreeBake(TreeBarkSurface(pin)); }
+TreeBakeOut TreeLeafBakePS(TreeVertexOut pin) { return TreeBake(TreeLeafSurface(pin)); }
+
+// ---------------------------------------------------------------- 임포스터 (멀리 있는 나무 = 카메라를 보는 사각형 하나)
+struct TreeImpostorOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION;
+    float2 UV : TEXCOORD0;
+    float3 AxisX : TEXCOORD1;
+    float3 AxisZ : TEXCOORD2;
+    float4 SsaoPosH : TEXCOORD3;
+    float Tint : TEXCOORD4;
+    float2 Fade : TEXCOORD5;
+};
+
+TreeImpostorOut TreeImpostorVS(uint vid : SV_VertexID, TreeInstanceIn inst)
+{
+    const TreeImpostorGeom g = TreeImpostorVertex(vid, inst);
+    TreeImpostorOut vout;
+    vout.PosW = g.PosW;
+    vout.UV = g.UV;
+    vout.AxisX = g.AxisX;
+    vout.AxisZ = g.AxisZ;
+    vout.Tint = inst.Extra.x;
+    vout.Fade = inst.Extra.zw;
+    vout.PosH = mul(float4(g.PosW, 1.0f), gViewProj);
+    vout.SsaoPosH = mul(float4(g.PosW, 1.0f), gViewProjTex);
+    return vout;
+}
+
+float4 TreeImpostorPS(TreeImpostorOut pin) : SV_Target
+{
+    TreeLodClip(pin.PosH.xy, pin.Fade);
+    const float4 a = gTreeImpostorAlbedo.Sample(samTreeImpostor, pin.UV);
+    clip(a.a - gTreeImpostor.w);
+    const float4 n = gTreeImpostorNormal.Sample(samTreeImpostor, pin.UV);
+    TreeSurf s;
+    s.Albedo = ToLinear(a.rgb) * lerp(0.8f, 1.2f, pin.Tint);
+    s.N = TreeImpostorNormalW(n.rgb, pin.AxisX, pin.AxisZ);
+    s.Smoothness = 0.2f;
+    s.Occlusion = n.a;
+    s.Transmission = s.Albedo * gTreeLeafParams.x * 1.2f;
+    s.Reflections = false;
+    return TreeLit(s, pin.PosW, pin.SsaoPosH);
+}
+
+// ---------------------------------------------------------------- 기법
 technique11 TreeBarkTech
 {
     pass P0
@@ -914,6 +994,48 @@ technique11 TreeLeafTech
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TreeLeafPS()));
         SetDepthStencilState(TerrainDepthLessEqual, 0);
+        SetRasterizerState(TreeLeafCullNone);
+    }
+}
+
+technique11 TreeImpostorTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeImpostorVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeImpostorPS()));
+        SetDepthStencilState(TerrainDepthLessEqual, 0);
+        SetRasterizerState(TreeLeafCullNone);
+    }
+}
+
+DepthStencilState TreeBakeDepth
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ALL;
+    DepthFunc = LESS;
+};
+
+technique11 TreeBarkBakeTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeBarkBakePS()));
+        SetDepthStencilState(TreeBakeDepth, 0);
+    }
+}
+
+technique11 TreeLeafBakeTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeLeafBakePS()));
+        SetDepthStencilState(TreeBakeDepth, 0);
         SetRasterizerState(TreeLeafCullNone);
     }
 }
