@@ -153,6 +153,30 @@ float4 PS(VertexOut pin, uniform bool gAlphaClip) : SV_Target
     return float4(pin.NormalV, pin.PosV.z);
 }
 
+// MeshBatcher: 인스턴스 월드 행렬 → 월드 위치 × ViewProj (gWorldViewProj = ViewProj). 본 패스 BatchTech 와 같은 식
+VertexOut VS_Batch(VertexIn_Instancing vin)
+{
+    VertexOut vout;
+    const float4 posW = mul(float4(vin.PosL, 1.0f), vin.World);
+    const float3 r0 = vin.World[0].xyz, r1 = vin.World[1].xyz, r2 = vin.World[2].xyz;
+    const float3 normalW = mul(vin.NormalL, float3x3(cross(r1, r2), cross(r2, r0), cross(r0, r1)));
+    vout.PosV = mul(posW, gView).xyz;
+    vout.NormalV = mul(normalW, (float3x3) gView);
+    vout.PosH = mul(posW, gWorldViewProj);
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    return vout;
+}
+
+technique11 NormalDepthBatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_Batch()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(false)));
+    }
+}
+
 technique11 NormalDepth
 {
     pass P0

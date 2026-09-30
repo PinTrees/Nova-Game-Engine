@@ -39,6 +39,7 @@ public:
 	virtual ~MeshRenderer();
 
 	void AddMaterial(shared_ptr<UMaterial> mat) { m_pMaterials.push_back(mat); }
+	const vector<shared_ptr<UMaterial>>& GetMaterials() const { return m_pMaterials; }
 	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }
 	// 엔진 내장 메시("builtin:Cube" 등)를 지정: 경로를 저장해 두었다가 씬을 다시 열 때 복원한다
 void SetBuiltinMesh(const wstring& builtinPath, shared_ptr<Mesh> mesh)

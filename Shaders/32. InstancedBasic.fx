@@ -617,6 +617,41 @@ technique11 Tech
     }
 }
 
+// ---------------------------------------------------------------------------
+// MeshBatcher: 같은 메시·재질의 Mesh Renderer 를 인스턴싱으로 한 번에 (월드 행렬 = 인스턴스).
+//  깊이 사전 패스(SsaoNormalDepth 의 NormalDepthBatchTech)와 똑같이 posW × ViewProj 로 계산해 EQUAL 깊이 검사가 맞는다.
+//  법선은 월드 3x3 의 여인수 행렬(= 역전치 × 행렬식)로 → 크기가 축마다 달라도 맞다
+// ---------------------------------------------------------------------------
+float3 BatchNormal(float3 n, float4x4 world)
+{
+    const float3 r0 = world[0].xyz, r1 = world[1].xyz, r2 = world[2].xyz;
+    const float3x3 cof = float3x3(cross(r1, r2), cross(r2, r0), cross(r0, r1));
+    return mul(n, cof);
+}
+
+VertexOut VS_Batch(VertexIn_Instancing vin)
+{
+    VertexOut vout;
+    const float4 posW = mul(float4(vin.PosL, 1.0f), vin.World);
+    vout.PosW = posW;
+    vout.NormalW = BatchNormal(vin.NormalL, vin.World);
+    vout.TangentW = float4(mul(vin.TangentL.xyz, (float3x3) vin.World), vin.TangentL.w);
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    vout.SsaoPosH = mul(posW, gViewProjTex);
+    vout.PosH = mul(posW, gViewProj);
+    return vout;
+}
+
+technique11 BatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_Batch()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS()));
+    }
+}
+
 technique11 InstancingTech
 {
     pass P0

@@ -6,6 +6,7 @@
 #include "Tree.h"
 #include "TreeRenderer.h"
 #include "SceneCulling.h"
+#include "MeshBatcher.h"
 
 Scene::Scene()
 	: m_VecRootGameObjects(),
@@ -52,68 +53,19 @@ void Scene::Exit()
     PhysicsManager::GetI()->Exit(); 
 }
 
+// 그리기 패스. Mesh Renderer 는 MeshBatcher 가 (메시, 서브셋, 재질)로 묶어 인스턴싱으로 그리고,
+// 나머지(Skinned Mesh Renderer, 지형, 파티클 등)는 컴포넌트마다. 모두 SceneCulling 의 절두체 결과로 거른다.
 void Scene::RenderScene()
 {
-    if (RenderManager::GetI()->InstancingMode) // if문에 Editor에서 인스턴싱을 사용할 것인지에 대한 bool형 변수로 인스턴싱 사용여부 판단
+    MeshBatcher::Draw(this, MeshBatcher::Pass::Main, false);
+    for (auto& gameObject : m_ArrGameObjects[0])
     {
-        map<InstanceID, vector<GameObject*>> cache;
-
-        for (const auto& gameObject : m_ArrGameObjects[0]) // cullingObejcts로 변경예정, play아닐때도 업데이트할 함수 추가해야함 Light, camera
+        for (auto& component : gameObject->GetComponents())
         {
-            for (auto& component : gameObject->GetComponents())
-            {
-
-                // 컴포넌트 마다 MeshRenderer인지 체크
-                shared_ptr<MeshRenderer> meshRenderer = dynamic_pointer_cast<MeshRenderer>(component);
-                //MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-                
-                if (meshRenderer)
-                {
-                    if (!SceneCulling::IsVisible(meshRenderer.get()))
-                        continue;   // 절두체 밖
-                    // map<인스턴싱 ID,gameObject> 변수에 추가
-                    const InstanceID instanceId = meshRenderer->GetInstanceID();
-                    cache[instanceId].emplace_back(gameObject);
-                }
-                else if (SceneCulling::IsVisible(component.get()))
-                {
-                    component->Render();
-                }
-            }
-        }
-
-        // 같은 오브젝트들 끼리 world배열에 저장 후 world배열을 인자값으로 넘기면서 인스턴싱 렌더
-        for (auto& pair : cache)
-        {
-            const vector<GameObject*>& vec = pair.second;
-            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix 값을 가지고 있는 인스턴싱 버퍼, 렌더로 넘겨야함
-            {
-                //const InstanceID instanceId = pair.first;
-
-                for (int32 i = 0; i < vec.size(); i++)
-                {
-                    GameObject* gameObject = vec[i];
-                    InstancingData data;
-                    data.world = gameObject->GetTransform()->GetWorldMatrix();
-
-                    // Mesh와 Material의 조합 아이디 배열의 data 벡터에 data(월드좌표들)저장
-                    buffer->AddData(data);
-                    //AddData(instanceId, data);
-                }
-
-                vec[0]->GetComponent<MeshRenderer>()->RenderInstancing(buffer);
-            }
-        }
-    }
-    else
-    {
-        for (auto& gameObject : m_ArrGameObjects[0])
-        {
-            for (auto& component : gameObject->GetComponents())
-            {
-                if (SceneCulling::IsVisible(component.get()))   // 절두체 밖 렌더러는 건너뜀
-                    component->Render();
-            }
+            if (dynamic_cast<MeshRenderer*>(component.get()) != nullptr)
+                continue;   // MeshBatcher 가 그렸다
+            if (SceneCulling::IsVisible(component.get()))   // 절두체 밖 렌더러는 건너뜀
+                component->Render();
         }
     }
 
@@ -123,62 +75,13 @@ void Scene::RenderScene()
 
 void Scene::RenderSceneShadow()
 {
-    if (RenderManager::GetI()->InstancingMode)
+    MeshBatcher::Draw(this, MeshBatcher::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
+    for (auto& gameObject : m_ArrGameObjects[0])
     {
-        map<InstanceID, vector<GameObject*>> cache;
+        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
+        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadow();
 
-        for (const auto& gameObject : m_ArrGameObjects[0])
-        {
-            auto meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer == nullptr || !SceneCulling::IsVisible(meshRenderer))
-                continue;
-
-            // map<인스턴싱 ID,gameObject> 변수에 추가
-            const InstanceID instanceId = meshRenderer->GetInstanceID();
-            cache[instanceId].emplace_back(gameObject);
-        }
-
-        // 같은 오브젝트들 끼리 world배열에 저장 후 world배열을 인자값으로 넘기면서 인스턴싱 렌더
-        for (auto& pair : cache)
-        {
-            const vector<GameObject*>& vec = pair.second;
-            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix 값을 가지고 있는 인스턴싱 버퍼, 렌더로 넘겨야함
-            {
-                //const InstanceID instanceId = pair.first;
-
-                for (int32 i = 0; i < vec.size(); i++)
-                {
-                    GameObject* gameObject = vec[i];
-                    InstancingData data;
-                    data.world = gameObject->GetTransform()->GetWorldMatrix();
-
-                    // Mesh와 Material의 조합 아이디 배열의 data 벡터에 data(월드좌표들)저장
-                    buffer->AddData(data);
-                    //AddData(instanceId, data);
-                }
-
-                vec[0]->GetComponent<MeshRenderer>()->RenderShadowInstancing(buffer);
-            }
-        }
-
-        for (const auto& gameObject : m_ArrGameObjects[0])
-        {
-            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
-        }
-
-    }
-    else
-    {
-        for (auto& gameObject : m_ArrGameObjects[0])
-        {
-            MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->RenderShadow();
-
-            SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-            if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadow();
-
-            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
-        }
+        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
     }
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
@@ -186,61 +89,13 @@ void Scene::RenderSceneShadow()
 
 void Scene::RenderSceneShadowNormal()
 {
-    if (RenderManager::GetI()->InstancingMode)
+    MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, false);
+    for (const auto& gameObject : m_ArrGameObjects[0])
     {
-        map<InstanceID, vector<GameObject*>> cache;
+        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
+        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadowNormal();
 
-        for (const auto& gameObject : m_ArrGameObjects[0])
-        {
-            auto meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer == nullptr || !SceneCulling::IsVisible(meshRenderer))
-                continue;
-
-            // map<인스턴싱 ID,gameObject> 변수에 추가
-            const InstanceID instanceId = meshRenderer->GetInstanceID();
-            cache[instanceId].emplace_back(gameObject);
-        }
-
-        // 같은 오브젝트들 끼리 world배열에 저장 후 world배열을 인자값으로 넘기면서 인스턴싱 렌더
-        for (auto& pair : cache)
-        {
-            const vector<GameObject*>& vec = pair.second;
-            shared_ptr<InstancingBuffer> buffer = make_shared<InstancingBuffer>(); // worldMatrix 값을 가지고 있는 인스턴싱 버퍼, 렌더로 넘겨야함
-            {
-                //const InstanceID instanceId = pair.first;
-
-                for (int32 i = 0; i < vec.size(); i++)
-                {
-                    GameObject* gameObject = vec[i];
-                    InstancingData data;
-                    data.world = gameObject->GetTransform()->GetWorldMatrix();
-
-                    // Mesh와 Material의 조합 아이디 배열의 data 벡터에 data(월드좌표들)저장
-                    buffer->AddData(data);
-                    //AddData(instanceId, data);
-                }
-
-                vec[0]->GetComponent<MeshRenderer>()->RenderShadowNormalInstancing(buffer);
-            }
-        }
-
-        for (const auto& gameObject : m_ArrGameObjects[0])
-        {
-            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
-        }
-    }
-    else
-    {
-        for (const auto& gameObject : m_ArrGameObjects[0])
-        {
-            MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-            if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->RenderShadowNormal();
-
-            SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-            if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadowNormal();
-
-            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
-        }
+        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
     }
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, false);
@@ -248,11 +103,9 @@ void Scene::RenderSceneShadowNormal()
 
 void Scene::_Editor_RenderScene()
 {
+    MeshBatcher::Draw(this, MeshBatcher::Pass::Main, true);
     for (auto& gameObject : m_ArrGameObjects[0])
     {
-        MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>();
-        if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->_Editor_Render();
-
         SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
         if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->_Editor_Render();
 
@@ -264,16 +117,14 @@ void Scene::_Editor_RenderScene()
 
 void Scene::_Editor_RenderSceneShadowNormal()
 {
+    MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, true);
     for (const auto& gameObject : m_ArrGameObjects[0])
     {
-        MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>(); 
-        if (meshRenderer && SceneCulling::IsVisible(meshRenderer)) meshRenderer->_Editor_RenderShadowNormal();  
-
         SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
         if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->_Editor_RenderShadowNormal();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_RenderShadowNormal();
-} 
+    }
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, true);
 }
