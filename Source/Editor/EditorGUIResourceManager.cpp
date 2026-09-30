@@ -82,7 +82,7 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
             io.Fonts->GetGlyphRangesKorean() 
         );
         // Font Awesome 폰트 추가
-        string fa_path = PathManager::GetI()->GetContentPathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
+        string fa_path = PathManager::GetI()->GetEnginePathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
         io.Fonts->AddFontFromFileTTF( 
             fa_path.c_str(),
             style.FontSize - 2,

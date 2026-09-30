@@ -13,7 +13,7 @@ private:
 	bool				  m_IsInit;
 
 public:
-	void Init();
+	void Init(bool hubMode = false);
 	void Destroy();
 
 	void Update();

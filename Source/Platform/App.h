@@ -20,7 +20,7 @@ public:
 	
 	float     AspectRatio() { return static_cast<float>(_clientWidth) / _clientHeight; }
 	
-	int32 Run();
+	virtual int32 Run();
 
 	virtual bool Init();
 	virtual void OnResize(); 
@@ -39,6 +39,8 @@ public:
 	void SetScreenSize(UINT width, UINT height);
 	Vec2 GetScreenSize() { return Vec2(_clientWidth, _clientHeight); }
 protected:
+	// 창 생성 + 그래픽 백엔드/디바이스 초기화까지만 수행 (Hub처럼 가벼운 앱에서 사용)
+	bool InitPlatform();
 	bool InitMainWindow();
 	bool InitDirect3D();
 	void CalculateFrameStats();
@@ -76,6 +78,8 @@ protected:
 
 	// Etc
 	std::wstring _mainWindowCaption = L"NOVA Game Engine";
+	std::string _logFileName = "run_log.txt";
+	bool _centerWindow = false;
 	D3D_DRIVER_TYPE _driverType = D3D_DRIVER_TYPE_HARDWARE;
 	int32 _clientWidth = 1920;
 	int32 _clientHeight = 1080;

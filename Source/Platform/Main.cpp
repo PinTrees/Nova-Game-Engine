@@ -1,9 +1,11 @@
 #include "pch.h"
 #include "App.h"
 #include "EditorApp.h"
+#include "HubApp.h"
 
 #include <filesystem>
 #include <fstream>
+#include <shellapi.h>
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, int showCmd)
 {
@@ -16,6 +18,47 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 	GetModuleFileNameW(NULL, exePathBuf, MAX_PATH);
 	std::filesystem::path exeDir = std::filesystem::path(exePathBuf).parent_path();
 	SetCurrentDirectoryW(exeDir.c_str());
+
+	// 실행 모드
+	//   (인자 없음)          : NOVA Hub (프로젝트 선택/생성)
+	//   --project <폴더>     : 해당 프로젝트를 에디터로 연다
+	//   --editor             : 프로젝트 없이 엔진 폴더의 Assets 로 에디터를 연다 (엔진 개발용)
+	std::wstring projectPath;
+	bool editorOnly = false;
+	{
+		int argc = 0;
+		LPWSTR* argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+		for (int i = 1; argv && i < argc; ++i)
+		{
+			if (wcscmp(argv[i], L"--project") == 0 && i + 1 < argc)
+				projectPath = argv[++i];
+			else if (wcscmp(argv[i], L"--editor") == 0)
+				editorOnly = true;
+		}
+		::LocalFree(argv);
+	}
+
+	if (projectPath.empty() && !editorOnly)
+	{
+		try
+		{
+			HubApp hub(hInstance);
+			if (!hub.Init())
+			{
+				::MessageBoxW(NULL, L"NOVA Hub 초기화에 실패했습니다.", L"Init Error", MB_OK | MB_ICONERROR);
+				return 1;
+			}
+			return hub.Run();
+		}
+		catch (const std::exception& e)
+		{
+			::MessageBoxA(NULL, e.what(), "Exception", MB_OK | MB_ICONERROR);
+			return 1;
+		}
+	}
+
+	if (!projectPath.empty())
+		PathManager::SetProjectOverride(projectPath);
 
 	try
 	{

@@ -87,6 +87,7 @@ set(ENGINE_MODULE_DIRS
     Source/Editor/NodeEditor
     Source/ThirdParty/ImGui
     Source/ThirdParty/ImGui/ImGuiNodeEditor
+    Source/Hub
     Source/Platform
 )
 list(TRANSFORM ENGINE_MODULE_DIRS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")

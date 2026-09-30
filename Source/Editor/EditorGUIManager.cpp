@@ -3,6 +3,7 @@
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
 #include "GraphicsBackendFactory.h"
+#include "HubProject.h"
 
 #include "EditorWindow.h"
 #include "imgui_internal.h"
@@ -28,7 +29,7 @@ EditorGUIManager::~EditorGUIManager()
     Safe_Delete_Vec(m_pEditorDialogs); 
 }
 
-void EditorGUIManager::Init()
+void EditorGUIManager::Init(bool hubMode)
 {
     if (m_IsInit)
         return;
@@ -40,9 +41,16 @@ void EditorGUIManager::Init()
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    if (!hubMode)
+    {
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    }
+    else
+    {
+        // Hub는 에디터의 imgui.ini(창 배치)를 덮어쓰지 않는다.
+        io.IniFilename = nullptr;
+    }
     //io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports; 
     //io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts; 
 
@@ -58,17 +66,26 @@ void EditorGUIManager::Init()
     ImGui_ImplWin32_Init(Application::GetI()->GetMainHwnd());
     ImGui_ImplDX11_Init(Application::GetI()->GetDevice(), Application::GetI()->GetDeviceContext());
 
-    float fontSize = 24.0f;
+    // Hub는 창 DPI 배율에 맞춰 폰트 크기를 정한다. (에디터는 기존 고정 크기 유지)
+    float dpiScale = hubMode ? (float)GetDpiForWindow(Application::GetI()->GetMainHwnd()) / 96.0f : 1.0f;
+    float fontSize = hubMode ? 17.0f * dpiScale : 24.0f;
 
     ImFontConfig config;
     config.MergeMode = true; // 기존 폰트와 합쳐 사용 
     config.PixelSnapH = true;
     static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome 범위   
-    string fa_path = PathManager::GetI()->GetContentPathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
+    string fa_path = PathManager::GetI()->GetEnginePathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
     
     // Load Fonts
     io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesKorean());
-    io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 4, &config, icons_ranges); 
+    io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 4, &config, icons_ranges);
+
+    if (hubMode)
+    {
+        // Fonts[1]: Hub 제목용 굵고 큰 폰트
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgunbd.ttf", 26.0f * dpiScale, NULL, io.Fonts->GetGlyphRangesKorean());
+        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), 22.0f * dpiScale, &config, icons_ranges);
+    }
     io.Fonts->Build();
 }
 
@@ -110,7 +127,6 @@ void EditorGUIManager::BuildDefaultLayout(ImGuiID dockspaceId, ImVec2 size)
         if (t == "Hierachy") target = left;
         else if (t == "Inspector") target = right;
         else if (t == "Project" || t == "Console" || t == "Animator") target = bottom;
-        else if (t == "Unity Hub") continue;
         ImGui::DockBuilderDockWindow(w->GetImGuiName().c_str(), target);
     }
     ImGui::DockBuilderFinish(dockspaceId);
@@ -146,13 +162,10 @@ void EditorGUIManager::RenderEditorWindows()
                 }
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Project Hub...", "Ctrl+H"))
+            if (ImGui::MenuItem("Project Hub..."))
             {
-                for (auto& w : m_pEditorWindows)
-                {
-                    if (w->GetTitle() == "Unity Hub")
-                        w->SetIsOpened(true);
-                }
+                // Hub 는 별도 프로세스(같은 exe, 인자 없음)로 실행된다.
+                HubLauncher::LaunchHub();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Save Scene", "Ctrl+S"))

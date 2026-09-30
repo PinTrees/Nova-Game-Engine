@@ -13,7 +13,6 @@
 #include "GameViewEditorWindow.h"
 #include "ConsoleEditorWindow.h"
 #include "AnimatorEditorWindow.h"
-#include "ProjectHubWindow.h"
 #include "DisplayManager.h"
 
 #include "EditorGUIResourceManager.h"
@@ -133,9 +132,9 @@ int32 App::Run()
 	return (int)msg.wParam;
 }
 
-bool App::Init()
+bool App::InitPlatform()
 {
-	std::ofstream log("run_log.txt", std::ios::app);
+	std::ofstream log(_logFileName, std::ios::app);
 	log << "App::Init -> InitMainWindow..." << std::endl; log.flush();
 	if (!InitMainWindow())
 		return false;
@@ -143,6 +142,15 @@ bool App::Init()
 	GraphicsSettings::Init();
 	log << "App::Init -> InitDirect3D (backend: " << GraphicsSettings::GetBackend()->GetName() << ", requested: " << GraphicsAPIToString(GraphicsSettings::GetRequestedAPI()) << ")..." << std::endl; log.flush();
 	if (!InitDirect3D())
+		return false;
+
+	return true;
+}
+
+bool App::Init()
+{
+	std::ofstream log(_logFileName, std::ios::app);
+	if (!InitPlatform())
 		return false;
 
 	log << "App::Init -> PathManager..." << std::endl; log.flush();
@@ -165,7 +173,6 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new ProjectEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new ConsoleEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
-	EditorGUIManager::GetI()->RegisterWindow(new ProjectHubWindow);
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);
@@ -399,7 +406,15 @@ bool App::InitMainWindow()
 	int32 width  = R.right - R.left;
 	int32 height = R.bottom - R.top;
 
-	_hMainWnd = ::CreateWindow(L"NovaEngineWindow", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, _hAppInst, 0); 
+	int32 posX = CW_USEDEFAULT;
+	int32 posY = CW_USEDEFAULT;
+	if (_centerWindow)
+	{
+		posX = max(0, (::GetSystemMetrics(SM_CXSCREEN) - width) / 2);
+		posY = max(0, (::GetSystemMetrics(SM_CYSCREEN) - height) / 2);
+	}
+
+	_hMainWnd = ::CreateWindow(L"NovaEngineWindow", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, posX, posY, width, height, 0, 0, _hAppInst, 0); 
 	
 	if (_hMainWnd == nullptr)
 	{
@@ -418,7 +433,7 @@ bool App::InitMainWindow()
 
 bool App::InitDirect3D()
 {
-	std::ofstream log("run_log.txt", std::ios::app);
+	std::ofstream log(_logFileName, std::ios::app);
 	log << "  InitDirect3D -> CreateDeviceAndSwapChain..." << std::endl; log.flush();
 	CreateDeviceAndSwapChain();	
 	log << "  InitDirect3D -> OnResize..." << std::endl; log.flush();
@@ -528,7 +543,7 @@ void App::CreateDeviceAndSwapChain()
 		);
 	}
 
-	std::ofstream log("run_log.txt", std::ios::app);
+	std::ofstream log(_logFileName, std::ios::app);
 	log << "    D3D11CreateDeviceAndSwapChain final hr: " << hr << std::endl; log.flush();
 
 	CHECK(hr);
@@ -537,7 +552,7 @@ void App::CreateDeviceAndSwapChain()
 
 void App::CreateRenderTargetView()
 {
-	std::ofstream log("run_log.txt", std::ios::app);
+	std::ofstream log(_logFileName, std::ios::app);
 	log << "    CreateRenderTargetView entry..." << std::endl; log.flush();
 
 	HRESULT hr;
@@ -554,7 +569,7 @@ void App::CreateRenderTargetView()
 
 void App::CreateDepthStencilView()
 {
-	std::ofstream log("run_log.txt", std::ios::app);
+	std::ofstream log(_logFileName, std::ios::app);
 	log << "    CreateDepthStencilView entry..." << std::endl; log.flush();
 
 	{

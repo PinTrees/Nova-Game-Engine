@@ -99,7 +99,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Hub;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -117,7 +117,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Hub;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -135,7 +135,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Hub;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -157,7 +157,7 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)Libraries\Include\;$(SolutionDir)Source;$(SolutionDir)Source\Core;$(SolutionDir)Source\Math;$(SolutionDir)Source\Graphics;$(SolutionDir)Source\Graphics\Common;$(SolutionDir)Source\Graphics\DX11;$(SolutionDir)Source\Graphics\OpenGL;$(SolutionDir)Source\Animation;$(SolutionDir)Source\Physics;$(SolutionDir)Source\Scene;$(SolutionDir)Source\Scripting;$(SolutionDir)Source\Editor;$(SolutionDir)Source\Editor\Windows;$(SolutionDir)Source\Editor\Dialogs;$(SolutionDir)Source\Editor\NodeEditor;$(SolutionDir)Source\ThirdParty\ImGui;$(SolutionDir)Source\ThirdParty\ImGui\ImGuiNodeEditor;$(SolutionDir)Source\Hub;$(SolutionDir)Source\Platform</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -173,7 +173,6 @@
   <ItemGroup>
     <ClInclude Include="..\Source\Editor\EditorApp.h" />
     <ClInclude Include="..\Source\Scene\GameObjectFactory.h" />
-    <ClInclude Include="..\Source\Editor\Windows\ProjectHubWindow.h" />
     <ClInclude Include="..\Source\Editor\Dialogs\AnimationClipSelectEditorDialog.h" />
     <ClInclude Include="..\Source\Scene\AnimationPlayer.h" />
     <ClInclude Include="..\Source\Animation\AnimationHelper.h" />
@@ -286,6 +285,14 @@
     <ClInclude Include="..\Source\Graphics\Common\Waves.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\Source\Hub\HubApp.cpp" />
+    <ClCompile Include="..\Source\Hub\HubProject.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\Source\Hub\HubApp.h" />
+    <ClInclude Include="..\Source\Hub\HubProject.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="..\Source\Graphics\Common\GraphicsSettings.cpp" />
     <ClCompile Include="..\Source\Graphics\Common\GraphicsBackendFactory.cpp" />
   </ItemGroup>
@@ -301,7 +308,6 @@
   <ItemGroup>
     <ClCompile Include="..\Source\Editor\EditorApp.cpp" />
     <ClCompile Include="..\Source\Scene\GameObjectFactory.cpp" />
-    <ClCompile Include="..\Source\Editor\Windows\ProjectHubWindow.cpp" />
     <ClCompile Include="..\Source\Editor\Dialogs\AnimationClipSelectEditorDialog.cpp" />
     <ClCompile Include="..\Source\Scene\AnimationPlayer.cpp" />
     <ClCompile Include="..\Source\Animation\AnimationHelper.cpp" />

@@ -17,6 +17,14 @@ EditorApp::EditorApp(HINSTANCE hInstance)
 	: App(hInstance)
 {
 	_mainWindowCaption = ENGINE_NAME_W L" Editor";
+	if (!PathManager::GetProjectOverride().empty())
+	{
+		// "<프로젝트 이름> - NOVA Game Engine Editor"
+		std::filesystem::path projectRoot(PathManager::GetProjectOverride());
+		if (!projectRoot.has_filename() && projectRoot.has_parent_path())
+			projectRoot = projectRoot.parent_path();
+		_mainWindowCaption = projectRoot.filename().wstring() + L" - " + _mainWindowCaption;
+	}
 
 	_lastMousePos.x = 0;
 	_lastMousePos.y = 0;

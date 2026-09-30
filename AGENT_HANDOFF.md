@@ -16,8 +16,21 @@
 | 결과물 | `Binaries/NovaEngine.exe` (작업 디렉터리는 반드시 `Binaries/`) |
 | 로컬 경로 | `D:\GitHub\Nova-Game-Engine` |
 | 원격 | `https://github.com/PinTrees/Nova-Game-Engine.git` (구 `PinTrees/DX11`, 이름 변경 완료, 자동 리다이렉트) |
-| 브랜치 | `main` (원격보다 로컬이 **6커밋 앞섬, 아직 push 안 됨**) |
+| 브랜치 | `main` (기존 커밋은 push 완료. 새 커밋의 push는 사용자 지시가 있을 때만) |
 | 사용자 언어 | **한국어** – 답변/커밋 설명은 한국어, 코드 식별자는 영어 |
+
+### 실행 모드 (Unity Hub 방식)
+| 실행 | 동작 |
+|---|---|
+| `NovaEngine.exe` (인자 없음) | **NOVA Hub**만 먼저 뜸 (가벼운 창: D3D+ImGui만 초기화, 셰이더/씬 로딩 없음). 프로젝트 생성/선택/추가 |
+| `NovaEngine.exe --project "<프로젝트 폴더>"` | 해당 프로젝트를 **에디터**로 엶 (Hub가 프로젝트를 고르면 이 인자로 새 프로세스를 실행) |
+| `NovaEngine.exe --editor` | 프로젝트 없이 엔진 폴더의 `Assets/`(샘플 프로젝트)로 에디터 실행 – 엔진 개발/디버깅용 |
+
+- 소스: `Source/Hub/` (`HubApp` UI, `HubProject` 프로젝트 목록·생성·프로세스 실행). 목록 저장 위치는 `%LOCALAPPDATA%/NOVA/Hub/projects.json`. Hub 로그는 `Binaries/hub_log.txt` (에디터는 `run_log.txt`).
+- Hub가 만드는 프로젝트 구조: `Assets/`(+`Scenes/`, `EditorSettings.json`), `ProjectSettings/ProjectSettings.json`.
+- `PathManager`는 **엔진 루트**(Shaders/Resources/ProjectSetting 리소스)와 **프로젝트 루트**(Assets 등)를 분리해 관리한다. `GetMovePath*()`는 `ProjectSetting`/`Resources`/`Shaders`로 시작하는 경로는 엔진 루트, 그 외(`Assets/...`)는 프로젝트 루트로 해석한다. 엔진 루트는 `GetEnginePath*()`.
+- 에디터 `File > Project Hub...`는 Hub 프로세스를 새로 실행한다. (예전의 에디터 내부 ImGui `ProjectHubWindow`와 프로젝트별 CMake 빌드 버튼은 제거됨)
+- Hub UI는 Unity Hub(한국어판) 스크린샷 기준: 좌측 사이드바(프로젝트/설치), 상단 검색·추가▾·새 프로젝트, 행에 즐겨찾기 별·이름/경로·플랫폼·에디터 버전·수정됨·⋯ 메뉴, 경로가 없으면 "프로젝트를 찾을 수 없음" 배지.
 
 ---
 
@@ -32,7 +45,7 @@
 
 ### 미검증 (수정했지만 실행 확인 못 함)
 - `Edit > Graphics API` 서브메뉴 (컴파일만 확인, 클릭 동작/JSON 저장 미확인).
-- Project Hub의 **Open** 버튼(첫 `.scene` 탐색 후 로드) 동작.
+- NOVA Hub 실제 조작: 새 프로젝트 만들기 → 에디터 자동 실행, 디스크에서 추가, ⋯ 메뉴, 검색. (창 렌더링과 `--project`로 빈 프로젝트가 기본 씬으로 열리는 것까지만 확인함. GUI 자동 클릭은 다른 창을 건드릴 수 있어 쓰지 말고 사람이 확인하거나 창 전용 캡처만 사용할 것)
 - `NovaEngine/NovaEngine.vcxproj`, `NovaEngine.sln` (Visual Studio 직접 빌드 안 해봄. CMake 기준으로만 검증).
 - 루트 폴더 이름 변경 후 `build/` 재생성 및 재빌드(변경 작업은 예약 스크립트가 수행했을 수 있음. `D:\GitHub\_nova_rename.log` 확인. 다음 세션 시작 시 **`build.bat`부터 다시 실행해 확인**할 것).
 
@@ -121,7 +134,8 @@ Nova-Game-Engine/
 
 ### 4.3 (P2) 남은 UX 이슈 / 확인 필요 항목
 - Scene 뷰에 흰색 사각 영역 + 와이어프레임이 보이는 현상: 의도인지(터레인/그리드/스카이) 렌더 버그인지 분석. `EditorApp::_Editor_OnSceneRender` 경로 확인.
-- Project Hub: 표 컬럼(Name/Path/Modified/Version)이 좁게 잘려 보임 → 창 기본 크기/컬럼 폭 개선. 기본은 닫힘(`Ctrl+H`/`File > Project Hub…`로 열기).
+- NOVA Hub 개선 후보: 에디터 실행 후 Hub 자동 최소화/종료 옵션, 즐겨찾기 필터, 템플릿 미리보기, 프로젝트별 엔진 버전(설치 탭). 새 프로젝트의 `3D` 템플릿은 현재 빈 씬과 같고 에디터가 기본 씬(Main Camera + Directional Light)을 임시로 만든다 → 4.1의 `CreateDefaultScene`/`SampleScene.scene` 저장 구현 후 템플릿에 반영.
+- **주의(빌드)**: 루트 폴더 이름을 바꾼 뒤에는 `build/`의 CMake 캐시가 옛 경로를 가리켜 `build.bat`가 `CMakeCache.txt directory is different` 오류로 실패한다 → `build/`를 지우고(내부에 링크가 있어 `[IO.Directory]::Delete`가 일부 실패할 수 있으니 `clean.bat` 또는 탐색기 사용) 다시 실행.
 - `Edit > Graphics API` 실제 클릭 동작·`ProjectSetting/GraphicsSettings.json` 저장 검증.
 - `run_log.txt` 진단 로그(`App.cpp`, `EditorApp.cpp`, `Main.cpp`): 사용자가 원치 않으면 `#ifdef _DEBUG`/로거로 정리. 시작 실패 진단 목적이라 삭제 전 사용자 의견 확인.
 
