@@ -1,15 +1,18 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "Utils.h"
 #include "MathHelper.h"
 #include <filesystem>
+#include <fstream>
+#include <sstream>
+#include "Debug.h"
 namespace fs = std::filesystem;
 
 ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device, const wstring& path)
 {
-	// ���� Ȯ���� ���
+	// 파일 확장자 얻기
 	wstring ext = fs::path(path).extension();
 
-	DirectX::TexMetadata md;
+	DirectX::TexMetadata md = {};
 	DirectX::ScratchImage img;
 
 	HRESULT hr;
@@ -20,7 +23,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device,
 		hr = ::LoadFromTGAFile(path.c_str(), &md, img);
 	else // png, jpg, jpeg, bmp
 	{
-		// 디코딩된 텍스처(밉맵 포함)를 DDS로 캐시해 두 번째 실행부터 PNG 디코딩을 생략
+		// 디코딩된 텍스처를 밉맵 포함 DDS로 캐시해 다음 실행의 PNG 디코딩을 생략
 		fs::path cacheDir = L"TextureCache";
 		fs::path cacheFile = cacheDir / (fs::path(path).stem().wstring() + L"_" + std::to_wstring(std::hash<wstring>{}(fs::path(path).lexically_normal().wstring())) + L".dds");
 
@@ -52,11 +55,35 @@ ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device,
 		}
 	}
 
-	CHECK(hr);
-
 	ComPtr<ID3D11ShaderResourceView> srv;
-	hr = ::CreateShaderResourceView(device.Get(), img.GetImages(), img.GetImageCount(), md, srv.GetAddressOf());
-	CHECK(hr);
+	if (SUCCEEDED(hr))
+		hr = ::CreateShaderResourceView(device.Get(), img.GetImages(), img.GetImageCount(), md, srv.GetAddressOf());
+
+	if (FAILED(hr))
+	{
+		std::ostringstream message;
+		message << "Texture load failed: " << wstring_to_string(path)
+			<< " (HRESULT 0x" << std::hex << static_cast<unsigned long>(hr) << std::dec
+			<< ", " << md.width << "x" << md.height << ", format " << md.format << ")";
+		Debug::Log(message.str());
+		std::ofstream log("texture_errors.txt", std::ios::app);
+		log << message.str() << std::endl;
+
+		// Keep the editor usable when an asset cannot be uploaded to the GPU.
+		const uint32_t missingTexturePixel = 0xFFFF00FF;
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = desc.Height = desc.MipLevels = desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_IMMUTABLE;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		D3D11_SUBRESOURCE_DATA data = {};
+		data.pSysMem = &missingTexturePixel;
+		data.SysMemPitch = sizeof(missingTexturePixel);
+		ComPtr<ID3D11Texture2D> fallback;
+		if (SUCCEEDED(device->CreateTexture2D(&desc, &data, fallback.GetAddressOf())))
+			device->CreateShaderResourceView(fallback.Get(), nullptr, srv.ReleaseAndGetAddressOf());
+	}
 
 	return srv;
 }
