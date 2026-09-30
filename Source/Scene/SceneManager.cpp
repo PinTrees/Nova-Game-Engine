@@ -4,6 +4,8 @@
 #include "LightManager.h"
 #include "GameObjectFactory.h"
 #include "EditorSettingManager.h"
+#include "SelectionManager.h"
+#include "Debug.h"
 
 
 SINGLE_BODY(SceneManager)
@@ -47,7 +49,8 @@ void SceneManager::LoadScene(wstring scenePath)
 	}
 
 	m_pCurrScene->Enter();
-	DisplayManager::GetI()->Init(); 
+	DisplayManager::GetI()->Init();
+	MarkCurrentSceneSaved();   // 방금 연 씬은 "저장됨" 상태
 }
 
 void SceneManager::UpdateScene()
@@ -75,23 +78,79 @@ void SceneManager::LastUpdate()
 
 void SceneManager::HandleSaveScene()
 {
-	if (INPUT_KEY_HOLD(KEY::CTRL) && INPUT_KEY_HOLD(KEY::LSHIFT) && INPUT_KEY_DOWN(KEY::S))
-	{
-		if (m_pCurrScene == nullptr)
-			return;
+	// GetAsyncKeyState 기반이라 한글 입력(IME) 상태에서도 동작한다. Ctrl 과 S 를 같은 프레임에 눌러도 되도록 TAP 도 허용.
+	const bool ctrl = (INPUT_KEY_HOLD(KEY::CTRL)) || (INPUT_KEY_DOWN(KEY::CTRL));
+	if (!ctrl || !(INPUT_KEY_DOWN(KEY::S)))
+		return;
+	const bool shift = (INPUT_KEY_HOLD(KEY::LSHIFT)) || (INPUT_KEY_DOWN(KEY::LSHIFT)) || (::GetAsyncKeyState(VK_RSHIFT) & 0x8000);
+	SaveCurrentScene(shift);
+}
 
-		Scene::SaveNewScene(m_pCurrScene);
-	}
-	else if (INPUT_KEY_HOLD(KEY::CTRL) && INPUT_KEY_DOWN(KEY::S))
+bool SceneManager::SaveCurrentScene(bool saveAs)
+{
+	if (m_pCurrScene == nullptr)
+		return false;
+	if (Application::IsPlaying())
 	{
-		if (m_pCurrScene == nullptr)
-			return;
-
-		if (m_pCurrScene->GetScenePath().empty())
-			Scene::SaveNewScene(m_pCurrScene);
-		else
-			Scene::Save(m_pCurrScene);
+		Debug::Log("Play 모드에서는 씬을 저장할 수 없습니다. Play 를 멈춘 뒤 저장하세요.");
+		return false;
 	}
+
+	const bool ok = (saveAs || m_pCurrScene->GetScenePath().empty()) ? Scene::SaveNewScene(m_pCurrScene) : Scene::Save(m_pCurrScene);
+	if (ok)
+	{
+		m_Scenes[m_pCurrScene->GetScenePath()] = m_pCurrScene;
+		MarkCurrentSceneSaved();
+		Debug::Log("씬을 저장했습니다: " + wstring_to_string(m_pCurrScene->GetScenePath()));
+	}
+	else if (!m_pCurrScene->GetScenePath().empty() && !saveAs)
+		Debug::Log("씬 저장에 실패했습니다: " + wstring_to_string(m_pCurrScene->GetScenePath()));
+	return ok;
+}
+
+size_t SceneManager::ComputeSceneHash() const
+{
+	if (m_pCurrScene == nullptr)
+		return 0;
+	json j = *m_pCurrScene;
+	return std::hash<std::string>()(j.dump());
+}
+
+void SceneManager::MarkCurrentSceneSaved()
+{
+	m_SavedHash = m_CheckedHash = ComputeSceneHash();
+	m_Dirty = false;
+	m_LastDirtyCheck = -1.0;
+}
+
+bool SceneManager::IsCurrentSceneDirty()
+{
+	if (m_pCurrScene == nullptr)
+		return false;
+	// Play 중의 변화는 저장 대상이 아니므로 Play 직전 상태를 유지한다
+	if (Application::IsPlaying())
+		return m_Dirty;
+	const double now = ::GetTickCount64() / 1000.0;
+	if (m_LastDirtyCheck < 0.0 || now - m_LastDirtyCheck > 0.25)
+	{
+		m_LastDirtyCheck = now;
+		m_CheckedHash = ComputeSceneHash();
+		m_Dirty = m_CheckedHash != m_SavedHash;
+	}
+	return m_Dirty;
+}
+
+void SceneManager::DiscardChanges()
+{
+	if (m_pCurrScene == nullptr || m_pCurrScene->GetScenePath().empty() || Application::IsPlaying())
+		return;
+	const std::wstring path = m_pCurrScene->GetScenePath();
+	m_pCurrScene->Exit();
+	m_Scenes.erase(path);
+	delete m_pCurrScene;
+	m_pCurrScene = nullptr;
+	SelectionManager::ClearSelection();
+	LoadScene(path);
 }
 
 void SceneManager::HandlePlay()
@@ -159,7 +218,7 @@ void SceneManager::CreateScene()
 	GameObject* light = GameObjectFactory::CreateDirectionalLight("Directional Light");
 	m_pCurrScene->AddRootGameObject(light);
 
-	DisplayManager::GetI()->Init();
+	DisplayManager::GetI()->Init();	MarkCurrentSceneSaved();   // 새 씬은 바뀐 내용이 생길 때부터 * 표시
 }
 
 
@@ -185,6 +244,7 @@ void SceneManager::LoadStartupScene()
 		m_Scenes[samplePath] = m_pCurrScene;
 		m_pCurrScene->Enter();
 		DisplayManager::GetI()->Init();
+		MarkCurrentSceneSaved();
 		return;
 	}
 

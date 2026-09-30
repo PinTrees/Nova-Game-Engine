@@ -29,6 +29,7 @@ private:
 
 private:
 	char m_Search[64] = {};
+	bool m_PendingDiscard = false;   // 씬 메뉴의 Discard changes (다음 프레임에 처리)
 	bool m_SceneOpen = true;
 	bool m_WindowFocused = false;
 	GameObject* m_PendingDelete = nullptr;

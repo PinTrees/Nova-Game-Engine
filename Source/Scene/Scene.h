@@ -46,8 +46,8 @@ public:
 
 public:
 	static Scene* Load(wstring scenePath);
-	static void Save(Scene* scene);
-	static void SaveNewScene(Scene* scene);
+	static bool Save(Scene* scene);          // 저장 성공 시 true
+	static bool SaveNewScene(Scene* scene);  // 파일 대화상자에서 취소하면 false
 
 public:
 	void DestroyComponent(Component* component);  

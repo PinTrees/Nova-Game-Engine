@@ -330,23 +330,10 @@ void EditorGUIManager::RenderEditorWindows()
                 HubLauncher::LaunchHub();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
-            {
-                Scene* curr = SceneManager::GetI()->GetCurrentScene();
-                if (curr)
-                {
-                    if (curr->GetScenePath().empty())
-                        Scene::SaveNewScene(curr);
-                    else
-                        Scene::Save(curr);
-                }
-            }
-            if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S"))
-            {
-                Scene* curr = SceneManager::GetI()->GetCurrentScene();
-                if (curr)
-                    Scene::SaveNewScene(curr);
-            }
+            if (ImGui::MenuItem("Save", "Ctrl+S", false, !Application::IsPlaying()))
+                SceneManager::GetI()->SaveCurrentScene(false);
+            if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, !Application::IsPlaying()))
+                SceneManager::GetI()->SaveCurrentScene(true);
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4"))
             {

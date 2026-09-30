@@ -18,6 +18,13 @@ private:
 	std::vector<std::function<void()>> m_Editor_LastUpdateActions;
 	std::string m_PlayModeSceneSnapshot;
 
+	// 저장 이후 변경 여부 (Unity 의 "SampleScene*" 표시). 씬 JSON 해시를 저장 시점과 비교한다.
+	size_t m_SavedHash = 0;
+	size_t m_CheckedHash = 0;
+	double m_LastDirtyCheck = -1.0;
+	bool m_Dirty = false;
+	size_t ComputeSceneHash() const;
+
 public:
 	void Init();
 
@@ -34,6 +41,15 @@ public:
 	
 	// Editor
 	void HandleSaveScene();
+
+	// 현재 씬 저장 (Ctrl+S / File > Save / Hierarchy 메뉴 공통). Play 모드에서는 저장하지 않는다 (Unity 와 동일).
+	bool SaveCurrentScene(bool saveAs = false);
+	// 마지막 저장 이후 바뀐 내용이 있는지 (0.25 초마다 다시 계산)
+	bool IsCurrentSceneDirty();
+	// 현재 상태를 "저장됨" 으로 표시 (씬을 열거나 만든 직후)
+	void MarkCurrentSceneSaved();
+	// 저장하지 않은 변경을 버리고 파일에서 다시 읽는다
+	void DiscardChanges();
 	void HandlePlay();
 	void HandleStop();
 	void CreateScene();

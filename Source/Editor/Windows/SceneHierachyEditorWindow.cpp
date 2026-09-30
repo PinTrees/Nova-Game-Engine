@@ -6,6 +6,7 @@
 #include "EditorTheme.h"
 #include "GameObjectFactory.h"
 #include "GameObjectMenu.h"
+#include "UnityGUI.h"
 
 // Unity Hierarchy 창: 상단 [+ ▾] / 검색 행, 씬 이름 헤더 행, 그 아래 GameObject 트리
 namespace
@@ -238,27 +239,83 @@ void SceneHierachyEditorWindow::DrawToolbar(Scene* scene)
 	ImGui::PopStyleColor();
 }
 
+// Unity Hierarchy 의 씬 행: [▼] [씬 아이콘] 씬 파일 이름(굵게, 저장 안 된 변경이 있으면 *)  ...  [⋮]
+// 우클릭 또는 ⋮ 버튼으로 씬 메뉴 (Save Scene, Save Scene As, Discard changes, GameObject 생성 ...)
 void SceneHierachyEditorWindow::DrawSceneHeader(Scene* scene)
 {
 	ImDrawList* dl = ImGui::GetWindowDrawList();
-	ImVec2 p = ImGui::GetCursorScreenPos();
+	const ImVec2 p = ImGui::GetCursorScreenPos();
 	const float w = ImGui::GetContentRegionAvail().x;
 	const float h = kRowHeight + 2.0f;
 
 	ImGui::PushID("##SceneHeader");
-	if (ImGui::InvisibleButton("##header", ImVec2(w, h)))
-		m_SceneOpen = !m_SceneOpen;
-	ImGui::PopID();
+	ImGui::InvisibleButton("##header", ImVec2(w, h), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+	const bool hovered = ImGui::IsItemHovered();
+	const ImVec2 mouse = ImGui::GetIO().MousePos;
+	const bool onKebab = mouse.x >= p.x + w - 22.0f;
+	if (ImGui::IsItemClicked(ImGuiMouseButton_Left))
+	{
+		if (onKebab)
+			ImGui::OpenPopup("##SceneMenu");
+		else
+			m_SceneOpen = !m_SceneOpen;
+	}
+	if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+		ImGui::OpenPopup("##SceneMenu");
 
-	dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(EditorTheme::Rgb(66, 66, 66)));
+	dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), ImGui::GetColorU32(hovered ? EditorTheme::Rgb(70, 70, 70) : EditorTheme::Rgb(62, 62, 62)));
+	dl->AddLine(ImVec2(p.x, p.y + h - 0.5f), ImVec2(p.x + w, p.y + h - 0.5f), ImGui::GetColorU32(EditorTheme::Rgb(36, 36, 36)));
 
-	const float ty = p.y + (h - ImGui::GetFontSize()) * 0.5f;
-	dl->AddText(ImVec2(p.x + 6.0f, ty), ImGui::GetColorU32(EditorTheme::TextDim()), m_SceneOpen ? ICON_FA_CHEVRON_DOWN : ICON_FA_CHEVRON_RIGHT);
-	dl->AddText(ImVec2(p.x + 24.0f, ty), ImGui::GetColorU32(EditorTheme::Text()), ICON_FA_CUBES);
+	const float iconY = floorf(p.y + (h - 16.0f) * 0.5f);
+	UnityGUI::DrawIcon(dl, m_SceneOpen ? "arrow_down" : "arrow_right", ImVec2(p.x + 4.0f, iconY), 16.0f);
+	UnityGUI::DrawIcon(dl, "scene", ImVec2(p.x + 20.0f, iconY), 16.0f);
 
+	// 씬 파일 이름 (예: SampleScene), 저장하지 않은 변경이 있으면 * (Unity 와 동일)
 	std::string name = wstring_to_string(scene->GetName());
 	if (name.empty()) name = "Untitled";
-	dl->AddText(ImVec2(p.x + 44.0f, ty), ImGui::GetColorU32(EditorTheme::Rgb(230, 230, 230)), name.c_str());
+	if (SceneManager::GetI()->IsCurrentSceneDirty())
+		name += "*";
+	ImFont* bold = UnityGUI::BoldFont();
+	const float fs = bold->FontSize;
+	dl->AddText(bold, fs, ImVec2(p.x + 40.0f, floorf(p.y + (h - fs) * 0.5f + 0.5f)), ImGui::GetColorU32(EditorTheme::Rgb(230, 230, 230)), name.c_str());
+	UnityGUI::DrawIcon(dl, "kebab", ImVec2(p.x + w - 20.0f, iconY), 16.0f, onKebab && hovered ? IM_COL32_WHITE : IM_COL32(200, 200, 200, 255));
+
+	if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_DelayNormal) && !scene->GetScenePath().empty())
+		ImGui::SetTooltip("%s", wstring_to_string(scene->GetScenePath()).c_str());
+
+	// 씬 메뉴 (Unity 의 씬 헤더 컨텍스트 메뉴)
+	const bool playing = Application::IsPlaying();
+	const bool dirty = SceneManager::GetI()->IsCurrentSceneDirty();
+	GameObjectMenu::PushContextStyle();
+	GameObjectMenu::SetMenuWidth(230.0f);
+	if (ImGui::BeginPopup("##SceneMenu"))
+	{
+		ImGui::MenuItem("Set Active Scene", nullptr, false, false);
+		ImGui::Separator();
+		if (ImGui::MenuItem("Save Scene", "Ctrl+S", false, !playing))
+			SceneManager::GetI()->SaveCurrentScene(false);
+		if (ImGui::MenuItem("Save Scene As", nullptr, false, !playing))
+			SceneManager::GetI()->SaveCurrentScene(true);
+		if (ImGui::MenuItem("Save All", nullptr, false, !playing))
+			SceneManager::GetI()->SaveCurrentScene(false);
+		ImGui::Separator();
+		ImGui::MenuItem("Unload Scene", nullptr, false, false);
+		ImGui::MenuItem("Remove Scene", nullptr, false, false);
+		if (ImGui::MenuItem("Discard changes", nullptr, false, dirty && !playing && !scene->GetScenePath().empty()))
+			m_PendingDiscard = true;
+		ImGui::Separator();
+		ImGui::MenuItem("Select Scene Asset", nullptr, false, false);
+		ImGui::MenuItem("Add New Scene", nullptr, false, false);
+		ImGui::Separator();
+		if (ImGui::BeginMenu("GameObject"))
+		{
+			GameObjectMenu::DrawCreateItems(scene, nullptr);
+			ImGui::EndMenu();
+		}
+		ImGui::EndPopup();
+	}
+	GameObjectMenu::PopContextStyle();
+	ImGui::PopID();
 }
 
 void SceneHierachyEditorWindow::OnRender()
@@ -267,6 +324,13 @@ void SceneHierachyEditorWindow::OnRender()
 
 	if (currentScene == nullptr)
 		return;
+
+	if (m_PendingDiscard)
+	{
+		m_PendingDiscard = false;
+		SceneManager::GetI()->DiscardChanges();
+		return;
+	}
 
 	m_WindowFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	m_PendingDelete = nullptr;

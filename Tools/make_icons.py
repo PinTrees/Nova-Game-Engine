@@ -27,6 +27,11 @@ ICONS = {
     "search": svg16(
         f'  <circle cx="6.8" cy="6.8" r="4.3" fill="none" stroke="{G}" stroke-width="1.5"/>\n'
         f'  <line x1="10" y1="10" x2="13.8" y2="13.8" stroke="{G}" stroke-width="1.7" stroke-linecap="round"/>'),
+    # Unity 씬 에셋 아이콘 (유니티 로고 형태의 큐브)
+    "scene": svg16(
+        '  <path d="M8 1.2 L14 4.6 L14 11.4 L8 14.8 L2 11.4 L2 4.6 Z" fill="none" stroke="#D8D8D8" stroke-width="1.3" stroke-linejoin="round"/>\n'
+        '  <path d="M8 8 L8 14.8 M8 8 L2 4.6 M8 8 L14 4.6" fill="none" stroke="#D8D8D8" stroke-width="1.3"/>\n'
+        '  <circle cx="8" cy="8" r="1.6" fill="#D8D8D8"/>'),
     "dropdown": svg16(f'  <polygon points="4,6 12,6 8,10.6" fill="{G}"/>'),
     "help": svg16(
         f'  <circle cx="8" cy="8" r="6.4" fill="none" stroke="{G}" stroke-width="1.2"/>\n'

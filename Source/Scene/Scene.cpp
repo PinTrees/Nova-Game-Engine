@@ -309,62 +309,56 @@ Scene* Scene::Load(wstring scenePath)
     return scene;
 }
 
-void Scene::Save(Scene* scene)
+// 씬 경로 → 실제 파일 경로 (프로젝트 기준 상대 경로 또는 절대 경로)
+static std::wstring ResolveScenePath(const std::wstring& path)
 {
-    if (scene->m_ScenePath.empty())
-    {
-        return;
-    }
-
-    json j = *scene;
-    //std::ofstream os(scene->m_ScenePath);
-    std::error_code ec;
-    std::filesystem::create_directories(std::filesystem::path(PathManager::GetI()->GetMovePathW(scene->m_ScenePath)).parent_path(), ec);
-    std::ofstream os(PathManager::GetI()->GetMovePathW(scene->m_ScenePath));
-
-    if (os)
-    {
-        os << j.dump(4);
-        os.close();
-
-        // 저장됨
-        // 마지막 오픈 씬을 현재 씬으로 변경
-        EditorSettingManager::SetLastOpenedScenePath(scene->m_ScenePath);
-    }
-    else
-    {
-        // 저장 실패 처리
-    }
+    std::filesystem::path fp(path);
+    return fp.is_absolute() ? path : PathManager::GetI()->GetMovePathW(path);
 }
 
-void Scene::SaveNewScene(Scene* scene)
+// 씬을 JSON 으로 파일에 쓴다. 성공하면 마지막으로 연 씬으로 기록한다.
+static bool WriteSceneFile(Scene* scene, const std::wstring& scenePath)
 {
-    //std::wstring filePath = EditorUtility::SaveFileDialog(Application::GetDataPath(), L"Save Scene As", L"scene");
+    const std::wstring filePath = ResolveScenePath(scenePath);
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(filePath).parent_path(), ec);
+
+    json j = *scene;
+    std::ofstream os(filePath, std::ios::binary | std::ios::trunc);
+    if (!os)
+        return false;
+    os << j.dump(4);
+    os.close();
+    if (os.fail())
+        return false;
+
+    EditorSettingManager::SetLastOpenedScenePath(scenePath);
+    return true;
+}
+
+bool Scene::Save(Scene* scene)
+{
+    if (scene == nullptr || scene->m_ScenePath.empty())
+        return false;
+    return WriteSceneFile(scene, scene->m_ScenePath);
+}
+
+bool Scene::SaveNewScene(Scene* scene)
+{
+    if (scene == nullptr)
+        return false;
     std::wstring filePath = EditorUtility::SaveFileDialog(PathManager::GetI()->GetMovePathW(L"Assets\\"), L"Save Scene As", L"scene");
-    
-    filePath = PathManager::GetI()->GetCutSolutionPath(filePath);
+    if (filePath.empty())
+        return false;   // 취소
 
-    if (!filePath.empty()) 
-    {
-        scene->m_ScenePath = filePath;
-
-        json j = *scene;
-        std::ofstream os(PathManager::GetI()->GetMovePathW(filePath));
-
-        if (os)
-        {
-            os << j.dump(4); 
-            os.close();
-
-            // 저장됨
-            // 마지막 오픈 씬을 현재 씬으로 변경
-            EditorSettingManager::SetLastOpenedScenePath(filePath);
-        }
-        else 
-        {
-            // 저장 실패 처리
-        }
-    }
+    // 확장자 보정 후, 프로젝트 안이면 "Assets\\..." 상대 경로로 저장한다 (밖이면 절대 경로 그대로)
+    if (std::filesystem::path(filePath).extension() != L".scene")
+        filePath += L".scene";
+    const std::wstring relative = PathManager::GetI()->GetCutSolutionPath(filePath);
+    if (!WriteSceneFile(scene, relative))
+        return false;
+    scene->m_ScenePath = relative;
+    return true;
 }
 
 void Scene::DestroyComponent(Component* component)

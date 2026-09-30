@@ -551,7 +551,10 @@ void App::CalculateFrameStats()
 
 		std::wostringstream outs;   
 		outs.precision(6);
-		outs << _mainWindowCaption << L"    "  << L"FPS: " << fps << L"    "  << L"Frame Time: " << mspf << L" (ms)";
+		std::wstring caption = _mainWindowCaption;
+		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+			caption = scene->GetName() + (SceneManager::GetI()->IsCurrentSceneDirty() ? L"*" : L"") + L" - " + caption;
+		outs << caption << L"    "  << L"FPS: " << fps << L"    "  << L"Frame Time: " << mspf << L" (ms)";
 
 		::SetWindowText(_hMainWnd, outs.str().c_str());
 		
