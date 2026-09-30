@@ -241,15 +241,7 @@ void Scene::_Editor_RenderSceneShadowNormal()
 
 void Scene::RenderSceneGizmos()
 {
-    if (SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT)
-    {
-        GameObject* gameObject = SelectionManager::GetSelectedGameObject();
-
-        if (gameObject)
-        {
-            Gizmo::DrawTransformHandler(gameObject->GetTransform());
-        }
-    }
+    // 선택 오브젝트의 이동/회전/크기 핸들은 SceneGizmoTools 가 그린다 (Unity 스타일)
 
     for (auto& gameObject : m_ArrGameObjects[0])
     {

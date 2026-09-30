@@ -5,6 +5,7 @@
 #include "MathHelper.h"
 #include "SceneViewOverlay.h"
 #include "SceneToolbar.h"
+#include "SceneGizmoTools.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -149,10 +150,15 @@ void SceneEditorWindow::OnRender()
     SceneViewOverlay::DrawBackground(imageMin, imageMax, m_Camera);
 
     ImGui::Image(reinterpret_cast<void*>(shaderResourceView), windowSize);
+
+    // 뷰 전체를 덮는 입력 영역 (클릭이 창 이동/도킹으로 넘어가지 않도록). 팔레트 버튼이 위에 겹칠 수 있게 허용.
+    ImGui::SetCursorScreenPos(imageMin);
+    ImGui::SetNextItemAllowOverlap();
+    ImGui::InvisibleButton("##SceneViewInput", windowSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 mouse = io.MousePos;
-    const bool overPalette = mouse.x < imageMin.x + 40.0f && mouse.y < imageMin.y + 180.0f;
-    const bool viewHovered = ImGui::IsItemHovered() && !overPalette;
+    const bool overPalette = mouse.x < imageMin.x + 40.0f && mouse.y < imageMin.y + 170.0f;
+    const bool viewHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem) && !overPalette;
 
     SceneViewOverlay::Begin(imageMin, imageMax, m_Camera);
     if (SceneToolbar::GridVisible())
@@ -161,18 +167,9 @@ void SceneEditorWindow::OnRender()
         SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
     SceneViewOverlay::End();
 
-    // 도구 단축키(Q/W/E/R/T/Y), Hand 도구 이동(좌클릭 드래그), 마우스 휠 줌
+    // 도구 단축키(Q/W/E/R/T/Y) → Move/Rotate/Scale/Rect 핸들, 클릭 선택, Hand/휠/Alt 궤도/F 포커스
     SceneToolbar::HandleShortcuts(viewHovered);
-    if (viewHovered && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
-    {
-        if (SceneToolbar::CurrentTool() == SceneToolbar::Tool::View && ImGui::IsMouseDown(ImGuiMouseButton_Left))
-        {
-            m_Camera->Strafe(-io.MouseDelta.x * 0.03f);
-            m_Camera->Pedestal(io.MouseDelta.y * 0.03f);
-        }
-        if (io.MouseWheel != 0.0f)
-            m_Camera->Walk(io.MouseWheel * 2.0f);
-    }
+    SceneGizmoTools::Update(m_Camera, imageMin, imageMax, viewHovered);
 
     SceneToolbar::DrawToolPalette(imageMin, imageMax);
 }

@@ -9,10 +9,19 @@ namespace
 {
 	using namespace SceneToolbar;
 
+	// (개발/검증용) NOVA_TOOL=0..5 로 시작 도구 지정 (View, Move, Rotate, Scale, Rect, Transform)
+	Tool InitialTool()
+	{
+		char buf[8] = {};
+		if (::GetEnvironmentVariableA("NOVA_TOOL", buf, sizeof(buf)) > 0 && buf[0] >= '0' && buf[0] <= '5')
+			return (Tool)(buf[0] - '0');
+		return Tool::Move;
+	}
+
 	// ---- 툴바 상태 (Scene 뷰가 하나이므로 전역) ----
 	struct State
 	{
-		Tool tool = Tool::Move;
+		Tool tool = InitialTool();
 		PivotMode pivot = PivotMode::Pivot;
 		HandleSpace space = HandleSpace::Local;
 

@@ -12,6 +12,23 @@ public:
 	static void End();
 	static bool IsActive() { return s_Active; }
 
+	// Gizmo 가 쓰는 화면 영역: min/max 는 (0,0)~(폭,높이), offset 은 이미지 왼쪽 위 화면 좌표.
+	// 오버레이가 활성화되지 않았으면 현재 ImGui 창의 콘텐츠 영역을 돌려준다.
+	static void GetViewRect(ImVec2& regionMin, ImVec2& regionMax, ImVec2& offset)
+	{
+		if (s_Active)
+		{
+			regionMin = ImVec2(0, 0);
+			regionMax = ImVec2(s_Max.x - s_Min.x, s_Max.y - s_Min.y);
+			offset = s_Min;
+			return;
+		}
+		ImVec2 wp = ImGui::GetWindowPos();
+		regionMin = ImGui::GetWindowContentRegionMin();
+		regionMax = ImGui::GetWindowContentRegionMax();
+		offset = ImVec2(regionMin.x + wp.x, regionMin.y + wp.y);
+	}
+
 	// Unity 스타일 하늘/지평선 그라디언트 (이미지 뒤에 그린다)
 	static void DrawBackground(const ImVec2& viewMin, const ImVec2& viewMax, EditorCamera* camera);
 

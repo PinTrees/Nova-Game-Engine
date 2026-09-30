@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Gizmo.h"
+#include "SceneViewOverlay.h"
 #include "Effects.h"
 #include "MathHelper.h"
 #include "SceneEditorWindow.h"
@@ -35,10 +36,8 @@ void Gizmo::DrawVector(const Matrix worldMatrix, const Vec3 vector)
     float scale = distance / 7.0f;
 
     // ÇöÀç Ã¢ÀÇ À§Ä¡¿Í Å©±â¸¦ °¡Á®¿È
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentRegionMin = ImGui::GetWindowContentRegionMin();
-    ImVec2 contentRegionMax = ImGui::GetWindowContentRegionMax();
-    ImVec2 offset = ImVec2(contentRegionMin.x + windowPos.x, contentRegionMin.y + windowPos.y);
+    ImVec2 contentRegionMin, contentRegionMax, offset;
+    SceneViewOverlay::GetViewRect(contentRegionMin, contentRegionMax, offset);   // Scene ì´ë¯¸ì§€ ì˜ì—­ (íˆ´ë°” ì œì™¸)
 
     auto WorldToScreen = [&](const Vec3& worldPos) -> ImVec2
         {
@@ -90,10 +89,8 @@ void Gizmo::DrawCube(const XMMATRIX& worldMatrix, const Vec3& size)
     context->RSGetViewports(&numViewports, &viewport);
 
     // ÇöÀç Ã¢ÀÇ À§Ä¡¿Í Å©±â¸¦ °¡Á®¿È
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentRegionMin = ImGui::GetWindowContentRegionMin();
-    ImVec2 contentRegionMax = ImGui::GetWindowContentRegionMax();
-    ImVec2 offset = ImVec2(contentRegionMin.x + windowPos.x, contentRegionMin.y + windowPos.y);
+    ImVec2 contentRegionMin, contentRegionMax, offset;
+    SceneViewOverlay::GetViewRect(contentRegionMin, contentRegionMax, offset);   // Scene ì´ë¯¸ì§€ ì˜ì—­ (íˆ´ë°” ì œì™¸)
 
     // ²ÀÁþÁ¡À» ½ºÅ©¸° ÁÂÇ¥·Î º¯È¯
     ImVec2 screenVertices[8];
@@ -145,10 +142,8 @@ void Gizmo::DrawSphere(const XMMATRIX& worldMatrix, float radius)
     context->RSGetViewports(&numViewports, &viewport);
 
     // ÇöÀç Ã¢ÀÇ À§Ä¡¿Í Å©±â¸¦ °¡Á®¿È
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentRegionMin = ImGui::GetWindowContentRegionMin();
-    ImVec2 contentRegionMax = ImGui::GetWindowContentRegionMax();
-    ImVec2 offset = ImVec2(contentRegionMin.x + windowPos.x, contentRegionMin.y + windowPos.y);
+    ImVec2 contentRegionMin, contentRegionMax, offset;
+    SceneViewOverlay::GetViewRect(contentRegionMin, contentRegionMax, offset);   // Scene ì´ë¯¸ì§€ ì˜ì—­ (íˆ´ë°” ì œì™¸)
 
     auto WorldToScreen = [&](const XMFLOAT3& worldPos) -> ImVec2
         {
@@ -244,10 +239,8 @@ void Gizmo::DrawArrow(Vector3 position, Vec3 dir, ImVec4 color)
     context->RSGetViewports(&numViewports, &viewport);
 
     // ÇöÀç Ã¢ÀÇ À§Ä¡¿Í Å©±â¸¦ °¡Á®¿È
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentRegionMin = ImGui::GetWindowContentRegionMin();
-    ImVec2 contentRegionMax = ImGui::GetWindowContentRegionMax();
-    ImVec2 offset = ImVec2(contentRegionMin.x + windowPos.x, contentRegionMin.y + windowPos.y);
+    ImVec2 contentRegionMin, contentRegionMax, offset;
+    SceneViewOverlay::GetViewRect(contentRegionMin, contentRegionMax, offset);   // Scene ì´ë¯¸ì§€ ì˜ì—­ (íˆ´ë°” ì œì™¸)
 
     auto WorldToScreen = [&](const Vector3& worldPos) -> Vec2
         {
@@ -313,10 +306,8 @@ void Gizmo::DrawFrustum(const XMMATRIX& worldMatrix, float _near, float _far, fl
     context->RSGetViewports(&numViewports, &viewport);
 
     // ÇöÀç Ã¢ÀÇ À§Ä¡¿Í Å©±â¸¦ °¡Á®¿È
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentRegionMin = ImGui::GetWindowContentRegionMin();
-    ImVec2 contentRegionMax = ImGui::GetWindowContentRegionMax();
-    ImVec2 offset = ImVec2(contentRegionMin.x + windowPos.x, contentRegionMin.y + windowPos.y);
+    ImVec2 contentRegionMin, contentRegionMax, offset;
+    SceneViewOverlay::GetViewRect(contentRegionMin, contentRegionMax, offset);   // Scene ì´ë¯¸ì§€ ì˜ì—­ (íˆ´ë°” ì œì™¸)
 
     // ±ÙÆò¸é°ú ¿øÆò¸éÀÇ ²ÀÁþÁ¡À» ½ºÅ©¸° ÁÂÇ¥·Î º¯È¯
     ImVec2 screenNearVertices[4];
@@ -397,10 +388,8 @@ void Gizmo::DrawTransformHandler(Transform* transform)
     context->RSGetViewports(&numViewports, &viewport);
 
     // ÇöÀç Ã¢ÀÇ À§Ä¡¿Í Å©±â¸¦ °¡Á®¿È
-    ImVec2 windowPos = ImGui::GetWindowPos();
-    ImVec2 contentRegionMin = ImGui::GetWindowContentRegionMin();
-    ImVec2 contentRegionMax = ImGui::GetWindowContentRegionMax();
-    ImVec2 offset = ImVec2(contentRegionMin.x + windowPos.x, contentRegionMin.y + windowPos.y);
+    ImVec2 contentRegionMin, contentRegionMax, offset;
+    SceneViewOverlay::GetViewRect(contentRegionMin, contentRegionMax, offset);   // Scene ì´ë¯¸ì§€ ì˜ì—­ (íˆ´ë°” ì œì™¸)
 
     auto WorldToScreen = [&](const XMVECTOR& worldPos) -> ImVec2
     {
