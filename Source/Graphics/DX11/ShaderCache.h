@@ -8,4 +8,11 @@ namespace ShaderCache
 {
 	HRESULT CompileEffect(const std::wstring& filename, UINT shaderFlags,
 		Microsoft::WRL::ComPtr<ID3DBlob>& outBlob, Microsoft::WRL::ComPtr<ID3DBlob>& outMsgs);
+
+	// Effect/Shader 가 쓰는 컴파일 옵션 (Debug 빌드는 디버그 정보 + 최적화 생략)
+	UINT DefaultFlags();
+
+	// 캐시가 오래된 셰이더를 여러 스레드로 미리 컴파일해 캐시에 넣는다 (시작 시 한 번).
+	// 이후 Effect 생성은 캐시에서 바로 읽는다. 목록에 없는 파일은 원래대로 그때 컴파일된다.
+	void PrecompileParallel(const std::vector<std::wstring>& files, UINT shaderFlags);
 }

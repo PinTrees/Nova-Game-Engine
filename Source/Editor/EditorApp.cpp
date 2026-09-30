@@ -4,6 +4,7 @@
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
 #include "Effects.h"
+#include "ShaderCache.h"
 #include "Vertex.h"
 #include "RenderStates.h"
 #include "Sky.h"
@@ -70,7 +71,19 @@ bool EditorApp::Init()
 	}
 
 	log << "EditorApp::Init -> Effects::InitAll..." << std::endl; log.flush();
-	LoadingScreen::BeginShaderPhase(0.22f, 0.90f, 22);   // Effects 20 + Shaders 2
+	{
+		// Effects::InitAll + Shaders::InitAll 이 쓰는 파일 (여기 없는 파일도 동작은 한다 - 그때 따로 컴파일)
+		static const std::vector<std::wstring> kShaderFiles = {
+			L"../Shaders/28. Basic.fx", L"../Shaders/12. TreeSprite.fx", L"../Shaders/13. VecAdd.fx", L"../Shaders/14. Blur.fx",
+			L"../Shaders/15. Tessellation.fx", L"../Shaders/16. TriTessellation.fx", L"../Shaders/17. BezierTessellation.fx",
+			L"../Shaders/32. InstancedBasic.fx", L"../Shaders/21. Sky.fx", L"../Shaders/23. NormalMap.fx", L"../Shaders/23. DisplacementMap.fx",
+			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
+			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
+			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx" };
+		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
+		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
+	}
+	LoadingScreen::BeginShaderPhase(0.85f, 0.90f, 22);   // Effects 20 + Shaders 2 (캐시에서 읽기)
 	Effects::InitAll(_device, L"../Shaders/28. Basic.fx");
 	log << "EditorApp::Init -> Shaders::InitAll..." << std::endl; log.flush();
 	Shaders::InitAll(_device);
