@@ -173,28 +173,75 @@ void SceneViewOverlay::DrawFrustum(const XMMATRIX& worldMatrix, float nearZ, flo
 	}
 }
 
-void SceneViewOverlay::DrawLightGizmo(const XMFLOAT3& p, const XMFLOAT3& dir, float arrowLength, ImU32 color)
+void SceneViewOverlay::DrawLightGizmo(const XMFLOAT3& p, const XMFLOAT3& dir, int kind, bool selected)
 {
-	const float r = 0.35f;
-	DrawLine(XMFLOAT3(p.x - r, p.y, p.z), XMFLOAT3(p.x + r, p.y, p.z), color, 1.0f);
-	DrawLine(XMFLOAT3(p.x, p.y - r, p.z), XMFLOAT3(p.x, p.y + r, p.z), color, 1.0f);
-	DrawLine(XMFLOAT3(p.x, p.y, p.z - r), XMFLOAT3(p.x, p.y, p.z + r), color, 1.0f);
+	// 화면에서 일정한 크기가 되도록 카메라 거리에 비례한 월드 크기 (Unity HandleUtility.GetHandleSize 와 같은 생각)
+	const float dist = sqrtf((p.x - s_CameraPos.x) * (p.x - s_CameraPos.x) + (p.y - s_CameraPos.y) * (p.y - s_CameraPos.y) + (p.z - s_CameraPos.z) * (p.z - s_CameraPos.z));
+	const float handle = (std::max)(0.05f, dist * 0.12f);
+	const ImU32 lineColor = selected ? IM_COL32(255, 247, 140, 255) : IM_COL32(255, 238, 120, 190);
+	const float thickness = selected ? 2.2f : 1.6f;
 
-	XMVECTOR d = XMVector3Normalize(XMVectorSet(dir.x, dir.y, dir.z, 0.0f));
-	XMVECTOR start = XMVectorSet(p.x, p.y, p.z, 1.0f);
-	XMVECTOR end = XMVectorAdd(start, XMVectorScale(d, arrowLength));
-	XMFLOAT3 e, s0;
-	XMStoreFloat3(&s0, start);
-	XMStoreFloat3(&e, end);
-	DrawLine(s0, e, color, 1.0f);
+	XMVECTOR d = XMVectorSet(dir.x, dir.y, dir.z, 0.0f);
+	if (XMVectorGetX(XMVector3LengthSq(d)) < 1e-8f)
+		d = XMVectorSet(0, -1, 0, 0);
+	d = XMVector3Normalize(d);
+	const XMVECTOR up = fabsf(XMVectorGetY(d)) > 0.95f ? XMVectorSet(1, 0, 0, 0) : XMVectorSet(0, 1, 0, 0);
+	const XMVECTOR side = XMVector3Normalize(XMVector3Cross(up, d));
+	const XMVECTOR side2 = XMVector3Cross(d, side);
+	const XMVECTOR center = XMVectorSet(p.x, p.y, p.z, 1.0f);
+	auto F3 = [](XMVECTOR v) { XMFLOAT3 f; XMStoreFloat3(&f, v); return f; };
 
-	// 화살촉
-	XMVECTOR up = fabsf(XMVectorGetY(d)) > 0.95f ? XMVectorSet(1, 0, 0, 0) : XMVectorSet(0, 1, 0, 0);
-	XMVECTOR side = XMVector3Normalize(XMVector3Cross(d, up));
-	XMVECTOR back = XMVectorSubtract(end, XMVectorScale(d, 0.3f));
-	XMFLOAT3 a, b2;
-	XMStoreFloat3(&a, XMVectorAdd(back, XMVectorScale(side, 0.12f)));
-	XMStoreFloat3(&b2, XMVectorSubtract(back, XMVectorScale(side, 0.12f)));
-	DrawLine(e, a, color, 1.0f);
-	DrawLine(e, b2, color, 1.0f);
+	if (kind != 1)   // Point 는 방향이 없다
+	{
+		// 방향 표시: 빛 방향에 수직인 원 + 원 둘레에서 빛 방향으로 뻗는 평행선 8개 + 가운데 화살표 (Unity Directional Light 기즈모)
+		const float radius = handle * 0.35f;
+		const float length = handle * (kind == 0 ? 1.6f : 1.2f);
+		const int segments = 32;
+		XMFLOAT3 prev = F3(XMVectorAdd(center, XMVectorScale(side, radius)));
+		for (int k = 1; k <= segments; ++k)
+		{
+			const float a = XM_2PI * k / segments;
+			XMFLOAT3 cur = F3(XMVectorAdd(center, XMVectorAdd(XMVectorScale(side, cosf(a) * radius), XMVectorScale(side2, sinf(a) * radius))));
+			DrawLine(prev, cur, lineColor, thickness);
+			prev = cur;
+		}
+		for (int k = 0; k < 8; ++k)
+		{
+			const float a = XM_2PI * k / 8;
+			XMVECTOR start = XMVectorAdd(center, XMVectorAdd(XMVectorScale(side, cosf(a) * radius), XMVectorScale(side2, sinf(a) * radius)));
+			DrawLine(F3(start), F3(XMVectorAdd(start, XMVectorScale(d, length))), lineColor, thickness);
+		}
+		const XMVECTOR tip = XMVectorAdd(center, XMVectorScale(d, length * 1.25f));
+		DrawLine(F3(center), F3(tip), lineColor, thickness);
+		const XMVECTOR back = XMVectorSubtract(tip, XMVectorScale(d, handle * 0.25f));
+		for (int k = 0; k < 4; ++k)
+		{
+			const float a = XM_PIDIV2 * k;
+			XMVECTOR wing = XMVectorAdd(back, XMVectorAdd(XMVectorScale(side, cosf(a) * handle * 0.1f), XMVectorScale(side2, sinf(a) * handle * 0.1f)));
+			DrawLine(F3(tip), F3(wing), lineColor, thickness);
+		}
+	}
+
+	// 화면 고정 크기 아이콘 (해 모양) - 밝은 하늘 위에서도 보이도록 어두운 테두리
+	ImVec2 c;
+	if (!Project(p, c))
+		return;
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+	dl->PushClipRect(s_Min, s_Max, true);
+	const float r = 7.0f;
+	const ImU32 fill = IM_COL32(255, 214, 64, 255), outline = IM_COL32(40, 32, 10, 200);
+	if (selected)
+		dl->AddCircleFilled(c, 19.0f, IM_COL32(255, 230, 120, 45));
+	for (int k = 0; k < 8; ++k)
+	{
+		const float a = XM_2PI * k / 8;
+		const ImVec2 a0(c.x + cosf(a) * (r + 3.5f), c.y + sinf(a) * (r + 3.5f)), a1(c.x + cosf(a) * (r + 9.0f), c.y + sinf(a) * (r + 9.0f));
+		dl->AddLine(a0, a1, outline, 4.5f);
+		dl->AddLine(a0, a1, fill, 2.5f);
+	}
+	dl->AddCircleFilled(c, r + 1.5f, outline);
+	dl->AddCircleFilled(c, r, fill);
+	if (kind == 1)   // Point: 가운데 점
+		dl->AddCircleFilled(c, 2.5f, outline);
+	dl->PopClipRect();
 }

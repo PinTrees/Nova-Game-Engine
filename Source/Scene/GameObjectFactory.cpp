@@ -284,8 +284,10 @@ GameObject* GameObjectFactory::CreateDirectionalLight(const std::string& name)
 	dir.Ambient = XMFLOAT4(0.6f, 0.6f, 0.6f, 1.0f);
 	dir.Diffuse = XMFLOAT4(0.8f, 0.7f, 0.7f, 1.0f);
 	dir.Specular = XMFLOAT4(0.6f, 0.6f, 0.7f, 1.0f);
-	dir.Direction = XMFLOAT3(-0.57735f, -0.57735f, 0.57735f);
 	light->SetDirLight(dir);
+	// Unity 새 Directional Light 와 같은 기본값: 회전 (50, -30, 0), Soft Shadows
+	obj->GetTransform()->SetLocalEulerAngles(Vec3(50.0f, -30.0f, 0.0f));
+	light->SetShadowType(2);
 	return obj;
 }
 

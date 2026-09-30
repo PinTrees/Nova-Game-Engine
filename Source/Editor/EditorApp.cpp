@@ -218,7 +218,8 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 			// Draw Scene Objects
-			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			if (sortedLights[i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 
 			_deviceContext->RSSetState(0);
 
@@ -242,7 +243,8 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 			// Draw Scene Objects
-			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 
 			_deviceContext->RSSetState(0);
 
@@ -260,7 +262,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 			{
 				shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Point, shadowIndex + j);
 
-				XMMATRIX VP = sortedLights[startIndex + shadowIndex + i]->GetLightViewProjection(j);
+				XMMATRIX VP = sortedLights[startIndex + i]->GetLightViewProjection(j);
 
 				RenderManager::GetI()->LightViewProjection = VP;
 				RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point].push_back(VP * toTexSpace);
@@ -269,7 +271,8 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 					_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 				// Draw Scene Objects
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+				if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
+					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 
 				_deviceContext->RSSetState(0);
 
@@ -390,7 +393,8 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 			// Draw Scene Objects
-			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			if (sortedLights[i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 
 			_deviceContext->RSSetState(0);
 
@@ -414,7 +418,8 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 			// Draw Scene Objects
-			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 
 			_deviceContext->RSSetState(0);
 
@@ -432,7 +437,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 			{
 				shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Point, shadowIndex + j);
 
-				XMMATRIX VP = sortedLights[startIndex + shadowIndex + i]->GetEditorLightViewProjection(j);
+				XMMATRIX VP = sortedLights[startIndex + i]->GetEditorLightViewProjection(j);
 
 				RenderManager::GetI()->LightViewProjection = VP;
 				RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point].push_back(VP * toTexSpace);
@@ -441,7 +446,8 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 					_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
 
 				// Draw Scene Objects
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+				if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
+					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 
 				_deviceContext->RSSetState(0);
 

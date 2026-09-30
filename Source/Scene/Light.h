@@ -87,6 +87,10 @@ public:
 	// LightV * LightP * toTexSpace
 	LightType GetLightType() { return m_LightType; }
 
+	// Shadow Type 이 No Shadows 가 아니면 그림자를 드리운다
+	bool CastsShadows() const { return m_ShadowType != 0; }
+	void SetShadowType(int type) { m_ShadowType = type; }
+
 	GENERATE_COMPONENT_BODY(Light)
 };
 

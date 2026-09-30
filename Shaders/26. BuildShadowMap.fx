@@ -284,9 +284,9 @@ RasterizerState Depth
 	// Example: DepthBias = 100000 ==> Actual DepthBias = 100000/2^24 = .006
 
 	// You need to experiment with these values for your scene.
-    DepthBias = 100000;
+    DepthBias = 1500;          // 방향광 깊이 범위 300 → 약 3cm
     DepthBiasClamp = 0.0f;
-    SlopeScaledDepthBias = 1.0f;
+    SlopeScaledDepthBias = 2.0f;
 };
 
 technique11 BuildShadowMapTech

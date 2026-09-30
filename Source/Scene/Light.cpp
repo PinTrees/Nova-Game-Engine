@@ -35,6 +35,32 @@ void Light::OnDestroy()
 	LightManager::GetI()->DeleteLight(this->GetInstanceID());
 }
 
+// 방향광 그림자: 카메라 앞쪽 kShadowDistance 범위를 덮는 정사영 상자.
+// 상자를 텍셀 단위로 맞춰 카메라가 움직여도 그림자 가장자리가 떨리지 않게 한다.
+static void FitDirectionalShadow(XMVECTOR lightDir, const XMFLOAT3& cameraPos, const XMFLOAT3& cameraLook, XMMATRIX& view, XMMATRIX& proj)
+{
+	constexpr float kShadowDistance = 40.0f;   // 카메라에서 이 거리까지 그림자
+	constexpr float kHalfExtent = 30.0f;       // 상자 반폭 (2048 텍셀 → 약 3cm/텍셀)
+	constexpr float kDepthBack = 150.0f;       // 상자 중심에서 광원 쪽으로 물러난 거리 (높은 물체의 그림자 포함)
+	constexpr float kShadowMapSize = 2048.0f;
+
+	lightDir = XMVector3Normalize(lightDir);
+	const XMVECTOR up = fabsf(XMVectorGetY(lightDir)) > 0.99f ? XMVectorSet(0, 0, 1, 0) : XMVectorSet(0, 1, 0, 0);
+	XMVECTOR look = XMVectorSet(cameraLook.x, cameraLook.y, cameraLook.z, 0.0f);
+	look = XMVectorGetX(XMVector3LengthSq(look)) > 1e-8f ? XMVector3Normalize(look) : XMVectorSet(0, 0, 1, 0);
+	XMVECTOR center = XMVectorAdd(XMVectorSet(cameraPos.x, cameraPos.y, cameraPos.z, 1.0f), XMVectorScale(look, kShadowDistance * 0.4f));
+
+	const XMMATRIX lightRot = XMMatrixLookToLH(XMVectorZero(), lightDir, up);
+	XMVECTOR ls = XMVector3TransformCoord(center, lightRot);
+	const float texel = kHalfExtent * 2.0f / kShadowMapSize;
+	ls = XMVectorSet(floorf(XMVectorGetX(ls) / texel) * texel, floorf(XMVectorGetY(ls) / texel) * texel, XMVectorGetZ(ls), 1.0f);
+	center = XMVector3TransformCoord(ls, XMMatrixInverse(nullptr, lightRot));
+
+	const XMVECTOR eye = XMVectorSubtract(center, XMVectorScale(lightDir, kDepthBack));
+	view = XMMatrixLookToLH(eye, lightDir, up);
+	proj = XMMatrixOrthographicLH(kHalfExtent * 2.0f, kHalfExtent * 2.0f, 0.1f, kDepthBack * 2.0f);
+}
+
 // forward(+Z) 가 dir 을 향하는 회전 (왼손 좌표계)
 static Quaternion LookRotation(const XMFLOAT3& dir)
 {
@@ -133,16 +159,9 @@ void Light::ViewUpdate()
 
 		// 그림자용 광원 위치: 카메라 위치에서 빛이 오는 방향(forward 의 반대)으로 FarZ 만큼 떨어진 곳
 		r = XMVector3Normalize(lookDir);
-		tempPos = XMLoadFloat3(&gameCameraPos);
-		cameraFarZ = SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetFarZ();
-		XMVECTOR scsPos = XMVectorScale(XMVector3Normalize(lookDir), -cameraFarZ);
-
-		pos = scsPos + tempPos;
-
-		m_LightView[0] = ::XMMatrixLookAtLH(pos, pos + lookDir, upDir);
-
+		FitDirectionalShadow(lookDir, gameCameraPos, DisplayManager::GetI()->GetActiveCamera()->GetLook(), m_LightView[0], m_LightProj);
 		XMStoreFloat3(&m_DirectionalDesc.Direction, r);
-		break;
+		return;   // 투영도 FitDirectionalShadow 가 정한다
 	case LightType::Point:
 		// �������̹Ƿ� 6���� ��Ʈ���� �ʿ�, proj�� �ϳ����̿��� �����(����)
 
@@ -205,15 +224,9 @@ void Light::EditorViewUpdate()
 
 		// 그림자용 광원 위치: 카메라 위치에서 빛이 오는 방향(forward 의 반대)으로 FarZ 만큼 떨어진 곳
 		r = XMVector3Normalize(lookDir);
-		tempPos = XMLoadFloat3(&editorCameraPos);
-		cameraFarZ = SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetFarZ();
-		XMVECTOR scsPos = XMVectorScale(XMVector3Normalize(lookDir), -cameraFarZ);
-
-		pos = scsPos + tempPos;
-
-		m_EditorLightView[0] = ::XMMatrixLookAtLH(pos, pos + lookDir, upDir);
-
+		FitDirectionalShadow(lookDir, editorCameraPos, SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetLook(), m_EditorLightView[0], m_EditorLightProj);
 		XMStoreFloat3(&m_DirectionalDesc.Direction, r);
+		return;   // 투영도 FitDirectionalShadow 가 정한다
 	}
 		
 		break;
@@ -449,15 +462,13 @@ void Light::OnDrawGizmos()
 
 	Transform* transform = GetGameObject()->GetTransform();
 	Vec3 pos = transform->GetPosition();
-	XMFLOAT3 dir(0.0f, -1.0f, 0.0f);
-	if (m_LightType == LightType::Directional)
-		dir = m_DirectionalDesc.Direction;
-	else if (m_LightType == LightType::Spot)
-		dir = m_SpotDesc.Direction;
+	// 빛 방향 = Transform 의 forward (회전을 바꾸면 바로 반영)
+	XMFLOAT3 dir;
+	XMStoreFloat3(&dir, XMVector3Normalize(transform->GetLook()));
 
+	const int kind = m_LightType == LightType::Directional ? 0 : (m_LightType == LightType::Point ? 1 : 2);
 	const bool selected = (SelectionManager::GetSelectedGameObject() == GetGameObject());
-	SceneViewOverlay::DrawLightGizmo(XMFLOAT3(pos.x, pos.y, pos.z), dir, selected ? 3.0f : 2.0f,
-		selected ? IM_COL32(255, 244, 180, 255) : IM_COL32(255, 235, 150, 200));
+	SceneViewOverlay::DrawLightGizmo(XMFLOAT3(pos.x, pos.y, pos.z), dir, kind, selected);
 }
 
 
@@ -494,6 +505,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(Light)
 	j["filter"] = { m_Filter[0], m_Filter[1], m_Filter[2], m_Filter[3] };
 	j["cullingMask"] = m_CullingMask;
 	j["shadowType"] = m_ShadowType;
+	j["shadowVersion"] = 2;
 
 	return j;
 }
@@ -513,6 +525,9 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Light)
 	m_Temperature = j.value("temperature", 6570.0f);
 	m_CullingMask = j.value("cullingMask", 0);
 	m_ShadowType = j.value("shadowType", 0);
+	// 그림자가 실제로 그려지기 전(shadowVersion 없음)에 저장된 Directional Light 는 Unity 기본값인 Soft Shadows 로 옮긴다
+	if (!j.contains("shadowVersion") && m_LightType == LightType::Directional && m_ShadowType == 0)
+		m_ShadowType = 2;
 	if (j.contains("filter") && j.at("filter").is_array() && j.at("filter").size() == 4)
 		for (int i = 0; i < 4; ++i) m_Filter[i] = j.at("filter")[i].get<float>();
 

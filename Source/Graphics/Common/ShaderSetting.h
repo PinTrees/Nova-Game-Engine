@@ -8,7 +8,7 @@ struct ShaderSetting
 	int UseTexture = false;
 	int AlphaClip = false;
 	int UseNormalMap = false;
-	int UseShadowMap = false;
+	int UseShadowMap = true;   // 새 재질도 기본으로 그림자를 받는다
 	int UseSsaoMap = false;
 	int ReflectionEnabled = false;
 	int FogEnabled = false;
