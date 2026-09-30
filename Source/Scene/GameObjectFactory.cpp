@@ -14,6 +14,7 @@
 #include "AudioSource.h"
 #include "AudioListener.h"
 #include "ParticleSystem.h"
+#include "Tree.h"
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
 #include "SkinnedMesh.h"
@@ -349,6 +350,13 @@ GameObject* GameObjectFactory::CreateParticleSystem(const std::string& name)
 	GameObject* obj = new GameObject(name);
 	obj->GetTransform()->SetLocalEulerAngles(Vec3(-90.0f, 0.0f, 0.0f));
 	obj->AddComponent<ParticleSystem>();
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateTree(const std::string& name)
+{
+	GameObject* obj = new GameObject(name);
+	obj->AddComponent<Tree>()->ApplyPreset(0);
 	return obj;
 }
 

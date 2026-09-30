@@ -58,6 +58,8 @@ public:
 	static GameObject* CreateAudioSource();
 	// Unity 의 GameObject > Effects > Particle System: X 를 -90 도 돌려 원뿔이 위로 향한다
 	static GameObject* CreateParticleSystem(const std::string& name = "Particle System");
+	// 절차적 나무 (Oak 프리셋)
+	static GameObject* CreateTree(const std::string& name = "Tree");
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

@@ -159,6 +159,17 @@
 - 검사: scratchpad `make_shadow_scene.py` → ScriptTest `Assets/Scenes/Shadows.scene`(격자 울타리, 70 m 까지 기둥 두 줄, 낮은 해).
 - 미구현: 캐스케이드 사이 섞기, 캐스케이드 디버그 색 보기, Contact Shadows, 그림자 받는 투명 물체.
 
+**나무 생성기 (Tree, 2026-10-01)**: 텍스처 없는 절차적 나무 (SpeedTree / Weber-Penn 방식 + Unreal 식 계층 바람)
+- 생성(`Source/Scene/TreeGenerator.*`): `TreeParams`(Seed, 줄기 Height/Radius/TipRadius/Flare/Gnarl/Lean/RadialSegments, 수관 Crown 7 종, 가지 단계 L[0..2]: Count/Start/Angle(±)/Length(±)/Gravity/Up/Radius/Gnarl, 잎 Shape/LeafCards/LeavesPerCard/LeafCardSize/LeafStart). `Grow()` 재귀: 경로(무작위 휘어짐 + (Up−Gravity) 굽힘) → 링을 평행 이동 틀로 이은 관 + 끝 마개 → 자식은 황금각 137.5° 로 돌려 붙이고, 1 단계 길이는 수관 모양 함수(r = 수관 아래 1 ~ 꼭대기 0)로. 마지막 단계 가지에 잎 카드(가지에서 바깥으로 기울임, 무작위 비틀기). `FinishLeaves()` 가 잎 법선을 수관 구 쪽으로 70% 굽히고(양면 같은 법선 → 덩어리가 부드럽게 빛을 받음) 안쪽 깊이·아래쪽으로 AO. 삼각형은 기준 법선으로 감기 방향을 맞춘다. 상한: 가지 4000, 잎 카드 12000.
+- 정점(80 바이트, `TreeVertex` ↔ 셰이더 `TreeVertexIn`): Pos, Normal, UV(수피: 둘레 0~1·길이 m / 잎: 카드 0~1), Wind(줄기 가중 = (y/H)², 1차·2차 가지 가중, 잎 떨림), Axis(가지 방향 또는 카드 위쪽, w = AO), Phase(1차·2차 위상, 잎 무늬 시드, 수피 밑동 반지름). 자식 가지는 붙은 지점의 부모 가중·위상을 물려받아 관절이 떨어지지 않는다.
+- 컴포넌트(`Source/Scene/Tree.*`): Params + 수피(Color, Moss, Ridge Depth/Frequency, Fleck(음수 = 자작나무 어두운 줄무늬), Smoothness) + 잎(Color/Color 2/Variation/Transmission/Smoothness/Leaf Length) + 바람(Strength, Direction, Trunk/Branch Sway, Leaf Flutter) + Cast Shadows. 모양 JSON 이 같으면 GPU 메시를 같이 쓴다(weak_ptr 캐시). 씬에 "shape" 가 없으면 preset + seed 로 만든다. `Tree::UpdateAll()`(App 루프)이 바람 시간을 프레임마다 한 번 정한다 — 깊이 사전 패스와 본 패스가 같은 값을 써야 한다.
+- 셰이더: `Shaders/44. TreeCommon.fx`(cbTree, 바람 `TreeWindOffset`/`TreeWorldPos`, 값 노이즈, 주기 노이즈 `TreeNoisePeriodic`, 수피 `TreeBarkHeightUV`, 잎 `TreeLeafSDF`/`TreeLeafCluster`)를 세 효과가 include: InstancedBasic `TreeBarkTech`/`TreeLeafTech`(LessEqual 깊이, 잎 CullNone), BuildShadowMap `TreeShadowBarkTech`/`TreeShadowLeafTech`(ApplyShadowBias, 잎 clip), SsaoNormalDepth `TreeNormalDepth*`. 본 패스와 사전 패스 모두 `월드 위치 × CPU 에서 곱한 ViewProj`.
+- 조명 공용화: InstancedBasic 의 Lit PS 조명을 `ShadeLit(LitSurface, posW, N, V, ssaoPosH)` + `FinishLit` 로 뺐다(메시·나무 공용). `LitSurface.Transmission` = 잎 투과(뒷면 감싸기 + 역광, 하늘 반대쪽 환경광).
+- 에디터: GameObject > 3D Object > Tree(`GameObjectFactory::CreateTree`, Oak), Add Component > Miscellaneous > Tree, Scene 뷰 클릭 선택(`Tree::RaycastLocal`, 바람 전 삼각형)·F 포커스(`GetLocalBounds`). Scene 의 그림자/노멀깊이/에디터 패스에 Tree 호출 추가(게임 본 패스는 Component::Render).
+- 로그: `[Tree] generated seed N: V vertices, T triangles, B branches, C leaf cards (ms)`. 참나무 ≈ 8k 정점 / 10k 삼각형 / 5 ms.
+- 검사: scratchpad `make_tree_scene.py` → ScriptTest `Assets/Scenes/Trees.scene`(프리셋 4 + 숲 10 그루).
+- 미구현: LOD/빌보드 임포스터, 인스턴싱(같은 메시 여러 그루를 한 번에), Wind Zone 컴포넌트(지금은 나무마다 바람), 지형 나무 칠하기, 가지 끝 곡률 보간, 뿌리.
+
 **멈춤 감시(EditorLog)**: 메인 루프가 매 프레임 `EditorLog::Heartbeat()` 를 부르고, 감시 스레드가 4초 넘게 안 오면 메인 스레드를 잠깐 멈춰 호출 스택을 `[HANG]` 으로 남긴다(멈춘 동안은 주소만 모으고, 풀어 준 뒤 기호로 바꿔 기록). 디버거(cdb/procdump)가 없는 환경에서 무한 루프·교착을 찾는 용도. 모달 대화 상자/창 크기 조절 중에도 한 번 남을 수 있다. 관리 코드(C#) 예외로 .NET 이 프로세스를 끝낸 경우는 [CRASH]/[HANG] 이 없고 이벤트 로그를 봐야 한다.
 
 **씬 반복 안전성**: `Scene::Enter/UpdateScene/LastFramUpdate` 는 오브젝트 목록의 **복사본**을 돈다 — 스크립트가 도중에 transform.SetParent(→ `RegisterGameObjectTree`)로 목록을 늘리면 반복자가 무효화되어 충돌하던 문제(0xC0000005). 스크립트가 만든 오브젝트(`AddToSceneLater`)에 그 사이 부모가 생겼으면 루트로 넣지 않는다.

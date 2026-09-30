@@ -5,6 +5,7 @@
 #include "ScriptEngine.h"
 #include "UISystem.h"
 #include "ParticleSystem.h"
+#include "Tree.h"
 #include "PlayerRuntime.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
@@ -111,6 +112,7 @@ int32 App::Run()
 				ScriptEngine::Update();   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
 				UISystem::Update();       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 				ParticleSystem::UpdateAll();   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
+				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
 
 				// (개발/검증용) 입력 없이 확인할 때: NOVA_DEV_SELECT=<GameObject 이름>, NOVA_DEV_FILE=<프로젝트 기준 파일 경로> 를 시작 뒤 한 번 선택
 				{

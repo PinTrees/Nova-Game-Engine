@@ -32,6 +32,7 @@ namespace
 		{ "MeshCollider",        "Mesh Collider",         "Physics",       "mesh_collider",     false },
 		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
+		{ "Tree",                "Tree",                  "Miscellaneous", "terrain_trees",     true  },
 		{ "Volume",              "Volume",                "Miscellaneous", "volume",            true  },
 		{ "ParticleSystem",      "Particle System",       "Effects",       "particle_system",   true  },
 		{ "AudioSource",         "Audio Source",          "Audio",         "audio_source",      false },

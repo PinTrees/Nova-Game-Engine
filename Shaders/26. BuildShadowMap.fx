@@ -433,3 +433,58 @@ technique11 TerrainShadowTech
         SetRasterizerState(Depth);
     }
 }
+
+//=============================================================================
+// NOVA 나무 (Tree 컴포넌트) - 그림자맵 패스. 잎은 본 패스와 같은 잎 모양(SDF)으로 잘라 낸다
+//=============================================================================
+#include "44. TreeCommon.fx"
+
+RasterizerState TreeShadowCullNone
+{
+    CullMode = None;
+};
+
+struct TreeShadowOut
+{
+    float4 PosH : SV_POSITION;
+    float2 UV : TEXCOORD0;
+    float Seed : TEXCOORD1;
+};
+
+TreeShadowOut TreeShadowVS(TreeVertexIn vin)
+{
+    TreeShadowOut vout;
+    float3 normalW;
+    const float3 posW = TreeWorldPos(vin, normalW);
+    vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
+    vout.UV = vin.UV;
+    vout.Seed = vin.Phase.z;
+    return vout;
+}
+
+void TreeShadowLeafPS(TreeShadowOut pin)
+{
+    clip(-TreeLeafCluster(pin.UV, pin.Seed).Dist);
+}
+
+technique11 TreeShadowBarkTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetRasterizerState(Depth);
+    }
+}
+
+technique11 TreeShadowLeafTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeShadowLeafPS()));
+        SetRasterizerState(TreeShadowCullNone);
+    }
+}

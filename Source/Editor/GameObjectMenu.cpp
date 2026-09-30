@@ -92,7 +92,7 @@ namespace GameObjectMenu
 			Disabled("Ragdoll...");
 			ImGui::Separator();
 			if (ImGui::MenuItem("Terrain")) add(GameObjectFactory::CreateTerrain());   // 새 TerrainData(Assets) + Terrain + Terrain Collider
-			Disabled("Tree");
+			if (ImGui::MenuItem("Tree")) add(GameObjectFactory::CreateTree());   // 절차적 나무 (텍스처 없는 셰이더)
 			Disabled("Wind Zone");
 			ImGui::EndMenu();
 		}

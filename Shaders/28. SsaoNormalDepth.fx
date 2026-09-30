@@ -251,3 +251,68 @@ technique11 TerrainNormalDepthTech
         SetPixelShader(CompileShader(ps_5_0, TerrainNormalDepthPS()));
     }
 }
+
+//=============================================================================
+// NOVA 나무 (Tree 컴포넌트) - SSAO 노멀/깊이 패스 (gView, gWorldViewProj = ViewProj)
+//=============================================================================
+#include "44. TreeCommon.fx"
+
+RasterizerState TreeNormalDepthCullNone
+{
+    CullMode = None;
+};
+
+struct TreeNormalDepthOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosV : POSITION;
+    float3 NormalV : NORMAL;
+    float2 UV : TEXCOORD0;
+    float Seed : TEXCOORD1;
+};
+
+TreeNormalDepthOut TreeNormalDepthVS(TreeVertexIn vin)
+{
+    TreeNormalDepthOut vout;
+    float3 normalW;
+    const float3 posW = TreeWorldPos(vin, normalW);
+    vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
+    vout.NormalV = mul(normalW, (float3x3) gView);
+    // 본 패스(TreeVS)와 똑같이 월드 위치 × CPU 에서 곱한 ViewProj
+    vout.PosH = mul(float4(posW, 1.0f), gWorldViewProj);
+    vout.UV = vin.UV;
+    vout.Seed = vin.Phase.z;
+    return vout;
+}
+
+float4 TreeNormalDepthBarkPS(TreeNormalDepthOut pin) : SV_Target
+{
+    return float4(normalize(pin.NormalV), pin.PosV.z);
+}
+
+float4 TreeNormalDepthLeafPS(TreeNormalDepthOut pin) : SV_Target
+{
+    clip(-TreeLeafCluster(pin.UV, pin.Seed).Dist);
+    return float4(normalize(pin.NormalV), pin.PosV.z);
+}
+
+technique11 TreeNormalDepthBarkTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeNormalDepthVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeNormalDepthBarkPS()));
+    }
+}
+
+technique11 TreeNormalDepthLeafTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeNormalDepthVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeNormalDepthLeafPS()));
+        SetRasterizerState(TreeNormalDepthCullNone);
+    }
+}

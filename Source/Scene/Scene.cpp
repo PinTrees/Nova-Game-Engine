@@ -3,6 +3,7 @@
 #include <functional>
 #include "InstancingBuffer.h"
 #include "MathHelper.h"
+#include "Tree.h"
 
 Scene::Scene()
 	: m_VecRootGameObjects(),
@@ -153,7 +154,10 @@ void Scene::RenderSceneShadow()
         }
 
         for (const auto& gameObject : m_ArrGameObjects[0])
+        {
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
+            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadow();
+        }
 
     }
     else
@@ -167,6 +171,7 @@ void Scene::RenderSceneShadow()
             if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadow();
 
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
+            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadow();
         }
     }
 }
@@ -212,7 +217,10 @@ void Scene::RenderSceneShadowNormal()
         }
 
         for (const auto& gameObject : m_ArrGameObjects[0])
+        {
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
+            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadowNormal();
+        }
     }
     else
     {
@@ -225,6 +233,7 @@ void Scene::RenderSceneShadowNormal()
             if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadowNormal();
 
             if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
+            if (Tree* tree = gameObject->GetComponent<Tree>()) tree->RenderShadowNormal();
         }
     }
 }
@@ -240,6 +249,7 @@ void Scene::_Editor_RenderScene()
         if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_Render();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_Render();
+        if (Tree* tree = gameObject->GetComponent<Tree>()) tree->_Editor_Render();
     }
 }
 
@@ -254,6 +264,7 @@ void Scene::_Editor_RenderSceneShadowNormal()
         if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_RenderShadowNormal();
 
         if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_RenderShadowNormal();
+        if (Tree* tree = gameObject->GetComponent<Tree>()) tree->_Editor_RenderShadowNormal();
 } 
 }
 

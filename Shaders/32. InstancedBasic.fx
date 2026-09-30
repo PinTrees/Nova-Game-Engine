@@ -419,6 +419,141 @@ float RangeAttenuation(float d, float range)
     return r * r / (d * d + 1.0f);
 }
 
+// ---------------------------------------------------------------------------
+// URP Lit 조명 (메시 PS, 나무 PS 공용). 결과는 선형 색 (감마 변환·안개는 호출자)
+//  Transmission: 잎처럼 얇은 면의 투과광 (Unreal 의 Two Sided Foliage 처럼 뒤에서 오는 빛이 비친다)
+// ---------------------------------------------------------------------------
+struct LitSurface
+{
+    float3 Albedo;        // 선형
+    float Metallic;
+    float Smoothness;
+    float Occlusion;
+    float3 Emission;      // 선형 HDR
+    float3 Transmission;  // 선형 (0 = 없음)
+    bool Highlights;
+    bool Reflections;
+    bool ReceiveShadows;
+};
+
+float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPosH)
+{
+    // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
+    float oneMinusReflectivity = 0.96f * (1.0f - surf.Metallic);
+    float3 diffuse = surf.Albedo * oneMinusReflectivity;
+    float3 specular = lerp(float3(0.04f, 0.04f, 0.04f), surf.Albedo, surf.Metallic);
+    float perceptualRoughness = 1.0f - saturate(surf.Smoothness);
+    float roughness = max(perceptualRoughness * perceptualRoughness, 0.0078125f);
+
+    // ---- 그림자
+    float dirShadows[LIGHT_SIZE];
+    float spotShadows[LIGHT_SIZE];
+    float pointShadows[LIGHT_SIZE];
+    [unroll]
+    for (int s0 = 0; s0 < LIGHT_SIZE; s0++)
+    {
+        dirShadows[s0] = 1.0f;
+        spotShadows[s0] = 1.0f;
+        pointShadows[s0] = 1.0f;
+    }
+    if (gShaderSetting.gUseShadowMap && surf.ReceiveShadows)
+    {
+        const int cascade = SelectCascade(posW);
+        const float fade = ShadowFade(posW);
+        [unroll]
+        for (int i = 0; i < LIGHT_SIZE; i++)
+            dirShadows[i] = DirShadow(gDirShadowMaps[i], i, posW, cascade, fade);
+        [unroll]
+        for (int j = 0; j < LIGHT_SIZE; j++)
+            spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, posW);
+        [unroll]
+        for (int l = 0; l < LIGHT_SIZE; l++)
+            pointShadows[l] = PointShadow(gPointShadowMaps[l], l, posW);
+    }
+
+    ssaoPosH /= ssaoPosH.w;
+    float ambientAccess = gShaderSetting.gUseSsaoMap ? gSsaoMap.SampleLevel(samLinear, ssaoPosH.xy, 0.0f).r : 1.0f;
+
+    // ---- 직접광
+    const bool highlights = surf.Highlights;
+    const bool translucent = dot(surf.Transmission, surf.Transmission) > 0.0f;
+    float3 color = float3(0, 0, 0);
+    [loop]
+    for (int di = 0; di < gDirLightCount; ++di)
+    {
+        float3 L = normalize(-gDirLights[di].Direction);
+        float NoL = saturate(dot(N, L));
+        float3 lightColor = ToLinear(gDirLights[di].Diffuse.rgb) * dirShadows[di];
+        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * lightColor * NoL;
+        if (translucent)
+        {
+            // 뒷면으로 들어온 빛(감싸기) + 해를 마주 볼 때의 역광
+            const float back = saturate(dot(-N, L)) * 0.6f + pow(saturate(dot(V, -L)), 6.0f) * 0.9f;
+            color += surf.Transmission * lightColor * back;
+        }
+    }
+    [loop]
+    for (int si = 0; si < gSpotLightCount; ++si)
+    {
+        float3 toLight = gSpotLights[si].Position - posW;
+        float d = length(toLight);
+        float3 L = toLight / max(d, 0.0001f);
+        // Spot = 원뿔 전체 각도(도): 가장자리 20% 에서 부드럽게
+        float cosOuter = cos(radians(gSpotLights[si].Spot * 0.5f));
+        float cosInner = cos(radians(gSpotLights[si].Spot * 0.4f));
+        float cone = smoothstep(cosOuter, cosInner, dot(-L, normalize(gSpotLights[si].Direction)));
+        float atten = RangeAttenuation(d, gSpotLights[si].Range) * cone;
+        float NoL = saturate(dot(N, L));
+        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gSpotLights[si].Diffuse.rgb) * (NoL * atten * spotShadows[si]);
+    }
+    [loop]
+    for (int pi = 0; pi < gPointLightCount; ++pi)
+    {
+        float3 toLight = gPointLights[pi].Position - posW;
+        float d = length(toLight);
+        float3 L = toLight / max(d, 0.0001f);
+        float atten = RangeAttenuation(d, gPointLights[pi].Range);
+        float NoL = saturate(dot(N, L));
+        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gPointLights[pi].Diffuse.rgb) * (NoL * atten * pointShadows[pi]);
+    }
+
+    // ---- 간접광 (Unity EnvironmentBRDF)
+    //  Environment Lighting = Skybox: 법선 방향 하늘을 아주 흐린 밉(면당 4x4)으로 읽어 확산 조도로 쓴다.
+    //  빛의 Ambient 값은 예전 Blinn-Phong 용이라 Lit 에서는 쓰지 않는다 (Unity 에도 빛별 Ambient 는 없다).
+    uint w, h, mips;
+    gCubeMap.GetDimensions(0, w, h, mips);
+    float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
+    float NoV = saturate(dot(N, V));
+    float ao = surf.Occlusion * ambientAccess;
+    color += ambient * diffuse * ao;
+    if (translucent)
+        color += ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * surf.Transmission * 0.5f * ao;
+    if (surf.Reflections)
+    {
+        float3 R = reflect(-V, N);
+        // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
+        float mip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max((float)mips - 4.0f, 6.0f);
+        float3 env = ToLinear(gCubeMap.SampleLevel(samLinear, R, min(mip, (float)(mips - 1))).rgb);
+        float fresnel = pow(1.0f - NoV, 4.0f);
+        float grazing = saturate(surf.Smoothness + (1.0f - oneMinusReflectivity));
+        float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);
+        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao;
+    }
+    return color + surf.Emission;
+}
+
+// 선형 색 → 감마 + 안개
+float4 FinishLit(float3 color, float alpha, float distToEye)
+{
+    float4 litColor = float4(ToGamma(color), alpha);
+    if (gShaderSetting.gFogEnabled)
+    {
+        float fogLerp = saturate((distToEye - gFogStart) / gFogRange);
+        litColor.rgb = lerp(litColor.rgb, gFogColor.rgb, fogLerp);
+    }
+    return litColor;
+}
+
 float4 PS(VertexOut pin) : SV_Target
 {
     float3 N = normalize(pin.NormalW);
@@ -460,106 +595,17 @@ float4 PS(VertexOut pin) : SV_Target
     }
     float occlusion = gPbr.UseOcclusionMap ? lerp(1.0f, gOcclusionMap.Sample(samLinear, uv).g, gPbr.OcclusionStrength) : 1.0f;
 
-    // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
-    float oneMinusReflectivity = 0.96f * (1.0f - metallic);
-    float3 diffuse = albedo * oneMinusReflectivity;
-    float3 specular = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
-    float perceptualRoughness = 1.0f - saturate(smoothness);
-    float roughness = max(perceptualRoughness * perceptualRoughness, 0.0078125f);
-
-    // ---- 그림자
-    float dirShadows[LIGHT_SIZE];
-    float spotShadows[LIGHT_SIZE];
-    float pointShadows[LIGHT_SIZE];
-    [unroll]
-    for (int s0 = 0; s0 < LIGHT_SIZE; s0++)
-    {
-        dirShadows[s0] = 1.0f;
-        spotShadows[s0] = 1.0f;
-        pointShadows[s0] = 1.0f;
-    }
-    if (gShaderSetting.gUseShadowMap && gPbr.ReceiveShadows)
-    {
-        const int cascade = SelectCascade(pin.PosW.xyz);
-        const float fade = ShadowFade(pin.PosW.xyz);
-        [unroll]
-        for (int i = 0; i < LIGHT_SIZE; i++)
-            dirShadows[i] = DirShadow(gDirShadowMaps[i], i, pin.PosW.xyz, cascade, fade);
-        [unroll]
-        for (int j = 0; j < LIGHT_SIZE; j++)
-            spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, pin.PosW.xyz);
-        [unroll]
-        for (int l = 0; l < LIGHT_SIZE; l++)
-            pointShadows[l] = PointShadow(gPointShadowMaps[l], l, pin.PosW.xyz);
-    }
-
-    pin.SsaoPosH /= pin.SsaoPosH.w;
-    float ambientAccess = gShaderSetting.gUseSsaoMap ? gSsaoMap.Sample(samLinear, pin.SsaoPosH.xy, 0.0f).r : 1.0f;
-
-    // ---- 직접광
-    bool highlights = gPbr.SpecularHighlights != 0;
-    float3 color = float3(0, 0, 0);
-    [loop]
-    for (int di = 0; di < gDirLightCount; ++di)
-    {
-        float3 L = normalize(-gDirLights[di].Direction);
-        float NoL = saturate(dot(N, L));
-        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gDirLights[di].Diffuse.rgb) * (NoL * dirShadows[di]);
-    }
-    [loop]
-    for (int si = 0; si < gSpotLightCount; ++si)
-    {
-        float3 toLight = gSpotLights[si].Position - pin.PosW.xyz;
-        float d = length(toLight);
-        float3 L = toLight / max(d, 0.0001f);
-        // Spot = 원뿔 전체 각도(도): 가장자리 20% 에서 부드럽게
-        float cosOuter = cos(radians(gSpotLights[si].Spot * 0.5f));
-        float cosInner = cos(radians(gSpotLights[si].Spot * 0.4f));
-        float cone = smoothstep(cosOuter, cosInner, dot(-L, normalize(gSpotLights[si].Direction)));
-        float atten = RangeAttenuation(d, gSpotLights[si].Range) * cone;
-        float NoL = saturate(dot(N, L));
-        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gSpotLights[si].Diffuse.rgb) * (NoL * atten * spotShadows[si]);
-    }
-    [loop]
-    for (int pi = 0; pi < gPointLightCount; ++pi)
-    {
-        float3 toLight = gPointLights[pi].Position - pin.PosW.xyz;
-        float d = length(toLight);
-        float3 L = toLight / max(d, 0.0001f);
-        float atten = RangeAttenuation(d, gPointLights[pi].Range);
-        float NoL = saturate(dot(N, L));
-        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gPointLights[pi].Diffuse.rgb) * (NoL * atten * pointShadows[pi]);
-    }
-
-    // ---- 간접광 (Unity EnvironmentBRDF)
-    //  Environment Lighting = Skybox: 법선 방향 하늘을 아주 흐린 밉(면당 4x4)으로 읽어 확산 조도로 쓴다.
-    //  빛의 Ambient 값은 예전 Blinn-Phong 용이라 Lit 에서는 쓰지 않는다 (Unity 에도 빛별 Ambient 는 없다).
-    uint w, h, mips;
-    gCubeMap.GetDimensions(0, w, h, mips);
-    float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
-    float NoV = saturate(dot(N, V));
-    float ao = occlusion * ambientAccess;
-    color += ambient * diffuse * ao;
-    if (gPbr.EnvironmentReflections)
-    {
-        float3 R = reflect(-V, N);
-        // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
-        float mip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max((float)mips - 4.0f, 6.0f);
-        float3 env = ToLinear(gCubeMap.SampleLevel(samLinear, R, min(mip, (float)(mips - 1))).rgb);
-        float fresnel = pow(1.0f - NoV, 4.0f);
-        float grazing = saturate(smoothness + (1.0f - oneMinusReflectivity));
-        float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);
-        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao;
-    }
-    color += emission;
-
-    float4 litColor = float4(ToGamma(color), baseColor.a);
-    if (gShaderSetting.gFogEnabled)
-    {
-        float fogLerp = saturate((distToEye - gFogStart) / gFogRange);
-        litColor.rgb = lerp(litColor.rgb, gFogColor.rgb, fogLerp);
-    }
-    return litColor;
+    LitSurface surf;
+    surf.Albedo = albedo;
+    surf.Metallic = metallic;
+    surf.Smoothness = smoothness;
+    surf.Occlusion = occlusion;
+    surf.Emission = emission;
+    surf.Transmission = float3(0, 0, 0);
+    surf.Highlights = gPbr.SpecularHighlights != 0;
+    surf.Reflections = gPbr.EnvironmentReflections != 0;
+    surf.ReceiveShadows = gPbr.ReceiveShadows != 0;
+    return FinishLit(ShadeLit(surf, pin.PosW.xyz, N, V, pin.SsaoPosH), baseColor.a, distToEye);
 }
 technique11 Tech
 {
@@ -700,5 +746,173 @@ technique11 TerrainTech
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TerrainPS()));
         SetDepthStencilState(TerrainDepthLessEqual, 0);
+    }
+}
+
+//=============================================================================
+// NOVA 나무 (Tree 컴포넌트) - 본 패스. 텍스처 없이 수피/잎을 식으로 그린다 (44. TreeCommon.fx)
+//=============================================================================
+#include "44. TreeCommon.fx"
+
+RasterizerState TreeLeafCullNone
+{
+    CullMode = None;   // 잎 카드는 양면
+};
+
+struct TreeVertexOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION0;
+    float3 PosL : POSITION1;     // 바람 전 물체 공간 (수피 무늬가 흔들림을 따라 미끄러지지 않게)
+    float3 NormalW : NORMAL;
+    float3 AxisW : TANGENT;
+    float2 UV : TEXCOORD0;
+    float4 SsaoPosH : TEXCOORD1;
+    float AO : TEXCOORD2;
+    float Seed : TEXCOORD3;
+    float3 NormalL : TEXCOORD4;  // 물체 공간 (수피 무늬 법선 계산)
+    float3 AxisL : TEXCOORD5;
+    float BranchRadius : TEXCOORD6;
+};
+
+TreeVertexOut TreeVS(TreeVertexIn vin)
+{
+    TreeVertexOut vout;
+    float3 normalW;
+    const float3 posW = TreeWorldPos(vin, normalW);
+    vout.PosW = posW;
+    vout.PosL = vin.PosL;
+    vout.NormalW = normalW;
+    vout.AxisW = normalize(mul(vin.Axis.xyz, (float3x3) gTreeWorld));
+    vout.NormalL = vin.NormalL;
+    vout.AxisL = vin.Axis.xyz;
+    vout.BranchRadius = vin.Phase.w;
+    vout.UV = vin.UV;
+    vout.AO = vin.Axis.w;
+    vout.Seed = vin.Phase.z;
+    // 깊이 사전 패스(SsaoNormalDepth)와 같은 식: 월드 위치 × CPU 에서 곱한 ViewProj
+    vout.PosH = mul(float4(posW, 1.0f), gViewProj);
+    vout.SsaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
+    return vout;
+}
+
+float4 TreeBarkPS(TreeVertexOut pin) : SV_Target
+{
+    const float3 toEye = gEyePosW - pin.PosW;
+    const float distToEye = length(toEye);
+    const float3 V = toEye / max(distToEye, 0.0001f);
+
+    // 물체 공간에서 무늬 높이 → 법선 (가까운 두 점과의 차이). 멀면 무늬를 줄여 반짝임 방지
+    float3 NL = normalize(pin.NormalL);
+    const float3 axisL = normalize(pin.AxisL);
+    const float3 TL = normalize(cross(axisL, NL) + 1e-5f);
+    const float3 BL = cross(NL, TL);
+    // TL = 둘레(u 증가) 방향, BL = 가지 방향(v 증가)
+    const float e = 0.006f;
+    const float r0 = max(pin.BranchRadius, 0.005f);
+    const float detail = saturate(1.5f - distToEye / 40.0f);
+    const float h0 = TreeBarkHeightUV(pin.UV, r0);
+    const float hT = TreeBarkHeightUV(pin.UV + float2(e / (6.2831853f * r0), 0.0f), r0);
+    const float hB = TreeBarkHeightUV(pin.UV + float2(0.0f, e), r0);
+    NL = normalize(NL - (TL * (hT - h0) + BL * (hB - h0)) * (gTreeBarkParams.x * detail / e));
+    float3 N = normalize(mul(NL, (float3x3) gTreeWorldInvTranspose));
+
+    // 색: 골은 어둡고 능선은 밝게, 가끔 밝은 반점, 위를 향한 면에 이끼
+    float3 bark = ToLinear(gTreeBarkColor.rgb);
+    float3 albedo = bark * lerp(0.38f, 1.08f, h0);
+    // 반점: 양수 = 밝은 반점, 음수 = 둘레 방향으로 긴 어두운 줄무늬 (자작나무)
+    const float fleckAmount = abs(gTreeBarkParams.w);
+    const float alongL = dot(pin.PosL, axisL);
+    const float3 fq = gTreeBarkParams.w >= 0.0f ? pin.PosL * 9.0f : (pin.PosL - axisL * alongL) * 3.0f + axisL * (alongL * 25.0f);
+    const float fleck = smoothstep(0.74f, 0.86f, TreeValueNoise(fq + 5.1f));
+    albedo = lerp(albedo, gTreeBarkParams.w >= 0.0f ? bark * 1.6f : bark * 0.12f, fleck * fleckAmount);
+    const float mossNoise = TreeValueNoise(pin.PosL * 2.3f + 11.7f);
+    const float moss = saturate((N.y + 0.15f) * 1.6f) * smoothstep(0.35f, 0.75f, mossNoise + gTreeBarkColor.a * 0.5f) * gTreeBarkColor.a;
+    albedo = lerp(albedo, ToLinear(gTreeMossColor.rgb) * lerp(0.7f, 1.1f, h0), moss);
+
+    LitSurface surf;
+    surf.Albedo = albedo;
+    surf.Metallic = 0.0f;
+    surf.Smoothness = gTreeBarkParams.z * lerp(0.6f, 1.0f, h0);
+    surf.Occlusion = pin.AO * lerp(0.55f, 1.0f, h0);   // 골 안쪽은 어둡게
+    surf.Emission = float3(0, 0, 0);
+    surf.Transmission = float3(0, 0, 0);
+    surf.Highlights = true;
+    surf.Reflections = true;
+    surf.ReceiveShadows = true;
+    return FinishLit(ShadeLit(surf, pin.PosW, N, V, pin.SsaoPosH), 1.0f, distToEye);
+}
+
+float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
+{
+    const TreeLeafHit hit = TreeLeafCluster(pin.UV, pin.Seed);
+    clip(-hit.Dist);
+
+    // 잎 법선은 생성기가 수관 구 쪽으로 굽혀 둔 값 (양면 모두 같은 법선 → 덩어리가 부드럽게 빛을 받음)
+    float3 N = normalize(pin.NormalW);
+    const float3 toEye = gEyePosW - pin.PosW;
+    const float distToEye = length(toEye);
+    const float3 V = toEye / max(distToEye, 0.0001f);
+
+    float3 albedo;
+    float smoothness = gTreeLeafParams.y;
+    float3 transmission;
+    if (hit.Twig)
+    {
+        albedo = ToLinear(gTreeBarkColor.rgb) * 0.8f;
+        smoothness = 0.2f;
+        transmission = float3(0, 0, 0);
+    }
+    else
+    {
+        // 잎마다 두 색 사이에서 조금씩 다르게, 가장자리는 밝게, 잎맥은 연하게
+        const float v = TreeHash11(pin.Seed * 37.3f + hit.Id * 3.1f);
+        float3 c = lerp(ToLinear(gTreeLeafColor.rgb), ToLinear(gTreeLeafColor2.rgb), saturate(v * gTreeLeafColor.a * 1.4f));
+        c *= lerp(0.8f, 1.1f, saturate(hit.Along));
+        const float midrib = 1.0f - smoothstep(0.03f, 0.12f, abs(hit.Across));
+        const float veins = (1.0f - smoothstep(0.0f, 0.08f, abs(frac(hit.Along * 7.0f - abs(hit.Across) * 1.6f) - 0.5f) - 0.4f)) * (1.0f - midrib) * 0.5f;
+        c *= 1.0f + midrib * 0.35f + veins * 0.15f;
+        albedo = c;
+        transmission = c * gTreeLeafParams.x * 1.6f;
+
+        // 잎을 살짝 접힌 모양으로: 잎맥에서 멀수록 법선을 옆으로
+        const float3 up = normalize(pin.AxisW);
+        const float3 right = normalize(cross(up, N) + 1e-5f);
+        N = normalize(N + right * (hit.Across * 0.35f));
+    }
+
+    LitSurface surf;
+    surf.Albedo = albedo;
+    surf.Metallic = 0.0f;
+    surf.Smoothness = smoothness;
+    surf.Occlusion = pin.AO;
+    surf.Emission = float3(0, 0, 0);
+    surf.Transmission = transmission;
+    surf.Highlights = true;
+    surf.Reflections = false;
+    surf.ReceiveShadows = true;
+    return FinishLit(ShadeLit(surf, pin.PosW, N, V, pin.SsaoPosH), 1.0f, distToEye);
+}
+
+technique11 TreeBarkTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeBarkPS()));
+        SetDepthStencilState(TerrainDepthLessEqual, 0);
+    }
+}
+
+technique11 TreeLeafTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TreeVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TreeLeafPS()));
+        SetDepthStencilState(TerrainDepthLessEqual, 0);
+        SetRasterizerState(TreeLeafCullNone);
     }
 }
