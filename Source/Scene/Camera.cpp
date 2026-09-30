@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Camera.h"
+#include "UnityGUI.h"
 #include "SceneViewOverlay.h"
 #include "Application.h"
 #include "App.h"
@@ -16,7 +17,7 @@ Camera::Camera()
 {
 	m_InspectorTitleName = "Camera";
 	m_InspectorIconPath = L"camera.png";
-	SetLens(0.25f * XM_PI, 1.0f, 1.0f, 1000.0f);
+	SetLens(XM_PI / 3.0f, 1.0f, 0.3f, 1000.0f);   // Unity Í∏∞Î≥∏Í∞í: FOV 60, Near 0.3, Far 1000
 }
 
 Camera::~Camera()
@@ -399,8 +400,8 @@ void Camera::ProjUpdate()
 	}
 	else // Orthographic
 	{
-		Vec2 size = Application::GetI()->GetApp()->GetScreenSize();
-		P = ::XMMatrixOrthographicLH(size.x, size.y, m_nearZ, m_farZ);
+		// Unity ÏôÄ Í∞ôÏù¥ m_orthoSize Îäî ÌôîÎ©¥ ÎÜíÏù¥Ïùò Ï†àÎ∞ò(ÏõîÎìú Îã®ÏúÑ)
+		P = ::XMMatrixOrthographicLH(2.0f * m_orthoSize * m_aspect, 2.0f * m_orthoSize, m_nearZ, m_farZ);
 	}
 	
 	::XMStoreFloat4x4(&_proj, P);
@@ -418,54 +419,113 @@ string Camera::GetStringCameraType(ProjectionType type)
 
 void Camera::OnInspectorGUI()
 {
-	bool ProjectionChanged = false;
+	static const char* kRenderType[] = { "Base", "Overlay" };
+	static const char* kProjection[] = { "Perspective", "Orthographic" };
+	static const char* kFovAxis[] = { "Vertical", "Horizontal" };
+	static const char* kRenderer[] = { "Default Renderer (Forward)" };
+	static const char* kAA[] = { "No Anti-aliasing", "Fast Approximate Anti-aliasing (FXAA)", "Subpixel Morphological Anti-aliasing (SMAA)" };
+	static const char* kTexture[] = { "Off", "On", "Use settings from Render Pipeline Asset" };
+	static const char* kCulling[] = { "Everything", "Nothing", "Default", "TransparentFX", "Ignore Raycast", "Water", "UI" };
+	static const char* kBackground[] = { "Skybox", "Solid Color", "Uninitialized" };
+	static const char* kVolumeUpdate[] = { "Use Pipeline Settings", "Every Frame", "Via Scripting" };
+	static const char* kVolumeMask[] = { "Default", "Nothing", "Everything" };
+	static const char* kDisplay[] = { "Display 1", "Display 2", "Display 3", "Display 4", "Display 5", "Display 6", "Display 7", "Display 8" };
+	static const char* kEye[] = { "Both", "Left", "Right", "None (Main Display)" };
 
-	// CameraType º±≈√GUI
-	//EditorGUI::FloatField
-	if (ImGui::BeginCombo("CameraType", GetStringCameraType(m_cameraType).c_str())) // The second parameter is the previewed value
+	bool projectionChanged = false;
+
+	UnityGUI::Dropdown("Render Type", &m_renderType, kRenderType, 2);
+
+	// ---- Projection ----
+	if (UnityGUI::Foldout("Projection"))
 	{
-		for (int n = 0; n < (int)ProjectionType::End; n++)
+		int projection = (int)m_cameraType;
+		if (UnityGUI::Dropdown("Projection", &projection, kProjection, 2, 1))
 		{
-			bool is_selected = ((int)m_cameraType == n); // You can store your selection somewhere
-			if (ImGui::Selectable(GetStringCameraType((ProjectionType)n).c_str(), is_selected))
-			{
-				m_cameraType = (ProjectionType)n;
-				ProjectionChanged = true;
-			}
-
-			if (is_selected)
-				ImGui::SetItemDefaultFocus(); // Set the initial focus when opening the combo (scrolling + for keyboard navigation support)
+			m_cameraType = (ProjectionType)projection;
+			projectionChanged = true;
 		}
-		ImGui::EndCombo();
+
+		if (m_cameraType == ProjectionType::Perspective)
+		{
+			int axis = m_fovVerticalAxis ? 0 : 1;
+			if (UnityGUI::Dropdown("Field of View Axis", &axis, kFovAxis, 2, 1))
+				m_fovVerticalAxis = (axis == 0);
+
+			float fov = XMConvertToDegrees(m_fovY);
+			if (UnityGUI::Slider("Field of View", &fov, 1.0f, 179.0f, 1))
+			{
+				fov = std::clamp(fov, 1.0f, 179.0f);
+				m_fovY = XMConvertToRadians(fov);
+				projectionChanged = true;
+			}
+			UnityGUI::Toggle("Physical Camera", &m_physicalCamera, 1);
+		}
+		else
+		{
+			if (UnityGUI::Float("Size", &m_orthoSize, 1))
+			{
+				m_orthoSize = max(m_orthoSize, 0.01f);
+				projectionChanged = true;
+			}
+		}
+
+		if (UnityGUI::Float("Clipping Planes", &m_nearZ, 1, "Near"))
+		{
+			m_nearZ = max(m_nearZ, 0.001f);
+			projectionChanged = true;
+		}
+		if (UnityGUI::Float("", &m_farZ, 1, "Far"))
+		{
+			m_farZ = max(m_farZ, m_nearZ + 0.01f);
+			projectionChanged = true;
+		}
 	}
 
-	// Camera ∞™µÈ º≥¡§
-	if (EditorGUI::FloatField("Near", m_nearZ)) {
-		m_nearZ = max(m_nearZ, 0.001f);
-		ProjectionChanged = true;
-	}
-	if (EditorGUI::FloatField("Far", m_farZ)) {
-		m_nearZ = min(m_nearZ, 9999);
-		ProjectionChanged = true;
-	}
-
-	if (ProjectionType::Perspective == m_cameraType)
+	// ---- Rendering ----
+	if (UnityGUI::Foldout("Rendering"))
 	{
-		float fov_degree = XMConvertToDegrees(m_fovY);
-		if (EditorGUI::FloatField("Field Of View", fov_degree)) { 
-			fov_degree = max(fov_degree, 1);  
-			fov_degree = min(fov_degree, 360);
-			m_fovY = XMConvertToRadians(fov_degree); 
-			ProjectionChanged = true;
-		} 
-
-		//ImGui::Text("Aspect");
-		//ImGui::DragFloat("##Aspect", reinterpret_cast<float*>(&m_aspect), 0.1f);
+		UnityGUI::Dropdown("Renderer", &m_renderer, kRenderer, 1, 1);
+		UnityGUI::Toggle("Post Processing", &m_postProcessing, 1);
+		UnityGUI::Dropdown("Anti-aliasing", &m_antiAliasing, kAA, 3, 1);
+		UnityGUI::Toggle("Stop NaNs", &m_stopNaNs, 1);
+		UnityGUI::Toggle("Dithering", &m_dithering, 1);
+		UnityGUI::Toggle("Render Shadows", &m_renderShadows, 1);
+		UnityGUI::Int("Priority", &m_priority, 1);
+		UnityGUI::Dropdown("Opaque Texture", &m_opaqueTexture, kTexture, 3, 1);
+		UnityGUI::Dropdown("Depth Texture", &m_depthTexture, kTexture, 3, 1);
+		UnityGUI::Dropdown("Culling Mask", &m_cullingMask, kCulling, 7, 1);
+		UnityGUI::Toggle("Occlusion Culling", &m_occlusionCulling, 1);
 	}
 
-	if(ProjectionChanged)
-		ProjUpdate();
+	// ---- Stack ----
+	if (UnityGUI::Foldout("Stack"))
+		UnityGUI::EmptyListBox("Cameras", "List is Empty");
 
+	// ---- Environment ----
+	if (UnityGUI::Foldout("Environment"))
+	{
+		UnityGUI::Dropdown("Background Type", &m_backgroundType, kBackground, 3, 1);
+		if (m_backgroundType == 1)
+			UnityGUI::Color("Background", m_backgroundColor, 2);
+		UnityGUI::Label("Volumes", 1, true);
+		UnityGUI::Dropdown("Update Mode", &m_volumeUpdateMode, kVolumeUpdate, 3, 2);
+		UnityGUI::Dropdown("Volume Mask", &m_volumeMask, kVolumeMask, 3, 2);
+		UnityGUI::ObjectField("Volume Trigger", "None (Transform)", 2);
+	}
+
+	// ---- Output ----
+	if (UnityGUI::Foldout("Output"))
+	{
+		UnityGUI::ObjectField("Output Texture", "None (Render Texture)", 1);
+		UnityGUI::Dropdown("Target Display", &m_targetDisplay, kDisplay, 8, 1);
+		UnityGUI::Dropdown("Target Eye", &m_targetEye, kEye, 4, 1);
+		UnityGUI::Vector2Pair("Viewport Rect", "X", &m_viewportRect[0], "Y", &m_viewportRect[1], 1);
+		UnityGUI::Vector2Pair("", "W", &m_viewportRect[2], "H", &m_viewportRect[3], 1);
+	}
+
+	if (projectionChanged)
+		ProjUpdate();
 }
 
 // ƒ´∏ﬁ∂Û ∑ª¥ı π¸¿ßDraw
@@ -494,6 +554,30 @@ GENERATE_COMPONENT_FUNC_TOJSON(Camera)
 	SERIALIZE_FLOAT(j, m_aspect, "aspect"); 
 	SERIALIZE_FLOAT(j, m_fovY, "fovY");
 
+	j["enabled"] = m_Enabled;
+	j["orthoSize"] = m_orthoSize;
+	j["fovVerticalAxis"] = m_fovVerticalAxis;
+	j["physicalCamera"] = m_physicalCamera;
+	j["renderType"] = m_renderType;
+	j["renderer"] = m_renderer;
+	j["postProcessing"] = m_postProcessing;
+	j["antiAliasing"] = m_antiAliasing;
+	j["stopNaNs"] = m_stopNaNs;
+	j["dithering"] = m_dithering;
+	j["renderShadows"] = m_renderShadows;
+	j["priority"] = m_priority;
+	j["opaqueTexture"] = m_opaqueTexture;
+	j["depthTexture"] = m_depthTexture;
+	j["cullingMask"] = m_cullingMask;
+	j["occlusionCulling"] = m_occlusionCulling;
+	j["backgroundType"] = m_backgroundType;
+	j["backgroundColor"] = { m_backgroundColor[0], m_backgroundColor[1], m_backgroundColor[2], m_backgroundColor[3] };
+	j["volumeUpdateMode"] = m_volumeUpdateMode;
+	j["volumeMask"] = m_volumeMask;
+	j["targetDisplay"] = m_targetDisplay;
+	j["targetEye"] = m_targetEye;
+	j["viewportRect"] = { m_viewportRect[0], m_viewportRect[1], m_viewportRect[2], m_viewportRect[3] };
+
 	return j;
 }
 
@@ -505,6 +589,32 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Camera)
 	DE_SERIALIZE_FLOAT(j, m_farZ, "farZ");
 	DE_SERIALIZE_FLOAT(j, m_aspect, "aspect");
 	DE_SERIALIZE_FLOAT(j, m_fovY, "fovY");
+
+	m_Enabled = j.value("enabled", true);
+	m_orthoSize = j.value("orthoSize", 5.0f);
+	m_fovVerticalAxis = j.value("fovVerticalAxis", true);
+	m_physicalCamera = j.value("physicalCamera", false);
+	m_renderType = j.value("renderType", 0);
+	m_renderer = j.value("renderer", 0);
+	m_postProcessing = j.value("postProcessing", false);
+	m_antiAliasing = j.value("antiAliasing", 0);
+	m_stopNaNs = j.value("stopNaNs", false);
+	m_dithering = j.value("dithering", false);
+	m_renderShadows = j.value("renderShadows", true);
+	m_priority = j.value("priority", 0);
+	m_opaqueTexture = j.value("opaqueTexture", 2);
+	m_depthTexture = j.value("depthTexture", 2);
+	m_cullingMask = j.value("cullingMask", 0);
+	m_occlusionCulling = j.value("occlusionCulling", true);
+	m_backgroundType = j.value("backgroundType", 0);
+	m_volumeUpdateMode = j.value("volumeUpdateMode", 0);
+	m_volumeMask = j.value("volumeMask", 0);
+	m_targetDisplay = j.value("targetDisplay", 0);
+	m_targetEye = j.value("targetEye", 0);
+	if (j.contains("backgroundColor") && j.at("backgroundColor").is_array() && j.at("backgroundColor").size() == 4)
+		for (int i = 0; i < 4; ++i) m_backgroundColor[i] = j.at("backgroundColor")[i].get<float>();
+	if (j.contains("viewportRect") && j.at("viewportRect").is_array() && j.at("viewportRect").size() == 4)
+		for (int i = 0; i < 4; ++i) m_viewportRect[i] = j.at("viewportRect")[i].get<float>();
 
 	m_nearZ = max(m_nearZ, 0.001f);
 	m_nearZ = min(m_nearZ, 9999); 

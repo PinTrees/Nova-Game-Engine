@@ -201,5 +201,7 @@ GameObject* GameObjectFactory::CreateCamera(const std::string& name)
 {
 	GameObject* obj = new GameObject(name);
 	obj->AddComponent<Camera>();
+	if (name == "Main Camera")
+		obj->SetTag("MainCamera");
 	return obj;
 }

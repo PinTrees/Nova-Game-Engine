@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Component.h"
 #include "EditorGUI.h"
+#include "UnityGUI.h"
 
 int Component::nextInstanceId = 0; 
 
@@ -19,50 +20,44 @@ void Component::RenderInspectorGUI()
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
 
-	EditorGUI::ComponentDivider();
+	const string type = GetType();
+	const char* icon = "component";
+	if (type == "Transform") icon = "transform";
+	else if (type == "Camera") icon = "camera";
 
-	string componentHeader_id = "ComponentHeader" + to_string(GetInstanceID());
-	ImGui::PushID(componentHeader_id.c_str());
+	string headerId = "ComponentHeader" + to_string(GetInstanceID());
+	UnityGUI::HeaderResult header = UnityGUI::ComponentHeader(headerId.c_str(), m_InspectorTitleName.c_str(), icon,
+		&m_InspectorOpened, HasEnabledToggle() ? &m_Enabled : nullptr, type != "Transform");
 
-	bool isOpened = false;
-	if(m_InspectorIconPath != L"")
-		isOpened = EditorGUI::ComponentHeader(m_InspectorTitleName, L"ProjectSetting\\icons\\component\\" + m_InspectorIconPath, m_InspectorOpened);
-	else isOpened = EditorGUI::ComponentHeader(m_InspectorTitleName, L"ProjectSetting\\icons\\icon_camera.png", m_InspectorOpened);
+	if (header.action == UnityGUI::HeaderAction::Reset) Reset();
+	if (header.action == UnityGUI::HeaderAction::Remove) GameObject::Destroy(this);
 
-	// ComponentHeader context menu
-	if (ImGui::BeginPopupContextItem("ComponentContextMenu", ImGuiMouseButton_Right))
-	{
-		if (ImGui::MenuItem("Reset Component")) Reset();
-		if (ImGui::MenuItem("Remove Component")) GameObject::Destroy(this);
-		ImGui::EndPopup();
-	}
-
-	ImGui::PopID(); 
-
-	// Drag this component
+	// Drag this component (ìˆœì„œ ë³€ê²½)
 	if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
 	{
-		// ÄÄÆ÷³ÍÆ®ÀÇ ÁÖ¼Ò¸¦ ÆäÀÌ·Îµå¿¡ ³ÖÀ½
-		Component* component = this; 
-		ImGui::SetDragDropPayload("COMPONENT_DRAG", &component, sizeof(Component*)); 
-		ImGui::Text("Dragging: %s", m_InspectorTitleName.c_str());  
+		Component* component = this;
+		ImGui::SetDragDropPayload("COMPONENT_DRAG", &component, sizeof(Component*));
+		ImGui::Text("%s", m_InspectorTitleName.c_str());
 		ImGui::EndDragDropSource();
 	}
 
-	EditorGUI::Divider(Color(0.18f, 0.18f, 0.18f, 1.0f), 2.0f);
-
-	EditorGUI::Label("Instance ID: " + to_string(m_InstanceId)); 
-
-	if (isOpened)
+	if (header.open)
 	{
 		ImGui::PushID(m_InstanceId + GetInstanceID());
-		EditorGUI::ComponentBlockStylePush();
-		EditorGUI::Spacing(Vec2(0, 4));
-
-		OnInspectorGUI();
-
-		EditorGUI::Spacing(Vec2(0, 4));
-		EditorGUI::ComponentBlockStylePop();
+		if (UsesUnityInspector())
+		{
+			UnityGUI::Spacing(4);
+			OnInspectorGUI();
+			UnityGUI::Spacing(4);
+		}
+		else
+		{
+			EditorGUI::ComponentBlockStylePush();
+			EditorGUI::Spacing(Vec2(0, 4));
+			OnInspectorGUI();
+			EditorGUI::Spacing(Vec2(0, 4));
+			EditorGUI::ComponentBlockStylePop();
+		}
 		ImGui::PopID();
 	}
 

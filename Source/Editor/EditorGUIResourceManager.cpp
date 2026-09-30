@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
+#include "EditorTheme.h"
 
 SINGLE_BODY(EditorGUIResourceManager);
 
@@ -31,6 +32,15 @@ ImFont* EditorGUIResourceManager::LoadFont(EditorTextStyle style)
 {
     std::string fontKey = std::to_string(style.FontSize) + (style.Bold ? "_bold" : "_regular");
 
+    // ê¸°ë³¸ í¬ê¸°ëŠ” ì´ˆê¸°í™” ë•Œ ë§Œë“  Fonts[0](ì¼ë°˜) / Fonts[1](êµµê²Œ)ë¥¼ ê·¸ëŒ€ë¡œ ì‚¬ìš©
+    if (style.FontSize == EditorTheme::FontSize)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        int idx = style.Bold ? 1 : 0;
+        if (io.Fonts->Fonts.Size > idx)
+            return io.Fonts->Fonts[idx];
+    }
+
     if (m_FontMap.find(fontKey) != m_FontMap.end())
     {
         return m_FontMap[fontKey];
@@ -51,37 +61,43 @@ ImFont* EditorGUIResourceManager::LoadFont(EditorTextStyle style)
     fontContainer.FontStyle = style;
 
     LoadFontAsync(fontContainer);  
-    //ImFont* font = fontFuture.get();  // ÆùÆ® ·Îµå°¡ ¿Ï·áµÇ¸é ÆùÆ®¸¦ ¾òÀ½ 
+    //ImFont* font = fontFuture.get();  // ï¿½ï¿½Æ® ï¿½Îµå°¡ ï¿½Ï·ï¿½Ç¸ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ 
     
-    return nullptr;  // ÀÛ¾÷ÀÌ ¿Ï·áµÇ±â Àü±îÁö´Â nullptr ¹ÝÈ¯
+    return nullptr;  // ï¿½Û¾ï¿½ï¿½ï¿½ ï¿½Ï·ï¿½Ç±ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ nullptr ï¿½ï¿½È¯
 }
 
 void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
 {
-    const string& fontPath = container.FontStyle.Bold ? "C:\\Windows\\Fonts\\malgunbd.ttf" : "C:\\Windows\\Fonts\\malgun.ttf";
+    const string& fontPath = container.FontStyle.Bold ? "C:\\Windows\\Fonts\\segoeuib.ttf" : "C:\\Windows\\Fonts\\segoeui.ttf";
     const EditorTextStyle& style = container.FontStyle;
 
     string fontKey = to_string(style.FontSize) + (style.Bold ? "_bold" : "_regular");
 
-    // ºñµ¿±â ÀÛ¾÷ÀÇ °á°ú¸¦ ÀúÀåÇÒ promise °´Ã¼
+    // ï¿½ñµ¿±ï¿½ ï¿½Û¾ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ promise ï¿½ï¿½Ã¼
     auto fontPromise = make_shared<promise<ImFont*>>(); 
     future<ImFont*> fontFuture = fontPromise->get_future();
 
     TaskSystem::mainThreadTasks.push([fontKey, fontPath, style, fontPromise, this]()
     {
         ImFontConfig config;
-        config.MergeMode = true; // ±âÁ¸ ÆùÆ®¿Í ÇÕÃÄ »ç¿ë 
+        config.MergeMode = true; // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ 
         config.PixelSnapH = true;
-        static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome ¹üÀ§   
+        static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 }; // FontAwesome ï¿½ï¿½ï¿½ï¿½   
 
         ImGuiIO& io = ImGui::GetIO(); 
         ImFont* font = io.Fonts->AddFontFromFileTTF( 
             fontPath.c_str(), 
             style.FontSize, 
             NULL, 
-            io.Fonts->GetGlyphRangesKorean() 
+            io.Fonts->GetGlyphRangesDefault() 
         );
-        // Font Awesome ÆùÆ® Ãß°¡
+        // í•œê¸€ì€ ë§‘ì€ ê³ ë”•ìœ¼ë¡œ ë³‘í•©
+        static const ImWchar hangulRanges[] = { 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
+        ImFontConfig hangulCfg;
+        hangulCfg.MergeMode = true;
+        hangulCfg.PixelSnapH = true;
+        io.Fonts->AddFontFromFileTTF(style.Bold ? "C:\\Windows\\Fonts\\malgunbd.ttf" : "C:\\Windows\\Fonts\\malgun.ttf", style.FontSize, &hangulCfg, hangulRanges);
+        // Font Awesome ï¿½ï¿½Æ® ï¿½ß°ï¿½
         string fa_path = PathManager::GetI()->GetEnginePathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
         io.Fonts->AddFontFromFileTTF( 
             fa_path.c_str(),
@@ -96,7 +112,7 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
 
             m_LoadFontTask[fontKey] = false;
             this->m_FontMap[fontKey] = font; 
-            // ÀÛ¾÷ ¿Ï·á ÈÄ promise¿¡ °á°ú ¼³Á¤
+            // ï¿½Û¾ï¿½ ï¿½Ï·ï¿½ ï¿½ï¿½ promiseï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
             fontPromise->set_value(font);
         }
         else
@@ -105,6 +121,6 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
         }
     });
 
-    // ºñµ¿±âÀûÀ¸·Î ÆùÆ®¸¦ ¹ÝÈ¯ (ÀÛ¾÷ÀÌ ³¡³¯ ¶§±îÁö ±â´Ù¸®±â)
+    // ï¿½ñµ¿±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½È¯ (ï¿½Û¾ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ù¸ï¿½ï¿½ï¿½)
     return; 
 }

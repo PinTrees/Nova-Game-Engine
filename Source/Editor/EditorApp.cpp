@@ -298,8 +298,10 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
-		// Game 뷰: Unity 기본 카메라 배경색(#314D79)
-		const float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
+		// Game 뷰: 카메라의 Background Type 이 Solid Color 이면 그 색, 아니면 Unity 기본 카메라 배경색(#314D79)
+		float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
+		if (camera && camera->UsesSolidBackground())
+			memcpy(gameClear, camera->GetBackgroundColor(), sizeof(gameClear));
 		_deviceContext->ClearRenderTargetView(renderTargetView, gameClear);
 	}
 

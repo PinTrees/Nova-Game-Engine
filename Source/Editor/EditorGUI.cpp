@@ -103,7 +103,7 @@ void EditorGUI::Label(string text, EditorTextStyle guiStyle, ImVec4 color)
 void EditorGUI::LabelHeader(string text)
 {
     EditorTextStyle style;
-    style.FontSize = 16;
+    style.FontSize = 14;
     style.Bold = true;
     ImFont* font = EditorGUIResourceManager::GetI()->LoadFont(style);
 

@@ -2,6 +2,7 @@
 #include "GameObject.h"
 #include "Transform.h"
 #include "EditorGUI.h"
+#include "UnityGUI.h"
 
 atomic<uint64> GameObject::g_NextInstanceID = 0;
 
@@ -166,21 +167,16 @@ void GameObject::ApplyPendingComponents()
 
 void GameObject::OnInspectorGUI()
 {
-    // 게임 오브젝트 이름 변경 인풋 필드
-    ImGui::Dummy(ImVec2(0, 4));
-    ImGui::Dummy(ImVec2(2, 0));
-    ImGui::SameLine();
-    EditorGUI::Checkbox(m_IsActive);
-    ImGui::SameLine();
-    if (EditorGUI::InputField(m_Name))
+    // Unity 스타일 GameObject 헤더: 아이콘 / 활성 / 이름 / Static / Tag / Layer
     {
-        // 이름 변경 시 필요한 추가 작업이 있으면 여기에 추가
+        int layer = m_LayerIndex;
+        UnityGUI::GameObjectHeader(&m_IsActive, &m_Name, &m_IsStatic, &m_Tag, &layer);
+        m_LayerIndex = (uint8)layer;
     }
 
-    ImGui::Dummy(ImVec2(0, 4));
     for (auto it = m_Components.begin(); it != m_Components.end(); ++it)
     {
-        ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 6));
+        ImGui::Dummy(ImVec2(ImGui::GetContentRegionAvail().x, 1));
         if (ImGui::BeginDragDropTarget())
         {
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("COMPONENT_DRAG")) 
@@ -259,6 +255,10 @@ void to_json(json& j, const GameObject& obj)
     j = json
     {
         { "name", obj.m_Name },
+        { "active", obj.m_IsActive },
+        { "tag", obj.m_Tag },
+        { "layer", (int)obj.m_LayerIndex },
+        { "static", obj.m_IsStatic },
         { "components", json::array() },
         { "children", json::array() } 
     };
@@ -279,6 +279,10 @@ void to_json(json& j, const GameObject& obj)
 void from_json(const json& j, GameObject& obj)
 {
     obj.m_Name = j.at("name").get<std::string>();
+    obj.m_IsActive = j.value("active", true);
+    obj.m_Tag = j.value("tag", std::string("Untagged"));
+    obj.m_LayerIndex = (uint8)j.value("layer", 0);
+    obj.m_IsStatic = j.value("static", false);
 
     // 컴포넌트 복원
     for (const auto& compJson : j.at("components"))

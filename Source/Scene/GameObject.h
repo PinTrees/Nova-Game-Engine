@@ -31,6 +31,8 @@ private:
 
 	// Runtime Value
 	bool m_IsActive;  
+	string m_Tag = "Untagged";
+	bool m_IsStatic = false;
 
 	// Editor
 	vector<function<void()>>		m_Editor_LastUpdateActions; 
@@ -66,6 +68,11 @@ public:
 	void LastUpdate(); 
 
 	void OnDestroy(); 
+
+	const string& GetTag() const { return m_Tag; }
+	void SetTag(const string& tag) { m_Tag = tag; }
+	bool IsStatic() const { return m_IsStatic; }
+	void SetStatic(bool isStatic) { m_IsStatic = isStatic; }
 
 	void SetLayerIndex(uint8 layer) { m_LayerIndex = layer; } 
 	uint8 GetLayerIndex() { return m_LayerIndex; } 

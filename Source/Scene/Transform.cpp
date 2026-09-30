@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Transform.h"
+#include "UnityGUI.h"
 #include "EditorGUI.h"
 
 // This is not in game format, it is in mathematical format.
@@ -260,30 +261,15 @@ void Transform::RemoveChild(shared_ptr<Transform> child)
 
 void Transform::OnInspectorGUI()
 {
-	bool positionChanged = false;
-	bool rotationChanged = false;
-	bool scaleChanged = false;
-	
-	if (EditorGUI::Vector3Field("Position", m_LocalPosition))
-	{
-		positionChanged = true;
-	}
+	bool positionChanged = UnityGUI::Vector3("Position", &m_LocalPosition.x);
+	bool rotationChanged = UnityGUI::Vector3("Rotation", &m_LocalEulerAngles.x);
+	bool scaleChanged = UnityGUI::Vector3("Scale", &m_LocalScale.x, true);
 
-	if (EditorGUI::Vector3Field("Rotation", m_LocalEulerAngles))
-	{
-		rotationChanged = true;
+	if (rotationChanged)
 		SetLocalEulerAngles(m_LocalEulerAngles);
-	}
-
-	if (EditorGUI::Vector3Field("Scale", m_LocalScale))
-	{
-		scaleChanged = true;
-	}
 
 	if (positionChanged || rotationChanged || scaleChanged)
-	{
 		UpdateTransform();
-	}
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(Transform)

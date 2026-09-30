@@ -285,6 +285,12 @@
     <ClInclude Include="..\Source\Graphics\Common\Waves.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\Source\Editor\UnityGUI.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\Source\Editor\UnityGUI.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="..\Source\Editor\SceneViewOverlay.cpp" />
   </ItemGroup>
   <ItemGroup>

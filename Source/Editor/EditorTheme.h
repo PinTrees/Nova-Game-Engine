@@ -4,8 +4,8 @@
 // 값은 Unity 에디터 스크린샷(1920x1080, 100% DPI)에서 읽은 근사치이며 대조하면서 조정한다.
 namespace EditorTheme
 {
-	constexpr int   FontSize          = 15;      // 본문 폰트 (Unity 12px 계열에 대응)
-	constexpr int   FontSizeHeader    = 16;
+	constexpr int   FontSize          = 13;      // 본문 폰트 (Segoe UI 13px ≈ Unity 12px)
+	constexpr int   FontSizeHeader    = 14;
 
 	constexpr float MenuBarPaddingX   = 10.0f;
 	constexpr float MenuBarPaddingY   = 4.0f;

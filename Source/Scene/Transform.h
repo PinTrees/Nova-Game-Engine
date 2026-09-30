@@ -88,6 +88,8 @@ public:
 	void RemoveChild(shared_ptr<Transform> child);
 public:
 	virtual void OnInspectorGUI() override;
+	virtual bool UsesUnityInspector() const override { return true; }
+	virtual bool HasEnabledToggle() const override { return false; }
 
 public:
 	GENERATE_COMPONENT_BODY(Transform)

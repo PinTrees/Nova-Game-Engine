@@ -32,6 +32,31 @@ private:
 
 	Frustum m_Frustum;
 
+	// Unity(URP) 카메라 Inspector 항목. Projection/FOV/Size/Clipping/Background 는 실제로 동작하고,
+	// 나머지(Rendering, Stack, Volumes, Output 등)는 값 저장만 하는 UI 용 항목이다.
+	float m_orthoSize = 5.0f;
+	bool  m_fovVerticalAxis = true;
+	bool  m_physicalCamera = false;
+	int   m_renderType = 0;          // Base / Overlay
+	int   m_renderer = 0;
+	bool  m_postProcessing = false;
+	int   m_antiAliasing = 0;
+	bool  m_stopNaNs = false;
+	bool  m_dithering = false;
+	bool  m_renderShadows = true;
+	int   m_priority = 0;
+	int   m_opaqueTexture = 2;       // 0 Off, 1 On, 2 Use settings from Render Pipeline Asset
+	int   m_depthTexture = 2;
+	int   m_cullingMask = 0;         // 0 Everything
+	bool  m_occlusionCulling = true;
+	int   m_backgroundType = 0;      // 0 Skybox, 1 Solid Color, 2 Uninitialized
+	float m_backgroundColor[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
+	int   m_volumeUpdateMode = 0;
+	int   m_volumeMask = 0;
+	int   m_targetDisplay = 0;
+	int   m_targetEye = 0;
+	float m_viewportRect[4] = { 0.0f, 0.0f, 1.0f, 1.0f };   // x, y, w, h
+
 	void FrustumUpdate(); // frustum ���� ���
 	void GetFrustumCulling();
 	void ProjUpdate();
@@ -102,6 +127,12 @@ public:
 	virtual void LateUpdate() override;
 	
 	virtual void OnInspectorGUI() override;
+	virtual bool UsesUnityInspector() const override { return true; }
+
+	// 배경 (Game 뷰 클리어 색에 사용)
+	bool UsesSolidBackground() const { return m_backgroundType == 1; }
+	const float* GetBackgroundColor() const { return m_backgroundColor; }
+	float GetOrthoSize() const { return m_orthoSize; }
 	virtual void OnDrawGizmos() override;
 
 	GENERATE_COMPONENT_BODY(Camera)

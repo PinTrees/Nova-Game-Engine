@@ -85,8 +85,29 @@ void EditorGUIManager::Init(bool hubMode)
     string fa_path = PathManager::GetI()->GetEnginePathS() + "ProjectSetting\\fonts\\fa-solid-900.ttf";
     
     // Load Fonts
-    io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesKorean());
-    io.Fonts->AddFontFromFileTTF(fa_path.c_str(), hubMode ? fontSize - 4 : fontSize - 2, &config, icons_ranges);
+    if (!hubMode)
+    {
+        // 본문 폰트: Segoe UI(라틴, Unity 의 Inter 와 가장 비슷한 시스템 폰트) + 맑은 고딕(한글) + Font Awesome(아이콘)
+        static const ImWchar hangulRanges[] = { 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
+        ImFontConfig mergeCfg;
+        mergeCfg.MergeMode = true;
+        mergeCfg.PixelSnapH = true;
+
+        // Fonts[0]: 일반
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeui.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesDefault());
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, &mergeCfg, hangulRanges);
+        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 1, &config, icons_ranges);
+
+        // Fonts[1]: 굵게 (UnityGUI::BoldFont)
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\segoeuib.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesDefault());
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgunbd.ttf", fontSize, &mergeCfg, hangulRanges);
+        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 1, &config, icons_ranges);
+    }
+    else
+    {
+        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesKorean());
+        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 4, &config, icons_ranges);
+    }
 
     if (hubMode)
     {
