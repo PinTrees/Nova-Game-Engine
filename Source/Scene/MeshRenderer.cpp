@@ -457,16 +457,14 @@ void MeshRenderer::OnInspectorGUI()
 	}
 	if (open)
 	{
+		m_MaterialPaths.resize(m_pMaterials.size());
 		for (int i = 0; i < (int)m_pMaterials.size(); ++i)
 		{
+			// ⊙ = Select Material 창, Project 의 .mat 끌어 놓기
 			std::string label = "Element " + std::to_string(i);
-			std::string name = m_pMaterials[i] ? std::filesystem::path(m_pMaterials[i]->GetName()).stem().string() : "None (Material)";
-			if (m_pMaterials[i] && UMaterial::IsBuiltinPath(m_pMaterials[i]->GetName()) == false && name.empty())
-				name = "None (Material)";
-			if (m_pMaterials[i] && m_pMaterials[i]->GetName().rfind("builtin:", 0) == 0)
-				name = m_pMaterials[i]->GetName().substr(8);
+			std::string key = "mat:" + std::to_string((uintptr_t)this) + ":" + std::to_string(i);
 			ImGui::PushID(i);
-			ElementRow(label.c_str(), name.c_str(), nullptr);
+			MaterialInspector::MaterialSlot(label.c_str(), key, m_pMaterials[i], m_MaterialPaths[i]);
 			ImGui::PopID();
 		}
 		bool plus = false, minus = false;
@@ -568,16 +566,14 @@ GENERATE_COMPONENT_FUNC_FROMJSON(MeshRenderer)
 		m_Mesh = ResourceManager::GetI()->LoadMesh(m_MeshPath, m_MeshSubsetIndex);  
 	 
 	DE_SERIALIZE_WSTRING_ARRAY(j, m_MaterialPaths, "m_MaterialPaths");
+	m_pMaterials.clear();   // Undo 등으로 기존 컴포넌트에 다시 읽을 때 중복되지 않게
 	if (m_MaterialPaths.size() > 0)
 	{
 		for (int i = 0; i < m_MaterialPaths.size(); ++i)
 		{
-			if (m_MaterialPaths[i] == L"")
-				continue;
-
-			auto material = ResourceManager::GetI()->LoadMaterial(wstring_to_string(m_MaterialPaths[i]));
-			if (material != nullptr)
-				m_pMaterials.push_back(material);
+			// 빈 경로 = None, 읽지 못한 재질도 슬롯과 경로는 남긴다 (m_MaterialPaths 와 순서를 맞춤, 그릴 때는 기본 재질)
+			auto material = m_MaterialPaths[i].empty() ? nullptr : ResourceManager::GetI()->LoadMaterial(wstring_to_string(m_MaterialPaths[i]));
+			m_pMaterials.push_back(material);
 		}
 	}
 

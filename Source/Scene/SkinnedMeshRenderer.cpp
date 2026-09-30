@@ -307,17 +307,14 @@ void SkinnedMeshRenderer::OnInspectorGUI()
 	}
 	if (open)
 	{
+		m_MaterialPaths.resize(m_pMaterials.size());
 		for (int i = 0; i < (int)m_pMaterials.size(); ++i)
 		{
+			// ⊙ = Select Material 창, Project 의 .mat 끌어 놓기
 			std::string label = "Element " + std::to_string(i);
-			std::string name = "None (Material)";
-			if (m_pMaterials[i])
-			{
-				name = m_pMaterials[i]->GetName();
-				name = name.rfind("builtin:", 0) == 0 ? name.substr(8) : std::filesystem::path(name).stem().string();
-			}
+			std::string key = "mat:" + std::to_string((uintptr_t)this) + ":" + std::to_string(i);
 			ImGui::PushID(i);
-			ElementRow(label.c_str(), name.c_str(), nullptr);
+			MaterialInspector::MaterialSlot(label.c_str(), key, m_pMaterials[i], m_MaterialPaths[i]);
 			ImGui::PopID();
 		}
 		bool plus = false, minus = false;
@@ -395,7 +392,14 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SkinnedMeshRenderer)
 	DE_SERIALIZE_WSTRING_ARRAY(j, materialPaths, "m_MaterialPaths");
 	for (const wstring& path : materialPaths)
 	{
+		// 빈 경로 = None (그릴 때는 기본 재질), 읽지 못한 재질은 기본 재질로
 		shared_ptr<UMaterial> material = path.empty() ? nullptr : ResourceManager::GetI()->LoadMaterial(wstring_to_string(path));
+		if (path.empty())
+		{
+			m_pMaterials.push_back(nullptr);
+			m_MaterialPaths.push_back(L"");
+			continue;
+		}
 		m_pMaterials.push_back(material ? material : UMaterial::GetDefault());
 		m_MaterialPaths.push_back(material ? path : wstring(L"builtin:Default-Material"));
 	}

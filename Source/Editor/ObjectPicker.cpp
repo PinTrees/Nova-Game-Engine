@@ -30,7 +30,14 @@ namespace
 	const ImU32 kLine = IM_COL32(30, 30, 30, 255);
 
 	std::string Lower(std::string v) { std::transform(v.begin(), v.end(), v.begin(), ::tolower); return v; }
-	std::string NameOf(const std::string& path) { return path.empty() ? std::string("None") : std::filesystem::path(path).stem().string(); }
+	std::string NameOf(const std::string& path)
+	{
+		if (path.empty())
+			return "None";
+		if (path.rfind("builtin:", 0) == 0)   // 내장 에셋 (예: builtin:Default-Material)
+			return path.substr(8);
+		return std::filesystem::path(path).stem().string();
+	}
 	bool IsPackage(const std::string& path) { return _strnicmp(path.c_str(), "Resources\\Packages", 18) == 0; }
 
 	void Select(const std::string& path, bool close)

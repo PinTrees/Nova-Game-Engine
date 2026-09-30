@@ -10,6 +10,8 @@
 #include "ObjectPicker.h"
 #include "UISprites.h"
 #include "UndoSystem.h"
+#include "PathManager.h"
+#include "ResourceManager.h"
 
 namespace
 {
@@ -246,6 +248,103 @@ void MaterialInspector::WatchUndo(const std::shared_ptr<UMaterial>& material)
 	Undo::WatchAsset("material:" + std::to_string((uintptr_t)material.get()), "Material",
 		[weak]() { auto m = weak.lock(); if (!m) return std::string(); json j = *m; return j.dump(); },
 		[weak](const std::string& text) { if (auto m = weak.lock()) { from_json(json::parse(text), *m); m->ReloadTextures(); UMaterial::Save(m.get()); } });
+}
+
+// ------------------------------------------------------------------ 재질 슬롯 (Renderer 의 Materials 목록)
+std::vector<std::string> MaterialInspector::FindAllMaterials()
+{
+	std::vector<std::string> out;
+	auto scan = [&](const std::wstring& root) {
+		std::error_code ec;
+		if (!std::filesystem::exists(root, ec))
+			return;
+		for (const auto& e : std::filesystem::recursive_directory_iterator(root, std::filesystem::directory_options::skip_permission_denied, ec))
+			if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().c_str(), L".mat") == 0)
+				out.push_back(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(e.path().wstring())));
+	};
+	scan(PathManager::GetI()->GetMovePathW(L"Assets\\"));
+	scan(PathManager::GetI()->GetMovePathW(L"Resources\\Packages\\"));
+	std::sort(out.begin(), out.end());
+	out.insert(out.begin(), "builtin:Default-Material");
+	return out;
+}
+
+bool MaterialInspector::MaterialSlot(const char* label, const std::string& key, std::shared_ptr<UMaterial>& material, std::wstring& path)
+{
+	std::string name = "None (Material)";
+	if (material)
+	{
+		name = ShortName(material->GetName());
+		if (name.empty())
+			name = "None (Material)";
+	}
+
+	// ElementRow 와 같은 배치로 오브젝트 필드 영역을 계산해 끌어 놓기 영역을 겹친다
+	const ImVec2 p = ImGui::GetCursorScreenPos();
+	const float w = ImGui::GetContentRegionAvail().x;
+	const float x0 = p.x + 14.0f, x1 = p.x + w - 12.0f;
+	const ImVec2 f0(x0 + (x1 - x0) * 0.40f, p.y + 4.0f), f1(x1 - 6.0f, p.y + 23.0f);
+	const bool pick = UnityGUI::ElementRow(label, name.c_str(), material ? "material_ball" : nullptr);
+	const ImVec2 after = ImGui::GetCursorScreenPos();
+
+	bool changed = false;
+	auto assign = [&](const std::string& picked) {
+		if (picked.empty())
+		{
+			material = nullptr;
+			path.clear();
+		}
+		else
+		{
+			auto loaded = ResourceManager::GetI()->LoadMaterial(picked);
+			if (loaded == nullptr)
+				return;
+			material = loaded;
+			path = string_to_wstring(picked);
+		}
+		changed = true;
+	};
+
+	if (pick)
+	{
+		ObjectPicker::Options opt;
+		opt.TypeName = "Material";
+		opt.Icon = "material_ball";
+		opt.Items = FindAllMaterials();
+		opt.Current = material ? (path.empty() ? material->GetName() : wstring_to_string(path)) : std::string();
+		opt.Describe = [](const std::string& p) {
+			if (UMaterial::IsBuiltinPath(p))
+				return std::string("Universal Render Pipeline/Lit (built-in)");
+			auto m = ResourceManager::GetI()->LoadMaterial(p);
+			return m ? std::string(m->GetShader() == UMaterial::ShaderKind::Unlit ? "Universal Render Pipeline/Unlit" : "Universal Render Pipeline/Lit") : std::string("(cannot load)");
+		};
+		ObjectPicker::Open(key, std::move(opt));
+	}
+	std::string picked;
+	if (ObjectPicker::Poll(key, picked))
+		assign(picked);
+
+	// Project 창에서 .mat 끌어 놓기 (⊙ 버튼 칸은 빼고)
+	ImGui::PushID(key.c_str());
+	ImGui::SetCursorScreenPos(f0);
+	ImGui::InvisibleButton("##matDrop", ImVec2((std::max)(1.0f, f1.x - f0.x - 22.0f), f1.y - f0.y));
+	if (ImGui::BeginDragDropTarget())
+	{
+		// Project 창은 .mat 를 "MAT_FILE"(프로젝트 기준 경로)로 보낸다
+		const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MAT_FILE");
+		if (payload == nullptr)
+			payload = ImGui::AcceptDragDropPayload("ASSET_FILE");
+		if (payload != nullptr)
+		{
+			const std::string dropped(static_cast<const char*>(payload->Data));
+			if (_stricmp(std::filesystem::path(dropped).extension().string().c_str(), ".mat") == 0)
+				assign(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(string_to_wstring(dropped))));
+		}
+		ImGui::EndDragDropTarget();
+	}
+	ImGui::PopID();
+	ImGui::SetCursorScreenPos(after);
+	return changed;
 }
 
 // ------------------------------------------------------------------ Inspector
