@@ -234,6 +234,11 @@ InstancedBasicEffect::InstancedBasicEffect(ComPtr<ID3D11Device> device, const st
 	DirShadowTransforms = _fx->GetVariableByName("gDirShadowTransforms")->AsMatrix();
 	SpotShadowTransforms = _fx->GetVariableByName("gSpotShadowTransforms")->AsMatrix();
 	PointShadowTransforms = _fx->GetVariableByName("gPointShadowTransforms")->AsMatrix();
+	CascadeSpheres = _fx->GetVariableByName("gCascadeSpheres")->AsVector();
+	ShadowParams = _fx->GetVariableByName("gShadowParams")->AsVector();
+	DirShadowData = _fx->GetVariableByName("gDirShadowData")->AsVector();
+	SpotShadowData = _fx->GetVariableByName("gSpotShadowData")->AsVector();
+	PointShadowData = _fx->GetVariableByName("gPointShadowData")->AsVector();
 
 	EyePosW = _fx->GetVariableByName("gEyePosW")->AsVector();
 	FogColor = _fx->GetVariableByName("gFogColor")->AsVector();
@@ -538,6 +543,8 @@ BuildShadowMapEffect::BuildShadowMapEffect(ComPtr<ID3D11Device> device, const st
 	MinTessDistance = _fx->GetVariableByName("gMinTessDistance")->AsScalar();
 	MinTessFactor = _fx->GetVariableByName("gMinTessFactor")->AsScalar();
 	MaxTessFactor = _fx->GetVariableByName("gMaxTessFactor")->AsScalar();
+	ShadowLight = _fx->GetVariableByName("gShadowLight")->AsVector();
+	ShadowBias = _fx->GetVariableByName("gShadowBias");
 	DiffuseMap = _fx->GetVariableByName("gDiffuseMap")->AsShaderResource();
 	NormalMap = _fx->GetVariableByName("gNormalMap")->AsShaderResource();
 }

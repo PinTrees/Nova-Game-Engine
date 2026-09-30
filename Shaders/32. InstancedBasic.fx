@@ -53,12 +53,19 @@ cbuffer cbPerFrame
     int gPointLightCount;
     int gSpotLightCount;
     
-    // Instancing -> Worldx, LightV * LightP * toTexSpace, Not Instancing -> World * LightV * LightP * toTexSpace
-    float4x4 gDirShadowTransforms[LIGHT_SIZE];
+    // 그림자 변환 = LightV * LightP * toTexSpace. 방향광은 빛마다 캐스케이드 4개 (i * 4 + cascade)
+    float4x4 gDirShadowTransforms[LIGHT_SIZE * 4];
     float4x4 gSpotShadowTransforms[LIGHT_SIZE];
     float4x4 gPointShadowTransforms[LIGHT_MAX_SIZE];
     
     float3 gEyePosW;
+
+    // 캐스케이드 그림자 (Volume > Shadows): 구 = xyz 중심, w = 반지름²
+    float4 gCascadeSpheres[4];
+    float4 gShadowParams;                // x 캐스케이드 수, y Max Distance, z 흐려지기 시작 거리, w 1 / 흐려지는 폭
+    float4 gDirShadowData[LIGHT_SIZE];   // x Strength (0 = 그림자 없음), y 필터 (0 Hard, 1 Low, 2 Medium, 3 High)
+    float4 gSpotShadowData[LIGHT_SIZE];
+    float4 gPointShadowData[LIGHT_SIZE];
 
     float gFogStart;
     float gFogRange;
@@ -93,9 +100,9 @@ cbuffer cbSkinned
 // Nonnumeric values cannot be added to a cbuffer.
 
 // frame
-Texture2D gDirShadowMaps[LIGHT_SIZE];
-Texture2D gSpotShadowMaps[LIGHT_SIZE];
-Texture2D gPointShadowMaps[LIGHT_MAX_SIZE];
+Texture2DArray gDirShadowMaps[LIGHT_SIZE];   // 캐스케이드 = 배열 조각
+Texture2DArray gSpotShadowMaps[LIGHT_SIZE];    // 조각 1 개
+Texture2DArray gPointShadowMaps[LIGHT_SIZE];   // 큐브 6 면 = 조각 6 개
 Texture2D gSsaoMap;
 TextureCube gCubeMap;
 
@@ -121,10 +128,108 @@ SamplerComparisonState samShadow
     AddressU = BORDER;
     AddressV = BORDER;
     AddressW = BORDER;
-    BorderColor = float4(0.0f, 0.0f, 0.0f, 0.0f);
+    BorderColor = float4(1.0f, 1.0f, 1.0f, 1.0f);   // 그림자 맵 밖 = 가장 먼 깊이 = 빛을 받음
 
     ComparisonFunc = LESS_EQUAL;
 };
+
+// ---------------------------------------------------------------------------
+// 그림자 (Unity URP 방식)
+//  - 방향광: 카메라 절두체를 거리별 구(캐스케이드)로 나눠 가까운 곳일수록 촘촘한 맵. 픽셀이 들어 있는 첫 구를 쓴다
+//  - 필터: Hard = 비교 샘플 1 번(2x2 선형), Soft = Low 4 / Medium 9 / High 16 번 (텐트 모양으로 부드럽게)
+//  - Strength 로 그림자 농도, Max Distance 끝의 Last Border 구간에서 서서히 사라진다
+// ---------------------------------------------------------------------------
+// 비교 샘플 PCF. filter 0 = Hard(1 번, 2x2 선형), 1 Low(2x2), 2 Medium(3x3), 3 High(4x4) — 동적 루프라 코드는 한 벌
+float ShadowPCF(Texture2DArray map, float3 coord, float slice, int filter)
+{
+    float lit = 1.0f;   // 빛의 먼 평면 밖이면 빛
+    if (coord.z <= 1.0f)
+    {
+        uint w, h, n;
+        map.GetDimensions(w, h, n);
+        const float2 texel = 1.0f / float2(w, h);
+        const int size = filter <= 0 ? 1 : filter + 1;
+        const float center = (size - 1) * 0.5f;
+        float sum = 0.0f;
+        [loop]
+        for (int y = 0; y < size; ++y)
+        {
+            [loop]
+            for (int x = 0; x < size; ++x)
+                sum += map.SampleCmpLevelZero(samShadow, float3(coord.xy + (float2(x, y) - center) * texel, slice), coord.z).r;
+        }
+        lit = sum / (float)(size * size);
+    }
+    return lit;
+}
+
+// 이 위치가 속한 캐스케이드 (없으면 -1 = Max Distance 밖)
+int SelectCascade(float3 posW)
+{
+    const int count = (int)gShadowParams.x;
+    int cascade = -1;
+    [unroll]
+    for (int c = 3; c >= 0; --c)
+    {
+        const float3 d = posW - gCascadeSpheres[c].xyz;
+        if (c < count && dot(d, d) < gCascadeSpheres[c].w)
+            cascade = c;   // 뒤에서부터 → 마지막으로 남는 값 = 가장 가까운 캐스케이드
+    }
+    return cascade;
+}
+
+// Max Distance 끝(Last Border 구간)에서 그림자가 사라지는 정도 (0 = 그대로, 1 = 없음)
+float ShadowFade(float3 posW)
+{
+    return saturate((distance(posW, gEyePosW) - gShadowParams.z) * gShadowParams.w);
+}
+
+// 방향광 i 의 그림자 (1 = 빛, 0 = 그림자). 캐스케이드마다 배열 조각 하나
+float DirShadow(Texture2DArray map, int i, float3 posW, int cascade, float fade)
+{
+    const float4 data = gDirShadowData[i];
+    float lit = 1.0f;
+    if (data.x > 0.0f && cascade >= 0)
+    {
+        const float3 coord = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade]).xyz;
+        const float s = ShadowPCF(map, coord, (float)cascade, (int)data.y);
+        lit = lerp(1.0f, lerp(s, 1.0f, fade), data.x);
+    }
+    return lit;
+}
+
+// 원근 맵 하나를 읽는 공통 부분 (스포트광 / 점광의 한 면)
+float PerspectiveShadow(Texture2DArray map, float4x4 transform, float slice, float4 data, float3 posW)
+{
+    float lit = 1.0f;
+    float4 p = mul(float4(posW, 1.0f), transform);
+    if (data.x > 0.0f && p.w > 0.0f)
+        lit = lerp(1.0f, ShadowPCF(map, p.xyz / p.w, slice, (int)data.y), data.x);
+    return lit;
+}
+
+float SpotShadow(Texture2DArray map, int i, float3 posW)
+{
+    return PerspectiveShadow(map, gSpotShadowTransforms[i], 0.0f, gSpotShadowData[i], posW);
+}
+
+// 점광 = 큐브 6 면 (C++ 순서: +X, -X, +Y, -Y, +Z, -Z = 배열 조각). 광원에서 본 방향의 가장 큰 축으로 면을 고른다
+int PointFace(float3 v)
+{
+    const float3 a = abs(v);
+    int face = v.z >= 0.0f ? 4 : 5;
+    if (a.x >= a.y && a.x >= a.z)
+        face = v.x >= 0.0f ? 0 : 1;
+    else if (a.y >= a.z)
+        face = v.y >= 0.0f ? 2 : 3;
+    return face;
+}
+
+float PointShadow(Texture2DArray map, int i, float3 posW)
+{
+    const int face = PointFace(posW - gPointLights[i].Position);
+    return PerspectiveShadow(map, gPointShadowTransforms[i * 6 + face], (float)face, gPointShadowData[i], posW);
+}
 
 struct VertexIn
 {
@@ -375,22 +480,17 @@ float4 PS(VertexOut pin) : SV_Target
     }
     if (gShaderSetting.gUseShadowMap && gPbr.ReceiveShadows)
     {
+        const int cascade = SelectCascade(pin.PosW.xyz);
+        const float fade = ShadowFade(pin.PosW.xyz);
         [unroll]
         for (int i = 0; i < LIGHT_SIZE; i++)
-            dirShadows[i] = CalcShadowFactor(samShadow, gDirShadowMaps[i], mul(pin.PosW, gDirShadowTransforms[i]));
+            dirShadows[i] = DirShadow(gDirShadowMaps[i], i, pin.PosW.xyz, cascade, fade);
         [unroll]
         for (int j = 0; j < LIGHT_SIZE; j++)
-            spotShadows[j] = CalcShadowFactor(samShadow, gSpotShadowMaps[j], mul(pin.PosW, gSpotShadowTransforms[j]));
+            spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, pin.PosW.xyz);
         [unroll]
         for (int l = 0; l < LIGHT_SIZE; l++)
-        {
-            int startIndex = l * 6;
-            float sum = 0.0f;
-            [unroll]
-            for (int s = 0; s < 6; s++)
-                sum += CalcShadowFactor(samShadow, gPointShadowMaps[startIndex + s], mul(pin.PosW, gPointShadowTransforms[startIndex + s]));
-            pointShadows[l] = sum / 6.0f;
-        }
+            pointShadows[l] = PointShadow(gPointShadowMaps[l], l, pin.PosW.xyz);
     }
 
     pin.SsaoPosH /= pin.SsaoPosH.w;
@@ -544,12 +644,14 @@ float4 TerrainPS(TerrainVertexOut pin) : SV_Target
         }
         if (gShaderSetting.gUseShadowMap)
         {
+            const int cascade = SelectCascade(pin.PosW.xyz);
+            const float fade = ShadowFade(pin.PosW.xyz);
             [unroll]
             for (int i = 0; i < LIGHT_SIZE; i++)
-                dirShadows[i] = CalcShadowFactor(samShadow, gDirShadowMaps[i], mul(pin.PosW, gDirShadowTransforms[i]));
+                dirShadows[i] = DirShadow(gDirShadowMaps[i], i, pin.PosW.xyz, cascade, fade);
             [unroll]
             for (int j = 0; j < LIGHT_SIZE; j++)
-                spotShadows[j] = CalcShadowFactor(samShadow, gSpotShadowMaps[j], mul(pin.PosW, gSpotShadowTransforms[j]));
+                spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, pin.PosW.xyz);
         }
 
         float ambientAccess = 1.0f;

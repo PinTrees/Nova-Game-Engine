@@ -8,6 +8,12 @@ cbuffer cbPerFrame
     float gMinTessDistance;
     float gMinTessFactor;
     float gMaxTessFactor;
+
+    // 그림자 바이어스 (Unity URP 의 ApplyShadowBias)
+    //  gShadowLight: w = 0 이면 xyz = 빛 쪽 방향(방향광), w = 1 이면 xyz = 광원 위치(스포트/점광)
+    //  gShadowBias: x = 깊이 바이어스, y = 노멀 바이어스 (방향광은 월드 단위, 원근 광원은 거리 1 당 값)
+    float4 gShadowLight;
+    float2 gShadowBias;
 };
 
 cbuffer cbPerObject
@@ -68,12 +74,31 @@ struct VertexOut
     float4 PosH : SV_POSITION;
     float2 Tex : TEXCOORD;
 };
+
+// 빛에서 멀어지는 쪽으로 깊이 바이어스, 표면 안쪽으로 노멀 바이어스 (빛과 비스듬할수록 크게)
+float3 ApplyShadowBias(float3 posW, float3 normalW)
+{
+    float3 L = gShadowLight.xyz;
+    float scale = 1.0f;
+    if (gShadowLight.w > 0.5f)
+    {
+        const float3 v = gShadowLight.xyz - posW;
+        scale = length(v);
+        L = v / max(scale, 0.0001f);
+    }
+    const float invNdotL = 1.0f - saturate(dot(L, normalW));
+    posW -= L * (gShadowBias.x * scale);
+    posW -= normalW * (invNdotL * gShadowBias.y * scale);
+    return posW;
+}
  
 VertexOut VS(VertexIn vin)
 {
     VertexOut vout;
 
-    vout.PosH = mul(float4(vin.PosL, 1.0f), gWorldViewProj);
+    float3 posW = mul(float4(vin.PosL, 1.0f), gWorld).xyz;
+    const float3 normalW = normalize(mul(vin.NormalL, (float3x3) gWorldInvTranspose));
+    vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
     vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
 
     return vout;
@@ -83,9 +108,9 @@ VertexOut VS_Instancing(VertexIn_Instancing vin)
 {
     VertexOut vout;
 
-    //vout.PosH = mul(float4(vin.PosL, 1.0f), gWorldViewProj);
-    vout.PosH = mul(float4(vin.PosL, 1.0f), vin.World); // W
-    vout.PosH = mul(vout.PosH, gViewProj); // VP
+    const float3 posW = mul(float4(vin.PosL, 1.0f), vin.World).xyz;
+    const float3 normalW = normalize(mul(vin.NormalL, (float3x3) vin.World));   // 균일 크기 가정
+    vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
     
     vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
 
@@ -104,15 +129,20 @@ VertexOut SkinnedVS(SkinnedVertexIn vin)
     weights[3] = 1.0f - weights[0] - weights[1] - weights[2];
 
     float3 posL = float3(0.0f, 0.0f, 0.0f);
+    float3 normalL = float3(0.0f, 0.0f, 0.0f);
     for (int i = 0; i < 4; ++i)
     {
 	    // Assume no nonuniform scaling when transforming normals, so 
 		// that we do not have to use the inverse-transpose.
         posL += weights[i] * mul(float4(vin.PosL, 1.0f), gBoneTransforms[vin.BoneIndices[i]]).xyz;
+        normalL += weights[i] * mul(vin.NormalL, (float3x3) gBoneTransforms[vin.BoneIndices[i]]);
     }
  
 	// Transform to homogeneous clip space.
-    vout.PosH = mul(float4(posL, 1.0f), gWorldViewProj);
+    // 월드 → 바이어스 → 광원 클립 공간
+    const float3 posW = mul(float4(posL, 1.0f), gWorld).xyz;
+    const float3 normalW = normalize(mul(normalL, (float3x3) gWorldInvTranspose));
+    vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
 	
 	// Output vertex attributes for interpolation across triangle.
     vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
@@ -284,9 +314,10 @@ RasterizerState Depth
 	// Example: DepthBias = 100000 ==> Actual DepthBias = 100000/2^24 = .006
 
 	// You need to experiment with these values for your scene.
-    DepthBias = 1500;          // 방향광 깊이 범위 300 → 약 3cm
+    // 바이어스는 VS 의 ApplyShadowBias(월드 공간, 텍셀 크기 비례)가 맡는다 → 하드웨어 바이어스는 쓰지 않음
+    DepthBias = 0;
     DepthBiasClamp = 0.0f;
-    SlopeScaledDepthBias = 2.0f;
+    SlopeScaledDepthBias = 0.0f;
 };
 
 technique11 BuildShadowMapTech
@@ -389,7 +420,7 @@ float4 TerrainShadowVS(uint vid : SV_VertexID) : SV_POSITION
 {
     float2 uv;
     float3 posW = TerrainVertexWorld(vid, uv);
-    return mul(float4(posW, 1.0f), gViewProj);
+    return mul(float4(ApplyShadowBias(posW, TerrainNormalUV(uv)), 1.0f), gViewProj);
 }
 
 technique11 TerrainShadowTech

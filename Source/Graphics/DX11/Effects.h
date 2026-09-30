@@ -274,6 +274,12 @@ public:
 	void SetDirShadowTransforms(const XMMATRIX* M, int cnt) { DirShadowTransforms->SetMatrixArray(reinterpret_cast<const float*>(M), 0, cnt); }
 	void SetSpotShadowTransforms(const XMMATRIX* M, int cnt) { SpotShadowTransforms->SetMatrixArray(reinterpret_cast<const float*>(M), 0, cnt); }
 	void SetPointShadowTransforms(const XMMATRIX* M, int cnt) { PointShadowTransforms->SetMatrixArray(reinterpret_cast<const float*>(M), 0, cnt); }
+	// 캐스케이드 그림자 (구 4개: xyz 중심, w 반지름²), 공통 값, 빛마다 (Strength, 필터)
+	void SetCascadeSpheres(const XMFLOAT4* v, int cnt) { CascadeSpheres->SetFloatVectorArray(reinterpret_cast<const float*>(v), 0, cnt); }
+	void SetShadowParams(const XMFLOAT4& v) { ShadowParams->SetFloatVector(reinterpret_cast<const float*>(&v)); }
+	void SetDirShadowData(const XMFLOAT4* v, int cnt) { DirShadowData->SetFloatVectorArray(reinterpret_cast<const float*>(v), 0, cnt); }
+	void SetSpotShadowData(const XMFLOAT4* v, int cnt) { SpotShadowData->SetFloatVectorArray(reinterpret_cast<const float*>(v), 0, cnt); }
+	void SetPointShadowData(const XMFLOAT4* v, int cnt) { PointShadowData->SetFloatVectorArray(reinterpret_cast<const float*>(v), 0, cnt); }
 
 	void SetEyePosW(const XMFLOAT3& v) { EyePosW->SetRawValue(&v, 0, sizeof(XMFLOAT3)); }
 	void SetFogColor(const FXMVECTOR v) { FogColor->SetFloatVector(reinterpret_cast<const float*>(&v)); }
@@ -363,6 +369,11 @@ public:
 	ComPtr<ID3DX11EffectMatrixVariable> DirShadowTransforms;
 	ComPtr<ID3DX11EffectMatrixVariable> SpotShadowTransforms;
 	ComPtr<ID3DX11EffectMatrixVariable> PointShadowTransforms;
+	ComPtr<ID3DX11EffectVectorVariable> CascadeSpheres;
+	ComPtr<ID3DX11EffectVectorVariable> ShadowParams;
+	ComPtr<ID3DX11EffectVectorVariable> DirShadowData;
+	ComPtr<ID3DX11EffectVectorVariable> SpotShadowData;
+	ComPtr<ID3DX11EffectVectorVariable> PointShadowData;
 
 	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
 	ComPtr<ID3DX11EffectVectorVariable> FogColor;
@@ -701,6 +712,9 @@ public:
 	void SetMinTessDistance(float f) { MinTessDistance->SetFloat(f); }
 	void SetMinTessFactor(float f) { MinTessFactor->SetFloat(f); }
 	void SetMaxTessFactor(float f) { MaxTessFactor->SetFloat(f); }
+	// 그림자 바이어스: light.w = 0 이면 xyz = 빛 쪽 방향, 1 이면 광원 위치. bias = (깊이, 노멀)
+	void SetShadowLight(const XMFLOAT4& v) { ShadowLight->SetFloatVector(reinterpret_cast<const float*>(&v)); }
+	void SetShadowBias(float depth, float normal) { const float v[2] = { depth, normal }; ShadowBias->SetRawValue(v, 0, sizeof(v)); }
 
 	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
@@ -728,6 +742,8 @@ public:
 	ComPtr<ID3DX11EffectScalarVariable> MinTessDistance;
 	ComPtr<ID3DX11EffectScalarVariable> MinTessFactor;
 	ComPtr<ID3DX11EffectScalarVariable> MaxTessFactor;
+	ComPtr<ID3DX11EffectVectorVariable> ShadowLight;
+	ComPtr<ID3DX11EffectVariable> ShadowBias;
 
 	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
 	ComPtr<ID3DX11EffectShaderResourceVariable> NormalMap;

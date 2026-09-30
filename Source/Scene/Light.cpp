@@ -451,7 +451,26 @@ void Light::OnInspectorGUI()
 	}
 
 	if (UnityGUI::Foldout("Shadows"))
+	{
+		// Unity URP: Shadow Type 아래 Realtime Shadows (Strength / Bias / Near Plane)
+		static const char* kBias[] = { "Use settings from Render Pipeline", "Custom" };
 		UnityGUI::Dropdown("Shadow Type", &m_ShadowType, kShadow, 3, 1);
+		if (m_ShadowType != 0)
+		{
+			UnityGUI::Label("Realtime Shadows", 1, true);
+			UnityGUI::Slider("Strength", &m_ShadowStrength, 0.0f, 1.0f, 2);
+			UnityGUI::Dropdown("Bias", &m_ShadowBiasMode, kBias, 2, 2);
+			if (m_ShadowBiasMode == 1)
+			{
+				UnityGUI::Slider("Depth", &m_ShadowDepthBias, 0.0f, 10.0f, 3);
+				UnityGUI::Slider("Normal", &m_ShadowNormalBias, 0.0f, 10.0f, 3);
+			}
+			if (m_LightType != LightType::Directional)
+				UnityGUI::Slider("Near Plane", &m_ShadowNearPlane, 0.1f, 10.0f, 2);
+			else
+				UnityGUI::HelpBox("Cascades, Max Distance and Soft Shadows quality come from the Shadows override of the Volume.", false, 1);
+		}
+	}
 
 	if (projectionChanged)
 	{
@@ -510,6 +529,11 @@ GENERATE_COMPONENT_FUNC_TOJSON(Light)
 	j["filter"] = { m_Filter[0], m_Filter[1], m_Filter[2], m_Filter[3] };
 	j["cullingMask"] = m_CullingMask;
 	j["shadowType"] = m_ShadowType;
+	j["shadowStrength"] = m_ShadowStrength;
+	j["shadowBiasMode"] = m_ShadowBiasMode;
+	j["shadowDepthBias"] = m_ShadowDepthBias;
+	j["shadowNormalBias"] = m_ShadowNormalBias;
+	j["shadowNearPlane"] = m_ShadowNearPlane;
 	j["shadowVersion"] = 2;
 
 	return j;
@@ -530,6 +554,11 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Light)
 	m_Temperature = j.value("temperature", 6570.0f);
 	m_CullingMask = j.value("cullingMask", 0);
 	m_ShadowType = j.value("shadowType", 0);
+	m_ShadowStrength = j.value("shadowStrength", 1.0f);
+	m_ShadowBiasMode = j.value("shadowBiasMode", 0);
+	m_ShadowDepthBias = j.value("shadowDepthBias", 1.0f);
+	m_ShadowNormalBias = j.value("shadowNormalBias", 1.0f);
+	m_ShadowNearPlane = j.value("shadowNearPlane", 0.2f);
 	// 그림자가 실제로 그려지기 전(shadowVersion 없음)에 저장된 Directional Light 는 Unity 기본값인 Soft Shadows 로 옮긴다
 	if (!j.contains("shadowVersion") && m_LightType == LightType::Directional && m_ShadowType == 0)
 		m_ShadowType = 2;

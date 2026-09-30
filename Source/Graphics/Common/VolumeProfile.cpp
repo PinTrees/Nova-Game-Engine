@@ -100,7 +100,8 @@ const float* VolumeComponent::V(const std::string& key) const
 const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
-		"Bloom", "ChromaticAberration", "ColorAdjustments", "FilmGrain", "Tonemapping", "Vignette", "WhiteBalance" };
+		"Bloom", "ChromaticAberration", "ColorAdjustments", "FilmGrain", "Tonemapping", "Vignette", "WhiteBalance",
+		"Shadows" };
 	return kTypes;
 }
 
@@ -166,6 +167,26 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 	{
 		c->DisplayName = "Chromatic Aberration";
 		c->Params = { P("intensity", "Intensity", K::Clamped, 0.0f, 0.0f, 1.0f) };
+	}
+	else if (type == "Shadows")
+	{
+		// 그림자 (URP 파이프라인 에셋의 Shadows 항목 + HDRP 의 Shadows Volume 처럼 장소마다 바꿀 수 있게)
+		//  Split 은 Max Distance 에 대한 비율 (캐스케이드 수가 적으면 앞쪽 것만 쓴다)
+		c->DisplayName = "Shadows";
+		c->Category = "Shadowing";
+		c->Params = {
+			P("maxDistance", "Max Distance", K::Float, 50.0f, 0.0f),
+			P("cascadeCount", "Cascade Count", K::Int, 4.0f, 1.0f, 4.0f),
+			P("split1", "Split 1", K::Clamped, 0.067f, 0.0f, 1.0f),
+			P("split2", "Split 2", K::Clamped, 0.2f, 0.0f, 1.0f),
+			P("split3", "Split 3", K::Clamped, 0.467f, 0.0f, 1.0f),
+			P("lastBorder", "Last Border", K::Clamped, 0.2f, 0.0f, 1.0f),
+			PEnum("resolution", "Resolution", { "512", "1024", "2048", "4096" }, 2),
+			P("depthBias", "Depth Bias", K::Clamped, 1.0f, 0.0f, 10.0f),
+			P("normalBias", "Normal Bias", K::Clamped, 1.0f, 0.0f, 10.0f),
+			P("softShadows", "Soft Shadows", K::Bool, 1.0f),
+			PEnum("softQuality", "Quality", { "Low", "Medium", "High" }, 1),
+		};
 	}
 	else if (type == "FilmGrain")
 	{

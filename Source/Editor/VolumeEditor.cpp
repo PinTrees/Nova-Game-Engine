@@ -45,6 +45,42 @@ namespace
 		return s_List;
 	}
 
+	// Shadows: 캐스케이드가 Max Distance 를 어떻게 나누는지 색 막대로 (Unity URP 의 Cascade 막대)
+	void DrawCascadeBar(const VolumeComponent& c)
+	{
+		const int count = std::clamp(c.I("cascadeCount"), 1, 4);
+		const float maxDist = (std::max)(c.F("maxDistance"), 0.0f);
+		float ends[4] = { 1, 1, 1, 1 };
+		const float splits[3] = { c.F("split1"), c.F("split2"), c.F("split3") };
+		float prev = 0.0f;
+		for (int i = 0; i < count - 1; ++i)
+		{
+			ends[i] = std::clamp(splits[i], prev + 0.001f, 1.0f);
+			prev = ends[i];
+		}
+		static const ImU32 kColors[4] = { IM_COL32(94, 145, 94, 255), IM_COL32(126, 126, 186, 255), IM_COL32(161, 128, 77, 255), IM_COL32(158, 84, 84, 255) };
+
+		UnityGUI::Spacing(4.0f);
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x - 28.0f;
+		const float x0 = p.x + 18.0f, h = 20.0f;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		float start = 0.0f;
+		for (int i = 0; i < count; ++i)
+		{
+			const float a = x0 + w * start, b = x0 + w * ends[i];
+			dl->AddRectFilled(ImVec2(a, p.y), ImVec2(b, p.y + h), kColors[i]);
+			char text[48];
+			snprintf(text, sizeof(text), "%d  %.1fm", i, maxDist * (ends[i] - start));
+			const ImVec2 ts = ImGui::CalcTextSize(text);
+			if (ts.x + 6.0f < b - a)
+				dl->AddText(ImVec2(a + 4.0f, p.y + (h - ts.y) * 0.5f), IM_COL32(20, 20, 20, 255), text);
+			start = ends[i];
+		}
+		dl->AddRect(ImVec2(x0, p.y), ImVec2(x0 + w, p.y + h), IM_COL32(26, 26, 26, 255));
+		ImGui::Dummy(ImVec2(w, h + 2.0f));
+	}
+
 	bool IsVolumeProfilePath(const std::string& p)
 	{
 		return fs::path(p).extension() == ".volumeprofile";
@@ -164,6 +200,8 @@ namespace VolumeEditor
 				UnityGUI::Spacing(3.0f);
 				for (VolumeParameter& p : comp->Params)
 					DrawParam(p, isDefault, changed);
+				if (comp->Type == "Shadows")
+					DrawCascadeBar(*comp);
 				UnityGUI::Spacing(4.0f);
 			}
 			ImGui::PopID();
@@ -183,11 +221,23 @@ namespace VolumeEditor
 		{
 			ImGui::TextDisabled("Volume Overrides");
 			ImGui::Separator();
-			if (ImGui::BeginMenu("Post-processing"))
+			// 분류별 하위 메뉴 (Post-processing / Shadowing)
+			std::vector<std::string> categories;
+			for (const std::string& type : VolumeComponent::Types())
 			{
+				const std::string cat = VolumeComponent::Create(type)->Category;
+				if (std::find(categories.begin(), categories.end(), cat) == categories.end())
+					categories.push_back(cat);
+			}
+			for (const std::string& cat : categories)
+			{
+				if (!ImGui::BeginMenu(cat.c_str()))
+					continue;
 				for (const std::string& type : VolumeComponent::Types())
 				{
 					auto sample = VolumeComponent::Create(type);
+					if (sample->Category != cat)
+						continue;
 					if (ImGui::MenuItem(sample->DisplayName.c_str(), nullptr, false, !profile->Has(type)))
 					{
 						profile->Add(type);

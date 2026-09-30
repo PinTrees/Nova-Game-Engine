@@ -22,6 +22,12 @@ private:
 	float m_Filter[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 	int   m_CullingMask = 0;
 	int   m_ShadowType = 0;      // No Shadows / Hard / Soft
+	// Unity URP Light > Shadows
+	float m_ShadowStrength = 1.0f;
+	int   m_ShadowBiasMode = 0;       // 0 = Use settings from Render Pipeline (Volume > Shadows), 1 = Custom
+	float m_ShadowDepthBias = 1.0f;   // 텍셀 단위 (Custom)
+	float m_ShadowNormalBias = 1.0f;
+	float m_ShadowNearPlane = 0.2f;   // 스포트/점광 그림자 투영의 가까운 면
 
 	vector<XMMATRIX> m_LightView;
 	XMMATRIX m_LightProj;
@@ -89,7 +95,14 @@ public:
 
 	// Shadow Type 이 No Shadows 가 아니면 그림자를 드리운다
 	bool CastsShadows() const { return m_ShadowType != 0; }
+	bool SoftShadows() const { return m_ShadowType == 2; }
 	void SetShadowType(int type) { m_ShadowType = type; }
+	float GetShadowStrength() const { return m_ShadowStrength; }
+	bool UsesCustomShadowBias() const { return m_ShadowBiasMode == 1; }
+	float GetShadowDepthBias() const { return m_ShadowDepthBias; }
+	float GetShadowNormalBias() const { return m_ShadowNormalBias; }
+	float GetShadowNearPlane() const { return m_ShadowNearPlane; }
+	float GetSpotAngle() const { return m_SpotDesc.Spot; }
 
 	GENERATE_COMPONENT_BODY(Light)
 };

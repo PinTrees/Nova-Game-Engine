@@ -73,7 +73,17 @@ namespace RenderPipelineSettings
 	std::shared_ptr<VolumeProfile> DefaultVolumeProfile()
 	{
 		const std::string& path = DefaultVolumeProfilePath();
-		return path.empty() ? nullptr : VolumeProfile::Load(path);
+		auto profile = path.empty() ? nullptr : VolumeProfile::Load(path);
+		// 나중에 생긴 효과(예: Shadows)가 예전 기본 프로파일에 없으면 기본값으로 채워 둔다
+		if (profile)
+		{
+			bool added = false;
+			for (const std::string& type : VolumeComponent::Types())
+				if (!profile->Has(type)) { profile->Add(type); added = true; }
+			if (added)
+				profile->Save();
+		}
+		return profile;
 	}
 
 	std::shared_ptr<VolumeProfile> EnsureDefaultVolumeProfile()

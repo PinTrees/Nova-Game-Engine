@@ -1,0 +1,54 @@
+#pragma once
+#include <functional>
+
+class ShadowMap;
+class Light;
+class VolumeStack;
+class InstancedBasicEffect;
+
+// 실시간 그림자 (Unity URP 방식)
+//  - 방향광: Cascaded Shadow Maps — 카메라 절두체를 Max Distance 까지 거리별로 1~4 조각으로 나누고
+//    조각마다 그것을 감싸는 구(반지름 고정 → 카메라가 돌아도 크기가 안 변함)에 정사영 맵을 맞춘다.
+//    구의 중심은 텍셀 단위로 맞춰 카메라가 움직여도 그림자 가장자리가 떨리지 않는다.
+//  - 스포트광: 원근 맵 하나, 점광: 큐브 6 면 (+X, -X, +Y, -Y, +Z, -Z)
+//  - 바이어스: 캐스터 VS 에서 월드 공간으로 (깊이 = 빛 반대쪽, 노멀 = 표면 안쪽, 텍셀 크기 비례)
+//  - 설정: Volume 의 Shadows 효과 (Max Distance, Cascade Count, Split, Last Border, Resolution, Bias, Soft Shadows)
+//          + 빛마다 Shadow Type(Hard/Soft), Strength, Bias(파이프라인 값 / Custom), Near Plane
+namespace ShadowRenderer
+{
+	struct Settings
+	{
+		float MaxDistance = 50.0f;
+		int CascadeCount = 4;
+		float Splits[3] = { 0.067f, 0.2f, 0.467f };   // Max Distance 에 대한 비율
+		float LastBorder = 0.2f;
+		uint32 Resolution = 2048;
+		float DepthBias = 1.0f;
+		float NormalBias = 1.0f;
+		bool SoftShadows = true;
+		int SoftQuality = 1;   // 0 Low, 1 Medium, 2 High
+
+		static Settings FromStack(const VolumeStack& stack);
+	};
+
+	// 한 화면(Game 뷰 / Scene 뷰)의 그림자 결과 — 받는 쪽 셰이더에 넘긴다
+	struct FrameData
+	{
+		int DirCount = 0, SpotCount = 0, PointCount = 0;
+		XMMATRIX Dir[LIGHT_SIZE * 4];
+		XMMATRIX Spot[LIGHT_SIZE];
+		XMMATRIX Point[LIGHT_MAX_SIZE];
+		XMFLOAT4 Spheres[4];
+		XMFLOAT4 Params;   // x 캐스케이드 수, y Max Distance, z 흐려지기 시작 거리, w 1 / 흐려지는 폭
+		XMFLOAT4 DirData[LIGHT_SIZE], SpotData[LIGHT_SIZE], PointData[LIGHT_SIZE];   // x Strength, y 필터
+	};
+
+	// 정렬된 빛(방향 → 스포트 → 점광 순)의 그림자 맵을 그린다. drawCasters = 장면의 그림자 캐스터 그리기
+	void Render(ID3D11DeviceContext* dc, ShadowMap& maps, const vector<shared_ptr<Light>>& sortedLights,
+		int dirCount, int spotCount, int pointCount,
+		const XMFLOAT3& eye, CXMMATRIX view, CXMMATRIX proj, const Settings& settings,
+		FrameData& out, const std::function<void()>& drawCasters);
+
+	// 받는 쪽(InstancedBasic) 변수 설정
+	void Bind(InstancedBasicEffect* fx, ShadowMap& maps, const FrameData& data);
+}

@@ -15,6 +15,7 @@
 #include "RenderStates.h"
 #include "Sky.h"
 #include "ShadowMap.h"
+#include "ShadowRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
@@ -239,6 +240,10 @@ ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 	return _viewDepthView ? _viewDepthView.Get() : _depthStencilView.Get();
 }
 
+// 화면별 그림자 결과 (그림자 패스 → 받는 쪽 셰이더)
+static ShadowRenderer::FrameData s_GameShadow;
+static ShadowRenderer::FrameData s_EditorShadow;
+
 void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
 {
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
@@ -258,93 +263,18 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	ID3D11DepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
-	// shadowMaps
-	vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
-	// 정렬된 빛의 수 만큼
+	// 그림자 맵: 카메라 위치의 Volume 값(Shadows)을 먼저 섞어 캐스케이드/해상도/바이어스를 정한다
+	auto& stack = PostProcessingManager::GetI()->GameStack();
 	{
-		XMMATRIX toTexSpace(
-			0.5f, 0.0f, 0.0f, 0.0f,
-			0.0f, -0.5f, 0.0f, 0.0f,
-			0.0f, 0.0f, 1.0f, 0.0f,
-			0.5f, 0.5f, 0.0f, 1.0f);
-
-		// Dir
-		RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Directional].clear();
-		for (int i = 0; i < dirLights.size(); i++)
-		{
-			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Directional, i);
-
-			XMMATRIX VP = sortedLights[i]->GetLightViewProjection(0);
-
-			RenderManager::GetI()->LightViewProjection = VP;
-			RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Directional].push_back(VP * toTexSpace);
-
-			if (RenderManager::GetI()->WireFrameMode)
-				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-			// Draw Scene Objects
-			if (sortedLights[i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-
-			_deviceContext->RSSetState(0);
-
-			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-			_deviceContext->RSSetViewports(1, &viewport);
-		}
-
-		// Spot
-		RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Spot].clear();
-		int startIndex = dirLights.size();
-		for (int i = 0; i < spotLights.size(); i++)
-		{
-			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Spot, i);
-
-			XMMATRIX VP = sortedLights[startIndex + i]->GetLightViewProjection(0);
-
-			RenderManager::GetI()->LightViewProjection = VP;
-			RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Spot].push_back(VP * toTexSpace);
-
-			if (RenderManager::GetI()->WireFrameMode)
-				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-			// Draw Scene Objects
-			if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-
-			_deviceContext->RSSetState(0);
-
-			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-			_deviceContext->RSSetViewports(1, &viewport);
-		}
-
-		// Point
-		RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point].clear();
-		startIndex = dirLights.size() + spotLights.size();
-		for (int i = 0; i < pointLights.size(); i++)
-		{
-			int shadowIndex = i * 6;
-			for (int j = 0; j < 6; j++)
-			{
-				shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Point, shadowIndex + j);
-
-				XMMATRIX VP = sortedLights[startIndex + i]->GetLightViewProjection(j);
-
-				RenderManager::GetI()->LightViewProjection = VP;
-				RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point].push_back(VP * toTexSpace);
-
-				if (RenderManager::GetI()->WireFrameMode)
-					_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-				// Draw Scene Objects
-				if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
-					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-
-				_deviceContext->RSSetState(0);
-
-				_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-				_deviceContext->RSSetViewports(1, &viewport);
-			}
-		}
+		const XMFLOAT3 gameCamPos = camera->GetPosition();
+		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
+		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
+		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
+			gameCamPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_GameShadow,
+			[]() { SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow(); });
+		_deviceContext->RSSetState(0);
+		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		_deviceContext->RSSetViewports(1, &viewport);
 	}
 
 	// PostProcessing - SSAO
@@ -363,12 +293,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	PostProcessingManager::GetI()->RenderSSAO(camera);
 
 	// Volume 후처리: 필요하면 씬을 HDR 타깃에 그린 뒤 마지막에 뷰 타깃으로 합성한다
-	auto& post = PostProcessingManager::GetI()->GamePost();
-	auto& stack = PostProcessingManager::GetI()->GameStack();
-	{
-		const XMFLOAT3 gameCamPos = camera->GetPosition();
-		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
-	}
+	auto& post = PostProcessingManager::GetI()->GamePost();   // stack 은 그림자 패스 앞에서 섞었다
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = camera->PostProcessingEnabled();
 	postOptions.Fxaa = camera->AntiAliasingMode() != 0;   // SMAA 는 아직 없어 FXAA 로
@@ -402,18 +327,8 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
 	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
-	// shadowMaps
-	Effects::InstancedBasicFX->SetDirShadowMaps(shadowMap->DepthMapSRVArray(LightType::Directional).data(), dirLights.size());
-	Effects::InstancedBasicFX->SetSpotShadowMaps(shadowMap->DepthMapSRVArray(LightType::Spot).data(), spotLights.size());
-	Effects::InstancedBasicFX->SetPointShadowMaps(shadowMap->DepthMapSRVArray(LightType::Point).data(), pointLights.size());
-	
-	// shadowTransforms
-	auto& dirShadowTransforms = RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Directional];
-	auto& spotShadowTransforms = RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Spot];
-	auto& pointShadowTransforms = RenderManager::GetI()->ShadowTransformArray[(uint32)LightType::Point];
-	Effects::InstancedBasicFX->SetDirShadowTransforms(dirShadowTransforms.data(), dirLights.size());
-	Effects::InstancedBasicFX->SetSpotShadowTransforms(spotShadowTransforms.data(), spotLights.size());
-	Effects::InstancedBasicFX->SetPointShadowTransforms(pointShadowTransforms.data(), pointLights.size());
+	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
+	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_GameShadow);
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;
@@ -469,95 +384,20 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	ID3D11DepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
-	// shadowMaps
-	vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
-	// 정렬된 빛의 수 만큼
+	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드)
+	auto& stack = PostProcessingManager::GetI()->EditorStack();
+	const XMFLOAT3 camPos = camera->GetPosition();
+	VolumeManager::Update(stack, Vec3(camPos.x, camPos.y, camPos.z));
 	{
-		XMMATRIX toTexSpace(
-			0.5f, 0.0f, 0.0f, 0.0f,
-			0.0f, -0.5f, 0.0f, 0.0f,
-			0.0f, 0.0f, 1.0f, 0.0f,
-			0.5f, 0.5f, 0.0f, 1.0f);
-
-		// Dir
-		RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Directional].clear();
-		for (int i = 0; i < dirLights.size(); i++)
-		{
-			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Directional, i);
-			XMMATRIX V = sortedLights[i]->GetEditorLightView();
-			XMMATRIX VP = sortedLights[i]->GetEditorLightViewProjection(0);
-
-			RenderManager::GetI()->LightViewProjection = VP;
-			RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Directional].push_back(VP * toTexSpace);
-
-			if (RenderManager::GetI()->WireFrameMode)
-				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-			// Draw Scene Objects
-			if (sortedLights[i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-
-			_deviceContext->RSSetState(0);
-
-			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-			_deviceContext->RSSetViewports(1, &viewport);
-		}
-
-		// Spot
-		RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Spot].clear();
-		int startIndex = dirLights.size();
-		for (int i = 0; i < spotLights.size(); i++)
-		{
-			shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Spot, i);
-
-			XMMATRIX VP = sortedLights[startIndex + i]->GetEditorLightViewProjection(0);
-
-			RenderManager::GetI()->LightViewProjection = VP;
-			RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Spot].push_back(VP * toTexSpace);
-
-			if (RenderManager::GetI()->WireFrameMode)
-				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-			// Draw Scene Objects
-			if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-
-			_deviceContext->RSSetState(0);
-
-			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-			_deviceContext->RSSetViewports(1, &viewport);
-		}
-
-		// Point
-		RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point].clear();
-		startIndex = dirLights.size() + spotLights.size();
-		for (int i = 0; i < pointLights.size(); i++)
-		{
-			int shadowIndex = i * 6;
-			for (int j = 0; j < 6; j++)
-			{
-				shadowMap->BindDsvAndSetNullRenderTarget(_deviceContext, LightType::Point, shadowIndex + j);
-
-				XMMATRIX VP = sortedLights[startIndex + i]->GetEditorLightViewProjection(j);
-
-				RenderManager::GetI()->LightViewProjection = VP;
-				RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point].push_back(VP * toTexSpace);
-
-				if (RenderManager::GetI()->WireFrameMode)
-					_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-				// Draw Scene Objects
-				if (sortedLights[startIndex + i]->CastsShadows())   // Shadow Type = No Shadows 면 비워 둔 깊이맵(=그림자 없음)
-					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-
-				_deviceContext->RSSetState(0);
-
-				_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-				_deviceContext->RSSetViewports(1, &viewport);
-			}
-		}
+		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
+		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
+			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
+			[]() { SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow(); });
+		_deviceContext->RSSetState(0);
+		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		_deviceContext->RSSetViewports(1, &viewport);
 	}
-	
+
 	// PostProcessing - SSAO
 	auto ssao = PostProcessingManager::GetI()->_EditorGetSSAO();
 	ssao->SetNormalDepthRenderTarget(viewDsv);
@@ -574,10 +414,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	PostProcessingManager::GetI()->_Editor_RenderSSAO(camera);
 
 	// Volume 후처리 (Scene 뷰: 툴바 Effects > Post Processing 이 켜져 있을 때, 카메라 옵션은 기본)
-	auto& post = PostProcessingManager::GetI()->EditorPost();
-	auto& stack = PostProcessingManager::GetI()->EditorStack();
-	const XMFLOAT3 camPos = camera->GetPosition();
-	VolumeManager::Update(stack, Vec3(camPos.x, camPos.y, camPos.z));
+	auto& post = PostProcessingManager::GetI()->EditorPost();   // stack 은 그림자 패스 앞에서 섞었다
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = SceneToolbar::PostProcessingVisible() && !RenderManager::GetI()->WireFrameMode;
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
@@ -606,18 +443,8 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
 	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
-	// shadowMaps
-	Effects::InstancedBasicFX->SetDirShadowMaps(shadowMap->DepthMapSRVArray(LightType::Directional).data(), dirLights.size());
-	Effects::InstancedBasicFX->SetSpotShadowMaps(shadowMap->DepthMapSRVArray(LightType::Spot).data(), spotLights.size());
-	Effects::InstancedBasicFX->SetPointShadowMaps(shadowMap->DepthMapSRVArray(LightType::Point).data(), pointLights.size());
-	
-	// shadowTransforms
-	auto& dirShadowTransforms = RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Directional];
-	auto& spotShadowTransforms = RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Spot];
-	auto& pointShadowTransforms = RenderManager::GetI()->EditorShadowTransformArray[(uint32)LightType::Point];
-	Effects::InstancedBasicFX->SetDirShadowTransforms(dirShadowTransforms.data(), dirLights.size());
-	Effects::InstancedBasicFX->SetSpotShadowTransforms(spotShadowTransforms.data(), spotLights.size());
-	Effects::InstancedBasicFX->SetPointShadowTransforms(pointShadowTransforms.data(), pointLights.size());
+	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
+	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;

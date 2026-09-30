@@ -27,7 +27,8 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **Hierarchy / Inspector** | 부모/자식, 복제·잘라내기·붙여넣기, 이름 바꾸기, Unity 식 컴포넌트 헤더와 Add Component 메뉴, Object Picker 창(⊙) |
 | **Project 창** | 2단 레이아웃(폴더 트리 + 목록/격자), breadcrumb, 검색·타입 필터, FBX 하위 에셋, 생성/이름 바꾸기/휴지통 삭제, 드래그 앤 드롭 |
 | **프리팹** | Hierarchy → Project 끌어 놓아 만들기, 인스턴스(파란 표시), 오버라이드 저장/Apply All/Revert All/Unpack, 에셋 변경 자동 반영 |
-| **렌더링** | Forward 렌더링, 방향광/점광/스포트광 그림자, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일) |
+| **렌더링** | Forward 렌더링, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일) |
+| **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4 캐스케이드, 카메라가 움직여도 떨리지 않게 텍셀 고정), 스포트광·점광(큐브 6 면) 그림자, Hard / Soft(PCF Low·Medium·High), 빛마다 Strength · Bias(Depth / Normal) · Near Plane. **Volume 의 Shadows 오버라이드**로 Max Distance · Cascade Count · Split · Last Border · Resolution(512~4096) · Bias · Soft Shadows 품질을 장소마다 바꿀 수 있다(Inspector 에 캐스케이드 막대) |
 | **머티리얼 (URP Lit / PBR)** | `.mat` 에셋(Project 창 Create > Material), Unity URP 의 BRDF: Base Map + 색, Metallic(맵/값), Smoothness(Metallic Alpha / Albedo Alpha), Normal Map(세기), Occlusion, Emission(HDR 세기), Tiling/Offset, Alpha Clipping, Receive Shadows, Specular Highlights / Environment Reflections, Lit / Unlit. Unity 모양의 머티리얼 Inspector(텍스처 칸에 끌어 놓기·Object Picker, 구 미리보기 — 드래그로 회전) |
 | **스카이박스** | 기본 하늘 = [Poly Haven](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) CC0 HDRI 를 큐브맵으로 변환(`Tools/hdri_to_cubemap.py`). 카메라 Background = Skybox 면 Game 뷰에, 툴바 Effects > Skybox 면 Scene 뷰에 그리고, 금속 반사와 환경광(Environment Lighting)에도 같은 하늘을 쓴다 |
 | **후처리 (URP Volume)** | Volume(Global/Local) + Volume Profile 에셋, Project Settings 의 Default Volume Profile, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain, FXAA |
