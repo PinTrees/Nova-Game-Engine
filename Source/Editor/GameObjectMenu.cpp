@@ -83,7 +83,7 @@ namespace GameObjectMenu
 			if (ImGui::MenuItem("Plane")) add(GameObjectFactory::CreatePlane());
 			if (ImGui::MenuItem("Quad")) add(GameObjectFactory::CreateQuad());
 			ImGui::Separator();
-			if (ImGui::MenuItem("Character")) add(GameObjectFactory::CreateCharacter());   // 엔진 패키지 기본 캐릭터 + Idle
+			if (ImGui::MenuItem("Character")) add(GameObjectFactory::CreateAnimatedCharacter());   // 엔진 패키지 기본 캐릭터 + Animator(DefaultCharacter.controller)
 			ImGui::Separator();
 			Disabled("Text - TextMeshPro");
 			Disabled("Legacy");

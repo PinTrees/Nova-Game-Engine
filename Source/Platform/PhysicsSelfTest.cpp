@@ -7,6 +7,8 @@
 #include "SkinnedMesh.h"
 #include "SkinnedMeshRenderer.h"
 #include "AnimationPlayer.h"
+#include "Animator.h"
+#include "AnimatorController.h"
 
 namespace
 {
@@ -413,6 +415,161 @@ namespace PhysicsSelfTest
 				(void)unmapped;
 			}
 		}
+		fclose(fp);
+	}
+}
+
+namespace PhysicsSelfTest
+{
+	void RunAnimatorTest(Scene* scene, const char* logPath)
+	{
+		FILE* fp = nullptr;
+		fopen_s(&fp, logPath, "w");
+		if (fp == nullptr || scene == nullptr)
+			return;
+
+		// ---- 컨트롤러 만들기 (Rapier 모델 = Bip001 리그, GreatSword 클립도 같은 리그) ----
+		const std::string dir = std::filesystem::path(logPath).parent_path().string();
+		const std::string ctrlPath = dir + "\\SwordFighter.controller";
+		const std::string model = "Resources\\Packages\\Character\\Animations\\Rapier_Idle.fbx";
+		auto c = AnimatorController::Create(ctrlPath);
+		const int sIdle = c->AddState(0, "Rapier Idle", -40, 0);
+		const int sGs = c->AddState(0, "GreatSword Idle", 300, 110);
+		const int sRoot = c->AddState(0, "GreatSword Root", 300, -110);
+		AnimatorLayer& layer = c->Layers[0];
+		layer.States[sIdle].ClipPath = model;
+		layer.States[sGs].ClipPath = "Resources\\Packages\\Character\\Animations\\GreatSword_Idle_Pose.FBX";
+		layer.States[sRoot].ClipPath = "Resources\\Packages\\Character\\Animations\\GreatSword_Idle_Root.FBX";
+		for (auto& s : layer.States)
+			s.LoadClip();
+		layer.ExitX = 640;
+		c->RenameParameter(c->AddParameter(AnimatorTypes::ParamType::Bool), "GreatSword");
+		c->RenameParameter(c->AddParameter(AnimatorTypes::ParamType::Trigger), "Pose");
+		c->RenameParameter(c->AddParameter(AnimatorTypes::ParamType::Float), "Speed");
+
+		auto addT = [&](const char* from, const char* to, bool exitTime, float exitAt, float duration, const char* param, AnimatorTypes::ConditionMode mode) {
+			const int i = c->AddTransition(0, from, to);
+			AnimatorTransition& t = c->Layers[0].Transitions[i];
+			t.HasExitTime = exitTime;
+			t.ExitTime = exitAt;
+			t.Duration = duration;
+			if (param)
+				t.Conditions.push_back({ param, mode, 0.0f });
+			return i;
+		};
+		addT("Rapier Idle", "GreatSword Idle", false, 0, 0.3f, "GreatSword", AnimatorTypes::ConditionMode::If);
+		addT("GreatSword Idle", "Rapier Idle", false, 0, 0.3f, "GreatSword", AnimatorTypes::ConditionMode::IfNot);
+		const int any = addT(AnimatorTypes::kAnyState, "GreatSword Root", false, 0, 0.2f, "Pose", AnimatorTypes::ConditionMode::If);
+		c->Layers[0].Transitions[any].CanTransitionToSelf = false;
+		addT("GreatSword Root", "GreatSword Idle", true, 0.9f, 0.25f, nullptr, AnimatorTypes::ConditionMode::If);
+		c->Commit();
+		for (const auto& s : c->Layers[0].States)
+			fprintf(fp, "state '%s' clip=%s length=%.3fs\n", s.Name.c_str(), s.Clip ? s.Clip->Name.c_str() : "(none)", s.Clip ? s.Clip->GetClipEndTime() : 0.0f);
+
+		GameObject* go = GameObjectFactory::CreateAnimatedCharacter("SwordFighter", model, ctrlPath);
+		go->GetTransform()->SetPosition(Vec3(2.0f, 0.0f, 0.0f));
+		scene->AddRootGameObject(go);
+		Animator* a = go->GetComponent<Animator>();
+		SkinnedMeshRenderer* renderer = nullptr;
+		for (GameObject* child : go->GetChildren())
+			if (!renderer) renderer = child->GetComponent<SkinnedMeshRenderer>();
+		if (a == nullptr || renderer == nullptr)
+		{
+			fprintf(fp, "FAIL: animator=%p renderer=%p\n", (void*)a, (void*)renderer);
+			fclose(fp);
+			return;
+		}
+
+		int failures = 0;
+		auto state = [&](int index) { return index >= 0 ? c->Layers[0].States[index].Name : std::string("-"); };
+		auto log = [&](const char* tag) {
+			const Animator::LayerRuntime* r = a->GetLayerRuntime(0);
+			fprintf(fp, "%-28s current=%-16s t=%.3f  next=%-16s blend=%.2f  GreatSword=%d Pose=%d\n", tag, state(r->Current).c_str(), r->Time,
+				state(r->Next).c_str(), r->Next >= 0 ? r->TransitionElapsed / r->TransitionDuration : 0.0f, (int)a->GetBool("GreatSword"), (int)a->GetBool("Pose"));
+			fflush(fp);
+		};
+		auto expect = [&](const char* what, bool ok) {
+			fprintf(fp, "  %s %s\n", ok ? "PASS" : "FAIL", what);
+			failures += !ok;
+		};
+		auto maxDiff = [](const std::vector<XMFLOAT4X4>& x, const std::vector<XMFLOAT4X4>& y) {
+			float d = 0.0f;
+			for (size_t k = 0; k < x.size() && k < y.size(); ++k)
+				for (int e = 0; e < 16; ++e)
+					d = (std::max)(d, fabsf((&x[k]._11)[e] - (&y[k]._11)[e]));
+			return d;
+		};
+
+		a->Rebind();
+		log("start");
+		expect("default state = Rapier Idle", a->GetCurrentStateName() == "Rapier Idle");
+		a->Update(1.0f);
+		log("+1.0s");
+		expect("no transition without condition", !a->IsInTransition());
+		const auto poseIdle = renderer->GetFinalTransforms();
+
+		a->SetBool("GreatSword", true);
+		a->Update(0.05f);
+		log("GreatSword=true +0.05s");
+		expect("transition started to GreatSword Idle", a->IsInTransition() && a->GetLayerRuntime(0)->Next == sGs);
+		a->Update(0.1f);
+		log("+0.1s (mid blend)");
+		const auto poseMid = renderer->GetFinalTransforms();
+		a->Update(0.3f);
+		log("+0.3s");
+		expect("arrived at GreatSword Idle", a->GetCurrentStateName() == "GreatSword Idle" && !a->IsInTransition());
+		const auto poseGs = renderer->GetFinalTransforms();
+		const float dAB = maxDiff(poseIdle, poseGs), dAM = maxDiff(poseIdle, poseMid), dBM = maxDiff(poseGs, poseMid);
+		fprintf(fp, "  pose diff idle-gs=%.4f idle-mid=%.4f gs-mid=%.4f\n", dAB, dAM, dBM);
+		expect("cross-fade pose lies between the two states", dAB > 0.01f && dAM > 0.001f && dBM > 0.001f);
+
+		a->SetTrigger("Pose");
+		a->Update(0.05f);
+		log("SetTrigger(Pose) +0.05s");
+		expect("Any State transition to GreatSword Root", a->IsInTransition() && a->GetLayerRuntime(0)->Next == sRoot);
+		expect("trigger consumed", !a->GetBool("Pose"));
+		a->Update(0.25f);
+		log("+0.25s");
+		expect("now in GreatSword Root", a->GetCurrentStateName() == "GreatSword Root");
+
+		// Exit Time 0.9 에 GreatSword Idle 로 돌아와야 한다
+		const float rootLength = c->Layers[0].States[sRoot].Clip ? c->Layers[0].States[sRoot].Clip->GetClipEndTime() : 1.0f;
+		float waited = 0.0f;
+		while (a->GetCurrentStateName() == "GreatSword Root" && !a->IsInTransition() && waited < rootLength * 2.0f + 1.0f)
+		{
+			a->Update(1.0f / 60.0f);
+			waited += 1.0f / 60.0f;
+		}
+		log("exit time reached");
+		fprintf(fp, "  waited %.3fs (root length %.3fs, expected leave at %.3fs)\n", waited, rootLength, rootLength * 0.9f - 0.2f);
+		expect("exit-time transition Root -> GreatSword Idle", a->IsInTransition() && a->GetLayerRuntime(0)->Next == sGs);
+		a->Update(0.3f);
+
+		a->SetBool("GreatSword", false);
+		for (int f = 0; f < 24; ++f)   // 0.4초를 프레임 단위로 (전이는 시작 프레임 다음부터 진행된다)
+			a->Update(1.0f / 60.0f);
+		log("GreatSword=false +0.4s");
+		expect("back to Rapier Idle", a->GetCurrentStateName() == "Rapier Idle" && !a->IsInTransition());
+
+		// CrossFade / Play API
+		a->CrossFade("GreatSword Root", 0.2f);
+		a->Update(0.1f);
+		log("CrossFade(Root,0.2) +0.1s");
+		expect("CrossFade in progress", a->IsInTransition() && a->GetLayerRuntime(0)->Next == sRoot);
+		a->Play("Rapier Idle");
+		log("Play(Rapier Idle)");
+		expect("Play jumps immediately", a->GetCurrentStateName() == "Rapier Idle" && !a->IsInTransition());
+
+		// 저장 파일 다시 읽기 (캐시를 거치지 않고 JSON 만 확인)
+		{
+			std::ifstream in(ctrlPath);
+			json j = json::parse(in, nullptr, false);
+			const bool ok = !j.is_discarded() && j["layers"][0]["states"].size() == 3 && j["layers"][0]["transitions"].size() == 4 && j["parameters"].size() == 3;
+			expect("controller file saved (3 states, 4 transitions, 3 parameters)", ok);
+		}
+
+		a->Rebind();
+		fprintf(fp, "RESULT: %s (%d failures)\n", failures == 0 ? "ALL PASS" : "FAILED", failures);
 		fclose(fp);
 	}
 }

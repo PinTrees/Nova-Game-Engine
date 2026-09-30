@@ -2,6 +2,7 @@
 #include "InspectorEditorWindow.h"
 #include <filesystem>
 #include "SkinnedMesh.h"
+#include "AnimatorInspector.h"
 
 namespace fs = std::filesystem;
 
@@ -49,5 +50,13 @@ void InspectorEditorWindow::OnRender()
 
 			fbxObject->OnInspectorGUI();
 		}
+		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::ANIMATOR_CONTROLLER)
+		{
+			AnimatorInspector::DrawController(SelectionManager::GetSelectAnimatorController());
+		}
+	}
+	else if (SelectionManager::GetSelectedObjectType() == SelectionType::ANIMATOR)
+	{
+		AnimatorInspector::DrawSelection(SelectionManager::GetAnimatorSelection());
 	}
 }

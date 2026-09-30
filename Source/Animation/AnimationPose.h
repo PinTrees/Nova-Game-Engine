@@ -14,3 +14,9 @@ namespace AnimationPose
 	// 로컬 → 전역 (루트에 단위 변환 UnitScale 을 곱한다)
 	void ComputeGlobals(const SkeletonAvataData& skeleton, const std::vector<XMFLOAT4X4>& local, std::vector<XMFLOAT4X4>& outGlobal);
 }
+
+namespace AnimationPose
+{
+	// 두 로컬 포즈를 섞는다 (w = 0 → a, 1 → b). 위치/크기는 선형, 회전은 구면 보간.
+	void Blend(const std::vector<XMFLOAT4X4>& a, const std::vector<XMFLOAT4X4>& b, float w, std::vector<XMFLOAT4X4>& out);
+}

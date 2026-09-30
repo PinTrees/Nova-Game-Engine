@@ -5,6 +5,8 @@
 #include "EditorGUI.h"
 #include "SceneManager.h"
 #include "PathManager.h"
+#include "AnimatorController.h"
+#include "AnimatorEditorWindow.h"
 
 bool isDragging = false;
 
@@ -168,6 +170,17 @@ void ProjectEditorWindow::OnRender()
                 UMaterial::Create(wstring_to_string(currentDirectory));
                 ImGui::CloseCurrentPopup();
             }
+            if (ImGui::MenuItem("Animator Controller"))
+            {
+                // Unity: "New Animator Controller.controller" (이름이 겹치면 번호)
+                std::wstring base = currentDirectory + L"\\New Animator Controller";
+                std::wstring file = base + L".controller";
+                for (int n = 1; std::filesystem::exists(file); ++n)
+                    file = base + L" " + std::to_wstring(n) + L".controller";
+                AnimatorController::Create(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(file)));
+                SelectionManager::SetSelectedFile(file);
+                ImGui::CloseCurrentPopup();
+            }
             if (ImGui::MenuItem("Folder"))
             {
                 std::wstring folderPath = currentDirectory + L"/New Folder";
@@ -276,6 +289,15 @@ void ProjectEditorWindow::RenderFileEntry(const fs::directory_entry& entry, bool
         EditorGUI::Image(L"\\ProjectSetting\\icons\\icon_gameobject.png", ImVec2(20, 20));
         EditorGUI::RowSizedBox(8);
         RenderFileEntry_Scene(entry, isSelected);
+    }
+    else if (extention == ".controller")
+    {
+        EditorGUI::Image(L"\\ProjectSetting\\icons\\svg\\png\\animator_controller.png", ImVec2(18, 18));
+        EditorGUI::RowSizedBox(8);
+        if (ImGui::Selectable(filename.c_str(), isSelected))
+            SelectionManager::SetSelectedFile(entry.path().wstring());
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+            AnimatorEditorWindow::Focus();
     }
     else if (extention == ".txt" || extention == ".TXT")
     {

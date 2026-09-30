@@ -330,9 +330,8 @@ GameObject* GameObjectFactory::CreateCamera(const std::string& name)
 	return obj;
 }
 
-GameObject* GameObjectFactory::CreateCharacter(const std::string& name, const std::string& modelPath, const std::string& clipPath)
+void GameObjectFactory::AddSkinnedChildren(GameObject* root, const std::string& modelPath)
 {
-	GameObject* root = new GameObject(name);
 	auto file = ResourceManager::GetI()->LoadMeshFile(modelPath);
 	if (file != nullptr)
 	{
@@ -347,10 +346,27 @@ GameObject* GameObjectFactory::CreateCharacter(const std::string& name, const st
 			child->GetTransform()->UpdateTransform();
 		}
 	}
+}
+
+GameObject* GameObjectFactory::CreateCharacter(const std::string& name, const std::string& modelPath, const std::string& clipPath)
+{
+	GameObject* root = new GameObject(name);
+	AddSkinnedChildren(root, modelPath);
 	AnimationPlayer* animation = root->AddComponent<AnimationPlayer>();
 	if (!clipPath.empty())
 		animation->SetClip(clipPath, 0);
 	// 에디터에서도 첫 프레임 포즈로 보이게 한다 (Play 전)
 	animation->Sample();
+	return root;
+}
+
+GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, const std::string& modelPath, const std::string& controllerPath)
+{
+	GameObject* root = new GameObject(name);
+	AddSkinnedChildren(root, modelPath);
+	Animator* animator = root->AddComponent<Animator>();
+	animator->SetController(controllerPath);
+	// 에디터에서도 기본 상태의 첫 프레임 포즈로 보이게 한다 (Play 전)
+	animator->Rebind();
 	return root;
 }

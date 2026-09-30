@@ -40,15 +40,22 @@ public:
 	static GameObject* CreateSpotLight(const std::string& name = "Spot Light");
 	static GameObject* CreateCamera(const std::string& name = "Main Camera");
 
-	// 엔진 패키지의 기본 캐릭터 (Resources/Packages/Character). 루트에 Animation(기본 Idle 반복),
+	// 엔진 패키지의 기본 캐릭터 (Resources/Packages/Character). 루트에 Animation 또는 Animator,
 	// 자식에 스킨 메시마다 Skinned Mesh Renderer 를 둔다 (Unity 에서 FBX 를 씬에 끌어다 놓은 구조와 같음).
 	static constexpr const char* kDefaultCharacterModel = "Resources\\Packages\\Character\\Model_Unity_Ver1.FBX";
 	static constexpr const char* kDefaultCharacterIdle = "Resources\\Packages\\Character\\Animations\\GhostSamurai_APose_Idle.FBX";
+	static constexpr const char* kDefaultCharacterController = "Resources\\Packages\\Character\\DefaultCharacter.controller";
+	// Animation 컴포넌트(단일 클립)로 재생하는 캐릭터
 	static GameObject* CreateCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& clipPath = kDefaultCharacterIdle);
+	// Animator 컴포넌트(Animator Controller 상태 머신)로 재생하는 캐릭터 — Unity 에서 모델을 씬에 놓았을 때와 같다
+	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
+		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 
 private:
 	static GameObject* CreatePrimitive(PrimitiveType type, const std::string& name);
+	// 모델의 스킨 메쉬마다 Skinned Mesh Renderer 자식을 만든다
+	static void AddSkinnedChildren(GameObject* root, const std::string& modelPath);
 
 public:
 

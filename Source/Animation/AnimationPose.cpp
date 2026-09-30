@@ -51,3 +51,26 @@ namespace AnimationPose
 		}
 	}
 }
+
+namespace AnimationPose
+{
+	void Blend(const std::vector<XMFLOAT4X4>& a, const std::vector<XMFLOAT4X4>& b, float w, std::vector<XMFLOAT4X4>& out)
+	{
+		const size_t n = (std::min)(a.size(), b.size());
+		out.resize(n);
+		w = std::clamp(std::isfinite(w) ? w : 0.0f, 0.0f, 1.0f);
+		for (size_t i = 0; i < n; ++i)
+		{
+			XMVECTOR sa, ra, ta, sb, rb, tb;
+			if (!XMMatrixDecompose(&sa, &ra, &ta, XMLoadFloat4x4(&a[i])) || !XMMatrixDecompose(&sb, &rb, &tb, XMLoadFloat4x4(&b[i])))
+			{
+				out[i] = w < 0.5f ? a[i] : b[i];
+				continue;
+			}
+			XMVECTOR s = XMVectorLerp(sa, sb, w);
+			XMVECTOR r = XMQuaternionSlerp(ra, rb, w);
+			XMVECTOR t = XMVectorLerp(ta, tb, w);
+			XMStoreFloat4x4(&out[i], XMMatrixScalingFromVector(s) * XMMatrixRotationQuaternion(r) * XMMatrixTranslationFromVector(t));
+		}
+	}
+}

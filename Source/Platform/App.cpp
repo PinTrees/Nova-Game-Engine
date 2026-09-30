@@ -260,6 +260,9 @@ bool App::Init()
 		char animLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_ANIM_TEST", animLog, sizeof(animLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunAnimationTest(SceneManager::GetI()->GetCurrentScene(), animLog);
+		char animatorLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_ANIMATOR_TEST", animatorLog, sizeof(animatorLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunAnimatorTest(SceneManager::GetI()->GetCurrentScene(), animatorLog);
 	}
 
 	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.

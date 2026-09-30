@@ -1,0 +1,27 @@
+{
+    "layers": [
+        {
+            "any": [-330.0, -90.0],
+            "defaultState": "Idle",
+            "entry": [-330.0, 0.0],
+            "exit": [420.0, 0.0],
+            "name": "Base Layer",
+            "states": [
+                {
+                    "clipIndex": 0,
+                    "clipPath": "Resources\\Packages\\Character\\Animations\\GhostSamurai_APose_Idle.FBX",
+                    "cycleOffset": 0.0,
+                    "footIK": false,
+                    "loop": true,
+                    "name": "Idle",
+                    "pos": [-40.0, 0.0],
+                    "speed": 1.0,
+                    "writeDefaults": true
+                }
+            ],
+            "transitions": [],
+            "weight": 1.0
+        }
+    ],
+    "parameters": []
+}

@@ -3,12 +3,14 @@
 class GameObject;
 class UMaterial;
 class MeshFile;
+class AnimatorController;
 
 enum class SelectionType
 {
     NONE,
     FILE,
     GAMEOBJECT,
+    ANIMATOR,       // Animator 창에서 고른 상태 / 전이
 };
 
 enum class SelectionSubType
@@ -16,6 +18,16 @@ enum class SelectionSubType
     NONE,
     MATERIAL,
     FBX,
+    ANIMATOR_CONTROLLER,
+};
+
+// Animator 창 선택 (State >= 0 이면 상태, Transition >= 0 이면 전이)
+struct AnimatorSelection
+{
+    shared_ptr<AnimatorController> Controller;
+    int Layer = 0;
+    int State = -1;
+    int Transition = -1;
 };
 
 class SelectionManager
@@ -31,6 +43,8 @@ private:
 
     static shared_ptr<UMaterial> m_SelectedFile_Material;
     static shared_ptr<MeshFile> m_SelectFile_FbxModel;
+    static shared_ptr<AnimatorController> m_SelectFile_Controller;
+    static AnimatorSelection m_AnimatorSelection;
 
 public:
     static void ClearSelection();
@@ -47,5 +61,10 @@ public:
     static shared_ptr<UMaterial> GetSelectMaterial() { return m_SelectedFile_Material; }
 
     static shared_ptr<MeshFile> GetSelectFbxModel() { return m_SelectFile_FbxModel; }
+
+    static shared_ptr<AnimatorController> GetSelectAnimatorController() { return m_SelectFile_Controller; }
+
+    static void SetSelectedAnimatorItem(shared_ptr<AnimatorController> controller, int layer, int state, int transition);
+    static const AnimatorSelection& GetAnimatorSelection() { return m_AnimatorSelection; }
 };
 

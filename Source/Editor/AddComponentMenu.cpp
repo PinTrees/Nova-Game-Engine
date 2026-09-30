@@ -31,6 +31,7 @@ namespace
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
+		{ "Animator",            "Animator",              "Miscellaneous", "animator",          true  },
 		{ "TerrainTool",         "Terrain Tool",          "Miscellaneous", "component",         false },
 	};
 
