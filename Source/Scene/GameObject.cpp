@@ -223,13 +223,17 @@ void GameObject::OnInspectorGUI()
 
     EditorGUI::ComponentDivider(); 
     ImGui::Dummy(ImVec2(0, 18)); 
-    if (EditorGUI::Button("Add Component")) 
+    // Unity 처럼 가운데 정렬된 넓은 Add Component 버튼
     {
-        ImGui::OpenPopup("add_component_popup");
-    }
-    if (ImGui::Button("Add Component"))
-    {
-        ImGui::OpenPopup("add_component_popup");
+        const float availX = ImGui::GetContentRegionAvail().x;
+        const float btnW = availX * 0.7f;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availX - btnW) * 0.5f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+        if (ImGui::Button("Add Component", ImVec2(btnW, 26.0f)))
+        {
+            ImGui::OpenPopup("add_component_popup");
+        }
+        ImGui::PopStyleVar();
     }
 
     if (ImGui::BeginPopup("add_component_popup"))

@@ -285,6 +285,13 @@
     <ClInclude Include="..\Source\Graphics\Common\Waves.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\Source\Editor\SceneViewOverlay.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\Source\Editor\SceneViewOverlay.h" />
+    <ClInclude Include="..\Source\Editor\EditorTheme.h" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="..\Source\Hub\HubApp.cpp" />
     <ClCompile Include="..\Source\Hub\HubProject.cpp" />
   </ItemGroup>

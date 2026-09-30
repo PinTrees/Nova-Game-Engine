@@ -25,6 +25,8 @@ public:
 public:
 	wstring GetScenePath() const { return m_ScenePath; }
 	void SetScenePath(const wstring& path) { m_ScenePath = path; }
+	// 파일 이름(확장자 제외). 아직 저장되지 않은 씬은 "Untitled"
+	wstring GetName() const;
 
 public:
 	void Enter();

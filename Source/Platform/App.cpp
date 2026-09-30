@@ -79,7 +79,7 @@ int32 App::Run()
 				CalculateFrameStats();
 
 				// Update
-				if (Application::IsPlaying())
+				if (Application::ShouldUpdateGame())
 				{
 					UpdateScene(_timer.DeltaTime()); 
 					SceneManager::GetI()->UpdateScene(); 
@@ -183,13 +183,29 @@ bool App::Init()
 	PhysicsManager::GetI()->Init();
 
 	log << "App::Init -> LoadScene..." << std::endl; log.flush();
-	if (!EditorSettingManager::GetSetting()->LastOpenedScenePath.empty())
+	SceneManager::GetI()->LoadStartupScene();
+
+	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
 	{
-		SceneManager::GetI()->LoadScene(EditorSettingManager::GetSetting()->LastOpenedScenePath);
+		char selectName[128] = {};
+		if (::GetEnvironmentVariableA("NOVA_SELECT", selectName, sizeof(selectName)) > 0 && SceneManager::GetI()->GetCurrentScene())
+		{
+			for (GameObject* go : SceneManager::GetI()->GetCurrentScene()->GetAllGameObjects())
+			{
+				if (go->GetName() == selectName)
+				{
+					SelectionManager::SetSelectedGameObject(go);
+					break;
+				}
+			}
+		}
 	}
-	else
+
+	// (개발/검증용) NOVA_AUTOPLAY=1 이면 시작 직후 Play 모드로 들어간다.
+	if (::GetEnvironmentVariableA("NOVA_AUTOPLAY", nullptr, 0) > 0)
 	{
-		SceneManager::GetI()->LoadScene(L"");
+		Application::SetPlaying(true);
+		SceneManager::GetI()->HandlePlay();
 	}
 
 	log << "App::Init -> TimeManager..." << std::endl; log.flush();

@@ -290,6 +290,13 @@ void Scene::UpdateScene()
     }
 }
 
+wstring Scene::GetName() const
+{
+    if (m_ScenePath.empty())
+        return L"Untitled";
+    return std::filesystem::path(m_ScenePath).stem().wstring();
+}
+
 Scene* Scene::Load(wstring scenePath)
 {
     std::ifstream is(wstring_to_string(PathManager::GetI()->GetMovePathW(scenePath)));
@@ -318,6 +325,8 @@ void Scene::Save(Scene* scene)
 
     json j = *scene;
     //std::ofstream os(scene->m_ScenePath);
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(PathManager::GetI()->GetMovePathW(scene->m_ScenePath)).parent_path(), ec);
     std::ofstream os(PathManager::GetI()->GetMovePathW(scene->m_ScenePath));
 
     if (os)

@@ -79,8 +79,24 @@ ProjectEditorWindow::~ProjectEditorWindow()
 void ProjectEditorWindow::OnRender()
 {
     // 현재 경로를 상단에 표시
-    string aa = wstring_to_string(currentDirectory);
-    ImGui::Text("Current Directory: %s", aa.c_str());
+    // Unity 처럼 프로젝트 기준 경로를 "Assets > Scenes" 형태의 breadcrumb 으로 표시
+    {
+        std::wstring rel = PathManager::GetI()->GetCutSolutionPath(currentDirectory);
+        std::wstring crumb;
+        for (wchar_t c : rel)
+        {
+            if (c == L'\\' || c == L'/')
+            {
+                if (!crumb.empty() && crumb.compare(crumb.size() - 3, 3, L" > ") != 0)
+                    crumb += L" > ";
+            }
+            else
+                crumb += c;
+        }
+        while (crumb.size() >= 3 && crumb.compare(crumb.size() - 3, 3, L" > ") == 0)
+            crumb.resize(crumb.size() - 3);
+        ImGui::TextUnformatted(wstring_to_string(crumb).c_str());
+    }
 
     static float leftPaneWidth = 250.0f; // 좌측 패널의 초기 너비
     float minPaneWidth = 100.0f;         // 최소 패널 너비

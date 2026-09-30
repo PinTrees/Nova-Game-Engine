@@ -4,6 +4,9 @@
 #include "GraphicsSettings.h"
 #include "GraphicsBackendFactory.h"
 #include "HubProject.h"
+#include "EditorTheme.h"
+#include "ComponentFactory.h"
+#include <shellapi.h>
 
 #include "EditorWindow.h"
 #include "imgui_internal.h"
@@ -51,6 +54,11 @@ void EditorGUIManager::Init(bool hubMode)
         // Hub는 에디터의 imgui.ini(창 배치)를 덮어쓰지 않는다.
         io.IniFilename = nullptr;
     }
+    if (!hubMode)
+    {
+        // 창 이름/레이아웃 구조가 바뀌면 파일 이름의 버전을 올려 저장된 배치를 한 번 초기화한다.
+        io.IniFilename = "nova_layout_v2.ini";
+    }
     //io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleViewports; 
     //io.ConfigFlags |= ImGuiConfigFlags_DpiEnableScaleFonts; 
 
@@ -68,7 +76,7 @@ void EditorGUIManager::Init(bool hubMode)
 
     // Hub는 창 DPI 배율에 맞춰 폰트 크기를 정한다. (에디터는 기존 고정 크기 유지)
     float dpiScale = hubMode ? (float)GetDpiForWindow(Application::GetI()->GetMainHwnd()) / 96.0f : 1.0f;
-    float fontSize = hubMode ? 17.0f * dpiScale : 24.0f;
+    float fontSize = hubMode ? 17.0f * dpiScale : (float)EditorTheme::FontSize;
 
     ImFontConfig config;
     config.MergeMode = true; // 기존 폰트와 합쳐 사용 
@@ -78,7 +86,7 @@ void EditorGUIManager::Init(bool hubMode)
     
     // Load Fonts
     io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesKorean());
-    io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 4, &config, icons_ranges);
+    io.Fonts->AddFontFromFileTTF(fa_path.c_str(), hubMode ? fontSize - 4 : fontSize - 2, &config, icons_ranges);
 
     if (hubMode)
     {
@@ -124,26 +132,138 @@ void EditorGUIManager::BuildDefaultLayout(ImGuiID dockspaceId, ImVec2 size)
     {
         const std::string& t = w->GetTitle();
         ImGuiID target = center;
-        if (t == "Hierachy") target = left;
+        if (t == "Hierarchy") target = left;
         else if (t == "Inspector") target = right;
         else if (t == "Project" || t == "Console" || t == "Animator") target = bottom;
         ImGui::DockBuilderDockWindow(w->GetImGuiName().c_str(), target);
     }
     ImGui::DockBuilderFinish(dockspaceId);
+    m_FocusDefaultTabs = 8;
+}
+
+// Unity 툴바 행: 좌측 프로젝트 이름, 중앙 Play/Pause/Step, 우측 Layout 드롭다운
+void EditorGUIManager::DrawToolbar(float y)
+{
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    const float h = EditorTheme::ToolbarHeight;
+    ImGui::SetNextWindowPos(ImVec2(vp->Pos.x, vp->Pos.y + y));
+    ImGui::SetNextWindowSize(ImVec2(vp->Size.x, h));
+    ImGui::SetNextWindowViewport(vp->ID);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, EditorTheme::Chrome());
+
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+
+    if (ImGui::Begin("##NovaToolbar", nullptr, flags))
+    {
+        const float W = vp->Size.x;
+        ImVec2 wp = ImGui::GetWindowPos();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddLine(ImVec2(wp.x, wp.y + h - 1), ImVec2(wp.x + W, wp.y + h - 1), ImGui::GetColorU32(EditorTheme::Separator()));
+
+        const float bh = 24.0f;
+        const float by = (h - bh) * 0.5f;
+
+        // 좌측: 프로젝트 이름
+        if (!PathManager::GetProjectOverride().empty())
+        {
+            std::filesystem::path root(PathManager::GetProjectOverride());
+            if (!root.has_filename() && root.has_parent_path()) root = root.parent_path();
+            std::string label = std::string(ICON_FA_CUBES "  ") + wstring_to_string(root.filename().wstring());
+            ImGui::SetCursorPos(ImVec2(12.0f, (h - ImGui::GetFontSize()) * 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::TextDim());
+            ImGui::TextUnformatted(label.c_str());
+            ImGui::PopStyleColor();
+        }
+
+        // 중앙: Play / Pause / Step
+        const bool playing = Application::IsPlaying();
+        const bool paused = Application::IsPaused();
+        const float bw = 34.0f, gap = 2.0f;
+        float x = (W - (bw * 3 + gap * 2)) * 0.5f;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+        auto toolbarButton = [&](const char* label, bool active) -> bool
+        {
+            ImGui::PushStyleColor(ImGuiCol_Button, active ? EditorTheme::Accent() : EditorTheme::Button());
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, active ? EditorTheme::Accent() : EditorTheme::ButtonHover());
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, EditorTheme::ButtonHover());
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.92f, 0.92f, 1.0f));
+            bool pressed = ImGui::Button(label, ImVec2(bw, bh));
+            ImGui::PopStyleColor(4);
+            return pressed;
+        };
+
+        ImGui::SetCursorPos(ImVec2(x, by));
+        if (toolbarButton(ICON_FA_PLAY "##play", playing))
+        {
+            if (!playing)
+            {
+                Application::SetPaused(false);
+                Application::SetPlaying(true);
+                SceneManager::GetI()->HandlePlay();
+            }
+            else
+            {
+                Application::SetPlaying(false);
+                Application::SetPaused(false);
+                SelectionManager::ClearSelection();
+                SceneManager::GetI()->HandleStop();
+            }
+        }
+        ImGui::SetCursorPos(ImVec2(x + bw + gap, by));
+        if (toolbarButton(ICON_FA_PAUSE "##pause", playing && paused) && playing)
+            Application::SetPaused(!paused);
+        ImGui::SetCursorPos(ImVec2(x + (bw + gap) * 2, by));
+        if (toolbarButton(ICON_FA_FORWARD_STEP "##step", false) && playing)
+        {
+            Application::SetPaused(true);
+            Application::RequestStep();
+        }
+        ImGui::PopStyleVar(2);
+
+        // 우측: Layout 드롭다운
+        const float lw = 84.0f;
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 3.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Button, EditorTheme::Chrome());
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, EditorTheme::Panel());
+        ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Text());
+        ImGui::SetCursorPos(ImVec2(W - lw - 12.0f, by));
+        if (ImGui::Button("Layout  " ICON_FA_CHEVRON_DOWN, ImVec2(lw, bh)))
+            ImGui::OpenPopup("##layoutmenu");
+        ImGui::PopStyleColor(3);
+        ImGui::PopStyleVar(2);
+        if (ImGui::BeginPopup("##layoutmenu"))
+        {
+            if (ImGui::MenuItem("Default"))
+                m_ResetLayout = true;
+            ImGui::EndPopup();
+        }
+    }
+    ImGui::End();
+
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(3);
 }
 
 void EditorGUIManager::RenderEditorWindows()
 {
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(18.0f, 18.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(EditorTheme::MenuBarPaddingX, EditorTheme::MenuBarPaddingY));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_MenuBarBg, EditorTheme::Chrome());
 
     if (ImGui::BeginMainMenuBar())
     {
-        const float menuBarHeight = ImGui::GetFrameHeight();
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(16.0f, 4.0f));
+        m_TopChromeHeight = ImGui::GetFrameHeight() + EditorTheme::ToolbarHeight;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
 
         // 1. File Menu
         if (ImGui::BeginMenu("File"))
@@ -233,6 +353,29 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::EndMenu();
         }
 
+        // Assets Menu
+        if (ImGui::BeginMenu("Assets"))
+        {
+            if (ImGui::BeginMenu("Create"))
+            {
+                if (ImGui::MenuItem("Folder"))
+                {
+                    std::error_code ec;
+                    std::filesystem::path base = PathManager::GetI()->GetMovePathW(L"Assets\\");
+                    std::filesystem::path dir = base / L"New Folder";
+                    for (int i = 1; std::filesystem::exists(dir, ec); ++i)
+                        dir = base / (L"New Folder " + std::to_wstring(i));
+                    std::filesystem::create_directories(dir, ec);
+                }
+                ImGui::EndMenu();
+            }
+            if (ImGui::MenuItem("Show in Explorer"))
+            {
+                ::ShellExecuteW(nullptr, L"open", PathManager::GetI()->GetMovePathW(L"Assets\\").c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            }
+            ImGui::EndMenu();
+        }
+
         // 3. GameObject Menu
         if (ImGui::BeginMenu("GameObject"))
         {
@@ -277,6 +420,23 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::EndMenu();
         }
 
+        // Component Menu: 선택한 GameObject 에 컴포넌트 추가
+        if (ImGui::BeginMenu("Component"))
+        {
+            GameObject* selected = SelectionManager::GetSelectedGameObject();
+            for (const std::string& type : ComponentFactory::Instance().GetComponentTypes())
+            {
+                if (type == "Transform") continue;
+                if (ImGui::MenuItem(type.c_str(), nullptr, false, selected != nullptr))
+                {
+                    auto component = ComponentFactory::Instance().CreateComponent(type);
+                    if (component)
+                        selected->AddComponent(component);
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         // 4. Window Menu
         if (ImGui::BeginMenu("Window"))
         {
@@ -302,34 +462,12 @@ void EditorGUIManager::RenderEditorWindows()
 
         ImGui::PopStyleVar();
 
-        // Center Toolbar (Play / Stop)
-        float imageHeight = 14;
-        float buttonPaddingX = 16;
-        float buttonPaddingY = 8;
-        float buttonHeight = imageHeight + buttonPaddingY * 2;
-        float centerOffset = (menuBarHeight - buttonHeight) * 0.5f;
-        float centerPos = ImGui::GetWindowWidth() * 0.5f - 60.0f;
-        if (centerPos > ImGui::GetCursorPosX())
-            ImGui::SetCursorPosX(centerPos);
-
-        ImGui::SetCursorPosY(centerOffset);
-        if (EditorGUI::ImageButton(L"\\ProjectSetting\\icons\\icon_editor_play.png", ImVec2(imageHeight, imageHeight), ImVec2(buttonPaddingX, buttonPaddingY)))
-        {
-            Application::SetPlaying(true);
-            SceneManager::GetI()->HandlePlay();
-        }
-        ImGui::Dummy(ImVec2(4, 0));
-        ImGui::SetCursorPosY(centerOffset);
-        if (EditorGUI::ImageButton(L"\\ProjectSetting\\icons\\icon_editor_stop.png", ImVec2(imageHeight, imageHeight), ImVec2(buttonPaddingX, buttonPaddingY)))
-        {
-            Application::SetPlaying(false);
-            SelectionManager::ClearSelection();
-            SceneManager::GetI()->HandleStop();
-        }
         ImGui::EndMainMenuBar();
     }
     ImGui::PopStyleColor();
     ImGui::PopStyleVar(4);
+
+    DrawToolbar(m_TopChromeHeight - EditorTheme::ToolbarHeight);
 
     // 창의 전체 크기와 위치 설정
     // 프레임과 배경을 제거하는 플래그 설정
@@ -341,8 +479,8 @@ void EditorGUIManager::RenderEditorWindows()
     // 전체 화면 크기로 DockSpace 창 설정    
     Vec2 screenSize = Application::GetI()->GetApp()->GetScreenSize();
     ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + 48)); 
-    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, viewport->Size.y - 48)); 
+    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + m_TopChromeHeight)); 
+    ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, viewport->Size.y - m_TopChromeHeight)); 
     ImGui::SetNextWindowViewport(viewport->ID);  
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
@@ -354,8 +492,11 @@ void EditorGUIManager::RenderEditorWindows()
     if (ImGui::Begin("##DockSpace", NULL, window_flags))
     {
         ImGuiID dockspace_id = ImGui::GetID("RootDockspace");  
-        if (ImGui::DockBuilderGetNode(dockspace_id) == nullptr)
-            BuildDefaultLayout(dockspace_id, ImVec2(viewport->Size.x, viewport->Size.y - 48));
+        if (m_ResetLayout || ImGui::DockBuilderGetNode(dockspace_id) == nullptr)
+        {
+            m_ResetLayout = false;
+            BuildDefaultLayout(dockspace_id, ImVec2(viewport->Size.x, viewport->Size.y - m_TopChromeHeight));
+        }
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None); 
     }
 
@@ -366,6 +507,27 @@ void EditorGUIManager::RenderEditorWindows()
     for (auto& window : m_pEditorWindows)
     {
         window->Render();
+    }
+
+    if (m_FocusDefaultTabs > 0)
+    {
+        // 기본 레이아웃 직후 몇 프레임 동안 Scene / Project 탭을 선택 상태로 만든다. (도킹 노드의 선택 탭을 직접 지정)
+        const bool lastFrame = (--m_FocusDefaultTabs == 0);
+        for (auto& w : m_pEditorWindows)
+        {
+            if (w->GetTitle() != "Scene" && w->GetTitle() != "Project")
+                continue;
+            ImGuiWindow* win = ImGui::FindWindowByName(w->GetImGuiName().c_str());
+            if (win && win->DockNode)
+            {
+                win->DockNode->SelectedTabId = win->TabId;
+                if (win->DockNode->TabBar)
+                    win->DockNode->TabBar->SelectedTabId = win->DockNode->TabBar->NextSelectedTabId = win->TabId;
+            }
+            // 내비게이션 포커스가 있는 창의 탭이 우선하므로, 마지막 프레임에 Project 창에 포커스를 준다.
+            if (lastFrame && w->GetTitle() == "Project")
+                ImGui::SetWindowFocus(w->GetImGuiName().c_str());
+        }
     }
     
     for (auto& dialog : m_pEditorDialogs) 
@@ -446,23 +608,23 @@ void EditorGUIManager::SetStyle_Base()
     const ImVec4 unityBlue       = ImVec4(0.18f, 0.44f, 0.75f, 1.00f); // #2E70BF Unity Selection Blue
     const ImVec4 unityAccentBlue = ImVec4(0.18f, 0.55f, 0.95f, 1.00f); // #2E8CF2 Active tab underline
 
-    colors[ImGuiCol_Text]                  = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_Text]                  = EditorTheme::Text();
     colors[ImGuiCol_TextDisabled]          = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
-    colors[ImGuiCol_WindowBg]              = unityDark;
+    colors[ImGuiCol_WindowBg]              = EditorTheme::Panel();
     colors[ImGuiCol_ChildBg]               = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
     colors[ImGuiCol_PopupBg]               = ImVec4(0.18f, 0.18f, 0.18f, 0.98f);
-    colors[ImGuiCol_Border]                = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_Border]                = EditorTheme::Separator();
     colors[ImGuiCol_BorderShadow]          = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
-    colors[ImGuiCol_FrameBg]               = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered]        = ImVec4(0.18f, 0.18f, 0.18f, 1.00f);
-    colors[ImGuiCol_FrameBgActive]         = ImVec4(0.24f, 0.24f, 0.24f, 1.00f);
+    colors[ImGuiCol_FrameBg]               = EditorTheme::Rgb(42, 42, 42);
+    colors[ImGuiCol_FrameBgHovered]        = EditorTheme::Rgb(52, 52, 52);
+    colors[ImGuiCol_FrameBgActive]         = EditorTheme::Rgb(60, 60, 60);
 
-    colors[ImGuiCol_TitleBg]               = unityMid;
-    colors[ImGuiCol_TitleBgActive]         = unityMid;
-    colors[ImGuiCol_TitleBgCollapsed]      = unityMid;
+    colors[ImGuiCol_TitleBg]               = EditorTheme::Chrome();
+    colors[ImGuiCol_TitleBgActive]         = EditorTheme::Chrome();
+    colors[ImGuiCol_TitleBgCollapsed]      = EditorTheme::Chrome();
 
-    colors[ImGuiCol_MenuBarBg]             = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+    colors[ImGuiCol_MenuBarBg]             = EditorTheme::Chrome();
     colors[ImGuiCol_ScrollbarBg]           = ImVec4(0.12f, 0.12f, 0.12f, 0.60f);
     colors[ImGuiCol_ScrollbarGrab]         = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
     colors[ImGuiCol_ScrollbarGrabHovered]  = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
@@ -472,15 +634,15 @@ void EditorGUIManager::SetStyle_Base()
     colors[ImGuiCol_SliderGrab]            = unityLight;
     colors[ImGuiCol_SliderGrabActive]      = unityBlue;
 
-    colors[ImGuiCol_Button]                = unityLight;
-    colors[ImGuiCol_ButtonHovered]         = unityHighlight;
-    colors[ImGuiCol_ButtonActive]          = unityActive;
+    colors[ImGuiCol_Button]                = EditorTheme::Button();
+    colors[ImGuiCol_ButtonHovered]         = EditorTheme::ButtonHover();
+    colors[ImGuiCol_ButtonActive]          = EditorTheme::Rgb(75, 75, 75);
 
-    colors[ImGuiCol_Header]                = unityBlue;
-    colors[ImGuiCol_HeaderHovered]         = ImVec4(0.22f, 0.50f, 0.82f, 0.85f);
-    colors[ImGuiCol_HeaderActive]          = ImVec4(0.16f, 0.40f, 0.70f, 1.00f);
+    colors[ImGuiCol_Header]                = EditorTheme::Selection();
+    colors[ImGuiCol_HeaderHovered]         = EditorTheme::Selection();
+    colors[ImGuiCol_HeaderActive]          = EditorTheme::Selection();
 
-    colors[ImGuiCol_Separator]             = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    colors[ImGuiCol_Separator]             = EditorTheme::Separator();
     colors[ImGuiCol_SeparatorHovered]      = unityAccentBlue;
     colors[ImGuiCol_SeparatorActive]       = unityBlue;
 
@@ -489,16 +651,16 @@ void EditorGUIManager::SetStyle_Base()
     colors[ImGuiCol_ResizeGripActive]      = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
 
     // Unity Tab Styling
-    colors[ImGuiCol_Tab]                   = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
-    colors[ImGuiCol_TabHovered]            = ImVec4(0.24f, 0.24f, 0.24f, 1.00f);
-    colors[ImGuiCol_TabSelected]           = unityMid;
-    colors[ImGuiCol_TabSelectedOverline]   = unityAccentBlue;
-    colors[ImGuiCol_TabDimmed]             = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
-    colors[ImGuiCol_TabDimmedSelected]     = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0.35f, 0.35f, 0.35f, 1.00f);
+    colors[ImGuiCol_Tab]                   = EditorTheme::Chrome();
+    colors[ImGuiCol_TabHovered]            = EditorTheme::Rgb(68, 68, 68);
+    colors[ImGuiCol_TabSelected]           = EditorTheme::Panel();
+    colors[ImGuiCol_TabSelectedOverline]   = ImVec4(0, 0, 0, 0);
+    colors[ImGuiCol_TabDimmed]             = EditorTheme::Chrome();
+    colors[ImGuiCol_TabDimmedSelected]     = EditorTheme::Panel();
+    colors[ImGuiCol_TabDimmedSelectedOverline] = ImVec4(0, 0, 0, 0);
 
     colors[ImGuiCol_DockingPreview]        = ImVec4(0.18f, 0.44f, 0.75f, 0.70f);
-    colors[ImGuiCol_DockingEmptyBg]        = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
+    colors[ImGuiCol_DockingEmptyBg]        = EditorTheme::Chrome();
 
     colors[ImGuiCol_TableHeaderBg]         = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
     colors[ImGuiCol_TableBorderStrong]     = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);

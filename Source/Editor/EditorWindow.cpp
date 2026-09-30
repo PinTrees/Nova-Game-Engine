@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "EditorWindow.h"
+#include "EditorTheme.h"
 #include "EditorGUI.h"
 #include "imgui_internal.h" 
 
@@ -38,21 +39,21 @@ void EditorWindow::Render()
     EditorGUI::EditorWindowStylePush();
 
     // 스타일 설정 시작
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
     EDITOR_GUI_STYLE_TAB_ROUNDING; 
-    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 12.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 3.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_TabBarBorderSize, 1.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(5, 5));      // 아이템 간 패딩 설정
 
-    ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TabHovered, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TabActive, ImVec4(0.4f, 0.4f, 0.4f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, EditorTheme::Chrome());
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, EditorTheme::Chrome());
+    ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, EditorTheme::Chrome());
+    ImGui::PushStyleColor(ImGuiCol_Tab, EditorTheme::Chrome());
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, EditorTheme::Rgb(68, 68, 68));
+    ImGui::PushStyleColor(ImGuiCol_TabActive, EditorTheme::Panel());
 
-    ImGui::PushStyleColor(ImGuiCol_TabUnfocused, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
-    ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, ImVec4(0.4f, 0.4f, 0.4f, 0.75f));
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocused, EditorTheme::Chrome());
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, EditorTheme::Panel());
 
     ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
@@ -62,7 +63,7 @@ void EditorWindow::Render()
     ImGui::PushStyleColor(ImGuiCol_TabDimmedSelectedOverline, ImVec4(0.f, 0.f, 0.f, 0.f)); 
 
     EDITOR_GUI_COLOR_TAB_HEADER_BG;   
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f)); 
+    ImGui::PushStyleColor(ImGuiCol_Text, EditorTheme::Text()); 
 
     // 윈도우를 시작합니다
     string windowTitleName = GetImGuiName();

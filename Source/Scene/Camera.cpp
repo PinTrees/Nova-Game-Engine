@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Camera.h"
+#include "SceneViewOverlay.h"
 #include "Application.h"
 #include "App.h"
 #include "GameObject.h"
@@ -470,8 +471,15 @@ void Camera::OnInspectorGUI()
 // ī�޶� ���� ����Draw
 void Camera::OnDrawGizmos()
 {
+	// Scene 뷰 오버레이가 활성일 때만 그린다. 선택되지 않은 카메라는 짧은 프러스텀, 선택되면 더 길게 표시.
+	if (!SceneViewOverlay::IsActive())
+		return;
+
 	Transform* transform = GetGameObject()->GetTransform();
-	Gizmo::DrawFrustum(transform->GetWorldMatrix(), m_nearZ, m_farZ, XMConvertToDegrees(m_fovY));
+	const bool selected = (SelectionManager::GetSelectedGameObject() == GetGameObject());
+	const float drawFar = selected ? min(m_farZ, 6.0f) : min(m_farZ, 1.8f);
+	const ImU32 color = selected ? IM_COL32(255, 255, 255, 235) : IM_COL32(200, 200, 200, 170);
+	SceneViewOverlay::DrawFrustum(transform->GetWorldMatrix(), m_nearZ, drawFar, XMConvertToDegrees(m_fovY), color);
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(Camera)

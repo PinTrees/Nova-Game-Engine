@@ -3,6 +3,7 @@
 #include "Scene.h"
 #include "LightManager.h"
 #include "GameObjectFactory.h"
+#include "EditorSettingManager.h"
 
 
 SINGLE_BODY(SceneManager)
@@ -152,11 +153,40 @@ void SceneManager::CreateScene()
 	m_pCurrScene = new Scene();
 
 	GameObject* camera = GameObjectFactory::CreateCamera("Main Camera");
-	camera->GetTransform()->SetPosition(Vec3(0.0f, 2.0f, -10.0f));
+	camera->GetTransform()->SetPosition(Vec3(0.0f, 1.0f, -10.0f));   // Unity 기본 씬과 동일
 	m_pCurrScene->AddRootGameObject(camera);
 
 	GameObject* light = GameObjectFactory::CreateDirectionalLight("Directional Light");
 	m_pCurrScene->AddRootGameObject(light);
 
 	DisplayManager::GetI()->Init();
+}
+
+
+void SceneManager::LoadStartupScene()
+{
+	EditorSetting* setting = EditorSettingManager::GetSetting();
+	std::wstring last = setting ? setting->LastOpenedScenePath : L"";
+
+	std::error_code ec;
+	if (!last.empty() && std::filesystem::exists(PathManager::GetI()->GetMovePathW(last), ec))
+	{
+		LoadScene(last);
+		return;
+	}
+
+	if (!PathManager::GetProjectOverride().empty())
+	{
+		// 새 프로젝트: Unity 의 SampleScene 처럼 기본 씬(Main Camera + Directional Light)을 만들어 저장
+		const std::wstring samplePath = L"Assets\\Scenes\\SampleScene.scene";
+		CreateScene();
+		m_pCurrScene->SetScenePath(samplePath);
+		Scene::Save(m_pCurrScene);
+		m_Scenes[samplePath] = m_pCurrScene;
+		m_pCurrScene->Enter();
+		DisplayManager::GetI()->Init();
+		return;
+	}
+
+	LoadScene(L"");
 }

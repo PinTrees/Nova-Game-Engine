@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "App.h"
 #include "Light.h"
+#include "SceneViewOverlay.h"
 #include "LightManager.h"
 #include "Transform.h"
 #include "SceneViewManager.h"
@@ -390,6 +391,20 @@ void Light::OnInspectorGUI()
 
 void Light::OnDrawGizmos()
 {
+	if (!SceneViewOverlay::IsActive())
+		return;
+
+	Transform* transform = GetGameObject()->GetTransform();
+	Vec3 pos = transform->GetPosition();
+	XMFLOAT3 dir(0.0f, -1.0f, 0.0f);
+	if (m_LightType == LightType::Directional)
+		dir = m_DirectionalDesc.Direction;
+	else if (m_LightType == LightType::Spot)
+		dir = m_SpotDesc.Direction;
+
+	const bool selected = (SelectionManager::GetSelectedGameObject() == GetGameObject());
+	SceneViewOverlay::DrawLightGizmo(XMFLOAT3(pos.x, pos.y, pos.z), dir, selected ? 3.0f : 2.0f,
+		selected ? IM_COL32(255, 244, 180, 255) : IM_COL32(255, 235, 150, 200));
 }
 
 

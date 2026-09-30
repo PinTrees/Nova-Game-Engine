@@ -297,7 +297,11 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	ID3D11RenderTargetView* renderTargets[1] = { renderTargetView };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
 	_deviceContext->RSSetViewports(1, &viewport);
-	_deviceContext->ClearRenderTargetView(renderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
+	{
+		// Game 뷰: Unity 기본 카메라 배경색(#314D79)
+		const float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
+		_deviceContext->ClearRenderTargetView(renderTargetView, gameClear);
+	}
 
 	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
 
@@ -463,7 +467,11 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	ID3D11RenderTargetView* renderTargets[1] = { renderTargetView };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
 	_deviceContext->RSSetViewports(1, &viewport);
-	_deviceContext->ClearRenderTargetView(renderTargetView, reinterpret_cast<const float*>(&Colors::Silver));
+	{
+		// Scene 뷰: 투명으로 지운 뒤 SceneViewOverlay 가 뒤에 그린 하늘 그라디언트가 비쳐 보이게 한다.
+		const float sceneClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+		_deviceContext->ClearRenderTargetView(renderTargetView, sceneClear);
+	}
 
 	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
 
@@ -507,8 +515,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	//_sky->Draw(_deviceContext, _camera);
 
-	// Texture2D 작은 화면으로 렌더 (디버깅)
-	DrawScreenQuad(shadowMap->DepthMapSRVArray(LightType::Directional)[0]);
+	// (디버그) 그림자 맵을 작은 화면으로 표시하던 DrawScreenQuad 는 제거함
 	//DrawScreenQuad(ssao->AmbientSRV().Get());
 	//DrawScreenQuad(PostProcessingManager::GetI()->_EditorGetSSAO()->GetRandomVectorSRV());
 

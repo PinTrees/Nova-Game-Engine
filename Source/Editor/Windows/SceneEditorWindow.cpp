@@ -3,6 +3,7 @@
 #include "App.h"
 #include "EditorCamera.h"
 #include "MathHelper.h"
+#include "SceneViewOverlay.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -10,6 +11,8 @@ SceneEditorWindow::SceneEditorWindow()
     windowHeight(600)
 {
     m_Camera = new EditorCamera;
+    // Unity ê¸°ë³¸ ì”¬ ë·°ì²˜ëŸ¼ ì›ì  ê·¼ì²˜ë¥¼ ë¹„ìŠ¤ë“¬íˆ ë‚´ë ¤ë‹¤ë³´ëŠ” ì´ˆê¸° ì‹œì 
+    m_Camera->LookAt(XMFLOAT3(7.0f, 5.0f, -19.0f), XMFLOAT3(0.0f, 1.0f, -5.0f), XMFLOAT3(0.0f, 1.0f, 0.0f));
     InitRenderTarget(windowWidth, windowHeight);
     SceneViewManager::GetI()->m_LastActiveSceneEditorWindow = this;
 }
@@ -21,9 +24,9 @@ SceneEditorWindow::~SceneEditorWindow()
 
 void SceneEditorWindow::InitRenderTarget(UINT width, UINT height)
 {
-    CleanUpRenderTarget(); // ÀÌÀü ·»´õ Å¸°ÙÀÌ ÀÖÀ¸¸é Á¤¸®
+    CleanUpRenderTarget(); // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 
-    // ·»´õ Å¸°Ù ÅØ½ºÃ³ »ı¼º
+    // ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½Ø½ï¿½Ã³ ï¿½ï¿½ï¿½ï¿½
     D3D11_TEXTURE2D_DESC textureDesc = {};
     textureDesc.Width = width;
     textureDesc.Height = height;
@@ -37,15 +40,15 @@ void SceneEditorWindow::InitRenderTarget(UINT width, UINT height)
     auto device = Application::GetI()->GetDevice();
 
     HRESULT hr = device->CreateTexture2D(&textureDesc, nullptr, &renderTargetTexture);
-    if (FAILED(hr)) { /* ¿¡·¯ Ã³¸® */ }
+    if (FAILED(hr)) { /* ï¿½ï¿½ï¿½ï¿½ Ã³ï¿½ï¿½ */ }
 
-    // ·»´õ Å¸°Ù ºä »ı¼º
+    // ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     hr = device->CreateRenderTargetView(renderTargetTexture, nullptr, &renderTargetView);
-    if (FAILED(hr)) { /* ¿¡·¯ Ã³¸® */ }
+    if (FAILED(hr)) { /* ï¿½ï¿½ï¿½ï¿½ Ã³ï¿½ï¿½ */ }
 
-    // ¼ÎÀÌ´õ ¸®¼Ò½º ºä »ı¼º
+    // ï¿½ï¿½ï¿½Ì´ï¿½ ï¿½ï¿½ï¿½Ò½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     hr = device->CreateShaderResourceView(renderTargetTexture, nullptr, &shaderResourceView);
-    if (FAILED(hr)) { /* ¿¡·¯ Ã³¸® */ }
+    if (FAILED(hr)) { /* ï¿½ï¿½ï¿½ï¿½ Ã³ï¿½ï¿½ */ }
 
     float aspectRatio = static_cast<float>(width) / height;
     m_Camera->SetLens(0.25f * MathHelper::Pi, aspectRatio, 1.0f, 1000.0f);
@@ -83,19 +86,19 @@ void SceneEditorWindow::RenderScene()
     
     auto context = Application::GetI()->GetDeviceContext();
     
-    // ±âÁ¸ ·»´õ Å¸°Ù ¹é¾÷
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½
     context->OMGetRenderTargets(1, &oldRenderTarget, nullptr);
     
-    // »õ ·»´õ Å¸°Ù ¼³Á¤
+    // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     context->OMSetRenderTargets(1, &renderTargetView, nullptr);
 
-    // ¾À ·»´õ
+    // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     Application::GetI()->GetApp()->_Editor_OnSceneRender(renderTargetView, m_Camera);
 
     if (oldRenderTarget == nullptr)
         return;
     
-    // ±âÁ¸ ·»´õ Å¸°Ù º¹¿ø
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     context->OMSetRenderTargets(1, &oldRenderTarget, nullptr);
     if (oldRenderTarget) oldRenderTarget->Release();
     
@@ -121,18 +124,18 @@ void SceneEditorWindow::OnRender()
 {
     ImVec2 windowSize = ImGui::GetContentRegionAvail();
 
-    // ¿ŞÂÊ¿¡ ¼¼·Î·Î ÅÇ ¸Ş´º ¹èÄ¡
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0)); // Ã¢ ³»ºÎ ÆĞµù Á¦°Å
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));   // Ç×¸ñ °£ °£°İ Á¦°Å
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // ¹öÆ° ³»ºÎ ÆĞµù Á¦°Å
-    ImGui::BeginChild("LeftPanel", ImVec2(24, windowSize.y), false, ImGuiWindowFlags_NoDecoration); // Å×µÎ¸® Á¦°Å
+    // ï¿½ï¿½ï¿½Ê¿ï¿½ ï¿½ï¿½ï¿½Î·ï¿½ ï¿½ï¿½ ï¿½Ş´ï¿½ ï¿½ï¿½Ä¡
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0)); // Ã¢ ï¿½ï¿½ï¿½ï¿½ ï¿½Ğµï¿½ ï¿½ï¿½ï¿½ï¿½
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));   // ï¿½×¸ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // ï¿½ï¿½Æ° ï¿½ï¿½ï¿½ï¿½ ï¿½Ğµï¿½ ï¿½ï¿½ï¿½ï¿½
+    ImGui::BeginChild("LeftPanel", ImVec2(24, windowSize.y), false, ImGuiWindowFlags_NoDecoration); // ï¿½×µÎ¸ï¿½ ï¿½ï¿½ï¿½ï¿½
 
     bool isWireframeMode = RenderManager::GetI()->WireFrameMode;
     bool isInstancingMode = RenderManager::GetI()->InstancingMode;
 
     if (isWireframeMode)
     {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); // ¼±ÅÃµÈ ¹öÆ° »ö»ó
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); // ï¿½ï¿½ï¿½Ãµï¿½ ï¿½ï¿½Æ° ï¿½ï¿½ï¿½ï¿½
     }
 
     if (ImGui::Button("W", ImVec2(24, 24)))
@@ -142,12 +145,12 @@ void SceneEditorWindow::OnRender()
 
     if (isWireframeMode)
     {
-        ImGui::PopStyleColor(); // º¯°æµÈ »ö»ó º¹¿ø
+        ImGui::PopStyleColor(); // ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     }
 
     if (isInstancingMode)
     {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); // ¼±ÅÃµÈ ¹öÆ° »ö»ó
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered)); // ï¿½ï¿½ï¿½Ãµï¿½ ï¿½ï¿½Æ° ï¿½ï¿½ï¿½ï¿½
     }
 
     if (ImGui::Button("I", ImVec2(24, 25)))
@@ -157,16 +160,16 @@ void SceneEditorWindow::OnRender()
 
     if (isInstancingMode)
     {
-        ImGui::PopStyleColor(); // º¯°æµÈ »ö»ó º¹¿ø
+        ImGui::PopStyleColor(); // ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     }
 
-    // ´Ù¸¥ ¹öÆ°µé Ãß°¡ °¡´É
+    // ï¿½Ù¸ï¿½ ï¿½ï¿½Æ°ï¿½ï¿½ ï¿½ß°ï¿½ ï¿½ï¿½ï¿½ï¿½
     ImGui::EndChild();
-    ImGui::PopStyleVar(3); // ¼¼ °³ÀÇ ½ºÅ¸ÀÏ º¯¼ö º¹¿ø
+    ImGui::PopStyleVar(3); // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Å¸ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 
     ImGui::SameLine();
 
-    // °¡»óÀÇ ¿µ¿ª ¼³Á¤
+    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::BeginChild("MainArea", ImVec2(windowSize.x - 24, windowSize.y), false, ImGuiWindowFlags_NoDecoration);
     ImGui::PopStyleVar();
@@ -181,10 +184,18 @@ void SceneEditorWindow::OnRender()
 
     RenderScene();
 
-    // ImGui Ã¢¿¡ ·»´õ Å¸°Ù ÅØ½ºÃ³¸¦ Ç¥½Ã
+    // ImGui Ã¢ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½Ø½ï¿½Ã³ï¿½ï¿½ Ç¥ï¿½ï¿½
+    // í•˜ëŠ˜ ê·¸ë¼ë””ì–¸íŠ¸(ì´ë¯¸ì§€ ë’¤) â†’ ì”¬ ë Œë” ì´ë¯¸ì§€ â†’ ê·¸ë¦¬ë“œ/ê¸°ì¦ˆëª¨ ì˜¤ë²„ë ˆì´
+    ImVec2 imageMin = ImGui::GetCursorScreenPos();
+    ImVec2 imageMax(imageMin.x + windowSize.x, imageMin.y + windowSize.y);
+    SceneViewOverlay::DrawBackground(imageMin, imageMax, m_Camera);
+
     ImGui::Image(reinterpret_cast<void*>(shaderResourceView), windowSize);
 
+    SceneViewOverlay::Begin(imageMin, imageMax, m_Camera);
+    SceneViewOverlay::DrawGrid();
     SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
+    SceneViewOverlay::End();
 
-    ImGui::EndChild(); // MainArea Á¾·á
+    ImGui::EndChild(); // MainArea ï¿½ï¿½ï¿½ï¿½
 }

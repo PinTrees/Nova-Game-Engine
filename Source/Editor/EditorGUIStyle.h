@@ -2,7 +2,7 @@
 
 struct EditorTextStyle
 {
-	int FontSize = 24;
+	int FontSize = 15;   // EditorTheme::FontSize
 	bool Bold = false;
 };
 

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "EditorGUI.h"
+#include "EditorTheme.h"
 #include "EditorGUIResourceManager.h"
 #include "SkinnedMesh.h"
 
@@ -102,7 +103,7 @@ void EditorGUI::Label(string text, EditorTextStyle guiStyle, ImVec4 color)
 void EditorGUI::LabelHeader(string text)
 {
     EditorTextStyle style;
-    style.FontSize = 24;
+    style.FontSize = 16;
     style.Bold = true;
     ImFont* font = EditorGUIResourceManager::GetI()->LoadFont(style);
 
@@ -782,8 +783,8 @@ void EditorGUI::ComponentBlockStylePop()
 void EditorGUI::EditorWindowStylePush()
 {
     // 진한 회색 배경 색상 (#333333 in hex) 설정
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));  // Unity 스타일의 진한 회색 배경
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);  // 상단 모서리 둥글게 (6.0f로 조절)
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, EditorTheme::Panel());  // Unity 패널 배경 #383838
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
 
     ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);                   // 테두리 두께 설정
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));     // 테두리 색상 (어두운 회색)

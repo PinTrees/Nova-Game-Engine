@@ -15,7 +15,7 @@
 									ImGui::SameLine()													\
 
 // Style
-#define EDITOR_GUI_STYLE_TAB_ROUNDING   ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 24.0f)
+#define EDITOR_GUI_STYLE_TAB_ROUNDING   ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 2.0f)
 // Color 
 #define EDITOR_GUI_COLOR_TRANSPARENT	ImVec4(0.f, 0.f, 0.f, 0.f)
 #define EDITOR_GUI_COLOR_BG				ImVec4(0.07f, 0.07f, 0.07f, 1.0f)

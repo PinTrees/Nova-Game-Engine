@@ -2,6 +2,7 @@
 #include "App.h"
 #include "EditorApp.h"
 #include "HubApp.h"
+#include "HubProject.h"
 
 #include <filesystem>
 #include <fstream>
@@ -25,6 +26,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 	//   --editor             : 프로젝트 없이 엔진 폴더의 Assets 로 에디터를 연다 (엔진 개발용)
 	std::wstring projectPath;
 	bool editorOnly = false;
+	std::wstring createLocation, createName;   // --create-project <위치> <이름> (자동화/테스트용)
 	{
 		int argc = 0;
 		LPWSTR* argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
@@ -34,8 +36,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 				projectPath = argv[++i];
 			else if (wcscmp(argv[i], L"--editor") == 0)
 				editorOnly = true;
+			else if (wcscmp(argv[i], L"--create-project") == 0 && i + 2 < argc)
+			{
+				createLocation = argv[++i];
+				createName = argv[++i];
+			}
 		}
 		::LocalFree(argv);
+	}
+
+	// 프로젝트만 생성하고 종료 (결과는 hub_log.txt 에 기록)
+	if (!createName.empty())
+	{
+		std::string error;
+		std::string name(createName.begin(), createName.end());
+		HubProjectRegistry::Load();
+		bool ok = HubProjectRegistry::Create(name, createLocation, "3D", error);
+		std::ofstream log("hub_log.txt", std::ios::trunc);
+		log << (ok ? "CREATE_OK" : "CREATE_FAILED: " + error) << std::endl;
+		return ok ? 0 : 1;
 	}
 
 	if (projectPath.empty() && !editorOnly)
