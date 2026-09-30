@@ -1041,6 +1041,19 @@ namespace
 			camera->LookAt(pos, XMFLOAT3(center.x, center.y, center.z), XMFLOAT3(0, 1, 0));
 		}
 
+		// (개발/검증용) NOVA_DEV_SCENECAM="px,py,pz,tx,ty,tz": 시작 뒤 한 번 Scene 카메라를 그 위치에서 목표를 보게 (입력 없이 캡처할 때)
+		{
+			static bool s_DevCam = false;
+			char devCam[128] = {};
+			if (!s_DevCam && ImGui::GetFrameCount() > 60 && ::GetEnvironmentVariableA("NOVA_DEV_SCENECAM", devCam, sizeof(devCam)) > 0)
+			{
+				s_DevCam = true;
+				float v[6] = {};
+				if (sscanf_s(devCam, "%f,%f,%f,%f,%f,%f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == 6)
+					camera->LookAt(XMFLOAT3(v[0], v[1], v[2]), XMFLOAT3(v[3], v[4], v[5]), XMFLOAT3(0, 1, 0));
+			}
+		}
+
 		camera->UpdateViewMatrix();
 	}
 }

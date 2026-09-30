@@ -183,7 +183,7 @@ namespace
 				};
 				if (!j.is_discarded()) walk(j);
 			}
-		deps.AddRelative(L"Resources\\Textures\\desertcube1024.dds");   // 하늘 (코드에서 직접 읽음)
+		deps.AddRelative(L"Resources\\Textures\\Skybox\\KloofendalPureSky.dds");   // 하늘 (코드에서 직접 읽음)
 		for (const auto& f : deps.Files)
 			copies.push_back({ f.second, data / f.first });
 

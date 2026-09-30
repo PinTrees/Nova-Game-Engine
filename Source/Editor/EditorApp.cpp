@@ -105,7 +105,9 @@ bool EditorApp::Init()
 	_texMgr.Init(_device);
 
 	log << "EditorApp::Init -> _sky..." << std::endl; log.flush();
-	_sky = make_shared<Sky>(_device, L"../Resources/Textures/desertcube1024.dds", 5000.0f);
+	// 기본 하늘: Poly Haven "Kloofendal 48d Partly Cloudy (Pure Sky)" (CC0) 을 Tools/hdri_to_cubemap.py 로 변환한 큐브맵.
+	// 스카이박스 배경 + 반사(gCubeMap) + 환경광에 함께 쓴다.
+	_sky = make_shared<Sky>(_device, L"../Resources/Textures/Skybox/KloofendalPureSky.dds", 5000.0f);
 	//_smap = make_shared<ShadowMap>(_device, SMapSize, SMapSize);
 
 	//_camera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
@@ -424,10 +426,16 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
 	// 입자 (투명): 불투명 물체 다음, 후처리 전 → Bloom 이 Additive 불꽃을 빛나게 한다
+	// Background Type = Skybox 면 불투명 물체 다음(빈 곳 깊이 = 1)에 하늘을 그린다. 입자(투명)보다는 먼저.
+	if (camera->GetBackgroundType() == 0)
+	{
+		_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
+		_deviceContext->RSSetState(0);
+		_deviceContext->OMSetDepthStencilState(0, 0);
+	}
+
 	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
-
-	//_sky->Draw(_deviceContext, _camera);
 
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
@@ -625,11 +633,17 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
 	// 입자 (Scene 뷰: 선택한 시스템의 미리보기 포함)
+	// 스카이박스 (툴바 Effects > Skybox). 꺼져 있으면 SceneViewOverlay 의 그라디언트가 비친다.
+	if (SceneToolbar::SkyboxVisible() && !RenderManager::GetI()->WireFrameMode)
+	{
+		_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
+		_deviceContext->RSSetState(0);
+		_deviceContext->OMSetDepthStencilState(0, 0);
+	}
+
 	if (SceneToolbar::ParticlesVisible())
 		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
-
-	//_sky->Draw(_deviceContext, _camera);
 
 	// (디버그) 그림자 맵을 작은 화면으로 표시하던 DrawScreenQuad 는 제거함
 	//DrawScreenQuad(ssao->AmbientSRV().Get());

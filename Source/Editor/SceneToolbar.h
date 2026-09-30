@@ -39,7 +39,8 @@ namespace SceneToolbar
 	bool SnapEnabled();        // Ctrl 누름 또는 스냅 토글
 	float SnapIncrement();     // 이동 스냅 간격(유닛)
 	bool PostProcessingVisible();   // Effects 토글 + Effects 메뉴의 Post Processing (Scene 뷰 후처리 표시)
-	bool ParticlesVisible();        // Effects 토글 + Effects 메뉴의 Particle Systems (Scene 뷰 입자 표시)
+	bool ParticlesVisible();
+	bool SkyboxVisible();           // Effects 토글 + Effects 메뉴의 Skybox (Scene 뷰 하늘 표시)        // Effects 토글 + Effects 메뉴의 Particle Systems (Scene 뷰 입자 표시)
 
 	// Scene 창 콘텐츠 맨 위에 툴바를 그린다 (현재 커서 위치, 폭 = width). 그린 뒤 커서는 툴바 아래로 이동한다.
 	void DrawTopBar(float width, EditorCamera* camera);

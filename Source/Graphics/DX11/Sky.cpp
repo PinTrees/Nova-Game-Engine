@@ -64,11 +64,15 @@ ComPtr<ID3D11ShaderResourceView> Sky::CubeMapSRV()
 
 void Sky::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& camera)
 {
-	// center Sky about eye in world space
-	XMFLOAT3 eyePos = camera.GetPosition();
+	Draw(dc.Get(), camera.GetPosition(), camera.ViewProj());
+}
+
+void Sky::Draw(ID3D11DeviceContext* dc, const XMFLOAT3& eyePos, CXMMATRIX viewProj)
+{
+	// 하늘 구를 눈 위치에 두고, VS 에서 z = w 로 항상 가장 먼 깊이(1)에 그린다
 	XMMATRIX T = ::XMMatrixTranslation(eyePos.x, eyePos.y, eyePos.z);
 
-	XMMATRIX WVP = ::XMMatrixMultiply(T, camera.ViewProj());
+	XMMATRIX WVP = ::XMMatrixMultiply(T, viewProj);
 
 	Effects::SkyFX->SetWorldViewProj(WVP);
 	Effects::SkyFX->SetCubeMap(_cubeMapSRV.Get());
@@ -87,7 +91,7 @@ void Sky::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& camera)
 	{
 		ComPtr<ID3DX11EffectPass> pass = Effects::SkyFX->SkyTech->GetPassByIndex(p);
 
-		pass->Apply(0, dc.Get());
+		pass->Apply(0, dc);
 
 		dc->DrawIndexed(_indexCount, 0, 0);
 	}

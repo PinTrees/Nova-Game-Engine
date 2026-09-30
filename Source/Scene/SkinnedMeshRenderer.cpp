@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "MaterialInspector.h"
 #include "RenderStats.h"
 #include "SkinnedMeshRenderer.h"
 #include "EditorGUI.h"
@@ -180,12 +181,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 		{
 			const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
 			shared_ptr<UMaterial> material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr;
-			if (material == nullptr)
-				material = UMaterial::GetDefault();
-			Effects::InstancedBasicFX->SetMaterial(material->Mat);
-			Effects::InstancedBasicFX->SetDiffuseMap(material->GetBaseMapSRV());
-			Effects::InstancedBasicFX->SetNormalMap(material->GetNormalMapSRV());
-			Effects::InstancedBasicFX->SetShaderSetting(material->GetShaderSetting());
+			UMaterial::ApplyOrDefault(material, Effects::InstancedBasicFX.get());
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
 			m_Mesh->ModelMesh.Draw(deviceContext, i);
 		}
@@ -358,9 +354,8 @@ void SkinnedMeshRenderer::DrawMaterialInspectors()
 		if (material == nullptr || std::find(shown.begin(), shown.end(), material.get()) != shown.end())
 			continue;
 		shown.push_back(material.get());
-		std::string name = material->GetName();
-		name = name.rfind("builtin:", 0) == 0 ? name.substr(8) : std::filesystem::path(name).stem().string();
-		UnityGUI::MaterialPanel(name.c_str(), "NOVA/Lit (Forward)");
+		MaterialInspector::WatchUndo(material);
+		material->OnInspectorGUI(true);
 	}
 }
 

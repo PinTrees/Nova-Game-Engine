@@ -1,6 +1,6 @@
 #include "07. LightHelper.fx"
 
-#define LIGHT_SIZE 4 // Light Size�� �� �������� ��������
+#define LIGHT_SIZE 4 // Light Size�� �� �������� ��������
 #define LIGHT_MULTYPLE 6
 #define LIGHT_MAX_SIZE (LIGHT_SIZE * LIGHT_MULTYPLE)
  
@@ -14,8 +14,33 @@ struct ShaderSetting
     int gReflectionEnabled;
     int gFogEnabled;
     
-    // 28����Ʈ -> 32����Ʈ ������ ����
+    // 28����Ʈ -> 32����Ʈ ������ ����
     int pad;
+};
+
+// Unity URP Lit 재질 (C++ PbrMaterial 과 같은 배치). 색은 감마 공간, EmissionColor 는 선형 HDR
+struct PbrMaterial
+{
+    float4 BaseColor;
+    float4 EmissionColor;
+    float Metallic;
+    float Smoothness;
+    float NormalScale;
+    float OcclusionStrength;
+    float2 Tiling;
+    float2 Offset;
+    float Cutoff;
+    int UseBaseMap;
+    int UseMetallicMap;
+    int UseNormalMap;
+    int UseOcclusionMap;
+    int UseEmissionMap;
+    int SmoothnessFromAlbedo;
+    int AlphaClip;
+    int SpecularHighlights;
+    int EnvironmentReflections;
+    int ReceiveShadows;
+    int Unlit;
 };
 
 cbuffer cbPerFrame
@@ -57,7 +82,8 @@ cbuffer cbPerObject
     
     Material gMaterial;
     ShaderSetting gShaderSetting;
-}; 
+    PbrMaterial gPbr;   // URP Lit (메시 PS 가 쓰는 재질 값)
+};
 
 cbuffer cbSkinned
 {
@@ -74,8 +100,11 @@ Texture2D gSsaoMap;
 TextureCube gCubeMap;
 
 // object
-Texture2D gDiffuseMap;
+Texture2D gDiffuseMap;     // Base Map
 Texture2D gNormalMap;
+Texture2D gMetallicMap;    // R = Metallic, A = Smoothness (Unity 와 같음)
+Texture2D gOcclusionMap;   // G = Occlusion
+Texture2D gEmissionMap;
 
 
 
@@ -258,175 +287,180 @@ VertexOut VS_Skinned(SkinnedVertexIn vin)
     return vout;
 }
 
+// ---------------------------------------------------------------------------
+// URP Lit (PBR, Metallic 워크플로). Unity URP 의 BRDF 를 따른다:
+//  직접광 = (diffuse + specular * 정규화된 GGX) * 빛 * NdotL * 그림자
+//  간접광 = 하늘 큐브맵 확산 조도 * diffuse * AO + 하늘 큐브맵(거칠기만큼 흐린 밉) * EnvironmentBRDF
+//  감마 → 선형으로 계산한 뒤 다시 감마로 (나머지 파이프라인이 감마 공간)
+// ---------------------------------------------------------------------------
+float3 ToLinear(float3 c) { return pow(max(c, 0.0f), 2.2f); }
+float3 ToGamma(float3 c) { return pow(max(c, 0.0f), 1.0f / 2.2f); }
+
+float3 DirectBRDF(float3 diffuse, float3 specular, float roughness, float3 N, float3 L, float3 V, bool highlights)
+{
+    float3 H = normalize(L + V);
+    float NoH = saturate(dot(N, H));
+    float LoH = saturate(dot(L, H));
+    float r2 = roughness * roughness;
+    float d = NoH * NoH * (r2 - 1.0f) + 1.00001f;
+    float specTerm = r2 / ((d * d) * max(0.1f, LoH * LoH) * (roughness * 4.0f + 2.0f));
+    return diffuse + (highlights ? specular * specTerm : 0.0f);
+}
+
+// 점광 / 스포트광 거리 감쇠 (범위 끝에서 부드럽게 0)
+float RangeAttenuation(float d, float range)
+{
+    float r = saturate(1.0f - pow(d / max(range, 0.0001f), 4.0f));
+    return r * r / (d * d + 1.0f);
+}
+
 float4 PS(VertexOut pin) : SV_Target
 {
-	// Interpolating normal can unnormalize it, so normalize it.
-    pin.NormalW = normalize(pin.NormalW);
-
-	// The toEye vector is used in lighting.
+    float3 N = normalize(pin.NormalW);
     float3 toEye = gEyePosW - pin.PosW.xyz;
-
-	// Cache the distance to the eye from this surface point.
     float distToEye = length(toEye);
+    float3 V = toEye / max(distToEye, 0.0001f);
+    float2 uv = pin.Tex * gPbr.Tiling + gPbr.Offset;
 
-	// Normalize.
-    toEye /= distToEye;
-    
-    // Default to multiplicative identity.
-    float4 texColor = float4(1, 1, 1, 1);
-    if (gShaderSetting.gUseTexture)
+    // ---- 표면
+    float4 baseSample = gPbr.UseBaseMap ? gDiffuseMap.Sample(samLinear, uv) : float4(1, 1, 1, 1);
+    float4 baseColor = baseSample * gPbr.BaseColor;
+    if (gPbr.AlphaClip)
+        clip(baseColor.a - gPbr.Cutoff);
+
+    float3 emission = gPbr.EmissionColor.rgb;
+    if (gPbr.UseEmissionMap)
+        emission *= ToLinear(gEmissionMap.Sample(samLinear, uv).rgb);
+
+    if (gPbr.Unlit)
+        return float4(ToGamma(ToLinear(baseColor.rgb) + emission), baseColor.a);
+
+    float3 albedo = ToLinear(baseColor.rgb);
+    float metallic = gPbr.Metallic;
+    float smoothness = gPbr.Smoothness;
+    if (gPbr.UseMetallicMap)
     {
-		// Sample texture.
-        texColor = gDiffuseMap.Sample(samLinear, pin.Tex);
-
-        if (gShaderSetting.gAlphaClip)
-        {
-			// Discard pixel if texture alpha < 0.1.  Note that we do this
-			// test as soon as possible so that we can potentially exit the shader 
-			// early, thereby skipping the rest of the shader code.
-            clip(texColor.a - 0.1f);
-        }
+        float4 m = gMetallicMap.Sample(samLinear, uv);
+        metallic = m.r;
+        smoothness = m.a * gPbr.Smoothness;
     }
+    if (gPbr.SmoothnessFromAlbedo)
+        smoothness = baseSample.a * gPbr.Smoothness;
 
-	//
-	// Normal mapping
-	//
-
-    float3 bumpedNormalW = pin.NormalW;
-    if (gShaderSetting.gUseNormalMap)
+    if (gPbr.UseNormalMap)
     {
-        float3 normalMapSample = gNormalMap.Sample(samLinear, pin.Tex).rgb;
-        bumpedNormalW = NormalSampleToWorldSpace(normalMapSample, pin.NormalW, pin.TangentW);
+        float3 ns = gNormalMap.Sample(samLinear, uv).rgb * 2.0f - 1.0f;
+        ns.xy *= gPbr.NormalScale;
+        N = NormalSampleToWorldSpace(normalize(ns) * 0.5f + 0.5f, N, pin.TangentW);
     }
- 
+    float occlusion = gPbr.UseOcclusionMap ? lerp(1.0f, gOcclusionMap.Sample(samLinear, uv).g, gPbr.OcclusionStrength) : 1.0f;
 
-	//
-	// Lighting.
-	//
+    // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
+    float oneMinusReflectivity = 0.96f * (1.0f - metallic);
+    float3 diffuse = albedo * oneMinusReflectivity;
+    float3 specular = lerp(float3(0.04f, 0.04f, 0.04f), albedo, metallic);
+    float perceptualRoughness = 1.0f - saturate(smoothness);
+    float roughness = max(perceptualRoughness * perceptualRoughness, 0.0078125f);
 
-    float4 litColor = texColor;
-    if ((gDirLightCount + gPointLightCount + gSpotLightCount) > 0)
+    // ---- 그림자
+    float dirShadows[LIGHT_SIZE];
+    float spotShadows[LIGHT_SIZE];
+    float pointShadows[LIGHT_SIZE];
+    [unroll]
+    for (int s0 = 0; s0 < LIGHT_SIZE; s0++)
     {
-		// Start with a sum of zero. 
-        float4 ambient = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        float4 diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        float4 spec = float4(0.0f, 0.0f, 0.0f, 0.0f);
-		  
-        float dirShadows[LIGHT_SIZE];
-        float spotShadows[LIGHT_SIZE];
-        float pointShadows[LIGHT_SIZE];
-        
+        dirShadows[s0] = 1.0f;
+        spotShadows[s0] = 1.0f;
+        pointShadows[s0] = 1.0f;
+    }
+    if (gShaderSetting.gUseShadowMap && gPbr.ReceiveShadows)
+    {
         [unroll]
-        for (int shadowSize = 0; shadowSize < LIGHT_SIZE; shadowSize++)
+        for (int i = 0; i < LIGHT_SIZE; i++)
+            dirShadows[i] = CalcShadowFactor(samShadow, gDirShadowMaps[i], mul(pin.PosW, gDirShadowTransforms[i]));
+        [unroll]
+        for (int j = 0; j < LIGHT_SIZE; j++)
+            spotShadows[j] = CalcShadowFactor(samShadow, gSpotShadowMaps[j], mul(pin.PosW, gSpotShadowTransforms[j]));
+        [unroll]
+        for (int l = 0; l < LIGHT_SIZE; l++)
         {
-            dirShadows[shadowSize] = 1.0f;
-            spotShadows[shadowSize] = 1.0f;
-            pointShadows[shadowSize] = 1.0f;
+            int startIndex = l * 6;
+            float sum = 0.0f;
+            [unroll]
+            for (int s = 0; s < 6; s++)
+                sum += CalcShadowFactor(samShadow, gPointShadowMaps[startIndex + s], mul(pin.PosW, gPointShadowTransforms[startIndex + s]));
+            pointShadows[l] = sum / 6.0f;
         }
-        
-        if (gShaderSetting.gUseShadowMap)
-        {
-            [unloll]
-            for (int i = 0; i < LIGHT_SIZE; i++)
-            {
-                dirShadows[i] = CalcShadowFactor(samShadow, gDirShadowMaps[i], mul(pin.PosW, gDirShadowTransforms[i]));
-            }
-            
-            [unloll]
-            for (int j = 0; j < LIGHT_SIZE; j++)
-            {
-                spotShadows[j] = CalcShadowFactor(samShadow, gSpotShadowMaps[j], mul(pin.PosW, gSpotShadowTransforms[j]));
-            }
-            
-            [unloll]
-            for (int l = 0; l < LIGHT_SIZE; l++)
-            {
-                int startIndex = l * 6;
-                [unloll]
-                for (int s = 0; s < 6; s++)
-                {
-                    pointShadows[l] += CalcShadowFactor(samShadow, gPointShadowMaps[startIndex + s], mul(pin.PosW, gPointShadowTransforms[startIndex + s]));
-                }
-    
-                pointShadows[l] /= 6.0f; // ��� ����
-            }
-            
-            //shadow[0] = CalcShadowFactor(samShadow, gShadowMap, pin.ShadowPosH);
-        }
-        
-		// Finish texture projection and sample SSAO map.
-        pin.SsaoPosH /= pin.SsaoPosH.w;
-        float ambientAccess = 1.0f;
-        if (gShaderSetting.gUseSsaoMap) // Ssao
-        {
-            ambientAccess = gSsaoMap.Sample(samLinear, pin.SsaoPosH.xy, 0.0f).r;
-        }
-	    
-        float4 A, D, S;
-		// Sum the light contribution from each light source.  
-		[unloll]
-        for (int i = 0; i < gDirLightCount; ++i)
-        {
-            ComputeDirectionalLight(gMaterial, gDirLights[i], bumpedNormalW, toEye,
-				A, D, S);
-            
-            ambient += ambientAccess * A;
-            diffuse += dirShadows[i] * D;
-            spec += dirShadows[i] * S;
-        }
-
-        [unloll]
-        for (int j = 0; j < gSpotLightCount; ++j)
-        {
-            ComputeSpotLight(gMaterial, gSpotLights[j], pin.PosW.xyz, bumpedNormalW, toEye,
-				A, D, S);
-
-            ambient += ambientAccess * A;
-            diffuse += spotShadows[j] * D;
-            spec += spotShadows[j] * S;
-        }
-        
-        [unloll]
-        for (int l = 0; l < gPointLightCount; ++l)
-        {
-            ComputePointLight(gMaterial, gPointLights[l], pin.PosW.xyz, bumpedNormalW, toEye,
-				A, D, S);
-
-            ambient += ambientAccess * A;
-            diffuse += pointShadows[l] * D;
-            spec += pointShadows[l] * S;
-        }
-		   
-        litColor = texColor * (ambient + diffuse) + spec;
     }
-    
-    if (gShaderSetting.gReflectionEnabled)
+
+    pin.SsaoPosH /= pin.SsaoPosH.w;
+    float ambientAccess = gShaderSetting.gUseSsaoMap ? gSsaoMap.Sample(samLinear, pin.SsaoPosH.xy, 0.0f).r : 1.0f;
+
+    // ---- 직접광
+    bool highlights = gPbr.SpecularHighlights != 0;
+    float3 color = float3(0, 0, 0);
+    [loop]
+    for (int di = 0; di < gDirLightCount; ++di)
     {
-        float3 incident = -toEye;
-        float3 reflectionVector = reflect(incident, bumpedNormalW);
-        float4 reflectionColor = gCubeMap.Sample(samLinear, reflectionVector);
-
-        litColor += gMaterial.Reflect * reflectionColor;
+        float3 L = normalize(-gDirLights[di].Direction);
+        float NoL = saturate(dot(N, L));
+        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gDirLights[di].Diffuse.rgb) * (NoL * dirShadows[di]);
     }
-    
-	//
-	// Fogging
-	//
+    [loop]
+    for (int si = 0; si < gSpotLightCount; ++si)
+    {
+        float3 toLight = gSpotLights[si].Position - pin.PosW.xyz;
+        float d = length(toLight);
+        float3 L = toLight / max(d, 0.0001f);
+        // Spot = 원뿔 전체 각도(도): 가장자리 20% 에서 부드럽게
+        float cosOuter = cos(radians(gSpotLights[si].Spot * 0.5f));
+        float cosInner = cos(radians(gSpotLights[si].Spot * 0.4f));
+        float cone = smoothstep(cosOuter, cosInner, dot(-L, normalize(gSpotLights[si].Direction)));
+        float atten = RangeAttenuation(d, gSpotLights[si].Range) * cone;
+        float NoL = saturate(dot(N, L));
+        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gSpotLights[si].Diffuse.rgb) * (NoL * atten * spotShadows[si]);
+    }
+    [loop]
+    for (int pi = 0; pi < gPointLightCount; ++pi)
+    {
+        float3 toLight = gPointLights[pi].Position - pin.PosW.xyz;
+        float d = length(toLight);
+        float3 L = toLight / max(d, 0.0001f);
+        float atten = RangeAttenuation(d, gPointLights[pi].Range);
+        float NoL = saturate(dot(N, L));
+        color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gPointLights[pi].Diffuse.rgb) * (NoL * atten * pointShadows[pi]);
+    }
 
+    // ---- 간접광 (Unity EnvironmentBRDF)
+    //  Environment Lighting = Skybox: 법선 방향 하늘을 아주 흐린 밉(면당 4x4)으로 읽어 확산 조도로 쓴다.
+    //  빛의 Ambient 값은 예전 Blinn-Phong 용이라 Lit 에서는 쓰지 않는다 (Unity 에도 빛별 Ambient 는 없다).
+    uint w, h, mips;
+    gCubeMap.GetDimensions(0, w, h, mips);
+    float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
+    float NoV = saturate(dot(N, V));
+    float ao = occlusion * ambientAccess;
+    color += ambient * diffuse * ao;
+    if (gPbr.EnvironmentReflections)
+    {
+        float3 R = reflect(-V, N);
+        // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
+        float mip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max((float)mips - 4.0f, 6.0f);
+        float3 env = ToLinear(gCubeMap.SampleLevel(samLinear, R, min(mip, (float)(mips - 1))).rgb);
+        float fresnel = pow(1.0f - NoV, 4.0f);
+        float grazing = saturate(smoothness + (1.0f - oneMinusReflectivity));
+        float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);
+        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao;
+    }
+    color += emission;
+
+    float4 litColor = float4(ToGamma(color), baseColor.a);
     if (gShaderSetting.gFogEnabled)
     {
         float fogLerp = saturate((distToEye - gFogStart) / gFogRange);
-
-		// Blend the fog color and the lit color.
-        litColor = lerp(litColor, gFogColor, fogLerp);
+        litColor.rgb = lerp(litColor.rgb, gFogColor.rgb, fogLerp);
     }
-
-	// Common to take alpha from diffuse material and texture.
-    litColor.a = gMaterial.Diffuse.a * texColor.a;
-
     return litColor;
 }
-
 technique11 Tech
 {
     pass P0

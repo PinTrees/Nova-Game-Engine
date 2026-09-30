@@ -300,6 +300,7 @@ namespace SceneToolbar
 	float SnapIncrement() { return (std::max)(0.001f, s.snapIncrement); }
 	bool PostProcessingVisible() { return s.effects && s.fxPost; }
 	bool ParticlesVisible() { return s.effects && s.fxParticles; }
+	bool SkyboxVisible() { return s.effects && s.fxSkybox; }
 
 	SceneCameraSettings& CameraSettings()
 	{

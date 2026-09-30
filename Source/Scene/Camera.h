@@ -3,8 +3,8 @@
 
 enum class ProjectionType
 {
-	Perspective, // ¿ø±Ù Åõ¿µ
-	Orthographic, // Á÷±³ Åõ¿µ
+	Perspective, // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+	Orthographic, // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 	End
 };
 
@@ -58,7 +58,7 @@ private:
 	int   m_targetEye = 0;
 	float m_viewportRect[4] = { 0.0f, 0.0f, 1.0f, 1.0f };   // x, y, w, h
 
-	void FrustumUpdate(); // frustum ¹üÀ§ °è»ê
+	void FrustumUpdate(); // frustum ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
 	void GetFrustumCulling();
 	void ProjUpdate();
 	string GetStringCameraType(ProjectionType type);
@@ -130,8 +130,9 @@ public:
 	virtual void OnInspectorGUI() override;
 	virtual bool UsesUnityInspector() const override { return true; }
 
-	// ë°°ê²½ (Game ë·° í´ë¦¬ì–´ ìƒ‰ì— ì‚¬ìš©)
+	// ë°°ê²½ (Game ë·°: 0 Skybox ë©´ í•˜ëŠ˜ì„ ê·¸ë¦¬ê³ , 1 Solid Color ë©´ ê·¸ ìƒ‰ìœ¼ë¡œ ì§€ìš´ë‹¤)
 	bool UsesSolidBackground() const { return m_backgroundType == 1; }
+	int  GetBackgroundType() const { return m_backgroundType; }
 	bool PostProcessingEnabled() const { return m_postProcessing; }
 	int AntiAliasingMode() const { return m_antiAliasing; }   // 0 ì—†ìŒ, 1 FXAA, 2 SMAA(=FXAA ë¡œ ì²˜ë¦¬)
 	bool DitheringEnabled() const { return m_dithering; }

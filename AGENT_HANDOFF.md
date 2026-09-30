@@ -138,6 +138,15 @@
 - 기본 Volume: `SceneManager::CreateScene`(새 씬·새 프로젝트의 SampleScene)이 "Global Volume" + `RenderPipelineSettings::EnsureSampleSceneProfile()`(`Assets/Settings/SampleSceneProfile.volumeprofile`: Bloom threshold 0.9 / intensity 1 / scatter 0.7, Tonemapping Neutral, Vignette 0.2)을 넣는다(Unity URP 기본 씬과 같음). 기존 씬은 그대로.
 - 미구현: Lights, Inherit Velocity, 3D Start Size/Rotation, Scaling Mode, Custom Simulation Space, 소프트 파티클, 조명 받는 입자, Mesh 렌더 모드, 컬링(보이지 않아도 시뮬레이션).
 
+**머티리얼 / PBR (URP Lit, 2026-10-01)**:
+- 에셋(`UMaterial`, `.mat` JSON): Shader(Lit/Unlit), BaseColor(감마), Metallic, Smoothness(+Source: Metallic Alpha / Albedo Alpha), NormalScale, OcclusionStrength, Tiling/Offset, AlphaClipping/Cutoff, ReceiveShadows, SpecularHighlights, EnvironmentReflections, Emission(+색·세기), Priority, 맵 5개(Base/Metallic/Normal/Occlusion/Emission 경로). 예전 키(Diffuse/Specular…)도 함께 저장하고, 예전 파일은 Diffuse → BaseColor, specular power → smoothness((log2(p)−1)/10)로 바꿔 읽는다. `UMaterial::Create(dir)` 는 "New Material", "New Material 1" … 로 이름이 겹치지 않게 만든다. 내장 머티리얼(builtin 경로)은 저장·편집 안 함.
+- 셰이더: `Shaders/32. InstancedBasic.fx` 의 메시 PS 가 URP Lit(`cbPerObject` 의 `PbrMaterial gPbr`, C++ 쪽 `Source/Graphics/Common/PbrMaterial.h` 112 바이트 — 필드 순서를 바꾸면 둘 다 고칠 것). kDielectricSpec 0.04, 직접광 = Unity 의 정규화 GGX 근사, 간접광 = **하늘 큐브맵**: 확산은 법선 방향 가장 흐린 밉(mips−3), 반사는 `reflect` 방향 밉 = pr·(1.7−0.7·pr)·6 + EnvironmentBRDF(surfaceReduction, grazing, fresnel pow4). 빛의 Ambient 값은 Lit 에서 쓰지 않는다(Unity 와 같음). 파이프라인이 감마 공간이라 PS 안에서 pow 2.2 로 선형 계산 후 되돌린다. 터레인은 아직 예전 Blinn-Phong(gMaterial).
+- 바인딩: `UMaterial::Apply(fx, forPreview)` / `ApplyOrDefault` — MeshRenderer / SkinnedMeshRenderer 의 Render·RenderInstancing·_Editor_Render 가 부른다. 맵이 있으면 Use* 플래그를 SRV 로 정한다.
+- 에디터(`Source/Editor/MaterialInspector.*`): 머리글(미리보기 아이콘, 이름, Shader), Surface Options / Surface Inputs / Advanced Options 접기, 텍스처 행(썸네일 칸, ⊙ Object Picker, Project 에서 끌어 놓기), 값이 바뀌면 SyncLegacy + 저장, `WatchUndo` 로 Undo. .mat 선택 시 아래 Preview(256px 구, 드래그 회전) — `RenderPreview` 가 오프스크린 RT 에 Sphere 를 그리고 RTV/DSV/뷰포트를 되돌린다. MeshRenderer 안에서는 접을 수 있는 임베드 형태.
+- 스카이박스: `Resources/Textures/Skybox/KloofendalPureSky.dds`(Poly Haven CC0, `Tools/hdri_to_cubemap.py` 로 512 큐브·밉 10·R9G9B9E5, 감마 값, 위 반구 밝기 중간값 0.55 로 노출, 태양 48 에서 자름). `EditorApp` 의 `_sky` 가 읽고 매 프레임 gCubeMap 으로 넘긴다. 그리기: Game 뷰/플레이어는 카메라 `GetBackgroundType()==0`(Skybox), Scene 뷰는 `SceneToolbar::SkyboxVisible()`(Effects 토글 + Effects > Skybox, 와이어프레임 제외) — 불투명 물체 다음·입자 전에 `Sky::Draw(dc, eye, viewProj)`(xyww, LessEqual). 빌드에 넣는 의존 파일도 이 DDS(`BuildPipeline`).
+- 개발용 환경 변수: `NOVA_DEV_SELECT=<GameObject 이름>`, `NOVA_DEV_FILE=<프로젝트 기준 파일>`(90 프레임 뒤 한 번 선택 → Inspector), `NOVA_DEV_SCENECAM=px,py,pz,tx,ty,tz`(60 프레임 뒤 Scene 카메라 위치·바라보는 점).
+- 검사: scratchpad `make_material_scene.py` → ScriptTest `Assets/Scenes/Materials.scene`(금·은·거친 구리·빨간 플라스틱·유광 파랑·발광 구 + 노멀맵 큐브 + 바닥).
+
 **멈춤 감시(EditorLog)**: 메인 루프가 매 프레임 `EditorLog::Heartbeat()` 를 부르고, 감시 스레드가 4초 넘게 안 오면 메인 스레드를 잠깐 멈춰 호출 스택을 `[HANG]` 으로 남긴다(멈춘 동안은 주소만 모으고, 풀어 준 뒤 기호로 바꿔 기록). 디버거(cdb/procdump)가 없는 환경에서 무한 루프·교착을 찾는 용도. 모달 대화 상자/창 크기 조절 중에도 한 번 남을 수 있다. 관리 코드(C#) 예외로 .NET 이 프로세스를 끝낸 경우는 [CRASH]/[HANG] 이 없고 이벤트 로그를 봐야 한다.
 
 **씬 반복 안전성**: `Scene::Enter/UpdateScene/LastFramUpdate` 는 오브젝트 목록의 **복사본**을 돈다 — 스크립트가 도중에 transform.SetParent(→ `RegisterGameObjectTree`)로 목록을 늘리면 반복자가 무효화되어 충돌하던 문제(0xC0000005). 스크립트가 만든 오브젝트(`AddToSceneLater`)에 그 사이 부모가 생겼으면 루트로 넣지 않는다.
@@ -249,6 +258,7 @@ Nova-Game-Engine/
 1. **인코딩**: 원본 베이스 커밋(`a3640d4`)의 소스는 **CP949(EUC-KR)** 한글 주석. 현재 파일은 **UTF-8 with BOM**을 목표로 하며 CMake에 `/utf-8`이 설정돼 있음. 파일을 **UTF-8(BOM 유지)** 로만 저장할 것. 일부 파일(`FBXLoader.cpp` 등)은 아직 깨진 한글 주석(mojibake)이 남아 있음 → 4.4 참조. 절대 `errors='replace'`로 읽고 저장하지 말 것(영구 손상).
 2. **줄바꿈**: 저장소 파일은 CRLF 혼용 상태. 스크립트로 수정할 때 원본 개행을 감지해 보존할 것.
 3. **셸/도구 주의(Windows)**: 이 환경의 셸 도구는 heredoc 안의 백슬래시가 유실되는 경우가 있었음. 경로/문자열에 `\`가 필요한 Python 스크립트는 `BS = chr(92)`로 조합하거나 파일로 저장해 실행. 또한 PowerShell 도구는 `Remove-Item`/`cmd /c` 조합이 차단될 수 있으니 `[IO.File]::Delete`, `[IO.Directory]::Delete`, `& 스크립트` 사용.
+3-1. **WRL `ComPtr` 의 `&`**: `&comptr` 는 `ReleaseAndGetAddressOf()` — 담긴 포인터를 **해제**하고 `T**` 를 준다. `ComPtr<T>*` 가 필요하면 `std::addressof(comptr)`(머티리얼 텍스처가 사라지던 원인).
 4. **PCH**: 모든 엔진 `.cpp`는 첫 줄에 `#include "pch.h"`. ImGui 서드파티 파일은 PCH 제외(CMake `SKIP_PRECOMPILE_HEADERS`).
 5. **include 방식**: 폴더 이동 후에도 `#include "Xxx.h"`(파일명만)로 충분함 – 모든 모듈 폴더가 include 경로에 있음. 새 폴더를 만들면 `CMakeLists.txt`의 `ENGINE_MODULE_DIRS`에 추가.
 6. **새 파일 추가**: CMake는 glob이므로 **`build.bat`(재-configure) 실행**해야 인식됨. 레거시 `NovaEngine.vcxproj`에도 넣으려면 수동 추가(선택).

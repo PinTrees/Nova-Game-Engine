@@ -13,6 +13,7 @@
 #include <fstream>
 #include "RenderPipelineSettings.h"
 #include "UnityGUI.h"
+#include "MaterialInspector.h"
 
 namespace fs = std::filesystem;
 
@@ -50,11 +51,8 @@ void InspectorEditorWindow::OnRender()
 			if (material == nullptr)
 				return;
 
-			std::weak_ptr<UMaterial> weak = material;
-			Undo::WatchAsset("material:" + std::to_string((uintptr_t)material.get()), "Material",
-				[weak]() { auto m = weak.lock(); if (!m) return std::string(); json j = *m; return j.dump(); },
-				[weak](const std::string& text) { if (auto m = weak.lock()) { from_json(json::parse(text), *m); m->ReloadTextures(); UMaterial::Save(m.get()); } });
-			material->OnInspectorGUI();
+			MaterialInspector::WatchUndo(material);
+			material->OnInspectorGUI(false);
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::FBX)
 		{

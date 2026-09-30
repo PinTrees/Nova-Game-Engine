@@ -28,6 +28,8 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **Project 창** | 2단 레이아웃(폴더 트리 + 목록/격자), breadcrumb, 검색·타입 필터, FBX 하위 에셋, 생성/이름 바꾸기/휴지통 삭제, 드래그 앤 드롭 |
 | **프리팹** | Hierarchy → Project 끌어 놓아 만들기, 인스턴스(파란 표시), 오버라이드 저장/Apply All/Revert All/Unpack, 에셋 변경 자동 반영 |
 | **렌더링** | Forward 렌더링, 방향광/점광/스포트광 그림자, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일) |
+| **머티리얼 (URP Lit / PBR)** | `.mat` 에셋(Project 창 Create > Material), Unity URP 의 BRDF: Base Map + 색, Metallic(맵/값), Smoothness(Metallic Alpha / Albedo Alpha), Normal Map(세기), Occlusion, Emission(HDR 세기), Tiling/Offset, Alpha Clipping, Receive Shadows, Specular Highlights / Environment Reflections, Lit / Unlit. Unity 모양의 머티리얼 Inspector(텍스처 칸에 끌어 놓기·Object Picker, 구 미리보기 — 드래그로 회전) |
+| **스카이박스** | 기본 하늘 = [Poly Haven](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) CC0 HDRI 를 큐브맵으로 변환(`Tools/hdri_to_cubemap.py`). 카메라 Background = Skybox 면 Game 뷰에, 툴바 Effects > Skybox 면 Scene 뷰에 그리고, 금속 반사와 환경광(Environment Lighting)에도 같은 하늘을 쓴다 |
 | **후처리 (URP Volume)** | Volume(Global/Local) + Volume Profile 에셋, Project Settings 의 Default Volume Profile, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain, FXAA |
 | **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 기반 Rigidbody, Box/Sphere/Capsule/Mesh/Terrain Collider, 트리거, 레이캐스트 |
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
@@ -247,5 +249,7 @@ Tools/        아이콘/로고/테스트 효과음 생성 스크립트
 | [DirectXTex](https://github.com/microsoft/DirectXTex) · [Effects11](https://github.com/microsoft/FX11) | 텍스처, 셰이더 이펙트 |
 | [nlohmann/json](https://github.com/nlohmann/json) | 씬/에셋 저장 |
 | [Pretendard](https://github.com/orioncactus/pretendard) (SIL OFL) · [Font Awesome](https://fontawesome.com) | 폰트, 아이콘 |
+
+기본 스카이박스는 [Poly Haven](https://polyhaven.com) 의 CC0 HDRI(Kloofendal 48d Partly Cloudy Pure Sky)입니다 — `Resources/Textures/Skybox/README.md`.
 
 에디터 아이콘과 테스트 효과음은 `Tools/` 의 스크립트로 직접 그리거나 합성한 것입니다. Unity 의 아이콘·에셋은 사용하지 않았습니다.

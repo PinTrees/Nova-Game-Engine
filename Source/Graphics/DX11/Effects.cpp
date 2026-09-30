@@ -258,6 +258,12 @@ InstancedBasicEffect::InstancedBasicEffect(ComPtr<ID3D11Device> device, const st
 	NormalMap = _fx->GetVariableByName("gNormalMap")->AsShaderResource();
 	SsaoMap = _fx->GetVariableByName("gSsaoMap")->AsShaderResource();
 	CubeMap = _fx->GetVariableByName("gCubeMap")->AsShaderResource();
+
+	// URP Lit (PBR)
+	Pbr = _fx->GetVariableByName("gPbr");
+	MetallicMap = _fx->GetVariableByName("gMetallicMap")->AsShaderResource();
+	OcclusionMap = _fx->GetVariableByName("gOcclusionMap")->AsShaderResource();
+	EmissionMap = _fx->GetVariableByName("gEmissionMap")->AsShaderResource();
 }
 
 InstancedBasicEffect::~InstancedBasicEffect()

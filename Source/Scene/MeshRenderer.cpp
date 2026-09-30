@@ -9,6 +9,7 @@
 #include "MathHelper.h"
 #include "InstancingBuffer.h"
 #include "EditorGUI.h"
+#include "MaterialInspector.h"
 
 MeshRenderer::MeshRenderer()
 	: m_pMaterials({}),
@@ -68,23 +69,9 @@ void MeshRenderer::Render()
 
 		for (int i = 0; i < m_Mesh->Subsets.size(); ++i)
 		{
-			if (m_pMaterials.size() > m_Mesh->Subsets[i].MaterialIndex)
-			{
-				auto material = m_pMaterials[m_Mesh->Subsets[i].MaterialIndex];
-				if (material != nullptr)
-				{
-					Effects::InstancedBasicFX->SetMaterial(material->Mat);
-					Effects::InstancedBasicFX->SetDiffuseMap(material->GetBaseMapSRV());
-					Effects::InstancedBasicFX->SetNormalMap(material->GetNormalMapSRV());
-					Effects::InstancedBasicFX->SetShaderSetting(material->GetShaderSetting());
-				}
-				else
-				{
-					ShaderSetting shaderSetting;
-					//Effects::InstancedBasicFX->SetMaterial(m_Mesh->Mat[m_Mesh->Subsets[i].MaterialIndex]);
-					Effects::InstancedBasicFX->SetShaderSetting(shaderSetting);
-				}
-			}
+			// URP Lit 재질 (없으면 기본 재질)
+			const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
+			UMaterial::ApplyOrDefault(matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr, Effects::InstancedBasicFX.get());
 
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);  
 			m_Mesh->ModelMesh.Draw(deviceContext, i); 
@@ -138,28 +125,17 @@ void MeshRenderer::RenderInstancing(shared_ptr<class InstancingBuffer>& buffer)
 		//Effects::InstancedBasicFX->SetShadowTransform(RenderManager::GetI()->shadowTransform);
 		Effects::InstancedBasicFX->SetTexTransform(XMMatrixScaling(1.0f, 1.0f, 1.0f));
 
-		for (auto mat : m_pMaterials)
+		// 인스턴싱 묶음 = 같은 메시 부분: 그 부분의 재질 (없으면 기본 재질)
 		{
-			if (mat != nullptr)
-			{
-				Effects::InstancedBasicFX->SetMaterial(mat->Mat);
-				Effects::InstancedBasicFX->SetDiffuseMap(mat->GetBaseMapSRV());
-				Effects::InstancedBasicFX->SetNormalMap(mat->GetNormalMapSRV());
-				Effects::InstancedBasicFX->SetShaderSetting(mat->GetShaderSetting());
-			}
-			else
-			{
-				ShaderSetting shaderSetting;
-				Effects::InstancedBasicFX->SetMaterial(m_Mesh->Mat[m_MeshSubsetIndex]);
-				Effects::InstancedBasicFX->SetShaderSetting(shaderSetting);
-			}
+			const UINT matIndex = m_Mesh->Subsets[m_MeshSubsetIndex].MaterialIndex;
+			UMaterial::ApplyOrDefault(matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : (m_pMaterials.empty() ? nullptr : m_pMaterials[0]), Effects::InstancedBasicFX.get());
 		}
 
 		tech->GetPassByIndex(p)->Apply(0, deviceContext);
 
 		buffer->PushData(deviceContext);
 
-		// �ν��Ͻ�, ModelMesh Ŭ������ InstancingDraw�Լ� ����
+		// �ν��Ͻ�, ModelMesh Ŭ������ InstancingDraw�Լ� ����
 		m_Mesh->ModelMesh.InstancingDraw(deviceContext, m_MeshSubsetIndex, buffer->GetCount());
 	}
 }
@@ -394,23 +370,9 @@ void MeshRenderer::_Editor_Render()
 
 		for (int i = 0; i < m_Mesh->Subsets.size(); ++i)
 		{
-			if (m_pMaterials.size() > m_Mesh->Subsets[i].MaterialIndex)
-			{
-				auto material = m_pMaterials[m_Mesh->Subsets[i].MaterialIndex];
-				if (material != nullptr)
-				{
-					Effects::InstancedBasicFX->SetMaterial(material->Mat);
-					Effects::InstancedBasicFX->SetDiffuseMap(material->GetBaseMapSRV());
-					Effects::InstancedBasicFX->SetNormalMap(material->GetNormalMapSRV());
-					Effects::InstancedBasicFX->SetShaderSetting(material->GetShaderSetting());
-				}
-				else
-				{
-					ShaderSetting shaderSetting;
-					//Effects::InstancedBasicFX->SetMaterial(m_Mesh->Mat[m_Mesh->Subsets[i].MaterialIndex]);
-					Effects::InstancedBasicFX->SetShaderSetting(shaderSetting);
-				}
-			}
+			// URP Lit 재질 (없으면 기본 재질)
+			const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
+			UMaterial::ApplyOrDefault(matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr, Effects::InstancedBasicFX.get());
 
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
 			m_Mesh->ModelMesh.Draw(deviceContext, i);
@@ -550,12 +512,9 @@ void MeshRenderer::DrawMaterialInspectors()
 		if (material == nullptr || std::find(shown.begin(), shown.end(), material.get()) != shown.end())
 			continue;
 		shown.push_back(material.get());
-		std::string name = material->GetName();
-		if (name.rfind("builtin:", 0) == 0)
-			name = name.substr(8);
-		else
-			name = std::filesystem::path(name).stem().string();
-		UnityGUI::MaterialPanel(name.c_str(), "NOVA/Lit (Forward)");
+		// Unity 처럼 컴포넌트 아래에 재질 Inspector (URP Lit)
+		MaterialInspector::WatchUndo(material);
+		material->OnInspectorGUI(true);
 	}
 }
 

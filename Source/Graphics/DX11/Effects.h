@@ -1,6 +1,7 @@
 #pragma once
 #include "LightHelper.h"
 #include "ShaderSetting.h"
+#include "PbrMaterial.h"
 
 class Effect
 {
@@ -284,13 +285,13 @@ public:
 	{
 		T lightArray[maxSize];
 
-		// ½ÇÁ¦ ¶óÀÌÆ® µ¥ÀÌÅÍ¸¦ ¹è¿­¿¡ º¹»ç
+		// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ï¿½Í¸ï¿½ ï¿½è¿­ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		for (int i = 0; i < cnt; i++)
 		{
 			lightArray[i] = lights[i];
 		}
 
-		// ±âº»°ªÀ¸·Î ÃÊ±âÈ­
+		// ï¿½âº»ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê±ï¿½È­
 		T temp;
 		temp.Init();
 		for (int i = cnt; i < maxSize; i++)
@@ -300,7 +301,7 @@ public:
 
 		LightEffect->SetRawValue(lightArray, 0, maxSize * sizeof(T));
 
-		// ¶óÀÌÆ® °³¼ö ¼³Á¤
+		// ï¿½ï¿½ï¿½ï¿½Æ® ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		LightCountEffect->SetInt(cnt);
 	}
 	*/
@@ -332,6 +333,16 @@ public:
 	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
 	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
 	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
+
+	// URP Lit (PBR) ìž¬ì§ˆ ê°’ê³¼ ì¶”ê°€ í…ìŠ¤ì²˜
+	void SetPbr(const PbrMaterial& m) { Pbr->SetRawValue(&m, 0, sizeof(PbrMaterial)); }
+	void SetMetallicMap(ID3D11ShaderResourceView* tex) { MetallicMap->SetResource(tex); }
+	void SetOcclusionMap(ID3D11ShaderResourceView* tex) { OcclusionMap->SetResource(tex); }
+	void SetEmissionMap(ID3D11ShaderResourceView* tex) { EmissionMap->SetResource(tex); }
+	ComPtr<ID3DX11EffectVariable> Pbr;
+	ComPtr<ID3DX11EffectShaderResourceVariable> MetallicMap;
+	ComPtr<ID3DX11EffectShaderResourceVariable> OcclusionMap;
+	ComPtr<ID3DX11EffectShaderResourceVariable> EmissionMap;
 
 	ComPtr<ID3DX11EffectTechnique> Tech;
 	ComPtr<ID3DX11EffectTechnique> InstancingTech;

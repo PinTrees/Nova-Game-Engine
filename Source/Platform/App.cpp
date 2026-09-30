@@ -112,6 +112,26 @@ int32 App::Run()
 				UISystem::Update();       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 				ParticleSystem::UpdateAll();   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
 
+				// (개발/검증용) 입력 없이 확인할 때: NOVA_DEV_SELECT=<GameObject 이름>, NOVA_DEV_FILE=<프로젝트 기준 파일 경로> 를 시작 뒤 한 번 선택
+				{
+					static bool s_DevSelected = false;
+					char devName[260] = {};
+					if (!s_DevSelected && ImGui::GetFrameCount() > 90)
+					{
+						s_DevSelected = true;
+						if (::GetEnvironmentVariableA("NOVA_DEV_SELECT", devName, sizeof(devName)) > 0)
+							if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+								for (GameObject* go : scene->GetAllGameObjects())
+									if (go->GetName() == devName)
+									{
+										SelectionManager::SetSelectedGameObject(go);
+										break;
+									}
+						if (::GetEnvironmentVariableA("NOVA_DEV_FILE", devName, sizeof(devName)) > 0)
+							SelectionManager::SetSelectedFile(PathManager::GetI()->GetMovePathW(string_to_wstring(devName)));
+					}
+				}
+
 				// OnPreCull, 렌더 직전 매트릭스 연산 등
 				
 				if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())   // 카메라가 없는 씬도 있다
