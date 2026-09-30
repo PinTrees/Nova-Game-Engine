@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(MimicEngine VERSION 0.1.0 LANGUAGES CXX)
+project(NovaEngine VERSION 0.1.0 LANGUAGES CXX)
 
 # 엔진/실행 파일 이름 (변경 시 Source/Core/EngineInfo.h 도 함께 수정)
-set(ENGINE_NAME MimicEngine)
+set(ENGINE_NAME NovaEngine)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -43,7 +43,7 @@ list(FILTER ENGINE_SOURCES EXCLUDE REGEX ".*[0-9][0-9]\\..*\\.cpp$")
 list(FILTER ENGINE_HEADERS EXCLUDE REGEX ".*[0-9][0-9]\\..*\\.h$")
 
 # Create executable (Windows GUI Subsystem with Application Icon)
-add_executable(${ENGINE_NAME} WIN32 ${ENGINE_SOURCES} ${ENGINE_HEADERS} "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/MimicEngine.rc")
+add_executable(${ENGINE_NAME} WIN32 ${ENGINE_SOURCES} ${ENGINE_HEADERS} "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/NovaEngine.rc")
 
 # Visual Studio 솔루션 탐색기에서 폴더 트리 유지
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" PREFIX "Source" FILES ${ENGINE_SOURCES} ${ENGINE_HEADERS})

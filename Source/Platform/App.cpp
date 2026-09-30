@@ -385,7 +385,7 @@ bool App::InitMainWindow()
 	wc.hCursor       = LoadCursor(0, IDC_ARROW);
 	wc.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH);
 	wc.lpszMenuName  = 0;
-	wc.lpszClassName = L"MimicEngineWindow";
+	wc.lpszClassName = L"NovaEngineWindow";
 
 	if (!RegisterClass(&wc))
 	{
@@ -399,7 +399,7 @@ bool App::InitMainWindow()
 	int32 width  = R.right - R.left;
 	int32 height = R.bottom - R.top;
 
-	_hMainWnd = ::CreateWindow(L"MimicEngineWindow", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, _hAppInst, 0); 
+	_hMainWnd = ::CreateWindow(L"NovaEngineWindow", _mainWindowCaption.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, _hAppInst, 0); 
 	
 	if (_hMainWnd == nullptr)
 	{

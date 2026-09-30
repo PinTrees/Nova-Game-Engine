@@ -976,7 +976,7 @@
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="..\Source\Platform\MimicEngine.rc" />
+    <ResourceCompile Include="..\Source\Platform\NovaEngine.rc" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Source\Math\SimpleMath.inl">

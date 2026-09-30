@@ -1,7 +1,7 @@
 @echo off
 setlocal
 echo ===================================================
-echo   Mimic Engine - Automated CMake Build System
+echo   NOVA Game Engine - Automated CMake Build System
 echo ===================================================
 
 set CMAKE_PATH="C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
@@ -27,6 +27,6 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo ===================================================
-echo   Build Successful! Output: Binaries\MimicEngine.exe
+echo   Build Successful! Output: Binaries\NovaEngine.exe
 echo ===================================================
 endlocal

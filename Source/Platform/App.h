@@ -75,7 +75,7 @@ protected:
 	D3D11_VIEWPORT _viewport;
 
 	// Etc
-	std::wstring _mainWindowCaption = L"Mimic Engine";
+	std::wstring _mainWindowCaption = L"NOVA Game Engine";
 	D3D_DRIVER_TYPE _driverType = D3D_DRIVER_TYPE_HARDWARE;
 	int32 _clientWidth = 1920;
 	int32 _clientHeight = 1080;

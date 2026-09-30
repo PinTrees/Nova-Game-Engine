@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo   Mimic Engine - Cache & Disk Cleanup Tool
+echo   NOVA Game Engine - Cache & Disk Cleanup Tool
 echo ===================================================
 
 echo [1/3] Cleaning Visual Studio Intermediate cache...

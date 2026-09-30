@@ -276,7 +276,7 @@ Source/ (또는 Engine/)
 
 ## 6. 최신 구조 및 렌더링 로드맵 (업데이트)
 
-- **엔진 이름**: Mimic Engine (`Binaries/MimicEngine.exe`). 이름은 `CMakeLists.txt`의 `ENGINE_NAME`과 `Source/Core/EngineInfo.h`에서만 관리.
+- **엔진 이름**: NOVA Game Engine (`Binaries/NovaEngine.exe`). 이름은 `CMakeLists.txt`의 `ENGINE_NAME`과 `Source/Core/EngineInfo.h`에서만 관리.
 - **폴더 구조**: `DX11/` 플랫 구조는 `Source/{Core,Math,Graphics,Animation,Physics,Scene,Scripting,Editor,ThirdParty,Platform}`으로 분리 완료. 모든 모듈 폴더가 include 경로에 등록되어 `#include "Xxx.h"`는 그대로 동작. (`DX11/`에는 레거시 VS 프로젝트 파일만 남음 – 빌드 검증은 CMake 기준)
 - **Graphics 분리**: `Graphics/Common`(API 중립: 인터페이스, 설정, 지오메트리 생성 등), `Graphics/DX11`(D3D11 종속 코드), `Graphics/OpenGL`(자리 표시자).
 - **API 선택**: `Edit > Graphics API`에서 선택 → `ProjectSetting/GraphicsSettings.json` 저장 → 다음 실행 시 적용. 미구현 API를 고르면 DirectX 11로 대체.
