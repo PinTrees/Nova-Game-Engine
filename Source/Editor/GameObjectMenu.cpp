@@ -127,13 +127,13 @@ namespace GameObjectMenu
 			if (ImGui::MenuItem("Text")) create("Text");
 			Disabled("Raw Image");
 			if (ImGui::MenuItem("Panel")) create("Panel");
-			Disabled("Toggle");
-			Disabled("Slider");
+			if (ImGui::MenuItem("Toggle")) create("Toggle");
+			if (ImGui::MenuItem("Slider")) create("Slider");
 			Disabled("Scrollbar");
-			Disabled("Scroll View");
+			if (ImGui::MenuItem("Scroll View")) create("ScrollView");
 			if (ImGui::MenuItem("Button")) create("Button");
 			Disabled("Dropdown");
-			Disabled("Input Field");
+			if (ImGui::MenuItem("Input Field")) create("InputField");
 			ImGui::Separator();
 			if (ImGui::MenuItem("Canvas")) create("Canvas");
 			if (ImGui::MenuItem("Event System")) create("EventSystem");

@@ -33,7 +33,8 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
 | **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
 | **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API (`NovaEngine` 네임스페이스: GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, AudioSource, Animator, Physics.Raycast, 코루틴, Invoke …), Assets 의 `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`public` / `[SerializeField]`, `[Range]`, `[Header]`, enum, Color, GameObject 참조), 컴파일 오류는 Console(파일:줄) 에 표시되고 Play 를 막음 |
-| **UI (UGUI)** | Canvas(Screen Space - Overlay, Sort Order) · Canvas Scaler(Constant Pixel Size / Scale With Screen Size) · Graphic Raycaster · Event System, Rect Transform(기준점 프리셋, Pos/Width 또는 Left/Right, Pivot), Image(Simple / Sliced / Filled 가로·세로·원형), Text(한글 포함 기본 글꼴, 줄바꿈·정렬·Best Fit), Button(Color Tint, On Click () 에 C# 메서드). GameObject > UI (Canvas) 메뉴, Scene 뷰에 캔버스 표시, Rect 도구로 크기 조절 |
+| **UI (UGUI)** | Canvas(Screen Space - Overlay, Sort Order) · Canvas Scaler(Constant Pixel Size / Scale With Screen Size) · Graphic Raycaster · Event System, Rect Transform(기준점 프리셋, Pos/Width 또는 Left/Right, Pivot), Image(Simple / Sliced / Filled 가로·세로·원형), Text(한글 포함 기본 글꼴, 줄바꿈·정렬·Best Fit), Button(Color Tint, On Click () 에 C# 메서드), Toggle, Slider(가로·세로, 드래그·클릭), Input Field(한글 IME, 캐럿·선택, Enter/포커스 해제 시 On End Edit), Scroll View(Scroll Rect: 드래그·휠·관성·Elastic), Mask / Rect Mask 2D(잘라내기). GameObject > UI (Canvas) 메뉴, Scene 뷰에 캔버스 표시, Rect 도구로 크기 조절 |
+| **빌드 (Build Settings)** | File > Build Settings(Scenes In Build 목록: 체크·끌어서 순서·Add Open Scenes), Player Settings(회사·제품 이름, 버전, Fullscreen Window / Maximized / Windowed, 해상도, Run In Background), Build / Build And Run → 독립 실행 `<제품>.exe` + `<제품>_Data`(쓰는 에셋만 복사), C# `SceneManager.LoadScene`, `Application.Quit` |
 | **코드 편집기 (NOVA Code)** | 에디터에 내장된 C# IDE(기본 External Script Editor): Explorer, 탭, 구문 강조, 엔진 API 자동 완성, 찾기/바꾸기, 줄 이동, 저장하면 바로 컴파일, 컴파일 오류를 그 줄에 밑줄로. **Edit > Preferences > External Tools** 에서 Visual Studio / VS Code / Rider / 직접 지정으로 바꿀 수 있음 |
 | **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
 
@@ -86,6 +87,20 @@ build.bat
 | `NovaEngine.exe --editor` | 엔진 폴더의 샘플 프로젝트로 에디터 열기 (엔진 개발용) |
 
 작업 디렉터리는 `Binaries/` 입니다 (실행 파일이 시작할 때 자동으로 맞춥니다).
+
+### 게임 빌드 (Unity 의 Build Settings)
+1. **File > Build Settings...** (`Ctrl+Shift+B`) → **Add Open Scenes** 또는 Project 창에서 `.scene` 을 끌어 놓습니다. 맨 위(0번) 씬이 시작 씬입니다.
+2. **Player Settings...** (Project Settings > Player) 에서 제품 이름, 화면 모드(Fullscreen Window / Maximized Window / Windowed), 해상도를 정합니다.
+3. **Build** 로 폴더를 고르면 다음이 만들어집니다. **Build And Run** (`Ctrl+B`) 은 만든 뒤 바로 실행합니다.
+
+```
+<출력 폴더>/
+  <제품 이름>.exe          ← 게임 실행 파일 (에디터 없이 첫 씬을 Play)
+  *.dll
+  <제품 이름>_Data/        ← player.json, 빌드 씬과 그 씬이 쓰는 에셋, 셰이더, 컴파일된 C# (Assembly-CSharp.dll)
+```
+
+빌드된 게임에서는 C# 의 `SceneManager.LoadScene("이름" 또는 번호)` 로 Build Settings 의 씬을 옮겨 다니고 `Application.Quit()` 으로 끝냅니다. 로그는 `<제품 이름>_Data/Binaries/Logs/Editor.log` 입니다.
 
 새 프로젝트 구조는 Unity 와 같습니다: `Assets/`(씬·에셋), `ProjectSettings/`(프로젝트 설정), `UserSettings/`(개인 설정, Game 뷰 등).
 
@@ -190,7 +205,8 @@ Source/
   Terrain/    TerrainData, 쿼드트리 LOD 렌더러
   Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
   Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
-  UI/         UGUI: Canvas, RectTransform, Image, Text, Button, 글꼴 아틀라스, UI 그리기(42. UI.fx), 입력/레이아웃(UISystem)
+  UI/         UGUI: Canvas, RectTransform, Image, Text, Button, Toggle, Slider, InputField, ScrollRect, Mask, 글꼴 아틀라스, UI 그리기(42. UI.fx), 입력/레이아웃(UISystem)
+  Build/      Build Settings / Player Settings, 빌드 파이프라인(의존 에셋 수집·복사), 빌드된 게임 실행(PlayerRuntime)
   Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator/Preferences ...), Undo, EditorPrefs
     NovaCode/ 내장 C# IDE: CodeEditor(편집 위젯), CSharpLanguage(구문 강조·자동 완성), NovaCodeWindow(창), ExternalScriptEditor(편집기 선택/실행)
   Hub/        프로젝트 Hub

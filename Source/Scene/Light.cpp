@@ -31,7 +31,7 @@ Light::~Light()
 
 void Light::OnDestroy()
 {
-	// Manager »èÁ¦
+	// Manager ï¿½ï¿½ï¿½ï¿½
 	LightManager::GetI()->DeleteLight(this->GetInstanceID());
 }
 
@@ -99,7 +99,7 @@ void Light::SetSpotLight(SpotLight light)
 
 void Light::Awake()
 {
-	// Manager Ãß°¡
+	// Manager ï¿½ß°ï¿½
 	//LightManager::GetI()->SetLight(shared_from_this());
 }
 
@@ -153,9 +153,9 @@ void Light::ViewUpdate()
 	switch (m_LightType)
 	{
 	case LightType::Directional:
-		// Pos = GameCameraPosition + LightRotation¹æÇâÂÊÀÇ Camera ¹üÀ§ °æ°è¼±¿¡ À§Ä¡
+		// Pos = GameCameraPosition + LightRotationï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Camera ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½è¼±ï¿½ï¿½ ï¿½ï¿½Ä¡
 		// light pos = camera position + ((camerafarZ * 2) * light.dir)
-		// light pos´Â camera positionÀ» Áß½ÉÀ¸·Î CameraFarZ(¹ÝÁö¸§) ³¡¿¡ À§Ä¡ÇØ¾ßÇÔ
+		// light posï¿½ï¿½ camera positionï¿½ï¿½ ï¿½ß½ï¿½ï¿½ï¿½ï¿½ï¿½ CameraFarZ(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½) ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½Ø¾ï¿½ï¿½ï¿½
 
 		// ê·¸ë¦¼ìžìš© ê´‘ì› ìœ„ì¹˜: ì¹´ë©”ë¼ ìœ„ì¹˜ì—ì„œ ë¹›ì´ ì˜¤ëŠ” ë°©í–¥(forward ì˜ ë°˜ëŒ€)ìœ¼ë¡œ FarZ ë§Œí¼ ë–¨ì–´ì§„ ê³³
 		r = XMVector3Normalize(lookDir);
@@ -163,7 +163,7 @@ void Light::ViewUpdate()
 		XMStoreFloat3(&m_DirectionalDesc.Direction, r);
 		return;   // íˆ¬ì˜ë„ FitDirectionalShadow ê°€ ì •í•œë‹¤
 	case LightType::Point:
-		// Àü¹æÇâÀÌ¹Ç·Î 6°³ÀÇ ¸ÅÆ®¸¯½º ÇÊ¿ä, proj´Â ÇÏ³ª¸¸ÀÌ¿©µµ »ó°ü¾ø(¹üÀ§)
+		// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì¹Ç·ï¿½ 6ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½Ê¿ï¿½, projï¿½ï¿½ ï¿½Ï³ï¿½ï¿½ï¿½ï¿½Ì¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½)
 
 		backwardDir = m_pGameObject->GetTransform()->GetBackward();
 		leftDir = m_pGameObject->GetTransform()->GetLeft();
@@ -196,6 +196,9 @@ void Light::ViewUpdate()
 
 void Light::EditorViewUpdate()
 {
+	// ë¹Œë“œëœ ê²Œìž„(í”Œë ˆì´ì–´)ì—ëŠ” Scene ì°½ì´ ì—†ë‹¤
+	if (SceneViewManager::GetI()->m_LastActiveSceneEditorWindow == nullptr)
+		return;
 	XMVECTOR pos = m_pGameObject->GetTransform()->GetPosition();
 	XMVECTOR lookDir = m_pGameObject->GetTransform()->GetLook();
 	XMVECTOR target = pos + lookDir;
@@ -218,9 +221,9 @@ void Light::EditorViewUpdate()
 	{
 	case LightType::Directional:
 	{
-		// Pos = GameCameraPosition + LightRotation¹æÇâÂÊÀÇ Camera ¹üÀ§ °æ°è¼±¿¡ À§Ä¡
+		// Pos = GameCameraPosition + LightRotationï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Camera ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½è¼±ï¿½ï¿½ ï¿½ï¿½Ä¡
 		// light pos = camera position + ((camerafarZ * 2) * light.dir)
-		// light pos´Â camera positionÀ» Áß½ÉÀ¸·Î CameraFarZ(¹ÝÁö¸§) ³¡¿¡ À§Ä¡ÇØ¾ßÇÔ
+		// light posï¿½ï¿½ camera positionï¿½ï¿½ ï¿½ß½ï¿½ï¿½ï¿½ï¿½ï¿½ CameraFarZ(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½) ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½Ø¾ï¿½ï¿½ï¿½
 
 		// ê·¸ë¦¼ìžìš© ê´‘ì› ìœ„ì¹˜: ì¹´ë©”ë¼ ìœ„ì¹˜ì—ì„œ ë¹›ì´ ì˜¤ëŠ” ë°©í–¥(forward ì˜ ë°˜ëŒ€)ìœ¼ë¡œ FarZ ë§Œí¼ ë–¨ì–´ì§„ ê³³
 		r = XMVector3Normalize(lookDir);
@@ -231,7 +234,7 @@ void Light::EditorViewUpdate()
 		
 		break;
 	case LightType::Point:
-		// Àü¹æÇâÀÌ¹Ç·Î 6°³ÀÇ ¸ÅÆ®¸¯½º ÇÊ¿ä, proj´Â ÇÏ³ª¸¸ÀÌ¿©µµ »ó°ü¾ø(¹üÀ§)
+		// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì¹Ç·ï¿½ 6ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Æ®ï¿½ï¿½ï¿½ï¿½ ï¿½Ê¿ï¿½, projï¿½ï¿½ ï¿½Ï³ï¿½ï¿½ï¿½ï¿½Ì¿ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½)
 
 		backwardDir = m_pGameObject->GetTransform()->GetBackward();
 		leftDir = m_pGameObject->GetTransform()->GetLeft();
@@ -278,23 +281,23 @@ void Light::ProjUpdate()
 	switch (m_LightType)
 	{
 	case LightType::Directional:
-		// Á÷±³
-		// X, Y ¹üÀ§ ÇÑÁ¤, FarZ ÀÌ·Ð»ó ¹«ÇÑÀÌÁö¸¸ ¸®¼Ò½º È¿À²À» À§ÇØ ºûÀÇ À§Ä¡¿Í ¾À À§Ä¡ »çÀÌÀÇ °Å¸® + ¾ÀÀÇ Å©±â·Î
+		// ï¿½ï¿½ï¿½ï¿½
+		// X, Y ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½, FarZ ï¿½Ì·Ð»ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ò½ï¿½ È¿ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä¡ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½Ä¡ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Å¸ï¿½ + ï¿½ï¿½ï¿½ï¿½ Å©ï¿½ï¿½ï¿½
 		m_LightProj = ::XMMatrixOrthographicLH(gameFarZ * 2, gameFarZ * 2, 0.001f, gameFarZ * 2);
 		break;
 	case LightType::Point:
-		// ¿ø±Ù
+		// ï¿½ï¿½ï¿½ï¿½
 		// float fov = XMConvertToRadians(90.0f);
 		// XMMatrixOrthographicLH(D3DXToRadian(90), 1, near, range)
-		// X, Y ÀÇ¹Ì ¾øÀ¸¹Ç·Î ÀÓÀÇÀÇ °ªÀ¸·Î, FarZ´Â ¹üÀ§ ÇÑÁ¤
+		// X, Y ï¿½Ç¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç·ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½, FarZï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		//m_lightProj = ::XMMatrixOrthographicLH(10.0f, 10.0f, 0.001f, m_pointDesc.Range);
 		m_LightProj = ::XMMatrixPerspectiveFovLH(XMConvertToRadians(90), gameAspect, 0.001f, m_PointDesc.Range);
 		break;
 	case LightType::Spot:
-		// ¿ø±Ù
-		// XMMatrixOrthographicLH(D3DXToRadian(angle) <- fov, aspectRatio <- camera ºñÀ², near, range)
-		// 1920x1080ÀÎ °æ¿ì : aspectRatio = 1920/1080 = 1.78
-		// X, Y, FarZ ¹üÀ§ ÇÑÁ¤
+		// ï¿½ï¿½ï¿½ï¿½
+		// XMMatrixOrthographicLH(D3DXToRadian(angle) <- fov, aspectRatio <- camera ï¿½ï¿½ï¿½ï¿½, near, range)
+		// 1920x1080ï¿½ï¿½ ï¿½ï¿½ï¿½ : aspectRatio = 1920/1080 = 1.78
+		// X, Y, FarZ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
 		m_LightProj = ::XMMatrixPerspectiveFovLH(XMConvertToRadians(m_SpotDesc.Spot), gameAspect, 0.001f, m_SpotDesc.Range);
 		break;
 	default:
@@ -304,6 +307,8 @@ void Light::ProjUpdate()
 
 void Light::EditorProjUpdate()
 {
+	if (SceneViewManager::GetI()->m_LastActiveSceneEditorWindow == nullptr)
+		return;
 	float editorAspect = SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetAspect();
 	float editorFarZ = SceneViewManager::GetI()->m_LastActiveSceneEditorWindow->GetSceneCamera()->GetFarZ();
 	switch (m_LightType)

@@ -1,10 +1,12 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "EditorLog.h"
 #include <mutex>
 #include <cstdarg>
 #include <crtdbg.h>
 #include <share.h>
 #include <DbgHelp.h>
+#include <atomic>
+#include <thread>
 #pragma comment(lib, "dbghelp.lib")
 
 namespace
@@ -25,6 +27,50 @@ namespace
 		return FALSE;   // 기본 처리(대화 상자) 계속
 	}
 
+	// 호출 스택: 주소만 모은다 (StackWalk64) / 주소 → 함수 이름 + 파일:줄 (PDB 가 있으면)
+	int CaptureStack(HANDLE thread, CONTEXT ctx, DWORD64* out, int max)
+	{
+		HANDLE process = ::GetCurrentProcess();
+		static bool s_SymReady = false;
+		if (!s_SymReady)
+		{
+			::SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+			s_SymReady = ::SymInitialize(process, nullptr, TRUE) != FALSE;
+		}
+		STACKFRAME64 frame = {};
+		frame.AddrPC.Offset = ctx.Rip;
+		frame.AddrPC.Mode = AddrModeFlat;
+		frame.AddrFrame.Offset = ctx.Rbp;
+		frame.AddrFrame.Mode = AddrModeFlat;
+		frame.AddrStack.Offset = ctx.Rsp;
+		frame.AddrStack.Mode = AddrModeFlat;
+		int count = 0;
+		while (count < max && ::StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread, &frame, &ctx, nullptr, ::SymFunctionTableAccess64, ::SymGetModuleBase64, nullptr) && frame.AddrPC.Offset != 0)
+			out[count++] = frame.AddrPC.Offset;
+		return count;
+	}
+
+	void WriteStack(const char* tag, const DWORD64* pcs, int count)
+	{
+		HANDLE process = ::GetCurrentProcess();
+		for (int i = 0; i < count; ++i)
+		{
+			char buffer[sizeof(SYMBOL_INFO) + 256] = {};
+			SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(buffer);
+			sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+			sym->MaxNameLen = 255;
+			DWORD64 symOffset = 0;
+			const char* name = ::SymFromAddr(process, pcs[i], &symOffset, sym) ? sym->Name : "?";
+			IMAGEHLP_LINE64 line = {};
+			line.SizeOfStruct = sizeof(line);
+			DWORD lineOffset = 0;
+			if (::SymGetLineFromAddr64(process, pcs[i], &lineOffset, &line))
+				EditorLog::Write(tag, "  #%d %s  (%s:%lu)", i, name, line.FileName, line.LineNumber);
+			else
+				EditorLog::Write(tag, "  #%d %s  [%p]", i, name, (void*)pcs[i]);
+		}
+	}
+
 	// 처리되지 않은 예외 (충돌): 코드와 주소, 그리고 호출 스택(함수 이름 + 파일:줄, PDB 가 있으면)을 남긴다
 	LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info)
 	{
@@ -34,38 +80,47 @@ namespace
 		if (info->ContextRecord == nullptr)
 			return EXCEPTION_CONTINUE_SEARCH;
 
-		HANDLE process = ::GetCurrentProcess();
-		HANDLE thread = ::GetCurrentThread();
-		::SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
-		::SymInitialize(process, nullptr, TRUE);
 		CONTEXT ctx = *info->ContextRecord;
-		STACKFRAME64 frame = {};
-		frame.AddrPC.Offset = ctx.Rip;
-		frame.AddrPC.Mode = AddrModeFlat;
-		frame.AddrFrame.Offset = ctx.Rbp;
-		frame.AddrFrame.Mode = AddrModeFlat;
-		frame.AddrStack.Offset = ctx.Rsp;
-		frame.AddrStack.Mode = AddrModeFlat;
-		for (int i = 0; i < 24; ++i)
-		{
-			if (!::StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread, &frame, &ctx, nullptr, ::SymFunctionTableAccess64, ::SymGetModuleBase64, nullptr) || frame.AddrPC.Offset == 0)
-				break;
-			char buffer[sizeof(SYMBOL_INFO) + 256] = {};
-			SYMBOL_INFO* sym = reinterpret_cast<SYMBOL_INFO*>(buffer);
-			sym->SizeOfStruct = sizeof(SYMBOL_INFO);
-			sym->MaxNameLen = 255;
-			DWORD64 symOffset = 0;
-			const char* name = ::SymFromAddr(process, frame.AddrPC.Offset, &symOffset, sym) ? sym->Name : "?";
-			IMAGEHLP_LINE64 line = {};
-			line.SizeOfStruct = sizeof(line);
-			DWORD lineOffset = 0;
-			if (::SymGetLineFromAddr64(process, frame.AddrPC.Offset, &lineOffset, &line))
-				EditorLog::Write("CRASH", "  #%d %s  (%s:%lu)", i, name, line.FileName, line.LineNumber);
-			else
-				EditorLog::Write("CRASH", "  #%d %s  [%p]", i, name, (void*)frame.AddrPC.Offset);
-		}
-		::SymCleanup(process);
+		DWORD64 pcs[24];
+		const int count = CaptureStack(::GetCurrentThread(), ctx, pcs, 24);
+		WriteStack("CRASH", pcs, count);
 		return EXCEPTION_CONTINUE_SEARCH;
+	}
+
+	// ---------------------------------------------------------------- 멈춤 감시
+	// 메인 루프가 4초 넘게 Heartbeat 를 부르지 않으면 메인 스레드를 잠깐 멈춰 호출 스택을 [HANG] 으로 남긴다.
+	// (디버거 없이 무한 루프/교착을 찾기 위함. 모달 대화 상자나 창 크기 조절 중에도 한 번 남을 수 있다)
+	std::atomic<ULONGLONG> s_Heartbeat{ 0 };
+	std::atomic<bool> s_WatchdogStop{ false };
+
+	void WatchdogLoop()
+	{
+		ULONGLONG reported = 0;
+		while (!s_WatchdogStop)
+		{
+			::Sleep(500);
+			const ULONGLONG beat = s_Heartbeat.load();
+			if (beat == 0 || beat == reported || ::GetTickCount64() - beat < 4000)
+				continue;
+			reported = beat;
+			HANDLE thread = ::OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, s_MainThread);
+			if (thread == nullptr)
+				continue;
+			DWORD64 pcs[32];
+			int count = 0;
+			// 멈춘 동안에는 메모리 할당/로그 잠금을 쓰지 않는다 (메인 스레드가 그 잠금을 쥐고 있을 수 있다): 주소만 모으고 풀어 준 뒤 기록
+			if (::SuspendThread(thread) != (DWORD)-1)
+			{
+				CONTEXT ctx = {};
+				ctx.ContextFlags = CONTEXT_FULL;
+				if (::GetThreadContext(thread, &ctx))
+					count = CaptureStack(thread, ctx, pcs, 32);
+				::ResumeThread(thread);
+			}
+			::CloseHandle(thread);
+			EditorLog::Write("HANG", "main thread has not finished a frame for %.1f s", (::GetTickCount64() - beat) / 1000.0);
+			WriteStack("HANG", pcs, count);
+		}
 	}
 }
 
@@ -88,6 +143,8 @@ namespace EditorLog
 		s_MainThread = ::GetCurrentThreadId();
 		_CrtSetReportHookW2(_CRT_RPTHOOK_INSTALL, CrtReportHook);
 		::SetUnhandledExceptionFilter(CrashFilter);
+		s_WatchdogStop = false;
+		std::thread(WatchdogLoop).detach();   // 프로세스가 끝나면 같이 끝난다 (join 하지 않음)
 		if (s_File)
 		{
 			SYSTEMTIME t;
@@ -100,6 +157,7 @@ namespace EditorLog
 	void Shutdown()
 	{
 		Write("App", "shutdown");
+		s_WatchdogStop = true;
 		std::lock_guard<std::mutex> g(s_Lock);
 		_CrtSetReportHookW2(_CRT_RPTHOOK_REMOVE, CrtReportHook);
 		if (s_File)
@@ -127,6 +185,8 @@ namespace EditorLog
 			fwprintf(s_File, L"[%8.3f] [%S] (thread %lu) %s\n", seconds, category, tid, line.c_str());
 		fflush(s_File);
 	}
+
+	void Heartbeat() { s_Heartbeat = ::GetTickCount64(); }
 
 	std::wstring GetFilePath()
 	{

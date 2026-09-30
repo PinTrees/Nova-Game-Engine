@@ -3,6 +3,7 @@
 #include "EditorApp.h"
 #include "HubApp.h"
 #include "HubProject.h"
+#include "PlayerRuntime.h"
 
 #include <filesystem>
 #include <fstream>
@@ -19,6 +20,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 	GetModuleFileNameW(NULL, exePathBuf, MAX_PATH);
 	std::filesystem::path exeDir = std::filesystem::path(exePathBuf).parent_path();
 	SetCurrentDirectoryW(exeDir.c_str());
+
+	// 빌드된 게임: exe 옆에 <exe 이름>_Data/player.json 이 있으면 Hub/에디터 없이 게임으로 실행 (작업 폴더도 바뀜)
+	const bool player = PlayerRuntime::Detect();
 
 	// 실행 모드
 	//   (인자 없음)          : NOVA Hub (프로젝트 선택/생성)
@@ -57,7 +61,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 		return ok ? 0 : 1;
 	}
 
-	if (projectPath.empty() && !editorOnly)
+	if (projectPath.empty() && !editorOnly && !player)
 	{
 		try
 		{
@@ -76,7 +80,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 		}
 	}
 
-	if (!projectPath.empty())
+	if (!projectPath.empty() && !player)
 		PathManager::SetProjectOverride(projectPath);
 
 	try
@@ -98,7 +102,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 		if (!theApp.Init())
 		{
 			log << "Init() returned false!" << std::endl;
-			::MessageBoxW(NULL, L"EditorApp::Init() failed!", L"Init Error", MB_OK | MB_ICONERROR);
+			::MessageBoxW(NULL, player ? L"The game failed to start. See Logs\\Editor.log in the _Data\\Binaries folder." : L"EditorApp::Init() failed!", L"Init Error", MB_OK | MB_ICONERROR);
 			return 1;
 		}
 

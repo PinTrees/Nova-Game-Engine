@@ -5,6 +5,9 @@
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
 #include "PreferencesWindow.h"
+#include "BuildSettingsWindow.h"
+#include "BuildPipeline.h"
+#include "NovaCodeWindow.h"
 #include "AddComponentMenu.h"
 #include "GameViewEditorWindow.h"
 #include "ScriptEngine.h"
@@ -353,6 +356,11 @@ void EditorGUIManager::RenderEditorWindows()
             if (ImGui::MenuItem("Save As...", "Ctrl+Shift+S", false, !Application::IsPlaying()))
                 SceneManager::GetI()->SaveCurrentScene(true);
             ImGui::Separator();
+            if (ImGui::MenuItem("Build Settings...", "Ctrl+Shift+B"))
+                BuildSettingsWindow::Open();
+            if (ImGui::MenuItem("Build And Run", "Ctrl+B", false, !Application::IsPlaying() && !BuildPipeline::IsRunning()))
+                BuildSettingsWindow::BuildAndRun();
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4"))
             {
                 ::PostQuitMessage(0);
@@ -582,6 +590,17 @@ void EditorGUIManager::RenderEditorWindows()
     ObjectPicker::Draw();
     ProjectSettingsWindow::Draw();
     PreferencesWindow::Draw();
+    BuildSettingsWindow::Draw();   // + 빌드 진행 창, 끝난 빌드 처리
+
+    // Ctrl+Shift+B = Build Settings, Ctrl+B = Build And Run (글자 입력 중이 아닐 때)
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        if (io.KeyCtrl && !io.WantTextInput && !NovaCodeWindow::IsFocused() && ImGui::IsKeyPressed(ImGuiKey_B, false))
+        {
+            if (io.KeyShift) BuildSettingsWindow::Open();
+            else if (!Application::IsPlaying() && !BuildPipeline::IsRunning()) BuildSettingsWindow::BuildAndRun();
+        }
+    }
 }
 
 void EditorGUIManager::RenderAfter()

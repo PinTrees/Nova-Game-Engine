@@ -28,8 +28,12 @@ public:
 	// C# Input / Screen 용: Game 뷰가 입력을 받는지(포커스), 마우스 → 게임 화면 픽셀(왼쪽 아래 원점), 화면 크기, 휠
 	static bool HasInputFocus();
 	static bool MouseToGame(float& x, float& y);
+	// 게임 화면 픽셀(왼쪽 아래 원점) → 에디터 화면 좌표 (UI 입력 커서의 IME 위치)
+	static ImVec2 GameToScreen(float x, float y);
 	static void GameSize(int& w, int& h);
 	static float ScrollDelta();
+	// 빌드된 게임: 창 전체가 게임 화면 (마우스 = 창 클라이언트 좌표)
+	static void SetPlayerView(int width, int height, bool focused);
 
 private:
 	void DrawContent();

@@ -70,12 +70,18 @@ namespace NovaEngine
     public static class Application
     {
         public static bool isPlaying => true;
-        public static bool isEditor => true;
+        // 빌드된 게임(플레이어)인지는 네이티브가 알려 준다
+        public static unsafe bool isEditor => Native.Api.App_Info(0) == 0;
         public static bool isFocused => true;
         public static int targetFrameRate { get; set; } = -1;
-        public static string productName => "NOVA Game";
-        public static RuntimePlatform platform => RuntimePlatform.WindowsEditor;
-        public static void Quit() => Debug.Log("Application.Quit() is ignored in the editor.");
+        public static unsafe string productName => Native.Str(Native.Api.App_ProductName()) ?? "NOVA Game";
+        public static RuntimePlatform platform => isEditor ? RuntimePlatform.WindowsEditor : RuntimePlatform.WindowsPlayer;
+        // Unity 와 같이 에디터에서는 무시, 빌드된 게임은 종료
+        public static unsafe void Quit()
+        {
+            if (isEditor) Debug.Log("Application.Quit() is ignored in the editor.");
+            else Native.Api.App_Quit();
+        }
     }
     public enum RuntimePlatform { WindowsEditor, WindowsPlayer }
 

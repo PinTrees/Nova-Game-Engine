@@ -84,6 +84,28 @@ namespace
 		add("builtin:Background", RoundRect(32, 32, 7.0f, 0.0f, 1.0f), 32, 32, 10.0f);
 		// Unity Knob: 원
 		add("builtin:Knob", RoundRect(64, 64, 32.0f, 0.0f, 1.0f), 64, 64, 0.0f);
+		// Unity InputFieldBackground: UISprite 와 같은 모양
+		add("builtin:InputFieldBackground", RoundRect(32, 32, 7.0f, 1.2f, 0.72f), 32, 32, 10.0f);
+		// Unity Checkmark: 굵은 체크 표시 (Toggle)
+		{
+			const int n = 64;
+			const Vec2 pts[3] = { Vec2(0.18f, 0.52f), Vec2(0.42f, 0.76f), Vec2(0.84f, 0.26f) };   // v 는 아래로
+			const float half = 0.075f * n;
+			std::vector<uint32> px(n * n);
+			auto segDist = [](const Vec2& p, const Vec2& a, const Vec2& b) {
+				const Vec2 ab = b - a;
+				const float t = std::clamp((p - a).Dot(ab) / (std::max)(1e-6f, ab.Dot(ab)), 0.0f, 1.0f);
+				return (p - (a + ab * t)).Length();
+			};
+			for (int y = 0; y < n; ++y)
+				for (int x = 0; x < n; ++x)
+				{
+					const Vec2 p(x + 0.5f, y + 0.5f);
+					const float d = (std::min)(segDist(p, pts[0] * (float)n, pts[1] * (float)n), segDist(p, pts[1] * (float)n, pts[2] * (float)n));
+					px[y * n + x] = Pack(1.0f, 1.0f, 1.0f, std::clamp(half - d + 0.5f, 0.0f, 1.0f));
+				}
+			add("builtin:Checkmark", px, n, n, 0.0f);
+		}
 	}
 }
 
@@ -143,7 +165,7 @@ namespace UISprites
 
 	std::vector<std::string> FindAll()
 	{
-		std::vector<std::string> out = { "builtin:UISprite", "builtin:Background", "builtin:Knob" };
+		std::vector<std::string> out = { "builtin:UISprite", "builtin:Background", "builtin:InputFieldBackground", "builtin:Knob", "builtin:Checkmark" };
 		std::error_code ec;
 		const fs::path assets = PathManager::GetI()->GetMovePathW(L"Assets\\");
 		const fs::path root = PathManager::GetI()->GetMovePathW(L"");

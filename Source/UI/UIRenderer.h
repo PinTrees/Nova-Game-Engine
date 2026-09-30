@@ -15,6 +15,8 @@ public:
 	static UIRenderer& Get();
 
 	void Begin();
+	// Mask / RectMask2D: 이후 그리는 것을 캔버스 월드 사각형(minX, minY, maxX, maxY) 안으로 자른다 (enabled = false 면 풀기)
+	void SetClip(bool enabled, const Vec4& worldRect = Vec4(0, 0, 0, 0));
 	// 네 점(왼쪽 아래, 왼쪽 위, 오른쪽 위, 오른쪽 아래 — Unity GetWorldCorners 순서)
 	void AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, ID3D11ShaderResourceView* texture);
 	void AddTriangle(const Vec3 p[3], const Vec2 uv[3], uint32 color, ID3D11ShaderResourceView* texture);
@@ -37,7 +39,11 @@ private:
 		ID3D11ShaderResourceView* Texture;
 		UINT IndexStart;
 		UINT IndexCount;
+		bool Clip;
+		Vec4 ClipRect;
 	};
+	bool m_ClipOn = false;
+	Vec4 m_ClipRect = Vec4(0, 0, 0, 0);
 	std::vector<Vertex> m_Vertices;
 	std::vector<uint32> m_Indices;
 	std::vector<Command> m_Commands;

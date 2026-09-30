@@ -1,9 +1,10 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "AudioManager.h"
 #include "ScriptEngine.h"
 #include "UISystem.h"
+#include "PlayerRuntime.h"
 #include "IGraphicsBackend.h"
 #include "resource.h"
 #include <WindowsX.h>
@@ -81,6 +82,7 @@ int32 App::Run()
 		else
         {	
 			_timer.Tick();
+			EditorLog::Heartbeat();   // 멈춤 감시 ([HANG] 호출 스택)
 			// Global Update
 			TimeManager::GetI()->Update();
 			InputManager::GetI()->Update();
@@ -118,9 +120,17 @@ int32 App::Run()
 				// Render
 				RenderApplication();
 
-				//Editor Render
-				EditorGUIManager::GetI()->RenderEditorWindows();
-				Undo::Update();   // Ctrl+Z / Ctrl+Y, 조작이 끝난 변경을 기록
+				if (Application::IsPlayer())
+				{
+					// 빌드된 게임: 에디터 창 대신 창 전체에 카메라 + UI
+					PlayerRuntime::Render(_renderTargetView.Get(), _depthStencilView.Get(), _clientWidth, _clientHeight, ::GetForegroundWindow() == _hMainWnd);
+				}
+				else
+				{
+					//Editor Render
+					EditorGUIManager::GetI()->RenderEditorWindows();
+					Undo::Update();   // Ctrl+Z / Ctrl+Y, 조작이 끝난 변경을 기록
+				}
 
 				ImGui::Render(); 
 				ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
@@ -198,9 +208,12 @@ bool App::Init()
 
 	log << "App::Init -> EditorGUIManager..." << std::endl; log.flush();
 	LoadingScreen::SetProgress(0.08f, L"Initializing editor UI");
-	EditorGUIManager::GetI()->Init();
+	// 빌드된 게임은 ImGui 를 입력(마우스/키보드 상태)용으로만 쓴다 (도킹/다중 뷰포트 없이 → 마우스 = 창 좌표)
+	EditorGUIManager::GetI()->Init(Application::IsPlayer());
 	EditorGUIManager::GetI()->OnResize(GetScreenSize());
-	EditorGUIManager::GetI()->RegisterWindow(new SceneEditorWindow);  
+	if (!Application::IsPlayer())
+	{
+	EditorGUIManager::GetI()->RegisterWindow(new SceneEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new SceneHierachyEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new InspectorEditorWindow); 
 	EditorGUIManager::GetI()->RegisterWindow(new GameViewEditorWindow);
@@ -208,6 +221,7 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new ConsoleEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
+	}
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);
@@ -400,6 +414,8 @@ LRESULT App::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	switch( msg )
 	{
 	case WM_ACTIVATE:
+		if (Application::IsPlayer() && PlayerRuntime::RunInBackground())
+			return 0;   // Player Settings > Run In Background: 다른 창을 봐도 게임은 계속
 		if( LOWORD(wParam) == WA_INACTIVE )
 		{
 			_appPaused = true;
@@ -568,6 +584,51 @@ bool App::InitMainWindow()
 		return false;
 	}
 
+	// 빌드된 게임: Player Settings 의 창 모드 (Fullscreen Window = 테두리 없이 모니터 전체, Maximized, Windowed)
+	if (Application::IsPlayer())
+	{
+		_mainWindowCaption = PlayerRuntime::ProductName();
+		const int mode = PlayerRuntime::FullscreenMode();
+		HMONITOR mon = ::MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+		MONITORINFO mi = { sizeof(mi) };
+		::GetMonitorInfoW(mon, &mi);
+		DWORD style = WS_OVERLAPPEDWINDOW;
+		int x = CW_USEDEFAULT, y = CW_USEDEFAULT, w = 1280, h = 720;
+		if (mode == 0)
+		{
+			style = WS_POPUP;
+			x = mi.rcMonitor.left; y = mi.rcMonitor.top;
+			w = mi.rcMonitor.right - mi.rcMonitor.left;
+			h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+		}
+		else
+		{
+			if (!PlayerRuntime::Resizable())
+				style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+			int cw = 1280, ch = 720;
+			PlayerRuntime::WindowSize(cw, ch);
+			RECT R = { 0, 0, cw, ch };
+			::AdjustWindowRect(&R, style, false);
+			w = R.right - R.left;
+			h = R.bottom - R.top;
+			const RECT& work = mi.rcWork;
+			x = work.left + (std::max)(0L, ((work.right - work.left) - w) / 2);
+			y = work.top + (std::max)(0L, ((work.bottom - work.top) - h) / 2);
+		}
+		_hMainWnd = ::CreateWindow(L"NovaEngineWindow", _mainWindowCaption.c_str(), style, x, y, w, h, 0, 0, _hAppInst, 0);
+		if (_hMainWnd == nullptr)
+			return false;
+		RECT client = {};
+		::GetClientRect(_hMainWnd, &client);
+		_clientWidth = (std::max)(1L, client.right - client.left);
+		_clientHeight = (std::max)(1L, client.bottom - client.top);
+		SendMessage(_hMainWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
+		SendMessage(_hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
+		::ShowWindow(_hMainWnd, mode == 1 ? SW_SHOWMAXIMIZED : SW_SHOW);
+		::UpdateWindow(_hMainWnd);
+		return true;
+	}
+
 	// Compute window rectangle dimensions based on requested client area dimensions.
 	RECT R = { 0, 0, _clientWidth, _clientHeight };
 	::AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW, false);
@@ -646,7 +707,14 @@ void App::CalculateFrameStats()
 		float fps = (float)frameCnt; // fps = frameCnt / 1
 		float mspf = 1000.0f / fps;
 
-		std::wostringstream outs;   
+		if (Application::IsPlayer())
+		{
+			// 빌드된 게임: 제목은 제품 이름 그대로 (씬 이름/FPS 를 붙이지 않음)
+			frameCnt = 0;
+			timeElapsed += 1.0f;
+			return;
+		}
+		std::wostringstream outs;
 		outs.precision(6);
 		std::wstring caption = _mainWindowCaption;
 		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())

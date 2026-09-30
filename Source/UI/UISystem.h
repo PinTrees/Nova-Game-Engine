@@ -15,8 +15,11 @@ namespace UISystem
 	void RenderGameView(ID3D11RenderTargetView* rtv, UINT width, UINT height, int display);
 	void RenderSceneView(ID3D11RenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition);
 
-	// kind: "Canvas", "EventSystem", "Image", "Text", "Button", "Panel"
+	// kind: "Canvas", "EventSystem", "Image", "Text", "Button", "Panel", "Toggle", "Slider", "InputField", "ScrollView"
 	GameObject* Create(const std::string& kind, Scene* scene, GameObject* selected);
+	// 선택(키보드 포커스)된 UI 를 푼다 (InputField 의 Enter/Esc)
+	void ClearSelection();
+	void OnSceneUnloading();   // Play 중 씬 교체 직전 (선택·포인터 대상 해제)
 	// UI 컴포넌트가 있는데 RectTransform 이 없으면 붙인다 (Transform 바로 다음)
 	void EnsureRectTransform(GameObject* go);
 	// 스크립트가 UI 컴포넌트를 붙일 때: RectTransform 도 같은 프레임 대기열에 (바로 GetComponent 할 수 있게)

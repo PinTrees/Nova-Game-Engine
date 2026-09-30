@@ -126,16 +126,37 @@ namespace NovaEngine.UI
     internal static class UIEvents
     {
         static readonly Dictionary<ulong, Button.ButtonClickedEvent> s_Click = new Dictionary<ulong, Button.ButtonClickedEvent>();
-        internal static Button.ButtonClickedEvent Click(ulong id)
+        static readonly Dictionary<ulong, Slider.SliderEvent> s_Slider = new Dictionary<ulong, Slider.SliderEvent>();
+        static readonly Dictionary<ulong, Toggle.ToggleEvent> s_Toggle = new Dictionary<ulong, Toggle.ToggleEvent>();
+        static readonly Dictionary<ulong, InputField.OnChangeEvent> s_InputChanged = new Dictionary<ulong, InputField.OnChangeEvent>();
+        static readonly Dictionary<ulong, InputField.EndEditEvent> s_InputEnd = new Dictionary<ulong, InputField.EndEditEvent>();
+
+        static T Get<T>(Dictionary<ulong, T> d, ulong id) where T : new()
         {
-            if (!s_Click.TryGetValue(id, out var e)) s_Click[id] = e = new Button.ButtonClickedEvent();
+            if (!d.TryGetValue(id, out var e)) d[id] = e = new T();
             return e;
         }
-        internal static void Invoke(ulong id, int kind)
+        internal static Button.ButtonClickedEvent Click(ulong id) => Get(s_Click, id);
+        internal static Slider.SliderEvent SliderChanged(ulong id) => Get(s_Slider, id);
+        internal static Toggle.ToggleEvent ToggleChanged(ulong id) => Get(s_Toggle, id);
+        internal static InputField.OnChangeEvent InputChanged(ulong id) => Get(s_InputChanged, id);
+        internal static InputField.EndEditEvent InputEnd(ulong id) => Get(s_InputEnd, id);
+
+        internal static void Invoke(ulong id, int kind, float number, string text)
         {
-            if (kind == 0 && s_Click.TryGetValue(id, out var e)) e.Invoke();
+            switch (kind)
+            {
+                case 0: if (s_Click.TryGetValue(id, out var c)) c.Invoke(); break;
+                case 1: if (s_Slider.TryGetValue(id, out var s)) s.Invoke(number); break;
+                case 2: if (s_Toggle.TryGetValue(id, out var t)) t.Invoke(number != 0); break;
+                case 3: if (s_InputChanged.TryGetValue(id, out var ic)) ic.Invoke(text); break;
+                case 4: if (s_InputEnd.TryGetValue(id, out var ie)) ie.Invoke(text); break;
+            }
         }
-        internal static void Clear() => s_Click.Clear();
+        internal static void Clear()
+        {
+            s_Click.Clear(); s_Slider.Clear(); s_Toggle.Clear(); s_InputChanged.Clear(); s_InputEnd.Clear();
+        }
     }
 
     public abstract class Graphic : Behaviour
@@ -220,6 +241,71 @@ namespace NovaEngine.UI
         // Inspector 의 On Click () 목록과 별개로, 코드에서 추가한 리스너 (Unity 와 같음)
         public ButtonClickedEvent onClick => UIEvents.Click(m_Id);
     }
+
+    public class Toggle : Selectable
+    {
+        internal Toggle() { }
+        public class ToggleEvent : UnityEvent<bool> { }
+        public unsafe bool isOn
+        {
+            get { Vector4 v; Native.Api.UI_GetVec(m_Id, 70, &v); return v.x != 0; }
+            set { Vector4 v = new Vector4(value ? 1 : 0, 0, 0, 0); Native.Api.UI_SetVec(m_Id, 70, &v); }
+        }
+        public unsafe void SetIsOnWithoutNotify(bool value) { Vector4 v = new Vector4(value ? 1 : 0, 0, 0, 0); Native.Api.UI_SetVec(m_Id, 71, &v); }
+        public ToggleEvent onValueChanged => UIEvents.ToggleChanged(m_Id);
+    }
+
+    public class Slider : Selectable
+    {
+        internal Slider() { }
+        public class SliderEvent : UnityEvent<float> { }
+        public enum Direction { LeftToRight = 0, RightToLeft = 1, BottomToTop = 2, TopToBottom = 3 }
+        unsafe float Get(int p) { Vector4 v; Native.Api.UI_GetVec(m_Id, p, &v); return v.x; }
+        unsafe void Set(int p, float x) { Vector4 v = new Vector4(x, 0, 0, 0); Native.Api.UI_SetVec(m_Id, p, &v); }
+        public float value { get => Get(60); set => Set(60, value); }
+        public float minValue { get => Get(61); set => Set(61, value); }
+        public float maxValue { get => Get(62); set => Set(62, value); }
+        public bool wholeNumbers { get => Get(63) != 0; set => Set(63, value ? 1 : 0); }
+        public float normalizedValue { get => Get(64); set => Set(64, value); }
+        public void SetValueWithoutNotify(float input) => Set(65, input);
+        public SliderEvent onValueChanged => UIEvents.SliderChanged(m_Id);
+    }
+
+    public class InputField : Selectable
+    {
+        internal InputField() { }
+        public class OnChangeEvent : UnityEvent<string> { }
+        public class EndEditEvent : UnityEvent<string> { }
+        public unsafe string text
+        {
+            get => Native.Str(Native.Api.UI_GetString(m_Id, 3)) ?? "";
+            set { fixed (byte* b = Native.Utf8(value ?? "")) Native.Api.UI_SetString(m_Id, 3, b); }
+        }
+        public unsafe void SetTextWithoutNotify(string value) { fixed (byte* b = Native.Utf8(value ?? "")) Native.Api.UI_SetString(m_Id, 4, b); }
+        public unsafe int characterLimit
+        {
+            get { Vector4 v; Native.Api.UI_GetVec(m_Id, 75, &v); return (int)v.x; }
+            set { Vector4 v = new Vector4(value, 0, 0, 0); Native.Api.UI_SetVec(m_Id, 75, &v); }
+        }
+        public unsafe bool isFocused { get { Vector4 v; Native.Api.UI_GetVec(m_Id, 76, &v); return v.x != 0; } }
+        public OnChangeEvent onValueChanged => UIEvents.InputChanged(m_Id);
+        public EndEditEvent onEndEdit => UIEvents.InputEnd(m_Id);
+    }
+
+    public class ScrollRect : Behaviour
+    {
+        internal ScrollRect() { }
+        public unsafe Vector2 normalizedPosition
+        {
+            get { Vector4 v; Native.Api.UI_GetVec(m_Id, 80, &v); return new Vector2(v.x, v.y); }
+            set { Vector4 v = new Vector4(value.x, value.y, 0, 0); Native.Api.UI_SetVec(m_Id, 80, &v); }
+        }
+        public float horizontalNormalizedPosition { get => normalizedPosition.x; set => normalizedPosition = new Vector2(value, normalizedPosition.y); }
+        public float verticalNormalizedPosition { get => normalizedPosition.y; set => normalizedPosition = new Vector2(normalizedPosition.x, value); }
+    }
+
+    public class Mask : Behaviour { internal Mask() { } }
+    public class RectMask2D : Behaviour { internal RectMask2D() { } }
 }
 
 namespace TMPro
@@ -227,4 +313,5 @@ namespace TMPro
     // TextMeshPro 코드도 그대로 쓸 수 있게 (같은 Text 컴포넌트)
     public class TMP_Text : NovaEngine.UI.Text { internal TMP_Text() { } }
     public class TextMeshProUGUI : TMP_Text { internal TextMeshProUGUI() { } }
+    public class TMP_InputField : NovaEngine.UI.InputField { internal TMP_InputField() { } }
 }

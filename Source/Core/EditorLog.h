@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <string>
 
 // 에디터 전용 디버그 로그 (Unity 의 Editor.log 와 같은 역할).
@@ -11,6 +11,8 @@ namespace EditorLog
 	void Init();
 	void Shutdown();
 	void Write(const char* category, const char* format, ...);
+	// 메인 루프가 매 프레임 부른다. 4초 넘게 안 오면 감시 스레드가 메인 스레드 호출 스택을 [HANG] 으로 남긴다
+	void Heartbeat();
 	std::wstring GetFilePath();
 	// 파일을 기본 텍스트 편집기로 연다 (Console 의 "Open Editor Log")
 	void OpenInEditor();

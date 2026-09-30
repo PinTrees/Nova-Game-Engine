@@ -235,7 +235,23 @@ bool GameViewEditorWindow::MouseToGame(float& x, float& y)
 	return m.x >= s_ImgMin.x && m.x <= s_ImgMax.x && m.y >= s_ImgMin.y && m.y <= s_ImgMax.y;
 }
 
+ImVec2 GameViewEditorWindow::GameToScreen(float x, float y)
+{
+	const float w = (float)(std::max)(1, s_GameW), h = (float)(std::max)(1, s_GameH);
+	return ImVec2(s_ImgMin.x + x / w * (s_ImgMax.x - s_ImgMin.x), s_ImgMin.y + (1.0f - y / h) * (s_ImgMax.y - s_ImgMin.y));
+}
+
 void GameViewEditorWindow::GameSize(int& w, int& h) { w = s_GameW; h = s_GameH; }
+
+void GameViewEditorWindow::SetPlayerView(int width, int height, bool focused)
+{
+	s_ImgMin = ImVec2(0.0f, 0.0f);
+	s_ImgMax = ImVec2((float)width, (float)height);
+	s_GameW = width;
+	s_GameH = height;
+	s_InputFocus = focused;
+	s_Scroll = focused ? ImGui::GetIO().MouseWheel : 0.0f;
+}
 float GameViewEditorWindow::ScrollDelta() { return s_Scroll; }
 
 void GameViewEditorWindow::SetDockRect(const ImVec2& min, const ImVec2& max)

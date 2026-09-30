@@ -70,7 +70,9 @@ void PathManager::Init()
 
 	// 엔진 루트: Shaders 폴더가 있는 상위 폴더 (실행 파일은 Binaries 안에 있음)
 	std::filesystem::path engineRoot;
-	if (!FindRootWithMarker(exeDir, L"Shaders", engineRoot) &&
+	if (!s_EngineOverride.empty())
+		engineRoot = s_EngineOverride;
+	else if (!FindRootWithMarker(exeDir, L"Shaders", engineRoot) &&
 		!FindRootWithMarker(std::filesystem::current_path(), L"Shaders", engineRoot) &&
 		!FindRootWithMarker(exeDir, L"Assets", engineRoot))
 	{

@@ -111,6 +111,7 @@ set(ENGINE_MODULE_DIRS
     Source/Audio
     Source/Scripting
     Source/UI
+    Source/Build
     Source/Editor
     Source/Editor/Windows
     Source/Editor/Dialogs

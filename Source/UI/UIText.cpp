@@ -93,7 +93,8 @@ Text::Text()
 void Text::Populate(UIRenderer& r, float canvasScale)
 {
 	RectTransform* rt = GetRect();
-	if (rt == nullptr || m_pGameObject == nullptr || m_Text.empty())
+	const bool caret = m_CaretIndex >= 0;
+	if (rt == nullptr || m_pGameObject == nullptr || (m_Text.empty() && !caret))
 		return;
 	const std::u32string text = UIFont::DecodeUtf8(m_Text);
 	const bool bold = m_Style == Style::Bold || m_Style == Style::BoldAndItalic;
@@ -149,6 +150,21 @@ void Text::Populate(UIRenderer& r, float canvasScale)
 
 	const Matrix world = m_pGameObject->GetTransform()->GetWorldMatrix();
 	const uint32 color = PackedColor();
+	const size_t caretIndex = caret ? (std::min)((size_t)m_CaretIndex, text.size()) : std::string::npos;
+	bool caretPlaced = false;
+	auto placeCaret = [&](float cx, float lineTop) {
+		caretPlaced = true;
+		m_CaretWorld = ToWorld(world, cx, lineTop - lineH / (std::max)(0.01f, m_LineSpacing));
+		m_CaretHeight = lineH / (std::max)(0.01f, m_LineSpacing);
+		if (!m_CaretVisible)
+			return;
+		// 1 화면 픽셀 남짓한 세로 막대
+		const float w = (std::max)(1.0f, 1.5f / (std::max)(0.05f, canvasScale));
+		const float yTop = lineTop, yBot = lineTop - m_CaretHeight;
+		const Vec3 p[4] = { ToWorld(world, cx, yBot), ToWorld(world, cx, yTop), ToWorld(world, cx + w, yTop), ToWorld(world, cx + w, yBot) };
+		const Vec2 uv[4] = { Vec2(0, 0), Vec2(0, 0), Vec2(0, 0), Vec2(0, 0) };
+		r.AddQuad(p, uv, UIRenderer::PackColor(m_CaretColor), r.WhiteTexture());
+	};
 	for (size_t li = 0; li < lineCount; ++li)
 	{
 		const Line& line = lines[li];
@@ -160,6 +176,8 @@ void Text::Populate(UIRenderer& r, float canvasScale)
 		for (size_t i = line.Begin; i < line.End; ++i)
 		{
 			const char32_t c = text[i];
+			if (i == caretIndex && !caretPlaced)
+				placeCaret(x, lineTop);
 			if (c == '\r')
 				continue;
 			const ImFontGlyph* g = atlas->Glyph((unsigned int)c);
@@ -177,7 +195,20 @@ void Text::Populate(UIRenderer& r, float canvasScale)
 			}
 			x += Advance(*atlas, c, unit);
 		}
+		// 줄 끝의 커서 (다음 줄이 이어지는 자리면 다음 줄 처음에 둔다)
+		const bool lastLine = li + 1 == lineCount;
+		const bool breakAfter = !lastLine && lines[li + 1].Begin > line.End;   // 줄바꿈 문자 / 공백으로 끝남
+		if (!caretPlaced && caretIndex != std::string::npos && caretIndex == line.End && (lastLine || breakAfter))
+			placeCaret(x, lineTop);
 	}
+}
+
+void Text::SetCaret(int index, bool visible, const float color[4])
+{
+	m_CaretIndex = index;
+	m_CaretVisible = visible;
+	if (color)
+		memcpy(m_CaretColor, color, sizeof(m_CaretColor));
 }
 
 // ------------------------------------------------------------------ Inspector

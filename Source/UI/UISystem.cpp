@@ -7,16 +7,39 @@
 #include "UIImage.h"
 #include "UIText.h"
 #include "UIButton.h"
+#include "UIToggle.h"
+#include "UISlider.h"
+#include "UIInputField.h"
+#include "UIMask.h"
 #include "GameViewEditorWindow.h"
 #include "GameObjectFactory.h"
 
 namespace
 {
-	constexpr uint8 kUILayer = 4;   // UnityGUI::LayerNames() 의 "UI"
+	constexpr uint8 kUILayer = 4;          // UnityGUI::LayerNames() 의 "UI"
+	constexpr float kDragThreshold = 10.0f;   // EventSystem.Drag Threshold (화면 픽셀)
 
-	bool s_WasDown = false;
-	Button* s_Pressed = nullptr;
 	int s_DrawCalls = 0;
+
+	// ---------------------------------------------------------------- 입력 상태 (EventSystem)
+	struct PointerState
+	{
+		bool WasDown = false;
+		UISelectable* Pressed = nullptr;         // 누른 Selectable (같은 곳에서 떼면 Click)
+		IUIDragHandler* DragTarget = nullptr;    // 끌기를 받을 것 (Slider, ScrollRect)
+		Component* DragComponent = nullptr;      // DragTarget 의 컴포넌트 (살아 있는지 확인용)
+		bool Dragging = false;
+		Vec2 DownPos = Vec2(0, 0), LastPos = Vec2(0, 0);
+		UISelectable* Selected = nullptr;        // 키보드 포커스 (InputField)
+	} s_Pointer;
+
+	struct DrawItem
+	{
+		UIGraphic* Graphic;
+		bool Clip;
+		Vec4 ClipRect;   // 캔버스 월드 minX, minY, maxX, maxY
+		bool Visible;    // Mask 의 Show Mask Graphic 이 꺼져 있으면 그리지 않고 클릭만
+	};
 
 	bool ActiveInHierarchy(GameObject* go)
 	{
@@ -31,6 +54,9 @@ namespace
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
 		return scene && go && scene->FindByFileID(go->GetFileID()) == go;
 	}
+
+	template <typename T>
+	bool IsLive(T* p, const std::vector<T*>& all) { return p && std::find(all.begin(), all.end(), p) != all.end(); }
 
 	// 부모 쪽에 켜진 Canvas 가 없는 Canvas (= 화면에 그리는 루트 캔버스), Sort Order 순
 	std::vector<Canvas*> RootCanvases()
@@ -66,16 +92,47 @@ namespace
 		}
 	}
 
-	// 그리는 순서 (Hierarchy 위 → 아래, 부모 → 자식)
-	void CollectGraphics(GameObject* go, std::vector<UIGraphic*>& out)
+	// 사각형의 캔버스 월드 경계 상자 (Mask 잘라내기)
+	Vec4 WorldBounds(RectTransform* rt, const Vec4& padding = Vec4(0, 0, 0, 0))
+	{
+		Vec3 k[4];
+		rt->GetWorldCorners(k);
+		Vec4 r(FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX);
+		for (const Vec3& p : k)
+		{
+			r.x = (std::min)(r.x, p.x); r.y = (std::min)(r.y, p.y);
+			r.z = (std::max)(r.z, p.x); r.w = (std::max)(r.w, p.y);
+		}
+		return Vec4(r.x + padding.x, r.y + padding.y, r.z - padding.z, r.w - padding.w);
+	}
+
+	Vec4 Intersect(const Vec4& a, const Vec4& b)
+	{
+		return Vec4((std::max)(a.x, b.x), (std::max)(a.y, b.y), (std::min)(a.z, b.z), (std::min)(a.w, b.w));
+	}
+
+	// 그리는 순서 (Hierarchy 위 → 아래, 부모 → 자식), Mask / RectMask2D 는 자식을 자기 사각형으로 자른다
+	void CollectGraphics(GameObject* go, std::vector<DrawItem>& out, bool clip, const Vec4& clipRect)
 	{
 		if (!go->IsActive())
 			return;
+		Mask* mask = go->GetComponent<Mask>();
+		if (mask && !mask->IsEnabled()) mask = nullptr;
 		for (auto& c : go->GetComponents())
 			if (auto* g = dynamic_cast<UIGraphic*>(c.get()); g && g->IsEnabled())
-				out.push_back(g);
+				out.push_back({ g, clip, clipRect, !(mask && !mask->ShowMaskGraphic()) });
+		bool childClip = clip;
+		Vec4 childRect = clipRect;
+		RectTransform* rt = go->GetComponent<RectTransform>();
+		RectMask2D* rm = go->GetComponent<RectMask2D>();
+		if (rt && ((mask) || (rm && rm->IsEnabled())))
+		{
+			const Vec4 own = WorldBounds(rt, rm && rm->IsEnabled() ? rm->GetPadding() : Vec4(0, 0, 0, 0));
+			childRect = clip ? Intersect(clipRect, own) : own;
+			childClip = true;
+		}
 		for (GameObject* child : go->GetChildren())
-			CollectGraphics(child, out);
+			CollectGraphics(child, out, childClip, childRect);
 	}
 
 	void GameScreenSize(float& w, float& h)
@@ -86,75 +143,149 @@ namespace
 		h = gh > 0 ? (float)gh : 1080.0f;
 	}
 
-	bool IsLiveButton(Button* b)
+	// 맞은 그래픽에서 부모 쪽으로: 처음 만나는 Selectable / 끌기 / 휠 대상 (Unity 이벤트 버블링)
+	template <typename T>
+	T* FindUp(GameObject* go)
 	{
-		return b && std::find(Button::All().begin(), Button::All().end(), b) != Button::All().end();
+		for (GameObject* g = go; g != nullptr; g = g->GetParent())
+			for (auto& c : g->GetComponents())
+				if (T* t = dynamic_cast<T*>(c.get()); t && c->IsEnabled())
+					return t;
+		return nullptr;
 	}
 
-	Button* ButtonFor(GameObject* go)
+	bool DragTargetAlive()
 	{
-		// 맞은 그래픽에서 부모 쪽으로 처음 만나는 Button (Unity 의 이벤트 버블링)
-		for (GameObject* g = go; g != nullptr; g = g->GetParent())
-			if (Button* b = g->GetComponent<Button>(); b && b->IsEnabled())
-				return b;
-		return nullptr;
+		if (s_Pointer.DragComponent == nullptr)
+			return false;
+		if (auto* s = dynamic_cast<UISelectable*>(s_Pointer.DragComponent))
+			return IsLive(s, UISelectable::All());
+		if (auto* sr = dynamic_cast<ScrollRect*>(s_Pointer.DragComponent))
+			return IsLive(sr, ScrollRect::All());
+		return false;
+	}
+
+	void Select(UISelectable* s)
+	{
+		if (!IsLive(s_Pointer.Selected, UISelectable::All()))
+			s_Pointer.Selected = nullptr;
+		if (s == s_Pointer.Selected)
+			return;
+		UISelectable* old = s_Pointer.Selected;
+		s_Pointer.Selected = s;
+		if (old)
+			old->OnDeselect();
+		if (s)
+			s->OnSelect();
 	}
 
 	void ProcessInput(const std::vector<Canvas*>& roots)
 	{
 		float mx = 0.0f, my = 0.0f;
 		const bool inside = GameViewEditorWindow::MouseToGame(mx, my) && GameViewEditorWindow::HasInputFocus();
-		Button* hovered = nullptr;
+		const Vec2 mouse(mx, my);
+		GameObject* hitObject = nullptr;
 		if (inside)
 		{
-			// 위에 그려진 캔버스(Sort Order 큰 것)와 나중에 그려진 그래픽부터
-			for (auto it = roots.rbegin(); it != roots.rend(); ++it)
+			// 위에 그려진 캔버스(Sort Order 큰 것)와 나중에 그린 그래픽부터 (Mask 밖은 맞지 않음)
+			for (auto it = roots.rbegin(); it != roots.rend() && hitObject == nullptr; ++it)
 			{
 				GameObject* cgo = (*it)->GetGameObject();
 				GraphicRaycaster* ray = cgo->GetComponent<GraphicRaycaster>();
 				if (ray == nullptr || !ray->IsEnabled())
 					continue;
-				std::vector<UIGraphic*> graphics;
-				CollectGraphics(cgo, graphics);
-				UIGraphic* hit = nullptr;
-				for (auto g = graphics.rbegin(); g != graphics.rend(); ++g)
+				std::vector<DrawItem> items;
+				CollectGraphics(cgo, items, false, Vec4());
+				for (auto g = items.rbegin(); g != items.rend(); ++g)
 				{
-					if (!(*g)->IsRaycastTarget())
+					if (!g->Graphic->IsRaycastTarget())
 						continue;
-					RectTransform* rt = (*g)->GetRect();
-					if (rt && rt->ContainsWorldPoint(Vec2(mx, my)))
+					if (g->Clip && (mx < g->ClipRect.x || mx > g->ClipRect.z || my < g->ClipRect.y || my > g->ClipRect.w))
+						continue;
+					RectTransform* rt = g->Graphic->GetRect();
+					if (rt && rt->ContainsWorldPoint(mouse))
 					{
-						hit = *g;
+						hitObject = g->Graphic->GetGameObject();
 						break;
 					}
 				}
-				if (hit)
-				{
-					hovered = ButtonFor(hit->GetGameObject());
-					break;   // 맞은 그래픽이 아래 캔버스를 가린다
-				}
 			}
 		}
+		UISelectable* hovered = hitObject ? FindUp<UISelectable>(hitObject) : nullptr;
 		if (hovered && !hovered->IsInteractable())
 			hovered = nullptr;
 
-		const bool down = ImGui::GetIO().MouseDown[0];
-		if (!IsLiveButton(s_Pressed))
-			s_Pressed = nullptr;
-		if (down && !s_WasDown)
-			s_Pressed = hovered;   // 누른 버튼
-		Button* clicked = nullptr;
-		if (!down && s_WasDown)
+		const ImGuiIO& io = ImGui::GetIO();
+		const bool down = io.MouseDown[0] && (inside || s_Pointer.WasDown);
+		if (!IsLive(s_Pointer.Pressed, UISelectable::All()))
+			s_Pointer.Pressed = nullptr;
+		if (!DragTargetAlive())
 		{
-			if (s_Pressed && s_Pressed == hovered)
-				clicked = s_Pressed;   // 같은 버튼 위에서 뗌 = 클릭
-			s_Pressed = nullptr;
+			s_Pointer.DragTarget = nullptr;
+			s_Pointer.DragComponent = nullptr;
+			s_Pointer.Dragging = false;
 		}
-		s_WasDown = down;
-		for (Button* b : Button::All())
-			b->SetPointer(b == hovered, b == s_Pressed && down);
+
+		UISelectable* clicked = nullptr;
+		if (down && !s_Pointer.WasDown)
+		{
+			// 누름: Selectable, 끌기 대상, 선택(포커스) 결정
+			s_Pointer.Pressed = hovered;
+			s_Pointer.DownPos = s_Pointer.LastPos = mouse;
+			s_Pointer.Dragging = false;
+			s_Pointer.DragTarget = hitObject ? FindUp<IUIDragHandler>(hitObject) : nullptr;
+			s_Pointer.DragComponent = s_Pointer.DragTarget ? dynamic_cast<Component*>(s_Pointer.DragTarget) : nullptr;
+			if (auto* s = dynamic_cast<UISelectable*>(s_Pointer.DragComponent); s && !s->IsInteractable())
+				s_Pointer.DragTarget = nullptr, s_Pointer.DragComponent = nullptr;
+			Select(hovered);   // 빈 곳을 누르면 선택 해제 (InputField 입력 끝)
+			if (hovered)
+				hovered->OnPointerDown(mouse);
+			if (s_Pointer.DragTarget && s_Pointer.DragTarget->DragsImmediately())
+			{
+				s_Pointer.Dragging = true;
+				s_Pointer.DragTarget->OnBeginDrag(mouse);
+			}
+		}
+		else if (down && s_Pointer.WasDown)
+		{
+			// 끄는 중: 조금 움직이면 끌기 시작 (ScrollRect 안의 버튼은 클릭 취소)
+			if (s_Pointer.DragTarget && !s_Pointer.Dragging && (mouse - s_Pointer.DownPos).Length() > kDragThreshold)
+			{
+				s_Pointer.Dragging = true;
+				s_Pointer.DragTarget->OnBeginDrag(s_Pointer.DownPos);
+				if (s_Pointer.Pressed && dynamic_cast<Component*>(s_Pointer.Pressed) != s_Pointer.DragComponent)
+					s_Pointer.Pressed = nullptr;
+			}
+			if (s_Pointer.Dragging && s_Pointer.DragTarget && (mouse - s_Pointer.LastPos).LengthSquared() > 0.0f)
+				s_Pointer.DragTarget->OnDrag(mouse, mouse - s_Pointer.LastPos);
+			s_Pointer.LastPos = mouse;
+		}
+		else if (!down && s_Pointer.WasDown)
+		{
+			// 뗌: 같은 Selectable 위면 클릭
+			if (s_Pointer.Dragging && s_Pointer.DragTarget)
+				s_Pointer.DragTarget->OnEndDrag(mouse);
+			if (s_Pointer.Pressed && s_Pointer.Pressed == hovered)
+				clicked = s_Pointer.Pressed;
+			s_Pointer.Pressed = nullptr;
+			s_Pointer.DragTarget = nullptr;
+			s_Pointer.DragComponent = nullptr;
+			s_Pointer.Dragging = false;
+		}
+		s_Pointer.WasDown = down;
+
+		// 휠 → ScrollRect
+		const float wheel = GameViewEditorWindow::ScrollDelta();
+		if (wheel != 0.0f && hitObject)
+			if (IUIScrollHandler* sh = FindUp<IUIScrollHandler>(hitObject))
+				sh->OnScroll(wheel);
+
+		for (UISelectable* s : UISelectable::All())
+			s->SetPointer(s == hovered, s == s_Pointer.Pressed && down);
 		if (clicked)
-			clicked->Click();
+			clicked->OnClick();
+		if (IsLive(s_Pointer.Selected, UISelectable::All()))
+			s_Pointer.Selected->OnUpdateSelected();
 	}
 
 	// 게임 화면 픽셀(왼쪽 아래 0,0) → NDC
@@ -170,11 +301,26 @@ namespace
 		return m;
 	}
 
-	GameObject* NewUIObject(const std::string& name)
+	void DrawItems(UIRenderer& r, const std::vector<DrawItem>& items, float scale)
+	{
+		for (const DrawItem& item : items)
+		{
+			if (!item.Visible)
+				continue;
+			r.SetClip(item.Clip, item.ClipRect);
+			item.Graphic->Populate(r, scale);
+		}
+		r.SetClip(false);
+	}
+
+	// ---------------------------------------------------------------- 만들기 (GameObject > UI)
+	GameObject* NewUIObject(const std::string& name, GameObject* parent = nullptr)
 	{
 		GameObject* go = GameObjectFactory::CreateEmpty(name);
 		go->SetLayerIndex(kUILayer);
 		UISystem::EnsureRectTransform(go);
+		if (parent)
+			go->SetParent(parent, false);
 		return go;
 	}
 
@@ -208,13 +354,50 @@ namespace
 		return go;
 	}
 
-	void SetRect(GameObject* go, Vec2 anchorMin, Vec2 anchorMax, Vec2 sizeDelta)
+	RectTransform* RT(GameObject* go) { return go->GetComponent<RectTransform>(); }
+
+	void SetRect(GameObject* go, Vec2 anchorMin, Vec2 anchorMax, Vec2 sizeDelta, Vec2 pos = Vec2(0, 0), Vec2 pivot = Vec2(0.5f, 0.5f))
 	{
-		RectTransform* rt = go->GetComponent<RectTransform>();
+		RectTransform* rt = RT(go);
 		rt->SetAnchorMin(anchorMin);
 		rt->SetAnchorMax(anchorMax);
-		rt->SetAnchoredPosition(Vec2(0, 0));
+		rt->SetPivot(pivot);
+		rt->SetAnchoredPosition(pos);
 		rt->SetSizeDelta(sizeDelta);
+	}
+
+	// 늘어나는 사각형: 여백(왼, 아래, 오른, 위)
+	void SetStretch(GameObject* go, Vec2 anchorMin, Vec2 anchorMax, float left, float bottom, float right, float top)
+	{
+		RectTransform* rt = RT(go);
+		rt->SetAnchorMin(anchorMin);
+		rt->SetAnchorMax(anchorMax);
+		rt->SetPivot(Vec2(0.5f, 0.5f));
+		rt->SetOffsets(Vec2(left, bottom), Vec2(-right, -top));
+	}
+
+	std::shared_ptr<UIImage> AddImage(GameObject* go, const char* sprite, bool sliced, const float color[4] = nullptr)
+	{
+		auto img = std::make_shared<UIImage>();
+		if (sprite)
+			img->SetSprite(sprite);
+		if (sliced)
+			img->SetImageType(UIImage::Type::Sliced);
+		if (color)
+			img->SetColor(color);
+		go->AddComponent(img);
+		return img;
+	}
+
+	std::shared_ptr<Text> AddText(GameObject* go, const char* s, int size, const float color[4], int alignment)
+	{
+		auto text = std::make_shared<Text>();
+		text->SetText(s);
+		text->SetFontSize(size);
+		text->SetColor(color);
+		text->SetAlignment(alignment);
+		go->AddComponent(text);
+		return text;
 	}
 }
 
@@ -222,9 +405,23 @@ namespace UISystem
 {
 	int LastDrawCalls() { return s_DrawCalls; }
 
+	void ClearSelection() { Select(nullptr); }
+
+	void OnSceneUnloading()
+	{
+		// 씬을 지우기 전에: 선택(InputField 는 여기서 On End Edit)과 누르고 있던/끌던 대상을 놓는다
+		Select(nullptr);
+		s_Pointer.Pressed = nullptr;
+		s_Pointer.DragTarget = nullptr;
+		s_Pointer.DragComponent = nullptr;
+		s_Pointer.Dragging = false;
+	}
+
 	void EnsureRectTransform(GameObject* go)
 	{
-		if (go == nullptr || go->GetComponent<RectTransform>() != nullptr)
+		// 스크립트가 AddComponent 로 대기열에 넣은 RectTransform 이 있으면 그것을 쓴다 (빌드된 게임은 첫 프레임 전에 Start 가 돌아 여기서 먼저 만나고,
+		// 새로 만들면 스크립트가 값을 넣은 쪽이 가려진다)
+		if (go == nullptr || go->GetComponentIncludingPending<RectTransform>() != nullptr)
 			return;
 		auto rt = std::make_shared<RectTransform>();
 		go->AddComponent(rt);
@@ -239,7 +436,8 @@ namespace UISystem
 	{
 		if (go == nullptr || added == nullptr || go->GetComponentIncludingPending<RectTransform>() != nullptr)
 			return;
-		if (dynamic_cast<UIGraphic*>(added) || dynamic_cast<Button*>(added) || dynamic_cast<Canvas*>(added))
+		if (dynamic_cast<UIGraphic*>(added) || dynamic_cast<UISelectable*>(added) || dynamic_cast<Canvas*>(added) ||
+			dynamic_cast<Mask*>(added) || dynamic_cast<RectMask2D*>(added) || dynamic_cast<ScrollRect*>(added))
 			go->QueueComponent(std::make_shared<RectTransform>());
 	}
 
@@ -250,8 +448,19 @@ namespace UISystem
 			return;
 		// UI 컴포넌트가 붙은 오브젝트는 RectTransform 을 갖는다 (Add Component 로 붙였을 때)
 		for (UIGraphic* g : UIGraphic::All()) EnsureRectTransform(g->GetGameObject());
-		for (Button* b : Button::All()) EnsureRectTransform(b->GetGameObject());
+		for (UISelectable* s : UISelectable::All()) EnsureRectTransform(s->GetGameObject());
 		for (Canvas* c : Canvas::All()) EnsureRectTransform(c->GetGameObject());
+		for (ScrollRect* s : ScrollRect::All()) EnsureRectTransform(s->GetGameObject());
+
+		const bool playing = Application::IsPlaying();
+		const bool running = playing && !Application::IsPaused();
+		const float dt = ImGui::GetIO().DeltaTime;
+
+		// 레이아웃 전: Slider 의 Fill/Handle, Toggle 체크 표시, InputField 글자, ScrollRect 관성/복귀
+		for (UISelectable* s : UISelectable::All())
+			s->UpdateBeforeLayout(dt, playing);
+		for (ScrollRect* s : ScrollRect::All())
+			s->UpdateBeforeLayout(running ? dt : 0.0f, running);
 
 		float w, h;
 		GameScreenSize(w, h);
@@ -278,19 +487,22 @@ namespace UISystem
 			LayoutTree(go, rt->GetRectMin(), rt->GetRectSize());
 		}
 
-		const bool playing = Application::IsPlaying();
-		if (playing && !Application::IsPaused() && EventSystem::AnyActive())
+		if (running && EventSystem::AnyActive())
 			ProcessInput(roots);
 		else
 		{
-			s_Pressed = nullptr;
-			s_WasDown = false;
-			for (Button* b : Button::All())
-				b->SetPointer(false, false);
+			if (!playing)
+				Select(nullptr);
+			s_Pointer.Pressed = nullptr;
+			s_Pointer.DragTarget = nullptr;
+			s_Pointer.DragComponent = nullptr;
+			s_Pointer.Dragging = false;
+			s_Pointer.WasDown = false;
+			for (UISelectable* s : UISelectable::All())
+				s->SetPointer(false, false);
 		}
-		const float dt = ImGui::GetIO().DeltaTime;
-		for (Button* b : Button::All())
-			b->UpdateVisual(dt, playing);
+		for (UISelectable* s : UISelectable::All())
+			s->UpdateVisual(dt, playing);
 	}
 
 	void RenderGameView(ID3D11RenderTargetView* rtv, UINT width, UINT height, int display)
@@ -301,10 +513,9 @@ namespace UISystem
 		{
 			if (c->GetTargetDisplay() != display)
 				continue;
-			std::vector<UIGraphic*> graphics;
-			CollectGraphics(c->GetGameObject(), graphics);
-			for (UIGraphic* g : graphics)
-				g->Populate(r, c->GetScaleFactor());
+			std::vector<DrawItem> items;
+			CollectGraphics(c->GetGameObject(), items, false, Vec4());
+			DrawItems(r, items, c->GetScaleFactor());
 		}
 		r.Flush(rtv, width, height, ScreenOrtho((float)width, (float)height));
 		s_DrawCalls = r.LastDrawCalls();
@@ -320,12 +531,11 @@ namespace UISystem
 		// (캔버스 / 선택 요소의 테두리는 1 픽셀 선이라 Canvas / RectTransform::OnDrawGizmos 가 오버레이로 그린다)
 		for (Canvas* c : roots)
 		{
-			std::vector<UIGraphic*> graphics;
-			CollectGraphics(c->GetGameObject(), graphics);
-			for (UIGraphic* g : graphics)
-				g->Populate(r, c->GetScaleFactor());
+			std::vector<DrawItem> items;
+			CollectGraphics(c->GetGameObject(), items, false, Vec4());
+			DrawItems(r, items, c->GetScaleFactor());
 		}
-		// 캔버스는 1 픽셀 = 1 단위라 매우 크다: 캔버스 전체를 보면 Scene 카메라의 Far 보다 멀어지므로
+		// 캔버스는 1 픽셀 = 1 단위라 매우 크다: 캔버스 전체를 보면 Scene 카메라의 Far 보다 멀어질 수 있으므로
 		// Far 를 무한으로 바꾼 투영으로 그린다 (Unity Scene 뷰의 Dynamic Clipping 과 같은 효과, 깊이 비교는 하지 않음)
 		Matrix p = proj;
 		if (fabsf(p._44) < 1e-4f && fabsf(p._33) > 1e-6f)
@@ -373,53 +583,120 @@ namespace UISystem
 		if (parent == nullptr)
 			parent = CreateCanvas(scene);
 
+		const float white[4] = { 1, 1, 1, 1 };
+		const float dark[4] = { 0.196f, 0.196f, 0.196f, 1.0f };
 		GameObject* go = nullptr;
 		if (kind == "Image")
 		{
 			go = NewUIObject("Image");
-			go->AddComponent(std::make_shared<UIImage>());
+			AddImage(go, nullptr, false);
 			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(100, 100));
 		}
 		else if (kind == "Text")
 		{
 			go = NewUIObject("Text");
-			auto text = std::make_shared<Text>();
-			text->SetFontSize(36);
-			const float white[4] = { 1, 1, 1, 1 };
-			text->SetColor(white);
-			go->AddComponent(text);
+			AddText(go, "New Text", 36, white, 0);
 			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(200, 50));
 		}
 		else if (kind == "Button")
 		{
 			go = NewUIObject("Button");
-			auto img = std::make_shared<UIImage>();
-			img->SetSprite("builtin:UISprite");
-			img->SetImageType(UIImage::Type::Sliced);
-			go->AddComponent(img);
+			AddImage(go, "builtin:UISprite", true);
 			go->AddComponent(std::make_shared<Button>());
 			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(160, 30));
-			GameObject* label = NewUIObject("Text");
-			auto text = std::make_shared<Text>();
-			text->SetText("Button");
-			text->SetFontSize(24);
-			text->SetAlignment(4);   // Middle Center
-			const float dark[4] = { 0.196f, 0.196f, 0.196f, 1.0f };
-			text->SetColor(dark);
-			label->AddComponent(text);
-			SetRect(label, Vec2(0, 0), Vec2(1, 1), Vec2(0, 0));
-			label->SetParent(go, false);
+			GameObject* label = NewUIObject("Text", go);
+			AddText(label, "Button", 24, dark, 4);
+			SetStretch(label, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
 		}
 		else if (kind == "Panel")
 		{
 			go = NewUIObject("Panel");
-			auto img = std::make_shared<UIImage>();
-			img->SetSprite("builtin:Background");
-			img->SetImageType(UIImage::Type::Sliced);
 			const float c[4] = { 1.0f, 1.0f, 1.0f, 0.392f };
-			img->SetColor(c);
-			go->AddComponent(img);
-			SetRect(go, Vec2(0, 0), Vec2(1, 1), Vec2(0, 0));
+			AddImage(go, "builtin:Background", true, c);
+			SetStretch(go, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
+		}
+		else if (kind == "Toggle")
+		{
+			// Unity: Toggle > Background > Checkmark, Label
+			go = NewUIObject("Toggle");
+			auto toggle = std::make_shared<Toggle>();
+			go->AddComponent(toggle);
+			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(160, 20));
+			GameObject* bg = NewUIObject("Background", go);
+			AddImage(bg, "builtin:UISprite", true);
+			SetRect(bg, Vec2(0, 1), Vec2(0, 1), Vec2(20, 20), Vec2(10, -10));
+			GameObject* check = NewUIObject("Checkmark", bg);
+			AddImage(check, "builtin:Checkmark", false, dark);
+			SetRect(check, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(20, 20));
+			GameObject* label = NewUIObject("Label", go);
+			AddText(label, "Toggle", 14, dark, 3);
+			SetStretch(label, Vec2(0, 0), Vec2(1, 1), 23, 1, 5, 3);
+			// Target Graphic = Background, Graphic = Checkmark (Unity 와 같음)
+			toggle->fromJson(json{ { "targetGraphic", bg->GetFileID() }, { "graphic", check->GetFileID() }, { "isOn", true } });
+		}
+		else if (kind == "Slider")
+		{
+			// Unity: Slider > Background, Fill Area > Fill, Handle Slide Area > Handle
+			go = NewUIObject("Slider");
+			auto slider = std::make_shared<Slider>();
+			go->AddComponent(slider);
+			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(160, 20));
+			GameObject* bg = NewUIObject("Background", go);
+			const float bgColor[4] = { 0.8f, 0.8f, 0.8f, 1.0f };
+			AddImage(bg, "builtin:Background", true, bgColor);
+			SetStretch(bg, Vec2(0, 0.25f), Vec2(1, 0.75f), 0, 0, 0, 0);
+			GameObject* fillArea = NewUIObject("Fill Area", go);
+			SetStretch(fillArea, Vec2(0, 0.25f), Vec2(1, 0.75f), 5, 0, 15, 0);
+			GameObject* fill = NewUIObject("Fill", fillArea);
+			AddImage(fill, "builtin:UISprite", true);
+			SetRect(fill, Vec2(0, 0), Vec2(0, 1), Vec2(10, 0));
+			GameObject* handleArea = NewUIObject("Handle Slide Area", go);
+			SetStretch(handleArea, Vec2(0, 0), Vec2(1, 1), 10, 0, 10, 0);
+			GameObject* handle = NewUIObject("Handle", handleArea);
+			AddImage(handle, "builtin:Knob", false);
+			SetRect(handle, Vec2(0, 0), Vec2(0, 1), Vec2(20, 0));
+			slider->fromJson(json{ { "targetGraphic", handle->GetFileID() }, { "fillRect", fill->GetFileID() }, { "handleRect", handle->GetFileID() }, { "value", 0.0f } });
+		}
+		else if (kind == "InputField")
+		{
+			// Unity: InputField > Text Area(RectMask2D) > Placeholder, Text
+			go = NewUIObject("InputField");
+			AddImage(go, "builtin:InputFieldBackground", true);
+			auto input = std::make_shared<InputField>();
+			go->AddComponent(input);
+			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(160, 30));
+			GameObject* area = NewUIObject("Text Area", go);
+			area->AddComponent(std::make_shared<RectMask2D>());
+			SetStretch(area, Vec2(0, 0), Vec2(1, 1), 10, 6, 10, 7);
+			GameObject* ph = NewUIObject("Placeholder", area);
+			const float phColor[4] = { 0.196f, 0.196f, 0.196f, 0.5f };
+			auto phText = AddText(ph, "Enter text...", 14, phColor, 3);
+			phText->SetStyle(Text::Style::Italic);
+			phText->SetOverflow(Text::HOverflow::Overflow, Text::VOverflow::Overflow);
+			SetStretch(ph, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
+			GameObject* textGo = NewUIObject("Text", area);
+			auto text = AddText(textGo, "", 14, dark, 3);
+			text->SetOverflow(Text::HOverflow::Overflow, Text::VOverflow::Overflow);
+			text->SetRaycastTarget(false);
+			phText->SetRaycastTarget(false);
+			SetStretch(textGo, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
+			input->SetTextComponents(textGo->GetFileID(), ph->GetFileID());
+		}
+		else if (kind == "ScrollView")
+		{
+			// Unity: Scroll View(ScrollRect, Image) > Viewport(RectMask2D) > Content
+			go = NewUIObject("Scroll View");
+			const float c[4] = { 1.0f, 1.0f, 1.0f, 0.392f };
+			AddImage(go, "builtin:Background", true, c);
+			auto scroll = std::make_shared<ScrollRect>();
+			go->AddComponent(scroll);
+			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(200, 200));
+			GameObject* viewport = NewUIObject("Viewport", go);
+			viewport->AddComponent(std::make_shared<RectMask2D>());
+			SetStretch(viewport, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
+			GameObject* content = NewUIObject("Content", viewport);
+			SetRect(content, Vec2(0, 1), Vec2(1, 1), Vec2(0, 300), Vec2(0, 0), Vec2(0, 1));
+			scroll->SetContent(content->GetFileID(), viewport->GetFileID());
 		}
 		if (go == nullptr)
 			return nullptr;

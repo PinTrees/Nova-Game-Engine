@@ -255,14 +255,16 @@ namespace NovaEngine.Interop
             return 0;
         }
 
-        // C# 에서 AddListener 로 등록한 UI 이벤트 (kind 0 = Button.onClick)
+        // C# 에서 AddListener 로 등록한 UI 이벤트
+        // kind 0 Button.onClick, 1 Slider.onValueChanged(number), 2 Toggle.onValueChanged(number != 0),
+        //      3 InputField.onValueChanged(text), 4 InputField.onEndEdit(text), -1 = 모두 비우기
         [UnmanagedCallersOnly]
-        public static void InvokeUIEvent(ulong gameObjectId, int kind)
+        public static void InvokeUIEvent(ulong gameObjectId, int kind, float number, byte* textUtf8)
         {
             try
             {
                 if (kind < 0) NovaEngine.UI.UIEvents.Clear();   // Play 시작/끝: 이전 리스너 정리
-                else NovaEngine.UI.UIEvents.Invoke(gameObjectId, kind);
+                else NovaEngine.UI.UIEvents.Invoke(gameObjectId, kind, number, Native.Str(textUtf8) ?? "");
             }
             catch (Exception e) { LogException(e); }
         }

@@ -28,6 +28,12 @@ public:
 	void SetStyle(Style s) { m_Style = s; }
 	void SetOverflow(HOverflow h, VOverflow v) { m_HOverflow = h; m_VOverflow = v; }
 
+	// InputField 의 입력 커서: 글자 순번(유니코드 문자 기준) 앞에 세로 막대. index < 0 이면 없음
+	void SetCaret(int index, bool visible, const float color[4]);
+	// 마지막으로 그린 커서 위치 (캔버스 월드, 커서 아래쪽) / 높이 — 한글 IME 조합 창 위치용
+	Vec3 GetCaretWorld() const { return m_CaretWorld; }
+	float GetCaretHeight() const { return m_CaretHeight; }
+
 	virtual void Populate(UIRenderer& renderer, float canvasScale) override;
 
 	virtual void OnInspectorGUI() override;
@@ -49,5 +55,12 @@ private:
 	bool m_BestFit = false;
 	int m_MinSize = 10, m_MaxSize = 40;
 	bool m_CharacterOpen = true, m_ParagraphOpen = true;
+
+	// 실행 중 (저장하지 않음)
+	int m_CaretIndex = -1;
+	bool m_CaretVisible = false;
+	float m_CaretColor[4] = { 0.196f, 0.196f, 0.196f, 1.0f };
+	Vec3 m_CaretWorld = Vec3(0, 0, 0);
+	float m_CaretHeight = 0.0f;
 };
 REGISTER_COMPONENT(Text)

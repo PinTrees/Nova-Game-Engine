@@ -17,6 +17,7 @@ private:
 	// Editor
 	std::vector<std::function<void()>> m_Editor_LastUpdateActions;
 	std::string m_PlayModeSceneSnapshot;
+	std::wstring m_PlayOriginalPath;   // Play 를 시작한 씬 (Play 중 다른 씬을 읽어도 Stop 하면 이 씬으로)
 
 	// 저장 이후 변경 여부 (Unity 의 "SampleScene*" 표시). 씬 JSON 해시를 저장 시점과 비교한다.
 	size_t m_SavedHash = 0;
@@ -53,6 +54,8 @@ public:
 	// Undo/Redo: 현재 씬을 JSON 상태로 다시 만든다 (경로 유지, 선택/Hierarchy 펼침 상태는 fileID 로 이어 간다)
 	void RestoreSceneState(const std::string& sceneJson);
 	void HandlePlay();
+	// Play 중 씬 바꾸기 (C# SceneManager.LoadScene): 이번 프레임 끝에 이전 씬을 내리고 새 씬을 읽어 Awake/Start
+	void LoadSceneDuringPlay(const std::wstring& scenePath);
 	void HandleStop();
 	void CreateScene();
 

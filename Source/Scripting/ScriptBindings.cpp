@@ -15,6 +15,8 @@
 #include "PhysicsManager.h"
 #include "UIScriptBindings.h"
 #include "UISystem.h"
+#include "BuildSettings.h"
+#include "PlayerRuntime.h"
 
 // C# 쪽 NativeApiTable(ScriptCore/Interop/NativeApi.cs)과 같은 순서·형식. 하나라도 어긋나면 Initialize 가 크기 불일치로 거부한다.
 namespace
@@ -102,6 +104,15 @@ namespace
 		void(*UI_SetVec)(uint64, int, Vec4*);
 		u8* (*UI_GetString)(uint64, int);
 		void(*UI_SetString)(uint64, int, u8*);
+
+		// 씬 / 앱
+		int(*Scene_Load)(u8*, int);
+		u8* (*Scene_Active)(int*);
+		u8* (*Scene_PathAt)(int);
+		int(*Scene_Count)();
+		int(*App_Info)(int);
+		u8* (*App_ProductName)();
+		void(*App_Quit)();
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -616,6 +627,72 @@ namespace
 		if (component)
 			static_cast<CSharpScript*>(component)->SetEnabledFromScript(enabled != 0);
 	}
+
+	// ---------------------------------------------------------------- 씬 / 앱
+	std::string NormalizeScenePath(std::string s)
+	{
+		std::replace(s.begin(), s.end(), '/', '\\');
+		return s;
+	}
+
+	int Scene_Load(u8* name, int index)
+	{
+		const std::vector<std::string> scenes = BuildSettings::RuntimeScenes();
+		std::string path;
+		if (name != nullptr)
+		{
+			// Unity: 이름("Level2"), 경로("Assets/Scenes/Level2.unity"), 확장자 없는 경로 모두 받는다
+			const std::string want = NormalizeScenePath(name);
+			for (const std::string& s : scenes)
+			{
+				const std::string norm = NormalizeScenePath(s);
+				const std::string stem = std::filesystem::path(norm).stem().string();
+				const std::string noExt = norm.size() > 6 ? norm.substr(0, norm.size() - 6) : norm;
+				if (_stricmp(norm.c_str(), want.c_str()) == 0 || _stricmp(stem.c_str(), want.c_str()) == 0 || _stricmp(noExt.c_str(), want.c_str()) == 0)
+				{
+					path = s;
+					break;
+				}
+			}
+		}
+		else if (index >= 0 && index < (int)scenes.size())
+			path = scenes[index];
+		if (path.empty())
+			return 0;
+		if (Application::IsPlaying())
+			SceneManager::GetI()->LoadSceneDuringPlay(string_to_wstring(path));
+		return 1;
+	}
+
+	u8* Scene_Active(int* buildIndex)
+	{
+		Scene* scene = CurrentScene();
+		const std::string path = scene ? wstring_to_string(scene->GetScenePath()) : std::string();
+		if (buildIndex)
+		{
+			*buildIndex = -1;
+			const std::vector<std::string> scenes = BuildSettings::RuntimeScenes();
+			for (int i = 0; i < (int)scenes.size(); ++i)
+				if (_stricmp(NormalizeScenePath(scenes[i]).c_str(), NormalizeScenePath(path).c_str()) == 0)
+					*buildIndex = i;
+		}
+		return Ret(path);
+	}
+
+	u8* Scene_PathAt(int index)
+	{
+		const std::vector<std::string> scenes = BuildSettings::RuntimeScenes();
+		return index >= 0 && index < (int)scenes.size() ? Ret(scenes[index]) : nullptr;
+	}
+
+	int Scene_Count() { return (int)BuildSettings::RuntimeScenes().size(); }
+	int App_Info(int what) { return what == 0 && Application::IsPlayer() ? 1 : 0; }
+	u8* App_ProductName() { return Ret(BuildSettings::ProductName()); }
+	void App_Quit()
+	{
+		if (Application::IsPlayer())
+			PlayerRuntime::Quit();
+	}
 }
 
 namespace ScriptBindings
@@ -653,6 +730,13 @@ namespace ScriptBindings
 		t.UI_SetVec = UIScriptBindings::SetVec;
 		t.UI_GetString = UIScriptBindings::GetString;
 		t.UI_SetString = UIScriptBindings::SetString;
+		t.Scene_Load = Scene_Load;
+		t.Scene_Active = Scene_Active;
+		t.Scene_PathAt = Scene_PathAt;
+		t.Scene_Count = Scene_Count;
+		t.App_Info = App_Info;
+		t.App_ProductName = App_ProductName;
+		t.App_Quit = App_Quit;
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

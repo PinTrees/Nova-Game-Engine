@@ -105,12 +105,23 @@ namespace NovaEngine.Interop
         //  벡터: 0 anchoredPosition, 1 sizeDelta, 2 anchorMin, 3 anchorMax, 4 pivot, 5 rect(x,y,w,h), 6 offsetMin, 7 offsetMax
         //        Graphic(+0 Image, +100 Text): 10 color, 11 raycastTarget, 12 enabled
         //        Image: 20 fillAmount, 21 type, 22 fillMethod, 23 fillOrigin, 24 preserveAspect, 25 SetNativeSize
-        //        Text: 30 fontSize, 31 alignment, 32 lineSpacing, 33 fontStyle / Button: 40 interactable, 41 enabled / Canvas: 50 sortingOrder, 51 scaleFactor
-        //  문자열: 0 Text.text, 1 Text.font, 2 Image.sprite
+        //        Text: 30 fontSize, 31 alignment, 32 lineSpacing, 33 fontStyle / Selectable: 40 interactable, 41 enabled / Canvas: 50 sortingOrder, 51 scaleFactor
+        //        Slider: 60 value, 61 min, 62 max, 63 wholeNumbers, 64 normalizedValue, 65 value(알림 없이)
+        //        Toggle: 70 isOn, 71 isOn(알림 없이) / InputField: 75 characterLimit, 76 isFocused / ScrollRect: 80 normalizedPosition
+        //  문자열: 0 Text.text, 1 Text.font, 2 Image.sprite, 3 InputField.text, 4 InputField.text(알림 없이)
         public delegate* unmanaged<ulong, int, Vector4*, int> UI_GetVec;
         public delegate* unmanaged<ulong, int, Vector4*, void> UI_SetVec;
         public delegate* unmanaged<ulong, int, byte*> UI_GetString;
         public delegate* unmanaged<ulong, int, byte*, void> UI_SetString;
+
+        // 씬 / 앱 (SceneManagement, Application)
+        public delegate* unmanaged<byte*, int, int> Scene_Load;          // 이름·경로 (null 이면 index) → 1 = 시작함
+        public delegate* unmanaged<int*, byte*> Scene_Active;            // 활성 씬 경로, buildIndex
+        public delegate* unmanaged<int, byte*> Scene_PathAt;             // 빌드 목록 i 번째 경로 (없으면 null)
+        public delegate* unmanaged<int> Scene_Count;                     // 빌드 목록 수
+        public delegate* unmanaged<int, int> App_Info;                   // 0 = 플레이어인지
+        public delegate* unmanaged<byte*> App_ProductName;
+        public delegate* unmanaged<void> App_Quit;
     }
 
     internal static unsafe class Native

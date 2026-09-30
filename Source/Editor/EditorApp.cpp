@@ -3,6 +3,7 @@
 #include "Volume.h"
 #include "ScriptEngine.h"
 #include "UISystem.h"
+#include "PlayerRuntime.h"
 #include "SceneToolbar.h"
 #include "EngineInfo.h"
 #include "MathHelper.h"
@@ -67,7 +68,8 @@ bool EditorApp::Init()
 {
 	std::ofstream log("run_log.txt", std::ios::app);
 	log << "EditorApp::Init -> App::Init..." << std::endl; log.flush();
-	LoadingScreen::Begin(L"Opening project...");
+	if (!Application::IsPlayer())   // 빌드된 게임에는 에디터 로딩 창을 띄우지 않는다
+		LoadingScreen::Begin(L"Opening project...");
 	if (!App::Init())
 	{
 		LoadingScreen::End();
@@ -178,6 +180,9 @@ bool EditorApp::Init()
 		0.5f * (maxPt.z - minPt.z));
 	
 	_sceneBounds.Radius = sqrtf(extent.x * extent.x + extent.y * extent.y + extent.z * extent.z);
+
+	if (Application::IsPlayer())
+		PlayerRuntime::Start();   // 빌드된 게임: 첫 씬을 바로 Play
 
 	return true;
 }

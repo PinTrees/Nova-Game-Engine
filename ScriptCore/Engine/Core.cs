@@ -158,7 +158,8 @@ namespace NovaEngine
             if (type == typeof(Transform) || type == typeof(Component)) return transform;
             // 추상 UI 타입: 실제 컴포넌트로 (Image → Text 순)
             if (type == typeof(UI.Graphic)) return GetComponent(typeof(UI.Image)) ?? GetComponent(typeof(UI.Text));
-            if (type == typeof(UI.Selectable)) return GetComponent(typeof(UI.Button));
+            if (type == typeof(UI.Selectable))
+                return GetComponent(typeof(UI.Button)) ?? GetComponent(typeof(UI.Toggle)) ?? GetComponent(typeof(UI.Slider)) ?? GetComponent(typeof(UI.InputField));
             if (typeof(MonoBehaviour).IsAssignableFrom(type) || type == typeof(Behaviour))
             {
                 foreach (var s in ScriptRegistry.Get(m_Id)) if (type.IsInstanceOfType(s)) return s;
@@ -267,6 +268,12 @@ namespace NovaEngine
             if (typeof(UI.Image).IsAssignableFrom(t)) return "UIImage";
             if (typeof(UI.Text).IsAssignableFrom(t)) return "Text";   // TMPro.TextMeshProUGUI 포함
             if (typeof(UI.Button).IsAssignableFrom(t)) return "Button";
+            if (typeof(UI.Toggle).IsAssignableFrom(t)) return "Toggle";
+            if (typeof(UI.Slider).IsAssignableFrom(t)) return "Slider";
+            if (typeof(UI.InputField).IsAssignableFrom(t)) return "InputField";   // TMPro.TMP_InputField 포함
+            if (t == typeof(UI.ScrollRect)) return "ScrollRect";
+            if (t == typeof(UI.Mask)) return "Mask";
+            if (t == typeof(UI.RectMask2D)) return "RectMask2D";
             return null;
         }
 

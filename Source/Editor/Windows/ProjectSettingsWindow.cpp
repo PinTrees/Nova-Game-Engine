@@ -4,6 +4,7 @@
 #include "VolumeEditor.h"
 #include "VolumeProfile.h"
 #include "RenderPipelineSettings.h"
+#include "BuildSettings.h"
 
 namespace
 {
@@ -11,7 +12,44 @@ namespace
 	bool s_FocusNext = false;
 	std::string s_Category = "Graphics";
 
-	const char* kCategories[] = { "Graphics" };
+	const char* kCategories[] = { "Graphics", "Player" };
+
+	// Unity 의 Project Settings > Player (Windows 탭의 Resolution and Presentation 까지)
+	void DrawPlayer()
+	{
+		ImGui::PushFont(UnityGUI::BoldFont());
+		ImGui::SetWindowFontScale(1.35f);
+		ImGui::TextUnformatted("Player");
+		ImGui::SetWindowFontScale(1.0f);
+		ImGui::PopFont();
+		ImGui::Spacing();
+		BuildSettings::Player& p = BuildSettings::GetPlayer();
+		bool changed = false;
+		changed |= UnityGUI::TextField("Company Name", &p.CompanyName);
+		std::string product = p.ProductName.empty() ? BuildSettings::ProductName() : p.ProductName;
+		if (UnityGUI::TextField("Product Name", &product)) { p.ProductName = product; changed = true; }
+		changed |= UnityGUI::TextField("Version", &p.Version);
+		UnityGUI::ValueLabel("Default Icon", "NOVA logo (exe icon)");
+		UnityGUI::Spacing(8.0f);
+		ImGui::PushFont(UnityGUI::BoldFont());
+		ImGui::TextUnformatted("Resolution and Presentation");
+		ImGui::PopFont();
+		static const char* kModes[] = { "Fullscreen Window", "Maximized Window", "Windowed" };
+		int mode = (int)p.Mode;
+		if (UnityGUI::Dropdown("Fullscreen Mode", &mode, kModes, 3)) { p.Mode = (BuildSettings::FullscreenMode)mode; changed = true; }
+		if (p.Mode == BuildSettings::FullscreenMode::Windowed)
+		{
+			if (UnityGUI::Int("Default Screen Width", &p.Width, 1)) { p.Width = (std::max)(320, p.Width); changed = true; }
+			if (UnityGUI::Int("Default Screen Height", &p.Height, 1)) { p.Height = (std::max)(240, p.Height); changed = true; }
+		}
+		if (p.Mode != BuildSettings::FullscreenMode::FullscreenWindow)
+			changed |= UnityGUI::Toggle("Resizable Window", &p.Resizable);
+		changed |= UnityGUI::Toggle("Run In Background", &p.RunInBackground);
+		if (changed)
+			BuildSettings::SavePlayer();
+		UnityGUI::Spacing(6.0f);
+		UnityGUI::HelpBox("The built game needs the .NET 8 (or newer) runtime on the target PC when the project uses C# scripts.", false);
+	}
 
 	void SectionTitle(const char* text)
 	{
@@ -110,6 +148,8 @@ namespace ProjectSettingsWindow
 		ImGui::BeginChild("##psBody", ImVec2(0, 0), false);
 		if (s_Category == "Graphics")
 			DrawGraphics();
+		else if (s_Category == "Player")
+			DrawPlayer();
 		ImGui::EndChild();
 
 		ImGui::End();

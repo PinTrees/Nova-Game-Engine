@@ -27,6 +27,9 @@ public:
 
 public:
 	static wstring GetDataPath();
+	// 빌드된 게임(플레이어)로 실행 중인지 (에디터 창 없이 첫 씬을 바로 Play)
+	static inline bool isPlayer = false;
+	static bool IsPlayer() { return isPlayer; }
 	static void SetPlaying(bool active) { isPlaying = active; }
 	static bool IsPlaying() { return isPlaying; }
 

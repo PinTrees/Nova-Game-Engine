@@ -11,6 +11,9 @@ private:
 public:
 	// Init 전에 호출하면 해당 폴더를 프로젝트 루트로 사용한다. (에디터를 --project 로 실행할 때)
 	static void SetProjectOverride(const wstring& projectRoot) { s_ProjectOverride = projectRoot; }
+	// 빌드된 게임: 엔진 리소스(Shaders, Resources, ProjectSetting)도 <제품>_Data 에서 찾는다
+	static inline wstring s_EngineOverride;
+	static void SetEngineOverride(const wstring& engineRoot) { s_EngineOverride = engineRoot; }
 	static const wstring& GetProjectOverride() { return s_ProjectOverride; }
 
 	void Init();

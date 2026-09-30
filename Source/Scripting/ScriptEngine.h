@@ -48,6 +48,7 @@ namespace ScriptEngine
 	void Update();        // 매 프레임: 파일 변경 감시, 컴파일 완료 처리, 다시 읽기, 지연 Destroy
 	void BeginFrame();    // Play 중 게임 업데이트 직전: 입력 상태, 시간
 	void OnPlayModeChanged(bool playing);
+	void OnSceneSwapped();   // Play 중 씬 교체 뒤, 새 씬 Enter 전 (id 캐시·UI 리스너 비우기)
 
 	State GetState();
 	bool IsAvailable();              // .NET 런타임을 띄웠는지
@@ -86,8 +87,10 @@ namespace ScriptEngine
 	void SetFieldsJson(void* handle, const std::string& json);
 	// UI: 이 GameObject 의 스크립트(className)에서 메서드 호출 (Button On Click 의 저장된 호출). 찾으면 true
 	bool InvokeMethod(uint64_t gameObjectId, const std::string& className, const std::string& method, const std::string& argument);
-	// UI: C# 에서 AddListener 로 등록한 이벤트 실행 (kind 0 = Button.onClick)
-	void InvokeUIEvent(uint64_t gameObjectId, int kind);
+	// UI: C# 에서 AddListener 로 등록한 이벤트 실행
+	// kind 0 Button.onClick, 1 Slider.onValueChanged(number), 2 Toggle.onValueChanged(number != 0),
+	//      3 InputField.onValueChanged(text), 4 InputField.onEndEdit(text)
+	void InvokeUIEvent(uint64_t gameObjectId, int kind, float number = 0.0f, const std::string& text = std::string());
 
 	// ---- 입력 (Game 뷰가 포커스일 때만) ----
 	bool KeyState(int vk, int mode);           // mode 0 누르는 중, 1 이번 프레임 눌림, 2 이번 프레임 뗌

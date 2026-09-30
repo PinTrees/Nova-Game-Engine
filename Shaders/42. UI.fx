@@ -78,7 +78,7 @@ RasterizerState UINoCull
 {
     FillMode = SOLID;
     CullMode = NONE;
-    ScissorEnable = FALSE;
+    ScissorEnable = TRUE;   // Mask / RectMask2D (잘라내지 않을 때는 화면 전체)
 };
 
 technique11 UITech

@@ -6,6 +6,10 @@
 #include "UIImage.h"
 #include "UIText.h"
 #include "UIButton.h"
+#include "UIToggle.h"
+#include "UISlider.h"
+#include "UIInputField.h"
+#include "UIMask.h"
 
 namespace
 {
@@ -95,7 +99,7 @@ namespace UIScriptBindings
 		}
 		if (prop == 40 || prop == 41)
 		{
-			Button* b = g->GetComponentIncludingPending<Button>();
+			UISelectable* b = g->GetComponentIncludingPending<UISelectable>();
 			if (b == nullptr)
 				return 0;
 			out->x = (prop == 40 ? b->IsInteractable() : b->IsEnabled()) ? 1.0f : 0.0f;
@@ -107,6 +111,46 @@ namespace UIScriptBindings
 			if (c == nullptr)
 				return 0;
 			out->x = prop == 50 ? (float)c->GetSortOrder() : c->GetScaleFactor();
+			return 1;
+		}
+		if (prop >= 60 && prop <= 65)
+		{
+			Slider* s = g->GetComponentIncludingPending<Slider>();
+			if (s == nullptr)
+				return 0;
+			switch (prop)
+			{
+			case 60: case 65: out->x = s->GetValue(); break;
+			case 61: out->x = s->GetMin(); break;
+			case 62: out->x = s->GetMax(); break;
+			case 63: out->x = s->GetWholeNumbers() ? 1.0f : 0.0f; break;
+			case 64: out->x = s->GetNormalized(); break;
+			}
+			return 1;
+		}
+		if (prop == 70 || prop == 71)
+		{
+			Toggle* t = g->GetComponentIncludingPending<Toggle>();
+			if (t == nullptr)
+				return 0;
+			out->x = t->IsOn() ? 1.0f : 0.0f;
+			return 1;
+		}
+		if (prop == 75 || prop == 76)
+		{
+			InputField* f = g->GetComponentIncludingPending<InputField>();
+			if (f == nullptr)
+				return 0;
+			out->x = prop == 75 ? (float)f->GetCharacterLimit() : (f->IsFocused() ? 1.0f : 0.0f);
+			return 1;
+		}
+		if (prop == 80)
+		{
+			ScrollRect* s = g->GetComponentIncludingPending<ScrollRect>();
+			if (s == nullptr)
+				return 0;
+			const Vec2 n = s->GetNormalizedPosition();
+			*out = Vec4(n.x, n.y, 0, 0);
 			return 1;
 		}
 		return 0;
@@ -176,7 +220,7 @@ namespace UIScriptBindings
 		}
 		if (prop == 40 || prop == 41)
 		{
-			if (Button* b = g->GetComponentIncludingPending<Button>())
+			if (UISelectable* b = g->GetComponentIncludingPending<UISelectable>())
 			{
 				if (prop == 40) b->SetInteractable(v.x != 0.0f);
 				else b->SetEnabled(v.x != 0.0f);
@@ -186,6 +230,26 @@ namespace UIScriptBindings
 		if (prop == 50)
 			if (Canvas* c = g->GetComponentIncludingPending<Canvas>())
 				c->SetSortOrder((int)v.x);
+		if (prop >= 60 && prop <= 65)
+			if (Slider* s = g->GetComponentIncludingPending<Slider>())
+				switch (prop)
+				{
+				case 60: s->SetValue(v.x, true); break;
+				case 61: s->SetMin(v.x); break;
+				case 62: s->SetMax(v.x); break;
+				case 63: s->SetWholeNumbers(v.x != 0.0f); break;
+				case 64: s->SetNormalized(v.x, true); break;
+				case 65: s->SetValue(v.x, false); break;
+				}
+		if (prop == 70 || prop == 71)
+			if (Toggle* t = g->GetComponentIncludingPending<Toggle>())
+				t->SetIsOn(v.x != 0.0f, prop == 70);
+		if (prop == 75)
+			if (InputField* f = g->GetComponentIncludingPending<InputField>())
+				f->SetCharacterLimit((int)v.x);
+		if (prop == 80)
+			if (ScrollRect* s = g->GetComponentIncludingPending<ScrollRect>())
+				s->SetNormalizedPosition(Vec2(v.x, v.y));
 	}
 
 	const char* GetString(uint64 id, int prop)
@@ -198,6 +262,7 @@ namespace UIScriptBindings
 		case 0: if (Text* t = g->GetComponentIncludingPending<Text>()) return ScriptBindings::ReturnString(t->GetText()); break;
 		case 1: if (Text* t = g->GetComponentIncludingPending<Text>()) return ScriptBindings::ReturnString(t->GetFont()); break;
 		case 2: if (UIImage* i = g->GetComponentIncludingPending<UIImage>()) return ScriptBindings::ReturnString(i->GetSprite()); break;
+		case 3: case 4: if (InputField* f = g->GetComponentIncludingPending<InputField>()) return ScriptBindings::ReturnString(f->GetText()); break;
 		}
 		return ScriptBindings::ReturnString("");
 	}
@@ -213,6 +278,7 @@ namespace UIScriptBindings
 		case 0: if (Text* t = g->GetComponentIncludingPending<Text>()) t->SetText(s); break;
 		case 1: if (Text* t = g->GetComponentIncludingPending<Text>()) t->SetFont(s); break;
 		case 2: if (UIImage* i = g->GetComponentIncludingPending<UIImage>()) i->SetSprite(s); break;
+		case 3: case 4: if (InputField* f = g->GetComponentIncludingPending<InputField>()) f->SetText(s, prop == 3); break;
 		}
 	}
 }

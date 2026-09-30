@@ -49,7 +49,7 @@ namespace
 		Fn_SetFields SetFieldsJson = nullptr;
 		Fn_GetJson GetApiJson = nullptr;   // 선택 (NOVA Code 자동 완성)
 		int(__stdcall* InvokeMethod)(uint64_t, const char*, const char*, const char*) = nullptr;   // UI Button
-		void(__stdcall* InvokeUIEvent)(uint64_t, int) = nullptr;
+		void(__stdcall* InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -530,6 +530,12 @@ namespace ScriptEngine
 			return;
 		}
 		s_State = State::Idle;
+		if (Application::IsPlayer())
+		{
+			// 빌드된 게임: 빌드 때 넣은 Assembly-CSharp.dll 을 읽기만 한다 (소스/컴파일 없음)
+			LoadAssembly();
+			return;
+		}
 		const std::vector<fs::path> files = ScriptFiles();
 		if (!files.empty())
 			WriteCsproj();
@@ -566,9 +572,9 @@ namespace ScriptEngine
 		if (s_Job && s_Job->Done)
 			FinishCompile();
 
-		// 1초마다 스크립트 변경 확인 (Unity 는 에디터 포커스 때 확인)
+		// 1초마다 스크립트 변경 확인 (Unity 는 에디터 포커스 때 확인). 빌드된 게임은 하지 않는다
 		const double now = Now();
-		if (now >= s_NextPoll && !s_Job)
+		if (now >= s_NextPoll && !s_Job && !Application::IsPlayer())
 		{
 			s_NextPoll = now + 1.0;
 			const std::string hash = SourcesHash();
@@ -609,6 +615,15 @@ namespace ScriptEngine
 		m.BeginFrame();
 	}
 
+	void OnSceneSwapped()
+	{
+		// Play 중 SceneManager.LoadScene: 같은 씬을 다시 열면 fileID 가 같아서, 지운 오브젝트를 가리키는 id → 포인터 캐시와
+		// 이전 씬 스크립트의 UI 리스너가 새 오브젝트에 그대로 붙는다
+		ScriptBindings::Reset();
+		if (s_AssemblyLoaded && m.InvokeUIEvent)
+			m.InvokeUIEvent(0, -1, 0.0f, "");
+	}
+
 	void OnPlayModeChanged(bool playing)
 	{
 		s_PlayTime = 0.0f;
@@ -617,7 +632,7 @@ namespace ScriptEngine
 		memset(s_PrevKeys, 0, sizeof(s_PrevKeys));
 		ScriptBindings::Reset();
 		if (s_AssemblyLoaded && m.InvokeUIEvent)
-			m.InvokeUIEvent(0, -1);   // 이전 Play 의 button.onClick 리스너 정리
+			m.InvokeUIEvent(0, -1, 0.0f, "");   // 이전 Play 의 UI 리스너(onClick, onValueChanged ...) 정리
 		if (!playing && s_PendingReload && IsAvailable())
 			LoadAssembly();
 	}
@@ -830,10 +845,10 @@ namespace ScriptEngine
 		return m.InvokeMethod(gameObjectId, className.c_str(), method.c_str(), argument.c_str()) != 0;
 	}
 
-	void InvokeUIEvent(uint64_t gameObjectId, int kind)
+	void InvokeUIEvent(uint64_t gameObjectId, int kind, float number, const std::string& text)
 	{
 		if (s_AssemblyLoaded && m.InvokeUIEvent)
-			m.InvokeUIEvent(gameObjectId, kind);
+			m.InvokeUIEvent(gameObjectId, kind, number, text.c_str());
 	}
 
 	bool KeyState(int vk, int mode)

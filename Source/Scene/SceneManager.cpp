@@ -7,6 +7,10 @@
 #include "SelectionManager.h"
 #include "Debug.h"
 #include "NovaCodeWindow.h"
+#include "PlayerRuntime.h"
+#include "BuildSettings.h"
+#include "UISystem.h"
+#include "ScriptEngine.h"
 
 
 SINGLE_BODY(SceneManager)
@@ -72,9 +76,12 @@ void SceneManager::RenderScene()
 
 void SceneManager::LastUpdate()
 {
-	for (auto& action : m_Editor_LastUpdateActions)
+	// 실행 중인 동작이 또 AddLastUpdate 를 부를 수 있다(씬 교체 → Exit → Destroy 등). 목록을 떼어 낸 뒤 돌려서
+	// 반복 중 벡터가 다시 할당되어 실행 중인 람다가 사라지는 일을 막는다. 새로 들어온 동작은 다음 프레임에 실행.
+	std::vector<std::function<void()>> actions;
+	actions.swap(m_Editor_LastUpdateActions);
+	for (auto& action : actions)
 		action();
-	m_Editor_LastUpdateActions.clear();
 }
 
 void SceneManager::HandleSaveScene()
@@ -166,7 +173,37 @@ void SceneManager::HandlePlay()
 
 	json j = *m_pCurrScene;
 	m_PlayModeSceneSnapshot = j.dump();
+	m_PlayOriginalPath = m_pCurrScene->GetScenePath();
 	m_pCurrScene->Enter();
+}
+
+void SceneManager::LoadSceneDuringPlay(const std::wstring& scenePath)
+{
+	AddLastUpdate([this, scenePath]() {
+		Scene* next = Scene::Load(scenePath);
+		if (next == nullptr)
+		{
+			Debug::LogError("SceneManager.LoadScene: could not load '" + wstring_to_string(scenePath) + "'");
+			return;
+		}
+		next->SetScenePath(scenePath);
+		EditorLog::Write("Scene", "load during play: %s", wstring_to_string(scenePath).c_str());
+		Scene* old = m_pCurrScene;
+		if (old)
+		{
+			UISystem::OnSceneUnloading();
+			old->Exit();
+			for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
+				it = it->second == old ? m_Scenes.erase(it) : std::next(it);
+			SelectionManager::ClearSelection();
+			delete old;
+		}
+		ScriptEngine::OnSceneSwapped();
+		m_pCurrScene = next;
+		DisplayManager::GetI()->Init();
+		m_pCurrScene->Enter();   // Play 중이므로 Awake / Start (C# 포함)
+		EditorLog::Write("Scene", "entered %s (%zu objects)", wstring_to_string(scenePath).c_str(), m_pCurrScene->GetAllGameObjects().size());
+	});
 }
 
 void SceneManager::HandleStop()
@@ -178,7 +215,11 @@ void SceneManager::HandleStop()
 
 	if (!m_PlayModeSceneSnapshot.empty())
 	{
-		wstring scenePath = m_pCurrScene->GetScenePath();
+		// Play 중 LoadScene 으로 다른 씬이 열려 있어도 Play 를 시작한 씬으로 돌아간다
+		wstring scenePath = m_PlayOriginalPath.empty() ? m_pCurrScene->GetScenePath() : m_PlayOriginalPath;
+		m_PlayOriginalPath.clear();
+		for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
+			it = it->second == m_pCurrScene ? m_Scenes.erase(it) : std::next(it);
 		delete m_pCurrScene;
 
 		m_pCurrScene = new Scene();
@@ -230,6 +271,14 @@ void SceneManager::CreateScene()
 
 void SceneManager::LoadStartupScene()
 {
+	// 빌드된 게임: Build Settings 의 0번 씬
+	if (Application::IsPlayer())
+	{
+		const std::wstring first = PlayerRuntime::FirstScene();
+		LoadScene(first);
+		return;
+	}
+
 	EditorSetting* setting = EditorSettingManager::GetSetting();
 	std::wstring last = setting ? setting->LastOpenedScenePath : L"";
 

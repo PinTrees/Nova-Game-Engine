@@ -71,13 +71,21 @@ void UIRenderer::Begin()
 	m_Vertices.clear();
 	m_Indices.clear();
 	m_Commands.clear();
+	m_ClipOn = false;
+}
+
+void UIRenderer::SetClip(bool enabled, const Vec4& worldRect)
+{
+	m_ClipOn = enabled;
+	m_ClipRect = worldRect;
 }
 
 void UIRenderer::Reserve(ID3D11ShaderResourceView* texture)
 {
-	// 같은 텍스처가 이어지면 한 번의 그리기로 합친다 (순서는 유지: 뒤에 그린 것이 위)
-	if (m_Commands.empty() || m_Commands.back().Texture != texture)
-		m_Commands.push_back({ texture, (UINT)m_Indices.size(), 0 });
+	// 같은 텍스처·같은 잘라내기가 이어지면 한 번의 그리기로 합친다 (순서는 유지: 뒤에 그린 것이 위)
+	const bool sameClip = !m_Commands.empty() && m_Commands.back().Clip == m_ClipOn && (!m_ClipOn || m_Commands.back().ClipRect == m_ClipRect);
+	if (m_Commands.empty() || m_Commands.back().Texture != texture || !sameClip)
+		m_Commands.push_back({ texture, (UINT)m_Indices.size(), 0, m_ClipOn, m_ClipRect });
 }
 
 void UIRenderer::AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, ID3D11ShaderResourceView* texture)
@@ -180,12 +188,40 @@ void UIRenderer::Flush(ID3D11RenderTargetView* rtv, UINT width, UINT height, con
 	fx->GetVariableByName("gViewProj")->AsMatrix()->SetMatrix(&m._11);
 	ID3DX11EffectShaderResourceVariable* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
 	ID3DX11EffectPass* pass = fx->GetTechniqueByName(dsv ? "UISceneTech" : "UITech")->GetPassByIndex(0);
+	// 잘라내기 사각형(캔버스 월드) → 화면 픽셀 (네 모서리를 투영한 경계 상자)
+	auto scissorOf = [&](const Command& c) {
+		D3D11_RECT full = { 0, 0, (LONG)width, (LONG)height };
+		if (!c.Clip)
+			return full;
+		const Vec2 corners[4] = { Vec2(c.ClipRect.x, c.ClipRect.y), Vec2(c.ClipRect.z, c.ClipRect.y), Vec2(c.ClipRect.z, c.ClipRect.w), Vec2(c.ClipRect.x, c.ClipRect.w) };
+		float x0 = FLT_MAX, y0 = FLT_MAX, x1 = -FLT_MAX, y1 = -FLT_MAX;
+		for (const Vec2& k : corners)
+		{
+			const Vec4 clip = Vec4::Transform(Vec4(k.x, k.y, 0.0f, 1.0f), viewProj);
+			if (clip.w <= 1e-5f)
+				return full;   // 카메라 뒤: 자르지 않는다
+			const float sx = (clip.x / clip.w * 0.5f + 0.5f) * width;
+			const float sy = (1.0f - (clip.y / clip.w * 0.5f + 0.5f)) * height;
+			x0 = (std::min)(x0, sx); y0 = (std::min)(y0, sy);
+			x1 = (std::max)(x1, sx); y1 = (std::max)(y1, sy);
+		}
+		D3D11_RECT r;
+		r.left = (LONG)std::clamp(floorf(x0), 0.0f, (float)width);
+		r.top = (LONG)std::clamp(floorf(y0), 0.0f, (float)height);
+		r.right = (LONG)std::clamp(ceilf(x1), 0.0f, (float)width);
+		r.bottom = (LONG)std::clamp(ceilf(y1), 0.0f, (float)height);
+		return r;
+	};
 	for (const Command& c : m_Commands)
 	{
 		if (c.IndexCount == 0)
 			continue;
 		texVar->SetResource(c.Texture);
 		pass->Apply(0, ctx);
+		const D3D11_RECT sc = scissorOf(c);
+		if (sc.right <= sc.left || sc.bottom <= sc.top)
+			continue;   // 완전히 잘림
+		ctx->RSSetScissorRects(1, &sc);
 		ctx->DrawIndexed(c.IndexCount, c.IndexStart, 0);
 		++m_LastDrawCalls;
 	}

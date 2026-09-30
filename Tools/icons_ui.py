@@ -40,6 +40,26 @@ UI_ICONS = {
     # Button: 둥근 버튼 + 손가락 누름 표시
     "ui_button": _svg('''<rect x="1.5" y="4" width="13" height="8" rx="2.5" fill="#D9D9D9" stroke="#8C8C8C" stroke-width="0.8"/>
   <rect x="4.5" y="7.3" width="7" height="1.6" fill="#555555"/>'''),
+    # Toggle: 체크 상자
+    "ui_toggle": _svg('''<rect x="2" y="2" width="12" height="12" rx="2" fill="#D9D9D9" stroke="#8C8C8C" stroke-width="0.8"/>
+  <polygon points="4,8.2 5.4,6.8 7,8.4 10.8,4.6 12.2,6 7,11.2" fill="#3A3A3A"/>'''),
+    # Slider: 막대 + 손잡이
+    "ui_slider": _svg('''<rect x="1.5" y="7" width="13" height="2.4" rx="1.2" fill="#9A9A9A"/>
+  <rect x="1.5" y="7" width="7" height="2.4" rx="1.2" fill="#6FA8DC"/>
+  <circle cx="8.5" cy="8.2" r="3" fill="#E6E6E6" stroke="#606060" stroke-width="0.6"/>'''),
+    # Input Field: 입력 상자 + 커서
+    "ui_input_field": _svg('''<rect x="1.5" y="4" width="13" height="8" rx="1.5" fill="#EDEDED" stroke="#8C8C8C" stroke-width="0.8"/>
+  <rect x="4" y="5.8" width="1" height="4.4" fill="#303030"/>'''),
+    # Mask: 점선 사각형 안의 원
+    "ui_mask": _svg('''<rect x="2" y="2" width="12" height="12" fill="none" stroke="#C8C8C8" stroke-width="1.2" stroke-dasharray="2,1.5"/>
+  <circle cx="8" cy="8" r="3.5" fill="#6FA8DC"/>'''),
+    # Scroll Rect: 틀 + 세로 스크롤 막대
+    "ui_scroll_rect": _svg('''<rect x="1.5" y="1.5" width="13" height="13" rx="1" fill="none" stroke="#C8C8C8" stroke-width="1.1"/>
+  <rect x="11" y="3" width="2" height="10" fill="#6A6A6A"/>
+  <rect x="11" y="4" width="2" height="4" fill="#D0D0D0"/>
+  <rect x="3.5" y="4" width="6" height="1.4" fill="#9FC5E8"/>
+  <rect x="3.5" y="7" width="6" height="1.4" fill="#9FC5E8"/>
+  <rect x="3.5" y="10" width="6" height="1.4" fill="#9FC5E8"/>'''),
     # Font: A
     "font": _svg('''<polygon points="8,2 13.5,14 11.3,14 10.1,11.2 5.9,11.2 4.7,14 2.5,14" fill="#E6E6E6"/>
   <polygon points="8,6 9.4,9.4 6.6,9.4" fill="#383838"/>'''),
