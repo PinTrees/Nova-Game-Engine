@@ -5,6 +5,13 @@ def _svg(body):
 
 
 PROJECT_ICONS = {
+    # Game 뷰 툴바: 키보드 (단축키 토글)
+    "keyboard": _svg('''<rect x="1" y="4" width="14" height="8.5" rx="1.2" fill="none" stroke="#C8C8C8" stroke-width="1.1"/>
+  <rect x="3" y="6" width="1.6" height="1.4" fill="#C8C8C8"/>
+  <rect x="5.8" y="6" width="1.6" height="1.4" fill="#C8C8C8"/>
+  <rect x="8.6" y="6" width="1.6" height="1.4" fill="#C8C8C8"/>
+  <rect x="11.4" y="6" width="1.6" height="1.4" fill="#C8C8C8"/>
+  <rect x="4.5" y="9.2" width="7" height="1.4" fill="#C8C8C8"/>'''),
     # Volume 컴포넌트: 겹친 반투명 상자
     "volume": _svg('''<rect x="1.5" y="4.5" width="9" height="9" rx="1" fill="#6FA8DC" fill-opacity="0.35" stroke="#9CC6EE" stroke-width="1.1"/>
   <rect x="5.5" y="1.5" width="9" height="9" rx="1" fill="#6FA8DC" fill-opacity="0.55" stroke="#C8DFF5" stroke-width="1.1"/>'''),

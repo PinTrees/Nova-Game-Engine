@@ -4,6 +4,7 @@
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
+#include "GameViewEditorWindow.h"
 #include "GraphicsBackendFactory.h"
 #include "HubProject.h"
 #include "EditorTheme.h"
@@ -501,12 +502,26 @@ void EditorGUIManager::RenderEditorWindows()
             m_ResetLayout = false;
             BuildDefaultLayout(dockspace_id, ImVec2(viewport->Size.x, viewport->Size.y - m_TopChromeHeight));
         }
-        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None); 
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_None);
+        // Game 뷰 Play Maximized 가 덮을 영역 = 도킹 영역 전체
+        if (ImGuiDockNode* root = ImGui::DockBuilderGetNode(dockspace_id))
+            GameViewEditorWindow::SetDockRect(root->Pos, ImVec2(root->Pos.x + root->Size.x, root->Pos.y + root->Size.y));
     }
 
     ImGui::End();
 
     ImGui::PopStyleVar(5);
+
+    // Play 시작/끝 순간: Game 뷰의 Play Focused / Maximized / Unfocused 처리
+    {
+        static bool s_WasPlaying = false;
+        const bool playing = Application::IsPlaying();
+        if (playing != s_WasPlaying)
+        {
+            s_WasPlaying = playing;
+            GameViewEditorWindow::OnPlayModeChanged(playing);
+        }
+    }
 
     for (auto& window : m_pEditorWindows)
     {
@@ -539,6 +554,7 @@ void EditorGUIManager::RenderEditorWindows()
         dialog->Render(); 
     } 
 
+    GameViewEditorWindow::DrawMaximized();
     ProjectSettingsWindow::Draw();
 }
 

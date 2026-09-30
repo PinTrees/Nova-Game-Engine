@@ -136,6 +136,8 @@ public:
 	int AntiAliasingMode() const { return m_antiAliasing; }   // 0 없음, 1 FXAA, 2 SMAA(=FXAA 로 처리)
 	bool DitheringEnabled() const { return m_dithering; }
 	bool StopNaNsEnabled() const { return m_stopNaNs; }
+	int GetTargetDisplay() const { return m_targetDisplay; }   // 0 = Display 1
+	int GetPriority() const { return m_priority; }
 	const float* GetBackgroundColor() const { return m_backgroundColor; }
 	float GetOrthoSize() const { return m_orthoSize; }
 	virtual void OnDrawGizmos() override;

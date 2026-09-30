@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderStats.h"
 #include "MeshRenderer.h"
 #include "MeshFilter.h"
 #include "UnityGUI.h"
@@ -170,6 +171,7 @@ void MeshRenderer::RenderShadow()
 	SyncMeshFromFilter();
 	if (m_Mesh == nullptr)
 		return;
+	RenderStats::AddShadowCaster();
 
 	Transform* transform = m_pGameObject->GetComponent<Transform>();
 	auto deviceContext = Application::GetI()->GetDeviceContext();

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderStats.h"
 #include "SkinnedMeshRenderer.h"
 #include "EditorGUI.h"
 #include "UnityGUI.h"
@@ -193,6 +194,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 
 void SkinnedMeshRenderer::Render()
 {
+	RenderStats::AddSkinnedMesh();
 	DrawSkinned(false);
 }
 
@@ -205,6 +207,7 @@ void SkinnedMeshRenderer::RenderShadow()
 {
 	if (m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 1)   // Cast Shadows Off
 		return;
+	RenderStats::AddShadowCaster();
 	EnsureBones();
 
 	Transform* transform = m_pGameObject->GetTransform();

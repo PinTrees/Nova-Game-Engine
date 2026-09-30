@@ -200,6 +200,33 @@ void EditorApp::RenderApplication()
 
 }
 
+ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
+{
+	// 필요한 크기보다 작을 때만 다시 만든다 (커지기만 함). 창 백버퍼 크기 이상으로 유지
+	width = (std::max)(width, (UINT)_clientWidth);
+	height = (std::max)(height, (UINT)_clientHeight);
+	if (_viewDepthView == nullptr || width > _viewDepthW || height > _viewDepthH)
+	{
+		_viewDepthW = (std::max)(width, _viewDepthW);
+		_viewDepthH = (std::max)(height, _viewDepthH);
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = _viewDepthW;
+		desc.Height = _viewDepthH;
+		desc.MipLevels = 1;
+		desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		_viewDepthView.Reset();
+		_viewDepthTex.Reset();
+		if (SUCCEEDED(_device->CreateTexture2D(&desc, nullptr, _viewDepthTex.GetAddressOf())))
+			_device->CreateDepthStencilView(_viewDepthTex.Get(), nullptr, _viewDepthView.GetAddressOf());
+		EditorLog::Write("View", "view depth buffer %u x %u", _viewDepthW, _viewDepthH);
+	}
+	return _viewDepthView ? _viewDepthView.Get() : _depthStencilView.Get();
+}
+
 void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
 {
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
@@ -215,6 +242,8 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	// 와이어프레임 제어처럼 전체 그림자맵 제어도 가능하게
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
 	auto viewport = RenderManager::GetI()->Viewport;
+	// 뷰(렌더 타깃) 크기의 깊이 버퍼: 창 백버퍼보다 큰 해상도(예: 1080x1920)로 그릴 때도 깊이가 맞도록
+	ID3D11DepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
 	// shadowMaps
@@ -247,7 +276,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 			_deviceContext->RSSetState(0);
 
-			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 			_deviceContext->RSSetViewports(1, &viewport);
 		}
 
@@ -272,7 +301,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 			_deviceContext->RSSetState(0);
 
-			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 			_deviceContext->RSSetViewports(1, &viewport);
 		}
 
@@ -300,7 +329,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 				_deviceContext->RSSetState(0);
 
-				_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+				_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 				_deviceContext->RSSetViewports(1, &viewport);
 			}
 		}
@@ -308,7 +337,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 	// PostProcessing - SSAO
 	auto ssao = PostProcessingManager::GetI()->GetSSAO();
-	ssao->SetNormalDepthRenderTarget(_depthStencilView.Get());
+	ssao->SetNormalDepthRenderTarget(viewDsv);
 
 	if (RenderManager::GetI()->WireFrameMode)
 		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
@@ -337,7 +366,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
 	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
-	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
+	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
 		// Game 뷰: 카메라의 Background Type 이 Solid Color 이면 그 색, 아니면 Unity 기본 카메라 배경색(#314D79)
@@ -397,7 +426,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		post.Execute(stack, postOptions, renderTargetView);
 		// 이후 그리기(있다면)를 위해 원래 타깃과 뷰포트로 되돌린다
 		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
-		_deviceContext->OMSetRenderTargets(1, outTargets, _depthStencilView.Get());
+		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
 }
@@ -415,6 +444,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	auto shadowMap = RenderManager::GetI()->EditorShadowMap;
 	auto viewport = RenderManager::GetI()->EditorViewport;
+	ID3D11DepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
 	// shadowMaps
@@ -447,7 +477,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 			_deviceContext->RSSetState(0);
 
-			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 			_deviceContext->RSSetViewports(1, &viewport);
 		}
 
@@ -472,7 +502,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 			_deviceContext->RSSetState(0);
 
-			_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 			_deviceContext->RSSetViewports(1, &viewport);
 		}
 
@@ -500,7 +530,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 				_deviceContext->RSSetState(0);
 
-				_deviceContext->ClearDepthStencilView(_depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+				_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 				_deviceContext->RSSetViewports(1, &viewport);
 			}
 		}
@@ -508,7 +538,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	
 	// PostProcessing - SSAO
 	auto ssao = PostProcessingManager::GetI()->_EditorGetSSAO();
-	ssao->SetNormalDepthRenderTarget(_depthStencilView.Get());
+	ssao->SetNormalDepthRenderTarget(viewDsv);
 
 	if (RenderManager::GetI()->WireFrameMode)
 		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
@@ -532,7 +562,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
 	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
-	_deviceContext->OMSetRenderTargets(1, renderTargets, _depthStencilView.Get());
+	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
 		// Scene 뷰: 투명으로 지운 뒤 SceneViewOverlay 가 뒤에 그린 하늘 그라디언트가 비쳐 보이게 한다.
@@ -596,7 +626,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	{
 		post.Execute(stack, postOptions, renderTargetView);
 		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
-		_deviceContext->OMSetRenderTargets(1, outTargets, _depthStencilView.Get());
+		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
 }

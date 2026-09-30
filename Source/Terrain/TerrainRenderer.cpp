@@ -2,6 +2,7 @@
 #include "TerrainRenderer.h"
 #include "TerrainData.h"
 #include "Effects.h"
+#include "RenderStats.h"
 
 namespace
 {
@@ -368,6 +369,7 @@ namespace TerrainRenderer
 			fxPass->Apply(0, dc);
 			dc->IASetIndexBuffer(ib, DXGI_FORMAT_R16_UINT, 0);
 			dc->DrawIndexed(count, 0, 0);
+			RenderStats::AddDraw(count, count);   // 정점 수는 인덱스 수로 근사
 			if (stats)
 			{
 				++stats->DrawnNodes;

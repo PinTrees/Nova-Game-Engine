@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "MeshGeometry.h"
 #include "Utils.h"
+#include "RenderStats.h"
 
 MeshGeometry::MeshGeometry()
 	: _indexBufferFormat(DXGI_FORMAT_R16_UINT), _vertexStride(0)
@@ -39,6 +40,7 @@ void MeshGeometry::Draw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId)
 	dc->IASetVertexBuffers(0, 1, _vb.GetAddressOf(), &_vertexStride, &offset);
 	dc->IASetIndexBuffer(_ib.Get(), _indexBufferFormat, 0);
 
+	RenderStats::AddDraw(_subsetTable[subsetId].FaceCount * 3, _subsetTable[subsetId].VertexCount);
 	dc->DrawIndexed(
 		_subsetTable[subsetId].FaceCount * 3,
 		_subsetTable[subsetId].FaceStart * 3,
@@ -52,6 +54,7 @@ void MeshGeometry::InstancingDraw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetI
 	dc->IASetVertexBuffers(0, 1, _vb.GetAddressOf(), &_vertexStride, &offset);
 	dc->IASetIndexBuffer(_ib.Get(), _indexBufferFormat, 0);
 
+	RenderStats::AddDraw(_subsetTable[subsetId].FaceCount * 3, _subsetTable[subsetId].VertexCount, instancingSize);
 	dc->DrawIndexedInstanced(
 		_subsetTable[subsetId].FaceCount * 3,
 		instancingSize,

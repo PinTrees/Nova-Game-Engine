@@ -37,6 +37,11 @@ private:
 	TextureMgr _texMgr;
 
 	shared_ptr<class Sky> _sky;
+	// Scene/Game 뷰를 그릴 때 쓰는 깊이 버퍼 (뷰 크기 이상, 커지기만 함)
+	ComPtr<ID3D11Texture2D> _viewDepthTex;
+	ComPtr<ID3D11DepthStencilView> _viewDepthView;
+	UINT _viewDepthW = 0, _viewDepthH = 0;
+	ID3D11DepthStencilView* ViewDepth(UINT width, UINT height);
 
 	shared_ptr<class Mesh> _treeModel;
 	shared_ptr<class Mesh> _baseModel;
