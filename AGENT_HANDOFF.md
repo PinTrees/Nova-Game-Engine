@@ -33,7 +33,7 @@
 
 **Light Inspector**: URP Light Inspector 항목(General: Type/Mode, Emission: Light Appearance(Color / Filter and Temperature), Color, Filter, Temperature 바 + Kelvin, Intensity, Indirect Multiplier, 경고 박스, Range, Spot Angle, Cookie, Rendering, Shadows)을 표시한다. Color(Diffuse)·Intensity(렌더링 시 Diffuse/Specular 에 곱함)·Type·Range·Temperature→색 변환은 실제로 적용되고, Mode/Indirect/Cookie/Rendering Layers/Culling Mask/Shadow Type 은 저장만 한다. Unity 의 "Universal Additional Light Data (Script)" 컴포넌트는 표시하지 않는다.
 
-**폰트**: `EditorTheme::FontFile()` 가 `ProjectSetting/fonts/Pretendard-Regular.ttf` + `Pretendard-SemiBold.ttf`(또는 Bold)를 찾아 있으면 사용하고, 없으면 Segoe UI + 맑은 고딕으로 대체한다. 본문 14px, 글자를 또렷하게 하려고 오버샘플링 1 + 픽셀 스냅 + RasterizerMultiply 1.2 이며, UnityGUI 의 텍스트 y 좌표와 프레임 패딩은 정수 픽셀로 맞춘다(반 픽셀에 걸리면 흐려짐). 폰트 파일을 추가/교체하면 `nova_layout_v2.ini` 삭제는 필요 없다.
+**폰트**: `EditorTheme::FontFile()` 가 `ProjectSetting/fonts/Pretendard-Regular.ttf` + `Pretendard-SemiBold.ttf`(또는 Bold)를 찾아 있으면 사용하고, 없으면 Segoe UI + 맑은 고딕으로 대체한다. 현재 저장소에는 `Pretendard-Regular.otf` / `Pretendard-SemiBold.otf`(SIL OFL, 라이선스 `Pretendard-LICENSE.txt`, 출처 github.com/orioncactus/pretendard)가 들어 있어 Pretendard 가 적용된 상태이며 .otf(CFF)도 ImGui 의 stb_truetype 로 렌더링된다. 본문 14px, 글자를 또렷하게 하려고 오버샘플링 1 + 픽셀 스냅 + RasterizerMultiply 1.2 이며, UnityGUI 의 텍스트 y 좌표와 프레임 패딩은 정수 픽셀로 맞춘다(반 픽셀에 걸리면 흐려짐). 폰트 파일을 추가/교체하면 `nova_layout_v2.ini` 삭제는 필요 없다.
 
 **아이콘(SVG)**: 원본 `ProjectSetting/icons/svg/*.svg`(수정은 `Tools/make_icons.py`의 문자열에서), `python Tools/make_icons.py` 가 자체 SVG 래스터라이저(`Tools/svg_raster.py`, path/circle/rect/polygon/line + fill/stroke 지원)로 `ProjectSetting/icons/svg/png/*.png`(4배)를 만든다. 엔진은 PNG 를 텍스처로 로드한다(`UnityGUI::Icon`). 폰트는 Segoe UI 13px(라틴) + 맑은 고딕(한글) + Font Awesome, 굵은 폰트는 `Fonts[1]`.
 
