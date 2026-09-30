@@ -1,0 +1,112 @@
+#pragma once
+#include <string>
+#include <vector>
+#include <memory>
+
+// Unity 의 TerrainLayer 에셋 (.terrainlayer, JSON): 지형에 칠하는 텍스처 한 장과 타일 크기
+class TerrainLayer
+{
+public:
+	std::string Path;              // 에셋 경로 ("Assets\\..." 또는 엔진 "Resources\\...")
+	std::string DiffusePath;       // Diffuse 텍스처 경로
+	Vec2 TileSize = Vec2(15.0f, 15.0f);
+	Vec2 TileOffset = Vec2(0.0f, 0.0f);
+	XMFLOAT4 Tint = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+
+	std::string Name() const;
+	ID3D11ShaderResourceView* DiffuseSRV();
+	void SetDiffuse(const std::string& path);
+	bool Save() const;
+
+	static std::shared_ptr<TerrainLayer> Load(const std::string& path);
+	static std::shared_ptr<TerrainLayer> Create(const std::string& path, const std::string& diffusePath);
+	// 엔진 패키지의 기본 레이어 (Resources/Packages/Terrain/Layers/*.terrainlayer)
+	static std::vector<std::string> ListAvailable();
+
+private:
+	ComPtr<ID3D11ShaderResourceView> m_Diffuse;
+	bool m_DiffuseLoaded = false;
+};
+
+// Unity 의 TerrainData 에셋 (.terraindata, 바이너리).
+//  - 높이맵: (해상도 x 해상도) 정규화 높이 0~1, 실제 높이 = 값 * Size.y. 인덱스 [z * 해상도 + x].
+//  - 컨트롤(스플랫) 맵: 레이어 4개의 가중치 (RGBA8).
+//  - LOD 쿼드트리: 깊이 0 = 지형 전체 한 노드, 깊이가 1 늘 때마다 4등분. 모든 노드는 같은 격자(NodeGrid 칸)로 그려지므로
+//    얕은(큰) 노드일수록 높이맵을 성기게 샘플링한다. 노드마다 높이 범위와 기하 오차(그 간격으로 그렸을 때 원래 높이와의 최대 차)를 가진다.
+class TerrainData
+{
+public:
+	static constexpr int kMaxLayers = 4;
+	static constexpr int kNodeGrid = 32;   // 노드 한 변의 칸 수 (정점 33개)
+
+	struct Node
+	{
+		float MinHeight = 0.0f;     // 미터 (지형 로컬)
+		float MaxHeight = 0.0f;
+		float Error = 0.0f;         // 미터. 자식들의 오차를 포함하므로 깊이가 얕을수록 크다
+	};
+
+	std::string Path;
+	int HeightmapResolution = 513;
+	Vec3 Size = Vec3(1000.0f, 600.0f, 1000.0f);   // Unity 기본 지형 크기
+	std::vector<float> Heights;
+	int ControlResolution = 512;
+	std::vector<uint8_t> Control;                 // RGBA
+	std::vector<std::shared_ptr<TerrainLayer>> Layers;
+
+	unsigned Revision = 0;      // 높이가 바뀔 때마다 증가 (물리 형상 재생성 판단)
+	bool Dirty = false;         // 저장하지 않은 변경
+
+public:
+	std::string Name() const;
+
+	// ---- 크기/해상도 ----
+	int NodeGrid() const { return (std::min)(kNodeGrid, HeightmapResolution - 1); }
+	int MaxDepth() const;                                   // 가장 깊은 노드 = 높이맵 간격 1
+	int NodeStep(int depth) const { return (HeightmapResolution - 1) / (1 << depth) / NodeGrid(); }   // 노드 격자 한 칸 = 높이맵 몇 칸
+	int NodeCells(int depth) const { return (HeightmapResolution - 1) >> depth; }
+	float CellSizeX() const { return Size.x / (HeightmapResolution - 1); }
+	float CellSizeZ() const { return Size.z / (HeightmapResolution - 1); }
+	const Node& GetNode(int depth, int x, int z) const { return m_Nodes[depth][(size_t)z * ((size_t)1 << depth) + x]; }
+	void SetHeightmapResolution(int resolution);   // 기존 높이를 보간해 옮긴다
+	void SetSize(const Vec3& size);
+
+	// ---- 높이 (지형 로컬 좌표, 미터) ----
+	float GetHeightSample(int x, int z) const;     // 격자점 (정규화 0~1)
+	float GetHeight(float x, float z) const;       // 삼각형 보간 (렌더링 메시와 같은 면)
+	Vec3 GetNormal(float x, float z) const;
+	// 지형 로컬 공간 광선. 맞으면 t(방향 길이 단위) 를 돌려준다
+	bool Raycast(const Vec3& origin, const Vec3& dir, float maxDistance, float& outT) const;
+
+	// ---- 편집 후 호출 (격자 범위, 포함) ----
+	void OnHeightsChanged(int x0, int z0, int x1, int z1);
+	void OnControlChanged(int x0, int z0, int x1, int z1);
+
+	// ---- GPU 자원 (필요할 때 만들고 바뀐 영역만 올린다) ----
+	ID3D11ShaderResourceView* HeightSRV();
+	ID3D11ShaderResourceView* ControlSRV();
+
+	// ---- 파일 ----
+	bool Save();
+	static std::shared_ptr<TerrainData> Load(const std::string& path);
+	static std::shared_ptr<TerrainData> Create(const std::string& path, int resolution = 513, const Vec3& size = Vec3(1000.0f, 600.0f, 1000.0f));
+	// 메모리에 있는 저장 안 된 지형 데이터를 모두 저장 (씬 저장 시)
+	static void SaveAllDirty();
+	static bool AnyDirty();
+
+private:
+	void Allocate();
+	void RebuildNodes(int x0, int z0, int x1, int z1);   // 높이맵 격자 범위와 겹치는 노드
+	void RebuildAllNodes();
+
+	std::vector<std::vector<Node>> m_Nodes;   // [깊이][z * 2^깊이 + x]
+
+	ComPtr<ID3D11Texture2D> m_HeightTex;
+	ComPtr<ID3D11ShaderResourceView> m_HeightSRV;
+	ComPtr<ID3D11Texture2D> m_ControlTex;
+	ComPtr<ID3D11ShaderResourceView> m_ControlSRV;
+	bool m_HeightDirty = true, m_ControlDirty = true;
+	int m_HeightDirtyRect[4] = { 0, 0, 0, 0 };
+	int m_ControlDirtyRect[4] = { 0, 0, 0, 0 };
+	bool m_HeightFullUpload = true, m_ControlFullUpload = true;
+};

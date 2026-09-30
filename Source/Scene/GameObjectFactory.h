@@ -49,6 +49,8 @@ public:
 	static GameObject* CreateCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& clipPath = kDefaultCharacterIdle);
 	// Animator 컴포넌트(Animator Controller 상태 머신)로 재생하는 캐릭터 — Unity 에서 모델을 씬에 놓았을 때와 같다
+	// Unity 의 GameObject > 3D Object > Terrain: Assets 에 새 TerrainData 를 만들고 Terrain + Terrain Collider 를 붙인다
+	static GameObject* CreateTerrain(const std::string& name = "Terrain");
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

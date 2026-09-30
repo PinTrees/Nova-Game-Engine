@@ -90,7 +90,7 @@ namespace GameObjectMenu
 			ImGui::Separator();
 			Disabled("Ragdoll...");
 			ImGui::Separator();
-			Disabled("Terrain");
+			if (ImGui::MenuItem("Terrain")) add(GameObjectFactory::CreateTerrain());   // 새 TerrainData(Assets) + Terrain + Terrain Collider
 			Disabled("Tree");
 			Disabled("Wind Zone");
 			ImGui::EndMenu();

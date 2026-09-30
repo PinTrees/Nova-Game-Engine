@@ -12,4 +12,7 @@ namespace SceneGizmoTools
 
 	// 핸들을 드래그하는 중인지 (카메라 이동 등 다른 조작과 충돌 방지용)
 	bool IsDragging();
+
+	// 다른 도구(지형 브러시 등)가 마우스를 쓰는 동안 변환 핸들과 클릭 선택을 끈다 (카메라 조작은 유지)
+	void SetSuppressed(bool suppressed);
 }

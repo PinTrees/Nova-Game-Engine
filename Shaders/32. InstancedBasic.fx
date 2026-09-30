@@ -456,3 +456,113 @@ technique11 SkinnedTech
         SetPixelShader(CompileShader(ps_5_0, PS()));
     }
 }
+//=============================================================================
+// NOVA 지형 (Terrain 컴포넌트) - 본 패스
+//=============================================================================
+#include "40. TerrainCommon.fx"
+
+DepthStencilState TerrainDepthLessEqual
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ALL;
+    DepthFunc = LESS_EQUAL;
+};
+
+struct TerrainVertexOut
+{
+    float4 PosH : SV_POSITION;
+    float4 PosW : POSITION;
+    float2 UV : TEXCOORD0;
+    float4 SsaoPosH : TEXCOORD1;
+};
+
+TerrainVertexOut TerrainVS(uint vid : SV_VertexID)
+{
+    TerrainVertexOut vout;
+    float2 uv;
+    float3 posW = TerrainVertexWorld(vid, uv);
+    vout.PosW = float4(posW, 1.0f);
+    vout.PosH = mul(vout.PosW, gViewProj);
+    vout.UV = uv;
+    vout.SsaoPosH = mul(vout.PosW, gViewProjTex);
+    return vout;
+}
+
+float4 TerrainPS(TerrainVertexOut pin) : SV_Target
+{
+    float3 normalW = TerrainNormalUV(pin.UV);
+    float3 toEye = gEyePosW - pin.PosW.xyz;
+    float distToEye = length(toEye);
+    toEye /= distToEye;
+
+    float4 texColor = TerrainAlbedo(pin.UV);
+    float4 litColor = texColor;
+    if ((gDirLightCount + gPointLightCount + gSpotLightCount) > 0)
+    {
+        float4 ambient = 0, diffuse = 0, spec = 0;
+        float dirShadows[LIGHT_SIZE];
+        float spotShadows[LIGHT_SIZE];
+        [unroll]
+        for (int k = 0; k < LIGHT_SIZE; k++)
+        {
+            dirShadows[k] = 1.0f;
+            spotShadows[k] = 1.0f;
+        }
+        if (gShaderSetting.gUseShadowMap)
+        {
+            [unroll]
+            for (int i = 0; i < LIGHT_SIZE; i++)
+                dirShadows[i] = CalcShadowFactor(samShadow, gDirShadowMaps[i], mul(pin.PosW, gDirShadowTransforms[i]));
+            [unroll]
+            for (int j = 0; j < LIGHT_SIZE; j++)
+                spotShadows[j] = CalcShadowFactor(samShadow, gSpotShadowMaps[j], mul(pin.PosW, gSpotShadowTransforms[j]));
+        }
+
+        float ambientAccess = 1.0f;
+        if (gShaderSetting.gUseSsaoMap)
+        {
+            float4 ssao = pin.SsaoPosH / pin.SsaoPosH.w;
+            ambientAccess = gSsaoMap.SampleLevel(samLinear, ssao.xy, 0.0f).r;
+        }
+
+        float4 A, D, S;
+        for (int i = 0; i < gDirLightCount; ++i)
+        {
+            ComputeDirectionalLight(gMaterial, gDirLights[i], normalW, toEye, A, D, S);
+            ambient += ambientAccess * A;
+            diffuse += dirShadows[i] * D;
+            spec += dirShadows[i] * S;
+        }
+        for (int j = 0; j < gSpotLightCount; ++j)
+        {
+            ComputeSpotLight(gMaterial, gSpotLights[j], pin.PosW.xyz, normalW, toEye, A, D, S);
+            ambient += ambientAccess * A;
+            diffuse += spotShadows[j] * D;
+            spec += spotShadows[j] * S;
+        }
+        for (int l = 0; l < gPointLightCount; ++l)
+        {
+            ComputePointLight(gMaterial, gPointLights[l], pin.PosW.xyz, normalW, toEye, A, D, S);
+            ambient += ambientAccess * A;
+            diffuse += D;
+            spec += S;
+        }
+        litColor = texColor * (ambient + diffuse) + spec;
+    }
+
+    if (gShaderSetting.gFogEnabled)
+        litColor = lerp(litColor, gFogColor, saturate((distToEye - gFogStart) / gFogRange));
+    litColor.a = 1.0f;
+    return litColor;
+}
+
+technique11 TerrainTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TerrainVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TerrainPS()));
+        SetDepthStencilState(TerrainDepthLessEqual, 0);
+    }
+}

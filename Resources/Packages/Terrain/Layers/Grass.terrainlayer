@@ -1,0 +1,17 @@
+{
+    "diffuse": "Resources\\Packages\\Terrain\\Layers\\Grass.png",
+    "tileSize": [
+        12.0,
+        12.0
+    ],
+    "tileOffset": [
+        0.0,
+        0.0
+    ],
+    "tint": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+    ]
+}

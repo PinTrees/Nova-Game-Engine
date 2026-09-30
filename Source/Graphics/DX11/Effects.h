@@ -12,6 +12,10 @@ private:
 	Effect(const Effect& rhs);
 	Effect& operator=(const Effect& rhs);
 
+public:
+	// 이름으로 변수/기법을 직접 찾을 때 (지형 렌더러 등)
+	ID3DX11Effect* GetFX() const { return _fx.Get(); }
+
 protected:
 	ComPtr<ID3DX11Effect> _fx;
 };

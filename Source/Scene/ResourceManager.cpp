@@ -149,6 +149,7 @@ shared_ptr<MeshFile> ResourceManager::LoadMeshFile(string filename)
 	}
 	else
 	{
+		LoadingScreen::SetStatus(L"Importing " + std::filesystem::path(string_to_wstring(filename)).filename().wstring());
 		MeshFile* meshFile = MeshFile::LoadFromMetaFile(filename); 
 		// 메타파일 읽기 오류
 		if (meshFile == nullptr)

@@ -77,7 +77,7 @@ int32 App::Run()
 			// Handle
 			SceneManager::GetI()->HandleSaveScene();
 
-			if (!_appPaused)
+			if (!_appPaused || _deferredShow)   // 숨긴 채 첫 프레임을 준비하는 중에는 멈추지 않는다
 			{
 				CalculateFrameStats();
 
@@ -113,6 +113,16 @@ int32 App::Run()
 				// Render End
 				HR(_swapChain->Present(0, 0)); 
 
+				// 첫 프레임(도킹 배치가 잡히도록 두 번째 프레임)이 그려지면 에디터 창을 보이고 로딩 창을 닫는다
+				if (_deferredShow && ++_shownFrames >= 2)
+				{
+					_deferredShow = false;
+					::ShowWindow(_hMainWnd, SW_SHOW);
+					::UpdateWindow(_hMainWnd);
+					::SetForegroundWindow(_hMainWnd);
+					LoadingScreen::End();
+				}
+
 				// Last Frame
 				SceneManager::GetI()->GetCurrentScene()->LastFramUpdate();
 				SceneManager::GetI()->LastUpdate();
@@ -139,6 +149,7 @@ bool App::InitPlatform()
 {
 	std::ofstream log(_logFileName, std::ios::app);
 	log << "App::Init -> InitMainWindow..." << std::endl; log.flush();
+	LoadingScreen::SetProgress(0.02f, L"Initializing graphics device (DirectX 11)");
 	if (!InitMainWindow())
 		return false;
 
@@ -158,6 +169,8 @@ bool App::Init()
 
 	log << "App::Init -> PathManager..." << std::endl; log.flush();
 	PathManager::GetI()->Init();
+	LoadingScreen::SetSubtitle(std::filesystem::path(PathManager::GetI()->GetContentPathW()).parent_path().filename().wstring());
+	LoadingScreen::SetProgress(0.06f, L"Loading editor settings");
 
 	log << "App::Init -> EditorSettingManager..." << std::endl; log.flush();
 	EditorSettingManager::Init();
@@ -167,6 +180,7 @@ bool App::Init()
 	PostProcessingManager::GetI()->Init();
 
 	log << "App::Init -> EditorGUIManager..." << std::endl; log.flush();
+	LoadingScreen::SetProgress(0.08f, L"Initializing editor UI");
 	EditorGUIManager::GetI()->Init();
 	EditorGUIManager::GetI()->OnResize(GetScreenSize());
 	EditorGUIManager::GetI()->RegisterWindow(new SceneEditorWindow);  
@@ -187,7 +201,9 @@ bool App::Init()
 
 	{ extern void FbxDumpRun(); FbxDumpRun(); }   // (개발/검증용) NOVA_FBX_DUMP
 	log << "App::Init -> LoadScene..." << std::endl; log.flush();
+	LoadingScreen::SetProgress(0.10f, L"Loading scene");
 	SceneManager::GetI()->LoadStartupScene();
+	LoadingScreen::SetProgress(0.20f, L"Scene loaded");
 
 	// (개발/검증용) NOVA_DEV_CREATE=cube,sphere,capsule,cylinder,plane,quad 이면 시작 시 기본 도형을 만들어 씬에 저장한다.
 	{
@@ -263,6 +279,9 @@ bool App::Init()
 		char animatorLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_ANIMATOR_TEST", animatorLog, sizeof(animatorLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunAnimatorTest(SceneManager::GetI()->GetCurrentScene(), animatorLog);
+		char terrainLog[512] = {};
+		if (::GetEnvironmentVariableA("NOVA_TERRAIN_TEST", terrainLog, sizeof(terrainLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
+			PhysicsSelfTest::RunTerrainTest(SceneManager::GetI()->GetCurrentScene(), terrainLog);
 	}
 
 	// (개발/검증용) NOVA_SELECT=<오브젝트 이름> 이 지정되면 시작 시 해당 오브젝트를 선택해 Inspector 확인을 돕는다.
@@ -527,8 +546,13 @@ bool App::InitMainWindow()
 	SendMessage(_hMainWnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
 	SendMessage(_hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSmall);
 
-	::ShowWindow(_hMainWnd, SW_SHOW);
-	::UpdateWindow(_hMainWnd);
+	// 로딩 창이 떠 있으면 첫 프레임이 준비될 때까지 숨겨 둔다 (흰 창이 멈춘 것처럼 보이지 않게)
+	_deferredShow = LoadingScreen::IsActive();
+	if (!_deferredShow)
+	{
+		::ShowWindow(_hMainWnd, SW_SHOW);
+		::UpdateWindow(_hMainWnd);
+	}
 
 	return true;
 }

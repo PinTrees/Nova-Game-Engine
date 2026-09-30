@@ -62,10 +62,15 @@ bool EditorApp::Init()
 {
 	std::ofstream log("run_log.txt", std::ios::app);
 	log << "EditorApp::Init -> App::Init..." << std::endl; log.flush();
+	LoadingScreen::Begin(L"Opening project...");
 	if (!App::Init())
+	{
+		LoadingScreen::End();
 		return false;
+	}
 
 	log << "EditorApp::Init -> Effects::InitAll..." << std::endl; log.flush();
+	LoadingScreen::BeginShaderPhase(0.22f, 0.90f, 22);   // Effects 20 + Shaders 2
 	Effects::InitAll(_device, L"../Shaders/28. Basic.fx");
 	log << "EditorApp::Init -> Shaders::InitAll..." << std::endl; log.flush();
 	Shaders::InitAll(_device);
@@ -75,6 +80,7 @@ bool EditorApp::Init()
 	RenderStates::InitAll(_device);
 
 	log << "EditorApp::Init -> _texMgr.Init..." << std::endl; log.flush();
+	LoadingScreen::SetProgress(0.92f, L"Loading textures");
 	_texMgr.Init(_device);
 
 	log << "EditorApp::Init -> _sky..." << std::endl; log.flush();
@@ -85,6 +91,7 @@ bool EditorApp::Init()
 	//_ssao = make_shared<class Ssao>(_device, _deviceContext, _clientWidth, _clientHeight, _camera.GetFovY(), _camera.GetFarZ());
 
 	log << "EditorApp::Init -> BuildScreenQuadGeometryBuffers..." << std::endl; log.flush();
+	LoadingScreen::SetProgress(0.96f, L"Preparing editor windows");
 	BuildScreenQuadGeometryBuffers();
 
 	//
@@ -184,6 +191,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
 	//BuildShadowTransform();
 
+	RenderManager::GetI()->RenderingEditorView = false;
 	RenderManager::GetI()->CameraViewMatrix = camera->View();
 	RenderManager::GetI()->CameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
@@ -360,6 +368,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
 
+	RenderManager::GetI()->RenderingEditorView = true;
 	RenderManager::GetI()->EditorCameraViewMatrix = camera->View();
 	RenderManager::GetI()->EditorCameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->EditorCameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());

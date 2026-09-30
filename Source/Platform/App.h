@@ -15,6 +15,12 @@ public:
 	HINSTANCE AppInst() { return _hAppInst; }
 	HWND      MainWnd() { return _hMainWnd; }
 	ID3D11Device* GetDevice() { return  _device.Get(); }
+
+protected:
+	bool _deferredShow = false;   // 로딩 창이 끝날 때까지 메인 창 숨김
+	int _shownFrames = 0;
+
+public:
 	ID3D11DeviceContext* GetDeviceContext() { return  _deviceContext.Get(); }
 	//D3D11_VIEWPORT GetViewport() { return _viewport; }
 	

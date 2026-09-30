@@ -150,6 +150,9 @@ void Scene::RenderSceneShadow()
             }
         }
 
+        for (const auto& gameObject : m_ArrGameObjects[0])
+            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
+
     }
     else
     {
@@ -160,6 +163,8 @@ void Scene::RenderSceneShadow()
 
             SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
             if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadow();
+
+            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
         }
     }
 }
@@ -203,6 +208,9 @@ void Scene::RenderSceneShadowNormal()
                 vec[0]->GetComponent<MeshRenderer>()->RenderShadowNormalInstancing(buffer);
             }
         }
+
+        for (const auto& gameObject : m_ArrGameObjects[0])
+            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
     }
     else
     {
@@ -213,6 +221,8 @@ void Scene::RenderSceneShadowNormal()
 
             SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
             if (skinnedMeshRenderer) skinnedMeshRenderer->RenderShadowNormal();
+
+            if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
         }
     }
 }
@@ -226,6 +236,8 @@ void Scene::_Editor_RenderScene()
 
         SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
         if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_Render();
+
+        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_Render();
     }
 }
 
@@ -236,9 +248,11 @@ void Scene::_Editor_RenderSceneShadowNormal()
         MeshRenderer* meshRenderer = gameObject->GetComponent<MeshRenderer>(); 
         if (meshRenderer) meshRenderer->_Editor_RenderShadowNormal();  
 
-        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();  
+        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
         if (skinnedMeshRenderer) skinnedMeshRenderer->_Editor_RenderShadowNormal();
-    } 
+
+        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_RenderShadowNormal();
+} 
 }
 
 void Scene::RenderSceneGizmos()

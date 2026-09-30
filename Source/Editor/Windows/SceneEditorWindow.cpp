@@ -6,6 +6,7 @@
 #include "SceneViewOverlay.h"
 #include "SceneToolbar.h"
 #include "SceneGizmoTools.h"
+#include "TerrainEditor.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -170,7 +171,10 @@ void SceneEditorWindow::OnRender()
         SceneViewOverlay::DrawGrid();
     if (SceneToolbar::GizmosVisible())
         SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
+    // Terrain 이 선택되고 Paint Terrain 도구가 켜져 있으면 브러시로 칠한다 (Unity 처럼 이동 핸들/클릭 선택은 쉰다)
+    const bool terrainTool = TerrainEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
     SceneViewOverlay::End();
+    SceneGizmoTools::SetSuppressed(terrainTool);
 
     // 도구 단축키(Q/W/E/R/T/Y) → Move/Rotate/Scale/Rect 핸들, 클릭 선택, Hand/휠/Alt 궤도/F 포커스
     SceneToolbar::HandleShortcuts(viewHovered);

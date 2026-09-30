@@ -14,6 +14,7 @@
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/EmptyShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
@@ -35,6 +36,8 @@
 #include "SphereCollider.h"
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
+#include "TerrainCollider.h"
+#include "TerrainData.h"
 #include "Mesh.h"
 
 SINGLE_BODY(PhysicsManager)
@@ -284,7 +287,7 @@ namespace
 			Collider* col = dynamic_cast<Collider*>(c.get());
 			if (col == nullptr || !col->IsEnabled())
 				continue;
-			if (dynamic_cast<BoxCollider*>(col) || dynamic_cast<SphereCollider*>(col) || dynamic_cast<CapsuleCollider*>(col) || dynamic_cast<MeshCollider*>(col))
+			if (dynamic_cast<BoxCollider*>(col) || dynamic_cast<SphereCollider*>(col) || dynamic_cast<CapsuleCollider*>(col) || dynamic_cast<MeshCollider*>(col) || dynamic_cast<TerrainCollider*>(col))
 				out.push_back(col);
 		}
 	}
@@ -398,6 +401,22 @@ namespace
 			}
 		}
 
+		else if (auto* terrainCol = dynamic_cast<TerrainCollider*>(col))
+		{
+			// Unity 지형처럼 위치만 쓰고 회전/크기는 무시. 움직이는(Dynamic) 바디에는 쓸 수 없다.
+			std::shared_ptr<TerrainData> data = terrainCol->GetEffectiveData();
+			if (data == nullptr || mustBeConvex || data->Heights.empty())
+				return nullptr;
+			outPos = tr->GetPosition();
+			outRot = Quaternion::Identity;
+			const int res = data->HeightmapResolution;
+			const JPH::Vec3 scale(data->CellSizeX(), data->Size.y, data->CellSizeZ());
+			JPH::Ref<JPH::HeightFieldShapeSettings> hf = new JPH::HeightFieldShapeSettings(data->Heights.data(), JPH::Vec3::sZero(), scale, (JPH::uint32)res);
+			hf->mBlockSize = 4;
+			hf->mBitsPerSample = 16;   // 높이 정밀도 (600m 기준 약 1cm)
+			leaf = hf;
+		}
+
 		if (leaf != nullptr)
 			leaf->mUserData = EncodeCollider(col->GetInstanceID());
 		return leaf;
@@ -484,6 +503,8 @@ namespace
 			if (auto* s = dynamic_cast<SphereCollider*>(c)) HashFloat(h, s->GetRadius());
 			if (auto* k = dynamic_cast<CapsuleCollider*>(c)) { HashFloat(h, k->GetRadius()); HashFloat(h, k->GetHeight()); HashCombine(h, k->GetDirection()); }
 			if (auto* m = dynamic_cast<MeshCollider*>(c)) { HashCombine(h, (size_t)m->GetMesh()); HashCombine(h, m->IsConvex()); }
+			if (auto* t = dynamic_cast<TerrainCollider*>(c))
+				if (auto data = t->GetEffectiveData()) { HashCombine(h, (size_t)data.get()); HashCombine(h, data->Revision); }   // 지형을 고치면 형상을 다시 만든다
 			// 자식 콜라이더: 소유자까지의 로컬 변환 체인 (정확한 값이라 흔들리지 않음)
 			for (GameObject* g = c->GetGameObject(); g != nullptr && g != owner; g = g->GetParent())
 			{

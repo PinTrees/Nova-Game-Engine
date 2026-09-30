@@ -4,6 +4,7 @@
 #include <fstream>
 #include <vector>
 #include <mutex>
+#include "LoadingScreen.h"
 
 namespace fs = std::filesystem;
 
@@ -69,6 +70,7 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 				Microsoft::WRL::ComPtr<ID3DBlob> blob;
 				if (SUCCEEDED(D3DCreateBlob(data.size(), blob.GetAddressOf())))
 				{
+					LoadingScreen::OnShader(filename, true);
 					memcpy(blob->GetBufferPointer(), data.data(), data.size());
 					outBlob = blob;
 					return S_OK;
@@ -77,6 +79,7 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 		}
 	}
 
+	LoadingScreen::OnShader(filename, false);   // 컴파일은 오래 걸린다 (로딩 창에 표시)
 	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, nullptr,
 		"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
 

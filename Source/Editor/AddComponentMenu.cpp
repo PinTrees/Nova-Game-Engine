@@ -28,11 +28,12 @@ namespace
 		{ "SphereCollider",      "Sphere Collider",       "Physics",       "sphere_collider",   false },
 		{ "CapsuleCollider",     "Capsule Collider",      "Physics",       "capsule_collider",  false },
 		{ "MeshCollider",        "Mesh Collider",         "Physics",       "mesh_collider",     false },
+		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
+		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
 		{ "Animator",            "Animator",              "Miscellaneous", "animator",          true  },
-		{ "TerrainTool",         "Terrain Tool",          "Miscellaneous", "component",         false },
 	};
 
 	// 메뉴에 보이지 않는 타입 (항상 있거나 직접 붙일 수 없는 기반 클래스)

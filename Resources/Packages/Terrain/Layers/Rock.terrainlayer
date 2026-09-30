@@ -1,0 +1,17 @@
+{
+    "diffuse": "Resources\\Packages\\Terrain\\Layers\\Rock.png",
+    "tileSize": [
+        14.0,
+        14.0
+    ],
+    "tileOffset": [
+        0.0,
+        0.0
+    ],
+    "tint": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+    ]
+}

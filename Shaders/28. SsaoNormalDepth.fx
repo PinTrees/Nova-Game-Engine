@@ -212,3 +212,42 @@ technique11 NormalDepthAlphaClipSkinned
         SetPixelShader(CompileShader(ps_5_0, PS(true)));
     }
 }
+//=============================================================================
+// NOVA 지형 (Terrain 컴포넌트) - SSAO 노멀/깊이 패스 (gView, gProj 사용)
+//=============================================================================
+#include "40. TerrainCommon.fx"
+
+struct TerrainNormalDepthOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosV : POSITION;
+    float2 UV : TEXCOORD0;
+};
+
+TerrainNormalDepthOut TerrainNormalDepthVS(uint vid : SV_VertexID)
+{
+    TerrainNormalDepthOut vout;
+    float2 uv;
+    float3 posW = TerrainVertexWorld(vid, uv);
+    vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
+    // 본 패스(TerrainVS)와 똑같이 CPU 에서 곱한 ViewProj 한 번으로 → 깊이가 정확히 같아 EQUAL/LESS_EQUAL 검사가 흔들리지 않는다
+    vout.PosH = mul(float4(posW, 1.0f), gWorldViewProj);
+    vout.UV = uv;
+    return vout;
+}
+
+float4 TerrainNormalDepthPS(TerrainNormalDepthOut pin) : SV_Target
+{
+    float3 normalV = normalize(mul(TerrainNormalUV(pin.UV), (float3x3) gView));
+    return float4(normalV, pin.PosV.z);
+}
+
+technique11 TerrainNormalDepthTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TerrainNormalDepthVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TerrainNormalDepthPS()));
+    }
+}

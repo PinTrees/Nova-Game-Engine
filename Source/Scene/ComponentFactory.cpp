@@ -12,7 +12,8 @@
 #include "MeshCollider.h"
 #include "AnimationPlayer.h"
 #include "Animator.h"
-#include "TerrainTool.h"
+#include "Terrain.h"
+#include "TerrainCollider.h"
 
 ComponentFactory::ComponentFactory()
 {
@@ -65,5 +66,6 @@ void ComponentFactory::InitBuiltInComponents()
 	RegisterComponent("MeshCollider", []() { return std::make_shared<MeshCollider>(); });
 	RegisterComponent("AnimationPlayer", []() { return std::make_shared<AnimationPlayer>(); });
 	RegisterComponent("Animator", []() { return std::make_shared<Animator>(); });
-	RegisterComponent("TerrainTool", []() { return std::make_shared<TerrainTool>(); });
+	RegisterComponent("Terrain", []() { return std::make_shared<Terrain>(); });
+	RegisterComponent("TerrainCollider", []() { return std::make_shared<TerrainCollider>(); });
 }

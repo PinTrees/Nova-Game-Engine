@@ -94,6 +94,7 @@ namespace ed = ax::NodeEditor;
 #include "RenderManager.h"
 
 #include "PathManager.h"
+#include "LoadingScreen.h"
 #include "ResourceManager.h"
 #include "InputManager.h"
 
@@ -117,13 +118,15 @@ namespace ed = ax::NodeEditor;
 #include "Light.h"
 #include "Scene.h"
 #include "SceneManager.h"
-#include "TerrainTool.h"
 
 #include "Transform.h"
 #include "Collider.h"
 #include "BoxCollider.h"
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
+#include "TerrainData.h"
+#include "Terrain.h"
+#include "TerrainCollider.h"
 #include "PhysicsManager.h"
 #include "TimeManager.h"
 

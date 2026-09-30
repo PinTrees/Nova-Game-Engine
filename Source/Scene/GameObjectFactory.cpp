@@ -372,3 +372,17 @@ GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, 
 	animator->Rebind();
 	return root;
 }
+
+GameObject* GameObjectFactory::CreateTerrain(const std::string& name)
+{
+	// Unity 기본값: 1000 x 600 x 1000, 높이맵 513
+	std::string path = "Assets\\New Terrain.terraindata";
+	for (int n = 1; std::filesystem::exists(PathManager::GetI()->GetMovePathW(string_to_wstring(path))); ++n)
+		path = "Assets\\New Terrain " + std::to_string(n) + ".terraindata";
+	auto data = TerrainData::Create(path);
+
+	GameObject* obj = new GameObject(name);
+	obj->AddComponent<Terrain>()->SetTerrainData(data);
+	obj->AddComponent<TerrainCollider>();   // Terrain Data 가 비면 Terrain 의 데이터를 쓴다
+	return obj;
+}

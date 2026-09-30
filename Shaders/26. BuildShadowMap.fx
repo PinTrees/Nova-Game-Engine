@@ -380,3 +380,25 @@ technique11 TessBuildShadowMapAlphaClipTech
         SetPixelShader(CompileShader(ps_5_0, TessPS()));
     }
 }
+//=============================================================================
+// NOVA 지형 (Terrain 컴포넌트) - 그림자맵 패스 (gViewProj = 광원 ViewProj)
+//=============================================================================
+#include "40. TerrainCommon.fx"
+
+float4 TerrainShadowVS(uint vid : SV_VertexID) : SV_POSITION
+{
+    float2 uv;
+    float3 posW = TerrainVertexWorld(vid, uv);
+    return mul(float4(posW, 1.0f), gViewProj);
+}
+
+technique11 TerrainShadowTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TerrainShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetRasterizerState(Depth);
+    }
+}

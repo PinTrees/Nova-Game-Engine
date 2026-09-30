@@ -5,7 +5,6 @@
 #include "BlurFilter.h"
 #include "Camera.h"
 #include "Vertex.h"
-#include "Terrain.h"
 #include "Octree.h"
 #include "TextureMgr.h"
 

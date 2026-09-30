@@ -867,6 +867,19 @@ namespace
 		if (go == nullptr)
 			return;
 		Transform* tr = go->GetTransform();
+		if (Terrain* terrain = go->GetComponent<Terrain>())
+		{
+			Vec3 hit;
+			if (terrain->Raycast(ro, rd, bestT, hit))
+			{
+				const float t = (hit - ro).Length();
+				if (t < bestT)
+				{
+					bestT = t;
+					best = go;
+				}
+			}
+		}
 		Mesh* mesh = ObjectMesh(go);
 		if (tr != nullptr && mesh != nullptr && !mesh->Vertices.empty() && !mesh->Indices.empty())
 		{
@@ -1005,6 +1018,9 @@ namespace SceneGizmoTools
 {
 	bool IsDragging() { return d.active || s_Orbiting; }
 
+	static bool s_Suppressed = false;
+	void SetSuppressed(bool suppressed) { s_Suppressed = suppressed; }
+
 	void Update(EditorCamera* camera, const ImVec2& viewMin, const ImVec2& viewMax, bool viewHovered)
 	{
 		if (camera == nullptr)
@@ -1033,7 +1049,12 @@ namespace SceneGizmoTools
 		f.dl->PushClipRect(viewMin, viewMax, true);
 
 		const Tool tool = CurrentTool();
-		if (selected != nullptr && selected->GetTransform() != nullptr && tool != Tool::View)
+		if (s_Suppressed)
+		{
+			d.active = false;
+			s_ClickCandidate = false;
+		}
+		if (!s_Suppressed && selected != nullptr && selected->GetTransform() != nullptr && tool != Tool::View)
 		{
 			Transform* tr = selected->GetTransform();
 
@@ -1100,7 +1121,7 @@ namespace SceneGizmoTools
 
 		// 빈 곳 클릭 → 오브젝트 선택 (드래그하지 않고 뗐을 때)
 		ImGuiIO& io = ImGui::GetIO();
-		if (viewHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !d.active && !io.KeyAlt && tool != Tool::View && s_BestHot.kind == Kind::None)
+		if (!s_Suppressed && viewHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !d.active && !io.KeyAlt && tool != Tool::View && s_BestHot.kind == Kind::None)
 		{
 			s_ClickCandidate = true;
 			s_ClickPos = f.mouse;

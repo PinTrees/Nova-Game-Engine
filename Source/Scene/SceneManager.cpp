@@ -99,6 +99,7 @@ bool SceneManager::SaveCurrentScene(bool saveAs)
 	const bool ok = (saveAs || m_pCurrScene->GetScenePath().empty()) ? Scene::SaveNewScene(m_pCurrScene) : Scene::Save(m_pCurrScene);
 	if (ok)
 	{
+		TerrainData::SaveAllDirty();   // Unity 처럼 씬 저장 때 편집한 지형 데이터도 저장
 		m_Scenes[m_pCurrScene->GetScenePath()] = m_pCurrScene;
 		MarkCurrentSceneSaved();
 		Debug::Log("씬을 저장했습니다: " + wstring_to_string(m_pCurrScene->GetScenePath()));
@@ -135,7 +136,7 @@ bool SceneManager::IsCurrentSceneDirty()
 	{
 		m_LastDirtyCheck = now;
 		m_CheckedHash = ComputeSceneHash();
-		m_Dirty = m_CheckedHash != m_SavedHash;
+		m_Dirty = m_CheckedHash != m_SavedHash || TerrainData::AnyDirty();   // 지형 편집은 .terraindata 에 저장된다
 	}
 	return m_Dirty;
 }

@@ -34,6 +34,8 @@ public:
 
 	bool WireFrameMode = false;
 	bool InstancingMode = false;
+	// 지금 그리는 화면이 Scene 뷰(에디터 카메라)인지 Game 뷰인지 (그림자 패스에서 지형 LOD 기준 카메라를 고를 때)
+	bool RenderingEditorView = false;
 public:
 	void Init();
 

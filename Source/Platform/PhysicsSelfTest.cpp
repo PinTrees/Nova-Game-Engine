@@ -9,6 +9,7 @@
 #include "AnimationPlayer.h"
 #include "Animator.h"
 #include "AnimatorController.h"
+#include "TerrainEditor.h"
 
 namespace
 {
@@ -570,6 +571,139 @@ namespace PhysicsSelfTest
 
 		a->Rebind();
 		fprintf(fp, "RESULT: %s (%d failures)\n", failures == 0 ? "ALL PASS" : "FAILED", failures);
+		fclose(fp);
+	}
+}
+
+namespace PhysicsSelfTest
+{
+	void RunTerrainTest(Scene* scene, const char* logPath)
+	{
+		FILE* fp = nullptr;
+		fopen_s(&fp, logPath, "w");
+		if (fp == nullptr || scene == nullptr)
+			return;
+
+		// ---- 데이터: 300 x 60 x 300 m, 높이맵 513 ----
+		const std::string dir = std::filesystem::path(logPath).parent_path().string();
+		auto data = TerrainData::Create(dir + "\\TestTerrain.terraindata", 513, Vec3(300.0f, 60.0f, 300.0f));
+		GameObject* go = GameObjectFactory::CreateEmpty("T_Terrain");
+		go->GetTransform()->SetPosition(Vec3(20.0f, 0.0f, -20.0f));
+		Terrain* terrain = go->AddComponent<Terrain>();
+		terrain->SetTerrainData(data);
+		go->AddComponent<TerrainCollider>();
+		scene->AddRootGameObject(go);
+		const Vec3 origin = terrain->GetPosition();
+		auto W = [&](float x, float z) { return origin + Vec3(x, 0.0f, z); };   // 지형 로컬 → 월드
+
+		const double t0 = (double)::GetTickCount64();
+		// 바닥 4m 로 평탄화 (Set Height + Flatten All 과 같은 동작)
+		std::fill(data->Heights.begin(), data->Heights.end(), 4.0f / data->Size.y);
+		data->OnHeightsChanged(0, 0, data->HeightmapResolution - 1, data->HeightmapResolution - 1);
+
+		using namespace TerrainEditor;
+		// 언덕 (Raise, Soft Round)
+		struct Hill { float x, z, size, seconds; };
+		const Hill hills[] = { { 90, 170, 90, 1.2f }, { 150, 230, 60, 1.6f }, { 210, 120, 110, 0.9f }, { 60, 60, 50, 1.4f } };
+		for (const Hill& h : hills)
+		{
+			SetBrush(0, h.size, 100.0f);
+			for (int i = 0; i < 30; ++i)
+				ApplyBrush(terrain, PaintTool::RaiseLower, W(h.x, h.z), h.seconds / 30.0f, false);
+		}
+		// 움푹한 곳 (Shift = Lower)
+		SetBrush(0, 40.0f, 100.0f);
+		for (int i = 0; i < 20; ++i)
+			ApplyBrush(terrain, PaintTool::RaiseLower, W(150, 80), 0.02f, true);
+		// 잔 기복 (Noise 브러시)
+		SetBrush(3, 30.0f, 60.0f);
+		for (int i = 0; i < 60; ++i)
+		{
+			const float x = 20.0f + fmodf(i * 97.31f, 260.0f), z = 20.0f + fmodf(i * 53.77f, 260.0f);
+			ApplyBrush(terrain, PaintTool::RaiseLower, W(x, z), 0.15f, false);
+		}
+		// 평평한 고원 (Set Height 18m, Hard Round)
+		SetBrush(1, 45.0f, 100.0f);
+		SetTargetHeight(18.0f);
+		for (int i = 0; i < 20; ++i)
+			ApplyBrush(terrain, PaintTool::SetHeight, W(240, 240), 0.1f, false);
+		// 가장자리 다듬기 (Smooth)
+		SetBrush(0, 70.0f, 100.0f);
+		for (int i = 0; i < 10; ++i)
+			ApplyBrush(terrain, PaintTool::SmoothHeight, W(240, 240), 0.1f, false);
+		const double t1 = (double)::GetTickCount64();
+
+		// ---- 텍스처 레이어 ----
+		for (const char* name : { "Grass", "Dirt", "Rock", "Sand" })
+			if (auto layer = TerrainLayer::Load(std::string("Resources\\Packages\\Terrain\\Layers\\") + name + ".terrainlayer"))
+				data->Layers.push_back(layer);
+		// 가파르거나 높은 곳 = Rock, 낮은 곳 = Sand (스크립트 칠하기)
+		const int cres = data->ControlResolution;
+		for (int z = 0; z < cres; ++z)
+			for (int x = 0; x < cres; ++x)
+			{
+				const float lx = (float)x / (cres - 1) * data->Size.x, lz = (float)z / (cres - 1) * data->Size.z;
+				const float h = data->GetHeight(lx, lz);
+				const float slope = 1.0f - data->GetNormal(lx, lz).y;
+				float w[4] = { 1.0f, 0.0f, 0.0f, 0.0f };
+				const float rock = std::clamp((slope - 0.12f) * 8.0f + (h - 30.0f) * 0.08f, 0.0f, 1.0f);
+				const float sand = std::clamp((4.5f - h) * 0.6f, 0.0f, 1.0f);
+				w[2] = rock;
+				w[3] = sand * (1.0f - rock);
+				w[0] = (std::max)(0.0f, 1.0f - w[2] - w[3]);
+				uint8_t* px = &data->Control[((size_t)z * cres + x) * 4];
+				for (int c = 0; c < 4; ++c) px[c] = (uint8_t)std::lround(w[c] * 255.0f);
+			}
+		data->OnControlChanged(0, 0, cres - 1, cres - 1);
+		// 흙길 (Paint Texture 브러시, 레이어 1 = Dirt)
+		SetBrush(0, 9.0f, 100.0f);
+		SetSelectedLayer(1);
+		for (int i = 0; i <= 80; ++i)
+		{
+			const float s = i / 80.0f;
+			ApplyBrush(terrain, PaintTool::PaintTexture, W(30 + s * 250, 150 + sinf(s * 6.0f) * 40), 0.5f, false);
+		}
+		const bool saved = data->Save();
+		// NOVA_TERRAIN_LOD=1 이면 Scene 뷰에 쿼드트리 노드 경계를 켜고 Terrain Settings 탭을 연다
+		if (::GetEnvironmentVariableA("NOVA_TERRAIN_LOD", nullptr, 0) > 0)
+		{
+			terrain->ShowLodNodesRef() = true;
+			SetTool(Tool::Settings);
+		}
+
+		fprintf(fp, "terrain res=%d size=(%.0f %.0f %.0f) nodeGrid=%d maxDepth=%d sculpt=%.0fms saved=%d\n", data->HeightmapResolution,
+			data->Size.x, data->Size.y, data->Size.z, data->NodeGrid(), data->MaxDepth(), t1 - t0, (int)saved);
+		for (int d = 0; d <= data->MaxDepth(); ++d)
+		{
+			float maxErr = 0.0f;
+			const int n = 1 << d;
+			for (int z = 0; z < n; ++z)
+				for (int x = 0; x < n; ++x)
+					maxErr = (std::max)(maxErr, data->GetNode(d, x, z).Error);
+			fprintf(fp, "  depth %d: %4d nodes, cell step %2d (%.2fm), max error %.3fm\n", d, n * n, data->NodeStep(d), data->NodeStep(d) * data->CellSizeX(), maxErr);
+		}
+		const TerrainData::Node& root = data->GetNode(0, 0, 0);
+		fprintf(fp, "  root height range %.2f .. %.2f m\n", root.MinHeight, root.MaxHeight);
+
+		// 광선 검사 (지형 위에서 아래로)
+		for (const Vec3& p : { W(90, 170), W(240, 240), W(150, 80) })
+		{
+			Vec3 hit;
+			const bool ok = terrain->Raycast(p + Vec3(0, 100, 0), Vec3(0, -1, 0), 200.0f, hit);
+			fprintf(fp, "  raycast at (%.0f, %.0f): %s y=%.3f  SampleHeight=%.3f\n", p.x, p.z, ok ? "hit" : "MISS", hit.y, terrain->SampleHeight(p) + origin.y);
+		}
+
+		// ---- 물리: 공을 떨어뜨린다 (Play 에서 NOVA_PHYSICS_LOG 로 확인) ----
+		const Vec3 balls[] = { W(240, 240), W(90, 170), W(150, 80), W(200, 60), W(120, 120) };
+		for (int i = 0; i < 5; ++i)
+		{
+			GameObject* ball = GameObjectFactory::CreateSphere("T_Ball" + std::to_string(i));
+			const float ground = terrain->SampleHeight(balls[i]) + origin.y;
+			ball->GetTransform()->SetPosition(Vec3(balls[i].x, ground + 6.0f, balls[i].z));
+			ball->AddComponent<RigidBody>();
+			scene->AddRootGameObject(ball);
+			fprintf(fp, "  ball T_Ball%d at (%.1f, %.1f) ground=%.3f expected rest y=%.3f (if it does not roll)\n", i, balls[i].x, balls[i].z, ground, ground + 0.5f);
+		}
 		fclose(fp);
 	}
 }
