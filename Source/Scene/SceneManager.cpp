@@ -14,6 +14,7 @@
 #include "ScriptEngine.h"
 #include "Volume.h"
 #include "RenderPipelineSettings.h"
+#include "EditorUtility.h"
 
 
 SINGLE_BODY(SceneManager)
@@ -49,6 +50,7 @@ void SceneManager::LoadScene(wstring scenePath)
 		m_pCurrScene = nullptr;
 		SelectionManager::ClearSelection();
 		delete old;
+		TerrainData::DropUnsaved();   // 저장하지 않고 닫은 지형 편집은 버린다 (다시 열면 파일에서)
 	}
 
 	if (m_Scenes.find(scenePath) != m_Scenes.end())
@@ -101,17 +103,124 @@ void SceneManager::LastUpdate()
 		action();
 }
 
-void SceneManager::HandleSaveScene()
+void SceneManager::HandleSceneShortcuts()
 {
-	// GetAsyncKeyState 기반이라 한글 입력(IME) 상태에서도 동작한다. Ctrl 과 S 를 같은 프레임에 눌러도 되도록 TAP 도 허용.
+	// GetAsyncKeyState 기반이라 한글 입력(IME) 상태에서도 동작한다. Ctrl 과 키를 같은 프레임에 눌러도 되도록 TAP 도 허용.
 	const bool ctrl = (INPUT_KEY_HOLD(KEY::CTRL)) || (INPUT_KEY_DOWN(KEY::CTRL));
-	if (!ctrl || !(INPUT_KEY_DOWN(KEY::S)))
+	if (!ctrl || Application::IsPlayer())
 		return;
-	// NOVA Code 에서의 Ctrl+S 는 스크립트 저장이다
-	if (NovaCodeWindow::IsFocused())
+	const bool s = INPUT_KEY_DOWN(KEY::S), n = INPUT_KEY_DOWN(KEY::N), o = INPUT_KEY_DOWN(KEY::O);
+	if (!s && !n && !o)
+		return;
+	// NOVA Code 에서의 Ctrl+S/N/O 는 스크립트 저장·새 파일 등이다. 확인 창이 떠 있으면 무시
+	if (NovaCodeWindow::IsFocused() || IsScenePromptOpen())
 		return;
 	const bool shift = (INPUT_KEY_HOLD(KEY::LSHIFT)) || (INPUT_KEY_DOWN(KEY::LSHIFT)) || (::GetAsyncKeyState(VK_RSHIFT) & 0x8000);
-	SaveCurrentScene(shift);
+	if (s)
+		SaveCurrentScene(shift);
+	else if (n && !shift)   // Ctrl+Shift+N = Hierarchy 의 빈 오브젝트 만들기
+		NewSceneFromEditor();
+	else if (o && !shift)
+		OpenSceneFromEditor();
+}
+
+void SceneManager::NewSceneFromEditor()
+{
+	if (Application::IsPlaying())
+	{
+		Debug::Log("Play 모드에서는 새 씬을 만들 수 없습니다. Play 를 멈춘 뒤 다시 하세요.");
+		return;
+	}
+	EditorLog::Write("Scene", "%s", "new scene requested");
+	RequestSceneChange([this]() { CreateScene(); });
+}
+
+void SceneManager::OpenSceneFromEditor(const std::wstring& relPathIn)
+{
+	if (Application::IsPlaying())
+	{
+		Debug::Log("Play 모드에서는 다른 씬을 열 수 없습니다. Play 를 멈춘 뒤 다시 하세요.");
+		return;
+	}
+	std::wstring relPath = relPathIn;
+	if (relPath.empty())
+	{
+		// Unity 처럼 파일을 먼저 고르고, 그다음 저장 여부를 묻는다
+		const std::wstring filePath = EditorUtility::OpenFileDialog(PathManager::GetI()->GetMovePathW(L"Assets\\"), L"Open Scene", std::vector<std::wstring>{ L"scene" });
+		if (filePath.empty())
+			return;
+		relPath = PathManager::GetI()->GetCutSolutionPath(filePath);
+	}
+	EditorLog::Write("Scene", "open scene requested: %s", wstring_to_string(relPath).c_str());
+	const bool same = m_pCurrScene && m_pCurrScene->GetScenePath() == relPath;
+	if (same)   // 열려 있는 씬을 다시 열기: 저장 = 그대로, 저장 안 함 = 파일에서 다시 읽기
+		RequestSceneChange([]() {}, [this]() { DiscardChanges(); });
+	else
+		RequestSceneChange([this, relPath]() { LoadScene(relPath); });
+}
+
+void SceneManager::RequestSceneChange(std::function<void()> action, std::function<void()> onDiscard)
+{
+	if (!action)
+		return;
+	if (!IsCurrentSceneDirty())
+	{
+		action();
+		return;
+	}
+	m_PromptAction = std::move(action);
+	m_PromptDiscard = std::move(onDiscard);
+	m_PromptOpened = false;   // 다음 UI 프레임에 확인 창을 연다 (DrawScenePrompt)
+}
+
+void SceneManager::DrawScenePrompt()
+{
+	if (!m_PromptAction)
+		return;
+	const char* id = "Scene Has Been Modified##NovaScenePrompt";
+	if (!m_PromptOpened)
+	{
+		ImGui::OpenPopup(id);
+		m_PromptOpened = true;
+	}
+	ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
+	if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+		return;
+	enum { None, Save, DontSave, Cancel } choice = None;
+	std::string name = m_pCurrScene ? wstring_to_string(m_pCurrScene->GetName()) : std::string();
+	if (name.empty()) name = "Untitled";
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 8));
+	ImGui::TextWrapped("Do you want to save the changes you made in the scene \"%s\"?", name.c_str());
+	ImGui::TextDisabled("Your changes will be lost if you don't save them.");
+	ImGui::Spacing();
+	if (ImGui::Button("Save", ImVec2(120, 0))) choice = Save;
+	ImGui::SameLine();
+	if (ImGui::Button("Don't Save", ImVec2(120, 0))) choice = DontSave;
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel", ImVec2(120, 0))) choice = Cancel;
+	// 키보드: Enter = Save, D = Don't Save, Esc = Cancel
+	if (choice == None && !ImGui::GetIO().WantTextInput)
+	{
+		if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) choice = Save;
+		else if (ImGui::IsKeyPressed(ImGuiKey_D, false)) choice = DontSave;
+		else if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) choice = Cancel;
+	}
+	ImGui::PopStyleVar();
+	if (choice != None)
+	{
+		ImGui::CloseCurrentPopup();
+		std::function<void()> action = std::move(m_PromptAction), discard = std::move(m_PromptDiscard);
+		m_PromptAction = nullptr;
+		m_PromptDiscard = nullptr;
+		EditorLog::Write("Scene", "unsaved changes prompt: %s", choice == Save ? "Save" : choice == DontSave ? "Don't Save" : "Cancel");
+		// 씬 교체는 프레임 끝에 (이번 프레임의 창들이 지금 씬의 오브젝트를 쓰는 중)
+		if (choice == Save)
+			AddLastUpdate([this, action]() { if (SaveCurrentScene(false)) action(); });   // 저장을 취소하거나 실패하면 그대로 둔다
+		else if (choice == DontSave)
+			AddLastUpdate([action, discard]() { if (discard) discard(); else action(); });
+	}
+	ImGui::EndPopup();
 }
 
 bool SceneManager::SaveCurrentScene(bool saveAs)
@@ -189,6 +298,7 @@ void SceneManager::DiscardChanges()
 	delete m_pCurrScene;
 	m_pCurrScene = nullptr;
 	SelectionManager::ClearSelection();
+	TerrainData::DropUnsaved();   // 지형 편집도 버린다 (예전에는 캐시에 남아 Discard 뒤에도 그대로였다)
 	LoadScene(path);
 }
 
@@ -277,9 +387,15 @@ void SceneManager::CreateScene()
 {
 	if (m_pCurrScene != nullptr)
 	{
-		m_pCurrScene->Exit();
-		delete m_pCurrScene;
+		// 캐시(m_Scenes)에서도 뺀다 — 예전에는 지운 씬이 캐시에 남아, 그 씬을 다시 열면 지운 메모리를 썼다
+		Scene* old = m_pCurrScene;
+		old->Exit();
+		for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
+			it = it->second == old ? m_Scenes.erase(it) : std::next(it);
 		m_pCurrScene = nullptr;
+		SelectionManager::ClearSelection();
+		delete old;
+		TerrainData::DropUnsaved();
 	}
 
 	m_pCurrScene = new Scene();

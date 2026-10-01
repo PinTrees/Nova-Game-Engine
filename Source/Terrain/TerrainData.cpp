@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "TerrainData.h"
 #include "MemoryStats.h"
+#include "Terrain.h"
 
 namespace
 {
@@ -846,10 +847,25 @@ void TerrainData::SaveAllDirty()
 
 bool TerrainData::AnyDirty()
 {
-	for (auto& pair : DataCache())
-		if (pair.second && pair.second->Dirty)
+	for (Terrain* t : Terrain::GetActiveTerrains())
+		if (std::shared_ptr<TerrainData> d = t ? t->GetTerrainData() : nullptr; d && d->Dirty)
 			return true;
 	return false;
+}
+
+void TerrainData::DropUnsaved()
+{
+	int dropped = 0;
+	for (auto it = DataCache().begin(); it != DataCache().end();)
+		if (it->second && it->second->Dirty)
+		{
+			it = DataCache().erase(it);
+			++dropped;
+		}
+		else
+			++it;
+	if (dropped > 0)
+		EditorLog::Write("Terrain", "dropped %d unsaved terrain data from the cache (scene closed without saving)", dropped);
 }
 
 void TerrainData::RestoreState(int resolution, const Vec3& size, const std::vector<float>& heights, const std::vector<uint8_t>& control,

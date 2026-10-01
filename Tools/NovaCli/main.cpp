@@ -563,7 +563,7 @@ namespace
 		"  select <target> | select --none\n"
 		"\n"
 		"scene / play / view\n"
-		"  scene open <Assets/...scene> [--force]  scene save\n"
+		"  scene open <Assets/...scene> [--force]  scene new [--force]  scene save\n"
 		"  play | stop | pause [on|off] | step | undo | redo\n"
 		"  camera [--position x,y,z --target x,y,z | --frame <target> [--distance d]]   Scene view camera\n"
 		"  screenshot <file.png> [--view scene|game|editor]   (editor = whole window incl. menus; relative = current folder)\n"
@@ -751,9 +751,14 @@ int wmain(int argc, wchar_t** argv)
 		}
 		else if (a.Pos[0] == "save")
 			rc = "scene-save";
+		else if (a.Pos[0] == "new")
+		{
+			rc = "scene-new";
+			args["force"] = a.Has("force");
+		}
 		else
 		{
-			Err("usage: nova scene open <path> | nova scene save\n");
+			Err("usage: nova scene open <path> | nova scene new [--force] | nova scene save\n");
 			return 3;
 		}
 	}

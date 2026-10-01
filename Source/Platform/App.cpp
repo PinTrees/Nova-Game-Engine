@@ -105,7 +105,7 @@ int32 App::Run()
 			InputManager::GetI()->Update();
 
 			// Handle
-			SceneManager::GetI()->HandleSaveScene();
+			SceneManager::GetI()->HandleSceneShortcuts();
 
 			// 숨긴 채 첫 프레임을 준비하는 중, NOVA CLI 요청을 처리하는 중에는 멈추지 않는다 (포커스 없이 CLI 로 다룰 수 있게)
 			if (!_appPaused || _deferredShow || (!Application::IsPlayer() && CliServer::HasWork()))

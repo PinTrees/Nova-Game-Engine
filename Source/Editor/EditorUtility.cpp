@@ -110,7 +110,8 @@ std::wstring EditorUtility::OpenFileDialog(const std::wstring& initialPath, cons
     wchar_t szFile[260] = { 0 };
     ZeroMemory(&ofn, sizeof(ofn));
     ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = NULL;
+    ofn.hwndOwner = Application::GetI()->GetMainHwnd();   // 에디터 창의 모달 (대화상자가 떠 있는 동안 에디터를 누르지 못하게)
+    ofn.lpstrTitle = title.empty() ? nullptr : title.c_str();   // 예전에는 넘긴 제목을 쓰지 않아 OS 기본("열기")으로 떴다
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = sizeof(szFile) / sizeof(wchar_t);
     ofn.lpstrFilter = filterString.c_str();
@@ -143,7 +144,7 @@ std::wstring EditorUtility::SaveFileDialog(const std::wstring& initialPath, cons
 
     ZeroMemory(&ofn, sizeof(ofn));
     ofn.lStructSize = sizeof(OPENFILENAME);
-    ofn.hwndOwner = nullptr;
+    ofn.hwndOwner = Application::GetI()->GetMainHwnd();
     ofn.lpstrFile = fileName;
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrFilter = filterString.c_str();

@@ -668,6 +668,19 @@ namespace CliCommands
 			return true;
 		});
 
+		Register("scene-new", "new untitled scene (camera + light + volume) {force?}", [](const json& a, json& r, std::string& e) {
+			if (!RequireEditMode(e)) return false;
+			if (SceneManager::GetI()->IsCurrentSceneDirty() && !a.value("force", false))
+			{
+				e = "the current scene has unsaved changes (nova scene save, or --force to discard)";
+				return false;
+			}
+			SceneManager::GetI()->CreateScene();
+			Scene* scene = CurrentScene();
+			r = { { "scene", "" }, { "objects", scene ? scene->GetAllGameObjects().size() : 0 } };
+			return true;
+		});
+
 		Register("scene-open", "open a scene {path (Assets/...), force?}", [](const json& a, json& r, std::string& e) {
 			if (!RequireEditMode(e)) return false;
 			const std::string path = a.value("path", std::string());

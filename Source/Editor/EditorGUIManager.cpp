@@ -354,6 +354,8 @@ void EditorGUIManager::DrawToolbar(float y)
 
 void EditorGUIManager::RenderEditorWindows()
 {
+    SceneManager::GetI()->DrawScenePrompt();   // "Scene Has Been Modified" 확인 창 (New/Open Scene)
+
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(EditorTheme::MenuBarPaddingX, EditorTheme::MenuBarPaddingY));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -368,19 +370,10 @@ void EditorGUIManager::RenderEditorWindows()
         // 1. File Menu
         if (ImGui::BeginMenu("File"))
         {
-            if (ImGui::MenuItem("New Scene", "Ctrl+N"))
-            {
-                SceneManager::GetI()->CreateScene();
-            }
-            if (ImGui::MenuItem("Open Scene...", "Ctrl+O"))
-            {
-                std::wstring filePath = EditorUtility::OpenFileDialog(PathManager::GetI()->GetMovePathW(L"Assets\\"), L"Open Scene", std::vector<std::wstring>{ L"scene" });
-                if (!filePath.empty())
-                {
-                    std::wstring relPath = PathManager::GetI()->GetCutSolutionPath(filePath);
-                    SceneManager::GetI()->LoadScene(relPath);
-                }
-            }
+            if (ImGui::MenuItem("New Scene", "Ctrl+N", false, !Application::IsPlaying()))
+                SceneManager::GetI()->NewSceneFromEditor();
+            if (ImGui::MenuItem("Open Scene...", "Ctrl+O", false, !Application::IsPlaying()))
+                SceneManager::GetI()->OpenSceneFromEditor();
             ImGui::Separator();
             if (ImGui::MenuItem("Project Hub..."))
             {

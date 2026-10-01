@@ -40,8 +40,17 @@ public:
 public:
 	void AddLastUpdate(std::function<void()> action) { m_Editor_LastUpdateActions.push_back(action); } 
 	
-	// Editor
-	void HandleSaveScene();
+	// Editor: 씬 단축키 Ctrl+S / Ctrl+Shift+S / Ctrl+N / Ctrl+O (프레임 시작, 한글 입력 중에도 동작)
+	void HandleSceneShortcuts();
+	// File > New Scene / Ctrl+N: 저장 안 한 변경이 있으면 먼저 묻는다
+	void NewSceneFromEditor();
+	// File > Open Scene / Ctrl+O / Project 창 더블클릭: 빈 경로면 파일 대화상자. 저장 안 한 변경이 있으면 먼저 묻는다
+	void OpenSceneFromEditor(const std::wstring& relPath = L"");
+	// 저장 안 한 변경이 있으면 Unity 처럼 "Save / Don't Save / Cancel" 을 물은 뒤 action (없으면 바로).
+	// 같은 씬을 다시 여는 경우처럼 Don't Save 일 때 할 일이 다르면 onDiscard 로
+	void RequestSceneChange(std::function<void()> action, std::function<void()> onDiscard = nullptr);
+	void DrawScenePrompt();   // 에디터 UI 프레임 안에서 (확인 창)
+	bool IsScenePromptOpen() const { return (bool)m_PromptAction; }
 
 	// 현재 씬 저장 (Ctrl+S / File > Save / Hierarchy 메뉴 공통). Play 모드에서는 저장하지 않는다 (Unity 와 동일).
 	bool SaveCurrentScene(bool saveAs = false);
@@ -64,4 +73,8 @@ public:
 	//  2) 프로젝트(--project)인데 씬이 하나도 없으면 Assets/Scenes/SampleScene.scene 을 기본 씬으로 만들어 저장
 	//  3) 그 외(엔진 샘플 프로젝트)는 기존처럼 저장하지 않는 기본 씬
 	void LoadStartupScene();
+
+private:
+	std::function<void()> m_PromptAction, m_PromptDiscard;   // RequestSceneChange 가 묻는 중
+	bool m_PromptOpened = false;
 };

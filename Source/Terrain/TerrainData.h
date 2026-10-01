@@ -145,7 +145,11 @@ public:
 	static std::shared_ptr<TerrainData> Create(const std::string& path, int resolution = 513, const Vec3& size = Vec3(1000.0f, 600.0f, 1000.0f));
 	// 메모리에 있는 저장 안 된 지형 데이터를 모두 저장 (씬 저장 시)
 	static void SaveAllDirty();
+	// 지금 씬의 지형(Terrain 컴포넌트)이 쓰는 데이터 중 저장 안 된 것이 있나 (씬 * 표시).
+	// 예전에는 캐시 전체를 봐서, 닫은 씬의 지형(시작 씬이 생성한 지형 등) 때문에 지형 없는 씬도 늘 "저장 안 됨" 이었다
 	static bool AnyDirty();
+	// 저장 안 된 데이터를 캐시에서 뺀다 (씬을 저장하지 않고 닫을 때 — 다시 열면 파일에서 읽도록)
+	static void DropUnsaved();
 
 private:
 	void Allocate();

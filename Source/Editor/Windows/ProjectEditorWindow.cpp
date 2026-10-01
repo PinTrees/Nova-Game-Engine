@@ -836,7 +836,7 @@ void ProjectEditorWindow::Open(const Entry& e)
 		Navigate(e.Path);
 		break;
 	case Kind::Scene:
-		SceneManager::GetI()->LoadScene(PathManager::GetI()->GetCutSolutionPath(e.Path.wstring()));
+		SceneManager::GetI()->OpenSceneFromEditor(PathManager::GetI()->GetCutSolutionPath(e.Path.wstring()));   // 저장 안 한 변경이 있으면 묻는다
 		break;
 	case Kind::Controller:
 		SelectionManager::SetSelectedFile(e.Path.wstring());
