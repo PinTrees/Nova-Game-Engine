@@ -56,6 +56,8 @@ public:
 	void AddRootGameObject(GameObject* gameObject);
 	vector<GameObject*> GetRootGameObjects() { return m_VecRootGameObjects; }
 	const vector<GameObject*>& RootGameObjects() const { return m_VecRootGameObjects; }   // 복사 없이
+	// 루트 순서를 바꾼다 (Undo 부분 복원: 같은 루트 집합의 새 순서)
+	void SetRootOrder(const vector<GameObject*>& order) { m_VecRootGameObjects = order; }
 	// 저장되는 고유 ID 로 찾기 (없으면 nullptr)
 	GameObject* FindByFileID(uint64 fileID) const;
 	vector<GameObject*> GetAllGameObjects() const { return m_ArrGameObjects[0]; }

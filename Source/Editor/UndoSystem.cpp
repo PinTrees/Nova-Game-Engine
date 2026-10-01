@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "UndoSystem.h"
 #include "NovaCodeWindow.h"
+#include "DisplayManager.h"
 #include "Profiler.h"
 #include "FrameProfiler.h"
 #include <chrono>
@@ -17,7 +18,6 @@ namespace
 	// ---- 씬 감시 ----
 	Scene* s_Scene = nullptr;
 	std::wstring s_ScenePath;
-	std::string s_SceneCommitted;
 	bool s_WasPlaying = false;
 	std::string s_PendingName;
 	bool s_Requested = false;
@@ -38,22 +38,38 @@ namespace
 
 	size_t s_CommittedHash = 0;
 
-	// ---- 씬 JSON 을 루트 GameObject 마다 나눠 캐시한다 ----
+	// ---- 씬 스냅샷: 루트 GameObject 마다 JSON 문자열 ----
 	//  씬 JSON = {"rootGameObjects":[루트1,루트2,...]} (자식은 루트 안에). 루트마다 dump 한 문자열을 이어 붙이면
-	//  json(scene).dump() 와 바이트까지 같다. 조작이 끝날 때마다 씬 전체를 직렬화하면 물체 1600 개에서 수백 ms 걸려
-	//  클릭마다 멈추므로, 바뀌었을 수 있는 루트만 다시 직렬화한다:
+	//  json(scene).dump() 와 바이트까지 같다. 스냅샷 = 루트 (fileID, 문자열 포인터) 목록이고 문자열은 캐시·기록끼리 같이 쓴다
+	//  → 바뀌지 않은 루트는 기록마다 복사하지 않는다 (기록 메모리 = 바뀐 루트만)
+	//
+	//  확정(조작이 끝날 때)은 바뀌었을 수 있는 루트만 다시 직렬화한다:
 	//   - 지난 확정 뒤 선택된 적이 있는 오브젝트의 루트 (Inspector·핸들 편집은 선택한 오브젝트에 한다)
 	//   - 서명이 바뀐 루트: 오브젝트·컴포넌트 포인터, fileID, 이름, 활성, 컴포넌트 켜짐, 로컬 위치/회전/크기 (직렬화 없이 싸게 계산)
 	//   - 확정마다 다른 루트 몇 개를 돌아가며 (위 둘에 안 걸리는 변경도 결국 잡힌다)
-	//  Undo/Redo·씬 바뀜·복원은 전체를 다시 직렬화한다 (놓친 변경이 사라지지 않게)
+	//  Undo/Redo 직전 확정과 씬이 바뀔 때는 전체를 다시 직렬화한다 (놓친 변경이 사라지지 않게)
+	//
+	//  되돌리기는 지금 스냅샷과 목표 스냅샷을 루트 fileID 로 맞춰 다른 루트만 지우고 JSON 에서 다시 만든다
+	//  (예전: 씬 전체를 지우고 다시 만듦). 절반 넘게 다르면 씬 전체 복원. 오브젝트 사이 참조는 fileID 로 찾으므로 안전하다
+	using TextPtr = std::shared_ptr<const std::string>;
+	struct RootSnap
+	{
+		uint64 FileID = 0;
+		TextPtr Text;
+	};
+	using SceneSnap = std::vector<RootSnap>;
+
+	SceneSnap s_Committed;
+	bool s_HasCommitted = false;
+	uint64_t s_CommittedVersion = 0;   // 확정 스냅샷이 바뀔 때마다 1 씩 (해시 다시 계산 판단)
+
 	struct RootCache
 	{
 		uint64_t Signature = 0;
-		std::string Text;
+		TextPtr Text;
 		uint32_t Seen = 0;   // 마지막으로 본 캡처 번호 (없어진 루트 정리용)
 	};
 	uint32_t s_CaptureGen = 0;
-	size_t s_LastCaptureSize = 0;
 	std::unordered_map<const GameObject*, RootCache> s_RootCache;
 	const Scene* s_RootCacheScene = nullptr;
 	std::unordered_set<const GameObject*> s_TouchedRoots;   // 지난 확정 뒤 선택됐던 오브젝트의 루트 (포인터 비교만, 역참조 안 함)
@@ -93,12 +109,15 @@ namespace
 		return go;
 	}
 
-	// full = 모든 루트를 다시 직렬화 (캐시도 새로)
-	std::string CaptureScene(bool full = true)
+	bool SameText(const TextPtr& a, const TextPtr& b) { return a == b || (a && b && *a == *b); }
+
+	// full = 모든 루트를 다시 직렬화
+	SceneSnap CaptureSnap(bool full)
 	{
+		SceneSnap snap;
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
 		if (scene == nullptr)
-			return std::string();
+			return snap;
 		if (scene != s_RootCacheScene)
 		{
 			s_RootCache.clear();
@@ -111,9 +130,7 @@ namespace
 		s_LastRoots = n;
 		const size_t sweepBegin = n ? s_SweepCursor % n : 0;
 		const uint32_t gen = ++s_CaptureGen;
-		std::string out;
-		out.reserve(s_LastCaptureSize + 4096);
-		out = "{\"rootGameObjects\":[";
+		snap.reserve(n);
 		for (size_t i = 0; i < n; ++i)
 		{
 			GameObject* root = roots[i];
@@ -121,26 +138,73 @@ namespace
 			Signature(root, sig);
 			RootCache& entry = s_RootCache[root];   // 제자리에서 갱신 (맵을 매번 새로 만들지 않는다)
 			entry.Seen = gen;
-			const bool swept = n > 0 && ((i + n - sweepBegin) % n) < kSweepRoots;
-			if (full || entry.Text.empty() || entry.Signature != sig || swept || s_TouchedRoots.count(root))
+			const bool swept = ((i + n - sweepBegin) % n) < kSweepRoots;
+			if (full || !entry.Text || entry.Signature != sig || swept || s_TouchedRoots.count(root))
 			{
 				++s_LastSerialized;
 				json j = *root;
-				entry.Text = j.dump();
+				std::string text = j.dump();
+				if (!entry.Text || *entry.Text != text)   // 같으면 예전 문자열을 그대로 (기록끼리 공유)
+					entry.Text = std::make_shared<const std::string>(std::move(text));
 				entry.Signature = sig;
 			}
-			if (i > 0)
-				out += ',';
-			out += entry.Text;
+			snap.push_back({ root->GetFileID(), entry.Text });
 		}
-		out += "]}";
-		s_LastCaptureSize = out.size();
 		if (s_RootCache.size() > n)   // 없어진 루트는 버린다
 			for (auto it = s_RootCache.begin(); it != s_RootCache.end();)
 				it = it->second.Seen != gen ? s_RootCache.erase(it) : std::next(it);
 		s_SweepCursor = sweepBegin + kSweepRoots;
 		s_TouchedRoots.clear();
+		return snap;
+	}
+
+	bool SameSnap(const SceneSnap& a, const SceneSnap& b)
+	{
+		if (a.size() != b.size())
+			return false;
+		for (size_t i = 0; i < a.size(); ++i)
+			if (a[i].FileID != b[i].FileID || !SameText(a[i].Text, b[i].Text))
+				return false;
+		return true;
+	}
+
+	std::string Assemble(const SceneSnap& snap)
+	{
+		size_t size = 32;
+		for (const RootSnap& r : snap)
+			size += r.Text->size() + 1;
+		std::string out;
+		out.reserve(size);
+		out = "{\"rootGameObjects\":[";
+		for (size_t i = 0; i < snap.size(); ++i)
+		{
+			if (i > 0)
+				out += ',';
+			out += *snap[i].Text;
+		}
+		out += "]}";
 		return out;
+	}
+
+	// 두 스냅샷에서 서로 다른 루트 문자열만 (기록 이름 추측·메모리 계산용)
+	void Difference(const SceneSnap& before, const SceneSnap& after, std::string& onlyBefore, std::string& onlyAfter, size_t& bytes)
+	{
+		std::unordered_map<uint64, const TextPtr*> afterByID;
+		for (const RootSnap& r : after)
+			afterByID[r.FileID] = &r.Text;
+		std::unordered_set<uint64> same;
+		for (const RootSnap& r : before)
+		{
+			auto it = afterByID.find(r.FileID);
+			if (it != afterByID.end() && SameText(r.Text, *it->second))
+				same.insert(r.FileID);
+			else
+				onlyBefore += *r.Text;
+		}
+		for (const RootSnap& r : after)
+			if (!same.count(r.FileID))
+				onlyAfter += *r.Text;
+		bytes = onlyBefore.size() + onlyAfter.size() + (before.size() + after.size()) * sizeof(RootSnap);
 	}
 
 	size_t Count(const std::string& text, const char* token)
@@ -176,11 +240,116 @@ namespace
 		}
 	}
 
-	void RestoreScene(const std::string& text)
+	void SetCommitted(SceneSnap snap)
 	{
-		SceneManager::GetI()->RestoreSceneState(text);
-		s_Scene = SceneManager::GetI()->GetCurrentScene();
-		s_SceneCommitted = CaptureScene();
+		s_Committed = std::move(snap);
+		s_HasCommitted = true;
+		++s_CommittedVersion;
+	}
+
+	// Hierarchy 펼침 상태 (fileID → 펼침)
+	void CollectExpanded(GameObject* go, std::unordered_map<uint64, bool>& out)
+	{
+		out[go->GetFileID()] = go->m_Editor_HierachOpened;
+		for (GameObject* child : go->Children())
+			CollectExpanded(child, out);
+	}
+	void ApplyExpanded(GameObject* go, const std::unordered_map<uint64, bool>& in)
+	{
+		if (auto it = in.find(go->GetFileID()); it != in.end())
+			go->m_Editor_HierachOpened = it->second;
+		for (GameObject* child : go->Children())
+			ApplyExpanded(child, in);
+	}
+
+	// 씬을 목표 스냅샷으로: 다른 루트만 지우고 다시 만든다
+	void RestoreScene(const SceneSnap& target)
+	{
+		const auto t0 = std::chrono::steady_clock::now();
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		if (scene == nullptr)
+			return;
+		const SceneSnap current = CaptureSnap(false);   // 캐시를 지금 씬에 맞춘다 (Redo 앞에 확정 안 된 변경이 있어도)
+		const auto& roots = scene->RootGameObjects();
+
+		// 루트마다 그대로 둘지 결정 (fileID 와 문자열이 같으면 그대로)
+		std::unordered_map<uint64, size_t> currentByID;
+		for (size_t i = 0; i < current.size(); ++i)
+			currentByID[current[i].FileID] = i;
+		std::vector<int> keepIndex(target.size(), -1);
+		size_t rebuild = 0;
+		for (size_t t = 0; t < target.size(); ++t)
+		{
+			auto it = currentByID.find(target[t].FileID);
+			if (it != currentByID.end() && SameText(current[it->second].Text, target[t].Text))
+				keepIndex[t] = (int)it->second;
+			else
+				++rebuild;
+		}
+		const size_t removed = current.size() - (target.size() - rebuild);
+		if (rebuild + removed > (std::max)(current.size(), target.size()) / 2 + 1)
+		{
+			// 절반 넘게 다르면 씬 전체를 다시 만든다
+			SceneManager::GetI()->RestoreSceneState(Assemble(target));
+			s_Scene = SceneManager::GetI()->GetCurrentScene();
+			SetCommitted(CaptureSnap(true));
+			EditorLog::Write("Undo", "full restore (%zu roots, %.1f ms)", target.size(),
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+			return;
+		}
+
+		// 선택·펼침은 fileID 로 이어 간다
+		GameObject* selected = SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT ? SelectionManager::GetSelectedGameObject() : nullptr;
+		const uint64 selectedID = selected ? selected->GetFileID() : 0;
+		std::unordered_set<const GameObject*> keep;
+		for (int k : keepIndex)
+			if (k >= 0)
+				keep.insert(roots[k]);
+		std::unordered_map<uint64, bool> expanded;
+		std::vector<GameObject*> toRemove;
+		for (GameObject* root : roots)
+			if (!keep.count(root))
+			{
+				CollectExpanded(root, expanded);
+				toRemove.push_back(root);
+			}
+		if (selected && !keep.count(RootOf(selected)))
+			SelectionManager::ClearSelection();
+
+		// 다시 만들 루트 (JSON → GameObject), 순서는 목표 그대로
+		std::vector<GameObject*> order;
+		order.reserve(target.size());
+		for (size_t t = 0; t < target.size(); ++t)
+		{
+			if (keepIndex[t] >= 0)
+			{
+				order.push_back(roots[keepIndex[t]]);
+				continue;
+			}
+			json j = json::parse(*target[t].Text, nullptr, false);
+			if (j.is_discarded())
+				continue;
+			GameObject* go = new GameObject();
+			from_json(j, *go);
+			scene->AddRootGameObject(go);
+			ApplyExpanded(go, expanded);
+			order.push_back(go);
+		}
+		// 바뀐 옛 루트는 지운다 (Hierarchy 의 삭제와 같은 경로: OnDestroy 로 빛·카메라 등록 해제)
+		for (GameObject* root : toRemove)
+			scene->DestroyGameObject(root);
+		scene->SetRootOrder(order);
+
+		if (selectedID != 0 && SelectionManager::GetSelectedGameObject() == nullptr)
+			if (GameObject* again = scene->FindByFileID(selectedID))
+				SelectionManager::SetSelectedGameObject(again);
+		if (rebuild > 0 || !toRemove.empty())
+			DisplayManager::GetI()->Init();   // 카메라 목록
+
+		s_Scene = scene;
+		SetCommitted(CaptureSnap(false));   // 그대로 둔 루트는 캐시, 새 루트만 직렬화
+		EditorLog::Write("Undo", "partial restore: rebuilt %zu, removed %zu of %zu roots (%.1f ms)", rebuild, toRemove.size(), target.size(),
+			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 	}
 
 	// 씬이 다른 것으로 바뀌었는지 (씬 열기/새 씬은 기록을 비우고, Play/Stop 이나 우리 복원은 기준만 다시 잡는다)
@@ -196,7 +365,10 @@ namespace
 				Undo::Clear();
 			s_Scene = scene;
 			s_ScenePath = path;
-			s_SceneCommitted = CaptureScene();
+			if (scene)
+				SetCommitted(CaptureSnap(true));
+			else
+				s_HasCommitted = false;
 		}
 		s_WasPlaying = playing;
 	}
@@ -209,21 +381,29 @@ namespace
 			return;
 
 		// 씬 (바뀌었을 수 있는 루트만 다시 직렬화)
-		const auto t0 = std::chrono::steady_clock::now();
-		const std::string now = CaptureScene(full);
-		if (FrameProfiler::Enabled())   // NOVA_DEV_PROFILE=1: 확정마다 걸린 시간
-			EditorLog::Write("Undo", "capture %.2f ms (%zu / %zu roots serialized%s)",
-				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), s_LastSerialized, s_LastRoots, full ? ", full" : "");
-		if (!now.empty() && now != s_SceneCommitted)
+		if (SceneManager::GetI()->GetCurrentScene() != nullptr)
 		{
-			const std::string before = s_SceneCommitted, after = now;
-			Undo::Record r;
-			r.Name = SceneChangeName(before, after);
-			r.UndoAction = [before]() { RestoreScene(before); };
-			r.RedoAction = [after]() { RestoreScene(after); };
-			r.Bytes = before.size() + after.size();
-			s_SceneCommitted = now;
-			Undo::Push(std::move(r));
+			const auto t0 = std::chrono::steady_clock::now();
+			SceneSnap now = CaptureSnap(full);
+			if (FrameProfiler::Enabled())   // NOVA_DEV_PROFILE=1: 확정마다 걸린 시간
+				EditorLog::Write("Undo", "capture %.2f ms (%zu / %zu roots serialized%s)",
+					std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), s_LastSerialized, s_LastRoots, full ? ", full" : "");
+			if (!s_HasCommitted || !SameSnap(now, s_Committed))
+			{
+				const SceneSnap before = s_Committed, after = now;
+				std::string onlyBefore, onlyAfter;
+				size_t bytes = 0;
+				Difference(before, after, onlyBefore, onlyAfter, bytes);
+				Undo::Record r;
+				r.Name = SceneChangeName(onlyBefore, onlyAfter);
+				r.UndoAction = [before]() { RestoreScene(before); };
+				r.RedoAction = [after]() { RestoreScene(after); };
+				r.Bytes = bytes;
+				const bool hadBaseline = s_HasCommitted;
+				SetCommitted(std::move(now));
+				if (hadBaseline)
+					Undo::Push(std::move(r));
+			}
 		}
 		s_PendingName.clear();
 
@@ -257,11 +437,11 @@ namespace
 
 	void Rebaseline()
 	{
-		// 씬 복원(RestoreScene)은 이미 새 씬을 기준으로 잡았다 → 씬이 그대로면 다시 직렬화하지 않는다
-		if (s_Scene != SceneManager::GetI()->GetCurrentScene() || s_SceneCommitted.empty())
+		// 씬 복원(RestoreScene)은 이미 새 기준을 잡았다 → 씬이 그대로면 다시 직렬화하지 않는다
+		if (s_Scene != SceneManager::GetI()->GetCurrentScene() || !s_HasCommitted)
 		{
 			s_Scene = SceneManager::GetI()->GetCurrentScene();
-			s_SceneCommitted = CaptureScene();
+			SetCommitted(CaptureSnap(true));
 		}
 		for (auto& [key, t] : s_Trackers)
 			t.Committed = t.Capture();
@@ -288,14 +468,14 @@ namespace Undo
 	bool CommittedSceneHash(size_t& outHash)
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
-		if (scene == nullptr || s_Scene != scene || s_SceneCommitted.empty())
+		if (scene == nullptr || s_Scene != scene || !s_HasCommitted)
 			return false;
-		// 확정 문자열이 바뀌었을 때만 다시 계산 (내용이 같으면 크기·앞뒤 일부가 같다 → 전체 비교 대신 해시를 새로)
-		static std::string s_Last;
-		if (s_Last.size() != s_SceneCommitted.size() || s_Last != s_SceneCommitted)
+		// 확정 스냅샷이 바뀌었을 때만 이어 붙여 해시 (json(scene).dump() 의 해시와 같다 → 저장 시점 해시와 비교)
+		static uint64_t s_HashedVersion = ~0ull;
+		if (s_HashedVersion != s_CommittedVersion)
 		{
-			s_Last = s_SceneCommitted;
-			s_CommittedHash = std::hash<std::string>()(s_SceneCommitted);
+			s_HashedVersion = s_CommittedVersion;
+			s_CommittedHash = std::hash<std::string>()(Assemble(s_Committed));
 		}
 		outHash = s_CommittedHash;
 		return true;
