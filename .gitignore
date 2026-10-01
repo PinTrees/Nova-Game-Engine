@@ -358,3 +358,4 @@ build/
 /Resources/Packages/**/*.animations
 /Resources/Packages/**/*.skeletons
 /dist/
+/TestResults/

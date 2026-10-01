@@ -24,7 +24,12 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/PinTrees/Nova-Game-Engine/releases/latest"><img src="https://img.shields.io/github/v/release/PinTrees/Nova-Game-Engine?label=%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C&logo=github" alt="최신 릴리스"/></a>
+</p>
+
+<p align="center">
   <a href="https://nova-game-engine.web.app"><b>공식 사이트</b></a> ·
+  <a href="https://github.com/PinTrees/Nova-Game-Engine/releases/latest"><b>다운로드</b></a> ·
   <a href="#빠른-시작"><b>빠른 시작</b></a> ·
   <a href="#주요-기능"><b>주요 기능</b></a> ·
   <a href="#스크린샷"><b>스크린샷</b></a> ·
@@ -191,6 +196,8 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** 로 설치(PATH 등록)합니다. 모�
 
 ## 빠른 시작
 
+> 빌드 없이 바로 써 보려면 **[최신 릴리스](https://github.com/PinTrees/Nova-Game-Engine/releases/latest)** 의 zip 을 받아 `Binaries\NovaEngine.exe` 를 실행하세요 (Windows 10 / 11 x64, Visual C++ 런타임 포함).
+
 ### 필요한 것
 
 - Windows 10 / 11 (x64)
@@ -242,6 +249,15 @@ Release 로 빌드한 뒤 실행에 필요한 파일만 모아 `dist/NOVA-Engine
   *.dll
   <제품 이름>_Data/        ← player.json, 빌드 씬과 쓰는 에셋, 셰이더, Assembly-CSharp.dll
 ```
+
+### 자동 검사
+
+```bat
+powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1            :: quick: CLI·메모리·씬 전환·exec/batch·나무 충돌·DX11/OpenGL 7 개 씬 비교·gfx/rhi (약 2 분)
+powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1 -Suite full -Interactive   :: + 성능·파티클·실제 키 입력
+```
+
+실행 중인 에디터를 NOVA CLI 로 다뤄 확인합니다 (테스트 프로젝트 = `-Project` 또는 환경 변수 `NOVA_TEST_PROJECT`, 저장하지 않음). 결과는 PASS/FAIL 표와 `TestResults\<시각>\`(캡처·차이 그림·results.json).
 
 ## C# 스크립트
 
