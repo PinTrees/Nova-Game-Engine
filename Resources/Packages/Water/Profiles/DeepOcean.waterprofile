@@ -1,0 +1,44 @@
+{
+  "name": "Deep Ocean",
+  "description": "Open-ocean swell: dark blue water, long rolling waves and whitecaps on the crests.",
+  "absorption": [
+    0.2,
+    0.6,
+    0.8
+  ],
+  "clarity": 9,
+  "scatterColor": [
+    0.01,
+    0.07,
+    0.16
+  ],
+  "turbidity": 0.0,
+  "subsurfaceColor": [
+    0.05,
+    0.35,
+    0.45
+  ],
+  "subsurface": 0.5,
+  "windSpeed": 11,
+  "windDirection": 30.0,
+  "choppiness": 0.65,
+  "waveScale": 1.0,
+  "minWavelength": 0.8,
+  "maxWavelength": 0.0,
+  "spread": 50.0,
+  "waveCount": 24,
+  "seed": 7,
+  "normalStrength": 0.6,
+  "normalTiling": 12,
+  "normalSpeed": 0.6,
+  "foamAmount": 0.55,
+  "shoreFoam": 1.2,
+  "foamTiling": 6.0,
+  "smoothness": 0.92,
+  "reflection": 1.0,
+  "refraction": 0.6,
+  "caustics": 0.5,
+  "causticsDepth": 6.0,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.2
+}

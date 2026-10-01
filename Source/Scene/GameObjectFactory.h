@@ -63,6 +63,7 @@ public:
 	// 지형 스탬프 (산·분화구 …): 첫 지형 가운데에 지형 너비의 30% 크기로 놓는다
 	static GameObject* CreateTerrainStamp(int shape);
 	static GameObject* CreateTerrainBiome(const std::string& preset);   // 바이옴 영역 (프리셋 이름)
+	static GameObject* CreateWaterBody(int type);                         // 물: 0 바다, 1 호수, 2 강
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

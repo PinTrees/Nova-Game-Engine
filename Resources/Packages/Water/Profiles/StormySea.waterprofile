@@ -1,0 +1,44 @@
+{
+  "name": "Stormy Sea",
+  "description": "Rough grey-green sea under strong wind: steep choppy waves, lots of foam, murky water.",
+  "absorption": [
+    0.25,
+    0.55,
+    0.6
+  ],
+  "clarity": 5,
+  "scatterColor": [
+    0.04,
+    0.1,
+    0.11
+  ],
+  "turbidity": 0.15,
+  "subsurfaceColor": [
+    0.08,
+    0.3,
+    0.28
+  ],
+  "subsurface": 0.4,
+  "windSpeed": 18,
+  "windDirection": 30.0,
+  "choppiness": 0.85,
+  "waveScale": 1.0,
+  "minWavelength": 0.8,
+  "maxWavelength": 0.0,
+  "spread": 60,
+  "waveCount": 24,
+  "seed": 7,
+  "normalStrength": 0.8,
+  "normalTiling": 9.0,
+  "normalSpeed": 1.0,
+  "foamAmount": 0.95,
+  "shoreFoam": 2.5,
+  "foamTiling": 6.0,
+  "smoothness": 0.85,
+  "reflection": 1.0,
+  "refraction": 0.6,
+  "caustics": 0.2,
+  "causticsDepth": 6.0,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.2
+}

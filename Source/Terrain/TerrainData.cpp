@@ -180,6 +180,21 @@ float TerrainData::GetHeight(float x, float z) const
 	return h * Size.y;
 }
 
+float TerrainData::GetUncarvedHeight(float x, float z) const
+{
+	if (UncarvedHeights.size() != Heights.size())
+		return GetHeight(x, z);
+	const float fx = std::clamp(x / CellSizeX(), 0.0f, (float)(HeightmapResolution - 1));
+	const float fz = std::clamp(z / CellSizeZ(), 0.0f, (float)(HeightmapResolution - 1));
+	const int ix = (std::min)((int)fx, HeightmapResolution - 2);
+	const int iz = (std::min)((int)fz, HeightmapResolution - 2);
+	const float tx = fx - ix, tz = fz - iz;
+	auto at = [&](int xx, int zz) { return UncarvedHeights[(size_t)zz * HeightmapResolution + xx]; };
+	const float h0 = at(ix, iz) + (at(ix + 1, iz) - at(ix, iz)) * tx;
+	const float h1 = at(ix, iz + 1) + (at(ix + 1, iz + 1) - at(ix, iz + 1)) * tx;
+	return (h0 + (h1 - h0) * tz) * Size.y;
+}
+
 Vec3 TerrainData::GetNormal(float x, float z) const
 {
 	const float dx = CellSizeX(), dz = CellSizeZ();

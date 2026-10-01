@@ -4,6 +4,7 @@
 #include "Terrain.h"
 #include "TerrainStamp.h"
 #include "TerrainBiome.h"
+#include "WaterBody.h"
 #include "TerrainBiomes.h"
 #include "Transform.h"
 #include "FrameProfiler.h"
@@ -735,6 +736,86 @@ namespace
 		}
 	}
 
+	// ---------------------------------------------------------------- 물 바디 파기 (호수·강)
+	//  e = 물 안쪽으로 들어간 거리(밖이면 음수). 바닥 = 수면 + 0.6 m 에서 Bank 폭에 걸쳐 깊이까지 내려가고, 밖은 19° 쯤으로 올라간다.
+	//  지형을 낮추기만 한다 (원래 더 낮으면 그대로)
+	void CarveWater(const TerrainGenerator::Input& in, const TerrainGenerator::WaterCarveInput& w, std::vector<float>& H)
+	{
+		const int res = in.Resolution;
+		const float cx = in.SizeX / (res - 1), cz = in.SizeZ / (res - 1);
+		const size_t n = w.Points.size();
+		if (n < 2 || (!w.River && n < 3))
+			return;
+		const float bank = (std::max)(0.5f, w.Bank);
+		float minX = FLT_MAX, minZ = FLT_MAX, maxX = -FLT_MAX, maxZ = -FLT_MAX, maxW = 0, maxRise = 0;
+		for (const auto& p : w.Points)
+		{
+			minX = (std::min)(minX, p.x); maxX = (std::max)(maxX, p.x);
+			minZ = (std::min)(minZ, p.y); maxZ = (std::max)(maxZ, p.y);
+			maxW = (std::max)(maxW, p.w);
+		}
+		// 밖으로 올라가는 경사가 원래 지형과 만날 때까지만 보면 된다 (넉넉히 bank + 폭)
+		maxRise = bank + maxW * 0.5f + 80.0f;
+		const int x0 = (std::max)(0, (int)floorf((minX - maxRise) / cx)), x1 = (std::min)(res - 1, (int)ceilf((maxX + maxRise) / cx));
+		const int z0 = (std::max)(0, (int)floorf((minZ - maxRise) / cz)), z1 = (std::min)(res - 1, (int)ceilf((maxZ + maxRise) / cz));
+		if (x0 > x1 || z0 > z1)
+			return;
+		ParallelRows(z1 - z0 + 1, [&](int row) {
+			const int z = z0 + row;
+			for (int x = x0; x <= x1; ++x)
+			{
+				const float px = x * cx, pz = z * cz;
+				float e, surface, depth;
+				if (w.River)
+				{
+					float best = FLT_MAX;
+					e = -FLT_MAX; surface = 0; depth = 0;
+					for (size_t i = 0; i + 1 < n; ++i)
+					{
+						const XMFLOAT4& a = w.Points[i];
+						const XMFLOAT4& b = w.Points[i + 1];
+						const float abx = b.x - a.x, abz = b.y - a.y, l2 = abx * abx + abz * abz;
+						const float t = l2 > 1e-6f ? std::clamp(((px - a.x) * abx + (pz - a.y) * abz) / l2, 0.0f, 1.0f) : 0.0f;
+						const float dx = a.x + abx * t - px, dz = a.y + abz * t - pz;
+						const float d = sqrtf(dx * dx + dz * dz);
+						const float ee = Lerp(a.w, b.w, t) * 0.5f - d;
+						if (d - Lerp(a.w, b.w, t) * 0.5f < best)
+						{
+							best = d - Lerp(a.w, b.w, t) * 0.5f;
+							e = ee;
+							surface = Lerp(a.z, b.z, t);
+							depth = Lerp(w.Depths[i], w.Depths[i + 1], t);
+						}
+					}
+				}
+				else
+				{
+					// 다각형 안/밖 + 가장 가까운 변까지 거리
+					bool inside = false;
+					float best = FLT_MAX;
+					for (size_t i = 0, j = n - 1; i < n; j = i++)
+					{
+						const XMFLOAT4& a = w.Points[i];
+						const XMFLOAT4& b = w.Points[j];
+						if ((a.y > pz) != (b.y > pz) && px < (b.x - a.x) * (pz - a.y) / (b.y - a.y) + a.x)
+							inside = !inside;
+						const float abx = b.x - a.x, abz = b.y - a.y, l2 = abx * abx + abz * abz;
+						const float t = l2 > 1e-6f ? std::clamp(((px - a.x) * abx + (pz - a.y) * abz) / l2, 0.0f, 1.0f) : 0.0f;
+						const float dx = a.x + abx * t - px, dz = a.y + abz * t - pz;
+						best = (std::min)(best, dx * dx + dz * dz);
+					}
+					e = inside ? sqrtf(best) : -sqrtf(best);
+					surface = w.SurfaceY;
+					depth = w.Depth;
+				}
+				const float bed = e < 0.0f ? surface + 0.6f - e * 0.35f
+					: surface + 0.6f - (depth + 0.6f) * Smoothstep(0.0f, bank, e);
+				float& h = H[(size_t)z * res + x];
+				h = (std::min)(h, bed);
+			}
+		});
+	}
+
 	// ---------------------------------------------------------------- 바이옴 영역 마스크 (높이맵 격자, 0~1)
 	//  스탬프와 같은 회전 사각형/원 + 가장자리를 노이즈로 흔든다 (자연스러운 경계)
 	void BiomeMask(const TerrainGenerator::Input& in, const TerrainGenerator::BiomeInput& b, std::vector<float>& m)
@@ -1075,6 +1156,17 @@ namespace TerrainGenerator
 				}
 			logStats("biome filters");
 		}
+		if (!in.Water.empty())
+		{
+			const float invY = 1.0f / (std::max)(in.SizeY, 0.001f);
+			out.Uncarved.resize(H.size());
+			for (size_t i = 0; i < H.size(); ++i)
+				out.Uncarved[i] = Saturate(H[i] * invY);
+		}
+		for (const WaterCarveInput& w : in.Water)
+			CarveWater(in, w, H);
+		if (!in.Water.empty())
+			logStats("water carve");
 		auto t3 = clock::now();
 		out.Heights.resize(H.size());
 		const float inv = 1.0f / (std::max)(in.SizeY, 0.001f);
@@ -1270,11 +1362,38 @@ namespace
 		return out;
 	}
 
+	// 지형을 파는 물 바디 (호수·강, Carve Terrain). 지형 로컬 좌표로
+	std::vector<TerrainGenerator::WaterCarveInput> CollectWater(const Vec3& terrainPos, uint64_t& hash)
+	{
+		std::vector<TerrainGenerator::WaterCarveInput> out;
+		for (WaterBody* b : WaterBody::All())
+		{
+			if (!b->IsActiveBody() || !b->CarveTerrain || b->BodyType == WaterBody::Type::Ocean)
+				continue;
+			TerrainGenerator::WaterCarveInput w;
+			w.River = b->BodyType == WaterBody::Type::River;
+			w.SurfaceY = b->SurfaceY() - terrainPos.y;
+			w.Depth = b->CarveDepth;
+			w.Bank = b->BankWidth;
+			for (const auto& c : b->Curve(w.River ? 3.0f : 4.0f))
+			{
+				w.Points.push_back(XMFLOAT4(c.Position.x - terrainPos.x, c.Position.z - terrainPos.z, c.Position.y - terrainPos.y, c.Width));
+				w.Depths.push_back(c.Depth);
+				hash = Mix(hash, Bits(c.Position.x)); hash = Mix(hash, Bits(c.Position.y)); hash = Mix(hash, Bits(c.Position.z));
+				hash = Mix(hash, Bits(c.Width)); hash = Mix(hash, Bits(c.Depth));
+			}
+			hash = Mix(hash, Bits(w.SurfaceY)); hash = Mix(hash, Bits(w.Depth)); hash = Mix(hash, Bits(w.Bank));
+			out.push_back(std::move(w));
+		}
+		return out;
+	}
+
 	void Apply(TerrainData& data, TerrainGenerator::Output& out)
 	{
 		if (out.Heights.size() == data.Heights.size())
 		{
 			data.Heights.swap(out.Heights);
+			data.UncarvedHeights.swap(out.Uncarved);
 			data.OnHeightsChanged(0, 0, data.HeightmapResolution - 1, data.HeightmapResolution - 1);
 		}
 		if (out.HasControl && out.Control.size() == data.Control.size())
@@ -1345,6 +1464,7 @@ namespace TerrainGenerator
 			hash = Mix(hash, (uint64_t)data->HeightmapResolution * 7 + data->Layers.size() + data->BaseSnapshot.size() * 13);
 			std::vector<StampInput> stamps = CollectStamps(pos, hash);
 			std::vector<BiomeInput> biomes = CollectBiomes(*data, pos, hash);
+			std::vector<WaterCarveInput> water = CollectWater(pos, hash);
 
 			const bool changed = hash != st.AppliedHash;
 			const bool needFinal = !changed && st.AppliedPreview && !interacting;
@@ -1363,6 +1483,7 @@ namespace TerrainGenerator
 				in->Snapshot = data->BaseSnapshot;
 			in->Stamps = std::move(stamps);
 			in->Biomes = std::move(biomes);
+			in->Water = std::move(water);
 			in->Preview = preview;
 			auto job = std::make_unique<Job>();
 			job->Hash = hash;

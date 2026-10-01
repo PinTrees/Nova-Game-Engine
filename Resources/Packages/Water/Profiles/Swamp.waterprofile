@@ -1,0 +1,44 @@
+{
+  "name": "Swamp",
+  "description": "Dark murky swamp water, still and brownish-green.",
+  "absorption": [
+    0.35,
+    0.4,
+    0.2
+  ],
+  "clarity": 1.5,
+  "scatterColor": [
+    0.06,
+    0.07,
+    0.03
+  ],
+  "turbidity": 0.6,
+  "subsurfaceColor": [
+    0.1,
+    0.12,
+    0.04
+  ],
+  "subsurface": 0.1,
+  "windSpeed": 1.5,
+  "windDirection": 30.0,
+  "choppiness": 0.1,
+  "waveScale": 1.0,
+  "minWavelength": 0.2,
+  "maxWavelength": 2.5,
+  "spread": 50.0,
+  "waveCount": 12,
+  "seed": 7,
+  "normalStrength": 0.2,
+  "normalTiling": 4,
+  "normalSpeed": 0.2,
+  "foamAmount": 0.0,
+  "shoreFoam": 0.3,
+  "foamTiling": 6.0,
+  "smoothness": 0.8,
+  "reflection": 0.8,
+  "refraction": 0.6,
+  "caustics": 0.0,
+  "causticsDepth": 6.0,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.2
+}

@@ -1,0 +1,44 @@
+{
+  "name": "Alpine Lake",
+  "description": "Glacier-fed turquoise lake: very clear, almost mirror-still.",
+  "absorption": [
+    0.35,
+    0.85,
+    0.85
+  ],
+  "clarity": 12,
+  "scatterColor": [
+    0.02,
+    0.25,
+    0.3
+  ],
+  "turbidity": 0.0,
+  "subsurfaceColor": [
+    0.1,
+    0.6,
+    0.6
+  ],
+  "subsurface": 0.4,
+  "windSpeed": 2.5,
+  "windDirection": 30.0,
+  "choppiness": 0.25,
+  "waveScale": 1.0,
+  "minWavelength": 0.3,
+  "maxWavelength": 4,
+  "spread": 50.0,
+  "waveCount": 16,
+  "seed": 7,
+  "normalStrength": 0.35,
+  "normalTiling": 5,
+  "normalSpeed": 0.6,
+  "foamAmount": 0.0,
+  "shoreFoam": 0.4,
+  "foamTiling": 6.0,
+  "smoothness": 0.92,
+  "reflection": 1.0,
+  "refraction": 0.6,
+  "caustics": 0.9,
+  "causticsDepth": 6,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.2
+}

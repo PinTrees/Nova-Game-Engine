@@ -40,8 +40,12 @@ private:
 	// Scene/Game 뷰를 그릴 때 쓰는 깊이 버퍼 (뷰 크기 이상, 커지기만 함)
 	ComPtr<ID3D11Texture2D> _viewDepthTex;
 	ComPtr<ID3D11DepthStencilView> _viewDepthView;
+	ComPtr<ID3D11DepthStencilView> _viewDepthReadOnly;    // 물: 깊이를 SRV 로 읽으면서 깊이 검사
+	ComPtr<ID3D11ShaderResourceView> _viewDepthSRV;
 	UINT _viewDepthW = 0, _viewDepthH = 0;
 	ID3D11DepthStencilView* ViewDepth(UINT width, UINT height);
+	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible);
 
 	shared_ptr<class Mesh> _treeModel;
 	shared_ptr<class Mesh> _baseModel;

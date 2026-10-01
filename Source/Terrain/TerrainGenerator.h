@@ -7,6 +7,7 @@ class TerrainData;
 // 지형 생성기 (비파괴). TerrainData::Generator 가 켜진 지형의 높이·스플랫을 만든다.
 //  순서: Base 노이즈 → 씬의 TerrainStamp (Order 순) → 필터 스택 → 재질 규칙
 //  씬의 TerrainBiome 영역: 영역 안은 그 프리셋의 Base / 필터 / 재질로 따로 만들어 마스크로 섞는다
+//  씬의 WaterBody(호수·강, Carve Terrain): 필터 뒤에 물 모양대로 판다 (물가 경사 → 바닥)
 //  - 값·스탬프·지형 위치가 바뀌면 백그라운드 스레드에서 다시 생성하고, 끝나면 메인 스레드가 높이·스플랫을 바꿔 끼운다
 //  - 마우스로 끄는 중(스탬프 이동, 슬라이더)에는 무거운 필터(침식)를 건너뛴 미리보기, 놓으면 전체 생성
 namespace TerrainGenerator
@@ -40,6 +41,17 @@ namespace TerrainGenerator
 		TerrainGenSettings Settings;     // 프리셋 (재질 규칙의 레이어 번호는 이 지형의 레이어로 바꿔 둔 것)
 	};
 
+	// 물 바디가 파는 모양 (지형 로컬 m). 호수 = 닫힌 윤곽 + 수면 높이, 강 = 가운데 선 점마다 수면 높이·폭·깊이
+	struct WaterCarveInput
+	{
+		bool River = false;
+		std::vector<XMFLOAT4> Points;    // x, z, 수면 y, 폭(강)
+		std::vector<float> Depths;       // 강: 점마다 깊이
+		float SurfaceY = 0;              // 호수 수면
+		float Depth = 5;                 // 호수 가운데 깊이
+		float Bank = 10;                 // 물가 경사 폭
+	};
+
 	struct Input
 	{
 		int Resolution = 513;
@@ -50,6 +62,7 @@ namespace TerrainGenerator
 		std::vector<float> Snapshot;     // Base = Current Terrain 일 때 (정규화 높이)
 		std::vector<StampInput> Stamps;  // 합칠 순서대로
 		std::vector<BiomeInput> Biomes;  // 섞을 순서대로 (뒤의 것이 위)
+		std::vector<WaterCarveInput> Water;   // 필터 뒤에 판다 (호수·강 바닥)
 		bool Preview = false;
 	};
 
@@ -58,6 +71,7 @@ namespace TerrainGenerator
 		std::vector<float> Heights;      // 정규화 0~1
 		std::vector<uint8_t> Control;    // RGBA (PaintMaterials 일 때)
 		std::vector<uint8_t> ColorMap;   // RGBA: rgb = 색(sRGB), a = 색이 텍스처 색을 대신하는 정도. 색 규칙이 없으면 비어 있음
+		std::vector<float> Uncarved;     // 물로 파기 전 높이 (정규화, 판 물이 없으면 비어 있음)
 		bool HasControl = false;
 		double Ms[4] = {};               // Base, Stamps, Filters, Materials
 	};

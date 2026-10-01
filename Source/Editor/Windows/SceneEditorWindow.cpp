@@ -7,6 +7,7 @@
 #include "SceneToolbar.h"
 #include "SceneGizmoTools.h"
 #include "TerrainEditor.h"
+#include "WaterEditor.h"
 #include "ParticleSystemEditor.h"
 
 SceneEditorWindow::SceneEditorWindow()
@@ -183,8 +184,10 @@ void SceneEditorWindow::OnRender()
         SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
     // Terrain 이 선택되고 Paint Terrain 도구가 켜져 있으면 브러시로 칠한다 (Unity 처럼 이동 핸들/클릭 선택은 쉰다)
     const bool terrainTool = TerrainEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
+    // 물 점 편집 (Edit Points 가 켜진 Water Body)
+    const bool waterTool = WaterEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
     SceneViewOverlay::End();
-    SceneGizmoTools::SetSuppressed(terrainTool);
+    SceneGizmoTools::SetSuppressed(terrainTool || waterTool);
 
     // 도구 단축키(Q/W/E/R/T/Y) → Move/Rotate/Scale/Rect 핸들, 클릭 선택, Hand/휠/Alt 궤도/F 포커스
     SceneToolbar::HandleShortcuts(viewHovered);

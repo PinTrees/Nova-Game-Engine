@@ -76,6 +76,7 @@ public:
 	// 지형 생성기 (Generate 도구): 켜면 Base 노이즈 + 씬의 TerrainStamp + 필터 + 재질 규칙으로 높이·스플랫을 만든다
 	TerrainGenSettings Generator;
 	std::vector<float> BaseSnapshot;   // Base = Current Terrain 일 때 기준 높이 (정규화, 해상도²)
+	std::vector<float> UncarvedHeights;   // 생성기가 물(호수·강)로 파기 전 높이 (정규화, 저장 안 함). 물 높이 맞추기용
 	// 컬러 맵 (World Creator 식 색 재질): RGBA8, 컨트롤 해상도. rgb = 색(sRGB), a = 색이 레이어 텍스처 색을 대신하는 정도
 	//  (텍스처는 명암 디테일만). 비어 있으면 쓰지 않는다. 생성기의 색·그라디언트 규칙이 만든다
 	std::vector<uint8_t> ColorMap;
@@ -104,6 +105,7 @@ public:
 	// ---- 높이 (지형 로컬 좌표, 미터) ----
 	float GetHeightSample(int x, int z) const;     // 격자점 (정규화 0~1)
 	float GetHeight(float x, float z) const;       // 삼각형 보간 (렌더링 메시와 같은 면)
+	float GetUncarvedHeight(float x, float z) const;   // 물로 파기 전 높이 (없으면 GetHeight)
 	Vec3 GetNormal(float x, float z) const;
 	// 지형 로컬 공간 광선. 맞으면 t(방향 길이 단위) 를 돌려준다
 	bool Raycast(const Vec3& origin, const Vec3& dir, float maxDistance, float& outT) const;

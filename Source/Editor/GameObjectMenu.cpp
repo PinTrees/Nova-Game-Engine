@@ -101,6 +101,13 @@ namespace GameObjectMenu
 					if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s))) add(GameObjectFactory::CreateTerrainStamp(s));
 				ImGui::EndMenu();
 			}
+			if (ImGui::BeginMenu("Water"))   // 바다·호수·강 (물 패키지 프로파일)
+			{
+				if (ImGui::MenuItem("Ocean")) add(GameObjectFactory::CreateWaterBody(0));
+				if (ImGui::MenuItem("Lake")) add(GameObjectFactory::CreateWaterBody(1));
+				if (ImGui::MenuItem("River")) add(GameObjectFactory::CreateWaterBody(2));
+				ImGui::EndMenu();
+			}
 			if (ImGui::BeginMenu("Terrain Biome"))   // 영역마다 다른 지형 특성·재질 (바이옴 프리셋)
 			{
 				for (const auto& p : TerrainBiomes::List())

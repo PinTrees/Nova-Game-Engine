@@ -1,0 +1,44 @@
+{
+  "name": "Arctic Sea",
+  "description": "Cold dark teal water with moderate waves.",
+  "absorption": [
+    0.25,
+    0.6,
+    0.7
+  ],
+  "clarity": 7,
+  "scatterColor": [
+    0.02,
+    0.1,
+    0.13
+  ],
+  "turbidity": 0.0,
+  "subsurfaceColor": [
+    0.1,
+    0.45,
+    0.5
+  ],
+  "subsurface": 0.5,
+  "windSpeed": 9,
+  "windDirection": 30.0,
+  "choppiness": 0.6,
+  "waveScale": 1.0,
+  "minWavelength": 0.8,
+  "maxWavelength": 0.0,
+  "spread": 50.0,
+  "waveCount": 24,
+  "seed": 7,
+  "normalStrength": 0.6,
+  "normalTiling": 9.0,
+  "normalSpeed": 0.6,
+  "foamAmount": 0.5,
+  "shoreFoam": 1.2,
+  "foamTiling": 6.0,
+  "smoothness": 0.92,
+  "reflection": 1.0,
+  "refraction": 0.6,
+  "caustics": 0.4,
+  "causticsDepth": 6.0,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.2
+}

@@ -17,6 +17,7 @@
 #include "ShadowMap.h"
 #include "ShadowRenderer.h"
 #include "SceneGrid.h"
+#include "WaterRenderer.h"
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
 #include "Profiler.h"
@@ -94,7 +95,7 @@ bool EditorApp::Init()
 			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
 			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
 			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx",
-			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx", L"../Shaders/45. SceneGrid.fx" };
+			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx", L"../Shaders/45. SceneGrid.fx", L"../Shaders/46. Water.fx" };
 		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
 		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
 	}
@@ -233,17 +234,54 @@ ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 		desc.Height = _viewDepthH;
 		desc.MipLevels = 1;
 		desc.ArraySize = 1;
-		desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		desc.Format = DXGI_FORMAT_R24G8_TYPELESS;   // 깊이 + SRV (물이 장면 깊이를 읽는다)
 		desc.SampleDesc.Count = 1;
 		desc.Usage = D3D11_USAGE_DEFAULT;
-		desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 		_viewDepthView.Reset();
+		_viewDepthReadOnly.Reset();
+		_viewDepthSRV.Reset();
 		_viewDepthTex.Reset();
 		if (SUCCEEDED(_device->CreateTexture2D(&desc, nullptr, _viewDepthTex.GetAddressOf())))
-			_device->CreateDepthStencilView(_viewDepthTex.Get(), nullptr, _viewDepthView.GetAddressOf());
+		{
+			D3D11_DEPTH_STENCIL_VIEW_DESC dsv = {};
+			dsv.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+			dsv.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+			_device->CreateDepthStencilView(_viewDepthTex.Get(), &dsv, _viewDepthView.GetAddressOf());
+			dsv.Flags = D3D11_DSV_READ_ONLY_DEPTH | D3D11_DSV_READ_ONLY_STENCIL;
+			_device->CreateDepthStencilView(_viewDepthTex.Get(), &dsv, _viewDepthReadOnly.GetAddressOf());
+			D3D11_SHADER_RESOURCE_VIEW_DESC srv = {};
+			srv.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+			srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+			srv.Texture2D.MipLevels = 1;
+			_device->CreateShaderResourceView(_viewDepthTex.Get(), &srv, _viewDepthSRV.GetAddressOf());
+		}
 		EditorLog::Write("View", "view depth buffer %u x %u", _viewDepthW, _viewDepthH);
 	}
 	return _viewDepthView ? _viewDepthView.Get() : _depthStencilView.Get();
+}
+
+// 물: 뷰 깊이 버퍼(읽기 전용 DSV + SRV)와 첫 방향광·하늘로 WaterRenderer 를 부른다
+void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+	const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible)
+{
+	if (dsv != _viewDepthView.Get() || !_viewDepthSRV || !_viewDepthReadOnly)
+		return;
+	WaterRenderer::View w;
+	w.Context = _deviceContext.Get();
+	w.ViewMatrix = view;
+	w.Proj = proj;
+	w.Eye = eye;
+	w.Target = target;
+	w.Depth = dsv;
+	w.DepthReadOnly = _viewDepthReadOnly.Get();
+	w.DepthSRV = _viewDepthSRV.Get();
+	w.Viewport = viewport;
+	w.Sun = dirLights.empty() ? nullptr : &dirLights[0];
+	w.Sky = skyVisible && _sky ? _sky->CubeMapSRV().Get() : nullptr;
+	WaterRenderer::Draw(w);
+	_deviceContext->OMSetRenderTargets(1, &target, dsv);
+	_deviceContext->RSSetViewports(1, &viewport);
 }
 
 // 화면별 그림자 결과 (그림자 패스 → 받는 쪽 셰이더)
@@ -374,6 +412,10 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		_deviceContext->RSSetState(0);
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
+
+	// 물 (바다·호수·강): 불투명 + 하늘 다음 (굴절에 화면 색을 쓴다), 입자 전
+	phase.Next("Water");
+	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0);
 
 	phase.Next("Particles");
 	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
@@ -513,6 +555,11 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 		_deviceContext->RSSetState(0);
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
+
+	// 물 (바다·호수·강)
+	phase.Next("Water");
+	if (!RenderManager::GetI()->WireFrameMode)
+		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible());
 
 	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
 	phase.Next("Grid");

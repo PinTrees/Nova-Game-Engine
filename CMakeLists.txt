@@ -111,6 +111,7 @@ set(ENGINE_MODULE_DIRS
     Source/Physics
     Source/Scene
     Source/Terrain
+    Source/Water
     Source/Audio
     Source/Scripting
     Source/UI

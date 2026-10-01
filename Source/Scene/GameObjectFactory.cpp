@@ -17,6 +17,7 @@
 #include "Tree.h"
 #include "TerrainStamp.h"
 #include "TerrainBiome.h"
+#include "WaterBody.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "AnimationPlayer.h"
@@ -423,6 +424,49 @@ GameObject* GameObjectFactory::CreateTerrainBiome(const std::string& preset)
 	}
 	obj->GetTransform()->SetPosition(pos);
 	obj->GetTransform()->SetLocalScale(scale);
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateWaterBody(int type)
+{
+	using T = WaterBody::Type;
+	const T t = (T)std::clamp(type, 0, (int)T::Count - 1);
+	GameObject* obj = new GameObject(t == T::Ocean ? "Ocean" : t == T::Lake ? "Lake" : "River");
+	WaterBody* water = obj->AddComponent<WaterBody>();
+	water->BodyType = t;
+	water->Profile = t == T::Ocean ? "Tropical Ocean" : t == T::Lake ? "Calm Lake" : "Mountain River";
+	water->ResetShape();
+	// 첫 지형 가운데 (바다는 지형 아래쪽 높이)
+	Vec3 pos(0, 0, 0);
+	if (!Terrain::GetActiveTerrains().empty())
+	{
+		Terrain* tr = Terrain::GetActiveTerrains()[0];
+		if (auto data = tr->GetTerrainData())
+		{
+			const Vec3 tp = tr->GetPosition();
+			pos = Vec3(tp.x + data->Size.x * 0.5f, tp.y, tp.z + data->Size.z * 0.5f);
+			const float ground = tp.y + tr->SampleHeight(pos);
+			if (t == T::Ocean)
+			{
+				// 지형 높이의 아래 20 % 쯤 (해안이 생기게)
+				float lo = FLT_MAX, hi = -FLT_MAX;
+				for (int z = 0; z <= 8; ++z)
+					for (int x = 0; x <= 8; ++x)
+					{
+						const float h = tr->SampleHeight(Vec3(tp.x + data->Size.x * x / 8.0f, 0, tp.z + data->Size.z * z / 8.0f));
+						lo = (std::min)(lo, h); hi = (std::max)(hi, h);
+					}
+				pos.y = tp.y + lo + (hi - lo) * 0.2f;
+			}
+			else if (t == T::Lake)
+				pos.y = ground + 1.0f;
+			else
+				pos.y = ground + 12.0f;   // 강 점은 높이를 가진다 (Snap Points To Ground 로 맞춘다)
+		}
+	}
+	obj->GetTransform()->SetPosition(pos);
+	if (t == T::River)
+		water->SnapToGround();
 	return obj;
 }
 

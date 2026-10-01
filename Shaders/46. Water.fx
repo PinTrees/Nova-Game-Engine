@@ -1,0 +1,566 @@
+//=============================================================================
+// 46. Water.fx  (바다 · 호수 · 강)
+//
+// 참고: Crest(카메라 LOD 격자 + 얕은 물 파도 감쇠 + 산란/SSS), KWS(흐름 노멀·코스틱), Unreal Water(Gerstner 생성기)
+//  - 바다: 카메라를 따라가는 중첩 격자(레벨마다 칸 2 배). 경계 띠는 거친 격자 위치로 모핑. Gerstner 를 정점에서 변위,
+//          픽셀에서 같은 파도의 법선·접힘(거품)을 화면 크기보다 작은 파도는 빼고 계산
+//  - 호수/강: CPU 가 만든 월드 메시. 강은 흐름 방향으로 2 단계(위상) 노멀을 흘린다
+//  - 색: 하드웨어 깊이로 물속 거리 → 흡수(빨강부터) + 산란, 굴절(흔들린 화면), 바닥 코스틱, 하늘 반사(프레넬), 해 반사, SSS
+//  - 결과는 불투명으로 쓴다 (굴절 = 미리 복사한 화면 색). 깊이는 따로 한 번 더 그려 쓴다 (입자·격자가 물에 가려지게)
+//  색 입출력은 엔진의 다른 셰이더처럼 감마 공간, 계산은 선형
+//=============================================================================
+
+#define MAX_WAVES 32
+static const float PI = 3.14159265f;
+
+cbuffer cbWaterFrame
+{
+    float4x4 gViewProj;
+    float3 gEyePos;
+    float gTime;
+    float4 gProjParams;      // x = proj._33, y = proj._43 (뷰 z = y / (d - x))
+    float4 gViewport;        // x, y, w, h (픽셀)
+    float3 gSunDir;          // 해 쪽 (단위)
+    float gSunIntensity;
+    float3 gSunColor;        // 선형
+    float gCubeMips;
+    float3 gAmbient;         // 선형 (하늘 위쪽 평균)
+    float gHasSky;
+    float4x4 gInvViewProj;
+    float gEyeUnder;         // 1 = 카메라가 이 물 아래 (수중)
+    float3 gPad0;
+};
+
+cbuffer cbWaterBody
+{
+    int gBodyType;           // 0 바다, 1 호수, 2 강
+    int gWaveCount;
+    float gSurfaceY;
+    float gBaseCell;         // 바다 격자 레벨 0 칸 (m)
+    float4 gWaveA[MAX_WAVES];   // dirX, dirZ, k, 진폭
+    float4 gWaveB[MAX_WAVES];   // omega, phase, Q, 0
+    float3 gSigma;           // 흡수 계수 (1/m)
+    float gTurbidity;
+    float3 gScatter;         // 선형
+    float gClarity;
+    float3 gSSSColor;        // 선형
+    float gSSS;
+    float4 gNormalParams;    // 세기, 타일(m), 속도(m/s), 0
+    float2 gWindDir;
+    float gMaxAmp;
+    float gHasShoreMap;
+    float4 gFoamParams;      // 마루 거품, 물가 거품 폭(m), 타일(m), 0
+    float4 gLightParams;     // 매끈함, 반사, 굴절, 0
+    float4 gCausticParams;   // 세기, 깊이(m), 타일(m), 0
+    float4 gShoreRect;       // 지형 높이 지도 범위: minX, minZ, 1/폭, 1/깊이
+};
+
+Texture2D gSceneColor;
+Texture2D<float> gSceneDepth;
+TextureCube gSky;
+Texture2D gNormalA;
+Texture2D gNormalB;
+Texture2D gFoamTex;
+Texture2D gCausticsTex;
+Texture2D<float> gShoreMap;
+
+SamplerState samWrap
+{
+    Filter = ANISOTROPIC;
+    MaxAnisotropy = 8;
+    AddressU = WRAP;
+    AddressV = WRAP;
+};
+
+SamplerState samClamp
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+};
+
+float3 ToLinear(float3 c) { return pow(max(c, 0.0f), 2.2f); }
+float3 ToGamma(float3 c) { return pow(max(c, 0.0f), 1.0f / 2.2f); }
+
+// 주변광: 하늘 큐브맵 위쪽의 흐린 밉 (없으면 CPU 값)
+float3 SkyAmbient()
+{
+    float3 a = gAmbient;
+    if (gHasSky > 0.5f)
+        a = ToLinear(gSky.SampleLevel(samClamp, float3(0.0f, 1.0f, 0.0f), max(gCubeMips - 2.0f, 0.0f)).rgb) * 0.9f;
+    return a;
+}
+
+// ---------------------------------------------------------------- 파도
+// 얕은 물: 파장의 1/4 보다 얕으면 줄어든다 (최소 15%)
+float ShoreDepthAt(float2 xz)
+{
+    if (gHasShoreMap < 0.5f)
+        return 1e4f;
+    const float2 uv = (xz - gShoreRect.xy) * gShoreRect.zw;
+    if (any(uv < 0.0f) || any(uv > 1.0f))
+        return 1e4f;
+    return gSurfaceY - gShoreMap.SampleLevel(samClamp, uv, 0);
+}
+
+float WaveAtten(float k, float depth)
+{
+    return lerp(0.15f, 1.0f, saturate(depth * k / 1.5f));
+}
+
+// 변위 (가로 + 높이). filterLen: 이보다 짧은 파장은 뺀다 (격자 칸보다 작은 파도 = 계단 무늬)
+float3 GerstnerDisplace(float2 xz, float filterLen, float depth)
+{
+    float3 d = 0;
+    [loop] for (int i = 0; i < gWaveCount; ++i)
+    {
+        const float4 a = gWaveA[i];
+        const float4 b = gWaveB[i];
+        const float len = 2.0f * PI / a.z;
+        const float fade = saturate(len / filterLen - 1.0f) * WaveAtten(a.z, depth);
+        if (fade <= 0.0f)
+            continue;
+        const float th = a.z * dot(a.xy, xz) - b.x * gTime + b.y;
+        float s, c;
+        sincos(th, s, c);
+        const float amp = a.w * fade;
+        d.xz += a.xy * (b.z * amp * c);
+        d.y += amp * s;
+    }
+    return d;
+}
+
+// 법선 + 접힘(야코비안, 1 보다 작으면 마루가 겹쳐 하얗게 부서짐)
+float3 GerstnerNormal(float2 xz, float filterLen, float depth, out float jacobian)
+{
+    float nx = 0, nz = 0, ny = 1;
+    float jxx = 1, jzz = 1, jxz = 0;
+    [loop] for (int i = 0; i < gWaveCount; ++i)
+    {
+        const float4 a = gWaveA[i];
+        const float4 b = gWaveB[i];
+        const float len = 2.0f * PI / a.z;
+        const float fade = saturate(len / filterLen - 1.0f) * WaveAtten(a.z, depth);
+        if (fade <= 0.0f)
+            continue;
+        const float th = a.z * dot(a.xy, xz) - b.x * gTime + b.y;
+        float s, c;
+        sincos(th, s, c);
+        const float wa = a.z * a.w * fade;
+        nx -= a.x * wa * c;
+        nz -= a.y * wa * c;
+        ny -= b.z * wa * s;
+        const float qs = b.z * wa * s;
+        jxx -= a.x * a.x * qs;
+        jzz -= a.y * a.y * qs;
+        jxz -= a.x * a.y * qs;
+    }
+    jacobian = jxx * jzz - jxz * jxz;
+    return normalize(float3(nx, ny, nz));
+}
+
+// ---------------------------------------------------------------- 정점
+struct VSOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION;
+    float2 BaseXZ : TEXCOORD0;    // 변위 전 위치 (픽셀 파도 계산)
+    float2 Flow : TEXCOORD1;      // 강: 흐름 (월드 m/s)
+    float2 UV : TEXCOORD2;        // 강: x = 가로 0~1, y = 따라간 거리(m)
+    float Edge : TEXCOORD3;       // 강: 가장자리 1
+    float Height : TEXCOORD4;     // 파도 높이 / 최대 진폭 (-1~1)
+    float Depth : TEXCOORD5;      // 바다: 지형까지 수심 (지도에서)
+};
+
+// 바다 격자 정점: x, z = 레벨 안 칸 좌표, w = 레벨
+VSOut OceanVS(float3 v : POSITION)
+{
+    const float level = v.z;
+    const float cell = gBaseCell * exp2(level);
+    const float snap = cell * 2.0f;
+    const float2 origin = floor(gEyePos.xz / snap) * snap;
+    float2 coord = v.xy;
+    // 바깥 띠(|좌표| 48~64)는 다음 레벨(칸 2 배) 위치로 모핑 → 레벨 경계에서 틈·계단이 줄어든다
+    const float edge = max(abs(coord.x), abs(coord.y));
+    const float morph = saturate((edge - 48.0f) / 14.0f);
+    coord = lerp(coord, floor(coord * 0.5f + 0.5f) * 2.0f, morph);
+    const float2 xz = origin + coord * cell;
+    const float depth = ShoreDepthAt(xz);
+    const float3 d = GerstnerDisplace(xz, cell * 4.0f, depth);
+    VSOut o;
+    o.PosW = float3(xz.x + d.x, gSurfaceY + d.y, xz.y + d.z);
+    o.PosH = mul(float4(o.PosW, 1.0f), gViewProj);
+    o.BaseXZ = xz;
+    o.Flow = 0;
+    o.UV = 0;
+    o.Edge = 0;
+    o.Height = d.y / max(gMaxAmp, 0.01f);
+    o.Depth = depth;
+    return o;
+}
+
+struct SurfaceIn
+{
+    float3 Pos : POSITION;
+    float2 Flow : TEXCOORD0;
+    float2 UV : TEXCOORD1;
+    float Edge : TEXCOORD2;
+};
+
+// 호수·강: 월드 메시 그대로 (호수는 작은 파도라 변위 없이 픽셀 법선만)
+VSOut SurfaceVS(SurfaceIn v)
+{
+    VSOut o;
+    o.PosW = v.Pos;
+    o.PosH = mul(float4(v.Pos, 1.0f), gViewProj);
+    o.BaseXZ = v.Pos.xz;
+    o.Flow = v.Flow;
+    o.UV = v.UV;
+    o.Edge = v.Edge;
+    o.Height = 0;
+    o.Depth = 1e4f;
+    return o;
+}
+
+// ---------------------------------------------------------------- 픽셀
+float ViewZ(float d) { return gProjParams.y / (d - gProjParams.x); }
+
+float3 DetailNormal(float2 xz, float dist)
+{
+    const float tiling = max(gNormalParams.y, 0.1f);
+    const float2 w = gWindDir;
+    const float2 perp = float2(-w.y, w.x);
+    // 바람 방향으로 늘어놓은 두 장 (다른 크기·속도·방향)
+    const float2 uvA = float2(dot(xz, w), dot(xz, perp)) / tiling - float2(gTime * gNormalParams.z / tiling, 0.0f);
+    const float2 r = float2(w.x * 0.8f - w.y * 0.6f, w.x * 0.6f + w.y * 0.8f);
+    const float2 uvB = float2(dot(xz, r), dot(xz, float2(-r.y, r.x))) / (tiling * 0.37f) - float2(gTime * gNormalParams.z * 1.3f / (tiling * 0.37f), 0.0f);
+    float3 a = gNormalA.Sample(samWrap, uvA).xyz * 2.0f - 1.0f;
+    float3 b = gNormalB.Sample(samWrap, uvB).xyz * 2.0f - 1.0f;
+    // 텍스처 x 축 = 바람 방향 → 월드로
+    a.xy = a.x * w + a.y * perp;
+    b.xy = b.x * r + b.y * float2(-r.y, r.x);
+    const float2 slope = (a.xy / max(a.z, 0.2f) + b.xy / max(b.z, 0.2f) * 0.6f);
+    return float3(slope.x, 0.0f, slope.y) * gNormalParams.x * lerp(1.0f, 0.35f, saturate(dist / 400.0f));
+}
+
+// 강: 흐름을 따라 흐르는 노멀 (두 위상을 엇갈려 섞어 늘어나는 무늬를 숨긴다)
+float3 FlowNormal(float2 xz, float2 flow, float dist, out float flowFoam, float2 foamUV)
+{
+    const float tiling = max(gNormalParams.y, 0.1f) * 0.6f;
+    const float period = 2.0f;
+    const float t = gTime / period;
+    const float p0 = frac(t), p1 = frac(t + 0.5f);
+    const float w0 = 1.0f - abs(1.0f - 2.0f * p0);
+    const float2 off0 = flow * (p0 * period), off1 = flow * (p1 * period);
+    const float3 a0 = gNormalA.Sample(samWrap, (xz - off0) / tiling).xyz * 2 - 1;
+    const float3 a1 = gNormalA.Sample(samWrap, (xz - off1) / tiling + 0.5f).xyz * 2 - 1;
+    const float3 b0 = gNormalB.Sample(samWrap, (xz - off0 * 1.2f) / (tiling * 0.4f)).xyz * 2 - 1;
+    const float3 b1 = gNormalB.Sample(samWrap, (xz - off1 * 1.2f) / (tiling * 0.4f) + 0.5f).xyz * 2 - 1;
+    const float3 a = lerp(a1, a0, w0), b = lerp(b1, b0, w0);
+    const float speed = length(flow);
+    const float2 slope = (a.xy / max(a.z, 0.2f) + b.xy / max(b.z, 0.2f) * 0.7f) * (0.6f + 0.5f * saturate(speed / 2.0f));
+    const float f0 = gFoamTex.Sample(samWrap, (foamUV - off0) / gFoamParams.z).r;
+    const float f1 = gFoamTex.Sample(samWrap, (foamUV - off1) / gFoamParams.z + 0.37f).r;
+    flowFoam = lerp(f1, f0, w0);
+    return float3(slope.x, 0.0f, slope.y) * gNormalParams.x * lerp(1.0f, 0.4f, saturate(dist / 300.0f));
+}
+
+// 아래에서 본 수면: 임계각(약 48.6°) 안쪽은 하늘·물 위가 굴절되어 보이고(스넬의 창), 바깥은 전반사로 물속 색
+float4 UnderSurface(VSOut pin, float3 N, float3 V, float dist)
+{
+    N = -N;
+    const float3 L = gSunDir;
+    const float3 sun = gSunColor * gSunIntensity;
+    const float3 ambient = SkyAmbient();
+    const float cosI = saturate(dot(N, V));
+    const float eta = 1.33f;
+    const float sinT2 = eta * eta * (1.0f - cosI * cosI);
+    const float3 waterCol = gScatter * (sun * saturate(L.y) * 0.6f + ambient);
+    float3 c;
+    if (sinT2 >= 1.0f)
+        c = waterCol;   // 전반사
+    else
+    {
+        const int2 pix = int2(clamp(pin.PosH.xy + N.xz * 30.0f, gViewport.xy, gViewport.xy + gViewport.zw - 1.0f));
+        const float3 above = ToLinear(gSceneColor.Load(int3(pix, 0)).rgb);
+        const float edge = smoothstep(0.75f, 1.0f, sinT2);   // 창 가장자리는 반사가 늘어난다
+        c = lerp(above, waterCol, edge);
+    }
+    // 눈까지 물속 거리만큼 흡수·산란
+    const float3 T = exp(-gSigma * dist);
+    c = c * T + waterCol * (1.0f - T);
+    return float4(ToGamma(c), 1.0f);
+}
+
+float4 WaterPS(VSOut pin) : SV_Target
+{
+    const float3 toEye = gEyePos - pin.PosW;
+    const float dist = length(toEye);
+    const float3 V = toEye / max(dist, 1e-4f);
+    const float footprint = max(length(fwidth(pin.BaseXZ)), 0.01f);
+
+    // ---- 법선
+    float jac = 1.0f;
+    float3 N = float3(0, 1, 0);
+    float flowFoam = 0.0f;
+    float3 detail;
+    if (gBodyType == 2)
+        detail = FlowNormal(pin.BaseXZ, pin.Flow, dist, flowFoam, pin.BaseXZ);
+    else
+    {
+        N = GerstnerNormal(pin.BaseXZ, footprint * 3.0f, pin.Depth, jac);
+        detail = DetailNormal(pin.BaseXZ, dist);
+    }
+    N = normalize(N + detail);
+    if (gEyeUnder > 0.5f && V.y < 0.0f)
+        return UnderSurface(pin, N, V, dist);
+    if (dot(N, V) < 0.02f)   // 비스듬히 볼 때 뒤집힌 법선 (검은 점) 막기
+        N = normalize(N + V * (0.02f - dot(N, V)));
+
+    // ---- 화면 깊이 → 물속 거리
+    const int2 pix = int2(pin.PosH.xy);
+    const float waterZ = pin.PosH.w;
+    const float sceneZ0 = ViewZ(gSceneDepth.Load(int3(pix, 0)));
+    // 굴절: 법선으로 흔든 위치 (물 앞에 있는 물체면 흔들지 않는다)
+    const float2 maxPix = gViewport.xy + gViewport.zw - 1.0f;
+    const float2 refrOff = N.xz * gLightParams.z * 60.0f * saturate((sceneZ0 - waterZ) / 4.0f) / (1.0f + waterZ * 0.02f);
+    int2 rpix = int2(clamp(pin.PosH.xy + refrOff, gViewport.xy, maxPix));
+    float sceneZ = ViewZ(gSceneDepth.Load(int3(rpix, 0)));
+    if (sceneZ < waterZ + 0.05f)
+    {
+        rpix = pix;
+        sceneZ = sceneZ0;
+    }
+    const bool sky = gSceneDepth.Load(int3(rpix, 0)) >= 0.99999f;
+    const float3 rayDir = -V;
+    const float viewThick = sky ? 1e4f : max(0.0f, (sceneZ - waterZ) * dist / waterZ);   // 시선을 따라 물속을 지난 거리
+    const float3 floorW = pin.PosW + rayDir * viewThick;
+    const float vDepth = sky ? 1e4f : max(0.0f, gSurfaceY + (pin.PosW.y - gSurfaceY) - floorW.y);   // 물 아래 깊이
+    const float thick0 = sky ? 1e4f : max(0.0f, (sceneZ0 - waterZ) * dist / waterZ);
+
+    // ---- 빛
+    const float3 L = gSunDir;
+    const float3 sun = gSunColor * gSunIntensity;
+    const float3 ambient = SkyAmbient();
+    const float NdotL = saturate(dot(N, L));
+
+    // ---- 물속 (굴절 + 흡수 + 산란 + 코스틱)
+    float3 refr = ToLinear(gSceneColor.Load(int3(rpix, 0)).rgb);
+    const float path = viewThick + min(vDepth, 50.0f);   // 빛이 들어와 바닥에 닿고 눈으로 오는 길 (근사)
+    if (!sky && gCausticParams.x > 0.0f)
+    {
+        const float fadeC = saturate(1.0f - vDepth / max(gCausticParams.y, 0.1f)) * saturate(vDepth * 2.0f);
+        if (fadeC > 0.0f)
+        {
+            const float2 cuv = (floorW.xz + L.xz * vDepth) / max(gCausticParams.z, 0.1f);
+            const float c1 = gCausticsTex.Sample(samWrap, cuv + gTime * float2(0.031f, 0.017f)).r;
+            const float c2 = gCausticsTex.Sample(samWrap, cuv * 1.27f + float2(0.43f, 0.11f) - gTime * float2(0.021f, 0.029f)).r;
+            refr *= 1.0f + min(c1, c2) * 3.0f * gCausticParams.x * fadeC * saturate(L.y * 2.0f);
+        }
+    }
+    const float3 T = exp(-gSigma * path);
+    const float3 lightIn = sun * saturate(L.y) * 0.6f + ambient;
+    const float3 scatter = gScatter * lightIn;
+    float3 under = refr * T + scatter * (1.0f - T);
+    // 탁도: 산란이 얕은 곳부터 바닥을 가린다
+    const float murk = 1.0f - exp(-path * gTurbidity * 4.0f / max(gClarity, 0.1f));
+    under = lerp(under, scatter, murk);
+    if (sky)
+        under = scatter;
+
+    // SSS: 해를 등지고 볼 때 파도 마루로 비쳐 나오는 빛 (Crest 식)
+    const float sssView = pow(saturate(dot(V, -L) * 0.5f + 0.5f), 4.0f);
+    const float crest = saturate(pin.Height * 0.5f + 0.5f);
+    under += gSSSColor * sun * gSSS * sssView * (0.2f + crest * crest) * saturate(1.0f - abs(N.y - 0.8f));
+
+    // ---- 반사 (하늘 + 해)
+    const float fresnel = 0.02f + 0.98f * pow(1.0f - saturate(dot(N, V)), 5.0f);
+    const float3 R = reflect(-V, N);
+    float3 refl = gHasSky > 0.5f ? ToLinear(gSky.SampleLevel(samClamp, float3(R.x, max(R.y, 0.02f), R.z), 0.0f).rgb) : ambient * 1.5f;
+    refl *= gLightParams.y;
+    const float smooth = gLightParams.x;
+    const float specPow = exp2(4.0f + smooth * 9.0f);
+    const float3 H = normalize(L + V);
+    const float spec = pow(saturate(dot(N, H)), specPow) * (specPow + 8.0f) / (8.0f * PI) * smooth;
+    float3 color = lerp(under, refl, fresnel) + sun * spec * fresnel * 4.0f * saturate(L.y * 4.0f);
+
+    // ---- 거품: 파도 마루(접힘) + 물가 + 강 가장자리·물살
+    const float foamTex = gFoamTex.Sample(samWrap, pin.BaseXZ / max(gFoamParams.z, 0.1f) + gWindDir * gTime * 0.02f).r;
+    // 흰 물결: 마루가 많이 접힌 곳만 (야코비안 < 0.6), 거품 무늬로 잘게
+    float foam = saturate((0.6f - jac) * 2.5f) * gFoamParams.x * 2.0f * smoothstep(0.2f, 0.7f, foamTex);
+    if (!sky && gFoamParams.y > 0.0f)
+    {
+        const float band = saturate(1.0f - thick0 / gFoamParams.y);
+        const float waves = 0.6f + 0.4f * sin(thick0 * 3.0f - gTime * 1.6f + foamTex * 3.0f);
+        foam = max(foam, band * band * waves * smoothstep(0.25f, 0.6f, foamTex + band * 0.4f));
+    }
+    if (gBodyType == 2)
+    {
+        const float rough = saturate(length(pin.Flow) / 3.0f);
+        foam = max(foam, smoothstep(0.55f, 0.95f, flowFoam) * (0.25f + 0.6f * rough) * (0.4f + pin.Edge));
+    }
+    const float3 foamCol = (sun * (NdotL * 0.8f + 0.2f) + ambient * 1.2f) * 0.9f;
+    color = lerp(color, foamCol, saturate(foam));
+
+    // ---- 물가: 아주 얕은 곳은 화면 색으로 부드럽게
+    const float shore = sky ? 1.0f : saturate(thick0 / 0.35f);
+    color = lerp(ToLinear(gSceneColor.Load(int3(pix, 0)).rgb), color, shore);
+    return float4(ToGamma(color), 1.0f);
+}
+
+// ---------------------------------------------------------------- 수중 (카메라가 물 아래일 때 전체 화면)
+struct FullOut
+{
+    float4 PosH : SV_POSITION;
+};
+
+FullOut FullVS(uint vid : SV_VertexID)
+{
+    FullOut o;
+    const float2 uv = float2((vid << 1) & 2, vid & 2);
+    o.PosH = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+    return o;
+}
+
+float4 UnderwaterPS(FullOut pin) : SV_Target
+{
+    const int2 pix = int2(pin.PosH.xy);
+    const float d = gSceneDepth.Load(int3(pix, 0));
+    const float2 ndc = float2((pin.PosH.x - gViewport.x) / gViewport.z * 2.0f - 1.0f, 1.0f - (pin.PosH.y - gViewport.y) / gViewport.w * 2.0f);
+    const float4 farP = mul(float4(ndc, 1.0f, 1.0f), gInvViewProj);
+    const float3 dir = normalize(farP.xyz / farP.w - gEyePos);
+    float sceneDist = 1e4f;
+    if (d < 0.99999f)
+    {
+        const float4 sp = mul(float4(ndc, d, 1.0f), gInvViewProj);
+        sceneDist = distance(sp.xyz / sp.w, gEyePos);
+    }
+    // 수면까지 (위로 향할 때)
+    const float toSurface = dir.y > 1e-4f ? (gSurfaceY - gEyePos.y) / dir.y : 1e4f;
+    const float path = min(sceneDist, toSurface);
+    const float3 L = gSunDir;
+    const float3 sun = gSunColor * gSunIntensity;
+    const float depthBelow = max(0.0f, gSurfaceY - gEyePos.y);
+    // 깊을수록 어두워진다 (햇빛이 위에서 흡수됨)
+    const float3 lightDown = exp(-gSigma * depthBelow * 0.7f);
+    const float3 waterCol = gScatter * (sun * saturate(L.y) * 0.6f + SkyAmbient()) * lightDown;
+    // 물속에서는 흡수에 산란 소광이 더해진다 (맑은 물도 수십 m 면 흐려진다)
+    const float3 T = exp(-(gSigma * 1.6f + 2.0f / max(gClarity * 6.0f, 1.0f)) * path);
+    const float murk = 1.0f - exp(-path * gTurbidity * 4.0f / max(gClarity, 0.1f));
+    float3 c = ToLinear(gSceneColor.Load(int3(pix, 0)).rgb) * lightDown;
+    // 코스틱이 물속 바닥에 일렁인다
+    if (sceneDist < toSurface && gCausticParams.x > 0.0f)
+    {
+        const float3 floorW = gEyePos + dir * sceneDist;
+        const float fd = gSurfaceY - floorW.y;
+        const float2 cuv = (floorW.xz + L.xz * fd) / max(gCausticParams.z, 0.1f);
+        const float c1 = gCausticsTex.Sample(samWrap, cuv + gTime * float2(0.031f, 0.017f)).r;
+        const float c2 = gCausticsTex.Sample(samWrap, cuv * 1.27f + float2(0.43f, 0.11f) - gTime * float2(0.021f, 0.029f)).r;
+        c *= 1.0f + min(c1, c2) * 3.0f * gCausticParams.x * saturate(1.0f - fd / max(gCausticParams.y * 2.0f, 0.1f)) * saturate(L.y * 2.0f);
+    }
+    c = lerp(c * T + waterCol * (1.0f - T), waterCol, murk);
+    return float4(ToGamma(c), 1.0f);
+}
+
+// ---------------------------------------------------------------- 상태 / 기법
+DepthStencilState WaterDepthTest
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ZERO;
+    DepthFunc = LESS_EQUAL;
+};
+
+DepthStencilState WaterDepthWrite
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ALL;
+    DepthFunc = LESS_EQUAL;
+};
+
+BlendState WaterOpaque
+{
+    BlendEnable[0] = FALSE;
+    RenderTargetWriteMask[0] = 0x0F;
+};
+
+BlendState NoColor
+{
+    BlendEnable[0] = FALSE;
+    RenderTargetWriteMask[0] = 0;
+};
+
+RasterizerState WaterRS
+{
+    CullMode = None;
+};
+
+technique11 OceanTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, OceanVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, WaterPS()));
+        SetDepthStencilState(WaterDepthTest, 0);
+        SetBlendState(WaterOpaque, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetRasterizerState(WaterRS);
+    }
+}
+
+technique11 SurfaceTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SurfaceVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, WaterPS()));
+        SetDepthStencilState(WaterDepthTest, 0);
+        SetBlendState(WaterOpaque, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetRasterizerState(WaterRS);
+    }
+}
+
+DepthStencilState NoDepth
+{
+    DepthEnable = FALSE;
+    DepthWriteMask = ZERO;
+};
+
+technique11 UnderwaterTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, FullVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, UnderwaterPS()));
+        SetDepthStencilState(NoDepth, 0);
+        SetBlendState(WaterOpaque, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetRasterizerState(WaterRS);
+    }
+}
+
+technique11 OceanDepthTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, OceanVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetDepthStencilState(WaterDepthWrite, 0);
+        SetBlendState(NoColor, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetRasterizerState(WaterRS);
+    }
+}
+
+technique11 SurfaceDepthTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SurfaceVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetDepthStencilState(WaterDepthWrite, 0);
+        SetBlendState(NoColor, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetRasterizerState(WaterRS);
+    }
+}

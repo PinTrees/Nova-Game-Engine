@@ -1,0 +1,44 @@
+{
+  "name": "Calm Lake",
+  "description": "Still green-blue lake water with small wind ripples.",
+  "absorption": [
+    0.3,
+    0.7,
+    0.65
+  ],
+  "clarity": 5,
+  "scatterColor": [
+    0.03,
+    0.12,
+    0.11
+  ],
+  "turbidity": 0.1,
+  "subsurfaceColor": [
+    0.08,
+    0.35,
+    0.3
+  ],
+  "subsurface": 0.3,
+  "windSpeed": 3.5,
+  "windDirection": 30.0,
+  "choppiness": 0.3,
+  "waveScale": 1.0,
+  "minWavelength": 0.3,
+  "maxWavelength": 6,
+  "spread": 50.0,
+  "waveCount": 16,
+  "seed": 7,
+  "normalStrength": 0.45,
+  "normalTiling": 6,
+  "normalSpeed": 0.6,
+  "foamAmount": 0.05,
+  "shoreFoam": 0.6,
+  "foamTiling": 6.0,
+  "smoothness": 0.92,
+  "reflection": 1.0,
+  "refraction": 0.6,
+  "caustics": 0.6,
+  "causticsDepth": 4,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.2
+}

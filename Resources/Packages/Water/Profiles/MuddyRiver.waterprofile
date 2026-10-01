@@ -1,0 +1,44 @@
+{
+  "name": "Muddy River",
+  "description": "Slow brown lowland river carrying silt.",
+  "absorption": [
+    0.45,
+    0.4,
+    0.25
+  ],
+  "clarity": 1.2,
+  "scatterColor": [
+    0.18,
+    0.14,
+    0.08
+  ],
+  "turbidity": 0.8,
+  "subsurfaceColor": [
+    0.25,
+    0.2,
+    0.1
+  ],
+  "subsurface": 0.2,
+  "windSpeed": 8.0,
+  "windDirection": 30.0,
+  "choppiness": 0.6,
+  "waveScale": 1.0,
+  "minWavelength": 0.8,
+  "maxWavelength": 0.0,
+  "spread": 50.0,
+  "waveCount": 24,
+  "seed": 7,
+  "normalStrength": 0.55,
+  "normalTiling": 7,
+  "normalSpeed": 0.6,
+  "foamAmount": 0.0,
+  "shoreFoam": 0.5,
+  "foamTiling": 4,
+  "smoothness": 0.85,
+  "reflection": 1.0,
+  "refraction": 0.6,
+  "caustics": 0.0,
+  "causticsDepth": 6.0,
+  "causticsTiling": 5.0,
+  "flowSpeed": 1.0
+}
