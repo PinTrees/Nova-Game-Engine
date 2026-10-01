@@ -284,7 +284,8 @@
   - 고친 버그(2026-10-02): Particles 씬을 Play→Stop 한 뒤 다른 씬을 Play 하면 모닥불 연기가 남음 (DX11 도 같음) — 원인은 `Scene::~Scene` 이 루트 오브젝트만 OnDestroy·delete 해 **자식 오브젝트가 새던 것**(그 컴포넌트가 ParticleSystem::All 등 전역 목록에 남아 그려짐). 이제 루트에서 내려가며 자손까지 모아 모두 OnDestroy 한 뒤 delete (Stop·씬 열기·되돌리기·Play 중 씬 전환 모두 이 경로). 확인: Particles Play→Stop→SampleScene Play 에서 살아 있는 입자 시스템 0 개, 다시 Particles 를 열면 8 개.
   - 고친 버그(2026-10-02): **지운 오브젝트가 delete 되지 않던 것** — `Scene::DestroyGameObject`(스크립트 Destroy·Hierarchy/CLI 삭제·Undo·ParticleSystem Stop Action)는 OnDestroy 와 목록 제거만 했다(컴포넌트는 풀리지만 GameObject 는 남음). 이제 `m_PendingDelete` 에 모았다가 프레임 끝(`App` 의 LastUpdate 다음) `Scene::FlushDestroyed` 에서 delete (그 프레임의 렌더·UI 가 다 쓴 뒤, 컬링 목록의 옛 포인터 제거, 선택이면 선택 해제). `GameObject::IsAlive/LiveCount`(살아 있는 오브젝트 목록) — `GameObject::Destroy` 람다는 이미 지운 오브젝트면 건너뛴다. C# 쪽은 fileID 로 찾으므로 영향 없음.
   - 확인: `nova info` 의 `liveObjects` — create 3 개 → delete → 12, undo → 15, redo → 12, Play/Stop 반복해도 그대로. C# ScriptSelfTest 를 CLI 로 구성(`add-component ScriptTester ScriptSelfTest --values '{"speed":42,"target":"Ball"}'` — CLI 가 C# 스크립트를 붙이고 오브젝트 필드를 이름으로 받게 함) → ALL PASS, `Destroy(obj, 0.3f)` 한 오브젝트가 메모리에서도 사라짐.
-  - 남은 것: 지평선 1 px 점선 차이, GL 의 ImGui 뷰포트(창 밖으로 뺀 창), 스킨 메시가 있는 씬은 아직 GL 비교 안 함, 스트림 출력·UAV·버퍼 SRV(옛 예제만).
+  - 스킨 메시 GL 비교(2026-10-02): `nova create character`(기본 캐릭터 = 스킨 메시 + Animator, CLI 에 새로 추가)를 Shadows 씬에 놓고 같은 카메라로 DX11·GL Scene 뷰 — 편집 모드 픽셀 차이 최대 7(평균 0.002), Play 중(애니메이션 재생)도 8 넘는 픽셀 0.00%. 본 256 개 cbuffer(16 KB), R8G8B8A8_UINT 본 번호(정수 속성)·그림자 스킨 패스 모두 그대로 동작. 검사 스크립트 scratchpad `charcmp.ps1 -Out 폴더 [-OpenGL] [-Play]`.
+  - 남은 것: 지평선 1 px 점선 차이(미룸), GL 의 ImGui 뷰포트(창 밖으로 뺀 창), 스트림 출력·UAV·버퍼 SRV(옛 예제만).
 
 **NOVA Hub 새 디자인 (2026-10-01)**: 사용자 요청 "노바 허브 UI 깔끔하게, 엔진 폰트·크기 키우고, 상단 앱바 아이콘(Unity Hub 처럼)".
 - 글꼴(`EditorGUIManager::Init(hubMode)`): Pretendard(없으면 Segoe UI + 맑은 고딕) — HubFont 번호 [0] 본문 18 [1] 큰 제목 28 [2] 강조(SemiBold) 18 [3] 작은 글자 15 [4] 앱 바 아이콘(FA) 19 [5] 앱 이름 21 (모두 × DPI).

@@ -556,7 +556,7 @@ namespace
 		"               [Component.field=value ...]          e.g. Light.intensity=2 MeshRenderer.castShadows=1\n"
 		"  create <type> [--name N] [--parent P] [--position x,y,z] [--rotation ..] [--scale ..] [--preset N]\n"
 		"         types: empty cube sphere capsule cylinder plane quad directional-light point-light spot-light camera\n"
-		"                terrain tree rock rock-scatter ocean lake river particle-system audio-source volume\n"
+		"                terrain tree rock rock-scatter ocean lake river particle-system audio-source volume character\n"
 		"  delete <target>\n"
 		"  add-component <target> <Type|C# class> [--values '{...}']   remove-component <target> <Type>\n"
 		"  parent <target> <new parent> | parent <target> --root\n"
