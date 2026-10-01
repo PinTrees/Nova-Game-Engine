@@ -1,4 +1,5 @@
 #pragma once
+#include "MemoryStats.h"
 
 // 나무 텍스처를 실행 중에 수학식으로 굽는다 (파일 없음). 셰이더는 한 번 읽고 알파 컷만 한다.
 //  - 잎 아틀라스 (2x2 변형): 카드 한 장 = 잔가지 + 잎 N 장. 잎 하나하나를 SDF 로 그려
@@ -10,6 +11,7 @@ namespace TreeTextures
 	// shape: 0 Broad, 1 Oval, 2 Needle. leafLength = 카드 비율
 	ID3D11ShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength);
 	ID3D11ShaderResourceView* Bark();
+	void CollectMemory(std::vector<MemoryStats::Item>& items);   // Profiler 메모리
 
 	// 잎 카드 외곽: 아틀라스 칸(cell 0~3)의 덮인 곳을 감싸는 볼록 다각형 (카드 uv, v = 0 이 잔가지 쪽, 3~8 점, 반시계).
 	// 카드를 사각형 대신 이 모양으로 만들면 투명한 귀퉁이의 픽셀 셰이더(알파 컷)가 줄어든다 — 그림자·깊이 패스에서 특히

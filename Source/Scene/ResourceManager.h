@@ -1,4 +1,5 @@
 #pragma once
+#include "MemoryStats.h"
 
 class UMaterial;
 class Mesh;
@@ -35,5 +36,8 @@ public:
 	shared_ptr<MeshFile>			LoadMeshFile(string filename);
 	shared_ptr<AnimationClip>		LoadAnimationClip(string filename, int index);  
 	shared_ptr<SkeletonAvataData>	LoadSkeletonAvata(string filepath, int index);
+
+	// Profiler 메모리: 불러 둔 텍스처 / 메시(스킨 포함)의 GPU 크기
+	void CollectMemory(std::vector<MemoryStats::Item>& textures, std::vector<MemoryStats::Item>& meshes) const;
 };
 

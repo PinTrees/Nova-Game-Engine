@@ -488,6 +488,22 @@ namespace TreeRenderer
 
 	const Stats& LastStats(bool editor) { return s_Stats[editor ? 1 : 0]; }
 
+	void CollectMemory(std::vector<MemoryStats::Item>& gpu, std::vector<MemoryStats::Item>& cpu)
+	{
+		for (const auto& [key, mesh] : s_Meshes)
+		{
+			if (!mesh)
+				continue;
+			const std::string name = "Tree mesh " + std::to_string(std::hash<std::string>()(key) % 100000) + (key.find("#1") != std::string::npos ? " (LOD1)" : " (LOD0)");
+			gpu.push_back({ name, MemoryStats::ResourceBytes(mesh->VB.Get()) + MemoryStats::ResourceBytes(mesh->IB.Get()) });
+			cpu.push_back({ name + " pick data", mesh->Positions.capacity() * sizeof(XMFLOAT3) + mesh->Indices.capacity() * sizeof(uint32_t) });
+		}
+		for (const auto& [key, imp] : s_Impostors)
+			if (imp.Albedo)
+				gpu.push_back({ "Impostor " + std::to_string(key % 100000), MemoryStats::ViewBytes(imp.Albedo.Get()) + MemoryStats::ViewBytes(imp.Normal.Get()) });
+		TreeTextures::CollectMemory(gpu);
+	}
+
 	void BeginView()
 	{
 		s_RecordsValid = false;

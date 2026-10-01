@@ -250,6 +250,14 @@ namespace Profiler
 
 	const std::deque<Frame>& History() { return s_History; }
 
+	size_t MemoryBytes()
+	{
+		size_t bytes = 0;
+		for (const Frame& f : s_History)
+			bytes += sizeof(Frame) + f.Cpu.capacity() * sizeof(CpuSample) + f.Gpu.capacity() * sizeof(GpuSample) + f.Stats.capacity() * sizeof(Stat);
+		return bytes;
+	}
+
 	void Clear()
 	{
 		s_History.clear();

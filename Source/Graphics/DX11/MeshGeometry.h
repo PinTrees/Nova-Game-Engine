@@ -39,6 +39,8 @@ public:
 
 	void Draw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId);
 	void InstancingDraw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId, uint32 instancingSize);
+
+	size_t GpuBytes() const;   // 정점 + 인덱스 버퍼 (Profiler 메모리)
 private:
 	ComPtr<ID3D11Buffer> _vb;
 	ComPtr<ID3D11Buffer> _ib;

@@ -107,6 +107,10 @@ public:
 	ID3D11ShaderResourceView* HeightSRV();
 	ID3D11ShaderResourceView* ControlSRV();
 
+	// Profiler 메모리: CPU (높이·컨트롤·쿼드트리·나무 인스턴스) / GPU (높이·컨트롤 텍스처)
+	size_t CpuBytes() const;
+	size_t GpuBytes() const;
+
 	// ---- 파일 ----
 	bool Save();
 	static std::shared_ptr<TerrainData> Load(const std::string& path);

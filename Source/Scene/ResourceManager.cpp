@@ -20,6 +20,18 @@ void ResourceManager::Init(ComPtr<ID3D11Device> device)
 	m_Device = device;
 }
 
+void ResourceManager::CollectMemory(std::vector<MemoryStats::Item>& textures, std::vector<MemoryStats::Item>& meshes) const
+{
+	for (const auto& [path, srv] : m_TextureSRV)
+		textures.push_back({ wstring_to_string(std::filesystem::path(path).filename().wstring()), MemoryStats::ViewBytes(srv.Get()) });
+	for (const auto& [key, mesh] : m_Meshs)
+		if (mesh)
+			meshes.push_back({ wstring_to_string(std::filesystem::path(std::get<0>(key)).filename().wstring()) + " #" + std::to_string(std::get<1>(key)), mesh->ModelMesh.GpuBytes() });
+	for (const auto& [key, mesh] : m_SkinnedMeshs)
+		if (mesh)
+			meshes.push_back({ wstring_to_string(std::filesystem::path(std::get<0>(key)).filename().wstring()) + " #" + std::to_string(std::get<1>(key)) + " (skinned)", mesh->ModelMesh.GpuBytes() });
+}
+
 void ResourceManager::Destroy()
 {
 	m_TextureSRV.clear();

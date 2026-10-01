@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "TerrainData.h"
+#include "MemoryStats.h"
 
 namespace
 {
@@ -406,6 +407,19 @@ void TerrainData::SetSize(const Vec3& size)
 }
 
 // ---- GPU ----
+size_t TerrainData::CpuBytes() const
+{
+	size_t bytes = Heights.capacity() * sizeof(float) + Control.capacity() + TreeInstances.capacity() * sizeof(TerrainTreeInstance);
+	for (const auto& level : m_Nodes)
+		bytes += level.capacity() * sizeof(Node);
+	return bytes;
+}
+
+size_t TerrainData::GpuBytes() const
+{
+	return MemoryStats::ResourceBytes(m_HeightTex.Get()) + MemoryStats::ResourceBytes(m_ControlTex.Get());
+}
+
 ID3D11ShaderResourceView* TerrainData::HeightSRV()
 {
 	ID3D11Device* device = Application::GetI()->GetDevice();

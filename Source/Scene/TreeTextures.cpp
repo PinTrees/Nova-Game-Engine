@@ -15,6 +15,8 @@ namespace
 	float Smoothstep(float e0, float e1, float x) { const float t = Saturate((x - e0) / (e1 - e0)); return t * t * (3.0f - 2.0f * t); }
 	float Hash11(float n) { const float x = sinf(n * 12.9898f) * 43758.5453f; return x - floorf(x); }
 	const float kSeeds[4] = { 0.13f, 0.37f, 0.61f, 0.89f };   // 아틀라스 칸 4 개의 잎 배치 시드
+	std::map<int, ComPtr<ID3D11ShaderResourceView>> s_LeafCache;   // 잎 아틀라스 (모양·잎 수·길이마다)
+	ComPtr<ID3D11ShaderResourceView> s_BarkSrv;
 
 	// 밉맵 포함 RGBA8 텍스처. levels[0] = 원본, 이후 절반씩
 	ComPtr<ID3D11ShaderResourceView> Upload(const std::vector<std::vector<Texel>>& levels, int size)
@@ -211,6 +213,14 @@ namespace
 
 namespace TreeTextures
 {
+	void CollectMemory(std::vector<MemoryStats::Item>& items)
+	{
+		for (const auto& [key, srv] : s_LeafCache)
+			items.push_back({ "Leaf atlas " + std::to_string(key), MemoryStats::ViewBytes(srv.Get()) });
+		if (s_BarkSrv)
+			items.push_back({ "Bark tile", MemoryStats::ViewBytes(s_BarkSrv.Get()) });
+	}
+
 	const LeafHull& LeafCardHull(int shape, int leavesPerCard, float leafLength, int cell)
 	{
 		shape = std::clamp(shape, 0, 2);
@@ -318,7 +328,7 @@ namespace TreeTextures
 		const int lengthKey = (int)roundf(std::clamp(leafLength, 0.05f, 0.6f) * 100.0f);
 		const int key = shape * 100000 + leavesPerCard * 1000 + lengthKey;
 
-		static std::map<int, ComPtr<ID3D11ShaderResourceView>> cache;
+		auto& cache = s_LeafCache;
 		static std::vector<int> order;
 		if (auto it = cache.find(key); it != cache.end())
 			return it->second.Get();
@@ -366,7 +376,7 @@ namespace TreeTextures
 
 	ID3D11ShaderResourceView* Bark()
 	{
-		static ComPtr<ID3D11ShaderResourceView> srv;
+		auto& srv = s_BarkSrv;
 		if (srv)
 			return srv.Get();
 		const auto t0 = std::chrono::steady_clock::now();

@@ -39,6 +39,8 @@ private:
 	const Summary& SummaryOf(const Profiler::Frame& frame);
 	void DrawToolbar(ImDrawList* dl, ImVec2 p, float w);
 	void DrawModule(ImDrawList* dl, ImVec2 p, float w, float h, bool gpu);
+	void DrawMemoryModule(ImDrawList* dl, ImVec2 p, float w, float h);
+	void DrawMemoryDetails(ImVec2 p, ImVec2 size);
 	void DrawDetails(ImDrawList* dl, ImVec2 p, float w, float h);
 	void DrawHierarchy(const Profiler::Frame& frame, bool gpu, ImVec2 size);
 	void DrawTimeline(ImDrawList* dl, const Profiler::Frame& frame, ImVec2 p, ImVec2 size);
@@ -48,7 +50,8 @@ private:
 	bool m_Recording = true;
 	bool m_FocusNext = false;
 	uint64_t m_Selected = 0;    // 0 = 마지막 프레임을 따라간다
-	int m_View = 0;             // 0 Hierarchy, 1 Timeline, 2 GPU
+	int m_View = 0;             // 0 Hierarchy, 1 Timeline, 2 GPU, 3 Memory
+	bool m_ModuleOpen[3] = { true, true, true };   // CPU / GPU / Memory (제목을 눌러 접기)
 	float m_TimelineZoom = 1.0f;
 	float m_TimelineOffset = 0.0f;   // ms
 	std::unordered_map<uint64_t, Summary> m_Summaries;

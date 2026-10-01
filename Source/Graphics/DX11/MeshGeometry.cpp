@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "MeshGeometry.h"
+#include "MemoryStats.h"
 #include "Utils.h"
 #include "RenderStats.h"
 
@@ -10,6 +11,11 @@ MeshGeometry::MeshGeometry()
 
 MeshGeometry::~MeshGeometry()
 {
+}
+
+size_t MeshGeometry::GpuBytes() const
+{
+	return MemoryStats::ResourceBytes(_vb.Get()) + MemoryStats::ResourceBytes(_ib.Get());
 }
 
 void MeshGeometry::SetIndices(ComPtr<ID3D11Device> device, const USHORT* indices, uint32 count)

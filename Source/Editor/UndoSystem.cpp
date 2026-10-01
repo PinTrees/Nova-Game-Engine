@@ -481,6 +481,17 @@ namespace Undo
 		return true;
 	}
 
+	void MemoryUsage(size_t& history, size_t& sceneCache)
+	{
+		history = s_Bytes;
+		for (const Record& r : s_Redo)
+			history += r.Bytes;
+		sceneCache = 0;
+		for (const auto& [root, entry] : s_RootCache)
+			if (entry.Text)
+				sceneCache += entry.Text->capacity();
+	}
+
 	bool PerformUndo()
 	{
 		if (Application::IsPlaying())

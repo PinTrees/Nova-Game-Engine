@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "ProfilerEditorWindow.h"
 #include "EditorTheme.h"
+#include "ProfilerMemory.h"
 #include "imgui_internal.h"
 #include <algorithm>
 #include <cmath>
@@ -14,6 +15,19 @@ namespace
 	constexpr size_t kMaxFrames = 300;
 	constexpr float kBarH = 21.0f;
 	constexpr float kModuleH = 128.0f;
+	constexpr float kMemoryModuleH = 152.0f;
+	constexpr float kCollapsedH = 20.0f;
+	const ImU32 kMemColors[ProfilerMemory::kGroupCount] = {
+		IM_COL32(91, 143, 217, 255), IM_COL32(111, 200, 91, 255), IM_COL32(232, 154, 64, 255),
+		IM_COL32(57, 182, 176, 255), IM_COL32(176, 124, 216, 255), IM_COL32(140, 140, 140, 255) };
+
+	double StatOf(const Profiler::Frame& f, const char* name)
+	{
+		for (const Profiler::Stat& s : f.Stats)
+			if (s.Name == name)
+				return s.Value;
+		return -1.0;
+	}
 	constexpr float kLegendW = 196.0f;
 	constexpr float kStatsW = 270.0f;
 
@@ -237,6 +251,7 @@ void ProfilerEditorWindow::Toggle()
 void ProfilerEditorWindow::Update()
 {
 	Profiler::SetCollecting(GetIsOpened() && m_Recording);
+	ProfilerMemory::Update();   // Memory 모듈 (0.5 초마다 다시 셈, 매 프레임 통계)
 	const auto& history = Profiler::History();
 	if (m_Selected != 0 && (history.empty() || m_Selected < history.front().Index))
 		m_Selected = 0;   // 고른 프레임이 기록에서 밀려났다
@@ -251,7 +266,7 @@ void ProfilerEditorWindow::Update()
 void ProfilerEditorWindow::BeforeBegin()
 {
 	const ImGuiViewport* vp = ImGui::GetMainViewport();
-	ImGui::SetNextWindowSize(ImVec2(1040.0f, 600.0f), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(1040.0f, 760.0f), ImGuiCond_FirstUseEver);
 	ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
 	if (m_FocusNext)
 	{
@@ -332,10 +347,32 @@ void ProfilerEditorWindow::OnRender()
 
 	DrawToolbar(dl, p, avail.x);
 	float y = p.y + kBarH;
-	DrawModule(dl, ImVec2(p.x, y), avail.x, kModuleH, false);
-	y += kModuleH + 1.0f;
-	DrawModule(dl, ImVec2(p.x, y), avail.x, kModuleH, true);
-	y += kModuleH + 1.0f;
+	// 모듈 3 개 (CPU / GPU / Memory). 제목 줄을 누르면 접고 편다
+	static const char* const kTitles[3] = { "CPU Usage", "GPU Usage", "Memory" };
+	for (int m = 0; m < 3; ++m)
+	{
+		const float h = m_ModuleOpen[m] ? (m == 2 ? kMemoryModuleH : kModuleH) : kCollapsedH;
+		if (m_ModuleOpen[m])
+		{
+			if (m == 2)
+				DrawMemoryModule(dl, ImVec2(p.x, y), avail.x, h);
+			else
+				DrawModule(dl, ImVec2(p.x, y), avail.x, h, m == 1);
+		}
+		else
+		{
+			dl->AddRectFilled(ImVec2(p.x, y), ImVec2(p.x + avail.x, y + h), kPanel);
+			dl->AddLine(ImVec2(p.x, y + h), ImVec2(p.x + avail.x, y + h), kLine);
+			dl->AddText(ImVec2(p.x + 20.0f, y + 3.0f), kText, kTitles[m]);
+		}
+		dl->AddText(ImVec2(p.x + 6.0f, y + 3.0f), kDim, m_ModuleOpen[m] ? ICON_FA_CARET_DOWN : ICON_FA_CARET_RIGHT);
+		char id[16];
+		snprintf(id, sizeof(id), "##module%d", m);
+		ImGui::SetCursorScreenPos(ImVec2(p.x, y));
+		if (ImGui::InvisibleButton(id, ImVec2(kLegendW * 0.6f, kCollapsedH)))
+			m_ModuleOpen[m] = !m_ModuleOpen[m];
+		y += h + 1.0f;
+	}
 	DrawDetails(dl, ImVec2(p.x, y), avail.x, p.y + avail.y - y);
 
 	// ← → = 앞/뒤 프레임 (창에 포커스가 있을 때)
@@ -402,7 +439,7 @@ void ProfilerEditorWindow::DrawModule(ImDrawList* dl, ImVec2 p, float w, float h
 	dl->AddRectFilled(p, ImVec2(p.x + kLegendW, p.y + h), kPanel);
 	dl->AddLine(ImVec2(p.x, p.y + h), ImVec2(p.x + w, p.y + h), kLine);
 	dl->AddLine(ImVec2(p.x + kLegendW, p.y), ImVec2(p.x + kLegendW, p.y + h), kLine);
-	dl->AddText(ImVec2(p.x + 8.0f, p.y + 4.0f), kText, gpu ? "GPU Usage" : "CPU Usage");
+	dl->AddText(ImVec2(p.x + 20.0f, p.y + 3.0f), kText, gpu ? "GPU Usage" : "CPU Usage");
 	if (sel)
 	{
 		char total[32];
@@ -533,8 +570,8 @@ void ProfilerEditorWindow::DrawDetails(ImDrawList* dl, ImVec2 p, float w, float 
 	// ---- 보기 고르기 + 프레임 요약
 	dl->AddRectFilled(p, ImVec2(p.x + w, p.y + kBarH), kBar);
 	float x = p.x;
-	const char* views[3] = { "Hierarchy", "Timeline", "GPU" };
-	for (int v = 0; v < 3; ++v)
+	const char* views[4] = { "Hierarchy", "Timeline", "GPU", "Memory" };
+	for (int v = 0; v < 4; ++v)
 	{
 		char id[16];
 		snprintf(id, sizeof(id), "##view%d", v);
@@ -559,6 +596,11 @@ void ProfilerEditorWindow::DrawDetails(ImDrawList* dl, ImVec2 p, float w, float 
 	const ImVec2 size(w - statsW, ch);
 	if (sel == nullptr)
 		return;
+	if (m_View == 3)
+	{
+		DrawMemoryDetails(c0, ImVec2(w, ch));   // 메모리 표는 오른쪽 통계 없이 넓게
+		return;
+	}
 	if (m_View == 1)
 		DrawTimeline(dl, *sel, c0, size);
 	else
@@ -713,6 +755,8 @@ void ProfilerEditorWindow::DrawStats(ImDrawList* dl, const Profiler::Frame& fram
 	std::string group;
 	for (const Profiler::Stat& s : frame.Stats)
 	{
+		if (strncmp(s.Name, "Memory/", 7) == 0)
+			continue;   // Memory 탭에서 보인다
 		const char* slash = strchr(s.Name, '/');
 		const std::string g = slash ? std::string(s.Name, slash - s.Name) : std::string();
 		const char* label = slash ? slash + 1 : s.Name;
@@ -729,4 +773,167 @@ void ProfilerEditorWindow::DrawStats(ImDrawList* dl, const Profiler::Frame& fram
 		y += 16.0f;
 	}
 	dl->PopClipRect();
+}
+
+// ---------------------------------------------------------------- Memory 모듈: 묶음별 쌓은 막대 (MB), 범례 = 프로세스·GPU 전체 + 묶음별
+void ProfilerEditorWindow::DrawMemoryModule(ImDrawList* dl, ImVec2 p, float w, float h)
+{
+	const auto& history = Profiler::History();
+	const Profiler::Frame* sel = SelectedFrame();
+	const MemoryStats::Report& report = ProfilerMemory::Latest();
+
+	dl->AddRectFilled(p, ImVec2(p.x + kLegendW, p.y + h), kPanel);
+	dl->AddLine(ImVec2(p.x, p.y + h), ImVec2(p.x + w, p.y + h), kLine);
+	dl->AddLine(ImVec2(p.x + kLegendW, p.y), ImVec2(p.x + kLegendW, p.y + h), kLine);
+	dl->AddText(ImVec2(p.x + 20.0f, p.y + 3.0f), kText, "Memory");
+
+	auto valueAt = [&](const Profiler::Frame* f, const char* stat, double fallback) {
+		const double v = f ? StatOf(*f, stat) : -1.0;
+		return v >= 0.0 ? v : fallback;
+	};
+	auto rightText = [&](float y, const std::string& text, ImU32 col) {
+		dl->AddText(ImVec2(p.x + kLegendW - 8.0f - ImGui::CalcTextSize(text.c_str()).x, y), col, text.c_str());
+	};
+	float ly = p.y + 22.0f;
+	dl->AddText(ImVec2(p.x + 10.0f, ly), kDim, "Process (private)");
+	rightText(ly, MemoryStats::FormatBytes((size_t)valueAt(sel, "Memory/Process Private", (double)report.ProcessPrivate)), kText);
+	ly += 14.0f;
+	dl->AddText(ImVec2(p.x + 10.0f, ly), kDim, "GPU (this process)");
+	rightText(ly, MemoryStats::FormatBytes((size_t)valueAt(sel, "Memory/GPU Usage", (double)report.GpuUsage)), kText);
+	ly += 16.0f;
+	for (int g = 0; g < ProfilerMemory::kGroupCount; ++g, ly += 14.0f)
+	{
+		dl->AddRectFilled(ImVec2(p.x + 10.0f, ly + 3.0f), ImVec2(p.x + 19.0f, ly + 12.0f), kMemColors[g]);
+		dl->AddText(ImVec2(p.x + 25.0f, ly), kDim, ProfilerMemory::kGroupNames[g]);
+		const double v = valueAt(sel, ProfilerMemory::kGroupStats[g], -1.0);
+		if (v >= 0.0)
+			rightText(ly, MemoryStats::FormatBytes((size_t)v), kDim);
+	}
+
+	// ---- 그래프 (오른쪽 끝 = 최근)
+	const ImVec2 g0(p.x + kLegendW + 1.0f, p.y), g1(p.x + w, p.y + h);
+	const float gw = g1.x - g0.x, gh = h - 4.0f;
+	if (gw < 20.0f)
+		return;
+	dl->AddRectFilled(g0, g1, kGraphBg);
+	const size_t n = history.size();
+	double maxBytes = 0.0;
+	for (const auto& f : history)
+	{
+		double sum = 0.0;
+		for (int g = 0; g < ProfilerMemory::kGroupCount; ++g)
+			sum += (std::max)(0.0, StatOf(f, ProfilerMemory::kGroupStats[g]));
+		maxBytes = (std::max)(maxBytes, sum);
+	}
+	double scale = 64.0 * 1024 * 1024;   // 64 MB 부터 두 배씩
+	while (scale < maxBytes * 1.05)
+		scale *= 2.0;
+	const float colW = gw / (float)kMaxFrames;
+	dl->PushClipRect(g0, g1, true);
+	for (size_t i = 0; i < n; ++i)
+	{
+		const float x0 = g1.x - (float)(n - i) * colW, x1 = x0 + (std::max)(1.0f, colW);
+		float yb = g1.y;
+		for (int g = 0; g < ProfilerMemory::kGroupCount; ++g)
+		{
+			const double v = StatOf(history[i], ProfilerMemory::kGroupStats[g]);
+			if (v <= 0.0)
+				continue;
+			const float yt = (std::max)(g0.y + 4.0f, yb - (float)(v / scale) * gh);
+			dl->AddRectFilled(ImVec2(x0, yt), ImVec2(x1, yb), kMemColors[g]);
+			yb = yt;
+		}
+	}
+	const std::string top = MemoryStats::FormatBytes((size_t)scale);
+	dl->AddText(ImVec2(g1.x - ImGui::CalcTextSize(top.c_str()).x - 4.0f, g0.y + 2.0f), IM_COL32(255, 255, 255, 110), top.c_str());
+	if (sel && n > 0)
+	{
+		const size_t si = (size_t)(sel->Index - history.front().Index);
+		if (si < n)
+		{
+			const float sx = floorf(g1.x - (float)(n - si) * colW + colW * 0.5f) + 0.5f;
+			dl->AddLine(ImVec2(sx, g0.y), ImVec2(sx, g1.y), IM_COL32(255, 255, 255, 220), 1.0f);
+		}
+	}
+	dl->PopClipRect();
+
+	// 누르거나 끌어 프레임 고르기 (다른 모듈과 같이)
+	ImGui::SetCursorScreenPos(g0);
+	ImGui::InvisibleButton("##memGraph", ImVec2(gw, h));
+	if (n > 0 && ImGui::IsItemActive())
+	{
+		const long long fromRight = (long long)floorf((g1.x - ImGui::GetIO().MousePos.x) / colW);
+		const long long i = (long long)n - 1 - fromRight;
+		if (i >= 0 && i < (long long)n)
+			m_Selected = history[(size_t)i].Index;
+	}
+}
+
+// ---------------------------------------------------------------- Memory 탭: 마지막으로 센 범주와 항목 (큰 것부터)
+void ProfilerEditorWindow::DrawMemoryDetails(ImVec2 p, ImVec2 size)
+{
+	const MemoryStats::Report& r = ProfilerMemory::Latest();
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+	// 위: 전체 + Refresh
+	const float headH = 24.0f;
+	dl->AddRectFilled(p, ImVec2(p.x + size.x, p.y + headH), kPanel);
+	std::string head = "Process private " + MemoryStats::FormatBytes(r.ProcessPrivate) + "   Working set " + MemoryStats::FormatBytes(r.WorkingSet) +
+		"   GPU " + MemoryStats::FormatBytes(r.GpuUsage) + (r.GpuBudget ? " / budget " + MemoryStats::FormatBytes(r.GpuBudget) : std::string());
+	dl->AddText(ImVec2(p.x + 10.0f, p.y + 5.0f), kText, head.c_str());
+	float bx = p.x + size.x - 80.0f;
+	if (ToolButton(dl, "##memRefresh", "Refresh", bx, p.y + 1.0f, false, kOn, "Count memory again now (also every 0.5 s while recording)"))
+		ProfilerMemory::RequestRefresh();
+
+	ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + headH));
+	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 2.0f));
+	const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
+	if (ImGui::BeginTable("##memory", 4, flags, ImVec2(size.x, size.y - headH)))
+	{
+		ImGui::TableSetupScrollFreeze(0, 1);
+		ImGui::TableSetupColumn("Category / Item", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn("Where", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+		ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+		ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+		ImGui::TableHeadersRow();
+		// 큰 범주부터
+		std::vector<const MemoryStats::Category*> cats;
+		for (const auto& c : r.Categories)
+			cats.push_back(&c);
+		std::sort(cats.begin(), cats.end(), [](auto* a, auto* b) { return a->Bytes > b->Bytes; });
+		for (const MemoryStats::Category* c : cats)
+		{
+			ImGui::TableNextRow();
+			ImGui::TableNextColumn();
+			const ImGuiTreeNodeFlags tf = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_OpenOnArrow | (c->Items.size() <= 1 ? ImGuiTreeNodeFlags_Leaf : 0);
+			const bool open = ImGui::TreeNodeEx(c->Name, tf);
+			ImGui::TableNextColumn(); ImGui::TextDisabled("%s", c->Gpu ? "GPU" : "CPU");
+			ImGui::TableNextColumn(); ImGui::TextUnformatted(MemoryStats::FormatBytes(c->Bytes).c_str());
+			ImGui::TableNextColumn(); ImGui::Text("%d", (int)c->Items.size());
+			if (open)
+			{
+				const size_t shown = (std::min)(c->Items.size(), (size_t)200);
+				for (size_t i = 0; i < shown; ++i)
+				{
+					const MemoryStats::Item& it = c->Items[i];
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::Indent(18.0f);
+					ImGui::TextUnformatted(it.Name.c_str());
+					ImGui::Unindent(18.0f);
+					ImGui::TableNextColumn();
+					ImGui::TableNextColumn(); ImGui::TextUnformatted(MemoryStats::FormatBytes(it.Bytes).c_str());
+					ImGui::TableNextColumn();
+				}
+				if (c->Items.size() > shown)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn();
+					ImGui::TextDisabled("    ... %d more", (int)(c->Items.size() - shown));
+				}
+				ImGui::TreePop();
+			}
+		}
+		ImGui::EndTable();
+	}
+	ImGui::PopStyleVar();
 }

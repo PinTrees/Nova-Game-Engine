@@ -62,6 +62,7 @@ namespace Profiler
 
 	const std::deque<Frame>& History();   // 오래된 것 → 최근 (최대 300)
 	void Clear();
+	size_t MemoryBytes();   // 기록한 프레임들 (Profiler 메모리)
 
 	struct Scope
 	{

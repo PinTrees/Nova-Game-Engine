@@ -1,4 +1,5 @@
 #pragma once
+#include "MemoryStats.h"
 #include "TreeDesc.h"
 
 // 나무 그리기 (Tree 컴포넌트 + 지형에 칠한 나무 전부).
@@ -34,4 +35,7 @@ namespace TreeRenderer
 		int DrawCalls = 0;
 	};
 	const Stats& LastStats(bool editor);   // 마지막 본 패스
+
+	// Profiler 메모리: 나무 메시(GPU 버퍼 + 선택용 CPU 사본) / 임포스터 아틀라스
+	void CollectMemory(std::vector<MemoryStats::Item>& gpu, std::vector<MemoryStats::Item>& cpu);
 }

@@ -48,4 +48,7 @@ namespace Undo
 	// 마지막으로 확정한 씬 JSON 의 해시 (확정할 때만 다시 계산). 씬을 추적하지 않으면 false
 	//  SceneManager 가 "저장 안 된 변경(*)" 판단에 쓴다 → 매 프레임 씬 전체를 직렬화하지 않는다
 	bool CommittedSceneHash(size_t& outHash);
+
+	// Profiler 메모리: 기록(바뀐 루트 문자열 기준 근사) / 씬 JSON 캐시(루트 문자열)
+	void MemoryUsage(size_t& history, size_t& sceneCache);
 }
