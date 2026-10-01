@@ -313,6 +313,19 @@ namespace
 			if (r.empty()) Out("(nothing found)\n");
 			return;
 		}
+		if (cmd == "shader-cross" && r.is_object())
+		{
+			for (const auto& f : r["results"])
+			{
+				Out(f.value("file", std::string()) + "  " + std::to_string(f.value("ok", 0)) + "/" + std::to_string(f.value("passes", 0)) + " passes" +
+					(f.contains("error") ? "  FAILED: " + f["error"].get<std::string>() : "") + "\n");
+				if (f.contains("errors"))
+					for (const auto& e : f["errors"]) Out("    " + e.get<std::string>() + "\n");
+			}
+			Out("total: " + std::to_string(r.value("passesOk", 0)) + "/" + std::to_string(r.value("passes", 0)) + " passes, " + std::to_string(r.value("failedFiles", 0)) +
+				" files failed, " + std::to_string((int)r.value("ms", 0.0)) + " ms\n");
+			return;
+		}
 		if (cmd == "assets" && r.is_array())
 		{
 			for (const auto& e : r) Out(e.get<std::string>() + "\n");
@@ -547,6 +560,7 @@ namespace
 		"  camera [--position x,y,z --target x,y,z | --frame <target> [--distance d]]   Scene view camera\n"
 		"  screenshot <file.png> [--view scene|game|editor]   (editor = whole window incl. menus; relative = current folder)\n"
 		"  window <preferences|project-settings|build-settings> [--category C] [--close]\n"
+		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
 		"  assets [folder] [--pattern text]\n"
 		"  build <output folder> [--run]   build-status [--wait]\n"
@@ -771,6 +785,12 @@ int wmain(int argc, wchar_t** argv)
 			args["player"] = list;
 		}
 		if (a.Has("auto")) args["auto"] = a.Get("auto") != "false" && a.Get("auto") != "0";
+	}
+	else if (cmd == "shader-cross")
+	{
+		if (!a.Pos.empty()) args["file"] = a.Pos[0];
+		if (a.Has("out")) args["out"] = Utf8(fs::absolute(Wide(a.Get("out"))).wstring());
+		if (a.Has("max-errors")) args["errors"] = std::stoi(a.Get("max-errors"));
 	}
 	else if (cmd == "assets")
 	{

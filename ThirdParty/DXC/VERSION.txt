@@ -1,0 +1,1 @@
+microsoft/DirectXShaderCompiler v1.9.2609 (dxc_2026_09_29.zip): dxcompiler.dll + dxil.dll + headers

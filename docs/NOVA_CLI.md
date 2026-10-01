@@ -32,6 +32,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 | 씬·Play | `scene open <Assets/...scene> [--force]`, `scene save`, `play`, `stop`, `pause [on\|off]`, `step`, `undo`, `redo` |
 | 보기 | `camera [--position x,y,z --target x,y,z \| --frame <대상> [--distance d]]`, `screenshot <파일.png> [--view scene\|game\|editor]` (editor = 메뉴·창까지 에디터 전체) |
 | 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |
+| 셰이더 | `shader-cross [파일 이름 일부] [--out 폴더] [--max-errors N]` — 엔진 `Shaders/*.fx` 를 OpenGL 용 GLSL 4.50 으로 변환해 보고 (pass 마다 성공·실패 이유, `--out` 이면 `.glsl` 파일) |
 | 기타 | `assets [폴더] [--pattern 글자]`, `build <출력 폴더> [--run]`, `build-status [--wait]`, `call <명령> [json]`, `ai-guide`, `help`, `nova help --editor`(에디터가 아는 명령) |
 
 **대상** = 이름, `부모/자식` 경로, 또는 `#id` (`hierarchy` 가 보여 주는 fileID). 같은 이름이 여럿이면 오류와 함께 후보 id 를 알려 줍니다.

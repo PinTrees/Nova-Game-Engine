@@ -91,6 +91,9 @@ set_source_files_properties(
     PROPERTIES SKIP_PRECOMPILE_HEADERS ON
 )
 
+# 셰이더 변환기: SPIRV-Cross 헤더를 Windows.h(min/max 매크로)보다 먼저 포함해야 하므로 PCH 를 쓰지 않는다
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/Graphics/ShaderCross/ShaderCross.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+
 # Jolt 헤더를 Windows.h(min/max 매크로)보다 먼저 포함해야 하므로 물리 백엔드는 PCH 를 쓰지 않는다
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/Physics/PhysicsManager.cpp" PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
@@ -126,12 +129,15 @@ set(ENGINE_MODULE_DIRS
     Source/ThirdParty/ImGui/ImGuiNodeEditor
     Source/Hub
     Source/Platform
+    Source/Graphics/ShaderCross
 )
 list(TRANSFORM ENGINE_MODULE_DIRS PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
 target_include_directories(${ENGINE_NAME} PRIVATE
     ${ENGINE_MODULE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/inc"
 )
 
 # Library search directories
@@ -182,3 +188,24 @@ target_include_directories(nova PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Libraries/I
 set_property(TARGET nova PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 target_compile_options(nova PRIVATE /utf-8)
 add_dependencies(${ENGINE_NAME} nova)
+
+# ---------------------------------------------------------------------------
+# 셰이더 자동 변환 (HLSL → SPIR-V → GLSL): SPIRV-Cross (ThirdParty, Apache-2.0) 핵심 + GLSL 출력만 정적 라이브러리로,
+# DXC (dxcompiler.dll + dxil.dll, ThirdParty/DXC/runtime) 는 실행 중에 불러온다 (Source/Graphics/ShaderCross)
+add_library(SPIRVCross STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross/spirv_cross.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross/spirv_cfg.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross/spirv_cross_parsed_ir.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross/spirv_cross_util.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross/spirv_parser.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross/spirv_glsl.cpp"
+)
+target_include_directories(SPIRVCross PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross")
+target_compile_options(SPIRVCross PRIVATE /W0 /bigobj)
+target_link_libraries(${ENGINE_NAME} PRIVATE SPIRVCross)
+add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/runtime/dxcompiler.dll"
+        "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/runtime/dxil.dll"
+        "$<TARGET_FILE_DIR:${ENGINE_NAME}>"
+)

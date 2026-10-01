@@ -62,7 +62,7 @@ cbuffer cbWaterBody
     float4 gCausticParams;   // 세기, 깊이(m), 타일(m), 0
     float4 gShoreRect;       // 지형 높이 지도 범위: minX, minZ, 1/폭, 1/깊이
     float gHasOceanMask;
-    float3 gPad1;
+    float gPad1, gPad2, gPad3;   // float3 는 16 바이트 경계에서 시작해야 OpenGL 로 옮겨진다 (float 뒤 float3 금지)
     float4 gShoreWave;       // 물가 파도: 높이(m), 마루 사이 수심(m), 위상 속도, 0
 };
 

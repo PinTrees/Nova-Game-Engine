@@ -17,6 +17,7 @@
 #include "GraphicsSettings.h"
 #include "BuildSettings.h"
 #include "App.h"
+#include "ShaderCross.h"
 
 namespace
 {
@@ -759,6 +760,61 @@ namespace CliCommands
 				{ "playerOrder", order },
 				{ "apis", apis },
 			};
+			return true;
+		});
+
+		// 셰이더 자동 변환 검사: .fx → (DXC) SPIR-V → (SPIRV-Cross) GLSL 4.50. 파일마다 pass 성공 수, 실패 이유, (out 이 있으면) GLSL 파일
+		Register("shader-cross", "convert engine .fx shaders to GLSL {file? (name part, default all), out? (folder for .glsl files), errors? (max per file)}", [](const json& a, json& r, std::string& e) {
+			std::string dxcError;
+			if (!ShaderCross::Available(&dxcError)) { e = dxcError; return false; }
+			const std::string filter = Lower(a.value("file", std::string()));
+			const std::string outDir = a.value("out", std::string());
+			const int maxErrors = a.value("errors", 3);
+			const std::filesystem::path shaders = std::filesystem::path(PathManager::GetI()->GetEnginePathW()) / L"Shaders";
+			std::vector<std::filesystem::path> files;
+			std::error_code ec;
+			for (const auto& f : std::filesystem::directory_iterator(shaders, ec))
+				if (f.path().extension() == L".fx" && (filter.empty() || Lower(wstring_to_string(f.path().filename().wstring())).find(filter) != std::string::npos))
+					files.push_back(f.path());
+			std::sort(files.begin(), files.end());
+			int totalPasses = 0, okPasses = 0, failedFiles = 0;
+			json list = json::array();
+			const auto t0 = std::chrono::steady_clock::now();
+			for (const auto& f : files)
+			{
+				EditorLog::Heartbeat();   // 오래 걸리는 진단 명령: 파일마다 살아 있음을 알려 [HANG] 오탐을 막는다
+				ShaderCross::EffectGlsl fx;
+				ShaderCross::CompileEffect(f.wstring(), fx);
+				json item = { { "file", wstring_to_string(f.filename().wstring()) }, { "techniques", fx.Fx.Techniques.size() }, { "passes", fx.Passes.size() }, { "ok", fx.PassesOk() },
+					{ "blocks", fx.Blocks.size() }, { "samplers", fx.Samplers.size() }, { "images", fx.Images.size() }, { "buffers", fx.Buffers.size() } };
+				if (!fx.Error.empty())
+				{
+					item["error"] = fx.Error.substr(0, 600);
+					++failedFiles;
+				}
+				json errs = json::array();
+				for (const auto& p : fx.Passes)
+					if (!p.Error.empty() && (int)errs.size() < maxErrors)
+						errs.push_back(p.Technique + "/" + p.Pass + ": " + p.Error.substr(0, 600));
+				if (!errs.empty())
+					item["errors"] = errs;
+				totalPasses += (int)fx.Passes.size();
+				okPasses += fx.PassesOk();
+				if (!outDir.empty())
+				{
+					const std::filesystem::path dir = std::filesystem::path(string_to_wstring(outDir)) / f.stem();
+					std::filesystem::create_directories(dir, ec);
+					for (const auto& p : fx.Passes)
+						for (const auto& s : p.Stages)
+						{
+							static const char* ext[] = { ".vert", ".tesc", ".tese", ".geom", ".frag", ".comp" };
+							std::ofstream(dir / (p.Technique + "_" + p.Pass + ext[(int)s.StageType] + ".glsl"), std::ios::trunc) << s.Glsl;
+						}
+				}
+				list.push_back(item);
+			}
+			r = { { "files", files.size() }, { "failedFiles", failedFiles }, { "passes", totalPasses }, { "passesOk", okPasses },
+				{ "ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() }, { "results", list } };
 			return true;
 		});
 
