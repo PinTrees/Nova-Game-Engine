@@ -180,6 +180,7 @@ namespace
 		void GetDesc(D3D11_QUERY_DESC* d) const override { *d = D; }
 		D3D11_QUERY_DESC D = {};
 		GLuint Id = 0;
+		bool Issued = false;   // End 로 GL 쿼리를 한 번이라도 넣었나 (안 넣은 쿼리의 결과를 물으면 GL 오류)
 	};
 
 	class GLCtx;
@@ -287,7 +288,9 @@ namespace
 			if (!Check("CreateQuery")) return E_FAIL;
 			auto* q = new GLQueryObj(this);
 			q->D = *desc;
-			if (desc->Query == D3D11_QUERY_TIMESTAMP) glCreateQueries(GL_TIMESTAMP, 1, &q->Id);
+			// TIMESTAMP_DISJOINT 도 끝 시각을 하나 찍는다: D3D 처럼 GPU 가 그 프레임을 다 끝내야 "준비됨" 이 되도록
+			// (예전에는 늘 바로 준비됨이라 Profiler 가 아직 안 끝난 타임스탬프를 읽다 실패해 GPU 시간이 자주 비었다)
+			if (desc->Query == D3D11_QUERY_TIMESTAMP || desc->Query == D3D11_QUERY_TIMESTAMP_DISJOINT) glCreateQueries(GL_TIMESTAMP, 1, &q->Id);
 			else if (desc->Query == D3D11_QUERY_OCCLUSION) glCreateQueries(GL_SAMPLES_PASSED, 1, &q->Id);
 			*out = q;
 			return S_OK;
@@ -1229,8 +1232,9 @@ namespace
 		{
 			auto* g = static_cast<GLQueryObj*>(q);
 			if (!g || !Dev->Check("End")) return;
-			if (g->D.Query == D3D11_QUERY_TIMESTAMP) glQueryCounter(g->Id, GL_TIMESTAMP);
+			if (g->D.Query == D3D11_QUERY_TIMESTAMP || g->D.Query == D3D11_QUERY_TIMESTAMP_DISJOINT) glQueryCounter(g->Id, GL_TIMESTAMP);
 			else if (g->D.Query == D3D11_QUERY_OCCLUSION) glEndQuery(GL_SAMPLES_PASSED);
+			g->Issued = true;
 		}
 		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT) override
 		{
@@ -1239,12 +1243,19 @@ namespace
 			switch (g->D.Query)
 			{
 			case D3D11_QUERY_TIMESTAMP_DISJOINT:
+			{
+				if (!g->Issued) return S_FALSE;
+				GLuint ready = 0;
+				glGetQueryObjectuiv(g->Id, GL_QUERY_RESULT_AVAILABLE, &ready);
+				if (!ready) return S_FALSE;
 				if (data && size >= sizeof(D3D11_QUERY_DATA_TIMESTAMP_DISJOINT))
 					*static_cast<D3D11_QUERY_DATA_TIMESTAMP_DISJOINT*>(data) = { 1000000000ull, FALSE };   // GL 시각 = 나노초
 				return S_OK;
+			}
 			case D3D11_QUERY_TIMESTAMP:
 			case D3D11_QUERY_OCCLUSION:
 			{
+				if (!g->Issued) return S_FALSE;
 				GLuint ready = 0;
 				glGetQueryObjectuiv(g->Id, GL_QUERY_RESULT_AVAILABLE, &ready);
 				if (!ready) return S_FALSE;

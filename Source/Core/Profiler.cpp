@@ -111,7 +111,9 @@ namespace
 namespace Profiler
 {
 	bool s_Want = false;
+	bool s_Forced = false;
 	void SetCollecting(bool on) { s_Want = on; }
+	void ForceCollecting(bool on) { s_Forced = on; }
 
 	const char* Intern(const std::string& name)
 	{
@@ -121,7 +123,7 @@ namespace Profiler
 
 	void BeginFrame()
 	{
-		g_Collecting = s_Want;
+		g_Collecting = s_Want || s_Forced;
 		s_InFrame = Collecting();
 		if (!s_InFrame)
 			return;

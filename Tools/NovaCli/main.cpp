@@ -341,7 +341,7 @@ namespace
 			}
 			return;
 		}
-		if (r.is_object() && (cmd == "info" || cmd == "camera" || cmd == "screenshot" || cmd == "screenshot-editor" || cmd == "build-status" || cmd == "graphics" || cmd == "window"))
+		if (r.is_object() && (cmd == "info" || cmd == "camera" || cmd == "screenshot" || cmd == "screenshot-editor" || cmd == "build-status" || cmd == "graphics" || cmd == "window" || cmd == "perf"))
 		{
 			for (auto it = r.begin(); it != r.end(); ++it)
 				Out(it.key() + ": " + (it.value().is_string() ? it.value().get<std::string>() : it.value().dump()) + "\n");
@@ -571,6 +571,7 @@ namespace
 		"  gfx-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   same, drawn the engine way (Gfx + effects)\n"
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
 		"  wait [frames]                          keep the editor rendering N frames (default 60), then return (background editors pause otherwise)\n"
+		"  perf [--frames N]                      measure N frames (default 240): frame ms / fps, CPU ms, GPU ms, top GPU passes\n"
 		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
 		"  assets [folder] [--pattern text]\n"
@@ -827,6 +828,10 @@ int wmain(int argc, wchar_t** argv)
 	{
 		// 인수 없음 (프레임 수는 요청의 waitFrames 로)
 	}
+	else if (cmd == "perf")
+	{
+		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
+	}
 	else if (cmd == "call")
 	{
 		if (!need(1, "call <command> [json args]")) return 3;
@@ -866,7 +871,13 @@ int wmain(int argc, wchar_t** argv)
 		return 0;
 	}
 	// wait N: 에디터가 N 프레임을 그릴 때까지 기다린다 (백그라운드 에디터는 할 일이 없으면 멈추므로, 장면 불러오기 같은 여러 프레임 작업을 기다릴 때)
-	const int waitFrames = cmd == "wait" ? (std::max)(1, a.Pos.empty() ? 60 : std::stoi(a.Pos[0])) : 0;
+	int waitFrames = cmd == "wait" ? (std::max)(1, a.Pos.empty() ? 60 : std::stoi(a.Pos[0])) : 0;
+	if (cmd == "perf")
+	{
+		// 성능 측정: 프로파일러를 켜고 N 프레임(기본 240, 최대 290 = 기록 300 안) 그린 뒤 평균
+		waitFrames = std::clamp(a.Has("frames") ? std::stoi(a.Get("frames")) : 240, 30, 290);
+		if (!Request(inst, "perf-begin", json::object(), result, error)) { Err(error + "\n"); return 1; }
+	}
 	if (!Request(inst, rc, args, result, error, waitFrames))
 	{
 		Err(error + "\n");

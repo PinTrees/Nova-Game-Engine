@@ -44,6 +44,7 @@ namespace Profiler
 
 	// 모으기 켜기/끄기 (Profiler 창: 열림 && Record). 다음 BeginFrame 부터 적용 (프레임 중간에 바뀌어 구간이 어긋나지 않게)
 	void SetCollecting(bool on);
+	void ForceCollecting(bool on);   // Profiler 창과 상관없이 모으기 (CLI nova perf)
 	inline bool g_Collecting = false;
 	inline bool Collecting() { return g_Collecting; }
 

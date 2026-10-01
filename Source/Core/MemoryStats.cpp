@@ -100,10 +100,24 @@ namespace MemoryStats
 		if (!s_Tried)
 		{
 			s_Tried = true;
+			// D3D11: 장치의 어댑터. OpenGL 은 Native() 가 없다 → 첫 DXGI 어댑터 (프로세스별 사용량은 API 와 상관없이 WDDM 이 센다).
+			// 예전에는 SUCCEEDED(포인터 && ...) 가 bool 이라 늘 성공으로 보여 OpenGL 에서 빈 dxgiDevice 를 불러 죽었다 (Profiler 를 켜면)
 			ComPtr<IDXGIDevice> dxgiDevice;
 			ComPtr<IDXGIAdapter> adapter;
-			if (SUCCEEDED(Application::GetI()->GetDevice()->Native() && static_cast<IUnknown*>(Application::GetI()->GetDevice()->Native())->QueryInterface(IID_PPV_ARGS(dxgiDevice.GetAddressOf()))) &&
-				SUCCEEDED(dxgiDevice->GetAdapter(adapter.GetAddressOf())))
+			void* native = Application::GetI()->GetDevice() ? Application::GetI()->GetDevice()->Native() : nullptr;
+			if (native && SUCCEEDED(static_cast<IUnknown*>(native)->QueryInterface(IID_PPV_ARGS(dxgiDevice.GetAddressOf()))))
+				dxgiDevice->GetAdapter(adapter.GetAddressOf());
+			if (!adapter)
+			{
+				ComPtr<IDXGIFactory1> factory;
+				if (SUCCEEDED(::CreateDXGIFactory1(IID_PPV_ARGS(factory.GetAddressOf()))))
+				{
+					ComPtr<IDXGIAdapter1> a1;
+					if (SUCCEEDED(factory->EnumAdapters1(0, a1.GetAddressOf())))
+						adapter = a1;
+				}
+			}
+			if (adapter)
 				adapter->QueryInterface(IID_PPV_ARGS(s_Adapter.GetAddressOf()));
 		}
 		if (s_Adapter)

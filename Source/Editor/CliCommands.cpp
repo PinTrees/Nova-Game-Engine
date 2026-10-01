@@ -23,6 +23,7 @@
 #include "GfxTest.h"
 #include "GfxGL.h"
 #include "GLContext.h"
+#include "Profiler.h"
 
 namespace
 {
@@ -373,6 +374,66 @@ namespace CliCommands
 		Register("help", "list commands", [](const json&, json& r, std::string&) { r = CliServer::Commands(); return true; });
 
 		// nova wait N: 요청의 waitFrames 동안 에디터가 계속 그린다 (백그라운드에서도) — 끝나면 지금 프레임 번호
+		// 성능 측정 (nova perf): perf-begin 이 프로파일러를 켜고, waitFrames 뒤의 perf 가 그 사이 프레임을 평균
+		static std::chrono::steady_clock::time_point s_PerfStart;
+		static uint64_t s_PerfFirst = 0;
+		static int s_PerfFrame0 = 0;
+		Register("perf-begin", "start a perf measurement (nova perf)", [](const json&, json& r, std::string&) {
+			Profiler::ForceCollecting(true);
+			s_PerfStart = std::chrono::steady_clock::now();
+			s_PerfFrame0 = ImGui::GetFrameCount();
+			s_PerfFirst = Profiler::History().empty() ? 0 : Profiler::History().back().Index;
+			r = json::object();
+			return true;
+		});
+		Register("perf", "finish a perf measurement: frame time, CPU / GPU ms, top GPU passes (nova perf --frames N)", [](const json&, json& r, std::string& e) {
+			const double wallMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s_PerfStart).count();
+			Profiler::ForceCollecting(false);
+			int frames = 0, gpuFrames = 0;
+			double cpu = 0, gpu = 0, cpuMax = 0;
+			std::map<std::string, std::pair<double, int>> passes;
+			for (const Profiler::Frame& f : Profiler::History())
+			{
+				if (f.Index <= s_PerfFirst + 2)   // 켠 직후 2 프레임은 건너뛴다 (구간이 다 차지 않음)
+					continue;
+				++frames;
+				cpu += f.CpuMs;
+				cpuMax = (std::max)(cpuMax, (double)f.CpuMs);
+				if (f.GpuMs >= 0.0f)
+				{
+					++gpuFrames;
+					gpu += f.GpuMs;
+					for (const Profiler::GpuSample& g : f.Gpu)
+						if (g.Depth <= 1)
+						{
+							auto& p = passes[std::string(g.Depth, '.') + g.Name];
+							p.first += g.Ms;
+							++p.second;
+						}
+				}
+			}
+			if (frames == 0) { e = "no frames recorded (run nova perf, not perf directly)"; return false; }
+			std::vector<std::pair<double, std::string>> top;
+			for (auto& [name, p] : passes)
+				top.push_back({ p.first / (std::max)(1, gpuFrames), name });
+			std::sort(top.rbegin(), top.rend());
+			json list = json::array();
+			for (size_t i = 0; i < top.size() && i < 12; ++i)
+				list.push_back({ { "pass", top[i].second }, { "ms", std::round(top[i].first * 1000.0) / 1000.0 } });
+			const double avgFrame = wallMs / (std::max)(1, ImGui::GetFrameCount() - s_PerfFrame0);   // 벽시계 (수직 동기 없음)
+			r = {
+				{ "graphicsAPI", GraphicsAPIToKey(GraphicsSettings::GetActiveAPI()) },
+				{ "frames", frames },
+				{ "frameMs", std::round(avgFrame * 1000.0) / 1000.0 },
+				{ "fps", std::round(1000.0 / avgFrame * 10.0) / 10.0 },
+				{ "cpuMs", std::round(cpu / frames * 1000.0) / 1000.0 },
+				{ "cpuMaxMs", std::round(cpuMax * 1000.0) / 1000.0 },
+				{ "gpuMs", gpuFrames ? std::round(gpu / gpuFrames * 1000.0) / 1000.0 : -1.0 },
+				{ "gpuPasses", list },
+			};
+			return true;
+		});
+
 		Register("wait", "keep rendering for the request's waitFrames, then answer {} (nova wait N)", [](const json&, json& r, std::string&) {
 			r = { { "frame", ImGui::GetFrameCount() } };
 			return true;
