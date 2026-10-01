@@ -204,7 +204,17 @@
 - 측정(Release, 513² 1 km 지형, 스탬프 5): Base 13~18 ms, 스탬프 4~5 ms, 수력(12만 방울)+열 침식 약 450 ms, 재질 12~14 ms, 미리보기 약 36 ms.
 - `NOVA_DEV_PROFILE=1` 이면 단계별 높이 범위(min/max/mean)와 미리보기 시간도 Editor.log 에.
 - 지형 셰이더 triplanar(`40. TerrainCommon.fx` `TerrainTriplanarSetup/TerrainLayerSample`): 레이어마다 위(xz)·옆(zy, xy) 투영을 |법선|^4 로 섞고, 옆 가중치 < 2% 는 버려 평지는 샘플 1 번. 컨트롤 가중치 0 인 레이어도 분기로 건너뜀. 분기 안 밉을 위해 좌표 미분을 밖에서 구해 `SampleGrad`. 본 패스 `TerrainPS` 가 `TerrainAlbedo(uv, 지형 로컬 위치, 법선)` 로 부른다.
-- 미구현/다음: 텍스처 반복 무늬(anti-tiling), 바이옴(영역 마스크별 다른 Base), 스플라인 스탬프(도로·강), 스탬프별 스플랫 규칙, GPU 생성, 손으로 칠한 높이를 스택의 조각 레이어로.
+- 미구현/다음: 텍스처 반복 무늬(anti-tiling, 가까운 곳), 스플라인 스탬프(도로·강), 스탬프별 스플랫 규칙, GPU 생성, 손으로 칠한 높이를 스택의 조각 레이어로.
+
+**바이옴 (2026-10-01)**: World Creator 의 색 재질 + Biome Layer 참고. 프리셋 패키지 + 씬의 영역 오브젝트.
+- 색 재질: `TerrainGenMaterialRule` 에 `Mode`(Texture / Color / Gradient), `Color`, 그라디언트(입력 = Height / Slope / Flow / Sediment / Cavity / Noise, 정지점 목록), `ColorVariation`(큰 얼룩 약 250 m = 밝기·색온도, 작은 얼룩 약 16 m = 밝기), 마스크 `Flow`(수력 침식 물길, 제곱근 + 98% 정규화, smoothstep 0.2~0.7 = 물이 모인 줄기만), `Cavity`(-1 볼록 ~ +1 오목, 라플라시안 4 칸). 결과 = 스플랫 + **컬러 맵**(RGBA8, 제어 맵 해상도: rgb = 색, a = 색이 텍스처 색을 대신하는 정도). 마지막에 캐비티 음영(오목 × (1-0.22), 볼록 × 1.07). .terraindata **v4** = v3 + 컬러 맵 바이트 수·데이터. 셰이더(`TerrainAlbedo(..., viewDist)`) = lerp(텍스처, 컬러 맵 색 × 텍스처 명암(텍스처 밝기 / 가장 작은 밉 평균 밝기, 0.35~1.9), a), 멀수록(60 m~460 m) 명암 비중을 75% 줄여 타일 반복이 줄무늬로 보이지 않게.
+- Base 에 `Dunes`(6) 추가: 바람 방향(`WindAngle`)으로 늘어선 비대칭 파형(완만한 바람받이 75% + 가파른 미끄럼면 25%), 노이즈로 휘고 높이가 다름. 옥타브 1 = 큰 사구, 2 = 작은 사구, 나머지 = 바닥 기복.
+- 프리셋 `TerrainBiomes`(`Source/Terrain/TerrainBiomes.*`): `Resources/Packages/Terrain/Biomes/*.biome`(JSON = 생성기 설정 키 + name, description, layers(지형 레이어 4 개), paintMaterials) 10 종 — Alpine Mountains, Arctic Tundra, Badlands, Desert Dunes, Grassland Hills, Highland Moor, Red Rock Canyon, Savanna, Tropical Islands, Volcanic Highlands. 모두 일반 레이어 Grass/Rock/Dirt/Sand 를 쓰고 모습은 색 규칙이 만든다. 값은 1 km × 600 m 기준 미터(지형이 크면 같은 크기 지형이 반복될 뿐, 경사·재질은 같게). 기복은 크기의 약 1/4 이하(그 이상이면 칼날 능선). `Apply(data, preset)` = 설정 + 레이어 교체(Enabled/AutoUpdate 유지, `BiomePreset` 이름 기록). 썸네일 = 129² 로 실제 생성한 위에서 본 음영(백그라운드, 한 번, IMMUTABLE 텍스처).
+- 영역 `TerrainBiome` 컴포넌트(`Source/Scene/TerrainBiome.*`): Preset 이름, Opacity, Blend Size, Roundness, Edge Noise, Affect Heights / Materials, Seed, Order. 생성 순서: 지형 Base → 바이옴마다 마스크(스탬프와 같은 회전 사각형/원 + 경계를 Fbm 으로 흔듦) 안을 그 프리셋 Base 로 lerp → 스탬프 → 지형 필터 / 바이옴마다 같은 스탬프 후 높이에서 그 프리셋 필터를 따로 돌려 높이·퇴적·물길을 마스크로 lerp → 재질: 지형 규칙과 바이옴 규칙을 따로 평가해 가중치·색을 마스크로 섞음(바이옴의 높이 그라디언트는 영역 안 범위). 프리셋 재질 규칙의 레이어 번호는 같은 에셋 경로의 지형 레이어 번호로 바꿈(없으면 같은 번호, 범위 밖이면 색만). 해시 = 행렬 + 값 + 프리셋 JSON. GameObject > 3D Object > Terrain Biome > 프리셋, Generate 탭 Biome Areas > Add Biome Area, 프리셋 썸네일 오른쪽 클릭 > Add as Biome Area. 선택하면 Scene 뷰에 영역(초록)·섞기 경계.
+- UI(Generate 탭): Biome Presets 격자(썸네일, 현재 프리셋 강조, 설명 툴팁, 클릭 = 지형 전체 적용 + Undo "Apply Biome …"(설정 + 레이어 목록을 같이 되돌림)), Biome Areas 목록, 재질 규칙에 Name·Flow·Cavity·Color 모드·Tint·그라디언트 정지점 편집·Variation.
+- 측정(Release, 513²): 프리셋 하나 0.05~1.1 초(사구는 침식이 없어 56 ms), 바이옴 영역 3 개 지형 3.3 초(필터 2.0 초 — 바이옴마다 필터를 지형 전체 크기로 다시 돌림).
+- 검증 도구: `NOVA_DEV_BIOMEDUMP=<폴더>` 면 시작 뒤 한 번 프리셋마다 513² 로 생성해 `<폴더>/biome_<이름>.ppm`(위에서 본 음영) + Editor.log 에 시간·높이 범위·튀는 점 수(8 이웃보다 2 m 넘게 높거나 낮은 칸). 3D 뷰의 "떠 있는 조각"이 높이 버그인지 실제 지형인지 가리는 데 썼다(튀는 점 0 → 칼날 능선이 원인, 기복을 낮춤).
+- World Creator 와 비교해 남은 차이: 해상도(513² = 2 m 칸, WC 는 GPU 로 4K+), 침식의 잔 물길 디테일, 가까운 곳 텍스처 반복, 하늘·안개·노출(엔진 조명), 바이옴 필터를 영역 범위만 돌리기(지금은 전체), 레이어 4 장 제한.
 - **ImGui 멀티 뷰포트 버그 수정**: 떠 있는 팝업·툴팁이 창 밖으로 나가면 ImGui 가 별도 OS 창을 만들고 `RenderPlatformWindowsDefault` 가 그 창의 RTV 를 묶은 채로 끝나, 다음 프레임부터 메인 창 UI 가 그쪽에 그려져 화면이 멈춘 듯 보였다(긴 툴팁으로 재현). App 루프가 매 프레임 ImGui 그리기 직전에 메인 백버퍼 RTV 를 다시 묶는다. Present 실패는 Editor.log 에 한 번 기록.
 
 **숲: 인스턴싱 + LOD + Paint Trees (2026-10-01)**:

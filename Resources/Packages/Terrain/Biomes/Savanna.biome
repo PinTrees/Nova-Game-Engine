@@ -1,0 +1,162 @@
+{
+  "name": "Savanna",
+  "description": "Wide dry grassland plains with dusty earth patches, low rocky kopjes and dark soil in the drainage lines.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 1,
+    "seed": 12,
+    "scale": 950,
+    "minHeight": 15,
+    "maxHeight": 75,
+    "shapePower": 1.5,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.5,
+      0.26,
+      0.13,
+      0.065,
+      0.032,
+      0.016,
+      0.008
+    ]
+  },
+  "filters": [
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        110,
+        0.3,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Dry Grass",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 2,
+      "color": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "gradientInput": 0,
+      "gradient": [
+        [
+          0.0,
+          0.56,
+          0.5,
+          0.3
+        ],
+        [
+          1.0,
+          0.68,
+          0.6,
+          0.38
+        ]
+      ],
+      "colorVariation": 0.12
+    },
+    {
+      "name": "Dust",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 8,
+      "sMax": 90,
+      "sBlend": 4,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.5,
+      "colorMode": 1,
+      "color": [
+        0.6,
+        0.46,
+        0.32
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Drainage",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.85,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.7,
+      "colorMode": 1,
+      "color": [
+        0.36,
+        0.29,
+        0.2
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Kopjes",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 24,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.48,
+        0.43,
+        0.38
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "name": "Highland Moor",
+  "description": "Eroded highland moorland: golden-brown grass, heather patches, peat in the water courses and grey rock outcrops.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 4,
+    "seed": 17,
+    "scale": 850,
+    "minHeight": 30,
+    "maxHeight": 220,
+    "shapePower": 1.2,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.55,
+      0.32,
+      0.18,
+      0.1,
+      0.05,
+      0.025,
+      0.012
+    ]
+  },
+  "filters": [
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        180,
+        0.42,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    },
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        40,
+        25,
+        0.5,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Moor Grass",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 2,
+      "color": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "gradientInput": 0,
+      "gradient": [
+        [
+          0.0,
+          0.36,
+          0.35,
+          0.21
+        ],
+        [
+          1.0,
+          0.49,
+          0.43,
+          0.27
+        ]
+      ],
+      "colorVariation": 0.14
+    },
+    {
+      "name": "Heather",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 25,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": -0.5,
+      "noise": 0.3,
+      "opacity": 0.4,
+      "colorMode": 1,
+      "color": [
+        0.36,
+        0.28,
+        0.29
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Peat",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.9,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.8,
+      "colorMode": 1,
+      "color": [
+        0.25,
+        0.21,
+        0.16
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Outcrops",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 28,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.4,
+        0.4,
+        0.38
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

@@ -1,0 +1,162 @@
+{
+  "name": "Volcanic Highlands",
+  "description": "Black basalt ridges, ash plains, rust-red lava channels and a little moss in the lowlands.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 2,
+    "seed": 21,
+    "scale": 1000,
+    "minHeight": 20,
+    "maxHeight": 220,
+    "shapePower": 1.4,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.55,
+      0.32,
+      0.18,
+      0.1,
+      0.05,
+      0.025,
+      0.012
+    ]
+  },
+  "filters": [
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        160,
+        0.42,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    },
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        40,
+        25,
+        0.5,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Basalt",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.18,
+        0.17,
+        0.17
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Ash",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 30,
+      "sBlend": 5,
+      "sediment": 1.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.32,
+        0.29,
+        0.27
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Lava Channels",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 30,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 1.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.7,
+      "colorMode": 1,
+      "color": [
+        0.4,
+        0.21,
+        0.13
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Moss",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 70,
+      "hBlend": 15,
+      "sMin": 0,
+      "sMax": 20,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.55,
+      "colorMode": 1,
+      "color": [
+        0.26,
+        0.29,
+        0.17
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 #include "GameObjectMenu.h"
 #include "GameObjectFactory.h"
 #include "TerrainStamp.h"
+#include "TerrainBiomes.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
 
@@ -98,6 +99,12 @@ namespace GameObjectMenu
 			{
 				for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
 					if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s))) add(GameObjectFactory::CreateTerrainStamp(s));
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Terrain Biome"))   // 영역마다 다른 지형 특성·재질 (바이옴 프리셋)
+			{
+				for (const auto& p : TerrainBiomes::List())
+					if (ImGui::MenuItem(p.Name.c_str())) add(GameObjectFactory::CreateTerrainBiome(p.Name));
 				ImGui::EndMenu();
 			}
 			Disabled("Wind Zone");

@@ -77,6 +77,8 @@ namespace
 		ID3DX11EffectScalarVariable* LayerCount = nullptr;
 		ID3DX11EffectShaderResourceVariable* HeightMap = nullptr;
 		ID3DX11EffectShaderResourceVariable* Control = nullptr;
+		ID3DX11EffectShaderResourceVariable* ColorMap = nullptr;
+		ID3DX11EffectScalarVariable* UseColorMap = nullptr;
 		ID3DX11EffectShaderResourceVariable* Layers[4] = {};
 
 		void Bind(ID3DX11Effect* fx, const char* tech)
@@ -90,6 +92,8 @@ namespace
 			LayerCount = fx->GetVariableByName("gTerrainLayerCount")->AsScalar();
 			HeightMap = fx->GetVariableByName("gTerrainHeightMap")->AsShaderResource();
 			Control = fx->GetVariableByName("gTerrainControl")->AsShaderResource();
+			ColorMap = fx->GetVariableByName("gTerrainColorMap")->AsShaderResource();
+			UseColorMap = fx->GetVariableByName("gTerrainUseColorMap")->AsScalar();
 			const char* names[4] = { "gTerrainLayer0", "gTerrainLayer1", "gTerrainLayer2", "gTerrainLayer3" };
 			for (int i = 0; i < 4; ++i)
 				Layers[i] = fx->GetVariableByName(names[i])->AsShaderResource();
@@ -330,6 +334,12 @@ namespace TerrainRenderer
 			v.LayerTint->SetFloatVectorArray(reinterpret_cast<const float*>(tint), 0, 4);
 			v.LayerCount->SetInt(layerCount);
 			v.Control->SetResource(data.ControlSRV());
+			// 컬러 맵 (생성기의 색·그라디언트 재질)
+			ID3D11ShaderResourceView* colorSRV = data.ColorMapSRV();
+			if (v.ColorMap && v.ColorMap->IsValid())
+				v.ColorMap->SetResource(colorSRV);
+			if (v.UseColorMap && v.UseColorMap->IsValid())
+				v.UseColorMap->SetInt(colorSRV ? 1 : 0);
 		}
 
 		// ---- 그리기 ----
@@ -384,6 +394,8 @@ namespace TerrainRenderer
 		if (pass == Pass::Main)
 		{
 			v.Control->SetResource(nullptr);
+			if (v.ColorMap && v.ColorMap->IsValid())
+				v.ColorMap->SetResource(nullptr);
 			for (auto* layer : v.Layers)
 				layer->SetResource(nullptr);
 		}

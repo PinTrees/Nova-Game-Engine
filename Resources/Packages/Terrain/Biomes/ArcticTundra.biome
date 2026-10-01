@@ -1,0 +1,187 @@
+{
+  "name": "Arctic Tundra",
+  "description": "Snow-covered hills with wind-blown blue ice in the hollows, dark rock on steep slopes and brown tundra at the lowest ground.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 4,
+    "seed": 14,
+    "scale": 900,
+    "minHeight": 20,
+    "maxHeight": 200,
+    "shapePower": 1.5,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.55,
+      0.32,
+      0.18,
+      0.1,
+      0.05,
+      0.025,
+      0.012
+    ]
+  },
+  "filters": [
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        140,
+        0.4,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    },
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        36,
+        20,
+        0.4,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Snow",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.86,
+        0.89,
+        0.94
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.05
+    },
+    {
+      "name": "Ice",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 15,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.6,
+      "noise": 0.3,
+      "opacity": 0.5,
+      "colorMode": 1,
+      "color": [
+        0.74,
+        0.82,
+        0.92
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Rock",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 30,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.3,
+        0.31,
+        0.34
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Wind Scour",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 18,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": -0.6,
+      "noise": 0.3,
+      "opacity": 0.6,
+      "colorMode": 1,
+      "color": [
+        0.48,
+        0.49,
+        0.52
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Tundra",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 40,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 18,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.6,
+      "colorMode": 1,
+      "color": [
+        0.42,
+        0.39,
+        0.3
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

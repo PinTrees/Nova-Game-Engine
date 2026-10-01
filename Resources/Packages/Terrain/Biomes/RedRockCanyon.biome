@@ -1,0 +1,224 @@
+{
+  "name": "Red Rock Canyon",
+  "description": "Terraced red sandstone mesas and canyons, banded rock layers, sandy flats and sparse shrubs.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 4,
+    "seed": 9,
+    "scale": 650,
+    "minHeight": 40,
+    "maxHeight": 270,
+    "shapePower": 1.15,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.55,
+      0.32,
+      0.18,
+      0.1,
+      0.05,
+      0.025,
+      0.012
+    ]
+  },
+  "filters": [
+    {
+      "type": 2,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        7,
+        0.85,
+        60,
+        270,
+        0,
+        0
+      ]
+    },
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        170,
+        0.42,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    },
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        48,
+        20,
+        0.4,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Sand Flats",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 22,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.78,
+        0.56,
+        0.4
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.1
+    },
+    {
+      "name": "Strata",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 20,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.12,
+      "opacity": 1.0,
+      "colorMode": 2,
+      "color": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "gradientInput": 0,
+      "gradient": [
+        [
+          0.0,
+          0.52,
+          0.25,
+          0.16
+        ],
+        [
+          0.22,
+          0.7,
+          0.37,
+          0.22
+        ],
+        [
+          0.35,
+          0.8,
+          0.56,
+          0.41
+        ],
+        [
+          0.45,
+          0.66,
+          0.32,
+          0.19
+        ],
+        [
+          0.6,
+          0.6,
+          0.29,
+          0.18
+        ],
+        [
+          0.72,
+          0.82,
+          0.62,
+          0.46
+        ],
+        [
+          0.85,
+          0.7,
+          0.36,
+          0.22
+        ],
+        [
+          1.0,
+          0.84,
+          0.68,
+          0.52
+        ]
+      ],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Sediment",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 30,
+      "sBlend": 5,
+      "sediment": 1.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.8,
+      "colorMode": 1,
+      "color": [
+        0.62,
+        0.42,
+        0.3
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Shrubs",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 15,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.6,
+      "opacity": 0.25,
+      "colorMode": 1,
+      "color": [
+        0.38,
+        0.38,
+        0.24
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

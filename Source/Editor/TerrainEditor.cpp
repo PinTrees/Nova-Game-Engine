@@ -8,7 +8,9 @@
 #include "UndoSystem.h"
 #include "TreeRenderer.h"
 #include "TerrainGenerator.h"
+#include "TerrainBiomes.h"
 #include "TerrainStamp.h"
+#include "TerrainBiome.h"
 #include "GameObjectFactory.h"
 #include "SelectionManager.h"
 #include <random>
@@ -555,15 +557,48 @@ namespace
 		Undo::RequestCheck();
 	}
 
+	std::string s_BiomeMenu;   // 프리셋 썸네일 오른쪽 클릭 메뉴의 대상
+
+	void AddBiomeToScene(const std::string& preset)
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		if (scene == nullptr)
+			return;
+		GameObject* obj = GameObjectFactory::CreateTerrainBiome(preset);
+		scene->AddRootGameObject(obj);
+		SelectionManager::SetSelectedGameObject(obj);
+		Undo::SetActionName("Create Terrain Biome");
+		Undo::RequestCheck();
+	}
+
 	void DrawGenerateTool(Terrain* terrain, const std::shared_ptr<TerrainData>& data)
 	{
 		using namespace UnityGUI;
 		TerrainGenSettings& g = data->Generator;
 		// Undo: 설정 전체를 JSON 으로 (되돌리면 다시 생성된다)
 		std::weak_ptr<TerrainData> weak = data;
+		// 설정 + 레이어 목록 (바이옴 프리셋 적용은 레이어도 바꾼다)
 		Undo::WatchAsset("terraingen:" + data->Path, "Terrain Generator",
-			[weak]() { auto d = weak.lock(); return d ? d->Generator.ToJson().dump() : std::string(); },
-			[weak](const std::string& text) { if (auto d = weak.lock()) { d->Generator.FromJson(nlohmann::json::parse(text, nullptr, false)); d->Dirty = true; } });
+			[weak]() {
+				auto d = weak.lock();
+				if (!d) return std::string();
+				nlohmann::json j = { { "gen", d->Generator.ToJson() }, { "layers", nlohmann::json::array() } };
+				for (const auto& l : d->Layers) j["layers"].push_back(l ? l->Path : std::string());
+				return j.dump();
+			},
+			[weak](const std::string& text) {
+				auto d = weak.lock();
+				const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+				if (!d || !j.is_object()) return;
+				d->Generator.FromJson(j.value("gen", nlohmann::json::object()));
+				if (j.contains("layers"))
+				{
+					d->Layers.clear();
+					for (const auto& p : j["layers"])
+						if (auto layer = TerrainLayer::Load(p.get<std::string>())) d->Layers.push_back(layer);
+				}
+				d->Dirty = true;
+			});
 		const std::string before = g.ToJson().dump();
 
 		DescriptionBox("Builds the terrain from base noise, Terrain Stamps in the scene, a filter stack and material rules. "
@@ -593,20 +628,81 @@ namespace
 			if (st.Running)
 				snprintf(status, sizeof(status), "Generating...");
 			else if (st.LastMs > 0.0)
-				snprintf(status, sizeof(status), "%s in %.0f ms  (base %.0f, stamps %.0f, filters %.0f, materials %.0f)  -  %d stamps",
-					st.LastPreview ? "Preview (erosion skipped)" : "Generated", st.LastMs, st.StageMs[0], st.StageMs[1], st.StageMs[2], st.StageMs[3], st.StampCount);
+				snprintf(status, sizeof(status), "%s in %.0f ms  (base %.0f, stamps %.0f, filters %.0f, materials %.0f)  -  %d stamps, %d biomes",
+					st.LastPreview ? "Preview (erosion skipped)" : "Generated", st.LastMs, st.StageMs[0], st.StageMs[1], st.StageMs[2], st.StageMs[3], st.StampCount, st.BiomeCount);
 			else
 				snprintf(status, sizeof(status), "Waiting...");
 			HelpBox(status, false);
 			if (CenterButton(g.AutoUpdate ? "Regenerate" : "Generate"))
 				TerrainGenerator::Regenerate(data);
 
+			// ---- Biome Presets (패키지): 썸네일을 누르면 지형 특성·재질·레이어를 한 번에
+			if (Foldout("Biome Presets", 0, true, false))
+			{
+				const auto& presets = TerrainBiomes::List();
+				if (presets.empty())
+					HelpBox("No presets in Resources/Packages/Terrain/Biomes.", true, 1);
+				const float avail = ImGui::GetContentRegionAvail().x - 20.0f;
+				const float cellW = 96.0f, cellH = 116.0f;
+				const int perRow = (std::max)(1, (int)(avail / (cellW + 6.0f)));
+				const ImVec2 start = ImGui::GetCursorScreenPos();
+				ImDrawList* dl = ImGui::GetWindowDrawList();
+				for (int i = 0; i < (int)presets.size(); ++i)
+				{
+					const auto& p = presets[i];
+					const ImVec2 a(start.x + 14.0f + (i % perRow) * (cellW + 6.0f), start.y + 4.0f + (i / perRow) * (cellH + 6.0f));
+					ImGui::SetCursorScreenPos(a);
+					ImGui::PushID(i);
+					const bool clicked = ImGui::InvisibleButton("##biome", ImVec2(cellW, cellH));
+					const bool hovered = ImGui::IsItemHovered();
+					ImGui::PopID();
+					const bool current = g.BiomePreset == p.Name;
+					dl->AddRectFilled(a, ImVec2(a.x + cellW, a.y + cellH), current ? IM_COL32(58, 86, 120, 255) : (hovered ? IM_COL32(70, 70, 70, 255) : IM_COL32(48, 48, 48, 255)), 4.0f);
+					if (ID3D11ShaderResourceView* thumb = TerrainBiomes::Thumbnail(p))
+						dl->AddImage((ImTextureID)thumb, ImVec2(a.x + 4, a.y + 4), ImVec2(a.x + cellW - 4, a.y + cellW - 4));
+					else
+						dl->AddText(ImVec2(a.x + 18, a.y + 38), IM_COL32(150, 150, 150, 255), "...");
+					const ImVec2 ts = ImGui::CalcTextSize(p.Name.c_str());
+					ImGui::PushClipRect(a, ImVec2(a.x + cellW, a.y + cellH), true);
+					dl->AddText(ImVec2(a.x + (std::max)(4.0f, (cellW - ts.x) * 0.5f), a.y + cellW + 1), IM_COL32(220, 220, 220, 255), p.Name.c_str());
+					ImGui::PopClipRect();
+					if (hovered && !p.Description.empty())
+						ImGui::SetTooltip("%s\n\n%s", p.Name.c_str(), p.Description.c_str());
+					if (clicked)
+					{
+						TerrainBiomes::Apply(*data, p);
+						Undo::SetActionName("Apply Biome " + p.Name);
+					}
+					if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+					{
+						s_BiomeMenu = p.Name;
+						ImGui::OpenPopup("##biomemenu");
+					}
+				}
+				if (ImGui::BeginPopup("##biomemenu"))
+				{
+					if (ImGui::MenuItem("Apply to Whole Terrain"))
+						if (const TerrainBiomes::Preset* p = TerrainBiomes::Find(s_BiomeMenu))
+						{
+							TerrainBiomes::Apply(*data, *p);
+							Undo::SetActionName("Apply Biome " + p->Name);
+						}
+					if (ImGui::MenuItem("Add as Biome Area"))
+						AddBiomeToScene(s_BiomeMenu);
+					ImGui::EndPopup();
+				}
+				const int rows = ((int)presets.size() + perRow - 1) / perRow;
+				ImGui::SetCursorScreenPos(ImVec2(start.x, start.y + 8.0f + rows * (cellH + 6.0f)));
+				ImGui::Dummy(ImVec2(avail, 1.0f));
+				HelpBox("Click = apply to the whole terrain. Right-click = add as a biome area.", false, 1);
+			}
+
 			// ---- Base
 			if (Foldout("Base", 0, true, false))
 			{
-				static const char* kTypes[] = { "Flat", "Classic", "Ridged", "Billow", "Eroded", "Current Terrain" };
+				static const char* kTypes[] = { "Flat", "Classic", "Ridged", "Billow", "Eroded", "Current Terrain", "Dunes" };
 				int type = (int)g.Base.NoiseType;
-				if (Dropdown("Noise Type", &type, kTypes, 6, 1))
+				if (Dropdown("Noise Type", &type, kTypes, 7, 1))
 					g.Base.NoiseType = (TerrainGenBase::Type)type;
 				if (g.Base.NoiseType == TerrainGenBase::Type::CurrentTerrain)
 				{
@@ -626,6 +722,8 @@ namespace
 					Label("Octaves", 1);
 					OctaveBars(g.Base.Octaves, TerrainGenBase::kOctaves);
 					Slider("Shape Power", &g.Base.ShapePower, 0.3f, 4.0f, 1);
+					if (g.Base.NoiseType == TerrainGenBase::Type::Dunes)
+						Slider("Wind Angle", &g.Base.WindAngle, 0.0f, 360.0f, 1);
 					Slider("Offset X", &g.Base.OffsetX, -5000.0f, 5000.0f, 1);
 					Slider("Offset Z", &g.Base.OffsetZ, -5000.0f, 5000.0f, 1);
 				}
@@ -666,6 +764,39 @@ namespace
 					for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
 						if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s)))
 							AddStampToScene(s);
+					ImGui::EndPopup();
+				}
+			}
+
+			// ---- Biome Areas (씬 오브젝트: 영역마다 다른 프리셋)
+			if (Foldout("Biome Areas", 0, true, false))
+			{
+				int shown = 0;
+				for (TerrainBiome* b : TerrainBiome::All())
+				{
+					GameObject* go = b->GetGameObject();
+					if (go == nullptr)
+						continue;
+					char label[200];
+					snprintf(label, sizeof(label), "%s  -  %s%s%s", go->GetName().c_str(), b->Preset.c_str(),
+						TerrainBiomes::Find(b->Preset) ? "" : "  (missing)", b->IsActiveBiome() ? "" : "  (off)");
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+					ImGui::PushID(b);
+					if (ImGui::Selectable(label, SelectionManager::GetSelectedGameObject() == go))
+						SelectionManager::SetSelectedGameObject(go);
+					ImGui::PopID();
+					++shown;
+				}
+				if (shown == 0)
+					HelpBox("No biome areas. Each area uses a biome preset's shape and materials inside it and blends at the edge.", false, 1);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+				if (ImGui::Button("Add Biome Area", ImVec2(140, 0)))
+					ImGui::OpenPopup("##addbiome");
+				if (ImGui::BeginPopup("##addbiome"))
+				{
+					for (const auto& p : TerrainBiomes::List())
+						if (ImGui::MenuItem(p.Name.c_str()))
+							AddBiomeToScene(p.Name);
 					ImGui::EndPopup();
 				}
 			}
@@ -747,7 +878,10 @@ namespace
 					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
 					ImGui::Checkbox("##on", &r.Enabled);
 					ImGui::SameLine();
-					ImGui::Text("Rule %d", i + 1);
+					if (r.Name.empty())
+						ImGui::Text("Rule %d", i + 1);
+					else
+						ImGui::Text("%d. %s", i + 1, r.Name.c_str());
 					ImGui::SameLine();
 					ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 30.0f);
 					if (SmallButton("##del", ICON_FA_XMARK, "Remove")) remove = i;
@@ -767,8 +901,54 @@ namespace
 						Slider("Slope Max", &r.SlopeMax, 0.0f, 90.0f, 2);
 						Slider("Slope Blend", &r.SlopeBlend, 0.1f, 30.0f, 2);
 						Slider("Sediment", &r.Sediment, 0.0f, 1.0f, 2);
+						Slider("Flow", &r.Flow, 0.0f, 1.0f, 2);
+						Slider("Cavity", &r.Cavity, -1.0f, 1.0f, 2);
 						Slider("Noise", &r.Noise, 0.0f, 1.0f, 2);
 						Slider("Opacity", &r.Opacity, 0.0f, 1.0f, 2);
+						// 색: Texture = 레이어 텍스처 색, Color = 단색, Gradient = 값(높이·경사 …)으로 읽는 색 띠
+						static const char* kModes[] = { "Texture", "Color", "Gradient" };
+						int mode = (int)r.Mode;
+						if (Dropdown("Color", &mode, kModes, 3, 2))
+							r.Mode = (TerrainGenMaterialRule::ColorMode)mode;
+						if (r.Mode == TerrainGenMaterialRule::ColorMode::Color)
+						{
+							float rgba[4] = { r.Color[0], r.Color[1], r.Color[2], 1.0f };
+							if (UnityGUI::Color("Tint", rgba, 3))
+								for (int c = 0; c < 3; ++c) r.Color[c] = rgba[c];
+						}
+						else if (r.Mode == TerrainGenMaterialRule::ColorMode::Gradient)
+						{
+							static const char* kInputs[] = { "Height", "Slope", "Flow", "Sediment", "Cavity", "Noise" };
+							int input = (int)r.GradientInput;
+							if (Dropdown("Input", &input, kInputs, 6, 3))
+								r.GradientInput = (TerrainGenMaterialRule::Input)input;
+							if (r.Gradient.empty())
+								r.Gradient = { { 0.0f, { 0.25f, 0.22f, 0.18f } }, { 1.0f, { 0.8f, 0.78f, 0.74f } } };
+							int removeStop = -1;
+							for (int k = 0; k < (int)r.Gradient.size(); ++k)
+							{
+								ImGui::PushID(k);
+								char label[24];
+								snprintf(label, sizeof(label), "Stop %d", k + 1);
+								float rgba[4] = { r.Gradient[k].Color[0], r.Gradient[k].Color[1], r.Gradient[k].Color[2], 1.0f };
+								if (UnityGUI::Color(label, rgba, 3))
+									for (int c = 0; c < 3; ++c) r.Gradient[k].Color[c] = rgba[c];
+								Slider("Position", &r.Gradient[k].Pos, 0.0f, 1.0f, 4);
+								if (r.Gradient.size() > 2)
+								{
+									ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 60.0f);
+									if (ImGui::SmallButton("Remove Stop")) removeStop = k;
+								}
+								ImGui::PopID();
+							}
+							if (removeStop >= 0) r.Gradient.erase(r.Gradient.begin() + removeStop);
+							ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 60.0f);
+							if (ImGui::SmallButton("Add Stop"))
+								r.Gradient.push_back({ 1.0f, { 1.0f, 1.0f, 1.0f } });
+							std::sort(r.Gradient.begin(), r.Gradient.end(), [](const auto& a, const auto& b) { return a.Pos < b.Pos; });
+						}
+						if (r.Mode != TerrainGenMaterialRule::ColorMode::Texture)
+							Slider("Variation", &r.ColorVariation, 0.0f, 1.0f, 3);
 					}
 					ImGui::PopID();
 					Spacing(2);

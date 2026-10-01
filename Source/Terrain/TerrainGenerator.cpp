@@ -3,11 +3,14 @@
 #include "TerrainData.h"
 #include "Terrain.h"
 #include "TerrainStamp.h"
+#include "TerrainBiome.h"
+#include "TerrainBiomes.h"
 #include "Transform.h"
 #include "FrameProfiler.h"
 #include <algorithm>
 #include <chrono>
 #include <execution>
+#include <functional>
 #include <future>
 #include <map>
 #include <mutex>
@@ -38,6 +41,48 @@ namespace
 	const TerrainGenFilter::ParamInfo kDetail[6] = {
 		{ "Amount (m)", 0, 60, 6, false }, { "Scale (m)", 4, 400, 40, false }, { "Ridged", 0, 1, 0.5f, false },
 		{ "Seed", 1, 9999, 7, true }, { nullptr, 0, 0, 0, false }, { nullptr, 0, 0, 0, false } };
+}
+
+json MaterialRuleToJson(const TerrainGenMaterialRule& m)
+{
+	json j = { { "enabled", m.Enabled }, { "layer", m.Layer }, { "hMin", m.HeightMin }, { "hMax", m.HeightMax }, { "hBlend", m.HeightBlend },
+		{ "sMin", m.SlopeMin }, { "sMax", m.SlopeMax }, { "sBlend", m.SlopeBlend }, { "sediment", m.Sediment }, { "flow", m.Flow }, { "cavity", m.Cavity },
+		{ "noise", m.Noise }, { "opacity", m.Opacity }, { "colorMode", (int)m.Mode }, { "color", std::vector<float>(m.Color, m.Color + 3) },
+		{ "gradientInput", (int)m.GradientInput }, { "colorVariation", m.ColorVariation } };
+	if (!m.Name.empty())
+		j["name"] = m.Name;
+	json g = json::array();
+	for (const auto& s : m.Gradient)
+		g.push_back({ s.Pos, s.Color[0], s.Color[1], s.Color[2] });
+	j["gradient"] = g;
+	return j;
+}
+
+TerrainGenMaterialRule MaterialRuleFromJson(const json& m)
+{
+	TerrainGenMaterialRule r;
+	r.Enabled = m.value("enabled", true); r.Layer = m.value("layer", 1);
+	r.Name = m.value("name", std::string());
+	r.HeightMin = m.value("hMin", r.HeightMin); r.HeightMax = m.value("hMax", r.HeightMax); r.HeightBlend = m.value("hBlend", r.HeightBlend);
+	r.SlopeMin = m.value("sMin", r.SlopeMin); r.SlopeMax = m.value("sMax", r.SlopeMax); r.SlopeBlend = m.value("sBlend", r.SlopeBlend);
+	r.Sediment = m.value("sediment", r.Sediment); r.Flow = m.value("flow", r.Flow); r.Cavity = m.value("cavity", r.Cavity);
+	r.Noise = m.value("noise", r.Noise); r.Opacity = m.value("opacity", r.Opacity);
+	r.Mode = (TerrainGenMaterialRule::ColorMode)std::clamp(m.value("colorMode", 0), 0, 2);
+	if (m.contains("color") && m["color"].is_array() && m["color"].size() >= 3)
+		for (int i = 0; i < 3; ++i) r.Color[i] = m["color"][i].get<float>();
+	r.GradientInput = (TerrainGenMaterialRule::Input)std::clamp(m.value("gradientInput", 0), 0, 5);
+	r.ColorVariation = m.value("colorVariation", r.ColorVariation);
+	if (m.contains("gradient") && m["gradient"].is_array())
+		for (const auto& s : m["gradient"])
+			if (s.is_array() && s.size() >= 4)
+			{
+				TerrainGenGradientStop st;
+				st.Pos = s[0].get<float>();
+				for (int i = 0; i < 3; ++i) st.Color[i] = s[i + 1].get<float>();
+				r.Gradient.push_back(st);
+			}
+	std::sort(r.Gradient.begin(), r.Gradient.end(), [](const auto& a, const auto& b) { return a.Pos < b.Pos; });
+	return r;
 }
 
 const char* TerrainGenFilter::Name(Type t)
@@ -85,7 +130,7 @@ json TerrainGenSettings::ToJson() const
 	json b;
 	b["type"] = (int)Base.NoiseType; b["seed"] = Base.Seed; b["scale"] = Base.Scale;
 	b["minHeight"] = Base.MinHeight; b["maxHeight"] = Base.MaxHeight; b["shapePower"] = Base.ShapePower;
-	b["offsetX"] = Base.OffsetX; b["offsetZ"] = Base.OffsetZ;
+	b["offsetX"] = Base.OffsetX; b["offsetZ"] = Base.OffsetZ; b["windAngle"] = Base.WindAngle;
 	b["octaves"] = std::vector<float>(Base.Octaves, Base.Octaves + TerrainGenBase::kOctaves);
 	j["base"] = b;
 	json filters = json::array();
@@ -95,9 +140,10 @@ json TerrainGenSettings::ToJson() const
 	j["paintMaterials"] = PaintMaterials;
 	json mats = json::array();
 	for (const auto& m : Materials)
-		mats.push_back({ { "enabled", m.Enabled }, { "layer", m.Layer }, { "hMin", m.HeightMin }, { "hMax", m.HeightMax }, { "hBlend", m.HeightBlend },
-			{ "sMin", m.SlopeMin }, { "sMax", m.SlopeMax }, { "sBlend", m.SlopeBlend }, { "sediment", m.Sediment }, { "noise", m.Noise }, { "opacity", m.Opacity } });
+		mats.push_back(MaterialRuleToJson(m));
 	j["materials"] = mats;
+	if (!BiomePreset.empty())
+		j["biome"] = BiomePreset;
 	return j;
 }
 
@@ -110,7 +156,8 @@ void TerrainGenSettings::FromJson(const json& j)
 	if (j.contains("base"))
 	{
 		const json& b = j["base"];
-		Base.NoiseType = (TerrainGenBase::Type)std::clamp(b.value("type", (int)Base.NoiseType), 0, 5);
+		Base.NoiseType = (TerrainGenBase::Type)std::clamp(b.value("type", (int)Base.NoiseType), 0, 6);
+		Base.WindAngle = b.value("windAngle", Base.WindAngle);
 		Base.Seed = b.value("seed", Base.Seed);
 		Base.Scale = b.value("scale", Base.Scale);
 		Base.MinHeight = b.value("minHeight", Base.MinHeight);
@@ -138,14 +185,8 @@ void TerrainGenSettings::FromJson(const json& j)
 	Materials.clear();
 	if (j.contains("materials"))
 		for (const auto& m : j["materials"])
-		{
-			TerrainGenMaterialRule r;
-			r.Enabled = m.value("enabled", true); r.Layer = m.value("layer", 1);
-			r.HeightMin = m.value("hMin", r.HeightMin); r.HeightMax = m.value("hMax", r.HeightMax); r.HeightBlend = m.value("hBlend", r.HeightBlend);
-			r.SlopeMin = m.value("sMin", r.SlopeMin); r.SlopeMax = m.value("sMax", r.SlopeMax); r.SlopeBlend = m.value("sBlend", r.SlopeBlend);
-			r.Sediment = m.value("sediment", r.Sediment); r.Noise = m.value("noise", r.Noise); r.Opacity = m.value("opacity", r.Opacity);
-			Materials.push_back(r);
-		}
+			Materials.push_back(MaterialRuleFromJson(m));
+	BiomePreset = j.value("biome", std::string());
 }
 
 TerrainGenSettings TerrainGenSettings::MakeDefault()
@@ -228,9 +269,8 @@ namespace
 	}
 
 	// ---------------------------------------------------------------- Base
-	void BuildBase(const TerrainGenerator::Input& in, std::vector<float>& H)
+	void BuildBase(const TerrainGenerator::Input& in, const TerrainGenBase& b, std::vector<float>& H)
 	{
-		const TerrainGenBase& b = in.Settings.Base;
 		const int res = in.Resolution;
 		const float cx = in.SizeX / (res - 1), cz = in.SizeZ / (res - 1);
 		if (b.NoiseType == TerrainGenBase::Type::CurrentTerrain && in.Snapshot.size() == (size_t)res * res)
@@ -252,6 +292,36 @@ namespace
 			wsum += (std::max)(0.0f, w);
 		wsum = (std::max)(wsum, 1e-4f);
 		const float scale = (std::max)(b.Scale, 1.0f);
+		if (b.NoiseType == TerrainGenBase::Type::Dunes)
+		{
+			// 사구: 바람 방향으로 늘어선 비대칭 파형(완만한 바람받이 + 가파른 미끄럼면), 노이즈로 휘고 끊긴다.
+			//  옥타브 1 = 큰 사구 세기, 2 = 작은 사구 세기, 나머지 = 바닥 기복
+			const float ang = XMConvertToRadians(b.WindAngle);
+			const float ca = cosf(ang), sa = sinf(ang);
+			const float w1 = (std::max)(0.0f, b.Octaves[0]), w2 = (std::max)(0.0f, b.Octaves[1]);
+			float wRest = 0.0f;
+			for (int o = 2; o < TerrainGenBase::kOctaves; ++o) wRest += (std::max)(0.0f, b.Octaves[o]);
+			auto dune = [](float phase) {
+				const float f = phase - floorf(phase);
+				const float p = f < 0.75f ? f / 0.75f : (1.0f - f) / 0.25f;
+				return p * p * (3.0f - 2.0f * p);
+			};
+			ParallelRows(res, [&](int z) {
+				for (int x = 0; x < res; ++x)
+				{
+					const float wx = x * cx + b.OffsetX, wz = z * cz + b.OffsetZ;
+					const float along = (wx * ca + wz * sa) / scale, across = (-wx * sa + wz * ca) / scale;
+					const float warp = octave[0].Fbm(along * 0.35f, across * 0.35f, 3) * 1.4f;
+					const float crest = 0.55f + 0.45f * octave[1].Fbm(along * 0.25f + 9.0f, across * 0.9f, 3);   // 사구마다 높이가 다르게
+					float h = w1 * dune(along + warp + across * 0.15f) * Saturate(crest);
+					h += w2 * 0.35f * dune(along * 3.1f + warp * 2.0f + across * 0.6f);
+					h += wRest * 0.5f * (octave[2].Fbm(wx / (scale * 4.0f), wz / (scale * 4.0f), 4) * 0.5f + 0.5f);
+					const float h01 = Saturate(h / (w1 + w2 * 0.35f + wRest * 0.5f + 1e-4f));
+					H[(size_t)z * res + x] = Lerp(b.MinHeight, b.MaxHeight, powf(h01, (std::max)(0.1f, b.ShapePower)));
+				}
+			});
+			return;
+		}
 		ParallelRows(res, [&](int z) {
 			for (int x = 0; x < res; ++x)
 			{
@@ -448,7 +518,7 @@ namespace
 
 	// ---------------------------------------------------------------- 필터
 	// 수력 침식 (빗방울 입자: 경사를 따라 흐르며 깎고, 느려지면 쌓는다). 높이는 칸 단위로 바꿔 계산 → 실제 경사
-	void HydraulicErosion(const TerrainGenerator::Input& in, const TerrainGenFilter& f, std::vector<float>& H, std::vector<float>& sediment)
+	void HydraulicErosion(const TerrainGenerator::Input& in, const TerrainGenFilter& f, std::vector<float>& H, std::vector<float>& sediment, std::vector<float>& flow)
 	{
 		const int res = in.Resolution;
 		const float cell = in.SizeX / (res - 1);
@@ -497,6 +567,7 @@ namespace
 			{
 				const int nodeX = (int)px, nodeZ = (int)pz;
 				const float offX = px - nodeX, offZ = pz - nodeZ;
+				flow[(size_t)nodeZ * res + nodeX] += water;   // 물길: 지나간 물의 양
 				float gx, gz;
 				const float height = heightGrad(px, pz, gx, gz);
 				dirX = dirX * inertia - gx * (1 - inertia);
@@ -638,59 +709,303 @@ namespace
 		});
 	}
 
-	// ---------------------------------------------------------------- 재질 (스플랫)
-	void PaintMaterials(const TerrainGenerator::Input& in, const std::vector<float>& H, const std::vector<float>& sediment, std::vector<uint8_t>& control)
+	// ---------------------------------------------------------------- 필터 스택
+	void RunFilters(const TerrainGenerator::Input& in, const std::vector<TerrainGenFilter>& filters, std::vector<float>& H,
+		std::vector<float>& sediment, std::vector<float>& flow, const std::function<void(const char*)>& log)
+	{
+		for (const TerrainGenFilter& f : filters)
+		{
+			if (!f.Enabled || f.Strength <= 0.0f || (in.Preview && TerrainGenFilter::IsHeavy(f.FilterType)))
+				continue;
+			const std::vector<float> before = f.Strength < 1.0f ? H : std::vector<float>();
+			switch (f.FilterType)
+			{
+			case TerrainGenFilter::Type::HydraulicErosion: HydraulicErosion(in, f, H, sediment, flow); break;
+			case TerrainGenFilter::Type::ThermalErosion: ThermalErosion(in, f, H); break;
+			case TerrainGenFilter::Type::Terrace: Terrace(f, H); break;
+			case TerrainGenFilter::Type::Smooth: Smooth(in, f, H); break;
+			case TerrainGenFilter::Type::HeightCurve: HeightCurve(f, H); break;
+			default: DetailNoise(in, f, H); break;
+			}
+			if (!before.empty())
+				for (size_t i = 0; i < H.size(); ++i)
+					H[i] = Lerp(before[i], H[i], f.Strength);
+			if (log)
+				log(TerrainGenFilter::Name(f.FilterType));
+		}
+	}
+
+	// ---------------------------------------------------------------- 바이옴 영역 마스크 (높이맵 격자, 0~1)
+	//  스탬프와 같은 회전 사각형/원 + 가장자리를 노이즈로 흔든다 (자연스러운 경계)
+	void BiomeMask(const TerrainGenerator::Input& in, const TerrainGenerator::BiomeInput& b, std::vector<float>& m)
+	{
+		const int res = in.Resolution;
+		const float cx = in.SizeX / (res - 1), cz = in.SizeZ / (res - 1);
+		m.assign((size_t)res * res, 0.0f);
+		const float blend = std::clamp(b.Blend, 0.01f, 1.0f);
+		const float wobble = Saturate(b.EdgeNoise) * (0.25f + 0.5f * blend);   // 경계가 흔들리는 폭 (반지름 비율)
+		const float ex = fabsf(b.Cos) * b.HalfX + fabsf(b.Sin) * b.HalfZ, ez = fabsf(b.Sin) * b.HalfX + fabsf(b.Cos) * b.HalfZ;
+		const float grow = 1.0f + wobble;
+		const int x0 = (std::max)(0, (int)floorf((b.Cx - ex * grow) / cx)), x1 = (std::min)(res - 1, (int)ceilf((b.Cx + ex * grow) / cx));
+		const int z0 = (std::max)(0, (int)floorf((b.Cz - ez * grow) / cz)), z1 = (std::min)(res - 1, (int)ceilf((b.Cz + ez * grow) / cz));
+		if (x0 > x1 || z0 > z1)
+			return;
+		const Perlin noise(b.Seed * 829 + 13);
+		const float nScale = (std::max)(20.0f, (std::min)(b.HalfX, b.HalfZ) * 0.6f);   // 경계 노이즈 크기 (m)
+		ParallelRows(z1 - z0 + 1, [&](int row) {
+			const int z = z0 + row;
+			for (int x = x0; x <= x1; ++x)
+			{
+				const float dx = x * cx - b.Cx, dz = z * cz - b.Cz;
+				const float u = (dx * b.Cos + dz * b.Sin) / b.HalfX;
+				const float v = (-dx * b.Sin + dz * b.Cos) / b.HalfZ;
+				float d = Lerp((std::max)(fabsf(u), fabsf(v)), sqrtf(u * u + v * v), b.Roundness);
+				if (wobble > 0.0f)
+					d += wobble * noise.Fbm(x * cx / nScale, z * cz / nScale, 4);
+				if (d >= 1.0f)
+					continue;
+				m[(size_t)z * res + x] = (1.0f - Smoothstep(1.0f - blend, 1.0f, d)) * Saturate(b.Opacity);
+			}
+		});
+	}
+
+	// ---------------------------------------------------------------- 재질 (스플랫 + 컬러 맵)
+	// 마스크는 높이맵 격자에서 0~1 로 정규화해 둔다: 퇴적, 흐름(물길), 오목함(-1 볼록 ~ +1 오목)
+	struct MaterialMasks
+	{
+		int Res = 0;
+		float CellX = 1, CellZ = 1;
+		float HMin = 0, HMax = 1;
+		const std::vector<float>* H = nullptr;
+		std::vector<float> Sediment, Flow, Cavity;
+	};
+
+	// 상위 98% 값으로 나눠 0~1 (튀는 값 몇 개가 전체를 어둡게 하지 않게)
+	void NormalizeMask(std::vector<float>& m, bool blur, int res)
+	{
+		if (m.empty())
+			return;
+		if (blur)
+		{
+			std::vector<float> t(m.size());
+			for (int z = 0; z < res; ++z)
+				for (int x = 0; x < res; ++x)
+				{
+					float s = 0; int n = 0;
+					for (int dz = -1; dz <= 1; ++dz)
+						for (int dx = -1; dx <= 1; ++dx)
+						{
+							const int xx = x + dx, zz = z + dz;
+							if (xx < 0 || zz < 0 || xx >= res || zz >= res) continue;
+							s += m[(size_t)zz * res + xx]; ++n;
+						}
+					t[(size_t)z * res + x] = s / n;
+				}
+			m.swap(t);
+		}
+		std::vector<float> sorted = m;
+		const size_t k = sorted.size() * 98 / 100;
+		std::nth_element(sorted.begin(), sorted.begin() + k, sorted.end());
+		const float mx = (std::max)(sorted[k], 1e-6f);
+		for (float& v : m)
+			v = Saturate(v / mx);
+	}
+
+	MaterialMasks BuildMasks(const TerrainGenerator::Input& in, const std::vector<float>& H, const std::vector<float>& sediment, const std::vector<float>& flow)
+	{
+		MaterialMasks mk;
+		mk.Res = in.Resolution;
+		mk.CellX = in.SizeX / (mk.Res - 1);
+		mk.CellZ = in.SizeZ / (mk.Res - 1);
+		mk.H = &H;
+		const auto [mn, mx] = std::minmax_element(H.begin(), H.end());
+		mk.HMin = *mn; mk.HMax = (std::max)(*mx, *mn + 0.01f);
+		mk.Sediment = sediment;
+		NormalizeMask(mk.Sediment, true, mk.Res);
+		mk.Flow = flow;
+		for (float& v : mk.Flow) v = sqrtf((std::max)(0.0f, v));   // 물길은 넓은 범위 → 제곱근으로 펴기
+		NormalizeMask(mk.Flow, true, mk.Res);
+		// 오목함: 라플라시안 (주변 평균 - 자기 높이), 4 칸 반경으로 큰 골·능선을 본다
+		const int res = mk.Res, r = 4;
+		mk.Cavity.assign(H.size(), 0.0f);
+		ParallelRows(res, [&](int z) {
+			for (int x = 0; x < res; ++x)
+			{
+				const float h = H[(size_t)z * res + x];
+				auto at = [&](int xx, int zz) { return H[(size_t)std::clamp(zz, 0, res - 1) * res + std::clamp(xx, 0, res - 1)]; };
+				const float avg = (at(x - r, z) + at(x + r, z) + at(x, z - r) + at(x, z + r)) * 0.25f;
+				mk.Cavity[(size_t)z * res + x] = (avg - h) / (mk.CellX * r);   // 기울기 단위
+			}
+		});
+		std::vector<float> mag(mk.Cavity.size());
+		for (size_t i = 0; i < mag.size(); ++i) mag[i] = fabsf(mk.Cavity[i]);
+		const size_t k = mag.size() * 97 / 100;
+		std::nth_element(mag.begin(), mag.begin() + k, mag.end());
+		const float cmax = (std::max)(mag[k], 1e-5f);
+		for (float& v : mk.Cavity) v = std::clamp(v / cmax, -1.0f, 1.0f);
+		return mk;
+	}
+
+	float SampleGrid(const std::vector<float>& m, int res, float gx, float gz)
+	{
+		gx = std::clamp(gx, 0.0f, (float)res - 1.001f); gz = std::clamp(gz, 0.0f, (float)res - 1.001f);
+		const int x = (int)gx, z = (int)gz;
+		const float u = gx - x, v = gz - z;
+		const size_t i = (size_t)z * res + x;
+		return Lerp(Lerp(m[i], m[i + 1], u), Lerp(m[i + res], m[i + res + 1], u), v);
+	}
+
+	void GradientColor(const TerrainGenMaterialRule& r, float t, float out[3])
+	{
+		if (r.Gradient.empty())
+		{
+			for (int c = 0; c < 3; ++c) out[c] = r.Color[c];
+			return;
+		}
+		if (t <= r.Gradient.front().Pos) { for (int c = 0; c < 3; ++c) out[c] = r.Gradient.front().Color[c]; return; }
+		if (t >= r.Gradient.back().Pos) { for (int c = 0; c < 3; ++c) out[c] = r.Gradient.back().Color[c]; return; }
+		for (size_t i = 0; i + 1 < r.Gradient.size(); ++i)
+		{
+			const auto& a = r.Gradient[i];
+			const auto& b = r.Gradient[i + 1];
+			if (t >= a.Pos && t <= b.Pos)
+			{
+				const float f = (t - a.Pos) / (std::max)(b.Pos - a.Pos, 1e-5f);
+				for (int c = 0; c < 3; ++c) out[c] = Lerp(a.Color[c], b.Color[c], f);
+				return;
+			}
+		}
+	}
+
+	// 한 점의 재질: 규칙을 위에서부터 덮는다. w = 레이어 가중치 4 개, col = 컬러 맵 (rgb + a = 색이 텍스처를 대신하는 정도)
+	void EvaluateRules(const std::vector<TerrainGenMaterialRule>& rules, int layers, const MaterialMasks& mk, float hMin, float hMax, const Perlin& noise, const Perlin& varNoise,
+		float gx, float gz, float wx, float wz, float w[4], float col[4])
+	{
+		const int res = mk.Res;
+		const float h = SampleGrid(*mk.H, res, gx, gz);
+		const float sx = (SampleGrid(*mk.H, res, gx + 1, gz) - SampleGrid(*mk.H, res, gx - 1, gz)) / (2 * mk.CellX);
+		const float sz = (SampleGrid(*mk.H, res, gx, gz + 1) - SampleGrid(*mk.H, res, gx, gz - 1)) / (2 * mk.CellZ);
+		const float slope = XMConvertToDegrees(atanf(sqrtf(sx * sx + sz * sz)));
+		const float sed = mk.Sediment.empty() ? 0.0f : SampleGrid(mk.Sediment, res, gx, gz);
+		const float flow = mk.Flow.empty() ? 0.0f : SampleGrid(mk.Flow, res, gx, gz);
+		const float cav = SampleGrid(mk.Cavity, res, gx, gz);
+		const float n = noise.Fbm(wx * 0.022f, wz * 0.022f, 4);           // 경계용 (약 45 m)
+		const float nBig = varNoise.Fbm(wx * 0.004f, wz * 0.004f, 3);     // 색 흔들기: 큰 얼룩 (약 250 m)
+		const float nSmall = varNoise.Fbm(wx * 0.06f + 31.0f, wz * 0.06f, 3);   // 작은 얼룩 (약 16 m)
+		for (const auto& r : rules)
+		{
+			if (!r.Enabled || r.Opacity <= 0.0f)
+				continue;
+			const float hb = (std::max)(0.01f, r.HeightBlend), sb = (std::max)(0.01f, r.SlopeBlend);
+			const float hn = h + n * r.Noise * hb * 2.0f, sn = slope + n * r.Noise * sb * 2.0f;
+			float f = Smoothstep(r.HeightMin - hb, r.HeightMin + hb, hn) * (1.0f - Smoothstep(r.HeightMax - hb, r.HeightMax + hb, hn));
+			f *= Smoothstep(r.SlopeMin - sb, r.SlopeMin + sb, sn) * (1.0f - Smoothstep(r.SlopeMax - sb, r.SlopeMax + sb, sn));
+			if (r.Sediment > 0.0f) f *= Lerp(1.0f, Smoothstep(0.04f, 0.4f, sed + n * r.Noise * 0.12f), r.Sediment);
+			if (r.Flow > 0.0f) f *= Lerp(1.0f, Smoothstep(0.2f, 0.7f, flow + n * r.Noise * 0.12f), r.Flow);   // 물이 모인 줄기만
+			if (r.Cavity > 0.0f) f *= Lerp(1.0f, Smoothstep(0.0f, 0.5f, cav + n * r.Noise * 0.15f), r.Cavity);
+			if (r.Cavity < 0.0f) f *= Lerp(1.0f, Smoothstep(0.0f, 0.5f, -cav + n * r.Noise * 0.15f), -r.Cavity);
+			f = Saturate(f * r.Opacity);
+			if (f <= 0.0f)
+				continue;
+			if (r.Layer >= 0 && r.Layer < layers)
+			{
+				for (int c = 0; c < 4; ++c)
+					w[c] *= 1.0f - f;
+				w[r.Layer] += f;
+			}
+			if (r.Mode == TerrainGenMaterialRule::ColorMode::Texture)
+			{
+				col[3] *= 1.0f - f;   // 이 레이어 텍스처의 제 색을 보인다
+				continue;
+			}
+			float c3[3];
+			if (r.Mode == TerrainGenMaterialRule::ColorMode::Gradient)
+			{
+				float t = 0.0f;
+				switch (r.GradientInput)
+				{
+				case TerrainGenMaterialRule::Input::Height: t = (h - hMin) / (std::max)(hMax - hMin, 0.01f); break;
+				case TerrainGenMaterialRule::Input::Slope: t = slope / 90.0f; break;
+				case TerrainGenMaterialRule::Input::Flow: t = flow; break;
+				case TerrainGenMaterialRule::Input::Sediment: t = sed; break;
+				case TerrainGenMaterialRule::Input::Cavity: t = cav * 0.5f + 0.5f; break;
+				default: t = n * 0.5f + 0.5f; break;
+				}
+				GradientColor(r, Saturate(t + n * r.Noise * 0.06f), c3);
+			}
+			else
+				for (int c = 0; c < 3; ++c) c3[c] = r.Color[c];
+			// 단색이 밋밋하지 않게: 큰 얼룩은 색조·밝기, 작은 얼룩은 밝기
+			const float v = r.ColorVariation;
+			const float bright = 1.0f + v * (nBig * 0.55f + nSmall * 0.35f);
+			const float warm = v * nBig * 0.12f;
+			c3[0] *= bright * (1.0f + warm); c3[1] *= bright; c3[2] *= bright * (1.0f - warm);
+			for (int c = 0; c < 3; ++c)
+				col[c] = Lerp(col[c], Saturate(c3[c]), f);
+			col[3] = Lerp(col[3], 1.0f, f);
+		}
+	}
+
+	void PaintMaterials(const TerrainGenerator::Input& in, const std::vector<float>& H, const std::vector<float>& sediment, const std::vector<float>& flow,
+		const std::vector<std::vector<float>>& biomeMasks, std::vector<uint8_t>& control, std::vector<uint8_t>& colorMap, bool& anyColor)
 	{
 		const int res = in.Resolution, cres = in.ControlResolution;
 		const int layers = (std::min)(in.LayerCount, 4);
 		control.assign((size_t)cres * cres * 4, 0);
-		// 퇴적 마스크: 흐린 뒤 상위 값으로 정규화
-		std::vector<float> sed = sediment;
-		float smax = 0.0f;
-		if (!sed.empty())
+		colorMap.assign((size_t)cres * cres * 4, 0);
+		const MaterialMasks mk = BuildMasks(in, H, sediment, flow);
+		const Perlin noise(4242), varNoise(977);
+		anyColor = false;
+		for (const auto& r : in.Settings.Materials)
+			anyColor |= r.Enabled && r.Mode != TerrainGenMaterialRule::ColorMode::Texture;
+		// 재질을 바꾸는 바이옴: 높이 그라디언트는 영역 안(마스크 > 0.5)의 높이 범위로
+		struct BiomeRules { const TerrainGenerator::BiomeInput* B; const std::vector<float>* Mask; float HMin, HMax; };
+		std::vector<BiomeRules> biomes;
+		for (size_t i = 0; i < in.Biomes.size() && i < biomeMasks.size(); ++i)
 		{
-			std::vector<float> sorted = sed;
-			const size_t k = sorted.size() * 98 / 100;
-			std::nth_element(sorted.begin(), sorted.begin() + k, sorted.end());
-			smax = (std::max)(sorted[k], 1e-6f);
+			const auto& b = in.Biomes[i];
+			if (!b.Materials || biomeMasks[i].empty())
+				continue;
+			float mn = FLT_MAX, mx = -FLT_MAX;
+			for (size_t k = 0; k < H.size(); ++k)
+				if (biomeMasks[i][k] > 0.5f) { mn = (std::min)(mn, H[k]); mx = (std::max)(mx, H[k]); }
+			if (mn > mx) { mn = mk.HMin; mx = mk.HMax; }
+			biomes.push_back({ &b, &biomeMasks[i], mn, (std::max)(mx, mn + 0.01f) });
+			for (const auto& r : b.Settings.Materials)
+				anyColor |= r.Enabled && r.Mode != TerrainGenMaterialRule::ColorMode::Texture;
 		}
-		const Perlin noise(4242);
-		const float cellX = in.SizeX / (res - 1), cellZ = in.SizeZ / (res - 1);
-		auto sample = [&](const std::vector<float>& m, float gx, float gz) {
-			gx = std::clamp(gx, 0.0f, (float)res - 1.001f); gz = std::clamp(gz, 0.0f, (float)res - 1.001f);
-			const int x = (int)gx, z = (int)gz;
-			const float u = gx - x, v = gz - z;
-			const size_t i = (size_t)z * res + x;
-			return Lerp(Lerp(m[i], m[i + 1], u), Lerp(m[i + res], m[i + res + 1], u), v);
-		};
 		ParallelRows(cres, [&](int z) {
 			for (int x = 0; x < cres; ++x)
 			{
 				const float gx = (float)x / (cres - 1) * (res - 1), gz = (float)z / (cres - 1) * (res - 1);
-				const float h = sample(H, gx, gz);
-				const float sx = (sample(H, gx + 1, gz) - sample(H, gx - 1, gz)) / (2 * cellX);
-				const float sz = (sample(H, gx, gz + 1) - sample(H, gx, gz - 1)) / (2 * cellZ);
-				const float slope = XMConvertToDegrees(atanf(sqrtf(sx * sx + sz * sz)));
-				const float s = sed.empty() ? 0.0f : Saturate(sample(sed, gx, gz) / smax);
-				const float n = noise.Fbm(x * 0.045f, z * 0.045f, 4);
-				float w[4] = { 1, 0, 0, 0 };
-				for (const auto& r : in.Settings.Materials)
+				const float wx = gx * mk.CellX, wz = gz * mk.CellZ;
+				float w[4] = { 1, 0, 0, 0 }, col[4] = { 0, 0, 0, 0 };
+				EvaluateRules(in.Settings.Materials, layers, mk, mk.HMin, mk.HMax, noise, varNoise, gx, gz, wx, wz, w, col);
+				for (const BiomeRules& br : biomes)
 				{
-					if (!r.Enabled || r.Layer < 0 || r.Layer >= layers)
+					const float m = SampleGrid(*br.Mask, res, gx, gz);
+					if (m <= 0.001f)
 						continue;
-					const float hb = (std::max)(0.01f, r.HeightBlend), sb = (std::max)(0.01f, r.SlopeBlend);
-					const float hn = h + n * r.Noise * hb * 2.0f, sn = slope + n * r.Noise * sb * 2.0f;
-					float f = Smoothstep(r.HeightMin - hb, r.HeightMin + hb, hn) * (1.0f - Smoothstep(r.HeightMax - hb, r.HeightMax + hb, hn));
-					f *= Smoothstep(r.SlopeMin - sb, r.SlopeMin + sb, sn) * (1.0f - Smoothstep(r.SlopeMax - sb, r.SlopeMax + sb, sn));
-					f *= Lerp(1.0f, Smoothstep(0.05f, 0.45f, s + n * r.Noise * 0.15f), r.Sediment);
-					f = Saturate(f * r.Opacity);
+					float bw[4] = { 1, 0, 0, 0 }, bc[4] = { 0, 0, 0, 0 };
+					EvaluateRules(br.B->Settings.Materials, layers, mk, br.HMin, br.HMax, noise, varNoise, gx, gz, wx, wz, bw, bc);
+					// 색: 한쪽만 색 규칙이면 텍스처 색(알파 0) 쪽 색을 따로 섞지 않고 알파로 넘어가게
 					for (int c = 0; c < 4; ++c)
-						w[c] *= 1.0f - f;
-					w[r.Layer] += f;
+						w[c] = Lerp(w[c], bw[c], m);
+					for (int c = 0; c < 3; ++c)
+						col[c] = Lerp(col[3] > 0.0f ? col[c] : bc[c], bc[3] > 0.0f ? bc[c] : col[c], m);
+					col[3] = Lerp(col[3], bc[3], m);
 				}
 				uint8_t* px = &control[((size_t)z * cres + x) * 4];
 				for (int c = 0; c < 4; ++c)
 					px[c] = (uint8_t)std::lround(Saturate(c < layers ? w[c] : 0.0f) * 255.0f);
+				// 캐비티 음영 (World Creator 처럼): 오목한 골은 어둡게, 볼록한 능선은 살짝 밝게 → 침식 디테일이 색에서도 읽힌다
+				const float cav = SampleGrid(mk.Cavity, res, gx, gz);
+				const float shade = (1.0f - 0.22f * Saturate(cav)) * (1.0f + 0.07f * Saturate(-cav));
+				for (int c = 0; c < 3; ++c)
+					col[c] *= shade;
+				uint8_t* cp = &colorMap[((size_t)z * cres + x) * 4];
+				for (int c = 0; c < 4; ++c)
+					cp[c] = (uint8_t)std::lround(Saturate(col[c]) * 255.0f);
 			}
 		});
 	}
@@ -715,32 +1030,50 @@ namespace TerrainGenerator
 			EditorLog::Write("TerrainGen", "  %-18s min %.1f  max %.1f  mean %.1f m", stage, mn, mx, sum / (double)H.size());
 		};
 		auto t0 = clock::now();
-		BuildBase(in, H);
+		BuildBase(in, in.Settings.Base, H);
+		// 바이옴 영역: 마스크를 만들고, 지형 모양을 바꾸는 바이옴은 그 Base 를 섞는다
+		std::vector<std::vector<float>> masks(in.Biomes.size());
+		for (size_t i = 0; i < in.Biomes.size(); ++i)
+		{
+			const BiomeInput& b = in.Biomes[i];
+			BiomeMask(in, b, masks[i]);
+			if (!b.Heights)
+				continue;
+			std::vector<float> hb(H.size());
+			BuildBase(in, b.Settings.Base, hb);
+			for (size_t k = 0; k < H.size(); ++k)
+				if (masks[i][k] > 0.0f)
+					H[k] = Lerp(H[k], hb[k], masks[i][k]);
+		}
 		logStats("base");
 		auto t1 = clock::now();
 		for (const StampInput& s : in.Stamps)
 			ApplyStamp(in, s, H);
 		logStats("stamps");
 		auto t2 = clock::now();
-		std::vector<float> sediment(H.size(), 0.0f);
-		for (const TerrainGenFilter& f : in.Settings.Filters)
+		std::vector<float> sediment(H.size(), 0.0f), flow(H.size(), 0.0f);
+		// 바이옴 필터는 스탬프까지 합친 같은 높이에서 따로 돌려 영역 안을 그 결과로 바꾼다
+		bool biomeFilters = false;
+		for (const BiomeInput& b : in.Biomes)
+			biomeFilters |= b.Heights && !b.Settings.Filters.empty();
+		const std::vector<float> preFilter = biomeFilters ? H : std::vector<float>();
+		RunFilters(in, in.Settings.Filters, H, sediment, flow, logStats);
+		for (size_t i = 0; i < in.Biomes.size(); ++i)
 		{
-			if (!f.Enabled || f.Strength <= 0.0f || (in.Preview && TerrainGenFilter::IsHeavy(f.FilterType)))
+			const BiomeInput& b = in.Biomes[i];
+			if (!b.Heights || b.Settings.Filters.empty())
 				continue;
-			const std::vector<float> before = f.Strength < 1.0f ? H : std::vector<float>();
-			switch (f.FilterType)
-			{
-			case TerrainGenFilter::Type::HydraulicErosion: HydraulicErosion(in, f, H, sediment); break;
-			case TerrainGenFilter::Type::ThermalErosion: ThermalErosion(in, f, H); break;
-			case TerrainGenFilter::Type::Terrace: Terrace(f, H); break;
-			case TerrainGenFilter::Type::Smooth: Smooth(in, f, H); break;
-			case TerrainGenFilter::Type::HeightCurve: HeightCurve(f, H); break;
-			default: DetailNoise(in, f, H); break;
-			}
-			if (!before.empty())
-				for (size_t i = 0; i < H.size(); ++i)
-					H[i] = Lerp(before[i], H[i], f.Strength);
-			logStats(TerrainGenFilter::Name(f.FilterType));
+			std::vector<float> hb = preFilter, sb(H.size(), 0.0f), fb(H.size(), 0.0f);
+			RunFilters(in, b.Settings.Filters, hb, sb, fb, nullptr);
+			const std::vector<float>& m = masks[i];
+			for (size_t k = 0; k < H.size(); ++k)
+				if (m[k] > 0.0f)
+				{
+					H[k] = Lerp(H[k], hb[k], m[k]);
+					sediment[k] = Lerp(sediment[k], sb[k], m[k]);
+					flow[k] = Lerp(flow[k], fb[k], m[k]);
+				}
+			logStats("biome filters");
 		}
 		auto t3 = clock::now();
 		out.Heights.resize(H.size());
@@ -749,8 +1082,11 @@ namespace TerrainGenerator
 			out.Heights[i] = Saturate(H[i] * inv);
 		if (in.Settings.PaintMaterials && in.LayerCount > 0)
 		{
-			PaintMaterials(in, H, sediment, out.Control);
+			bool anyColor = false;
+			PaintMaterials(in, H, sediment, flow, masks, out.Control, out.ColorMap, anyColor);
 			out.HasControl = true;
+			if (!anyColor)
+				out.ColorMap.clear();   // 색 규칙이 없으면 컬러 맵을 쓰지 않는다
 		}
 		auto t4 = clock::now();
 		auto ms = [](clock::time_point a, clock::time_point b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
@@ -807,7 +1143,7 @@ namespace
 		std::future<TerrainGenerator::Output> Result;
 		uint64_t Hash = 0;
 		bool Preview = false;
-		int Stamps = 0;
+		int Stamps = 0, Biomes = 0;
 		std::chrono::steady_clock::time_point Start;
 	};
 	struct State
@@ -874,6 +1210,66 @@ namespace
 		return out;
 	}
 
+	// 이 지형에 섞을 바이옴 영역 (Order 순). 프리셋 재질 규칙의 레이어 번호를 이 지형의 레이어 번호로 바꿔 둔다
+	std::vector<TerrainGenerator::BiomeInput> CollectBiomes(const TerrainData& data, const Vec3& terrainPos, uint64_t& hash)
+	{
+		std::vector<std::pair<int, TerrainBiome*>> list;
+		int idx = 0;
+		for (TerrainBiome* b : TerrainBiome::All())
+			if (b->IsActiveBiome())
+				list.push_back({ b->Order * 100000 + idx++, b });
+		std::sort(list.begin(), list.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+		std::vector<TerrainGenerator::BiomeInput> out;
+		for (const auto& [order, b] : list)
+		{
+			const TerrainBiomes::Preset* preset = TerrainBiomes::Find(b->Preset);
+			if (preset == nullptr)
+				continue;
+			XMFLOAT4X4 w;
+			XMStoreFloat4x4(&w, b->GetGameObject()->GetTransform()->GetWorldMatrix());
+			const float sx = sqrtf(w._11 * w._11 + w._12 * w._12 + w._13 * w._13);
+			const float sz = sqrtf(w._31 * w._31 + w._32 * w._32 + w._33 * w._33);
+			TerrainGenerator::BiomeInput in;
+			in.Cx = w._41 - terrainPos.x;
+			in.Cz = w._43 - terrainPos.z;
+			in.HalfX = (std::max)(0.5f, sx * 0.5f);
+			in.HalfZ = (std::max)(0.5f, sz * 0.5f);
+			const float len = sqrtf(w._11 * w._11 + w._13 * w._13);
+			in.Cos = len > 1e-6f ? w._11 / len : 1.0f;
+			in.Sin = len > 1e-6f ? w._13 / len : 0.0f;
+			in.Opacity = std::clamp(b->Opacity, 0.0f, 1.0f);
+			in.Blend = b->BlendSize;
+			in.Roundness = std::clamp(b->Roundness, 0.0f, 1.0f);
+			in.EdgeNoise = b->EdgeNoise;
+			in.Seed = b->Seed;
+			in.Heights = b->AffectHeights;
+			in.Materials = b->AffectMaterials;
+			in.Settings = TerrainBiomes::ToSettings(*preset, TerrainGenSettings());
+			// 레이어: 프리셋 레이어 i 와 같은 에셋이 이 지형에 있으면 그 번호, 없으면 같은 번호 (지형 레이어 수 밖이면 색만)
+			for (auto& r : in.Settings.Materials)
+			{
+				if (r.Layer < 0 || r.Layer >= (int)preset->Layers.size())
+					continue;
+				int mapped = r.Layer < (int)data.Layers.size() ? r.Layer : -1;
+				for (int j = 0; j < (int)data.Layers.size(); ++j)
+					if (data.Layers[j] && _stricmp(data.Layers[j]->Path.c_str(), preset->Layers[r.Layer].c_str()) == 0)
+					{
+						mapped = j;
+						break;
+					}
+				r.Layer = mapped;
+			}
+			out.push_back(std::move(in));
+			for (int k = 0; k < 16; ++k)
+				hash = Mix(hash, Bits((&w._11)[k]));
+			for (float f : { b->Opacity, b->BlendSize, b->Roundness, b->EdgeNoise })
+				hash = Mix(hash, Bits(f));
+			hash = Mix(hash, (uint64_t)b->Seed * 1009 + (uint64_t)(int64_t)b->Order * 7 + (b->AffectHeights ? 1 : 0) + (b->AffectMaterials ? 2 : 0));
+			hash = Mix(hash, std::hash<std::string>()(preset->Data.dump()));
+		}
+		return out;
+	}
+
 	void Apply(TerrainData& data, TerrainGenerator::Output& out)
 	{
 		if (out.Heights.size() == data.Heights.size())
@@ -885,6 +1281,7 @@ namespace
 		{
 			data.Control.swap(out.Control);
 			data.OnControlChanged(0, 0, data.ControlResolution - 1, data.ControlResolution - 1);
+			data.SetColorMap(std::move(out.ColorMap));
 		}
 	}
 }
@@ -907,6 +1304,7 @@ namespace TerrainGenerator
 	{
 		if (Application::IsPlaying())
 			return;
+		TerrainBiomes::DevDump();
 		const bool interacting = ImGui::GetCurrentContext() != nullptr &&
 			(ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsAnyItemActive());
 		for (Terrain* terrain : Terrain::GetActiveTerrains())
@@ -929,9 +1327,10 @@ namespace TerrainGenerator
 				for (int i = 0; i < 4; ++i)
 					st.Status.StageMs[i] = out.Ms[i];
 				st.Status.StampCount = st.Running->Stamps;
+				st.Status.BiomeCount = st.Running->Biomes;
 				if (!st.Running->Preview || FrameProfiler::Enabled())   // 미리보기(끄는 중)는 너무 잦아 기본으로는 남기지 않는다
-					EditorLog::Write("TerrainGen", "%s %s: %.1f ms (base %.1f, stamps %.1f, filters %.1f, materials %.1f; %d stamps)",
-						data->Name().c_str(), st.Running->Preview ? "preview" : "generated", st.Status.LastMs, out.Ms[0], out.Ms[1], out.Ms[2], out.Ms[3], st.Running->Stamps);
+					EditorLog::Write("TerrainGen", "%s %s: %.1f ms (base %.1f, stamps %.1f, filters %.1f, materials %.1f; %d stamps, %d biomes)",
+						data->Name().c_str(), st.Running->Preview ? "preview" : "generated", st.Status.LastMs, out.Ms[0], out.Ms[1], out.Ms[2], out.Ms[3], st.Running->Stamps, st.Running->Biomes);
 				st.Running.reset();
 			}
 			st.Status.Running = st.Running != nullptr;
@@ -945,6 +1344,7 @@ namespace TerrainGenerator
 			hash = Mix(hash, Bits(data->Size.x)); hash = Mix(hash, Bits(data->Size.y)); hash = Mix(hash, Bits(data->Size.z));
 			hash = Mix(hash, (uint64_t)data->HeightmapResolution * 7 + data->Layers.size() + data->BaseSnapshot.size() * 13);
 			std::vector<StampInput> stamps = CollectStamps(pos, hash);
+			std::vector<BiomeInput> biomes = CollectBiomes(*data, pos, hash);
 
 			const bool changed = hash != st.AppliedHash;
 			const bool needFinal = !changed && st.AppliedPreview && !interacting;
@@ -962,11 +1362,13 @@ namespace TerrainGenerator
 			if (data->Generator.Base.NoiseType == TerrainGenBase::Type::CurrentTerrain)
 				in->Snapshot = data->BaseSnapshot;
 			in->Stamps = std::move(stamps);
+			in->Biomes = std::move(biomes);
 			in->Preview = preview;
 			auto job = std::make_unique<Job>();
 			job->Hash = hash;
 			job->Preview = preview;
 			job->Stamps = (int)in->Stamps.size();
+			job->Biomes = (int)in->Biomes.size();
 			job->Start = std::chrono::steady_clock::now();
 			job->Result = std::async(std::launch::async, [in]() { return Generate(*in); });
 			st.Running = std::move(job);

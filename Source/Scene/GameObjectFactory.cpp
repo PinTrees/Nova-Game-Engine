@@ -16,6 +16,7 @@
 #include "ParticleSystem.h"
 #include "Tree.h"
 #include "TerrainStamp.h"
+#include "TerrainBiome.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "AnimationPlayer.h"
@@ -394,6 +395,30 @@ GameObject* GameObjectFactory::CreateTerrainStamp(int shape)
 			pos = Vec3(tp.x + data->Size.x * 0.5f, tp.y, tp.z + data->Size.z * 0.5f);
 			const float w = (std::min)(data->Size.x, data->Size.z) * 0.3f;
 			scale = Vec3(s == S::Ridge || s == S::Canyon || s == S::Dunes ? w * 1.6f : w, 1.0f, w);
+		}
+	}
+	obj->GetTransform()->SetPosition(pos);
+	obj->GetTransform()->SetLocalScale(scale);
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateTerrainBiome(const std::string& preset)
+{
+	GameObject* obj = new GameObject(preset.empty() ? std::string("Terrain Biome") : preset + " Biome");
+	TerrainBiome* biome = obj->AddComponent<TerrainBiome>();
+	if (!preset.empty())
+		biome->Preset = preset;
+	// 첫 지형의 가운데, 지형 너비의 45 %
+	Vec3 pos(0, 0, 0), scale(400, 1, 400);
+	if (!Terrain::GetActiveTerrains().empty())
+	{
+		Terrain* t = Terrain::GetActiveTerrains()[0];
+		if (auto data = t->GetTerrainData())
+		{
+			const Vec3 tp = t->GetPosition();
+			pos = Vec3(tp.x + data->Size.x * 0.5f, tp.y, tp.z + data->Size.z * 0.5f);
+			const float w = (std::min)(data->Size.x, data->Size.z) * 0.45f;
+			scale = Vec3(w, 1.0f, w);
 		}
 	}
 	obj->GetTransform()->SetPosition(pos);

@@ -76,6 +76,10 @@ public:
 	// 지형 생성기 (Generate 도구): 켜면 Base 노이즈 + 씬의 TerrainStamp + 필터 + 재질 규칙으로 높이·스플랫을 만든다
 	TerrainGenSettings Generator;
 	std::vector<float> BaseSnapshot;   // Base = Current Terrain 일 때 기준 높이 (정규화, 해상도²)
+	// 컬러 맵 (World Creator 식 색 재질): RGBA8, 컨트롤 해상도. rgb = 색(sRGB), a = 색이 레이어 텍스처 색을 대신하는 정도
+	//  (텍스처는 명암 디테일만). 비어 있으면 쓰지 않는다. 생성기의 색·그라디언트 규칙이 만든다
+	std::vector<uint8_t> ColorMap;
+	void SetColorMap(std::vector<uint8_t> colorMap);
 
 	unsigned Revision = 0;      // 높이가 바뀔 때마다 증가 (물리 형상 재생성 판단)
 	bool Dirty = false;         // 저장하지 않은 변경
@@ -111,6 +115,7 @@ public:
 	// ---- GPU 자원 (필요할 때 만들고 바뀐 영역만 올린다) ----
 	ID3D11ShaderResourceView* HeightSRV();
 	ID3D11ShaderResourceView* ControlSRV();
+	ID3D11ShaderResourceView* ColorMapSRV();   // 컬러 맵이 없으면 nullptr
 
 	// Profiler 메모리: CPU (높이·컨트롤·쿼드트리·나무 인스턴스) / GPU (높이·컨트롤 텍스처)
 	size_t CpuBytes() const;
@@ -135,6 +140,9 @@ private:
 	ComPtr<ID3D11ShaderResourceView> m_HeightSRV;
 	ComPtr<ID3D11Texture2D> m_ControlTex;
 	ComPtr<ID3D11ShaderResourceView> m_ControlSRV;
+	ComPtr<ID3D11Texture2D> m_ColorTex;
+	ComPtr<ID3D11ShaderResourceView> m_ColorSRV;
+	bool m_ColorDirty = false;
 	bool m_HeightDirty = true, m_ControlDirty = true;
 	int m_HeightDirtyRect[4] = { 0, 0, 0, 0 };
 	int m_ControlDirtyRect[4] = { 0, 0, 0, 0 };

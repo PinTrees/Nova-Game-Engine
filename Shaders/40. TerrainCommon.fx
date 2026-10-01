@@ -15,10 +15,12 @@ cbuffer cbTerrain
     float4 gTerrainLayerST[4];     // xy = 1 / 타일 크기, zw = 오프셋 / 타일 크기
     float4 gTerrainLayerTint[4];
     int gTerrainLayerCount;
+    int gTerrainUseColorMap;       // 1 = 컬러 맵(생성기의 색 재질)을 쓴다
 };
 
 Texture2D<float> gTerrainHeightMap;
 Texture2D gTerrainControl;
+Texture2D gTerrainColorMap;        // rgb = 색(sRGB), a = 색이 레이어 텍스처 색을 대신하는 정도
 Texture2D gTerrainLayer0;
 Texture2D gTerrainLayer1;
 Texture2D gTerrainLayer2;
@@ -118,8 +120,8 @@ float4 TerrainLayerSample(Texture2D tex, float4 st, TerrainTriplanar t)
     return c;
 }
 
-// 레이어 텍스처 혼합 (컨트롤 맵 RGBA = 레이어 0~3 가중치). localPos = 지형 로컬 위치(m), n = 월드 법선
-float4 TerrainAlbedo(float2 uv, float3 localPos, float3 n)
+// 레이어 텍스처 혼합 (컨트롤 맵 RGBA = 레이어 0~3 가중치). localPos = 지형 로컬 위치(m), n = 월드 법선, viewDist = 카메라 거리(m)
+float4 TerrainAlbedo(float2 uv, float3 localPos, float3 n, float viewDist)
 {
     if (gTerrainLayerCount <= 0)
         return float4(0.72f, 0.72f, 0.72f, 1.0f);   // 레이어가 없으면 Unity 처럼 밝은 회색
@@ -143,5 +145,24 @@ float4 TerrainAlbedo(float2 uv, float3 localPos, float3 n)
     [branch] if (w.b > 0.0f) c += w.b * TerrainLayerSample(gTerrainLayer2, gTerrainLayerST[2], t) * gTerrainLayerTint[2];
     [branch] if (w.a > 0.0f) c += w.a * TerrainLayerSample(gTerrainLayer3, gTerrainLayerST[3], t) * gTerrainLayerTint[3];
     c.a = 1.0f;
+
+    // World Creator 식 색 재질: 컬러 맵 색 × 텍스처 명암 디테일 (텍스처 밝기 / 그 텍스처의 평균 밝기)
+    [branch] if (gTerrainUseColorMap != 0)
+    {
+        const float4 cm = gTerrainColorMap.Sample(samTerrainClamp, uv);
+        [branch] if (cm.a > 0.003f)
+        {
+            float3 avg = 0;   // 레이어 평균 색 = 가장 작은 밉
+            [branch] if (w.r > 0.0f) avg += w.r * gTerrainLayer0.SampleLevel(samTerrainWrap, float2(0.5f, 0.5f), 16).rgb * gTerrainLayerTint[0].rgb;
+            [branch] if (w.g > 0.0f) avg += w.g * gTerrainLayer1.SampleLevel(samTerrainWrap, float2(0.5f, 0.5f), 16).rgb * gTerrainLayerTint[1].rgb;
+            [branch] if (w.b > 0.0f) avg += w.b * gTerrainLayer2.SampleLevel(samTerrainWrap, float2(0.5f, 0.5f), 16).rgb * gTerrainLayerTint[2].rgb;
+            [branch] if (w.a > 0.0f) avg += w.a * gTerrainLayer3.SampleLevel(samTerrainWrap, float2(0.5f, 0.5f), 16).rgb * gTerrainLayerTint[3].rgb;
+            const float3 lumW = float3(0.299f, 0.587f, 0.114f);
+            float detail = clamp(dot(c.rgb, lumW) / max(dot(avg, lumW), 0.03f), 0.35f, 1.9f);
+            // 멀수록 텍스처 명암을 줄인다: 타일 반복 무늬가 넓은 줄무늬로 보이지 않게 (먼 곳은 컬러 맵이 주인공)
+            detail = lerp(detail, 1.0f, 0.75f * saturate((viewDist - 60.0f) / 400.0f));
+            c.rgb = lerp(c.rgb, cm.rgb * detail, cm.a);
+        }
+    }
     return c;
 }

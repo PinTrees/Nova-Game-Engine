@@ -1,0 +1,206 @@
+{
+  "name": "Alpine Mountains",
+  "description": "Tall ridged peaks carved by rain erosion. Green alpine meadows in the valleys, grey rock faces, scree fans and snow caps.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 2,
+    "seed": 11,
+    "scale": 1300,
+    "minHeight": 20,
+    "maxHeight": 250,
+    "shapePower": 1.45,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.55,
+      0.32,
+      0.18,
+      0.1,
+      0.05,
+      0.025,
+      0.012
+    ]
+  },
+  "filters": [
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        260,
+        0.5,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    },
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        42,
+        60,
+        0.6,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Meadow",
+      "enabled": true,
+      "layer": 0,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 30,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 2,
+      "color": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "gradientInput": 0,
+      "gradient": [
+        [
+          0.0,
+          0.25,
+          0.3,
+          0.15
+        ],
+        [
+          0.5,
+          0.31,
+          0.34,
+          0.2
+        ],
+        [
+          0.8,
+          0.38,
+          0.37,
+          0.27
+        ]
+      ],
+      "colorVariation": 0.12
+    },
+    {
+      "name": "Scree",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 36,
+      "sBlend": 5,
+      "sediment": 1.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.85,
+      "colorMode": 1,
+      "color": [
+        0.47,
+        0.44,
+        0.4
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.1
+    },
+    {
+      "name": "Rock",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 32,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.41,
+        0.4,
+        0.38
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.18
+    },
+    {
+      "name": "Gullies",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 24,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.85,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.7,
+      "colorMode": 1,
+      "color": [
+        0.27,
+        0.26,
+        0.25
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Snow",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 185,
+      "hMax": 10000,
+      "hBlend": 20,
+      "sMin": 0,
+      "sMax": 40,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 1,
+      "color": [
+        0.9,
+        0.92,
+        0.95
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.04
+    }
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "name": "Desert Dunes",
+  "description": "Wind-shaped sand dunes with gentle windward slopes and steep slip faces. Warm sand that darkens in the troughs.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 6,
+    "seed": 5,
+    "scale": 170,
+    "minHeight": 20,
+    "maxHeight": 95,
+    "shapePower": 1.0,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 35.0,
+    "octaves": [
+      1.0,
+      0.3,
+      0.3,
+      0.2,
+      0.1,
+      0.05,
+      0.03,
+      0.02
+    ]
+  },
+  "filters": [
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        33,
+        20,
+        0.6,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Sand",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 1.0,
+      "colorMode": 2,
+      "color": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "gradientInput": 0,
+      "gradient": [
+        [
+          0.0,
+          0.74,
+          0.55,
+          0.36
+        ],
+        [
+          1.0,
+          0.87,
+          0.71,
+          0.51
+        ]
+      ],
+      "colorVariation": 0.1
+    },
+    {
+      "name": "Troughs",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 20,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.7,
+      "noise": 0.3,
+      "opacity": 0.6,
+      "colorMode": 1,
+      "color": [
+        0.68,
+        0.5,
+        0.33
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Slip Faces",
+      "enabled": true,
+      "layer": 3,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 22,
+      "sMax": 90,
+      "sBlend": 6,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.7,
+      "colorMode": 1,
+      "color": [
+        0.8,
+        0.62,
+        0.42
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

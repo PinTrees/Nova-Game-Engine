@@ -710,7 +710,7 @@ float4 TerrainPS(TerrainVertexOut pin) : SV_Target
     float distToEye = length(toEye);
     toEye /= distToEye;
 
-    float4 texColor = TerrainAlbedo(pin.UV, pin.PosW.xyz - gTerrainOrigin.xyz, normalW);   // 절벽은 triplanar
+    float4 texColor = TerrainAlbedo(pin.UV, pin.PosW.xyz - gTerrainOrigin.xyz, normalW, distance(pin.PosW.xyz, gEyePosW));   // 절벽은 triplanar
     float4 litColor = texColor;
     if ((gDirLightCount + gPointLightCount + gSpotLightCount) > 0)
     {

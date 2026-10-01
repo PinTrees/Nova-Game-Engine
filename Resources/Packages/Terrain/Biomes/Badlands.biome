@@ -1,0 +1,186 @@
+{
+  "name": "Badlands",
+  "description": "Heavily eroded clay hills with banded grey, purple and cream sediment layers and pale alluvial fans.",
+  "layers": [
+    "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
+    "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer"
+  ],
+  "base": {
+    "type": 4,
+    "seed": 8,
+    "scale": 450,
+    "minHeight": 30,
+    "maxHeight": 180,
+    "shapePower": 1.1,
+    "offsetX": 0.0,
+    "offsetZ": 0.0,
+    "windAngle": 30.0,
+    "octaves": [
+      1.0,
+      0.55,
+      0.32,
+      0.18,
+      0.1,
+      0.05,
+      0.025,
+      0.012
+    ]
+  },
+  "filters": [
+    {
+      "type": 2,
+      "enabled": true,
+      "strength": 0.7,
+      "p": [
+        16,
+        0.45,
+        40,
+        180,
+        0,
+        0
+      ]
+    },
+    {
+      "type": 0,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        240,
+        0.55,
+        0.3,
+        0.012,
+        0.06,
+        3
+      ]
+    },
+    {
+      "type": 1,
+      "enabled": true,
+      "strength": 1.0,
+      "p": [
+        42,
+        20,
+        0.4,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "paintMaterials": true,
+  "materials": [
+    {
+      "name": "Clay Bands",
+      "enabled": true,
+      "layer": 1,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 90,
+      "sBlend": 5,
+      "sediment": 0.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.1,
+      "opacity": 1.0,
+      "colorMode": 2,
+      "color": [
+        0.5,
+        0.5,
+        0.5
+      ],
+      "gradientInput": 0,
+      "gradient": [
+        [
+          0.0,
+          0.5,
+          0.46,
+          0.45
+        ],
+        [
+          0.12,
+          0.58,
+          0.44,
+          0.45
+        ],
+        [
+          0.22,
+          0.78,
+          0.72,
+          0.62
+        ],
+        [
+          0.32,
+          0.62,
+          0.45,
+          0.37
+        ],
+        [
+          0.42,
+          0.52,
+          0.49,
+          0.47
+        ],
+        [
+          0.52,
+          0.8,
+          0.74,
+          0.63
+        ],
+        [
+          0.62,
+          0.55,
+          0.42,
+          0.45
+        ],
+        [
+          0.74,
+          0.7,
+          0.55,
+          0.42
+        ],
+        [
+          0.86,
+          0.82,
+          0.77,
+          0.67
+        ],
+        [
+          1.0,
+          0.6,
+          0.5,
+          0.46
+        ]
+      ],
+      "colorVariation": 0.15
+    },
+    {
+      "name": "Fans",
+      "enabled": true,
+      "layer": 2,
+      "hMin": 0,
+      "hMax": 10000,
+      "hBlend": 10,
+      "sMin": 0,
+      "sMax": 20,
+      "sBlend": 5,
+      "sediment": 1.0,
+      "flow": 0.0,
+      "cavity": 0.0,
+      "noise": 0.3,
+      "opacity": 0.85,
+      "colorMode": 1,
+      "color": [
+        0.72,
+        0.66,
+        0.58
+      ],
+      "gradientInput": 0,
+      "gradient": [],
+      "colorVariation": 0.15
+    }
+  ]
+}

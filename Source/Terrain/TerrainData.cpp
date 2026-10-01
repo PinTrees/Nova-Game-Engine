@@ -34,7 +34,7 @@ namespace
 	}
 
 	constexpr uint32_t kMagic = 0x4454564E;   // "NVTD"
-	constexpr uint32_t kVersion = 3;   // 2: 나무 프로토타입(JSON) + 인스턴스, 3: 지형 생성기 설정(JSON) + 기준 스냅샷
+	constexpr uint32_t kVersion = 4;   // 2: 나무 프로토타입(JSON) + 인스턴스, 3: 지형 생성기 설정(JSON) + 기준 스냅샷, 4: 컬러 맵
 
 	template <typename T> void WritePod(std::ofstream& os, const T& v) { os.write(reinterpret_cast<const char*>(&v), sizeof(T)); }
 	template <typename T> bool ReadPod(std::ifstream& is, T& v) { is.read(reinterpret_cast<char*>(&v), sizeof(T)); return (bool)is; }
@@ -482,6 +482,48 @@ ID3D11ShaderResourceView* TerrainData::ControlSRV()
 	return m_ControlSRV.Get();
 }
 
+void TerrainData::SetColorMap(std::vector<uint8_t> colorMap)
+{
+	if (!colorMap.empty() && colorMap.size() != (size_t)ControlResolution * ControlResolution * 4)
+		colorMap.clear();
+	if (colorMap.empty() != ColorMap.empty())
+	{
+		m_ColorTex.Reset();
+		m_ColorSRV.Reset();
+	}
+	ColorMap.swap(colorMap);
+	m_ColorDirty = true;
+	Dirty = true;
+}
+
+ID3D11ShaderResourceView* TerrainData::ColorMapSRV()
+{
+	if (ColorMap.empty())
+		return nullptr;
+	if (m_ColorTex == nullptr)
+	{
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = desc.Height = ControlResolution;
+		desc.MipLevels = desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_DEFAULT;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		D3D11_SUBRESOURCE_DATA init = { ColorMap.data(), (UINT)(ControlResolution * 4), 0 };
+		ID3D11Device* device = Application::GetI()->GetDevice();
+		if (FAILED(device->CreateTexture2D(&desc, &init, m_ColorTex.GetAddressOf())) ||
+			FAILED(device->CreateShaderResourceView(m_ColorTex.Get(), nullptr, m_ColorSRV.GetAddressOf())))
+			return nullptr;
+		m_ColorDirty = false;
+	}
+	else if (m_ColorDirty)
+	{
+		Application::GetI()->GetDeviceContext()->UpdateSubresource(m_ColorTex.Get(), 0, nullptr, ColorMap.data(), (UINT)(ControlResolution * 4), 0);
+		m_ColorDirty = false;
+	}
+	return m_ColorSRV.Get();
+}
+
 // ---- 파일 ----
 bool TerrainData::Save()
 {
@@ -524,6 +566,10 @@ bool TerrainData::Save()
 			snap[i] = (uint16_t)std::lround(std::clamp(BaseSnapshot[i], 0.0f, 1.0f) * 65535.0f);
 		os.write(reinterpret_cast<const char*>(snap.data()), snap.size() * sizeof(uint16_t));
 	}
+	// v4: 컬러 맵 (없으면 0)
+	WritePod(os, (int32_t)ColorMap.size());
+	if (!ColorMap.empty())
+		os.write(reinterpret_cast<const char*>(ColorMap.data()), ColorMap.size());
 	Dirty = false;
 	return (bool)os;
 }
@@ -608,6 +654,17 @@ std::shared_ptr<TerrainData> TerrainData::Load(const std::string& rawPath)
 				for (size_t i = 0; i < snap.size(); ++i)
 					data->BaseSnapshot[i] = snap[i] / 65535.0f;
 			}
+		}
+	}
+	if (version >= 4)
+	{
+		int32_t colorBytes = 0;
+		if (ReadPod(is, colorBytes) && colorBytes == controlRes * controlRes * 4)
+		{
+			data->ColorMap.resize((size_t)colorBytes);
+			is.read(reinterpret_cast<char*>(data->ColorMap.data()), colorBytes);
+			if (!is)
+				data->ColorMap.clear();
 		}
 	}
 	data->RebuildAllNodes();
