@@ -517,6 +517,7 @@ namespace WaterRenderer
 		var("gTime")->AsScalar()->SetFloat(WaterWaves::Time());
 		var("gProjParams")->AsVector()->SetFloatVector(F4(proj._33, proj._43, 0, 0));
 		var("gViewport")->AsVector()->SetFloatVector(F4(v.Viewport.TopLeftX, v.Viewport.TopLeftY, v.Viewport.Width, v.Viewport.Height));
+		AtmospherePass::Bind(fx, v.Atmosphere ? *v.Atmosphere : AtmospherePass::Params(), v.Eye, v.Sky);   // 안개·대기 (없으면 끔)
 		XMFLOAT3 sunDir(0.3f, 0.8f, 0.4f), sunColor(1.0f, 0.95f, 0.85f), ambient(0.18f, 0.22f, 0.28f);
 		if (v.Sun)
 		{

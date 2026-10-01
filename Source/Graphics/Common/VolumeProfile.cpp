@@ -101,7 +101,7 @@ const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
 		"Bloom", "ChromaticAberration", "ColorAdjustments", "FilmGrain", "Tonemapping", "Vignette", "WhiteBalance",
-		"Shadows" };
+		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "Exposure" };
 	return kTypes;
 }
 
@@ -188,6 +188,71 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			PEnum("softQuality", "Quality", { "Low", "Medium", "High" }, 1),
 			// 먼 캐스케이드 캐시: Staggered = 3 번째는 2 프레임, 4 번째는 4 프레임마다 다시 그림 (Slow = 4 / 8)
 			PEnum("farCascadeUpdate", "Far Cascade Update", { "Every Frame", "Staggered", "Slow" }, 1),
+		};
+	}
+	else if (type == "Fog")
+	{
+		// 높이 안개 (HDRP Fog + Unreal Exponential Height Fog): Base Height 위로 지수로 옅어져 Maximum Height 에서 10 %.
+		//  밀도 = 1 / Fog Attenuation Distance (그 거리에서 63 % 가려짐). 색 = 하늘 색(보는 방향의 흐린 하늘) 또는 상수 색, 해 쪽은 밝게
+		c->DisplayName = "Fog";
+		c->Category = "Lighting";
+		c->Params = {
+			P("enabled", "Enable", K::Bool, 0.0f),
+			P("meanFreePath", "Fog Attenuation Distance", K::Float, 400.0f, 1.0f),
+			P("baseHeight", "Base Height", K::Float, 0.0f, kUnbounded),
+			P("maximumHeight", "Maximum Height", K::Float, 120.0f, kUnbounded),
+			P("startDistance", "Start Distance", K::Float, 0.0f, 0.0f),
+			P("maxFogDistance", "Max Fog Distance", K::Float, 5000.0f, 0.0f),
+			PEnum("colorMode", "Color Mode", { "Sky Color", "Constant Color" }, 0),
+			PColor("color", "Color", 0.62f, 0.70f, 0.80f),
+			PColor("tint", "Tint", 1.0f, 1.0f, 1.0f),
+			P("maxOpacity", "Max Opacity", K::Clamped, 1.0f, 0.0f, 1.0f),
+			P("sunScattering", "Sun Scattering", K::Clamped, 0.5f, 0.0f, 2.0f),
+			P("anisotropy", "Anisotropy", K::Clamped, 0.6f, 0.0f, 0.95f),
+		};
+	}
+	else if (type == "Atmosphere")
+	{
+		// 대기 원근 (Unreal Sky Atmosphere 의 Aerial Perspective): 멀수록 레일리(파랑)·미(뿌연 빛) 산란으로
+		//  지평선 하늘 색에 가까워지고 해 쪽이 밝게 번진다. Distance Scale = 거리 배율 (작은 지도에서도 보이게)
+		c->DisplayName = "Atmosphere";
+		c->Category = "Lighting";
+		c->Params = {
+			P("enabled", "Enable", K::Bool, 0.0f),
+			P("rayleigh", "Rayleigh Scattering", K::Clamped, 1.0f, 0.0f, 10.0f),
+			P("mie", "Mie Scattering (Haze)", K::Clamped, 1.0f, 0.0f, 20.0f),
+			P("mieAnisotropy", "Mie Anisotropy", K::Clamped, 0.8f, 0.0f, 0.99f),
+			P("distanceScale", "Distance Scale", K::Float, 8.0f, 0.0f),
+			P("rayleighHeight", "Rayleigh Scale Height", K::Float, 8000.0f, 1.0f),
+			P("mieHeight", "Mie Scale Height", K::Float, 1200.0f, 1.0f),
+			P("sunIntensity", "Sun Intensity", K::Float, 1.0f, 0.0f),
+		};
+	}
+	else if (type == "IndirectLighting")
+	{
+		// 하늘 환경광 (HDRP Indirect Lighting Controller): 하늘 큐브맵에서 오는 확산광·반사의 세기와 색
+		c->DisplayName = "Indirect Lighting";
+		c->Category = "Lighting";
+		c->Params = {
+			P("indirectDiffuse", "Indirect Diffuse Intensity", K::Float, 1.0f, 0.0f),
+			P("reflection", "Reflection Intensity", K::Float, 1.0f, 0.0f),
+			PColor("ambientTint", "Ambient Tint", 1.0f, 1.0f, 1.0f),
+		};
+	}
+	else if (type == "Exposure")
+	{
+		// 노출 (HDRP Exposure): Fixed = Compensation(EV) 만큼, Automatic = 화면 평균 밝기를 Middle Gray 로 맞추고
+		//  (Limit Min~Max EV 안) 어두워질 때·밝아질 때 속도로 천천히 따라간다 (눈의 적응)
+		c->DisplayName = "Exposure";
+		c->Category = "Exposure";
+		c->Params = {
+			PEnum("mode", "Mode", { "Fixed", "Automatic" }, 0),
+			P("compensation", "Compensation", K::Float, 0.0f, kUnbounded),
+			P("limitMin", "Limit Min", K::Float, -3.0f, kUnbounded),
+			P("limitMax", "Limit Max", K::Float, 3.0f, kUnbounded),
+			P("middleGray", "Middle Gray", K::Clamped, 0.18f, 0.02f, 0.6f),
+			P("speedUp", "Speed Dark To Light", K::Float, 3.0f, 0.0f),
+			P("speedDown", "Speed Light To Dark", K::Float, 1.0f, 0.0f),
 		};
 	}
 	else if (type == "FilmGrain")
@@ -400,6 +465,13 @@ bool VolumeStack::IsActive(const std::string& type) const
 	if (type == "ChromaticAberration") return c->F("intensity") > 0.0f;
 	if (type == "FilmGrain") return c->F("intensity") > 0.0f;
 	if (type == "WhiteBalance") return c->F("temperature") != 0.0f || c->F("tint") != 0.0f;
+	if (type == "Fog" || type == "Atmosphere") return c->B("enabled");
+	if (type == "Exposure") return c->I("mode") == 1 || c->F("compensation") != 0.0f;
+	if (type == "IndirectLighting")
+	{
+		const float* t = c->V("ambientTint");
+		return c->F("indirectDiffuse") != 1.0f || c->F("reflection") != 1.0f || t[0] != 1.0f || t[1] != 1.0f || t[2] != 1.0f;
+	}
 	if (type == "ColorAdjustments")
 	{
 		const float* f = c->V("colorFilter");

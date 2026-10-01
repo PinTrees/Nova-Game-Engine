@@ -70,6 +70,9 @@ cbuffer cbPerFrame
     float gFogStart;
     float gFogRange;
     float4 gFogColor;
+
+    // 하늘 환경광 (Volume > Indirect Lighting): rgb = 확산 환경광 배율 × 틴트, w = 반사 배율
+    float4 gIndirect = float4(1.0f, 1.0f, 1.0f, 1.0f);
 };
 
 cbuffer cbPerObject
@@ -525,9 +528,9 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
     float NoV = saturate(dot(N, V));
     float ao = surf.Occlusion * ambientAccess;
-    color += ambient * diffuse * ao;
+    color += ambient * diffuse * ao * gIndirect.rgb;
     if (translucent)
-        color += ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * surf.Transmission * 0.5f * ao;
+        color += ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * surf.Transmission * 0.5f * ao * gIndirect.rgb;
     if (surf.Reflections)
     {
         float3 R = reflect(-V, N);
@@ -537,7 +540,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         float fresnel = pow(1.0f - NoV, 4.0f);
         float grazing = saturate(surf.Smoothness + (1.0f - oneMinusReflectivity));
         float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);
-        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao;
+        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao * gIndirect.w;
     }
     return color + surf.Emission;
 }
@@ -711,66 +714,19 @@ float4 TerrainPS(TerrainVertexOut pin) : SV_Target
     toEye /= distToEye;
 
     float4 texColor = TerrainAlbedo(pin.UV, pin.PosW.xyz - gTerrainOrigin.xyz, normalW, distance(pin.PosW.xyz, gEyePosW));   // 절벽은 triplanar
-    float4 litColor = texColor;
-    if ((gDirLightCount + gPointLightCount + gSpotLightCount) > 0)
-    {
-        float4 ambient = 0, diffuse = 0, spec = 0;
-        float dirShadows[LIGHT_SIZE];
-        float spotShadows[LIGHT_SIZE];
-        [unroll]
-        for (int k = 0; k < LIGHT_SIZE; k++)
-        {
-            dirShadows[k] = 1.0f;
-            spotShadows[k] = 1.0f;
-        }
-        if (gShaderSetting.gUseShadowMap)
-        {
-            const int cascade = SelectCascade(pin.PosW.xyz);
-            const float fade = ShadowFade(pin.PosW.xyz);
-            [unroll]
-            for (int i = 0; i < LIGHT_SIZE; i++)
-                dirShadows[i] = DirShadow(gDirShadowMaps[i], i, pin.PosW.xyz, cascade, fade);
-            [unroll]
-            for (int j = 0; j < LIGHT_SIZE; j++)
-                spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, pin.PosW.xyz);
-        }
 
-        float ambientAccess = 1.0f;
-        if (gShaderSetting.gUseSsaoMap)
-        {
-            float4 ssao = pin.SsaoPosH / pin.SsaoPosH.w;
-            ambientAccess = gSsaoMap.SampleLevel(samLinear, ssao.xy, 0.0f).r;
-        }
-
-        float4 A, D, S;
-        for (int i = 0; i < gDirLightCount; ++i)
-        {
-            ComputeDirectionalLight(gMaterial, gDirLights[i], normalW, toEye, A, D, S);
-            ambient += ambientAccess * A;
-            diffuse += dirShadows[i] * D;
-            spec += dirShadows[i] * S;
-        }
-        for (int j = 0; j < gSpotLightCount; ++j)
-        {
-            ComputeSpotLight(gMaterial, gSpotLights[j], pin.PosW.xyz, normalW, toEye, A, D, S);
-            ambient += ambientAccess * A;
-            diffuse += spotShadows[j] * D;
-            spec += spotShadows[j] * S;
-        }
-        for (int l = 0; l < gPointLightCount; ++l)
-        {
-            ComputePointLight(gMaterial, gPointLights[l], pin.PosW.xyz, normalW, toEye, A, D, S);
-            ambient += ambientAccess * A;
-            diffuse += D;
-            spec += S;
-        }
-        litColor = texColor * (ambient + diffuse) + spec;
-    }
-
-    if (gShaderSetting.gFogEnabled)
-        litColor = lerp(litColor, gFogColor, saturate((distToEye - gFogStart) / gFogRange));
-    litColor.a = 1.0f;
-    return litColor;
+    // 나무·바위·풀과 같은 URP Lit 조명: 해(그림자) + 하늘 큐브맵 환경광(SSAO) + 거친 반사. 흙·풀·바위는 거의 무광
+    LitSurface surf;
+    surf.Albedo = ToLinear(texColor.rgb);
+    surf.Metallic = 0.0f;
+    surf.Smoothness = 0.12f;
+    surf.Occlusion = 1.0f;
+    surf.Emission = float3(0, 0, 0);
+    surf.Transmission = float3(0, 0, 0);
+    surf.Highlights = true;
+    surf.Reflections = true;
+    surf.ReceiveShadows = true;
+    return FinishLit(ShadeLit(surf, pin.PosW.xyz, normalW, toEye, pin.SsaoPosH), 1.0f, distToEye);
 }
 
 technique11 TerrainTech

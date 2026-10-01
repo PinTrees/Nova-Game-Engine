@@ -301,6 +301,7 @@ namespace SceneToolbar
 	bool PostProcessingVisible() { return s.effects && s.fxPost; }
 	bool ParticlesVisible() { return s.effects && s.fxParticles; }
 	bool SkyboxVisible() { return s.effects && s.fxSkybox; }
+	bool FogVisible() { return s.effects && s.fxFog; }
 
 	SceneCameraSettings& CameraSettings()
 	{

@@ -13,6 +13,8 @@
 #define MAX_WAVES 32
 static const float PI = 3.14159265f;
 
+#include "49. AtmosphereCommon.fx"   // Volume 의 안개·대기 (물 표면에도 같은 식)
+
 cbuffer cbWaterFrame
 {
     float4x4 gViewProj;
@@ -579,6 +581,9 @@ float4 WaterPS(VSOut pin) : SV_Target
     const float3 foamCol = (sun * (NdotL * 0.8f + 0.2f) + ambient * 1.2f) * 0.9f;
     color = lerp(color, foamCol, saturate(foam));
 
+    // 안개·대기 (화면 색은 안개 패스가 이미 입혔으므로 물 색에만)
+    color = AtmosphereApply(color, pin.PosW, false);
+
     // ---- 물가: 아주 얕은 곳은 화면 색으로 부드럽게
     const float shore = sky ? 1.0f : saturate(thick0 / 0.35f);
     color = lerp(ToLinear(gSceneColor.Load(int3(pix, 0)).rgb), color, shore);
@@ -683,7 +688,7 @@ float4 SprayPS(SprayOut pin) : SV_Target
     const float a = pin.Alpha * soft * soft * (0.4f + 0.6f * tex);
     clip(a - 0.01f);
     const float3 light = gSunColor * gSunIntensity * (0.5f + 0.5f * SunShadowAt(pin.PosW)) * 0.8f + SkyAmbient() * 1.3f;
-    return float4(ToGamma(light), a);
+    return float4(ToGamma(AtmosphereApply(light, pin.PosW, false)), a);
 }
 
 // ---------------------------------------------------------------- 상태 / 기법

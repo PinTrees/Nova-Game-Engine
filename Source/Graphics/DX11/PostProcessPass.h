@@ -1,4 +1,5 @@
 #pragma once
+#include <chrono>
 #include "VolumeProfile.h"
 
 // URP 식 후처리 실행기 (뷰마다 하나: Scene 뷰 / Game 뷰).
@@ -47,4 +48,11 @@ private:
 	std::vector<Target> m_Down, m_Up;   // Bloom 밉 체인
 	UINT m_Width = 0, m_Height = 0;
 	float m_Time = 0.0f;
+	// 자동 노출: 로그 휘도(256², 밉) + 배율 1x1 두 장(지난 / 이번)
+	Target m_Lum;
+	Target m_Exposure[2];
+	int m_ExposureIndex = 0;
+	bool m_ExposureValid = false;
+	std::chrono::steady_clock::time_point m_LastExecute;
+	void UpdateAutoExposure(const VolumeComponent& exposure, float dt);
 };

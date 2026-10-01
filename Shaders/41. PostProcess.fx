@@ -19,11 +19,17 @@ cbuffer cbPost
     float4 gVignetteParams;   // xy = 중심, z = 부드러움 * 5, w = 가로 보정(둥글게 = 화면 비율, 아니면 1)
     float4 gGrain;            // x = 세기, y = 응답, z = 시드, w = 색수차 세기 * 0.05
     float4 gFlags;            // x = 톤매핑(0 없음, 1 Neutral, 2 ACES), y = 디더링, z = Stop NaNs, w = 색 보정 사용
+    float4 gExposure;         // x = 고정 배율 (2^Compensation), y = 1 이면 자동 노출 (gExposureTex 를 곱한다)
+    float4 gAutoExposure;     // x = Middle Gray, y = 2^Limit Min, z = 2^Limit Max, w = 0 이면 바로 목표로 (첫 프레임)
+    float4 gAdapt;            // x = dt × 밝아질 때 속도, y = dt × 어두워질 때 속도
 };
 
 Texture2D gSource;     // 입력 (씬 HDR 또는 이전 단계)
 Texture2D gBloomLow;   // Bloom 올리기: 한 단계 작은 밉 (이미 합성된 것)
 Texture2D gBloomTex;   // Uber: 최종 Bloom (절반 해상도)
+Texture2D gLumTex;        // 자동 노출: 로그 휘도 (밉 끝 = 평균)
+Texture2D gPrevExposure;  // 자동 노출: 지난 프레임 배율 (1x1)
+Texture2D gExposureTex;   // 자동 노출: 이번 프레임 배율 (1x1)
 
 SamplerState samLinear
 {
@@ -238,6 +244,9 @@ float4 PS_Uber(VertexOut pin) : SV_Target
         bloomAlpha = saturate(Max3(bloom));
     }
 
+    // 노출 (Volume > Exposure): 고정 보정 × 자동 노출 배율
+    c *= gExposure.x * (gExposure.y > 0.5f ? gExposureTex.Load(int3(0, 0, 0)).r : 1.0f);
+
     // 비네트
     if (gVignetteColor.w > 0.0f)
     {
@@ -330,6 +339,38 @@ float4 PS_Fxaa(VertexOut pin) : SV_Target
     return float4(result, center.a);
 }
 
+// ---------------------------------------------------------------- 자동 노출
+// 장면 → 작은 타깃(256²)의 로그 휘도. 밉을 만들면 마지막 밉 = 화면 평균 로그 휘도 (기하 평균 → 밝은 해 몇 픽셀에 휘둘리지 않음)
+float4 PS_Luminance(VertexOut pin) : SV_Target
+{
+    const float2 t = TexelSize(gSource) * 0.5f;
+    float3 c = GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(-t.x, -t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(t.x, -t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(-t.x, t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(t.x, t.y), 0).rgb);
+    // 가운데를 조금 더 (중앙 가중 측광)
+    const float2 d = pin.Tex - 0.5f;
+    const float w = 1.0f - dot(d, d) * 1.2f;
+    return float4(log2(max(Luminance(c * 0.25f), 1e-4f)) * w, w, 0.0f, 1.0f);
+}
+
+// 1x1: 목표 배율 = Middle Gray / 평균 휘도 (한계 안), 지난 배율에서 로그 공간으로 천천히 따라간다
+float4 PS_Adapt(VertexOut pin) : SV_Target
+{
+    uint w, h, mips;
+    gLumTex.GetDimensions(0, w, h, mips);
+    const float2 avg = gLumTex.SampleLevel(samLinear, float2(0.5f, 0.5f), (float)mips - 1.0f).rg;
+    const float avgLum = exp2(avg.x / max(avg.y, 1e-3f));
+    const float target = clamp(gAutoExposure.x / max(avgLum, 1e-4f), gAutoExposure.y, gAutoExposure.z);
+    const float prev = gPrevExposure.Load(int3(0, 0, 0)).r;
+    if (gAutoExposure.w < 0.5f || !(prev > 0.0f))
+        return float4(target, 0, 0, 1);
+    const float lt = log2(target), lp = log2(prev);
+    // 장면이 밝아짐 = 목표 배율이 작아짐 → Speed Dark To Light
+    const float rate = lt < lp ? gAdapt.x : gAdapt.y;
+    return float4(exp2(lerp(lp, lt, 1.0f - exp(-rate))), 0, 0, 1);
+}
+
 // 단순 복사 (후처리 없이 해상도만 맞출 때)
 float4 PS_Copy(VertexOut pin) : SV_Target
 {
@@ -353,3 +394,5 @@ POST_TECH(BloomUpTech, PS_BloomUp)
 POST_TECH(UberTech, PS_Uber)
 POST_TECH(FxaaTech, PS_Fxaa)
 POST_TECH(CopyTech, PS_Copy)
+POST_TECH(LuminanceTech, PS_Luminance)
+POST_TECH(AdaptTech, PS_Adapt)

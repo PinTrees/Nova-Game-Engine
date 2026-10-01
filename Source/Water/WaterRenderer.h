@@ -1,4 +1,5 @@
 #pragma once
+#include "AtmospherePass.h"
 
 struct DirectionalLight;
 
@@ -25,6 +26,7 @@ namespace WaterRenderer
 		XMFLOAT4 CascadeSpheres[4] = {};
 		XMFLOAT4 ShadowParams = {};                         // x 캐스케이드 수, z 흐려지기 시작, w 1/폭
 		XMFLOAT4 SunShadowData = {};                        // x Strength, y 필터
+		const AtmospherePass::Params* Atmosphere = nullptr;  // Volume 의 안개·대기 (없으면 안 입힘)
 	};
 
 	void Draw(const View& view);

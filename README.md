@@ -37,6 +37,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **숲 (Paint Trees + LOD)** | Unity 처럼 지형에 나무를 브러시로 칠하기(Tree Density, 높이·폭 범위, 색 변화, 무작위 회전, Shift 지우기, Mass Place, Undo). 같은 종류는 인스턴싱으로 한 번에 그리고 거리에 따라 전체 메시 → 중간 메시 → 실행 중에 구운 8 방향 빌보드(임포스터, 알베도+법선이라 다시 조명)로 바뀌며, 경계는 디더로 섞는다. 나무 1500 그루 약 230 FPS(에디터 Scene 뷰) |
 | **바닥 디테일 (Paint Details)** | Unity 의 Terrain Details: 풀·꽃·작은 돌을 지형에 브러시로 칠하기(Target Strength, Shift = 모두 지우기, Ctrl = 고른 종류만, Fill Terrain / Clear, Undo). 덩어리는 **텍스처 없이 절차 메시**(풀 = 휘어진 잎 여러 장, 꽃 = 잎 + 줄기 + 꽃잎 송이, 돌 = 찌그러진 구)이고 종류·LOD 마다 **GPU 인스턴싱** 한 번. 카메라 근처 16 m 조각만 밀도 맵에서 흩뿌려 캐시(바뀐 조각만 여러 스레드로 다시), 멀수록 성기게 + 남은 덩어리를 넓혀 덮임 유지, LOD 3 단계. 흘러가는 바람 물결 + 잎 떨림, 건강·마른 색 얼룩, 잎 끝 색, 투과광, 그림자를 받고 드리움, 자라는 레이어·최대 경사. **프리셋 패키지 15 종**. 1 km 초원(풀 + 들꽃 3 + 자갈) 디테일 GPU 약 2.7 ms |
 | **후처리 (URP Volume)** | Volume(Global/Local) + Volume Profile 에셋, Project Settings 의 Default Volume Profile, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain, FXAA |
+| **대기·조명 (Volume)** | Volume 오버라이드로 장소마다: **Fog**(Unreal Exponential Height Fog 식 지수 높이 안개 — Base/Maximum Height, Fog Attenuation Distance, 시작·최대 거리, 하늘 색 또는 상수 색, 해 쪽 산란), **Atmosphere**(대기 원근 — 레일리(파장별)·미 산란을 높이별 밀도로 적분해 멀수록 지평선 하늘 색으로 흐려지고 해 쪽이 밝게 번짐, Distance Scale), **Indirect Lighting**(하늘 큐브맵 환경광·반사 세기와 색), **Exposure**(Fixed 보정 / Automatic: 화면 기하 평균 밝기(중앙 가중)를 Middle Gray 로, Limit Min·Max, 밝아질 때·어두워질 때 적응 속도). 안개·대기는 깊이에서 월드 위치를 되살리는 화면 전체 패스(0.1 ms), 물은 같은 식을 표면에 입힌다. 지형도 나무·바위·풀과 같은 PBR 조명(하늘 환경광)으로 |
 | **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 기반 Rigidbody, Box/Sphere/Capsule/Mesh/Terrain Collider, 트리거, 레이캐스트 |
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
 | **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
@@ -69,6 +70,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | <img src="docs/images/water_ocean.webp" width="440"/><br/>바다 (LOD 격자 + Gerstner 파도) | <img src="docs/images/water_river_edit.webp" width="440"/><br/>강 점 편집 → 지형 생성기가 강바닥을 판다 |
 | <img src="docs/images/water_coast.webp" width="440"/><br/>해안 · 호수 · 강 | <img src="docs/images/water_underwater.webp" width="440"/><br/>수중 (스넬의 창) + Buoyancy 로 뜬 상자 |
 | <img src="docs/images/terrain_details.webp" width="440"/><br/>바닥 디테일 (풀 · 들꽃 · 자갈, 인스턴싱 + 바람) | <img src="docs/images/details_paint.webp" width="440"/><br/>Paint Details (종류 썸네일 · 브러시 · 프리셋) |
+| <img src="docs/images/atmosphere_compare.webp" width="440"/><br/>Volume 의 Fog + Atmosphere (위 = 끔, 아래 = 켬) | |
 
 <p align="center">
   <img src="docs/images/biome_presets.webp" width="900" alt="바이옴 프리셋 10 종"/><br/>
@@ -254,7 +256,7 @@ NOVA Code 안에서는 (VS Code 와 같음):
 Source/
   Platform/   앱 루프, 윈도우, 로딩 창, 자체 검사(PhysicsSelfTest)
   Core/       경로, 로그(EditorLog), 공용 유틸
-  Graphics/   DX11 렌더러, 이펙트, 셰이더 캐시, 후처리(Volume), 렌더 통계
+  Graphics/   DX11 렌더러, 이펙트, 셰이더 캐시, 후처리(Volume), 안개·대기(AtmospherePass), 렌더 통계
   Scene/      GameObject, 컴포넌트(Transform, Camera, Light, Renderer, Collider, Volume ...), 씬, 프리팹
   Physics/    Jolt Physics 연동
   Animation/  스키닝, 애니메이션 클립, Animator 컨트롤러

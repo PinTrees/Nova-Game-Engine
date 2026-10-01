@@ -18,6 +18,7 @@
 #include "ShadowRenderer.h"
 #include "SceneGrid.h"
 #include "WaterRenderer.h"
+#include "AtmospherePass.h"
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
 #include "Profiler.h"
@@ -263,7 +264,8 @@ ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 
 // 물: 뷰 깊이 버퍼(읽기 전용 DSV + SRV)와 첫 방향광·하늘로 WaterRenderer 를 부른다
 void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
-	const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, ShadowMap* shadowMap, const void* shadowFrame)
+	const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, ShadowMap* shadowMap, const void* shadowFrame,
+	const void* atmosphere)
 {
 	if (dsv != _viewDepthView.Get() || !_viewDepthSRV || !_viewDepthReadOnly)
 		return;
@@ -279,6 +281,7 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, I
 	w.Viewport = viewport;
 	w.Sun = dirLights.empty() ? nullptr : &dirLights[0];
 	w.Sky = skyVisible && _sky ? _sky->CubeMapSRV().Get() : nullptr;
+	w.Atmosphere = static_cast<const AtmospherePass::Params*>(atmosphere);
 	// 해(방향광 0)의 그림자: 물이 지형·나무 그림자를 받는다
 	const auto* frame = static_cast<const ShadowRenderer::FrameData*>(shadowFrame);
 	if (shadowMap && frame && frame->DirCount > 0 && !dirLights.empty())
@@ -295,6 +298,30 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, I
 	WaterRenderer::Draw(w);
 	_deviceContext->OMSetRenderTargets(1, &target, dsv);
 	_deviceContext->RSSetViewports(1, &viewport);
+}
+
+void EditorApp::DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+	const D3D11_VIEWPORT& viewport, bool skyVisible)
+{
+	const auto& p = *static_cast<const AtmospherePass::Params*>(params);
+	if (!p.Active() || dsv != _viewDepthView.Get() || !_viewDepthSRV)
+		return;
+	AtmospherePass::Draw(_deviceContext.Get(), p, target, dsv, _viewDepthSRV.Get(), viewport, viewProj, eye, skyVisible && _sky ? _sky->CubeMapSRV().Get() : nullptr);
+	_deviceContext->RSSetViewports(1, &viewport);
+}
+
+// Volume 의 Indirect Lighting → 하늘 환경광·반사 배율 (InstancedBasic 의 ShadeLit)
+static void ApplyIndirectLighting(const VolumeStack& stack)
+{
+	XMFLOAT4 v(1.0f, 1.0f, 1.0f, 1.0f);
+	if (const VolumeComponent* c = stack.Get("IndirectLighting"))
+	{
+		const float d = (std::max)(c->F("indirectDiffuse"), 0.0f);
+		const float* t = c->V("ambientTint");
+		v = XMFLOAT4(d * (std::max)(t[0], 0.0f), d * (std::max)(t[1], 0.0f), d * (std::max)(t[2], 0.0f), (std::max)(c->F("reflection"), 0.0f));
+	}
+	if (auto* var = Effects::InstancedBasicFX->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
+		var->SetFloatVector(&v.x);
 }
 
 // 화면별 그림자 결과 (그림자 패스 → 받는 쪽 셰이더)
@@ -397,6 +424,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
+	ApplyIndirectLighting(stack);
 
 	// lights
 	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
@@ -426,9 +454,17 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
 
+	// 안개·대기 (Volume > Fog / Atmosphere): 불투명 + 하늘 다음, 물 전 (물은 같은 값으로 자기 표면에 입힌다)
+	const AtmospherePass::Params atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
+	if (atmosphere.Active())
+	{
+		phase.Next("Atmosphere");
+		DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, camera->GetBackgroundType() == 0);
+	}
+
 	// 물 (바다·호수·강): 불투명 + 하늘 다음 (굴절에 화면 색을 쓴다), 입자 전
 	phase.Next("Water");
-	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow);
+	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow, &atmosphere);
 
 	phase.Next("Particles");
 	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
@@ -537,6 +573,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
+	ApplyIndirectLighting(stack);
 
 	// lights
 	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
@@ -569,10 +606,20 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
 
+	// 안개·대기 (Scene 뷰: 툴바 Effects > Fog 가 켜져 있을 때)
+	AtmospherePass::Params atmosphere;
+	if (SceneToolbar::FogVisible() && !RenderManager::GetI()->WireFrameMode)
+		atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
+	if (atmosphere.Active())
+	{
+		phase.Next("Atmosphere");
+		DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, SceneToolbar::SkyboxVisible());
+	}
+
 	// 물 (바다·호수·강)
 	phase.Next("Water");
 	if (!RenderManager::GetI()->WireFrameMode)
-		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow);
+		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow, &atmosphere);
 
 	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
 	phase.Next("Grid");

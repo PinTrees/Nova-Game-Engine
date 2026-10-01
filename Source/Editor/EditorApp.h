@@ -45,7 +45,11 @@ private:
 	UINT _viewDepthW = 0, _viewDepthH = 0;
 	ID3D11DepthStencilView* ViewDepth(UINT width, UINT height);
 	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
-		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, class ShadowMap* shadowMap, const void* shadowFrame);
+		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, class ShadowMap* shadowMap, const void* shadowFrame,
+		const void* atmosphere);
+	// Volume 의 안개·대기 (불투명 + 하늘 다음 화면 전체 패스). 값을 돌려줘 물이 같은 값을 쓴다
+	void DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+		const D3D11_VIEWPORT& viewport, bool skyVisible);
 
 	shared_ptr<class Mesh> _treeModel;
 	shared_ptr<class Mesh> _baseModel;

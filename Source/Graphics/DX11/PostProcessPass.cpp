@@ -98,8 +98,9 @@ bool PostProcessPass::IsNeeded(const VolumeStack& stack, const CameraOptions& op
 		return true;
 	if (!options.PostProcessing)
 		return false;
+	// 후처리(HDR 타깃 → 합성)가 필요한 효과만. 그림자·안개·대기·환경광은 장면을 그리며 적용한다
 	for (const std::string& type : VolumeComponent::Types())
-		if (stack.IsActive(type))
+		if (type != "Shadows" && type != "Fog" && type != "Atmosphere" && type != "IndirectLighting" && stack.IsActive(type))
 			return true;
 	return false;
 }
@@ -135,12 +136,60 @@ void PostProcessPass::Draw(const char* tech, ID3D11RenderTargetView* rtv, UINT w
 	ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
 
+// 자동 노출: 장면 → 로그 휘도(256², 밉 자동 생성) → 1x1 배율 (지난 배율에서 시간에 따라 따라감)
+void PostProcessPass::UpdateAutoExposure(const VolumeComponent& exposure, float dt)
+{
+	auto ctx = Application::GetI()->GetDeviceContext();
+	auto device = Application::GetI()->GetDevice();
+	if (!m_Lum.Tex)
+	{
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = desc.Height = 256;
+		desc.MipLevels = 0;   // 끝까지 (1x1)
+		desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_R16G16_FLOAT;
+		desc.SampleDesc.Count = 1;
+		desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		desc.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+		if (FAILED(device->CreateTexture2D(&desc, nullptr, m_Lum.Tex.GetAddressOf())))
+			return;
+		D3D11_RENDER_TARGET_VIEW_DESC rd = {};
+		rd.Format = desc.Format;
+		rd.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+		device->CreateRenderTargetView(m_Lum.Tex.Get(), &rd, m_Lum.RTV.GetAddressOf());
+		device->CreateShaderResourceView(m_Lum.Tex.Get(), nullptr, m_Lum.SRV.GetAddressOf());
+		m_Lum.W = m_Lum.H = 256;
+		CreateTarget(m_Exposure[0], 1, 1, DXGI_FORMAT_R32_FLOAT);
+		CreateTarget(m_Exposure[1], 1, 1, DXGI_FORMAT_R32_FLOAT);
+		m_ExposureValid = false;
+	}
+	if (!m_Lum.RTV || !m_Exposure[0].RTV || !m_Exposure[1].RTV)
+		return;
+	SetSRV("gSource", m_Scene.SRV.Get());
+	Draw("LuminanceTech", m_Lum.RTV.Get(), 256, 256);
+	ctx->GenerateMips(m_Lum.SRV.Get());
+
+	const float speedUp = (std::max)(exposure.F("speedUp"), 0.0f), speedDown = (std::max)(exposure.F("speedDown"), 0.0f);
+	SetVec("gAutoExposure", std::clamp(exposure.F("middleGray"), 0.02f, 0.6f), powf(2.0f, exposure.F("limitMin")), powf(2.0f, (std::max)(exposure.F("limitMax"), exposure.F("limitMin"))),
+		m_ExposureValid ? 1.0f : 0.0f);
+	SetVec("gAdapt", dt * speedUp, dt * speedDown, 0.0f, 0.0f);
+	const int next = 1 - m_ExposureIndex;
+	SetSRV("gLumTex", m_Lum.SRV.Get());
+	SetSRV("gPrevExposure", m_Exposure[m_ExposureIndex].SRV.Get());
+	Draw("AdaptTech", m_Exposure[next].RTV.Get(), 1, 1);
+	m_ExposureIndex = next;
+	m_ExposureValid = true;
+}
+
 void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& options, ID3D11RenderTargetView* output)
 {
 	auto ctx = Application::GetI()->GetDeviceContext();
 	if (!InitEffect() || m_Scene.SRV == nullptr || output == nullptr)
 		return;
 	m_Time += 0.016f;
+	const auto now = std::chrono::steady_clock::now();
+	const float dt = m_LastExecute.time_since_epoch().count() == 0 ? 0.0f : std::clamp(std::chrono::duration<float>(now - m_LastExecute).count(), 0.0f, 0.25f);
+	m_LastExecute = now;
 
 	ctx->IASetInputLayout(nullptr);
 	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -243,6 +292,17 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 	// 그레인 종류: 번호가 클수록 거친 입자 → 세기에 약간 반영
 	const float grainScale = grain ? 1.0f + grain->I("type") * 0.08f : 1.0f;
 	SetVec("gGrain", grainAmount * grainScale, grain ? Clamp01(grain->F("response")) : 0.8f, fmodf(m_Time * 60.0f, 1000.0f), caAmount);
+	// ---------------- 노출 (Volume > Exposure)
+	const VolumeComponent* exposure = stack.Get("Exposure");
+	const bool exposureOn = usePost && exposure && stack.IsActive("Exposure");
+	const bool autoExposure = exposureOn && exposure->I("mode") == 1;
+	if (autoExposure)
+		UpdateAutoExposure(*exposure, dt);
+	else
+		m_ExposureValid = false;   // 다시 켜면 바로 목표로
+	SetVec("gExposure", exposureOn ? powf(2.0f, exposure->F("compensation")) : 1.0f, autoExposure ? 1.0f : 0.0f, 0.0f, 0.0f);
+	SetSRV("gExposureTex", autoExposure ? m_Exposure[m_ExposureIndex].SRV.Get() : nullptr);
+
 	const int toneMode = (usePost && tone) ? tone->I("mode") : 0;
 	SetVec("gFlags", (float)toneMode, options.Dithering ? 1.0f : 0.0f, options.StopNaNs ? 1.0f : 0.0f, gradingOn ? 1.0f : 0.0f);
 
