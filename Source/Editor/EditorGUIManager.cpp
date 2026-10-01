@@ -63,8 +63,7 @@ void EditorGUIManager::Init(bool hubMode)
     if (!hubMode)
     {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        if (!openGL)   // OpenGL: 여러 OS 창(뷰포트)은 아직 지원하지 않음 (ImGuiGL)
-            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // 창 밖으로 뺀 창 = OS 창 (DX11: 스왑 체인, OpenGL: ImGuiGL 이 창 DC 에 본 컨텍스트를 붙여 그림)
     }
     else
     {
@@ -676,6 +675,8 @@ void EditorGUIManager::RenderAfter()
     {
         ImGui::UpdatePlatformWindows();
         ImGui::RenderPlatformWindowsDefault();
+        if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
+            ImGuiGL::EndPlatformWindows();   // 본 창 DC 로 되돌린다 (안 그러면 Present 가 마지막 뷰포트 창에 그린다)
     }
 }
 

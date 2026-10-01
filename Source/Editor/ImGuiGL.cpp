@@ -3,6 +3,7 @@
 #include "GLLoader.h"
 #include "GLShared.h"
 #include "GfxGL.h"
+#include "GLContext.h"
 
 namespace
 {
@@ -17,6 +18,18 @@ namespace
 		std::vector<ImDrawIdx> Indices;
 	};
 	State* s_State = nullptr;
+
+	// 뷰포트(ImGui 가 만든 OS 창)마다: 창 DC (픽셀 형식은 본 창과 같게 — 같은 GL 컨텍스트를 붙일 수 있어야 한다)
+	struct ViewportData
+	{
+		HWND Wnd = nullptr;
+		HDC Dc = nullptr;
+		bool Ok = false;
+	};
+	HDC s_MainDc = nullptr;     // 본 창 DC·컨텍스트 (Init 때 현재인 것)
+	HGLRC s_MainRc = nullptr;
+
+	void DrawLists(ImDrawData* dd, bool toWindow);
 
 	const char* kVertex = R"(#version 450
 layout(location = 0) in vec2 Position;
@@ -95,11 +108,76 @@ namespace ImGuiGL
 		io.BackendRendererName = "nova_imgui_opengl";
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 		s_State = new State();
+		s_MainDc = ::wglGetCurrentDC();
+		s_MainRc = ::wglGetCurrentContext();
+		if (s_MainDc && s_MainRc)
+		{
+			io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+			ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+			pio.Renderer_CreateWindow = [](ImGuiViewport* vp)
+			{
+				auto* d = IM_NEW(ViewportData)();
+				vp->RendererUserData = d;
+				d->Wnd = (HWND)vp->PlatformHandleRaw;
+				d->Dc = d->Wnd ? ::GetDC(d->Wnd) : nullptr;
+				// 본 창과 같은 픽셀 형식 (다르면 wglMakeCurrent 가 실패한다)
+				const int pf = ::GetPixelFormat(s_MainDc);
+				PIXELFORMATDESCRIPTOR pfd = {};
+				d->Ok = d->Dc && pf > 0 && ::DescribePixelFormat(s_MainDc, pf, sizeof(pfd), &pfd) && ::SetPixelFormat(d->Dc, pf, &pfd);
+				if (!d->Ok)
+					EditorLog::Write("ImGuiGL", "viewport window: pixel format failed (error %lu) - window not drawn", ::GetLastError());
+			};
+			pio.Renderer_DestroyWindow = [](ImGuiViewport* vp)
+			{
+				if (auto* d = static_cast<ViewportData*>(vp->RendererUserData))
+				{
+					if (::wglGetCurrentDC() == d->Dc)
+						::wglMakeCurrent(s_MainDc, s_MainRc);
+					if (d->Dc) ::ReleaseDC(d->Wnd, d->Dc);
+					IM_DELETE(d);
+				}
+				vp->RendererUserData = nullptr;
+			};
+			pio.Renderer_RenderWindow = [](ImGuiViewport* vp, void*)
+			{
+				auto* d = static_cast<ViewportData*>(vp->RendererUserData);
+				if (!d || !d->Ok || !s_State || !s_State->Program || !::wglMakeCurrent(d->Dc, s_MainRc))
+					return;
+				glBindFramebuffer(GL_FRAMEBUFFER, 0);
+				glDisable(GL_FRAMEBUFFER_SRGB);   // 본 창 백버퍼(UNORM)와 같은 값 그대로
+				if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear))
+				{
+					glDisable(GL_SCISSOR_TEST);
+					glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+					const float black[4] = { 0, 0, 0, 1 };
+					glClearNamedFramebufferfv(0, GL_COLOR, 0, black);   // 0 = 이 창의 기본 프레임버퍼
+				}
+				DrawLists(vp->DrawData, true);
+			};
+			pio.Renderer_SwapBuffers = [](ImGuiViewport* vp, void*)
+			{
+				if (auto* d = static_cast<ViewportData*>(vp->RendererUserData); d && d->Ok)
+				{
+					GLContext::SetSwapInterval(0);   // 본 창과 같음 (창마다 기다리지 않게)
+					::SwapBuffers(d->Dc);
+				}
+			};
+		}
+		EditorLog::Write("ImGuiGL", "viewports (windows outside the editor): %s", (s_MainDc && s_MainRc) ? "on" : "off - no current GL context at init");
 		return true;   // GL 객체·글꼴 텍스처는 첫 NewFrame 에서 (에디터가 글꼴을 다 넣고 Build 한 뒤 — DX11 백엔드와 같음)
+	}
+
+	void EndPlatformWindows()
+	{
+		if (s_MainDc && s_MainRc && (::wglGetCurrentDC() != s_MainDc || ::wglGetCurrentContext() != s_MainRc))
+			::wglMakeCurrent(s_MainDc, s_MainRc);
+		glEnable(GL_FRAMEBUFFER_SRGB);
+		GfxGL::RestoreState(Gfx::Context());   // 엔진이 아는 타깃·뷰포트·상태로
 	}
 
 	void Shutdown()
 	{
+		ImGui::DestroyPlatformWindows();   // 뷰포트 창의 DC 를 먼저 놓는다 (Renderer_DestroyWindow)
 		InvalidateDeviceObjects();
 		delete s_State;
 		s_State = nullptr;
@@ -169,6 +247,15 @@ namespace ImGuiGL
 
 	void RenderDrawData(ImDrawData* dd)
 	{
+		DrawLists(dd, false);
+	}
+}
+
+namespace
+{
+	// toWindow = false: 본 창 백버퍼 텍스처 (행 0 = 위, Present 가 뒤집음) / true: 뷰포트 창의 기본 프레임버퍼 (행 0 = 아래)
+	void DrawLists(ImDrawData* dd, bool toWindow)
+	{
 		if (!s_State || !s_State->Program || !dd || dd->TotalVtxCount == 0) return;
 		const float fbW = dd->DisplaySize.x * dd->FramebufferScale.x, fbH = dd->DisplaySize.y * dd->FramebufferScale.y;
 		if (fbW <= 0 || fbH <= 0) return;
@@ -217,14 +304,16 @@ namespace ImGuiGL
 		glViewportIndexedf(0, 0, 0, fbW, fbH);
 		glDepthRangeIndexed(0, 0.0, 1.0);
 
-		// 투영: 화면 위(T) → NDC -1 (백버퍼 행 0 = 위, 창 y = 행 번호 — Present 가 뒤집어 보인다)
+		// 투영: 백버퍼 텍스처면 화면 위(T) → NDC -1 (행 0 = 위, 창 y = 행 번호 — Present 가 뒤집어 보인다),
+		// 뷰포트 창의 기본 프레임버퍼면 보통 GL 처럼 T → NDC +1
 		const float L = dd->DisplayPos.x, R = dd->DisplayPos.x + dd->DisplaySize.x;
 		const float T = dd->DisplayPos.y, B = dd->DisplayPos.y + dd->DisplaySize.y;
+		const float top = toWindow ? B : T, bottom = toWindow ? T : B;
 		const float proj[16] = {
 			2.0f / (R - L), 0, 0, 0,
-			0, 2.0f / (B - T), 0, 0,
+			0, 2.0f / (bottom - top), 0, 0,
 			0, 0, -1.0f, 0,
-			(R + L) / (L - R), (T + B) / (T - B), 0, 1.0f };
+			(R + L) / (L - R), (top + bottom) / (top - bottom), 0, 1.0f };
 		glUseProgram(s.Program);
 		glProgramUniformMatrix4fv(s.Program, s.ProjLoc, 1, GL_FALSE, proj);
 		glBindVertexArray(s.Vao);
@@ -247,7 +336,8 @@ namespace ImGuiGL
 				const float x0 = (cmd.ClipRect.x - clipOff.x) * clipScale.x, y0 = (cmd.ClipRect.y - clipOff.y) * clipScale.y;
 				const float x1 = (cmd.ClipRect.z - clipOff.x) * clipScale.x, y1 = (cmd.ClipRect.w - clipOff.y) * clipScale.y;
 				if (x1 <= x0 || y1 <= y0) continue;
-				glScissorIndexed(0, (GLint)x0, (GLint)y0, (GLsizei)(x1 - x0), (GLsizei)(y1 - y0));   // 창 y = 위에서부터 (행 번호)
+				// 백버퍼 텍스처: 창 y = 위에서부터 (행 번호) / 기본 프레임버퍼: 아래에서부터
+				glScissorIndexed(0, (GLint)x0, toWindow ? (GLint)(fbH - y1) : (GLint)y0, (GLsizei)(x1 - x0), (GLsizei)(y1 - y0));
 				glBindTextureUnit(0, GfxGL_TextureName(reinterpret_cast<GfxShaderResourceView*>(cmd.GetTexID())));
 				glDrawElementsInstancedBaseVertexBaseInstance(GL_TRIANGLES, (GLsizei)cmd.ElemCount, sizeof(ImDrawIdx) == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT,
 					(const void*)((idxBase + cmd.IdxOffset) * sizeof(ImDrawIdx)), 1, (GLint)(vtxBase + cmd.VtxOffset), 0);
@@ -258,6 +348,7 @@ namespace ImGuiGL
 		glBindSampler(0, 0);
 		glBindVertexArray(0);
 		glUseProgram(0);
-		GfxGL::RestoreState(Gfx::Context());   // 엔진(Gfx 컨텍스트)이 아는 상태로 되돌린다
+		if (!toWindow)   // 뷰포트 창은 다 그린 뒤 EndPlatformWindows 에서 한 번 (그 전에 되돌리면 본 창 DC 로 바뀐다)
+			GfxGL::RestoreState(Gfx::Context());   // 엔진(Gfx 컨텍스트)이 아는 상태로 되돌린다
 	}
 }

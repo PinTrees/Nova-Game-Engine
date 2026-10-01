@@ -798,8 +798,17 @@ namespace CliCommands
 						return nullptr;
 					}())
 			{
-				EditorGUIManager::GetI()->SelectTab(w->GetTitle());
-				r = { { "name", name }, { "selected", true } };
+				if (a.value("float", false))
+				{
+					// 도킹에서 떼어 따로 떠 있는 OS 창으로 (뷰포트 시험)
+					w->RequestFloat(ImVec2(80, 80), ImVec2(420, 520));
+					r = { { "name", name }, { "floating", true } };
+				}
+				else
+				{
+					EditorGUIManager::GetI()->SelectTab(w->GetTitle());
+					r = { { "name", name }, { "selected", true } };
+				}
 			}
 			else
 			{

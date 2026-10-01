@@ -567,7 +567,7 @@ namespace
 		"  play | stop | pause [on|off] | step | undo | redo\n"
 		"  camera [--position x,y,z --target x,y,z | --frame <target> [--distance d]]   Scene view camera\n"
 		"  screenshot <file.png> [--view scene|game|editor]   (editor = whole window incl. menus; relative = current folder)\n"
-		"  window <preferences|project-settings|build-settings|scene|game|project|console|hierarchy|inspector|animator> [--category C] [--close]\n"
+		"  window <preferences|project-settings|build-settings|scene|game|project|console|hierarchy|inspector|animator> [--category C] [--close] [--float]\n"
 		"  gfx-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   same, drawn the engine way (Gfx + effects)\n"
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
 		"  wait [frames]                          keep the editor rendering N frames (default 60), then return (background editors pause otherwise)\n"
@@ -776,6 +776,7 @@ int wmain(int argc, wchar_t** argv)
 		args["name"] = a.Pos[0];
 		if (a.Has("category")) args["category"] = a.Get("category");
 		if (a.Has("close")) args["close"] = true;
+		if (a.Has("float")) args["float"] = true;
 	}
 	else if (cmd == "graphics")
 	{

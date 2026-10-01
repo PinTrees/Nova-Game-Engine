@@ -72,6 +72,22 @@ void EditorWindow::Render()
     const ImVec2 padding = WindowPaddingOverride();
     if (padding.x >= 0.0f)
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, padding);
+    if (m_FloatFrames > 0)
+    {
+        // 도킹에서 떼고(다음 NewFrame 에 처리) 몇 프레임 동안 위치·크기를 정한다
+        --m_FloatFrames;
+        if (ImGuiWindow* w = ImGui::FindWindowByName(windowTitleName.c_str()); w && w->DockNode)
+            ImGui::DockContextQueueUndockWindow(GImGui, w);
+        const ImVec2 origin = ImGui::GetMainViewport()->Pos;
+        ImGui::SetNextWindowPos(ImVec2(origin.x + m_FloatPos.x, origin.y + m_FloatPos.y), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(m_FloatSize, ImGuiCond_Always);
+    }
+    if (m_OwnViewport)
+    {
+        ImGuiWindowClass wc;
+        wc.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
+        ImGui::SetNextWindowClass(&wc);
+    }
     const bool visible = ImGui::Begin(windowTitleName.c_str(), &m_IsOpened, windowFlags);
     if (padding.x >= 0.0f)
         ImGui::PopStyleVar();   // Begin 이 이미 읽었다
