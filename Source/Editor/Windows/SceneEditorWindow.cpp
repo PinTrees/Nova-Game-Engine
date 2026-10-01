@@ -9,6 +9,7 @@
 #include "TerrainEditor.h"
 #include "WaterEditor.h"
 #include "TerrainSplineEditor.h"
+#include "SceneViewState.h"
 #include "ParticleSystemEditor.h"
 
 SceneEditorWindow::SceneEditorWindow()
@@ -194,6 +195,8 @@ void SceneEditorWindow::OnRender()
     // 도구 단축키(Q/W/E/R/T/Y) → Move/Rotate/Scale/Rect 핸들, 클릭 선택, Hand/휠/Alt 궤도/F 포커스
     SceneToolbar::HandleShortcuts(viewHovered);
     SceneGizmoTools::Update(m_Camera, imageMin, imageMax, viewHovered);
+    // 씬마다 마지막 카메라 시점 저장·복원 (UserSettings/SceneView.json)
+    SceneViewState::Update(m_Camera);
 
     SceneToolbar::DrawToolPalette(imageMin, imageMax);
     ParticleSystemEditor::DrawOverlay(imageMin, imageMax);
