@@ -287,6 +287,7 @@ struct SurfaceIn
     float2 Flow : TEXCOORD0;
     float2 UV : TEXCOORD1;
     float Edge : TEXCOORD2;
+    float Rapids : TEXCOORD3;
 };
 
 // 호수·강: 월드 메시 그대로 (호수는 작은 파도라 변위 없이 픽셀 법선만)
@@ -299,7 +300,7 @@ VSOut SurfaceVS(SurfaceIn v)
     o.Flow = v.Flow;
     o.UV = v.UV;
     o.Edge = v.Edge;
-    o.Height = 0;
+    o.Height = v.Rapids;   // 강: Height 칸에 급류 정도
     o.Depth = 1e4f;
     return o;
 }
@@ -454,8 +455,9 @@ float4 WaterPS(VSOut pin) : SV_Target
     float3 N = float3(0, 1, 0);
     float flowFoam = 0.0f;
     float3 detail;
+    const float rapids = gBodyType == 2 ? saturate(pin.Height) : 0.0f;
     if (gBodyType == 2)
-        detail = FlowNormal(pin.BaseXZ, pin.Flow, dist, flowFoam, pin.BaseXZ);
+        detail = FlowNormal(pin.BaseXZ, pin.Flow, dist, flowFoam, pin.BaseXZ) * (1.0f + 1.2f * rapids);   // 급류는 거칠게
     else
     {
         N = GerstnerNormal(pin.BaseXZ, footprint * 3.0f, pin.Depth, jac);
@@ -571,6 +573,8 @@ float4 WaterPS(VSOut pin) : SV_Target
     {
         const float rough = saturate(length(pin.Flow) / 3.0f);
         foam = max(foam, smoothstep(0.55f, 0.95f, flowFoam) * (0.25f + 0.6f * rough) * (0.4f + pin.Edge));
+        // 급류: 흰 물살 (거품 무늬의 넓은 부분까지 하얗게)
+        foam = max(foam, smoothstep(0.8f - 0.3f * rapids, 1.0f, flowFoam + rapids * 0.1f) * rapids);
     }
     const float3 foamCol = (sun * (NdotL * 0.8f + 0.2f) + ambient * 1.2f) * 0.9f;
     color = lerp(color, foamCol, saturate(foam));
@@ -635,6 +639,53 @@ float4 UnderwaterPS(FullOut pin) : SV_Target
     return float4(ToGamma(c), 1.0f);
 }
 
+// ---------------------------------------------------------------- 물보라 (강 급류)
+struct SprayIn
+{
+    float3 Pos : POSITION;
+    float2 Corner : TEXCOORD0;
+    float Seed : TEXCOORD1;
+    float Size : TEXCOORD2;
+};
+
+struct SprayOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION;
+    float2 UV : TEXCOORD0;
+    float Alpha : TEXCOORD1;
+};
+
+// 씨앗마다 다른 주기로: 물 위에서 솟아 커지며 흩어지고 사라진다 (카메라를 보는 사각형)
+SprayOut SprayVS(SprayIn v)
+{
+    const float phase = frac(gTime * (0.45f + v.Seed * 0.35f) + v.Seed * 7.3f);
+    float3 center = v.Pos;
+    center.y += phase * v.Size * 1.1f + 0.15f;
+    const float3 toEye = normalize(gEyePos - center);
+    const float3 right = normalize(cross(float3(0, 1, 0), toEye));
+    const float3 up = cross(toEye, right);
+    const float size = v.Size * (0.5f + phase * 0.9f);
+    SprayOut o;
+    o.PosW = center + (right * v.Corner.x + up * v.Corner.y) * size;
+    o.PosH = mul(float4(o.PosW, 1.0f), gViewProj);
+    o.UV = v.Corner * 0.5f + 0.5f + v.Seed * 3.1f;
+    o.Alpha = sin(phase * PI) * 0.55f;
+    return o;
+}
+
+float4 SprayPS(SprayOut pin) : SV_Target
+{
+    const float2 local = (pin.UV - floor(pin.UV)) * 2.0f - 1.0f;
+    const float r = length(local);
+    const float soft = saturate(1.0f - r);
+    const float tex = gFoamTex.Sample(samWrap, pin.UV * 0.5f).r;
+    const float a = pin.Alpha * soft * soft * (0.4f + 0.6f * tex);
+    clip(a - 0.01f);
+    const float3 light = gSunColor * gSunIntensity * (0.5f + 0.5f * SunShadowAt(pin.PosW)) * 0.8f + SkyAmbient() * 1.3f;
+    return float4(ToGamma(light), a);
+}
+
 // ---------------------------------------------------------------- 상태 / 기법
 DepthStencilState WaterDepthTest
 {
@@ -666,6 +717,31 @@ RasterizerState WaterRS
 {
     CullMode = None;
 };
+
+BlendState SprayBlend
+{
+    BlendEnable[0] = TRUE;
+    SrcBlend = SRC_ALPHA;
+    DestBlend = INV_SRC_ALPHA;
+    BlendOp = ADD;
+    SrcBlendAlpha = ONE;
+    DestBlendAlpha = INV_SRC_ALPHA;
+    BlendOpAlpha = ADD;
+    RenderTargetWriteMask[0] = 0x0F;
+};
+
+technique11 SprayTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SprayVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, SprayPS()));
+        SetDepthStencilState(WaterDepthTest, 0);
+        SetBlendState(SprayBlend, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetRasterizerState(WaterRS);
+    }
+}
 
 technique11 OceanTech
 {

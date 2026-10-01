@@ -25,6 +25,16 @@ namespace
 		XMFLOAT2 Flow;
 		XMFLOAT2 UV;
 		float Edge;
+		float Rapids;    // 강: 급류 정도 0~1 (하류 경사 2 % 부터, 10 % 에서 1)
+	};
+
+	// 물보라 입자 하나 = 정점 6 개 (VS 가 카메라 쪽 사각형으로 펼침)
+	struct SprayVertex
+	{
+		XMFLOAT3 Pos;
+		XMFLOAT2 Corner;   // -1~1
+		float Seed;
+		float Size;
 	};
 
 	struct BodyMesh
@@ -32,11 +42,13 @@ namespace
 		uint64_t Hash = 0;
 		ComPtr<ID3D11Buffer> VB, IB;
 		UINT IndexCount = 0;
+		ComPtr<ID3D11Buffer> SprayVB;
+		UINT SprayVertices = 0;
 	};
 
 	std::unique_ptr<Effect> s_Effect;
 	bool s_Failed = false;
-	ComPtr<ID3D11InputLayout> s_OceanLayout, s_SurfaceLayout;
+	ComPtr<ID3D11InputLayout> s_OceanLayout, s_SurfaceLayout, s_SprayLayout;
 	ComPtr<ID3D11Buffer> s_GridVB, s_GridIB;
 	UINT s_GridIndexCount = 0;
 	std::unordered_map<const WaterBody*, BodyMesh> s_Meshes;
@@ -85,9 +97,17 @@ namespace
 			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
 			{ "TEXCOORD", 1, DXGI_FORMAT_R32G32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-			{ "TEXCOORD", 2, DXGI_FORMAT_R32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0 } };
+			{ "TEXCOORD", 2, DXGI_FORMAT_R32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 3, DXGI_FORMAT_R32_FLOAT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0 } };
 		fx->GetTechniqueByName("SurfaceTech")->GetPassByIndex(0)->GetDesc(&pd);
-		device->CreateInputLayout(surface, 4, pd.pIAInputSignature, pd.IAInputSignatureSize, s_SurfaceLayout.GetAddressOf());
+		device->CreateInputLayout(surface, 5, pd.pIAInputSignature, pd.IAInputSignatureSize, s_SurfaceLayout.GetAddressOf());
+		const D3D11_INPUT_ELEMENT_DESC spray[] = {
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 1, DXGI_FORMAT_R32_FLOAT, 0, 20, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 2, DXGI_FORMAT_R32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0 } };
+		fx->GetTechniqueByName("SprayTech")->GetPassByIndex(0)->GetDesc(&pd);
+		device->CreateInputLayout(spray, 4, pd.pIAInputSignature, pd.IAInputSignatureSize, s_SprayLayout.GetAddressOf());
 
 		// 격자: 거친 레벨부터 (같은 그리기 안에서 뒤의 삼각형이 덮으므로 고운 레벨이 겹친 곳을 차지)
 		std::vector<XMFLOAT3> verts;
@@ -215,7 +235,7 @@ namespace
 			for (const auto& c : curve)
 			{
 				poly.push_back(XMFLOAT2(c.Position.x, c.Position.z));
-				verts.push_back({ XMFLOAT3(c.Position.x, y, c.Position.z), XMFLOAT2(0, 0), XMFLOAT2(0, 0), 1.0f });
+				verts.push_back({ XMFLOAT3(c.Position.x, y, c.Position.z), XMFLOAT2(0, 0), XMFLOAT2(0, 0), 1.0f, 0.0f });
 			}
 			Triangulate(poly, idx);
 		}
@@ -224,16 +244,62 @@ namespace
 			const auto curve = b.Curve(2.0f);
 			const float flowScale = b.FlowSpeed * WaterProfiles::Get(b.Profile).FlowSpeed;
 			constexpr int across = 9;
-			for (const auto& c : curve)
+			// 급류: 앞뒤 8 m 의 하류 경사 (내려가는 비율)
+			std::vector<float> rapids(curve.size(), 0.0f);
+			for (size_t i = 0; i < curve.size(); ++i)
 			{
+				size_t a = i, e = i;
+				while (a > 0 && curve[i].Distance - curve[a].Distance < 8.0f) --a;
+				while (e + 1 < curve.size() && curve[e].Distance - curve[i].Distance < 8.0f) ++e;
+				const float run = curve[e].Distance - curve[a].Distance;
+				const float drop = curve[a].Position.y - curve[e].Position.y;
+				rapids[i] = run > 0.5f ? std::clamp((drop / run - 0.02f) / 0.08f, 0.0f, 1.0f) : 0.0f;   // 2 % 부터, 10 % 면 1
+			}
+			for (size_t i = 0; i < curve.size(); ++i)
+			{
+				const auto& c = curve[i];
 				const Vec3 right(c.Tangent.z, 0.0f, -c.Tangent.x);
 				for (int k = 0; k < across; ++k)
 				{
 					const float s = (float)k / (across - 1) * 2.0f - 1.0f;
 					const Vec3 p = c.Position + right * (s * c.Width * 0.5f);
-					const float speed = c.Speed * flowScale * (1.0f - 0.6f * s * s);
-					verts.push_back({ XMFLOAT3(p.x, p.y, p.z), XMFLOAT2(c.Tangent.x * speed, c.Tangent.z * speed), XMFLOAT2((s + 1) * 0.5f, c.Distance), fabsf(s) });
+					const float speed = c.Speed * flowScale * (1.0f - 0.6f * s * s) * (1.0f + 1.5f * rapids[i]);   // 급류는 빠르다
+					verts.push_back({ XMFLOAT3(p.x, p.y, p.z), XMFLOAT2(c.Tangent.x * speed, c.Tangent.z * speed), XMFLOAT2((s + 1) * 0.5f, c.Distance), fabsf(s), rapids[i] });
 				}
+			}
+			// 물보라: 급류(0.35 이상) 구간에 3 m 마다 급류 정도만큼 (씨앗 고정 → 메시가 바뀔 때만 다시)
+			std::vector<SprayVertex> spray;
+			uint32_t rng = 1234567u;
+			auto rnd = [&]() { rng = rng * 1664525u + 1013904223u; return (rng >> 8) / 16777216.0f; };
+			float nextAt = 0.0f;
+			for (size_t i = 0; i < curve.size(); ++i)
+			{
+				const auto& c = curve[i];
+				if (rapids[i] < 0.35f || c.Distance < nextAt)
+					continue;
+				nextAt = c.Distance + 3.0f;
+				const Vec3 right(c.Tangent.z, 0.0f, -c.Tangent.x);
+				const int count = 1 + (int)(rapids[i] * 4.0f);
+				for (int n = 0; n < count; ++n)
+				{
+					const float s = rnd() * 1.6f - 0.8f;
+					const Vec3 p = c.Position + right * (s * c.Width * 0.5f) + c.Tangent * (rnd() * 3.0f);
+					const float seed = rnd();
+					const float size = (0.8f + rnd() * 1.4f) * (0.5f + rapids[i]);
+					const XMFLOAT2 corners[6] = { { -1, -1 }, { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, 1 }, { 1, -1 } };
+					for (const auto& cr : corners)
+						spray.push_back({ XMFLOAT3(p.x, p.y, p.z), cr, seed, size });
+				}
+			}
+			if (!spray.empty())
+			{
+				D3D11_BUFFER_DESC sd = {};
+				sd.Usage = D3D11_USAGE_IMMUTABLE;
+				sd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+				sd.ByteWidth = (UINT)(spray.size() * sizeof(SprayVertex));
+				D3D11_SUBRESOURCE_DATA si = { spray.data(), 0, 0 };
+				device->CreateBuffer(&sd, &si, m.SprayVB.GetAddressOf());
+				m.SprayVertices = (UINT)spray.size();
 			}
 			for (int i = 0; i + 1 < (int)curve.size(); ++i)
 				for (int k = 0; k + 1 < across; ++k)
@@ -549,6 +615,23 @@ namespace WaterRenderer
 		dc->OMSetRenderTargets(1, &v.Target, v.Depth);
 		for (const WaterBody* b : bodies)
 			drawBody(b, true);
+
+		// 4) 강 급류 물보라 (반투명, 깊이 검사만)
+		for (const WaterBody* b : bodies)
+		{
+			if (b->BodyType != WaterBody::Type::River)
+				continue;
+			auto it = s_Meshes.find(b);
+			if (it == s_Meshes.end() || !it->second.SprayVB)
+				continue;
+			SetBody(fx, *b);
+			UINT stride = sizeof(SprayVertex), offset = 0;
+			dc->IASetInputLayout(s_SprayLayout.Get());
+			ID3D11Buffer* vb = it->second.SprayVB.Get();
+			dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+			fx->GetTechniqueByName("SprayTech")->GetPassByIndex(0)->Apply(0, dc);
+			dc->Draw(it->second.SprayVertices, 0);
+		}
 
 		dc->VSSetShaderResources(0, 16, nullSRV);
 		dc->OMSetBlendState(prevBlend.Get(), prevFactor, prevMask);

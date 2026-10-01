@@ -8,6 +8,7 @@
 namespace
 {
 	std::vector<float> s_Heights;
+	std::vector<float> s_MinHeights;   // 칸의 네 모서리·가운데 중 가장 낮은 높이 (마스크 판정)
 	XMFLOAT4 s_Rect(0, 0, 0, 0);
 	uint64_t s_Hash = 0, s_Revision = 0;
 	bool s_Has = false;
@@ -59,21 +60,33 @@ namespace WaterShore
 			s_Heights.clear();
 			return;
 		}
+		auto sample = [&](float wx, float wz) {
+			for (Terrain* t : Terrain::GetActiveTerrains())
+			{
+				auto data = t->GetTerrainData();
+				const Vec3 p = t->GetPosition();
+				if (data && wx >= p.x && wz >= p.z && wx <= p.x + data->Size.x && wz <= p.z + data->Size.z)
+					return p.y + t->SampleHeight(Vec3(wx, 0, wz));
+			}
+			return -1e4f;
+		};
+		// 모서리 격자 (kRes+1)² 와 가운데
+		std::vector<float> corners((size_t)(kRes + 1) * (kRes + 1));
+		for (int z = 0; z <= kRes; ++z)
+			for (int x = 0; x <= kRes; ++x)
+				corners[(size_t)z * (kRes + 1) + x] = sample(minX + (float)x / kRes * (maxX - minX), minZ + (float)z / kRes * (maxZ - minZ));
 		s_Heights.assign((size_t)kRes * kRes, -1e4f);
+		s_MinHeights.assign((size_t)kRes * kRes, -1e4f);
 		for (int z = 0; z < kRes; ++z)
 			for (int x = 0; x < kRes; ++x)
 			{
-				const float wx = minX + (x + 0.5f) / kRes * (maxX - minX), wz = minZ + (z + 0.5f) / kRes * (maxZ - minZ);
-				for (Terrain* t : Terrain::GetActiveTerrains())
-				{
-					auto data = t->GetTerrainData();
-					const Vec3 p = t->GetPosition();
-					if (data && wx >= p.x && wz >= p.z && wx <= p.x + data->Size.x && wz <= p.z + data->Size.z)
-					{
-						s_Heights[(size_t)z * kRes + x] = p.y + t->SampleHeight(Vec3(wx, 0, wz));
-						break;
-					}
-				}
+				const float c = sample(minX + (x + 0.5f) / kRes * (maxX - minX), minZ + (z + 0.5f) / kRes * (maxZ - minZ));
+				const size_t i = (size_t)z * kRes + x;
+				s_Heights[i] = c;
+				float mn = c;
+				for (int k = 0; k < 4; ++k)
+					mn = (std::min)(mn, corners[(size_t)(z + (k >> 1)) * (kRes + 1) + x + (k & 1)]);
+				s_MinHeights[i] = mn;
 			}
 		s_Rect = XMFLOAT4(minX, minZ, 1.0f / (maxX - minX), 1.0f / (maxZ - minZ));
 	}
@@ -103,7 +116,7 @@ namespace WaterShore
 		std::deque<int> open;
 		for (int i = 0; i < kRes * kRes; ++i)
 		{
-			const float h = s_Heights[i];
+			const float h = s_MinHeights[i];
 			if (h >= seaLevel)
 				m.Data[i] = 255;
 			else if (h <= -9999.0f)
