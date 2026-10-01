@@ -234,7 +234,7 @@ GfxDepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 	// 필요한 크기보다 작을 때만 다시 만든다 (커지기만 함). 창 백버퍼 크기 이상으로 유지
 	width = (std::max)(width, (UINT)_clientWidth);
 	height = (std::max)(height, (UINT)_clientHeight);
-	if (_viewDepthView == nullptr || width > _viewDepthW || height > _viewDepthH)
+	if ((_viewDepthView == nullptr && _viewDepthRetry.Ready()) || width > _viewDepthW || height > _viewDepthH)
 	{
 		_viewDepthW = (std::max)(width, _viewDepthW);
 		_viewDepthH = (std::max)(height, _viewDepthH);
@@ -265,7 +265,8 @@ GfxDepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 			srv.Texture2D.MipLevels = 1;
 			_device->CreateShaderResourceView(_viewDepthTex.Get(), &srv, _viewDepthSRV.GetAddressOf());
 		}
-		EditorLog::Write("View", "view depth buffer %u x %u", _viewDepthW, _viewDepthH);
+		if (_viewDepthView) _viewDepthRetry.Succeeded(); else _viewDepthRetry.Failed();   // 실패 → 1 초 뒤 다시
+		EditorLog::Write("View", "view depth buffer %u x %u%s", _viewDepthW, _viewDepthH, _viewDepthView ? "" : " (failed, retry in 1 s)");
 	}
 	return _viewDepthView ? _viewDepthView.Get() : _depthStencilView.Get();
 }

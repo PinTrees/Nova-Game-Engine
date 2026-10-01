@@ -2,6 +2,7 @@
 #include "App.h"
 #include "Waves.h"
 #include "LightHelper.h"
+#include "RetryGate.h"
 #include "BlurFilter.h"
 #include "Camera.h"
 #include "Vertex.h"
@@ -43,6 +44,7 @@ private:
 	ComPtr<GfxDepthStencilView> _viewDepthReadOnly;    // 물: 깊이를 SRV 로 읽으면서 깊이 검사
 	ComPtr<GfxShaderResourceView> _viewDepthSRV;
 	UINT _viewDepthW = 0, _viewDepthH = 0;
+	RetryGate _viewDepthRetry;   // 깊이 버퍼 만들기 실패 → 1 초 뒤 다시
 	GfxDepthStencilView* ViewDepth(UINT width, UINT height);
 	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, class ShadowMap* shadowMap, const void* shadowFrame,

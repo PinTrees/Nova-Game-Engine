@@ -33,6 +33,7 @@ private:
 		uint32 Size = 0;
 		uint32 Slices = 0;
 		uint32 Generation = 0;
+		ULONGLONG RetryAt = 0;   // 만들기 실패 → 이 시각까지 다시 시도하지 않음
 	};
 	bool Ensure(Target& t, uint32 size, uint32 slices);
 	void Bind(GfxContext* dc, Target& t, int slice);

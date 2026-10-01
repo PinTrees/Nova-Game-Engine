@@ -79,15 +79,21 @@ GfxRenderTargetView* PostProcessPass::Begin(UINT width, UINT height)
 {
 	width = (std::max)(1u, width);
 	height = (std::max)(1u, height);
-	if (width != m_Width || height != m_Height || m_Scene.RTV == nullptr)
+	if (width != m_Width || height != m_Height || (m_Scene.RTV == nullptr && m_Retry.Ready()))
 	{
 		m_Width = width;
 		m_Height = height;
-		CreateTarget(m_Scene, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT);
-		CreateTarget(m_Ldr, width, height, DXGI_FORMAT_R8G8B8A8_UNORM);
+		const bool ok = CreateTarget(m_Scene, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT) && CreateTarget(m_Ldr, width, height, DXGI_FORMAT_R8G8B8A8_UNORM);
 		m_Down.clear();
 		m_Up.clear();
-		EditorLog::Write("Volume", "post process targets %u x %u", width, height);
+		if (ok)
+			m_Retry.Succeeded();
+		else
+		{
+			m_Scene = Target();
+			m_Retry.Failed();
+		}
+		EditorLog::Write("Volume", "post process targets %u x %u%s", width, height, ok ? "" : " (failed, retry in 1 s)");
 	}
 	return m_Scene.RTV.Get();
 }

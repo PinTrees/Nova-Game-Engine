@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 #include "VolumeProfile.h"
+#include "RetryGate.h"
 
 // URP 식 후처리 실행기 (뷰마다 하나: Scene 뷰 / Game 뷰).
 //  1) Begin(): 씬을 그릴 HDR(R16G16B16A16F) 타깃을 뷰 크기로 준비해 돌려준다
@@ -47,6 +48,7 @@ private:
 	Target m_Ldr;            // FXAA 입력 (Uber 출력)
 	std::vector<Target> m_Down, m_Up;   // Bloom 밉 체인
 	UINT m_Width = 0, m_Height = 0;
+	RetryGate m_Retry;   // 타깃 만들기 실패 → 1 초 뒤 다시 (매 프레임 다시 만들지 않게)
 	float m_Time = 0.0f;
 	// 자동 노출: 로그 휘도(256², 밉) + 배율 1x1 두 장(지난 / 이번)
 	Target m_Lum;

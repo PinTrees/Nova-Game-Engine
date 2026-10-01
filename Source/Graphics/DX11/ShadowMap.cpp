@@ -20,6 +20,8 @@ bool ShadowMap::Ensure(Target& t, uint32 size, uint32 slices)
 		size = m_DefaultSize;
 	if (t.Texture && t.Size == size && t.Slices == slices)
 		return true;
+	if (!t.Texture && t.Size == size && t.Slices == slices && ::GetTickCount64() < t.RetryAt)
+		return false;   // 방금 실패 (VRAM 예산 등) → 매 프레임 다시 만들지 않는다
 
 	t = Target();
 	// DSV 는 D24_UNORM_S8_UINT, SRV 는 R24_UNORM_X8_TYPELESS 로 같은 비트를 읽는다
@@ -33,8 +35,11 @@ bool ShadowMap::Ensure(Target& t, uint32 size, uint32 slices)
 	td.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
 	if (FAILED(m_Device->CreateTexture2D(&td, nullptr, t.Texture.GetAddressOf())))
 	{
-		EditorLog::Write("Shadow", "shadow map create failed (%u x %u x %u)", size, size, slices);
+		EditorLog::Write("Shadow", "shadow map create failed (%u x %u x %u), retry in 1 s", size, size, slices);
 		t = Target();
+		t.Size = size;
+		t.Slices = slices;
+		t.RetryAt = ::GetTickCount64() + 1000;
 		return false;
 	}
 
