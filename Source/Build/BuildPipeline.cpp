@@ -3,6 +3,7 @@
 #include "BuildSettings.h"
 #include "ScriptEngine.h"
 #include "PackageManager.h"
+#include "ShaderCache.h"
 #include "Debug.h"
 #include <filesystem>
 #include <fstream>
@@ -22,6 +23,7 @@ namespace
 		std::string Product;
 		std::vector<std::string> Scenes;
 	std::vector<std::pair<std::string, std::wstring>> Packages;   // 프로젝트에 넣은 패키지 (이름, 폴더) — 시작할 때 모아 둔다
+	bool NeedsShaderCross = true;   // 플레이어 API 에 OpenGL 이 있으면 HLSL → GLSL 변환기(dxcompiler·dxil 23 MB)가 필요
 		json PlayerJson;
 		bool Development = false, Run = false, Reveal = true;
 
@@ -198,8 +200,15 @@ namespace
 		const std::string unusedAssimp = "assimp-vc143-mtd.dll";
 #endif
 		for (const auto& e : fs::directory_iterator(job->BinDir, ec))
-			if (e.is_regular_file(ec) && Lower(e.path().extension().string()) == ".dll" && Lower(e.path().filename().string()) != unusedAssimp)
-				copies.push_back({ e.path(), job->Out / e.path().filename() });
+		{
+			const std::string file = Lower(e.path().filename().string());
+			if (!e.is_regular_file(ec) || Lower(e.path().extension().string()) != ".dll" || file == unusedAssimp)
+				continue;
+			// DirectX 11 만 쓰는 게임은 셰이더 변환기(OpenGL 용)가 필요 없다
+			if (!job->NeedsShaderCross && (file == "dxcompiler.dll" || file == "dxil.dll"))
+				continue;
+			copies.push_back({ e.path(), job->Out / e.path().filename() });
+		}
 		// 패키지: 프로젝트에 넣은 것만 (package.json + Plugins 의 DLL·.abi + Resources) → <제품>_Data/Packages/<이름>/
 		//  게임은 이것을 embedded 패키지로 읽는다. 쓰지 않는 패키지는 빌드에 들어가지 않는다 (C# 은 이미 Assembly-CSharp 에 컴파일됨)
 		for (const auto& pk : job->Packages)
@@ -211,7 +220,22 @@ namespace
 			addDir(src / L"Resources", dst / L"Resources", true);
 		}
 		addDir(job->EngineRoot / L"Shaders", data / L"Shaders", true);
-		addDir(job->BinDir / L"ShaderCache", data / L"Binaries" / L"ShaderCache", true);
+		// 셰이더 캐시: 이 엔진 구성의 컴파일 플래그(_f<n>.fxo)만 — 예전 이름(플래그 없음)·다른 구성(Debug 의 큰 디버그 정보 등)은 쓰이지 않는다.
+		//  GLSL 변환 캐시는 OpenGL 을 쓸 때만
+		{
+			const std::wstring flagTag = L"_f" + std::to_wstring(ShaderCache::DefaultFlags()) + L".fxo";
+			const fs::path cacheDir = job->BinDir / L"ShaderCache";
+			for (const auto& e : fs::directory_iterator(cacheDir, ec))
+			{
+				if (!e.is_regular_file(ec))
+					continue;
+				const std::wstring name = e.path().filename().wstring();
+				if (name.size() > flagTag.size() && name.compare(name.size() - flagTag.size(), flagTag.size(), flagTag) == 0)
+					copies.push_back({ e.path(), data / L"Binaries" / L"ShaderCache" / name });
+			}
+			if (job->NeedsShaderCross)
+				addDir(cacheDir / L"GLSL", data / L"Binaries" / L"ShaderCache" / L"GLSL", true);
+		}
 		addDir(job->BinDir / L"Scripting", data / L"Binaries" / L"Scripting", false, job->Development ? std::set<std::string>{} : std::set<std::string>{ ".pdb" });
 		addDir(job->EngineRoot / L"ProjectSetting" / L"fonts", data / L"ProjectSetting" / L"fonts", false);
 		addFile(job->EngineRoot / L"ProjectSetting" / L"icon.ico", data / L"ProjectSetting" / L"icon.ico");
@@ -327,8 +351,13 @@ namespace BuildPipeline
 		// 그래픽 API 순서 (게임이 위에서부터 이 PC 에서 되는 첫 API 를 쓴다)
 		{
 			json apis = json::array();
+			job->NeedsShaderCross = false;
 			for (GraphicsAPI api : BuildSettings::PlayerGraphicsAPIs())
+			{
 				apis.push_back(GraphicsAPIToKey(api));
+				if (api == GraphicsAPI::OpenGL)
+					job->NeedsShaderCross = true;
+			}
 			job->PlayerJson["graphicsAPIs"] = apis;
 		}
 		fs::create_directories(job->Out, ec);
