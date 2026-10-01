@@ -5,6 +5,7 @@
 #include "GLState.h"
 #include "GLContext.h"
 #include "GLShared.h"
+#include <regex>
 
 // RHI 의 OpenGL 4.5 구현 (DSA).
 //  - 컨텍스트: 숨은 창 + wglCreateContextAttribsARB(4.5 core). 만든 스레드에서 현재로 둔다
@@ -125,6 +126,7 @@ namespace
 		std::vector<GLuint> UnitTextures;                  // 유닛 → 텍스처
 		std::vector<GLuint> UnitSamplers;                  // 유닛 → 샘플러
 		std::vector<ComPtr<GfxShaderResourceView>> UnitViews;   // 유닛에 넣은 Gfx 뷰 (Effects11 처럼 묶인 동안 잡아 둔다)
+		std::vector<GLenum> UnitShadowTarget;              // 그림자(비교) 샘플러 유닛의 텍스처 종류 (아니면 0) — 빈 유닛에 깊이 더미
 		std::set<std::string> Reported;
 
 		~GLEffect() override
@@ -335,6 +337,43 @@ namespace
 		GLuint Ib = 0;
 		bool Index32 = true;
 		GLuint CurrentProgram = 0;
+		// 그림자 샘플러 유닛이 비어 있을 때 묶는 1x1 깊이 텍스처(값 1 = 그림자 없음)와 비교 샘플러.
+		// 비어 있으면 드라이버가 "sampler (0) ... shadow sampler ... undefined behavior" 경고를 낸다 (그 빛이 없는 장면 등)
+		GLuint DummyShadow2D = 0, DummyShadowArray = 0, DummyShadowCube = 0, DummyCompare = 0;
+
+		GLuint DummyShadow(GLenum target)
+		{
+			GLuint& t = target == GL_TEXTURE_2D_ARRAY ? DummyShadowArray : target == GL_TEXTURE_CUBE_MAP ? DummyShadowCube : DummyShadow2D;
+			if (t) return t;
+			const float one = 1.0f;
+			glCreateTextures(target, 1, &t);
+			if (target == GL_TEXTURE_2D_ARRAY)
+			{
+				glTextureStorage3D(t, 1, GL_DEPTH_COMPONENT32F, 1, 1, 1);
+				glTextureSubImage3D(t, 0, 0, 0, 0, 1, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &one);
+			}
+			else
+			{
+				glTextureStorage2D(t, 1, GL_DEPTH_COMPONENT32F, 1, 1);
+				if (target == GL_TEXTURE_CUBE_MAP)
+					for (int face = 0; face < 6; ++face)
+						glTextureSubImage3D(t, 0, 0, 0, face, 1, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &one);
+				else
+					glTextureSubImage2D(t, 0, 0, 0, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &one);
+			}
+			return t;
+		}
+
+		GLuint DummyCompareSampler()
+		{
+			if (!DummyCompare)
+			{
+				glCreateSamplers(1, &DummyCompare);
+				glSamplerParameteri(DummyCompare, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+				glSamplerParameteri(DummyCompare, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+			}
+			return DummyCompare;
+		}
 
 		~GLDevice() override
 		{
@@ -342,6 +381,10 @@ namespace
 			{
 				if (Fbo) glDeleteFramebuffers(1, &Fbo);
 				if (ClearFbo) glDeleteFramebuffers(1, &ClearFbo);
+				for (GLuint* t : { &DummyShadow2D, &DummyShadowArray, &DummyShadowCube })
+					if (*t) glDeleteTextures(1, t);
+				if (DummyCompare) glDeleteSamplers(1, &DummyCompare);
+				GLState::InvalidateBindings();
 			}
 			if (OwnsContext)
 				GLContext::Destroy(Ctx);
@@ -756,6 +799,30 @@ namespace
 		for (const auto& [n, s] : e->Src.Samplers)
 			for (int i = 0; i < s.Count; ++i)
 				e->UnitSamplers[s.Unit + i] = s.Sampler == "nosampler" ? 0 : e->SamplerObjects[s.Sampler];
+		// 그림자(비교) 샘플러 유닛: 변환된 GLSL 의 선언(uniform sampler2DShadow 이름 …)에서 종류를 읽는다
+		e->UnitShadowTarget.assign(units, 0);
+		for (const auto& [n, s] : e->Src.Samplers)
+		{
+			const std::regex decl("uniform\\s+(sampler\\w*Shadow)\\s+" + n + "\\b");
+			GLenum target = 0;
+			for (const auto& pass : e->Src.Passes)
+			{
+				for (const auto& stage : pass.Stages)
+				{
+					std::smatch m;
+					if (std::regex_search(stage.Glsl, m, decl))
+					{
+						const std::string type = m[1];
+						target = type == "sampler2DArrayShadow" ? GL_TEXTURE_2D_ARRAY : type == "samplerCubeShadow" ? GL_TEXTURE_CUBE_MAP
+							: type == "sampler2DShadow" ? GL_TEXTURE_2D : 0;
+						break;
+					}
+				}
+				if (target) break;
+			}
+			for (int i = 0; target && i < s.Count; ++i)
+				e->UnitShadowTarget[s.Unit + i] = target;
+		}
 		return e;
 	}
 
@@ -789,6 +856,13 @@ namespace
 		// 묶기 캐시: 앞 그리기와 같은 텍스처·샘플러면 GL 을 부르지 않는다 (GLState)
 		for (size_t u = 0; u < UnitTextures.size(); ++u)
 		{
+			if (!UnitTextures[u] && UnitShadowTarget[u])
+			{
+				// 빈 그림자 유닛: 1x1 깊이 더미 + 비교 샘플러 (그 빛·그림자 맵이 없는 장면)
+				GLState::BindTextureUnit((GLuint)u, Device->DummyShadow(UnitShadowTarget[u]));
+				GLState::BindSampler((GLuint)u, UnitSamplers[u] ? UnitSamplers[u] : Device->DummyCompareSampler());
+				continue;
+			}
 			GLState::BindTextureUnit((GLuint)u, UnitTextures[u]);
 			GLState::BindSampler((GLuint)u, UnitTextures[u] ? UnitSamplers[u] : 0);   // 빈 유닛 + 비교 샘플러 = 드라이버 경고
 		}
