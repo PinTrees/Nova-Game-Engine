@@ -26,7 +26,8 @@ public:
 
 public:
 	EditorCamera* GetSceneCamera() { return m_Camera; }
-	ID3D11RenderTargetView* GetRenderTargetView() const { return renderTargetView; }  
+	ID3D11RenderTargetView* GetRenderTargetView() const { return renderTargetView; }
+	ID3D11Texture2D* GetRenderTexture() const { return renderTargetTexture; }   // NOVA CLI screenshot  
 
 public:
 	virtual void Update() override;

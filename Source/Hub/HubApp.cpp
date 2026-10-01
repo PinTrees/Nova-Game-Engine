@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "HubApp.h"
+#include "CliInstaller.h"
 #include "EngineInfo.h"
 #include "EditorGUIManager.h"
 #include "PathManager.h"
@@ -652,6 +653,83 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 			bx = b1.x + 8.0f * S;
 		}
 		ImGui::Dummy(ImVec2(w, 110.0f * S));
+
+		// ---- NOVA CLI: 터미널·AI 에이전트가 실행 중인 에디터를 다룬다 (Unity CLI 처럼)
+		{
+			static CliInstaller::Status s_Cli;
+			static double s_NextQuery = 0.0;
+			if (ImGui::GetTime() >= s_NextQuery)
+			{
+				s_Cli = CliInstaller::Query();
+				s_NextQuery = ImGui::GetTime() + 2.0;
+			}
+			const ImVec2 c0 = ImGui::GetCursorScreenPos();
+			const ImVec2 c1(c0.x + w, c0.y + 150.0f * S);
+			dl->AddRectFilled(c0, c1, IM_COL32(37, 37, 37, 255), 8.0f * S);
+			dl->AddRect(c0, c1, kColBorder, 8.0f * S);
+			dl->AddText(bold, bold->FontSize * 1.2f, ImVec2(c0.x + 20.0f * S, c0.y + 18.0f * S), kColText, ICON_FA_TERMINAL);
+			const float tx = c0.x + 56.0f * S;
+			dl->AddText(bold, bold->FontSize, ImVec2(tx, c0.y + 14.0f * S), kColText, "NOVA CLI");
+			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + fs + 6.0f * S), kColSubText,
+				"터미널이나 AI 에이전트가 실행 중인 에디터를 명령으로 다룹니다 (창 포커스·마우스 조작 없이)");
+			std::string state;
+			ImU32 stateCol = kColSubText;
+			if (!s_Cli.SourceFound)
+				state = "엔진에 nova.exe 가 없습니다 (엔진을 다시 빌드하세요)";
+			else if (!s_Cli.Installed)
+				state = "설치되지 않음";
+			else
+			{
+				state = s_Cli.UpToDate ? "설치됨 (최신)" : "설치됨 - 엔진에 새 버전이 있습니다";
+				state += s_Cli.OnPath ? "  ·  PATH 등록됨" : "  ·  PATH 미등록";
+				stateCol = s_Cli.UpToDate && s_Cli.OnPath ? IM_COL32(120, 200, 120, 255) : IM_COL32(230, 190, 90, 255);
+			}
+			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + (fs + 6.0f * S) * 2), stateCol, state.c_str());
+			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + (fs + 6.0f * S) * 3), kColSubText, ToUtf8(s_Cli.Dir).c_str());
+			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + (fs + 6.0f * S) * 4), kColSubText,
+				"예: nova status  ·  nova hierarchy  ·  nova screenshot shot.png  ·  AI 에게는 nova ai-guide");
+
+			// 오른쪽 버튼
+			const float bw = 110.0f * S, bh = 30.0f * S;
+			float bx2 = c1.x - 16.0f * S - bw;
+			ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S));
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * S);
+			ImGui::BeginDisabled(!s_Cli.SourceFound);
+			const char* installLabel = !s_Cli.Installed ? "설치" : (s_Cli.UpToDate && s_Cli.OnPath ? "다시 설치" : "업데이트");
+			if (ImGui::Button(installLabel, ImVec2(bw, bh)))
+			{
+				std::string error;
+				if (CliInstaller::Install(error))
+					SetStatus("NOVA CLI 를 설치했습니다. 새로 연 터미널에서 nova 를 쓸 수 있습니다.");
+				else
+					SetStatus(error, true);
+				s_NextQuery = 0.0;
+			}
+			ImGui::EndDisabled();
+			if (s_Cli.Installed)
+			{
+				ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S + bh + 8.0f * S));
+				if (ImGui::Button("제거", ImVec2(bw, bh)))
+				{
+					std::string error;
+					if (CliInstaller::Uninstall(error))
+						SetStatus("NOVA CLI 를 제거했습니다.");
+					else
+						SetStatus(error, true);
+					s_NextQuery = 0.0;
+				}
+			}
+			ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S + (bh + 8.0f * S) * 2));
+			if (ImGui::Button("AI 안내 복사", ImVec2(bw, bh)))
+			{
+				ImGui::SetClipboardText("This project uses the NOVA game engine. Control the running editor with the `nova` command line tool "
+					"(run `nova ai-guide` first, then `nova info` and `nova hierarchy --components`).");
+				SetStatus("AI 에이전트에게 붙여 넣을 안내를 복사했습니다.");
+			}
+			ImGui::PopStyleVar();
+			ImGui::SetCursorScreenPos(ImVec2(c0.x, c1.y + 10.0f * S));
+			ImGui::Dummy(ImVec2(w, 1.0f));
+		}
 	}
 	ImGui::EndChild();
 

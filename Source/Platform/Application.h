@@ -29,6 +29,8 @@ public:
 	static wstring GetDataPath();
 	// 빌드된 게임(플레이어)로 실행 중인지 (에디터 창 없이 첫 씬을 바로 Play)
 	static inline bool isPlayer = false;
+	// --no-activate (nova open --background): 창을 띄우되 앞으로 가져오지 않는다 (작업 중인 창의 포커스를 뺏지 않게)
+	static inline bool noActivate = false;
 	static bool IsPlayer() { return isPlayer; }
 	static void SetPlaying(bool active) { isPlaying = active; }
 	static bool IsPlaying() { return isPlaying; }

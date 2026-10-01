@@ -1,0 +1,809 @@
+// NOVA CLI (nova.exe) — 터미널·AI 에이전트가 실행 중인 NOVA 에디터를 다루는 명령줄 도구 (Unity CLI 처럼).
+//  - 에디터는 시작할 때 %LOCALAPPDATA%\NOVA\Instances\<pid>.json 에 파이프 이름·토큰을 적는다 (Source/Editor/CliServer.*)
+//  - nova 는 그 파일로 에디터를 찾아 \\.\pipe\nova-editor-<pid> 로 한 줄 JSON 요청을 보내고 응답을 출력한다
+//  - 에디터 창을 앞으로 가져오거나 마우스로 조작하지 않아도 된다 (포커스를 잃은 에디터도 요청이 오면 깨어나 처리)
+// 종료 코드: 0 성공, 1 명령 실패, 2 에디터를 찾지 못함/연결 실패, 3 사용법 오류
+#include <windows.h>
+#include <shellapi.h>
+#include <cstdio>
+#include <string>
+#include <vector>
+#include <map>
+#include <fstream>
+#include <filesystem>
+#include <algorithm>
+#include <chrono>
+#include <thread>
+#include <nlohmann/json.hpp>
+
+using json = nlohmann::json;
+namespace fs = std::filesystem;
+
+namespace
+{
+	constexpr const char* kVersion = "0.1.0";
+	bool g_Json = false;            // --json: 결과를 JSON 그대로
+	int g_Timeout = 120;
+
+	// ------------------------------------------------------------------ 문자열
+	std::string Utf8(const std::wstring& w)
+	{
+		if (w.empty()) return {};
+		const int n = ::WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
+		std::string s(n, '\0');
+		::WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), s.data(), n, nullptr, nullptr);
+		return s;
+	}
+	std::wstring Wide(const std::string& s)
+	{
+		if (s.empty()) return {};
+		const int n = ::MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
+		std::wstring w(n, L'\0');
+		::MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
+		return w;
+	}
+	std::string Lower(std::string s)
+	{
+		std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return (char)tolower(c); });
+		return s;
+	}
+	void Out(const std::string& s) { fwrite(s.data(), 1, s.size(), stdout); }
+	void Err(const std::string& s) { fwrite(s.data(), 1, s.size(), stderr); }
+
+	std::string NormPath(const std::string& p)
+	{
+		std::error_code ec;
+		std::wstring w = fs::weakly_canonical(fs::absolute(Wide(p), ec), ec).wstring();
+		while (!w.empty() && (w.back() == L'\\' || w.back() == L'/'))
+			w.pop_back();
+		return Lower(Utf8(w));
+	}
+
+	std::wstring LocalAppData()
+	{
+		wchar_t buf[MAX_PATH] = {};
+		::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+		return buf;
+	}
+
+	// ------------------------------------------------------------------ 인수
+	struct Args
+	{
+		std::vector<std::string> Pos;                 // 위치 인수 (명령 다음)
+		std::map<std::string, std::string> Opt;       // --이름 값 / --플래그 (값 "")
+		bool Has(const std::string& k) const { return Opt.count(k) > 0; }
+		std::string Get(const std::string& k, const std::string& def = "") const { auto it = Opt.find(k); return it == Opt.end() ? def : it->second; }
+	};
+
+	// 값이 없는 플래그 (뒤 단어를 값으로 먹지 않는다)
+	bool IsFlag(const std::string& name)
+	{
+		static const char* flags[] = { "json", "components", "force", "background", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world" };
+		for (const char* f : flags)
+			if (name == f) return true;
+		return false;
+	}
+
+	Args Parse(const std::vector<std::string>& in, size_t start)
+	{
+		Args a;
+		for (size_t i = start; i < in.size(); ++i)
+		{
+			const std::string& s = in[i];
+			if (s.size() > 2 && s[0] == '-' && s[1] == '-')
+			{
+				std::string name = s.substr(2), value;
+				const size_t eq = name.find('=');
+				if (eq != std::string::npos)
+				{
+					value = name.substr(eq + 1);
+					name = name.substr(0, eq);
+				}
+				else if (!IsFlag(name) && i + 1 < in.size())
+					value = in[++i];
+				a.Opt[name] = value;
+			}
+			else if (s == "-n" && i + 1 < in.size())
+				a.Opt["n"] = in[++i];
+			else
+				a.Pos.push_back(s);
+		}
+		return a;
+	}
+
+	// "1,2,3" / "[1,2,3]" → [1,2,3]
+	json Vec(const std::string& s)
+	{
+		json j = json::parse(s, nullptr, false);
+		if (j.is_array()) return j;
+		float x, y, z;
+		if (sscanf_s(s.c_str(), "%f,%f,%f", &x, &y, &z) == 3)
+			return json::array({ x, y, z });
+		return json(s);
+	}
+
+	// 값: JSON 으로 읽히면 그대로 (숫자·true·배열·객체), 아니면 문자열
+	json Value(const std::string& s)
+	{
+		json j = json::parse(s, nullptr, false);
+		return j.is_discarded() ? json(s) : j;
+	}
+
+	// ------------------------------------------------------------------ 에디터 찾기
+	struct Instance
+	{
+		unsigned Pid = 0;
+		std::string Pipe, Token, Project, ProjectName, Exe, Log, Version;
+		long long Started = 0;
+	};
+
+	bool Alive(unsigned pid)
+	{
+		HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+		if (!h) return false;
+		DWORD code = 0;
+		const bool alive = ::GetExitCodeProcess(h, &code) && code == STILL_ACTIVE;
+		::CloseHandle(h);
+		return alive;
+	}
+
+	std::vector<Instance> Instances()
+	{
+		std::vector<Instance> out;
+		const fs::path dir = fs::path(LocalAppData()) / L"NOVA" / L"Instances";
+		std::error_code ec;
+		for (const auto& e : fs::directory_iterator(dir, ec))
+		{
+			if (e.path().extension() != L".json") continue;
+			std::ifstream is(e.path());
+			const json j = json::parse(is, nullptr, false);
+			is.close();
+			if (!j.is_object()) continue;
+			Instance i;
+			i.Pid = j.value("pid", 0u);
+			if (!Alive(i.Pid))
+			{
+				fs::remove(e.path(), ec);   // 비정상 종료한 에디터의 남은 파일
+				continue;
+			}
+			i.Pipe = j.value("pipe", std::string());
+			i.Token = j.value("token", std::string());
+			i.Project = j.value("project", std::string());
+			i.ProjectName = j.value("projectName", std::string());
+			i.Exe = j.value("exe", std::string());
+			i.Log = j.value("log", std::string());
+			i.Version = j.value("version", std::string());
+			i.Started = j.value("started", 0ll);
+			out.push_back(i);
+		}
+		return out;
+	}
+
+	bool Pick(const Args& a, Instance& out, std::string& error)
+	{
+		auto list = Instances();
+		if (list.empty())
+		{
+			error = "no NOVA editor is running (start one with: nova open <project folder>)";
+			return false;
+		}
+		if (a.Has("pid"))
+		{
+			for (auto& i : list)
+				if (std::to_string(i.Pid) == a.Get("pid")) { out = i; return true; }
+			error = "no editor with pid " + a.Get("pid");
+			return false;
+		}
+		std::string want = a.Get("project");
+		if (want.empty())
+		{
+			wchar_t env[MAX_PATH] = {};
+			if (::GetEnvironmentVariableW(L"NOVA_PROJECT", env, MAX_PATH) > 0)
+				want = Utf8(env);
+		}
+		if (!want.empty())
+		{
+			const std::string n = NormPath(want);
+			for (auto& i : list)
+				if (NormPath(i.Project) == n || Lower(i.ProjectName) == Lower(want)) { out = i; return true; }
+			error = "no editor has project '" + want + "' open (nova status)";
+			return false;
+		}
+		// 지금 폴더가 들어 있는 프로젝트
+		const std::string cwd = NormPath(".");
+		for (auto& i : list)
+		{
+			const std::string p = NormPath(i.Project);
+			if (cwd == p || cwd.rfind(p + "\\", 0) == 0) { out = i; return true; }
+		}
+		if (list.size() == 1) { out = list[0]; return true; }
+		error = std::to_string(list.size()) + " editors are running; choose one with --project <folder|name> or --pid <pid> (nova status)";
+		return false;
+	}
+
+	// ------------------------------------------------------------------ 파이프
+	bool Request(const Instance& inst, const std::string& cmd, const json& args, json& result, std::string& error, int waitFrames = 0)
+	{
+		const std::wstring pipe = Wide(inst.Pipe);
+		HANDLE h = INVALID_HANDLE_VALUE;
+		for (int attempt = 0; attempt < 50; ++attempt)
+		{
+			h = ::CreateFileW(pipe.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+			if (h != INVALID_HANDLE_VALUE) break;
+			if (::GetLastError() != ERROR_PIPE_BUSY && attempt > 3) break;
+			::WaitNamedPipeW(pipe.c_str(), 200);
+		}
+		if (h == INVALID_HANDLE_VALUE)
+		{
+			error = "cannot connect to the editor (pid " + std::to_string(inst.Pid) + ")";
+			return false;
+		}
+		json req = { { "token", inst.Token }, { "id", 1 }, { "cmd", cmd }, { "args", args }, { "timeout", g_Timeout } };
+		if (waitFrames > 0) req["waitFrames"] = waitFrames;
+		const std::string line = req.dump() + "\n";
+		DWORD written = 0;
+		if (!::WriteFile(h, line.data(), (DWORD)line.size(), &written, nullptr))
+		{
+			::CloseHandle(h);
+			error = "write to the editor failed";
+			return false;
+		}
+		std::string buf;
+		char chunk[65536];
+		while (buf.find('\n') == std::string::npos)
+		{
+			DWORD read = 0;
+			if (!::ReadFile(h, chunk, sizeof(chunk), &read, nullptr) || read == 0) break;
+			buf.append(chunk, read);
+		}
+		::CloseHandle(h);
+		const json resp = json::parse(buf.substr(0, buf.find('\n')), nullptr, false);
+		if (!resp.is_object())
+		{
+			error = "no answer from the editor";
+			return false;
+		}
+		if (!resp.value("ok", false))
+		{
+			error = resp.value("error", std::string("failed"));
+			return false;
+		}
+		result = resp.contains("result") ? resp["result"] : json();
+		return true;
+	}
+
+	// ------------------------------------------------------------------ 출력
+	void PrintTree(const json& nodes, const std::string& indent)
+	{
+		for (size_t i = 0; i < nodes.size(); ++i)
+		{
+			const json& n = nodes[i];
+			const bool last = i + 1 == nodes.size();
+			std::string line = indent + (last ? "└─ " : "├─ ") + n.value("name", std::string()) + "  " + n.value("id", std::string());
+			if (n.contains("active") && !n["active"].get<bool>()) line += "  (inactive)";
+			if (n.contains("components"))
+			{
+				line += "  [";
+				for (size_t c = 0; c < n["components"].size(); ++c)
+					line += (c ? ", " : "") + n["components"][c].get<std::string>();
+				line += "]";
+			}
+			if (n.contains("childCount")) line += "  (+" + std::to_string(n["childCount"].get<int>()) + " children)";
+			Out(line + "\n");
+			if (n.contains("children"))
+				PrintTree(n["children"], indent + (last ? "   " : "│  "));
+		}
+	}
+
+	void PrintResult(const std::string& cmd, const json& r)
+	{
+		if (g_Json)
+		{
+			Out(r.dump(2) + "\n");
+			return;
+		}
+		if (cmd == "hierarchy" && r.is_array())
+		{
+			PrintTree(r, "");
+			return;
+		}
+		if ((cmd == "find" && r.is_array()))
+		{
+			for (const auto& e : r) Out(e.value("id", std::string()) + "  " + e.value("path", std::string()) + "\n");
+			if (r.empty()) Out("(nothing found)\n");
+			return;
+		}
+		if (cmd == "assets" && r.is_array())
+		{
+			for (const auto& e : r) Out(e.get<std::string>() + "\n");
+			return;
+		}
+		if (cmd == "help" && r.is_object())
+		{
+			for (auto it = r.begin(); it != r.end(); ++it)
+			{
+				std::string name = it.key();
+				name.resize((std::max)(name.size(), (size_t)18), ' ');
+				Out("  " + name + it.value().get<std::string>() + "\n");
+			}
+			return;
+		}
+		if (r.is_object() && (cmd == "info" || cmd == "camera" || cmd == "screenshot" || cmd == "build-status"))
+		{
+			for (auto it = r.begin(); it != r.end(); ++it)
+				Out(it.key() + ": " + (it.value().is_string() ? it.value().get<std::string>() : it.value().dump()) + "\n");
+			return;
+		}
+		if (r.is_null()) { Out("ok\n"); return; }
+		Out(r.dump(2) + "\n");
+	}
+
+	// ------------------------------------------------------------------ 엔진 위치 (nova open, nova log)
+	std::wstring EngineExe()
+	{
+		wchar_t env[MAX_PATH] = {};
+		if (::GetEnvironmentVariableW(L"NOVA_ENGINE", env, MAX_PATH) > 0 && fs::exists(env))
+			return env;
+		wchar_t self[MAX_PATH] = {};
+		::GetModuleFileNameW(nullptr, self, MAX_PATH);
+		// Hub 가 설치하며 적어 둔 엔진 위치: nova.exe 옆 → 기본 설치 폴더
+		for (const fs::path& file : { fs::path(self).parent_path() / L"engine.json", fs::path(LocalAppData()) / L"NOVA" / L"CLI" / L"engine.json" })
+		{
+			std::ifstream is(file);
+			const json j = json::parse(is, nullptr, false);
+			if (j.is_object() && j.contains("exe") && fs::exists(Wide(j["exe"].get<std::string>())))
+				return Wide(j["exe"].get<std::string>());
+		}
+		// 개발: nova.exe 가 엔진 Binaries 안에 있을 때
+		const fs::path next = fs::path(self).parent_path() / L"NovaEngine.exe";
+		if (fs::exists(next)) return next.wstring();
+		return L"";
+	}
+
+	// ------------------------------------------------------------------ 명령: 로컬 (에디터 없이)
+	int CmdStatus()
+	{
+		const auto list = Instances();
+		if (g_Json)
+		{
+			json arr = json::array();
+			for (auto& i : list)
+				arr.push_back({ { "pid", i.Pid }, { "project", i.Project }, { "projectName", i.ProjectName }, { "version", i.Version }, { "log", i.Log } });
+			Out(arr.dump(2) + "\n");
+			return 0;
+		}
+		if (list.empty())
+		{
+			Out("no NOVA editor is running\n");
+			return 0;
+		}
+		for (auto& i : list)
+			Out("pid " + std::to_string(i.Pid) + "  " + i.ProjectName + "  " + i.Project + "  (v" + i.Version + ")\n");
+		return 0;
+	}
+
+	int CmdOpen(const Args& a)
+	{
+		if (a.Pos.empty()) { Err("usage: nova open <project folder> [--background]\n"); return 3; }
+		const std::string project = Utf8(fs::absolute(Wide(a.Pos[0])).wstring());
+		if (!fs::exists(fs::path(Wide(project)) / L"Assets"))
+		{
+			Err("not a NOVA project (no Assets folder): " + project + "\n");
+			return 3;
+		}
+		for (auto& i : Instances())
+			if (NormPath(i.Project) == NormPath(project))
+			{
+				Out("already open: pid " + std::to_string(i.Pid) + "\n");
+				return 0;
+			}
+		const std::wstring exe = EngineExe();
+		if (exe.empty())
+		{
+			Err("NovaEngine.exe not found (install the CLI from NOVA Hub > Installs, or set NOVA_ENGINE)\n");
+			return 2;
+		}
+		std::wstring cmdLine = L"\"" + exe + L"\" --project \"" + Wide(project) + L"\"";
+		if (a.Has("background")) cmdLine += L" --no-activate";
+		STARTUPINFOW si = { sizeof(si) };
+		if (a.Has("background"))
+		{
+			si.dwFlags = STARTF_USESHOWWINDOW;
+			si.wShowWindow = SW_SHOWNOACTIVATE;
+		}
+		PROCESS_INFORMATION pi = {};
+		const std::wstring workDir = fs::path(exe).parent_path().wstring();
+		if (!::CreateProcessW(exe.c_str(), cmdLine.data(), nullptr, nullptr, FALSE, 0, nullptr, workDir.c_str(), &si, &pi))
+		{
+			Err("could not start " + Utf8(exe) + "\n");
+			return 2;
+		}
+		::CloseHandle(pi.hThread);
+		const DWORD pid = pi.dwProcessId;
+		// CLI 서버가 준비될 때까지 (최대 Timeout)
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds((std::max)(g_Timeout, 30));
+		while (std::chrono::steady_clock::now() < deadline)
+		{
+			DWORD code = 0;
+			if (::GetExitCodeProcess(pi.hProcess, &code) && code != STILL_ACTIVE)
+			{
+				::CloseHandle(pi.hProcess);
+				Err("the editor exited during startup (code " + std::to_string(code) + ")\n");
+				return 2;
+			}
+			for (auto& i : Instances())
+				if (i.Pid == pid)
+				{
+					json r;
+					std::string e;
+					if (Request(i, "ping", json::object(), r, e))
+					{
+						::CloseHandle(pi.hProcess);
+						Out("opened: pid " + std::to_string(pid) + "  " + project + "\n");
+						return 0;
+					}
+				}
+			std::this_thread::sleep_for(std::chrono::milliseconds(300));
+		}
+		::CloseHandle(pi.hProcess);
+		Err("the editor started (pid " + std::to_string(pid) + ") but the CLI server did not answer in time\n");
+		return 2;
+	}
+
+	int CmdLog(const Args& a)
+	{
+		std::wstring file;
+		Instance inst;
+		std::string error;
+		if (Pick(a, inst, error) && !inst.Log.empty())
+			file = Wide(inst.Log);
+		else
+		{
+			const std::wstring exe = EngineExe();
+			if (!exe.empty()) file = (fs::path(exe).parent_path() / L"Logs" / L"Editor.log").wstring();
+		}
+		if (file.empty() || !fs::exists(file))
+		{
+			Err("Editor.log not found\n");
+			return 2;
+		}
+		const int n = std::stoi(a.Get("n", "40"));
+		const std::string grep = Lower(a.Get("grep"));
+		const bool errors = a.Has("errors");
+		auto keep = [&](const std::string& line) {
+			const std::string l = Lower(line);
+			if (!grep.empty() && l.find(grep) == std::string::npos) return false;
+			if (errors && l.find("error") == std::string::npos && l.find("fail") == std::string::npos && l.find("exception") == std::string::npos && l.find("[hang]") == std::string::npos)
+				return false;
+			return true;
+		};
+		std::ifstream is(file, std::ios::binary);
+		std::vector<std::string> lines;
+		std::string line;
+		while (std::getline(is, line))
+		{
+			if (!line.empty() && line.back() == '\r') line.pop_back();
+			if (keep(line)) lines.push_back(line);
+		}
+		const size_t from = lines.size() > (size_t)n ? lines.size() - n : 0;
+		for (size_t i = from; i < lines.size(); ++i) Out(lines[i] + "\n");
+		if (!a.Has("follow")) return 0;
+		std::streamoff pos = (std::streamoff)fs::file_size(file);
+		for (;;)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(300));
+			std::error_code ec;
+			const auto size = (std::streamoff)fs::file_size(file, ec);
+			if (ec) continue;
+			if (size < pos) pos = 0;   // 새 로그 (에디터 재시작)
+			if (size == pos) continue;
+			std::ifstream f(file, std::ios::binary);
+			f.seekg(pos);
+			std::string chunk((size_t)(size - pos), '\0');
+			f.read(chunk.data(), chunk.size());
+			pos = size;
+			size_t start = 0, nl;
+			while ((nl = chunk.find('\n', start)) != std::string::npos)
+			{
+				std::string l = chunk.substr(start, nl - start);
+				if (!l.empty() && l.back() == '\r') l.pop_back();
+				if (keep(l)) Out(l + "\n");
+				start = nl + 1;
+			}
+			fflush(stdout);
+		}
+	}
+
+	const char* kUsage =
+		"NOVA CLI %s - control a running NOVA editor from the terminal (no window focus or mouse needed)\n"
+		"\n"
+		"usage: nova <command> [arguments] [--project <folder|name>] [--pid <pid>] [--json] [--timeout <s>]\n"
+		"\n"
+		"editors\n"
+		"  status                                 running editors\n"
+		"  open <project> [--background]          start the editor for a project and wait until it is ready\n"
+		"  quit [--force]                         close the editor (--force discards unsaved changes)\n"
+		"  info                                   project, scene, dirty, playing, selection\n"
+		"  log [-n 40] [--grep text] [--errors] [--follow]\n"
+		"\n"
+		"scene objects (target = name, Parent/Child path, or #id)\n"
+		"  hierarchy [--components] [--depth N] [--root <target>]\n"
+		"  find [name] [--component Type]\n"
+		"  get <target> [--component Type]       details + component JSON\n"
+		"  set <target> [--name N] [--active true|false] [--tag T] [--layer N] [--static true|false]\n"
+		"               [--position x,y,z] [--rotation x,y,z] [--scale x,y,z] [--world-position x,y,z]\n"
+		"               [Component.field=value ...]          e.g. Light.intensity=2 MeshRenderer.castShadows=1\n"
+		"  create <type> [--name N] [--parent P] [--position x,y,z] [--rotation ..] [--scale ..] [--preset N]\n"
+		"         types: empty cube sphere capsule cylinder plane quad directional-light point-light spot-light camera\n"
+		"                terrain tree rock rock-scatter ocean lake river particle-system audio-source volume\n"
+		"  delete <target>\n"
+		"  add-component <target> <Type> [--values '{...}']   remove-component <target> <Type>\n"
+		"  parent <target> <new parent> | parent <target> --root\n"
+		"  select <target> | select --none\n"
+		"\n"
+		"scene / play / view\n"
+		"  scene open <Assets/...scene> [--force]  scene save\n"
+		"  play | stop | pause [on|off] | step | undo | redo\n"
+		"  camera [--position x,y,z --target x,y,z | --frame <target> [--distance d]]   Scene view camera\n"
+		"  screenshot <file.png> [--view scene|game]   (relative paths = current folder)\n"
+		"  assets [folder] [--pattern text]\n"
+		"  build <output folder> [--run]   build-status [--wait]\n"
+		"\n"
+		"other\n"
+		"  call <command> [json args]             raw request (see: nova help --editor)\n"
+		"  ai-guide                               how an AI agent should use NOVA CLI\n"
+		"  version\n";
+
+	const char* kAiGuide =
+		"# NOVA CLI guide for AI agents\n"
+		"\n"
+		"NOVA CLI lets you inspect and edit a running NOVA editor without focusing its window or using the mouse.\n"
+		"Every edit becomes one Undo step named \"CLI ...\" (the user can press Ctrl+Z).\n"
+		"\n"
+		"## Workflow\n"
+		"1. `nova status` - is an editor running? If not: `nova open <project folder> --background`.\n"
+		"2. `nova info --json` - project, open scene, unsaved changes, Play mode, selection.\n"
+		"3. `nova hierarchy --components` - the scene tree with #ids. Prefer #ids for targets (names can repeat).\n"
+		"4. `nova get <target> --json` - fields of every component (field names are what `set` accepts).\n"
+		"5. Edit: `nova create cube --name Box --position 0,1,0`, `nova set Box --scale 2,1,2`,\n"
+		"   `nova set Box MeshRenderer.castShadows=1`, `nova add-component Box RigidBody`.\n"
+		"6. Look at the result: `nova camera --frame Box` then `nova screenshot shot.png` and open the image.\n"
+		"7. Check `nova log --errors` after changes. Save only when asked: `nova scene save`.\n"
+		"\n"
+		"## Rules\n"
+		"- Use --json when you parse output. Exit code: 0 ok, 1 command failed (message on stderr), 2 no editor, 3 usage.\n"
+		"- Edits are refused in Play mode; `nova stop` first. `scene open` refuses unsaved changes unless --force.\n"
+		"- Component.field=value takes JSON values: numbers, true/false, [1,2,3], \"text\" (quote for the shell).\n"
+		"- Transform is changed with --position/--rotation/--scale (local) or --world-position.\n"
+		"- Do not quit the user's editor or discard changes unless they asked.\n";
+
+	int Usage() { Out(std::string(kUsage).replace(std::string(kUsage).find("%s"), 2, kVersion)); return 0; }
+}
+
+int wmain(int argc, wchar_t** argv)
+{
+	::SetConsoleOutputCP(CP_UTF8);
+	std::vector<std::string> in;
+	for (int i = 1; i < argc; ++i) in.push_back(Utf8(argv[i]));
+	if (in.empty() || in[0] == "help" && in.size() == 1 || in[0] == "--help" || in[0] == "-h")
+		return Usage();
+
+	std::string cmd = in[0];
+	Args a = Parse(in, 1);
+	g_Json = a.Has("json");
+	if (a.Has("timeout")) g_Timeout = (std::max)(1, std::stoi(a.Get("timeout")));
+
+	if (cmd == "version") { Out(std::string("nova ") + kVersion + "\n"); return 0; }
+	if (cmd == "ai-guide") { Out(kAiGuide); return 0; }
+	if (cmd == "status") return CmdStatus();
+	if (cmd == "open") return CmdOpen(a);
+	if (cmd == "log") return CmdLog(a);
+
+	// ---- 에디터에 보내는 명령: 인수 → 요청
+	json args = json::object();
+	std::string rc = cmd;   // 서버 명령 이름
+	auto need = [&](size_t n, const char* usage) {
+		if (a.Pos.size() >= n) return true;
+		Err(std::string("usage: nova ") + usage + "\n");
+		return false;
+	};
+	std::vector<std::pair<std::string, json>> fieldSets;   // set 의 Component.field=value 묶음
+
+	if (cmd == "help")
+	{
+		rc = "help";
+	}
+	else if (cmd == "info" || cmd == "play" || cmd == "stop" || cmd == "step" || cmd == "undo" || cmd == "redo" || cmd == "build-status")
+	{
+	}
+	else if (cmd == "quit")
+	{
+		args["force"] = a.Has("force");
+	}
+	else if (cmd == "pause")
+	{
+		if (!a.Pos.empty()) args["on"] = a.Pos[0] == "on" || a.Pos[0] == "true" || a.Pos[0] == "1";
+	}
+	else if (cmd == "hierarchy")
+	{
+		args["components"] = a.Has("components");
+		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
+		if (a.Has("root")) args["root"] = a.Get("root");
+	}
+	else if (cmd == "find")
+	{
+		if (!a.Pos.empty()) args["name"] = a.Pos[0];
+		if (a.Has("component")) args["component"] = a.Get("component");
+		if (a.Has("limit")) args["limit"] = std::stoi(a.Get("limit"));
+	}
+	else if (cmd == "get")
+	{
+		if (!need(1, "get <target> [--component Type]")) return 3;
+		args["target"] = a.Pos[0];
+		if (a.Has("component")) args["component"] = a.Get("component");
+	}
+	else if (cmd == "set")
+	{
+		if (!need(1, "set <target> [--position x,y,z] [Component.field=value ...]")) return 3;
+		args["target"] = a.Pos[0];
+		if (a.Has("name")) args["name"] = a.Get("name");
+		if (a.Has("active")) args["active"] = a.Get("active") == "true" || a.Get("active") == "1";
+		if (a.Has("static")) args["static"] = a.Get("static") == "true" || a.Get("static") == "1";
+		if (a.Has("tag")) args["tag"] = a.Get("tag");
+		if (a.Has("layer")) args["layer"] = std::stoi(a.Get("layer"));
+		if (a.Has("position")) args["position"] = Vec(a.Get("position"));
+		if (a.Has("rotation")) args["rotation"] = Vec(a.Get("rotation"));
+		if (a.Has("scale")) args["scale"] = Vec(a.Get("scale"));
+		if (a.Has("world-position")) args["worldPosition"] = Vec(a.Get("world-position"));
+		if (a.Has("component"))
+		{
+			args["component"] = a.Get("component");
+			args["values"] = Value(a.Get("values", "{}"));
+		}
+		// Component.field=value
+		std::map<std::string, json> byComp;
+		for (size_t i = 1; i < a.Pos.size(); ++i)
+		{
+			const std::string& p = a.Pos[i];
+			const size_t eq = p.find('='), dot = p.find('.');
+			if (eq == std::string::npos || dot == std::string::npos || dot > eq)
+			{
+				Err("expected Component.field=value, got '" + p + "'\n");
+				return 3;
+			}
+			byComp[p.substr(0, dot)][p.substr(dot + 1, eq - dot - 1)] = Value(p.substr(eq + 1));
+		}
+		for (auto& [comp, values] : byComp)
+			fieldSets.push_back({ comp, values });
+	}
+	else if (cmd == "create")
+	{
+		if (!need(1, "create <type> [--name N] [--parent P] [--position x,y,z]")) return 3;
+		args["type"] = a.Pos[0];
+		if (a.Has("name")) args["name"] = a.Get("name");
+		if (a.Has("parent")) args["parent"] = a.Get("parent");
+		if (a.Has("position")) args["position"] = Vec(a.Get("position"));
+		if (a.Has("rotation")) args["rotation"] = Vec(a.Get("rotation"));
+		if (a.Has("scale")) args["scale"] = Vec(a.Get("scale"));
+		if (a.Has("preset")) args["preset"] = std::stoi(a.Get("preset"));
+		if (a.Has("no-select")) args["select"] = false;
+	}
+	else if (cmd == "delete")
+	{
+		if (!need(1, "delete <target>")) return 3;
+		args["target"] = a.Pos[0];
+	}
+	else if (cmd == "add-component" || cmd == "remove-component")
+	{
+		if (!need(2, "add-component <target> <Type> [--values '{...}']")) return 3;
+		args["target"] = a.Pos[0];
+		args["type"] = a.Pos[1];
+		if (a.Has("values")) args["values"] = Value(a.Get("values"));
+	}
+	else if (cmd == "parent")
+	{
+		if (!need(1, "parent <target> <new parent> | parent <target> --root")) return 3;
+		args["target"] = a.Pos[0];
+		args["parent"] = a.Has("root") || a.Pos.size() < 2 ? json() : json(a.Pos[1]);
+		if (a.Has("keep-world")) args["keepWorld"] = a.Get("keep-world") != "false";
+	}
+	else if (cmd == "select")
+	{
+		if (!a.Has("none") && !a.Pos.empty()) args["target"] = a.Pos[0];
+	}
+	else if (cmd == "scene")
+	{
+		if (!need(1, "scene open <path> [--force] | scene save")) return 3;
+		if (a.Pos[0] == "open")
+		{
+			if (!need(2, "scene open <Assets/...scene> [--force]")) return 3;
+			rc = "scene-open";
+			args["path"] = a.Pos[1];
+			args["force"] = a.Has("force");
+		}
+		else if (a.Pos[0] == "save")
+			rc = "scene-save";
+		else
+		{
+			Err("usage: nova scene open <path> | nova scene save\n");
+			return 3;
+		}
+	}
+	else if (cmd == "camera")
+	{
+		if (a.Has("frame")) { args["frame"] = a.Get("frame"); if (a.Has("distance")) args["distance"] = std::stof(a.Get("distance")); }
+		if (a.Has("position")) args["position"] = Vec(a.Get("position"));
+		if (a.Has("target")) args["target"] = Vec(a.Get("target"));
+	}
+	else if (cmd == "screenshot")
+	{
+		if (!need(1, "screenshot <file.png> [--view scene|game]")) return 3;
+		args["path"] = Utf8(fs::absolute(Wide(a.Pos[0])).wstring());
+		args["view"] = a.Get("view", "scene");
+	}
+	else if (cmd == "assets")
+	{
+		if (!a.Pos.empty()) args["path"] = a.Pos[0];
+		if (a.Has("pattern")) args["pattern"] = a.Get("pattern");
+		if (a.Has("limit")) args["limit"] = std::stoi(a.Get("limit"));
+	}
+	else if (cmd == "build")
+	{
+		if (!need(1, "build <output folder> [--run]")) return 3;
+		args["output"] = Utf8(fs::absolute(Wide(a.Pos[0])).wstring());
+		args["run"] = a.Has("run");
+	}
+	else if (cmd == "call")
+	{
+		if (!need(1, "call <command> [json args]")) return 3;
+		rc = a.Pos[0];
+		if (a.Pos.size() > 1)
+		{
+			args = json::parse(a.Pos[1], nullptr, false);
+			if (!args.is_object()) { Err("args must be a JSON object\n"); return 3; }
+		}
+	}
+	else
+	{
+		Err("unknown command '" + cmd + "' (nova help)\n");
+		return 3;
+	}
+
+	Instance inst;
+	std::string error;
+	if (!Pick(a, inst, error))
+	{
+		Err(error + "\n");
+		return 2;
+	}
+
+	json result;
+	if (cmd == "set" && !fieldSets.empty())
+	{
+		// 이름·위치 등 + 컴포넌트마다 한 번씩
+		const bool hasBase = args.size() > 1;
+		if (hasBase && !Request(inst, "set", args, result, error)) { Err(error + "\n"); return 1; }
+		for (auto& [comp, values] : fieldSets)
+		{
+			json one = { { "target", args["target"] }, { "component", comp }, { "values", values } };
+			if (!Request(inst, "set", one, result, error)) { Err(error + "\n"); return 1; }
+		}
+		PrintResult("set", result);
+		return 0;
+	}
+	if (!Request(inst, rc, args, result, error))
+	{
+		Err(error + "\n");
+		return 1;
+	}
+	if (cmd == "build-status" && a.Has("wait"))
+	{
+		while (result.value("running", false))
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(500));
+			if (!Request(inst, rc, args, result, error)) { Err(error + "\n"); return 1; }
+		}
+	}
+	PrintResult(rc, result);
+	return 0;
+}

@@ -19,6 +19,8 @@
 #include "SceneGrid.h"
 #include "WaterRenderer.h"
 #include "AtmospherePass.h"
+#include "CliServer.h"
+#include "CliCommands.h"
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
 #include "Profiler.h"
@@ -195,6 +197,12 @@ bool EditorApp::Init()
 
 	if (Application::IsPlayer())
 		PlayerRuntime::Start();   // 빌드된 게임: 첫 씬을 바로 Play
+	else
+	{
+		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
+		CliCommands::RegisterAll();
+		CliServer::Start();
+	}
 
 	return true;
 }

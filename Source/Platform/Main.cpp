@@ -4,6 +4,7 @@
 #include "HubApp.h"
 #include "HubProject.h"
 #include "PlayerRuntime.h"
+#include "CliInstaller.h"
 
 #include <filesystem>
 #include <fstream>
@@ -31,6 +32,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 	std::wstring projectPath;
 	bool editorOnly = false;
 	std::wstring createLocation, createName;   // --create-project <위치> <이름> (자동화/테스트용)
+	int cliInstall = 0;                        // --install-cli / --uninstall-cli (Hub 의 NOVA CLI 설치와 같은 일, 자동화용)
 	{
 		int argc = 0;
 		LPWSTR* argv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
@@ -40,6 +42,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 				projectPath = argv[++i];
 			else if (wcscmp(argv[i], L"--editor") == 0)
 				editorOnly = true;
+			else if (wcscmp(argv[i], L"--install-cli") == 0)
+				cliInstall = 1;
+			else if (wcscmp(argv[i], L"--uninstall-cli") == 0)
+				cliInstall = -1;
+			else if (wcscmp(argv[i], L"--no-activate") == 0)
+				Application::noActivate = true;   // NOVA CLI: 백그라운드로 열기
 			else if (wcscmp(argv[i], L"--create-project") == 0 && i + 2 < argc)
 			{
 				createLocation = argv[++i];
@@ -47,6 +55,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, in
 			}
 		}
 		::LocalFree(argv);
+	}
+
+	// NOVA CLI 설치/제거만 하고 종료 (결과는 hub_log.txt 에 기록)
+	if (cliInstall != 0)
+	{
+		std::string error;
+		const bool ok = cliInstall > 0 ? CliInstaller::Install(error) : CliInstaller::Uninstall(error);
+		const CliInstaller::Status s = CliInstaller::Query();
+		std::ofstream log("hub_log.txt", std::ios::trunc);
+		log << (ok ? (cliInstall > 0 ? "CLI_INSTALL_OK" : "CLI_UNINSTALL_OK") : "CLI_FAILED: " + error)
+			<< " installed=" << s.Installed << " upToDate=" << s.UpToDate << " onPath=" << s.OnPath << std::endl;
+		return ok ? 0 : 1;
 	}
 
 	// 프로젝트만 생성하고 종료 (결과는 hub_log.txt 에 기록)

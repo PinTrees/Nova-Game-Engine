@@ -29,6 +29,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **프리팹** | Hierarchy → Project 끌어 놓아 만들기, 인스턴스(파란 표시), 오버라이드 저장/Apply All/Revert All/Unpack, 에셋 변경 자동 반영 |
 | **렌더링** | Forward 렌더링, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일), 물·굴절을 위한 장면 깊이 SRV(읽기 전용 깊이 + 화면 색 복사) |
 | **Profiler (Window > Analysis > Profiler, Ctrl+7)** | Unity Profiler 처럼 CPU Usage / GPU Usage 그래프(범주별로 쌓음, 60·30 FPS 선, 최근 300 프레임, 눌러 프레임 고르기), Hierarchy(구간 트리: Total·Self·Calls·ms), Timeline(구간 막대, 휠 확대), GPU(D3D11 타임스탬프 쿼리: 그림자·깊이·SSAO·불투명·나무·후처리·ImGui), Rendering Statistics(드로 콜, 묶음, 삼각형, 컬링 보임/전체, 나무 LOD 수), GPU 구간별 Pixels Shaded(겹쳐 칠한 픽셀 수), Memory(프로세스·GPU 사용량, 텍스처·메시·그림자 맵·나무·지형·Undo 기록별 크기). 창이 열려 있을 때만 모은다 |
+| **NOVA CLI (`nova`)** | Unity CLI 처럼 터미널·AI 에이전트가 **실행 중인 에디터를 명령으로** 다룬다 — 창 포커스·마우스 없이(멈춘 에디터도 요청이 오면 깨어남). 에디터 열기(`open --background`)·닫기, 씬 트리·검색·컴포넌트 JSON 읽기, 오브젝트 만들기·지우기·부모 바꾸기, `Component.field=value` 로 값 바꾸기, 씬 열기·저장, Play/Stop/Pause, Scene 카메라, Scene/Game 뷰 스크린샷, 에셋 목록, 플레이어 빌드, 로그 보기. 바꾼 것은 Undo 한 단계("CLI ..."). 이 PC·같은 사용자만(이름 있는 파이프 + 토큰). **NOVA Hub > 설치 탭에서 설치**(PATH 등록). `nova ai-guide` = 에이전트용 안내. [docs/NOVA_CLI.md](docs/NOVA_CLI.md) |
 | **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4 캐스케이드, 카메라가 움직여도 떨리지 않게 텍셀 고정), 스포트광·점광(큐브 6 면) 그림자, Hard / Soft(PCF Low·Medium·High), 빛마다 Strength · Bias(Depth / Normal) · Near Plane. **Volume 의 Shadows 오버라이드**로 Max Distance · Cascade Count · Split · Last Border · Resolution(512~4096) · Bias · Soft Shadows 품질을 장소마다 바꿀 수 있다(Inspector 에 캐스케이드 막대). 먼 캐스케이드 캐시(3·4 번째를 2·4 프레임마다 돌아가며 다시 그림, 정적 그림자는 그대로) |
 | **머티리얼 (URP Lit / PBR)** | `.mat` 에셋(Project 창 Create > Material), Unity URP 의 BRDF: Base Map + 색, Metallic(맵/값), Smoothness(Metallic Alpha / Albedo Alpha), Normal Map(세기), Occlusion, Emission(HDR 세기), Tiling/Offset, Alpha Clipping, Receive Shadows, Specular Highlights / Environment Reflections, Lit / Unlit. Unity 모양의 머티리얼 Inspector(텍스처 칸에 끌어 놓기·Object Picker, 구 미리보기 — 드래그로 회전) |
 | **스카이박스** | 기본 하늘 = [Poly Haven](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) CC0 HDRI 를 큐브맵으로 변환(`Tools/hdri_to_cubemap.py`). 카메라 Background = Skybox 면 Game 뷰에, 툴바 Effects > Skybox 면 Scene 뷰에 그리고, 금속 반사와 환경광(Environment Lighting)에도 같은 하늘을 쓴다 |
@@ -102,6 +103,23 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | `Character`, `Audio/SFX` | 캐릭터 모델·애니메이션, 테스트 효과음 | 샘플 씬 |
 
 프리셋·프로파일은 JSON 이라 복사해서 값을 바꾸면 새 프리셋이 됩니다 (에디터를 다시 열면 목록에 나타남).
+
+## NOVA CLI (터미널 · AI)
+
+NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치** 를 누르면 새로 연 터미널에서 `nova` 를 쓸 수 있습니다. 에디터를 앞으로 가져오지 않아도 됩니다.
+
+```bash
+nova open D:\NovaProjects\MyGame --background
+nova hierarchy --components
+nova create cube --name Box --position 0,1,0
+nova set Box --scale 2,1,2 MeshRenderer.castShadows=1
+nova camera --frame Box
+nova screenshot box.png
+nova play
+nova log --errors
+```
+
+모든 명령과 동작 방식은 [docs/NOVA_CLI.md](docs/NOVA_CLI.md), AI 에이전트에게는 `nova ai-guide` 를 먼저 실행하게 하세요.
 
 ## 빌드
 

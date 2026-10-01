@@ -535,6 +535,7 @@ namespace Undo
 
 	void SetActionName(const std::string& name) { s_PendingName = name; }
 	void RequestCheck() { s_Requested = true; }
+	void Touch(GameObject* gameObject) { if (gameObject) s_TouchedRoots.insert(RootOf(gameObject)); }
 
 	void WatchAsset(const std::string& key, const std::string& label,
 		std::function<std::string()> capture, std::function<void(const std::string&)> restore)

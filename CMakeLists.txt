@@ -173,3 +173,12 @@ add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     "${CMAKE_CURRENT_SOURCE_DIR}/assimp-vc143-mtd.dll"
     "$<TARGET_FILE_DIR:${ENGINE_NAME}>/assimp-vc143-mtd.dll"
 )
+
+# ---------------------------------------------------------------------------
+# NOVA CLI (nova.exe): 터미널·AI 가 실행 중인 에디터를 다루는 콘솔 도구 (Tools/NovaCli, 에디터 쪽 = Source/Editor/CliServer).
+# 정적 런타임(/MT)으로 만들어 Hub 가 다른 폴더에 복사해도 혼자 돈다. 엔진이 빌드될 때 같이 빌드된다.
+add_executable(nova "${CMAKE_CURRENT_SOURCE_DIR}/Tools/NovaCli/main.cpp")
+target_include_directories(nova PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include")
+set_property(TARGET nova PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+target_compile_options(nova PRIVATE /utf-8)
+add_dependencies(${ENGINE_NAME} nova)

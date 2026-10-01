@@ -170,7 +170,7 @@ namespace
 		if (hwnd == nullptr)
 			return;
 		s_Window = hwnd;
-		::ShowWindow(hwnd, SW_SHOW);
+		::ShowWindow(hwnd, Application::noActivate ? SW_SHOWNOACTIVATE : SW_SHOW);
 		::UpdateWindow(hwnd);
 		::SetTimer(hwnd, 1, 30, nullptr);
 

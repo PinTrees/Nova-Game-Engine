@@ -39,6 +39,7 @@
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
 #include "UndoSystem.h"
+#include "CliServer.h"
 
 namespace
 {
@@ -104,7 +105,8 @@ int32 App::Run()
 			// Handle
 			SceneManager::GetI()->HandleSaveScene();
 
-			if (!_appPaused || _deferredShow)   // 숨긴 채 첫 프레임을 준비하는 중에는 멈추지 않는다
+			// 숨긴 채 첫 프레임을 준비하는 중, NOVA CLI 요청을 처리하는 중에는 멈추지 않는다 (포커스 없이 CLI 로 다룰 수 있게)
+			if (!_appPaused || _deferredShow || (!Application::IsPlayer() && CliServer::HasWork()))
 			{
 				CalculateFrameStats();
 				Profiler::BeginFrame();   // Profiler 창 (Window > Analysis > Profiler)
@@ -227,9 +229,10 @@ int32 App::Run()
 				if (_deferredShow && ++_shownFrames >= 2)
 				{
 					_deferredShow = false;
-					::ShowWindow(_hMainWnd, s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW);
+					::ShowWindow(_hMainWnd, Application::noActivate ? SW_SHOWNOACTIVATE : (s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW));
 					::UpdateWindow(_hMainWnd);
-					::SetForegroundWindow(_hMainWnd);
+					if (!Application::noActivate)
+						::SetForegroundWindow(_hMainWnd);
 					LoadingScreen::End();
 				}
 
@@ -238,6 +241,11 @@ int32 App::Run()
 				SceneManager::GetI()->LastUpdate();
 
 				{ PROFILE_SCOPE("Main Thread Tasks"); TaskSystem::ExecuteMainThreadTasks(); }
+				if (!Application::IsPlayer())
+				{
+					PROFILE_SCOPE("NOVA CLI");
+					CliServer::Pump();
+				}
 				FrameProfiler::EndFrame();
 				RecordProfilerStats();
 				Profiler::EndFrame();
@@ -245,11 +253,12 @@ int32 App::Run()
 			}
 			else
 			{
-				::Sleep(100);
+				CliServer::WaitForWork(100);   // CLI 요청이 오면 바로 깨어난다
 			}
         }
     }
 
+	CliServer::Stop();   // NOVA CLI: 인스턴스 파일 지우기
 	EditorGUIManager::GetI()->Destroy(); 
 	EditorGUIManager::GetI()->Dispose(); 
 
@@ -873,7 +882,7 @@ bool App::InitMainWindow()
 	_deferredShow = LoadingScreen::IsActive();
 	if (!_deferredShow)
 	{
-		::ShowWindow(_hMainWnd, s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW);
+		::ShowWindow(_hMainWnd, Application::noActivate ? SW_SHOWNOACTIVATE : (s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW));
 		::UpdateWindow(_hMainWnd);
 	}
 

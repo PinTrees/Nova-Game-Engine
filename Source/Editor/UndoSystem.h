@@ -11,6 +11,8 @@
 //  - 에셋(Animator Controller, 재질 등): 편집 중인 창이 매 프레임 WatchAsset 으로 알려 주면 같은 방식으로 비교한다.
 //  - 지형 브러시처럼 JSON 이 아닌 큰 데이터: 도구가 Push 로 직접 기록한다 (바뀐 영역만).
 //  - Play 중에는 기록하지 않는다 (Stop 하면 씬이 Play 직전으로 돌아가므로).
+class GameObject;
+
 namespace Undo
 {
 	struct Record
@@ -34,6 +36,8 @@ namespace Undo
 	void SetActionName(const std::string& name);
 	// 조작이 끝나지 않았어도 이번 프레임에 확정 검사를 한다 (메뉴 명령 등)
 	void RequestCheck();
+	// 이 오브젝트(의 루트)를 다음 확정에서 다시 직렬화한다 (선택하지 않은 오브젝트의 값을 도구·CLI 가 바꿨을 때)
+	void Touch(GameObject* gameObject);
 
 	// JSON 상태로 읽고 되돌릴 수 있는 에셋을 감시한다 (편집 중인 창이 매 프레임 부른다)
 	void WatchAsset(const std::string& key, const std::string& label,
