@@ -7,6 +7,7 @@
 #include "GameObjectFactory.h"
 #include "ComponentFactory.h"
 #include "RigidBody.h"
+#include "CharacterController.h"
 #include "Collider.h"
 #include "Animator.h"
 #include "AudioSource.h"
@@ -34,6 +35,14 @@ namespace
 		Vec3 point;
 		Vec3 normal;
 		float distance;
+		uint64 gameObject;
+	};
+	struct ControllerHitData
+	{
+		Vec3 point;
+		Vec3 normal;
+		Vec3 moveDirection;
+		float moveLength;
 		uint64 gameObject;
 	};
 
@@ -123,6 +132,16 @@ namespace
 		void(*PS_SetCurve)(uint64, int, int, float, float);
 		int(*PS_GetColor)(uint64, int, Vec4*, Vec4*);
 		void(*PS_SetColor)(uint64, int, int, Vec4*, Vec4*);
+
+		// Character Controller
+		int(*CC_Move)(uint64, Vec3*, float, int);
+		float(*CC_GetFloat)(uint64, int);
+		void(*CC_SetFloat)(uint64, int, float);
+		void(*CC_GetVector)(uint64, int, Vec3*);
+		void(*CC_SetVector)(uint64, int, Vec3*);
+		int(*CC_GetInt)(uint64, int);
+		void(*CC_SetInt)(uint64, int, int);
+		int(*CC_GetHit)(uint64, int, ControllerHitData*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -549,6 +568,62 @@ namespace
 		else rb->MoveRotation(Quaternion(v->x, v->y, v->z, v->w));
 	}
 
+	// Character Controller — float: 0 slopeLimit, 1 stepOffset, 2 skinWidth, 3 minMoveDistance, 4 radius, 5 height
+	//                         vector: 0 velocity, 1 center / int: 0 collisionFlags, 1 isGrounded, 2 detectCollisions
+	int CC_Move(uint64 id, Vec3* v, float dt, int simple)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc == nullptr || v == nullptr) return 0;
+		if (simple) return cc->SimpleMove(*v, dt) ? 1 : 0;
+		return cc->Move(*v, dt);
+	}
+	float CC_GetFloat(uint64 id, int prop)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc == nullptr) return 0.0f;
+		switch (prop) { case 0: return cc->GetSlopeLimit(); case 1: return cc->GetStepOffset(); case 2: return cc->GetSkinWidth(); case 3: return cc->GetMinMoveDistance(); case 4: return cc->GetRadius(); default: return cc->GetHeight(); }
+	}
+	void CC_SetFloat(uint64 id, int prop, float v)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc == nullptr) return;
+		switch (prop) { case 0: cc->SetSlopeLimit(v); break; case 1: cc->SetStepOffset(v); break; case 2: cc->SetSkinWidth(v); break; case 3: cc->SetMinMoveDistance(v); break; case 4: cc->SetRadius(v); break; default: cc->SetHeight(v); break; }
+	}
+	void CC_GetVector(uint64 id, int prop, Vec3* out)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (out == nullptr) return;
+		*out = cc == nullptr ? Vec3::Zero : (prop == 0 ? cc->GetVelocity() : cc->GetCenter());
+	}
+	void CC_SetVector(uint64 id, int prop, Vec3* v)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc != nullptr && v != nullptr && prop == 1) cc->SetCenter(*v);
+	}
+	int CC_GetInt(uint64 id, int prop)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc == nullptr) return 0;
+		return prop == 0 ? cc->GetCollisionFlags() : (prop == 1 ? (int)cc->IsGrounded() : (int)cc->GetDetectCollisions());
+	}
+	void CC_SetInt(uint64 id, int prop, int v)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc != nullptr && prop == 2) cc->SetDetectCollisions(v != 0);
+	}
+	int CC_GetHit(uint64 id, int index, ControllerHitData* out)
+	{
+		CharacterController* cc = Get<CharacterController>(id);
+		if (cc == nullptr || out == nullptr || index < 0 || index >= (int)cc->GetHits().size()) return 0;
+		const ControllerColliderHit& h = cc->GetHits()[index];
+		out->point = h.point;
+		out->normal = h.normal;
+		out->moveDirection = h.moveDirection;
+		out->moveLength = h.moveLength;
+		out->gameObject = h.gameObject ? h.gameObject->GetFileID() : 0;
+		return 1;
+	}
+
 	void AS_Call(uint64 id, int op)
 	{
 		AudioSource* a = Get<AudioSource>(id);
@@ -914,6 +989,14 @@ namespace ScriptBindings
 		t.PS_SetCurve = PS_SetCurve;
 		t.PS_GetColor = PS_GetColor;
 		t.PS_SetColor = PS_SetColor;
+		t.CC_Move = CC_Move;
+		t.CC_GetFloat = CC_GetFloat;
+		t.CC_SetFloat = CC_SetFloat;
+		t.CC_GetVector = CC_GetVector;
+		t.CC_SetVector = CC_SetVector;
+		t.CC_GetInt = CC_GetInt;
+		t.CC_SetInt = CC_SetInt;
+		t.CC_GetHit = CC_GetHit;
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

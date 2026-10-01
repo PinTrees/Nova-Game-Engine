@@ -3,6 +3,7 @@
 class GameObject;
 class Collider;
 class RigidBody;
+class CharacterController;
 
 // Unity 의 ForceMode
 enum class ForceMode
@@ -77,6 +78,11 @@ public:
 	void Sleep(RigidBody* rb);
 	void WakeUp(RigidBody* rb);
 	Vec3 GetWorldCenterOfMass(RigidBody* rb);
+
+	// ---- CharacterController (Jolt CharacterVirtual) ----
+	// motion 만큼 쓸고 지나가며 이동, CollisionFlags 비트 합을 돌려준다. Play 가 아니면 Transform 만 옮긴다
+	int MoveCharacter(CharacterController* cc, const Vec3& motion, float deltaTime);
+	void RemoveCharacter(CharacterController* cc);
 
 	// Editor
 	void DebugRender() {}

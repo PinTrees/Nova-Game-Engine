@@ -23,6 +23,9 @@
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Geometry/AABox.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
+#include <Jolt/Physics/Collision/ObjectLayer.h>
 
 #include <mutex>
 #include <thread>
@@ -37,6 +40,7 @@
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
 #include "TerrainCollider.h"
+#include "CharacterController.h"
 #include "TerrainData.h"
 #include "TreeDesc.h"
 #include "Mesh.h"
@@ -238,6 +242,17 @@ struct PhysicsManager::JoltWorld
 		void OnContactPersisted(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m, JPH::ContactSettings& s) override { Handle(b1, b2, m, s); }
 	};
 
+	// 캐릭터가 부딪힐 상대를 고른다: 트리거는 막지 않고 기록만(OnTriggerXxx), Layer Overrides 의 제외 레이어는 통과
+	struct CharRecord;
+	class CharListener final : public JPH::CharacterContactListener
+	{
+	public:
+		JoltWorld* world = nullptr;
+		CharRecord* rec = nullptr;          // 지금 Move 중인 캐릭터
+		bool OnContactValidate(const JPH::CharacterVirtual* ch, const JPH::CharacterContact& c) override;
+	};
+	CharListener charListener;
+
 	BroadPhaseLayers bpLayers;
 	ObjectVsBroadPhaseFilter objVsBp;
 	ObjectLayerPairFilter objPair;
@@ -250,6 +265,19 @@ struct PhysicsManager::JoltWorld
 	std::unordered_map<JPH::uint64, BodyRecord> bodies;              // key: 소유 GameObject 의 InstanceID
 	std::unordered_map<JPH::uint32, ColliderEntry> colliders;        // key: 콜라이더 컴포넌트 ID
 	std::unordered_map<RigidBody*, JPH::uint64> rigidToOwner;
+
+	// Character Controller: 컴포넌트마다 CharacterVirtual 하나 (안쪽 키네마틱 바디 = 다른 물체·레이캐스트가 보는 캡슐)
+	struct CharRecord
+	{
+		CharacterController* cc = nullptr;
+		GameObject* owner = nullptr;
+		JPH::Ref<JPH::CharacterVirtual> ch;
+		size_t signature = 0;
+		Vec3 lastPos;                                  // 마지막으로 맞춘 Transform 위치 (사용자가 옮겼는지)
+		std::unordered_set<JPH::uint32> triggers;      // 지금 겹친 트리거 콜라이더 ID
+		std::unordered_set<JPH::uint32> moveTriggers;  // 이번 Move 에서 만난 트리거
+	};
+	std::unordered_map<CharacterController*, CharRecord> characters;
 
 	std::mutex touchMutex;
 	std::unordered_map<JPH::uint64, TouchInfo> touching;             // 이번 스텝에 닿아 있는 콜라이더 쌍
@@ -592,6 +620,129 @@ namespace
 			}
 		}
 	}
+
+	// ------------------------------------------------------------------ Character Controller
+	World::ColliderEntry CharacterEntry(CharacterController* cc)
+	{
+		World::ColliderEntry e;
+		e.collider = cc;
+		e.owner = cc->GetGameObject();
+		e.trigger = false;
+		e.layerBit = 1u << (cc->GetGameObject()->GetLayerIndex() & 31);
+		e.excludeMask = cc->GetExcludeLayers();
+		e.includeMask = cc->GetIncludeLayers();
+		e.priority = cc->GetLayerOverridePriority();
+		return e;
+	}
+
+	Vec3 CharacterWorldCenter(CharacterController* cc)
+	{
+		return Vec3::Transform(cc->GetCenter(), cc->GetGameObject()->GetTransform()->GetWorldMatrix());
+	}
+
+	// 캐릭터를 만들거나(형상이 바뀌면 다시) 사용자가 Transform 을 옮겼으면 따라간다
+	World::CharRecord* EnsureCharacter(World& w, CharacterController* cc)
+	{
+		GameObject* go = cc->GetGameObject();
+		Transform* tr = go->GetTransform();
+		float r, half;
+		cc->GetScaledDimensions(tr->GetScale(), r, half);
+		r = (std::max)(r, 0.01f);
+		size_t sig = 0;
+		HashFloat(sig, r, 1e-4f);
+		HashFloat(sig, half, 1e-4f);
+		HashCombine(sig, cc->GetDetectCollisions());
+		HashFloat(sig, cc->GetSkinWidth());
+
+		w.colliders[(JPH::uint32)cc->GetInstanceID()] = CharacterEntry(cc);
+		auto it = w.characters.find(cc);
+		const Vec3 center = CharacterWorldCenter(cc);
+		if (it != w.characters.end() && it->second.signature == sig)
+		{
+			World::CharRecord& rec = it->second;
+			if (!NearlyEqual(tr->GetPosition(), rec.lastPos))
+			{
+				rec.ch->SetPosition(ToJR(center));
+				rec.lastPos = tr->GetPosition();
+			}
+			return &rec;
+		}
+		if (it != w.characters.end())
+			w.characters.erase(it);
+
+		JPH::Ref<JPH::Shape> shape;
+		if (half > 1e-4f)
+			shape = new JPH::CapsuleShape(half, r);
+		else
+			shape = new JPH::SphereShape(r);
+		shape->SetUserData(EncodeCollider(cc->GetInstanceID()));
+
+		JPH::Ref<JPH::CharacterVirtualSettings> s = new JPH::CharacterVirtualSettings();
+		s->mShape = shape;
+		s->mUp = JPH::Vec3::sAxisY();
+		s->mMaxSlopeAngle = JPH::DegreesToRadians(std::clamp(cc->GetSlopeLimit(), 0.0f, 89.9f));
+		// 위치 = 캡슐 중심. 아래 반구(중심에서 half 아래)의 접촉만 발을 받친다
+		s->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), half);
+		s->mPredictiveContactDistance = (std::max)(0.1f, cc->GetSkinWidth());
+		s->mCharacterPadding = 0.02f;
+		s->mMass = 70.0f;
+		s->mMaxStrength = 100.0f;   // 다이내믹 바디를 미는 힘 (N)
+		if (cc->GetDetectCollisions())
+		{
+			s->mInnerBodyShape = shape;   // 다른 물체·레이캐스트가 보는 키네마틱 캡슐
+			s->mInnerBodyLayer = Layers::Moving;
+		}
+
+		World::CharRecord rec;
+		rec.cc = cc;
+		rec.owner = go;
+		rec.signature = sig;
+		rec.ch = new JPH::CharacterVirtual(s, ToJR(center), JPH::Quat::sIdentity(), (JPH::uint64)go->GetInstanceID(), w.physics.get());
+		rec.ch->SetListener(&w.charListener);
+		rec.lastPos = tr->GetPosition();
+		return &(w.characters[cc] = std::move(rec));
+	}
+
+	Collider* ColliderOfBody(World& w, const JPH::BodyID& id, const JPH::SubShapeID& sub, JPH::uint32* outId = nullptr)
+	{
+		if (id.IsInvalid())
+			return nullptr;
+		JPH::BodyLockRead lock(w.physics->GetBodyLockInterfaceNoLock(), id);
+		if (!lock.Succeeded())
+			return nullptr;
+		JPH::uint32 cid = 0;
+		if (!DecodeCollider(lock.GetBody().GetShape()->GetSubShapeUserData(sub), cid))
+			return nullptr;
+		auto it = w.colliders.find(cid);
+		if (it == w.colliders.end())
+			return nullptr;
+		if (outId)
+			*outId = cid;
+		return it->second.collider;
+	}
+}
+
+bool PhysicsManager::JoltWorld::CharListener::OnContactValidate(const JPH::CharacterVirtual* ch, const JPH::CharacterContact& c)
+{
+	if (rec == nullptr || c.mBodyB.IsInvalid())
+		return true;
+	JPH::uint32 cid = 0;
+	if (ColliderOfBody(*world, c.mBodyB, c.mSubShapeIDB, &cid) == nullptr)
+		return true;
+	const ColliderEntry& other = world->colliders[cid];
+	if (other.trigger)
+	{
+		rec->moveTriggers.insert(cid);   // 트리거: 통과하고 이벤트만
+		return false;
+	}
+	auto self = world->colliders.find((JPH::uint32)rec->cc->GetInstanceID());
+	if (self != world->colliders.end())
+	{
+		// Layer Overrides: 어느 한쪽이 상대 레이어를 제외하면 부딪히지 않는다
+		if ((self->second.excludeMask & other.layerBit) || (other.excludeMask & self->second.layerBit))
+			return false;
+	}
+	return true;
 }
 
 // ====================================================================== PhysicsManager
@@ -657,6 +808,7 @@ void PhysicsManager::Exit()
 		return;
 	JoltWorld& w = *m_World;
 	JPH::BodyInterface& bi = w.BI();
+	w.characters.clear();   // CharacterVirtual 이 안쪽 바디를 지운다 (물리 시스템이 살아 있을 때)
 	for (auto& kv : w.bodies)
 	{
 		if (kv.second.rb)
@@ -906,6 +1058,21 @@ void PhysicsManager::StepSimulation(float dt)
 			w.rigidToOwner[rb] = key;
 		}
 		w.bodies[key] = rec;
+	}
+
+	// Character Controller: 활성인 것만 CharacterVirtual 로 (없어진 것은 지운다 — 안쪽 바디도 같이)
+	{
+		std::unordered_set<CharacterController*> alive;
+		for (GameObject* go : all)
+		{
+			if (!IsActiveInHierarchy(go))
+				continue;
+			if (CharacterController* cc = go->GetComponent<CharacterController>())
+				if (cc->IsEnabled() && EnsureCharacter(w, cc) != nullptr)
+					alive.insert(cc);
+		}
+		for (auto it = w.characters.begin(); it != w.characters.end();)
+			it = alive.count(it->first) ? std::next(it) : w.characters.erase(it);
 	}
 
 	if (dt <= 0.0f)
@@ -1255,4 +1422,134 @@ Vec3 PhysicsManager::GetWorldCenterOfMass(RigidBody* rb)
 			return Vec3((float)c.GetX(), (float)c.GetY(), (float)c.GetZ());
 		}
 	return rb && rb->GetGameObject() ? rb->GetGameObject()->GetTransform()->GetPosition() : Vec3::Zero;
+}
+
+// ====================================================================== Character Controller
+int PhysicsManager::MoveCharacter(CharacterController* cc, const Vec3& motion, float deltaTime)
+{
+	if (cc == nullptr || cc->GetGameObject() == nullptr)
+		return 0;
+	Transform* tr = cc->GetGameObject()->GetTransform();
+	const float dt = deltaTime > 1e-5f ? deltaTime : 1.0f / 60.0f;
+	if (!m_World)
+	{
+		// Play 가 아님: 충돌 없이 옮기기만
+		tr->SetPosition(tr->GetPosition() + motion);
+		cc->_SetMoveResult(motion / dt, 0, false);
+		cc->_Hits().clear();
+		return 0;
+	}
+	JoltWorld& w = *m_World;
+	JoltWorld::CharRecord* rec = EnsureCharacter(w, cc);
+	if (rec == nullptr)
+		return 0;
+	JPH::CharacterVirtual& ch = *rec->ch;
+	cc->_Hits().clear();
+
+	const float len = motion.Length();
+	if (len < cc->GetMinMoveDistance())
+	{
+		cc->_SetMoveResult(Vec3::Zero, 0, cc->IsGrounded());
+		return 0;
+	}
+
+	ch.SetMaxSlopeAngle(JPH::DegreesToRadians(std::clamp(cc->GetSlopeLimit(), 0.0f, 89.9f)));
+	const Vec3 offset = CharacterWorldCenter(cc) - tr->GetPosition();   // 캡슐 중심 - Transform 위치
+	const JPH::RVec3 before = ch.GetPosition();
+	const bool wasGrounded = ch.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+
+	// Move 는 이동량: 이번 시간 동안의 속도로 바꿔 쓸고 지나간다
+	ch.SetLinearVelocity(ToJ(motion / dt));
+	JPH::CharacterVirtual::ExtendedUpdateSettings es;
+	const float step = cc->GetStepOffset();
+	es.mWalkStairsStepUp = JPH::Vec3(0.0f, step, 0.0f);
+	{
+		// 계단 모서리에 둥근 캡슐 바닥이 걸리면 '너무 가파름' 으로 계단 오르기를 거절한다 → 반지름만큼 더 앞을 시험해 평평한 단을 찾게 한다
+		float sr, sh;
+		cc->GetScaledDimensions(tr->GetScale(), sr, sh);
+		es.mWalkStairsStepForwardTest = (std::max)(0.15f, sr);
+	}
+	// 땅에 있다가 내려가는 중이면 계단·경사 아래로 붙인다 (Unity 처럼 공중에 떴다 떨어지지 않게)
+	es.mStickToFloorStepDown = (wasGrounded && motion.y <= 1e-6f) ? JPH::Vec3(0.0f, -(std::max)(step, 0.05f), 0.0f) : JPH::Vec3::sZero();
+	JPH::DefaultBroadPhaseLayerFilter bpFilter(w.objVsBp, Layers::Moving);
+	JPH::DefaultObjectLayerFilter layerFilter(w.objPair, Layers::Moving);
+	JPH::BodyFilter bodyFilter;
+	JPH::ShapeFilter shapeFilter;
+	w.charListener.world = &w;
+	w.charListener.rec = rec;
+	rec->moveTriggers.clear();
+	ch.ExtendedUpdate(dt, ToJ(m_Gravity), es, bpFilter, layerFilter, bodyFilter, shapeFilter, *w.tempAllocator);
+	w.charListener.rec = nullptr;
+
+	const JPH::RVec3 after = ch.GetPosition();
+	const Vec3 newCenter((float)after.GetX(), (float)after.GetY(), (float)after.GetZ());
+	tr->SetPosition(newCenter - offset);
+	rec->lastPos = tr->GetPosition();
+
+	// CollisionFlags: 실제로 부딪힌 접촉이 캡슐의 아래 반구 / 위 반구 / 옆 중 어디인지
+	float r, half;
+	cc->GetScaledDimensions(tr->GetScale(), r, half);
+	int flags = 0;
+	const Vec3 dir = motion / len;
+	std::vector<ControllerColliderHit>& hits = cc->_Hits();
+	for (const auto& c : ch.GetActiveContacts())
+	{
+		if (!c.mHadCollision || c.mWasDiscarded)
+			continue;
+		const Vec3 p((float)c.mPosition.GetX(), (float)c.mPosition.GetY(), (float)c.mPosition.GetZ());
+		const float rel = p.y - newCenter.y;
+		flags |= rel < -half ? (int)CollisionFlags::Below : (rel > half ? (int)CollisionFlags::Above : (int)CollisionFlags::Sides);
+		if (Collider* col = ColliderOfBody(w, c.mBodyB, c.mSubShapeIDB))
+		{
+			ControllerColliderHit h;
+			h.collider = col;
+			h.gameObject = col->GetGameObject();
+			h.point = p;
+			h.normal = FromJ(c.mSurfaceNormal);
+			h.moveDirection = dir;
+			h.moveLength = len;
+			hits.push_back(h);
+		}
+	}
+	const bool grounded = (flags & (int)CollisionFlags::Below) != 0 || ch.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+	if (grounded)
+		flags |= (int)CollisionFlags::Below;
+	const JPH::Vec3 moved = JPH::Vec3(after - before);
+	cc->_SetMoveResult(FromJ(moved) / dt, flags, grounded);
+
+	// 트리거: 이번 Move 에서 만난 것과 지난번 비교 → Enter / Stay / Exit (양쪽 오브젝트에)
+	GameObject* self = cc->GetGameObject();
+	auto sendTrigger = [&](JPH::uint32 cid, int kind) {
+		auto it = w.colliders.find(cid);
+		if (it == w.colliders.end())
+			return;
+		DispatchToObject(self, it->second.collider, true, kind);
+		DispatchToObject(it->second.collider->GetGameObject(), cc, true, kind);
+	};
+	const std::unordered_set<JPH::uint32> now = rec->moveTriggers;
+	const std::unordered_set<JPH::uint32> prev = rec->triggers;
+	rec->triggers = now;
+	for (JPH::uint32 id : now)
+		sendTrigger(id, prev.count(id) ? 1 : 0);
+	for (JPH::uint32 id : prev)
+		if (!now.count(id))
+			sendTrigger(id, 2);
+
+	// OnControllerColliderHit (Unity: Move 중 부딪힌 것마다)
+	if (!hits.empty())
+	{
+		const std::vector<ControllerColliderHit> copy = hits;   // 스크립트가 다시 Move 해도 안전하게
+		for (size_t i = 0; i < copy.size(); ++i)
+			for (const auto& component : self->GetComponents())
+				if (MonoBehaviour* script = dynamic_cast<MonoBehaviour*>(component.get()))
+					if (script->IsEnabled())
+						script->OnControllerColliderHit(copy[i], (int)i);
+	}
+	return flags;
+}
+
+void PhysicsManager::RemoveCharacter(CharacterController* cc)
+{
+	if (m_World)
+		m_World->characters.erase(cc);
 }

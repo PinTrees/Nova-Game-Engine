@@ -83,6 +83,7 @@ namespace ScriptEngine
 	void Invoke(void* handle, Message message);
 	void SetInstanceEnabled(void* handle, bool enabled);
 	void InvokeCollision(void* handle, bool trigger, int phase, uint64_t otherGameObject);
+	void InvokeCollision(void* handle, int kind, int phase, uint64_t otherGameObject);   // kind 0 충돌, 1 트리거, 2 OnControllerColliderHit
 	std::string GetFieldsJson(void* handle);
 	void SetFieldsJson(void* handle, const std::string& json);
 	// UI: 이 GameObject 의 스크립트(className)에서 메서드 호출 (Button On Click 의 저장된 호출). 찾으면 true

@@ -115,6 +115,36 @@ function Suite-Physics
         Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 30' | Out-Null
         $off = Invoke-NovaJson "raycast $side 1,0,0 --max 6.5"
         Add-Result physics 'tree colliders off → ray passes' ($off -and -not $off.hit) "hit=$($off.hit)"
+        Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+
+        # Character Controller: 땅에 서기 → 0.25 m 턱 오르기 → 벽에서 멈추기 (Play 중 exec 로 Move)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name CCGround --position 0,-0.5,0 --scale 20,1,6' | Out-Null
+        Invoke-Nova 'create cube --name CCStep --position 2.5,0.125,0 --scale 1,0.25,4' | Out-Null
+        Invoke-Nova 'create cube --name CCWall --position 6,1.5,0 --scale 0.5,3,6' | Out-Null
+        Invoke-Nova 'create empty --name CCPlayer --position -3,1.3,0' | Out-Null
+        Invoke-Nova 'add-component CCPlayer CharacterController' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+        $cf = Join-Path $Out 'cc_move.cs'
+        @'
+var cc = GameObject.Find("CCPlayer").GetComponent<CharacterController>();
+var f = CollisionFlags.None;
+for (int i = 0; i < 30; i++) f = cc.Move(new Vector3(0, -0.05f, 0));
+float groundY = cc.transform.position.y; bool grounded = cc.isGrounded;
+float maxY = 0;
+for (int i = 0; i < 60; i++) { f = cc.Move(new Vector3(0.2f, -0.05f, 0)); maxY = Mathf.Max(maxY, cc.transform.position.y); }
+var p = cc.transform.position;
+return $"{groundY:F3} {grounded} {maxY:F3} {p.x:F3} {f}";
+'@ | Set-Content -Encoding utf8 $cf
+        $m = Invoke-NovaJson "exec --file $cf"
+        $v = if ($m) { "$($m.result)" -split ' ', 5 } else { @() }
+        if ($v.Count -lt 5) { Add-Result physics 'character controller' $false "exec failed: $m" }
+        else
+        {
+            Add-Result physics 'character controller stands on ground' ([math]::Abs([double]$v[0] - 1.0) -lt 0.03 -and $v[1] -eq 'True') "y $($v[0]) grounded $($v[1]) (expect 1.00 True)"
+            Add-Result physics 'character controller climbs 0.25 m step' ([double]$v[2] -gt 1.2) "max y $($v[2]) (expect ≥ 1.2)"
+            Add-Result physics 'character controller stops at wall' ([math]::Abs([double]$v[3] - 5.25) -lt 0.05 -and $v[4] -match 'Sides') "x $($v[3]) flags $($v[4]) (expect 5.25, Sides)"
+        }
         Invoke-Nova 'stop' | Out-Null
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }

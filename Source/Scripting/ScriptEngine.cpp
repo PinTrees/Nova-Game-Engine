@@ -825,6 +825,12 @@ namespace ScriptEngine
 			m.SetEnabled(handle, enabled ? 1 : 0);
 	}
 
+	void InvokeCollision(void* handle, int kind, int phase, uint64_t other)
+	{
+		if (handle && m.InvokeCollision)
+			m.InvokeCollision(handle, kind, phase, other);
+	}
+
 	void InvokeCollision(void* handle, bool trigger, int phase, uint64_t other)
 	{
 		if (handle && m.InvokeCollision)

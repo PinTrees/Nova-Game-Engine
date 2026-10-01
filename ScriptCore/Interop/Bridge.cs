@@ -451,6 +451,16 @@ namespace NovaEngine.Interop
         {
             var mb = ScriptRegistry.FromHandle(handle);
             if (mb == null || mb.m_Destroyed) return;
+            if (kind == 2)
+            {
+                // OnControllerColliderHit: phase = CharacterController 의 이번 Move 충돌 번호
+                MethodInfo hm = FindMethod(mb.GetType(), "OnControllerColliderHit", typeof(ControllerColliderHit));
+                if (hm == null) return;
+                try { hm.Invoke(mb, new object[] { new ControllerColliderHit(mb.m_Id, phase) }); }
+                catch (TargetInvocationException e) { LogException(e.InnerException ?? e); }
+                catch (Exception e) { LogException(e); }
+                return;
+            }
             string name = (kind == 0 ? "OnCollision" : "OnTrigger") + (phase == 0 ? "Enter" : phase == 1 ? "Stay" : "Exit");
             MethodInfo mi = FindMethod(mb.GetType(), name, kind == 0 ? typeof(Collision) : typeof(Collider)) ?? FindMethod(mb.GetType(), name, null);
             if (mi == null) return;

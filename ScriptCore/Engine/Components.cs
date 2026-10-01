@@ -116,6 +116,57 @@ namespace NovaEngine
     public sealed class SphereCollider : Collider { internal SphereCollider() { } }
     public sealed class CapsuleCollider : Collider { internal CapsuleCollider() { } }
 
+    [Flags]
+    public enum CollisionFlags { None = 0, Sides = 1, Above = 2, Below = 4, CollidedSides = 1, CollidedAbove = 2, CollidedBelow = 4 }
+
+    // Unity 의 CharacterController: Move(이동량) 로 벽을 따라 미끄러지고 계단을 오른다. 중력은 직접 더한다 (SimpleMove 는 포함)
+    public sealed class CharacterController : Collider
+    {
+        internal CharacterController() { }
+        unsafe float GetF(int p) => Native.Api.CC_GetFloat(m_Id, p);
+        unsafe void SetF(int p, float v) => Native.Api.CC_SetFloat(m_Id, p, v);
+        unsafe Vector3 GetV(int p) { Vector3 v; Native.Api.CC_GetVector(m_Id, p, &v); return v; }
+
+        public unsafe CollisionFlags Move(Vector3 motion) => (CollisionFlags)Native.Api.CC_Move(m_Id, &motion, Time.deltaTime, 0);
+        public unsafe bool SimpleMove(Vector3 speed) => Native.Api.CC_Move(m_Id, &speed, Time.deltaTime, 1) != 0;
+        public unsafe bool isGrounded => Native.Api.CC_GetInt(m_Id, 1) != 0;
+        public unsafe CollisionFlags collisionFlags => (CollisionFlags)Native.Api.CC_GetInt(m_Id, 0);
+        public Vector3 velocity => GetV(0);
+        public unsafe Vector3 center { get => GetV(1); set => Native.Api.CC_SetVector(m_Id, 1, &value); }
+        public float slopeLimit { get => GetF(0); set => SetF(0, value); }
+        public float stepOffset { get => GetF(1); set => SetF(1, value); }
+        public float skinWidth { get => GetF(2); set => SetF(2, value); }
+        public float minMoveDistance { get => GetF(3); set => SetF(3, value); }
+        public float radius { get => GetF(4); set => SetF(4, value); }
+        public float height { get => GetF(5); set => SetF(5, value); }
+        public unsafe bool detectCollisions { get => Native.Api.CC_GetInt(m_Id, 2) != 0; set => Native.Api.CC_SetInt(m_Id, 2, value ? 1 : 0); }
+        public bool enableOverlapRecovery { get; set; } = true;
+    }
+
+    // OnControllerColliderHit(ControllerColliderHit hit) 로 받는 충돌 정보
+    public class ControllerColliderHit
+    {
+        internal unsafe ControllerColliderHit(ulong self, int index)
+        {
+            m_Self = self;
+            ControllerHitData d;
+            if (Native.Api.CC_GetHit(self, index, &d) != 0)
+            {
+                point = d.point; normal = d.normal; moveDirection = d.moveDirection; moveLength = d.moveLength; m_Other = d.gameObject;
+            }
+        }
+        readonly ulong m_Self, m_Other;
+        public CharacterController controller => new GameObject(m_Self).GetComponent<CharacterController>();
+        public Collider collider => m_Other == 0 ? null : new Collider(m_Other);
+        public GameObject gameObject => m_Other == 0 ? null : new GameObject(m_Other);
+        public Transform transform => gameObject?.transform;
+        public Rigidbody rigidbody => gameObject?.GetComponent<Rigidbody>();
+        public Vector3 point { get; }
+        public Vector3 normal { get; }
+        public Vector3 moveDirection { get; }
+        public float moveLength { get; }
+    }
+
     // Unity 의 Collision: 부딪힌 상대
     public class Collision
     {

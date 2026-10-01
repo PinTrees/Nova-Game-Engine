@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Debug.h"
 #include "CSharpScript.h"
+#include "CharacterController.h"
 #include "ScriptEngine.h"
 #include "UnityGUI.h"
 #include "ObjectPicker.h"
@@ -197,6 +198,12 @@ void CSharpScript::OnCollisionExit(Collider* other) { Collision(other, false, 2)
 void CSharpScript::OnTriggerEnter(Collider* other) { Collision(other, true, 0); }
 void CSharpScript::OnTriggerStay(Collider* other) { Collision(other, true, 1); }
 void CSharpScript::OnTriggerExit(Collider* other) { Collision(other, true, 2); }
+void CSharpScript::OnControllerColliderHit(const ControllerColliderHit& hit, int index)
+{
+	// C# 이 CC_GetHit 로 점·법선을 읽는다 (kind 2, phase = 번호)
+	if (m_Handle && hit.gameObject && Application::IsPlaying())
+		ScriptEngine::InvokeCollision(m_Handle, 2, index, hit.gameObject->GetFileID());
+}
 
 // ------------------------------------------------------------------ Inspector
 void CSharpScript::OnInspectorGUI()

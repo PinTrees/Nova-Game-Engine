@@ -24,6 +24,7 @@ private:
 	size_t m_CheckedHash = 0;
 	double m_LastDirtyCheck = -1.0;
 	bool m_Dirty = false;
+	bool m_CloseWithoutPrompt = false;
 	size_t ComputeSceneHash() const;
 
 public:
@@ -54,6 +55,9 @@ public:
 	void DrawScenePrompt();   // 에디터 UI 프레임 안에서 (확인 창)
 	bool IsScenePromptOpen() const { return (bool)m_PromptAction; }
 	void CancelScenePrompt() { m_PromptAction = nullptr; m_PromptDiscard = nullptr; }   // nova quit --force
+	// nova quit --force: 저장 확인 없이 닫는다 (한 번도 저장하지 않은 Untitled 씬은 DiscardChanges 로 되돌릴 파일이 없다)
+	void SetCloseWithoutPrompt() { m_CloseWithoutPrompt = true; }
+	bool CloseWithoutPrompt() const { return m_CloseWithoutPrompt; }
 
 	// 현재 씬 저장 (Ctrl+S / File > Save / Hierarchy 메뉴 공통). Play 모드에서는 저장하지 않는다 (Unity 와 동일).
 	bool SaveCurrentScene(bool saveAs = false);

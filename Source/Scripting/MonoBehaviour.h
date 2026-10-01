@@ -67,6 +67,8 @@ public:
 	virtual void OnTriggerEnter(Collider* other) {}
 	virtual void OnTriggerStay(Collider* other) {}
 	virtual void OnTriggerExit(Collider* other) {}
+	// Character Controller 가 Move 중 부딪혔을 때 (index = CharacterController::GetHits() 의 번호)
+	virtual void OnControllerColliderHit(const struct ControllerColliderHit& hit, int index) {}
 
 	// 100% Automated Inspector GUI
 	virtual void OnInspectorGUI() override;

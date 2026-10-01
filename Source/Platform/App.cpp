@@ -758,7 +758,7 @@ LRESULT App::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	{
 		static bool s_Confirmed = false;
 		SceneManager* sm = SceneManager::GetI();
-		if (!s_Confirmed && !Application::IsPlayer() && sm->GetCurrentScene() != nullptr)
+		if (!s_Confirmed && !sm->CloseWithoutPrompt() && !Application::IsPlayer() && sm->GetCurrentScene() != nullptr)
 		{
 			if (sm->IsScenePromptOpen())
 				return 0;   // 이미 묻는 중

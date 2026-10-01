@@ -26,6 +26,16 @@ namespace NovaEngine.Interop
         public ulong gameObject;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ControllerHitData
+    {
+        public Vector3 point;
+        public Vector3 normal;
+        public Vector3 moveDirection;
+        public float moveLength;
+        public ulong gameObject;
+    }
+
     // 네이티브(C++)가 채워 주는 함수 표. 순서와 시그니처는 Source/Scripting/ScriptBindings.cpp 의 NativeApiTable 과 반드시 같아야 한다.
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct NativeApiTable
@@ -138,6 +148,17 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int, float, float, void> PS_SetCurve;  // mode, min, max
         public delegate* unmanaged<ulong, int, Vector4*, Vector4*, int> PS_GetColor;  // → mode
         public delegate* unmanaged<ulong, int, int, Vector4*, Vector4*, void> PS_SetColor;
+
+        // Character Controller — float: 0 slopeLimit, 1 stepOffset, 2 skinWidth, 3 minMoveDistance, 4 radius, 5 height
+        //  vector: 0 velocity, 1 center / int: 0 collisionFlags, 1 isGrounded, 2 detectCollisions
+        public delegate* unmanaged<ulong, Vector3*, float, int, int> CC_Move;   // simple 1 = SimpleMove (→ isGrounded)
+        public delegate* unmanaged<ulong, int, float> CC_GetFloat;
+        public delegate* unmanaged<ulong, int, float, void> CC_SetFloat;
+        public delegate* unmanaged<ulong, int, Vector3*, void> CC_GetVector;
+        public delegate* unmanaged<ulong, int, Vector3*, void> CC_SetVector;
+        public delegate* unmanaged<ulong, int, int> CC_GetInt;
+        public delegate* unmanaged<ulong, int, int, void> CC_SetInt;
+        public delegate* unmanaged<ulong, int, ControllerHitData*, int> CC_GetHit;
     }
 
     internal static unsafe class Native

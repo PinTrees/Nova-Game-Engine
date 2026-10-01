@@ -31,6 +31,7 @@ namespace
 		{ "CapsuleCollider",     "Capsule Collider",      "Physics",       "capsule_collider",  false },
 		{ "MeshCollider",        "Mesh Collider",         "Physics",       "mesh_collider",     false },
 		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
+		{ "CharacterController", "Character Controller",  "Physics",       "capsule_collider",  true  },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Tree",                "Tree",                  "Miscellaneous", "terrain_trees",     true  },
 		{ "Rock",                "Rock",                  "Miscellaneous", "terrain_paint",     true  },
