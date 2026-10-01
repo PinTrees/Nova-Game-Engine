@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include "Profiler.h"
 
 // 간단한 구간 시간 재기 (개발용). NOVA_DEV_PROFILE=1 이면 120 프레임(또는 3 초)마다 구간별 프레임당 평균 ms 를 Editor.log 에 남긴다.
 //  사용: { FRAME_PROFILE("Hierarchy"); ... }  /  프레임 끝에서 FrameProfiler::EndFrame()
@@ -21,13 +22,24 @@ namespace FrameProfiler
 		return totals;
 	}
 
+	// 로그(NOVA_DEV_PROFILE) + Profiler 창 둘 다에 기록
 	struct Scope
 	{
 		std::string Name;
 		std::chrono::steady_clock::time_point Start;
-		explicit Scope(const std::string& name) : Name(Enabled() ? name : std::string()), Start(Enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point()) {}
+		bool Recorded = false;
+		explicit Scope(const std::string& name) : Name(Enabled() ? name : std::string()), Start(Enabled() ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point())
+		{
+			if (Profiler::Collecting())
+			{
+				Profiler::Begin(Profiler::Intern(name));
+				Recorded = true;
+			}
+		}
 		~Scope()
 		{
+			if (Recorded)
+				Profiler::End();
 			if (Enabled())
 				Totals()[Name] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
 		}

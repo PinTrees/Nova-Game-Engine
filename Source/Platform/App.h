@@ -50,6 +50,7 @@ protected:
 	bool InitMainWindow();
 	bool InitDirect3D();
 	void CalculateFrameStats();
+	void RecordProfilerStats();
 
 private:
 	void CreateDeviceAndSwapChain();

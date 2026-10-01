@@ -10,6 +10,7 @@
 #include "RenderManager.h"
 #include "SceneCulling.h"
 #include "RenderStats.h"
+#include "Profiler.h"
 #include <unordered_map>
 
 namespace
@@ -81,6 +82,8 @@ namespace MeshBatcher
 	{
 		if (scene == nullptr)
 			return;
+		PROFILE_SCOPE("MeshBatcher");
+		PROFILE_GPU("Mesh Renderers");
 
 		// ---- 모으기 (월드 행렬만 쌓는다)
 		for (auto& kv : s_Batches)

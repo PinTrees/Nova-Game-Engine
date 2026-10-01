@@ -25,6 +25,10 @@
 #include "ConsoleEditorWindow.h"
 #include "AnimatorEditorWindow.h"
 #include "NovaCodeWindow.h"
+#include "ProfilerEditorWindow.h"
+#include "MeshBatcher.h"
+#include "TreeRenderer.h"
+#include "RenderStats.h"
 #include "DisplayManager.h"
 #include "GameObjectFactory.h"
 #include "PhysicsSelfTest.h"
@@ -100,24 +104,27 @@ int32 App::Run()
 			if (!_appPaused || _deferredShow)   // 숨긴 채 첫 프레임을 준비하는 중에는 멈추지 않는다
 			{
 				CalculateFrameStats();
+				Profiler::BeginFrame();   // Profiler 창 (Window > Analysis > Profiler)
 
 				// Update
 				if (Application::ShouldUpdateGame())
 				{
 					FRAME_PROFILE("GameUpdate");
-					ScriptEngine::BeginFrame();   // C# 입력 상태 / 시간
-					UpdateScene(_timer.DeltaTime()); 
-					SceneManager::GetI()->UpdateScene(); 
-					PhysicsManager::GetI()->Update(_timer.DeltaTime()); 
+					{ PROFILE_SCOPE("Scripts.BeginFrame"); ScriptEngine::BeginFrame(); }   // C# 입력 상태 / 시간
+					{ PROFILE_SCOPE("Scene.Update"); UpdateScene(_timer.DeltaTime()); SceneManager::GetI()->UpdateScene(); }
+					{ PROFILE_SCOPE("Physics.Update"); PhysicsManager::GetI()->Update(_timer.DeltaTime()); }
 				}
 
 				// Editor Update
-				SceneViewManager::GetI()->Update();
-				EditorGUIManager::GetI()->Update();
-				AudioManager::Update();   // 리스너 위치, 일시정지, One Shot 정리, 통계
-				ScriptEngine::Update();   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
-				UISystem::Update();       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
-				ParticleSystem::UpdateAll();   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
+				{
+					PROFILE_SCOPE("EditorUpdate");
+					SceneViewManager::GetI()->Update();
+					EditorGUIManager::GetI()->Update();
+				}
+				{ PROFILE_SCOPE("Audio.Update"); AudioManager::Update(); }   // 리스너 위치, 일시정지, One Shot 정리, 통계
+				{ PROFILE_SCOPE("Scripts.Update"); ScriptEngine::Update(); }   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
+				{ PROFILE_SCOPE("UI.Update"); UISystem::Update(); }       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
+				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); }   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
 				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
 
 				// (개발/검증용) 입력 없이 확인할 때: NOVA_DEV_SELECT=<GameObject 이름>, NOVA_DEV_FILE=<프로젝트 기준 파일 경로> 를 시작 뒤 한 번 선택
@@ -154,10 +161,13 @@ int32 App::Run()
 
 				// OnPreCull, 렌더 직전 매트릭스 연산 등
 				
-				if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())   // 카메라가 없는 씬도 있다
-					activeCamera->ViewUpdate();
-				LightManager::GetI()->ViewUpdates();
-				LightManager::GetI()->EditorViewUpdates();
+				{
+					PROFILE_SCOPE("Camera/Light Update");
+					if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())   // 카메라가 없는 씬도 있다
+						activeCamera->ViewUpdate();
+					LightManager::GetI()->ViewUpdates();
+					LightManager::GetI()->EditorViewUpdates();
+				}
 				{
 					FRAME_PROFILE("CullingUpdate");
 					SceneCulling::Update(SceneManager::GetI()->GetCurrentScene());   // 절두체 컬링 옥트리 (움직인 렌더러만 다시 넣음)
@@ -177,14 +187,17 @@ int32 App::Run()
 				else
 				{
 					//Editor Render
-					EditorGUIManager::GetI()->RenderEditorWindows();
-					Undo::Update();   // Ctrl+Z / Ctrl+Y, 조작이 끝난 변경을 기록
+					{ PROFILE_SCOPE("Editor Windows"); EditorGUIManager::GetI()->RenderEditorWindows(); }
+					{ PROFILE_SCOPE("Undo"); Undo::Update(); }   // Ctrl+Z / Ctrl+Y, 조작이 끝난 변경을 기록
 				}
 
-				ImGui::Render(); 
-				ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
-
-				EditorGUIManager::GetI()->RenderAfter();
+				{
+					PROFILE_SCOPE("ImGui Render");
+					PROFILE_GPU("ImGui");
+					ImGui::Render(); 
+					ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
+					EditorGUIManager::GetI()->RenderAfter();
+				}
 
 				// Render End
 				{
@@ -206,8 +219,10 @@ int32 App::Run()
 				SceneManager::GetI()->GetCurrentScene()->LastFramUpdate();
 				SceneManager::GetI()->LastUpdate();
 
-				TaskSystem::ExecuteMainThreadTasks();
+				{ PROFILE_SCOPE("Main Thread Tasks"); TaskSystem::ExecuteMainThreadTasks(); }
 				FrameProfiler::EndFrame();
+				RecordProfilerStats();
+				Profiler::EndFrame();
 			}
 			else
 			{
@@ -274,6 +289,7 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new ConsoleEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
+	EditorGUIManager::GetI()->RegisterWindow(new ProfilerEditorWindow);   // Window > Analysis > Profiler (Ctrl+7)
 	}
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
@@ -457,6 +473,48 @@ void App::RenderApplication()
 
 }
  
+// Profiler 창의 프레임 통계 (이번 프레임에 그린 화면만)
+void App::RecordProfilerStats()
+{
+	if (!Profiler::Collecting())
+		return;
+	using Profiler::SetStat;
+	if (Profiler::CurrentFrameHas("GameView render"))
+	{
+		const RenderStats::Frame& rs = RenderStats::Last;
+		SetStat("Game View/Draw Calls", rs.DrawCalls);
+		SetStat("Game View/Saved by Batching", rs.SavedByBatching);
+		SetStat("Game View/Triangles", (double)rs.Triangles);
+		SetStat("Game View/Vertices", (double)rs.Vertices);
+		SetStat("Game View/Shadow Casters", rs.ShadowCasters);
+		const MeshBatcher::Stats& mb = MeshBatcher::LastStats(false);
+		SetStat("Game View/Mesh Renderers", mb.Objects);
+		SetStat("Game View/Mesh Batches", mb.Batches);
+		const SceneCulling::Stats& cs = SceneCulling::LastStats(false);
+		SetStat("Game View/Culling Visible", cs.Visible);
+		SetStat("Game View/Culling Total", cs.Objects);
+		const TreeRenderer::Stats& ts = TreeRenderer::LastStats(false);
+		SetStat("Game View/Trees", ts.Trees);
+		SetStat("Game View/Trees LOD0", ts.Lod0);
+		SetStat("Game View/Trees LOD1", ts.Lod1);
+		SetStat("Game View/Trees Billboard", ts.Billboards);
+		SetStat("Game View/Tree Draw Calls", ts.DrawCalls);
+	}
+	if (Profiler::CurrentFrameHas("SceneView render"))
+	{
+		const MeshBatcher::Stats& mb = MeshBatcher::LastStats(true);
+		SetStat("Scene View/Mesh Renderers", mb.Objects);
+		SetStat("Scene View/Mesh Batches", mb.Batches);
+		const SceneCulling::Stats& cs = SceneCulling::LastStats(true);
+		SetStat("Scene View/Culling Visible", cs.Visible);
+		SetStat("Scene View/Culling Total", cs.Objects);
+		SetStat("Scene View/Octree Nodes Visited", cs.NodesVisited);
+		const TreeRenderer::Stats& ts = TreeRenderer::LastStats(true);
+		SetStat("Scene View/Trees", ts.Trees);
+		SetStat("Scene View/Tree Draw Calls", ts.DrawCalls);
+	}
+}
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 LRESULT App::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)

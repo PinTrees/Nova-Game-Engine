@@ -19,6 +19,7 @@
 #include "SceneGrid.h"
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
+#include "Profiler.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
@@ -250,6 +251,9 @@ static ShadowRenderer::FrameData s_EditorShadow;
 void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
 {
 	FRAME_PROFILE("GameView render");
+	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
+	PROFILE_GPU("Game View");
+	Profiler::Phases phase;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
@@ -273,6 +277,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		const XMFLOAT3 gameCamPos = camera->GetPosition();
 		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
+		phase.Next("Shadows");
 		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
 			gameCamPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_GameShadow,
 			[]() {
@@ -286,6 +291,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	}
 
 	// PostProcessing - SSAO
+	phase.Next("Depth Prepass");
 	auto ssao = PostProcessingManager::GetI()->GetSSAO();
 	ssao->SetNormalDepthRenderTarget(viewDsv);
 
@@ -301,6 +307,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	_deviceContext->RSSetState(0);
 
 	// PostProcessing - SSAO
+	phase.Next("SSAO");
 	PostProcessingManager::GetI()->RenderSSAO(camera);
 
 	// Volume 후처리: 필요하면 씬을 HDR 타깃에 그린 뒤 마지막에 뷰 타깃으로 합성한다
@@ -313,6 +320,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
 	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
+	phase.Next("Opaque");
 	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
@@ -355,11 +363,13 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	// Background Type = Skybox 면 불투명 물체 다음(빈 곳 깊이 = 1)에 하늘을 그린다. 입자(투명)보다는 먼저.
 	if (camera->GetBackgroundType() == 0)
 	{
+		phase.Next("Sky");
 		_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
 		_deviceContext->RSSetState(0);
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
 
+	phase.Next("Particles");
 	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
 
@@ -371,6 +381,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 	if (usePost)
 	{
+		phase.Next("Post Processing");
 		post.Execute(stack, postOptions, renderTargetView);
 		// 이후 그리기(있다면)를 위해 원래 타깃과 뷰포트로 되돌린다
 		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
@@ -382,6 +393,9 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera)
 {
 	FRAME_PROFILE("SceneView render");
+	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
+	PROFILE_GPU("Scene View");
+	Profiler::Phases phase;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
@@ -402,6 +416,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	VolumeManager::Update(stack, Vec3(camPos.x, camPos.y, camPos.z));
 	{
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
+		phase.Next("Shadows");
 		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
 			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
 			[]() {
@@ -414,6 +429,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	}
 
 	// PostProcessing - SSAO
+	phase.Next("Depth Prepass");
 	auto ssao = PostProcessingManager::GetI()->_EditorGetSSAO();
 	ssao->SetNormalDepthRenderTarget(viewDsv);
 
@@ -428,6 +444,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	_deviceContext->RSSetState(0);
 
 	// PostProcessing - SSAO
+	phase.Next("SSAO");
 	PostProcessingManager::GetI()->_Editor_RenderSSAO(camera);
 
 	// Volume 후처리 (Scene 뷰: 툴바 Effects > Post Processing 이 켜져 있을 때, 카메라 옵션은 기본)
@@ -437,6 +454,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
 	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
+	phase.Next("Opaque");
 	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
@@ -480,15 +498,18 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	// 스카이박스 (툴바 Effects > Skybox). 꺼져 있으면 SceneViewOverlay 의 그라디언트가 비친다.
 	if (SceneToolbar::SkyboxVisible() && !RenderManager::GetI()->WireFrameMode)
 	{
+		phase.Next("Sky");
 		_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
 		_deviceContext->RSSetState(0);
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
 
 	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
+	phase.Next("Grid");
 	if (SceneToolbar::GridVisible())
 		SceneGrid::Draw(_deviceContext.Get(), camera->View() * camera->Proj(), camera->GetPosition());
 
+	phase.Next("Particles");
 	if (SceneToolbar::ParticlesVisible())
 		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
@@ -505,12 +526,14 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	if (usePost)
 	{
+		phase.Next("Post Processing");
 		post.Execute(stack, postOptions, renderTargetView);
 		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
 		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
 
+	phase.Next("UI");
 	// UI 캔버스: Unity 처럼 월드(1 픽셀 = 1 단위)에 놓인 사각형으로 (씬 깊이로 가려짐)
 	{
 		ID3D11RenderTargetView* uiTargets[1] = { renderTargetView };

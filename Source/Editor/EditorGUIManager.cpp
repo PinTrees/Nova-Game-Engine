@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "UndoSystem.h"
+#include "ProfilerEditorWindow.h"
 #include "FrameProfiler.h"
 #include "EditorGUIManager.h"
 #include "EngineInfo.h"
@@ -479,11 +480,21 @@ void EditorGUIManager::RenderEditorWindows()
         {
             for (auto& window : m_pEditorWindows)
             {
+                if (window->GetTitle() == "Profiler")
+                    continue;   // Analysis 아래
                 bool opened = window->GetIsOpened();
                 if (ImGui::MenuItem(window->GetTitle().c_str(), nullptr, &opened))
                 {
                     window->SetIsOpened(opened);
                 }
+            }
+            ImGui::Separator();
+            if (ImGui::BeginMenu("Analysis"))
+            {
+                if (EditorWindow* profiler = FindWindow("Profiler"))
+                    if (ImGui::MenuItem("Profiler", "Ctrl+7", profiler->GetIsOpened()))
+                        ProfilerEditorWindow::Toggle();
+                ImGui::EndMenu();
             }
             ImGui::EndMenu();
         }
@@ -603,6 +614,9 @@ void EditorGUIManager::RenderEditorWindows()
             if (io.KeyShift) BuildSettingsWindow::Open();
             else if (!Application::IsPlaying() && !BuildPipeline::IsRunning()) BuildSettingsWindow::BuildAndRun();
         }
+        // Ctrl+7 = Profiler (Unity 와 같은 단축키)
+        if (io.KeyCtrl && !io.KeyShift && !io.WantTextInput && !NovaCodeWindow::IsFocused() && ImGui::IsKeyPressed(ImGuiKey_7, false))
+            ProfilerEditorWindow::Toggle();
     }
 }
 

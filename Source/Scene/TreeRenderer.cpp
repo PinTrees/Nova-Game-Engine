@@ -8,6 +8,7 @@
 #include "Effects.h"
 #include "RenderManager.h"
 #include "UMaterial.h"
+#include "Profiler.h"
 #include <chrono>
 #include <map>
 #include <unordered_map>
@@ -485,6 +486,8 @@ namespace TreeRenderer
 
 	void DrawAll(Pass pass, bool editor)
 	{
+		PROFILE_SCOPE("Trees");
+		PROFILE_GPU("Trees");
 		const int passIndex = pass == Pass::Main ? kMain : (pass == Pass::Shadow ? kShadow : kNormalDepth);
 		TreeVars& v = Vars(passIndex);
 		if (!v.Valid() || !EnsureLayouts())

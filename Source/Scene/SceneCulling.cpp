@@ -366,6 +366,7 @@ namespace SceneCulling
 
 	void Cull(CXMMATRIX viewProj, bool shadowPass)
 	{
+		PROFILE_SCOPE("Culling");
 		++Stamp;
 		if (s_Nodes.empty())
 			return;
