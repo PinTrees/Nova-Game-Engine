@@ -15,8 +15,10 @@
 #include <vector>
 #include <codecvt>
 
-#define HR(p)	assert(SUCCEEDED(p))
-#define CHECK(p)	assert(SUCCEEDED(p))
+// 식 p 는 Release(NDEBUG, assert 가 사라짐)에서도 반드시 실행한다. 예전에는 assert(SUCCEEDED(p)) 라
+// Release 에서 D3DX11CreateEffectFromMemory·Present 같은 호출 자체가 빠졌다
+#define HR(p)	do { const HRESULT _novaHr = (p); assert(SUCCEEDED(_novaHr)); (void)_novaHr; } while (0)
+#define CHECK(p)	HR(p)
 
 #define DXGI_FORMAT_FROM_FILE ((DXGI_FORMAT)0xfffffffdu)
 

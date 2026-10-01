@@ -72,7 +72,9 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 	fs::path src(filename);
 	std::error_code ec;
 	fs::path cacheDir = fs::path(L"ShaderCache");
-	fs::path cacheFile = cacheDir / (src.stem().wstring() + L"_" + std::to_wstring(std::hash<std::wstring>{}(src.lexically_normal().wstring())) + L".fxo");
+	// 컴파일 플래그도 이름에 넣는다: Debug(최적화 끔)와 Release(최적화) 캐시가 서로 덮어쓰지 않게
+	fs::path cacheFile = cacheDir / (src.stem().wstring() + L"_" + std::to_wstring(std::hash<std::wstring>{}(src.lexically_normal().wstring())) +
+		L"_f" + std::to_wstring(shaderFlags) + L".fxo");
 
 	std::vector<std::wstring> deps;
 	uint64_t stamp = ComputeStamp(src, deps);

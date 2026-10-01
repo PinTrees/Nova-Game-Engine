@@ -81,6 +81,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 build.bat
 ```
 - CMake 로 `build/` 에 Visual Studio 솔루션을 만들고 Debug x64 로 컴파일합니다 (Debug 도 `/O2` 최적화).
+- `build.bat release` = Release (D3D 디버그 레이어 끔, 셰이더 최적화, `/Zi` 디버그 정보). 결과는 같은 `Binaries/NovaEngine.exe` 이고 마지막에 빌드한 구성이 남습니다. 성능을 잴 때와 게임을 빌드할 때는 Release 를 쓰세요 (물체 1600 개 씬: Debug 76 FPS → Release 364 FPS).
 - 결과: `Binaries/NovaEngine.exe`
 - `build.bat` 안의 `CMAKE_PATH` 는 Visual Studio 에 포함된 CMake 경로입니다. 설치 위치가 다르면 이 줄을 고쳐 주세요.
 - Visual Studio 에서 직접 열려면 `build/NovaEngine.sln` 을 사용합니다.
