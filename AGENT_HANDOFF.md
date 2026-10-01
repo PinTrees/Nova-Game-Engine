@@ -281,7 +281,7 @@
   - 설정: OpenGL `IsSupported` = true, `IsExperimental` = true → Preferences·Project Settings 목록에 "(experimental)", 에디터가 OpenGL 이면 안내 HelpBox. 환경 변수 NOVA_OPENGL_EXPERIMENTAL 은 이제 필요 없음.
   - CLI 추가: `nova wait [frames]`(백그라운드 에디터는 할 일이 없으면 멈춰 씬 불러오기가 끝나지 않았다), `nova window scene|game|…`(도킹 탭 선택 — **레이아웃 파일 Binaries/nova_layout_v2.ini 는 사용자 에디터와 공유**: 테스트로 Play 하면 Game 탭이 앞으로 저장되므로 끝에 `window scene` 으로 되돌린다).
   - 검사 스크립트(scratchpad): `gpu_run.ps1 [-OpenGL] -Commands …`(VRAM·로그 감시, 이상하면 그 에디터만 끔, `sleep N` 지원), `scenes.ps1 -Out 폴더 [-OpenGL]`(7 개 씬 찍기), `cmpall.py 폴더`(dx/ gl/ 비교 + 차이 그림), `play.ps1`, `capwin.ps1 -Exe -Png`(빌드한 게임 창 캡처).
-  - 따로 남긴 버그(작업 칩): Particles 씬을 Play→Stop 한 뒤 다른 씬을 Play 하면 모닥불 연기가 남음 (DX11 도 같음 — 엔진 쪽).
+  - 고친 버그(2026-10-02): Particles 씬을 Play→Stop 한 뒤 다른 씬을 Play 하면 모닥불 연기가 남음 (DX11 도 같음) — 원인은 `Scene::~Scene` 이 루트 오브젝트만 OnDestroy·delete 해 **자식 오브젝트가 새던 것**(그 컴포넌트가 ParticleSystem::All 등 전역 목록에 남아 그려짐). 이제 루트에서 내려가며 자손까지 모아 모두 OnDestroy 한 뒤 delete (Stop·씬 열기·되돌리기·Play 중 씬 전환 모두 이 경로). 확인: Particles Play→Stop→SampleScene Play 에서 살아 있는 입자 시스템 0 개, 다시 Particles 를 열면 8 개.
   - 남은 것: 지평선 1 px 점선 차이, GL 의 ImGui 뷰포트(창 밖으로 뺀 창), 스킨 메시가 있는 씬은 아직 GL 비교 안 함, 스트림 출력·UAV·버퍼 SRV(옛 예제만).
 
 **NOVA Hub 새 디자인 (2026-10-01)**: 사용자 요청 "노바 허브 UI 깔끔하게, 엔진 폰트·크기 키우고, 상단 앱바 아이콘(Unity Hub 처럼)".

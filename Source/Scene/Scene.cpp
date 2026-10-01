@@ -19,10 +19,28 @@ Scene::Scene()
 
 Scene::~Scene()
 {
-    for (const auto& g : m_VecRootGameObjects)
-        g->OnDestroy(); 
+    // 루트뿐 아니라 자손까지 모두 OnDestroy + delete.
+    // 예전에는 루트만 지워 자식 오브젝트가 남았다 — 자식의 컴포넌트(입자·빛 등)가 전역 목록에 그대로 남아
+    // Play→Stop 이나 씬 전환 뒤에도 그려졌다 (모닥불 연기가 다른 씬에 남던 문제).
+    // 루트에서 내려가며 모으므로 이 씬이 가진 오브젝트만, 한 번씩만 지운다.
+    std::vector<GameObject*> all;
+    std::function<void(GameObject*)> collect = [&](GameObject* g)
+    {
+        if (g == nullptr || std::find(all.begin(), all.end(), g) != all.end())
+            return;
+        all.push_back(g);
+        for (GameObject* child : g->GetChildren())
+            collect(child);
+    };
+    for (GameObject* g : m_VecRootGameObjects)
+        collect(g);
 
-	Safe_Delete_Vec(m_VecRootGameObjects);
+    // 먼저 모두 OnDestroy (컴포넌트가 다른 오브젝트를 볼 수 있으므로 지우기 전에), 그다음 delete
+    for (GameObject* g : all)
+        g->OnDestroy();
+    for (GameObject* g : all)
+        delete g;
+    m_VecRootGameObjects.clear();
     m_ArrGameObjects[0].clear();
 }
 
