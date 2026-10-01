@@ -4,6 +4,8 @@
 #include "ShaderCross.h"
 #include <dxcapi.h>
 #include <fstream>
+#include <regex>
+#include <set>
 #include <nlohmann/json.hpp>
 
 namespace
@@ -150,6 +152,53 @@ namespace
 		return s;
 	}
 
+	// SampleCmpLevelZero(그림자 PCF)는 SPIRV-Cross 가 textureGrad(그림자 샘플러, 좌표, 0, 0) 으로 옮긴다
+	// (GLSL 4.5 에는 sampler2DArrayShadow 용 textureLod 가 없어서). NVIDIA 에서 기울기를 주는 표본은 훨씬 느려
+	// GL 본 패스(PCF 루프)가 DX11 의 5~6 배였다. 그림자 맵은 밉이 하나라 texture() 와 결과가 같다 → 바꾼다
+	void FastShadowSamples(std::string& src)
+	{
+		std::set<std::string> shadow;   // sampler*Shadow 로 선언된 이름
+		{
+			static const std::regex decl(R"(uniform\s+sampler\w*Shadow\s+(\w+))");
+			for (std::sregex_iterator it(src.begin(), src.end(), decl), end; it != end; ++it)
+				shadow.insert((*it)[1]);
+		}
+		if (shadow.empty())
+			return;
+		const std::string key = "textureGrad(";
+		std::string out;
+		out.reserve(src.size());
+		size_t pos = 0;
+		for (size_t at; (at = src.find(key, pos)) != std::string::npos;)
+		{
+			// 맨 위 수준의 인자 나누기 (괄호 깊이)
+			const size_t open = at + key.size();
+			std::vector<std::string> args;
+			int depth = 0;
+			size_t start = open, i = open;
+			for (; i < src.size(); ++i)
+			{
+				const char c = src[i];
+				if (c == '(' || c == '[') ++depth;
+				else if ((c == ')' || c == ']') && depth > 0) --depth;
+				else if (c == ')' && depth == 0) { args.push_back(src.substr(start, i - start)); break; }
+				else if (c == ',' && depth == 0) { args.push_back(src.substr(start, i - start)); start = i + 1; }
+			}
+			auto trim = [](std::string s) { s.erase(0, s.find_first_not_of(' ')); s.erase(s.find_last_not_of(' ') + 1); return s; };
+			auto zero = [&](const std::string& a) { const std::string t = trim(a); return t == "vec2(0.0)" || t == "vec3(0.0)"; };
+			std::string sampler = args.empty() ? std::string() : trim(args[0]);
+			sampler = sampler.substr(0, sampler.find('['));
+			out.append(src, pos, at - pos);
+			if (i < src.size() && args.size() == 4 && zero(args[2]) && zero(args[3]) && shadow.count(sampler))
+				out += "texture(" + trim(args[0]) + ", " + trim(args[1]) + ")";
+			else
+				out.append(src, at, (i < src.size() ? i + 1 : src.size()) - at);
+			pos = i < src.size() ? i + 1 : src.size();
+		}
+		out.append(src, pos, std::string::npos);
+		src.swap(out);
+	}
+
 	std::string BlockName(spirv_cross::CompilerGLSL& glsl, const spirv_cross::Resource& r)
 	{
 		std::string name = glsl.get_name(r.id);
@@ -285,6 +334,7 @@ namespace
 			mapByName(res.storage_images, fx.Images, false);
 			mapByName(res.storage_buffers, fx.Buffers, true);
 			out.Glsl = glsl.compile();
+			FastShadowSamples(out.Glsl);
 			return true;
 		}
 		catch (const std::exception& e)
@@ -299,7 +349,7 @@ namespace
 {
 	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
 	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
-	constexpr int kCacheVersion = 3;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …)
+	constexpr int kCacheVersion = 4;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples)
 	using json = nlohmann::json;
 
 	uint64_t Fnv1a(const std::string& s)
