@@ -263,7 +263,7 @@ ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 
 // 물: 뷰 깊이 버퍼(읽기 전용 DSV + SRV)와 첫 방향광·하늘로 WaterRenderer 를 부른다
 void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
-	const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible)
+	const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, ShadowMap* shadowMap, const void* shadowFrame)
 {
 	if (dsv != _viewDepthView.Get() || !_viewDepthSRV || !_viewDepthReadOnly)
 		return;
@@ -279,6 +279,19 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, I
 	w.Viewport = viewport;
 	w.Sun = dirLights.empty() ? nullptr : &dirLights[0];
 	w.Sky = skyVisible && _sky ? _sky->CubeMapSRV().Get() : nullptr;
+	// 해(방향광 0)의 그림자: 물이 지형·나무 그림자를 받는다
+	const auto* frame = static_cast<const ShadowRenderer::FrameData*>(shadowFrame);
+	if (shadowMap && frame && frame->DirCount > 0 && !dirLights.empty())
+	{
+		w.SunShadow = shadowMap->DepthMapSRVArray(LightType::Directional)[0];
+		for (int c = 0; c < 4; ++c)
+		{
+			w.SunShadowTransforms[c] = frame->Dir[c];
+			w.CascadeSpheres[c] = frame->Spheres[c];
+		}
+		w.ShadowParams = frame->Params;
+		w.SunShadowData = frame->DirData[0];
+	}
 	WaterRenderer::Draw(w);
 	_deviceContext->OMSetRenderTargets(1, &target, dsv);
 	_deviceContext->RSSetViewports(1, &viewport);
@@ -415,7 +428,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 
 	// 물 (바다·호수·강): 불투명 + 하늘 다음 (굴절에 화면 색을 쓴다), 입자 전
 	phase.Next("Water");
-	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0);
+	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow);
 
 	phase.Next("Particles");
 	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
@@ -559,7 +572,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	// 물 (바다·호수·강)
 	phase.Next("Water");
 	if (!RenderManager::GetI()->WireFrameMode)
-		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible());
+		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow);
 
 	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
 	phase.Next("Grid");

@@ -45,7 +45,7 @@ private:
 	UINT _viewDepthW = 0, _viewDepthH = 0;
 	ID3D11DepthStencilView* ViewDepth(UINT width, UINT height);
 	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
-		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible);
+		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, class ShadowMap* shadowMap, const void* shadowFrame);
 
 	shared_ptr<class Mesh> _treeModel;
 	shared_ptr<class Mesh> _baseModel;

@@ -231,8 +231,10 @@
 - 부력 `Buoyancy`(`Source/Water/Buoyancy.*`): 같은 GameObject 의 RigidBody 에 FixedUpdate 마다 폰툰 5 개(Size 상자 바닥 네 모서리 + 가운데)의 잠긴 비율(수면 - 높이)/(월드 상자 높이)로 위로 m·g·Float Strength·2·sub/5(절반 잠기면 무게와 같음), 폰툰 속도(v + ω×r) - 흐름 × Flow Force 에 맞서는 저항, 잠긴 만큼 회전 저항. `NOVA_DEV_PROFILE=1` 이면 1 초마다 높이·수면·잠김·속력을 Editor.log 에.
 - 바다 영역 제한 `WaterShore`(`Source/Water/WaterShore.*`): 활성 지형 높이 지도(256², 지형 Revision 이 바뀔 때만) + 해수면별 바다 마스크 = 해수면 아래 칸 중 지도 가장자리·지형 밖과 4 방향으로 이어진 칸만 바다(BFS), 땅 칸은 1. 셰이더 `ClipOcean`(본 패스 + 깊이 패스 `DepthPS`)이 0 인 곳을 버리고, CPU `WaterBody::Sample`(바다)도 같은 마스크 → 부력·수중 판정이 내륙 웅덩이를 바다로 보지 않는다. 시험 씬에서 524 칸 제외(강 하구 옆 웅덩이).
 - 화면 공간 반사(SSR, `TraceReflection`): 반사 방향(아래로 꺾이면 수평 위로)으로 월드에서 0.5 m 부터 1.15 배씩 36 걸음 → 화면에 투영해 장면 깊이 앞→뒤로 넘어가는 순간 = 맞음(두께로 거르면 낮은 각도에서 언덕 속으로 들어간 광선을 놓쳐 거의 안 맞았다 — 색 디버그로 확인), 이분 탐색 5 번. 넘어간 깊이 차가 걸음 × 6 보다 크면 믿음을 줄이고(가려진 뒤쪽), 화면 가장자리·400 m 이상은 하늘 큐브맵으로 섞는다.
+- 물 그림자: `EditorApp::DrawWater` 가 화면별 그림자 결과(`s_GameShadow`/`s_EditorShadow`)에서 방향광 0 의 캐스케이드 맵(Texture2DArray)·행렬 4 개·구·Params·Strength 를 `WaterRenderer::View` 로 넘긴다. 셰이더 `SunShadowAt`(캐스케이드 선택 + 비교 샘플 6 번 PCF, Last Border 페이드)로 해 반사·SSS·거품의 해 빛을 가리고, 물속 산란 빛은 35 % 만 남기며, 코스틱은 바닥 위치에서 따로 가린다(수중 패스도). 주의: 그림자는 Volume 의 Shadows Max Distance 안에서만 (스크래치 프로젝트 기본 35 m — 물 시험 씬은 300 m 프로파일). MeshRenderer castShadows 는 0 = On, 1 = Off.
+- 물가 파도: 프로파일 `ShoreWaveHeight`(바다 0.25~1.1 m, 호수·강 0). 지형 높이 지도의 수심을 위상으로(마루 사이 수심 1.6 m, 1.3 rad/s) → 마루가 수심 등고선과 나란히 해안 쪽으로 밀려온다, 수심 8 m 부터 커지고 1.2 m 아래에서 사라짐, 큰 노이즈로 위상을 흔들어 줄이 끊김. 정점 변위(OceanVS) + 픽셀 법선 기울기(0.6 m 차분) + 수심 2.5 m 안의 마루 거품.
 - 측정(Release, 1080p Scene 뷰, 바다 + 호수 + 강 + 1 km 지형): 프레임 약 1.0 ms(950~1030 FPS). 생성기 지형 + 물 파기 0.6 초.
-- 미구현/다음: 물에 그림자 받기, 거품 시뮬레이션(쌓이고 사라지는 텍스처, 지금은 매 프레임 식), FFT 바다, 강 급류(경사에 따른 하얀 물살·물보라 입자), 물가 물결(해안으로 밀려오는 파도 방향), 수중 빛줄기, 물 상호작용(물체가 만드는 물결).
+- 미구현/다음: 거품 시뮬레이션(쌓이고 사라지는 텍스처, 지금은 매 프레임 식), FFT 바다, 강 급류(경사에 따른 하얀 물살·물보라 입자), 수중 빛줄기, 물 상호작용(물체가 만드는 물결).
 
 **숲: 인스턴싱 + LOD + Paint Trees (2026-10-01)**:
 - 구조: `TreeDesc`(`Source/Scene/TreeDesc.*`) = 나무 한 종류의 설정(모양 TreeParams + 수피·잎 색 + 바람 + LOD 거리 + Cast Shadows, Inspector·JSON·프리셋). `Tree` 컴포넌트는 TreeDesc 하나를 갖고, 지형(`TerrainData::TreePrototypes`)도 TreeDesc 목록을 갖는다. 그리기는 모두 `TreeRenderer`(`Source/Scene/TreeRenderer.*`)가 맡고 Scene 의 각 패스 끝에서 `TreeRenderer::DrawAll(pass, editor)` 한 번(본 패스·그림자·SSAO 깊이 × Game/Scene).

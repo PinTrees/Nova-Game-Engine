@@ -19,6 +19,12 @@ namespace WaterRenderer
 		D3D11_VIEWPORT Viewport = {};
 		const DirectionalLight* Sun = nullptr;
 		ID3D11ShaderResourceView* Sky = nullptr;            // 하늘 큐브맵 (반사)
+		// 첫 방향광(해)의 캐스케이드 그림자 (없으면 SunShadow = nullptr → 그림자 없음)
+		ID3D11ShaderResourceView* SunShadow = nullptr;      // Texture2DArray (캐스케이드 = 조각)
+		XMMATRIX SunShadowTransforms[4];
+		XMFLOAT4 CascadeSpheres[4] = {};
+		XMFLOAT4 ShadowParams = {};                         // x 캐스케이드 수, z 흐려지기 시작, w 1/폭
+		XMFLOAT4 SunShadowData = {};                        // x Strength, y 필터
 	};
 
 	void Draw(const View& view);

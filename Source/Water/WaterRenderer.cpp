@@ -388,6 +388,8 @@ namespace
 		var("gFoamParams")->AsVector()->SetFloatVector(F4(p.FoamAmount, p.ShoreFoam, p.FoamTiling, 0));
 		var("gLightParams")->AsVector()->SetFloatVector(F4(p.Smoothness, p.Reflection, p.Refraction, 0));
 		var("gCausticParams")->AsVector()->SetFloatVector(F4(p.Caustics, p.CausticsDepth, p.CausticsTiling, 0));
+		// 물가 파도: 높이, 마루 사이 수심(m), 위상 속도(rad/s)
+		var("gShoreWave")->AsVector()->SetFloatVector(F4(b.BodyType == WaterBody::Type::Ocean ? p.ShoreWaveHeight * b.WaveScale : 0.0f, 1.6f, 1.3f, 0));
 		var("gShoreRect")->AsVector()->SetFloatVector(&s_ShoreRect.x);
 		ID3D11ShaderResourceView* mask = b.BodyType == WaterBody::Type::Ocean ? OceanMaskSRV(Application::GetI()->GetDevice(), b.SurfaceY()) : nullptr;
 		var("gOceanMask")->AsShaderResource()->SetResource(mask);
@@ -494,6 +496,13 @@ namespace WaterRenderer
 		var("gFoamTex")->AsShaderResource()->SetResource(s_Foam.Get());
 		var("gCausticsTex")->AsShaderResource()->SetResource(s_Caustics.Get());
 		var("gShoreMap")->AsShaderResource()->SetResource(s_ShoreSRV.Get());
+		// 해 그림자
+		var("gSunShadow")->AsShaderResource()->SetResource(v.SunShadow);
+		var("gHasSunShadow")->AsScalar()->SetFloat(v.SunShadow && v.SunShadowData.x > 0.0f ? 1.0f : 0.0f);
+		var("gSunShadowTransforms")->AsMatrix()->SetMatrixArray(reinterpret_cast<const float*>(v.SunShadowTransforms), 0, 4);
+		var("gCascadeSpheres")->AsVector()->SetFloatVectorArray(&v.CascadeSpheres[0].x, 0, 4);
+		var("gShadowParams")->AsVector()->SetFloatVector(&v.ShadowParams.x);
+		var("gSunShadowData")->AsVector()->SetFloatVector(&v.SunShadowData.x);
 
 		// 2) 물 (깊이 읽기 전용)
 		dc->OMSetRenderTargets(1, &v.Target, v.DepthReadOnly);

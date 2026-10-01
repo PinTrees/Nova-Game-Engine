@@ -57,7 +57,7 @@ nlohmann::json WaterProfile::ToJson() const
 		{ "windSpeed", WindSpeed }, { "windDirection", WindDirection }, { "choppiness", Choppiness }, { "waveScale", WaveScale },
 		{ "minWavelength", MinWavelength }, { "maxWavelength", MaxWavelength }, { "spread", Spread }, { "waveCount", WaveCount }, { "seed", Seed },
 		{ "normalStrength", NormalStrength }, { "normalTiling", NormalTiling }, { "normalSpeed", NormalSpeed },
-		{ "foamAmount", FoamAmount }, { "shoreFoam", ShoreFoam }, { "foamTiling", FoamTiling },
+		{ "foamAmount", FoamAmount }, { "shoreFoam", ShoreFoam }, { "foamTiling", FoamTiling }, { "shoreWaveHeight", ShoreWaveHeight },
 		{ "smoothness", Smoothness }, { "reflection", Reflection }, { "refraction", Refraction },
 		{ "caustics", Caustics }, { "causticsDepth", CausticsDepth }, { "causticsTiling", CausticsTiling },
 		{ "flowSpeed", FlowSpeed } };
@@ -88,6 +88,7 @@ void WaterProfile::FromJson(const nlohmann::json& j)
 	FoamAmount = j.value("foamAmount", FoamAmount);
 	ShoreFoam = j.value("shoreFoam", ShoreFoam);
 	FoamTiling = j.value("foamTiling", FoamTiling);
+	ShoreWaveHeight = j.value("shoreWaveHeight", ShoreWaveHeight);
 	Smoothness = j.value("smoothness", Smoothness);
 	Reflection = j.value("reflection", Reflection);
 	Refraction = j.value("refraction", Refraction);

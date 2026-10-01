@@ -34,6 +34,7 @@
   "foamAmount": 0.5,
   "shoreFoam": 1.2,
   "foamTiling": 6.0,
+  "shoreWaveHeight": 0.6,
   "smoothness": 0.92,
   "reflection": 1.0,
   "refraction": 0.6,

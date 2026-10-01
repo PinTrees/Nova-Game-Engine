@@ -37,6 +37,7 @@ struct WaterProfile
 	float FoamAmount = 0.5f;          // 파도 마루(흰 물결)
 	float ShoreFoam = 1.2f;           // m. 물가 거품 띠 폭 (수심)
 	float FoamTiling = 6.0f;          // m
+	float ShoreWaveHeight = 0.0f;     // m. 바다: 해안으로 밀려와 부서지는 파도 (수심 8 m 부터)
 
 	// ---- 빛
 	float Smoothness = 0.92f;         // 해 반사 날카로움

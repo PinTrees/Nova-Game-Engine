@@ -28,7 +28,13 @@ cbuffer cbWaterFrame
     float gHasSky;
     float4x4 gInvViewProj;
     float gEyeUnder;         // 1 = 카메라가 이 물 아래 (수중)
-    float3 gPad0;
+    float gHasSunShadow;
+    float2 gPad0;
+    // 해(방향광 0) 캐스케이드 그림자 (32. InstancedBasic.fx 와 같은 방식)
+    float4x4 gSunShadowTransforms[4];
+    float4 gCascadeSpheres[4];
+    float4 gShadowParams;    // x 캐스케이드 수, z 흐려지기 시작 거리, w 1/폭
+    float4 gSunShadowData;   // x Strength, y 필터
 };
 
 cbuffer cbWaterBody
@@ -55,6 +61,7 @@ cbuffer cbWaterBody
     float4 gShoreRect;       // 지형 높이 지도 범위: minX, minZ, 1/폭, 1/깊이
     float gHasOceanMask;
     float3 gPad1;
+    float4 gShoreWave;       // 물가 파도: 높이(m), 마루 사이 수심(m), 위상 속도, 0
 };
 
 Texture2D gSceneColor;
@@ -66,6 +73,17 @@ Texture2D gFoamTex;
 Texture2D gCausticsTex;
 Texture2D<float> gShoreMap;
 Texture2D<float> gOceanMask;   // 바다: 1 = 열린 바다 쪽, 0 = 내륙 웅덩이 (바닷물 없음)
+Texture2DArray gSunShadow;
+
+SamplerComparisonState samShadow
+{
+    Filter = COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+    AddressU = BORDER;
+    AddressV = BORDER;
+    AddressW = BORDER;
+    BorderColor = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    ComparisonFunc = LESS_EQUAL;
+};
 
 SamplerState samWrap
 {
@@ -94,6 +112,38 @@ float3 SkyAmbient()
     return a;
 }
 
+// ---------------------------------------------------------------- 해 그림자 (1 = 빛, 0 = 그림자)
+float SunShadowAt(float3 posW)
+{
+    if (gHasSunShadow < 0.5f)
+        return 1.0f;
+    const int count = (int)gShadowParams.x;
+    int cascade = -1;
+    [unroll] for (int c = 3; c >= 0; --c)
+    {
+        const float3 d = posW - gCascadeSpheres[c].xyz;
+        if (c < count && dot(d, d) < gCascadeSpheres[c].w)
+            cascade = c;
+    }
+    if (cascade < 0)
+        return 1.0f;
+    const float3 coord = mul(float4(posW, 1.0f), gSunShadowTransforms[cascade]).xyz;
+    if (coord.z > 1.0f)
+        return 1.0f;
+    uint w, h, n;
+    gSunShadow.GetDimensions(w, h, n);
+    const float2 texel = 1.0f / float2(w, h);
+    // 물은 늘 2x2 PCF + 주변 4 곳 (부드럽게, 필터 설정과 무관하게 싸게)
+    float s = gSunShadow.SampleCmpLevelZero(samShadow, float3(coord.xy, cascade), coord.z).r * 2.0f;
+    s += gSunShadow.SampleCmpLevelZero(samShadow, float3(coord.xy + float2(1.5f, 0.5f) * texel, cascade), coord.z).r;
+    s += gSunShadow.SampleCmpLevelZero(samShadow, float3(coord.xy + float2(-1.5f, -0.5f) * texel, cascade), coord.z).r;
+    s += gSunShadow.SampleCmpLevelZero(samShadow, float3(coord.xy + float2(0.5f, -1.5f) * texel, cascade), coord.z).r;
+    s += gSunShadow.SampleCmpLevelZero(samShadow, float3(coord.xy + float2(-0.5f, 1.5f) * texel, cascade), coord.z).r;
+    s /= 6.0f;
+    const float fade = saturate((distance(posW, gEyePos) - gShadowParams.z) * gShadowParams.w);
+    return lerp(1.0f, lerp(s, 1.0f, fade), gSunShadowData.x);
+}
+
 // ---------------------------------------------------------------- 파도
 // 얕은 물: 파장의 1/4 보다 얕으면 줄어든다 (최소 15%)
 float ShoreDepthAt(float2 xz)
@@ -104,6 +154,22 @@ float ShoreDepthAt(float2 xz)
     if (any(uv < 0.0f) || any(uv > 1.0f))
         return 1e4f;
     return gSurfaceY - gShoreMap.SampleLevel(samClamp, uv, 0);
+}
+
+// 물가 파도: 수심을 위상으로 → 마루가 수심 등고선과 나란히, 시간이 갈수록 얕은 쪽(해안)으로 밀려온다.
+//  수심 8 m 부터 커지고 1 m 아래에서 부서져 사라진다. 노이즈로 위상을 흔들어 줄이 끊기게
+float ShoreWaveHeight(float2 xz, float depth, out float crest)
+{
+    crest = 0.0f;
+    if (gShoreWave.x <= 0.0f || depth >= 8.0f || depth <= 0.0f)
+        return 0.0f;
+    const float n = gFoamTex.SampleLevel(samWrap, xz / 90.0f, 0).r;
+    const float phase = depth * (2.0f * PI / gShoreWave.y) + gTime * gShoreWave.z + n * 4.0f;
+    const float s = 0.5f + 0.5f * sin(phase);
+    crest = s * s * s * s * s * s;
+    const float env = smoothstep(8.0f, 3.0f, depth) * smoothstep(0.0f, 1.2f, depth);
+    crest *= env;
+    return gShoreWave.x * crest;
 }
 
 float WaveAtten(float k, float depth)
@@ -200,7 +266,9 @@ VSOut OceanVS(float3 v : POSITION)
     coord = lerp(coord, floor(coord * 0.5f + 0.5f) * 2.0f, morph);
     const float2 xz = origin + coord * cell;
     const float depth = ShoreDepthAt(xz);
-    const float3 d = GerstnerDisplace(xz, cell * 4.0f, depth);
+    float3 d = GerstnerDisplace(xz, cell * 4.0f, depth);
+    float crest;
+    d.y += ShoreWaveHeight(xz, depth, crest);
     VSOut o;
     o.PosW = float3(xz.x + d.x, gSurfaceY + d.y, xz.y + d.z);
     o.PosH = mul(float4(o.PosW, 1.0f), gViewProj);
@@ -393,6 +461,16 @@ float4 WaterPS(VSOut pin) : SV_Target
         N = GerstnerNormal(pin.BaseXZ, footprint * 3.0f, pin.Depth, jac);
         detail = DetailNormal(pin.BaseXZ, dist);
     }
+    // 물가 파도의 기울기 (바다)
+    float shoreCrest = 0.0f;
+    if (gBodyType == 0 && gShoreWave.x > 0.0f && pin.Depth < 8.0f)
+    {
+        const float h0 = ShoreWaveHeight(pin.BaseXZ, pin.Depth, shoreCrest);
+        float cx, cz;
+        const float hx = ShoreWaveHeight(pin.BaseXZ + float2(0.6f, 0.0f), ShoreDepthAt(pin.BaseXZ + float2(0.6f, 0.0f)), cx);
+        const float hz = ShoreWaveHeight(pin.BaseXZ + float2(0.0f, 0.6f), ShoreDepthAt(pin.BaseXZ + float2(0.0f, 0.6f)), cz);
+        N = normalize(N + float3(-(hx - h0) / 0.6f, 0.0f, -(hz - h0) / 0.6f));
+    }
     N = normalize(N + detail);
     if (gEyeUnder > 0.5f && V.y < 0.0f)
         return UnderSurface(pin, N, V, dist);
@@ -422,7 +500,9 @@ float4 WaterPS(VSOut pin) : SV_Target
 
     // ---- 빛
     const float3 L = gSunDir;
-    const float3 sun = gSunColor * gSunIntensity;
+    const float shadow = SunShadowAt(pin.PosW);
+    const float3 sunFull = gSunColor * gSunIntensity;
+    const float3 sun = sunFull * shadow;
     const float3 ambient = SkyAmbient();
     const float NdotL = saturate(dot(N, L));
 
@@ -437,11 +517,12 @@ float4 WaterPS(VSOut pin) : SV_Target
             const float2 cuv = (floorW.xz + L.xz * vDepth) / max(gCausticParams.z, 0.1f);
             const float c1 = gCausticsTex.Sample(samWrap, cuv + gTime * float2(0.031f, 0.017f)).r;
             const float c2 = gCausticsTex.Sample(samWrap, cuv * 1.27f + float2(0.43f, 0.11f) - gTime * float2(0.021f, 0.029f)).r;
-            refr *= 1.0f + min(c1, c2) * 3.0f * gCausticParams.x * fadeC * saturate(L.y * 2.0f);
+            refr *= 1.0f + min(c1, c2) * 3.0f * gCausticParams.x * fadeC * saturate(L.y * 2.0f) * SunShadowAt(floorW);
         }
     }
     const float3 T = exp(-gSigma * path);
-    const float3 lightIn = sun * saturate(L.y) * 0.6f + ambient;
+    // 물속으로 흩어지는 빛: 그늘이 진 물도 주변에서 흩어져 온 빛이 조금 있다
+    const float3 lightIn = sunFull * saturate(L.y) * 0.6f * (0.35f + 0.65f * shadow) + ambient;
     const float3 scatter = gScatter * lightIn;
     float3 under = refr * T + scatter * (1.0f - T);
     // 탁도: 산란이 얕은 곳부터 바닥을 가린다
@@ -484,6 +565,8 @@ float4 WaterPS(VSOut pin) : SV_Target
         const float waves = 0.6f + 0.4f * sin(thick0 * 3.0f - gTime * 1.6f + foamTex * 3.0f);
         foam = max(foam, band * band * waves * smoothstep(0.25f, 0.6f, foamTex + band * 0.4f));
     }
+    // 물가 파도가 부서지는 마루 (얕을수록 하얗게)
+    foam = max(foam, shoreCrest * smoothstep(0.35f, 0.8f, foamTex + 0.2f) * smoothstep(2.5f, 0.9f, pin.Depth));
     if (gBodyType == 2)
     {
         const float rough = saturate(length(pin.Flow) / 3.0f);
@@ -546,7 +629,7 @@ float4 UnderwaterPS(FullOut pin) : SV_Target
         const float2 cuv = (floorW.xz + L.xz * fd) / max(gCausticParams.z, 0.1f);
         const float c1 = gCausticsTex.Sample(samWrap, cuv + gTime * float2(0.031f, 0.017f)).r;
         const float c2 = gCausticsTex.Sample(samWrap, cuv * 1.27f + float2(0.43f, 0.11f) - gTime * float2(0.021f, 0.029f)).r;
-        c *= 1.0f + min(c1, c2) * 3.0f * gCausticParams.x * saturate(1.0f - fd / max(gCausticParams.y * 2.0f, 0.1f)) * saturate(L.y * 2.0f);
+        c *= 1.0f + min(c1, c2) * 3.0f * gCausticParams.x * saturate(1.0f - fd / max(gCausticParams.y * 2.0f, 0.1f)) * saturate(L.y * 2.0f) * SunShadowAt(floorW);
     }
     c = lerp(c * T + waterCol * (1.0f - T), waterCol, murk);
     return float4(ToGamma(c), 1.0f);
