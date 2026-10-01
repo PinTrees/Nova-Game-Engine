@@ -608,6 +608,16 @@ void ParticleSystem::DrawModules()
 		if (EnumRow("Sort Mode", &sort, kSort, 4))
 			Sort = (SortMode)sort;
 		UnityGUI::Float("Sorting Fudge", &SortingFudge);
+		static const char* kLighting[] = { "Unlit", "Lit" };
+		int lighting = Lit ? 1 : 0;
+		if (EnumRow("Lighting", &lighting, kLighting, 2))
+			Lit = lighting == 1;
+		UnityGUI::Toggle("Soft Particles", &SoftParticles);
+		if (SoftParticles)
+		{
+			UnityGUI::Float("Soft Distance", &SoftDistance, 2);
+			SoftDistance = (std::max)(0.01f, SoftDistance);
+		}
 		ModuleEnd();
 	}
 

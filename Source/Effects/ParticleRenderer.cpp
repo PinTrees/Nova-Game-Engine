@@ -174,7 +174,7 @@ namespace ParticleRenderer
 	int LastDrawCalls() { return s_LastDrawCalls; }
 	int LastParticleCount() { return s_LastParticles; }
 
-	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv)
+	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv, const Environment* env)
 	{
 		s_LastDrawCalls = 0;
 		s_LastParticles = 0;
@@ -295,7 +295,9 @@ namespace ParticleRenderer
 		}
 
 		GfxRenderTargetView* rtvs[1] = { rtv };
-		ctx->OMSetRenderTargets(1, rtvs, dsv);
+		// Soft Particles 는 장면 깊이를 읽는다 → 같은 깊이의 읽기 전용 DSV 로 묶어야 SRV 와 같이 쓸 수 있다
+		const bool sceneDepth = env && env->DepthReadOnly && env->DepthSRV;
+		ctx->OMSetRenderTargets(1, rtvs, sceneDepth ? env->DepthReadOnly : dsv);
 		ctx->IASetInputLayout(s_Layout.Get());
 		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 		const UINT stride = sizeof(Instance), offset = 0;
@@ -309,6 +311,28 @@ namespace ParticleRenderer
 		fx->GetVariableByName("gCamRight")->AsVector()->SetFloatVector(&camRight.x);
 		fx->GetVariableByName("gCamUp")->AsVector()->SetFloatVector(&camUp.x);
 		fx->GetVariableByName("gCamPos")->AsVector()->SetFloatVector(&camPos.x);
+		// Lit · Soft Particles (시스템마다 켜고 끈다 — 아래 batch 에서 z / w)
+		XMFLOAT4 depthParams(proj._33, proj._43, 0.0f, sceneDepth ? 1.0f : 0.0f);
+		XMFLOAT4 sunDir(0.0f, -1.0f, 0.0f, 0.0f), sunColor(0.0f, 0.0f, 0.0f, 0.0f), indirect(1.0f, 1.0f, 1.0f, 0.0f);
+		if (env)
+		{
+			if (env->HasSun)
+			{
+				Vec3 d(env->SunDirection.x, env->SunDirection.y, env->SunDirection.z);
+				if (d.LengthSquared() > 1e-8f) d.Normalize();
+				sunDir = XMFLOAT4(d.x, d.y, d.z, 0.0f);
+				sunColor = XMFLOAT4(env->SunColor.x, env->SunColor.y, env->SunColor.z, 0.0f);
+			}
+			indirect = XMFLOAT4(env->Indirect.x, env->Indirect.y, env->Indirect.z, env->Sky ? 1.0f : 0.0f);
+		}
+		FxVar* depthParamsVar = fx->GetVariableByName("gDepthParams")->AsVector();
+		FxVar* sunDirVar = fx->GetVariableByName("gSunDir")->AsVector();
+		fx->GetVariableByName("gSunColor")->AsVector()->SetFloatVector(&sunColor.x);
+		fx->GetVariableByName("gIndirect")->AsVector()->SetFloatVector(&indirect.x);
+		FxVar* sceneDepthVar = fx->GetVariableByName("gSceneDepth")->AsShaderResource();
+		FxVar* skyVar = fx->GetVariableByName("gSky")->AsShaderResource();
+		sceneDepthVar->SetResource(sceneDepth ? env->DepthSRV : nullptr);
+		skyVar->SetResource(env ? env->Sky : nullptr);
 		FxVar* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
 		FxVar* modeVar = fx->GetVariableByName("gRenderMode")->AsScalar();
 		FxVar* speedVar = fx->GetVariableByName("gSpeedScale")->AsScalar();
@@ -330,6 +354,10 @@ namespace ParticleRenderer
 				ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				ctx->IASetVertexBuffers(0, 1, &tvb, &tstride, &toffset);
 				texVar->SetResource(ParticleTextures::Get(ps->TrailTexture));
+				depthParams.z = ps->SoftParticles ? (std::max)(0.01f, ps->SoftDistance) : 0.0f;
+				depthParamsVar->SetFloatVector(&depthParams.x);
+				sunDir.w = ps->Lit ? 1.0f : 0.0f;
+				sunDirVar->SetFloatVector(&sunDir.x);
 				(ps->Blend == ParticleSystem::BlendMode::Additive ? trailAddPass : trailAlphaPass)->Apply(0, ctx);
 				ctx->Draw(b.TrailCount, b.TrailStart);
 				++s_LastDrawCalls;
@@ -340,6 +368,10 @@ namespace ParticleRenderer
 			if (b.Count == 0)
 				continue;
 			texVar->SetResource(ParticleTextures::Get(ps->Texture));
+			depthParams.z = ps->SoftParticles ? (std::max)(0.01f, ps->SoftDistance) : 0.0f;
+			depthParamsVar->SetFloatVector(&depthParams.x);
+			sunDir.w = ps->Lit ? 1.0f : 0.0f;
+			sunDirVar->SetFloatVector(&sunDir.x);
 			modeVar->SetInt((int)ps->Render);
 			speedVar->SetFloat(ps->SpeedScale);
 			lengthVar->SetFloat(ps->LengthScale);
@@ -349,8 +381,12 @@ namespace ParticleRenderer
 			s_LastParticles += (int)b.Count;
 		}
 		texVar->SetResource(nullptr);
-		GfxShaderResourceView* nullSRV[1] = {};
-		ctx->PSSetShaderResources(0, 1, nullSRV);
+		sceneDepthVar->SetResource(nullptr);
+		skyVar->SetResource(nullptr);
+		GfxShaderResourceView* nullSRV[8] = {};
+		ctx->PSSetShaderResources(0, 8, nullSRV);   // 깊이 SRV 를 풀어야 다음 패스가 그 깊이에 쓸 수 있다
+		if (sceneDepth)
+			ctx->OMSetRenderTargets(1, rtvs, dsv);   // 쓰기 가능한 깊이로 되돌린다
 		ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 		ctx->OMSetDepthStencilState(nullptr, 0);
 		ctx->RSSetState(nullptr);

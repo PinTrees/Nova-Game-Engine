@@ -1046,7 +1046,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(ParticleSystem)
 		{ "inheritParticleColor", TrailInheritParticleColor }, { "colorOverLifetime", TrailColorOverLifetime }, { "widthOverTrail", TrailWidthOverTrail },
 		{ "colorOverTrail", TrailColorOverTrail }, { "texture", TrailTexture } };
 	j["renderer"] = { { "enabled", RendererEnabled }, { "renderMode", (int)Render }, { "speedScale", SpeedScale }, { "lengthScale", LengthScale },
-		{ "texture", Texture }, { "blendMode", (int)Blend }, { "sortMode", (int)Sort }, { "sortingFudge", SortingFudge } };
+		{ "texture", Texture }, { "blendMode", (int)Blend }, { "sortMode", (int)Sort }, { "sortingFudge", SortingFudge },
+		{ "lit", Lit }, { "softParticles", SoftParticles }, { "softDistance", SoftDistance } };
 	return j;
 }
 
@@ -1237,5 +1238,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(ParticleSystem)
 		Blend = (BlendMode)std::clamp(r.value("blendMode", 0), 0, 1);
 		Sort = (SortMode)std::clamp(r.value("sortMode", 0), 0, 3);
 		Read(r, "sortingFudge", SortingFudge);
+		Read(r, "lit", Lit);
+		Read(r, "softParticles", SoftParticles);
+		Read(r, "softDistance", SoftDistance);
 	}
 }

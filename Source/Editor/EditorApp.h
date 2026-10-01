@@ -8,6 +8,7 @@
 #include "Vertex.h"
 #include "Octree.h"
 #include "TextureMgr.h"
+#include "ParticleRenderer.h"
 
 class EditorApp : public App
 {
@@ -52,6 +53,8 @@ private:
 	// Volume 의 안개·대기 (불투명 + 하늘 다음 화면 전체 패스). 값을 돌려줘 물이 같은 값을 쓴다
 	void DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 		const D3D11_VIEWPORT& viewport, bool skyVisible);
+	// 입자의 Lit · Soft Particles 가 쓰는 장면 정보 (뷰 깊이 버퍼일 때만 깊이)
+	ParticleRenderer::Environment ParticleEnvironment(GfxDepthStencilView* dsv, const vector<DirectionalLight>& dirLights, const XMFLOAT4& indirect, bool skyVisible);
 
 	shared_ptr<class Mesh> _treeModel;
 	shared_ptr<class Mesh> _baseModel;

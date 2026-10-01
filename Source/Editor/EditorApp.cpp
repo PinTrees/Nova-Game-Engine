@@ -320,7 +320,7 @@ void EditorApp::DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMF
 }
 
 // Volume 의 Indirect Lighting → 하늘 환경광·반사 배율 (InstancedBasic 의 ShadeLit)
-static void ApplyIndirectLighting(const VolumeStack& stack)
+static XMFLOAT4 ApplyIndirectLighting(const VolumeStack& stack)
 {
 	XMFLOAT4 v(1.0f, 1.0f, 1.0f, 1.0f);
 	if (const VolumeComponent* c = stack.Get("IndirectLighting"))
@@ -331,6 +331,27 @@ static void ApplyIndirectLighting(const VolumeStack& stack)
 	}
 	if (auto* var = Effects::InstancedBasicFX->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 		var->SetFloatVector(&v.x);
+	return v;
+}
+
+// 입자의 Lit · Soft Particles 가 쓰는 장면 정보 (뷰 깊이, 해, 하늘, 환경광 배율)
+ParticleRenderer::Environment EditorApp::ParticleEnvironment(GfxDepthStencilView* dsv, const vector<DirectionalLight>& dirLights, const XMFLOAT4& indirect, bool skyVisible)
+{
+	ParticleRenderer::Environment env;
+	if (dsv == _viewDepthView.Get() && _viewDepthReadOnly && _viewDepthSRV)
+	{
+		env.DepthReadOnly = _viewDepthReadOnly.Get();
+		env.DepthSRV = _viewDepthSRV.Get();
+	}
+	env.Sky = skyVisible && _sky ? _sky->CubeMapSRV().Get() : nullptr;
+	env.Indirect = indirect;
+	if (!dirLights.empty())
+	{
+		env.HasSun = true;
+		env.SunDirection = dirLights[0].Direction;
+		env.SunColor = XMFLOAT3(dirLights[0].Diffuse.x, dirLights[0].Diffuse.y, dirLights[0].Diffuse.z);
+	}
+	return env;
 }
 
 // 화면별 그림자 결과 (그림자 패스 → 받는 쪽 셰이더)
@@ -433,7 +454,7 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
-	ApplyIndirectLighting(stack);
+	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
 
 	// lights
 	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
@@ -476,7 +497,10 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow, &atmosphere);
 
 	phase.Next("Particles");
-	ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+	{
+		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, camera->GetBackgroundType() == 0);
+		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
+	}
 	_deviceContext->RSSetViewports(1, &viewport);
 
 	_deviceContext->RSSetState(0);
@@ -582,7 +606,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
-	ApplyIndirectLighting(stack);
+	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
 
 	// lights
 	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
@@ -637,7 +661,10 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 
 	phase.Next("Particles");
 	if (SceneToolbar::ParticlesVisible())
-		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+	{
+		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, SceneToolbar::SkyboxVisible());
+		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
+	}
 	_deviceContext->RSSetViewports(1, &viewport);
 
 	// (디버그) 그림자 맵을 작은 화면으로 표시하던 DrawScreenQuad 는 제거함

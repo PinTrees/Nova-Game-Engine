@@ -169,6 +169,9 @@ public:
 	BlendMode Blend = BlendMode::AlphaBlended;
 	SortMode Sort = SortMode::None;
 	float SortingFudge = 0.0f;
+	bool Lit = false;              // Unity 의 Particles/Lit 재질: 해 + 하늘 환경광 (밤에 연기가 빛나 보이지 않게)
+	bool SoftParticles = false;    // 장면 표면과 가까울수록 투명하게 (바닥·벽과의 딱딱한 경계 없앰)
+	float SoftDistance = 1.0f;     // m: 이 거리 안에서 사라진다
 
 	// ---------------------------------------------------------------- 실행 중 상태
 	struct Particle

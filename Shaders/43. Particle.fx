@@ -4,6 +4,8 @@
 //  - Render Mode: 0 Billboard(카메라를 향함), 1 Stretched Billboard(속도 방향으로 늘림),
 //                 2 Horizontal Billboard(바닥에 눕힘), 3 Vertical Billboard(세로로 서서 카메라를 향함)
 //  - Blend: AlphaTech(알파 블렌딩), AdditiveTech(더하기). 깊이는 비교만 하고 쓰지 않는다.
+//  - Lit(Renderer > Lighting): 해(방향광 0) 반 램버트 + 하늘 환경광 → 밤에 연기가 빛나 보이지 않게
+//  - Soft Particles: 장면 깊이(읽기 전용 깊이 + SRV)와의 거리로 알파를 줄여 바닥·벽과 겹치는 딱딱한 경계를 없앤다
 //=============================================================================
 
 cbuffer cbParticles
@@ -15,9 +17,15 @@ cbuffer cbParticles
     float gLengthScale;
     float3 gCamPos;
     int gRenderMode;
+    float4 gDepthParams;    // x, y = 투영 _33, _43 (깊이 → 시야 거리), z = Soft 거리 (0 = 끔), w = 장면 깊이 있음 (1)
+    float4 gSunDir;         // xyz = 해가 비추는 방향 (방향광 Direction), w = Lit (1)
+    float4 gSunColor;       // rgb = 해 색·세기 (방향광 Diffuse)
+    float4 gIndirect;       // rgb = 환경광 배율 (Volume 의 Indirect Lighting), w = 하늘 있음 (1)
 };
 
 Texture2D gTexture;
+Texture2D gSceneDepth;      // 뷰 깊이 (Soft Particles)
+TextureCube gSky;           // 하늘 (Lit 의 환경광 = 가장 작은 밉)
 
 SamplerState samParticle
 {
@@ -42,6 +50,7 @@ struct VertexOut
     float4 PosH : SV_POSITION;
     float2 Tex : TEXCOORD;
     float4 Color : COLOR;
+    float3 PosW : TEXCOORD1;
 };
 
 VertexOut VS(InstanceIn vin)
@@ -91,12 +100,33 @@ VertexOut VS(InstanceIn vin)
     vout.PosH = mul(float4(world, 1.0f), gViewProj);
     vout.Tex = lerp(vin.UV.xy, vin.UV.zw, uv);
     vout.Color = vin.Color;
+    vout.PosW = world;
     return vout;
 }
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    return gTexture.Sample(samParticle, pin.Tex) * pin.Color;
+    float4 c = gTexture.Sample(samParticle, pin.Tex) * pin.Color;
+    // Lit: 카메라를 향한 면 기준 반 램버트(얇은 연기처럼 뒤에서 오는 빛도 조금) + 하늘 환경광
+    if (gSunDir.w > 0.5f)
+    {
+        const float3 n = normalize(gCamPos - pin.PosW);
+        const float hl = dot(n, -gSunDir.xyz) * 0.5f + 0.5f;
+        float3 ambient = float3(0.35f, 0.38f, 0.42f);
+        if (gIndirect.w > 0.5f)
+            ambient = gSky.SampleLevel(samParticle, float3(0.0f, 1.0f, 0.0f), 16.0f).rgb;   // 하늘의 평균 색 (가장 작은 밉)
+        const float3 light = ambient * gIndirect.rgb + gSunColor.rgb * hl;
+        c.rgb *= min(light, 2.0f);
+    }
+    // Soft Particles: 장면 표면까지의 시야 거리 차이로 알파 (Unity 의 Soft Particles Far Fade 처럼)
+    if (gDepthParams.z > 0.0f && gDepthParams.w > 0.5f)
+    {
+        const float d = gSceneDepth.Load(int3(pin.PosH.xy, 0)).r;
+        // 깊이 → 시야 거리 (원근 투영, 행 벡터): d = _33 + _43 / z → z = _43 / (d - _33). _33 > 1 이고 d <= 1 이라 분모는 늘 음수
+        const float sceneZ = gDepthParams.y / min(d - gDepthParams.x, -1e-7f);
+        c.a *= saturate((sceneZ - pin.PosH.w) / gDepthParams.z);
+    }
+    return c;
 }
 
 // Trails: CPU 가 만든 월드 공간 띠 (정점 = 위치, UV, 색)
@@ -113,6 +143,7 @@ VertexOut TrailVS(TrailIn vin)
     vout.PosH = mul(float4(vin.PosW, 1.0f), gViewProj);
     vout.Tex = vin.Tex;
     vout.Color = vin.Color;
+    vout.PosW = vin.PosW;
     return vout;
 }
 

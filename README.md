@@ -116,7 +116,7 @@ GPU 시간은 두 API 가 같거나 OpenGL 이 빠르고, 가벼운 씬에서 �
 | **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — Rigidbody, Box / Sphere / Capsule / Mesh / Terrain Collider(나무 포함), 트리거, 레이어 오버라이드, 레이캐스트, 충돌 콜백 |
 | **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프·전이·파라미터·Play 중 Live 표시) |
 | **UI (UGUI)** | Canvas · Canvas Scaler · Event System, Rect Transform, Image(Sliced / Filled), Text(한글), Button, Toggle, Slider, Input Field(한글 IME), Scroll View, Mask |
-| **파티클** | Unity Shuriken 모듈(Main, Emission, Shape, over Lifetime, Noise, Collision, Sub Emitters, Trails, Texture Sheet), 곡선·그라디언트 편집기, Scene 뷰 미리 재생, GPU 인스턴싱, C# `ParticleSystem` API |
+| **파티클** | Unity Shuriken 모듈(Main, Emission, Shape, over Lifetime, Noise, Collision, Sub Emitters, Trails, Texture Sheet), **Lit**(해·하늘 환경광) · **Soft Particles**(바닥·벽과 만나는 곳을 부드럽게), 곡선·그라디언트 편집기, Scene 뷰 미리 재생, GPU 인스턴싱, C# `ParticleSystem` API |
 | **오디오** | XAudio2 — Audio Source / Listener, 3D 감쇠, Loop·Pitch·Pan, WAV, 미리 듣기 |
 | **빌드** | Build Settings(씬 목록·순서) + Player Settings → 독립 실행 `<제품>.exe` + `<제품>_Data`(쓰는 에셋만), 그래픽 API 우선순위, C# `SceneManager.LoadScene` · `Application.Quit` |
 
@@ -172,6 +172,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** 로 설치(PATH 등록)합니다. 모�
 | | |
 |:---:|:---:|
 | <img src="docs/images/particles.webp" width="440"/><br/>파티클 (모닥불 · 불꽃 분수 · 마법 구슬) | <img src="docs/images/particles_fireworks.webp" width="440"/><br/>폭죽 (Sub Emitters · Trails · Bloom) |
+| <img src="docs/images/particles_soft_lit.webp" width="440"/><br/>Soft Particles · Lit (왼쪽 끔 / 오른쪽 켬) | |
 | <img src="docs/images/ui_editor.webp" width="440"/><br/>UI Button (Rect Transform · Inspector) | <img src="docs/images/ui_game.webp" width="440"/><br/>UI Play: 버튼 → 점수 · 체력 바 (C#) |
 | <img src="docs/images/physics.webp" width="440"/><br/>물리 (지형 위의 공) | <img src="docs/images/audio_source.webp" width="440"/><br/>Audio Source |
 | <img src="docs/images/nova_cli.webp" width="440"/><br/>NOVA CLI 명령만으로 만들고 찍은 장면 | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
