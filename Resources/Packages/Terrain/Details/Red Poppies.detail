@@ -1,0 +1,51 @@
+{
+  "name": "Red Poppies",
+  "shape": {
+    "type": 1,
+    "seed": 37,
+    "height": 0.45,
+    "radius": 0.12,
+    "blades": 5,
+    "bladeWidth": 0.02,
+    "bend": 0.35,
+    "lean": 0.35,
+    "heads": 2,
+    "petals": 5,
+    "headSize": 0.04
+  },
+  "minScale": 0.75,
+  "maxScale": 1.2,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.33,
+    0.52,
+    0.18
+  ],
+  "dryColor": [
+    0.62,
+    0.58,
+    0.3
+  ],
+  "flowerColor": [
+    0.88,
+    0.12,
+    0.08
+  ],
+  "centerColor": [
+    0.1,
+    0.08,
+    0.06
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.35,
+  "colorVariation": 0.15,
+  "tipColor": 0.25,
+  "translucency": 0.8,
+  "smoothness": 0.25,
+  "density": 1.2,
+  "maxSlope": 45.0,
+  "layerMask": 15,
+  "groundAlign": 0.15,
+  "windResponse": 1.0,
+  "castShadows": true
+}

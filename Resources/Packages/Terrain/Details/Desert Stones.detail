@@ -1,0 +1,51 @@
+{
+  "name": "Desert Stones",
+  "shape": {
+    "type": 2,
+    "seed": 53,
+    "height": 0.45,
+    "radius": 0.3,
+    "blades": 4,
+    "bladeWidth": 0.09,
+    "bend": 0.35,
+    "lean": 0.35,
+    "heads": 2,
+    "petals": 6,
+    "headSize": 0.035
+  },
+  "minScale": 0.6,
+  "maxScale": 1.5,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.62,
+    0.45,
+    0.32
+  ],
+  "dryColor": [
+    0.48,
+    0.34,
+    0.24
+  ],
+  "flowerColor": [
+    0.95,
+    0.82,
+    0.2
+  ],
+  "centerColor": [
+    0.55,
+    0.35,
+    0.1
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.5,
+  "colorVariation": 0.25,
+  "tipColor": 0.25,
+  "translucency": 0.6,
+  "smoothness": 0.15,
+  "density": 0.9,
+  "maxSlope": 60.0,
+  "layerMask": 15,
+  "groundAlign": 0.85,
+  "windResponse": 0.0,
+  "castShadows": true
+}

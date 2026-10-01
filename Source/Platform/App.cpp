@@ -30,6 +30,7 @@
 #include "MeshBatcher.h"
 #include "TreeRenderer.h"
 #include "RockRenderer.h"
+#include "DetailRenderer.h"
 #include "RenderStats.h"
 #include "DisplayManager.h"
 #include "GameObjectFactory.h"
@@ -240,6 +241,7 @@ int32 App::Run()
 				FrameProfiler::EndFrame();
 				RecordProfilerStats();
 				Profiler::EndFrame();
+				DevGpuProfileLog();
 			}
 			else
 			{
@@ -490,6 +492,59 @@ void App::RenderApplication()
 
 }
  
+// 개발용: NOVA_DEV_GPUPROFILE 이 있으면 Profiler 를 켜 두고 4 초마다 최근 60 프레임의 GPU 구간 평균(깊이 3 까지)을 Editor.log 에
+//  (Profiler 창을 띄우지 않는 자동 검사에서 기능별 GPU 비용을 재기 위함)
+void App::DevGpuProfileLog()
+{
+	static const bool s_On = ::GetEnvironmentVariableA("NOVA_DEV_GPUPROFILE", nullptr, 0) > 0;
+	if (!s_On)
+		return;
+	Profiler::SetCollecting(true);
+	static uint64_t s_Frames = 0;
+	if (++s_Frames % 240 != 0)
+		return;
+	const auto& history = Profiler::History();
+	std::map<std::string, std::pair<double, int>> sums;
+	std::map<std::string, std::pair<double, double>> work;   // 삼각형 / 픽셀 (프레임 평균)
+	double frameSum = 0.0;
+	int frames = 0;
+	for (auto it = history.rbegin(); it != history.rend() && frames < 60; ++it)
+	{
+		if (it->GpuMs < 0.0f)
+			continue;
+		++frames;
+		frameSum += it->GpuMs;
+		for (const Profiler::GpuSample& g : it->Gpu)
+			if (g.Depth <= 3)
+			{
+				const std::string key = std::string(g.Depth, '.') + g.Name;
+				auto& s = sums[key];
+				s.first += g.Ms;
+				++s.second;
+				auto& w = work[key];
+				w.first += (double)g.Primitives;
+				w.second += (double)g.Pixels;
+			}
+	}
+	if (frames == 0)
+		return;
+	std::string line;
+	for (const auto& [name, s] : sums)
+	{
+		const double ms = s.first / frames;
+		if (ms < 0.05)
+			continue;
+		char buf[160];
+		const auto& w = work[name];
+		if (w.first > 0.0)
+			snprintf(buf, sizeof(buf), " %s=%.2f(%.0fk tri %.0fk px)", name.c_str(), ms, w.first / frames / 1000.0, w.second / frames / 1000.0);
+		else
+			snprintf(buf, sizeof(buf), " %s=%.2f", name.c_str(), ms);
+		line += buf;
+	}
+	EditorLog::Write("GpuProfile", "%d frames, gpu %.2f ms:%s", frames, frameSum / frames, line.c_str());
+}
+
 // Profiler 창의 프레임 통계 (이번 프레임에 그린 화면만)
 void App::RecordProfilerStats()
 {
@@ -519,6 +574,9 @@ void App::RecordProfilerStats()
 		const RockRenderer::Stats& rks = RockRenderer::LastStats(false);
 		SetStat("Game View/Rocks", rks.Rocks);
 		SetStat("Game View/Rock Draw Calls", rks.DrawCalls);
+		const DetailRenderer::Stats& ds = DetailRenderer::LastStats(false);
+		SetStat("Game View/Details", ds.Instances);
+		SetStat("Game View/Detail Draw Calls", ds.DrawCalls);
 	}
 	if (Profiler::CurrentFrameHas("SceneView render"))
 	{
@@ -541,6 +599,10 @@ void App::RecordProfilerStats()
 		SetStat("Scene View/Rocks LOD1", rks.Lod1);
 		SetStat("Scene View/Rocks LOD2", rks.Lod2);
 		SetStat("Scene View/Rock Draw Calls", rks.DrawCalls);
+		const DetailRenderer::Stats& ds = DetailRenderer::LastStats(true);
+		SetStat("Scene View/Details", ds.Instances);
+		SetStat("Scene View/Detail Chunks", ds.Chunks);
+		SetStat("Scene View/Detail Draw Calls", ds.DrawCalls);
 	}
 }
 

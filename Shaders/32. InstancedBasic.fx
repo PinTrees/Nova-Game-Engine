@@ -1209,3 +1209,135 @@ technique11 RockTech
         SetDepthStencilState(RockDepthEqual, 0);
     }
 }
+
+
+// =============================================================================
+// 지형 디테일: 풀·꽃·작은 돌 (48. DetailCommon.fx, DetailRenderer 가 인스턴싱으로 그린다)
+// =============================================================================
+#include "48. DetailCommon.fx"
+
+struct DetailVertexOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION0;
+    float3 PosL : POSITION1;
+    float3 NormalW : NORMAL0;
+    float3 GroundN : NORMAL1;
+    float2 UV : TEXCOORD0;
+    float4 SsaoPosH : TEXCOORD1;
+    nointerpolation float4 Data : TEXCOORD2;   // y = 부위, z = 잎 난수
+    float AO : TEXCOORD3;
+    float Tint : TEXCOORD4;
+};
+
+DetailVertexOut DetailVS(DetailVertexIn vin, DetailInstanceIn inst)
+{
+    DetailVertexOut vout;
+    float3 normalW;
+    float fade;
+    // precise: 깊이 사전 패스(SsaoNormalDepth)와 비트까지 같은 깊이여야 EQUAL 검사가 맞는다
+    precise float3 posW = DetailWorldPos(vin, inst, normalW, fade);
+    vout.PosW = posW;
+    vout.PosL = vin.PosL;
+    vout.NormalW = normalW;
+    vout.GroundN = inst.Ground.xyz;
+    vout.UV = vin.UV;
+    vout.Data = vin.Data;
+    vout.AO = vin.Data.w;
+    vout.Tint = inst.Scale.z;
+    precise float4 posH = mul(float4(posW, 1.0f), gViewProj);
+    vout.PosH = posH;
+    vout.SsaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
+    return vout;
+}
+
+float4 DetailPS(DetailVertexOut pin) : SV_Target
+{
+    const int part = (int)round(pin.Data.y);
+    const float3 toEye = gEyePosW - pin.PosW;
+    const float distToEye = length(toEye);
+    const float3 V = toEye / max(distToEye, 0.0001f);
+    const float variation = (pin.Tint - 0.5f) * 2.0f * gDetailFlower.a;
+
+    // 넓은 얼룩: 건강한 색 ↔ 마른 색 (Unity 의 Healthy / Dry Color + Noise Spread)
+    const float2 q = pin.PosW.xz * gDetailDry.a;
+    const float patch = DetailNoise(q) * 0.65f + DetailNoise(q * 3.1f + 5.3f) * 0.35f;
+    const float dry = smoothstep(0.35f, 0.8f, patch) * gDetailHealthy.a;
+
+    LitSurface surf;
+    surf.Metallic = 0.0f;
+    surf.Smoothness = gDetailParams.y;
+    surf.Emission = float3(0, 0, 0);
+    surf.Transmission = float3(0, 0, 0);
+    surf.Highlights = true;
+    surf.Reflections = false;
+    surf.ReceiveShadows = true;
+    float3 N = normalize(pin.NormalW);
+    const float3 G = normalize(pin.GroundN);
+    // 잎·꽃잎은 양면: 지면 쪽(위) 반구를 보게 돌린 뒤 지면 법선과 섞는다
+    //  (뒷면을 그냥 뒤집어 섞으면 아래를 보는 법선 + 위 = 0 벡터 → NaN 검은 점)
+    if (part != 3 && dot(N, G) < 0.0f)
+        N = -N;
+
+    if (part == 3)
+    {
+        // 돌: 물체 공간 얼룩 + 변화 색, 땅에 닿는 곳 어둡게
+        const float spot = DetailNoise(pin.PosL.xz * 23.0f + pin.Data.z * 17.0f) * 0.6f + DetailNoise(pin.PosL.xy * 51.0f) * 0.4f;
+        float3 c = lerp(ToLinear(gDetailHealthy.rgb), ToLinear(gDetailDry.rgb), saturate(spot * 1.2f - 0.2f) * (0.4f + gDetailHealthy.a));
+        c *= lerp(0.75f, 1.15f, pin.Data.z) * (1.0f + variation * 0.6f);
+        surf.Albedo = c;
+        surf.Occlusion = pin.AO;
+        surf.Reflections = true;
+    }
+    else if (part == 1 || part == 2)
+    {
+        // 꽃잎 (끝이 밝게) / 꽃 가운데
+        float3 c = part == 1 ? ToLinear(gDetailFlower.rgb) * lerp(0.75f, 1.08f, pin.UV.y) : ToLinear(gDetailCenter.rgb);
+        c *= 1.0f + variation * 0.5f + (pin.Data.z - 0.5f) * 0.15f;
+        surf.Albedo = c;
+        surf.Occlusion = pin.AO;
+        surf.Transmission = part == 1 ? c * gDetailParams.x * 1.2f : float3(0, 0, 0);
+        N = normalize(lerp(N, G, 0.35f));
+    }
+    else
+    {
+        // 잎 / 줄기: 뿌리 쪽 어둡게(덩어리 속 그늘), 끝으로 갈수록 밝고 마른 색, 잎마다 조금씩 다르게
+        float3 c = lerp(ToLinear(gDetailHealthy.rgb), ToLinear(gDetailDry.rgb), saturate(dry + (pin.Data.z - 0.5f) * 0.25f));
+        c *= 1.0f + variation + (pin.Data.z - 0.5f) * 0.2f;
+        c = lerp(c, ToLinear(gDetailDry.rgb) * 1.1f, pow(saturate(pin.UV.y), 3.0f) * gDetailCenter.a);
+        if (part == 4)
+            c *= 0.8f;
+        surf.Albedo = c;
+        // 덩어리 속은 하늘이 덜 보인다 (뿌리 쪽 AO)
+        surf.Occlusion = pin.AO * lerp(0.22f, 1.0f, smoothstep(0.0f, 0.8f, pin.UV.y));
+        surf.Transmission = c * gDetailParams.x * 0.7f;
+        // 잎 법선을 지면 쪽으로 굽혀 들판이 한 덩어리로 부드럽게 빛을 받게 (멀수록 더)
+        const float soften = lerp(0.45f, 0.85f, saturate(distToEye / max(gDetailCam.w, 1.0f) * 1.5f));
+        N = normalize(lerp(N, G, soften));
+    }
+    return FinishLit(ShadeLit(surf, pin.PosW, N, V, pin.SsaoPosH), 1.0f, distToEye);
+}
+
+RasterizerState DetailCullNone
+{
+    CullMode = None;
+};
+
+DepthStencilState DetailDepthEqual
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ZERO;
+    DepthFunc = EQUAL;
+};
+
+technique11 DetailTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, DetailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, DetailPS()));
+        SetDepthStencilState(DetailDepthEqual, 0);
+        SetRasterizerState(DetailCullNone);
+    }
+}

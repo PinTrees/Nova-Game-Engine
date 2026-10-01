@@ -1,0 +1,51 @@
+{
+  "name": "Yellow Wildflowers",
+  "shape": {
+    "type": 1,
+    "seed": 23,
+    "height": 0.38,
+    "radius": 0.14,
+    "blades": 6,
+    "bladeWidth": 0.02,
+    "bend": 0.35,
+    "lean": 0.35,
+    "heads": 3,
+    "petals": 7,
+    "headSize": 0.03
+  },
+  "minScale": 0.75,
+  "maxScale": 1.2,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.33,
+    0.52,
+    0.18
+  ],
+  "dryColor": [
+    0.62,
+    0.58,
+    0.3
+  ],
+  "flowerColor": [
+    0.98,
+    0.8,
+    0.12
+  ],
+  "centerColor": [
+    0.7,
+    0.45,
+    0.08
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.35,
+  "colorVariation": 0.15,
+  "tipColor": 0.25,
+  "translucency": 0.7,
+  "smoothness": 0.25,
+  "density": 2.0,
+  "maxSlope": 45.0,
+  "layerMask": 15,
+  "groundAlign": 0.15,
+  "windResponse": 1.0,
+  "castShadows": true
+}

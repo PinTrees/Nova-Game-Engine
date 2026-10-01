@@ -1,0 +1,51 @@
+{
+  "name": "Tall Grass",
+  "shape": {
+    "type": 0,
+    "seed": 11,
+    "height": 1.0,
+    "radius": 0.22,
+    "blades": 16,
+    "bladeWidth": 0.022,
+    "bend": 0.7,
+    "lean": 0.25,
+    "heads": 2,
+    "petals": 6,
+    "headSize": 0.035
+  },
+  "minScale": 0.7,
+  "maxScale": 1.25,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.38,
+    0.52,
+    0.18
+  ],
+  "dryColor": [
+    0.72,
+    0.64,
+    0.34
+  ],
+  "flowerColor": [
+    0.95,
+    0.82,
+    0.2
+  ],
+  "centerColor": [
+    0.55,
+    0.35,
+    0.1
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.45,
+  "colorVariation": 0.15,
+  "tipColor": 0.45,
+  "translucency": 0.6,
+  "smoothness": 0.25,
+  "density": 5.0,
+  "maxSlope": 45.0,
+  "layerMask": 15,
+  "groundAlign": 0.15,
+  "windResponse": 1.0,
+  "castShadows": true
+}

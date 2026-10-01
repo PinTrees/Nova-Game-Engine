@@ -51,6 +51,7 @@ protected:
 	bool InitDirect3D();
 	void CalculateFrameStats();
 	void RecordProfilerStats();
+	void DevGpuProfileLog();
 
 private:
 	void CreateDeviceAndSwapChain();

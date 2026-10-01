@@ -427,3 +427,52 @@ technique11 RockNormalDepthTech
         SetPixelShader(CompileShader(ps_5_0, RockNormalDepthPS()));
     }
 }
+
+
+// ---- 지형 디테일 (48. DetailCommon.fx)
+#include "48. DetailCommon.fx"
+
+struct DetailNormalDepthOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosV : POSITION;
+    float3 NormalV : NORMAL;
+};
+
+DetailNormalDepthOut DetailNormalDepthVS(DetailVertexIn vin, DetailInstanceIn inst)
+{
+    DetailNormalDepthOut vout;
+    float3 normalW;
+    float fade;
+    precise float3 posW = DetailWorldPos(vin, inst, normalW, fade);
+    // 잎은 SSAO 가 잎 한 장 한 장을 어둡게 하지 않게 지면 쪽 법선으로
+    if (vin.Data.y < 0.5f || vin.Data.y > 3.5f)
+        normalW = normalize(lerp(normalW, inst.Ground.xyz, 0.7f));
+    vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
+    vout.NormalV = mul(normalW, (float3x3) gView);
+    precise float4 posH = mul(float4(posW, 1.0f), gWorldViewProj);
+    vout.PosH = posH;
+    return vout;
+}
+
+float4 DetailNormalDepthPS(DetailNormalDepthOut pin) : SV_Target
+{
+    const float3 n = normalize(pin.NormalV);
+    return float4(dot(n, pin.PosV) > 0.0f ? -n : n, pin.PosV.z);   // 카메라 쪽을 보게 (양면)
+}
+
+RasterizerState DetailNormalDepthCullNone
+{
+    CullMode = None;
+};
+
+technique11 DetailNormalDepthTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, DetailNormalDepthVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, DetailNormalDepthPS()));
+        SetRasterizerState(DetailNormalDepthCullNone);
+    }
+}

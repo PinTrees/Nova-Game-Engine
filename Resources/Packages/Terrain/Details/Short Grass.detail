@@ -1,0 +1,51 @@
+{
+  "name": "Short Grass",
+  "shape": {
+    "type": 0,
+    "seed": 7,
+    "height": 0.16,
+    "radius": 0.12,
+    "blades": 12,
+    "bladeWidth": 0.014,
+    "bend": 0.3,
+    "lean": 0.45,
+    "heads": 2,
+    "petals": 6,
+    "headSize": 0.035
+  },
+  "minScale": 0.7,
+  "maxScale": 1.15,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.32,
+    0.5,
+    0.17
+  ],
+  "dryColor": [
+    0.55,
+    0.55,
+    0.26
+  ],
+  "flowerColor": [
+    0.95,
+    0.82,
+    0.2
+  ],
+  "centerColor": [
+    0.55,
+    0.35,
+    0.1
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.35,
+  "colorVariation": 0.15,
+  "tipColor": 0.25,
+  "translucency": 0.6,
+  "smoothness": 0.25,
+  "density": 14.0,
+  "maxSlope": 45.0,
+  "layerMask": 15,
+  "groundAlign": 0.15,
+  "windResponse": 1.0,
+  "castShadows": false
+}

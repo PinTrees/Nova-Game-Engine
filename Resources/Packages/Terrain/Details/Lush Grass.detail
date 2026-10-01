@@ -1,0 +1,51 @@
+{
+  "name": "Lush Grass",
+  "shape": {
+    "type": 0,
+    "seed": 5,
+    "height": 0.55,
+    "radius": 0.2,
+    "blades": 18,
+    "bladeWidth": 0.024,
+    "bend": 0.5,
+    "lean": 0.3,
+    "heads": 2,
+    "petals": 6,
+    "headSize": 0.035
+  },
+  "minScale": 0.75,
+  "maxScale": 1.2,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.24,
+    0.46,
+    0.12
+  ],
+  "dryColor": [
+    0.45,
+    0.55,
+    0.2
+  ],
+  "flowerColor": [
+    0.95,
+    0.82,
+    0.2
+  ],
+  "centerColor": [
+    0.55,
+    0.35,
+    0.1
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.2,
+  "colorVariation": 0.15,
+  "tipColor": 0.15,
+  "translucency": 0.6,
+  "smoothness": 0.25,
+  "density": 10.0,
+  "maxSlope": 45.0,
+  "layerMask": 15,
+  "groundAlign": 0.15,
+  "windResponse": 1.0,
+  "castShadows": true
+}

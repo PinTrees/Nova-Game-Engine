@@ -6,6 +6,7 @@
 #include "Tree.h"
 #include "TreeRenderer.h"
 #include "RockRenderer.h"
+#include "DetailRenderer.h"
 #include "SceneCulling.h"
 #include "MeshBatcher.h"
 
@@ -107,6 +108,7 @@ void Scene::RenderScene()
     // 나무 (Tree 컴포넌트 + 지형 나무): 인스턴싱 + LOD
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, false);
     RockRenderer::DrawAll(RockRenderer::Pass::Main, false);   // 바위: 인스턴싱 + LOD
+    DetailRenderer::DrawAll(DetailRenderer::Pass::Main, false);
 }
 
 void Scene::RenderSceneShadow()
@@ -120,6 +122,7 @@ void Scene::RenderSceneShadow()
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
     RockRenderer::DrawAll(RockRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
+    DetailRenderer::DrawAll(DetailRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
 }
 
 void Scene::RenderSceneShadowNormal()
@@ -133,6 +136,7 @@ void Scene::RenderSceneShadowNormal()
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, false);
     RockRenderer::DrawAll(RockRenderer::Pass::NormalDepth, false);
+    DetailRenderer::DrawAll(DetailRenderer::Pass::NormalDepth, false);
 }
 
 void Scene::_Editor_RenderScene()
@@ -146,6 +150,7 @@ void Scene::_Editor_RenderScene()
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, true);
     RockRenderer::DrawAll(RockRenderer::Pass::Main, true);
+    DetailRenderer::DrawAll(DetailRenderer::Pass::Main, true);
 }
 
 void Scene::_Editor_RenderSceneShadowNormal()
@@ -159,6 +164,7 @@ void Scene::_Editor_RenderSceneShadowNormal()
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, true);
     RockRenderer::DrawAll(RockRenderer::Pass::NormalDepth, true);
+    DetailRenderer::DrawAll(DetailRenderer::Pass::NormalDepth, true);
 }
 
 void Scene::RenderSceneGizmos()

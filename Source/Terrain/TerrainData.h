@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include "TreeDesc.h"
+#include "DetailPrototype.h"
 #include "TerrainGenSettings.h"
 
 // Unity 의 TerrainLayer 에셋 (.terrainlayer, JSON): 지형에 칠하는 텍스처 한 장과 타일 크기
@@ -73,6 +74,20 @@ public:
 	unsigned TreeRevision = 0;  // 나무가 바뀔 때마다 증가 (TreeRenderer 의 위치 캐시)
 	void OnTreesChanged() { ++TreeRevision; Dirty = true; }
 
+	// 디테일 (Paint Details): 프로토타입 = 풀·꽃·돌 한 종류, 종류마다 밀도 맵 (DetailResolution², 0~255, 인덱스 [z * 해상도 + x]).
+	//  DetailRenderer 가 밀도만큼 덩어리를 흩뿌린다 (카메라 근처 조각만, 결과는 캐시)
+	std::vector<DetailPrototype> DetailPrototypes;
+	std::vector<std::vector<uint8_t>> DetailDensity;
+	int DetailResolution = 512;
+	DetailSettings Details;
+	unsigned DetailRevision = 0;   // 밀도·프로토타입·설정이 바뀔 때마다 증가
+	void OnDetailsChanged() { ++DetailRevision; Dirty = true; }
+	void AddDetailPrototype(const DetailPrototype& proto);   // 빈 밀도 맵과 함께
+	void RemoveDetailPrototype(int index);
+	void SetDetailResolution(int resolution);                // 기존 밀도를 보간해 옮긴다
+	float GetDetailDensity(int proto, float x, float z) const;   // 지형 로컬(m), 쌍선형 0~1
+	float GetLayerWeight(uint32_t layerMask, float x, float z) const;   // 레이어 마스크의 컨트롤 비중 합 (0~1)
+
 	// 지형 생성기 (Generate 도구): 켜면 Base 노이즈 + 씬의 TerrainStamp + 필터 + 재질 규칙으로 높이·스플랫을 만든다
 	TerrainGenSettings Generator;
 	std::vector<float> BaseSnapshot;   // Base = Current Terrain 일 때 기준 높이 (정규화, 해상도²)
@@ -83,6 +98,7 @@ public:
 	void SetColorMap(std::vector<uint8_t> colorMap);
 
 	unsigned Revision = 0;      // 높이가 바뀔 때마다 증가 (물리 형상 재생성 판단)
+	unsigned ControlRevision = 0;   // 컨트롤(스플랫) 맵이 바뀔 때마다 증가
 	bool Dirty = false;         // 저장하지 않은 변경
 
 public:

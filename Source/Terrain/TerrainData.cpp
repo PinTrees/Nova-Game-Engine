@@ -34,7 +34,7 @@ namespace
 	}
 
 	constexpr uint32_t kMagic = 0x4454564E;   // "NVTD"
-	constexpr uint32_t kVersion = 4;   // 2: 나무 프로토타입(JSON) + 인스턴스, 3: 지형 생성기 설정(JSON) + 기준 스냅샷, 4: 컬러 맵
+	constexpr uint32_t kVersion = 5;   // 2: 나무 프로토타입(JSON) + 인스턴스, 3: 지형 생성기 설정(JSON) + 기준 스냅샷, 4: 컬러 맵, 5: 디테일
 
 	template <typename T> void WritePod(std::ofstream& os, const T& v) { os.write(reinterpret_cast<const char*>(&v), sizeof(T)); }
 	template <typename T> bool ReadPod(std::ifstream& is, T& v) { is.read(reinterpret_cast<char*>(&v), sizeof(T)); return (bool)is; }
@@ -382,7 +382,92 @@ void TerrainData::OnControlChanged(int x0, int z0, int x1, int z1)
 		m_ControlDirtyRect[0] = x0; m_ControlDirtyRect[1] = z0; m_ControlDirtyRect[2] = x1; m_ControlDirtyRect[3] = z1;
 	}
 	m_ControlDirty = true;
+	++ControlRevision;
 	Dirty = true;
+}
+
+// ---- 디테일 ----
+void TerrainData::AddDetailPrototype(const DetailPrototype& proto)
+{
+	DetailPrototypes.push_back(proto);
+	DetailDensity.emplace_back((size_t)DetailResolution * DetailResolution, (uint8_t)0);
+	OnDetailsChanged();
+}
+
+void TerrainData::RemoveDetailPrototype(int index)
+{
+	if (index < 0 || index >= (int)DetailPrototypes.size())
+		return;
+	DetailPrototypes.erase(DetailPrototypes.begin() + index);
+	if (index < (int)DetailDensity.size())
+		DetailDensity.erase(DetailDensity.begin() + index);
+	OnDetailsChanged();
+}
+
+void TerrainData::SetDetailResolution(int resolution)
+{
+	resolution = std::clamp(resolution, 32, 4096);
+	if (resolution == DetailResolution)
+		return;
+	const int old = DetailResolution;
+	for (auto& map : DetailDensity)
+	{
+		std::vector<uint8_t> out((size_t)resolution * resolution);
+		for (int z = 0; z < resolution; ++z)
+			for (int x = 0; x < resolution; ++x)
+			{
+				const float fx = (x + 0.5f) * old / resolution - 0.5f, fz = (z + 0.5f) * old / resolution - 0.5f;
+				const int x0 = std::clamp((int)floorf(fx), 0, old - 1), z0 = std::clamp((int)floorf(fz), 0, old - 1);
+				const int x1 = (std::min)(x0 + 1, old - 1), z1 = (std::min)(z0 + 1, old - 1);
+				const float tx = std::clamp(fx - x0, 0.0f, 1.0f), tz = std::clamp(fz - z0, 0.0f, 1.0f);
+				auto at = [&](int ax, int az) { return map.size() == (size_t)old * old ? (float)map[(size_t)az * old + ax] : 0.0f; };
+				const float v = (at(x0, z0) * (1 - tx) + at(x1, z0) * tx) * (1 - tz) + (at(x0, z1) * (1 - tx) + at(x1, z1) * tx) * tz;
+				out[(size_t)z * resolution + x] = (uint8_t)std::lround(std::clamp(v, 0.0f, 255.0f));
+			}
+		map.swap(out);
+	}
+	DetailResolution = resolution;
+	OnDetailsChanged();
+}
+
+// 밀도 맵 칸 중심 = (i + 0.5) / 해상도 × 크기
+float TerrainData::GetDetailDensity(int proto, float x, float z) const
+{
+	if (proto < 0 || proto >= (int)DetailDensity.size())
+		return 0.0f;
+	const std::vector<uint8_t>& map = DetailDensity[proto];
+	const int res = DetailResolution;
+	if (map.size() != (size_t)res * res)
+		return 0.0f;
+	const float fx = x / Size.x * res - 0.5f, fz = z / Size.z * res - 0.5f;
+	const int x0 = std::clamp((int)floorf(fx), 0, res - 1), z0 = std::clamp((int)floorf(fz), 0, res - 1);
+	const int x1 = (std::min)(x0 + 1, res - 1), z1 = (std::min)(z0 + 1, res - 1);
+	const float tx = std::clamp(fx - floorf(fx), 0.0f, 1.0f), tz = std::clamp(fz - floorf(fz), 0.0f, 1.0f);
+	const float a = map[(size_t)z0 * res + x0], b = map[(size_t)z0 * res + x1];
+	const float c = map[(size_t)z1 * res + x0], d = map[(size_t)z1 * res + x1];
+	return ((a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz) / 255.0f;
+}
+
+float TerrainData::GetLayerWeight(uint32_t layerMask, float x, float z) const
+{
+	const int channels = (std::min)((int)Layers.size(), 4);
+	if (channels == 0)
+		return 1.0f;   // 레이어 없음 = 어디서나
+	if ((layerMask & ((1u << channels) - 1)) == ((1u << channels) - 1))
+		return 1.0f;
+	const int res = ControlResolution;
+	const float fx = std::clamp(x / Size.x, 0.0f, 1.0f) * (res - 1), fz = std::clamp(z / Size.z, 0.0f, 1.0f) * (res - 1);
+	const int x0 = (int)fx, z0 = (int)fz, x1 = (std::min)(x0 + 1, res - 1), z1 = (std::min)(z0 + 1, res - 1);
+	const float tx = fx - x0, tz = fz - z0;
+	float w = 0.0f;
+	for (int c = 0; c < channels; ++c)
+	{
+		if (!((layerMask >> c) & 1u))
+			continue;
+		auto at = [&](int ax, int az) { return Control[((size_t)az * res + ax) * 4 + c] / 255.0f; };
+		w += (at(x0, z0) * (1 - tx) + at(x1, z0) * tx) * (1 - tz) + (at(x0, z1) * (1 - tx) + at(x1, z1) * tx) * tz;
+	}
+	return std::clamp(w, 0.0f, 1.0f);
 }
 
 void TerrainData::SetHeightmapResolution(int resolution)
@@ -425,6 +510,8 @@ void TerrainData::SetSize(const Vec3& size)
 size_t TerrainData::CpuBytes() const
 {
 	size_t bytes = Heights.capacity() * sizeof(float) + Control.capacity() + TreeInstances.capacity() * sizeof(TerrainTreeInstance);
+	for (const auto& map : DetailDensity)
+		bytes += map.capacity();
 	for (const auto& level : m_Nodes)
 		bytes += level.capacity() * sizeof(Node);
 	return bytes;
@@ -585,6 +672,23 @@ bool TerrainData::Save()
 	WritePod(os, (int32_t)ColorMap.size());
 	if (!ColorMap.empty())
 		os.write(reinterpret_cast<const char*>(ColorMap.data()), ColorMap.size());
+	// v5: 디테일 (설정 + 프로토타입 JSON, 해상도, 종류마다 밀도 맵)
+	nlohmann::json details;
+	details["settings"] = Details.ToJson();
+	details["prototypes"] = nlohmann::json::array();
+	for (const DetailPrototype& p : DetailPrototypes)
+		details["prototypes"].push_back(p.ToJson());
+	WriteString(os, details.dump());
+	WritePod(os, (int32_t)DetailResolution);
+	WritePod(os, (int32_t)DetailPrototypes.size());
+	for (size_t i = 0; i < DetailPrototypes.size(); ++i)
+	{
+		const size_t n = (size_t)DetailResolution * DetailResolution;
+		if (i < DetailDensity.size() && DetailDensity[i].size() == n)
+			os.write(reinterpret_cast<const char*>(DetailDensity[i].data()), n);
+		else
+			os.write(std::string(n, '\0').data(), n);
+	}
 	Dirty = false;
 	return (bool)os;
 }
@@ -682,6 +786,39 @@ std::shared_ptr<TerrainData> TerrainData::Load(const std::string& rawPath)
 				data->ColorMap.clear();
 		}
 	}
+	if (version >= 5)
+	{
+		std::string json;
+		int32_t detailRes = 0, detailCount = 0;
+		if (ReadString(is, json) && ReadPod(is, detailRes) && ReadPod(is, detailCount) && detailRes >= 32 && detailRes <= 4096 && detailCount >= 0 && detailCount < 256)
+		{
+			const nlohmann::json j = nlohmann::json::parse(json, nullptr, false);
+			if (j.is_object())
+			{
+				if (j.contains("settings"))
+					data->Details.FromJson(j["settings"]);
+				if (j.contains("prototypes") && j["prototypes"].is_array())
+					for (const auto& p : j["prototypes"])
+					{
+						DetailPrototype d;
+						d.FromJson(p);
+						data->DetailPrototypes.push_back(d);
+					}
+			}
+			data->DetailResolution = detailRes;
+			data->DetailPrototypes.resize((std::min)(data->DetailPrototypes.size(), (size_t)detailCount));
+			for (int i = 0; i < detailCount; ++i)
+			{
+				std::vector<uint8_t> map((size_t)detailRes * detailRes);
+				is.read(reinterpret_cast<char*>(map.data()), map.size());
+				if (!is)
+					break;
+				if (i < (int)data->DetailPrototypes.size())
+					data->DetailDensity.push_back(std::move(map));
+			}
+			data->DetailPrototypes.resize(data->DetailDensity.size());
+		}
+	}
 	data->RebuildAllNodes();
 	DataCache()[path] = data;
 	return data;
@@ -730,6 +867,7 @@ void TerrainData::RestoreState(int resolution, const Vec3& size, const std::vect
 	Layers = layers;
 	m_HeightDirty = m_HeightFullUpload = true;
 	m_ControlDirty = m_ControlFullUpload = true;
+	++ControlRevision;
 	RebuildAllNodes();
 	++Revision;
 	Dirty = true;

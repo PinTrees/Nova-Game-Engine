@@ -1,0 +1,51 @@
+{
+  "name": "White Daisies",
+  "shape": {
+    "type": 1,
+    "seed": 29,
+    "height": 0.3,
+    "radius": 0.12,
+    "blades": 6,
+    "bladeWidth": 0.02,
+    "bend": 0.35,
+    "lean": 0.35,
+    "heads": 3,
+    "petals": 12,
+    "headSize": 0.024
+  },
+  "minScale": 0.75,
+  "maxScale": 1.2,
+  "widthVariation": 0.2,
+  "healthyColor": [
+    0.33,
+    0.52,
+    0.18
+  ],
+  "dryColor": [
+    0.62,
+    0.58,
+    0.3
+  ],
+  "flowerColor": [
+    0.96,
+    0.96,
+    0.92
+  ],
+  "centerColor": [
+    0.95,
+    0.75,
+    0.1
+  ],
+  "noiseSpread": 0.08,
+  "dryAmount": 0.35,
+  "colorVariation": 0.15,
+  "tipColor": 0.25,
+  "translucency": 0.6,
+  "smoothness": 0.25,
+  "density": 2.0,
+  "maxSlope": 45.0,
+  "layerMask": 15,
+  "groundAlign": 0.15,
+  "windResponse": 1.0,
+  "castShadows": true
+}

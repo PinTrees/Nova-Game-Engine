@@ -28,6 +28,12 @@ namespace TerrainEditor
 	void AddTreePrototype(TerrainData& data, int preset);
 	int MassPlaceTrees(Terrain* terrain, int count);
 
+	// 디테일 (풀·꽃·돌): 프리셋 파일(.detail)로 종류 추가 → 번호. 고른 종류의 밀도를 지형 전체에 value(0~1)로. 둘 다 Undo 기록
+	int AddDetailPrototype(const std::shared_ptr<TerrainData>& data, const std::string& presetPath);
+	void FillDetails(Terrain* terrain, int proto, float value);
+	// 디테일 브러시 한 번 (검사·스크립트용): 고른 종류를 목표 밀도(0~1)로
+	void PaintDetails(Terrain* terrain, int proto, const Vec3& worldPosition, float target, float deltaTime);
+
 	// 현재 설정 (검사용)
 	void SetTool(Tool tool);
 	void SetPaintTool(PaintTool tool);

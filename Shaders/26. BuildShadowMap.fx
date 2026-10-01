@@ -535,3 +535,31 @@ technique11 RockShadowTech
         SetRasterizerState(Depth);
     }
 }
+
+
+// ---- 지형 디테일 (48. DetailCommon.fx): 잎·돌 모두 불투명 삼각형 → 깊이만
+#include "48. DetailCommon.fx"
+
+float4 DetailShadowVS(DetailVertexIn vin, DetailInstanceIn inst) : SV_POSITION
+{
+    float3 normalW;
+    float fade;
+    const float3 posW = DetailWorldPos(vin, inst, normalW, fade);
+    return mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
+}
+
+RasterizerState DetailShadowCullNone
+{
+    CullMode = None;
+};
+
+technique11 DetailShadowTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, DetailShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetRasterizerState(DetailShadowCullNone);
+    }
+}

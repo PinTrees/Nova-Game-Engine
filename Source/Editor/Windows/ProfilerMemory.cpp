@@ -6,6 +6,7 @@
 #include "ShadowMap.h"
 #include "TreeRenderer.h"
 #include "RockRenderer.h"
+#include "DetailRenderer.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "UndoSystem.h"
@@ -62,6 +63,9 @@ namespace ProfilerMemory
 			std::vector<MemoryStats::Item> rockGpu, rockCpu;
 			RockRenderer::CollectMemory(rockGpu, rockCpu);
 			Add(r, "Rocks", true, std::move(rockGpu));
+			std::vector<MemoryStats::Item> detailGpu, detailCpu;
+			DetailRenderer::CollectMemory(detailGpu, detailCpu);
+			Add(r, "Terrain Details", true, std::move(detailGpu));
 			std::vector<MemoryStats::Item> terrainGpu, terrainCpu;
 			for (Terrain* t : Terrain::GetActiveTerrains())
 				if (auto data = t->GetTerrainData())
@@ -80,6 +84,7 @@ namespace ProfilerMemory
 			Add(r, "Profiler History", false, { { "Last 300 frames", Profiler::MemoryBytes() } });
 			Add(r, "Terrain Data", false, std::move(terrainCpu));
 			Add(r, "Tree Pick Data", false, std::move(treeCpu));
+			Add(r, "Terrain Detail Chunks", false, std::move(detailCpu));
 
 			// GPU 사용량 중 센 것을 뺀 나머지 (렌더 타깃, 후처리 버퍼, 셰이더, 드라이버 …)
 			size_t tracked = 0;

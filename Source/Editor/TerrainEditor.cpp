@@ -7,6 +7,7 @@
 #include "EditorCamera.h"
 #include "UndoSystem.h"
 #include "TreeRenderer.h"
+#include "DetailRenderer.h"
 #include "TerrainGenerator.h"
 #include "TerrainBiomes.h"
 #include "TerrainStamp.h"
@@ -1330,6 +1331,390 @@ namespace
 		Spacing(4);
 		HelpBox(info, false);
 	}
+
+	// ================================================================ Paint Details (Unity 의 디테일 칠하기: 풀·꽃·작은 돌)
+	int s_DetailProto = 0;
+	float s_DetailTarget = 100.0f;   // %: 칠하면 다가가는 밀도
+	bool s_DetailStroke = false;
+	std::shared_ptr<TerrainData> s_DetailStrokeData;
+	std::vector<std::vector<uint8_t>> s_DetailStrokeBefore;
+	Rect s_DetailRect;
+	std::string s_DetailStrokeName;
+
+	using DensityMaps = std::vector<std::vector<uint8_t>>;
+
+	Rect FullRect(int res)
+	{
+		Rect r;
+		Grow(r, 0, 0, res - 1, res - 1);
+		return r;
+	}
+
+	// 밀도 맵 사각형 영역 Undo (칠하기 한 획, 채우기, 지우기)
+	void PushDetailRectUndo(const std::string& name, const std::shared_ptr<TerrainData>& data, const DensityMaps& before, const Rect& r)
+	{
+		const int res = data->DetailResolution;
+		if (!r.Valid())
+			return;
+		auto b = std::make_shared<DensityMaps>(), a = std::make_shared<DensityMaps>();
+		size_t bytes = 0;
+		for (size_t i = 0; i < before.size() && i < data->DetailDensity.size(); ++i)
+		{
+			if (before[i].size() != (size_t)res * res || data->DetailDensity[i].size() != (size_t)res * res)
+				return;
+			b->push_back(CropOf(before[i], res, 1, r));
+			a->push_back(CropOf(data->DetailDensity[i], res, 1, r));
+			bytes += b->back().size() * 2;
+		}
+		Undo::Record rec;
+		rec.Name = name;
+		rec.Bytes = bytes;
+		auto apply = [data, r, res](const DensityMaps& crops) {
+			if (data->DetailResolution != res)
+				return;
+			for (size_t i = 0; i < crops.size() && i < data->DetailDensity.size(); ++i)
+				if (data->DetailDensity[i].size() == (size_t)res * res)
+					PasteCrop(data->DetailDensity[i], res, 1, r, crops[i]);
+			data->OnDetailsChanged();
+		};
+		rec.UndoAction = [apply, b]() { apply(*b); };
+		rec.RedoAction = [apply, a]() { apply(*a); };
+		Undo::Push(std::move(rec));
+	}
+
+	// 종류 추가·제거: 프로토타입 + 밀도 맵 전체
+	struct DetailState
+	{
+		std::vector<DetailPrototype> Protos;
+		DensityMaps Maps;
+		int Resolution = 0;
+	};
+	std::shared_ptr<DetailState> SnapshotDetails(const TerrainData& d)
+	{
+		auto s = std::make_shared<DetailState>();
+		s->Protos = d.DetailPrototypes;
+		s->Maps = d.DetailDensity;
+		s->Resolution = d.DetailResolution;
+		return s;
+	}
+	void PushDetailFullUndo(const char* name, const std::shared_ptr<TerrainData>& data, const std::shared_ptr<DetailState>& before)
+	{
+		auto after = SnapshotDetails(*data);
+		Undo::Record rec;
+		rec.Name = name;
+		for (const auto& m : before->Maps) rec.Bytes += m.size();
+		for (const auto& m : after->Maps) rec.Bytes += m.size();
+		auto apply = [data](const DetailState& s) {
+			data->DetailPrototypes = s.Protos;
+			data->DetailDensity = s.Maps;
+			data->DetailResolution = s.Resolution;
+			data->OnDetailsChanged();
+		};
+		rec.UndoAction = [apply, before]() { apply(*before); };
+		rec.RedoAction = [apply, after]() { apply(*after); };
+		Undo::Push(std::move(rec));
+	}
+
+	void BeginDetailStroke(const std::shared_ptr<TerrainData>& data, const char* name)
+	{
+		s_DetailStroke = true;
+		s_DetailStrokeData = data;
+		s_DetailStrokeBefore = data->DetailDensity;
+		s_DetailRect = Rect();
+		s_DetailStrokeName = name;
+	}
+
+	void EndDetailStroke()
+	{
+		s_DetailStroke = false;
+		if (s_DetailStrokeData && s_DetailRect.Valid())
+		{
+			PushDetailRectUndo(s_DetailStrokeName, s_DetailStrokeData, s_DetailStrokeBefore, s_DetailRect);
+			EditorLog::Write("Terrain", "detail stroke '%s' rect (%d,%d)-(%d,%d)", s_DetailStrokeName.c_str(), s_DetailRect.x0, s_DetailRect.z0, s_DetailRect.x1, s_DetailRect.z1);
+		}
+		s_DetailStrokeData = nullptr;
+		s_DetailStrokeBefore.clear();
+	}
+
+	// 브러시 한 번: 고른 종류를 목표 밀도로 / erase = 지우기 (selectedOnly 면 고른 종류만, 아니면 전부)
+	void PaintDetailsAt(Terrain* terrain, const Vec3& worldPos, float dt, bool erase, bool selectedOnly)
+	{
+		auto data = terrain->GetTerrainData();
+		if (!data || data->DetailPrototypes.empty())
+			return;
+		const int res = data->DetailResolution;
+		const size_t n = (size_t)res * res;
+		data->DetailDensity.resize(data->DetailPrototypes.size());
+		for (auto& map : data->DetailDensity)
+			if (map.size() != n)
+				map.assign(n, 0);
+		const int proto = std::clamp(s_DetailProto, 0, (int)data->DetailPrototypes.size() - 1);
+		const Vec3 local = worldPos - terrain->GetPosition();
+		const float cx = local.x / data->Size.x * res - 0.5f, cz = local.z / data->Size.z * res - 0.5f;
+		const float rx = (std::max)(0.5f, s_BrushSize * 0.5f / data->Size.x * res), rz = (std::max)(0.5f, s_BrushSize * 0.5f / data->Size.z * res);
+		const int x0 = (std::max)(0, (int)floorf(cx - rx)), x1 = (std::min)(res - 1, (int)ceilf(cx + rx));
+		const int z0 = (std::max)(0, (int)floorf(cz - rz)), z1 = (std::min)(res - 1, (int)ceilf(cz + rz));
+		if (x0 > x1 || z0 > z1)
+			return;
+		const float opacity = s_Opacity / 100.0f;
+		const float target = std::clamp(s_DetailTarget, 0.0f, 100.0f) / 100.0f * 255.0f;
+		auto step = [](uint8_t& v, float goal, float k) {
+			const float nv = v + (goal - v) * (std::min)(1.0f, k);
+			int out = (int)std::lround(nv);
+			if (out == v && fabsf(goal - v) >= 1.0f)
+				out += goal > v ? 1 : -1;   // 작은 걸음도 멈추지 않게
+			v = (uint8_t)std::clamp(out, 0, 255);
+		};
+		for (int z = z0; z <= z1; ++z)
+			for (int x = x0; x <= x1; ++x)
+			{
+				const float dx = (x - cx) / rx, dz = (z - cz) / rz;
+				const float f = Falloff(s_BrushShape, sqrtf(dx * dx + dz * dz), x, z) * opacity;
+				if (f <= 0.0f)
+					continue;
+				const size_t i = (size_t)z * res + x;
+				const float k = f * dt * 6.0f;
+				if (!erase)
+					step(data->DetailDensity[proto][i], target, k);
+				else
+					for (size_t p = 0; p < data->DetailDensity.size(); ++p)
+						if (!selectedOnly || (int)p == proto)
+							step(data->DetailDensity[p][i], 0.0f, k);
+			}
+		Grow(s_DetailRect, x0, z0, x1, z1);
+		data->OnDetailsChanged();
+	}
+
+	// 썸네일: 종류 모양을 간단히 그린다 (잎 = 곡선, 꽃 = 줄기 끝 원, 돌 = 타원)
+	ImU32 Col(const XMFLOAT4& c, float k = 1.0f)
+	{
+		auto ch = [&](float v) { return (int)std::clamp(v * k * 255.0f, 0.0f, 255.0f); };
+		return IM_COL32(ch(c.x), ch(c.y), ch(c.z), 255);
+	}
+
+	void DrawDetailIcon(ImDrawList* dl, const DetailPrototype& p, ImVec2 a, ImVec2 b)
+	{
+		dl->AddRectFilledMultiColor(a, b, IM_COL32(64, 84, 110, 255), IM_COL32(64, 84, 110, 255), IM_COL32(40, 46, 52, 255), IM_COL32(40, 46, 52, 255));
+		const float w = b.x - a.x, h = b.y - a.y;
+		const float groundY = b.y - h * 0.16f;
+		dl->AddRectFilled(ImVec2(a.x, groundY), b, IM_COL32(72, 60, 46, 255));
+		uint32_t s = (uint32_t)p.Seed * 2654435761u + 12345u;
+		auto rnd = [&]() { s = s * 1664525u + 1013904223u; return ((s >> 8) & 0xFFFF) / 65535.0f; };
+		if (p.Type == DetailPrototype::Kind::Pebble)
+		{
+			const int count = std::clamp(p.Blades, 1, 6);
+			for (int i = 0; i < count; ++i)
+			{
+				const float r = w * (0.08f + 0.08f * rnd()) * (i == 0 ? 1.4f : 1.0f);
+				const ImVec2 c(a.x + w * (0.2f + 0.6f * rnd()), groundY + h * 0.02f);
+				dl->AddEllipseFilled(c, ImVec2(r, r * 0.6f), Col(i % 2 ? p.DryColor : p.HealthyColor, 0.75f + 0.35f * rnd()));
+			}
+			return;
+		}
+		const float scale = std::clamp(p.Height / 0.9f, 0.35f, 1.0f) * h * 0.72f;
+		const int blades = std::clamp(p.Type == DetailPrototype::Kind::Flower ? p.Blades : p.Blades, 4, 18);
+		for (int i = 0; i < blades; ++i)
+		{
+			const float x = a.x + w * (0.25f + 0.5f * rnd());
+			const float bh = scale * (0.55f + 0.45f * rnd()) * (p.Type == DetailPrototype::Kind::Flower ? 0.5f : 1.0f);
+			const float lean = (rnd() - 0.5f) * w * 0.5f * (0.4f + p.Lean + p.Bend);
+			const ImVec2 p0(x, groundY + 1), p2(x + lean, groundY - bh), p1(x + lean * 0.2f, groundY - bh * 0.6f);
+			const float t = rnd();
+			XMFLOAT4 c(p.HealthyColor.x + (p.DryColor.x - p.HealthyColor.x) * t * 0.5f, p.HealthyColor.y + (p.DryColor.y - p.HealthyColor.y) * t * 0.5f,
+				p.HealthyColor.z + (p.DryColor.z - p.HealthyColor.z) * t * 0.5f, 1);
+			dl->AddBezierQuadratic(p0, p1, p2, Col(c, 0.8f + 0.4f * rnd()), 2.0f);
+		}
+		if (p.Type == DetailPrototype::Kind::Flower)
+			for (int i = 0; i < (std::max)(1, p.Heads); ++i)
+			{
+				const float x = a.x + w * (0.3f + 0.4f * rnd());
+				const float top = groundY - scale * (0.75f + 0.25f * rnd());
+				dl->AddLine(ImVec2(x, groundY), ImVec2(x, top), Col(p.HealthyColor, 0.7f), 1.5f);
+				const float r = std::clamp(p.HeadSize / 0.04f, 0.6f, 2.0f) * w * 0.07f;
+				for (int k = 0; k < (std::max)(3, p.Petals); ++k)
+				{
+					const float an = XM_2PI * k / (std::max)(3, p.Petals);
+					dl->AddCircleFilled(ImVec2(x + cosf(an) * r, top + sinf(an) * r * 0.6f), r * 0.6f, Col(p.FlowerColor));
+				}
+				dl->AddCircleFilled(ImVec2(x, top), r * 0.45f, Col(p.CenterColor));
+			}
+	}
+
+	void DrawDetailTool(Terrain* terrain, const std::shared_ptr<TerrainData>& data)
+	{
+		using namespace UnityGUI;
+		DescriptionBox("Click to paint details (grass, flowers, pebbles).\nHold shift and click to erase details.\nHold Ctrl and click to erase only details of the selected type.");
+
+		// 설정·프로토타입 값 편집 Undo (JSON). 종류 수가 바뀌는 추가·제거는 밀도 맵과 함께 따로 기록하므로 키에 수를 넣는다
+		std::weak_ptr<TerrainData> weak = data;
+		Undo::WatchAsset("terraindetails:" + data->Path + ":" + std::to_string(data->DetailPrototypes.size()), "Terrain Details",
+			[weak]() {
+				auto d = weak.lock();
+				if (!d) return std::string();
+				nlohmann::json j = { { "settings", d->Details.ToJson() }, { "prototypes", nlohmann::json::array() } };
+				for (const DetailPrototype& p : d->DetailPrototypes) j["prototypes"].push_back(p.ToJson());
+				return j.dump();
+			},
+			[weak](const std::string& text) {
+				auto d = weak.lock();
+				const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+				if (!d || !j.is_object() || !j.contains("prototypes") || j["prototypes"].size() != d->DetailPrototypes.size())
+					return;
+				d->Details.FromJson(j["settings"]);
+				for (size_t i = 0; i < d->DetailPrototypes.size(); ++i)
+					d->DetailPrototypes[i].FromJson(j["prototypes"][i]);
+				d->OnDetailsChanged();
+			});
+
+		// ---- 디테일 종류
+		Label("Details", 0, true);
+		const int count = (int)data->DetailPrototypes.size();
+		s_DetailProto = count > 0 ? std::clamp(s_DetailProto, 0, count - 1) : 0;
+		{
+			ImDrawList* dl = ImGui::GetWindowDrawList();
+			const ImVec2 p = ImGui::GetCursorScreenPos();
+			const float w = ImGui::GetContentRegionAvail().x;
+			const float cell = 64.0f;
+			const int perRow = (std::max)(1, (int)((w - 28) / (cell + 6)));
+			const int rows = (std::max)(1, (count + perRow - 1) / perRow);
+			const ImVec2 box0(p.x + 14, p.y + 2), box1(p.x + w - 10, p.y + rows * (cell + 20) + 10);
+			dl->AddRectFilled(box0, box1, kBoxBg, 3.0f);
+			dl->AddRect(box0, box1, kBorder, 3.0f);
+			for (int i = 0; i < count; ++i)
+			{
+				const ImVec2 a(box0.x + 5 + (i % perRow) * (cell + 6), box0.y + 4 + (i / perRow) * (cell + 20)), b(a.x + cell, a.y + cell);
+				ImGui::SetCursorScreenPos(a);
+				ImGui::PushID(i);
+				if (ImGui::InvisibleButton("##detail", ImVec2(cell, cell + 16)))
+					s_DetailProto = i;
+				ImGui::PopID();
+				dl->PushClipRect(a, b, true);
+				DrawDetailIcon(dl, data->DetailPrototypes[i], a, b);
+				dl->PopClipRect();
+				const std::string& name = data->DetailPrototypes[i].Name;
+				dl->PushClipRect(ImVec2(a.x, b.y), ImVec2(b.x + 4, b.y + 16), true);
+				dl->AddText(ImVec2(a.x + 2, b.y + 1), kText, name.c_str());
+				dl->PopClipRect();
+				if (i == s_DetailProto)
+					dl->AddRect(ImVec2(a.x - 1, a.y - 1), ImVec2(b.x + 1, b.y + 17), kSelected, 0.0f, 0, 2.0f);
+			}
+			if (count == 0)
+				dl->AddText(ImVec2(box0.x + 10, box0.y + 10), kTextDim, "No details. Add Detail to start painting.");
+			ImGui::SetCursorScreenPos(p);
+			ImGui::Dummy(ImVec2(w, box1.y - p.y + 4));
+		}
+		// ---- 추가 / 제거
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+		if (ImGui::Button("Add Detail", ImVec2(100, 0)))
+			ImGui::OpenPopup("##addDetail");
+		ImGui::SameLine();
+		ImGui::BeginDisabled(count == 0);
+		if (ImGui::Button("Remove", ImVec2(100, 0)) && count > 0)
+		{
+			auto before = SnapshotDetails(*data);
+			data->RemoveDetailPrototype(s_DetailProto);
+			s_DetailProto = (std::max)(0, s_DetailProto - 1);
+			PushDetailFullUndo("Remove Detail", data, before);
+		}
+		ImGui::EndDisabled();
+		if (ImGui::BeginPopup("##addDetail"))
+		{
+			for (const std::string& path : DetailPrototype::ListPresets())
+			{
+				const std::string label = std::filesystem::path(path).stem().string();
+				if (ImGui::MenuItem(label.c_str()))
+					TerrainEditor::AddDetailPrototype(data, path), s_DetailProto = (int)data->DetailPrototypes.size() - 1;
+			}
+			ImGui::Separator();
+			static const char* kEmpty[] = { "Empty Grass", "Empty Flower", "Empty Pebbles" };
+			for (int k = 0; k < 3; ++k)
+				if (ImGui::MenuItem(kEmpty[k]))
+				{
+					auto before = SnapshotDetails(*data);
+					DetailPrototype p;
+					p.Type = (DetailPrototype::Kind)k;
+					p.Name = kEmpty[k] + 6;
+					p.Seed = 1 + (int)data->DetailPrototypes.size() * 7;
+					if (k == 2)
+					{
+						p.Blades = 3; p.BladeWidth = 0.09f; p.Radius = 0.2f; p.Density = 1.5f; p.GroundAlign = 0.8f; p.WindResponse = 0.0f;
+						p.HealthyColor = { 0.5f, 0.48f, 0.45f, 1 }; p.DryColor = { 0.42f, 0.38f, 0.33f, 1 };
+					}
+					data->AddDetailPrototype(p);
+					s_DetailProto = (int)data->DetailPrototypes.size() - 1;
+					PushDetailFullUndo("Add Detail", data, before);
+				}
+			ImGui::EndPopup();
+		}
+
+		// ---- 브러시
+		Spacing(6);
+		DrawBrushes(terrain);
+		Slider("Target Strength", &s_DetailTarget, 0.0f, 100.0f);
+		s_DetailTarget = std::clamp(s_DetailTarget, 0.0f, 100.0f);
+		Spacing(4);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+		ImGui::BeginDisabled(count == 0);
+		if (ImGui::Button("Fill Terrain", ImVec2(150, 0)) && count > 0)
+			TerrainEditor::FillDetails(terrain, s_DetailProto, s_DetailTarget / 100.0f);
+		ImGui::SameLine();
+		if (ImGui::Button("Clear", ImVec2(150, 0)) && count > 0)
+			TerrainEditor::FillDetails(terrain, s_DetailProto, 0.0f);
+		ImGui::EndDisabled();
+
+		// ---- 통계
+		{
+			const DetailRenderer::Stats& st = DetailRenderer::LastStats(true);
+			char info[256];
+			snprintf(info, sizeof(info), "%d detail types, density map %d x %d.\nScene view: %d clumps in %d chunks, %d draw calls (%d chunks cached).",
+				count, data->DetailResolution, data->DetailResolution, st.Instances, st.Chunks, st.DrawCalls, st.Cached);
+			Spacing(4);
+			HelpBox(info, false);
+		}
+
+		// ---- 고른 종류 설정 (바꾸면 모든 같은 종류가 바로 바뀐다)
+		if (count > 0 && FoldoutPlain("Selected Detail Settings", 0, false))
+		{
+			DetailPrototype& p = data->DetailPrototypes[s_DetailProto];
+			if (p.DrawInspector())
+				data->OnDetailsChanged();
+			int v = 0, t = 0;
+			if (DetailRenderer::GetMeshInfo(p, v, t))
+			{
+				char info[96];
+				snprintf(info, sizeof(info), "Clump mesh: %d vertices, %d triangles.", v, t);
+				HelpBox(info, false);
+			}
+		}
+		// ---- 지형 전체 디테일 설정 (Unity Terrain Settings 의 Detail Objects / Wind Settings for Grass)
+		if (FoldoutPlain("Detail Settings", 0, false))
+		{
+			DetailSettings& s = data->Details;
+			const std::string before = s.ToJson().dump();
+			Slider("Detail Distance", &s.Distance, 10.0f, 400.0f);
+			Slider("Detail Density", &s.DensityScale, 0.0f, 2.0f);
+			Slider("Shadow Distance", &s.ShadowDistance, 0.0f, 150.0f);
+			static const int kRes[] = { 128, 256, 512, 1024, 2048 };
+			static const char* kResNames[] = { "128 x 128", "256 x 256", "512 x 512", "1024 x 1024", "2048 x 2048" };
+			int cur = 2;
+			for (int i = 0; i < 5; ++i)
+				if (kRes[i] == data->DetailResolution)
+					cur = i;
+			if (Dropdown("Detail Resolution", &cur, kResNames, 5))
+			{
+				auto snap = SnapshotDetails(*data);
+				data->SetDetailResolution(kRes[cur]);
+				PushDetailFullUndo("Change Detail Resolution", data, snap);
+			}
+			Label("Wind Settings for Grass", 0, true);
+			Slider("Speed", &s.WindSpeed, 0.0f, 3.0f, 1);
+			Slider("Size", &s.WindSize, 1.0f, 100.0f, 1);
+			Slider("Bending", &s.WindBending, 0.0f, 1.5f, 1);
+			Slider("Direction", &s.WindDirection, 0.0f, 360.0f, 1);
+			if (s.ToJson().dump() != before)
+				data->OnDetailsChanged();
+		}
+	}
 }
 
 namespace TerrainEditor
@@ -1364,6 +1749,46 @@ namespace TerrainEditor
 		PushTreeUndo("Mass Place Trees", data, std::move(before));
 		EditorLog::Write("Terrain", "mass placed %d trees (asked %d, spacing %.1f m) on %s", placed, count, spacing, data->Name().c_str());
 		return placed;
+	}
+
+	int AddDetailPrototype(const std::shared_ptr<TerrainData>& data, const std::string& presetPath)
+	{
+		DetailPrototype p;
+		p.Seed = 1 + (int)data->DetailPrototypes.size() * 7;
+		if (!DetailPrototype::LoadPreset(presetPath, p))
+		{
+			EditorLog::Write("Terrain", "detail preset not found: %s", presetPath.c_str());
+			return -1;
+		}
+		auto before = SnapshotDetails(*data);
+		data->AddDetailPrototype(p);
+		PushDetailFullUndo(("Add Detail " + p.Name).c_str(), data, before);
+		EditorLog::Write("Terrain", "added detail '%s' (%s) to %s", p.Name.c_str(), presetPath.c_str(), data->Name().c_str());
+		return (int)data->DetailPrototypes.size() - 1;
+	}
+
+	void FillDetails(Terrain* terrain, int proto, float value)
+	{
+		auto data = terrain ? terrain->GetTerrainData() : nullptr;
+		if (!data || proto < 0 || proto >= (int)data->DetailPrototypes.size())
+			return;
+		const int res = data->DetailResolution;
+		data->DetailDensity.resize(data->DetailPrototypes.size());
+		for (auto& map : data->DetailDensity)
+			if (map.size() != (size_t)res * res)
+				map.assign((size_t)res * res, 0);
+		const DensityMaps before = data->DetailDensity;
+		std::fill(data->DetailDensity[proto].begin(), data->DetailDensity[proto].end(), (uint8_t)std::lround(std::clamp(value, 0.0f, 1.0f) * 255.0f));
+		data->OnDetailsChanged();
+		PushDetailRectUndo(value > 0.0f ? "Fill Details" : "Clear Details", data, before, FullRect(res));
+		EditorLog::Write("Terrain", "fill detail %d ('%s') = %.2f on %s", proto, data->DetailPrototypes[proto].Name.c_str(), value, data->Name().c_str());
+	}
+
+	void PaintDetails(Terrain* terrain, int proto, const Vec3& worldPosition, float target, float deltaTime)
+	{
+		s_DetailProto = proto;
+		s_DetailTarget = target * 100.0f;
+		PaintDetailsAt(terrain, worldPosition, deltaTime, false, false);
 	}
 
 	void SetTool(Tool tool) { s_Tool = tool; }
@@ -1459,7 +1884,12 @@ namespace TerrainEditor
 			DrawTreeTool(terrain, data);
 			break;
 		case Tool::PaintDetails:
-			DescriptionBox("Click to paint details (grass, flowers).\n(Not supported yet.)");
+			if (data == nullptr)
+			{
+				UnityGUI::HelpBox("Terrain has no Terrain Data. Assign one in Terrain Settings.", true);
+				break;
+			}
+			DrawDetailTool(terrain, data);
 			break;
 		case Tool::Generate:
 			if (data == nullptr)
@@ -1579,15 +2009,18 @@ namespace TerrainEditor
 		GameObject* selected = SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT ? SelectionManager::GetSelectedGameObject() : nullptr;
 		Terrain* terrain = selected ? selected->GetComponent<Terrain>() : nullptr;
 		const bool treeTool = s_Tool == Tool::PaintTrees;
-		if (terrain == nullptr || (s_Tool != Tool::PaintTerrain && !treeTool) || terrain->GetTerrainData() == nullptr || camera == nullptr)
+		const bool detailTool = s_Tool == Tool::PaintDetails;
+		if (terrain == nullptr || (s_Tool != Tool::PaintTerrain && !treeTool && !detailTool) || terrain->GetTerrainData() == nullptr || camera == nullptr)
 		{
 			if (s_Painting)
 				EndStroke();
+			if (s_DetailStroke)
+				EndDetailStroke();
 			s_Painting = false;
 			s_TreeStroke = false;
 			return false;
 		}
-		if (!treeTool && !PaintToolSupported(s_PaintTool))
+		if (!treeTool && !detailTool && !PaintToolSupported(s_PaintTool))
 			return true;
 
 		// 마우스 광선
@@ -1655,6 +2088,17 @@ namespace TerrainEditor
 					PushTreeUndo(io.KeyShift || io.KeyCtrl ? "Erase Trees" : "Paint Trees", data, std::move(s_TreeStrokeBefore));
 				s_TreeStrokeBefore.clear();
 			}
+			return true;
+		}
+		if (detailTool)
+		{
+			// 디테일: 누르고 있는 동안 밀도를 목표로 (Shift = 모두 지우기, Ctrl = 고른 종류만 지우기). 한 획 = Undo 한 단계
+			if (canStart && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !terrain->GetTerrainData()->DetailPrototypes.empty())
+				BeginDetailStroke(terrain->GetTerrainData(), io.KeyShift || io.KeyCtrl ? "Erase Details" : "Paint Details");
+			if (s_DetailStroke && onTerrain)
+				PaintDetailsAt(terrain, hit, (std::min)(io.DeltaTime, 0.1f), io.KeyShift || io.KeyCtrl, io.KeyCtrl);
+			if (s_DetailStroke && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+				EndDetailStroke();
 			return true;
 		}
 		if (canStart && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
