@@ -25,10 +25,10 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 
 | 분류 | 명령 |
 |---|---|
-| 에디터 | `status`, `open <프로젝트> [--background] [--graphics opengl\|d3d11]` (graphics = 이번 실행만 그래픽 API, OpenGL 은 시험 단계라 환경 변수 `NOVA_OPENGL_EXPERIMENTAL=1` 도 필요), `quit [--force]`, `info`, `log [-n 40] [--grep 글자] [--errors] [--follow]` |
+| 에디터 | `status`, `open <프로젝트> [--background] [--graphics opengl\|d3d11]` (graphics = 이번 실행만 그래픽 API, OpenGL 은 시험 단계), `quit [--force]`, `info` (`liveObjects` = 메모리에 있는 GameObject 전체 — 지운 오브젝트가 새는지 볼 때), `log [-n 40] [--grep 글자] [--errors] [--follow]` |
 | 오브젝트 | `hierarchy [--components] [--depth N] [--root <대상>]`, `find [이름] [--component 종류]`, `get <대상> [--component 종류]` |
 | 수정 | `set <대상> [--name] [--active] [--tag] [--layer] [--static] [--position x,y,z] [--rotation x,y,z] [--scale x,y,z] [--world-position x,y,z] [Component.field=value ...]` |
-| 만들기 | `create <종류> [--name] [--parent] [--position] [--rotation] [--scale] [--preset N]`, `delete <대상>`, `add-component <대상> <종류> [--values '{...}']`, `remove-component <대상> <종류>`, `parent <대상> <새 부모> \| --root`, `select <대상> \| --none` |
+| 만들기 | `create <종류> [--name] [--parent] [--position] [--rotation] [--scale] [--preset N]`, `delete <대상>`, `add-component <대상> <종류> [--values '{...}']` (종류에 C# MonoBehaviour 클래스 이름도 됨 — 값은 필드만 `{"speed":42,"target":"Ball"}`, GameObject·Transform 필드는 이름/경로로), `remove-component <대상> <종류>`, `parent <대상> <새 부모> \| --root`, `select <대상> \| --none` |
 | 씬·Play | `scene open <Assets/...scene> [--force]`, `scene save`, `play`, `stop`, `pause [on\|off]`, `step`, `undo`, `redo` |
 | 보기 | `camera [--position x,y,z --target x,y,z \| --frame <대상> [--distance d]]`, `screenshot <파일.png> [--view scene\|game\|editor]` (editor = 메뉴·창까지 에디터 전체) |
 | 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `window <scene\|game\|project\|console\|hierarchy\|inspector\|animator>` (도킹 탭을 앞으로), `wait [프레임]` (백그라운드 에디터가 N 프레임 그릴 때까지 — 씬 불러오기 등을 기다릴 때), `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |

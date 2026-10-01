@@ -250,6 +250,8 @@ int32 App::Run()
 				// Last Frame
 				SceneManager::GetI()->GetCurrentScene()->LastFramUpdate();
 				SceneManager::GetI()->LastUpdate();
+				if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+					scene->FlushDestroyed();   // 이번 프레임에 지운 오브젝트를 delete (렌더·UI 가 다 쓴 뒤)
 
 				{ PROFILE_SCOPE("Main Thread Tasks"); TaskSystem::ExecuteMainThreadTasks(); }
 				if (!Application::IsPlayer())

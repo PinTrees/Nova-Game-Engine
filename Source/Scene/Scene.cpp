@@ -9,6 +9,7 @@
 #include "DetailRenderer.h"
 #include "SceneCulling.h"
 #include "MeshBatcher.h"
+#include "SelectionManager.h"
 
 Scene::Scene()
 	: m_VecRootGameObjects(),
@@ -34,12 +35,20 @@ Scene::~Scene()
     };
     for (GameObject* g : m_VecRootGameObjects)
         collect(g);
+    // DestroyGameObject 로 이미 OnDestroy 된 채 delete 를 기다리던 것 (트리에서 떨어져 있어 위에서 모이지 않는다)
+    std::vector<GameObject*> pending;
+    for (GameObject* g : m_PendingDelete)
+        if (std::find(all.begin(), all.end(), g) == all.end() && std::find(pending.begin(), pending.end(), g) == pending.end())
+            pending.push_back(g);
 
     // 먼저 모두 OnDestroy (컴포넌트가 다른 오브젝트를 볼 수 있으므로 지우기 전에), 그다음 delete
     for (GameObject* g : all)
         g->OnDestroy();
     for (GameObject* g : all)
         delete g;
+    for (GameObject* g : pending)
+        delete g;
+    m_PendingDelete.clear();
     m_VecRootGameObjects.clear();
     m_ArrGameObjects[0].clear();
 }
@@ -340,7 +349,9 @@ void Scene::DestroyComponent(Component* component)
 
 void Scene::DestroyGameObject(GameObject* gameobject)
 {
-    if (gameobject == nullptr)
+    // 이미 지웠거나 delete 를 기다리는 오브젝트면 무시 (같은 프레임에 두 번 지우기)
+    if (gameobject == nullptr || !GameObject::IsAlive(gameobject)
+        || std::find(m_PendingDelete.begin(), m_PendingDelete.end(), gameobject) != m_PendingDelete.end())
         return;
 
     // 부모의 자식 목록에서 떼어낸다
@@ -362,8 +373,34 @@ void Scene::DestroyGameObject(GameObject* gameobject)
         auto it2 = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
         if (it2 != m_ArrGameObjects[0].end())
             m_ArrGameObjects[0].erase(it2);
+        if (SelectionManager::GetSelectedGameObject() == g)
+            SelectionManager::ClearSelection();
+        if (std::find(m_PendingDelete.begin(), m_PendingDelete.end(), g) == m_PendingDelete.end())
+            m_PendingDelete.push_back(g);
     };
     removeTree(gameobject);
+}
+
+void Scene::FlushDestroyed()
+{
+    if (m_PendingDelete.empty())
+        return;
+    // 예전에는 delete 하지 않아 지운 오브젝트가 계속 메모리에 남았다 (스크립트 Destroy·Hierarchy 삭제·Undo 마다).
+    // 컴포넌트는 OnDestroy 에서 이미 풀렸고, 여기서는 GameObject 자체를 지운다. 컬링 목록의 옛 포인터도 뺀다.
+    std::vector<GameObject*> list;
+    list.swap(m_PendingDelete);
+    auto drop = [&](vector<GameObject*>& v)
+    {
+        v.erase(std::remove_if(v.begin(), v.end(), [&](GameObject* g) { return std::find(list.begin(), list.end(), g) != list.end(); }), v.end());
+    };
+    drop(m_CullingGameObjects);
+    drop(m_CullingEditorGameObjects);
+    for (GameObject* g : list)
+    {
+        if (SelectionManager::GetSelectedGameObject() == g)
+            SelectionManager::ClearSelection();
+        delete g;
+    }
 }
 
 void Scene::AddRootGameObject(GameObject* gameObject)

@@ -11,6 +11,32 @@
 
 atomic<uint64> GameObject::g_NextInstanceID = 0;
 
+namespace
+{
+	// 살아 있는 오브젝트 목록 (IsAlive). 씬 불러오기가 작업 스레드에서 만들 수 있어 잠근다
+	std::mutex& LiveMutex() { static std::mutex m; return m; }
+	std::unordered_set<const GameObject*>& LiveSet() { static std::unordered_set<const GameObject*> s; return s; }
+	void MarkLive(const GameObject* g, bool live)
+	{
+		std::lock_guard<std::mutex> lock(LiveMutex());
+		if (live) LiveSet().insert(g); else LiveSet().erase(g);
+	}
+}
+
+bool GameObject::IsAlive(const GameObject* gameobject_ptr)
+{
+	if (gameobject_ptr == nullptr)
+		return false;
+	std::lock_guard<std::mutex> lock(LiveMutex());
+	return LiveSet().count(gameobject_ptr) != 0;
+}
+
+size_t GameObject::LiveCount()
+{
+	std::lock_guard<std::mutex> lock(LiveMutex());
+	return LiveSet().size();
+}
+
 uint64 GameObject::NewFileID()
 {
 	static std::mt19937_64 rng(std::random_device{}() ^ (uint64)::GetTickCount64());
@@ -54,6 +80,7 @@ GameObject::GameObject()
     , m_IsActive(true)
     , m_Editor_HierachOpened(false)
 {
+    MarkLive(this, true);
     m_pTransform = AddComponent<Transform>();
 }
 
@@ -66,11 +93,13 @@ GameObject::GameObject(const string& name)
     , m_IsActive(true)
     , m_Editor_HierachOpened(false)
 {
+    MarkLive(this, true);
     m_pTransform = AddComponent<Transform>();
 }
 
 GameObject::~GameObject()
 {
+    MarkLive(this, false);
     m_Components.clear();
     m_ComponentsToAdd.clear();
     m_Scripts.clear();
@@ -87,6 +116,8 @@ void GameObject::Destroy(Component* component_ptr)
 void GameObject::Destroy(GameObject* gameobject_ptr)
 {
     SceneManager::GetI()->AddLastUpdate([gameobject_ptr]() { 
+        if (!IsAlive(gameobject_ptr))   // 같은 오브젝트를 두 번 Destroy 했거나 그사이 씬이 바뀌어 이미 지워졌다
+            return;
         const auto& scene = SceneManager::GetI()->GetCurrentScene(); 
         scene->DestroyGameObject(gameobject_ptr); 
     }); 

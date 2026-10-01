@@ -51,6 +51,9 @@ public:
 public:
 	static void Destroy(Component* component_ptr); 
 	static void Destroy(GameObject* gameobject_ptr);
+	// 아직 delete 되지 않은 오브젝트인가 (프레임을 넘겨 들고 있던 포인터를 쓰기 전에 확인)
+	static bool IsAlive(const GameObject* gameobject_ptr);
+	static size_t LiveCount();   // 지금 메모리에 있는 GameObject 수 (모든 씬 + 지우기 대기, CLI info)
 	// Editor Only
 	static void DestroyImmediatly(GameObject* gameobject_ptr);
 

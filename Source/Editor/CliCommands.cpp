@@ -8,6 +8,7 @@
 #include "GameViewEditorWindow.h"
 #include "EditorCamera.h"
 #include "ScriptEngine.h"
+#include "CSharpScript.h"
 #include "BuildPipeline.h"
 #include "Transform.h"
 #include "EngineInfo.h"
@@ -388,6 +389,7 @@ namespace CliCommands
 				{ "paused", Application::IsPaused() },
 				{ "compiling", ScriptEngine::IsCompiling() },
 				{ "objects", scene ? scene->GetAllGameObjects().size() : 0 },
+				{ "liveObjects", GameObject::LiveCount() },   // 메모리에 있는 GameObject 전체 (지운 오브젝트가 새는지 확인)
 				{ "selection", sel ? json{ { "path", PathOf(sel) }, { "id", IdOf(sel) } } : json() },
 				{ "canUndo", Undo::CanUndo() }, { "undo", Undo::UndoName() },
 				{ "graphicsAPI", GraphicsAPIToKey(GraphicsSettings::GetActiveAPI()) },
@@ -519,12 +521,40 @@ namespace CliCommands
 			const std::string type = a.value("type", std::string());
 			if (FindComponent(go, type) && Lower(type) == "transform") { e = "already has a Transform"; return false; }
 			std::shared_ptr<Component> c = ComponentFactory::Instance().CreateComponent(type);
-			if (!c) { e = "unknown component type '" + type + "' (type names as in nova get output, e.g. RigidBody, BoxCollider, Light, AudioSource)"; return false; }
+			if (!c)
+			{
+				// C# 스크립트: 클래스 이름 (또는 script:이름) — 컴파일된 MonoBehaviour 클래스여야 한다
+				const std::string cls = type.rfind("script:", 0) == 0 ? type.substr(7) : type;
+				if (ScriptEngine::FindClass(cls) != nullptr)
+					c = CSharpScript::Create(cls);
+			}
+			if (!c) { e = "unknown component type '" + type + "' (type names as in nova get output, e.g. RigidBody, BoxCollider, Light, AudioSource, or a compiled C# MonoBehaviour class name)"; return false; }
+			// 값을 먼저 검사한다 (이름을 못 찾으면 컴포넌트를 붙이지 않고 실패)
+			const bool hasValues = a.contains("values") && a["values"].is_object();
+			json values = hasValues ? a["values"] : json::object();
+			if (hasValues)
+			{
+				if (auto* script = dynamic_cast<CSharpScript*>(c.get()))
+				{
+					// 스크립트는 필드만 넘겨도 된다 ({"speed":42} = {"fields":{"speed":42}}).
+					// GameObject·Transform 필드에 이름/경로/#id 문자열을 주면 그 오브젝트의 fileID 로 바꾼다
+					if (!values.contains("fields"))
+						values = json{ { "fields", values } };
+					if (const ScriptEngine::ClassInfo* ci = ScriptEngine::FindClass(script->GetClassName()))
+						for (const ScriptEngine::FieldInfo& f : ci->Fields)
+							if ((f.Type == "GameObject" || f.Type == "Transform") && values["fields"].contains(f.Name) && values["fields"][f.Name].is_string())
+							{
+								GameObject* ref = Resolve(values["fields"][f.Name], e);
+								if (!ref) return false;
+								values["fields"][f.Name] = ref->GetFileID();
+							}
+				}
+			}
 			go->AddComponent(c);
-			if (a.contains("values") && a["values"].is_object())
+			if (hasValues)
 			{
 				json merged = c->toJson();
-				merged.merge_patch(a["values"]);
+				merged.merge_patch(values);
 				c->fromJson(merged);
 			}
 			AfterEdit("Add " + type, go);

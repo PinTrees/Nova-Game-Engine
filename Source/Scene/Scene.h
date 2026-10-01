@@ -18,6 +18,7 @@ private:
 
 	vector<GameObject*> m_CullingGameObjects;
 	vector<GameObject*> m_CullingEditorGameObjects;
+	vector<GameObject*> m_PendingDelete;   // DestroyGameObject 로 뺀 오브젝트 — 프레임 끝 FlushDestroyed 에서 delete
 public:
 	Scene();
 	~Scene();
@@ -52,6 +53,8 @@ public:
 public:
 	void DestroyComponent(Component* component);  
 	void DestroyGameObject(GameObject* gameobject);
+	// DestroyGameObject 로 뺀 오브젝트를 실제로 delete (프레임 끝, 그 프레임의 렌더·UI·LastUpdate 가 끝난 뒤)
+	void FlushDestroyed();
 	 
 	void AddRootGameObject(GameObject* gameObject);
 	vector<GameObject*> GetRootGameObjects() { return m_VecRootGameObjects; }
