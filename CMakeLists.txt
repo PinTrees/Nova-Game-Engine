@@ -110,6 +110,7 @@ set(ENGINE_MODULE_DIRS
     Source/Graphics/Common
     Source/Graphics/DX11
     Source/Graphics/OpenGL
+    Source/Graphics/RHI
     Source/Animation
     Source/Physics
     Source/Scene
@@ -152,6 +153,7 @@ target_link_libraries(${ENGINE_NAME} PRIVATE
     dxgi
     d3dcompiler
     dwmapi
+    opengl32
     user32
     gdi32
     shell32

@@ -208,8 +208,25 @@ namespace
 					const spirv_cross::SPIRType& type = glsl.get_type(r.base_type_id);
 					b.Size = (int)glsl.get_declared_struct_size(type);
 					for (uint32_t m = 0; m < (uint32_t)type.member_types.size(); ++m)
-						b.Members.push_back({ glsl.get_member_name(r.base_type_id, m), (int)glsl.get_member_decoration(r.base_type_id, m, spv::DecorationOffset),
-							(int)glsl.get_declared_struct_member_size(type, m) });
+					{
+						UniformBlock::Member mem;
+						mem.Name = glsl.get_member_name(r.base_type_id, m);
+						mem.Offset = (int)glsl.get_member_decoration(r.base_type_id, m, spv::DecorationOffset);
+						mem.Size = (int)glsl.get_declared_struct_member_size(type, m);
+						const spirv_cross::SPIRType& mt = glsl.get_type(type.member_types[m]);
+						if (!mt.array.empty())
+						{
+							mem.ArrayCount = (int)mt.array[0];
+							mem.ArrayStride = (int)glsl.type_struct_member_array_stride(type, m);
+						}
+						mem.Struct = mt.basetype == spirv_cross::SPIRType::Struct;
+						mem.Integer = mt.basetype == spirv_cross::SPIRType::Int || mt.basetype == spirv_cross::SPIRType::UInt || mt.basetype == spirv_cross::SPIRType::Boolean;
+						mem.Rows = (int)mt.vecsize;
+						mem.Columns = (int)mt.columns;
+						// DXC 는 HLSL column_major(기본)를 SPIR-V RowMajor 로 적는다 → 같은 바이트 = Effects11 이 전치해 넣은 값
+						mem.Transpose = mt.columns > 1 && glsl.has_member_decoration(r.base_type_id, m, spv::DecorationRowMajor);
+						b.Members.push_back(mem);
+					}
 					it = fx.Blocks.emplace(name, b).first;
 				}
 				glsl.unset_decoration(r.id, spv::DecorationDescriptorSet);
@@ -233,7 +250,11 @@ namespace
 					s.Name = name;
 					s.Texture = tex;
 					s.Sampler = smp;
-					s.Unit = (int)fx.Samplers.size();
+					const spirv_cross::SPIRType& ct = glsl.get_type_from_variable(c.combined_id);
+					s.Count = ct.array.empty() ? 1 : (int)ct.array[0];
+					s.Unit = 0;
+					for (const auto& [n, other] : fx.Samplers)
+						s.Unit = (std::max)(s.Unit, other.Unit + other.Count);
 					it = fx.Samplers.emplace(name, s).first;
 				}
 				glsl.unset_decoration(c.combined_id, spv::DecorationDescriptorSet);

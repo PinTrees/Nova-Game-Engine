@@ -18,6 +18,7 @@
 #include "BuildSettings.h"
 #include "App.h"
 #include "ShaderCross.h"
+#include "RhiTest.h"
 
 namespace
 {
@@ -264,6 +265,26 @@ namespace
 		return true;
 	}
 
+	// RGBA8 (행 0 = 위) → PNG
+	bool SavePng(const std::vector<uint8_t>& rgba, int w, int h, const std::wstring& file, std::string& error)
+	{
+		DirectX::Image img = {};
+		img.width = w;
+		img.height = h;
+		img.format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		img.rowPitch = (size_t)w * 4;
+		img.slicePitch = img.rowPitch * h;
+		img.pixels = const_cast<uint8_t*>(rgba.data());
+		std::error_code ec;
+		std::filesystem::create_directories(std::filesystem::path(file).parent_path(), ec);
+		if (FAILED(DirectX::SaveToWICFile(img, DirectX::WIC_FLAGS_FORCE_SRGB, DirectX::GetWICCodec(DirectX::WIC_CODEC_PNG), file.c_str())))
+		{
+			error = "could not write " + wstring_to_string(file);
+			return false;
+		}
+		return true;
+	}
+
 	GameObject* CreateByType(const std::string& typeIn, const json& args, std::string& error)
 	{
 		const std::string type = Lower(typeIn);
@@ -330,7 +351,11 @@ namespace CliCommands
 				{ "objects", scene ? scene->GetAllGameObjects().size() : 0 },
 				{ "selection", sel ? json{ { "path", PathOf(sel) }, { "id", IdOf(sel) } } : json() },
 				{ "canUndo", Undo::CanUndo() }, { "undo", Undo::UndoName() },
+				{ "graphicsAPI", GraphicsAPIToKey(GraphicsSettings::GetActiveAPI()) },
 			};
+			wchar_t title[512] = {};
+			::GetWindowTextW(Application::GetI()->GetMainHwnd(), title, 512);
+			r["title"] = wstring_to_string(title);
 			return true;
 		});
 
@@ -764,6 +789,77 @@ namespace CliCommands
 		});
 
 		// 셰이더 자동 변환 검사: .fx → (DXC) SPIR-V → (SPIRV-Cross) GLSL 4.50. 파일마다 pass 성공 수, 실패 이유, (out 이 있으면) GLSL 파일
+		// RHI 비교: 같은 장면(InstancedBasic PBR)을 DirectX 11 과 OpenGL 로 그려 PNG + 픽셀 차이
+		Register("rhi-test", "render the RHI test scene with DirectX 11 and/or OpenGL and compare {api? (both|DirectX11|OpenGL), out? (folder for PNGs), width?, height?}", [](const json& a, json& r, std::string& e) {
+			const std::string api = Lower(a.value("api", std::string("both")));
+			const int w = std::clamp(a.value("width", 960), 16, 4096), h = std::clamp(a.value("height", 540), 16, 4096);
+			const std::string outDir = a.value("out", std::string());
+			std::vector<GraphicsAPI> apis;
+			if (api == "both" || api == "directx11" || api == "d3d11" || api == "dx11") apis.push_back(GraphicsAPI::DirectX11);
+			if (api == "both" || api == "opengl" || api == "gl") apis.push_back(GraphicsAPI::OpenGL);
+			if (apis.empty()) { e = "api must be both, DirectX11 or OpenGL"; return false; }
+			std::vector<RhiTest::Result> results;
+			json list = json::array();
+			for (GraphicsAPI g : apis)
+			{
+				EditorLog::Heartbeat();
+				json item = { { "api", GraphicsAPIToKey(g) } };
+				std::string err;
+				std::unique_ptr<Rhi::Device> dev = Rhi::CreateDevice(g, err);
+				RhiTest::Result res;
+				if (dev && RhiTest::RenderLitScene(*dev, w, h, res, err))
+				{
+					item["device"] = res.Device;
+					item["loadMs"] = res.LoadMs;
+					item["drawMs"] = res.DrawMs;
+					if (!outDir.empty())
+					{
+						const std::wstring file = (std::filesystem::path(string_to_wstring(outDir)) / (std::string("rhi_") + GraphicsAPIToKey(g) + ".png")).wstring();
+						if (SavePng(res.Rgba, w, h, file, err)) item["png"] = wstring_to_string(file);
+						else item["error"] = err;
+					}
+					results.push_back(std::move(res));
+				}
+				else
+				{
+					item["error"] = err;
+					if (dev) item["device"] = dev->Description();
+				}
+				list.push_back(item);
+			}
+			r = { { "width", w }, { "height", h }, { "results", list } };
+			if (results.size() == 2)
+			{
+				// 차이: 채널 평균·최대, 어떤 채널이든 8 넘게 다른 픽셀 비율, 차이 그림(×4)
+				const auto& A = results[0].Rgba;
+				const auto& B = results[1].Rgba;
+				double sum = 0;
+				int maxDiff = 0;
+				size_t over = 0;
+				std::vector<uint8_t> diff(A.size());
+				for (size_t i = 0; i < A.size(); i += 4)
+				{
+					int pixelMax = 0;
+					for (int c = 0; c < 3; ++c)
+					{
+						const int d = std::abs((int)A[i + c] - (int)B[i + c]);
+						sum += d;
+						pixelMax = (std::max)(pixelMax, d);
+						diff[i + c] = (uint8_t)(std::min)(255, d * 4);
+					}
+					diff[i + 3] = 255;
+					maxDiff = (std::max)(maxDiff, pixelMax);
+					over += pixelMax > 8 ? 1 : 0;
+				}
+				const size_t pixels = A.size() / 4;
+				r["diff"] = { { "mean", sum / (pixels * 3.0) }, { "max", maxDiff }, { "over8Percent", 100.0 * over / pixels } };
+				std::string err;
+				if (!outDir.empty() && SavePng(diff, w, h, (std::filesystem::path(string_to_wstring(outDir)) / "rhi_diff.png").wstring(), err))
+					r["diff"]["png"] = outDir + "\\rhi_diff.png";
+			}
+			return true;
+		});
+
 		Register("shader-cross", "convert engine .fx shaders to GLSL {file? (name part, default all), out? (folder for .glsl files), errors? (max per file)}", [](const json& a, json& r, std::string& e) {
 			std::string dxcError;
 			if (!ShaderCross::Available(&dxcError)) { e = dxcError; return false; }

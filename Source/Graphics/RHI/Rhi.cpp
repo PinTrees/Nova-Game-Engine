@@ -1,0 +1,38 @@
+#include "pch.h"
+#include "Rhi.h"
+
+std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error);   // Dx11Rhi.cpp
+std::unique_ptr<Rhi::Device> CreateGLRhiDevice(std::string& error);     // GLRhi.cpp
+
+namespace Rhi
+{
+	uint32_t BytesPerPixel(Format format)
+	{
+		switch (format)
+		{
+		case Format::RGBA8_UNorm: return 4;
+		case Format::RGBA16_Float: return 8;
+		case Format::RGBA32_Float: return 16;
+		case Format::R32_Float: return 4;
+		case Format::RG16_Float: return 4;
+		case Format::D32_Float: return 4;
+		case Format::D24_UNorm_S8_UInt: return 4;
+		default: return 4;
+		}
+	}
+
+	bool IsDepth(Format format)
+	{
+		return format == Format::D32_Float || format == Format::D24_UNorm_S8_UInt;
+	}
+
+	std::unique_ptr<Device> CreateDevice(GraphicsAPI api, std::string& error)
+	{
+		switch (api)
+		{
+		case GraphicsAPI::DirectX11: return CreateDx11RhiDevice(error);
+		case GraphicsAPI::OpenGL: return CreateGLRhiDevice(error);
+		default: error = "unknown graphics API"; return nullptr;
+		}
+	}
+}

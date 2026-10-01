@@ -933,6 +933,8 @@ void App::CalculateFrameStats()
 		std::wstring caption = _mainWindowCaption;
 		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
 			caption = scene->GetName() + (SceneManager::GetI()->IsCurrentSceneDirty() ? L"*" : L"") + L" - " + caption;
+		// Unity 처럼 지금 렌더링 중인 그래픽 API 를 제목에 (<DX11>, <OpenGL>)
+		caption += GraphicsSettings::GetActiveAPI() == GraphicsAPI::OpenGL ? L" <OpenGL>" : L" <DX11>";
 		outs << caption << L"    "  << L"FPS: " << fps << L"    "  << L"Frame Time: " << mspf << L" (ms)";
 
 		::SetWindowText(_hMainWnd, outs.str().c_str());
