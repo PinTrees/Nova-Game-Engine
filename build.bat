@@ -24,6 +24,16 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+rem Debug and Release both write Binaries\ and Packages\*\Plugins\: after switching the config the old
+rem outputs can look up to date and are not relinked, so remove them (keep this file ASCII + CRLF for cmd)
+set LASTCFG=
+if exist build\last_config.txt set /p LASTCFG=<build\last_config.txt
+if /I not "%LASTCFG%"=="%CONFIG%" (
+    if exist Binaries\NovaCore.dll erase Binaries\NovaCore.dll
+    if exist Binaries\NovaEngine.exe erase Binaries\NovaEngine.exe
+    for /d %%P in (Packages\*) do if exist "%%P\Plugins\*.dll" erase "%%P\Plugins\*.dll"
+)
+
 echo [2/2] Compiling Engine (%CONFIG% x64)...
 %CMAKE_PATH% --build build --config %CONFIG% -j
 if %ERRORLEVEL% neq 0 (
@@ -31,6 +41,7 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
+>build\last_config.txt echo %CONFIG%
 echo ===================================================
 echo   Build Successful! (%CONFIG%) Output: Binaries\NovaEngine.exe
 echo ===================================================
