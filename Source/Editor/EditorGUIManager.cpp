@@ -392,9 +392,7 @@ void EditorGUIManager::RenderEditorWindows()
                 BuildSettingsWindow::BuildAndRun();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4"))
-            {
-                ::PostQuitMessage(0);
-            }
+                ::PostMessageW(Application::GetI()->GetMainHwnd(), WM_CLOSE, 0, 0);   // 창 닫기와 같은 길 (저장 안 한 변경 확인)
             ImGui::EndMenu();
         }
 

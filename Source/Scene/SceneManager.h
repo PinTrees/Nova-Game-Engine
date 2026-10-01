@@ -53,6 +53,7 @@ public:
 	void RequestSceneChange(std::function<void()> action, std::function<void()> onDiscard = nullptr);
 	void DrawScenePrompt();   // 에디터 UI 프레임 안에서 (확인 창)
 	bool IsScenePromptOpen() const { return (bool)m_PromptAction; }
+	void CancelScenePrompt() { m_PromptAction = nullptr; m_PromptDiscard = nullptr; }   // nova quit --force
 
 	// 현재 씬 저장 (Ctrl+S / File > Save / Hierarchy 메뉴 공통). Play 모드에서는 저장하지 않는다 (Unity 와 동일).
 	bool SaveCurrentScene(bool saveAs = false);

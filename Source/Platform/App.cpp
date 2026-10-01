@@ -752,6 +752,30 @@ LRESULT App::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		OnResize();
 		return 0;
  
+	// 창 닫기 (X, Alt+F4, File > Exit, nova quit): 에디터에서 저장 안 한 씬이 있으면 Unity 처럼
+	// "Save / Don't Save / Cancel" 을 물은 뒤 닫는다 (예전에는 묻지 않고 꺼져 작업이 사라졌다)
+	case WM_CLOSE:
+	{
+		static bool s_Confirmed = false;
+		SceneManager* sm = SceneManager::GetI();
+		if (!s_Confirmed && !Application::IsPlayer() && sm->GetCurrentScene() != nullptr)
+		{
+			if (sm->IsScenePromptOpen())
+				return 0;   // 이미 묻는 중
+			if (Application::IsPlaying())
+				sm->TogglePlayFromEditor();   // Play 중이면 먼저 멈춘다 (Play 중에는 저장할 수 없다)
+			if (sm->IsCurrentSceneDirty())
+			{
+				if (::IsIconic(hwnd)) ::ShowWindow(hwnd, SW_RESTORE);
+				::SetForegroundWindow(hwnd);   // 비활성 창이면 멈춰 있어 확인 창이 그려지지 않는다
+				_appPaused = false;
+				sm->RequestSceneChange([hwnd]() { s_Confirmed = true; ::PostMessageW(hwnd, WM_CLOSE, 0, 0); });
+				return 0;
+			}
+		}
+		break;   // DefWindowProc → DestroyWindow
+	}
+
 	// WM_DESTROY is sent when the window is being destroyed.
 	case WM_DESTROY:
 		PostQuitMessage(0);

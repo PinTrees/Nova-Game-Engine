@@ -1236,6 +1236,7 @@ namespace CliCommands
 			if (SceneManager::GetI()->IsCurrentSceneDirty())
 			{
 				if (!a.value("force", false)) { e = "the scene has unsaved changes (nova scene save, or quit --force)"; return false; }
+				SceneManager::GetI()->CancelScenePrompt();   // 닫기 확인 창이 떠 있어도 버리고 닫는다
 				SceneManager::GetI()->DiscardChanges();
 			}
 			::PostMessageW(Application::GetI()->GetMainHwnd(), WM_CLOSE, 0, 0);
