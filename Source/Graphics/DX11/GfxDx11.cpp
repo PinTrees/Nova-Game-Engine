@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Gfx.h"
 #include <mutex>
+#include <dxgi1_4.h>   // IDXGIAdapter3 (VRAM 예산)
 
 // Gfx 의 DirectX 11 구현: 진짜 D3D11 객체를 감싸 그대로 넘긴다.
 //  - 감싸개는 D3D 객체의 private data 에 자기 주소를 적어 둔다 → 같은 D3D 객체는 늘 같은 감싸개
@@ -156,30 +157,92 @@ namespace
 
 	ID3D11Resource* NatRes(GfxResource* r) { return r ? static_cast<ID3D11Resource*>(r->Native()) : nullptr; }
 
+	// ---- VRAM 예산 가드: 큰 자원을 만들기 전에 이 프로세스의 VRAM 사용량(DXGI)을 보고, 예산을 넘으면 만들지 않는다.
+	//  엔진이 실패를 매 프레임 다시 만드는 버그가 있어도 VRAM 이 바닥나 PC 가 멈추지 않게 (2026-10-02 사고)
+	class VramGuard
+	{
+	public:
+		bool Allow(ID3D11Device* device, uint64_t bytes, const char* what)
+		{
+			if (bytes < (4ull << 20))
+				return true;   // 작은 자원은 보지 않는다 (질의 비용)
+			if (!_tried)
+			{
+				_tried = true;
+				ComPtr<IDXGIDevice> dxgi;
+				ComPtr<IDXGIAdapter> adapter;
+				if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(dxgi.GetAddressOf()))) && SUCCEEDED(dxgi->GetAdapter(adapter.GetAddressOf())))
+					adapter.As(&_adapter);
+			}
+			if (!_adapter)
+				return true;
+			DXGI_QUERY_VIDEO_MEMORY_INFO info = {};
+			if (FAILED(_adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &info)) || info.Budget == 0)
+				return true;
+			if (_testBudget < 0)
+			{
+				// 검사용: NOVA_GFX_VRAM_BUDGET_MB 로 예산을 일부러 줄여 가드가 막는지 확인
+				char buf[32] = {};
+				_testBudget = ::GetEnvironmentVariableA("NOVA_GFX_VRAM_BUDGET_MB", buf, sizeof(buf)) ? (int64_t)atoll(buf) << 20 : 0;
+			}
+			if (_testBudget > 0)
+				info.Budget = (std::min<UINT64>)(info.Budget, (UINT64)_testBudget);
+			if (info.CurrentUsage + bytes <= info.Budget / 100 * 95)
+				return true;
+			const int n = ++_refused;
+			if (n <= 20 || n % 1000 == 0)
+				EditorLog::Write("Gfx", "VRAM budget: refused %s of %.1f MB (in use %.0f MB / budget %.0f MB, refused %d so far)", what, bytes / 1048576.0,
+					info.CurrentUsage / 1048576.0, info.Budget / 1048576.0, n);
+			return false;
+		}
+
+	private:
+		bool _tried = false;
+		int64_t _testBudget = -1;
+		ComPtr<IDXGIAdapter3> _adapter;
+		std::atomic<int> _refused{ 0 };
+	};
+
+	uint64_t TextureBytes(DXGI_FORMAT format, UINT w, UINT h, UINT depthOrArray, UINT mips, UINT samples)
+	{
+		const uint64_t bpp = (std::max<size_t>)(DirectX::BitsPerPixel(format), 8);
+		uint64_t bytes = 0;
+		for (UINT m = 0; m < (std::max)(mips, 1u); ++m)
+			bytes += (uint64_t)(std::max)(1u, w >> m) * (std::max)(1u, h >> m) * bpp / 8;
+		if (mips == 0)   // 0 = 전체 밉 → 대략 4/3
+			bytes = bytes * 4 / 3;
+		return bytes * (std::max)(depthOrArray, 1u) * (std::max)(samples, 1u);
+	}
+
 	class DxContext;
 
 	class DxDevice : public DxWrap<GfxDevice, ID3D11Device>
 	{
 	public:
 		using DxWrap::DxWrap;
+		VramGuard Guard;
 
 		HRESULT CreateBuffer(const D3D11_BUFFER_DESC* desc, const D3D11_SUBRESOURCE_DATA* data, GfxBuffer** out) override
 		{
+			if (out && desc && !Guard.Allow(D.Get(), desc->ByteWidth, "buffer")) { *out = nullptr; return E_OUTOFMEMORY; }
 			ID3D11Buffer* n = nullptr;
 			return Adopt<DxBuffer>(D->CreateBuffer(desc, data, out ? &n : nullptr), &n, out);
 		}
 		HRESULT CreateTexture1D(const D3D11_TEXTURE1D_DESC* desc, const D3D11_SUBRESOURCE_DATA* data, GfxTexture1D** out) override
 		{
+			if (out && desc && !Guard.Allow(D.Get(), TextureBytes(desc->Format, desc->Width, 1, desc->ArraySize, desc->MipLevels, 1), "texture1D")) { *out = nullptr; return E_OUTOFMEMORY; }
 			ID3D11Texture1D* n = nullptr;
 			return Adopt<DxTexture1D>(D->CreateTexture1D(desc, data, out ? &n : nullptr), &n, out);
 		}
 		HRESULT CreateTexture2D(const D3D11_TEXTURE2D_DESC* desc, const D3D11_SUBRESOURCE_DATA* data, GfxTexture2D** out) override
 		{
+			if (out && desc && !Guard.Allow(D.Get(), TextureBytes(desc->Format, desc->Width, desc->Height, desc->ArraySize, desc->MipLevels, desc->SampleDesc.Count), "texture2D")) { *out = nullptr; return E_OUTOFMEMORY; }
 			ID3D11Texture2D* n = nullptr;
 			return Adopt<DxTexture2D>(D->CreateTexture2D(desc, data, out ? &n : nullptr), &n, out);
 		}
 		HRESULT CreateTexture3D(const D3D11_TEXTURE3D_DESC* desc, const D3D11_SUBRESOURCE_DATA* data, GfxTexture3D** out) override
 		{
+			if (out && desc && !Guard.Allow(D.Get(), TextureBytes(desc->Format, desc->Width, desc->Height, desc->Depth, desc->MipLevels, 1), "texture3D")) { *out = nullptr; return E_OUTOFMEMORY; }
 			ID3D11Texture3D* n = nullptr;
 			return Adopt<DxTexture3D>(D->CreateTexture3D(desc, data, out ? &n : nullptr), &n, out);
 		}
