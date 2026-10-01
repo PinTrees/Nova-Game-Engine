@@ -60,6 +60,8 @@ public:
 	static GameObject* CreateParticleSystem(const std::string& name = "Particle System");
 	// 절차적 나무 (Oak 프리셋)
 	static GameObject* CreateTree(const std::string& name = "Tree");
+	// 지형 스탬프 (산·분화구 …): 첫 지형 가운데에 지형 너비의 30% 크기로 놓는다
+	static GameObject* CreateTerrainStamp(int shape);
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

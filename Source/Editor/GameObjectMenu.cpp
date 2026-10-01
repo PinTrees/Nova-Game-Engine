@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "GameObjectMenu.h"
 #include "GameObjectFactory.h"
+#include "TerrainStamp.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
 
@@ -93,6 +94,12 @@ namespace GameObjectMenu
 			ImGui::Separator();
 			if (ImGui::MenuItem("Terrain")) add(GameObjectFactory::CreateTerrain());   // 새 TerrainData(Assets) + Terrain + Terrain Collider
 			if (ImGui::MenuItem("Tree")) add(GameObjectFactory::CreateTree());   // 절차적 나무 (텍스처 없는 셰이더)
+			if (ImGui::BeginMenu("Terrain Stamp"))   // 지형 생성기(Generate 도구)가 켜진 지형에 합쳐지는 지형 요소
+			{
+				for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
+					if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s))) add(GameObjectFactory::CreateTerrainStamp(s));
+				ImGui::EndMenu();
+			}
 			Disabled("Wind Zone");
 			ImGui::EndMenu();
 		}

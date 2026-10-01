@@ -7,6 +7,10 @@
 #include "EditorCamera.h"
 #include "UndoSystem.h"
 #include "TreeRenderer.h"
+#include "TerrainGenerator.h"
+#include "TerrainStamp.h"
+#include "GameObjectFactory.h"
+#include "SelectionManager.h"
 #include <random>
 
 namespace
@@ -494,16 +498,302 @@ namespace
 	}
 
 	// ---- 도구 막대 (Unity: 버튼 5개가 붙은 막대) ----
+	// ================================================================ Generate (지형 생성기: Base → Stamps → Filters → Materials)
+	// 옥타브 막대 (World Creator 의 Base Noise): 위아래로 끌어 옥타브별 세기
+	bool OctaveBars(float* values, int count)
+	{
+		bool changed = false;
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float w = ImGui::GetContentRegionAvail().x - 28.0f, h = 64.0f;
+		const ImVec2 a(p.x + 14.0f, p.y + 2.0f), b(a.x + w, a.y + h);
+		dl->AddRectFilled(a, b, IM_COL32(36, 36, 36, 255), 3.0f);
+		dl->AddRect(a, b, kBorder, 3.0f);
+		const float bw = w / count;
+		for (int i = 0; i < count; ++i)
+		{
+			const ImVec2 c0(a.x + i * bw + 3.0f, a.y + 3.0f), c1(a.x + (i + 1) * bw - 3.0f, b.y - 3.0f);
+			ImGui::SetCursorScreenPos(c0);
+			ImGui::PushID(i);
+			ImGui::InvisibleButton("##oct", ImVec2(c1.x - c0.x, c1.y - c0.y));
+			if (ImGui::IsItemActive())
+			{
+				values[i] = std::clamp((c1.y - ImGui::GetIO().MousePos.y) / (c1.y - c0.y), 0.0f, 1.0f);
+				changed = true;
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Octave %d: %.2f", i + 1, values[i]);
+			ImGui::PopID();
+			const float v = std::clamp(values[i], 0.0f, 1.0f);
+			dl->AddRectFilled(ImVec2(c0.x, c1.y - (c1.y - c0.y) * v), c1, IM_COL32(86, 120, 220, 255), 2.0f);
+		}
+		ImGui::SetCursorScreenPos(ImVec2(p.x, b.y + 4.0f));
+		ImGui::Dummy(ImVec2(w, 1.0f));
+		return changed;
+	}
+
+	// 작은 아이콘 버튼
+	bool SmallButton(const char* id, const char* glyph, const char* tip)
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 1));
+		const bool clicked = ImGui::Button((std::string(glyph) + id).c_str());
+		ImGui::PopStyleVar();
+		if (tip && ImGui::IsItemHovered())
+			ImGui::SetTooltip("%s", tip);
+		return clicked;
+	}
+
+	void AddStampToScene(int shape)
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		if (scene == nullptr)
+			return;
+		GameObject* obj = GameObjectFactory::CreateTerrainStamp(shape);
+		scene->AddRootGameObject(obj);
+		SelectionManager::SetSelectedGameObject(obj);
+		Undo::SetActionName("Create Terrain Stamp");
+		Undo::RequestCheck();
+	}
+
+	void DrawGenerateTool(Terrain* terrain, const std::shared_ptr<TerrainData>& data)
+	{
+		using namespace UnityGUI;
+		TerrainGenSettings& g = data->Generator;
+		// Undo: 설정 전체를 JSON 으로 (되돌리면 다시 생성된다)
+		std::weak_ptr<TerrainData> weak = data;
+		Undo::WatchAsset("terraingen:" + data->Path, "Terrain Generator",
+			[weak]() { auto d = weak.lock(); return d ? d->Generator.ToJson().dump() : std::string(); },
+			[weak](const std::string& text) { if (auto d = weak.lock()) { d->Generator.FromJson(nlohmann::json::parse(text, nullptr, false)); d->Dirty = true; } });
+		const std::string before = g.ToJson().dump();
+
+		DescriptionBox("Builds the terrain from base noise, Terrain Stamps in the scene, a filter stack and material rules. "
+			"Non-destructive: move a stamp or change a value and the terrain regenerates.");
+		bool enabled = g.Enabled;
+		if (Toggle("Enable Generator", &enabled))
+		{
+			if (enabled && g.Filters.empty() && g.Materials.empty())
+			{
+				TerrainGenSettings def = TerrainGenSettings::MakeDefault();
+				def.Base.MaxHeight = (std::min)(def.Base.MaxHeight, data->Size.y * 0.6f);
+				def.Materials[2].HeightMin = def.Base.MaxHeight * 0.75f;
+				g = def;
+			}
+			g.Enabled = enabled;
+		}
+		if (!g.Enabled)
+		{
+			HelpBox("When enabled, the generator owns this terrain's heights (hand-painted heights are replaced).\n"
+				"To keep them, choose Base > Current Terrain and capture the heights first.", true);
+		}
+		else
+		{
+			Toggle("Auto Update", &g.AutoUpdate);
+			const TerrainGenerator::Status st = TerrainGenerator::GetStatus(data.get());
+			char status[200];
+			if (st.Running)
+				snprintf(status, sizeof(status), "Generating...");
+			else if (st.LastMs > 0.0)
+				snprintf(status, sizeof(status), "%s in %.0f ms  (base %.0f, stamps %.0f, filters %.0f, materials %.0f)  -  %d stamps",
+					st.LastPreview ? "Preview (erosion skipped)" : "Generated", st.LastMs, st.StageMs[0], st.StageMs[1], st.StageMs[2], st.StageMs[3], st.StampCount);
+			else
+				snprintf(status, sizeof(status), "Waiting...");
+			HelpBox(status, false);
+			if (CenterButton(g.AutoUpdate ? "Regenerate" : "Generate"))
+				TerrainGenerator::Regenerate(data);
+
+			// ---- Base
+			if (Foldout("Base", 0, true, false))
+			{
+				static const char* kTypes[] = { "Flat", "Classic", "Ridged", "Billow", "Eroded", "Current Terrain" };
+				int type = (int)g.Base.NoiseType;
+				if (Dropdown("Noise Type", &type, kTypes, 6, 1))
+					g.Base.NoiseType = (TerrainGenBase::Type)type;
+				if (g.Base.NoiseType == TerrainGenBase::Type::CurrentTerrain)
+				{
+					HelpBox(data->BaseSnapshot.size() == data->Heights.size() ? "Using captured heights as the base." : "No heights captured yet.", false, 1);
+					if (CenterButton("Capture Current Heights"))
+					{
+						data->BaseSnapshot = data->Heights;
+						data->Dirty = true;
+					}
+				}
+				else if (g.Base.NoiseType != TerrainGenBase::Type::Flat)
+				{
+					Int("Seed", &g.Base.Seed, 1);
+					if (CenterButton("New Seed"))
+						g.Base.Seed = (g.Base.Seed * 1103515245 + 12345) & 0x7fff;
+					Slider("Scale (m)", &g.Base.Scale, 50.0f, 4000.0f, 1);
+					Label("Octaves", 1);
+					OctaveBars(g.Base.Octaves, TerrainGenBase::kOctaves);
+					Slider("Shape Power", &g.Base.ShapePower, 0.3f, 4.0f, 1);
+					Slider("Offset X", &g.Base.OffsetX, -5000.0f, 5000.0f, 1);
+					Slider("Offset Z", &g.Base.OffsetZ, -5000.0f, 5000.0f, 1);
+				}
+				if (g.Base.NoiseType != TerrainGenBase::Type::CurrentTerrain)
+				{
+					Slider("Min Height", &g.Base.MinHeight, 0.0f, data->Size.y, 1);
+					if (g.Base.NoiseType != TerrainGenBase::Type::Flat)
+						Slider("Max Height", &g.Base.MaxHeight, 0.0f, data->Size.y, 1);
+				}
+			}
+
+			// ---- Stamps (씬 오브젝트)
+			if (Foldout("Stamps", 0, true, false))
+			{
+				int shown = 0;
+				for (TerrainStamp* s : TerrainStamp::All())
+				{
+					GameObject* go = s->GetGameObject();
+					if (go == nullptr)
+						continue;
+					char label[160];
+					snprintf(label, sizeof(label), "%s  -  %s %s%s", go->GetName().c_str(), TerrainStamp::ShapeName(s->StampShape),
+						TerrainStamp::OperationName(s->Op), s->IsActiveStamp() ? "" : "  (off)");
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+					ImGui::PushID(s);
+					if (ImGui::Selectable(label, SelectionManager::GetSelectedGameObject() == go))
+						SelectionManager::SetSelectedGameObject(go);
+					ImGui::PopID();
+					++shown;
+				}
+				if (shown == 0)
+					HelpBox("No stamps in the scene. Add one below or from GameObject > 3D Object > Terrain Stamp.", false, 1);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+				if (ImGui::Button("Add Stamp", ImVec2(120, 0)))
+					ImGui::OpenPopup("##addstamp");
+				if (ImGui::BeginPopup("##addstamp"))
+				{
+					for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
+						if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s)))
+							AddStampToScene(s);
+					ImGui::EndPopup();
+				}
+			}
+
+			// ---- Filters (위에서 아래로)
+			if (Foldout("Filters", 0, true, false))
+			{
+				int remove = -1, up = -1, down = -1;
+				for (int i = 0; i < (int)g.Filters.size(); ++i)
+				{
+					TerrainGenFilter& f = g.Filters[i];
+					ImGui::PushID(i);
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
+					ImGui::Checkbox("##on", &f.Enabled);
+					ImGui::SameLine();
+					ImGui::TextUnformatted(TerrainGenFilter::Name(f.FilterType));
+					ImGui::SameLine();
+					ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 78.0f);
+					if (SmallButton("##up", ICON_FA_ARROW_UP, "Move up")) up = i;
+					ImGui::SameLine();
+					if (SmallButton("##down", ICON_FA_ARROW_DOWN, "Move down")) down = i;
+					ImGui::SameLine();
+					if (SmallButton("##del", ICON_FA_XMARK, "Remove")) remove = i;
+					if (f.Enabled)
+					{
+						Slider("Strength", &f.Strength, 0.0f, 1.0f, 2);
+						const TerrainGenFilter::ParamInfo* info = TerrainGenFilter::Params(f.FilterType);
+						for (int k = 0; k < 6; ++k)
+						{
+							if (info[k].Label == nullptr)
+								continue;
+							ImGui::PushID(k);
+							float maxV = info[k].Max;
+							if (f.FilterType == TerrainGenFilter::Type::Terrace && (k == 2 || k == 3))
+								maxV = data->Size.y;
+							Slider(info[k].Label, &f.P[k], info[k].Min, maxV, 2);
+							if (info[k].Integer)
+								f.P[k] = roundf(f.P[k]);
+							ImGui::PopID();
+						}
+						if (TerrainGenFilter::IsHeavy(f.FilterType))
+							HelpBox("Skipped while dragging (preview), applied when you release.", false, 2);
+					}
+					ImGui::PopID();
+					Spacing(2);
+				}
+				if (remove >= 0) g.Filters.erase(g.Filters.begin() + remove);
+				if (up > 0) std::swap(g.Filters[up], g.Filters[up - 1]);
+				if (down >= 0 && down + 1 < (int)g.Filters.size()) std::swap(g.Filters[down], g.Filters[down + 1]);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+				if (ImGui::Button("Add Filter", ImVec2(120, 0)))
+					ImGui::OpenPopup("##addfilter");
+				if (ImGui::BeginPopup("##addfilter"))
+				{
+					for (int t = 0; t < (int)TerrainGenFilter::Type::Count; ++t)
+						if (ImGui::MenuItem(TerrainGenFilter::Name((TerrainGenFilter::Type)t)))
+							g.Filters.push_back(TerrainGenFilter::Make((TerrainGenFilter::Type)t));
+					ImGui::EndPopup();
+				}
+			}
+
+			// ---- Materials (높이·경사·퇴적으로 레이어 칠하기)
+			if (Foldout("Materials", 0, true, false))
+			{
+				Toggle("Paint Materials", &g.PaintMaterials, 1);
+				if (data->Layers.size() < 2)
+					HelpBox("Add terrain layers first (Paint Terrain > Paint Texture). Layer 0 is the base; rules paint layers 1-3.", true, 1);
+				std::vector<std::string> names;
+				for (size_t l = 0; l < data->Layers.size(); ++l)
+					names.push_back(std::to_string(l) + ": " + (data->Layers[l] ? data->Layers[l]->Name() : std::string("(none)")));
+				std::vector<const char*> namePtrs;
+				for (const auto& n : names)
+					namePtrs.push_back(n.c_str());
+				int remove = -1;
+				for (int i = 0; i < (int)g.Materials.size(); ++i)
+				{
+					TerrainGenMaterialRule& r = g.Materials[i];
+					ImGui::PushID(1000 + i);
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14.0f);
+					ImGui::Checkbox("##on", &r.Enabled);
+					ImGui::SameLine();
+					ImGui::Text("Rule %d", i + 1);
+					ImGui::SameLine();
+					ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - 30.0f);
+					if (SmallButton("##del", ICON_FA_XMARK, "Remove")) remove = i;
+					if (r.Enabled)
+					{
+						if (!namePtrs.empty())
+						{
+							r.Layer = std::clamp(r.Layer, 0, (int)namePtrs.size() - 1);
+							Dropdown("Layer", &r.Layer, namePtrs.data(), (int)namePtrs.size(), 2);
+						}
+						else
+							Int("Layer", &r.Layer, 2);
+						Slider("Height Min", &r.HeightMin, 0.0f, data->Size.y, 2);
+						Slider("Height Max", &r.HeightMax, 0.0f, data->Size.y + 1.0f, 2);
+						Slider("Height Blend", &r.HeightBlend, 0.1f, 200.0f, 2);
+						Slider("Slope Min", &r.SlopeMin, 0.0f, 90.0f, 2);
+						Slider("Slope Max", &r.SlopeMax, 0.0f, 90.0f, 2);
+						Slider("Slope Blend", &r.SlopeBlend, 0.1f, 30.0f, 2);
+						Slider("Sediment", &r.Sediment, 0.0f, 1.0f, 2);
+						Slider("Noise", &r.Noise, 0.0f, 1.0f, 2);
+						Slider("Opacity", &r.Opacity, 0.0f, 1.0f, 2);
+					}
+					ImGui::PopID();
+					Spacing(2);
+				}
+				if (remove >= 0) g.Materials.erase(g.Materials.begin() + remove);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+				if (ImGui::Button("Add Rule", ImVec2(120, 0)))
+					g.Materials.push_back(TerrainGenMaterialRule());
+			}
+		}
+		if (g.ToJson().dump() != before)
+			data->Dirty = true;   // 저장 대상 (높이는 생성기가 다시 만든다)
+	}
+
 	void DrawToolbar()
 	{
-		static const char* icons[] = { "terrain_neighbor", "terrain_paint", "terrain_trees", "terrain_details", "terrain_settings" };
-		static const char* tips[] = { "Create Neighbor Terrains", "Paint Terrain", "Paint Trees", "Paint Details", "Terrain Settings" };
+		static const char* icons[] = { "terrain_neighbor", "terrain_paint", "terrain_trees", "terrain_details", "terrain_settings", nullptr };
+		static const char* tips[] = { "Create Neighbor Terrains", "Paint Terrain", "Paint Trees", "Paint Details", "Terrain Settings", "Generate" };
+		constexpr int kTools = 6;
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		const ImVec2 p = ImGui::GetCursorScreenPos();
 		const float w = ImGui::GetContentRegionAvail().x;
 		const float bw = 34.0f, bh = 24.0f;
-		const float x0 = p.x + (w - bw * 5) * 0.5f, y0 = p.y + 6.0f;
-		for (int i = 0; i < 5; ++i)
+		const float x0 = p.x + (w - bw * kTools) * 0.5f, y0 = p.y + 6.0f;
+		for (int i = 0; i < kTools; ++i)
 		{
 			const ImVec2 a(x0 + i * bw, y0), b(a.x + bw, a.y + bh);
 			ImGui::SetCursorScreenPos(a);
@@ -515,10 +805,16 @@ namespace
 				ImGui::SetTooltip("%s", tips[i]);
 			ImGui::PopID();
 			const bool active = (int)s_Tool == i;
-			const ImDrawFlags corners = i == 0 ? ImDrawFlags_RoundCornersLeft : (i == 4 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersNone);
+			const ImDrawFlags corners = i == 0 ? ImDrawFlags_RoundCornersLeft : (i == kTools - 1 ? ImDrawFlags_RoundCornersRight : ImDrawFlags_RoundCornersNone);
 			dl->AddRectFilled(a, b, active ? IM_COL32(70, 96, 128, 255) : (hovered ? IM_COL32(88, 88, 88, 255) : IM_COL32(74, 74, 74, 255)), 3.0f, corners);
 			dl->AddRect(a, b, kBorder, 3.0f, corners);
-			UnityGUI::DrawIcon(dl, icons[i], ImVec2(a.x + (bw - 16) * 0.5f, a.y + (bh - 16) * 0.5f), 16.0f);
+			if (icons[i])
+				UnityGUI::DrawIcon(dl, icons[i], ImVec2(a.x + (bw - 16) * 0.5f, a.y + (bh - 16) * 0.5f), 16.0f);
+			else
+			{
+				const ImVec2 ts = ImGui::CalcTextSize(ICON_FA_MOUNTAIN_SUN);
+				dl->AddText(ImVec2(a.x + (bw - ts.x) * 0.5f, a.y + (bh - ts.y) * 0.5f), IM_COL32(220, 220, 220, 255), ICON_FA_MOUNTAIN_SUN);
+			}
 		}
 		ImGui::SetCursorScreenPos(p);
 		ImGui::Dummy(ImVec2(w, bh + 12.0f));
@@ -938,6 +1234,14 @@ namespace TerrainEditor
 			break;
 		case Tool::PaintDetails:
 			DescriptionBox("Click to paint details (grass, flowers).\n(Not supported yet.)");
+			break;
+		case Tool::Generate:
+			if (data == nullptr)
+			{
+				UnityGUI::HelpBox("Terrain has no Terrain Data. Assign one in Terrain Settings.", true);
+				break;
+			}
+			DrawGenerateTool(terrain, data);
 			break;
 		}
 	}

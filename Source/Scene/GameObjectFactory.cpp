@@ -15,6 +15,9 @@
 #include "AudioListener.h"
 #include "ParticleSystem.h"
 #include "Tree.h"
+#include "TerrainStamp.h"
+#include "Terrain.h"
+#include "TerrainData.h"
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
 #include "SkinnedMesh.h"
@@ -357,6 +360,44 @@ GameObject* GameObjectFactory::CreateTree(const std::string& name)
 {
 	GameObject* obj = new GameObject(name);
 	obj->AddComponent<Tree>()->ApplyPreset(0);
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateTerrainStamp(int shape)
+{
+	using S = TerrainStamp::Shape;
+	const S s = (S)std::clamp(shape, 0, (int)S::Count - 1);
+	GameObject* obj = new GameObject(std::string(TerrainStamp::ShapeName(s)) + " Stamp");
+	TerrainStamp* stamp = obj->AddComponent<TerrainStamp>();
+	stamp->StampShape = s;
+	// 모양마다 알맞은 기본 높이
+	switch (s)
+	{
+	case S::Mountain: stamp->Height = 240.0f; break;
+	case S::Hill: stamp->Height = 60.0f; stamp->Detail = 0.15f; break;
+	case S::Crater: stamp->Height = 90.0f; break;
+	case S::Volcano: stamp->Height = 260.0f; stamp->Detail = 0.25f; break;
+	case S::Mesa: stamp->Height = 110.0f; stamp->BlendSize = 0.2f; break;
+	case S::Ridge: stamp->Height = 140.0f; stamp->Roundness = 0.0f; break;
+	case S::Canyon: stamp->Height = 90.0f; stamp->Roundness = 0.0f; stamp->BlendSize = 0.15f; break;
+	case S::Dunes: stamp->Height = 30.0f; stamp->Detail = 0.1f; break;
+	case S::Island: stamp->Height = 80.0f; break;
+	default: stamp->Height = 150.0f; stamp->Detail = 0.0f; break;
+	}
+	Vec3 pos(0, 0, 0), scale(300, 1, 300);
+	if (!Terrain::GetActiveTerrains().empty())
+	{
+		Terrain* t = Terrain::GetActiveTerrains()[0];
+		if (auto data = t->GetTerrainData())
+		{
+			const Vec3 tp = t->GetPosition();
+			pos = Vec3(tp.x + data->Size.x * 0.5f, tp.y, tp.z + data->Size.z * 0.5f);
+			const float w = (std::min)(data->Size.x, data->Size.z) * 0.3f;
+			scale = Vec3(s == S::Ridge || s == S::Canyon || s == S::Dunes ? w * 1.6f : w, 1.0f, w);
+		}
+	}
+	obj->GetTransform()->SetPosition(pos);
+	obj->GetTransform()->SetLocalScale(scale);
 	return obj;
 }
 

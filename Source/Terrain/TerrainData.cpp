@@ -34,7 +34,7 @@ namespace
 	}
 
 	constexpr uint32_t kMagic = 0x4454564E;   // "NVTD"
-	constexpr uint32_t kVersion = 2;   // 2: 나무 프로토타입(JSON) + 인스턴스
+	constexpr uint32_t kVersion = 3;   // 2: 나무 프로토타입(JSON) + 인스턴스, 3: 지형 생성기 설정(JSON) + 기준 스냅샷
 
 	template <typename T> void WritePod(std::ofstream& os, const T& v) { os.write(reinterpret_cast<const char*>(&v), sizeof(T)); }
 	template <typename T> bool ReadPod(std::ifstream& is, T& v) { is.read(reinterpret_cast<char*>(&v), sizeof(T)); return (bool)is; }
@@ -513,6 +513,17 @@ bool TerrainData::Save()
 	WritePod(os, (int32_t)TreeInstances.size());
 	if (!TreeInstances.empty())
 		os.write(reinterpret_cast<const char*>(TreeInstances.data()), TreeInstances.size() * sizeof(TerrainTreeInstance));
+	// v3: 지형 생성기 (설정 JSON + Current Terrain 기준 스냅샷 16비트)
+	WriteString(os, Generator.ToJson().dump());
+	const bool snapshot = BaseSnapshot.size() == Heights.size();
+	WritePod(os, (int32_t)(snapshot ? BaseSnapshot.size() : 0));
+	if (snapshot)
+	{
+		std::vector<uint16_t> snap(BaseSnapshot.size());
+		for (size_t i = 0; i < snap.size(); ++i)
+			snap[i] = (uint16_t)std::lround(std::clamp(BaseSnapshot[i], 0.0f, 1.0f) * 65535.0f);
+		os.write(reinterpret_cast<const char*>(snap.data()), snap.size() * sizeof(uint16_t));
+	}
 	Dirty = false;
 	return (bool)os;
 }
@@ -579,6 +590,24 @@ std::shared_ptr<TerrainData> TerrainData::Load(const std::string& rawPath)
 				is.read(reinterpret_cast<char*>(data->TreeInstances.data()), (size_t)treeCount * sizeof(TerrainTreeInstance));
 			if (!is)
 				data->TreeInstances.clear();
+		}
+	}
+	if (version >= 3)
+	{
+		std::string gen;
+		int32_t snapCount = 0;
+		if (ReadString(is, gen))
+			data->Generator.FromJson(nlohmann::json::parse(gen, nullptr, false));
+		if (ReadPod(is, snapCount) && snapCount == res * res)
+		{
+			std::vector<uint16_t> snap((size_t)snapCount);
+			is.read(reinterpret_cast<char*>(snap.data()), snap.size() * sizeof(uint16_t));
+			if (is)
+			{
+				data->BaseSnapshot.resize(snap.size());
+				for (size_t i = 0; i < snap.size(); ++i)
+					data->BaseSnapshot[i] = snap[i] / 65535.0f;
+			}
 		}
 	}
 	data->RebuildAllNodes();

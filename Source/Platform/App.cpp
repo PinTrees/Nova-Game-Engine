@@ -9,6 +9,7 @@
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
+#include "TerrainGenerator.h"
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
 #include "PlayerRuntime.h"
@@ -126,6 +127,11 @@ int32 App::Run()
 				{ PROFILE_SCOPE("UI.Update"); UISystem::Update(); }       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); }   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
 				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
+				if (!Application::IsPlayer())
+				{
+					PROFILE_SCOPE("TerrainGenerator");
+					TerrainGenerator::Update();   // 지형 생성기: 바뀐 지형을 백그라운드에서 다시 만들고 끝난 결과를 적용
+				}
 
 				// (개발/검증용) 입력 없이 확인할 때: NOVA_DEV_SELECT=<GameObject 이름>, NOVA_DEV_FILE=<프로젝트 기준 파일 경로> 를 시작 뒤 한 번 선택
 				{
@@ -195,6 +201,9 @@ int32 App::Run()
 					PROFILE_SCOPE("ImGui Render");
 					PROFILE_GPU("ImGui");
 					ImGui::Render(); 
+					// 메인 창 백버퍼를 매번 다시 묶는다: 떠 있는 팝업·툴팁이 창 밖으로 나가 ImGui 가 별도 OS 창(뷰포트)을 만들면
+					// RenderPlatformWindowsDefault 가 그 창의 타깃을 묶은 채로 끝나 다음 프레임부터 메인 창이 멈춘 듯 보였다
+					_deviceContext->OMSetRenderTargets(1, _renderTargetView.GetAddressOf(), nullptr);
 					ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
 					EditorGUIManager::GetI()->RenderAfter();
 				}
@@ -202,7 +211,14 @@ int32 App::Run()
 				// Render End
 				{
 					FRAME_PROFILE("Present");
-					HR(_swapChain->Present(0, 0));
+					const HRESULT presentHr = _swapChain->Present(0, 0);
+					// 실패(장치 제거 등)는 한 번 기록한다 (Release 에서는 HR 의 assert 가 없다)
+					static bool s_PresentFailLogged = false;
+					if (FAILED(presentHr) && !s_PresentFailLogged)
+					{
+						s_PresentFailLogged = true;
+						EditorLog::Write("App", "Present failed hr=0x%08X, device removed reason=0x%08X", (unsigned)presentHr, (unsigned)_device->GetDeviceRemovedReason());
+					}
 				}
 
 				// 첫 프레임(도킹 배치가 잡히도록 두 번째 프레임)이 그려지면 에디터 창을 보이고 로딩 창을 닫는다

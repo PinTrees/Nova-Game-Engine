@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include "TreeDesc.h"
+#include "TerrainGenSettings.h"
 
 // Unity 의 TerrainLayer 에셋 (.terrainlayer, JSON): 지형에 칠하는 텍스처 한 장과 타일 크기
 class TerrainLayer
@@ -71,6 +72,10 @@ public:
 	std::vector<TerrainTreeInstance> TreeInstances;
 	unsigned TreeRevision = 0;  // 나무가 바뀔 때마다 증가 (TreeRenderer 의 위치 캐시)
 	void OnTreesChanged() { ++TreeRevision; Dirty = true; }
+
+	// 지형 생성기 (Generate 도구): 켜면 Base 노이즈 + 씬의 TerrainStamp + 필터 + 재질 규칙으로 높이·스플랫을 만든다
+	TerrainGenSettings Generator;
+	std::vector<float> BaseSnapshot;   // Base = Current Terrain 일 때 기준 높이 (정규화, 해상도²)
 
 	unsigned Revision = 0;      // 높이가 바뀔 때마다 증가 (물리 형상 재생성 판단)
 	bool Dirty = false;         // 저장하지 않은 변경

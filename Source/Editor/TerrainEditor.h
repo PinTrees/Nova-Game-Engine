@@ -10,7 +10,7 @@ class EditorCamera;
 //  - 브러시 모양 4개, Brush Size, Opacity. Scene 뷰에 지형 표면을 따라 브러시 원을 그린다.
 namespace TerrainEditor
 {
-	enum class Tool { CreateNeighbor, PaintTerrain, PaintTrees, PaintDetails, Settings };
+	enum class Tool { CreateNeighbor, PaintTerrain, PaintTrees, PaintDetails, Settings, Generate };
 	enum class PaintTool { RaiseLower, PaintHoles, PaintTexture, SetHeight, SmoothHeight, StampTerrain };
 
 	void DrawInspector(Terrain* terrain);
