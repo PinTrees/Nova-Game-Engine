@@ -150,6 +150,8 @@ namespace
 				d = Lerp(d, b, h) + kSoft * h * (1.0f - h);
 			}
 			d *= k;
+			// 균열 깊이를 잴 바깥 형태 (지층 홈·기둥으로 파기 전). 지층 홈 바닥에서 재면 얇은 바위는 위아래 균열이 만나 뚫린다
+			const float outer = d;
 			// 지층: 층마다 안으로 들어간 정도가 다르고(턱), 층 사이는 홈
 			if (!LayerInset.empty())
 			{
@@ -171,15 +173,16 @@ namespace
 				for (size_t ci = 0; ci < Cracks.size(); ++ci)
 					if (qx * Cracks[ci].Mx + qz * Cracks[ci].Mz - Cracks[ci].O > 0.0f)
 						region |= 1u << ci;
-				d += ((Hash((int)region, 7, 3, Seed) & 0xFFFF) / 65535.0f) * P.ColumnDepth;
+				// 짧은 반폭의 40 % 까지만 (더 깊으면 얇은 곳이 끊어진다)
+				d += ((Hash((int)region, 7, 3, Seed) & 0xFFFF) / 65535.0f) * (std::min)(P.ColumnDepth, 0.4f * minH);
 			}
 			// 세로 균열: 겉에서 CrackDepth 까지만 판 틈 (폭은 노이즈로 들쭉날쭉)
-			const float before = d;
+			const float crackDepth = (std::min)(P.CrackDepth, 0.4f * minH);   // 양쪽에서 파도 가운데서 만나지 않게
 			for (const Crack& c : Cracks)
 			{
 				const float w = c.W * (0.7f + 0.6f * ValueNoise(x * 0.8f, y * 0.8f, z * 0.8f, Seed + 31));
 				const float slot = w - fabsf(qx * c.Mx + qz * c.Mz - c.O);
-				d = (std::max)(d, (std::min)(slot, before + P.CrackDepth));
+				d = (std::max)(d, (std::min)(slot, outer + crackDepth));
 			}
 			// 거칠기
 			if (P.Noise > 0.0f)
