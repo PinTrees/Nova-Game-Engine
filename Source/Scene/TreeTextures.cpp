@@ -4,6 +4,7 @@
 #include <map>
 #include <execution>
 #include <numeric>
+#include <mutex>
 
 namespace
 {
@@ -13,6 +14,7 @@ namespace
 	float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 	float Smoothstep(float e0, float e1, float x) { const float t = Saturate((x - e0) / (e1 - e0)); return t * t * (3.0f - 2.0f * t); }
 	float Hash11(float n) { const float x = sinf(n * 12.9898f) * 43758.5453f; return x - floorf(x); }
+	const float kSeeds[4] = { 0.13f, 0.37f, 0.61f, 0.89f };   // 아틀라스 칸 4 개의 잎 배치 시드
 
 	// 밉맵 포함 RGBA8 텍스처. levels[0] = 원본, 이후 절반씩
 	ComPtr<ID3D11ShaderResourceView> Upload(const std::vector<std::vector<Texel>>& levels, int size)
@@ -105,8 +107,8 @@ namespace
 		return (std::max)(dAcross, dAlong);
 	}
 
-	// 카드 한 장 (셀 해상도 res)
-	void BakeLeafCard(std::vector<Texel>& atlas, int atlasSize, int ox, int oy, int res, int shape, int count, float size, float seed)
+	// 카드 한 장의 잎 배치 (굽기와 카드 외곽(LeafCardHull)이 같이 쓴다)
+	std::vector<Leaf> MakeLeaves(int shape, int count, float size, float seed)
 	{
 		const bool needle = shape == 2;
 		const float twigTop = needle ? 0.95f : 0.85f;
@@ -128,6 +130,15 @@ namespace
 			l.id = (float)i + r;
 			leaves.push_back(l);
 		}
+		return leaves;
+	}
+
+	// 카드 한 장 (셀 해상도 res)
+	void BakeLeafCard(std::vector<Texel>& atlas, int atlasSize, int ox, int oy, int res, int shape, int count, float size, float seed)
+	{
+		const bool needle = shape == 2;
+		const float twigTop = needle ? 0.95f : 0.85f;
+		const std::vector<Leaf> leaves = MakeLeaves(shape, count, size, seed);
 		const float px1 = 1.0f / res;
 		std::vector<int> rows(res);
 		std::iota(rows.begin(), rows.end(), 0);
@@ -200,6 +211,106 @@ namespace
 
 namespace TreeTextures
 {
+	const LeafHull& LeafCardHull(int shape, int leavesPerCard, float leafLength, int cell)
+	{
+		shape = std::clamp(shape, 0, 2);
+		leavesPerCard = std::clamp(leavesPerCard, 1, 16);
+		const int lengthKey = (int)roundf(std::clamp(leafLength, 0.05f, 0.6f) * 100.0f);
+		cell &= 3;
+		const int key = ((shape * 100000 + leavesPerCard * 1000 + lengthKey) << 2) | cell;
+		static std::mutex s_Lock;
+		static std::map<int, LeafHull> s_Cache;
+		std::lock_guard<std::mutex> lock(s_Lock);
+		if (auto it = s_Cache.find(key); it != s_Cache.end())
+			return it->second;
+
+		// 굽기와 같은 식으로 덮임을 낮은 해상도로 보고, 덮인 텍셀 모서리의 u, v, u+v, u-v 최솟값·최댓값 (8 방향 k-DOP)
+		const bool needle = shape == 2;
+		const float twigTop = needle ? 0.95f : 0.85f;
+		const auto leaves = MakeLeaves(shape, leavesPerCard, lengthKey / 100.0f, kSeeds[cell]);   // (이 이름공간에서 Leaf 는 함수)
+		constexpr int R = 96;
+		const float px1 = 1.0f / R;
+		float lo[4] = { 1e9f, 1e9f, 1e9f, 1e9f }, hi[4] = { -1e9f, -1e9f, -1e9f, -1e9f };
+		for (int y = 0; y < R; ++y)
+			for (int x = 0; x < R; ++x)
+			{
+				const float u = (x + 0.5f) * px1, v = (y + 0.5f) * px1;
+				float best = (std::max)(fabsf(u - 0.5f) - Lerp(0.014f, 0.006f, Saturate(v / twigTop)), (std::max)(-v, v - twigTop));
+				for (const auto& l : leaves)
+				{
+					float along, across;
+					best = (std::min)(best, LeafSDF(u, v, l, shape, along, across));
+				}
+				if (best > px1)   // 경계에서 한 텍셀 바깥까지 덮임으로 본다
+					continue;
+				for (int k = 0; k < 4; ++k)
+				{
+					const float cu = u + ((k & 1) ? 0.5f : -0.5f) * px1, cv = v + ((k & 2) ? 0.5f : -0.5f) * px1;
+					const float p[4] = { cu, cv, cu + cv, cu - cv };
+					for (int a = 0; a < 4; ++a)
+					{
+						lo[a] = (std::min)(lo[a], p[a]);
+						hi[a] = (std::max)(hi[a], p[a]);
+					}
+				}
+			}
+		// 여유: 멀리서 쓰는 밉은 덮임을 맞추며 번지므로 카드 크기의 3% 더
+		constexpr float m = 0.03f;
+		for (int a = 0; a < 4; ++a)
+		{
+			const float ma = a < 2 ? m : m * 1.4142136f;
+			lo[a] -= ma;
+			hi[a] += ma;
+		}
+		// 사각형 [0,1]² ∩ u·v 범위에서 시작해 대각 반평면 4 개로 자른다 (Sutherland-Hodgman)
+		std::vector<XMFLOAT2> poly = {
+			{ (std::max)(0.0f, lo[0]), (std::max)(0.0f, lo[1]) }, { (std::min)(1.0f, hi[0]), (std::max)(0.0f, lo[1]) },
+			{ (std::min)(1.0f, hi[0]), (std::min)(1.0f, hi[1]) }, { (std::max)(0.0f, lo[0]), (std::min)(1.0f, hi[1]) } };
+		auto clipBy = [&](float a, float b, float c) {   // a*u + b*v <= c 쪽을 남긴다
+			std::vector<XMFLOAT2> out;
+			for (size_t i = 0; i < poly.size(); ++i)
+			{
+				const XMFLOAT2 p = poly[i], q = poly[(i + 1) % poly.size()];
+				const float dp = a * p.x + b * p.y - c, dq = a * q.x + b * q.y - c;
+				if (dp <= 0.0f)
+					out.push_back(p);
+				if ((dp <= 0.0f) != (dq <= 0.0f))
+				{
+					const float t = dp / (dp - dq);
+					out.push_back({ p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t });
+				}
+			}
+			poly = std::move(out);
+		};
+		clipBy(1.0f, 1.0f, hi[2]);
+		clipBy(-1.0f, -1.0f, -lo[2]);
+		clipBy(1.0f, -1.0f, hi[3]);
+		clipBy(-1.0f, 1.0f, -lo[3]);
+
+		LeafHull hull;
+		if (poly.size() >= 3 && poly.size() <= 8)
+		{
+			hull.Count = (int)poly.size();
+			for (int i = 0; i < hull.Count; ++i)
+				hull.Points[i] = poly[i];
+		}
+		else
+		{
+			hull.Count = 4;
+			hull.Points[0] = { 0, 0 }; hull.Points[1] = { 1, 0 }; hull.Points[2] = { 1, 1 }; hull.Points[3] = { 0, 1 };
+		}
+		float area = 0.0f;
+		for (int i = 0; i < hull.Count; ++i)
+		{
+			const XMFLOAT2& p = hull.Points[i];
+			const XMFLOAT2& q = hull.Points[(i + 1) % hull.Count];
+			area += p.x * q.y - q.x * p.y;
+		}
+		hull.Area = fabsf(area) * 0.5f;
+		EditorLog::Write("Tree", "leaf card hull: shape %d, %d leaves, length %.2f, cell %d -> %d points, %.0f%% of card", shape, leavesPerCard, lengthKey / 100.0f, cell, hull.Count, hull.Area * 100.0f);
+		return s_Cache[key] = hull;
+	}
+
 	ID3D11ShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength)
 	{
 		shape = std::clamp(shape, 0, 2);
@@ -216,7 +327,6 @@ namespace TreeTextures
 		const int res = shape == 2 ? 512 : 256;   // 바늘잎은 가늘어 더 촘촘하게
 		const int size = res * 2;                  // 2x2 변형
 		std::vector<Texel> atlas((size_t)size * size, Texel{ 0.5f, 0.0f, 0.0f, 0.0f });
-		static const float kSeeds[4] = { 0.13f, 0.37f, 0.61f, 0.89f };
 		for (int c = 0; c < 4; ++c)
 			BakeLeafCard(atlas, size, (c & 1) * res, (c >> 1) * res, res, shape, leavesPerCard, lengthKey / 100.0f, kSeeds[c]);
 

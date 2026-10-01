@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "TreeGenerator.h"
 #include <random>
+#include "TreeTextures.h"
 
 using json = nlohmann::json;
 
@@ -368,17 +369,29 @@ namespace
 				float w1, w2;
 				Winds(level, tl, length, wi, w1, w2);
 
-				const XMVECTOR corners[4] = {
-					XMVectorSubtract(p, XMVectorScale(right, size * 0.5f)),
-					XMVectorAdd(p, XMVectorScale(right, size * 0.5f)),
-					XMVectorAdd(XMVectorAdd(p, XMVectorScale(up, size)), XMVectorScale(right, size * 0.5f)),
-					XMVectorSubtract(XMVectorAdd(p, XMVectorScale(up, size)), XMVectorScale(right, size * 0.5f)) };
-				const XMFLOAT2 uvs[4] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+				// 카드 모양: 잎이 덮인 곳을 감싸는 다각형 (투명한 귀퉁이를 덜 칠한다). 셰이더 TreeLeafSample 과 같은 식으로
+				// 시드 → 아틀라스 칸·좌우 뒤집기를 정한다
+				XMFLOAT2 uvs[8] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+				int count = 4;
+				if (P.LeafLengthForHull >= 0.0f)
+				{
+					const float cellF = (seed - floorf(seed)) * 4.0f;
+					const float flipF = seed * 7.31f - floorf(seed * 7.31f);
+					const bool nearEdge = fabsf(cellF - roundf(cellF)) < 1e-3f || fabsf(flipF - 0.5f) < 1e-3f;   // 셰이더와 반올림이 갈릴 수 있으면 사각형
+					if (!nearEdge)
+					{
+						const TreeTextures::LeafHull& hull = TreeTextures::LeafCardHull((int)P.Leaf, P.LeavesPerCard, P.LeafLengthForHull, (int)floorf(cellF));
+						const bool flip = flipF > 0.5f;
+						count = hull.Count;
+						for (int k = 0; k < count; ++k)
+							uvs[k] = { flip ? 1.0f - hull.Points[k].x : hull.Points[k].x, hull.Points[k].y };
+					}
+				}
 				const uint32_t base = (uint32_t)LeafV.size();
-				for (int k = 0; k < 4; ++k)
+				for (int k = 0; k < count; ++k)
 				{
 					TreeVertex v = {};
-					v.Pos = F3(corners[k]);
+					v.Pos = F3(XMVectorAdd(XMVectorAdd(p, XMVectorScale(right, (uvs[k].x - 0.5f) * size)), XMVectorScale(up, uvs[k].y * size)));
 					v.Normal = F3(n);
 					v.UV = uvs[k];
 					v.Wind = XMFLOAT4(0.0f, w1, w2, uvs[k].y * size);
@@ -387,8 +400,8 @@ namespace
 					LeafV.push_back(v);
 					LeafNormals.push_back(F3(n));
 				}
-				AddTri(LeafI, LeafV, base, base + 1, base + 2, n);
-				AddTri(LeafI, LeafV, base, base + 2, base + 3, n);
+				for (int k = 1; k + 1 < count; ++k)   // 볼록 다각형 = 부채꼴 삼각형
+					AddTri(LeafI, LeafV, base, base + k, base + k + 1, n);
 				M.LeafCardCount++;
 			}
 		}

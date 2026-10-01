@@ -46,6 +46,8 @@ struct TreeParams
 	int LeafCards = 7;             // 마지막 단계 가지 하나에 붙는 카드 수
 	int LeavesPerCard = 5;         // 카드 한 장에 그리는 잎 수 (셰이더)
 	float LeafCardSize = 0.8f;     // 카드 한 변 (m)
+	// 저장하지 않는 입력: 잎 텍스처의 잎 길이(TreeDesc::LeafLength). 카드를 잎이 덮인 모양(TreeTextures::LeafCardHull)으로 자를 때 쓴다
+	float LeafLengthForHull = -1.0f;   // < 0 이면 사각형 카드
 	float LeafStart = 0.3f;        // 가지 길이의 이 비율부터 잎
 
 	void ApplyPreset(int preset);  // 0 Oak, 1 Pine, 2 Birch, 3 Bush

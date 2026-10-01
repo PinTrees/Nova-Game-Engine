@@ -33,13 +33,16 @@ namespace
 
 	std::shared_ptr<GpuMesh> GetMesh(const TreeDesc& desc, int lod)
 	{
-		const std::string key = desc.MeshKey() + (lod ? "#1" : "#0");
+		// 잎 카드 모양(잎 텍스처의 잎 길이에 따른 외곽)도 메시에 들어가므로 키에 넣는다
+		const std::string key = desc.MeshKey() + (lod ? "#1" : "#0") + "#L" + std::to_string((int)roundf(desc.LeafLength * 100.0f));
 		if (auto it = s_Meshes.find(key); it != s_Meshes.end())
 			return it->second;
 
 		const auto t0 = std::chrono::steady_clock::now();
 		TreeMeshData data;
-		TreeGenerator::Generate(desc.Params, data, lod);
+		TreeParams params = desc.Params;
+		params.LeafLengthForHull = desc.LeafLength;
+		TreeGenerator::Generate(params, data, lod);
 		auto mesh = std::make_shared<GpuMesh>();
 		mesh->BarkIndexCount = data.BarkIndexCount;
 		mesh->LeafIndexCount = data.LeafIndexCount;
