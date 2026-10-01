@@ -25,14 +25,14 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 
 | 분류 | 명령 |
 |---|---|
-| 에디터 | `status`, `open <프로젝트> [--background]`, `quit [--force]`, `info`, `log [-n 40] [--grep 글자] [--errors] [--follow]` |
+| 에디터 | `status`, `open <프로젝트> [--background] [--graphics opengl\|d3d11]` (graphics = 이번 실행만 그래픽 API, OpenGL 은 시험 단계라 환경 변수 `NOVA_OPENGL_EXPERIMENTAL=1` 도 필요), `quit [--force]`, `info`, `log [-n 40] [--grep 글자] [--errors] [--follow]` |
 | 오브젝트 | `hierarchy [--components] [--depth N] [--root <대상>]`, `find [이름] [--component 종류]`, `get <대상> [--component 종류]` |
 | 수정 | `set <대상> [--name] [--active] [--tag] [--layer] [--static] [--position x,y,z] [--rotation x,y,z] [--scale x,y,z] [--world-position x,y,z] [Component.field=value ...]` |
 | 만들기 | `create <종류> [--name] [--parent] [--position] [--rotation] [--scale] [--preset N]`, `delete <대상>`, `add-component <대상> <종류> [--values '{...}']`, `remove-component <대상> <종류>`, `parent <대상> <새 부모> \| --root`, `select <대상> \| --none` |
 | 씬·Play | `scene open <Assets/...scene> [--force]`, `scene save`, `play`, `stop`, `pause [on\|off]`, `step`, `undo`, `redo` |
 | 보기 | `camera [--position x,y,z --target x,y,z \| --frame <대상> [--distance d]]`, `screenshot <파일.png> [--view scene\|game\|editor]` (editor = 메뉴·창까지 에디터 전체) |
 | 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |
-| 렌더링 | `rhi-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 같은 시험 장면(PBR + 그림자)을 RHI 로 API 마다 그려 PNG 와 픽셀 차이(평균·최대·8 넘는 픽셀 %) |
+| 렌더링 | `gfx-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 엔진 렌더러와 같은 방식(Gfx 층 + 효과)으로 시험 장면을 엔진 장치와 OpenGL(숨은 창)에 그려 비교, `rhi-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 같은 시험 장면(PBR + 그림자)을 RHI 로 API 마다 그려 PNG 와 픽셀 차이(평균·최대·8 넘는 픽셀 %) |
 | 셰이더 | `shader-cross [파일 이름 일부] [--out 폴더] [--max-errors N]` — 엔진 `Shaders/*.fx` 를 OpenGL 용 GLSL 4.50 으로 변환해 보고 (pass 마다 성공·실패 이유, `--out` 이면 `.glsl` 파일) |
 | 기타 | `assets [폴더] [--pattern 글자]`, `build <출력 폴더> [--run]`, `build-status [--wait]`, `call <명령> [json]`, `ai-guide`, `help`, `nova help --editor`(에디터가 아는 명령) |
 
