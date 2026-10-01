@@ -11,7 +11,7 @@ class TerrainCollider
 private:
 	std::string m_DataPath;
 	std::shared_ptr<TerrainData> m_Data;
-	bool m_EnableTreeColliders = true;   // 저장만 한다 (나무 없음)
+	bool m_EnableTreeColliders = true;   // 지형에 칠한 나무마다 줄기 캡슐 (Unity 의 Enable Tree Colliders)
 
 public:
 	TerrainCollider();
@@ -20,6 +20,7 @@ public:
 	void SetTerrainData(const std::string& path);
 	// 실제로 쓰는 데이터 (자기 것이 없으면 Terrain 의 것)
 	std::shared_ptr<TerrainData> GetEffectiveData() const;
+	bool GetEnableTreeColliders() const { return m_EnableTreeColliders; }
 
 	virtual void OnInspectorGUI() override;
 	virtual const char* InspectorIconName() const override { return "terrain_collider"; }

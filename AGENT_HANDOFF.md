@@ -344,7 +344,8 @@
 - Paint Trees(`TerrainEditor`): 종류 목록(썸네일 = 임포스터 앞면, `TreeRenderer::Thumbnail`), Add Tree(프리셋)/Remove, Brush Size, Tree Density(최소 간격 8 m → 1.5 m), Height/Width Min·Max(Lock Width), Color Variation, Random Rotation, Mass Place Trees(개수), Remove All, 통계(보이는 수 / LOD 별 / 드로 콜), 고른 종류의 설정(바꾸면 그 종류 전부 바로). 클릭·끌기 = 브러시 반지름 1/4 마다 빈 곳에 간격을 지키며 추가, Shift = 지우기, Ctrl = 고른 종류만 지우기, 한 획 = Undo 한 단계.
 - 개발용: `NOVA_DEV_TREES=<수>` — 첫 지형에 (없으면) Oak/Pine/Birch 프로토타입을 넣고 그만큼 흩뿌림(저장 안 함). 검사 씬: scratchpad `make_forest_scene.py` → ScriptTest `Assets/Scenes/Forest.scene`(400 x 60 x 400 언덕, 풀/흙 레이어).
 - 측정: 나무 1500 그루(Oak/Pine/Birch) Scene 뷰 230 FPS. 손으로 두 번 칠한 85 그루 = 드로 콜 5.
-- 미구현: 나무 충돌(Terrain Collider 에 나무), 나무 GPU 컬링/간접 그리기, 임포스터 프레임 사이 섞기(지금은 가까운 프레임 하나), 바람 영향 받는 임포스터, Paint Details(풀).
+- 나무 충돌(2026-10-02): Terrain Collider 의 **Enable Tree Colliders**(기본 켬)가 실제로 동작 — `PhysicsManager` 의 MakeLeaf 가 높이맵 + 칠한 나무마다 줄기 캡슐(반지름 = 종류의 밑동 반지름 `TreeParams::Radius` × 폭 배율, 높이 = `TreeParams::Height` × 높이 배율, 지형 높이에 세움)을 한 StaticCompound 로. 바디 서명에 `TreeRevision`·켜짐을 넣어 나무를 칠하거나 끄면 형상을 다시 만든다. Play 시작 때 `[Physics] terrain '이름': N tree colliders (first at …)` 기록. 확인(CLI): Forest 에 `nova terrain-trees Terrain --count 200 --clear` + Terrain Collider → Play 에서 `nova raycast` — 줄기 옆 6 m 에서 +x 로 쏘면 5.674 m(예상 6 - 0.33)에서 맞고, 위에서 쏘면 나무 꼭대기(지면 + 8.67 m)에서 맞음. 끄면 옆 광선은 지나가고 위 광선은 지면. 스크립트 scratchpad `tree_test.ps1`.
+- 미구현: 나무 GPU 컬링/간접 그리기, 임포스터 프레임 사이 섞기(지금은 가까운 프레임 하나), 바람 영향 받는 임포스터, Paint Details(풀).
 
 **Scene 뷰 격자 (2026-10-01)**: 예전에는 `SceneViewOverlay::DrawGrid` 가 ImGui 선을 이미지 위에 덧그려 물체 앞에도 보였다(기둥·줄기가 반투명해 보임). 지금은 `Source/Editor/SceneGrid.*` + `Shaders/45. SceneGrid.fx` 가 `_Editor_OnSceneRender` 에서 불투명 물체·하늘 다음, 입자 전에 y = 0 평면(카메라 주변 ±80)을 깊이 검사(LessEqual, 쓰기 없음, 바닥 메시와 겹침 방지용 음수 DepthBias)하며 그린다. 선 = fwidth 1 픽셀, 10 칸마다 진한 선, 70 유닛에서 사라짐, 칸이 3 픽셀보다 작으면 가는 선을 지움. 색·알파(92,98,106 / 0.55·0.85)는 예전과 같다. 툴바 Grid 토글을 따른다.
 

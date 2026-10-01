@@ -24,6 +24,11 @@
 #include "GfxGL.h"
 #include "GLContext.h"
 #include "Profiler.h"
+#include "PhysicsManager.h"
+#include "Terrain.h"
+#include "TerrainData.h"
+#include "TerrainEditor.h"
+#include "Collider.h"
 
 namespace
 {
@@ -457,6 +462,45 @@ namespace CliCommands
 					return o;
 				}() },   // 깊이 depth 까지 CPU 구간 (프레임 평균, 상위 24)
 			};
+			return true;
+		});
+
+		Register("terrain-trees", "mass place trees on a terrain (Paint Trees > Mass Place Trees) {target, count, clear?}", [](const json& a, json& r, std::string& e) {
+			if (!RequireEditMode(e)) return false;
+			GameObject* go = Resolve(a.value("target", json()), e);
+			if (!go) return false;
+			Terrain* terrain = go->GetComponent<Terrain>();
+			std::shared_ptr<TerrainData> data = terrain ? terrain->GetTerrainData() : nullptr;
+			if (!data) { e = PathOf(go) + " has no Terrain with terrain data"; return false; }
+			if (a.value("clear", false))
+			{
+				data->TreeInstances.clear();
+				data->OnTreesChanged();
+			}
+			if (data->TreePrototypes.empty())   // 종류가 없으면 Oak / Pine / Birch
+				for (int preset : { 0, 1, 2 })
+					TerrainEditor::AddTreePrototype(*data, preset);
+			const int placed = TerrainEditor::MassPlaceTrees(terrain, (std::max)(0, a.value("count", 100)));
+			r = { { "placed", placed }, { "trees", data->TreeInstances.size() }, { "prototypes", data->TreePrototypes.size() } };
+			return true;
+		});
+
+		Register("raycast", "Physics.Raycast (Play mode) {origin, direction, maxDistance?, triggers?}", [](const json& a, json& r, std::string& e) {
+			if (!Application::IsPlaying()) { e = "raycast needs Play mode (the physics world exists only while playing)"; return false; }
+			Vec3 origin, dir;
+			if (!a.contains("origin") || !ReadVec3(a["origin"], origin) || !a.contains("direction") || !ReadVec3(a["direction"], dir))
+			{
+				e = "origin and direction are required (x,y,z)";
+				return false;
+			}
+			RaycastHit hit;
+			if (!PhysicsManager::GetI()->Raycast(origin, dir, hit, a.value("maxDistance", 1000.0f), a.value("triggers", false)))
+			{
+				r = { { "hit", false } };
+				return true;
+			}
+			r = { { "hit", true }, { "object", hit.gameObject ? PathOf(hit.gameObject) : "" }, { "collider", hit.collider ? hit.collider->InspectorTitle() : "" },
+				{ "point", { hit.point.x, hit.point.y, hit.point.z } }, { "normal", { hit.normal.x, hit.normal.y, hit.normal.z } }, { "distance", hit.distance } };
 			return true;
 		});
 

@@ -78,7 +78,7 @@ namespace
 	// 값이 없는 플래그 (뒤 단어를 값으로 먹지 않는다)
 	bool IsFlag(const std::string& name)
 	{
-		static const char* flags[] = { "json", "components", "force", "background", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world" };
+		static const char* flags[] = { "json", "components", "force", "background", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world", "float", "triggers", "clear" };
 		for (const char* f : flags)
 			if (name == f) return true;
 		return false;
@@ -571,6 +571,7 @@ namespace
 		"  gfx-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   same, drawn the engine way (Gfx + effects)\n"
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
 		"  wait [frames]                          keep the editor rendering N frames (default 60), then return (background editors pause otherwise)\n"
+		"  raycast <x,y,z> <dx,dy,dz> [--max d]   Physics.Raycast in Play mode: hit object, point, normal, distance\n"
 		"  perf [--frames N] [--depth D]          measure N frames (default 240): frame ms / fps, CPU ms, GPU ms, top GPU passes / CPU scopes\n"
 		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
@@ -832,6 +833,23 @@ int wmain(int argc, wchar_t** argv)
 	else if (cmd == "wait")
 	{
 		// 인수 없음 (프레임 수는 요청의 waitFrames 로)
+	}
+	else if (cmd == "terrain-trees")
+	{
+		// 지형에 나무 흩뿌리기: nova terrain-trees <지형> [--count N] [--clear]
+		if (!need(1, "terrain-trees <terrain> [--count N] [--clear]")) return 3;
+		args["target"] = a.Pos[0];
+		if (a.Has("count")) args["count"] = std::stoi(a.Get("count"));
+		if (a.Has("clear")) args["clear"] = true;
+	}
+	else if (cmd == "raycast")
+	{
+		// Unity 의 Physics.Raycast (Play 중): nova raycast x,y,z dx,dy,dz [--max d] [--triggers]
+		if (!need(2, "raycast <x,y,z> <dx,dy,dz> [--max d] [--triggers]")) return 3;
+		args["origin"] = Vec(a.Pos[0]);
+		args["direction"] = Vec(a.Pos[1]);
+		if (a.Has("max")) args["maxDistance"] = std::stof(a.Get("max"));
+		if (a.Has("triggers")) args["triggers"] = true;
 	}
 	else if (cmd == "perf")
 	{

@@ -38,6 +38,7 @@
 #include "MeshCollider.h"
 #include "TerrainCollider.h"
 #include "TerrainData.h"
+#include "TreeDesc.h"
 #include "Mesh.h"
 
 SINGLE_BODY(PhysicsManager)
@@ -415,6 +416,32 @@ namespace
 			hf->mBlockSize = 4;
 			hf->mBitsPerSample = 16;   // 높이 정밀도 (600m 기준 약 1cm)
 			leaf = hf;
+
+			// Enable Tree Colliders: 칠한 나무마다 줄기 캡슐 (Unity 는 나무 프리팹의 Capsule Collider).
+			// 반지름 = 종류의 밑동 반지름 × 폭 배율, 높이 = 나무 높이 × 높이 배율, 지형 높이에 세운다. 높이맵과 한 복합 형상으로
+			if (terrainCol->GetEnableTreeColliders() && !data->TreeInstances.empty() && !data->TreePrototypes.empty())
+			{
+				JPH::Ref<JPH::StaticCompoundShapeSettings> compound = new JPH::StaticCompoundShapeSettings();
+				hf->mUserData = EncodeCollider(col->GetInstanceID());
+				compound->AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), hf);
+				int count = 0;
+				for (const TerrainTreeInstance& t : data->TreeInstances)
+				{
+					const int proto = (std::clamp)(t.Prototype, 0, (int)data->TreePrototypes.size() - 1);
+					const TreeParams& p = data->TreePrototypes[proto].Params;
+					const float r = (std::max)(0.05f, p.Radius * t.WidthScale);
+					const float h = (std::max)(2.0f * r + 0.1f, p.Height * t.HeightScale);
+					const float lx = t.X * data->Size.x, lz = t.Z * data->Size.z;
+					const float y = data->GetHeight(lx, lz);
+					JPH::Ref<JPH::CapsuleShapeSettings> capsule = new JPH::CapsuleShapeSettings(0.5f * h - r, r);
+					capsule->mUserData = EncodeCollider(col->GetInstanceID());
+					compound->AddShape(JPH::Vec3(lx, y + 0.5f * h, lz), JPH::Quat::sIdentity(), capsule);
+					if (count++ == 0)
+						EditorLog::Write("Physics", "terrain '%s': %zu tree colliders (first at %.2f %.2f %.2f, radius %.2f, height %.2f)",
+							col->GetGameObject()->GetName().c_str(), data->TreeInstances.size(), outPos.x + lx, outPos.y + y, outPos.z + lz, r, h);
+				}
+				leaf = compound;
+			}
 		}
 
 		if (leaf != nullptr)
@@ -504,7 +531,14 @@ namespace
 			if (auto* k = dynamic_cast<CapsuleCollider*>(c)) { HashFloat(h, k->GetRadius()); HashFloat(h, k->GetHeight()); HashCombine(h, k->GetDirection()); }
 			if (auto* m = dynamic_cast<MeshCollider*>(c)) { HashCombine(h, (size_t)m->GetMesh()); HashCombine(h, m->IsConvex()); }
 			if (auto* t = dynamic_cast<TerrainCollider*>(c))
-				if (auto data = t->GetEffectiveData()) { HashCombine(h, (size_t)data.get()); HashCombine(h, data->Revision); }   // 지형을 고치면 형상을 다시 만든다
+				if (auto data = t->GetEffectiveData())
+				{
+					// 지형 높이·나무를 고치거나 나무 충돌을 켜고 끄면 형상을 다시 만든다
+					HashCombine(h, (size_t)data.get());
+					HashCombine(h, data->Revision);
+					HashCombine(h, data->TreeRevision);
+					HashCombine(h, t->GetEnableTreeColliders());
+				}
 			// 자식 콜라이더: 소유자까지의 로컬 변환 체인 (정확한 값이라 흔들리지 않음)
 			for (GameObject* g = c->GetGameObject(); g != nullptr && g != owner; g = g->GetParent())
 			{
