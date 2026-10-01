@@ -246,6 +246,14 @@ void PackageManagerWindow::OnRender()
 				ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.55f, 1.0f), "  Add Component > %s", c.Category.c_str());
 			}
 		}
+		if (!p->Dependencies.empty())
+		{
+			ImGui::Dummy(ImVec2(0, 8));
+			ImGui::SetCursorPosX(pad);
+			std::string deps;
+			for (const auto& d : p->Dependencies) deps += (deps.empty() ? "" : ", ") + d.first + " " + d.second;
+			ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.55f, 1.0f), "Dependencies: %s", deps.c_str());
+		}
 		if (!p->Native.empty())
 		{
 			ImGui::Dummy(ImVec2(0, 8));

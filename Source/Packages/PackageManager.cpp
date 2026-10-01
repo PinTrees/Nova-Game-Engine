@@ -68,6 +68,9 @@ namespace
 		out.Documentation = j.value("documentationUrl", "");
 		if (j.contains("keywords") && j["keywords"].is_array())
 			for (const auto& k : j["keywords"]) if (k.is_string()) out.Keywords.push_back(k.get<std::string>());
+		if (j.contains("dependencies") && j["dependencies"].is_object())
+			for (auto it = j["dependencies"].begin(); it != j["dependencies"].end(); ++it)
+				out.Dependencies.push_back({ it.key(), it.value().is_string() ? it.value().get<std::string>() : std::string() });
 		if (j.contains("native") && j["native"].is_array())
 			for (const auto& n : j["native"]) if (n.is_string()) out.Native.push_back(n.get<std::string>());
 		if (j.contains("components") && j["components"].is_array())
@@ -351,6 +354,26 @@ namespace PackageManager
 			error = "stop Play mode before changing packages";
 			return false;
 		}
+		// 의존 패키지 먼저 (Unity 처럼 프로젝트 manifest 에도 들어간다)
+		static int s_Depth = 0;
+		if (s_Depth > 8)
+		{
+			error = "package dependencies are too deep (cycle?)";
+			return false;
+		}
+		for (const auto& dep : p->Dependencies)
+			if (!IsInProject(dep.first))
+			{
+				++s_Depth;
+				std::string depError;
+				const bool ok = Add(dep.first, depError);
+				--s_Depth;
+				if (!ok)
+				{
+					error = "dependency " + dep.first + ": " + depError;
+					return false;
+				}
+			}
 		if (!p->Embedded)
 		{
 			s_Manifest[name] = p->Version;

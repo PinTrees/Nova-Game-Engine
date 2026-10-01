@@ -1,0 +1,10 @@
+{
+  "name": "com.nova.starter-assets",
+  "displayName": "Starter Assets - Third Person",
+  "version": "1.0.0",
+  "description": "A ready-to-play third-person character controller in C#: WASD / arrow keys move relative to the camera, Left Shift sprints, Space jumps, with acceleration, smooth turning, gravity and jump/fall timeouts. Put ThirdPersonController on a GameObject with a Character Controller and point a Follow Camera at it. Animator parameters Speed, MotionSpeed, Grounded, Jump and FreeFall are set when they exist.",
+  "category": "Templates",
+  "author": { "name": "NOVA" },
+  "keywords": [ "character", "controller", "third person", "starter", "player", "movement" ],
+  "dependencies": { "com.nova.cameras": "1.0.0" }
+}

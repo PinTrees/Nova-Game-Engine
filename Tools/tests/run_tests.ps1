@@ -204,6 +204,12 @@ function Suite-Packages
         $l2 = Invoke-NovaJson 'package list'
         $cam2 = $l2.packages | Where-Object { $_.name -eq 'com.nova.cameras' }
         Add-Result packages 'remove (unused) → unloaded now' ($r -and -not $r.restartRequired -and -not $cam2.loaded) "restartRequired=$($r.restartRequired) loaded=$($cam2.loaded)"
+        # 의존성: starter-assets 를 넣으면 cameras 도 같이 들어간다
+        Invoke-Nova 'package add com.nova.starter-assets' | Out-Null
+        $m = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { '' }
+        Add-Result packages 'dependency is added too (starter-assets → cameras)' ($m -match 'com.nova.cameras' -and $m -match 'com.nova.starter-assets') (($m -replace '\s+', ' ').Trim())
+        Invoke-Nova 'package remove com.nova.starter-assets' | Out-Null
+        Invoke-Nova 'package remove com.nova.cameras' | Out-Null
     }
     finally
     {

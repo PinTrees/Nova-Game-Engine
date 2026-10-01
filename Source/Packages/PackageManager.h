@@ -27,6 +27,7 @@ struct PackageInfo
 	std::string Documentation;   // 문서 주소 (선택)
 	std::vector<std::string> Keywords;
 	std::vector<std::string> Native;              // Plugins 안 DLL 파일 이름
+	std::vector<std::pair<std::string, std::string>> Dependencies;   // 다른 패키지 (이름, 버전) — Add 할 때 같이 넣는다
 	std::vector<PackageComponentInfo> Components;
 	std::wstring Folder;         // 패키지 폴더 (끝 \ 없음)
 	bool Embedded = false;       // 프로젝트 Packages/<이름>/ 에 들어 있는 패키지 (manifest 없이 항상 포함)

@@ -449,6 +449,12 @@ namespace NovaEngine
         public static float PingPong(float t, float length) { t = Repeat(t, length * 2f); return length - MathF.Abs(t - length); }
         public static bool Approximately(float a, float b) => MathF.Abs(b - a) < MathF.Max(1E-06f * MathF.Max(MathF.Abs(a), MathF.Abs(b)), float.Epsilon * 8f);
         public static float DeltaAngle(float current, float target) { float d = Repeat(target - current, 360f); if (d > 180f) d -= 360f; return d; }
+        /// <summary>각도(도)를 가장 짧은 쪽으로 부드럽게 (Unity Mathf.SmoothDampAngle)</summary>
+        public static float SmoothDampAngle(float current, float target, ref float currentVelocity, float smoothTime, float maxSpeed = Infinity, float deltaTime = -1)
+        {
+            target = current + DeltaAngle(current, target);
+            return SmoothDamp(current, target, ref currentVelocity, smoothTime, maxSpeed, deltaTime);
+        }
         public static float LerpAngle(float a, float b, float t) { float d = Repeat(b - a, 360f); if (d > 180f) d -= 360f; return a + d * Clamp01(t); }
         public static float MoveTowardsAngle(float current, float target, float maxDelta) { float d = DeltaAngle(current, target); if (-maxDelta < d && d < maxDelta) return target; return MoveTowards(current, current + d, maxDelta); }
         public static bool IsPowerOfTwo(int v) => (v & (v - 1)) == 0;

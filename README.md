@@ -367,6 +367,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | 패키지 | 내용 |
 |---|---|
 | `com.nova.cameras` — Cameras | **Follow Camera**: 3인칭 따라가기 카메라(대상 뒤·위, 부드럽게, 벽이 가리면 당김). C# `FollowCamera` |
+| `com.nova.starter-assets` — Starter Assets - Third Person | C# **ThirdPersonController** + StarterAssetsInputs: WASD(카메라 기준)·Shift 달리기·Space 점프, 가속·부드러운 회전·중력, 오른쪽 버튼 끌기로 카메라 돌리기, Animator 파라미터(Speed·Grounded·Jump·FreeFall). Character Controller + Follow Camera 와 함께 (Cameras 를 의존성으로 같이 넣음) |
 
 - 넣기 / 빼기: Window > Package Manager, 또는 `nova package add com.nova.cameras` / `nova package remove …`
 - 구조: `package.json`(이름·버전·설명·컴포넌트) + `Source/`(C++ 컴포넌트 → `Plugins/<이름>.dll`, 엔진 `NovaCore.dll` 을 링크) + `Runtime/`(C# API — 프로젝트 스크립트와 같이 컴파일)
@@ -374,6 +375,10 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 - 패키지 DLL 은 같은 엔진 버전 · 같은 구성(Debug/Release)으로 빌드해야 한다 (`<DLL>.dll.abi` 로 확인, 다르면 불러오지 않고 이유를 보여 줌)
 
 <img src="docs/images/package_manager.webp" width="720"/>
+
+<img src="docs/images/starter_third_person.webp" width="720"/>
+
+*Starter Assets: 기본 캐릭터 + Character Controller + ThirdPersonController, Follow Camera 가 뒤에서 따라간다*
 
 ## 내장 에셋 묶음
 
