@@ -98,8 +98,13 @@ const NavGrid* NavMeshSurface::GetGrid()
 
 bool NavMeshSurface::Bake(std::string& log)
 {
+	// 편집 중: 이번 프레임에 붙인(아직 목록에 들어가지 않은) 컴포넌트도 굽기에 넣는다 (CLI·스크립트가 붙인 직후 굽는 경우)
+	if (!Application::IsPlaying())
+		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+			for (GameObject* go : scene->GetAllGameObjects())
+				go->ApplyPendingComponents();
 	PhysicsManager* pm = PhysicsManager::GetI();
-	const bool temp = !pm->IsSimulating();
+	const bool temp = !Application::IsPlaying();
 	if (temp && !pm->BeginEditQueries())
 	{
 		log = "could not create a physics world for baking";

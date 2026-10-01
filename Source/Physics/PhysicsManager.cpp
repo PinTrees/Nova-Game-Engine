@@ -1892,7 +1892,15 @@ int PhysicsManager::RaycastAll(const Vec3& origin, const Vec3& direction, float 
 bool PhysicsManager::BeginEditQueries()
 {
 	if (m_World)
+	{
+		// 편집 중에도 씬을 열 때(Scene::Enter) 만든 월드가 있다 — 그 뒤 붙이거나 옮긴 콜라이더를 반영한다 (dt 0: 바디만 맞춤)
+		if (!Application::IsPlaying())
+		{
+			StepSimulation(0.0f);
+			m_World->physics->OptimizeBroadPhase();
+		}
 		return true;
+	}
 	Start();   // 바디만 만든다 (StepSimulation(0) — FixedUpdate·시뮬레이션 없음)
 	if (m_World)
 		m_World->physics->OptimizeBroadPhase();   // 한꺼번에 넣은 바디: 질의 전에 트리를 다시 짓는다
@@ -1911,7 +1919,10 @@ void PhysicsManager::EndEditQueries()
 bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
 {
 	if (!m_World)
+	{
+		EditorLog::Write("Physics", "world bounds: no physics world");
 		return false;
+	}
 	// 바디마다 월드 상자를 합친다 (브로드페이즈 전체 상자는 시뮬레이션 스텝 전에는 갱신되지 않는다)
 	JPH::AABox b;
 	const JPH::BodyLockInterface& locks = m_World->physics->GetBodyLockInterface();
@@ -1924,7 +1935,10 @@ bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
 			b.Encapsulate(lock.GetBody().GetWorldSpaceBounds());
 	}
 	if (!b.IsValid())
+	{
+		EditorLog::Write("Physics", "world bounds: no body with a collider (%zu records)", m_World->bodies.size());
 		return false;
+	}
 	outMin = FromJ(JPH::Vec3(b.mMin));
 	outMax = FromJ(JPH::Vec3(b.mMax));
 	return true;

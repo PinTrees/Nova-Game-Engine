@@ -68,7 +68,7 @@ public:
 	bool Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance = 1000.0f, bool hitTriggers = false);
 	// 맞은 것을 가까운 순으로 여러 개 (트리거 제외, staticOnly 면 Rigidbody 가 없는 정적 바디만) — NavMesh 굽기 등. 여러 스레드에서 불러도 된다
 	int RaycastAll(const Vec3& origin, const Vec3& direction, float maxDistance, RaycastHit* out, int maxHits, bool staticOnly);
-	// 편집 중에도 Raycast 를 쓰게 지금 씬으로 임시 물리 월드를 만든다 / 내린다 (Play 중이면 아무것도 안 함)
+	// 편집 중에도 Raycast 를 쓰게 지금 씬으로 물리 월드를 맞춘다 (없으면 임시로 만든다 / End 에서 내림). Play 중이면 그대로
 	bool BeginEditQueries();
 	void EndEditQueries();
 	// 모든 바디를 감싸는 상자 (월드가 있을 때)

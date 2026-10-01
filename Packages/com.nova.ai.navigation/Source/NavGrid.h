@@ -50,4 +50,10 @@ private:
 	int Index(int x, int z, int l) const { return (z * Width + x) * kLayers + l; }
 	int ConnectedLayer(int x, int z, float h) const;   // 이웃 칸에서 높이 h 와 이어지는 층 (없으면 -1)
 	bool LineOfSight(int x0, int z0, int l0, int x1, int z1) const;
+
+	// A* 작업 공간 (칸 수만큼, 세대 번호로 매번 지우지 않고 다시 씀) — 메인 스레드에서만
+	mutable std::vector<float> m_G;
+	mutable std::vector<int> m_From;
+	mutable std::vector<uint32_t> m_Stamp;
+	mutable uint32_t m_Generation = 0;
 };

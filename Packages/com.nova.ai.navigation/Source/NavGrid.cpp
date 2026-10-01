@@ -73,7 +73,7 @@ bool NavGrid::Bake(const Vec3& bmin, const Vec3& bmax, const NavGridSettings& s,
 		return false;
 	}
 	// 칸 수가 너무 많으면 칸을 키운다 (굽기 시간·메모리)
-	const double kMaxCells = 1500.0 * 1500.0;
+	const double kMaxCells = 1024.0 * 1024.0;   // 큰 지형: 칸을 키워 굽기를 몇 초 안에 (메인 스레드가 기다린다)
 	float cell = Settings.CellSize;
 	if ((double)size.x * size.z / ((double)cell * cell) > kMaxCells)
 	{
@@ -349,17 +349,32 @@ bool NavGrid::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& co
 	const int startI = Index(sx, sz, sl), goalI = Index(ex, ez, el);
 	const float cell = Settings.CellSize;
 
-	std::unordered_map<int, float> g;
-	std::unordered_map<int, int> from;
-	g.reserve(4096);
-	from.reserve(4096);
+	// 칸마다 g·from 을 평면 배열에 (세대 번호가 다르면 비어 있는 것으로) — 해시맵보다 몇 배 빠르다
+	const size_t total = (size_t)Width * Depth * kLayers;
+	if (m_Stamp.size() != total)
+	{
+		m_G.assign(total, 0.0f);
+		m_From.assign(total, -1);
+		m_Stamp.assign(total, 0u);
+		m_Generation = 0;
+	}
+	if (++m_Generation == 0)
+	{
+		std::fill(m_Stamp.begin(), m_Stamp.end(), 0u);
+		m_Generation = 1;
+	}
+	const uint32_t gen = m_Generation;
+	auto gOf = [&](int i) { return m_Stamp[i] == gen ? m_G[i] : FLT_MAX; };
 	using Item = std::pair<float, int>;
 	std::priority_queue<Item, std::vector<Item>, std::greater<Item>> open;
+	// 옥타일 거리 × 1.2 (가중 A*): 넓은 땅에서 고르게 퍼지지 않고 목표 쪽으로 — 길이는 최단보다 조금 길 수 있고 시선 다듬기가 펴 준다
 	auto heuristic = [&](int x, int z) {
 		const float dx = (float)std::abs(x - ex), dz = (float)std::abs(z - ez);
-		return cell * ((dx + dz) + (1.41421356f - 2.0f) * (std::min)(dx, dz));
+		return 1.2f * cell * ((dx + dz) + (1.41421356f - 2.0f) * (std::min)(dx, dz));
 	};
-	g[startI] = 0.0f;
+	m_G[startI] = 0.0f;
+	m_From[startI] = -1;
+	m_Stamp[startI] = gen;
 	open.push({ heuristic(sx, sz), startI });
 	bool reached = startI == goalI;
 	int expanded = 0;
@@ -367,7 +382,7 @@ bool NavGrid::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& co
 	{
 		const auto [f, i] = open.top();
 		open.pop();
-		const float gi = g[i];
+		const float gi = gOf(i);
 		const int l = i % kLayers, c = i / kLayers, x = c % Width, z = c / Width;
 		if (f > gi + heuristic(x, z) + 1e-4f)
 			continue;   // 낡은 항목
@@ -385,11 +400,11 @@ bool NavGrid::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& co
 			const int ni = Index(nx, nz, nl);
 			const float step = (k < 4 ? cell : cell * 1.41421356f) + fabsf(Height(nx, nz, nl) - h);
 			const float ng = gi + step;
-			auto it = g.find(ni);
-			if (it != g.end() && it->second <= ng)
+			if (gOf(ni) <= ng)
 				continue;
-			g[ni] = ng;
-			from[ni] = i;
+			m_G[ni] = ng;
+			m_From[ni] = i;
+			m_Stamp[ni] = gen;
 			if (ni == goalI)
 			{
 				reached = true;
@@ -408,7 +423,7 @@ bool NavGrid::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& co
 		cells.push_back(i);
 		if (i == startI)
 			break;
-		i = from[i];
+		i = m_From[i];
 	}
 	std::reverse(cells.begin(), cells.end());
 
