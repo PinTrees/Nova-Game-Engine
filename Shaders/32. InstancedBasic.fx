@@ -63,7 +63,7 @@ cbuffer cbPerFrame
     // 캐스케이드 그림자 (Volume > Shadows): 구 = xyz 중심, w = 반지름²
     float4 gCascadeSpheres[4];
     float4 gShadowParams;                // x 캐스케이드 수, y Max Distance, z 흐려지기 시작 거리, w 1 / 흐려지는 폭
-    float4 gDirShadowData[LIGHT_SIZE];   // x Strength (0 = 그림자 없음), y 필터 (0 Hard, 1 Low, 2 Medium, 3 High)
+    float4 gDirShadowData[LIGHT_SIZE];   // x Strength (0 = 그림자 없음), y 필터 (0 Hard, 1 Low, 2 Medium, 3 High), z 1 / 맵 크기
     float4 gSpotShadowData[LIGHT_SIZE];
     float4 gPointShadowData[LIGHT_SIZE];
 
@@ -143,14 +143,14 @@ SamplerComparisonState samShadow
 //  - Strength 로 그림자 농도, Max Distance 끝의 Last Border 구간에서 서서히 사라진다
 // ---------------------------------------------------------------------------
 // 비교 샘플 PCF. filter 0 = Hard(1 번, 2x2 선형), 1 Low(2x2), 2 Medium(3x3), 3 High(4x4) — 동적 루프라 코드는 한 벌
-float ShadowPCF(Texture2DArray map, float3 coord, float slice, int filter)
+//  texelSize = 1 / 맵 크기 (C++ 가 gXxxShadowData.z 로 넘긴다). GetDimensions 를 쓰지 않는다:
+//  OpenGL 에서는 크기 묻기용 샘플러가 따로 생겨 그림자 맵 12 장 × 2 가 샘플러 32 개 한도를 넘었다 (지형 PS)
+float ShadowPCF(Texture2DArray map, float3 coord, float slice, int filter, float texelSize)
 {
     float lit = 1.0f;   // 빛의 먼 평면 밖이면 빛
     if (coord.z <= 1.0f)
     {
-        uint w, h, n;
-        map.GetDimensions(w, h, n);
-        const float2 texel = 1.0f / float2(w, h);
+        const float2 texel = float2(texelSize, texelSize);
         const int size = filter <= 0 ? 1 : filter + 1;
         const float center = (size - 1) * 0.5f;
         float sum = 0.0f;
@@ -195,7 +195,7 @@ float DirShadow(Texture2DArray map, int i, float3 posW, int cascade, float fade)
     if (data.x > 0.0f && cascade >= 0)
     {
         const float3 coord = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade]).xyz;
-        const float s = ShadowPCF(map, coord, (float)cascade, (int)data.y);
+        const float s = ShadowPCF(map, coord, (float)cascade, (int)data.y, data.z);
         lit = lerp(1.0f, lerp(s, 1.0f, fade), data.x);
     }
     return lit;
@@ -207,7 +207,7 @@ float PerspectiveShadow(Texture2DArray map, float4x4 transform, float slice, flo
     float lit = 1.0f;
     float4 p = mul(float4(posW, 1.0f), transform);
     if (data.x > 0.0f && p.w > 0.0f)
-        lit = lerp(1.0f, ShadowPCF(map, p.xyz / p.w, slice, (int)data.y), data.x);
+        lit = lerp(1.0f, ShadowPCF(map, p.xyz / p.w, slice, (int)data.y, data.z), data.x);
     return lit;
 }
 

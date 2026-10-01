@@ -272,7 +272,7 @@ namespace RhiTest
 			fx->SetRaw(fx->FindVariable("gCascadeSpheres"), spheres, sizeof(spheres));
 			const float params[4] = { 1.0f, 50.0f, 1000.0f, 1.0f };
 			fx->SetRaw(fx->FindVariable("gShadowParams"), params, 16);
-			const float dirData[16] = { 1.0f, 2.0f };   // Strength 1, Medium (3x3)
+			const float dirData[16] = { 1.0f, 2.0f, 1.0f / 1024.0f };   // Strength 1, Medium (3x3), 1 / 맵 크기
 			fx->SetRaw(fx->FindVariable("gDirShadowData"), dirData, sizeof(dirData));
 			fx->SetTexture(fx->FindVariable("gDirShadowMaps"), shadow.get(), 0);
 		}

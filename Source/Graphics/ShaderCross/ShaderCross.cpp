@@ -3,6 +3,8 @@
 #include "pch.h"
 #include "ShaderCross.h"
 #include <dxcapi.h>
+#include <fstream>
+#include <nlohmann/json.hpp>
 
 namespace
 {
@@ -286,6 +288,163 @@ namespace
 	}
 }
 
+namespace
+{
+	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
+	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
+	constexpr int kCacheVersion = 1;
+	using json = nlohmann::json;
+
+	uint64_t Fnv1a(const std::string& s)
+	{
+		uint64_t h = 1469598103934665603ull;
+		for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
+		return h;
+	}
+
+	json ToJson(const EffectGlsl& e)
+	{
+		json fx;
+		fx["source"] = e.Fx.Source;
+		json techs = json::array();
+		for (const auto& t : e.Fx.Techniques)
+		{
+			json passes = json::array();
+			for (const auto& p : t.Passes)
+			{
+				json shaders = json::array();
+				for (const auto& s : p.Shaders)
+					shaders.push_back({ (int)s.StageType, s.Profile, s.Entry, s.Original });
+				passes.push_back({ { "name", p.Name }, { "shaders", shaders }, { "ds", p.DepthStencilState }, { "rs", p.RasterizerState }, { "bs", p.BlendState },
+					{ "stencilRef", p.StencilRef }, { "blendFactor", { p.BlendFactor[0], p.BlendFactor[1], p.BlendFactor[2], p.BlendFactor[3] } }, { "sampleMask", p.SampleMask } });
+			}
+			techs.push_back({ { "name", t.Name }, { "passes", passes } });
+		}
+		fx["techniques"] = techs;
+		json states = json::object();
+		for (const auto& [n, b] : e.Fx.States)
+			states[n] = { { "type", b.Type }, { "fields", b.Fields } };
+		fx["states"] = states;
+		fx["defaults"] = e.Fx.Defaults;
+		fx["warnings"] = e.Fx.Warnings;
+		json passes = json::array();
+		for (const auto& p : e.Passes)
+		{
+			json stages = json::array();
+			for (const auto& s : p.Stages)
+				stages.push_back({ (int)s.StageType, s.Entry, s.Glsl });
+			json inputs = json::array();
+			for (const auto& [sem, loc] : p.VertexInputs)
+				inputs.push_back({ sem, loc });
+			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "inputs", inputs }, { "error", p.Error } });
+		}
+		json blocks = json::object();
+		for (const auto& [n, b] : e.Blocks)
+		{
+			json members = json::array();
+			for (const auto& m : b.Members)
+				members.push_back({ m.Name, m.Offset, m.Size, m.ArrayCount, m.ArrayStride, m.Rows, m.Columns, m.Transpose, m.Struct, m.Integer });
+			blocks[n] = { { "binding", b.Binding }, { "size", b.Size }, { "members", members } };
+		}
+		json samplers = json::object();
+		for (const auto& [n, s] : e.Samplers)
+			samplers[n] = { s.Texture, s.Sampler, s.Unit, s.Count };
+		return { { "version", kCacheVersion }, { "fx", fx }, { "passes", passes }, { "blocks", blocks }, { "samplers", samplers },
+			{ "images", e.Images }, { "buffers", e.Buffers } };
+	}
+
+	bool FromJson(const json& j, EffectGlsl& e)
+	{
+		if (j.value("version", 0) != kCacheVersion) return false;
+		const json& fx = j.at("fx");
+		e.Fx.Source = fx.at("source").get<std::string>();
+		for (const auto& t : fx.at("techniques"))
+		{
+			FxParser::Technique tech;
+			tech.Name = t.at("name").get<std::string>();
+			for (const auto& p : t.at("passes"))
+			{
+				FxParser::Pass pass;
+				pass.Name = p.at("name").get<std::string>();
+				for (const auto& s : p.at("shaders"))
+					pass.Shaders.push_back({ (Stage)s[0].get<int>(), s[1].get<std::string>(), s[2].get<std::string>(), s[3].get<std::string>() });
+				pass.DepthStencilState = p.at("ds").get<std::string>();
+				pass.RasterizerState = p.at("rs").get<std::string>();
+				pass.BlendState = p.at("bs").get<std::string>();
+				pass.StencilRef = p.at("stencilRef").get<int>();
+				for (int i = 0; i < 4; ++i) pass.BlendFactor[i] = p.at("blendFactor")[i].get<float>();
+				pass.SampleMask = p.at("sampleMask").get<unsigned>();
+				tech.Passes.push_back(pass);
+			}
+			e.Fx.Techniques.push_back(tech);
+		}
+		for (const auto& [n, b] : fx.at("states").items())
+		{
+			FxParser::StateBlock block;
+			block.Type = b.at("type").get<std::string>();
+			block.Fields = b.at("fields").get<std::map<std::string, std::string>>();
+			e.Fx.States[n] = block;
+		}
+		e.Fx.Defaults = fx.at("defaults").get<std::map<std::string, std::string>>();
+		e.Fx.Warnings = fx.at("warnings").get<std::vector<std::string>>();
+		for (const auto& p : j.at("passes"))
+		{
+			PassGlsl pg;
+			pg.Technique = p.at("technique").get<std::string>();
+			pg.Pass = p.at("pass").get<std::string>();
+			for (const auto& s : p.at("stages"))
+				pg.Stages.push_back({ (Stage)s[0].get<int>(), s[1].get<std::string>(), s[2].get<std::string>() });
+			for (const auto& i : p.at("inputs"))
+				pg.VertexInputs.push_back({ i[0].get<std::string>(), i[1].get<int>() });
+			pg.Error = p.at("error").get<std::string>();
+			e.Passes.push_back(pg);
+		}
+		for (const auto& [n, b] : j.at("blocks").items())
+		{
+			UniformBlock ub;
+			ub.Name = n;
+			ub.Binding = b.at("binding").get<int>();
+			ub.Size = b.at("size").get<int>();
+			for (const auto& m : b.at("members"))
+			{
+				UniformBlock::Member mem;
+				mem.Name = m[0].get<std::string>();
+				mem.Offset = m[1].get<int>();
+				mem.Size = m[2].get<int>();
+				mem.ArrayCount = m[3].get<int>();
+				mem.ArrayStride = m[4].get<int>();
+				mem.Rows = m[5].get<int>();
+				mem.Columns = m[6].get<int>();
+				mem.Transpose = m[7].get<bool>();
+				mem.Struct = m[8].get<bool>();
+				mem.Integer = m[9].get<bool>();
+				ub.Members.push_back(mem);
+			}
+			e.Blocks[n] = ub;
+		}
+		for (const auto& [n, s] : j.at("samplers").items())
+		{
+			SamplerBinding sb;
+			sb.Name = n;
+			sb.Texture = s[0].get<std::string>();
+			sb.Sampler = s[1].get<std::string>();
+			sb.Unit = s[2].get<int>();
+			sb.Count = s[3].get<int>();
+			e.Samplers[n] = sb;
+		}
+		e.Images = j.at("images").get<std::map<std::string, int>>();
+		e.Buffers = j.at("buffers").get<std::map<std::string, int>>();
+		return true;
+	}
+
+	std::filesystem::path CachePath(const std::wstring& fxPath, uint64_t hash)
+	{
+		char hex[32];
+		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)hash);
+		return std::filesystem::path(L"ShaderCache") / L"GLSL" / (std::filesystem::path(fxPath).stem().wstring() + L"_" + string_to_wstring(hex) + L".json");
+	}
+}
+
 namespace ShaderCross
 {
 	int EffectGlsl::PassesOk() const
@@ -316,6 +475,31 @@ namespace ShaderCross
 		std::string pre;
 		if (!Preprocess(fxPath, pre, out.Error))
 			return false;
+		// 캐시: 전처리 결과(#include 까지 펼친 소스)가 같으면 변환 결과도 같다
+		const uint64_t hash = Fnv1a(pre) ^ (uint64_t)kCacheVersion;
+		const std::filesystem::path cacheFile = CachePath(fxPath, hash);
+		{
+			std::ifstream in(cacheFile, std::ios::binary);
+			if (in)
+			{
+				try
+				{
+					const json j = json::parse(in);
+					EffectGlsl cached;
+					cached.File = fxPath;
+					if (FromJson(j, cached))
+					{
+						out = std::move(cached);
+						EditorLog::Write("ShaderCross", "cache hit %s", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str());
+						return true;
+					}
+				}
+				catch (const std::exception&)
+				{
+					// 깨진 캐시 → 다시 변환
+				}
+			}
+		}
 		if (!FxParser::Parse(pre, out.Fx, out.Error))
 			return false;
 		const std::wstring name = std::filesystem::path(fxPath).filename().wstring() + L".hlsl";
@@ -348,6 +532,20 @@ namespace ShaderCross
 				}
 				out.Passes.push_back(std::move(pg));
 			}
+		// 캐시에 저장 (같은 이름의 예전 캐시 파일은 지운다)
+		try
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(cacheFile.parent_path(), ec);
+			const std::wstring prefix = std::filesystem::path(fxPath).stem().wstring() + L"_";
+			for (const auto& f : std::filesystem::directory_iterator(cacheFile.parent_path(), ec))
+				if (f.path().filename().wstring().rfind(prefix, 0) == 0 && f.path() != cacheFile)
+					std::filesystem::remove(f.path(), ec);
+			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << ToJson(out).dump();
+		}
+		catch (const std::exception&)
+		{
+		}
 		return true;
 	}
 }

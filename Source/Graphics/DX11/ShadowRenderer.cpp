@@ -192,7 +192,7 @@ namespace ShadowRenderer
 			if (!light.CastsShadows())
 				continue;
 			const int filter = FilterOf(light, s);
-			out.DirData[d] = XMFLOAT4(light.GetShadowStrength(), (float)filter, 0, 0);
+			out.DirData[d] = XMFLOAT4(light.GetShadowStrength(), (float)filter, 1.0f / (float)s.Resolution, 0);   // z = 1 / 맵 크기 (ShadowPCF)
 			float depthBias, normalBias;
 			ResolveBias(light, s, depthBias, normalBias);
 
@@ -257,7 +257,7 @@ namespace ShadowRenderer
 			if (!light.CastsShadows())
 				continue;
 			const int filter = FilterOf(light, s);
-			out.SpotData[k] = XMFLOAT4(light.GetShadowStrength(), (float)filter, 0, 0);
+			out.SpotData[k] = XMFLOAT4(light.GetShadowStrength(), (float)filter, 1.0f / (float)s.Resolution, 0);
 			float depthBias, normalBias;
 			ResolveBias(light, s, depthBias, normalBias);
 
@@ -291,7 +291,7 @@ namespace ShadowRenderer
 			if (!light.CastsShadows())
 				continue;
 			const int filter = FilterOf(light, s);
-			out.PointData[k] = XMFLOAT4(light.GetShadowStrength(), (float)filter, 0, 0);
+			out.PointData[k] = XMFLOAT4(light.GetShadowStrength(), (float)filter, 1.0f / (float)pointRes, 0);
 			float depthBias, normalBias;
 			ResolveBias(light, s, depthBias, normalBias);
 

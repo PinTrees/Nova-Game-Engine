@@ -321,7 +321,7 @@ namespace GfxTest
 			fx->GetVariableByName("gCascadeSpheres")->SetRawValue(spheres, 0, sizeof(spheres));
 			const float params[4] = { 1.0f, 50.0f, 1000.0f, 1.0f };
 			fx->GetVariableByName("gShadowParams")->AsVector()->SetFloatVector(params);
-			const float dirData[16] = { 1.0f, 2.0f };
+			const float dirData[16] = { 1.0f, 2.0f, 1.0f / (float)shadowSize };   // Strength 1, Medium (3x3), 1 / 맵 크기
 			fx->GetVariableByName("gDirShadowData")->AsVector()->SetFloatVectorArray(dirData, 0, 4);
 			GfxShaderResourceView* maps[1] = { shadowSrv.Get() };
 			fx->GetVariableByName("gDirShadowMaps")->AsShaderResource()->SetResourceArray(maps, 0, 1);
