@@ -18,10 +18,13 @@ private:
 
 	vector<GameObject*> m_CullingGameObjects;
 	vector<GameObject*> m_CullingEditorGameObjects;
+	uint64 m_Serial = 0;
 	vector<GameObject*> m_PendingDelete;   // DestroyGameObject 로 뺀 오브젝트 — 프레임 끝 FlushDestroyed 에서 delete
 public:
 	Scene();
 	~Scene();
+	// 만들 때마다 새 번호 — 지운 씬 자리에 새 씬이 같은 주소로 만들어져도 다른 씬으로 알아본다 (Undo 의 씬 감시)
+	uint64 GetSerial() const { return m_Serial; }
 
 public:
 	wstring GetScenePath() const { return m_ScenePath; }

@@ -16,6 +16,8 @@ Scene::Scene()
     m_ArrGameObjects{},
     m_ScenePath(L"")
 {
+    static std::atomic<uint64> s_NextSerial = 1;
+    m_Serial = s_NextSerial++;
 }
 
 Scene::~Scene()

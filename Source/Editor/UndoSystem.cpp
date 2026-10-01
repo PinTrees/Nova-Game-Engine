@@ -16,7 +16,12 @@ namespace
 	size_t s_Bytes = 0;
 
 	// ---- 씬 감시 ----
+	// 감시 중인 씬: 주소만으로는 안 된다 — 씬을 열 때 이전 씬을 먼저 지우므로 새 씬이 같은 주소에 만들어질 수 있다
+	// (그러면 다른 씬을 열어도 기록이 남고, 이전 씬 기준으로 "저장 안 됨" 이 떴다). 씬 번호(GetSerial)도 같이 본다
 	Scene* s_Scene = nullptr;
+	uint64 s_SceneSerial = 0;
+	void Track(Scene* scene) { s_Scene = scene; s_SceneSerial = scene ? scene->GetSerial() : 0; }
+	bool IsTracked(const Scene* scene) { return scene == s_Scene && (scene == nullptr || scene->GetSerial() == s_SceneSerial); }
 	std::wstring s_ScenePath;
 	bool s_WasPlaying = false;
 	std::string s_PendingName;
@@ -291,7 +296,7 @@ namespace
 		{
 			// 절반 넘게 다르면 씬 전체를 다시 만든다
 			SceneManager::GetI()->RestoreSceneState(Assemble(target));
-			s_Scene = SceneManager::GetI()->GetCurrentScene();
+			Track(SceneManager::GetI()->GetCurrentScene());
 			SetCommitted(CaptureSnap(true));
 			EditorLog::Write("Undo", "full restore (%zu roots, %.1f ms)", target.size(),
 				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
@@ -346,7 +351,7 @@ namespace
 		if (rebuild > 0 || !toRemove.empty())
 			DisplayManager::GetI()->Init();   // 카메라 목록
 
-		s_Scene = scene;
+		Track(scene);
 		SetCommitted(CaptureSnap(false));   // 그대로 둔 루트는 캐시, 새 루트만 직렬화
 		EditorLog::Write("Undo", "partial restore: rebuilt %zu, removed %zu of %zu roots (%.1f ms)", rebuild, toRemove.size(), target.size(),
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
@@ -357,13 +362,13 @@ namespace
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
 		const bool playing = Application::IsPlaying();
-		if (scene != s_Scene)
+		if (!IsTracked(scene))
 		{
 			const std::wstring path = scene ? scene->GetScenePath() : std::wstring();
 			const bool playTransition = playing || s_WasPlaying;
 			if (s_Scene != nullptr && !playTransition && path != s_ScenePath)
 				Undo::Clear();
-			s_Scene = scene;
+			Track(scene);
 			s_ScenePath = path;
 			if (scene)
 				SetCommitted(CaptureSnap(true));
@@ -438,9 +443,9 @@ namespace
 	void Rebaseline()
 	{
 		// 씬 복원(RestoreScene)은 이미 새 기준을 잡았다 → 씬이 그대로면 다시 직렬화하지 않는다
-		if (s_Scene != SceneManager::GetI()->GetCurrentScene() || !s_HasCommitted)
+		if (!IsTracked(SceneManager::GetI()->GetCurrentScene()) || !s_HasCommitted)
 		{
-			s_Scene = SceneManager::GetI()->GetCurrentScene();
+			Track(SceneManager::GetI()->GetCurrentScene());
 			SetCommitted(CaptureSnap(true));
 		}
 		for (auto& [key, t] : s_Trackers)
@@ -468,7 +473,7 @@ namespace Undo
 	bool CommittedSceneHash(size_t& outHash)
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
-		if (scene == nullptr || s_Scene != scene || !s_HasCommitted)
+		if (scene == nullptr || !IsTracked(scene) || !s_HasCommitted)
 			return false;
 		// 확정 스냅샷이 바뀌었을 때만 이어 붙여 해시 (json(scene).dump() 의 해시와 같다 → 저장 시점 해시와 비교)
 		static uint64_t s_HashedVersion = ~0ull;
