@@ -2,6 +2,7 @@
 #include "UndoSystem.h"
 #include "ProfilerEditorWindow.h"
 #include "PackageManagerWindow.h"
+#include "AutoSave.h"
 #include "FrameProfiler.h"
 #include "EditorGUIManager.h"
 #include "ImGuiGL.h"
@@ -355,7 +356,8 @@ void EditorGUIManager::DrawToolbar(float y)
 
 void EditorGUIManager::RenderEditorWindows()
 {
-    SceneManager::GetI()->DrawScenePrompt();   // "Scene Has Been Modified" 확인 창 (New/Open Scene)
+    SceneManager::GetI()->DrawScenePrompt();
+    AutoSave::DrawRecoveryPrompt();   // 지난 세션이 충돌로 끝났을 때 "Recover / Discard"   // "Scene Has Been Modified" 확인 창 (New/Open Scene)
 
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(EditorTheme::MenuBarPaddingX, EditorTheme::MenuBarPaddingY));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));

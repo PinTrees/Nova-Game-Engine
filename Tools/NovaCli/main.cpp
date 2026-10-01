@@ -582,6 +582,8 @@ namespace
 		"  assets [folder] [--pattern text]\n"
 		"  build <output folder> [--run]   build-status [--wait]\n"
 		"\n"
+		"  autosave [status|now|recover|discard]  auto save (Library/AutoSave) and crash recovery\n"
+		"\n"
 		"packages (Unity Package Manager: only packages added to the project are loaded and built)\n"
 		"  package list                           registry packages + what the project uses (loaded / error)\n"
 		"  package add <name> | package remove <name>   e.g. com.nova.cameras (writes Packages/manifest.json)\n"
@@ -842,6 +844,10 @@ int Run(const std::vector<std::string>& in)
 	else if (cmd == "select")
 	{
 		if (!a.Has("none") && !a.Pos.empty()) args["target"] = a.Pos[0];
+	}
+	else if (cmd == "autosave")
+	{
+		args["action"] = a.Pos.empty() ? std::string("status") : a.Pos[0];
 	}
 	else if (cmd == "package")
 	{

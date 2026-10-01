@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "PackageManager.h"
+#include "AutoSave.h"
 #include "PackageManagerWindow.h"
 #include "App.h"
 #include "GraphicsSettings.h"
@@ -131,7 +132,8 @@ int32 App::Run()
 					EditorGUIManager::GetI()->Update();
 				}
 				{ PROFILE_SCOPE("Audio.Update"); AudioManager::Update(); }   // 리스너 위치, 일시정지, One Shot 정리, 통계
-				{ PROFILE_SCOPE("Scripts.Update"); ScriptEngine::Update(); }   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
+				{ PROFILE_SCOPE("Scripts.Update"); ScriptEngine::Update(); }
+	AutoSave::Update();   // 간격마다 변경된 씬을 Library/AutoSave 에 (원본은 그대로)   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
 				{ PROFILE_SCOPE("UI.Update"); UISystem::Update(); }       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); }   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
 				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
@@ -352,6 +354,7 @@ bool App::Init()
 	log << "App::Init -> LoadScene..." << std::endl; log.flush();
 	LoadingScreen::SetProgress(0.10f, L"Loading scene");
 	SceneManager::GetI()->LoadStartupScene();
+	AutoSave::Init();   // 지난 세션이 충돌로 끝났으면 복구를 묻는다 (에디터만)
 	LoadingScreen::SetProgress(0.20f, L"Scene loaded");
 
 	// (개발/검증용) NOVA_DEV_CREATE=cube,sphere,capsule,cylinder,plane,quad 이면 시작 시 기본 도형을 만들어 씬에 저장한다.

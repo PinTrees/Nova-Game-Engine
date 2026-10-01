@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, packages, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, packages, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'packages', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'packages', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -185,6 +185,35 @@ function Suite-Packages
         Write-Host "  $(Stop-TestEditor $ed)"
         if ($before) { [IO.File]::WriteAllText($manifest, $before) }
     }
+}
+
+# ------------------------------------------------------------------ 자동 저장 + 충돌 복구: 변경 → autosave now → 테스트 에디터 강제 종료 → 다시 열어 recover
+function Suite-Recovery
+{
+    Write-Host '[recovery]'
+    $folder = Join-Path $Project 'Library\AutoSave'
+    $ed = Start-TestEditor
+    Invoke-Nova 'scene new --force' | Out-Null
+    Invoke-Nova 'create cube --name RecoverCube --position 1,2,3' | Out-Null
+    $n = Invoke-NovaJson 'autosave now'
+    $files = @(Get-ChildItem $folder -Filter "autosave_$($ed.Pid).scene" -ErrorAction SilentlyContinue)
+    Add-Result recovery 'autosave writes Library/AutoSave' ($n -and $files.Count -eq 1) "files=$($files.Count)"
+    Stop-Process -Id $ed.Pid -Force   # 충돌 흉내 (이 테스트가 띄운 에디터만)
+    Stop-Job $ed.Job -ErrorAction SilentlyContinue; Remove-Job $ed.Job -Force -ErrorAction SilentlyContinue
+    Start-Sleep 1
+    $ed = Start-TestEditor
+    try
+    {
+        $st = Invoke-NovaJson 'autosave status'
+        Add-Result recovery 'next start offers recovery' ($st -and $st.pendingRecovery -match 'Untitled') "pending=$($st.pendingRecovery)"
+        Invoke-Nova 'autosave recover' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $c = Invoke-NovaJson 'get RecoverCube'
+        $ok = $c -and (($c.position -join ',') -eq '1.0,2.0,3.0') -and (Info).dirty
+        Add-Result recovery 'recover restores the scene (dirty)' $ok "position=$($c.position -join ',')"
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    $left = @(Get-ChildItem $folder -ErrorAction SilentlyContinue)
+    Add-Result recovery 'clean quit removes session files' ($left.Count -eq 0) "left=$($left.Count)"
 }
 
 # ------------------------------------------------------------------ 그리기: 7 개 씬 DX11 / OpenGL 같은 카메라로 비교
@@ -389,6 +418,7 @@ try
                 'cli' { Suite-Cli }
                 'physics' { Suite-Physics }
                 'packages' { Suite-Packages }
+                'recovery' { Suite-Recovery }
                 'render' { Suite-Render }
                 'gfx' { Suite-Gfx }
                 'perf' { Suite-Perf }

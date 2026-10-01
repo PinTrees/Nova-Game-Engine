@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AutoSave.h"
 #include "PreferencesWindow.h"
 #include "UnityGUI.h"
 #include "EditorPrefs.h"
@@ -7,6 +8,7 @@
 #include "ScriptEngine.h"
 #include "GraphicsSettings.h"
 #include <filesystem>
+#include <shellapi.h>
 
 namespace
 {
@@ -16,7 +18,7 @@ namespace
 	char s_Args[512] = {};
 	bool s_ArgsLoaded = false;
 
-	const char* kCategories[] = { "External Tools", "Graphics", "NOVA Code" };
+	const char* kCategories[] = { "Auto Save", "External Tools", "Graphics", "NOVA Code" };
 	constexpr float kLabelW = 230.0f;
 
 	void Title(const char* text)
@@ -166,6 +168,30 @@ namespace
 			Installed(true);
 	}
 
+	void DrawAutoSave()
+	{
+		Title("Auto Save");
+		bool enabled = AutoSave::Enabled();
+		Label("Enable Auto Save", "Saves a copy of the open scene with unsaved changes to Library/AutoSave (the scene file itself is not touched)");
+		if (ImGui::Checkbox("##autoSave", &enabled))
+			AutoSave::SetEnabled(enabled);
+		int minutes = AutoSave::IntervalMinutes();
+		Label("Interval (minutes)");
+		ImGui::BeginDisabled(!enabled);
+		if (ImGui::SliderInt("##autoSaveInterval", &minutes, 1, 30))
+			AutoSave::SetIntervalMinutes(minutes);
+		ImGui::EndDisabled();
+		ImGui::Spacing();
+		ImGui::TextWrapped("The scene is also saved when Play starts and, if possible, when the editor crashes. "
+			"After a crash or a forced quit the next start offers to recover the autosave if it is newer than the scene file.");
+		ImGui::Spacing();
+		if (ImGui::Button("Save Now"))
+			AutoSave::SaveNow();
+		ImGui::SameLine();
+		if (ImGui::Button("Open Folder"))
+			::ShellExecuteW(nullptr, L"open", AutoSave::Folder().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+	}
+
 	void DrawNovaCode()
 	{
 		Title("NOVA Code");
@@ -241,7 +267,9 @@ namespace PreferencesWindow
 		ImGui::SameLine();
 		ImGui::BeginChild("##prefBody", ImVec2(0, 0), false);
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
-		if (s_Category == "External Tools")
+		if (s_Category == "Auto Save")
+			DrawAutoSave();
+		else if (s_Category == "External Tools")
 			DrawExternalTools();
 		else if (s_Category == "Graphics")
 			DrawGraphics();

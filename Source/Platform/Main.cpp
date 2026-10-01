@@ -5,6 +5,7 @@
 #include "HubProject.h"
 #include "PlayerRuntime.h"
 #include "CliInstaller.h"
+#include "AutoSave.h"
 
 #include <filesystem>
 #include <fstream>
@@ -131,6 +132,7 @@ extern "C" NOVA_API int NovaMain(HINSTANCE hInstance, int showCmd)
 		log.flush();
 
 		int ret = theApp.Run();
+		AutoSave::Shutdown();   // 정상 종료: 이번 세션의 autosave 를 지운다 (남아 있으면 다음 시작 때 충돌로 본다)
 		log << "theApp.Run() exited with code: " << ret << std::endl;
 		EditorLog::Shutdown();
 		return ret;

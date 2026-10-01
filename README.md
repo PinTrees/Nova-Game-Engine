@@ -60,7 +60,7 @@
 | 분야 | 내용 |
 |---|---|
 | **Hub · 에디터** | NOVA Hub(프로젝트 목록·생성·설치) → 에디터. 도킹 레이아웃(Hierarchy · Scene/Game · Inspector · Project/Console/Animator), **창을 에디터 밖 OS 창으로 빼기**, 시작 로딩 창, Undo/Redo, 에디터 로그(`Logs/Editor.log`) |
-| **씬 파일** | New / Open / Save / Save As (`Ctrl+N` · `Ctrl+O` · `Ctrl+S` · `Ctrl+Shift+S`), 저장하지 않은 변경이 있으면 Unity 처럼 *Save / Don't Save / Cancel* 확인, 변경 표시(`*`) |
+| **씬 파일** | New / Open / Save / Save As (`Ctrl+N` · `Ctrl+O` · `Ctrl+S` · `Ctrl+Shift+S`), 저장하지 않은 변경이 있으면 Unity 처럼 *Save / Don't Save / Cancel* 확인, 변경 표시(`*`), **자동 저장 + 충돌 복구**(5 분마다·Play 직전·충돌 순간에 `Library/AutoSave` 로 — 비정상 종료 뒤 다음 시작에서 *Recover / Discard*) |
 | **Scene 뷰** | Move/Rotate/Scale/Rect/Transform 핸들, Pivot/Center·Local/Global, 스냅, Scene Camera 패널, 우클릭 비행(WASD·QE), Alt 궤도, F 포커스 |
 | **Game 뷰** | 해상도(Free/비율/고정 + 사용자 추가), Scale, Display 1~8, Play Focused/Maximized/Unfocused, Stats(FPS·Batches·Tris·Audio) |
 | **Hierarchy / Inspector** | 부모/자식, 복제·잘라내기·붙여넣기, 이름 바꾸기, Unity 식 컴포넌트 헤더와 Add Component 메뉴, Object Picker(⊙) |
@@ -157,6 +157,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** 로 설치(PATH 등록)합니다. 모�
 | <img src="docs/images/animator.webp" width="440"/><br/>Animator 창 | <img src="docs/images/prefab.webp" width="440"/><br/>프리팹 인스턴스 |
 | <img src="docs/images/profiler.webp" width="440"/><br/>Profiler (CPU 계층 · 통계) | <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) |
 | <img src="docs/images/nova_code.webp" width="440"/><br/>NOVA Code (내장 C# IDE) | <img src="docs/images/nova_code_error.webp" width="440"/><br/>컴파일 오류 표시 |
+| <img src="docs/images/crash_recovery.webp" width="440"/><br/>충돌 복구 (자동 저장에서 되살리기) | |
 
 ### 그래픽 API
 

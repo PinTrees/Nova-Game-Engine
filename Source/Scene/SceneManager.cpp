@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "AutoSave.h"
 #include "SceneManager.h"
 #include "UndoSystem.h"
 #include "Scene.h"
@@ -310,6 +311,40 @@ bool SceneManager::IsCurrentSceneDirty()
 	return m_Dirty;
 }
 
+bool SceneManager::OpenRecoveredScene(const std::string& sceneJson, const std::wstring& scenePath)
+{
+	if (Application::IsPlaying())
+		return false;
+	json j = json::parse(sceneJson, nullptr, false);
+	if (j.is_discarded() || !j.is_object())
+		return false;
+	if (m_pCurrScene != nullptr)
+	{
+		Scene* old = m_pCurrScene;
+		old->Exit();
+		for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
+			it = it->second == old ? m_Scenes.erase(it) : std::next(it);
+		m_pCurrScene = nullptr;
+		SelectionManager::ClearSelection();
+		delete old;
+		TerrainData::DropUnsaved();
+	}
+	Scene* scene = new Scene();
+	scene->SetScenePath(scenePath);
+	from_json(j, *scene);
+	if (!scenePath.empty())
+		m_Scenes[scenePath] = scene;
+	m_pCurrScene = scene;
+	m_pCurrScene->Enter();
+	DisplayManager::GetI()->Init();
+	// 변경됨: 저장된 기준을 비워 둔다 (파일과 다르다)
+	m_SavedHash = 0;
+	m_Dirty = true;
+	m_LastDirtyCheck = -1.0;
+	EditorLog::Write("Scene", "recovered scene %s (%zu objects)", wstring_to_string(scenePath).c_str(), scene->GetAllGameObjects().size());
+	return true;
+}
+
 void SceneManager::DiscardChanges()
 {
 	if (m_pCurrScene == nullptr || m_pCurrScene->GetScenePath().empty() || Application::IsPlaying())
@@ -329,6 +364,7 @@ void SceneManager::HandlePlay()
 	if (m_pCurrScene == nullptr) 
 		return;
 
+	AutoSave::OnEnterPlay();   // Play 중 충돌해도 Play 직전 상태를 되살릴 수 있게 (변경이 있을 때만)
 	json j = *m_pCurrScene;
 	m_PlayModeSceneSnapshot = j.dump();
 	m_PlayOriginalPath = m_pCurrScene->GetScenePath();

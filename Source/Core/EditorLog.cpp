@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "AutoSave.h"
 #include "EditorLog.h"
 #include <mutex>
 #include <cstdarg>
@@ -84,6 +85,7 @@ namespace
 		DWORD64 pcs[24];
 		const int count = CaptureStack(::GetCurrentThread(), ctx, pcs, 24);
 		WriteStack("CRASH", pcs, count);
+		AutoSave::EmergencySave();   // 저장하지 않은 씬을 한 번 더 (실패해도 그대로 진행)
 		return EXCEPTION_CONTINUE_SEARCH;
 	}
 

@@ -67,6 +67,8 @@ public:
 	void MarkCurrentSceneSaved();
 	// 저장하지 않은 변경을 버리고 파일에서 다시 읽는다
 	void DiscardChanges();
+	// 충돌 복구: autosave JSON 을 원래 경로(빈 문자열 = 저장한 적 없는 씬)의 씬으로 연다 (변경됨 상태 — Ctrl+S 로 저장)
+	bool OpenRecoveredScene(const std::string& sceneJson, const std::wstring& scenePath);
 	// Undo/Redo: 현재 씬을 JSON 상태로 다시 만든다 (경로 유지, 선택/Hierarchy 펼침 상태는 fileID 로 이어 간다)
 	void RestoreSceneState(const std::string& sceneJson);
 	void HandlePlay();

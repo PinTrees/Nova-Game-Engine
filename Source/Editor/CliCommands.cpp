@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "PackageManager.h"
+#include "AutoSave.h"
 #include "PackageManagerWindow.h"
 #include "CliCommands.h"
 #include "CliServer.h"
@@ -797,7 +798,7 @@ namespace CliCommands
 				const std::wstring full = PathManager::GetI()->GetMovePathW(rel);
 				std::error_code ec;
 				std::filesystem::create_directories(std::filesystem::path(full).parent_path(), ec);
-				scene->SetScenePath(full);
+				scene->SetScenePath(rel);   // 다른 씬처럼 프로젝트 기준 상대 경로
 			}
 			if (scene->GetScenePath().empty()) { e = "the scene has never been saved (nova scene save --as Assets/Scenes/Name.scene)"; return false; }
 			if (!SceneManager::GetI()->SaveCurrentScene(false)) { e = "save failed (see nova log)"; return false; }
@@ -1255,6 +1256,24 @@ namespace CliCommands
 
 		Register("build-status", "player build progress", [](const json&, json& r, std::string&) {
 			r = { { "running", BuildPipeline::IsRunning() }, { "status", BuildPipeline::Status() } };
+			return true;
+		});
+
+		// ---- 자동 저장 / 충돌 복구 ----
+		Register("autosave", "auto save {action: status|now|recover|discard}", [](const json& a, json& r, std::string& e) {
+			const std::string action = a.value("action", "status");
+			if (action == "now")
+			{
+				if (!AutoSave::SaveNow(&e)) return false;
+			}
+			else if (action == "recover" || action == "discard")
+			{
+				if (!AutoSave::HasPendingRecovery()) { e = "nothing to recover"; return false; }
+				if (!AutoSave::Recover(action == "recover")) { e = "recovery failed (see nova log)"; return false; }
+			}
+			else if (action != "status") { e = "usage: autosave status|now|recover|discard"; return false; }
+			r = { { "enabled", AutoSave::Enabled() }, { "intervalMinutes", AutoSave::IntervalMinutes() },
+				{ "folder", wstring_to_string(AutoSave::Folder()) }, { "pendingRecovery", AutoSave::PendingRecoveryInfo() } };
 			return true;
 		});
 
