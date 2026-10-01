@@ -78,8 +78,48 @@ float3 TerrainNormalUV(float2 uv)
     return normalize(float3(-(hr - hl) / dx, 1.0f, -(hu - hd) / dz));
 }
 
-// 레이어 텍스처 혼합 (컨트롤 맵 RGBA = 레이어 0~3 가중치)
-float4 TerrainAlbedo(float2 uv)
+// ---- Triplanar: 위(xz) + 옆(zy, xy) 세 방향 투영을 법선으로 섞는다 (절벽에서 텍스처가 세로로 늘어나지 않게)
+//  가중치 = |법선|^4 (정규화). 완만한 곳은 옆 가중치가 거의 0 이라 그 샘플을 건너뛴다(분기).
+//  분기 안에서도 밉이 맞도록 좌표 미분은 분기 밖에서 구해 SampleGrad 로 넘긴다
+struct TerrainTriplanar
+{
+    float2 Top, SideX, SideZ;           // 투영 좌표 (미터)
+    float2 TopDx, TopDy, XDx, XDy, ZDx, ZDy;
+    float3 W;                           // x = zy 면, y = 위, z = xy 면
+};
+
+TerrainTriplanar TerrainTriplanarSetup(float3 localPos, float3 n)
+{
+    TerrainTriplanar t;
+    t.Top = localPos.xz;
+    t.SideX = float2(localPos.z, -localPos.y);   // x 를 향한 면: 가로 = z, 세로 = 높이 (텍스처 위가 위쪽)
+    t.SideZ = float2(localPos.x, -localPos.y);   // z 를 향한 면
+    t.TopDx = ddx(t.Top); t.TopDy = ddy(t.Top);
+    t.XDx = ddx(t.SideX); t.XDy = ddy(t.SideX);
+    t.ZDx = ddx(t.SideZ); t.ZDy = ddy(t.SideZ);
+    float3 w = pow(abs(n), 4.0f);
+    w /= max(w.x + w.y + w.z, 1e-5f);
+    // 아주 작은 옆 가중치는 버리고 다시 정규화 (평지에서 샘플 1 번)
+    w.x = w.x < 0.02f ? 0.0f : w.x;
+    w.z = w.z < 0.02f ? 0.0f : w.z;
+    t.W = w / max(w.x + w.y + w.z, 1e-5f);
+    return t;
+}
+
+float4 TerrainLayerSample(Texture2D tex, float4 st, TerrainTriplanar t)
+{
+    float4 c = 0;
+    [branch] if (t.W.y > 0.0f)
+        c += t.W.y * tex.SampleGrad(samTerrainWrap, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy);
+    [branch] if (t.W.x > 0.0f)
+        c += t.W.x * tex.SampleGrad(samTerrainWrap, t.SideX * st.xy + st.zw, t.XDx * st.xy, t.XDy * st.xy);
+    [branch] if (t.W.z > 0.0f)
+        c += t.W.z * tex.SampleGrad(samTerrainWrap, t.SideZ * st.xy + st.zw, t.ZDx * st.xy, t.ZDy * st.xy);
+    return c;
+}
+
+// 레이어 텍스처 혼합 (컨트롤 맵 RGBA = 레이어 0~3 가중치). localPos = 지형 로컬 위치(m), n = 월드 법선
+float4 TerrainAlbedo(float2 uv, float3 localPos, float3 n)
 {
     if (gTerrainLayerCount <= 0)
         return float4(0.72f, 0.72f, 0.72f, 1.0f);   // 레이어가 없으면 Unity 처럼 밝은 회색
@@ -96,12 +136,12 @@ float4 TerrainAlbedo(float2 uv)
     }
     w /= sum;
 
-    float2 pos = uv * gTerrainSize.xz;   // 지형 로컬 미터
+    const TerrainTriplanar t = TerrainTriplanarSetup(localPos, n);
     float4 c = 0;
-    c += w.r * gTerrainLayer0.Sample(samTerrainWrap, pos * gTerrainLayerST[0].xy + gTerrainLayerST[0].zw) * gTerrainLayerTint[0];
-    c += w.g * gTerrainLayer1.Sample(samTerrainWrap, pos * gTerrainLayerST[1].xy + gTerrainLayerST[1].zw) * gTerrainLayerTint[1];
-    c += w.b * gTerrainLayer2.Sample(samTerrainWrap, pos * gTerrainLayerST[2].xy + gTerrainLayerST[2].zw) * gTerrainLayerTint[2];
-    c += w.a * gTerrainLayer3.Sample(samTerrainWrap, pos * gTerrainLayerST[3].xy + gTerrainLayerST[3].zw) * gTerrainLayerTint[3];
+    [branch] if (w.r > 0.0f) c += w.r * TerrainLayerSample(gTerrainLayer0, gTerrainLayerST[0], t) * gTerrainLayerTint[0];
+    [branch] if (w.g > 0.0f) c += w.g * TerrainLayerSample(gTerrainLayer1, gTerrainLayerST[1], t) * gTerrainLayerTint[1];
+    [branch] if (w.b > 0.0f) c += w.b * TerrainLayerSample(gTerrainLayer2, gTerrainLayerST[2], t) * gTerrainLayerTint[2];
+    [branch] if (w.a > 0.0f) c += w.a * TerrainLayerSample(gTerrainLayer3, gTerrainLayerST[3], t) * gTerrainLayerTint[3];
     c.a = 1.0f;
     return c;
 }
