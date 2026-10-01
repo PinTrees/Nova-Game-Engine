@@ -59,6 +59,7 @@ foreach ($f in @('NovaEngine.exe', 'NovaCore.dll', 'nova.exe', 'dxcompiler.dll',
 }
 if ($assimpRelease) { Copy-Item $assimpRelease $bin } else { Copy-Item 'Binaries\assimp-vc143-mtd.dll' $bin }
 CopyDir 'Binaries\Scripting' 'Binaries\Scripting'
+CopyDir 'Packages' 'Packages' @('Source')   # NOVA 레지스트리 패키지 (package.json, Runtime C#, Plugins DLL·abi — 소스 제외)
 CopyDir 'Shaders' 'Shaders'
 CopyDir 'ProjectSetting' 'ProjectSetting'
 CopyDir 'Assets' 'Assets'
