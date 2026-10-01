@@ -37,6 +37,20 @@ void SceneManager::LoadScene(wstring scenePath)
 {
 	Scene* scene = nullptr;
 
+	// Unity 의 씬 열기와 같이 이전 씬을 내린다 (Play 중이 아닐 때). 예전에는 캐시에 남겨 두어
+	// 그 씬의 나무·물·지형·입자가 전역 목록(Tree::All 등)에 남아 새 씬에 같이 그려졌고, 물리도 Exit 되지 않았다.
+	// 저장하지 않은 변경은 여기 오기 전에 저장/버리기를 정한다 (DiscardChanges 와 같은 방식으로 지운다)
+	if (m_pCurrScene != nullptr && m_pCurrScene->GetScenePath() != scenePath && !Application::IsPlaying())
+	{
+		Scene* old = m_pCurrScene;
+		old->Exit();
+		for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
+			it = it->second == old ? m_Scenes.erase(it) : std::next(it);
+		m_pCurrScene = nullptr;
+		SelectionManager::ClearSelection();
+		delete old;
+	}
+
 	if (m_Scenes.find(scenePath) != m_Scenes.end())
 	{
 		scene = m_Scenes[scenePath];

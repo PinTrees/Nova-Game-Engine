@@ -570,6 +570,7 @@ namespace
 		"  window <preferences|project-settings|build-settings> [--category C] [--close]\n"
 		"  gfx-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   same, drawn the engine way (Gfx + effects)\n"
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
+		"  wait [frames]                          keep the editor rendering N frames (default 60), then return (background editors pause otherwise)\n"
 		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
 		"  assets [folder] [--pattern text]\n"
@@ -821,6 +822,10 @@ int wmain(int argc, wchar_t** argv)
 		args["output"] = Utf8(fs::absolute(Wide(a.Pos[0])).wstring());
 		args["run"] = a.Has("run");
 	}
+	else if (cmd == "wait")
+	{
+		// 인수 없음 (프레임 수는 요청의 waitFrames 로)
+	}
 	else if (cmd == "call")
 	{
 		if (!need(1, "call <command> [json args]")) return 3;
@@ -859,7 +864,9 @@ int wmain(int argc, wchar_t** argv)
 		PrintResult("set", result);
 		return 0;
 	}
-	if (!Request(inst, rc, args, result, error))
+	// wait N: 에디터가 N 프레임을 그릴 때까지 기다린다 (백그라운드 에디터는 할 일이 없으면 멈추므로, 장면 불러오기 같은 여러 프레임 작업을 기다릴 때)
+	const int waitFrames = cmd == "wait" ? (std::max)(1, a.Pos.empty() ? 60 : std::stoi(a.Pos[0])) : 0;
+	if (!Request(inst, rc, args, result, error, waitFrames))
 	{
 		Err(error + "\n");
 		return 1;

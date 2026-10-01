@@ -369,6 +369,12 @@ namespace CliCommands
 	{
 		Register("help", "list commands", [](const json&, json& r, std::string&) { r = CliServer::Commands(); return true; });
 
+		// nova wait N: 요청의 waitFrames 동안 에디터가 계속 그린다 (백그라운드에서도) — 끝나면 지금 프레임 번호
+		Register("wait", "keep rendering for the request's waitFrames, then answer {} (nova wait N)", [](const json&, json& r, std::string&) {
+			r = { { "frame", ImGui::GetFrameCount() } };
+			return true;
+		});
+
 		Register("info", "editor state: project, scene, dirty, playing, selection", [](const json&, json& r, std::string&) {
 			Scene* scene = CurrentScene();
 			GameObject* sel = SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT ? SelectionManager::GetSelectedGameObject() : nullptr;
