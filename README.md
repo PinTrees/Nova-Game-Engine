@@ -123,7 +123,8 @@ GPU 시간은 두 API 가 같거나 OpenGL 이 빠르고, 가벼운 씬에서 �
 | **UI (UGUI)** | Canvas · Canvas Scaler · Event System, Rect Transform, Image(Sliced / Filled), Text(한글), Button, Toggle, Slider, Input Field(한글 IME), Scroll View, Mask |
 | **파티클** | Unity Shuriken 모듈(Main, Emission, Shape, over Lifetime, Noise, Collision, Sub Emitters, Trails, Texture Sheet), **Lit**(해·하늘 환경광) · **Soft Particles**(바닥·벽과 만나는 곳을 부드럽게) · **Lights**(입자가 주변을 비춤), 곡선·그라디언트 편집기, Scene 뷰 미리 재생, GPU 인스턴싱, C# `ParticleSystem` API |
 | **오디오** | XAudio2 — Audio Source / Listener, 3D 감쇠, Loop·Pitch·Pan, WAV, 미리 듣기 |
-| **빌드** | Build Settings(씬 목록·순서) + Player Settings → 독립 실행 `<제품>.exe` + `<제품>_Data`(쓰는 에셋만), 그래픽 API 우선순위, C# `SceneManager.LoadScene` · `Application.Quit` |
+| **빌드** | Build Settings(씬 목록·순서) + Player Settings → 독립 실행 `<제품>.exe` + `NovaCore.dll` + `<제품>_Data`(쓰는 에셋·패키지만), 그래픽 API 우선순위, C# `SceneManager.LoadScene` · `Application.Quit` |
+| **패키지 매니저** | Unity 의 Package Manager — Window > Package Manager 에서 NOVA 레지스트리 패키지를 프로젝트에 Install / Remove. 프로젝트에는 `Packages/manifest.json`(이름·버전)만 남고, **넣은 패키지만** 불러오고 게임 빌드에 들어간다(프로젝트·게임 용량 그대로). 패키지 = C++ 컴포넌트 DLL + C# API. 빠진 패키지의 컴포넌트는 데이터를 지키고 있다가 다시 넣으면 살아남. 첫 패키지: **Cameras**(Follow Camera) |
 
 ### 🤖 NOVA CLI (터미널 · AI 에이전트)
 
@@ -358,7 +359,22 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 
 </details>
 
-## 내장 패키지
+## 패키지 (Package Manager)
+
+엔진 기능 중 모든 게임이 쓰지는 않는 것은 패키지로 나눕니다. 엔진 폴더의 `Packages/` 가 NOVA 레지스트리이고(나중에 온라인 스토어도 같은 형식), 프로젝트는 쓰는 패키지의 이름·버전만 `Packages/manifest.json` 에 적습니다.
+
+| 패키지 | 내용 |
+|---|---|
+| `com.nova.cameras` — Cameras | **Follow Camera**: 3인칭 따라가기 카메라(대상 뒤·위, 부드럽게, 벽이 가리면 당김). C# `FollowCamera` |
+
+- 넣기 / 빼기: Window > Package Manager, 또는 `nova package add com.nova.cameras` / `nova package remove …`
+- 구조: `package.json`(이름·버전·설명·컴포넌트) + `Source/`(C++ 컴포넌트 → `Plugins/<이름>.dll`, 엔진 `NovaCore.dll` 을 링크) + `Runtime/`(C# API — 프로젝트 스크립트와 같이 컴파일)
+- 새 패키지: `Packages/<이름>/` 을 만들고 `CMakeLists.txt` 에 `nova_add_package(<이름> <DLL>)` 한 줄. 컴포넌트는 `REGISTER_PACKAGE_COMPONENT`, C# 는 `[NativeComponent("타입")]` + `DllImport`
+- 패키지 DLL 은 같은 엔진 버전 · 같은 구성(Debug/Release)으로 빌드해야 한다 (`<DLL>.dll.abi` 로 확인, 다르면 불러오지 않고 이유를 보여 줌)
+
+<img src="docs/images/package_manager.webp" width="720"/>
+
+## 내장 에셋 묶음
 
 `Resources/Packages/` 에 바로 쓸 수 있는 에셋 묶음이 들어 있습니다. 모두 저장소 안에서 스크립트·수식으로 만든 것이고, 프리셋은 JSON 이라 복사해 값을 바꾸면 새 프리셋이 됩니다.
 
@@ -375,6 +391,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 
 ```
 Source/
+  Launcher/     실행 파일 (NovaEngine.exe = 빌드한 게임의 <제품>.exe) — 엔진 본체는 NovaCore.dll
   Platform/     앱 루프, 창, 로딩 창, 자체 검사
   Core/         경로, 로그(EditorLog), Profiler, 메모리 통계, 공용 유틸
   Graphics/
@@ -397,6 +414,8 @@ Source/
   Editor/       에디터 GUI(UnityGUI), 창들, Undo, NOVA CLI 서버(CliServer · CliCommands), ImGui GL 렌더러
     NovaCode/   내장 C# IDE
   Hub/          NOVA Hub
+  Packages/     Package Manager (레지스트리 · manifest · 패키지 DLL 불러오기/내리기)
+Packages/       NOVA 레지스트리 패키지 (com.nova.cameras …: package.json, Source/ → Plugins/*.dll, Runtime/*.cs)
 ScriptCore/     C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
 Shaders/        HLSL (FX11 이펙트 — OpenGL 은 자동 변환)
 Resources/      엔진 기본 리소스와 패키지

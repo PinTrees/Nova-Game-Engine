@@ -36,6 +36,11 @@ bool ComponentFactory::RegisterComponent(const std::string& type, CreateComponen
 	return true;
 }
 
+void ComponentFactory::UnregisterComponent(const std::string& type)
+{
+	m_FactoryMap.erase(type);
+}
+
 std::shared_ptr<Component> ComponentFactory::CreateComponent(const std::string& type)
 {
 	auto it = m_FactoryMap.find(type);

@@ -15,7 +15,7 @@ struct LogEntry
 	bool Compile = false;  // 스크립트 컴파일 오류/경고 (다시 컴파일하면 지운다)
 };
 
-class Debug
+class NOVA_API Debug
 {
 private:
 	static std::deque<LogEntry> s_Entries;

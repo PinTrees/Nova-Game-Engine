@@ -582,6 +582,10 @@ namespace
 		"  assets [folder] [--pattern text]\n"
 		"  build <output folder> [--run]   build-status [--wait]\n"
 		"\n"
+		"packages (Unity Package Manager: only packages added to the project are loaded and built)\n"
+		"  package list                           registry packages + what the project uses (loaded / error)\n"
+		"  package add <name> | package remove <name>   e.g. com.nova.cameras (writes Packages/manifest.json)\n"
+		"\n"
 		"other\n"
 		"  call <command> [json args]             raw request (see: nova help --editor)\n"
 		"  ai-guide                               how an AI agent should use NOVA CLI\n"
@@ -839,6 +843,23 @@ int Run(const std::vector<std::string>& in)
 	{
 		if (!a.Has("none") && !a.Pos.empty()) args["target"] = a.Pos[0];
 	}
+	else if (cmd == "package")
+	{
+		if (!need(1, "package list | package add <name> | package remove <name>")) return 3;
+		if (a.Pos[0] == "list")
+			rc = "package-list";
+		else if (a.Pos[0] == "add" || a.Pos[0] == "remove")
+		{
+			if (!need(2, "package add|remove <name>   (e.g. com.nova.cameras)")) return 3;
+			rc = "package-" + a.Pos[0];
+			args["name"] = a.Pos[1];
+		}
+		else
+		{
+			Err("usage: nova package list | package add <name> | package remove <name>\n");
+			return 3;
+		}
+	}
 	else if (cmd == "scene")
 	{
 		if (!need(1, "scene open <path> [--force] | scene save")) return 3;
@@ -850,7 +871,10 @@ int Run(const std::vector<std::string>& in)
 			args["force"] = a.Has("force");
 		}
 		else if (a.Pos[0] == "save")
+		{
 			rc = "scene-save";
+			if (a.Has("as")) args["as"] = a.Get("as");
+		}
 		else if (a.Pos[0] == "new")
 		{
 			rc = "scene-new";

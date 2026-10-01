@@ -30,7 +30,7 @@ struct RaycastHit
 //    자식 오브젝트의 Collider 는 가장 가까운 부모 RigidBody 의 복합 형상에 포함된다 (Unity 와 동일).
 //  - 고정 시간 간격(Fixed Timestep, 기본 0.02초)마다 FixedUpdate → 시뮬레이션 → 충돌/트리거 이벤트 순서로 진행한다.
 //  - Jolt 헤더는 PhysicsManager.cpp 안에서만 사용한다 (JoltWorld 는 내부 구현).
-class PhysicsManager
+class NOVA_API PhysicsManager
 {
 	SINGLE_HEADER(PhysicsManager)
 

@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "PackageManager.h"
+#include "PackageManagerWindow.h"
 #include "CliCommands.h"
 #include "CliServer.h"
 #include "UndoSystem.h"
@@ -778,11 +780,26 @@ namespace CliCommands
 			return true;
 		});
 
-		Register("scene-save", "save the current scene", [](const json&, json& r, std::string& e) {
+		Register("scene-save", "save the current scene {as? (Assets/... .scene: save as)}", [](const json& a, json& r, std::string& e) {
 			if (!RequireEditMode(e)) return false;
 			Scene* scene = CurrentScene();
 			if (!scene) { e = "no scene is open"; return false; }
-			if (scene->GetScenePath().empty()) { e = "the scene has never been saved (use File > Save As in the editor once)"; return false; }
+			if (a.contains("as"))
+			{
+				// 다른 이름으로 (대화상자 없이): 프로젝트 기준 경로
+				std::wstring rel = string_to_wstring(a.value("as", ""));
+				std::replace(rel.begin(), rel.end(), L'/', L'\\');
+				if (rel.size() < 7 || _wcsicmp(rel.c_str() + rel.size() - 6, L".scene") != 0 || _wcsnicmp(rel.c_str(), L"Assets\\", 7) != 0)
+				{
+					e = "--as needs a path like Assets/Scenes/Name.scene";
+					return false;
+				}
+				const std::wstring full = PathManager::GetI()->GetMovePathW(rel);
+				std::error_code ec;
+				std::filesystem::create_directories(std::filesystem::path(full).parent_path(), ec);
+				scene->SetScenePath(full);
+			}
+			if (scene->GetScenePath().empty()) { e = "the scene has never been saved (nova scene save --as Assets/Scenes/Name.scene)"; return false; }
 			if (!SceneManager::GetI()->SaveCurrentScene(false)) { e = "save failed (see nova log)"; return false; }
 			r = { { "scene", wstring_to_string(scene->GetScenePath()) } };
 			return true;
@@ -944,6 +961,11 @@ namespace CliCommands
 				if (close) BuildSettingsWindow::Close(); else BuildSettingsWindow::Open();
 				r = { { "name", name }, { "open", BuildSettingsWindow::IsOpen() } };
 			}
+			else if (name == "package-manager" || name == "packages")
+			{
+				if (close) PackageManagerWindow::Close(); else PackageManagerWindow::Open(category.empty() ? nullptr : category.c_str());
+				r = { { "name", name }, { "open", PackageManagerWindow::IsOpen() } };
+			}
 			else if (EditorWindow* w = [&]() -> EditorWindow* {
 						// 도킹 창 (scene, game, project, console, hierarchy, inspector …): 탭을 앞으로
 						for (const char* t : { "Scene", "Game", "Project", "Console", "Hierarchy", "Inspector", "Animator", "Profiler" })
@@ -965,7 +987,7 @@ namespace CliCommands
 			}
 			else
 			{
-				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, scene, game, project, console, hierarchy, inspector, animator)";
+				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, package-manager, scene, game, project, console, hierarchy, inspector, animator)";
 				return false;
 			}
 			if (!category.empty()) r["category"] = category;
@@ -1233,6 +1255,35 @@ namespace CliCommands
 
 		Register("build-status", "player build progress", [](const json&, json& r, std::string&) {
 			r = { { "running", BuildPipeline::IsRunning() }, { "status", BuildPipeline::Status() } };
+			return true;
+		});
+
+		// ---- 패키지 (Unity Package Manager) ----
+		Register("package-list", "registry packages and the project's packages", [](const json&, json& r, std::string&) {
+			json list = json::array();
+			auto add = [&](const PackageInfo& p) {
+				json c = json::array();
+				for (const auto& ci : p.Components) c.push_back(ci.Type);
+				list.push_back({ { "name", p.Name }, { "displayName", p.DisplayName }, { "version", p.Version }, { "embedded", p.Embedded },
+					{ "inProject", PackageManager::IsInProject(p.Name) }, { "loaded", PackageManager::IsLoaded(p.Name) },
+					{ "error", PackageManager::LoadError(p.Name) }, { "components", c } });
+			};
+			for (const PackageInfo& p : PackageManager::Registry()) add(p);
+			for (const PackageInfo* p : PackageManager::InProject()) if (p->Embedded) add(*p);
+			r = { { "packages", list }, { "manifest", wstring_to_string(PackageManager::ManifestPath()) },
+				{ "registry", wstring_to_string(PackageManager::RegistryFolder()) }, { "restartRequired", PackageManager::RestartRequired() } };
+			return true;
+		});
+		Register("package-add", "add a package to the project {name}", [](const json& a, json& r, std::string& e) {
+			const std::string name = a.value("name", "");
+			if (!PackageManager::Add(name, e)) return false;
+			r = { { "added", name }, { "loaded", PackageManager::IsLoaded(name) } };
+			return true;
+		});
+		Register("package-remove", "remove a package from the project {name}", [](const json& a, json& r, std::string& e) {
+			const std::string name = a.value("name", "");
+			if (!PackageManager::Remove(name, e)) return false;
+			r = { { "removed", name }, { "restartRequired", PackageManager::RestartRequired() } };
 			return true;
 		});
 

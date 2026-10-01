@@ -1,6 +1,6 @@
 #pragma once
 
-class TimeManager
+class NOVA_API TimeManager
 {
 	SINGLE_HEADER(TimeManager)
 

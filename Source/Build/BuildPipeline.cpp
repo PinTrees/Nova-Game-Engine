@@ -2,6 +2,7 @@
 #include "BuildPipeline.h"
 #include "BuildSettings.h"
 #include "ScriptEngine.h"
+#include "PackageManager.h"
 #include "Debug.h"
 #include <filesystem>
 #include <fstream>
@@ -20,6 +21,7 @@ namespace
 		fs::path EngineRoot, ProjectRoot, BinDir, Out;
 		std::string Product;
 		std::vector<std::string> Scenes;
+	std::vector<std::pair<std::string, std::wstring>> Packages;   // 프로젝트에 넣은 패키지 (이름, 폴더) — 시작할 때 모아 둔다
 		json PlayerJson;
 		bool Development = false, Run = false, Reveal = true;
 
@@ -189,9 +191,25 @@ namespace
 
 		// 2) 엔진 / 스크립트
 		copies.push_back({ job->BinDir / L"NovaEngine.exe", job->Out / (string_to_wstring(job->Product) + L".exe") });
+		// 엔진이 쓰지 않는 assimp 는 넣지 않는다 (Debug 엔진 = mtd 19 MB, Release 엔진 = mt) — 게임 용량
+#if defined(_DEBUG) || !defined(NOVA_ASSIMP_RELEASE_DLL)
+		const std::string unusedAssimp = "assimp-vc143-mt.dll";
+#else
+		const std::string unusedAssimp = "assimp-vc143-mtd.dll";
+#endif
 		for (const auto& e : fs::directory_iterator(job->BinDir, ec))
-			if (e.is_regular_file(ec) && Lower(e.path().extension().string()) == ".dll")
+			if (e.is_regular_file(ec) && Lower(e.path().extension().string()) == ".dll" && Lower(e.path().filename().string()) != unusedAssimp)
 				copies.push_back({ e.path(), job->Out / e.path().filename() });
+		// 패키지: 프로젝트에 넣은 것만 (package.json + Plugins 의 DLL·.abi + Resources) → <제품>_Data/Packages/<이름>/
+		//  게임은 이것을 embedded 패키지로 읽는다. 쓰지 않는 패키지는 빌드에 들어가지 않는다 (C# 은 이미 Assembly-CSharp 에 컴파일됨)
+		for (const auto& pk : job->Packages)
+		{
+			const fs::path src(pk.second);
+			const fs::path dst = data / L"Packages" / string_to_wstring(pk.first);
+			addFile(src / L"package.json", dst / L"package.json");
+			addDir(src / L"Plugins", dst / L"Plugins", false, job->Development ? std::set<std::string>{} : std::set<std::string>{ ".pdb" });
+			addDir(src / L"Resources", dst / L"Resources", true);
+		}
 		addDir(job->EngineRoot / L"Shaders", data / L"Shaders", true);
 		addDir(job->BinDir / L"ShaderCache", data / L"Binaries" / L"ShaderCache", true);
 		addDir(job->BinDir / L"Scripting", data / L"Binaries" / L"Scripting", false, job->Development ? std::set<std::string>{} : std::set<std::string>{ ".pdb" });
@@ -296,6 +314,8 @@ namespace BuildPipeline
 		job->Out = options.OutputFolder;
 		job->Product = SafeFileName(BuildSettings::ProductName());
 		job->Scenes = scenes;
+	for (const PackageInfo* p : PackageManager::InProject())
+		job->Packages.push_back({ p->Name, p->Folder });
 		job->Development = options.Development;
 		job->Run = options.Run;
 		job->Reveal = options.Reveal;

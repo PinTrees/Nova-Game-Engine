@@ -6,7 +6,7 @@ using json = nlohmann::json;
 class GameObject;
 class Component;
 
-class Scene
+class NOVA_API Scene
 {
 private:
 	wstring m_ScenePath;

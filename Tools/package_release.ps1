@@ -5,7 +5,7 @@
 #   ... -NoBuild            지금 Binaries 그대로 (Release 로 빌드되어 있어야 함)
 #   ... -AllowDebugAssimp   assimp 릴리스 DLL 이 없어도 진행 (시험용 — Visual Studio 가 없는 PC 에서는 실행되지 않는다)
 #
-# 들어가는 것: Binaries(NovaEngine.exe, nova.exe, DLL, Scripting), Shaders, ProjectSetting(글꼴·아이콘·로고),
+# 들어가는 것: Binaries(NovaEngine.exe + NovaCore.dll, nova.exe, DLL, Scripting), Shaders, ProjectSetting(글꼴·아이콘·로고),
 #             Resources(Packages, Textures/Skybox, Models), Assets(엔진 샘플 설정), VC++ 런타임(앱 로컬 배포), 읽어 보기.
 # 빠지는 것: pdb, 로그, 셰이더·텍스처 캐시(첫 실행에 다시 만든다), 레이아웃 ini, 개발용 파일.
 param([string]$Version = '', [switch]$Full, [switch]$NoBuild, [switch]$AllowDebugAssimp, [string]$Out = 'dist')
@@ -52,7 +52,7 @@ function CopyDir([string]$from, [string]$to, [string[]]$exclude = @())
 }
 $bin = Join-Path $stage 'Binaries'
 New-Item -ItemType Directory -Force $bin | Out-Null
-foreach ($f in @('NovaEngine.exe', 'nova.exe', 'dxcompiler.dll', 'dxil.dll'))
+foreach ($f in @('NovaEngine.exe', 'NovaCore.dll', 'nova.exe', 'dxcompiler.dll', 'dxil.dll'))
 {
     if (-not (Test-Path "Binaries\$f")) { throw "Binaries\$f 가 없습니다 (빌드했나요?)" }
     Copy-Item "Binaries\$f" $bin

@@ -1,4 +1,5 @@
 #pragma once
+#include "NovaApi.h"
 
 #define SINGLE_BODY(type) type* type::pInst = nullptr;
 #define SINGLE_HEADER(type) private:						\
@@ -57,9 +58,17 @@ private:																  \
 #define GENERATE_COMPONENT_FUNC_FROMJSON(CLASS)	void CLASS::fromJson(const json& j)
 
 // inline 변수: 헤더를 여러 번역 단위(PCH 를 쓰지 않는 파일 포함)에서 포함해도 한 번만 정의/등록된다
-#define REGISTER_COMPONENT(CLASS)													\
+//  엔진 컴포넌트는 엔진(NovaCore.dll) 안에서만 등록한다 — 패키지가 엔진 헤더를 포함해도 다시 정의·등록하지 않게
+//  패키지 DLL 의 컴포넌트는 REGISTER_PACKAGE_COMPONENT (DLL 을 불러올 때 등록)
+#define REGISTER_PACKAGE_COMPONENT(CLASS)											\
 inline const bool CLASS::registered =														\
     ComponentFactory::Instance().RegisterComponent(#CLASS, CLASS::CreateInstance);	\
+
+#if defined(NOVA_ENGINE_BUILD)
+#define REGISTER_COMPONENT(CLASS) REGISTER_PACKAGE_COMPONENT(CLASS)
+#else
+#define REGISTER_COMPONENT(CLASS)
+#endif
 
 //Component Requied Func
 //GENERATE_COMPONENT_BODY(Component)

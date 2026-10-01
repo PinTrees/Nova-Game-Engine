@@ -10,7 +10,8 @@
 #include <fstream>
 #include <shellapi.h>
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance, PSTR cmdLine, int showCmd)
+// 실행 파일(Source/Launcher)의 WinMain 이 부르는 엔진 진입점
+extern "C" NOVA_API int NovaMain(HINSTANCE hInstance, int showCmd)
 {
 #if defined(DEBUG) | defined(_DEBUG)
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);

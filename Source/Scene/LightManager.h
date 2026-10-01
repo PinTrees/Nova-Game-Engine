@@ -8,7 +8,7 @@
 
 class Light;
 
-class LightManager
+class NOVA_API LightManager
 {
 	SINGLE_HEADER(LightManager)
 

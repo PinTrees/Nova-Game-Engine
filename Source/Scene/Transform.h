@@ -3,7 +3,7 @@
 
 
 
-class Transform : public Component
+class NOVA_API Transform : public Component
 {
 	using Super = Component;
 

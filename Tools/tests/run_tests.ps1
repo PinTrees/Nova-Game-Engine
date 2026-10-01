@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, packages, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'packages', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -148,6 +148,43 @@ return $"{groundY:F3} {grounded} {maxY:F3} {p.x:F3} {f}";
         Invoke-Nova 'stop' | Out-Null
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
+# ------------------------------------------------------------------ 패키지: 레지스트리 → 프로젝트에 넣기 → DLL·C# → 빼기 (쓰지 않으면 바로 내림)
+function Wait-Compile { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 60) { Invoke-Nova 'wait 20' | Out-Null; if (-not (Info).compiling) { return } } }
+
+function Suite-Packages
+{
+    Write-Host '[packages]'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $before = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { $null }
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'package remove com.nova.cameras' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        $l = Invoke-NovaJson 'package list'
+        $cam = $l.packages | Where-Object { $_.name -eq 'com.nova.cameras' }
+        Add-Result packages 'registry lists com.nova.cameras' ($cam -and -not $cam.inProject -and -not $cam.loaded) "inProject=$($cam.inProject) loaded=$($cam.loaded)"
+        $a = Invoke-NovaJson 'package add com.nova.cameras'
+        $inManifest = (Test-Path $manifest) -and ((Get-Content $manifest -Raw) -match 'com.nova.cameras')
+        Add-Result packages 'add → DLL loaded + manifest' ($a -and $a.loaded -and $inManifest) "loaded=$($a.loaded) manifest=$inManifest"
+        Wait-Compile
+        $cf = Join-Path $Out 'pkg_cs.cs'
+        'var f = GameObject.Find("Main Camera").AddComponent<FollowCamera>(); f.distance = 6.5f; return f.distance;' | Set-Content -Encoding utf8 $cf
+        $e = Invoke-NovaJson "exec --file $cf"
+        Add-Result packages 'C# API of the package (FollowCamera)' ($e -and $e.result -eq '6.5') "result=$($e.result)"
+        Invoke-Nova 'remove-component "Main Camera" FollowCamera' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $r = Invoke-NovaJson 'package remove com.nova.cameras'
+        $l2 = Invoke-NovaJson 'package list'
+        $cam2 = $l2.packages | Where-Object { $_.name -eq 'com.nova.cameras' }
+        Add-Result packages 'remove (unused) → unloaded now' ($r -and -not $r.restartRequired -and -not $cam2.loaded) "restartRequired=$($r.restartRequired) loaded=$($cam2.loaded)"
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($before) { [IO.File]::WriteAllText($manifest, $before) }
+    }
 }
 
 # ------------------------------------------------------------------ 그리기: 7 개 씬 DX11 / OpenGL 같은 카메라로 비교
@@ -351,6 +388,7 @@ try
             {
                 'cli' { Suite-Cli }
                 'physics' { Suite-Physics }
+                'packages' { Suite-Packages }
                 'render' { Suite-Render }
                 'gfx' { Suite-Gfx }
                 'perf' { Suite-Perf }

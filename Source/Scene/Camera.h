@@ -8,7 +8,7 @@ enum class ProjectionType
 	End
 };
 
-class Camera : public Component
+class NOVA_API Camera : public Component
 {
 private:
 	ProjectionType m_cameraType = ProjectionType::Perspective;

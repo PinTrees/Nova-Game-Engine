@@ -6,7 +6,7 @@
 
 class Scene;
 
-class SceneManager
+class NOVA_API SceneManager
 {
 	SINGLE_HEADER(SceneManager)
 

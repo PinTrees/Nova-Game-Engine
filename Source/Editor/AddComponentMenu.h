@@ -22,4 +22,8 @@ namespace AddComponentMenu
 	bool IsListed(const std::string& type);
 	// 표시 이름 (예: "RigidBody" → "Rigidbody"), 모르면 그대로
 	std::string DisplayName(const std::string& type);
+
+	// 패키지 컴포넌트 (package.json 의 "components") — PackageManager 가 불러올 때 / 내릴 때
+	void RegisterExtra(const std::string& type, const std::string& display, const std::string& category, const std::string& icon, bool single);
+	void UnregisterExtra(const std::string& type);
 }

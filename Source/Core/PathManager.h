@@ -1,6 +1,6 @@
 #pragma once
 
-class PathManager
+class NOVA_API PathManager
 {
 	SINGLE_HEADER(PathManager)
 private:

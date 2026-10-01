@@ -6,7 +6,7 @@
 #include <memory>
 #include "Component.h"
 
-class ComponentFactory
+class NOVA_API ComponentFactory
 {
     using CreateComponentFn = std::function<std::shared_ptr<Component>()>;
 
@@ -19,6 +19,7 @@ public:
     static ComponentFactory& Instance();
 
     bool RegisterComponent(const std::string& type, CreateComponentFn fn);
+    void UnregisterComponent(const std::string& type);   // 패키지 DLL 을 내릴 때
     std::shared_ptr<Component> CreateComponent(const std::string& type);
     std::vector<std::string> GetComponentTypes() const;
 

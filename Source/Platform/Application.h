@@ -3,7 +3,7 @@
 class App;
 class GameObject;
 
-class Application
+class NOVA_API Application
 {
 	SINGLE_HEADER(Application)
 

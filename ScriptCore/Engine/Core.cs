@@ -248,9 +248,17 @@ namespace NovaEngine
         public T GetComponentInParent<T>() where T : class => gameObject.GetComponentInParent<T>();
         public void SendMessage(string methodName, object value = null) => gameObject.SendMessage(methodName, value);
 
+        // 패키지의 C# 컴포넌트 클래스가 네이티브 쪽에 닿는 길 ([NativeComponent] + DllImport 로 패키지 DLL 함수를 부를 때)
+        /// <summary>이 컴포넌트가 붙은 GameObject 의 네이티브 id (패키지 DLL 함수에 넘긴다)</summary>
+        protected ulong nativeId => m_Id;
+        protected static ulong GetNativeId(GameObject go) => go == null ? 0 : go.m_Id;
+        protected static GameObject FromNativeId(ulong id) => id == 0 ? null : new GameObject(id);
+
         // C# 타입 → 네이티브 컴포넌트 타입 이름
         internal static string NativeTypeName(Type t)
         {
+            var nc = (NativeComponentAttribute)Attribute.GetCustomAttribute(t, typeof(NativeComponentAttribute));
+            if (nc != null) return nc.TypeName;
             if (t == typeof(Rigidbody)) return "RigidBody";
             if (t == typeof(AudioSource)) return "AudioSource";
             if (t == typeof(AudioListener)) return "AudioListener";
@@ -285,6 +293,17 @@ namespace NovaEngine
             if (n == null) return;
             fixed (byte* p = Native.Utf8(n)) Native.Api.GO_RemoveComponent(m_Id, p);
         }
+    }
+
+    /// <summary>
+    /// 패키지가 C++ 로 만든 컴포넌트를 C# 클래스로 쓰게 한다: [NativeComponent("FollowCamera")] class FollowCamera : Component.
+    /// GetComponent / AddComponent / RemoveComponent 가 이 이름의 네이티브 컴포넌트를 찾는다.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class, Inherited = false)]
+    public sealed class NativeComponentAttribute : Attribute
+    {
+        public string TypeName { get; }
+        public NativeComponentAttribute(string typeName) { TypeName = typeName; }
     }
 
     public class Behaviour : Component

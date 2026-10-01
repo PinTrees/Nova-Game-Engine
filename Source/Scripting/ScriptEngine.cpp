@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Debug.h"
 #include "ScriptEngine.h"
+#include "PackageManager.h"
 #include "ScriptBindings.h"
 #include "GameViewEditorWindow.h"
 #include "ExternalScriptEditor.h"
@@ -250,6 +251,11 @@ namespace
 		for (const auto& e : fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec))
 			if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().c_str(), L".cs") == 0)
 				out.push_back(e.path());
+		// 프로젝트에 넣은 패키지의 C# (Runtime) — 같은 Assembly-CSharp 로 컴파일
+		for (const std::wstring& dir : PackageManager::ScriptFolders())
+			for (const auto& e : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec))
+				if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().c_str(), L".cs") == 0)
+					out.push_back(e.path());
 		std::sort(out.begin(), out.end());
 		return out;
 	}
@@ -305,8 +311,14 @@ namespace
 			<< "    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414;CS8618</NoWarn>\n"
 			<< "  </PropertyGroup>\n"
 			<< "  <ItemGroup>\n"
-			<< "    <Compile Include=\"Assets\\**\\*.cs\" />\n"
-			<< "  </ItemGroup>\n"
+			<< "    <Compile Include=\"Assets\\**\\*.cs\" />\n";
+		for (const std::wstring& dir : PackageManager::ScriptFolders())
+		{
+			// 패키지 C#: 솔루션 탐색기에서 Packages/<이름>/... 로 보이게
+			const std::string name = ToUtf8(fs::path(dir).parent_path().filename().wstring());
+			x << "    <Compile Include=\"" << ToUtf8(dir) << "\\**\\*.cs\" Link=\"Packages\\" << name << "\\%(RecursiveDir)%(Filename)%(Extension)\" />\n";
+		}
+		x << "  </ItemGroup>\n"
 			<< "  <ItemGroup>\n"
 			<< "    <Reference Include=\"NovaScriptCore\">\n"
 			<< "      <HintPath>" << coreDll << "</HintPath>\n"

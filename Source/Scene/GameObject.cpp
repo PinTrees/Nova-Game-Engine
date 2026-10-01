@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "MissingComponent.h"
 #include "GameObject.h"
 #include "AddComponentMenu.h"
 #include "Transform.h"
@@ -436,7 +437,11 @@ void from_json(const json& j, GameObject& obj)
                 component->fromJson(compJson);
                 obj.AddComponent(component);
             }
-            // 알 수 없거나 등록되지 않은 컴포넌트는 건너뛰어 크래시 방지
+            else if (!type.empty() && type != "MissingComponent")
+            {
+                // 모르는 타입 (패키지를 넣지 않음 등): 데이터를 그대로 들고 있다가 다시 저장한다
+                obj.AddComponent(std::make_shared<MissingComponent>(type, compJson));
+            }
         }
     }
 

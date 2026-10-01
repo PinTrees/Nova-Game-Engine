@@ -6,7 +6,7 @@ using json = nlohmann::json;
 
 class GameObject;
 
-class Component
+class NOVA_API Component
 {
 private:
 	static int nextInstanceId;

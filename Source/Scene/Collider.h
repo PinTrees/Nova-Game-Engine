@@ -3,7 +3,7 @@
 
 // Unity Collider 공통 부분 (Is Trigger, Provides Contacts, Material, Center).
 // 형상 파라미터는 파생 클래스(Box/Sphere/Capsule/Mesh)가 가지며, PhysicsManager 가 Jolt 형상으로 변환한다.
-class Collider
+class NOVA_API Collider
 	: public Component
 {
 protected:

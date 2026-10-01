@@ -13,7 +13,7 @@ class MonoBehaviour;
 class Component;
 class Transform;
 
-class GameObject
+class NOVA_API GameObject
 {
 private:
 	PrefabLink m_Prefab;	// 프리팹 인스턴스 연결 (없으면 일반 오브젝트)
@@ -141,8 +141,19 @@ public:
 		component->SetGameObject(this);
 		m_Components.push_back(component);
 	}
+	// 같은 자리의 컴포넌트를 바꾼다 (패키지를 넣은 뒤 MissingComponent → 실제 컴포넌트)
+	void ReplaceComponent(Component* old, const std::shared_ptr<Component>& component)
+	{
+		for (auto& c : m_Components)
+			if (c.get() == old)
+			{
+				component->SetGameObject(this);
+				c = component;
+				return;
+			}
+	}
 	template <class T>
-	T* GetComponent() 
+	T* GetComponent()
 	{
 		// dynamic_pointer_cast 는 검사하는 컴포넌트마다 shared_ptr 를 만들어(원자적 참조 수 증감) 느리다 → 포인터만 검사
 		for (auto& component : m_Components)

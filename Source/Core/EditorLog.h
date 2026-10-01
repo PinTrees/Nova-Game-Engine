@@ -8,14 +8,14 @@
 //  - C++ 런타임 assert 메시지와 처리되지 않은 예외(충돌)도 여기에 기록한다.
 namespace EditorLog
 {
-	void Init();
-	void Shutdown();
-	void Write(const char* category, const char* format, ...);
+	NOVA_API void Init();
+	NOVA_API void Shutdown();
+	NOVA_API void Write(const char* category, const char* format, ...);
 	// 메인 루프가 매 프레임 부른다. 4초 넘게 안 오면 감시 스레드가 메인 스레드 호출 스택을 [HANG] 으로 남긴다
-	void Heartbeat();
-	std::wstring GetFilePath();
+	NOVA_API void Heartbeat();
+	NOVA_API std::wstring GetFilePath();
 	// 파일을 기본 텍스트 편집기로 연다 (Console 의 "Open Editor Log")
-	void OpenInEditor();
+	NOVA_API void OpenInEditor();
 }
 
 #define EDITOR_LOG(category, ...) EditorLog::Write(category, __VA_ARGS__)

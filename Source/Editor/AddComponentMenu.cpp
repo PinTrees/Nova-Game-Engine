@@ -64,6 +64,10 @@ namespace
 		{ "EventSystem",         "Event System",          "Event",         "event_system",      true  },
 	};
 
+	// 패키지 컴포넌트 (문자열을 직접 들고 있다)
+	struct ExtraInfo { std::string type, display, category, icon; bool single; };
+	std::vector<ExtraInfo> s_Extra;
+
 	// 메뉴에 보이지 않는 타입 (항상 있거나 직접 붙일 수 없는 기반 클래스)
 	bool IsHidden(const std::string& type)
 	{
@@ -79,6 +83,9 @@ namespace
 			for (const KnownInfo& k : kKnown)
 				if (type == k.type && !IsHidden(type))
 					out.push_back(Entry{ type, k.display, k.category, k.icon, k.single });
+			for (const ExtraInfo& x : s_Extra)
+				if (type == x.type)
+					out.push_back(Entry{ type, x.display, x.category, x.icon.c_str(), x.single });
 		}
 		// Scripts 는 프로젝트 C# 스크립트만 (Unity 의 Add Component > Scripts)
 		for (const ScriptEngine::ClassInfo& c : ScriptEngine::Classes())
@@ -374,6 +381,9 @@ namespace AddComponentMenu
 		for (const KnownInfo& k : kKnown)
 			if (type == k.type)
 				return true;
+		for (const ExtraInfo& x : s_Extra)
+			if (type == x.type)
+				return true;
 		return false;
 	}
 
@@ -382,6 +392,20 @@ namespace AddComponentMenu
 		for (const KnownInfo& k : kKnown)
 			if (type == k.type)
 				return k.display;
+		for (const ExtraInfo& x : s_Extra)
+			if (type == x.type)
+				return x.display;
 		return type;
+	}
+
+	void RegisterExtra(const std::string& type, const std::string& display, const std::string& category, const std::string& icon, bool single)
+	{
+		UnregisterExtra(type);
+		s_Extra.push_back(ExtraInfo{ type, display, category, icon, single });
+	}
+
+	void UnregisterExtra(const std::string& type)
+	{
+		s_Extra.erase(std::remove_if(s_Extra.begin(), s_Extra.end(), [&](const ExtraInfo& x) { return x.type == type; }), s_Extra.end());
 	}
 }

@@ -883,6 +883,44 @@ namespace UnityGUI
 		return clicked;
 	}
 
+	bool GameObjectField(const char* label, uint64* fileID, int indent)
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		GameObject* go = (fileID && *fileID != 0 && scene) ? scene->FindByFileID(*fileID) : nullptr;
+		const bool missing = fileID && *fileID != 0 && go == nullptr;
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		ImVec2 p0(r.fieldX, r.p.y);
+		ImVec2 p1(r.fieldX + r.fieldW, r.p.y + kRowHeight);
+		dl->AddRectFilled(p0, p1, kFieldBg, 3.0f);
+		dl->AddRect(p0, p1, kFieldBorder, 3.0f);
+		DrawIcon(dl, "gameobject", ImVec2(p0.x + 4.0f, p0.y + 1.0f), 16.0f);
+		const std::string text = go ? go->GetName() : (missing ? std::string("Missing (GameObject)") : std::string("None (GameObject)"));
+		dl->AddText(ImVec2(p0.x + 26.0f, TextY(p0.y, kRowHeight, ImGui::GetFontSize())), go ? kTextBright : (missing ? IM_COL32(220, 110, 110, 255) : kTextDim), text.c_str());
+		bool changed = false;
+		// Hierarchy 에서 끌어다 놓기
+		ImGui::SetCursorScreenPos(p0);
+		ImGui::InvisibleButton("##slot", ImVec2((std::max)(1.0f, r.fieldW - 20.0f), kRowHeight));
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("GAME_OBJECT"))
+				if (GameObject* dropped = *static_cast<GameObject* const*>(pl->Data))
+					if (fileID) { *fileID = dropped->GetFileID(); changed = true; }
+			ImGui::EndDragDropTarget();
+		}
+		// x: 비우기
+		ImGui::SetCursorScreenPos(ImVec2(p1.x - 20.0f, p0.y));
+		if (ImGui::InvisibleButton("##clear", ImVec2(20.0f, kRowHeight)) && fileID && *fileID != 0)
+		{
+			*fileID = 0;
+			changed = true;
+		}
+		dl->AddText(ImVec2(p1.x - 14.0f, TextY(p0.y, kRowHeight, ImGui::GetFontSize())), ImGui::IsItemHovered() ? IM_COL32_WHITE : kTextDim, "x");
+		ImGui::PopID();
+		EndRow(r);
+		return changed;
+	}
 	void Label(const char* label, int indent, bool bold)
 	{
 		Row r = BeginRow(label, indent, bold);

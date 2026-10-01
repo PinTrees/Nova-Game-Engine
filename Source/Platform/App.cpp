@@ -1,4 +1,6 @@
 ﻿#include "pch.h"
+#include "PackageManager.h"
+#include "PackageManagerWindow.h"
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "GfxGL.h"
@@ -332,11 +334,15 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
 	EditorGUIManager::GetI()->RegisterWindow(new ProfilerEditorWindow);   // Window > Analysis > Profiler (Ctrl+7)
+	EditorGUIManager::GetI()->RegisterWindow(new PackageManagerWindow);   // Window > Package Manager
 	}
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);
 	InputManager::GetI()->Init();
+
+	log << "App::Init -> PackageManager..." << std::endl; log.flush();
+	PackageManager::Init();   // 프로젝트 패키지(DLL) — 씬보다 먼저 (패키지 컴포넌트 등록)
 
 	log << "App::Init -> SceneManager..." << std::endl; log.flush();
 	SceneManager::GetI()->Init();

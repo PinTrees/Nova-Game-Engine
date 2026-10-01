@@ -1,0 +1,13 @@
+{
+  "name": "com.nova.cameras",
+  "displayName": "Cameras",
+  "version": "1.0.0",
+  "description": "Camera rigs for games: Follow Camera keeps a third-person camera behind a target (character, vehicle), smooths its motion and pulls in when walls are in the way. Works with Character Controller.",
+  "category": "Camera",
+  "author": { "name": "NOVA" },
+  "keywords": [ "camera", "follow", "third person", "cinemachine" ],
+  "native": [ "NovaCameras.dll" ],
+  "components": [
+    { "type": "FollowCamera", "display": "Follow Camera", "category": "Rendering", "icon": "camera", "single": true }
+  ]
+}

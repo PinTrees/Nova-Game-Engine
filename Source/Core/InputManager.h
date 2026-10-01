@@ -61,7 +61,7 @@ struct tKeyInfo
 	bool		bPrevPush;	//이전프레임에 눌렀는지 안눌렀는지
 };
 
-class InputManager
+class NOVA_API InputManager
 {
 	SINGLE_HEADER(InputManager)
 

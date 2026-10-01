@@ -4,7 +4,7 @@ class EditorCamera;
 
 // Scene 뷰 위에 ImGui DrawList 로 그리는 오버레이 (배경 그라디언트, 그리드, 카메라 프러스텀 등).
 // 3D 좌표를 뷰 영역(Scene 창의 이미지 영역)으로 투영하며, 카메라 뒤쪽 선분은 클리핑한다.
-class SceneViewOverlay
+class NOVA_API SceneViewOverlay
 {
 public:
 	// Scene 창이 렌더 이미지를 그린 직후 호출 (viewMin/viewMax: 화면 좌표)

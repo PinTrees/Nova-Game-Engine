@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "UndoSystem.h"
 #include "ProfilerEditorWindow.h"
+#include "PackageManagerWindow.h"
 #include "FrameProfiler.h"
 #include "EditorGUIManager.h"
 #include "ImGuiGL.h"
@@ -488,10 +489,13 @@ void EditorGUIManager::RenderEditorWindows()
         // 4. Window Menu
         if (ImGui::BeginMenu("Window"))
         {
+            if (ImGui::MenuItem("Package Manager"))   // Unity: Window > Package Manager
+                PackageManagerWindow::Open();
+            ImGui::Separator();
             for (auto& window : m_pEditorWindows)
             {
-                if (window->GetTitle() == "Profiler")
-                    continue;   // Analysis 아래
+                if (window->GetTitle() == "Profiler" || window->GetTitle() == "Package Manager")
+                    continue;   // Analysis 아래 / 맨 위 Package Manager
                 bool opened = window->GetIsOpened();
                 if (ImGui::MenuItem(window->GetTitle().c_str(), nullptr, &opened))
                 {

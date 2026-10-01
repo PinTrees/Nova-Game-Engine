@@ -186,6 +186,9 @@ PublishScripts/
 **/[Pp]ackages/*
 # except build/, which is used as an MSBuild target.
 !**/[Pp]ackages/build/
+# NOVA: 패키지 레지스트리(Packages/) · 패키지 매니저 소스(Source/Packages/) 는 NuGet 폴더가 아니다
+!/Packages/*
+!/Source/Packages/*
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
 # NuGet v3's project.json files produces more ignorable files
@@ -359,3 +362,6 @@ build/
 /Resources/Packages/**/*.skeletons
 /dist/
 /TestResults/
+
+# NOVA 패키지 빌드 결과 (CMake 가 Packages/<이름>/Plugins 에 만든다)
+Packages/*/Plugins/
