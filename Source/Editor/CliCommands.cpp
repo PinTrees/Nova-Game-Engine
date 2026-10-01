@@ -386,12 +386,13 @@ namespace CliCommands
 			r = json::object();
 			return true;
 		});
-		Register("perf", "finish a perf measurement: frame time, CPU / GPU ms, top GPU passes (nova perf --frames N)", [](const json&, json& r, std::string& e) {
+		Register("perf", "finish a perf measurement: frame time, CPU / GPU ms, top GPU passes / CPU scopes {depth? (CPU scope depth, default 2)} (nova perf --frames N)", [](const json& a, json& r, std::string& e) {
+			const int cpuDepth = std::clamp(a.value("depth", 2), 0, 8);
 			const double wallMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s_PerfStart).count();
 			Profiler::ForceCollecting(false);
 			int frames = 0, gpuFrames = 0;
 			double cpu = 0, gpu = 0, cpuMax = 0;
-			std::map<std::string, std::pair<double, int>> passes;
+			std::map<std::string, std::pair<double, int>> passes, cpuScopes;
 			for (const Profiler::Frame& f : Profiler::History())
 			{
 				if (f.Index <= s_PerfFirst + 2)   // 켠 직후 2 프레임은 건너뛴다 (구간이 다 차지 않음)
@@ -399,6 +400,13 @@ namespace CliCommands
 				++frames;
 				cpu += f.CpuMs;
 				cpuMax = (std::max)(cpuMax, (double)f.CpuMs);
+				for (const Profiler::CpuSample& c : f.Cpu)
+					if (c.Depth <= cpuDepth)
+					{
+						auto& p = cpuScopes[std::string(c.Depth, '.') + c.Name];
+						p.first += c.Ms;
+						++p.second;
+					}
 				if (f.GpuMs >= 0.0f)
 				{
 					++gpuFrames;
@@ -420,6 +428,13 @@ namespace CliCommands
 			json list = json::array();
 			for (size_t i = 0; i < top.size() && i < 12; ++i)
 				list.push_back({ { "pass", top[i].second }, { "ms", std::round(top[i].first * 1000.0) / 1000.0 } });
+			std::vector<std::pair<double, std::string>> topCpu;
+			for (auto& [name, p] : cpuScopes)
+				topCpu.push_back({ p.first / frames, name });
+			std::sort(topCpu.rbegin(), topCpu.rend());
+			json cpuList = json::array();
+			for (size_t i = 0; i < topCpu.size() && i < 24; ++i)
+				cpuList.push_back({ { "scope", topCpu[i].second }, { "ms", std::round(topCpu[i].first * 1000.0) / 1000.0 } });
 			const double avgFrame = wallMs / (std::max)(1, ImGui::GetFrameCount() - s_PerfFrame0);   // 벽시계 (수직 동기 없음)
 			r = {
 				{ "graphicsAPI", GraphicsAPIToKey(GraphicsSettings::GetActiveAPI()) },
@@ -430,6 +445,17 @@ namespace CliCommands
 				{ "cpuMaxMs", std::round(cpuMax * 1000.0) / 1000.0 },
 				{ "gpuMs", gpuFrames ? std::round(gpu / gpuFrames * 1000.0) / 1000.0 : -1.0 },
 				{ "gpuPasses", list },
+				{ "cpuScopes", cpuList },
+				{ "stats", [&] {   // 프레임 평균 통계 (드로 콜·삼각형·컬링 … — RecordProfilerStats)
+					std::map<std::string, std::pair<double, int>> st;
+					for (const Profiler::Frame& f : Profiler::History())
+						if (f.Index > s_PerfFirst + 2)
+							for (const Profiler::Stat& s : f.Stats)
+								{ auto& v = st[s.Name]; v.first += s.Value; ++v.second; }
+					json o = json::object();
+					for (auto& [k, v] : st) o[k] = std::round(v.first / (std::max)(1, v.second) * 1000.0) / 1000.0;
+					return o;
+				}() },   // 깊이 depth 까지 CPU 구간 (프레임 평균, 상위 24)
 			};
 			return true;
 		});

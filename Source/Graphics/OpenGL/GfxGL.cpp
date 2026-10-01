@@ -58,6 +58,11 @@ namespace
 		D3D11_BUFFER_DESC Desc = {};
 		GLuint Id = 0;
 		bool MappedNow = false;
+		// D3D11_USAGE_DYNAMIC: Map(WRITE_DISCARD) 는 이 CPU 사본을 주고 Unmap 때 glNamedBufferSubData 로 한 번에 올린다.
+		// GL 버퍼를 직접 매핑하면 GPU 가 앞 그리기에서 그 버퍼를 다 쓸 때까지 기다리거나(고정 저장소),
+		// 고아 만들기(glNamedBufferData)의 비용이 그리기 호출로 넘어가 GL CPU 시간의 큰 몫이었다
+		std::vector<uint8_t> Shadow;
+		bool ShadowMapped = false;
 	};
 
 	class GLTex1D : public GLObj<GfxTexture1D>
@@ -148,6 +153,7 @@ namespace
 		~GLLayout() override;
 		GLuint Vao = 0;
 		UINT SlotMask = 0;        // 쓰는 정점 버퍼 슬롯
+		GLState::VaoCache Cache;  // 이 VAO 에 지정한 정점·인덱스 버퍼 (같으면 다시 지정하지 않는다)
 	};
 
 	template <class Iface, class Desc>
@@ -193,6 +199,7 @@ namespace
 		DWORD OwnerThread = 0;
 		GLCtx* Immediate = nullptr;     // 약한 참조 (컨텍스트가 장치를 잡는다)
 		GLuint EmptyVao = 0, ClearFbo = 0, DrawFbo = 0, BlitFbo = 0;
+		GLState::VaoCache EmptyVaoCache;
 		UINT64 LiveBytes = 0, BudgetBytes = 0;
 		int Refused = 0;
 		std::set<std::string> Reported;
@@ -203,7 +210,7 @@ namespace
 			{
 				GLuint fbos[] = { ClearFbo, DrawFbo, BlitFbo };
 				glDeleteFramebuffers(3, fbos);
-				if (EmptyVao) glDeleteVertexArrays(1, &EmptyVao);
+				if (EmptyVao) { glDeleteVertexArrays(1, &EmptyVao); GLState::InvalidateBindings(); }
 			}
 			GLContext::Destroy(Ctx);
 		}
@@ -318,12 +325,12 @@ namespace
 
 	GLBuf::~GLBuf()
 	{
-		if (Id && CanDelete(Dev)) glDeleteBuffers(1, &Id);
+		if (Id && CanDelete(Dev)) { glDeleteBuffers(1, &Id); GLState::InvalidateBindings(); }
 		Dev->FreeBytes(Desc.ByteWidth);
 	}
 	void DeleteTex(GLDev* dev, TexInfo& t)
 	{
-		if (t.Id && CanDelete(dev)) glDeleteTextures(1, &t.Id);
+		if (t.Id && CanDelete(dev)) { glDeleteTextures(1, &t.Id); GLState::InvalidateBindings(); }
 		dev->FreeBytes(t.Bytes);
 	}
 	GLTex1D::~GLTex1D() { DeleteTex(Dev, T); }
@@ -332,10 +339,10 @@ namespace
 	template <class Iface, class Desc>
 	GLView<Iface, Desc>::~GLView()
 	{
-		if (V.OwnsName && V.Name && CanDelete(this->Dev)) glDeleteTextures(1, &V.Name);
+		if (V.OwnsName && V.Name && CanDelete(this->Dev)) { glDeleteTextures(1, &V.Name); GLState::InvalidateBindings(); }
 	}
-	GLLayout::~GLLayout() { if (Vao && CanDelete(Dev)) glDeleteVertexArrays(1, &Vao); }
-	GLSampler::~GLSampler() { if (Id && CanDelete(Dev)) glDeleteSamplers(1, &Id); }
+	GLLayout::~GLLayout() { if (Vao && CanDelete(Dev)) { glDeleteVertexArrays(1, &Vao); GLState::InvalidateBindings(); } }
+	GLSampler::~GLSampler() { if (Id && CanDelete(Dev)) { glDeleteSamplers(1, &Id); GLState::InvalidateBindings(); } }
 	GLQueryObj::~GLQueryObj() { if (Id && CanDelete(Dev)) glDeleteQueries(1, &Id); }
 
 	UINT FullMips(UINT w, UINT h, UINT d)
@@ -438,6 +445,11 @@ namespace
 		if (desc->CPUAccessFlags & D3D11_CPU_ACCESS_READ) flags |= GL_MAP_READ_BIT;
 		if (desc->Usage == D3D11_USAGE_STAGING) flags |= GL_CLIENT_STORAGE_BIT;
 		glNamedBufferStorage(b->Id, desc->ByteWidth, data ? data->pSysMem : nullptr, flags);
+		if (desc->Usage == D3D11_USAGE_DYNAMIC)
+		{
+			b->Shadow.resize(desc->ByteWidth);
+			if (data && data->pSysMem) memcpy(b->Shadow.data(), data->pSysMem, desc->ByteWidth);
+		}
 		*out = b;
 		return S_OK;
 	}
@@ -1021,23 +1033,26 @@ namespace
 			mode = GLState::Topology(Topo, patch);
 			if (patch) glPatchParameteri(GL_PATCH_VERTICES, patch);
 			GLuint vao = Dev->EmptyVao;
+			GLState::VaoCache* cache = &Dev->EmptyVaoCache;
 			UINT mask = 0;
 			if (Layout)
 			{
 				auto* l = static_cast<GLLayout*>(Layout.Get());
 				vao = l->Vao;
 				mask = l->SlotMask;
+				cache = &l->Cache;
 			}
+			// 그리기마다 VAO 의 버퍼 지정을 다시 하면 드라이버가 VAO 를 다시 검사한다 → 바뀐 것만 (VaoCache)
 			for (UINT s = 0; mask; ++s, mask >>= 1)
 				if (mask & 1)
 				{
 					const VB& v = Vbs[s];
 					GLBuf* b = BufOf(v.Buf.Get());
-					glVertexArrayVertexBuffer(vao, s, b ? b->Id : 0, v.Offset, v.Stride);
+					cache->VertexBuffer(vao, s, b ? b->Id : 0, v.Offset, v.Stride);
 				}
 			GLBuf* ib = BufOf(Ib.Get());
-			glVertexArrayElementBuffer(vao, ib ? ib->Id : 0);
-			glBindVertexArray(vao);
+			cache->ElementBuffer(vao, ib ? ib->Id : 0);
+			GLState::BindVertexArray(vao);
 			return true;
 		}
 		GLenum IndexType() const { return IbFormat == DXGI_FORMAT_R32_UINT ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT; }
@@ -1111,7 +1126,17 @@ namespace
 				GLbitfield access = 0;
 				switch (type)
 				{
-				case D3D11_MAP_WRITE_DISCARD: access = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT; break;
+				case D3D11_MAP_WRITE_DISCARD:
+					if (!b->Shadow.empty())
+					{
+						// CPU 사본에 쓰고 Unmap 때 올린다 (위 Shadow 설명)
+						b->ShadowMapped = true;
+						m->pData = b->Shadow.data();
+						m->RowPitch = m->DepthPitch = b->Desc.ByteWidth;
+						return S_OK;
+					}
+					access = GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT;
+					break;
 				case D3D11_MAP_WRITE_NO_OVERWRITE: access = GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT; break;
 				case D3D11_MAP_READ: access = GL_MAP_READ_BIT; break;
 				case D3D11_MAP_READ_WRITE: access = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT; break;
@@ -1152,6 +1177,12 @@ namespace
 			if (!Dev->Check("Unmap")) return;
 			if (GLBuf* b = BufOf(r))
 			{
+				if (b->ShadowMapped)
+				{
+					glNamedBufferSubData(b->Id, 0, b->Desc.ByteWidth, b->Shadow.data());
+					b->ShadowMapped = false;
+					return;
+				}
 				if (b->MappedNow) glUnmapNamedBuffer(b->Id);
 				b->MappedNow = false;
 				return;

@@ -4,6 +4,7 @@
 #include "GLShared.h"
 #include "GfxGL.h"
 #include "GLContext.h"
+#include "GLState.h"
 
 namespace
 {
@@ -234,6 +235,7 @@ namespace ImGuiGL
 		if (s_State->Ebo) glDeleteBuffers(1, &s_State->Ebo);
 		if (s_State->Sampler) glDeleteSamplers(1, &s_State->Sampler);
 		s_State->Program = s_State->Vao = s_State->Vbo = s_State->Ebo = s_State->Sampler = 0;
+		GLState::InvalidateBindings();
 		s_State->VboBytes = s_State->EboBytes = 0;
 		s_State->Font.Reset();
 		ImGui::GetIO().Fonts->SetTexID(0);
@@ -348,6 +350,7 @@ namespace
 		glBindSampler(0, 0);
 		glBindVertexArray(0);
 		glUseProgram(0);
+		GLState::InvalidateBindings();   // 캐시를 거치지 않고 묶었다 (GLState 묶기 캐시)
 		if (!toWindow)   // 뷰포트 창은 다 그린 뒤 EndPlatformWindows 에서 한 번 (그 전에 되돌리면 본 창 DC 로 바뀐다)
 			GfxGL::RestoreState(Gfx::Context());   // 엔진(Gfx 컨텍스트)이 아는 상태로 되돌린다
 	}

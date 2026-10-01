@@ -571,7 +571,7 @@ namespace
 		"  gfx-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   same, drawn the engine way (Gfx + effects)\n"
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
 		"  wait [frames]                          keep the editor rendering N frames (default 60), then return (background editors pause otherwise)\n"
-		"  perf [--frames N]                      measure N frames (default 240): frame ms / fps, CPU ms, GPU ms, top GPU passes\n"
+		"  perf [--frames N] [--depth D]          measure N frames (default 240): frame ms / fps, CPU ms, GPU ms, top GPU passes / CPU scopes\n"
 		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
 		"  assets [folder] [--pattern text]\n"
@@ -836,6 +836,7 @@ int wmain(int argc, wchar_t** argv)
 	else if (cmd == "perf")
 	{
 		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
+		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 	}
 	else if (cmd == "call")
 	{

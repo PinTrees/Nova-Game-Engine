@@ -71,8 +71,7 @@ namespace
 				? "Restart the editor to switch the graphics API."
 				: ("The selected API is not available yet (" + reason + "), so the editor keeps running with DirectX 11.").c_str(), true);
 		if (GraphicsSettings::IsExperimental(GraphicsSettings::GetEditorAPI()))
-			UnityGUI::HelpBox("OpenGL is experimental. Editor windows cannot be dragged outside the main window yet, and the old tessellation demo shaders are skipped. "
-				"If OpenGL 4.5 cannot start on this PC, the editor uses DirectX 11.", true);
+			UnityGUI::HelpBox("This graphics API is experimental. If it cannot start on this PC, the editor uses DirectX 11.", true);
 		UnityGUI::HelpBox("To override once, start the editor with -force-d3d11 or -force-opengl. The order used by built games is set in Project Settings > Player > Other Settings.", false);
 	}
 

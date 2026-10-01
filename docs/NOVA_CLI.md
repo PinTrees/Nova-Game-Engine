@@ -25,7 +25,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 
 | 분류 | 명령 |
 |---|---|
-| 에디터 | `status`, `open <프로젝트> [--background] [--graphics opengl\|d3d11]` (graphics = 이번 실행만 그래픽 API, OpenGL 은 시험 단계), `quit [--force]`, `info` (`liveObjects` = 메모리에 있는 GameObject 전체 — 지운 오브젝트가 새는지 볼 때), `log [-n 40] [--grep 글자] [--errors] [--follow]` |
+| 에디터 | `status`, `open <프로젝트> [--background] [--graphics opengl\|d3d11]` (graphics = 이번 실행만 그래픽 API), `quit [--force]`, `info` (`liveObjects` = 메모리에 있는 GameObject 전체 — 지운 오브젝트가 새는지 볼 때), `log [-n 40] [--grep 글자] [--errors] [--follow]` |
 | 오브젝트 | `hierarchy [--components] [--depth N] [--root <대상>]`, `find [이름] [--component 종류]`, `get <대상> [--component 종류]` |
 | 수정 | `set <대상> [--name] [--active] [--tag] [--layer] [--static] [--position x,y,z] [--rotation x,y,z] [--scale x,y,z] [--world-position x,y,z] [Component.field=value ...]` |
 | 만들기 | `create <종류> [--name] [--parent] [--position] [--rotation] [--scale] [--preset N]`, `delete <대상>`, `add-component <대상> <종류> [--values '{...}']` (종류에 C# MonoBehaviour 클래스 이름도 됨 — 값은 필드만 `{"speed":42,"target":"Ball"}`, GameObject·Transform 필드는 이름/경로로), `remove-component <대상> <종류>`, `parent <대상> <새 부모> \| --root`, `select <대상> \| --none` |

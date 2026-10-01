@@ -49,6 +49,43 @@ namespace GLState
 	GLenum Topology(D3D11_PRIMITIVE_TOPOLOGY t, GLint& patchVertices);
 	GLenum CompareFunc(D3D11_COMPARISON_FUNC f);
 
-	// GL 디버그 출력 → Editor.log [OpenGL] (같은 글은 한 번)
-	void InstallDebugOutput();
+	// GL 디버그 출력 → Editor.log [OpenGL] (같은 글은 한 번). synchronous = 부른 자리에서 바로 (디버그 컨텍스트, 느림)
+	void InstallDebugOutput(bool synchronous = true);
+
+	// ---- 묶기 캐시: 같은 것을 다시 묶지 않는다 (효과 Apply 마다 유닛 수십 개를 다시 묶던 CPU 비용).
+	//  GL 은 지운 객체의 이름을 새 객체에 다시 주므로 **객체를 지울 때마다 InvalidateBindings** (GfxGL·GLRhi·ImGuiGL 의 소멸자).
+	//  캐시를 거치지 않고 직접 묶는 코드(ImGuiGL)도 끝나면 InvalidateBindings. 현재 컨텍스트가 바뀌면 저절로 비운다
+	void InvalidateBindings();
+	uint64_t BindingGeneration();   // InvalidateBindings 마다 +1 (VAO 의 정점·인덱스 버퍼 캐시가 비교)
+	void UseProgram(GLuint program);
+	void BindTextureUnit(GLuint unit, GLuint texture);
+	void BindSampler(GLuint unit, GLuint sampler);
+	void BindUniformBuffer(GLuint binding, GLuint buffer);
+	void BindVertexArray(GLuint vao);
+
+	// VAO 하나의 정점·인덱스 버퍼 지정 캐시 (그리기마다 glVertexArrayVertexBuffer 를 다시 부르지 않게)
+	struct VaoCache
+	{
+		uint64_t Generation = ~0ull;
+		GLuint Buffer[16] = {};
+		GLintptr Offset[16] = {};
+		GLsizei Stride[16] = {};
+		GLuint Elements = 0;
+		bool Valid() const { return Generation == BindingGeneration(); }
+		void Reset() { Generation = BindingGeneration(); for (int i = 0; i < 16; ++i) { Buffer[i] = ~0u; Offset[i] = -1; Stride[i] = -1; } Elements = ~0u; }
+		void VertexBuffer(GLuint vao, GLuint slot, GLuint buffer, GLintptr offset, GLsizei stride)
+		{
+			if (!Valid()) Reset();
+			if (Buffer[slot] == buffer && Offset[slot] == offset && Stride[slot] == stride) return;
+			Buffer[slot] = buffer; Offset[slot] = offset; Stride[slot] = stride;
+			glVertexArrayVertexBuffer(vao, slot, buffer, offset, stride);
+		}
+		void ElementBuffer(GLuint vao, GLuint buffer)
+		{
+			if (!Valid()) Reset();
+			if (Elements == buffer) return;
+			Elements = buffer;
+			glVertexArrayElementBuffer(vao, buffer);
+		}
+	};
 }

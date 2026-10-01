@@ -6,6 +6,7 @@
 //  window = nullptr 이면 숨은 창을 만든다 (검사·도구용), 아니면 그 창에 (에디터 본 창)
 namespace GLContext
 {
+	bool WantDebugContext();   // Debug 빌드 또는 NOVA_GL_DEBUG=1
 	struct Handle
 	{
 		HWND Wnd = nullptr;

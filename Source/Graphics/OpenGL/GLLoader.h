@@ -61,6 +61,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 #define GL_UNIFORM_BUFFER                 0x8A11
 #define GL_SHADER_STORAGE_BUFFER          0x90D2
 #define GL_DYNAMIC_STORAGE_BIT            0x0100
+#define GL_DYNAMIC_DRAW                   0x88E8
 
 #define GL_FRAMEBUFFER                    0x8D40
 #define GL_READ_FRAMEBUFFER               0x8CA8
@@ -195,6 +196,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glDeleteBuffers, (GLsizei n, const GLuint* buffers)) \
 	X(void, glNamedBufferStorage, (GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags)) \
 	X(void, glNamedBufferSubData, (GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data)) \
+	X(void, glNamedBufferData, (GLuint buffer, GLsizeiptr size, const void* data, GLenum usage)) \
 	X(void, glBindBufferBase, (GLenum target, GLuint index, GLuint buffer)) \
 	X(void, glCreateTextures, (GLenum target, GLsizei n, GLuint* textures)) \
 	X(void, glTextureStorage2D, (GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height)) \

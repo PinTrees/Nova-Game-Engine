@@ -69,7 +69,7 @@ namespace
 	{
 	public:
 		GLBuffer(const Rhi::BufferDesc& d) { _desc = d; }
-		~GLBuffer() override { if (Id) glDeleteBuffers(1, &Id); }
+		~GLBuffer() override { if (Id) { glDeleteBuffers(1, &Id); GLState::InvalidateBindings(); } }
 		GLuint Id = 0;
 	};
 
@@ -77,7 +77,7 @@ namespace
 	{
 	public:
 		GLTexture(const Rhi::TextureDesc& d) { _desc = d; }
-		~GLTexture() override { if (Id) glDeleteTextures(1, &Id); }
+		~GLTexture() override { if (Id) { glDeleteTextures(1, &Id); GLState::InvalidateBindings(); } }
 		GLuint Id = 0;
 		GLenum Target = GL_TEXTURE_2D;
 	};
@@ -85,7 +85,7 @@ namespace
 	class GLInputLayout : public Rhi::InputLayout
 	{
 	public:
-		~GLInputLayout() override { if (Vao) glDeleteVertexArrays(1, &Vao); }
+		~GLInputLayout() override { if (Vao) { glDeleteVertexArrays(1, &Vao); GLState::InvalidateBindings(); } }
 		GLuint Vao = 0;
 	};
 
@@ -94,7 +94,8 @@ namespace
 	class GLEffect : public Rhi::Effect
 	{
 	public:
-		struct Block { std::string Name; int Binding = 0; std::vector<uint8_t> Cpu; GLuint Ubo = 0; bool Dirty = true; const ShaderCross::UniformBlock* Info = nullptr; };
+		// Cpu = cbuffer 사본. 바뀐 바이트 범위 [DirtyLo, DirtyHi) 만 Apply 때 올린다 (예전엔 값 하나가 바뀌어도 블록 전체 — 본 행렬 16 KB 등)
+		struct Block { std::string Name; int Binding = 0; std::vector<uint8_t> Cpu; GLuint Ubo = 0; bool Dirty = true; uint32_t DirtyLo = 0, DirtyHi = 0; const ShaderCross::UniformBlock* Info = nullptr; };
 		struct Var
 		{
 			int BlockIndex = -1;                              // cbuffer 멤버
@@ -135,6 +136,7 @@ namespace
 				if (b.Ubo) glDeleteBuffers(1, &b.Ubo);
 			for (auto& [n, s] : SamplerObjects)
 				if (s) glDeleteSamplers(1, &s);
+			GLState::InvalidateBindings();
 		}
 
 		int FindTechnique(const std::string& name) const override
@@ -181,7 +183,11 @@ namespace
 			const uint32_t at = (uint32_t)v.Member->Offset + offset;
 			if (at >= b.Cpu.size()) return;
 			bytes = (std::min)(bytes, (uint32_t)b.Cpu.size() - at);
+			if (memcmp(b.Cpu.data() + at, data, bytes) == 0)
+				return;   // 같은 값 (렌더러가 그리기마다 같은 빛·카메라 값을 다시 넣는다) — 올릴 것 없음
 			memcpy(b.Cpu.data() + at, data, bytes);
+			if (!b.Dirty) { b.DirtyLo = at; b.DirtyHi = at + bytes; }
+			else { b.DirtyLo = (std::min)(b.DirtyLo, at); b.DirtyHi = (std::max)(b.DirtyHi, at + bytes); }
 			b.Dirty = true;
 		}
 
@@ -555,7 +561,7 @@ namespace
 				if (Vbs[i].Id)
 					glVertexArrayVertexBuffer(Layout->Vao, i, Vbs[i].Id, Vbs[i].Offset, Vbs[i].Stride);
 			glVertexArrayElementBuffer(Layout->Vao, Ib);
-			glBindVertexArray(Layout->Vao);
+			GLState::BindVertexArray(Layout->Vao);
 			return true;
 		}
 
@@ -681,6 +687,7 @@ namespace
 							glGetProgramInfoLog(pp.Program, len, nullptr, log.data());
 							pp.Error = "link: " + std::string(log.c_str());
 							glDeleteProgram(pp.Program);
+							GLState::InvalidateBindings();
 							pp.Program = 0;
 						}
 						else
@@ -762,24 +769,28 @@ namespace
 			if (Reported.insert(TechniqueNames[technique] + "/" + std::to_string(pass)).second)
 				EditorLog::Write("OpenGL", "pass %s/%d is not available: %s", TechniqueNames[technique].c_str(), pass, pp.Error.c_str());
 			Device->CurrentProgram = 0;
-			glUseProgram(0);   // 앞 pass 의 프로그램으로 잘못 그리지 않게
+			GLState::UseProgram(0);   // 앞 pass 의 프로그램으로 잘못 그리지 않게
 			return;
 		}
-		glUseProgram(pp.Program);
+		GLState::UseProgram(pp.Program);
 		Device->CurrentProgram = pp.Program;
 		for (Block& b : Blocks)
 		{
 			if (b.Dirty)
 			{
-				glNamedBufferSubData(b.Ubo, 0, b.Cpu.size(), b.Cpu.data());
+				if (b.DirtyHi > b.DirtyLo && b.DirtyHi <= b.Cpu.size())
+					glNamedBufferSubData(b.Ubo, b.DirtyLo, b.DirtyHi - b.DirtyLo, b.Cpu.data() + b.DirtyLo);   // 바뀐 범위만
+				else
+					glNamedBufferSubData(b.Ubo, 0, b.Cpu.size(), b.Cpu.data());
 				b.Dirty = false;
 			}
-			glBindBufferBase(GL_UNIFORM_BUFFER, b.Binding, b.Ubo);
+			GLState::BindUniformBuffer(b.Binding, b.Ubo);
 		}
+		// 묶기 캐시: 앞 그리기와 같은 텍스처·샘플러면 GL 을 부르지 않는다 (GLState)
 		for (size_t u = 0; u < UnitTextures.size(); ++u)
 		{
-			glBindTextureUnit((GLuint)u, UnitTextures[u]);
-			glBindSampler((GLuint)u, UnitTextures[u] ? UnitSamplers[u] : 0);   // 빈 유닛 + 비교 샘플러 = 드라이버 경고
+			GLState::BindTextureUnit((GLuint)u, UnitTextures[u]);
+			GLState::BindSampler((GLuint)u, UnitTextures[u] ? UnitSamplers[u] : 0);   // 빈 유닛 + 비교 샘플러 = 드라이버 경고
 		}
 		ApplyStates(pp);
 	}

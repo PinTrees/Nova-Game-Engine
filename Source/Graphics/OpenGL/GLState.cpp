@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "GLState.h"
 #include <cfloat>
 
@@ -630,10 +630,95 @@ namespace GLState
 
 	GLenum CompareFunc(D3D11_COMPARISON_FUNC f) { return GLCompare(f); }
 
-	void InstallDebugOutput()
+	void InstallDebugOutput(bool synchronous)
 	{
 		glEnable(GL_DEBUG_OUTPUT);
-		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+		if (synchronous)
+			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 		glDebugMessageCallback(DebugCallback, nullptr);
+	}
+
+	// ---- 묶기 캐시 (메인 스레드 하나만 GL 을 부른다 — GfxGL::Check)
+	namespace
+	{
+		constexpr GLuint kUnknown = ~0u;
+		struct Bindings
+		{
+			HGLRC Context = nullptr;
+			GLuint Program = kUnknown, Vao = kUnknown;
+			GLuint Textures[96], Samplers[96], Ubos[48];
+			uint64_t Generation = 1;
+			void Reset()
+			{
+				Program = Vao = kUnknown;
+				for (GLuint& t : Textures) t = kUnknown;
+				for (GLuint& s : Samplers) s = kUnknown;
+				for (GLuint& u : Ubos) u = kUnknown;
+				++Generation;
+			}
+		};
+		Bindings& B()
+		{
+			static Bindings s_B = [] { Bindings b; b.Reset(); return b; }();
+			const HGLRC current = ::wglGetCurrentContext();
+			if (current != s_B.Context)   // 다른 컨텍스트 (검사용 장치 등): 그 컨텍스트의 묶기는 모른다
+			{
+				s_B.Context = current;
+				s_B.Reset();
+			}
+			return s_B;
+		}
+	}
+
+	void InvalidateBindings() { B().Reset(); }
+	uint64_t BindingGeneration() { return B().Generation; }
+
+	void UseProgram(GLuint program)
+	{
+		Bindings& b = B();
+		if (b.Program == program) return;
+		b.Program = program;
+		glUseProgram(program);
+	}
+
+	void BindTextureUnit(GLuint unit, GLuint texture)
+	{
+		Bindings& b = B();
+		if (unit < 96)
+		{
+			if (b.Textures[unit] == texture) return;
+			b.Textures[unit] = texture;
+		}
+		glBindTextureUnit(unit, texture);
+	}
+
+	void BindSampler(GLuint unit, GLuint sampler)
+	{
+		Bindings& b = B();
+		if (unit < 96)
+		{
+			if (b.Samplers[unit] == sampler) return;
+			b.Samplers[unit] = sampler;
+		}
+		glBindSampler(unit, sampler);
+	}
+
+	void BindUniformBuffer(GLuint binding, GLuint buffer)
+	{
+		Bindings& b = B();
+		if (binding < 48)
+		{
+			if (b.Ubos[binding] == buffer) return;
+			b.Ubos[binding] = buffer;
+		}
+		glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer);
+	}
+
+	void BindVertexArray(GLuint vao)
+	{
+		Bindings& b = B();
+		if (b.Vao == vao) return;
+		b.Vao = vao;
+		glBindVertexArray(vao);
 	}
 }
