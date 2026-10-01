@@ -108,11 +108,54 @@ TerrainTriplanar TerrainTriplanarSetup(float3 localPos, float3 n)
     return t;
 }
 
+// ---- 타일 반복 없애기: 확률적 텍스처링 (Heitz & Neyret 2018 의 삼각 격자, Mikkelsen hex tiling 과 같은 생각)
+//  텍스처 좌표를 삼각 격자(한 변 약 0.6 장)로 나누고 꼭짓점마다 해시로 무작위 오프셋을 준 세 샘플을 무게중심 가중치로 섞는다.
+//  가중치를 거듭제곱해 경계를 좁히고, 섞은 색을 평균(가장 작은 밉) 둘레로 분산이 줄지 않게 되돌린다 (흐려지지 않게).
+//  노이즈 텍스처 없이 해시. 위(xz) 투영에만 쓴다 (옆 면은 짧아 반복이 덜 보인다)
+float2 TerrainHash2(float2 p)
+{
+    float3 p3 = frac(float3(p.xyx) * float3(0.1031f, 0.1030f, 0.0973f));
+    p3 += dot(p3, p3.yzx + 33.33f);
+    return frac((p3.xx + p3.yz) * p3.zy);
+}
+
+float4 TerrainSampleNoTile(Texture2D tex, float2 uv, float2 dx, float2 dy)
+{
+    // 삼각 격자로 비틀기 (정삼각형 → 직각 격자)
+    const float2 skewed = mul(float2x2(1.0f, 0.0f, -0.57735027f, 1.15470054f), uv * 1.8f);
+    const float2 base = floor(skewed);
+    float3 t = float3(frac(skewed), 0.0f);
+    t.z = 1.0f - t.x - t.y;
+    float3 w;
+    float2 v1, v2, v3;
+    if (t.z > 0.0f)
+    {
+        w = float3(t.z, t.y, t.x);
+        v1 = base; v2 = base + float2(0, 1); v3 = base + float2(1, 0);
+    }
+    else
+    {
+        w = float3(-t.z, 1.0f - t.y, 1.0f - t.x);
+        v1 = base + float2(1, 1); v2 = base + float2(1, 0); v3 = base + float2(0, 1);
+    }
+    const float4 a = tex.SampleGrad(samTerrainWrap, uv + TerrainHash2(v1) * 7.0f, dx, dy);
+    const float4 b = tex.SampleGrad(samTerrainWrap, uv + TerrainHash2(v2) * 7.0f, dx, dy);
+    const float4 c = tex.SampleGrad(samTerrainWrap, uv + TerrainHash2(v3) * 7.0f, dx, dy);
+    // 경계를 좁게 (가중치^4) → 분산 보존 섞기
+    float3 wp = w * w;
+    wp *= wp;
+    wp /= wp.x + wp.y + wp.z;
+    const float4 mean = tex.SampleLevel(samTerrainWrap, float2(0.5f, 0.5f), 16);
+    const float4 mixed = a * wp.x + b * wp.y + c * wp.z;
+    const float k = rsqrt(max(dot(wp, wp), 1e-4f));
+    return saturate(mean + (mixed - mean) * lerp(1.0f, k, 0.6f));
+}
+
 float4 TerrainLayerSample(Texture2D tex, float4 st, TerrainTriplanar t)
 {
     float4 c = 0;
     [branch] if (t.W.y > 0.0f)
-        c += t.W.y * tex.SampleGrad(samTerrainWrap, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy);
+        c += t.W.y * TerrainSampleNoTile(tex, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy);
     [branch] if (t.W.x > 0.0f)
         c += t.W.x * tex.SampleGrad(samTerrainWrap, t.SideX * st.xy + st.zw, t.XDx * st.xy, t.XDy * st.xy);
     [branch] if (t.W.z > 0.0f)

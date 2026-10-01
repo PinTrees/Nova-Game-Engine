@@ -204,7 +204,8 @@
 - 측정(Release, 513² 1 km 지형, 스탬프 5): Base 13~18 ms, 스탬프 4~5 ms, 수력(12만 방울)+열 침식 약 450 ms, 재질 12~14 ms, 미리보기 약 36 ms.
 - `NOVA_DEV_PROFILE=1` 이면 단계별 높이 범위(min/max/mean)와 미리보기 시간도 Editor.log 에.
 - 지형 셰이더 triplanar(`40. TerrainCommon.fx` `TerrainTriplanarSetup/TerrainLayerSample`): 레이어마다 위(xz)·옆(zy, xy) 투영을 |법선|^4 로 섞고, 옆 가중치 < 2% 는 버려 평지는 샘플 1 번. 컨트롤 가중치 0 인 레이어도 분기로 건너뜀. 분기 안 밉을 위해 좌표 미분을 밖에서 구해 `SampleGrad`. 본 패스 `TerrainPS` 가 `TerrainAlbedo(uv, 지형 로컬 위치, 법선)` 로 부른다.
-- 미구현/다음: 텍스처 반복 무늬(anti-tiling, 가까운 곳), 스플라인 스탬프(도로·강), 스탬프별 스플랫 규칙, GPU 생성, 손으로 칠한 높이를 스택의 조각 레이어로.
+- 타일 반복 없애기(`40. TerrainCommon.fx` `TerrainSampleNoTile`, 위 투영만): 확률적 텍스처링(Heitz & Neyret 2018 삼각 격자) — 텍스처 좌표 × 1.8 을 삼각 격자로 비틀어 꼭짓점마다 해시 오프셋(×7 장) 샘플 3 개를 무게중심 가중치^4 로 섞고, 평균(가장 작은 밉) 둘레로 분산을 60 % 되돌린다(흐려지지 않게). 노이즈 텍스처 없음, 샘플 3 번(옆 투영은 그대로 1 번). 먼저 해 본 IQ 오프셋 방식(약 5 장마다 오프셋)은 풀 텍스처의 큰 얼룩이 그 안에서 그대로 반복돼 전후 차이가 없었다(평평한 풀밭 비교로 확인). 프레임 시간 변화 없음(0.70 → 0.69 ms).
+- 미구현/다음: 스플라인 스탬프(도로·강), 스탬프별 스플랫 규칙, GPU 생성, 손으로 칠한 높이를 스택의 조각 레이어로.
 
 **바이옴 (2026-10-01)**: World Creator 의 색 재질 + Biome Layer 참고. 프리셋 패키지 + 씬의 영역 오브젝트.
 - 색 재질: `TerrainGenMaterialRule` 에 `Mode`(Texture / Color / Gradient), `Color`, 그라디언트(입력 = Height / Slope / Flow / Sediment / Cavity / Noise, 정지점 목록), `ColorVariation`(큰 얼룩 약 250 m = 밝기·색온도, 작은 얼룩 약 16 m = 밝기), 마스크 `Flow`(수력 침식 물길, 제곱근 + 98% 정규화, smoothstep 0.2~0.7 = 물이 모인 줄기만), `Cavity`(-1 볼록 ~ +1 오목, 라플라시안 4 칸). 결과 = 스플랫 + **컬러 맵**(RGBA8, 제어 맵 해상도: rgb = 색, a = 색이 텍스처 색을 대신하는 정도). 마지막에 캐비티 음영(오목 × (1-0.22), 볼록 × 1.07). .terraindata **v4** = v3 + 컬러 맵 바이트 수·데이터. 셰이더(`TerrainAlbedo(..., viewDist)`) = lerp(텍스처, 컬러 맵 색 × 텍스처 명암(텍스처 밝기 / 가장 작은 밉 평균 밝기, 0.35~1.9), a), 멀수록(60 m~460 m) 명암 비중을 75% 줄여 타일 반복이 줄무늬로 보이지 않게.
