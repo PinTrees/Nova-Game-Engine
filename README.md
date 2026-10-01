@@ -5,78 +5,178 @@
 <h1 align="center">NOVA Game Engine</h1>
 
 <p align="center">
-  Unity 에디터를 본뜬 C++20 / DirectX 11 3D 게임 엔진 + 에디터<br/>
+  <b>Unity 6 에디터를 그대로 옮겨 온 C++20 3D 게임 엔진 + 에디터</b><br/>
+  DirectX 11 · OpenGL 4.5 · C# 스크립팅 · Jolt Physics · 절차적 월드 제작<br/>
   <sub>Claude(Opus 5.5)와 함께 기능 하나하나를 Unity 와 1:1 에 가깝게 만들어 가는 프로젝트</sub>
+</p>
+
+<p align="center">
+  <a href="https://nova-game-engine.web.app"><img src="https://img.shields.io/badge/%EA%B3%B5%EC%8B%9D%20%EC%82%AC%EC%9D%B4%ED%8A%B8-nova--game--engine.web.app-7C5CFF?style=for-the-badge&logo=firebase&logoColor=white" alt="공식 사이트"/></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20"/>
+  <img src="https://img.shields.io/badge/DirectX-11-107C10?logo=xbox&logoColor=white" alt="DirectX 11"/>
+  <img src="https://img.shields.io/badge/OpenGL-4.5-5586A4?logo=opengl&logoColor=white" alt="OpenGL 4.5"/>
+  <img src="https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet&logoColor=white" alt=".NET 8"/>
+  <img src="https://img.shields.io/badge/Physics-Jolt-E34F26" alt="Jolt Physics"/>
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011-0078D6?logo=windows&logoColor=white" alt="Windows"/>
+</p>
+
+<p align="center">
+  <a href="https://nova-game-engine.web.app"><b>공식 사이트</b></a> ·
+  <a href="#빠른-시작"><b>빠른 시작</b></a> ·
+  <a href="#주요-기능"><b>주요 기능</b></a> ·
+  <a href="#스크린샷"><b>스크린샷</b></a> ·
+  <a href="docs/NOVA_CLI.md"><b>NOVA CLI 문서</b></a> ·
+  <a href="AGENT_HANDOFF.md"><b>개발 문서</b></a>
 </p>
 
 <p align="center">
   <img src="docs/images/editor_terrain.webp" width="900" alt="NOVA 에디터 - 터레인 편집"/>
 </p>
 
+> 🌐 **공식 사이트: [nova-game-engine.web.app](https://nova-game-engine.web.app)** — 엔진 소개, 기능 둘러보기, 스크린샷 갤러리, 다운로드 안내를 한 곳에서 볼 수 있습니다.
+
 ---
 
-## 특징
+## 한눈에 보기
 
-Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동작**을 최대한 그대로 따라 합니다. Unity 를 써 본 사람이라면 설명 없이 쓸 수 있는 것이 목표입니다.
+- **Unity 를 써 봤다면 설명 없이 쓸 수 있는 에디터** — 창 배치, 아이콘, Inspector 모양, 단축키, 동작까지 Unity 6 을 따라 합니다.
+- **두 그래픽 API, 같은 렌더 코드** — DirectX 11 과 OpenGL 4.5 를 RHI·Gfx 층 하나로 그리고, HLSL 셰이더는 GLSL 로 자동 변환합니다. 에디터와 빌드한 게임 모두 설정에서 고릅니다.
+- **Unity 와 같은 C# API** — `MonoBehaviour`, 코루틴, 물리 콜백, UGUI, 파티클… `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 대부분 그대로 동작하고, 저장하면 바로 핫 리로드됩니다.
+- **텍스처 파일 없이 수식으로 만드는 월드** — 나무, 숲, 바위·절벽, 풀·꽃, 지형 생성기, 바이옴, 바다·호수·강.
+- **터미널·AI 가 다루는 에디터** — `nova` CLI 로 창 포커스 없이 실행 중인 에디터를 만들고, 바꾸고, Play 하고, 찍고, 성능을 잽니다.
+
+## 주요 기능
+
+### 🧭 에디터
 
 | 분야 | 내용 |
 |---|---|
-| **에디터** | Hub(프로젝트 목록/생성) → 에디터, 도킹 레이아웃(Hierarchy · Scene/Game · Inspector · Project/Console/Animator), 시작 로딩 창, Undo/Redo, 에디터 전용 로그(`Logs/Editor.log`) |
-| **Scene 뷰** | Move/Rotate/Scale/Rect/Transform 핸들, Pivot/Center·Local/Global, 스냅, Scene Camera 패널(시야각·Near/Far·속도), 우클릭 비행(WASD·QE), Alt 궤도, F 포커스 |
+| **Hub · 에디터** | NOVA Hub(프로젝트 목록·생성·설치) → 에디터. 도킹 레이아웃(Hierarchy · Scene/Game · Inspector · Project/Console/Animator), **창을 에디터 밖 OS 창으로 빼기**, 시작 로딩 창, Undo/Redo, 에디터 로그(`Logs/Editor.log`) |
+| **씬 파일** | New / Open / Save / Save As (`Ctrl+N` · `Ctrl+O` · `Ctrl+S` · `Ctrl+Shift+S`), 저장하지 않은 변경이 있으면 Unity 처럼 *Save / Don't Save / Cancel* 확인, 변경 표시(`*`) |
+| **Scene 뷰** | Move/Rotate/Scale/Rect/Transform 핸들, Pivot/Center·Local/Global, 스냅, Scene Camera 패널, 우클릭 비행(WASD·QE), Alt 궤도, F 포커스 |
 | **Game 뷰** | 해상도(Free/비율/고정 + 사용자 추가), Scale, Display 1~8, Play Focused/Maximized/Unfocused, Stats(FPS·Batches·Tris·Audio) |
-| **Hierarchy / Inspector** | 부모/자식, 복제·잘라내기·붙여넣기, 이름 바꾸기, Unity 식 컴포넌트 헤더와 Add Component 메뉴, Object Picker 창(⊙) |
+| **Hierarchy / Inspector** | 부모/자식, 복제·잘라내기·붙여넣기, 이름 바꾸기, Unity 식 컴포넌트 헤더와 Add Component 메뉴, Object Picker(⊙) |
 | **Project 창** | 2단 레이아웃(폴더 트리 + 목록/격자), breadcrumb, 검색·타입 필터, FBX 하위 에셋, 생성/이름 바꾸기/휴지통 삭제, 드래그 앤 드롭 |
-| **프리팹** | Hierarchy → Project 끌어 놓아 만들기, 인스턴스(파란 표시), 오버라이드 저장/Apply All/Revert All/Unpack, 에셋 변경 자동 반영 |
-| **렌더링** | Forward 렌더링, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일), 물·굴절을 위한 장면 깊이 SRV(읽기 전용 깊이 + 화면 색 복사), 그래픽 API 선택(빌드 설정 우선순위 · 에디터 설정), HLSL → GLSL 셰이더 자동 변환(DXC + SPIRV-Cross), RHI·Gfx 층(DirectX 11 / OpenGL 4.5 — 같은 렌더 코드로 두 API, 에디터·빌드한 게임을 OpenGL 로 실행 — Preferences / Project Settings 에서 선택) |
-| **Profiler (Window > Analysis > Profiler, Ctrl+7)** | Unity Profiler 처럼 CPU Usage / GPU Usage 그래프(범주별로 쌓음, 60·30 FPS 선, 최근 300 프레임, 눌러 프레임 고르기), Hierarchy(구간 트리: Total·Self·Calls·ms), Timeline(구간 막대, 휠 확대), GPU(D3D11 타임스탬프 쿼리: 그림자·깊이·SSAO·불투명·나무·후처리·ImGui), Rendering Statistics(드로 콜, 묶음, 삼각형, 컬링 보임/전체, 나무 LOD 수), GPU 구간별 Pixels Shaded(겹쳐 칠한 픽셀 수), Memory(프로세스·GPU 사용량, 텍스처·메시·그림자 맵·나무·지형·Undo 기록별 크기). 창이 열려 있을 때만 모은다 |
-| **NOVA CLI (`nova`)** | Unity CLI 처럼 터미널·AI 에이전트가 **실행 중인 에디터를 명령으로** 다룬다 — 창 포커스·마우스 없이(멈춘 에디터도 요청이 오면 깨어남). 에디터 열기(`open --background`)·닫기, 씬 트리·검색·컴포넌트 JSON 읽기, 오브젝트 만들기·지우기·부모 바꾸기, `Component.field=value` 로 값 바꾸기, 씬 열기·저장, Play/Stop/Pause, Scene 카메라, Scene/Game 뷰 스크린샷, 에셋 목록, 플레이어 빌드, 로그 보기. 바꾼 것은 Undo 한 단계("CLI ..."). 이 PC·같은 사용자만(이름 있는 파이프 + 토큰). **NOVA Hub > 설치 탭에서 설치**(PATH 등록). `nova ai-guide` = 에이전트용 안내. [docs/NOVA_CLI.md](docs/NOVA_CLI.md) |
-| **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4 캐스케이드, 카메라가 움직여도 떨리지 않게 텍셀 고정), 스포트광·점광(큐브 6 면) 그림자, Hard / Soft(PCF Low·Medium·High), 빛마다 Strength · Bias(Depth / Normal) · Near Plane. **Volume 의 Shadows 오버라이드**로 Max Distance · Cascade Count · Split · Last Border · Resolution(512~4096) · Bias · Soft Shadows 품질을 장소마다 바꿀 수 있다(Inspector 에 캐스케이드 막대). 먼 캐스케이드 캐시(3·4 번째를 2·4 프레임마다 돌아가며 다시 그림, 정적 그림자는 그대로) |
-| **머티리얼 (URP Lit / PBR)** | `.mat` 에셋(Project 창 Create > Material), Unity URP 의 BRDF: Base Map + 색, Metallic(맵/값), Smoothness(Metallic Alpha / Albedo Alpha), Normal Map(세기), Occlusion, Emission(HDR 세기), Tiling/Offset, Alpha Clipping, Receive Shadows, Specular Highlights / Environment Reflections, Lit / Unlit. Unity 모양의 머티리얼 Inspector(텍스처 칸에 끌어 놓기·Object Picker, 구 미리보기 — 드래그로 회전) |
-| **스카이박스** | 기본 하늘 = [Poly Haven](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) CC0 HDRI 를 큐브맵으로 변환(`Tools/hdri_to_cubemap.py`). 카메라 Background = Skybox 면 Game 뷰에, 툴바 Effects > Skybox 면 Scene 뷰에 그리고, 금속 반사와 환경광(Environment Lighting)에도 같은 하늘을 쓴다 |
-| **나무 생성기 (Tree)** | SpeedTree 처럼 절차적으로 만드는 우리 엔진 고유의 나무: 줄기 → 가지 1~3 단계(황금각 배치, 처짐·휘어짐), 수관 모양(원뿔·구·불꽃 …), 잎 카드. **텍스처 파일 없이 수학식만으로** 만든다 — 실행 중에 수피(세로 균열 타일)와 잎 아틀라스(카드 한 장에 SDF 로 잎 여러 장·잔가지, 넓은잎·타원·바늘, 덮임을 유지하는 밉맵)를 한 번 구워 두고 셰이더는 한 번 읽어 알파 컷, 이끼·투과광. 계층 바람(줄기·가지·잔가지·잎 떨림), 그림자·SSAO 포함. 프리셋 Oak / Pine / Birch / Bush, Seed 로 모양 바꾸기, GameObject > 3D Object > Tree |
-| **바위·절벽 (Rock)** | 나무처럼 **텍스처 파일 없이 수식으로** 만드는 바위: SDF 조형(비튼 둥근 상자 → 무작위 평면 절단 → 두께가 제각각인 지층 턱·홈 → 세로 절리로 갈라진 기둥 → 균열 → 리지 거칠기)을 Surface Nets 로 메시화, LOD 3 단계. 재질 = 물체 공간 triplanar 균열 디테일 + 지층 색 띠 + 풍화 얼룩·빗물 자국 + 오목한 곳 그늘 + 윗면 이끼. 프리셋 6 종(석회암 절벽, 석회암 블록, 화강암 바위, 사암 턱, 현무암 주상절리, 강자갈), Seed 로 무작위 변형. **Rock Scatter** 는 GameObject 하나로 영역에 수백~수천 개를 무리 지어(Clustering) 지형 경사를 따라 뿌린다. 같은 모양은 **GPU 인스턴싱**으로 LOD 마다 한 번에 그린다 |
-| **숲 (Paint Trees + LOD)** | Unity 처럼 지형에 나무를 브러시로 칠하기(Tree Density, 높이·폭 범위, 색 변화, 무작위 회전, Shift 지우기, Mass Place, Undo). 같은 종류는 인스턴싱으로 한 번에 그리고 거리에 따라 전체 메시 → 중간 메시 → 실행 중에 구운 8 방향 빌보드(임포스터, 알베도+법선이라 다시 조명)로 바뀌며, 경계는 디더로 섞는다. 나무 1500 그루 약 230 FPS(에디터 Scene 뷰) |
-| **바닥 디테일 (Paint Details)** | Unity 의 Terrain Details: 풀·꽃·작은 돌을 지형에 브러시로 칠하기(Target Strength, Shift = 모두 지우기, Ctrl = 고른 종류만, Fill Terrain / Clear, Undo). 덩어리는 **텍스처 없이 절차 메시**(풀 = 휘어진 잎 여러 장, 꽃 = 잎 + 줄기 + 꽃잎 송이, 돌 = 찌그러진 구)이고 종류·LOD 마다 **GPU 인스턴싱** 한 번. 카메라 근처 16 m 조각만 밀도 맵에서 흩뿌려 캐시(바뀐 조각만 여러 스레드로 다시), 멀수록 성기게 + 남은 덩어리를 넓혀 덮임 유지, LOD 3 단계. 흘러가는 바람 물결 + 잎 떨림, 건강·마른 색 얼룩, 잎 끝 색, 투과광, 그림자를 받고 드리움, 자라는 레이어·최대 경사. **프리셋 패키지 15 종**. 1 km 초원(풀 + 들꽃 3 + 자갈) 디테일 GPU 약 2.7 ms |
-| **후처리 (URP Volume)** | Volume(Global/Local) + Volume Profile 에셋, Project Settings 의 Default Volume Profile, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain, FXAA |
-| **대기·조명 (Volume)** | Volume 오버라이드로 장소마다: **Fog**(Unreal Exponential Height Fog 식 지수 높이 안개 — Base/Maximum Height, Fog Attenuation Distance, 시작·최대 거리, 하늘 색 또는 상수 색, 해 쪽 산란), **Atmosphere**(대기 원근 — 레일리(파장별)·미 산란을 높이별 밀도로 적분해 멀수록 지평선 하늘 색으로 흐려지고 해 쪽이 밝게 번짐, Distance Scale), **Indirect Lighting**(하늘 큐브맵 환경광·반사 세기와 색), **Exposure**(Fixed 보정 / Automatic: 화면 기하 평균 밝기(중앙 가중)를 Middle Gray 로, Limit Min·Max, 밝아질 때·어두워질 때 적응 속도). 안개·대기는 깊이에서 월드 위치를 되살리는 화면 전체 패스(0.1 ms), 물은 같은 식을 표면에 입힌다. 지형도 나무·바위·풀과 같은 PBR 조명(하늘 환경광)으로 |
-| **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 기반 Rigidbody, Box/Sphere/Capsule/Mesh/Terrain Collider, 트리거, 레이캐스트 |
-| **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프, 전이, 파라미터, Play 중 Live 표시) |
-| **터레인** | 쿼드트리 LOD(거리에 따라 자동 단순화), 높이 올리기/내리기·평탄화·다듬기, 텍스처 레이어 칠하기, 지형 충돌 |
-| **지형 생성기 (Generate)** | World Creator 의 레이어 스택 + Unity Atlas 의 비파괴 스탬프 방식. Terrain Inspector > Generate: Base 노이즈(Classic / Ridged / Billow / Eroded / 지금 지형, 옥타브별 세기 막대, 높이 범위) → 씬의 **Terrain Stamp** 오브젝트(산·언덕·분화구·화산·메사·능선·협곡·사구·섬·높이맵 이미지; 이동·회전·크기 도구로 배치, Add/Subtract/Max/Min/Blend, 경계 섞기·Roundness·Power·디테일) → 필터 스택(수력 침식, 열 침식, 테라스, 다듬기, 높이 곡선, 디테일 노이즈) → 재질 규칙(높이·경사·침식 퇴적으로 지형 레이어 자동 칠하기). 스탬프를 끄는 동안 침식을 뺀 미리보기(약 36 ms), 놓으면 전체 생성(1 km 지형 약 0.5 초, 백그라운드 스레드). 설정은 TerrainData 에 저장, Undo 지원. 지형 텍스처는 절벽에서 triplanar(위·옆 세 방향 투영), 확률적 텍스처링으로 타일 반복 무늬 없음 |
-| **바이옴** | World Creator 식 색 재질 + 영역별 지형. 재질 규칙이 텍스처 대신 색·그라디언트(높이·경사·물길·퇴적·오목함·노이즈 입력, 큰·작은 얼룩 색 변화)를 칠하는 컬러 맵, 오목한 골 음영. **바이옴 프리셋 패키지 10 종**(Alpine, Arctic Tundra, Badlands, Desert Dunes(바람 방향 사구 노이즈), Grassland, Highland Moor, Red Rock Canyon(계단 + 지층 띠), Savanna, Tropical Islands, Volcanic) — Generate 탭 썸네일을 누르면 지형 전체에 적용. 씬의 **Terrain Biome** 영역 오브젝트는 영역 안을 다른 프리셋의 Base·침식·재질로 만들고 노이즈로 흔든 경계에서 섞는다. **Terrain Spline**(Road / Canyon / Ridge)은 곡선을 따라 길을 내고(깎고 메우며 흙길로 칠함) 협곡을 파거나 능선을 올린다 — Scene 뷰 점 편집, Snap Points To Ground |
-| **물 (바다·호수·강)** | Crest·KWS·Unreal Water 참고. **Water Body** 하나로 Ocean(카메라를 따라가는 LOD 격자 + Gerstner 파도, 지형이 얕으면 파도가 줄어듦) + 열린 바다와 이어진 곳만 채우는 바다 마스크(내륙 웅덩이 제외) / Lake(점으로 그린 윤곽) / River(점마다 폭·깊이·유속, 흐름 방향 노멀, 경사가 급하면 흰 물살 급류 + 물보라 입자). 수심으로 흡수·산란, 굴절, 화면 공간 반사(SSR) + 하늘·해 반사, SSS, 해 그림자(캐스케이드), 흰 물결·해안으로 밀려와 부서지는 물가 파도·거품, 바닥 코스틱, 수중(안개 + 스넬의 창). Scene 뷰 점 편집(끌기·Ctrl+클릭 추가·Shift+클릭 삭제), Snap Points To Ground / Fit Level To Shore, 지형 생성기 지형은 호수·강 모양으로 비파괴로 파임. **Buoyancy** 컴포넌트(폰툰 5 개, 화면과 같은 파도 식). **물 프로파일 패키지 10 종**(Tropical/Deep/Stormy/Arctic Ocean, Lagoon, Calm/Alpine Lake, Swamp, Mountain/Muddy River) + 물결·거품·코스틱 텍스처 |
-| **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API (`NovaEngine` 네임스페이스: GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, AudioSource, Animator, Physics.Raycast, 코루틴, Invoke …), Assets 의 `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`public` / `[SerializeField]`, `[Range]`, `[Header]`, enum, Color, GameObject 참조), 컴파일 오류는 Console(파일:줄) 에 표시되고 Play 를 막음 |
-| **UI (UGUI)** | Canvas(Screen Space - Overlay, Sort Order) · Canvas Scaler(Constant Pixel Size / Scale With Screen Size) · Graphic Raycaster · Event System, Rect Transform(기준점 프리셋, Pos/Width 또는 Left/Right, Pivot), Image(Simple / Sliced / Filled 가로·세로·원형), Text(한글 포함 기본 글꼴, 줄바꿈·정렬·Best Fit), Button(Color Tint, On Click () 에 C# 메서드), Toggle, Slider(가로·세로, 드래그·클릭), Input Field(한글 IME, 캐럿·선택, Enter/포커스 해제 시 On End Edit), Scroll View(Scroll Rect: 드래그·휠·관성·Elastic), Mask / Rect Mask 2D(잘라내기). GameObject > UI (Canvas) 메뉴, Scene 뷰에 캔버스 표시, Rect 도구로 크기 조절 |
-| **파티클 (Particle System)** | Unity Shuriken 과 같은 모듈: Main(Duration, Looping, Prewarm, Start Lifetime/Speed/Size/Rotation/Color, Gravity, Simulation Space, Max Particles, Stop Action), Emission(Rate over Time/Distance, Bursts), Shape(Sphere, Hemisphere, Cone, Box, Circle, Edge), Velocity / Limit Velocity / Force / Color / Size / Rotation over Lifetime, Noise, Collision(평면·콜라이더에 튕기기), Sub Emitters(탄생/충돌/소멸 때 다른 시스템 뿜기 — 폭죽), Trails(입자 꼬리), Texture Sheet Animation, Renderer(Billboard, Stretched, Horizontal, Vertical, Alpha Blended / Additive, 정렬). 값마다 Constant / Curve / Random Between Two Constants / Two Curves, 곡선·그라디언트 편집기. 선택하면 Scene 뷰에서 미리 재생(Particle Effect 창), GPU 인스턴싱으로 그리기, 내장 텍스처(부드러운 원, 빛, 연기, 반짝임, 불꽃 플립북), C# `ParticleSystem` API. 새 씬에는 Unity URP 처럼 Bloom 이 켜진 Global Volume |
-| **빌드 (Build Settings)** | File > Build Settings(Scenes In Build 목록: 체크·끌어서 순서·Add Open Scenes), Player Settings(회사·제품 이름, 버전, Fullscreen Window / Maximized / Windowed, 해상도, Run In Background), Build / Build And Run → 독립 실행 `<제품>.exe` + `<제품>_Data`(쓰는 에셋만 복사), C# `SceneManager.LoadScene`, `Application.Quit` |
-| **코드 편집기 (NOVA Code)** | 에디터에 내장된 C# IDE(기본 External Script Editor): Explorer, 탭, 구문 강조, 엔진 API 자동 완성, 찾기/바꾸기, 줄 이동, 저장하면 바로 컴파일, 컴파일 오류를 그 줄에 밑줄로. **Edit > Preferences > External Tools** 에서 Visual Studio / VS Code / Rider / 직접 지정으로 바꿀 수 있음 |
-| **오디오** | XAudio2 기반 Audio Source / Audio Listener, Play On Awake·Loop·Volume·Pitch·Stereo Pan·3D 감쇠, WAV 클립, 미리 듣기 |
+| **프리팹** | Hierarchy → Project 로 끌어 만들기, 인스턴스(파란 표시), 오버라이드 Apply All / Revert All / Unpack, 에셋 변경 자동 반영 |
+| **Profiler** (`Ctrl+7`) | CPU / GPU Usage 그래프, 구간 Hierarchy·Timeline, GPU 타임스탬프(DX11·OpenGL), Rendering Statistics, 겹쳐 칠한 픽셀 수, Memory(프로세스·GPU·에셋 종류별) |
+| **NOVA Code** | 내장 C# IDE — 구문 강조, 엔진 API 자동 완성, 찾기/바꾸기, 저장하면 바로 컴파일, 오류 줄 밑줄. Visual Studio / VS Code / Rider 로 바꿀 수 있음 |
+
+### 🎨 렌더링 · 그래픽 API
+
+| 분야 | 내용 |
+|---|---|
+| **그래픽 API** | **DirectX 11 / OpenGL 4.5** — 같은 렌더 코드가 RHI·Gfx 층으로 두 API 에 그린다. HLSL → SPIR-V → GLSL 자동 변환(DXC + SPIRV-Cross, 변환 캐시). 에디터는 *Edit > Preferences > Graphics*, 빌드한 게임은 *Project Settings > Player* 의 우선순위 목록으로 고르고, 시작할 수 없으면 DX11 로 대체. 창 제목에 지금 API 표시(`<DX11>` / `<OpenGL>`) |
+| **머티리얼 (URP Lit / PBR)** | `.mat` 에셋, Base Map · Metallic · Smoothness · Normal · Occlusion · Emission(HDR) · Tiling/Offset · Alpha Clipping, 구 미리보기가 있는 Unity 모양 Inspector |
+| **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4, 텍셀 고정), 스포트·점광 그림자, Hard / Soft(PCF), 빛마다 Strength·Bias, Volume 의 Shadows 오버라이드, 먼 캐스케이드 캐시 |
+| **후처리 (Volume)** | Global/Local Volume + Profile 에셋, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain · FXAA |
+| **대기 · 조명** | 지수 높이 안개(Unreal 식), 대기 원근(레일리·미 산란), 하늘 환경광·반사, 자동 노출 — 모두 Volume 오버라이드로 장소마다 |
+| **스카이박스** | Poly Haven CC0 HDRI 큐브맵, 금속 반사와 환경광에 같은 하늘 |
+| **성능** | 인스턴싱, Mesh Renderer 자동 묶기, 절두체 컬링 옥트리, 셰이더 캐시(의존성 추적 + 병렬 컴파일), `nova perf` 로 측정 |
+
+<details>
+<summary><b>DirectX 11 vs OpenGL 4.5 비교 (펼치기)</b></summary>
+
+같은 프로젝트·같은 카메라로 두 API 를 비교한 결과입니다 (GTX 1660 SUPER, Release, Scene 뷰 240 프레임 평균).
+
+| 씬 | DX11 프레임 | OpenGL 프레임 | 화면 차이 (픽셀 최대) |
+|---|---|---|---|
+| Materials | 0.96 ms | 1.60 ms | 1 |
+| Shadows | 1.08 ms | 1.88 ms | 1 |
+| Forest | 0.88 ms | 1.11 ms | 1 |
+| Trees (가장 무거움) | 2.74 ms | 2.84 ms | 바람에 흔들리는 잎만 |
+| Particles | 0.83 ms | 1.07 ms | 1 |
+
+스킨 메시 캐릭터, Play 중 입자·UI, 에디터 밖으로 뺀 창도 두 API 가 같은 화면입니다. 한 번만 바꿔 실행하려면 `-force-d3d11` / `-force-opengl` 을 붙입니다.
+
+</details>
+
+### 🌍 월드 제작
+
+| 분야 | 내용 |
+|---|---|
+| **터레인** | 쿼드트리 LOD, 높이 올리기/내리기·평탄화·다듬기, 레이어 칠하기(triplanar, 확률적 텍스처링), Terrain Collider |
+| **지형 생성기** | World Creator 식 레이어 스택 + 비파괴 스탬프 — Base 노이즈 → **Terrain Stamp**(산·분화구·화산·메사·협곡·섬·높이맵) → 침식·테라스 필터 → 재질 규칙. 1 km 지형 약 0.5 초(백그라운드) |
+| **바이옴** | 색 재질 + 영역별 지형, **프리셋 10 종**(Alpine, Arctic Tundra, Badlands, Desert Dunes, Grassland, Highland Moor, Red Rock Canyon, Savanna, Tropical Islands, Volcanic), **Terrain Biome** 영역, **Terrain Spline**(길·협곡·능선) |
+| **나무 (Tree)** | SpeedTree 처럼 절차적으로 — 줄기 → 가지 1~3 단계, 수관 모양, 잎 카드. 수피·잎 텍스처도 실행 중에 수식으로 굽는다. 계층 바람, 프리셋 Oak / Pine / Birch / Bush |
+| **숲 (Paint Trees)** | 브러시로 나무 칠하기, 인스턴싱 + LOD(전체 → 중간 → 8 방향 임포스터, 디더 섞기). 1500 그루 약 230 FPS. **나무 충돌**(Terrain Collider 의 Enable Tree Colliders = 줄기 캡슐) |
+| **바위 · 절벽 (Rock)** | SDF 조형(절단·지층·주상절리·균열) → Surface Nets 메시, LOD 3 단계, 프리셋 6 종, **Rock Scatter** 로 수천 개를 GPU 인스턴싱 |
+| **바닥 디테일** | 풀·꽃·돌을 브러시로, 절차 메시 + 인스턴싱 + 바람 물결, **프리셋 15 종** |
+| **물** | **Water Body** 하나로 Ocean(LOD 격자 + Gerstner 파도) / Lake / River(급류·물보라). 굴절, SSR, SSS, 해안 파도·거품, 코스틱, 수중(스넬의 창), **Buoyancy**, 물 프로파일 10 종 |
+
+### 🎮 게임플레이
+
+| 분야 | 내용 |
+|---|---|
+| **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API(GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, Physics.Raycast, 코루틴, Invoke …), `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`[SerializeField]`, `[Range]`, `[Header]`, enum, 참조), 오류는 Console 에 표시하고 Play 를 막음 |
+| **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — Rigidbody, Box / Sphere / Capsule / Mesh / Terrain Collider(나무 포함), 트리거, 레이어 오버라이드, 레이캐스트, 충돌 콜백 |
+| **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프·전이·파라미터·Play 중 Live 표시) |
+| **UI (UGUI)** | Canvas · Canvas Scaler · Event System, Rect Transform, Image(Sliced / Filled), Text(한글), Button, Toggle, Slider, Input Field(한글 IME), Scroll View, Mask |
+| **파티클** | Unity Shuriken 모듈(Main, Emission, Shape, over Lifetime, Noise, Collision, Sub Emitters, Trails, Texture Sheet), 곡선·그라디언트 편집기, Scene 뷰 미리 재생, GPU 인스턴싱, C# `ParticleSystem` API |
+| **오디오** | XAudio2 — Audio Source / Listener, 3D 감쇠, Loop·Pitch·Pan, WAV, 미리 듣기 |
+| **빌드** | Build Settings(씬 목록·순서) + Player Settings → 독립 실행 `<제품>.exe` + `<제품>_Data`(쓰는 에셋만), 그래픽 API 우선순위, C# `SceneManager.LoadScene` · `Application.Quit` |
+
+### 🤖 NOVA CLI (터미널 · AI 에이전트)
+
+Unity CLI 처럼 **실행 중인 에디터를 명령으로** 다룹니다 — 창 포커스·마우스 없이, 백그라운드 에디터도 요청이 오면 깨어납니다. 바꾼 것은 Undo 한 단계("CLI …")로 남고, 이 PC·같은 사용자만 접속합니다(이름 있는 파이프 + 토큰).
+
+```bash
+nova open D:\NovaProjects\MyGame --background      # 에디터를 뒤에서 열기 (--graphics opengl 도 가능)
+nova create cube --name Box --position 0,1,0         # 오브젝트 만들기 (character, terrain, ocean, rock …)
+nova set Box --scale 2,1,2 MeshRenderer.castShadows=1
+nova add-component Player PlayerController --values '{"speed":5,"target":"Box"}'   # C# 스크립트도
+nova camera --frame Box && nova screenshot box.png   # Scene / Game / 에디터 전체 캡처
+nova play && nova wait 120 && nova raycast 0,5,0 0,-1,0
+nova perf --frames 240 --depth 3                     # 프레임·CPU·GPU 시간, 단계별 상위
+nova log --errors
+```
+
+NOVA Hub > **설치** 탭 > **NOVA CLI** 로 설치(PATH 등록)합니다. 모든 명령은 [docs/NOVA_CLI.md](docs/NOVA_CLI.md), AI 에이전트에게는 `nova ai-guide` 를 먼저 실행하게 하세요.
 
 ## 스크린샷
 
-| | |
-|:---:|:---:|
-| <img src="docs/images/hub.webp" width="440"/><br/>NOVA Hub (앱 바 · 프로젝트 목록) | |
-| <img src="docs/images/animator.webp" width="440"/><br/>Animator 창 | <img src="docs/images/terrain_lod.webp" width="440"/><br/>터레인 쿼드트리 LOD |
-| <img src="docs/images/project_window.webp" width="440"/><br/>Project 창 (2단 레이아웃) | <img src="docs/images/prefab.webp" width="440"/><br/>프리팹 인스턴스 |
-| <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
-| <img src="docs/images/audio_source.webp" width="440"/><br/>Audio Source | <img src="docs/images/physics.webp" width="440"/><br/>물리 (지형 위의 공) |
-| <img src="docs/images/nova_code.webp" width="440"/><br/>NOVA Code (내장 C# IDE, 자동 완성) | <img src="docs/images/nova_code_error.webp" width="440"/><br/>NOVA Code 컴파일 오류 표시 |
-| <img src="docs/images/ui_editor.webp" width="440"/><br/>UI Button (Rect Transform / Image / Button Inspector) | <img src="docs/images/ui_game.webp" width="440"/><br/>UI Play: 버튼 클릭 → 점수·체력 바 (C#) |
+> 더 많은 스크린샷은 **[공식 사이트 갤러리](https://nova-game-engine.web.app)** 에서 볼 수 있습니다.
 
-### 지형 생성기 · 바이옴 · 물
+### 에디터
 
 | | |
 |:---:|:---:|
-| <img src="docs/images/terrain_generator.webp" width="440"/><br/>지형 생성기 (Generate: Base 노이즈 → 스탬프 → 침식 → 재질) | <img src="docs/images/biome_areas.webp" width="440"/><br/>바이옴 영역 (초원 위에 Alpine · Desert · Canyon) |
-| <img src="docs/images/water_ocean.webp" width="440"/><br/>바다 (LOD 격자 + Gerstner 파도) | <img src="docs/images/water_river_edit.webp" width="440"/><br/>강 점 편집 → 지형 생성기가 강바닥을 판다 |
-| <img src="docs/images/water_coast.webp" width="440"/><br/>해안 · 호수 · 강 | <img src="docs/images/water_underwater.webp" width="440"/><br/>수중 (스넬의 창) + Buoyancy 로 뜬 상자 |
-| <img src="docs/images/terrain_details.webp" width="440"/><br/>바닥 디테일 (풀 · 들꽃 · 자갈, 인스턴싱 + 바람) | <img src="docs/images/details_paint.webp" width="440"/><br/>Paint Details (종류 썸네일 · 브러시 · 프리셋) |
-| <img src="docs/images/atmosphere_compare.webp" width="440"/><br/>Volume 의 Fog + Atmosphere (위 = 끔, 아래 = 켬) | |
+| <img src="docs/images/hub.webp" width="440"/><br/>NOVA Hub | <img src="docs/images/project_window.webp" width="440"/><br/>Project 창 (2단 레이아웃) |
+| <img src="docs/images/animator.webp" width="440"/><br/>Animator 창 | <img src="docs/images/prefab.webp" width="440"/><br/>프리팹 인스턴스 |
+| <img src="docs/images/profiler.webp" width="440"/><br/>Profiler (CPU 계층 · 통계) | <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) |
+| <img src="docs/images/nova_code.webp" width="440"/><br/>NOVA Code (내장 C# IDE) | <img src="docs/images/nova_code_error.webp" width="440"/><br/>컴파일 오류 표시 |
+
+### 그래픽 API
+
+| | |
+|:---:|:---:|
+| <img src="docs/images/opengl_editor.webp" width="440"/><br/>같은 장면 — 왼쪽 DirectX 11, 오른쪽 OpenGL 4.5 | <img src="docs/images/opengl_viewports.webp" width="440"/><br/>OpenGL 에디터에서 창을 밖으로 빼기 |
+
+### 월드 제작
+
+| | |
+|:---:|:---:|
+| <img src="docs/images/terrain_generator.webp" width="440"/><br/>지형 생성기 (노이즈 → 스탬프 → 침식 → 재질) | <img src="docs/images/biome_areas.webp" width="440"/><br/>바이옴 영역 (초원 위 Alpine · Desert · Canyon) |
+| <img src="docs/images/forest_lod.webp" width="440"/><br/>숲 1500 그루 (인스턴싱 + LOD + 임포스터) | <img src="docs/images/tree_generator.webp" width="440"/><br/>절차적 나무 생성기 |
+| <img src="docs/images/rock_scatter.webp" width="440"/><br/>바위 · 절벽 흩뿌리기 (인스턴싱) | <img src="docs/images/terrain_details.webp" width="440"/><br/>바닥 디테일 (풀 · 들꽃 · 자갈) |
+| <img src="docs/images/water_ocean.webp" width="440"/><br/>바다 (LOD 격자 + Gerstner 파도) | <img src="docs/images/water_coast.webp" width="440"/><br/>해안 · 호수 · 강 |
+| <img src="docs/images/water_river_edit.webp" width="440"/><br/>강 점 편집 → 지형이 강바닥을 판다 | <img src="docs/images/water_underwater.webp" width="440"/><br/>수중 (스넬의 창) + Buoyancy |
+| <img src="docs/images/atmosphere_compare.webp" width="440"/><br/>Fog + Atmosphere (위 = 끔, 아래 = 켬) | <img src="docs/images/terrain_lod.webp" width="440"/><br/>터레인 쿼드트리 LOD |
+
+### 게임플레이
+
+| | |
+|:---:|:---:|
+| <img src="docs/images/particles.webp" width="440"/><br/>파티클 (모닥불 · 불꽃 분수 · 마법 구슬) | <img src="docs/images/particles_fireworks.webp" width="440"/><br/>폭죽 (Sub Emitters · Trails · Bloom) |
+| <img src="docs/images/ui_editor.webp" width="440"/><br/>UI Button (Rect Transform · Inspector) | <img src="docs/images/ui_game.webp" width="440"/><br/>UI Play: 버튼 → 점수 · 체력 바 (C#) |
+| <img src="docs/images/physics.webp" width="440"/><br/>물리 (지형 위의 공) | <img src="docs/images/audio_source.webp" width="440"/><br/>Audio Source |
+| <img src="docs/images/nova_cli.webp" width="440"/><br/>NOVA CLI 명령만으로 만들고 찍은 장면 | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
 
 <p align="center">
   <img src="docs/images/biome_presets.webp" width="900" alt="바이옴 프리셋 10 종"/><br/>
-  바이옴 프리셋 패키지 10 종 (위에서 본 생성 결과)
+  바이옴 프리셋 10 종 (위에서 본 생성 결과)
 </p>
 
 <p align="center">
@@ -84,106 +184,55 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
   후처리 적용 전 / 후 (Bloom, Vignette, ACES, 채도·대비)
 </p>
 
-<p align="center">
-  <img src="docs/images/loading.webp" width="420" alt="시작 로딩 창"/><br/>
-  시작 로딩 창
-</p>
-
-## 내장 패키지
-
-`Resources/Packages/` 에 바로 쓸 수 있는 에셋 묶음이 들어 있습니다. 모두 저장소 안에서 스크립트·수식으로 만든 것입니다.
-
-| 패키지 | 내용 | 쓰는 곳 |
-|---|---|---|
-| `Terrain/Layers` | 지형 레이어 4 장 (Grass · Rock · Dirt · Sand) | Terrain Inspector > Paint Texture, 바이옴 |
-| `Terrain/Biomes` | 바이옴 프리셋 10 종 (`.biome`, JSON): Alpine Mountains, Arctic Tundra, Badlands, Desert Dunes, Grassland Hills, Highland Moor, Red Rock Canyon, Savanna, Tropical Islands, Volcanic Highlands — 지형 모양(노이즈 + 침식) + 색 재질 | Terrain > Generate > Biome Presets (클릭 = 지형 전체, 오른쪽 클릭 = 영역), GameObject > 3D Object > Terrain Biome |
-| `Terrain/Details` | 지형 디테일 프리셋 15 종 (`.detail`, JSON): 풀 7 (Meadow, Lush, Short, Tall, Dry, Savanna, Alpine Tussock), 꽃 5 (Yellow Wildflowers, White Daisies, Purple Lupines, Red Poppies, Blue Cornflowers), 돌 3 (Pebbles, River Stones, Desert Stones) — 덩어리 모양 + 색 + 밀도·경사·레이어 | Terrain > Paint Details > Add Detail |
-| `Water/Profiles` | 물 프로파일 10 종 (`.waterprofile`, JSON): Tropical Ocean, Deep Ocean, Stormy Sea, Arctic Sea, Lagoon, Calm Lake, Alpine Lake, Swamp, Mountain River, Muddy River — 물 색(흡수·산란·탁도), 파도(바람 속도·방향·뾰족함), 잔물결, 거품, 반사·굴절, 코스틱, 유속 | Water Body > Profile, GameObject > 3D Object > Water |
-| `Water/Textures` | 이음매 없는 물결 노멀 2 장 · 거품 · 코스틱 | 물 셰이더 (`46. Water.fx`) |
-| `Rock/Textures` | 바위 디테일 (균열 노멀 + 높이, 이음매 없음) | 바위 셰이더 (`47. RockCommon.fx`) |
-| `Character`, `Audio/SFX` | 캐릭터 모델·애니메이션, 테스트 효과음 | 샘플 씬 |
-
-프리셋·프로파일은 JSON 이라 복사해서 값을 바꾸면 새 프리셋이 됩니다 (에디터를 다시 열면 목록에 나타남).
-
-## NOVA CLI (터미널 · AI)
-
-NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치** 를 누르면 새로 연 터미널에서 `nova` 를 쓸 수 있습니다. 에디터를 앞으로 가져오지 않아도 됩니다.
-
-```bash
-nova open D:\NovaProjects\MyGame --background
-nova hierarchy --components
-nova create cube --name Box --position 0,1,0
-nova set Box --scale 2,1,2 MeshRenderer.castShadows=1
-nova camera --frame Box
-nova screenshot box.png
-nova play
-nova log --errors
-```
-
-모든 명령과 동작 방식은 [docs/NOVA_CLI.md](docs/NOVA_CLI.md), AI 에이전트에게는 `nova ai-guide` 를 먼저 실행하게 하세요.
-
-## 빌드
+## 빠른 시작
 
 ### 필요한 것
+
 - Windows 10 / 11 (x64)
-- Visual Studio 2022 이상 — **C++를 사용한 데스크톱 개발** 워크로드 (MSVC, Windows 10/11 SDK, CMake 포함)
-- DirectX 11 을 지원하는 GPU
+- Visual Studio 2022 이상 — **C++를 사용한 데스크톱 개발** 워크로드 (MSVC, Windows SDK, CMake 포함)
+- DirectX 11 또는 OpenGL 4.5 를 지원하는 GPU
 - [.NET SDK 8 이상](https://dotnet.microsoft.com/download) — C# 스크립팅 (없으면 스크립트 없이 동작)
 
 외부 라이브러리(Assimp, DirectXTex, Effects11, ImGui, nlohmann/json, Jolt Physics, DXC, SPIRV-Cross)는 저장소에 들어 있어 따로 설치할 필요가 없습니다.
 
-### 빌드 방법
-```bat
-build.bat
-```
-- CMake 로 `build/` 에 Visual Studio 솔루션을 만들고 Debug x64 로 컴파일합니다 (Debug 도 `/O2` 최적화).
-- `build.bat release` = Release (D3D 디버그 레이어 끔, 셰이더 최적화, `/Zi` 디버그 정보). 결과는 같은 `Binaries/NovaEngine.exe` 이고 마지막에 빌드한 구성이 남습니다. 성능을 잴 때와 게임을 빌드할 때는 Release 를 쓰세요 (물체 1600 개 씬: Debug 76 FPS → Release 364 FPS).
-- 결과: `Binaries/NovaEngine.exe`
-- `build.bat` 안의 `CMAKE_PATH` 는 Visual Studio 에 포함된 CMake 경로입니다. 설치 위치가 다르면 이 줄을 고쳐 주세요.
-- Visual Studio 에서 직접 열려면 `build/NovaEngine.sln` 을 사용합니다.
+### 빌드
 
-## 실행
+```bat
+build.bat            :: Debug x64 (/O2, D3D 디버그 레이어 · GL 디버그 컨텍스트)
+build.bat release    :: Release (디버그 레이어 끔, 셰이더 최적화) — 성능 측정과 게임 빌드용
+```
+
+- CMake 가 `build/` 에 Visual Studio 솔루션을 만들고 컴파일합니다. 결과는 `Binaries/NovaEngine.exe` (마지막에 빌드한 구성).
+- `build.bat` 의 `CMAKE_PATH` 는 Visual Studio 에 포함된 CMake 경로입니다. 설치 위치가 다르면 이 줄을 고쳐 주세요.
+- Visual Studio 에서 열려면 `build/NovaEngine.sln`.
+
+### 실행
 
 | 명령 | 동작 |
 |---|---|
-| `NovaEngine.exe` | **NOVA Hub** — 프로젝트 목록, 새 프로젝트 만들기, 열기, 설치(엔진 · NOVA CLI). 위쪽 앱 바: 학습(문서·CLI 가이드·단축키), NOVA CLI(설치 상태·실행 중인 에디터), 알림(상태 메시지 기록), 설정(새 프로젝트 기본 위치, 에디터를 열면 Hub 닫기, 엔진·로그 폴더), 계정 |
+| `NovaEngine.exe` | **NOVA Hub** — 프로젝트 목록, 새 프로젝트, 열기, 설치(엔진 · NOVA CLI), 학습·알림·설정 |
 | `NovaEngine.exe --project "<프로젝트 폴더>"` | 그 프로젝트를 에디터로 열기 |
+| `NovaEngine.exe --project "<폴더>" -force-opengl` | 이번만 OpenGL 로 (`-force-d3d11` = DirectX 11) |
 | `NovaEngine.exe --editor` | 엔진 폴더의 샘플 프로젝트로 에디터 열기 (엔진 개발용) |
 
-작업 디렉터리는 `Binaries/` 입니다 (실행 파일이 시작할 때 자동으로 맞춥니다).
+새 프로젝트 구조는 Unity 와 같습니다: `Assets/`(씬·에셋), `ProjectSettings/`(프로젝트 설정), `UserSettings/`(개인 설정).
 
-### 게임 빌드 (Unity 의 Build Settings)
-1. **File > Build Settings...** (`Ctrl+Shift+B`) → **Add Open Scenes** 또는 Project 창에서 `.scene` 을 끌어 놓습니다. 맨 위(0번) 씬이 시작 씬입니다.
-2. **Player Settings...** (Project Settings > Player) 에서 제품 이름, 화면 모드(Fullscreen Window / Maximized Window / Windowed), 해상도를 정합니다.
-3. **Build** 로 폴더를 고르면 다음이 만들어집니다. **Build And Run** (`Ctrl+B`) 은 만든 뒤 바로 실행합니다.
+### 게임 빌드
+
+1. **File > Build Settings...** (`Ctrl+Shift+B`) → **Add Open Scenes** 또는 Project 창에서 `.scene` 을 끌어 놓기 (0번 = 시작 씬).
+2. **Player Settings...** 에서 제품 이름, 화면 모드, 해상도, 그래픽 API 순서를 정합니다.
+3. **Build** / **Build And Run** (`Ctrl+B`).
 
 ```
 <출력 폴더>/
   <제품 이름>.exe          ← 게임 실행 파일 (에디터 없이 첫 씬을 Play)
   *.dll
-  <제품 이름>_Data/        ← player.json, 빌드 씬과 그 씬이 쓰는 에셋, 셰이더, 컴파일된 C# (Assembly-CSharp.dll)
+  <제품 이름>_Data/        ← player.json, 빌드 씬과 쓰는 에셋, 셰이더, Assembly-CSharp.dll
 ```
-
-빌드된 게임에서는 C# 의 `SceneManager.LoadScene("이름" 또는 번호)` 로 Build Settings 의 씬을 옮겨 다니고 `Application.Quit()` 으로 끝냅니다. 로그는 `<제품 이름>_Data/Binaries/Logs/Editor.log` 입니다.
-
-새 프로젝트 구조는 Unity 와 같습니다: `Assets/`(씬·에셋), `ProjectSettings/`(프로젝트 설정), `UserSettings/`(개인 설정, Game 뷰 등).
 
 ## C# 스크립트
 
-Project 창 우클릭 > **Create > Scripting > MonoBehaviour Script** 로 만들고, 더블클릭하면 내장 코드 편집기 **NOVA Code** 로 열립니다 (Console 의 오류 더블클릭도 그 줄로). 저장(`Ctrl+S`)하면 에디터가 바로 다시 컴파일합니다. GameObject 에 끌어 놓거나 Add Component > Scripts 로 붙입니다.
-
-다른 편집기를 쓰려면 **Edit > Preferences... > External Tools > External Script Editor** 에서 고릅니다 (Unity 와 같음).
-
-| External Script Editor | 여는 방법 |
-|---|---|
-| NOVA Code (built-in) — 기본값 | 에디터 안의 NOVA Code 탭 |
-| Visual Studio (설치된 버전을 vswhere 로 찾음) | `devenv /edit 파일 /command "Edit.GoTo 줄"` |
-| Visual Studio Code | 프로젝트 폴더 + `-g 파일:줄` |
-| JetBrains Rider | `--line 줄 파일` |
-| Open by file extension | Windows 에서 .cs 에 연결된 프로그램 |
-| Browse... | 직접 고른 exe + 인자 (`$(File)`, `$(Line)`, `$(ProjectPath)`) |
-
-설정은 사용자별로 `%LOCALAPPDATA%\NOVA\Editor\EditorPrefs.json` 에 저장됩니다 (Unity 의 EditorPrefs).
+Project 창 우클릭 > **Create > Scripting > MonoBehaviour Script** 로 만들고, 더블클릭하면 **NOVA Code** 로 열립니다. 저장(`Ctrl+S`)하면 바로 다시 컴파일되고, GameObject 에 끌어 놓거나 Add Component > Scripts 로 붙입니다.
 
 ```csharp
 using NovaEngine;
@@ -203,6 +252,9 @@ public class Spinner : MonoBehaviour
     void OnCollisionEnter(Collision collision) => Debug.Log($"hit {collision.gameObject.name}");
 }
 ```
+
+<details>
+<summary><b>UI · 파티클 예제 (펼치기)</b></summary>
 
 UI 는 `using NovaEngine.UI;` (Unity 의 `UnityEngine.UI`) 이고, `TMPro.TextMeshProUGUI` 도 같은 Text 로 쓸 수 있습니다.
 
@@ -232,7 +284,7 @@ public class ScoreUI : MonoBehaviour
 ```csharp
 var ps = GetComponent<ParticleSystem>();
 var main = ps.main;
-main.startColor = new ParticleSystem.MinMaxGradient(Color.yellow, Color.red);   // Random Between Two Colors
+main.startColor = new ParticleSystem.MinMaxGradient(Color.yellow, Color.red);
 main.startSize = new ParticleSystem.MinMaxCurve(0.2f, 0.5f);
 var emission = ps.emission;
 emission.rateOverTime = 50f;
@@ -240,7 +292,9 @@ ps.Emit(30);      // 즉시 30개
 ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 ```
 
-Unity 코드는 `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 대부분 그대로 동작합니다. 프로젝트 루트의 `Assembly-CSharp.csproj` 는 에디터가 만들며, VS Code / Visual Studio 에서 자동 완성에 쓰입니다.
+</details>
+
+다른 편집기는 **Edit > Preferences... > External Tools** 에서 고릅니다 — NOVA Code(기본), Visual Studio, VS Code, Rider, 확장자 연결 프로그램, 직접 지정(`$(File)`, `$(Line)`, `$(ProjectPath)`). 프로젝트 루트의 `Assembly-CSharp.csproj` 는 에디터가 만들어 외부 편집기 자동 완성에 쓰입니다.
 
 ## 단축키 (Unity 와 같음)
 
@@ -248,16 +302,18 @@ Unity 코드는 `using UnityEngine;` 을 `using NovaEngine;` 으로 바꾸면 �
 |---|---|
 | `Q` `W` `E` `R` `T` `Y` | Hand / Move / Rotate / Scale / Rect / Transform 도구 |
 | 우클릭 + `W` `A` `S` `D` / `Q` `E` | Scene 카메라 비행 (Shift = 빠르게, 휠 = 속도) |
-| `Alt` + 좌클릭 드래그 | 궤도 회전 |
-| 가운데 버튼 드래그 | 화면 이동 |
+| `Alt` + 좌클릭 드래그 · 가운데 버튼 드래그 | 궤도 회전 · 화면 이동 |
 | `F` | 선택한 오브젝트로 포커스 |
-| `Ctrl+Z` / `Ctrl+Y` | 실행 취소 / 다시 실행 |
+| `Ctrl+N` / `Ctrl+O` | 새 씬 / 씬 열기 (저장 안 한 변경이 있으면 확인) |
 | `Ctrl+S` / `Ctrl+Shift+S` | 씬 저장 / 다른 이름으로 저장 |
+| `Ctrl+Z` / `Ctrl+Y` | 실행 취소 / 다시 실행 |
 | `Ctrl+D` · `Ctrl+C` · `Ctrl+X` · `Ctrl+V` | 복제 · 복사 · 잘라내기 · 붙여넣기 |
-| `F2` · `Delete` | 이름 바꾸기 · 삭제 |
-| `Ctrl+P` | Play / Stop |
+| `F2` · `Delete` · `Ctrl+Shift+N` | 이름 바꾸기 · 삭제 · 빈 오브젝트 |
+| `Ctrl+P` · `Ctrl+7` | Play / Stop · Profiler |
+| `Ctrl+Shift+B` · `Ctrl+B` | Build Settings · Build And Run |
 
-NOVA Code 안에서는 (VS Code 와 같음):
+<details>
+<summary><b>NOVA Code 단축키 (펼치기)</b></summary>
 
 | 키 | 동작 |
 |---|---|
@@ -266,42 +322,65 @@ NOVA Code 안에서는 (VS Code 와 같음):
 | `Ctrl+F` / `Ctrl+H` / `F3` | 찾기 / 바꾸기 / 다음 찾기 |
 | `Ctrl+G` | 줄로 이동 |
 | `Ctrl+/` · `Ctrl+D` | 주석 토글 · 줄 복제 |
-| `Tab` / `Shift+Tab` | 들여쓰기 / 내어쓰기 (여러 줄 선택 가능) |
+| `Tab` / `Shift+Tab` | 들여쓰기 / 내어쓰기 |
 | `Ctrl+W` · `Ctrl+B` · `Ctrl+휠` | 탭 닫기 · Explorer 토글 · 글꼴 크기 |
+
+</details>
+
+## 내장 패키지
+
+`Resources/Packages/` 에 바로 쓸 수 있는 에셋 묶음이 들어 있습니다. 모두 저장소 안에서 스크립트·수식으로 만든 것이고, 프리셋은 JSON 이라 복사해 값을 바꾸면 새 프리셋이 됩니다.
+
+| 패키지 | 내용 | 쓰는 곳 |
+|---|---|---|
+| `Terrain/Layers` | 지형 레이어 4 장 (Grass · Rock · Dirt · Sand) | Paint Texture, 바이옴 |
+| `Terrain/Biomes` | 바이옴 프리셋 10 종 (`.biome`) — 지형 모양 + 색 재질 | Terrain > Generate, Terrain Biome |
+| `Terrain/Details` | 디테일 프리셋 15 종 (`.detail`) — 풀 7 · 꽃 5 · 돌 3 | Paint Details |
+| `Water/Profiles` | 물 프로파일 10 종 (`.waterprofile`) — 바다 · 호수 · 강 | Water Body > Profile |
+| `Water/Textures` · `Rock/Textures` | 이음매 없는 물결·거품·코스틱, 바위 균열 디테일 | 물·바위 셰이더 |
+| `Character` · `Audio/SFX` | 캐릭터 모델·애니메이션, 테스트 효과음 | 샘플 씬, `nova create character` |
 
 ## 폴더 구조
 
 ```
 Source/
-  Platform/   앱 루프, 윈도우, 로딩 창, 자체 검사(PhysicsSelfTest)
-  Core/       경로, 로그(EditorLog), 공용 유틸
-  Graphics/   DX11 렌더러, 이펙트, 셰이더 캐시, 셰이더 변환(ShaderCross), RHI(DX11·OpenGL), 후처리(Volume), 안개·대기(AtmospherePass), 렌더 통계
-  Scene/      GameObject, 컴포넌트(Transform, Camera, Light, Renderer, Collider, Volume ...), 씬, 프리팹
-  Physics/    Jolt Physics 연동
-  Animation/  스키닝, 애니메이션 클립, Animator 컨트롤러
-  Terrain/    TerrainData, 쿼드트리 LOD 렌더러, 지형 생성기(TerrainGenerator: 노이즈·스탬프·침식·재질, 백그라운드 생성), 바이옴 프리셋(TerrainBiomes)
-  Scene/Rock* 바위: RockGenerator(SDF + Surface Nets), RockDesc(프리셋), Rock / RockScatter 컴포넌트, RockRenderer(인스턴싱, 47. RockCommon.fx)
-  Scene/DetailRenderer 지형 디테일(풀·꽃·돌): 조각 캐시 + 절차 덩어리 메시 + 인스턴싱 (48. DetailCommon.fx), Terrain/DetailPrototype(종류 설정·프리셋)
-  Water/      물: WaterBody(바다·호수·강), Gerstner 파도(WaterWaves), 물 프로파일, 렌더러(WaterRenderer, 46. Water.fx), Buoyancy
-  Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
-  Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
-  UI/         UGUI: Canvas, RectTransform, Image, Text, Button, Toggle, Slider, InputField, ScrollRect, Mask, 글꼴 아틀라스, UI 그리기(42. UI.fx), 입력/레이아웃(UISystem)
-  Build/      Build Settings / Player Settings, 빌드 파이프라인(의존 에셋 수집·복사), 빌드된 게임 실행(PlayerRuntime)
-  Effects/    Particle System: 시뮬레이션, 곡선/그라디언트 값, 인스턴싱 렌더러(43. Particle.fx), Inspector·미리보기 편집기
-  Editor/     에디터 GUI(UnityGUI), 창(Scene/Game/Hierarchy/Inspector/Project/Animator/Preferences ...), Undo, EditorPrefs
-    NovaCode/ 내장 C# IDE: CodeEditor(편집 위젯), CSharpLanguage(구문 강조·자동 완성), NovaCodeWindow(창), ExternalScriptEditor(편집기 선택/실행)
-  Hub/        프로젝트 Hub
-ScriptCore/   C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
-Shaders/      HLSL (FX11 이펙트)
-Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain/Layers·Biomes·Details, Water/Profiles·Textures, Rock/Textures, Audio)
-ProjectSetting/  에디터 아이콘(SVG → PNG), 폰트, 로고
-Tools/        아이콘/로고/테스트 효과음 생성 스크립트
+  Platform/     앱 루프, 창, 로딩 창, 자체 검사
+  Core/         경로, 로그(EditorLog), Profiler, 메모리 통계, 공용 유틸
+  Graphics/
+    Common/     API 중립 (GraphicsSettings: API 선택·우선순위·대체, 백엔드 목록)
+    RHI/        Rhi.h(깨끗한 API) · RhiFx(Effects11 모양) · Gfx.h(D3D11 모양 층 — 엔진 렌더 코드가 쓰는 것)
+    DX11/       Direct3D 11 구현 + 렌더러(이펙트, 셰이더 캐시, 그림자, SSAO, 후처리, 대기, 하늘 …)
+    OpenGL/     OpenGL 4.5 구현 (GfxGL, GLRhi, GLContext, GLLoader, GLState)
+    ShaderCross/ HLSL → SPIR-V → GLSL 변환 (DXC + SPIRV-Cross, .fx 파서, 변환 캐시)
+  Scene/        GameObject, 컴포넌트(Transform, Camera, Light, Renderer, Collider, Volume …), 씬, 프리팹,
+                나무(Tree·TreeRenderer), 바위(Rock·RockScatter), 디테일(DetailRenderer)
+  Terrain/      TerrainData, 쿼드트리 LOD 렌더러, 지형 생성기, 바이옴, 디테일 프리셋
+  Water/        Water Body(바다·호수·강), 파도, 물 프로파일, 물 렌더러, Buoyancy
+  Physics/      Jolt Physics 연동 (지형·나무 충돌, 레이캐스트)
+  Animation/    스키닝, 애니메이션 클립, Animator 컨트롤러
+  Effects/      Particle System (시뮬레이션, 곡선·그라디언트, 인스턴싱 렌더러, 편집기)
+  UI/           UGUI (Canvas, RectTransform, Image, Text, Button, InputField, ScrollRect, Mask …)
+  Audio/        XAudio2, AudioClip, AudioSource, AudioListener
+  Scripting/    .NET 호스팅, C# 컴파일·핫 리로드, C# ↔ C++ 바인딩
+  Build/        Build Settings / Player Settings, 빌드 파이프라인, 빌드된 게임 실행
+  Editor/       에디터 GUI(UnityGUI), 창들, Undo, NOVA CLI 서버(CliServer · CliCommands), ImGui GL 렌더러
+    NovaCode/   내장 C# IDE
+  Hub/          NOVA Hub
+ScriptCore/     C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
+Shaders/        HLSL (FX11 이펙트 — OpenGL 은 자동 변환)
+Resources/      엔진 기본 리소스와 패키지
+Tools/          nova CLI(NovaCli), 아이콘·로고·하늘·효과음 생성 스크립트
+docs/           NOVA_CLI.md, 이미지
 ```
 
-## 개발 문서
+## 문서 · 링크
 
-- [`AGENT_HANDOFF.md`](AGENT_HANDOFF.md) — 현재 구조, 기능별 구현 설명, 규칙, 자체 검사(`NOVA_*_TEST` 환경 변수) 방법
-- [`PROJECT_HANDOVER.md`](PROJECT_HANDOVER.md) — 이전 구조와 배경 기록
+| | |
+|---|---|
+| 🌐 [공식 사이트](https://nova-game-engine.web.app) | 엔진 소개, 기능, 갤러리, 다운로드 |
+| 📘 [docs/NOVA_CLI.md](docs/NOVA_CLI.md) | `nova` 명령 전체와 동작 방식 |
+| 🛠️ [AGENT_HANDOFF.md](AGENT_HANDOFF.md) | 현재 구조, 기능별 구현 설명, 규칙, 자체 검사 방법 |
+| 🗂️ [PROJECT_HANDOVER.md](PROJECT_HANDOVER.md) | 이전 구조와 배경 기록 |
 
 ## 사용한 오픈소스
 
@@ -312,9 +391,11 @@ Tools/        아이콘/로고/테스트 효과음 생성 스크립트
 | [Assimp](https://github.com/assimp/assimp) | FBX / 모델 가져오기 |
 | [DirectXTex](https://github.com/microsoft/DirectXTex) · [Effects11](https://github.com/microsoft/FX11) | 텍스처, 셰이더 이펙트 |
 | [DXC](https://github.com/microsoft/DirectXShaderCompiler) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | HLSL → SPIR-V → GLSL 셰이더 변환 (OpenGL) |
-| [nlohmann/json](https://github.com/nlohmann/json) | 씬/에셋 저장 |
+| [nlohmann/json](https://github.com/nlohmann/json) | 씬 / 에셋 저장 |
 | [Pretendard](https://github.com/orioncactus/pretendard) (SIL OFL) · [Font Awesome](https://fontawesome.com) | 폰트, 아이콘 |
 
-기본 스카이박스는 [Poly Haven](https://polyhaven.com) 의 CC0 HDRI(Kloofendal 48d Partly Cloudy Pure Sky)입니다 — `Resources/Textures/Skybox/README.md`.
+기본 스카이박스는 [Poly Haven](https://polyhaven.com) 의 CC0 HDRI(Kloofendal 48d Partly Cloudy Pure Sky)입니다 — `Resources/Textures/Skybox/README.md`. 에디터 아이콘과 테스트 효과음은 `Tools/` 의 스크립트로 직접 그리거나 합성한 것이며, Unity 의 아이콘·에셋은 사용하지 않았습니다.
 
-에디터 아이콘과 테스트 효과음은 `Tools/` 의 스크립트로 직접 그리거나 합성한 것입니다. Unity 의 아이콘·에셋은 사용하지 않았습니다.
+<p align="center">
+  <a href="https://nova-game-engine.web.app"><b>nova-game-engine.web.app</b></a>
+</p>

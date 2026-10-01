@@ -40,10 +40,12 @@ public:
 public:
 	void AddLastUpdate(std::function<void()> action) { m_Editor_LastUpdateActions.push_back(action); } 
 	
-	// Editor: 씬 단축키 Ctrl+S / Ctrl+Shift+S / Ctrl+N / Ctrl+O (프레임 시작, 한글 입력 중에도 동작)
+	// Editor: 단축키 Ctrl+S / Ctrl+Shift+S / Ctrl+N / Ctrl+O / Ctrl+P (프레임 시작, 한글 입력 중에도 동작)
 	void HandleSceneShortcuts();
 	// File > New Scene / Ctrl+N: 저장 안 한 변경이 있으면 먼저 묻는다
 	void NewSceneFromEditor();
+	// Edit > Play / Stop, Ctrl+P: Play 이면 멈추고 아니면 시작 (스크립트 컴파일 오류가 있으면 시작하지 않는다)
+	void TogglePlayFromEditor();
 	// File > Open Scene / Ctrl+O / Project 창 더블클릭: 빈 경로면 파일 대화상자. 저장 안 한 변경이 있으면 먼저 묻는다
 	void OpenSceneFromEditor(const std::wstring& relPath = L"");
 	// 저장 안 한 변경이 있으면 Unity 처럼 "Save / Don't Save / Cancel" 을 물은 뒤 action (없으면 바로).

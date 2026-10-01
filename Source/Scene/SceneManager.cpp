@@ -109,8 +109,8 @@ void SceneManager::HandleSceneShortcuts()
 	const bool ctrl = (INPUT_KEY_HOLD(KEY::CTRL)) || (INPUT_KEY_DOWN(KEY::CTRL));
 	if (!ctrl || Application::IsPlayer())
 		return;
-	const bool s = INPUT_KEY_DOWN(KEY::S), n = INPUT_KEY_DOWN(KEY::N), o = INPUT_KEY_DOWN(KEY::O);
-	if (!s && !n && !o)
+	const bool s = INPUT_KEY_DOWN(KEY::S), n = INPUT_KEY_DOWN(KEY::N), o = INPUT_KEY_DOWN(KEY::O), p = INPUT_KEY_DOWN(KEY::P);
+	if (!s && !n && !o && !p)
 		return;
 	// NOVA Code 에서의 Ctrl+S/N/O 는 스크립트 저장·새 파일 등이다. 확인 창이 떠 있으면 무시
 	if (NovaCodeWindow::IsFocused() || IsScenePromptOpen())
@@ -122,6 +122,28 @@ void SceneManager::HandleSceneShortcuts()
 		NewSceneFromEditor();
 	else if (o && !shift)
 		OpenSceneFromEditor();
+	else if (p && !shift)   // 예전에는 메뉴에 Ctrl+P 라고만 적혀 있고 키는 동작하지 않았다
+		TogglePlayFromEditor();
+}
+
+void SceneManager::TogglePlayFromEditor()
+{
+	if (!Application::IsPlaying())
+	{
+		if (!ScriptEngine::CanEnterPlayMode())   // 컴파일 오류가 있으면 들어가지 않는다
+			return;
+		Application::SetPaused(false);
+		Application::SetPlaying(true);
+		HandlePlay();
+	}
+	else
+	{
+		Application::SetPlaying(false);
+		Application::SetPaused(false);
+		SelectionManager::ClearSelection();
+		HandleStop();
+	}
+	EditorLog::Write("Scene", "play toggled from the editor: %s", Application::IsPlaying() ? "playing" : "stopped");
 }
 
 void SceneManager::NewSceneFromEditor()

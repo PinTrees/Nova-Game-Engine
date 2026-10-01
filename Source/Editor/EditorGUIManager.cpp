@@ -409,22 +409,7 @@ void EditorGUIManager::RenderEditorWindows()
                 Undo::PerformRedo();
             ImGui::Separator();
             if (ImGui::MenuItem("Play / Stop", "Ctrl+P"))
-            {
-                if (!Application::IsPlaying())
-                {
-                    if (ScriptEngine::CanEnterPlayMode())   // 컴파일 오류가 있으면 들어가지 않는다
-                    {
-                        Application::SetPlaying(true);
-                        SceneManager::GetI()->HandlePlay();
-                    }
-                }
-                else
-                {
-                    Application::SetPlaying(false);
-                    SelectionManager::ClearSelection();
-                    SceneManager::GetI()->HandleStop();
-                }
-            }
+                SceneManager::GetI()->TogglePlayFromEditor();
             if (ImGui::MenuItem("Clear Selection"))
             {
                 SelectionManager::ClearSelection();
