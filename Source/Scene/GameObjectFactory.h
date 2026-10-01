@@ -64,6 +64,7 @@ public:
 	static GameObject* CreateTerrainStamp(int shape);
 	static GameObject* CreateTerrainBiome(const std::string& preset);   // 바이옴 영역 (프리셋 이름)
 	static GameObject* CreateWaterBody(int type);                         // 물: 0 바다, 1 호수, 2 강
+	static GameObject* CreateTerrainSpline(int mode);                     // 지형 스플라인: 0 도로, 1 협곡, 2 능선
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

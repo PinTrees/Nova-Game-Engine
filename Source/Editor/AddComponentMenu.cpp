@@ -35,6 +35,7 @@ namespace
 		{ "Tree",                "Tree",                  "Miscellaneous", "terrain_trees",     true  },
 		{ "Volume",              "Volume",                "Miscellaneous", "volume",            true  },
 		{ "WaterBody",           "Water Body",            "Water",         "terrain_paint",     true  },
+		{ "TerrainSpline",       "Terrain Spline",        "Miscellaneous", "terrain_paint",     true  },
 		{ "Buoyancy",            "Buoyancy",              "Water",         "terrain_paint",     true  },
 		{ "ParticleSystem",      "Particle System",       "Effects",       "particle_system",   true  },
 		{ "AudioSource",         "Audio Source",          "Audio",         "audio_source",      false },

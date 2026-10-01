@@ -8,6 +8,7 @@ class TerrainData;
 //  순서: Base 노이즈 → 씬의 TerrainStamp (Order 순) → 필터 스택 → 재질 규칙
 //  씬의 TerrainBiome 영역: 영역 안은 그 프리셋의 Base / 필터 / 재질로 따로 만들어 마스크로 섞는다
 //  씬의 WaterBody(호수·강, Carve Terrain): 필터 뒤에 물 모양대로 판다 (물가 경사 → 바닥)
+//  씬의 TerrainSpline: 협곡·능선은 스탬프 뒤(침식 전), 도로는 필터 뒤·물 파기 전에 곡선을 따라 깎고 메운다 + 길 표면 칠하기
 //  - 값·스탬프·지형 위치가 바뀌면 백그라운드 스레드에서 다시 생성하고, 끝나면 메인 스레드가 높이·스플랫을 바꿔 끼운다
 //  - 마우스로 끄는 중(스탬프 이동, 슬라이더)에는 무거운 필터(침식)를 건너뛴 미리보기, 놓으면 전체 생성
 namespace TerrainGenerator
@@ -52,6 +53,18 @@ namespace TerrainGenerator
 		float Bank = 10;                 // 물가 경사 폭
 	};
 
+	// 지형 스플라인 (도로·협곡·능선, 지형 로컬 m)
+	struct SplineInput
+	{
+		int Mode = 0;                    // 0 Road, 1 Canyon, 2 Ridge
+		bool BeforeErosion = false;
+		std::vector<XMFLOAT4> Points;    // x, z, y, 폭
+		float Falloff = 12, Depth = 25;
+		int PaintLayer = -1;             // 이 지형의 레이어 번호
+		bool PaintColor = false;
+		float Color[3] = { 0.4f, 0.35f, 0.3f };
+	};
+
 	struct Input
 	{
 		int Resolution = 513;
@@ -63,6 +76,7 @@ namespace TerrainGenerator
 		std::vector<StampInput> Stamps;  // 합칠 순서대로
 		std::vector<BiomeInput> Biomes;  // 섞을 순서대로 (뒤의 것이 위)
 		std::vector<WaterCarveInput> Water;   // 필터 뒤에 판다 (호수·강 바닥)
+		std::vector<SplineInput> Splines;     // Order 순 (침식 전 / 뒤)
 		bool Preview = false;
 	};
 
@@ -71,7 +85,7 @@ namespace TerrainGenerator
 		std::vector<float> Heights;      // 정규화 0~1
 		std::vector<uint8_t> Control;    // RGBA (PaintMaterials 일 때)
 		std::vector<uint8_t> ColorMap;   // RGBA: rgb = 색(sRGB), a = 색이 텍스처 색을 대신하는 정도. 색 규칙이 없으면 비어 있음
-		std::vector<float> Uncarved;     // 물로 파기 전 높이 (정규화, 판 물이 없으면 비어 있음)
+		std::vector<float> Uncarved;     // 도로·물로 바꾸기 전 높이 (정규화, 없으면 비어 있음)
 		bool HasControl = false;
 		double Ms[4] = {};               // Base, Stamps, Filters, Materials
 	};
@@ -89,6 +103,7 @@ namespace TerrainGenerator
 		double StageMs[4] = {};
 		int StampCount = 0;
 		int BiomeCount = 0;
+		int SplineCount = 0;
 	};
 	Status GetStatus(const TerrainData* data);
 

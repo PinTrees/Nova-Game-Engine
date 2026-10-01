@@ -11,6 +11,7 @@
 #include "TerrainBiomes.h"
 #include "TerrainStamp.h"
 #include "TerrainBiome.h"
+#include "TerrainSpline.h"
 #include "GameObjectFactory.h"
 #include "SelectionManager.h"
 #include <random>
@@ -559,6 +560,18 @@ namespace
 
 	std::string s_BiomeMenu;   // 프리셋 썸네일 오른쪽 클릭 메뉴의 대상
 
+	void AddSplineToScene(int mode)
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		if (scene == nullptr)
+			return;
+		GameObject* obj = GameObjectFactory::CreateTerrainSpline(mode);
+		scene->AddRootGameObject(obj);
+		SelectionManager::SetSelectedGameObject(obj);
+		Undo::SetActionName("Create Terrain Spline");
+		Undo::RequestCheck();
+	}
+
 	void AddBiomeToScene(const std::string& preset)
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
@@ -628,8 +641,8 @@ namespace
 			if (st.Running)
 				snprintf(status, sizeof(status), "Generating...");
 			else if (st.LastMs > 0.0)
-				snprintf(status, sizeof(status), "%s in %.0f ms  (base %.0f, stamps %.0f, filters %.0f, materials %.0f)  -  %d stamps, %d biomes",
-					st.LastPreview ? "Preview (erosion skipped)" : "Generated", st.LastMs, st.StageMs[0], st.StageMs[1], st.StageMs[2], st.StageMs[3], st.StampCount, st.BiomeCount);
+				snprintf(status, sizeof(status), "%s in %.0f ms  (base %.0f, stamps %.0f, filters %.0f, materials %.0f)  -  %d stamps, %d biomes, %d splines",
+					st.LastPreview ? "Preview (erosion skipped)" : "Generated", st.LastMs, st.StageMs[0], st.StageMs[1], st.StageMs[2], st.StageMs[3], st.StampCount, st.BiomeCount, st.SplineCount);
 			else
 				snprintf(status, sizeof(status), "Waiting...");
 			HelpBox(status, false);
@@ -764,6 +777,39 @@ namespace
 					for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
 						if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s)))
 							AddStampToScene(s);
+					ImGui::EndPopup();
+				}
+			}
+
+			// ---- Splines (씬 오브젝트: 도로·협곡·능선)
+			if (Foldout("Splines", 0, true, false))
+			{
+				int shown = 0;
+				for (TerrainSpline* s : TerrainSpline::All())
+				{
+					GameObject* go = s->GetGameObject();
+					if (go == nullptr)
+						continue;
+					char label[160];
+					snprintf(label, sizeof(label), "%s  -  %s, %d points%s", go->GetName().c_str(), TerrainSpline::ModeName(s->SplineMode),
+						(int)s->Points.size(), s->IsActiveSpline() ? "" : "  (off)");
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+					ImGui::PushID(s);
+					if (ImGui::Selectable(label, SelectionManager::GetSelectedGameObject() == go))
+						SelectionManager::SetSelectedGameObject(go);
+					ImGui::PopID();
+					++shown;
+				}
+				if (shown == 0)
+					HelpBox("No splines. A spline flattens a road, carves a canyon or raises a ridge along a curve.", false, 1);
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+				if (ImGui::Button("Add Spline", ImVec2(120, 0)))
+					ImGui::OpenPopup("##addspline");
+				if (ImGui::BeginPopup("##addspline"))
+				{
+					for (int m = 0; m < (int)TerrainSpline::Mode::Count; ++m)
+						if (ImGui::MenuItem(TerrainSpline::ModeName((TerrainSpline::Mode)m)))
+							AddSplineToScene(m);
 					ImGui::EndPopup();
 				}
 			}

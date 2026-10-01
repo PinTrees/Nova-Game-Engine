@@ -18,6 +18,7 @@
 #include "TerrainStamp.h"
 #include "TerrainBiome.h"
 #include "WaterBody.h"
+#include "TerrainSpline.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "AnimationPlayer.h"
@@ -467,6 +468,30 @@ GameObject* GameObjectFactory::CreateWaterBody(int type)
 	obj->GetTransform()->SetPosition(pos);
 	if (t == T::River)
 		water->SnapToGround();
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateTerrainSpline(int mode)
+{
+	using M = TerrainSpline::Mode;
+	const M m = (M)std::clamp(mode, 0, (int)M::Count - 1);
+	GameObject* obj = new GameObject(std::string(TerrainSpline::ModeName(m)) + " Spline");
+	TerrainSpline* spline = obj->AddComponent<TerrainSpline>();
+	spline->SplineMode = m;
+	spline->ResetShape();
+	Vec3 pos(0, 0, 0);
+	if (!Terrain::GetActiveTerrains().empty())
+	{
+		Terrain* t = Terrain::GetActiveTerrains()[0];
+		if (auto data = t->GetTerrainData())
+		{
+			const Vec3 tp = t->GetPosition();
+			pos = Vec3(tp.x + data->Size.x * 0.5f, tp.y, tp.z + data->Size.z * 0.5f);
+			pos.y = tp.y + t->SampleHeight(pos);
+		}
+	}
+	obj->GetTransform()->SetPosition(pos);
+	spline->SnapToGround();
 	return obj;
 }
 

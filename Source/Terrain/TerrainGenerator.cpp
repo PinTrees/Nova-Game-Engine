@@ -5,6 +5,7 @@
 #include "TerrainStamp.h"
 #include "TerrainBiome.h"
 #include "WaterBody.h"
+#include "TerrainSpline.h"
 #include "TerrainBiomes.h"
 #include "Transform.h"
 #include "FrameProfiler.h"
@@ -736,6 +737,74 @@ namespace
 		}
 	}
 
+	// ---------------------------------------------------------------- 지형 스플라인 (도로·협곡·능선)
+	//  가장 가까운 곡선 조각까지 거리 d, 그 위치의 곡선 높이 y·반폭 hw. p = 1 - smoothstep(hw, hw + Falloff, d) (안쪽 1).
+	//  Road = lerp(H, y, p) (깎고 메움), Canyon = H - Depth·p, Ridge = H + Depth·p. paint = 칠하기 마스크 (길 폭 + 둑 조금)
+	void ApplySpline(const TerrainGenerator::Input& in, const TerrainGenerator::SplineInput& s, std::vector<float>& H, std::vector<float>* paint)
+	{
+		const int res = in.Resolution;
+		const float cx = in.SizeX / (res - 1), cz = in.SizeZ / (res - 1);
+		const size_t n = s.Points.size();
+		if (n < 2)
+			return;
+		float minX = FLT_MAX, minZ = FLT_MAX, maxX = -FLT_MAX, maxZ = -FLT_MAX, maxW = 0;
+		for (const auto& p : s.Points)
+		{
+			minX = (std::min)(minX, p.x); maxX = (std::max)(maxX, p.x);
+			minZ = (std::min)(minZ, p.y); maxZ = (std::max)(maxZ, p.y);
+			maxW = (std::max)(maxW, p.w);
+		}
+		const float reach = maxW * 0.5f + s.Falloff + 2.0f;
+		const int x0 = (std::max)(0, (int)floorf((minX - reach) / cx)), x1 = (std::min)(res - 1, (int)ceilf((maxX + reach) / cx));
+		const int z0 = (std::max)(0, (int)floorf((minZ - reach) / cz)), z1 = (std::min)(res - 1, (int)ceilf((maxZ + reach) / cz));
+		if (x0 > x1 || z0 > z1)
+			return;
+		const float falloff = (std::max)(0.01f, s.Falloff);
+		ParallelRows(z1 - z0 + 1, [&](int row) {
+			const int z = z0 + row;
+			for (int x = x0; x <= x1; ++x)
+			{
+				const float px = x * cx, pz = z * cz;
+				float best = FLT_MAX, y = 0, hw = 0;
+				for (size_t i = 0; i + 1 < n; ++i)
+				{
+					const XMFLOAT4& a = s.Points[i];
+					const XMFLOAT4& b = s.Points[i + 1];
+					const float abx = b.x - a.x, abz = b.y - a.y, l2 = abx * abx + abz * abz;
+					const float t = l2 > 1e-6f ? std::clamp(((px - a.x) * abx + (pz - a.y) * abz) / l2, 0.0f, 1.0f) : 0.0f;
+					const float dx = a.x + abx * t - px, dz = a.y + abz * t - pz;
+					const float w = Lerp(a.w, b.w, t) * 0.5f;
+					const float d = sqrtf(dx * dx + dz * dz);
+					if (d - w < best)
+					{
+						best = d - w;
+						y = Lerp(a.z, b.z, t);
+						hw = w;
+					}
+				}
+				const float e = best;   // 폭 바깥으로 나간 거리 (안쪽 음수)
+				if (e >= falloff)
+					continue;
+				const float p = 1.0f - Smoothstep(0.0f, falloff, e);
+				float& h = H[(size_t)z * res + x];
+				switch (s.Mode)
+				{
+				case 0: h = Lerp(h, y, p); break;
+				case 1: h -= s.Depth * p; break;
+				default: h += s.Depth * p; break;
+				}
+				if (paint)
+				{
+					// 길: 폭 안 + 둑 1/4. 협곡·능선: 경사 전체를 조금 좁게
+					const float edge = s.Mode == 0 ? falloff * 0.25f : falloff * 0.6f;
+					float& m = (*paint)[(size_t)z * res + x];
+					m = (std::max)(m, 1.0f - Smoothstep(-0.5f, edge, e));
+					(void)hw;
+				}
+			}
+		});
+	}
+
 	// ---------------------------------------------------------------- 물 바디 파기 (호수·강)
 	//  e = 물 안쪽으로 들어간 거리(밖이면 음수). 바닥 = 수면 + 0.6 m 에서 Bank 폭에 걸쳐 깊이까지 내려가고, 밖은 19° 쯤으로 올라간다.
 	//  지형을 낮추기만 한다 (원래 더 낮으면 그대로)
@@ -1028,8 +1097,11 @@ namespace
 	}
 
 	void PaintMaterials(const TerrainGenerator::Input& in, const std::vector<float>& H, const std::vector<float>& sediment, const std::vector<float>& flow,
-		const std::vector<std::vector<float>>& biomeMasks, std::vector<uint8_t>& control, std::vector<uint8_t>& colorMap, bool& anyColor)
+		const std::vector<std::vector<float>>& biomeMasks, const std::vector<std::vector<float>>& splinePaint,
+		std::vector<uint8_t>& control, std::vector<uint8_t>& colorMap, bool& anyColor)
 	{
+		for (size_t i = 0; i < in.Splines.size() && i < splinePaint.size(); ++i)
+			anyColor |= !splinePaint[i].empty() && in.Splines[i].PaintColor;
 		const int res = in.Resolution, cres = in.ControlResolution;
 		const int layers = (std::min)(in.LayerCount, 4);
 		control.assign((size_t)cres * cres * 4, 0);
@@ -1079,6 +1151,31 @@ namespace
 				uint8_t* px = &control[((size_t)z * cres + x) * 4];
 				for (int c = 0; c < 4; ++c)
 					px[c] = (uint8_t)std::lround(Saturate(c < layers ? w[c] : 0.0f) * 255.0f);
+				// 지형 스플라인 칠하기 (길 표면)
+				for (size_t si = 0; si < in.Splines.size() && si < splinePaint.size(); ++si)
+				{
+					if (splinePaint[si].empty())
+						continue;
+					const float m = SampleGrid(splinePaint[si], res, gx, gz);
+					if (m <= 0.001f)
+						continue;
+					const TerrainGenerator::SplineInput& sp = in.Splines[si];
+					// 길 가장자리를 노이즈로 흔든다 (자로 그은 듯하지 않게)
+					const float mm = Saturate(m * 1.3f - 0.15f + noise.Fbm(wx * 0.15f, wz * 0.15f, 2) * 0.3f);
+					if (sp.PaintLayer >= 0 && sp.PaintLayer < layers)
+					{
+						for (int c = 0; c < 4; ++c)
+							w[c] *= 1.0f - mm;
+						w[sp.PaintLayer] += mm;
+					}
+					if (sp.PaintColor)
+					{
+						const float v = 1.0f + 0.12f * noise.Fbm(wx * 0.3f + 7.0f, wz * 0.3f, 2);
+						for (int c = 0; c < 3; ++c)
+							col[c] = Lerp(col[3] > 0.0f ? col[c] : sp.Color[c] * v, Saturate(sp.Color[c] * v), mm);
+						col[3] = Lerp(col[3], 1.0f, mm);
+					}
+				}
 				// 캐비티 음영 (World Creator 처럼): 오목한 골은 어둡게, 볼록한 능선은 살짝 밝게 → 침식 디테일이 색에서도 읽힌다
 				const float cav = SampleGrid(mk.Cavity, res, gx, gz);
 				const float shade = (1.0f - 0.22f * Saturate(cav)) * (1.0f + 0.07f * Saturate(-cav));
@@ -1130,6 +1227,16 @@ namespace TerrainGenerator
 		auto t1 = clock::now();
 		for (const StampInput& s : in.Stamps)
 			ApplyStamp(in, s, H);
+		// 칠하기 마스크 (스플라인마다, 칠할 것이 있으면)
+		std::vector<std::vector<float>> splinePaint(in.Splines.size());
+		for (size_t i = 0; i < in.Splines.size(); ++i)
+		{
+			const SplineInput& sp = in.Splines[i];
+			if (in.Settings.PaintMaterials && (sp.PaintLayer >= 0 || sp.PaintColor))
+				splinePaint[i].assign(H.size(), 0.0f);
+			if (sp.BeforeErosion)
+				ApplySpline(in, sp, H, splinePaint[i].empty() ? nullptr : &splinePaint[i]);
+		}
 		logStats("stamps");
 		auto t2 = clock::now();
 		std::vector<float> sediment(H.size(), 0.0f), flow(H.size(), 0.0f);
@@ -1156,13 +1263,20 @@ namespace TerrainGenerator
 				}
 			logStats("biome filters");
 		}
-		if (!in.Water.empty())
+		// 도로(침식 뒤 스플라인)·물로 바꾸기 전 높이: 점 맞추기(Snap)가 자기가 깎은 땅을 다시 재지 않게
+		bool afterSplines = false;
+		for (const SplineInput& sp : in.Splines)
+			afterSplines |= !sp.BeforeErosion;
+		if (!in.Water.empty() || afterSplines)
 		{
 			const float invY = 1.0f / (std::max)(in.SizeY, 0.001f);
 			out.Uncarved.resize(H.size());
 			for (size_t i = 0; i < H.size(); ++i)
 				out.Uncarved[i] = Saturate(H[i] * invY);
 		}
+		for (size_t i = 0; i < in.Splines.size(); ++i)
+			if (!in.Splines[i].BeforeErosion)
+				ApplySpline(in, in.Splines[i], H, splinePaint[i].empty() ? nullptr : &splinePaint[i]);
 		for (const WaterCarveInput& w : in.Water)
 			CarveWater(in, w, H);
 		if (!in.Water.empty())
@@ -1175,7 +1289,7 @@ namespace TerrainGenerator
 		if (in.Settings.PaintMaterials && in.LayerCount > 0)
 		{
 			bool anyColor = false;
-			PaintMaterials(in, H, sediment, flow, masks, out.Control, out.ColorMap, anyColor);
+			PaintMaterials(in, H, sediment, flow, masks, splinePaint, out.Control, out.ColorMap, anyColor);
 			out.HasControl = true;
 			if (!anyColor)
 				out.ColorMap.clear();   // 색 규칙이 없으면 컬러 맵을 쓰지 않는다
@@ -1235,7 +1349,7 @@ namespace
 		std::future<TerrainGenerator::Output> Result;
 		uint64_t Hash = 0;
 		bool Preview = false;
-		int Stamps = 0, Biomes = 0;
+		int Stamps = 0, Biomes = 0, Splines = 0;
 		std::chrono::steady_clock::time_point Start;
 	};
 	struct State
@@ -1362,6 +1476,39 @@ namespace
 		return out;
 	}
 
+	// 지형 스플라인 (Order 순). 칠할 레이어 번호는 그대로 (이 지형의 레이어)
+	std::vector<TerrainGenerator::SplineInput> CollectSplines(const TerrainData& data, const Vec3& terrainPos, uint64_t& hash)
+	{
+		std::vector<std::pair<int, TerrainSpline*>> list;
+		int idx = 0;
+		for (TerrainSpline* s : TerrainSpline::All())
+			if (s->IsActiveSpline())
+				list.push_back({ s->Order * 100000 + idx++, s });
+		std::sort(list.begin(), list.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+		std::vector<TerrainGenerator::SplineInput> out;
+		for (const auto& [order, s] : list)
+		{
+			TerrainGenerator::SplineInput in;
+			in.Mode = (int)s->SplineMode;
+			in.BeforeErosion = s->BeforeErosion;
+			in.Falloff = s->Falloff;
+			in.Depth = s->Depth;
+			in.PaintLayer = s->PaintLayer < (int)data.Layers.size() ? s->PaintLayer : -1;
+			in.PaintColor = s->PaintColor;
+			for (int c = 0; c < 3; ++c) in.Color[c] = s->Color[c];
+			for (const auto& c : s->Curve(3.0f))
+			{
+				in.Points.push_back(XMFLOAT4(c.Position.x - terrainPos.x, c.Position.z - terrainPos.z, c.Position.y - terrainPos.y, c.Width));
+				hash = Mix(hash, Bits(c.Position.x)); hash = Mix(hash, Bits(c.Position.y)); hash = Mix(hash, Bits(c.Position.z)); hash = Mix(hash, Bits(c.Width));
+			}
+			for (float f : { s->Falloff, s->Depth, s->Color[0], s->Color[1], s->Color[2] })
+				hash = Mix(hash, Bits(f));
+			hash = Mix(hash, (uint64_t)in.Mode * 31 + (in.BeforeErosion ? 7 : 0) + (uint64_t)(in.PaintLayer + 1) * 101 + (in.PaintColor ? 3 : 0));
+			out.push_back(std::move(in));
+		}
+		return out;
+	}
+
 	// 지형을 파는 물 바디 (호수·강, Carve Terrain). 지형 로컬 좌표로
 	std::vector<TerrainGenerator::WaterCarveInput> CollectWater(const Vec3& terrainPos, uint64_t& hash)
 	{
@@ -1447,9 +1594,10 @@ namespace TerrainGenerator
 					st.Status.StageMs[i] = out.Ms[i];
 				st.Status.StampCount = st.Running->Stamps;
 				st.Status.BiomeCount = st.Running->Biomes;
+				st.Status.SplineCount = st.Running->Splines;
 				if (!st.Running->Preview || FrameProfiler::Enabled())   // 미리보기(끄는 중)는 너무 잦아 기본으로는 남기지 않는다
-					EditorLog::Write("TerrainGen", "%s %s: %.1f ms (base %.1f, stamps %.1f, filters %.1f, materials %.1f; %d stamps, %d biomes)",
-						data->Name().c_str(), st.Running->Preview ? "preview" : "generated", st.Status.LastMs, out.Ms[0], out.Ms[1], out.Ms[2], out.Ms[3], st.Running->Stamps, st.Running->Biomes);
+					EditorLog::Write("TerrainGen", "%s %s: %.1f ms (base %.1f, stamps %.1f, filters %.1f, materials %.1f; %d stamps, %d biomes, %d splines)",
+						data->Name().c_str(), st.Running->Preview ? "preview" : "generated", st.Status.LastMs, out.Ms[0], out.Ms[1], out.Ms[2], out.Ms[3], st.Running->Stamps, st.Running->Biomes, st.Running->Splines);
 				st.Running.reset();
 			}
 			st.Status.Running = st.Running != nullptr;
@@ -1465,6 +1613,7 @@ namespace TerrainGenerator
 			std::vector<StampInput> stamps = CollectStamps(pos, hash);
 			std::vector<BiomeInput> biomes = CollectBiomes(*data, pos, hash);
 			std::vector<WaterCarveInput> water = CollectWater(pos, hash);
+			std::vector<SplineInput> splines = CollectSplines(*data, pos, hash);
 
 			const bool changed = hash != st.AppliedHash;
 			const bool needFinal = !changed && st.AppliedPreview && !interacting;
@@ -1484,12 +1633,14 @@ namespace TerrainGenerator
 			in->Stamps = std::move(stamps);
 			in->Biomes = std::move(biomes);
 			in->Water = std::move(water);
+			in->Splines = std::move(splines);
 			in->Preview = preview;
 			auto job = std::make_unique<Job>();
 			job->Hash = hash;
 			job->Preview = preview;
 			job->Stamps = (int)in->Stamps.size();
 			job->Biomes = (int)in->Biomes.size();
+			job->Splines = (int)in->Splines.size();
 			job->Start = std::chrono::steady_clock::now();
 			job->Result = std::async(std::launch::async, [in]() { return Generate(*in); });
 			st.Running = std::move(job);

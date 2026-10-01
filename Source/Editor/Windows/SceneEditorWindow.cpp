@@ -8,6 +8,7 @@
 #include "SceneGizmoTools.h"
 #include "TerrainEditor.h"
 #include "WaterEditor.h"
+#include "TerrainSplineEditor.h"
 #include "ParticleSystemEditor.h"
 
 SceneEditorWindow::SceneEditorWindow()
@@ -186,8 +187,9 @@ void SceneEditorWindow::OnRender()
     const bool terrainTool = TerrainEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
     // 물 점 편집 (Edit Points 가 켜진 Water Body)
     const bool waterTool = WaterEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
+    const bool splineTool = TerrainSplineEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
     SceneViewOverlay::End();
-    SceneGizmoTools::SetSuppressed(terrainTool || waterTool);
+    SceneGizmoTools::SetSuppressed(terrainTool || waterTool || splineTool);
 
     // 도구 단축키(Q/W/E/R/T/Y) → Move/Rotate/Scale/Rect 핸들, 클릭 선택, Hand/휠/Alt 궤도/F 포커스
     SceneToolbar::HandleShortcuts(viewHovered);

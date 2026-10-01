@@ -3,6 +3,7 @@
 #include "GameObjectFactory.h"
 #include "TerrainStamp.h"
 #include "TerrainBiomes.h"
+#include "TerrainSpline.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
 
@@ -99,6 +100,12 @@ namespace GameObjectMenu
 			{
 				for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
 					if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s))) add(GameObjectFactory::CreateTerrainStamp(s));
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Terrain Spline"))   // 곡선을 따라 길·협곡·능선 (지형 생성기)
+			{
+				for (int m = 0; m < (int)TerrainSpline::Mode::Count; ++m)
+					if (ImGui::MenuItem(TerrainSpline::ModeName((TerrainSpline::Mode)m))) add(GameObjectFactory::CreateTerrainSpline(m));
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Water"))   // 바다·호수·강 (물 패키지 프로파일)
