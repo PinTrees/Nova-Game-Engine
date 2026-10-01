@@ -7,6 +7,8 @@
 
 namespace
 {
+	std::vector<NavMeshAgent*> s_Agents;
+
 	float Horizontal(const Vec3& a, const Vec3& b)
 	{
 		const float dx = b.x - a.x, dz = b.z - a.z;
@@ -17,7 +19,15 @@ namespace
 NavMeshAgent::NavMeshAgent()
 {
 	m_InspectorTitleName = "Nav Mesh Agent";
+	s_Agents.push_back(this);
 }
+
+NavMeshAgent::~NavMeshAgent()
+{
+	s_Agents.erase(std::remove(s_Agents.begin(), s_Agents.end(), this), s_Agents.end());
+}
+
+const std::vector<NavMeshAgent*>& NavMeshAgent::All() { return s_Agents; }
 
 bool NavMeshAgent::SetDestination(const Vec3& target)
 {
@@ -126,8 +136,42 @@ void NavMeshAgent::Update()
 		dv = dv / dv.Length() * maxDv;
 	Velocity += dv;
 	Velocity.y = 0.0f;
+
+	// 다른 에이전트와 겹치지 않게 밀어내기 (반지름 합 안쪽 — Unity 의 회피를 단순하게: 우선순위가 높은(숫자 작은) 쪽은 덜 밀린다)
+	Vec3 push = Vec3::Zero;
+	for (NavMeshAgent* other : s_Agents)
+	{
+		if (other == this || other->m_pGameObject == nullptr || !other->IsEnabled() || !other->m_pGameObject->IsActive())
+			continue;
+		const Vec3 op = other->m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, other->BaseOffset, 0.0f);
+		if (fabsf(op.y - feet.y) > (std::max)(Height, other->Height))
+			continue;   // 다른 층
+		Vec3 d = feet - op;
+		d.y = 0.0f;
+		const float dist = d.Length();
+		const float minDist = Radius + other->Radius;
+		if (dist >= minDist)
+			continue;
+		const Vec3 dir = dist > 1e-4f ? d / dist : Vec3((float)((size_t)this % 7) - 3.0f, 0.0f, 1.0f) / 3.2f;   // 정확히 겹치면 아무 쪽으로
+		const float share = AvoidancePriority == other->AvoidancePriority ? 0.5f : (AvoidancePriority > other->AvoidancePriority ? 0.8f : 0.2f);
+		push += dir * ((minDist - dist) * share);
+	}
+	if (push.LengthSquared() > 1e-10f)
+	{
+		const float maxPush = (std::max)(Speed, 1.0f) * dt;   // 한 프레임에 너무 튀지 않게
+		if (push.Length() > maxPush)
+			push = push / push.Length() * maxPush;
+		const Vec3 pushed = feet + push;
+		float y;
+		if (const NavGrid* grid = NavMeshSurface::FindGrid(pushed))
+			if (grid->GroundHeight(pushed, y) && fabsf(y - feet.y) <= grid->Settings.StepHeight + 0.05f)
+				feet = pushed;   // 걸을 수 있는 곳으로만 민다
+	}
 	if (Velocity.LengthSquared() < 1e-8f)
+	{
+		tr->SetPosition(feet + Vec3(0.0f, BaseOffset, 0.0f));
 		return;
+	}
 
 	feet += Velocity * dt;
 	if (const NavGrid* grid = NavMeshSurface::FindGrid(feet))
@@ -162,6 +206,7 @@ void NavMeshAgent::OnInspectorGUI()
 	UnityGUI::Float("Radius", &Radius, 1);
 	UnityGUI::Float("Height", &Height, 1);
 	UnityGUI::Float("Base Offset", &BaseOffset, 1);
+	if (UnityGUI::Int("Priority", &AvoidancePriority, 1)) AvoidancePriority = std::clamp(AvoidancePriority, 0, 99);
 	if (Application::IsPlaying())
 	{
 		char buf[96];
@@ -201,6 +246,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(NavMeshAgent)
 	j["radius"] = Radius;
 	j["height"] = Height;
 	j["baseOffset"] = BaseOffset;
+	j["avoidancePriority"] = AvoidancePriority;
 	return j;
 }
 
@@ -215,4 +261,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(NavMeshAgent)
 	Radius = j.value("radius", 0.5f);
 	Height = j.value("height", 2.0f);
 	BaseOffset = j.value("baseOffset", 0.0f);
+	AvoidancePriority = j.value("avoidancePriority", 50);
 }

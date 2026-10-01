@@ -24,6 +24,9 @@ public:
 	bool IsStopped = false;
 
 	NavMeshAgent();
+	~NavMeshAgent();
+	static const std::vector<NavMeshAgent*>& All();
+	int AvoidancePriority = 50;    // Unity: 낮을수록 중요 (덜 밀린다), 0~99
 
 	bool SetDestination(const Vec3& target);
 	void ResetPath();

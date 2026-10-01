@@ -80,6 +80,8 @@ namespace NovaEngine.AI
         public float radius { get => F(4); set => SetF(4, value); }
         public float height { get => F(5); set => SetF(5, value); }
         public float baseOffset { get => F(6); set => SetF(6, value); }
+        /// <summary>회피 우선순위 0~99 (낮을수록 덜 밀린다)</summary>
+        public int avoidancePriority { get => (int)F(8); set => SetF(8, value); }
         /// <summary>남은 길이 (경로가 없으면 Infinity)</summary>
         public float remainingDistance => F(7);
         public bool isStopped { get => B(0); set => NavNative.NavAgent_SetBool(nativeId, 0, value ? 1 : 0); }

@@ -16,7 +16,7 @@ namespace
 	}
 }
 
-// ---- NavMeshAgent — float: 0 speed, 1 angularSpeed, 2 acceleration, 3 stoppingDistance, 4 radius, 5 height, 6 baseOffset, 7 remainingDistance(읽기)
+// ---- NavMeshAgent — float: 0 speed, 1 angularSpeed, 2 acceleration, 3 stoppingDistance, 4 radius, 5 height, 6 baseOffset, 7 remainingDistance(읽기), 8 avoidancePriority
 NOVA_PACKAGE_EXPORT float NavAgent_GetFloat(uint64 go, int prop)
 {
 	NavMeshAgent* a = Find<NavMeshAgent>(go);
@@ -24,7 +24,7 @@ NOVA_PACKAGE_EXPORT float NavAgent_GetFloat(uint64 go, int prop)
 	switch (prop)
 	{
 	case 0: return a->Speed; case 1: return a->AngularSpeed; case 2: return a->Acceleration; case 3: return a->StoppingDistance;
-	case 4: return a->Radius; case 5: return a->Height; case 6: return a->BaseOffset; default: return a->RemainingDistance();
+	case 4: return a->Radius; case 5: return a->Height; case 6: return a->BaseOffset; case 8: return (float)a->AvoidancePriority; default: return a->RemainingDistance();
 	}
 }
 
@@ -35,7 +35,8 @@ NOVA_PACKAGE_EXPORT void NavAgent_SetFloat(uint64 go, int prop, float v)
 	switch (prop)
 	{
 	case 0: a->Speed = v; break; case 1: a->AngularSpeed = v; break; case 2: a->Acceleration = v; break; case 3: a->StoppingDistance = v; break;
-	case 4: a->Radius = v; break; case 5: a->Height = v; break; case 6: a->BaseOffset = v; break; default: break;
+	case 4: a->Radius = v; break; case 5: a->Height = v; break; case 6: a->BaseOffset = v; break;
+	case 8: a->AvoidancePriority = std::clamp((int)v, 0, 99); break; default: break;
 	}
 }
 
