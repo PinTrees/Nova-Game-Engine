@@ -106,6 +106,62 @@ namespace NovaEngine.Interop
         [UnmanagedCallersOnly]
         public static void UnloadGameAssembly() => UnloadInternal();
 
+        // NOVA CLI (nova exec): 따로 빌드한 작은 어셈블리를 수집 가능한 컨텍스트로 읽어 NovaExec.Run() 을 부르고 결과를 글자로.
+        // 엔진 API 와 게임 스크립트(Assembly-CSharp)는 이미 올라온 것을 함께 써서 타입이 같다. 끝나면 컨텍스트를 내린다
+        sealed class ExecLoadContext : AssemblyLoadContext
+        {
+            public ExecLoadContext() : base("NovaExec", isCollectible: true) { }
+            protected override Assembly Load(AssemblyName name)
+            {
+                if (name.Name == typeof(Bridge).Assembly.GetName().Name) return typeof(Bridge).Assembly;
+                if (s_Game != null && name.Name == s_Game.GetName().Name) return s_Game;
+                return null;
+            }
+        }
+
+        [UnmanagedCallersOnly]
+        public static IntPtr ExecAssembly(byte* pathUtf8)
+        {
+            string result;
+            var ctx = new ExecLoadContext();
+            try
+            {
+                byte[] dll = File.ReadAllBytes(Native.Str(pathUtf8));
+                Assembly asm = ctx.LoadFromStream(new MemoryStream(dll));
+                MethodInfo run = asm.GetType("NovaExec")?.GetMethod("Run", BindingFlags.Public | BindingFlags.Static);
+                if (run == null) return Marshal.StringToCoTaskMemUTF8("error:NovaExec.Run not found");
+                object value = run.Invoke(null, null);
+                result = "ok:" + Describe(value);
+            }
+            catch (TargetInvocationException e) when (e.InnerException != null)
+            {
+                result = "error:" + e.InnerException.GetType().Name + ": " + e.InnerException.Message;
+            }
+            catch (Exception e)
+            {
+                result = "error:" + e.GetType().Name + ": " + e.Message;
+            }
+            finally
+            {
+                ctx.Unload();
+            }
+            return Marshal.StringToCoTaskMemUTF8(result);
+        }
+
+        // 결과 글자: null, 글자 그대로, 모음은 [a, b, …], 나머지는 ToString()
+        static string Describe(object value)
+        {
+            if (value == null) return "null";
+            if (value is string s) return s;
+            if (value is System.Collections.IEnumerable list)
+            {
+                var parts = new List<string>();
+                foreach (object o in list) { parts.Add(o == null ? "null" : o.ToString()); if (parts.Count >= 200) { parts.Add("…"); break; } }
+                return "[" + string.Join(", ", parts) + "]";
+            }
+            return value.ToString();
+        }
+
         static void UnloadInternal()
         {
             ScriptRegistry.Clear();

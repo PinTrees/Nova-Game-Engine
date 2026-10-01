@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <sstream>
+#include <iostream>
 #include <nlohmann/json.hpp>
 
 using json = nlohmann::json;
@@ -78,7 +80,7 @@ namespace
 	// 값이 없는 플래그 (뒤 단어를 값으로 먹지 않는다)
 	bool IsFlag(const std::string& name)
 	{
-		static const char* flags[] = { "json", "components", "force", "background", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world", "float", "triggers", "clear" };
+		static const char* flags[] = { "json", "components", "force", "background", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world", "float", "triggers", "clear", "keep-going" };
 		for (const char* f : flags)
 			if (name == f) return true;
 		return false;
@@ -572,6 +574,8 @@ namespace
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
 		"  wait [frames]                          keep the editor rendering N frames (default 60), then return (background editors pause otherwise)\n"
 		"  raycast <x,y,z> <dx,dy,dz> [--max d]   Physics.Raycast in Play mode: hit object, point, normal, distance\n"
+		"  exec <C# code> | exec --file f.cs      run C# in the editor (expression -> its value; statements -> return value)\n"
+		"  batch <file | -> [--keep-going]        run many nova commands (one per line) in one process\n"
 		"  perf [--frames N] [--depth D]          measure N frames (default 240): frame ms / fps, CPU ms, GPU ms, top GPU passes / CPU scopes\n"
 		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
@@ -609,6 +613,95 @@ namespace
 	int Usage() { Out(std::string(kUsage).replace(std::string(kUsage).find("%s"), 2, kVersion)); return 0; }
 }
 
+int Run(const std::vector<std::string>& in);
+
+// 한 줄을 셸처럼 나눈다: 빈칸으로 나누고 "…" / '…' 안은 그대로, "…" 안의 \" 는 따옴표
+std::vector<std::string> SplitLine(const std::string& line)
+{
+	std::vector<std::string> out;
+	std::string cur;
+	bool has = false;
+	char quote = 0;
+	for (size_t i = 0; i < line.size(); ++i)
+	{
+		const char c = line[i];
+		if (quote)
+		{
+			if (c == '\\' && quote == '"' && i + 1 < line.size() && (line[i + 1] == '"' || line[i + 1] == '\\')) { cur += line[++i]; continue; }
+			if (c == quote) { quote = 0; continue; }
+			cur += c;
+			continue;
+		}
+		if (c == '\\' && i + 1 < line.size() && line[i + 1] == '"') { cur += line[++i]; continue; }   // 따옴표 밖의 \" 도 따옴표
+		if (c == '"' || c == '\'') { quote = c; has = true; continue; }
+		if (c == ' ' || c == '\t')
+		{
+			if (has || !cur.empty()) out.push_back(cur);
+			cur.clear();
+			has = false;
+			continue;
+		}
+		cur += c;
+	}
+	if (has || !cur.empty()) out.push_back(cur);
+	return out;
+}
+
+// nova batch <파일 | -> : 줄마다 nova 명령 하나 (앞의 "nova" 는 있어도 됨, # 은 주석). 한 프로세스에서 차례로 → 명령마다 nova 를 새로 띄우지 않는다.
+// batch 에 준 --project / --pid / --json / --timeout 은 모든 줄에 붙는다. 실패하면 멈춘다 (--keep-going 이면 계속)
+int RunBatch(const std::vector<std::string>& in)
+{
+	Args a = Parse(in, 1);
+	if (a.Pos.empty())
+	{
+		Err("usage: nova batch <file | -> [--keep-going] [--project P]\n");
+		return 3;
+	}
+	std::string text;
+	if (a.Pos[0] == "-")
+	{
+		std::string line;
+		while (std::getline(std::cin, line)) text += line + "\n";
+	}
+	else
+	{
+		std::ifstream f(fs::path(Wide(a.Pos[0])), std::ios::binary);
+		if (!f) { Err("cannot open " + a.Pos[0] + "\n"); return 3; }
+		text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+		if (text.size() >= 3 && (unsigned char)text[0] == 0xEF && (unsigned char)text[1] == 0xBB && (unsigned char)text[2] == 0xBF) text.erase(0, 3);
+	}
+	std::vector<std::string> shared;
+	for (const char* k : { "project", "pid", "timeout" })
+		if (a.Has(k)) { shared.push_back(std::string("--") + k); shared.push_back(a.Get(k)); }
+	if (a.Has("json")) shared.push_back("--json");
+	const bool keepGoing = a.Has("keep-going");
+	int failures = 0, count = 0;
+	std::istringstream lines(text);
+	std::string line;
+	while (std::getline(lines, line))
+	{
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		const size_t first = line.find_first_not_of(" \t");
+		if (first == std::string::npos || line[first] == '#') continue;
+		std::string body = line.substr(first);
+		if (body.rfind("nova ", 0) == 0) body = body.substr(5);
+		std::vector<std::string> args = SplitLine(body);
+		if (args.empty()) continue;
+		for (const std::string& s : shared)
+			args.push_back(s);
+		Out("> nova " + body + "\n");
+		++count;
+		const int rc = Run(args);
+		if (rc != 0)
+		{
+			++failures;
+			if (!keepGoing) { Err("batch stopped at line " + std::to_string(count) + " (exit " + std::to_string(rc) + ")\n"); return rc; }
+		}
+	}
+	Out("batch: " + std::to_string(count) + " commands, " + std::to_string(failures) + " failed\n");
+	return failures ? 1 : 0;
+}
+
 int wmain(int argc, wchar_t** argv)
 {
 	::SetConsoleOutputCP(CP_UTF8);
@@ -616,7 +709,13 @@ int wmain(int argc, wchar_t** argv)
 	for (int i = 1; i < argc; ++i) in.push_back(Utf8(argv[i]));
 	if (in.empty() || in[0] == "help" && in.size() == 1 || in[0] == "--help" || in[0] == "-h")
 		return Usage();
+	if (in[0] == "batch")
+		return RunBatch(in);
+	return Run(in);
+}
 
+int Run(const std::vector<std::string>& in)
+{
 	std::string cmd = in[0];
 	Args a = Parse(in, 1);
 	g_Json = a.Has("json");
@@ -833,6 +932,24 @@ int wmain(int argc, wchar_t** argv)
 	else if (cmd == "wait")
 	{
 		// 인수 없음 (프레임 수는 요청의 waitFrames 로)
+	}
+	else if (cmd == "exec")
+	{
+		// C# 실행: nova exec "GameObject.Find(\"Box\").transform.position" | nova exec --file 코드.cs
+		if (a.Has("file"))
+		{
+			std::ifstream f(fs::path(Wide(a.Get("file"))), std::ios::binary);
+			if (!f) { Err("cannot open " + a.Get("file") + "\n"); return 3; }
+			args["code"] = std::string(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+		}
+		else
+		{
+			if (!need(1, "exec <C# code> | exec --file <file.cs>")) return 3;
+			std::string code;
+			for (size_t i = 0; i < a.Pos.size(); ++i) code += (i ? " " : "") + a.Pos[i];
+			args["code"] = code;
+		}
+		if (!a.Has("timeout")) g_Timeout = (std::max)(g_Timeout, 180);   // 첫 빌드는 오래 걸릴 수 있다
 	}
 	else if (cmd == "terrain-trees")
 	{

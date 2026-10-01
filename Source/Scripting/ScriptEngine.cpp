@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <set>
 #include <thread>
 #include <atomic>
 #include <mutex>
@@ -49,6 +50,7 @@ namespace
 		Fn_SetFields SetFieldsJson = nullptr;
 		Fn_GetJson GetApiJson = nullptr;   // 선택 (NOVA Code 자동 완성)
 		int(__stdcall* InvokeMethod)(uint64_t, const char*, const char*, const char*) = nullptr;   // UI Button
+		void* (__stdcall* ExecAssembly)(const char*) = nullptr;   // nova exec (선택)
 		void(__stdcall* InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
 	} m;
 
@@ -213,6 +215,8 @@ namespace
 			m.InvokeMethod = nullptr;
 		if (load(dll.c_str(), type, L"InvokeUIEvent", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.InvokeUIEvent) < 0)
 			m.InvokeUIEvent = nullptr;
+		if (load(dll.c_str(), type, L"ExecAssembly", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.ExecAssembly) < 0)
+			m.ExecAssembly = nullptr;
 
 		std::vector<uint8_t> table(ScriptBindings::TableSize());
 		ScriptBindings::Fill(table.data());
@@ -843,6 +847,77 @@ namespace ScriptEngine
 		if (!s_AssemblyLoaded || m.InvokeMethod == nullptr)
 			return false;
 		return m.InvokeMethod(gameObjectId, className.c_str(), method.c_str(), argument.c_str()) != 0;
+	}
+
+	bool Exec(const std::string& code, std::string& result, std::string& error)
+	{
+		if (!IsAvailable() || m.ExecAssembly == nullptr || s_DotnetDir.empty())
+		{
+			error = "C# scripting is not available (.NET SDK / NovaScriptCore)";
+			return false;
+		}
+		// Library/NovaExec/ 에 작은 프로젝트: 엔진 API + 게임 스크립트(있으면)를 참조하고 NovaExec.Run() 하나
+		const std::wstring dir = ProjectRoot() + L"Library\\NovaExec\\";
+		std::error_code ec;
+		fs::create_directories(dir, ec);
+		const std::string coreDll = ToUtf8(EngineScriptingDir() + L"NovaScriptCore.dll");
+		std::ostringstream x;
+		x << "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup>\n    <TargetFramework>net8.0</TargetFramework>\n    <AssemblyName>NovaExec</AssemblyName>\n"
+		  << "    <Nullable>disable</Nullable>\n    <ImplicitUsings>disable</ImplicitUsings>\n    <LangVersion>latest</LangVersion>\n    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n"
+		  << "    <EnableDefaultItems>false</EnableDefaultItems>\n    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>\n    <OutputPath>bin\\</OutputPath>\n"
+		  << "    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n    <DebugType>none</DebugType>\n"
+		  << "    <NoWarn>$(NoWarn);CS0162;CS8321</NoWarn>\n  </PropertyGroup>\n"
+		  << "  <ItemGroup>\n    <Compile Include=\"Exec.cs\" />\n  </ItemGroup>\n  <ItemGroup>\n"
+		  << "    <Reference Include=\"NovaScriptCore\"><HintPath>" << coreDll << "</HintPath><Private>false</Private></Reference>\n";
+		if (fs::exists(OutputDll(), ec))
+			x << "    <Reference Include=\"Assembly-CSharp\"><HintPath>" << ToUtf8(OutputDll()) << "</HintPath><Private>false</Private></Reference>\n";
+		x << "  </ItemGroup>\n</Project>\n";
+		WriteFileIfChanged(dir + L"NovaExec.csproj", x.str());
+
+		auto build = [&](const std::string& body, std::string& output) -> bool {
+			std::ofstream cs(dir + L"Exec.cs", std::ios::binary | std::ios::trunc);
+			cs << "using System;\nusing System.Linq;\nusing System.Collections.Generic;\nusing NovaEngine;\nusing NovaEngine.UI;\n"
+			   << "public static class NovaExec\n{\n    public static object Run()\n    {\n" << body << "\n    }\n}\n";
+			cs.close();
+			const std::wstring cmd = L"\"" + s_DotnetDir + L"\\dotnet.exe\" build \"" + dir + L"NovaExec.csproj\" -c Debug --nologo -v q -clp:NoSummary -nodeReuse:false";
+			return RunProcess(cmd, dir, output) == 0;
+		};
+		// 식이면 그 값, 아니면(문장) 그대로 + return null. 식으로 안 되면(void 호출 등) 문장으로 한 번 더
+		std::string trimmed = code;
+		while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\n' || trimmed.back() == '\r')) trimmed.pop_back();
+		const bool statements = !trimmed.empty() && (trimmed.back() == ';' || trimmed.back() == '}');
+		std::string output;
+		const double t0 = Now();
+		bool ok = !statements && build("        return (object)(" + trimmed + ");", output);
+		if (!ok)
+			ok = build("        " + trimmed + (statements ? "" : ";") + "\n        return null;", output);
+		if (!ok)
+		{
+			// 오류 줄만 (경로 앞부분·뒤의 [프로젝트] 빼고, dotnet 이 두 번 찍는 같은 줄은 한 번)
+			std::string lines;
+			std::set<std::string> seen;
+			std::istringstream ss(output);
+			for (std::string line; std::getline(ss, line);)
+				if (line.find("error CS") != std::string::npos)
+				{
+					const size_t p = line.find("Exec.cs");
+					std::string t = p != std::string::npos ? line.substr(p) : line;
+					const size_t proj = t.rfind(" [");
+					if (proj != std::string::npos) t.erase(proj);
+					while (!t.empty() && (t.back() == '\r' || t.back() == ' ')) t.pop_back();
+					if (seen.insert(t).second) lines += t + "\n";
+				}
+			error = lines.empty() ? output : lines;
+			return false;
+		}
+		const std::string dll = ToUtf8(dir + L"bin\\NovaExec.dll");
+		void* p = m.ExecAssembly(dll.c_str());
+		std::string r = p ? static_cast<const char*>(p) : "";
+		if (p && m.FreeString) m.FreeString(p);
+		EditorLog::Write("Script", "exec (%.1f s): %s", Now() - t0, r.substr(0, 200).c_str());
+		if (r.rfind("ok:", 0) == 0) { result = r.substr(3); return true; }
+		error = r.rfind("error:", 0) == 0 ? r.substr(6) : r;
+		return false;
 	}
 
 	void InvokeUIEvent(uint64_t gameObjectId, int kind, float number, const std::string& text)

@@ -132,6 +132,8 @@ nova add-component Player PlayerController --values '{"speed":5,"target":"Box"}'
 nova camera --frame Box && nova screenshot box.png   # Scene / Game / 에디터 전체 캡처
 nova play && nova wait 120 && nova raycast 0,5,0 0,-1,0
 nova perf --frames 240 --depth 3                     # 프레임·CPU·GPU 시간, 단계별 상위
+nova exec "GameObject.Find(\"Box\").transform.position"   # 에디터 안에서 C# 실행
+nova batch steps.txt --project D:\NovaProjects\MyGame  # 줄마다 명령 하나, 한 프로세스에서
 nova log --errors
 ```
 

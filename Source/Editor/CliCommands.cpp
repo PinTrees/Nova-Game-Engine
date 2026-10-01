@@ -465,6 +465,15 @@ namespace CliCommands
 			return true;
 		});
 
+		Register("exec", "run C# code in the editor (expression = its value, statements = return value) {code}", [](const json& a, json& r, std::string& e) {
+			const std::string code = a.value("code", std::string());
+			if (code.empty()) { e = "code is empty"; return false; }
+			std::string result;
+			if (!ScriptEngine::Exec(code, result, e)) return false;
+			r = { { "result", result } };
+			return true;
+		});
+
 		Register("terrain-trees", "mass place trees on a terrain (Paint Trees > Mass Place Trees) {target, count, clear?}", [](const json& a, json& r, std::string& e) {
 			if (!RequireEditMode(e)) return false;
 			GameObject* go = Resolve(a.value("target", json()), e);

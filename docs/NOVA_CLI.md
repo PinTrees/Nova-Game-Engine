@@ -31,7 +31,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 | 만들기 | `create <종류> [--name] [--parent] [--position] [--rotation] [--scale] [--preset N]`, `delete <대상>`, `add-component <대상> <종류> [--values '{...}']` (종류에 C# MonoBehaviour 클래스 이름도 됨 — 값은 필드만 `{"speed":42,"target":"Ball"}`, GameObject·Transform 필드는 이름/경로로), `remove-component <대상> <종류>`, `parent <대상> <새 부모> \| --root`, `select <대상> \| --none`, `terrain-trees <지형> [--count N] [--clear]` (Paint Trees 의 Mass Place Trees — 종류가 없으면 Oak/Pine/Birch) |
 | 씬·Play | `scene open <Assets/...scene> [--force]`, `scene new [--force]` (새 씬: 카메라·빛·볼륨), `scene save`, `raycast <x,y,z> <dx,dy,dz> [--max 거리] [--triggers]` (Play 중 Physics.Raycast — 맞은 오브젝트·점·법선·거리), `play`, `stop`, `pause [on\|off]`, `step`, `undo`, `redo` |
 | 보기 | `camera [--position x,y,z --target x,y,z \| --frame <대상> [--distance d]]`, `screenshot <파일.png> [--view scene\|game\|editor]` (editor = 메뉴·창까지 에디터 전체) |
-| 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `window <scene\|game\|project\|console\|hierarchy\|inspector\|animator> [--float]` (도킹 탭을 앞으로 / `--float` = 도킹에서 떼어 에디터 밖 OS 창으로 — 배치 파일에 남으니 시험 뒤 되돌릴 것), `wait [프레임]` (백그라운드 에디터가 N 프레임 그릴 때까지 — 씬 불러오기 등을 기다릴 때), `perf [--frames N]` (N 프레임(기본 240) 성능: 프레임 ms·fps(벽시계, 수직 동기 없음), CPU ms, GPU ms(타임스탬프), GPU 단계별 상위 12 — Profiler 창 없이도 모은다. 성능 비교는 `build.bat release` 로), `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |
+| 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `window <scene\|game\|project\|console\|hierarchy\|inspector\|animator> [--float]` (도킹 탭을 앞으로 / `--float` = 도킹에서 떼어 에디터 밖 OS 창으로 — 배치 파일에 남으니 시험 뒤 되돌릴 것), `wait [프레임]` (백그라운드 에디터가 N 프레임 그릴 때까지 — 씬 불러오기 등을 기다릴 때), `perf [--frames N] [--depth D]` (N 프레임(기본 240) 성능: 프레임 ms·fps(벽시계, 수직 동기 없음), CPU ms, GPU ms(타임스탬프), GPU 단계별 상위 12 — Profiler 창 없이도 모은다. 성능 비교는 `build.bat release` 로), `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |
 | 렌더링 | `gfx-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 엔진 렌더러와 같은 방식(Gfx 층 + 효과)으로 시험 장면을 엔진 장치와 OpenGL(숨은 창)에 그려 비교, `rhi-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 같은 시험 장면(PBR + 그림자)을 RHI 로 API 마다 그려 PNG 와 픽셀 차이(평균·최대·8 넘는 픽셀 %) |
 | 셰이더 | `shader-cross [파일 이름 일부] [--out 폴더] [--max-errors N]` — 엔진 `Shaders/*.fx` 를 OpenGL 용 GLSL 4.50 으로 변환해 보고 (pass 마다 성공·실패 이유, `--out` 이면 `.glsl` 파일) |
 | 기타 | `assets [폴더] [--pattern 글자]`, `build <출력 폴더> [--run]`, `build-status [--wait]`, `call <명령> [json]`, `ai-guide`, `help`, `nova help --editor`(에디터가 아는 명령) |
@@ -40,6 +40,13 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 
 **만들 수 있는 종류**: empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, camera,
 terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character (기본 캐릭터: 스킨 메시 + Animator).
+
+### C# 실행 · 한 번에 여러 명령
+
+| 명령 | 설명 |
+|---|---|
+| `exec "<C# 코드>"` / `exec --file 코드.cs` | 에디터 안에서 C# 를 실행 (Unity 의 `UnityEngine` 처럼 `NovaEngine`·`NovaEngine.UI`·System.Linq 와 게임 스크립트를 쓸 수 있다). 식이면 그 값(`GameObject.Find("Gold").transform.position` → `(-3.75, 0.60, 0.00)`), 문장(`;` 로 끝남)이면 `return` 한 값(없으면 null), 목록은 `[a, b, …]`. 컴파일 오류는 `Exec.cs(줄,열): error CS…`, 실행 중 예외는 그 메시지로 실패. `Library/NovaExec/` 에 작은 프로젝트를 만들어 `dotnet build`(약 1.3 초) → 수집 가능한 컨텍스트로 읽어 실행·내림 (메인 스레드에서 기다린다) |
+| `batch <파일 \| -> [--keep-going]` | 줄마다 nova 명령 하나를 한 프로세스에서 차례로 (앞의 `nova` 는 있어도 됨, `#` 주석, `"…"` / `'…'` / `\"`). batch 에 준 `--project`·`--pid`·`--json`·`--timeout` 은 모든 줄에 붙는다. 실패하면 멈춘다(`--keep-going` 이면 계속, 끝에 실패 수). 명령 20 개: 따로 0.21 초 → batch 0.07 초 |
 
 ## 예
 
