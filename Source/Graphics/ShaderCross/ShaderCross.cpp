@@ -162,7 +162,10 @@ namespace
 		return name;
 	}
 
-	bool ToGlsl(const std::vector<uint32_t>& spirv, Stage stage, EffectGlsl& fx, PassGlsl& pass, StageGlsl& out, std::string& error)
+	// stageIndex = pass 안에서 이 단계의 순서 (VS 0, 다음 단계 1 …). 단계 사이 값의 이름 = v<경계>_<의미>
+	//  (경계 k = k 번째 단계의 출력 = k+1 번째 단계의 입력). 경계 번호가 없으면 지오메트리·테셀레이션 단계의 입력과 출력이
+	//  같은 이름(v_POSITION0)이 되어 SPIRV-Cross 가 출력을 v_POSITION0_1 로 바꾸고 다음 단계와 맞물리지 않았다
+	bool ToGlsl(const std::vector<uint32_t>& spirv, Stage stage, int stageIndex, EffectGlsl& fx, PassGlsl& pass, StageGlsl& out, std::string& error)
 	{
 		try
 		{
@@ -186,7 +189,7 @@ namespace
 				}
 				else
 				{
-					glsl.set_name(r.id, "v_" + sem);
+					glsl.set_name(r.id, "v" + std::to_string(stageIndex - 1) + "_" + sem);
 					glsl.unset_decoration(r.id, spv::DecorationLocation);
 				}
 			}
@@ -197,7 +200,7 @@ namespace
 					glsl.set_name(r.id, "out_" + sem);
 				else
 				{
-					glsl.set_name(r.id, "v_" + sem);
+					glsl.set_name(r.id, "v" + std::to_string(stageIndex) + "_" + sem);
 					glsl.unset_decoration(r.id, spv::DecorationLocation);
 				}
 			}
@@ -296,7 +299,7 @@ namespace
 {
 	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
 	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
-	constexpr int kCacheVersion = 2;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w
+	constexpr int kCacheVersion = 3;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …)
 	using json = nlohmann::json;
 
 	uint64_t Fnv1a(const std::string& s)
@@ -518,8 +521,13 @@ namespace ShaderCross
 				for (const auto& s : pass.Shaders)
 					if (s.StageType == Stage::Geometry || (s.StageType == Stage::Domain && lastGeom != Stage::Geometry))
 						lastGeom = s.StageType;
+				// 단계 순서 (Stage 값 = 파이프라인 순서): 경계 번호용
+				std::vector<Stage> order;
+				for (const auto& s : pass.Shaders) order.push_back(s.StageType);
+				std::sort(order.begin(), order.end());
 				for (const FxParser::ShaderRef& ref : pass.Shaders)
 				{
+					const int stageIndex = (int)(std::find(order.begin(), order.end(), ref.StageType) - order.begin());
 					EditorLog::Write("ShaderCross", "%s %s/%s %s %s", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str(), tech.Name.c_str(), pass.Name.c_str(),
 						FxParser::StageName(ref.StageType), ref.Entry.c_str());
 					std::vector<uint32_t> spirv;
@@ -527,7 +535,7 @@ namespace ShaderCross
 					StageGlsl sg;
 					sg.StageType = ref.StageType;
 					sg.Entry = ref.Entry;
-					if (!CompileSpirv(out.Fx.Source, name, ref, ref.StageType == lastGeom, spirv, error) || !ToGlsl(spirv, ref.StageType, out, pg, sg, error))
+					if (!CompileSpirv(out.Fx.Source, name, ref, ref.StageType == lastGeom, spirv, error) || !ToGlsl(spirv, ref.StageType, stageIndex, out, pg, sg, error))
 					{
 						pg.Error = std::string(FxParser::StageName(ref.StageType)) + " " + ref.Entry + ": " + error;
 						break;

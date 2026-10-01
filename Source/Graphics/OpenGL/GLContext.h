@@ -18,4 +18,13 @@ namespace GLContext
 	void Destroy(Handle& h);
 	bool MakeCurrent(const Handle& h);
 	void SetSwapInterval(int interval);   // 0 = 수직 동기 없음, 1 = 있음 (wglSwapIntervalEXT)
+
+	// 범위 동안 다른 GL 컨텍스트를 쓰고 끝나면 원래 현재 컨텍스트로 되돌린다 (검사용 숨은 GL 장치 — 에디터가 OpenGL 일 때 본 컨텍스트를 잃지 않게)
+	struct KeepCurrent
+	{
+		HDC Dc;
+		HGLRC Rc;
+		KeepCurrent();
+		~KeepCurrent();
+	};
 }

@@ -26,6 +26,9 @@ public:
 
 	// 이 빌드에서 쓸 수 있는지 (안 되면 이유)
 	static bool IsSupported(GraphicsAPI api, std::string* reason = nullptr);
+	static bool IsExperimental(GraphicsAPI api);
+	// 고른 API 로 장치를 만들지 못했을 때 (예: OpenGL 4.5 드라이버 없음) → 이 API 로 바꾸고 기록에 이유를 남긴다
+	static void FallBack(GraphicsAPI api, const std::string& why);
 	static std::vector<GraphicsAPI> AllAPIs();
 
 	// 하위 호환 (예전 메뉴)

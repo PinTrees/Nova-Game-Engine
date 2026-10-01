@@ -8,7 +8,8 @@
 //  - DXC(dxcompiler.dll)는 실행 중에 불러온다. -fvk-invert-y + OpenGL 쪽 glClipControl(LOWER_LEFT, ZERO_TO_ONE) 로
 //    D3D 와 같은 깊이 범위·텍스처 행 순서(행 0 = D3D 의 위)를 쓴다 (gl_FragCoord.y 도 D3D SV_Position.y 와 같은 값)
 //  - cbuffer 는 D3D 패킹 그대로(-fvk-use-dx-layout) → GLSL uniform 블록의 offset 이 D3D 와 같다 (CPU 쪽 값 배치를 그대로 씀)
-//  - 단계 사이 값은 의미(SEMANTIC) 이름으로 맞물리게 이름을 바꾼다 (v_TEXCOORD3 …), 정점 입력은 in_POSITION … + location
+//  - 단계 사이 값은 의미(SEMANTIC) 이름 + 경계 번호로 맞물리게 이름을 바꾼다 (v0_TEXCOORD3 = 첫 단계 출력·둘째 단계 입력 …),
+//    정점 입력은 in_POSITION … + location
 //  - 텍스처 + 샘플러는 GL 의 결합 샘플러로 (이름 = 텍스처_샘플러), 바인딩 번호는 효과 하나 안에서 이름마다 고정
 namespace ShaderCross
 {

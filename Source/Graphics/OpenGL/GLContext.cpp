@@ -81,6 +81,13 @@ namespace GLContext
 		return h.Rc && ::wglMakeCurrent(h.Dc, h.Rc);
 	}
 
+	KeepCurrent::KeepCurrent() : Dc(::wglGetCurrentDC()), Rc(::wglGetCurrentContext()) {}
+	KeepCurrent::~KeepCurrent()
+	{
+		if (Rc && ::wglGetCurrentContext() != Rc)
+			::wglMakeCurrent(Dc, Rc);
+	}
+
 	void SetSwapInterval(int interval)
 	{
 		typedef BOOL(WINAPI * SwapInterval)(int);

@@ -21,6 +21,7 @@
 #include "RhiTest.h"
 #include "GfxTest.h"
 #include "GfxGL.h"
+#include "GLContext.h"
 
 namespace
 {
@@ -759,9 +760,19 @@ namespace CliCommands
 				if (close) BuildSettingsWindow::Close(); else BuildSettingsWindow::Open();
 				r = { { "name", name }, { "open", BuildSettingsWindow::IsOpen() } };
 			}
+			else if (EditorWindow* w = [&]() -> EditorWindow* {
+						// 도킹 창 (scene, game, project, console, hierarchy, inspector …): 탭을 앞으로
+						for (const char* t : { "Scene", "Game", "Project", "Console", "Hierarchy", "Inspector", "Animator", "Profiler" })
+							if (Lower(t) == name) return EditorGUIManager::GetI()->FindWindow(t);
+						return nullptr;
+					}())
+			{
+				EditorGUIManager::GetI()->SelectTab(w->GetTitle());
+				r = { { "name", name }, { "selected", true } };
+			}
 			else
 			{
-				e = "unknown window '" + name + "' (preferences, project-settings, build-settings)";
+				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, scene, game, project, console, hierarchy, inspector, animator)";
 				return false;
 			}
 			if (!category.empty()) r["category"] = category;
@@ -851,6 +862,7 @@ namespace CliCommands
 				EditorLog::Heartbeat();
 				json item = { { "api", GraphicsAPIToKey(g) } };
 				std::string err;
+				GLContext::KeepCurrent keep;   // OpenGL 시험 장치가 끝나면 에디터의 현재 컨텍스트로 되돌림
 				std::unique_ptr<Rhi::Device> dev = Rhi::CreateDevice(g, err);
 				RhiTest::Result res;
 				if (dev && RhiTest::RenderLitScene(*dev, w, h, res, err))
@@ -905,6 +917,7 @@ namespace CliCommands
 				else
 				{
 					// 숨은 창의 GL 장치 (끝나면 효과·자원 → RHI 장치 → 컨텍스트 → 장치 순으로 놓는다)
+					GLContext::KeepCurrent keep;   // 끝나면 에디터의 현재 컨텍스트로 되돌림 (에디터가 OpenGL 이면 꼭 필요)
 					ComPtr<GfxDevice> gdev;
 					ComPtr<GfxContext> gctx;
 					if (GfxGL::CreateDevice(nullptr, gdev.GetAddressOf(), gctx.GetAddressOf(), err))

@@ -611,6 +611,18 @@ void EditorGUIManager::RenderEditorWindows()
         window->Render();
     }
 
+    if (m_PendingTabFrames > 0)
+    {
+        --m_PendingTabFrames;
+        if (EditorWindow* w = FindWindow(m_PendingTab))
+            if (ImGuiWindow* win = ImGui::FindWindowByName(w->GetImGuiName().c_str()); win && win->DockNode)
+            {
+                win->DockNode->SelectedTabId = win->TabId;
+                if (win->DockNode->TabBar)
+                    win->DockNode->TabBar->SelectedTabId = win->DockNode->TabBar->NextSelectedTabId = win->TabId;
+            }
+    }
+
     if (m_FocusDefaultTabs > 0)
     {
         // 기본 레이아웃 직후 몇 프레임 동안 Scene / Project 탭을 선택 상태로 만든다. (도킹 노드의 선택 탭을 직접 지정)

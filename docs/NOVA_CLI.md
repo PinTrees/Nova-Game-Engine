@@ -31,7 +31,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 | 만들기 | `create <종류> [--name] [--parent] [--position] [--rotation] [--scale] [--preset N]`, `delete <대상>`, `add-component <대상> <종류> [--values '{...}']`, `remove-component <대상> <종류>`, `parent <대상> <새 부모> \| --root`, `select <대상> \| --none` |
 | 씬·Play | `scene open <Assets/...scene> [--force]`, `scene save`, `play`, `stop`, `pause [on\|off]`, `step`, `undo`, `redo` |
 | 보기 | `camera [--position x,y,z --target x,y,z \| --frame <대상> [--distance d]]`, `screenshot <파일.png> [--view scene\|game\|editor]` (editor = 메뉴·창까지 에디터 전체) |
-| 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |
+| 창·설정 | `window <preferences\|project-settings\|build-settings> [--category 분류] [--close]`, `window <scene\|game\|project\|console\|hierarchy\|inspector\|animator>` (도킹 탭을 앞으로), `wait [프레임]` (백그라운드 에디터가 N 프레임 그릴 때까지 — 씬 불러오기 등을 기다릴 때), `graphics [--editor DirectX11\|OpenGL] [--player OpenGL,DirectX11] [--auto true\|false]` |
 | 렌더링 | `gfx-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 엔진 렌더러와 같은 방식(Gfx 층 + 효과)으로 시험 장면을 엔진 장치와 OpenGL(숨은 창)에 그려 비교, `rhi-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 같은 시험 장면(PBR + 그림자)을 RHI 로 API 마다 그려 PNG 와 픽셀 차이(평균·최대·8 넘는 픽셀 %) |
 | 셰이더 | `shader-cross [파일 이름 일부] [--out 폴더] [--max-errors N]` — 엔진 `Shaders/*.fx` 를 OpenGL 용 GLSL 4.50 으로 변환해 보고 (pass 마다 성공·실패 이유, `--out` 이면 `.glsl` 파일) |
 | 기타 | `assets [폴더] [--pattern 글자]`, `build <출력 폴더> [--run]`, `build-status [--wait]`, `call <명령> [json]`, `ai-guide`, `help`, `nova help --editor`(에디터가 아는 명령) |

@@ -7,11 +7,8 @@ class OpenGLGraphicsBackend : public IGraphicsBackend
 public:
 	GraphicsAPI GetAPI() const override { return GraphicsAPI::OpenGL; }
 	const char* GetName() const override { return "OpenGL"; }
-	// 렌더러를 옮기는 중이라 시험 단계: 환경 변수 NOVA_OPENGL_EXPERIMENTAL=1 일 때만 쓴다
-	bool IsSupported() const override
-	{
-		char buf[8] = {};
-		return ::GetEnvironmentVariableA("NOVA_OPENGL_EXPERIMENTAL", buf, sizeof(buf)) && buf[0] == '1';
-	}
-	const char* GetUnsupportedReason() const override { return "the OpenGL renderer is still in development (set NOVA_OPENGL_EXPERIMENTAL=1 to try it)"; }
+	// Gfx 층(GfxGL) + 셰이더 자동 변환으로 에디터·게임 모두 OpenGL 4.5 로 그린다. 아직 시험 단계
+	//  (OpenGL 4.5 를 만들 수 없으면 App 이 DirectX 11 로 대체 — GraphicsSettings::FallBack)
+	bool IsSupported() const override { return true; }
+	bool IsExperimental() const override { return true; }
 };

@@ -14,4 +14,6 @@ public:
 	// 현재 빌드에서 사용 가능한지
 	virtual bool IsSupported() const = 0;
 	virtual const char* GetUnsupportedReason() const { return ""; }
+	// 쓸 수는 있지만 아직 시험 단계 (설정 UI 에 표시)
+	virtual bool IsExperimental() const { return false; }
 };

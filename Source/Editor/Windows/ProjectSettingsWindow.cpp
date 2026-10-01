@@ -32,7 +32,7 @@ namespace
 			std::string reason;
 			const bool ok = GraphicsSettings::IsSupported(list[i], &reason);
 			anyUnsupported |= !ok;
-			std::string label = std::string(GraphicsAPIToString(list[i])) + (ok ? "" : "   (not available: " + reason + ")") + "##api" + std::to_string(i);
+			std::string label = std::string(GraphicsAPIToString(list[i])) + (ok ? (GraphicsSettings::IsExperimental(list[i]) ? "   (experimental)" : "") : "   (not available: " + reason + ")") + "##api" + std::to_string(i);
 			if (!ok)
 				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
 			if (ImGui::Selectable(label.c_str(), s_Selected == i))

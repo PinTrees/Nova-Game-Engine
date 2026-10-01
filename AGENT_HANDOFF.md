@@ -275,7 +275,14 @@
   - 셰이더 변환 추가: 픽셀 셰이더 `-fvk-use-dx-position-w` (SV_Position.w 가 GL 은 1/w — 물의 waterZ = PosH.w 가 틀려 굴절·흡수가 틀렸다), GLSL 캐시 `Binaries/ShaderCache/GLSL/<이름>_<해시>.json` (전처리 소스 해시, kCacheVersion 2 — 변환 규칙을 바꾸면 올린다), 그림자 PCF 크기 = `gXxxShadowData.z = 1/맵 크기` (GetDimensions 를 쓰면 GL 에서 샘플러가 그림자 맵마다 하나 더 생겨 지형 PS 가 32 개 한도를 넘었다).
   - 검사(모두 감시 스크립트로: VRAM 이 늘거나 로그에 이상이 보이면 그 에디터만 즉시 끔 — scratchpad `gpu_run.ps1 -OpenGL -Commands …`): `nova gfx-test` (엔진 방식 Gfx + 효과, R24G8 깊이 배열 그림자) DX11 ↔ GL 최대 1/255. 에디터 Scene 뷰 DX11 기준과 비교 = 지형·하늘·안개·기둥 픽셀 동일, 남은 차이는 움직이는 물(DX11 끼리와 같은 11 %). Showcase 130.
   - 남은 것: ① 지평선에 1 px 점선 차이 (안개/하늘 경계, 원인 미확인) ② 옛 예제 효과의 테셀레이션·지오메트리 셰이더 pass 링크 실패(로그 내용 없음 — TreeSprite, Tessellation*, DisplacementMap, 24. Terrain, 26. BuildShadowMap Tess*) ③ 묶지 않은 그림자 유닛 드라이버 경고(무해) ④ GL 에서 ImGui 뷰포트(창 밖으로 뺀 창) ⑤ 스트림 출력(DrawAuto)·UAV·버퍼 SRV 는 GL 미지원(옛 예제만 씀) ⑥ 나무·바위·디테일·입자·UI 가 있는 장면은 아직 GL 로 비교 안 함 (Generate.scene 에는 지형·물·상자만) ⑦ GL 첫 실행은 셰이더 변환에 효과당 1~3 초 (캐시 뒤 0.1 초).
-- 다음 = 5단계: ⑥ 의 장면들(나무·바위·디테일·입자·UI·스킨 메시·Play)을 GL 로 비교해 다른 곳 고치기 → ②④ → 충분히 같아지면 `NOVA_OPENGL_EXPERIMENTAL` 없이 OpenGL 을 고를 수 있게 (빌드된 플레이어 포함).
+- 5단계(완료, 2026-10-02) **OpenGL 을 설정에서 고를 수 있게 (시험 단계 표시)**:
+  - 비교: ScriptTest 7 개 씬(Trees·Forest·Materials·Particles·Shadows·Culling·SampleScene UI)을 DX11·GL 로 같은 카메라(`camera --frame`)로 찍음 — 6 개 픽셀 차이 최대 1~14, Trees 는 바람 잎만. Play(입자·UI·바다)도 같음. 빌드한 게임(플레이어 목록 OpenGL 우선)도 GL 로 실행해 창 캡처(PrintWindow)로 확인.
+  - 고친 것: **씬을 열면 이전 씬을 내림**(SceneManager::LoadScene — 예전에는 캐시에 남아 나무·물·지형·입자가 새 씬에 같이 그려졌고 물리 Exit 도 없었다. 씬 7 개 순회 VRAM +1198 → +389 MB), 셰이더 단계 사이 값 이름에 **경계 번호**(v0_, v1_ … — 지오메트리·테셀레이션 단계의 입력과 출력이 같은 이름이라 SPIRV-Cross 가 출력을 _1 로 바꿔 링크 실패: 옛 예제 효과 전부 → 이제 링크 오류 0, 남은 것 VecAdd 하나), 시험용 GL 장치가 끝나면 원래 현재 컨텍스트로 (`GLContext::KeepCurrent`, GfxGL::Check 가 자기 컨텍스트로 되돌림 — 안 그러면 GL 에디터에서 gfx-test 뒤 본 컨텍스트를 잃었다: 감시 스크립트가 잡아 에디터를 끔), GL 시작 실패 → `GraphicsSettings::FallBack(DirectX11)`.
+  - 설정: OpenGL `IsSupported` = true, `IsExperimental` = true → Preferences·Project Settings 목록에 "(experimental)", 에디터가 OpenGL 이면 안내 HelpBox. 환경 변수 NOVA_OPENGL_EXPERIMENTAL 은 이제 필요 없음.
+  - CLI 추가: `nova wait [frames]`(백그라운드 에디터는 할 일이 없으면 멈춰 씬 불러오기가 끝나지 않았다), `nova window scene|game|…`(도킹 탭 선택 — **레이아웃 파일 Binaries/nova_layout_v2.ini 는 사용자 에디터와 공유**: 테스트로 Play 하면 Game 탭이 앞으로 저장되므로 끝에 `window scene` 으로 되돌린다).
+  - 검사 스크립트(scratchpad): `gpu_run.ps1 [-OpenGL] -Commands …`(VRAM·로그 감시, 이상하면 그 에디터만 끔, `sleep N` 지원), `scenes.ps1 -Out 폴더 [-OpenGL]`(7 개 씬 찍기), `cmpall.py 폴더`(dx/ gl/ 비교 + 차이 그림), `play.ps1`, `capwin.ps1 -Exe -Png`(빌드한 게임 창 캡처).
+  - 따로 남긴 버그(작업 칩): Particles 씬을 Play→Stop 한 뒤 다른 씬을 Play 하면 모닥불 연기가 남음 (DX11 도 같음 — 엔진 쪽).
+  - 남은 것: 지평선 1 px 점선 차이, GL 의 ImGui 뷰포트(창 밖으로 뺀 창), 스킨 메시가 있는 씬은 아직 GL 비교 안 함, 스트림 출력·UAV·버퍼 SRV(옛 예제만).
 
 **NOVA Hub 새 디자인 (2026-10-01)**: 사용자 요청 "노바 허브 UI 깔끔하게, 엔진 폰트·크기 키우고, 상단 앱바 아이콘(Unity Hub 처럼)".
 - 글꼴(`EditorGUIManager::Init(hubMode)`): Pretendard(없으면 Segoe UI + 맑은 고딕) — HubFont 번호 [0] 본문 18 [1] 큰 제목 28 [2] 강조(SemiBold) 18 [3] 작은 글자 15 [4] 앱 바 아이콘(FA) 19 [5] 앱 이름 21 (모두 × DPI).

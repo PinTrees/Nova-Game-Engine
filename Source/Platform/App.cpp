@@ -283,7 +283,7 @@ bool App::InitPlatform()
 {
 	std::ofstream log(_logFileName, std::ios::app);
 	log << "App::Init -> InitMainWindow..." << std::endl; log.flush();
-	LoadingScreen::SetProgress(0.02f, L"Initializing graphics device (DirectX 11)");
+	LoadingScreen::SetProgress(0.02f, L"Initializing graphics device");   // 어떤 API 인지는 아래 [Graphics] 줄에
 	if (!InitMainWindow())
 		return false;
 
@@ -960,6 +960,8 @@ bool App::InitDirect3D()
 		if (InitOpenGL())
 			return true;
 		EditorLog::Write("Graphics", "%s", "OpenGL failed to start - using DirectX 11");
+		GraphicsSettings::FallBack(GraphicsAPI::DirectX11, "OpenGL could not start");   // 제목줄·설정 창의 "Running With" 가 맞도록
+		Rhi::SetMain(nullptr);
 		Gfx::SetMain(nullptr, nullptr);
 		_deviceContext.Reset();
 		_device.Reset();

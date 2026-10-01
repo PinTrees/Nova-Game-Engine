@@ -212,8 +212,12 @@ namespace
 		// 다른 스레드·다른 컨텍스트에서 부르면 거절 (GL 은 컨텍스트가 현재인 스레드에서만)
 		bool Check(const char* what)
 		{
-			if (::GetCurrentThreadId() == OwnerThread && Current())
-				return true;
+			if (::GetCurrentThreadId() == OwnerThread)
+			{
+				// 같은 스레드에서 다른 GL 장치(검사용)가 현재가 된 뒤면 우리 컨텍스트로 되돌린다
+				if (Current() || GLContext::MakeCurrent(Ctx))
+					return true;
+			}
 			if (Reported.insert(std::string("thread:") + what).second)
 				EditorLog::Write("Gfx", "OpenGL: %s called on another thread or without the context - refused", what);
 			return false;

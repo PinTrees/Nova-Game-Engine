@@ -69,6 +69,18 @@ bool GraphicsSettings::IsSupported(GraphicsAPI api, std::string* reason)
 	return ok;
 }
 
+bool GraphicsSettings::IsExperimental(GraphicsAPI api)
+{
+	auto backend = GraphicsBackendFactory::Create(api);
+	return backend && backend->IsExperimental();
+}
+
+void GraphicsSettings::FallBack(GraphicsAPI api, const std::string& why)
+{
+	s_Backend = GraphicsBackendFactory::Create(api);
+	s_Log += ", " + why + " -> using " + std::string(s_Backend ? s_Backend->GetName() : "?");
+}
+
 void GraphicsSettings::ForceForThisProcess(GraphicsAPI api)
 {
 	s_Forced = true;
