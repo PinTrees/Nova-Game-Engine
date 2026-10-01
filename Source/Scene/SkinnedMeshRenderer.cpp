@@ -149,7 +149,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 
 	Transform* transform = m_pGameObject->GetTransform();
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::InstancedBasicFX->SkinnedTech;
+	ComPtr<FxTechnique> tech = Effects::InstancedBasicFX->SkinnedTech;
 	deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	deviceContext->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
 
@@ -208,7 +208,7 @@ void SkinnedMeshRenderer::RenderShadow()
 
 	Transform* transform = m_pGameObject->GetTransform();
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapSkinnedTech;
+	ComPtr<FxTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapSkinnedTech;
 	deviceContext->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
 
 	D3DX11_TECHNIQUE_DESC techDesc;
@@ -233,7 +233,7 @@ void SkinnedMeshRenderer::RenderShadow()
 static void DrawSkinnedNormalDepth(SkinnedMesh* mesh, Transform* transform, const vector<XMFLOAT4X4>& bones, bool editor)
 {
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthSkinnedTech;
+	ComPtr<FxTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthSkinnedTech;
 	deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	deviceContext->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
 

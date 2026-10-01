@@ -6,30 +6,15 @@
 
 Shader::Shader(ComPtr<ID3D11Device> device, const std::wstring& filename)
 {
-	WORD shaderFlags = 0;
-#if defined( DEBUG ) || defined( _DEBUG )
-	shaderFlags |= D3D10_SHADER_DEBUG;
-	shaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
-#endif
-
-	ComPtr<ID3D10Blob> compiledShader = 0;
-	ComPtr<ID3D10Blob> compilationMsgs = 0;
-
+	(void)device;
 	m_FileName = filename;
-
-	HRESULT hr = ShaderCache::CompileEffect(filename, shaderFlags, compiledShader, compilationMsgs);
-
-	// compilationMsgs can store errors or warnings.
-	if (FAILED(hr))
+	std::string error;
+	m_pFx = FxEffect::Load(filename, error);   // RHI 장치로 (Effects.cpp 의 Effect 와 같음)
+	if (!m_pFx)
 	{
-		if (compilationMsgs != 0)
-			::MessageBoxA(0, (char*)compilationMsgs->GetBufferPointer(), 0, 0);
-
+		::MessageBoxA(0, error.c_str(), wstring_to_string(filename).c_str(), 0);
 		assert(false);
 	}
-
-	CHECK(::D3DX11CreateEffectFromMemory(compiledShader->GetBufferPointer(),
-		compiledShader->GetBufferSize(), 0, device.Get(), m_pFx.GetAddressOf()));
 }
 
 

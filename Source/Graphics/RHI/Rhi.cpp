@@ -26,6 +26,10 @@ namespace Rhi
 		return format == Format::D32_Float || format == Format::D24_UNorm_S8_UInt;
 	}
 
+	static std::unique_ptr<Device> s_Main;
+	Device* Main() { return s_Main.get(); }
+	void SetMain(std::unique_ptr<Device> device) { s_Main = std::move(device); }
+
 	std::unique_ptr<Device> CreateDevice(GraphicsAPI api, std::string& error)
 	{
 		switch (api)

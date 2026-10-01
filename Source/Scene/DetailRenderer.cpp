@@ -353,11 +353,11 @@ namespace
 	// ================================================================ 효과 변수
 	struct DetailVars
 	{
-		ID3DX11Effect* Fx = nullptr;
-		ID3DX11EffectTechnique* Tech = nullptr;
-		ID3DX11EffectVectorVariable *Wind = nullptr, *WindParams = nullptr, *Cam = nullptr, *Healthy = nullptr, *Dry = nullptr,
+		FxEffect* Fx = nullptr;
+		FxTechnique* Tech = nullptr;
+		FxVar *Wind = nullptr, *WindParams = nullptr, *Cam = nullptr, *Healthy = nullptr, *Dry = nullptr,
 			*Flower = nullptr, *Center = nullptr, *Params = nullptr;
-		void Bind(ID3DX11Effect* fx, const char* tech)
+		void Bind(FxEffect* fx, const char* tech)
 		{
 			Fx = fx;
 			Tech = fx->GetTechniqueByName(tech);
@@ -390,12 +390,12 @@ namespace
 		return vars[pass];
 	}
 
-	void SetVec(ID3DX11EffectVectorVariable* v, const XMFLOAT4& f)
+	void SetVec(FxVar* v, const XMFLOAT4& f)
 	{
 		if (v && v->IsValid())
 			v->SetFloatVector(&f.x);
 	}
-	void SetMatrix(ID3DX11Effect* fx, const char* name, CXMMATRIX m)
+	void SetMatrix(FxEffect* fx, const char* name, CXMMATRIX m)
 	{
 		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));

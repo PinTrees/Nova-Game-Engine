@@ -32,7 +32,7 @@ void MeshRenderer::Render()
 		return;
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::InstancedBasicFX->Tech;
+	ComPtr<FxTechnique> tech = Effects::InstancedBasicFX->Tech;
 
 	D3DX11_TECHNIQUE_DESC techDesc;
 	tech->GetDesc(&techDesc);
@@ -86,7 +86,7 @@ void MeshRenderer::RenderInstancing(shared_ptr<class InstancingBuffer>& buffer)
 		return;
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::InstancedBasicFX->InstancingTech;
+	ComPtr<FxTechnique> tech = Effects::InstancedBasicFX->InstancingTech;
 	//Light3TexTech;
 
 	deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -152,8 +152,8 @@ void MeshRenderer::RenderShadow()
 	Transform* transform = m_pGameObject->GetComponent<Transform>();
 	auto deviceContext = Application::GetI()->GetDeviceContext();
 
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapTech;
-	ComPtr<ID3DX11EffectTechnique> alphaClippedTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipTech;
+	ComPtr<FxTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapTech;
+	ComPtr<FxTechnique> alphaClippedTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipTech;
 
 	XMMATRIX world;
 	XMMATRIX worldInvTranspose;
@@ -197,8 +197,8 @@ void MeshRenderer::RenderShadowInstancing(shared_ptr<class InstancingBuffer>& bu
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
 
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapInstancingTech;
-	ComPtr<ID3DX11EffectTechnique> alphaClippedTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech;
+	ComPtr<FxTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapInstancingTech;
+	ComPtr<FxTechnique> alphaClippedTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech;
 
 	XMMATRIX ViewProj;
 
@@ -234,7 +234,7 @@ void MeshRenderer::RenderShadowNormal()
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
 	Transform* transform = m_pGameObject->GetComponent<Transform>();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthTech;
+	ComPtr<FxTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthTech;
 
 	XMMATRIX world;
 	XMMATRIX worldInvTranspose;
@@ -278,7 +278,7 @@ void MeshRenderer::RenderShadowNormalInstancing(shared_ptr<class InstancingBuffe
 		return;
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthInstancingTech;
+	ComPtr<FxTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthInstancingTech;
 
 	XMMATRIX View;
 	XMMATRIX Proj;
@@ -333,7 +333,7 @@ void MeshRenderer::_Editor_Render()
 		return;
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::InstancedBasicFX->Tech;
+	ComPtr<FxTechnique> tech = Effects::InstancedBasicFX->Tech;
 
 	D3DX11_TECHNIQUE_DESC techDesc;
 	tech->GetDesc(&techDesc);
@@ -388,7 +388,7 @@ void MeshRenderer::_Editor_RenderShadowNormal()
 
 	auto deviceContext = Application::GetI()->GetDeviceContext();
 	Transform* transform = m_pGameObject->GetComponent<Transform>();
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthTech;
+	ComPtr<FxTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthTech;
 
 	XMMATRIX world;
 	XMMATRIX worldInvTranspose;

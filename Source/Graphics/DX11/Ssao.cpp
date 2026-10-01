@@ -111,7 +111,7 @@ void Ssao::ComputeSsao(const Camera& camera)
 	_deviceContext->IASetVertexBuffers(0, 1, _screenQuadVB.GetAddressOf(), &stride, &offset);
 	_deviceContext->IASetIndexBuffer(_screenQuadIB.Get(), DXGI_FORMAT_R16_UINT, 0);
 
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoFX->SsaoTech;
+	ComPtr<FxTechnique> tech = Effects::SsaoFX->SsaoTech;
 	D3DX11_TECHNIQUE_DESC techDesc;
 
 	tech->GetDesc(&techDesc);
@@ -156,7 +156,7 @@ void Ssao::ComputeSsao(const EditorCamera& camera)
 	_deviceContext->IASetVertexBuffers(0, 1, _screenQuadVB.GetAddressOf(), &stride, &offset);
 	_deviceContext->IASetIndexBuffer(_screenQuadIB.Get(), DXGI_FORMAT_R16_UINT, 0);
 
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoFX->SsaoTech;
+	ComPtr<FxTechnique> tech = Effects::SsaoFX->SsaoTech;
 	D3DX11_TECHNIQUE_DESC techDesc;
 
 	tech->GetDesc(&techDesc);
@@ -190,7 +190,7 @@ void Ssao::BlurAmbientMap(ComPtr<ID3D11ShaderResourceView> inputSRV, ComPtr<ID3D
 	Effects::SsaoBlurFX->SetNormalDepthMap(_normalDepthSRV.Get());
 	Effects::SsaoBlurFX->SetInputImage(inputSRV.Get());
 
-	ComPtr<ID3DX11EffectTechnique> tech;
+	ComPtr<FxTechnique> tech;
 	if (horzBlur)
 	{
 		tech = Effects::SsaoBlurFX->HorzBlurTech;

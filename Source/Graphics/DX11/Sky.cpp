@@ -89,7 +89,7 @@ void Sky::Draw(ID3D11DeviceContext* dc, const XMFLOAT3& eyePos, CXMMATRIX viewPr
 
 	for (uint32 p = 0; p < techDesc.Passes; ++p)
 	{
-		ComPtr<ID3DX11EffectPass> pass = Effects::SkyFX->SkyTech->GetPassByIndex(p);
+		ComPtr<FxPass> pass = Effects::SkyFX->SkyTech->GetPassByIndex(p);
 
 		pass->Apply(0, dc);
 

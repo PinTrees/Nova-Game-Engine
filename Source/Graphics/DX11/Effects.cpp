@@ -7,29 +7,18 @@
 
 
 
+// 효과는 RHI 장치(Rhi::Main)로 불러온다 — DirectX 11 = Effects11, OpenGL = ShaderCross. device 인자는 예전 호출 모양 그대로 두려고 남김
 Effect::Effect(ComPtr<ID3D11Device> device, const std::wstring& filename)
 {
-	WORD shaderFlags = 0;
-#if defined( DEBUG ) || defined( _DEBUG )
-	shaderFlags |= D3D10_SHADER_DEBUG;
-	shaderFlags |= D3D10_SHADER_SKIP_OPTIMIZATION;
-#endif
-
-	ComPtr<ID3D10Blob> compiledShader = 0;
-	ComPtr<ID3D10Blob> compilationMsgs = 0;
-
-	HRESULT hr = ShaderCache::CompileEffect(filename, shaderFlags, compiledShader, compilationMsgs);
-
-	// compilationMsgs can store errors or warnings.
-	if (FAILED(hr))
+	(void)device;
+	std::string error;
+	_fx = FxEffect::Load(filename, error);
+	if (!_fx)
 	{
-		if (compilationMsgs != 0)
-			::MessageBoxA(0, (char*)compilationMsgs->GetBufferPointer(), 0, 0);
-
+		EditorLog::Write("Effect", "%s: %s", wstring_to_string(filename).c_str(), error.c_str());
+		::MessageBoxA(0, error.c_str(), wstring_to_string(filename).c_str(), 0);
 		assert(false);
 	}
-
-	CHECK(::D3DX11CreateEffectFromMemory(compiledShader->GetBufferPointer(), compiledShader->GetBufferSize(), 0, device.Get(), _fx.GetAddressOf()));
 }
 
 Effect::~Effect()

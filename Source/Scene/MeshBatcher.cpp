@@ -144,7 +144,7 @@ namespace
 		return s_InstanceBuffer.Get();
 	}
 
-	void SetMatrix(ID3DX11Effect* fx, const char* name, CXMMATRIX m)
+	void SetMatrix(FxEffect* fx, const char* name, CXMMATRIX m)
 	{
 		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));
@@ -211,8 +211,8 @@ namespace MeshBatcher
 		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
 		RenderManager* rm = RenderManager::GetI();
 		const XMMATRIX viewProj = editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix;
-		ID3DX11EffectTechnique* tech = nullptr;
-		ID3DX11Effect* fx = nullptr;
+		FxTechnique* tech = nullptr;
+		FxEffect* fx = nullptr;
 		switch (pass)
 		{
 		case Pass::Main:

@@ -182,12 +182,12 @@ void UIRenderer::Flush(ID3D11RenderTargetView* rtv, UINT width, UINT height, con
 	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 	ctx->IASetIndexBuffer(m_IB.Get(), DXGI_FORMAT_R32_UINT, 0);
 
-	ID3DX11Effect* fx = m_Effect->GetFX();
+	FxEffect* fx = m_Effect->GetFX();
 	XMFLOAT4X4 m;
 	XMStoreFloat4x4(&m, viewProj);
 	fx->GetVariableByName("gViewProj")->AsMatrix()->SetMatrix(&m._11);
-	ID3DX11EffectShaderResourceVariable* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
-	ID3DX11EffectPass* pass = fx->GetTechniqueByName(dsv ? "UISceneTech" : "UITech")->GetPassByIndex(0);
+	FxVar* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
+	FxPass* pass = fx->GetTechniqueByName(dsv ? "UISceneTech" : "UITech")->GetPassByIndex(0);
 	// 잘라내기 사각형(캔버스 월드) → 화면 픽셀 (네 모서리를 투영한 경계 상자)
 	auto scissorOf = [&](const Command& c) {
 		D3D11_RECT full = { 0, 0, (LONG)width, (LONG)height };

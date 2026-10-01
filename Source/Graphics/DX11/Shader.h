@@ -4,7 +4,7 @@
 class Shader
 {
 protected:
-	ComPtr<ID3DX11Effect> m_pFx;
+	ComPtr<FxEffect> m_pFx;
 	std::wstring m_FileName;
 
 public:

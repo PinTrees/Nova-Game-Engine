@@ -68,20 +68,20 @@ namespace
 	// ---- 효과 변수 (이름으로 찾아 둔다) ----
 	struct TerrainVars
 	{
-		ID3DX11EffectTechnique* Tech = nullptr;
-		ID3DX11EffectVectorVariable* Patch = nullptr;
-		ID3DX11EffectVectorVariable* Size = nullptr;
-		ID3DX11EffectVectorVariable* Origin = nullptr;
-		ID3DX11EffectVectorVariable* LayerST = nullptr;
-		ID3DX11EffectVectorVariable* LayerTint = nullptr;
-		ID3DX11EffectScalarVariable* LayerCount = nullptr;
-		ID3DX11EffectShaderResourceVariable* HeightMap = nullptr;
-		ID3DX11EffectShaderResourceVariable* Control = nullptr;
-		ID3DX11EffectShaderResourceVariable* ColorMap = nullptr;
-		ID3DX11EffectScalarVariable* UseColorMap = nullptr;
-		ID3DX11EffectShaderResourceVariable* Layers[4] = {};
+		FxTechnique* Tech = nullptr;
+		FxVar* Patch = nullptr;
+		FxVar* Size = nullptr;
+		FxVar* Origin = nullptr;
+		FxVar* LayerST = nullptr;
+		FxVar* LayerTint = nullptr;
+		FxVar* LayerCount = nullptr;
+		FxVar* HeightMap = nullptr;
+		FxVar* Control = nullptr;
+		FxVar* ColorMap = nullptr;
+		FxVar* UseColorMap = nullptr;
+		FxVar* Layers[4] = {};
 
-		void Bind(ID3DX11Effect* fx, const char* tech)
+		void Bind(FxEffect* fx, const char* tech)
 		{
 			Tech = fx->GetTechniqueByName(tech);
 			Patch = fx->GetVariableByName("gTerrainPatch")->AsVector();
@@ -120,7 +120,7 @@ namespace
 		}
 	}
 
-	void SetMatrix(ID3DX11Effect* fx, const char* name, CXMMATRIX m)
+	void SetMatrix(FxEffect* fx, const char* name, CXMMATRIX m)
 	{
 		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));
@@ -282,7 +282,7 @@ namespace TerrainRenderer
 		SelectLeaves(data, origin, cameraPos, errorPerMeter, leaves, masks);
 
 		// ---- 효과 변수 ----
-		ID3DX11Effect* fx = nullptr;
+		FxEffect* fx = nullptr;
 		switch (pass)
 		{
 		case Pass::Main: fx = Effects::InstancedBasicFX->GetFX(); break;
@@ -355,7 +355,7 @@ namespace TerrainRenderer
 
 		const int grid = data.NodeGrid();
 		IndexSet& indices = GetIndexSet(grid);
-		ID3DX11EffectPass* fxPass = v.Tech->GetPassByIndex(0);
+		FxPass* fxPass = v.Tech->GetPassByIndex(0);
 		if (stats)
 		{
 			*stats = Stats();

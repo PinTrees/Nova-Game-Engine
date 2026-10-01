@@ -125,7 +125,7 @@ void PostProcessPass::Draw(const char* tech, ID3D11RenderTargetView* rtv, UINT w
 	ctx->OMSetRenderTargets(1, rtvs, nullptr);
 	D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
 	ctx->RSSetViewports(1, &vp);
-	ID3DX11EffectTechnique* t = m_Effect->GetFX()->GetTechniqueByName(tech);
+	FxTechnique* t = m_Effect->GetFX()->GetTechniqueByName(tech);
 	if (t == nullptr || !t->IsValid())
 		return;
 	t->GetPassByIndex(0)->Apply(0, ctx);

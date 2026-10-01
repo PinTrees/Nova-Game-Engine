@@ -14,13 +14,13 @@ namespace
 
 	float ToLinear(float c) { return powf((std::max)(c, 0.0f), 2.2f); }
 
-	void SetVec(ID3DX11Effect* fx, const char* name, const XMFLOAT4& v)
+	void SetVec(FxEffect* fx, const char* name, const XMFLOAT4& v)
 	{
 		if (auto* var = fx->GetVariableByName(name)->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&v.x);
 	}
 
-	ID3DX11Effect* Fx()
+	FxEffect* Fx()
 	{
 		if (!s_Effect && !s_Failed)
 		{
@@ -123,7 +123,7 @@ namespace AtmospherePass
 		return p;
 	}
 
-	void Bind(ID3DX11Effect* fx, const Params& p, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky)
+	void Bind(FxEffect* fx, const Params& p, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky)
 	{
 		if (!fx)
 			return;
@@ -143,10 +143,10 @@ namespace AtmospherePass
 	void Draw(ID3D11DeviceContext* dc, const Params& p, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv, ID3D11ShaderResourceView* depthSRV,
 		const D3D11_VIEWPORT& viewport, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky)
 	{
-		ID3DX11Effect* fx = Fx();
+		FxEffect* fx = Fx();
 		if (!fx || !p.Active() || !target || !depthSRV)
 			return;
-		ID3DX11EffectTechnique* tech = fx->GetTechniqueByName("AtmosphereTech");
+		FxTechnique* tech = fx->GetTechniqueByName("AtmosphereTech");
 		if (!tech || !tech->IsValid())
 			return;
 		ID3D11ShaderResourceView* scene = CopyScene(dc, target);

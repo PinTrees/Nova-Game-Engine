@@ -26,136 +26,136 @@ public:
 	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
 	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> Light1Tech;
-	ComPtr<ID3DX11EffectTechnique> Light2Tech;
-	ComPtr<ID3DX11EffectTechnique> Light3Tech;
+	ComPtr<FxTechnique> Light1Tech;
+	ComPtr<FxTechnique> Light2Tech;
+	ComPtr<FxTechnique> Light3Tech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexTech;
+	ComPtr<FxTechnique> Light0TexTech;
+	ComPtr<FxTechnique> Light1TexTech;
+	ComPtr<FxTechnique> Light2TexTech;
+	ComPtr<FxTechnique> Light3TexTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogTech;
+	ComPtr<FxTechnique> Light1FogTech;
+	ComPtr<FxTechnique> Light2FogTech;
+	ComPtr<FxTechnique> Light3FogTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogTech;
+	ComPtr<FxTechnique> Light0TexFogTech;
+	ComPtr<FxTechnique> Light1TexFogTech;
+	ComPtr<FxTechnique> Light2TexFogTech;
+	ComPtr<FxTechnique> Light3TexFogTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3ReflectTech;
+	ComPtr<FxTechnique> Light1ReflectTech;
+	ComPtr<FxTechnique> Light2ReflectTech;
+	ComPtr<FxTechnique> Light3ReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexReflectTech;
+	ComPtr<FxTechnique> Light0TexReflectTech;
+	ComPtr<FxTechnique> Light1TexReflectTech;
+	ComPtr<FxTechnique> Light2TexReflectTech;
+	ComPtr<FxTechnique> Light3TexReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogReflectTech;
+	ComPtr<FxTechnique> Light1FogReflectTech;
+	ComPtr<FxTechnique> Light2FogReflectTech;
+	ComPtr<FxTechnique> Light3FogReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogReflectTech;
+	ComPtr<FxTechnique> Light0TexFogReflectTech;
+	ComPtr<FxTechnique> Light1TexFogReflectTech;
+	ComPtr<FxTechnique> Light2TexFogReflectTech;
+	ComPtr<FxTechnique> Light3TexFogReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1SkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2SkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3SkinnedTech;
+	ComPtr<FxTechnique> Light1SkinnedTech;
+	ComPtr<FxTechnique> Light2SkinnedTech;
+	ComPtr<FxTechnique> Light3SkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexSkinnedTech;
+	ComPtr<FxTechnique> Light0TexSkinnedTech;
+	ComPtr<FxTechnique> Light1TexSkinnedTech;
+	ComPtr<FxTechnique> Light2TexSkinnedTech;
+	ComPtr<FxTechnique> Light3TexSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipSkinnedTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipSkinnedTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipSkinnedTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipSkinnedTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1FogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogSkinnedTech;
+	ComPtr<FxTechnique> Light1FogSkinnedTech;
+	ComPtr<FxTechnique> Light2FogSkinnedTech;
+	ComPtr<FxTechnique> Light3FogSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogSkinnedTech;
+	ComPtr<FxTechnique> Light0TexFogSkinnedTech;
+	ComPtr<FxTechnique> Light1TexFogSkinnedTech;
+	ComPtr<FxTechnique> Light2TexFogSkinnedTech;
+	ComPtr<FxTechnique> Light3TexFogSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogSkinnedTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogSkinnedTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogSkinnedTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogSkinnedTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1ReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2ReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3ReflectSkinnedTech;
+	ComPtr<FxTechnique> Light1ReflectSkinnedTech;
+	ComPtr<FxTechnique> Light2ReflectSkinnedTech;
+	ComPtr<FxTechnique> Light3ReflectSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexReflectSkinnedTech;
+	ComPtr<FxTechnique> Light0TexReflectSkinnedTech;
+	ComPtr<FxTechnique> Light1TexReflectSkinnedTech;
+	ComPtr<FxTechnique> Light2TexReflectSkinnedTech;
+	ComPtr<FxTechnique> Light3TexReflectSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipReflectSkinnedTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipReflectSkinnedTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipReflectSkinnedTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipReflectSkinnedTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipReflectSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1FogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light1FogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light2FogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light3FogReflectSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light0TexFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light1TexFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light2TexFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light3TexFogReflectSkinnedTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogReflectSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogReflectSkinnedTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogReflectSkinnedTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProjTex;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> BoneTransforms;
-	ComPtr<ID3DX11EffectMatrixVariable> ShadowTransform;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> WorldViewProjTex;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> BoneTransforms;
+	ComPtr<FxVar> ShadowTransform;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> CubeMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> ShadowMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> SsaoMap;
+	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> CubeMap;
+	ComPtr<FxVar> NormalMap;
+	ComPtr<FxVar> ShadowMap;
+	ComPtr<FxVar> SsaoMap;
 };
 

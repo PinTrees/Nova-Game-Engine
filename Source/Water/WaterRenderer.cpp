@@ -81,7 +81,7 @@ namespace
 		if (s_Effect || s_Failed)
 			return s_Effect != nullptr;
 		s_Effect = std::make_unique<Effect>(device, L"../Shaders/46. Water.fx");
-		ID3DX11Effect* fx = s_Effect->GetFX();
+		FxEffect* fx = s_Effect->GetFX();
 		if (fx == nullptr || !fx->GetTechniqueByName("OceanTech")->IsValid())
 		{
 			s_Effect.reset();
@@ -416,7 +416,7 @@ namespace
 
 	XMFLOAT3 Lin(const float c[3]) { return XMFLOAT3(powf(c[0], 2.2f), powf(c[1], 2.2f), powf(c[2], 2.2f)); }
 
-	void SetBody(ID3DX11Effect* fx, const WaterBody& b)
+	void SetBody(FxEffect* fx, const WaterBody& b)
 	{
 		const WaterProfile& p = WaterProfiles::Get(b.Profile);
 		const WaterWaves::Set& waves = b.Waves();
@@ -483,7 +483,7 @@ namespace WaterRenderer
 		if (!Init(device))
 			return;
 		ID3D11DeviceContext* dc = v.Context;
-		ID3DX11Effect* fx = s_Effect->GetFX();
+		FxEffect* fx = s_Effect->GetFX();
 
 		// 상태 보관
 		ComPtr<ID3D11BlendState> prevBlend;

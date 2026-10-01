@@ -58,6 +58,7 @@ namespace ed = ax::NodeEditor;
 #include <DirectXTex/DirectXTex.h>
 #include <DirectXTex/DirectXTex.inl>
 #include <FX11/d3dx11effect.h>
+#include "RhiFx.h"   // Effects11 모양 래퍼 (RHI 위) — 엔진 코드는 Effects11 타입 대신 FxEffect·FxVar·FxTechnique 를 쓴다
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "d3dcompiler.lib")

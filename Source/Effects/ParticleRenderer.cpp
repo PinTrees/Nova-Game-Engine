@@ -302,21 +302,21 @@ namespace ParticleRenderer
 		ID3D11Buffer* vb = s_Buffer.Get();
 		ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 
-		ID3DX11Effect* fx = s_Effect->GetFX();
+		FxEffect* fx = s_Effect->GetFX();
 		XMFLOAT4X4 vp;
 		XMStoreFloat4x4(&vp, view * proj);
 		fx->GetVariableByName("gViewProj")->AsMatrix()->SetMatrix(&vp._11);
 		fx->GetVariableByName("gCamRight")->AsVector()->SetFloatVector(&camRight.x);
 		fx->GetVariableByName("gCamUp")->AsVector()->SetFloatVector(&camUp.x);
 		fx->GetVariableByName("gCamPos")->AsVector()->SetFloatVector(&camPos.x);
-		ID3DX11EffectShaderResourceVariable* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
-		ID3DX11EffectScalarVariable* modeVar = fx->GetVariableByName("gRenderMode")->AsScalar();
-		ID3DX11EffectScalarVariable* speedVar = fx->GetVariableByName("gSpeedScale")->AsScalar();
-		ID3DX11EffectScalarVariable* lengthVar = fx->GetVariableByName("gLengthScale")->AsScalar();
-		ID3DX11EffectPass* alphaPass = fx->GetTechniqueByName("AlphaTech")->GetPassByIndex(0);
-		ID3DX11EffectPass* addPass = fx->GetTechniqueByName("AdditiveTech")->GetPassByIndex(0);
-		ID3DX11EffectPass* trailAlphaPass = fx->GetTechniqueByName("TrailAlphaTech")->GetPassByIndex(0);
-		ID3DX11EffectPass* trailAddPass = fx->GetTechniqueByName("TrailAdditiveTech")->GetPassByIndex(0);
+		FxVar* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
+		FxVar* modeVar = fx->GetVariableByName("gRenderMode")->AsScalar();
+		FxVar* speedVar = fx->GetVariableByName("gSpeedScale")->AsScalar();
+		FxVar* lengthVar = fx->GetVariableByName("gLengthScale")->AsScalar();
+		FxPass* alphaPass = fx->GetTechniqueByName("AlphaTech")->GetPassByIndex(0);
+		FxPass* addPass = fx->GetTechniqueByName("AdditiveTech")->GetPassByIndex(0);
+		FxPass* trailAlphaPass = fx->GetTechniqueByName("TrailAlphaTech")->GetPassByIndex(0);
+		FxPass* trailAddPass = fx->GetTechniqueByName("TrailAdditiveTech")->GetPassByIndex(0);
 
 		for (const Batch& b : batches)
 		{

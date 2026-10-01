@@ -107,13 +107,27 @@ namespace Rhi
 		virtual int PassCount(int technique) const = 0;
 		virtual VarId FindVariable(const std::string& name) = 0;               // cbuffer 멤버 또는 텍스처
 
+		virtual int TechniqueCount() const = 0;
+		virtual std::string TechniqueName(int technique) const = 0;
+
+		// 값 넣기 — Effects11 과 같은 뜻: 타입이 다르면 바꿔 넣는다 (int 변수에 SetFloat = 정수로), 변수 크기를 넘지 않는다
 		virtual void SetRaw(VarId var, const void* data, uint32_t bytes, uint32_t offset = 0) = 0;
-		void SetFloat(VarId var, float v) { SetRaw(var, &v, 4); }
-		void SetInt(VarId var, int v) { SetRaw(var, &v, 4); }
-		void SetVector(VarId var, const float v[4]) { SetRaw(var, v, 16); }
+		virtual void SetFloat(VarId var, float v) = 0;
+		virtual void SetInt(VarId var, int v) = 0;
+		virtual void SetBool(VarId var, bool v) = 0;
+		virtual void SetVector(VarId var, const float v[4]) = 0;             // 변수 크기만큼 (float3 = 12 바이트)
+		virtual void SetFloatArray(VarId var, const float* v, uint32_t first, uint32_t count) = 0;      // 원소 간격 = cbuffer 배치 (16 바이트)
+		virtual void SetVectorArray(VarId var, const float* v, uint32_t first, uint32_t count) = 0;     // float4 원소
 		virtual void SetMatrix(VarId var, const float m[16]) = 0;            // 행 우선 (XMFLOAT4X4)
 		virtual void SetMatrixArray(VarId var, const float* m, uint32_t first, uint32_t count) = 0;
 		virtual void SetTexture(VarId var, Texture* texture, uint32_t arrayIndex = 0) = 0;
+		virtual void GetVector(VarId var, float out[4]) = 0;                 // 지금 들어 있는 값 (float4)
+
+		// ---- 옮기는 동안만: 아직 RHI 로 옮기지 않은 코드가 만든 D3D11 자원 (DirectX 11 에서만, 다른 API 는 무시)
+		virtual void SetNativeTexture(VarId var, void* d3d11Srv, uint32_t arrayIndex = 0) = 0;
+		virtual void SetNativeUav(VarId var, void* d3d11Uav) = 0;
+		// pass 의 정점 입력 서명 (D3D11 CreateInputLayout 용, 다른 API = false)
+		virtual bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) = 0;
 
 		virtual void Apply(int technique, int pass) = 0;
 	};
@@ -155,4 +169,11 @@ namespace Rhi
 
 	// api 에 맞는 장치. DirectX 11 = 에디터가 만든 장치를 감쌈, OpenGL = 숨은 창 + GL 4.5 컨텍스트 (이 스레드에 현재로)
 	std::unique_ptr<Device> CreateDevice(GraphicsAPI api, std::string& error);
+
+	// 이미 있는 D3D11 장치·컨텍스트를 감싼 장치 (App 이 만든 장치)
+	std::unique_ptr<Device> WrapD3D11(struct ID3D11Device* device, struct ID3D11DeviceContext* context);
+
+	// 엔진이 쓰는 장치 (App 이 그래픽 초기화 때 정한다). 렌더러·효과(FxEffect)는 이것을 쓴다
+	Device* Main();
+	void SetMain(std::unique_ptr<Device> device);
 }

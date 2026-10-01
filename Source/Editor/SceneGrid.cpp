@@ -29,7 +29,7 @@ namespace SceneGrid
 	{
 		if (!Init())
 			return;
-		ID3DX11Effect* fx = s_Effect->GetFX();
+		FxEffect* fx = s_Effect->GetFX();
 		fx->GetVariableByName("gViewProj")->AsMatrix()->SetMatrix(reinterpret_cast<const float*>(&viewProj));
 		// 예전 ImGui 격자와 같은 모양: 색 (92, 98, 106), 알파 0.55 / 0.85, 70 유닛에서 사라짐
 		const XMFLOAT4 cam(cameraPos.x, cameraPos.y, cameraPos.z, 80.0f);

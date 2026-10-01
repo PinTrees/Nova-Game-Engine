@@ -708,8 +708,8 @@ void EditorApp::DrawSceneToSsaoNormalDepthMap()
 	//RenderManager::GetI()->cameraProjectionMatrix = _camera.Proj();
 	//RenderManager::GetI()->cameraViewProjectionMatrix = XMMatrixMultiply(view, proj);
 	//
-	//ComPtr<ID3DX11EffectTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthTech;
-	//ComPtr<ID3DX11EffectTechnique> alphaClippedTech = Effects::SsaoNormalDepthFX->NormalDepthAlphaClipTech;
+	//ComPtr<FxTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthTech;
+	//ComPtr<FxTechnique> alphaClippedTech = Effects::SsaoNormalDepthFX->NormalDepthAlphaClipTech;
 	//
 	//XMMATRIX world;
 	//XMMATRIX worldInvTranspose;
@@ -796,8 +796,8 @@ void EditorApp::DrawSceneToShadowMap()
 	//// Draw Scene Objects
 	//SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 	//
-	//ComPtr<ID3DX11EffectTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapTech;
-	//ComPtr<ID3DX11EffectTechnique> alphaClippedTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipTech;
+	//ComPtr<FxTechnique> tech = Effects::BuildShadowMapFX->BuildShadowMapTech;
+	//ComPtr<FxTechnique> alphaClippedTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipTech;
 	//
 	//_deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	//
@@ -878,7 +878,7 @@ void EditorApp::DrawScreenQuad(ComPtr<ID3D11ShaderResourceView> srv)
 		0.0f, 0.0f, 1.0f, 0.0f,
 		0.5f, -0.5f, 0.0f, 1.0f);
 
-	ComPtr<ID3DX11EffectTechnique> tech = Effects::DebugTexFX->ViewRedTech;
+	ComPtr<FxTechnique> tech = Effects::DebugTexFX->ViewRedTech;
 	D3DX11_TECHNIQUE_DESC techDesc;
 
 	tech->GetDesc(&techDesc);

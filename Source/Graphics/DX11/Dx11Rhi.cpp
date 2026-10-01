@@ -106,9 +106,46 @@ namespace
 			return VarIds[name] = (int)Vars.size() - 1;
 		}
 
+		int TechniqueCount() const override { return (int)Techniques.size(); }
+		std::string TechniqueName(int technique) const override { return technique >= 0 && technique < (int)TechniqueNames.size() ? TechniqueNames[technique] : std::string(); }
+
 		void SetRaw(Rhi::VarId var, const void* data, uint32_t bytes, uint32_t offset) override
 		{
 			if (var >= 0) Vars[var]->SetRawValue(data, offset, bytes);
+		}
+		void GetVector(Rhi::VarId var, float out[4]) override { if (var >= 0) Vars[var]->AsVector()->GetFloatVector(out); }
+		void SetFloat(Rhi::VarId var, float v) override { if (var >= 0) Vars[var]->AsScalar()->SetFloat(v); }
+		void SetInt(Rhi::VarId var, int v) override { if (var >= 0) Vars[var]->AsScalar()->SetInt(v); }
+		void SetBool(Rhi::VarId var, bool v) override { if (var >= 0) Vars[var]->AsScalar()->SetBool(v); }
+		void SetVector(Rhi::VarId var, const float v[4]) override { if (var >= 0) Vars[var]->AsVector()->SetFloatVector(v); }
+		void SetFloatArray(Rhi::VarId var, const float* v, uint32_t first, uint32_t count) override { if (var >= 0) Vars[var]->AsScalar()->SetFloatArray(v, first, count); }
+		void SetVectorArray(Rhi::VarId var, const float* v, uint32_t first, uint32_t count) override { if (var >= 0) Vars[var]->AsVector()->SetFloatVectorArray(v, first, count); }
+
+		void SetNativeTexture(Rhi::VarId var, void* d3d11Srv, uint32_t arrayIndex) override
+		{
+			if (var < 0) return;
+			auto* srv = static_cast<ID3D11ShaderResourceView*>(d3d11Srv);
+			D3DX11_EFFECT_TYPE_DESC td;
+			Vars[var]->GetType()->GetDesc(&td);
+			if (td.Elements > 0)
+				Vars[var]->AsShaderResource()->SetResourceArray(&srv, arrayIndex, 1);
+			else
+				Vars[var]->AsShaderResource()->SetResource(srv);
+		}
+
+		void SetNativeUav(Rhi::VarId var, void* d3d11Uav) override
+		{
+			if (var >= 0) Vars[var]->AsUnorderedAccessView()->SetUnorderedAccessView(static_cast<ID3D11UnorderedAccessView*>(d3d11Uav));
+		}
+
+		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
+		{
+			if (technique < 0 || technique >= (int)Techniques.size()) return false;
+			D3DX11_PASS_DESC pd;
+			if (FAILED(Techniques[technique]->GetPassByIndex(pass)->GetDesc(&pd))) return false;
+			*data = pd.pIAInputSignature;
+			*size = pd.IAInputSignatureSize;
+			return true;
 		}
 
 		void SetMatrix(Rhi::VarId var, const float m[16]) override
@@ -123,14 +160,7 @@ namespace
 
 		void SetTexture(Rhi::VarId var, Rhi::Texture* texture, uint32_t arrayIndex) override
 		{
-			if (var < 0) return;
-			ID3D11ShaderResourceView* srv = texture ? static_cast<DxTexture*>(texture)->Srv.Get() : nullptr;
-			D3DX11_EFFECT_TYPE_DESC td;
-			Vars[var]->GetType()->GetDesc(&td);
-			if (td.Elements > 0)
-				Vars[var]->AsShaderResource()->SetResourceArray(&srv, arrayIndex, 1);
-			else
-				Vars[var]->AsShaderResource()->SetResource(srv);
+			SetNativeTexture(var, texture ? static_cast<DxTexture*>(texture)->Srv.Get() : nullptr, arrayIndex);
 		}
 
 		void Apply(int technique, int pass) override
@@ -250,7 +280,7 @@ namespace
 		std::unique_ptr<Rhi::Effect> LoadEffect(const std::wstring& fxPath, std::string& error) override
 		{
 			ComPtr<ID3D10Blob> compiled, msgs;
-			if (FAILED(ShaderCache::CompileEffect(fxPath, 0, compiled, msgs)))
+			if (FAILED(ShaderCache::CompileEffect(fxPath, ShaderCache::DefaultFlags(), compiled, msgs)))
 			{
 				error = msgs ? std::string((const char*)msgs->GetBufferPointer(), msgs->GetBufferSize()) : "effect compile failed";
 				return nullptr;
@@ -397,6 +427,14 @@ namespace
 
 		void Finish() override { Ctx->Flush(); }
 	};
+}
+
+std::unique_ptr<Rhi::Device> Rhi::WrapD3D11(ID3D11Device* device, ID3D11DeviceContext* context)
+{
+	auto d = std::make_unique<Dx11Device>();
+	d->Dev = device;
+	d->Ctx = context;
+	return d;
 }
 
 std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error)

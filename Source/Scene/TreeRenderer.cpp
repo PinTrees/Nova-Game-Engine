@@ -84,28 +84,28 @@ namespace
 	// ================================================================ 효과 변수
 	struct TreeVars
 	{
-		ID3DX11Effect* Fx = nullptr;
-		ID3DX11EffectTechnique* Bark = nullptr;
-		ID3DX11EffectTechnique* Leaf = nullptr;
-		ID3DX11EffectTechnique* Impostor = nullptr;
-		ID3DX11EffectTechnique* BarkBake = nullptr;
-		ID3DX11EffectTechnique* LeafBake = nullptr;
-		ID3DX11EffectVectorVariable* Wind = nullptr;
-		ID3DX11EffectVectorVariable* WindParams = nullptr;
-		ID3DX11EffectVectorVariable* BarkColor = nullptr;
-		ID3DX11EffectVectorVariable* BarkParams = nullptr;
-		ID3DX11EffectVectorVariable* MossColor = nullptr;
-		ID3DX11EffectVectorVariable* LeafColor = nullptr;
-		ID3DX11EffectVectorVariable* LeafColor2 = nullptr;
-		ID3DX11EffectVectorVariable* LeafParams = nullptr;
-		ID3DX11EffectVectorVariable* ImpostorParams = nullptr;
-		ID3DX11EffectVectorVariable* ViewPos = nullptr;
-		ID3DX11EffectShaderResourceVariable* LeafTex = nullptr;
-		ID3DX11EffectShaderResourceVariable* BarkTex = nullptr;
-		ID3DX11EffectShaderResourceVariable* ImpAlbedo = nullptr;
-		ID3DX11EffectShaderResourceVariable* ImpNormal = nullptr;
+		FxEffect* Fx = nullptr;
+		FxTechnique* Bark = nullptr;
+		FxTechnique* Leaf = nullptr;
+		FxTechnique* Impostor = nullptr;
+		FxTechnique* BarkBake = nullptr;
+		FxTechnique* LeafBake = nullptr;
+		FxVar* Wind = nullptr;
+		FxVar* WindParams = nullptr;
+		FxVar* BarkColor = nullptr;
+		FxVar* BarkParams = nullptr;
+		FxVar* MossColor = nullptr;
+		FxVar* LeafColor = nullptr;
+		FxVar* LeafColor2 = nullptr;
+		FxVar* LeafParams = nullptr;
+		FxVar* ImpostorParams = nullptr;
+		FxVar* ViewPos = nullptr;
+		FxVar* LeafTex = nullptr;
+		FxVar* BarkTex = nullptr;
+		FxVar* ImpAlbedo = nullptr;
+		FxVar* ImpNormal = nullptr;
 
-		void Bind(ID3DX11Effect* fx, const char* bark, const char* leaf, const char* impostor)
+		void Bind(FxEffect* fx, const char* bark, const char* leaf, const char* impostor)
 		{
 			Fx = fx;
 			Bark = fx->GetTechniqueByName(bark);
@@ -148,17 +148,17 @@ namespace
 		return vars[pass];
 	}
 
-	void SetVec(ID3DX11EffectVectorVariable* v, const XMFLOAT4& f)
+	void SetVec(FxVar* v, const XMFLOAT4& f)
 	{
 		if (v && v->IsValid())
 			v->SetFloatVector(&f.x);
 	}
-	void SetSrv(ID3DX11EffectShaderResourceVariable* v, ID3D11ShaderResourceView* srv)
+	void SetSrv(FxVar* v, ID3D11ShaderResourceView* srv)
 	{
 		if (v && v->IsValid())
 			v->SetResource(srv);
 	}
-	void SetMatrix(ID3DX11Effect* fx, const char* name, CXMMATRIX m)
+	void SetMatrix(FxEffect* fx, const char* name, CXMMATRIX m)
 	{
 		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));

@@ -15,10 +15,10 @@ private:
 
 public:
 	// 이름으로 변수/기법을 직접 찾을 때 (지형 렌더러 등)
-	ID3DX11Effect* GetFX() const { return _fx.Get(); }
+	FxEffect* GetFX() const { return _fx.Get(); }
 
 protected:
-	ComPtr<ID3DX11Effect> _fx;
+	ComPtr<FxEffect> _fx;
 };
 
 class BasicEffect : public Effect
@@ -45,80 +45,80 @@ public:
 	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
 	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> Light1Tech;
-	ComPtr<ID3DX11EffectTechnique> Light2Tech;
-	ComPtr<ID3DX11EffectTechnique> Light3Tech;
+	ComPtr<FxTechnique> Light1Tech;
+	ComPtr<FxTechnique> Light2Tech;
+	ComPtr<FxTechnique> Light3Tech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexTech;
+	ComPtr<FxTechnique> Light0TexTech;
+	ComPtr<FxTechnique> Light1TexTech;
+	ComPtr<FxTechnique> Light2TexTech;
+	ComPtr<FxTechnique> Light3TexTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogTech;
+	ComPtr<FxTechnique> Light1FogTech;
+	ComPtr<FxTechnique> Light2FogTech;
+	ComPtr<FxTechnique> Light3FogTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogTech;
+	ComPtr<FxTechnique> Light0TexFogTech;
+	ComPtr<FxTechnique> Light1TexFogTech;
+	ComPtr<FxTechnique> Light2TexFogTech;
+	ComPtr<FxTechnique> Light3TexFogTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogTech;
 
 	// NEW
-	ComPtr<ID3DX11EffectTechnique> Light1ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3ReflectTech;
+	ComPtr<FxTechnique> Light1ReflectTech;
+	ComPtr<FxTechnique> Light2ReflectTech;
+	ComPtr<FxTechnique> Light3ReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexReflectTech;
+	ComPtr<FxTechnique> Light0TexReflectTech;
+	ComPtr<FxTechnique> Light1TexReflectTech;
+	ComPtr<FxTechnique> Light2TexReflectTech;
+	ComPtr<FxTechnique> Light3TexReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogReflectTech;
+	ComPtr<FxTechnique> Light1FogReflectTech;
+	ComPtr<FxTechnique> Light2FogReflectTech;
+	ComPtr<FxTechnique> Light3FogReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogReflectTech;
+	ComPtr<FxTechnique> Light0TexFogReflectTech;
+	ComPtr<FxTechnique> Light1TexFogReflectTech;
+	ComPtr<FxTechnique> Light2TexFogReflectTech;
+	ComPtr<FxTechnique> Light3TexFogReflectTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogReflectTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProjTex;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> ShadowTransform;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> WorldViewProjTex;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> ShadowTransform;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> ShadowMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> SsaoMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> CubeMap;
+	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> ShadowMap;
+	ComPtr<FxVar> SsaoMap;
+	ComPtr<FxVar> CubeMap;
 };
 
 class TreeSpriteEffect : public Effect
@@ -136,19 +136,19 @@ public:
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
 	void SetTreeTextureMapArray(ID3D11ShaderResourceView* tex) { TreeTextureMapArray->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> Light3Tech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light3Tech;
+	ComPtr<FxTechnique> Light3TexAlphaClipTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProj;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
+	ComPtr<FxVar> ViewProj;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> TreeTextureMapArray;
+	ComPtr<FxVar> TreeTextureMapArray;
 };
 
 class VecAddEffect : public Effect
@@ -161,11 +161,11 @@ public:
 	void SetInputB(ComPtr<ID3D11ShaderResourceView> srv) { InputB->SetResource(srv.Get()); }
 	void SetOutput(ComPtr<ID3D11UnorderedAccessView> uav) { Output->SetUnorderedAccessView(uav.Get()); }
 
-	ComPtr<ID3DX11EffectTechnique> VecAddTech;
+	ComPtr<FxTechnique> VecAddTech;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> InputA;
-	ComPtr<ID3DX11EffectShaderResourceVariable> InputB;
-	ComPtr<ID3DX11EffectUnorderedAccessViewVariable> Output;
+	ComPtr<FxVar> InputA;
+	ComPtr<FxVar> InputB;
+	ComPtr<FxVar> Output;
 };
 
 class BlurEffect : public Effect
@@ -178,12 +178,12 @@ public:
 	void SetInputMap(ComPtr<ID3D11ShaderResourceView> tex) { InputMap->SetResource(tex.Get()); }
 	void SetOutputMap(ComPtr<ID3D11UnorderedAccessView> tex) { OutputMap->SetUnorderedAccessView(tex.Get()); }
 
-	ComPtr<ID3DX11EffectTechnique> HorzBlurTech;
-	ComPtr<ID3DX11EffectTechnique> VertBlurTech;
+	ComPtr<FxTechnique> HorzBlurTech;
+	ComPtr<FxTechnique> VertBlurTech;
 
-	ComPtr<ID3DX11EffectScalarVariable> Weights;
-	ComPtr<ID3DX11EffectShaderResourceVariable> InputMap;
-	ComPtr<ID3DX11EffectUnorderedAccessViewVariable> OutputMap;
+	ComPtr<FxVar> Weights;
+	ComPtr<FxVar> InputMap;
+	ComPtr<FxVar> OutputMap;
 };
 
 class TessellationEffect : public Effect
@@ -204,20 +204,20 @@ public:
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
 	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> TessTech;
+	ComPtr<FxTechnique> TessTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
+	ComPtr<FxVar> DiffuseMap;
 };
 
 class BezierTessellationEffect : public Effect
@@ -238,20 +238,20 @@ public:
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
 	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> TessTech;
+	ComPtr<FxTechnique> TessTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
+	ComPtr<FxVar> DiffuseMap;
 };
 
 class InstancedBasicEffect : public Effect
@@ -287,7 +287,7 @@ public:
 	void SetFogRange(float f) { FogRange->SetFloat(f); }
 	/*
 	template <typename T, int maxSize>
-	void SetLights(const T* lights, int cnt, ComPtr<ID3DX11EffectVariable> LightEffect, ComPtr<ID3DX11EffectScalarVariable> LightCountEffect)
+	void SetLights(const T* lights, int cnt, ComPtr<FxVar> LightEffect, ComPtr<FxVar> LightCountEffect)
 	{
 		T lightArray[maxSize];
 
@@ -345,60 +345,60 @@ public:
 	void SetMetallicMap(ID3D11ShaderResourceView* tex) { MetallicMap->SetResource(tex); }
 	void SetOcclusionMap(ID3D11ShaderResourceView* tex) { OcclusionMap->SetResource(tex); }
 	void SetEmissionMap(ID3D11ShaderResourceView* tex) { EmissionMap->SetResource(tex); }
-	ComPtr<ID3DX11EffectVariable> Pbr;
-	ComPtr<ID3DX11EffectShaderResourceVariable> MetallicMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> OcclusionMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> EmissionMap;
+	ComPtr<FxVar> Pbr;
+	ComPtr<FxVar> MetallicMap;
+	ComPtr<FxVar> OcclusionMap;
+	ComPtr<FxVar> EmissionMap;
 
-	ComPtr<ID3DX11EffectTechnique> Tech;
-	ComPtr<ID3DX11EffectTechnique> InstancingTech;
-	ComPtr<ID3DX11EffectTechnique> SkinnedTech;
+	ComPtr<FxTechnique> Tech;
+	ComPtr<FxTechnique> InstancingTech;
+	ComPtr<FxTechnique> SkinnedTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProjTex;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> WorldViewProjTex;
 
-	//ComPtr<ID3DX11EffectMatrixVariable> View;
-	//ComPtr<ID3DX11EffectMatrixVariable> Proj;
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProjTex;
-	ComPtr<ID3DX11EffectMatrixVariable> BoneTransforms;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
+	//ComPtr<FxVar> View;
+	//ComPtr<FxVar> Proj;
+	ComPtr<FxVar> ViewProj;
+	ComPtr<FxVar> ViewProjTex;
+	ComPtr<FxVar> BoneTransforms;
+	ComPtr<FxVar> TexTransform;
 	
-	ComPtr<ID3DX11EffectMatrixVariable> DirShadowTransforms;
-	ComPtr<ID3DX11EffectMatrixVariable> SpotShadowTransforms;
-	ComPtr<ID3DX11EffectMatrixVariable> PointShadowTransforms;
-	ComPtr<ID3DX11EffectVectorVariable> CascadeSpheres;
-	ComPtr<ID3DX11EffectVectorVariable> ShadowParams;
-	ComPtr<ID3DX11EffectVectorVariable> DirShadowData;
-	ComPtr<ID3DX11EffectVectorVariable> SpotShadowData;
-	ComPtr<ID3DX11EffectVectorVariable> PointShadowData;
+	ComPtr<FxVar> DirShadowTransforms;
+	ComPtr<FxVar> SpotShadowTransforms;
+	ComPtr<FxVar> PointShadowTransforms;
+	ComPtr<FxVar> CascadeSpheres;
+	ComPtr<FxVar> ShadowParams;
+	ComPtr<FxVar> DirShadowData;
+	ComPtr<FxVar> SpotShadowData;
+	ComPtr<FxVar> PointShadowData;
 
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
 
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> PointLights;
-	ComPtr<ID3DX11EffectVariable> SpotLights;
-	ComPtr<ID3DX11EffectScalarVariable> DirLightCount;
-	ComPtr<ID3DX11EffectScalarVariable> PointLightCount;
-	ComPtr<ID3DX11EffectScalarVariable> SpotLightCount;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> PointLights;
+	ComPtr<FxVar> SpotLights;
+	ComPtr<FxVar> DirLightCount;
+	ComPtr<FxVar> PointLightCount;
+	ComPtr<FxVar> SpotLightCount;
 
-	ComPtr<ID3DX11EffectVariable> Mat;
-	ComPtr<ID3DX11EffectVariable> Setting;
+	ComPtr<FxVar> Mat;
+	ComPtr<FxVar> Setting;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
+	ComPtr<FxVar> DiffuseMap;
 	
-	ComPtr<ID3DX11EffectShaderResourceVariable> DirShadowMaps;
-	ComPtr<ID3DX11EffectShaderResourceVariable> SpotShadowMaps;
-	ComPtr<ID3DX11EffectShaderResourceVariable> PointShadowMaps;
+	ComPtr<FxVar> DirShadowMaps;
+	ComPtr<FxVar> SpotShadowMaps;
+	ComPtr<FxVar> PointShadowMaps;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> SsaoMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> CubeMap;
+	ComPtr<FxVar> NormalMap;
+	ComPtr<FxVar> SsaoMap;
+	ComPtr<FxVar> CubeMap;
 };
 
 class SkyEffect : public Effect
@@ -410,9 +410,9 @@ public:
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
 	void SetCubeMap(ID3D11ShaderResourceView* cubemap) { CubeMap->SetResource(cubemap); }
 
-	ComPtr<ID3DX11EffectTechnique> SkyTech;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectShaderResourceVariable> CubeMap;
+	ComPtr<FxTechnique> SkyTech;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> CubeMap;
 };
 
 class NormalMapEffect : public Effect
@@ -439,69 +439,69 @@ public:
 	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
 	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> Light1Tech;
-	ComPtr<ID3DX11EffectTechnique> Light2Tech;
-	ComPtr<ID3DX11EffectTechnique> Light3Tech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light1FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light1Tech;
+	ComPtr<FxTechnique> Light2Tech;
+	ComPtr<FxTechnique> Light3Tech;
+	ComPtr<FxTechnique> Light0TexTech;
+	ComPtr<FxTechnique> Light1TexTech;
+	ComPtr<FxTechnique> Light2TexTech;
+	ComPtr<FxTechnique> Light3TexTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipTech;
+	ComPtr<FxTechnique> Light1FogTech;
+	ComPtr<FxTechnique> Light2FogTech;
+	ComPtr<FxTechnique> Light3FogTech;
+	ComPtr<FxTechnique> Light0TexFogTech;
+	ComPtr<FxTechnique> Light1TexFogTech;
+	ComPtr<FxTechnique> Light2TexFogTech;
+	ComPtr<FxTechnique> Light3TexFogTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light1ReflectTech;
+	ComPtr<FxTechnique> Light2ReflectTech;
+	ComPtr<FxTechnique> Light3ReflectTech;
+	ComPtr<FxTechnique> Light0TexReflectTech;
+	ComPtr<FxTechnique> Light1TexReflectTech;
+	ComPtr<FxTechnique> Light2TexReflectTech;
+	ComPtr<FxTechnique> Light3TexReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light1FogReflectTech;
+	ComPtr<FxTechnique> Light2FogReflectTech;
+	ComPtr<FxTechnique> Light3FogReflectTech;
+	ComPtr<FxTechnique> Light0TexFogReflectTech;
+	ComPtr<FxTechnique> Light1TexFogReflectTech;
+	ComPtr<FxTechnique> Light2TexFogReflectTech;
+	ComPtr<FxTechnique> Light3TexFogReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogReflectTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProjTex;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> ShadowTransform;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> WorldViewProjTex;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> ShadowTransform;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> CubeMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> ShadowMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> SsaoMap;
+	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> CubeMap;
+	ComPtr<FxVar> NormalMap;
+	ComPtr<FxVar> ShadowMap;
+	ComPtr<FxVar> SsaoMap;
 };
 
 class DisplacementMapEffect : public Effect
@@ -533,74 +533,74 @@ public:
 	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
 	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
 	
-	ComPtr<ID3DX11EffectTechnique> Light1Tech;
-	ComPtr<ID3DX11EffectTechnique> Light2Tech;
-	ComPtr<ID3DX11EffectTechnique> Light3Tech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> Light1FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light1Tech;
+	ComPtr<FxTechnique> Light2Tech;
+	ComPtr<FxTechnique> Light3Tech;
+	ComPtr<FxTechnique> Light0TexTech;
+	ComPtr<FxTechnique> Light1TexTech;
+	ComPtr<FxTechnique> Light2TexTech;
+	ComPtr<FxTechnique> Light3TexTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipTech;
+	ComPtr<FxTechnique> Light1FogTech;
+	ComPtr<FxTechnique> Light2FogTech;
+	ComPtr<FxTechnique> Light3FogTech;
+	ComPtr<FxTechnique> Light0TexFogTech;
+	ComPtr<FxTechnique> Light1TexFogTech;
+	ComPtr<FxTechnique> Light2TexFogTech;
+	ComPtr<FxTechnique> Light3TexFogTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogTech;
 
-	ComPtr<ID3DX11EffectTechnique> Light1ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3ReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light0TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light1TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light2TexAlphaClipFogReflectTech;
-	ComPtr<ID3DX11EffectTechnique> Light3TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light1ReflectTech;
+	ComPtr<FxTechnique> Light2ReflectTech;
+	ComPtr<FxTechnique> Light3ReflectTech;
+	ComPtr<FxTechnique> Light0TexReflectTech;
+	ComPtr<FxTechnique> Light1TexReflectTech;
+	ComPtr<FxTechnique> Light2TexReflectTech;
+	ComPtr<FxTechnique> Light3TexReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipReflectTech;
+	ComPtr<FxTechnique> Light1FogReflectTech;
+	ComPtr<FxTechnique> Light2FogReflectTech;
+	ComPtr<FxTechnique> Light3FogReflectTech;
+	ComPtr<FxTechnique> Light0TexFogReflectTech;
+	ComPtr<FxTechnique> Light1TexFogReflectTech;
+	ComPtr<FxTechnique> Light2TexFogReflectTech;
+	ComPtr<FxTechnique> Light3TexFogReflectTech;
+	ComPtr<FxTechnique> Light0TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light1TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light2TexAlphaClipFogReflectTech;
+	ComPtr<FxTechnique> Light3TexAlphaClipFogReflectTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> ShadowTransform;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
-	ComPtr<ID3DX11EffectScalarVariable> HeightScale;
-	ComPtr<ID3DX11EffectScalarVariable> MaxTessDistance;
-	ComPtr<ID3DX11EffectScalarVariable> MinTessDistance;
-	ComPtr<ID3DX11EffectScalarVariable> MinTessFactor;
-	ComPtr<ID3DX11EffectScalarVariable> MaxTessFactor;
+	ComPtr<FxVar> ViewProj;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> ShadowTransform;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
+	ComPtr<FxVar> HeightScale;
+	ComPtr<FxVar> MaxTessDistance;
+	ComPtr<FxVar> MinTessDistance;
+	ComPtr<FxVar> MinTessFactor;
+	ComPtr<FxVar> MaxTessFactor;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> CubeMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> ShadowMap;
+	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> CubeMap;
+	ComPtr<FxVar> NormalMap;
+	ComPtr<FxVar> ShadowMap;
 };
 
 class TerrainEffect : public Effect
@@ -631,35 +631,35 @@ public:
 	void SetHeightMap(ID3D11ShaderResourceView* tex) { HeightMap->SetResource(tex); }
 
 
-	ComPtr<ID3DX11EffectTechnique> Light1Tech;
-	ComPtr<ID3DX11EffectTechnique> Light2Tech;
-	ComPtr<ID3DX11EffectTechnique> Light3Tech;
-	ComPtr<ID3DX11EffectTechnique> Light1FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light2FogTech;
-	ComPtr<ID3DX11EffectTechnique> Light3FogTech;
+	ComPtr<FxTechnique> Light1Tech;
+	ComPtr<FxTechnique> Light2Tech;
+	ComPtr<FxTechnique> Light3Tech;
+	ComPtr<FxTechnique> Light1FogTech;
+	ComPtr<FxTechnique> Light2FogTech;
+	ComPtr<FxTechnique> Light3FogTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> FogColor;
-	ComPtr<ID3DX11EffectScalarVariable> FogStart;
-	ComPtr<ID3DX11EffectScalarVariable> FogRange;
-	ComPtr<ID3DX11EffectVariable> DirLights;
-	ComPtr<ID3DX11EffectVariable> Mat;
-	ComPtr<ID3DX11EffectScalarVariable> MinDist;
-	ComPtr<ID3DX11EffectScalarVariable> MaxDist;
-	ComPtr<ID3DX11EffectScalarVariable> MinTess;
-	ComPtr<ID3DX11EffectScalarVariable> MaxTess;
-	ComPtr<ID3DX11EffectScalarVariable> TexelCellSpaceU;
-	ComPtr<ID3DX11EffectScalarVariable> TexelCellSpaceV;
-	ComPtr<ID3DX11EffectScalarVariable> WorldCellSpace;
-	ComPtr<ID3DX11EffectVectorVariable> WorldFrustumPlanes;
+	ComPtr<FxVar> ViewProj;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> FogColor;
+	ComPtr<FxVar> FogStart;
+	ComPtr<FxVar> FogRange;
+	ComPtr<FxVar> DirLights;
+	ComPtr<FxVar> Mat;
+	ComPtr<FxVar> MinDist;
+	ComPtr<FxVar> MaxDist;
+	ComPtr<FxVar> MinTess;
+	ComPtr<FxVar> MaxTess;
+	ComPtr<FxVar> TexelCellSpaceU;
+	ComPtr<FxVar> TexelCellSpaceV;
+	ComPtr<FxVar> WorldCellSpace;
+	ComPtr<FxVar> WorldFrustumPlanes;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> LayerMapArray;
-	ComPtr<ID3DX11EffectShaderResourceVariable> BlendMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> HeightMap;
+	ComPtr<FxVar> LayerMapArray;
+	ComPtr<FxVar> BlendMap;
+	ComPtr<FxVar> HeightMap;
 };
 
 class ParticleEffect : public Effect
@@ -680,17 +680,17 @@ public:
 	void SetTexArray(ID3D11ShaderResourceView* tex) { TexArray->SetResource(tex); }
 	void SetRandomTex(ID3D11ShaderResourceView* tex) { RandomTex->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> StreamOutTech;
-	ComPtr<ID3DX11EffectTechnique> DrawTech;
+	ComPtr<FxTechnique> StreamOutTech;
+	ComPtr<FxTechnique> DrawTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProj;
-	ComPtr<ID3DX11EffectScalarVariable> GameTime;
-	ComPtr<ID3DX11EffectScalarVariable> TimeStep;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectVectorVariable> EmitPosW;
-	ComPtr<ID3DX11EffectVectorVariable> EmitDirW;
-	ComPtr<ID3DX11EffectShaderResourceVariable> TexArray;
-	ComPtr<ID3DX11EffectShaderResourceVariable> RandomTex;
+	ComPtr<FxVar> ViewProj;
+	ComPtr<FxVar> GameTime;
+	ComPtr<FxVar> TimeStep;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> EmitPosW;
+	ComPtr<FxVar> EmitDirW;
+	ComPtr<FxVar> TexArray;
+	ComPtr<FxVar> RandomTex;
 };
 
 class BuildShadowMapEffect : public Effect
@@ -719,34 +719,34 @@ public:
 	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> BuildShadowMapTech;
-	ComPtr<ID3DX11EffectTechnique> BuildShadowMapAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> BuildShadowMapSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> BuildShadowMapAlphaClipSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> TessBuildShadowMapTech;
-	ComPtr<ID3DX11EffectTechnique> TessBuildShadowMapAlphaClipTech;
+	ComPtr<FxTechnique> BuildShadowMapTech;
+	ComPtr<FxTechnique> BuildShadowMapAlphaClipTech;
+	ComPtr<FxTechnique> BuildShadowMapSkinnedTech;
+	ComPtr<FxTechnique> BuildShadowMapAlphaClipSkinnedTech;
+	ComPtr<FxTechnique> TessBuildShadowMapTech;
+	ComPtr<FxTechnique> TessBuildShadowMapAlphaClipTech;
 
 	// NEW
-	ComPtr<ID3DX11EffectTechnique> BuildShadowMapInstancingTech;
-	ComPtr<ID3DX11EffectTechnique> BuildShadowMapAlphaClipInstancingTech;
+	ComPtr<FxTechnique> BuildShadowMapInstancingTech;
+	ComPtr<FxTechnique> BuildShadowMapAlphaClipInstancingTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> ViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> World;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTranspose;
-	ComPtr<ID3DX11EffectMatrixVariable> BoneTransforms;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectVectorVariable> EyePosW;
-	ComPtr<ID3DX11EffectScalarVariable> HeightScale;
-	ComPtr<ID3DX11EffectScalarVariable> MaxTessDistance;
-	ComPtr<ID3DX11EffectScalarVariable> MinTessDistance;
-	ComPtr<ID3DX11EffectScalarVariable> MinTessFactor;
-	ComPtr<ID3DX11EffectScalarVariable> MaxTessFactor;
-	ComPtr<ID3DX11EffectVectorVariable> ShadowLight;
-	ComPtr<ID3DX11EffectVariable> ShadowBias;
+	ComPtr<FxVar> ViewProj;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> World;
+	ComPtr<FxVar> WorldInvTranspose;
+	ComPtr<FxVar> BoneTransforms;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> EyePosW;
+	ComPtr<FxVar> HeightScale;
+	ComPtr<FxVar> MaxTessDistance;
+	ComPtr<FxVar> MinTessDistance;
+	ComPtr<FxVar> MinTessFactor;
+	ComPtr<FxVar> MaxTessFactor;
+	ComPtr<FxVar> ShadowLight;
+	ComPtr<FxVar> ShadowBias;
 
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalMap;
+	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> NormalMap;
 };
 
 class DebugTexEffect : public Effect
@@ -758,14 +758,14 @@ public:
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
 	void SetTexture(ID3D11ShaderResourceView* tex) { Texture->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> ViewArgbTech;
-	ComPtr<ID3DX11EffectTechnique> ViewRedTech;
-	ComPtr<ID3DX11EffectTechnique> ViewGreenTech;
-	ComPtr<ID3DX11EffectTechnique> ViewBlueTech;
-	ComPtr<ID3DX11EffectTechnique> ViewAlphaTech;
+	ComPtr<FxTechnique> ViewArgbTech;
+	ComPtr<FxTechnique> ViewRedTech;
+	ComPtr<FxTechnique> ViewGreenTech;
+	ComPtr<FxTechnique> ViewBlueTech;
+	ComPtr<FxTechnique> ViewAlphaTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectShaderResourceVariable> Texture;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> Texture;
 };
 
 class AmbientOcclusionEffect : public Effect
@@ -776,8 +776,8 @@ public:
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
 
-	ComPtr<ID3DX11EffectTechnique> AmbientOcclusionTech;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
+	ComPtr<FxTechnique> AmbientOcclusionTech;
+	ComPtr<FxVar> WorldViewProj;
 };
 
 class SsaoNormalDepthEffect : public Effect
@@ -797,23 +797,23 @@ public:
 	void SetTexTransform(CXMMATRIX M) { TexTransform->SetMatrix(reinterpret_cast<const float*>(&M)); }
 	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 
-	ComPtr<ID3DX11EffectTechnique> NormalDepthTech;
-	ComPtr<ID3DX11EffectTechnique> NormalDepthAlphaClipTech;
-	ComPtr<ID3DX11EffectTechnique> NormalDepthSkinnedTech;
-	ComPtr<ID3DX11EffectTechnique> NormalDepthAlphaClipSkinnedTech;
+	ComPtr<FxTechnique> NormalDepthTech;
+	ComPtr<FxTechnique> NormalDepthAlphaClipTech;
+	ComPtr<FxTechnique> NormalDepthSkinnedTech;
+	ComPtr<FxTechnique> NormalDepthAlphaClipSkinnedTech;
 
 	// NEW
-	ComPtr<ID3DX11EffectTechnique> NormalDepthInstancingTech;
-	ComPtr<ID3DX11EffectTechnique> NormalDepthAlphaClipInstancingTech;
+	ComPtr<FxTechnique> NormalDepthInstancingTech;
+	ComPtr<FxTechnique> NormalDepthAlphaClipInstancingTech;
 
-	ComPtr<ID3DX11EffectMatrixVariable> View;
-	ComPtr<ID3DX11EffectMatrixVariable> Proj;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldView;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldInvTransposeView;
-	ComPtr<ID3DX11EffectMatrixVariable> BoneTransforms;
-	ComPtr<ID3DX11EffectMatrixVariable> WorldViewProj;
-	ComPtr<ID3DX11EffectMatrixVariable> TexTransform;
-	ComPtr<ID3DX11EffectShaderResourceVariable> DiffuseMap;
+	ComPtr<FxVar> View;
+	ComPtr<FxVar> Proj;
+	ComPtr<FxVar> WorldView;
+	ComPtr<FxVar> WorldInvTransposeView;
+	ComPtr<FxVar> BoneTransforms;
+	ComPtr<FxVar> WorldViewProj;
+	ComPtr<FxVar> TexTransform;
+	ComPtr<FxVar> DiffuseMap;
 };
 
 class SsaoEffect : public Effect
@@ -834,17 +834,17 @@ public:
 	void SetNormalDepthMap(ID3D11ShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
 	void SetRandomVecMap(ID3D11ShaderResourceView* srv) { RandomVecMap->SetResource(srv); }
 
-	ComPtr<ID3DX11EffectTechnique> SsaoTech;
-	ComPtr<ID3DX11EffectScalarVariable> SsaoPower;
-	ComPtr<ID3DX11EffectMatrixVariable> ViewToTexSpace;
-	ComPtr<ID3DX11EffectVectorVariable> OffsetVectors;
-	ComPtr<ID3DX11EffectVectorVariable> FrustumCorners;
-	ComPtr<ID3DX11EffectScalarVariable> OcclusionRadius;
-	ComPtr<ID3DX11EffectScalarVariable> OcclusionFadeStart;
-	ComPtr<ID3DX11EffectScalarVariable> OcclusionFadeEnd;
-	ComPtr<ID3DX11EffectScalarVariable> SurfaceEpsilon;
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalDepthMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> RandomVecMap;
+	ComPtr<FxTechnique> SsaoTech;
+	ComPtr<FxVar> SsaoPower;
+	ComPtr<FxVar> ViewToTexSpace;
+	ComPtr<FxVar> OffsetVectors;
+	ComPtr<FxVar> FrustumCorners;
+	ComPtr<FxVar> OcclusionRadius;
+	ComPtr<FxVar> OcclusionFadeStart;
+	ComPtr<FxVar> OcclusionFadeEnd;
+	ComPtr<FxVar> SurfaceEpsilon;
+	ComPtr<FxVar> NormalDepthMap;
+	ComPtr<FxVar> RandomVecMap;
 };
 
 class SsaoBlurEffect : public Effect
@@ -859,12 +859,12 @@ public:
 	void SetNormalDepthMap(ID3D11ShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
 	void SetInputImage(ID3D11ShaderResourceView* srv) { InputImage->SetResource(srv); }
 
-	ComPtr<ID3DX11EffectTechnique> HorzBlurTech;
-	ComPtr<ID3DX11EffectTechnique> VertBlurTech;
-	ComPtr<ID3DX11EffectScalarVariable> TexelWidth;
-	ComPtr<ID3DX11EffectScalarVariable> TexelHeight;
-	ComPtr<ID3DX11EffectShaderResourceVariable> NormalDepthMap;
-	ComPtr<ID3DX11EffectShaderResourceVariable> InputImage;
+	ComPtr<FxTechnique> HorzBlurTech;
+	ComPtr<FxTechnique> VertBlurTech;
+	ComPtr<FxVar> TexelWidth;
+	ComPtr<FxVar> TexelHeight;
+	ComPtr<FxVar> NormalDepthMap;
+	ComPtr<FxVar> InputImage;
 };
 
 class Effects

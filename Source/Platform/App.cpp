@@ -896,7 +896,9 @@ bool App::InitDirect3D()
 {
 	std::ofstream log(_logFileName, std::ios::app);
 	log << "  InitDirect3D -> CreateDeviceAndSwapChain..." << std::endl; log.flush();
-	CreateDeviceAndSwapChain();	
+	CreateDeviceAndSwapChain();
+	// 렌더러·효과가 쓰는 RHI 장치 (지금은 이 D3D11 장치를 감쌈)
+	Rhi::SetMain(Rhi::WrapD3D11(_device.Get(), _deviceContext.Get()));
 	log << "  InitDirect3D -> OnResize..." << std::endl; log.flush();
 	OnResize();
 	log << "  InitDirect3D finished successfully!" << std::endl; log.flush();

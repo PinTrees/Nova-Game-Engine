@@ -243,9 +243,12 @@ namespace
 			return VarIds[name] = (int)Vars.size() - 1;
 		}
 
+		// 변수 안 offset 에 쓰기. 변수 크기(배열이면 전체)와 블록 끝을 넘지 않는다 (Effects11 과 같이)
 		void Write(const Var& v, uint32_t offset, const void* data, uint32_t bytes)
 		{
 			Block& b = Blocks[v.BlockIndex];
+			if (offset >= (uint32_t)v.Member->Size) return;
+			bytes = (std::min)(bytes, (uint32_t)v.Member->Size - offset);
 			const uint32_t at = (uint32_t)v.Member->Offset + offset;
 			if (at >= b.Cpu.size()) return;
 			bytes = (std::min)(bytes, (uint32_t)b.Cpu.size() - at);
@@ -253,11 +256,76 @@ namespace
 			b.Dirty = true;
 		}
 
+		const Var* Uniform(Rhi::VarId var) const { return var >= 0 && var < (int)Vars.size() && Vars[var].Member ? &Vars[var] : nullptr; }
+
+		// 성분 하나 (정수 변수면 정수로 바꿔)
+		void WriteComponent(const Var& v, uint32_t offset, double value)
+		{
+			if (v.Member->Integer) { const int i = (int)value; Write(v, offset, &i, 4); }
+			else { const float f = (float)value; Write(v, offset, &f, 4); }
+		}
+
+		int TechniqueCount() const override { return (int)TechniqueNames.size(); }
+		std::string TechniqueName(int technique) const override { return technique >= 0 && technique < (int)TechniqueNames.size() ? TechniqueNames[technique] : std::string(); }
+
 		void SetRaw(Rhi::VarId var, const void* data, uint32_t bytes, uint32_t offset) override
 		{
-			if (var < 0 || !Vars[var].Member) return;
-			Write(Vars[var], offset, data, bytes);
+			if (const Var* v = Uniform(var)) Write(*v, offset, data, bytes);
 		}
+
+		void SetFloat(Rhi::VarId var, float value) override { if (const Var* v = Uniform(var)) WriteComponent(*v, 0, value); }
+		void SetInt(Rhi::VarId var, int value) override { if (const Var* v = Uniform(var)) WriteComponent(*v, 0, value); }
+		void SetBool(Rhi::VarId var, bool value) override { if (const Var* v = Uniform(var)) WriteComponent(*v, 0, value ? 1.0 : 0.0); }
+
+		void SetVector(Rhi::VarId var, const float value[4]) override
+		{
+			if (const Var* v = Uniform(var))
+				for (int c = 0; c < (std::min)(4, (std::max)(1, v->Member->Rows)); ++c)
+					WriteComponent(*v, c * 4, value[c]);
+		}
+
+		void SetFloatArray(Rhi::VarId var, const float* values, uint32_t first, uint32_t count) override
+		{
+			const Var* v = Uniform(var);
+			if (!v) return;
+			const uint32_t stride = v->Member->ArrayStride ? v->Member->ArrayStride : 16;
+			for (uint32_t i = 0; i < count; ++i)
+				WriteComponent(*v, (first + i) * stride, values[i]);
+		}
+
+		void SetVectorArray(Rhi::VarId var, const float* values, uint32_t first, uint32_t count) override
+		{
+			const Var* v = Uniform(var);
+			if (!v) return;
+			const uint32_t stride = v->Member->ArrayStride ? v->Member->ArrayStride : 16;
+			const int comps = (std::min)(4, (std::max)(1, v->Member->Rows));
+			for (uint32_t i = 0; i < count; ++i)
+				for (int c = 0; c < comps; ++c)
+					WriteComponent(*v, (first + i) * stride + c * 4, values[i * 4 + c]);
+		}
+
+		void SetNativeTexture(Rhi::VarId, void* d3d11Srv, uint32_t) override
+		{
+			if (d3d11Srv && Reported.insert("native-srv").second)
+				EditorLog::Write("OpenGL", "%s: a D3D11 texture was set (not moved to RHI yet) - ignored", wstring_to_string(std::filesystem::path(Src.File).filename().wstring()).c_str());
+		}
+
+		void GetVector(Rhi::VarId var, float out[4]) override
+		{
+			const Var* v = Uniform(var);
+			if (!v) return;
+			const Block& b = Blocks[v->BlockIndex];
+			for (int c = 0; c < (std::min)(4, (std::max)(1, v->Member->Rows)); ++c)
+			{
+				const size_t at = v->Member->Offset + c * 4;
+				if (at + 4 > b.Cpu.size()) break;
+				if (v->Member->Integer) { int i; memcpy(&i, b.Cpu.data() + at, 4); out[c] = (float)i; }
+				else memcpy(&out[c], b.Cpu.data() + at, 4);
+			}
+		}
+
+		void SetNativeUav(Rhi::VarId, void*) override {}
+		bool NativeInputSignature(int, int, const void**, size_t*) override { return false; }
 
 		void WriteMatrix(const Var& v, uint32_t offset, const float m[16])
 		{
