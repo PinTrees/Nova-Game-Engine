@@ -1283,18 +1283,25 @@ namespace CliCommands
 			auto add = [&](const PackageInfo& p) {
 				json c = json::array();
 				for (const auto& ci : p.Components) c.push_back(ci.Type);
-				list.push_back({ { "name", p.Name }, { "displayName", p.DisplayName }, { "version", p.Version }, { "embedded", p.Embedded },
+				list.push_back({ { "name", p.Name }, { "displayName", p.DisplayName }, { "version", p.Version }, { "embedded", p.Embedded }, { "local", p.Local },
 					{ "inProject", PackageManager::IsInProject(p.Name) }, { "loaded", PackageManager::IsLoaded(p.Name) },
 					{ "error", PackageManager::LoadError(p.Name) }, { "components", c } });
 			};
 			for (const PackageInfo& p : PackageManager::Registry()) add(p);
-			for (const PackageInfo* p : PackageManager::InProject()) if (p->Embedded) add(*p);
+			for (const PackageInfo* p : PackageManager::InProject()) if (p->Embedded || p->Local) add(*p);
 			r = { { "packages", list }, { "manifest", wstring_to_string(PackageManager::ManifestPath()) },
 				{ "registry", wstring_to_string(PackageManager::RegistryFolder()) }, { "restartRequired", PackageManager::RestartRequired() } };
 			return true;
 		});
-		Register("package-add", "add a package to the project {name}", [](const json& a, json& r, std::string& e) {
-			const std::string name = a.value("name", "");
+		Register("package-add", "add a package to the project {name (registry name, or a folder / package.json path = from disk)}", [](const json& a, json& r, std::string& e) {
+			std::string name = a.value("name", "");
+			if (name.find('\\') != std::string::npos || name.find('/') != std::string::npos)
+			{
+				std::string added;
+				if (!PackageManager::AddFromDisk(string_to_wstring(name), e, &added)) return false;
+				r = { { "added", added }, { "fromDisk", true }, { "loaded", PackageManager::IsLoaded(added) } };
+				return true;
+			}
 			if (!PackageManager::Add(name, e)) return false;
 			r = { { "added", name }, { "loaded", PackageManager::IsLoaded(name) } };
 			return true;

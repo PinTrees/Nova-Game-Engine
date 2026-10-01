@@ -21,6 +21,7 @@ namespace
 
 	std::vector<PackageInfo> s_Registry;
 	std::vector<PackageInfo> s_Embedded;
+	std::vector<PackageInfo> s_Local;                  // manifest 의 file: 패키지
 	std::map<std::string, std::string> s_Manifest;    // 이름 → 버전
 	std::map<std::string, LoadState> s_Loaded;
 	std::set<std::string> s_PendingUnload;             // 쓰는 중이라 다음 시작 때 빠지는 패키지
@@ -270,6 +271,15 @@ namespace
 		{
 			if (std::any_of(out.begin(), out.end(), [&](const PackageInfo* p) { return p->Name == kv.first; }))
 				continue;   // 프로젝트에 넣은(embedded) 것이 우선
+			if (kv.second.rfind("file:", 0) == 0)
+			{
+				auto l = std::find_if(s_Local.begin(), s_Local.end(), [&](const PackageInfo& p) { return p.Name == kv.first; });
+				if (l != s_Local.end())
+					out.push_back(&*l);
+				else
+					EditorLog::Write("Packages", "manifest: %s %s — folder not found", kv.first.c_str(), kv.second.c_str());
+				continue;
+			}
 			auto r = std::find_if(s_Registry.begin(), s_Registry.end(), [&](const PackageInfo& p) { return p.Name == kv.first; });
 			if (r != s_Registry.end())
 				out.push_back(&*r);
@@ -294,6 +304,22 @@ namespace PackageManager
 			return std::any_of(s_Embedded.begin(), s_Embedded.end(), [&](const PackageInfo& e) { return e.Name == r.Name; });
 		}), s_Registry.end());
 		ReadManifest();
+		s_Local.clear();
+		for (const auto& kv : s_Manifest)
+		{
+			if (kv.second.rfind("file:", 0) != 0)
+				continue;
+			fs::path folder(string_to_wstring(kv.second.substr(5)));
+			if (folder.is_relative())
+				folder = fs::path(ProjectPackagesDir()) / folder;
+			PackageInfo p;
+			std::error_code ec;
+			if (ReadPackage(fs::weakly_canonical(folder, ec), p))
+			{
+				p.Local = true;
+				s_Local.push_back(std::move(p));
+			}
+		}
 	}
 
 	void Init()
@@ -317,6 +343,7 @@ namespace PackageManager
 	const PackageInfo* Find(const std::string& name)
 	{
 		for (const PackageInfo& p : s_Embedded) if (p.Name == name) return &p;
+		for (const PackageInfo& p : s_Local) if (p.Name == name) return &p;
 		for (const PackageInfo& p : s_Registry) if (p.Name == name) return &p;
 		return nullptr;
 	}
@@ -374,7 +401,7 @@ namespace PackageManager
 					return false;
 				}
 			}
-		if (!p->Embedded)
+		if (!p->Embedded && !p->Local)
 		{
 			s_Manifest[name] = p->Version;
 			if (!WriteManifest(error))
@@ -423,9 +450,39 @@ namespace PackageManager
 		return true;
 	}
 
+	bool AddFromDisk(const std::wstring& packageJsonOrFolder, std::string& error, std::string* addedName)
+	{
+		std::error_code ec;
+		fs::path folder(packageJsonOrFolder);
+		if (fs::is_regular_file(folder, ec))
+			folder = folder.parent_path();
+		PackageInfo p;
+		if (!ReadPackage(folder, p))
+		{
+			error = "no valid package.json in " + wstring_to_string(folder.wstring());
+			return false;
+		}
+		if (Application::IsPlaying())
+		{
+			error = "stop Play mode before changing packages";
+			return false;
+		}
+		// 프로젝트 Packages 폴더 기준 상대 경로 (프로젝트를 옮겨도 함께 옮긴 패키지는 그대로)
+		fs::path rel = fs::relative(fs::weakly_canonical(folder, ec), fs::weakly_canonical(ProjectPackagesDir(), ec), ec);
+		std::wstring ref = (ec || rel.empty()) ? folder.wstring() : rel.wstring();
+		std::replace(ref.begin(), ref.end(), L'\\', L'/');
+		s_Manifest[p.Name] = "file:" + wstring_to_string(ref);
+		if (!WriteManifest(error))
+			return false;
+		Refresh();
+		if (addedName)
+			*addedName = p.Name;
+		return Add(p.Name, error);   // 불러오기 · 의존성 · 스크립트 (manifest 는 이미 file: 로)
+	}
+
 	std::string PackageForComponent(const std::string& type)
 	{
-		for (const std::vector<PackageInfo>* list : { &s_Embedded, &s_Registry })
+		for (const std::vector<PackageInfo>* list : { &s_Embedded, &s_Local, &s_Registry })
 			for (const PackageInfo& p : *list)
 				for (const PackageComponentInfo& c : p.Components)
 					if (c.Type == type)

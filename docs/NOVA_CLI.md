@@ -35,7 +35,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 | 렌더링 | `gfx-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 엔진 렌더러와 같은 방식(Gfx 층 + 효과)으로 시험 장면을 엔진 장치와 OpenGL(숨은 창)에 그려 비교, `rhi-test [both\|DirectX11\|OpenGL] [--out 폴더] [--width W --height H]` — 같은 시험 장면(PBR + 그림자)을 RHI 로 API 마다 그려 PNG 와 픽셀 차이(평균·최대·8 넘는 픽셀 %) |
 | 셰이더 | `shader-cross [파일 이름 일부] [--out 폴더] [--max-errors N]` — 엔진 `Shaders/*.fx` 를 OpenGL 용 GLSL 4.50 으로 변환해 보고 (pass 마다 성공·실패 이유, `--out` 이면 `.glsl` 파일) |
 | 자동 저장 | `autosave [status\|now\|recover\|discard]` — 상태(켜짐·간격·복구할 것), 지금 저장(`Library/AutoSave/autosave_<pid>.scene`, 원래 씬 파일은 그대로), 지난 세션(충돌) 복구 / 버리기 |
-| 패키지 | `package list` (레지스트리 패키지 + 프로젝트에 넣었는지·불러왔는지·오류), `package add <이름>` / `package remove <이름>` (예: `com.nova.cameras` — `Packages/manifest.json` 에 적고 DLL 을 바로 불러오거나 내림. 씬이 쓰는 중이면 다음 시작 때 빠짐), `window package-manager [--close]` |
+| 패키지 | `package list` (레지스트리 패키지 + 프로젝트에 넣었는지·불러왔는지·오류), `package add <이름 | 폴더 | package.json>` / `package remove <이름>` (예: `com.nova.cameras`, 폴더·파일 경로면 Add from disk = manifest 에 `file:` 상대 경로 — `Packages/manifest.json` 에 적고 DLL 을 바로 불러오거나 내림. 씬이 쓰는 중이면 다음 시작 때 빠짐), `window package-manager [--close]` |
 | 기타 | `assets [폴더] [--pattern 글자]`, `build <출력 폴더> [--run]`, `build-status [--wait]`, `call <명령> [json]`, `ai-guide`, `help`, `nova help --editor`(에디터가 아는 명령) |
 
 **대상** = 이름, `부모/자식` 경로, 또는 `#id` (`hierarchy` 가 보여 주는 fileID). 같은 이름이 여럿이면 오류와 함께 후보 id 를 알려 줍니다.

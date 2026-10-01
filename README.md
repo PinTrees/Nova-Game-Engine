@@ -371,7 +371,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 
 - 넣기 / 빼기: Window > Package Manager, 또는 `nova package add com.nova.cameras` / `nova package remove …`
 - 구조: `package.json`(이름·버전·설명·컴포넌트) + `Source/`(C++ 컴포넌트 → `Plugins/<이름>.dll`, 엔진 `NovaCore.dll` 을 링크) + `Runtime/`(C# API — 프로젝트 스크립트와 같이 컴파일)
-- 새 패키지: `Packages/<이름>/` 을 만들고 `CMakeLists.txt` 에 `nova_add_package(<이름> <DLL>)` 한 줄. 컴포넌트는 `REGISTER_PACKAGE_COMPONENT`, C# 는 `[NativeComponent("타입")]` + `DllImport`
+- 새 패키지: `Packages/<이름>/` 에 `package.json` + `Source/`(C++) / `Runtime/`(C#) — CMake 가 자동으로 DLL 을 빌드한다. 레지스트리 밖 폴더는 *Add from disk...* (`file:` 참조). 자세히: [docs/PACKAGES.md](docs/PACKAGES.md)
 - 패키지 DLL 은 같은 엔진 버전 · 같은 구성(Debug/Release)으로 빌드해야 한다 (`<DLL>.dll.abi` 로 확인, 다르면 불러오지 않고 이유를 보여 줌)
 
 <img src="docs/images/package_manager.webp" width="720"/>
@@ -426,7 +426,7 @@ ScriptCore/     C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 
 Shaders/        HLSL (FX11 이펙트 — OpenGL 은 자동 변환)
 Resources/      엔진 기본 리소스와 패키지
 Tools/          nova CLI(NovaCli), 아이콘·로고·하늘·효과음 생성 스크립트
-docs/           NOVA_CLI.md, 이미지
+docs/           NOVA_CLI.md, PACKAGES.md(패키지 만들기), 이미지
 ```
 
 ## 문서 · 링크

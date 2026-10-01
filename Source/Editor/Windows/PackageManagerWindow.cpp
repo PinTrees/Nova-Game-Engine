@@ -106,6 +106,22 @@ void PackageManagerWindow::OnRender()
 	ImGui::SameLine();
 	if (ImGui::Button(ICON_FA_ROTATE " Refresh"))
 		PackageManager::Refresh();
+	ImGui::SameLine();
+	if (ImGui::Button(ICON_FA_PLUS " Add from disk..."))
+	{
+		// Unity: + > Add package from disk... (package.json 을 고른다)
+		const std::wstring file = EditorUtility::OpenFileDialog(PathManager::GetI()->GetMovePathW(L""), L"Select package.json", std::vector<std::wstring>{ L"json" });
+		if (!file.empty())
+		{
+			std::string error, name;
+			m_LastError = PackageManager::AddFromDisk(file, error, &name) ? std::string() : error;
+			if (!name.empty())
+			{
+				m_Selected = name;
+				m_View = 0;
+			}
+		}
+	}
 	ImGui::SameLine(avail.x - 216.0f);
 	ImGui::SetNextItemWidth(210.0f);
 	ImGui::InputTextWithHint("##search", ICON_FA_MAGNIFYING_GLASS " Search", m_Search, sizeof(m_Search));
@@ -200,7 +216,7 @@ void PackageManagerWindow::OnRender()
 		}
 
 		ImGui::SetCursorPosX(pad);
-		ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "Version %s  ·  %s", p->Version.c_str(), p->Embedded ? "Embedded in project" : "NOVA Registry");
+		ImGui::TextColored(ImVec4(0.65f, 0.65f, 0.65f, 1.0f), "Version %s  ·  %s", p->Version.c_str(), p->Embedded ? "Embedded in project" : (p->Local ? "Local (from disk)" : "NOVA Registry"));
 		ImGui::SetCursorPosX(pad);
 		ImGui::TextColored(ImVec4(0.55f, 0.55f, 0.55f, 1.0f), "%s", p->Name.c_str());
 		if (!p->Author.empty())

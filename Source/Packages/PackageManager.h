@@ -31,6 +31,7 @@ struct PackageInfo
 	std::vector<PackageComponentInfo> Components;
 	std::wstring Folder;         // 패키지 폴더 (끝 \ 없음)
 	bool Embedded = false;       // 프로젝트 Packages/<이름>/ 에 들어 있는 패키지 (manifest 없이 항상 포함)
+	bool Local = false;          // manifest 의 "file:<경로>" (Add package from disk — 레지스트리 밖 폴더)
 };
 
 // Unity 의 Package Manager.
@@ -54,6 +55,8 @@ namespace PackageManager
 	// 프로젝트에 넣기 (manifest + 바로 불러오기 + 스크립트 다시 컴파일) / 빼기 (쓰는 컴포넌트가 없으면 바로 내린다)
 	NOVA_API bool Add(const std::string& name, std::string& error);
 	NOVA_API bool Remove(const std::string& name, std::string& error);
+	// Unity 의 Add package from disk: package.json(또는 그 폴더)을 manifest 에 "file:<경로>" 로 (프로젝트 Packages 폴더 기준 상대 경로)
+	NOVA_API bool AddFromDisk(const std::wstring& packageJsonOrFolder, std::string& error, std::string* addedName = nullptr);
 
 	// 패키지 컴포넌트 타입 → 패키지 이름 (MissingComponent 안내용, 레지스트리에서 찾음)
 	NOVA_API std::string PackageForComponent(const std::string& componentType);
