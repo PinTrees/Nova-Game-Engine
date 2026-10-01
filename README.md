@@ -27,7 +27,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **Hierarchy / Inspector** | 부모/자식, 복제·잘라내기·붙여넣기, 이름 바꾸기, Unity 식 컴포넌트 헤더와 Add Component 메뉴, Object Picker 창(⊙) |
 | **Project 창** | 2단 레이아웃(폴더 트리 + 목록/격자), breadcrumb, 검색·타입 필터, FBX 하위 에셋, 생성/이름 바꾸기/휴지통 삭제, 드래그 앤 드롭 |
 | **프리팹** | Hierarchy → Project 끌어 놓아 만들기, 인스턴스(파란 표시), 오버라이드 저장/Apply All/Revert All/Unpack, 에셋 변경 자동 반영 |
-| **렌더링** | Forward 렌더링, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일) |
+| **렌더링** | Forward 렌더링, SSAO, 인스턴싱, 셰이더 캐시(의존성 추적 + 병렬 컴파일), 물·굴절을 위한 장면 깊이 SRV(읽기 전용 깊이 + 화면 색 복사) |
 | **Profiler (Window > Analysis > Profiler, Ctrl+7)** | Unity Profiler 처럼 CPU Usage / GPU Usage 그래프(범주별로 쌓음, 60·30 FPS 선, 최근 300 프레임, 눌러 프레임 고르기), Hierarchy(구간 트리: Total·Self·Calls·ms), Timeline(구간 막대, 휠 확대), GPU(D3D11 타임스탬프 쿼리: 그림자·깊이·SSAO·불투명·나무·후처리·ImGui), Rendering Statistics(드로 콜, 묶음, 삼각형, 컬링 보임/전체, 나무 LOD 수), GPU 구간별 Pixels Shaded(겹쳐 칠한 픽셀 수), Memory(프로세스·GPU 사용량, 텍스처·메시·그림자 맵·나무·지형·Undo 기록별 크기). 창이 열려 있을 때만 모은다 |
 | **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4 캐스케이드, 카메라가 움직여도 떨리지 않게 텍셀 고정), 스포트광·점광(큐브 6 면) 그림자, Hard / Soft(PCF Low·Medium·High), 빛마다 Strength · Bias(Depth / Normal) · Near Plane. **Volume 의 Shadows 오버라이드**로 Max Distance · Cascade Count · Split · Last Border · Resolution(512~4096) · Bias · Soft Shadows 품질을 장소마다 바꿀 수 있다(Inspector 에 캐스케이드 막대). 먼 캐스케이드 캐시(3·4 번째를 2·4 프레임마다 돌아가며 다시 그림, 정적 그림자는 그대로) |
 | **머티리얼 (URP Lit / PBR)** | `.mat` 에셋(Project 창 Create > Material), Unity URP 의 BRDF: Base Map + 색, Metallic(맵/값), Smoothness(Metallic Alpha / Albedo Alpha), Normal Map(세기), Occlusion, Emission(HDR 세기), Tiling/Offset, Alpha Clipping, Receive Shadows, Specular Highlights / Environment Reflections, Lit / Unlit. Unity 모양의 머티리얼 Inspector(텍스처 칸에 끌어 놓기·Object Picker, 구 미리보기 — 드래그로 회전) |
@@ -59,6 +59,19 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | <img src="docs/images/nova_code.webp" width="440"/><br/>NOVA Code (내장 C# IDE, 자동 완성) | <img src="docs/images/nova_code_error.webp" width="440"/><br/>NOVA Code 컴파일 오류 표시 |
 | <img src="docs/images/ui_editor.webp" width="440"/><br/>UI Button (Rect Transform / Image / Button Inspector) | <img src="docs/images/ui_game.webp" width="440"/><br/>UI Play: 버튼 클릭 → 점수·체력 바 (C#) |
 
+### 지형 생성기 · 바이옴 · 물
+
+| | |
+|:---:|:---:|
+| <img src="docs/images/terrain_generator.webp" width="440"/><br/>지형 생성기 (Generate: Base 노이즈 → 스탬프 → 침식 → 재질) | <img src="docs/images/biome_areas.webp" width="440"/><br/>바이옴 영역 (초원 위에 Alpine · Desert · Canyon) |
+| <img src="docs/images/water_ocean.webp" width="440"/><br/>바다 (LOD 격자 + Gerstner 파도) | <img src="docs/images/water_river_edit.webp" width="440"/><br/>강 점 편집 → 지형 생성기가 강바닥을 판다 |
+| <img src="docs/images/water_coast.webp" width="440"/><br/>해안 · 호수 · 강 | <img src="docs/images/water_underwater.webp" width="440"/><br/>수중 (스넬의 창) + Buoyancy 로 뜬 상자 |
+
+<p align="center">
+  <img src="docs/images/biome_presets.webp" width="900" alt="바이옴 프리셋 10 종"/><br/>
+  바이옴 프리셋 패키지 10 종 (위에서 본 생성 결과)
+</p>
+
 <p align="center">
   <img src="docs/images/postprocess_compare.webp" width="900" alt="후처리 전/후"/><br/>
   후처리 적용 전 / 후 (Bloom, Vignette, ACES, 채도·대비)
@@ -68,6 +81,20 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
   <img src="docs/images/loading.webp" width="420" alt="시작 로딩 창"/><br/>
   시작 로딩 창
 </p>
+
+## 내장 패키지
+
+`Resources/Packages/` 에 바로 쓸 수 있는 에셋 묶음이 들어 있습니다. 모두 저장소 안에서 스크립트·수식으로 만든 것입니다.
+
+| 패키지 | 내용 | 쓰는 곳 |
+|---|---|---|
+| `Terrain/Layers` | 지형 레이어 4 장 (Grass · Rock · Dirt · Sand) | Terrain Inspector > Paint Texture, 바이옴 |
+| `Terrain/Biomes` | 바이옴 프리셋 10 종 (`.biome`, JSON): Alpine Mountains, Arctic Tundra, Badlands, Desert Dunes, Grassland Hills, Highland Moor, Red Rock Canyon, Savanna, Tropical Islands, Volcanic Highlands — 지형 모양(노이즈 + 침식) + 색 재질 | Terrain > Generate > Biome Presets (클릭 = 지형 전체, 오른쪽 클릭 = 영역), GameObject > 3D Object > Terrain Biome |
+| `Water/Profiles` | 물 프로파일 10 종 (`.waterprofile`, JSON): Tropical Ocean, Deep Ocean, Stormy Sea, Arctic Sea, Lagoon, Calm Lake, Alpine Lake, Swamp, Mountain River, Muddy River — 물 색(흡수·산란·탁도), 파도(바람 속도·방향·뾰족함), 잔물결, 거품, 반사·굴절, 코스틱, 유속 | Water Body > Profile, GameObject > 3D Object > Water |
+| `Water/Textures` | 이음매 없는 물결 노멀 2 장 · 거품 · 코스틱 | 물 셰이더 (`46. Water.fx`) |
+| `Character`, `Audio/SFX` | 캐릭터 모델·애니메이션, 테스트 효과음 | 샘플 씬 |
+
+프리셋·프로파일은 JSON 이라 복사해서 값을 바꾸면 새 프리셋이 됩니다 (에디터를 다시 열면 목록에 나타남).
 
 ## 빌드
 
@@ -226,7 +253,8 @@ Source/
   Scene/      GameObject, 컴포넌트(Transform, Camera, Light, Renderer, Collider, Volume ...), 씬, 프리팹
   Physics/    Jolt Physics 연동
   Animation/  스키닝, 애니메이션 클립, Animator 컨트롤러
-  Terrain/    TerrainData, 쿼드트리 LOD 렌더러
+  Terrain/    TerrainData, 쿼드트리 LOD 렌더러, 지형 생성기(TerrainGenerator: 노이즈·스탬프·침식·재질, 백그라운드 생성), 바이옴 프리셋(TerrainBiomes)
+  Water/      물: WaterBody(바다·호수·강), Gerstner 파도(WaterWaves), 물 프로파일, 렌더러(WaterRenderer, 46. Water.fx), Buoyancy
   Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
   Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
   UI/         UGUI: Canvas, RectTransform, Image, Text, Button, Toggle, Slider, InputField, ScrollRect, Mask, 글꼴 아틀라스, UI 그리기(42. UI.fx), 입력/레이아웃(UISystem)
@@ -237,7 +265,7 @@ Source/
   Hub/        프로젝트 Hub
 ScriptCore/   C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
 Shaders/      HLSL (FX11 이펙트)
-Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain, Audio)
+Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain/Layers·Biomes, Water/Profiles·Textures, Audio)
 ProjectSetting/  에디터 아이콘(SVG → PNG), 폰트, 로고
 Tools/        아이콘/로고/테스트 효과음 생성 스크립트
 ```
