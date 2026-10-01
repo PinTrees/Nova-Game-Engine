@@ -157,7 +157,8 @@
 - 빛(Light > Shadows): Shadow Type(No/Hard/Soft), Strength, Bias(Use settings from Render Pipeline / Custom: Depth, Normal), Near Plane(스포트/점광). 저장 키 shadowStrength/shadowBiasMode/shadowDepthBias/shadowNormalBias/shadowNearPlane.
 - 진단: 설정이 바뀌면 Editor.log 에 `[Shadow] cascades=... ends=[...] radii=[...]` 한 줄.
 - 검사: scratchpad `make_shadow_scene.py` → ScriptTest `Assets/Scenes/Shadows.scene`(격자 울타리, 70 m 까지 기둥 두 줄, 낮은 해).
-- 미구현: 캐스케이드 사이 섞기, 캐스케이드 디버그 색 보기, Contact Shadows, 그림자 받는 투명 물체.
+- 캐스케이드 경계 섞기(2026-10-02): `32. InstancedBasic.fx` 의 `CascadeBlend` — 캐스케이드 구의 바깥 12%(`kCascadeBlend`)에서 다음 캐스케이드도 PCF 로 읽어 섞는다(다음 구 안일 때만, [branch] 라 그 구간만 비용). 경계에서 그림자 선명도가 한 번에 바뀌던 줄을 없앤다. 메시·지형·나무·바위·디테일이 모두 이 함수(물은 따로). 확인: Shadows 씬 바뀐 픽셀 123 개 — 먼 그림자 가장자리의 캐스케이드 경계뿐, GL 변환 정상(DX 와 최대 1).
+- 미구현: 캐스케이드 디버그 색 보기, Contact Shadows, 그림자 받는 투명 물체.
 
 **절두체 컬링 + Hierarchy 가상 스크롤 (2026-10-01)**:
 - `Source/Scene/SceneCulling.*`: Mesh Renderer / Skinned Mesh Renderer 의 월드 AABB 를 느슨한 옥트리(칸의 2 배 영역, 중심이 든 칸 하나에만)에 둔다. `Update`(App 루프, 그리기 전) = 위치·메시가 바뀐 렌더러만 다시 넣고 사라진 것은 뺌(포인터를 건드리지 않음), 뿌리 밖이면 전체 다시 짓기. `Cull(ViewProj, shadow)` = 노드 상자가 밖이면 통째로 버림 / 완전히 안이면 통째로 받음, 보이는 렌더러는 `Component::CullStamp = Stamp`. Scene 의 모든 그리기 루프(본·그림자·노멀깊이, Game/Scene, 인스턴싱 묶기 포함)가 `SceneCulling::IsVisible` 로 거른다. 그림자는 조각마다 빛 절두체(가까운 면 제외), 카메라 컬링은 깊이 사전 패스 직전 한 번(본 패스와 공용). 지형·나무는 각자 컬링. Skinned 는 기본 자세 상자를 넉넉히(애니메이션). Game 뷰 Stats 에 "Frustum culling: 보임 / 전체".

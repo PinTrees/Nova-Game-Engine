@@ -181,6 +181,22 @@ int SelectCascade(float3 posW)
     return cascade;
 }
 
+// 캐스케이드 경계 섞기: 캐스케이드 구의 바깥 kCascadeBlend(반지름 비율) 구간에서 다음 캐스케이드와 부드럽게 섞는다.
+// 예전에는 경계에서 그림자 선명도(텍셀 크기)가 한 번에 바뀌어 줄이 보였다 (숲·지형). 0 = 이 캐스케이드만, 1 = 다음 것만
+static const float kCascadeBlend = 0.12f;
+float CascadeBlend(float3 posW, int cascade)
+{
+    const int count = (int)gShadowParams.x;
+    if (cascade < 0 || cascade + 1 >= count)
+        return 0.0f;
+    const float3 d = posW - gCascadeSpheres[cascade].xyz;
+    const float t = sqrt(dot(d, d) / gCascadeSpheres[cascade].w);   // 0 = 가운데, 1 = 구 끝
+    const float3 dn = posW - gCascadeSpheres[cascade + 1].xyz;
+    if (dot(dn, dn) >= gCascadeSpheres[cascade + 1].w)
+        return 0.0f;   // 다음 캐스케이드 구 밖 (그 맵에 이 위치가 없다)
+    return saturate((t - (1.0f - kCascadeBlend)) / kCascadeBlend);
+}
+
 // Max Distance 끝(Last Border 구간)에서 그림자가 사라지는 정도 (0 = 그대로, 1 = 없음)
 float ShadowFade(float3 posW)
 {
@@ -188,14 +204,20 @@ float ShadowFade(float3 posW)
 }
 
 // 방향광 i 의 그림자 (1 = 빛, 0 = 그림자). 캐스케이드마다 배열 조각 하나
-float DirShadow(Texture2DArray map, int i, float3 posW, int cascade, float fade)
+float DirShadow(Texture2DArray map, int i, float3 posW, int cascade, float fade, float blend)
 {
     const float4 data = gDirShadowData[i];
     float lit = 1.0f;
     if (data.x > 0.0f && cascade >= 0)
     {
         const float3 coord = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade]).xyz;
-        const float s = ShadowPCF(map, coord, (float)cascade, (int)data.y, data.z);
+        float s = ShadowPCF(map, coord, (float)cascade, (int)data.y, data.z);
+        [branch]
+        if (blend > 0.0f)   // 경계 구간만 다음 캐스케이드를 한 번 더 읽는다
+        {
+            const float3 coord2 = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade + 1]).xyz;
+            s = lerp(s, ShadowPCF(map, coord2, (float)(cascade + 1), (int)data.y, data.z), blend);
+        }
         lit = lerp(1.0f, lerp(s, 1.0f, fade), data.x);
     }
     return lit;
@@ -463,9 +485,10 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     {
         const int cascade = SelectCascade(posW);
         const float fade = ShadowFade(posW);
+        const float blend = CascadeBlend(posW, cascade);
         [unroll]
         for (int i = 0; i < LIGHT_SIZE; i++)
-            dirShadows[i] = DirShadow(gDirShadowMaps[i], i, posW, cascade, fade);
+            dirShadows[i] = DirShadow(gDirShadowMaps[i], i, posW, cascade, fade, blend);
         [unroll]
         for (int j = 0; j < LIGHT_SIZE; j++)
             spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, posW);
