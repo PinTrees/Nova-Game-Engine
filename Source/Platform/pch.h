@@ -71,9 +71,8 @@ namespace ed = ax::NodeEditor;
 #else
 #pragma comment(lib, "DirectXTex/DirectXTex.lib")
 #pragma comment(lib, "FX11/Effects11.lib")
-// Release 용 assimp-vc143-mt.dll 이 저장소에 없어 Release 도 디버그 런타임 DLL(mtd)을 쓴다.
-// 엔진은 Assimp::Importer(구현은 포인터 하나 뒤) + C 구조체(aiScene)만 주고받아 런타임이 달라도 안전하다.
-// mt DLL 을 Binaries 에 두면 NOVA_ASSIMP_RELEASE_DLL 을 정의해 바꾼다
+// Release: 저장소 루트에 assimp-vc143-mt.dll(5.4.1, /MD)이 있으면 CMake 가 NOVA_ASSIMP_RELEASE_DLL 을 정의해 그것을 링크한다
+// (없으면 디버그 런타임 DLL(mtd) — 엔진은 Assimp::Importer(구현은 포인터 하나 뒤) + C 구조체(aiScene)만 주고받아 런타임이 달라도 안전)
 #ifdef NOVA_ASSIMP_RELEASE_DLL
 #pragma comment(lib, "Assimp/assimp-vc143-mt.lib")
 #else

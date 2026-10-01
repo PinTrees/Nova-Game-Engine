@@ -181,6 +181,16 @@ add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     "${CMAKE_CURRENT_SOURCE_DIR}/assimp-vc143-mtd.dll"
     "$<TARGET_FILE_DIR:${ENGINE_NAME}>/assimp-vc143-mtd.dll"
 )
+# Release: assimp 릴리스 DLL (assimp 5.4.1 을 /MD Release 로 빌드해 저장소 루트에 둠, 가져오기 라이브러리는 Libraries/Lib/Assimp).
+# 있으면 Release 는 이것을 링크한다 → 디버그 C 런타임(재배포 불가)이 없는 PC 에서도 실행 (Tools/package_release.ps1)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assimp-vc143-mt.dll")
+    target_compile_definitions(${ENGINE_NAME} PRIVATE $<$<CONFIG:Release>:NOVA_ASSIMP_RELEASE_DLL>)
+    add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/assimp-vc143-mt.dll"
+        "$<TARGET_FILE_DIR:${ENGINE_NAME}>/assimp-vc143-mt.dll"
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # NOVA CLI (nova.exe): 터미널·AI 가 실행 중인 에디터를 다루는 콘솔 도구 (Tools/NovaCli, 에디터 쪽 = Source/Editor/CliServer).
