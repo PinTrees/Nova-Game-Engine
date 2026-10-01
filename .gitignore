@@ -357,3 +357,4 @@ build/
 /Resources/Packages/**/*.mesh
 /Resources/Packages/**/*.animations
 /Resources/Packages/**/*.skeletons
+/dist/

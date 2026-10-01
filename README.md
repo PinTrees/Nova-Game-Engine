@@ -208,6 +208,14 @@ build.bat release    :: Release (디버그 레이어 끔, 셰이더 최적화) �
 - `build.bat` 의 `CMAKE_PATH` 는 Visual Studio 에 포함된 CMake 경로입니다. 설치 위치가 다르면 이 줄을 고쳐 주세요.
 - Visual Studio 에서 열려면 `build/NovaEngine.sln`.
 
+### 배포 묶음 (zip)
+
+```bat
+powershell -ExecutionPolicy Bypass -File Tools\package_release.ps1
+```
+
+Release 로 빌드한 뒤 실행에 필요한 파일만 모아 `dist/NOVA-Engine-<버전>-win64.zip` 을 만듭니다 (약 40 MB — 실행 파일·DLL·C# 스크립팅·셰이더·글꼴·패키지·하늘·VC++ 런타임, `README.txt`). `-Full` 은 Resources 전체(옛 예제 텍스처 포함, 약 2 GB). 지금은 assimp 릴리스 DLL 이 저장소에 없어, 그것을 넣기 전까지는 `-AllowDebugAssimp`(Visual Studio 가 설치된 PC 에서만 실행되는 시험 묶음)로만 만들 수 있습니다.
+
 ### 실행
 
 | 명령 | 동작 |
