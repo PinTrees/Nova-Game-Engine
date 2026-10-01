@@ -76,6 +76,11 @@ namespace ShadowRenderer
 		dirCount = (std::min)(dirCount, LIGHT_SIZE);
 		spotCount = (std::min)(spotCount, LIGHT_SIZE);
 		pointCount = (std::min)(pointCount, LIGHT_SIZE);
+		// 개수가 Light 목록보다 많으면(입자 빛처럼 Light 컴포넌트가 없는 빛이 섞이면) 목록 밖을 읽지 않게
+		const int available = (int)sortedLights.size();
+		dirCount = (std::min)(dirCount, available);
+		spotCount = (std::min)(spotCount, (std::max)(0, available - dirCount));
+		pointCount = (std::min)(pointCount, (std::max)(0, available - dirCount - spotCount));
 		out.DirCount = dirCount;
 		out.SpotCount = spotCount;
 		out.PointCount = pointCount;

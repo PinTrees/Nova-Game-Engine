@@ -1,6 +1,7 @@
 #pragma once
 #include "Component.h"
 #include "ParticleCurves.h"
+#include "LightHelper.h"
 
 // Unity 의 Particle System (Shuriken).
 //  모듈: Main, Emission(Rate over Time / Distance, Bursts), Shape(Sphere / Hemisphere / Cone / Box / Circle / Edge),
@@ -159,6 +160,20 @@ public:
 	MinMaxCurve TrailWidthOverTrail = MinMaxCurve(1.0f);
 	MinMaxGradient TrailColorOverTrail;
 	std::string TrailTexture = "builtin:Trail";
+
+	// Lights (Unity 의 Lights 모듈): 입자 일부에 점광을 달아 주변을 비춘다 (모닥불·불똥·마법 구슬).
+	// Unity 는 Light 프리팹을 받지만 여기서는 색·범위·세기를 직접. 장면의 점광과 합쳐 셰이더 한도(LIGHT_SIZE = 4) 안에서, 그림자는 없음
+	bool LightsEnabled = false;
+	float LightRatio = 0.2f;              // 0~1: 입자 중 몇 분의 1 에 빛을 단다
+	bool LightUseParticleColor = true;    // 빛 색 × 입자 색
+	bool LightSizeAffectsRange = true;    // 범위 × 입자 크기
+	bool LightAlphaAffectsIntensity = true;
+	float LightRange = 3.0f;              // m
+	float LightIntensity = 1.0f;
+	Vec4 LightColor = Vec4(1.0f, 0.62f, 0.32f, 1.0f);
+	int LightMaxLights = 2;
+	// 켜진 시스템의 입자 빛을 out 끝에 더한다 (out 이 maxTotal 이 될 때까지)
+	static void CollectLights(std::vector<PointLight>& out, int maxTotal);
 
 	// Renderer
 	bool RendererEnabled = true;

@@ -595,6 +595,10 @@ void EditorGUIManager::RenderEditorWindows()
                 win->DockNode->SelectedTabId = win->TabId;
                 if (win->DockNode->TabBar)
                     win->DockNode->TabBar->SelectedTabId = win->DockNode->TabBar->NextSelectedTabId = win->TabId;
+                // 포커스가 있는 창(Play 를 누르면 Game 창)의 탭이 다시 앞으로 오므로 마지막 프레임에 포커스도 옮긴다
+                // (예전에는 Play 중 nova window scene 이 몇 프레임 뒤 Game 탭으로 되돌아가 Scene 뷰가 그려지지 않았다)
+                if (m_PendingTabFrames == 0)
+                    ImGui::SetWindowFocus(w->GetImGuiName().c_str());
             }
     }
 

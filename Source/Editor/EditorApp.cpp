@@ -4,6 +4,7 @@
 #include "ScriptEngine.h"
 #include "UISystem.h"
 #include "ParticleRenderer.h"
+#include "ParticleSystem.h"
 #include "PlayerRuntime.h"
 #include "SceneToolbar.h"
 #include "EngineInfo.h"
@@ -369,6 +370,8 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
+	const int scenePointLights = (int)pointLights.size();      // 그림자는 장면의 Light 컴포넌트만 (입자 빛은 그림자 없음)
+	ParticleSystem::CollectLights(pointLights, LIGHT_SIZE);   // Lights 모듈 (남은 점광 칸에)
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
 	//BuildShadowTransform();
 
@@ -391,7 +394,7 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
 		phase.Next("Shadows");
-		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
+		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
 			gameCamPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_GameShadow,
 			[]() {
 				// 그림자 조각마다 빛의 절두체로 컬링
@@ -531,6 +534,8 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
+	const int scenePointLights = (int)pointLights.size();      // 그림자는 장면의 Light 컴포넌트만 (입자 빛은 그림자 없음)
+	ParticleSystem::CollectLights(pointLights, LIGHT_SIZE);   // Lights 모듈 (남은 점광 칸에)
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
 
 	RenderManager::GetI()->RenderingEditorView = true;
@@ -550,7 +555,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	{
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
 		phase.Next("Shadows");
-		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), (int)pointLights.size(),
+		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
 			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
 			[]() {
 				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);

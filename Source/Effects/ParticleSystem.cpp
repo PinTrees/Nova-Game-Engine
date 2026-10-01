@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "ParticleSystem.h"
 #include "ParticleSystemEditor.h"
 #include "SceneViewOverlay.h"
@@ -1045,6 +1045,9 @@ GENERATE_COMPONENT_FUNC_TOJSON(ParticleSystem)
 		{ "worldSpace", TrailWorldSpace }, { "dieWithParticles", TrailDieWithParticles }, { "sizeAffectsWidth", TrailSizeAffectsWidth },
 		{ "inheritParticleColor", TrailInheritParticleColor }, { "colorOverLifetime", TrailColorOverLifetime }, { "widthOverTrail", TrailWidthOverTrail },
 		{ "colorOverTrail", TrailColorOverTrail }, { "texture", TrailTexture } };
+	j["lights"] = { { "enabled", LightsEnabled }, { "ratio", LightRatio }, { "useParticleColor", LightUseParticleColor },
+		{ "sizeAffectsRange", LightSizeAffectsRange }, { "alphaAffectsIntensity", LightAlphaAffectsIntensity }, { "range", LightRange },
+		{ "intensity", LightIntensity }, { "color", { LightColor.x, LightColor.y, LightColor.z, LightColor.w } }, { "maxLights", LightMaxLights } };
 	j["renderer"] = { { "enabled", RendererEnabled }, { "renderMode", (int)Render }, { "speedScale", SpeedScale }, { "lengthScale", LengthScale },
 		{ "texture", Texture }, { "blendMode", (int)Blend }, { "sortMode", (int)Sort }, { "sortingFudge", SortingFudge },
 		{ "lit", Lit }, { "softParticles", SoftParticles }, { "softDistance", SoftDistance } };
@@ -1227,6 +1230,22 @@ GENERATE_COMPONENT_FUNC_FROMJSON(ParticleSystem)
 		Read(t, "colorOverTrail", TrailColorOverTrail);
 		Read(t, "texture", TrailTexture);
 	}
+	if (j.contains("lights"))
+	{
+		const json& l = j["lights"];
+		Read(l, "enabled", LightsEnabled);
+		Read(l, "ratio", LightRatio);
+		Read(l, "useParticleColor", LightUseParticleColor);
+		Read(l, "sizeAffectsRange", LightSizeAffectsRange);
+		Read(l, "alphaAffectsIntensity", LightAlphaAffectsIntensity);
+		Read(l, "range", LightRange);
+		Read(l, "intensity", LightIntensity);
+		if (l.contains("color") && l["color"].is_array() && l["color"].size() >= 3)
+			LightColor = Vec4(l["color"][0].get<float>(), l["color"][1].get<float>(), l["color"][2].get<float>(), l["color"].size() > 3 ? l["color"][3].get<float>() : 1.0f);
+		Read(l, "maxLights", LightMaxLights);
+		LightRatio = std::clamp(LightRatio, 0.0f, 1.0f);
+		LightMaxLights = (std::max)(0, LightMaxLights);
+	}
 	if (j.contains("renderer"))
 	{
 		const json& r = j["renderer"];
@@ -1241,5 +1260,40 @@ GENERATE_COMPONENT_FUNC_FROMJSON(ParticleSystem)
 		Read(r, "lit", Lit);
 		Read(r, "softParticles", SoftParticles);
 		Read(r, "softDistance", SoftDistance);
+	}
+}
+
+void ParticleSystem::CollectLights(std::vector<PointLight>& out, int maxTotal)
+{
+	for (ParticleSystem* ps : All())
+	{
+		if ((int)out.size() >= maxTotal)
+			return;
+		if (!ps->LightsEnabled || ps->LightMaxLights <= 0 || ps->LightRatio <= 0.0f || !ps->ActiveInHierarchy() || ps->m_Particles.empty())
+			continue;
+		const Matrix toWorld = ps->SimulationToWorld();
+		// 입자 번호를 고르게 건너뛰며 (1 / Ratio 마다) Max Lights 까지 — 매 프레임 같은 입자를 고르도록 번호 기준
+		const size_t step = (size_t)(std::max)(1.0f, std::round(1.0f / ps->LightRatio));
+		int added = 0;
+		for (size_t i = 0; i < ps->m_Particles.size() && added < ps->LightMaxLights && (int)out.size() < maxTotal; i += step)
+		{
+			const Particle& p = ps->m_Particles[i];
+			if (p.Size <= 0.0f || p.Color.w <= 0.0f)
+				continue;
+			Vec4 c = ps->LightColor;
+			if (ps->LightUseParticleColor)
+				c = Vec4(c.x * p.Color.x, c.y * p.Color.y, c.z * p.Color.z, c.w);
+			float intensity = ps->LightIntensity * (ps->LightAlphaAffectsIntensity ? p.Color.w : 1.0f);
+			const Vec3 wp = Vec3::Transform(p.Position, toWorld);
+			PointLight l;
+			l.Init();
+			l.Diffuse = XMFLOAT4(c.x * intensity, c.y * intensity, c.z * intensity, 1.0f);
+			l.Specular = l.Diffuse;
+			l.Position = XMFLOAT3(wp.x, wp.y, wp.z);
+			l.Range = (std::max)(0.01f, ps->LightRange * (ps->LightSizeAffectsRange ? p.Size : 1.0f));
+			l.Att = XMFLOAT3(0.0f, 1.0f, 0.0f);
+			out.push_back(l);
+			++added;
+		}
 	}
 }

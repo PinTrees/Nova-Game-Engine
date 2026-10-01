@@ -575,7 +575,23 @@ void ParticleSystem::DrawModules()
 		ModuleEnd();
 	}
 
-	ModuleHeader("##lights", "Lights", nullptr, false, false);
+	if (ModuleHeader("##lights", "Lights", &LightsEnabled))
+	{
+		if (UnityGUI::Slider("Ratio", &LightRatio, 0.0f, 1.0f))
+			LightRatio = std::clamp(LightRatio, 0.0f, 1.0f);
+		UnityGUI::Color("Light Color", &LightColor.x);
+		UnityGUI::Toggle("Use Particle Color", &LightUseParticleColor);
+		UnityGUI::Toggle("Size Affects Range", &LightSizeAffectsRange);
+		UnityGUI::Toggle("Alpha Affects Intensity", &LightAlphaAffectsIntensity);
+		if (UnityGUI::Float("Range", &LightRange, 2))
+			LightRange = (std::max)(0.01f, LightRange);
+		if (UnityGUI::Float("Intensity", &LightIntensity, 2))
+			LightIntensity = (std::max)(0.0f, LightIntensity);
+		if (UnityGUI::Int("Maximum Lights", &LightMaxLights))
+			LightMaxLights = std::clamp(LightMaxLights, 0, 4);
+		UnityGUI::HelpBox("Particle lights share the 4 point-light slots with the scene's Point Lights and do not cast shadows.", false);
+		ModuleEnd();
+	}
 	DrawTrails(*this);
 	ModuleHeader("##customData", "Custom Data", nullptr, false, false);
 

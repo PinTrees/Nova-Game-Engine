@@ -227,13 +227,15 @@ function Suite-Particles
             Invoke-Nova ('create plane --name Floor --position {0},{1},{2} --scale 2,1,2' -f $p[0], $p[1], $p[2]) | Out-Null
             Invoke-Nova ('camera --position {0},{1},{2} --target {3},{4},{5}' -f ($p[0] + 1.2), ($p[1] + 1.0), ($p[2] - 3.2), $p[0], ($p[1] + 0.7), $p[2]) | Out-Null
             $offPng = Join-Path $Out "particles_${api}_off.png"; $onPng = Join-Path $Out "particles_${api}_on.png"
-            Invoke-Nova 'play' | Out-Null; Invoke-Nova 'window scene' | Out-Null; Invoke-Nova 'wait 240' | Out-Null
+            Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null; Invoke-Nova 'window scene' | Out-Null;   # Play 가 Game 탭을 앞으로 한 뒤에
+    Invoke-Nova 'wait 240' | Out-Null
             Invoke-Nova "screenshot $offPng --view scene" | Out-Null; Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 20' | Out-Null
             foreach ($t in 'Campfire', 'Campfire/Smoke', 'Campfire/Embers')
             {
                 Invoke-Nova ('set "{0}" ParticleSystem.renderer={{\"softParticles\":true,\"softDistance\":0.6,\"lit\":true}}' -f $t) | Out-Null
             }
-            Invoke-Nova 'play' | Out-Null; Invoke-Nova 'window scene' | Out-Null; Invoke-Nova 'wait 240' | Out-Null
+            Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null; Invoke-Nova 'window scene' | Out-Null;   # Play 가 Game 탭을 앞으로 한 뒤에
+    Invoke-Nova 'wait 240' | Out-Null
             Invoke-Nova "screenshot $onPng --view scene" | Out-Null; Invoke-Nova 'stop' | Out-Null
             $c = [NovaImageCompare]::Compare($offPng, $onPng, $null)
             # 켜면 달라져야 하고(> 1%), 불이 사라지면 안 된다(전체가 거의 다 달라지면 = 불·연기가 통째로 사라짐을 의심, 30% 미만)
