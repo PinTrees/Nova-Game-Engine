@@ -19,6 +19,11 @@ public:
 	// 셰이더에 넘길 SRV 목록 (아직 없는 칸은 nullptr)
 	vector<ID3D11ShaderResourceView*> DepthMapSRVArray(LightType type);
 
+	// 맵을 (다시) 만들 때마다 바뀌는 번호 (캐시한 캐스케이드가 사라졌는지 판단). 아직 없으면 0
+	uint32 Generation(LightType type, int lightIndex) const;
+	// 만든 맵 전체 크기 (바이트, Profiler 메모리)
+	size_t MemoryBytes() const;
+
 private:
 	struct Target
 	{
@@ -27,6 +32,7 @@ private:
 		vector<ComPtr<ID3D11DepthStencilView>> Dsv;   // 조각마다
 		uint32 Size = 0;
 		uint32 Slices = 0;
+		uint32 Generation = 0;
 	};
 	bool Ensure(Target& t, uint32 size, uint32 slices);
 	void Bind(ID3D11DeviceContext* dc, Target& t, int slice);

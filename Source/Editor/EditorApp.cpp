@@ -290,6 +290,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
 				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 			});
+		Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
 		_deviceContext->RSSetState(0);
 		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		_deviceContext->RSSetViewports(1, &viewport);
@@ -431,6 +432,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
 				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 			});
+		Profiler::SetStat("Scene View/Shadow Cascades Redrawn", s_EditorShadow.CascadesDrawn);
 		_deviceContext->RSSetState(0);
 		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		_deviceContext->RSSetViewports(1, &viewport);

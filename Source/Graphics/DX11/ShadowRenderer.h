@@ -27,6 +27,7 @@ namespace ShadowRenderer
 		float NormalBias = 1.0f;
 		bool SoftShadows = true;
 		int SoftQuality = 1;   // 0 Low, 1 Medium, 2 High
+		int FarCascadeUpdate = 1;   // 0 매 프레임, 1 Staggered (3 번째 2 프레임·4 번째 4 프레임마다), 2 Slow (4 / 8)
 
 		static Settings FromStack(const VolumeStack& stack);
 	};
@@ -41,6 +42,22 @@ namespace ShadowRenderer
 		XMFLOAT4 Spheres[4];
 		XMFLOAT4 Params;   // x 캐스케이드 수, y Max Distance, z 흐려지기 시작 거리, w 1 / 흐려지는 폭
 		XMFLOAT4 DirData[LIGHT_SIZE], SpotData[LIGHT_SIZE], PointData[LIGHT_SIZE];   // x Strength, y 필터
+
+		// ---- 먼 캐스케이드 캐시 (화면마다). 다시 그리지 않는 프레임에는 그 맵을 그린 때의 행렬·구를 그대로 쓴다
+		//  → 받는 쪽이 맵과 같은 행렬로 읽어 정적 물체 그림자는 그대로, 움직이는 물체만 몇 프레임 늦는다
+		struct CascadeCache
+		{
+			bool Valid = false;
+			XMFLOAT4 Sphere = {};          // 그린 때의 구 (중심, r²)
+			XMMATRIX Dir[LIGHT_SIZE];      // 빛마다 그린 때의 행렬 (텍스처 공간까지)
+			uint32 Generation[LIGHT_SIZE] = {};
+			const Light* Lights[LIGHT_SIZE] = {};
+			XMFLOAT3 LightDir[LIGHT_SIZE] = {};
+			uint64_t SettingsKey = 0;
+		};
+		CascadeCache Cache[4];
+		uint64_t FrameCounter = 0;
+		int CascadesDrawn = 0;             // 이번 프레임에 다시 그린 캐스케이드 수 (통계)
 	};
 
 	// 정렬된 빛(방향 → 스포트 → 점광 순)의 그림자 맵을 그린다. drawCasters = 장면의 그림자 캐스터 그리기

@@ -57,7 +57,25 @@ bool ShadowMap::Ensure(Target& t, uint32 size, uint32 slices)
 	}
 	t.Size = size;
 	t.Slices = slices;
+	static uint32 s_Generation = 0;
+	t.Generation = ++s_Generation;
 	return true;
+}
+
+uint32 ShadowMap::Generation(LightType type, int lightIndex) const
+{
+	const auto& list = m_Targets[(uint32)type];
+	return lightIndex >= 0 && lightIndex < (int)list.size() && list[lightIndex].Texture ? list[lightIndex].Generation : 0;
+}
+
+size_t ShadowMap::MemoryBytes() const
+{
+	size_t bytes = 0;
+	for (const auto& list : m_Targets)
+		for (const Target& t : list)
+			if (t.Texture)
+				bytes += (size_t)t.Size * t.Size * 4 * t.Slices;   // D24S8 = 4 바이트
+	return bytes;
 }
 
 void ShadowMap::Bind(ID3D11DeviceContext* dc, Target& t, int slice)

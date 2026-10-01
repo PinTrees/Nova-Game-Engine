@@ -186,6 +186,8 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("normalBias", "Normal Bias", K::Clamped, 1.0f, 0.0f, 10.0f),
 			P("softShadows", "Soft Shadows", K::Bool, 1.0f),
 			PEnum("softQuality", "Quality", { "Low", "Medium", "High" }, 1),
+			// 먼 캐스케이드 캐시: Staggered = 3 번째는 2 프레임, 4 번째는 4 프레임마다 다시 그림 (Slow = 4 / 8)
+			PEnum("farCascadeUpdate", "Far Cascade Update", { "Every Frame", "Staggered", "Slow" }, 1),
 		};
 	}
 	else if (type == "FilmGrain")

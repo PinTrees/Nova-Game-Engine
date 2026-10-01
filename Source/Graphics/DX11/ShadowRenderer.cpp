@@ -6,9 +6,11 @@
 #include "VolumeProfile.h"
 #include "Effects.h"
 #include "RenderManager.h"
+#include "Profiler.h"
 
 namespace
 {
+	const char* const kCascadeNames[4] = { "Cascade 0", "Cascade 1", "Cascade 2", "Cascade 3" };
 	// NDC → 텍스처 좌표
 	const XMMATRIX kToTex(
 		0.5f, 0.0f, 0.0f, 0.0f,
@@ -60,6 +62,7 @@ namespace ShadowRenderer
 		s.NormalBias = c->F("normalBias");
 		s.SoftShadows = c->B("softShadows");
 		s.SoftQuality = std::clamp(c->I("softQuality"), 0, 2);
+		s.FarCascadeUpdate = std::clamp(c->I("farCascadeUpdate"), 0, 2);
 		return s;
 	}
 
@@ -137,6 +140,51 @@ namespace ShadowRenderer
 		const float fadeRange = maxDist * s.LastBorder;
 		out.Params = XMFLOAT4((float)count, maxDist, maxDist - fadeRange, fadeRange > 0.0001f ? 1.0f / fadeRange : 1.0e6f);
 
+		// ---- 먼 캐스케이드 캐시: 캐스케이드마다 이번 프레임에 다시 그릴지 (모든 방향광이 같이 정한다)
+		//  가까운 두 캐스케이드는 매 프레임 (바람에 흔들리는 잎 그림자가 보인다), 3·4 번째만 몇 프레임마다 돌아가며.
+		//  빛 방향·설정·맵이 바뀌거나 카메라가 구 반지름의 5% 넘게 움직이면 바로 다시 그린다
+		++out.FrameCounter;
+		out.CascadesDrawn = 0;
+		bool redraw[4] = { true, true, true, true };
+		{
+			uint64_t key = (uint64_t)count * 1000003ull + (uint64_t)s.Resolution;
+			auto mixF = [&](float f) { uint32_t u; memcpy(&u, &f, 4); key = key * 1099511628211ull ^ u; };
+			mixF(maxDist); mixF(s.Splits[0]); mixF(s.Splits[1]); mixF(s.Splits[2]); mixF(s.DepthBias); mixF(s.NormalBias);
+			key = key * 31 + (uint64_t)(s.SoftShadows ? 1 : 0) * 7 + (uint64_t)s.SoftQuality;
+			const uint64_t f = out.FrameCounter;
+			for (int i = 0; i < count; ++i)
+			{
+				int interval = 1, phase = 0;
+				if (i >= 2 && count >= 3 && s.FarCascadeUpdate > 0)
+				{
+					interval = (i == 2 ? 2 : 4) * (s.FarCascadeUpdate == 2 ? 2 : 1);
+					phase = i == 2 ? 0 : 1;   // 3·4 번째가 같은 프레임에 겹치지 않게
+				}
+				const auto& c = out.Cache[i];
+				bool need = interval == 1 || !c.Valid || c.SettingsKey != key || (f % (uint64_t)interval) != (uint64_t)phase % interval;
+				if (!need)
+				{
+					const float dx = c.Sphere.x - out.Spheres[i].x, dy = c.Sphere.y - out.Spheres[i].y, dz = c.Sphere.z - out.Spheres[i].z;
+					const float moveLimit = 0.05f * 0.05f * out.Spheres[i].w;   // (5% 반지름)²
+					need = fabsf(c.Sphere.w - out.Spheres[i].w) > 1e-4f || dx * dx + dy * dy + dz * dz > moveLimit;
+				}
+				for (int d = 0; d < dirCount && !need; ++d)
+				{
+					Light& light = *sortedLights[d];
+					if (!light.CastsShadows())
+						continue;
+					XMFLOAT3 look;
+					XMStoreFloat3(&look, XMVector3Normalize(light.GetGameObject()->GetTransform()->GetLook()));
+					need = c.Lights[d] != &light || c.Generation[d] != maps.Generation(LightType::Directional, d) ||
+						look.x * c.LightDir[d].x + look.y * c.LightDir[d].y + look.z * c.LightDir[d].z < 0.99999f;
+				}
+				redraw[i] = need;
+				out.Cache[i].SettingsKey = key;
+				if (!need)
+					out.Spheres[i] = c.Sphere;   // 맵을 그린 때의 구로 캐스케이드를 고른다 (맵 밖을 읽지 않게)
+			}
+		}
+
 		// ---- 방향광: 캐스케이드마다 정사영 맵
 		for (int d = 0; d < dirCount; ++d)
 		{
@@ -156,8 +204,16 @@ namespace ShadowRenderer
 			XMStoreFloat3(&toLight, XMVectorNegate(dir));
 			fx->SetShadowLight(XMFLOAT4(toLight.x, toLight.y, toLight.z, 0.0f));
 
+			XMFLOAT3 lookDir;
+			XMStoreFloat3(&lookDir, dir);
 			for (int i = 0; i < count; ++i)
 			{
+				auto& cache = out.Cache[i];
+				if (!redraw[i])
+				{
+					out.Dir[d * 4 + i] = cache.Dir[d];   // 캐시한 맵 + 그린 때의 행렬
+					continue;
+				}
 				const float r = radii[i];
 				const float texel = 2.0f * r / (float)s.Resolution;
 				// 구 중심을 빛 공간에서 텍셀 단위로 맞춘다 → 카메라가 움직여도 텍셀 격자가 그대로
@@ -176,9 +232,23 @@ namespace ShadowRenderer
 				RenderManager::GetI()->LightViewProjection = vp;
 				RenderManager::GetI()->ShadowTexelWorld = texel;
 				maps.BindSlice(dc, LightType::Directional, d, i, s.Resolution);
-				drawCasters();
+				{
+					PROFILE_GPU(kCascadeNames[i]);   // Profiler: 캐스케이드마다 GPU 시간·픽셀
+					drawCasters();
+				}
+				cache.Dir[d] = out.Dir[d * 4 + i];
+				cache.Lights[d] = &light;
+				cache.LightDir[d] = lookDir;
+				cache.Generation[d] = maps.Generation(LightType::Directional, d);
 			}
 		}
+		for (int i = 0; i < count; ++i)
+			if (redraw[i])
+			{
+				out.Cache[i].Valid = true;
+				out.Cache[i].Sphere = out.Spheres[i];
+				++out.CascadesDrawn;
+			}
 
 		// ---- 스포트광: 원근 맵 하나
 		for (int k = 0; k < spotCount; ++k)
