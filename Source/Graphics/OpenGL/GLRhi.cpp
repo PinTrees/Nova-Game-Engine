@@ -2,6 +2,9 @@
 #include "Rhi.h"
 #include "GLLoader.h"
 #include "ShaderCross.h"
+#include "GLState.h"
+#include "GLContext.h"
+#include "GLShared.h"
 
 // RHI 의 OpenGL 4.5 구현 (DSA).
 //  - 컨텍스트: 숨은 창 + wglCreateContextAttribsARB(4.5 core). 만든 스레드에서 현재로 둔다
@@ -62,91 +65,6 @@ namespace
 		return out;
 	}
 
-	GLenum CompareFunc(const std::string& v, GLenum def)
-	{
-		const std::string u = Upper(v);
-		if (u.find("LESS_EQUAL") != std::string::npos) return GL_LEQUAL;
-		if (u.find("GREATER_EQUAL") != std::string::npos) return GL_GEQUAL;
-		if (u.find("NOT_EQUAL") != std::string::npos) return GL_NOTEQUAL;
-		if (u.find("LESS") != std::string::npos) return GL_LESS;
-		if (u.find("GREATER") != std::string::npos) return GL_GREATER;
-		if (u.find("EQUAL") != std::string::npos) return GL_EQUAL;
-		if (u.find("ALWAYS") != std::string::npos) return GL_ALWAYS;
-		if (u.find("NEVER") != std::string::npos) return GL_NEVER;
-		return def;
-	}
-
-	GLenum AddressMode(const std::string& v)
-	{
-		const std::string u = Upper(v);
-		if (u.find("MIRROR_ONCE") != std::string::npos) return GL_MIRROR_CLAMP_TO_EDGE;
-		if (u.find("MIRROR") != std::string::npos) return GL_MIRRORED_REPEAT;
-		if (u.find("WRAP") != std::string::npos) return GL_REPEAT;
-		if (u.find("BORDER") != std::string::npos) return GL_CLAMP_TO_BORDER;
-		return GL_CLAMP_TO_EDGE;
-	}
-
-	GLenum BlendFactor(const std::string& v, GLenum def)
-	{
-		std::string u = Upper(v);
-		if (u.rfind("D3D11_BLEND_", 0) == 0) u = u.substr(12);
-		if (u == "ZERO") return GL_ZERO;
-		if (u == "ONE") return GL_ONE;
-		if (u == "SRC_COLOR") return GL_SRC_COLOR;
-		if (u == "INV_SRC_COLOR") return GL_ONE_MINUS_SRC_COLOR;
-		if (u == "SRC_ALPHA") return GL_SRC_ALPHA;
-		if (u == "INV_SRC_ALPHA") return GL_ONE_MINUS_SRC_ALPHA;
-		if (u == "DEST_ALPHA") return GL_DST_ALPHA;
-		if (u == "INV_DEST_ALPHA") return GL_ONE_MINUS_DST_ALPHA;
-		if (u == "DEST_COLOR") return GL_DST_COLOR;
-		if (u == "INV_DEST_COLOR") return GL_ONE_MINUS_DST_COLOR;
-		if (u == "SRC_ALPHA_SAT") return GL_SRC_ALPHA_SATURATE;
-		if (u == "BLEND_FACTOR") return GL_CONSTANT_COLOR;
-		if (u == "INV_BLEND_FACTOR") return GL_ONE_MINUS_CONSTANT_COLOR;
-		return def;
-	}
-
-	GLenum BlendOp(const std::string& v)
-	{
-		const std::string u = Upper(v);
-		if (u.find("REV_SUBTRACT") != std::string::npos) return GL_FUNC_REVERSE_SUBTRACT;
-		if (u.find("SUBTRACT") != std::string::npos) return GL_FUNC_SUBTRACT;
-		if (u.find("MIN") != std::string::npos) return GL_MIN;
-		if (u.find("MAX") != std::string::npos) return GL_MAX;
-		return GL_FUNC_ADD;
-	}
-
-	GLenum StencilOp(const std::string& v)
-	{
-		const std::string u = Upper(v);
-		if (u.find("INCR_SAT") != std::string::npos) return GL_INCR;
-		if (u.find("DECR_SAT") != std::string::npos) return GL_DECR;
-		if (u.find("INCR") != std::string::npos) return GL_INCR_WRAP;
-		if (u.find("DECR") != std::string::npos) return GL_DECR_WRAP;
-		if (u.find("REPLACE") != std::string::npos) return GL_REPLACE;
-		if (u.find("INVERT") != std::string::npos) return GL_INVERT;
-		if (u.find("ZERO") != std::string::npos) return GL_ZERO;
-		return GL_KEEP;
-	}
-
-	bool IsTrue(const std::string& v) { const std::string u = Upper(v); return u == "TRUE" || u == "1"; }
-
-	// 상태 블록 값: "blendenable[0]" 또는 "blendenable"
-	const std::string* Field(const FxParser::StateBlock& b, const std::string& key)
-	{
-		auto it = b.Fields.find(key + "[0]");
-		if (it != b.Fields.end()) return &it->second;
-		it = b.Fields.find(key);
-		return it != b.Fields.end() ? &it->second : nullptr;
-	}
-
-	void APIENTRY DebugCallback(GLenum, GLenum, GLuint, GLenum severity, GLsizei, const GLchar* message, const void*)
-	{
-		static std::set<std::string> seen;   // 같은 메시지는 한 번만 (프레임마다 수백 줄이 되지 않게)
-		if ((severity == GL_DEBUG_SEVERITY_HIGH || severity == GL_DEBUG_SEVERITY_MEDIUM) && seen.size() < 200 && seen.insert(message).second)
-			EditorLog::Write("OpenGL", "%s", message);
-	}
-
 	class GLBuffer : public Rhi::Buffer
 	{
 	public:
@@ -183,7 +101,17 @@ namespace
 			const ShaderCross::UniformBlock::Member* Member = nullptr;
 			std::vector<const ShaderCross::SamplerBinding*> Samplers;   // 텍스처 변수
 		};
-		struct PassProgram { GLuint Program = 0; GLint BaseInstance = -1; std::string Error; const FxParser::Pass* Fx = nullptr; };
+		struct PassProgram
+		{
+			GLuint Program = 0;
+			std::string Error;
+			const FxParser::Pass* Fx = nullptr;
+			GLInputSignature Signature;                   // FxPass::GetDesc → Gfx CreateInputLayout
+			bool StatesMade = false;                      // Gfx 컨텍스트로 보낼 상태 객체 (처음 Apply 때 만듦)
+			ComPtr<GfxRasterizerState> Rs;
+			ComPtr<GfxBlendState> Bs;
+			ComPtr<GfxDepthStencilState> Ds;
+		};
 
 		GLDevice* Device = nullptr;
 		ShaderCross::EffectGlsl Src;
@@ -195,6 +123,7 @@ namespace
 		std::map<std::string, GLuint> SamplerObjects;     // .fx 샘플러 이름 → GL 샘플러
 		std::vector<GLuint> UnitTextures;                  // 유닛 → 텍스처
 		std::vector<GLuint> UnitSamplers;                  // 유닛 → 샘플러
+		std::vector<ComPtr<GfxShaderResourceView>> UnitViews;   // 유닛에 넣은 Gfx 뷰 (Effects11 처럼 묶인 동안 잡아 둔다)
 		std::set<std::string> Reported;
 
 		~GLEffect() override
@@ -304,11 +233,18 @@ namespace
 					WriteComponent(*v, (first + i) * stride + c * 4, values[i * 4 + c]);
 		}
 
-		void SetView(Rhi::VarId, GfxShaderResourceView* view, uint32_t) override
+		void SetView(Rhi::VarId var, GfxShaderResourceView* view, uint32_t arrayIndex) override
 		{
-			// TODO(OpenGL 4 단계): GfxGL 의 SRV → GL 텍스처
-			if (view && Reported.insert("gfx-srv").second)
-				EditorLog::Write("OpenGL", "%s: Gfx texture views are not connected to OpenGL effects yet", wstring_to_string(std::filesystem::path(Src.File).filename().wstring()).c_str());
+			if (var < 0) return;
+			const GLuint id = view ? GfxGL_TextureName(view) : 0;
+			if (view && !id && Reported.insert("non-gl-view").second)
+				EditorLog::Write("OpenGL", "%s: a texture view that is not an OpenGL view was set - ignored", wstring_to_string(std::filesystem::path(Src.File).filename().wstring()).c_str());
+			for (const ShaderCross::SamplerBinding* s : Vars[var].Samplers)
+				if ((int)arrayIndex < s->Count)
+				{
+					UnitTextures[s->Unit + arrayIndex] = id;
+					UnitViews[s->Unit + arrayIndex] = id ? view : nullptr;
+				}
 		}
 
 		void GetVector(Rhi::VarId var, float out[4]) override
@@ -326,7 +262,13 @@ namespace
 		}
 
 		void SetUav(Rhi::VarId, GfxUnorderedAccessView*) override {}
-		bool NativeInputSignature(int, int, const void**, size_t*) override { return false; }
+		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
+		{
+			if (technique < 0 || technique >= (int)Programs.size() || pass < 0 || pass >= (int)Programs[technique].size()) return false;
+			*data = &Programs[technique][pass].Signature;
+			*size = sizeof(GLInputSignature);
+			return true;
+		}
 
 		void WriteMatrix(const Var& v, uint32_t offset, const float m[16])
 		{
@@ -362,19 +304,23 @@ namespace
 			const GLuint id = texture ? static_cast<GLTexture*>(texture)->Id : 0;
 			for (const ShaderCross::SamplerBinding* s : Vars[var].Samplers)
 				if ((int)arrayIndex < s->Count)
+				{
 					UnitTextures[s->Unit + arrayIndex] = id;
+					UnitViews[s->Unit + arrayIndex] = nullptr;
+				}
 		}
 
 		void Apply(int technique, int pass) override;
-		void ApplyStates(const FxParser::Pass& p);
+		void ApplyStates(PassProgram& pp);
 	};
 
 	class GLDevice : public Rhi::Device
 	{
 	public:
-		HWND Wnd = nullptr;
-		HDC Dc = nullptr;
-		HGLRC Rc = nullptr;
+		GLContext::Handle Ctx;
+		bool OwnsContext = false;
+		GfxDevice* SinkDevice = nullptr;     // 엔진 본 장치일 때: pass 상태를 이 Gfx 컨텍스트로 (OMGet… 이 맞게)
+		GfxContext* SinkContext = nullptr;
 		GLuint Fbo = 0, ClearFbo = 0;
 		GLenum Mode = GL_TRIANGLES;
 		GLInputLayout* Layout = nullptr;
@@ -382,75 +328,38 @@ namespace
 		VB Vbs[16];
 		GLuint Ib = 0;
 		bool Index32 = true;
-		GLint BaseInstanceLoc = -1;
 		GLuint CurrentProgram = 0;
 
 		~GLDevice() override
 		{
-			if (Rc)
+			if (::wglGetCurrentContext())
 			{
 				if (Fbo) glDeleteFramebuffers(1, &Fbo);
 				if (ClearFbo) glDeleteFramebuffers(1, &ClearFbo);
-				::wglMakeCurrent(nullptr, nullptr);
-				::wglDeleteContext(Rc);
 			}
-			if (Dc) ::ReleaseDC(Wnd, Dc);
-			if (Wnd) ::DestroyWindow(Wnd);
+			if (OwnsContext)
+				GLContext::Destroy(Ctx);
 		}
 
+		// 숨은 창 + 자기 컨텍스트 (검사·도구용)
 		bool Init(std::string& error)
 		{
-			static const wchar_t* cls = L"NovaGLRhiWindow";
-			static bool registered = false;
-			HINSTANCE inst = ::GetModuleHandleW(nullptr);
-			if (!registered)
-			{
-				WNDCLASSW wc = {};
-				wc.style = CS_OWNDC;
-				wc.lpfnWndProc = ::DefWindowProcW;
-				wc.hInstance = inst;
-				wc.lpszClassName = cls;
-				::RegisterClassW(&wc);
-				registered = true;
-			}
-			Wnd = ::CreateWindowExW(0, cls, L"NOVA OpenGL", WS_OVERLAPPEDWINDOW, 0, 0, 64, 64, nullptr, nullptr, inst, nullptr);
-			if (!Wnd) { error = "cannot create the OpenGL window"; return false; }
-			Dc = ::GetDC(Wnd);
-			PIXELFORMATDESCRIPTOR pfd = { sizeof(pfd), 1 };
-			pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
-			pfd.iPixelType = PFD_TYPE_RGBA;
-			pfd.cColorBits = 32;
-			pfd.cDepthBits = 24;
-			pfd.cStencilBits = 8;
-			const int pf = ::ChoosePixelFormat(Dc, &pfd);
-			if (!pf || !::SetPixelFormat(Dc, pf, &pfd)) { error = "no OpenGL pixel format"; return false; }
-			HGLRC temp = ::wglCreateContext(Dc);
-			if (!temp || !::wglMakeCurrent(Dc, temp)) { error = "wglCreateContext failed (no OpenGL driver?)"; return false; }
-			typedef HGLRC(WINAPI * CreateAttribs)(HDC, HGLRC, const int*);
-			auto createAttribs = reinterpret_cast<CreateAttribs>(::wglGetProcAddress("wglCreateContextAttribsARB"));
-			if (!createAttribs)
-			{
-				::wglMakeCurrent(nullptr, nullptr);
-				::wglDeleteContext(temp);
-				error = "WGL_ARB_create_context not supported";
+			if (!GLContext::Create(nullptr, Ctx, error))
 				return false;
-			}
-			const int attribs[] = { WGL_CONTEXT_MAJOR_VERSION_ARB, 4, WGL_CONTEXT_MINOR_VERSION_ARB, 5, WGL_CONTEXT_PROFILE_MASK_ARB, WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-				WGL_CONTEXT_FLAGS_ARB, WGL_CONTEXT_DEBUG_BIT_ARB, 0 };
-			Rc = createAttribs(Dc, nullptr, attribs);
-			::wglMakeCurrent(nullptr, nullptr);
-			::wglDeleteContext(temp);
-			if (!Rc || !::wglMakeCurrent(Dc, Rc)) { error = "OpenGL 4.5 core context not available"; Rc = nullptr; return false; }
-			std::string missing;
-			if (!GLLoader::Load(missing)) { error = "OpenGL functions missing: " + missing; return false; }
-			glEnable(GL_DEBUG_OUTPUT);
-			glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-			glDebugMessageCallback(DebugCallback, nullptr);
-			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
-			glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);   // D3D 큐브 샘플링은 면 경계가 이어진다
+			OwnsContext = true;
 			glCreateFramebuffers(1, &Fbo);
 			glCreateFramebuffers(1, &ClearFbo);
-			ResetState();
+			return true;
+		}
+
+		// 지금 현재인 컨텍스트 (엔진 본 창, Gfx GL 장치가 만든 것). pass 상태는 Gfx 컨텍스트로 보낸다
+		bool InitOnCurrent(GfxDevice* sinkDevice, GfxContext* sinkContext, std::string& error)
+		{
+			if (!::wglGetCurrentContext()) { error = "no current OpenGL context"; return false; }
+			SinkDevice = sinkDevice;
+			SinkContext = sinkContext;
+			glCreateFramebuffers(1, &Fbo);
+			glCreateFramebuffers(1, &ClearFbo);
 			return true;
 		}
 
@@ -557,20 +466,7 @@ namespace
 
 		void ResetState() override
 		{
-			glEnable(GL_DEPTH_TEST);
-			glDepthFunc(GL_LESS);
-			glDepthMask(GL_TRUE);
-			glDisable(GL_STENCIL_TEST);
-			glEnable(GL_CULL_FACE);
-			glCullFace(GL_BACK);
-			glFrontFace(GL_CCW);   // = D3D 기본 (시계 방향이 앞면) — 파일 맨 위 설명
-			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-			glDisable(GL_POLYGON_OFFSET_FILL);
-			glDisable(GL_DEPTH_CLAMP);
-			glDisable(GL_SCISSOR_TEST);
-			glDisable(GL_BLEND);
-			glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-			glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+			GLState::ApplyDefaults();   // D3D11 기본 상태 (GLState.cpp)
 		}
 
 		void SetRenderTargets(Rhi::Texture* const* colors, uint32_t count, Rhi::Texture* depth, uint32_t depthSlice) override
@@ -663,17 +559,9 @@ namespace
 			return true;
 		}
 
-		// SPIRV-Cross 는 SV_InstanceID 를 gl_InstanceID + SPIRV_Cross_BaseInstance 로 만든다.
-		// D3D 의 SV_InstanceID 는 StartInstanceLocation 을 더하지 않으므로 늘 0 을 넣는다
-		void SetBaseInstance()
-		{
-			if (BaseInstanceLoc >= 0) glProgramUniform1i(CurrentProgram, BaseInstanceLoc, 0);
-		}
-
 		void Draw(uint32_t vertexCount, uint32_t startVertex) override
 		{
 			if (!BindGeometry()) return;
-			SetBaseInstance();
 			glDrawArraysInstancedBaseInstance(Mode, startVertex, vertexCount, 1, 0);
 		}
 
@@ -685,7 +573,6 @@ namespace
 		void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndex, int32_t baseVertex, uint32_t startInstance) override
 		{
 			if (!BindGeometry()) return;
-			SetBaseInstance();
 			const size_t size = Index32 ? 4 : 2;
 			glDrawElementsInstancedBaseVertexBaseInstance(Mode, indexCount, Index32 ? GL_UNSIGNED_INT : GL_UNSIGNED_SHORT, (const void*)(startIndex * size),
 				instanceCount, baseVertex, startInstance);
@@ -742,69 +629,6 @@ namespace
 		return s;
 	}
 
-	GLuint MakeSampler(const FxParser::StateBlock* b)
-	{
-		GLuint s = 0;
-		glCreateSamplers(1, &s);
-		// D3D11 기본값: MIN_MAG_MIP_LINEAR, CLAMP, 테두리 (1,1,1,1), 비교 NEVER
-		std::string filter = b ? (Field(*b, "filter") ? Upper(*Field(*b, "filter")) : "MIN_MAG_MIP_LINEAR") : "MIN_MAG_MIP_LINEAR";
-		bool comparison = filter.find("COMPARISON_") != std::string::npos;
-		bool minLinear = true, magLinear = true, mipLinear = true;
-		float aniso = 1.0f;
-		if (filter.find("ANISOTROPIC") != std::string::npos)
-		{
-			aniso = 16.0f;
-			if (b && Field(*b, "maxanisotropy")) aniso = (float)atof(Field(*b, "maxanisotropy")->c_str());
-		}
-		else
-		{
-			// MIN_MAG_LINEAR_MIP_POINT, MIN_POINT_MAG_MIP_LINEAR … → 이름들 뒤의 LINEAR/POINT 가 그 이름들에 적용
-			std::vector<std::string> pending;
-			size_t p = 0;
-			while (p <= filter.size())
-			{
-				size_t e = filter.find('_', p);
-				if (e == std::string::npos) e = filter.size();
-				const std::string tok = filter.substr(p, e - p);
-				if (tok == "MIN" || tok == "MAG" || tok == "MIP") pending.push_back(tok);
-				else if (tok == "LINEAR" || tok == "POINT")
-				{
-					for (const std::string& n : pending)
-					{
-						if (n == "MIN") minLinear = tok == "LINEAR";
-						if (n == "MAG") magLinear = tok == "LINEAR";
-						if (n == "MIP") mipLinear = tok == "LINEAR";
-					}
-					pending.clear();
-				}
-				p = e + 1;
-			}
-		}
-		const GLenum minF = minLinear ? (mipLinear ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_NEAREST) : (mipLinear ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST);
-		glSamplerParameteri(s, GL_TEXTURE_MIN_FILTER, minF);
-		glSamplerParameteri(s, GL_TEXTURE_MAG_FILTER, magLinear ? GL_LINEAR : GL_NEAREST);
-		if (aniso > 1.0f) glSamplerParameterf(s, GL_TEXTURE_MAX_ANISOTROPY, aniso);
-		glSamplerParameteri(s, GL_TEXTURE_WRAP_S, b && Field(*b, "addressu") ? AddressMode(*Field(*b, "addressu")) : GL_CLAMP_TO_EDGE);
-		glSamplerParameteri(s, GL_TEXTURE_WRAP_T, b && Field(*b, "addressv") ? AddressMode(*Field(*b, "addressv")) : GL_CLAMP_TO_EDGE);
-		glSamplerParameteri(s, GL_TEXTURE_WRAP_R, b && Field(*b, "addressw") ? AddressMode(*Field(*b, "addressw")) : GL_CLAMP_TO_EDGE);
-		float border[4] = { 1, 1, 1, 1 };
-		if (b && Field(*b, "bordercolor"))
-		{
-			const auto n = Numbers(*Field(*b, "bordercolor"));
-			for (size_t i = 0; i < 4 && i < n.size(); ++i) border[i] = (float)n[i];
-		}
-		glSamplerParameterfv(s, GL_TEXTURE_BORDER_COLOR, border);
-		if (b && Field(*b, "miplodbias")) glSamplerParameterf(s, GL_TEXTURE_LOD_BIAS, (float)atof(Field(*b, "miplodbias")->c_str()));
-		if (b && Field(*b, "minlod")) glSamplerParameterf(s, GL_TEXTURE_MIN_LOD, (float)atof(Field(*b, "minlod")->c_str()));
-		if (b && Field(*b, "maxlod")) glSamplerParameterf(s, GL_TEXTURE_MAX_LOD, (float)atof(Field(*b, "maxlod")->c_str()));
-		if (comparison)
-		{
-			glSamplerParameteri(s, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-			glSamplerParameteri(s, GL_TEXTURE_COMPARE_FUNC, b && Field(*b, "comparisonfunc") ? CompareFunc(*Field(*b, "comparisonfunc"), GL_NEVER) : GL_NEVER);
-		}
-		return s;
-	}
-
 	std::unique_ptr<Rhi::Effect> GLDevice::LoadEffect(const std::wstring& fxPath, std::string& error)
 	{
 		auto e = std::make_unique<GLEffect>();
@@ -826,6 +650,7 @@ namespace
 				GLEffect::PassProgram pp;
 				pp.Fx = &pass;
 				pp.Error = pg.Error;
+				pp.Signature.Inputs = &pg.VertexInputs;
 				if (pp.Error.empty())
 				{
 					static const GLenum types[] = { GL_VERTEX_SHADER, GL_TESS_CONTROL_SHADER, GL_TESS_EVALUATION_SHADER, GL_GEOMETRY_SHADER, GL_FRAGMENT_SHADER, GL_COMPUTE_SHADER };
@@ -859,7 +684,12 @@ namespace
 							pp.Program = 0;
 						}
 						else
-							pp.BaseInstance = glGetUniformLocation(pp.Program, "SPIRV_Cross_BaseInstance");
+						{
+							// SPIRV-Cross 는 SV_InstanceID 를 gl_InstanceID + SPIRV_Cross_BaseInstance 로 만든다.
+							// D3D 의 SV_InstanceID 는 StartInstanceLocation 을 더하지 않으므로 늘 0
+							const GLint loc = glGetUniformLocation(pp.Program, "SPIRV_Cross_BaseInstance");
+							if (loc >= 0) glProgramUniform1i(pp.Program, loc, 0);
+						}
 					}
 					for (GLuint s : shaders)
 					{
@@ -910,11 +740,12 @@ namespace
 			if (s.Sampler != "nosampler" && !e->SamplerObjects.count(s.Sampler))
 			{
 				auto st = e->Src.Fx.States.find(s.Sampler);
-				e->SamplerObjects[s.Sampler] = MakeSampler(st != e->Src.Fx.States.end() ? &st->second : nullptr);
+				e->SamplerObjects[s.Sampler] = GLState::CreateSampler(st != e->Src.Fx.States.end() ? GLState::FxSampler(st->second) : GLState::DefaultSampler());
 			}
 		}
 		e->UnitTextures.assign(units, 0);
 		e->UnitSamplers.assign(units, 0);
+		e->UnitViews.assign(units, nullptr);
 		for (const auto& [n, s] : e->Src.Samplers)
 			for (int i = 0; i < s.Count; ++i)
 				e->UnitSamplers[s.Unit + i] = s.Sampler == "nosampler" ? 0 : e->SamplerObjects[s.Sampler];
@@ -925,7 +756,7 @@ namespace
 	{
 		if (technique < 0 || technique >= (int)Programs.size() || pass < 0 || pass >= (int)Programs[technique].size())
 			return;
-		const PassProgram& pp = Programs[technique][pass];
+		PassProgram& pp = Programs[technique][pass];
 		if (!pp.Program)
 		{
 			if (Reported.insert(TechniqueNames[technique] + "/" + std::to_string(pass)).second)
@@ -935,7 +766,6 @@ namespace
 		}
 		glUseProgram(pp.Program);
 		Device->CurrentProgram = pp.Program;
-		Device->BaseInstanceLoc = pp.BaseInstance;
 		for (Block& b : Blocks)
 		{
 			if (b.Dirty)
@@ -950,101 +780,39 @@ namespace
 			glBindTextureUnit((GLuint)u, UnitTextures[u]);
 			glBindSampler((GLuint)u, UnitTextures[u] ? UnitSamplers[u] : 0);   // 빈 유닛 + 비교 샘플러 = 드라이버 경고
 		}
-		ApplyStates(*pp.Fx);
+		ApplyStates(pp);
 	}
 
-	// pass 가 정한 상태만 바꾼다 (Effects11 과 같이 정하지 않은 상태는 그대로)
-	void GLEffect::ApplyStates(const FxParser::Pass& p)
+	// pass 가 정한 상태만 바꾼다 (Effects11 과 같이 정하지 않은 상태는 그대로). 뜻은 D3D11 설명 그대로 (GLState)
+	void GLEffect::ApplyStates(PassProgram& pp)
 	{
+		const FxParser::Pass& p = *pp.Fx;
 		auto find = [&](const std::string& name) -> const FxParser::StateBlock* {
 			if (name.empty()) return nullptr;
 			auto it = Src.Fx.States.find(name);
 			return it != Src.Fx.States.end() ? &it->second : nullptr;
 		};
-		if (const FxParser::StateBlock* ds = find(p.DepthStencilState))
+		const FxParser::StateBlock* rs = find(p.RasterizerState);
+		const FxParser::StateBlock* bs = find(p.BlendState);
+		const FxParser::StateBlock* ds = find(p.DepthStencilState);
+		if (Device->SinkContext)
 		{
-			const std::string* en = Field(*ds, "depthenable");
-			if (!en || IsTrue(*en)) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
-			const std::string* wm = Field(*ds, "depthwritemask");
-			glDepthMask(wm && Upper(*wm).find("ZERO") != std::string::npos ? GL_FALSE : GL_TRUE);
-			const std::string* fn = Field(*ds, "depthfunc");
-			glDepthFunc(fn ? CompareFunc(*fn, GL_LESS) : GL_LESS);
-			const std::string* se = Field(*ds, "stencilenable");
-			if (se && IsTrue(*se))
+			// 엔진 본 장치: Gfx 상태 객체로 Gfx 컨텍스트에 (렌더러의 OMGet…/RSGet… 저장·복원이 맞도록)
+			if (!pp.StatesMade)
 			{
-				glEnable(GL_STENCIL_TEST);
-				const GLuint readMask = Field(*ds, "stencilreadmask") ? (GLuint)strtoul(Field(*ds, "stencilreadmask")->c_str(), nullptr, 0) : 0xFF;
-				const GLuint writeMask = Field(*ds, "stencilwritemask") ? (GLuint)strtoul(Field(*ds, "stencilwritemask")->c_str(), nullptr, 0) : 0xFF;
-				glStencilMask(writeMask);
-				auto face = [&](GLenum f, const char* prefix) {
-					const std::string pre = prefix;
-					const std::string* func = Field(*ds, pre + "stencilfunc");
-					const std::string* fail = Field(*ds, pre + "stencilfailop");
-					const std::string* dfail = Field(*ds, pre + "stencildepthfailop");
-					const std::string* pass2 = Field(*ds, pre + "stencilpassop");
-					glStencilFuncSeparate(f, func ? CompareFunc(*func, GL_ALWAYS) : GL_ALWAYS, p.StencilRef, readMask);
-					glStencilOpSeparate(f, fail ? StencilOp(*fail) : GL_KEEP, dfail ? StencilOp(*dfail) : GL_KEEP, pass2 ? StencilOp(*pass2) : GL_KEEP);
-				};
-				face(GL_FRONT, "frontface");
-				face(GL_BACK, "backface");
+				pp.StatesMade = true;
+				if (rs) { const D3D11_RASTERIZER_DESC d = GLState::FxRasterizer(*rs); Device->SinkDevice->CreateRasterizerState(&d, pp.Rs.GetAddressOf()); }
+				if (bs) { const D3D11_BLEND_DESC d = GLState::FxBlend(*bs); Device->SinkDevice->CreateBlendState(&d, pp.Bs.GetAddressOf()); }
+				if (ds) { const D3D11_DEPTH_STENCIL_DESC d = GLState::FxDepthStencil(*ds); Device->SinkDevice->CreateDepthStencilState(&d, pp.Ds.GetAddressOf()); }
 			}
-			else
-				glDisable(GL_STENCIL_TEST);
+			if (pp.Rs) Device->SinkContext->RSSetState(pp.Rs.Get());
+			if (pp.Bs) Device->SinkContext->OMSetBlendState(pp.Bs.Get(), p.BlendFactor, p.SampleMask);
+			if (pp.Ds) Device->SinkContext->OMSetDepthStencilState(pp.Ds.Get(), (UINT)p.StencilRef);
+			return;
 		}
-		if (const FxParser::StateBlock* rs = find(p.RasterizerState))
-		{
-			const std::string* fm = Field(*rs, "fillmode");
-			glPolygonMode(GL_FRONT_AND_BACK, fm && Upper(*fm).find("WIREFRAME") != std::string::npos ? GL_LINE : GL_FILL);
-			const std::string* cm = Field(*rs, "cullmode");
-			const std::string cull = cm ? Upper(*cm) : "BACK";
-			if (cull.find("NONE") != std::string::npos) glDisable(GL_CULL_FACE);
-			else
-			{
-				glEnable(GL_CULL_FACE);
-				glCullFace(cull.find("FRONT") != std::string::npos ? GL_FRONT : GL_BACK);
-			}
-			const std::string* ccw = Field(*rs, "frontcounterclockwise");
-			glFrontFace(ccw && IsTrue(*ccw) ? GL_CW : GL_CCW);
-			const std::string* bias = Field(*rs, "depthbias");
-			const std::string* slope = Field(*rs, "slopescaleddepthbias");
-			const float units = bias ? (float)atof(bias->c_str()) : 0.0f, factor = slope ? (float)atof(slope->c_str()) : 0.0f;
-			if (units != 0.0f || factor != 0.0f)
-			{
-				glEnable(GL_POLYGON_OFFSET_FILL);
-				glPolygonOffset(factor, units);
-			}
-			else
-				glDisable(GL_POLYGON_OFFSET_FILL);
-			const std::string* clip = Field(*rs, "depthclipenable");
-			if (clip && !IsTrue(*clip)) glEnable(GL_DEPTH_CLAMP); else glDisable(GL_DEPTH_CLAMP);
-			const std::string* sc = Field(*rs, "scissorenable");
-			if (sc && IsTrue(*sc)) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
-		}
-		if (const FxParser::StateBlock* bs = find(p.BlendState))
-		{
-			const std::string* en = Field(*bs, "blendenable");
-			if (en && IsTrue(*en))
-			{
-				glEnable(GL_BLEND);
-				const std::string* src = Field(*bs, "srcblend");
-				const std::string* dst = Field(*bs, "destblend");
-				const std::string* op = Field(*bs, "blendop");
-				const std::string* srcA = Field(*bs, "srcblendalpha");
-				const std::string* dstA = Field(*bs, "destblendalpha");
-				const std::string* opA = Field(*bs, "blendopalpha");
-				glBlendFuncSeparate(src ? BlendFactor(*src, GL_ONE) : GL_ONE, dst ? BlendFactor(*dst, GL_ZERO) : GL_ZERO,
-					srcA ? BlendFactor(*srcA, GL_ONE) : GL_ONE, dstA ? BlendFactor(*dstA, GL_ZERO) : GL_ZERO);
-				glBlendEquationSeparate(op ? BlendOp(*op) : GL_FUNC_ADD, opA ? BlendOp(*opA) : GL_FUNC_ADD);
-				glBlendColor(p.BlendFactor[0], p.BlendFactor[1], p.BlendFactor[2], p.BlendFactor[3]);
-			}
-			else
-				glDisable(GL_BLEND);
-			const std::string* wm = Field(*bs, "rendertargetwritemask");
-			const unsigned mask = wm ? (unsigned)strtoul(wm->c_str(), nullptr, 0) : 0x0F;
-			glColorMask((mask & 1) != 0, (mask & 2) != 0, (mask & 4) != 0, (mask & 8) != 0);
-			const std::string* a2c = Field(*bs, "alphatocoverageenable");
-			if (a2c && IsTrue(*a2c)) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-		}
+		if (rs) GLState::ApplyRasterizer(GLState::FxRasterizer(*rs));
+		if (bs) GLState::ApplyBlend(GLState::FxBlend(*bs), p.BlendFactor, p.SampleMask);
+		if (ds) GLState::ApplyDepthStencil(GLState::FxDepthStencil(*ds), (UINT)p.StencilRef);
 	}
 }
 
@@ -1052,6 +820,15 @@ std::unique_ptr<Rhi::Device> CreateGLRhiDevice(std::string& error)
 {
 	auto d = std::make_unique<GLDevice>();
 	if (!d->Init(error))
+		return nullptr;
+	return d;
+}
+
+// 지금 현재인 GL 컨텍스트 위의 RHI 장치 (엔진 본 창). pass 상태는 sink(Gfx GL 컨텍스트)로
+std::unique_ptr<Rhi::Device> CreateGLRhiDeviceOnCurrent(GfxDevice* sinkDevice, GfxContext* sinkContext, std::string& error)
+{
+	auto d = std::make_unique<GLDevice>();
+	if (!d->InitOnCurrent(sinkDevice, sinkContext, error))
 		return nullptr;
 	return d;
 }

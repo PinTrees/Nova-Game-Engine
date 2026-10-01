@@ -36,9 +36,9 @@ FxPass* FxTechnique::GetPassByIndex(UINT index)
 	return index < _passes.size() ? &_passes[index] : &_invalidPass;
 }
 
-ComPtr<FxEffect> FxEffect::Load(const std::wstring& fxPath, std::string& error)
+ComPtr<FxEffect> FxEffect::Load(const std::wstring& fxPath, std::string& error, Rhi::Device* device)
 {
-	Rhi::Device* dev = Rhi::Main();
+	Rhi::Device* dev = device ? device : Rhi::Main();
 	if (!dev)
 	{
 		error = "no graphics device";

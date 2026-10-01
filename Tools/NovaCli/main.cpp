@@ -560,6 +560,7 @@ namespace
 		"  camera [--position x,y,z --target x,y,z | --frame <target> [--distance d]]   Scene view camera\n"
 		"  screenshot <file.png> [--view scene|game|editor]   (editor = whole window incl. menus; relative = current folder)\n"
 		"  window <preferences|project-settings|build-settings> [--category C] [--close]\n"
+		"  gfx-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   same, drawn the engine way (Gfx + effects)\n"
 		"  rhi-test [both|DirectX11|OpenGL] [--out folder] [--width W --height H]   draw the RHI test scene per API, save PNGs, compare pixels\n"
 		"  shader-cross [file] [--out folder] [--max-errors N]   convert engine .fx shaders to GLSL (OpenGL) and report\n"
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
@@ -787,7 +788,7 @@ int wmain(int argc, wchar_t** argv)
 		}
 		if (a.Has("auto")) args["auto"] = a.Get("auto") != "false" && a.Get("auto") != "0";
 	}
-	else if (cmd == "rhi-test")
+	else if (cmd == "rhi-test" || cmd == "gfx-test")
 	{
 		if (!a.Pos.empty()) args["api"] = a.Pos[0];
 		if (a.Has("out")) args["out"] = Utf8(fs::absolute(Wide(a.Get("out"))).wstring());

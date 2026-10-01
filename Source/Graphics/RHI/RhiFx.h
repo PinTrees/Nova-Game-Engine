@@ -89,7 +89,8 @@ class FxEffect
 {
 public:
 	// Rhi::Main() 장치로 .fx 를 불러온다. 실패하면 nullptr + error
-	static ComPtr<FxEffect> Load(const std::wstring& fxPath, std::string& error);
+	// device = nullptr 이면 엔진 장치(Rhi::Main), 아니면 그 장치 (검사용 GL 장치 등)
+	static ComPtr<FxEffect> Load(const std::wstring& fxPath, std::string& error, Rhi::Device* device = nullptr);
 
 	ULONG AddRef() { return ++_refs; }
 	ULONG Release()

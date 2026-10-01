@@ -114,6 +114,72 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 #define GL_MINOR_VERSION                  0x821C
 #define GL_SHADING_LANGUAGE_VERSION       0x8B8C
 
+// ---- Gfx(D3D11 모양) 층이 쓰는 것
+#define GL_TEXTURE_1D_ARRAY               0x8C18
+#define GL_TEXTURE_2D_MULTISAMPLE         0x9100
+#define GL_TEXTURE_2D_MULTISAMPLE_ARRAY   0x9102
+#define GL_TEXTURE_SWIZZLE_A              0x8E45
+#define GL_DEPTH_STENCIL_TEXTURE_MODE     0x90EA
+#define GL_BGRA                           0x80E1
+#define GL_RED_INTEGER                    0x8D94
+#define GL_RG_INTEGER                     0x8228
+#define GL_RGB_INTEGER                    0x8D98
+#define GL_RGBA_INTEGER                   0x8D99
+#define GL_R16                            0x822A
+#define GL_RG16                           0x822C
+#define GL_RGBA16                         0x805B
+#define GL_RGB32F                         0x8815
+#define GL_R8UI                           0x8232
+#define GL_R16UI                          0x8234
+#define GL_R32UI                          0x8236
+#define GL_RG32UI                         0x823C
+#define GL_RGBA8UI                        0x8D7C
+#define GL_RGBA16UI                       0x8D76
+#define GL_RGBA32UI                       0x8D70
+#define GL_R32I                           0x8235
+#define GL_DEPTH_COMPONENT16              0x81A5
+#define GL_UNSIGNED_INT_10F_11F_11F_REV   0x8C3B
+#define GL_UNSIGNED_INT_2_10_10_10_REV    0x8368
+#define GL_FLOAT_32_UNSIGNED_INT_24_8_REV 0x8DAD
+#define GL_COMPRESSED_RGBA_S3TC_DXT1_EXT  0x83F1
+#define GL_COMPRESSED_RGBA_S3TC_DXT3_EXT  0x83F2
+#define GL_COMPRESSED_RGBA_S3TC_DXT5_EXT  0x83F3
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT1_EXT 0x8C4D
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT3_EXT 0x8C4E
+#define GL_COMPRESSED_SRGB_ALPHA_S3TC_DXT5_EXT 0x8C4F
+#define GL_COMPRESSED_RED_RGTC1           0x8DBB
+#define GL_COMPRESSED_SIGNED_RED_RGTC1    0x8DBC
+#define GL_COMPRESSED_RG_RGTC2            0x8DBD
+#define GL_COMPRESSED_SIGNED_RG_RGTC2     0x8DBE
+#define GL_COMPRESSED_RGBA_BPTC_UNORM     0x8E8C
+#define GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM 0x8E8D
+#define GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT 0x8E8E
+#define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT 0x8E8F
+#define GL_MAP_READ_BIT                   0x0001
+#define GL_MAP_WRITE_BIT                  0x0002
+#define GL_MAP_INVALIDATE_RANGE_BIT       0x0004
+#define GL_MAP_INVALIDATE_BUFFER_BIT      0x0008
+#define GL_MAP_UNSYNCHRONIZED_BIT         0x0020
+#define GL_CLIENT_STORAGE_BIT             0x0200
+#define GL_TIMESTAMP                      0x8E28
+#define GL_SAMPLES_PASSED                 0x8914
+#define GL_QUERY_RESULT                   0x8866
+#define GL_QUERY_RESULT_AVAILABLE         0x8867
+#define GL_FIRST_VERTEX_CONVENTION        0x8E4D
+#define GL_PRIMITIVE_RESTART_FIXED_INDEX  0x8D69
+#define GL_PATCH_VERTICES                 0x8E72
+#define GL_LINES_ADJACENCY                0x000A
+#define GL_LINE_STRIP_ADJACENCY           0x000B
+#define GL_TRIANGLES_ADJACENCY            0x000C
+#define GL_TRIANGLE_STRIP_ADJACENCY       0x000D
+#define GL_POLYGON_OFFSET_LINE            0x2A02
+#define GL_POLYGON_OFFSET_POINT           0x2A01
+#define GL_READ_ONLY                      0x88B8
+#define GL_WRITE_ONLY                     0x88B9
+#define GL_READ_WRITE                     0x88BA
+#define GL_ALL_BARRIER_BITS               0xFFFFFFFF
+#define GL_STENCIL_INDEX8                 0x8D48
+
 // WGL_ARB_create_context
 #define WGL_CONTEXT_MAJOR_VERSION_ARB     0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB     0x2092
@@ -190,7 +256,43 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glDrawElementsInstancedBaseVertexBaseInstance, (GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount, GLint basevertex, GLuint baseinstance)) \
 	X(void, glDrawArraysInstancedBaseInstance, (GLenum mode, GLint first, GLsizei count, GLsizei instancecount, GLuint baseinstance)) \
 	X(void, glDebugMessageCallback, (GLDEBUGPROC callback, const void* userParam)) \
-	X(void, glDebugMessageControl, (GLenum source, GLenum type, GLenum severity, GLsizei count, const GLuint* ids, GLboolean enabled))
+	X(void, glDebugMessageControl, (GLenum source, GLenum type, GLenum severity, GLsizei count, const GLuint* ids, GLboolean enabled)) \
+	X(void, glTextureStorage1D, (GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width)) \
+	X(void, glTextureStorage2DMultisample, (GLuint texture, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLboolean fixedsamplelocations)) \
+	X(void, glTextureSubImage1D, (GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type, const void* pixels)) \
+	X(void, glCompressedTextureSubImage2D, (GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLsizei imageSize, const void* data)) \
+	X(void, glCompressedTextureSubImage3D, (GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLsizei imageSize, const void* data)) \
+	X(void, glTextureView, (GLuint texture, GLenum target, GLuint origtexture, GLenum internalformat, GLuint minlevel, GLuint numlevels, GLuint minlayer, GLuint numlayers)) \
+	X(void, glGetTextureSubImage, (GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, GLsizei bufSize, void* pixels)) \
+	X(void, glGetCompressedTextureSubImage, (GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLsizei bufSize, void* pixels)) \
+	X(void, glCopyImageSubData, (GLuint srcName, GLenum srcTarget, GLint srcLevel, GLint srcX, GLint srcY, GLint srcZ, GLuint dstName, GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ, GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth)) \
+	X(void, glCopyNamedBufferSubData, (GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size)) \
+	X(void*, glMapNamedBufferRange, (GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access)) \
+	X(GLboolean, glUnmapNamedBuffer, (GLuint buffer)) \
+	X(void, glGetNamedBufferSubData, (GLuint buffer, GLintptr offset, GLsizeiptr size, void* data)) \
+	X(void, glClearNamedFramebufferiv, (GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLint* value)) \
+	X(void, glCreateQueries, (GLenum target, GLsizei n, GLuint* ids)) \
+	X(void, glDeleteQueries, (GLsizei n, const GLuint* ids)) \
+	X(void, glBeginQuery, (GLenum target, GLuint id)) \
+	X(void, glEndQuery, (GLenum target)) \
+	X(void, glQueryCounter, (GLuint id, GLenum target)) \
+	X(void, glGetQueryObjectui64v, (GLuint id, GLenum pname, GLuint64* params)) \
+	X(void, glGetQueryObjectuiv, (GLuint id, GLenum pname, GLuint* params)) \
+	X(void, glBlendFuncSeparatei, (GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha)) \
+	X(void, glBlendEquationSeparatei, (GLuint buf, GLenum modeRGB, GLenum modeAlpha)) \
+	X(void, glColorMaski, (GLuint index, GLboolean r, GLboolean g, GLboolean b, GLboolean a)) \
+	X(void, glEnablei, (GLenum target, GLuint index)) \
+	X(void, glDisablei, (GLenum target, GLuint index)) \
+	X(void, glViewportIndexedf, (GLuint index, GLfloat x, GLfloat y, GLfloat w, GLfloat h)) \
+	X(void, glDepthRangeIndexed, (GLuint index, GLdouble n, GLdouble f)) \
+	X(void, glScissorIndexed, (GLuint index, GLint left, GLint bottom, GLsizei width, GLsizei height)) \
+	X(void, glProvokingVertex, (GLenum mode)) \
+	X(void, glPatchParameteri, (GLenum pname, GLint value)) \
+	X(void, glBindImageTexture, (GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format)) \
+	X(void, glDispatchCompute, (GLuint x, GLuint y, GLuint z)) \
+	X(void, glMemoryBarrier, (GLbitfield barriers)) \
+	X(void, glSampleMaski, (GLuint maskNumber, GLbitfield mask)) \
+	X(void, glObjectLabel, (GLenum identifier, GLuint name, GLsizei length, const GLchar* label))
 
 #define NOVA_GL_DECLARE(ret, name, params) typedef ret (APIENTRY* PFN_##name) params; extern PFN_##name name;
 NOVA_GL_FUNCTIONS(NOVA_GL_DECLARE)

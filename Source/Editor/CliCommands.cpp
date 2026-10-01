@@ -19,6 +19,8 @@
 #include "App.h"
 #include "ShaderCross.h"
 #include "RhiTest.h"
+#include "GfxTest.h"
+#include "GfxGL.h"
 
 namespace
 {
@@ -282,6 +284,37 @@ namespace
 			return false;
 		}
 		return true;
+	}
+
+	// 두 RGBA8 그림의 차이: 채널 평균·최대, 어떤 채널이든 8 넘게 다른 픽셀 비율, 차이 그림(×4)
+	json CompareImages(const std::vector<uint8_t>& A, const std::vector<uint8_t>& B, int w, int h, const std::string& outDir, const char* diffName)
+	{
+		if (A.size() != B.size() || A.empty())
+			return { { "error", "image sizes differ" } };
+		double sum = 0;
+		int maxDiff = 0;
+		size_t over = 0;
+		std::vector<uint8_t> diff(A.size());
+		for (size_t i = 0; i < A.size(); i += 4)
+		{
+			int pixelMax = 0;
+			for (int c = 0; c < 3; ++c)
+			{
+				const int d = std::abs((int)A[i + c] - (int)B[i + c]);
+				sum += d;
+				pixelMax = (std::max)(pixelMax, d);
+				diff[i + c] = (uint8_t)(std::min)(255, d * 4);
+			}
+			diff[i + 3] = 255;
+			maxDiff = (std::max)(maxDiff, pixelMax);
+			over += pixelMax > 8 ? 1 : 0;
+		}
+		const size_t pixels = A.size() / 4;
+		json r = { { "mean", sum / (pixels * 3.0) }, { "max", maxDiff }, { "over8Percent", 100.0 * over / pixels } };
+		std::string err;
+		if (!outDir.empty() && SavePng(diff, w, h, (std::filesystem::path(string_to_wstring(outDir)) / diffName).wstring(), err))
+			r["png"] = outDir + "\\" + diffName;
+		return r;
 	}
 
 	GameObject* CreateByType(const std::string& typeIn, const json& args, std::string& error)
@@ -830,34 +863,67 @@ namespace CliCommands
 			}
 			r = { { "width", w }, { "height", h }, { "results", list } };
 			if (results.size() == 2)
+				r["diff"] = CompareImages(results[0].Rgba, results[1].Rgba, w, h, outDir, "rhi_diff.png");
+			return true;
+		});
+
+		// Gfx 층 비교: 엔진 렌더러와 같은 방식(Gfx + FxEffect)으로 시험 장면을 엔진 장치(DirectX 11)와 OpenGL(숨은 창)에 그려 비교
+		Register("gfx-test", "render the Gfx test scene (engine-style Gfx + effects) on the engine device and/or OpenGL and compare {api? (both|DirectX11|OpenGL), out?, width?, height?}", [](const json& a, json& r, std::string& e) {
+			const std::string api = Lower(a.value("api", std::string("both")));
+			const int w = std::clamp(a.value("width", 960), 16, 4096), h = std::clamp(a.value("height", 540), 16, 4096);
+			const std::string outDir = a.value("out", std::string());
+			std::vector<GraphicsAPI> apis;
+			if (api == "both" || api == "directx11" || api == "d3d11" || api == "dx11") apis.push_back(GraphicsAPI::DirectX11);
+			if (api == "both" || api == "opengl" || api == "gl") apis.push_back(GraphicsAPI::OpenGL);
+			if (apis.empty()) { e = "api must be both, DirectX11 or OpenGL"; return false; }
+			std::vector<GfxTest::Result> results;
+			json list = json::array();
+			for (GraphicsAPI g : apis)
 			{
-				// 차이: 채널 평균·최대, 어떤 채널이든 8 넘게 다른 픽셀 비율, 차이 그림(×4)
-				const auto& A = results[0].Rgba;
-				const auto& B = results[1].Rgba;
-				double sum = 0;
-				int maxDiff = 0;
-				size_t over = 0;
-				std::vector<uint8_t> diff(A.size());
-				for (size_t i = 0; i < A.size(); i += 4)
-				{
-					int pixelMax = 0;
-					for (int c = 0; c < 3; ++c)
-					{
-						const int d = std::abs((int)A[i + c] - (int)B[i + c]);
-						sum += d;
-						pixelMax = (std::max)(pixelMax, d);
-						diff[i + c] = (uint8_t)(std::min)(255, d * 4);
-					}
-					diff[i + 3] = 255;
-					maxDiff = (std::max)(maxDiff, pixelMax);
-					over += pixelMax > 8 ? 1 : 0;
-				}
-				const size_t pixels = A.size() / 4;
-				r["diff"] = { { "mean", sum / (pixels * 3.0) }, { "max", maxDiff }, { "over8Percent", 100.0 * over / pixels } };
+				EditorLog::Heartbeat();
+				json item = { { "api", GraphicsAPIToKey(g) } };
 				std::string err;
-				if (!outDir.empty() && SavePng(diff, w, h, (std::filesystem::path(string_to_wstring(outDir)) / "rhi_diff.png").wstring(), err))
-					r["diff"]["png"] = outDir + "\\rhi_diff.png";
+				GfxTest::Result res;
+				bool ok = false;
+				if (g == GraphicsAPI::DirectX11)
+				{
+					if (!Gfx::Device() || !Gfx::Device()->Native()) err = "the engine device is not DirectX 11";
+					else ok = GfxTest::Render(Gfx::Device(), Gfx::Context(), Rhi::Main(), w, h, res, err);
+				}
+				else
+				{
+					// 숨은 창의 GL 장치 (끝나면 효과·자원 → RHI 장치 → 컨텍스트 → 장치 순으로 놓는다)
+					ComPtr<GfxDevice> gdev;
+					ComPtr<GfxContext> gctx;
+					if (GfxGL::CreateDevice(nullptr, gdev.GetAddressOf(), gctx.GetAddressOf(), err))
+					{
+						std::unique_ptr<Rhi::Device> rhi = GfxGL::CreateRhiDevice(gdev.Get(), gctx.Get(), err);
+						if (rhi)
+							ok = GfxTest::Render(gdev.Get(), gctx.Get(), rhi.get(), w, h, res, err);
+						rhi.reset();
+					}
+					gctx.Reset();
+					gdev.Reset();
+				}
+				if (ok)
+				{
+					item["loadMs"] = res.LoadMs;
+					item["drawMs"] = res.DrawMs;
+					if (!outDir.empty())
+					{
+						const std::wstring file = (std::filesystem::path(string_to_wstring(outDir)) / (std::string("gfx_") + GraphicsAPIToKey(g) + ".png")).wstring();
+						if (SavePng(res.Rgba, w, h, file, err)) item["png"] = wstring_to_string(file);
+						else item["error"] = err;
+					}
+					results.push_back(std::move(res));
+				}
+				else
+					item["error"] = err;
+				list.push_back(item);
 			}
+			r = { { "width", w }, { "height", h }, { "results", list } };
+			if (results.size() == 2)
+				r["diff"] = CompareImages(results[0].Rgba, results[1].Rgba, w, h, outDir, "gfx_diff.png");
 			return true;
 		});
 
