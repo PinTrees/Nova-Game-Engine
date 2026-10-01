@@ -712,12 +712,18 @@ namespace CliCommands
 		// 에디터 전체 (메뉴·창·팝업까지): 백버퍼가 다 그려진 뒤 Present 직전에 찍는다
 		Register("screenshot-editor", "save the whole editor window (UI included) to PNG/JPG {path}", [](const json& a, json& r, std::string& e) {
 			App* app = Application::GetI()->GetApp();
-			IDXGISwapChain* swap = app ? app->SwapChain() : nullptr;
-			if (!swap) { e = "no swap chain"; return false; }
-			ComPtr<ID3D11Texture2D> d3dBack;   // 스왑 체인은 DXGI 객체 → 진짜 D3D11 텍스처로 받아 Gfx 로 감싼다
-			if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(d3dBack.GetAddressOf())))) { e = "no back buffer"; return false; }
 			ComPtr<GfxTexture2D> back;
-			back.Attach(Gfx::WrapD3D11As<GfxTexture2D>(d3dBack.Get()));
+			if (app && app->IsOpenGL())
+				back = app->BackBufferTexture();   // OpenGL: 엔진이 그리는 백버퍼 텍스처
+			else
+			{
+				IDXGISwapChain* swap = app ? app->SwapChain() : nullptr;
+				if (!swap) { e = "no swap chain"; return false; }
+				ComPtr<ID3D11Texture2D> d3dBack;   // 스왑 체인은 DXGI 객체 → 진짜 D3D11 텍스처로 받아 Gfx 로 감싼다
+				if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(d3dBack.GetAddressOf())))) { e = "no back buffer"; return false; }
+				back.Attach(Gfx::WrapD3D11As<GfxTexture2D>(d3dBack.Get()));
+			}
+			if (!back) { e = "no back buffer"; return false; }
 			const std::string path = a.value("path", std::string());
 			if (path.empty()) { e = "missing path"; return false; }
 			const std::wstring file = ProjectFile(path);

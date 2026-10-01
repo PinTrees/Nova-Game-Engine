@@ -12,8 +12,8 @@ Shader::Shader(ComPtr<GfxDevice> device, const std::wstring& filename)
 	m_pFx = FxEffect::Load(filename, error);   // RHI 장치로 (Effects.cpp 의 Effect 와 같음)
 	if (!m_pFx)
 	{
-		::MessageBoxA(0, error.c_str(), wstring_to_string(filename).c_str(), 0);
-		assert(false);
+		EditorLog::Write("Effect", "%s: %s", wstring_to_string(filename).c_str(), error.c_str());   // 대화상자 없이 빈 효과로
+		m_pFx = FxEffect::Empty();
 	}
 }
 

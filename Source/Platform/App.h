@@ -15,7 +15,9 @@ public:
 	HINSTANCE AppInst() { return _hAppInst; }
 	HWND      MainWnd() { return _hMainWnd; }
 	GfxDevice* GetDevice() { return  _device.Get(); }
-	IDXGISwapChain* SwapChain() { return _swapChain.Get(); }
+	IDXGISwapChain* SwapChain() { return _swapChain.Get(); }   // DirectX 11 만 (OpenGL = nullptr)
+	bool IsOpenGL() const { return _openGL; }
+	GfxTexture2D* BackBufferTexture() { return _backBufferTex.Get(); }   // OpenGL: 엔진이 그리는 백버퍼 텍스처 (Present 가 창으로 복사)
 
 protected:
 	bool _deferredShow = false;   // 로딩 창이 끝날 때까지 메인 창 숨김
@@ -50,6 +52,7 @@ protected:
 	bool InitPlatform();
 	bool InitMainWindow();
 	bool InitDirect3D();
+	bool InitOpenGL();
 	void CalculateFrameStats();
 	void RecordProfilerStats();
 	void DevGpuProfileLog();
@@ -74,6 +77,8 @@ protected:
 	ComPtr<GfxDevice> _device;
 	ComPtr<GfxContext> _deviceContext;
 	ComPtr<IDXGISwapChain> _swapChain;
+	bool _openGL = false;                     // 그래픽 API = OpenGL (GraphicsSettings 가 고른 것)
+	ComPtr<GfxTexture2D> _backBufferTex;      // OpenGL 백버퍼 (DirectX 11 은 스왑 체인)
 
 	// DSV
 	ComPtr<GfxTexture2D> _depthStencilBuffer;

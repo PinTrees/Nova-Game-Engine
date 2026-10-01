@@ -762,6 +762,7 @@ namespace
 			if (Reported.insert(TechniqueNames[technique] + "/" + std::to_string(pass)).second)
 				EditorLog::Write("OpenGL", "pass %s/%d is not available: %s", TechniqueNames[technique].c_str(), pass, pp.Error.c_str());
 			Device->CurrentProgram = 0;
+			glUseProgram(0);   // 앞 pass 의 프로그램으로 잘못 그리지 않게
 			return;
 		}
 		glUseProgram(pp.Program);

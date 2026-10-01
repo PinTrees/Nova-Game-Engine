@@ -56,8 +56,20 @@ ComPtr<FxEffect> FxEffect::Load(const std::wstring& fxPath, std::string& error, 
 	return fx;
 }
 
+ComPtr<FxEffect> FxEffect::Empty()
+{
+	ComPtr<FxEffect> fx;
+	fx.Attach(new FxEffect());
+	fx->AddRef();
+	fx->_invalidVar = std::make_unique<FxVar>(nullptr, -1);
+	fx->_invalidTechnique = std::make_unique<FxTechnique>(nullptr, -1);
+	return fx;
+}
+
 FxVar* FxEffect::GetVariableByName(const char* name)
 {
+	if (!_rhi)
+		return _invalidVar.get();
 	auto it = _vars.find(name);
 	if (it != _vars.end())
 		return it->second.get();
@@ -69,12 +81,16 @@ FxVar* FxEffect::GetVariableByName(const char* name)
 
 FxTechnique* FxEffect::GetTechniqueByName(const char* name)
 {
+	if (!_rhi)
+		return _invalidTechnique.get();
 	const int t = _rhi->FindTechnique(name);
 	return t < 0 ? _invalidTechnique.get() : GetTechniqueByIndex((UINT)t);
 }
 
 FxTechnique* FxEffect::GetTechniqueByIndex(UINT index)
 {
+	if (!_rhi)
+		return _invalidTechnique.get();
 	if ((int)index >= _rhi->TechniqueCount())
 		return _invalidTechnique.get();
 	auto& t = _techniques[(int)index];
@@ -86,6 +102,6 @@ FxTechnique* FxEffect::GetTechniqueByIndex(UINT index)
 HRESULT FxEffect::GetDesc(D3DX11_EFFECT_DESC* desc)
 {
 	*desc = {};
-	desc->Techniques = (UINT)_rhi->TechniqueCount();
+	desc->Techniques = _rhi ? (UINT)_rhi->TechniqueCount() : 0;
 	return S_OK;
 }

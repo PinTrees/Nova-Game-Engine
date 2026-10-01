@@ -919,6 +919,15 @@ namespace
 			{
 				BindTargets();
 				if (readOnlyChanged) ApplyDepthStencil();
+				// 읽기 전용 DSV + 같은 깊이를 셰이더가 읽음 (물): D3D 는 정상이지만 GL 은 피드백 루프 →
+				// 앞에서 쓴 깊이를 읽도록 텍스처 장벽 (없으면 지운 직후 값 1.0 을 읽어 물이 끝없이 깊어 보였다)
+				if (dsv)
+				{
+					D3D11_DEPTH_STENCIL_VIEW_DESC dd;
+					dsv->GetDesc(&dd);
+					if (dd.Flags & (D3D11_DSV_READ_ONLY_DEPTH | D3D11_DSV_READ_ONLY_STENCIL))
+						glTextureBarrier();
+				}
 			}
 		}
 		void OMGetRenderTargets(UINT count, GfxRenderTargetView** rtvs, GfxDepthStencilView** dsv) override
@@ -1363,6 +1372,27 @@ namespace GfxGL
 		}
 		GLContext::SetSwapInterval(syncInterval);
 		::SwapBuffers(d->Ctx.Dc);
+	}
+
+	void RestoreState(GfxContext* context)
+	{
+		auto* c = static_cast<GLCtx*>(context);
+		if (!c || !c->Dev->Check("RestoreState")) return;
+		c->BindTargets();
+		for (UINT i = 0; i < c->ViewportCount; ++i)
+		{
+			const D3D11_VIEWPORT& v = c->Viewports[i];
+			glViewportIndexedf(i, v.TopLeftX, v.TopLeftY, v.Width, v.Height);
+			glDepthRangeIndexed(i, v.MinDepth, v.MaxDepth);
+		}
+		for (UINT i = 0; i < c->ScissorCount; ++i)
+		{
+			const D3D11_RECT& r = c->Scissors[i];
+			glScissorIndexed(i, r.left, r.top, (std::max)(0L, r.right - r.left), (std::max)(0L, r.bottom - r.top));
+		}
+		c->ApplyRasterizer();
+		c->ApplyBlend();
+		c->ApplyDepthStencil();
 	}
 
 	bool IsFormatSupported(DXGI_FORMAT format)

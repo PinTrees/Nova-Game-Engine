@@ -15,9 +15,9 @@ Effect::Effect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	_fx = FxEffect::Load(filename, error);
 	if (!_fx)
 	{
+		// 대화상자를 띄우지 않는다 (백그라운드로 띄운 에디터가 거기서 멈춘다). 빈 효과 = 변수·기법이 모두 없는 것처럼 (그리지 않음)
 		EditorLog::Write("Effect", "%s: %s", wstring_to_string(filename).c_str(), error.c_str());
-		::MessageBoxA(0, error.c_str(), wstring_to_string(filename).c_str(), 0);
-		assert(false);
+		_fx = FxEffect::Empty();
 	}
 }
 

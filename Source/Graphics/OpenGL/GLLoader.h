@@ -247,6 +247,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glUseProgram, (GLuint program)) \
 	X(GLint, glGetUniformLocation, (GLuint program, const GLchar* name)) \
 	X(void, glProgramUniform1i, (GLuint program, GLint location, GLint v0)) \
+	X(void, glProgramUniformMatrix4fv, (GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value)) \
 	X(void, glClipControl, (GLenum origin, GLenum depth)) \
 	X(void, glBlendFuncSeparate, (GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha)) \
 	X(void, glBlendEquationSeparate, (GLenum modeRGB, GLenum modeAlpha)) \
@@ -292,6 +293,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glDispatchCompute, (GLuint x, GLuint y, GLuint z)) \
 	X(void, glMemoryBarrier, (GLbitfield barriers)) \
 	X(void, glSampleMaski, (GLuint maskNumber, GLbitfield mask)) \
+	X(void, glTextureBarrier, (void)) \
 	X(void, glObjectLabel, (GLenum identifier, GLuint name, GLsizei length, const GLchar* label))
 
 #define NOVA_GL_DECLARE(ret, name, params) typedef ret (APIENTRY* PFN_##name) params; extern PFN_##name name;

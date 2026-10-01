@@ -418,6 +418,14 @@ namespace
 		}
 		std::wstring cmdLine = L"\"" + exe + L"\" --project \"" + Wide(project) + L"\"";
 		if (a.Has("background")) cmdLine += L" --no-activate";
+		// 이번 실행만 그래픽 API 를 정한다 (설정 파일은 그대로): --graphics opengl | d3d11
+		if (a.Has("graphics"))
+		{
+			std::string g = a.Get("graphics");
+			for (char& c : g) c = (char)tolower((unsigned char)c);
+			if (g == "opengl" || g == "gl") cmdLine += L" -force-opengl";
+			else if (g == "d3d11" || g == "dx11" || g == "directx11") cmdLine += L" -force-d3d11";
+		}
 		STARTUPINFOW si = { sizeof(si) };
 		if (a.Has("background"))
 		{
@@ -534,7 +542,7 @@ namespace
 		"\n"
 		"editors\n"
 		"  status                                 running editors\n"
-		"  open <project> [--background]          start the editor for a project and wait until it is ready\n"
+		"  open <project> [--background] [--graphics opengl|d3d11]   start the editor for a project and wait until it is ready\n"
 		"  quit [--force]                         close the editor (--force discards unsaved changes)\n"
 		"  info                                   project, scene, dirty, playing, selection\n"
 		"  log [-n 40] [--grep text] [--errors] [--follow]\n"

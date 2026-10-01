@@ -3,6 +3,8 @@
 #include "ProfilerEditorWindow.h"
 #include "FrameProfiler.h"
 #include "EditorGUIManager.h"
+#include "ImGuiGL.h"
+#include "App.h"
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
 #include "ProjectSettingsWindow.h"
@@ -57,10 +59,12 @@ void EditorGUIManager::Init(bool hubMode)
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    const bool openGL = Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL();
     if (!hubMode)
     {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+        if (!openGL)   // OpenGL: 여러 OS 창(뷰포트)은 아직 지원하지 않음 (ImGuiGL)
+            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
     }
     else
     {
@@ -86,7 +90,10 @@ void EditorGUIManager::Init(bool hubMode)
     ImGui_ImplWin32_EnableDpiAwareness();  
     ImGui_ImplWin32_Init(Application::GetI()->GetMainHwnd());
     // ImGui DX11 백엔드는 진짜 D3D11 객체로 (그림 텍스처 ImTextureID = GfxShaderResourceView* — 백엔드가 풀어 씀)
-    ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(Application::GetI()->GetDevice()->Native()), static_cast<ID3D11DeviceContext*>(Application::GetI()->GetDeviceContext()->Native()));
+    if (openGL)   // OpenGL: ImGuiGL (ImTextureID = Gfx 뷰 → GL 텍스처)
+        ImGuiGL::Init();
+    else
+        ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(Application::GetI()->GetDevice()->Native()), static_cast<ID3D11DeviceContext*>(Application::GetI()->GetDeviceContext()->Native()));
 
     // Hub는 창 DPI 배율에 맞춰 폰트 크기를 정한다. (에디터는 기존 고정 크기 유지)
     float dpiScale = hubMode ? (float)GetDpiForWindow(Application::GetI()->GetMainHwnd()) / 96.0f : 1.0f;
@@ -170,14 +177,20 @@ void EditorGUIManager::Init(bool hubMode)
 
 void EditorGUIManager::Destroy() 
 {
-    ImGui_ImplDX11_Shutdown();  
+    if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
+        ImGuiGL::Shutdown();
+    else
+        ImGui_ImplDX11_Shutdown();  
     ImGui_ImplWin32_Shutdown();  
     ImGui::DestroyContext();  
 }
 
 void EditorGUIManager::Update()
 {
-    ImGui_ImplDX11_NewFrame();
+    if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
+        ImGuiGL::NewFrame();
+    else
+        ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
 

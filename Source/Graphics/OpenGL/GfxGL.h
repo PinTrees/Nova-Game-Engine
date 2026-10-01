@@ -18,6 +18,9 @@ namespace GfxGL
 	// backBuffer(RGBA8 텍스처) → 창 (위아래 뒤집기) + SwapBuffers. syncInterval 0 = 수직 동기 없음
 	void Present(GfxDevice* device, GfxTexture2D* backBuffer, int windowWidth, int windowHeight, int syncInterval);
 
+	// GL 을 직접 만진 뒤 (ImGui 렌더러 등): Gfx 컨텍스트가 알고 있는 상태(타깃·뷰포트·가위·래스터·블렌드·깊이)를 다시 GL 에
+	void RestoreState(GfxContext* context);
+
 	// GL 이 지원하는 형식인지 (텍스처 만들기 전에 검사)
 	bool IsFormatSupported(DXGI_FORMAT format);
 

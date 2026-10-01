@@ -1,6 +1,8 @@
 ﻿#include "pch.h"
 #include "App.h"
 #include "GraphicsSettings.h"
+#include "GfxGL.h"
+#include "ImGuiGL.h"
 #include "AudioManager.h"
 #include "ScriptEngine.h"
 #include "UISystem.h"
@@ -208,7 +210,10 @@ int32 App::Run()
 					// 메인 창 백버퍼를 매번 다시 묶는다: 떠 있는 팝업·툴팁이 창 밖으로 나가 ImGui 가 별도 OS 창(뷰포트)을 만들면
 					// RenderPlatformWindowsDefault 가 그 창의 타깃을 묶은 채로 끝나 다음 프레임부터 메인 창이 멈춘 듯 보였다
 					_deviceContext->OMSetRenderTargets(1, _renderTargetView.GetAddressOf(), nullptr);
-					ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
+					if (_openGL)
+						ImGuiGL::RenderDrawData(ImGui::GetDrawData());
+					else
+						ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
 					EditorGUIManager::GetI()->RenderAfter();
 				}
 
@@ -217,7 +222,11 @@ int32 App::Run()
 					FRAME_PROFILE("Present");
 					if (!Application::IsPlayer())
 						CliServer::PumpBeforePresent();   // NOVA CLI: 에디터 전체 캡처 (백버퍼가 다 그려진 뒤)
-					const HRESULT presentHr = _swapChain->Present(0, 0);
+					HRESULT presentHr = S_OK;
+					if (_openGL)
+						GfxGL::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
+					else
+						presentHr = _swapChain->Present(0, 0);
 					// 실패(장치 제거 등)는 한 번 기록한다 (Release 에서는 HR 의 assert 가 없다)
 					static bool s_PresentFailLogged = false;
 					if (FAILED(presentHr) && !s_PresentFailLogged)
@@ -463,9 +472,35 @@ void App::OnResize()
 {
 	assert(_deviceContext);
 	assert(_device);
-	assert(_swapChain);
 	if (_clientWidth <= 0 || _clientHeight <= 0)
 		return;   // 최소화 등
+	if (_openGL)
+	{
+		// OpenGL: 백버퍼 = 창 크기 RGBA8 텍스처 (+ 깊이). Present 가 창으로 위아래 뒤집어 복사
+		_deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+		_renderTargetView.Reset();
+		_backBufferTex.Reset();
+		_depthStencilView.Reset();
+		_depthStencilBuffer.Reset();
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = (UINT)_clientWidth;
+		td.Height = (UINT)_clientHeight;
+		td.MipLevels = 1;
+		td.ArraySize = 1;
+		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		td.SampleDesc.Count = 1;
+		td.Usage = D3D11_USAGE_DEFAULT;
+		td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		const HRESULT hr = _device->CreateTexture2D(&td, nullptr, _backBufferTex.GetAddressOf());
+		if (SUCCEEDED(hr))
+			_device->CreateRenderTargetView(_backBufferTex.Get(), nullptr, _renderTargetView.GetAddressOf());
+		EditorLog::Write("App", "resize backbuffer to %d x %d (OpenGL, hr=0x%08X)", _clientWidth, _clientHeight, (unsigned)hr);
+		CreateDepthStencilView();
+		_deviceContext->OMSetRenderTargets(1, _renderTargetView.GetAddressOf(), _depthStencilView.Get());
+		EditorGUIManager::GetI()->OnResize(Vec2(_clientWidth, _clientHeight));
+		return;
+	}
+	assert(_swapChain);
 
 	// 백버퍼를 실제 창 크기로 바꾼다. 이전에는 처음 크기 그대로 두고 화면에 늘려 그려서,
 	// 창 크기가 바뀌면 그려진 위치와 마우스 좌표가 어긋났다 (창 크기에 따라 클릭 위치가 틀어지던 문제).
@@ -892,8 +927,43 @@ bool App::InitMainWindow()
 	return true;
 }
 
+// OpenGL: 본 창에 GL 4.5 컨텍스트 → Gfx·RHI 장치. 화면 표시는 백버퍼 텍스처를 Present 가 창으로 복사
+bool App::InitOpenGL()
+{
+	std::string error;
+	GfxDevice* dev = nullptr;
+	GfxContext* ctx = nullptr;
+	if (!GfxGL::CreateDevice(_hMainWnd, &dev, &ctx, error))
+	{
+		EditorLog::Write("Graphics", "OpenGL device failed: %s", error.c_str());
+		return false;
+	}
+	_device.Attach(dev);
+	_deviceContext.Attach(ctx);
+	Gfx::SetMain(_device.Get(), _deviceContext.Get());
+	std::unique_ptr<Rhi::Device> rhi = GfxGL::CreateRhiDevice(_device.Get(), _deviceContext.Get(), error);
+	if (!rhi)
+	{
+		EditorLog::Write("Graphics", "OpenGL RHI device failed: %s", error.c_str());
+		return false;
+	}
+	Rhi::SetMain(std::move(rhi));
+	_openGL = true;
+	OnResize();
+	return true;
+}
+
 bool App::InitDirect3D()
 {
+	if (GraphicsSettings::GetActiveAPI() == GraphicsAPI::OpenGL)
+	{
+		if (InitOpenGL())
+			return true;
+		EditorLog::Write("Graphics", "%s", "OpenGL failed to start - using DirectX 11");
+		Gfx::SetMain(nullptr, nullptr);
+		_deviceContext.Reset();
+		_device.Reset();
+	}
 	std::ofstream log(_logFileName, std::ios::app);
 	log << "  InitDirect3D -> CreateDeviceAndSwapChain..." << std::endl; log.flush();
 	CreateDeviceAndSwapChain();

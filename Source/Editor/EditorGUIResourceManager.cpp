@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "EditorGUIResourceManager.h"
+#include "ImGuiGL.h"
+#include "App.h"
 #include "TaskSystem.h"
 #include "EditorTheme.h"
 
@@ -112,8 +114,16 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
         if (font)
         { 
             io.Fonts->Build(); 
-            ImGui_ImplDX11_InvalidateDeviceObjects();
-            ImGui_ImplDX11_CreateDeviceObjects();
+            if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
+            {
+                ImGuiGL::InvalidateDeviceObjects();
+                ImGuiGL::CreateDeviceObjects();
+            }
+            else
+            {
+                ImGui_ImplDX11_InvalidateDeviceObjects();
+                ImGui_ImplDX11_CreateDeviceObjects();
+            }
 
             m_LoadFontTask[fontKey] = false;
             this->m_FontMap[fontKey] = font; 

@@ -26,25 +26,25 @@ public:
 	FxVar* AsShaderResource() { return this; }
 	FxVar* AsUnorderedAccessView() { return this; }
 
-	HRESULT SetRawValue(const void* data, UINT offset, UINT bytes) { _fx->SetRaw(_id, data, bytes, offset); return S_OK; }
-	HRESULT SetFloat(float v) { _fx->SetFloat(_id, v); return S_OK; }
-	HRESULT SetInt(int v) { _fx->SetInt(_id, v); return S_OK; }
-	HRESULT SetBool(bool v) { _fx->SetBool(_id, v); return S_OK; }
-	HRESULT SetFloatVector(const float* v) { _fx->SetVector(_id, v); return S_OK; }
-	HRESULT SetFloatArray(const float* v, UINT offset, UINT count) { _fx->SetFloatArray(_id, v, offset, count); return S_OK; }
-	HRESULT SetFloatVectorArray(const float* v, UINT offset, UINT count) { _fx->SetVectorArray(_id, v, offset, count); return S_OK; }
-	HRESULT SetMatrix(const float* m) { _fx->SetMatrix(_id, m); return S_OK; }
-	HRESULT SetMatrixArray(const float* m, UINT offset, UINT count) { _fx->SetMatrixArray(_id, m, offset, count); return S_OK; }
-	HRESULT SetTexture(Rhi::Texture* texture, UINT index = 0) { _fx->SetTexture(_id, texture, index); return S_OK; }
-	HRESULT SetResource(GfxShaderResourceView* srv) { _fx->SetView(_id, srv, 0); return S_OK; }
+	HRESULT SetRawValue(const void* data, UINT offset, UINT bytes) { if (_id >= 0) _fx->SetRaw(_id, data, bytes, offset); return S_OK; }
+	HRESULT SetFloat(float v) { if (_id >= 0) _fx->SetFloat(_id, v); return S_OK; }
+	HRESULT SetInt(int v) { if (_id >= 0) _fx->SetInt(_id, v); return S_OK; }
+	HRESULT SetBool(bool v) { if (_id >= 0) _fx->SetBool(_id, v); return S_OK; }
+	HRESULT SetFloatVector(const float* v) { if (_id >= 0) _fx->SetVector(_id, v); return S_OK; }
+	HRESULT SetFloatArray(const float* v, UINT offset, UINT count) { if (_id >= 0) _fx->SetFloatArray(_id, v, offset, count); return S_OK; }
+	HRESULT SetFloatVectorArray(const float* v, UINT offset, UINT count) { if (_id >= 0) _fx->SetVectorArray(_id, v, offset, count); return S_OK; }
+	HRESULT SetMatrix(const float* m) { if (_id >= 0) _fx->SetMatrix(_id, m); return S_OK; }
+	HRESULT SetMatrixArray(const float* m, UINT offset, UINT count) { if (_id >= 0) _fx->SetMatrixArray(_id, m, offset, count); return S_OK; }
+	HRESULT SetTexture(Rhi::Texture* texture, UINT index = 0) { if (_id >= 0) _fx->SetTexture(_id, texture, index); return S_OK; }
+	HRESULT SetResource(GfxShaderResourceView* srv) { if (_id >= 0) _fx->SetView(_id, srv, 0); return S_OK; }
 	HRESULT SetResourceArray(GfxShaderResourceView* const* srvs, UINT offset, UINT count)
 	{
-		for (UINT i = 0; i < count; ++i)
+		for (UINT i = 0; _id >= 0 && i < count; ++i)
 			_fx->SetView(_id, srvs[i], offset + i);
 		return S_OK;
 	}
-	HRESULT SetUnorderedAccessView(GfxUnorderedAccessView* uav) { _fx->SetUav(_id, uav); return S_OK; }
-	HRESULT GetFloatVector(float* out) { _fx->GetVector(_id, out); return S_OK; }
+	HRESULT SetUnorderedAccessView(GfxUnorderedAccessView* uav) { if (_id >= 0) _fx->SetUav(_id, uav); return S_OK; }
+	HRESULT GetFloatVector(float* out) { if (_id >= 0) _fx->GetVector(_id, out); return S_OK; }
 
 private:
 	Rhi::Effect* _fx;
@@ -91,6 +91,8 @@ public:
 	// Rhi::Main() 장치로 .fx 를 불러온다. 실패하면 nullptr + error
 	// device = nullptr 이면 엔진 장치(Rhi::Main), 아니면 그 장치 (검사용 GL 장치 등)
 	static ComPtr<FxEffect> Load(const std::wstring& fxPath, std::string& error, Rhi::Device* device = nullptr);
+	// 빈 효과: 불러오기에 실패했을 때 대신 (변수·기법이 모두 IsValid() == false, Apply 는 아무 일도 안 함)
+	static ComPtr<FxEffect> Empty();
 
 	ULONG AddRef() { return ++_refs; }
 	ULONG Release()

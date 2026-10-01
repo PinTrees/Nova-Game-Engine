@@ -107,6 +107,10 @@ namespace
 			L"-HV", L"2018", L"-O3", L"-Wno-ignored-attributes", L"-Wno-conversion", L"-Wno-parentheses-equality", L"-Wno-unused-value" };
 		if (invertY)
 			args.push_back(L"-fvk-invert-y");
+		// 픽셀 셰이더의 SV_Position.w: D3D = 클립 w (시야 깊이), GL/Vulkan gl_FragCoord.w = 1/w → D3D 와 같게 뒤집는다
+		//  (없으면 물이 waterZ = PosH.w 로 깊이를 잘못 계산해 굴절·흡수가 틀렸다)
+		if (ref.StageType == Stage::Pixel)
+			args.push_back(L"-fvk-use-dx-position-w");
 		ComPtr<IDxcResult> result;
 		DWORD exception = 0;
 		if (FAILED(GuardedCompile(s_Compiler.Get(), &buf, args.data(), (UINT32)args.size(), result.GetAddressOf(), &exception)) || !result)
@@ -292,7 +296,7 @@ namespace
 {
 	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
 	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
-	constexpr int kCacheVersion = 1;
+	constexpr int kCacheVersion = 2;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w
 	using json = nlohmann::json;
 
 	uint64_t Fnv1a(const std::string& s)
