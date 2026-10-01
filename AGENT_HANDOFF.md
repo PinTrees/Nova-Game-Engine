@@ -203,7 +203,8 @@
 - UI `TerrainEditor` 의 6 번째 도구(Generate, 산 아이콘): Enable Generator(처음 켜면 기본 스택: 수력+열 침식, 규칙 3 개), Auto Update/Regenerate, 상태, Base(옥타브 막대를 위아래로 끌기), Stamps(씬 목록 → 선택, Add Stamp), Filters(켜기·순서·삭제·Add Filter, 종류별 값 표 `TerrainGenFilter::Params`), Materials(레이어 드롭다운, 높이/경사/퇴적/노이즈). 설정 Undo = `Undo::WatchAsset("terraingen:<경로>")` (되돌리면 해시가 바뀌어 다시 생성), 스탬프 이동 Undo = 씬 Undo.
 - 측정(Release, 513² 1 km 지형, 스탬프 5): Base 13~18 ms, 스탬프 4~5 ms, 수력(12만 방울)+열 침식 약 450 ms, 재질 12~14 ms, 미리보기 약 36 ms.
 - `NOVA_DEV_PROFILE=1` 이면 단계별 높이 범위(min/max/mean)와 미리보기 시간도 Editor.log 에.
-- 미구현/다음: 절벽 텍스처 늘어남(지형 셰이더 triplanar), 바이옴(영역 마스크별 다른 Base), 스플라인 스탬프(도로·강), 스탬프별 스플랫 규칙, GPU 생성, 손으로 칠한 높이를 스택의 조각 레이어로.
+- 지형 셰이더 triplanar(`40. TerrainCommon.fx` `TerrainTriplanarSetup/TerrainLayerSample`): 레이어마다 위(xz)·옆(zy, xy) 투영을 |법선|^4 로 섞고, 옆 가중치 < 2% 는 버려 평지는 샘플 1 번. 컨트롤 가중치 0 인 레이어도 분기로 건너뜀. 분기 안 밉을 위해 좌표 미분을 밖에서 구해 `SampleGrad`. 본 패스 `TerrainPS` 가 `TerrainAlbedo(uv, 지형 로컬 위치, 법선)` 로 부른다.
+- 미구현/다음: 텍스처 반복 무늬(anti-tiling), 바이옴(영역 마스크별 다른 Base), 스플라인 스탬프(도로·강), 스탬프별 스플랫 규칙, GPU 생성, 손으로 칠한 높이를 스택의 조각 레이어로.
 - **ImGui 멀티 뷰포트 버그 수정**: 떠 있는 팝업·툴팁이 창 밖으로 나가면 ImGui 가 별도 OS 창을 만들고 `RenderPlatformWindowsDefault` 가 그 창의 RTV 를 묶은 채로 끝나, 다음 프레임부터 메인 창 UI 가 그쪽에 그려져 화면이 멈춘 듯 보였다(긴 툴팁으로 재현). App 루프가 매 프레임 ImGui 그리기 직전에 메인 백버퍼 RTV 를 다시 묶는다. Present 실패는 Editor.log 에 한 번 기록.
 
 **숲: 인스턴싱 + LOD + Paint Trees (2026-10-01)**:
