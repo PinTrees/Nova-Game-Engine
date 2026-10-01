@@ -255,6 +255,8 @@ void ProjectEditorWindow::OnRender()
 
 	// 단축키 (Project 창에 포커스가 있을 때)
 	ImGuiIO& io = ImGui::GetIO();
+	if (m_Focused && !io.WantTextInput && io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_R, false))
+		InvalidateCache();   // Ctrl+R = Refresh (메뉴에 적혀만 있고 동작하지 않았다)
 	if (m_Focused && !io.WantTextInput && m_RenamePath.empty())
 	{
 		const std::wstring sel = SelectionManager::GetSelectedFile();

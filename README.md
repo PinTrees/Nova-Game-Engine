@@ -301,6 +301,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | 키 | 동작 |
 |---|---|
 | `Q` `W` `E` `R` `T` `Y` | Hand / Move / Rotate / Scale / Rect / Transform 도구 |
+| `Z` · `X` | Pivot ↔ Center · Local ↔ Global (Scene 뷰) |
 | 우클릭 + `W` `A` `S` `D` / `Q` `E` | Scene 카메라 비행 (Shift = 빠르게, 휠 = 속도) |
 | `Alt` + 좌클릭 드래그 · 가운데 버튼 드래그 | 궤도 회전 · 화면 이동 |
 | `F` | 선택한 오브젝트로 포커스 |

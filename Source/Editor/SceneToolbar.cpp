@@ -333,6 +333,9 @@ namespace SceneToolbar
 		if (ImGui::IsKeyPressed(ImGuiKey_R, false)) s.tool = Tool::Scale;
 		if (ImGui::IsKeyPressed(ImGuiKey_T, false)) s.tool = Tool::Rect;
 		if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) s.tool = Tool::Transform;
+		// Unity: Z = Pivot ↔ Center, X = Local ↔ Global (메뉴에 적혀만 있고 동작하지 않았다)
+		if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) s.pivot = s.pivot == PivotMode::Pivot ? PivotMode::Center : PivotMode::Pivot;
+		if (ImGui::IsKeyPressed(ImGuiKey_X, false)) s.space = s.space == HandleSpace::Local ? HandleSpace::Global : HandleSpace::Local;
 	}
 
 	void DrawTopBar(float width, EditorCamera* camera)
