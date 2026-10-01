@@ -300,11 +300,13 @@ TreeNormalDepthOut TreeNormalDepthVS(TreeVertexIn vin, TreeInstanceIn inst)
 {
     TreeNormalDepthOut vout;
     float3 normalW;
-    const float3 posW = TreeWorldPos(vin, inst, normalW);
+    // precise: 본 패스(TreeVS)가 이 깊이와 EQUAL 로 맞추므로 식 순서가 바뀌지 않게
+    precise float3 posW = TreeWorldPos(vin, inst, normalW);
     vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
     vout.NormalV = mul(normalW, (float3x3) gView);
     // 본 패스(TreeVS)와 똑같이 월드 위치 × CPU 에서 곱한 ViewProj
-    vout.PosH = mul(float4(posW, 1.0f), gWorldViewProj);
+    precise float4 posH = mul(float4(posW, 1.0f), gWorldViewProj);
+    vout.PosH = posH;
     vout.UV = vin.UV;
     vout.Seed = vin.Phase.z;
     vout.Fade = inst.Extra.zw;
@@ -339,7 +341,8 @@ TreeImpostorNDOut TreeImpostorNormalDepthVS(uint vid : SV_VertexID, TreeInstance
     const TreeImpostorGeom g = TreeImpostorVertex(vid, inst);
     TreeImpostorNDOut vout;
     vout.PosV = mul(float4(g.PosW, 1.0f), gView).xyz;
-    vout.PosH = mul(float4(g.PosW, 1.0f), gWorldViewProj);
+    precise float4 posH = mul(float4(g.PosW, 1.0f), gWorldViewProj);
+    vout.PosH = posH;
     vout.UV = g.UV;
     vout.AxisX = g.AxisX;
     vout.AxisZ = g.AxisZ;

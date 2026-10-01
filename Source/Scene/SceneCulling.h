@@ -17,6 +17,7 @@ namespace SceneCulling
 
 	void Update(Scene* scene);                          // 프레임마다 한 번 (그리기 전)
 	void Cull(CXMMATRIX viewProj, bool shadowPass);     // 패스마다 (같은 절두체면 한 번으로 여러 패스)
+	uint32_t FrameIndex();                              // Update 마다 1 씩 (프레임 안에서만 쓰는 목록의 유효성 검사용)
 
 	// 추적하지 않는 컴포넌트(렌더러가 아니거나 메시가 없음)는 늘 보인다
 	inline bool IsVisible(const Component* c) { return !Enabled || !c->CullTracked || c->CullStamp == Stamp; }

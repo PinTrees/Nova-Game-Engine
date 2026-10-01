@@ -174,6 +174,7 @@ namespace ShadowRenderer
 				fx->SetShadowBias(depthBias * texel * scale, normalBias * texel * 1.4142136f * scale);
 				fx->SetViewProj(vp);
 				RenderManager::GetI()->LightViewProjection = vp;
+				RenderManager::GetI()->ShadowTexelWorld = texel;
 				maps.BindSlice(dc, LightType::Directional, d, i, s.Resolution);
 				drawCasters();
 			}
@@ -205,6 +206,7 @@ namespace ShadowRenderer
 			fx->SetShadowBias(depthBias * texelPerDist * scale, normalBias * texelPerDist * 1.4142136f * scale);
 			fx->SetViewProj(vp);
 			RenderManager::GetI()->LightViewProjection = vp;
+			RenderManager::GetI()->ShadowTexelWorld = 0.0f;
 			maps.BindSlice(dc, LightType::Spot, k, 0, s.Resolution);
 			drawCasters();
 		}
@@ -240,6 +242,7 @@ namespace ShadowRenderer
 				out.Point[k * 6 + f] = vp * kToTex;
 				fx->SetViewProj(vp);
 				RenderManager::GetI()->LightViewProjection = vp;
+				RenderManager::GetI()->ShadowTexelWorld = 0.0f;
 				maps.BindSlice(dc, LightType::Point, k, f, pointRes);
 				drawCasters();
 			}

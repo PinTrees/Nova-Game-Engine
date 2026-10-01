@@ -140,14 +140,10 @@ public:
 	template <class T>
 	T* GetComponent() 
 	{
+		// dynamic_pointer_cast 는 검사하는 컴포넌트마다 shared_ptr 를 만들어(원자적 참조 수 증감) 느리다 → 포인터만 검사
 		for (auto& component : m_Components)
-		{
-			std::shared_ptr<T> castedComponent = std::dynamic_pointer_cast<T>(component);
-			if (castedComponent)
-			{
-				return castedComponent.get();
-			}
-		}
+			if (T* c = dynamic_cast<T*>(component.get()))
+				return c;
 		return nullptr;
 	}
 	template <class T> 

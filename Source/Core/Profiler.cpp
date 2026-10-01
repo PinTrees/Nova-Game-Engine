@@ -27,6 +27,7 @@ namespace
 		const char* Name = nullptr;
 		uint16_t Depth = 0;
 		ComPtr<ID3D11Query> Begin, End;
+		ComPtr<ID3D11Query> Stats;   // PIPELINE_STATISTICS (구간 안의 픽셀 셰이더 실행 수 등)
 	};
 	struct GpuSlot
 	{
@@ -80,11 +81,17 @@ namespace
 				uint64_t b = 0, e = 0;
 				ok = dc->GetData(slot.Queries[i].Begin.Get(), &b, sizeof(b), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK &&
 					dc->GetData(slot.Queries[i].End.Get(), &e, sizeof(e), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
+				D3D11_QUERY_DATA_PIPELINE_STATISTICS st = {};
+				if (ok && slot.Queries[i].Stats)
+					ok = dc->GetData(slot.Queries[i].Stats.Get(), &st, sizeof(st), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK;
 				if (!ok)
 					break;
 				if (i == 0 || b < first) first = b;
 				begins.push_back(b);
-				out.push_back({ slot.Queries[i].Name, slot.Queries[i].Depth, 0.0f, (e > b) ? (float)((double)(e - b) * 1000.0 / dj.Frequency) : 0.0f });
+				Profiler::GpuSample sample{ slot.Queries[i].Name, slot.Queries[i].Depth, 0.0f, (e > b) ? (float)((double)(e - b) * 1000.0 / dj.Frequency) : 0.0f };
+				sample.Pixels = st.PSInvocations;
+				sample.Primitives = st.CPrimitives;
+				out.push_back(sample);
 			}
 			if (!ok)
 				continue;
@@ -196,6 +203,7 @@ namespace Profiler
 			GpuQuery q;
 			q.Begin.Attach(MakeQuery(D3D11_QUERY_TIMESTAMP));
 			q.End.Attach(MakeQuery(D3D11_QUERY_TIMESTAMP));
+			q.Stats.Attach(MakeQuery(D3D11_QUERY_PIPELINE_STATISTICS));
 			slot.Queries.push_back(std::move(q));
 		}
 		GpuQuery& q = slot.Queries[slot.Used];
@@ -203,6 +211,8 @@ namespace Profiler
 		q.Depth = (uint16_t)s_GpuStack.size();
 		if (q.Begin)
 			Application::GetI()->GetDeviceContext()->End(q.Begin.Get());
+		if (q.Stats)
+			Application::GetI()->GetDeviceContext()->Begin(q.Stats.Get());
 		s_GpuStack.push_back(slot.Used);
 		++slot.Used;
 	}
@@ -213,6 +223,8 @@ namespace Profiler
 			return;
 		GpuQuery& q = s_GpuCurrent->Queries[s_GpuStack.back()];
 		s_GpuStack.pop_back();
+		if (q.Stats)
+			Application::GetI()->GetDeviceContext()->End(q.Stats.Get());
 		if (q.End)
 			Application::GetI()->GetDeviceContext()->End(q.End.Get());
 	}

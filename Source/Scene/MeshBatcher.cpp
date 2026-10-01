@@ -38,9 +38,86 @@ namespace
 		std::vector<XMFLOAT4X4> Worlds;
 	};
 
-	std::unordered_map<Key, Batch, KeyHash> s_Batches;
-	std::vector<Batch*> s_Order;
+	// 화면 하나 동안 쓰는 렌더러 목록 (BeginView 뒤 첫 Draw 가 만든다)
+	struct Caster
+	{
+		const Component* Renderer;
+		XMFLOAT4X4 World;
+		int Cast;               // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
+		uint32_t First, Count;  // s_MainItems / s_DepthItems 범위 (서브셋마다 묶음 번호)
+	};
+	std::vector<Caster> s_Casters;
+	std::vector<int> s_MainItems, s_DepthItems;
+	// 묶음 배열: 본 패스 = (메시, 서브셋, 재질), 그림자·깊이 = (메시, 서브셋). 원소는 화면마다 다시 쓰고 Worlds 용량은 남긴다
+	std::vector<Batch> s_MainBatches, s_DepthBatches;
+	int s_MainCount = 0, s_DepthCount = 0;
+	std::unordered_map<Key, int, KeyHash> s_MainIndex, s_DepthIndex;
+	bool s_Collected = false;
+	Scene* s_CollectedScene = nullptr;
+	uint32_t s_CollectedFrame = 0;
+
+	std::vector<int> s_Order;
 	MeshBatcher::Stats s_Stats[2];
+
+	int BatchIndex(std::unordered_map<Key, int, KeyHash>& index, std::vector<Batch>& batches, int& count, Mesh* mesh, int subset, const shared_ptr<UMaterial>& mat)
+	{
+		const Key key{ mesh, subset, mat.get() };
+		if (auto it = index.find(key); it != index.end())
+			return it->second;
+		if (count >= (int)batches.size())
+			batches.emplace_back();
+		Batch& b = batches[count];
+		b.MeshPtr = mesh;
+		b.Subset = subset;
+		b.Material = mat;
+		b.Worlds.clear();
+		index.emplace(key, count);
+		return count++;
+	}
+
+	// 씬을 한 번 훑는다: 켜진 Mesh Renderer 마다 월드 행렬과 서브셋별 묶음 번호
+	void Collect(Scene* scene)
+	{
+		s_Casters.clear();
+		s_MainItems.clear();
+		s_DepthItems.clear();
+		s_MainIndex.clear();
+		s_DepthIndex.clear();
+		s_MainCount = s_DepthCount = 0;
+		for (GameObject* go : scene->GetAllGameObjects())
+		{
+			if (go == nullptr || !go->IsActive())
+				continue;
+			MeshRenderer* mr = go->GetComponent<MeshRenderer>();
+			if (mr == nullptr || !mr->IsEnabled())
+				continue;
+			auto mesh = mr->GetMesh();
+			if (!mesh || mesh->Subsets.empty())
+				continue;
+			Caster c;
+			c.Renderer = mr;
+			XMStoreFloat4x4(&c.World, go->GetTransform()->GetWorldMatrix());
+			c.Cast = mr->GetCastShadows();
+			c.First = (uint32_t)s_MainItems.size();
+			c.Count = (uint32_t)mesh->Subsets.size();
+			const auto& materials = mr->GetMaterials();
+			for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
+			{
+				const UINT matIndex = mesh->Subsets[i].MaterialIndex;
+				static const shared_ptr<UMaterial> s_None;
+				const shared_ptr<UMaterial>& mat = matIndex < materials.size() ? materials[matIndex] : s_None;
+				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat));
+				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, s_None));
+			}
+			s_Casters.push_back(c);
+		}
+		// 이번 화면에 안 쓰는 묶음은 재질·메시를 놓는다 (Worlds 용량은 남김)
+		for (size_t i = (size_t)s_MainCount; i < s_MainBatches.size(); ++i) { s_MainBatches[i].Material.reset(); s_MainBatches[i].MeshPtr = nullptr; }
+		for (size_t i = (size_t)s_DepthCount; i < s_DepthBatches.size(); ++i) s_DepthBatches[i].MeshPtr = nullptr;
+		s_Collected = true;
+		s_CollectedScene = scene;
+		s_CollectedFrame = SceneCulling::FrameIndex();
+	}
 
 	ComPtr<ID3D11Buffer> s_InstanceBuffer;
 	UINT s_Capacity = 0;
@@ -78,6 +155,8 @@ namespace MeshBatcher
 {
 	const Stats& LastStats(bool editor) { return s_Stats[editor ? 1 : 0]; }
 
+	void BeginView() { s_Collected = false; }
+
 	void Draw(Scene* scene, Pass pass, bool editor)
 	{
 		if (scene == nullptr)
@@ -85,62 +164,48 @@ namespace MeshBatcher
 		PROFILE_SCOPE("MeshBatcher");
 		PROFILE_GPU("Mesh Renderers");
 
-		// ---- 모으기 (월드 행렬만 쌓는다)
-		for (auto& kv : s_Batches)
-			kv.second.Worlds.clear();
+		// ---- 렌더러 목록: 화면마다 한 번 (같은 화면의 다른 패스·그림자 조각은 다시 쓴다)
+		if (!s_Collected || s_CollectedScene != scene || s_CollectedFrame != SceneCulling::FrameIndex())
+		{
+			PROFILE_SCOPE("MeshBatcher.Collect");
+			Collect(scene);
+		}
+
+		// ---- 이번 패스: 보이는 렌더러의 월드 행렬만 묶음에 쌓는다
+		const bool main = pass == Pass::Main;
+		std::vector<Batch>& batches = main ? s_MainBatches : s_DepthBatches;
+		const std::vector<int>& items = main ? s_MainItems : s_DepthItems;
+		const int batchCount = main ? s_MainCount : s_DepthCount;
+		for (int i = 0; i < batchCount; ++i)
+			batches[i].Worlds.clear();
 		s_Order.clear();
 		int objects = 0;
-		for (GameObject* go : scene->GetAllGameObjects())
+		for (const Caster& c : s_Casters)
 		{
-			if (go == nullptr || !go->IsActive())
+			if (!SceneCulling::IsVisible(c.Renderer))
 				continue;
-			MeshRenderer* mr = go->GetComponent<MeshRenderer>();
-			if (mr == nullptr || !mr->IsEnabled() || !SceneCulling::IsVisible(mr))
+			if ((pass == Pass::Shadow && c.Cast == 1) || (pass != Pass::Shadow && c.Cast == 3))
 				continue;
-			const int cast = mr->GetCastShadows();   // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
-			if ((pass == Pass::Shadow && cast == 1) || (pass != Pass::Shadow && cast == 3))
-				continue;
-			auto mesh = mr->GetMesh();
-			if (!mesh || mesh->Subsets.empty())
-				continue;
-			XMFLOAT4X4 world;
-			XMStoreFloat4x4(&world, go->GetTransform()->GetWorldMatrix());
-			const auto& materials = mr->GetMaterials();
-			for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
+			for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 			{
-				shared_ptr<UMaterial> mat;
-				if (pass == Pass::Main)
-				{
-					const UINT matIndex = mesh->Subsets[i].MaterialIndex;
-					mat = matIndex < materials.size() ? materials[matIndex] : nullptr;
-				}
-				const Key key{ mesh.get(), i, mat.get() };
-				Batch& b = s_Batches[key];
+				Batch& b = batches[items[k]];
 				if (b.Worlds.empty())
-				{
-					b.MeshPtr = mesh.get();
-					b.Subset = i;
-					b.Material = mat;
-					s_Order.push_back(&b);
-				}
-				b.Worlds.push_back(world);
+					s_Order.push_back(items[k]);
+				b.Worlds.push_back(c.World);
 			}
 			++objects;
 			if (pass == Pass::Shadow)
 				RenderStats::AddShadowCaster();
 		}
-		// 쓰이지 않는 묶음은 버린다 (메시·재질 포인터가 사라졌을 수 있다)
-		for (auto it = s_Batches.begin(); it != s_Batches.end();)
-			it = it->second.Worlds.empty() ? s_Batches.erase(it) : std::next(it);
 		if (s_Order.empty())
 		{
-			if (pass == Pass::Main)
+			if (main)
 				s_Stats[editor ? 1 : 0] = Stats{ 0, 0 };
 			return;
 		}
 		// 본 패스는 재질끼리 모아 재질 적용 횟수를 줄인다
-		if (pass == Pass::Main)
-			std::sort(s_Order.begin(), s_Order.end(), [](const Batch* a, const Batch* b) { return a->Material.get() < b->Material.get(); });
+		if (main)
+			std::sort(s_Order.begin(), s_Order.end(), [&](int a, int b) { return batches[a].Material.get() < batches[b].Material.get(); });
 
 		// ---- 패스 값
 		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
@@ -180,9 +245,10 @@ namespace MeshBatcher
 		dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
-		int batches = 0;
-		for (Batch* b : s_Order)
+		int drawn = 0;
+		for (int index : s_Order)
 		{
+			Batch* b = &batches[index];
 			ID3D11Buffer* inst = Upload(dc, b->Worlds);
 			if (inst == nullptr)
 				continue;
@@ -195,12 +261,12 @@ namespace MeshBatcher
 			dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
 			tech->GetPassByIndex(0)->Apply(0, dc);
 			b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
-			++batches;
+			++drawn;
 		}
 		ID3D11Buffer* none = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 		if (pass == Pass::Main)
-			s_Stats[editor ? 1 : 0] = Stats{ objects, batches };
+			s_Stats[editor ? 1 : 0] = Stats{ objects, drawn };
 	}
 }

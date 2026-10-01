@@ -20,6 +20,8 @@
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
 #include "Profiler.h"
+#include "MeshBatcher.h"
+#include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
@@ -254,6 +256,9 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
 	PROFILE_GPU("Game View");
 	Profiler::Phases phase;
+	MeshBatcher::BeginView();    // 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다
+	TreeRenderer::BeginView();
+	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
@@ -396,6 +401,9 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
 	PROFILE_GPU("Scene View");
 	Profiler::Phases phase;
+	MeshBatcher::BeginView();
+	TreeRenderer::BeginView();
+	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();

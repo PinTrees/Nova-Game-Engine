@@ -511,6 +511,9 @@ void App::RecordProfilerStats()
 		SetStat("Scene View/Octree Nodes Visited", cs.NodesVisited);
 		const TreeRenderer::Stats& ts = TreeRenderer::LastStats(true);
 		SetStat("Scene View/Trees", ts.Trees);
+		SetStat("Scene View/Trees LOD0", ts.Lod0);
+		SetStat("Scene View/Trees LOD1", ts.Lod1);
+		SetStat("Scene View/Trees Billboard", ts.Billboards);
 		SetStat("Scene View/Tree Draw Calls", ts.DrawCalls);
 	}
 }

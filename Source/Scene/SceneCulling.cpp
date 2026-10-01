@@ -396,4 +396,5 @@ namespace SceneCulling
 	}
 
 	const Stats& LastStats(bool editorView) { return s_Stats[editorView ? 1 : 0]; }
+	uint32_t FrameIndex() { return s_Frame; }
 }

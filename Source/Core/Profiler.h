@@ -23,7 +23,9 @@ namespace Profiler
 		const char* Name;
 		uint16_t Depth;
 		float StartMs;        // 프레임의 첫 GPU 구간 기준
-		float Ms;
+		float Ms;             // 타임스탬프 사이 시간. CPU 가 느려 GPU 가 기다리면 그 빈 시간도 들어간다
+		uint64_t Pixels = 0;      // 픽셀 셰이더 실행 수 (PIPELINE_STATISTICS: 겹쳐 칠한 것 포함 = 실제 GPU 일)
+		uint64_t Primitives = 0;  // 래스터라이저로 간 삼각형 수
 	};
 	struct Stat
 	{

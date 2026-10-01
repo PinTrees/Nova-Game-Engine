@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <type_traits>
 
 ProfilerEditorWindow* ProfilerEditorWindow::s_Instance = nullptr;
 
@@ -104,6 +105,7 @@ namespace
 		const char* Name = "";
 		float Total = 0.0f, Self = 0.0f;
 		int Calls = 0;
+		uint64_t Pixels = 0, Primitives = 0;   // GPU 만 (PIPELINE_STATISTICS, 자식 포함)
 		std::vector<int> Children;
 	};
 
@@ -132,6 +134,11 @@ namespace
 			nodes[found].Total += s.Ms;
 			nodes[found].Self += s.Ms;
 			nodes[found].Calls += 1;
+			if constexpr (std::is_same_v<S, Profiler::GpuSample>)
+			{
+				nodes[found].Pixels += s.Pixels;
+				nodes[found].Primitives += s.Primitives;
+			}
 			if (parent != 0)
 				nodes[parent].Self -= s.Ms;
 			stack.push_back(found);
@@ -140,7 +147,9 @@ namespace
 			std::sort(n.Children.begin(), n.Children.end(), [&](int a, int b) { return nodes[a].Total > nodes[b].Total; });
 	}
 
-	void DrawNode(const std::vector<Node>& nodes, int index, float frameMs)
+	std::string FormatValue(double v);
+
+	void DrawNode(const std::vector<Node>& nodes, int index, float frameMs, bool gpu)
 	{
 		const Node& n = nodes[index];
 		ImGui::TableNextRow();
@@ -158,10 +167,15 @@ namespace
 		ImGui::TableNextColumn(); ImGui::Text("%d", n.Calls);
 		ImGui::TableNextColumn(); ImGui::Text("%.2f", n.Total);
 		ImGui::TableNextColumn(); ImGui::Text("%.2f", (std::max)(0.0f, n.Self));
+		if (gpu)
+		{
+			ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatValue((double)n.Pixels).c_str());
+			ImGui::TableNextColumn(); ImGui::TextUnformatted(FormatValue((double)n.Primitives).c_str());
+		}
 		if (open && !n.Children.empty())
 		{
 			for (int c : n.Children)
-				DrawNode(nodes, c, frameMs);
+				DrawNode(nodes, c, frameMs, gpu);
 			ImGui::TreePop();
 		}
 	}
@@ -575,7 +589,7 @@ void ProfilerEditorWindow::DrawHierarchy(const Profiler::Frame& frame, bool gpu,
 
 	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 2.0f));
 	const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
-	if (ImGui::BeginTable(gpu ? "##gpuHierarchy" : "##cpuHierarchy", 6, flags, size))
+	if (ImGui::BeginTable(gpu ? "##gpuHierarchy" : "##cpuHierarchy", gpu ? 8 : 6, flags, size))
 	{
 		ImGui::TableSetupScrollFreeze(0, 1);
 		ImGui::TableSetupColumn(gpu ? "GPU Overview" : "Overview", ImGuiTableColumnFlags_WidthStretch);
@@ -584,9 +598,15 @@ void ProfilerEditorWindow::DrawHierarchy(const Profiler::Frame& frame, bool gpu,
 		ImGui::TableSetupColumn("Calls", ImGuiTableColumnFlags_WidthFixed, 48.0f);
 		ImGui::TableSetupColumn(gpu ? "GPU ms" : "Time ms", ImGuiTableColumnFlags_WidthFixed, 66.0f);
 		ImGui::TableSetupColumn("Self ms", ImGuiTableColumnFlags_WidthFixed, 66.0f);
+		if (gpu)
+		{
+			// 타임스탬프는 GPU 가 CPU 를 기다린 빈 시간도 센다 → 실제 GPU 일은 픽셀 셰이더 실행 수로 본다
+			ImGui::TableSetupColumn("Pixels Shaded", ImGuiTableColumnFlags_WidthFixed, 96.0f);
+			ImGui::TableSetupColumn("Triangles", ImGuiTableColumnFlags_WidthFixed, 82.0f);
+		}
 		ImGui::TableHeadersRow();
 		for (int c : nodes[0].Children)
-			DrawNode(nodes, c, frameMs);
+			DrawNode(nodes, c, frameMs, gpu);
 		ImGui::EndTable();
 	}
 	ImGui::PopStyleVar();

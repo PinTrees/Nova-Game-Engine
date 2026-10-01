@@ -174,7 +174,17 @@
 - 구간: App 루프(Scripts.BeginFrame, Scene.Update, Physics.Update, EditorUpdate, Audio/Scripts/UI/Particles.Update, Camera/Light Update, CullingUpdate, Editor Windows, Undo, ImGui Render, Present, Main Thread Tasks), EditorApp Game/Scene 뷰 단계(Shadows, Depth Prepass, SSAO, Opaque, Sky, Grid, Particles, Post Processing, UI — GPU 도), MeshBatcher(GPU "Mesh Renderers"), TreeRenderer::DrawAll(GPU "Trees"), SceneCulling::Cull.
 - 창: `Source/Editor/Windows/ProfilerEditorWindow.*` (Window > Analysis > Profiler, Ctrl+7, 처음엔 닫힘, 1040x600 떠 있는 창). CPU 범주 = 구간 이름 규칙(없으면 부모 범주를 물려받음)으로 자기 시간(자식 제외)을 더함: Rendering / Scripts / Physics / Editor / Present / Others. GPU 범주 = Shadows / Depth·SSAO / Opaque / Sky·Transparent / Post / UI / Other. 그래프 눈금은 위 3% 를 버린 값으로(튀는 프레임에 납작해지지 않게). 따라가기 모드는 GPU 결과까지 도착한 가장 최근 프레임을 보여준다. 아래: Hierarchy(같은 경로 합치기, 프레임의 25% 이상 구간은 처음부터 펼침) / Timeline(휠 확대, 끌어 이동) / GPU, 오른쪽 Rendering Statistics. ← → = 앞/뒤 프레임.
 - 측정 예(Debug 빌드): 1600 물체 씬 Scene 뷰 그림자 4.9 ms 중 MeshBatcher 2.2 ms(조각 4 개), 숲 1500 그루 GPU Opaque > Trees 1.8 ms. Profiler 창 자체 그리기 약 1~1.5 ms(Debug).
+- GPU 구간마다 PIPELINE_STATISTICS 쿼리도 건다 → GPU 표의 Pixels Shaded(PSInvocations, 겹쳐 칠한 것 포함) / Triangles(CPrimitives). **타임스탬프 ms 는 GPU 가 CPU 를 기다린 빈 시간도 포함**한다(CPU 가 느린 Debug 빌드에서는 엉뚱한 구간에 몇 ms 가 붙음). GPU 일의 양은 Pixels Shaded 로 비교할 것. 나무 그리기 안에도 GPU 구간(LOD0/LOD1 Bark·Leaves, Impostors).
 - 미구현: 메모리/GC 모듈, 다른 스레드 구간, 프레임 저장/불러오기, Hierarchy 검색·정렬 바꾸기, Deep Profile.
+
+**그림자·나무 최적화 (2026-10-01)**:
+- 화면 단위 목록: EditorApp 이 Game/Scene 뷰 그리기 시작에 `MeshBatcher::BeginView()`, `TreeRenderer::BeginView()`, `++RenderManager::ViewSerial`. 그 화면의 첫 패스가 한 번만 모으고(MeshBatcher = 켜진 Mesh Renderer 마다 월드 행렬 + 서브셋별 묶음 번호, 본/깊이·그림자 묶음 배열을 다시 씀; TreeRenderer = 나무마다 경계 구·카메라 거리 레코드; Scene = Skinned Mesh Renderer·지형 목록), 같은 화면의 나머지 패스(그림자 조각 4 개, 깊이, 본)는 보이는지 검사 + 행렬 추가만. 목록은 `SceneCulling::FrameIndex()` 가 바뀌어도 다시 모은다(프레임 사이 삭제 대비). 화면 안(EditorApp 의 한 함수)에서는 에디터 UI 가 끼지 않아 포인터가 살아 있다.
+- 나무 본 패스는 같은 화면 깊이 사전 패스의 LOD 목록을 그대로 쓴다(같은 카메라 → 같은 절두체·LOD·디더).
+- 나무 본 패스 = 깊이 EQUAL + 쓰기 없음(`TreeDepthEqual`), 픽셀 셰이더에 clip/LOD 디더 없음: 잎 알파·디더는 깊이 사전 패스(SsaoNormalDepth)가 이미 잘랐다. clip 이 없어 GPU 가 셰이더 전에 깊이로 거른다(early-Z) → 겹친 잎 뒤쪽은 조명 계산을 안 한다. 두 패스의 위치 식은 `precise` 로 묶어 비트까지 같은 깊이(EQUAL 이 맞도록). 임포스터 굽기만 `TreeLeafSurface(pin, true)` 로 자른다.
+- 그림자 나무 LOD: `RenderManager::ShadowTexelWorld`(ShadowRenderer 가 방향광 캐스케이드마다, 원근 맵은 0). 나무 지름 / 텍셀 ≤ 900 이면 임포스터(빛을 바라보는 사각형 한 장). LOD1 은 카드가 절반이지만 커서 칠하는 면적이 거의 같아 그림자 픽셀을 줄이지 못한다 → 임포스터만 의미가 있다.
+- `GameObject::GetComponent<T>` 는 `dynamic_pointer_cast`(검사마다 shared_ptr 생성·원자적 참조 수) 대신 `dynamic_cast` 포인터 검사.
+- 측정(Debug, Scene 뷰): 숲 안(나무 843 그루 보임, 카메라 190,18,100) 본 패스 픽셀 6,043,696 → 639,916 (GPU 1.62 → 0.90 ms), 그림자 픽셀 91.5M → 71.0M, 145 → 173 FPS. 물체 1600 씬: Scene 뷰 그리기 CPU 8.36 → 4.04 ms(그림자 4.86 → 3.04, 깊이 1.42 → 0.23, 본 1.77 → 0.43), 53 → 76 FPS.
+- 남은 것: 그림자 GPU 의 대부분은 가까운 캐스케이드(0·1)의 LOD0 잎 카드 겹쳐 칠하기(약 57M 픽셀). 다음 후보 = 잎 그림자용 더 굵은 알파 텍스처/카드 합치기, 캐스케이드 0·1 해상도 조정, 정적 캐스터 그림자 맵 캐시.
 
 **숲: 인스턴싱 + LOD + Paint Trees (2026-10-01)**:
 - 구조: `TreeDesc`(`Source/Scene/TreeDesc.*`) = 나무 한 종류의 설정(모양 TreeParams + 수피·잎 색 + 바람 + LOD 거리 + Cast Shadows, Inspector·JSON·프리셋). `Tree` 컴포넌트는 TreeDesc 하나를 갖고, 지형(`TerrainData::TreePrototypes`)도 TreeDesc 목록을 갖는다. 그리기는 모두 `TreeRenderer`(`Source/Scene/TreeRenderer.*`)가 맡고 Scene 의 각 패스 끝에서 `TreeRenderer::DrawAll(pass, editor)` 한 번(본 패스·그림자·SSAO 깊이 × Game/Scene).

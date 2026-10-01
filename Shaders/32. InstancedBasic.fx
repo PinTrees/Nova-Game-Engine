@@ -816,7 +816,8 @@ TreeVertexOut TreeVS(TreeVertexIn vin, TreeInstanceIn inst)
 {
     TreeVertexOut vout;
     float3 normalW;
-    const float3 posW = TreeWorldPos(vin, inst, normalW);
+    // precise: 깊이 사전 패스와 비트까지 같은 깊이여야 EQUAL 검사가 맞는다 (최적화로 식 순서가 바뀌지 않게)
+    precise float3 posW = TreeWorldPos(vin, inst, normalW);
     vout.PosW = posW;
     vout.PosL = vin.PosL;
     vout.NormalW = normalW;
@@ -829,7 +830,8 @@ TreeVertexOut TreeVS(TreeVertexIn vin, TreeInstanceIn inst)
     vout.Tint = inst.Extra.x;
     vout.Fade = inst.Extra.zw;
     // 깊이 사전 패스(SsaoNormalDepth)와 같은 식: 월드 위치 × CPU 에서 곱한 ViewProj
-    vout.PosH = mul(float4(posW, 1.0f), gViewProj);
+    precise float4 posH = mul(float4(posW, 1.0f), gViewProj);
+    vout.PosH = posH;
     vout.SsaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
     return vout;
 }
@@ -878,10 +880,12 @@ TreeSurf TreeBarkSurface(TreeVertexOut pin)
     return s;
 }
 
-TreeSurf TreeLeafSurface(TreeVertexOut pin)
+// alphaClip: 임포스터 굽기만 자른다. 본 패스는 깊이 사전 패스가 이미 잘라 둔 깊이와 EQUAL 로 맞춘다
+TreeSurf TreeLeafSurface(TreeVertexOut pin, bool alphaClip)
 {
     const float4 leaf = TreeLeafSample(pin.UV, pin.Seed);
-    clip(leaf.a - 0.5f);
+    if (alphaClip)
+        clip(leaf.a - 0.5f);
     const bool twig = leaf.b < 0.05f;
     const float along = leaf.g;
     const float across = leaf.r * 2.0f - 1.0f;
@@ -935,16 +939,16 @@ float4 TreeLit(TreeSurf s, float3 posW, float4 ssaoPosH)
     return FinishLit(ShadeLit(surf, posW, s.N, toEye / max(distToEye, 0.0001f), ssaoPosH), 1.0f, distToEye);
 }
 
+// 본 패스: 잎 알파·LOD 디더는 깊이 사전 패스(SsaoNormalDepth)가 이미 잘랐다. 여기서는 깊이 EQUAL + 쓰기 없음으로
+// 그 깊이와 같은 조각만 남긴다 → clip 이 없어 GPU 가 셰이더 전에 깊이로 거른다(early-Z). 겹친 잎 뒤쪽은 조명을 계산하지 않는다
 float4 TreeBarkPS(TreeVertexOut pin) : SV_Target
 {
-    TreeLodClip(pin.PosH.xy, pin.Fade);
     return TreeLit(TreeBarkSurface(pin), pin.PosW, pin.SsaoPosH);
 }
 
 float4 TreeLeafPS(TreeVertexOut pin) : SV_Target
 {
-    TreeLodClip(pin.PosH.xy, pin.Fade);
-    return TreeLit(TreeLeafSurface(pin), pin.PosW, pin.SsaoPosH);
+    return TreeLit(TreeLeafSurface(pin, false), pin.PosW, pin.SsaoPosH);
 }
 
 // ---------------------------------------------------------------- 임포스터 굽기 (물체 공간 = 월드, 바람 0)
@@ -963,7 +967,7 @@ TreeBakeOut TreeBake(TreeSurf s)
 }
 
 TreeBakeOut TreeBarkBakePS(TreeVertexOut pin) { return TreeBake(TreeBarkSurface(pin)); }
-TreeBakeOut TreeLeafBakePS(TreeVertexOut pin) { return TreeBake(TreeLeafSurface(pin)); }
+TreeBakeOut TreeLeafBakePS(TreeVertexOut pin) { return TreeBake(TreeLeafSurface(pin, true)); }
 
 // ---------------------------------------------------------------- 임포스터 (멀리 있는 나무 = 카메라를 보는 사각형 하나)
 struct TreeImpostorOut
@@ -988,16 +992,15 @@ TreeImpostorOut TreeImpostorVS(uint vid : SV_VertexID, TreeInstanceIn inst)
     vout.AxisZ = g.AxisZ;
     vout.Tint = inst.Extra.x;
     vout.Fade = inst.Extra.zw;
-    vout.PosH = mul(float4(g.PosW, 1.0f), gViewProj);
+    precise float4 posH = mul(float4(g.PosW, 1.0f), gViewProj);
+    vout.PosH = posH;
     vout.SsaoPosH = mul(float4(g.PosW, 1.0f), gViewProjTex);
     return vout;
 }
 
 float4 TreeImpostorPS(TreeImpostorOut pin) : SV_Target
 {
-    TreeLodClip(pin.PosH.xy, pin.Fade);
-    const float4 a = gTreeImpostorAlbedo.Sample(samTreeImpostor, pin.UV);
-    clip(a.a - gTreeImpostor.w);
+    const float4 a = gTreeImpostorAlbedo.Sample(samTreeImpostor, pin.UV);   // 자르기는 깊이 사전 패스가 (EQUAL)
     const float4 n = gTreeImpostorNormal.Sample(samTreeImpostor, pin.UV);
     TreeSurf s;
     s.Albedo = ToLinear(a.rgb) * lerp(0.8f, 1.2f, pin.Tint);
@@ -1010,6 +1013,14 @@ float4 TreeImpostorPS(TreeImpostorOut pin) : SV_Target
 }
 
 // ---------------------------------------------------------------- 기법
+// 깊이 사전 패스가 쓴 깊이와 같은 조각만, 깊이는 다시 쓰지 않는다
+DepthStencilState TreeDepthEqual
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ZERO;
+    DepthFunc = EQUAL;
+};
+
 technique11 TreeBarkTech
 {
     pass P0
@@ -1017,7 +1028,7 @@ technique11 TreeBarkTech
         SetVertexShader(CompileShader(vs_5_0, TreeVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TreeBarkPS()));
-        SetDepthStencilState(TerrainDepthLessEqual, 0);
+        SetDepthStencilState(TreeDepthEqual, 0);
     }
 }
 
@@ -1028,7 +1039,7 @@ technique11 TreeLeafTech
         SetVertexShader(CompileShader(vs_5_0, TreeVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TreeLeafPS()));
-        SetDepthStencilState(TerrainDepthLessEqual, 0);
+        SetDepthStencilState(TreeDepthEqual, 0);
         SetRasterizerState(TreeLeafCullNone);
     }
 }
@@ -1040,7 +1051,7 @@ technique11 TreeImpostorTech
         SetVertexShader(CompileShader(vs_5_0, TreeImpostorVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, TreeImpostorPS()));
-        SetDepthStencilState(TerrainDepthLessEqual, 0);
+        SetDepthStencilState(TreeDepthEqual, 0);
         SetRasterizerState(TreeLeafCullNone);
     }
 }

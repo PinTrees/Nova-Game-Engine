@@ -12,6 +12,7 @@ namespace TreeRenderer
 	enum class Pass { Main, Shadow, NormalDepth };
 
 	void UpdateTime();                    // 프레임마다 한 번 (바람 시간)
+	void BeginView();                     // 화면(Game / Scene 뷰) 그리기 시작에 한 번: 나무 목록을 다시 모으게
 	void DrawAll(Pass pass, bool editor); // Scene 의 각 패스에서 한 번
 
 	struct MeshInfo

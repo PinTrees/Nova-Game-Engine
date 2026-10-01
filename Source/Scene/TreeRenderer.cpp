@@ -9,6 +9,7 @@
 #include "RenderManager.h"
 #include "UMaterial.h"
 #include "Profiler.h"
+#include "SceneCulling.h"
 #include <chrono>
 #include <map>
 #include <unordered_map>
@@ -395,8 +396,32 @@ namespace
 	{
 		const TreeDesc* Desc = nullptr;
 		std::vector<InstanceData> Lists[3];   // LOD0, LOD1, 임포스터
+		bool Used = false;
 	};
 	std::unordered_map<size_t, Batch> s_Batches;
+
+	// 화면 하나 동안 쓰는 나무 목록 (BeginView 뒤 첫 DrawAll 이 만든다): 패스·그림자 조각마다 다시 훑지 않게
+	// 경계 구, 카메라 거리(크기 배율로 나눈 값)를 미리 구해 둔다. 거리상 안 그리는 나무는 넣지 않는다
+	struct TreeRecord
+	{
+		Batch* B;
+		XMFLOAT4X4 World;
+		Vec3 Center;
+		float Radius;
+		float Dist;
+		float Tint, Phase;
+		bool CastShadows;
+	};
+	std::vector<TreeRecord> s_Records;
+	bool s_RecordsValid = false;
+	bool s_RecordsEditor = false;
+	uint32_t s_RecordsFrame = 0;
+	// 깊이 사전 패스의 LOD 목록을 같은 화면의 본 패스가 그대로 쓴다 (같은 카메라 → 같은 절두체·LOD)
+	uint32_t s_ViewSerial = 0;
+	uint32_t s_ListsSerial = ~0u;
+	int s_ListsPass = -1;
+	bool s_ListsEditor = false;
+	int s_ListsTrees = 0;
 
 	// 지형 나무의 월드 행렬 캐시 (높이·나무·위치가 바뀔 때만 다시)
 	struct TerrainCache
@@ -460,6 +485,12 @@ namespace TreeRenderer
 
 	const Stats& LastStats(bool editor) { return s_Stats[editor ? 1 : 0]; }
 
+	void BeginView()
+	{
+		s_RecordsValid = false;
+		++s_ViewSerial;
+	}
+
 	bool GetMeshInfo(const TreeDesc& desc, MeshInfo& out, int lod)
 	{
 		auto mesh = GetMesh(desc, lod);
@@ -502,104 +533,149 @@ namespace TreeRenderer
 		XMFLOAT4 planes[6];
 		ExtractPlanes(shadow ? rm->LightViewProjection : viewProj, planes);
 		const int planeCount = shadow ? 5 : 6;   // 그림자: 빛 앞쪽(가까운 면) 캐스터도 그림자를 드리운다
+		// 그림자 LOD: 잎 카드는 그림자 맵에 여러 겹 칠해져(가까운 숲 = 그림자 픽셀 수천만) GPU 를 가장 많이 쓴다.
+		// LOD1 은 카드 수가 절반이지만 카드가 커서 칠하는 면적은 거의 같다 → 픽셀을 줄이는 건 임포스터(빛을 바라보는 사각형 한 장)뿐.
+		// 임포스터 한 프레임(256 px)의 텍셀이 캐스케이드 텍셀의 3.5 배 이하면(그림자 PCF 흐림과 비슷) 임포스터로 그린다
+		constexpr float kShadowImpostorTexels = 900.0f;   // 나무 지름 / 캐스케이드 텍셀
+		const float shadowTexel = shadow ? rm->ShadowTexelWorld : 0.0f;
 
-		for (auto& kv : s_Batches)
-			for (auto& list : kv.second.Lists)
-				list.clear();
 		Stats stats;
+		const int lodPass = shadow ? kShadow : kMain;   // 본 패스와 깊이 패스는 같은 목록
 
-		// 나무 종류 하나의 준비물 (종류마다 한 번 찾고 나무마다 다시 찾지 않는다)
-		struct Proto
+		// ---- 화면 하나에 한 번: 나무 목록 (종류 준비, 경계 구, 거리)
+		if (!s_RecordsValid || s_RecordsEditor != editorView || s_RecordsFrame != SceneCulling::FrameIndex())
 		{
-			const TreeDesc* Desc = nullptr;
-			Batch* B = nullptr;
-			Vec3 BoundsCenter;
-			float BoundsRadius = 0.0f;
-		};
-		auto prepare = [&](const TreeDesc& desc) {
-			Proto p;
-			if (shadow && !desc.CastShadows)
-				return p;
-			auto mesh = GetMesh(desc, 0);
-			if (!mesh || mesh->VertexCount == 0)
-				return p;
-			p.Desc = &desc;
-			p.B = &s_Batches[desc.Hash()];   // 노드 기반 맵: 나중에 넣어도 이 포인터는 그대로
-			p.B->Desc = &desc;
-			p.BoundsCenter = (mesh->BoundsMin + mesh->BoundsMax) * 0.5f;
-			p.BoundsRadius = (mesh->BoundsMax - mesh->BoundsMin).Length() * 0.5f;
-			return p;
-		};
-
-		// ---- 한 그루 넣기: 절두체 → LOD (+ 섞기)
-		auto add = [&](const Proto& proto, const XMFLOAT4X4& world, float tint, float phase) {
-			if (proto.B == nullptr)
-				return;
-			const TreeDesc& desc = *proto.Desc;
-			const Vec3 pos(world._41, world._42, world._43);
-			const float sx = Vec3(world._11, world._12, world._13).Length();
-			const float sy = Vec3(world._21, world._22, world._23).Length();
-			const Vec3& bc = proto.BoundsCenter;
-			const Vec3 center = pos + Vec3(bc.x * sx, bc.y * sy, bc.z * sx);
-			const float radius = proto.BoundsRadius * (std::max)(sx, sy);
-			for (int i = 0; i < planeCount; ++i)
-				if (planes[i].x * center.x + planes[i].y * center.y + planes[i].z * center.z + planes[i].w < -radius)
-					return;
-
-			const float d = (pos - camPos).Length() / (std::max)(sy, 0.05f);
-			if (d >= desc.CullDistance)
-				return;
-			Batch& b = *proto.B;
-			auto emit = [&](int lod, float t, float side) {
-				InstanceData inst;
-				inst.World = world;
-				inst.Extra = XMFLOAT4(tint, phase, t, side);
-				b.Lists[lod].push_back(inst);
+			PROFILE_SCOPE("Trees.Collect");
+			s_Records.clear();
+			for (auto& kv : s_Batches)
+				kv.second.Used = false;
+			struct Proto
+			{
+				const TreeDesc* Desc = nullptr;
+				Batch* B = nullptr;
+				Vec3 BoundsCenter;
+				float BoundsRadius = 0.0f;
 			};
-			const float l1 = desc.LodDistance, l2 = desc.BillboardDistance, lc = desc.CullDistance;
-			const float b1 = l1 * 0.1f, b2 = l2 * 0.1f, bc2 = lc * 0.05f;
-			++stats.Trees;
-			if (shadow)
+			auto prepare = [&](const TreeDesc& desc) {
+				Proto p;
+				auto mesh = GetMesh(desc, 0);
+				if (!mesh || mesh->VertexCount == 0)
+					return p;
+				p.Desc = &desc;
+				p.B = &s_Batches[desc.Hash()];   // 노드 기반 맵: 나중에 넣어도 이 포인터는 그대로
+				p.B->Desc = &desc;
+				p.B->Used = true;
+				p.BoundsCenter = (mesh->BoundsMin + mesh->BoundsMax) * 0.5f;
+				p.BoundsRadius = (mesh->BoundsMax - mesh->BoundsMin).Length() * 0.5f;
+				return p;
+			};
+			auto record = [&](const Proto& proto, const XMFLOAT4X4& world, float tint, float phase) {
+				if (proto.B == nullptr)
+					return;
+				const Vec3 pos(world._41, world._42, world._43);
+				const float sx = Vec3(world._11, world._12, world._13).Length();
+				const float sy = Vec3(world._21, world._22, world._23).Length();
+				TreeRecord r;
+				r.Dist = (pos - camPos).Length() / (std::max)(sy, 0.05f);
+				if (r.Dist >= proto.Desc->CullDistance)
+					return;
+				const Vec3& bc = proto.BoundsCenter;
+				r.B = proto.B;
+				r.World = world;
+				r.Center = pos + Vec3(bc.x * sx, bc.y * sy, bc.z * sx);
+				r.Radius = proto.BoundsRadius * (std::max)(sx, sy);
+				r.Tint = tint;
+				r.Phase = phase;
+				r.CastShadows = proto.Desc->CastShadows;
+				s_Records.push_back(r);
+			};
+			// Tree 컴포넌트
+			for (Tree* tree : Tree::All())
 			{
-				emit(d < l1 ? 0 : (d < l2 ? 1 : 2), 0.0f, 0.0f);
-				return;
-			}
-			if (d < l1 - b1 * 0.5f) emit(0, 0, 0);
-			else if (d < l1 + b1 * 0.5f) { const float t = (d - (l1 - b1 * 0.5f)) / b1; emit(0, t, 0); emit(1, t, 1); }
-			else if (d < l2 - b2 * 0.5f) emit(1, 0, 0);
-			else if (d < l2 + b2 * 0.5f) { const float t = (d - (l2 - b2 * 0.5f)) / b2; emit(1, t, 0); emit(2, t, 1); }
-			else if (d < lc - bc2) emit(2, 0, 0);
-			else emit(2, (d - (lc - bc2)) / bc2, 0);   // 멀어지며 사라짐
-		};
-
-		// Tree 컴포넌트
-		for (Tree* tree : Tree::All())
-		{
-			if (!tree->IsDrawable())
-				continue;
-			XMFLOAT4X4 world;
-			XMStoreFloat4x4(&world, tree->GetGameObject()->GetTransform()->GetWorldMatrix());
-			add(prepare(tree->Desc), world, 0.5f, Hash2(world._41, world._43));
-		}
-		// 지형에 칠한 나무
-		for (Terrain* terrain : Terrain::GetActiveTerrains())
-		{
-			auto data = terrain->GetTerrainData();
-			if (!data || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActive()))
-				continue;
-			if (data->TreeInstances.empty() || data->TreePrototypes.empty())
-				continue;
-			const TerrainCache& cache = TerrainWorlds(*data, terrain->GetPosition());
-			std::vector<Proto> protos;
-			for (const TreeDesc& d : data->TreePrototypes)
-				protos.push_back(prepare(d));
-			for (size_t i = 0; i < data->TreeInstances.size(); ++i)
-			{
-				const TerrainTreeInstance& t = data->TreeInstances[i];
-				if (t.Prototype < 0 || t.Prototype >= (int)protos.size())
+				if (!tree->IsDrawable())
 					continue;
-				add(protos[t.Prototype], cache.Worlds[i], t.Tint, Hash2(t.X * 97.0f, t.Z * 131.0f));
+				XMFLOAT4X4 world;
+				XMStoreFloat4x4(&world, tree->GetGameObject()->GetTransform()->GetWorldMatrix());
+				record(prepare(tree->Desc), world, 0.5f, Hash2(world._41, world._43));
 			}
+			// 지형에 칠한 나무
+			for (Terrain* terrain : Terrain::GetActiveTerrains())
+			{
+				auto data = terrain->GetTerrainData();
+				if (!data || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActive()))
+					continue;
+				if (data->TreeInstances.empty() || data->TreePrototypes.empty())
+					continue;
+				const TerrainCache& cache = TerrainWorlds(*data, terrain->GetPosition());
+				std::vector<Proto> protos;
+				for (const TreeDesc& d : data->TreePrototypes)
+					protos.push_back(prepare(d));
+				for (size_t i = 0; i < data->TreeInstances.size(); ++i)
+				{
+					const TerrainTreeInstance& t = data->TreeInstances[i];
+					if (t.Prototype < 0 || t.Prototype >= (int)protos.size())
+						continue;
+					record(protos[t.Prototype], cache.Worlds[i], t.Tint, Hash2(t.X * 97.0f, t.Z * 131.0f));
+				}
+			}
+			// 설정이 바뀌어 쓰이지 않는 묶음은 버린다 (TreeDesc 포인터가 사라졌을 수 있다). 다른 노드 포인터는 그대로
+			for (auto it = s_Batches.begin(); it != s_Batches.end();)
+				it = it->second.Used ? std::next(it) : s_Batches.erase(it);
+			s_RecordsValid = true;
+			s_RecordsEditor = editorView;
+			s_RecordsFrame = SceneCulling::FrameIndex();
+			s_ListsSerial = ~0u;
+		}
+
+		// ---- 이번 패스: 절두체 → LOD (+ 섞기). 본 패스는 같은 화면의 깊이 패스 목록을 그대로 쓴다
+		const bool reuse = !shadow && s_ListsSerial == s_ViewSerial && s_ListsEditor == editor && s_ListsPass == lodPass;
+		if (reuse)
+			stats.Trees = s_ListsTrees;
+		else
+		{
+			for (auto& kv : s_Batches)
+				for (auto& list : kv.second.Lists)
+					list.clear();
+			for (const TreeRecord& r : s_Records)
+			{
+				if (shadow && !r.CastShadows)
+					continue;
+				bool inside = true;
+				for (int i = 0; i < planeCount && inside; ++i)
+					inside = planes[i].x * r.Center.x + planes[i].y * r.Center.y + planes[i].z * r.Center.z + planes[i].w >= -r.Radius;
+				if (!inside)
+					continue;
+				const TreeDesc& desc = *r.B->Desc;
+				const float d = r.Dist;
+				Batch& b = *r.B;
+				auto emit = [&](int lod, float t, float side) {
+					InstanceData inst;
+					inst.World = r.World;
+					inst.Extra = XMFLOAT4(r.Tint, r.Phase, t, side);
+					b.Lists[lod].push_back(inst);
+				};
+				const float l1 = desc.LodDistance, l2 = desc.BillboardDistance, lc = desc.CullDistance;
+				const float b1 = l1 * 0.1f, b2 = l2 * 0.1f, bc2 = lc * 0.05f;
+				++stats.Trees;
+				if (shadow)
+				{
+					int lod = d < l1 ? 0 : (d < l2 ? 1 : 2);
+					if (shadowTexel > 0.0f && 2.0f * r.Radius / shadowTexel <= kShadowImpostorTexels)
+						lod = 2;
+					emit(lod, 0.0f, 0.0f);
+					continue;
+				}
+				if (d < l1 - b1 * 0.5f) emit(0, 0, 0);
+				else if (d < l1 + b1 * 0.5f) { const float t = (d - (l1 - b1 * 0.5f)) / b1; emit(0, t, 0); emit(1, t, 1); }
+				else if (d < l2 - b2 * 0.5f) emit(1, 0, 0);
+				else if (d < l2 + b2 * 0.5f) { const float t = (d - (l2 - b2 * 0.5f)) / b2; emit(1, t, 0); emit(2, t, 1); }
+				else if (d < lc - bc2) emit(2, 0, 0);
+				else emit(2, (d - (lc - bc2)) / bc2, 0);   // 멀어지며 사라짐
+			}
+			s_ListsSerial = s_ViewSerial;
+			s_ListsEditor = editor;
+			s_ListsPass = lodPass;
+			s_ListsTrees = stats.Trees;
 		}
 
 		// ---- 임포스터는 그리기 전에 굽는다 (굽기가 효과 변수를 바꾸므로)
@@ -664,12 +740,14 @@ namespace TreeRenderer
 				dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
 				if (mesh->BarkIndexCount > 0)
 				{
+					PROFILE_GPU(lod == 0 ? "LOD0 Bark" : "LOD1 Bark");   // Profiler 창: 단계별 GPU 시간
 					v.Bark->GetPassByIndex(0)->Apply(0, dc);
 					dc->DrawIndexedInstanced(mesh->BarkIndexCount, count, 0, 0, 0);
 					++stats.DrawCalls;
 				}
 				if (mesh->LeafIndexCount > 0)
 				{
+					PROFILE_GPU(lod == 0 ? "LOD0 Leaves" : "LOD1 Leaves");
 					v.Leaf->GetPassByIndex(0)->Apply(0, dc);
 					dc->DrawIndexedInstanced(mesh->LeafIndexCount, count, mesh->BarkIndexCount, 0, 0);
 					++stats.DrawCalls;
@@ -681,6 +759,7 @@ namespace TreeRenderer
 				ID3D11Buffer* inst = UploadInstances(dc, b.Lists[2]);
 				if (inst)
 				{
+					PROFILE_GPU("Impostors");
 					const UINT stride = sizeof(InstanceData), offset = 0;
 					ID3D11Buffer* none = nullptr;
 					UINT zero = 0;
@@ -703,11 +782,5 @@ namespace TreeRenderer
 		if (pass == Pass::Main)
 			s_Stats[editor ? 1 : 0] = stats;
 
-		// 설정이 바뀌어 쓰이지 않는 묶음은 버린다 (TreeDesc 포인터가 사라졌을 수 있다)
-		for (auto it = s_Batches.begin(); it != s_Batches.end();)
-		{
-			const bool empty = it->second.Lists[0].empty() && it->second.Lists[1].empty() && it->second.Lists[2].empty();
-			it = empty ? s_Batches.erase(it) : std::next(it);
-		}
 	}
 }

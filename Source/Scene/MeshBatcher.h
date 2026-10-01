@@ -11,6 +11,10 @@ namespace MeshBatcher
 {
 	enum class Pass { Main, Shadow, NormalDepth };
 
+	// 화면(Game / Scene 뷰) 그리기 시작에 한 번: 모아 둔 렌더러 목록을 버린다.
+	// 다음 Draw 가 씬을 한 번 훑어 렌더러마다 (월드 행렬, 묶음 번호)를 정해 두고, 같은 화면의 나머지 패스
+	// (그림자 조각마다, 깊이, 본)는 보이는지 검사 + 행렬 추가만 한다
+	void BeginView();
 	void Draw(Scene* scene, Pass pass, bool editor);
 
 	struct Stats

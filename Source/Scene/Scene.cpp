@@ -53,6 +53,40 @@ void Scene::Exit()
     PhysicsManager::GetI()->Exit(); 
 }
 
+// 화면 하나 동안 쓰는 Skinned Mesh Renderer / 지형 목록: 그림자 조각마다 모든 오브젝트를 다시 훑지 않게 (화면 시작 뒤 첫 패스가 만든다)
+namespace
+{
+    struct ViewRenderers
+    {
+        uint32 Serial = ~0u, Frame = ~0u;
+        const Scene* Owner = nullptr;
+        std::vector<SkinnedMeshRenderer*> Skinned;
+        std::vector<Terrain*> Terrains;
+    };
+    ViewRenderers s_ViewRenderers;
+
+    const ViewRenderers& CollectViewRenderers(const Scene* scene, const vector<GameObject*>& objects)
+    {
+        ViewRenderers& v = s_ViewRenderers;
+        const uint32 serial = RenderManager::GetI()->ViewSerial;
+        if (v.Owner == scene && v.Serial == serial && v.Frame == SceneCulling::FrameIndex())
+            return v;
+        v.Owner = scene;
+        v.Serial = serial;
+        v.Frame = SceneCulling::FrameIndex();
+        v.Skinned.clear();
+        v.Terrains.clear();
+        for (GameObject* gameObject : objects)
+        {
+            if (SkinnedMeshRenderer* skinned = gameObject->GetComponent<SkinnedMeshRenderer>())
+                v.Skinned.push_back(skinned);
+            if (Terrain* terrain = gameObject->GetComponent<Terrain>())
+                v.Terrains.push_back(terrain);
+        }
+        return v;
+    }
+}
+
 // 그리기 패스. Mesh Renderer 는 MeshBatcher 가 (메시, 서브셋, 재질)로 묶어 인스턴싱으로 그리고,
 // 나머지(Skinned Mesh Renderer, 지형, 파티클 등)는 컴포넌트마다. 모두 SceneCulling 의 절두체 결과로 거른다.
 void Scene::RenderScene()
@@ -76,13 +110,11 @@ void Scene::RenderScene()
 void Scene::RenderSceneShadow()
 {
     MeshBatcher::Draw(this, MeshBatcher::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
-    for (auto& gameObject : m_ArrGameObjects[0])
-    {
-        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadow();
-
-        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadow();
-    }
+    const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    for (SkinnedMeshRenderer* skinned : view.Skinned)
+        if (SceneCulling::IsVisible(skinned)) skinned->RenderShadow();
+    for (Terrain* terrain : view.Terrains)
+        terrain->RenderShadow();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
 }
@@ -90,13 +122,11 @@ void Scene::RenderSceneShadow()
 void Scene::RenderSceneShadowNormal()
 {
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, false);
-    for (const auto& gameObject : m_ArrGameObjects[0])
-    {
-        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->RenderShadowNormal();
-
-        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->RenderShadowNormal();
-    }
+    const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    for (SkinnedMeshRenderer* skinned : view.Skinned)
+        if (SceneCulling::IsVisible(skinned)) skinned->RenderShadowNormal();
+    for (Terrain* terrain : view.Terrains)
+        terrain->RenderShadowNormal();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, false);
 }
@@ -104,13 +134,11 @@ void Scene::RenderSceneShadowNormal()
 void Scene::_Editor_RenderScene()
 {
     MeshBatcher::Draw(this, MeshBatcher::Pass::Main, true);
-    for (auto& gameObject : m_ArrGameObjects[0])
-    {
-        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->_Editor_Render();
-
-        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_Render();
-    }
+    const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    for (SkinnedMeshRenderer* skinned : view.Skinned)
+        if (SceneCulling::IsVisible(skinned)) skinned->_Editor_Render();
+    for (Terrain* terrain : view.Terrains)
+        terrain->_Editor_Render();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, true);
 }
@@ -118,13 +146,11 @@ void Scene::_Editor_RenderScene()
 void Scene::_Editor_RenderSceneShadowNormal()
 {
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, true);
-    for (const auto& gameObject : m_ArrGameObjects[0])
-    {
-        SkinnedMeshRenderer* skinnedMeshRenderer = gameObject->GetComponent<SkinnedMeshRenderer>();
-        if (skinnedMeshRenderer && SceneCulling::IsVisible(skinnedMeshRenderer)) skinnedMeshRenderer->_Editor_RenderShadowNormal();
-
-        if (Terrain* terrain = gameObject->GetComponent<Terrain>()) terrain->_Editor_RenderShadowNormal();
-    }
+    const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    for (SkinnedMeshRenderer* skinned : view.Skinned)
+        if (SceneCulling::IsVisible(skinned)) skinned->_Editor_RenderShadowNormal();
+    for (Terrain* terrain : view.Terrains)
+        terrain->_Editor_RenderShadowNormal();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, true);
 }
