@@ -67,6 +67,10 @@ public:
 	static GameObject* CreateTerrainBiome(const std::string& preset);   // 바이옴 영역 (프리셋 이름)
 	static GameObject* CreateWaterBody(int type);                         // 물: 0 바다, 1 호수, 2 강
 	static GameObject* CreateTerrainSpline(int mode);                     // 지형 스플라인: 0 도로, 1 협곡, 2 능선
+	// 바로 움직일 수 있는 3인칭 캐릭터: 기본 캐릭터 + Character Controller + ThirdPersonController(C#),
+	// 씬의 Main Camera 에 Follow Camera. 필요한 패키지(com.nova.starter-assets → cameras)가 없으면 프로젝트에 넣는다.
+	// 넣은 직후에는 C# 컴파일이 끝나야 스크립트가 동작한다 (컴포넌트는 지금 붙여 둔다). note = 사용자에게 보일 안내
+	static GameObject* CreateThirdPersonCharacter(const std::string& name = "Player", std::string* note = nullptr);
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
 

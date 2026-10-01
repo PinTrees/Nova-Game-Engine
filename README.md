@@ -380,6 +380,8 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 
 *Starter Assets: 기본 캐릭터 + Character Controller + ThirdPersonController, Follow Camera 가 뒤에서 따라간다*
 
+**한 번에 만들기**: GameObject > 3D Object > **Third Person Character** (또는 `nova create third-person-character`) — 캐릭터 + Character Controller + ThirdPersonController + Main Camera 의 Follow Camera. 패키지가 없으면 넣는다. Play 하면 바로 걷고 뛰고 점프한다.
+
 ## 내장 에셋 묶음
 
 `Resources/Packages/` 에 바로 쓸 수 있는 에셋 묶음이 들어 있습니다. 모두 저장소 안에서 스크립트·수식으로 만든 것이고, 프리셋은 JSON 이라 복사해 값을 바꾸면 새 프리셋이 됩니다.

@@ -559,6 +559,7 @@ namespace
 		"  create <type> [--name N] [--parent P] [--position x,y,z] [--rotation ..] [--scale ..] [--preset N]\n"
 		"         types: empty cube sphere capsule cylinder plane quad directional-light point-light spot-light camera\n"
 		"                terrain tree rock rock-scatter ocean lake river particle-system audio-source volume character\n"
+		"                third-person-character (character + Character Controller + ThirdPersonController + Follow Camera, adds packages)\n"
 		"  delete <target>\n"
 		"  add-component <target> <Type|C# class> [--values '{...}']   remove-component <target> <Type>\n"
 		"  parent <target> <new parent> | parent <target> --root\n"

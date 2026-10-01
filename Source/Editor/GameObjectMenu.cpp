@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Debug.h"
 #include "GameObjectMenu.h"
 #include "GameObjectFactory.h"
 #include "TerrainStamp.h"
@@ -89,6 +90,12 @@ namespace GameObjectMenu
 			if (ImGui::MenuItem("Quad")) add(GameObjectFactory::CreateQuad());
 			ImGui::Separator();
 			if (ImGui::MenuItem("Character")) add(GameObjectFactory::CreateAnimatedCharacter());   // 엔진 패키지 기본 캐릭터 + Animator(DefaultCharacter.controller)
+			if (ImGui::MenuItem("Third Person Character"))   // + Character Controller + ThirdPersonController + Follow Camera (패키지 자동)
+			{
+				std::string note;
+				add(GameObjectFactory::CreateThirdPersonCharacter("Player", &note));
+				Debug::Log(note);
+			}
 			ImGui::Separator();
 			Disabled("Text - TextMeshPro");
 			Disabled("Legacy");

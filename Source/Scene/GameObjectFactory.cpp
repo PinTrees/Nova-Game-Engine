@@ -1,4 +1,7 @@
 #include "pch.h"
+#include "PackageManager.h"
+#include "CharacterController.h"
+#include "CSharpScript.h"
 #include "GameObjectFactory.h"
 #include "GameObject.h"
 #include "Transform.h"
@@ -570,6 +573,66 @@ GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, 
 	animator->SetController(controllerPath);
 	// 에디터에서도 기본 상태의 첫 프레임 포즈로 보이게 한다 (Play 전)
 	animator->Rebind();
+	return root;
+}
+
+GameObject* GameObjectFactory::CreateThirdPersonCharacter(const std::string& name, std::string* note)
+{
+	std::string msg;
+	const char* kStarter = "com.nova.starter-assets";
+	if (!PackageManager::IsInProject(kStarter))
+	{
+		std::string error;
+		if (PackageManager::Add(kStarter, error))
+			msg = "Added the packages Starter Assets and Cameras to the project. ";
+		else
+			msg = "Could not add " + std::string(kStarter) + ": " + error + ". ";
+	}
+	GameObject* root = CreateAnimatedCharacter(name);
+	auto cc = std::make_shared<CharacterController>();
+	cc->SetCenter(Vec3(0.0f, 0.9f, 0.0f));   // 기본 캐릭터: 원점 = 발, 키 약 1.8 m
+	cc->SetRadius(0.3f);
+	cc->SetHeight(1.8f);
+	root->AddComponent(cc);
+	root->AddComponent(CSharpScript::Create("StarterAssets.ThirdPersonController"));
+
+	// Main Camera 에 Follow Camera (패키지 컴포넌트라 이름으로 만들고 JSON 으로 값을 넣는다)
+	Scene* scene = SceneManager::GetI()->GetCurrentScene();
+	GameObject* cam = nullptr;
+	if (scene)
+		for (GameObject* g : scene->GetAllGameObjects())
+			if (g->GetComponent<Camera>() && (g->GetTag() == "MainCamera" || cam == nullptr))
+				cam = g;
+	if (cam)
+	{
+		std::shared_ptr<Component> follow;
+		for (const auto& c : cam->GetComponents())
+			if (c && c->GetType() == "FollowCamera")
+				follow = c;
+		if (!follow)
+		{
+			follow = ComponentFactory::Instance().CreateComponent("FollowCamera");
+			if (follow)
+				cam->AddComponent(follow);
+		}
+		if (follow)
+		{
+			json j = follow->toJson();
+			j["target"] = root->GetFileID();
+			j["distance"] = 4.0f;
+			j["height"] = 1.8f;
+			j["lookAtHeight"] = 1.3f;
+			follow->fromJson(j);
+			msg += "Main Camera follows '" + name + "'. ";
+		}
+		else
+			msg += "Follow Camera is not available (Cameras package not loaded). ";
+	}
+	else
+		msg += "No camera in the scene to follow the character. ";
+	msg += "Press Play: WASD / arrows move, Shift sprints, Space jumps, right mouse drag turns the camera.";
+	if (note)
+		*note = msg;
 	return root;
 }
 

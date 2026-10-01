@@ -359,8 +359,16 @@ namespace
 		if (type == "river") return named(GameObjectFactory::CreateWaterBody(2));
 		if (type == "volume") return named(GameObjectFactory::CreateVolume(GameObjectFactory::VolumeShape::Global));
 		if (type == "character") return named(GameObjectFactory::CreateAnimatedCharacter());   // 기본 캐릭터 (스킨 메시 + Animator)
+		if (type == "third-person-character" || type == "player")
+		{
+			// + Character Controller + ThirdPersonController + Main Camera 의 Follow Camera (패키지가 없으면 넣는다)
+			std::string note;
+			GameObject* g = GameObjectFactory::CreateThirdPersonCharacter("Player", &note);
+			EditorLog::Write("CLI", "%s", note.c_str());
+			return named(g);
+		}
 		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, "
-			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character)";
+			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character, third-person-character)";
 		return nullptr;
 	}
 
