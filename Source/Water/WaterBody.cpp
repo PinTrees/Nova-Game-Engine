@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "WaterBody.h"
 #include "WaterEditor.h"
+#include "WaterShore.h"
 #include "Terrain.h"
 #include "Transform.h"
 #include "UnityGUI.h"
@@ -226,6 +227,9 @@ bool WaterBody::Sample(const Vec3& world, float& height, Vec3* normal, Vec3* flo
 	const float time = WaterWaves::Time();
 	if (BodyType == Type::Ocean)
 	{
+		WaterShore::Update();
+		if (!WaterShore::OceanCovers(SurfaceY(), world.x, world.z))
+			return false;   // 내륙 웅덩이 (바다 마스크 밖)
 		height = SurfaceY() + WaterWaves::Height(Waves(), world.x, world.z, time, normal);
 		return true;
 	}

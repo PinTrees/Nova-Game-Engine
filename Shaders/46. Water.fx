@@ -53,6 +53,8 @@ cbuffer cbWaterBody
     float4 gLightParams;     // 매끈함, 반사, 굴절, 0
     float4 gCausticParams;   // 세기, 깊이(m), 타일(m), 0
     float4 gShoreRect;       // 지형 높이 지도 범위: minX, minZ, 1/폭, 1/깊이
+    float gHasOceanMask;
+    float3 gPad1;
 };
 
 Texture2D gSceneColor;
@@ -63,6 +65,7 @@ Texture2D gNormalB;
 Texture2D gFoamTex;
 Texture2D gCausticsTex;
 Texture2D<float> gShoreMap;
+Texture2D<float> gOceanMask;   // 바다: 1 = 열린 바다 쪽, 0 = 내륙 웅덩이 (바닷물 없음)
 
 SamplerState samWrap
 {
@@ -157,6 +160,17 @@ float3 GerstnerNormal(float2 xz, float filterLen, float depth, out float jacobia
     }
     jacobian = jxx * jzz - jxz * jxz;
     return normalize(float3(nx, ny, nz));
+}
+
+// 바다 마스크: 내륙 웅덩이면 그리지 않는다
+void ClipOcean(float2 xz)
+{
+    if (gHasOceanMask < 0.5f)
+        return;
+    const float2 uv = (xz - gShoreRect.xy) * gShoreRect.zw;
+    if (any(uv < 0.0f) || any(uv > 1.0f))
+        return;
+    clip(gOceanMask.SampleLevel(samClamp, uv, 0) - 0.5f);
 }
 
 // ---------------------------------------------------------------- 정점
@@ -292,8 +306,76 @@ float4 UnderSurface(VSOut pin, float3 N, float3 V, float dist)
     return float4(ToGamma(c), 1.0f);
 }
 
+// 화면 공간 반사: 반사 방향으로 월드에서 점점 큰 걸음(1.15 배) → 화면에 투영해 장면 깊이 앞에서 뒤로 넘어가는 순간을 맞음으로,
+// 이분 탐색 5 번으로 다듬는다. (두께로 거르면 낮은 각도에서 언덕 속으로 들어간 광선을 놓친다)
+// 넘어간 곳의 깊이 차이가 걸음보다 훨씬 크면(앞 물체 뒤로 숨은 것) 그 앞 물체의 색은 쓰지 않는다. 화면 가장자리·먼 곳은 하늘로
+bool TraceReflection(float3 P, float3 R, out float3 color, out float fade)
+{
+    color = 0;
+    fade = 0;
+    float stepLen = 0.5f;
+    float t = 0.3f;
+    float prevT = 0.0f;
+    bool prevFront = true;
+    [loop] for (int i = 0; i < 36; ++i)
+    {
+        const float3 q = P + R * t;
+        const float4 c = mul(float4(q, 1.0f), gViewProj);
+        if (c.w <= 0.05f)
+            return false;
+        const float2 ndc = c.xy / c.w;
+        if (any(abs(ndc) > 1.0f))
+            return false;
+        const float2 pix = gViewport.xy + float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f) * gViewport.zw;
+        const float d = gSceneDepth.Load(int3(pix, 0));
+        const float diff = d < 0.99999f ? c.w - ViewZ(d) : -1.0f;
+        const bool front = diff <= 0.0f;
+        if (!front && prevFront)
+        {
+            {
+                // 이분 탐색
+                float a = prevT, b = t;
+                float2 hitPix = pix;
+                [unroll] for (int k = 0; k < 5; ++k)
+                {
+                    const float m = (a + b) * 0.5f;
+                    const float4 cm = mul(float4(P + R * m, 1.0f), gViewProj);
+                    const float2 nm = cm.xy / cm.w;
+                    const float2 pm = gViewport.xy + float2(nm.x * 0.5f + 0.5f, 0.5f - nm.y * 0.5f) * gViewport.zw;
+                    const float dm = gSceneDepth.Load(int3(pm, 0));
+                    if (dm < 0.99999f && cm.w > ViewZ(dm))
+                    {
+                        b = m;
+                        hitPix = pm;
+                    }
+                    else
+                        a = m;
+                }
+                color = ToLinear(gSceneColor.Load(int3(hitPix, 0)).rgb);
+                const float edge = saturate((1.0f - max(abs(ndc.x), abs(ndc.y))) * 8.0f);
+                // 넘어간 깊이 차이가 걸음의 몇 배를 넘으면 가려진 뒤쪽 → 믿음을 줄인다
+                const float trust = saturate(1.5f - diff / max(stepLen * 6.0f, 3.0f));
+                fade = edge * trust * saturate(1.0f - t / 400.0f);
+                return fade > 0.01f;
+            }
+        }
+        prevFront = front;
+        prevT = t;
+        stepLen *= 1.15f;
+        t += stepLen;
+    }
+    return false;
+}
+
+// 깊이만 쓰는 패스 (바다 마스크로 웅덩이는 빼고)
+void DepthPS(VSOut pin)
+{
+    ClipOcean(pin.BaseXZ);
+}
+
 float4 WaterPS(VSOut pin) : SV_Target
 {
+    ClipOcean(pin.BaseXZ);
     const float3 toEye = gEyePos - pin.PosW;
     const float dist = length(toEye);
     const float3 V = toEye / max(dist, 1e-4f);
@@ -377,6 +459,14 @@ float4 WaterPS(VSOut pin) : SV_Target
     const float fresnel = 0.02f + 0.98f * pow(1.0f - saturate(dot(N, V)), 5.0f);
     const float3 R = reflect(-V, N);
     float3 refl = gHasSky > 0.5f ? ToLinear(gSky.SampleLevel(samClamp, float3(R.x, max(R.y, 0.02f), R.z), 0.0f).rgb) : ambient * 1.5f;
+    {
+        float3 ssr;
+        float ssrFade;
+        // 아래로 꺾인 반사(물결 법선)는 물속 바닥을 맞히므로 수평 위로
+        const float3 Rt = normalize(float3(R.x, max(R.y, 0.03f), R.z));
+        if (TraceReflection(pin.PosW + N * 0.05f, Rt, ssr, ssrFade))
+            refl = lerp(refl, ssr, ssrFade);
+    }
     refl *= gLightParams.y;
     const float smooth = gLightParams.x;
     const float specPow = exp2(4.0f + smooth * 9.0f);
@@ -545,7 +635,7 @@ technique11 OceanDepthTech
     {
         SetVertexShader(CompileShader(vs_5_0, OceanVS()));
         SetGeometryShader(NULL);
-        SetPixelShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, DepthPS()));
         SetDepthStencilState(WaterDepthWrite, 0);
         SetBlendState(NoColor, float4(0, 0, 0, 0), 0xFFFFFFFF);
         SetRasterizerState(WaterRS);

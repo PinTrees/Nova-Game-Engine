@@ -8,6 +8,7 @@
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "ResourceManager.h"
+#include "WaterShore.h"
 
 namespace
 {
@@ -44,8 +45,9 @@ namespace
 	ComPtr<ID3D11Texture2D> s_ColorCopy;
 	ComPtr<ID3D11ShaderResourceView> s_ColorCopySRV;
 	// 지형 높이 지도 (바다의 얕은 물 파도 감쇠)
-	ComPtr<ID3D11Texture2D> s_ShoreTex;
 	ComPtr<ID3D11ShaderResourceView> s_ShoreSRV;
+	ComPtr<ID3D11ShaderResourceView> s_MaskSRV;
+	uint64_t s_MaskKey = 0;
 	uint64_t s_ShoreHash = 0;
 	XMFLOAT4 s_ShoreRect(0, 0, 0, 0);
 	bool s_HasShore = false;
@@ -300,60 +302,50 @@ namespace
 		return s_ColorCopySRV.Get();
 	}
 
-	// 활성 지형들의 높이 지도 (256², 월드 높이). 지형이 바뀔 때만
-	void UpdateShoreMap(ID3D11Device* device, ID3D11DeviceContext* dc)
+	// 지형 높이 지도 / 바다 마스크 (WaterShore) → 텍스처. 바뀔 때만 올린다
+	ComPtr<ID3D11ShaderResourceView> MakeTexture(ID3D11Device* device, DXGI_FORMAT format, const void* data, UINT pitch)
 	{
-		uint64_t h = 0;
-		float minX = FLT_MAX, minZ = FLT_MAX, maxX = -FLT_MAX, maxZ = -FLT_MAX;
-		for (Terrain* t : Terrain::GetActiveTerrains())
-		{
-			auto data = t->GetTerrainData();
-			if (!data)
-				continue;
-			const Vec3 p = t->GetPosition();
-			h = Mix(h, (uint64_t)(uintptr_t)data.get());
-			h = Mix(h, (uint64_t)data->Revision);
-			h = Mix(h, Bits(p.x)); h = Mix(h, Bits(p.y)); h = Mix(h, Bits(p.z));
-			minX = (std::min)(minX, p.x); minZ = (std::min)(minZ, p.z);
-			maxX = (std::max)(maxX, p.x + data->Size.x); maxZ = (std::max)(maxZ, p.z + data->Size.z);
-		}
-		if (h == s_ShoreHash)
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = td.Height = WaterShore::kRes;
+		td.MipLevels = td.ArraySize = 1;
+		td.Format = format;
+		td.SampleDesc.Count = 1;
+		td.Usage = D3D11_USAGE_IMMUTABLE;
+		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		D3D11_SUBRESOURCE_DATA init = { data, pitch, 0 };
+		ComPtr<ID3D11Texture2D> tex;
+		ComPtr<ID3D11ShaderResourceView> srv;
+		if (SUCCEEDED(device->CreateTexture2D(&td, &init, tex.GetAddressOf())))
+			device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf());
+		return srv;
+	}
+
+	void UpdateShoreMap(ID3D11Device* device)
+	{
+		WaterShore::Update();
+		s_HasShore = WaterShore::Has();
+		if (!s_HasShore || s_ShoreHash == WaterShore::Revision())
 			return;
-		s_ShoreHash = h;
-		s_HasShore = minX < maxX && minZ < maxZ;
+		s_ShoreHash = WaterShore::Revision();
+		s_ShoreSRV = MakeTexture(device, DXGI_FORMAT_R32_FLOAT, WaterShore::Heights().data(), WaterShore::kRes * sizeof(float));
+		s_ShoreRect = WaterShore::Rect();
+	}
+
+	// 바다 마스크 (해수면마다, 지도가 바뀌면 다시)
+	ID3D11ShaderResourceView* OceanMaskSRV(ID3D11Device* device, float seaLevel)
+	{
 		if (!s_HasShore)
-			return;
-		constexpr int res = 256;
-		std::vector<float> heights((size_t)res * res, -1e4f);
-		for (int z = 0; z < res; ++z)
-			for (int x = 0; x < res; ++x)
-			{
-				const float wx = minX + (x + 0.5f) / res * (maxX - minX), wz = minZ + (z + 0.5f) / res * (maxZ - minZ);
-				for (Terrain* t : Terrain::GetActiveTerrains())
-				{
-					auto data = t->GetTerrainData();
-					const Vec3 p = t->GetPosition();
-					if (data && wx >= p.x && wz >= p.z && wx <= p.x + data->Size.x && wz <= p.z + data->Size.z)
-					{
-						heights[(size_t)z * res + x] = p.y + t->SampleHeight(Vec3(wx, 0, wz));
-						break;
-					}
-				}
-			}
-		if (!s_ShoreTex)
+			return nullptr;
+		uint32_t bits;
+		memcpy(&bits, &seaLevel, 4);
+		const uint64_t key = Mix(WaterShore::Revision(), bits);
+		if (key != s_MaskKey || !s_MaskSRV)
 		{
-			D3D11_TEXTURE2D_DESC td = {};
-			td.Width = td.Height = res;
-			td.MipLevels = td.ArraySize = 1;
-			td.Format = DXGI_FORMAT_R32_FLOAT;
-			td.SampleDesc.Count = 1;
-			td.Usage = D3D11_USAGE_DEFAULT;
-			td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-			device->CreateTexture2D(&td, nullptr, s_ShoreTex.GetAddressOf());
-			device->CreateShaderResourceView(s_ShoreTex.Get(), nullptr, s_ShoreSRV.GetAddressOf());
+			s_MaskKey = key;
+			const auto& m = WaterShore::OceanMask(seaLevel);
+			s_MaskSRV = m.empty() ? nullptr : MakeTexture(device, DXGI_FORMAT_R8_UNORM, m.data(), WaterShore::kRes);
 		}
-		dc->UpdateSubresource(s_ShoreTex.Get(), 0, nullptr, heights.data(), res * sizeof(float), 0);
-		s_ShoreRect = XMFLOAT4(minX, minZ, 1.0f / (maxX - minX), 1.0f / (maxZ - minZ));
+		return s_MaskSRV.Get();
 	}
 
 	XMFLOAT3 Lin(const float c[3]) { return XMFLOAT3(powf(c[0], 2.2f), powf(c[1], 2.2f), powf(c[2], 2.2f)); }
@@ -397,6 +389,9 @@ namespace
 		var("gLightParams")->AsVector()->SetFloatVector(F4(p.Smoothness, p.Reflection, p.Refraction, 0));
 		var("gCausticParams")->AsVector()->SetFloatVector(F4(p.Caustics, p.CausticsDepth, p.CausticsTiling, 0));
 		var("gShoreRect")->AsVector()->SetFloatVector(&s_ShoreRect.x);
+		ID3D11ShaderResourceView* mask = b.BodyType == WaterBody::Type::Ocean ? OceanMaskSRV(Application::GetI()->GetDevice(), b.SurfaceY()) : nullptr;
+		var("gOceanMask")->AsShaderResource()->SetResource(mask);
+		var("gHasOceanMask")->AsScalar()->SetFloat(mask ? 1.0f : 0.0f);
 	}
 }
 
@@ -437,7 +432,7 @@ namespace WaterRenderer
 		ID3D11RenderTargetView* nullRTV = nullptr;
 		dc->OMSetRenderTargets(1, &nullRTV, nullptr);
 		ID3D11ShaderResourceView* colorSRV = CopySceneColor(device, dc, v.Target);
-		UpdateShoreMap(device, dc);
+		UpdateShoreMap(device);
 		if (colorSRV == nullptr)
 		{
 			dc->OMSetRenderTargets(1, &v.Target, v.Depth);
