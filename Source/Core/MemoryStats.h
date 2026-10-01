@@ -29,8 +29,8 @@ namespace MemoryStats
 	};
 
 	// D3D 자원 크기 (텍스처 = 밉·배열 포함, 버퍼 = ByteWidth)
-	size_t ResourceBytes(ID3D11Resource* resource);
-	size_t ViewBytes(ID3D11View* view);
+	size_t ResourceBytes(GfxResource* resource);
+	size_t ViewBytes(GfxView* view);
 
 	void QueryProcess(Report& report);   // ProcessPrivate / WorkingSet / GpuUsage / GpuBudget
 

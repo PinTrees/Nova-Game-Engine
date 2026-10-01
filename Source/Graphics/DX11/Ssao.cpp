@@ -13,7 +13,7 @@ Ssao::Ssao()
 {
 }
 
-Ssao::Ssao(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> dc, int32 width, int32 height, float fovy, float farZ)
+Ssao::Ssao(ComPtr<GfxDevice> device, ComPtr<GfxContext> dc, int32 width, int32 height, float fovy, float farZ)
 	: _device(device), _deviceContext(dc)
 {
 	OnSize(width, height, fovy, farZ);
@@ -28,12 +28,12 @@ Ssao::~Ssao()
 
 }
 
-ComPtr<ID3D11ShaderResourceView> Ssao::NormalDepthSRV()
+ComPtr<GfxShaderResourceView> Ssao::NormalDepthSRV()
 {
 	return _normalDepthSRV;
 }
 
-ComPtr<ID3D11ShaderResourceView> Ssao::AmbientSRV()
+ComPtr<GfxShaderResourceView> Ssao::AmbientSRV()
 {
 	return _ambientSRV0;
 }
@@ -67,9 +67,9 @@ void Ssao::OnSize(int32 width, int32 height, float fovy, float farZ)
 	BuildTextureViews();
 }
 
-void Ssao::SetNormalDepthRenderTarget(ComPtr<ID3D11DepthStencilView> dsv)
+void Ssao::SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv)
 {
-	ID3D11RenderTargetView* renderTargets[1] = { _normalDepthRTV.Get()};
+	GfxRenderTargetView* renderTargets[1] = { _normalDepthRTV.Get()};
 	_deviceContext->OMSetRenderTargets(1, renderTargets, dsv.Get());
 
 	// Clear view space normal to (0,0,-1) and clear depth to be very far away.  
@@ -82,7 +82,7 @@ void Ssao::ComputeSsao(const Camera& camera)
 	// Bind the ambient map as the render target.  Observe that this pass does not bind 
 	// a depth/stencil buffer--it does not need it, and without one, no depth test is
 	// performed, which is what we want.
-	ID3D11RenderTargetView* renderTargets[1] = { _ambientRTV0.Get() };
+	GfxRenderTargetView* renderTargets[1] = { _ambientRTV0.Get() };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, 0);
 	_deviceContext->ClearRenderTargetView(_ambientRTV0.Get(), reinterpret_cast<const float*>(&Colors::Black));
 	_deviceContext->RSSetViewports(1, &_ambientMapViewport);
@@ -127,7 +127,7 @@ void Ssao::ComputeSsao(const EditorCamera& camera)
 	// Bind the ambient map as the render target.  Observe that this pass does not bind 
 	// a depth/stencil buffer--it does not need it, and without one, no depth test is
 	// performed, which is what we want.
-	ID3D11RenderTargetView* renderTargets[1] = { _ambientRTV0.Get() };
+	GfxRenderTargetView* renderTargets[1] = { _ambientRTV0.Get() };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, 0);
 	_deviceContext->ClearRenderTargetView(_ambientRTV0.Get(), reinterpret_cast<const float*>(&Colors::Black));
 	_deviceContext->RSSetViewports(1, &_ambientMapViewport);
@@ -178,9 +178,9 @@ void Ssao::BlurAmbientMap(int32 blurCount)
 	}
 }
 
-void Ssao::BlurAmbientMap(ComPtr<ID3D11ShaderResourceView> inputSRV, ComPtr<ID3D11RenderTargetView> outputRTV, bool horzBlur)
+void Ssao::BlurAmbientMap(ComPtr<GfxShaderResourceView> inputSRV, ComPtr<GfxRenderTargetView> outputRTV, bool horzBlur)
 {
-	ID3D11RenderTargetView* renderTargets[1] = { outputRTV.Get()};
+	GfxRenderTargetView* renderTargets[1] = { outputRTV.Get()};
 	_deviceContext->OMSetRenderTargets(1, renderTargets, 0);
 	_deviceContext->ClearRenderTargetView(outputRTV.Get(), reinterpret_cast<const float*>(&Colors::Black));
 	_deviceContext->RSSetViewports(1, &_ambientMapViewport);
@@ -303,7 +303,7 @@ void Ssao::BuildTextureViews()
 	texDesc.CPUAccessFlags = 0;
 	texDesc.MiscFlags = 0;
 
-	ComPtr<ID3D11Texture2D> normalDepthTex;
+	ComPtr<GfxTexture2D> normalDepthTex;
 	HR(_device->CreateTexture2D(&texDesc, 0, normalDepthTex.GetAddressOf()));
 	HR(_device->CreateShaderResourceView(normalDepthTex.Get(), 0, _normalDepthSRV.GetAddressOf()));
 	HR(_device->CreateRenderTargetView(normalDepthTex.Get(), 0, _normalDepthRTV.GetAddressOf()));
@@ -313,12 +313,12 @@ void Ssao::BuildTextureViews()
 	texDesc.Height = _renderTargetHeight / 2;
 	texDesc.Format = DXGI_FORMAT_R16_FLOAT;
 
-	ComPtr<ID3D11Texture2D> ambientTex0;
+	ComPtr<GfxTexture2D> ambientTex0;
 	HR(_device->CreateTexture2D(&texDesc, 0, ambientTex0.GetAddressOf()));
 	HR(_device->CreateShaderResourceView(ambientTex0.Get(), 0, _ambientSRV0.GetAddressOf()));
 	HR(_device->CreateRenderTargetView(ambientTex0.Get(), 0, _ambientRTV0.GetAddressOf()));
 
-	ComPtr<ID3D11Texture2D> ambientTex1;
+	ComPtr<GfxTexture2D> ambientTex1;
 	HR(_device->CreateTexture2D(&texDesc, 0, ambientTex1.GetAddressOf()));
 	HR(_device->CreateShaderResourceView(ambientTex1.Get(), 0, _ambientSRV1.GetAddressOf()));
 	HR(_device->CreateRenderTargetView(ambientTex1.Get(), 0, _ambientRTV1.GetAddressOf()));
@@ -360,7 +360,7 @@ void Ssao::BuildRandomVectorTexture()
 
 	initData.pSysMem = color.data();
 
-	ComPtr<ID3D11Texture2D> tex;
+	ComPtr<GfxTexture2D> tex;
 	HR(_device->CreateTexture2D(&texDesc, &initData, tex.GetAddressOf()));
 
 	HR(_device->CreateShaderResourceView(tex.Get(), 0, _randomVectorSRV.GetAddressOf()));

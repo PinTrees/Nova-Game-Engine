@@ -15,7 +15,7 @@ namespace
 	// ================================================================ 메시 (모양 + LOD 마다 하나)
 	struct GpuMesh
 	{
-		ComPtr<ID3D11Buffer> VB, IB;
+		ComPtr<GfxBuffer> VB, IB;
 		UINT IndexCount = 0;
 		int VertexCount = 0;
 		Vec3 BoundsMin, BoundsMax;
@@ -124,9 +124,9 @@ namespace
 			v->SetMatrix(reinterpret_cast<const float*>(&m));
 	}
 
-	ID3D11ShaderResourceView* DetailTexture()
+	GfxShaderResourceView* DetailTexture()
 	{
-		static ComPtr<ID3D11ShaderResourceView> s_Tex;
+		static ComPtr<GfxShaderResourceView> s_Tex;
 		static bool tried = false;
 		if (!tried)
 		{
@@ -146,8 +146,8 @@ namespace
 	};
 	static_assert(sizeof(InstanceData) == 80, "셰이더 RockInstanceIn 과 같은 배치");
 
-	ComPtr<ID3D11InputLayout> s_Layout;
-	ComPtr<ID3D11Buffer> s_InstanceBuffer;
+	ComPtr<GfxInputLayout> s_Layout;
+	ComPtr<GfxBuffer> s_InstanceBuffer;
 	UINT s_InstanceCapacity = 0;
 
 	bool EnsureLayout()
@@ -177,7 +177,7 @@ namespace
 		return s_Layout != nullptr;
 	}
 
-	ID3D11Buffer* UploadInstances(ID3D11DeviceContext* dc, const std::vector<InstanceData>& data)
+	GfxBuffer* UploadInstances(GfxContext* dc, const std::vector<InstanceData>& data)
 	{
 		const UINT count = (UINT)data.size();
 		if (count > s_InstanceCapacity)
@@ -334,7 +334,7 @@ namespace RockRenderer
 		}
 
 		// ---- 패스 공통 값
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		if (pass == Pass::Main)
 		{
 			static const XMMATRIX toTex(0.5f, 0.0f, 0.0f, 0.0f, 0.0f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f);
@@ -352,10 +352,10 @@ namespace RockRenderer
 		if (v.Detail && v.Detail->IsValid())
 			v.Detail->SetResource(DetailTexture());
 
-		ComPtr<ID3D11DepthStencilState> prevDSS;
+		ComPtr<GfxDepthStencilState> prevDSS;
 		UINT prevRef = 0;
 		dc->OMGetDepthStencilState(prevDSS.GetAddressOf(), &prevRef);
-		ComPtr<ID3D11RasterizerState> prevRS;
+		ComPtr<GfxRasterizerState> prevRS;
 		dc->RSGetState(prevRS.GetAddressOf());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		dc->IASetInputLayout(s_Layout.Get());
@@ -375,11 +375,11 @@ namespace RockRenderer
 				auto mesh = GetMesh(d, lod);
 				if (!mesh || !mesh->VB)
 					continue;
-				ID3D11Buffer* inst = UploadInstances(dc, b.Lists[lod]);
+				GfxBuffer* inst = UploadInstances(dc, b.Lists[lod]);
 				if (!inst)
 					continue;
 				const UINT strides[2] = { sizeof(RockGenerator::Vertex), sizeof(InstanceData) }, offsets[2] = { 0, 0 };
-				ID3D11Buffer* vbs[2] = { mesh->VB.Get(), inst };
+				GfxBuffer* vbs[2] = { mesh->VB.Get(), inst };
 				dc->IASetVertexBuffers(0, 2, vbs, strides, offsets);
 				dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
 				v.Tech->GetPassByIndex(0)->Apply(0, dc);
@@ -388,7 +388,7 @@ namespace RockRenderer
 				(lod == 0 ? stats.Lod0 : lod == 1 ? stats.Lod1 : stats.Lod2) += (int)b.Lists[lod].size();
 			}
 		}
-		ID3D11Buffer* none = nullptr;
+		GfxBuffer* none = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 		dc->OMSetDepthStencilState(prevDSS.Get(), prevRef);

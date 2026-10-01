@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "NormalMapSkinnedShader.h"
 
-NormalMapSkinnedShader::NormalMapSkinnedShader(ComPtr<ID3D11Device> device, const std::wstring& filename)
+NormalMapSkinnedShader::NormalMapSkinnedShader(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Shader(device, filename)
 {
 	Light1Tech = m_pFx->GetTechniqueByName("Light1");

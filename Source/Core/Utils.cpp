@@ -7,7 +7,7 @@
 #include "Debug.h"
 namespace fs = std::filesystem;
 
-ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device, const wstring& path)
+ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const wstring& path)
 {
 	// 파일 확장자 얻기
 	wstring ext = fs::path(path).extension();
@@ -55,9 +55,9 @@ ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device,
 		}
 	}
 
-	ComPtr<ID3D11ShaderResourceView> srv;
+	ComPtr<GfxShaderResourceView> srv;
 	if (SUCCEEDED(hr))
-		hr = ::CreateShaderResourceView(device.Get(), img.GetImages(), img.GetImageCount(), md, srv.GetAddressOf());
+		hr = Gfx::CreateShaderResourceView(device.Get(), img.GetImages(), img.GetImageCount(), md, srv.GetAddressOf());
 
 	if (FAILED(hr))
 	{
@@ -80,7 +80,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device,
 		D3D11_SUBRESOURCE_DATA data = {};
 		data.pSysMem = &missingTexturePixel;
 		data.SysMemPitch = sizeof(missingTexturePixel);
-		ComPtr<ID3D11Texture2D> fallback;
+		ComPtr<GfxTexture2D> fallback;
 		if (SUCCEEDED(device->CreateTexture2D(&desc, &data, fallback.GetAddressOf())))
 			device->CreateShaderResourceView(fallback.Get(), nullptr, srv.ReleaseAndGetAddressOf());
 	}
@@ -88,7 +88,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::LoadTexture(ComPtr<ID3D11Device> device,
 	return srv;
 }
 
-ComPtr<ID3D11ShaderResourceView> Utils::CreateTexture2DArraySRV(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, std::vector<std::wstring>& filenames)
+ComPtr<GfxShaderResourceView> Utils::CreateTexture2DArraySRV(ComPtr<GfxDevice> device, ComPtr<GfxContext> context, std::vector<std::wstring>& filenames)
 {
 	//
 	// Load the texture elements individually from file.  These textures
@@ -99,7 +99,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::CreateTexture2DArraySRV(ComPtr<ID3D11Dev
 
 	uint32 size = filenames.size();
 
-	std::vector<ComPtr<ID3D11Texture2D>> srcTex(size);
+	std::vector<ComPtr<GfxTexture2D>> srcTex(size);
 
 	for (uint32 i = 0; i < size; ++i)
 	{
@@ -109,8 +109,8 @@ ComPtr<ID3D11ShaderResourceView> Utils::CreateTexture2DArraySRV(ComPtr<ID3D11Dev
 		HRESULT hr = ::LoadFromDDSFile(filenames[i].c_str(), DDS_FLAGS_NONE, &md, img);
 		CHECK(hr);
 
-		hr = ::CreateTextureEx(device.Get(), img.GetImages(), img.GetImageCount(), md, 
-			D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE, 0, false, (ID3D11Resource**)srcTex[i].GetAddressOf());
+		hr = Gfx::CreateTexture(device.Get(), img.GetImages(), img.GetImageCount(), md,
+			D3D11_USAGE_STAGING, 0, D3D11_CPU_ACCESS_READ | D3D11_CPU_ACCESS_WRITE, 0, (GfxResource**)srcTex[i].GetAddressOf());
 		
 		CHECK(hr);
 	}
@@ -143,7 +143,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::CreateTexture2DArraySRV(ComPtr<ID3D11Dev
 	texArrayDesc.CPUAccessFlags = 0;
 	texArrayDesc.MiscFlags = 0;
 
-	ComPtr<ID3D11Texture2D> texArray;
+	ComPtr<GfxTexture2D> texArray;
 	HR(device->CreateTexture2D(&texArrayDesc, 0, texArray.GetAddressOf()));
 
 	//
@@ -180,14 +180,14 @@ ComPtr<ID3D11ShaderResourceView> Utils::CreateTexture2DArraySRV(ComPtr<ID3D11Dev
 	viewDesc.Texture2DArray.FirstArraySlice = 0;
 	viewDesc.Texture2DArray.ArraySize = size;
 
-	ComPtr<ID3D11ShaderResourceView> texArraySRV;
+	ComPtr<GfxShaderResourceView> texArraySRV;
 	HR(device->CreateShaderResourceView(texArray.Get(), &viewDesc, texArraySRV.GetAddressOf()));
 
 	return texArraySRV;
 }
 
 
-ComPtr<ID3D11ShaderResourceView> Utils::CreateRandomTexture1DSRV(ComPtr<ID3D11Device> device)
+ComPtr<GfxShaderResourceView> Utils::CreateRandomTexture1DSRV(ComPtr<GfxDevice> device)
 {
 	// 
 	// Create the random data.
@@ -220,7 +220,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::CreateRandomTexture1DSRV(ComPtr<ID3D11De
     texDesc.MiscFlags = 0;
     texDesc.ArraySize = 1;
 
-	ComPtr<ID3D11Texture1D> randomTex;
+	ComPtr<GfxTexture1D> randomTex;
     HR(device->CreateTexture1D(&texDesc, &initData, randomTex.GetAddressOf()));
 
 	//
@@ -232,7 +232,7 @@ ComPtr<ID3D11ShaderResourceView> Utils::CreateRandomTexture1DSRV(ComPtr<ID3D11De
     viewDesc.Texture1D.MipLevels = texDesc.MipLevels;
 	viewDesc.Texture1D.MostDetailedMip = 0;
 	
-	ComPtr<ID3D11ShaderResourceView> randomTexSRV;
+	ComPtr<GfxShaderResourceView> randomTexSRV;
     HR(device->CreateShaderResourceView(randomTex.Get(), &viewDesc, randomTexSRV.GetAddressOf()));
 
 	return randomTexSRV;

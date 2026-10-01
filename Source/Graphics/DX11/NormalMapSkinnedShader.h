@@ -4,7 +4,7 @@ class NormalMapSkinnedShader : public Shader
 {
 
 public:
-	NormalMapSkinnedShader(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	NormalMapSkinnedShader(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~NormalMapSkinnedShader();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -20,11 +20,11 @@ public:
 	void SetFogRange(float f) { FogRange->SetFloat(f); }
 	void SetDirLights(const DirectionalLight* lights) { DirLights->SetRawValue(lights, 0, 3 * sizeof(DirectionalLight)); }
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
-	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
-	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
-	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
-	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetCubeMap(GfxShaderResourceView* tex) { CubeMap->SetResource(tex); }
+	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
+	void SetSsaoMap(GfxShaderResourceView* tex) { SsaoMap->SetResource(tex); }
+	void SetShadowMap(GfxShaderResourceView* tex) { ShadowMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> Light1Tech;
 	ComPtr<FxTechnique> Light2Tech;

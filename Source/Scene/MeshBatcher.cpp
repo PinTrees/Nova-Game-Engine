@@ -119,10 +119,10 @@ namespace
 		s_CollectedFrame = SceneCulling::FrameIndex();
 	}
 
-	ComPtr<ID3D11Buffer> s_InstanceBuffer;
+	ComPtr<GfxBuffer> s_InstanceBuffer;
 	UINT s_Capacity = 0;
 
-	ID3D11Buffer* Upload(ID3D11DeviceContext* dc, const std::vector<XMFLOAT4X4>& worlds)
+	GfxBuffer* Upload(GfxContext* dc, const std::vector<XMFLOAT4X4>& worlds)
 	{
 		const UINT count = (UINT)worlds.size();
 		if (count > s_Capacity)
@@ -208,7 +208,7 @@ namespace MeshBatcher
 			std::sort(s_Order.begin(), s_Order.end(), [&](int a, int b) { return batches[a].Material.get() < batches[b].Material.get(); });
 
 		// ---- 패스 값
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		RenderManager* rm = RenderManager::GetI();
 		const XMMATRIX viewProj = editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix;
 		FxTechnique* tech = nullptr;
@@ -249,7 +249,7 @@ namespace MeshBatcher
 		for (int index : s_Order)
 		{
 			Batch* b = &batches[index];
-			ID3D11Buffer* inst = Upload(dc, b->Worlds);
+			GfxBuffer* inst = Upload(dc, b->Worlds);
 			if (inst == nullptr)
 				continue;
 			if (pass == Pass::Main && b->Material.get() != applied)
@@ -263,7 +263,7 @@ namespace MeshBatcher
 			b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
 			++drawn;
 		}
-		ID3D11Buffer* none = nullptr;
+		GfxBuffer* none = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 		if (pass == Pass::Main)

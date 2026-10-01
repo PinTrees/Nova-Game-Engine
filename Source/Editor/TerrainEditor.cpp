@@ -672,7 +672,7 @@ namespace
 					ImGui::PopID();
 					const bool current = g.BiomePreset == p.Name;
 					dl->AddRectFilled(a, ImVec2(a.x + cellW, a.y + cellH), current ? IM_COL32(58, 86, 120, 255) : (hovered ? IM_COL32(70, 70, 70, 255) : IM_COL32(48, 48, 48, 255)), 4.0f);
-					if (ID3D11ShaderResourceView* thumb = TerrainBiomes::Thumbnail(p))
+					if (GfxShaderResourceView* thumb = TerrainBiomes::Thumbnail(p))
 						dl->AddImage((ImTextureID)thumb, ImVec2(a.x + 4, a.y + 4), ImVec2(a.x + cellW - 4, a.y + cellW - 4));
 					else
 						dl->AddText(ImVec2(a.x + 18, a.y + 38), IM_COL32(150, 150, 150, 255), "...");
@@ -1167,7 +1167,7 @@ namespace
 			if (ImGui::InvisibleButton("##layer", ImVec2(cell, cell + 18)))
 				s_SelectedLayer = i;
 			ImGui::PopID();
-			if (ID3D11ShaderResourceView* srv = layer->DiffuseSRV())
+			if (GfxShaderResourceView* srv = layer->DiffuseSRV())
 				dl->AddImage((ImTextureID)srv, a, b);
 			else
 				dl->AddRectFilled(a, b, IM_COL32(128, 128, 128, 255));

@@ -11,14 +11,14 @@ TextureMgr::~TextureMgr()
 	_textureSRV.clear();
 }
 
-void TextureMgr::Init(ComPtr<ID3D11Device> device)
+void TextureMgr::Init(ComPtr<GfxDevice> device)
 {
 	_device = device;
 }
 
-ComPtr<ID3D11ShaderResourceView> TextureMgr::CreateTexture(std::wstring filename)
+ComPtr<GfxShaderResourceView> TextureMgr::CreateTexture(std::wstring filename)
 {
-	ComPtr<ID3D11ShaderResourceView> srv;
+	ComPtr<GfxShaderResourceView> srv;
 
 	wstring path = PathManager::GetI()->GetCutSolutionPath(filename);
 

@@ -66,7 +66,7 @@ namespace ShadowRenderer
 		return s;
 	}
 
-	void Render(ID3D11DeviceContext* dc, ShadowMap& maps, const vector<shared_ptr<Light>>& sortedLights,
+	void Render(GfxContext* dc, ShadowMap& maps, const vector<shared_ptr<Light>>& sortedLights,
 		int dirCount, int spotCount, int pointCount,
 		const XMFLOAT3& eye, CXMMATRIX view, CXMMATRIX proj, const Settings& s,
 		FrameData& out, const std::function<void()>& drawCasters)

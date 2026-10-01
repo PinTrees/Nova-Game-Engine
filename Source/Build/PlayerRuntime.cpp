@@ -85,14 +85,14 @@ namespace PlayerRuntime
 		SceneManager::GetI()->HandlePlay();
 	}
 
-	void Render(ID3D11RenderTargetView* backBuffer, ID3D11DepthStencilView* depth, int width, int height, bool focused)
+	void Render(GfxRenderTargetView* backBuffer, GfxDepthStencilView* depth, int width, int height, bool focused)
 	{
 		if (backBuffer == nullptr || width <= 0 || height <= 0)
 			return;
 		auto ctx = Application::GetI()->GetDeviceContext();
 		GameViewEditorWindow::SetPlayerView(width, height, focused);
 		std::shared_ptr<Camera> camera = DisplayManager::GetI()->GetCameraForDisplay(0);
-		ID3D11RenderTargetView* rtvs[1] = { backBuffer };
+		GfxRenderTargetView* rtvs[1] = { backBuffer };
 		ctx->OMSetRenderTargets(1, rtvs, depth);
 		if (camera == nullptr)
 		{

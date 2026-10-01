@@ -19,8 +19,8 @@ public:
 	void UpdateScene(float dt);
 	void RenderApplication();
 
-	virtual void OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera) override; 
-	virtual void _Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera) override;
+	virtual void OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* camera) override; 
+	virtual void _Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, EditorCamera* camera) override;
 
 	void OnMouseDown(WPARAM btnState, int32 x, int32 y);
 	void OnMouseUp(WPARAM btnState, int32 x, int32 y);
@@ -29,7 +29,7 @@ public:
 private:
 	void DrawSceneToSsaoNormalDepthMap();
 	void DrawSceneToShadowMap();
-	void DrawScreenQuad(ComPtr<ID3D11ShaderResourceView> srv);
+	void DrawScreenQuad(ComPtr<GfxShaderResourceView> srv);
 	void BuildShadowTransform();
 	void BuildScreenQuadGeometryBuffers();
 
@@ -38,17 +38,17 @@ private:
 
 	shared_ptr<class Sky> _sky;
 	// Scene/Game 뷰를 그릴 때 쓰는 깊이 버퍼 (뷰 크기 이상, 커지기만 함)
-	ComPtr<ID3D11Texture2D> _viewDepthTex;
-	ComPtr<ID3D11DepthStencilView> _viewDepthView;
-	ComPtr<ID3D11DepthStencilView> _viewDepthReadOnly;    // 물: 깊이를 SRV 로 읽으면서 깊이 검사
-	ComPtr<ID3D11ShaderResourceView> _viewDepthSRV;
+	ComPtr<GfxTexture2D> _viewDepthTex;
+	ComPtr<GfxDepthStencilView> _viewDepthView;
+	ComPtr<GfxDepthStencilView> _viewDepthReadOnly;    // 물: 깊이를 SRV 로 읽으면서 깊이 검사
+	ComPtr<GfxShaderResourceView> _viewDepthSRV;
 	UINT _viewDepthW = 0, _viewDepthH = 0;
-	ID3D11DepthStencilView* ViewDepth(UINT width, UINT height);
-	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+	GfxDepthStencilView* ViewDepth(UINT width, UINT height);
+	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, class ShadowMap* shadowMap, const void* shadowFrame,
 		const void* atmosphere);
 	// Volume 의 안개·대기 (불투명 + 하늘 다음 화면 전체 패스). 값을 돌려줘 물이 같은 값을 쓴다
-	void DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+	void DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 		const D3D11_VIEWPORT& viewport, bool skyVisible);
 
 	shared_ptr<class Mesh> _treeModel;
@@ -66,8 +66,8 @@ private:
 	std::vector<MeshInstance> _modelInstances;
 	std::vector<MeshInstance> _alphaClippedModelInstances;
 
-	ComPtr<ID3D11Buffer> _screenQuadVB;
-	ComPtr<ID3D11Buffer> _screenQuadIB;
+	ComPtr<GfxBuffer> _screenQuadVB;
+	ComPtr<GfxBuffer> _screenQuadIB;
 
 	BoundingSphere _sceneBounds;
 

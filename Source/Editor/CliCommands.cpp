@@ -222,12 +222,11 @@ namespace
 	}
 
 	// 텍스처 → PNG/JPG (알파는 불투명으로: Scene 뷰는 빈 배경을 투명으로 지운다)
-	bool SaveTexture(ID3D11Texture2D* tex, const std::wstring& file, int& w, int& h, std::string& error)
+	bool SaveTexture(GfxTexture2D* tex, const std::wstring& file, int& w, int& h, std::string& error)
 	{
-		auto device = Application::GetI()->GetDevice();
 		auto ctx = Application::GetI()->GetDeviceContext();
 		DirectX::ScratchImage captured;
-		HRESULT hr = DirectX::CaptureTexture(device, ctx, tex, captured);
+		HRESULT hr = Gfx::CaptureTexture(ctx, tex, captured);
 		if (FAILED(hr))
 		{
 			error = "capture failed";
@@ -656,7 +655,7 @@ namespace CliCommands
 		// 스크린샷: 앞 명령(카메라 이동 등)이 그려진 뒤에 찍도록 3 프레임 기다린다
 		Register("screenshot", "save the Scene or Game view to PNG/JPG {path, view: scene|game}", [](const json& a, json& r, std::string& e) {
 			const std::string view = Lower(a.value("view", std::string("scene")));
-			ID3D11Texture2D* tex = nullptr;
+			GfxTexture2D* tex = nullptr;
 			if (view == "game")
 			{
 				auto* w = dynamic_cast<GameViewEditorWindow*>(EditorGUIManager::GetI()->FindWindow("Game"));
@@ -682,8 +681,10 @@ namespace CliCommands
 			App* app = Application::GetI()->GetApp();
 			IDXGISwapChain* swap = app ? app->SwapChain() : nullptr;
 			if (!swap) { e = "no swap chain"; return false; }
-			ComPtr<ID3D11Texture2D> back;
-			if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) { e = "no back buffer"; return false; }
+			ComPtr<ID3D11Texture2D> d3dBack;   // 스왑 체인은 DXGI 객체 → 진짜 D3D11 텍스처로 받아 Gfx 로 감싼다
+			if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(d3dBack.GetAddressOf())))) { e = "no back buffer"; return false; }
+			ComPtr<GfxTexture2D> back;
+			back.Attach(Gfx::WrapD3D11As<GfxTexture2D>(d3dBack.Get()));
 			const std::string path = a.value("path", std::string());
 			if (path.empty()) { e = "missing path"; return false; }
 			const std::wstring file = ProjectFile(path);

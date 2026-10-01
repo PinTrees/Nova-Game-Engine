@@ -55,7 +55,7 @@ std::string TerrainLayer::Name() const
 	return std::filesystem::path(Path).stem().string();
 }
 
-ID3D11ShaderResourceView* TerrainLayer::DiffuseSRV()
+GfxShaderResourceView* TerrainLayer::DiffuseSRV()
 {
 	if (!m_DiffuseLoaded)
 	{
@@ -522,10 +522,10 @@ size_t TerrainData::GpuBytes() const
 	return MemoryStats::ResourceBytes(m_HeightTex.Get()) + MemoryStats::ResourceBytes(m_ControlTex.Get());
 }
 
-ID3D11ShaderResourceView* TerrainData::HeightSRV()
+GfxShaderResourceView* TerrainData::HeightSRV()
 {
-	ID3D11Device* device = Application::GetI()->GetDevice();
-	ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+	GfxDevice* device = Application::GetI()->GetDevice();
+	GfxContext* dc = Application::GetI()->GetDeviceContext();
 	if (m_HeightTex == nullptr)
 	{
 		D3D11_TEXTURE2D_DESC desc = {};
@@ -553,10 +553,10 @@ ID3D11ShaderResourceView* TerrainData::HeightSRV()
 	return m_HeightSRV.Get();
 }
 
-ID3D11ShaderResourceView* TerrainData::ControlSRV()
+GfxShaderResourceView* TerrainData::ControlSRV()
 {
-	ID3D11Device* device = Application::GetI()->GetDevice();
-	ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+	GfxDevice* device = Application::GetI()->GetDevice();
+	GfxContext* dc = Application::GetI()->GetDeviceContext();
 	if (m_ControlTex == nullptr)
 	{
 		D3D11_TEXTURE2D_DESC desc = {};
@@ -598,7 +598,7 @@ void TerrainData::SetColorMap(std::vector<uint8_t> colorMap)
 	Dirty = true;
 }
 
-ID3D11ShaderResourceView* TerrainData::ColorMapSRV()
+GfxShaderResourceView* TerrainData::ColorMapSRV()
 {
 	if (ColorMap.empty())
 		return nullptr;
@@ -612,7 +612,7 @@ ID3D11ShaderResourceView* TerrainData::ColorMapSRV()
 		desc.Usage = D3D11_USAGE_DEFAULT;
 		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		D3D11_SUBRESOURCE_DATA init = { ColorMap.data(), (UINT)(ControlResolution * 4), 0 };
-		ID3D11Device* device = Application::GetI()->GetDevice();
+		GfxDevice* device = Application::GetI()->GetDevice();
 		if (FAILED(device->CreateTexture2D(&desc, &init, m_ColorTex.GetAddressOf())) ||
 			FAILED(device->CreateShaderResourceView(m_ColorTex.Get(), nullptr, m_ColorSRV.GetAddressOf())))
 			return nullptr;

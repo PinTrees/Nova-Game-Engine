@@ -25,7 +25,7 @@ namespace
 
 namespace SceneGrid
 {
-	void Draw(ID3D11DeviceContext* dc, CXMMATRIX viewProj, const XMFLOAT3& cameraPos)
+	void Draw(GfxContext* dc, CXMMATRIX viewProj, const XMFLOAT3& cameraPos)
 	{
 		if (!Init())
 			return;
@@ -39,18 +39,18 @@ namespace SceneGrid
 		fx->GetVariableByName("gGridColor")->AsVector()->SetFloatVector(&color.x);
 		fx->GetVariableByName("gGridParams")->AsVector()->SetFloatVector(&params.x);
 
-		ComPtr<ID3D11BlendState> prevBlend;
+		ComPtr<GfxBlendState> prevBlend;
 		float prevFactor[4];
 		UINT prevMask = 0;
 		dc->OMGetBlendState(prevBlend.GetAddressOf(), prevFactor, &prevMask);
-		ComPtr<ID3D11DepthStencilState> prevDSS;
+		ComPtr<GfxDepthStencilState> prevDSS;
 		UINT prevRef = 0;
 		dc->OMGetDepthStencilState(prevDSS.GetAddressOf(), &prevRef);
-		ComPtr<ID3D11RasterizerState> prevRS;
+		ComPtr<GfxRasterizerState> prevRS;
 		dc->RSGetState(prevRS.GetAddressOf());
 
 		dc->IASetInputLayout(nullptr);
-		ID3D11Buffer* nullVB = nullptr;
+		GfxBuffer* nullVB = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(0, 1, &nullVB, &zero, &zero);
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

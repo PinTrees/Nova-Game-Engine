@@ -8,8 +8,8 @@ namespace
 {
 	std::unique_ptr<Effect> s_Effect;
 	bool s_Failed = false;
-	ComPtr<ID3D11Texture2D> s_Copy;
-	ComPtr<ID3D11ShaderResourceView> s_CopySRV;
+	ComPtr<GfxTexture2D> s_Copy;
+	ComPtr<GfxShaderResourceView> s_CopySRV;
 	D3D11_TEXTURE2D_DESC s_CopyDesc = {};
 
 	float ToLinear(float c) { return powf((std::max)(c, 0.0f), 2.2f); }
@@ -36,11 +36,11 @@ namespace
 	}
 
 	// 장면 색 사본 (타깃과 같은 형식·크기)
-	ID3D11ShaderResourceView* CopyScene(ID3D11DeviceContext* dc, ID3D11RenderTargetView* target)
+	GfxShaderResourceView* CopyScene(GfxContext* dc, GfxRenderTargetView* target)
 	{
-		ComPtr<ID3D11Resource> res;
+		ComPtr<GfxResource> res;
 		target->GetResource(res.GetAddressOf());
-		ComPtr<ID3D11Texture2D> tex;
+		ComPtr<GfxTexture2D> tex;
 		if (FAILED(res.As(&tex)))
 			return nullptr;
 		D3D11_TEXTURE2D_DESC desc;
@@ -123,7 +123,7 @@ namespace AtmospherePass
 		return p;
 	}
 
-	void Bind(FxEffect* fx, const Params& p, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky)
+	void Bind(FxEffect* fx, const Params& p, const XMFLOAT3& eye, GfxShaderResourceView* sky)
 	{
 		if (!fx)
 			return;
@@ -140,8 +140,8 @@ namespace AtmospherePass
 			v->SetResource(sky);
 	}
 
-	void Draw(ID3D11DeviceContext* dc, const Params& p, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv, ID3D11ShaderResourceView* depthSRV,
-		const D3D11_VIEWPORT& viewport, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky)
+	void Draw(GfxContext* dc, const Params& p, GfxRenderTargetView* target, GfxDepthStencilView* dsv, GfxShaderResourceView* depthSRV,
+		const D3D11_VIEWPORT& viewport, CXMMATRIX viewProj, const XMFLOAT3& eye, GfxShaderResourceView* sky)
 	{
 		FxEffect* fx = Fx();
 		if (!fx || !p.Active() || !target || !depthSRV)
@@ -149,7 +149,7 @@ namespace AtmospherePass
 		FxTechnique* tech = fx->GetTechniqueByName("AtmosphereTech");
 		if (!tech || !tech->IsValid())
 			return;
-		ID3D11ShaderResourceView* scene = CopyScene(dc, target);
+		GfxShaderResourceView* scene = CopyScene(dc, target);
 		if (!scene)
 			return;
 		Bind(fx, p, eye, sky);
@@ -167,14 +167,14 @@ namespace AtmospherePass
 		dc->RSSetViewports(1, &viewport);
 		dc->IASetInputLayout(nullptr);
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		ID3D11Buffer* none = nullptr;
+		GfxBuffer* none = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(0, 1, &none, &zero, &zero);
 		tech->GetPassByIndex(0)->Apply(0, dc);
 		dc->Draw(3, 0);
 
 		// 다음 단계(물)가 같은 깊이를 다시 쓰도록 바인딩을 풀고 상태를 되돌린다
-		ID3D11ShaderResourceView* nullSRV[8] = {};
+		GfxShaderResourceView* nullSRV[8] = {};
 		dc->PSSetShaderResources(0, 8, nullSRV);
 		dc->OMSetRenderTargets(1, &target, dsv);
 		dc->OMSetDepthStencilState(nullptr, 0);

@@ -984,6 +984,8 @@ void App::CreateDeviceAndSwapChain()
 		desc.Flags = 0;
 	}
 
+	ComPtr<ID3D11Device> d3dDevice;
+	ComPtr<ID3D11DeviceContext> d3dContext;
 	HRESULT hr = ::D3D11CreateDeviceAndSwapChain(
 		nullptr, // default adapter
 		_driverType,
@@ -994,9 +996,9 @@ void App::CreateDeviceAndSwapChain()
 		D3D11_SDK_VERSION,
 		&desc,
 		_swapChain.GetAddressOf(),
-		_device.GetAddressOf(),
+		d3dDevice.GetAddressOf(),
 		nullptr,
-		_deviceContext.GetAddressOf()
+		d3dContext.GetAddressOf()
 	);
 
 	if (FAILED(hr) && (createDeviceFlags & D3D11_CREATE_DEVICE_DEBUG))
@@ -1012,10 +1014,17 @@ void App::CreateDeviceAndSwapChain()
 			D3D11_SDK_VERSION,
 			&desc,
 			_swapChain.GetAddressOf(),
-			_device.GetAddressOf(),
+			d3dDevice.GetAddressOf(),
 			nullptr,
-			_deviceContext.GetAddressOf()
+			d3dContext.GetAddressOf()
 		);
+	}
+	// 엔진은 Gfx 층으로 쓴다 (DirectX 11 = D3D11 객체를 감쌈)
+	if (SUCCEEDED(hr))
+	{
+		_device.Attach(Gfx::WrapD3D11As<GfxDevice>(d3dDevice.Get()));
+		_deviceContext.Attach(Gfx::WrapD3D11As<GfxContext>(d3dContext.Get()));
+		Gfx::SetMain(_device.Get(), _deviceContext.Get());
 	}
 
 	std::ofstream log(_logFileName, std::ios::app);
@@ -1032,10 +1041,12 @@ void App::CreateRenderTargetView()
 
 	HRESULT hr;
 
-	ComPtr<ID3D11Texture2D> backBuffer = nullptr;
-	hr = _swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)backBuffer.GetAddressOf());
+	ComPtr<ID3D11Texture2D> d3dBackBuffer;
+	hr = _swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)d3dBackBuffer.GetAddressOf());
 	log << "    GetBuffer hr: " << hr << std::endl; log.flush();
 	CHECK(hr);
+	ComPtr<GfxTexture2D> backBuffer;
+	backBuffer.Attach(Gfx::WrapD3D11As<GfxTexture2D>(d3dBackBuffer.Get()));
 
 	hr = _device->CreateRenderTargetView(backBuffer.Get(), nullptr, _renderTargetView.ReleaseAndGetAddressOf());
 	log << "    CreateRenderTargetView hr: " << hr << std::endl; log.flush();

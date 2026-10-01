@@ -1,22 +1,22 @@
 #include "pch.h"
 #include "RenderStates.h"
 
-ComPtr<ID3D11RasterizerState> RenderStates::WireframeRS;
-ComPtr<ID3D11RasterizerState> RenderStates::NoCullRS;
-ComPtr<ID3D11RasterizerState> RenderStates::CullClockwiseRS;
+ComPtr<GfxRasterizerState> RenderStates::WireframeRS;
+ComPtr<GfxRasterizerState> RenderStates::NoCullRS;
+ComPtr<GfxRasterizerState> RenderStates::CullClockwiseRS;
 
-ComPtr<ID3D11BlendState> RenderStates::AlphaToCoverageBS;
-ComPtr<ID3D11BlendState> RenderStates::TransparentBS;
-ComPtr<ID3D11BlendState> RenderStates::NoRenderTargetWritesBS;
+ComPtr<GfxBlendState> RenderStates::AlphaToCoverageBS;
+ComPtr<GfxBlendState> RenderStates::TransparentBS;
+ComPtr<GfxBlendState> RenderStates::NoRenderTargetWritesBS;
 
-ComPtr<ID3D11DepthStencilState> RenderStates::MarkMirrorDSS;
-ComPtr<ID3D11DepthStencilState> RenderStates::DrawReflectionDSS;
-ComPtr<ID3D11DepthStencilState> RenderStates::NoDoubleBlendDSS;
-ComPtr<ID3D11DepthStencilState> RenderStates::EqualsDSS;
+ComPtr<GfxDepthStencilState> RenderStates::MarkMirrorDSS;
+ComPtr<GfxDepthStencilState> RenderStates::DrawReflectionDSS;
+ComPtr<GfxDepthStencilState> RenderStates::NoDoubleBlendDSS;
+ComPtr<GfxDepthStencilState> RenderStates::EqualsDSS;
 
-ComPtr<ID3D11DepthStencilState> RenderStates::LessEqualDSS;
+ComPtr<GfxDepthStencilState> RenderStates::LessEqualDSS;
 
-void RenderStates::InitAll(ComPtr<ID3D11Device> device)
+void RenderStates::InitAll(ComPtr<GfxDevice> device)
 {
 	//
 	// WireframeRS

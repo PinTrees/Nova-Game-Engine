@@ -28,11 +28,11 @@ private:
 	wstring m_MetallicMapPath;
 	wstring m_OcclusionMapPath;
 	wstring m_EmissionMapPath;
-	ComPtr<ID3D11ShaderResourceView> BaseMapSRV;
-	ComPtr<ID3D11ShaderResourceView> NormalMapSRV;
-	ComPtr<ID3D11ShaderResourceView> MetallicMapSRV;
-	ComPtr<ID3D11ShaderResourceView> OcclusionMapSRV;
-	ComPtr<ID3D11ShaderResourceView> EmissionMapSRV;
+	ComPtr<GfxShaderResourceView> BaseMapSRV;
+	ComPtr<GfxShaderResourceView> NormalMapSRV;
+	ComPtr<GfxShaderResourceView> MetallicMapSRV;
+	ComPtr<GfxShaderResourceView> OcclusionMapSRV;
+	ComPtr<GfxShaderResourceView> EmissionMapSRV;
 
 	// 예전 Blinn-Phong 값 (지형 등 예전 경로와 파일 호환용)
 	XMFLOAT4 Ambient;
@@ -82,8 +82,8 @@ public:
 	void ReloadTextures();
 	void SetNormalMap(TextureMgr texMgr, wstring fullPath);
 
-	ID3D11ShaderResourceView* GetBaseMapSRV() { return BaseMapSRV.Get(); }
-	ID3D11ShaderResourceView* GetNormalMapSRV() { return NormalMapSRV.Get(); }
+	GfxShaderResourceView* GetBaseMapSRV() { return BaseMapSRV.Get(); }
+	GfxShaderResourceView* GetNormalMapSRV() { return NormalMapSRV.Get(); }
 	ShaderSetting GetShaderSetting() { return m_shaderSetting; }
 	const PbrMaterial& GetPbr() const { return m_Pbr; }
 	ShaderKind GetShader() const { return m_Shader; }

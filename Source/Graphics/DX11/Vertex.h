@@ -114,19 +114,19 @@ public:
 class InputLayouts
 {
 public:
-	static void InitAll(ComPtr<ID3D11Device> device);
+	static void InitAll(ComPtr<GfxDevice> device);
 	static void DestroyAll();
 
-	static ComPtr<ID3D11InputLayout> Pos;
-	static ComPtr<ID3D11InputLayout> Basic32;
-	static ComPtr<ID3D11InputLayout> TreePointSprite;
-	static ComPtr<ID3D11InputLayout> InstancedBasic32;
-	static ComPtr<ID3D11InputLayout> PosNormalTexTan;
-	static ComPtr<ID3D11InputLayout> PosNormalTexTan2;
-	static ComPtr<ID3D11InputLayout> Terrain;
-	static ComPtr<ID3D11InputLayout> Particle;
-	static ComPtr<ID3D11InputLayout> AmbientOcclusion;
-	static ComPtr<ID3D11InputLayout> PosNormalTexTanSkinned;
-	static ComPtr<ID3D11InputLayout> InstancedBasic;
-	static ComPtr<ID3D11InputLayout> TerrainVertex;
+	static ComPtr<GfxInputLayout> Pos;
+	static ComPtr<GfxInputLayout> Basic32;
+	static ComPtr<GfxInputLayout> TreePointSprite;
+	static ComPtr<GfxInputLayout> InstancedBasic32;
+	static ComPtr<GfxInputLayout> PosNormalTexTan;
+	static ComPtr<GfxInputLayout> PosNormalTexTan2;
+	static ComPtr<GfxInputLayout> Terrain;
+	static ComPtr<GfxInputLayout> Particle;
+	static ComPtr<GfxInputLayout> AmbientOcclusion;
+	static ComPtr<GfxInputLayout> PosNormalTexTanSkinned;
+	static ComPtr<GfxInputLayout> InstancedBasic;
+	static ComPtr<GfxInputLayout> TerrainVertex;
 };

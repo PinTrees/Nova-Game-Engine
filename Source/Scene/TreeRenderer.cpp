@@ -22,7 +22,7 @@ namespace
 	// ================================================================ 메시 (모양 + LOD 마다 하나)
 	struct GpuMesh
 	{
-		ComPtr<ID3D11Buffer> VB, IB;
+		ComPtr<GfxBuffer> VB, IB;
 		uint32 BarkIndexCount = 0, LeafIndexCount = 0;
 		int VertexCount = 0, BranchCount = 0, LeafCardCount = 0;
 		Vec3 BoundsMin, BoundsMax;
@@ -153,7 +153,7 @@ namespace
 		if (v && v->IsValid())
 			v->SetFloatVector(&f.x);
 	}
-	void SetSrv(FxVar* v, ID3D11ShaderResourceView* srv)
+	void SetSrv(FxVar* v, GfxShaderResourceView* srv)
 	{
 		if (v && v->IsValid())
 			v->SetResource(srv);
@@ -172,8 +172,8 @@ namespace
 	};
 	static_assert(sizeof(InstanceData) == 80, "셰이더 TreeInstanceIn 과 같은 배치");
 
-	ComPtr<ID3D11InputLayout> s_MeshLayout, s_ImpostorLayout;
-	ComPtr<ID3D11Buffer> s_InstanceBuffer;
+	ComPtr<GfxInputLayout> s_MeshLayout, s_ImpostorLayout;
+	ComPtr<GfxBuffer> s_InstanceBuffer;
 	UINT s_InstanceCapacity = 0;
 
 	bool EnsureLayouts()
@@ -211,7 +211,7 @@ namespace
 		return s_MeshLayout && s_ImpostorLayout;
 	}
 
-	ID3D11Buffer* UploadInstances(ID3D11DeviceContext* dc, const std::vector<InstanceData>& data)
+	GfxBuffer* UploadInstances(GfxContext* dc, const std::vector<InstanceData>& data)
 	{
 		const UINT count = (UINT)data.size();
 		if (count > s_InstanceCapacity)
@@ -236,7 +236,7 @@ namespace
 	// ================================================================ 설정 값 (나무 한 종류)
 	struct Impostor
 	{
-		ComPtr<ID3D11ShaderResourceView> Albedo, Normal;
+		ComPtr<GfxShaderResourceView> Albedo, Normal;
 		float FrameSize = 1.0f, CenterY = 0.0f;
 		bool Tried = false;
 	};
@@ -278,12 +278,12 @@ namespace
 			return false;
 		const auto t0 = std::chrono::steady_clock::now();
 		auto device = Application::GetI()->GetDevice();
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		const UINT W = kFrames * kFrameRes, H = kFrameRes;
 
-		ComPtr<ID3D11Texture2D> tex[2], depth;
-		ComPtr<ID3D11RenderTargetView> rtv[2];
-		ComPtr<ID3D11DepthStencilView> dsv;
+		ComPtr<GfxTexture2D> tex[2], depth;
+		ComPtr<GfxRenderTargetView> rtv[2];
+		ComPtr<GfxDepthStencilView> dsv;
 		D3D11_TEXTURE2D_DESC td = {};
 		td.Width = W; td.Height = H; td.MipLevels = 6; td.ArraySize = 1;
 		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
@@ -295,7 +295,7 @@ namespace
 				return false;
 			device->CreateRenderTargetView(tex[i].Get(), nullptr, rtv[i].GetAddressOf());
 		}
-		ComPtr<ID3D11ShaderResourceView> srv[2];
+		ComPtr<GfxShaderResourceView> srv[2];
 		for (int i = 0; i < 2; ++i)
 			device->CreateShaderResourceView(tex[i].Get(), nullptr, srv[i].GetAddressOf());
 		td.MipLevels = 1; td.MiscFlags = 0; td.Format = DXGI_FORMAT_D24_UNORM_S8_UINT; td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
@@ -304,20 +304,20 @@ namespace
 		device->CreateDepthStencilView(depth.Get(), nullptr, dsv.GetAddressOf());
 
 		// 지금 상태 보관
-		ComPtr<ID3D11RenderTargetView> oldRtv[2];
-		ComPtr<ID3D11DepthStencilView> oldDsv;
+		ComPtr<GfxRenderTargetView> oldRtv[2];
+		ComPtr<GfxDepthStencilView> oldDsv;
 		dc->OMGetRenderTargets(2, oldRtv[0].GetAddressOf(), oldDsv.GetAddressOf());
 		UINT vpCount = D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE;
 		D3D11_VIEWPORT oldVp[D3D11_VIEWPORT_AND_SCISSORRECT_OBJECT_COUNT_PER_PIPELINE];
 		dc->RSGetViewports(&vpCount, oldVp);
-		ComPtr<ID3D11BlendState> oldBlend; float oldFactor[4]; UINT oldMask = 0;
+		ComPtr<GfxBlendState> oldBlend; float oldFactor[4]; UINT oldMask = 0;
 		dc->OMGetBlendState(oldBlend.GetAddressOf(), oldFactor, &oldMask);
-		ComPtr<ID3D11DepthStencilState> oldDss; UINT oldRef = 0;
+		ComPtr<GfxDepthStencilState> oldDss; UINT oldRef = 0;
 		dc->OMGetDepthStencilState(oldDss.GetAddressOf(), &oldRef);
-		ComPtr<ID3D11RasterizerState> oldRs;
+		ComPtr<GfxRasterizerState> oldRs;
 		dc->RSGetState(oldRs.GetAddressOf());
 
-		ID3D11RenderTargetView* targets[2] = { rtv[0].Get(), rtv[1].Get() };
+		GfxRenderTargetView* targets[2] = { rtv[0].Get(), rtv[1].Get() };
 		dc->OMSetRenderTargets(2, targets, dsv.Get());
 		// 빈 곳: 잎 색(알파 0)으로 지워 밉에서 가장자리가 검게 번지지 않게, 법선은 위
 		const float clearAlbedo[4] = { desc.LeafColor.x, desc.LeafColor.y, desc.LeafColor.z, 0.0f };
@@ -337,9 +337,9 @@ namespace
 		std::vector<InstanceData> one(1);
 		XMStoreFloat4x4(&one[0].World, XMMatrixIdentity());
 		one[0].Extra = XMFLOAT4(0.5f, 0.0f, 0.0f, 0.0f);
-		ID3D11Buffer* inst = UploadInstances(dc, one);
+		GfxBuffer* inst = UploadInstances(dc, one);
 		const UINT strides[2] = { sizeof(TreeVertex), sizeof(InstanceData) }, offsets[2] = { 0, 0 };
-		ID3D11Buffer* vbs[2] = { mesh->VB.Get(), inst };
+		GfxBuffer* vbs[2] = { mesh->VB.Get(), inst };
 		dc->IASetInputLayout(s_MeshLayout.Get());
 		dc->IASetVertexBuffers(0, 2, vbs, strides, offsets);
 		dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
@@ -367,7 +367,7 @@ namespace
 		}
 
 		// 되돌리기
-		ID3D11RenderTargetView* restore[2] = { oldRtv[0].Get(), oldRtv[1].Get() };
+		GfxRenderTargetView* restore[2] = { oldRtv[0].Get(), oldRtv[1].Get() };
 		dc->OMSetRenderTargets(2, restore, oldDsv.Get());
 		if (vpCount > 0)
 			dc->RSSetViewports(vpCount, oldVp);
@@ -703,7 +703,7 @@ namespace TreeRenderer
 				GetImpostor(*kv.second.Desc, true);
 
 		// ---- 패스 공통 값
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		XMFLOAT4 viewPos(camPos.x, camPos.y, camPos.z, 0.0f);
 		if (pass == Pass::Main)
 		{
@@ -729,10 +729,10 @@ namespace TreeRenderer
 		}
 		SetVec(v.ViewPos, viewPos);
 
-		ComPtr<ID3D11DepthStencilState> prevDSS;
+		ComPtr<GfxDepthStencilState> prevDSS;
 		UINT prevRef = 0;
 		dc->OMGetDepthStencilState(prevDSS.GetAddressOf(), &prevRef);
-		ComPtr<ID3D11RasterizerState> prevRS;
+		ComPtr<GfxRasterizerState> prevRS;
 		dc->RSGetState(prevRS.GetAddressOf());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -748,12 +748,12 @@ namespace TreeRenderer
 				if (b.Lists[lod].empty())
 					continue;
 				auto mesh = GetMesh(*b.Desc, lod);
-				ID3D11Buffer* inst = mesh && mesh->VB ? UploadInstances(dc, b.Lists[lod]) : nullptr;
+				GfxBuffer* inst = mesh && mesh->VB ? UploadInstances(dc, b.Lists[lod]) : nullptr;
 				if (!inst)
 					continue;
 				const UINT count = (UINT)b.Lists[lod].size();
 				const UINT strides[2] = { sizeof(TreeVertex), sizeof(InstanceData) }, offsets[2] = { 0, 0 };
-				ID3D11Buffer* vbs[2] = { mesh->VB.Get(), inst };
+				GfxBuffer* vbs[2] = { mesh->VB.Get(), inst };
 				dc->IASetInputLayout(s_MeshLayout.Get());
 				dc->IASetVertexBuffers(0, 2, vbs, strides, offsets);
 				dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
@@ -775,12 +775,12 @@ namespace TreeRenderer
 			}
 			if (imp && !b.Lists[2].empty())
 			{
-				ID3D11Buffer* inst = UploadInstances(dc, b.Lists[2]);
+				GfxBuffer* inst = UploadInstances(dc, b.Lists[2]);
 				if (inst)
 				{
 					PROFILE_GPU("Impostors");
 					const UINT stride = sizeof(InstanceData), offset = 0;
-					ID3D11Buffer* none = nullptr;
+					GfxBuffer* none = nullptr;
 					UINT zero = 0;
 					dc->IASetVertexBuffers(0, 1, &none, &zero, &zero);
 					dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
@@ -793,7 +793,7 @@ namespace TreeRenderer
 			}
 		}
 		// 다음 그리기(다른 효과)를 위해 두 번째 정점 슬롯을 비운다
-		ID3D11Buffer* none = nullptr;
+		GfxBuffer* none = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 		dc->OMSetDepthStencilState(prevDSS.Get(), prevRef);

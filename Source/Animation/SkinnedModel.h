@@ -9,14 +9,14 @@
 class SkinnedModel
 {
 public:
-	SkinnedModel(ComPtr<ID3D11Device> device, TextureMgr& texMgr, const std::string& modelFilename, const std::wstring& texturePath);
+	SkinnedModel(ComPtr<GfxDevice> device, TextureMgr& texMgr, const std::string& modelFilename, const std::wstring& texturePath);
 	~SkinnedModel();
 
 	uint32 SubsetCount;
 
 	std::vector<Material> Mat;
-	std::vector<ComPtr<ID3D11ShaderResourceView>> DiffuseMapSRV;
-	std::vector<ComPtr<ID3D11ShaderResourceView>> NormalMapSRV;
+	std::vector<ComPtr<GfxShaderResourceView>> DiffuseMapSRV;
+	std::vector<ComPtr<GfxShaderResourceView>> NormalMapSRV;
 
 	// Keep CPU copies of the mesh data to read from.  
 	std::vector<Vertex::PosNormalTexTanSkinned> Vertices;

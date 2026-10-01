@@ -18,7 +18,7 @@ size_t MeshGeometry::GpuBytes() const
 	return MemoryStats::ResourceBytes(_vb.Get()) + MemoryStats::ResourceBytes(_ib.Get());
 }
 
-void MeshGeometry::SetIndices(ComPtr<ID3D11Device> device, const USHORT* indices, uint32 count)
+void MeshGeometry::SetIndices(ComPtr<GfxDevice> device, const USHORT* indices, uint32 count)
 {
 	D3D11_BUFFER_DESC ibd;
 	ibd.Usage = D3D11_USAGE_IMMUTABLE;
@@ -39,7 +39,7 @@ void MeshGeometry::SetSubsetTable(std::vector<Subset>& subsetTable)
 	_subsetTable = subsetTable;
 }
 
-void MeshGeometry::Draw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId)
+void MeshGeometry::Draw(ComPtr<GfxContext> dc, uint32 subsetId)
 {
 	uint32 offset = 0;
 
@@ -53,7 +53,7 @@ void MeshGeometry::Draw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId)
 		_subsetTable[subsetId].VertexStart);
 }
 
-void MeshGeometry::InstancingDraw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId, uint32 instancingSize)
+void MeshGeometry::InstancingDraw(ComPtr<GfxContext> dc, uint32 subsetId, uint32 instancingSize)
 {
 	uint32 offset = 0;
 

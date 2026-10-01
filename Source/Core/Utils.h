@@ -25,13 +25,13 @@
 class Utils
 {
 public:
-	static ComPtr<ID3D11ShaderResourceView> LoadTexture(ComPtr<ID3D11Device> device, const wstring& path);
+	static ComPtr<GfxShaderResourceView> LoadTexture(ComPtr<GfxDevice> device, const wstring& path);
 
-	static ComPtr<ID3D11ShaderResourceView> CreateTexture2DArraySRV(
-		ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context,
+	static ComPtr<GfxShaderResourceView> CreateTexture2DArraySRV(
+		ComPtr<GfxDevice> device, ComPtr<GfxContext> context,
 		std::vector<std::wstring>& filenames);
 
-	static ComPtr<ID3D11ShaderResourceView> CreateRandomTexture1DSRV(ComPtr<ID3D11Device> device);
+	static ComPtr<GfxShaderResourceView> CreateRandomTexture1DSRV(ComPtr<GfxDevice> device);
 };
 
 class TextHelper

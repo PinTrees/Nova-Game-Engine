@@ -505,7 +505,7 @@ namespace UISystem
 			s->UpdateVisual(dt, playing);
 	}
 
-	void RenderGameView(ID3D11RenderTargetView* rtv, UINT width, UINT height, int display)
+	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display)
 	{
 		UIRenderer& r = UIRenderer::Get();
 		r.Begin();
@@ -521,7 +521,7 @@ namespace UISystem
 		s_DrawCalls = r.LastDrawCalls();
 	}
 
-	void RenderSceneView(ID3D11RenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition)
+	void RenderSceneView(GfxRenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition)
 	{
 		UIRenderer& r = UIRenderer::Get();
 		r.Begin();
@@ -544,13 +544,13 @@ namespace UISystem
 			p._33 = 1.0f - 1e-6f;
 			p._43 = -nearZ * p._33;
 		}
-		ID3D11DepthStencilView* dsv = nullptr;
+		GfxDepthStencilView* dsv = nullptr;
 		Application::GetI()->GetDeviceContext()->OMGetRenderTargets(0, nullptr, &dsv);
 		r.Flush(rtv, width, height, view * p, nullptr);
 		if (dsv)
 		{
 			// 원래 대상 복원 (이후 Scene 뷰 그리기를 위해)
-			ID3D11RenderTargetView* rtvs[1] = { rtv };
+			GfxRenderTargetView* rtvs[1] = { rtv };
 			Application::GetI()->GetDeviceContext()->OMSetRenderTargets(1, rtvs, dsv);
 			dsv->Release();
 		}

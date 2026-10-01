@@ -5,7 +5,7 @@
 //  - 시스템은 카메라에서 먼 것부터, Alpha Blended + Sort Mode 면 시스템 안의 입자도 정렬
 namespace ParticleRenderer
 {
-	void Render(const Matrix& view, const Matrix& proj, ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv);
+	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv);
 	int LastDrawCalls();
 	int LastParticleCount();
 }

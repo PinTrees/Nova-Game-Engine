@@ -12,8 +12,8 @@ class GameObject;
 namespace UISystem
 {
 	void Update();
-	void RenderGameView(ID3D11RenderTargetView* rtv, UINT width, UINT height, int display);
-	void RenderSceneView(ID3D11RenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition);
+	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display);
+	void RenderSceneView(GfxRenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition);
 
 	// kind: "Canvas", "EventSystem", "Image", "Text", "Button", "Panel", "Toggle", "Slider", "InputField", "ScrollView"
 	GameObject* Create(const std::string& kind, Scene* scene, GameObject* selected);

@@ -24,10 +24,10 @@ namespace
 	struct PreviewTarget
 	{
 		int Size = 0;
-		ComPtr<ID3D11Texture2D> Color, Depth;
-		ComPtr<ID3D11RenderTargetView> Rtv;
-		ComPtr<ID3D11ShaderResourceView> Srv;
-		ComPtr<ID3D11DepthStencilView> Dsv;
+		ComPtr<GfxTexture2D> Color, Depth;
+		ComPtr<GfxRenderTargetView> Rtv;
+		ComPtr<GfxShaderResourceView> Srv;
+		ComPtr<GfxDepthStencilView> Dsv;
 	};
 	std::map<int, PreviewTarget> s_Targets;
 
@@ -69,7 +69,7 @@ namespace
 
 	// 텍스처 행: [■ 썸네일] 레이블 | (필드 열은 호출자가 채운다). 썸네일 클릭 = 선택 창, Project 의 이미지를 끌어 놓기
 	// 주의: ComPtr 의 & 는 포인터를 놓아 버린다(ReleaseAndGetAddressOf) → 호출할 때 std::addressof 로 넘길 것
-	bool TextureRow(const char* label, std::wstring* path, ComPtr<ID3D11ShaderResourceView>* srv, const std::string& key, UnityGUI::FieldRow& row, int indent = 0, bool disabled = false)
+	bool TextureRow(const char* label, std::wstring* path, ComPtr<GfxShaderResourceView>* srv, const std::string& key, UnityGUI::FieldRow& row, int indent = 0, bool disabled = false)
 	{
 		bool changed = false;
 		row = UnityGUI::BeginFieldRow("", indent);
@@ -177,14 +177,14 @@ ImTextureID MaterialInspector::RenderPreview(UMaterial& material, int size, floa
 	auto ctx = Application::GetI()->GetDeviceContext();
 
 	// 지금 묶인 타깃/뷰포트 보관
-	ComPtr<ID3D11RenderTargetView> oldRtv;
-	ComPtr<ID3D11DepthStencilView> oldDsv;
+	ComPtr<GfxRenderTargetView> oldRtv;
+	ComPtr<GfxDepthStencilView> oldDsv;
 	ctx->OMGetRenderTargets(1, oldRtv.GetAddressOf(), oldDsv.GetAddressOf());
 	UINT vpCount = 1;
 	D3D11_VIEWPORT oldVp = {};
 	ctx->RSGetViewports(&vpCount, &oldVp);
 
-	ID3D11RenderTargetView* rtvs[1] = { t->Rtv.Get() };
+	GfxRenderTargetView* rtvs[1] = { t->Rtv.Get() };
 	ctx->OMSetRenderTargets(1, rtvs, t->Dsv.Get());
 	const D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)size, (float)size, 0.0f, 1.0f };
 	ctx->RSSetViewports(1, &vp);
@@ -231,9 +231,9 @@ ImTextureID MaterialInspector::RenderPreview(UMaterial& material, int size, floa
 	for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
 		mesh->ModelMesh.Draw(ctx, i);
 
-	ID3D11ShaderResourceView* nullSRV[16] = {};
+	GfxShaderResourceView* nullSRV[16] = {};
 	ctx->PSSetShaderResources(0, 16, nullSRV);
-	ID3D11RenderTargetView* restore[1] = { oldRtv.Get() };
+	GfxRenderTargetView* restore[1] = { oldRtv.Get() };
 	ctx->OMSetRenderTargets(1, restore, oldDsv.Get());
 	if (vpCount > 0)
 		ctx->RSSetViewports(1, &oldVp);

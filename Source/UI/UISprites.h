@@ -9,7 +9,7 @@ namespace UISprites
 {
 	struct Info
 	{
-		ID3D11ShaderResourceView* Texture = nullptr;
+		GfxShaderResourceView* Texture = nullptr;
 		Vec2 Size = Vec2(0, 0);                 // 픽셀
 		Vec4 Border = Vec4(0, 0, 0, 0);         // 왼쪽, 아래, 오른쪽, 위 (픽셀)
 	};

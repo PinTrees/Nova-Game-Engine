@@ -6,7 +6,7 @@ public:
 	BlurFilter();
 	~BlurFilter();
 
-	ComPtr<ID3D11ShaderResourceView> GetBlurredOutput();
+	ComPtr<GfxShaderResourceView> GetBlurredOutput();
 
 	// Generate Gaussian blur weights.
 	void SetGaussianWeights(float sigma);
@@ -19,12 +19,12 @@ public:
 	/// It is OK to call Init() again to reinitialize the blur filter with a different 
 	/// dimension or format.
 	///</summary>
-	void Init(ComPtr<ID3D11Device> device, uint32 width, uint32 height, DXGI_FORMAT format);
+	void Init(ComPtr<GfxDevice> device, uint32 width, uint32 height, DXGI_FORMAT format);
 
 	///<summary>
 	/// Blurs the input texture blurCount times.  Note that this modifies the input texture, not a copy of it.
 	///</summary>
-	void BlurInPlace(ComPtr<ID3D11DeviceContext> dc, ComPtr<ID3D11ShaderResourceView> inputSRV, ComPtr<ID3D11UnorderedAccessView> inputUAV, int32 blurCount);
+	void BlurInPlace(ComPtr<GfxContext> dc, ComPtr<GfxShaderResourceView> inputSRV, ComPtr<GfxUnorderedAccessView> inputUAV, int32 blurCount);
 
 private:
 
@@ -32,6 +32,6 @@ private:
 	uint32 _height = 0;
 	DXGI_FORMAT _format = {};
 
-	ComPtr<ID3D11ShaderResourceView> _blurredOutputTexSRV;
-	ComPtr<ID3D11UnorderedAccessView> _blurredOutputTexUAV;
+	ComPtr<GfxShaderResourceView> _blurredOutputTexSRV;
+	ComPtr<GfxUnorderedAccessView> _blurredOutputTexUAV;
 };

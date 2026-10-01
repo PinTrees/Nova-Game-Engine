@@ -75,7 +75,7 @@ bool PostProcessPass::CreateTarget(Target& t, UINT w, UINT h, DXGI_FORMAT format
 	return true;
 }
 
-ID3D11RenderTargetView* PostProcessPass::Begin(UINT width, UINT height)
+GfxRenderTargetView* PostProcessPass::Begin(UINT width, UINT height)
 {
 	width = (std::max)(1u, width);
 	height = (std::max)(1u, height);
@@ -105,7 +105,7 @@ bool PostProcessPass::IsNeeded(const VolumeStack& stack, const CameraOptions& op
 	return false;
 }
 
-void PostProcessPass::SetSRV(const char* name, ID3D11ShaderResourceView* srv)
+void PostProcessPass::SetSRV(const char* name, GfxShaderResourceView* srv)
 {
 	if (auto* v = m_Effect->GetFX()->GetVariableByName(name)->AsShaderResource(); v && v->IsValid())
 		v->SetResource(srv);
@@ -118,10 +118,10 @@ void PostProcessPass::SetVec(const char* name, float x, float y, float z, float 
 		v->SetFloatVector(f);
 }
 
-void PostProcessPass::Draw(const char* tech, ID3D11RenderTargetView* rtv, UINT w, UINT h)
+void PostProcessPass::Draw(const char* tech, GfxRenderTargetView* rtv, UINT w, UINT h)
 {
 	auto ctx = Application::GetI()->GetDeviceContext();
-	ID3D11RenderTargetView* rtvs[1] = { rtv };
+	GfxRenderTargetView* rtvs[1] = { rtv };
 	ctx->OMSetRenderTargets(1, rtvs, nullptr);
 	D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
 	ctx->RSSetViewports(1, &vp);
@@ -131,7 +131,7 @@ void PostProcessPass::Draw(const char* tech, ID3D11RenderTargetView* rtv, UINT w
 	t->GetPassByIndex(0)->Apply(0, ctx);
 	ctx->Draw(3, 0);
 	// 다음 단계에서 이 타깃을 입력으로 쓰므로 바인딩을 풀어 둔다
-	ID3D11ShaderResourceView* nullSRV[8] = {};
+	GfxShaderResourceView* nullSRV[8] = {};
 	ctx->PSSetShaderResources(0, 8, nullSRV);
 	ctx->OMSetRenderTargets(0, nullptr, nullptr);
 }
@@ -181,7 +181,7 @@ void PostProcessPass::UpdateAutoExposure(const VolumeComponent& exposure, float 
 	m_ExposureValid = true;
 }
 
-void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& options, ID3D11RenderTargetView* output)
+void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& options, GfxRenderTargetView* output)
 {
 	auto ctx = Application::GetI()->GetDeviceContext();
 	if (!InitEffect() || m_Scene.SRV == nullptr || output == nullptr)
@@ -244,7 +244,7 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 			Draw("BloomDownTech", m_Down[i].RTV.Get(), m_Down[i].W, m_Down[i].H);
 		}
 		// 가장 작은 단계부터 올라오며 섞는다: up[i] = lerp(down[i], up[i+1], scatter)
-		ID3D11ShaderResourceView* lowSRV = m_Down[levels - 1].SRV.Get();
+		GfxShaderResourceView* lowSRV = m_Down[levels - 1].SRV.Get();
 		for (int i = levels - 2; i >= 0; --i)
 		{
 			SetSRV("gSource", m_Down[i].SRV.Get());

@@ -11,7 +11,7 @@ BlurFilter::~BlurFilter()
 {
 }
 
-ComPtr<ID3D11ShaderResourceView> BlurFilter::GetBlurredOutput()
+ComPtr<GfxShaderResourceView> BlurFilter::GetBlurredOutput()
 {
 	return _blurredOutputTexSRV;
 }
@@ -44,14 +44,14 @@ void BlurFilter::SetWeights(const float weights[9])
 	Effects::BlurFX->SetWeights(weights);
 }
 
-void BlurFilter::Init(ComPtr<ID3D11Device> device, uint32 width, uint32 height, DXGI_FORMAT format)
+void BlurFilter::Init(ComPtr<GfxDevice> device, uint32 width, uint32 height, DXGI_FORMAT format)
 {
 	_width = width;
 	_height = height;
 	_format = format;
 
 	// Note, compressed formats cannot be used for UAV.  We get error like:
-	// ERROR: ID3D11Device::CreateTexture2D: The format (0x4d, BC3_UNORM) 
+	// ERROR: GfxDevice::CreateTexture2D: The format (0x4d, BC3_UNORM) 
 	// cannot be bound as an UnorderedAccessView, or cast to a format that
 	// could be bound as an UnorderedAccessView.  Therefore this format 
 	// does not support D3D11_BIND_UNORDERED_ACCESS.
@@ -69,7 +69,7 @@ void BlurFilter::Init(ComPtr<ID3D11Device> device, uint32 width, uint32 height, 
 	blurredTexDesc.CPUAccessFlags = 0;
 	blurredTexDesc.MiscFlags = 0;
 
-	ComPtr<ID3D11Texture2D> blurredTex;
+	ComPtr<GfxTexture2D> blurredTex;
 	HR(device->CreateTexture2D(&blurredTexDesc, 0, blurredTex.GetAddressOf()));
 
 	D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
@@ -86,9 +86,9 @@ void BlurFilter::Init(ComPtr<ID3D11Device> device, uint32 width, uint32 height, 
 	HR(device->CreateUnorderedAccessView(blurredTex.Get(), &uavDesc, _blurredOutputTexUAV.GetAddressOf()));
 }
 
-void BlurFilter::BlurInPlace(ComPtr<ID3D11DeviceContext> dc,
-	ComPtr<ID3D11ShaderResourceView> inputSRV,
-	ComPtr<ID3D11UnorderedAccessView> inputUAV,
+void BlurFilter::BlurInPlace(ComPtr<GfxContext> dc,
+	ComPtr<GfxShaderResourceView> inputSRV,
+	ComPtr<GfxUnorderedAccessView> inputUAV,
 	int32 blurCount)
 {
 	//
@@ -114,12 +114,12 @@ void BlurFilter::BlurInPlace(ComPtr<ID3D11DeviceContext> dc,
 
 
 		// Unbind the input texture from the CS for good housekeeping.
-		ID3D11ShaderResourceView* nullSRV[1] = { 0 };
+		GfxShaderResourceView* nullSRV[1] = { 0 };
 		dc->CSSetShaderResources(0, 1, nullSRV);
 
 		// Unbind output from compute shader (we are going to use this output as an input in the next pass, 
 		// and a resource cannot be both an output and input at the same time.
-		ID3D11UnorderedAccessView* nullUAV[1] = { 0 };
+		GfxUnorderedAccessView* nullUAV[1] = { 0 };
 		dc->CSSetUnorderedAccessViews(0, 1, nullUAV, 0);
 
 		// VERTICAL blur pass.

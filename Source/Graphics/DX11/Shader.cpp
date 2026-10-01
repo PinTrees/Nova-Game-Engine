@@ -4,7 +4,7 @@
 #include "ShaderCache.h"
 #include "Utils.h" 
 
-Shader::Shader(ComPtr<ID3D11Device> device, const std::wstring& filename)
+Shader::Shader(ComPtr<GfxDevice> device, const std::wstring& filename)
 {
 	(void)device;
 	m_FileName = filename;
@@ -25,7 +25,7 @@ Shader::Shader(ComPtr<ID3D11Device> device, const std::wstring& filename)
 
 vector<Shader*> Shaders::m_Shaders = {};
 
-void Shaders::InitAll(ComPtr<ID3D11Device> device)
+void Shaders::InitAll(ComPtr<GfxDevice> device)
 {
 	m_Shaders.push_back(new Shader(device, L"../Shaders/28. Basic.fx"));
 	m_Shaders.push_back(new NormalMapSkinnedShader(device, L"../Shaders/31. NormalMapSkinned.fx"));

@@ -2,7 +2,7 @@
 #include "ShadowMap.h"
 #include "Utils.h"
 
-ShadowMap::ShadowMap(ComPtr<ID3D11Device> device, uint32 width, uint32 height)
+ShadowMap::ShadowMap(ComPtr<GfxDevice> device, uint32 width, uint32 height)
 	: m_Device(device), m_DefaultSize((std::max)(width, height))
 {
 	m_Targets[(uint32)LightType::Directional].resize(LIGHT_SIZE);
@@ -78,17 +78,17 @@ size_t ShadowMap::MemoryBytes() const
 	return bytes;
 }
 
-void ShadowMap::Bind(ID3D11DeviceContext* dc, Target& t, int slice)
+void ShadowMap::Bind(GfxContext* dc, Target& t, int slice)
 {
 	D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)t.Size, (float)t.Size, 0.0f, 1.0f };
 	dc->RSSetViewports(1, &vp);
 	// 깊이만 그린다 (색 타깃 없음)
-	ID3D11RenderTargetView* renderTargets[1] = { nullptr };
+	GfxRenderTargetView* renderTargets[1] = { nullptr };
 	dc->OMSetRenderTargets(1, renderTargets, t.Dsv[slice].Get());
 	dc->ClearDepthStencilView(t.Dsv[slice].Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 }
 
-void ShadowMap::BindSlice(ID3D11DeviceContext* dc, LightType type, int lightIndex, int slice, uint32 resolution)
+void ShadowMap::BindSlice(GfxContext* dc, LightType type, int lightIndex, int slice, uint32 resolution)
 {
 	const uint32 slices = type == LightType::Directional ? kMaxCascades : (type == LightType::Point ? 6 : 1);
 	Target& t = m_Targets[(uint32)type][lightIndex];
@@ -97,9 +97,9 @@ void ShadowMap::BindSlice(ID3D11DeviceContext* dc, LightType type, int lightInde
 	Bind(dc, t, slice);
 }
 
-vector<ID3D11ShaderResourceView*> ShadowMap::DepthMapSRVArray(LightType type)
+vector<GfxShaderResourceView*> ShadowMap::DepthMapSRVArray(LightType type)
 {
-	vector<ID3D11ShaderResourceView*> rawSRVs;
+	vector<GfxShaderResourceView*> rawSRVs;
 	for (const Target& t : m_Targets[(uint32)type])
 		rawSRVs.push_back(t.Srv.Get());
 	return rawSRVs;

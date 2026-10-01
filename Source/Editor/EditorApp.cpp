@@ -229,7 +229,7 @@ void EditorApp::RenderApplication()
 
 }
 
-ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
+GfxDepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 {
 	// 필요한 크기보다 작을 때만 다시 만든다 (커지기만 함). 창 백버퍼 크기 이상으로 유지
 	width = (std::max)(width, (UINT)_clientWidth);
@@ -271,7 +271,7 @@ ID3D11DepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 }
 
 // 물: 뷰 깊이 버퍼(읽기 전용 DSV + SRV)와 첫 방향광·하늘로 WaterRenderer 를 부른다
-void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 	const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, ShadowMap* shadowMap, const void* shadowFrame,
 	const void* atmosphere)
 {
@@ -308,7 +308,7 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, I
 	_deviceContext->RSSetViewports(1, &viewport);
 }
 
-void EditorApp::DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv,
+void EditorApp::DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 	const D3D11_VIEWPORT& viewport, bool skyVisible)
 {
 	const auto& p = *static_cast<const AtmospherePass::Params*>(params);
@@ -336,7 +336,7 @@ static void ApplyIndirectLighting(const VolumeStack& stack)
 static ShadowRenderer::FrameData s_GameShadow;
 static ShadowRenderer::FrameData s_EditorShadow;
 
-void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera)
+void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* camera)
 {
 	FRAME_PROFILE("GameView render");
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
@@ -359,7 +359,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
 	auto viewport = RenderManager::GetI()->Viewport;
 	// 뷰(렌더 타깃) 크기의 깊이 버퍼: 창 백버퍼보다 큰 해상도(예: 1080x1920)로 그릴 때도 깊이가 맞도록
-	ID3D11DepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
+	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
 	// 그림자 맵: 카메라 위치의 Volume 값(Shadows)을 먼저 섞어 캐스케이드/해상도/바이어스를 정한다
@@ -410,10 +410,10 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	postOptions.Dithering = camera->DitheringEnabled();
 	postOptions.StopNaNs = camera->StopNaNsEnabled();
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
-	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
+	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
 	phase.Next("Opaque");
-	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
+	GfxRenderTargetView* renderTargets[1] = { sceneTarget };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
@@ -481,7 +481,7 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
-	ID3D11ShaderResourceView* nullSRV[128] = { 0 };
+	GfxShaderResourceView* nullSRV[128] = { 0 };
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
 
 	if (usePost)
@@ -489,13 +489,13 @@ void EditorApp::OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* 
 		phase.Next("Post Processing");
 		post.Execute(stack, postOptions, renderTargetView);
 		// 이후 그리기(있다면)를 위해 원래 타깃과 뷰포트로 되돌린다
-		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
+		GfxRenderTargetView* outTargets[1] = { renderTargetView };
 		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
 }
 
-void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera)
+void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, EditorCamera* camera)
 {
 	FRAME_PROFILE("SceneView render");
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
@@ -515,7 +515,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 
 	auto shadowMap = RenderManager::GetI()->EditorShadowMap;
 	auto viewport = RenderManager::GetI()->EditorViewport;
-	ID3D11DepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
+	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
 	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드)
@@ -561,10 +561,10 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = SceneToolbar::PostProcessingVisible() && !RenderManager::GetI()->WireFrameMode;
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
-	ID3D11RenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
+	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
 	phase.Next("Opaque");
-	ID3D11RenderTargetView* renderTargets[1] = { sceneTarget };
+	GfxRenderTargetView* renderTargets[1] = { sceneTarget };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
 	_deviceContext->RSSetViewports(1, &viewport);
 	{
@@ -646,14 +646,14 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
-	ID3D11ShaderResourceView* nullSRV[128] = { 0 };
+	GfxShaderResourceView* nullSRV[128] = { 0 };
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
 
 	if (usePost)
 	{
 		phase.Next("Post Processing");
 		post.Execute(stack, postOptions, renderTargetView);
-		ID3D11RenderTargetView* outTargets[1] = { renderTargetView };
+		GfxRenderTargetView* outTargets[1] = { renderTargetView };
 		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
@@ -661,7 +661,7 @@ void EditorApp::_Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, 
 	phase.Next("UI");
 	// UI 캔버스: Unity 처럼 월드(1 픽셀 = 1 단위)에 놓인 사각형으로 (씬 깊이로 가려짐)
 	{
-		ID3D11RenderTargetView* uiTargets[1] = { renderTargetView };
+		GfxRenderTargetView* uiTargets[1] = { renderTargetView };
 		_deviceContext->OMSetRenderTargets(1, uiTargets, viewDsv);
 		const XMFLOAT3 cp = camera->GetPosition();
 		UISystem::RenderSceneView(renderTargetView, (UINT)viewport.Width, (UINT)viewport.Height, camera->View(), camera->Proj(), Vec3(cp.x, cp.y, cp.z));
@@ -861,7 +861,7 @@ void EditorApp::DrawSceneToShadowMap()
 	//_deviceContext->RSSetState(0);
 }
 
-void EditorApp::DrawScreenQuad(ComPtr<ID3D11ShaderResourceView> srv)
+void EditorApp::DrawScreenQuad(ComPtr<GfxShaderResourceView> srv)
 {
 	uint32 stride = sizeof(Vertex::Basic32);
 	uint32 offset = 0;

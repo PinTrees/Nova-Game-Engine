@@ -586,9 +586,9 @@ void GameViewEditorWindow::EnsureTarget(UINT width, UINT height, Camera* camera)
 void GameViewEditorWindow::RenderScene(Camera* camera)
 {
 	auto context = Application::GetI()->GetDeviceContext();
-	ID3D11RenderTargetView* oldRTV = nullptr;
+	GfxRenderTargetView* oldRTV = nullptr;
 	context->OMGetRenderTargets(1, &oldRTV, nullptr);
-	ID3D11RenderTargetView* rtv = m_RTV.Get();
+	GfxRenderTargetView* rtv = m_RTV.Get();
 	context->OMSetRenderTargets(1, &rtv, nullptr);
 
 	camera->SetAspect((float)m_Width / (float)m_Height);

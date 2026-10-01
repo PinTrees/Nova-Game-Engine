@@ -4,12 +4,12 @@
 
 namespace
 {
-	std::map<std::string, ComPtr<ID3D11ShaderResourceView>> s_Builtins;
+	std::map<std::string, ComPtr<GfxShaderResourceView>> s_Builtins;
 
 	const char* kNames[] = { "builtin:Default-Particle", "builtin:Glow", "builtin:Smoke", "builtin:Spark", "builtin:Flame-Sheet", "builtin:Trail" };
 
 	// 밉맵까지 만든다 (멀리 있는 작은 입자가 반짝이지 않게)
-	ComPtr<ID3D11ShaderResourceView> MakeTexture(const std::vector<uint32>& rgba, int w, int h)
+	ComPtr<GfxShaderResourceView> MakeTexture(const std::vector<uint32>& rgba, int w, int h)
 	{
 		auto device = Application::GetI()->GetDevice();
 		auto ctx = Application::GetI()->GetDeviceContext();
@@ -23,8 +23,8 @@ namespace
 		td.Usage = D3D11_USAGE_DEFAULT;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 		td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
-		ComPtr<ID3D11Texture2D> tex;
-		ComPtr<ID3D11ShaderResourceView> srv;
+		ComPtr<GfxTexture2D> tex;
+		ComPtr<GfxShaderResourceView> srv;
 		if (FAILED(device->CreateTexture2D(&td, nullptr, tex.GetAddressOf())))
 			return srv;
 		ctx->UpdateSubresource(tex.Get(), 0, nullptr, rgba.data(), (UINT)w * 4, 0);
@@ -206,7 +206,7 @@ namespace ParticleTextures
 {
 	bool IsBuiltin(const std::string& path) { return path.rfind("builtin:", 0) == 0; }
 
-	ID3D11ShaderResourceView* Get(const std::string& path)
+	GfxShaderResourceView* Get(const std::string& path)
 	{
 		if (path.empty() || IsBuiltin(path))
 		{

@@ -17,7 +17,7 @@ namespace UIFont
 	struct Atlas
 	{
 		ImFont* Font = nullptr;
-		ID3D11ShaderResourceView* Texture = nullptr;
+		GfxShaderResourceView* Texture = nullptr;
 		float PixelSize = 16.0f;
 		float Ascent = 0.0f, Descent = 0.0f;   // 픽셀
 		const ImFontGlyph* Glyph(unsigned int codepoint) const;

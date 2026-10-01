@@ -41,9 +41,9 @@ void StreamOutParticles::SetEmitDir(const XMFLOAT3& emitDirW)
 	_emitDirW = emitDirW;
 }
 
-void StreamOutParticles::Init(ComPtr<ID3D11Device> device, shared_ptr<ParticleEffect> fx,
-	ComPtr<ID3D11ShaderResourceView> texArraySRV,
-	ComPtr<ID3D11ShaderResourceView> randomTexSRV,
+void StreamOutParticles::Init(ComPtr<GfxDevice> device, shared_ptr<ParticleEffect> fx,
+	ComPtr<GfxShaderResourceView> texArraySRV,
+	ComPtr<GfxShaderResourceView> randomTexSRV,
 	uint32 maxParticles)
 {
 	_maxParticles = maxParticles;
@@ -70,7 +70,7 @@ void StreamOutParticles::Update(float dt, float gameTime)
 	_age += dt;
 }
 
-void StreamOutParticles::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& cam)
+void StreamOutParticles::Draw(ComPtr<GfxContext> dc, const Camera& cam)
 {
 	XMMATRIX VP = cam.ViewProj();
 
@@ -126,7 +126,7 @@ void StreamOutParticles::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& cam)
 	}
 
 	// done streaming-out--unbind the vertex buffer
-	ID3D11Buffer* bufferArray[1] = { 0 };
+	GfxBuffer* bufferArray[1] = { 0 };
 	dc->SOSetTargets(1, bufferArray, &offset);
 
 	// ping-pong the vertex buffers
@@ -146,7 +146,7 @@ void StreamOutParticles::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& cam)
 	}
 }
 
-void StreamOutParticles::BuildVB(ComPtr<ID3D11Device> device)
+void StreamOutParticles::BuildVB(ComPtr<GfxDevice> device)
 {
 	//
 	// Create the buffer to kick-off the particle system.

@@ -5,7 +5,7 @@
 
 namespace MemoryStats
 {
-	size_t ResourceBytes(ID3D11Resource* resource)
+	size_t ResourceBytes(GfxResource* resource)
 	{
 		if (resource == nullptr)
 			return 0;
@@ -22,7 +22,7 @@ namespace MemoryStats
 		{
 		case D3D11_RESOURCE_DIMENSION_BUFFER:
 		{
-			ComPtr<ID3D11Buffer> b;
+			ComPtr<GfxBuffer> b;
 			if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(b.GetAddressOf()))))
 			{
 				D3D11_BUFFER_DESC d;
@@ -33,7 +33,7 @@ namespace MemoryStats
 		}
 		case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
 		{
-			ComPtr<ID3D11Texture2D> t;
+			ComPtr<GfxTexture2D> t;
 			if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(t.GetAddressOf()))))
 			{
 				D3D11_TEXTURE2D_DESC d;
@@ -47,7 +47,7 @@ namespace MemoryStats
 		}
 		case D3D11_RESOURCE_DIMENSION_TEXTURE3D:
 		{
-			ComPtr<ID3D11Texture3D> t;
+			ComPtr<GfxTexture3D> t;
 			if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(t.GetAddressOf()))))
 			{
 				D3D11_TEXTURE3D_DESC d;
@@ -59,7 +59,7 @@ namespace MemoryStats
 		}
 		case D3D11_RESOURCE_DIMENSION_TEXTURE1D:
 		{
-			ComPtr<ID3D11Texture1D> t;
+			ComPtr<GfxTexture1D> t;
 			if (SUCCEEDED(resource->QueryInterface(IID_PPV_ARGS(t.GetAddressOf()))))
 			{
 				D3D11_TEXTURE1D_DESC d;
@@ -76,11 +76,11 @@ namespace MemoryStats
 		return bytes;
 	}
 
-	size_t ViewBytes(ID3D11View* view)
+	size_t ViewBytes(GfxView* view)
 	{
 		if (view == nullptr)
 			return 0;
-		ComPtr<ID3D11Resource> res;
+		ComPtr<GfxResource> res;
 		view->GetResource(res.GetAddressOf());
 		return ResourceBytes(res.Get());
 	}
@@ -102,7 +102,7 @@ namespace MemoryStats
 			s_Tried = true;
 			ComPtr<IDXGIDevice> dxgiDevice;
 			ComPtr<IDXGIAdapter> adapter;
-			if (SUCCEEDED(Application::GetI()->GetDevice()->QueryInterface(IID_PPV_ARGS(dxgiDevice.GetAddressOf()))) &&
+			if (SUCCEEDED(Application::GetI()->GetDevice()->Native() && static_cast<IUnknown*>(Application::GetI()->GetDevice()->Native())->QueryInterface(IID_PPV_ARGS(dxgiDevice.GetAddressOf()))) &&
 				SUCCEEDED(dxgiDevice->GetAdapter(adapter.GetAddressOf())))
 				adapter->QueryInterface(IID_PPV_ARGS(s_Adapter.GetAddressOf()));
 		}

@@ -8,10 +8,10 @@ namespace
 {
 	using Info = UISprites::Info;
 	std::map<std::string, Info> s_Builtins;
-	std::vector<ComPtr<ID3D11ShaderResourceView>> s_Keep;
+	std::vector<ComPtr<GfxShaderResourceView>> s_Keep;
 	std::map<std::string, Info> s_Files;
 
-	ComPtr<ID3D11ShaderResourceView> MakeTexture(const std::vector<uint32>& rgba, int w, int h)
+	ComPtr<GfxShaderResourceView> MakeTexture(const std::vector<uint32>& rgba, int w, int h)
 	{
 		D3D11_TEXTURE2D_DESC td = {};
 		td.Width = w;
@@ -22,8 +22,8 @@ namespace
 		td.Usage = D3D11_USAGE_IMMUTABLE;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		D3D11_SUBRESOURCE_DATA data = { rgba.data(), (UINT)w * 4, 0 };
-		ComPtr<ID3D11Texture2D> tex;
-		ComPtr<ID3D11ShaderResourceView> srv;
+		ComPtr<GfxTexture2D> tex;
+		ComPtr<GfxShaderResourceView> srv;
 		auto device = Application::GetI()->GetDevice();
 		if (SUCCEEDED(device->CreateTexture2D(&td, &data, tex.GetAddressOf())))
 			device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf());
@@ -142,14 +142,14 @@ namespace UISprites
 		if (it == s_Files.end())
 		{
 			Info info;
-			ComPtr<ID3D11ShaderResourceView> srv = ResourceManager::GetI()->LoadTexture(string_to_wstring(path));   // 캐시됨
+			ComPtr<GfxShaderResourceView> srv = ResourceManager::GetI()->LoadTexture(string_to_wstring(path));   // 캐시됨
 			if (srv)
 			{
 				s_Keep.push_back(srv);
 				info.Texture = srv.Get();
-				ComPtr<ID3D11Resource> res;
+				ComPtr<GfxResource> res;
 				srv->GetResource(res.GetAddressOf());
-				ComPtr<ID3D11Texture2D> tex;
+				ComPtr<GfxTexture2D> tex;
 				if (res && SUCCEEDED(res.As(&tex)))
 				{
 					D3D11_TEXTURE2D_DESC d;

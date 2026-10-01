@@ -55,7 +55,7 @@ private:
 	int  m_NewTemplate = 0;
 	std::string m_NewError;
 
-	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_Logo;   // NOVA 로고
+	Microsoft::WRL::ComPtr<GfxShaderResourceView> m_Logo;   // NOVA 로고
 
 	std::string m_Status;
 	bool   m_StatusIsError = false;

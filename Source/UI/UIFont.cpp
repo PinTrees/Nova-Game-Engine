@@ -13,7 +13,7 @@ namespace
 		ImFontAtlas* FontAtlas = nullptr;
 		std::set<unsigned int> Chars;
 		ImVector<ImWchar> Ranges;          // Build 가 끝날 때까지 살아 있어야 한다
-		ComPtr<ID3D11ShaderResourceView> SRV;
+		ComPtr<GfxShaderResourceView> SRV;
 		UIFont::Atlas Public;
 		bool Failed = false;
 
@@ -63,7 +63,7 @@ namespace
 		td.Usage = D3D11_USAGE_IMMUTABLE;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		D3D11_SUBRESOURCE_DATA data = { pixels, (UINT)w * 4, 0 };
-		ComPtr<ID3D11Texture2D> tex;
+		ComPtr<GfxTexture2D> tex;
 		auto device = Application::GetI()->GetDevice();
 		if (FAILED(device->CreateTexture2D(&td, &data, tex.GetAddressOf())) ||
 			FAILED(device->CreateShaderResourceView(tex.Get(), nullptr, e.SRV.GetAddressOf())))

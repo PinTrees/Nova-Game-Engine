@@ -6,7 +6,7 @@
 class Effect
 {
 public:
-	Effect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	Effect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	virtual ~Effect();
 
 private:
@@ -24,7 +24,7 @@ protected:
 class BasicEffect : public Effect
 {
 public:
-	BasicEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	BasicEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~BasicEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -40,10 +40,10 @@ public:
 	void SetDirLights(const DirectionalLight* lights) { DirLights->SetRawValue(lights, 0, 3 * sizeof(DirectionalLight)); }
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
 	
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
-	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
-	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
-	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetShadowMap(GfxShaderResourceView* tex) { ShadowMap->SetResource(tex); }
+	void SetSsaoMap(GfxShaderResourceView* tex) { SsaoMap->SetResource(tex); }
+	void SetCubeMap(GfxShaderResourceView* tex) { CubeMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> Light1Tech;
 	ComPtr<FxTechnique> Light2Tech;
@@ -124,7 +124,7 @@ public:
 class TreeSpriteEffect : public Effect
 {
 public:
-	TreeSpriteEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	TreeSpriteEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~TreeSpriteEffect();
 
 	void SetViewProj(CXMMATRIX M) { ViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -134,7 +134,7 @@ public:
 	void SetFogRange(float f) { FogRange->SetFloat(f); }
 	void SetDirLights(const DirectionalLight* lights) { DirLights->SetRawValue(lights, 0, 3 * sizeof(DirectionalLight)); }
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
-	void SetTreeTextureMapArray(ID3D11ShaderResourceView* tex) { TreeTextureMapArray->SetResource(tex); }
+	void SetTreeTextureMapArray(GfxShaderResourceView* tex) { TreeTextureMapArray->SetResource(tex); }
 
 	ComPtr<FxTechnique> Light3Tech;
 	ComPtr<FxTechnique> Light3TexAlphaClipTech;
@@ -154,12 +154,12 @@ public:
 class VecAddEffect : public Effect
 {
 public:
-	VecAddEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	VecAddEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~VecAddEffect();
 
-	void SetInputA(ComPtr<ID3D11ShaderResourceView> srv) { InputA->SetResource(srv.Get()); }
-	void SetInputB(ComPtr<ID3D11ShaderResourceView> srv) { InputB->SetResource(srv.Get()); }
-	void SetOutput(ComPtr<ID3D11UnorderedAccessView> uav) { Output->SetUnorderedAccessView(uav.Get()); }
+	void SetInputA(ComPtr<GfxShaderResourceView> srv) { InputA->SetResource(srv.Get()); }
+	void SetInputB(ComPtr<GfxShaderResourceView> srv) { InputB->SetResource(srv.Get()); }
+	void SetOutput(ComPtr<GfxUnorderedAccessView> uav) { Output->SetUnorderedAccessView(uav.Get()); }
 
 	ComPtr<FxTechnique> VecAddTech;
 
@@ -171,12 +171,12 @@ public:
 class BlurEffect : public Effect
 {
 public:
-	BlurEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	BlurEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~BlurEffect();
 
 	void SetWeights(const float weights[9]) { Weights->SetFloatArray(weights, 0, 9); }
-	void SetInputMap(ComPtr<ID3D11ShaderResourceView> tex) { InputMap->SetResource(tex.Get()); }
-	void SetOutputMap(ComPtr<ID3D11UnorderedAccessView> tex) { OutputMap->SetUnorderedAccessView(tex.Get()); }
+	void SetInputMap(ComPtr<GfxShaderResourceView> tex) { InputMap->SetResource(tex.Get()); }
+	void SetOutputMap(ComPtr<GfxUnorderedAccessView> tex) { OutputMap->SetUnorderedAccessView(tex.Get()); }
 
 	ComPtr<FxTechnique> HorzBlurTech;
 	ComPtr<FxTechnique> VertBlurTech;
@@ -189,7 +189,7 @@ public:
 class TessellationEffect : public Effect
 {
 public:
-	TessellationEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	TessellationEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~TessellationEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -202,7 +202,7 @@ public:
 	void SetFogRange(float f) { FogRange->SetFloat(f); }
 	void SetDirLights(const DirectionalLight* lights) { DirLights->SetRawValue(lights, 0, 3 * sizeof(DirectionalLight)); }
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> TessTech;
 
@@ -223,7 +223,7 @@ public:
 class BezierTessellationEffect : public Effect
 {
 public:
-	BezierTessellationEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	BezierTessellationEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~BezierTessellationEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -236,7 +236,7 @@ public:
 	void SetFogRange(float f) { FogRange->SetFloat(f); }
 	void SetDirLights(const DirectionalLight* lights) { DirLights->SetRawValue(lights, 0, 3 * sizeof(DirectionalLight)); }
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> TessTech;
 
@@ -257,7 +257,7 @@ public:
 class InstancedBasicEffect : public Effect
 {
 public:
-	InstancedBasicEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	InstancedBasicEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~InstancedBasicEffect();
 	
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -330,21 +330,21 @@ public:
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
 	void SetShaderSetting(const ShaderSetting& setting) { Setting->SetRawValue(&setting, 0, sizeof(ShaderSetting)); }
 	
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 	
-	void SetDirShadowMaps(ID3D11ShaderResourceView** tex, int cnt) { DirShadowMaps->SetResourceArray(tex, 0, cnt); }
-	void SetSpotShadowMaps(ID3D11ShaderResourceView** tex, int cnt) { SpotShadowMaps->SetResourceArray(tex, 0, cnt); }
-	void SetPointShadowMaps(ID3D11ShaderResourceView** tex, int cnt) { PointShadowMaps->SetResourceArray(tex, 0, cnt); }
+	void SetDirShadowMaps(GfxShaderResourceView** tex, int cnt) { DirShadowMaps->SetResourceArray(tex, 0, cnt); }
+	void SetSpotShadowMaps(GfxShaderResourceView** tex, int cnt) { SpotShadowMaps->SetResourceArray(tex, 0, cnt); }
+	void SetPointShadowMaps(GfxShaderResourceView** tex, int cnt) { PointShadowMaps->SetResourceArray(tex, 0, cnt); }
 
-	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
-	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
-	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
+	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
+	void SetSsaoMap(GfxShaderResourceView* tex) { SsaoMap->SetResource(tex); }
+	void SetCubeMap(GfxShaderResourceView* tex) { CubeMap->SetResource(tex); }
 
 	// URP Lit (PBR) 재질 값과 추가 텍스처
 	void SetPbr(const PbrMaterial& m) { Pbr->SetRawValue(&m, 0, sizeof(PbrMaterial)); }
-	void SetMetallicMap(ID3D11ShaderResourceView* tex) { MetallicMap->SetResource(tex); }
-	void SetOcclusionMap(ID3D11ShaderResourceView* tex) { OcclusionMap->SetResource(tex); }
-	void SetEmissionMap(ID3D11ShaderResourceView* tex) { EmissionMap->SetResource(tex); }
+	void SetMetallicMap(GfxShaderResourceView* tex) { MetallicMap->SetResource(tex); }
+	void SetOcclusionMap(GfxShaderResourceView* tex) { OcclusionMap->SetResource(tex); }
+	void SetEmissionMap(GfxShaderResourceView* tex) { EmissionMap->SetResource(tex); }
 	ComPtr<FxVar> Pbr;
 	ComPtr<FxVar> MetallicMap;
 	ComPtr<FxVar> OcclusionMap;
@@ -404,11 +404,11 @@ public:
 class SkyEffect : public Effect
 {
 public:
-	SkyEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	SkyEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~SkyEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
-	void SetCubeMap(ID3D11ShaderResourceView* cubemap) { CubeMap->SetResource(cubemap); }
+	void SetCubeMap(GfxShaderResourceView* cubemap) { CubeMap->SetResource(cubemap); }
 
 	ComPtr<FxTechnique> SkyTech;
 	ComPtr<FxVar> WorldViewProj;
@@ -418,7 +418,7 @@ public:
 class NormalMapEffect : public Effect
 {
 public:
-	NormalMapEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	NormalMapEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~NormalMapEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -433,11 +433,11 @@ public:
 	void SetFogRange(float f) { FogRange->SetFloat(f); }
 	void SetDirLights(const DirectionalLight* lights) { DirLights->SetRawValue(lights, 0, 3 * sizeof(DirectionalLight)); }
 	void SetMaterial(const Material& mat) { Mat->SetRawValue(&mat, 0, sizeof(Material)); }
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
-	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
-	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
-	void SetSsaoMap(ID3D11ShaderResourceView* tex) { SsaoMap->SetResource(tex); }
-	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetCubeMap(GfxShaderResourceView* tex) { CubeMap->SetResource(tex); }
+	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
+	void SetSsaoMap(GfxShaderResourceView* tex) { SsaoMap->SetResource(tex); }
+	void SetShadowMap(GfxShaderResourceView* tex) { ShadowMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> Light1Tech;
 	ComPtr<FxTechnique> Light2Tech;
@@ -507,7 +507,7 @@ public:
 class DisplacementMapEffect : public Effect
 {
 public:
-	DisplacementMapEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	DisplacementMapEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~DisplacementMapEffect();
 
 	void SetViewProj(CXMMATRIX M) { ViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -528,10 +528,10 @@ public:
 	void SetMinTessFactor(float f) { MinTessFactor->SetFloat(f); }
 	void SetMaxTessFactor(float f) { MaxTessFactor->SetFloat(f); }
 
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
-	void SetCubeMap(ID3D11ShaderResourceView* tex) { CubeMap->SetResource(tex); }
-	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
-	void SetShadowMap(ID3D11ShaderResourceView* tex) { ShadowMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetCubeMap(GfxShaderResourceView* tex) { CubeMap->SetResource(tex); }
+	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
+	void SetShadowMap(GfxShaderResourceView* tex) { ShadowMap->SetResource(tex); }
 	
 	ComPtr<FxTechnique> Light1Tech;
 	ComPtr<FxTechnique> Light2Tech;
@@ -606,7 +606,7 @@ public:
 class TerrainEffect : public Effect
 {
 public:
-	TerrainEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	TerrainEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~TerrainEffect();
 
 	void SetViewProj(CXMMATRIX M) { ViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -626,9 +626,9 @@ public:
 	void SetWorldCellSpace(float f) { WorldCellSpace->SetFloat(f); }
 	void SetWorldFrustumPlanes(XMFLOAT4 planes[6]) { WorldFrustumPlanes->SetFloatVectorArray(reinterpret_cast<float*>(planes), 0, 6); }
 
-	void SetLayerMapArray(ID3D11ShaderResourceView* tex) { LayerMapArray->SetResource(tex); }
-	void SetBlendMap(ID3D11ShaderResourceView* tex) { BlendMap->SetResource(tex); }
-	void SetHeightMap(ID3D11ShaderResourceView* tex) { HeightMap->SetResource(tex); }
+	void SetLayerMapArray(GfxShaderResourceView* tex) { LayerMapArray->SetResource(tex); }
+	void SetBlendMap(GfxShaderResourceView* tex) { BlendMap->SetResource(tex); }
+	void SetHeightMap(GfxShaderResourceView* tex) { HeightMap->SetResource(tex); }
 
 
 	ComPtr<FxTechnique> Light1Tech;
@@ -665,7 +665,7 @@ public:
 class ParticleEffect : public Effect
 {
 public:
-	ParticleEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	ParticleEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~ParticleEffect();
 
 	void SetViewProj(CXMMATRIX M) { ViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -677,8 +677,8 @@ public:
 	void SetEmitPosW(const XMFLOAT3& v) { EmitPosW->SetRawValue(&v, 0, sizeof(XMFLOAT3)); }
 	void SetEmitDirW(const XMFLOAT3& v) { EmitDirW->SetRawValue(&v, 0, sizeof(XMFLOAT3)); }
 
-	void SetTexArray(ID3D11ShaderResourceView* tex) { TexArray->SetResource(tex); }
-	void SetRandomTex(ID3D11ShaderResourceView* tex) { RandomTex->SetResource(tex); }
+	void SetTexArray(GfxShaderResourceView* tex) { TexArray->SetResource(tex); }
+	void SetRandomTex(GfxShaderResourceView* tex) { RandomTex->SetResource(tex); }
 
 	ComPtr<FxTechnique> StreamOutTech;
 	ComPtr<FxTechnique> DrawTech;
@@ -696,7 +696,7 @@ public:
 class BuildShadowMapEffect : public Effect
 {
 public:
-	BuildShadowMapEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	BuildShadowMapEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~BuildShadowMapEffect();
 
 	void SetViewProj(CXMMATRIX M) { ViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -716,8 +716,8 @@ public:
 	void SetShadowLight(const XMFLOAT4& v) { ShadowLight->SetFloatVector(reinterpret_cast<const float*>(&v)); }
 	void SetShadowBias(float depth, float normal) { const float v[2] = { depth, normal }; ShadowBias->SetRawValue(v, 0, sizeof(v)); }
 
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
-	void SetNormalMap(ID3D11ShaderResourceView* tex) { NormalMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> BuildShadowMapTech;
 	ComPtr<FxTechnique> BuildShadowMapAlphaClipTech;
@@ -752,11 +752,11 @@ public:
 class DebugTexEffect : public Effect
 {
 public:
-	DebugTexEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	DebugTexEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~DebugTexEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
-	void SetTexture(ID3D11ShaderResourceView* tex) { Texture->SetResource(tex); }
+	void SetTexture(GfxShaderResourceView* tex) { Texture->SetResource(tex); }
 
 	ComPtr<FxTechnique> ViewArgbTech;
 	ComPtr<FxTechnique> ViewRedTech;
@@ -771,7 +771,7 @@ public:
 class AmbientOcclusionEffect : public Effect
 {
 public:
-	AmbientOcclusionEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	AmbientOcclusionEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~AmbientOcclusionEffect();
 
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
@@ -783,7 +783,7 @@ public:
 class SsaoNormalDepthEffect : public Effect
 {
 public:
-	SsaoNormalDepthEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	SsaoNormalDepthEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~SsaoNormalDepthEffect();
 
 	// NEW
@@ -795,7 +795,7 @@ public:
 	void SetBoneTransforms(const XMFLOAT4X4* M, int cnt) { BoneTransforms->SetMatrixArray(reinterpret_cast<const float*>(M), 0, cnt); }
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
 	void SetTexTransform(CXMMATRIX M) { TexTransform->SetMatrix(reinterpret_cast<const float*>(&M)); }
-	void SetDiffuseMap(ID3D11ShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> NormalDepthTech;
 	ComPtr<FxTechnique> NormalDepthAlphaClipTech;
@@ -819,7 +819,7 @@ public:
 class SsaoEffect : public Effect
 {
 public:
-	SsaoEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	SsaoEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~SsaoEffect();
 
 	void SetSsaoPower(float f) { SsaoPower->SetFloat(f); }
@@ -831,8 +831,8 @@ public:
 	void SetOcclusionFadeEnd(float f) { OcclusionFadeEnd->SetFloat(f); }
 	void SetSurfaceEpsilon(float f) { SurfaceEpsilon->SetFloat(f); }
 
-	void SetNormalDepthMap(ID3D11ShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
-	void SetRandomVecMap(ID3D11ShaderResourceView* srv) { RandomVecMap->SetResource(srv); }
+	void SetNormalDepthMap(GfxShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
+	void SetRandomVecMap(GfxShaderResourceView* srv) { RandomVecMap->SetResource(srv); }
 
 	ComPtr<FxTechnique> SsaoTech;
 	ComPtr<FxVar> SsaoPower;
@@ -850,14 +850,14 @@ public:
 class SsaoBlurEffect : public Effect
 {
 public:
-	SsaoBlurEffect(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	SsaoBlurEffect(ComPtr<GfxDevice> device, const std::wstring& filename);
 	~SsaoBlurEffect();
 
 	void SetTexelWidth(float f) { TexelWidth->SetFloat(f); }
 	void SetTexelHeight(float f) { TexelHeight->SetFloat(f); }
 
-	void SetNormalDepthMap(ID3D11ShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
-	void SetInputImage(ID3D11ShaderResourceView* srv) { InputImage->SetResource(srv); }
+	void SetNormalDepthMap(GfxShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
+	void SetInputImage(GfxShaderResourceView* srv) { InputImage->SetResource(srv); }
 
 	ComPtr<FxTechnique> HorzBlurTech;
 	ComPtr<FxTechnique> VertBlurTech;
@@ -870,7 +870,7 @@ public:
 class Effects
 {
 public:
-	static void InitAll(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	static void InitAll(ComPtr<GfxDevice> device, const std::wstring& filename);
 	static void DestroyAll();
 
 	static shared_ptr<BasicEffect> BasicFX;

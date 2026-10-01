@@ -9,11 +9,11 @@ class Ssao
 {
 public:
 	Ssao();
-	Ssao(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> dc, int32 width, int32 height, float fovy, float farZ);
+	Ssao(ComPtr<GfxDevice> device, ComPtr<GfxContext> dc, int32 width, int32 height, float fovy, float farZ);
 	~Ssao();
 
-	ComPtr<ID3D11ShaderResourceView> NormalDepthSRV();
-	ComPtr<ID3D11ShaderResourceView> AmbientSRV();
+	ComPtr<GfxShaderResourceView> NormalDepthSRV();
+	ComPtr<GfxShaderResourceView> AmbientSRV();
 
 	void Init(int32 width, int32 height, float fovy, float farZ);
 
@@ -28,7 +28,7 @@ public:
 	/// NormalDepth map.  This pass lays down the scene depth so that there in
 	/// no overdraw in the subsequent rendering pass.
 	///</summary>
-	void SetNormalDepthRenderTarget(ComPtr<ID3D11DepthStencilView> dsv);
+	void SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv);
 
 	///<summary>
 	/// Changes the render target to the Ambient render target and draws a fullscreen
@@ -46,9 +46,9 @@ public:
 	///</summary>
 	void BlurAmbientMap(int32 blurCount);
 
-	ComPtr<ID3D11ShaderResourceView> GetRandomVectorSRV() { return _randomVectorSRV; }
+	ComPtr<GfxShaderResourceView> GetRandomVectorSRV() { return _randomVectorSRV; }
 private:
-	void BlurAmbientMap(ComPtr<ID3D11ShaderResourceView> inputSRV, ComPtr<ID3D11RenderTargetView> outputRTV, bool horzBlur);
+	void BlurAmbientMap(ComPtr<GfxShaderResourceView> inputSRV, ComPtr<GfxRenderTargetView> outputRTV, bool horzBlur);
 
 	void BuildFrustumFarCorners(float fovy, float farZ);
 
@@ -61,21 +61,21 @@ private:
 	void BuildOffsetVectors();
 
 private:
-	ComPtr<ID3D11Device> _device;
-	ComPtr<ID3D11DeviceContext> _deviceContext;
+	ComPtr<GfxDevice> _device;
+	ComPtr<GfxContext> _deviceContext;
 
-	ComPtr<ID3D11Buffer> _screenQuadVB;
-	ComPtr<ID3D11Buffer> _screenQuadIB;
+	ComPtr<GfxBuffer> _screenQuadVB;
+	ComPtr<GfxBuffer> _screenQuadIB;
 
-	ComPtr<ID3D11ShaderResourceView> _randomVectorSRV;
-	ComPtr<ID3D11RenderTargetView> _normalDepthRTV;
-	ComPtr<ID3D11ShaderResourceView> _normalDepthSRV;
+	ComPtr<GfxShaderResourceView> _randomVectorSRV;
+	ComPtr<GfxRenderTargetView> _normalDepthRTV;
+	ComPtr<GfxShaderResourceView> _normalDepthSRV;
 
 	// Need two for ping-ponging during blur.
-	ComPtr<ID3D11RenderTargetView> _ambientRTV0;
-	ComPtr<ID3D11ShaderResourceView> _ambientSRV0;
-	ComPtr<ID3D11RenderTargetView> _ambientRTV1;
-	ComPtr<ID3D11ShaderResourceView> _ambientSRV1;
+	ComPtr<GfxRenderTargetView> _ambientRTV0;
+	ComPtr<GfxShaderResourceView> _ambientSRV0;
+	ComPtr<GfxRenderTargetView> _ambientRTV1;
+	ComPtr<GfxShaderResourceView> _ambientSRV1;
 
 	uint32 _renderTargetWidth;
 	uint32 _renderTargetHeight;

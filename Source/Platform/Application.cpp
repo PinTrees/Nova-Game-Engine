@@ -33,12 +33,12 @@ HINSTANCE Application::GetInstance()
 	return m_pCurrApp->AppInst();
 }
 
-ID3D11Device* Application::GetDevice()
+GfxDevice* Application::GetDevice()
 {
 	return m_pCurrApp->GetDevice();
 }
 
-ID3D11DeviceContext* Application::GetDeviceContext()
+GfxContext* Application::GetDeviceContext()
 {
 	return m_pCurrApp->GetDeviceContext();
 }

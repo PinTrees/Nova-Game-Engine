@@ -57,7 +57,7 @@ void TerrainBiome::OnInspectorGUI()
 		Preset = presets[sel].Name;
 	if (const TerrainBiomes::Preset* p = TerrainBiomes::Find(Preset))
 	{
-		if (ID3D11ShaderResourceView* thumb = TerrainBiomes::Thumbnail(*p))
+		if (GfxShaderResourceView* thumb = TerrainBiomes::Thumbnail(*p))
 		{
 			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
 			ImGui::Image((ImTextureID)thumb, ImVec2(96, 96));

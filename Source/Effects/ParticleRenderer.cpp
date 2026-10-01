@@ -37,12 +37,12 @@ namespace
 
 	std::unique_ptr<Effect> s_Effect;
 	bool s_Failed = false;
-	ComPtr<ID3D11InputLayout> s_Layout;
-	ComPtr<ID3D11Buffer> s_Buffer;
+	ComPtr<GfxInputLayout> s_Layout;
+	ComPtr<GfxBuffer> s_Buffer;
 	UINT s_Capacity = 0;
 	std::vector<Instance> s_Instances;
-	ComPtr<ID3D11InputLayout> s_TrailLayout;
-	ComPtr<ID3D11Buffer> s_TrailBuffer;
+	ComPtr<GfxInputLayout> s_TrailLayout;
+	ComPtr<GfxBuffer> s_TrailBuffer;
 	UINT s_TrailCapacity = 0;
 	std::vector<TrailVertex> s_TrailVertices;
 	int s_LastDrawCalls = 0;
@@ -174,7 +174,7 @@ namespace ParticleRenderer
 	int LastDrawCalls() { return s_LastDrawCalls; }
 	int LastParticleCount() { return s_LastParticles; }
 
-	void Render(const Matrix& view, const Matrix& proj, ID3D11RenderTargetView* rtv, ID3D11DepthStencilView* dsv)
+	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv)
 	{
 		s_LastDrawCalls = 0;
 		s_LastParticles = 0;
@@ -294,12 +294,12 @@ namespace ParticleRenderer
 			ctx->Unmap(s_TrailBuffer.Get(), 0);
 		}
 
-		ID3D11RenderTargetView* rtvs[1] = { rtv };
+		GfxRenderTargetView* rtvs[1] = { rtv };
 		ctx->OMSetRenderTargets(1, rtvs, dsv);
 		ctx->IASetInputLayout(s_Layout.Get());
 		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 		const UINT stride = sizeof(Instance), offset = 0;
-		ID3D11Buffer* vb = s_Buffer.Get();
+		GfxBuffer* vb = s_Buffer.Get();
 		ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 
 		FxEffect* fx = s_Effect->GetFX();
@@ -325,7 +325,7 @@ namespace ParticleRenderer
 			if (drawTrails && b.TrailCount > 0)
 			{
 				const UINT tstride = sizeof(TrailVertex), toffset = 0;
-				ID3D11Buffer* tvb = s_TrailBuffer.Get();
+				GfxBuffer* tvb = s_TrailBuffer.Get();
 				ctx->IASetInputLayout(s_TrailLayout.Get());
 				ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 				ctx->IASetVertexBuffers(0, 1, &tvb, &tstride, &toffset);
@@ -349,7 +349,7 @@ namespace ParticleRenderer
 			s_LastParticles += (int)b.Count;
 		}
 		texVar->SetResource(nullptr);
-		ID3D11ShaderResourceView* nullSRV[1] = {};
+		GfxShaderResourceView* nullSRV[1] = {};
 		ctx->PSSetShaderResources(0, 1, nullSRV);
 		ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 		ctx->OMSetDepthStencilState(nullptr, 0);

@@ -8,7 +8,7 @@
 
 
 // 효과는 RHI 장치(Rhi::Main)로 불러온다 — DirectX 11 = Effects11, OpenGL = ShaderCross. device 인자는 예전 호출 모양 그대로 두려고 남김
-Effect::Effect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+Effect::Effect(ComPtr<GfxDevice> device, const std::wstring& filename)
 {
 	(void)device;
 	std::string error;
@@ -26,7 +26,7 @@ Effect::~Effect()
 
 }
 
-BasicEffect::BasicEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+BasicEffect::BasicEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	Light1Tech = _fx->GetTechniqueByName("Light1");
@@ -107,7 +107,7 @@ BasicEffect::~BasicEffect()
 {
 }
 
-TreeSpriteEffect::TreeSpriteEffect(ComPtr<ID3D11Device> device, const std::wstring& filename) : Effect(device, filename)
+TreeSpriteEffect::TreeSpriteEffect(ComPtr<GfxDevice> device, const std::wstring& filename) : Effect(device, filename)
 {
 	Light3Tech = _fx->GetTechniqueByName("Light3");
 	Light3TexAlphaClipTech = _fx->GetTechniqueByName("Light3TexAlphaClip");
@@ -127,7 +127,7 @@ TreeSpriteEffect::~TreeSpriteEffect()
 {
 }
 
-VecAddEffect::VecAddEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+VecAddEffect::VecAddEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	VecAddTech = _fx->GetTechniqueByName("VecAdd");
@@ -141,7 +141,7 @@ VecAddEffect::~VecAddEffect()
 {
 }
 
-BlurEffect::BlurEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+BlurEffect::BlurEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	HorzBlurTech = _fx->GetTechniqueByName("HorzBlur");
@@ -156,7 +156,7 @@ BlurEffect::~BlurEffect()
 {
 }
 
-TessellationEffect::TessellationEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+TessellationEffect::TessellationEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	TessTech = _fx->GetTechniqueByName("Tess");
@@ -178,7 +178,7 @@ TessellationEffect::~TessellationEffect()
 {
 }
 
-BezierTessellationEffect::BezierTessellationEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+BezierTessellationEffect::BezierTessellationEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	TessTech = _fx->GetTechniqueByName("Tess");
@@ -200,7 +200,7 @@ BezierTessellationEffect::~BezierTessellationEffect()
 {
 }
 
-InstancedBasicEffect::InstancedBasicEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+InstancedBasicEffect::InstancedBasicEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 
@@ -264,7 +264,7 @@ InstancedBasicEffect::~InstancedBasicEffect()
 {
 }
 
-SkyEffect::SkyEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+SkyEffect::SkyEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	SkyTech = _fx->GetTechniqueByName("SkyTech");
@@ -276,7 +276,7 @@ SkyEffect::~SkyEffect()
 {
 }
 
-NormalMapEffect::NormalMapEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+NormalMapEffect::NormalMapEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	Light1Tech = _fx->GetTechniqueByName("Light1");
@@ -358,7 +358,7 @@ NormalMapEffect::~NormalMapEffect()
 {
 }
 
-DisplacementMapEffect::DisplacementMapEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+DisplacementMapEffect::DisplacementMapEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	Light1Tech = _fx->GetTechniqueByName("Light1");
@@ -444,7 +444,7 @@ DisplacementMapEffect::~DisplacementMapEffect()
 {
 }
 
-TerrainEffect::TerrainEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+TerrainEffect::TerrainEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	Light1Tech = _fx->GetTechniqueByName("Light1");
@@ -480,7 +480,7 @@ TerrainEffect::~TerrainEffect()
 {
 }
 
-ParticleEffect::ParticleEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+ParticleEffect::ParticleEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	StreamOutTech = _fx->GetTechniqueByName("StreamOutTech");
@@ -501,7 +501,7 @@ ParticleEffect::~ParticleEffect()
 }
 
 
-BuildShadowMapEffect::BuildShadowMapEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+BuildShadowMapEffect::BuildShadowMapEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	BuildShadowMapTech = _fx->GetTechniqueByName("BuildShadowMapTech");
@@ -542,7 +542,7 @@ BuildShadowMapEffect::~BuildShadowMapEffect()
 {
 }
 
-DebugTexEffect::DebugTexEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+DebugTexEffect::DebugTexEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	ViewArgbTech = _fx->GetTechniqueByName("ViewArgbTech");
@@ -560,7 +560,7 @@ DebugTexEffect::~DebugTexEffect()
 
 }
 
-AmbientOcclusionEffect::AmbientOcclusionEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+AmbientOcclusionEffect::AmbientOcclusionEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	AmbientOcclusionTech = _fx->GetTechniqueByName("AmbientOcclusion");
@@ -571,7 +571,7 @@ AmbientOcclusionEffect::~AmbientOcclusionEffect()
 {
 }
 
-SsaoNormalDepthEffect::SsaoNormalDepthEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+SsaoNormalDepthEffect::SsaoNormalDepthEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	NormalDepthTech = _fx->GetTechniqueByName("NormalDepth");
@@ -597,7 +597,7 @@ SsaoNormalDepthEffect::~SsaoNormalDepthEffect()
 {
 }
 
-SsaoEffect::SsaoEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+SsaoEffect::SsaoEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	SsaoTech = _fx->GetTechniqueByName("Ssao");
@@ -619,7 +619,7 @@ SsaoEffect::~SsaoEffect()
 {
 }
 
-SsaoBlurEffect::SsaoBlurEffect(ComPtr<ID3D11Device> device, const std::wstring& filename)
+SsaoBlurEffect::SsaoBlurEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	HorzBlurTech = _fx->GetTechniqueByName("HorzBlur");
@@ -659,7 +659,7 @@ shared_ptr<SsaoNormalDepthEffect> Effects::SsaoNormalDepthFX;
 shared_ptr<SsaoEffect> Effects::SsaoFX;
 shared_ptr<SsaoBlurEffect> Effects::SsaoBlurFX;
 
-void Effects::InitAll(ComPtr<ID3D11Device> device, const std::wstring& filename)
+void Effects::InitAll(ComPtr<GfxDevice> device, const std::wstring& filename)
 {
 	BasicFX = make_shared<BasicEffect>(device, filename);
 	TreeSpriteFX = make_shared<TreeSpriteEffect>(device, L"../Shaders/12. TreeSprite.fx");

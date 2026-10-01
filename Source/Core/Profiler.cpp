@@ -26,12 +26,12 @@ namespace
 	{
 		const char* Name = nullptr;
 		uint16_t Depth = 0;
-		ComPtr<ID3D11Query> Begin, End;
-		ComPtr<ID3D11Query> Stats;   // PIPELINE_STATISTICS (구간 안의 픽셀 셰이더 실행 수 등)
+		ComPtr<GfxQuery> Begin, End;
+		ComPtr<GfxQuery> Stats;   // PIPELINE_STATISTICS (구간 안의 픽셀 셰이더 실행 수 등)
 	};
 	struct GpuSlot
 	{
-		ComPtr<ID3D11Query> Disjoint;
+		ComPtr<GfxQuery> Disjoint;
 		std::vector<GpuQuery> Queries;
 		int Used = 0;
 		uint64_t FrameIndex = 0;
@@ -41,10 +41,10 @@ namespace
 	GpuSlot* s_GpuCurrent = nullptr;
 	std::vector<int> s_GpuStack;   // 열린 쿼리 번호
 
-	ID3D11Query* MakeQuery(D3D11_QUERY type)
+	GfxQuery* MakeQuery(D3D11_QUERY type)
 	{
 		D3D11_QUERY_DESC d = { type, 0 };
-		ID3D11Query* q = nullptr;
+		GfxQuery* q = nullptr;
 		Application::GetI()->GetDevice()->CreateQuery(&d, &q);
 		return q;
 	}
@@ -60,7 +60,7 @@ namespace
 	// 다 끝난 슬롯의 결과를 읽어 그 프레임 기록에 채운다 (기다리지 않는다)
 	void CollectGpu(bool waitAll)
 	{
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		for (GpuSlot& slot : s_Gpu)
 		{
 			if (!slot.Pending || &slot == s_GpuCurrent)

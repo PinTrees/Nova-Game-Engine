@@ -26,7 +26,7 @@ namespace PlayerRuntime
 	// 초기화가 끝난 뒤: 첫 씬 Play
 	void Start();
 	// 매 프레임 (App::Run 에서 에디터 창 대신): 카메라 → 백버퍼, UI
-	void Render(ID3D11RenderTargetView* backBuffer, ID3D11DepthStencilView* depth, int width, int height, bool focused);
+	void Render(GfxRenderTargetView* backBuffer, GfxDepthStencilView* depth, int width, int height, bool focused);
 	// Application.Quit
 	void Quit();
 }

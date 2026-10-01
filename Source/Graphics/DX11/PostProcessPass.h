@@ -21,8 +21,8 @@ public:
 	~PostProcessPass();
 
 	// 뷰 크기의 HDR 타깃을 만들거나 재사용한다. 씬은 여기에 그린다.
-	ID3D11RenderTargetView* Begin(UINT width, UINT height);
-	void Execute(const VolumeStack& stack, const CameraOptions& options, ID3D11RenderTargetView* output);
+	GfxRenderTargetView* Begin(UINT width, UINT height);
+	void Execute(const VolumeStack& stack, const CameraOptions& options, GfxRenderTargetView* output);
 
 	// 이 설정으로 실행할 필요가 있는지 (효과가 하나도 없고 FXAA/디더링도 없으면 false → 기존처럼 바로 그림)
 	static bool IsNeeded(const VolumeStack& stack, const CameraOptions& options);
@@ -30,14 +30,14 @@ public:
 private:
 	struct Target
 	{
-		ComPtr<ID3D11Texture2D> Tex;
-		ComPtr<ID3D11RenderTargetView> RTV;
-		ComPtr<ID3D11ShaderResourceView> SRV;
+		ComPtr<GfxTexture2D> Tex;
+		ComPtr<GfxRenderTargetView> RTV;
+		ComPtr<GfxShaderResourceView> SRV;
 		UINT W = 0, H = 0;
 	};
 	bool CreateTarget(Target& t, UINT w, UINT h, DXGI_FORMAT format);
-	void Draw(const char* tech, ID3D11RenderTargetView* rtv, UINT w, UINT h);
-	void SetSRV(const char* name, ID3D11ShaderResourceView* srv);
+	void Draw(const char* tech, GfxRenderTargetView* rtv, UINT w, UINT h);
+	void SetSRV(const char* name, GfxShaderResourceView* srv);
 	void SetVec(const char* name, float x, float y, float z, float w);
 	bool InitEffect();
 

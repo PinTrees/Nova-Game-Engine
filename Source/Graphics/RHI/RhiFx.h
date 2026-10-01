@@ -9,7 +9,7 @@
 //  - 같은 메서드 이름·인자 (GetVariableByName(..)->AsMatrix()->SetMatrix(..), GetPassByIndex(p)->Apply(0, dc) …)
 //  - 실제 일은 Rhi::Effect: DirectX 11 = Effects11 그대로, OpenGL = ShaderCross(GLSL)
 //  - ComPtr<FxTechnique> 등을 그대로 쓸 수 있게 AddRef/Release 가 있다 (변수·기법·pass 는 효과가 가지므로 세지 않음)
-//  - SetResource(ID3D11ShaderResourceView*) 는 옮기는 동안만 (DirectX 11 에서만 뜻이 있음). RHI 텍스처는 SetTexture
+//  - 텍스처: SetResource(GfxShaderResourceView*) = Gfx 층 뷰, Rhi::Texture 는 SetTexture
 class FxEffect;
 
 class FxVar
@@ -36,14 +36,14 @@ public:
 	HRESULT SetMatrix(const float* m) { _fx->SetMatrix(_id, m); return S_OK; }
 	HRESULT SetMatrixArray(const float* m, UINT offset, UINT count) { _fx->SetMatrixArray(_id, m, offset, count); return S_OK; }
 	HRESULT SetTexture(Rhi::Texture* texture, UINT index = 0) { _fx->SetTexture(_id, texture, index); return S_OK; }
-	HRESULT SetResource(ID3D11ShaderResourceView* srv) { _fx->SetNativeTexture(_id, srv, 0); return S_OK; }
-	HRESULT SetResourceArray(ID3D11ShaderResourceView* const* srvs, UINT offset, UINT count)
+	HRESULT SetResource(GfxShaderResourceView* srv) { _fx->SetView(_id, srv, 0); return S_OK; }
+	HRESULT SetResourceArray(GfxShaderResourceView* const* srvs, UINT offset, UINT count)
 	{
 		for (UINT i = 0; i < count; ++i)
-			_fx->SetNativeTexture(_id, srvs[i], offset + i);
+			_fx->SetView(_id, srvs[i], offset + i);
 		return S_OK;
 	}
-	HRESULT SetUnorderedAccessView(ID3D11UnorderedAccessView* uav) { _fx->SetNativeUav(_id, uav); return S_OK; }
+	HRESULT SetUnorderedAccessView(GfxUnorderedAccessView* uav) { _fx->SetUav(_id, uav); return S_OK; }
 	HRESULT GetFloatVector(float* out) { _fx->GetVector(_id, out); return S_OK; }
 
 private:
@@ -58,7 +58,7 @@ public:
 	ULONG AddRef() { return 1; }
 	ULONG Release() { return 1; }
 	bool IsValid() const { return _technique >= 0 && _pass >= 0 && _pass < _fx->PassCount(_technique); }
-	HRESULT Apply(UINT, ID3D11DeviceContext*) { if (IsValid()) _fx->Apply(_technique, _pass); return S_OK; }
+	HRESULT Apply(UINT, GfxContext*) { if (IsValid()) _fx->Apply(_technique, _pass); return S_OK; }
 	HRESULT GetDesc(D3DX11_PASS_DESC* desc);
 
 private:

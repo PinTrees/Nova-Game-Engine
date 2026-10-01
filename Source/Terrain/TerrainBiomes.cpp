@@ -16,7 +16,7 @@ namespace
 	struct Thumb
 	{
 		std::future<std::vector<uint8_t>> Job;
-		ComPtr<ID3D11ShaderResourceView> Srv;
+		ComPtr<GfxShaderResourceView> Srv;
 		bool Started = false;
 	};
 	std::map<std::string, Thumb> s_Thumbs;
@@ -212,7 +212,7 @@ namespace TerrainBiomes
 		}
 	}
 
-	ID3D11ShaderResourceView* Thumbnail(const Preset& preset)
+	GfxShaderResourceView* Thumbnail(const Preset& preset)
 	{
 		Thumb& t = s_Thumbs[preset.Path];
 		if (t.Srv)
@@ -235,7 +235,7 @@ namespace TerrainBiomes
 			td.Usage = D3D11_USAGE_IMMUTABLE;
 			td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 			D3D11_SUBRESOURCE_DATA init = { img.data(), kThumbRes * 4, 0 };
-			ComPtr<ID3D11Texture2D> tex;
+			ComPtr<GfxTexture2D> tex;
 			auto device = Application::GetI()->GetDevice();
 			if (SUCCEEDED(device->CreateTexture2D(&td, &init, tex.GetAddressOf())))
 				device->CreateShaderResourceView(tex.Get(), nullptr, t.Srv.GetAddressOf());

@@ -15,7 +15,7 @@ ResourceManager::~ResourceManager()
 	m_TextureSRV.clear();
 }
 
-void ResourceManager::Init(ComPtr<ID3D11Device> device)
+void ResourceManager::Init(ComPtr<GfxDevice> device)
 {
 	m_Device = device;
 }
@@ -45,9 +45,9 @@ void ResourceManager::Destroy()
 	m_SkeletonAvatas.clear();
 }
 
-ComPtr<ID3D11ShaderResourceView> ResourceManager::LoadTexture(wstring filename)
+ComPtr<GfxShaderResourceView> ResourceManager::LoadTexture(wstring filename)
 {
-	ComPtr<ID3D11ShaderResourceView> srv;
+	ComPtr<GfxShaderResourceView> srv;
 
 	wstring path = PathManager::GetI()->GetMovePathW(filename);
 

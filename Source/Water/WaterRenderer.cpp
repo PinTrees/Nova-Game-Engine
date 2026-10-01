@@ -40,25 +40,25 @@ namespace
 	struct BodyMesh
 	{
 		uint64_t Hash = 0;
-		ComPtr<ID3D11Buffer> VB, IB;
+		ComPtr<GfxBuffer> VB, IB;
 		UINT IndexCount = 0;
-		ComPtr<ID3D11Buffer> SprayVB;
+		ComPtr<GfxBuffer> SprayVB;
 		UINT SprayVertices = 0;
 	};
 
 	std::unique_ptr<Effect> s_Effect;
 	bool s_Failed = false;
-	ComPtr<ID3D11InputLayout> s_OceanLayout, s_SurfaceLayout, s_SprayLayout;
-	ComPtr<ID3D11Buffer> s_GridVB, s_GridIB;
+	ComPtr<GfxInputLayout> s_OceanLayout, s_SurfaceLayout, s_SprayLayout;
+	ComPtr<GfxBuffer> s_GridVB, s_GridIB;
 	UINT s_GridIndexCount = 0;
 	std::unordered_map<const WaterBody*, BodyMesh> s_Meshes;
-	ComPtr<ID3D11ShaderResourceView> s_NormalA, s_NormalB, s_Foam, s_Caustics;
+	ComPtr<GfxShaderResourceView> s_NormalA, s_NormalB, s_Foam, s_Caustics;
 	// 화면 색 복사
-	ComPtr<ID3D11Texture2D> s_ColorCopy;
-	ComPtr<ID3D11ShaderResourceView> s_ColorCopySRV;
+	ComPtr<GfxTexture2D> s_ColorCopy;
+	ComPtr<GfxShaderResourceView> s_ColorCopySRV;
 	// 지형 높이 지도 (바다의 얕은 물 파도 감쇠)
-	ComPtr<ID3D11ShaderResourceView> s_ShoreSRV;
-	ComPtr<ID3D11ShaderResourceView> s_MaskSRV;
+	ComPtr<GfxShaderResourceView> s_ShoreSRV;
+	ComPtr<GfxShaderResourceView> s_MaskSRV;
 	uint64_t s_MaskKey = 0;
 	uint64_t s_ShoreHash = 0;
 	XMFLOAT4 s_ShoreRect(0, 0, 0, 0);
@@ -76,7 +76,7 @@ namespace
 	uint64_t Mix(uint64_t h, uint64_t v) { return h ^ (v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2)); }
 	uint64_t Bits(float f) { uint32_t u; memcpy(&u, &f, 4); return u; }
 
-	bool Init(ID3D11Device* device)
+	bool Init(GfxDevice* device)
 	{
 		if (s_Effect || s_Failed)
 			return s_Effect != nullptr;
@@ -217,7 +217,7 @@ namespace
 		return h;
 	}
 
-	BodyMesh* SurfaceMesh(ID3D11Device* device, const WaterBody& b)
+	BodyMesh* SurfaceMesh(GfxDevice* device, const WaterBody& b)
 	{
 		BodyMesh& m = s_Meshes[&b];
 		const uint64_t h = BodyHash(b);
@@ -325,11 +325,11 @@ namespace
 	}
 
 	// 화면 색 복사본 (대상과 같은 크기·형식)
-	ID3D11ShaderResourceView* CopySceneColor(ID3D11Device* device, ID3D11DeviceContext* dc, ID3D11RenderTargetView* target)
+	GfxShaderResourceView* CopySceneColor(GfxDevice* device, GfxContext* dc, GfxRenderTargetView* target)
 	{
-		ComPtr<ID3D11Resource> res;
+		ComPtr<GfxResource> res;
 		target->GetResource(res.GetAddressOf());
-		ComPtr<ID3D11Texture2D> tex;
+		ComPtr<GfxTexture2D> tex;
 		if (FAILED(res.As(&tex)))
 			return nullptr;
 		D3D11_TEXTURE2D_DESC desc;
@@ -369,7 +369,7 @@ namespace
 	}
 
 	// 지형 높이 지도 / 바다 마스크 (WaterShore) → 텍스처. 바뀔 때만 올린다
-	ComPtr<ID3D11ShaderResourceView> MakeTexture(ID3D11Device* device, DXGI_FORMAT format, const void* data, UINT pitch)
+	ComPtr<GfxShaderResourceView> MakeTexture(GfxDevice* device, DXGI_FORMAT format, const void* data, UINT pitch)
 	{
 		D3D11_TEXTURE2D_DESC td = {};
 		td.Width = td.Height = WaterShore::kRes;
@@ -379,14 +379,14 @@ namespace
 		td.Usage = D3D11_USAGE_IMMUTABLE;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		D3D11_SUBRESOURCE_DATA init = { data, pitch, 0 };
-		ComPtr<ID3D11Texture2D> tex;
-		ComPtr<ID3D11ShaderResourceView> srv;
+		ComPtr<GfxTexture2D> tex;
+		ComPtr<GfxShaderResourceView> srv;
 		if (SUCCEEDED(device->CreateTexture2D(&td, &init, tex.GetAddressOf())))
 			device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf());
 		return srv;
 	}
 
-	void UpdateShoreMap(ID3D11Device* device)
+	void UpdateShoreMap(GfxDevice* device)
 	{
 		WaterShore::Update();
 		s_HasShore = WaterShore::Has();
@@ -398,7 +398,7 @@ namespace
 	}
 
 	// 바다 마스크 (해수면마다, 지도가 바뀌면 다시)
-	ID3D11ShaderResourceView* OceanMaskSRV(ID3D11Device* device, float seaLevel)
+	GfxShaderResourceView* OceanMaskSRV(GfxDevice* device, float seaLevel)
 	{
 		if (!s_HasShore)
 			return nullptr;
@@ -457,7 +457,7 @@ namespace
 		// 물가 파도: 높이, 마루 사이 수심(m), 위상 속도(rad/s)
 		var("gShoreWave")->AsVector()->SetFloatVector(F4(b.BodyType == WaterBody::Type::Ocean ? p.ShoreWaveHeight * b.WaveScale : 0.0f, 1.6f, 1.3f, 0));
 		var("gShoreRect")->AsVector()->SetFloatVector(&s_ShoreRect.x);
-		ID3D11ShaderResourceView* mask = b.BodyType == WaterBody::Type::Ocean ? OceanMaskSRV(Application::GetI()->GetDevice(), b.SurfaceY()) : nullptr;
+		GfxShaderResourceView* mask = b.BodyType == WaterBody::Type::Ocean ? OceanMaskSRV(Application::GetI()->GetDevice(), b.SurfaceY()) : nullptr;
 		var("gOceanMask")->AsShaderResource()->SetResource(mask);
 		var("gHasOceanMask")->AsScalar()->SetFloat(mask ? 1.0f : 0.0f);
 	}
@@ -479,27 +479,27 @@ namespace WaterRenderer
 			it = std::find(WaterBody::All().begin(), WaterBody::All().end(), it->first) == WaterBody::All().end() ? s_Meshes.erase(it) : std::next(it);
 		if (bodies.empty() || v.Context == nullptr || v.Target == nullptr || v.DepthSRV == nullptr || v.DepthReadOnly == nullptr)
 			return;
-		ID3D11Device* device = Application::GetI()->GetDevice();
+		GfxDevice* device = Application::GetI()->GetDevice();
 		if (!Init(device))
 			return;
-		ID3D11DeviceContext* dc = v.Context;
+		GfxContext* dc = v.Context;
 		FxEffect* fx = s_Effect->GetFX();
 
 		// 상태 보관
-		ComPtr<ID3D11BlendState> prevBlend;
+		ComPtr<GfxBlendState> prevBlend;
 		float prevFactor[4];
 		UINT prevMask = 0;
 		dc->OMGetBlendState(prevBlend.GetAddressOf(), prevFactor, &prevMask);
-		ComPtr<ID3D11DepthStencilState> prevDSS;
+		ComPtr<GfxDepthStencilState> prevDSS;
 		UINT prevRef = 0;
 		dc->OMGetDepthStencilState(prevDSS.GetAddressOf(), &prevRef);
-		ComPtr<ID3D11RasterizerState> prevRS;
+		ComPtr<GfxRasterizerState> prevRS;
 		dc->RSGetState(prevRS.GetAddressOf());
 
 		// 1) 화면 색 복사 (묶인 대상은 잠시 풀고)
-		ID3D11RenderTargetView* nullRTV = nullptr;
+		GfxRenderTargetView* nullRTV = nullptr;
 		dc->OMSetRenderTargets(1, &nullRTV, nullptr);
-		ID3D11ShaderResourceView* colorSRV = CopySceneColor(device, dc, v.Target);
+		GfxShaderResourceView* colorSRV = CopySceneColor(device, dc, v.Target);
 		UpdateShoreMap(device);
 		if (colorSRV == nullptr)
 		{
@@ -581,7 +581,7 @@ namespace WaterRenderer
 			SetBody(fx, *under);
 			var("gEyeUnder")->AsScalar()->SetFloat(1.0f);
 			dc->IASetInputLayout(nullptr);
-			ID3D11Buffer* nullVB = nullptr;
+			GfxBuffer* nullVB = nullptr;
 			UINT zero = 0;
 			dc->IASetVertexBuffers(0, 1, &nullVB, &zero, &zero);
 			fx->GetTechniqueByName("UnderwaterTech")->GetPassByIndex(0)->Apply(0, dc);
@@ -597,7 +597,7 @@ namespace WaterRenderer
 			const char* tech = ocean ? (depthOnly ? "OceanDepthTech" : "OceanTech") : (depthOnly ? "SurfaceDepthTech" : "SurfaceTech");
 			UINT stride = ocean ? sizeof(XMFLOAT3) : sizeof(SurfaceVertex), offset = 0;
 			dc->IASetInputLayout(ocean ? s_OceanLayout.Get() : s_SurfaceLayout.Get());
-			ID3D11Buffer* vb = ocean ? s_GridVB.Get() : mesh->VB.Get();
+			GfxBuffer* vb = ocean ? s_GridVB.Get() : mesh->VB.Get();
 			dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 			dc->IASetIndexBuffer(ocean ? s_GridIB.Get() : mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
 			fx->GetTechniqueByName(tech)->GetPassByIndex(0)->Apply(0, dc);
@@ -610,7 +610,7 @@ namespace WaterRenderer
 		// 3) 물 깊이 쓰기 (깊이 SRV 를 풀고 쓰기 DSV 로)
 		var("gSceneDepth")->AsShaderResource()->SetResource(nullptr);
 		var("gSceneColor")->AsShaderResource()->SetResource(nullptr);
-		ID3D11ShaderResourceView* nullSRV[16] = {};
+		GfxShaderResourceView* nullSRV[16] = {};
 		dc->PSSetShaderResources(0, 16, nullSRV);
 		dc->VSSetShaderResources(0, 16, nullSRV);
 		dc->OMSetRenderTargets(1, &v.Target, v.Depth);
@@ -628,7 +628,7 @@ namespace WaterRenderer
 			SetBody(fx, *b);
 			UINT stride = sizeof(SprayVertex), offset = 0;
 			dc->IASetInputLayout(s_SprayLayout.Get());
-			ID3D11Buffer* vb = it->second.SprayVB.Get();
+			GfxBuffer* vb = it->second.SprayVB.Get();
 			dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 			fx->GetTechniqueByName("SprayTech")->GetPassByIndex(0)->Apply(0, dc);
 			dc->Draw(it->second.SprayVertices, 0);

@@ -8,7 +8,7 @@ protected:
 	std::wstring m_FileName;
 
 public:
-	Shader(ComPtr<ID3D11Device> device, const std::wstring& filename);
+	Shader(ComPtr<GfxDevice> device, const std::wstring& filename);
 	virtual ~Shader() = default;  // 가상 소멸자 추가
 
 private:
@@ -25,7 +25,7 @@ private:
 	static vector<Shader*> m_Shaders;
 
 public:
-	static void InitAll(ComPtr<ID3D11Device> device);
+	static void InitAll(ComPtr<GfxDevice> device);
 	static void DestroyAll();
 
 	static Shader* GetShaderByName(const std::wstring& shaderFileName);

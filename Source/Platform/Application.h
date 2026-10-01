@@ -22,8 +22,8 @@ public:
 public:
 	HWND GetMainHwnd();
 	HINSTANCE GetInstance();
-	ID3D11Device* GetDevice();
-	ID3D11DeviceContext* GetDeviceContext();
+	GfxDevice* GetDevice();
+	GfxContext* GetDeviceContext();
 
 public:
 	static wstring GetDataPath();

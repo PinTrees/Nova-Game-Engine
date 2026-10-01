@@ -9,8 +9,8 @@
 namespace TreeTextures
 {
 	// shape: 0 Broad, 1 Oval, 2 Needle. leafLength = 카드 비율
-	ID3D11ShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength);
-	ID3D11ShaderResourceView* Bark();
+	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength);
+	GfxShaderResourceView* Bark();
 	void CollectMemory(std::vector<MemoryStats::Item>& items);   // Profiler 메모리
 
 	// 잎 카드 외곽: 아틀라스 칸(cell 0~3)의 덮인 곳을 감싸는 볼록 다각형 (카드 uv, v = 0 이 잔가지 쪽, 3~8 점, 반시계).

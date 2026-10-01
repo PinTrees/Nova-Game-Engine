@@ -28,7 +28,7 @@ namespace
 	{
 		return j.contains(key) && j[key].is_string() ? string_to_wstring(j[key].get<std::string>()) : std::wstring();
 	}
-	ComPtr<ID3D11ShaderResourceView> LoadTex(const std::wstring& path)
+	ComPtr<GfxShaderResourceView> LoadTex(const std::wstring& path)
 	{
 		return path.empty() ? nullptr : ResourceManager::GetI()->LoadTexture(path);
 	}

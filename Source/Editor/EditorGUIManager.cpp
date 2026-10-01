@@ -85,7 +85,8 @@ void EditorGUIManager::Init(bool hubMode)
     // Setup Platform/Renderer backends
     ImGui_ImplWin32_EnableDpiAwareness();  
     ImGui_ImplWin32_Init(Application::GetI()->GetMainHwnd());
-    ImGui_ImplDX11_Init(Application::GetI()->GetDevice(), Application::GetI()->GetDeviceContext());
+    // ImGui DX11 백엔드는 진짜 D3D11 객체로 (그림 텍스처 ImTextureID = GfxShaderResourceView* — 백엔드가 풀어 씀)
+    ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(Application::GetI()->GetDevice()->Native()), static_cast<ID3D11DeviceContext*>(Application::GetI()->GetDeviceContext()->Native()));
 
     // Hub는 창 DPI 배율에 맞춰 폰트 크기를 정한다. (에디터는 기존 고정 크기 유지)
     float dpiScale = hubMode ? (float)GetDpiForWindow(Application::GetI()->GetMainHwnd()) / 96.0f : 1.0f;
@@ -241,10 +242,10 @@ void EditorGUIManager::DrawToolbar(float y)
 
         // 좌측: 로고 + 프로젝트 이름
         {
-            static ComPtr<ID3D11ShaderResourceView> s_LogoSrv;
+            static ComPtr<GfxShaderResourceView> s_LogoSrv;
             if (!s_LogoSrv)
                 s_LogoSrv = ResourceManager::GetI()->LoadTexture(L"\\ProjectSetting\\logo\\nova-logo-64.png");
-            ID3D11ShaderResourceView* logo = s_LogoSrv.Get();
+            GfxShaderResourceView* logo = s_LogoSrv.Get();
             float x = 12.0f;
             if (logo)
             {

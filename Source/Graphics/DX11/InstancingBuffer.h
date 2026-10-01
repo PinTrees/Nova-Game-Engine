@@ -17,7 +17,7 @@ private:
 	void CreateBuffer(uint32 maxCount = MAX_MESH_INSTANCE);
 
 	template<typename T>
-	void Create(ComPtr<ID3D11Device> device, const vector<T>& vertices, uint32 slot = 0, bool cpuWrite = false, bool gpuWrite = false)
+	void Create(ComPtr<GfxDevice> device, const vector<T>& vertices, uint32 slot = 0, bool cpuWrite = false, bool gpuWrite = false)
 	{
 		_stride = sizeof(T);
 		//_count = static_cast<uint32>(vertices.size()); // == _maxCount
@@ -62,9 +62,9 @@ public:
 	void ClearData();
 	void AddData(InstancingData& data);
 
-	void PushData(ComPtr<ID3D11DeviceContext> dc);
+	void PushData(ComPtr<GfxContext> dc);
 
-	ComPtr<ID3D11Buffer> GetComPtr() { return _instanceBuffer; }
+	ComPtr<GfxBuffer> GetComPtr() { return _instanceBuffer; }
 	uint32 GetStride() { return _stride; }
 	uint32 GetOffset() { return _offset; }
 	//uint32 GetCount() { return _count; }
@@ -82,7 +82,7 @@ private:
 	uint32						_maxCount = 0;
 	vector<InstancingData>		_data;
 
-	ComPtr<ID3D11Buffer> _instanceBuffer;
+	ComPtr<GfxBuffer> _instanceBuffer;
 
 	uint32 _stride = 0;
 	uint32 _offset = 0;

@@ -2,7 +2,7 @@
 #include "SkinnedModel.h"
 #include "LoadM3d.h"
 
-SkinnedModel::SkinnedModel(ComPtr<ID3D11Device> device, TextureMgr& texMgr, const std::string& modelFilename, const std::wstring& texturePath)
+SkinnedModel::SkinnedModel(ComPtr<GfxDevice> device, TextureMgr& texMgr, const std::string& modelFilename, const std::wstring& texturePath)
 {
 
 	std::vector<M3dMaterial> mats;
@@ -19,10 +19,10 @@ SkinnedModel::SkinnedModel(ComPtr<ID3D11Device> device, TextureMgr& texMgr, cons
 	{
 		Mat.push_back(mats[i].Mat);
 
-		ComPtr<ID3D11ShaderResourceView> diffuseMapSRV = texMgr.CreateTexture(texturePath + mats[i].DiffuseMapName);
+		ComPtr<GfxShaderResourceView> diffuseMapSRV = texMgr.CreateTexture(texturePath + mats[i].DiffuseMapName);
 		DiffuseMapSRV.push_back(diffuseMapSRV);
 
-		ComPtr<ID3D11ShaderResourceView> normalMapSRV = texMgr.CreateTexture(texturePath + mats[i].NormalMapName);
+		ComPtr<GfxShaderResourceView> normalMapSRV = texMgr.CreateTexture(texturePath + mats[i].NormalMapName);
 		NormalMapSRV.push_back(normalMapSRV);
 	}
 }

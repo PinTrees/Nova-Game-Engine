@@ -17,8 +17,8 @@ public:
 	std::vector<Material> Mat;
 
 	// 사용하지 않음 - 제거 예정 - UMaterial로 이전
-	std::vector<ComPtr<ID3D11ShaderResourceView>> DiffuseMapSRV;
-	std::vector<ComPtr<ID3D11ShaderResourceView>> NormalMapSRV;
+	std::vector<ComPtr<GfxShaderResourceView>> DiffuseMapSRV;
+	std::vector<ComPtr<GfxShaderResourceView>> NormalMapSRV;
 
 	// Keep CPU copies of the mesh data to read from.  
 	std::vector<Vertex::PosNormalTexTan2> Vertices;

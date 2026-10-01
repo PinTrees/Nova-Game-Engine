@@ -5,6 +5,9 @@
 #include <string>
 #include <vector>
 
+class GfxShaderResourceView;
+class GfxUnorderedAccessView;
+
 // RHI (Render Hardware Interface) — 렌더러가 그래픽 API 를 모르고 쓰는 공통 층.
 //  - DirectX 11 구현(`Dx11Rhi`)은 에디터가 만든 장치 + Effects11, OpenGL 4.5 구현(`GLRhi`)은 자기 컨텍스트 + ShaderCross(GLSL)
 //  - 셰이더는 지금처럼 .fx(HLSL) 하나. 효과(Effect) API 는 Effects11 과 같은 모양:
@@ -123,9 +126,9 @@ namespace Rhi
 		virtual void SetTexture(VarId var, Texture* texture, uint32_t arrayIndex = 0) = 0;
 		virtual void GetVector(VarId var, float out[4]) = 0;                 // 지금 들어 있는 값 (float4)
 
-		// ---- 옮기는 동안만: 아직 RHI 로 옮기지 않은 코드가 만든 D3D11 자원 (DirectX 11 에서만, 다른 API 는 무시)
-		virtual void SetNativeTexture(VarId var, void* d3d11Srv, uint32_t arrayIndex = 0) = 0;
-		virtual void SetNativeUav(VarId var, void* d3d11Uav) = 0;
+		// Gfx 층(Gfx.h)의 뷰 — 엔진 렌더러가 만든 텍스처
+		virtual void SetView(VarId var, GfxShaderResourceView* srv, uint32_t arrayIndex = 0) = 0;
+		virtual void SetUav(VarId var, GfxUnorderedAccessView* uav) = 0;
 		// pass 의 정점 입력 서명 (D3D11 CreateInputLayout 용, 다른 API = false)
 		virtual bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) = 0;
 
@@ -170,8 +173,8 @@ namespace Rhi
 	// api 에 맞는 장치. DirectX 11 = 에디터가 만든 장치를 감쌈, OpenGL = 숨은 창 + GL 4.5 컨텍스트 (이 스레드에 현재로)
 	std::unique_ptr<Device> CreateDevice(GraphicsAPI api, std::string& error);
 
-	// 이미 있는 D3D11 장치·컨텍스트를 감싼 장치 (App 이 만든 장치)
-	std::unique_ptr<Device> WrapD3D11(struct ID3D11Device* device, struct ID3D11DeviceContext* context);
+	// Gfx 층의 DirectX 11 장치·컨텍스트 위에 (App 이 만든 장치)
+	std::unique_ptr<Device> WrapD3D11(class GfxDevice* device, class GfxContext* context);
 
 	// 엔진이 쓰는 장치 (App 이 그래픽 초기화 때 정한다). 렌더러·효과(FxEffect)는 이것을 쓴다
 	Device* Main();

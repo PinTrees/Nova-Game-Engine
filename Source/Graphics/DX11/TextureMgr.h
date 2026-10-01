@@ -6,11 +6,11 @@ public:
 	TextureMgr();
 	~TextureMgr();
 
-	void Init(ComPtr<ID3D11Device> device);
+	void Init(ComPtr<GfxDevice> device);
 
-	ComPtr<ID3D11ShaderResourceView> CreateTexture(std::wstring filename);
+	ComPtr<GfxShaderResourceView> CreateTexture(std::wstring filename);
 
 private:
-	ComPtr<ID3D11Device> _device;
-	std::map<std::wstring, ComPtr<ID3D11ShaderResourceView>> _textureSRV;
+	ComPtr<GfxDevice> _device;
+	std::map<std::wstring, ComPtr<GfxShaderResourceView>> _textureSRV;
 };

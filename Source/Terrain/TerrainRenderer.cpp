@@ -10,7 +10,7 @@ namespace
 	// 마스크 비트: 1 = -X 가장자리, 2 = +X, 4 = -Z, 8 = +Z (그쪽 이웃 노드가 두 배 크다 = 한 단계 거칠다)
 	struct IndexSet
 	{
-		ComPtr<ID3D11Buffer> Buffers[16];
+		ComPtr<GfxBuffer> Buffers[16];
 		UINT Counts[16] = {};
 	};
 
@@ -50,7 +50,7 @@ namespace
 		if (it != sets.end())
 			return it->second;
 		IndexSet& set = sets[cells];
-		ID3D11Device* device = Application::GetI()->GetDevice();
+		GfxDevice* device = Application::GetI()->GetDevice();
 		for (int m = 0; m < 16; ++m)
 		{
 			const std::vector<uint16_t> idx = BuildIndices(cells, m);
@@ -258,7 +258,7 @@ namespace TerrainRenderer
 		TerrainVars& v = Vars(pass);
 		if (!v.Valid() || data.Heights.empty())
 			return;
-		ID3D11ShaderResourceView* heightSRV = data.HeightSRV();
+		GfxShaderResourceView* heightSRV = data.HeightSRV();
 		if (heightSRV == nullptr)
 			return;
 
@@ -335,7 +335,7 @@ namespace TerrainRenderer
 			v.LayerCount->SetInt(layerCount);
 			v.Control->SetResource(data.ControlSRV());
 			// 컬러 맵 (생성기의 색·그라디언트 재질)
-			ID3D11ShaderResourceView* colorSRV = data.ColorMapSRV();
+			GfxShaderResourceView* colorSRV = data.ColorMapSRV();
 			if (v.ColorMap && v.ColorMap->IsValid())
 				v.ColorMap->SetResource(colorSRV);
 			if (v.UseColorMap && v.UseColorMap->IsValid())
@@ -343,12 +343,12 @@ namespace TerrainRenderer
 		}
 
 		// ---- 그리기 ----
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
-		ComPtr<ID3D11DepthStencilState> prevDSS;
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
+		ComPtr<GfxDepthStencilState> prevDSS;
 		UINT prevRef = 0;
 		dc->OMGetDepthStencilState(prevDSS.GetAddressOf(), &prevRef);
 		dc->IASetInputLayout(nullptr);
-		ID3D11Buffer* nullVB = nullptr;
+		GfxBuffer* nullVB = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(0, 1, &nullVB, &zero, &zero);
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -370,7 +370,7 @@ namespace TerrainRenderer
 			const Vec3 mx = origin + Vec3((l.X + 1) * cells * data.CellSizeX(), node.MaxHeight + 0.01f, (l.Z + 1) * cells * data.CellSizeZ());
 			if (OutsideFrustum(mn, mx, cullViewProj))
 				continue;
-			ID3D11Buffer* ib = indices.Buffers[masks[i]].Get();
+			GfxBuffer* ib = indices.Buffers[masks[i]].Get();
 			const UINT count = indices.Counts[masks[i]];
 			if (ib == nullptr || count == 0)
 				continue;

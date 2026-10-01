@@ -104,21 +104,21 @@ const D3D11_INPUT_ELEMENT_DESC InputLayoutDesc::TerrainVertex[7] =
 	{"TEXCOORD",	1, DXGI_FORMAT_R32G32_FLOAT,       0, 72, D3D11_INPUT_PER_VERTEX_DATA, 0}
 };
 
-ComPtr<ID3D11InputLayout> InputLayouts::Pos;
-ComPtr<ID3D11InputLayout> InputLayouts::Basic32;
-ComPtr<ID3D11InputLayout> InputLayouts::TreePointSprite;
-ComPtr<ID3D11InputLayout> InputLayouts::InstancedBasic32;
-ComPtr<ID3D11InputLayout> InputLayouts::PosNormalTexTan;
-ComPtr<ID3D11InputLayout> InputLayouts::PosNormalTexTan2;
-ComPtr<ID3D11InputLayout> InputLayouts::Terrain;
-ComPtr<ID3D11InputLayout> InputLayouts::Particle;
-ComPtr<ID3D11InputLayout> InputLayouts::AmbientOcclusion;
-ComPtr<ID3D11InputLayout> InputLayouts::PosNormalTexTanSkinned;
+ComPtr<GfxInputLayout> InputLayouts::Pos;
+ComPtr<GfxInputLayout> InputLayouts::Basic32;
+ComPtr<GfxInputLayout> InputLayouts::TreePointSprite;
+ComPtr<GfxInputLayout> InputLayouts::InstancedBasic32;
+ComPtr<GfxInputLayout> InputLayouts::PosNormalTexTan;
+ComPtr<GfxInputLayout> InputLayouts::PosNormalTexTan2;
+ComPtr<GfxInputLayout> InputLayouts::Terrain;
+ComPtr<GfxInputLayout> InputLayouts::Particle;
+ComPtr<GfxInputLayout> InputLayouts::AmbientOcclusion;
+ComPtr<GfxInputLayout> InputLayouts::PosNormalTexTanSkinned;
 
 // Instancing
-ComPtr<ID3D11InputLayout> InputLayouts::InstancedBasic;
+ComPtr<GfxInputLayout> InputLayouts::InstancedBasic;
 
-void InputLayouts::InitAll(ComPtr<ID3D11Device> device)
+void InputLayouts::InitAll(ComPtr<GfxDevice> device)
 {
 	D3DX11_PASS_DESC passDesc;
 

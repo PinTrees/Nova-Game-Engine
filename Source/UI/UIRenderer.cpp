@@ -45,7 +45,7 @@ bool UIRenderer::Init()
 	return true;
 }
 
-ID3D11ShaderResourceView* UIRenderer::WhiteTexture()
+GfxShaderResourceView* UIRenderer::WhiteTexture()
 {
 	if (m_White == nullptr)
 	{
@@ -58,7 +58,7 @@ ID3D11ShaderResourceView* UIRenderer::WhiteTexture()
 		td.Usage = D3D11_USAGE_IMMUTABLE;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		D3D11_SUBRESOURCE_DATA data = { &white, 4, 0 };
-		ComPtr<ID3D11Texture2D> tex;
+		ComPtr<GfxTexture2D> tex;
 		auto device = Application::GetI()->GetDevice();
 		if (SUCCEEDED(device->CreateTexture2D(&td, &data, tex.GetAddressOf())))
 			device->CreateShaderResourceView(tex.Get(), nullptr, m_White.GetAddressOf());
@@ -80,7 +80,7 @@ void UIRenderer::SetClip(bool enabled, const Vec4& worldRect)
 	m_ClipRect = worldRect;
 }
 
-void UIRenderer::Reserve(ID3D11ShaderResourceView* texture)
+void UIRenderer::Reserve(GfxShaderResourceView* texture)
 {
 	// 같은 텍스처·같은 잘라내기가 이어지면 한 번의 그리기로 합친다 (순서는 유지: 뒤에 그린 것이 위)
 	const bool sameClip = !m_Commands.empty() && m_Commands.back().Clip == m_ClipOn && (!m_ClipOn || m_Commands.back().ClipRect == m_ClipRect);
@@ -88,7 +88,7 @@ void UIRenderer::Reserve(ID3D11ShaderResourceView* texture)
 		m_Commands.push_back({ texture, (UINT)m_Indices.size(), 0, m_ClipOn, m_ClipRect });
 }
 
-void UIRenderer::AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, ID3D11ShaderResourceView* texture)
+void UIRenderer::AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, GfxShaderResourceView* texture)
 {
 	if ((color >> 24) == 0)
 		return;
@@ -103,7 +103,7 @@ void UIRenderer::AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, ID3D11
 	m_Commands.back().IndexCount += 6;
 }
 
-void UIRenderer::AddTriangle(const Vec3 p[3], const Vec2 uv[3], uint32 color, ID3D11ShaderResourceView* texture)
+void UIRenderer::AddTriangle(const Vec3 p[3], const Vec2 uv[3], uint32 color, GfxShaderResourceView* texture)
 {
 	if ((color >> 24) == 0)
 		return;
@@ -136,7 +136,7 @@ void UIRenderer::AddLine(const Vec3& a, const Vec3& b, float thickness, uint32 c
 	AddQuad(p, uv, color, WhiteTexture());
 }
 
-void UIRenderer::Flush(ID3D11RenderTargetView* rtv, UINT width, UINT height, const Matrix& viewProj, ID3D11DepthStencilView* dsv)
+void UIRenderer::Flush(GfxRenderTargetView* rtv, UINT width, UINT height, const Matrix& viewProj, GfxDepthStencilView* dsv)
 {
 	m_LastDrawCalls = 0;
 	if (m_Indices.empty() || rtv == nullptr || !Init())
@@ -145,7 +145,7 @@ void UIRenderer::Flush(ID3D11RenderTargetView* rtv, UINT width, UINT height, con
 	auto ctx = Application::GetI()->GetDeviceContext();
 
 	// 동적 버퍼 (모자라면 두 배로)
-	auto ensure = [&](ComPtr<ID3D11Buffer>& buf, UINT& cap, UINT need, UINT stride, UINT bind) {
+	auto ensure = [&](ComPtr<GfxBuffer>& buf, UINT& cap, UINT need, UINT stride, UINT bind) {
 		if (need <= cap && buf)
 			return true;
 		cap = (std::max)(need, cap * 2u);
@@ -171,14 +171,14 @@ void UIRenderer::Flush(ID3D11RenderTargetView* rtv, UINT width, UINT height, con
 	memcpy(mapped.pData, m_Indices.data(), m_Indices.size() * sizeof(uint32));
 	ctx->Unmap(m_IB.Get(), 0);
 
-	ID3D11RenderTargetView* rtvs[1] = { rtv };
+	GfxRenderTargetView* rtvs[1] = { rtv };
 	ctx->OMSetRenderTargets(1, rtvs, dsv);
 	D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)width, (float)height, 0.0f, 1.0f };
 	ctx->RSSetViewports(1, &vp);
 	ctx->IASetInputLayout(m_Layout.Get());
 	ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	const UINT stride = sizeof(Vertex), offset = 0;
-	ID3D11Buffer* vb = m_VB.Get();
+	GfxBuffer* vb = m_VB.Get();
 	ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
 	ctx->IASetIndexBuffer(m_IB.Get(), DXGI_FORMAT_R32_UINT, 0);
 
@@ -226,7 +226,7 @@ void UIRenderer::Flush(ID3D11RenderTargetView* rtv, UINT width, UINT height, con
 		++m_LastDrawCalls;
 	}
 	texVar->SetResource(nullptr);
-	ID3D11ShaderResourceView* nullSRV[1] = {};
+	GfxShaderResourceView* nullSRV[1] = {};
 	ctx->PSSetShaderResources(0, 1, nullSRV);
 	// 다른 그리기에 영향이 없도록 상태를 기본으로
 	ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);

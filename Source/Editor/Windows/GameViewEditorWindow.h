@@ -35,7 +35,7 @@ public:
 	// 빌드된 게임: 창 전체가 게임 화면 (마우스 = 창 클라이언트 좌표)
 	static void SetPlayerView(int width, int height, bool focused);
 
-	ID3D11Texture2D* GetTexture() const { return m_Texture.Get(); }   // NOVA CLI screenshot (마지막으로 그린 Game 뷰)
+	GfxTexture2D* GetTexture() const { return m_Texture.Get(); }   // NOVA CLI screenshot (마지막으로 그린 Game 뷰)
 private:
 	void DrawContent();
 	void DrawToolbar(float width);
@@ -45,9 +45,9 @@ private:
 	void EnsureTarget(UINT width, UINT height, Camera* camera);
 	void RenderScene(Camera* camera);
 
-	ComPtr<ID3D11Texture2D> m_Texture;
-	ComPtr<ID3D11RenderTargetView> m_RTV;
-	ComPtr<ID3D11ShaderResourceView> m_SRV;
+	ComPtr<GfxTexture2D> m_Texture;
+	ComPtr<GfxRenderTargetView> m_RTV;
+	ComPtr<GfxShaderResourceView> m_SRV;
 	UINT m_Width = 0, m_Height = 0;
 	Camera* m_LastCamera = nullptr;
 	ImVec2 m_Pan = ImVec2(0, 0);   // 확대했을 때 이동량 (화면 픽셀)

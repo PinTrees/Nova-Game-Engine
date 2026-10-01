@@ -6,7 +6,7 @@
 #include "Vertex.h"
 #include "Utils.h"
 
-Sky::Sky(ComPtr<ID3D11Device> device, const std::wstring& cubemapFilename, float skySphereRadius)
+Sky::Sky(ComPtr<GfxDevice> device, const std::wstring& cubemapFilename, float skySphereRadius)
 {
 	_cubeMapSRV = Utils::LoadTexture(device, cubemapFilename);
 
@@ -57,17 +57,17 @@ Sky::~Sky()
 {
 }
 
-ComPtr<ID3D11ShaderResourceView> Sky::CubeMapSRV()
+ComPtr<GfxShaderResourceView> Sky::CubeMapSRV()
 {
 	return _cubeMapSRV;
 }
 
-void Sky::Draw(ComPtr<ID3D11DeviceContext> dc, const Camera& camera)
+void Sky::Draw(ComPtr<GfxContext> dc, const Camera& camera)
 {
 	Draw(dc.Get(), camera.GetPosition(), camera.ViewProj());
 }
 
-void Sky::Draw(ID3D11DeviceContext* dc, const XMFLOAT3& eyePos, CXMMATRIX viewProj)
+void Sky::Draw(GfxContext* dc, const XMFLOAT3& eyePos, CXMMATRIX viewProj)
 {
 	// 하늘 구를 눈 위치에 두고, VS 에서 z = w 로 항상 가장 먼 깊이(1)에 그린다
 	XMMATRIX T = ::XMMatrixTranslation(eyePos.x, eyePos.y, eyePos.z);

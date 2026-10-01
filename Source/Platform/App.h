@@ -14,7 +14,7 @@ public:
 	
 	HINSTANCE AppInst() { return _hAppInst; }
 	HWND      MainWnd() { return _hMainWnd; }
-	ID3D11Device* GetDevice() { return  _device.Get(); }
+	GfxDevice* GetDevice() { return  _device.Get(); }
 	IDXGISwapChain* SwapChain() { return _swapChain.Get(); }
 
 protected:
@@ -22,7 +22,7 @@ protected:
 	int _shownFrames = 0;
 
 public:
-	ID3D11DeviceContext* GetDeviceContext() { return  _deviceContext.Get(); }
+	GfxContext* GetDeviceContext() { return  _deviceContext.Get(); }
 	//D3D11_VIEWPORT GetViewport() { return _viewport; }
 	
 	float     AspectRatio() { return static_cast<float>(_clientWidth) / _clientHeight; }
@@ -34,8 +34,8 @@ public:
 	virtual void UpdateScene(float dt) = 0;
 	virtual void RenderApplication();
 
-	virtual void OnSceneRender(ID3D11RenderTargetView* renderTargetView, Camera* camera) { } 
-	virtual void _Editor_OnSceneRender(ID3D11RenderTargetView* renderTargetView, EditorCamera* camera) { }
+	virtual void OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* camera) { } 
+	virtual void _Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, EditorCamera* camera) { }
 
 	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -71,16 +71,16 @@ protected:
 
 protected:
 	// Device & SwapChain
-	ComPtr<ID3D11Device> _device;
-	ComPtr<ID3D11DeviceContext> _deviceContext;
+	ComPtr<GfxDevice> _device;
+	ComPtr<GfxContext> _deviceContext;
 	ComPtr<IDXGISwapChain> _swapChain;
 
 	// DSV
-	ComPtr<ID3D11Texture2D> _depthStencilBuffer;
-	ComPtr<ID3D11DepthStencilView>  _depthStencilView;
+	ComPtr<GfxTexture2D> _depthStencilBuffer;
+	ComPtr<GfxDepthStencilView>  _depthStencilView;
 
 	// RTV
-	ComPtr<ID3D11RenderTargetView> _renderTargetView;
+	ComPtr<GfxRenderTargetView> _renderTargetView;
 	
 	// Viewport
 	D3D11_VIEWPORT _viewport;

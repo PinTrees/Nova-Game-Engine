@@ -17,7 +17,7 @@ public:
 	XMFLOAT4 Tint = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
 
 	std::string Name() const;
-	ID3D11ShaderResourceView* DiffuseSRV();
+	GfxShaderResourceView* DiffuseSRV();
 	void SetDiffuse(const std::string& path);
 	bool Save() const;
 
@@ -27,7 +27,7 @@ public:
 	static std::vector<std::string> ListAvailable();
 
 private:
-	ComPtr<ID3D11ShaderResourceView> m_Diffuse;
+	ComPtr<GfxShaderResourceView> m_Diffuse;
 	bool m_DiffuseLoaded = false;
 };
 
@@ -131,9 +131,9 @@ public:
 	void OnControlChanged(int x0, int z0, int x1, int z1);
 
 	// ---- GPU 자원 (필요할 때 만들고 바뀐 영역만 올린다) ----
-	ID3D11ShaderResourceView* HeightSRV();
-	ID3D11ShaderResourceView* ControlSRV();
-	ID3D11ShaderResourceView* ColorMapSRV();   // 컬러 맵이 없으면 nullptr
+	GfxShaderResourceView* HeightSRV();
+	GfxShaderResourceView* ControlSRV();
+	GfxShaderResourceView* ColorMapSRV();   // 컬러 맵이 없으면 nullptr
 
 	// Profiler 메모리: CPU (높이·컨트롤·쿼드트리·나무 인스턴스) / GPU (높이·컨트롤 텍스처)
 	size_t CpuBytes() const;
@@ -154,12 +154,12 @@ private:
 
 	std::vector<std::vector<Node>> m_Nodes;   // [깊이][z * 2^깊이 + x]
 
-	ComPtr<ID3D11Texture2D> m_HeightTex;
-	ComPtr<ID3D11ShaderResourceView> m_HeightSRV;
-	ComPtr<ID3D11Texture2D> m_ControlTex;
-	ComPtr<ID3D11ShaderResourceView> m_ControlSRV;
-	ComPtr<ID3D11Texture2D> m_ColorTex;
-	ComPtr<ID3D11ShaderResourceView> m_ColorSRV;
+	ComPtr<GfxTexture2D> m_HeightTex;
+	ComPtr<GfxShaderResourceView> m_HeightSRV;
+	ComPtr<GfxTexture2D> m_ControlTex;
+	ComPtr<GfxShaderResourceView> m_ControlSRV;
+	ComPtr<GfxTexture2D> m_ColorTex;
+	ComPtr<GfxShaderResourceView> m_ColorSRV;
 	bool m_ColorDirty = false;
 	bool m_HeightDirty = true, m_ControlDirty = true;
 	int m_HeightDirtyRect[4] = { 0, 0, 0, 0 };

@@ -36,9 +36,9 @@ public:
 	GENERATE_COMPONENT_BODY(UIImage)
 
 private:
-	void PopulateSimple(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, ID3D11ShaderResourceView* tex);
-	void PopulateSliced(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, ID3D11ShaderResourceView* tex, const Vec4& border, const Vec2& texSize);
-	void PopulateFilled(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, ID3D11ShaderResourceView* tex);
+	void PopulateSimple(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, GfxShaderResourceView* tex);
+	void PopulateSliced(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, GfxShaderResourceView* tex, const Vec4& border, const Vec2& texSize);
+	void PopulateFilled(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, GfxShaderResourceView* tex);
 
 	std::string m_Sprite;
 	Type m_Type = Type::Simple;

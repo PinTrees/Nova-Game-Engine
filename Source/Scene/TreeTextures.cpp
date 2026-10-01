@@ -15,11 +15,11 @@ namespace
 	float Smoothstep(float e0, float e1, float x) { const float t = Saturate((x - e0) / (e1 - e0)); return t * t * (3.0f - 2.0f * t); }
 	float Hash11(float n) { const float x = sinf(n * 12.9898f) * 43758.5453f; return x - floorf(x); }
 	const float kSeeds[4] = { 0.13f, 0.37f, 0.61f, 0.89f };   // 아틀라스 칸 4 개의 잎 배치 시드
-	std::map<int, ComPtr<ID3D11ShaderResourceView>> s_LeafCache;   // 잎 아틀라스 (모양·잎 수·길이마다)
-	ComPtr<ID3D11ShaderResourceView> s_BarkSrv;
+	std::map<int, ComPtr<GfxShaderResourceView>> s_LeafCache;   // 잎 아틀라스 (모양·잎 수·길이마다)
+	ComPtr<GfxShaderResourceView> s_BarkSrv;
 
 	// 밉맵 포함 RGBA8 텍스처. levels[0] = 원본, 이후 절반씩
-	ComPtr<ID3D11ShaderResourceView> Upload(const std::vector<std::vector<Texel>>& levels, int size)
+	ComPtr<GfxShaderResourceView> Upload(const std::vector<std::vector<Texel>>& levels, int size)
 	{
 		std::vector<std::vector<uint8_t>> bytes(levels.size());
 		std::vector<D3D11_SUBRESOURCE_DATA> init(levels.size());
@@ -46,8 +46,8 @@ namespace
 		td.Usage = D3D11_USAGE_IMMUTABLE;
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 		auto device = Application::GetI()->GetDevice();
-		ComPtr<ID3D11Texture2D> tex;
-		ComPtr<ID3D11ShaderResourceView> srv;
+		ComPtr<GfxTexture2D> tex;
+		ComPtr<GfxShaderResourceView> srv;
 		if (SUCCEEDED(device->CreateTexture2D(&td, init.data(), tex.GetAddressOf())))
 			device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf());
 		return srv;
@@ -321,7 +321,7 @@ namespace TreeTextures
 		return s_Cache[key] = hull;
 	}
 
-	ID3D11ShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength)
+	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength)
 	{
 		shape = std::clamp(shape, 0, 2);
 		leavesPerCard = std::clamp(leavesPerCard, 1, 16);
@@ -359,7 +359,7 @@ namespace TreeTextures
 				t.a = Saturate(t.a * hi);
 			levels.push_back(std::move(next));
 		}
-		ComPtr<ID3D11ShaderResourceView> srv = Upload(levels, size);
+		ComPtr<GfxShaderResourceView> srv = Upload(levels, size);
 		const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		EditorLog::Write("Tree", "leaf texture baked: shape %d, %d leaves, length %.2f (%d x %d, %.1f ms)", shape, leavesPerCard, lengthKey / 100.0f, size, size, ms);
 
@@ -374,7 +374,7 @@ namespace TreeTextures
 		return srv.Get();
 	}
 
-	ID3D11ShaderResourceView* Bark()
+	GfxShaderResourceView* Bark()
 	{
 		auto& srv = s_BarkSrv;
 		if (srv)

@@ -121,10 +121,14 @@ namespace
 		void SetFloatArray(Rhi::VarId var, const float* v, uint32_t first, uint32_t count) override { if (var >= 0) Vars[var]->AsScalar()->SetFloatArray(v, first, count); }
 		void SetVectorArray(Rhi::VarId var, const float* v, uint32_t first, uint32_t count) override { if (var >= 0) Vars[var]->AsVector()->SetFloatVectorArray(v, first, count); }
 
-		void SetNativeTexture(Rhi::VarId var, void* d3d11Srv, uint32_t arrayIndex) override
+		void SetView(Rhi::VarId var, GfxShaderResourceView* view, uint32_t arrayIndex) override
+		{
+			SetNativeTexture(var, view ? static_cast<ID3D11ShaderResourceView*>(view->Native()) : nullptr, arrayIndex);
+		}
+
+		void SetNativeTexture(Rhi::VarId var, ID3D11ShaderResourceView* srv, uint32_t arrayIndex)
 		{
 			if (var < 0) return;
-			auto* srv = static_cast<ID3D11ShaderResourceView*>(d3d11Srv);
 			D3DX11_EFFECT_TYPE_DESC td;
 			Vars[var]->GetType()->GetDesc(&td);
 			if (td.Elements > 0)
@@ -133,9 +137,9 @@ namespace
 				Vars[var]->AsShaderResource()->SetResource(srv);
 		}
 
-		void SetNativeUav(Rhi::VarId var, void* d3d11Uav) override
+		void SetUav(Rhi::VarId var, GfxUnorderedAccessView* uav) override
 		{
-			if (var >= 0) Vars[var]->AsUnorderedAccessView()->SetUnorderedAccessView(static_cast<ID3D11UnorderedAccessView*>(d3d11Uav));
+			if (var >= 0) Vars[var]->AsUnorderedAccessView()->SetUnorderedAccessView(uav ? static_cast<ID3D11UnorderedAccessView*>(uav->Native()) : nullptr);
 		}
 
 		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
@@ -429,19 +433,19 @@ namespace
 	};
 }
 
-std::unique_ptr<Rhi::Device> Rhi::WrapD3D11(ID3D11Device* device, ID3D11DeviceContext* context)
+std::unique_ptr<Rhi::Device> Rhi::WrapD3D11(GfxDevice* device, GfxContext* context)
 {
 	auto d = std::make_unique<Dx11Device>();
-	d->Dev = device;
-	d->Ctx = context;
+	d->Dev = static_cast<ID3D11Device*>(device->Native());
+	d->Ctx = static_cast<ID3D11DeviceContext*>(context->Native());
 	return d;
 }
 
 std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error)
 {
 	auto d = std::make_unique<Dx11Device>();
-	d->Dev = Application::GetI()->GetDevice();
-	d->Ctx = Application::GetI()->GetDeviceContext();
+	d->Dev = static_cast<ID3D11Device*>(Application::GetI()->GetDevice()->Native());
+	d->Ctx = static_cast<ID3D11DeviceContext*>(Application::GetI()->GetDeviceContext()->Native());
 	if (!d->Dev || !d->Ctx)
 	{
 		error = "no Direct3D 11 device";

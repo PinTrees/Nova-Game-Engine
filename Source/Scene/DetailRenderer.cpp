@@ -306,7 +306,7 @@ namespace
 
 	struct GpuMesh
 	{
-		ComPtr<ID3D11Buffer> VB, IB;
+		ComPtr<GfxBuffer> VB, IB;
 		UINT IndexCount = 0;
 		int VertexCount = 0;
 		float MaxY = 0.0f;
@@ -410,7 +410,7 @@ namespace
 	};
 	static_assert(sizeof(InstanceData) == 48, "셰이더 DetailInstanceIn 과 같은 배치");
 
-	ComPtr<ID3D11InputLayout> s_Layout;
+	ComPtr<GfxInputLayout> s_Layout;
 
 	bool EnsureLayout()
 	{
@@ -440,7 +440,7 @@ namespace
 
 	// 목록들을 이어 붙여 한 버퍼에 (종류·LOD 순서 = 그리는 순서)
 	template <typename Set>
-	bool UploadSet(ID3D11DeviceContext* dc, Set& set)
+	bool UploadSet(GfxContext* dc, Set& set)
 	{
 		const UINT count = (UINT)set.Total;
 		if (count == 0)
@@ -737,7 +737,7 @@ namespace
 	struct ListSet
 	{
 		std::vector<Batch> Batches;
-		ComPtr<ID3D11Buffer> Buffer;
+		ComPtr<GfxBuffer> Buffer;
 		UINT Capacity = 0;
 		uint32_t Frame = ~0u;
 		int View = -1;
@@ -841,7 +841,7 @@ namespace DetailRenderer
 		//      → 거리만큼 앞쪽(순위 낮은) 덩어리 → 카메라: 덩어리 거리로 LOD, 그림자: LOD1
 		ListSet& set = s_Sets[shadow ? 1 : 0];
 		Stats stats = s_Pending[vi];
-		ID3D11DeviceContext* dc = Application::GetI()->GetDeviceContext();
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		if (set.Frame != frame || set.View != vi)
 		{
 			PROFILE_SCOPE("Details.Collect");
@@ -934,7 +934,7 @@ namespace DetailRenderer
 				s_Stats[editor ? 1 : 0] = stats;
 			return;
 		}
-		ID3D11Buffer* inst = set.Buffer.Get();
+		GfxBuffer* inst = set.Buffer.Get();
 		// 그림자: 덩어리가 이 캐스케이드 텍셀보다 충분히 클 때만 (먼 캐스케이드에서는 보이지 않으므로)
 		const float texel = shadow ? rm->ShadowTexelWorld : 0.0f;
 
@@ -953,10 +953,10 @@ namespace DetailRenderer
 			SetMatrix(v.Fx, "gWorldViewProj", viewProj);
 		}
 
-		ComPtr<ID3D11DepthStencilState> prevDSS;
+		ComPtr<GfxDepthStencilState> prevDSS;
 		UINT prevRef = 0;
 		dc->OMGetDepthStencilState(prevDSS.GetAddressOf(), &prevRef);
-		ComPtr<ID3D11RasterizerState> prevRS;
+		ComPtr<GfxRasterizerState> prevRS;
 		dc->RSGetState(prevRS.GetAddressOf());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		dc->IASetInputLayout(s_Layout.Get());
@@ -1000,7 +1000,7 @@ namespace DetailRenderer
 				SetVec(v.Center, XMFLOAT4(p.CenterColor.x, p.CenterColor.y, p.CenterColor.z, p.TipColor));
 				SetVec(v.Params, XMFLOAT4(p.Translucency, p.Smoothness, (float)(int)p.Type, p.GroundAlign));
 				const UINT strides[2] = { sizeof(DetailVertex), sizeof(InstanceData) }, offsets[2] = { 0, 0 };
-				ID3D11Buffer* vbs[2] = { mesh->VB.Get(), inst };
+				GfxBuffer* vbs[2] = { mesh->VB.Get(), inst };
 				dc->IASetVertexBuffers(0, 2, vbs, strides, offsets);
 				dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
 				v.Tech->GetPassByIndex(0)->Apply(0, dc);
@@ -1010,7 +1010,7 @@ namespace DetailRenderer
 				stats.Instances += (int)count;
 			}
 		}
-		ID3D11Buffer* none = nullptr;
+		GfxBuffer* none = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 		dc->OMSetDepthStencilState(prevDSS.Get(), prevRef);

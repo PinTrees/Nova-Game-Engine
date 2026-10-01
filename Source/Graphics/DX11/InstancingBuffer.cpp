@@ -21,7 +21,7 @@ void InstancingBuffer::AddData(InstancingData& data)
 	_data.push_back(data);
 }
 
-void InstancingBuffer::PushData(ComPtr<ID3D11DeviceContext> dc)
+void InstancingBuffer::PushData(ComPtr<GfxContext> dc)
 {
 	const uint32 dataCount = GetCount();
 	if (dataCount > _maxCount)

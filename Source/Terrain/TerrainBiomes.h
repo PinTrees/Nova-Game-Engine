@@ -32,5 +32,5 @@ namespace TerrainBiomes
 	void DevDump();
 
 	// 썸네일 (없으면 백그라운드 생성을 시작하고 nullptr)
-	ID3D11ShaderResourceView* Thumbnail(const Preset& preset);
+	GfxShaderResourceView* Thumbnail(const Preset& preset);
 }

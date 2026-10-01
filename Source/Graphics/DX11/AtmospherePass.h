@@ -17,8 +17,8 @@ namespace AtmospherePass
 	};
 
 	Params FromStack(const VolumeStack& stack, const DirectionalLight* sun);
-	void Bind(FxEffect* fx, const Params& p, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky);
+	void Bind(FxEffect* fx, const Params& p, const XMFLOAT3& eye, GfxShaderResourceView* sky);
 	// target 에 그린다. depthSRV = 장면 깊이 (DSV 는 잠시 풀고 끝나면 dsv 로 되돌린다)
-	void Draw(ID3D11DeviceContext* dc, const Params& p, ID3D11RenderTargetView* target, ID3D11DepthStencilView* dsv, ID3D11ShaderResourceView* depthSRV,
-		const D3D11_VIEWPORT& viewport, CXMMATRIX viewProj, const XMFLOAT3& eye, ID3D11ShaderResourceView* sky);
+	void Draw(GfxContext* dc, const Params& p, GfxRenderTargetView* target, GfxDepthStencilView* dsv, GfxShaderResourceView* depthSRV,
+		const D3D11_VIEWPORT& viewport, CXMMATRIX viewProj, const XMFLOAT3& eye, GfxShaderResourceView* sky);
 }

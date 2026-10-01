@@ -12,8 +12,8 @@ class ResourceManager
 	SINGLE_HEADER(ResourceManager)
 
 private:
-	ComPtr<ID3D11Device> m_Device;
-	map<wstring, ComPtr<ID3D11ShaderResourceView>>	m_TextureSRV;
+	ComPtr<GfxDevice> m_Device;
+	map<wstring, ComPtr<GfxShaderResourceView>>	m_TextureSRV;
 	map<string, shared_ptr<UMaterial>>				m_Materials;
 	map<tuple<wstring, int>, shared_ptr<SkinnedMesh>>	m_SkinnedMeshs;   // (경로, 번호)
 
@@ -24,10 +24,10 @@ private:
 	map<tuple<string, int>, shared_ptr<SkeletonAvataData>>	m_SkeletonAvatas;
 
 public:
-	void Init(ComPtr<ID3D11Device> device);
+	void Init(ComPtr<GfxDevice> device);
 	void Destroy();
 
-	ComPtr<ID3D11ShaderResourceView> LoadTexture(wstring filename);
+	ComPtr<GfxShaderResourceView> LoadTexture(wstring filename);
 	shared_ptr<UMaterial>	LoadMaterial(string filename);
 	shared_ptr<Mesh>		LoadMesh(wstring filename, int index);
 	shared_ptr<SkinnedMesh> LoadSkinnedMesh(wstring filename, int index);

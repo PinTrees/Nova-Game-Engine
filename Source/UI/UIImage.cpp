@@ -51,14 +51,14 @@ void UIImage::SetNativeSize()
 }
 
 // ------------------------------------------------------------------ 그리기
-void UIImage::PopulateSimple(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, ID3D11ShaderResourceView* tex)
+void UIImage::PopulateSimple(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, GfxShaderResourceView* tex)
 {
 	const Vec3 p[4] = { ToWorld(world, mn.x, mn.y), ToWorld(world, mn.x, mx.y), ToWorld(world, mx.x, mx.y), ToWorld(world, mx.x, mn.y) };
 	const Vec2 uv[4] = { Vec2(0, 1), Vec2(0, 0), Vec2(1, 0), Vec2(1, 1) };
 	r.AddQuad(p, uv, color, tex);
 }
 
-void UIImage::PopulateSliced(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, ID3D11ShaderResourceView* tex, const Vec4& border, const Vec2& texSize)
+void UIImage::PopulateSliced(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, GfxShaderResourceView* tex, const Vec4& border, const Vec2& texSize)
 {
 	// 9 조각: 모서리는 크기 그대로, 가장자리/가운데는 늘인다. 사각형이 작으면 테두리를 비율대로 줄인다
 	const float mul = 1.0f / (std::max)(0.01f, m_PixelsPerUnitMultiplier);
@@ -83,7 +83,7 @@ void UIImage::PopulateSliced(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 m
 		}
 }
 
-void UIImage::PopulateFilled(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, ID3D11ShaderResourceView* tex)
+void UIImage::PopulateFilled(UIRenderer& r, const Matrix& world, Vec2 mn, Vec2 mx, uint32 color, GfxShaderResourceView* tex)
 {
 	const float fill = std::clamp(m_FillAmount, 0.0f, 1.0f);
 	if (fill <= 0.0f)
@@ -181,7 +181,7 @@ void UIImage::Populate(UIRenderer& r, float canvasScale)
 	Vec2 mn = rt->GetRectMin(), mx = rt->GetRectMin() + rt->GetRectSize();
 	UISprites::Info info;
 	const bool hasSprite = UISprites::Get(m_Sprite, info);
-	ID3D11ShaderResourceView* tex = hasSprite ? info.Texture : r.WhiteTexture();
+	GfxShaderResourceView* tex = hasSprite ? info.Texture : r.WhiteTexture();
 	const uint32 color = PackedColor();
 
 	// Preserve Aspect: 스프라이트 비율로 사각형 안에 맞춘다 (피벗 쪽 기준)

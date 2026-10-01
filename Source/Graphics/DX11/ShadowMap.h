@@ -9,15 +9,15 @@ class ShadowMap
 public:
 	static constexpr int kMaxCascades = 4;
 
-	ShadowMap(ComPtr<ID3D11Device> device, uint32 width, uint32 height);
+	ShadowMap(ComPtr<GfxDevice> device, uint32 width, uint32 height);
 	~ShadowMap();
 
 	// type 의 lightIndex 번째 맵에서 조각 slice 를 깊이 타깃으로 (지우고 뷰포트 설정).
 	// 조각 = 방향광 캐스케이드 / 점광 면, 스포트광은 0
-	void BindSlice(ID3D11DeviceContext* dc, LightType type, int lightIndex, int slice, uint32 resolution);
+	void BindSlice(GfxContext* dc, LightType type, int lightIndex, int slice, uint32 resolution);
 
 	// 셰이더에 넘길 SRV 목록 (아직 없는 칸은 nullptr)
-	vector<ID3D11ShaderResourceView*> DepthMapSRVArray(LightType type);
+	vector<GfxShaderResourceView*> DepthMapSRVArray(LightType type);
 
 	// 맵을 (다시) 만들 때마다 바뀌는 번호 (캐시한 캐스케이드가 사라졌는지 판단). 아직 없으면 0
 	uint32 Generation(LightType type, int lightIndex) const;
@@ -27,17 +27,17 @@ public:
 private:
 	struct Target
 	{
-		ComPtr<ID3D11Texture2D> Texture;
-		ComPtr<ID3D11ShaderResourceView> Srv;
-		vector<ComPtr<ID3D11DepthStencilView>> Dsv;   // 조각마다
+		ComPtr<GfxTexture2D> Texture;
+		ComPtr<GfxShaderResourceView> Srv;
+		vector<ComPtr<GfxDepthStencilView>> Dsv;   // 조각마다
 		uint32 Size = 0;
 		uint32 Slices = 0;
 		uint32 Generation = 0;
 	};
 	bool Ensure(Target& t, uint32 size, uint32 slices);
-	void Bind(ID3D11DeviceContext* dc, Target& t, int slice);
+	void Bind(GfxContext* dc, Target& t, int slice);
 
-	ComPtr<ID3D11Device> m_Device;
+	ComPtr<GfxDevice> m_Device;
 	uint32 m_DefaultSize;
 	vector<Target> m_Targets[(uint32)LightType::End];
 };

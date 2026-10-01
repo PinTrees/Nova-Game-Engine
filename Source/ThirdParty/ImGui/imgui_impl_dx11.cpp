@@ -43,6 +43,11 @@
 #include <stdio.h>
 #include <d3d11.h>
 #include <d3dcompiler.h>
+
+// NOVA: 엔진 Gfx 층 (Source/Graphics/DX11/GfxDx11.cpp) — ImTextureID 는 GfxShaderResourceView*
+void* NovaGfx_NativeOf(void* gfxObject);
+void* NovaGfx_WrapD3D11(void* d3d11Object);
+void NovaGfx_Release(void* gfxObject);
 #ifdef _MSC_VER
 #pragma comment(lib, "d3dcompiler") // Automatically link with d3dcompiler.lib as we are using D3DCompile() below.
 #endif
@@ -61,6 +66,7 @@ struct ImGui_ImplDX11_Data
     ID3D11PixelShader*          pPixelShader;
     ID3D11SamplerState*         pFontSampler;
     ID3D11ShaderResourceView*   pFontTextureView;
+    void*                       pFontGfxView;   // NOVA: ImTextureID = GfxShaderResourceView* (엔진 Gfx 층)
     ID3D11RasterizerState*      pRasterizerState;
     ID3D11BlendState*           pBlendState;
     ID3D11DepthStencilState*    pDepthStencilState;
@@ -285,7 +291,8 @@ void ImGui_ImplDX11_RenderDrawData(ImDrawData* draw_data)
                 ctx->RSSetScissorRects(1, &r);
 
                 // Bind texture, Draw
-                ID3D11ShaderResourceView* texture_srv = (ID3D11ShaderResourceView*)pcmd->GetTexID();
+                // NOVA: ImTextureID 는 엔진 Gfx 층의 뷰 (GfxShaderResourceView*) → 진짜 D3D11 SRV
+                ID3D11ShaderResourceView* texture_srv = (ID3D11ShaderResourceView*)NovaGfx_NativeOf((void*)pcmd->GetTexID());
                 ctx->PSSetShaderResources(0, 1, &texture_srv);
                 ctx->DrawIndexed(pcmd->ElemCount, pcmd->IdxOffset + global_idx_offset, pcmd->VtxOffset + global_vtx_offset);
             }
@@ -357,7 +364,8 @@ static void ImGui_ImplDX11_CreateFontsTexture()
     }
 
     // Store our identifier
-    io.Fonts->SetTexID((ImTextureID)bd->pFontTextureView);
+    bd->pFontGfxView = NovaGfx_WrapD3D11(bd->pFontTextureView);   // NOVA
+    io.Fonts->SetTexID((ImTextureID)bd->pFontGfxView);
 
     // Create texture sampler
     // (Bilinear sampling is required by default. Set 'io.Fonts->Flags |= ImFontAtlasFlags_NoBakedLines' or 'style.AntiAliasedLinesUseTex = false' to allow point/nearest sampling)
@@ -537,6 +545,7 @@ void    ImGui_ImplDX11_InvalidateDeviceObjects()
         return;
 
     if (bd->pFontSampler)           { bd->pFontSampler->Release(); bd->pFontSampler = nullptr; }
+    if (bd->pFontGfxView)           { NovaGfx_Release(bd->pFontGfxView); bd->pFontGfxView = nullptr; }   // NOVA
     if (bd->pFontTextureView)       { bd->pFontTextureView->Release(); bd->pFontTextureView = nullptr; ImGui::GetIO().Fonts->SetTexID(0); } // We copied data->pFontTextureView to io.Fonts->TexID so let's clear that as well.
     if (bd->pIB)                    { bd->pIB->Release(); bd->pIB = nullptr; }
     if (bd->pVB)                    { bd->pVB->Release(); bd->pVB = nullptr; }

@@ -304,10 +304,11 @@ namespace
 					WriteComponent(*v, (first + i) * stride + c * 4, values[i * 4 + c]);
 		}
 
-		void SetNativeTexture(Rhi::VarId, void* d3d11Srv, uint32_t) override
+		void SetView(Rhi::VarId, GfxShaderResourceView* view, uint32_t) override
 		{
-			if (d3d11Srv && Reported.insert("native-srv").second)
-				EditorLog::Write("OpenGL", "%s: a D3D11 texture was set (not moved to RHI yet) - ignored", wstring_to_string(std::filesystem::path(Src.File).filename().wstring()).c_str());
+			// TODO(OpenGL 4 단계): GfxGL 의 SRV → GL 텍스처
+			if (view && Reported.insert("gfx-srv").second)
+				EditorLog::Write("OpenGL", "%s: Gfx texture views are not connected to OpenGL effects yet", wstring_to_string(std::filesystem::path(Src.File).filename().wstring()).c_str());
 		}
 
 		void GetVector(Rhi::VarId var, float out[4]) override
@@ -324,7 +325,7 @@ namespace
 			}
 		}
 
-		void SetNativeUav(Rhi::VarId, void*) override {}
+		void SetUav(Rhi::VarId, GfxUnorderedAccessView*) override {}
 		bool NativeInputSignature(int, int, const void**, size_t*) override { return false; }
 
 		void WriteMatrix(const Var& v, uint32_t offset, const float m[16])

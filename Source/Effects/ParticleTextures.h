@@ -11,7 +11,7 @@
 //  builtin:Trail             꼬리용: 폭 방향 가운데가 밝은 띠 (Trails 기본)
 namespace ParticleTextures
 {
-	ID3D11ShaderResourceView* Get(const std::string& path);
+	GfxShaderResourceView* Get(const std::string& path);
 	std::vector<std::string> FindAll();
 	std::string DisplayName(const std::string& path);
 	bool IsBuiltin(const std::string& path);

@@ -118,7 +118,7 @@ namespace UnityGUI
 	// ---------- 리소스 ----------
 	ImTextureID Icon(const char* name)
 	{
-		static std::unordered_map<std::string, ComPtr<ID3D11ShaderResourceView>> cache;
+		static std::unordered_map<std::string, ComPtr<GfxShaderResourceView>> cache;
 		auto it = cache.find(name);
 		if (it == cache.end())
 		{

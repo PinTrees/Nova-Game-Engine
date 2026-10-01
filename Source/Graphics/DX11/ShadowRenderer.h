@@ -61,7 +61,7 @@ namespace ShadowRenderer
 	};
 
 	// 정렬된 빛(방향 → 스포트 → 점광 순)의 그림자 맵을 그린다. drawCasters = 장면의 그림자 캐스터 그리기
-	void Render(ID3D11DeviceContext* dc, ShadowMap& maps, const vector<shared_ptr<Light>>& sortedLights,
+	void Render(GfxContext* dc, ShadowMap& maps, const vector<shared_ptr<Light>>& sortedLights,
 		int dirCount, int spotCount, int pointCount,
 		const XMFLOAT3& eye, CXMMATRIX view, CXMMATRIX proj, const Settings& settings,
 		FrameData& out, const std::function<void()>& drawCasters);

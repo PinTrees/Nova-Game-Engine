@@ -20,7 +20,7 @@ void EditorGUI::RowSizedBox(float size)
 
 void EditorGUI::Image(wstring path, ImVec2 size)
 {
-    ComPtr<ID3D11ShaderResourceView> icon = ResourceManager::GetI()->LoadTexture(path);
+    ComPtr<GfxShaderResourceView> icon = ResourceManager::GetI()->LoadTexture(path);
     if (icon)
     {
         ImGui::Image((void*)icon.Get(), size); 
@@ -178,7 +178,7 @@ bool EditorGUI::IconButton_FA(string text, EditorTextStyle guiStyle, ImVec2 size
 bool EditorGUI::ImageButton(wstring path, ImVec2 size, ImVec2 padding)
 {
     // Texture 로드
-    ComPtr<ID3D11ShaderResourceView> icon = ResourceManager::GetI()->LoadTexture(path);
+    ComPtr<GfxShaderResourceView> icon = ResourceManager::GetI()->LoadTexture(path);
     if (!icon)
         return false;
 

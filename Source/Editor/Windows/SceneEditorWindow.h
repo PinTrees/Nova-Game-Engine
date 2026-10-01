@@ -8,11 +8,11 @@ class SceneEditorWindow
 {
 private:
 	// DirectX 11 ·»´õ Å¸°Ù ¹× ºäÆ÷Æ® ¼³Á¤
-	ID3D11Texture2D* renderTargetTexture = nullptr;
-	ID3D11RenderTargetView* renderTargetView = nullptr;
-	ID3D11ShaderResourceView* shaderResourceView = nullptr;
+	GfxTexture2D* renderTargetTexture = nullptr;
+	GfxRenderTargetView* renderTargetView = nullptr;
+	GfxShaderResourceView* shaderResourceView = nullptr;
 
-	ID3D11RenderTargetView* oldRenderTarget;
+	GfxRenderTargetView* oldRenderTarget;
 
 	// Ã¢ Å©±â ÀúÀå
 	UINT windowWidth;
@@ -26,8 +26,8 @@ public:
 
 public:
 	EditorCamera* GetSceneCamera() { return m_Camera; }
-	ID3D11RenderTargetView* GetRenderTargetView() const { return renderTargetView; }
-	ID3D11Texture2D* GetRenderTexture() const { return renderTargetTexture; }   // NOVA CLI screenshot  
+	GfxRenderTargetView* GetRenderTargetView() const { return renderTargetView; }
+	GfxTexture2D* GetRenderTexture() const { return renderTargetTexture; }   // NOVA CLI screenshot  
 
 public:
 	virtual void Update() override;

@@ -31,19 +31,19 @@ public:
 	~MeshGeometry();
 
 	template <typename VertexType>
-	void SetVertices(ComPtr<ID3D11Device> device, const VertexType* vertices, uint32 count);
+	void SetVertices(ComPtr<GfxDevice> device, const VertexType* vertices, uint32 count);
 
-	void SetIndices(ComPtr<ID3D11Device> device, const USHORT* indices, uint32 count);
+	void SetIndices(ComPtr<GfxDevice> device, const USHORT* indices, uint32 count);
 
 	void SetSubsetTable(std::vector<Subset>& subsetTable);
 
-	void Draw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId);
-	void InstancingDraw(ComPtr<ID3D11DeviceContext> dc, uint32 subsetId, uint32 instancingSize);
+	void Draw(ComPtr<GfxContext> dc, uint32 subsetId);
+	void InstancingDraw(ComPtr<GfxContext> dc, uint32 subsetId, uint32 instancingSize);
 
 	size_t GpuBytes() const;   // 정점 + 인덱스 버퍼 (Profiler 메모리)
 private:
-	ComPtr<ID3D11Buffer> _vb;
-	ComPtr<ID3D11Buffer> _ib;
+	ComPtr<GfxBuffer> _vb;
+	ComPtr<GfxBuffer> _ib;
 
 	DXGI_FORMAT _indexBufferFormat; // Always 16-bit
 	uint32 _vertexStride;
@@ -52,7 +52,7 @@ private:
 };
 
 template <typename VertexType>
-void MeshGeometry::SetVertices(ComPtr<ID3D11Device> device, const VertexType* vertices, uint32 count)
+void MeshGeometry::SetVertices(ComPtr<GfxDevice> device, const VertexType* vertices, uint32 count)
 {
 	_vertexStride = sizeof(VertexType);
 
