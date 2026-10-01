@@ -72,7 +72,9 @@ std::wstring NavMeshSurface::DefaultDataPath() const
 	for (char& c : name)
 		if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
 			c = '_';
-	return dir + L"NavMesh-" + string_to_wstring(name) + L".navgrid";
+	std::wstring path = dir + L"NavMesh-" + string_to_wstring(name) + L".navgrid";
+	std::replace(path.begin(), path.end(), L'/', L'\\');
+	return path;
 }
 
 const NavGrid* NavMeshSurface::GetGrid()

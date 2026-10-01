@@ -1894,6 +1894,8 @@ bool PhysicsManager::BeginEditQueries()
 	if (m_World)
 		return true;
 	Start();   // 바디만 만든다 (StepSimulation(0) — FixedUpdate·시뮬레이션 없음)
+	if (m_World)
+		m_World->physics->OptimizeBroadPhase();   // 한꺼번에 넣은 바디: 질의 전에 트리를 다시 짓는다
 	m_EditQueryWorld = m_World != nullptr;
 	return m_EditQueryWorld;
 }
@@ -1910,7 +1912,17 @@ bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
 {
 	if (!m_World)
 		return false;
-	const JPH::AABox b = m_World->physics->GetBroadPhaseQuery().GetBounds();
+	// 바디마다 월드 상자를 합친다 (브로드페이즈 전체 상자는 시뮬레이션 스텝 전에는 갱신되지 않는다)
+	JPH::AABox b;
+	const JPH::BodyLockInterface& locks = m_World->physics->GetBodyLockInterface();
+	for (const auto& kv : m_World->bodies)
+	{
+		if (kv.second.id.IsInvalid())
+			continue;
+		JPH::BodyLockRead lock(locks, kv.second.id);
+		if (lock.Succeeded())
+			b.Encapsulate(lock.GetBody().GetWorldSpaceBounds());
+	}
 	if (!b.IsValid())
 		return false;
 	outMin = FromJ(JPH::Vec3(b.mMin));
