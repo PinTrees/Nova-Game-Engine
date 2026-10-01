@@ -522,7 +522,9 @@ void EditorGUIManager::RenderEditorWindows()
     ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
         ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoDecoration |
-        ImGuiWindowFlags_NoBackground;
+        ImGuiWindowFlags_NoBackground |
+        // 도킹된 창(Scene 등)을 눌러도 도킹 영역 전체가 앞으로 오지 않게 → 떠 있는 창(Profiler 등)이 뒤로 숨지 않는다
+        ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
     // 전체 화면 크기로 DockSpace 창 설정    
     Vec2 screenSize = Application::GetI()->GetApp()->GetScreenSize();

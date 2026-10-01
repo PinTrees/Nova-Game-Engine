@@ -1,6 +1,10 @@
 #include "pch.h"
 #include "UndoSystem.h"
 #include "NovaCodeWindow.h"
+#include "Profiler.h"
+#include "FrameProfiler.h"
+#include <chrono>
+#include <unordered_set>
 
 namespace
 {
@@ -34,13 +38,109 @@ namespace
 
 	size_t s_CommittedHash = 0;
 
-	std::string CaptureScene()
+	// ---- 씬 JSON 을 루트 GameObject 마다 나눠 캐시한다 ----
+	//  씬 JSON = {"rootGameObjects":[루트1,루트2,...]} (자식은 루트 안에). 루트마다 dump 한 문자열을 이어 붙이면
+	//  json(scene).dump() 와 바이트까지 같다. 조작이 끝날 때마다 씬 전체를 직렬화하면 물체 1600 개에서 수백 ms 걸려
+	//  클릭마다 멈추므로, 바뀌었을 수 있는 루트만 다시 직렬화한다:
+	//   - 지난 확정 뒤 선택된 적이 있는 오브젝트의 루트 (Inspector·핸들 편집은 선택한 오브젝트에 한다)
+	//   - 서명이 바뀐 루트: 오브젝트·컴포넌트 포인터, fileID, 이름, 활성, 컴포넌트 켜짐, 로컬 위치/회전/크기 (직렬화 없이 싸게 계산)
+	//   - 확정마다 다른 루트 몇 개를 돌아가며 (위 둘에 안 걸리는 변경도 결국 잡힌다)
+	//  Undo/Redo·씬 바뀜·복원은 전체를 다시 직렬화한다 (놓친 변경이 사라지지 않게)
+	struct RootCache
+	{
+		uint64_t Signature = 0;
+		std::string Text;
+		uint32_t Seen = 0;   // 마지막으로 본 캡처 번호 (없어진 루트 정리용)
+	};
+	uint32_t s_CaptureGen = 0;
+	size_t s_LastCaptureSize = 0;
+	std::unordered_map<const GameObject*, RootCache> s_RootCache;
+	const Scene* s_RootCacheScene = nullptr;
+	std::unordered_set<const GameObject*> s_TouchedRoots;   // 지난 확정 뒤 선택됐던 오브젝트의 루트 (포인터 비교만, 역참조 안 함)
+	size_t s_SweepCursor = 0;
+	constexpr size_t kSweepRoots = 8;
+	size_t s_LastSerialized = 0, s_LastRoots = 0;   // 마지막 캡처에서 다시 직렬화한 루트 / 전체 (진단용)
+
+	uint64_t Mix(uint64_t h, uint64_t v) { return h ^ (v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2)); }
+	uint64_t Bits(float f) { uint32_t u; memcpy(&u, &f, 4); return u; }
+
+	void Signature(GameObject* go, uint64_t& h)
+	{
+		h = Mix(h, (uint64_t)(uintptr_t)go);
+		h = Mix(h, go->GetFileID());
+		h = Mix(h, std::hash<std::string>()(go->GetName()));
+		h = Mix(h, go->IsActive() ? 1 : 2);
+		for (const auto& c : go->GetComponents())
+		{
+			h = Mix(h, (uint64_t)(uintptr_t)c.get());
+			h = Mix(h, c->IsEnabled() ? 3 : 4);
+		}
+		if (Transform* t = go->GetTransform())
+		{
+			const Vec3 p = t->GetLocalPosition(), s = t->GetLocalScale();
+			const Quaternion q = t->GetLocalRotation();
+			for (float f : { p.x, p.y, p.z, s.x, s.y, s.z, q.x, q.y, q.z, q.w })
+				h = Mix(h, Bits(f));
+		}
+		for (GameObject* child : go->Children())
+			Signature(child, h);
+	}
+
+	const GameObject* RootOf(GameObject* go)
+	{
+		while (go && go->GetParent())
+			go = go->GetParent();
+		return go;
+	}
+
+	// full = 모든 루트를 다시 직렬화 (캐시도 새로)
+	std::string CaptureScene(bool full = true)
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
 		if (scene == nullptr)
 			return std::string();
-		json j = *scene;
-		return j.dump();
+		if (scene != s_RootCacheScene)
+		{
+			s_RootCache.clear();
+			s_RootCacheScene = scene;
+			full = true;
+		}
+		const auto& roots = scene->RootGameObjects();
+		const size_t n = roots.size();
+		s_LastSerialized = 0;
+		s_LastRoots = n;
+		const size_t sweepBegin = n ? s_SweepCursor % n : 0;
+		const uint32_t gen = ++s_CaptureGen;
+		std::string out;
+		out.reserve(s_LastCaptureSize + 4096);
+		out = "{\"rootGameObjects\":[";
+		for (size_t i = 0; i < n; ++i)
+		{
+			GameObject* root = roots[i];
+			uint64_t sig = 1469598103934665603ull;
+			Signature(root, sig);
+			RootCache& entry = s_RootCache[root];   // 제자리에서 갱신 (맵을 매번 새로 만들지 않는다)
+			entry.Seen = gen;
+			const bool swept = n > 0 && ((i + n - sweepBegin) % n) < kSweepRoots;
+			if (full || entry.Text.empty() || entry.Signature != sig || swept || s_TouchedRoots.count(root))
+			{
+				++s_LastSerialized;
+				json j = *root;
+				entry.Text = j.dump();
+				entry.Signature = sig;
+			}
+			if (i > 0)
+				out += ',';
+			out += entry.Text;
+		}
+		out += "]}";
+		s_LastCaptureSize = out.size();
+		if (s_RootCache.size() > n)   // 없어진 루트는 버린다
+			for (auto it = s_RootCache.begin(); it != s_RootCache.end();)
+				it = it->second.Seen != gen ? s_RootCache.erase(it) : std::next(it);
+		s_SweepCursor = sweepBegin + kSweepRoots;
+		s_TouchedRoots.clear();
+		return out;
 	}
 
 	size_t Count(const std::string& text, const char* token)
@@ -101,14 +201,19 @@ namespace
 		s_WasPlaying = playing;
 	}
 
-	void Commit()
+	void Commit(bool full = false)
 	{
+		PROFILE_SCOPE("Undo.Commit");
 		TrackScene();
 		if (Application::IsPlaying())
 			return;
 
-		// 씬
-		const std::string now = CaptureScene();
+		// 씬 (바뀌었을 수 있는 루트만 다시 직렬화)
+		const auto t0 = std::chrono::steady_clock::now();
+		const std::string now = CaptureScene(full);
+		if (FrameProfiler::Enabled())   // NOVA_DEV_PROFILE=1: 확정마다 걸린 시간
+			EditorLog::Write("Undo", "capture %.2f ms (%zu / %zu roots serialized%s)",
+				std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), s_LastSerialized, s_LastRoots, full ? ", full" : "");
 		if (!now.empty() && now != s_SceneCommitted)
 		{
 			const std::string before = s_SceneCommitted, after = now;
@@ -152,8 +257,12 @@ namespace
 
 	void Rebaseline()
 	{
-		s_Scene = SceneManager::GetI()->GetCurrentScene();
-		s_SceneCommitted = CaptureScene();
+		// 씬 복원(RestoreScene)은 이미 새 씬을 기준으로 잡았다 → 씬이 그대로면 다시 직렬화하지 않는다
+		if (s_Scene != SceneManager::GetI()->GetCurrentScene() || s_SceneCommitted.empty())
+		{
+			s_Scene = SceneManager::GetI()->GetCurrentScene();
+			s_SceneCommitted = CaptureScene();
+		}
 		for (auto& [key, t] : s_Trackers)
 			t.Committed = t.Capture();
 	}
@@ -196,7 +305,7 @@ namespace Undo
 	{
 		if (Application::IsPlaying())
 			return false;
-		Commit();   // 아직 확정되지 않은 변경이 있으면 먼저 한 단계로
+		Commit(true);   // 아직 확정되지 않은 변경이 있으면 먼저 한 단계로 (전체 비교: 놓친 변경이 없게)
 		if (s_Undo.empty())
 			return false;
 		Record r = std::move(s_Undo.back());
@@ -260,6 +369,10 @@ namespace Undo
 	{
 		++s_Frame;
 		TrackScene();
+		// 선택된 오브젝트의 루트는 다음 확정에서 다시 직렬화한다 (값을 바꾼 뒤 다른 오브젝트를 눌러도 놓치지 않게)
+		if (SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT)
+			if (GameObject* go = SelectionManager::GetSelectedGameObject())
+				s_TouchedRoots.insert(RootOf(go));
 
 		ImGuiIO& io = ImGui::GetIO();
 		// 단축키 (글자 입력 중이면 입력 칸의 자체 Undo 에 맡긴다)

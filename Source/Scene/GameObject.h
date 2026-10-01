@@ -72,6 +72,7 @@ public:
 	void SetActive(bool active) { m_IsActive = active; }
 	void SetName(const string& name) { m_Name = name; }
 	vector<GameObject*> GetChildren() { return m_pChildGameObjects; }
+	const vector<GameObject*>& Children() const { return m_pChildGameObjects; }   // 복사 없이 (자주 훑는 곳용)
 	int GetChildCount() { return m_pChildGameObjects.size(); }
 	Transform* GetTransform() { return m_pTransform; }
 	
