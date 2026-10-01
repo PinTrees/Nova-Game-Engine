@@ -251,6 +251,13 @@
 - 측정(Release, 1080p Scene 뷰, 300 m 그림자): 절벽 5 + 흩뿌린 바위 약 1250 + 소나무 45 = 프레임 5.7 ms.
 - 미구현/다음: 지형 생성기 연동(가파른 경사에 절벽 블록 자동 배치, 바위 주변 흙·자갈 칠하기), 바위와 지형 접합(아래쪽 지형 색 섞기), 먼 거리 임포스터, 바위 콜라이더(물리), 눈·모래 덮임.
 
+**NOVA Hub 새 디자인 (2026-10-01)**: 사용자 요청 "노바 허브 UI 깔끔하게, 엔진 폰트·크기 키우고, 상단 앱바 아이콘(Unity Hub 처럼)".
+- 글꼴(`EditorGUIManager::Init(hubMode)`): Pretendard(없으면 Segoe UI + 맑은 고딕) — HubFont 번호 [0] 본문 18 [1] 큰 제목 28 [2] 강조(SemiBold) 18 [3] 작은 글자 15 [4] 앱 바 아이콘(FA) 19 [5] 앱 이름 21 (모두 × DPI).
+- 테두리 없는 창(`HubApp::MsgProc`): WM_NCCALCSIZE 로 클라이언트 = 창 전체(최대화 때 테두리 두께만큼 안쪽), DwmExtendFrameIntoClientArea(1px, 그림자), WM_NCHITTEST = 가장자리 6px 크기 조절 + 앱 바 빈 곳(m_DragMinX~MaxX, 팝업이 없을 때) HTCAPTION → 끌기·두 번 눌러 최대화·스냅은 Windows 가. WM_GETMINMAXINFO 최소 940x580.
+- 앱 바(`DrawTopBar`, 52px): 로고·NOVA Hub·사이드바 접기(64px 아이콘만, 툴팁) | 학습(README·C# 스크립트·CLI 가이드(엔진 docs 의 로컬 파일)·단축키·GitHub) · NOVA CLI(설치 상태 + %LOCALAPPDATA%\NOVA\Instances 의 실행 중인 에디터, 설치 탭 열기, AI 안내 복사) · 알림(SetStatus 기록 50 개, 안 읽음 빨간 점) · 설정(새 프로젝트 기본 위치 변경/기본값, 에디터를 열면 Hub 닫기, 엔진·로그 폴더 열기) · 계정(Windows 사용자 이니셜 원 — 단어 첫 글자, 대문자 둘이면 그 글자; 로그인 없음) | 최소화·최대화/복원·닫기(선으로 그림, 닫기 빨강). 팝업 위치 SetNextWindowPos 는 그 팝업이 열려 있을 때만(닫힌 팝업에 남기면 다음 창에 적용된다).
+- 설정 파일 `%LOCALAPPDATA%\NOVA\Hub\settings.json`(defaultLocation, closeOnLaunch, sidebarCollapsed).
+- 검사 스크립트 `hub_seq.ps1`(scratchpad): ui_seq 의 Hub 판(인자 없이 실행, 제목 *Hub*). 첫 "깨우기" 클릭은 (700,720) — 예전 (1200,42) 는 새 닫기 버튼이라 Hub 가 닫혔다. 아이콘 좌표(1216 폭): 학습 882, CLI 923, 알림 963, 설정 1003, 계정 1048, 사이드바 174 (y 25).
+
 **NOVA CLI (2026-10-01)**: 사용자 요청 "unity CLI 처럼 우리 엔진과 AI 가 통신할 수 있는 NOVA CLI … 노바 허브에서 설치 … 엔진을 포커스해서 마우스 조작을 하지 않아도 되도록". 사용 설명 = `docs/NOVA_CLI.md`.
 - 에디터 쪽 `CliServer`(`Source/Editor/CliServer.*`): 이름 있는 파이프 `\\.\pipe\nova-editor-<pid>`(PIPE_REJECT_REMOTE_CLIENTS, 클라이언트마다 스레드) — **TCP 아님**: pch 가 WIN32_LEAN_AND_MEAN 없이 windows.h 를 넣어 winsock2 가 충돌하고, 포트·방화벽도 필요 없다. 시작 때 `%LOCALAPPDATA%\NOVA\Instances\<pid>.json`(pid, pipe, 임의 128 비트 token, project, exe, log, version), 종료 때 삭제(비정상 종료분은 nova 가 pid 로 확인해 지움). 요청 한 줄 JSON {token, id, cmd, args, waitFrames?, timeout?} → 큐 → **메인 스레드 `Pump`**(App 루프의 메인 스레드 작업 뒤) → 응답 한 줄 {id, ok, result|error}. `ping` 은 파이프 스레드에서 바로. 명령마다 delayFrames(스크린샷 3 = 앞 명령의 변경이 그려진 뒤).
 - **포커스 없이**: App 루프가 포커스를 잃으면 `_appPaused` 로 멈추던 것을 `CliServer::HasWork()`(대기 요청 또는 처리 뒤 4 프레임) 동안은 프레임을 돌리고, 멈춘 동안 `Sleep(100)` 대신 `WaitForWork(100)`(이벤트로 바로 깨어남). 최소화되면 뷰가 안 그려져 스크린샷은 오류. `--no-activate`(Application::noActivate): 창·로딩 창을 SW_SHOWNOACTIVATE 로, SetForegroundWindow 안 함 → `nova open --background`.

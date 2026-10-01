@@ -13,6 +13,8 @@
 #include <fstream>
 #include <shobjidl.h>
 #include <shellapi.h>
+#include <dwmapi.h>
+#include <windowsx.h>
 
 namespace fs = std::filesystem;
 
@@ -33,6 +35,32 @@ namespace
 	const ImU32 kColStar     = IM_COL32(242, 201, 76, 255);
 	const ImU32 kColBadge    = IM_COL32(48, 48, 48, 255);
 	const ImU32 kColError    = IM_COL32(240, 96, 96, 255);
+	const ImU32 kColTitleBar = IM_COL32(17, 17, 17, 255);
+
+	// Hub 글꼴 (EditorGUIManager::Init(hubMode)): 0 본문, 1 큰 제목, 2 강조, 3 작은 글자, 4 앱 바 아이콘, 5 앱 이름
+	ImFont* HubFont(int index)
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		return index < io.Fonts->Fonts.Size ? io.Fonts->Fonts[index] : ImGui::GetFont();
+	}
+
+	// 앱 바 아이콘 버튼 (둥근 호버 배경 + 알림 점)
+	bool AppBarButton(ImDrawList* dl, const char* id, const char* icon, ImVec2 pos, float size, const char* tip, bool dot)
+	{
+		ImGui::SetCursorScreenPos(pos);
+		const bool clicked = ImGui::InvisibleButton(id, ImVec2(size, size));
+		const bool hovered = ImGui::IsItemHovered();
+		if (hovered || ImGui::IsItemActive())
+			dl->AddRectFilled(pos, ImVec2(pos.x + size, pos.y + size), ImGui::IsItemActive() ? IM_COL32(60, 60, 60, 255) : IM_COL32(46, 46, 46, 255), size * 0.2f);
+		ImFont* f = HubFont(4);
+		const ImVec2 ts = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, icon);
+		dl->AddText(f, f->FontSize, ImVec2(pos.x + (size - ts.x) * 0.5f, pos.y + (size - ts.y) * 0.5f), hovered ? IM_COL32(245, 245, 245, 255) : IM_COL32(196, 196, 196, 255), icon);
+		if (dot)
+			dl->AddCircleFilled(ImVec2(pos.x + size * 0.70f, pos.y + size * 0.27f), size * 0.10f, IM_COL32(232, 72, 60, 255), 16);
+		if (hovered && tip && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+			ImGui::SetTooltip("%s", tip);
+		return clicked;
+	}
 
 	ImVec4 V4(ImU32 c) { return ImGui::ColorConvertU32ToFloat4(c); }
 
@@ -159,12 +187,50 @@ bool HubApp::Init()
 
 	::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
+	// 테두리 없는 창: Windows 제목 표시줄 대신 앱 바를 그린다 (WM_NCCALCSIZE / WM_NCHITTEST = MsgProc). 1px 프레임으로 DWM 그림자 유지
+	{
+		const MARGINS margins = { 1, 1, 1, 1 };
+		::DwmExtendFrameIntoClientArea(_hMainWnd, &margins);
+		::SetWindowPos(_hMainWnd, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+	}
+
 	EditorGUIManager::GetI()->Init(true);
+	LoadSettings();
+	{
+		wchar_t name[256] = {};
+		DWORD len = 256;
+		if (::GetUserNameW(name, &len))
+			m_UserName = ToUtf8(name);
+		len = 256;
+		wchar_t machine[256] = {};
+		if (::GetComputerNameW(machine, &len))
+			m_MachineName = ToUtf8(machine);
+		if (m_UserName.empty())
+			m_UserName = "User";
+		// 이니셜: 단어 첫 글자 두 개, 한 단어면 앞 두 글자
+		std::string initials;
+		bool start = true;
+		for (char c : m_UserName)
+		{
+			if (c == ' ' || c == '.' || c == '_' || c == '-') { start = true; continue; }
+			if (start && initials.size() < 2 && (unsigned char)c < 128) initials += (char)toupper((unsigned char)c);
+			start = false;
+		}
+		std::string caps;
+		for (char c : m_UserName)
+			if (c >= 'A' && c <= 'Z' && caps.size() < 2)
+				caps += c;
+		if (initials.size() < 2 && caps.size() == 2)
+			initials = caps;
+		if (initials.size() < 2 && m_UserName.size() >= 2 && (unsigned char)m_UserName[1] < 128)
+			initials = std::string(1, (char)toupper((unsigned char)m_UserName[0])) + (char)toupper((unsigned char)m_UserName[1]);
+		m_Initials = initials.empty() ? "U" : initials;
+	}
 
 	m_Logo = Utils::LoadTexture(_device, PathManager::GetI()->GetEnginePathW() + L"ProjectSetting\\logo\\nova-logo-128.png");
 
 	HubProjectRegistry::Load();
-	std::string defaultLocation = ToUtf8(HubProjectRegistry::DefaultLocation());
+	std::string defaultLocation = ToUtf8(m_DefaultLocation.empty() ? HubProjectRegistry::DefaultLocation() : m_DefaultLocation);
 	strncpy_s(m_NewLocation, defaultLocation.c_str(), _TRUNCATE);
 
 	log << "HubApp::Init finished" << std::endl;
@@ -222,6 +288,10 @@ void HubApp::SetStatus(const std::string& message, bool isError)
 	m_Status = message;
 	m_StatusIsError = isError;
 	m_StatusUntil = ImGui::GetTime() + 6.0;
+	m_Notices.push_back({ message, isError, (long long)std::time(nullptr) });
+	if (m_Notices.size() > 50)
+		m_Notices.erase(m_Notices.begin());
+	++m_Unread;
 }
 
 void HubApp::OpenProject(size_t index)
@@ -248,6 +318,8 @@ void HubApp::OpenProject(size_t index)
 		std::string name = p.Name;
 		HubProjectRegistry::MarkOpened(index);
 		SetStatus("'" + name + "' 프로젝트를 여는 중... (처음 실행 시 셰이더/텍스처 캐시 생성으로 최대 15초 걸릴 수 있습니다)");
+		if (m_CloseOnLaunch)
+			::PostMessageW(_hMainWnd, WM_CLOSE, 0, 0);   // 설정: 에디터를 열면 Hub 닫기
 	}
 	else
 	{
@@ -272,14 +344,19 @@ void HubApp::DrawUI()
 {
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
 	const float S = (float)::GetDpiForWindow(_hMainWnd) / 96.0f;
+	RefreshCli();
 
 	ImGui::SetNextWindowPos(viewport->Pos);
 	ImGui::SetNextWindowSize(viewport->Size);
 
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, V4(kColBg));
+	ImGui::PushStyleColor(ImGuiCol_PopupBg, V4(IM_COL32(36, 36, 36, 255)));
+	ImGui::PushStyleColor(ImGuiCol_Border, V4(IM_COL32(60, 60, 60, 255)));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+	ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f * S);
+	ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
 
 	ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
 		ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
@@ -288,16 +365,17 @@ void HubApp::DrawUI()
 	{
 		const float W = viewport->Size.x;
 		const float H = viewport->Size.y;
-		const float topH = 46.0f * S;
+		m_TitleBarH = 52.0f * S;
 		const float margin = 12.0f * S;
-		const float sideW = 208.0f * S;
+		const float sideW = (m_SidebarCollapsed ? 64.0f : 220.0f) * S;
+		const float top = m_TitleBarH + margin;
 
 		DrawTopBar(S, W);
 
-		DrawSidebar(S, ImVec2(margin, topH), ImVec2(sideW, H - topH - margin));
+		DrawSidebar(S, ImVec2(margin, top), ImVec2(sideW, H - top - margin));
 
-		ImVec2 mainPos(margin * 2 + sideW, topH);
-		ImVec2 mainSize(W - mainPos.x - margin, H - topH - margin);
+		ImVec2 mainPos(margin * 2 + sideW, top);
+		ImVec2 mainSize(W - mainPos.x - margin, H - top - margin);
 		if (m_Tab == Tab::Projects)
 			DrawProjectsPanel(S, mainPos, mainSize);
 		else
@@ -305,28 +383,146 @@ void HubApp::DrawUI()
 	}
 	ImGui::End();
 
-	ImGui::PopStyleVar(3);
-	ImGui::PopStyleColor();
+	ImGui::PopStyleVar(5);
+	ImGui::PopStyleColor(3);
 
 	DrawNewProjectPopup(S);
 }
 
+// ---- 앱 바: [로고 NOVA Hub ▣]  (끌기 영역)  [학습 CLI 알림 설정 (계정)] [— ▢ ✕]
 void HubApp::DrawTopBar(float S, float width)
 {
 	ImDrawList* dl = ImGui::GetWindowDrawList();
-	ImVec2 origin = ImGui::GetWindowPos();
+	const ImVec2 o = ImGui::GetWindowPos();
+	const float H = m_TitleBarH;
+	dl->AddRectFilled(o, ImVec2(o.x + width, o.y + H), kColTitleBar);
+	dl->AddLine(ImVec2(o.x, o.y + H - 1.0f), ImVec2(o.x + width, o.y + H - 1.0f), IM_COL32(40, 40, 40, 255));
 
-	ImFont* bold = ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : ImGui::GetFont();
-	const float logoSize = 30.0f * S;
-	ImVec2 logoPos(origin.x + 14.0f * S, origin.y + 8.0f * S);
+	// 왼쪽: 로고 + 이름 + 사이드바 접기
+	float x = o.x + 16.0f * S;
+	const float logo = 26.0f * S;
 	if (m_Logo)
-		dl->AddImage((ImTextureID)m_Logo.Get(), logoPos, ImVec2(logoPos.x + logoSize, logoPos.y + logoSize));
-	ImVec2 pos(logoPos.x + logoSize + 10.0f * S, origin.y + 8.0f * S);
-	dl->AddText(bold, bold->FontSize, pos, kColText, "NOVA Hub");
+		dl->AddImage((ImTextureID)m_Logo.Get(), ImVec2(x, o.y + (H - logo) * 0.5f), ImVec2(x + logo, o.y + (H + logo) * 0.5f));
+	x += logo + 10.0f * S;
+	ImFont* title = HubFont(5);
+	const ImVec2 ts = title->CalcTextSizeA(title->FontSize, FLT_MAX, 0.0f, "NOVA Hub");
+	dl->AddText(title, title->FontSize, ImVec2(x, o.y + (H - ts.y) * 0.5f), kColText, "NOVA Hub");
+	x += ts.x + 16.0f * S;
+	const float ib = 36.0f * S;
+	if (AppBarButton(dl, "##sidebar", ICON_FA_TABLE_COLUMNS, ImVec2(x, o.y + (H - ib) * 0.5f), ib, m_SidebarCollapsed ? "사이드바 펼치기" : "사이드바 접기", false))
+	{
+		m_SidebarCollapsed = !m_SidebarCollapsed;
+		SaveSettings();
+	}
+	m_DragMinX = x + ib + 6.0f * S - o.x;
 
-	std::string version = std::string("v") + ENGINE_VERSION_A;
-	ImVec2 vs = ImGui::CalcTextSize(version.c_str());
-	dl->AddText(ImVec2(origin.x + width - vs.x - 20.0f * S, origin.y + 14.0f * S), kColSubText, version.c_str());
+	// 오른쪽: 창 버튼
+	const float winW = 46.0f * S * 3;
+	DrawWindowButtons(S, o.x + width, H);
+	float rx = o.x + width - winW - 14.0f * S;
+
+	// 계정 (이니셜 원)
+	const float av = 30.0f * S;
+	rx -= av;
+	{
+		const ImVec2 c(rx + av * 0.5f, o.y + H * 0.5f);
+		ImGui::SetCursorScreenPos(ImVec2(rx, c.y - av * 0.5f));
+		const bool clicked = ImGui::InvisibleButton("##account", ImVec2(av, av));
+		const bool hovered = ImGui::IsItemHovered();
+		dl->AddCircleFilled(c, av * 0.5f, hovered ? IM_COL32(226, 104, 20, 255) : IM_COL32(204, 85, 0, 255), 32);
+		ImFont* f = HubFont(3);
+		const ImVec2 is = f->CalcTextSizeA(f->FontSize, FLT_MAX, 0.0f, m_Initials.c_str());
+		dl->AddText(f, f->FontSize, ImVec2(c.x - is.x * 0.5f, c.y - is.y * 0.5f), IM_COL32(255, 255, 255, 255), m_Initials.c_str());
+		if (hovered)
+			ImGui::SetTooltip("%s", m_UserName.c_str());
+		if (clicked)
+			ImGui::OpenPopup("##accountPopup");
+		if (ImGui::IsPopupOpen("##accountPopup"))
+			ImGui::SetNextWindowPos(ImVec2(rx + av, o.y + H + 4.0f * S), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		DrawAccountPopup(S);
+	}
+	rx -= 12.0f * S;
+
+	// 아이콘 버튼 (오른쪽부터): 설정, 알림, NOVA CLI, 학습
+	struct Item { const char* id; const char* icon; const char* tip; const char* popup; };
+	const Item items[] = {
+		{ "##settings", ICON_FA_GEAR, "설정", "##settingsPopup" },
+		{ "##notice", ICON_FA_BELL, "알림", "##noticePopup" },
+		{ "##cli", ICON_FA_TERMINAL, "NOVA CLI · 실행 중인 에디터", "##cliPopup" },
+		{ "##learn", ICON_FA_GRADUATION_CAP, "학습 · 문서", "##learnPopup" },
+	};
+	for (const Item& it : items)
+	{
+		rx -= ib;
+		const ImVec2 p(rx, o.y + (H - ib) * 0.5f);
+		const bool dot = std::string(it.id) == "##notice" && m_Unread > 0;
+		if (AppBarButton(dl, it.id, it.icon, p, ib, it.tip, dot))
+		{
+			ImGui::OpenPopup(it.popup);
+			if (dot)
+				m_Unread = 0;
+			if (std::string(it.id) == "##cli")
+				RefreshCli(true);
+		}
+		if (ImGui::IsPopupOpen(it.popup))
+			ImGui::SetNextWindowPos(ImVec2(rx + ib, o.y + H + 4.0f * S), ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+		if (std::string(it.id) == "##settings") DrawSettingsPopup(S);
+		else if (std::string(it.id) == "##notice") DrawNoticePopup(S);
+		else if (std::string(it.id) == "##cli") DrawCliPopup(S);
+		else DrawLearnPopup(S);
+		rx -= 4.0f * S;
+	}
+	m_DragMaxX = rx - 6.0f * S - o.x;
+}
+
+// 최소화 / 최대화(복원) / 닫기 — Windows 11 처럼 선으로 그린다
+void HubApp::DrawWindowButtons(float S, float right, float height)
+{
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+	const float bw = 46.0f * S;
+	const float top = ImGui::GetWindowPos().y;
+	const bool zoomed = ::IsZoomed(_hMainWnd) != 0;
+	const ImU32 line = IM_COL32(220, 220, 220, 255);
+	const float t = (std::max)(1.0f, S);
+	for (int i = 0; i < 3; ++i)
+	{
+		const ImVec2 a(right - bw * (3 - i), top), b(a.x + bw, top + height - 1.0f);
+		ImGui::SetCursorScreenPos(a);
+		ImGui::PushID(i);
+		const bool clicked = ImGui::InvisibleButton("##win", ImVec2(bw, height - 1.0f));
+		const bool hovered = ImGui::IsItemHovered();
+		const bool held = ImGui::IsItemActive();
+		ImGui::PopID();
+		if (hovered)
+			dl->AddRectFilled(a, b, i == 2 ? (held ? IM_COL32(200, 30, 45, 255) : IM_COL32(232, 17, 35, 255)) : (held ? IM_COL32(60, 60, 60, 255) : IM_COL32(48, 48, 48, 255)));
+		const ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+		const float h = 5.0f * S;
+		if (i == 0)
+			dl->AddLine(ImVec2(c.x - h, c.y), ImVec2(c.x + h, c.y), line, t);
+		else if (i == 1)
+		{
+			if (zoomed)
+			{
+				dl->AddRect(ImVec2(c.x - h, c.y - h + 2.0f * S), ImVec2(c.x + h - 2.0f * S, c.y + h), line, 1.5f * S, 0, t);
+				dl->AddLine(ImVec2(c.x - h + 2.0f * S, c.y - h), ImVec2(c.x + h, c.y - h), line, t);
+				dl->AddLine(ImVec2(c.x + h, c.y - h), ImVec2(c.x + h, c.y + h - 2.0f * S), line, t);
+			}
+			else
+				dl->AddRect(ImVec2(c.x - h, c.y - h), ImVec2(c.x + h, c.y + h), line, 1.5f * S, 0, t);
+		}
+		else
+		{
+			const ImU32 col = hovered ? IM_COL32(255, 255, 255, 255) : line;
+			dl->AddLine(ImVec2(c.x - h, c.y - h), ImVec2(c.x + h, c.y + h), col, t);
+			dl->AddLine(ImVec2(c.x - h, c.y + h), ImVec2(c.x + h, c.y - h), col, t);
+		}
+		if (clicked)
+		{
+			if (i == 0) ::ShowWindow(_hMainWnd, SW_MINIMIZE);
+			else if (i == 1) ::ShowWindow(_hMainWnd, zoomed ? SW_RESTORE : SW_MAXIMIZE);
+			else ::PostMessageW(_hMainWnd, WM_CLOSE, 0, 0);
+		}
+	}
 }
 
 void HubApp::DrawSidebar(float S, ImVec2 pos, ImVec2 size)
@@ -336,33 +532,57 @@ void HubApp::DrawSidebar(float S, ImVec2 pos, ImVec2 size)
 	ImGui::PushStyleColor(ImGuiCol_Border, V4(kColBorder));
 	ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 10.0f * S);
 	ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f * S, 12.0f * S));
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 4.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2((m_SidebarCollapsed ? 8.0f : 10.0f) * S, 12.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 6.0f * S));
 
 	if (ImGui::BeginChild("##sidebar", size, ImGuiChildFlags_Border, ImGuiWindowFlags_NoScrollbar))
 	{
-		struct Item { const char* label; Tab tab; };
+		struct Item { const char* icon; const char* label; Tab tab; };
 		const Item items[] =
 		{
-			{ ICON_FA_FOLDER "    프로젝트", Tab::Projects },
-			{ ICON_FA_DOWNLOAD "    설치", Tab::Installs },
+			{ ICON_FA_FOLDER, "프로젝트", Tab::Projects },
+			{ ICON_FA_DOWNLOAD, "설치", Tab::Installs },
 		};
-
-		ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.5f));
-		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * S);
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(14.0f * S, 0.0f));
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const float w = ImGui::GetContentRegionAvail().x;
+		const float h = 44.0f * S;
 		for (const Item& item : items)
 		{
-			bool selected = (m_Tab == item.tab);
-			ImGui::PushStyleColor(ImGuiCol_Button, selected ? V4(kColSelected) : ImVec4(0, 0, 0, 0));
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? V4(kColSelected) : V4(kColHover));
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, V4(kColSelected));
-			ImGui::PushStyleColor(ImGuiCol_Text, V4(kColText));
-			if (ImGui::Button(item.label, ImVec2(-1, 38.0f * S)))
+			const bool selected = m_Tab == item.tab;
+			const ImVec2 a = ImGui::GetCursorScreenPos(), b(a.x + w, a.y + h);
+			ImGui::PushID(item.label);
+			if (ImGui::InvisibleButton("##tab", ImVec2(w, h)))
 				m_Tab = item.tab;
-			ImGui::PopStyleColor(4);
+			const bool hovered = ImGui::IsItemHovered();
+			if (hovered && m_SidebarCollapsed)
+				ImGui::SetTooltip("%s", item.label);
+			ImGui::PopID();
+			if (selected || hovered)
+				dl->AddRectFilled(a, b, selected ? kColSelected : kColHover, 7.0f * S);
+			if (selected)
+				dl->AddRectFilled(ImVec2(a.x, a.y + 10.0f * S), ImVec2(a.x + 3.0f * S, b.y - 10.0f * S), kColBlue, 2.0f * S);
+			const float fs = ImGui::GetFontSize();
+			const ImU32 col = selected ? kColText : IM_COL32(200, 200, 200, 255);
+			if (m_SidebarCollapsed)
+			{
+				const ImVec2 is = ImGui::CalcTextSize(item.icon);
+				dl->AddText(ImVec2(a.x + (w - is.x) * 0.5f, a.y + (h - fs) * 0.5f), col, item.icon);
+			}
+			else
+			{
+				dl->AddText(ImVec2(a.x + 16.0f * S, a.y + (h - fs) * 0.5f), col, item.icon);
+				dl->AddText(selected ? HubFont(2) : ImGui::GetFont(), fs, ImVec2(a.x + 48.0f * S, a.y + (h - fs) * 0.5f), col, item.label);
+			}
 		}
-		ImGui::PopStyleVar(3);
+
+		// 아래: 엔진 버전
+		if (!m_SidebarCollapsed)
+		{
+			ImFont* smallFont = HubFont(3);
+			const std::string ver = std::string("NOVA ") + ENGINE_VERSION_A;
+			const ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
+			dl->AddText(smallFont, smallFont->FontSize, ImVec2(wp.x + 18.0f * S, wp.y + ws.y - smallFont->FontSize - 14.0f * S), kColSubText, ver.c_str());
+		}
 	}
 	ImGui::EndChild();
 
@@ -370,7 +590,352 @@ void HubApp::DrawSidebar(float S, ImVec2 pos, ImVec2 size)
 	ImGui::PopStyleColor(2);
 }
 
+// ---------------------------------------------------------------- 앱 바 팝업
+namespace
+{
+	void PopupHeader(const char* text)
+	{
+		ImGui::PushFont(HubFont(2));
+		ImGui::TextUnformatted(text);
+		ImGui::PopFont();
+		ImGui::Separator();
+	}
+
+	void OpenUrl(const wchar_t* url) { ::ShellExecuteW(nullptr, L"open", url, nullptr, nullptr, SW_SHOWNORMAL); }
+}
+
+void HubApp::DrawLearnPopup(float S)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(14.0f * S, 12.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 8.0f * S));
+	if (ImGui::BeginPopup("##learnPopup"))
+	{
+		PopupHeader("학습");
+		if (ImGui::MenuItem(ICON_FA_BOOK "   NOVA 문서 (README)"))
+			OpenUrl(L"https://github.com/PinTrees/Nova-Game-Engine#readme");
+		if (ImGui::MenuItem(ICON_FA_CODE "   C# 스크립트"))
+			OpenUrl(L"https://github.com/PinTrees/Nova-Game-Engine#c-%EC%8A%A4%ED%81%AC%EB%A6%BD%ED%8A%B8");
+		if (ImGui::MenuItem(ICON_FA_TERMINAL "   NOVA CLI 가이드"))
+		{
+			const fs::path local = fs::path(PathManager::GetI()->GetEnginePathW()) / L"docs" / L"NOVA_CLI.md";
+			std::error_code ec;
+			if (fs::exists(local, ec))
+				::ShellExecuteW(nullptr, L"open", local.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+			else
+				OpenUrl(L"https://github.com/PinTrees/Nova-Game-Engine/blob/main/docs/NOVA_CLI.md");
+		}
+		if (ImGui::MenuItem(ICON_FA_KEYBOARD "   단축키"))
+			OpenUrl(L"https://github.com/PinTrees/Nova-Game-Engine#%EB%8B%A8%EC%B6%95%ED%82%A4-unity-%EC%99%80-%EA%B0%99%EC%9D%8C");
+		ImGui::Separator();
+		if (ImGui::MenuItem(ICON_FA_CODE_BRANCH "   GitHub 저장소"))
+			OpenUrl(L"https://github.com/PinTrees/Nova-Game-Engine");
+		ImGui::EndPopup();
+	}
+	ImGui::PopStyleVar(2);
+}
+
+void HubApp::DrawCliPopup(float S)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f * S, 14.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 8.0f * S));
+	ImGui::SetNextWindowSizeConstraints(ImVec2(380.0f * S, 0), ImVec2(560.0f * S, 600.0f * S));
+	if (ImGui::BeginPopup("##cliPopup"))
+	{
+		PopupHeader("NOVA CLI");
+		const char* state = !m_Cli.Installed ? "설치되지 않음" : (!m_Cli.OnPath ? "설치됨 (PATH 미등록)" : (m_Cli.UpToDate ? "설치됨 · 최신" : "설치됨 · 업데이트 있음"));
+		const ImU32 col = m_Cli.Installed && m_Cli.OnPath && m_Cli.UpToDate ? IM_COL32(120, 200, 120, 255) : IM_COL32(230, 190, 90, 255);
+		ImGui::PushStyleColor(ImGuiCol_Text, V4(col));
+		ImGui::Text(ICON_FA_CIRCLE "  %s", state);
+		ImGui::PopStyleColor();
+		ImGui::Spacing();
+		ImGui::PushFont(HubFont(2));
+		ImGui::Text("실행 중인 에디터 (%d)", (int)m_Running.size());
+		ImGui::PopFont();
+		if (m_Running.empty())
+			ImGui::TextColored(V4(kColSubText), "없음 — 프로젝트를 열면 nova 로 다룰 수 있습니다");
+		for (const RunningEditor& r : m_Running)
+		{
+			ImGui::Text(ICON_FA_CUBE "  %s", r.ProjectName.c_str());
+			ImGui::SameLine();
+			ImGui::TextColored(V4(kColSubText), "pid %u", r.Pid);
+		}
+		ImGui::Spacing();
+		if (GrayButton(m_Cli.Installed ? "설치 탭 열기" : "설치하러 가기", ImVec2(150.0f * S, 32.0f * S)))
+		{
+			m_Tab = Tab::Installs;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (GrayButton("AI 안내 복사", ImVec2(150.0f * S, 32.0f * S)))
+		{
+			ImGui::SetClipboardText("This project uses the NOVA game engine. Control the running editor with the `nova` command line tool "
+				"(run `nova ai-guide` first, then `nova info` and `nova hierarchy --components`).");
+			SetStatus("AI 에이전트에게 붙여 넣을 안내를 복사했습니다.");
+		}
+		ImGui::EndPopup();
+	}
+	ImGui::PopStyleVar(2);
+}
+
+void HubApp::DrawNoticePopup(float S)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f * S, 14.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 10.0f * S));
+	ImGui::SetNextWindowSizeConstraints(ImVec2(400.0f * S, 0), ImVec2(400.0f * S, 520.0f * S));
+	if (ImGui::BeginPopup("##noticePopup"))
+	{
+		PopupHeader("알림");
+		if (m_Notices.empty())
+			ImGui::TextColored(V4(kColSubText), "새 알림이 없습니다.");
+		for (auto it = m_Notices.rbegin(); it != m_Notices.rend(); ++it)
+		{
+			char when[32] = "";
+			std::tm tm = {};
+			const time_t t = (time_t)it->Time;
+			if (localtime_s(&tm, &t) == 0)
+				strftime(when, sizeof(when), "%H:%M", &tm);
+			ImGui::PushStyleColor(ImGuiCol_Text, V4(it->Error ? kColError : kColText));
+			ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 330.0f * S);
+			ImGui::TextWrapped("%s  %s", it->Error ? ICON_FA_TRIANGLE_EXCLAMATION : ICON_FA_CIRCLE_INFO, it->Text.c_str());
+			ImGui::PopTextWrapPos();
+			ImGui::PopStyleColor();
+			ImGui::PushFont(HubFont(3));
+			ImGui::TextColored(V4(kColSubText), "%s", when);
+			ImGui::PopFont();
+		}
+		if (!m_Notices.empty())
+		{
+			ImGui::Separator();
+			if (GrayButton("모두 지우기", ImVec2(120.0f * S, 30.0f * S)))
+				m_Notices.clear();
+		}
+		ImGui::EndPopup();
+	}
+	ImGui::PopStyleVar(2);
+}
+
+void HubApp::DrawSettingsPopup(float S)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f * S, 14.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 10.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f * S, 5.0f * S));
+	ImGui::SetNextWindowSizeConstraints(ImVec2(440.0f * S, 0), ImVec2(560.0f * S, 600.0f * S));
+	if (ImGui::BeginPopup("##settingsPopup"))
+	{
+		PopupHeader("설정");
+		ImGui::TextUnformatted("새 프로젝트 기본 위치");
+		const std::wstring loc = m_DefaultLocation.empty() ? HubProjectRegistry::DefaultLocation() : m_DefaultLocation;
+		ImGui::PushFont(HubFont(3));
+		ImGui::TextColored(V4(kColSubText), "%s", ToUtf8(loc).c_str());
+		ImGui::PopFont();
+		if (GrayButton(ICON_FA_FOLDER_OPEN "  변경...", ImVec2(120.0f * S, 30.0f * S)))
+		{
+			std::wstring folder;
+			if (PickFolder(_hMainWnd, L"새 프로젝트 기본 위치", folder))
+			{
+				m_DefaultLocation = folder;
+				strncpy_s(m_NewLocation, ToUtf8(folder).c_str(), _TRUNCATE);
+				SaveSettings();
+			}
+		}
+		if (!m_DefaultLocation.empty())
+		{
+			ImGui::SameLine();
+			if (GrayButton("기본값으로", ImVec2(110.0f * S, 30.0f * S)))
+			{
+				m_DefaultLocation.clear();
+				strncpy_s(m_NewLocation, ToUtf8(HubProjectRegistry::DefaultLocation()).c_str(), _TRUNCATE);
+				SaveSettings();
+			}
+		}
+		ImGui::Separator();
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(IM_COL32(52, 52, 52, 255)));
+		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, V4(IM_COL32(64, 64, 64, 255)));
+		ImGui::PushStyleColor(ImGuiCol_CheckMark, V4(kColBlueHov));
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f * S);
+		if (ImGui::Checkbox("에디터를 열면 Hub 닫기", &m_CloseOnLaunch))
+			SaveSettings();
+		ImGui::PopStyleVar(2);
+		ImGui::PopStyleColor(3);
+		ImGui::Separator();
+		if (GrayButton(ICON_FA_FOLDER "  엔진 폴더 열기", ImVec2(170.0f * S, 30.0f * S)))
+			::ShellExecuteW(nullptr, L"open", PathManager::GetI()->GetEnginePathW().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+		ImGui::SameLine();
+		if (GrayButton(ICON_FA_FILE_LINES "  로그 폴더 열기", ImVec2(170.0f * S, 30.0f * S)))
+		{
+			const fs::path logs = fs::path(PathManager::GetI()->GetEnginePathW()) / L"Binaries" / L"Logs";
+			std::error_code ec;
+			fs::create_directories(logs, ec);
+			::ShellExecuteW(nullptr, L"open", logs.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+		}
+		ImGui::EndPopup();
+	}
+	ImGui::PopStyleVar(3);
+}
+
+void HubApp::DrawAccountPopup(float S)
+{
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18.0f * S, 16.0f * S));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f * S, 6.0f * S));
+	ImGui::SetNextWindowSizeConstraints(ImVec2(300.0f * S, 0), ImVec2(420.0f * S, 400.0f * S));
+	if (ImGui::BeginPopup("##accountPopup"))
+	{
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		const float r = 24.0f * S;
+		dl->AddCircleFilled(ImVec2(p.x + r, p.y + r), r, IM_COL32(204, 85, 0, 255), 40);
+		ImFont* big = HubFont(2);
+		const ImVec2 is = big->CalcTextSizeA(big->FontSize, FLT_MAX, 0.0f, m_Initials.c_str());
+		dl->AddText(big, big->FontSize, ImVec2(p.x + r - is.x * 0.5f, p.y + r - is.y * 0.5f), IM_COL32(255, 255, 255, 255), m_Initials.c_str());
+		ImGui::SetCursorScreenPos(ImVec2(p.x + r * 2 + 14.0f * S, p.y + 2.0f * S));
+		ImGui::BeginGroup();
+		ImGui::PushFont(HubFont(2));
+		ImGui::TextUnformatted(m_UserName.c_str());
+		ImGui::PopFont();
+		ImGui::PushFont(HubFont(3));
+		ImGui::TextColored(V4(kColSubText), "로컬 사용자 · %s", m_MachineName.c_str());
+		ImGui::PopFont();
+		ImGui::EndGroup();
+		ImGui::Dummy(ImVec2(1, 10.0f * S));
+		ImGui::Separator();
+		ImGui::PushFont(HubFont(3));
+		ImGui::TextColored(V4(kColSubText), "NOVA Hub %s  ·  계정 로그인은 아직 없습니다", ENGINE_VERSION_A);
+		ImGui::PopFont();
+		ImGui::EndPopup();
+	}
+	ImGui::PopStyleVar(2);
+}
+
+// ---------------------------------------------------------------- 창 (테두리 없음)
+LRESULT HubApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+	switch (msg)
+	{
+	case WM_NCCALCSIZE:
+		// 클라이언트 = 창 전체 (Windows 제목 표시줄 없음). 최대화되면 화면 밖으로 나가는 테두리 두께만큼 줄인다
+		if (wParam == TRUE)
+		{
+			if (::IsZoomed(hwnd))
+			{
+				auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam);
+				const UINT dpi = ::GetDpiForWindow(hwnd);
+				const int pad = ::GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+				const int fx = ::GetSystemMetricsForDpi(SM_CXFRAME, dpi) + pad;
+				const int fy = ::GetSystemMetricsForDpi(SM_CYFRAME, dpi) + pad;
+				p->rgrc[0].left += fx;
+				p->rgrc[0].right -= fx;
+				p->rgrc[0].top += fy;
+				p->rgrc[0].bottom -= fy;
+			}
+			return 0;
+		}
+		break;
+	case WM_NCHITTEST:
+	{
+		POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+		::ScreenToClient(hwnd, &pt);
+		RECT rc;
+		::GetClientRect(hwnd, &rc);
+		const float S = (float)::GetDpiForWindow(hwnd) / 96.0f;
+		if (!::IsZoomed(hwnd))
+		{
+			const int b = (int)(6.0f * S);
+			const bool l = pt.x < b, r = pt.x >= rc.right - b, t = pt.y < b, bt = pt.y >= rc.bottom - b;
+			if (t && l) return HTTOPLEFT;
+			if (t && r) return HTTOPRIGHT;
+			if (bt && l) return HTBOTTOMLEFT;
+			if (bt && r) return HTBOTTOMRIGHT;
+			if (l) return HTLEFT;
+			if (r) return HTRIGHT;
+			if (t) return HTTOP;
+			if (bt) return HTBOTTOM;
+		}
+		// 앱 바의 빈 곳 = 제목 표시줄 (끌기, 두 번 눌러 최대화, 스냅). 팝업이 떠 있으면 ImGui 가 받는다
+		if (pt.y >= 0 && pt.y < (LONG)m_TitleBarH && pt.x >= (LONG)m_DragMinX && pt.x < (LONG)m_DragMaxX && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId))
+			return HTCAPTION;
+		return HTCLIENT;
+	}
+	case WM_GETMINMAXINFO:
+	{
+		auto* mm = reinterpret_cast<MINMAXINFO*>(lParam);
+		const float S = _hMainWnd ? (float)::GetDpiForWindow(_hMainWnd) / 96.0f : 1.0f;
+		mm->ptMinTrackSize.x = (LONG)(940.0f * S);
+		mm->ptMinTrackSize.y = (LONG)(580.0f * S);
+		return 0;
+	}
+	default:
+		break;
+	}
+	return App::MsgProc(hwnd, msg, wParam, lParam);
+}
+
+// ---------------------------------------------------------------- 설정 / CLI 상태
+namespace
+{
+	fs::path HubSettingsFile()
+	{
+		wchar_t buf[MAX_PATH] = {};
+		::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+		return fs::path(buf) / L"NOVA" / L"Hub" / L"settings.json";
+	}
+}
+
+void HubApp::LoadSettings()
+{
+	std::ifstream is(HubSettingsFile());
+	const nlohmann::json j = nlohmann::json::parse(is, nullptr, false);
+	if (!j.is_object())
+		return;
+	m_DefaultLocation = FromUtf8(j.value("defaultLocation", std::string()));
+	m_CloseOnLaunch = j.value("closeOnLaunch", false);
+	m_SidebarCollapsed = j.value("sidebarCollapsed", false);
+}
+
+void HubApp::SaveSettings()
+{
+	const fs::path file = HubSettingsFile();
+	std::error_code ec;
+	fs::create_directories(file.parent_path(), ec);
+	const nlohmann::json j = { { "defaultLocation", ToUtf8(m_DefaultLocation) }, { "closeOnLaunch", m_CloseOnLaunch }, { "sidebarCollapsed", m_SidebarCollapsed } };
+	std::ofstream(file, std::ios::trunc) << j.dump(2);
+}
+
+void HubApp::RefreshCli(bool force)
+{
+	if (!force && ImGui::GetTime() < m_CliNextQuery)
+		return;
+	m_CliNextQuery = ImGui::GetTime() + 2.0;
+	m_Cli = CliInstaller::Query();
+	m_Running.clear();
+	wchar_t buf[MAX_PATH] = {};
+	::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
+	std::error_code ec;
+	for (const auto& e : fs::directory_iterator(fs::path(buf) / L"NOVA" / L"Instances", ec))
+	{
+		if (e.path().extension() != L".json")
+			continue;
+		std::ifstream is(e.path());
+		const nlohmann::json j = nlohmann::json::parse(is, nullptr, false);
+		if (!j.is_object())
+			continue;
+		RunningEditor r;
+		r.Pid = j.value("pid", 0u);
+		HANDLE h = ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, r.Pid);
+		DWORD code = 0;
+		const bool alive = h && ::GetExitCodeProcess(h, &code) && code == STILL_ACTIVE;
+		if (h)
+			::CloseHandle(h);
+		if (!alive)
+			continue;
+		r.Project = j.value("project", std::string());
+		r.ProjectName = j.value("projectName", std::string());
+		m_Running.push_back(r);
+	}
+}
+
 void HubApp::DrawProjectsPanel(float S, ImVec2 pos, ImVec2 size)
+
 {
 	ImGui::SetCursorPos(pos);
 	ImGui::PushStyleColor(ImGuiCol_ChildBg, V4(kColPanel));
@@ -392,10 +957,10 @@ void HubApp::DrawProjectsPanel(float S, ImVec2 pos, ImVec2 size)
 		ImGui::PopFont();
 
 		// ---- 우측 컨트롤: 검색 / 추가 / 새 프로젝트 ----
-		const float ctrlH = 34.0f * S;
-		const float searchW = 250.0f * S;
-		const float addW = 84.0f * S;
-		const float newW = 130.0f * S;
+		const float ctrlH = 38.0f * S;
+		const float searchW = 280.0f * S;
+		const float addW = 96.0f * S;
+		const float newW = 150.0f * S;
 		const float gap = 10.0f * S;
 		float x = ImGui::GetCursorPosX() + contentW - (searchW + addW + newW + gap * 2);
 		float y = rowStartY;
@@ -441,7 +1006,7 @@ void HubApp::DrawProjectsPanel(float S, ImVec2 pos, ImVec2 size)
 
 		// 헤더 행
 		ImVec2 hp = ImGui::GetCursorScreenPos();
-		const float headerH = 36.0f * S;
+		const float headerH = 40.0f * S;
 		dl->AddRectFilled(ImVec2(listX, hp.y), ImVec2(listX + listW, hp.y + headerH), IM_COL32(37, 37, 37, 255));
 		dl->AddLine(ImVec2(listX, hp.y), ImVec2(listX + listW, hp.y), kColBorder);
 		dl->AddLine(ImVec2(listX, hp.y + headerH), ImVec2(listX + listW, hp.y + headerH), kColBorder);
@@ -479,7 +1044,7 @@ void HubApp::DrawProjectsPanel(float S, ImVec2 pos, ImVec2 size)
 			std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return projects[a].LastOpened > projects[b].LastOpened; });
 
 			const std::string query = ToLower(m_Search);
-			const float rowH = 58.0f * S;
+			const float rowH = 66.0f * S;
 			size_t shown = 0;
 			int pendingRemove = -1;
 
@@ -521,8 +1086,8 @@ void HubApp::DrawProjectsPanel(float S, ImVec2 pos, ImVec2 size)
 				// 아이콘 + 이름 + 경로
 				dl->AddText(ImVec2(colName - 34.0f * S, cy - fs * 0.5f), exists ? IM_COL32(200, 200, 200, 255) : IM_COL32(110, 110, 110, 255), ICON_FA_CUBE);
 				const ImU32 nameCol = exists ? kColText : IM_COL32(170, 170, 170, 255);
-				dl->AddText(ImVec2(colName, rp.y + 9.0f * S), nameCol, p.Name.c_str());
-				dl->AddText(font, fs * 0.86f, ImVec2(colName, rp.y + 9.0f * S + fs + 3.0f * S), kColSubText, pathUtf8.c_str());
+				dl->AddText(HubFont(2), HubFont(2)->FontSize, ImVec2(colName, rp.y + 11.0f * S), nameCol, p.Name.c_str());
+				dl->AddText(HubFont(3), HubFont(3)->FontSize, ImVec2(colName, rp.y + 15.0f * S + fs), kColSubText, pathUtf8.c_str());
 
 				if (!exists)
 				{
@@ -627,20 +1192,20 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		ImVec2 p0 = ImGui::GetCursorScreenPos();
 		float w = ImGui::GetContentRegionAvail().x;
-		ImVec2 p1(p0.x + w, p0.y + 96.0f * S);
+		ImVec2 p1(p0.x + w, p0.y + 104.0f * S);
 		dl->AddRectFilled(p0, p1, IM_COL32(37, 37, 37, 255), 8.0f * S);
 		dl->AddRect(p0, p1, kColBorder, 8.0f * S);
 
 		const float fs = ImGui::GetFontSize();
 		if (m_Logo)
 			dl->AddImage((ImTextureID)m_Logo.Get(), ImVec2(p0.x + 16.0f * S, p0.y + 16.0f * S), ImVec2(p0.x + 48.0f * S, p0.y + 48.0f * S));
-		dl->AddText(ImVec2(p0.x + 56.0f * S, p0.y + 14.0f * S), kColText, ENGINE_VERSION_LABEL_A);
-		dl->AddText(ImVec2(p0.x + 56.0f * S, p0.y + 14.0f * S + fs + 4.0f * S), kColSubText,
+		dl->AddText(HubFont(2), HubFont(2)->FontSize, ImVec2(p0.x + 64.0f * S, p0.y + 14.0f * S), kColText, ENGINE_VERSION_LABEL_A);
+		dl->AddText(ImVec2(p0.x + 64.0f * S, p0.y + 14.0f * S + fs + 6.0f * S), kColSubText,
 			(ToUtf8(PathManager::GetI()->GetEnginePathW()) + "Binaries").c_str());
 
 		// 지원 렌더링 API 배지
-		float bx = p0.x + 56.0f * S;
-		const float by = p0.y + 14.0f * S + (fs + 4.0f * S) * 2;
+		float bx = p0.x + 64.0f * S;
+		const float by = p0.y + 14.0f * S + (fs + 6.0f * S) * 2 + 2.0f * S;
 		for (int i = 0; i < (int)GraphicsAPI::Count; ++i)
 		{
 			GraphicsAPI api = (GraphicsAPI)i;
@@ -652,7 +1217,7 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 			dl->AddText(ImVec2(b0.x + 9.0f * S, b0.y + 3.0f * S), supported ? kColText : kColSubText, label.c_str());
 			bx = b1.x + 8.0f * S;
 		}
-		ImGui::Dummy(ImVec2(w, 110.0f * S));
+		ImGui::Dummy(ImVec2(w, 118.0f * S));
 
 		// ---- NOVA CLI: 터미널·AI 에이전트가 실행 중인 에디터를 다룬다 (Unity CLI 처럼)
 		{
@@ -664,14 +1229,19 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 				s_NextQuery = ImGui::GetTime() + 2.0;
 			}
 			const ImVec2 c0 = ImGui::GetCursorScreenPos();
-			const ImVec2 c1(c0.x + w, c0.y + 150.0f * S);
+			const ImVec2 c1(c0.x + w, c0.y + 142.0f * S);
 			dl->AddRectFilled(c0, c1, IM_COL32(37, 37, 37, 255), 8.0f * S);
 			dl->AddRect(c0, c1, kColBorder, 8.0f * S);
-			dl->AddText(bold, bold->FontSize * 1.2f, ImVec2(c0.x + 20.0f * S, c0.y + 18.0f * S), kColText, ICON_FA_TERMINAL);
-			const float tx = c0.x + 56.0f * S;
-			dl->AddText(bold, bold->FontSize, ImVec2(tx, c0.y + 14.0f * S), kColText, "NOVA CLI");
-			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + fs + 6.0f * S), kColSubText,
-				"터미널이나 AI 에이전트가 실행 중인 에디터를 명령으로 다룹니다 (창 포커스·마우스 조작 없이)");
+			ImFont* iconFont = HubFont(4);
+			dl->AddText(iconFont, iconFont->FontSize * 1.3f, ImVec2(c0.x + 18.0f * S, c0.y + 18.0f * S), kColText, ICON_FA_TERMINAL);
+			const float tx = c0.x + 64.0f * S;
+			ImFont* semi = HubFont(2);
+			ImFont* smallF = HubFont(3);
+			float ty = c0.y + 16.0f * S;
+			dl->AddText(semi, semi->FontSize, ImVec2(tx, ty), kColText, "NOVA CLI");
+			ty += semi->FontSize + 6.0f * S;
+			dl->AddText(ImVec2(tx, ty), kColSubText, "터미널이나 AI 에이전트가 실행 중인 에디터를 명령으로 다룹니다 (창 포커스·마우스 조작 없이)");
+			ty += fs + 8.0f * S;
 			std::string state;
 			ImU32 stateCol = kColSubText;
 			if (!s_Cli.SourceFound)
@@ -684,19 +1254,21 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 				state += s_Cli.OnPath ? "  ·  PATH 등록됨" : "  ·  PATH 미등록";
 				stateCol = s_Cli.UpToDate && s_Cli.OnPath ? IM_COL32(120, 200, 120, 255) : IM_COL32(230, 190, 90, 255);
 			}
-			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + (fs + 6.0f * S) * 2), stateCol, state.c_str());
-			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + (fs + 6.0f * S) * 3), kColSubText, ToUtf8(s_Cli.Dir).c_str());
-			dl->AddText(ImVec2(tx, c0.y + 14.0f * S + (fs + 6.0f * S) * 4), kColSubText,
-				"예: nova status  ·  nova hierarchy  ·  nova screenshot shot.png  ·  AI 에게는 nova ai-guide");
+			dl->AddText(semi, smallF->FontSize, ImVec2(tx, ty), stateCol, state.c_str());
+			dl->AddText(smallF, smallF->FontSize, ImVec2(tx + semi->CalcTextSizeA(smallF->FontSize, FLT_MAX, 0.0f, state.c_str()).x + 12.0f * S, ty), kColSubText, ToUtf8(s_Cli.Dir).c_str());
+			ty += smallF->FontSize + 8.0f * S;
+			dl->AddText(smallF, smallF->FontSize, ImVec2(tx, ty), kColSubText,
+				"예: nova status  ·  nova hierarchy --components  ·  nova screenshot shot.png  ·  AI 에게는 nova ai-guide");
 
 			// 오른쪽 버튼
-			const float bw = 110.0f * S, bh = 30.0f * S;
+			const float bw = 120.0f * S, bh = 32.0f * S;
 			float bx2 = c1.x - 16.0f * S - bw;
 			ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S));
 			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * S);
 			ImGui::BeginDisabled(!s_Cli.SourceFound);
 			const char* installLabel = !s_Cli.Installed ? "설치" : (s_Cli.UpToDate && s_Cli.OnPath ? "다시 설치" : "업데이트");
-			if (ImGui::Button(installLabel, ImVec2(bw, bh)))
+			const bool needed = !s_Cli.Installed || !s_Cli.UpToDate || !s_Cli.OnPath;
+			if (needed ? BlueButton(installLabel, ImVec2(bw, bh)) : GrayButton(installLabel, ImVec2(bw, bh)))
 			{
 				std::string error;
 				if (CliInstaller::Install(error))
@@ -708,8 +1280,8 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 			ImGui::EndDisabled();
 			if (s_Cli.Installed)
 			{
-				ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S + bh + 8.0f * S));
-				if (ImGui::Button("제거", ImVec2(bw, bh)))
+				ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S + (bh + 6.0f * S) * 1));
+				if (GrayButton("제거", ImVec2(bw, bh)))
 				{
 					std::string error;
 					if (CliInstaller::Uninstall(error))
@@ -719,8 +1291,8 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 					s_NextQuery = 0.0;
 				}
 			}
-			ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S + (bh + 8.0f * S) * 2));
-			if (ImGui::Button("AI 안내 복사", ImVec2(bw, bh)))
+			ImGui::SetCursorScreenPos(ImVec2(bx2, c0.y + 16.0f * S + (bh + 6.0f * S) * 2));
+			if (GrayButton("AI 안내 복사", ImVec2(bw, bh)))
 			{
 				ImGui::SetClipboardText("This project uses the NOVA game engine. Control the running editor with the `nova` command line tool "
 					"(run `nova ai-guide` first, then `nova info` and `nova hierarchy --components`).");

@@ -133,15 +133,36 @@ void EditorGUIManager::Init(bool hubMode)
     }
     else
     {
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", fontSize, NULL, io.Fonts->GetGlyphRangesKorean());
-        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), fontSize - 4, &config, icons_ranges);
-    }
-
-    if (hubMode)
-    {
-        // Fonts[1]: Hub 제목용 굵고 큰 폰트
-        io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgunbd.ttf", 26.0f * dpiScale, NULL, io.Fonts->GetGlyphRangesKorean());
-        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), 22.0f * dpiScale, &config, icons_ranges);
+        // Hub: 에디터와 같은 글꼴(Pretendard, 없으면 Segoe UI + 맑은 고딕)을 더 크게. 순서 = HubApp 의 HubFont 번호
+        //  [0] 본문 18  [1] 큰 제목(굵게) 28  [2] 강조(SemiBold) 18  [3] 작은 글자 15  [4] 앱 바 아이콘 19  [5] 앱 이름(SemiBold) 21
+        static const ImWchar textRanges[] = { 0x0020, 0x00FF, 0x2010, 0x2027, 0x2190, 0x21FF, 0x2500, 0x257F, 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
+        static const ImWchar hangulRanges[] = { 0x1100, 0x11FF, 0x3000, 0x303F, 0x3130, 0x318F, 0xAC00, 0xD7A3, 0xFF00, 0xFFEF, 0 };
+        ImFontConfig textCfg;
+        textCfg.OversampleH = 2;
+        textCfg.OversampleV = 1;
+        textCfg.PixelSnapH = true;
+        textCfg.RasterizerMultiply = 1.1f;
+        ImFontConfig mergeCfg = textCfg;
+        mergeCfg.MergeMode = true;
+        auto loadText = [&](bool bold, float size, bool icons)
+        {
+            bool pretendard = false;
+            const std::string file = EditorTheme::FontFile(bold, pretendard);
+            io.Fonts->AddFontFromFileTTF(file.c_str(), size, &textCfg, pretendard ? textRanges : io.Fonts->GetGlyphRangesDefault());
+            if (!pretendard)
+                io.Fonts->AddFontFromFileTTF(bold ? "C:\\Windows\\Fonts\\malgunbd.ttf" : "C:\\Windows\\Fonts\\malgun.ttf", size, &mergeCfg, hangulRanges);
+            if (icons)
+                io.Fonts->AddFontFromFileTTF(fa_path.c_str(), size * 0.86f, &config, icons_ranges);
+        };
+        loadText(false, 18.0f * dpiScale, true);   // [0]
+        loadText(true, 28.0f * dpiScale, true);    // [1]
+        loadText(true, 18.0f * dpiScale, true);    // [2]
+        loadText(false, 15.0f * dpiScale, true);   // [3]
+        ImFontConfig iconCfg;
+        iconCfg.PixelSnapH = true;
+        iconCfg.OversampleH = 2;
+        io.Fonts->AddFontFromFileTTF(fa_path.c_str(), 19.0f * dpiScale, &iconCfg, icons_ranges);   // [4]
+        loadText(true, 21.0f * dpiScale, false);   // [5]
     }
     io.Fonts->Build();
 }

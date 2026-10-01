@@ -56,6 +56,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 
 | | |
 |:---:|:---:|
+| <img src="docs/images/hub.webp" width="440"/><br/>NOVA Hub (앱 바 · 프로젝트 목록) | |
 | <img src="docs/images/animator.webp" width="440"/><br/>Animator 창 | <img src="docs/images/terrain_lod.webp" width="440"/><br/>터레인 쿼드트리 LOD |
 | <img src="docs/images/project_window.webp" width="440"/><br/>Project 창 (2단 레이아웃) | <img src="docs/images/prefab.webp" width="440"/><br/>프리팹 인스턴스 |
 | <img src="docs/images/game_view_stats.webp" width="440"/><br/>Game 뷰 (1080x1920 + Stats) | <img src="docs/images/volume_settings.webp" width="440"/><br/>Project Settings > Graphics (Volume) |
@@ -145,7 +146,7 @@ build.bat
 
 | 명령 | 동작 |
 |---|---|
-| `NovaEngine.exe` | **NOVA Hub** — 프로젝트 목록, 새 프로젝트 만들기, 열기 |
+| `NovaEngine.exe` | **NOVA Hub** — 프로젝트 목록, 새 프로젝트 만들기, 열기, 설치(엔진 · NOVA CLI). 위쪽 앱 바: 학습(문서·CLI 가이드·단축키), NOVA CLI(설치 상태·실행 중인 에디터), 알림(상태 메시지 기록), 설정(새 프로젝트 기본 위치, 에디터를 열면 Hub 닫기, 엔진·로그 폴더), 계정 |
 | `NovaEngine.exe --project "<프로젝트 폴더>"` | 그 프로젝트를 에디터로 열기 |
 | `NovaEngine.exe --editor` | 엔진 폴더의 샘플 프로젝트로 에디터 열기 (엔진 개발용) |
 
