@@ -43,6 +43,7 @@ public:
 	virtual void OnCollisionExit(Collider* other) override;
 	virtual void OnTriggerEnter(Collider* other) override;
 	virtual void OnControllerColliderHit(const struct ControllerColliderHit& hit, int index) override;
+	virtual void OnJointBreak(float breakForce) override;
 	virtual void OnTriggerStay(Collider* other) override;
 	virtual void OnTriggerExit(Collider* other) override;
 

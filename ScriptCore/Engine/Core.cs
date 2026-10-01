@@ -269,6 +269,9 @@ namespace NovaEngine
             if (t == typeof(SphereCollider)) return "SphereCollider";
             if (t == typeof(CapsuleCollider)) return "CapsuleCollider";
             if (t == typeof(CharacterController)) return "CharacterController";
+            if (t == typeof(FixedJoint)) return "FixedJoint";
+            if (t == typeof(HingeJoint)) return "HingeJoint";
+            if (t == typeof(SpringJoint)) return "SpringJoint";
             if (t == typeof(Camera)) return "Camera";
             if (t == typeof(Light)) return "Light";
             if (t == typeof(MeshRenderer)) return "MeshRenderer";

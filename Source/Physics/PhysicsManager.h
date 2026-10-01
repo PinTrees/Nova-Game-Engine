@@ -4,6 +4,8 @@ class GameObject;
 class Collider;
 class RigidBody;
 class CharacterController;
+class Joint;
+class HingeJoint;
 
 // Unity 의 ForceMode
 enum class ForceMode
@@ -83,6 +85,10 @@ public:
 	// motion 만큼 쓸고 지나가며 이동, CollisionFlags 비트 합을 돌려준다. Play 가 아니면 Transform 만 옮긴다
 	int MoveCharacter(CharacterController* cc, const Vec3& motion, float deltaTime);
 	void RemoveCharacter(CharacterController* cc);
+
+	// ---- Joint (Fixed / Hinge / Spring → Jolt Constraint) ----
+	void RemoveJoint(Joint* joint);
+	float GetHingeAngle(const HingeJoint* joint, bool velocity);   // 도 / 도/초 (Play 중, 없으면 0)
 
 	// Editor
 	void DebugRender() {}

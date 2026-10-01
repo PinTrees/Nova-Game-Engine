@@ -451,6 +451,17 @@ namespace NovaEngine.Interop
         {
             var mb = ScriptRegistry.FromHandle(handle);
             if (mb == null || mb.m_Destroyed) return;
+            if (kind == 3)
+            {
+                // OnJointBreak(float breakForce): 힘 = other 의 float 비트
+                MethodInfo jm = FindMethod(mb.GetType(), "OnJointBreak", typeof(float)) ?? FindMethod(mb.GetType(), "OnJointBreak", null);
+                if (jm == null) return;
+                float force = BitConverter.Int32BitsToSingle((int)(uint)other);
+                try { jm.Invoke(mb, jm.GetParameters().Length == 0 ? null : new object[] { force }); }
+                catch (TargetInvocationException e) { LogException(e.InnerException ?? e); }
+                catch (Exception e) { LogException(e); }
+                return;
+            }
             if (kind == 2)
             {
                 // OnControllerColliderHit: phase = CharacterController 의 이번 Move 충돌 번호

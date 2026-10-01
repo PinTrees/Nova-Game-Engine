@@ -69,6 +69,8 @@ public:
 	virtual void OnTriggerExit(Collider* other) {}
 	// Character Controller 가 Move 중 부딪혔을 때 (index = CharacterController::GetHits() 의 번호)
 	virtual void OnControllerColliderHit(const struct ControllerColliderHit& hit, int index) {}
+	// Joint 가 Break Force / Torque 를 넘어 끊어졌을 때 (Unity: OnJointBreak(float breakForce))
+	virtual void OnJointBreak(float breakForce) {}
 
 	// 100% Automated Inspector GUI
 	virtual void OnInspectorGUI() override;

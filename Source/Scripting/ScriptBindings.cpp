@@ -8,6 +8,7 @@
 #include "ComponentFactory.h"
 #include "RigidBody.h"
 #include "CharacterController.h"
+#include "Joint.h"
 #include "Collider.h"
 #include "Animator.h"
 #include "AudioSource.h"
@@ -142,6 +143,14 @@ namespace
 		int(*CC_GetInt)(uint64, int);
 		void(*CC_SetInt)(uint64, int, int);
 		int(*CC_GetHit)(uint64, int, ControllerHitData*);
+
+		// Joint (kind 0 Fixed, 1 Hinge, 2 Spring — 같은 GameObject 의 첫 번째)
+		float(*JT_GetFloat)(uint64, int, int);
+		void(*JT_SetFloat)(uint64, int, int, float);
+		void(*JT_GetVector)(uint64, int, int, Vec3*);
+		void(*JT_SetVector)(uint64, int, int, Vec3*);
+		uint64(*JT_GetConnected)(uint64, int);
+		void(*JT_SetConnected)(uint64, int, uint64);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -624,6 +633,88 @@ namespace
 		return 1;
 	}
 
+	// Joint — float: 0 breakForce, 1 breakTorque, 2 enableCollision(0/1), 3 autoConfigureConnectedAnchor(0/1),
+	//   Hinge: 10 useSpring, 11 spring, 12 damper, 13 targetPosition, 14 useMotor, 15 targetVelocity, 16 force, 17 freeSpin,
+	//          18 useLimits, 19 min, 20 max, 21 bounciness, 30 angle(읽기), 31 velocity(읽기)
+	//   Spring: 40 spring, 41 damper, 42 minDistance, 43 maxDistance
+	//   vector: 0 anchor, 1 axis, 2 connectedAnchor
+	Joint* FindJoint(uint64 id, int kind)
+	{
+		GameObject* g = Find(id);
+		if (g == nullptr) return nullptr;
+		auto pick = [&](const std::vector<std::shared_ptr<Component>>& list) -> Joint* {
+			for (const auto& c : list)
+				if (auto* j = dynamic_cast<Joint*>(c.get()))
+					if (j->JointKind() == kind) return j;
+			return nullptr;
+		};
+		Joint* j = pick(g->GetComponents());
+		return j ? j : pick(g->GetPendingComponents());
+	}
+	float JT_GetFloat(uint64 id, int kind, int prop)
+	{
+		Joint* j = FindJoint(id, kind);
+		if (j == nullptr) return 0.0f;
+		auto* h = dynamic_cast<HingeJoint*>(j);
+		auto* s = dynamic_cast<SpringJoint*>(j);
+		switch (prop)
+		{
+		case 0: return j->GetBreakForce();
+		case 1: return j->GetBreakTorque();
+		case 2: return j->GetEnableCollision() ? 1.0f : 0.0f;
+		case 3: return j->GetAutoConfigureConnectedAnchor() ? 1.0f : 0.0f;
+		}
+		if (h)
+			switch (prop)
+			{
+			case 10: return h->UseSpring; case 11: return h->Spring.Spring; case 12: return h->Spring.Damper; case 13: return h->Spring.TargetPosition;
+			case 14: return h->UseMotor; case 15: return h->Motor.TargetVelocity; case 16: return h->Motor.Force; case 17: return h->Motor.FreeSpin;
+			case 18: return h->UseLimits; case 19: return h->Limits.Min; case 20: return h->Limits.Max; case 21: return h->Limits.Bounciness;
+			case 30: return h->GetAngle(); case 31: return h->GetVelocity();
+			}
+		if (s)
+			switch (prop) { case 40: return s->SpringValue; case 41: return s->Damper; case 42: return s->MinDistance; case 43: return s->MaxDistance; }
+		return 0.0f;
+	}
+	void JT_SetFloat(uint64 id, int kind, int prop, float v)
+	{
+		Joint* j = FindJoint(id, kind);
+		if (j == nullptr) return;
+		auto* h = dynamic_cast<HingeJoint*>(j);
+		auto* s = dynamic_cast<SpringJoint*>(j);
+		const bool b = v != 0.0f;
+		switch (prop)
+		{
+		case 0: j->SetBreakForce(v); return;
+		case 1: j->SetBreakTorque(v); return;
+		case 2: j->SetEnableCollision(b); return;
+		case 3: j->SetAutoConfigureConnectedAnchor(b); return;
+		}
+		if (h)
+			switch (prop)
+			{
+			case 10: h->UseSpring = b; return; case 11: h->Spring.Spring = v; return; case 12: h->Spring.Damper = v; return; case 13: h->Spring.TargetPosition = v; return;
+			case 14: h->UseMotor = b; return; case 15: h->Motor.TargetVelocity = v; return; case 16: h->Motor.Force = v; return; case 17: h->Motor.FreeSpin = b; return;
+			case 18: h->UseLimits = b; return; case 19: h->Limits.Min = v; return; case 20: h->Limits.Max = v; return; case 21: h->Limits.Bounciness = v; return;
+			}
+		if (s)
+			switch (prop) { case 40: s->SpringValue = v; return; case 41: s->Damper = v; return; case 42: s->MinDistance = v; return; case 43: s->MaxDistance = v; return; }
+	}
+	void JT_GetVector(uint64 id, int kind, int prop, Vec3* out)
+	{
+		Joint* j = FindJoint(id, kind);
+		if (out == nullptr) return;
+		*out = j == nullptr ? Vec3::Zero : (prop == 0 ? j->GetAnchor() : (prop == 1 ? j->GetAxis() : j->GetConnectedAnchor()));
+	}
+	void JT_SetVector(uint64 id, int kind, int prop, Vec3* v)
+	{
+		Joint* j = FindJoint(id, kind);
+		if (j == nullptr || v == nullptr) return;
+		if (prop == 0) j->SetAnchor(*v); else if (prop == 1) j->SetAxis(*v); else j->SetConnectedAnchor(*v);
+	}
+	uint64 JT_GetConnected(uint64 id, int kind) { Joint* j = FindJoint(id, kind); return j ? j->GetConnectedBody() : 0; }
+	void JT_SetConnected(uint64 id, int kind, uint64 other) { if (Joint* j = FindJoint(id, kind)) j->SetConnectedBody(other); }
+
 	void AS_Call(uint64 id, int op)
 	{
 		AudioSource* a = Get<AudioSource>(id);
@@ -997,6 +1088,12 @@ namespace ScriptBindings
 		t.CC_GetInt = CC_GetInt;
 		t.CC_SetInt = CC_SetInt;
 		t.CC_GetHit = CC_GetHit;
+		t.JT_GetFloat = JT_GetFloat;
+		t.JT_SetFloat = JT_SetFloat;
+		t.JT_GetVector = JT_GetVector;
+		t.JT_SetVector = JT_SetVector;
+		t.JT_GetConnected = JT_GetConnected;
+		t.JT_SetConnected = JT_SetConnected;
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

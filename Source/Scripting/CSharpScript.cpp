@@ -198,6 +198,15 @@ void CSharpScript::OnCollisionExit(Collider* other) { Collision(other, false, 2)
 void CSharpScript::OnTriggerEnter(Collider* other) { Collision(other, true, 0); }
 void CSharpScript::OnTriggerStay(Collider* other) { Collision(other, true, 1); }
 void CSharpScript::OnTriggerExit(Collider* other) { Collision(other, true, 2); }
+void CSharpScript::OnJointBreak(float breakForce)
+{
+	// kind 3: 힘은 float 비트를 그대로 other 에 담아 보낸다
+	uint32_t bits = 0;
+	memcpy(&bits, &breakForce, sizeof(bits));
+	if (m_Handle && Application::IsPlaying())
+		ScriptEngine::InvokeCollision(m_Handle, 3, 0, (uint64_t)bits);
+}
+
 void CSharpScript::OnControllerColliderHit(const ControllerColliderHit& hit, int index)
 {
 	// C# 이 CC_GetHit 로 점·법선을 읽는다 (kind 2, phase = 번호)

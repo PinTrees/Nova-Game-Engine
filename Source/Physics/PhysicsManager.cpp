@@ -24,6 +24,9 @@
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Geometry/AABox.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 
@@ -41,6 +44,7 @@
 #include "MeshCollider.h"
 #include "TerrainCollider.h"
 #include "CharacterController.h"
+#include "Joint.h"
 #include "TerrainData.h"
 #include "TreeDesc.h"
 #include "Mesh.h"
@@ -212,6 +216,10 @@ struct PhysicsManager::JoltWorld
 		// 두 콜라이더의 설정이 충돌하면 Layer Override Priority 가 높은 쪽을 따른다 (Unity 와 동일).
 		JPH::ValidateResult OnContactValidate(const JPH::Body& b1, const JPH::Body& b2, JPH::RVec3Arg, const JPH::CollideShapeResult& r) override
 		{
+			// Joint 로 이은 두 바디 (Enable Collision 꺼짐 — Unity 기본)
+			if (!world->jointNoCollide.empty() &&
+				world->jointNoCollide.count(PairKey(b1.GetID().GetIndexAndSequenceNumber(), b2.GetID().GetIndexAndSequenceNumber())))
+				return JPH::ValidateResult::RejectAllContactsForThisBodyPair;
 			JPH::uint32 c1 = 0, c2 = 0;
 			if (!DecodeCollider(b1.GetShape()->GetSubShapeUserData(r.mSubShapeID1), c1) ||
 				!DecodeCollider(b2.GetShape()->GetSubShapeUserData(r.mSubShapeID2), c2))
@@ -278,6 +286,18 @@ struct PhysicsManager::JoltWorld
 		std::unordered_set<JPH::uint32> moveTriggers;  // 이번 Move 에서 만난 트리거
 	};
 	std::unordered_map<CharacterController*, CharRecord> characters;
+
+	// Joint: 컴포넌트마다 Jolt Constraint 하나 (Rigidbody 바디 ↔ 이은 바디 또는 월드)
+	struct JointRecord
+	{
+		Joint* joint = nullptr;
+		JPH::Ref<JPH::TwoBodyConstraint> c;
+		JPH::BodyID a, b;              // b 가 무효 = 월드
+		size_t signature = 0;
+		bool noCollide = false;        // Enable Collision 꺼짐: 두 바디끼리 접촉하지 않음
+	};
+	std::unordered_map<Joint*, JointRecord> joints;
+	std::unordered_set<JPH::uint64> jointNoCollide;   // 바디 쌍 (PairKey)
 
 	std::mutex touchMutex;
 	std::unordered_map<JPH::uint64, TouchInfo> touching;             // 이번 스텝에 닿아 있는 콜라이더 쌍
@@ -703,6 +723,180 @@ namespace
 		return &(w.characters[cc] = std::move(rec));
 	}
 
+	// ------------------------------------------------------------------ Joint
+	// 바디를 지우기 전에 그 바디를 쓰는 구속을 지운다 (Jolt 구속은 바디 포인터를 들고 있다). 다음 동기화에서 새 바디로 다시 만든다
+	void DropJointsOf(World& w, const JPH::BodyID& id)
+	{
+		for (auto it = w.joints.begin(); it != w.joints.end();)
+		{
+			if (it->second.a == id || it->second.b == id)
+			{
+				w.physics->RemoveConstraint(it->second.c);
+				it = w.joints.erase(it);
+			}
+			else
+				++it;
+		}
+	}
+
+	JPH::BodyID BodyOfObject(World& w, GameObject* go)
+	{
+		if (go == nullptr)
+			return JPH::BodyID();
+		GameObject* owner = FindRigidOwner(go);
+		auto it = w.bodies.find((owner ? owner : go)->GetInstanceID());
+		return it == w.bodies.end() ? JPH::BodyID() : it->second.id;
+	}
+
+	JPH::Ref<JPH::TwoBodyConstraint> CreateJointConstraint(World& w, Joint* jt, GameObject* go, GameObject* other, const JPH::BodyID& a, const JPH::BodyID& b)
+	{
+		const Matrix world = go->GetTransform()->GetWorldMatrix();
+		const Vec3 anchor = Vec3::Transform(jt->GetAnchor(), world);
+		Vec3 connected = anchor;   // Auto Configure: 지금 앵커 자리
+		if (!jt->GetAutoConfigureConnectedAnchor())
+			connected = other ? Vec3::Transform(jt->GetConnectedAnchor(), other->GetTransform()->GetWorldMatrix()) : jt->GetConnectedAnchor();
+
+		JPH::Ref<JPH::TwoBodyConstraintSettings> settings;
+		HingeJoint* hinge = nullptr;
+		switch (jt->JointKind())
+		{
+		case 0:
+		{
+			JPH::FixedConstraintSettings* f = new JPH::FixedConstraintSettings();
+			f->mAutoDetectPoint = true;   // 지금 상대 위치·방향을 그대로 고정
+			settings = f;
+			break;
+		}
+		case 1:
+		{
+			hinge = static_cast<HingeJoint*>(jt);
+			JPH::HingeConstraintSettings* h = new JPH::HingeConstraintSettings();
+			Vec3 ax = Vec3::TransformNormal(jt->GetAxis(), world);
+			if (ax.LengthSquared() < 1e-10f) ax = Vec3(1, 0, 0);
+			ax.Normalize();
+			const JPH::Vec3 jax = ToJ(ax);
+			const JPH::Vec3 normal = jax.GetNormalizedPerpendicular();
+			// body1 = 이은 쪽, body2 = 이 조인트의 바디 → Jolt 의 각도 = 조인트 바디가 상대에 대해 돈 각 (Unity 의 angle·motor·limits 방향)
+			h->mPoint1 = ToJR(connected);
+			h->mPoint2 = ToJR(anchor);
+			h->mHingeAxis1 = h->mHingeAxis2 = jax;
+			h->mNormalAxis1 = h->mNormalAxis2 = normal;
+			if (hinge->UseLimits)
+			{
+				h->mLimitsMin = std::clamp(JPH::DegreesToRadians(hinge->Limits.Min), -JPH::JPH_PI, 0.0f);
+				h->mLimitsMax = std::clamp(JPH::DegreesToRadians(hinge->Limits.Max), 0.0f, JPH::JPH_PI);
+			}
+			if (hinge->UseMotor)
+			{
+				const float force = (std::max)(0.0f, hinge->Motor.Force);
+				if (hinge->Motor.FreeSpin)   // 목표 방향으로만 민다 (멈추게 하지 않음)
+					h->mMotorSettings.SetTorqueLimits(hinge->Motor.TargetVelocity >= 0.0f ? 0.0f : -force, hinge->Motor.TargetVelocity >= 0.0f ? force : 0.0f);
+				else
+					h->mMotorSettings.SetTorqueLimit(force);
+			}
+			else if (hinge->UseSpring)
+				h->mMotorSettings = JPH::MotorSettings(JPH::ESpringMode::StiffnessAndDamping, (std::max)(0.0f, hinge->Spring.Spring), (std::max)(0.0f, hinge->Spring.Damper));
+			settings = h;
+			break;
+		}
+		default:
+		{
+			SpringJoint* sj = static_cast<SpringJoint*>(jt);
+			JPH::DistanceConstraintSettings* d = new JPH::DistanceConstraintSettings();
+			d->mPoint1 = ToJR(connected);
+			d->mPoint2 = ToJR(anchor);
+			// Unity: 거리가 [Min, Max] 안이면 힘이 없고, 벗어나면 Spring·Damper 로 당긴다
+			d->mMinDistance = (std::max)(0.0f, sj->MinDistance);
+			d->mMaxDistance = (std::max)(d->mMinDistance + 1e-3f, sj->MaxDistance);
+			d->mLimitsSpringSettings = JPH::SpringSettings(JPH::ESpringMode::StiffnessAndDamping, (std::max)(0.0f, sj->SpringValue), (std::max)(0.0f, sj->Damper));
+			settings = d;
+			break;
+		}
+		}
+		JPH::TwoBodyConstraint* c = w.BI().CreateConstraint(settings, b, a);   // b 가 무효면 월드
+		if (c == nullptr)
+			return nullptr;
+		if (hinge)
+		{
+			JPH::HingeConstraint* hc = static_cast<JPH::HingeConstraint*>(c);
+			if (hinge->UseMotor)
+			{
+				hc->SetMotorState(JPH::EMotorState::Velocity);
+				hc->SetTargetAngularVelocity(JPH::DegreesToRadians(hinge->Motor.TargetVelocity));
+			}
+			else if (hinge->UseSpring)
+			{
+				hc->SetMotorState(JPH::EMotorState::Position);
+				hc->SetTargetAngle(JPH::DegreesToRadians(hinge->Spring.TargetPosition));
+			}
+		}
+		return c;
+	}
+
+	void SyncJoints(World& w, const std::vector<GameObject*>& all)
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		std::unordered_set<Joint*> alive;
+		for (GameObject* go : all)
+		{
+			if (!IsActiveInHierarchy(go))
+				continue;
+			for (const auto& comp : go->GetComponents())
+			{
+				Joint* jt = dynamic_cast<Joint*>(comp.get());
+				if (jt == nullptr || jt->IsBroken() || go->GetComponent<RigidBody>() == nullptr)
+					continue;
+				auto own = w.bodies.find(go->GetInstanceID());
+				if (own == w.bodies.end() || own->second.id.IsInvalid())
+					continue;
+				const JPH::BodyID a = own->second.id;
+				GameObject* other = jt->GetConnectedBody() != 0 && scene ? scene->FindByFileID(jt->GetConnectedBody()) : nullptr;
+				const JPH::BodyID b = other ? BodyOfObject(w, other) : JPH::BodyID();
+				if ((other && b.IsInvalid()) || a == b)
+					continue;
+				size_t sig = jt->ParamsHash();
+				HashCombine(sig, a.GetIndexAndSequenceNumber());
+				HashCombine(sig, b.IsInvalid() ? 0u : b.GetIndexAndSequenceNumber());
+				alive.insert(jt);
+				auto it = w.joints.find(jt);
+				if (it != w.joints.end() && it->second.signature == sig)
+					continue;
+				if (it != w.joints.end())
+				{
+					w.physics->RemoveConstraint(it->second.c);
+					w.joints.erase(it);
+				}
+				JPH::Ref<JPH::TwoBodyConstraint> c = CreateJointConstraint(w, jt, go, other, a, b);
+				if (c == nullptr)
+					continue;
+				w.physics->AddConstraint(c);
+				w.BI().ActivateConstraint(c);
+				World::JointRecord rec;
+				rec.joint = jt;
+				rec.c = c;
+				rec.a = a;
+				rec.b = b;
+				rec.signature = sig;
+				rec.noCollide = !jt->GetEnableCollision() && !b.IsInvalid();
+				w.joints[jt] = rec;
+			}
+		}
+		for (auto it = w.joints.begin(); it != w.joints.end();)
+		{
+			if (alive.count(it->first))
+				++it;
+			else
+			{
+				w.physics->RemoveConstraint(it->second.c);
+				it = w.joints.erase(it);
+			}
+		}
+		w.jointNoCollide.clear();
+		for (auto& kv : w.joints)
+			if (kv.second.noCollide)
+				w.jointNoCollide.insert(PairKey(kv.second.a.GetIndexAndSequenceNumber(), kv.second.b.GetIndexAndSequenceNumber()));
+	}
+
 	Collider* ColliderOfBody(World& w, const JPH::BodyID& id, const JPH::SubShapeID& sub, JPH::uint32* outId = nullptr)
 	{
 		if (id.IsInvalid())
@@ -809,6 +1003,10 @@ void PhysicsManager::Exit()
 	JoltWorld& w = *m_World;
 	JPH::BodyInterface& bi = w.BI();
 	w.characters.clear();   // CharacterVirtual 이 안쪽 바디를 지운다 (물리 시스템이 살아 있을 때)
+	for (auto& kv : w.joints)
+		w.physics->RemoveConstraint(kv.second.c);   // 구속은 바디보다 먼저
+	w.joints.clear();
+	w.jointNoCollide.clear();
 	for (auto& kv : w.bodies)
 	{
 		if (kv.second.rb)
@@ -917,6 +1115,7 @@ void PhysicsManager::StepSimulation(float dt)
 		{
 			if (!it->second.id.IsInvalid())
 			{
+				DropJointsOf(w, it->second.id);
 				bi.RemoveBody(it->second.id);
 				bi.DestroyBody(it->second.id);
 			}
@@ -966,6 +1165,7 @@ void PhysicsManager::StepSimulation(float dt)
 			{
 				keepVel = FromJ(bi.GetLinearVelocity(existing->second.id));
 				keepAng = FromJ(bi.GetAngularVelocity(existing->second.id));
+				DropJointsOf(w, existing->second.id);
 				bi.RemoveBody(existing->second.id);
 				bi.DestroyBody(existing->second.id);
 			}
@@ -1074,6 +1274,7 @@ void PhysicsManager::StepSimulation(float dt)
 		for (auto it = w.characters.begin(); it != w.characters.end();)
 			it = alive.count(it->first) ? std::next(it) : w.characters.erase(it);
 	}
+	SyncJoints(w, all);
 
 	if (dt <= 0.0f)
 		return;
@@ -1107,6 +1308,60 @@ void PhysicsManager::StepSimulation(float dt)
 		w.touching.clear();
 	}
 	w.physics->Update(dt, 1, w.tempAllocator.get(), w.jobSystem.get());
+
+	// 4.5) Joint 끊어짐: 구속이 쓴 힘(충격량 / dt)이 Break Force / Break Torque 를 넘으면 (Unity: OnJointBreak 후 컴포넌트 삭제)
+	if (!w.joints.empty())
+	{
+		std::vector<std::pair<Joint*, float>> broken;
+		for (auto& kv : w.joints)
+		{
+			Joint* jt = kv.first;
+			const float bf = jt->GetBreakForce(), bt = jt->GetBreakTorque();
+			if (std::isinf(bf) && std::isinf(bt))
+				continue;
+			float force = 0.0f, torque = 0.0f;
+			if (auto* f = dynamic_cast<JPH::FixedConstraint*>(kv.second.c.GetPtr()))
+			{
+				force = f->GetTotalLambdaPosition().Length() / dt;
+				torque = f->GetTotalLambdaRotation().Length() / dt;
+			}
+			else if (auto* h = dynamic_cast<JPH::HingeConstraint*>(kv.second.c.GetPtr()))
+			{
+				force = h->GetTotalLambdaPosition().Length() / dt;
+				const JPH::Vector<2> r = h->GetTotalLambdaRotation();
+				torque = sqrtf(r[0] * r[0] + r[1] * r[1]) / dt;
+			}
+			else if (auto* d = dynamic_cast<JPH::DistanceConstraint*>(kv.second.c.GetPtr()))
+				force = fabsf(d->GetTotalLambdaPosition()) / dt;
+			if (force > bf)
+				broken.push_back({ jt, force });
+			else if (torque > bt)
+				broken.push_back({ jt, torque });
+		}
+		for (const auto& b : broken)
+		{
+			auto it = w.joints.find(b.first);
+			if (it == w.joints.end())
+				continue;
+			w.physics->RemoveConstraint(it->second.c);
+			w.joints.erase(it);
+			b.first->_SetBroken();
+			EditorLog::Write("Physics", "joint broke on '%s' (%.1f)", b.first->GetGameObject()->GetName().c_str(), b.second);
+			if (GameObject* go = b.first->GetGameObject())
+				for (const auto& component : go->GetComponents())
+					if (MonoBehaviour* script = dynamic_cast<MonoBehaviour*>(component.get()))
+						if (script->IsEnabled())
+							script->OnJointBreak(b.second);
+			GameObject::Destroy(b.first);
+		}
+		if (!broken.empty())
+		{
+			w.jointNoCollide.clear();
+			for (auto& kv : w.joints)
+				if (kv.second.noCollide)
+					w.jointNoCollide.insert(PairKey(kv.second.a.GetIndexAndSequenceNumber(), kv.second.b.GetIndexAndSequenceNumber()));
+		}
+	}
 
 	// 5) 바디 → Transform (Dynamic)
 	for (auto& kv : w.bodies)
@@ -1552,4 +1807,39 @@ void PhysicsManager::RemoveCharacter(CharacterController* cc)
 {
 	if (m_World)
 		m_World->characters.erase(cc);
+}
+
+// ====================================================================== Joint
+void PhysicsManager::RemoveJoint(Joint* joint)
+{
+	if (!m_World)
+		return;
+	auto it = m_World->joints.find(joint);
+	if (it == m_World->joints.end())
+		return;
+	m_World->physics->RemoveConstraint(it->second.c);
+	m_World->joints.erase(it);
+}
+
+float PhysicsManager::GetHingeAngle(const HingeJoint* joint, bool velocity)
+{
+	if (!m_World || joint == nullptr)
+		return 0.0f;
+	auto it = m_World->joints.find(const_cast<HingeJoint*>(joint));
+	if (it == m_World->joints.end())
+		return 0.0f;
+	JPH::HingeConstraint* hc = dynamic_cast<JPH::HingeConstraint*>(it->second.c.GetPtr());
+	if (hc == nullptr)
+		return 0.0f;
+	if (!velocity)
+		return JPH::RadiansToDegrees(hc->GetCurrentAngle());
+	// 두 바디의 각속도 차이를 힌지 축으로
+	JPH::BodyInterface& bi = m_World->BI();
+	JPH::Vec3 wa = bi.GetAngularVelocity(it->second.a);
+	JPH::Vec3 wb = it->second.b.IsInvalid() ? JPH::Vec3::sZero() : bi.GetAngularVelocity(it->second.b);
+	Vec3 ax = Vec3::TransformNormal(joint->GetAxis(), const_cast<HingeJoint*>(joint)->GetGameObject()->GetTransform()->GetWorldMatrix());
+	if (ax.LengthSquared() < 1e-10f)
+		return 0.0f;
+	ax.Normalize();
+	return JPH::RadiansToDegrees((wa - wb).Dot(ToJ(ax)));
 }

@@ -159,6 +159,14 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int> CC_GetInt;
         public delegate* unmanaged<ulong, int, int, void> CC_SetInt;
         public delegate* unmanaged<ulong, int, ControllerHitData*, int> CC_GetHit;
+
+        // Joint (kind 0 Fixed, 1 Hinge, 2 Spring) — 번호는 ScriptBindings.cpp 의 JT_GetFloat 설명
+        public delegate* unmanaged<ulong, int, int, float> JT_GetFloat;
+        public delegate* unmanaged<ulong, int, int, float, void> JT_SetFloat;
+        public delegate* unmanaged<ulong, int, int, Vector3*, void> JT_GetVector;
+        public delegate* unmanaged<ulong, int, int, Vector3*, void> JT_SetVector;
+        public delegate* unmanaged<ulong, int, ulong> JT_GetConnected;
+        public delegate* unmanaged<ulong, int, ulong, void> JT_SetConnected;
     }
 
     internal static unsafe class Native

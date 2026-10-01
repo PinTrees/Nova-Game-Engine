@@ -143,6 +143,75 @@ namespace NovaEngine
         public bool enableOverlapRecovery { get; set; } = true;
     }
 
+    // ------------------------------------------------------------------ Joints (Unity: Joint, FixedJoint, HingeJoint, SpringJoint)
+    public struct JointSpring { public float spring, damper, targetPosition; }
+    public struct JointMotor { public float targetVelocity, force; public bool freeSpin; }
+    public struct JointLimits { public float min, max, bounciness, bounceMinVelocity, contactDistance; }
+
+    public class Joint : Component
+    {
+        internal Joint() { }
+        internal virtual int Kind => 0;
+        internal unsafe float F(int p) => Native.Api.JT_GetFloat(m_Id, Kind, p);
+        internal unsafe void SetF(int p, float v) => Native.Api.JT_SetFloat(m_Id, Kind, p, v);
+        unsafe Vector3 V(int p) { Vector3 v; Native.Api.JT_GetVector(m_Id, Kind, p, &v); return v; }
+        unsafe void SetV(int p, Vector3 v) => Native.Api.JT_SetVector(m_Id, Kind, p, &v);
+
+        /// <summary>이은 Rigidbody (null = 월드에 고정)</summary>
+        public unsafe Rigidbody connectedBody
+        {
+            get { ulong id = Native.Api.JT_GetConnected(m_Id, Kind); return id == 0 ? null : new GameObject(id).GetComponent<Rigidbody>(); }
+            set => Native.Api.JT_SetConnected(m_Id, Kind, value == null ? 0 : value.m_Id);
+        }
+        public Vector3 anchor { get => V(0); set => SetV(0, value); }
+        public Vector3 axis { get => V(1); set => SetV(1, value); }
+        public Vector3 connectedAnchor { get => V(2); set => SetV(2, value); }
+        public bool autoConfigureConnectedAnchor { get => F(3) != 0; set => SetF(3, value ? 1 : 0); }
+        public float breakForce { get => F(0); set => SetF(0, value); }
+        public float breakTorque { get => F(1); set => SetF(1, value); }
+        public bool enableCollision { get => F(2) != 0; set => SetF(2, value ? 1 : 0); }
+    }
+
+    public sealed class FixedJoint : Joint { internal FixedJoint() { } internal override int Kind => 0; }
+
+    public sealed class HingeJoint : Joint
+    {
+        internal HingeJoint() { }
+        internal override int Kind => 1;
+        public bool useSpring { get => F(10) != 0; set => SetF(10, value ? 1 : 0); }
+        public JointSpring spring
+        {
+            get => new JointSpring { spring = F(11), damper = F(12), targetPosition = F(13) };
+            set { SetF(11, value.spring); SetF(12, value.damper); SetF(13, value.targetPosition); }
+        }
+        public bool useMotor { get => F(14) != 0; set => SetF(14, value ? 1 : 0); }
+        public JointMotor motor
+        {
+            get => new JointMotor { targetVelocity = F(15), force = F(16), freeSpin = F(17) != 0 };
+            set { SetF(15, value.targetVelocity); SetF(16, value.force); SetF(17, value.freeSpin ? 1 : 0); }
+        }
+        public bool useLimits { get => F(18) != 0; set => SetF(18, value ? 1 : 0); }
+        public JointLimits limits
+        {
+            get => new JointLimits { min = F(19), max = F(20), bounciness = F(21) };
+            set { SetF(19, value.min); SetF(20, value.max); SetF(21, value.bounciness); }
+        }
+        /// <summary>현재 각도 (도, Play 중)</summary>
+        public float angle => F(30);
+        /// <summary>현재 각속도 (도/초, Play 중)</summary>
+        public float velocity => F(31);
+    }
+
+    public sealed class SpringJoint : Joint
+    {
+        internal SpringJoint() { }
+        internal override int Kind => 2;
+        public float spring { get => F(40); set => SetF(40, value); }
+        public float damper { get => F(41); set => SetF(41, value); }
+        public float minDistance { get => F(42); set => SetF(42, value); }
+        public float maxDistance { get => F(43); set => SetF(43, value); }
+    }
+
     // OnControllerColliderHit(ControllerColliderHit hit) 로 받는 충돌 정보
     public class ControllerColliderHit
     {
