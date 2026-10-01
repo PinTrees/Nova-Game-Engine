@@ -33,7 +33,7 @@ struct AnimatorSelection
     int Transition = -1;
 };
 
-class SelectionManager
+class NOVA_API SelectionManager
 {
 	SINGLE_HEADER(SelectionManager)
 

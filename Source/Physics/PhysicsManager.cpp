@@ -1843,3 +1843,77 @@ float PhysicsManager::GetHingeAngle(const HingeJoint* joint, bool velocity)
 	ax.Normalize();
 	return JPH::RadiansToDegrees((wa - wb).Dot(ToJ(ax)));
 }
+
+// ====================================================================== 여러 개 레이캐스트 / 편집 중 질의
+int PhysicsManager::RaycastAll(const Vec3& origin, const Vec3& direction, float maxDistance, RaycastHit* out, int maxHits, bool staticOnly)
+{
+	if (!m_World || out == nullptr || maxHits <= 0)
+		return 0;
+	Vec3 dir = direction;
+	if (dir.LengthSquared() < 1e-12f)
+		return 0;
+	dir.Normalize();
+	JoltWorld& w = *m_World;
+	JPH::RRayCast ray{ ToJR(origin), ToJ(dir * maxDistance) };
+	JPH::RayCastSettings settings;
+	JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+	w.physics->GetNarrowPhaseQuery().CastRay(ray, settings, collector);
+	if (!collector.HadHit())
+		return 0;
+	collector.Sort();
+	int n = 0;
+	for (const JPH::RayCastResult& r : collector.mHits)
+	{
+		if (n >= maxHits)
+			break;
+		JPH::BodyLockRead lock(w.physics->GetBodyLockInterface(), r.mBodyID);
+		if (!lock.Succeeded())
+			continue;
+		const JPH::Body& body = lock.GetBody();
+		if (staticOnly && body.GetMotionType() != JPH::EMotionType::Static)
+			continue;
+		JPH::uint32 cid = 0;
+		if (!DecodeCollider(body.GetShape()->GetSubShapeUserData(r.mSubShapeID2), cid))
+			continue;
+		auto it = w.colliders.find(cid);
+		if (it == w.colliders.end() || it->second.trigger)
+			continue;
+		JPH::RVec3 point = ray.GetPointOnRay(r.mFraction);
+		RaycastHit& hit = out[n++];
+		hit.point = Vec3((float)point.GetX(), (float)point.GetY(), (float)point.GetZ());
+		hit.normal = FromJ(body.GetWorldSpaceSurfaceNormal(r.mSubShapeID2, point));
+		hit.distance = r.mFraction * maxDistance;
+		hit.collider = it->second.collider;
+		hit.gameObject = it->second.collider->GetGameObject();
+	}
+	return n;
+}
+
+bool PhysicsManager::BeginEditQueries()
+{
+	if (m_World)
+		return true;
+	Start();   // 바디만 만든다 (StepSimulation(0) — FixedUpdate·시뮬레이션 없음)
+	m_EditQueryWorld = m_World != nullptr;
+	return m_EditQueryWorld;
+}
+
+void PhysicsManager::EndEditQueries()
+{
+	if (!m_EditQueryWorld)
+		return;
+	m_EditQueryWorld = false;
+	Exit();
+}
+
+bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
+{
+	if (!m_World)
+		return false;
+	const JPH::AABox b = m_World->physics->GetBroadPhaseQuery().GetBounds();
+	if (!b.IsValid())
+		return false;
+	outMin = FromJ(JPH::Vec3(b.mMin));
+	outMax = FromJ(JPH::Vec3(b.mMax));
+	return true;
+}

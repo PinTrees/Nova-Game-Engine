@@ -48,6 +48,7 @@ private:
 	float m_MaxAllowedTimestep = 0.3333f;
 	float m_Accumulator = 0.0f;
 	int m_StepCount = 0;
+	bool m_EditQueryWorld = false;   // BeginEditQueries 가 만든 임시 월드
 
 public:
 	void Init();
@@ -65,6 +66,13 @@ public:
 
 	// ---- Unity 의 Physics.Raycast ----
 	bool Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance = 1000.0f, bool hitTriggers = false);
+	// 맞은 것을 가까운 순으로 여러 개 (트리거 제외, staticOnly 면 Rigidbody 가 없는 정적 바디만) — NavMesh 굽기 등. 여러 스레드에서 불러도 된다
+	int RaycastAll(const Vec3& origin, const Vec3& direction, float maxDistance, RaycastHit* out, int maxHits, bool staticOnly);
+	// 편집 중에도 Raycast 를 쓰게 지금 씬으로 임시 물리 월드를 만든다 / 내린다 (Play 중이면 아무것도 안 함)
+	bool BeginEditQueries();
+	void EndEditQueries();
+	// 모든 바디를 감싸는 상자 (월드가 있을 때)
+	bool GetWorldBounds(Vec3& outMin, Vec3& outMax);
 
 	// ---- RigidBody 가 호출하는 바디 조작 (바디가 없으면 false / 기본값) ----
 	bool GetLinearVelocity(RigidBody* rb, Vec3& out);

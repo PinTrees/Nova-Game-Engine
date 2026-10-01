@@ -210,6 +210,28 @@ function Suite-Packages
         Add-Result packages 'dependency is added too (starter-assets → cameras)' ($m -match 'com.nova.cameras' -and $m -match 'com.nova.starter-assets') (($m -replace '\s+', ' ').Trim())
         Invoke-Nova 'package remove com.nova.starter-assets' | Out-Null
         Invoke-Nova 'package remove com.nova.cameras' | Out-Null
+
+        # AI Navigation: 벽(가운데 8 m) 바닥 굽기 → 길이 벽 끝을 돌아간다 → NPC 가 도착
+        Invoke-Nova 'package add com.nova.ai.navigation' | Out-Null
+        Wait-Compile
+        foreach ($l in @('scene new --force', 'create cube --name NGround --position 0,-0.5,0 --scale 30,1,30', 'create cube --name NWall --position 0,1,0 --scale 0.5,2,8',
+                         'create empty --name NSurface', 'add-component NSurface NavMeshSurface', 'create capsule --name NNpc --position -5,1,0',
+                         'remove-component NNpc CapsuleCollider', 'add-component NNpc NavMeshAgent --values "{\"baseOffset\":1}"')) { Invoke-Nova $l | Out-Null }
+        $nf = Join-Path $Out 'nav_bake.cs'
+        'GameObject.Find("NSurface").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); var p = new NovaEngine.AI.NavMeshPath(); NovaEngine.AI.NavMesh.CalculatePath(new Vector3(-5,0,0), new Vector3(5,0,0), NovaEngine.AI.NavMesh.AllAreas, p); float maxZ = 0; foreach (var c in p.corners) maxZ = Mathf.Max(maxZ, Mathf.Abs(c.z)); return p.corners.Length + " " + maxZ.ToString("F2");' | Set-Content -Encoding utf8 $nf
+        $nb = Invoke-NovaJson "exec --file $nf"
+        $nv = if ($nb) { "$($nb.result)" -split ' ' } else { @() }
+        Add-Result packages 'navmesh bake + path goes around the wall' ($nv.Count -eq 2 -and [int]$nv[0] -ge 3 -and [double]$nv[1] -gt 4.0) "corners $($nv[0]), max |z| $($nv[1]) (expect ≥ 3, > 4)"
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $gf = Join-Path $Out 'nav_go.cs'
+        'return GameObject.Find("NNpc").GetComponent<NovaEngine.AI.NavMeshAgent>().SetDestination(new Vector3(5, 0, 0));' | Set-Content -Encoding utf8 $gf
+        Invoke-Nova "exec --file $gf" | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 6) { Invoke-Nova 'wait 20' | Out-Null }
+        $np = (Invoke-NovaJson 'get NNpc').position
+        Add-Result packages 'nav mesh agent walks to the destination' ([math]::Abs([double]$np[0] - 5) -lt 0.2 -and [math]::Abs([double]$np[2]) -lt 0.2) ("NPC {0:F2}, {1:F2} (expect 5, 0)" -f [double]$np[0], [double]$np[2])
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'package remove com.nova.ai.navigation' | Out-Null
+        Remove-Item (Join-Path $Project 'Assets\NavMesh-NSurface.navgrid') -ErrorAction SilentlyContinue
     }
     finally
     {

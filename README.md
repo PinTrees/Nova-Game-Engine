@@ -367,6 +367,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | 패키지 | 내용 |
 |---|---|
 | `com.nova.cameras` — Cameras | **Follow Camera**: 3인칭 따라가기 카메라(대상 뒤·위, 부드럽게, 벽이 가리면 당김). C# `FollowCamera` |
+| `com.nova.ai.navigation` — AI Navigation | **NavMesh Surface**(걸을 수 있는 곳 굽기 — 기울기·계단 높이·에이전트 반지름·높이, 여러 층, 파란 표시) + **Nav Mesh Agent**(SetDestination → 벽을 돌아가는 길, 가속·자동 감속·회전). C# `NovaEngine.AI` 의 NavMeshAgent · NavMesh.CalculatePath / SamplePosition · NavMeshSurface.BuildNavMesh |
 | `com.nova.starter-assets` — Starter Assets - Third Person | C# **ThirdPersonController** + StarterAssetsInputs: WASD(카메라 기준)·Shift 달리기·Space 점프, 가속·부드러운 회전·중력, 오른쪽 버튼 끌기로 카메라 돌리기, Animator 파라미터(Speed·Grounded·Jump·FreeFall). Character Controller + Follow Camera 와 함께 (Cameras 를 의존성으로 같이 넣음) |
 
 - 넣기 / 빼기: Window > Package Manager, 또는 `nova package add com.nova.cameras` / `nova package remove …`
@@ -377,6 +378,10 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 <img src="docs/images/package_manager.webp" width="720"/>
 
 <img src="docs/images/starter_third_person.webp" width="720"/>
+
+<img src="docs/images/ai_navigation.webp" width="720"/>
+
+*AI Navigation: 구운 NavMesh(파랑, 벽 둘레는 에이전트 반지름만큼 비움) / Play 중 NPC 가 벽 끝을 돌아 목표로 (노란 선 = 경로)*
 
 *Starter Assets: 기본 캐릭터 + Character Controller + ThirdPersonController, Follow Camera 가 뒤에서 따라간다*
 

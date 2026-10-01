@@ -33,11 +33,11 @@ namespace Undo
 	void Clear();
 
 	// 다음에 확정되는 씬 변경의 이름 (예: "Move", "Create GameObject"). 도구/메뉴가 부른다
-	void SetActionName(const std::string& name);
+	NOVA_API void SetActionName(const std::string& name);
 	// 조작이 끝나지 않았어도 이번 프레임에 확정 검사를 한다 (메뉴 명령 등)
-	void RequestCheck();
+	NOVA_API void RequestCheck();
 	// 이 오브젝트(의 루트)를 다음 확정에서 다시 직렬화한다 (선택하지 않은 오브젝트의 값을 도구·CLI 가 바꿨을 때)
-	void Touch(GameObject* gameObject);
+	NOVA_API void Touch(GameObject* gameObject);
 
 	// JSON 상태로 읽고 되돌릴 수 있는 에셋을 감시한다 (편집 중인 창이 매 프레임 부른다)
 	void WatchAsset(const std::string& key, const std::string& label,

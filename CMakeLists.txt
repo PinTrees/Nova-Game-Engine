@@ -249,6 +249,8 @@ set(NOVA_PACKAGE_ABI_BASE "nova-0.1-msvc143")
 function(nova_add_package PKG_NAME DLL_NAME)
     set(PKG_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Packages/${PKG_NAME}")
     file(GLOB_RECURSE PKG_SOURCES "${PKG_DIR}/Source/*.cpp" "${PKG_DIR}/Source/*.h")
+    # SimpleMath 의 정적 상수(Vector3::Zero 등)는 엔진 DLL 밖으로 내보내지 않으므로 패키지에도 같이 컴파일한다
+    list(APPEND PKG_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/Source/Math/SimpleMath.cpp")
     add_library(${DLL_NAME} SHARED ${PKG_SOURCES})
     target_link_libraries(${DLL_NAME} PRIVATE ${ENGINE_CORE})
     target_include_directories(${DLL_NAME} PRIVATE "${PKG_DIR}/Source")

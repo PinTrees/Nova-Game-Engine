@@ -74,6 +74,6 @@ namespace Colors
 }
 
 
-std::wstring string_to_wstring(const std::string& str);
+NOVA_API std::wstring string_to_wstring(const std::string& str);
 
-std::string wstring_to_string(const std::wstring& wstr);
+NOVA_API std::string wstring_to_string(const std::wstring& wstr);
