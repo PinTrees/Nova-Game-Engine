@@ -33,6 +33,7 @@ Unity 6 에디터의 **창 배치, 아이콘, Inspector 모양, 단축키, 동�
 | **머티리얼 (URP Lit / PBR)** | `.mat` 에셋(Project 창 Create > Material), Unity URP 의 BRDF: Base Map + 색, Metallic(맵/값), Smoothness(Metallic Alpha / Albedo Alpha), Normal Map(세기), Occlusion, Emission(HDR 세기), Tiling/Offset, Alpha Clipping, Receive Shadows, Specular Highlights / Environment Reflections, Lit / Unlit. Unity 모양의 머티리얼 Inspector(텍스처 칸에 끌어 놓기·Object Picker, 구 미리보기 — 드래그로 회전) |
 | **스카이박스** | 기본 하늘 = [Poly Haven](https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky) CC0 HDRI 를 큐브맵으로 변환(`Tools/hdri_to_cubemap.py`). 카메라 Background = Skybox 면 Game 뷰에, 툴바 Effects > Skybox 면 Scene 뷰에 그리고, 금속 반사와 환경광(Environment Lighting)에도 같은 하늘을 쓴다 |
 | **나무 생성기 (Tree)** | SpeedTree 처럼 절차적으로 만드는 우리 엔진 고유의 나무: 줄기 → 가지 1~3 단계(황금각 배치, 처짐·휘어짐), 수관 모양(원뿔·구·불꽃 …), 잎 카드. **텍스처 파일 없이 수학식만으로** 만든다 — 실행 중에 수피(세로 균열 타일)와 잎 아틀라스(카드 한 장에 SDF 로 잎 여러 장·잔가지, 넓은잎·타원·바늘, 덮임을 유지하는 밉맵)를 한 번 구워 두고 셰이더는 한 번 읽어 알파 컷, 이끼·투과광. 계층 바람(줄기·가지·잔가지·잎 떨림), 그림자·SSAO 포함. 프리셋 Oak / Pine / Birch / Bush, Seed 로 모양 바꾸기, GameObject > 3D Object > Tree |
+| **바위·절벽 (Rock)** | 나무처럼 **텍스처 파일 없이 수식으로** 만드는 바위: SDF 조형(비튼 둥근 상자 → 무작위 평면 절단 → 두께가 제각각인 지층 턱·홈 → 세로 절리로 갈라진 기둥 → 균열 → 리지 거칠기)을 Surface Nets 로 메시화, LOD 3 단계. 재질 = 물체 공간 triplanar 균열 디테일 + 지층 색 띠 + 풍화 얼룩·빗물 자국 + 오목한 곳 그늘 + 윗면 이끼. 프리셋 6 종(석회암 절벽, 석회암 블록, 화강암 바위, 사암 턱, 현무암 주상절리, 강자갈), Seed 로 무작위 변형. **Rock Scatter** 는 GameObject 하나로 영역에 수백~수천 개를 무리 지어(Clustering) 지형 경사를 따라 뿌린다. 같은 모양은 **GPU 인스턴싱**으로 LOD 마다 한 번에 그린다 |
 | **숲 (Paint Trees + LOD)** | Unity 처럼 지형에 나무를 브러시로 칠하기(Tree Density, 높이·폭 범위, 색 변화, 무작위 회전, Shift 지우기, Mass Place, Undo). 같은 종류는 인스턴싱으로 한 번에 그리고 거리에 따라 전체 메시 → 중간 메시 → 실행 중에 구운 8 방향 빌보드(임포스터, 알베도+법선이라 다시 조명)로 바뀌며, 경계는 디더로 섞는다. 나무 1500 그루 약 230 FPS(에디터 Scene 뷰) |
 | **후처리 (URP Volume)** | Volume(Global/Local) + Volume Profile 에셋, Project Settings 의 Default Volume Profile, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain, FXAA |
 | **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 기반 Rigidbody, Box/Sphere/Capsule/Mesh/Terrain Collider, 트리거, 레이캐스트 |
@@ -254,6 +255,7 @@ Source/
   Physics/    Jolt Physics 연동
   Animation/  스키닝, 애니메이션 클립, Animator 컨트롤러
   Terrain/    TerrainData, 쿼드트리 LOD 렌더러, 지형 생성기(TerrainGenerator: 노이즈·스탬프·침식·재질, 백그라운드 생성), 바이옴 프리셋(TerrainBiomes)
+  Scene/Rock* 바위: RockGenerator(SDF + Surface Nets), RockDesc(프리셋), Rock / RockScatter 컴포넌트, RockRenderer(인스턴싱, 47. RockCommon.fx)
   Water/      물: WaterBody(바다·호수·강), Gerstner 파도(WaterWaves), 물 프로파일, 렌더러(WaterRenderer, 46. Water.fx), Buoyancy
   Audio/      XAudio2, AudioClip(WAV), AudioSource, AudioListener
   Scripting/  .NET 호스팅(hostfxr), 스크립트 컴파일/핫 리로드, C# ↔ C++ 바인딩, CSharpScript 컴포넌트
@@ -265,7 +267,7 @@ Source/
   Hub/        프로젝트 Hub
 ScriptCore/   C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 역할)
 Shaders/      HLSL (FX11 이펙트)
-Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain/Layers·Biomes, Water/Profiles·Textures, Audio)
+Resources/    엔진 기본 리소스와 패키지 (Packages/Character, Terrain/Layers·Biomes, Water/Profiles·Textures, Rock/Textures, Audio)
 ProjectSetting/  에디터 아이콘(SVG → PNG), 폰트, 로고
 Tools/        아이콘/로고/테스트 효과음 생성 스크립트
 ```

@@ -1085,3 +1085,127 @@ technique11 TreeLeafBakeTech
         SetRasterizerState(TreeLeafCullNone);
     }
 }
+
+
+// =============================================================================
+// 바위·절벽 (47. RockCommon.fx, RockRenderer 가 인스턴싱으로 그린다)
+// =============================================================================
+#include "47. RockCommon.fx"
+
+struct RockVertexOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION0;
+    float3 PosL : POSITION1;
+    float3 NormalW : NORMAL0;
+    float3 NormalL : NORMAL1;
+    float4 SsaoPosH : TEXCOORD0;
+    float2 AoCavity : TEXCOORD1;
+    float Tint : TEXCOORD2;
+    float3 Axis0 : TEXCOORD3;    // 물체 X/Y/Z 축 (월드) → 물체 공간 법선을 월드로
+    float3 Axis1 : TEXCOORD4;
+    float3 Axis2 : TEXCOORD5;
+};
+
+RockVertexOut RockVS(RockVertexIn vin, RockInstanceIn inst)
+{
+    RockVertexOut vout;
+    float3 normalW;
+    // precise: 깊이 사전 패스(SsaoNormalDepth)와 비트까지 같은 깊이여야 EQUAL 검사가 맞는다
+    precise float3 posW = RockWorldPos(vin, inst, normalW);
+    vout.PosW = posW;
+    vout.PosL = vin.PosL;
+    vout.NormalW = normalW;
+    vout.NormalL = vin.NormalL;
+    vout.AoCavity = vin.AoCavity;
+    vout.Tint = inst.Extra.x;
+    vout.Axis0 = inst.World[0].xyz;
+    vout.Axis1 = inst.World[1].xyz;
+    vout.Axis2 = inst.World[2].xyz;
+    precise float4 posH = mul(float4(posW, 1.0f), gViewProj);
+    vout.PosH = posH;
+    vout.SsaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
+    return vout;
+}
+
+float4 RockPS(RockVertexOut pin) : SV_Target
+{
+    const float3 nL = normalize(pin.NormalL);
+    // ---- 디테일: 물체 공간 triplanar (UDN 섞기)
+    float3 w = pow(abs(nL), 4.0f);
+    w /= max(w.x + w.y + w.z, 1e-5f);
+    const float scale = 1.0f / max(gRockParams.w, 0.05f);
+    const float4 tx = gRockDetail.Sample(samRock, pin.PosL.zy * scale + 0.37f);
+    const float4 ty = gRockDetail.Sample(samRock, pin.PosL.xz * scale);
+    const float4 tz = gRockDetail.Sample(samRock, pin.PosL.xy * scale + 0.71f);
+    const float2 dx = (tx.xy * 2.0f - 1.0f) * gRockParams.z, dy = (ty.xy * 2.0f - 1.0f) * gRockParams.z, dz = (tz.xy * 2.0f - 1.0f) * gRockParams.z;
+    float3 nDetailL = normalize(float3(0.0f, dx.y, dx.x) * w.x + float3(dy.x, 0.0f, dy.y) * w.y + float3(dz.x, dz.y, 0.0f) * w.z + nL);
+    const float height = tx.a * w.x + ty.a * w.y + tz.a * w.z;
+    // 물체 공간 → 월드 (비균등 크기도 대략 맞게: 축을 크기로 나눔)
+    const float3 a0 = pin.Axis0 / max(dot(pin.Axis0, pin.Axis0), 1e-6f);
+    const float3 a1 = pin.Axis1 / max(dot(pin.Axis1, pin.Axis1), 1e-6f);
+    const float3 a2 = pin.Axis2 / max(dot(pin.Axis2, pin.Axis2), 1e-6f);
+    float3 N = normalize(nDetailL.x * a0 + nDetailL.y * a1 + nDetailL.z * a2);
+    const float3 N0 = normalize(pin.NormalW);
+
+    // ---- 색
+    const float cavity = pin.AoCavity.y;
+    const float layers = max(gRockParams2.z, 1.0f);
+    const float rockH = max(gRockParams2.w, 0.1f);
+    // 지층 띠: 물체 높이를 따라 (노이즈로 흔들고 굵기가 다르게)
+    const float yy = pin.PosL.y / rockH * layers + RockValueNoise(pin.PosL * 0.35f) * 0.8f;
+    const float band = smoothstep(0.2f, 0.8f, RockValueNoise(float3(yy * 1.7f, 0.5f, 3.1f))) * gRockParams.x;
+    float3 albedo = lerp(ToLinear(gRockBaseColor.rgb), ToLinear(gRockStrataColor.rgb), band);
+    // 큰 얼룩(풍화·물 자국) + 디테일 높이 밝기
+    const float stain = RockValueNoise(pin.PosL * 0.12f + 11.0f) * 0.65f + RockValueNoise(pin.PosL * 0.5f + 3.0f) * 0.35f;
+    albedo *= lerp(0.62f, 1.1f, stain) * lerp(0.6f, 1.12f, height);
+    // 세로 물 자국 (빗물이 흘러내린 어두운 줄)
+    const float streak = RockValueNoise(float3(pin.PosL.x * 1.3f, pin.PosL.y * 0.08f, pin.PosL.z * 1.3f));
+    albedo *= lerp(1.0f, lerp(0.58f, 1.0f, smoothstep(0.2f, 0.8f, streak)), saturate(1.0f - abs(N0.y) * 1.5f));
+    // 오목한 곳 어둡게(흙·그늘), 볼록한 모서리 밝게 (닳은 모서리)
+    albedo *= lerp(1.0f, 0.48f, saturate(cavity)) * (1.0f + 0.22f * saturate(-cavity));
+    // 바위마다 밝기·색온도 차이
+    const float tint = (pin.Tint - 0.5f) * 2.0f * gRockParams2.y;
+    albedo *= float3(1.0f + tint * 0.6f, 1.0f + tint * 0.5f, 1.0f + tint * 0.35f);
+    // 땅에 닿는 곳 (흙·습기로 어둡게)
+    const float ground = 1.0f - smoothstep(0.0f, rockH * 0.12f + 0.15f, pin.PosL.y);
+    albedo *= lerp(1.0f, 0.7f, ground);
+    // 이끼·풀: 위를 향한 면 + 오목한 곳에 더, 노이즈로 얼룩
+    const float mossNoise = RockValueNoise(pin.PosW * 0.6f) * 0.6f + RockValueNoise(pin.PosW * 2.3f) * 0.4f;
+    const float moss = saturate(smoothstep(0.5f, 0.85f, N.y + (mossNoise - 0.5f) * 0.5f + saturate(cavity) * 0.15f) * gRockParams.y * 1.6f);
+    const float3 mossCol = ToLinear(gRockMossColor.rgb) * lerp(0.7f, 1.15f, mossNoise);
+    albedo = lerp(albedo, mossCol, moss);
+    N = normalize(lerp(N, N0, moss * 0.6f));   // 이끼 위는 덜 거칠게
+
+    LitSurface surf;
+    surf.Albedo = albedo;
+    surf.Metallic = 0.0f;
+    surf.Smoothness = gRockParams2.x * (1.0f - moss * 0.7f) * lerp(0.7f, 1.2f, height);
+    surf.Occlusion = pin.AoCavity.x * lerp(0.55f, 1.0f, height);
+    surf.Emission = float3(0, 0, 0);
+    surf.Transmission = float3(0, 0, 0);
+    surf.Highlights = true;
+    surf.Reflections = true;
+    surf.ReceiveShadows = true;
+    const float3 toEye = gEyePosW - pin.PosW;
+    const float distToEye = length(toEye);
+    return FinishLit(ShadeLit(surf, pin.PosW, N, toEye / max(distToEye, 0.0001f), pin.SsaoPosH), 1.0f, distToEye);
+}
+
+DepthStencilState RockDepthEqual
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ZERO;
+    DepthFunc = EQUAL;
+};
+
+technique11 RockTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, RockVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, RockPS()));
+        SetDepthStencilState(RockDepthEqual, 0);
+    }
+}

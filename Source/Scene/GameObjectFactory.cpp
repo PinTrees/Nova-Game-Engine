@@ -19,6 +19,8 @@
 #include "TerrainBiome.h"
 #include "WaterBody.h"
 #include "TerrainSpline.h"
+#include "Rock.h"
+#include "RockScatter.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "AnimationPlayer.h"
@@ -468,6 +470,41 @@ GameObject* GameObjectFactory::CreateWaterBody(int type)
 	obj->GetTransform()->SetPosition(pos);
 	if (t == T::River)
 		water->SnapToGround();
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateRock(int preset)
+{
+	const int p = std::clamp(preset, 0, (int)RockDesc::PresetCount - 1);
+	GameObject* obj = new GameObject(RockDesc::PresetName(p));
+	Rock* rock = obj->AddComponent<Rock>();
+	rock->Desc.Params.Seed = 1 + (int)(GetTickCount64() % 9973);   // 만들 때마다 다른 모양
+	rock->ApplyPreset(p);
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateRockScatter(int preset)
+{
+	const int p = std::clamp(preset, 0, (int)RockDesc::PresetCount - 1);
+	GameObject* obj = new GameObject(std::string(RockDesc::PresetName(p)) + " Scatter");
+	RockScatter* scatter = obj->AddComponent<RockScatter>();
+	scatter->Desc.ApplyPreset(p);
+	scatter->Seed = 1 + (int)(GetTickCount64() % 9973);
+	// 첫 지형 가운데, 지형 너비의 30 %
+	Vec3 pos(0, 0, 0), scale(100, 1, 100);
+	if (!Terrain::GetActiveTerrains().empty())
+	{
+		Terrain* t = Terrain::GetActiveTerrains()[0];
+		if (auto data = t->GetTerrainData())
+		{
+			const Vec3 tp = t->GetPosition();
+			pos = Vec3(tp.x + data->Size.x * 0.5f, tp.y, tp.z + data->Size.z * 0.5f);
+			const float w = (std::min)(data->Size.x, data->Size.z) * 0.3f;
+			scale = Vec3(w, 1.0f, w);
+		}
+	}
+	obj->GetTransform()->SetPosition(pos);
+	obj->GetTransform()->SetLocalScale(scale);
 	return obj;
 }
 

@@ -513,3 +513,25 @@ technique11 TreeShadowImpostorTech
         SetRasterizerState(TreeShadowCullNone);
     }
 }
+
+
+// ---- 바위 (47. RockCommon.fx)
+#include "47. RockCommon.fx"
+
+float4 RockShadowVS(RockVertexIn vin, RockInstanceIn inst) : SV_POSITION
+{
+    float3 normalW;
+    const float3 posW = RockWorldPos(vin, inst, normalW);
+    return mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
+}
+
+technique11 RockShadowTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, RockShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetRasterizerState(Depth);
+    }
+}

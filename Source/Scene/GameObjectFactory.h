@@ -60,6 +60,8 @@ public:
 	static GameObject* CreateParticleSystem(const std::string& name = "Particle System");
 	// 절차적 나무 (Oak 프리셋)
 	static GameObject* CreateTree(const std::string& name = "Tree");
+	static GameObject* CreateRock(int preset);   // 절차적 바위·절벽 (RockDesc 프리셋, 씨앗은 무작위)
+	static GameObject* CreateRockScatter(int preset);   // 바위 흩뿌리기 (영역 안 수백 개, 인스턴싱)
 	// 지형 스탬프 (산·분화구 …): 첫 지형 가운데에 지형 너비의 30% 크기로 놓는다
 	static GameObject* CreateTerrainStamp(int shape);
 	static GameObject* CreateTerrainBiome(const std::string& preset);   // 바이옴 영역 (프리셋 이름)

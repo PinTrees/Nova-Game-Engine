@@ -389,3 +389,41 @@ technique11 TreeNormalDepthImpostorTech
         SetRasterizerState(TreeNormalDepthCullNone);
     }
 }
+
+
+// ---- 바위 (47. RockCommon.fx)
+#include "47. RockCommon.fx"
+
+struct RockNormalDepthOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosV : POSITION;
+    float3 NormalV : NORMAL;
+};
+
+RockNormalDepthOut RockNormalDepthVS(RockVertexIn vin, RockInstanceIn inst)
+{
+    RockNormalDepthOut vout;
+    float3 normalW;
+    precise float3 posW = RockWorldPos(vin, inst, normalW);
+    vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
+    vout.NormalV = mul(normalW, (float3x3) gView);
+    precise float4 posH = mul(float4(posW, 1.0f), gWorldViewProj);
+    vout.PosH = posH;
+    return vout;
+}
+
+float4 RockNormalDepthPS(RockNormalDepthOut pin) : SV_Target
+{
+    return float4(normalize(pin.NormalV), pin.PosV.z);
+}
+
+technique11 RockNormalDepthTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, RockNormalDepthVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, RockNormalDepthPS()));
+    }
+}

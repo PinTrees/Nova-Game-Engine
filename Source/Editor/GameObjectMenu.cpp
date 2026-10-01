@@ -4,6 +4,7 @@
 #include "TerrainStamp.h"
 #include "TerrainBiomes.h"
 #include "TerrainSpline.h"
+#include "RockDesc.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
 
@@ -96,6 +97,19 @@ namespace GameObjectMenu
 			ImGui::Separator();
 			if (ImGui::MenuItem("Terrain")) add(GameObjectFactory::CreateTerrain());   // 새 TerrainData(Assets) + Terrain + Terrain Collider
 			if (ImGui::MenuItem("Tree")) add(GameObjectFactory::CreateTree());   // 절차적 나무 (텍스처 없는 셰이더)
+			if (ImGui::BeginMenu("Rock"))   // 절차적 바위·절벽 (SDF 조형, 인스턴싱)
+			{
+				for (int p = 0; p < (int)RockDesc::PresetCount; ++p)
+					if (ImGui::MenuItem(RockDesc::PresetName(p))) add(GameObjectFactory::CreateRock(p));
+				ImGui::Separator();
+				if (ImGui::BeginMenu("Scatter"))   // 영역에 무작위로 수백 개 (GameObject 하나)
+				{
+					for (int p = 0; p < (int)RockDesc::PresetCount; ++p)
+						if (ImGui::MenuItem(RockDesc::PresetName(p))) add(GameObjectFactory::CreateRockScatter(p));
+					ImGui::EndMenu();
+				}
+				ImGui::EndMenu();
+			}
 			if (ImGui::BeginMenu("Terrain Stamp"))   // 지형 생성기(Generate 도구)가 켜진 지형에 합쳐지는 지형 요소
 			{
 				for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)

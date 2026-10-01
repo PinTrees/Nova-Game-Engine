@@ -9,6 +9,7 @@
 #include "Mesh.h"
 #include "RectTransform.h"
 #include "Tree.h"
+#include "Rock.h"
 #include <unordered_map>
 
 // Unity Scene 뷰 조작 핸들 구현.
@@ -219,6 +220,10 @@ namespace
 		// 절차적 나무: 생성된 메시의 범위
 		if (Tree* tree = go ? go->GetComponent<Tree>() : nullptr)
 			if (tree->GetLocalBounds(bmin, bmax))
+				return;
+		// 절차적 바위
+		if (Rock* rock = go ? go->GetComponent<Rock>() : nullptr)
+			if (rock->GetLocalBounds(bmin, bmax))
 				return;
 		static std::unordered_map<const Mesh*, std::pair<Vec3, Vec3>> cache;
 		Mesh* mesh = ObjectMesh(go);
@@ -909,6 +914,17 @@ namespace
 			const Matrix inv = tr->GetWorldMatrix().Invert();
 			float t = bestT;
 			if (tree->RaycastLocal(Vec3::Transform(ro, inv), Vec3::TransformNormal(rd, inv), t) && t < bestT)
+			{
+				bestT = t;
+				best = go;
+			}
+		}
+		// 절차적 바위: 로컬 공간 광선으로 메시 삼각형
+		if (Rock* rock = go->GetComponent<Rock>(); rock && tr)
+		{
+			const Matrix inv = tr->GetWorldMatrix().Invert();
+			float t = bestT;
+			if (rock->RaycastLocal(Vec3::Transform(ro, inv), Vec3::TransformNormal(rd, inv), t) && t < bestT)
 			{
 				bestT = t;
 				best = go;

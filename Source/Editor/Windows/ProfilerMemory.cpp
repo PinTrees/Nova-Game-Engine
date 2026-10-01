@@ -5,6 +5,7 @@
 #include "ResourceManager.h"
 #include "ShadowMap.h"
 #include "TreeRenderer.h"
+#include "RockRenderer.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "UndoSystem.h"
@@ -58,6 +59,9 @@ namespace ProfilerMemory
 			std::vector<MemoryStats::Item> treeGpu, treeCpu;
 			TreeRenderer::CollectMemory(treeGpu, treeCpu);
 			Add(r, "Trees", true, std::move(treeGpu));
+			std::vector<MemoryStats::Item> rockGpu, rockCpu;
+			RockRenderer::CollectMemory(rockGpu, rockCpu);
+			Add(r, "Rocks", true, std::move(rockGpu));
 			std::vector<MemoryStats::Item> terrainGpu, terrainCpu;
 			for (Terrain* t : Terrain::GetActiveTerrains())
 				if (auto data = t->GetTerrainData())

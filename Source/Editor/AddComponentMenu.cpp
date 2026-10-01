@@ -33,6 +33,8 @@ namespace
 		{ "TerrainCollider",     "Terrain Collider",      "Physics",       "terrain_collider",  true  },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Tree",                "Tree",                  "Miscellaneous", "terrain_trees",     true  },
+		{ "Rock",                "Rock",                  "Miscellaneous", "terrain_paint",     true  },
+		{ "RockScatter",         "Rock Scatter",          "Miscellaneous", "terrain_paint",     true  },
 		{ "Volume",              "Volume",                "Miscellaneous", "volume",            true  },
 		{ "WaterBody",           "Water Body",            "Water",         "terrain_paint",     true  },
 		{ "TerrainSpline",       "Terrain Spline",        "Miscellaneous", "terrain_paint",     true  },

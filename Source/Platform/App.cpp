@@ -29,6 +29,7 @@
 #include "ProfilerEditorWindow.h"
 #include "MeshBatcher.h"
 #include "TreeRenderer.h"
+#include "RockRenderer.h"
 #include "RenderStats.h"
 #include "DisplayManager.h"
 #include "GameObjectFactory.h"
@@ -515,6 +516,9 @@ void App::RecordProfilerStats()
 		SetStat("Game View/Trees LOD1", ts.Lod1);
 		SetStat("Game View/Trees Billboard", ts.Billboards);
 		SetStat("Game View/Tree Draw Calls", ts.DrawCalls);
+		const RockRenderer::Stats& rks = RockRenderer::LastStats(false);
+		SetStat("Game View/Rocks", rks.Rocks);
+		SetStat("Game View/Rock Draw Calls", rks.DrawCalls);
 	}
 	if (Profiler::CurrentFrameHas("SceneView render"))
 	{
@@ -531,6 +535,12 @@ void App::RecordProfilerStats()
 		SetStat("Scene View/Trees LOD1", ts.Lod1);
 		SetStat("Scene View/Trees Billboard", ts.Billboards);
 		SetStat("Scene View/Tree Draw Calls", ts.DrawCalls);
+		const RockRenderer::Stats& rks = RockRenderer::LastStats(true);
+		SetStat("Scene View/Rocks", rks.Rocks);
+		SetStat("Scene View/Rocks LOD0", rks.Lod0);
+		SetStat("Scene View/Rocks LOD1", rks.Lod1);
+		SetStat("Scene View/Rocks LOD2", rks.Lod2);
+		SetStat("Scene View/Rock Draw Calls", rks.DrawCalls);
 	}
 }
 
