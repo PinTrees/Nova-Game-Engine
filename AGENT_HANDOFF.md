@@ -434,7 +434,8 @@ Nova-Game-Engine/
 │  ├─ Graphics/
 │  │   ├─ Common/  API 중립 코드 (GraphicsAPI, IGraphicsBackend, GraphicsBackendFactory, GraphicsSettings, GeometryGenerator, LightHelper …)
 │  │   ├─ DX11/    D3D11에 묶인 코드 (Effects, Shader, ShaderCache, RenderStates, Vertex, Mesh, Sky, Ssao, ShadowMap, Terrain …)
-│  │   └─ OpenGL/  자리 표시자(미구현 스텁)
+│  │   ├─ RHI/     Rhi.h(깨끗한 API) · RhiFx(Effects11 모양) · Gfx.h(D3D11 모양 층 — 엔진 코드가 쓰는 것)
+│  │   └─ OpenGL/  OpenGL 4.5 구현 (GfxGL, GLRhi, GLContext, GLLoader, GLState, ShaderCross → GLSL) — 에디터·플레이어를 GL 로 실행 (시험 단계)
 │  ├─ Animation/   SkinnedData/Mesh/Model, FBXLoader, LoadM3d, AnimationHelper
 │  ├─ Physics/     PhysicsManager (Jolt 백엔드), Octree
 │  ├─ Scene/       Scene, SceneManager, GameObject(+Factory), Component(+Factory), Transform, Camera, Light, MeshRenderer, Collider 등
