@@ -6,4 +6,6 @@ namespace ProjectSettingsWindow
 {
 	void Open(const char* category = "Graphics");
 	void Draw();   // 매 프레임 (열려 있을 때만 그림)
+	void Close();
+	bool IsOpen();
 }

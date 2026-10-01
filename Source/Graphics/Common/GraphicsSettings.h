@@ -1,24 +1,38 @@
 #pragma once
 #include "GraphicsAPI.h"
 #include <memory>
+#include <string>
+#include <vector>
 
 class IGraphicsBackend;
 
-// 사용자가 선택한 렌더링 API 설정 (ProjectSetting/GraphicsSettings.json 에 저장).
-// 디바이스 생성 이전에 필요하므로 다른 매니저(PathManager 등)와 독립적으로 동작한다.
+// 이번 실행이 쓸 그래픽 API 고르기 (디바이스 만들기 전, 다른 매니저와 독립적으로).
+//  우선순위: 실행 인자(-force-d3d11 / -force-opengl) → Hub 고정 → 플레이어 = player.json 의 graphicsAPIs 순서
+//            → 에디터 = 에디터 설정(Preferences > Graphics, ../ProjectSetting/GraphicsSettings.json).
+//  목록에서 이 PC·이 빌드가 쓸 수 있는 첫 API 를 쓰고, 하나도 없으면 DirectX 11. 고른 이유는 SelectionLog().
 class GraphicsSettings
 {
 public:
-	// 파일에서 요청 API를 읽고 백엔드를 생성한다. 지원되지 않으면 DirectX11로 대체한다.
-	static void Init();
+	// playerList: 플레이어면 player.json 의 목록 (비면 에디터 설정을 쓴다)
+	static void Init(const std::vector<GraphicsAPI>& playerList = {});
+	static void ForceForThisProcess(GraphicsAPI api);   // Init 전에 (Hub = DirectX 11)
 
-	static GraphicsAPI GetRequestedAPI() { return s_Requested; }
-	static void SetRequestedAPI(GraphicsAPI api);   // 저장만 하며 다음 실행부터 적용된다.
-
+	static GraphicsAPI GetEditorAPI();                   // 에디터 설정 (저장된 값)
+	static void SetEditorAPI(GraphicsAPI api);           // 저장만, 다음 실행부터
+	static GraphicsAPI GetRequestedAPI() { return s_Requested; }   // 이번 실행에 처음 원한 API
 	static IGraphicsBackend* GetBackend() { return s_Backend.get(); }
 	static GraphicsAPI GetActiveAPI();
+	static const std::string& SelectionLog() { return s_Log; }
+
+	// 이 빌드에서 쓸 수 있는지 (안 되면 이유)
+	static bool IsSupported(GraphicsAPI api, std::string* reason = nullptr);
+	static std::vector<GraphicsAPI> AllAPIs();
+
+	// 하위 호환 (예전 메뉴)
+	static void SetRequestedAPI(GraphicsAPI api) { SetEditorAPI(api); }
 
 private:
 	static GraphicsAPI s_Requested;
 	static std::unique_ptr<IGraphicsBackend> s_Backend;
+	static std::string s_Log;
 };

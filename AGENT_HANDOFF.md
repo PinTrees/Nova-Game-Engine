@@ -251,6 +251,12 @@
 - 측정(Release, 1080p Scene 뷰, 300 m 그림자): 절벽 5 + 흩뿌린 바위 약 1250 + 소나무 45 = 프레임 5.7 ms.
 - 미구현/다음: 지형 생성기 연동(가파른 경사에 절벽 블록 자동 배치, 바위 주변 흙·자갈 칠하기), 바위와 지형 접합(아래쪽 지형 색 섞기), 먼 거리 임포스터, 바위 콜라이더(물리), 눈·모래 덮임.
 
+**그래픽 API 선택 + OpenGL 시작 (2026-10-01, 진행 중)**: 사용자 요청 "렌더링 파이프라인 추상화, OpenGL 연동 시작, 빌드 설정에서 DirectX/OpenGL 선택 + 우선순위, 에디터 설정에서도 선택". 셰이더는 **HLSL 하나만 관리하고 자동 변환(DXC → SPIR-V → SPIRV-Cross → GLSL)** 으로 하기로 사용자가 정함 (도구 다운로드 허락받음). **테스트는 CLI 로** (필요한 기능은 CLI 에 만들어 가며) — 사용자 요청.
+- 1단계(완료) `GraphicsSettings`(`Source/Graphics/Common/GraphicsSettings.*`): 원하는 순서 = 실행 인자 `-force-d3d11`/`-force-opengl` → Hub 고정(DirectX 11, `ForceForThisProcess`) → 플레이어 = player.json `graphicsAPIs` → 에디터 = `../ProjectSetting/GraphicsSettings.json` 의 `EditorGraphicsAPI`(예전 키 GraphicsAPI 도 읽음). 쓸 수 있는 첫 API(없으면 DirectX 11), 이유는 `SelectionLog()` → Editor.log `[Graphics]`. OpenGL 백엔드 `IsSupported` 는 렌더러가 될 때까지 false("the OpenGL renderer is still in development").
+- UI: Project Settings > Player > Other Settings > Rendering = Auto Graphics API for Windows + Graphics APIs for Windows 목록(▲▼ − +, 안 되는 API 회색 + 이유) → PlayerSettings.json `autoGraphicsAPI`/`graphicsAPIs`, 빌드 player.json `graphicsAPIs`(Auto = DirectX11, OpenGL). Preferences > Graphics = Editor Graphics API(다음 실행), Running With + 선택 이유. Edit > Graphics API 메뉴도 같은 설정.
+- CLI 추가: `nova graphics [--editor] [--player a,b] [--auto]`, `nova window <preferences|project-settings|build-settings> [--category] [--close]`, `nova screenshot x.png --view editor`(에디터 전체: CliServer 에 **Present 직전 실행** 단계 `PumpBeforePresent` 를 더해 스왑 체인 백버퍼를 찍는다, `App::SwapChain()`).
+- 받아 둔 도구: scratchpad `dl/dxc.zip`(DXC v1.9.2609, 32 MB, microsoft/DirectXShaderCompiler 릴리스), `dl/spirv-cross.zip`(SPIRV-Cross vulkan-sdk-1.4.363.0 소스). 다음 = 2단계 셰이더 변환기.
+
 **NOVA Hub 새 디자인 (2026-10-01)**: 사용자 요청 "노바 허브 UI 깔끔하게, 엔진 폰트·크기 키우고, 상단 앱바 아이콘(Unity Hub 처럼)".
 - 글꼴(`EditorGUIManager::Init(hubMode)`): Pretendard(없으면 Segoe UI + 맑은 고딕) — HubFont 번호 [0] 본문 18 [1] 큰 제목 28 [2] 강조(SemiBold) 18 [3] 작은 글자 15 [4] 앱 바 아이콘(FA) 19 [5] 앱 이름 21 (모두 × DPI).
 - 테두리 없는 창(`HubApp::MsgProc`): WM_NCCALCSIZE 로 클라이언트 = 창 전체(최대화 때 테두리 두께만큼 안쪽), DwmExtendFrameIntoClientArea(1px, 그림자), WM_NCHITTEST = 가장자리 6px 크기 조절 + 앱 바 빈 곳(m_DragMinX~MaxX, 팝업이 없을 때) HTCAPTION → 끌기·두 번 눌러 최대화·스냅은 Windows 가. WM_GETMINMAXINFO 최소 940x580.

@@ -5,6 +5,7 @@
 #include "EditorUtility.h"
 #include "ExternalScriptEditor.h"
 #include "ScriptEngine.h"
+#include "GraphicsSettings.h"
 #include <filesystem>
 
 namespace
@@ -15,7 +16,7 @@ namespace
 	char s_Args[512] = {};
 	bool s_ArgsLoaded = false;
 
-	const char* kCategories[] = { "External Tools", "NOVA Code" };
+	const char* kCategories[] = { "External Tools", "Graphics", "NOVA Code" };
 	constexpr float kLabelW = 230.0f;
 
 	void Title(const char* text)
@@ -37,6 +38,39 @@ namespace
 			ImGui::SetTooltip("%s", tooltip);
 		ImGui::SameLine(kLabelW);
 		ImGui::SetNextItemWidth((std::min)(420.0f, ImGui::GetContentRegionAvail().x));
+	}
+
+	// 에디터가 쓸 그래픽 API (다음 실행부터). 빌드된 게임의 순서는 Project Settings > Player
+	void DrawGraphics()
+	{
+		Title("Graphics");
+		const GraphicsAPI current = GraphicsSettings::GetEditorAPI();
+		Label("Editor Graphics API", "Applied the next time the editor starts");
+		if (ImGui::BeginCombo("##editorApi", GraphicsAPIToString(current)))
+		{
+			for (GraphicsAPI api : GraphicsSettings::AllAPIs())
+			{
+				std::string reason;
+				const bool ok = GraphicsSettings::IsSupported(api, &reason);
+				const std::string label = std::string(GraphicsAPIToString(api)) + (ok ? "" : "  (not available: " + reason + ")");
+				if (ImGui::Selectable(label.c_str(), api == current))
+				{
+					GraphicsSettings::SetEditorAPI(api);
+					EditorLog::Write("Graphics", "editor graphics API set to %s (next start)", GraphicsAPIToKey(api));
+				}
+			}
+			ImGui::EndCombo();
+		}
+		Label("Running With");
+		ImGui::TextUnformatted(GraphicsAPIToString(GraphicsSettings::GetActiveAPI()));
+		ImGui::TextDisabled("%s", GraphicsSettings::SelectionLog().c_str());
+		ImGui::Spacing();
+		std::string reason;
+		if (GraphicsSettings::GetEditorAPI() != GraphicsSettings::GetActiveAPI())
+			UnityGUI::HelpBox(GraphicsSettings::IsSupported(GraphicsSettings::GetEditorAPI(), &reason)
+				? "Restart the editor to switch the graphics API."
+				: ("The selected API is not available yet (" + reason + "), so the editor keeps running with DirectX 11.").c_str(), true);
+		UnityGUI::HelpBox("To override once, start the editor with -force-d3d11 or -force-opengl. The order used by built games is set in Project Settings > Player > Other Settings.", false);
 	}
 
 	void DrawExternalTools()
@@ -159,6 +193,9 @@ namespace
 
 namespace PreferencesWindow
 {
+	void Close() { s_Open = false; }
+	bool IsOpen() { return s_Open; }
+
 	void Open(const char* category)
 	{
 		s_Open = true;
@@ -204,6 +241,8 @@ namespace PreferencesWindow
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6, 6));
 		if (s_Category == "External Tools")
 			DrawExternalTools();
+		else if (s_Category == "Graphics")
+			DrawGraphics();
 		else if (s_Category == "NOVA Code")
 			DrawNovaCode();
 		ImGui::PopStyleVar();

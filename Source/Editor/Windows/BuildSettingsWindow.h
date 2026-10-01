@@ -9,6 +9,8 @@ namespace BuildSettingsWindow
 {
 	void Open();
 	void Draw();
+	void Close();
+	bool IsOpen();
 	// File > Build And Run (Ctrl+B): 마지막 빌드 폴더로 바로 (없으면 폴더 선택)
 	void BuildAndRun();
 }

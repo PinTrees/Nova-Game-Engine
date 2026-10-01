@@ -11,6 +11,12 @@
 #include "BuildPipeline.h"
 #include "Transform.h"
 #include "EngineInfo.h"
+#include "PreferencesWindow.h"
+#include "ProjectSettingsWindow.h"
+#include "BuildSettingsWindow.h"
+#include "GraphicsSettings.h"
+#include "BuildSettings.h"
+#include "App.h"
 
 namespace
 {
@@ -644,6 +650,117 @@ namespace CliCommands
 			r = { { "path", wstring_to_string(file) }, { "width", w }, { "height", h }, { "view", view } };
 			return true;
 		}, 3);
+
+		// 에디터 전체 (메뉴·창·팝업까지): 백버퍼가 다 그려진 뒤 Present 직전에 찍는다
+		Register("screenshot-editor", "save the whole editor window (UI included) to PNG/JPG {path}", [](const json& a, json& r, std::string& e) {
+			App* app = Application::GetI()->GetApp();
+			IDXGISwapChain* swap = app ? app->SwapChain() : nullptr;
+			if (!swap) { e = "no swap chain"; return false; }
+			ComPtr<ID3D11Texture2D> back;
+			if (FAILED(swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) { e = "no back buffer"; return false; }
+			const std::string path = a.value("path", std::string());
+			if (path.empty()) { e = "missing path"; return false; }
+			const std::wstring file = ProjectFile(path);
+			int w = 0, h = 0;
+			if (!SaveTexture(back.Get(), file, w, h, e)) return false;
+			r = { { "path", wstring_to_string(file) }, { "width", w }, { "height", h }, { "view", "editor" } };
+			return true;
+		}, 2, true);
+
+		// 에디터 창 열기·닫기 (UI 확인용: 마우스 없이 분류까지)
+		Register("window", "open / close an editor window {name: preferences|project-settings|build-settings, category?, close?}", [](const json& a, json& r, std::string& e) {
+			const std::string name = Lower(a.value("name", std::string()));
+			const bool close = a.value("close", false);
+			const std::string category = a.value("category", std::string());
+			if (name == "preferences")
+			{
+				if (close) PreferencesWindow::Close(); else PreferencesWindow::Open(category.empty() ? nullptr : category.c_str());
+				r = { { "name", name }, { "open", PreferencesWindow::IsOpen() } };
+			}
+			else if (name == "project-settings")
+			{
+				if (close) ProjectSettingsWindow::Close(); else ProjectSettingsWindow::Open(category.empty() ? "Graphics" : category.c_str());
+				r = { { "name", name }, { "open", ProjectSettingsWindow::IsOpen() } };
+			}
+			else if (name == "build-settings")
+			{
+				if (close) BuildSettingsWindow::Close(); else BuildSettingsWindow::Open();
+				r = { { "name", name }, { "open", BuildSettingsWindow::IsOpen() } };
+			}
+			else
+			{
+				e = "unknown window '" + name + "' (preferences, project-settings, build-settings)";
+				return false;
+			}
+			if (!category.empty()) r["category"] = category;
+			return true;
+		});
+
+		// 그래픽 API 설정: 에디터 설정 + 플레이어 목록 읽기·쓰기, 이번 실행이 고른 API
+		Register("graphics", "graphics API settings: get, or set {editor?: DirectX11|OpenGL, player?: [..], auto?}", [](const json& a, json& r, std::string& e) {
+			auto parse = [&](const json& v, GraphicsAPI& out) {
+				if (!v.is_string()) return false;
+				const std::string k = Lower(v.get<std::string>());
+				for (GraphicsAPI api : GraphicsSettings::AllAPIs())
+					if (k == Lower(GraphicsAPIToKey(api)) || k == Lower(GraphicsAPIToString(api)) || (k == "d3d11" && api == GraphicsAPI::DirectX11) || (k == "gl" && api == GraphicsAPI::OpenGL))
+					{
+						out = api;
+						return true;
+					}
+				return false;
+			};
+			if (a.contains("editor"))
+			{
+				GraphicsAPI api;
+				if (!parse(a["editor"], api)) { e = "unknown API " + a["editor"].dump(); return false; }
+				GraphicsSettings::SetEditorAPI(api);
+			}
+			BuildSettings::Player& p = BuildSettings::GetPlayer();
+			bool playerChanged = false;
+			if (a.contains("player"))
+			{
+				if (!a["player"].is_array() || a["player"].empty()) { e = "player must be a non-empty list"; return false; }
+				std::vector<GraphicsAPI> list;
+				for (const json& v : a["player"])
+				{
+					GraphicsAPI api;
+					if (!parse(v, api)) { e = "unknown API " + v.dump(); return false; }
+					if (std::find(list.begin(), list.end(), api) == list.end())
+						list.push_back(api);
+				}
+				p.GraphicsAPIs = list;
+				p.AutoGraphicsAPI = false;
+				playerChanged = true;
+			}
+			if (a.contains("auto"))
+			{
+				p.AutoGraphicsAPI = a["auto"].get<bool>();
+				playerChanged = true;
+			}
+			if (playerChanged)
+				BuildSettings::SavePlayer();
+			json apis = json::array();
+			for (GraphicsAPI api : GraphicsSettings::AllAPIs())
+			{
+				std::string reason;
+				const bool ok = GraphicsSettings::IsSupported(api, &reason);
+				apis.push_back({ { "api", GraphicsAPIToKey(api) }, { "available", ok }, { "reason", reason } });
+			}
+			json list = json::array();
+			for (GraphicsAPI api : p.GraphicsAPIs) list.push_back(GraphicsAPIToKey(api));
+			json order = json::array();
+			for (GraphicsAPI api : BuildSettings::PlayerGraphicsAPIs()) order.push_back(GraphicsAPIToKey(api));
+			r = {
+				{ "active", GraphicsAPIToKey(GraphicsSettings::GetActiveAPI()) },
+				{ "selection", GraphicsSettings::SelectionLog() },
+				{ "editor", GraphicsAPIToKey(GraphicsSettings::GetEditorAPI()) },
+				{ "playerAuto", p.AutoGraphicsAPI },
+				{ "playerList", list },
+				{ "playerOrder", order },
+				{ "apis", apis },
+			};
+			return true;
+		});
 
 		Register("assets", "list project files {path? (default Assets), pattern? (substring or .ext), limit?}", [](const json& a, json& r, std::string& e) {
 			const std::string dir = a.value("path", std::string("Assets"));

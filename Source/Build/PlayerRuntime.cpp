@@ -61,6 +61,15 @@ namespace PlayerRuntime
 	}
 	bool Resizable() { return s_Config.value("resizable", true); }
 	bool RunInBackground() { return s_Config.value("runInBackground", true); }
+	std::vector<GraphicsAPI> GraphicsAPIs()
+	{
+		std::vector<GraphicsAPI> apis;
+		if (s_Config.contains("graphicsAPIs") && s_Config["graphicsAPIs"].is_array())
+			for (const json& k : s_Config["graphicsAPIs"])
+				if (k.is_string())
+					apis.push_back(GraphicsAPIFromKey(k.get<std::string>()));
+		return apis;
+	}
 
 	std::wstring FirstScene()
 	{

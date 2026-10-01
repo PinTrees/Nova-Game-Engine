@@ -13,6 +13,7 @@ namespace
 		std::string Help;
 		CliServer::Handler Fn;
 		int Delay = 0;
+		bool BeforePresent = false;
 	};
 	std::map<std::string, Entry>& Handlers()
 	{
@@ -195,9 +196,9 @@ namespace
 
 namespace CliServer
 {
-	void Register(const std::string& cmd, const std::string& help, Handler handler, int delayFrames)
+	void Register(const std::string& cmd, const std::string& help, Handler handler, int delayFrames, bool beforePresent)
 	{
-		Handlers()[cmd] = Entry{ help, std::move(handler), delayFrames };
+		Handlers()[cmd] = Entry{ help, std::move(handler), delayFrames, beforePresent };
 		s_CommandList[cmd] = help;
 	}
 
@@ -253,7 +254,8 @@ namespace CliServer
 			::Sleep(ms);
 	}
 
-	void Pump()
+	// endOfFrame: 프레임 끝 (기다리는 프레임을 센다), 아니면 Present 직전 명령만
+	void Run(bool endOfFrame)
 	{
 		std::vector<std::shared_ptr<Request>> ready;
 		{
@@ -263,14 +265,17 @@ namespace CliServer
 			{
 				if (r->Delay > 0)
 				{
-					--r->Delay;
+					if (endOfFrame)
+						--r->Delay;
 					waiting.push_back(r);
 				}
+				else if (Handlers()[r->Cmd].BeforePresent != endOfFrame)
+					ready.push_back(r);   // 이 단계에서 실행할 명령
 				else
-					ready.push_back(r);
+					waiting.push_back(r);
 			}
 			s_Queue.swap(waiting);
-			if (ready.empty() && s_WakeFrames > 0)
+			if (endOfFrame && ready.empty() && s_WakeFrames > 0)
 				--s_WakeFrames;
 		}
 		for (auto& r : ready)
@@ -297,4 +302,7 @@ namespace CliServer
 			s_WakeFrames = 4;
 		}
 	}
+
+	void Pump() { Run(true); }
+	void PumpBeforePresent() { Run(false); }
 }

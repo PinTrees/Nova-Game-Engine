@@ -1,5 +1,7 @@
 #pragma once
 #include <string>
+#include <vector>
+#include "GraphicsAPI.h"
 
 // 빌드된 게임(Unity 의 Player)으로 실행하기.
 // 빌드 결과:  <폴더>/<제품>.exe  +  <폴더>/<제품>_Data/ (player.json, Assets, Shaders, Resources ..., Binaries/ShaderCache·Scripting)
@@ -18,6 +20,7 @@ namespace PlayerRuntime
 	void WindowSize(int& width, int& height);
 	bool Resizable();
 	bool RunInBackground();
+	std::vector<GraphicsAPI> GraphicsAPIs();   // player.json 의 순서 (없으면 빈 목록)
 	std::wstring FirstScene();     // 빌드 씬 목록의 0번
 
 	// 초기화가 끝난 뒤: 첫 씬 Play

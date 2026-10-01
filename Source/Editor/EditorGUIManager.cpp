@@ -435,11 +435,11 @@ void EditorGUIManager::RenderEditorWindows()
                 {
                     GraphicsAPI api = static_cast<GraphicsAPI>(i);
                     bool supported = GraphicsBackendFactory::Create(api)->IsSupported();
-                    bool selected = (GraphicsSettings::GetRequestedAPI() == api);
+                    bool selected = (GraphicsSettings::GetEditorAPI() == api);
                     std::string label = GraphicsAPIToString(api);
                     if (!supported) label += " (not implemented)";
                     if (ImGui::MenuItem(label.c_str(), nullptr, selected, supported))
-                        GraphicsSettings::SetRequestedAPI(api);
+                        GraphicsSettings::SetEditorAPI(api);
                 }
                 ImGui::Separator();
                 ImGui::TextDisabled("Active: %s (restart to apply)", GraphicsAPIToString(GraphicsSettings::GetActiveAPI()));

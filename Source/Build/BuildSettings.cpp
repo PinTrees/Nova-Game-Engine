@@ -47,6 +47,14 @@ namespace
 		s_LastFolder = j.value("lastBuildFolder", std::string());
 	}
 
+	json ApiKeys(const std::vector<GraphicsAPI>& apis)
+	{
+		json keys = json::array();
+		for (GraphicsAPI api : apis)
+			keys.push_back(GraphicsAPIToKey(api));
+		return keys;
+	}
+
 	void LoadPlayer()
 	{
 		s_PlayerLoaded = true;
@@ -59,6 +67,20 @@ namespace
 		s_Player.Height = j.value("defaultScreenHeight", 1080);
 		s_Player.Resizable = j.value("resizableWindow", true);
 		s_Player.RunInBackground = j.value("runInBackground", true);
+		s_Player.AutoGraphicsAPI = j.value("autoGraphicsAPI", true);
+		if (j.contains("graphicsAPIs") && j["graphicsAPIs"].is_array())
+		{
+			s_Player.GraphicsAPIs.clear();
+			for (const json& k : j["graphicsAPIs"])
+				if (k.is_string())
+				{
+					const GraphicsAPI api = GraphicsAPIFromKey(k.get<std::string>());
+					if (std::find(s_Player.GraphicsAPIs.begin(), s_Player.GraphicsAPIs.end(), api) == s_Player.GraphicsAPIs.end())
+						s_Player.GraphicsAPIs.push_back(api);
+				}
+			if (s_Player.GraphicsAPIs.empty())
+				s_Player.GraphicsAPIs = { GraphicsAPI::DirectX11 };
+		}
 	}
 }
 
@@ -103,7 +125,16 @@ namespace BuildSettings
 		WriteJson(File(L"PlayerSettings.json"), json{
 			{ "companyName", p.CompanyName }, { "productName", p.ProductName }, { "version", p.Version },
 			{ "fullscreenMode", (int)p.Mode }, { "defaultScreenWidth", p.Width }, { "defaultScreenHeight", p.Height },
-			{ "resizableWindow", p.Resizable }, { "runInBackground", p.RunInBackground } });
+			{ "resizableWindow", p.Resizable }, { "runInBackground", p.RunInBackground },
+			{ "autoGraphicsAPI", p.AutoGraphicsAPI }, { "graphicsAPIs", ApiKeys(p.GraphicsAPIs) } });
+	}
+
+	std::vector<GraphicsAPI> PlayerGraphicsAPIs()
+	{
+		const Player& p = GetPlayer();
+		if (p.AutoGraphicsAPI || p.GraphicsAPIs.empty())
+			return { GraphicsAPI::DirectX11, GraphicsAPI::OpenGL };   // Windows 기본: DirectX 11 먼저
+		return p.GraphicsAPIs;
 	}
 
 	std::string ProductName()

@@ -328,7 +328,7 @@ namespace
 			}
 			return;
 		}
-		if (r.is_object() && (cmd == "info" || cmd == "camera" || cmd == "screenshot" || cmd == "build-status"))
+		if (r.is_object() && (cmd == "info" || cmd == "camera" || cmd == "screenshot" || cmd == "screenshot-editor" || cmd == "build-status" || cmd == "graphics" || cmd == "window"))
 		{
 			for (auto it = r.begin(); it != r.end(); ++it)
 				Out(it.key() + ": " + (it.value().is_string() ? it.value().get<std::string>() : it.value().dump()) + "\n");
@@ -545,7 +545,9 @@ namespace
 		"  scene open <Assets/...scene> [--force]  scene save\n"
 		"  play | stop | pause [on|off] | step | undo | redo\n"
 		"  camera [--position x,y,z --target x,y,z | --frame <target> [--distance d]]   Scene view camera\n"
-		"  screenshot <file.png> [--view scene|game]   (relative paths = current folder)\n"
+		"  screenshot <file.png> [--view scene|game|editor]   (editor = whole window incl. menus; relative = current folder)\n"
+		"  window <preferences|project-settings|build-settings> [--category C] [--close]\n"
+		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
 		"  assets [folder] [--pattern text]\n"
 		"  build <output folder> [--run]   build-status [--wait]\n"
 		"\n"
@@ -740,6 +742,35 @@ int wmain(int argc, wchar_t** argv)
 		if (!need(1, "screenshot <file.png> [--view scene|game]")) return 3;
 		args["path"] = Utf8(fs::absolute(Wide(a.Pos[0])).wstring());
 		args["view"] = a.Get("view", "scene");
+		if (Lower(a.Get("view")) == "editor")
+			rc = "screenshot-editor";   // 에디터 전체 (메뉴·창 포함)
+	}
+	else if (cmd == "window")
+	{
+		if (!need(1, "window <preferences|project-settings|build-settings> [--category C] [--close]")) return 3;
+		args["name"] = a.Pos[0];
+		if (a.Has("category")) args["category"] = a.Get("category");
+		if (a.Has("close")) args["close"] = true;
+	}
+	else if (cmd == "graphics")
+	{
+		if (a.Has("editor")) args["editor"] = a.Get("editor");
+		if (a.Has("player"))
+		{
+			json list = json::array();
+			std::string s = a.Get("player");
+			size_t start = 0;
+			while (start <= s.size())
+			{
+				const size_t c = s.find(',', start);
+				const std::string part = s.substr(start, c == std::string::npos ? std::string::npos : c - start);
+				if (!part.empty()) list.push_back(part);
+				if (c == std::string::npos) break;
+				start = c + 1;
+			}
+			args["player"] = list;
+		}
+		if (a.Has("auto")) args["auto"] = a.Get("auto") != "false" && a.Get("auto") != "0";
 	}
 	else if (cmd == "assets")
 	{

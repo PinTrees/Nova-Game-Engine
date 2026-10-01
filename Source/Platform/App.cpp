@@ -215,6 +215,8 @@ int32 App::Run()
 				// Render End
 				{
 					FRAME_PROFILE("Present");
+					if (!Application::IsPlayer())
+						CliServer::PumpBeforePresent();   // NOVA CLI: 에디터 전체 캡처 (백버퍼가 다 그려진 뒤)
 					const HRESULT presentHr = _swapChain->Present(0, 0);
 					// 실패(장치 제거 등)는 한 번 기록한다 (Release 에서는 HR 의 assert 가 없다)
 					static bool s_PresentFailLogged = false;
@@ -276,8 +278,9 @@ bool App::InitPlatform()
 	if (!InitMainWindow())
 		return false;
 
-	GraphicsSettings::Init();
-	log << "App::Init -> InitDirect3D (backend: " << GraphicsSettings::GetBackend()->GetName() << ", requested: " << GraphicsAPIToString(GraphicsSettings::GetRequestedAPI()) << ")..." << std::endl; log.flush();
+	GraphicsSettings::Init(Application::IsPlayer() ? PlayerRuntime::GraphicsAPIs() : std::vector<GraphicsAPI>{});
+	log << "App::Init -> InitDirect3D (" << GraphicsSettings::SelectionLog() << ")..." << std::endl; log.flush();
+	EditorLog::Write("Graphics", "%s", GraphicsSettings::SelectionLog().c_str());
 	if (!InitDirect3D())
 		return false;
 

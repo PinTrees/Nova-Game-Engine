@@ -7,4 +7,6 @@ namespace PreferencesWindow
 {
 	void Open(const char* category = nullptr);
 	void Draw();
+	void Close();
+	bool IsOpen();
 }

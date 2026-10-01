@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include "GraphicsAPI.h"
 
 // Unity 의 Build Settings(Scenes In Build) 와 Player Settings.
 //  - ProjectSettings/EditorBuildSettings.json : 빌드에 넣을 씬 목록(순서 = 빌드 인덱스), Development Build, 마지막 빌드 폴더
@@ -24,7 +25,12 @@ namespace BuildSettings
 		int Width = 1920, Height = 1080;     // Windowed 일 때 창 크기
 		bool Resizable = true;
 		bool RunInBackground = true;
+		// Unity 의 Other Settings > Rendering: Auto Graphics API for Windows / Graphics APIs (위가 우선)
+		bool AutoGraphicsAPI = true;
+		std::vector<GraphicsAPI> GraphicsAPIs = { GraphicsAPI::DirectX11 };
 	};
+	// 빌드된 게임이 시도할 순서 (Auto 면 엔진 기본 순서)
+	std::vector<GraphicsAPI> PlayerGraphicsAPIs();
 
 	std::vector<SceneEntry>& Scenes();
 	void SaveScenes();

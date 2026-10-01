@@ -213,6 +213,9 @@ namespace
 
 namespace BuildSettingsWindow
 {
+	void Close() { s_Open = false; }
+	bool IsOpen() { return s_Open; }
+
 	void Open()
 	{
 		s_Open = true;

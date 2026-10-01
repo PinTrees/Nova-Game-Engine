@@ -5,6 +5,7 @@
 #include "VolumeProfile.h"
 #include "RenderPipelineSettings.h"
 #include "BuildSettings.h"
+#include "GraphicsSettings.h"
 
 namespace
 {
@@ -13,6 +14,86 @@ namespace
 	std::string s_Category = "Graphics";
 
 	const char* kCategories[] = { "Graphics", "Player" };
+
+	// Unity 의 Graphics APIs for Windows 목록: 위가 우선. 선택한 줄을 위/아래로, + 로 추가, - 로 제거 (하나는 남긴다)
+	bool DrawGraphicsApiList(std::vector<GraphicsAPI>& list)
+	{
+		static int s_Selected = 0;
+		bool changed = false;
+		s_Selected = std::clamp(s_Selected, 0, (int)list.size() - 1);
+		UnityGUI::Label("Graphics APIs for Windows", 1);
+		ImGui::Indent(18.0f);
+		const float w = (std::min)(460.0f, ImGui::GetContentRegionAvail().x - 8.0f);
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.17f, 0.17f, 0.17f, 1.0f));
+		ImGui::BeginChild("##graphicsApis", ImVec2(w, list.size() * 24.0f + 10.0f), true);
+		bool anyUnsupported = false;
+		for (int i = 0; i < (int)list.size(); ++i)
+		{
+			std::string reason;
+			const bool ok = GraphicsSettings::IsSupported(list[i], &reason);
+			anyUnsupported |= !ok;
+			std::string label = std::string(GraphicsAPIToString(list[i])) + (ok ? "" : "   (not available: " + reason + ")") + "##api" + std::to_string(i);
+			if (!ok)
+				ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.65f, 1.0f));
+			if (ImGui::Selectable(label.c_str(), s_Selected == i))
+				s_Selected = i;
+			if (!ok)
+				ImGui::PopStyleColor();
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleColor();
+		// 버튼: ▲ ▼  -  +
+		ImGui::BeginDisabled(s_Selected <= 0);
+		if (ImGui::Button(ICON_FA_ARROW_UP "##apiUp", ImVec2(28, 0)))
+		{
+			std::swap(list[s_Selected], list[s_Selected - 1]);
+			--s_Selected;
+			changed = true;
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(s_Selected >= (int)list.size() - 1);
+		if (ImGui::Button(ICON_FA_ARROW_DOWN "##apiDown", ImVec2(28, 0)))
+		{
+			std::swap(list[s_Selected], list[s_Selected + 1]);
+			++s_Selected;
+			changed = true;
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		ImGui::BeginDisabled(list.size() <= 1);
+		if (ImGui::Button(ICON_FA_MINUS "##apiRemove", ImVec2(28, 0)))
+		{
+			list.erase(list.begin() + s_Selected);
+			s_Selected = (std::max)(0, s_Selected - 1);
+			changed = true;
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		std::vector<GraphicsAPI> missing;
+		for (GraphicsAPI api : GraphicsSettings::AllAPIs())
+			if (std::find(list.begin(), list.end(), api) == list.end())
+				missing.push_back(api);
+		ImGui::BeginDisabled(missing.empty());
+		if (ImGui::Button(ICON_FA_PLUS "##apiAdd", ImVec2(28, 0)))
+			ImGui::OpenPopup("##addApi");
+		ImGui::EndDisabled();
+		if (ImGui::BeginPopup("##addApi"))
+		{
+			for (GraphicsAPI api : missing)
+				if (ImGui::MenuItem(GraphicsAPIToString(api)))
+				{
+					list.push_back(api);
+					s_Selected = (int)list.size() - 1;
+					changed = true;
+				}
+			ImGui::EndPopup();
+		}
+		ImGui::Unindent(18.0f);
+		if (anyUnsupported)
+			UnityGUI::HelpBox("APIs that are not available on the player PC (or not finished in this engine version) are skipped: the game starts with the next API in the list.", false);
+		return changed;
+	}
 
 	// Unity 의 Project Settings > Player (Windows 탭의 Resolution and Presentation 까지)
 	void DrawPlayer()
@@ -45,6 +126,16 @@ namespace
 		if (p.Mode != BuildSettings::FullscreenMode::FullscreenWindow)
 			changed |= UnityGUI::Toggle("Resizable Window", &p.Resizable);
 		changed |= UnityGUI::Toggle("Run In Background", &p.RunInBackground);
+		UnityGUI::Spacing(8.0f);
+		ImGui::PushFont(UnityGUI::BoldFont());
+		ImGui::TextUnformatted("Other Settings");
+		ImGui::PopFont();
+		UnityGUI::Label("Rendering", 0, true);
+		changed |= UnityGUI::Toggle("Auto Graphics API for Windows", &p.AutoGraphicsAPI, 1);
+		if (p.AutoGraphicsAPI)
+			UnityGUI::HelpBox("Auto: the game tries DirectX 11 first, then OpenGL.", false, 1);
+		else
+			changed |= DrawGraphicsApiList(p.GraphicsAPIs);
 		if (changed)
 			BuildSettings::SavePlayer();
 		UnityGUI::Spacing(6.0f);
@@ -106,6 +197,9 @@ namespace
 
 namespace ProjectSettingsWindow
 {
+	void Close() { s_Open = false; }
+	bool IsOpen() { return s_Open; }
+
 	void Open(const char* category)
 	{
 		s_Open = true;

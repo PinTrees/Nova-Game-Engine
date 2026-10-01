@@ -15,6 +15,7 @@ public:
 	HINSTANCE AppInst() { return _hAppInst; }
 	HWND      MainWnd() { return _hMainWnd; }
 	ID3D11Device* GetDevice() { return  _device.Get(); }
+	IDXGISwapChain* SwapChain() { return _swapChain.Get(); }
 
 protected:
 	bool _deferredShow = false;   // 로딩 창이 끝날 때까지 메인 창 숨김

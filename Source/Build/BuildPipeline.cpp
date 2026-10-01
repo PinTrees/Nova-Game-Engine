@@ -304,6 +304,13 @@ namespace BuildPipeline
 			{ "productName", BuildSettings::ProductName() }, { "companyName", p.CompanyName }, { "version", p.Version },
 			{ "scenes", scenes }, { "fullscreenMode", (int)p.Mode }, { "width", p.Width }, { "height", p.Height },
 			{ "resizable", p.Resizable }, { "runInBackground", p.RunInBackground }, { "development", options.Development } };
+		// 그래픽 API 순서 (게임이 위에서부터 이 PC 에서 되는 첫 API 를 쓴다)
+		{
+			json apis = json::array();
+			for (GraphicsAPI api : BuildSettings::PlayerGraphicsAPIs())
+				apis.push_back(GraphicsAPIToKey(api));
+			job->PlayerJson["graphicsAPIs"] = apis;
+		}
 		fs::create_directories(job->Out, ec);
 		if (!fs::is_directory(job->Out, ec)) { error = "Could not create the output folder."; return false; }
 

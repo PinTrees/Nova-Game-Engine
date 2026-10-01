@@ -179,6 +179,7 @@ bool HubApp::Init()
 	std::ofstream log(_logFileName, std::ios::trunc);
 	log << "HubApp::Init" << std::endl;
 
+	GraphicsSettings::ForceForThisProcess(GraphicsAPI::DirectX11);   // Hub 는 항상 DirectX 11
 	if (!InitPlatform())
 		return false;
 
