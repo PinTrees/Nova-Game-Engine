@@ -57,7 +57,7 @@ namespace ShaderGraph
 		std::string OutPortName(const Graph& g, const Node& n, const std::string& want)
 		{
 			if (n.Type == "Property") return "Out";
-			const NodeDef* d = FindDef(n.Type);
+			const NodeDef* d = DefOf(n);
 			if (!d || d->Out.empty()) return std::string();
 			if (want.empty()) return d->Out[0].Name;
 			for (const PortDef& p : d->Out) if (Lower(p.Name) == Lower(want)) return p.Name;
@@ -66,12 +66,11 @@ namespace ShaderGraph
 
 		std::string InPortName(const Graph& g, int nodeId, const std::string& want)
 		{
-			const std::vector<PortDef>* ports = nullptr;
-			if (nodeId == 0) ports = &MasterInputs(g);
+			std::vector<PortDef> ports;
+			if (nodeId == 0) ports = MasterInputs(g);
 			else if (const Node* n = g.FindNode(nodeId))
-				if (const NodeDef* d = FindDef(n->Type)) ports = &d->In;
-			if (!ports) return std::string();
-			for (const PortDef& p : *ports) if (Lower(p.Name) == Lower(want)) return p.Name;
+				if (const NodeDef* d = DefOf(*n)) ports = d->In;
+			for (const PortDef& p : ports) if (Lower(p.Name) == Lower(want)) return p.Name;
 			return std::string();
 		}
 
@@ -120,12 +119,15 @@ namespace ShaderGraph
 			return {
 				{ "help", "this list" },
 				{ "nodes", "[--category Math] node types with their ports (width 0 = dynamic, 10 = Texture2D)" },
-				{ "new", "<path.shadergraph> [--material Lit|Unlit]: new graph (saved) and open it" },
+				{ "new", "<path.shadergraph | path.shadersubgraph> [--material Lit|Unlit]: new graph (saved) and open it. A Sub Graph starts with one output Out (Vector3)" },
 				{ "open", "<path.shadergraph>" },
 				{ "save", "[path]: save and build the shader (errors come back)" },
 				{ "info", "the open graph: settings, properties, nodes (inputs: linked / value), edges" },
+				{ "output.add", "--name Out --type Float|Vector2|Vector3|Vector4|Color (Sub Graph: an output of the Sub Graph node)" },
+				{ "output.set", "--name Out [--rename New] [--type Vector3] (Sub Graph)" },
+				{ "output.delete", "--name Out (Sub Graph)" },
 				{ "settings", "[--material Lit|Unlit] [--surface Opaque|Transparent] [--alpha-clip true|false] [--path \"Shader Graphs\"] (Graph Settings; path = shader name prefix)" },
-				{ "node.add", "--type Multiply [--x 0 --y 0] [--values {\"B\":[1,0,0,1]}] [--options {\"mask\":\"xy\"}] → id" },
+				{ "node.add", "--type Multiply [--x 0 --y 0] [--values {\"B\":[1,0,0,1]}] [--options {\"mask\":\"xy\"}] → id. Sub Graph: --options {\"asset\":\"Assets/x.shadersubgraph\"}; Custom Function: --options {\"name\",\"mode\":\"String|File\",\"body\",\"file\",\"inputs\":[{\"name\",\"type\"}],\"outputs\":[...]}" },
 				{ "node.set", "--id N [--values {...}] [--options {...}] [--x --y]  (values / options merge; null removes)" },
 				{ "node.delete", "--id N" },
 				{ "connect", "--from N [--out Port] --to M|Master --in Port  (an input keeps one link: a new one replaces it)" },
@@ -179,7 +181,7 @@ namespace ShaderGraph
 	json NodeJson(const Graph& g, const Node& n)
 	{
 		json inputs = json::object();
-		if (const NodeDef* d = FindDef(n.Type))
+		if (const NodeDef* d = DefOf(n))
 			for (const PortDef& p : d->In)
 			{
 				json in = { { "width", p.Width } };
@@ -196,7 +198,7 @@ namespace ShaderGraph
 		json outputs = json::object();
 		if (n.Type == "Property")
 			outputs["Out"] = OutputWidth(g, n, "Out");
-		else if (const NodeDef* d = FindDef(n.Type))
+		else if (const NodeDef* d = DefOf(n))
 			for (const PortDef& p : d->Out)
 				outputs[p.Name] = OutputWidth(g, n, p.Name);
 		return { { "id", n.Id }, { "type", n.Type }, { "pos", { n.X, n.Y } }, { "inputs", inputs }, { "outputs", outputs }, { "options", n.Options } };
@@ -217,7 +219,9 @@ namespace ShaderGraph
 					m = { e.FromNode, e.FromPort };
 			master[p.Name] = m;
 		}
-		return { { "path", Asset }, { "shader", Asset.empty() ? "" : ShaderNameOf(Asset) }, { "dirty", Dirty }, { "material", G.Material },
+		json outputs = json::array();
+		for (const SubOutput& o : G.Outputs) outputs.push_back({ { "name", o.Name }, { "type", o.Type } });
+		return { { "path", Asset }, { "kind", G.Kind }, { "outputs", outputs }, { "shader", Asset.empty() || G.IsSubGraph() ? "" : ShaderNameOf(Asset) }, { "dirty", Dirty }, { "material", G.Material },
 			{ "surface", G.Surface }, { "alphaClip", G.AlphaClip }, { "shaderPath", G.Path }, { "compiling", !Asset.empty() && IsCompiling(ShaderNameOf(Asset)) },
 			{ "properties", props }, { "nodes", nodes }, { "master", master }, { "error", Asset.empty() ? "" : LastError(ShaderNameOf(Asset)) } };
 	}
@@ -255,12 +259,20 @@ namespace ShaderGraph
 		Document& d = Doc();
 		std::string path = assetPath.empty() ? d.Asset : assetPath;
 		if (path.empty()) { error = "no path (save <Assets/...shadergraph>)"; return false; }
-		if (Lower(fs::path(path).extension().string()) != kExtension) path += kExtension;
+		const std::string ext = Lower(fs::path(path).extension().string());
+		if (ext != kExtension && ext != kSubExtension) path += d.G.IsSubGraph() ? kSubExtension : kExtension;
 		if (!d.G.Save(FullPath(path), error))
 			return false;
 		d.Asset = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(FullPath(path)));
 		d.Dirty = false;
 		++d.Revision;
+		if (d.G.IsSubGraph())
+		{
+			// Sub Graph 는 셰이더가 아니다 — 쓰는 그래프들은 파일이 바뀐 것을 보고 다시 만든다 (UpdateRuntime). 기다리면 지금
+			if (wait)
+				RebuildUsers(d.Asset, error);
+			return error.empty();
+		}
 		return Reload(d.Asset, error, wait);
 	}
 
@@ -297,10 +309,16 @@ namespace ShaderGraph
 		{
 			if (path.empty()) { e = "new <Assets/...shadergraph>"; return false; }
 			std::string p = path;
-			if (Lower(fs::path(p).extension().string()) != kExtension) p += kExtension;
+			const std::string ext = Lower(fs::path(p).extension().string());
+			if (ext != kExtension && ext != kSubExtension) p += kExtension;
 			std::error_code ec;
 			if (fs::exists(FullPath(p), ec) && !a.value("force", false)) { e = p + " exists (--force to replace)"; return false; }
 			d.G = NewGraph(a.value("material", std::string("Lit")));
+			if (Lower(fs::path(p).extension().string()) == kSubExtension)
+			{
+				d.G.Kind = "SubGraph";
+				d.G.Outputs = { { "Out", "Vector3" } };
+			}
 			d.UndoStack.clear();
 			d.RedoStack.clear();
 			if (!SaveDoc(p, e)) return false;
@@ -317,7 +335,9 @@ namespace ShaderGraph
 		if (op == "save")
 		{
 			const bool ok = SaveDoc(path, e);
-			r = { { "path", d.Asset }, { "shader", ShaderNameOf(d.Asset) }, { "built", ok } };
+			r = { { "path", d.Asset }, { "built", ok } };
+			if (d.G.IsSubGraph()) r["kind"] = "SubGraph";
+			else r["shader"] = ShaderNameOf(d.Asset);
 			if (!ok) { r["error"] = e; e = "saved, but the shader did not build: " + e; }
 			return ok;
 		}
@@ -365,18 +385,20 @@ namespace ShaderGraph
 			const NodeDef* def = nullptr;
 			for (const NodeDef& x : NodeDefs()) if (Lower(x.Type) == Lower(type)) def = &x;
 			if (!def) { e = "no node type '" + type + "' (nova shadergraph nodes)"; return false; }
+			if (a.contains("options") && !a["options"].is_object()) { e = "--options must be a JSON object, got: " + a["options"].dump(); return false; }
+			if (a.contains("values") && !a["values"].is_object()) { e = "--values must be a JSON object, got: " + a["values"].dump(); return false; }
 			d.Snapshot();
 			const int id = g.AddNode(def->Type, a.value("x", 0.0f), a.value("y", 0.0f));
 			Node* n = g.FindNode(id);
+			if (a.contains("options") && a["options"].is_object())
+				n->Options.merge_patch(a["options"]);
 			if (a.contains("values") && a["values"].is_object())
 				for (auto it = a["values"].begin(); it != a["values"].end(); ++it)
 				{
-					const PortDef* p = FindIn(*def, it.key());
+					const PortDef* p = FindIn(*DefOf(*n), it.key());
 					if (!p) { g.RemoveNode(id); d.UndoStack.pop_back(); e = "no input '" + it.key() + "' on " + def->Type; return false; }
 					n->Values[p->Name] = it.value();
 				}
-			if (a.contains("options") && a["options"].is_object())
-				n->Options.merge_patch(a["options"]);
 			if (def->Type == "Property")
 			{
 				const std::string ref = n->Options.value("ref", std::string());
@@ -401,17 +423,20 @@ namespace ShaderGraph
 				r = { { "deleted", id } };
 				return true;
 			}
-			const NodeDef* def = FindDef(n->Type);
+			if (a.contains("options") && !a["options"].is_object()) { d.UndoStack.pop_back(); e = "--options must be a JSON object, got: " + a["options"].dump(); return false; }
+			if (a.contains("values") && !a["values"].is_object()) { d.UndoStack.pop_back(); e = "--values must be a JSON object, got: " + a["values"].dump(); return false; }
+			// 설정 먼저 (Sub Graph · Custom Function 은 설정이 포트를 정한다)
+			if (a.contains("options") && a["options"].is_object())
+				n->Options.merge_patch(a["options"]);
+			const NodeDef* def = DefOf(*n);
 			if (a.contains("values") && a["values"].is_object())
 				for (auto it = a["values"].begin(); it != a["values"].end(); ++it)
 				{
 					const PortDef* p = def ? FindIn(*def, it.key()) : nullptr;
-					if (!p) { d.UndoStack.pop_back(); e = "no input '" + it.key() + "' on " + n->Type; return false; }
+					if (!p) { d.Undo(); d.RedoStack.clear(); e = "no input '" + it.key() + "' on " + n->Type; return false; }
 					if (it.value().is_null()) n->Values.erase(p->Name);
 					else n->Values[p->Name] = it.value();
 				}
-			if (a.contains("options") && a["options"].is_object())
-				n->Options.merge_patch(a["options"]);
 			if (a.contains("x")) n->X = a["x"].get<float>();
 			if (a.contains("y")) n->Y = a["y"].get<float>();
 			d.Changed();
@@ -445,6 +470,53 @@ namespace ShaderGraph
 			g.Disconnect(to, in);
 			d.Changed();
 			r = { { "to", { to, in } } };
+			return true;
+		}
+		if (op == "output.add" || op == "output.set" || op == "output.delete")
+		{
+			if (!g.IsSubGraph()) { e = "outputs belong to a Sub Graph (.shadersubgraph)"; return false; }
+			const std::string name = a.value("name", std::string());
+			if (name.empty()) { e = "--name"; return false; }
+			auto it = std::find_if(g.Outputs.begin(), g.Outputs.end(), [&](const SubOutput& o) { return Lower(o.Name) == Lower(name); });
+			auto validType = [&](std::string& t) {
+				t = ProperType(t);
+				return t == "Float" || t == "Vector2" || t == "Vector3" || t == "Vector4" || t == "Color";
+			};
+			if (op == "output.add")
+			{
+				if (it != g.Outputs.end()) { e = "an output '" + name + "' exists"; return false; }
+				std::string type = a.value("type", std::string("Vector3"));
+				if (!validType(type)) { e = "type must be Float, Vector2, Vector3, Vector4 or Color"; return false; }
+				d.Snapshot();
+				g.Outputs.push_back({ name, type });
+			}
+			else
+			{
+				if (it == g.Outputs.end()) { e = "no output '" + name + "'"; return false; }
+				d.Snapshot();
+				if (op == "output.delete")
+				{
+					g.Disconnect(0, it->Name);
+					g.Outputs.erase(it);
+				}
+				else
+				{
+					if (a.contains("type"))
+					{
+						std::string type = a["type"].get<std::string>();
+						if (!validType(type)) { d.UndoStack.pop_back(); e = "type must be Float, Vector2, Vector3, Vector4 or Color"; return false; }
+						it->Type = type;
+					}
+					if (a.contains("rename"))
+					{
+						const std::string to = a["rename"].get<std::string>();
+						for (Edge& x : g.Edges) if (x.ToNode == 0 && x.ToPort == it->Name) x.ToPort = to;
+						it->Name = to;
+					}
+				}
+			}
+			d.Changed();
+			r = d.Summary()["outputs"];
 			return true;
 		}
 		if (op == "property.add")

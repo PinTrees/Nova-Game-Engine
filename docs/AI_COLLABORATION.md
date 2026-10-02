@@ -14,8 +14,8 @@ Claude가 별도 대화에서 받은 작업 지시는 여기서 추정하지 않
 
 | 담당 | 작업 | 파일 범위 | 현재 상태 |
 |---|---|---|---|
-| Claude | Shader Graph와 그래프 재질 통합 | `Source/ShaderGraph/`, 그래프가 사용하는 렌더링과 재질 파일 (세부 목록은 `docs/ai-status/CLAUDE.md`) | 1단계 완료 (`49b2632`), 2단계 (미리보기 · 투명 · 컷아웃) 진행 중 — Claude 확인 (10월 3일 02시 40분) |
-| Claude | 그래프를 게임 빌드에 포함하는 연결 작업 | `Source/Build/BuildPipeline.cpp` | Claude 가 맡음 (2단계의 2-E) |
+| Claude | Shader Graph와 그래프 재질 통합 | `Source/ShaderGraph/`, 그래프가 사용하는 렌더링과 재질 파일 (세부 목록은 `docs/ai-status/CLAUDE.md`) | 1단계 (`49b2632`) · 2단계 (`ffbf792`, 미리보기 · 투명 · 컷아웃) · 3단계 (Vertex · Sub Graph · Custom Function) 완료 — Claude 갱신 (10월 3일 03시 52분) |
+| Claude | 그래프를 게임 빌드에 포함하는 연결 작업 | `Source/Build/BuildPipeline.cpp` | 완료 — 그래프 · Sub Graph · .hlsl · 그래프만 쓰는 그림을 포함, 빌드한 게임 실행 확인 (2단계) |
 | Codex | 저장하지 않은 씬의 Play/Stop 복원 | `Source/Scene/SceneManager.cpp` | 수정 완료, 독립 빌드와 씬 검사 통과 |
 | Codex | 외부 경로의 씬 저장과 불러오기 일치 | `Source/Scene/Scene.cpp` | 수정 완료, 외부 씬의 재시작 복원까지 통과 |
 | Codex | 씬 동작 전용 회귀 검사 | 새 파일 `Tools/tests/scene_lifecycle.ps1` | 14/14 통과, 공용 검사 파일 보존 |

@@ -6,6 +6,8 @@ Unity 의 Shader Graph 처럼 **노드를 이어 재질 셰이더를 만듭니�
 
 ![Alpha Clipping · Transparent · 미리보기](../Showcase/181_ShaderGraph_AlphaClip_Transparent_미리보기.webp)
 
+![Vertex 단계 (물결)](../Showcase/182_ShaderGraph_Vertex_물결.webp)
+
 ## 쓰는 법
 
 1. Project 창 **Create > Shader Graph** → `New Shader Graph.shadergraph` (더블클릭 = **Window > Shader Graph** 로 열기)
@@ -15,10 +17,39 @@ Unity 의 Shader Graph 처럼 **노드를 이어 재질 셰이더를 만듭니�
 5. **Save Asset (Ctrl+S)** = 저장 + 셰이더 만들기. 셰이더는 **백그라운드에서 컴파일** (에디터가 멈추지 않는다 — 그동안 예전 셰이더로 그림, 상태 줄 "Compiling …"). 오류는 창 아래 상태 줄 (HLSL 컴파일러 메시지 포함)
 6. **Apply to Selection** = 그래프 옆 `<이름>.mat` 를 만들어 (없으면) 고른 Mesh Renderer 에 넣습니다. 재질 Inspector 의 Shader 목록에도 `Shader Graphs/<이름>` 이 나옵니다
 
+### Vertex 단계 (정점 옮기기)
+
+Master 위쪽 **Vertex** 블록: **Vertex Position · Vertex Normal · Vertex Tangent** (오브젝트 공간 — 이어지지 않으면 메시 값 그대로). 물결치는 바다, 바람에 흔들리는 풀 · 깃발, 부풀었다 줄어드는 물체 ([예제: 물결](examples/shadergraph_wave.txt)).
+
+- **Position · Normal Vector** 노드의 Space = World (기본) / **Object** — Vertex 단계에서는 옮기기 전 값, Fragment 에서는 옮긴 뒤 값
+- 깊이 프리패스 · 그림자도 같은 위치로 옮깁니다 (그림자 모양도 바뀜). Time 은 프레임마다 한 값이라 모든 패스가 같은 자리
+- Vertex 단계에서 Sample Texture 2D 는 mip 0 (Unity 의 Sample Texture 2D LOD), 화면 미분을 쓰는 노드 (Checkerboard · Ellipse · Rectangle) 는 쓸 수 없다고 알려 줍니다
+- Main Preview 는 실제 구 / 상자 메시라 정점 이동이 보입니다
+
+### Sub Graph (.shadersubgraph)
+
+Project 창 **Create > Shader Sub Graph**. 노드 묶음을 다른 그래프에서 **노드 하나**로 씁니다 (HLSL 함수 하나로 만들어짐).
+
+- Sub Graph 의 **Blackboard 속성 = 노드 입력** (기본값 = 속성 값, Texture2D 도), Graph Inspector 의 **Outputs** (이름 · 형) = 노드 출력. Master 자리에 **Output** 노드
+- 그래프에서 Create Node > **Sub Graphs** 메뉴, 또는 Project 창에서 캔버스로 끌어 놓기. 노드를 고르고 **Open Sub Graph**
+- Sub Graph 를 저장하면 **그것을 쓰는 그래프가 다시 만들어집니다** (1 초 안 — 파일 시각을 봄). Sub Graph 안에서 Sub Graph 도 (8 단계까지), 자기 자신은 안 됨
+- Sub Graph 안의 그림은 Texture2D 속성으로 (노드에 바로 넣은 그림은 안 됨)
+
+### Custom Function
+
+Create Node > Utility > **Custom Function** — HLSL 을 직접 씁니다 (Unity 와 같은 두 방식).
+
+| Type | 내용 |
+|---|---|
+| String | Body = `void 함수(입력들, out 출력들) { … }` 의 안쪽. 예: `Out = A.zyx;` |
+| File | `.hlsl` 파일 (Project 창에서 끌어 놓기) 안의 `void <Name>_float(입력들, out 출력들)` 를 부릅니다 |
+
+입력 · 출력은 Graph Inspector 에서 이름 · 형 (Float · Vector2/3/4 · Color, 입력은 Texture2D 도) 을 정합니다. 그림은 `samSG` 샘플러로 (`tex.Sample(samSG, uv)`). `.hlsl` 을 고치면 쓰는 그래프가 다시 만들어집니다.
+
 ### 미리보기
 
 - **노드 미리보기**: 노드마다 첫 출력의 값을 색으로 (float = 회색, Vector2 = 빨강 · 초록 …). Time 노드에 이어진 것은 움직입니다
-- **Main Preview** (오른쪽 아래): 구 / 상자 (버튼으로 바꿈) 에 지금 그래프 — 고정 빛 · 하늘 (씬과 무관), **끌어 돌리기**. Alpha Clipping 은 잘린 곳이 뚫리고, Transparent 는 배경과 섞입니다
+- **Main Preview** (오른쪽 아래): 엔진 기본 구 / 상자 메시 (버튼으로 바꿈) 에 지금 그래프 (정점 이동 포함) — 고정 빛 · 하늘 (씬과 무관), **끌어 돌리기**. Alpha Clipping 은 잘린 곳이 뚫리고, Transparent 는 배경과 섞입니다. Sub Graph 는 첫 출력을 색으로
 - 그래프를 바꾸고 잠시 뒤 (값을 끄는 동안은 기다림) 작은 미리보기 셰이더를 백그라운드에서 다시 만듭니다 (엔진 셰이더를 포함하지 않아 수십 ms). Nodes · Main Preview 체크로 끌 수 있습니다
 
 ### Graph Settings (Graph Inspector)
@@ -35,19 +66,19 @@ Unity 의 Shader Graph 처럼 **노드를 이어 재질 셰이더를 만듭니�
 - Delete = 노드 · 선 지우기, Ctrl+Z / Ctrl+Y, 휠 = 확대, 오른쪽 끌기 = 화면 이동, Frame All
 - 그래프 기본값을 바꿔도 **이미 만든 재질은 제 값**을 지킵니다 (Unity 와 같다). 새 재질은 새 기본값
 
-## 노드 (65 종)
+## 노드 (67 종)
 
 | 분류 | 노드 |
 |---|---|
 | Input / Basic | Float, Vector2/3/4, Color, Time (Time · Sine Time · Cosine Time · Delta Time) |
-| Input / Geometry | UV, Position (World), Normal Vector, View Direction, Screen Position |
+| Input / Geometry | UV, Position (World / Object), Normal Vector (World / Object), View Direction, Screen Position |
 | Input / Texture | Sample Texture 2D (RGBA · R · G · B · A, Type = Normal 이면 탄젠트 노멀로 풀어 줌) |
 | Math | Add, Subtract, Multiply, Divide, Power, Square Root, Absolute, Negate, One Minus, Reciprocal, Exponential, Log, Modulo, Posterize, Saturate, Fraction, Minimum, Maximum, Clamp, Remap, Floor, Ceiling, Round, Step, Lerp, Smoothstep, Sine, Cosine, Tangent, Dot Product, Cross Product, Normalize, Length, Distance, Fresnel Effect |
 | Channel | Split, Combine, Swizzle |
 | UV | Tiling And Offset, Rotate, Polar Coordinates |
 | Procedural | Simple Noise, Gradient Noise, Voronoi, Checkerboard, Ellipse, Rectangle |
 | Artistic | Normal Strength, Normal Blend, Contrast, Saturation |
-| Utility | Branch, Property (Blackboard) |
+| Utility | Branch, Property (Blackboard), **Custom Function**, **Sub Graph** |
 
 형 규칙은 Unity 와 같습니다: **동적 포트** (Add · Multiply · Lerp …) 는 이은 것 중 가장 큰 폭, 작은 벡터 → 큰 벡터는 float 이면 모든 칸에 · 나머지는 0, 큰 → 작은 은 앞 칸만. Texture2D 는 Texture 입력에만, 고리는 거절합니다. Procedural 노드의 식은 Unity Shader Graph 문서의 생성 코드와 같습니다.
 
@@ -71,13 +102,19 @@ nova set Sphere --component MeshRenderer --values '{"m_MaterialPaths":["Assets/S
 | `connect --from N [--out Port] --to M\|Master --in Port` · `disconnect --to M --in Port` | 입력 하나에 선 하나 (새로 이으면 바꾼다) |
 | `property.add --name --type [--value] [--range a,b] [--texture] [--ref] [--node]` · `property.set` · `property.delete` | Blackboard |
 | `settings [--material Lit\|Unlit] [--surface Opaque\|Transparent] [--alpha-clip true\|false] [--path "Shader Graphs"]` | Graph Settings (`info` 에 surface · alphaClip · shaderPath · compiling) |
-| `compile [--hlsl]` · `material [--mat path]` · `undo` · `redo` · `window` | `save` 는 CLI 에서 컴파일이 끝날 때까지 기다려 오류를 돌려준다 |
+| `compile [--hlsl]` · `material [--mat path]` · `undo` · `redo` · `window` | `save` 는 CLI 에서 컴파일이 끝날 때까지 기다려 오류를 돌려준다 (Sub Graph 를 저장하면 그것을 쓰는 그래프를 다시 만들고 기다림) |
+| `new <path.shadersubgraph>` · `output.add --name --type` · `output.set --name [--rename] [--type]` · `output.delete --name` | Sub Graph (출력 하나 Out (Vector3) 로 시작) |
+| `node.add --type "Sub Graph" --options '{"asset":"Assets/x.shadersubgraph"}'` | Sub Graph 노드 (입력 = 그 Blackboard 속성 이름) |
+| `node.add --type "Custom Function" --options '{"name":"Flip","mode":"String","body":"Out = A.zyx;","inputs":[{"name":"A","type":"Vector3"}],"outputs":[{"name":"Out","type":"Vector3"}]}'` | File 이면 `"mode":"File","file":"Assets/x.hlsl"` |
+| `node.add --type Position --options '{"space":"Object"}'` · `connect ... --in "Vertex Position"` | Vertex 단계 ([예제](examples/shadergraph_wave.txt)) |
 
 ## 구조 (엔진 코드)
 
 - `Source/ShaderGraph/ShaderGraph.*` — 그래프 (JSON `.shadergraph`), 노드 정의 (포트 · 코드 생성 람다), 형 변환, `Generate()` → `.fx`
 - `ShaderGraphRuntime.*` — `CustomShaders` Provider: 재질의 Shader 이름이 프로젝트의 그래프 (`<경로>/<파일 이름>`) 면 처음 찾을 때 그래프 → `<프로젝트>/Library/ShaderGraph/<이름>_<경로 해시>.fx` → **작업 스레드에서 컴파일** (셰이더 캐시만 채움) → 끝나면 `LoadEffect` (캐시 적중) → 등록. 그동안 재질은 Fallback (다시 만들 때는 예전 셰이더). 그리기 = `DrawInstanced` (Mesh Renderer — 본 · 투명 · 깊이 · 그림자 패스) · `DrawSkinned` (Skinned Mesh Renderer — 본 · 깊이 · 그림자). 재질 값 = `.mat` 의 `Properties` (`{"_Tint": [1,0,0,1]}`)
-- `ShaderGraphPreview.*` — 창의 노드 · Main 미리보기 (`GeneratePreview()` — 독립 이펙트 `SGPreviewNodeTech` · `SGPreviewMainTech`)
+- `ShaderGraphPreview.*` — 창의 노드 · Main 미리보기 (`GeneratePreview()` — 독립 이펙트 `SGPreviewNodeTech` (화면 삼각형) · `SGPreviewMainTech` (엔진 기본 메시 + Vertex 단계))
+- 노드 포트: 보통은 종류마다 (`FindDef`), Sub Graph · Custom Function 은 노드 설정에서 (`DefOf(node)` — asset 파일 시각 / 설정 JSON 으로 캐시). Sub Graph = `void SGSub_<이름>_<해시>_F|V(입력들, sg_uv … sg_normalO, out 출력들)` 함수 (단계마다 — Vertex 는 SampleLevel), Custom Function = `SGCF_<이름>_<해시>` 또는 `#include` 한 `.hlsl` 의 `<Name>_float`
+- Vertex 단계: `SG_EvaluateVertex()` 가 VS 입력 (PosL · NormalL · TangentL) 을 바꾼 뒤 엔진 `VS_Batch` / `VS_Skinned` 에 넘깁니다 (`VS_GraphBatch` · `VS_GraphSkinned`). 단계 사이 구조 `SGVOut` = 엔진 VertexOut + 오브젝트 위치 · 노멀. 정점을 옮기거나 잘라내면 `GraphDepth*` · `GraphShadow*` 기법도 만들어 깊이 · 그림자 패스를 이 셰이더가 그립니다 (`CustomShaders::Shader::CustomDepth`)
 - 게임 빌드: 재질의 `"Shader"` 이름을 그래프 파일로 풀어 그 그래프와 그래프만 쓰는 그림까지 넣습니다. 게임은 처음 쓸 때 셰이더를 백그라운드에서 만듭니다
 - `ShaderGraphOps.*` — 문서 + 연산 (창 · CLI 공용, Undo 스냅숏)
 - `ShaderGraphWindow.*` — imgui-node-editor 캔버스, Blackboard, Graph Inspector, `.shadergraph` 에셋 종류, CLI 등록
@@ -85,4 +122,4 @@ nova set Sphere --component MeshRenderer --values '{"m_MaterialPaths":["Assets/S
 
 ## 아직
 
-Vertex 단계 (Position · Normal — 물결 · 깃발), Sub Graph, Custom Function, Keyword, Sampler State 노드, 스킨 메시의 Transparent (지금은 Mesh Renderer 만 — 스킨은 불투명으로), 투명 물체의 그림자, Render Face (양면), OpenGL 경로 검사
+Keyword (Boolean · Enum 분기), Sampler State 노드, Gradient · Sample Gradient, Triplanar, 노드 그룹 · 메모, Sub Graph 안의 노드 그림 (지금은 Texture2D 속성으로), 스킨 메시의 Transparent (지금은 Mesh Renderer 만 — 스킨은 불투명으로), 투명 물체의 그림자, Render Face (양면), 스킨 메시의 Vertex 단계는 뼈 이전 (바인드 자세) 공간, OpenGL 경로 검사

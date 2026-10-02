@@ -43,6 +43,7 @@ namespace ShaderGraph
 			FxVar* View = nullptr;
 			FxVar* ShadowLight = nullptr;
 			FxVar* ShadowBias = nullptr;
+			FxVar* White = nullptr;         // 비어 있는 Texture2D 입력 (Sub Graph · Custom Function)
 			std::vector<FxVar*> PropVars;   // G.Properties 순서
 			std::vector<std::pair<FxVar*, ComPtr<GfxShaderResourceView>>> NodeTextures;   // Sample Texture 2D 의 option texture
 		};
@@ -58,6 +59,31 @@ namespace ShaderGraph
 			Graph G;
 		};
 		std::map<std::string, Building> s_Building;
+
+		// 그래프가 쓰는 파일 (Sub Graph · Custom Function .hlsl): 바뀌면 다시 만든다 (성공 · 실패 모두 — 고치면 다시)
+		struct Deps
+		{
+			std::string Asset;
+			std::vector<std::pair<std::string, long long>> Files;   // 경로, 파일 시각
+		};
+		std::map<std::string, Deps> s_Deps;
+		std::chrono::steady_clock::time_point s_DepsCheck;
+
+		long long FileStamp(const std::string& asset)
+		{
+			std::error_code ec;
+			const auto t = fs::last_write_time(FullPath(asset), ec);
+			return ec ? -1 : (long long)t.time_since_epoch().count();
+		}
+
+		void RecordDeps(const std::string& name, const std::string& asset, const std::vector<std::string>& files)
+		{
+			Deps d;
+			d.Asset = asset;
+			for (const std::string& f : files)
+				d.Files.push_back({ f, FileStamp(f) });
+			s_Deps[name] = std::move(d);
+		}
 
 		// 재질마다 해석한 값 (재질 Properties 가 바뀌거나 그래프를 다시 만들면 다시)
 		struct Parsed
@@ -75,6 +101,8 @@ namespace ShaderGraph
 		bool s_AssetsValid = false;
 
 		const auto s_Start = std::chrono::steady_clock::now();
+		// Time 노드: 프레임마다 한 번 정한 값 (깊이 프리패스와 본 패스가 같은 시각이어야 정점이 같은 자리 — 다르면 EQUAL 깊이가 어긋나 검게 빈다)
+		float s_FrameTime = 0.0f;
 
 		std::string Lower(std::string s)
 		{
@@ -173,9 +201,11 @@ namespace ShaderGraph
 			}
 			for (const auto& [var, srv] : c.NodeTextures)
 				var->SetResource(srv ? srv.Get() : SpriteBatch::WhiteTexture());
+			if (c.White)
+				c.White->SetResource(SpriteBatch::WhiteTexture());
 			if (c.Time)
 			{
-				const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - s_Start).count();
+				const float t = s_FrameTime;
 				const float tv[4] = { t, sinf(t), cosf(t), Time::DeltaTime() };
 				c.Time->SetFloatVector(tv);
 			}
@@ -369,6 +399,7 @@ namespace ShaderGraph
 			c->View = var("gSGView");
 			c->ShadowLight = var("gSGShadowLight");
 			c->ShadowBias = var("gSGShadowBias");
+			c->White = var("gSG_White");
 			for (const Property& p : c->G.Properties)
 				c->PropVars.push_back(var("gSG_" + Sanitize(p.Ref)));
 			for (const Node& n : c->G.Nodes)
@@ -444,9 +475,9 @@ namespace ShaderGraph
 					Bind(*c, d.Material, d.Context, tech);
 					d.Draw();
 				};
-			shader.ClipsAlpha = [name](const UMaterial&) {
+			shader.CustomDepth = [name](const UMaterial&) {
 				const Compiled* c = Current(name);
-				return c && c->G.AlphaClip && c->DepthBatch && c->ShadowBatch;
+				return c && c->DepthBatch && c->ShadowBatch;   // 잘라내기 또는 정점 이동 (생성기가 그때만 깊이 · 그림자 기법을 만든다)
 			};
 			shader.Transparent = [name](const UMaterial&) {
 				const Compiled* c = Current(name);
@@ -479,6 +510,7 @@ namespace ShaderGraph
 				return false;
 			}
 			const CodeResult code = Generate(b.G);
+			RecordDeps(name, asset, code.Files);
 			if (!code.Error.empty())
 			{
 				error = code.Error;
@@ -690,8 +722,80 @@ namespace ShaderGraph
 		return true;
 	}
 
+	bool RebuildUsers(const std::string& subGraphAsset, std::string& error)
+	{
+		// 그 Sub Graph 를 (직접 · 간접으로) 쓰는 그래프: 지난번에 만들 때 기록한 파일 목록 + 아직 안 만든 그래프는 파일 내용으로
+		const std::string key = NormAsset(subGraphAsset);
+		std::vector<std::string> users;
+		for (const std::string& asset : GraphAssets(true))
+		{
+			const std::string name = ShaderNameOf(asset);
+			bool uses = false;
+			if (auto d = s_Deps.find(name); d != s_Deps.end())
+				for (const auto& f : d->second.Files) uses |= NormAsset(f.first) == key;
+			if (!uses)
+			{
+				std::string text = Lower(ReadFile(FullPath(asset)));
+				for (char& c : text) if (c == '/') c = '\\';
+				std::string k = key;
+				std::string escaped;
+				for (char c : k) { escaped += c; if (c == '\\') escaped += '\\'; }   // JSON 안의 \ 는 \\
+				uses = text.find(k) != std::string::npos || text.find(escaped) != std::string::npos;
+			}
+			if (uses)
+				users.push_back(asset);
+		}
+		bool ok = true;
+		for (const std::string& asset : users)
+		{
+			std::string e;
+			if (!Reload(asset, e, true))
+			{
+				ok = false;
+				error += (error.empty() ? "" : "\n") + asset + ": " + e;
+			}
+		}
+		return ok;
+	}
+
+	std::vector<std::string> SubGraphAssets()
+	{
+		std::vector<std::string> out;
+		const fs::path root = PathManager::GetI()->GetContentPathW();
+		std::error_code ec;
+		for (fs::recursive_directory_iterator it(root / L"Assets", fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec))
+		{
+			if (ec) break;
+			if (it->is_regular_file(ec) && Lower(it->path().extension().string()) == kSubExtension)
+				out.push_back(Utf8(fs::relative(it->path(), root, ec).wstring()));
+		}
+		std::sort(out.begin(), out.end());
+		return out;
+	}
+
 	void UpdateRuntime()
 	{
+		s_FrameTime = std::chrono::duration<float>(std::chrono::steady_clock::now() - s_Start).count();
+		// 쓰는 Sub Graph · .hlsl 이 바뀌었으면 다시 만든다 (1 초에 한 번 확인)
+		if (!s_Deps.empty() && std::chrono::steady_clock::now() - s_DepsCheck > std::chrono::seconds(1))
+		{
+			s_DepsCheck = std::chrono::steady_clock::now();
+			std::vector<std::pair<std::string, std::string>> changed;
+			for (const auto& [name, d] : s_Deps)
+			{
+				if (s_Building.count(name))
+					continue;
+				for (const auto& [file, stamp] : d.Files)
+					if (FileStamp(file) != stamp) { changed.push_back({ name, d.Asset }); break; }
+			}
+			for (const auto& [name, asset] : changed)
+			{
+				std::string error;
+				EditorLog::Write("ShaderGraph", "%s: a sub graph / .hlsl it uses changed - rebuilding", name.c_str());
+				if (!Reload(asset, error, false))
+					RecordDeps(name, asset, s_Deps[name].Files.empty() ? std::vector<std::string>() : [&] { std::vector<std::string> f; for (const auto& x : s_Deps[name].Files) f.push_back(x.first); return f; }());
+			}
+		}
 		if (s_Building.empty())
 			return;
 		std::vector<std::string> names;

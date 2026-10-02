@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "ShaderGraph.h"
+#include "ShaderGraphRuntime.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -74,7 +75,7 @@ namespace ShaderGraph
 		int BindWidth(const std::string& bind)
 		{
 			if (bind == "uv") return 2;
-			if (bind == "posW" || bind == "normalW" || bind == "viewW") return 3;
+			if (bind == "posW" || bind == "normalW" || bind == "viewW" || bind == "posO" || bind == "normalO" || bind == "tangentO") return 3;
 			if (bind == "screen") return 4;
 			return 1;
 		}
@@ -86,6 +87,9 @@ namespace ShaderGraph
 			if (bind == "normalW") return "sg_normalW";
 			if (bind == "viewW") return "sg_viewW";
 			if (bind == "screen") return "sg_screen";
+			if (bind == "posO") return "sg_posO";
+			if (bind == "normalO") return "sg_normalO";
+			if (bind == "tangentO") return "sg_tangentO";
 			return "0.0";
 		}
 
@@ -143,8 +147,12 @@ namespace ShaderGraph
 			}, "seconds since the editor / game started");
 			// ---- Input / Geometry
 			add("UV", "Input/Geometry", {}, { P("Out", 2) }, [](NodeContext& c) { c.Out("Out", 2, "sg_uv"); }, "mesh UV0");
-			add("Position", "Input/Geometry", {}, { P("Out", 3) }, [](NodeContext& c) { c.Out("Out", 3, "sg_posW"); }, "world position");
-			add("Normal Vector", "Input/Geometry", {}, { P("Out", 3) }, [](NodeContext& c) { c.Out("Out", 3, "sg_normalW"); }, "world normal");
+			add("Position", "Input/Geometry", {}, { P("Out", 3) }, [](NodeContext& c) {
+				c.Out("Out", 3, c.N->Options.value("space", std::string("World")) == "Object" ? "sg_posO" : "sg_posW");
+			}, "position (option space: World | Object). In the Vertex stage it is the position before moving", { { "space", "World" } });
+			add("Normal Vector", "Input/Geometry", {}, { P("Out", 3) }, [](NodeContext& c) {
+				c.Out("Out", 3, c.N->Options.value("space", std::string("World")) == "Object" ? "sg_normalO" : "sg_normalW");
+			}, "normal (option space: World | Object)", { { "space", "World" } });
 			add("View Direction", "Input/Geometry", {}, { P("Out", 3) }, [](NodeContext& c) { c.Out("Out", 3, "sg_viewW"); }, "world direction to the camera (normalized)");
 			add("Screen Position", "Input/Geometry", {}, { P("Out", 4) }, [](NodeContext& c) { c.Out("Out", 4, "sg_screen"); }, "0..1 screen UV in xy");
 			// ---- Input / Texture
@@ -156,7 +164,8 @@ namespace ShaderGraph
 					*c.Code += "    float4 " + rgba + " = float4(1, 1, 1, 1);\n";
 				else
 				{
-					*c.Code += "    float4 " + rgba + " = " + tex + ".Sample(samSG, " + c.In("UV", 2) + ");\n";
+					// Vertex 단계는 화면 미분이 없다 → mip 0 (Unity 의 Sample Texture 2D LOD)
+					*c.Code += "    float4 " + rgba + " = " + tex + (c.Vertex() ? ".SampleLevel(samSG, " + c.In("UV", 2) + ", 0)" : ".Sample(samSG, " + c.In("UV", 2) + ")") + ";\n";
 					if (c.Option("type").is_string() && c.Option("type").get<std::string>() == "Normal")
 						*c.Code += "    " + rgba + ".rgb = normalize(" + rgba + ".rgb * 2.0 - 1.0);\n";
 				}
@@ -283,12 +292,15 @@ namespace ShaderGraph
 			add("Checkerboard", "Procedural", { P("UV", 2, 0, 0, 0, 0, "uv"), P("Color A", 3, 0.2f, 0.2f, 0.2f), P("Color B", 3, 0.7f, 0.7f, 0.7f), P("Frequency", 2, 1, 1) }, { P("Out", 3) }, [](NodeContext& c) {
 				c.Out("Out", 3, "SG_Checker(" + c.In("UV", 2) + ", " + c.In("Color A", 3) + ", " + c.In("Color B", 3) + ", " + c.In("Frequency", 2) + ")");
 			});
+			d.back().FragmentOnly = true;
 			add("Ellipse", "Procedural/Shapes", { P("UV", 2, 0, 0, 0, 0, "uv"), P("Width", 1, 0.5f), P("Height", 1, 0.5f) }, { P("Out", 1) }, [](NodeContext& c) {
 				c.Out("Out", 1, "SG_Ellipse(" + c.In("UV", 2) + ", " + c.In("Width", 1) + ", " + c.In("Height", 1) + ")");
 			});
+			d.back().FragmentOnly = true;
 			add("Rectangle", "Procedural/Shapes", { P("UV", 2, 0, 0, 0, 0, "uv"), P("Width", 1, 0.5f), P("Height", 1, 0.5f) }, { P("Out", 1) }, [](NodeContext& c) {
 				c.Out("Out", 1, "SG_Rectangle(" + c.In("UV", 2) + ", " + c.In("Width", 1) + ", " + c.In("Height", 1) + ")");
 			});
+			d.back().FragmentOnly = true;
 			// ---- Artistic / Utility
 			add("Fresnel Effect", "Math/Vector", { P("Normal", 3, 0, 0, 0, 0, "normalW"), P("View Dir", 3, 0, 0, 0, 0, "viewW"), P("Power", 1, 1) }, { P("Out", 1) }, [](NodeContext& c) {
 				c.Out("Out", 1, "pow(1.0 - saturate(dot(normalize(" + c.In("Normal", 3) + "), normalize(" + c.In("View Dir", 3) + "))), " + c.In("Power", 1) + ")");
@@ -312,6 +324,12 @@ namespace ShaderGraph
 				const int w = c.DynamicWidth({ "True", "False" });
 				c.Out("Out", w, "(" + c.In("Predicate", 1) + " > 0.5 ? " + c.In("True", w) + " : " + c.In("False", w) + ")");
 			}, "Predicate > 0.5 → True");
+			// Custom Function · Sub Graph: 포트 · 코드는 DefOf 가 노드 설정에서 만든다 (여기는 이름 · 기본 설정)
+			add("Custom Function", "Utility", {}, {}, [](NodeContext&) {},
+				"HLSL: mode String = body of void f(inputs, out outputs), File = the .hlsl's <name>_float(...). Textures sample with samSG",
+				{ { "name", "MyFunction" }, { "mode", "String" }, { "body", "Out = A;" }, { "file", "" },
+				  { "inputs", json::array({ { { "name", "A" }, { "type", "Vector3" } } }) }, { "outputs", json::array({ { { "name", "Out" }, { "type", "Vector3" } } }) } });
+			add("Sub Graph", "Utility", {}, {}, [](NodeContext&) {}, "a .shadersubgraph (option asset): its Blackboard = inputs, its Output = outputs", { { "asset", "" } });
 			// Property (Blackboard): 코드 생성은 Generate 가 따로
 			add("Property", "Property", {}, { P("Out", D) }, [](NodeContext&) {}, "a Blackboard property (option ref)", { { "ref", "" } });
 			return d;
@@ -457,18 +475,47 @@ float SG_Rectangle(float2 uv, float w, float h)
 		return nullptr;
 	}
 
-	const std::vector<PortDef>& MasterInputs(const Graph& g)
+	int TypeWidth(const std::string& type)
 	{
-		// Unity 의 Fragment 블록: Alpha Clipping 을 켜면 Alpha Clip Threshold
-		static const std::vector<PortDef> lit = {
-			P("Base Color", 3, 0.5f, 0.5f, 0.5f), P("Normal", 3, 0, 0, 1), P("Metallic", 1, 0), P("Smoothness", 1, 0.5f),
-			P("Emission", 3, 0, 0, 0), P("Ambient Occlusion", 1, 1), P("Alpha", 1, 1) };
-		static const std::vector<PortDef> litClip = [] { auto v = lit; v.push_back(P("Alpha Clip Threshold", 1, 0.5f)); return v; }();
-		static const std::vector<PortDef> unlit = { P("Base Color", 3, 0.5f, 0.5f, 0.5f), P("Alpha", 1, 1) };
-		static const std::vector<PortDef> unlitClip = [] { auto v = unlit; v.push_back(P("Alpha Clip Threshold", 1, 0.5f)); return v; }();
-		if (g.Material == "Unlit")
-			return g.AlphaClip ? unlitClip : unlit;
-		return g.AlphaClip ? litClip : lit;
+		if (type == "Float") return 1;
+		if (type == "Vector2") return 2;
+		if (type == "Vector3") return 3;
+		if (type == "Texture2D") return kTexture;
+		return 4;   // Vector4, Color
+	}
+
+	bool IsVertexPort(const std::string& masterPort)
+	{
+		return masterPort == "Vertex Position" || masterPort == "Vertex Normal" || masterPort == "Vertex Tangent";
+	}
+
+	std::vector<PortDef> MasterInputs(const Graph& g)
+	{
+		std::vector<PortDef> v;
+		if (g.IsSubGraph())
+		{
+			for (const SubOutput& o : g.Outputs)
+				v.push_back(P(o.Name.c_str(), TypeWidth(o.Type)));
+			return v;
+		}
+		// Unity 의 Vertex 블록 (오브젝트 공간 — 이어지지 않으면 메시 값 그대로)
+		v.push_back(P("Vertex Position", 3, 0, 0, 0, 0, "posO"));
+		v.push_back(P("Vertex Normal", 3, 0, 0, 0, 0, "normalO"));
+		v.push_back(P("Vertex Tangent", 3, 0, 0, 0, 0, "tangentO"));
+		// Fragment 블록: Alpha Clipping 을 켜면 Alpha Clip Threshold
+		v.push_back(P("Base Color", 3, 0.5f, 0.5f, 0.5f));
+		if (g.Material != "Unlit")
+		{
+			v.push_back(P("Normal", 3, 0, 0, 1));
+			v.push_back(P("Metallic", 1, 0));
+			v.push_back(P("Smoothness", 1, 0.5f));
+			v.push_back(P("Emission", 3, 0, 0, 0));
+			v.push_back(P("Ambient Occlusion", 1, 1));
+		}
+		v.push_back(P("Alpha", 1, 1));
+		if (g.AlphaClip)
+			v.push_back(P("Alpha Clip Threshold", 1, 0.5f));
+		return v;
 	}
 
 	int Property::Width() const
@@ -559,14 +606,16 @@ float SG_Rectangle(float2 uv, float w, float h)
 	{
 		const Node* from = FindNode(fromNode);
 		if (!from) { error = "no node " + std::to_string(fromNode); return false; }
-		const NodeDef* fd = FindDef(from->Type);
-		if (!fd || !FindPort(fd->Out, fromPort)) { error = "node " + std::to_string(fromNode) + " (" + from->Type + ") has no output '" + fromPort + "'"; return false; }
+		const NodeDef* fd = DefOf(*from);
+		const bool propertyOut = from->Type == "Property" && fromPort == "Out";
+		if (!propertyOut && (!fd || !FindPort(fd->Out, fromPort))) { error = "node " + std::to_string(fromNode) + " (" + from->Type + ") has no output '" + fromPort + "'"; return false; }
 		const PortDef* tp = nullptr;
+		const std::vector<PortDef> master = MasterInputs(*this);
 		if (toNode == 0)
-			tp = FindPort(MasterInputs(*this), toPort);
+			tp = FindPort(master, toPort);
 		else if (const Node* to = FindNode(toNode))
 		{
-			if (const NodeDef* td = FindDef(to->Type)) tp = FindPort(td->In, toPort);
+			if (const NodeDef* td = DefOf(*to)) tp = FindPort(td->In, toPort);
 		}
 		else { error = "no node " + std::to_string(toNode); return false; }
 		if (!tp) { error = "no input '" + toPort + "' on " + (toNode == 0 ? std::string("Master") : "node " + std::to_string(toNode)); return false; }
@@ -594,7 +643,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 			for (char c : mask) if (strchr("xyzwrgba", c)) ++count;
 			return std::clamp(count, 1, 4);
 		}
-		const NodeDef* d = FindDef(n.Type);
+		const NodeDef* d = DefOf(n);
 		if (!d) return 1;
 		const PortDef* out = FindPort(d->Out, port);
 		if (!out) return 1;
@@ -691,12 +740,19 @@ float SG_Rectangle(float2 uv, float w, float h)
 			{
 				const Property* p = G->FindProperty(src->Options.value("ref", std::string()));
 				if (p && p->Type == "Texture2D")
-					return "gSG_" + Sanitize(p->Ref);
+					return PropPrefix + Sanitize(p->Ref);
 			}
-		// 노드에 바로 넣은 그림 (option texture)
+		// 노드에 바로 넣은 그림 (option texture) — Sub Graph 안에서는 속성으로만 (함수 인자)
 		const std::string inlinePath = N->Options.value("texture", std::string());
 		if (!inlinePath.empty())
+		{
+			if (PropPrefix != "gSG_")
+			{
+				Fail("in a Sub Graph, give textures through a Texture2D property");
+				return std::string();
+			}
 			return "gSG_NodeTex" + std::to_string(N->Id);
+		}
 		return std::string();
 	}
 
@@ -715,8 +771,22 @@ float SG_Rectangle(float2 uv, float w, float h)
 	{
 		std::string OutVarName(const Node& n, const std::string& port) { return "n" + std::to_string(n.Id) + "_" + Sanitize(port); }
 
-		// 위상 순서 (뒤 = 앞 노드가 먼저). fromMaster = Master 에 이어진 노드만 (셰이더), 아니면 그래프 전부 (미리보기)
-		bool TopoOrder(const Graph& g, bool fromMaster, std::vector<int>& order, std::string& error)
+		std::string Hash8(const std::string& s)
+		{
+			char b[16];
+			snprintf(b, sizeof(b), "%08x", (unsigned)(std::hash<std::string>()(s) & 0xFFFFFFFFu));
+			return b;
+		}
+
+		std::string LowerStr(std::string s)
+		{
+			for (char& c : s) c = (char)tolower((unsigned char)c);
+			for (char& c : s) if (c == '/') c = '\\';
+			return s;
+		}
+
+		// 위상 순서 (뒤 = 앞 노드가 먼저). mode 0 = 그래프 전부 (미리보기), 1 = Fragment (Sub Graph 는 출력) 포트에 이어진 것, 2 = Vertex 포트에 이어진 것
+		bool TopoOrder(const Graph& g, int mode, std::vector<int>& order, std::string& error)
 		{
 			std::map<int, int> state;   // 1 방문 중, 2 끝
 			std::function<bool(int)> visit = [&](int id) -> bool {
@@ -730,23 +800,248 @@ float SG_Rectangle(float2 uv, float w, float h)
 				order.push_back(id);
 				return true;
 			};
-			if (fromMaster)
-			{
-				for (const Edge& e : g.Edges)
-					if (e.ToNode == 0 && !visit(e.FromNode))
-						return false;
-			}
-			else
+			if (mode == 0)
 			{
 				for (const Node& n : g.Nodes)
 					if (!visit(n.Id))
 						return false;
+				return true;
 			}
+			for (const Edge& e : g.Edges)
+				if (e.ToNode == 0 && (IsVertexPort(e.ToPort) == (mode == 2)) && !visit(e.FromNode))
+					return false;
 			return true;
 		}
 
+		bool NodeBody(const Graph& g, const std::vector<int>& order, bool preview, std::string& body, std::vector<int>& used, std::string& error, GenState& S, const std::string& prefix = "gSG_");
+
+		// Master 입력 식: 이은 출력 → 그 폭으로, 아니면 기본값 (Vertex 포트 = 메시 값)
+		std::string MasterExpr(const Graph& g, const char* name, int width)
+		{
+			for (const Edge& e : g.Edges)
+				if (e.ToNode == 0 && e.ToPort == name)
+					if (const Node* src = g.FindNode(e.FromNode))
+						return Cast(OutVarName(*src, e.FromPort), OutputWidth(g, *src, e.FromPort), width);
+			for (const PortDef& p : MasterInputs(g))
+				if (p.Name == name)
+					return p.Bind.empty() ? Literal(p.Default, width) : Cast(BindExpr(p.Bind), BindWidth(p.Bind), width);
+			// 이 Master 에 없는 입력 (Unlit 의 Normal 등)
+			static const std::map<std::string, std::vector<float>> kDefaults = {
+				{ "Normal", { 0, 0, 1, 0 } }, { "Metallic", { 0, 0, 0, 0 } }, { "Smoothness", { 0.5f, 0, 0, 0 } }, { "Emission", { 0, 0, 0, 0 } },
+				{ "Ambient Occlusion", { 1, 0, 0, 0 } }, { "Alpha", { 1, 0, 0, 0 } }, { "Alpha Clip Threshold", { 0.5f, 0, 0, 0 } } };
+			auto it = kDefaults.find(name);
+			return it != kDefaults.end() ? Literal(it->second.data(), width) : Cast("0.0", 1, width);
+		}
+
+		// ---- Sub Graph · Custom Function (노드마다 포트가 다른 노드)
+		struct SubInfo
+		{
+			Graph G;
+			bool Ok = false;
+			std::string Error;
+			long long Stamp = -2;
+		};
+		std::map<std::string, std::shared_ptr<SubInfo>> s_Subs;            // 경로 (소문자) → 읽은 Sub Graph (파일 시각이 바뀌면 다시)
+		std::map<std::string, std::unique_ptr<NodeDef>> s_DynDefs;         // 키 → 만든 정의 (설정 · 파일이 같으면 같은 정의)
+
+		std::shared_ptr<SubInfo> LoadSub(const std::string& asset)
+		{
+			std::error_code ec;
+			const std::wstring full = FullPath(asset);
+			const auto t = std::filesystem::last_write_time(full, ec);
+			const long long stamp = ec ? -1 : (long long)t.time_since_epoch().count();
+			std::shared_ptr<SubInfo>& slot = s_Subs[LowerStr(asset)];
+			if (slot && slot->Stamp == stamp)
+				return slot;
+			auto info = std::make_shared<SubInfo>();
+			info->Stamp = stamp;
+			if (asset.empty()) info->Error = "pick a Sub Graph (option asset)";
+			else if (stamp < 0) info->Error = "no sub graph " + asset;
+			else if (!info->G.Load(full, info->Error)) {}
+			else if (!info->G.IsSubGraph()) info->Error = asset + " is not a Sub Graph";
+			else info->Ok = true;
+			slot = info;
+			return info;
+		}
+
+		const NodeDef* CacheDef(const std::string& key, std::unique_ptr<NodeDef> def)
+		{
+			if (s_DynDefs.size() > 1024)
+				s_DynDefs.clear();   // 오래 쓰면 쌓인다 (정의는 그때그때 다시 만든다)
+			auto& slot = s_DynDefs[key];
+			slot = std::move(def);
+			return slot.get();
+		}
+
+		std::string SubGraphFunction(const Graph& sub, const std::string& asset, GenState& S);
+
+		void GenCustomFunction(NodeContext& c)
+		{
+			const json& o = c.N->Options;
+			const std::string name = Sanitize(o.value("name", std::string("CustomFunction")));
+			const std::string mode = o.value("mode", std::string("String"));
+			std::string params, args;
+			auto comma = [](std::string& s) { if (!s.empty()) s += ", "; };
+			std::vector<std::pair<std::string, int>> outs;
+			if (o.contains("inputs") && o["inputs"].is_array())
+				for (const json& in : o["inputs"])
+				{
+					const std::string port = in.value("name", std::string("In"));
+					const int w = TypeWidth(in.value("type", std::string("Float")));
+					comma(params); comma(args);
+					if (w == kTexture)
+					{
+						params += "Texture2D " + Sanitize(port);
+						const std::string t = c.TextureIn(port);
+						args += t.empty() ? "gSG_White" : t;
+					}
+					else
+					{
+						params += TypeName(w) + " " + Sanitize(port);
+						args += c.In(port, w);
+					}
+				}
+			if (o.contains("outputs") && o["outputs"].is_array())
+				for (const json& out : o["outputs"])
+				{
+					const std::string port = out.value("name", std::string("Out"));
+					int w = TypeWidth(out.value("type", std::string("Float")));
+					if (w == kTexture) { c.Fail("an output can not be a Texture2D"); w = 4; }
+					comma(params); comma(args);
+					params += "out " + TypeName(w) + " " + Sanitize(port);
+					args += c.OutVar(*c.N, port);
+					outs.push_back({ port, w });
+				}
+			for (const auto& [port, w] : outs)
+				*c.Code += "    " + TypeName(w) + " " + c.OutVar(*c.N, port) + " = 0;\n";
+			std::string fn;
+			if (mode == "File")
+			{
+				// Unity 와 같다: .hlsl 안의 <name>_float(입력들, out 출력들)
+				const std::string file = o.value("file", std::string());
+				std::error_code ec;
+				if (file.empty() || !std::filesystem::exists(FullPath(file), ec)) { c.Fail("no .hlsl file '" + file + "'"); return; }
+				std::string inc = std::filesystem::path(FullPath(file)).generic_string();
+				inc = "#include \"" + inc + "\"\n";
+				if (c.S->Declared.insert(inc).second)
+					c.S->Functions += inc;
+				c.S->Files.push_back(file);
+				fn = name + "_float";
+			}
+			else
+			{
+				const std::string body = o.value("body", std::string());
+				fn = "SGCF_" + name + "_" + Hash8(params + "\n" + body);
+				if (c.S->Declared.insert(fn).second)
+					c.S->Functions += "// Custom Function " + name + "\nvoid " + fn + "(" + params + ")\n{\n" + body + "\n}\n\n";
+			}
+			*c.Code += "    " + fn + "(" + args + ");\n";
+		}
+
+		void GenSubGraph(NodeContext& c, const std::string& asset)
+		{
+			std::shared_ptr<SubInfo> info = LoadSub(asset);
+			if (!info->Ok) { c.Fail(info->Error); return; }
+			const Graph& sub = info->G;
+			for (const SubOutput& o : sub.Outputs)
+				*c.Code += "    " + TypeName(TypeWidth(o.Type)) + " " + c.OutVar(*c.N, o.Name) + " = 0;\n";
+			if (c.S->Depth > 8) { c.Fail("sub graphs nested too deep (does one use itself?)"); return; }
+			const std::string fn = SubGraphFunction(sub, asset, *c.S);
+			if (fn.empty()) { c.Fail(c.S->Error.empty() ? std::string("sub graph failed") : c.S->Error); return; }
+			std::string args;
+			for (const Property& p : sub.Properties)
+			{
+				if (!args.empty()) args += ", ";
+				if (p.Width() == kTexture)
+				{
+					const std::string t = c.TextureIn(p.Name);
+					args += t.empty() ? "gSG_White" : t;
+				}
+				else
+					args += c.In(p.Name, p.Width());
+			}
+			if (!args.empty()) args += ", ";
+			args += "sg_uv, sg_posW, sg_normalW, sg_viewW, sg_screen, sg_posO, sg_normalO";
+			for (const SubOutput& o : sub.Outputs)
+				args += ", " + c.OutVar(*c.N, o.Name);
+			*c.Code += "    " + fn + "(" + args + ");\n";
+		}
+
+		const NodeDef* CustomFunctionDef(const Node& n)
+		{
+			const std::string key = "cf:" + n.Options.dump();
+			if (auto it = s_DynDefs.find(key); it != s_DynDefs.end() && it->second)
+				return it->second.get();
+			auto d = std::make_unique<NodeDef>(*FindDef("Custom Function"));
+			if (n.Options.contains("inputs") && n.Options["inputs"].is_array())
+				for (const json& in : n.Options["inputs"])
+					d->In.push_back(P(in.value("name", std::string("In")).c_str(), TypeWidth(in.value("type", std::string("Float")))));
+			if (n.Options.contains("outputs") && n.Options["outputs"].is_array())
+				for (const json& out : n.Options["outputs"])
+				{
+					const int w = TypeWidth(out.value("type", std::string("Float")));
+					d->Out.push_back(P(out.value("name", std::string("Out")).c_str(), w == kTexture ? 4 : w));
+				}
+			d->Gen = GenCustomFunction;
+			return CacheDef(key, std::move(d));
+		}
+
+		const NodeDef* SubGraphDef(const Node& n)
+		{
+			const std::string asset = n.Options.value("asset", std::string());
+			std::shared_ptr<SubInfo> info = LoadSub(asset);
+			const std::string key = "sub:" + LowerStr(asset) + ":" + std::to_string(info->Stamp);
+			if (auto it = s_DynDefs.find(key); it != s_DynDefs.end() && it->second)
+				return it->second.get();
+			auto d = std::make_unique<NodeDef>(*FindDef("Sub Graph"));
+			if (info->Ok)
+			{
+				for (const Property& p : info->G.Properties)
+				{
+					PortDef port = P(p.Name.c_str(), p.Width());
+					for (int i = 0; i < 4; ++i) port.Default[i] = p.Value[i];
+					d->In.push_back(port);
+				}
+				for (const SubOutput& o : info->G.Outputs)
+					d->Out.push_back(P(o.Name.c_str(), TypeWidth(o.Type)));
+			}
+			d->Gen = [asset](NodeContext& c) { GenSubGraph(c, asset); };
+			return CacheDef(key, std::move(d));
+		}
+
+		// Sub Graph → HLSL 함수 (단계마다 하나: Vertex 는 SampleLevel)
+		std::string SubGraphFunction(const Graph& sub, const std::string& asset, GenState& S)
+		{
+			const std::string stem = std::filesystem::path(string_to_wstring(asset)).stem().string();
+			const std::string fn = "SGSub_" + Sanitize(stem) + "_" + Hash8(LowerStr(asset)) + (S.Stage == 1 ? "_V" : "_F");
+			if (S.Declared.count(fn))
+				return fn;
+			S.Files.push_back(asset);
+			std::vector<int> order, used;
+			std::string error, body;
+			if (!TopoOrder(sub, 1, order, error)) { S.Error = asset + ": " + error; return std::string(); }
+			++S.Depth;
+			const bool ok = NodeBody(sub, order, false, body, used, error, S, "sgin_");
+			--S.Depth;
+			if (!ok) { if (S.Error.empty()) S.Error = asset + ": " + error; return std::string(); }
+			std::string params;
+			for (const Property& p : sub.Properties)
+				params += (p.Width() == kTexture ? std::string("Texture2D") : TypeName(p.Width())) + " sgin_" + Sanitize(p.Ref) + ", ";
+			params += "float2 sg_uv, float3 sg_posW, float3 sg_normalW, float3 sg_viewW, float4 sg_screen, float3 sg_posO, float3 sg_normalO";
+			std::string assign;
+			for (const SubOutput& o : sub.Outputs)
+			{
+				const int w = TypeWidth(o.Type);
+				params += ", out " + TypeName(w) + " sgout_" + Sanitize(o.Name);
+				assign += "    sgout_" + Sanitize(o.Name) + " = " + MasterExpr(sub, o.Name.c_str(), w) + ";\n";
+			}
+			S.Declared.insert(fn);
+			S.Functions += "// Sub Graph " + asset + "\nvoid " + fn + "(" + params + ")\n{\n" + body + assign + "}\n\n";
+			return fn;
+		}
+
 		// 노드 코드 (order 차례). preview = 노드마다 "if (sg_node == id) sg_nodeOut = 첫 출력" (노드 미리보기)
-		bool NodeBody(const Graph& g, const std::vector<int>& order, bool preview, std::string& body, std::vector<int>& used, std::string& error)
+		bool NodeBody(const Graph& g, const std::vector<int>& order, bool preview, std::string& body, std::vector<int>& used, std::string& error, GenState& S, const std::string& prefix)
 		{
 			for (int id : order)
 			{
@@ -760,21 +1055,29 @@ float SG_Rectangle(float2 uv, float w, float h)
 					if (p->Type != "Texture2D")
 					{
 						const std::string var = OutVarName(*n, "Out");
-						body += "    " + TypeName(p->Width()) + " " + var + " = " + Cast("gSG_" + Sanitize(p->Ref), 4, p->Width()) + ";\n";
+						// 그래프 = 상수 버퍼의 float4, Sub Graph 함수 = 제 폭의 인자
+						const std::string src = prefix == "gSG_" ? Cast(prefix + Sanitize(p->Ref), 4, p->Width()) : prefix + Sanitize(p->Ref);
+						body += "    " + TypeName(p->Width()) + " " + var + " = " + src + ";\n";
 						if (preview)
 							body += "    if (sg_node == " + std::to_string(id) + ") sg_nodeOut = " + Cast(var, p->Width(), 4) + ";\n";
 					}
 					else if (preview)
-						body += "    if (sg_node == " + std::to_string(id) + ") sg_nodeOut = gSG_" + Sanitize(p->Ref) + ".Sample(samSG, sg_uv);\n";
+						body += "    if (sg_node == " + std::to_string(id) + ") sg_nodeOut = " + prefix + Sanitize(p->Ref) + ".Sample(samSG, sg_uv);\n";
 					used.push_back(id);
 					continue;
 				}
-				const NodeDef* d = FindDef(n->Type);
+				const NodeDef* d = DefOf(*n);
 				if (!d) { error = "node " + std::to_string(id) + ": unknown type '" + n->Type + "'"; return false; }
+				if (S.Stage == 1 && d->FragmentOnly)
+				{
+					error = "node " + std::to_string(id) + " (" + n->Type + ") can not be used in the Vertex stage (it needs screen derivatives)";
+					return false;
+				}
 				NodeContext ctx;
-				ctx.G = &g; ctx.N = n; ctx.D = d; ctx.Code = &body; ctx.OutVar = OutVarName;
+				ctx.G = &g; ctx.N = n; ctx.D = d; ctx.Code = &body; ctx.OutVar = OutVarName; ctx.S = &S; ctx.PropPrefix = prefix;
 				body += "    // " + std::to_string(id) + " " + n->Type + "\n";
 				d->Gen(ctx);
+				if (!S.Error.empty()) { error = S.Error; return false; }
 				if (preview && !d->Out.empty())
 				{
 					const int w = OutputWidth(g, *n, d->Out[0].Name);
@@ -783,24 +1086,6 @@ float SG_Rectangle(float2 uv, float w, float h)
 				used.push_back(id);
 			}
 			return true;
-		}
-
-		// Master 입력 식: 이은 출력 → 그 폭으로, 아니면 기본값
-		std::string MasterExpr(const Graph& g, const char* name, int width)
-		{
-			for (const Edge& e : g.Edges)
-				if (e.ToNode == 0 && e.ToPort == name)
-					if (const Node* src = g.FindNode(e.FromNode))
-						return Cast(OutVarName(*src, e.FromPort), OutputWidth(g, *src, e.FromPort), width);
-			for (const PortDef& p : MasterInputs(g))
-				if (p.Name == name)
-					return Literal(p.Default, width);
-			// 이 Master 에 없는 입력 (Unlit 의 Normal 등)
-			static const std::map<std::string, std::vector<float>> kDefaults = {
-				{ "Normal", { 0, 0, 1, 0 } }, { "Metallic", { 0, 0, 0, 0 } }, { "Smoothness", { 0.5f, 0, 0, 0 } }, { "Emission", { 0, 0, 0, 0 } },
-				{ "Ambient Occlusion", { 1, 0, 0, 0 } }, { "Alpha", { 1, 0, 0, 0 } }, { "Alpha Clip Threshold", { 0.5f, 0, 0, 0 } } };
-			auto it = kDefaults.find(name);
-			return it != kDefaults.end() ? Literal(it->second.data(), width) : Cast("0.0", 1, width);
 		}
 
 		bool NormalLinked(const Graph& g)
@@ -813,18 +1098,39 @@ float SG_Rectangle(float2 uv, float w, float h)
 			return false;
 		}
 
+		bool HasVertexStage(const Graph& g)
+		{
+			if (g.IsSubGraph())
+				return false;
+			for (const Edge& e : g.Edges)
+				if (e.ToNode == 0 && IsVertexPort(e.ToPort))
+					return true;
+			return false;
+		}
+
 		const char* kSurfaceStruct =
 			"// Master 입력 값\n"
 			"struct SGSurface\n{\n    float3 BaseColor;\n    float3 NormalTS;\n    float Metallic;\n    float Smoothness;\n    float3 Emission;\n"
-			"    float Occlusion;\n    float Alpha;\n    float AlphaClipThreshold;\n};\n\n";
+			"    float Occlusion;\n    float Alpha;\n    float AlphaClipThreshold;\n};\n\n"
+			"struct SGVertex\n{\n    float3 Position;\n    float3 Normal;\n    float3 Tangent;\n};\n\n";
 
-		// SG_Evaluate: 노드 코드 + Master 값. preview = 노드 미리보기 고르기 인자 (sg_node, sg_nodeOut)
+		const char* kEvalParams = "float2 sg_uv, float3 sg_posW, float3 sg_normalW, float3 sg_viewW, float4 sg_screen, float3 sg_posO, float3 sg_normalO";
+
+		// SG_Evaluate: Fragment 노드 코드 + Master 값. preview = 노드 미리보기 고르기 인자 (sg_node, sg_nodeOut)
 		std::string EvalFunction(const Graph& g, const std::string& body, bool preview)
 		{
-			std::string f = "SGSurface SG_Evaluate(float2 sg_uv, float3 sg_posW, float3 sg_normalW, float3 sg_viewW, float4 sg_screen";
+			std::string f = std::string("SGSurface SG_Evaluate(") + kEvalParams;
 			f += preview ? ", int sg_node, out float4 sg_nodeOut)\n{\n    sg_nodeOut = float4(0, 0, 0, 1);\n" : ")\n{\n";
 			f += body;
 			f += "    SGSurface s;\n";
+			if (g.IsSubGraph())
+			{
+				// Sub Graph 미리보기: 첫 출력을 색으로
+				const std::string first = g.Outputs.empty() ? std::string("float3(0, 0, 0)") : MasterExpr(g, g.Outputs[0].Name.c_str(), 3);
+				f += "    s.BaseColor = " + first + ";\n    s.NormalTS = float3(0, 0, 1);\n    s.Metallic = 0;\n    s.Smoothness = 0.5;\n    s.Emission = 0;\n"
+					"    s.Occlusion = 1;\n    s.Alpha = 1;\n    s.AlphaClipThreshold = 0;\n    return s;\n}\n\n";
+				return f;
+			}
 			f += "    s.BaseColor = " + MasterExpr(g, "Base Color", 3) + ";\n";
 			f += "    s.NormalTS = " + MasterExpr(g, "Normal", 3) + ";\n";
 			f += "    s.Metallic = " + MasterExpr(g, "Metallic", 1) + ";\n";
@@ -837,6 +1143,19 @@ float SG_Rectangle(float2 uv, float w, float h)
 			return f;
 		}
 
+		// SG_EvaluateVertex: Vertex 노드 코드 → 옮긴 위치 · 노멀 · 탄젠트 (오브젝트 공간)
+		std::string VertexFunction(const Graph& g, const std::string& body)
+		{
+			std::string f = "SGVertex SG_EvaluateVertex(float3 sg_posO, float3 sg_normalO, float3 sg_tangentO, float2 sg_uv, float3 sg_posW, float3 sg_normalW, float3 sg_viewW, float4 sg_screen)\n{\n";
+			f += body;
+			f += "    SGVertex v;\n";
+			f += "    v.Position = " + MasterExpr(g, "Vertex Position", 3) + ";\n";
+			f += "    v.Normal = " + MasterExpr(g, "Vertex Normal", 3) + ";\n";
+			f += "    v.Tangent = " + MasterExpr(g, "Vertex Tangent", 3) + ";\n";
+			f += "    return v;\n}\n\n";
+			return f;
+		}
+
 		// 상수 버퍼 (속성) · 그림 선언
 		std::string Declarations(const Graph& g, const std::vector<int>& order, const char* cbuffer, const char* extra)
 		{
@@ -845,14 +1164,23 @@ float SG_Rectangle(float2 uv, float w, float h)
 				if (p.Type != "Texture2D")
 					s += "    float4 gSG_" + Sanitize(p.Ref) + ";   // " + p.Name + " (" + p.Type + ")\n";
 			s += "};\n";
+			s += "Texture2D gSG_White;   // 비어 있는 Texture2D 입력 (흰색)\n";
 			for (const Property& p : g.Properties)
 				if (p.Type == "Texture2D")
 					s += "Texture2D gSG_" + Sanitize(p.Ref) + ";   // " + p.Name + "\n";
+			std::set<int> seen;
 			for (int id : order)
-				if (const Node* n = g.FindNode(id); n && !n->Options.value("texture", std::string()).empty())
+				if (const Node* n = g.FindNode(id); n && !n->Options.value("texture", std::string()).empty() && seen.insert(id).second)
 					s += "Texture2D gSG_NodeTex" + std::to_string(id) + ";   // " + n->Options.value("texture", std::string()) + "\n";
 			return s;
 		}
+
+		// 셰이더 단계 사이의 값 (엔진 VertexOut + 오브젝트 공간 위치 · 노멀 — Position / Normal 노드의 Object)
+		const char* kVertexOut =
+			"struct SGVOut\n{\n    float4 PosH : SV_POSITION;\n    float4 PosW : POSITION;\n    float3 NormalW : NORMAL;\n    float4 TangentW : TANGENT;\n"
+			"    float2 Tex : TEXCOORD0;\n    float4 SsaoPosH : TEXCOORD1;\n    float3 PosO : TEXCOORD2;\n    float3 NormalO : TEXCOORD3;\n};\n\n"
+			"SGVOut SG_ToOut(VertexOut v, float3 posO, float3 normalO)\n{\n    SGVOut o;\n    o.PosH = v.PosH;\n    o.PosW = v.PosW;\n    o.NormalW = v.NormalW;\n"
+			"    o.TangentW = v.TangentW;\n    o.Tex = v.Tex;\n    o.SsaoPosH = v.SsaoPosH;\n    o.PosO = posO;\n    o.NormalO = normalO;\n    return o;\n}\n\n";
 
 		const char* kPinInputs =
 			"    float3 sg_normalW = normalize(pin.NormalW);\n"
@@ -862,41 +1190,86 @@ float SG_Rectangle(float2 uv, float w, float h)
 			"    float3 sg_viewW = sg_toEye / max(sg_dist, 0.0001);\n"
 			"    float2 sg_uv = pin.Tex;\n"
 			"    float4 sg_screen = float4(pin.SsaoPosH.xy / max(pin.SsaoPosH.w, 1e-5), 0, 1);\n"
-			"    SGSurface s = SG_Evaluate(sg_uv, sg_posW, sg_normalW, sg_viewW, sg_screen);\n";
+			"    float3 sg_posO = pin.PosO;\n"
+			"    float3 sg_normalO = normalize(pin.NormalO);\n"
+			"    SGSurface s = SG_Evaluate(sg_uv, sg_posW, sg_normalW, sg_viewW, sg_screen, sg_posO, sg_normalO);\n";
 
 		std::string Technique(const char* name, const char* vs, const char* ps)
 		{
+			const std::string psLine = ps ? std::string("SetPixelShader(CompileShader(ps_5_0, ") + ps + "()));" : std::string("SetPixelShader(NULL);");
 			return std::string("technique11 ") + name + "\n{\n    pass P0\n    {\n        SetVertexShader(CompileShader(vs_5_0, " + vs + "()));\n"
-				"        SetGeometryShader(NULL);\n        SetPixelShader(CompileShader(ps_5_0, " + ps + "()));\n    }\n}\n\n";
+				"        SetGeometryShader(NULL);\n        " + psLine + "\n    }\n}\n\n";
 		}
+
+		// 정점 이동: VS 입력을 바꾼 뒤 엔진 VS (VS_Batch / VS_Skinned) 에 넘긴다
+		std::string VertexWrapper(const char* name, const char* input, const char* engineVS, const char* worldPos, const char* worldNormal, bool vertex)
+		{
+			std::string f = std::string("SGVOut ") + name + "(" + input + " vin)\n{\n";
+			if (vertex)
+			{
+				f += std::string("    float3 sgw = ") + worldPos + ";\n";
+				f += std::string("    float3 sgn = ") + worldNormal + ";\n";
+				f += "    float4 sgs = mul(float4(sgw, 1.0), gViewProjTex);\n";
+				f += "    SGVertex v = SG_EvaluateVertex(vin.PosL, vin.NormalL, vin.TangentL.xyz, vin.Tex, sgw, sgn, normalize(gEyePosW - sgw), float4(sgs.xy / max(sgs.w, 1e-5), 0, 1));\n";
+				f += "    vin.PosL = v.Position;\n    vin.NormalL = v.Normal;\n    vin.TangentL.xyz = v.Tangent;\n";
+			}
+			f += std::string("    return SG_ToOut(") + engineVS + "(vin), vin.PosL, vin.NormalL);\n}\n\n";
+			return f;
+		}
+	}
+
+	const NodeDef* DefOf(const Node& n)
+	{
+		if (n.Type == "Custom Function") return CustomFunctionDef(n);
+		if (n.Type == "Sub Graph") return SubGraphDef(n);
+		return FindDef(n.Type);
 	}
 
 	CodeResult Generate(const Graph& g)
 	{
 		CodeResult r;
-		std::vector<int> order;
-		if (!TopoOrder(g, true, order, r.Error))
+		if (g.IsSubGraph()) { r.Error = "a Sub Graph is not a shader (use it from a Shader Graph)"; return r; }
+		GenState S;
+		std::vector<int> fragOrder, vertOrder;
+		if (!TopoOrder(g, 1, fragOrder, r.Error) || !TopoOrder(g, 2, vertOrder, r.Error))
 			return r;
-		std::string body;
-		if (!NodeBody(g, order, false, body, r.Used, r.Error))
+		std::string fragBody, vertBody;
+		if (!NodeBody(g, fragOrder, false, fragBody, r.Used, r.Error, S))
 			return r;
+		const bool vertex = HasVertexStage(g);
+		if (vertex)
+		{
+			S.Stage = 1;
+			if (!NodeBody(g, vertOrder, false, vertBody, r.Used, r.Error, S))
+				return r;
+			S.Stage = 0;
+		}
 		const bool transparent = g.Surface == "Transparent";
-		r.ClipsAlpha = g.AlphaClip;
+		r.Vertex = vertex;
+		r.OwnDepth = g.AlphaClip || vertex;
+		r.Files = S.Files;
+		std::vector<int> allOrder = fragOrder;
+		allOrder.insert(allOrder.end(), vertOrder.begin(), vertOrder.end());
 
 		std::ostringstream fx;
 		fx << "//=============================================================================\n";
 		fx << "// Shader Graph 가 만든 셰이더 (손으로 고치지 말 것 — .shadergraph 를 고치면 다시 만들어진다)\n";
-		fx << "//  " << g.Material << " · " << g.Surface << (g.AlphaClip ? " · Alpha Clipping" : "") << "\n";
+		fx << "//  " << g.Material << " · " << g.Surface << (g.AlphaClip ? " · Alpha Clipping" : "") << (vertex ? " · Vertex" : "") << "\n";
 		fx << "//=============================================================================\n";
 		fx << "#include \"32. InstancedBasic.fx\"\n\n";
-		fx << Declarations(g, order, "cbShaderGraph",
+		fx << Declarations(g, allOrder, "cbShaderGraph",
 			"    float4 gSGShadowLight;   // 그림자 패스: 빛 (w 0 = 방향광 xyz = 빛 쪽, 1 = 위치)\n"
 			"    float4 gSGShadowBias;    // x 깊이, y 노멀 바이어스\n"
 			"    float4x4 gSGView;        // 깊이 프리패스: 카메라 View\n");
-		fx << kHelpers << "\n" << kSurfaceStruct << EvalFunction(g, body, false);
+		fx << kHelpers << "\n" << S.Functions << kSurfaceStruct << EvalFunction(g, fragBody, false);
+		if (vertex)
+			fx << VertexFunction(g, vertBody);
+		fx << kVertexOut;
+		fx << VertexWrapper("VS_GraphBatch", "VertexIn_Instancing", "VS_Batch", "mul(float4(vin.PosL, 1.0), vin.World).xyz", "normalize(BatchNormal(vin.NormalL, vin.World))", vertex);
+		fx << VertexWrapper("VS_GraphSkinned", "SkinnedVertexIn", "VS_Skinned", "mul(float4(vin.PosL, 1.0), gWorld).xyz", "normalize(mul(vin.NormalL, (float3x3) gWorldInvTranspose))", vertex);
 
 		// ---- 본 패스 (투명이면 투명 패스: 알파 섞기)
-		fx << "float4 PS_Graph(VertexOut pin) : SV_Target\n{\n" << kPinInputs;
+		fx << "float4 PS_Graph(SGVOut pin) : SV_Target\n{\n" << kPinInputs;
 		if (g.AlphaClip)
 			fx << "    clip(s.Alpha - s.AlphaClipThreshold);\n";
 		fx << "    float alpha = " << (transparent ? "saturate(s.Alpha)" : "1.0") << ";\n";
@@ -920,146 +1293,115 @@ float SG_Rectangle(float2 uv, float w, float h)
 			fx << "    return FinishLit(ShadeLit(surf, sg_posW, N, sg_viewW, pin.SsaoPosH), alpha, sg_dist);\n";
 		}
 		fx << "}\n\n";
-		fx << Technique("GraphBatchTech", "VS_Batch", "PS_Graph");
-		fx << Technique("GraphSkinnedTech", "VS_Skinned", "PS_Graph");
+		fx << Technique("GraphBatchTech", "VS_GraphBatch", "PS_Graph");
+		fx << Technique("GraphSkinnedTech", "VS_GraphSkinned", "PS_Graph");
 
-		// ---- 잘라내기: 깊이 프리패스 (SsaoNormalDepth 와 같은 출력: 뷰 노멀 + 뷰 깊이) · 그림자 (엔진과 같은 바이어스)
-		if (g.AlphaClip)
+		// ---- 깊이 프리패스 (SsaoNormalDepth 와 같은 출력: 뷰 노멀 + 뷰 깊이) · 그림자 (엔진과 같은 바이어스)
+		//  잘라내기 또는 정점 이동이면 이 셰이더가 그린다 — 본 패스 (EQUAL 깊이) 와 같은 위치 · 같은 구멍
+		if (r.OwnDepth)
 		{
-			fx << "float4 PS_GraphDepth(VertexOut pin) : SV_Target\n{\n" << kPinInputs;
-			fx << "    clip(s.Alpha - s.AlphaClipThreshold);\n";
-			fx << "    return float4(normalize(mul(sg_normalW, (float3x3) gSGView)), mul(float4(sg_posW, 1.0), gSGView).z);\n}\n\n";
+			fx << "float4 PS_GraphDepth(SGVOut pin) : SV_Target\n{\n";
+			if (g.AlphaClip)
+				fx << kPinInputs << "    clip(s.Alpha - s.AlphaClipThreshold);\n";
+			fx << "    return float4(normalize(mul(normalize(pin.NormalW), (float3x3) gSGView)), mul(float4(pin.PosW.xyz, 1.0), gSGView).z);\n}\n\n";
 			fx << "float3 SG_ShadowBias(float3 posW, float3 normalW)\n{\n";
 			fx << "    float3 L = gSGShadowLight.xyz;\n    float scale = 1.0;\n";
 			fx << "    if (gSGShadowLight.w > 0.5)\n    {\n        float3 v = gSGShadowLight.xyz - posW;\n        scale = length(v);\n        L = v / max(scale, 0.0001);\n    }\n";
 			fx << "    float invNdotL = 1.0 - saturate(dot(L, normalW));\n";
 			fx << "    posW -= L * (gSGShadowBias.x * scale);\n    posW -= normalW * (invNdotL * gSGShadowBias.y * scale);\n    return posW;\n}\n\n";
-			fx << "VertexOut VS_GraphShadowBatch(VertexIn_Instancing vin)\n{\n    VertexOut o = VS_Batch(vin);\n"
+			fx << "SGVOut VS_GraphShadowBatch(VertexIn_Instancing vin)\n{\n    SGVOut o = VS_GraphBatch(vin);\n"
 				"    o.PosH = mul(float4(SG_ShadowBias(o.PosW.xyz, normalize(o.NormalW)), 1.0), gViewProj);\n    return o;\n}\n\n";
-			fx << "VertexOut VS_GraphShadowSkinned(SkinnedVertexIn vin)\n{\n    VertexOut o = VS_Skinned(vin);\n"
+			fx << "SGVOut VS_GraphShadowSkinned(SkinnedVertexIn vin)\n{\n    SGVOut o = VS_GraphSkinned(vin);\n"
 				"    o.PosH = mul(float4(SG_ShadowBias(o.PosW.xyz, normalize(o.NormalW)), 1.0), gViewProj);\n    return o;\n}\n\n";
-			fx << "void PS_GraphShadow(VertexOut pin)\n{\n" << kPinInputs << "    clip(s.Alpha - s.AlphaClipThreshold);\n}\n\n";
-			fx << Technique("GraphDepthBatchTech", "VS_Batch", "PS_GraphDepth");
-			fx << Technique("GraphDepthSkinnedTech", "VS_Skinned", "PS_GraphDepth");
-			fx << Technique("GraphShadowBatchTech", "VS_GraphShadowBatch", "PS_GraphShadow");
-			fx << Technique("GraphShadowSkinnedTech", "VS_GraphShadowSkinned", "PS_GraphShadow");
+			if (g.AlphaClip)
+				fx << "void PS_GraphShadow(SGVOut pin)\n{\n" << kPinInputs << "    clip(s.Alpha - s.AlphaClipThreshold);\n}\n\n";
+			fx << Technique("GraphDepthBatchTech", "VS_GraphBatch", "PS_GraphDepth");
+			fx << Technique("GraphDepthSkinnedTech", "VS_GraphSkinned", "PS_GraphDepth");
+			fx << Technique("GraphShadowBatchTech", "VS_GraphShadowBatch", g.AlphaClip ? "PS_GraphShadow" : nullptr);
+			fx << Technique("GraphShadowSkinnedTech", "VS_GraphShadowSkinned", g.AlphaClip ? "PS_GraphShadow" : nullptr);
 		}
 		r.Hlsl = fx.str();
 		return r;
 	}
 
 	// 미리보기 셰이더: 엔진 셰이더를 포함하지 않는 작은 이펙트 (빨리 컴파일). 그래프의 모든 노드를 계산하고
-	//  SGPreviewNodeTech = 노드 하나의 첫 출력을 색으로 (UV 사각형), SGPreviewMainTech = 픽셀마다 광선으로 구 / 상자 + 고정 빛 (Main Preview)
+	//  SGPreviewNodeTech = 노드 하나의 첫 출력을 색으로 (UV 사각형), SGPreviewMainTech = 실제 구 / 상자 메시 (정점 이동 포함) + 고정 빛 (Main Preview)
 	CodeResult GeneratePreview(const Graph& g)
 	{
 		CodeResult r;
-		std::vector<int> order;
-		if (!TopoOrder(g, false, order, r.Error))
+		GenState S;
+		std::vector<int> order, vertOrder;
+		if (!TopoOrder(g, 0, order, r.Error))
 			return r;
-		std::string body;
-		if (!NodeBody(g, order, true, body, r.Used, r.Error))
+		std::string body, vertBody;
+		if (!NodeBody(g, order, true, body, r.Used, r.Error, S))
 			return r;
+		const bool vertex = HasVertexStage(g);
+		if (vertex)
+		{
+			std::vector<int> used;
+			if (!TopoOrder(g, 2, vertOrder, r.Error))
+				return r;
+			S.Stage = 1;
+			if (!NodeBody(g, vertOrder, false, vertBody, used, r.Error, S))
+				return r;
+			S.Stage = 0;
+		}
+		r.Files = S.Files;
 		std::ostringstream fx;
 		fx << "// Shader Graph 미리보기 (창이 만든다)\n";
 		fx << Declarations(g, order, "cbSGPreview",
-			"    float4 gSGPreview;   // x 노드 id, y 모양 (1 구, 2 상자), z · w 카메라 돌리기 (라디안)\n");
+			"    float4 gSGPreview;      // x 노드 id, y 모양 (1 구, 2 상자)\n"
+			"    float4x4 gSGPWorld;     // Main Preview: 메시 → 월드\n"
+			"    float4x4 gSGPViewProj;\n"
+			"    float4 gSGPEye;         // 카메라 위치\n"
+			"    float4 gSGPLight;       // 빛 쪽 방향 (카메라를 따라 돈다)\n");
 		fx << "float3 ToLinear(float3 c) { return pow(max(c, 0.0f), 2.2f); }\nfloat3 ToGamma(float3 c) { return pow(max(c, 0.0f), 1.0f / 2.2f); }\n";
-		fx << kHelpers << "\n" << kSurfaceStruct << EvalFunction(g, body, true);
+		fx << kHelpers << "\n" << S.Functions << kSurfaceStruct << EvalFunction(g, body, true);
+		if (vertex)
+			fx << VertexFunction(g, vertBody);
 		fx <<
-			"struct SGPOut\n"
-			"{\n"
-			"    float4 PosH : SV_POSITION;\n"
-			"    float2 UV : TEXCOORD0;\n"
-			"};\n"
-			"\n"
+			"struct SGPOut\n{\n    float4 PosH : SV_POSITION;\n    float2 UV : TEXCOORD0;\n};\n\n"
 			"// 화면을 덮는 삼각형 하나 (정점 버퍼 없이)\n"
-			"SGPOut VS_SGFull(uint id : SV_VertexID)\n"
-			"{\n"
-			"    SGPOut o;\n"
-			"    float2 uv = float2((id << 1) & 2, id & 2);\n"
-			"    o.PosH = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);\n"
-			"    o.UV = uv;\n"
-			"    return o;\n"
-			"}\n"
-			"\n"
-			"float4 PS_SGNode(SGPOut pin) : SV_Target\n"
-			"{\n"
-			"    float2 uv = pin.UV;\n"
+			"SGPOut VS_SGFull(uint id : SV_VertexID)\n{\n    SGPOut o;\n    float2 uv = float2((id << 1) & 2, id & 2);\n"
+			"    o.PosH = float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);\n    o.UV = uv;\n    return o;\n}\n\n"
+			"float4 PS_SGNode(SGPOut pin) : SV_Target\n{\n    float2 uv = pin.UV;\n    float4 o;\n"
+			"    float3 p = float3(uv * 2.0 - 1.0, 0.0);\n"
+			"    SGSurface s = SG_Evaluate(uv, p, float3(0, 0, -1), float3(0, 0, -1), float4(uv, 0, 1), p, float3(0, 0, -1), (int)gSGPreview.x, o);\n"
+			"    return float4(o.rgb, 1.0);\n}\n\n"
+			"// Main Preview: 실제 메시 (엔진 기본 구 / 상자 — PosNormalTexTan)\n"
+			"struct SGPVIn\n{\n    float3 PosL : POSITION;\n    float3 NormalL : NORMAL;\n    float2 Tex : TEXCOORD;\n    float3 TangentL : TANGENT;\n};\n\n"
+			"struct SGPMOut\n{\n    float4 PosH : SV_POSITION;\n    float3 PosW : POSITION;\n    float3 NormalW : NORMAL;\n    float3 TangentW : TANGENT;\n"
+			"    float2 Tex : TEXCOORD0;\n    float3 PosO : TEXCOORD1;\n    float3 NormalO : TEXCOORD2;\n    float4 Screen : TEXCOORD3;\n};\n\n"
+			"SGPMOut VS_SGMesh(SGPVIn vin)\n{\n    SGPMOut o;\n    float3 posO = vin.PosL, nO = vin.NormalL, tO = vin.TangentL;\n";
+		if (vertex)
+			fx << "    float3 w0 = mul(float4(posO, 1.0), gSGPWorld).xyz;\n"
+				"    float3 n0 = normalize(mul(nO, (float3x3) gSGPWorld));\n"
+				"    float4 h0 = mul(float4(w0, 1.0), gSGPViewProj);\n"
+				"    SGVertex v = SG_EvaluateVertex(posO, nO, tO, vin.Tex, w0, n0, normalize(gSGPEye.xyz - w0), float4(h0.xy / max(h0.w, 1e-5) * float2(0.5, -0.5) + 0.5, 0, 1));\n"
+				"    posO = v.Position;\n    nO = v.Normal;\n    tO = v.Tangent;\n";
+		fx << "    o.PosW = mul(float4(posO, 1.0), gSGPWorld).xyz;\n"
+			"    o.NormalW = mul(nO, (float3x3) gSGPWorld);\n"
+			"    o.TangentW = mul(tO, (float3x3) gSGPWorld);\n"
+			"    o.PosH = mul(float4(o.PosW, 1.0), gSGPViewProj);\n"
+			"    o.Tex = vin.Tex;\n    o.PosO = posO;\n    o.NormalO = nO;\n    o.Screen = o.PosH;\n    return o;\n}\n\n"
+			"float3 SGP_Sky(float3 d)\n{\n    return lerp(float3(0.20, 0.18, 0.16), float3(0.55, 0.66, 0.85), saturate(d.y * 0.5 + 0.5));\n}\n\n"
+			"float4 PS_SGMain(SGPMOut pin) : SV_Target\n{\n"
+			"    float3 n = normalize(pin.NormalW);\n    float3 V = normalize(gSGPEye.xyz - pin.PosW);\n"
+			"    float3 L = normalize(gSGPLight.xyz);\n"
+			"    float2 scr = pin.Screen.xy / max(pin.Screen.w, 1e-5) * float2(0.5, -0.5) + 0.5;\n"
 			"    float4 o;\n"
-			"    SGSurface s = SG_Evaluate(uv, float3(uv * 2.0 - 1.0, 0.0), float3(0, 0, -1), float3(0, 0, -1), float4(uv, 0, 1), (int)gSGPreview.x, o);\n"
-			"    return float4(o.rgb, 1.0);\n"
-			"}\n"
-			"\n"
-			"float3 SGP_Background(float2 uv)\n"
-			"{\n"
-			"    return lerp(float3(0.20, 0.21, 0.23), float3(0.11, 0.11, 0.12), uv.y);\n"
-			"}\n"
-			"\n"
-			"float3 SGP_Sky(float3 d)\n"
-			"{\n"
-			"    return lerp(float3(0.20, 0.18, 0.16), float3(0.55, 0.66, 0.85), saturate(d.y * 0.5 + 0.5));\n"
-			"}\n"
-			"\n"
-			"float4 PS_SGMain(SGPOut pin) : SV_Target\n"
-			"{\n"
-			"    float2 ndc = pin.UV * 2.0 - 1.0;\n"
-			"    ndc.y = -ndc.y;\n"
-			"    // 카메라가 물체 둘레를 돈다 (빛은 카메라를 따라 — 물체를 돌리는 것처럼 보인다)\n"
-			"    float cy = cos(gSGPreview.z), sy = sin(gSGPreview.z), cp = cos(gSGPreview.w), sp = sin(gSGPreview.w);\n"
-			"    float3x3 rot = float3x3(cy, 0, -sy, 0, 1, 0, sy, 0, cy);\n"
-			"    rot = mul(float3x3(1, 0, 0, 0, cp, sp, 0, -sp, cp), rot);\n"
-			"    float3 ro = mul(float3(0, 0, -3.3), rot);\n"
-			"    float3 rd = normalize(mul(float3(ndc * 0.42, 1.0), rot));\n"
-			"    float3 L = normalize(mul(float3(-0.5, 0.7, -0.6), rot));\n"
-			"    float3 bg = SGP_Background(pin.UV);\n"
-			"\n"
-			"    float t = -1.0;\n"
-			"    float3 n = 0;\n"
-			"    if (gSGPreview.y < 1.5)\n"
-			"    {\n"
-			"        float b = dot(ro, rd), c = dot(ro, ro) - 1.0, h = b * b - c;\n"
-			"        if (h >= 0.0) { t = -b - sqrt(h); n = normalize(ro + rd * t); }\n"
-			"    }\n"
-			"    else\n"
-			"    {\n"
-			"        float3 inv = 1.0 / rd, t1 = (-0.75 - ro) * inv, t2 = (0.75 - ro) * inv;\n"
-			"        float3 tmin = min(t1, t2), tmax = max(t1, t2);\n"
-			"        float tn = max(max(tmin.x, tmin.y), tmin.z), tf = min(min(tmax.x, tmax.y), tmax.z);\n"
-			"        if (tn < tf && tf > 0.0)\n"
-			"        {\n"
-			"            t = tn;\n"
-			"            n = tn == tmin.x ? float3(-sign(rd.x), 0, 0) : (tn == tmin.y ? float3(0, -sign(rd.y), 0) : float3(0, 0, -sign(rd.z)));\n"
-			"        }\n"
-			"    }\n"
-			"    if (t < 0.0)\n"
-			"        return float4(bg, 1.0);\n"
-			"    float3 p = ro + rd * t;\n"
-			"    float2 uv;\n"
-			"    float3 T;\n"
-			"    if (gSGPreview.y < 1.5)\n"
-			"    {\n"
-			"        uv = float2(0.5 + atan2(p.x, -p.z) / 6.2831853, 0.5 - asin(clamp(p.y, -1.0, 1.0)) / 3.1415927);\n"
-			"        T = normalize(cross(float3(0, 1, 0), n) + float3(1e-4, 0, 0));\n"
-			"    }\n"
-			"    else\n"
-			"    {\n"
-			"        float3 a = abs(n);\n"
-			"        uv = a.x > 0.5 ? float2(p.z * -n.x, -p.y) : (a.y > 0.5 ? float2(p.x, p.z * n.y) : float2(p.x * n.z * -1.0, -p.y));\n"
-			"        uv = uv / 1.5 + 0.5;\n"
-			"        T = a.y > 0.5 ? float3(1, 0, 0) : normalize(cross(float3(0, 1, 0), n));\n"
-			"    }\n"
-			"    float3 V = -rd;\n"
-			"    float4 o;\n"
-			"    SGSurface s = SG_Evaluate(uv, p, n, V, float4(pin.UV, 0, 1), -1, o);\n";
+			"    SGSurface s = SG_Evaluate(pin.Tex, pin.PosW, n, V, float4(scr, 0, 1), pin.PosO, normalize(pin.NormalO), -1, o);\n";
 		if (g.AlphaClip)
-			fx << "    if (s.Alpha < s.AlphaClipThreshold)\n        return float4(bg, 1.0);\n";
-		if (g.Material == "Unlit")
+			fx << "    clip(s.Alpha - s.AlphaClipThreshold);\n";
+		if (g.Material == "Unlit" || g.IsSubGraph())
 			fx << "    float3 color = ToLinear(s.BaseColor);\n";
 		else
 		{
 			fx << "    float3 N = n;\n";
 			if (NormalLinked(g))
-				fx << "    float3 B = cross(n, T);\n    float3 nt = normalize(s.NormalTS);\n    N = normalize(T * nt.x + B * nt.y + n * nt.z);\n";
+				fx << "    float3 T = normalize(pin.TangentW - n * dot(pin.TangentW, n));\n    float3 B = cross(n, T);\n"
+					"    float3 nt = normalize(s.NormalTS);\n    N = normalize(T * nt.x + B * nt.y + n * nt.z);\n";
 			fx <<
 				"    float3 albedo = ToLinear(saturate(s.BaseColor));\n"
 				"    float metal = saturate(s.Metallic), smooth = saturate(s.Smoothness), ao = saturate(s.Occlusion);\n"
@@ -1077,11 +1419,12 @@ float SG_Rectangle(float2 uv, float w, float h)
 				"    color += diffuse * SGP_Sky(N) * ao * 0.8 + SGP_Sky(reflect(-V, N)) * Fa * ao * lerp(0.2, 1.0, smooth);\n"
 				"    color += max(s.Emission, 0);\n";
 		}
-		if (g.Surface == "Transparent")
-			fx << "    color = lerp(ToLinear(bg), color, saturate(s.Alpha));\n";
-		fx << "    return float4(ToGamma(color), 1.0);\n}\n\n";
+		if (g.Surface == "Transparent" && !g.IsSubGraph())
+			fx << "    return float4(ToGamma(color), saturate(s.Alpha));\n}\n\n";   // 섞기 (창이 TransparentBS 로 그린다)
+		else
+			fx << "    return float4(ToGamma(color), 1.0);\n}\n\n";
 		fx << Technique("SGPreviewNodeTech", "VS_SGFull", "PS_SGNode");
-		fx << Technique("SGPreviewMainTech", "VS_SGFull", "PS_SGMain");
+		fx << Technique("SGPreviewMainTech", "VS_SGMesh", "PS_SGMain");
 		r.Hlsl = fx.str();
 		return r;
 	}
@@ -1103,8 +1446,14 @@ float SG_Rectangle(float2 uv, float w, float h)
 		json edges = json::array();
 		for (const Edge& e : Edges)
 			edges.push_back({ { "from", { e.FromNode, e.FromPort } }, { "to", { e.ToNode, e.ToPort } } });
-		return { { "format", "nova-shadergraph" }, { "version", 1 }, { "material", Material }, { "path", Path }, { "surface", Surface }, { "alphaClip", AlphaClip },
+		json outputs = json::array();
+		for (const SubOutput& o : Outputs)
+			outputs.push_back({ { "name", o.Name }, { "type", o.Type } });
+		json j = { { "format", "nova-shadergraph" }, { "version", 1 }, { "kind", Kind }, { "material", Material }, { "path", Path }, { "surface", Surface }, { "alphaClip", AlphaClip },
 			{ "properties", props }, { "nodes", nodes }, { "edges", edges }, { "nextId", NextId } };
+		if (IsSubGraph())
+			j["outputs"] = outputs;
+		return j;
 	}
 
 	bool Graph::FromJson(const json& j, std::string& error)
@@ -1114,6 +1463,11 @@ float SG_Rectangle(float2 uv, float w, float h)
 			error = "not a NOVA shader graph";
 			return false;
 		}
+		Kind = j.value("kind", std::string("Graph"));
+		Outputs.clear();
+		if (j.contains("outputs") && j["outputs"].is_array())
+			for (const json& o : j["outputs"])
+				Outputs.push_back({ o.value("name", std::string("Out")), o.value("type", std::string("Vector3")) });
 		Material = j.value("material", std::string("Lit"));
 		Path = j.value("path", std::string("Shader Graphs"));
 		Surface = j.value("surface", std::string("Opaque"));

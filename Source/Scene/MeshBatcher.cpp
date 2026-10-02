@@ -93,7 +93,7 @@ namespace
 		if (m == nullptr)
 			return Clip::None;
 		if (const CustomShaders::Shader* cs = CustomOf(m); cs && cs->DrawInstanced)
-			return cs->ClipsAlpha && cs->ClipsAlpha(*m) ? Clip::Custom : Clip::None;
+			return cs->CustomDepth && cs->CustomDepth(*m) ? Clip::Custom : Clip::None;
 		return m->GetPbr().AlphaClip && m->GetBaseMapSRV() ? Clip::Engine : Clip::None;
 	}
 

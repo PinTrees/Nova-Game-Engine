@@ -1823,13 +1823,98 @@ function Suite-ShaderGraph
         $pv = @(Select-String -Path $EditorLog -Pattern '_Preview\.fx' | ForEach-Object { $_.Line })
         Add-Result shadergraph 'preview shader builds when the window opens' (@($pv | Where-Object { $_ -match 'hr=0x00000000|cache hit' }).Count -ge 1) "$(($pv | Select-Object -Last 1))"
 
+        # ---- 3단계: Vertex 단계 · Custom Function · Sub Graph
+        function Batch([string]$name, [string[]]$lines) { $f = Join-Path $dir "$name.txt"; $lines | Set-Content -Encoding utf8 $f; SG "batch $f" }
+        # 화면 위 · 아래 절반의 초록 칸 수 (정점을 위로 옮기면 위가 많다)
+        function GreenHalves([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova 'wait 5' | Out-Null
+            Invoke-Nova "screenshot $p --view scene" | Out-Null
+            if (-not (Test-Path $p)) { return @(0, 0) }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $up = 0; $down = 0
+            for ($y = 0; $y -lt $bm.Height; $y += 4) { for ($x = [int]($bm.Width * 0.25); $x -lt [int]($bm.Width * 0.75); $x += 4) {
+                $c = $bm.GetPixel($x, $y)
+                if ($c.G -gt $c.R + 50 -and $c.G -gt $c.B + 50) { if ($y -lt $bm.Height / 2) { $up++ } else { $down++ } } } }
+            $bm.Dispose()
+            return @($up, $down)
+        }
+        Invoke-Nova 'window scene' | Out-Null   # 미리보기 검사가 Shader Graph 창을 Scene 탭 앞에 열었다 (Scene 뷰가 그려지지 않으면 캡처가 예전 그림)
+        Invoke-Nova 'set RedWall --active false' | Out-Null
+        SG 'new Assets/SGTest/Lift.shadergraph --material Unlit --timeout 240' | Out-Null
+        $lb = Batch 'lift' @(
+            'node.add --type Position --options ''{"space":"Object"}''',
+            'node.add --type Add --values ''{"B":[0,0.35,0]}''',
+            'connect --from 1 --to 2 --in A',
+            'connect --from 2 --to Master --in "Vertex Position"',
+            'node.add --type Color --options ''{"color":[0,1,0,1]}''',
+            'connect --from 3 --to Master --in "Base Color"')
+        $ls = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        $lh = SG 'compile --hlsl'
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Lift.mat\"]}"' | Out-Null
+        $gh = GreenHalves 'vertex_lift.png'
+        Add-Result shadergraph 'Vertex stage: Vertex Position (Object + 0.35 up) lifts the cube; prepass + shadow move too (still drawn)' ($ls.built -and $lh.hlsl -match 'SG_EvaluateVertex' -and $gh[0] -gt 500 -and $gh[0] -gt $gh[1] * 2) "built=$($ls.built) green upper=$($gh[0]) lower=$($gh[1])"
+
+        # 시간으로 움직이는 정점 (예제 물결): 프리패스와 본 패스가 같은 시각을 써야 한다 (다르면 EQUAL 깊이가 어긋나 검게 빈다)
+        SG 'new Assets/SGTest/Wave.shadergraph --timeout 240' | Out-Null
+        SG "batch $(Join-Path $Root 'docs\examples\shadergraph_wave.txt')" | Out-Null
+        $ws = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Wave.mat\"]}"' | Out-Null
+        $wv = Center 'vertex_wave.png'
+        Add-Result shadergraph 'Vertex stage + Time (wave example): prepass and main pass use one time per frame (not black)' ($ws.built -and $wv.Black -lt $wv.N * 0.1 -and $wv.B -gt 80) "built=$($ws.built) black=$($wv.Black)/$($wv.N) rgb=$($wv.R),$($wv.G),$($wv.B)"
+
+        SG 'new Assets/SGTest/CF.shadergraph --material Unlit --timeout 240' | Out-Null
+        Batch 'cf' @(
+            'node.add --type "Custom Function" --values ''{"A":[0,0,1]}'' --options ''{"name":"Flip","body":"Out = A.zyx;"}''',
+            'connect --from 1 --out Out --to Master --in "Base Color"') | Out-Null
+        $cfs = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/CF.mat\"]}"' | Out-Null
+        $cfc = Center 'custom_string.png'
+        'void Swap_float(float3 A, out float3 Out) { Out = A.yxz; }' | Set-Content -Encoding ascii (Join-Path $assetDir 'swap.hlsl')
+        SG 'new Assets/SGTest/CFFile.shadergraph --material Unlit --timeout 240' | Out-Null
+        Batch 'cffile' @(
+            'node.add --type "Custom Function" --values ''{"A":[0,1,0]}'' --options ''{"name":"Swap","mode":"File","file":"Assets/SGTest/swap.hlsl"}''',
+            'connect --from 1 --out Out --to Master --in "Base Color"') | Out-Null
+        $cff = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/CFFile.mat\"]}"' | Out-Null
+        $cfd = Center 'custom_file.png'
+        Add-Result shadergraph 'Custom Function: String body (A.zyx) and File (.hlsl Swap_float) both give red' ($cfs.built -and $cff.built -and $cfc.Red -gt $cfc.N * 0.8 -and $cfd.Red -gt $cfd.N * 0.8) "string red=$($cfc.Red) file red=$($cfd.Red) of $($cfc.N)"
+        $badOpt = Invoke-Nova 'shadergraph node.add --type Color --options notjson'
+        Add-Result shadergraph 'node.add refuses --options that is not a JSON object' ($badOpt -match 'JSON object') "$(($badOpt -split "`n")[0])"
+
+        SG 'new Assets/SGTest/Pass.shadersubgraph --timeout 240' | Out-Null
+        Batch 'sub' @('property.add --name Col --type Color --value 0,0,1,1 --node', 'connect --from 1 --to Master --in Out') | Out-Null
+        $ss = SG 'save --timeout 240'
+        SG 'new Assets/SGTest/UseSub.shadergraph --material Unlit --timeout 240' | Out-Null
+        Batch 'usesub' @(
+            'node.add --type "Sub Graph" --options ''{"asset":"Assets/SGTest/Pass.shadersubgraph"}''',
+            'node.add --type Color --options ''{"color":[0,1,0,1]}''',
+            'connect --from 2 --to 1 --in Col',
+            'connect --from 1 --out Out --to Master --in "Base Color"') | Out-Null
+        $us = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/UseSub.mat\"]}"' | Out-Null
+        $s1 = Center 'subgraph_1.png'
+        # Sub Graph 를 고치면 (Out = 1 - Col) 쓰는 그래프가 다시 만들어진다 → 초록 → 자홍
+        SG 'open Assets/SGTest/Pass.shadersubgraph' | Out-Null
+        Batch 'sub2' @('node.add --type "One Minus"', 'connect --from 1 --to 2 --in In', 'connect --from 2 --to Master --in Out') | Out-Null
+        $ss2 = SG 'save --timeout 240'
+        $s2 = Center 'subgraph_2.png'
+        Add-Result shadergraph 'Sub Graph: input → output works; saving the Sub Graph rebuilds the graph that uses it' ($ss.built -and $us.built -and $ss2.built -and $s1.Green -gt $s1.N * 0.8 -and $s2.R -gt 150 -and $s2.B -gt 150 -and $s2.G -lt 90) "before green=$($s1.Green)/$($s1.N), after rgb=$($s2.R),$($s2.G),$($s2.B)"
+        Invoke-Nova 'set RedWall --active true' | Out-Null
+
         # ---- 모든 노드 종류: 하나씩 + Add 사슬로 Base Color 에 → 한 셰이더로 컴파일
         SG 'new Assets/SGTest/AllNodes.shadergraph --material Lit --timeout 240' | Out-Null
         $lines = New-Object System.Collections.Generic.List[string]
         $id = 0; $prev = 0; $count = 0
         foreach ($t in $types)
         {
-            if ($t.type -eq 'Property') { continue }
+            if ($t.type -eq 'Property' -or $t.type -eq 'Sub Graph') { continue }
             $id++; $node = $id
             $lines.Add("node.add --type `"$($t.type)`" --x $(-200 * ($count % 8)) --y $(150 * [math]::Floor($count / 8))")
             if ($prev -gt 0)

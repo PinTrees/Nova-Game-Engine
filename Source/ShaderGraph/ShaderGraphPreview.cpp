@@ -3,6 +3,10 @@
 #include "ShaderGraphRuntime.h"
 #include "Effects.h"
 #include "SpriteBatch.h"
+#include "GameObjectFactory.h"
+#include "Mesh.h"
+#include "Vertex.h"
+#include "RenderStates.h"
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -21,9 +25,9 @@ ShaderGraphPreview::ShaderGraphPreview()
 
 ShaderGraphPreview::~ShaderGraphPreview() = default;
 
-bool ShaderGraphPreview::EnsureTarget(Target& t, int w, int h)
+bool ShaderGraphPreview::EnsureTarget(Target& t, int w, int h, bool depth)
 {
-	if (t.Rtv && t.W == w && t.H == h)
+	if (t.Rtv && t.W == w && t.H == h && (!depth || t.Dsv))
 		return true;
 	auto device = Application::GetI()->GetDevice();
 	D3D11_TEXTURE2D_DESC td = {};
@@ -39,6 +43,14 @@ bool ShaderGraphPreview::EnsureTarget(Target& t, int w, int h)
 		return false;
 	device->CreateRenderTargetView(t.Color.Get(), nullptr, t.Rtv.GetAddressOf());
 	device->CreateShaderResourceView(t.Color.Get(), nullptr, t.Srv.GetAddressOf());
+	if (depth)
+	{
+		td.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+		td.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+		if (FAILED(device->CreateTexture2D(&td, nullptr, t.Depth.GetAddressOf())))
+			return false;
+		device->CreateDepthStencilView(t.Depth.Get(), nullptr, t.Dsv.GetAddressOf());
+	}
 	t.W = w;
 	t.H = h;
 	return t.Rtv != nullptr;
@@ -141,6 +153,8 @@ void ShaderGraphPreview::Render(bool nodes, bool main)
 			if (FxVar* v = var("gSG_NodeTex" + std::to_string(n.Id)))
 				v->SetResource(Texture(tex));
 	}
+	if (FxVar* v = var("gSG_White"))
+		v->SetResource(SpriteBatch::WhiteTexture());
 	if (FxVar* v = var("gSGTime"))
 	{
 		const float t = std::chrono::duration<float>(std::chrono::steady_clock::now() - s_Start).count();
@@ -184,16 +198,45 @@ void ShaderGraphPreview::Render(bool nodes, bool main)
 		}
 	}
 	// Main Preview
-	if (main && mainTech && mainTech->IsValid() && EnsureTarget(m_Main, kMainSize, kMainSize))
+	auto mesh = GameObjectFactory::GetPrimitiveMesh(Shape == 2 ? PrimitiveType::Cube : PrimitiveType::Sphere);
+	if (main && mesh && mainTech && mainTech->IsValid() && EnsureTarget(m_Main, kMainSize, kMainSize, true))
 	{
 		GfxRenderTargetView* rtvs[1] = { m_Main.Rtv.Get() };
-		ctx->OMSetRenderTargets(1, rtvs, nullptr);
+		ctx->OMSetRenderTargets(1, rtvs, m_Main.Dsv.Get());
 		const D3D11_VIEWPORT vp = { 0, 0, (float)kMainSize, (float)kMainSize, 0.0f, 1.0f };
 		ctx->RSSetViewports(1, &vp);
+		const float bg[4] = { 0.20f, 0.21f, 0.23f, 1.0f };
+		ctx->ClearRenderTargetView(m_Main.Rtv.Get(), bg);
+		ctx->ClearDepthStencilView(m_Main.Dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+		// 카메라가 물체 둘레를 돈다 (빛은 카메라를 따라 — 물체를 돌리는 것처럼 보인다)
+		const float dist = Shape == 2 ? 3.4f : 2.9f;
+		const XMVECTOR eye = XMVectorSet(-sinf(Yaw) * cosf(Pitch) * dist, sinf(Pitch) * dist, -cosf(Yaw) * cosf(Pitch) * dist, 1.0f);
+		const XMMATRIX view = XMMatrixLookAtLH(eye, XMVectorZero(), XMVectorSet(0, 1, 0, 0));
+		const XMMATRIX proj = XMMatrixPerspectiveFovLH(XMConvertToRadians(30.0f), 1.0f, 0.05f, 50.0f);
+		const XMMATRIX invView = XMMatrixInverse(nullptr, view);
+		const XMVECTOR lightCam = XMVector3Normalize(XMVectorSet(-0.5f, 0.7f, -0.6f, 0.0f));
+		const XMVECTOR light = XMVector3Normalize(XMVector3TransformNormal(lightCam, invView));
+		auto setMatrix = [&](const char* n, CXMMATRIX m) { if (FxVar* v = var(n)) v->SetMatrix(reinterpret_cast<const float*>(&m)); };
+		auto setVector = [&](const char* n, FXMVECTOR x) { XMFLOAT4 f; XMStoreFloat4(&f, x); if (FxVar* v = var(n)) v->SetFloatVector(&f.x); };
+		setMatrix("gSGPWorld", XMMatrixIdentity());
+		const XMMATRIX viewProj = view * proj;
+		setMatrix("gSGPViewProj", viewProj);
+		setVector("gSGPEye", eye);
+		setVector("gSGPLight", light);
 		const float p[4] = { -1.0f, (float)Shape, Yaw, Pitch };
 		if (params) params->SetFloatVector(p);
+		const bool transparent = m_Graph.Surface == "Transparent" && !m_Graph.IsSubGraph();
+		const float blendFactor[4] = { 0, 0, 0, 0 };
+		if (transparent)
+			ctx->OMSetBlendState(RenderStates::TransparentBS.Get(), blendFactor, 0xffffffff);
+		ctx->IASetInputLayout(InputLayouts::PosNormalTexTan.Get());
+		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		mainTech->GetPassByIndex(0)->Apply(0, ctx);
-		ctx->Draw(3, 0);
+		for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
+			mesh->ModelMesh.Draw(ctx, i);
+		if (transparent)
+			ctx->OMSetBlendState(nullptr, blendFactor, 0xffffffff);
+		ctx->IASetInputLayout(nullptr);
 	}
 
 	GfxShaderResourceView* nullSRV[16] = {};

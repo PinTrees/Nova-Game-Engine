@@ -1,0 +1,38 @@
+# 물결 (Lit Shader Graph, Vertex 단계): 높이를 따라 노멀 방향으로 출렁이는 정점 + 출렁임에 따라 색
+#   nova shadergraph new Assets/Shaders/Wave.shadergraph
+#   nova shadergraph batch docs/examples/shadergraph_wave.txt
+#   nova shadergraph save          → 셰이더 "Shader Graphs/Wave" (깊이 프리패스 · 그림자도 같은 모양)
+#   nova shadergraph material      → Assets/Shaders/Wave.mat
+# 노드 id 는 새 그래프에서 1 부터 차례로
+node.add --type Position --x -1300 --y -200 --options '{"space":"Object"}'
+node.add --type "Normal Vector" --x -1300 --y 150 --options '{"space":"Object"}'
+node.add --type Time --x -1300 --y 350
+node.add --type Split --x -1050 --y -200
+connect --from 1 --to 4 --in In
+node.add --type Multiply --x -850 --y -200 --values '{"B":12}'
+connect --from 4 --out G --to 5 --in A
+node.add --type Multiply --x -850 --y 350 --values '{"B":3}'
+connect --from 3 --out Time --to 6 --in A
+node.add --type Add --x -650 --y 0
+connect --from 5 --to 7 --in A
+connect --from 6 --to 7 --in B
+node.add --type Sine --x -450 --y 0
+connect --from 7 --to 8 --in In
+node.add --type Multiply --x -250 --y 0 --values '{"B":0.06}'
+connect --from 8 --to 9 --in A
+node.add --type Multiply --x -50 --y 150
+connect --from 2 --to 10 --in A
+connect --from 9 --to 10 --in B
+node.add --type Add --x 150 --y -100
+connect --from 1 --to 11 --in A
+connect --from 10 --to 11 --in B
+connect --from 11 --to Master --in "Vertex Position"
+node.add --type Remap --x -250 --y 400
+connect --from 8 --to 12 --in In
+node.add --type Color --x -250 --y 600 --options '{"color":[0.05,0.2,0.55,1]}'
+node.add --type Color --x -250 --y 750 --options '{"color":[0.45,0.9,1,1]}'
+node.add --type Lerp --x 0 --y 550
+connect --from 13 --to 15 --in A
+connect --from 14 --to 15 --in B
+connect --from 12 --to 15 --in T
+connect --from 15 --to Master --in "Base Color"

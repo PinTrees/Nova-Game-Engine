@@ -21,7 +21,7 @@ class GfxContext;
 namespace CustomShaders
 {
 	// 어느 패스에서 부르나: Main (본 패스, EQUAL 깊이), NormalDepth (깊이 · 노멀 프리패스), Shadow (그림자 맵), Transparent (투명 패스 — 섞기 · 깊이 읽기만)
-	//  NormalDepth · Shadow 는 ClipsAlpha 가 true 인 재질만 (그 밖의 재질은 엔진이 그린다), Transparent 는 Transparent 가 true 인 재질만
+	//  NormalDepth · Shadow 는 CustomDepth 가 true 인 재질만 (그 밖의 재질은 엔진이 그린다), Transparent 는 Transparent 가 true 인 재질만
 	enum class DrawPass { Main, NormalDepth, Shadow, Transparent };
 
 	struct SkinnedDraw
@@ -66,7 +66,7 @@ namespace CustomShaders
 		std::function<void(SkinnedDraw&)> DrawSkinned;
 		std::function<void(SkinnedDraw&)> DrawSkinnedOutline;   // 없으면 두 번째 패스 없음
 		std::function<void(InstancedDraw&)> DrawInstanced;     // 정적 메시 (없으면 Fallback)
-		std::function<bool(const UMaterial&)> ClipsAlpha;      // 잘라내기: 프리패스 · 그림자도 이 셰이더가 (Pass = NormalDepth / Shadow)
+		std::function<bool(const UMaterial&)> CustomDepth;      // 프리패스 · 그림자도 이 셰이더가 (잘라내기 · 정점 이동 — Pass = NormalDepth / Shadow)
 		std::function<bool(const UMaterial&)> Transparent;     // 투명: 투명 패스에서만 (본 패스 · 프리패스 · 그림자 제외, 뒤에서부터)
 		std::function<bool(const UMaterial&)> HasOutline;      // 이 재질에 두 번째 패스가 있나
 		std::function<bool(UMaterial&)> Inspector;             // Inspector 본문 (값을 바꾸면 true → 저장)

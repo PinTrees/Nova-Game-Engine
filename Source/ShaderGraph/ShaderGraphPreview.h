@@ -10,7 +10,7 @@ class Effect;
 //  - 그래프 전체를 담은 작은 독립 셰이더 (GeneratePreview — 엔진 셰이더를 포함하지 않아 빨리 컴파일).
 //    그래프가 바뀌고 잠시 뒤 (끌어 바꾸는 중에는 기다림) 백그라운드에서 컴파일, 그동안은 예전 미리보기
 //  - 노드: 첫 출력을 색으로 (UV 사각형) — 칸 96 px 의 아틀라스 한 장, 매 프레임 (Time 이 움직인다)
-//  - Main: 픽셀 셰이더가 광선으로 구 / 상자를 그린다 (고정 빛 — 씬 그림자 · 빛과 무관), Yaw / Pitch 로 돌린다
+//  - Main: 엔진 기본 구 / 상자 메시를 그린다 (Vertex 단계의 정점 이동까지, 고정 빛 — 씬 그림자 · 빛과 무관), Yaw / Pitch 로 돌린다
 class ShaderGraphPreview
 {
 public:
@@ -38,6 +38,8 @@ private:
 		ComPtr<GfxTexture2D> Color;
 		ComPtr<GfxRenderTargetView> Rtv;
 		ComPtr<GfxShaderResourceView> Srv;
+		ComPtr<GfxTexture2D> Depth;          // Main 만 (메시)
+		ComPtr<GfxDepthStencilView> Dsv;
 		int W = 0, H = 0;
 	};
 
@@ -54,7 +56,7 @@ private:
 	std::string m_Error;
 	std::string m_LastHlsl;
 
-	bool EnsureTarget(Target& t, int w, int h);
+	bool EnsureTarget(Target& t, int w, int h, bool depth = false);
 	void Render(bool nodes, bool main);
 	GfxShaderResourceView* Texture(const std::string& path);
 };

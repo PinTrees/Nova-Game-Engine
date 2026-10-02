@@ -77,13 +77,12 @@ namespace
 		return "";
 	}
 
-	const std::vector<PortDef>& InputsOf(const Graph& g, int node)
+	std::vector<PortDef> InputsOf(const Graph& g, int node)
 	{
-		static const std::vector<PortDef> none;
 		if (node == 0) return MasterInputs(g);
 		if (const Node* n = g.FindNode(node))
-			if (const NodeDef* d = FindDef(n->Type)) return d->In;
-		return none;
+			if (const NodeDef* d = DefOf(*n)) return d->In;
+		return {};
 	}
 
 	std::vector<PortDef> OutputsOf(const Graph& g, const Node& n)
@@ -95,8 +94,31 @@ namespace
 			p.Width = OutputWidth(g, n, "Out");
 			return { p };
 		}
-		if (const NodeDef* d = FindDef(n.Type)) return d->Out;
+		if (const NodeDef* d = DefOf(n)) return d->Out;
 		return {};
+	}
+
+	std::string StemOf(const std::string& asset)
+	{
+		return std::filesystem::path(string_to_wstring(asset)).stem().string();
+	}
+
+	// Project 창에서 끌어 온 경로 → 프로젝트 상대 경로
+	std::string DroppedPath(const ImGuiPayload* payload)
+	{
+		std::string dropped(static_cast<const char*>(payload->Data));
+		const std::string root = PathManager::GetI()->GetContentPathS();
+		if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0) dropped = dropped.substr(root.size());
+		while (!dropped.empty() && (dropped[0] == '\\' || dropped[0] == '/')) dropped.erase(0, 1);
+		return dropped;
+	}
+
+	const char* kOutputTypes[] = { "Float", "Vector2", "Vector3", "Vector4", "Color" };
+	const char* kPortTypes[] = { "Float", "Vector2", "Vector3", "Vector4", "Color", "Texture2D" };
+	int IndexOf(const char* const* items, int count, const std::string& v)
+	{
+		for (int i = 0; i < count; ++i) if (v == items[i]) return i;
+		return 0;
 	}
 
 	bool Linked(const Graph& g, int node, const std::string& port)
@@ -191,7 +213,7 @@ void ShaderGraphWindow::Save()
 	}
 	// 셰이더는 백그라운드에서 만든다 (그동안 예전 셰이더로 그린다) — 끝나면 상태 줄이 오류 / 성공을 보여 준다
 	if (SaveDoc(d.Asset, error, false))
-		SetStatus("Saved " + d.Asset);
+		SetStatus(d.G.IsSubGraph() ? "Saved " + d.Asset + " - graphs that use it rebuild" : "Saved " + d.Asset);
 	else
 		SetStatus(error, true);
 }
@@ -403,7 +425,7 @@ void ShaderGraphWindow::DrawNode(Node& n)
 {
 	namespace ed = ax::NodeEditor;
 	Graph& g = Doc().G;
-	const NodeDef* def = FindDef(n.Type);
+	const NodeDef* def = DefOf(n);
 	ed::PushStyleColor(ed::StyleColor_NodeBorder, ImColor(CategoryColor(def ? def->Category : "")));
 	ed::BeginNode(NodeEd(n.Id));
 	ImGui::PushID(n.Id);
@@ -413,6 +435,13 @@ void ShaderGraphWindow::DrawNode(Node& n)
 		const Property* p = g.FindProperty(n.Options.value("ref", std::string()));
 		title = p ? p->Name : "(missing property)";
 	}
+	else if (n.Type == "Sub Graph")
+	{
+		const std::string asset = n.Options.value("asset", std::string());
+		title = asset.empty() ? std::string("Sub Graph (none)") : StemOf(asset);
+	}
+	else if (n.Type == "Custom Function")
+		title = n.Options.value("name", std::string("Custom Function"));
 	ImGui::PushFont(UnityGUI::BoldFont());
 	ImGui::TextUnformatted(title.c_str());
 	ImGui::PopFont();
@@ -485,13 +514,27 @@ void ShaderGraphWindow::DrawMaster()
 	Graph& g = Doc().G;
 	ed::PushStyleColor(ed::StyleColor_NodeBorder, ImColor(IM_COL32(200, 200, 200, 255)));
 	ed::BeginNode(kMaster);
-	ImGui::PushFont(UnityGUI::BoldFont());
-	ImGui::Text("Fragment (%s)", g.Material.c_str());
-	ImGui::PopFont();
-	const std::vector<PortDef>& ins = MasterInputs(g);
+	const std::vector<PortDef> ins = MasterInputs(g);
+	// Unity 의 Master Stack: Vertex 블록 + Fragment 블록 (Sub Graph 는 Output)
+	auto header = [](const std::string& text) {
+		ImGui::PushFont(UnityGUI::BoldFont());
+		ImGui::TextUnformatted(text.c_str());
+		ImGui::PopFont();
+	};
+	if (g.IsSubGraph())
+		header("Output");
 	for (int i = 0; i < (int)ins.size(); ++i)
 	{
 		const PortDef& p = ins[i];
+		if (!g.IsSubGraph())
+		{
+			if (i == 0) header("Vertex");
+			if (!IsVertexPort(p.Name) && (i == 0 || IsVertexPort(ins[i - 1].Name)))
+			{
+				ImGui::Dummy(ImVec2(0, 4.0f));
+				header("Fragment (" + g.Material + ")");
+			}
+		}
 		const bool linked = Linked(g, 0, p.Name);
 		ed::BeginPin(PinEd(0, false, i), ed::PinKind::Input);
 		ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
@@ -502,7 +545,8 @@ void ShaderGraphWindow::DrawMaster()
 		if (!linked)
 		{
 			ImGui::SameLine(0, 8.0f);
-			if (p.Width == 1) ImGui::TextDisabled("%.2g", p.Default[0]);
+			if (!p.Bind.empty()) ImGui::TextDisabled("Object");
+			else if (p.Width == 1) ImGui::TextDisabled("%.2g", p.Default[0]);
 			else ImGui::TextDisabled("(%.2g, %.2g, %.2g)", p.Default[0], p.Default[1], p.Default[2]);
 		}
 	}
@@ -543,11 +587,17 @@ void ShaderGraphWindow::DrawCreatePopup()
 			ImGui::TextDisabled("%s", def.Category.c_str());
 		}
 		// 속성 노드
-		for (const Property& p : g.Properties)
+			for (const Property& p : g.Properties)
 		{
 			std::string t = p.Name;
 			for (char& c : t) c = (char)tolower((unsigned char)c);
 			if (t.find(q) != std::string::npos && ImGui::Selectable(("Property: " + p.Name).c_str())) chosen = "@" + p.Ref;
+		}
+		for (const std::string& s : SubGraphAssets())
+		{
+			std::string t = StemOf(s);
+			for (char& c : t) c = (char)tolower((unsigned char)c);
+			if (t.find(q) != std::string::npos && ImGui::Selectable(("Sub Graph: " + StemOf(s)).c_str())) chosen = "#" + s;
 		}
 		ImGui::EndChild();
 		if (ImGui::IsKeyPressed(ImGuiKey_Enter) && chosen.empty())
@@ -565,7 +615,7 @@ void ShaderGraphWindow::DrawCreatePopup()
 		std::vector<bool> shown;
 		std::map<std::string, std::vector<const NodeDef*>> byCat;
 		for (const NodeDef& def : NodeDefs())
-			if (def.Type != "Property") byCat[def.Category].push_back(&def);
+			if (def.Type != "Property" && def.Type != "Sub Graph") byCat[def.Category].push_back(&def);
 		std::function<void(const std::string&)> menu = [&](const std::string& prefix) {
 			std::set<std::string> subs;
 			for (const auto& [cat, defs] : byCat)
@@ -596,6 +646,14 @@ void ShaderGraphWindow::DrawCreatePopup()
 				if (ImGui::MenuItem(p.Name.c_str())) chosen = "@" + p.Ref;
 			ImGui::EndMenu();
 		}
+		if (ImGui::BeginMenu("Sub Graphs"))
+		{
+			const std::vector<std::string> subs = SubGraphAssets();
+			for (const std::string& s : subs)
+				if (ImGui::MenuItem(StemOf(s).c_str())) chosen = "#" + s;
+			if (subs.empty()) ImGui::TextDisabled("Create > Shader Sub Graph in the Project window");
+			ImGui::EndMenu();
+		}
 	}
 	if (!chosen.empty())
 	{
@@ -605,6 +663,11 @@ void ShaderGraphWindow::DrawCreatePopup()
 		{
 			id = g.AddNode("Property", m_CreatePos.x, m_CreatePos.y);
 			g.FindNode(id)->Options["ref"] = chosen.substr(1);
+		}
+		else if (chosen[0] == '#')
+		{
+			id = g.AddNode("Sub Graph", m_CreatePos.x, m_CreatePos.y);
+			g.FindNode(id)->Options["asset"] = chosen.substr(1);
 		}
 		else
 			id = g.AddNode(chosen, m_CreatePos.x, m_CreatePos.y);
@@ -624,7 +687,7 @@ void ShaderGraphWindow::DrawCreatePopup()
 			}
 			else
 			{
-				const std::vector<PortDef>& ins = InputsOf(g, pin.Node);
+				const std::vector<PortDef> ins = InputsOf(g, pin.Node);
 				if (pin.Index < (int)ins.size())
 					for (const PortDef& out : OutputsOf(g, *n))
 						if (g.Connect(id, out.Name, pin.Node, ins[pin.Index].Name, err)) break;
@@ -824,6 +887,20 @@ void ShaderGraphWindow::DrawCanvas(float width, float height)
 			g.FindNode(id)->Options["ref"] = std::string(static_cast<const char*>(payload->Data));
 			d.Changed();
 		}
+		// Project 창의 Sub Graph → Sub Graph 노드
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SHADERSUBGRAPH_FILE"))
+		{
+			const std::string asset = DroppedPath(payload);
+			if (std::filesystem::path(string_to_wstring(asset)) == std::filesystem::path(string_to_wstring(d.Asset)))
+				SetStatus("A Sub Graph can not use itself.", true);
+			else
+			{
+				d.Snapshot();
+				const int id = g.AddNode("Sub Graph", m_MouseCanvas.x, m_MouseCanvas.y);
+				g.FindNode(id)->Options["asset"] = asset;
+				d.Changed();
+			}
+		}
 		ImGui::EndDragDropTarget();
 	}
 	ImGui::EndChild();
@@ -843,6 +920,57 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 
 	// Graph Settings
 	ImGui::TextDisabled("Graph Settings");
+	if (g.IsSubGraph())
+	{
+		// Sub Graph: 출력 목록 (Output 노드의 입력 = Sub Graph 노드의 출력)
+		ImGui::TextUnformatted("Outputs");
+		std::string removeName;
+		for (size_t i = 0; i < g.Outputs.size(); ++i)
+		{
+			SubOutput& o = g.Outputs[i];
+			ImGui::PushID((int)i);
+			char buf[64] = {};
+			strncpy_s(buf, o.Name.c_str(), _TRUNCATE);
+			ImGui::SetNextItemWidth(width * 0.45f);
+			if (ImGui::InputText("##oname", buf, sizeof(buf), ImGuiInputTextFlags_EnterReturnsTrue) && buf[0] && o.Name != buf)
+			{
+				nlohmann::json r;
+				std::string e;
+				if (!RunOp("output.set", { { "name", o.Name }, { "rename", std::string(buf) } }, r, e)) SetStatus(e, true);
+				ImGui::PopID();
+				break;
+			}
+			ImGui::SameLine();
+			int t = IndexOf(kOutputTypes, 5, o.Type);
+			ImGui::SetNextItemWidth(width * 0.32f);
+			if (ImGui::Combo("##otype", &t, kOutputTypes, 5))
+			{
+				nlohmann::json r;
+				std::string e;
+				RunOp("output.set", { { "name", o.Name }, { "type", kOutputTypes[t] } }, r, e);
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("x")) removeName = o.Name;
+			ImGui::PopID();
+		}
+		if (!removeName.empty())
+		{
+			nlohmann::json r;
+			std::string e;
+			RunOp("output.delete", { { "name", removeName } }, r, e);
+		}
+		if (ImGui::SmallButton("+ Output"))
+		{
+			std::string n = "Out";
+			for (int k = 1; std::any_of(g.Outputs.begin(), g.Outputs.end(), [&](const SubOutput& x) { return x.Name == n; }); ++k) n = "Out" + std::to_string(k);
+			nlohmann::json r;
+			std::string e;
+			RunOp("output.add", { { "name", n }, { "type", "Vector3" } }, r, e);
+		}
+		ImGui::TextWrapped("Blackboard properties are the Sub Graph node's inputs.");
+	}
+	else
+	{
 	int mat = g.Material == "Unlit" ? 1 : 0;
 	static const char* kMat[] = { "Lit", "Unlit" };
 	ImGui::SetNextItemWidth(-1);
@@ -871,12 +999,13 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 		RunOp("settings", { { "alphaClip", clip } }, r, e);
 	}
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cut away pixels whose Alpha is below Alpha Clip Threshold (also in shadows)");
+	}
 	ImGui::Spacing();
 	ImGui::Separator();
 
 	if (Node* n = m_SelectedNode > 0 ? g.FindNode(m_SelectedNode) : nullptr)
 	{
-		const NodeDef* def = FindDef(n->Type);
+		const NodeDef* def = DefOf(*n);
 		ImGui::Text("%s  (#%d)", n->Type.c_str(), n->Id);
 		if (def && !def->Help.empty()) ImGui::TextWrapped("%s", def->Help.c_str());
 		ImGui::Spacing();
@@ -964,6 +1093,150 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 				ImGui::EndDragDropTarget();
 			}
 			ImGui::TextWrapped("Or link a Texture2D property to the Texture input (each material sets its own).");
+		}
+		else if (n->Type == "Position" || n->Type == "Normal Vector")
+		{
+			static const char* kSpace[] = { "World", "Object" };
+			int space = n->Options.value("space", std::string("World")) == "Object" ? 1 : 0;
+			ImGui::TextUnformatted("Space");
+			ImGui::SameLine(100.0f);
+			ImGui::SetNextItemWidth(-1);
+			if (ImGui::Combo("##space", &space, kSpace, 2))
+			{
+				d.Snapshot();
+				n->Options["space"] = kSpace[space];
+				d.Changed();
+			}
+		}
+		else if (n->Type == "Custom Function")
+		{
+			json& o = n->Options;
+			bool changed = false;
+			auto renamePorts = [&](bool output, const std::string& from, const std::string& to) {
+				for (Edge& e : g.Edges)
+				{
+					if (output && e.FromNode == n->Id && e.FromPort == from) e.FromPort = to;
+					if (!output && e.ToNode == n->Id && e.ToPort == from) e.ToPort = to;
+				}
+				if (!output && n->Values.contains(from)) { n->Values[to] = n->Values[from]; n->Values.erase(from); }
+			};
+			char name[64] = {};
+			strncpy_s(name, o.value("name", std::string()).c_str(), _TRUNCATE);
+			ImGui::TextUnformatted("Name");
+			ImGui::SameLine(100.0f);
+			ImGui::SetNextItemWidth(-1);
+			if (ImGui::InputText("##cfname", name, sizeof(name))) { BeginEdit(); o["name"] = std::string(name); changed = true; }
+			if (ImGui::IsItemDeactivated()) m_EditActive = false;
+			static const char* kMode[] = { "String", "File" };
+			int mode = o.value("mode", std::string("String")) == "File" ? 1 : 0;
+			ImGui::TextUnformatted("Type");
+			ImGui::SameLine(100.0f);
+			ImGui::SetNextItemWidth(-1);
+			if (ImGui::Combo("##cfmode", &mode, kMode, 2)) { d.Snapshot(); o["mode"] = kMode[mode]; changed = true; }
+			// 입력 · 출력 목록
+			for (int side = 0; side < 2; ++side)
+			{
+				const char* key = side == 0 ? "inputs" : "outputs";
+				if (!o.contains(key) || !o[key].is_array()) o[key] = json::array();
+				ImGui::Spacing();
+				ImGui::TextUnformatted(side == 0 ? "Inputs" : "Outputs");
+				int remove = -1;
+				for (int i = 0; i < (int)o[key].size(); ++i)
+				{
+					json& p = o[key][i];
+					ImGui::PushID(side * 1000 + i);
+					char pn[48] = {};
+					strncpy_s(pn, p.value("name", std::string()).c_str(), _TRUNCATE);
+					ImGui::SetNextItemWidth(width * 0.42f);
+					if (ImGui::InputText("##pn", pn, sizeof(pn), ImGuiInputTextFlags_EnterReturnsTrue) && pn[0])
+					{
+						d.Snapshot();
+						renamePorts(side == 1, p.value("name", std::string()), pn);
+						p["name"] = std::string(pn);
+						changed = true;
+					}
+					ImGui::SameLine();
+					const int count = side == 0 ? 6 : 5;
+					int t = IndexOf(kPortTypes, count, p.value("type", std::string("Float")));
+					ImGui::SetNextItemWidth(width * 0.33f);
+					if (ImGui::Combo("##pt", &t, kPortTypes, count)) { d.Snapshot(); p["type"] = kPortTypes[t]; changed = true; }
+					ImGui::SameLine();
+					if (ImGui::SmallButton("x")) remove = i;
+					ImGui::PopID();
+				}
+				if (remove >= 0) { d.Snapshot(); o[key].erase(o[key].begin() + remove); changed = true; }
+				ImGui::PushID(side);
+				if (ImGui::SmallButton(side == 0 ? "+ Input" : "+ Output"))
+				{
+					d.Snapshot();
+					o[key].push_back({ { "name", std::string(side == 0 ? "In" : "Out") + std::to_string(o[key].size() + 1) }, { "type", "Float" } });
+					changed = true;
+				}
+				ImGui::PopID();
+			}
+			ImGui::Spacing();
+			if (mode == 0)
+			{
+				// 본문: void <name>(입력들, out 출력들) { … } 의 안쪽
+				std::string body = o.value("body", std::string());
+				ImGui::TextUnformatted("Body");
+				std::vector<char> buf(body.begin(), body.end());
+				buf.resize(body.size() + 4096, 0);
+				if (ImGui::InputTextMultiline("##cfbody", buf.data(), buf.size(), ImVec2(-1, 140.0f), ImGuiInputTextFlags_AllowTabInput))
+				{
+					BeginEdit();
+					o["body"] = std::string(buf.data());
+					changed = true;
+				}
+				if (ImGui::IsItemDeactivated()) m_EditActive = false;
+			}
+			else
+			{
+				std::string file = o.value("file", std::string());
+				char fb[260] = {};
+				strncpy_s(fb, file.c_str(), _TRUNCATE);
+				ImGui::TextUnformatted("File");
+				ImGui::SameLine(100.0f);
+				ImGui::SetNextItemWidth(-1);
+				if (ImGui::InputTextWithHint("##cffile", "drop a .hlsl", fb, sizeof(fb), ImGuiInputTextFlags_EnterReturnsTrue)) { d.Snapshot(); o["file"] = std::string(fb); changed = true; }
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE"))
+					{
+						d.Snapshot();
+						o["file"] = DroppedPath(payload);
+						changed = true;
+					}
+					ImGui::EndDragDropTarget();
+				}
+				ImGui::TextWrapped("The file defines void %s_float(inputs..., out outputs...) - like Unity.", o.value("name", std::string("MyFunction")).c_str());
+			}
+			if (changed)
+				d.Touch();
+		}
+		else if (n->Type == "Sub Graph")
+		{
+			const std::string asset = n->Options.value("asset", std::string());
+			ImGui::TextUnformatted("Sub Graph");
+			ImGui::SameLine(100.0f);
+			ImGui::SetNextItemWidth(-1);
+			if (ImGui::BeginCombo("##subasset", asset.empty() ? "(none)" : StemOf(asset).c_str()))
+			{
+				for (const std::string& s : SubGraphAssets())
+					if (ImGui::Selectable(s.c_str(), s == asset) && s != d.Asset)
+					{
+						d.Snapshot();
+						n->Options["asset"] = s;
+						d.Changed();
+					}
+				ImGui::EndCombo();
+			}
+			if (!asset.empty() && ImGui::Button("Open Sub Graph"))
+			{
+				std::string err;
+				if (d.Dirty) SetStatus("Save this graph first (it has unsaved changes).", true);
+				else if (!OpenDoc(asset, err)) SetStatus(err, true);
+			}
 		}
 		else if (n->Type == "Property")
 		{
@@ -1199,6 +1472,33 @@ namespace ShaderGraph
 			}
 		};
 		EditorExtensions::RegisterAssetType(t);
+
+		// Create > Shader Sub Graph (.shadersubgraph): 노드 묶음을 다른 그래프에서 노드 하나로
+		EditorExtensions::AssetType sub = t;
+		sub.Extension = kSubExtension;
+		sub.CreateMenu = "Shader Sub Graph";
+		sub.DefaultName = "New Shader Sub Graph";
+		sub.DragPayload = "SHADERSUBGRAPH_FILE";
+		sub.Create = [](const std::string& path) {
+			Graph g = NewGraph("Lit");
+			g.Kind = "SubGraph";
+			g.Outputs = { { "Out", "Vector3" } };
+			std::string err;
+			g.Save(FullPath(path), err);
+		};
+		sub.Inspector = [](const std::string& path) {
+			Graph g;
+			std::string err;
+			if (g.Load(FullPath(path), err))
+			{
+				UnityGUI::ValueLabel("Inputs", std::to_string(g.Properties.size()).c_str());
+				UnityGUI::ValueLabel("Outputs", std::to_string(g.Outputs.size()).c_str());
+				UnityGUI::ValueLabel("Nodes", std::to_string(g.Nodes.size()).c_str());
+			}
+			if (UnityGUI::CenterButton("Open Shader Editor"))
+				if (OpenDoc(path, err)) ShaderGraphWindow::Focus();
+		};
+		EditorExtensions::RegisterAssetType(sub);
 
 		// CLI: nova shadergraph <op> [경로] [--인자 …]
 		CliServer::Register("shadergraph", "shader graph op: {op, ...args} (nova shadergraph help)", [](const nlohmann::json& args, nlohmann::json& result, std::string& error) {

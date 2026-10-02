@@ -371,7 +371,7 @@ bool SkinnedMeshRenderer::DrawCustomClip(int subset, CustomShaders::DrawPass pas
 	if (!material || !material->IsCustom())
 		return false;
 	const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader());
-	if (!shader || !shader->DrawSkinned || !shader->ClipsAlpha || !shader->ClipsAlpha(*material))
+	if (!shader || !shader->DrawSkinned || !shader->CustomDepth || !shader->CustomDepth(*material))
 		return false;
 	CustomShaders::SkinnedDraw d = MakeCustomDraw(material, world, viewProj, editor, subset);
 	d.Pass = pass;

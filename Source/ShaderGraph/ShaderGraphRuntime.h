@@ -13,6 +13,7 @@ namespace ShaderGraph
 {
 	constexpr const char* kDefaultPath = "Shader Graphs";
 	constexpr const char* kExtension = ".shadergraph";
+	constexpr const char* kSubExtension = ".shadersubgraph";
 
 	NOVA_API void InitRuntime();     // Provider 등록 (에디터 · 게임 빌드 모두)
 	NOVA_API void UpdateRuntime();   // 매 프레임: 끝난 백그라운드 컴파일을 이펙트로 (App 루프)
@@ -29,6 +30,10 @@ namespace ShaderGraph
 	// 실패하면 false + error (HLSL 오류 포함). 기다리지 않으면 true = 시작함
 	NOVA_API bool Reload(const std::string& assetPath, std::string& error, bool wait = true);
 	NOVA_API bool IsCompiling(const std::string& shaderName);
+	// Sub Graph 를 저장한 뒤: 그것을 쓰는 그래프들을 다시 만든다 (기다림 — CLI). 실패한 그래프의 오류를 error 에
+	NOVA_API bool RebuildUsers(const std::string& subGraphAsset, std::string& error);
+	// 프로젝트의 모든 .shadersubgraph (Create Node 메뉴)
+	NOVA_API std::vector<std::string> SubGraphAssets();
 	// 마지막으로 만들 때 생긴 오류 ("" = 성공 또는 아직 안 만듦)
 	NOVA_API std::string LastError(const std::string& shaderName);
 	// 만든 .fx (디스크 전체 경로)
