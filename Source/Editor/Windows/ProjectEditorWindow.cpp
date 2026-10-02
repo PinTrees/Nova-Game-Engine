@@ -239,6 +239,9 @@ void ProjectEditorWindow::OnRender()
 		if (ImGui::Button("Delete", ImVec2(100, 0)))
 		{
 			const bool ok = MoveToRecycleBin(m_PendingDelete);
+			std::error_code mec;
+			if (ok && fs::is_regular_file(m_PendingDelete.wstring() + L".meta", mec))
+				MoveToRecycleBin(m_PendingDelete.wstring() + L".meta");   // Import Settings 도 같이 (Unity)
 			EditorLog::Write("Project", "delete %s -> %s", RelativeDisplayPath(m_PendingDelete).c_str(), ok ? "recycle bin" : "failed");
 			if (SelectionManager::GetSelectedFile() == m_PendingDelete.wstring())
 				SelectionManager::ClearSelection();
@@ -690,6 +693,9 @@ void ProjectEditorWindow::DrawEntryRow(const Entry& e, float x, float& y, float 
 				if (to != e.Path && !fs::exists(to))
 				{
 					fs::rename(e.Path, to, ec);
+					std::error_code mec;
+					if (!ec && !e.IsDir && fs::is_regular_file(e.Path.wstring() + L".meta", mec))
+						fs::rename(e.Path.wstring() + L".meta", to.wstring() + L".meta", mec);   // Import Settings 도 같이
 					if (!ec && _wcsicmp(to.extension().c_str(), L".cs") == 0)
 						ScriptEngine::RenameScriptClass(to.wstring(), e.Path.stem().string());
 					EditorLog::Write("Project", "rename %s -> %s %s", RelativeDisplayPath(e.Path).c_str(), RelativeDisplayPath(to).c_str(), ec ? ec.message().c_str() : "ok");

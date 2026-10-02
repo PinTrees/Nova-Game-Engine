@@ -59,6 +59,9 @@ namespace AnimatorIK
 
 	XMVECTOR FromTo(FXMVECTOR fromIn, FXMVECTOR toIn)
 	{
+		// 길이 0 이면 방향이 없다 → 회전 없음 (축 0 이면 DirectXMath assert)
+		if (XMVectorGetX(XMVector3LengthSq(fromIn)) < 1e-12f || XMVectorGetX(XMVector3LengthSq(toIn)) < 1e-12f)
+			return XMQuaternionIdentity();
 		const XMVECTOR from = XMVector3Normalize(fromIn), to = XMVector3Normalize(toIn);
 		const float d = std::clamp(XMVectorGetX(XMVector3Dot(from, to)), -1.0f, 1.0f);
 		if (d > 0.99999f)

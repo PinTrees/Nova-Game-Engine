@@ -31,10 +31,16 @@ namespace Humanoid
 		XMFLOAT3 HipsBind = {};
 		float LegLength = 1.0f;
 		std::vector<int> HumanOf;      // 노드 → 사람 본 (-1 = 아님)
+		bool Generic = false;          // Import Settings 의 Animation Type = Generic (사람 본을 쓰지 않는다)
+		bool Overridden = false;       // Import Settings 에서 고친 본이 있다
 	};
 
 	// 스켈레톤의 아바타 (처음 한 번 계산해 둔다)
 	NOVA_API const Avatar& Get(const SkeletonAvataData& skeleton);
+	// 스켈레톤을 다시 가져올 때: 캐시에서 뺀다 (이미 받은 참조가 남아 있을 수 있어 지우지는 않는다)
+	NOVA_API void Forget(const SkeletonAvataData& skeleton);
+	// 이름 → 사람 본 번호 (없으면 -1)
+	NOVA_API int BoneFromName(const std::string& name);
 
 	// source 스켈레톤의 클립을 시간 t 에 샘플해 target 스켈레톤의 로컬 포즈로 (사람 본이 아닌 노드는 바인드 그대로)
 	NOVA_API void Retarget(const Avatar& source, const Avatar& target, const AnimationClip& clip, const std::vector<int>& sourceMap, float t,

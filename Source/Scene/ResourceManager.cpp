@@ -2,6 +2,7 @@
 #include "ResourceManager.h"
 #include "GameObjectFactory.h"
 #include "Utils.h"
+#include "HumanoidAvatar.h"
 
 SINGLE_BODY(ResourceManager)
 
@@ -43,6 +44,56 @@ void ResourceManager::Destroy()
 	m_Meshs.clear(); 
 	m_AnimationClips.clear(); 
 	m_SkeletonAvatas.clear();
+}
+
+namespace
+{
+	// 캐시 키 비교용: 구분자 \, 소문자, 앞의 \ 없음
+	std::string AssetKey(std::string p)
+	{
+		std::replace(p.begin(), p.end(), '/', '\\');
+		std::transform(p.begin(), p.end(), p.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+		const size_t first = p.find_first_not_of('\\');
+		return first == std::string::npos ? std::string() : p.substr(first);
+	}
+}
+
+void ResourceManager::ForgetAsset(const std::string& relativePath)
+{
+	const std::string key = AssetKey(relativePath);
+	auto same = [&](const std::string& p) { return AssetKey(p) == key; };
+	auto sameW = [&](const std::wstring& p) { return AssetKey(wstring_to_string(p)) == key; };
+	for (auto it = m_TextureSRV.begin(); it != m_TextureSRV.end();)
+		it = sameW(it->first) ? m_TextureSRV.erase(it) : std::next(it);
+	// 스켈레톤의 Humanoid 아바타도 (다시 가져오면 새 스켈레톤 — 같은 주소가 다시 쓰여도 옛 매핑을 쓰지 않게)
+	for (auto* files : { &m_MeshFiles, &m_FbxFiles })
+		for (auto it = files->begin(); it != files->end();)
+		{
+			if (!same(it->first)) { ++it; continue; }
+			if (it->second)
+				for (const auto& s : it->second->Avatas)
+					if (s) Humanoid::Forget(*s);
+			it = files->erase(it);
+		}
+	for (auto it = m_SkeletonAvatas.begin(); it != m_SkeletonAvatas.end();)
+	{
+		if (!same(std::get<0>(it->first))) { ++it; continue; }
+		if (it->second) Humanoid::Forget(*it->second);
+		it = m_SkeletonAvatas.erase(it);
+	}
+	for (auto it = m_Meshs.begin(); it != m_Meshs.end();)
+		it = sameW(std::get<0>(it->first)) ? m_Meshs.erase(it) : std::next(it);
+	for (auto it = m_SkinnedMeshs.begin(); it != m_SkinnedMeshs.end();)
+		it = sameW(std::get<0>(it->first)) ? m_SkinnedMeshs.erase(it) : std::next(it);
+	for (auto it = m_AnimationClips.begin(); it != m_AnimationClips.end();)
+		it = same(std::get<0>(it->first)) ? m_AnimationClips.erase(it) : std::next(it);
+}
+
+void ResourceManager::ReloadMaterialTextures()
+{
+	for (auto& [path, material] : m_Materials)
+		if (material)
+			material->ReloadTextures();
 }
 
 ComPtr<GfxShaderResourceView> ResourceManager::LoadTexture(wstring filename)

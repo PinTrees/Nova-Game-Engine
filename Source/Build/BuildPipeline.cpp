@@ -81,6 +81,9 @@ namespace
 			if (!m_Seen.insert(key).second)
 				return;
 			Files.push_back({ rel, full });
+			// Import Settings (.meta): 게임도 같은 설정으로 가져온다 (텍스처 크기 · 모델 Scale · 오디오 Load Type)
+			if (fs::is_regular_file(full.wstring() + L".meta", ec))
+				Files.push_back({ rel + L".meta", full.wstring() + L".meta" });
 			const std::string ext = Lower(full.extension().string());
 			if (kJsonExt.count(ext) || LooksLikeJson(full))
 				Scan(full);

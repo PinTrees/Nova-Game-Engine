@@ -3,6 +3,7 @@
 #include <filesystem>
 #include "EditorExtensions.h"
 #include "AudioClip.h"
+#include "AssetImportSettings.h"
 
 namespace fs = std::filesystem;
 
@@ -71,6 +72,10 @@ void SelectionManager::SetSelectedFile(const std::wstring& filePath)
 	else if (path.extension() == ".volumeprofile")
 	{
 		m_SelectedSubType = SelectionSubType::VOLUME_PROFILE;
+	}
+	else if (AssetImport::KindOf(filePath) == AssetImport::Kind::Texture)
+	{
+		m_SelectedSubType = SelectionSubType::TEXTURE;
 	}
 	else if (EditorExtensions::FindAssetType(path.extension().string()))
 	{

@@ -33,6 +33,11 @@
 #include "TerrainData.h"
 #include "TerrainEditor.h"
 #include "Collider.h"
+#include "AssetImportSettings.h"
+#include "ImportSettingsInspector.h"
+#include "AudioClip.h"
+#include "HumanoidAvatar.h"
+#include "SkinnedMesh.h"
 
 namespace
 {
@@ -755,7 +760,75 @@ namespace CliCommands
 			return true;
 		});
 
-		Register("select", "select an object in the editor {target} (none = clear)", [](const json& a, json& r, std::string& e) {
+		Register("import-settings", "asset Import Settings (.meta): get, or set + reimport {path, values?, reset?}", [](const json& a, json& r, std::string& e) {
+			const std::wstring file = ProjectFile(a.value("path", std::string()));
+			const AssetImport::Kind kind = AssetImport::KindOf(file);
+			if (kind == AssetImport::Kind::None) { e = "no import settings for this file type (textures, .fbx models, .wav/.ogg/.mp3 audio)"; return false; }
+			std::error_code ec;
+			if (!std::filesystem::exists(file, ec)) { e = "asset not found: " + a.value("path", std::string()); return false; }
+			if (a.value("reset", false) || (a.contains("values") && a["values"].is_object()))
+			{
+				json settings = a.value("reset", false) ? json::object() : AssetImport::LoadJson(file);
+				if (a.contains("values") && a["values"].is_object())
+					settings.merge_patch(a["values"]);
+				if (a.value("reset", false) && !a.contains("values"))
+				{
+					// 기본값으로: .meta 를 지운다
+					if (!RequireEditMode(e)) return false;
+					std::filesystem::remove(AssetImport::MetaPath(file), ec);
+					ImportSettingsInspector::Reimport(file);
+				}
+				else if (!ImportSettingsInspector::Apply(file, settings, e))
+					return false;
+			}
+			const std::string rel = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(file));
+			r = { { "path", rel }, { "importer", kind == AssetImport::Kind::Texture ? "TextureImporter" : (kind == AssetImport::Kind::Model ? "ModelImporter" : "AudioImporter") },
+				{ "hasMeta", std::filesystem::exists(AssetImport::MetaPath(file), ec) }, { "settings", AssetImport::LoadJson(file) } };
+			// 가져온 결과 (확인용)
+			if (kind == AssetImport::Kind::Texture)
+			{
+				ResourceManager::GetI()->LoadTexture(string_to_wstring(rel));
+				AssetImport::TextureInfo t;
+				if (AssetImport::GetTextureInfo(file, t))
+					r["imported"] = { { "sourceWidth", t.SourceWidth }, { "sourceHeight", t.SourceHeight }, { "width", t.Width }, { "height", t.Height },
+						{ "mips", t.Mips }, { "format", t.Format }, { "bytes", t.Bytes } };
+			}
+			else if (kind == AssetImport::Kind::Audio)
+			{
+				if (auto clip = AudioClip::Load(rel))
+					r["imported"] = { { "channels", clip->Channels }, { "sourceChannels", clip->SourceChannels }, { "frequency", clip->Frequency },
+						{ "length", clip->Length }, { "streaming", clip->Streaming }, { "bytes", clip->Streaming && clip->Encoded ? clip->Encoded->size() : clip->Data.size() } };
+			}
+			else if (auto mf = ResourceManager::GetI()->LoadMeshFile(rel))
+			{
+				json m = { { "meshes", mf->Meshs.size() }, { "skinnedMeshes", mf->SkinnedMeshs.size() }, { "clips", mf->SkinnedData.AnimationClips.size() } };
+				if (!mf->Avatas.empty() && mf->Avatas[0])
+				{
+					const Humanoid::Avatar& av = Humanoid::Get(*mf->Avatas[0]);
+					m["unitScale"] = mf->Avatas[0]->UnitScale;
+					m["humanoid"] = av.Valid;
+					m["humanBones"] = av.Found;
+					json bones = json::object();
+					for (int b = 0; b < Humanoid::BoneCount; ++b)
+						if (av.Node[b] >= 0 && av.Node[b] < (int)mf->Avatas[0]->NodeNames.size())
+							bones[Humanoid::BoneName(b)] = mf->Avatas[0]->NodeNames[av.Node[b]];
+					m["bones"] = bones;
+				}
+				r["imported"] = m;
+			}
+			return true;
+		});
+
+		Register("select", "select an object in the editor {target} | {asset} (Project file) (none = clear)", [](const json& a, json& r, std::string& e) {
+			if (a.contains("asset") && a["asset"].is_string())
+			{
+				const std::wstring file = ProjectFile(a["asset"].get<std::string>());
+				std::error_code ec;
+				if (!std::filesystem::exists(file, ec)) { e = "asset not found: " + a["asset"].get<std::string>(); return false; }
+				SelectionManager::SetSelectedFile(file);
+				r = { { "asset", wstring_to_string(PathManager::GetI()->GetCutSolutionPath(file)) } };
+				return true;
+			}
 			if (!a.contains("target") || a["target"].is_null())
 			{
 				SelectionManager::ClearSelection();

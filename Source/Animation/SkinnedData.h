@@ -143,7 +143,8 @@ public:
 	vector<XMFLOAT4X4>					BoneOffsets;		// (이전 형식, 사용 안 함)
 	vector<string>						NodeNames;			// 노드 이름
 	vector<XMFLOAT4X4>					BindLocal;			// 바인드 포즈의 로컬 행렬 (행 벡터)
-	float								UnitScale = 1.0f;	// 파일 단위 → 미터 (FBX cm 이면 0.01, Unity 의 Convert Units)
+	float								UnitScale = 1.0f;	// 파일 단위 → 미터 (FBX cm 이면 0.01, Unity 의 Convert Units) × Import Settings Scale Factor
+	wstring								SourcePath;			// 가져온 FBX 의 디스크 경로 (저장 안 함 — .meta 의 Humanoid 설정을 찾는다)
 
 	int FindNode(const string& name) const;
 

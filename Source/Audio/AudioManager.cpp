@@ -58,6 +58,7 @@ struct AudioStream
 	std::atomic<bool> Loop{ false };
 	bool Ended = false;                    // 끝까지 풀어 넣었다 (반복이 아니면)
 	std::vector<int16_t> Buffers[kStreamBuffers];
+	std::vector<int16_t> Scratch;          // Force To Mono: 디코더 채널로 풀어 평균
 	int Next = 0;
 	uint32_t FramesPerBuffer = 0;
 };
@@ -71,6 +72,7 @@ namespace
 		s.Voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
 		UINT32 queued = st.BuffersQueued;
 		const int ch = s.Clip->Channels;
+		const int dch = s.Decoder->Channels;
 		while (queued < (UINT32)kStreamQueued && !s.Ended)
 		{
 			std::vector<int16_t>& buf = s.Buffers[s.Next];
@@ -79,7 +81,22 @@ namespace
 			int rewinds = 0;
 			while (got < s.FramesPerBuffer)
 			{
-				const uint64_t n = s.Decoder->Read(buf.data() + got * ch, s.FramesPerBuffer - got);
+				uint64_t n;
+				if (dch == ch)
+					n = s.Decoder->Read(buf.data() + got * ch, s.FramesPerBuffer - got);
+				else
+				{
+					// Force To Mono: 디코더 채널로 풀어 평균 (ch = 1)
+					s.Scratch.resize((size_t)(s.FramesPerBuffer - got) * dch);
+					n = s.Decoder->Read(s.Scratch.data(), s.FramesPerBuffer - got);
+					for (uint64_t i = 0; i < n; ++i)
+					{
+						int sum = 0;
+						for (int c = 0; c < dch; ++c)
+							sum += s.Scratch[(size_t)i * dch + c];
+						buf[(size_t)(got + i)] = (int16_t)(sum / dch);
+					}
+				}
 				got += n;
 				if (n > 0)
 					continue;

@@ -564,7 +564,10 @@ namespace
 		"  delete <target>\n"
 		"  add-component <target> <Type|C# class> [--values '{...}']   remove-component <target> <Type>\n"
 		"  parent <target> <new parent> | parent <target> --root\n"
-		"  select <target> | select --none\n"
+		"  select <target> | select --asset <Assets/...> | select --none\n"
+		"  import-settings <asset> [--values '{...}'] [--reset]   texture / model / audio Import Settings (.meta): show, or change + reimport\n"
+		"         texture {maxSize, compression: None|NormalQuality|HighQuality, mipmaps}  model {scaleFactor, importAnimation,\n"
+		"         animationType: Generic|Humanoid, humanBones: {LeftFoot: node}}  audio {loadType: DecompressOnLoad|CompressedInMemory|Streaming, forceToMono}\n"
 		"\n"
 		"scene / play / view\n"
 		"  scene open <Assets/...scene> [--force]  scene new [--force]  scene save\n"
@@ -847,7 +850,15 @@ int Run(const std::vector<std::string>& in)
 	}
 	else if (cmd == "select")
 	{
-		if (!a.Has("none") && !a.Pos.empty()) args["target"] = a.Pos[0];
+		if (a.Has("asset")) args["asset"] = a.Get("asset");
+		else if (!a.Has("none") && !a.Pos.empty()) args["target"] = a.Pos[0];
+	}
+	else if (cmd == "import-settings")
+	{
+		if (!need(1, "import-settings <asset> [--values '{...}'] [--reset]")) return 3;
+		args["path"] = a.Pos[0];
+		if (a.Has("values")) args["values"] = Value(a.Get("values"));
+		if (a.Has("reset")) args["reset"] = true;
 	}
 	else if (cmd == "autosave")
 	{

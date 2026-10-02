@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AudioClip.h"
 #include "AudioDecoder.h"
+#include "AssetImportSettings.h"
 #include <filesystem>
 #include <fstream>
 
@@ -61,8 +62,8 @@ std::unique_ptr<AudioDecoder> AudioClip::OpenDecoder() const
 
 namespace
 {
-	// OGG / MP3: 길면 스트리밍, 짧으면 다 풀어 WAV 처럼
-	std::shared_ptr<AudioClip> LoadCompressed(const std::string& path, std::vector<uint8_t>&& file, int codec)
+	// OGG / MP3: Load Type 이 Decompress On Load 면 다 풀어 WAV 처럼, 아니면 재생할 때 푼다
+	std::shared_ptr<AudioClip> LoadCompressed(const std::string& path, std::vector<uint8_t>&& file, int codec, const AssetImport::AudioSettings& settings)
 	{
 		auto encoded = std::make_shared<const std::vector<uint8_t>>(std::move(file));
 		std::unique_ptr<AudioDecoder> dec = AudioDecoder::Open(codec, encoded);
@@ -74,18 +75,19 @@ namespace
 		auto clip = std::make_shared<AudioClip>();
 		clip->Path = path;
 		clip->Codec = codec;
-		clip->Channels = dec->Channels;
+		clip->SourceChannels = dec->Channels;
+		clip->Channels = settings.ForceToMono ? 1 : dec->Channels;
 		clip->Frequency = dec->Frequency;
+		clip->LoadType = settings.LoadType;
 		WAVEFORMATEX& f = clip->Format;
 		f.wFormatTag = WAVE_FORMAT_PCM;
-		f.nChannels = (WORD)dec->Channels;
+		f.nChannels = (WORD)clip->Channels;
 		f.nSamplesPerSec = (DWORD)dec->Frequency;
 		f.wBitsPerSample = 16;
-		f.nBlockAlign = (WORD)(2 * dec->Channels);
+		f.nBlockAlign = (WORD)(2 * clip->Channels);
 		f.nAvgBytesPerSec = f.nSamplesPerSec * f.nBlockAlign;
 		f.cbSize = 0;
-		const float seconds = dec->Frames > 0 ? (float)dec->Frames / (float)dec->Frequency : 0.0f;
-		if (seconds > AudioClip::kStreamSeconds)
+		if (settings.LoadType != AssetImport::AudioSettings::DecompressOnLoad)
 		{
 			clip->Streaming = true;
 			clip->Encoded = encoded;
@@ -101,15 +103,24 @@ namespace
 				const uint64_t got = dec->Read(chunk.data(), 4096);
 				if (got == 0)
 					break;
-				pcm.insert(pcm.end(), chunk.begin(), chunk.begin() + (size_t)got * dec->Channels);
+				if (clip->Channels == dec->Channels)
+					pcm.insert(pcm.end(), chunk.begin(), chunk.begin() + (size_t)got * dec->Channels);
+				else
+					for (uint64_t i = 0; i < got; ++i)   // Force To Mono: 채널 평균
+					{
+						int sum = 0;
+						for (int c = 0; c < dec->Channels; ++c)
+							sum += chunk[(size_t)i * dec->Channels + c];
+						pcm.push_back((int16_t)(sum / dec->Channels));
+					}
 			}
-			clip->Samples = (uint32_t)(pcm.size() / dec->Channels);
+			clip->Samples = (uint32_t)(pcm.size() / clip->Channels);
 			clip->Data.resize(pcm.size() * sizeof(int16_t));
 			memcpy(clip->Data.data(), pcm.data(), clip->Data.size());
 		}
 		clip->Length = (float)clip->Samples / (float)clip->Frequency;
 		EditorLog::Write("Audio", "clip loaded %s (%s, %d Hz, %d ch, %.2fs%s)", path.c_str(), codec == AudioDecoder::Vorbis ? "ogg" : "mp3",
-			clip->Frequency, clip->Channels, clip->Length, clip->Streaming ? ", streaming" : "");
+			clip->Frequency, clip->Channels, clip->Length, clip->Streaming ? (settings.LoadType == AssetImport::AudioSettings::Streaming ? ", streaming" : ", compressed in memory") : "");
 		return clip;
 	}
 }
@@ -131,9 +142,10 @@ std::shared_ptr<AudioClip> AudioClip::Load(const std::string& rawPath)
 	std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 	std::string ext = fs::path(path).extension().string();
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+	const AssetImport::AudioSettings settings = AssetImport::LoadAudio(FilePath(path));
 	if (ext == ".ogg" || ext == ".mp3")
 	{
-		auto clip = LoadCompressed(path, std::move(file), ext == ".ogg" ? AudioDecoder::Vorbis : AudioDecoder::Mp3);
+		auto clip = LoadCompressed(path, std::move(file), ext == ".ogg" ? AudioDecoder::Vorbis : AudioDecoder::Mp3, settings);
 		if (clip)
 			Cache()[path] = clip;
 		return clip;
@@ -186,13 +198,51 @@ std::shared_ptr<AudioClip> AudioClip::Load(const std::string& rawPath)
 		EditorLog::Write("Audio", "unsupported wav %s (tag %u, %u bit, %u ch)", path.c_str(), f.wFormatTag, f.wBitsPerSample, f.nChannels);
 		return nullptr;
 	}
-	clip->Channels = f.nChannels;
-	clip->Frequency = (int)f.nSamplesPerSec;
-	clip->Samples = (uint32_t)(clip->Data.size() / f.nBlockAlign);
+	clip->SourceChannels = f.nChannels;
+	if (settings.ForceToMono && f.nChannels > 1)
+	{
+		// Force To Mono: 어떤 형식이든 채널 평균 → 16 비트 PCM
+		const int ch = f.nChannels, bytes = f.wBitsPerSample / 8;
+		const bool isFloat = f.wFormatTag == WAVE_FORMAT_IEEE_FLOAT;
+		const size_t frames = clip->Data.size() / f.nBlockAlign;
+		std::vector<int16_t> mono(frames);
+		for (size_t i = 0; i < frames; ++i)
+		{
+			float sum = 0.0f;
+			for (int c = 0; c < ch; ++c)
+			{
+				const uint8_t* p = clip->Data.data() + i * f.nBlockAlign + (size_t)c * bytes;
+				float v = 0.0f;
+				if (isFloat) memcpy(&v, p, 4);
+				else if (bytes == 1) v = (p[0] - 128) / 128.0f;
+				else if (bytes == 2) v = (int16_t)U16(p) / 32768.0f;
+				else if (bytes == 3) v = (int32_t)((uint32_t)p[0] << 8 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 24) / 2147483648.0f;
+				else v = (int32_t)U32(p) / 2147483648.0f;
+				sum += v;
+			}
+			mono[i] = (int16_t)std::clamp((int)std::lround(sum / ch * 32767.0f), -32768, 32767);
+		}
+		clip->Data.resize(frames * sizeof(int16_t));
+		memcpy(clip->Data.data(), mono.data(), clip->Data.size());
+		WAVEFORMATEX& w = clip->Format;
+		w.wFormatTag = WAVE_FORMAT_PCM;
+		w.nChannels = 1;
+		w.wBitsPerSample = 16;
+		w.nBlockAlign = 2;
+		w.nAvgBytesPerSec = w.nSamplesPerSec * 2;
+	}
+	clip->Channels = clip->Format.nChannels;
+	clip->Frequency = (int)clip->Format.nSamplesPerSec;
+	clip->Samples = (uint32_t)(clip->Data.size() / clip->Format.nBlockAlign);
 	clip->Length = clip->Frequency > 0 ? (float)clip->Samples / (float)clip->Frequency : 0.0f;
 	Cache()[path] = clip;
 	EditorLog::Write("Audio", "clip loaded %s (%d Hz, %d ch, %u bit, %.2fs)", path.c_str(), clip->Frequency, clip->Channels, f.wBitsPerSample, clip->Length);
 	return clip;
+}
+
+void AudioClip::Forget(const std::string& rawPath)
+{
+	Cache().erase(NormalizePath(rawPath));
 }
 
 std::vector<std::string> AudioClip::FindAll()

@@ -37,6 +37,12 @@ public:
 	shared_ptr<AnimationClip>		LoadAnimationClip(string filename, int index);  
 	shared_ptr<SkeletonAvataData>	LoadSkeletonAvata(string filepath, int index);
 
+	// Import Settings 를 바꾼 뒤: 이 파일(상대 경로)로 불러 둔 텍스처 · 메시 · 클립 · 스켈레톤을 캐시에서 뺀다.
+	// 이미 받은 shared_ptr 은 그대로 살아 있다 (씬을 다시 만들면 새로 불러온다)
+	void ForgetAsset(const std::string& relativePath);
+	// 불러 둔 재질의 텍스처를 다시 연결 (텍스처를 다시 가져온 뒤)
+	void ReloadMaterialTextures();
+
 	// Profiler 메모리: 불러 둔 텍스처 / 메시(스킨 포함)의 GPU 크기
 	void CollectMemory(std::vector<MemoryStats::Item>& textures, std::vector<MemoryStats::Item>& meshes) const;
 };

@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, packages, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, packages, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -260,6 +260,80 @@ function Suite-Animation
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
 
+# ------------------------------------------------------------------ Import Settings (.meta): 텍스처 Max Size · 압축, 오디오 Load Type · Mono, 모델 Scale · Rig
+function Suite-Import
+{
+    Write-Host '[import]'
+    $dir = Join-Path $Project 'Assets\NovaTestImport'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    # 3000 x 1500 불투명 PNG (기본 Max Size 2048 보다 크다)
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap 3000, 1500
+    $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::FromArgb(255, 40, 120, 200)); $g.FillEllipse([System.Drawing.Brushes]::Orange, 500, 200, 2000, 1100); $g.Dispose()
+    $bmp.Save((Join-Path $dir 'big.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    function Settings([string]$asset, $values) {
+        if ($null -eq $values) { return Invoke-NovaJson "import-settings $asset" }
+        if ($values -eq 'reset') { return Invoke-NovaJson "import-settings $asset --reset" }
+        $v = ($values | ConvertTo-Json -Compress -Depth 5).Replace('"', '\"')
+        Invoke-NovaJson "import-settings $asset --values `"$v`""
+    }
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        # 텍스처
+        $tex = 'Assets\NovaTestImport\big.png'
+        $t0 = Settings $tex $null
+        Add-Result import 'texture default Max Size 2048 keeps aspect' ($t0 -and -not $t0.hasMeta -and $t0.imported.width -eq 2048 -and $t0.imported.height -eq 1024 -and $t0.imported.mips -gt 1) "$($t0.imported.sourceWidth)x$($t0.imported.sourceHeight) → $($t0.imported.width)x$($t0.imported.height), $($t0.imported.mips) mips, meta $($t0.hasMeta)"
+        $t1 = Settings $tex @{ maxSize = 512; compression = 'NormalQuality' }
+        Add-Result import 'texture Max Size 512 + Normal Quality → BC1' ($t1 -and $t1.hasMeta -and $t1.imported.width -eq 512 -and $t1.imported.height -eq 256 -and $t1.imported.format -match 'BC1') "$($t1.imported.width)x$($t1.imported.height) $($t1.imported.format), $($t1.imported.bytes) bytes"
+        $t2 = Settings $tex 'reset'
+        Add-Result import 'texture reset removes .meta' ($t2 -and -not $t2.hasMeta -and $t2.imported.width -eq 2048 -and $t2.imported.format -notmatch 'BC') "$($t2.imported.width)x$($t2.imported.height) $($t2.imported.format)"
+
+        # 오디오 (long.mp3 가 있을 때)
+        $mp3 = 'Assets\TestAssets\Audio\long.mp3'
+        if (Test-Path (Join-Path $Project $mp3))
+        {
+            $a0 = Settings $mp3 $null
+            $a1 = Settings $mp3 @{ loadType = 'Streaming'; forceToMono = $true }
+            $a2 = Settings $mp3 'reset'
+            $ok = $a0 -and -not $a0.imported.streaming -and $a1.imported.streaming -and $a1.imported.channels -eq 1 -and $a2 -and -not $a2.imported.streaming -and $a2.imported.channels -eq $a0.imported.channels
+            Add-Result import 'audio Load Type + Force To Mono' $ok "default streaming=$($a0.imported.streaming) ch $($a0.imported.channels) → Streaming+Mono streaming=$($a1.imported.streaming) ch $($a1.imported.channels) (source $($a1.imported.sourceChannels)) → reset streaming=$($a2.imported.streaming)"
+        }
+
+        # 모델 (Cameron, Unity 샘플 — 테스트 프로젝트에만)
+        $fbx = 'Assets\TestAssets\Cameron\Cameron_Model.fbx'
+        if (Test-Path (Join-Path $Project $fbx))
+        {
+            $hf = Join-Path $Out 'import_head.cs'
+            'return GameObject.Find("ICh").GetComponent<Animator>().GetBonePosition(HumanBodyBones.Head).y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $hf
+            function Head { Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 20' | Out-Null; $h = Invoke-NovaJson "exec --file $hf"; Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 5' | Out-Null; if ($h) { [double]$h.result } else { 0 } }
+            $m0 = Settings $fbx $null
+            Invoke-Nova "create character --name ICh --model $fbx --controller Assets\TestAssets\Cameron\Locomotion.controller" | Out-Null
+            Wait-Compile
+            $h0 = Head
+            $m1 = Settings $fbx @{ scaleFactor = 2 }
+            $h1 = Head
+            Add-Result import 'model Scale Factor 2 doubles the character' ($m0 -and $m1 -and [math]::Abs([double]$m1.imported.unitScale / [double]$m0.imported.unitScale - 2) -lt 1e-4 -and $h0 -gt 0.5 -and [math]::Abs($h1 / $h0 - 2) -lt 0.05) ("unitScale {0} → {1}, head y {2:F3} → {3:F3}" -f $m0.imported.unitScale, $m1.imported.unitScale, $h0, $h1)
+            $m2 = Settings $fbx @{ scaleFactor = 1; animationType = 'Generic' }
+            # 고치기: Neck 없음 (선택 본) + LeftFoot 을 무릎 노드로 (이미 LeftLowerLeg 라 무시돼야 — 두 본이 한 노드면 길이 0)
+            $knee = $m0.imported.bones.LeftLowerLeg
+            $opt = @('Neck', 'Chest', 'UpperChest', 'LeftShoulder', 'RightShoulder') | Where-Object { $m0.imported.bones.$_ } | Select-Object -First 1   # 모델에 있는 선택 본
+            $m3 = Settings $fbx @{ animationType = 'Humanoid'; humanBones = @{ $opt = 'None'; LeftFoot = $knee } }
+            $ok = $m0.imported.humanoid -and -not $m2.imported.humanoid -and $m3.imported.humanoid -and $opt -and -not $m3.imported.bones.$opt -and $m3.imported.bones.LeftFoot -eq $m0.imported.bones.LeftFoot
+            Add-Result import 'model Rig: Generic / Humanoid bone override' $ok "auto humanoid $($m0.imported.humanoid) ($($m0.imported.humanBones) bones), Generic → $($m2.imported.humanoid), $opt $($m0.imported.bones.$opt) → None '$($m3.imported.bones.$opt)', LeftFoot → $($m3.imported.bones.LeftFoot) (duplicate ignored)"
+            $m4 = Settings $fbx 'reset'
+            Add-Result import 'model reset restores the automatic import' ($m4 -and -not $m4.hasMeta -and [math]::Abs([double]$m4.imported.unitScale - [double]$m0.imported.unitScale) -lt 1e-6 -and $m4.imported.bones.LeftFoot -eq $m0.imported.bones.LeftFoot) "unitScale $($m4.imported.unitScale), LeftFoot $($m4.imported.bones.LeftFoot)"
+        }
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        foreach ($m in @('Assets\TestAssets\Audio\long.mp3.meta', 'Assets\TestAssets\Cameron\Cameron_Model.fbx.meta')) { Remove-Item -LiteralPath (Join-Path $Project $m) -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Wait-Compile { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 60) { Invoke-Nova 'wait 20' | Out-Null; if (-not (Info).compiling) { return } } }
 
 function Suite-Packages
@@ -410,6 +484,8 @@ function Suite-Audio
         if ((Test-Path (Join-Path $audioDir 'ring.ogg')) -and (Test-Path (Join-Path $audioDir 'hey.mp3')) -and (Test-Path (Join-Path $audioDir 'long.mp3')))
         {
             Invoke-Nova 'scene new --force' | Out-Null
+            # Load Type 기본은 Decompress On Load (Unity) → 긴 곡은 Import Settings 로 Streaming
+            '{ "importer": "AudioImporter", "loadType": "Streaming" }' | Set-Content -Encoding utf8 (Join-Path $audioDir 'long.mp3.meta')
             $k = 0
             foreach ($f in @('ring.ogg', 'hey.mp3', 'long.mp3'))
             {
@@ -430,6 +506,7 @@ function Suite-Audio
     {
         Write-Host "  $(Stop-TestEditor $ed)"
         Remove-Item -LiteralPath $mixer -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath (Join-Path $Project 'Assets\TestAssets\Audio\long.mp3.meta') -ErrorAction SilentlyContinue
     }
 }
 
@@ -664,6 +741,7 @@ try
                 'cli' { Suite-Cli }
                 'physics' { Suite-Physics }
                 'animation' { Suite-Animation }
+                'import' { Suite-Import }
                 'packages' { Suite-Packages }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }

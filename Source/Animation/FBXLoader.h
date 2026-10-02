@@ -36,6 +36,8 @@ struct Subset
 class FBXLoader
 {
 public:
+    float Scale = 1.0f;   // Import Settings 의 Scale Factor (정적 메시 정점 · 스켈레톤 UnitScale 에 곱한다)
+
     bool LoadModelFbx( 
         const std::string& filename, 
         MeshFile* skinnedModel);

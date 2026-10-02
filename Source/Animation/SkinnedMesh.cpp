@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "SkinnedMesh.h"
 #include "FBXLoader.h"
+#include "AssetImportSettings.h"
 #include "SkinnedData.h"
 #include "LoadM3d.h"
 #include "MathHelper.h"
@@ -203,26 +204,35 @@ MeshFile::~MeshFile()
 
 // 캐시(.mesh / .animations / .skeletons) 형식 버전. 구조가 바뀌면 값을 올린다 → 이전 캐시는 자동으로 다시 가져오기.
 // NVC8: Unity 와 같은 축(Y 180°)으로 가져오기 (FBXLoader 의 ToEngine) — 이전 캐시는 반대쪽을 본다
-static const uint32_t kMeshCacheMagic = 0x3843564E;   // "NVC8"
+// NVC9: 형식 다음에 Import Settings(.meta) 해시 — 설정을 바꾸거나 .meta 를 지우면 다시 가져온다
+static const uint32_t kMeshCacheMagic = 0x3943564E;   // "NVC9"
 
-static bool ReadCacheMagic(ifstream& in)
+static uint64_t ImportHash(const AssetImport::ModelSettings& settings)
+{
+	return (uint64_t)std::hash<std::string>{}(settings.ToJson().dump());
+}
+
+static bool ReadCacheMagic(ifstream& in, uint64_t expectHash)
 {
 	uint32_t magic = 0;
+	uint64_t hash = 0;
 	in.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-	return in.good() && magic == kMeshCacheMagic;
+	in.read(reinterpret_cast<char*>(&hash), sizeof(hash));
+	return in.good() && magic == kMeshCacheMagic && hash == expectHash;
 }
 
-static void WriteCacheMagic(ofstream& out)
+static void WriteCacheMagic(ofstream& out, uint64_t hash)
 {
 	out.write(reinterpret_cast<const char*>(&kMeshCacheMagic), sizeof(kMeshCacheMagic));
+	out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
 }
 
-static bool IsCacheCurrent(const string& path)
+static bool IsCacheCurrent(const string& path, uint64_t expectHash)
 {
 	if (!filesystem::exists(path))
 		return false;
 	ifstream in(path, ios::binary);
-	return ReadCacheMagic(in);
+	return ReadCacheMagic(in, expectHash);
 }
 
 MeshFile* MeshFile::LoadFromMetaFile(string path)
@@ -245,22 +255,24 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 	string load_path_animations = loadMeshFile->FullPath + ".animations";
 	string load_path_skeletone = loadMeshFile->FullPath + ".skeletons";
 
-	if (!IsCacheCurrent(load_path_mesh) || !IsCacheCurrent(load_path_animations) || !IsCacheCurrent(load_path_skeletone))
+	// 캐시를 만든 Import Settings 가 지금과 다르면 다시 가져온다
+	const wstring assetPath = string_to_wstring(loadMeshFile->FullPath);
+	const uint64_t hash = ImportHash(AssetImport::LoadModel(assetPath));
+	if (!IsCacheCurrent(load_path_mesh, hash) || !IsCacheCurrent(load_path_animations, hash) || !IsCacheCurrent(load_path_skeletone, hash))
 	{
 		if (!filesystem::exists(loadMeshFile->FullPath))
 		{
 			delete loadMeshFile;
 			return nullptr;
 		}
-		loadMeshFile->UseImportAnimation = true;
-		loadMeshFile->ImportFile();   // FBX → 캐시 (현재 형식)
+		loadMeshFile->ImportFile();   // FBX → 캐시 (현재 형식, Import Settings 적용)
 		return loadMeshFile;
 	}
 
 	if (filesystem::exists(load_path_mesh))
 	{
 		ifstream mesh_instream(load_path_mesh, ios::binary);
-		ReadCacheMagic(mesh_instream);
+		ReadCacheMagic(mesh_instream, hash);
 		loadMeshFile->load_mesh(mesh_instream); 
 		mesh_instream.close(); 
 	}
@@ -269,7 +281,7 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 		try
 		{
 			ifstream animation_instream(load_path_animations, ios::binary);
-			ReadCacheMagic(animation_instream);
+			ReadCacheMagic(animation_instream, hash);
 			loadMeshFile->load_animations(animation_instream);
 			animation_instream.close();
 		}
@@ -283,7 +295,7 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 		try
 		{
 			ifstream skeletons_instream(load_path_skeletone, ios::binary);
-			ReadCacheMagic(skeletons_instream);
+			ReadCacheMagic(skeletons_instream, hash);
 			loadMeshFile->load_skeletone(skeletons_instream);
 			skeletons_instream.close(); 
 		}
@@ -292,6 +304,9 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 
 		}
 	}
+	for (auto& skeleton : loadMeshFile->Avatas)
+		if (skeleton)
+			skeleton->SourcePath = assetPath;
 
 	return loadMeshFile;  
 }
@@ -310,8 +325,9 @@ MeshFile* MeshFile::LoadFromFbxFile(string path)
 		return nullptr; 
 	}
 
-	// Parsing
+	// Parsing (Inspector 미리보기 — Scale Factor 적용)
 	FBXLoader fbxLoader;
+	fbxLoader.Scale = AssetImport::LoadModel(string_to_wstring(loadMeshFile->FullPath)).ScaleFactor;
 	fbxLoader.LoadModelFbx(loadMeshFile->FullPath, loadMeshFile);
 
 	return loadMeshFile;
@@ -337,32 +353,41 @@ void MeshFile::OnInspectorGUI()
 
 void MeshFile::ImportFile()
 {
-	// FBX → 메시 / 스켈레톤 / 애니메이션
+	// FBX → 메시 / 스켈레톤 / 애니메이션 (Import Settings: Scale Factor, Import Animation)
+	const wstring assetPath = string_to_wstring(FullPath);
+	const AssetImport::ModelSettings settings = AssetImport::LoadModel(assetPath);
+	UseImportAnimation = settings.ImportAnimation;
+	ScaleFactor = settings.ScaleFactor;
 	FBXLoader fbxLoader;
+	fbxLoader.Scale = settings.ScaleFactor;
 	Meshs.clear();
 	SkinnedMeshs.clear();
 	fbxLoader.LoadModelFbx(FullPath, this);
 	Avatas.clear();
 	fbxLoader.LoadSkeletonAvata(FullPath, Avatas);
+	for (auto& skeleton : Avatas)
+		if (skeleton)
+			skeleton->SourcePath = assetPath;
 	SkinnedData.AnimationClips.clear();
 	if (UseImportAnimation)
 		fbxLoader.LoadAnimation(FullPath, SkinnedData);
 
-	// 캐시 저장 (FBX 옆에 .mesh / .animations / .skeletons)
+	// 캐시 저장 (FBX 옆에 .mesh / .animations / .skeletons, 머리에 Import Settings 해시)
+	const uint64_t hash = ImportHash(settings);
 	auto open = [&](const wstring& suffix) { return ofstream(PathManager::GetI()->GetMovePathS(wstring_to_string(Path + suffix)), ios::binary); };
 	{
 		ofstream out = open(L".mesh");
-		WriteCacheMagic(out);
+		WriteCacheMagic(out, hash);
 		save_mesh(out);
 	}
 	{
 		ofstream out = open(L".animations");
-		WriteCacheMagic(out);
+		WriteCacheMagic(out, hash);
 		save_animations(out);
 	}
 	{
 		ofstream out = open(L".skeletons");
-		WriteCacheMagic(out);
+		WriteCacheMagic(out, hash);
 		save_skeletone(out);
 	}
 }

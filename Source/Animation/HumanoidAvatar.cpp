@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "HumanoidAvatar.h"
 #include "AnimationPose.h"
+#include "AssetImportSettings.h"
 
 namespace Humanoid
 {
@@ -118,6 +119,9 @@ namespace Humanoid
 		// 방향 from 을 to 로 돌리는 가장 짧은 회전 (행 벡터 규약: v * Rotation(q))
 		XMVECTOR FromTo(XMVECTOR from, XMVECTOR to)
 		{
+			// 길이 0 (두 본이 같은 노드 등) 이면 방향이 없다 → 회전 없음 (축 0 이면 DirectXMath assert)
+			if (XMVectorGetX(XMVector3LengthSq(from)) < 1e-12f || XMVectorGetX(XMVector3LengthSq(to)) < 1e-12f)
+				return XMQuaternionIdentity();
 			from = XMVector3Normalize(from);
 			to = XMVector3Normalize(to);
 			const float d = std::clamp(XMVectorGetX(XMVector3Dot(from, to)), -1.0f, 1.0f);
@@ -227,6 +231,36 @@ namespace Humanoid
 				}
 			}
 
+			// Import Settings (.meta): Generic 이면 사람 본 없음, 고친 본은 자동 매핑 대신
+			if (!s.SourcePath.empty())
+			{
+				const AssetImport::ModelSettings ms = AssetImport::LoadModel(s.SourcePath);
+				if (ms.AnimationType == AssetImport::ModelSettings::Generic)
+				{
+					a.Generic = true;
+					std::fill(std::begin(a.Node), std::end(a.Node), -1);
+					return;
+				}
+				for (const auto& [bone, node] : ms.HumanBones)
+				{
+					const int b = BoneFromName(bone);
+					if (b < 0)
+						continue;
+					const int idx = _stricmp(node.c_str(), "None") == 0 ? -1 : s.FindNode(node);
+					// 한 노드는 한 본에만 (Unity 와 같음) — 이미 다른 본이면 고친 값을 쓰지 않는다
+					bool taken = false;
+					for (int o = 0; o < BoneCount && idx >= 0; ++o)
+						taken |= o != b && N[o] == idx;
+					if (taken)
+					{
+						EditorLog::Write("Animation", "%s: %s -> %s ignored (that node is already another bone)", s.Name.c_str(), bone.c_str(), node.c_str());
+						continue;
+					}
+					N[b] = idx;
+					a.Overridden = true;
+				}
+			}
+
 			const Bone required[] = { Hips, Spine, Head, LeftUpperArm, LeftLowerArm, LeftHand, RightUpperArm, RightLowerArm, RightHand,
 				LeftUpperLeg, LeftLowerLeg, LeftFoot, RightUpperLeg, RightLowerLeg, RightFoot };
 			a.Valid = true;
@@ -308,6 +342,25 @@ namespace Humanoid
 	}
 
 	const char* BoneName(int bone) { return bone >= 0 && bone < BoneCount ? kNames[bone] : "?"; }
+
+	int BoneFromName(const std::string& name)
+	{
+		for (int b = 0; b < BoneCount; ++b)
+			if (_stricmp(name.c_str(), kNames[b]) == 0)
+				return b;
+		return -1;
+	}
+
+	void Forget(const SkeletonAvataData& skeleton)
+	{
+		static std::vector<std::unique_ptr<Avatar>> s_Retired;   // 아직 들고 있는 Animator 가 있을 수 있다
+		auto it = Cache().find(&skeleton);
+		if (it == Cache().end())
+			return;
+		if (it->second)
+			s_Retired.push_back(std::move(it->second));
+		Cache().erase(it);
+	}
 
 	const Avatar& Get(const SkeletonAvataData& skeleton)
 	{

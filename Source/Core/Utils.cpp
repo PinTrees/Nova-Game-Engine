@@ -5,7 +5,91 @@
 #include <fstream>
 #include <sstream>
 #include "Debug.h"
+#include "AssetImportSettings.h"
 namespace fs = std::filesystem;
+
+namespace
+{
+	// Import Settings 적용: Max Size (큰 쪽 기준, 비율 유지) → 밉맵 → 압축 (BC1/BC3 · BC7)
+	void ApplyTextureImport(ScratchImage& img, TexMetadata& md, const AssetImport::TextureSettings& ts, const wstring& path)
+	{
+		if (md.dimension != TEX_DIMENSION_TEXTURE2D || md.arraySize != 1 || md.depth != 1)
+			return;   // 큐브맵·배열·3D 는 그대로
+		const bool tooBig = (int)(std::max)(md.width, md.height) > ts.MaxSize;
+		const bool wantCompressed = ts.Compression != AssetImport::TextureSettings::None;
+		const bool wantMips = ts.MipMaps && md.width > 1 && md.height > 1;
+		const bool mipsOk = wantMips ? md.mipLevels > 1 : md.mipLevels == 1;
+		if (!tooBig && mipsOk && (IsCompressed(md.format) || !wantCompressed))
+			return;   // 바꿀 것 없음 (이미 압축된 DDS 는 그대로 쓴다)
+
+		HRESULT hr = S_OK;
+		// 압축된 원본이면 풀어서 다시
+		if (IsCompressed(md.format))
+		{
+			ScratchImage raw;
+			hr = ::Decompress(img.GetImages(), img.GetImageCount(), md, IsSRGB(md.format) ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM, raw);
+			if (FAILED(hr))
+				return;
+			img = std::move(raw);
+			md = img.GetMetadata();
+		}
+		// 맨 위 밉만 남기고 (크기를 바꾸거나 밉을 다시 만든다)
+		if (md.mipLevels > 1 && (tooBig || !wantMips))
+		{
+			ScratchImage top;
+			if (SUCCEEDED(top.InitializeFromImage(*img.GetImage(0, 0, 0))))
+			{
+				img = std::move(top);
+				md = img.GetMetadata();
+			}
+		}
+		if (tooBig)
+		{
+			const double k = (double)ts.MaxSize / (double)(std::max)(md.width, md.height);
+			const size_t w = (std::max)((size_t)1, (size_t)std::lround(md.width * k));
+			const size_t h = (std::max)((size_t)1, (size_t)std::lround(md.height * k));
+			ScratchImage resized;
+			if (SUCCEEDED(::Resize(*img.GetImage(0, 0, 0), w, h, TEX_FILTER_DEFAULT, resized)))
+			{
+				img = std::move(resized);
+				md = img.GetMetadata();
+			}
+		}
+		if (wantMips && md.mipLevels == 1)
+		{
+			ScratchImage mipped;
+			if (SUCCEEDED(::GenerateMipMaps(img.GetImages(), img.GetImageCount(), md, TEX_FILTER_DEFAULT, 0, mipped)))
+			{
+				img = std::move(mipped);
+				md = img.GetMetadata();
+			}
+		}
+		if (wantCompressed)
+		{
+			// BC 는 맨 위 크기가 4 의 배수여야 한다 (D3D11)
+			if (md.width % 4 != 0 || md.height % 4 != 0)
+			{
+				EditorLog::Write("Texture", "%s: %zux%zu is not a multiple of 4 - left uncompressed", wstring_to_string(fs::path(path).filename().wstring()).c_str(), md.width, md.height);
+				return;
+			}
+			const bool srgb = IsSRGB(md.format);
+			DXGI_FORMAT bc;
+			if (ts.Compression == AssetImport::TextureSettings::HighQuality)
+				bc = srgb ? DXGI_FORMAT_BC7_UNORM_SRGB : DXGI_FORMAT_BC7_UNORM;
+			else if (img.IsAlphaAllOpaque())
+				bc = srgb ? DXGI_FORMAT_BC1_UNORM_SRGB : DXGI_FORMAT_BC1_UNORM;
+			else
+				bc = srgb ? DXGI_FORMAT_BC3_UNORM_SRGB : DXGI_FORMAT_BC3_UNORM;
+			ScratchImage packed;
+			hr = ::Compress(img.GetImages(), img.GetImageCount(), md, bc, TEX_COMPRESS_PARALLEL, TEX_THRESHOLD_DEFAULT, packed);
+			if (SUCCEEDED(hr))
+			{
+				img = std::move(packed);
+				md = img.GetMetadata();
+			}
+		}
+	}
+}
 
 ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const wstring& path)
 {
@@ -16,16 +100,29 @@ ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const
 	DirectX::ScratchImage img;
 
 	HRESULT hr;
+	const AssetImport::TextureSettings ts = AssetImport::LoadTexture(path);
+	int sourceW = 0, sourceH = 0;
 
-	if (ext == L".dds" || ext == L".DDS")
-		hr = ::LoadFromDDSFile(path.c_str(), DDS_FLAGS_NONE,& md, img);
-	else if (ext == L".tga" || ext == L".TGA")
-		hr = ::LoadFromTGAFile(path.c_str(), &md, img);
+	if (ext == L".dds" || ext == L".DDS" || ext == L".tga" || ext == L".TGA")
+	{
+		if (ext == L".dds" || ext == L".DDS")
+			hr = ::LoadFromDDSFile(path.c_str(), DDS_FLAGS_NONE, &md, img);
+		else
+			hr = ::LoadFromTGAFile(path.c_str(), &md, img);
+		if (SUCCEEDED(hr))
+		{
+			sourceW = (int)md.width;
+			sourceH = (int)md.height;
+			ApplyTextureImport(img, md, ts, path);
+		}
+	}
 	else // png, jpg, jpeg, bmp
 	{
-		// 디코딩된 텍스처를 밉맵 포함 DDS로 캐시해 다음 실행의 PNG 디코딩을 생략
+		// 디코딩 + 가져오기 설정을 적용한 텍스처를 밉맵 포함 DDS로 캐시해 다음 실행의 PNG 디코딩을 생략
+		// (이름에 설정 태그 — 설정을 바꾸면 다른 캐시. v2 = Import Settings 이전 캐시는 쓰지 않음)
 		fs::path cacheDir = L"TextureCache";
-		fs::path cacheFile = cacheDir / (fs::path(path).stem().wstring() + L"_" + std::to_wstring(std::hash<wstring>{}(fs::path(path).lexically_normal().wstring())) + L".dds");
+		fs::path cacheFile = cacheDir / (fs::path(path).stem().wstring() + L"_" + std::to_wstring(std::hash<wstring>{}(fs::path(path).lexically_normal().wstring()))
+			+ L"_v2" + string_to_wstring(ts.CacheTag()) + L".dds");
 
 		std::error_code ec;
 		bool cacheValid = fs::exists(cacheFile, ec) && fs::exists(path, ec) &&
@@ -33,22 +130,24 @@ ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const
 
 		hr = E_FAIL;
 		if (cacheValid)
+		{
 			hr = ::LoadFromDDSFile(cacheFile.c_str(), DDS_FLAGS_NONE, &md, img);
+			TexMetadata src = {};
+			if (SUCCEEDED(hr) && SUCCEEDED(::GetMetadataFromWICFile(path.c_str(), WIC_FLAGS_NONE, src)))
+			{
+				sourceW = (int)src.width;
+				sourceH = (int)src.height;
+			}
+		}
 
 		if (FAILED(hr))
 		{
 			hr = ::LoadFromWICFile(path.c_str(), WIC_FLAGS_NONE, &md, img);
 			if (SUCCEEDED(hr))
 			{
-				if (md.mipLevels == 1 && md.width > 1 && md.height > 1)
-				{
-					ScratchImage mipped;
-					if (SUCCEEDED(::GenerateMipMaps(img.GetImages(), img.GetImageCount(), md, TEX_FILTER_DEFAULT, 0, mipped)))
-					{
-						img = std::move(mipped);
-						md = img.GetMetadata();
-					}
-				}
+				sourceW = (int)md.width;
+				sourceH = (int)md.height;
+				ApplyTextureImport(img, md, ts, path);
 				fs::create_directories(cacheDir, ec);
 				::SaveToDDSFile(img.GetImages(), img.GetImageCount(), md, DDS_FLAGS_NONE, cacheFile.c_str());
 			}
@@ -58,6 +157,33 @@ ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const
 	ComPtr<GfxShaderResourceView> srv;
 	if (SUCCEEDED(hr))
 		hr = Gfx::CreateShaderResourceView(device.Get(), img.GetImages(), img.GetImageCount(), md, srv.GetAddressOf());
+	if (SUCCEEDED(hr))
+	{
+		AssetImport::TextureInfo info;
+		info.SourceWidth = sourceW;
+		info.SourceHeight = sourceH;
+		info.Width = (int)md.width;
+		info.Height = (int)md.height;
+		info.Mips = (int)md.mipLevels;
+		info.Bytes = img.GetPixelsSize();
+		switch (MakeTypeless(md.format))
+		{
+		case DXGI_FORMAT_R8G8B8A8_TYPELESS: info.Format = "RGBA32"; break;
+		case DXGI_FORMAT_B8G8R8A8_TYPELESS: info.Format = "BGRA32"; break;
+		case DXGI_FORMAT_B8G8R8X8_TYPELESS: info.Format = "BGRX32"; break;
+		case DXGI_FORMAT_BC1_TYPELESS: info.Format = "BC1 (DXT1)"; break;
+		case DXGI_FORMAT_BC2_TYPELESS: info.Format = "BC2 (DXT3)"; break;
+		case DXGI_FORMAT_BC3_TYPELESS: info.Format = "BC3 (DXT5)"; break;
+		case DXGI_FORMAT_BC4_TYPELESS: info.Format = "BC4"; break;
+		case DXGI_FORMAT_BC5_TYPELESS: info.Format = "BC5"; break;
+		case DXGI_FORMAT_BC7_TYPELESS: info.Format = "BC7"; break;
+		case DXGI_FORMAT_R16G16B16A16_TYPELESS: info.Format = "RGBA64"; break;
+		default: info.Format = "format " + std::to_string((int)md.format); break;
+		}
+		if (IsSRGB(md.format))
+			info.Format += " sRGB";
+		AssetImport::RecordTexture(path, info);
+	}
 
 	if (FAILED(hr))
 	{

@@ -166,7 +166,7 @@ bool FBXLoader::LoadSkeletonAvata(const std::string& filepath, vector<shared_ptr
         if (scene->mMetaData->Get("UnitScaleFactor", d) && d > 0.0) unit = d;
         else if (scene->mMetaData->Get("UnitScaleFactor", f) && f > 0.0f) unit = f;
     }
-    skeletonData->UnitScale = (float)(unit * 0.01);
+    skeletonData->UnitScale = (float)(unit * 0.01) * Scale;
 
     skeletones.push_back(skeletonData);
     return true;
@@ -386,7 +386,7 @@ void FBXLoader::ProcessMesh(
     for (UINT i = 0; i < mesh->mNumVertices; ++i)
     {
         Vertex::PosNormalTexTan2 vertex;
-        const aiVector3D p = ToEngine(mesh->mVertices[i]);
+        const aiVector3D p = ToEngine(mesh->mVertices[i]) * Scale;
         vertex.pos = XMFLOAT3(p.x, p.y, p.z);
 
         // Normal

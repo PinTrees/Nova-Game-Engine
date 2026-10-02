@@ -13,6 +13,7 @@
 #include "RenderPipelineSettings.h"
 #include "UnityGUI.h"
 #include "MaterialInspector.h"
+#include "ImportSettingsInspector.h"
 
 namespace fs = std::filesystem;
 
@@ -53,13 +54,10 @@ void InspectorEditorWindow::OnRender()
 			MaterialInspector::WatchUndo(material);
 			material->OnInspectorGUI(false);
 		}
-		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::FBX)
+		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::FBX || SelectionManager::GetSelectedSubType() == SelectionSubType::TEXTURE)
 		{
-			auto fbxObject = SelectionManager::GetSelectFbxModel();
-			if (fbxObject == nullptr)
-				return;
-
-			fbxObject->OnInspectorGUI();
+			// Import Settings (Model: Scale Factor · Rig · Animation / Texture: Max Size · Compression)
+			ImportSettingsInspector::Draw(SelectionManager::GetSelectedFile());
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::CUSTOM_ASSET)
 		{
@@ -102,11 +100,12 @@ void InspectorEditorWindow::OnRender()
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::AUDIO_CLIP)
 		{
-			// AudioClip Inspector: 정보 + 미리 듣기 (Unity 의 오디오 임포트 설정 하단 미리보기에 해당)
+			// AudioClip Inspector: Import Settings + 정보 + 미리 듣기 (Unity 의 오디오 임포트 설정 하단 미리보기에 해당)
+			ImportSettingsInspector::Draw(SelectionManager::GetSelectedFile());
 			const std::string rel = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(SelectionManager::GetSelectedFile()));
 			if (auto clip = AudioClip::Load(rel))
 			{
-				UnityGUI::Label((clip->Name() + " (Audio Clip)").c_str(), 0, true);
+				UnityGUI::Label("Preview", 0, true);
 				char buf[64];
 				UnityGUI::ValueLabel("Channels", clip->Channels == 1 ? "Mono" : (clip->Channels == 2 ? "Stereo" : std::to_string(clip->Channels).c_str()));
 				snprintf(buf, sizeof(buf), "%d Hz", clip->Frequency);
@@ -115,8 +114,16 @@ void InspectorEditorWindow::OnRender()
 				UnityGUI::ValueLabel("Format", buf);
 				snprintf(buf, sizeof(buf), "%.3f s", clip->Length);
 				UnityGUI::ValueLabel("Length", buf);
-				snprintf(buf, sizeof(buf), "%.1f KB", clip->Data.size() / 1024.0);
-				UnityGUI::ValueLabel("Size", buf);
+				if (clip->Streaming)
+				{
+					snprintf(buf, sizeof(buf), "%.1f KB compressed (%s)", clip->Encoded ? clip->Encoded->size() / 1024.0 : 0.0, clip->LoadType == 2 ? "streaming" : "decoded while playing");
+					UnityGUI::ValueLabel("Size", buf);
+				}
+				else
+				{
+					snprintf(buf, sizeof(buf), "%.1f KB", clip->Data.size() / 1024.0);
+					UnityGUI::ValueLabel("Size", buf);
+				}
 				UnityGUI::Spacing(6.0f);
 				const bool playing = AudioManager::IsPreviewPlaying();
 				if (UnityGUI::CenterButton(playing ? "Stop##clipPreview" : "Play##clipPreview", 140.0f))

@@ -21,6 +21,7 @@ enum class SelectionSubType
     VOLUME_PROFILE,
     AUDIO_CLIP,
     SCRIPT,
+    TEXTURE,        // 그림 파일 (Import Settings)
 };
 
 // 패키지 창이 고른 것: 데이터 + Inspector 에 그리는 함수
