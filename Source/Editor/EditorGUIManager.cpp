@@ -28,6 +28,7 @@
 #include "EditorWindow.h"
 #include "imgui_internal.h"
 #include "EditorGUI.h"
+#include "ImportSettingsInspector.h"
 #include "App.h"
 
 #include "GameObjectFactory.h"
@@ -139,6 +140,22 @@ void EditorGUIManager::Init(bool hubMode)
         const char* codeFont = std::filesystem::exists("C:\\Windows\\Fonts\\consola.ttf") ? "C:\\Windows\\Fonts\\consola.ttf" : "C:\\Windows\\Fonts\\cour.ttf";
         io.Fonts->AddFontFromFileTTF(codeFont, 16.0f, &codeCfg, io.Fonts->GetGlyphRangesDefault());
         io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgun.ttf", 15.0f, &mergeCfg, hangulRanges);
+
+        // 큰 굵은 글꼴: 키운 비트맵(SetWindowFontScale)은 흐려지므로 그 크기로 따로 굽는다
+        auto loadBold = [&](float size)
+        {
+            bool pretendard = false;
+            std::string file = EditorTheme::FontFile(true, pretendard);
+            ImFontConfig bigCfg = textCfg;
+            bigCfg.OversampleH = 2;   // 큰 글자는 가로 오버샘플링이 있어야 획이 매끈하다
+            io.Fonts->AddFontFromFileTTF(file.c_str(), size, &bigCfg, pretendard ? textRanges : io.Fonts->GetGlyphRangesDefault());
+            ImFontConfig bigMerge = bigCfg;
+            bigMerge.MergeMode = true;
+            if (!pretendard)
+                io.Fonts->AddFontFromFileTTF("C:\\Windows\\Fonts\\malgunbd.ttf", size, &bigMerge, hangulRanges);
+        };
+        loadBold(22.0f);   // Fonts[3]: 제목 (UnityGUI::TitleFont — Package Manager 패키지 이름)
+        loadBold(19.0f);   // Fonts[4]: 머리글 (UnityGUI::HeaderFont — Preferences · Project Settings 분류 제목)
     }
     else
     {
@@ -188,6 +205,7 @@ void EditorGUIManager::Destroy()
 
 void EditorGUIManager::Update()
 {
+    ImportSettingsInspector::Update();   // Inspector 에서 누른 Apply · Fix Now (그리기 밖에서 씬을 다시 만든다)
     if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
         ImGuiGL::NewFrame();
     else

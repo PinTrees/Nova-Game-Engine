@@ -40,6 +40,12 @@ namespace AnimatorIK
 		return XMVectorSet(g._41, g._42, g._43, 1.0f);
 	}
 
+	XMVECTOR RotationOf(const AnimatorPose& pose, int bone)
+	{
+		XMVECTOR s, q, t;
+		return XMMatrixDecompose(&s, &q, &t, XMLoadFloat4x4(&pose.Global[bone])) ? XMQuaternionNormalize(q) : XMQuaternionIdentity();
+	}
+
 	void RotateBone(AnimatorPose& pose, int bone, FXMVECTOR q)
 	{
 		if (bone < 0)

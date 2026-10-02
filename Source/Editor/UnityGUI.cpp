@@ -141,6 +141,18 @@ namespace UnityGUI
 		return io.Fonts->Fonts.Size > 1 ? io.Fonts->Fonts[1] : ImGui::GetFont();
 	}
 
+	ImFont* TitleFont()
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		return io.Fonts->Fonts.Size > 3 ? io.Fonts->Fonts[3] : BoldFont();
+	}
+
+	ImFont* HeaderFont()
+	{
+		ImGuiIO& io = ImGui::GetIO();
+		return io.Fonts->Fonts.Size > 4 ? io.Fonts->Fonts[4] : BoldFont();
+	}
+
 	void Spacing(float height)
 	{
 		ImVec2 p = ImGui::GetCursorScreenPos();

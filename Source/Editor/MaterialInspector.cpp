@@ -12,6 +12,8 @@
 #include "UndoSystem.h"
 #include "PathManager.h"
 #include "ResourceManager.h"
+#include "AssetImportSettings.h"
+#include "ImportSettingsInspector.h"
 
 namespace
 {
@@ -458,6 +460,17 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 			if (m.NormalMapSRV)
 				changed |= UnityGUI::FloatBox("##normalScale", &p.NormalScale, ImVec2(row.fieldX, row.p.y), 60.0f);
 			UnityGUI::EndFieldRow(row);
+			// Unity: 노멀맵으로 표시되지 않은 텍스처 → "Fix Now" (Texture Type = Normal map, 선형으로 다시 가져옴)
+			if (m.NormalMapSRV && !m.m_NormalMapPath.empty())
+			{
+				const std::wstring full = PathManager::GetI()->GetMovePathW(m.m_NormalMapPath);
+				if (AssetImport::AppliesTo(full) && AssetImport::LoadTexture(full).TextureType != AssetImport::TextureSettings::NormalMap)
+				{
+					UnityGUI::HelpBox("This texture is not marked as a normal map.", true, 1);
+					if (UnityGUI::CenterButton("Fix Now##normalFix", 120.0f))
+						ImportSettingsInspector::MarkAsNormalMap(full);
+				}
+			}
 			TextureRow("Height Map", nullptr, nullptr, "", row, 0, true);
 			UnityGUI::EndFieldRow(row);
 			// Occlusion Map + Strength

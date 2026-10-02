@@ -98,10 +98,8 @@ namespace
 	// Unity 의 Project Settings > Player (Windows 탭의 Resolution and Presentation 까지)
 	void DrawPlayer()
 	{
-		ImGui::PushFont(UnityGUI::BoldFont());
-		ImGui::SetWindowFontScale(1.35f);
+		ImGui::PushFont(UnityGUI::HeaderFont());
 		ImGui::TextUnformatted("Player");
-		ImGui::SetWindowFontScale(1.0f);
 		ImGui::PopFont();
 		ImGui::Spacing();
 		BuildSettings::Player& p = BuildSettings::GetPlayer();
@@ -152,10 +150,8 @@ namespace
 
 	void DrawGraphics()
 	{
-		ImGui::PushFont(UnityGUI::BoldFont());
-		ImGui::SetWindowFontScale(1.35f);
+		ImGui::PushFont(UnityGUI::HeaderFont());
 		ImGui::TextUnformatted("Graphics");
-		ImGui::SetWindowFontScale(1.0f);
 		ImGui::PopFont();
 		ImGui::Spacing();
 

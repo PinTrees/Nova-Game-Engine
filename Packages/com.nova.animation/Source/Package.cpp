@@ -9,6 +9,7 @@
 #include "ScriptBindings.h"
 #include "LegsAnimator.h"
 #include "LookAnimator.h"
+#include "HandsAnimator.h"
 
 NOVA_PACKAGE_EXPORT const char* NovaPackage_Abi() { return NOVA_PACKAGE_ABI_VERSION; }
 
@@ -154,7 +155,7 @@ NOVA_PACKAGE_EXPORT float LEGS_GetFloat(uint64 id, int prop)
 	GameObject* go = ScriptBindings::FindObject(id);
 	LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr;
 	if (l == nullptr) return 0.0f;
-	switch (prop) { case 0: return l->Weight; case 1: return l->MaxStepDown; case 2: return l->MaxStepUp; default: return l->HipsMaxDown; }
+	switch (prop) { case 0: return l->Weight; case 1: return l->MaxStepDown; case 2: return l->MaxStepUp; case 3: return l->HipsMaxDown; case 4: return l->BodyLean; case 5: return l->MaxLean; case 6: return l->GetLean(); default: return 0.0f; }
 }
 
 NOVA_PACKAGE_EXPORT void LEGS_SetFloat(uint64 id, int prop, float v)
@@ -162,21 +163,36 @@ NOVA_PACKAGE_EXPORT void LEGS_SetFloat(uint64 id, int prop, float v)
 	GameObject* go = ScriptBindings::FindObject(id);
 	LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr;
 	if (l == nullptr) return;
-	switch (prop) { case 0: l->Weight = std::clamp(v, 0.0f, 1.0f); break; case 1: l->MaxStepDown = (std::max)(0.0f, v); break; case 2: l->MaxStepUp = (std::max)(0.0f, v); break; default: l->HipsMaxDown = (std::max)(0.0f, v); break; }
+	switch (prop)
+	{
+	case 0: l->Weight = std::clamp(v, 0.0f, 1.0f); break;
+	case 1: l->MaxStepDown = (std::max)(0.0f, v); break;
+	case 2: l->MaxStepUp = (std::max)(0.0f, v); break;
+	case 3: l->HipsMaxDown = (std::max)(0.0f, v); break;
+	case 4: l->BodyLean = std::clamp(v, 0.0f, 1.0f); break;
+	case 5: l->MaxLean = std::clamp(v, 0.0f, 45.0f); break;
+	default: break;
+	}
 }
 
+// bool 0 adjustHips, 1 alignFeet, 2 footLocking, 10/11 왼발·오른발 고정 중 (읽기만)
 NOVA_PACKAGE_EXPORT int LEGS_GetBool(uint64 id, int prop)
 {
 	GameObject* go = ScriptBindings::FindObject(id);
 	LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr;
-	return l ? (prop == 0 ? l->AdjustHips : l->AlignFeet) : 0;
+	if (l == nullptr) return 0;
+	switch (prop) { case 0: return l->AdjustHips; case 1: return l->AlignFeet; case 2: return l->FootLocking; case 10: return l->IsFootLocked(0); case 11: return l->IsFootLocked(1); default: return 0; }
 }
 
 NOVA_PACKAGE_EXPORT void LEGS_SetBool(uint64 id, int prop, int v)
 {
 	GameObject* go = ScriptBindings::FindObject(id);
 	if (LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr)
-		(prop == 0 ? l->AdjustHips : l->AlignFeet) = v != 0;
+	{
+		if (prop == 0) l->AdjustHips = v != 0;
+		else if (prop == 1) l->AlignFeet = v != 0;
+		else if (prop == 2) l->FootLocking = v != 0;
+	}
 }
 
 // ---- LookAnimator: float 0 weight, 1 maxYaw, 2 speed / 대상 오브젝트 / 위치
@@ -220,4 +236,67 @@ NOVA_PACKAGE_EXPORT void LOOK_SetPosition(uint64 id, Vec3* p, int use)
 	if (l == nullptr) return;
 	if (use && p) l->SetLookAtPosition(*p);
 	else l->ClearLookAtPosition();
+}
+
+// ---- HandsAnimator: hand 0 왼손 1 오른손
+namespace
+{
+	HandsAnimator* FindHands(uint64 id)
+	{
+		GameObject* go = ScriptBindings::FindObject(id);
+		return go ? go->GetComponentIncludingPending<HandsAnimator>() : nullptr;
+	}
+}
+
+// float: 0 weight, 1 blendSpeed, 10+hand 위치 가중치, 20+hand 회전 가중치
+NOVA_PACKAGE_EXPORT float HANDS_GetFloat(uint64 id, int prop)
+{
+	HandsAnimator* h = FindHands(id);
+	if (h == nullptr) return 0.0f;
+	if (prop == 0) return h->Weight;
+	if (prop == 1) return h->BlendSpeed;
+	if (prop >= 10 && prop < 12) return h->Hands[prop - 10].PositionWeight;
+	if (prop >= 20 && prop < 22) return h->Hands[prop - 20].RotationWeight;
+	return 0.0f;
+}
+
+NOVA_PACKAGE_EXPORT void HANDS_SetFloat(uint64 id, int prop, float v)
+{
+	HandsAnimator* h = FindHands(id);
+	if (h == nullptr) return;
+	if (prop == 0) h->Weight = std::clamp(v, 0.0f, 1.0f);
+	else if (prop == 1) h->BlendSpeed = (std::max)(0.1f, v);
+	else if (prop >= 10 && prop < 12) h->Hands[prop - 10].PositionWeight = std::clamp(v, 0.0f, 1.0f);
+	else if (prop >= 20 && prop < 22) h->Hands[prop - 20].RotationWeight = std::clamp(v, 0.0f, 1.0f);
+}
+
+// 대상: which 0 Target, 1 Hint
+NOVA_PACKAGE_EXPORT uint64 HANDS_GetObject(uint64 id, int hand, int which)
+{
+	HandsAnimator* h = FindHands(id);
+	if (h == nullptr || hand < 0 || hand > 1) return 0;
+	return which == 0 ? h->Hands[hand].Target : h->Hands[hand].Hint;
+}
+
+NOVA_PACKAGE_EXPORT void HANDS_SetObject(uint64 id, int hand, int which, uint64 target)
+{
+	HandsAnimator* h = FindHands(id);
+	if (h == nullptr || hand < 0 || hand > 1) return;
+	(which == 0 ? h->Hands[hand].Target : h->Hands[hand].Hint) = target;
+}
+
+// mode 0 위치, 1 회전 (q = x y z w), 2 지우기
+NOVA_PACKAGE_EXPORT void HANDS_SetIK(uint64 id, int hand, int mode, float* v)
+{
+	HandsAnimator* h = FindHands(id);
+	if (h == nullptr) return;
+	if (mode == 0 && v) h->SetIKPosition(hand, Vec3(v[0], v[1], v[2]));
+	else if (mode == 1 && v) h->SetIKRotation(hand, Quaternion(v[0], v[1], v[2], v[3]));
+	else if (mode == 2) h->ClearIK(hand);
+}
+
+NOVA_PACKAGE_EXPORT void HANDS_GetHand(uint64 id, int hand, Vec3* out)
+{
+	HandsAnimator* h = FindHands(id);
+	if (out) *out = h ? h->GetHandPosition(hand) : Vec3::Zero;
 }

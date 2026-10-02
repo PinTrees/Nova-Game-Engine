@@ -15,4 +15,9 @@ namespace ImportSettingsInspector
 	bool Apply(const std::wstring& fullPath, const nlohmann::json& settings, std::string& error);
 	// 캐시를 비우고 씬을 다시 만든다 (.meta 는 그대로)
 	void Reimport(const std::wstring& fullPath);
+	// 다음 프레임 처음에 Apply (Inspector 를 그리는 중에 씬을 다시 만들지 않게 — 재질 Inspector 의 Fix Now 등)
+	void ApplyDeferred(const std::wstring& fullPath, const nlohmann::json& settings);
+	void Update();   // EditorGUIManager::Update 가 프레임마다
+	// 텍스처를 Normal map 으로 (재질 Inspector 의 "Fix Now")
+	void MarkAsNormalMap(const std::wstring& fullPath);
 }

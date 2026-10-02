@@ -73,14 +73,13 @@ namespace
 		ImGui::PopTextWrapPos();
 	}
 
-	void Bold(const char* text, float scale = 1.0f, ImU32 color = kTextBright)
+	// 굵은 글자 (big = 제목 글꼴 22px — 키운 비트맵이 아니라 그 크기로 구운 글꼴)
+	void Bold(const char* text, bool big = false, ImU32 color = kTextBright)
 	{
-		ImGui::PushFont(UnityGUI::BoldFont());
-		if (scale != 1.0f) ImGui::SetWindowFontScale(scale);
+		ImGui::PushFont(big ? UnityGUI::TitleFont() : UnityGUI::BoldFont());
 		ImGui::PushStyleColor(ImGuiCol_Text, color);
 		ImGui::TextUnformatted(text);
 		ImGui::PopStyleColor();
-		if (scale != 1.0f) ImGui::SetWindowFontScale(1.0f);
 		ImGui::PopFont();
 	}
 
@@ -502,7 +501,8 @@ void PackageManagerWindow::DrawDetail(ImDrawList* dl, ImVec2 min, ImVec2 max)
 
 	// ---- 머리: 이름 · 버전 · 출처 ----
 	ImGui::SetCursorPos(ImVec2(pad, 14.0f));
-	Bold(p->DisplayName.c_str(), 1.6f);
+	Bold(p->DisplayName.c_str(), true);
+	ImGui::Dummy(ImVec2(0, 1));
 	ImGui::SetCursorPosX(pad);
 	{
 		std::string line = feature ? std::string("Feature") : p->Version;

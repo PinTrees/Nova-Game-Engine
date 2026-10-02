@@ -15,6 +15,8 @@ namespace UnityGUI
 	NOVA_API ImTextureID Icon(const char* name);
 	NOVA_API void DrawIcon(ImDrawList* dl, const char* name, ImVec2 pos, float size, ImU32 tint = IM_COL32_WHITE);
 	NOVA_API ImFont* BoldFont();
+	NOVA_API ImFont* TitleFont();    // 굵게 22px (큰 제목)
+	NOVA_API ImFont* HeaderFont();   // 굵게 19px (창 안의 분류 제목)
 
 	// ---- 레이아웃 ----
 	NOVA_API void Spacing(float height);

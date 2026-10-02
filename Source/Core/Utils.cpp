@@ -10,11 +10,34 @@ namespace fs = std::filesystem;
 
 namespace
 {
+	// sRGB 형식 → 같은 배치의 선형 형식 (이 DirectXTex 에는 MakeLinear 가 없다)
+	DXGI_FORMAT ToLinear(DXGI_FORMAT f)
+	{
+		switch (f)
+		{
+		case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: return DXGI_FORMAT_R8G8B8A8_UNORM;
+		case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_UNORM;
+		case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8X8_UNORM;
+		case DXGI_FORMAT_BC1_UNORM_SRGB: return DXGI_FORMAT_BC1_UNORM;
+		case DXGI_FORMAT_BC2_UNORM_SRGB: return DXGI_FORMAT_BC2_UNORM;
+		case DXGI_FORMAT_BC3_UNORM_SRGB: return DXGI_FORMAT_BC3_UNORM;
+		case DXGI_FORMAT_BC7_UNORM_SRGB: return DXGI_FORMAT_BC7_UNORM;
+		default: return f;
+		}
+	}
+
 	// Import Settings 적용: Max Size (큰 쪽 기준, 비율 유지) → 밉맵 → 압축 (BC1/BC3 · BC7)
 	void ApplyTextureImport(ScratchImage& img, TexMetadata& md, const AssetImport::TextureSettings& ts, const wstring& path)
 	{
 		if (md.dimension != TEX_DIMENSION_TEXTURE2D || md.arraySize != 1 || md.depth != 1)
 			return;   // 큐브맵·배열·3D 는 그대로
+		// 색 공간: Normal map · sRGB 끔 = 선형 (같은 바이트를 선형으로 읽는다 — 하드웨어 감마 풀기 없음)
+		const bool linear = ts.TextureType == AssetImport::TextureSettings::NormalMap || !ts.SRGB;
+		if (linear && IsSRGB(md.format))
+		{
+			img.OverrideFormat(ToLinear(md.format));
+			md = img.GetMetadata();
+		}
 		const bool tooBig = (int)(std::max)(md.width, md.height) > ts.MaxSize;
 		const bool wantCompressed = ts.Compression != AssetImport::TextureSettings::None;
 		const bool wantMips = ts.MipMaps && md.width > 1 && md.height > 1;
@@ -100,7 +123,8 @@ ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const
 	DirectX::ScratchImage img;
 
 	HRESULT hr;
-	const AssetImport::TextureSettings ts = AssetImport::LoadTexture(path);
+	// 프로젝트 · 패키지 에셋만 가져오기 설정을 쓴다 (에디터 아이콘 · 엔진 내부 텍스처는 원래대로)
+	const AssetImport::TextureSettings ts = AssetImport::AppliesTo(path) ? AssetImport::LoadTexture(path) : AssetImport::TextureSettings::Raw();
 	int sourceW = 0, sourceH = 0;
 
 	if (ext == L".dds" || ext == L".DDS" || ext == L".tga" || ext == L".TGA")

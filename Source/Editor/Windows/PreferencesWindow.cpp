@@ -23,10 +23,8 @@ namespace
 
 	void Title(const char* text)
 	{
-		ImGui::PushFont(UnityGUI::BoldFont());
-		ImGui::SetWindowFontScale(1.35f);
+		ImGui::PushFont(UnityGUI::HeaderFont());
 		ImGui::TextUnformatted(text);
-		ImGui::SetWindowFontScale(1.0f);
 		ImGui::PopFont();
 		ImGui::Spacing();
 	}

@@ -24,6 +24,7 @@ namespace
 		int Tab = 0;
 	};
 	State s_State;
+	std::vector<std::pair<std::wstring, json>> s_Deferred;
 
 	void Sync(const std::wstring& path)
 	{
@@ -60,11 +61,7 @@ namespace
 			s_State.Edit = s_State.Saved;
 		ImGui::SameLine(0, 6.0f);
 		if (ImGui::Button("Apply##import", ImVec2(w, 0)))
-		{
-			std::string error;
-			if (!ImportSettingsInspector::Apply(path, s_State.Edit, error))
-				EditorLog::Write("Import", "apply failed: %s", error.c_str());
-		}
+			ImportSettingsInspector::ApplyDeferred(path, s_State.Edit);   // 그리는 중에 씬을 다시 만들지 않게
 		ImGui::EndDisabled();
 		if (changed && playing)
 			UnityGUI::HelpBox("Exit Play mode to apply import settings.", true);
@@ -84,6 +81,15 @@ namespace
 	{
 		AssetImport::TextureSettings t;
 		t.FromJson(s_State.Edit);
+		static const char* types[] = { "Default", "Normal map", "Sprite (2D and UI)" };
+		const int oldType = t.TextureType;
+		if (UnityGUI::Dropdown("Texture Type", &t.TextureType, types, 3) && t.TextureType != oldType)
+			t.MipMaps = t.TextureType != AssetImport::TextureSettings::Sprite;   // Unity: Sprite 는 밉 없이
+		if (t.TextureType == AssetImport::TextureSettings::NormalMap)
+			UnityGUI::ValueLabel("sRGB (Color Texture)", "Off (normal maps are linear)");
+		else
+			UnityGUI::Toggle("sRGB (Color Texture)", &t.SRGB);
+		UnityGUI::Spacing(4.0f);
 		static const char* sizes[] = { "32", "64", "128", "256", "512", "1024", "2048", "4096", "8192", "16384" };
 		int si = 0;
 		while (si < 9 && (32 << si) < t.MaxSize)
@@ -95,6 +101,8 @@ namespace
 		UnityGUI::Toggle("Generate Mip Maps", &t.MipMaps);
 		s_State.Edit = t.ToJson();
 		ApplyRevertRow(path);
+		if (!AssetImport::AppliesTo(path))
+			UnityGUI::HelpBox("This texture is outside Assets and the engine packages: import settings are not used for it.", false);
 
 		// 가져온 결과 + 미리보기
 		const std::string rel = Rel(path);
@@ -329,6 +337,32 @@ namespace ImportSettingsInspector
 		if (SelectionManager::GetSelectedObjectType() == SelectionType::FILE && SelectionManager::GetSelectedFile() == fullPath)
 			SelectionManager::SetSelectedFile(fullPath);
 		EditorLog::Write("Import", "reimported %s with %s", rel.c_str(), AssetImport::LoadJson(fullPath).dump().c_str());
+	}
+
+	void ApplyDeferred(const std::wstring& fullPath, const json& settings)
+	{
+		s_Deferred.push_back({ fullPath, settings });
+	}
+
+	void Update()
+	{
+		if (s_Deferred.empty())
+			return;
+		auto work = std::move(s_Deferred);
+		s_Deferred.clear();
+		for (const auto& [path, settings] : work)
+		{
+			std::string error;
+			if (!Apply(path, settings, error))
+				EditorLog::Write("Import", "apply failed for %s: %s", wstring_to_string(path).c_str(), error.c_str());
+		}
+	}
+
+	void MarkAsNormalMap(const std::wstring& fullPath)
+	{
+		json s = AssetImport::LoadJson(fullPath);
+		s["textureType"] = "NormalMap";
+		ApplyDeferred(fullPath, s);
 	}
 
 	bool Apply(const std::wstring& fullPath, const json& settings, std::string& error)

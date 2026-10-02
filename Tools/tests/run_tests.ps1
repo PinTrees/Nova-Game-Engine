@@ -256,6 +256,61 @@ function Suite-Animation
         $dot = [math]::Abs($on[9] * $off[9] + $on[10] * $off[10] + $on[11] * $off[11] + $on[12] * $off[12])
         $ang = 2 * [math]::Acos([math]::Min(1.0, $dot)) * 180 / [math]::PI
         Add-Result animation 'look animator turns the head toward a target 45° aside' ($ang -gt 35 -and $ang -lt 55) ("head turned {0:F1}° (expect ~45)" -f $ang)
+
+        # 3) Foot Locking: 서 있으면 두 발 고정 → 몸을 0.1 m 옮겨도 발은 제자리, 0.5 m 면 놓는다
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name IKGround --position 0,-0.5,0 --scale 10,1,10' | Out-Null
+        Invoke-Nova 'create character --name LCh' | Out-Null
+        Invoke-Nova 'add-component LCh LegsAnimator' | Out-Null
+        Invoke-Nova 'add-component LCh HandsAnimator' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 1.0
+        $lf = Join-Path $Out 'ik_lock.cs'
+        'var g = GameObject.Find("LCh"); var l = g.GetComponent<LegsAnimator>(); var a = g.GetComponent<Animator>(); var p = a.GetBonePosition(HumanBodyBones.LeftFoot); return l.IsFootLocked(AvatarIKGoal.LeftFoot) + " " + l.IsFootLocked(AvatarIKGoal.RightFoot) + " " + p.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + p.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $lf
+        $mf = Join-Path $Out 'ik_move.cs'
+        function Lock { $m = Invoke-NovaJson "exec --file $lf"; if ($m) { "$($m.result)" -split ' ' } else { @() } }
+        function MoveX([double]$x) { "GameObject.Find(`"LCh`").transform.position = new Vector3($($x.ToString([Globalization.CultureInfo]::InvariantCulture))f, 0, 0); return 1;" | Set-Content -Encoding utf8 $mf; Invoke-Nova "exec --file $mf" | Out-Null; Wait-Sec 0.3 }
+        $k0 = Lock
+        MoveX 0.1
+        $k1 = Lock
+        MoveX 0.6
+        Wait-Sec 0.5
+        $k2 = Lock
+        $ok = $k0.Count -eq 4 -and $k0[0] -eq 'True' -and $k0[1] -eq 'True' -and [math]::Abs([double]$k1[2] - [double]$k0[2]) -lt 0.02 -and [math]::Abs([double]$k2[2] - [double]$k0[2] - 0.6) -lt 0.05
+        Add-Result animation 'legs animator foot locking' $ok ("locked {0}/{1}, left foot x {2} → body +0.1: {3} (stays) → body +0.6: {4} (released, follows)" -f $k0[0], $k0[1], $k0[2], $k1[2], $k2[2])
+
+        # 4) Hands Animator: 오른손을 앞 · 옆의 목표에
+        MoveX 0
+        $hf = Join-Path $Out 'ik_hand.cs'
+        @'
+var g = GameObject.Find("LCh"); var a = g.GetComponent<Animator>(); var h = g.GetComponent<HandsAnimator>();
+var s = a.GetBonePosition(HumanBodyBones.RightUpperArm);
+var t = s + new Vector3(0.15f, -0.15f, 0.35f);
+h.SetIKPosition(AvatarIKGoal.RightHand, t);
+return t.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + t.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + t.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+'@ | Set-Content -Encoding utf8 $hf
+        $ht = Invoke-NovaJson "exec --file $hf"
+        Wait-Sec 1.0
+        $rf2 = Join-Path $Out 'ik_hand2.cs'
+        'var p = GameObject.Find("LCh").GetComponent<Animator>().GetBonePosition(HumanBodyBones.RightHand); return p.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + p.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + p.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $rf2
+        $hp = Invoke-NovaJson "exec --file $rf2"
+        $tv = if ($ht) { @("$($ht.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() }
+        $pv = if ($hp) { @("$($hp.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() }
+        $dist = if ($tv.Count -eq 3 -and $pv.Count -eq 3) { [math]::Sqrt([math]::Pow($tv[0] - $pv[0], 2) + [math]::Pow($tv[1] - $pv[1], 2) + [math]::Pow($tv[2] - $pv[2], 2)) } else { 99 }
+        Add-Result animation 'hands animator reaches the target' ($dist -lt 0.03) ("hand {0:F3} m from the target" -f $dist)
+        Invoke-Nova 'stop' | Out-Null
+
+        # 5) Body Lean: 15° 오르막 (앞 = +Z 가 올라감) → 앞으로 기울인다
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name IKRamp --position 0,-0.1,0 --rotation -15,0,0 --scale 6,0.2,8' | Out-Null
+        Invoke-Nova 'create character --name LCh' | Out-Null
+        Invoke-Nova 'add-component LCh LegsAnimator' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 1.5
+        $bf = Join-Path $Out 'ik_lean.cs'
+        'return GameObject.Find("LCh").GetComponent<LegsAnimator>().lean.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $bf
+        $lean = Invoke-NovaJson "exec --file $bf"
+        Invoke-Nova 'stop' | Out-Null
+        $lv = if ($lean) { [double]$lean.result } else { 0 }
+        Add-Result animation 'legs animator leans forward uphill' ($lv -gt 4 -and $lv -lt 10) ("lean {0:F2}° on a 15° ramp (body lean 0.5 → ~7.5)" -f $lv)
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
@@ -284,11 +339,15 @@ function Suite-Import
         # 텍스처
         $tex = 'Assets\NovaTestImport\big.png'
         $t0 = Settings $tex $null
-        Add-Result import 'texture default Max Size 2048 keeps aspect' ($t0 -and -not $t0.hasMeta -and $t0.imported.width -eq 2048 -and $t0.imported.height -eq 1024 -and $t0.imported.mips -gt 1) "$($t0.imported.sourceWidth)x$($t0.imported.sourceHeight) → $($t0.imported.width)x$($t0.imported.height), $($t0.imported.mips) mips, meta $($t0.hasMeta)"
-        $t1 = Settings $tex @{ maxSize = 512; compression = 'NormalQuality' }
-        Add-Result import 'texture Max Size 512 + Normal Quality → BC1' ($t1 -and $t1.hasMeta -and $t1.imported.width -eq 512 -and $t1.imported.height -eq 256 -and $t1.imported.format -match 'BC1') "$($t1.imported.width)x$($t1.imported.height) $($t1.imported.format), $($t1.imported.bytes) bytes"
+        Add-Result import 'texture default: Max Size 2048 + Normal Quality (BC1)' ($t0 -and -not $t0.hasMeta -and $t0.imported.width -eq 2048 -and $t0.imported.height -eq 1024 -and $t0.imported.mips -gt 1 -and $t0.imported.format -match 'BC1') "$($t0.imported.sourceWidth)x$($t0.imported.sourceHeight) → $($t0.imported.width)x$($t0.imported.height) $($t0.imported.format), $($t0.imported.mips) mips, meta $($t0.hasMeta)"
+        $t1 = Settings $tex @{ maxSize = 512; compression = 'None' }
+        Add-Result import 'texture Max Size 512 + no compression' ($t1 -and $t1.hasMeta -and $t1.imported.width -eq 512 -and $t1.imported.height -eq 256 -and $t1.imported.format -notmatch 'BC') "$($t1.imported.width)x$($t1.imported.height) $($t1.imported.format), $($t1.imported.bytes) bytes"
+        $t3 = Settings $tex @{ maxSize = 512; compression = 'NormalQuality'; textureType = 'NormalMap' }
+        Add-Result import 'texture type Normal map → linear BC' ($t3 -and $t3.imported.format -match 'BC' -and $t3.imported.format -notmatch 'sRGB' -and $t3.settings.textureType -eq 'NormalMap') "$($t3.imported.format) (was $($t0.imported.format))"
+        $t4 = Settings $tex @{ textureType = 'Sprite'; compression = 'None'; mipmaps = $false }   # Inspector 는 Sprite 로 바꿀 때 밉을 끈다
+        Add-Result import 'texture type Sprite → no mip maps' ($t4 -and $t4.imported.mips -eq 1 -and $t4.settings.mipmaps -eq $false) "$($t4.imported.mips) mips"
         $t2 = Settings $tex 'reset'
-        Add-Result import 'texture reset removes .meta' ($t2 -and -not $t2.hasMeta -and $t2.imported.width -eq 2048 -and $t2.imported.format -notmatch 'BC') "$($t2.imported.width)x$($t2.imported.height) $($t2.imported.format)"
+        Add-Result import 'texture reset removes .meta' ($t2 -and -not $t2.hasMeta -and $t2.imported.width -eq 2048 -and $t2.imported.format -eq $t0.imported.format) "$($t2.imported.width)x$($t2.imported.height) $($t2.imported.format)"
 
         # 오디오 (long.mp3 가 있을 때)
         $mp3 = 'Assets\TestAssets\Audio\long.mp3'

@@ -25,6 +25,8 @@ public:
 namespace AnimatorIK
 {
 	XMVECTOR Position(const AnimatorPose& pose, int bone);
+	// 본의 모델 공간 회전 (쿼터니언, 크기 뺌)
+	XMVECTOR RotationOf(const AnimatorPose& pose, int bone);
 	// 모델 공간 회전 q 를 본 위치를 중심으로 (자손이 따라온다)
 	void RotateBone(AnimatorPose& pose, int bone, FXMVECTOR q);
 	// 모델 공간 이동 (자손이 따라온다)
@@ -33,6 +35,7 @@ namespace AnimatorIK
 	XMVECTOR FromTo(FXMVECTOR from, FXMVECTOR to);
 	// 두 뼈 IK: upper → lower → end 가 target 에 닿게 (무릎·팔꿈치는 지금 굽은 쪽으로)
 	void SolveTwoBone(AnimatorPose& pose, int upper, int lower, int end, FXMVECTOR target);
+	// 손 · 팔 IK 등 (Hands Animator) — 다리(0) → 손(5) → 시선(10)
 	// 스크립트·컴포넌트가 프레임마다 쓰는 지수 감쇠 (speed = 1/초)
 	inline float Damp(float current, float target, float speed, float dt) { return current + (target - current) * (1.0f - expf(-speed * dt)); }
 }

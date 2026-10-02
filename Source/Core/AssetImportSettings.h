@@ -4,7 +4,9 @@
 #include <nlohmann/json.hpp>
 
 // Unity 의 Import Settings: 에셋 옆 `<파일>.meta`(JSON) 에 가져오기 설정을 둔다. 없으면 기본값 (Unity 와 같은 값).
-//  - 텍스처: Max Size (기본 2048 — 큰 쪽이 넘으면 줄임), Compression (None / Normal = BC1·BC3 / High = BC7), Generate Mip Maps
+//  - 텍스처: Texture Type (Default / Normal map / Sprite), sRGB, Max Size (기본 2048 — 큰 쪽이 넘으면 줄임),
+//           Compression (None / Normal = BC1·BC3 기본 / High = BC7), Generate Mip Maps
+//    프로젝트 Assets 와 엔진 Resources\Packages 의 에셋에만 적용 (에디터 아이콘 · 엔진 내부 텍스처는 그대로 — Raw)
 //  - 모델(FBX): Scale Factor, Import Animation, Animation Type (Generic / Humanoid — 없으면 사람 본을 찾으면 Humanoid), 사람 본 매핑 직접 지정
 //  - 오디오: Load Type (Decompress On Load / Compressed In Memory / Streaming), Force To Mono
 // 경로는 디스크 전체 경로 (PathManager::GetMovePathW 결과).
@@ -15,9 +17,14 @@ namespace AssetImport
 	struct NOVA_API TextureSettings
 	{
 		enum Compression { None = 0, NormalQuality = 1, HighQuality = 2 };
+		enum Type { Default = 0, NormalMap = 1, Sprite = 2 };
+		int TextureType = Default;
+		bool SRGB = true;              // Default · Sprite: 색 텍스처 (끄면 선형 — 마스크 등). Normal map 은 늘 선형
 		int MaxSize = 2048;
-		int Compression = None;
+		int Compression = NormalQuality;   // Unity 기본. 노멀맵도 선형 BC1 (알파 = 높이가 있으면 BC3 — 셰이더가 rgb 를 그대로 읽는다), High = BC7
 		bool MipMaps = true;
+
+		static TextureSettings Raw();  // 가져오기 설정이 없는 엔진 내부 텍스처 (원래 크기, 압축 없음, 밉)
 
 		nlohmann::json ToJson() const;
 		void FromJson(const nlohmann::json& j);
@@ -48,6 +55,8 @@ namespace AssetImport
 	};
 
 	NOVA_API Kind KindOf(const std::wstring& path);
+	// 가져오기 설정을 쓰는 에셋인가 (프로젝트 Assets\ 또는 엔진 Resources\Packages\ 아래)
+	NOVA_API bool AppliesTo(const std::wstring& fullPath);
 	NOVA_API std::wstring MetaPath(const std::wstring& assetPath);
 
 	// .meta 읽기 (없거나 깨졌으면 기본값). 같은 파일은 수정 시각이 바뀔 때까지 캐시

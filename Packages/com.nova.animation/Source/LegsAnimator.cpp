@@ -42,11 +42,42 @@ void LegsAnimator::ModifyPose(AnimatorPose& pose)
 	const int lower[2] = { av.Node[Humanoid::LeftLowerLeg], av.Node[Humanoid::RightLowerLeg] };
 	const int foot[2] = { av.Node[Humanoid::LeftFoot], av.Node[Humanoid::RightFoot] };
 
-	// 1) 발마다 바닥 (애니메이션은 오브젝트 높이를 바닥으로 만든다 → 실제 바닥과의 차이만큼)
+	// 0) Foot Locking: 디딘 발 (발목이 서 있을 때 높이 근처 + 위아래로 거의 안 움직임) → 그 자리(수평)에 고정.
+	//    몸이 움직여도 (애니메이션 속도와 조금 달라도) 발은 남고, 자리에서 Max Lock Distance 넘게 멀어지거나 발을 들면 놓는다
 	XMFLOAT3 footWorld[2];
 	for (int i = 0; i < 2; ++i)
 	{
 		XMStoreFloat3(&footWorld[i], XMVector3TransformCoord(Position(pose, foot[i]), pose.ModelToWorld));
+		const XMFLOAT3 cur = footWorld[i];
+		const float height = cur.y - rootY;   // 애니메이션 기준 발목 높이
+		m_FootRest[i] = m_HavePrev ? (std::min)(m_FootRest[i] + 0.02f * dt, height) : height;   // 가장 낮던 높이 (천천히 풀림)
+		bool planted = false;
+		if (m_HavePrev && dt > 1e-5f)
+			planted = height < m_FootRest[i] + 0.04f && fabsf(cur.y - m_PrevFoot[i].y) / dt < LockSpeed;
+		m_PrevFoot[i] = cur;
+		if (FootLocking)
+		{
+			const float ldx = cur.x - m_LockPos[i].x, ldz = cur.z - m_LockPos[i].z;
+			if (m_Locked[i] && (!planted || sqrtf(ldx * ldx + ldz * ldz) > MaxLockDistance))
+				m_Locked[i] = false;
+			else if (!m_Locked[i] && planted)
+			{
+				m_Locked[i] = true;
+				m_LockPos[i] = cur;
+			}
+		}
+		else
+			m_Locked[i] = false;
+		m_LockBlend[i] = Damp(m_LockBlend[i], m_Locked[i] ? 1.0f : 0.0f, m_Locked[i] ? 30.0f : 10.0f, dt);
+		// 고정 중(또는 풀리는 중)이면 고정 자리 쪽으로 (높이는 애니메이션 그대로 — 바닥은 아래에서)
+		footWorld[i].x += (m_LockPos[i].x - cur.x) * m_LockBlend[i];
+		footWorld[i].z += (m_LockPos[i].z - cur.z) * m_LockBlend[i];
+	}
+	m_HavePrev = true;
+
+	// 1) 발마다 바닥 (애니메이션은 오브젝트 높이를 바닥으로 만든다 → 실제 바닥과의 차이만큼)
+	for (int i = 0; i < 2; ++i)
+	{
 		float target = 0.0f, hitY = 0.0f;
 		XMFLOAT3 normal(0, 1, 0);
 		m_GizmoValid[i] = Raycast(XMFLOAT3(footWorld[i].x, rootY + RayStartHeight, footWorld[i].z), RayStartHeight + MaxStepDown, hitY, normal);
@@ -66,6 +97,20 @@ void LegsAnimator::ModifyPose(AnimatorPose& pose)
 	m_HipsOffset = Damp(m_HipsOffset, hipsTarget, Smoothing, dt);
 	if (fabsf(m_HipsOffset) > 1e-5f)
 		TranslateBone(pose, av.Node[Humanoid::Hips], XMVector3TransformNormal(XMVectorSet(0, m_HipsOffset * w, 0, 0), pose.WorldToModel));
+
+	// 2-1) Body Lean: 두 발 아래 바닥 기울기를 캐릭터 앞 방향으로 → 오르막이면 앞으로 (척추를 모델 X 축으로)
+	{
+		const XMVECTOR n = XMVector3Normalize(XMLoadFloat3(&m_Normal[0]) + XMLoadFloat3(&m_Normal[1]));
+		XMVECTOR fwd = XMVector3TransformNormal(XMVectorSet(0, 0, 1, 0), pose.ModelToWorld);
+		fwd = XMVectorSetY(fwd, 0.0f);
+		float slope = 0.0f;   // 도, + = 오르막
+		if (XMVectorGetX(XMVector3LengthSq(fwd)) > 1e-8f && XMVectorGetY(n) > 0.1f)
+			slope = XMConvertToDegrees(atanf(-XMVectorGetX(XMVector3Dot(n, XMVector3Normalize(fwd))) / XMVectorGetY(n)));
+		const float leanTarget = std::clamp(slope * BodyLean, -MaxLean, MaxLean);
+		m_Lean = Damp(m_Lean, leanTarget, Smoothing * 0.5f, dt);
+		if (fabsf(m_Lean) > 0.01f)
+			RotateBone(pose, av.Node[Humanoid::Spine], XMQuaternionRotationRollPitchYaw(XMConvertToRadians(m_Lean * w), 0.0f, 0.0f));
+	}
 
 	// 3) 다리 IK: 애니메이션 발 위치 + 바닥 차이 (가중치만큼)
 	for (int i = 0; i < 2; ++i)
@@ -96,6 +141,16 @@ void LegsAnimator::OnInspectorGUI()
 	UnityGUI::Toggle("Align Feet", &AlignFeet, 1);
 	if (AlignFeet) UnityGUI::Slider("Align Weight", &AlignWeight, 0.0f, 1.0f, 2);
 	if (UnityGUI::Float("Smoothing", &Smoothing, 1)) Smoothing = (std::max)(0.1f, Smoothing);
+	UnityGUI::Label("Foot Locking", 0, true);
+	UnityGUI::Toggle("Lock Planted Feet", &FootLocking, 1);
+	if (FootLocking)
+	{
+		if (UnityGUI::Float("Lock Speed", &LockSpeed, 2)) LockSpeed = (std::max)(0.01f, LockSpeed);
+		if (UnityGUI::Float("Max Lock Distance", &MaxLockDistance, 2)) MaxLockDistance = (std::max)(0.01f, MaxLockDistance);
+	}
+	UnityGUI::Label("Slopes", 0, true);
+	UnityGUI::Slider("Body Lean", &BodyLean, 0.0f, 1.0f, 1);
+	UnityGUI::Slider("Max Lean", &MaxLean, 0.0f, 45.0f, 1);
 	UnityGUI::Toggle("Show Gizmos", &ShowGizmos);
 	bool hasAnimator = false;
 	if (m_pGameObject)
@@ -138,6 +193,11 @@ GENERATE_COMPONENT_FUNC_TOJSON(LegsAnimator)
 	j["alignFeet"] = AlignFeet;
 	j["alignWeight"] = AlignWeight;
 	j["smoothing"] = Smoothing;
+	j["footLocking"] = FootLocking;
+	j["lockSpeed"] = LockSpeed;
+	j["maxLockDistance"] = MaxLockDistance;
+	j["bodyLean"] = BodyLean;
+	j["maxLean"] = MaxLean;
 	j["showGizmos"] = ShowGizmos;
 	return j;
 }
@@ -154,5 +214,10 @@ GENERATE_COMPONENT_FUNC_FROMJSON(LegsAnimator)
 	AlignFeet = j.value("alignFeet", true);
 	AlignWeight = j.value("alignWeight", 0.8f);
 	Smoothing = j.value("smoothing", 14.0f);
+	FootLocking = j.value("footLocking", true);
+	LockSpeed = j.value("lockSpeed", 0.35f);
+	MaxLockDistance = j.value("maxLockDistance", 0.3f);
+	BodyLean = j.value("bodyLean", 0.5f);
+	MaxLean = j.value("maxLean", 15.0f);
 	ShowGizmos = j.value("showGizmos", true);
 }

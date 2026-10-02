@@ -12,6 +12,7 @@ namespace AssetImport
 	namespace
 	{
 		const char* kCompression[] = { "None", "NormalQuality", "HighQuality" };
+		const char* kTextureType[] = { "Default", "NormalMap", "Sprite" };
 		const char* kAnimationType[] = { "Generic", "Humanoid" };
 		const char* kLoadType[] = { "DecompressOnLoad", "CompressedInMemory", "Streaming" };
 
@@ -83,7 +84,16 @@ namespace AssetImport
 	// ------------------------------------------------------------------ 텍스처
 	json TextureSettings::ToJson() const
 	{
-		return json{ { "maxSize", MaxSize }, { "compression", kCompression[std::clamp(Compression, 0, 2)] }, { "mipmaps", MipMaps } };
+		return json{ { "textureType", kTextureType[std::clamp(TextureType, 0, 2)] }, { "sRGB", SRGB }, { "maxSize", MaxSize },
+			{ "compression", kCompression[std::clamp(Compression, 0, 2)] }, { "mipmaps", MipMaps } };
+	}
+
+	TextureSettings TextureSettings::Raw()
+	{
+		TextureSettings s;
+		s.MaxSize = 16384;
+		s.Compression = None;
+		return s;
 	}
 
 	void TextureSettings::FromJson(const json& j)
@@ -94,19 +104,22 @@ namespace AssetImport
 		while (size < m && size < 16384)
 			size *= 2;
 		MaxSize = size;
-		Compression = IndexOf(j, "compression", kCompression, None);
-		MipMaps = j.value("mipmaps", true);
+		TextureType = IndexOf(j, "textureType", kTextureType, Default);
+		SRGB = j.value("sRGB", true);
+		Compression = IndexOf(j, "compression", kCompression, NormalQuality);
+		// Sprite (2D and UI) 는 Unity 처럼 밉 없이가 기본
+		MipMaps = j.value("mipmaps", TextureType != Sprite);
 	}
 
 	bool TextureSettings::IsDefault() const
 	{
 		const TextureSettings d;
-		return MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps;
+		return TextureType == d.TextureType && SRGB == d.SRGB && MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps;
 	}
 
 	std::string TextureSettings::CacheTag() const
 	{
-		return "m" + std::to_string(MaxSize) + "c" + std::to_string(Compression) + (MipMaps ? "" : "n");
+		return "t" + std::to_string(TextureType) + (SRGB ? "" : "l") + "m" + std::to_string(MaxSize) + "c" + std::to_string(Compression) + (MipMaps ? "" : "n");
 	}
 
 	// ------------------------------------------------------------------ 모델
@@ -157,6 +170,23 @@ namespace AssetImport
 		if (ext == ".wav" || ext == ".ogg" || ext == ".mp3")
 			return Kind::Audio;
 		return Kind::None;
+	}
+
+	bool AppliesTo(const std::wstring& fullPath)
+	{
+		auto norm = [](std::wstring p) {
+			std::replace(p.begin(), p.end(), L'/', L'\\');
+			std::transform(p.begin(), p.end(), p.begin(), ::towlower);
+			return fs::path(p).lexically_normal().wstring();
+		};
+		const std::wstring p = norm(fullPath);
+		for (const wchar_t* root : { L"Assets\\", L"Resources\\Packages\\" })
+		{
+			const std::wstring r = norm(PathManager::GetI()->GetMovePathW(root));
+			if (!r.empty() && p.compare(0, r.size(), r) == 0)
+				return true;
+		}
+		return false;
 	}
 
 	std::wstring MetaPath(const std::wstring& assetPath)

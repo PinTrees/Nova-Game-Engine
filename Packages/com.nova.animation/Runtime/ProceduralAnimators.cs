@@ -14,6 +14,12 @@ namespace NovaEngine
         [DllImport(Dll)] internal static extern ulong LOOK_GetTarget(ulong go);
         [DllImport(Dll)] internal static extern void LOOK_SetTarget(ulong go, ulong target);
         [DllImport(Dll)] internal static extern void LOOK_SetPosition(ulong go, Vector3* p, int use);
+        [DllImport(Dll)] internal static extern float HANDS_GetFloat(ulong go, int prop);
+        [DllImport(Dll)] internal static extern void HANDS_SetFloat(ulong go, int prop, float v);
+        [DllImport(Dll)] internal static extern ulong HANDS_GetObject(ulong go, int hand, int which);
+        [DllImport(Dll)] internal static extern void HANDS_SetObject(ulong go, int hand, int which, ulong target);
+        [DllImport(Dll)] internal static extern void HANDS_SetIK(ulong go, int hand, int mode, float* v);
+        [DllImport(Dll)] internal static extern void HANDS_GetHand(ulong go, int hand, Vector3* v);
     }
 
     /// <summary>
@@ -30,6 +36,45 @@ namespace NovaEngine
         public float hipsMaxDown { get => ProceduralNative.LEGS_GetFloat(nativeId, 3); set => ProceduralNative.LEGS_SetFloat(nativeId, 3, value); }
         public bool adjustHips { get => ProceduralNative.LEGS_GetBool(nativeId, 0) != 0; set => ProceduralNative.LEGS_SetBool(nativeId, 0, value ? 1 : 0); }
         public bool alignFeet { get => ProceduralNative.LEGS_GetBool(nativeId, 1) != 0; set => ProceduralNative.LEGS_SetBool(nativeId, 1, value ? 1 : 0); }
+        /// <summary>디딘 발을 그 자리에 고정 (미끄럼 방지)</summary>
+        public bool footLocking { get => ProceduralNative.LEGS_GetBool(nativeId, 2) != 0; set => ProceduralNative.LEGS_SetBool(nativeId, 2, value ? 1 : 0); }
+        /// <summary>경사에서 상체 기울이기 (0 ~ 1, 경사각에 곱함)</summary>
+        public float bodyLean { get => ProceduralNative.LEGS_GetFloat(nativeId, 4); set => ProceduralNative.LEGS_SetFloat(nativeId, 4, value); }
+        public float maxLean { get => ProceduralNative.LEGS_GetFloat(nativeId, 5); set => ProceduralNative.LEGS_SetFloat(nativeId, 5, value); }
+        /// <summary>지금 기울인 각도 (도, + = 앞으로)</summary>
+        public float lean => ProceduralNative.LEGS_GetFloat(nativeId, 6);
+        /// <summary>그 발이 지금 고정돼 있나 (LeftFoot / RightFoot)</summary>
+        public bool IsFootLocked(AvatarIKGoal foot) => ProceduralNative.LEGS_GetBool(nativeId, foot == AvatarIKGoal.RightFoot ? 11 : 10) != 0;
+    }
+
+    /// <summary>Unity 의 AvatarIKGoal</summary>
+    public enum AvatarIKGoal { LeftFoot = 0, RightFoot = 1, LeftHand = 2, RightHand = 3 }
+
+    /// <summary>
+    /// Hands Animator: 손을 목표에 (무기 손잡이 · 벽 짚기). 목표 오브젝트 또는 SetIKPosition / SetIKRotation (Unity 의 Animator.SetIKPosition 과 같은 생각).
+    /// </summary>
+    [NativeComponent("HandsAnimator")]
+    public sealed class HandsAnimator : Behaviour
+    {
+        internal HandsAnimator() { }
+        static int Hand(AvatarIKGoal g) => g == AvatarIKGoal.RightHand ? 1 : 0;
+        public float weight { get => ProceduralNative.HANDS_GetFloat(nativeId, 0); set => ProceduralNative.HANDS_SetFloat(nativeId, 0, value); }
+        public float blendSpeed { get => ProceduralNative.HANDS_GetFloat(nativeId, 1); set => ProceduralNative.HANDS_SetFloat(nativeId, 1, value); }
+        public GameObject leftHandTarget { get => FromNativeId(ProceduralNative.HANDS_GetObject(nativeId, 0, 0)); set => ProceduralNative.HANDS_SetObject(nativeId, 0, 0, GetNativeId(value)); }
+        public GameObject rightHandTarget { get => FromNativeId(ProceduralNative.HANDS_GetObject(nativeId, 1, 0)); set => ProceduralNative.HANDS_SetObject(nativeId, 1, 0, GetNativeId(value)); }
+        public GameObject leftElbowHint { get => FromNativeId(ProceduralNative.HANDS_GetObject(nativeId, 0, 1)); set => ProceduralNative.HANDS_SetObject(nativeId, 0, 1, GetNativeId(value)); }
+        public GameObject rightElbowHint { get => FromNativeId(ProceduralNative.HANDS_GetObject(nativeId, 1, 1)); set => ProceduralNative.HANDS_SetObject(nativeId, 1, 1, GetNativeId(value)); }
+        public float GetIKPositionWeight(AvatarIKGoal goal) => ProceduralNative.HANDS_GetFloat(nativeId, 10 + Hand(goal));
+        public void SetIKPositionWeight(AvatarIKGoal goal, float value) => ProceduralNative.HANDS_SetFloat(nativeId, 10 + Hand(goal), value);
+        public float GetIKRotationWeight(AvatarIKGoal goal) => ProceduralNative.HANDS_GetFloat(nativeId, 20 + Hand(goal));
+        public void SetIKRotationWeight(AvatarIKGoal goal, float value) => ProceduralNative.HANDS_SetFloat(nativeId, 20 + Hand(goal), value);
+        /// <summary>손 목표 위치 (월드, ClearIK 까지 Target 오브젝트 대신)</summary>
+        public unsafe void SetIKPosition(AvatarIKGoal goal, Vector3 position) { float* v = stackalloc float[3]; v[0] = position.x; v[1] = position.y; v[2] = position.z; ProceduralNative.HANDS_SetIK(nativeId, Hand(goal), 0, v); }
+        /// <summary>손 목표 회전 (월드, 항등 = T-포즈의 손)</summary>
+        public unsafe void SetIKRotation(AvatarIKGoal goal, Quaternion rotation) { float* v = stackalloc float[4]; v[0] = rotation.x; v[1] = rotation.y; v[2] = rotation.z; v[3] = rotation.w; ProceduralNative.HANDS_SetIK(nativeId, Hand(goal), 1, v); }
+        public unsafe void ClearIK(AvatarIKGoal goal) => ProceduralNative.HANDS_SetIK(nativeId, Hand(goal), 2, null);
+        /// <summary>지난 프레임에 손이 실제로 간 곳 (월드)</summary>
+        public unsafe Vector3 GetHandPosition(AvatarIKGoal goal) { Vector3 v; ProceduralNative.HANDS_GetHand(nativeId, Hand(goal), &v); return v; }
     }
 
     /// <summary>
