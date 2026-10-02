@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <map>
+#include <vector>
 #include <nlohmann/json.hpp>
 
 // Unity 의 Import Settings: 에셋 옆 `<파일>.meta`(JSON) 에 가져오기 설정을 둔다. 없으면 기본값 (Unity 와 같은 값).
@@ -13,6 +14,15 @@
 namespace AssetImport
 {
 	enum class Kind { None, Texture, Model, Audio };
+
+	// Sprite Mode = Multiple 의 스프라이트 하나 (Unity 의 Sprite Editor): 원본 픽셀, 왼쪽 아래 원점, 기준점 = 사각형 안 0..1
+	struct SpriteRect
+	{
+		std::string Name;
+		float X = 0, Y = 0, W = 0, H = 0;
+		float PivotX = 0.5f, PivotY = 0.5f;
+		bool operator==(const SpriteRect& o) const { return Name == o.Name && X == o.X && Y == o.Y && W == o.W && H == o.H && PivotX == o.PivotX && PivotY == o.PivotY; }
+	};
 
 	struct NOVA_API TextureSettings
 	{
@@ -28,6 +38,12 @@ namespace AssetImport
 		float PixelsPerUnit = 100.0f;
 		float PivotX = 0.5f, PivotY = 0.5f;
 		int FilterMode = Bilinear;
+		// Sprite Mode: Single = 그림 전체가 스프라이트 하나, Multiple = 잘라 놓은 여러 스프라이트 ("경로#이름" 으로 가리킨다)
+		enum SpriteModes { SingleSprite = 0, MultipleSprites = 1 };
+		int SpriteMode = SingleSprite;
+		std::vector<SpriteRect> Sprites;
+		const SpriteRect* FindSprite(const std::string& name) const;
+		nlohmann::json SpritesJson() const;
 
 		static TextureSettings Raw();  // 가져오기 설정이 없는 엔진 내부 텍스처 (원래 크기, 압축 없음, 밉)
 

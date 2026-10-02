@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "PhysicsSettings.h"
 #include "TagsAndLayers.h"
+#include "SpriteSlicer.h"
+#include "SpriteAnimator.h"
+#include "AssetImportSettings.h"
 #include "PackageManager.h"
 #include "AutoSave.h"
 #include "PackageManagerWindow.h"
@@ -554,11 +557,76 @@ namespace CliCommands
 				if (!TagsAndLayers::SetLayerName(layer, a.value("name", std::string()))) { e = "cannot name layer " + std::to_string(layer) + " (0..31, the name must be unique)"; return false; }
 			}
 			if (a.contains("addTag")) TagsAndLayers::AddTag(a["addTag"].get<std::string>());
+			if (a.contains("addSortingLayer") && TagsAndLayers::AddSortingLayer(a["addSortingLayer"].get<std::string>()) < 0) { e = "sorting layer exists"; return false; }
+			if (a.contains("moveSortingLayer"))
+			{
+				const int id = TagsAndLayers::SortingLayerIdFromName(a["moveSortingLayer"].get<std::string>());
+				if (id < 0 || !TagsAndLayers::MoveSortingLayer(id, a.value("by", -1))) { e = "cannot move that sorting layer"; return false; }
+			}
 			if (a.contains("removeTag") && !TagsAndLayers::RemoveTag(a["removeTag"].get<std::string>())) { e = "cannot remove tag (builtin or unknown)"; return false; }
 			json layers = json::array();
 			for (int i : TagsAndLayers::NamedLayers())
 				layers.push_back({ { "layer", i }, { "name", TagsAndLayers::LayerName(i) }, { "builtin", TagsAndLayers::IsBuiltinLayer(i) } });
-			r = { { "layers", layers }, { "tags", TagsAndLayers::Tags() } };
+			json sorting = json::array();
+			for (const TagsAndLayers::SortingLayer& s : TagsAndLayers::SortingLayers())
+				sorting.push_back({ { "name", s.Name }, { "id", s.Id } });
+			r = { { "layers", layers }, { "tags", TagsAndLayers::Tags() }, { "sortingLayers", sorting } };
+			return true;
+		});
+
+		// 텍스처 자르기 (Sprite Mode = Multiple) + 프레임 애니메이션
+		Register("sprite-slice", "slice a texture into sprites {path, mode: grid|count|auto|sheet, cell?: [w,h], count?: [cols,rows], offset?, padding?, pivot?: [x,y], keepEmpty?, minSize?, ppu?, filter?: point|bilinear, animation?: fps (also write <name>.spriteanim)}", [](const json& a, json& r, std::string& e) {
+			const std::string rel = a.value("path", std::string());
+			const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(rel));
+			SpriteSlicer::Pixels px;
+			if (rel.empty() || !px.Load(full)) { e = "cannot read image " + rel; return false; }
+			SpriteSlicer::Options o;
+			o.BaseName = wstring_to_string(std::filesystem::path(full).stem().wstring());
+			if (a.contains("pivot") && a["pivot"].is_array() && a["pivot"].size() == 2) { o.PivotX = a["pivot"][0].get<float>(); o.PivotY = a["pivot"][1].get<float>(); }
+			o.KeepEmpty = a.value("keepEmpty", false);
+			auto pair = [&](const char* key, int d0, int d1, int out[2]) {
+				out[0] = d0; out[1] = d1;
+				if (a.contains(key) && a[key].is_array() && a[key].size() == 2) { out[0] = a[key][0].get<int>(); out[1] = a[key][1].get<int>(); }
+			};
+			int cell[2], count[2], off[2], pad[2];
+			pair("cell", 32, 32, cell); pair("count", 4, 1, count); pair("offset", 0, 0, off); pair("padding", 0, 0, pad);
+			const std::string mode = a.value("mode", std::string("grid"));
+			std::vector<AssetImport::SpriteRect> rects;
+			float fps = 12.0f;
+			if (mode == "grid") rects = SpriteSlicer::GridBySize(px, cell[0], cell[1], off[0], off[1], pad[0], pad[1], o);
+			else if (mode == "count") rects = SpriteSlicer::GridByCount(px, count[0], count[1], o);
+			else if (mode == "auto") rects = SpriteSlicer::Automatic(px, a.value("minSize", 4), o);
+			else if (mode == "sheet")
+			{
+				const std::wstring sheet = SpriteSlicer::SheetJsonFor(full);
+				if (sheet.empty() || !SpriteSlicer::FromSheetJson(sheet, px.W, px.H, o, rects, &fps)) { e = "no 2D Animator sheet .json next to the image"; return false; }
+			}
+			else { e = "mode: grid | count | auto | sheet"; return false; }
+			if (rects.empty()) { e = "no sprites found"; return false; }
+			json settings = AssetImport::LoadJson(full);
+			AssetImport::TextureSettings ts;
+			ts.FromJson(settings);
+			ts.TextureType = AssetImport::TextureSettings::Sprite;
+			ts.SpriteMode = AssetImport::TextureSettings::MultipleSprites;
+			ts.MipMaps = false;
+			ts.Sprites = rects;
+			if (a.contains("ppu")) ts.PixelsPerUnit = (std::max)(0.01f, a["ppu"].get<float>());
+			if (a.contains("filter")) ts.FilterMode = a["filter"].get<std::string>() == "point" ? AssetImport::TextureSettings::Point : AssetImport::TextureSettings::Bilinear;
+			if (!ImportSettingsInspector::Apply(full, ts.ToJson(), e)) return false;   // .meta 저장 + 다시 가져오기
+			json names = json::array();
+			for (const AssetImport::SpriteRect& s : rects) names.push_back(s.Name);
+			r = { { "sprites", (int)rects.size() }, { "names", names }, { "image", { px.W, px.H } } };
+			if (a.contains("animation"))
+			{
+				SpriteAnimClip clip;
+				clip.Fps = a["animation"].is_number() ? a["animation"].get<float>() : fps;
+				for (const AssetImport::SpriteRect& s : rects) clip.Frames.push_back(rel + "#" + s.Name);
+				std::filesystem::path anim = std::filesystem::path(string_to_wstring(rel)).replace_extension(L".spriteanim");
+				const std::string animPath = wstring_to_string(anim.wstring());
+				if (!SpriteAnimClips::Save(animPath, clip)) { e = "cannot write " + animPath; return false; }
+				r["animation"] = animPath;
+				r["fps"] = clip.Fps;
+			}
 			return true;
 		});
 

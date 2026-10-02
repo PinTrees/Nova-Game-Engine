@@ -33,6 +33,11 @@ UI_ICONS = {
     "sprite_renderer": _svg('''<rect x="3" y="2" width="10" height="12" rx="1" fill="#3A5F85" stroke="#C8C8C8" stroke-width="1.1" transform="rotate(-10 8 8)"/>
   <circle cx="8" cy="6.6" r="2.1" fill="#F6D365"/>
   <path d="M5 12 Q8 8.5 11 12 Z" fill="#9FC5E8"/>'''),
+    # Sprite Animator (프레임 애니메이션): 겹친 그림 카드 세 장 + 재생 삼각형
+    "sprite_animator": _svg('''<rect x="5.5" y="1.5" width="9" height="9" rx="1" fill="#2C4A68" stroke="#A0A0A0" stroke-width="0.9"/>
+  <rect x="3.5" y="3.5" width="9" height="9" rx="1" fill="#335A80" stroke="#B4B4B4" stroke-width="0.9"/>
+  <rect x="1.5" y="5.5" width="9" height="9" rx="1" fill="#3A6A98" stroke="#C8C8C8" stroke-width="1"/>
+  <polygon points="4.5,7.8 4.5,12.6 8.5,10.2" fill="#F6D365"/>'''),
     # Sprite Skinned Renderer (2D 뼈대): 그림 카드 + 뼈 두 마디
     "sprite_skinned_renderer": _svg('''<rect x="1.5" y="2" width="10" height="12" rx="1" fill="#3A5F85" stroke="#C8C8C8" stroke-width="1.1"/>
   <polygon points="5,4 6.4,5.4 12.6,11.6 11.2,13 5,6.8 3.6,5.4" fill="#E6E6E6"/>

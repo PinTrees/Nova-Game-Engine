@@ -25,6 +25,7 @@ public:
 	bool Loop = true;
 	bool FlipX = false;
 	int SortingOrder = 0;
+	int SortingLayerId = 0;   // Tags and Layers 의 Sorting Layer
 	float Color[4] = { 1, 1, 1, 1 };
 	bool IsComplete() const;   // 반복이 아닌 애니메이션이 끝났나
 

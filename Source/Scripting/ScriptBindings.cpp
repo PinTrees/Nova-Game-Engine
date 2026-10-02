@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "SkinnedMeshRenderer.h"
 #include "SpriteRenderer.h"
+#include "SpriteAnimator.h"
 #include "TagsAndLayers.h"
 #include "PhysicsSettings.h"
 #include "Debug.h"
@@ -188,6 +189,18 @@ namespace
 		int(*PH_GetIgnoreLayer)(int, int);
 		void(*PH_GetGravity)(Vec3*);
 		void(*PH_SetGravity)(Vec3*);
+		// Sprite Animator (프레임 애니메이션) + Sorting Layer 이름
+		int(*SA_Play)(uint64, u8*);
+		void(*SA_Stop)(uint64);
+		int(*SA_GetInt)(uint64, int);            // 0 isPlaying, 1 frame
+		u8* (*SA_Clip)(uint64);
+		float(*SA_GetSpeed)(uint64);
+		void(*SA_SetSpeed)(uint64, float);
+		u8* (*SR_GetSortingLayer)(uint64);
+		int(*SR_SetSortingLayer)(uint64, u8*);
+		// Camera.cullingMask (which 0) · Light.cullingMask (which 1)
+		int(*CL_GetMask)(uint64, int);
+		void(*CL_SetMask)(uint64, int, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1220,6 +1233,28 @@ namespace ScriptBindings
 		t.PH_GetIgnoreLayer = [](int a, int b) -> int { return PhysicsSettings::LayersCollide(a, b) ? 0 : 1; };
 		t.PH_GetGravity = [](Vec3* out) { if (out) *out = PhysicsManager::GetI()->GetGravity(); };
 		t.PH_SetGravity = [](Vec3* g) { if (g) PhysicsManager::GetI()->SetGravity(*g); };
+		t.SA_Play = [](uint64 id, u8* clip) -> int { SpriteAnimator* a = Get<SpriteAnimator>(id); return a && clip && a->Play((const char*)clip) ? 1 : 0; };
+		t.SA_Stop = [](uint64 id) { if (SpriteAnimator* a = Get<SpriteAnimator>(id)) a->Stop(); };
+		t.SA_GetInt = [](uint64 id, int what) -> int { SpriteAnimator* a = Get<SpriteAnimator>(id); if (!a) return 0; return what == 0 ? (a->IsPlaying() ? 1 : 0) : a->Frame(); };
+		t.SA_Clip = [](uint64 id) -> u8* { SpriteAnimator* a = Get<SpriteAnimator>(id); return (u8*)Ret(a ? a->CurrentClip() : std::string()); };
+		t.SA_GetSpeed = [](uint64 id) -> float { SpriteAnimator* a = Get<SpriteAnimator>(id); return a ? a->Speed : 0.0f; };
+		t.SA_SetSpeed = [](uint64 id, float v) { if (SpriteAnimator* a = Get<SpriteAnimator>(id)) a->Speed = v; };
+		t.SR_GetSortingLayer = [](uint64 id) -> u8* { SpriteRenderer* r = Get<SpriteRenderer>(id); return (u8*)Ret(r ? TagsAndLayers::SortingLayerName(r->GetSortingLayerId()) : std::string()); };
+		t.CL_GetMask = [](uint64 id, int which) -> int {
+			if (which == 0) { Camera* c = Get<Camera>(id); return c ? (int)c->GetCullingMask() : -1; }
+			Light* l = Get<Light>(id); return l ? (int)l->GetCullingMaskBits() : -1;
+		};
+		t.CL_SetMask = [](uint64 id, int which, int mask) {
+			if (which == 0) { if (Camera* c = Get<Camera>(id)) c->SetCullingMask((uint32)mask); }
+			else if (Light* l = Get<Light>(id)) l->SetCullingMaskBits((uint32)mask);
+		};
+		t.SR_SetSortingLayer = [](uint64 id, u8* name) -> int {
+			SpriteRenderer* r = Get<SpriteRenderer>(id);
+			const int layer = name ? TagsAndLayers::SortingLayerIdFromName((const char*)name) : -1;
+			if (!r || layer < 0) return 0;
+			r->SetSortingLayerId(layer);
+			return 1;
+		};
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

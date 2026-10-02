@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "ParticleRenderer.h"
 #include "ParticleSystem.h"
 #include "ParticleTextures.h"
@@ -197,7 +198,7 @@ namespace ParticleRenderer
 		for (ParticleSystem* ps : ParticleSystem::All())
 		{
 			// 입자가 없어도 남은 꼬리(Die with Particles 꺼짐)는 그린다
-			if ((ps->ParticleCount() == 0 && ps->Trails().empty()) || !ps->RendererEnabled || !ps->ActiveInHierarchy())
+			if ((ps->ParticleCount() == 0 && ps->Trails().empty()) || !ps->RendererEnabled || !ps->ActiveInHierarchy() || !RenderLayers::Visible(ps->GetGameObject()))
 				continue;
 			const Matrix toWorld = ps->SimulationToWorld();
 			// Local 공간: 오브젝트 크기도 입자 크기에 곱한다 (Unity 의 Scaling Mode = Local 과 비슷하게)

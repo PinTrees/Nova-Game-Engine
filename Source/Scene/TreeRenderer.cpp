@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "TreeRenderer.h"
 #include "Tree.h"
 #include "TreeTextures.h"
@@ -414,8 +415,10 @@ namespace
 		float Dist;
 		float Tint, Phase;
 		bool CastShadows;
+		uint32 LayerBit;   // 그 GameObject (Tree 또는 지형) 의 레이어 — Culling Mask
 	};
 	std::vector<TreeRecord> s_Records;
+	uint32 s_RecordLayer = 0xFFFFFFFFu;
 	bool s_RecordsValid = false;
 	bool s_RecordsEditor = false;
 	uint32_t s_RecordsFrame = 0;
@@ -606,6 +609,7 @@ namespace TreeRenderer
 				r.Tint = tint;
 				r.Phase = phase;
 				r.CastShadows = proto.Desc->CastShadows;
+				r.LayerBit = s_RecordLayer;
 				s_Records.push_back(r);
 			};
 			// Tree 컴포넌트
@@ -615,6 +619,7 @@ namespace TreeRenderer
 					continue;
 				XMFLOAT4X4 world;
 				XMStoreFloat4x4(&world, tree->GetGameObject()->GetTransform()->GetWorldMatrix());
+				s_RecordLayer = 1u << (tree->GetGameObject()->GetLayerIndex() & 31);
 				record(prepare(tree->Desc), world, 0.5f, Hash2(world._41, world._43));
 			}
 			// 지형에 칠한 나무
@@ -626,6 +631,7 @@ namespace TreeRenderer
 				if (data->TreeInstances.empty() || data->TreePrototypes.empty())
 					continue;
 				const TerrainCache& cache = TerrainWorlds(*data, terrain->GetPosition());
+				s_RecordLayer = 1u << ((terrain->GetGameObject() ? terrain->GetGameObject()->GetLayerIndex() : 0) & 31);
 				std::vector<Proto> protos;
 				for (const TreeDesc& d : data->TreePrototypes)
 					protos.push_back(prepare(d));
@@ -659,6 +665,8 @@ namespace TreeRenderer
 			{
 				if (shadow && !r.CastShadows)
 					continue;
+				if (!(r.LayerBit & RenderLayers::ActiveMask()))
+					continue;   // Camera / Light 의 Culling Mask
 				bool inside = true;
 				for (int i = 0; i < planeCount && inside; ++i)
 					inside = planes[i].x * r.Center.x + planes[i].y * r.Center.y + planes[i].z * r.Center.z + planes[i].w >= -r.Radius;

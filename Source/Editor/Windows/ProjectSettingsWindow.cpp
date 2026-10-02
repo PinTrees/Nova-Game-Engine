@@ -191,6 +191,61 @@ namespace
 			UnityGUI::Spacing(6.0f);
 		}
 
+		if (UnityGUI::FoldoutPlain("Sorting Layers"))
+		{
+			// 위 = 먼저 그림 (가장 뒤). 이름 바꾸기 · 위아래로 옮기기 · 지우기 (Default 는 지울 수 없다)
+			static char s_SortNames[64][64];
+			static int s_SortEditing = -1;
+			const std::vector<TagsAndLayers::SortingLayer> list = TagsAndLayers::SortingLayers();
+			for (int i = 0; i < (int)list.size() && i < 64; ++i)
+			{
+				const TagsAndLayers::SortingLayer& l = list[i];
+				ImGui::PushID(1000 + l.Id);
+				ImGui::Indent(18.0f);
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.75f, 1), "Layer %d", i);
+				ImGui::SameLine(110.0f);
+				ImGui::SetNextItemWidth(220.0f);
+				if (s_SortEditing != l.Id)
+					strncpy_s(s_SortNames[i], l.Name.c_str(), _TRUNCATE);
+				ImGui::InputText("##sort", s_SortNames[i], sizeof(s_SortNames[i]));
+				if (ImGui::IsItemActive())
+					s_SortEditing = l.Id;
+				if (ImGui::IsItemDeactivated())
+				{
+					TagsAndLayers::RenameSortingLayer(l.Id, s_SortNames[i]);
+					s_SortEditing = -1;
+				}
+				ImGui::SameLine();
+				ImGui::BeginDisabled(i == 0);
+				if (ImGui::SmallButton(ICON_FA_ARROW_UP)) TagsAndLayers::MoveSortingLayer(l.Id, -1);
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				ImGui::BeginDisabled(i + 1 >= (int)list.size());
+				if (ImGui::SmallButton(ICON_FA_ARROW_DOWN)) TagsAndLayers::MoveSortingLayer(l.Id, +1);
+				ImGui::EndDisabled();
+				ImGui::SameLine();
+				ImGui::BeginDisabled(l.Id == 0);
+				if (ImGui::SmallButton(ICON_FA_MINUS)) TagsAndLayers::RemoveSortingLayer(l.Id);
+				ImGui::EndDisabled();
+				ImGui::Unindent(18.0f);
+				ImGui::PopID();
+			}
+			static char s_NewSort[64] = {};
+			ImGui::Indent(18.0f);
+			ImGui::SetNextItemWidth(220.0f);
+			const bool enter = ImGui::InputTextWithHint("##newSort", "New sorting layer", s_NewSort, sizeof(s_NewSort), ImGuiInputTextFlags_EnterReturnsTrue);
+			ImGui::SameLine();
+			if ((ImGui::Button(ICON_FA_PLUS " Add Sorting Layer") || enter) && s_NewSort[0])
+			{
+				TagsAndLayers::AddSortingLayer(s_NewSort);
+				s_NewSort[0] = 0;
+			}
+			ImGui::TextDisabled("Sprites draw layer by layer from the top of this list (the last one is in front).");
+			ImGui::Unindent(18.0f);
+			UnityGUI::Spacing(6.0f);
+		}
+
 		if (UnityGUI::FoldoutPlain("Layers"))
 		{
 			// Builtin = 이름 고정 (회색), User Layer = 이름을 적어 쓴다 (Enter 또는 칸을 떠나면 저장)

@@ -7,6 +7,8 @@
 #include "SkinnedData.h"
 #include "HumanoidAvatar.h"
 #include "AudioClip.h"
+#include "SpriteSlicer.h"
+#include "SpriteAnimator.h"
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -76,6 +78,113 @@ namespace
 		return buf;
 	}
 
+	// ------------------------------------------------------------------ Sprite Mode / Sprite Editor (Slice)
+	// Unity 의 Sprite Editor 를 Inspector 안에: 자르는 방법을 고르고 Slice → 사각형 목록 (Apply 로 저장), 미리 보기에 사각형 표시
+	struct SliceUi
+	{
+		int Type = 1;                 // 0 Automatic, 1 Grid By Cell Size, 2 Grid By Cell Count, 3 2D Animator Sheet
+		int Cell[2] = { 32, 32 };
+		int Count[2] = { 4, 1 };
+		int Offset[2] = { 0, 0 };
+		int Padding[2] = { 0, 0 };
+		int MinSize = 4;
+		int Pivot = 0;                // Center / Bottom / Top / Left / Right / Bottom Left
+		bool KeepEmpty = false;
+		float Fps = 12.0f;
+		std::string Message;
+	};
+	SliceUi s_Slice;
+
+	void DrawSpriteMode(const std::wstring& path, AssetImport::TextureSettings& t)
+	{
+		static const char* modes[] = { "Single", "Multiple" };
+		UnityGUI::Dropdown("Sprite Mode", &t.SpriteMode, modes, 2);
+		if (t.SpriteMode != AssetImport::TextureSettings::MultipleSprites)
+			return;
+		char buf[96];
+		snprintf(buf, sizeof(buf), "%d sprites", (int)t.Sprites.size());
+		UnityGUI::ValueLabel("Sprites", buf, 1);
+		if (!UnityGUI::FoldoutPlain("Slice (Sprite Editor)", 1))
+			return;
+		const std::wstring sheet = SpriteSlicer::SheetJsonFor(path);
+		static const char* types[] = { "Automatic", "Grid By Cell Size", "Grid By Cell Count", "2D Animator Sheet (.json)" };
+		int typeCount = sheet.empty() ? 3 : 4;
+		if (s_Slice.Type >= typeCount) s_Slice.Type = 1;
+		UnityGUI::Dropdown("Type", &s_Slice.Type, types, typeCount, 2);
+		if (s_Slice.Type == 0)
+			UnityGUI::Int("Minimum Size", &s_Slice.MinSize, 2);
+		if (s_Slice.Type == 1)
+		{
+			UnityGUI::Int("Cell Width", &s_Slice.Cell[0], 2);
+			UnityGUI::Int("Cell Height", &s_Slice.Cell[1], 2);
+			UnityGUI::Int("Offset X", &s_Slice.Offset[0], 2);
+			UnityGUI::Int("Offset Y", &s_Slice.Offset[1], 2);
+			UnityGUI::Int("Padding X", &s_Slice.Padding[0], 2);
+			UnityGUI::Int("Padding Y", &s_Slice.Padding[1], 2);
+		}
+		if (s_Slice.Type == 2)
+		{
+			UnityGUI::Int("Columns", &s_Slice.Count[0], 2);
+			UnityGUI::Int("Rows", &s_Slice.Count[1], 2);
+		}
+		static const char* pivots[] = { "Center", "Bottom", "Top", "Left", "Right", "Bottom Left" };
+		static const float pv[6][2] = { { 0.5f, 0.5f }, { 0.5f, 0 }, { 0.5f, 1 }, { 0, 0.5f }, { 1, 0.5f }, { 0, 0 } };
+		if (s_Slice.Type != 3)
+			UnityGUI::Dropdown("Pivot", &s_Slice.Pivot, pivots, 6, 2);
+		else
+			UnityGUI::ValueLabel("Pivot", "from the sheet (skeleton origin = feet)", 2);
+		if (s_Slice.Type == 1 || s_Slice.Type == 2)
+			UnityGUI::Toggle("Keep Empty Rects", &s_Slice.KeepEmpty, 2);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 34.0f);
+		if (ImGui::Button("Slice", ImVec2(90, 0)))
+		{
+			SpriteSlicer::Pixels px;
+			SpriteSlicer::Options o;
+			o.BaseName = wstring_to_string(fs::path(path).stem().wstring());
+			o.PivotX = pv[s_Slice.Pivot][0];
+			o.PivotY = pv[s_Slice.Pivot][1];
+			o.KeepEmpty = s_Slice.KeepEmpty;
+			if (!px.Load(path))
+				s_Slice.Message = "Cannot read the image";
+			else
+			{
+				std::vector<AssetImport::SpriteRect> rects;
+				if (s_Slice.Type == 0) rects = SpriteSlicer::Automatic(px, (std::max)(1, s_Slice.MinSize), o);
+				else if (s_Slice.Type == 1) rects = SpriteSlicer::GridBySize(px, s_Slice.Cell[0], s_Slice.Cell[1], s_Slice.Offset[0], s_Slice.Offset[1], s_Slice.Padding[0], s_Slice.Padding[1], o);
+				else if (s_Slice.Type == 2) rects = SpriteSlicer::GridByCount(px, s_Slice.Count[0], s_Slice.Count[1], o);
+				else SpriteSlicer::FromSheetJson(sheet, px.W, px.H, o, rects, &s_Slice.Fps);
+				t.Sprites = rects;
+				s_Slice.Message = std::to_string(rects.size()) + " sprites - press Apply to save";
+			}
+		}
+		ImGui::SameLine();
+		ImGui::TextDisabled("%s", s_Slice.Message.c_str());
+		// 프레임 애니메이션: 저장된 스프라이트들을 차례로 (.spriteanim 을 그림 옆에)
+		if (!t.Sprites.empty())
+		{
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 34.0f);
+			const bool saved = s_State.Edit == s_State.Saved;
+			ImGui::BeginDisabled(!saved);
+			if (ImGui::Button(ICON_FA_FILM " Create Sprite Animation"))
+			{
+				SpriteAnimClip clip;
+				clip.Fps = s_Slice.Fps;
+				const std::string rel = Rel(path);
+				for (const AssetImport::SpriteRect& r : t.Sprites)
+					clip.Frames.push_back(rel + "#" + r.Name);
+				fs::path anim = fs::path(string_to_wstring(rel)).replace_extension(L".spriteanim");
+				SpriteAnimClips::Save(wstring_to_string(anim.wstring()), clip);
+				s_Slice.Message = "made " + wstring_to_string(anim.filename().wstring());
+			}
+			ImGui::EndDisabled();
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(60.0f);
+			ImGui::DragFloat("fps", &s_Slice.Fps, 0.2f, 1.0f, 60.0f, "%.0f");
+			if (!saved)
+				ImGui::TextDisabled("      Apply first, then make the animation");
+		}
+	}
+
 	// ------------------------------------------------------------------ 텍스처
 	void DrawTexture(const std::wstring& path)
 	{
@@ -103,6 +212,7 @@ namespace
 			}
 			if (pi == 9)
 				UnityGUI::Vector2Pair("Custom Pivot", "X", &t.PivotX, "Y", &t.PivotY, 1);
+			DrawSpriteMode(path, t);
 		}
 		if (t.TextureType == AssetImport::TextureSettings::NormalMap)
 			UnityGUI::ValueLabel("sRGB (Color Texture)", "Off (normal maps are linear)");
@@ -157,6 +267,19 @@ namespace
 					dl->AddRectFilled(ImVec2(p.x + x, p.y + y), ImVec2(p.x + (std::min)(x + cell, size.x), p.y + (std::min)(y + cell, size.y)),
 						(((int)(x / cell) + (int)(y / cell)) & 1) ? IM_COL32(90, 90, 90, 255) : IM_COL32(70, 70, 70, 255));
 			ImGui::Image((ImTextureID)srv.Get(), size);
+			// Sprite Mode = Multiple: 잘라 놓은 사각형 (원본 픽셀, 왼쪽 아래 원점)
+			if (t.TextureType == AssetImport::TextureSettings::Sprite && t.SpriteMode == AssetImport::TextureSettings::MultipleSprites)
+			{
+				const float sw = info.SourceWidth > 0 ? (float)info.SourceWidth : (float)info.Width;
+				const float sh = info.SourceHeight > 0 ? (float)info.SourceHeight : (float)info.Height;
+				const float kx = size.x / sw, ky = size.y / sh;
+				for (const AssetImport::SpriteRect& r : t.Sprites)
+				{
+					const ImVec2 a(p.x + r.X * kx, p.y + (sh - r.Y - r.H) * ky), b(a.x + r.W * kx, a.y + r.H * ky);
+					dl->AddRect(a, b, IM_COL32(80, 200, 255, 230));
+					dl->AddCircleFilled(ImVec2(a.x + r.PivotX * (b.x - a.x), b.y - r.PivotY * (b.y - a.y)), 2.0f, IM_COL32(255, 120, 60, 255));
+				}
+			}
 		}
 	}
 

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "CustomShaders.h"
 #include "MaterialInspector.h"
 #include "RenderStats.h"
@@ -262,6 +263,10 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 	Transform* transform = m_pGameObject->GetTransform();
 	auto deviceContext = Application::GetI()->GetDeviceContext();
 	ComPtr<FxTechnique> tech = Effects::InstancedBasicFX->SkinnedTech;
+	// Light.cullingMask: 이 물체의 레이어 (엔진 · 패키지 셰이더 모두), 끝나면 ~0
+	const uint32 layerBit = 1u << (m_pGameObject->GetLayerIndex() & 31);
+	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), layerBit);
+	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) { RenderLayers::SetObjectLayer(fx, layerBit); });
 	deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	deviceContext->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
 
@@ -336,6 +341,8 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 		deviceContext->RSSetState(previousRS.Get());
 		deviceContext->OMSetDepthStencilState(previousDSS.Get(), previousRef);
 	}
+	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);
+	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) { RenderLayers::SetObjectLayer(fx, ~0u); });
 }
 
 CustomShaders::SkinnedDraw SkinnedMeshRenderer::MakeCustomDraw(UMaterial* material, FXMMATRIX world, CXMMATRIX viewProj, bool editor, int subset)

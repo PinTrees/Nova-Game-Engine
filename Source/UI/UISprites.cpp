@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "UISprites.h"
+#include "AssetImportSettings.h"
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -141,6 +142,8 @@ namespace UISprites
 	{
 		if (path.rfind("builtin:", 0) == 0)
 			return path.substr(8);
+		if (const size_t hash = path.find('#'); hash != std::string::npos)
+			return path.substr(hash + 1);
 		return fs::path(path).stem().string();
 	}
 
@@ -148,6 +151,32 @@ namespace UISprites
 	{
 		if (path.empty())
 			return false;
+		// "그림#이름": 같은 텍스처의 한 부분 (가져오기 설정의 Sprites)
+		if (const size_t hash = path.find('#'); hash != std::string::npos && path.rfind("builtin:", 0) != 0)
+		{
+			Info base;
+			if (!Get(path.substr(0, hash), base))
+				return false;
+			const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(path.substr(0, hash)));
+			const AssetImport::TextureSettings ts = AssetImport::LoadTexture(full);
+			const AssetImport::SpriteRect* r = ts.FindSprite(path.substr(hash + 1));
+			if (r == nullptr)
+				return false;
+			float w = base.Size.x, h = base.Size.y;
+			AssetImport::TextureInfo ti;
+			if (AssetImport::GetTextureInfo(full, ti) && ti.SourceWidth > 0)
+			{
+				w = (float)ti.SourceWidth;
+				h = (float)ti.SourceHeight;
+			}
+			out = base;
+			out.Size = Vec2(r->W, r->H);
+			out.Border = Vec4(0, 0, 0, 0);
+			out.UV = Vec4(r->X / w, 1.0f - (r->Y + r->H) / h, (r->X + r->W) / w, 1.0f - r->Y / h);
+			out.Pivot = Vec2(r->PivotX, r->PivotY);
+			out.SubSprite = true;
+			return true;
+		}
 		if (path.rfind("builtin:", 0) == 0)
 		{
 			EnsureBuiltins();
@@ -193,7 +222,14 @@ namespace UISprites
 		std::vector<std::string> all = FindAll();
 		for (const std::string& p : all)
 			if (p.rfind("builtin:", 0) != 0)
+			{
 				out.push_back(p);
+				// Sprite Mode = Multiple: 잘라 놓은 스프라이트들
+				const AssetImport::TextureSettings ts = AssetImport::LoadTexture(PathManager::GetI()->GetMovePathW(string_to_wstring(p)));
+				if (ts.SpriteMode == AssetImport::TextureSettings::MultipleSprites)
+					for (const AssetImport::SpriteRect& r : ts.Sprites)
+						out.push_back(p + "#" + r.Name);
+			}
 		return out;
 	}
 

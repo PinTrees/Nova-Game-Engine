@@ -205,6 +205,20 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<int, int, int> PH_GetIgnoreLayer;
         public delegate* unmanaged<Vector3*, void> PH_GetGravity;
         public delegate* unmanaged<Vector3*, void> PH_SetGravity;
+
+        // Sprite Animator + Sorting Layer
+        public delegate* unmanaged<ulong, byte*, int> SA_Play;
+        public delegate* unmanaged<ulong, void> SA_Stop;
+        public delegate* unmanaged<ulong, int, int> SA_GetInt;
+        public delegate* unmanaged<ulong, byte*> SA_Clip;
+        public delegate* unmanaged<ulong, float> SA_GetSpeed;
+        public delegate* unmanaged<ulong, float, void> SA_SetSpeed;
+        public delegate* unmanaged<ulong, byte*> SR_GetSortingLayer;
+        public delegate* unmanaged<ulong, byte*, int> SR_SetSortingLayer;
+
+        // Camera / Light cullingMask
+        public delegate* unmanaged<ulong, int, int> CL_GetMask;
+        public delegate* unmanaged<ulong, int, int, void> CL_SetMask;
     }
 
     internal static unsafe class Native

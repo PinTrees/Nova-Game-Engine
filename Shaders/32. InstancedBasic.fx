@@ -73,6 +73,11 @@ cbuffer cbPerFrame
 
     // 하늘 환경광 (Volume > Indirect Lighting): rgb = 확산 환경광 배율 × 틴트, w = 반사 배율
     float4 gIndirect = float4(1.0f, 1.0f, 1.0f, 1.0f);
+
+    // Light.cullingMask: 빛마다 비추는 레이어 비트 (배열 순서 = gDirLights · gSpotLights · gPointLights). RenderLayers::SetLightMasks
+    uint4 gDirLightMask = uint4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
+    uint4 gSpotLightMask = uint4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
+    uint4 gPointLightMask = uint4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
 };
 
 cbuffer cbPerObject
@@ -93,7 +98,11 @@ cbuffer cbPerObject
     Material gMaterial;
     ShaderSetting gShaderSetting;
     PbrMaterial gPbr;   // URP Lit (메시 PS 가 쓰는 재질 값)
+    uint gObjectLayer = 0xFFFFFFFF;   // 그리는 물체의 레이어 비트 (1 << layer). 정하지 않으면 모든 빛을 받는다
 };
+
+// 이 빛이 이 물체를 비추나 (Light.cullingMask & 물체 레이어)
+bool LightHits(uint mask) { return (mask & gObjectLayer) != 0u; }
 
 cbuffer cbSkinned
 {
@@ -507,6 +516,8 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     [loop]
     for (int di = 0; di < gDirLightCount; ++di)
     {
+        if (!LightHits(gDirLightMask[di]))
+            continue;
         float3 L = normalize(-gDirLights[di].Direction);
         float NoL = saturate(dot(N, L));
         float3 lightColor = ToLinear(gDirLights[di].Diffuse.rgb) * dirShadows[di];
@@ -521,6 +532,8 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     [loop]
     for (int si = 0; si < gSpotLightCount; ++si)
     {
+        if (!LightHits(gSpotLightMask[si]))
+            continue;
         float3 toLight = gSpotLights[si].Position - posW;
         float d = length(toLight);
         float3 L = toLight / max(d, 0.0001f);
@@ -535,6 +548,8 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     [loop]
     for (int pi = 0; pi < gPointLightCount; ++pi)
     {
+        if (!LightHits(gPointLightMask[pi]))
+            continue;
         float3 toLight = gPointLights[pi].Position - posW;
         float d = length(toLight);
         float3 L = toLight / max(d, 0.0001f);

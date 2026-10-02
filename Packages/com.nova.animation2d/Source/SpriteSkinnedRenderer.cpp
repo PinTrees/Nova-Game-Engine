@@ -3,6 +3,7 @@
 #include "UnityGUI.h"
 #include "EngineTime.h"
 #include "AssetImportSettings.h"
+#include "TagsAndLayers.h"
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -205,7 +206,7 @@ void SpriteSkinnedRenderer::CollectSprites(SpriteBatch& batch)
 		return;
 	PoseNow();
 	const Matrix world = m_pGameObject->GetTransform()->GetWorldMatrix();
-	batch.Begin(SortingOrder, m_pGameObject->GetTransform()->GetPosition());
+	batch.Begin(SortingLayerId, SortingOrder, m_pGameObject->GetTransform()->GetPosition());
 	const Vec2 uv[4] = { Vec2(0, 1), Vec2(1, 1), Vec2(1, 0), Vec2(0, 0) };
 	ForEachQuad([&](const Anim2D::Slot& s, const Tex* t, Vec3 p[4]) {
 		if (t == nullptr)
@@ -306,7 +307,16 @@ void SpriteSkinnedRenderer::OnInspectorGUI()
 	UnityGUI::Toggle("Flip X", &FlipX);
 	if (UnityGUI::FoldoutPlain("Additional Settings"))
 	{
-		UnityGUI::ValueLabel("Sorting Layer", "Default", 1);
+		const auto& layers = TagsAndLayers::SortingLayers();
+		std::vector<const char*> layerNames;
+		int curLayer = 0;
+		for (int i = 0; i < (int)layers.size(); ++i)
+		{
+			layerNames.push_back(layers[i].Name.c_str());
+			if (layers[i].Id == SortingLayerId) curLayer = i;
+		}
+		if (UnityGUI::Dropdown("Sorting Layer", &curLayer, layerNames.data(), (int)layerNames.size(), 1))
+			SortingLayerId = layers[curLayer].Id;
 		UnityGUI::Int("Order in Layer", &SortingOrder, 1);
 	}
 	if (d)
@@ -332,6 +342,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(SpriteSkinnedRenderer)
 	j["color"] = { Color[0], Color[1], Color[2], Color[3] };
 	j["flipX"] = FlipX;
 	j["sortingOrder"] = SortingOrder;
+	j["sortingLayerID"] = SortingLayerId;
 	return j;
 }
 
@@ -349,4 +360,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SpriteSkinnedRenderer)
 			Color[i] = j["color"][i].get<float>();
 	FlipX = j.value("flipX", false);
 	SortingOrder = j.value("sortingOrder", 0);
+	SortingLayerId = j.value("sortingLayerID", 0);
 }

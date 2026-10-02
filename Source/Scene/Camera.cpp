@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "Camera.h"
 #include "UnityGUI.h"
 #include "SceneViewOverlay.h"
@@ -499,7 +500,7 @@ void Camera::OnInspectorGUI()
 		UnityGUI::Int("Priority", &m_priority, 1);
 		UnityGUI::Dropdown("Opaque Texture", &m_opaqueTexture, kTexture, 3, 1);
 		UnityGUI::Dropdown("Depth Texture", &m_depthTexture, kTexture, 3, 1);
-		UnityGUI::Dropdown("Culling Mask", &m_cullingMask, kCulling, 7, 1);
+		UnityGUI::MaskField("Culling Mask", &m_cullingMask, 1);
 		UnityGUI::Toggle("Occlusion Culling", &m_occlusionCulling, 1);
 	}
 
@@ -573,7 +574,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(Camera)
 	j["priority"] = m_priority;
 	j["opaqueTexture"] = m_opaqueTexture;
 	j["depthTexture"] = m_depthTexture;
-	j["cullingMask"] = m_cullingMask;
+	j["cullingMaskBits"] = m_cullingMask;
 	j["occlusionCulling"] = m_occlusionCulling;
 	j["backgroundType"] = m_backgroundType;
 	j["backgroundColor"] = { m_backgroundColor[0], m_backgroundColor[1], m_backgroundColor[2], m_backgroundColor[3] };
@@ -609,7 +610,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Camera)
 	m_priority = j.value("priority", 0);
 	m_opaqueTexture = j.value("opaqueTexture", 2);
 	m_depthTexture = j.value("depthTexture", 2);
-	m_cullingMask = j.value("cullingMask", 0);
+	m_cullingMask = j.contains("cullingMaskBits") ? j["cullingMaskBits"].get<uint32>() : LegacyCullingMask(j.value("cullingMask", 0));
 	m_occlusionCulling = j.value("occlusionCulling", true);
 	m_backgroundType = j.value("backgroundType", 0);
 	m_volumeUpdateMode = j.value("volumeUpdateMode", 0);

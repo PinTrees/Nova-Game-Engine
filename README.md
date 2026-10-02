@@ -79,7 +79,8 @@
 | **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4, 텍셀 고정, 경계 섞기), 스포트·점광 그림자, Hard / Soft(PCF), 빛마다 Strength·Bias, Volume 의 Shadows 오버라이드, 먼 캐스케이드 캐시 |
 | **후처리 (Volume)** | Global/Local Volume + Profile 에셋, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain · FXAA |
 | **대기 · 조명** | 지수 높이 안개(Unreal 식), 대기 원근(레일리·미 산란), 하늘 환경광·반사, 자동 노출 — 모두 Volume 오버라이드로 장소마다 |
-| **2D 스프라이트** | Unity 의 **Sprite Renderer**: 그림 · Color · Flip X/Y · Order in Layer, 크기 = 픽셀 / Pixels Per Unit · Pivot · Filter Mode (텍스처 가져오기 설정 Sprite), GameObject > 2D Object > Sprites (Square · Circle · Capsule · Triangle), 조명 없이 투명 정렬 (Order → 먼 것부터), C# `color` · `flipX` · `sortingOrder` · `sprite`. 2D 뼈대 애니메이션은 패키지 2D Animator 의 Sprite Skinned Renderer |
+| **2D 스프라이트** | Unity 의 **Sprite Renderer**: 그림 · Color · Flip X/Y · Order in Layer, 크기 = 픽셀 / Pixels Per Unit · Pivot · Filter Mode (텍스처 가져오기 설정 Sprite), GameObject > 2D Object > Sprites (Square · Circle · Capsule · Triangle), **Sorting Layers** (Tags and Layers) → Order in Layer → 먼 것부터, **스프라이트 시트 자르기** (Sprite Mode = Multiple: Grid By Cell Size / Count · Automatic · 2D Animator 시트 JSON), **프레임 애니메이션** (`.spriteanim` + Sprite Animator, C# `Play("Run")`), C# `color` · `flipX` · `sortingOrder` · `sortingLayerName` · `sprite`. 2D 뼈대 애니메이션은 패키지 2D Animator 의 Sprite Skinned Renderer |
+| **Culling Mask** | Unity 의 `Camera.cullingMask` (그 레이어를 그리지 않음 — 메시 · 스킨 · 지형 · 나무 · 바위 · 풀 · 물 · 입자 · 스프라이트 · World 캔버스, 그림자도) 와 `Light.cullingMask` (그 레이어를 비추지 않고 그림자도 드리우지 않음 — 셰이더에서 빛마다 레이어 비트 검사) |
 | **스카이박스** | Poly Haven CC0 HDRI 큐브맵, 금속 반사와 환경광에 같은 하늘 |
 | **성능** | 인스턴싱, Mesh Renderer 자동 묶기, 절두체 컬링 옥트리, 셰이더 캐시(의존성 추적 + 병렬 컴파일), `nova perf` 로 측정 |
 

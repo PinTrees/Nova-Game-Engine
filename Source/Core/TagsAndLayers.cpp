@@ -13,6 +13,7 @@ namespace
 	bool s_Loaded = false;
 	std::string s_Layers[TagsAndLayers::kLayerCount];
 	std::vector<std::string> s_Tags;   // Builtin + 프로젝트
+	std::vector<TagsAndLayers::SortingLayer> s_Sorting;   // 그리는 순서
 
 	std::wstring File() { return PathManager::GetI()->GetMovePathW(L"ProjectSettings\\TagManager.json"); }
 
@@ -26,6 +27,7 @@ namespace
 		s_Layers[4] = "Water";
 		s_Layers[5] = "UI";
 		s_Tags.assign(std::begin(kBuiltinTags), std::end(kBuiltinTags));
+		s_Sorting = { { "Default", 0 } };
 	}
 
 	void Ensure()
@@ -44,6 +46,22 @@ namespace
 			for (int i = 0; i < TagsAndLayers::kLayerCount && i < (int)j["layers"].size(); ++i)
 				if (!TagsAndLayers::IsBuiltinLayer(i) && j["layers"][i].is_string())
 					s_Layers[i] = j["layers"][i].get<std::string>();
+		if (j.contains("sortingLayers") && j["sortingLayers"].is_array() && !j["sortingLayers"].empty())
+		{
+			std::vector<TagsAndLayers::SortingLayer> list;
+			bool hasDefault = false;
+			for (const json& l : j["sortingLayers"])
+				if (l.is_object())
+				{
+					TagsAndLayers::SortingLayer s{ l.value("name", std::string()), l.value("id", 0) };
+					if (s.Name.empty()) continue;
+					hasDefault |= s.Id == 0;
+					list.push_back(s);
+				}
+			if (!hasDefault)
+				list.insert(list.begin(), { "Default", 0 });
+			s_Sorting = list;
+		}
 		if (j.contains("tags") && j["tags"].is_array())
 			for (const json& t : j["tags"])
 				if (t.is_string() && !t.get<std::string>().empty() && std::find(s_Tags.begin(), s_Tags.end(), t.get<std::string>()) == s_Tags.end())
@@ -62,7 +80,12 @@ namespace
 		fs::create_directories(fs::path(path).parent_path(), ec);
 		std::ofstream os(path, std::ios::trunc);
 		if (os)
-			os << json{ { "tags", tags }, { "layers", layers } }.dump(4);
+		{
+			json sorting = json::array();
+			for (const TagsAndLayers::SortingLayer& s : s_Sorting)
+				sorting.push_back({ { "name", s.Name }, { "id", s.Id } });
+			os << json{ { "tags", tags }, { "layers", layers }, { "sortingLayers", sorting } }.dump(4);
+		}
 	}
 }
 
@@ -151,6 +174,99 @@ namespace TagsAndLayers
 		s_Tags.erase(it);
 		Save();
 		return true;
+	}
+
+	const std::vector<SortingLayer>& SortingLayers()
+	{
+		Ensure();
+		return s_Sorting;
+	}
+
+	int SortingLayerIndex(int id)
+	{
+		Ensure();
+		int def = 0;
+		for (int i = 0; i < (int)s_Sorting.size(); ++i)
+		{
+			if (s_Sorting[i].Id == id) return i;
+			if (s_Sorting[i].Id == 0) def = i;
+		}
+		return def;
+	}
+
+	int SortingLayerIdFromName(const std::string& name)
+	{
+		Ensure();
+		for (const SortingLayer& s : s_Sorting)
+			if (s.Name == name) return s.Id;
+		return -1;
+	}
+
+	std::string SortingLayerName(int id)
+	{
+		Ensure();
+		for (const SortingLayer& s : s_Sorting)
+			if (s.Id == id) return s.Name;
+		return "Default";
+	}
+
+	int AddSortingLayer(const std::string& name)
+	{
+		Ensure();
+		if (name.empty() || SortingLayerIdFromName(name) >= 0)
+			return -1;
+		int id = 1;
+		for (const SortingLayer& s : s_Sorting)
+			id = (std::max)(id, s.Id + 1);
+		s_Sorting.push_back({ name, id });
+		Save();
+		return id;
+	}
+
+	bool RemoveSortingLayer(int id)
+	{
+		Ensure();
+		if (id == 0)
+			return false;
+		for (size_t i = 0; i < s_Sorting.size(); ++i)
+			if (s_Sorting[i].Id == id)
+			{
+				s_Sorting.erase(s_Sorting.begin() + i);
+				Save();
+				return true;
+			}
+		return false;
+	}
+
+	bool RenameSortingLayer(int id, const std::string& name)
+	{
+		Ensure();
+		if (name.empty() || (SortingLayerIdFromName(name) >= 0 && SortingLayerIdFromName(name) != id))
+			return false;
+		for (SortingLayer& s : s_Sorting)
+			if (s.Id == id)
+			{
+				s.Name = name;
+				Save();
+				return true;
+			}
+		return false;
+	}
+
+	bool MoveSortingLayer(int id, int delta)
+	{
+		Ensure();
+		for (int i = 0; i < (int)s_Sorting.size(); ++i)
+			if (s_Sorting[i].Id == id)
+			{
+				const int j = i + delta;
+				if (j < 0 || j >= (int)s_Sorting.size())
+					return false;
+				std::swap(s_Sorting[i], s_Sorting[j]);
+				Save();
+				return true;
+			}
+		return false;
 	}
 
 	void Reload()

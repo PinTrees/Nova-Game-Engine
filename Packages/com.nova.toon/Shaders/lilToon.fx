@@ -57,7 +57,7 @@ void LilLight(out float3 L, out float3 lightColor, out float3 indLight)
 {
     L = float3(0.0f, 1.0f, 0.0f);
     float3 mainLight = float3(0, 0, 0);
-    if (gDirLightCount > 0)
+    if (gDirLightCount > 0 && LightHits(gDirLightMask[0]))
     {
         L = normalize(-gDirLights[0].Direction);
         mainLight = ToLinear(gDirLights[0].Diffuse.rgb);
@@ -149,6 +149,8 @@ float4 PS_Lil(VertexOut pin, bool front : SV_IsFrontFace) : SV_Target
     [loop]
     for (int pi = 0; pi < gPointLightCount; ++pi)
     {
+        if (!LightHits(gPointLightMask[pi]))
+            continue;
         const float3 toLight = gPointLights[pi].Position - pin.PosW.xyz;
         const float d = length(toLight);
         const float3 Lp = toLight / max(d, 0.0001f);
@@ -158,6 +160,8 @@ float4 PS_Lil(VertexOut pin, bool front : SV_IsFrontFace) : SV_Target
     [loop]
     for (int si = 0; si < gSpotLightCount; ++si)
     {
+        if (!LightHits(gSpotLightMask[si]))
+            continue;
         const float3 toLight = gSpotLights[si].Position - pin.PosW.xyz;
         const float d = length(toLight);
         const float3 Ls = toLight / max(d, 0.0001f);

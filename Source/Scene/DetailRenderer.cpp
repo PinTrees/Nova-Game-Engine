@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "DetailRenderer.h"
 #include "Terrain.h"
 #include "TerrainData.h"
@@ -857,6 +858,8 @@ namespace DetailRenderer
 				auto data = terrain->GetTerrainData();
 				if (!data || data->DetailPrototypes.empty() || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActive()))
 					continue;
+				if (!shadow && !RenderLayers::Visible(terrain->GetGameObject()))
+					continue;   // Camera 의 Culling Mask (지형의 레이어)
 				auto it = s_Cache.find(data.get());
 				if (it == s_Cache.end())
 					continue;

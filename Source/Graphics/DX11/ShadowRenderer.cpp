@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "ShadowRenderer.h"
 #include "ShadowMap.h"
 #include "Light.h"
@@ -156,6 +157,10 @@ namespace ShadowRenderer
 			auto mixF = [&](float f) { uint32_t u; memcpy(&u, &f, 4); key = key * 1099511628211ull ^ u; };
 			mixF(maxDist); mixF(s.Splits[0]); mixF(s.Splits[1]); mixF(s.Splits[2]); mixF(s.DepthBias); mixF(s.NormalBias);
 			key = key * 31 + (uint64_t)(s.SoftShadows ? 1 : 0) * 7 + (uint64_t)s.SoftQuality;
+			// Culling Mask (화면 · 방향광) 가 바뀌면 캐시한 캐스케이드도 다시
+			key = key * 1099511628211ull ^ RenderLayers::ViewMask();
+			for (int d = 0; d < dirCount; ++d)
+				key = key * 1099511628211ull ^ sortedLights[d]->GetCullingMaskBits();
 			const uint64_t f = out.FrameCounter;
 			for (int i = 0; i < count; ++i)
 			{
@@ -239,7 +244,9 @@ namespace ShadowRenderer
 				maps.BindSlice(dc, LightType::Directional, d, i, s.Resolution);
 				{
 					PROFILE_GPU(kCascadeNames[i]);   // Profiler: 캐스케이드마다 GPU 시간·픽셀
+					RenderLayers::SetPassMask(light.GetCullingMaskBits());   // 이 빛이 비추지 않는 레이어는 그림자도 없다
 					drawCasters();
+					RenderLayers::SetPassMask(~0u);
 				}
 				cache.Dir[d] = out.Dir[d * 4 + i];
 				cache.Lights[d] = &light;
@@ -283,7 +290,9 @@ namespace ShadowRenderer
 			RenderManager::GetI()->LightViewProjection = vp;
 			RenderManager::GetI()->ShadowTexelWorld = 0.0f;
 			maps.BindSlice(dc, LightType::Spot, k, 0, s.Resolution);
+			RenderLayers::SetPassMask(light.GetCullingMaskBits());
 			drawCasters();
+			RenderLayers::SetPassMask(~0u);
 		}
 
 		// ---- 점광: 큐브 6 면 (월드 축, 셰이더의 PointFace 와 같은 순서)
@@ -319,7 +328,9 @@ namespace ShadowRenderer
 				RenderManager::GetI()->LightViewProjection = vp;
 				RenderManager::GetI()->ShadowTexelWorld = 0.0f;
 				maps.BindSlice(dc, LightType::Point, k, f, pointRes);
+				RenderLayers::SetPassMask(light.GetCullingMaskBits());
 				drawCasters();
+				RenderLayers::SetPassMask(~0u);
 			}
 		}
 	}

@@ -20,7 +20,7 @@ private:
 	int   m_ColorMode = 0;       // 0 Color, 1 Filter and Temperature
 	float m_Temperature = 6570.0f;
 	float m_Filter[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	int   m_CullingMask = 0;
+	uint32 m_CullingMask = 0xFFFFFFFFu;   // Unity Light.cullingMask (layer bits)
 	int   m_ShadowType = 0;      // No Shadows / Hard / Soft
 	// Unity URP Light > Shadows
 	float m_ShadowStrength = 1.0f;
@@ -92,6 +92,8 @@ public:
 
 	// LightV * LightP * toTexSpace
 	LightType GetLightType() { return m_LightType; }
+	uint32 GetCullingMaskBits() const { return m_CullingMask; }
+	void SetCullingMaskBits(uint32 m) { m_CullingMask = m; }
 
 	// Shadow Type 이 No Shadows 가 아니면 그림자를 드리운다
 	bool CastsShadows() const { return m_ShadowType != 0; }

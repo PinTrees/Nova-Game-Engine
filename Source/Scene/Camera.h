@@ -48,7 +48,7 @@ private:
 	int   m_priority = 0;
 	int   m_opaqueTexture = 2;       // 0 Off, 1 On, 2 Use settings from Render Pipeline Asset
 	int   m_depthTexture = 2;
-	int   m_cullingMask = 0;         // 0 Everything
+	uint32 m_cullingMask = 0xFFFFFFFFu;   // Unity Camera.cullingMask: 그리는 레이어 (비트 = 레이어)
 	bool  m_occlusionCulling = true;
 	int   m_backgroundType = 0;      // 0 Skybox, 1 Solid Color, 2 Uninitialized
 	float m_backgroundColor[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
@@ -141,6 +141,8 @@ public:
 	int GetPriority() const { return m_priority; }
 	const float* GetBackgroundColor() const { return m_backgroundColor; }
 	float GetOrthoSize() const { return m_orthoSize; }
+	uint32 GetCullingMask() const { return m_cullingMask; }
+	void SetCullingMask(uint32 m) { m_cullingMask = m; }
 	bool IsOrthographic() const { return m_cameraType == ProjectionType::Orthographic; }
 	virtual void OnDrawGizmos() override;
 

@@ -6,6 +6,8 @@
 #include "UISystem.h"
 #include "ParticleRenderer.h"
 #include "SpriteBatch.h"
+#include "SpriteAnimator.h"
+#include "RenderLayers.h"
 #include "ParticleSystem.h"
 #include "PlayerRuntime.h"
 #include "SceneToolbar.h"
@@ -130,6 +132,7 @@ bool EditorApp::Init()
 	log << "EditorApp::Init -> BuildScreenQuadGeometryBuffers..." << std::endl; log.flush();
 	LoadingScreen::SetProgress(0.95f, L"Loading scripts");
 	ScriptEngine::Init();   // .NET 런타임 + Assembly-CSharp (바뀌었으면 백그라운드 컴파일 시작)
+	SpriteAnimClips::RegisterEditorAssetType();   // Project 창의 .spriteanim (프레임 애니메이션)
 	LoadingScreen::SetProgress(0.96f, L"Preparing editor windows");
 	BuildScreenQuadGeometryBuffers();
 
@@ -378,6 +381,8 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	//BuildShadowTransform();
 
 	RenderManager::GetI()->RenderingEditorView = false;
+	RenderLayers::SetViewMask(camera->GetCullingMask());   // Camera.cullingMask: 이 화면에 그릴 레이어
+	RenderLayers::SetPassMask(~0u);
 	RenderManager::GetI()->CameraViewMatrix = camera->View();
 	RenderManager::GetI()->CameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
@@ -466,6 +471,8 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
 	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
+	RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
+
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_GameShadow);
 	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
@@ -479,6 +486,7 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 		fx->SetSpotLights(spotLights.data(), spotLights.size());
 		fx->SetPointLights(pointLights.data(), pointLights.size());
 		ShadowRenderer::Bind(fx, *shadowMap, s_GameShadow);
+		RenderLayers::SetLightMasks(fx, scenePointLights, false);
 	});
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
@@ -558,6 +566,8 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
 
 	RenderManager::GetI()->RenderingEditorView = true;
+	RenderLayers::SetViewMask(~0u);   // Scene 뷰는 모든 레이어
+	RenderLayers::SetPassMask(~0u);
 	RenderManager::GetI()->EditorCameraViewMatrix = camera->View();
 	RenderManager::GetI()->EditorCameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->EditorCameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
@@ -637,6 +647,8 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
 	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
+	RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, true);
+
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
 	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
@@ -650,6 +662,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		fx->SetSpotLights(spotLights.data(), spotLights.size());
 		fx->SetPointLights(pointLights.data(), pointLights.size());
 		ShadowRenderer::Bind(fx, *shadowMap, s_EditorShadow);
+		RenderLayers::SetLightMasks(fx, scenePointLights, true);
 	});
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);

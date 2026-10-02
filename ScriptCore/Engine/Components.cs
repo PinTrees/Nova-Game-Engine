@@ -341,8 +341,15 @@ namespace NovaEngine
         {
             get { ulong id = Native.Api.Camera_Main(); return id == 0 ? null : new Camera { m_Id = id }; }
         }
+        /// <summary>이 카메라가 그리는 레이어 (비트 = 레이어, LayerMask.GetMask)</summary>
+        public unsafe int cullingMask { get => Native.Api.CL_GetMask(m_Id, 0); set => Native.Api.CL_SetMask(m_Id, 0, value); }
     }
-    public sealed class Light : Behaviour { internal Light() { } }
+    public sealed unsafe class Light : Behaviour
+    {
+        internal Light() { }
+        /// <summary>이 빛이 비추는 레이어 (비트 = 레이어). 안 비추는 레이어는 이 빛의 그림자도 드리우지 않는다</summary>
+        public int cullingMask { get => Native.Api.CL_GetMask(m_Id, 1); set => Native.Api.CL_SetMask(m_Id, 1, value); }
+    }
     public sealed class MeshRenderer : Component { internal MeshRenderer() { } }
 
     /// <summary>Unity 의 SkinnedMeshRenderer: BlendShape (모프 타깃) 가중치 0..100</summary>
@@ -367,12 +374,31 @@ namespace NovaEngine
         public bool flipX { get => Native.Api.SR_GetInt(m_Id, 0) != 0; set => Native.Api.SR_SetInt(m_Id, 0, value ? 1 : 0); }
         public bool flipY { get => Native.Api.SR_GetInt(m_Id, 1) != 0; set => Native.Api.SR_SetInt(m_Id, 1, value ? 1 : 0); }
         public int sortingOrder { get => Native.Api.SR_GetInt(m_Id, 2); set => Native.Api.SR_SetInt(m_Id, 2, value); }
+        /// <summary>Sorting Layer 이름 (Project Settings > Tags and Layers). 없는 이름은 무시</summary>
+        public string sortingLayerName
+        {
+            get => Native.Str(Native.Api.SR_GetSortingLayer(m_Id)) ?? "Default";
+            set { fixed (byte* p = Native.Utf8(value)) Native.Api.SR_SetSortingLayer(m_Id, p); }
+        }
         /// <summary>그림 (null = 없음). Sprite.FromPath("Assets/…png") 또는 "builtin:Square"</summary>
         public Sprite sprite
         {
             get { string p = Native.Str(Native.Api.SR_GetSprite(m_Id)); return string.IsNullOrEmpty(p) ? null : new Sprite(p); }
             set { fixed (byte* p = Native.Utf8(value?.m_Path)) Native.Api.SR_SetSprite(m_Id, p); }
         }
+    }
+
+    /// <summary>프레임 애니메이션: .spriteanim 클립의 스프라이트를 같은 GameObject 의 SpriteRenderer 에 차례로</summary>
+    public sealed unsafe class SpriteAnimator : Behaviour
+    {
+        internal SpriteAnimator() { }
+        /// <summary>클립 이름 (= .spriteanim 파일 이름) 을 처음부터. 없으면 false</summary>
+        public bool Play(string clip) { fixed (byte* p = Native.Utf8(clip)) return Native.Api.SA_Play(m_Id, p) != 0; }
+        public void Stop() => Native.Api.SA_Stop(m_Id);
+        public bool isPlaying => Native.Api.SA_GetInt(m_Id, 0) != 0;
+        public int frame => Native.Api.SA_GetInt(m_Id, 1);
+        public string currentClip => Native.Str(Native.Api.SA_Clip(m_Id)) ?? "";
+        public float speed { get => Native.Api.SA_GetSpeed(m_Id); set => Native.Api.SA_SetSpeed(m_Id, value); }
     }
 
     /// <summary>Unity 의 Mesh 중 BlendShape 정보 (SkinnedMeshRenderer.sharedMesh)</summary>

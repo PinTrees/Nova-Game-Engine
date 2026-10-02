@@ -11,6 +11,7 @@
 #include "SceneCulling.h"
 #include "RenderStats.h"
 #include "Profiler.h"
+#include "RenderLayers.h"
 #include <unordered_map>
 
 namespace
@@ -20,13 +21,14 @@ namespace
 		const Mesh* MeshPtr;
 		int Subset;
 		const UMaterial* Material;
-		bool operator==(const Key& o) const { return MeshPtr == o.MeshPtr && Subset == o.Subset && Material == o.Material; }
+		uint32 Layer;   // 본 패스만 (빛의 Culling Mask 가 묶음마다 같게), 깊이 = 0
+		bool operator==(const Key& o) const { return MeshPtr == o.MeshPtr && Subset == o.Subset && Material == o.Material && Layer == o.Layer; }
 	};
 	struct KeyHash
 	{
 		size_t operator()(const Key& k) const
 		{
-			return std::hash<const void*>()(k.MeshPtr) ^ (std::hash<int>()(k.Subset) * 31) ^ (std::hash<const void*>()(k.Material) * 1099511628211ull);
+			return std::hash<const void*>()(k.MeshPtr) ^ (std::hash<int>()(k.Subset) * 31) ^ (std::hash<const void*>()(k.Material) * 1099511628211ull) ^ ((size_t)k.Layer * 2654435761ull);
 		}
 	};
 
@@ -35,6 +37,7 @@ namespace
 		Mesh* MeshPtr = nullptr;
 		int Subset = 0;
 		shared_ptr<UMaterial> Material;
+		uint32 Layer = 0xFFFFFFFFu;   // gObjectLayer (레이어 비트)
 		std::vector<XMFLOAT4X4> Worlds;
 	};
 
@@ -44,6 +47,7 @@ namespace
 		const Component* Renderer;
 		XMFLOAT4X4 World;
 		int Cast;               // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
+		uint32 LayerBit;        // 1 << GameObject 레이어 (Culling Mask)
 		uint32_t First, Count;  // s_MainItems / s_DepthItems 범위 (서브셋마다 묶음 번호)
 	};
 	std::vector<Caster> s_Casters;
@@ -59,9 +63,9 @@ namespace
 	std::vector<int> s_Order;
 	MeshBatcher::Stats s_Stats[2];
 
-	int BatchIndex(std::unordered_map<Key, int, KeyHash>& index, std::vector<Batch>& batches, int& count, Mesh* mesh, int subset, const shared_ptr<UMaterial>& mat)
+	int BatchIndex(std::unordered_map<Key, int, KeyHash>& index, std::vector<Batch>& batches, int& count, Mesh* mesh, int subset, const shared_ptr<UMaterial>& mat, uint32 layer)
 	{
-		const Key key{ mesh, subset, mat.get() };
+		const Key key{ mesh, subset, mat.get(), layer };
 		if (auto it = index.find(key); it != index.end())
 			return it->second;
 		if (count >= (int)batches.size())
@@ -70,6 +74,7 @@ namespace
 		b.MeshPtr = mesh;
 		b.Subset = subset;
 		b.Material = mat;
+		b.Layer = layer == 0 ? 0xFFFFFFFFu : layer;
 		b.Worlds.clear();
 		index.emplace(key, count);
 		return count++;
@@ -98,6 +103,7 @@ namespace
 			c.Renderer = mr;
 			XMStoreFloat4x4(&c.World, go->GetTransform()->GetWorldMatrix());
 			c.Cast = mr->GetCastShadows();
+			c.LayerBit = 1u << (go->GetLayerIndex() & 31);
 			c.First = (uint32_t)s_MainItems.size();
 			c.Count = (uint32_t)mesh->Subsets.size();
 			const auto& materials = mr->GetMaterials();
@@ -106,8 +112,8 @@ namespace
 				const UINT matIndex = mesh->Subsets[i].MaterialIndex;
 				static const shared_ptr<UMaterial> s_None;
 				const shared_ptr<UMaterial>& mat = matIndex < materials.size() ? materials[matIndex] : s_None;
-				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat));
-				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, s_None));
+				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit));
+				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, s_None, 0));
 			}
 			s_Casters.push_back(c);
 		}
@@ -184,6 +190,8 @@ namespace MeshBatcher
 		{
 			if (!SceneCulling::IsVisible(c.Renderer))
 				continue;
+			if (!(c.LayerBit & RenderLayers::ActiveMask()))
+				continue;   // Camera / Light 의 Culling Mask
 			if ((pass == Pass::Shadow && c.Cast == 1) || (pass != Pass::Shadow && c.Cast == 3))
 				continue;
 			for (uint32_t k = c.First; k < c.First + c.Count; ++k)
@@ -205,7 +213,10 @@ namespace MeshBatcher
 		}
 		// 본 패스는 재질끼리 모아 재질 적용 횟수를 줄인다
 		if (main)
-			std::sort(s_Order.begin(), s_Order.end(), [&](int a, int b) { return batches[a].Material.get() < batches[b].Material.get(); });
+			std::sort(s_Order.begin(), s_Order.end(), [&](int a, int b) {
+				if (batches[a].Material.get() != batches[b].Material.get()) return batches[a].Material.get() < batches[b].Material.get();
+				return batches[a].Layer < batches[b].Layer;
+			});
 
 		// ---- 패스 값
 		GfxContext* dc = Application::GetI()->GetDeviceContext();
@@ -245,6 +256,7 @@ namespace MeshBatcher
 		dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
+		uint32 appliedLayer = 0;
 		int drawn = 0;
 		for (int index : s_Order)
 		{
@@ -257,6 +269,11 @@ namespace MeshBatcher
 				UMaterial::ApplyOrDefault(b->Material, Effects::InstancedBasicFX.get());
 				applied = b->Material.get();
 			}
+			if (pass == Pass::Main && b->Layer != appliedLayer)
+			{
+				RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), b->Layer);   // Light.cullingMask
+				appliedLayer = b->Layer;
+			}
 			const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
 			dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
 			tech->GetPassByIndex(0)->Apply(0, dc);
@@ -267,6 +284,9 @@ namespace MeshBatcher
 		UINT zero = 0;
 		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 		if (pass == Pass::Main)
+		{
 			s_Stats[editor ? 1 : 0] = Stats{ objects, drawn };
+			RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);   // 다른 그리기는 모든 빛
+		}
 	}
 }

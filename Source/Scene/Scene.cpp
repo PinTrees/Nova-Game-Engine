@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "TagsAndLayers.h"
+#include "RenderLayers.h"
 #include "Scene.h"
 #include <functional>
 #include "InstancingBuffer.h"
@@ -130,7 +131,7 @@ void Scene::RenderScene()
         {
             if (dynamic_cast<MeshRenderer*>(component.get()) != nullptr)
                 continue;   // MeshBatcher 가 그렸다
-            if (SceneCulling::IsVisible(component.get()))   // 절두체 밖 렌더러는 건너뜀
+            if (SceneCulling::IsVisible(component.get()) && RenderLayers::Visible(gameObject))   // 절두체 밖 · Culling Mask 밖은 건너뜀
                 component->Render();
         }
     }
@@ -146,9 +147,9 @@ void Scene::RenderSceneShadow()
     MeshBatcher::Draw(this, MeshBatcher::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned)) skinned->RenderShadow();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->RenderShadow();
     for (Terrain* terrain : view.Terrains)
-        terrain->RenderShadow();
+        if (RenderLayers::Visible(terrain->GetGameObject())) terrain->RenderShadow();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
     RockRenderer::DrawAll(RockRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
@@ -160,9 +161,9 @@ void Scene::RenderSceneShadowNormal()
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, false);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned)) skinned->RenderShadowNormal();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->RenderShadowNormal();
     for (Terrain* terrain : view.Terrains)
-        terrain->RenderShadowNormal();
+        if (RenderLayers::Visible(terrain->GetGameObject())) terrain->RenderShadowNormal();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, false);
     RockRenderer::DrawAll(RockRenderer::Pass::NormalDepth, false);
@@ -174,9 +175,9 @@ void Scene::_Editor_RenderScene()
     MeshBatcher::Draw(this, MeshBatcher::Pass::Main, true);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned)) skinned->_Editor_Render();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->_Editor_Render();
     for (Terrain* terrain : view.Terrains)
-        terrain->_Editor_Render();
+        if (RenderLayers::Visible(terrain->GetGameObject())) terrain->_Editor_Render();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, true);
     RockRenderer::DrawAll(RockRenderer::Pass::Main, true);
@@ -188,9 +189,9 @@ void Scene::_Editor_RenderSceneShadowNormal()
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, true);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned)) skinned->_Editor_RenderShadowNormal();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->_Editor_RenderShadowNormal();
     for (Terrain* terrain : view.Terrains)
-        terrain->_Editor_RenderShadowNormal();
+        if (RenderLayers::Visible(terrain->GetGameObject())) terrain->_Editor_RenderShadowNormal();
 
     TreeRenderer::DrawAll(TreeRenderer::Pass::NormalDepth, true);
     RockRenderer::DrawAll(RockRenderer::Pass::NormalDepth, true);

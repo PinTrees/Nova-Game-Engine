@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "RenderLayers.h"
+#include "Effects.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
@@ -72,7 +74,12 @@ void Terrain::DrawPass(TerrainRenderer::Pass pass, bool editor)
 		return;
 	if (pass == TerrainRenderer::Pass::Shadow && m_ShadowCasting == ShadowCasting::Off)
 		return;
+	if (!RenderLayers::Visible(m_pGameObject))
+		return;   // Camera / Light 의 Culling Mask
+	const uint32 layerBit = 1u << ((m_pGameObject ? m_pGameObject->GetLayerIndex() : 0) & 31);
+	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), layerBit);   // Light.cullingMask
 	TerrainRenderer::Draw(*m_Data, GetPosition(), pass, m_PixelError, pass == TerrainRenderer::Pass::Main ? (editor ? &m_EditorStats : &m_GameStats) : nullptr);
+	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);
 }
 
 void Terrain::Render() { DrawPass(TerrainRenderer::Pass::Main, false); }

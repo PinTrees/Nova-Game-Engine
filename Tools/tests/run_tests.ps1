@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1371,6 +1371,41 @@ return a + " " + b + " " + g + " " + g2 + " " + GameObject.Find("EnemyBox").laye
         $after = Invoke-NovaJson 'physics'
         Add-Result layers 'IgnoreLayerCollision is runtime only (settings unchanged after Stop)' (@($after.ignoredPairs).Count -eq 0) "ignored after stop=$($after.ignoredPairs | ConvertTo-Json -Compress)"
 
+        # Culling Mask: 카메라 (Enemy 를 안 그림) · 빛 (Enemy 를 안 비춤 → 어두움). Game 뷰 가운데 빨간 상자의 밝기
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 20,1,20' | Out-Null
+        Invoke-Nova 'create cube --name RedBox --scale 3,3,3' | Out-Null
+        Invoke-Nova 'set RedBox --layer Enemy' | Out-Null
+        $cam = Invoke-NovaJson 'get "Main Camera"'
+        $cp = $cam.worldPosition
+        Invoke-Nova ('set RedBox --position {0},{1},{2}' -f $cp[0], $cp[1], ($cp[2] + 8)) | Out-Null
+        Copy-Item (Join-Path $Project 'Assets\Materials\Red Plastic.mat') (Join-Path $Project 'Assets\LayerTestRed.mat') -Force
+        Invoke-Nova 'set RedBox --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/LayerTestRed.mat\"]}"' | Out-Null
+        function CenterRed([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova 'wait 5' | Out-Null
+            Invoke-Nova "screenshot $p --view game" | Out-Null
+            if (-not (Test-Path $p)) { return @(0, 0) }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $sum = 0.0; $n = 0; $red = 0
+            for ($y = [int]($bm.Height * 0.4); $y -lt [int]($bm.Height * 0.6); $y += 3) { for ($x = [int]($bm.Width * 0.4); $x -lt [int]($bm.Width * 0.6); $x += 3) { $c = $bm.GetPixel($x, $y); $sum += $c.R; $n++; if ($c.R -gt $c.G + 40 -and $c.R -gt $c.B + 40) { $red++ } } }
+            $bm.Dispose()
+            return @([math]::Round($sum / [math]::Max(1, $n)), $red)
+        }
+        $lit = CenterRed 'cull_lit.png'
+        Invoke-Nova 'set "Directional Light" --component Light --values "{\"cullingMaskBits\":4294967039}"' | Out-Null
+        $dark = CenterRed 'cull_light.png'
+        Invoke-Nova 'set "Directional Light" --component Light --values "{\"cullingMaskBits\":4294967295}"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"cullingMaskBits\":4294967039}"' | Out-Null
+        $gone = CenterRed 'cull_camera.png'
+        $cmf = Join-Path $dir 'cullmask.cs'
+        'var l = GameObject.Find("Directional Light").GetComponent<Light>(); l.cullingMask = ~LayerMask.GetMask("Enemy"); return Camera.main.cullingMask + " " + l.cullingMask;' | Set-Content -Encoding utf8 $cmf
+        $cm = Invoke-NovaJson "exec --file $cmf"
+        Add-Result layers 'Light.cullingMask: Enemy box not lit by the sun (darker)' ($lit[1] -gt 50 -and $dark[0] -lt $lit[0] - 25) "lit R=$($lit[0]) red=$($lit[1]), light masked R=$($dark[0])"
+        Add-Result layers 'Camera.cullingMask: Enemy box not drawn' ($lit[1] -gt 50 -and $gone[1] -lt 5) "red samples: drawn=$($lit[1]), camera masked=$($gone[1])"
+        Add-Result layers 'C#: Camera.cullingMask / Light.cullingMask' ("$($cm.result)" -eq '-257 -257') "$($cm.result)"
+
         # Project Settings 창 (Tags and Layers · Physics 의 매트릭스) 캡처
         Invoke-Nova 'window project-settings --category Physics' | Out-Null
         Invoke-Nova 'wait 10' | Out-Null
@@ -1386,6 +1421,103 @@ return a + " " + b + " " + g + " " + g2 + " " + GameObject.Find("EnemyBox").laye
         Stop-TestEditor $ed
         foreach ($f in $saved.Keys) { $p = Join-Path $settings $f; if ($null -ne $saved[$f]) { Set-Content -Path $p -Value $saved[$f] -NoNewline -Encoding utf8 } else { Remove-Item $p -Force -ErrorAction SilentlyContinue } }
         Remove-Item $legacy, "$legacy.meta" -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $Project 'Assets\LayerTestRed.mat'), (Join-Path $Project 'Assets\LayerTestRed.mat.meta') -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Sprites
+{
+    # 스프라이트 시트 자르기 (Sprite Mode = Multiple) · 프레임 애니메이션 (.spriteanim + Sprite Animator) · Sorting Layers
+    Write-Host '[sprites]'
+    $dir = Join-Path $Out 'sprites'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\SpriteTest'
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    $tm = Join-Path $Project 'ProjectSettings\TagManager.json'
+    $tmBefore = if (Test-Path $tm) { Get-Content $tm -Raw } else { $null }
+    # 시험 그림: 32 × 32 칸 5 개 (빨강 · 초록 · 파랑 · 노랑 + 빈 칸), 칸마다 가운데 원
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap 160, 32
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.Clear([System.Drawing.Color]::Transparent)
+    $cols = @([System.Drawing.Color]::FromArgb(255, 230, 40, 40), [System.Drawing.Color]::FromArgb(255, 40, 200, 60), [System.Drawing.Color]::FromArgb(255, 40, 80, 230), [System.Drawing.Color]::FromArgb(255, 240, 220, 40))
+    for ($i = 0; $i -lt 4; $i++) { $b = New-Object System.Drawing.SolidBrush $cols[$i]; $g.FillEllipse($b, $i * 32 + 4, 4, 24, 24); $b.Dispose() }
+    $g.Dispose()
+    $sheet = Join-Path $assetDir 'hero.png'
+    $bmp.Save($sheet, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    $ed = Start-TestEditor
+    try
+    {
+        $s = Invoke-NovaJson 'sprite-slice Assets/SpriteTest/hero.png --mode grid --cell 32,32 --pivot 0.5,0 --ppu 32 --filter point --animation 8'
+        Add-Result sprites 'grid slice 32x32: 4 sprites (empty cell skipped) + .spriteanim' ($s -and $s.sprites -eq 4 -and $s.names[3] -eq 'hero_3' -and $s.animation -like '*hero.spriteanim') "sprites=$($s.sprites) names=$($s.names -join ',') anim=$($s.animation)"
+        $a = Invoke-NovaJson 'sprite-slice Assets/SpriteTest/hero.png --mode auto --pivot 0.5,0 --ppu 32 --filter point'
+        Add-Result sprites 'automatic slice: 4 islands' ($a -and $a.sprites -eq 4) "sprites=$($a.sprites)"
+        $meta = Get-Content "$sheet.meta" -Raw | ConvertFrom-Json
+        $r2 = @($meta.settings.sprites + $meta.sprites | Where-Object { $_ -and $_.name -eq 'hero_2' })[0]
+        $rectOk = $r2 -and [math]::Abs([double]$r2.rect[0] - 68) -le 1 -and [math]::Abs([double]$r2.rect[1] - 4) -le 1 -and [math]::Abs([double]$r2.rect[2] - 24) -le 1
+        Add-Result sprites '.meta: Sprite Mode Multiple, auto rect hero_2 ≈ 68,4,24,24 (bottom-left origin)' $rectOk "rect=$($r2.rect -join ',') meta keys=$(@($meta.PSObject.Properties.Name) -join ',')"
+        Invoke-Nova 'sprite-slice Assets/SpriteTest/hero.png --mode grid --cell 32,32 --pivot 0.5,0 --ppu 32 --filter point' | Out-Null
+
+        # 씬: 잘라 놓은 스프라이트 하나 (파랑 = hero_2) + Sorting Layer (Foreground 의 빨강이 Default 의 초록 (Order 10) 위)
+        Invoke-Nova 'layers --add-sorting-layer Background' | Out-Null
+        $sl = Invoke-NovaJson 'layers --add-sorting-layer Foreground'
+        Add-Result sprites 'sorting layers: Default, Background, Foreground' ((@($sl.sortingLayers | ForEach-Object { $_.name }) -join ',') -eq 'Default,Background,Foreground') "$(@($sl.sortingLayers | ForEach-Object { $_.name }) -join ',')"
+        Invoke-Nova 'layers --move-sorting-layer Background --by -1' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create empty --name Blue --position -2,1,0' | Out-Null
+        Invoke-Nova 'add-component Blue SpriteRenderer --values "{\"sprite\":\"Assets/SpriteTest/hero.png#hero_2\"}"' | Out-Null
+        $fg = (@($sl.sortingLayers | Where-Object { $_.name -eq 'Foreground' })[0]).id
+        Invoke-Nova 'create empty --name RedFront --position 1,1,0' | Out-Null
+        Invoke-Nova ('add-component RedFront SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[1,0,0,1],\"sortingLayerID\":' + $fg + '}"') | Out-Null
+        Invoke-Nova 'create empty --name GreenBack --position 1.3,1,0' | Out-Null
+        Invoke-Nova 'add-component GreenBack SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0,1,0,1],\"sortingOrder\":10}"' | Out-Null
+        Invoke-Nova 'camera --position 0,1,-5 --target 0,1,0' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $shot = Join-Path $dir 'sprites_scene.png'
+        Invoke-Nova "screenshot $shot --view scene" | Out-Null
+        $blue = 0; $overlapRed = $false; $info = ''
+        if (Test-Path $shot)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($shot)
+            for ($y = 0; $y -lt $bm.Height; $y += 2) { for ($x = 0; $x -lt $bm.Width; $x += 2) { $c = $bm.GetPixel($x, $y); if ($c.B -gt 180 -and $c.R -lt 110 -and $c.G -lt 150) { $blue++ } } }
+            # 겹친 곳 (x = 1.15 근처): 화면 가운데에서 오른쪽
+            $cx = [int]($bm.Width * 0.5); $cy = [int]($bm.Height * 0.5)
+            $reds = 0; $greens = 0
+            for ($x = $cx; $x -lt $bm.Width; $x += 2) { $c = $bm.GetPixel($x, $cy); if ($c.R -gt 180 -and $c.G -lt 90) { $reds++ } elseif ($c.G -gt 180 -and $c.R -lt 90) { $greens++ } }
+            $info = "reds=$reds greens=$greens"
+            $overlapRed = $reds -gt $greens   # 빨강 1 단위 + 겹침이 빨강이면 초록은 0.3 단위만 보인다
+            $bm.Dispose()
+        }
+        Add-Result sprites 'sub-sprite drawn (blue hero_2, 1 unit at 32 PPU)' ($blue -gt 100) "blue samples=$blue"
+        Add-Result sprites 'Foreground sorting layer draws over Default (even with Order 10)' $overlapRed $info
+
+        # 프레임 애니메이션: Sprite Animator 가 Play 중 스프라이트를 바꾼다 + C#
+        Invoke-Nova 'create empty --name Hero --position -4,1,0' | Out-Null
+        Invoke-Nova 'add-component Hero SpriteRenderer --values "{\"sprite\":\"Assets/SpriteTest/hero.png#hero_0\"}"' | Out-Null
+        Invoke-Nova 'add-component Hero SpriteAnimator --values "{\"clips\":[\"Assets/SpriteTest/hero.spriteanim\"]}"' | Out-Null
+        $cf = Join-Path $dir 'anim.cs'
+        'var a = GameObject.Find("Hero").GetComponent<SpriteAnimator>(); var r = GameObject.Find("Hero").GetComponent<SpriteRenderer>(); return a.currentClip + " " + a.isPlaying + " " + a.frame + " " + r.sprite.name;' | Set-Content -Encoding utf8 $cf
+        $lf = Join-Path $dir 'layer.cs'
+        'var r = GameObject.Find("GreenBack").GetComponent<SpriteRenderer>(); string before = r.sortingLayerName; r.sortingLayerName = "Background"; return before + " " + r.sortingLayerName + " " + GameObject.Find("Hero").GetComponent<SpriteAnimator>().Play("nope");' | Set-Content -Encoding utf8 $lf
+        function Wait-Sec([double]$sec) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $sec) { Invoke-Nova 'wait 10' | Out-Null } }
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 0.2
+        $f1 = Invoke-NovaJson "exec --file $cf"
+        Wait-Sec 0.3
+        $f2 = Invoke-NovaJson "exec --file $cf"
+        $l1 = Invoke-NovaJson "exec --file $lf"
+        Invoke-Nova 'stop' | Out-Null
+        $p1 = "$($f1.result)" -split ' '; $p2 = "$($f2.result)" -split ' '
+        Add-Result sprites 'Sprite Animator plays hero.spriteanim (frame and sprite change)' ($p1[0] -eq 'hero' -and $p1[1] -eq 'True' -and $p1[3] -eq "hero_$($p1[2])" -and $p2[2] -ne $p1[2]) "$($f1.result) → $($f2.result)"
+        Add-Result sprites 'C#: sortingLayerName get/set, Play(unknown) = false' ("$($l1.result)" -eq 'Default Background False') "$($l1.result)"
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Stop-TestEditor $ed
+        if ($null -ne $tmBefore) { Set-Content -Path $tm -Value $tmBefore -NoNewline -Encoding utf8 } else { Remove-Item $tm -Force -ErrorAction SilentlyContinue }
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1698,6 +1830,7 @@ try
                 'model' { Suite-Model }
                 'anim2d' { Suite-Anim2D }
                 'layers' { Suite-Layers }
+                'sprites' { Suite-Sprites }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

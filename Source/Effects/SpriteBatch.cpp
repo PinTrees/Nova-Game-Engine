@@ -1,6 +1,8 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "SpriteBatch.h"
 #include "Effects.h"
+#include "TagsAndLayers.h"
 
 namespace
 {
@@ -106,10 +108,10 @@ GfxShaderResourceView* SpriteBatch::WhiteTexture()
 	return s_White.Get();
 }
 
-void SpriteBatch::Begin(int sortingOrder, const Vec3& pivotWorld)
+void SpriteBatch::Begin(int sortingLayerId, int sortingOrder, const Vec3& pivotWorld)
 {
 	const Vec3 v = Vec3::Transform(pivotWorld, m_View);
-	m_Groups.push_back({ sortingOrder, v.z, s_Seq++, (uint32)m_Tris.size(), 0 });
+	m_Groups.push_back({ TagsAndLayers::SortingLayerIndex(sortingLayerId), sortingOrder, v.z, s_Seq++, (uint32)m_Tris.size(), 0 });
 }
 
 void SpriteBatch::Quad(const Vec3 p[4], const Vec2 uv[4], uint32 color, GfxShaderResourceView* texture, bool point)
@@ -126,7 +128,7 @@ void SpriteBatch::Quad(const Vec3 p[4], const Vec2 uv[4], uint32 color, GfxShade
 void SpriteBatch::Triangle(const Vec3 p[3], const Vec2 uv[3], const uint32 color[3], GfxShaderResourceView* texture, bool point)
 {
 	if (m_Groups.empty())
-		Begin(0, p[0]);
+		Begin(0, 0, p[0]);
 	for (int i = 0; i < 3; ++i)
 		m_Vertices.push_back({ p[i].x, p[i].y, p[i].z, uv[i].x, uv[i].y, color[i] });
 	m_Tris.push_back({ texture ? texture : WhiteTexture(), point });
@@ -151,15 +153,16 @@ void SpriteBatch::Render(const Matrix& view, const Matrix& proj, GfxRenderTarget
 	// 그리는 중에 목록이 바뀌지 않게 복사본
 	const std::vector<SpriteSource*> sources = s_Sources;
 	for (SpriteSource* s : sources)
-		if (s->ActiveInHierarchy())
+		if (s->ActiveInHierarchy() && RenderLayers::Visible(s->SpriteOwner()))   // Camera 의 Culling Mask
 			s->CollectSprites(b);
 	if (b.m_Tris.empty() || !Init())
 		return;
 	s_LastSprites = (int)b.m_Groups.size();
 
-	// Order in Layer → 먼 것부터 → 넣은 순서
+	// Sorting Layer → Order in Layer → 먼 것부터 → 넣은 순서
 	std::vector<Group> groups = b.m_Groups;
 	std::sort(groups.begin(), groups.end(), [](const Group& x, const Group& y) {
+		if (x.Layer != y.Layer) return x.Layer < y.Layer;
 		if (x.Order != y.Order) return x.Order < y.Order;
 		if (fabsf(x.Depth - y.Depth) > 1e-5f) return x.Depth > y.Depth;
 		return x.Seq < y.Seq;

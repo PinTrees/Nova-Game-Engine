@@ -682,6 +682,8 @@ namespace UISystem
 				const Space space = SpaceOf(c);
 				if (space == Space::Overlay || (space == Space::CameraSpace && c->FindWorldCamera() != camera))
 					continue;
+				if (!((camera->GetCullingMask() >> (c->GetGameObject()->GetLayerIndex() & 31)) & 1u))
+					continue;   // Camera.cullingMask (World / Camera 캔버스 — Overlay 는 Unity 처럼 늘 그린다)
 				worlds.push_back({ c, (c->GetGameObject()->GetTransform()->GetPosition() - eye).LengthSquared() });
 			}
 			std::stable_sort(worlds.begin(), worlds.end(), [](const auto& a, const auto& b) {

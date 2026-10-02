@@ -87,7 +87,8 @@ namespace AssetImport
 	{
 		return json{ { "textureType", kTextureType[std::clamp(TextureType, 0, 2)] }, { "sRGB", SRGB }, { "maxSize", MaxSize },
 			{ "compression", kCompression[std::clamp(Compression, 0, 2)] }, { "mipmaps", MipMaps },
-			{ "spritePixelsPerUnit", PixelsPerUnit }, { "spritePivot", { PivotX, PivotY } }, { "filterMode", kFilterMode[std::clamp(FilterMode, 0, 2)] } };
+			{ "spritePixelsPerUnit", PixelsPerUnit }, { "spritePivot", { PivotX, PivotY } }, { "filterMode", kFilterMode[std::clamp(FilterMode, 0, 2)] },
+			{ "spriteMode", SpriteMode == MultipleSprites ? "Multiple" : "Single" }, { "sprites", SpritesJson() } };
 	}
 
 	TextureSettings TextureSettings::Raw()
@@ -118,13 +119,48 @@ namespace AssetImport
 			PivotY = j["spritePivot"][1].get<float>();
 		}
 		FilterMode = IndexOf(j, "filterMode", kFilterMode, Bilinear);
+		SpriteMode = j.value("spriteMode", std::string("Single")) == "Multiple" ? MultipleSprites : SingleSprite;
+		Sprites.clear();
+		if (j.contains("sprites") && j["sprites"].is_array())
+			for (const json& e : j["sprites"])
+			{
+				if (!e.is_object() || !e.contains("rect") || !e["rect"].is_array() || e["rect"].size() != 4)
+					continue;
+				SpriteRect r;
+				r.Name = e.value("name", std::string());
+				r.X = e["rect"][0].get<float>(); r.Y = e["rect"][1].get<float>(); r.W = e["rect"][2].get<float>(); r.H = e["rect"][3].get<float>();
+				if (e.contains("pivot") && e["pivot"].is_array() && e["pivot"].size() == 2)
+				{
+					r.PivotX = e["pivot"][0].get<float>();
+					r.PivotY = e["pivot"][1].get<float>();
+				}
+				if (!r.Name.empty() && r.W > 0 && r.H > 0)
+					Sprites.push_back(r);
+			}
+	}
+
+	json TextureSettings::SpritesJson() const
+	{
+		json a = json::array();
+		for (const SpriteRect& r : Sprites)
+			a.push_back({ { "name", r.Name }, { "rect", { r.X, r.Y, r.W, r.H } }, { "pivot", { r.PivotX, r.PivotY } } });
+		return a;
+	}
+
+	const SpriteRect* TextureSettings::FindSprite(const std::string& name) const
+	{
+		for (const SpriteRect& r : Sprites)
+			if (r.Name == name)
+				return &r;
+		return nullptr;
 	}
 
 	bool TextureSettings::IsDefault() const
 	{
 		const TextureSettings d;
 		return TextureType == d.TextureType && SRGB == d.SRGB && MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps &&
-			PixelsPerUnit == d.PixelsPerUnit && PivotX == d.PivotX && PivotY == d.PivotY && FilterMode == d.FilterMode;
+			PixelsPerUnit == d.PixelsPerUnit && PivotX == d.PivotX && PivotY == d.PivotY && FilterMode == d.FilterMode &&
+			SpriteMode == d.SpriteMode && Sprites.empty();
 	}
 
 	std::string TextureSettings::CacheTag() const

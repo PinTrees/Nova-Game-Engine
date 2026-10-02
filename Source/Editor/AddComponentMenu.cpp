@@ -48,6 +48,7 @@ namespace
 		{ "AudioListener",       "Audio Listener",        "Audio",         "audio_listener",    true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "SpriteRenderer",      "Sprite Renderer",       "Rendering",     "sprite_renderer",   true  },
+		{ "SpriteAnimator",      "Sprite Animator",       "Miscellaneous", "sprite_animator",   true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
 		// UI (Unity 의 UI / Layout / Event 분류)

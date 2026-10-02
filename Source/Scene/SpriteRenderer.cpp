@@ -4,6 +4,8 @@
 #include "UISprites.h"
 #include "ObjectPicker.h"
 #include "AssetImportSettings.h"
+#include "TagsAndLayers.h"
+#include "ProjectSettingsWindow.h"
 
 SpriteRenderer::SpriteRenderer()
 {
@@ -25,7 +27,8 @@ bool SpriteRenderer::Resolve()
 		return false;
 	m_Texture = info.Texture;
 	m_SizePx = info.Size;
-	m_Pivot = Vec2(0.5f, 0.5f);
+	m_Pivot = info.Pivot;
+	m_UV = info.UV;
 	m_Point = false;
 	if (m_Sprite.rfind("builtin:", 0) == 0)
 	{
@@ -33,11 +36,14 @@ bool SpriteRenderer::Resolve()
 		return true;
 	}
 	// 파일: 가져오기 설정 (Sprite 의 Pixels Per Unit · Pivot · Filter Mode). 크기는 원본 픽셀 (Max Size 로 줄어도 같은 크기)
-	const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(m_Sprite));
+	const std::string file = m_Sprite.substr(0, m_Sprite.find('#'));
+	const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(file));
 	const AssetImport::TextureSettings ts = AssetImport::LoadTexture(full);
 	m_PixelsPerUnit = (std::max)(0.01f, ts.PixelsPerUnit);
-	m_Pivot = Vec2(ts.PivotX, ts.PivotY);
 	m_Point = ts.FilterMode == AssetImport::TextureSettings::Point;
+	if (info.SubSprite)
+		return true;   // 크기 · 기준점 · UV = 그 사각형
+	m_Pivot = Vec2(ts.PivotX, ts.PivotY);
 	AssetImport::TextureInfo ti;
 	if (AssetImport::GetTextureInfo(full, ti) && ti.SourceWidth > 0 && ti.SourceHeight > 0)
 		m_SizePx = Vec2((float)ti.SourceWidth, (float)ti.SourceHeight);
@@ -75,8 +81,8 @@ void SpriteRenderer::CollectSprites(SpriteBatch& batch)
 	LocalCorners(p);
 	for (Vec3& v : p)
 		v = Vec3::Transform(v, world);
-	const Vec2 uv[4] = { Vec2(0, 1), Vec2(1, 1), Vec2(1, 0), Vec2(0, 0) };
-	batch.Begin(m_SortingOrder, m_pGameObject->GetTransform()->GetPosition());
+	const Vec2 uv[4] = { Vec2(m_UV.x, m_UV.w), Vec2(m_UV.z, m_UV.w), Vec2(m_UV.z, m_UV.y), Vec2(m_UV.x, m_UV.y) };
+	batch.Begin(m_SortingLayerId, m_SortingOrder, m_pGameObject->GetTransform()->GetPosition());
 	batch.Quad(p, uv, SpriteBatch::PackColor(m_Color), m_Texture, m_Point);
 }
 
@@ -152,7 +158,23 @@ void SpriteRenderer::OnInspectorGUI()
 	UnityGUI::ValueLabel("Material", "Sprites-Default");
 	if (UnityGUI::FoldoutPlain("Additional Settings"))
 	{
-		UnityGUI::ValueLabel("Sorting Layer", "Default", 1);
+		// Sorting Layer: Tags and Layers 의 목록 (+ Add Sorting Layer...)
+		const auto& layers = TagsAndLayers::SortingLayers();
+		std::vector<const char*> names;
+		int cur = 0;
+		for (int i = 0; i < (int)layers.size(); ++i)
+		{
+			names.push_back(layers[i].Name.c_str());
+			if (layers[i].Id == m_SortingLayerId) cur = i;
+		}
+		names.push_back("Add Sorting Layer...");
+		if (UnityGUI::Dropdown("Sorting Layer", &cur, names.data(), (int)names.size(), 1))
+		{
+			if (cur == (int)layers.size())
+				ProjectSettingsWindow::Open("Tags and Layers");
+			else
+				m_SortingLayerId = layers[cur].Id;
+		}
 		UnityGUI::Int("Order in Layer", &m_SortingOrder, 1);
 	}
 	Vec2 size, pivot;
@@ -175,6 +197,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(SpriteRenderer)
 	j["flipX"] = m_FlipX;
 	j["flipY"] = m_FlipY;
 	j["sortingOrder"] = m_SortingOrder;
+	j["sortingLayerID"] = m_SortingLayerId;
 	return j;
 }
 
@@ -188,4 +211,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SpriteRenderer)
 	m_FlipX = j.value("flipX", false);
 	m_FlipY = j.value("flipY", false);
 	m_SortingOrder = j.value("sortingOrder", 0);
+	m_SortingLayerId = j.value("sortingLayerID", 0);
 }

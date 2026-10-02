@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderLayers.h"
 #include "RockRenderer.h"
 #include "Rock.h"
 #include "RockScatter.h"
@@ -311,7 +312,7 @@ namespace RockRenderer
 		// Rock 컴포넌트
 		for (Rock* rock : Rock::All())
 		{
-			if (!rock->IsDrawable())
+			if (!rock->IsDrawable() || !RenderLayers::Visible(rock->GetGameObject()))
 				continue;
 			XMFLOAT4X4 world;
 			XMStoreFloat4x4(&world, rock->GetGameObject()->GetTransform()->GetWorldMatrix());
@@ -320,7 +321,7 @@ namespace RockRenderer
 		// 흩뿌린 바위 (변형 몇 개 × 인스턴스 여럿)
 		for (RockScatter* scatter : RockScatter::All())
 		{
-			if (!scatter->IsDrawable())
+			if (!scatter->IsDrawable() || !RenderLayers::Visible(scatter->GetGameObject()))
 				continue;
 			const auto& variants = scatter->VariantDescs();
 			for (const RockScatter::Instance& inst : scatter->Instances())

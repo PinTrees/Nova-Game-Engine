@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "App.h"
 #include "Light.h"
 #include "UnityGUI.h"
@@ -447,7 +448,7 @@ void Light::OnInspectorGUI()
 	{
 		int layers = 0;
 		UnityGUI::Dropdown("Rendering Layers", &layers, kRenderingLayers, 1, 1, true);
-		UnityGUI::Dropdown("Culling Mask", &m_CullingMask, kCulling, 7, 1);
+		UnityGUI::MaskField("Culling Mask", &m_CullingMask, 1);   // 이 빛이 비추는 레이어 (그림자도)
 	}
 
 	if (UnityGUI::Foldout("Shadows"))
@@ -527,7 +528,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(Light)
 	j["colorMode"] = m_ColorMode;
 	j["temperature"] = m_Temperature;
 	j["filter"] = { m_Filter[0], m_Filter[1], m_Filter[2], m_Filter[3] };
-	j["cullingMask"] = m_CullingMask;
+	j["cullingMaskBits"] = m_CullingMask;
 	j["shadowType"] = m_ShadowType;
 	j["shadowStrength"] = m_ShadowStrength;
 	j["shadowBiasMode"] = m_ShadowBiasMode;
@@ -552,7 +553,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Light)
 	m_Mode = j.value("mode", 0);
 	m_ColorMode = j.value("colorMode", 0);
 	m_Temperature = j.value("temperature", 6570.0f);
-	m_CullingMask = j.value("cullingMask", 0);
+	m_CullingMask = j.contains("cullingMaskBits") ? j["cullingMaskBits"].get<uint32>() : LegacyCullingMask(j.value("cullingMask", 0));
 	m_ShadowType = j.value("shadowType", 0);
 	m_ShadowStrength = j.value("shadowStrength", 1.0f);
 	m_ShadowBiasMode = j.value("shadowBiasMode", 0);

@@ -628,6 +628,8 @@ namespace
 		"  layers [--set 8 --name Enemy] [--add-tag Boss] [--remove-tag Boss]   layer names (3, 6..31) and tags\n"
 		"  physics [--gravity 0,-9.81,0] [--ignore Player,Enemy] [--collide A,B] [--all true|false]   Layer Collision Matrix\n"
 		"  set <target> --layer Water             layer by name or number\n"
+		"  layers --add-sorting-layer Background [--move-sorting-layer Background --by -1]   sprite Sorting Layers\n"
+		"  sprite-slice <png> --mode grid --cell 32,32 [--animation 12]   Sprite Mode = Multiple (+ .spriteanim)\n"
 		"\n"
 		"other\n"
 		"  call <command> [json args]             raw request (see: nova help --editor)\n"
@@ -993,6 +995,24 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("set")) { args["set"] = std::stoi(a.Get("set")); args["name"] = a.Get("name"); }
 		if (a.Has("add-tag")) args["addTag"] = a.Get("add-tag");
 		if (a.Has("remove-tag")) args["removeTag"] = a.Get("remove-tag");
+		if (a.Has("add-sorting-layer")) args["addSortingLayer"] = a.Get("add-sorting-layer");
+		if (a.Has("move-sorting-layer")) { args["moveSortingLayer"] = a.Get("move-sorting-layer"); args["by"] = std::stoi(a.Get("by", "-1")); }
+	}
+	else if (cmd == "sprite-slice")
+	{
+		// nova sprite-slice <Assets/…png> [--mode grid|count|auto|sheet] [--cell 32,32] [--count 4,1] [--offset x,y] [--padding x,y]
+		//   [--pivot 0.5,0] [--keep-empty] [--min-size 4] [--ppu 16] [--filter point] [--animation 12]
+		if (!need(1, "sprite-slice <Assets/...png> [--mode grid|count|auto|sheet] [--cell w,h] [--count c,r] [--animation fps]")) return 3;
+		rc = "sprite-slice";
+		args["path"] = a.Pos[0];
+		args["mode"] = a.Get("mode", "grid");
+		for (const char* key : { "cell", "count", "offset", "padding", "pivot" })
+			if (a.Has(key)) args[key] = NumberList(a.Get(key));
+		if (a.Has("keep-empty")) args["keepEmpty"] = true;
+		if (a.Has("min-size")) args["minSize"] = std::stoi(a.Get("min-size"));
+		if (a.Has("ppu")) args["ppu"] = std::stof(a.Get("ppu"));
+		if (a.Has("filter")) args["filter"] = a.Get("filter");
+		if (a.Has("animation")) args["animation"] = a.Get("animation").empty() || a.Get("animation") == "true" ? json(true) : json(std::stof(a.Get("animation")));
 	}
 	else if (cmd == "physics")
 	{

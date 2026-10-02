@@ -296,6 +296,7 @@ namespace NovaEngine
             if (t == typeof(MeshRenderer)) return "MeshRenderer";
             if (t == typeof(SkinnedMeshRenderer)) return "SkinnedMeshRenderer";
             if (t == typeof(SpriteRenderer)) return "SpriteRenderer";
+            if (t == typeof(SpriteAnimator)) return "SpriteAnimator";
             // UI
             if (t == typeof(RectTransform)) return "RectTransform";
             if (t == typeof(Canvas)) return "Canvas";

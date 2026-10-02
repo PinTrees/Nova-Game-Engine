@@ -84,7 +84,18 @@ namespace NovaEngine
         internal string m_Path;
         internal Sprite(string path) { m_Path = path; }
         public static Sprite FromPath(string path) => string.IsNullOrEmpty(path) ? null : new Sprite(path);
-        public override string name { get => m_Path == null ? "" : m_Path.StartsWith("builtin:") ? m_Path.Substring(8) : System.IO.Path.GetFileNameWithoutExtension(m_Path); set { } }
+        // 이름: 내장 = "Square", 잘라 놓은 스프라이트 ("그림.png#hero_2") = "hero_2", 그림 하나 = 파일 이름
+        public override string name
+        {
+            get
+            {
+                if (m_Path == null) return "";
+                if (m_Path.StartsWith("builtin:")) return m_Path.Substring(8);
+                int hash = m_Path.IndexOf('#');
+                return hash >= 0 ? m_Path.Substring(hash + 1) : System.IO.Path.GetFileNameWithoutExtension(m_Path);
+            }
+            set { }
+        }
         internal override bool IsAlive() => !string.IsNullOrEmpty(m_Path);
         public override bool Equals(object o) => o is Sprite s && s.m_Path == m_Path;
         public override int GetHashCode() => (m_Path ?? "").GetHashCode();

@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "RenderLayers.h"
 #include "WaterRenderer.h"
 #include "WaterBody.h"
 #include "WaterProfile.h"
@@ -472,7 +473,7 @@ namespace WaterRenderer
 		s_LastCount = 0;
 		std::vector<const WaterBody*> bodies;
 		for (const WaterBody* b : WaterBody::All())
-			if (b->IsActiveBody())
+			if (b->IsActiveBody() && RenderLayers::Visible(const_cast<WaterBody*>(b)->GetGameObject()))   // Camera 의 Culling Mask
 				bodies.push_back(b);
 		// 지워진 바디의 메시 정리
 		for (auto it = s_Meshes.begin(); it != s_Meshes.end();)
