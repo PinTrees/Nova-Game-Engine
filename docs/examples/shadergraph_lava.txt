@@ -1,0 +1,26 @@
+# 용암 (Lit Shader Graph): 움직이는 Voronoi 의 칸 경계가 빛난다
+#   nova shadergraph new Assets/Shaders/Lava.shadergraph
+#   nova shadergraph batch docs/examples/shadergraph_lava.txt
+#   nova shadergraph save          → 셰이더 "Shader Graphs/Lava"
+#   nova shadergraph material      → Assets/Shaders/Lava.mat (Inspector 에서 Hot / Rock 색을 재질마다)
+# 노드 id 는 새 그래프에서 1 부터 차례로 (property.add --node 도 노드 하나)
+property.add --name Hot --type Color --value 1,0.28,0.03,1 --node --x -700 --y -150
+property.add --name Rock --type Color --value 0.07,0.05,0.05,1 --node --x -700 --y 0
+node.add --type Time --x -1100 --y 200
+node.add --type Multiply --x -880 --y 200 --values '{"B":0.8}'
+connect --from 3 --out Time --to 4 --in A
+node.add --type Voronoi --x -650 --y 200 --values '{"Cell Density":5}'
+connect --from 4 --to 5 --in "Angle Offset"
+node.add --type Smoothstep --x -400 --y 200 --values '{"Edge1":0.62,"Edge2":0.8}'
+connect --from 5 --out Out --to 6 --in In
+node.add --type Lerp --x -150 --y -50
+connect --from 2 --to 7 --in A
+connect --from 1 --to 7 --in B
+connect --from 6 --to 7 --in T
+connect --from 7 --to Master --in "Base Color"
+node.add --type Multiply --x -150 --y 150
+connect --from 1 --to 8 --in A
+connect --from 6 --to 8 --in B
+node.add --type Multiply --x 50 --y 150 --values '{"B":2}'
+connect --from 8 --to 9 --in A
+connect --from 9 --to Master --in Emission

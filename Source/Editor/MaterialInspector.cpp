@@ -423,9 +423,11 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 
 	PbrMaterial& p = m.m_Pbr;
 	const bool lit = m.m_Shader == UMaterial::ShaderKind::Lit;
+	// Shader Graph 재질: Unity 처럼 그래프의 속성만 (Surface Inputs 는 그래프가 정한다)
+	const bool graph = m.IsCustom() && m.CustomShader().rfind("Shader Graphs/", 0) == 0;
 
 	// ---- Surface Options
-	if (UnityGUI::Foldout("Surface Options", 0, true, false))
+	if (!graph && UnityGUI::Foldout("Surface Options", 0, true, false))
 	{
 		static const char* kWorkflow[] = { "Metallic" };
 		int workflow = 0;
@@ -445,7 +447,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 	}
 
 	// ---- Surface Inputs
-	if (UnityGUI::Foldout("Surface Inputs", 0, true, false))
+	if (!graph && UnityGUI::Foldout("Surface Inputs", 0, true, false))
 	{
 		UnityGUI::FieldRow row;
 		// Base Map + 색
@@ -505,7 +507,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 	if (m.IsCustom())
 	{
 		const CustomShaders::Shader* cs = CustomShaders::Find(m.CustomShader());
-		if (UnityGUI::Foldout((m.CustomShader() + " Settings").c_str(), 0, true, false))
+		if (UnityGUI::Foldout(graph ? "Properties" : (m.CustomShader() + " Settings").c_str(), 0, true, false))
 		{
 			if (cs && cs->Inspector)
 			{

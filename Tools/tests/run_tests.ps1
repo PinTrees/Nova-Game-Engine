@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1635,6 +1635,170 @@ return Hit2DProbe.collisions + " " + Hit2DProbe.triggers + " " + Hit2DProbe.exit
     }
 }
 
+function Suite-ShaderGraph
+{
+    # Shader Graph: CLI 로 그래프 → 저장 (셰이더 만들기) → 재질 → 큐브 (Scene 뷰 색), 잘못된 연결 거절 · Undo · 오류, 모든 노드 종류가 컴파일되는지
+    Write-Host '[shadergraph]'
+    $dir = Join-Path $Out 'shadergraph'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\SGTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function SG([string]$line) { Invoke-NovaJson "shadergraph $line" }
+        function Wait-Sec([double]$sec) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $sec) { Invoke-Nova 'wait 10' | Out-Null } }
+        # Scene 뷰 가운데 (상자) 색: 평균 R G B, 빨강 · 검정 · 흰색 칸 수
+        function Center([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova 'wait 5' | Out-Null
+            Invoke-Nova "screenshot $p --view scene" | Out-Null
+            if (-not (Test-Path $p)) { return [pscustomobject]@{ R = 0; G = 0; B = 0; Red = 0; Black = 0; White = 0; N = 1 } }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $r = 0.0; $g = 0.0; $b = 0.0; $n = 0; $red = 0; $black = 0; $white = 0
+            for ($y = [int]($bm.Height * 0.35); $y -lt [int]($bm.Height * 0.65); $y += 3) { for ($x = [int]($bm.Width * 0.35); $x -lt [int]($bm.Width * 0.65); $x += 3) {
+                $c = $bm.GetPixel($x, $y); $r += $c.R; $g += $c.G; $b += $c.B; $n++
+                if ($c.R -gt $c.G + 60 -and $c.R -gt $c.B + 60) { $red++ }
+                if ($c.R -lt 80 -and $c.G -lt 80 -and $c.B -lt 80) { $black++ }
+                if ($c.R -gt 180 -and $c.G -gt 180 -and $c.B -gt 180) { $white++ } } }
+            $bm.Dispose()
+            $n = [math]::Max(1, $n)
+            [pscustomobject]@{ R = [math]::Round($r / $n); G = [math]::Round($g / $n); B = [math]::Round($b / $n); Red = $red; Black = $black; White = $white; N = $n }
+        }
+
+        $h = SG 'help'
+        Add-Result shadergraph 'shadergraph help lists ops' ($h -and $h.'node.add' -and $h.connect -and $h.save -and $h.'property.add') "ops=$(@($h.PSObject.Properties).Count)"
+        $types = @(SG 'nodes' | ForEach-Object { $_ })   # (PowerShell 5: JSON 배열은 한 덩어리로 온다)
+        $names = @($types | ForEach-Object { $_.type })
+        Add-Result shadergraph 'node library: 60+ types (math, UV, procedural, texture, artistic)' ($types.Count -ge 60 -and $names -contains 'Voronoi' -and $names -contains 'Sample Texture 2D' -and $names -contains 'Fresnel Effect' -and $names -contains 'Tiling And Offset') "types=$($types.Count)"
+
+        # ---- Lit: Base Color ← Tint (Color 속성, 빨강)
+        $new = SG 'new Assets/SGTest/Tint.shadergraph --timeout 240'
+        Add-Result shadergraph 'new graph (empty Lit) builds' ($new -and $new.shader -eq 'Shader Graphs/Tint' -and $new.error -eq '') "shader=$($new.shader) error=$($new.error)"
+        $p = SG 'property.add --name Tint --type Color --value 1,0,0,1 --node --x -300 --y 0'
+        $c = SG 'connect --from 1 --to Master --in "Base Color"'
+        # 잘못된 연결: Texture2D → float, 고리
+        SG 'property.add --name Tex --type Texture2D --node --x -300 --y 200' | Out-Null
+        $bad1 = Invoke-Nova 'shadergraph connect --from 2 --to Master --in Metallic'
+        SG 'node.add --type Add --x -100 --y 300' | Out-Null
+        SG 'node.add --type Add --x 50 --y 300' | Out-Null
+        SG 'connect --from 3 --to 4 --in A' | Out-Null
+        $bad2 = Invoke-Nova 'shadergraph connect --from 4 --to 3 --in A'
+        Add-Result shadergraph 'refuses Texture2D into a float input and loops' ($p.ref -eq '_Tint' -and $c -and ($bad1 -match 'Texture') -and ($bad2 -match 'loop')) "ref=$($p.ref) texture: $bad1 / loop: $bad2"
+        $n0 = @((SG 'info').nodes).Count
+        SG 'node.add --type Sine' | Out-Null
+        $n1 = @((SG 'info').nodes).Count
+        SG 'undo' | Out-Null
+        $n2 = @((SG 'info').nodes).Count
+        Add-Result shadergraph 'node.add → undo' ($n1 -eq $n0 + 1 -and $n2 -eq $n0) "$n0 → $n1 → $n2"
+        SG 'node.delete --id 3' | Out-Null
+        SG 'node.delete --id 4' | Out-Null
+        $hl = SG 'compile --hlsl'
+        Add-Result shadergraph 'compile: HLSL with the Tint property and PS_Graph' ($hl.ok -and $hl.hlsl -match 'gSG__Tint' -and $hl.hlsl -match 'PS_Graph' -and $hl.hlsl -match 'GraphBatchTech') "lines=$($hl.lines)"
+        $s = SG 'save --timeout 240'
+        $m = SG 'material'
+        Add-Result shadergraph 'save builds the shader, material made next to the graph' ($s.built -and $m.material -eq 'Assets/SGTest/Tint.mat') "built=$($s.built) material=$($m.material)"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 20,1,20' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 0,1.5,0 --scale 3,3,3' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Tint.mat\"]}"' | Out-Null
+        Invoke-Nova 'camera --position 0,1.5,-6 --target 0,1.5,0' | Out-Null
+        $lit = Center 'lit_tint.png'
+        Add-Result shadergraph 'Lit graph: red Tint on a cube' ($lit.Red -gt $lit.N * 0.8) "rgb=$($lit.R),$($lit.G),$($lit.B) red=$($lit.Red)/$($lit.N)"
+
+        # 그래프 기본값을 바꿔도 이미 만든 재질은 제 값 (Unity 와 같다), 새 재질은 새 기본값
+        SG 'property.set --ref _Tint --value 0,0,1,1' | Out-Null
+        SG 'save --timeout 240' | Out-Null
+        SG 'material --mat Assets/SGTest/Tint2.mat' | Out-Null
+        $j1 = Get-Content (Join-Path $assetDir 'Tint.mat') -Raw | ConvertFrom-Json
+        $j2 = Get-Content (Join-Path $assetDir 'Tint2.mat') -Raw | ConvertFrom-Json
+        $still = Center 'lit_keep.png'
+        Add-Result shadergraph 'material keeps its value when the graph default changes; a new material gets the new default' ((@($j1.Properties._Tint | ForEach-Object { [int]$_ }) -join ',') -eq '1,0,0,1' -and (@($j2.Properties._Tint | ForEach-Object { [int]$_ }) -join ',') -eq '0,0,1,1' -and $still.Red -gt $still.N * 0.8 -and $j2.Shader -eq 'Shader Graphs/Tint') "Tint.mat=$($j1.Properties._Tint -join ',') Tint2.mat=$($j2.Properties._Tint -join ',') shader=$($j2.Shader) red=$($still.Red)"
+
+        # 오류: 없는 속성을 가리키는 Property 노드 → 저장은 되지만 셰이더는 실패 (오류 문장), 고치면 다시
+        SG 'node.add --type Property --options "{\"ref\":\"_Nope\"}"' | Out-Null
+        $last = @((SG 'info').nodes)[-1].id
+        SG "connect --from $last --to Master --in Alpha" | Out-Null
+        $err = Invoke-Nova 'shadergraph save --timeout 240'
+        SG 'undo' | Out-Null
+        SG 'undo' | Out-Null
+        $ok = SG 'save --timeout 240'
+        Add-Result shadergraph 'bad graph: save reports the error, fixing it builds again' (($err -match '_Nope') -and $ok.built) "error: $(($err -split "`n")[0]) / fixed built=$($ok.built)"
+
+        # ---- Unlit + Checkerboard (UV · 도우미 함수)
+        SG 'new Assets/SGTest/Checker.shadergraph --material Unlit --timeout 240' | Out-Null
+        $bf = Join-Path $dir 'checker.txt'
+        @(
+            '# Unlit checker (black / white, 4 x 4)',
+            'node.add --type Checkerboard --x -300 --values ''{"Color A":[0,0,0],"Color B":[1,1,1],"Frequency":[4,4]}''',
+            'connect --from 1 --to Master --in "Base Color"'
+        ) | Set-Content -Encoding utf8 $bf
+        $b = SG "batch $bf"
+        SG 'save --timeout 240' | Out-Null
+        SG 'material' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Checker.mat\"]}"' | Out-Null
+        $ch = Center 'unlit_checker.png'
+        Add-Result shadergraph 'Unlit graph: Checkerboard shows black and white squares' ($b -and $ch.Black -gt $ch.N * 0.2 -and $ch.White -gt $ch.N * 0.2) "black=$($ch.Black) white=$($ch.White) of $($ch.N)"
+
+        # ---- Time: Fraction(Time) → Base Color (밝기가 시간에 따라 바뀐다)
+        SG 'new Assets/SGTest/Pulse.shadergraph --material Unlit --timeout 240' | Out-Null
+        SG 'node.add --type Time --x -500' | Out-Null
+        SG 'node.add --type Fraction --x -250' | Out-Null
+        SG 'connect --from 1 --out Time --to 2 --in In' | Out-Null
+        SG 'connect --from 2 --to Master --in "Base Color"' | Out-Null
+        SG 'save --timeout 240' | Out-Null
+        SG 'material' | Out-Null
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Pulse.mat\"]}"' | Out-Null
+        $t1 = Center 'time_1.png'
+        Wait-Sec 0.45
+        $t2 = Center 'time_2.png'
+        Add-Result shadergraph 'Time node animates (gray level changes over time)' ([math]::Abs($t1.R - $t2.R) -gt 15 -and [math]::Abs($t1.R - $t1.G) -le 3) "R $($t1.R) → $($t2.R)"
+
+        # ---- 모든 노드 종류: 하나씩 + Add 사슬로 Base Color 에 → 한 셰이더로 컴파일
+        SG 'new Assets/SGTest/AllNodes.shadergraph --material Lit --timeout 240' | Out-Null
+        $lines = New-Object System.Collections.Generic.List[string]
+        $id = 0; $prev = 0; $count = 0
+        foreach ($t in $types)
+        {
+            if ($t.type -eq 'Property') { continue }
+            $id++; $node = $id
+            $lines.Add("node.add --type `"$($t.type)`" --x $(-200 * ($count % 8)) --y $(150 * [math]::Floor($count / 8))")
+            if ($prev -gt 0)
+            {
+                $id++
+                $lines.Add("node.add --type Add --x 400 --y $(150 * $count)")
+                $lines.Add("connect --from $prev --to $id --in A")
+                $lines.Add("connect --from $node --to $id --in B")
+                $prev = $id
+            }
+            else { $prev = $node }
+            $count++
+        }
+        $lines.Add("connect --from $prev --to Master --in `"Base Color`"")
+        $af = Join-Path $dir 'allnodes.txt'
+        $lines | Set-Content -Encoding utf8 $af
+        $ab = SG "batch $af"
+        $as = SG 'save --timeout 300'
+        Add-Result shadergraph "every node type compiles in one shader ($count types)" ($ab -and $as.built) "steps=$(@($ab.steps).Count) built=$($as.built) error=$($as.error)"
+
+        # 창 캡처 (Showcase): Checker 그래프
+        SG 'open Assets/SGTest/Checker.shadergraph' | Out-Null
+        Invoke-Nova 'shadergraph window' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        Invoke-Nova "screenshot $(Join-Path $dir 'window.png') --view editor" | Out-Null
+        Add-Result shadergraph 'Shader Graph window opens (editor capture)' (Test-Path (Join-Path $dir 'window.png')) ''
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -1946,6 +2110,7 @@ try
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }
+                'shadergraph' { Suite-ShaderGraph }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

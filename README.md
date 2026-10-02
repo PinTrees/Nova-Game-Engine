@@ -76,6 +76,7 @@
 |---|---|
 | **그래픽 API** | **DirectX 11 / OpenGL 4.5** — 같은 렌더 코드가 RHI·Gfx 층으로 두 API 에 그린다. HLSL → SPIR-V → GLSL 자동 변환(DXC + SPIRV-Cross, 변환 캐시). 에디터는 *Edit > Preferences > Graphics*, 빌드한 게임은 *Project Settings > Player* 의 우선순위 목록으로 고르고, 시작할 수 없으면 DX11 로 대체. 창 제목에 지금 API 표시(`<DX11>` / `<OpenGL>`) |
 | **머티리얼 (URP Lit / PBR)** | `.mat` 에셋, Base Map · Metallic · Smoothness · Normal · Occlusion · Emission(HDR) · Tiling/Offset · Alpha Clipping, 구 미리보기가 있는 Unity 모양 Inspector |
+| **Shader Graph** | Unity 의 Shader Graph: **노드를 이어 재질 셰이더** (Window > Shader Graph, `.shadergraph`) — 노드 65 종 (수학 · UV · Voronoi · Gradient/Simple Noise · Checkerboard · Fresnel · Sample Texture 2D · Time …), Blackboard 속성 (재질마다 값), Lit (엔진 URP Lit 조명 · 그림자 · 반사) / Unlit, Mesh · Skinned Mesh Renderer, 저장하면 셰이더를 만들고 오류를 보여 줌, `nova shadergraph` CLI. 자세히: [docs/SHADER_GRAPH.md](docs/SHADER_GRAPH.md) |
 | **그림자 (URP 방식)** | 방향광 Cascaded Shadow Maps(1~4, 텍셀 고정, 경계 섞기), 스포트·점광 그림자, Hard / Soft(PCF), 빛마다 Strength·Bias, Volume 의 Shadows 오버라이드, 먼 캐스케이드 캐시 |
 | **후처리 (Volume)** | Global/Local Volume + Profile 에셋, Bloom · Tonemapping(Neutral/ACES) · Color Adjustments · White Balance · Vignette · Chromatic Aberration · Film Grain · FXAA |
 | **대기 · 조명** | 지수 높이 안개(Unreal 식), 대기 원근(레일리·미 산란), 하늘 환경광·반사, 자동 노출 — 모두 Volume 오버라이드로 장소마다 |

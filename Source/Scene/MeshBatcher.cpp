@@ -12,6 +12,7 @@
 #include "RenderStats.h"
 #include "Profiler.h"
 #include "RenderLayers.h"
+#include "CustomShaders.h"
 #include <unordered_map>
 
 namespace
@@ -264,6 +265,29 @@ namespace MeshBatcher
 			GfxBuffer* inst = Upload(dc, b->Worlds);
 			if (inst == nullptr)
 				continue;
+			// 패키지 · Shader Graph 셰이더 (CustomShaders::DrawInstanced): 그 셰이더가 값을 넣고 그린다
+			if (pass == Pass::Main && b->Material && b->Material->IsCustom())
+				if (const CustomShaders::Shader* cs = CustomShaders::Find(b->Material->CustomShader()); cs && cs->DrawInstanced)
+				{
+					CustomShaders::InstancedDraw d;
+					d.Context = dc;
+					d.Material = b->Material.get();
+					d.ViewProj = viewProj;
+					d.Editor = editor;
+					d.LayerBit = b->Layer;
+					d.Draw = [&]() {
+						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+						dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
+						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
+					};
+					cs->DrawInstanced(d);
+					applied = reinterpret_cast<const UMaterial*>(1);   // 다음 엔진 묶음은 재질 · 레이어를 다시
+					appliedLayer = 0;
+					++drawn;
+					continue;
+				}
 			if (pass == Pass::Main && b->Material.get() != applied)
 			{
 				UMaterial::ApplyOrDefault(b->Material, Effects::InstancedBasicFX.get());

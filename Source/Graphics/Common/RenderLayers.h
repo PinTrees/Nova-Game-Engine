@@ -20,4 +20,5 @@ namespace RenderLayers
 	// 셰이더 상수
 	NOVA_API void SetLightMasks(InstancedBasicEffect* fx, int scenePointLights, bool editor);   // LightManager 의 정렬된 빛 순서 (입자 빛 = 모두)
 	NOVA_API void SetObjectLayer(InstancedBasicEffect* fx, uint32 layerBit);       // ~0 = 모든 빛
+	NOVA_API void ForgetEffect(InstancedBasicEffect* fx);   // 이펙트를 지우기 전에 (찾아 둔 변수 버림 — 같은 주소에 새 이펙트가 생길 수 있다)
 }

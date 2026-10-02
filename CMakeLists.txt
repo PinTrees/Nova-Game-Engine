@@ -146,6 +146,7 @@ set(ENGINE_MODULE_DIRS
     Source/Graphics
     Source/Graphics/Common
     Source/Physics2D
+    Source/ShaderGraph
     Source/Graphics/DX11
     Source/Graphics/OpenGL
     Source/Graphics/RHI

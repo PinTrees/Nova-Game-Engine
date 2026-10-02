@@ -4,6 +4,8 @@
 #include "AutoSave.h"
 #include "PackageManagerWindow.h"
 #include "AudioMixerWindow.h"
+#include "ShaderGraphRuntime.h"
+#include "ShaderGraphWindow.h"
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "GfxGL.h"
@@ -340,11 +342,13 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new ProfilerEditorWindow);   // Window > Analysis > Profiler (Ctrl+7)
 	EditorGUIManager::GetI()->RegisterWindow(new PackageManagerWindow);   // Window > Package Manager
 	EditorGUIManager::GetI()->RegisterWindow(new AudioMixerWindow);       // Window > Audio Mixer
+	ShaderGraph::RegisterEditor();                                         // Window > Shader Graph · .shadergraph · nova shadergraph
 	}
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);
 	InputManager::GetI()->Init();
+	ShaderGraph::InitRuntime();   // 재질 Shader "Shader Graphs/<이름>" → .shadergraph 에서 셰이더를 만든다 (게임 빌드도)
 
 	log << "App::Init -> PackageManager..." << std::endl; log.flush();
 	PackageManager::Init();   // 프로젝트 패키지(DLL) — 씬보다 먼저 (패키지 컴포넌트 등록)

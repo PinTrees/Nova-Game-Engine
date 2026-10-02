@@ -95,8 +95,45 @@ namespace
 	std::atomic<ULONGLONG> s_Heartbeat{ 0 };
 	std::atomic<bool> s_WatchdogStop{ false };
 
+	// 멈춰 둔 스레드의 호출 스택 (주소만): RtlVirtualUnwind 만 쓴다 — 힙 할당이 없다.
+	// (StackWalk64 + DbgHelp 콜백은 기호를 미뤄 읽으며 힙을 쓴다 → 메인 스레드가 힙 잠금을 쥔 채 멈춰 있으면 (셰이더 컴파일 중) 교착 — 에디터가 응답 없음으로 끝났다)
+	int UnwindSuspended(CONTEXT ctx, DWORD64* out, int max)
+	{
+		int count = 0;
+		__try
+		{
+			while (count < max && ctx.Rip != 0)
+			{
+				out[count++] = ctx.Rip;
+				DWORD64 imageBase = 0;
+				PRUNTIME_FUNCTION fn = ::RtlLookupFunctionEntry(ctx.Rip, &imageBase, nullptr);
+				if (fn == nullptr)
+				{
+					// 잎 함수: 돌아갈 주소가 스택 맨 위
+					ctx.Rip = *reinterpret_cast<const DWORD64*>(ctx.Rsp);
+					ctx.Rsp += 8;
+					continue;
+				}
+				void* handlerData = nullptr;
+				DWORD64 establisher = 0;
+				::RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, ctx.Rip, fn, &ctx, &handlerData, &establisher, nullptr);
+			}
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+		}
+		return count;
+	}
+
 	void WatchdogLoop()
 	{
+		// 기호는 미리 (멈춤을 기록할 때는 메인 스레드를 풀어 준 뒤에만 DbgHelp 를 쓴다)
+		{
+			CONTEXT self = {};
+			::RtlCaptureContext(&self);
+			DWORD64 warm[1];
+			CaptureStack(::GetCurrentThread(), self, warm, 1);
+		}
 		ULONGLONG reported = 0;
 		while (!s_WatchdogStop)
 		{
@@ -116,7 +153,7 @@ namespace
 				CONTEXT ctx = {};
 				ctx.ContextFlags = CONTEXT_FULL;
 				if (::GetThreadContext(thread, &ctx))
-					count = CaptureStack(thread, ctx, pcs, 32);
+					count = UnwindSuspended(ctx, pcs, 32);
 				::ResumeThread(thread);
 			}
 			::CloseHandle(thread);

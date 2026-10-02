@@ -69,6 +69,12 @@ namespace RenderLayers
 		SetObjectLayer(fx, ~0u);
 	}
 
+	void ForgetEffect(InstancedBasicEffect* fx)
+	{
+		if (fx)
+			s_Vars.erase(fx->GetFX());
+	}
+
 	void SetObjectLayer(InstancedBasicEffect* fx, uint32 layerBit)
 	{
 		if (fx == nullptr)

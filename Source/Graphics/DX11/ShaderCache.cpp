@@ -121,6 +121,19 @@ namespace
 	}
 }
 
+namespace
+{
+	std::mutex s_MsgLock;
+	std::map<std::wstring, std::string> s_LastMsgs;
+}
+
+std::string ShaderCache::LastMessages(const std::wstring& filename)
+{
+	std::lock_guard<std::mutex> lock(s_MsgLock);
+	auto it = s_LastMsgs.find(fs::path(filename).lexically_normal().wstring());
+	return it != s_LastMsgs.end() ? it->second : std::string();
+}
+
 HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlags,
 	Microsoft::WRL::ComPtr<ID3DBlob>& outBlob, Microsoft::WRL::ComPtr<ID3DBlob>& outMsgs)
 {
@@ -169,6 +182,10 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 		"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
 	EditorLog::Write("Shader", "compiled %s in %llu ms (hr=0x%08X)%s%s", wstring_to_string(src.filename().wstring()).c_str(), ::GetTickCount64() - compileStart, (unsigned)hr,
 		outMsgs ? "\n" : "", outMsgs ? (const char*)outMsgs->GetBufferPointer() : "");
+	{
+		std::lock_guard<std::mutex> lock(s_MsgLock);
+		s_LastMsgs[src.lexically_normal().wstring()] = outMsgs ? std::string((const char*)outMsgs->GetBufferPointer(), outMsgs->GetBufferSize()) : (FAILED(hr) ? "compile failed" : "");
+	}
 
 	if (SUCCEEDED(hr) && outBlob)
 	{
