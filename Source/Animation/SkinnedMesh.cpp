@@ -52,42 +52,42 @@ void SkinnedMesh::from_byte(ifstream& inStream)
 		return;
 	}
 
-	// 1. ÀÌ¸§ ÀĞ±â (¹®ÀÚ¿­)
+	// 1. ï¿½Ì¸ï¿½ ï¿½Ğ±ï¿½ (ï¿½ï¿½ï¿½Ú¿ï¿½)
 	size_t nameLength = 0;
 	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(size_t));
 
 	Name.resize(nameLength);
 	inStream.read(&Name[0], nameLength);
 
-	// 2. Vertices ÀĞ±â (PosNormalTexTanSkinned ¹è¿­)
+	// 2. Vertices ï¿½Ğ±ï¿½ (PosNormalTexTanSkinned ï¿½è¿­)
 	size_t vertexCount = 0;
 	inStream.read(reinterpret_cast<char*>(&vertexCount), sizeof(size_t));
 
 	Vertices.resize(vertexCount);
 	inStream.read(reinterpret_cast<char*>(Vertices.data()), vertexCount * sizeof(Vertex::PosNormalTexTanSkinned));
 
-	// 3. Indices ÀĞ±â (USHORT ¹è¿­)
+	// 3. Indices ï¿½Ğ±ï¿½ (USHORT ï¿½è¿­)
 	size_t indexCount = 0;
 	inStream.read(reinterpret_cast<char*>(&indexCount), sizeof(size_t));
 
 	Indices.resize(indexCount);
 	inStream.read(reinterpret_cast<char*>(Indices.data()), indexCount * sizeof(USHORT));
 
-	// 4. Subsets ÀĞ±â
+	// 4. Subsets ï¿½Ğ±ï¿½
 	size_t subsetCount = 0;
 	inStream.read(reinterpret_cast<char*>(&subsetCount), sizeof(size_t));
 
 	Subsets.resize(subsetCount);
 	for (auto& subset : Subsets)
 	{
-		// ÀÌ¸§ ÀĞ±â (¹®ÀÚ¿­)
+		// ï¿½Ì¸ï¿½ ï¿½Ğ±ï¿½ (ï¿½ï¿½ï¿½Ú¿ï¿½)
 		size_t subsetNameLength = 0;
 		inStream.read(reinterpret_cast<char*>(&subsetNameLength), sizeof(size_t));
 
 		subset.Name.resize(subsetNameLength);
 		inStream.read(&subset.Name[0], subsetNameLength);
 
-		// ´Ù¸¥ ÇÊµåµé ÀĞ±â (Id, MaterialIndex, VertexStart, VertexCount, FaceStart, FaceCount)
+		// ï¿½Ù¸ï¿½ ï¿½Êµï¿½ï¿½ ï¿½Ğ±ï¿½ (Id, MaterialIndex, VertexStart, VertexCount, FaceStart, FaceCount)
 		inStream.read(reinterpret_cast<char*>(&subset.Id), sizeof(subset.Id));
 		inStream.read(reinterpret_cast<char*>(&subset.MaterialIndex), sizeof(subset.MaterialIndex));
 		inStream.read(reinterpret_cast<char*>(&subset.VertexStart), sizeof(subset.VertexStart));
@@ -128,33 +128,33 @@ void SkinnedMesh::to_byte(ofstream& outStream)
 		return;
 	}
 
-	// 1. ÀÌ¸§ ÀúÀå (¹®ÀÚ¿­) 
+	// 1. ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½Ú¿ï¿½) 
 	size_t nameLength = Name.size(); 
 	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(size_t)); 
 	outStream.write(Name.c_str(), nameLength); 
 
-	// 2. Vertices ÀúÀå (PosNormalTexTan2 ¹è¿­)
+	// 2. Vertices ï¿½ï¿½ï¿½ï¿½ (PosNormalTexTan2 ï¿½è¿­)
 	size_t vertexCount = Vertices.size(); 
 	outStream.write(reinterpret_cast<const char*>(&vertexCount), sizeof(size_t)); 
 	outStream.write(reinterpret_cast<const char*>(Vertices.data()), vertexCount * sizeof(Vertex::PosNormalTexTanSkinned));
 
-	// 3. Indices ÀúÀå (USHORT ¹è¿­)
+	// 3. Indices ï¿½ï¿½ï¿½ï¿½ (USHORT ï¿½è¿­)
 	size_t indexCount = Indices.size(); 
 	outStream.write(reinterpret_cast<const char*>(&indexCount), sizeof(size_t)); 
 	outStream.write(reinterpret_cast<const char*>(Indices.data()), indexCount * sizeof(USHORT)); 
 
-	// 4. Subsets ÀúÀå
+	// 4. Subsets ï¿½ï¿½ï¿½ï¿½
 	size_t subsetCount = Subsets.size(); 
 	outStream.write(reinterpret_cast<const char*>(&subsetCount), sizeof(size_t)); 
 
 	for (const auto& subset : Subsets)
 	{
-		// ÀÌ¸§ ÀúÀå (¹®ÀÚ¿­)
+		// ï¿½Ì¸ï¿½ ï¿½ï¿½ï¿½ï¿½ (ï¿½ï¿½ï¿½Ú¿ï¿½)
 		size_t subsetNameLength = subset.Name.size(); 
 		outStream.write(reinterpret_cast<const char*>(&subsetNameLength), sizeof(size_t)); 
 		outStream.write(subset.Name.c_str(), subsetNameLength); 
 
-		// ´Ù¸¥ ÇÊµåµé ÀúÀå (Id, MaterialIndex, VertexStart, VertexCount, FaceStart, FaceCount)
+		// ï¿½Ù¸ï¿½ ï¿½Êµï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (Id, MaterialIndex, VertexStart, VertexCount, FaceStart, FaceCount)
 		outStream.write(reinterpret_cast<const char*>(&subset.Id), sizeof(subset.Id));
 		outStream.write(reinterpret_cast<const char*>(&subset.MaterialIndex), sizeof(subset.MaterialIndex));
 		outStream.write(reinterpret_cast<const char*>(&subset.VertexStart), sizeof(subset.VertexStart));
@@ -202,7 +202,8 @@ MeshFile::~MeshFile()
 }
 
 // ìºì‹œ(.mesh / .animations / .skeletons) í˜•ì‹ ë²„ì „. êµ¬ì¡°ê°€ ë°”ë€Œë©´ ê°’ì„ ì˜¬ë¦°ë‹¤ â†’ ì´ì „ ìºì‹œëŠ” ìë™ìœ¼ë¡œ ë‹¤ì‹œ ê°€ì ¸ì˜¤ê¸°.
-static const uint32_t kMeshCacheMagic = 0x3743564E;   // "NVC7"
+// NVC8: Unity ì™€ ê°™ì€ ì¶•(Y 180Â°)ìœ¼ë¡œ ê°€ì ¸ì˜¤ê¸° (FBXLoader ì˜ ToEngine) â€” ì´ì „ ìºì‹œëŠ” ë°˜ëŒ€ìª½ì„ ë³¸ë‹¤
+static const uint32_t kMeshCacheMagic = 0x3843564E;   // "NVC8"
 
 static bool ReadCacheMagic(ifstream& in)
 {
@@ -384,7 +385,7 @@ void MeshFile::load_mesh(ifstream& inStream)
 		inStream.read(&Name[0], nameLength); 
 	} 
 
-	// Meshs °³¼ö¸¦ ÀĞ°í, ±× °³¼ö¸¸Å­ Mesh °´Ã¼¸¦ »ı¼ºÇÏ°í ·Îµå
+	// Meshs ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ğ°ï¿½, ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Å­ Mesh ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½Îµï¿½
 	size_t meshCount = 0;
 	inStream.read(reinterpret_cast<char*>(&meshCount), sizeof(size_t));
 
@@ -398,7 +399,7 @@ void MeshFile::load_mesh(ifstream& inStream)
 		Meshs[i] = mesh_ptr;
 	}
 
-	// SkinnedMeshs °³¼ö¸¦ ÀĞ°í, ±× °³¼ö¸¸Å­ SkinnedMesh °´Ã¼¸¦ »ı¼ºÇÏ°í ·Îµå
+	// SkinnedMeshs ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ğ°ï¿½, ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Å­ SkinnedMesh ï¿½ï¿½Ã¼ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï°ï¿½ ï¿½Îµï¿½
 	size_t skinnedMeshCount = 0;
 	inStream.read(reinterpret_cast<char*>(&skinnedMeshCount), sizeof(size_t));
 
@@ -407,7 +408,7 @@ void MeshFile::load_mesh(ifstream& inStream)
 	{
 		shared_ptr<SkinnedMesh> skinnedMesh = make_shared<SkinnedMesh>();
 		SkinnedMeshs[i] = skinnedMesh;
-		SkinnedMeshs[i]->from_byte(inStream);  // °¢ SkinnedMesh °´Ã¼ÀÇ from_byte È£Ãâ
+		SkinnedMeshs[i]->from_byte(inStream);  // ï¿½ï¿½ SkinnedMesh ï¿½ï¿½Ã¼ï¿½ï¿½ from_byte È£ï¿½ï¿½
 	}
 }
 void MeshFile::save_mesh(ofstream& outStream)

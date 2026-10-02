@@ -35,32 +35,32 @@ struct VertexKeyHasher
 };
 
 
-// Áßº¹µÈ Á¤Á¡ Á¦°ÅÇÏ´Â ÇÔ¼ö
+// ï¿½ßºï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ï´ï¿½ ï¿½Ô¼ï¿½
 void OptimizeVertices(std::vector<Vertex::PosNormalTexTanSkinned>& vertices, std::vector<USHORT>& indices)
 {
-    // Á¤Á¡ Áßº¹ Ã¼Å©¸¦ À§ÇÑ ¸Ê (VertexKey, UINT)
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½ßºï¿½ Ã¼Å©ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ (VertexKey, UINT)
     std::unordered_map<VertexKey, UINT, VertexKeyHasher> uniqueVertices;
     std::vector<Vertex::PosNormalTexTanSkinned> optimizedVertices;
     std::vector<USHORT> optimizedIndices;
 
     for (const auto& index : indices)
     {
-        // ÇöÀç ÀÎµ¦½ºÀÇ Á¤Á¡ °¡Á®¿À±â
+        // ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         Vertex::PosNormalTexTanSkinned& vertex = vertices[index];
 
-        // VertexKey »ı¼º - ºñ±³¸¦ À§ÇÑ ÁÖ¿ä ÇÊµå Æ÷ÇÔ
+        // VertexKey ï¿½ï¿½ï¿½ï¿½ - ï¿½ñ±³¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½Ö¿ï¿½ ï¿½Êµï¿½ ï¿½ï¿½ï¿½ï¿½
         VertexKey key;
         key.pos = vertex.pos;
         key.normal = vertex.normal;
         key.tex = vertex.tex;
         key.tangent = vertex.tangentU;
-        //std::memcpy(key.color, vertex.color, sizeof(BYTE) * 4);  // color º¹»ç
+        //std::memcpy(key.color, vertex.color, sizeof(BYTE) * 4);  // color ï¿½ï¿½ï¿½ï¿½
 
-        // Á¤Á¡À» Ã£°Å³ª, Ã£Áö ¸øÇÏ¸é »õ·Î Ãß°¡
+        // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ Ã£ï¿½Å³ï¿½, Ã£ï¿½ï¿½ ï¿½ï¿½ï¿½Ï¸ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ß°ï¿½
         auto it = uniqueVertices.find(key);
         if (it == uniqueVertices.end())
         {
-            // Á¤Á¡ÀÌ ¾ø´Ù¸é Ãß°¡ÇÏ°í, »õ·Î¿î ÀÎµ¦½º¸¦ ºÎ¿©
+            // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ù¸ï¿½ ï¿½ß°ï¿½ï¿½Ï°ï¿½, ï¿½ï¿½ï¿½Î¿ï¿½ ï¿½Îµï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Î¿ï¿½
             UINT newIndex = static_cast<UINT>(optimizedVertices.size());
             uniqueVertices[key] = newIndex;
             optimizedVertices.push_back(vertex);
@@ -68,12 +68,12 @@ void OptimizeVertices(std::vector<Vertex::PosNormalTexTanSkinned>& vertices, std
         }
         else
         {
-            // ÀÌ¹Ì ÀÖ´Â Á¤Á¡ÀÌ¶ó¸é ÇØ´ç ÀÎµ¦½º »ç¿ë
+            // ï¿½Ì¹ï¿½ ï¿½Ö´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì¶ï¿½ï¿½ ï¿½Ø´ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
             optimizedIndices.push_back(it->second);
         }
     }
 
-    // ÃÖÀûÈ­µÈ Á¤Á¡°ú ÀÎµ¦½º ¸®½ºÆ®·Î ±³Ã¼
+    // ï¿½ï¿½ï¿½ï¿½È­ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Îµï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®ï¿½ï¿½ ï¿½ï¿½Ã¼
     vertices = optimizedVertices;
     indices = optimizedIndices;
 }
@@ -110,6 +110,21 @@ static XMFLOAT4X4 ToRowMajor(const aiMatrix4x4& m)
     return r;
 }
 
+// Unity ì™€ ê°™ì€ ì¶•: Assimp ì˜ ConvertToLeftHanded ëŠ” Z ë¥¼ ë’¤ì§‘ì§€ë§Œ Unity ëŠ” X ë¥¼ ë’¤ì§‘ëŠ”ë‹¤ â†’ ë‘˜ì€ Y ì¶• 180Â° ì°¨ì´.
+// ëª¨ë“  ì •ì Â·ë…¸ë“œÂ·ë³¸Â·ì• ë‹ˆë©”ì´ì…˜ í‚¤ì— ê°™ì€ íšŒì „ R = diag(-1, 1, -1) ì„ ê±¸ì–´ Unity ì—ì„œ +Z ë¥¼ ë³´ë˜ ìºë¦­í„°ê°€ ì—¬ê¸°ì„œë„ +Z ë¥¼ ë³´ê²Œ í•œë‹¤
+// (R ì€ íšŒì „ì´ë¼ ì‚¼ê°í˜• ê°ê¸° ë°©í–¥ì€ ê·¸ëŒ€ë¡œ). í–‰ë ¬ì€ RÂ·MÂ·R = ì›ì†Œ (i, j) ì— r_iÂ·r_j ë¥¼ ê³±í•œ ê²ƒ.
+static aiVector3D ToEngine(const aiVector3D& v) { return aiVector3D(-v.x, v.y, -v.z); }
+
+static XMFLOAT4X4 ToEngineMatrix(const aiMatrix4x4& m)
+{
+    XMFLOAT4X4 r = ToRowMajor(m);
+    const float s[4] = { -1.0f, 1.0f, -1.0f, 1.0f };
+    for (int i = 0; i < 4; ++i)
+        for (int j = 0; j < 4; ++j)
+            r.m[i][j] *= s[i] * s[j];
+    return r;
+}
+
 bool FBXLoader::LoadModelFbx(const std::string& filename, MeshFile* model)
 {
     Assimp::Importer importer;
@@ -126,7 +141,7 @@ static void CollectNodes(const aiNode* node, int parent, SkeletonAvataData& skel
     const int index = (int)skel.NodeNames.size();
     skel.NodeNames.push_back(node->mName.C_Str());
     skel.BoneHierarchy.push_back(parent);
-    skel.BindLocal.push_back(ToRowMajor(node->mTransformation));
+    skel.BindLocal.push_back(ToEngineMatrix(node->mTransformation));
     for (unsigned i = 0; i < node->mNumChildren; ++i)
         CollectNodes(node->mChildren[i], index, skel);
 }
@@ -239,12 +254,13 @@ bool FBXLoader::LoadAnimation(const std::string& filename, SkinnedData& skinnedD
             for (unsigned k = 0; k < ch->mNumPositionKeys; ++k)
             {
                 const auto& key = KeyAt(ch->mPositionKeys, posStride, k);
-                channel.Positions.push_back({ (float)(key.mTime / tps), XMFLOAT3(key.mValue.x, key.mValue.y, key.mValue.z) });
+                channel.Positions.push_back({ (float)(key.mTime / tps), XMFLOAT3(-key.mValue.x, key.mValue.y, -key.mValue.z) });   // ToEngine
             }
             for (unsigned k = 0; k < ch->mNumRotationKeys; ++k)
             {
                 const auto& key = KeyAt(ch->mRotationKeys, rotStride, k);
-                channel.Rotations.push_back({ (float)(key.mTime / tps), XMFLOAT4(key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w) });
+                // RÂ·qÂ·R (Y ì¶• 180Â°): íšŒì „ì¶•ì˜ XÂ·Z ë¥¼ ë’¤ì§‘ëŠ”ë‹¤
+                channel.Rotations.push_back({ (float)(key.mTime / tps), XMFLOAT4(-key.mValue.x, key.mValue.y, -key.mValue.z, key.mValue.w) });
             }
             for (unsigned k = 0; k < ch->mNumScalingKeys; ++k)
             {
@@ -370,11 +386,15 @@ void FBXLoader::ProcessMesh(
     for (UINT i = 0; i < mesh->mNumVertices; ++i)
     {
         Vertex::PosNormalTexTan2 vertex;
-        vertex.pos = XMFLOAT3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        const aiVector3D p = ToEngine(mesh->mVertices[i]);
+        vertex.pos = XMFLOAT3(p.x, p.y, p.z);
 
         // Normal
         if (mesh->HasNormals())
-            ::memcpy(&vertex.normal, &mesh->mNormals[i], sizeof(XMFLOAT3));  
+        {
+            const aiVector3D n = ToEngine(mesh->mNormals[i]);
+            vertex.normal = XMFLOAT3(n.x, n.y, n.z);
+        }
 
         // UV
         if (mesh->HasTextureCoords(0))
@@ -414,11 +434,18 @@ void FBXLoader::ProcessMeshSkinned(
     for (uint32 i = 0; i < mesh->mNumVertices; ++i)
     {
         Vertex::PosNormalTexTanSkinned vertex = {};
-        vertex.pos = XMFLOAT3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z);
+        const aiVector3D p = ToEngine(mesh->mVertices[i]);
+        vertex.pos = XMFLOAT3(p.x, p.y, p.z);
         if (mesh->HasNormals())
-            vertex.normal = XMFLOAT3(mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z);
+        {
+            const aiVector3D n = ToEngine(mesh->mNormals[i]);
+            vertex.normal = XMFLOAT3(n.x, n.y, n.z);
+        }
         if (mesh->HasTangentsAndBitangents())
-            vertex.tangentU = XMFLOAT4(mesh->mTangents[i].x, mesh->mTangents[i].y, mesh->mTangents[i].z, 1.0f);
+        {
+            const aiVector3D t = ToEngine(mesh->mTangents[i]);
+            vertex.tangentU = XMFLOAT4(t.x, t.y, t.z, 1.0f);
+        }
         if (mesh->HasTextureCoords(0))
             vertex.tex = XMFLOAT2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
         vertices.push_back(vertex);
@@ -437,7 +464,7 @@ void FBXLoader::ProcessMeshSkinned(
         {
             palette = (int)boneNames.size();
             boneNames.push_back(name);
-            boneOffsets.push_back(ToRowMajor(bone->mOffsetMatrix));
+            boneOffsets.push_back(ToEngineMatrix(bone->mOffsetMatrix));
         }
         for (UINT w = 0; w < bone->mNumWeights; ++w)
         {
@@ -491,23 +518,19 @@ void FBXLoader::ParseBonesFromNodes(aiNode* node, std::map<std::string, int>& bo
 
 void FBXLoader::ParseBoneOffsets(const aiScene* scene, const std::map<std::string, int>& boneMapping, std::vector<XMFLOAT4X4>& boneOffsets)
 {
-    boneOffsets.resize(boneMapping.size(), XMFLOAT4X4()); // ±âº» ´ÜÀ§ Çà·Ä·Î ÃÊ±âÈ­
+    boneOffsets.resize(boneMapping.size(), XMFLOAT4X4()); // ï¿½âº» ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½Ä·ï¿½ ï¿½Ê±ï¿½È­
 
-    // ¸ğµç º»¿¡ ´ëÇØ ¿ÀÇÁ¼Â Çà·Ä ¼³Á¤
+    // ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     for (const auto& [boneName, boneIndex] : boneMapping)
     {
         aiNode* boneNode = scene->mRootNode->FindNode(boneName.c_str());
         if (boneNode)
         {
-            aiMatrix4x4 offsetMatrix = boneNode->mTransformation;
-            XMMATRIX mat = XMLoadFloat4x4(reinterpret_cast<XMFLOAT4X4*>(&offsetMatrix));
-
-            // Çà·Ä ÀüÈ¯ ÈÄ ÀúÀå
-            XMStoreFloat4x4(&boneOffsets[boneIndex], XMMatrixTranspose(mat));
+            boneOffsets[boneIndex] = ToEngineMatrix(boneNode->mTransformation);
         }
         else
         {
-            // º» ³ëµå°¡ ¾ø´Ù¸é ±âº» ´ÜÀ§ Çà·Ä »ç¿ë
+            // ï¿½ï¿½ ï¿½ï¿½å°¡ ï¿½ï¿½ï¿½Ù¸ï¿½ ï¿½âº» ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½
             XMStoreFloat4x4(&boneOffsets[boneIndex], XMMatrixIdentity());
         }
     }
@@ -515,17 +538,17 @@ void FBXLoader::ParseBoneOffsets(const aiScene* scene, const std::map<std::strin
 
 void FBXLoader::ParseBoneHierarchy(aiNode* node, std::map<std::string, int>& boneMapping, std::vector<int>& boneHierarchy, int parentIndex)
 {
-    // ÇöÀç ³ëµå°¡ º»ÀÎÁö È®ÀÎ 
+    // ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½å°¡ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È®ï¿½ï¿½ 
     auto it = boneMapping.find(node->mName.C_Str()); 
     int currentIndex = it != boneMapping.end() ? it->second : -1; 
 
-    // º»ÀÌ È®ÀÎµÇ¸é ºÎ¸ğ-ÀÚ½Ä °ü°è ¼³Á¤
+    // ï¿½ï¿½ï¿½ï¿½ È®ï¿½ÎµÇ¸ï¿½ ï¿½Î¸ï¿½-ï¿½Ú½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
     if (currentIndex != -1) 
     {
         boneHierarchy[currentIndex] = parentIndex; 
     }
 
-    // ÀÚ½Ä ³ëµå¿¡ ´ëÇØ Àç±ÍÀûÀ¸·Î È£Ãâ
+    // ï¿½Ú½ï¿½ ï¿½ï¿½å¿¡ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ È£ï¿½ï¿½
     for (unsigned int i = 0; i < node->mNumChildren; ++i) 
     {
         ParseBoneHierarchy(node->mChildren[i], boneMapping, boneHierarchy, currentIndex); 
