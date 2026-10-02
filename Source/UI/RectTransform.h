@@ -36,6 +36,11 @@ public:
 	Vec2 GetRectSize() const { return m_RectSize; }
 	// 부모 사각형(부모 로컬 공간)으로 위치/크기를 계산해 Transform 에 쓴다
 	void Layout(const Vec2& parentMin, const Vec2& parentSize);
+	// 지난 레이아웃의 부모 사각형으로 다시 (Layout Group · Content Size Fitter 가 값을 바꾼 뒤)
+	void Relayout() { Layout(m_ParentMin, m_ParentSize); }
+	Vec2 GetParentSize() const { return m_ParentSize; }
+	// Layout Group · Fitter 가 이 값을 정했다 (Inspector 안내, 프레임마다 다시 표시)
+	void SetDrivenBy(const std::string& by) { m_DrivenBy = by; m_DrivenFrame = ImGui::GetFrameCount(); }
 	// 캔버스 루트: 크기를 직접 정한다 (화면 / 배율)
 	void SetDrivenRect(const Vec2& size);
 	bool IsDrivenByCanvas() const { return m_Driven; }
@@ -72,6 +77,8 @@ private:
 	bool m_HasWritten = false;
 	bool m_Driven = false;
 	bool m_AnchorsOpen = true;
+	std::string m_DrivenBy;
+	int m_DrivenFrame = -100;
 };
 
 REGISTER_COMPONENT(RectTransform)

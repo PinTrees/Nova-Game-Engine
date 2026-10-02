@@ -79,6 +79,9 @@ public:
 	float GetPreferredHeight() { ForceMeshUpdate(); return m_PreferredH; }
 	bool IsOverflowing() { ForceMeshUpdate(); return m_Overflowing; }
 	int GetUsedFontSize() { ForceMeshUpdate(); return m_UsedSize; }
+	// 레이아웃 (Layout Group · Content Size Fitter): 이 폭으로 줄을 나눌 때 필요한 크기 (여백 포함). width < 0 = 줄바꿈 없이
+	// 지금 그리는 배치는 그대로 둔다 (결과는 입력이 같으면 캐시)
+	Vec2 MeasurePreferred(float width);
 	// 캔버스 월드 점 → 그 자리의 <link> 번호 (없으면 -1)
 	int FindLinkAt(const Vec2& canvasWorld);
 
@@ -145,6 +148,8 @@ private:
 	bool m_Overflowing = false;
 	int m_UsedSize = 14;
 	uint64 m_LayoutKey = 0;
+	float m_MeasureWidth = -2.0f;   // >= -1 이면 MeasurePreferred 중 (-1 = 줄바꿈 없이)
+	std::unordered_map<uint64, Vec2> m_Measure;
 	uint64 LayoutKey() const;
 	void Layout();
 	void UpdateLayout();   // 입력이 바뀌었으면 Layout (그릴 때는 굽는 시간 예산 안에서)

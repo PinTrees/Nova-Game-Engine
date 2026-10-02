@@ -437,10 +437,18 @@ void Text::Layout()
 	m_Sprites = pr.Sprites;
 
 	const Vec2 rmin = rt->GetRectMin(), rsize = rt->GetRectSize();
+	const bool measuring = m_MeasureWidth >= -1.0f;
 	const float left = rmin.x + Margin.x, right = rmin.x + rsize.x - Margin.z;
 	const float top = rmin.y + rsize.y - Margin.y, bottom = rmin.y + Margin.w;
-	const float maxW = (std::max)(0.0f, right - left), maxH = (std::max)(0.0f, top - bottom);
-	const bool wrap = m_HOverflow == HOverflow::Wrap;
+	float maxW = (std::max)(0.0f, right - left), maxH = (std::max)(0.0f, top - bottom);
+	bool wrap = m_HOverflow == HOverflow::Wrap;
+	if (measuring)
+	{
+		// 크기 재기: 주어진 폭 (없으면 줄바꿈 없이), 높이는 끝없이
+		if (m_MeasureWidth < 0.0f) wrap = false;
+		else maxW = (std::max)(0.0f, m_MeasureWidth - Margin.x - Margin.z);
+		maxH = 1e9f;
+	}
 
 	auto fontOf = [&](const PChar& p) { return (p.Flags & FBold) ? fonts[1] : fonts[0]; };
 	// 글자 크기(px) — sup/sub 은 작게
@@ -773,6 +781,40 @@ void Text::Layout()
 	}
 	// mark 를 글자 뒤로
 	std::stable_sort(m_Quads.begin(), m_Quads.end(), [](const Quad& a, const Quad& b) { return a.Layer < b.Layer; });
+}
+
+Vec2 Text::MeasurePreferred(float width)
+{
+	if (width < 0.0f) width = -1.0f;
+	uint64 key = LayoutKey();
+	key ^= (uint64)std::hash<float>{}(width) * 1099511628211ull;
+	if (auto it = m_Measure.find(key); it != m_Measure.end())
+		return it->second;
+	// 그리는 배치를 보관해 두고 재기만
+	auto quads = std::move(m_Quads);
+	auto chars = std::move(m_Chars);
+	auto lines = std::move(m_Lines);
+	auto links = std::move(m_Links);
+	auto sprites = std::move(m_Sprites);
+	GfxShaderResourceView* atlas[2] = { m_Atlas[0], m_Atlas[1] };
+	const void* fontRef[2] = { m_FontRef[0], m_FontRef[1] };
+	const int gen[2] = { m_FontGen[0], m_FontGen[1] }, rev[2] = { m_FontRev[0], m_FontRev[1] };
+	const bool pending = m_FontPending, overflow = m_Overflowing, forScript = m_ForScript;
+	const float pw = m_PreferredW, ph = m_PreferredH;
+	const int used = m_UsedSize;
+	m_MeasureWidth = width;
+	m_ForScript = true;   // 잴 때는 글자를 끝까지 굽는다
+	Layout();
+	const Vec2 result(m_PreferredW, m_PreferredH);
+	m_MeasureWidth = -2.0f;
+	m_Quads = std::move(quads); m_Chars = std::move(chars); m_Lines = std::move(lines); m_Links = std::move(links); m_Sprites = std::move(sprites);
+	for (int f = 0; f < 2; ++f) { m_Atlas[f] = atlas[f]; m_FontRef[f] = fontRef[f]; m_FontGen[f] = gen[f]; m_FontRev[f] = rev[f]; }
+	m_FontPending = pending; m_Overflowing = overflow; m_ForScript = forScript;
+	m_PreferredW = pw; m_PreferredH = ph; m_UsedSize = used;
+	if (m_Measure.size() > 16)
+		m_Measure.clear();
+	m_Measure[key] = result;
+	return result;
 }
 
 int Text::FindLinkAt(const Vec2& canvasWorld)

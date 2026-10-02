@@ -446,6 +446,53 @@ return info.characterCount + "|" + info.linkCount + "|" + hit + "|" + id + "|" +
         Add-Result ui 'rich text off shows tags as text' ($v[4] -eq '8') "chars $($v[4]) (expect 8)"
         Add-Result ui 'ellipsis overflow' ($v[5] -eq 'True') "isTextOverflowing $($v[5])"
         Add-Result ui 'auto size fits the box' ([int]$v[6] -ge 12 -and [int]$v[6] -lt 40) "font size used $($v[6]) (box 300x50)"
+
+        # 자동 레이아웃: Horizontal(같은 폭 · flexible 2 배) · Vertical + Content Size Fitter · Grid · Aspect Ratio Fitter
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $lf = Join-Path $Out 'ui_layout.cs'
+        @'
+var canvas = new GameObject("Canvas"); canvas.AddComponent<Canvas>();
+System.Func<string, Transform, Vector2, GameObject> make = (name, parent, size) => {
+    var go = new GameObject(name); go.transform.SetParent(parent, false); go.AddComponent<Image>(); go.GetComponent<RectTransform>().sizeDelta = size; return go; };
+var h = make("H", canvas.transform, new Vector2(600, 100));
+var hg = h.AddComponent<HorizontalLayoutGroup>(); hg.spacing = 10; hg.padding = new RectOffset(10, 10, 5, 5);
+for (int i = 0; i < 3; i++) make("H" + i, h.transform, new Vector2(50, 50));
+var h2 = make("H2", canvas.transform, new Vector2(400, 60)); h2.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 150);
+var hg2 = h2.AddComponent<HorizontalLayoutGroup>(); hg2.childForceExpandWidth = false;
+var a = make("A", h2.transform, new Vector2(10, 10)); var ae = a.AddComponent<LayoutElement>(); ae.flexibleWidth = 1;
+var b = make("B", h2.transform, new Vector2(10, 10)); var be = b.AddComponent<LayoutElement>(); be.flexibleWidth = 2;
+var v = make("V", canvas.transform, new Vector2(300, 10)); v.GetComponent<RectTransform>().anchoredPosition = new Vector2(-400, 0);
+var vg = v.AddComponent<VerticalLayoutGroup>(); vg.spacing = 4; vg.childForceExpandHeight = false;
+var fit = v.AddComponent<ContentSizeFitter>(); fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+for (int i = 0; i < 4; i++) { var t = new GameObject("T" + i); t.transform.SetParent(v.transform, false); var tx = t.AddComponent<Text>(); tx.text = "줄 " + i; tx.fontSize = 20; }
+var g = make("G", canvas.transform, new Vector2(300, 300)); g.GetComponent<RectTransform>().anchoredPosition = new Vector2(400, 0);
+var gg = g.AddComponent<GridLayoutGroup>(); gg.cellSize = new Vector2(90, 90); gg.spacing = new Vector2(10, 10);
+for (int i = 0; i < 7; i++) make("G" + i, g.transform, new Vector2(10, 10));
+var r = make("R", canvas.transform, new Vector2(400, 50)); r.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, -250);
+var ar = r.AddComponent<AspectRatioFitter>(); ar.aspectMode = AspectRatioFitter.AspectMode.WidthControlsHeight; ar.aspectRatio = 2;
+return "made";
+'@ | Set-Content -Encoding utf8 $lf
+        Invoke-Nova "exec --file $lf" | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $lr = Join-Path $Out 'ui_layout_read.cs'
+        @'
+System.Func<string, Rect> R = n => GameObject.Find(n).GetComponent<RectTransform>().rect;
+System.Func<string, Vector2> P = n => GameObject.Find(n).GetComponent<RectTransform>().anchoredPosition;
+System.Func<float, string> F = x => x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+var t0 = R("T0");
+return F(R("H0").width) + " " + F(R("H1").width) + " " + F(P("H1").x - P("H0").x) + " " + F(R("A").width) + " " + F(R("B").width) + " "
+    + F(R("V").height) + " " + F(t0.height) + " " + F(P("G3").x - P("G0").x) + " " + F(P("G0").y - P("G3").y) + " " + F(R("R").height);
+'@ | Set-Content -Encoding utf8 $lr
+        $lo = Invoke-NovaJson "exec --file $lr"
+        Invoke-Nova 'stop' | Out-Null
+        $l = if ($lo) { @("$($lo.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() }
+        if ($l.Count -lt 10) { Add-Result ui 'layout' $false "exec failed: $lo"; return }
+        $cell = (600 - 20 - 20) / 3.0
+        Add-Result ui 'horizontal layout group splits the width' ([math]::Abs($l[0] - $cell) -lt 0.2 -and [math]::Abs($l[1] - $cell) -lt 0.2 -and [math]::Abs($l[2] - ($cell + 10)) -lt 0.2) ("widths {0} {1} (expect {2:F1}), step {3}" -f $l[0], $l[1], $cell, $l[2])
+        Add-Result ui 'layout element flexible width 1 : 2' ([math]::Abs($l[4] / [math]::Max(0.01, $l[3]) - 2) -lt 0.02 -and [math]::Abs($l[3] + $l[4] - 400) -lt 0.5) "A $($l[3]) B $($l[4]) (expect 133.3 / 266.7)"
+        Add-Result ui 'vertical group + content size fitter' ($l[6] -gt 15 -and [math]::Abs($l[5] - (4 * $l[6] + 3 * 4)) -lt 0.5) "height $($l[5]) = 4 x $($l[6]) + 3 x 4"
+        Add-Result ui 'grid layout wraps after 3 columns' ([math]::Abs($l[7]) -lt 0.1 -and [math]::Abs($l[8] - 100) -lt 0.1) "G3 - G0 = ($($l[7]), $($l[8])) (expect 0, 100)"
+        Add-Result ui 'aspect ratio fitter (width controls height)' ([math]::Abs($l[9] - 200) -lt 0.1) "height $($l[9]) (expect 200)"
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }

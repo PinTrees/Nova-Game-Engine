@@ -62,6 +62,12 @@ namespace
 		{ "RectTransform",       "Rect Transform",        "Layout",        "rect_transform",    true  },
 		{ "Canvas",              "Canvas",                "Layout",        "canvas",            true  },
 		{ "CanvasScaler",        "Canvas Scaler",         "Layout",        "canvas_scaler",     true  },
+		{ "HorizontalLayoutGroup", "Horizontal Layout Group", "Layout",    "rect_transform",    true  },
+		{ "VerticalLayoutGroup", "Vertical Layout Group", "Layout",        "rect_transform",    true  },
+		{ "GridLayoutGroup",     "Grid Layout Group",     "Layout",        "rect_transform",    true  },
+		{ "ContentSizeFitter",   "Content Size Fitter",   "Layout",        "rect_transform",    true  },
+		{ "AspectRatioFitter",   "Aspect Ratio Fitter",   "Layout",        "rect_transform",    true  },
+		{ "LayoutElement",       "Layout Element",        "Layout",        "rect_transform",    true  },
 		{ "GraphicRaycaster",    "Graphic Raycaster",     "Event",         "graphic_raycaster", true  },
 		{ "EventSystem",         "Event System",          "Event",         "event_system",      true  },
 	};

@@ -11,6 +11,7 @@
 #include "UISlider.h"
 #include "UIInputField.h"
 #include "UIMask.h"
+#include "UILayout.h"
 #include "GameViewEditorWindow.h"
 #include "GameObjectFactory.h"
 #include "ScriptEngine.h"
@@ -498,6 +499,7 @@ namespace UISystem
 			if (fabsf(tr->GetLocalRotation().w) < 0.999999f)
 				tr->SetLocalRotation(Quaternion::Identity);
 			LayoutTree(go, rt->GetRectMin(), rt->GetRectSize());
+			UILayout::Apply(go);   // Layout Group · Content Size Fitter · Aspect Ratio Fitter (RectTransform 레이아웃 뒤에)
 		}
 
 		if (running && EventSystem::AnyActive())

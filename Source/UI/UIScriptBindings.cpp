@@ -11,6 +11,7 @@
 #include "UIInputField.h"
 #include "UIMask.h"
 #include "UIRenderer.h"
+#include "UILayout.h"
 
 namespace
 {
@@ -56,6 +57,78 @@ namespace UIScriptBindings
 			}
 			*out = Vec4(v.x, v.y, 0, 0);
 			return 1;
+		}
+		if (prop >= 230 && prop < 300)
+		{
+			// 레이아웃 (230 그룹, 240 Grid, 250 Content Size Fitter, 260 Layout Element, 270 Aspect Ratio Fitter)
+			if (prop < 240)
+			{
+				LayoutGroup* lg = g->GetComponentIncludingPending<LayoutGroup>();
+				if (lg == nullptr) return 0;
+				auto* hv = dynamic_cast<HorizontalOrVerticalLayoutGroup*>(lg);
+				auto* grid = dynamic_cast<GridLayoutGroup*>(lg);
+				switch (prop)
+				{
+				case 230: *out = Vec4((float)lg->PaddingLeft, (float)lg->PaddingRight, (float)lg->PaddingTop, (float)lg->PaddingBottom); break;
+				case 231: out->x = (float)lg->ChildAlignment; break;
+				case 232: if (hv) out->x = hv->Spacing; else if (grid) *out = Vec4(grid->Spacing.x, grid->Spacing.y, 0, 0); break;
+				case 233: if (hv) *out = Vec4(hv->ChildControlWidth ? 1.0f : 0.0f, hv->ChildControlHeight ? 1.0f : 0.0f, 0, 0); break;
+				case 234: if (hv) *out = Vec4(hv->ChildForceExpandWidth ? 1.0f : 0.0f, hv->ChildForceExpandHeight ? 1.0f : 0.0f, 0, 0); break;
+				case 235: if (hv) *out = Vec4(hv->ChildScaleWidth ? 1.0f : 0.0f, hv->ChildScaleHeight ? 1.0f : 0.0f, 0, 0); break;
+				case 236: if (hv) out->x = hv->ReverseArrangement ? 1.0f : 0.0f; break;
+				case 237: *out = Vec4(lg->TotalMin(0), lg->TotalMin(1), lg->TotalPreferred(0), lg->TotalPreferred(1)); break;
+				default: return 0;
+				}
+				return 1;
+			}
+			if (prop < 250)
+			{
+				GridLayoutGroup* grid = g->GetComponentIncludingPending<GridLayoutGroup>();
+				if (grid == nullptr) return 0;
+				if (prop == 240) *out = Vec4(grid->CellSize.x, grid->CellSize.y, 0, 0);
+				else if (prop == 241) *out = Vec4((float)grid->ConstraintMode, (float)grid->ConstraintCount, 0, 0);
+				else if (prop == 242) *out = Vec4((float)grid->StartCorner, (float)grid->StartAxis, 0, 0);
+				else return 0;
+				return 1;
+			}
+			if (prop < 260)
+			{
+				ContentSizeFitter* f = g->GetComponentIncludingPending<ContentSizeFitter>();
+				if (f == nullptr) return 0;
+				*out = Vec4((float)f->HorizontalFit, (float)f->VerticalFit, 0, 0);
+				return 1;
+			}
+			if (prop < 270)
+			{
+				LayoutElement* le = g->GetComponentIncludingPending<LayoutElement>();
+				if (le == nullptr) return 0;
+				switch (prop)
+				{
+				case 260: *out = Vec4(le->MinWidth, le->MinHeight, 0, 0); break;
+				case 261: *out = Vec4(le->PreferredWidth, le->PreferredHeight, 0, 0); break;
+				case 262: *out = Vec4(le->FlexibleWidth, le->FlexibleHeight, 0, 0); break;
+				case 263: out->x = le->IgnoreLayout ? 1.0f : 0.0f; break;
+				case 264: out->x = (float)le->LayoutPriority; break;
+				default: return 0;
+				}
+				return 1;
+			}
+			if (prop == 270)
+			{
+				AspectRatioFitter* a = g->GetComponentIncludingPending<AspectRatioFitter>();
+				if (a == nullptr) return 0;
+				*out = Vec4((float)a->AspectMode, a->AspectRatio, 0, 0);
+				return 1;
+			}
+			if (prop == 271)
+			{
+				// LayoutUtility.GetMin/Preferred/FlexibleSize (x min w, y min h, z pref w, w pref h)
+				RectTransform* rt = RectTransform::Of(g);
+				if (rt == nullptr) return 0;
+				*out = Vec4(UILayout::GetMinSize(rt, 0), UILayout::GetMinSize(rt, 1), UILayout::GetPreferredSize(rt, 0), UILayout::GetPreferredSize(rt, 1));
+				return 1;
+			}
+			return 0;
 		}
 		if (prop >= 130 && prop < 200)
 		{
@@ -212,6 +285,71 @@ namespace UIScriptBindings
 			case 7: rt->SetOffsets(rt->GetOffsetMin(), v2); break;
 			default: break;
 			}
+			return;
+		}
+		if (prop >= 230 && prop < 300)
+		{
+			if (prop < 240)
+			{
+				LayoutGroup* lg = g->GetComponentIncludingPending<LayoutGroup>();
+				if (lg == nullptr) return;
+				auto* hv = dynamic_cast<HorizontalOrVerticalLayoutGroup*>(lg);
+				auto* grid = dynamic_cast<GridLayoutGroup*>(lg);
+				switch (prop)
+				{
+				case 230: lg->PaddingLeft = (int)v.x; lg->PaddingRight = (int)v.y; lg->PaddingTop = (int)v.z; lg->PaddingBottom = (int)v.w; break;
+				case 231: lg->ChildAlignment = std::clamp((int)v.x, 0, 8); break;
+				case 232: if (hv) hv->Spacing = v.x; else if (grid) grid->Spacing = Vec2(v.x, v.y); break;
+				case 233: if (hv) { hv->ChildControlWidth = v.x != 0.0f; hv->ChildControlHeight = v.y != 0.0f; } break;
+				case 234: if (hv) { hv->ChildForceExpandWidth = v.x != 0.0f; hv->ChildForceExpandHeight = v.y != 0.0f; } break;
+				case 235: if (hv) { hv->ChildScaleWidth = v.x != 0.0f; hv->ChildScaleHeight = v.y != 0.0f; } break;
+				case 236: if (hv) hv->ReverseArrangement = v.x != 0.0f; break;
+				}
+				return;
+			}
+			if (prop < 250)
+			{
+				if (GridLayoutGroup* grid = g->GetComponentIncludingPending<GridLayoutGroup>())
+				{
+					if (prop == 240) grid->CellSize = Vec2(v.x, v.y);
+					else if (prop == 241) { grid->ConstraintMode = std::clamp((int)v.x, 0, 2); grid->ConstraintCount = (std::max)(1, (int)v.y); }
+					else if (prop == 242) { grid->StartCorner = std::clamp((int)v.x, 0, 3); grid->StartAxis = std::clamp((int)v.y, 0, 1); }
+				}
+				return;
+			}
+			if (prop < 260)
+			{
+				if (ContentSizeFitter* f = g->GetComponentIncludingPending<ContentSizeFitter>())
+				{
+					f->HorizontalFit = std::clamp((int)v.x, 0, 2);
+					f->VerticalFit = std::clamp((int)v.y, 0, 2);
+				}
+				return;
+			}
+			if (prop < 270)
+			{
+				if (LayoutElement* le = g->GetComponentIncludingPending<LayoutElement>())
+					switch (prop)
+					{
+					case 260: le->MinWidth = v.x; le->MinHeight = v.y; break;
+					case 261: le->PreferredWidth = v.x; le->PreferredHeight = v.y; break;
+					case 262: le->FlexibleWidth = v.x; le->FlexibleHeight = v.y; break;
+					case 263: le->IgnoreLayout = v.x != 0.0f; break;
+					case 264: le->LayoutPriority = (int)v.x; break;
+					}
+				return;
+			}
+			if (prop == 270)
+			{
+				if (AspectRatioFitter* a = g->GetComponentIncludingPending<AspectRatioFitter>())
+				{
+					a->AspectMode = std::clamp((int)v.x, 0, 4);
+					a->AspectRatio = (std::max)(0.001f, v.y);
+				}
+				return;
+			}
+			if (prop == 280)
+				UILayout::ForceRebuild(g);   // LayoutRebuilder.ForceRebuildLayoutImmediate
 			return;
 		}
 		if (prop >= 130 && prop < 200)

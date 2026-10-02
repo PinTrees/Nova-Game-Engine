@@ -260,6 +260,9 @@ void RectTransform::DrawAnchorPresetPopup()
 
 void RectTransform::OnInspectorGUI()
 {
+	// Layout Group · Fitter 가 값을 정하고 있으면 (Unity: "Some values driven by ...")
+	if (!m_DrivenBy.empty() && ImGui::GetFrameCount() - m_DrivenFrame <= 2)
+		UnityGUI::HelpBox(("Some values driven by " + m_DrivenBy + ".").c_str(), false);
 	ImDrawList* dl = ImGui::GetWindowDrawList();
 	const ImVec2 p = ImGui::GetCursorScreenPos();
 	const float w = ImGui::GetContentRegionAvail().x;

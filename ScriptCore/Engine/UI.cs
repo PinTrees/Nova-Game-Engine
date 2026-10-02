@@ -277,6 +277,125 @@ namespace NovaEngine.UI
     }
 
     public enum HorizontalWrapMode { Wrap = 0, Overflow = 1 }
+
+    // ------------------------------------------------------------------ 자동 레이아웃 (Unity UnityEngine.UI 와 같은 이름)
+    public abstract class UIComponent : Behaviour
+    {
+        internal UIComponent() { }
+        protected unsafe Vector4 GetV(int p) { Vector4 v; Native.Api.UI_GetVec(m_Id, p, &v); return v; }
+        protected unsafe void SetV(int p, Vector4 v) => Native.Api.UI_SetVec(m_Id, p, &v);
+    }
+
+    /// <summary>Unity 의 RectOffset (Layout Group 의 padding) — 값을 바꾸면 컴포넌트에 바로 반영</summary>
+    public class RectOffset
+    {
+        readonly LayoutGroup m_Owner;
+        int m_Left, m_Right, m_Top, m_Bottom;
+        public RectOffset() { }
+        public RectOffset(int left, int right, int top, int bottom) { m_Left = left; m_Right = right; m_Top = top; m_Bottom = bottom; }
+        internal RectOffset(LayoutGroup owner, Vector4 v) { m_Owner = owner; m_Left = (int)v.x; m_Right = (int)v.y; m_Top = (int)v.z; m_Bottom = (int)v.w; }
+        void Push() => m_Owner?.SetPadding(this);
+        public int left { get => m_Left; set { m_Left = value; Push(); } }
+        public int right { get => m_Right; set { m_Right = value; Push(); } }
+        public int top { get => m_Top; set { m_Top = value; Push(); } }
+        public int bottom { get => m_Bottom; set { m_Bottom = value; Push(); } }
+        public int horizontal => m_Left + m_Right;
+        public int vertical => m_Top + m_Bottom;
+    }
+
+    public abstract class LayoutGroup : UIComponent
+    {
+        internal LayoutGroup() { }
+        public RectOffset padding { get => new RectOffset(this, GetV(230)); set { if (value != null) SetPadding(value); } }
+        internal void SetPadding(RectOffset p) => SetV(230, new Vector4(p.left, p.right, p.top, p.bottom));
+        public TextAnchor childAlignment { get => (TextAnchor)(int)GetV(231).x; set => SetV(231, new Vector4((int)value, 0, 0, 0)); }
+        public float minWidth => GetV(237).x;
+        public float minHeight => GetV(237).y;
+        public float preferredWidth => GetV(237).z;
+        public float preferredHeight => GetV(237).w;
+    }
+
+    public abstract class HorizontalOrVerticalLayoutGroup : LayoutGroup
+    {
+        internal HorizontalOrVerticalLayoutGroup() { }
+        public float spacing { get => GetV(232).x; set => SetV(232, new Vector4(value, 0, 0, 0)); }
+        public bool childControlWidth { get => GetV(233).x != 0; set { var v = GetV(233); SetV(233, new Vector4(value ? 1 : 0, v.y, 0, 0)); } }
+        public bool childControlHeight { get => GetV(233).y != 0; set { var v = GetV(233); SetV(233, new Vector4(v.x, value ? 1 : 0, 0, 0)); } }
+        public bool childForceExpandWidth { get => GetV(234).x != 0; set { var v = GetV(234); SetV(234, new Vector4(value ? 1 : 0, v.y, 0, 0)); } }
+        public bool childForceExpandHeight { get => GetV(234).y != 0; set { var v = GetV(234); SetV(234, new Vector4(v.x, value ? 1 : 0, 0, 0)); } }
+        public bool childScaleWidth { get => GetV(235).x != 0; set { var v = GetV(235); SetV(235, new Vector4(value ? 1 : 0, v.y, 0, 0)); } }
+        public bool childScaleHeight { get => GetV(235).y != 0; set { var v = GetV(235); SetV(235, new Vector4(v.x, value ? 1 : 0, 0, 0)); } }
+        public bool reverseArrangement { get => GetV(236).x != 0; set => SetV(236, new Vector4(value ? 1 : 0, 0, 0, 0)); }
+    }
+
+    public sealed class HorizontalLayoutGroup : HorizontalOrVerticalLayoutGroup { internal HorizontalLayoutGroup() { } }
+    public sealed class VerticalLayoutGroup : HorizontalOrVerticalLayoutGroup { internal VerticalLayoutGroup() { } }
+
+    public sealed class GridLayoutGroup : LayoutGroup
+    {
+        internal GridLayoutGroup() { }
+        public enum Corner { UpperLeft = 0, UpperRight = 1, LowerLeft = 2, LowerRight = 3 }
+        public enum Axis { Horizontal = 0, Vertical = 1 }
+        public enum Constraint { Flexible = 0, FixedColumnCount = 1, FixedRowCount = 2 }
+        public Vector2 cellSize { get { var v = GetV(240); return new Vector2(v.x, v.y); } set => SetV(240, new Vector4(value.x, value.y, 0, 0)); }
+        public Vector2 spacing { get { var v = GetV(232); return new Vector2(v.x, v.y); } set => SetV(232, new Vector4(value.x, value.y, 0, 0)); }
+        public Constraint constraint { get => (Constraint)(int)GetV(241).x; set { var v = GetV(241); SetV(241, new Vector4((int)value, v.y, 0, 0)); } }
+        public int constraintCount { get => (int)GetV(241).y; set { var v = GetV(241); SetV(241, new Vector4(v.x, value, 0, 0)); } }
+        public Corner startCorner { get => (Corner)(int)GetV(242).x; set { var v = GetV(242); SetV(242, new Vector4((int)value, v.y, 0, 0)); } }
+        public Axis startAxis { get => (Axis)(int)GetV(242).y; set { var v = GetV(242); SetV(242, new Vector4(v.x, (int)value, 0, 0)); } }
+    }
+
+    public sealed class ContentSizeFitter : UIComponent
+    {
+        internal ContentSizeFitter() { }
+        public enum FitMode { Unconstrained = 0, MinSize = 1, PreferredSize = 2 }
+        public FitMode horizontalFit { get => (FitMode)(int)GetV(250).x; set { var v = GetV(250); SetV(250, new Vector4((int)value, v.y, 0, 0)); } }
+        public FitMode verticalFit { get => (FitMode)(int)GetV(250).y; set { var v = GetV(250); SetV(250, new Vector4(v.x, (int)value, 0, 0)); } }
+    }
+
+    public sealed class AspectRatioFitter : UIComponent
+    {
+        internal AspectRatioFitter() { }
+        public enum AspectMode { None = 0, WidthControlsHeight = 1, HeightControlsWidth = 2, FitInParent = 3, EnvelopeParent = 4 }
+        public AspectMode aspectMode { get => (AspectMode)(int)GetV(270).x; set { var v = GetV(270); SetV(270, new Vector4((int)value, v.y, 0, 0)); } }
+        public float aspectRatio { get => GetV(270).y; set { var v = GetV(270); SetV(270, new Vector4(v.x, value, 0, 0)); } }
+    }
+
+    public sealed class LayoutElement : UIComponent
+    {
+        internal LayoutElement() { }
+        public bool ignoreLayout { get => GetV(263).x != 0; set => SetV(263, new Vector4(value ? 1 : 0, 0, 0, 0)); }
+        public float minWidth { get => GetV(260).x; set { var v = GetV(260); SetV(260, new Vector4(value, v.y, 0, 0)); } }
+        public float minHeight { get => GetV(260).y; set { var v = GetV(260); SetV(260, new Vector4(v.x, value, 0, 0)); } }
+        public float preferredWidth { get => GetV(261).x; set { var v = GetV(261); SetV(261, new Vector4(value, v.y, 0, 0)); } }
+        public float preferredHeight { get => GetV(261).y; set { var v = GetV(261); SetV(261, new Vector4(v.x, value, 0, 0)); } }
+        public float flexibleWidth { get => GetV(262).x; set { var v = GetV(262); SetV(262, new Vector4(value, v.y, 0, 0)); } }
+        public float flexibleHeight { get => GetV(262).y; set { var v = GetV(262); SetV(262, new Vector4(v.x, value, 0, 0)); } }
+        public int layoutPriority { get => (int)GetV(264).x; set => SetV(264, new Vector4(value, 0, 0, 0)); }
+    }
+
+    /// <summary>Unity 의 LayoutRebuilder</summary>
+    public static class LayoutRebuilder
+    {
+        public static unsafe void ForceRebuildLayoutImmediate(RectTransform layoutRoot)
+        {
+            if (layoutRoot == null) return;
+            Vector4 v = default; Native.Api.UI_SetVec(layoutRoot.m_Id, 280, &v);
+        }
+        public static void MarkLayoutForRebuild(RectTransform rect) { }   // NOVA 는 매 프레임 계산한다
+    }
+
+    /// <summary>Unity 의 LayoutUtility</summary>
+    public static class LayoutUtility
+    {
+        static unsafe Vector4 Sizes(RectTransform rect) { Vector4 v = default; if (rect != null) Native.Api.UI_GetVec(rect.m_Id, 271, &v); return v; }
+        public static float GetMinWidth(RectTransform rect) => Sizes(rect).x;
+        public static float GetMinHeight(RectTransform rect) => Sizes(rect).y;
+        public static float GetPreferredWidth(RectTransform rect) => Sizes(rect).z;
+        public static float GetPreferredHeight(RectTransform rect) => Sizes(rect).w;
+        public static float GetMinSize(RectTransform rect, int axis) => axis == 0 ? GetMinWidth(rect) : GetMinHeight(rect);
+        public static float GetPreferredSize(RectTransform rect, int axis) => axis == 0 ? GetPreferredWidth(rect) : GetPreferredHeight(rect);
+    }
     public enum VerticalWrapMode { Truncate = 0, Overflow = 1 }
 
     public class Selectable : Behaviour

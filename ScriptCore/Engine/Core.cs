@@ -286,6 +286,12 @@ namespace NovaEngine
             if (t == typeof(UI.ScrollRect)) return "ScrollRect";
             if (t == typeof(UI.Mask)) return "Mask";
             if (t == typeof(UI.RectMask2D)) return "RectMask2D";
+            if (t == typeof(UI.HorizontalLayoutGroup)) return "HorizontalLayoutGroup";
+            if (t == typeof(UI.VerticalLayoutGroup)) return "VerticalLayoutGroup";
+            if (t == typeof(UI.GridLayoutGroup)) return "GridLayoutGroup";
+            if (t == typeof(UI.ContentSizeFitter)) return "ContentSizeFitter";
+            if (t == typeof(UI.AspectRatioFitter)) return "AspectRatioFitter";
+            if (t == typeof(UI.LayoutElement)) return "LayoutElement";
             return null;
         }
 
