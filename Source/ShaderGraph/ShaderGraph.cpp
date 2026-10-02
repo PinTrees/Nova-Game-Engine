@@ -498,10 +498,13 @@ float SG_Rectangle(float2 uv, float w, float h)
 				v.push_back(P(o.Name.c_str(), TypeWidth(o.Type)));
 			return v;
 		}
-		// Unity 의 Vertex 블록 (오브젝트 공간 — 이어지지 않으면 메시 값 그대로)
-		v.push_back(P("Vertex Position", 3, 0, 0, 0, 0, "posO"));
-		v.push_back(P("Vertex Normal", 3, 0, 0, 0, 0, "normalO"));
-		v.push_back(P("Vertex Tangent", 3, 0, 0, 0, 0, "tangentO"));
+		// Unity 의 Vertex 블록 (오브젝트 공간 — 이어지지 않으면 메시 값 그대로). Decal 은 없다 (상자를 투영)
+		if (g.Material != "Decal")
+		{
+			v.push_back(P("Vertex Position", 3, 0, 0, 0, 0, "posO"));
+			v.push_back(P("Vertex Normal", 3, 0, 0, 0, 0, "normalO"));
+			v.push_back(P("Vertex Tangent", 3, 0, 0, 0, 0, "tangentO"));
+		}
 		// Fragment 블록: Alpha Clipping 을 켜면 Alpha Clip Threshold
 		v.push_back(P("Base Color", 3, 0.5f, 0.5f, 0.5f));
 		if (g.Material != "Unlit")
@@ -513,7 +516,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 			v.push_back(P("Ambient Occlusion", 1, 1));
 		}
 		v.push_back(P("Alpha", 1, 1));
-		if (g.AlphaClip)
+		if (g.AlphaClip && g.Material != "Decal")
 			v.push_back(P("Alpha Clip Threshold", 1, 0.5f));
 		return v;
 	}
@@ -1100,7 +1103,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 
 		bool HasVertexStage(const Graph& g)
 		{
-			if (g.IsSubGraph())
+			if (g.IsSubGraph() || g.Material == "Decal")
 				return false;
 			for (const Edge& e : g.Edges)
 				if (e.ToNode == 0 && IsVertexPort(e.ToPort))
@@ -1225,10 +1228,54 @@ float SG_Rectangle(float2 uv, float w, float h)
 		return FindDef(n.Type);
 	}
 
+	// Decal 그래프 (Unity 의 Decal Graph): Decal Projector 가 쓴다 — 상자 안 표면의 UV · 위치 · 노멀로 그래프를 계산해 Lit 으로 섞는다
+	CodeResult GenerateDecal(const Graph& g)
+	{
+		CodeResult r;
+		GenState S;
+		std::vector<int> order;
+		if (!TopoOrder(g, 1, order, r.Error))
+			return r;
+		std::string body;
+		if (!NodeBody(g, order, false, body, r.Used, r.Error, S))
+			return r;
+		r.Files = S.Files;
+		std::ostringstream fx;
+		fx << "//=============================================================================\n";
+		fx << "// Shader Graph 가 만든 데칼 셰이더 (Material = Decal — Decal Projector 의 재질)\n";
+		fx << "//=============================================================================\n";
+		fx << "#define NOVA_NO_ENGINE_TECHNIQUES\n#include \"32. InstancedBasic.fx\"\n#include \"53. DecalCommon.fx\"\n\n";
+		fx << Declarations(g, order, "cbShaderGraph", "");
+		fx << kHelpers << "\n" << S.Functions << kSurfaceStruct << EvalFunction(g, body, false);
+		fx << "float4 PS_GraphDecal(DecalVOut pin) : SV_Target\n{\n";
+		fx << "    DecalSample d = DecalReconstruct(pin.PosH);\n";
+		fx << "    // UV = 투영 UV, Position (Object) = 상자 안 위치 (-0.5..0.5), Normal = 표면 노멀\n";
+		fx << "    SGSurface s = SG_Evaluate(d.UV, d.PosW, d.NormalW, d.ViewW, d.Screen, d.Local, d.NormalW);\n";
+		fx << "    float alpha = saturate(s.Alpha) * d.Fade;\n";
+		fx << "    clip(alpha - 0.002);\n";
+		fx << "    float3 N = d.NormalW;\n";
+		if (NormalLinked(g))
+			fx << "    N = DecalNormal(normalize(s.NormalTS), d.NormalW);\n";
+		fx << "    LitSurface surf;\n";
+		fx << "    surf.Albedo = ToLinear(saturate(s.BaseColor));\n";
+		fx << "    surf.Metallic = saturate(s.Metallic);\n";
+		fx << "    surf.Smoothness = saturate(s.Smoothness);\n";
+		fx << "    surf.Occlusion = saturate(s.Occlusion);\n";
+		fx << "    surf.Emission = max(s.Emission, 0);\n";
+		fx << "    surf.Transmission = float3(0, 0, 0);\n";
+		fx << "    surf.Highlights = true;\n    surf.Reflections = true;\n    surf.ReceiveShadows = true;\n";
+		fx << "    return DecalFinish(surf, d, N, alpha);\n}\n\n";
+		fx << Technique("GraphDecalTech", "VS_Decal", "PS_GraphDecal");
+		r.Hlsl = fx.str();
+		return r;
+	}
+
 	CodeResult Generate(const Graph& g)
 	{
 		CodeResult r;
 		if (g.IsSubGraph()) { r.Error = "a Sub Graph is not a shader (use it from a Shader Graph)"; return r; }
+		if (g.Material == "Decal")
+			return GenerateDecal(g);
 		GenState S;
 		std::vector<int> fragOrder, vertOrder;
 		if (!TopoOrder(g, 1, fragOrder, r.Error) || !TopoOrder(g, 2, vertOrder, r.Error))

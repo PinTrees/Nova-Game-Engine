@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1950,6 +1950,95 @@ function Suite-ShaderGraph
     }
 }
 
+function Suite-Decal
+{
+    # Decal Projector: 바닥에 투영 (상자 안만), Opacity, Base Map 알파, Shader Graph 데칼, 저장 → 다시 열기
+    Write-Host '[decal]'
+    $dir = Join-Path $Out 'decal'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\DecalTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    # 빨간 Lit 재질 · 줄무늬 알파 재질
+    Copy-Item (Join-Path $Project 'Assets\Materials\Red Plastic.mat') (Join-Path $assetDir 'RedDecal.mat') -Force
+    $bmp = New-Object System.Drawing.Bitmap 64, 64
+    for ($y = 0; $y -lt 64; $y++) { for ($x = 0; $x -lt 64; $x++) { $a = if ([math]::Floor($x / 16) % 2 -eq 0) { 255 } else { 0 }; $bmp.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($a, 255, 255, 255)) } }
+    $bmp.Save((Join-Path $assetDir 'stripes.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    $sm = Get-Content (Join-Path $assetDir 'RedDecal.mat') -Raw | ConvertFrom-Json
+    $sm.BaseMapPath = 'Assets\DecalTest\stripes.png'; $sm.ResourcePath = 'Assets\DecalTest\Stripes.mat'
+    $sm | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Stripes.mat')
+    $ed = Start-TestEditor
+    try
+    {
+        function SetDecal([string]$values) { Invoke-Nova ('set Decal --component DecalProjector --values "' + $values.Replace('"', '\"') + '"') }
+        # 화면의 가운데 (데칼 안) 와 바깥 띠의 빨강 · 검정 · 흰색 비율
+        function Shot([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova 'wait 5' | Out-Null
+            Invoke-Nova "screenshot $p --view scene" | Out-Null
+            if (-not (Test-Path $p)) { return $null }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $in = 0; $inRed = 0; $inBlack = 0; $inWhite = 0; $outN = 0; $outRed = 0
+            for ($y = 0; $y -lt $bm.Height; $y += 3) { for ($x = 0; $x -lt $bm.Width; $x += 3) {
+                $c = $bm.GetPixel($x, $y)
+                $red = $c.R -gt $c.G + 60 -and $c.R -gt $c.B + 60
+                $fx = [math]::Abs($x / $bm.Width - 0.5); $fy = [math]::Abs($y / $bm.Height - 0.5)
+                if ($fx -lt 0.08 -and $fy -lt 0.08) { $in++; if ($red) { $inRed++ }; if ($c.R -lt 110 -and $c.G -lt 110 -and $c.B -lt 110) { $inBlack++ }; if ($c.R -gt 170 -and $c.G -gt 170 -and $c.B -gt 170) { $inWhite++ } }
+                elseif ($fx -gt 0.35 -or $fy -gt 0.35) { $outN++; if ($red) { $outRed++ } } } }
+            $bm.Dispose()
+            [pscustomobject]@{ In = [math]::Max(1, $in); InRed = $inRed; InBlack = $inBlack; InWhite = $inWhite; Out = [math]::Max(1, $outN); OutRed = $outRed }
+        }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        # 아래 (-Y) 로 투영 (+Z 를 X 축 90 도로 돌림), 2 × 2 상자
+        Invoke-Nova 'create empty --name Decal --position 0,0.5,0 --rotation 90,0,0' | Out-Null
+        Invoke-Nova 'add-component Decal DecalProjector' | Out-Null
+        SetDecal '{"material":"Assets/DecalTest/RedDecal.mat","size":[2,2,2],"pivot":[0,0,1]}' | Out-Null
+        Invoke-Nova 'camera --position 0,3,-0.01 --target 0,0,0' | Out-Null
+        $s1 = Shot 'decal_red.png'
+        Add-Result decal 'Decal Projector paints the floor inside its box only (red center, grey around)' ($s1 -and $s1.InRed -gt $s1.In * 0.9 -and $s1.OutRed -lt $s1.Out * 0.05) "inside red=$($s1.InRed)/$($s1.In) outside red=$($s1.OutRed)/$($s1.Out)"
+
+        SetDecal '{"fadeFactor":0}' | Out-Null
+        $s2 = Shot 'decal_opacity0.png'
+        SetDecal '{"fadeFactor":1}' | Out-Null
+        Add-Result decal 'Opacity 0 hides the decal' ($s2 -and $s2.InRed -lt $s2.In * 0.05) "inside red=$($s2.InRed)/$($s2.In)"
+
+        SetDecal '{"material":"Assets/DecalTest/Stripes.mat"}' | Out-Null
+        $s3 = Shot 'decal_stripes.png'
+        Add-Result decal 'Base Map alpha = coverage (stripes)' ($s3 -and $s3.InRed -gt $s3.In * 0.25 -and $s3.InRed -lt $s3.In * 0.75) "inside red=$($s3.InRed)/$($s3.In)"
+
+        # Shader Graph 데칼: Base Color = Checkerboard (투영 UV)
+        Invoke-Nova 'shadergraph new Assets/DecalTest/CheckerDecal.shadergraph --material Decal --timeout 240' | Out-Null
+        $bf = Join-Path $dir 'checker.txt'
+        @('node.add --type Checkerboard --values ''{"Color A":[0,0,0],"Color B":[1,1,1],"Frequency":[2,2]}''', 'connect --from 1 --to Master --in "Base Color"') | Set-Content -Encoding utf8 $bf
+        Invoke-Nova "shadergraph batch $bf" | Out-Null
+        $gs = Invoke-NovaJson 'shadergraph save --timeout 240'
+        $gm = Invoke-NovaJson 'shadergraph material'
+        $hl = Invoke-NovaJson 'shadergraph compile --hlsl'
+        SetDecal '{"material":"Assets/DecalTest/CheckerDecal.mat"}' | Out-Null
+        $s4 = Shot 'decal_graph.png'
+        Add-Result decal 'Shader Graph decal (Material = Decal): checkerboard on the floor' ($gs.built -and $hl.hlsl -match 'GraphDecalTech' -and $s4 -and $s4.InBlack -gt $s4.In * 0.15 -and $s4.InWhite -gt $s4.In * 0.15) "built=$($gs.built) black=$($s4.InBlack) white=$($s4.InWhite) of $($s4.In)"
+
+        # 저장 → 다시 열기: 설정 그대로
+        SetDecal '{"material":"Assets/DecalTest/RedDecal.mat","uvScale":[2,3],"angleFade":[10,80]}' | Out-Null
+        Invoke-Nova 'scene save --as Assets/DecalTest/DecalScene.scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'scene open Assets/DecalTest/DecalScene.scene --force' | Out-Null
+        $g = Invoke-NovaJson 'get Decal'
+        $c = @($g.components | Where-Object { $_.type -eq 'DecalProjector' })[0]
+        Add-Result decal 'saved and reopened: material, size, UV scale, angle fade kept' ($c -and $c.material -eq 'Assets/DecalTest/RedDecal.mat' -and (@($c.size | ForEach-Object { [double]$_ }) -join ',') -eq '2,2,2' -and (@($c.uvScale | ForEach-Object { [double]$_ }) -join ',') -eq '2,3' -and (@($c.angleFade | ForEach-Object { [double]$_ }) -join ',') -eq '10,80') "material=$($c.material) size=$($c.size -join ',') uv=$($c.uvScale -join ',') angle=$($c.angleFade -join ',')"
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2262,6 +2351,7 @@ try
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }
                 'shadergraph' { Suite-ShaderGraph }
+                'decal' { Suite-Decal }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

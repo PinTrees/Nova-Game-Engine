@@ -683,6 +683,65 @@ namespace UnityGUI
 		return changed;
 	}
 
+	bool MinMaxSlider(const char* label, float* minValue, float* maxValue, float minLimit, float maxLimit, int indent)
+	{
+		// Unity EditorGUILayout.MinMaxSlider + 양 끝 숫자 (예: Decal Projector 의 Angle Fade)
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		bool changed = false;
+		const float inputW = 40.0f;
+		const float sliderW = r.fieldW - inputW * 2.0f - 12.0f;
+		const float range = (std::max)(maxLimit - minLimit, 1e-6f);
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+
+		ImGui::SetCursorScreenPos(ImVec2(r.fieldX, r.p.y));
+		changed |= FloatInput("##min", minValue, inputW);
+
+		// 트랙 + 두 손잡이 (가까운 쪽을 끈다)
+		ImVec2 p0(r.fieldX + inputW + 6.0f, r.p.y);
+		ImGui::SetCursorScreenPos(p0);
+		ImGui::InvisibleButton("##minmax", ImVec2(sliderW, kRowHeight));
+		static ImGuiID s_DragId = 0;
+		static bool s_DragMax = false;
+		const ImGuiID id = ImGui::GetItemID();
+		auto toX = [&](float v) { return p0.x + 5.0f + (sliderW - 10.0f) * std::clamp((v - minLimit) / range, 0.0f, 1.0f); };
+		if (ImGui::IsItemActivated())
+		{
+			const float mx = ImGui::GetIO().MousePos.x;
+			s_DragId = id;
+			s_DragMax = std::fabs(mx - toX(*maxValue)) < std::fabs(mx - toX(*minValue)) || (*minValue >= *maxValue && mx > toX(*maxValue));
+		}
+		if (ImGui::IsItemActive() && s_DragId == id)
+		{
+			const float t = std::clamp((ImGui::GetIO().MousePos.x - p0.x - 5.0f) / (sliderW - 10.0f), 0.0f, 1.0f);
+			const float v = minLimit + range * t;
+			if (s_DragMax) *maxValue = (std::max)(v, *minValue);
+			else *minValue = (std::min)(v, *maxValue);
+			changed = true;
+		}
+		const float cy = p0.y + kRowHeight * 0.5f;
+		dl->AddRectFilled(ImVec2(p0.x + 2, cy - 1.5f), ImVec2(p0.x + sliderW - 2, cy + 1.5f), kFieldBg, 1.5f);
+		dl->AddRect(ImVec2(p0.x + 2, cy - 1.5f), ImVec2(p0.x + sliderW - 2, cy + 1.5f), kFieldBorder, 1.5f);
+		const float x0 = toX(*minValue), x1 = toX(*maxValue);
+		dl->AddRectFilled(ImVec2(x0, cy - 2.5f), ImVec2(x1, cy + 2.5f), IM_COL32(120, 120, 120, 255), 2.0f);
+		for (float kx : { x0, x1 })
+		{
+			dl->AddCircleFilled(ImVec2(kx, cy), 5.0f, IM_COL32(170, 170, 170, 255));
+			dl->AddCircle(ImVec2(kx, cy), 5.0f, kFieldBorder);
+		}
+
+		ImGui::SetCursorScreenPos(ImVec2(p0.x + sliderW + 6.0f, r.p.y));
+		changed |= FloatInput("##max", maxValue, inputW);
+		ImGui::PopID();
+		EndRow(r);
+		if (changed)
+		{
+			*minValue = std::clamp(*minValue, minLimit, maxLimit);
+			*maxValue = std::clamp(*maxValue, *minValue, maxLimit);
+		}
+		return changed;
+	}
+
 	bool TextField(const char* label, std::string* value, int indent)
 	{
 		Row r = BeginRow(label, indent);

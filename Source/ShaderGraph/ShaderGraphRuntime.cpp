@@ -38,6 +38,7 @@ namespace ShaderGraph
 			FxTechnique* DepthSkinned = nullptr;
 			FxTechnique* ShadowBatch = nullptr;
 			FxTechnique* ShadowSkinned = nullptr;
+			FxTechnique* Decal = nullptr;           // Material = Decal
 			FxVar* Time = nullptr;
 			FxVar* ViewProjTex = nullptr;
 			FxVar* View = nullptr;
@@ -388,7 +389,8 @@ namespace ShaderGraph
 			c->DepthSkinned = tech("GraphDepthSkinnedTech");
 			c->ShadowBatch = tech("GraphShadowBatchTech");
 			c->ShadowSkinned = tech("GraphShadowSkinnedTech");
-			if (!c->Batch)
+			c->Decal = tech("GraphDecalTech");
+			if (!c->Batch && !c->Decal)
 			{
 				s_Errors[name] = "the generated shader has no GraphBatchTech";
 				CustomShaders::UnregisterOwner(c->Owner);
@@ -414,6 +416,16 @@ namespace ShaderGraph
 			CustomShaders::Shader shader;
 			shader.Name = name;
 			shader.Owner = c->Owner;
+			if (c->Decal)
+				shader.DrawDecal = [name](CustomShaders::DecalDraw& d) {
+					Compiled* c = Current(name);
+					if (!c || !c->Decal) return;
+					d.SetDecalVars(c->Fx->GetFX());
+					RenderLayers::SetObjectLayer(c->Fx, ~0u);
+					Bind(*c, d.Material, d.Context, c->Decal);
+					d.Draw();
+				};
+			if (c->Batch)
 			shader.DrawInstanced = [name](CustomShaders::InstancedDraw& d) {
 				Compiled* c = Current(name);
 				if (!c) return;

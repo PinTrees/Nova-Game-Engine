@@ -625,7 +625,7 @@ namespace
 		"  anim2d batch <file | ->                one op per line, all as ONE undo step\n"
 		"\n"
 		"shader graph (Window > Shader Graph: node-based material shaders, Unity Shader Graph style)\n"
-		"  shadergraph new <Assets/X.shadergraph> [--material Lit|Unlit]   then node.add, connect, property.add, save ...\n"
+		"  shadergraph new <Assets/X.shadergraph> [--material Lit|Unlit|Decal] then node.add, connect, property.add, save ...\n"
 		"  shadergraph <op> [--key value ...]     nodes (types + ports), info, node.add/set/delete, connect --from 2 --out Out\n"
 		"                                         --to Master --in \"Base Color\", property.add, save (builds; errors), material\n"
 		"  shadergraph batch <file | ->           one op per line, all as ONE undo step ... list: nova shadergraph help\n"

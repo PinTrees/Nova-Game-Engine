@@ -15,6 +15,7 @@ public:
 	static ComPtr<GfxBlendState> AlphaToCoverageBS;
 	static ComPtr<GfxBlendState> TransparentBS;
 	static ComPtr<GfxBlendState> NoRenderTargetWritesBS;
+	static ComPtr<GfxBlendState> DecalBS;   // SrcAlpha / InvSrcAlpha, RGB only (keeps the target alpha — Scene view clears alpha to 0)
 
 	static ComPtr<GfxDepthStencilState> MarkMirrorDSS;
 	static ComPtr<GfxDepthStencilState> DrawReflectionDSS;

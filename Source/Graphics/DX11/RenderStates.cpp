@@ -7,6 +7,7 @@ ComPtr<GfxRasterizerState> RenderStates::CullClockwiseRS;
 
 ComPtr<GfxBlendState> RenderStates::AlphaToCoverageBS;
 ComPtr<GfxBlendState> RenderStates::TransparentBS;
+ComPtr<GfxBlendState> RenderStates::DecalBS;
 ComPtr<GfxBlendState> RenderStates::NoRenderTargetWritesBS;
 
 ComPtr<GfxDepthStencilState> RenderStates::MarkMirrorDSS;
@@ -202,6 +203,22 @@ void RenderStates::InitAll(ComPtr<GfxDevice> device)
 	lessEqualDesc.StencilEnable = false;
 
 	HR(device->CreateDepthStencilState(&lessEqualDesc, LessEqualDSS.GetAddressOf()));
+
+	//
+	// DecalBS (screen-space decals: blend colour, keep destination alpha)
+	//
+	D3D11_BLEND_DESC decalDesc = { 0 };
+	decalDesc.AlphaToCoverageEnable = false;
+	decalDesc.IndependentBlendEnable = false;
+	decalDesc.RenderTarget[0].BlendEnable = true;
+	decalDesc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+	decalDesc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+	decalDesc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+	decalDesc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ZERO;
+	decalDesc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+	decalDesc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+	decalDesc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_RED | D3D11_COLOR_WRITE_ENABLE_GREEN | D3D11_COLOR_WRITE_ENABLE_BLUE;
+	HR(device->CreateBlendState(&decalDesc, DecalBS.GetAddressOf()));
 
 	//
 	// DepthReadDSS (transparent meshes: test against the opaque depth, do not write)

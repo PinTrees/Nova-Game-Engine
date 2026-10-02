@@ -648,6 +648,7 @@ float4 PS(VertexOut pin) : SV_Target
     surf.ReceiveShadows = gPbr.ReceiveShadows != 0;
     return FinishLit(ShadeLit(surf, pin.PosW.xyz, N, V, pin.SsaoPosH), baseColor.a, distToEye);
 }
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 Tech
 {
     pass P0
@@ -657,6 +658,7 @@ technique11 Tech
         SetPixelShader(CompileShader(ps_5_0, PS()));
     }
 }
+#endif
 
 // ---------------------------------------------------------------------------
 // MeshBatcher: 같은 메시·재질의 Mesh Renderer 를 인스턴싱으로 한 번에 (월드 행렬 = 인스턴스).
@@ -683,6 +685,7 @@ VertexOut VS_Batch(VertexIn_Instancing vin)
     return vout;
 }
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 BatchTech
 {
     pass P0
@@ -692,7 +695,9 @@ technique11 BatchTech
         SetPixelShader(CompileShader(ps_5_0, PS()));
     }
 }
+#endif
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 InstancingTech
 {
     pass P0
@@ -702,7 +707,9 @@ technique11 InstancingTech
         SetPixelShader(CompileShader(ps_5_0, PS()));
     }
 }
+#endif
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 SkinnedTech
 {
     pass P0
@@ -712,6 +719,7 @@ technique11 SkinnedTech
         SetPixelShader(CompileShader(ps_5_0, PS()));
     }
 }
+#endif
 //=============================================================================
 // NOVA 지형 (Terrain 컴포넌트) - 본 패스
 //=============================================================================
@@ -767,6 +775,7 @@ float4 TerrainPS(TerrainVertexOut pin) : SV_Target
     return FinishLit(ShadeLit(surf, pin.PosW.xyz, normalW, toEye, pin.SsaoPosH), 1.0f, distToEye);
 }
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 TerrainTech
 {
     pass P0
@@ -777,6 +786,7 @@ technique11 TerrainTech
         SetDepthStencilState(TerrainDepthLessEqual, 0);
     }
 }
+#endif
 
 //=============================================================================
 // NOVA 나무 (Tree / 지형 나무) - 본 패스. 수피·잎은 실행 중에 식으로 구운 텍스처 (44. TreeCommon.fx)
@@ -1015,6 +1025,7 @@ DepthStencilState TreeDepthEqual
     DepthFunc = EQUAL;
 };
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 TreeBarkTech
 {
     pass P0
@@ -1025,7 +1036,9 @@ technique11 TreeBarkTech
         SetDepthStencilState(TreeDepthEqual, 0);
     }
 }
+#endif
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 TreeLeafTech
 {
     pass P0
@@ -1037,7 +1050,9 @@ technique11 TreeLeafTech
         SetRasterizerState(TreeLeafCullNone);
     }
 }
+#endif
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 TreeImpostorTech
 {
     pass P0
@@ -1049,6 +1064,7 @@ technique11 TreeImpostorTech
         SetRasterizerState(TreeLeafCullNone);
     }
 }
+#endif
 
 DepthStencilState TreeBakeDepth
 {
@@ -1057,6 +1073,7 @@ DepthStencilState TreeBakeDepth
     DepthFunc = LESS;
 };
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 TreeBarkBakeTech
 {
     pass P0
@@ -1067,7 +1084,9 @@ technique11 TreeBarkBakeTech
         SetDepthStencilState(TreeBakeDepth, 0);
     }
 }
+#endif
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 TreeLeafBakeTech
 {
     pass P0
@@ -1079,6 +1098,7 @@ technique11 TreeLeafBakeTech
         SetRasterizerState(TreeLeafCullNone);
     }
 }
+#endif
 
 
 // =============================================================================
@@ -1193,6 +1213,7 @@ DepthStencilState RockDepthEqual
     DepthFunc = EQUAL;
 };
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 RockTech
 {
     pass P0
@@ -1203,6 +1224,7 @@ technique11 RockTech
         SetDepthStencilState(RockDepthEqual, 0);
     }
 }
+#endif
 
 
 // =============================================================================
@@ -1324,6 +1346,7 @@ DepthStencilState DetailDepthEqual
     DepthFunc = EQUAL;
 };
 
+#ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 DetailTech
 {
     pass P0
@@ -1335,3 +1358,4 @@ technique11 DetailTech
         SetRasterizerState(DetailCullNone);
     }
 }
+#endif

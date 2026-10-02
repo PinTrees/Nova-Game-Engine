@@ -56,7 +56,7 @@ Create Node > Utility > **Custom Function** — HLSL 을 직접 씁니다 (Unity
 
 | 설정 | 내용 |
 |---|---|
-| Material | Lit (엔진 URP Lit 조명) / Unlit |
+| Material | Lit (엔진 URP Lit 조명) / Unlit / **Decal** (Decal Projector 의 재질 — UV = 투영 UV, [DECAL.md](DECAL.md)) |
 | Surface Type | **Opaque** / **Transparent** — 투명은 불투명 · 하늘 · 대기 다음, 물 앞에 **먼 것부터** 알파로 섞어 그립니다 (깊이는 읽기만, 그림자 · 깊이 프리패스에는 없음) |
 | Alpha Clipping | 켜면 Master 에 **Alpha Clip Threshold** — Alpha 가 그보다 작은 곳을 잘라냅니다. **깊이 프리패스 · 그림자도 같은 구멍** (잎 · 철망 · 체커) |
 | 경로 (Blackboard 제목 아래) | 셰이더 이름 = `<경로>/<파일 이름>` (기본 `Shader Graphs`). 다른 폴더에 같은 이름의 그래프가 있으면 저장할 때 알려 주므로 한쪽 경로를 바꿉니다 (Unity 와 같은 방법) |
@@ -96,12 +96,12 @@ nova set Sphere --component MeshRenderer --values '{"m_MaterialPaths":["Assets/S
 
 | 연산 | 내용 |
 |---|---|
-| `new <path> [--material Lit\|Unlit] [--force]` · `open <path>` · `save [path]` · `info` | 문서 (info = 속성 · 노드 (입력: 이은 것 / 값) · Master) |
+| `new <path> [--material Lit\|Unlit\|Decal] [--force]` · `open <path>` · `save [path]` · `info` | 문서 (info = 속성 · 노드 (입력: 이은 것 / 값) · Master) |
 | `node.add --type T [--x --y] [--values '{"B":[1,0,0,1]}'] [--options '{"mask":"xy"}']` | 노드 id 는 새 그래프에서 1 부터 차례로 |
 | `node.set --id N [--values] [--options] [--x --y]` · `node.delete --id N` | values · options 는 합친다 (null = 지움) |
 | `connect --from N [--out Port] --to M\|Master --in Port` · `disconnect --to M --in Port` | 입력 하나에 선 하나 (새로 이으면 바꾼다) |
 | `property.add --name --type [--value] [--range a,b] [--texture] [--ref] [--node]` · `property.set` · `property.delete` | Blackboard |
-| `settings [--material Lit\|Unlit] [--surface Opaque\|Transparent] [--alpha-clip true\|false] [--path "Shader Graphs"]` | Graph Settings (`info` 에 surface · alphaClip · shaderPath · compiling) |
+| `settings [--material Lit\|Unlit\|Decal] [--surface Opaque\|Transparent] [--alpha-clip true\|false] [--path "Shader Graphs"]` | Graph Settings (`info` 에 surface · alphaClip · shaderPath · compiling) |
 | `compile [--hlsl]` · `material [--mat path]` · `undo` · `redo` · `window` | `save` 는 CLI 에서 컴파일이 끝날 때까지 기다려 오류를 돌려준다 (Sub Graph 를 저장하면 그것을 쓰는 그래프를 다시 만들고 기다림) |
 | `new <path.shadersubgraph>` · `output.add --name --type` · `output.set --name [--rename] [--type]` · `output.delete --name` | Sub Graph (출력 하나 Out (Vector3) 로 시작) |
 | `node.add --type "Sub Graph" --options '{"asset":"Assets/x.shadersubgraph"}'` | Sub Graph 노드 (입력 = 그 Blackboard 속성 이름) |

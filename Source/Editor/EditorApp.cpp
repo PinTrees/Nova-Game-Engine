@@ -30,6 +30,7 @@
 #include "FrameProfiler.h"
 #include "Profiler.h"
 #include "MeshBatcher.h"
+#include "DecalRenderer.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -499,6 +500,10 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
 
+	// 데칼 (Decal Projector): 불투명 다음 — 깊이 프리패스의 노멀 · 깊이로 표면을 되살려 상자 안을 칠한다 (하늘 · 투명 · 물 · 입자에는 안 묻는다)
+	phase.Next("Decals");
+	DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, camera->View(), camera->Proj(), ssao->NormalDepthSRV().Get(), false);
+
 	// 입자 (투명): 불투명 물체 다음, 후처리 전 → Bloom 이 Additive 불꽃을 빛나게 한다
 	// Background Type = Skybox 면 불투명 물체 다음(빈 곳 깊이 = 1)에 하늘을 그린다. 입자(투명)보다는 먼저.
 	if (camera->GetBackgroundType() == 0)
@@ -688,6 +693,11 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 
 	_deviceContext->RSSetState(0);
 	_deviceContext->OMSetDepthStencilState(0, 0);
+
+	// 데칼 (Game 뷰와 같은 자리)
+	phase.Next("Decals");
+	if (!RenderManager::GetI()->WireFrameMode)
+		DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, camera->View(), camera->Proj(), ssao->NormalDepthSRV().Get(), true);
 
 	// 입자 (Scene 뷰: 선택한 시스템의 미리보기 포함)
 	// 스카이박스 (툴바 Effects > Skybox). 꺼져 있으면 SceneViewOverlay 의 그라디언트가 비친다.

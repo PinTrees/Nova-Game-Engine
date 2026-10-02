@@ -971,10 +971,10 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 	}
 	else
 	{
-	int mat = g.Material == "Unlit" ? 1 : 0;
-	static const char* kMat[] = { "Lit", "Unlit" };
+	int mat = g.Material == "Unlit" ? 1 : (g.Material == "Decal" ? 2 : 0);
+	static const char* kMat[] = { "Lit", "Unlit", "Decal" };
 	ImGui::SetNextItemWidth(-1);
-	if (ImGui::Combo("##material", &mat, kMat, 2))
+	if (ImGui::Combo("##material", &mat, kMat, 3))
 	{
 		nlohmann::json r;
 		std::string e;

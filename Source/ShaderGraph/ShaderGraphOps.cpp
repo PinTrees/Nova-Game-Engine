@@ -119,14 +119,14 @@ namespace ShaderGraph
 			return {
 				{ "help", "this list" },
 				{ "nodes", "[--category Math] node types with their ports (width 0 = dynamic, 10 = Texture2D)" },
-				{ "new", "<path.shadergraph | path.shadersubgraph> [--material Lit|Unlit]: new graph (saved) and open it. A Sub Graph starts with one output Out (Vector3)" },
+				{ "new", "<path.shadergraph | path.shadersubgraph> [--material Lit|Unlit|Decal]: new graph (saved) and open it. A Sub Graph starts with one output Out (Vector3)" },
 				{ "open", "<path.shadergraph>" },
 				{ "save", "[path]: save and build the shader (errors come back)" },
 				{ "info", "the open graph: settings, properties, nodes (inputs: linked / value), edges" },
 				{ "output.add", "--name Out --type Float|Vector2|Vector3|Vector4|Color (Sub Graph: an output of the Sub Graph node)" },
 				{ "output.set", "--name Out [--rename New] [--type Vector3] (Sub Graph)" },
 				{ "output.delete", "--name Out (Sub Graph)" },
-				{ "settings", "[--material Lit|Unlit] [--surface Opaque|Transparent] [--alpha-clip true|false] [--path \"Shader Graphs\"] (Graph Settings; path = shader name prefix)" },
+				{ "settings", "[--material Lit|Unlit|Decal] [--surface Opaque|Transparent] [--alpha-clip true|false] [--path \"Shader Graphs\"] (Graph Settings; path = shader name prefix)" },
 				{ "node.add", "--type Multiply [--x 0 --y 0] [--values {\"B\":[1,0,0,1]}] [--options {\"mask\":\"xy\"}] → id. Sub Graph: --options {\"asset\":\"Assets/x.shadersubgraph\"}; Custom Function: --options {\"name\",\"mode\":\"String|File\",\"body\",\"file\",\"inputs\":[{\"name\",\"type\"}],\"outputs\":[...]}" },
 				{ "node.set", "--id N [--values {...}] [--options {...}] [--x --y]  (values / options merge; null removes)" },
 				{ "node.delete", "--id N" },
@@ -235,7 +235,7 @@ namespace ShaderGraph
 	Graph NewGraph(const std::string& material)
 	{
 		Graph g;
-		g.Material = material == "Unlit" ? "Unlit" : "Lit";
+		g.Material = material == "Unlit" || material == "Decal" ? material : "Lit";
 		return g;
 	}
 
@@ -357,7 +357,8 @@ namespace ShaderGraph
 			std::string m = a.value("material", g.Material);
 			if (Lower(m) == "lit") m = "Lit";
 			else if (Lower(m) == "unlit") m = "Unlit";
-			else { e = "material must be Lit or Unlit"; return false; }
+			else if (Lower(m) == "decal") m = "Decal";   // Decal Projector 의 재질 (Unity 의 Decal Graph)
+			else { e = "material must be Lit, Unlit or Decal"; return false; }
 			std::string surface = a.value("surface", g.Surface);
 			if (Lower(surface) == "opaque") surface = "Opaque";
 			else if (Lower(surface) == "transparent") surface = "Transparent";
