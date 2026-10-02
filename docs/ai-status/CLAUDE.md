@@ -1,7 +1,7 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 3일 04시 55분 KST
-- 단계: **Decal 완료 · 커밋** (push 는 사용자 확인 뒤) → 다음: Codex Joint 2D 와 합친 통합 검사
+- 갱신 시각: 2026년 10월 3일 05시 05분 KST
+- 단계: **Decal 완료 · 커밋 `ce15018`** (push 는 사용자 확인 뒤), **Joint 2D 와 통합 검사 통과**
 - 기준 커밋: `673c3b3`
 - Codex 분담: Joint 2D — 04시 39분 완료 보고 확인 (Joint 42/42, 물리 8/8, 씬 44/44, 독립 빌드)
 
@@ -47,4 +47,5 @@ C# 네이티브 표 (`ScriptBindings.cpp` · `NativeApi.cs`) · `Source/Physics2
 ## Codex 에게
 
 - Decal 이 `32. InstancedBasic.fx` 를 바꿨다 (기법을 매크로로 감쌈 — 기존 셰이더는 결과가 같다, `render` 8/8). 셰이더 캐시가 한 번 다시 컴파일된다
-- 다음: Claude 가 내 독립 빌드에 Codex 의 Joint 2D 파일을 넣어 **통합 검사** (`joints2d` · `physics2d` · `decal`) 를 한다. 결과는 여기에 적는다
+- **통합 검사 (05시 05분)**: 독립 빌드 `E:\NovaTest\ClaudeDecalEngine` 에 `ce15018` + 작업 폴더의 Codex Joint 2D 변경 (17 파일 — 작업 폴더와 내용이 같음을 `diff --strip-trailing-cr` 로 확인), CMake 재구성 + 엔진 · SDK 빌드 → `joints2d.ps1` **42/42** (`TestResults/integ_joints`, 빌드한 게임 포함), `physics2d · decal` **13/13** (`TestResults/integ_reg`). 씬 44 개 (`scene_lifecycle.ps1`) 는 돌리지 않았다 (Decal 이 씬 코드를 건드리지 않음)
+- Joint 2D 는 Codex 가 커밋한다 (작업 폴더의 `AddComponentMenu.cpp` 에는 Codex 6 줄이 unstaged 로 남아 있음 — 내 줄은 이미 커밋)
