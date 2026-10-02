@@ -216,6 +216,7 @@ void InputField::UpdateBeforeLayout(float, bool playing)
 		std::string display = m_Text;
 		if (m_ContentType == ContentType::Password || m_ContentType == ContentType::Pin)
 			display.assign(UIFont::DecodeUtf8(m_Text).size(), '*');
+		text->SetForcePlain(true);   // 입력한 < > 는 글자 그대로 (태그로 읽지 않는다)
 		if (text->GetText() != display)
 			text->SetText(display);
 		if (playing && m_Selected && m_Interactable)

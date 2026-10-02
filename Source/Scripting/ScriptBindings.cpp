@@ -157,6 +157,9 @@ namespace
 		int(*MX_Transition)(u8*, u8*, float);
 		u8*(*MX_Names)(u8*, int);
 		float(*MX_GroupLevel)(u8*, u8*);
+		// Text (TextMeshPro 기능) — UIScriptBindings::TextInfo / TextLink
+		int(*TX_Info)(uint64, int, int, float*, int);
+		u8* (*TX_Link)(uint64, int, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1145,6 +1148,8 @@ namespace ScriptBindings
 		t.MX_Transition = MX_Transition;
 		t.MX_Names = MX_Names;
 		t.MX_GroupLevel = MX_GroupLevel;
+		t.TX_Info = UIScriptBindings::TextInfo;
+		t.TX_Link = [](uint64 id, int index, int which) -> u8* { return (u8*)UIScriptBindings::TextLink(id, index, which); };
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

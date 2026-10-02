@@ -174,6 +174,10 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<byte*, byte*, float, int> MX_Transition;
         public delegate* unmanaged<byte*, int, byte*> MX_Names;
         public delegate* unmanaged<byte*, byte*, float> MX_GroupLevel;
+
+        // Text (TextMeshPro 기능): textInfo · 링크 · 글자 애니메이션 (번호표 = UIScriptBindings.h)
+        public delegate* unmanaged<ulong, int, int, float*, int, int> TX_Info;
+        public delegate* unmanaged<ulong, int, int, byte*> TX_Link;
     }
 
     internal static unsafe class Native

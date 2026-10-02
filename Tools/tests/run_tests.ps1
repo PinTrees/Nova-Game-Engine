@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, packages, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -391,6 +391,63 @@ function Suite-Import
         foreach ($m in @('Assets\TestAssets\Audio\long.mp3.meta', 'Assets\TestAssets\Cameron\Cameron_Model.fbx.meta')) { Remove-Item -LiteralPath (Join-Path $Project $m) -ErrorAction SilentlyContinue }
         Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+# ------------------------------------------------------------------ UI Text (SDF + TextMeshPro 기능): Rich Text · 링크 · 넘침 · Auto Size · textInfo
+function Suite-UI
+{
+    Write-Host '[ui]'
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $bf = Join-Path $Out 'ui_text.cs'
+        @'
+var canvas = new GameObject("Canvas"); canvas.AddComponent<Canvas>();
+System.Func<string, Vector2, Vector2, Text> make = (name, pos, size) => {
+    var go = new GameObject(name); go.transform.SetParent(canvas.transform, false);
+    var t = go.AddComponent<Text>(); var rt = go.GetComponent<RectTransform>(); rt.anchoredPosition = pos; rt.sizeDelta = size; return t; };
+var body = make("Body", new Vector2(0, 0), new Vector2(800, 200));
+body.text = "<b>굵게</b> <color=#FF0000>빨강</color> <size=150%>큰</size> <link=\"shop\">상점</link> <unknown>"; body.fontSize = 30;
+var plain = make("Plain", new Vector2(0, -200), new Vector2(800, 60));
+plain.text = "<b>x</b>"; plain.richText = false;
+var el = make("Ellipsis", new Vector2(0, 200), new Vector2(200, 40));
+el.text = "아주 긴 문장은 칸을 넘으면 말줄임표로 끝난다"; el.fontSize = 26; el.enableWordWrapping = false; el.overflowMode = TMPro.TextOverflowModes.Ellipsis;
+var fit = make("Fit", new Vector2(0, -300), new Vector2(300, 50));
+fit.text = "Auto Size 로 칸에 맞춘다"; fit.enableAutoSizing = true; fit.fontSizeMin = 8; fit.fontSizeMax = 80; fit.enableWordWrapping = false;
+return "made";
+'@ | Set-Content -Encoding utf8 $bf
+        Invoke-Nova "exec --file $bf" | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null   # RectTransform 레이아웃 (다음 프레임) 뒤에 읽는다
+        $rf = Join-Path $Out 'ui_text_read.cs'
+        @'
+var plain = GameObject.Find("Plain").GetComponent<Text>();
+var el = GameObject.Find("Ellipsis").GetComponent<Text>();
+var fit = GameObject.Find("Fit").GetComponent<Text>();
+var tmp = GameObject.Find("Body").GetComponent<TMPro.TextMeshProUGUI>();
+var info = tmp.textInfo;
+int hit = -1; string id = "";
+if (info.linkCount > 0) {
+    var li = info.linkInfo[0];
+    var c = info.characterInfo[li.linkTextfirstCharacterIndex];
+    hit = TMPro.TMP_TextUtilities.FindIntersectingLink(tmp, tmp.transform.position + (c.bottomLeft + c.topRight) * 0.5f, null);
+    id = li.GetLinkID() + "/" + li.GetLinkText();
+}
+return info.characterCount + "|" + info.linkCount + "|" + hit + "|" + id + "|" + plain.textInfo.characterCount + "|" + el.isTextOverflowing + "|" + fit.fontSizeUsed + "|" + tmp.GetParsedText();
+'@ | Set-Content -Encoding utf8 $rf
+        $r = Invoke-NovaJson "exec --file $rf"
+        Invoke-Nova 'stop' | Out-Null
+        $v = if ($r) { "$($r.result)" -split '\|' } else { @() }
+        if ($v.Count -lt 8) { Add-Result ui 'text info' $false "exec failed: $r"; return }
+        # "굵게 빨강 큰 상점 <unknown>" = 2+1+2+1+1+1+2+1+9 = 20 (태그는 빼고, 모르는 태그는 글자 그대로)
+        Add-Result ui 'rich text tags are parsed (unknown tags stay)' ($v[0] -eq '20' -and $v[7] -eq '굵게 빨강 큰 상점 <unknown>') "chars $($v[0]) (expect 20), parsed '$($v[7])'"
+        Add-Result ui 'link info + FindIntersectingLink' ($v[1] -eq '1' -and $v[2] -eq '0' -and $v[3] -eq 'shop/상점') "links $($v[1]), hit $($v[2]), $($v[3])"
+        Add-Result ui 'rich text off shows tags as text' ($v[4] -eq '8') "chars $($v[4]) (expect 8)"
+        Add-Result ui 'ellipsis overflow' ($v[5] -eq 'True') "isTextOverflowing $($v[5])"
+        Add-Result ui 'auto size fits the box' ([int]$v[6] -ge 12 -and [int]$v[6] -lt 40) "font size used $($v[6]) (box 300x50)"
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
 
 function Wait-Compile { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 60) { Invoke-Nova 'wait 20' | Out-Null; if (-not (Info).compiling) { return } } }
@@ -801,6 +858,7 @@ try
                 'physics' { Suite-Physics }
                 'animation' { Suite-Animation }
                 'import' { Suite-Import }
+                'ui' { Suite-UI }
                 'packages' { Suite-Packages }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }

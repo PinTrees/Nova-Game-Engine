@@ -80,12 +80,37 @@ void UIRenderer::SetClip(bool enabled, const Vec4& worldRect)
 	m_ClipRect = worldRect;
 }
 
-void UIRenderer::Reserve(GfxShaderResourceView* texture)
+void UIRenderer::Reserve(GfxShaderResourceView* texture, const TextMaterial* material)
 {
-	// 같은 텍스처·같은 잘라내기가 이어지면 한 번의 그리기로 합친다 (순서는 유지: 뒤에 그린 것이 위)
-	const bool sameClip = !m_Commands.empty() && m_Commands.back().Clip == m_ClipOn && (!m_ClipOn || m_Commands.back().ClipRect == m_ClipRect);
-	if (m_Commands.empty() || m_Commands.back().Texture != texture || !sameClip)
-		m_Commands.push_back({ texture, (UINT)m_Indices.size(), 0, m_ClipOn, m_ClipRect });
+	// 같은 텍스처·같은 잘라내기·같은 글자 재질이 이어지면 한 번의 그리기로 합친다 (순서는 유지: 뒤에 그린 것이 위)
+	const bool sdf = material != nullptr;
+	bool same = !m_Commands.empty();
+	if (same)
+	{
+		const Command& b = m_Commands.back();
+		same = b.Texture == texture && b.Clip == m_ClipOn && (!m_ClipOn || b.ClipRect == m_ClipRect) && b.Sdf == sdf && (!sdf || b.Material == *material);
+	}
+	if (!same)
+	{
+		Command c{ texture, (UINT)m_Indices.size(), 0, m_ClipOn, m_ClipRect };
+		c.Sdf = sdf;
+		if (sdf)
+			c.Material = *material;
+		m_Commands.push_back(c);
+	}
+}
+
+void UIRenderer::AddTextQuad(const Vec3 p[4], const Vec2 uv[4], const uint32 color[4], GfxShaderResourceView* atlas, const TextMaterial& material)
+{
+	if (atlas == nullptr || ((color[0] | color[1] | color[2] | color[3]) >> 24) == 0)
+		return;
+	Reserve(atlas, &material);
+	const uint32 base = (uint32)m_Vertices.size();
+	for (int i = 0; i < 4; ++i)
+		m_Vertices.push_back({ p[i].x, p[i].y, p[i].z, uv[i].x, uv[i].y, color[i] });
+	for (uint32 i : { 0u, 1u, 2u, 0u, 2u, 3u })
+		m_Indices.push_back(base + i);
+	m_Commands.back().IndexCount += 6;
 }
 
 void UIRenderer::AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, GfxShaderResourceView* texture)
@@ -187,6 +212,25 @@ void UIRenderer::Flush(GfxRenderTargetView* rtv, UINT width, UINT height, const 
 	XMStoreFloat4x4(&m, viewProj);
 	fx->GetVariableByName("gViewProj")->AsMatrix()->SetMatrix(&m._11);
 	FxVar* texVar = fx->GetVariableByName("gTexture")->AsShaderResource();
+	FxVar* sdfVar = fx->GetVariableByName("gSdfParams")->AsVector();
+	FxVar* outlineVar = fx->GetVariableByName("gOutlineColor")->AsVector();
+	FxVar* underlayVar = fx->GetVariableByName("gUnderlayColor")->AsVector();
+	FxVar* underlayParamVar = fx->GetVariableByName("gUnderlayParams")->AsVector();
+	FxVar* underlayParam2Var = fx->GetVariableByName("gUnderlayParams2")->AsVector();
+	// SDF 재질 → 셰이더 상수 (Outline · Dilate 는 거리장 0.5 = 가장자리 기준, 여백 전체 = 0.5)
+	auto setMaterial = [&](const Command& c) {
+		const TextMaterial& m = c.Material;
+		const XMFLOAT4 sdf(c.Sdf ? 1.0f : 0.0f, std::clamp(m.FaceDilate, -1.0f, 1.0f) * 0.5f, std::clamp(m.Softness, 0.0f, 1.0f) * 0.5f, std::clamp(m.OutlineWidth, 0.0f, 1.0f) * 0.5f);
+		sdfVar->SetFloatVector(&sdf.x);
+		outlineVar->SetFloatVector(m.OutlineColor);
+		underlayVar->SetFloatVector(m.UnderlayColor);
+		// Underlay: 화면에서 (+x, +y) 로 밀린 그림자 = 그 반대쪽 UV 를 읽는다 (V 는 아래로 +)
+		const XMFLOAT4 up(std::clamp(m.UnderlayOffsetX, -1.0f, 1.0f) * m.SpreadU, -std::clamp(m.UnderlayOffsetY, -1.0f, 1.0f) * m.SpreadV,
+			std::clamp(m.UnderlaySoftness, 0.0f, 1.0f) * 0.5f, std::clamp(m.UnderlayDilate, -1.0f, 1.0f) * 0.5f);
+		underlayParamVar->SetFloatVector(&up.x);
+		const XMFLOAT4 up2(0, 0, 0, 0);
+		underlayParam2Var->SetFloatVector(&up2.x);
+	};
 	FxPass* pass = fx->GetTechniqueByName(dsv ? "UISceneTech" : "UITech")->GetPassByIndex(0);
 	// 잘라내기 사각형(캔버스 월드) → 화면 픽셀 (네 모서리를 투영한 경계 상자)
 	auto scissorOf = [&](const Command& c) {
@@ -217,6 +261,7 @@ void UIRenderer::Flush(GfxRenderTargetView* rtv, UINT width, UINT height, const 
 		if (c.IndexCount == 0)
 			continue;
 		texVar->SetResource(c.Texture);
+		setMaterial(c);
 		pass->Apply(0, ctx);
 		const D3D11_RECT sc = scissorOf(c);
 		if (sc.right <= sc.left || sc.bottom <= sc.top)

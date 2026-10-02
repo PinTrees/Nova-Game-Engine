@@ -10,6 +10,7 @@
 #include "UISlider.h"
 #include "UIInputField.h"
 #include "UIMask.h"
+#include "UIRenderer.h"
 
 namespace
 {
@@ -54,6 +55,38 @@ namespace UIScriptBindings
 			default: return 0;
 			}
 			*out = Vec4(v.x, v.y, 0, 0);
+			return 1;
+		}
+		if (prop >= 130 && prop < 200)
+		{
+			// Text (TextMeshPro 기능)
+			Text* t = g->GetComponentIncludingPending<Text>();
+			if (t == nullptr)
+				return 0;
+			const UIRenderer::TextMaterial& m = t->Material;
+			switch (prop)
+			{
+			case 130: out->x = t->CharacterSpacing; break;
+			case 131: out->x = t->WordSpacing; break;
+			case 132: out->x = t->ParagraphSpacing; break;
+			case 133: *out = t->Margin; break;
+			case 134: out->x = (float)t->MaxVisibleCharacters; break;
+			case 135: out->x = t->GetWrap() ? 1.0f : 0.0f; break;
+			case 136: out->x = (float)t->GetVOverflow(); break;
+			case 137: out->x = t->GetRichText() ? 1.0f : 0.0f; break;
+			case 138: out->x = t->GetAutoSize() ? 1.0f : 0.0f; break;
+			case 139: *out = Vec4((float)t->GetMinSize(), (float)t->GetMaxSize(), 0, 0); break;
+			case 140: out->x = (float)t->GetStyleBits(); break;
+			case 141: out->x = m.OutlineWidth; break;
+			case 142: *out = Vec4(m.OutlineColor[0], m.OutlineColor[1], m.OutlineColor[2], m.OutlineColor[3]); break;
+			case 143: *out = Vec4(m.FaceDilate, m.Softness, 0, 0); break;
+			case 144: *out = Vec4(m.UnderlayColor[0], m.UnderlayColor[1], m.UnderlayColor[2], m.UnderlayColor[3]); break;
+			case 145: *out = Vec4(t->Underlay ? 1.0f : 0.0f, m.UnderlayOffsetX, m.UnderlayOffsetY, m.UnderlaySoftness); break;
+			case 146: *out = Vec4(t->GetPreferredWidth(), t->GetPreferredHeight(), 0, 0); break;
+			case 147: out->x = t->IsOverflowing() ? 1.0f : 0.0f; break;
+			case 148: out->x = (float)t->GetUsedFontSize(); break;
+			default: return 0;
+			}
 			return 1;
 		}
 		const int local = prop % 100;
@@ -181,6 +214,34 @@ namespace UIScriptBindings
 			}
 			return;
 		}
+		if (prop >= 130 && prop < 200)
+		{
+			Text* t = g->GetComponentIncludingPending<Text>();
+			if (t == nullptr)
+				return;
+			UIRenderer::TextMaterial& m = t->Material;
+			switch (prop)
+			{
+			case 130: t->CharacterSpacing = v.x; break;
+			case 131: t->WordSpacing = v.x; break;
+			case 132: t->ParagraphSpacing = v.x; break;
+			case 133: t->Margin = v; break;
+			case 134: t->MaxVisibleCharacters = (std::max)(-1, (int)v.x); break;
+			case 135: t->SetWrap(v.x != 0.0f); break;
+			case 136: t->SetOverflow(t->GetWrap() ? Text::HOverflow::Wrap : Text::HOverflow::Overflow, (Text::VOverflow)std::clamp((int)v.x, 0, 2)); break;
+			case 137: t->SetRichText(v.x != 0.0f); break;
+			case 138: t->SetAutoSize(v.x != 0.0f); break;
+			case 139: t->SetMinMaxSize((int)v.x, (int)v.y); break;
+			case 140: t->SetStyleBits((int)v.x); break;
+			case 141: m.OutlineWidth = std::clamp(v.x, 0.0f, 1.0f); break;
+			case 142: m.OutlineColor[0] = v.x; m.OutlineColor[1] = v.y; m.OutlineColor[2] = v.z; m.OutlineColor[3] = v.w; break;
+			case 143: m.FaceDilate = std::clamp(v.x, -1.0f, 1.0f); m.Softness = std::clamp(v.y, 0.0f, 1.0f); break;
+			case 144: m.UnderlayColor[0] = v.x; m.UnderlayColor[1] = v.y; m.UnderlayColor[2] = v.z; m.UnderlayColor[3] = v.w; break;
+			case 145: t->Underlay = v.x != 0.0f; m.UnderlayOffsetX = v.y; m.UnderlayOffsetY = v.z; m.UnderlaySoftness = v.w; break;
+			default: break;
+			}
+			return;
+		}
 		const int local = prop % 100;
 		if (local >= 10 && local <= 12)
 		{
@@ -250,6 +311,62 @@ namespace UIScriptBindings
 		if (prop == 80)
 			if (ScrollRect* s = g->GetComponentIncludingPending<ScrollRect>())
 				s->SetNormalizedPosition(Vec2(v.x, v.y));
+	}
+
+	// textInfo · 링크 · 글자 애니메이션 (kind 번호는 UIScriptBindings.h)
+	int TextInfo(uint64 id, int kind, int index, float* out, int max)
+	{
+		GameObject* g = Find(id);
+		Text* t = g ? g->GetComponentIncludingPending<Text>() : nullptr;
+		if (t == nullptr)
+			return 0;
+		auto put = [&](std::initializer_list<float> v) {
+			int i = 0;
+			for (float f : v) { if (out && i < max) out[i] = f; ++i; }
+			return 1;
+		};
+		switch (kind)
+		{
+		case 0: return (int)t->GetCharacters().size();
+		case 1:
+		{
+			const auto& cs = t->GetCharacters();
+			if (index < 0 || index >= (int)cs.size()) return 0;
+			const Text::CharInfo& c = cs[index];
+			return put({ (float)c.Char, (float)c.Source, c.Visible ? 1.0f : 0.0f, (float)c.Line, c.BottomLeft.x, c.BottomLeft.y, c.TopRight.x, c.TopRight.y, (float)c.Link, c.Size });
+		}
+		case 2: return (int)t->GetLines().size();
+		case 3:
+		{
+			const auto& ls = t->GetLines();
+			if (index < 0 || index >= (int)ls.size()) return 0;
+			return put({ (float)ls[index].First, (float)ls[index].Count, ls[index].Top, ls[index].Height });
+		}
+		case 4: return (int)t->GetLinks().size();
+		case 5:
+		{
+			const auto& ls = t->GetLinks();
+			if (index < 0 || index >= (int)ls.size()) return 0;
+			return put({ (float)ls[index].First, (float)ls[index].Count });
+		}
+		case 6: return out ? t->FindLinkAt(Vec2(out[0], out[1])) : -1;
+		case 7: if (out) t->SetCharacterOffset(index, Vec2(out[0], out[1])); return 1;
+		case 8: if (out) t->SetCharacterScale(index, out[0]); return 1;
+		case 9: if (out) t->SetCharacterColor(index, out); return 1;
+		case 10: t->ClearCharacterModifiers(); return 1;
+		case 11: t->ForceMeshUpdate(); return 1;
+		}
+		return 0;
+	}
+
+	const char* TextLink(uint64 id, int index, int which)
+	{
+		GameObject* g = Find(id);
+		Text* t = g ? g->GetComponentIncludingPending<Text>() : nullptr;
+		if (t == nullptr || index < 0 || index >= (int)t->GetLinks().size())
+			return ScriptBindings::ReturnString("");
+		const Text::LinkInfo& l = t->GetLinks()[index];
+		return ScriptBindings::ReturnString(which == 0 ? l.Id : l.Text);
 	}
 
 	const char* GetString(uint64 id, int prop)

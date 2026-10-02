@@ -13,6 +13,7 @@
 #include "UIMask.h"
 #include "GameViewEditorWindow.h"
 #include "GameObjectFactory.h"
+#include "ScriptEngine.h"
 
 namespace
 {
@@ -262,6 +263,18 @@ namespace
 		}
 		else if (!down && s_Pointer.WasDown)
 		{
+			// <link> 클릭: 누른 곳과 뗀 곳이 같은 링크면 Text 의 On Link Clicked (Selectable 이 아니어도)
+			if (hitObject && !s_Pointer.Dragging)
+				if (Text* t = hitObject->GetComponent<Text>())
+				{
+					const int up = t->FindLinkAt(mouse);
+					if (up >= 0 && up == t->FindLinkAt(s_Pointer.DownPos))
+					{
+						const std::string id = t->GetLinks()[up].Id;
+						t->OnLinkClicked.Invoke(hitObject, "OnLinkClicked", id);
+						ScriptEngine::InvokeUIEvent(hitObject->GetFileID(), 5, (float)up, id);   // C# text.onLinkClicked
+					}
+				}
 			// 뗌: 같은 Selectable 위면 클릭
 			if (s_Pointer.Dragging && s_Pointer.DragTarget)
 				s_Pointer.DragTarget->OnEndDrag(mouse);

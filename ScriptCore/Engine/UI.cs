@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using NovaEngine.Interop;
 
@@ -130,6 +130,7 @@ namespace NovaEngine.UI
         static readonly Dictionary<ulong, Toggle.ToggleEvent> s_Toggle = new Dictionary<ulong, Toggle.ToggleEvent>();
         static readonly Dictionary<ulong, InputField.OnChangeEvent> s_InputChanged = new Dictionary<ulong, InputField.OnChangeEvent>();
         static readonly Dictionary<ulong, InputField.EndEditEvent> s_InputEnd = new Dictionary<ulong, InputField.EndEditEvent>();
+        static readonly Dictionary<ulong, Text.LinkClickedEvent> s_Link = new Dictionary<ulong, Text.LinkClickedEvent>();
 
         static T Get<T>(Dictionary<ulong, T> d, ulong id) where T : new()
         {
@@ -141,6 +142,7 @@ namespace NovaEngine.UI
         internal static Toggle.ToggleEvent ToggleChanged(ulong id) => Get(s_Toggle, id);
         internal static InputField.OnChangeEvent InputChanged(ulong id) => Get(s_InputChanged, id);
         internal static InputField.EndEditEvent InputEnd(ulong id) => Get(s_InputEnd, id);
+        internal static Text.LinkClickedEvent LinkClicked(ulong id) => Get(s_Link, id);
 
         internal static void Invoke(ulong id, int kind, float number, string text)
         {
@@ -151,11 +153,12 @@ namespace NovaEngine.UI
                 case 2: if (s_Toggle.TryGetValue(id, out var t)) t.Invoke(number != 0); break;
                 case 3: if (s_InputChanged.TryGetValue(id, out var ic)) ic.Invoke(text); break;
                 case 4: if (s_InputEnd.TryGetValue(id, out var ie)) ie.Invoke(text); break;
+                case 5: if (s_Link.TryGetValue(id, out var lk)) lk.Invoke(text); break;
             }
         }
         internal static void Clear()
         {
-            s_Click.Clear(); s_Slider.Clear(); s_Toggle.Clear(); s_InputChanged.Clear(); s_InputEnd.Clear();
+            s_Click.Clear(); s_Slider.Clear(); s_Toggle.Clear(); s_InputChanged.Clear(); s_InputEnd.Clear(); s_Link.Clear();
         }
     }
 
@@ -216,7 +219,65 @@ namespace NovaEngine.UI
         public TextAnchor alignment { get => (TextAnchor)(int)GetV(31).x; set => SetV(31, new Vector4((int)value, 0, 0, 0)); }
         public float lineSpacing { get => GetV(32).x; set => SetV(32, new Vector4(value, 0, 0, 0)); }
         public FontStyle fontStyle { get => (FontStyle)(int)GetV(33).x; set => SetV(33, new Vector4((int)value, 0, 0, 0)); }
+
+        // ---- TextMeshPro 기능 (같은 컴포넌트) ----
+        public bool supportRichText { get => GetV(137).x != 0; set => SetV(137, new Vector4(value ? 1 : 0, 0, 0, 0)); }
+        public bool richText { get => supportRichText; set => supportRichText = value; }
+        public bool resizeTextForBestFit { get => GetV(138).x != 0; set => SetV(138, new Vector4(value ? 1 : 0, 0, 0, 0)); }
+        public bool enableAutoSizing { get => resizeTextForBestFit; set => resizeTextForBestFit = value; }
+        public int resizeTextMinSize { get => (int)GetV(139).x; set { var v = GetV(139); SetV(139, new Vector4(value, v.y, 0, 0)); } }
+        public int resizeTextMaxSize { get => (int)GetV(139).y; set { var v = GetV(139); SetV(139, new Vector4(v.x, value, 0, 0)); } }
+        public float fontSizeMin { get => resizeTextMinSize; set => resizeTextMinSize = (int)value; }
+        public float fontSizeMax { get => resizeTextMaxSize; set => resizeTextMaxSize = (int)value; }
+        /// <summary>글자 간격 (글자 크기의 1/100 단위, TMP 와 같음)</summary>
+        public float characterSpacing { get => GetV(130).x; set => SetV(130, new Vector4(value, 0, 0, 0)); }
+        public float wordSpacing { get => GetV(131).x; set => SetV(131, new Vector4(value, 0, 0, 0)); }
+        public float paragraphSpacing { get => GetV(132).x; set => SetV(132, new Vector4(value, 0, 0, 0)); }
+        /// <summary>여백 (왼쪽, 위, 오른쪽, 아래)</summary>
+        public Vector4 margin { get => GetV(133); set => SetV(133, value); }
+        /// <summary>앞에서부터 이만큼만 보인다 (타자기 효과). 음수 = 전부</summary>
+        public int maxVisibleCharacters { get => (int)GetV(134).x; set => SetV(134, new Vector4(value, 0, 0, 0)); }
+        public bool enableWordWrapping { get => GetV(135).x != 0; set => SetV(135, new Vector4(value ? 1 : 0, 0, 0, 0)); }
+        public HorizontalWrapMode horizontalOverflow { get => enableWordWrapping ? HorizontalWrapMode.Wrap : HorizontalWrapMode.Overflow; set => enableWordWrapping = value == HorizontalWrapMode.Wrap; }
+        public TMPro.TextOverflowModes overflowMode
+        {
+            get { int v = (int)GetV(136).x; return v == 0 ? TMPro.TextOverflowModes.Truncate : (v == 2 ? TMPro.TextOverflowModes.Ellipsis : TMPro.TextOverflowModes.Overflow); }
+            set => SetV(136, new Vector4(value == TMPro.TextOverflowModes.Truncate || value == TMPro.TextOverflowModes.Masking ? 0 : (value == TMPro.TextOverflowModes.Ellipsis ? 2 : 1), 0, 0, 0));
+        }
+        /// <summary>외곽선 두께 (0 ~ 1, 글꼴 여백 비율)</summary>
+        public float outlineWidth { get => GetV(141).x; set => SetV(141, new Vector4(value, 0, 0, 0)); }
+        public Color outlineColor { get { var v = GetV(142); return new Color(v.x, v.y, v.z, v.w); } set => SetV(142, new Vector4(value.r, value.g, value.b, value.a)); }
+        /// <summary>굵기 (-1 ~ 1)</summary>
+        public float faceDilate { get => GetV(143).x; set { var v = GetV(143); SetV(143, new Vector4(value, v.y, 0, 0)); } }
+        public float faceSoftness { get => GetV(143).y; set { var v = GetV(143); SetV(143, new Vector4(v.x, value, 0, 0)); } }
+        /// <summary>그림자 (Underlay)</summary>
+        public bool enableUnderlay { get => GetV(145).x != 0; set { var v = GetV(145); SetV(145, new Vector4(value ? 1 : 0, v.y, v.z, v.w)); } }
+        public Color underlayColor { get { var v = GetV(144); return new Color(v.x, v.y, v.z, v.w); } set => SetV(144, new Vector4(value.r, value.g, value.b, value.a)); }
+        /// <summary>그림자 위치 (-1 ~ 1, + = 오른쪽 · 위)</summary>
+        public Vector2 underlayOffset { get { var v = GetV(145); return new Vector2(v.y, v.z); } set { var v = GetV(145); SetV(145, new Vector4(v.x, value.x, value.y, v.w)); } }
+        public float underlaySoftness { get => GetV(145).w; set { var v = GetV(145); SetV(145, new Vector4(v.x, v.y, v.z, value)); } }
+        public float preferredWidth => GetV(146).x;
+        public float preferredHeight => GetV(146).y;
+        public Vector2 GetPreferredValues() { var v = GetV(146); return new Vector2(v.x, v.y); }
+        public bool isTextOverflowing => GetV(147).x != 0;
+        /// <summary>Auto Size 가 고른 크기</summary>
+        public float fontSizeUsed => GetV(148).x;
+        /// <summary>글자 · 줄 · 링크 정보 (지금 글 기준으로 다시 계산)</summary>
+        public TMPro.TMP_TextInfo textInfo => TMPro.TMP_TextInfo.Read(m_Id);
+        public unsafe void ForceMeshUpdate() => Native.Api.TX_Info(m_Id, 11, 0, null, 0);
+        public class LinkClickedEvent : UnityEvent<string> { }
+        /// <summary>NOVA: &lt;link="id"&gt; 를 누르면 id</summary>
+        public LinkClickedEvent onLinkClicked => UIEvents.LinkClicked(m_Id);
+
+        // ---- 글자 애니메이션 (NOVA): 글자 순번 = textInfo.characterInfo 순번, 글이 바뀌면 지워진다 ----
+        public unsafe void SetCharacterOffset(int index, Vector2 offset) { float* v = stackalloc float[2]; v[0] = offset.x; v[1] = offset.y; Native.Api.TX_Info(m_Id, 7, index, v, 2); }
+        public unsafe void SetCharacterScale(int index, float scale) { float* v = stackalloc float[1]; v[0] = scale; Native.Api.TX_Info(m_Id, 8, index, v, 1); }
+        public unsafe void SetCharacterColor(int index, Color color) { float* v = stackalloc float[4]; v[0] = color.r; v[1] = color.g; v[2] = color.b; v[3] = color.a; Native.Api.TX_Info(m_Id, 9, index, v, 4); }
+        public unsafe void ClearCharacterModifiers() => Native.Api.TX_Info(m_Id, 10, 0, null, 0);
     }
+
+    public enum HorizontalWrapMode { Wrap = 0, Overflow = 1 }
+    public enum VerticalWrapMode { Truncate = 0, Overflow = 1 }
 
     public class Selectable : Behaviour
     {
@@ -310,8 +371,138 @@ namespace NovaEngine.UI
 
 namespace TMPro
 {
-    // TextMeshPro 코드도 그대로 쓸 수 있게 (같은 Text 컴포넌트)
-    public class TMP_Text : NovaEngine.UI.Text { internal TMP_Text() { } }
+    using NovaEngine;
+    using NovaEngine.Interop;
+
+    // TextMeshPro 코드도 그대로 쓸 수 있게 (같은 Text 컴포넌트 — TMP 의 기능은 Text 에 들어 있다)
+    public class TMP_Text : NovaEngine.UI.Text
+    {
+        internal TMP_Text() { }
+        /// <summary>TMP 의 FontStyles (굵게 · 기울임 · 밑줄 · 취소선 · 소문자 · 대문자)</summary>
+        public new FontStyles fontStyle
+        {
+            get
+            {
+                int b = (int)GetV(140).x; var s = FontStyles.Normal;
+                if ((b & 1) != 0) s |= FontStyles.Bold; if ((b & 2) != 0) s |= FontStyles.Italic; if ((b & 4) != 0) s |= FontStyles.Underline;
+                if ((b & 8) != 0) s |= FontStyles.Strikethrough; if ((b & 16) != 0) s |= FontStyles.LowerCase; if ((b & 32) != 0) s |= FontStyles.UpperCase;
+                return s;
+            }
+            set
+            {
+                int b = 0;
+                if ((value & FontStyles.Bold) != 0) b |= 1; if ((value & FontStyles.Italic) != 0) b |= 2; if ((value & FontStyles.Underline) != 0) b |= 4;
+                if ((value & FontStyles.Strikethrough) != 0) b |= 8; if ((value & FontStyles.LowerCase) != 0) b |= 16; if ((value & FontStyles.UpperCase) != 0) b |= 32;
+                SetV(140, new Vector4(b, 0, 0, 0));
+            }
+        }
+        /// <summary>TMP 의 줄 간격 (글자 크기의 1/100 을 더함) — Text 의 배율로 바꿔 둔다</summary>
+        public new float lineSpacing { get => (base.lineSpacing - 1f) * 100f; set => base.lineSpacing = 1f + value / 100f; }
+        /// <summary>TMP 의 TextAlignmentOptions (가로 · 세로 비트)</summary>
+        public new TextAlignmentOptions alignment
+        {
+            get { int a = (int)base.alignment; int h = a % 3, v = a / 3; return (TextAlignmentOptions)((h == 0 ? 1 : h == 1 ? 2 : 4) | (v == 0 ? 256 : v == 1 ? 512 : 1024)); }
+            set
+            {
+                int x = (int)value;
+                int h = (x & 4) != 0 ? 2 : ((x & (2 | 32)) != 0 ? 1 : 0);
+                int v = (x & 1024) != 0 ? 2 : ((x & (512 | 4096 | 2048)) != 0 ? 1 : 0);
+                base.alignment = (NovaEngine.TextAnchor)(v * 3 + h);
+            }
+        }
+        public new float fontSize { get => base.fontSize; set => base.fontSize = (int)Mathf.Round(value); }
+        public new string text { get => base.text; set => base.text = value; }
+        public void SetText(string sourceText) => text = sourceText;
+        public string GetParsedText()
+        {
+            var info = textInfo; var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < info.characterCount; i++) sb.Append(info.characterInfo[i].character);
+            return sb.ToString();
+        }
+    }
     public class TextMeshProUGUI : TMP_Text { internal TextMeshProUGUI() { } }
     public class TMP_InputField : NovaEngine.UI.InputField { internal TMP_InputField() { } }
+
+    [System.Flags]
+    public enum FontStyles { Normal = 0, Bold = 1, Italic = 2, Underline = 4, LowerCase = 8, UpperCase = 16, SmallCaps = 32, Strikethrough = 64, Superscript = 128, Subscript = 256, Highlight = 512 }
+    public enum TextOverflowModes { Overflow = 0, Ellipsis = 1, Masking = 2, Truncate = 3, ScrollRect = 4, Page = 5, Linked = 6 }
+    public enum TextAlignmentOptions
+    {
+        TopLeft = 257, Top = 258, TopRight = 260, Left = 513, Center = 514, Right = 516, BottomLeft = 1025, Bottom = 1026, BottomRight = 1028,
+        TopJustified = 264, Justified = 520, BottomJustified = 1032, Midline = 4098, Baseline = 2050, Capline = 8194
+    }
+
+    public struct TMP_CharacterInfo
+    {
+        public char character;
+        public int index;          // 원문 위치 (태그 포함)
+        public bool isVisible;
+        public int lineNumber;
+        public Vector3 bottomLeft, topRight;   // Text 로컬 좌표
+        public Vector3 bottomRight => new Vector3(topRight.x, bottomLeft.y, 0);
+        public Vector3 topLeft => new Vector3(bottomLeft.x, topRight.y, 0);
+        public float pointSize;
+        internal int link;
+    }
+
+    public struct TMP_LineInfo { public int firstCharacterIndex, characterCount, lastCharacterIndex; public float lineHeight; }
+
+    public struct TMP_LinkInfo
+    {
+        internal ulong m_Owner; internal int m_Index;
+        public int linkTextfirstCharacterIndex, linkTextLength;
+        public unsafe string GetLinkID() => Native.Str(Native.Api.TX_Link(m_Owner, m_Index, 0));
+        public unsafe string GetLinkText() => Native.Str(Native.Api.TX_Link(m_Owner, m_Index, 1));
+    }
+
+    public class TMP_TextInfo
+    {
+        public int characterCount, lineCount, linkCount;
+        public TMP_CharacterInfo[] characterInfo;
+        public TMP_LineInfo[] lineInfo;
+        public TMP_LinkInfo[] linkInfo;
+
+        internal static unsafe TMP_TextInfo Read(ulong id)
+        {
+            var info = new TMP_TextInfo();
+            float* v = stackalloc float[10];
+            info.characterCount = Native.Api.TX_Info(id, 0, 0, null, 0);
+            info.characterInfo = new TMP_CharacterInfo[info.characterCount];
+            for (int i = 0; i < info.characterCount; i++)
+            {
+                Native.Api.TX_Info(id, 1, i, v, 10);
+                info.characterInfo[i] = new TMP_CharacterInfo
+                {
+                    character = (char)(int)v[0], index = (int)v[1], isVisible = v[2] != 0, lineNumber = (int)v[3],
+                    bottomLeft = new Vector3(v[4], v[5], 0), topRight = new Vector3(v[6], v[7], 0), link = (int)v[8], pointSize = v[9]
+                };
+            }
+            info.lineCount = Native.Api.TX_Info(id, 2, 0, null, 0);
+            info.lineInfo = new TMP_LineInfo[info.lineCount];
+            for (int i = 0; i < info.lineCount; i++)
+            {
+                Native.Api.TX_Info(id, 3, i, v, 4);
+                info.lineInfo[i] = new TMP_LineInfo { firstCharacterIndex = (int)v[0], characterCount = (int)v[1], lastCharacterIndex = (int)v[0] + (int)v[1] - 1, lineHeight = v[3] };
+            }
+            info.linkCount = Native.Api.TX_Info(id, 4, 0, null, 0);
+            info.linkInfo = new TMP_LinkInfo[info.linkCount];
+            for (int i = 0; i < info.linkCount; i++)
+            {
+                Native.Api.TX_Info(id, 5, i, v, 2);
+                info.linkInfo[i] = new TMP_LinkInfo { m_Owner = id, m_Index = i, linkTextfirstCharacterIndex = (int)v[0], linkTextLength = (int)v[1] };
+            }
+            return info;
+        }
+    }
+
+    public static class TMP_TextUtilities
+    {
+        /// <summary>화면 점(Input.mousePosition)에 있는 &lt;link&gt; 번호 (없으면 -1). Screen Space - Overlay 캔버스 기준 (camera 는 무시)</summary>
+        public static unsafe int FindIntersectingLink(NovaEngine.UI.Text text, Vector3 position, Camera camera)
+        {
+            if (text == null) return -1;
+            float* v = stackalloc float[2]; v[0] = position.x; v[1] = position.y;
+            return Native.Api.TX_Info(text.m_Id, 6, 0, v, 2);
+        }
+    }
 }

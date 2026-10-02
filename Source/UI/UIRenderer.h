@@ -12,6 +12,20 @@ public:
 		uint32 Color;   // R8G8B8A8 (감마 공간)
 	};
 
+	// SDF 글자 재질 (TextMeshPro 의 머티리얼 값). 같은 재질 · 텍스처 · 잘라내기면 한 번에 그린다
+	struct TextMaterial
+	{
+		float FaceDilate = 0.0f;      // -1 ~ 1 (+ = 굵게)
+		float Softness = 0.0f;        // 0 ~ 1 (가장자리 흐림)
+		float OutlineWidth = 0.0f;    // 0 ~ 1 (거리장 여백 비율)
+		float OutlineColor[4] = { 0, 0, 0, 1 };
+		float UnderlayColor[4] = { 0, 0, 0, 0 };   // 알파 0 = 없음
+		float UnderlayOffsetX = 0.0f, UnderlayOffsetY = 0.0f;   // -1 ~ 1 (여백 비율, + = 오른쪽 · 위)
+		float UnderlayDilate = 0.0f, UnderlaySoftness = 0.0f;
+		float SpreadU = 0.0f, SpreadV = 0.0f;      // 거리장 여백의 UV 크기 (Underlay 오프셋 → UV)
+		bool operator==(const TextMaterial& o) const { return memcmp(this, &o, sizeof(*this)) == 0; }
+	};
+
 	static UIRenderer& Get();
 
 	void Begin();
@@ -19,6 +33,8 @@ public:
 	void SetClip(bool enabled, const Vec4& worldRect = Vec4(0, 0, 0, 0));
 	// 네 점(왼쪽 아래, 왼쪽 위, 오른쪽 위, 오른쪽 아래 — Unity GetWorldCorners 순서)
 	void AddQuad(const Vec3 p[4], const Vec2 uv[4], uint32 color, GfxShaderResourceView* texture);
+	// SDF 글자 사각형 (텍스처 = UIFont 아틀라스, R 채널 거리장)
+	void AddTextQuad(const Vec3 p[4], const Vec2 uv[4], const uint32 color[4], GfxShaderResourceView* atlas, const TextMaterial& material);
 	void AddTriangle(const Vec3 p[3], const Vec2 uv[3], uint32 color, GfxShaderResourceView* texture);
 	// 선 (선택 테두리 등): 굵기는 월드 단위
 	void AddLine(const Vec3& a, const Vec3& b, float thickness, uint32 color);
@@ -32,7 +48,7 @@ public:
 private:
 	UIRenderer() = default;
 	bool Init();
-	void Reserve(GfxShaderResourceView* texture);
+	void Reserve(GfxShaderResourceView* texture, const TextMaterial* material = nullptr);
 
 	struct Command
 	{
@@ -41,6 +57,8 @@ private:
 		UINT IndexCount;
 		bool Clip;
 		Vec4 ClipRect;
+		bool Sdf = false;
+		TextMaterial Material;
 	};
 	bool m_ClipOn = false;
 	Vec4 m_ClipRect = Vec4(0, 0, 0, 0);
