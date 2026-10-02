@@ -70,6 +70,9 @@ namespace ShaderGraph
 	struct Graph
 	{
 		std::string Material = "Lit";   // Lit, Unlit
+		std::string Path = "Shader Graphs";   // 셰이더 이름 앞부분 (Unity 의 Blackboard 경로) → "<Path>/<파일 이름>"
+		std::string Surface = "Opaque";       // Opaque, Transparent (투명 패스: 먼 것부터 섞기, 그림자 · 프리패스 없음)
+		bool AlphaClip = false;               // Alpha Clipping: Alpha < Alpha Clip Threshold 를 잘라낸다 (프리패스 · 그림자도)
 		std::vector<Property> Properties;
 		std::vector<Node> Nodes;
 		std::vector<Edge> Edges;
@@ -91,8 +94,8 @@ namespace ShaderGraph
 		std::string UniqueRef(const std::string& name) const;
 	};
 
-	// Master 입력 (Lit / Unlit 에 따라)
-	const std::vector<PortDef>& MasterInputs(const std::string& material);
+	// Master 입력 (Lit / Unlit, Alpha Clipping 에 따라)
+	const std::vector<PortDef>& MasterInputs(const Graph& g);
 
 	// 그 노드의 출력 포트 폭 (동적 포트는 입력에서 정한다), Property 노드는 속성 형
 	int OutputWidth(const Graph& g, const Node& n, const std::string& port);
@@ -102,8 +105,10 @@ namespace ShaderGraph
 		std::string Hlsl;       // .fx 전체
 		std::string Error;      // 비면 성공
 		std::vector<int> Used;  // 쓰인 노드
+		bool ClipsAlpha = false;
 	};
-	CodeResult Generate(const Graph& g);
+	CodeResult Generate(const Graph& g);          // 재질 셰이더 (.fx — 엔진 32. InstancedBasic.fx 포함)
+	CodeResult GeneratePreview(const Graph& g);   // 창의 미리보기 (작은 독립 .fx — SGPreviewNodeTech · SGPreviewMainTech)
 
 	// 노드 코드 생성 중 쓰는 도우미
 	struct NodeContext

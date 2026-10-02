@@ -364,6 +364,22 @@ CustomShaders::SkinnedDraw SkinnedMeshRenderer::MakeCustomDraw(UMaterial* materi
 	return d;
 }
 
+bool SkinnedMeshRenderer::DrawCustomClip(int subset, CustomShaders::DrawPass pass, FXMMATRIX world, CXMMATRIX viewProj, CXMMATRIX view, bool editor)
+{
+	const UINT matIndex = m_Mesh->Subsets[subset].MaterialIndex;
+	UMaterial* material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex].get() : nullptr;
+	if (!material || !material->IsCustom())
+		return false;
+	const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader());
+	if (!shader || !shader->DrawSkinned || !shader->ClipsAlpha || !shader->ClipsAlpha(*material))
+		return false;
+	CustomShaders::SkinnedDraw d = MakeCustomDraw(material, world, viewProj, editor, subset);
+	d.Pass = pass;
+	d.View = view;
+	shader->DrawSkinned(d);
+	return true;
+}
+
 void SkinnedMeshRenderer::Render()
 {
 	RenderStats::AddSkinnedMesh();
@@ -399,6 +415,8 @@ void SkinnedMeshRenderer::RenderShadow()
 		Effects::BuildShadowMapFX->SetBoneTransforms(&m_FinalTransforms[0], (int)m_FinalTransforms.size());
 		for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
 		{
+			if (DrawCustomClip(i, CustomShaders::DrawPass::Shadow, world, RenderManager::GetI()->LightViewProjection, XMMatrixIdentity(), false))
+				continue;
 			// Alpha Clipping 재질: 투명한 곳은 그림자도 지지 않는다 (VRoid 옷은 몸 전체 껍질 + 잘라내기 마스크)
 			float cutoff = 0.0f;
 			if (UMaterial* m = ClipMaterial(i, cutoff))
@@ -462,6 +480,8 @@ void SkinnedMeshRenderer::DrawSkinnedNormalDepth(bool editor)
 		Effects::SsaoNormalDepthFX->SetBoneTransforms(&bones[0], (int)bones.size());
 		for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
 		{
+			if (DrawCustomClip(i, CustomShaders::DrawPass::NormalDepth, world, viewProj, view, editor))
+				continue;
 			// Alpha Clipping 재질은 여기서도 같은 기준으로 잘라낸다 — 안 그러면 투명한 곳에 깊이만 남아 뒤가 지워진다 (카메라 배경색 구멍)
 			float cutoff = 0.0f;
 			if (UMaterial* m = ClipMaterial(i, cutoff))

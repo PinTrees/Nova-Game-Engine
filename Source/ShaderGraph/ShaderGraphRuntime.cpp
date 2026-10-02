@@ -13,6 +13,8 @@
 #include <sstream>
 #include <chrono>
 #include <map>
+#include <thread>
+#include <atomic>
 #include <unordered_map>
 
 namespace fs = std::filesystem;
@@ -26,20 +28,36 @@ namespace ShaderGraph
 		// 만든 그래프 셰이더 하나
 		struct Compiled
 		{
-			std::string Name, Asset;
+			std::string Name, Asset, Owner;
 			uint64 Generation = 0;
 			Graph G;
 			InstancedBasicEffect* Fx = nullptr;
 			FxTechnique* Batch = nullptr;
 			FxTechnique* Skinned = nullptr;
+			FxTechnique* DepthBatch = nullptr;      // 잘라내기 (Alpha Clipping) 만
+			FxTechnique* DepthSkinned = nullptr;
+			FxTechnique* ShadowBatch = nullptr;
+			FxTechnique* ShadowSkinned = nullptr;
 			FxVar* Time = nullptr;
 			FxVar* ViewProjTex = nullptr;
+			FxVar* View = nullptr;
+			FxVar* ShadowLight = nullptr;
+			FxVar* ShadowBias = nullptr;
 			std::vector<FxVar*> PropVars;   // G.Properties 순서
 			std::vector<std::pair<FxVar*, ComPtr<GfxShaderResourceView>>> NodeTextures;   // Sample Texture 2D 의 option texture
 		};
 		std::map<std::string, std::unique_ptr<Compiled>> s_Graphs;
 		std::map<std::string, std::string> s_Errors;
 		uint64 s_Generation = 0;
+
+		// 만드는 중 (백그라운드 컴파일): 셰이더 이름 → 그 그래프 · .fx
+		struct Building
+		{
+			std::string Asset;
+			std::wstring FxPath;
+			Graph G;
+		};
+		std::map<std::string, Building> s_Building;
 
 		// 재질마다 해석한 값 (재질 Properties 가 바뀌거나 그래프를 다시 만들면 다시)
 		struct Parsed
@@ -51,7 +69,8 @@ namespace ShaderGraph
 		std::unordered_map<const UMaterial*, Parsed> s_Cache;
 
 		// 그래프 파일 목록 (Shader 목록은 Inspector 가 매 프레임 묻는다 → 몇 초에 한 번만 디스크를 훑는다)
-		std::vector<std::string> s_Assets;
+		struct AssetEntry { std::string Asset, Name; };
+		std::vector<AssetEntry> s_Assets;
 		std::chrono::steady_clock::time_point s_AssetsTime;
 		bool s_AssetsValid = false;
 
@@ -72,6 +91,25 @@ namespace ShaderGraph
 			std::ostringstream ss;
 			ss << in.rdbuf();
 			return ss.str();
+		}
+
+		std::string NormAsset(const std::string& a)
+		{
+			std::string s = Lower(a);
+			for (char& c : s) if (c == '/') c = '\\';
+			return s;
+		}
+
+		// 그래프 파일의 셰이더 이름 (경로 설정 + 파일 이름)
+		std::string NameFromFile(const std::string& asset)
+		{
+			std::string path = kDefaultPath;
+			const std::string text = ReadFile(FullPath(asset));
+			const nlohmann::json j = nlohmann::json::parse(text, nullptr, false);
+			if (j.is_object() && j.contains("path") && j["path"].is_string() && !j["path"].get<std::string>().empty())
+				path = j["path"].get<std::string>();
+			while (!path.empty() && (path.back() == '/' || path.back() == ' ')) path.pop_back();
+			return path + "/" + Utf8(fs::path(string_to_wstring(asset)).stem().wstring());
 		}
 
 		XMFLOAT4 ValueOf(const Property& p, const nlohmann::json& props)
@@ -142,6 +180,20 @@ namespace ShaderGraph
 				c.Time->SetFloatVector(tv);
 			}
 			tech->GetPassByIndex(0)->Apply(0, dc);
+		}
+
+		void SetMatrixVar(FxVar* v, CXMMATRIX m)
+		{
+			if (v) v->SetMatrix(reinterpret_cast<const float*>(&m));
+		}
+
+		// 그림자 패스: 엔진 그림자 셰이더와 같은 빛 · 바이어스
+		void SetShadowVars(const Compiled& c)
+		{
+			const CustomShaders::ShadowCaster& s = CustomShaders::CurrentShadow();
+			if (c.ShadowLight) c.ShadowLight->SetFloatVector(&s.Light.x);
+			const float bias[4] = { s.Bias[0], s.Bias[1], 0, 0 };
+			if (c.ShadowBias) c.ShadowBias->SetFloatVector(bias);
 		}
 
 		const XMMATRIX& ToTex()
@@ -224,68 +276,99 @@ namespace ShaderGraph
 			return changed;
 		}
 
-		bool Create(const std::string& name)
+		// ---- 백그라운드 컴파일 작업 (.fx 하나)
+		struct Job
 		{
-			const std::string asset = FindGraphAsset(name);
-			if (asset.empty())
+			std::wstring FxPath;
+			std::string Content;              // 시작할 때의 파일 내용 (끝났을 때 바뀌었으면 다시)
+			std::thread Thread;
+			std::atomic<bool> Done{ false };
+			HRESULT Hr = S_OK;
+			~Job() { if (Thread.joinable()) Thread.join(); }   // 끝낼 때 진행 중인 컴파일 (joinable thread 를 지우면 프로그램이 멈춘다)
+		};
+		std::map<std::wstring, std::unique_ptr<Job>> s_Jobs;
+
+		void StartJob(const std::wstring& fxPath)
+		{
+			auto job = std::make_unique<Job>();
+			job->FxPath = fxPath;
+			job->Content = ReadFile(fxPath);
+			Job* j = job.get();
+			j->Thread = std::thread([j]() {
+				ComPtr<ID3DBlob> blob, msgs;
+				j->Hr = ShaderCache::CompileEffect(j->FxPath, ShaderCache::DefaultFlags(), blob, msgs);
+				j->Done = true;
+			});
+			s_Jobs[fxPath] = std::move(job);
+		}
+
+		// 만드는 중인 셰이더 하나를 끝까지 (컴파일이 끝났으면 이펙트 · 등록). wait = 컴파일을 기다린다
+		//  돌려주는 값: 0 진행 중, 1 등록함, -1 실패
+		int FinishBuilding(const std::string& name, bool wait)
+		{
+			auto it = s_Building.find(name);
+			if (it == s_Building.end())
+				return -1;
+			Building& b = it->second;
+			std::string error;
+			int state = CompileInBackground(b.FxPath, error);
+			while (wait && state == 0)
 			{
-				s_Errors[name] = "no " + name.substr(strlen(kShaderPrefix)) + kExtension + " under Assets";
-				return false;
+				if (auto j = s_Jobs.find(b.FxPath); j != s_Jobs.end() && j->second->Thread.joinable())
+					j->second->Thread.join();
+				state = CompileInBackground(b.FxPath, error);
 			}
+			if (state == 0)
+				return 0;
+			if (state < 0)
+			{
+				s_Errors[name] = error.empty() ? "compile failed" : error;
+				EditorLog::Write("ShaderGraph", "%s: shader compile failed\n%s", name.c_str(), s_Errors[name].c_str());
+				s_Building.erase(it);
+				return -1;
+			}
+
+			// 이펙트 (캐시 적중) → 새 셰이더로 바꿔 등록 (예전 이펙트는 그 뒤에 내린다)
 			auto c = std::make_unique<Compiled>();
 			c->Name = name;
-			c->Asset = asset;
-			std::string error;
-			if (!c->G.Load(FullPath(asset), error))
-			{
-				s_Errors[name] = error;
-				return false;
-			}
-			const CodeResult code = Generate(c->G);
-			if (!code.Error.empty())
-			{
-				s_Errors[name] = code.Error;
-				EditorLog::Write("ShaderGraph", "%s: %s", name.c_str(), code.Error.c_str());
-				return false;
-			}
-			// .fx 를 쓴다 (같으면 그대로 — 셰이더 캐시가 다시 컴파일하지 않게)
-			const std::wstring fxPath = GeneratedPath(name);
-			std::error_code ec;
-			fs::create_directories(fs::path(fxPath).parent_path(), ec);
-			if (ReadFile(fxPath) != code.Hlsl)
-			{
-				std::ofstream os(fxPath, std::ios::binary | std::ios::trunc);
-				if (!os)
-				{
-					s_Errors[name] = "cannot write " + Utf8(fxPath);
-					return false;
-				}
-				os << code.Hlsl;
-			}
-			const std::string owner = kOwnerPrefix + name;
-			c->Fx = CustomShaders::LoadEffect(owner, fxPath, error);
+			c->Asset = b.Asset;
+			c->G = b.G;
+			c->Generation = ++s_Generation;
+			c->Owner = kOwnerPrefix + name + "#" + std::to_string(c->Generation);
+			c->Fx = CustomShaders::LoadEffect(c->Owner, b.FxPath, error);
+			s_Building.erase(it);
 			if (!c->Fx)
 			{
-				std::string msg = ShaderCache::LastMessages(fs::path(fxPath).lexically_normal().wstring());
+				const std::string msg = ShaderCache::LastMessages(fs::path(b.FxPath).lexically_normal().wstring());
 				s_Errors[name] = msg.empty() ? error : msg;
-				EditorLog::Write("ShaderGraph", "%s: shader compile failed\n%s", name.c_str(), s_Errors[name].c_str());
-				return false;
+				return -1;
 			}
 			FxEffect* fx = c->Fx->GetFX();
-			c->Batch = fx->GetTechniqueByName("GraphBatchTech");
-			c->Skinned = fx->GetTechniqueByName("GraphSkinnedTech");
-			if (!c->Batch || !c->Batch->IsValid())
-			{
-				s_Errors[name] = "the generated shader has no GraphBatchTech";
-				CustomShaders::UnregisterOwner(owner);
-				return false;
-			}
+			auto tech = [&](const char* n) -> FxTechnique* {
+				FxTechnique* t = fx->GetTechniqueByName(n);
+				return t && t->IsValid() ? t : nullptr;
+			};
 			auto var = [&](const std::string& n) -> FxVar* {
 				FxVar* v = fx->GetVariableByName(n.c_str());
 				return v && v->IsValid() ? v : nullptr;
 			};
+			c->Batch = tech("GraphBatchTech");
+			c->Skinned = tech("GraphSkinnedTech");
+			c->DepthBatch = tech("GraphDepthBatchTech");
+			c->DepthSkinned = tech("GraphDepthSkinnedTech");
+			c->ShadowBatch = tech("GraphShadowBatchTech");
+			c->ShadowSkinned = tech("GraphShadowSkinnedTech");
+			if (!c->Batch)
+			{
+				s_Errors[name] = "the generated shader has no GraphBatchTech";
+				CustomShaders::UnregisterOwner(c->Owner);
+				return -1;
+			}
 			c->Time = var("gSGTime");
 			c->ViewProjTex = var("gViewProjTex");
+			c->View = var("gSGView");
+			c->ShadowLight = var("gSGShadowLight");
+			c->ShadowBias = var("gSGShadowBias");
 			for (const Property& p : c->G.Properties)
 				c->PropVars.push_back(var("gSG_" + Sanitize(p.Ref)));
 			for (const Node& n : c->G.Nodes)
@@ -295,28 +378,44 @@ namespace ShaderGraph
 					if (FxVar* v = var("gSG_NodeTex" + std::to_string(n.Id)))
 						c->NodeTextures.push_back({ v, LoadTex(tex) });
 			}
-			c->Generation = ++s_Generation;
 			s_Errors.erase(name);
 
 			CustomShaders::Shader shader;
 			shader.Name = name;
-			shader.Owner = owner;
+			shader.Owner = c->Owner;
 			shader.DrawInstanced = [name](CustomShaders::InstancedDraw& d) {
 				Compiled* c = Current(name);
 				if (!c) return;
 				c->Fx->SetViewProj(d.ViewProj);
-				const XMMATRIX vpt = d.ViewProj * ToTex();
-				if (c->ViewProjTex) c->ViewProjTex->SetMatrix(reinterpret_cast<const float*>(&vpt));
 				c->Fx->SetTexTransform(XMMatrixIdentity());
-				RenderLayers::SetObjectLayer(c->Fx, d.LayerBit);
-				Bind(*c, d.Material, d.Context, c->Batch);
+				FxTechnique* tech = c->Batch;
+				switch (d.Pass)
+				{
+				case CustomShaders::DrawPass::NormalDepth:
+					SetMatrixVar(c->View, d.View);
+					tech = c->DepthBatch;
+					break;
+				case CustomShaders::DrawPass::Shadow:
+					SetShadowVars(*c);
+					tech = c->ShadowBatch;
+					break;
+				default:
+				{
+					const XMMATRIX vpt = d.ViewProj * ToTex();
+					SetMatrixVar(c->ViewProjTex, vpt);
+					RenderLayers::SetObjectLayer(c->Fx, d.LayerBit);
+					break;
+				}
+				}
+				if (!tech) return;
+				Bind(*c, d.Material, d.Context, tech);
 				d.Draw();
 			};
-			if (c->Skinned && c->Skinned->IsValid())
+			if (c->Skinned)
 				shader.DrawSkinned = [name](CustomShaders::SkinnedDraw& d) {
 					Compiled* c = Current(name);
 					if (!c) return;
-					// 엔진 스킨 패스와 같은 행렬 · 본 (lilToon 과 같은 방법)
+					// 엔진 스킨 패스와 같은 행렬 · 본 (lilToon 과 같은 방법). 물체 레이어 비트는 SkinnedMeshRenderer 가 이미 넣었다
 					XMMATRIX w = d.World;
 					w.r[3] = XMVectorSet(0, 0, 0, 1);
 					XMVECTOR det;
@@ -330,31 +429,92 @@ namespace ShaderGraph
 					c->Fx->SetTexTransform(XMMatrixIdentity());
 					if (d.Bones && d.BoneCount > 0)
 						c->Fx->SetBoneTransforms(d.Bones, d.BoneCount);
-					RenderLayers::SetObjectLayer(c->Fx, ~0u);
-					Bind(*c, d.Material, d.Context, c->Skinned);
+					FxTechnique* tech = c->Skinned;
+					if (d.Pass == CustomShaders::DrawPass::NormalDepth)
+					{
+						SetMatrixVar(c->View, d.View);
+						tech = c->DepthSkinned;
+					}
+					else if (d.Pass == CustomShaders::DrawPass::Shadow)
+					{
+						SetShadowVars(*c);
+						tech = c->ShadowSkinned;
+					}
+					if (!tech) return;
+					Bind(*c, d.Material, d.Context, tech);
 					d.Draw();
 				};
+			shader.ClipsAlpha = [name](const UMaterial&) {
+				const Compiled* c = Current(name);
+				return c && c->G.AlphaClip && c->DepthBatch && c->ShadowBatch;
+			};
+			shader.Transparent = [name](const UMaterial&) {
+				const Compiled* c = Current(name);
+				return c && c->G.Surface == "Transparent";
+			};
 			shader.Inspector = [name](UMaterial& m) { return Inspector(name, m); };
 			shader.DefaultProperties = [name]() {
 				Compiled* c = Current(name);
 				return c ? DefaultProperties(c->G) : nlohmann::json::object();
 			};
+			std::string oldOwner;
+			if (Compiled* old = Current(name))
+				oldOwner = old->Owner;
 			s_Graphs[name] = std::move(c);
-			CustomShaders::Register(shader);
-			EditorLog::Write("ShaderGraph", "built %s (%s)", name.c_str(), asset.c_str());
+			CustomShaders::Register(shader);   // 같은 이름을 바꾼다
+			if (!oldOwner.empty())
+				CustomShaders::UnregisterOwner(oldOwner);   // 예전 이펙트 (셰이더 등록은 위에서 새것으로 바뀜 — Owner 가 달라 지워지지 않는다)
+			EditorLog::Write("ShaderGraph", "built %s (%s)", name.c_str(), s_Graphs[name]->Asset.c_str());
+			return 1;
+		}
+
+		// 그래프를 읽어 .fx 를 쓰고 백그라운드 컴파일을 시작한다
+		bool StartBuilding(const std::string& name, const std::string& asset, std::string& error)
+		{
+			Building b;
+			b.Asset = asset;
+			if (!b.G.Load(FullPath(asset), error))
+			{
+				s_Errors[name] = error;
+				return false;
+			}
+			const CodeResult code = Generate(b.G);
+			if (!code.Error.empty())
+			{
+				error = code.Error;
+				s_Errors[name] = error;
+				EditorLog::Write("ShaderGraph", "%s: %s", name.c_str(), error.c_str());
+				return false;
+			}
+			b.FxPath = GeneratedPath(name, asset);
+			if (!WriteIfChanged(b.FxPath, code.Hlsl))
+			{
+				error = "cannot write " + Utf8(b.FxPath);
+				s_Errors[name] = error;
+				return false;
+			}
+			std::string jobError;
+			CompileInBackground(b.FxPath, jobError);   // 시작 (이미 캐시에 있으면 곧 끝난다)
+			s_Building[name] = std::move(b);
 			return true;
 		}
 
-		void Drop(const std::string& name)
+		bool Create(const std::string& name)
 		{
-			CustomShaders::UnregisterOwner(kOwnerPrefix + name);   // 이펙트도 같이
-			s_Graphs.erase(name);
-			CustomShaders::Forget(name);
+			if (s_Building.count(name))
+				return FinishBuilding(name, false) == 1;
+			const std::string asset = FindGraphAsset(name);
+			if (asset.empty())
+				return false;
+			std::string error;
+			if (!StartBuilding(name, asset, error))
+				return false;
+			return FinishBuilding(name, false) == 1;   // 캐시에 있으면 바로
 		}
 
 		void ScanAssets()
 		{
-			s_Assets.clear();
+			std::vector<AssetEntry> found;
 			const fs::path root = PathManager::GetI()->GetContentPathW();
 			std::error_code ec;
 			for (fs::recursive_directory_iterator it(root / L"Assets", fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec))
@@ -362,12 +522,71 @@ namespace ShaderGraph
 				if (ec) break;
 				if (!it->is_regular_file(ec) || Lower(it->path().extension().string()) != kExtension)
 					continue;
-				s_Assets.push_back(Utf8(fs::relative(it->path(), root, ec).wstring()));
+				const std::string asset = Utf8(fs::relative(it->path(), root, ec).wstring());
+				found.push_back({ asset, NameFromFile(asset) });
 			}
-			std::sort(s_Assets.begin(), s_Assets.end());
+			std::sort(found.begin(), found.end(), [](const AssetEntry& a, const AssetEntry& b) { return a.Asset < b.Asset; });
+			// 목록이 바뀌면 (새 그래프 · 이름 바꿈) 예전에 못 찾은 이름을 다시 찾게
+			bool changed = found.size() != s_Assets.size();
+			for (size_t i = 0; !changed && i < found.size(); ++i)
+				changed = found[i].Asset != s_Assets[i].Asset || found[i].Name != s_Assets[i].Name;
+			s_Assets = std::move(found);
+			if (changed)
+				for (const AssetEntry& e : s_Assets)
+					CustomShaders::Forget(e.Name);
 			s_AssetsTime = std::chrono::steady_clock::now();
 			s_AssetsValid = true;
 		}
+
+		const std::vector<AssetEntry>& Entries(bool refresh)
+		{
+			if (refresh || !s_AssetsValid || std::chrono::steady_clock::now() - s_AssetsTime > std::chrono::seconds(3))
+				ScanAssets();
+			return s_Assets;
+		}
+	}
+
+	int CompileInBackground(const std::wstring& fxPath, std::string& error)
+	{
+		auto it = s_Jobs.find(fxPath);
+		if (it == s_Jobs.end())
+		{
+			StartJob(fxPath);
+			return 0;
+		}
+		Job& j = *it->second;
+		if (!j.Done)
+			return 0;
+		if (j.Thread.joinable())
+			j.Thread.join();
+		const HRESULT hr = j.Hr;
+		const bool stale = ReadFile(fxPath) != j.Content;
+		s_Jobs.erase(it);
+		if (stale)
+		{
+			StartJob(fxPath);   // 컴파일하는 동안 파일이 바뀌었다
+			return 0;
+		}
+		if (FAILED(hr))
+		{
+			error = ShaderCache::LastMessages(fs::path(fxPath).lexically_normal().wstring());
+			if (error.empty()) error = "compile failed";
+			return -1;
+		}
+		return 1;
+	}
+
+	bool WriteIfChanged(const std::wstring& path, const std::string& text)
+	{
+		if (ReadFile(path) == text)
+			return true;
+		std::error_code ec;
+		fs::create_directories(fs::path(path).parent_path(), ec);
+		std::ofstream os(path, std::ios::binary | std::ios::trunc);
+		if (!os)
+			return false;
+		os << text;
+		return true;
 	}
 
 	std::wstring FullPath(const std::string& assetPath)
@@ -379,32 +598,61 @@ namespace ShaderGraph
 
 	std::string ShaderNameOf(const std::string& assetPath)
 	{
-		return std::string(kShaderPrefix) + Utf8(fs::path(string_to_wstring(assetPath)).stem().wstring());
+		const std::string key = NormAsset(assetPath);
+		for (const AssetEntry& e : s_Assets)
+			if (NormAsset(e.Asset) == key)
+				return e.Name;
+		return NameFromFile(assetPath);
 	}
 
 	std::vector<std::string> GraphAssets(bool refresh)
 	{
-		if (refresh || !s_AssetsValid || std::chrono::steady_clock::now() - s_AssetsTime > std::chrono::seconds(3))
-			ScanAssets();
-		return s_Assets;
+		std::vector<std::string> out;
+		for (const AssetEntry& e : Entries(refresh))
+			out.push_back(e.Asset);
+		return out;
 	}
 
 	std::string FindGraphAsset(const std::string& shaderName)
 	{
-		if (shaderName.rfind(kShaderPrefix, 0) != 0)
-			return std::string();
 		for (int pass = 0; pass < 2; ++pass)
 		{
-			for (const std::string& a : GraphAssets(pass == 1))
-				if (ShaderNameOf(a) == shaderName)
-					return a;
+			std::vector<std::string> matches;
+			for (const AssetEntry& e : Entries(pass == 1))
+				if (e.Name == shaderName)
+					matches.push_back(e.Asset);
+			if (matches.size() == 1)
+				return matches[0];
+			if (matches.size() > 1)
+			{
+				// Unity 처럼 같은 이름이 둘이면 어느 쪽인지 알 수 없다 → 경로 (Blackboard) 를 바꾸라고 알린다
+				std::string list;
+				for (const std::string& m : matches) list += (list.empty() ? "" : ", ") + m;
+				s_Errors[shaderName] = "two shader graphs are named '" + shaderName + "' (" + list + ") - change the path of one in its Blackboard";
+				return std::string();
+			}
 		}
+		if (!s_Errors.count(shaderName))
+			s_Errors[shaderName] = "no shader graph named '" + shaderName + "' under Assets";
 		return std::string();
 	}
 
-	std::wstring GeneratedPath(const std::string& shaderName)
+	bool IsGraphShader(const std::string& shaderName)
 	{
-		const std::string stem = Sanitize(shaderName.rfind(kShaderPrefix, 0) == 0 ? shaderName.substr(strlen(kShaderPrefix)) : shaderName);
+		if (s_Graphs.count(shaderName) || s_Building.count(shaderName))
+			return true;
+		for (const AssetEntry& e : Entries(false))
+			if (e.Name == shaderName)
+				return true;
+		return false;
+	}
+
+	std::wstring GeneratedPath(const std::string& shaderName, const std::string& assetPath)
+	{
+		// 이름 + 그래프 경로 해시 (다른 폴더의 같은 이름이 같은 파일을 쓰지 않게)
+		char hash[16];
+		snprintf(hash, sizeof(hash), "%08x", (unsigned)(std::hash<std::string>()(NormAsset(assetPath)) & 0xFFFFFFFFu));
+		const std::string stem = Sanitize(shaderName) + "_" + hash;
 		return (fs::path(PathManager::GetI()->GetContentPathW()) / L"Library" / L"ShaderGraph" / string_to_wstring(stem + ".fx")).lexically_normal().wstring();
 	}
 
@@ -414,16 +662,42 @@ namespace ShaderGraph
 		return it != s_Errors.end() ? it->second : std::string();
 	}
 
-	bool Reload(const std::string& assetPath, std::string& error)
+	bool IsCompiling(const std::string& shaderName)
 	{
+		return s_Building.count(shaderName) != 0;
+	}
+
+	bool Reload(const std::string& assetPath, std::string& error, bool wait)
+	{
+		Entries(true);
 		const std::string name = ShaderNameOf(assetPath);
-		GraphAssets(true);
-		Drop(name);
-		if (CustomShaders::Find(name))   // Provider 가 다시 만든다
-			return true;
-		error = LastError(name);
-		if (error.empty()) error = "build failed";
-		return false;
+		CustomShaders::Forget(name);
+		s_Errors.erase(name);
+		// 같은 셰이더 이름의 그래프가 둘이면 (다른 폴더의 같은 파일 이름) 재질이 어느 쪽인지 알 수 없다 → 경로를 바꾸라고
+		if (FindGraphAsset(name).empty())
+		{
+			error = LastError(name);
+			return false;
+		}
+		if (!StartBuilding(name, assetPath, error))
+			return false;
+		const int state = FinishBuilding(name, wait);
+		if (state < 0)
+		{
+			error = LastError(name);
+			return false;
+		}
+		return true;
+	}
+
+	void UpdateRuntime()
+	{
+		if (s_Building.empty())
+			return;
+		std::vector<std::string> names;
+		for (const auto& [name, b] : s_Building) names.push_back(name);
+		for (const std::string& name : names)
+			FinishBuilding(name, false);
 	}
 
 	nlohmann::json DefaultProperties(const Graph& g)
@@ -447,7 +721,11 @@ namespace ShaderGraph
 	std::string MakeMaterial(const std::string& graphAsset, const std::string& matPath, std::string& error)
 	{
 		const std::string name = ShaderNameOf(graphAsset);
+		if (s_Building.count(name))
+			FinishBuilding(name, true);
 		const CustomShaders::Shader* cs = CustomShaders::Find(name);
+		if (!cs && s_Building.count(name) && FinishBuilding(name, true) == 1)
+			cs = CustomShaders::Find(name);
 		if (!cs)
 		{
 			error = "the graph does not build: " + LastError(name);
@@ -481,13 +759,14 @@ namespace ShaderGraph
 	void InitRuntime()
 	{
 		CustomShaders::Provider p;
-		p.Prefix = kShaderPrefix;
+		p.Prefix = "";   // 이름 앞부분이 그래프마다 다르다 (Blackboard 경로) — 프로젝트의 그래프 목록에서 찾는다
 		p.Owner = "shadergraph";
 		p.Create = [](const std::string& name) { return Create(name); };
+		p.Pending = [](const std::string& name) { return s_Building.count(name) != 0; };
 		p.List = []() {
 			std::vector<std::string> out;
-			for (const std::string& a : GraphAssets())
-				out.push_back(ShaderNameOf(a));
+			for (const AssetEntry& e : Entries(false))
+				out.push_back(e.Name);
 			return out;
 		};
 		CustomShaders::RegisterProvider(p);

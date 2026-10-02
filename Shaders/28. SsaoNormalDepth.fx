@@ -178,6 +178,17 @@ technique11 NormalDepthBatchTech
     }
 }
 
+// MeshBatcher: Alpha Clipping 재질 (재질마다 묶음 — 그림 알파로 잘라 본 패스 (EQUAL) 와 같은 구멍)
+technique11 NormalDepthAlphaClipBatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_Batch()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(true)));
+    }
+}
+
 technique11 NormalDepth
 {
     pass P0

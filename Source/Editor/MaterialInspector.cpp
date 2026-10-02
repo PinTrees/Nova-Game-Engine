@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "CustomShaders.h"
+#include "ShaderGraphRuntime.h"
 #include "MaterialInspector.h"
 #include "UMaterial.h"
 #include "Effects.h"
@@ -424,7 +425,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 	PbrMaterial& p = m.m_Pbr;
 	const bool lit = m.m_Shader == UMaterial::ShaderKind::Lit;
 	// Shader Graph 재질: Unity 처럼 그래프의 속성만 (Surface Inputs 는 그래프가 정한다)
-	const bool graph = m.IsCustom() && m.CustomShader().rfind("Shader Graphs/", 0) == 0;
+	const bool graph = m.IsCustom() && ShaderGraph::IsGraphShader(m.CustomShader());
 
 	// ---- Surface Options
 	if (!graph && UnityGUI::Foldout("Surface Options", 0, true, false))

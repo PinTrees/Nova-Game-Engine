@@ -517,6 +517,17 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 		DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, camera->GetBackgroundType() == 0);
 	}
 
+	// 투명 메시 (Shader Graph 의 Surface Type = Transparent): 불투명 · 하늘 · 대기 다음, 물 전 — 먼 것부터, 깊이는 읽기만
+	phase.Next("Transparent");
+	{
+		// 깊이는 읽기만 (읽기 전용 DSV — 깊이 SRV 와 같이 묶여도 된다)
+		GfxDepthStencilView* readDsv = (viewDsv == _viewDepthView.Get() && _viewDepthReadOnly) ? _viewDepthReadOnly.Get() : viewDsv;
+		_deviceContext->OMSetRenderTargets(1, &sceneTarget, readDsv);
+	}
+	_deviceContext->RSSetViewports(1, &viewport);
+	MeshBatcher::Draw(SceneManager::GetI()->GetCurrentScene(), MeshBatcher::Pass::Transparent, false);
+	_deviceContext->RSSetState(0);
+
 	// 물 (바다·호수·강): 불투명 + 하늘 다음 (굴절에 화면 색을 쓴다), 입자 전
 	phase.Next("Water");
 	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow, &atmosphere);
@@ -697,6 +708,17 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		phase.Next("Atmosphere");
 		DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, SceneToolbar::SkyboxVisible());
 	}
+
+	// 투명 메시 (Game 뷰와 같은 자리)
+	phase.Next("Transparent");
+	{
+		// 깊이는 읽기만 (읽기 전용 DSV — 깊이 SRV 와 같이 묶여도 된다)
+		GfxDepthStencilView* readDsv = (viewDsv == _viewDepthView.Get() && _viewDepthReadOnly) ? _viewDepthReadOnly.Get() : viewDsv;
+		_deviceContext->OMSetRenderTargets(1, &sceneTarget, readDsv);
+	}
+	_deviceContext->RSSetViewports(1, &viewport);
+	MeshBatcher::Draw(SceneManager::GetI()->GetCurrentScene(), MeshBatcher::Pass::Transparent, true);
+	_deviceContext->RSSetState(0);
 
 	// 물 (바다·호수·강)
 	phase.Next("Water");

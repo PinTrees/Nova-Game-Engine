@@ -1655,17 +1655,19 @@ function Suite-ShaderGraph
             $p = Join-Path $dir $name
             Invoke-Nova 'wait 5' | Out-Null
             Invoke-Nova "screenshot $p --view scene" | Out-Null
-            if (-not (Test-Path $p)) { return [pscustomobject]@{ R = 0; G = 0; B = 0; Red = 0; Black = 0; White = 0; N = 1 } }
+            if (-not (Test-Path $p)) { return [pscustomobject]@{ R = 0; G = 0; B = 0; Red = 0; Black = 0; White = 0; Green = 0; Blue = 0; N = 1 } }
             $bm = [System.Drawing.Bitmap]::FromFile($p)
-            $r = 0.0; $g = 0.0; $b = 0.0; $n = 0; $red = 0; $black = 0; $white = 0
+            $r = 0.0; $g = 0.0; $b = 0.0; $n = 0; $red = 0; $black = 0; $white = 0; $green = 0; $blue = 0
             for ($y = [int]($bm.Height * 0.35); $y -lt [int]($bm.Height * 0.65); $y += 3) { for ($x = [int]($bm.Width * 0.35); $x -lt [int]($bm.Width * 0.65); $x += 3) {
                 $c = $bm.GetPixel($x, $y); $r += $c.R; $g += $c.G; $b += $c.B; $n++
                 if ($c.R -gt $c.G + 60 -and $c.R -gt $c.B + 60) { $red++ }
                 if ($c.R -lt 80 -and $c.G -lt 80 -and $c.B -lt 80) { $black++ }
-                if ($c.R -gt 180 -and $c.G -gt 180 -and $c.B -gt 180) { $white++ } } }
+                if ($c.R -gt 180 -and $c.G -gt 180 -and $c.B -gt 180) { $white++ }
+                if ($c.G -gt $c.R + 40 -and $c.G -gt $c.B + 20) { $green++ }
+                if ($c.B -gt $c.R + 40 -and $c.B -gt $c.G + 10) { $blue++ } } }
             $bm.Dispose()
             $n = [math]::Max(1, $n)
-            [pscustomobject]@{ R = [math]::Round($r / $n); G = [math]::Round($g / $n); B = [math]::Round($b / $n); Red = $red; Black = $black; White = $white; N = $n }
+            [pscustomobject]@{ R = [math]::Round($r / $n); G = [math]::Round($g / $n); B = [math]::Round($b / $n); Red = $red; Black = $black; White = $white; Green = $green; Blue = $blue; N = $n }
         }
 
         $h = SG 'help'
@@ -1756,6 +1758,70 @@ function Suite-ShaderGraph
         Wait-Sec 0.45
         $t2 = Center 'time_2.png'
         Add-Result shadergraph 'Time node animates (gray level changes over time)' ([math]::Abs($t1.R - $t2.R) -gt 15 -and [math]::Abs($t1.R - $t1.G) -le 3) "R $($t1.R) → $($t2.R)"
+
+        # ---- 2단계: Alpha Clipping · Transparent · 엔진 Lit Alpha Clipping · 같은 이름 · 미리보기
+        # 빨간 엔진 벽 앞의 상자: 구멍 / 투명한 곳으로 빨강이 보여야 한다 (프리패스가 구멍에 깊이를 남기면 배경색)
+        Copy-Item (Join-Path $Project 'Assets\Materials\Red Plastic.mat') (Join-Path $assetDir 'Red.mat') -Force
+        Invoke-Nova 'create cube --name RedWall --position 0,1.5,4 --scale 10,8,1' | Out-Null
+        Invoke-Nova 'set RedWall --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Red.mat\"]}"' | Out-Null
+        $cf = Join-Path $dir 'clip.txt'
+        @(
+            'settings --alpha-clip true',
+            'property.add --name Tint --type Color --value 0.1,0.8,0.2,1 --node --x -400 --y -100',
+            'node.add --type Checkerboard --x -400 --y 100 --values ''{"Color A":[0,0,0],"Color B":[1,1,1],"Frequency":[2,2]}''',
+            'connect --from 1 --to Master --in "Base Color"',
+            'connect --from 2 --to Master --in Alpha'
+        ) | Set-Content -Encoding utf8 $cf
+        SG 'new Assets/SGTest/Clip.shadergraph --timeout 240' | Out-Null
+        $cb = SG "batch $cf"
+        $cs = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        $ch2 = SG 'compile --hlsl'
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Clip.mat\"]}"' | Out-Null
+        $cl = Center 'clip.png'
+        Add-Result shadergraph 'Alpha Clipping: holes show the wall behind (prepass + shadow techniques), tiles stay' ($cs.built -and $ch2.hlsl -match 'GraphDepthBatchTech' -and $ch2.hlsl -match 'GraphShadowBatchTech' -and $cl.Red -gt $cl.N * 0.15 -and $cl.Green -gt $cl.N * 0.15) "built=$($cs.built) red(holes)=$($cl.Red) green(tiles)=$($cl.Green) of $($cl.N)"
+
+        # 엔진 Lit 재질의 Alpha Clipping (Mesh Renderer): 같은 구멍이 프리패스에서도 (예전에는 배경색 구멍)
+        $bmp = New-Object System.Drawing.Bitmap 64, 64
+        for ($y = 0; $y -lt 64; $y++) { for ($x = 0; $x -lt 64; $x++) { $a = if ([math]::Floor($x / 16) % 2 -eq 0) { 255 } else { 0 }; $bmp.SetPixel($x, $y, [System.Drawing.Color]::FromArgb($a, 255, 255, 255)) } }
+        $bmp.Save((Join-Path $assetDir 'stripes.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+        $sm = Get-Content (Join-Path $assetDir 'Red.mat') -Raw | ConvertFrom-Json
+        $sm.BaseMapPath = 'Assets\SGTest\stripes.png'; $sm.AlphaClipping = 1; $sm.BaseColor = @(0.1, 0.2, 0.9, 1); $sm.ResourcePath = 'Assets\SGTest\Stripes.mat'
+        $sm | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Stripes.mat')
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Stripes.mat\"]}"' | Out-Null
+        $st = Center 'engine_clip.png'
+        Add-Result shadergraph 'engine Lit Alpha Clipping on a Mesh Renderer: stripes show the wall behind (prepass fix)' ($st.Red -gt $st.N * 0.15 -and $st.Blue -gt $st.N * 0.15) "red(holes)=$($st.Red) blue(stripes)=$($st.Blue) of $($st.N)"
+
+        # Transparent: 파란 유리 (Alpha 0.4) 너머로 빨간 벽 — 섞인 색
+        SG 'new Assets/SGTest/Glass.shadergraph --timeout 240' | Out-Null
+        SG 'settings --surface Transparent' | Out-Null
+        SG 'property.add --name Tint --type Color --value 0.1,0.3,1,1 --node --x -400 --y -100' | Out-Null
+        SG 'node.add --type Float --x -400 --y 100 --values "{\"X\":0.4}"' | Out-Null
+        SG 'connect --from 1 --to Master --in "Base Color"' | Out-Null
+        SG 'connect --from 2 --to Master --in Alpha' | Out-Null
+        $gs = SG 'save --timeout 240'
+        SG 'material' | Out-Null
+        $gi = SG 'info'
+        Invoke-Nova 'set Box --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTest/Glass.mat\"]}"' | Out-Null
+        $tr = Center 'transparent.png'
+        Add-Result shadergraph 'Transparent: the red wall shows through the blue glass (blended, no prepass)' ($gs.built -and $gi.surface -eq 'Transparent' -and $tr.R -gt 70 -and $tr.B -gt 60) "rgb=$($tr.R),$($tr.G),$($tr.B)"
+
+        # 같은 셰이더 이름 (다른 폴더의 같은 파일 이름): 저장이 이유를 알려 주고, 경로를 바꾸면 된다
+        New-Item -ItemType Directory -Force (Join-Path $assetDir 'Sub') | Out-Null
+        Copy-Item (Join-Path $assetDir 'Glass.shadergraph') (Join-Path $assetDir 'Sub\Glass.shadergraph') -Force
+        SG 'open Assets/SGTest/Sub/Glass.shadergraph' | Out-Null
+        $dup = Invoke-Nova 'shadergraph save --timeout 240'
+        SG 'settings --path "Shader Graphs/Sub"' | Out-Null
+        $dupOk = SG 'save --timeout 240'
+        Add-Result shadergraph 'two graphs with one shader name: save explains, a Blackboard path fixes it' (($dup -match 'two shader graphs') -and $dupOk.built -and $dupOk.shader -eq 'Shader Graphs/Sub/Glass') "dup: $(($dup -split "`n" | Select-Object -Last 1)) / after path: $($dupOk.shader) built=$($dupOk.built)"
+
+        # 미리보기 셰이더 (노드 + Main Preview): 창을 열면 백그라운드에서 만든다
+        SG 'open Assets/SGTest/Clip.shadergraph' | Out-Null
+        Invoke-Nova 'shadergraph window' | Out-Null
+        Wait-Sec 1.5
+        Invoke-Nova "screenshot $(Join-Path $dir 'preview.png') --view editor" | Out-Null
+        $pv = @(Select-String -Path $EditorLog -Pattern '_Preview\.fx' | ForEach-Object { $_.Line })
+        Add-Result shadergraph 'preview shader builds when the window opens' (@($pv | Where-Object { $_ -match 'hr=0x00000000|cache hit' }).Count -ge 1) "$(($pv | Select-Object -Last 1))"
 
         # ---- 모든 노드 종류: 하나씩 + Add 사슬로 Base Color 에 → 한 셰이더로 컴파일
         SG 'new Assets/SGTest/AllNodes.shadergraph --material Lit --timeout 240' | Out-Null

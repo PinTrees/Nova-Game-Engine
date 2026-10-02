@@ -8,6 +8,7 @@
 //  - Ctrl+S = 저장 + 셰이더 만들기 (오류는 아래 상태 줄), Ctrl+Z / Ctrl+Y
 //  - 문서 · 연산은 CLI (nova shadergraph …) 와 같다 (ShaderGraphOps)
 namespace ax { namespace NodeEditor { struct EditorContext; } }
+class ShaderGraphPreview;
 
 class ShaderGraphWindow : public EditorWindow
 {
@@ -37,6 +38,11 @@ private:
 	std::string m_Status;
 	bool m_StatusError = false;
 	bool m_EditActive = false;        // 값 끌기 중 (Undo 를 한 번만)
+	std::unique_ptr<ShaderGraphPreview> m_Preview;
+	bool m_ShowPreviews = true;       // 노드 미리보기
+	bool m_ShowMain = true;           // Main Preview
+	char m_PathBuf[128] = {};
+	uint64 m_PathRevision = 0;
 
 	void SetStatus(const std::string& s, bool error = false) { m_Status = s; m_StatusError = error; }
 	void DrawMenuBar();
@@ -50,6 +56,7 @@ private:
 	void Save();
 	void ApplyToSelection();
 	void BeginEdit();   // 값 위젯이 처음 바뀔 때 Undo
+	void DrawMainPreview(float width);
 };
 
 namespace ShaderGraph

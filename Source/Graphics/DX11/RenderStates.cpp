@@ -15,6 +15,7 @@ ComPtr<GfxDepthStencilState> RenderStates::NoDoubleBlendDSS;
 ComPtr<GfxDepthStencilState> RenderStates::EqualsDSS;
 
 ComPtr<GfxDepthStencilState> RenderStates::LessEqualDSS;
+ComPtr<GfxDepthStencilState> RenderStates::DepthReadDSS;
 
 void RenderStates::InitAll(ComPtr<GfxDevice> device)
 {
@@ -201,6 +202,17 @@ void RenderStates::InitAll(ComPtr<GfxDevice> device)
 	lessEqualDesc.StencilEnable = false;
 
 	HR(device->CreateDepthStencilState(&lessEqualDesc, LessEqualDSS.GetAddressOf()));
+
+	//
+	// DepthReadDSS (transparent meshes: test against the opaque depth, do not write)
+	//
+	D3D11_DEPTH_STENCIL_DESC depthReadDesc;
+	ZeroMemory(&depthReadDesc, sizeof(D3D11_DEPTH_STENCIL_DESC));
+	depthReadDesc.DepthEnable = true;
+	depthReadDesc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+	depthReadDesc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+	depthReadDesc.StencilEnable = false;
+	HR(device->CreateDepthStencilState(&depthReadDesc, DepthReadDSS.GetAddressOf()));
 }
 
 void RenderStates::DestroyAll()

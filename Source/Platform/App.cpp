@@ -136,6 +136,7 @@ int32 App::Run()
 					EditorGUIManager::GetI()->Update();
 				}
 				{ PROFILE_SCOPE("Audio.Update"); AudioManager::Update(); }   // 리스너 위치, 일시정지, One Shot 정리, 통계
+				{ PROFILE_SCOPE("ShaderGraph.Update"); ShaderGraph::UpdateRuntime(); }   // 끝난 백그라운드 셰이더 컴파일 → 재질에
 				{ PROFILE_SCOPE("Scripts.Update"); ScriptEngine::Update(); }
 	AutoSave::Update();
 				AutoSave::WatchModels();   // 모델 원본이 바뀌면 다시 가져오기   // 간격마다 변경된 씬을 Library/AutoSave 에 (원본은 그대로)   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기

@@ -4,6 +4,7 @@
 #include "ScriptEngine.h"
 #include "PackageManager.h"
 #include "ShaderCache.h"
+#include "ShaderGraphRuntime.h"
 #include "Debug.h"
 #include <filesystem>
 #include <fstream>
@@ -22,6 +23,7 @@ namespace
 		fs::path EngineRoot, ProjectRoot, BinDir, Out;
 		std::string Product;
 		std::vector<std::string> Scenes;
+		std::map<std::string, std::string> ShaderGraphs;   // 셰이더 이름 → .shadergraph (Shader Graph 목록은 메인 스레드에서만 읽는다)
 	std::vector<std::pair<std::string, std::wstring>> Packages;   // 프로젝트에 넣은 패키지 (이름, 폴더) — 시작할 때 모아 둔다
 	bool NeedsShaderCross = true;   // 플레이어 API 에 OpenGL 이 있으면 HLSL → GLSL 변환기(dxcompiler·dxil 23 MB)가 필요
 		json PlayerJson;
@@ -53,7 +55,7 @@ namespace
 		return _wcsicmp(first.c_str(), L"ProjectSetting") == 0 || _wcsicmp(first.c_str(), L"Resources") == 0 || _wcsicmp(first.c_str(), L"Shaders") == 0;
 	}
 
-	const std::set<std::string> kJsonExt = { ".scene", ".prefab", ".mat", ".material", ".controller", ".volumeprofile", ".terraindata", ".terrainlayer", ".json", ".asset", ".anim", ".physicmaterial", ".mixer" };
+	const std::set<std::string> kJsonExt = { ".scene", ".prefab", ".mat", ".material", ".controller", ".volumeprofile", ".terraindata", ".terrainlayer", ".json", ".asset", ".anim", ".physicmaterial", ".mixer", ".shadergraph" };
 	const std::set<std::string> kModelExt = { ".fbx", ".obj", ".dae", ".gltf", ".glb", ".vrm", ".3ds", ".blend", ".x" };
 	const std::set<std::string> kTextureExt = { ".png", ".jpg", ".jpeg", ".tga", ".dds", ".bmp", ".psd", ".tif", ".tiff", ".hdr" };
 
@@ -61,7 +63,8 @@ namespace
 	class DependencyCollector
 	{
 	public:
-		DependencyCollector(const fs::path& engine, const fs::path& project) : m_Engine(engine), m_Project(project) {}
+		DependencyCollector(const fs::path& engine, const fs::path& project, const std::map<std::string, std::string>* graphs = nullptr)
+			: m_Engine(engine), m_Project(project), m_Graphs(graphs) {}
 
 		// rel = 루트 기준 경로 (Assets\... / Resources\...). 이미 있으면 무시
 		void AddRelative(const std::wstring& rawRel)
@@ -123,7 +126,18 @@ namespace
 				if (s.size() >= 4 && s.size() < 400 && s.find('.') != std::string::npos && (s.find('\\') != std::string::npos || s.find('/') != std::string::npos))
 					AddRelative(string_to_wstring(s));
 			}
-			else if (j.is_object() || j.is_array())
+			else if (j.is_object())
+			{
+				for (auto it = j.begin(); it != j.end(); ++it)
+				{
+					// 재질의 "Shader": "Shader Graphs/X" 는 경로가 아니라 이름 → 그 .shadergraph (게임이 처음 쓸 때 셰이더를 만든다)
+					if (it.key() == "Shader" && it->is_string() && m_Graphs)
+						if (auto g = m_Graphs->find(it->get<std::string>()); g != m_Graphs->end())
+							AddRelative(string_to_wstring(g->second));
+					Walk(*it);
+				}
+			}
+			else if (j.is_array())
 				for (const auto& item : j)
 					Walk(item);
 		}
@@ -145,6 +159,7 @@ namespace
 		}
 
 		fs::path m_Engine, m_Project;
+		const std::map<std::string, std::string>* m_Graphs = nullptr;
 		std::set<std::wstring> m_Seen;
 	};
 
@@ -175,7 +190,7 @@ namespace
 
 		// 1) 씬이 참조하는 에셋 모으기
 		job->SetStatus("Collecting assets referenced by scenes");
-		DependencyCollector deps(job->EngineRoot, job->ProjectRoot);
+		DependencyCollector deps(job->EngineRoot, job->ProjectRoot, &job->ShaderGraphs);
 		for (const std::string& scene : job->Scenes)
 			deps.AddRelative(string_to_wstring(scene));
 		// 프로젝트 설정(기본 Volume Profile 등)이 가리키는 것도
@@ -333,6 +348,8 @@ namespace BuildPipeline
 		if (ScriptEngine::HasCompileErrors()) { error = "Error building Player because scripts have compile errors in the editor."; return false; }
 
 		auto job = std::make_shared<Job>();
+		for (const std::string& asset : ShaderGraph::GraphAssets(true))
+			job->ShaderGraphs[ShaderGraph::ShaderNameOf(asset)] = asset;
 		job->EngineRoot = PathManager::GetI()->GetEnginePathW();
 		job->ProjectRoot = PathManager::GetI()->GetContentPathW();
 		wchar_t exe[MAX_PATH] = {};

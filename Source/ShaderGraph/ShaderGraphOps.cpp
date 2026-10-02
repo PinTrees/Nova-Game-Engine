@@ -67,7 +67,7 @@ namespace ShaderGraph
 		std::string InPortName(const Graph& g, int nodeId, const std::string& want)
 		{
 			const std::vector<PortDef>* ports = nullptr;
-			if (nodeId == 0) ports = &MasterInputs(g.Material);
+			if (nodeId == 0) ports = &MasterInputs(g);
 			else if (const Node* n = g.FindNode(nodeId))
 				if (const NodeDef* d = FindDef(n->Type)) ports = &d->In;
 			if (!ports) return std::string();
@@ -124,7 +124,7 @@ namespace ShaderGraph
 				{ "open", "<path.shadergraph>" },
 				{ "save", "[path]: save and build the shader (errors come back)" },
 				{ "info", "the open graph: settings, properties, nodes (inputs: linked / value), edges" },
-				{ "settings", "--material Lit|Unlit (Graph Settings > Material)" },
+				{ "settings", "[--material Lit|Unlit] [--surface Opaque|Transparent] [--alpha-clip true|false] [--path \"Shader Graphs\"] (Graph Settings; path = shader name prefix)" },
 				{ "node.add", "--type Multiply [--x 0 --y 0] [--values {\"B\":[1,0,0,1]}] [--options {\"mask\":\"xy\"}] → id" },
 				{ "node.set", "--id N [--values {...}] [--options {...}] [--x --y]  (values / options merge; null removes)" },
 				{ "node.delete", "--id N" },
@@ -209,7 +209,7 @@ namespace ShaderGraph
 		for (const Node& n : G.Nodes)
 			nodes.push_back(NodeJson(G, n));
 		json master = json::object();
-		for (const PortDef& p : MasterInputs(G.Material))
+		for (const PortDef& p : MasterInputs(G))
 		{
 			json m = json();
 			for (const Edge& e : G.Edges)
@@ -218,6 +218,7 @@ namespace ShaderGraph
 			master[p.Name] = m;
 		}
 		return { { "path", Asset }, { "shader", Asset.empty() ? "" : ShaderNameOf(Asset) }, { "dirty", Dirty }, { "material", G.Material },
+			{ "surface", G.Surface }, { "alphaClip", G.AlphaClip }, { "shaderPath", G.Path }, { "compiling", !Asset.empty() && IsCompiling(ShaderNameOf(Asset)) },
 			{ "properties", props }, { "nodes", nodes }, { "master", master }, { "error", Asset.empty() ? "" : LastError(ShaderNameOf(Asset)) } };
 	}
 
@@ -249,7 +250,7 @@ namespace ShaderGraph
 		return true;
 	}
 
-	bool SaveDoc(const std::string& assetPath, std::string& error)
+	bool SaveDoc(const std::string& assetPath, std::string& error, bool wait)
 	{
 		Document& d = Doc();
 		std::string path = assetPath.empty() ? d.Asset : assetPath;
@@ -260,7 +261,7 @@ namespace ShaderGraph
 		d.Asset = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(FullPath(path)));
 		d.Dirty = false;
 		++d.Revision;
-		return Reload(d.Asset, error);
+		return Reload(d.Asset, error, wait);
 	}
 
 	bool RunOp(const std::string& op, const json& a, json& r, std::string& e)
@@ -337,12 +338,25 @@ namespace ShaderGraph
 			if (Lower(m) == "lit") m = "Lit";
 			else if (Lower(m) == "unlit") m = "Unlit";
 			else { e = "material must be Lit or Unlit"; return false; }
+			std::string surface = a.value("surface", g.Surface);
+			if (Lower(surface) == "opaque") surface = "Opaque";
+			else if (Lower(surface) == "transparent") surface = "Transparent";
+			else { e = "surface must be Opaque or Transparent"; return false; }
+			bool clip = g.AlphaClip;
+			if (a.contains("alpha-clip")) clip = a["alpha-clip"].is_boolean() ? a["alpha-clip"].get<bool>() : Lower(a["alpha-clip"].dump()).find("true") != std::string::npos;
+			if (a.contains("alphaClip") && a["alphaClip"].is_boolean()) clip = a["alphaClip"].get<bool>();
+			std::string path = a.value("path", g.Path);
+			while (!path.empty() && (path.back() == '/' || path.back() == ' ')) path.pop_back();
+			if (path.empty()) { e = "path must not be empty (default: Shader Graphs)"; return false; }
 			d.Snapshot();
 			g.Material = m;
-			// 새 Master 에 없는 입력의 선은 지운다
+			g.Surface = surface;
+			g.AlphaClip = clip;
+			g.Path = path;
+			// 새 Master 에 없는 입력의 선은 지운다 (Unlit 의 Normal, Alpha Clipping 을 끈 Threshold …)
 			g.Edges.erase(std::remove_if(g.Edges.begin(), g.Edges.end(), [&](const Edge& x) { return x.ToNode == 0 && InPortName(g, 0, x.ToPort).empty(); }), g.Edges.end());
 			d.Changed();
-			r = { { "material", g.Material } };
+			r = { { "material", g.Material }, { "surface", g.Surface }, { "alphaClip", g.AlphaClip }, { "path", g.Path } };
 			return true;
 		}
 		if (op == "node.add")

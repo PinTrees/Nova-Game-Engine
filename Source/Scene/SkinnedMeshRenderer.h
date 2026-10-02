@@ -75,6 +75,8 @@ public:
 private:
 	// 패키지 셰이더 (CustomShaders) 에 넘길 그리기 정보
 	CustomShaders::SkinnedDraw MakeCustomDraw(UMaterial* material, FXMMATRIX world, CXMMATRIX viewProj, bool editor, int subset);
+	// 잘라내는 사용자 셰이더 (Shader Graph Alpha Clipping): 그림자 · 깊이 패스도 그 셰이더가 그린다 (true = 그렸다)
+	bool DrawCustomClip(int subset, CustomShaders::DrawPass pass, FXMMATRIX world, CXMMATRIX viewProj, CXMMATRIX view, bool editor);
 public:
 	void SetMesh(shared_ptr<SkinnedMesh> mesh) { m_Mesh = mesh; }
 	// FBX 경로의 index 번째 스킨 메시를 쓴다 (스켈레톤, 기본 재질, 바운드, 바인드 포즈를 함께 설정)

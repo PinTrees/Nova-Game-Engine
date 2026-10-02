@@ -2,6 +2,7 @@
 #include "ShaderGraphWindow.h"
 #include "ShaderGraphOps.h"
 #include "ShaderGraphRuntime.h"
+#include "ShaderGraphPreview.h"
 #include "CliServer.h"
 #include "EditorExtensions.h"
 #include "EditorGUIManager.h"
@@ -79,7 +80,7 @@ namespace
 	const std::vector<PortDef>& InputsOf(const Graph& g, int node)
 	{
 		static const std::vector<PortDef> none;
-		if (node == 0) return MasterInputs(g.Material);
+		if (node == 0) return MasterInputs(g);
 		if (const Node* n = g.FindNode(node))
 			if (const NodeDef* d = FindDef(n->Type)) return d->In;
 		return none;
@@ -188,8 +189,9 @@ void ShaderGraphWindow::Save()
 		SetStatus("This graph has no file yet: make one in the Project window (Create > Shader Graph) or with nova shadergraph new.", true);
 		return;
 	}
-	if (SaveDoc(d.Asset, error))
-		SetStatus("Saved " + d.Asset + " - built " + ShaderNameOf(d.Asset));
+	// 셰이더는 백그라운드에서 만든다 (그동안 예전 셰이더로 그린다) — 끝나면 상태 줄이 오류 / 성공을 보여 준다
+	if (SaveDoc(d.Asset, error, false))
+		SetStatus("Saved " + d.Asset);
 	else
 		SetStatus(error, true);
 }
@@ -294,7 +296,20 @@ void ShaderGraphWindow::DrawBlackboard(float width, float height)
 			}
 		ImGui::EndPopup();
 	}
-	ImGui::TextDisabled(d.Asset.empty() ? "Shader Graphs" : ShaderNameOf(d.Asset).c_str());
+	// 경로 (Unity 의 Blackboard 부제목): 셰이더 이름 = <경로>/<파일 이름>
+	if (m_PathRevision != d.Revision)
+	{
+		strncpy_s(m_PathBuf, g.Path.c_str(), _TRUNCATE);
+		m_PathRevision = d.Revision;
+	}
+	ImGui::SetNextItemWidth(-1);
+	if (ImGui::InputText("##sgpath", m_PathBuf, sizeof(m_PathBuf), ImGuiInputTextFlags_EnterReturnsTrue) || (ImGui::IsItemDeactivatedAfterEdit()))
+	{
+		nlohmann::json r;
+		std::string e;
+		if (!RunOp("settings", { { "path", std::string(m_PathBuf) } }, r, e)) SetStatus(e, true);
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shader path: the material's Shader is <path>/<file name> (save to apply)");
 	ImGui::Separator();
 	std::string remove;
 	for (const Property& p : g.Properties)
@@ -379,7 +394,7 @@ bool ShaderGraphWindow::ValueEditor(Node& n, const PortDef& p, float itemWidth)
 			for (int i = 0; i < w; ++i) a.push_back(v[i]);
 			n.Values[p.Name] = a;
 		}
-		Doc().Dirty = true;
+		Doc().Touch();
 	}
 	return changed;
 }
@@ -450,6 +465,15 @@ void ShaderGraphWindow::DrawNode(Node& n)
 		ed::EndPin();
 	}
 	ImGui::EndGroup();
+	// 미리보기 (첫 출력의 값 — Unity 의 노드 미리보기)
+	if (m_ShowPreviews && m_Preview && n.Type != "Property")
+	{
+		ImVec2 uv0, uv1;
+		if (ImTextureID tex = m_Preview->NodeTexture(n.Id, uv0, uv1))
+			ImGui::Image(tex, ImVec2((float)ShaderGraphPreview::kTile, (float)ShaderGraphPreview::kTile), uv0, uv1);
+		else
+			ImGui::Dummy(ImVec2((float)ShaderGraphPreview::kTile, (float)ShaderGraphPreview::kTile));
+	}
 	ImGui::PopID();
 	ed::EndNode();
 	ed::PopStyleColor();
@@ -464,7 +488,7 @@ void ShaderGraphWindow::DrawMaster()
 	ImGui::PushFont(UnityGUI::BoldFont());
 	ImGui::Text("Fragment (%s)", g.Material.c_str());
 	ImGui::PopFont();
-	const std::vector<PortDef>& ins = MasterInputs(g.Material);
+	const std::vector<PortDef>& ins = MasterInputs(g);
 	for (int i = 0; i < (int)ins.size(); ++i)
 	{
 		const PortDef& p = ins[i];
@@ -810,6 +834,8 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 	Document& d = Doc();
 	Graph& g = d.G;
 	ImGui::BeginChild("##graphInspector", ImVec2(width, height), true);
+	const float previewH = m_ShowMain ? (std::min)(width, height * 0.5f) + 34.0f : 28.0f;
+	ImGui::BeginChild("##inspectorTop", ImVec2(0, (std::max)(80.0f, height - previewH - 12.0f)));
 	ImGui::PushFont(UnityGUI::BoldFont());
 	ImGui::TextUnformatted("Graph Inspector");
 	ImGui::PopFont();
@@ -826,6 +852,25 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 		std::string e;
 		RunOp("settings", { { "material", kMat[mat] } }, r, e);
 	}
+	ImGui::TextUnformatted("Surface Type");
+	ImGui::SameLine(110.0f);
+	int surface = g.Surface == "Transparent" ? 1 : 0;
+	static const char* kSurface[] = { "Opaque", "Transparent" };
+	ImGui::SetNextItemWidth(-1);
+	if (ImGui::Combo("##surface", &surface, kSurface, 2))
+	{
+		nlohmann::json r;
+		std::string e;
+		RunOp("settings", { { "surface", kSurface[surface] } }, r, e);
+	}
+	bool clip = g.AlphaClip;
+	if (ImGui::Checkbox("Alpha Clipping", &clip))
+	{
+		nlohmann::json r;
+		std::string e;
+		RunOp("settings", { { "alphaClip", clip } }, r, e);
+	}
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cut away pixels whose Alpha is below Alpha Clip Threshold (also in shadows)");
 	ImGui::Spacing();
 	ImGui::Separator();
 
@@ -857,7 +902,7 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 			{
 				BeginEdit();
 				n->Options["color"] = { c[0], c[1], c[2], c[3] };
-				d.Dirty = true;
+				d.Touch();
 			}
 			if (ImGui::IsItemDeactivated()) m_EditActive = false;
 		}
@@ -956,7 +1001,7 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 		{
 			BeginEdit();
 			p->Name = name;
-			d.Dirty = true;
+			d.Touch();
 		}
 		if (ImGui::IsItemDeactivated()) m_EditActive = false;
 		ImGui::TextUnformatted("Reference");
@@ -975,17 +1020,17 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 			else if (w == 2) changed = ImGui::DragFloat2("##def", p->Value, 0.01f);
 			else if (w == 3) changed = ImGui::DragFloat3("##def", p->Value, 0.01f);
 			else changed = ImGui::DragFloat4("##def", p->Value, 0.01f);
-			if (changed) { BeginEdit(); d.Dirty = true; }
+			if (changed) { BeginEdit(); d.Touch(); }
 			if (ImGui::IsItemDeactivated()) m_EditActive = false;
 			if (p->Type == "Float")
 			{
 				bool range = p->Range;
-				if (ImGui::Checkbox("Slider (Range)", &range)) { d.Snapshot(); p->Range = range; d.Dirty = true; }
+				if (ImGui::Checkbox("Slider (Range)", &range)) { d.Snapshot(); p->Range = range; d.Touch(); }
 				if (p->Range)
 				{
 					ImGui::SetNextItemWidth(-1);
 					float mm[2] = { p->Min, p->Max };
-					if (ImGui::DragFloat2("##range", mm, 0.01f)) { BeginEdit(); p->Min = mm[0]; p->Max = mm[1]; d.Dirty = true; }
+					if (ImGui::DragFloat2("##range", mm, 0.01f)) { BeginEdit(); p->Min = mm[0]; p->Max = mm[1]; d.Touch(); }
 					if (ImGui::IsItemDeactivated()) m_EditActive = false;
 				}
 			}
@@ -1001,7 +1046,7 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 			{
 				d.Snapshot();
 				p->Texture = buf;
-				d.Dirty = true;
+				d.Touch();
 			}
 			if (ImGui::BeginDragDropTarget())
 			{
@@ -1014,7 +1059,7 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 					if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0) dropped = dropped.substr(root.size());
 					d.Snapshot();
 					p->Texture = dropped;
-					d.Dirty = true;
+					d.Touch();
 				}
 				ImGui::EndDragDropTarget();
 			}
@@ -1025,11 +1070,49 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 	else
 		ImGui::TextWrapped("Select a node or a Blackboard property.\n\nRight-click or press Space on the canvas to create a node. Drag from a port to link; drop on empty space to create a linked node.");
 	ImGui::EndChild();
+	DrawMainPreview(ImGui::GetContentRegionAvail().x);
+	ImGui::EndChild();
+}
+
+void ShaderGraphWindow::DrawMainPreview(float width)
+{
+	ImGui::Separator();
+	ImGui::Checkbox("Main Preview", &m_ShowMain);
+	if (!m_ShowMain || !m_Preview)
+		return;
+	ImGui::SameLine();
+	if (ImGui::SmallButton(m_Preview->Shape == 1 ? "Sphere" : "Cube"))
+		m_Preview->Shape = m_Preview->Shape == 1 ? 2 : 1;
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Preview mesh");
+	ImGui::SameLine();
+	ImGui::Checkbox("Nodes", &m_ShowPreviews);
+	const float size = (std::max)(64.0f, (std::min)(width, ImGui::GetContentRegionAvail().y - 4.0f));
+	if (ImTextureID tex = m_Preview->MainTexture())
+	{
+		const ImVec2 p = ImGui::GetCursorScreenPos();
+		ImGui::Image(tex, ImVec2(size, size));
+		// 끌어 돌리기
+		ImGui::SetCursorScreenPos(p);
+		ImGui::InvisibleButton("##mainDrag", ImVec2(size, size));
+		if (ImGui::IsItemActive())
+		{
+			const ImVec2 dlt = ImGui::GetIO().MouseDelta;
+			m_Preview->Yaw += dlt.x * 0.01f;
+			m_Preview->Pitch = std::clamp(m_Preview->Pitch + dlt.y * 0.01f, -1.4f, 1.4f);
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag to rotate");
+	}
+	else
+		ImGui::TextDisabled(m_Preview->Compiling() ? "Compiling preview..." : "No preview");
 }
 
 void ShaderGraphWindow::OnRender()
 {
 	Document& d = Doc();
+	if (!m_Preview)
+		m_Preview = std::make_unique<ShaderGraphPreview>();
+	// 값 (Edits) 이나 문서 (Revision: 열기 · Undo · CLI) 가 바뀌면 미리보기를 다시 (같은 코드면 컴파일하지 않는다)
+	m_Preview->Update(d.G, (d.Revision << 32) ^ d.Edits, m_ShowPreviews, m_ShowMain);
 	DrawMenuBar();
 	const ImVec2 avail = ImGui::GetContentRegionAvail();
 	const float statusH = ImGui::GetTextLineHeightWithSpacing() + 6.0f;
@@ -1046,10 +1129,16 @@ void ShaderGraphWindow::OnRender()
 	ImGui::SetCursorPosX(8.0f);
 	std::string status = m_Status;
 	bool error = m_StatusError;
-	if (status.empty() && !d.Asset.empty())
+	if (!d.Asset.empty())
 	{
-		const std::string err = LastError(ShaderNameOf(d.Asset));
-		if (!err.empty()) { status = err; error = true; }
+		const std::string name = ShaderNameOf(d.Asset);
+		if (IsCompiling(name)) { status = "Compiling " + name + " ..."; error = false; }
+		else if (const std::string err = LastError(name); !err.empty()) { status = err; error = true; }
+	}
+	if (status.empty() && !m_Preview->Error().empty())
+	{
+		status = "Preview: " + m_Preview->Error();
+		error = true;
 	}
 	if (!status.empty())
 	{

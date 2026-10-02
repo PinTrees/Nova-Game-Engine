@@ -13,6 +13,7 @@
 #include "Profiler.h"
 #include "RenderLayers.h"
 #include "CustomShaders.h"
+#include "RenderStates.h"
 #include <unordered_map>
 
 namespace
@@ -64,6 +65,49 @@ namespace
 	std::vector<int> s_Order;
 	MeshBatcher::Stats s_Stats[2];
 
+	// 투명 재질 (CustomShaders::Transparent): 묶지 않고 물체마다 — 투명 패스에서 먼 것부터
+	struct TransparentItem
+	{
+		int Caster;
+		Mesh* MeshPtr;
+		int Subset;
+		shared_ptr<UMaterial> Material;
+	};
+	std::vector<TransparentItem> s_Transparent;
+
+	const CustomShaders::Shader* CustomOf(const UMaterial* m)
+	{
+		return m && m->IsCustom() ? CustomShaders::Find(m->CustomShader()) : nullptr;
+	}
+
+	bool IsTransparent(const UMaterial* m)
+	{
+		const CustomShaders::Shader* cs = CustomOf(m);
+		return cs && cs->DrawInstanced && cs->Transparent && cs->Transparent(*m);
+	}
+
+	// 깊이 · 그림자 패스에서도 재질이 필요한가 (잘라내기): 사용자 셰이더면 그 셰이더가, 아니면 엔진 Lit 의 Alpha Clipping (기본 그림이 있을 때)
+	enum class Clip { None, Engine, Custom };
+	Clip ClipOf(UMaterial* m)
+	{
+		if (m == nullptr)
+			return Clip::None;
+		if (const CustomShaders::Shader* cs = CustomOf(m); cs && cs->DrawInstanced)
+			return cs->ClipsAlpha && cs->ClipsAlpha(*m) ? Clip::Custom : Clip::None;
+		return m->GetPbr().AlphaClip && m->GetBaseMapSRV() ? Clip::Engine : Clip::None;
+	}
+
+	// 엔진 Alpha Clipping: 그림 알파와 비교할 값 (본 패스는 그림 × BaseColor 알파) · Tiling/Offset (SkinnedMeshRenderer 와 같은 식)
+	float EngineCutoff(UMaterial& m)
+	{
+		return m.GetPbr().Cutoff / (std::max)(m.GetPbr().BaseColor.w, 1e-4f);
+	}
+	XMMATRIX EngineClipTexTransform(UMaterial& m)
+	{
+		const PbrMaterial& pbr = m.GetPbr();
+		return XMMatrixScaling(pbr.Tiling.x, pbr.Tiling.y, 1.0f) * XMMatrixTranslation(pbr.Offset.x, pbr.Offset.y, 0.0f);
+	}
+
 	int BatchIndex(std::unordered_map<Key, int, KeyHash>& index, std::vector<Batch>& batches, int& count, Mesh* mesh, int subset, const shared_ptr<UMaterial>& mat, uint32 layer)
 	{
 		const Key key{ mesh, subset, mat.get(), layer };
@@ -89,6 +133,7 @@ namespace
 		s_DepthItems.clear();
 		s_MainIndex.clear();
 		s_DepthIndex.clear();
+		s_Transparent.clear();
 		s_MainCount = s_DepthCount = 0;
 		for (GameObject* go : scene->GetAllGameObjects())
 		{
@@ -113,8 +158,17 @@ namespace
 				const UINT matIndex = mesh->Subsets[i].MaterialIndex;
 				static const shared_ptr<UMaterial> s_None;
 				const shared_ptr<UMaterial>& mat = matIndex < materials.size() ? materials[matIndex] : s_None;
+				if (IsTransparent(mat.get()))
+				{
+					// 투명: 본 패스 · 프리패스 · 그림자에서 빼고 투명 패스로
+					s_MainItems.push_back(-1);
+					s_DepthItems.push_back(-1);
+					s_Transparent.push_back({ (int)s_Casters.size(), mesh.get(), i, mat });
+					continue;
+				}
 				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit));
-				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, s_None, 0));
+				// 깊이 · 그림자: 보통은 (메시, 서브셋) 만으로, 잘라내는 재질은 재질마다 (구멍이 본 패스와 같게)
+				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, ClipOf(mat.get()) != Clip::None ? mat : s_None, 0));
 			}
 			s_Casters.push_back(c);
 		}
@@ -162,6 +216,71 @@ namespace MeshBatcher
 {
 	const Stats& LastStats(bool editor) { return s_Stats[editor ? 1 : 0]; }
 
+	namespace
+	{
+		// 투명 패스: 먼 것부터 하나씩 (같은 메시 · 재질이라도 순서가 섞이면 안 된다), 알파 섞기 · 깊이 읽기만
+		void DrawTransparent(bool editor)
+		{
+			if (s_Transparent.empty())
+				return;
+			RenderManager* rm = RenderManager::GetI();
+			const XMMATRIX view = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
+			const XMMATRIX viewProj = editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix;
+			struct Item { const TransparentItem* T; float Depth; };
+			std::vector<Item> list;
+			list.reserve(s_Transparent.size());
+			for (const TransparentItem& t : s_Transparent)
+			{
+				const Caster& c = s_Casters[t.Caster];
+				if (!SceneCulling::IsVisible(c.Renderer) || !(c.LayerBit & RenderLayers::ActiveMask()) || c.Cast == 3)
+					continue;
+				// 물체 중심의 뷰 깊이 (Unity 도 렌더러 중심 거리로 정렬)
+				const XMVECTOR center = XMVector3TransformCoord(XMVectorSet(c.World._41, c.World._42, c.World._43, 1.0f), view);
+				list.push_back({ &t, XMVectorGetZ(center) });
+			}
+			if (list.empty())
+				return;
+			std::stable_sort(list.begin(), list.end(), [](const Item& a, const Item& b) { return a.Depth > b.Depth; });
+			GfxContext* dc = Application::GetI()->GetDeviceContext();
+			const float blendFactor[4] = { 0, 0, 0, 0 };
+			dc->OMSetBlendState(RenderStates::TransparentBS.Get(), blendFactor, 0xFFFFFFFF);
+			dc->OMSetDepthStencilState(RenderStates::DepthReadDSS.Get(), 0);
+			std::vector<XMFLOAT4X4> one(1);
+			for (const Item& it : list)
+			{
+				const TransparentItem& t = *it.T;
+				const CustomShaders::Shader* cs = CustomOf(t.Material.get());
+				if (!cs || !cs->DrawInstanced)
+					continue;
+				one[0] = s_Casters[t.Caster].World;
+				GfxBuffer* inst = Upload(dc, one);
+				if (!inst)
+					continue;
+				CustomShaders::InstancedDraw d;
+				d.Context = dc;
+				d.Material = t.Material.get();
+				d.ViewProj = viewProj;
+				d.View = view;
+				d.Editor = editor;
+				d.LayerBit = s_Casters[t.Caster].LayerBit;
+				d.Pass = CustomShaders::DrawPass::Transparent;
+				d.Draw = [&]() {
+					const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+					dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+					dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+					dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
+					t.MeshPtr->ModelMesh.InstancingDraw(dc, t.Subset, 1);
+				};
+				cs->DrawInstanced(d);
+			}
+			GfxBuffer* none = nullptr;
+			UINT zero = 0;
+			dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
+			dc->OMSetBlendState(nullptr, blendFactor, 0xFFFFFFFF);
+			dc->OMSetDepthStencilState(nullptr, 0);
+		}
+	}
+
 	void BeginView() { s_Collected = false; }
 
 	void Draw(Scene* scene, Pass pass, bool editor)
@@ -176,6 +295,11 @@ namespace MeshBatcher
 		{
 			PROFILE_SCOPE("MeshBatcher.Collect");
 			Collect(scene);
+		}
+		if (pass == Pass::Transparent)
+		{
+			DrawTransparent(editor);
+			return;
 		}
 
 		// ---- 이번 패스: 보이는 렌더러의 월드 행렬만 묶음에 쌓는다
@@ -197,6 +321,8 @@ namespace MeshBatcher
 				continue;
 			for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 			{
+				if (items[k] < 0)
+					continue;   // 투명 (투명 패스)
 				Batch& b = batches[items[k]];
 				if (b.Worlds.empty())
 					s_Order.push_back(items[k]);
@@ -288,6 +414,72 @@ namespace MeshBatcher
 					++drawn;
 					continue;
 				}
+			// 깊이 · 그림자: 잘라내는 재질 (사용자 셰이더 → 그 셰이더, 엔진 Lit → 그림 알파로 자르는 기법)
+			if (pass != Pass::Main && b->Material)
+			{
+				const Clip clip = ClipOf(b->Material.get());
+				if (clip == Clip::Custom)
+				{
+					const CustomShaders::Shader* cs = CustomOf(b->Material.get());
+					CustomShaders::InstancedDraw d;
+					d.Context = dc;
+					d.Material = b->Material.get();
+					d.Editor = editor;
+					d.Pass = pass == Pass::Shadow ? CustomShaders::DrawPass::Shadow : CustomShaders::DrawPass::NormalDepth;
+					d.ViewProj = pass == Pass::Shadow ? rm->LightViewProjection : viewProj;
+					d.View = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
+					d.Draw = [&]() {
+						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+						dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
+						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
+					};
+					cs->DrawInstanced(d);
+					++drawn;
+					continue;
+				}
+				if (clip == Clip::Engine)
+				{
+					UMaterial& m = *b->Material;
+					FxTechnique* clipTech = nullptr;
+					if (pass == Pass::Shadow)
+					{
+						Effects::BuildShadowMapFX->SetDiffuseMap(m.GetBaseMapSRV());
+						Effects::BuildShadowMapFX->SetAlphaCutoff(EngineCutoff(m));
+						Effects::BuildShadowMapFX->SetTexTransform(EngineClipTexTransform(m));
+						clipTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech.Get();
+					}
+					else
+					{
+						Effects::SsaoNormalDepthFX->SetDiffuseMap(m.GetBaseMapSRV());
+						Effects::SsaoNormalDepthFX->SetAlphaCutoff(EngineCutoff(m));
+						SetMatrix(fx, "gTexTransform", EngineClipTexTransform(m));
+						clipTech = fx->GetTechniqueByName("NormalDepthAlphaClipBatchTech");
+					}
+					if (clipTech && clipTech->IsValid())
+					{
+						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+						dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
+						clipTech->GetPassByIndex(0)->Apply(0, dc);
+						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
+						++drawn;
+					}
+					// 다음 묶음 (보통 재질) 을 위해 되돌린다
+					if (pass == Pass::Shadow)
+					{
+						Effects::BuildShadowMapFX->SetTexTransform(XMMatrixIdentity());
+						Effects::BuildShadowMapFX->SetAlphaCutoff(0.0f);
+					}
+					else
+					{
+						SetMatrix(fx, "gTexTransform", XMMatrixIdentity());
+						Effects::SsaoNormalDepthFX->SetAlphaCutoff(0.0f);
+					}
+					continue;
+				}
+			}
 			if (pass == Pass::Main && b->Material.get() != applied)
 			{
 				UMaterial::ApplyOrDefault(b->Material, Effects::InstancedBasicFX.get());

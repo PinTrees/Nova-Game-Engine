@@ -20,6 +20,10 @@ class GfxContext;
 //  - Provider: 이름이 앞부분 (예: "Shader Graphs/") 과 맞으면 처음 찾을 때 만들어 등록한다 (Shader Graph 처럼 에셋에서 생기는 셰이더)
 namespace CustomShaders
 {
+	// 어느 패스에서 부르나: Main (본 패스, EQUAL 깊이), NormalDepth (깊이 · 노멀 프리패스), Shadow (그림자 맵), Transparent (투명 패스 — 섞기 · 깊이 읽기만)
+	//  NormalDepth · Shadow 는 ClipsAlpha 가 true 인 재질만 (그 밖의 재질은 엔진이 그린다), Transparent 는 Transparent 가 true 인 재질만
+	enum class DrawPass { Main, NormalDepth, Shadow, Transparent };
+
 	struct SkinnedDraw
 	{
 		GfxContext* Context = nullptr;
@@ -30,6 +34,8 @@ namespace CustomShaders
 		int BoneCount = 0;
 		bool Editor = false;          // Scene 뷰 카메라
 		std::function<void()> Draw;   // 이 서브메시의 정점 · 인덱스를 묶고 그린다 (입력 배치 = 엔진 스킨 정점)
+		DrawPass Pass = DrawPass::Main;
+		XMMATRIX View = XMMatrixIdentity();   // NormalDepth: 카메라 View (노멀 · 깊이는 뷰 공간)
 	};
 
 	// 정적 메시 묶음 (MeshBatcher): Draw = 인스턴스 버퍼 · 입력 배치를 묶고 인스턴싱으로 그린다
@@ -41,7 +47,17 @@ namespace CustomShaders
 		bool Editor = false;
 		uint32 LayerBit = 0xFFFFFFFFu;   // Light.cullingMask 용 물체 레이어
 		std::function<void()> Draw;
+		DrawPass Pass = DrawPass::Main;
+		XMMATRIX View = XMMatrixIdentity();   // NormalDepth: 카메라 View. Shadow: ViewProj = 빛의 ViewProj (CurrentShadow 의 빛 · 바이어스와 같이)
 	};
+
+	// 지금 그리는 그림자 맵 조각의 빛 (ShadowRenderer 가 조각마다 넣는다): 사용자 셰이더의 그림자 VS 가 엔진과 같은 바이어스를 쓰게
+	struct ShadowCaster
+	{
+		XMFLOAT4 Light = XMFLOAT4(0, 1, 0, 0);   // w 0 = 방향광 (xyz = 빛 쪽), 1 = 스포트 · 점광 (xyz = 위치)
+		float Bias[2] = { 0, 0 };                // 깊이 · 노멀 바이어스
+	};
+	NOVA_API ShadowCaster& CurrentShadow();
 
 	struct Shader
 	{
@@ -50,6 +66,8 @@ namespace CustomShaders
 		std::function<void(SkinnedDraw&)> DrawSkinned;
 		std::function<void(SkinnedDraw&)> DrawSkinnedOutline;   // 없으면 두 번째 패스 없음
 		std::function<void(InstancedDraw&)> DrawInstanced;     // 정적 메시 (없으면 Fallback)
+		std::function<bool(const UMaterial&)> ClipsAlpha;      // 잘라내기: 프리패스 · 그림자도 이 셰이더가 (Pass = NormalDepth / Shadow)
+		std::function<bool(const UMaterial&)> Transparent;     // 투명: 투명 패스에서만 (본 패스 · 프리패스 · 그림자 제외, 뒤에서부터)
 		std::function<bool(const UMaterial&)> HasOutline;      // 이 재질에 두 번째 패스가 있나
 		std::function<bool(UMaterial&)> Inspector;             // Inspector 본문 (값을 바꾸면 true → 저장)
 		std::function<nlohmann::json()> DefaultProperties;     // 새로 이 셰이더로 바꿀 때
@@ -67,6 +85,7 @@ namespace CustomShaders
 		std::string Owner;
 		std::function<bool(const std::string& name)> Create;
 		std::function<std::vector<std::string>()> List;
+		std::function<bool(const std::string& name)> Pending;   // 만드는 중 (백그라운드 컴파일) — 실패로 적지 않고 다음에 다시 묻는다
 	};
 	NOVA_API void RegisterProvider(const Provider& provider);
 	NOVA_API void Forget(const std::string& name);   // 실패 기록을 지운다 (에셋을 고쳤을 때 다시 만들어 보게)

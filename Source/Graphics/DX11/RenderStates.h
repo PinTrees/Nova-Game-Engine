@@ -22,4 +22,5 @@ public:
 	static ComPtr<GfxDepthStencilState> EqualsDSS;
 
 	static ComPtr<GfxDepthStencilState> LessEqualDSS;
+	static ComPtr<GfxDepthStencilState> DepthReadDSS;   // depth test LESS_EQUAL, no depth write (transparent meshes)
 };

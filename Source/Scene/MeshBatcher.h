@@ -9,7 +9,9 @@ class Scene;
 //  - 본 패스(BatchTech)와 깊이 사전 패스(NormalDepthBatchTech)는 같은 식(월드 위치 × ViewProj)이라 EQUAL 깊이 검사가 맞는다
 namespace MeshBatcher
 {
-	enum class Pass { Main, Shadow, NormalDepth };
+	// Transparent: 투명 재질 (CustomShaders::Transparent — 예: Shader Graph 의 Surface Type Transparent) 만, 하늘 뒤에 먼 것부터.
+	//  다른 패스에서는 빠진다. 잘라내는 재질 (Alpha Clipping) 은 깊이 · 그림자 패스도 재질마다 묶어 같은 구멍을 낸다
+	enum class Pass { Main, Shadow, NormalDepth, Transparent };
 
 	// 화면(Game / Scene 뷰) 그리기 시작에 한 번: 모아 둔 렌더러 목록을 버린다.
 	// 다음 Draw 가 씬을 한 번 훑어 렌더러마다 (월드 행렬, 묶음 번호)를 정해 두고, 같은 화면의 나머지 패스

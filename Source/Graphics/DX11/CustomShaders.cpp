@@ -79,10 +79,18 @@ namespace CustomShaders
 					for (const Shader& s : Shaders())
 						if (s.Name == name)
 							return &s;
+				if (p.Pending && p.Pending(name))
+					return nullptr;   // 아직 만드는 중 (그동안 Fallback)
 				Failed().insert(name);
 				break;
 			}
 		return nullptr;
+	}
+
+	ShadowCaster& CurrentShadow()
+	{
+		static ShadowCaster s;
+		return s;
 	}
 
 	void Forget(const std::string& name)

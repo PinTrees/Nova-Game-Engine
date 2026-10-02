@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "RenderLayers.h"
+#include "CustomShaders.h"
 #include "ShadowRenderer.h"
 #include "ShadowMap.h"
 #include "Light.h"
@@ -212,7 +213,7 @@ namespace ShadowRenderer
 			const XMMATRIX invRot = XMMatrixInverse(nullptr, lightRot);
 			XMFLOAT3 toLight;
 			XMStoreFloat3(&toLight, XMVectorNegate(dir));
-			fx->SetShadowLight(XMFLOAT4(toLight.x, toLight.y, toLight.z, 0.0f));
+			fx->SetShadowLight(XMFLOAT4(toLight.x, toLight.y, toLight.z, 0.0f)); CustomShaders::CurrentShadow().Light = XMFLOAT4(toLight.x, toLight.y, toLight.z, 0.0f);
 
 			XMFLOAT3 lookDir;
 			XMStoreFloat3(&lookDir, dir);
@@ -237,7 +238,7 @@ namespace ShadowRenderer
 				out.Dir[d * 4 + i] = vp * kToTex;
 
 				const float scale = BiasScale(filter);
-				fx->SetShadowBias(depthBias * texel * scale, normalBias * texel * 1.4142136f * scale);
+				fx->SetShadowBias(depthBias * texel * scale, normalBias * texel * 1.4142136f * scale); { auto& cs = CustomShaders::CurrentShadow(); cs.Bias[0] = depthBias * texel * scale; cs.Bias[1] = normalBias * texel * 1.4142136f * scale; }
 				fx->SetViewProj(vp);
 				RenderManager::GetI()->LightViewProjection = vp;
 				RenderManager::GetI()->ShadowTexelWorld = texel;
@@ -284,8 +285,8 @@ namespace ShadowRenderer
 
 			const float texelPerDist = 2.0f * tanf(fov * 0.5f) / (float)s.Resolution;
 			const float scale = BiasScale(filter);
-			fx->SetShadowLight(XMFLOAT4(pos.x, pos.y, pos.z, 1.0f));
-			fx->SetShadowBias(depthBias * texelPerDist * scale, normalBias * texelPerDist * 1.4142136f * scale);
+			fx->SetShadowLight(XMFLOAT4(pos.x, pos.y, pos.z, 1.0f)); CustomShaders::CurrentShadow().Light = XMFLOAT4(pos.x, pos.y, pos.z, 1.0f);
+			fx->SetShadowBias(depthBias * texelPerDist * scale, normalBias * texelPerDist * 1.4142136f * scale); { auto& cs = CustomShaders::CurrentShadow(); cs.Bias[0] = depthBias * texelPerDist * scale; cs.Bias[1] = normalBias * texelPerDist * 1.4142136f * scale; }
 			fx->SetViewProj(vp);
 			RenderManager::GetI()->LightViewProjection = vp;
 			RenderManager::GetI()->ShadowTexelWorld = 0.0f;
@@ -318,8 +319,8 @@ namespace ShadowRenderer
 			const XMMATRIX faceProj = XMMatrixPerspectiveFovLH(fov, 1.0f, nearZ, farZ);
 			const float texelPerDist = 2.0f * tanHalf / (float)pointRes;
 			const float scale = BiasScale(filter);
-			fx->SetShadowLight(XMFLOAT4(pos.x, pos.y, pos.z, 1.0f));
-			fx->SetShadowBias(depthBias * texelPerDist * scale, normalBias * texelPerDist * 1.4142136f * scale);
+			fx->SetShadowLight(XMFLOAT4(pos.x, pos.y, pos.z, 1.0f)); CustomShaders::CurrentShadow().Light = XMFLOAT4(pos.x, pos.y, pos.z, 1.0f);
+			fx->SetShadowBias(depthBias * texelPerDist * scale, normalBias * texelPerDist * 1.4142136f * scale); { auto& cs = CustomShaders::CurrentShadow(); cs.Bias[0] = depthBias * texelPerDist * scale; cs.Bias[1] = normalBias * texelPerDist * 1.4142136f * scale; }
 			for (int f = 0; f < 6; ++f)
 			{
 				const XMMATRIX vp = XMMatrixLookToLH(pos, kFaceDir[f], kFaceUp[f]) * faceProj;
