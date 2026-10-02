@@ -136,6 +136,12 @@ namespace NovaEngine
             set { fixed (byte* p = Native.Utf8(value)) Native.Api.GO_SetTag(m_Id, p); }
         }
         public bool CompareTag(string t) => tag == t;
+        /// <summary>레이어 번호 0..31 (Project Settings > Tags and Layers, LayerMask.NameToLayer)</summary>
+        public unsafe int layer
+        {
+            get => Native.Api.GO_GetLayer(m_Id);
+            set => Native.Api.GO_SetLayer(m_Id, value);
+        }
 
         public static unsafe GameObject Find(string name)
         {

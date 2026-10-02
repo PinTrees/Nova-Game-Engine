@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "UndoSystem.h"
 #include "NovaCodeWindow.h"
 #include "DisplayManager.h"
@@ -181,7 +182,7 @@ namespace
 			size += r.Text->size() + 1;
 		std::string out;
 		out.reserve(size);
-		out = "{\"rootGameObjects\":[";
+		out = "{\"layerFormat\":" + std::to_string(TagsAndLayers::kLayerFormat) + ",\"rootGameObjects\":[";   // 지금 번호 (다시 옮기지 않게)
 		for (size_t i = 0; i < snap.size(); ++i)
 		{
 			if (i > 0)

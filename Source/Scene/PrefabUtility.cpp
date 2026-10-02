@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "PrefabUtility.h"
 
 namespace
@@ -73,6 +74,8 @@ namespace
 		auto v = std::make_unique<AssetVersion>();
 		v->Revision = e.NextRevision++;
 		v->Root = j["root"];
+		if (j.value("layerFormat", 1) < TagsAndLayers::kLayerFormat)
+			TagsAndLayers::MigrateLegacyObjectJson(v->Root);   // 예전 레이어 번호 → Unity 번호
 		Index(v->Root, v->ById);
 		e.Versions.push_back(std::move(v));
 		while (e.Versions.size() > 8)
@@ -253,6 +256,7 @@ namespace
 			return false;
 		json j;
 		j["nova_prefab"] = 1;
+		j["layerFormat"] = TagsAndLayers::kLayerFormat;
 		j["root"] = root;
 		os << j.dump(2);
 		os.close();

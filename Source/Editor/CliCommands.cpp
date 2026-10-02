@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "PhysicsSettings.h"
+#include "TagsAndLayers.h"
 #include "PackageManager.h"
 #include "AutoSave.h"
 #include "PackageManagerWindow.h"
@@ -185,7 +187,7 @@ namespace
 		Transform* t = go->GetTransform();
 		json j = {
 			{ "name", go->GetName() }, { "id", IdOf(go) }, { "path", PathOf(go) }, { "active", go->IsActive() },
-			{ "tag", go->GetTag() }, { "layer", (int)go->GetLayerIndex() }, { "static", go->IsStatic() },
+			{ "tag", go->GetTag() }, { "layer", (int)go->GetLayerIndex() }, { "layerName", TagsAndLayers::LayerName(go->GetLayerIndex()) }, { "static", go->IsStatic() },
 			{ "parent", go->GetParent() ? json(IdOf(go->GetParent())) : json() },
 			{ "children", go->GetChildren().size() },
 		};
@@ -524,7 +526,7 @@ namespace CliCommands
 			return true;
 		});
 
-		Register("raycast", "Physics.Raycast (Play mode) {origin, direction, maxDistance?, triggers?}", [](const json& a, json& r, std::string& e) {
+		Register("raycast", "Physics.Raycast (Play mode) {origin, direction, maxDistance?, triggers?, layerMask?}", [](const json& a, json& r, std::string& e) {
 			if (!Application::IsPlaying()) { e = "raycast needs Play mode (the physics world exists only while playing)"; return false; }
 			Vec3 origin, dir;
 			if (!a.contains("origin") || !ReadVec3(a["origin"], origin) || !a.contains("direction") || !ReadVec3(a["direction"], dir))
@@ -533,13 +535,56 @@ namespace CliCommands
 				return false;
 			}
 			RaycastHit hit;
-			if (!PhysicsManager::GetI()->Raycast(origin, dir, hit, a.value("maxDistance", 1000.0f), a.value("triggers", false)))
+			if (!PhysicsManager::GetI()->Raycast(origin, dir, hit, a.value("maxDistance", 1000.0f), a.value("triggers", false), a.value("layerMask", PhysicsManager::kDefaultRaycastLayers)))
 			{
 				r = { { "hit", false } };
 				return true;
 			}
 			r = { { "hit", true }, { "object", hit.gameObject ? PathOf(hit.gameObject) : "" }, { "collider", hit.collider ? hit.collider->InspectorTitle() : "" },
 				{ "point", { hit.point.x, hit.point.y, hit.point.z } }, { "normal", { hit.normal.x, hit.normal.y, hit.normal.z } }, { "distance", hit.distance } };
+			return true;
+		});
+
+		// Project Settings > Tags and Layers
+		Register("layers", "layers and tags: list, or {set: layer, name} / {addTag} / {removeTag}", [](const json& a, json& r, std::string& e) {
+			if (a.contains("set"))
+			{
+				const int layer = a["set"].get<int>();
+				if (TagsAndLayers::IsBuiltinLayer(layer)) { e = "layer " + std::to_string(layer) + " is a Builtin Layer"; return false; }
+				if (!TagsAndLayers::SetLayerName(layer, a.value("name", std::string()))) { e = "cannot name layer " + std::to_string(layer) + " (0..31, the name must be unique)"; return false; }
+			}
+			if (a.contains("addTag")) TagsAndLayers::AddTag(a["addTag"].get<std::string>());
+			if (a.contains("removeTag") && !TagsAndLayers::RemoveTag(a["removeTag"].get<std::string>())) { e = "cannot remove tag (builtin or unknown)"; return false; }
+			json layers = json::array();
+			for (int i : TagsAndLayers::NamedLayers())
+				layers.push_back({ { "layer", i }, { "name", TagsAndLayers::LayerName(i) }, { "builtin", TagsAndLayers::IsBuiltinLayer(i) } });
+			r = { { "layers", layers }, { "tags", TagsAndLayers::Tags() } };
+			return true;
+		});
+
+		// Project Settings > Physics: Gravity, Layer Collision Matrix
+		Register("physics-settings", "physics settings: get, or {gravity: [x,y,z]} / {collide: [a,b] | ignore: [a,b]} (layer numbers or names) / {all: true|false}", [](const json& a, json& r, std::string& e) {
+			auto layerOf = [&](const json& v) { return v.is_string() ? TagsAndLayers::NameToLayer(v.get<std::string>()) : v.get<int>(); };
+			if (a.contains("gravity") && a["gravity"].is_array() && a["gravity"].size() == 3)
+				PhysicsSettings::SetGravity(Vec3(a["gravity"][0].get<float>(), a["gravity"][1].get<float>(), a["gravity"][2].get<float>()));
+			for (const char* key : { "collide", "ignore" })
+				if (a.contains(key))
+				{
+					const json& p = a[key];
+					if (!p.is_array() || p.size() != 2) { e = std::string(key) + " needs two layers [a, b]"; return false; }
+					const int la = layerOf(p[0]), lb = layerOf(p[1]);
+					if (la < 0 || lb < 0 || la > 31 || lb > 31) { e = "unknown layer in " + p.dump(); return false; }
+					PhysicsSettings::SetLayersCollide(la, lb, std::string(key) == "collide");
+				}
+			if (a.contains("all")) PhysicsSettings::SetAllCollide(a["all"].get<bool>());
+			const Vec3 g = PhysicsSettings::Gravity();
+			json ignored = json::array();
+			const std::vector<int> named = TagsAndLayers::NamedLayers();
+			for (size_t i = 0; i < named.size(); ++i)
+				for (size_t k = i; k < named.size(); ++k)
+					if (!PhysicsSettings::LayersCollide(named[i], named[k]))
+						ignored.push_back({ TagsAndLayers::LayerName(named[i]), TagsAndLayers::LayerName(named[k]) });
+			r = { { "gravity", { g.x, g.y, g.z } }, { "ignoredPairs", ignored } };
 			return true;
 		});
 
@@ -628,7 +673,13 @@ namespace CliCommands
 			if (a.contains("name")) go->SetName(a["name"].get<std::string>());
 			if (a.contains("active")) go->SetActive(a["active"].get<bool>());
 			if (a.contains("tag")) go->SetTag(a["tag"].get<std::string>());
-			if (a.contains("layer")) go->SetLayerIndex((uint8)std::clamp(a["layer"].get<int>(), 0, 31));
+			if (a.contains("layer"))
+			{
+				// 번호 또는 이름 (Project Settings > Tags and Layers)
+				int layer = a["layer"].is_string() ? TagsAndLayers::NameToLayer(a["layer"].get<std::string>()) : a["layer"].get<int>();
+				if (layer < 0 || layer > 31) { e = "no layer '" + (a["layer"].is_string() ? a["layer"].get<std::string>() : a["layer"].dump()) + "' (nova layers)"; return false; }
+				go->SetLayerIndex((uint8)layer);
+			}
 			if (a.contains("static")) go->SetStatic(a["static"].get<bool>());
 			Place(go, a);
 			if (a.contains("component"))

@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1286,6 +1286,109 @@ function Suite-Anim2D
     }
 }
 
+function Suite-Layers
+{
+    # Tags and Layers (Unity 번호: 4 Water, 5 UI) · 예전 파일 옮기기 (3→4, 4→5, 한 번만) · Layer Collision Matrix · Raycast layerMask · C#
+    Write-Host '[layers]'
+    $dir = Join-Path $Out 'layers'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $settings = Join-Path $Project 'ProjectSettings'
+    $saved = @{}
+    foreach ($f in 'TagManager.json', 'PhysicsSettings.json') { $p = Join-Path $settings $f; $saved[$f] = if (Test-Path $p) { Get-Content $p -Raw } else { $null } }
+    $legacy = Join-Path $Project 'Assets\Scenes\LayerLegacy.scene'
+    $ed = Start-TestEditor
+    try
+    {
+        $l = Invoke-NovaJson 'layers'
+        $names = @($l.layers | ForEach-Object { "$($_.layer):$($_.name)" }) -join ','
+        Add-Result layers 'builtin layers use Unity numbers' ($names -like '0:Default,1:TransparentFX,2:Ignore Raycast,4:Water,5:UI*') $names
+        Invoke-Nova 'layers --set 8 --name Enemy' | Out-Null
+        $l2 = Invoke-NovaJson 'layers --add-tag Boss'
+        $bad = Invoke-Nova 'layers --set 4 --name Lava'
+        Add-Result layers 'user layer 8 named, tag added, builtin rename refused' ((@($l2.layers | Where-Object { $_.layer -eq 8 -and $_.name -eq 'Enemy' }).Count -eq 1) -and ($l2.tags -contains 'Boss') -and ($bad -match 'Builtin')) "8=$(@($l2.layers | Where-Object { $_.layer -eq 8 }).name) tags=$($l2.tags.Count) builtin: $bad"
+
+        # 예전 형식 씬 (layerFormat 없음): Water 3, UI 4, excludeLayers 비트 3
+        @'
+{ "rootGameObjects": [
+  { "name": "OldWater", "fileID": 7001, "active": true, "tag": "Untagged", "layer": 3, "static": false, "components": [
+      { "type": "BoxCollider", "enabled": true, "excludeLayers": 8 } ], "children": [] },
+  { "name": "OldUI", "fileID": 7002, "active": true, "tag": "Untagged", "layer": 4, "static": false, "components": [], "children": [] } ] }
+'@ | Set-Content -Encoding utf8 $legacy
+        Invoke-Nova 'scene open Assets/Scenes/LayerLegacy.scene --force' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $w = Invoke-NovaJson 'get OldWater'
+        $u = Invoke-NovaJson 'get OldUI'
+        $mask = @($w.components | Where-Object { $_.type -eq 'BoxCollider' })[0].excludeLayers
+        Add-Result layers 'old scene migrated (Water 3→4, UI 4→5, collider mask bit 3→4)' ($w.layer -eq 4 -and $u.layer -eq 5 -and $mask -eq 16) "water=$($w.layer) ($($w.layerName)) ui=$($u.layer) mask=$mask"
+        Invoke-Nova 'set OldUI --name OldUI2' | Out-Null
+        Invoke-Nova 'undo' | Out-Null
+        $u2 = Invoke-NovaJson 'get OldUI'
+        Invoke-Nova 'scene save' | Out-Null
+        Invoke-Nova 'scene open Assets/Scenes/LayerLegacy.scene --force' | Out-Null
+        $w3 = Invoke-NovaJson 'get OldWater'
+        $fileOk = (Get-Content $legacy -Raw) -match '"layerFormat"'
+        Add-Result layers 'migrated once: undo and save + reopen keep 4 / 5' ($u2.layer -eq 5 -and $w3.layer -eq 4 -and $fileOk) "after undo ui=$($u2.layer), reopened water=$($w3.layer), file has layerFormat=$fileOk"
+
+        # Layer Collision Matrix: Enemy 상자가 Default 바닥을 통과
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Floor --position 0,-0.5,0 --scale 10,1,10' | Out-Null
+        Invoke-Nova 'create cube --name EnemyBox --position 0,2,0' | Out-Null
+        Invoke-Nova 'add-component EnemyBox RigidBody' | Out-Null
+        Invoke-Nova 'set EnemyBox --layer Enemy' | Out-Null
+        Invoke-Nova 'create cube --name Ghost --position 3,1,0' | Out-Null
+        Invoke-Nova 'set Ghost --layer "Ignore Raycast"' | Out-Null
+        $ps = Invoke-NovaJson 'physics --ignore Enemy,Default'
+        Add-Result layers 'physics --ignore Enemy,Default' (@($ps.ignoredPairs | Where-Object { ($_ -join '/') -eq 'Default/Enemy' }).Count -eq 1) "ignored=$($ps.ignoredPairs | ConvertTo-Json -Compress)"
+        $yf = Join-Path $dir 'y.cs'
+        'return GameObject.Find("EnemyBox").transform.position.y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $yf
+        function Wait-Sec([double]$sec) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $sec) { Invoke-Nova 'wait 10' | Out-Null } }
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 1.5
+        $y1 = [double](Invoke-NovaJson "exec --file $yf").result
+        Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        Invoke-Nova 'physics --collide Enemy,Default' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 1.5
+        $y2 = [double](Invoke-NovaJson "exec --file $yf").result
+        # Raycast: layerMask · Ignore Raycast (기본 마스크에서 빠짐) · C# LayerMask · gameObject.layer · IgnoreLayerCollision (실행 중만)
+        $cf = Join-Path $dir 'mask.cs'
+        @'
+var c = System.Globalization.CultureInfo.InvariantCulture;
+RaycastHit h;
+bool floorOnly = Physics.Raycast(new Vector3(0, 5, 0), Vector3.down, out h, 20f, LayerMask.GetMask("Default"));
+string a = floorOnly ? h.collider.gameObject.name : "none";
+bool enemy = Physics.Raycast(new Vector3(0, 5, 0), Vector3.down, out h, 20f, 1 << LayerMask.NameToLayer("Enemy"));
+string b = enemy ? h.collider.gameObject.name : "none";
+bool ghostDefault = Physics.Raycast(new Vector3(3, 5, 0), Vector3.down, out h, 20f);
+string g = ghostDefault ? h.collider.gameObject.name : "none";
+bool ghostAll = Physics.Raycast(new Vector3(3, 5, 0), Vector3.down, out h, 20f, Physics.AllLayers);
+string g2 = ghostAll ? h.collider.gameObject.name : "none";
+Physics.IgnoreLayerCollision(8, 4);
+return a + " " + b + " " + g + " " + g2 + " " + GameObject.Find("EnemyBox").layer + " " + LayerMask.NameToLayer("Water") + " " + LayerMask.LayerToName(5) + " " + Physics.GetIgnoreLayerCollision(8, 4);
+'@ | Set-Content -Encoding utf8 $cf
+        $m = Invoke-NovaJson "exec --file $cf"
+        Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        Add-Result layers 'matrix: Enemy falls through Default floor, then lands when re-enabled' ($y1 -lt -1 -and $y2 -gt 0.3 -and $y2 -lt 0.7) "ignored y=$y1, colliding y=$y2"
+        Add-Result layers 'C#: Raycast layerMask, Ignore Raycast skipped by default, LayerMask, layer, IgnoreLayerCollision' ("$($m.result)" -eq 'Floor EnemyBox Floor Ghost 8 4 UI True') "$($m.result)"
+        $after = Invoke-NovaJson 'physics'
+        Add-Result layers 'IgnoreLayerCollision is runtime only (settings unchanged after Stop)' (@($after.ignoredPairs).Count -eq 0) "ignored after stop=$($after.ignoredPairs | ConvertTo-Json -Compress)"
+
+        # Project Settings 창 (Tags and Layers · Physics 의 매트릭스) 캡처
+        Invoke-Nova 'window project-settings --category Physics' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova "screenshot $(Join-Path $dir 'physics_settings.png') --view editor" | Out-Null
+        Invoke-Nova 'window project-settings --category "Tags and Layers"' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova "screenshot $(Join-Path $dir 'tags_layers.png') --view editor" | Out-Null
+        Invoke-Nova 'window project-settings --close' | Out-Null
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Stop-TestEditor $ed
+        foreach ($f in $saved.Keys) { $p = Join-Path $settings $f; if ($null -ne $saved[$f]) { Set-Content -Path $p -Value $saved[$f] -NoNewline -Encoding utf8 } else { Remove-Item $p -Force -ErrorAction SilentlyContinue } }
+        Remove-Item $legacy, "$legacy.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -1594,6 +1697,7 @@ try
                 'packages' { Suite-Packages }
                 'model' { Suite-Model }
                 'anim2d' { Suite-Anim2D }
+                'layers' { Suite-Layers }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

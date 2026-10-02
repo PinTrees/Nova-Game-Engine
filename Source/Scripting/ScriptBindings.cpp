@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "SkinnedMeshRenderer.h"
 #include "SpriteRenderer.h"
+#include "TagsAndLayers.h"
+#include "PhysicsSettings.h"
 #include "Debug.h"
 #include "ScriptBindings.h"
 #include "ScriptEngine.h"
@@ -176,6 +178,16 @@ namespace
 		void(*SR_SetInt)(uint64, int, int);
 		u8* (*SR_GetSprite)(uint64);
 		void(*SR_SetSprite)(uint64, u8*);
+		// 레이어 (Unity: gameObject.layer · LayerMask · Physics.Raycast(layerMask) · IgnoreLayerCollision · gravity)
+		int(*GO_GetLayer)(uint64);
+		void(*GO_SetLayer)(uint64, int);
+		int(*LM_NameToLayer)(u8*);
+		u8* (*LM_LayerToName)(int);
+		int(*PH_RaycastMask)(Vec3*, Vec3*, float, int, int, RaycastData*);   // mask, hitTriggers
+		void(*PH_IgnoreLayer)(int, int, int);
+		int(*PH_GetIgnoreLayer)(int, int);
+		void(*PH_GetGravity)(Vec3*);
+		void(*PH_SetGravity)(Vec3*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1188,6 +1200,26 @@ namespace ScriptBindings
 		};
 		t.SR_GetSprite = [](uint64 id) -> u8* { SpriteRenderer* r = Get<SpriteRenderer>(id); return Ret(r ? r->GetSprite() : std::string()); };
 		t.SR_SetSprite = [](uint64 id, u8* path) { if (SpriteRenderer* r = Get<SpriteRenderer>(id)) r->SetSprite(path ? (const char*)path : ""); };
+		t.GO_GetLayer = [](uint64 id) -> int { GameObject* g = Find(id); return g ? (int)g->GetLayerIndex() : 0; };
+		t.GO_SetLayer = [](uint64 id, int layer) { if (GameObject* g = Find(id); g && layer >= 0 && layer < 32) g->SetLayerIndex((uint8)layer); };
+		t.LM_NameToLayer = [](u8* name) -> int { return name ? TagsAndLayers::NameToLayer((const char*)name) : -1; };
+		t.LM_LayerToName = [](int layer) -> u8* { return (u8*)Ret(TagsAndLayers::LayerName(layer)); };
+		t.PH_RaycastMask = [](Vec3* origin, Vec3* dir, float maxDistance, int mask, int triggers, RaycastData* out) -> int {
+			if (origin == nullptr || dir == nullptr || out == nullptr) return 0;
+			*out = RaycastData{};
+			RaycastHit hit;
+			if (!PhysicsManager::GetI()->Raycast(*origin, *dir, hit, maxDistance, triggers != 0, (uint32)mask))
+				return 0;
+			out->point = hit.point;
+			out->normal = hit.normal;
+			out->distance = hit.distance;
+			out->gameObject = hit.gameObject ? hit.gameObject->GetFileID() : 0;
+			return 1;
+		};
+		t.PH_IgnoreLayer = [](int a, int b, int ignore) { PhysicsSettings::IgnoreLayerCollisionRuntime(a, b, ignore != 0); };
+		t.PH_GetIgnoreLayer = [](int a, int b) -> int { return PhysicsSettings::LayersCollide(a, b) ? 0 : 1; };
+		t.PH_GetGravity = [](Vec3* out) { if (out) *out = PhysicsManager::GetI()->GetGravity(); };
+		t.PH_SetGravity = [](Vec3* g) { if (g) PhysicsManager::GetI()->SetGravity(*g); };
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

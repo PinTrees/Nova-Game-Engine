@@ -194,6 +194,17 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int, void> SR_SetInt;
         public delegate* unmanaged<ulong, byte*> SR_GetSprite;
         public delegate* unmanaged<ulong, byte*, void> SR_SetSprite;
+
+        // 레이어
+        public delegate* unmanaged<ulong, int> GO_GetLayer;
+        public delegate* unmanaged<ulong, int, void> GO_SetLayer;
+        public delegate* unmanaged<byte*, int> LM_NameToLayer;
+        public delegate* unmanaged<int, byte*> LM_LayerToName;
+        public delegate* unmanaged<Vector3*, Vector3*, float, int, int, RaycastData*, int> PH_RaycastMask;
+        public delegate* unmanaged<int, int, int, void> PH_IgnoreLayer;
+        public delegate* unmanaged<int, int, int> PH_GetIgnoreLayer;
+        public delegate* unmanaged<Vector3*, void> PH_GetGravity;
+        public delegate* unmanaged<Vector3*, void> PH_SetGravity;
     }
 
     internal static unsafe class Native

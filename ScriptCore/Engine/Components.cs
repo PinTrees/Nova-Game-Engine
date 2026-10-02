@@ -272,17 +272,65 @@ namespace NovaEngine
 
     public static class Physics
     {
-        public static Vector3 gravity { get; set; } = new Vector3(0, -9.81f, 0);
-        public static unsafe bool Raycast(Vector3 origin, Vector3 direction, out RaycastHit hitInfo, float maxDistance = float.PositiveInfinity)
+        /// <summary>Ignore Raycast (레이어 2) 를 뺀 모두 — Raycast 의 기본 layerMask (Unity 와 같음)</summary>
+        public const int DefaultRaycastLayers = ~(1 << 2);
+        public const int AllLayers = ~0;
+        public const int IgnoreRaycastLayer = 1 << 2;
+
+        /// <summary>중력 (Project Settings > Physics 의 값으로 시작, Play 중 바꾸면 그 Play 동안만)</summary>
+        public static unsafe Vector3 gravity
+        {
+            get { Vector3 g; Native.Api.PH_GetGravity(&g); return g; }
+            set { Native.Api.PH_SetGravity(&value); }
+        }
+
+        public static unsafe bool Raycast(Vector3 origin, Vector3 direction, out RaycastHit hitInfo, float maxDistance, int layerMask, QueryTriggerInteraction queryTriggerInteraction = QueryTriggerInteraction.UseGlobal)
         {
             RaycastData d;
             if (float.IsInfinity(maxDistance)) maxDistance = 100000f;
-            int r = Native.Api.PH_Raycast(&origin, &direction, maxDistance, &d);
+            int triggers = queryTriggerInteraction == QueryTriggerInteraction.Collide ? 1 : 0;
+            int r = Native.Api.PH_RaycastMask(&origin, &direction, maxDistance, layerMask, triggers, &d);
             hitInfo = new RaycastHit { point = d.point, normal = d.normal, distance = d.distance, m_GameObject = d.gameObject };
             return r != 0;
         }
-        public static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance = float.PositiveInfinity) => Raycast(origin, direction, out _, maxDistance);
-        public static bool Raycast(Ray ray, out RaycastHit hitInfo, float maxDistance = float.PositiveInfinity) => Raycast(ray.origin, ray.direction, out hitInfo, maxDistance);
+        public static bool Raycast(Vector3 origin, Vector3 direction, out RaycastHit hitInfo, float maxDistance = float.PositiveInfinity) => Raycast(origin, direction, out hitInfo, maxDistance, DefaultRaycastLayers);
+        public static bool Raycast(Vector3 origin, Vector3 direction, float maxDistance = float.PositiveInfinity, int layerMask = DefaultRaycastLayers) => Raycast(origin, direction, out _, maxDistance, layerMask);
+        public static bool Raycast(Ray ray, out RaycastHit hitInfo, float maxDistance = float.PositiveInfinity, int layerMask = DefaultRaycastLayers) => Raycast(ray.origin, ray.direction, out hitInfo, maxDistance, layerMask);
+        public static bool Raycast(Ray ray, float maxDistance = float.PositiveInfinity, int layerMask = DefaultRaycastLayers) => Raycast(ray.origin, ray.direction, out _, maxDistance, layerMask);
+
+        /// <summary>두 레이어가 부딪히지 않게 (Layer Collision Matrix 를 실행 중에만 바꾼다 — Play 를 멈추면 설정 값으로)</summary>
+        public static unsafe void IgnoreLayerCollision(int layer1, int layer2, bool ignore = true) => Native.Api.PH_IgnoreLayer(layer1, layer2, ignore ? 1 : 0);
+        public static unsafe bool GetIgnoreLayerCollision(int layer1, int layer2) => Native.Api.PH_GetIgnoreLayer(layer1, layer2) != 0;
+    }
+
+    public enum QueryTriggerInteraction { UseGlobal = 0, Ignore = 1, Collide = 2 }
+
+    /// <summary>Unity 의 LayerMask: 비트 i = 레이어 i. int 와 서로 바뀐다</summary>
+    public struct LayerMask
+    {
+        private int m_Mask;
+        public int value { get => m_Mask; set => m_Mask = value; }
+        public static implicit operator int(LayerMask mask) => mask.m_Mask;
+        public static implicit operator LayerMask(int mask) => new LayerMask { m_Mask = mask };
+
+        public static unsafe int NameToLayer(string layerName)
+        {
+            fixed (byte* p = Native.Utf8(layerName)) return Native.Api.LM_NameToLayer(p);
+        }
+        public static unsafe string LayerToName(int layer) => Native.Str(Native.Api.LM_LayerToName(layer)) ?? "";
+        /// <summary>이름들의 마스크 (없는 이름은 무시)</summary>
+        public static int GetMask(params string[] layerNames)
+        {
+            int mask = 0;
+            if (layerNames != null)
+                foreach (string n in layerNames)
+                {
+                    int l = NameToLayer(n);
+                    if (l >= 0) mask |= 1 << l;
+                }
+            return mask;
+        }
+        public override string ToString() => m_Mask.ToString();
     }
 
     // ------------------------------------------------------------------ Camera / Light / Renderer

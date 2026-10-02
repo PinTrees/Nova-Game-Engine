@@ -624,6 +624,11 @@ namespace
 		"                                         render (PNG), export (sprite sheet + JSON), image.make ... list: nova anim2d help\n"
 		"  anim2d batch <file | ->                one op per line, all as ONE undo step\n"
 		"\n"
+		"layers / physics (Project Settings > Tags and Layers / Physics)\n"
+		"  layers [--set 8 --name Enemy] [--add-tag Boss] [--remove-tag Boss]   layer names (3, 6..31) and tags\n"
+		"  physics [--gravity 0,-9.81,0] [--ignore Player,Enemy] [--collide A,B] [--all true|false]   Layer Collision Matrix\n"
+		"  set <target> --layer Water             layer by name or number\n"
+		"\n"
 		"other\n"
 		"  call <command> [json args]             raw request (see: nova help --editor)\n"
 		"  ai-guide                               how an AI agent should use NOVA CLI\n"
@@ -841,7 +846,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("active")) args["active"] = a.Get("active") == "true" || a.Get("active") == "1";
 		if (a.Has("static")) args["static"] = a.Get("static") == "true" || a.Get("static") == "1";
 		if (a.Has("tag")) args["tag"] = a.Get("tag");
-		if (a.Has("layer")) args["layer"] = std::stoi(a.Get("layer"));
+		if (a.Has("layer")) args["layer"] = Value(a.Get("layer"));   // 번호 또는 이름 (Water, UI …)
 		if (a.Has("position")) args["position"] = Vec(a.Get("position"));
 		if (a.Has("rotation")) args["rotation"] = Vec(a.Get("rotation"));
 		if (a.Has("scale")) args["scale"] = Vec(a.Get("scale"));
@@ -980,6 +985,29 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("category")) args["category"] = a.Get("category");
 		if (a.Has("close")) args["close"] = true;
 		if (a.Has("float")) args["float"] = true;
+	}
+	else if (cmd == "layers")
+	{
+		// nova layers [--set 8 --name Enemy] [--add-tag Boss] [--remove-tag Boss]
+		rc = "layers";
+		if (a.Has("set")) { args["set"] = std::stoi(a.Get("set")); args["name"] = a.Get("name"); }
+		if (a.Has("add-tag")) args["addTag"] = a.Get("add-tag");
+		if (a.Has("remove-tag")) args["removeTag"] = a.Get("remove-tag");
+	}
+	else if (cmd == "physics")
+	{
+		// nova physics [--gravity 0,-9.81,0] [--ignore Player,Enemy] [--collide Player,Enemy] [--all true|false]
+		rc = "physics-settings";
+		if (a.Has("gravity")) args["gravity"] = Vec(a.Get("gravity"));
+		for (const char* key : { "ignore", "collide" })
+			if (a.Has(key))
+			{
+				const std::string v = a.Get(key);
+				const size_t comma = v.find(',');
+				if (comma == std::string::npos) { Err(std::string("--") + key + " A,B\n"); return 3; }
+				args[key] = json::array({ Value(v.substr(0, comma)), Value(v.substr(comma + 1)) });
+			}
+		if (a.Has("all")) args["all"] = a.Get("all") == "true";
 	}
 	else if (cmd == "graphics")
 	{

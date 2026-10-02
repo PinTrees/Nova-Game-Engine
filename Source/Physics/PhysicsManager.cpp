@@ -35,6 +35,7 @@
 #include <unordered_set>
 
 #include "pch.h"
+#include "PhysicsSettings.h"
 #include "PhysicsManager.h"
 #include "MonoBehaviour.h"
 #include "RigidBody.h"
@@ -147,7 +148,8 @@ struct PhysicsManager::JoltWorld
 		Collider* collider = nullptr;
 		GameObject* owner = nullptr;     // 바디를 소유한 GameObject (Rigidbody 가 있는 부모일 수 있음)
 		bool trigger = false;
-		uint32 layerBit = 1;             // 콜라이더가 붙은 GameObject 의 레이어 비트
+		int layer = 0;                   // 콜라이더가 붙은 GameObject 의 레이어 (Layer Collision Matrix)
+		uint32 layerBit = 1;             // 그 비트
 		uint32 excludeMask = 0;          // 콜라이더 + Rigidbody 의 Exclude Layers
 		uint32 includeMask = 0;          // 콜라이더 + Rigidbody 의 Include Layers
 		int priority = 0;                // Layer Override Priority
@@ -243,6 +245,9 @@ struct PhysicsManager::JoltWorld
 				decision = A.priority >= B.priority ? a : b;
 			else
 				decision = a != 0 ? a : b;
+			// 의견이 없으면 Project Settings > Physics 의 Layer Collision Matrix (트리거도 같음 — Unity)
+			if (decision == 0 && !PhysicsSettings::LayersCollide(A.layer, B.layer))
+				decision = -1;
 			return decision < 0 ? JPH::ValidateResult::RejectContact : JPH::ValidateResult::AcceptContact;
 		}
 
@@ -648,7 +653,8 @@ namespace
 		e.collider = cc;
 		e.owner = cc->GetGameObject();
 		e.trigger = false;
-		e.layerBit = 1u << (cc->GetGameObject()->GetLayerIndex() & 31);
+		e.layer = cc->GetGameObject()->GetLayerIndex() & 31;
+		e.layerBit = 1u << e.layer;
 		e.excludeMask = cc->GetExcludeLayers();
 		e.includeMask = cc->GetIncludeLayers();
 		e.priority = cc->GetLayerOverridePriority();
@@ -935,6 +941,10 @@ bool PhysicsManager::JoltWorld::CharListener::OnContactValidate(const JPH::Chara
 		// Layer Overrides: 어느 한쪽이 상대 레이어를 제외하면 부딪히지 않는다
 		if ((self->second.excludeMask & other.layerBit) || (other.excludeMask & self->second.layerBit))
 			return false;
+		// Include 가 없으면 Layer Collision Matrix
+		const bool included = (self->second.includeMask & other.layerBit) || (other.includeMask & self->second.layerBit);
+		if (!included && !PhysicsSettings::LayersCollide(self->second.layer, other.layer))
+			return false;
 	}
 	return true;
 }
@@ -978,6 +988,9 @@ void PhysicsManager::Start()
 	Init();
 	Exit();
 
+	// Project Settings > Physics: 중력 · 레이어 매트릭스 (실행 중 값 = 설정 값으로 시작)
+	m_Gravity = PhysicsSettings::Gravity();
+	PhysicsSettings::ResetRuntime();
 	m_World = std::make_unique<JoltWorld>();
 	JoltWorld& w = *m_World;
 	w.listener.world = &w;
@@ -1026,6 +1039,7 @@ void PhysicsManager::Exit()
 	}
 	w.bodies.clear();
 	m_World.reset();
+	PhysicsSettings::ResetRuntime();   // Play 중 Physics.IgnoreLayerCollision 은 설정에 남지 않는다
 }
 
 // 매 프레임: 고정 간격으로 나누어 시뮬레이션 (Unity 의 Fixed Timestep)
@@ -1151,7 +1165,8 @@ void PhysicsManager::StepSimulation(float dt)
 			// Unity: 볼록이 아닌 Mesh Collider 는 트리거가 될 수 없다
 			MeshCollider* mc = dynamic_cast<MeshCollider*>(c);
 			e.trigger = c->IsTrigger() && !(mc != nullptr && !mc->IsConvex());
-			e.layerBit = 1u << (c->GetGameObject()->GetLayerIndex() & 31);
+			e.layer = c->GetGameObject()->GetLayerIndex() & 31;
+			e.layerBit = 1u << e.layer;
 			e.excludeMask = c->GetExcludeLayers() | (rb ? rb->GetExcludeLayers() : 0u);
 			e.includeMask = c->GetIncludeLayers() | (rb ? rb->GetIncludeLayers() : 0u);
 			e.priority = c->GetLayerOverridePriority();
@@ -1467,7 +1482,7 @@ void PhysicsManager::StepSimulation(float dt)
 }
 
 // ====================================================================== Raycast
-bool PhysicsManager::Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance, bool hitTriggers)
+bool PhysicsManager::Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance, bool hitTriggers, uint32 layerMask)
 {
 	if (!m_World)
 		return false;
@@ -1499,6 +1514,8 @@ bool PhysicsManager::Raycast(const Vec3& origin, const Vec3& direction, RaycastH
 			continue;
 		if (it->second.trigger && !hitTriggers)
 			continue;
+		if (!(layerMask & it->second.layerBit))
+			continue;   // Unity 의 layerMask (기본 = Ignore Raycast 를 뺀 모두)
 
 		JPH::RVec3 point = ray.GetPointOnRay(r.mFraction);
 		hit.point = Vec3((float)point.GetX(), (float)point.GetY(), (float)point.GetZ());

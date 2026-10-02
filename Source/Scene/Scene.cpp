@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "Scene.h"
 #include <functional>
 #include "InstancingBuffer.h"
@@ -438,6 +439,7 @@ void to_json(json& j, const Scene& scene)
 {
     j = json
     {
+        { "layerFormat", TagsAndLayers::kLayerFormat },   // 레이어 번호 = Unity 번호 (없으면 예전 파일 → 불러올 때 옮김)
         { "rootGameObjects", json::array() }
     };
     for (const GameObject* gameObject : scene.m_VecRootGameObjects)
@@ -448,10 +450,19 @@ void to_json(json& j, const Scene& scene)
 
 void from_json(const json& j, Scene& scene)
 {
+    // 예전 레이어 번호 (3 Water, 4 UI) 로 저장한 씬 → Unity 번호
+    const bool legacyLayers = j.value("layerFormat", 1) < TagsAndLayers::kLayerFormat;
     for (const auto& gameObjectJson : j.at("rootGameObjects"))
     {
         GameObject* gameObject = new GameObject();
-        from_json(gameObjectJson, *gameObject);
+        if (legacyLayers)
+        {
+            json migrated = gameObjectJson;
+            TagsAndLayers::MigrateLegacyObjectJson(migrated);
+            from_json(migrated, *gameObject);
+        }
+        else
+            from_json(gameObjectJson, *gameObject);
         scene.AddRootGameObject(gameObject);   // 저장된 자식 오브젝트까지 렌더/업데이트 목록에 등록
     }
 }

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "UISystem.h"
 #include "UIRenderer.h"
 #include "RectTransform.h"
@@ -22,7 +23,7 @@
 
 namespace
 {
-	constexpr uint8 kUILayer = 4;          // UnityGUI::LayerNames() 의 "UI"
+	constexpr uint8 kUILayer = TagsAndLayers::UI;   // Unity 와 같은 5
 	constexpr float kDragThreshold = 10.0f;   // EventSystem.Drag Threshold (화면 픽셀)
 
 	int s_DrawCalls = 0;

@@ -65,7 +65,9 @@ public:
 	float GetFixedTimestep() const { return m_FixedTimestep; }
 
 	// ---- Unity 의 Physics.Raycast ----
-	bool Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance = 1000.0f, bool hitTriggers = false);
+	// layerMask: 비트 = 레이어 (Unity 의 Physics.DefaultRaycastLayers = Ignore Raycast 를 뺀 모두)
+	static constexpr uint32 kDefaultRaycastLayers = ~(1u << 2);
+	bool Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance = 1000.0f, bool hitTriggers = false, uint32 layerMask = kDefaultRaycastLayers);
 	// 맞은 것을 가까운 순으로 여러 개 (트리거 제외, staticOnly 면 Rigidbody 가 없는 정적 바디만) — NavMesh 굽기 등. 여러 스레드에서 불러도 된다
 	int RaycastAll(const Vec3& origin, const Vec3& direction, float maxDistance, RaycastHit* out, int maxHits, bool staticOnly);
 	// 편집 중에도 Raycast 를 쓰게 지금 씬으로 물리 월드를 맞춘다 (없으면 임시로 만든다 / End 에서 내림). Play 중이면 그대로

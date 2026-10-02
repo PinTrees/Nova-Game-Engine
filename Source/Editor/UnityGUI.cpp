@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "ProjectSettingsWindow.h"
+#include "TagsAndLayers.h"
 #include "UnityGUI.h"
 #include "EditorTheme.h"
 #include <unordered_map>
@@ -224,28 +226,32 @@ namespace UnityGUI
 		return changed;
 	}
 
+	// 레이어 32 개의 이름 (Project Settings > Tags and Layers, 빈 이름 = 쓰지 않는 User Layer). 비트 i = 레이어 i
 	const char* const* LayerNames(int* count)
 	{
-		static const char* kLayers[] = { "Default", "TransparentFX", "Ignore Raycast", "Water", "UI" };
-		if (count) *count = 5;
-		return kLayers;
+		static const char* names[TagsAndLayers::kLayerCount];
+		for (int i = 0; i < TagsAndLayers::kLayerCount; ++i)
+			names[i] = TagsAndLayers::LayerName(i).c_str();
+		if (count) *count = TagsAndLayers::kLayerCount;
+		return names;
 	}
 
 	bool MaskField(const char* label, uint32* mask, int indent)
 	{
 		int count = 0;
 		const char* const* names = LayerNames(&count);
-		const uint32 all = (1u << count) - 1u;
-		const uint32 m = *mask & all;
+		uint32 named = 0;   // 이름 있는 레이어의 비트
+		for (int i = 0; i < count; ++i) if (names[i][0]) named |= 1u << i;
+		const uint32 m = *mask;
 
 		// 미리보기 글자: Unity 와 같이 Nothing / Everything / 레이어 하나의 이름 / Mixed...
 		std::string preview;
-		if (m == 0) preview = "Nothing";
-		else if (m == all) preview = "Everything";
+		if ((m & named) == 0) preview = "Nothing";
+		else if ((m & named) == named) preview = "Everything";
 		else
 		{
 			int n = 0, last = 0;
-			for (int i = 0; i < count; ++i) if (m & (1u << i)) { ++n; last = i; }
+			for (int i = 0; i < count; ++i) if ((m & named) & (1u << i)) { ++n; last = i; }
 			preview = n == 1 ? names[last] : "Mixed...";
 		}
 
@@ -267,10 +273,12 @@ namespace UnityGUI
 		ImGui::SetNextItemWidth(r.fieldW);
 		if (ImGui::BeginCombo("##mask", preview.c_str(), ImGuiComboFlags_NoArrowButton))
 		{
-			if (ImGui::MenuItem("Nothing", nullptr, m == 0)) { *mask = 0; changed = true; }
-			if (ImGui::MenuItem("Everything", nullptr, m == all)) { *mask = all; changed = true; }
+			if (ImGui::MenuItem("Nothing", nullptr, (m & named) == 0)) { *mask = 0; changed = true; }
+			if (ImGui::MenuItem("Everything", nullptr, (m & named) == named)) { *mask = 0xFFFFFFFFu; changed = true; }
 			for (int i = 0; i < count; ++i)
 			{
+				if (!names[i][0])
+					continue;   // 이름 없는 User Layer
 				const bool on = (m & (1u << i)) != 0;
 				if (ImGui::MenuItem(names[i], nullptr, on))
 				{
@@ -1047,9 +1055,17 @@ namespace UnityGUI
 	// ---------- GameObject 헤더 ----------
 	bool GameObjectHeader(bool* active, std::string* name, bool* isStatic, std::string* tag, int* layer)
 	{
-		static const char* kTags[] = { "Untagged", "Respawn", "Finish", "EditorOnly", "MainCamera", "Player", "GameController" };
-		int layerCount = 0;
-		const char* const* kLayers = LayerNames(&layerCount);
+		// 태그 · 레이어 목록 (Project Settings > Tags and Layers) + 끝에 "Add Tag..." / "Add Layer..."
+		const std::vector<std::string>& tagList = TagsAndLayers::Tags();
+		std::vector<const char*> kTags;
+		for (const std::string& t : tagList) kTags.push_back(t.c_str());
+		kTags.push_back("Add Tag...");
+		const std::vector<int> layerIds = TagsAndLayers::NamedLayers();
+		std::vector<std::string> layerLabels;
+		for (int id : layerIds) layerLabels.push_back(std::to_string(id) + ": " + TagsAndLayers::LayerName(id));
+		std::vector<const char*> kLayers;
+		for (const std::string& l : layerLabels) kLayers.push_back(l.c_str());
+		kLayers.push_back("Add Layer...");
 
 		ImVec2 p = ImGui::GetCursorScreenPos();
 		float w = ImGui::GetContentRegionAvail().x;
@@ -1125,13 +1141,32 @@ namespace UnityGUI
 		};
 
 		int tagIdx = 0;
-		for (int i = 0; i < 7; ++i) if (*tag == kTags[i]) tagIdx = i;
-		if (combo("tag", nameX, half, kTags, 7, &tagIdx)) { *tag = kTags[tagIdx]; changed = true; }
+		for (int i = 0; i < (int)tagList.size(); ++i) if (*tag == tagList[i]) tagIdx = i;
+		if (combo("tag", nameX, half, kTags.data(), (int)kTags.size(), &tagIdx))
+		{
+			if (tagIdx == (int)tagList.size())
+				ProjectSettingsWindow::Open("Tags and Layers");
+			else
+			{
+				*tag = tagList[tagIdx];
+				changed = true;
+			}
+		}
 
 		const float layerLabelX = nameX + half + 12.0f;
 		dl->AddText(ImVec2(layerLabelX, TextY(row2, kRowHeight, ImGui::GetFontSize())), kText, "Layer");
-		int layerIdx = std::clamp(*layer, 0, 4);
-		if (combo("layer", layerLabelX + 34.0f, p.x + w - 12.0f - (layerLabelX + 34.0f), kLayers, layerCount, &layerIdx)) { *layer = layerIdx; changed = true; }
+		int layerIdx = 0;
+		for (int i = 0; i < (int)layerIds.size(); ++i) if (layerIds[i] == *layer) layerIdx = i;
+		if (combo("layer", layerLabelX + 34.0f, p.x + w - 12.0f - (layerLabelX + 34.0f), kLayers.data(), (int)kLayers.size(), &layerIdx))
+		{
+			if (layerIdx == (int)layerIds.size())
+				ProjectSettingsWindow::Open("Tags and Layers");
+			else
+			{
+				*layer = layerIds[layerIdx];
+				changed = true;
+			}
+		}
 
 		ImGui::PopStyleVar();
 		ImGui::PopID();
