@@ -12,6 +12,8 @@
 #include "VolumeProfile.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
+#include "AudioMixer.h"
+#include "AudioMixerWindow.h"
 #include "ScriptEngine.h"
 #include <shellapi.h>
 
@@ -32,7 +34,7 @@ namespace
 	const ImU32 kHover     = IM_COL32(69, 69, 69, 255);
 	constexpr float kToolbarH = 24.0f, kCrumbH = 22.0f, kBottomH = 20.0f, kRowH = 18.0f;
 
-	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Audio, Script, Text, Other };
+	enum class Kind { Folder, Scene, Prefab, Material, Model, Texture, Controller, TerrainData, TerrainLayer, VolumeProfile, Audio, Script, Text, AudioMixer, Other };
 
 	Kind KindOf(const std::wstring& ext, bool dir)
 	{
@@ -47,6 +49,7 @@ namespace
 		if (ext == L".terrainlayer") return Kind::TerrainLayer;
 		if (ext == L".volumeprofile") return Kind::VolumeProfile;
 		if (ext == L".wav") return Kind::Audio;
+		if (ext == L".mixer") return Kind::AudioMixer;
 		if (ext == L".cs") return Kind::Script;
 		if (ext == L".txt" || ext == L".json" || ext == L".md") return Kind::Text;
 		return Kind::Other;
@@ -67,6 +70,7 @@ namespace
 		case Kind::TerrainLayer: return "asset_terrain_layer";
 		case Kind::VolumeProfile: return "volume_profile";
 		case Kind::Audio: return "audio_clip";
+		case Kind::AudioMixer: return "audio_mixer";
 		case Kind::Script: return "script_cs";
 		default: return "asset_text";
 		}
@@ -381,6 +385,13 @@ void ProjectEditorWindow::DrawCreateMenu(const fs::path& dir)
 	if (ImGui::MenuItem("Material"))
 	{
 		UMaterial::Create(wstring_to_string(dir.wstring()));
+		InvalidateCache();
+	}
+	if (ImGui::MenuItem("Audio Mixer"))
+	{
+		const std::wstring p = UniquePath(dir, L"NewAudioMixer", L".mixer");
+		AudioMixer::Create(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(p)));
+		SelectionManager::SetSelectedFile(p);
 		InvalidateCache();
 	}
 	if (ImGui::MenuItem("Animator Controller"))
@@ -843,6 +854,9 @@ void ProjectEditorWindow::Open(const Entry& e)
 	case Kind::Controller:
 		SelectionManager::SetSelectedFile(e.Path.wstring());
 		AnimatorEditorWindow::Focus();
+		break;
+	case Kind::AudioMixer:
+		AudioMixerWindow::Open(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(e.Path.wstring())));
 		break;
 	case Kind::Prefab:
 	case Kind::Model:

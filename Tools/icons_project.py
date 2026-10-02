@@ -24,6 +24,14 @@ PROJECT_ICONS = {
     # Audio Listener: 귀 모양
     "audio_listener": _svg('''<path d="M5 13.5 Q3.5 13.5 3.5 11.5 M4 6.5 Q4 2 8 2 Q12.5 2 12.5 6.5 Q12.5 9 10 10.5 Q8.5 11.5 8.5 13 Q8.5 14.5 6.8 14.5" fill="none" stroke="#C8C8C8" stroke-width="1.3" stroke-linecap="round"/>
   <path d="M6.5 7 Q6.5 4.5 8.3 4.5 Q10 4.5 10 6.3 Q10 7.5 8.8 8" fill="none" stroke="#C8C8C8" stroke-width="1.1" stroke-linecap="round"/>'''),
+    # Audio Mixer 에셋: 페이더 세 줄
+    "audio_mixer": _svg('''<rect x="1.5" y="1.5" width="13" height="13" rx="1.5" fill="#3A3A3A" stroke="#C8C8C8" stroke-width="1"/>
+  <line x1="5" y1="4" x2="5" y2="12" stroke="#9A9A9A" stroke-width="1"/>
+  <line x1="8" y1="4" x2="8" y2="12" stroke="#9A9A9A" stroke-width="1"/>
+  <line x1="11" y1="4" x2="11" y2="12" stroke="#9A9A9A" stroke-width="1"/>
+  <rect x="3.5" y="8" width="3" height="2" fill="#E8B84A"/>
+  <rect x="6.5" y="5" width="3" height="2" fill="#E8B84A"/>
+  <rect x="9.5" y="9.5" width="3" height="2" fill="#E8B84A"/>'''),
     # Audio Clip 에셋: 문서 + 파형
     "audio_clip": _svg('''<path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z" fill="#D9A441"/>
   <polygon points="10,1.5 13,4.5 10,4.5" fill="#A87A25"/>

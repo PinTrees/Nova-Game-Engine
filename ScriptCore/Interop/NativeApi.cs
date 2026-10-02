@@ -174,6 +174,17 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, float, void> AN_SetFloat;
         public delegate* unmanaged<ulong, int, Vector3*, void> AN_GetVector;
         public delegate* unmanaged<ulong, int, float*, byte*> AN_GetState;
+
+        // AudioSource.outputAudioMixerGroup ("믹서|그룹") · AudioMixer (경로로)
+        public delegate* unmanaged<ulong, byte*> AS_GetOutput;
+        public delegate* unmanaged<ulong, byte*, byte*, void> AS_SetOutput;
+        public delegate* unmanaged<byte*, int> MX_Load;
+        public delegate* unmanaged<byte*, byte*, float, int> MX_SetFloat;
+        public delegate* unmanaged<byte*, byte*, float*, int> MX_GetFloat;
+        public delegate* unmanaged<byte*, byte*, int> MX_ClearFloat;
+        public delegate* unmanaged<byte*, byte*, float, int> MX_Transition;
+        public delegate* unmanaged<byte*, int, byte*> MX_Names;
+        public delegate* unmanaged<byte*, byte*, float> MX_GroupLevel;
     }
 
     internal static unsafe class Native

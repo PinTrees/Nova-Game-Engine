@@ -2,18 +2,23 @@
 #include "Component.h"
 
 struct IXAudio2SourceVoice;
+struct IXAudio2Voice;
 class AudioClip;
+class AudioMixer;
 
 // Unity 의 Audio Source.
-//  - Play On Awake / Loop / Mute / Volume / Pitch / Stereo Pan / Spatial Blend(2D↔3D) / 3D Sound Settings(거리 감쇠)
-//  - Bypass Effects·Listener Effects·Reverb Zones, Output(Mixer), Priority, Reverb Zone Mix, Doppler, Spread 는
-//    값만 저장한다 (믹서/리버브/도플러 미구현).
+//  - Play On Awake / Loop / Mute / Volume / Pitch / Stereo Pan / Spatial Blend(2D↔3D) / 3D Sound Settings(거리 감쇠, 도플러, Spread)
+//  - Output: Audio Mixer 그룹으로 보낸다 (없으면 바로 마스터)
+//  - Bypass Effects·Listener Effects·Reverb Zones, Priority, Reverb Zone Mix 는 값만 저장한다
 //  - 스크립트 API: Play, Stop, Pause, UnPause, PlayOneShot, IsPlaying, GetTime
 class AudioSource : public Component
 {
 private:
 	std::string m_ClipPath;
 	std::shared_ptr<AudioClip> m_Clip;
+	std::string m_OutputMixer;     // Assets\... .mixer
+	std::string m_OutputGroup;     // 그룹 이름
+	std::shared_ptr<AudioMixer> m_Mixer;
 
 	bool m_Mute = false;
 	bool m_BypassEffects = false;
@@ -41,6 +46,10 @@ private:
 	bool m_Paused = false;
 	bool m_VoiceLoop = false;
 	uint64_t m_SamplesAtStart = 0;
+	IXAudio2Voice* m_RoutedTo = nullptr;   // 지금 보내는 그룹 보이스 (nullptr = 마스터)
+	Vec3 m_LastPosition = Vec3::Zero;
+	Vec3 m_Velocity = Vec3::Zero;          // 도플러용
+	bool m_HavePosition = false;
 
 public:
 	AudioSource();
@@ -77,7 +86,17 @@ public:
 	float GetSpatialBlend() const { return m_SpatialBlend; }
 	void SetStereoPan(float p) { m_StereoPan = std::clamp(p, -1.0f, 1.0f); }
 	float GetStereoPan() const { return m_StereoPan; }
-	void SetDistances(float minD, float maxD) { m_MinDistance = minD; m_MaxDistance = maxD; }
+	void SetDistances(float minD, float maxD) { m_MinDistance = (std::max)(0.01f, minD); m_MaxDistance = (std::max)(m_MinDistance + 0.01f, maxD); }
+	float GetMinDistance() const { return m_MinDistance; }
+	float GetMaxDistance() const { return m_MaxDistance; }
+	void SetDopplerLevel(float v) { m_DopplerLevel = std::clamp(v, 0.0f, 5.0f); }
+	float GetDopplerLevel() const { return m_DopplerLevel; }
+	void SetSpread(float v) { m_Spread = std::clamp(v, 0.0f, 360.0f); }
+	float GetSpread() const { return m_Spread; }
+	// Unity 의 outputAudioMixerGroup (빈 경로 = 마스터로 바로)
+	void SetOutput(const std::string& mixerPath, const std::string& group);
+	const std::string& GetOutputMixer() const { return m_OutputMixer; }
+	const std::string& GetOutputGroup() const { return m_OutputGroup; }
 
 	virtual void OnInspectorGUI() override;
 	virtual bool UsesUnityInspector() const override { return true; }
@@ -85,6 +104,8 @@ public:
 
 private:
 	void UpdateMix();
+	IXAudio2Voice* OutputVoice();
+	void UpdateRouting();
 
 	GENERATE_COMPONENT_BODY(AudioSource)
 };

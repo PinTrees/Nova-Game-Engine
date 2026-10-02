@@ -14,6 +14,7 @@
 #include "AudioSource.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
+#include "AudioMixer.h"
 #include "PhysicsManager.h"
 #include "UIScriptBindings.h"
 #include "UISystem.h"
@@ -156,6 +157,15 @@ namespace
 		void(*AN_SetFloat)(uint64, int, float);
 		void(*AN_GetVector)(uint64, int, Vec3*);
 		u8*(*AN_GetState)(uint64, int, float*);
+		u8*(*AS_GetOutput)(uint64);
+		void(*AS_SetOutput)(uint64, u8*, u8*);
+		int(*MX_Load)(u8*);
+		int(*MX_SetFloat)(u8*, u8*, float);
+		int(*MX_GetFloat)(u8*, u8*, float*);
+		int(*MX_ClearFloat)(u8*, u8*);
+		int(*MX_Transition)(u8*, u8*, float);
+		u8*(*MX_Names)(u8*, int);
+		float(*MX_GroupLevel)(u8*, u8*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -730,13 +740,24 @@ namespace
 	{
 		AudioSource* a = Get<AudioSource>(id);
 		if (a == nullptr) return 0.0f;
-		switch (prop) { case 0: return a->GetVolume(); case 1: return a->GetPitch(); case 2: return a->GetStereoPan(); case 3: return a->GetSpatialBlend(); default: return a->GetTime(); }
+		switch (prop)
+		{
+		case 0: return a->GetVolume(); case 1: return a->GetPitch(); case 2: return a->GetStereoPan(); case 3: return a->GetSpatialBlend();
+		case 5: return a->GetDopplerLevel(); case 6: return a->GetSpread(); case 7: return a->GetMinDistance(); case 8: return a->GetMaxDistance();
+		default: return a->GetTime();
+		}
 	}
 	void AS_SetFloat(uint64 id, int prop, float v)
 	{
 		AudioSource* a = Get<AudioSource>(id);
 		if (a == nullptr) return;
-		switch (prop) { case 0: a->SetVolume(v); break; case 1: a->SetPitch(v); break; case 2: a->SetStereoPan(v); break; case 3: a->SetSpatialBlend(v); break; default: break; }
+		switch (prop)
+		{
+		case 0: a->SetVolume(v); break; case 1: a->SetPitch(v); break; case 2: a->SetStereoPan(v); break; case 3: a->SetSpatialBlend(v); break;
+		case 5: a->SetDopplerLevel(v); break; case 6: a->SetSpread(v); break;
+		case 7: a->SetDistances(v, a->GetMaxDistance()); break; case 8: a->SetDistances(a->GetMinDistance(), v); break;
+		default: break;
+		}
 	}
 	int AS_GetBool(uint64 id, int prop)
 	{
@@ -778,6 +799,51 @@ namespace
 		Animator* an = Get<Animator>(id);
 		if (an == nullptr || name == nullptr) return 0.0f;
 		switch (kind) { case 0: return an->GetFloat(name); case 1: return (float)an->GetInteger(name); case 2: return an->GetBool(name) ? 1.0f : 0.0f; default: return 0.0f; }
+	}
+
+	// ---- AudioSource.outputAudioMixerGroup ("믹서 경로|그룹", 빈 문자열 = 없음)
+	u8* AS_GetOutput(uint64 id)
+	{
+		AudioSource* a = Get<AudioSource>(id);
+		if (a == nullptr || a->GetOutputMixer().empty()) return Ret(std::string());
+		return Ret(a->GetOutputMixer() + "|" + a->GetOutputGroup());
+	}
+	void AS_SetOutput(uint64 id, u8* mixer, u8* group)
+	{
+		if (AudioSource* a = Get<AudioSource>(id))
+			a->SetOutput(mixer ? mixer : "", group ? group : "");
+	}
+
+	// ---- AudioMixer (경로로 찾는다 — 같은 경로 = 같은 믹서)
+	int MX_Load(u8* path) { return path && AudioMixer::Load(path) ? 1 : 0; }
+	int MX_SetFloat(u8* path, u8* name, float v) { auto m = path ? AudioMixer::Load(path) : nullptr; return m && name && m->SetFloat(name, v) ? 1 : 0; }
+	int MX_GetFloat(u8* path, u8* name, float* out)
+	{
+		auto m = path ? AudioMixer::Load(path) : nullptr;
+		float v = 0.0f;
+		const bool ok = m && name && m->GetFloat(name, v);
+		if (out) *out = v;
+		return ok ? 1 : 0;
+	}
+	int MX_ClearFloat(u8* path, u8* name) { auto m = path ? AudioMixer::Load(path) : nullptr; return m && name && m->ClearFloat(name) ? 1 : 0; }
+	int MX_Transition(u8* path, u8* snapshot, float seconds) { auto m = path ? AudioMixer::Load(path) : nullptr; return m && snapshot && m->TransitionTo(snapshot, seconds) ? 1 : 0; }
+	// 이름 목록 (줄바꿈으로): 0 그룹, 1 스냅숏, 2 노출 파라미터
+	u8* MX_Names(u8* path, int what)
+	{
+		auto m = path ? AudioMixer::Load(path) : nullptr;
+		std::string s;
+		if (m)
+		{
+			if (what == 0) for (const auto& g : m->Groups) s += g.Name + "\n";
+			else if (what == 1) for (const auto& n : m->Snapshots) s += n.Name + "\n";
+			else for (const auto& e : m->ExposedParams) s += e.Name + "\n";
+		}
+		return Ret(s);
+	}
+	float MX_GroupLevel(u8* path, u8* group)
+	{
+		auto m = path ? AudioMixer::Load(path) : nullptr;
+		return m && group ? m->GroupLevelDb(m->FindGroup(group)) : -80.0f;
 	}
 
 	// Play / CrossFade: fade < 0 이면 Play(normalizedTime), 아니면 CrossFade(fade 초). layer < 0 = 0
@@ -1149,6 +1215,15 @@ namespace ScriptBindings
 		t.AN_SetFloat = AN_SetFloat;
 		t.AN_GetVector = AN_GetVector;
 		t.AN_GetState = AN_GetState;
+		t.AS_GetOutput = AS_GetOutput;
+		t.AS_SetOutput = AS_SetOutput;
+		t.MX_Load = MX_Load;
+		t.MX_SetFloat = MX_SetFloat;
+		t.MX_GetFloat = MX_GetFloat;
+		t.MX_ClearFloat = MX_ClearFloat;
+		t.MX_Transition = MX_Transition;
+		t.MX_Names = MX_Names;
+		t.MX_GroupLevel = MX_GroupLevel;
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

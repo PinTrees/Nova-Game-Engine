@@ -2,6 +2,7 @@
 #include "AudioSource.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
+#include "AudioMixer.h"
 #include "UnityGUI.h"
 #include "ObjectPicker.h"
 #include <xaudio2.h>
@@ -28,6 +29,36 @@ void AudioSource::SetClip(const std::string& path)
 	m_Clip = path.empty() ? nullptr : AudioClip::Load(path);
 }
 
+void AudioSource::SetOutput(const std::string& mixerPath, const std::string& group)
+{
+	m_OutputMixer = mixerPath;
+	m_OutputGroup = group;
+	m_Mixer = mixerPath.empty() ? nullptr : AudioMixer::Load(mixerPath);
+	UpdateRouting();
+}
+
+IXAudio2Voice* AudioSource::OutputVoice()
+{
+	if (m_Mixer == nullptr)
+		return nullptr;
+	const int g = m_OutputGroup.empty() ? 0 : m_Mixer->FindGroup(m_OutputGroup);
+	return g >= 0 ? m_Mixer->GroupVoice(g) : nullptr;
+}
+
+// 믹서를 고쳐 그룹 보이스가 새로 만들어졌거나 Output 을 바꿨으면 다시 연결
+void AudioSource::UpdateRouting()
+{
+	if (m_Voice == nullptr)
+		return;
+	IXAudio2Voice* out = OutputVoice();
+	if (out != m_RoutedTo)
+	{
+		AudioManager::SetOutput(m_Voice, out);
+		m_RoutedTo = out;
+		UpdateMix();   // 출력 채널 수가 바뀌었을 수 있다
+	}
+}
+
 // ------------------------------------------------------------------ 재생
 void AudioSource::Start()
 {
@@ -44,11 +75,13 @@ void AudioSource::Play()
 		AudioManager::DestroyVoice(m_Voice);
 	if (m_Voice == nullptr)
 	{
-		m_Voice = AudioManager::CreateVoice(*m_Clip);
+		m_RoutedTo = OutputVoice();
+		m_Voice = AudioManager::CreateVoice(*m_Clip, m_RoutedTo);
 		m_VoiceClip = m_Clip;
 		if (m_Voice == nullptr)
 			return;
 	}
+	UpdateRouting();
 	m_Voice->Stop();
 	m_Voice->FlushSourceBuffers();
 	XAUDIO2_VOICE_STATE st = {};
@@ -100,9 +133,10 @@ void AudioSource::PlayOneShot(const std::shared_ptr<AudioClip>& clip, float volu
 	float gain = 1.0f, pan3d = 0.0f;
 	if (m_SpatialBlend > 0.0f && m_pGameObject)
 		AudioManager::Spatialize(m_pGameObject->GetTransform()->GetPosition(), m_MinDistance, m_MaxDistance, m_Rolloff == 1 ? 1 : 0, gain, pan3d);
+	pan3d *= 1.0f - m_Spread / 180.0f;
 	const float vol = m_Volume * volumeScale * (1.0f + (gain - 1.0f) * m_SpatialBlend);
 	const float pan = m_StereoPan + (pan3d - m_StereoPan) * m_SpatialBlend;
-	AudioManager::PlayOneShot(clip, vol, pan, m_Pitch);
+	AudioManager::PlayOneShot(clip, vol, pan, m_Pitch, OutputVoice());
 }
 
 bool AudioSource::IsPlaying()
@@ -140,18 +174,38 @@ void AudioSource::UpdateMix()
 {
 	if (m_Voice == nullptr || m_VoiceClip == nullptr)
 		return;
-	float gain = 1.0f, pan3d = 0.0f;
+	float gain = 1.0f, pan3d = 0.0f, doppler = 1.0f;
 	if (m_SpatialBlend > 0.0f && m_pGameObject)
-		AudioManager::Spatialize(m_pGameObject->GetTransform()->GetPosition(), m_MinDistance, m_MaxDistance, m_Rolloff == 1 ? 1 : 0, gain, pan3d);
-	// Spatial Blend: 0 = 2D(Stereo Pan 만), 1 = 3D(거리 감쇠 + 방향)
+	{
+		const Vec3 pos = m_pGameObject->GetTransform()->GetPosition();
+		AudioManager::Spatialize(pos, m_MinDistance, m_MaxDistance, m_Rolloff == 1 ? 1 : 0, gain, pan3d);
+		doppler = AudioManager::DopplerFactor(pos, m_Velocity, m_DopplerLevel);
+	}
+	// Spread: 0 = 한 점, 180 = 양쪽 같게, 360 = 좌우 반대 (Unity 와 같은 방향)
+	pan3d *= 1.0f - m_Spread / 180.0f;
+	// Spatial Blend: 0 = 2D(Stereo Pan 만), 1 = 3D(거리 감쇠 + 방향 + 도플러)
 	const float vol = m_Mute ? 0.0f : m_Volume * (1.0f + (gain - 1.0f) * m_SpatialBlend);
 	const float pan = m_StereoPan + (pan3d - m_StereoPan) * m_SpatialBlend;
-	AudioManager::ApplyMix(m_Voice, m_VoiceClip->Channels, vol, pan);
-	AudioManager::SetPitch(m_Voice, m_Pitch);
+	AudioManager::ApplyMix(m_Voice, m_VoiceClip->Channels, vol, pan, m_RoutedTo ? 2 : 0);
+	AudioManager::SetPitch(m_Voice, m_Pitch * (1.0f + (doppler - 1.0f) * m_SpatialBlend));
 }
 
 void AudioSource::Update()
 {
+	// 도플러용 속도 (순간 이동은 무시)
+	if (m_pGameObject)
+	{
+		const Vec3 pos = m_pGameObject->GetTransform()->GetPosition();
+		const float dt = (float)DT;
+		if (m_HavePosition && dt > 1e-5f)
+		{
+			const Vec3 v = (pos - m_LastPosition) / dt;
+			m_Velocity = v.Length() > 100.0f ? Vec3::Zero : v;
+		}
+		m_LastPosition = pos;
+		m_HavePosition = true;
+	}
+	UpdateRouting();
 	if (m_Voice == nullptr || !m_Playing)
 		return;
 	if (!IsEnabled())
@@ -216,7 +270,37 @@ void AudioSource::OnInspectorGUI()
 		ImGui::SetCursorScreenPos(after);
 		ImGui::PopID();
 	}
-	UnityGUI::ObjectField("Output", "None (Audio Mixer Group)");
+	// Output: Audio Mixer 그룹 (프로젝트의 .mixer 들)
+	{
+		std::string text = "None (Audio Mixer Group)";
+		if (m_Mixer)
+			text = (m_OutputGroup.empty() ? std::string("Master") : m_OutputGroup) + " (" + m_Mixer->Name() + ")";
+		if (UnityGUI::ObjectField("Output", text.c_str(), 0, m_Mixer ? "audio_mixer" : nullptr))
+			ImGui::OpenPopup("##mixergroup");
+		ImGui::SetNextWindowSizeConstraints(ImVec2(260, 0), ImVec2(480, 400));
+		if (ImGui::BeginPopup("##mixergroup"))
+		{
+			if (ImGui::Selectable("None", m_Mixer == nullptr))
+				SetOutput("", "");
+			for (const std::string& path : AudioMixer::FindAll())
+			{
+				auto mixer = AudioMixer::Load(path);
+				if (mixer == nullptr)
+					continue;
+				ImGui::SeparatorText(mixer->Name().c_str());
+				for (const auto& g : mixer->Groups)
+				{
+					int depth = 0;
+					for (int p = g.Parent; p >= 0; p = mixer->Groups[p].Parent)
+						++depth;
+					const std::string label = std::string(depth * 2, ' ') + g.Name + "##" + path;
+					if (ImGui::Selectable(label.c_str(), m_Mixer == mixer && (m_OutputGroup == g.Name || (m_OutputGroup.empty() && depth == 0))))
+						SetOutput(path, g.Name);
+				}
+			}
+			ImGui::EndPopup();
+		}
+	}
 	UnityGUI::Toggle("Mute", &m_Mute);
 	UnityGUI::Toggle("Bypass Effects", &m_BypassEffects);
 	UnityGUI::Toggle("Bypass Listener Effects", &m_BypassListenerEffects);
@@ -272,6 +356,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(AudioSource)
 	SERIALIZE_TYPE(j, AudioSource);
 	j["enabled"] = m_Enabled;
 	j["clip"] = m_ClipPath;
+	j["outputMixer"] = m_OutputMixer;
+	j["outputGroup"] = m_OutputGroup;
 	j["mute"] = m_Mute;
 	j["bypassEffects"] = m_BypassEffects;
 	j["bypassListenerEffects"] = m_BypassListenerEffects;
@@ -313,4 +399,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(AudioSource)
 	m_MinDistance = j.value("minDistance", 1.0f);
 	m_MaxDistance = j.value("maxDistance", 500.0f);
 	SetClip(j.value("clip", std::string()));
+	SetOutput(j.value("outputMixer", std::string()), j.value("outputGroup", std::string()));
 }

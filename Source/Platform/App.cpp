@@ -2,6 +2,7 @@
 #include "PackageManager.h"
 #include "AutoSave.h"
 #include "PackageManagerWindow.h"
+#include "AudioMixerWindow.h"
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "GfxGL.h"
@@ -337,6 +338,7 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
 	EditorGUIManager::GetI()->RegisterWindow(new ProfilerEditorWindow);   // Window > Analysis > Profiler (Ctrl+7)
 	EditorGUIManager::GetI()->RegisterWindow(new PackageManagerWindow);   // Window > Package Manager
+	EditorGUIManager::GetI()->RegisterWindow(new AudioMixerWindow);       // Window > Audio Mixer
 	}
 
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();

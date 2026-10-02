@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'packages', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -292,6 +292,55 @@ function Suite-Packages
     }
 }
 
+# ------------------------------------------------------------------ 오디오: Audio Mixer 그룹으로 보내기 · 노출 파라미터 · 스냅숏 전환 (그룹 레벨 미터로 확인)
+function Suite-Audio
+{
+    Write-Host '[audio]'
+    $mixer = Join-Path $Project 'Assets\NovaTestMixer.mixer'
+    '{ "groups": [ { "id": 1, "name": "Master", "parent": -1 }, { "id": 2, "name": "Music", "parent": 0, "effects": [ { "id": 4, "type": "Lowpass" } ] }, { "id": 3, "name": "SFX", "parent": 0, "effects": [ { "id": 5, "type": "Reverb" } ] } ], "snapshots": [ { "name": "Normal", "values": { "g2/vol": 0 } }, { "name": "Quiet", "values": { "g2/vol": -40 } } ], "exposed": [ { "name": "MusicVol", "key": "g2/vol" } ], "nextId": 6 }' | Set-Content -Encoding utf8 $mixer
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        foreach ($x in @(@('AMusic', 'BGM_Loop.wav', 'Music'), @('ASfx', 'Coin.wav', 'SFX')))
+        {
+            Invoke-Nova "create empty --name $($x[0])" | Out-Null
+            $values = (@{ clip = "Resources\Packages\Audio\SFX\$($x[1])"; loop = $true; outputMixer = 'Assets\NovaTestMixer.mixer'; outputGroup = $x[2] } | ConvertTo-Json -Compress).Replace('"', '\"')
+            Invoke-Nova "add-component $($x[0]) AudioSource --values `"$values`"" | Out-Null
+        }
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $lf = Join-Path $Out 'mixer_levels.cs'
+        'var m = NovaEngine.Audio.AudioMixer.Load("Assets/NovaTestMixer.mixer"); float v; m.GetFloat("MusicVol", out v); return m.GetGroupLevel("Music").ToString("F1") + " " + m.GetGroupLevel("SFX").ToString("F1") + " " + v.ToString("F1");' | Set-Content -Encoding utf8 $lf
+        $level = { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 0.8) { Invoke-Nova 'wait 5' | Out-Null }; $r = Invoke-NovaJson "exec --file $lf"; if ($r) { "$($r.result)" -split ' ' } else { @() } }
+        $a = & $level
+        $avail = (Invoke-NovaJson 'log -n 400 --grep "XAudio2 ready"' | Out-String) -match 'ready'
+        if (-not $avail -and $a.Count -eq 3 -and [double]$a[0] -le -79)
+        {
+            Add-Result audio 'mixer groups (no audio device)' $true 'XAudio2 not available - skipped'
+        }
+        else
+        {
+            Add-Result audio 'audio source plays through its mixer group' ($a.Count -eq 3 -and [double]$a[0] -gt -30 -and [double]$a[1] -gt -40) "Music $($a[0]) dB, SFX $($a[1]) dB (expect sound in both)"
+            $sf = Join-Path $Out 'mixer_set.cs'
+            'return NovaEngine.Audio.AudioMixer.Load("Assets/NovaTestMixer.mixer").SetFloat("MusicVol", -80f);' | Set-Content -Encoding utf8 $sf
+            Invoke-Nova "exec --file $sf" | Out-Null
+            $b = & $level
+            Add-Result audio 'exposed parameter mutes only that group' ($b.Count -eq 3 -and [double]$b[0] -le -79 -and [double]$b[1] -gt -40) "Music $($b[0]) dB, SFX $($b[1]) dB"
+            $tf = Join-Path $Out 'mixer_snap.cs'
+            'var m = NovaEngine.Audio.AudioMixer.Load("Assets/NovaTestMixer.mixer"); m.ClearFloat("MusicVol"); m.FindSnapshot("Quiet").TransitionTo(0.3f); return "ok";' | Set-Content -Encoding utf8 $tf
+            Invoke-Nova "exec --file $tf" | Out-Null
+            $c = & $level
+            Add-Result audio 'snapshot transition lowers the group' ($c.Count -eq 3 -and [math]::Abs([double]$c[2] + 40) -lt 0.1 -and [double]$c[0] -lt [double]$a[0] - 20) "MusicVol $($c[2]) (expect -40), Music $($c[0]) dB"
+        }
+        Invoke-Nova 'stop' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item -LiteralPath $mixer -ErrorAction SilentlyContinue
+    }
+}
+
 # ------------------------------------------------------------------ 자동 저장 + 충돌 복구: 변경 → autosave now → 테스트 에디터 강제 종료 → 다시 열어 recover
 function Suite-Recovery
 {
@@ -523,6 +572,7 @@ try
                 'cli' { Suite-Cli }
                 'physics' { Suite-Physics }
                 'packages' { Suite-Packages }
+                'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }
                 'gfx' { Suite-Gfx }

@@ -2,6 +2,7 @@
 #include "AudioManager.h"
 #include "AudioClip.h"
 #include "AudioListener.h"
+#include "AudioMixer.h"
 #include <xaudio2.h>
 #include <xaudio2fx.h>
 
@@ -23,7 +24,9 @@ namespace
 	IXAudio2SourceVoice* s_Preview = nullptr;
 	std::shared_ptr<AudioClip> s_PreviewClip;
 
-	Vec3 s_ListenerPos(0, 0, 0), s_ListenerRight(1, 0, 0);
+	Vec3 s_ListenerPos(0, 0, 0), s_ListenerRight(1, 0, 0), s_ListenerVel(0, 0, 0);
+	UINT32 s_SampleRate = 48000;
+	constexpr float kSpeedOfSound = 343.0f;   // m/s (Unity 와 같음)
 
 	// 통계 (최근 값)
 	float s_PeakHold = 0.0f;
@@ -31,7 +34,7 @@ namespace
 	int s_Frames = 0, s_ClipFrames = 0;
 	AudioManager::Stats s_Stats;
 
-	void UpdateListener()
+	void UpdateListenerPose()
 	{
 		// AudioListener 가 있으면 그 Transform, 없으면 Game 뷰 카메라
 		if (AudioListener* l = AudioListener::Active())
@@ -53,6 +56,16 @@ namespace
 				s_ListenerRight = right;
 			}
 		}
+	}
+
+	void UpdateListener()
+	{
+		// 속도 (도플러) = 이번 프레임 이동 / 시간, 순간 이동(100 m/s 넘음)은 무시
+		const Vec3 before = s_ListenerPos;
+		UpdateListenerPose();
+		const float dt = ImGui::GetIO().DeltaTime;
+		const Vec3 v = dt > 1e-4f ? (s_ListenerPos - before) / dt : Vec3::Zero;
+		s_ListenerVel = v.Length() > 100.0f ? Vec3::Zero : v;
 	}
 }
 
@@ -81,6 +94,7 @@ namespace AudioManager
 		XAUDIO2_VOICE_DETAILS details = {};
 		s_Master->GetVoiceDetails(&details);
 		s_OutChannels = details.InputChannels;
+		s_SampleRate = details.InputSampleRate;
 
 		// 출력 레벨 측정기 (Stats 의 Level / Clipping)
 		IUnknown* meter = nullptr;
@@ -100,24 +114,39 @@ namespace AudioManager
 	{
 		StopAllOneShots();
 		StopPreview();
+		AudioMixer::ForgetAllVoices();   // 그룹 보이스는 엔진을 놓을 때 같이 지워진다
 		if (s_Master) { s_Master->DestroyVoice(); s_Master = nullptr; }
 		if (s_Engine) { s_Engine->Release(); s_Engine = nullptr; }
 	}
 
 	bool IsAvailable() { return s_Engine != nullptr; }
+	IXAudio2* Engine() { return s_Engine; }
+	unsigned SampleRate() { return s_SampleRate; }
+	unsigned OutputChannels() { return s_OutChannels; }
 
-	IXAudio2SourceVoice* CreateVoice(const AudioClip& clip)
+	IXAudio2SourceVoice* CreateVoice(const AudioClip& clip, IXAudio2Voice* output)
 	{
 		if (!Init())
 			return nullptr;
 		IXAudio2SourceVoice* voice = nullptr;
-		const HRESULT hr = s_Engine->CreateSourceVoice(&voice, &clip.Format, 0, 3.0f);
+		XAUDIO2_SEND_DESCRIPTOR send = { 0, output };
+		XAUDIO2_VOICE_SENDS sends = { 1, &send };
+		const HRESULT hr = s_Engine->CreateSourceVoice(&voice, &clip.Format, 0, 3.0f, nullptr, output ? &sends : nullptr);
 		if (FAILED(hr))
 		{
 			EditorLog::Write("Audio", "CreateSourceVoice failed for %s hr=0x%08X", clip.Path.c_str(), (unsigned)hr);
 			return nullptr;
 		}
 		return voice;
+	}
+
+	void SetOutput(IXAudio2SourceVoice* voice, IXAudio2Voice* output)
+	{
+		if (voice == nullptr)
+			return;
+		XAUDIO2_SEND_DESCRIPTOR send = { 0, output ? output : s_Master };
+		XAUDIO2_VOICE_SENDS sends = { 1, &send };
+		voice->SetOutputVoices(&sends);
 	}
 
 	void DestroyVoice(IXAudio2SourceVoice*& voice)
@@ -143,18 +172,19 @@ namespace AudioManager
 		return SUCCEEDED(voice->SubmitSourceBuffer(&buffer));
 	}
 
-	void ApplyMix(IXAudio2SourceVoice* voice, int inputChannels, float volume, float pan)
+	void ApplyMix(IXAudio2SourceVoice* voice, int inputChannels, float volume, float pan, int outputChannels)
 	{
 		if (voice == nullptr || inputChannels <= 0)
 			return;
+		const UINT32 outCh = outputChannels > 0 ? (UINT32)outputChannels : s_OutChannels;
 		pan = std::clamp(pan, -1.0f, 1.0f);
 		volume = (std::max)(0.0f, volume);
 		// 밸런스 팬: 가운데 = 양쪽 그대로, 한쪽으로 갈수록 반대쪽이 줄어든다 (Unity 의 Stereo Pan)
 		const float left = volume * (pan > 0.0f ? 1.0f - pan : 1.0f);
 		const float right = volume * (pan < 0.0f ? 1.0f + pan : 1.0f);
-		std::vector<float> m((size_t)inputChannels * s_OutChannels, 0.0f);
+		std::vector<float> m((size_t)inputChannels * outCh, 0.0f);
 		auto at = [&](int in, int out) -> float& { return m[(size_t)out * inputChannels + in]; };   // [출력][입력]
-		if (s_OutChannels >= 2)
+		if (outCh >= 2)
 		{
 			if (inputChannels == 1)
 			{
@@ -170,7 +200,7 @@ namespace AudioManager
 		else
 			for (int i = 0; i < inputChannels; ++i)
 				at(i, 0) = volume / inputChannels;
-		voice->SetOutputMatrix(nullptr, (UINT32)inputChannels, s_OutChannels, m.data());
+		voice->SetOutputMatrix(nullptr, (UINT32)inputChannels, outCh, m.data());
 	}
 
 	void SetPitch(IXAudio2SourceVoice* voice, float pitch)
@@ -193,15 +223,32 @@ namespace AudioManager
 	}
 
 	Vec3 ListenerPosition() { return s_ListenerPos; }
+	Vec3 ListenerVelocity() { return s_ListenerVel; }
 
-	void PlayOneShot(const std::shared_ptr<AudioClip>& clip, float volume, float pan, float pitch)
+	float DopplerFactor(const Vec3& sourcePos, const Vec3& sourceVel, float level)
+	{
+		if (level <= 0.0f)
+			return 1.0f;
+		Vec3 toListener = s_ListenerPos - sourcePos;
+		const float dist = toListener.Length();
+		if (dist < 1e-3f)
+			return 1.0f;
+		toListener /= dist;
+		// f' = f · (c + 리스너가 소스 쪽으로 가는 속도) / (c − 소스가 리스너 쪽으로 가는 속도)
+		const float vs = std::clamp(sourceVel.Dot(toListener), -kSpeedOfSound * 0.5f, kSpeedOfSound * 0.5f);
+		const float vl = std::clamp(-s_ListenerVel.Dot(toListener), -kSpeedOfSound * 0.5f, kSpeedOfSound * 0.5f);
+		const float f = (kSpeedOfSound + vl) / (kSpeedOfSound - vs);
+		return std::clamp(1.0f + (f - 1.0f) * level, 0.25f, 3.0f);
+	}
+
+	void PlayOneShot(const std::shared_ptr<AudioClip>& clip, float volume, float pan, float pitch, IXAudio2Voice* output)
 	{
 		if (clip == nullptr)
 			return;
-		IXAudio2SourceVoice* voice = CreateVoice(*clip);
+		IXAudio2SourceVoice* voice = CreateVoice(*clip, output);
 		if (voice == nullptr)
 			return;
-		ApplyMix(voice, clip->Channels, volume, pan);
+		ApplyMix(voice, clip->Channels, volume, pan, output ? 2 : 0);
 		SetPitch(voice, pitch);
 		Submit(voice, *clip, false);
 		voice->Start();
@@ -270,6 +317,8 @@ namespace AudioManager
 		if (s_WasPlaying && !playing)
 			StopAllOneShots();
 		s_WasPlaying = playing;
+
+		AudioMixer::UpdateAll(ImGui::GetIO().DeltaTime);
 
 		// 끝난 One Shot 정리
 		for (size_t i = 0; i < s_OneShots.size();)

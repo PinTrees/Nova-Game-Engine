@@ -73,6 +73,27 @@ namespace NovaEngine
         public unsafe float panStereo { get => Native.Api.AS_GetFloat(m_Id, 2); set => Native.Api.AS_SetFloat(m_Id, 2, value); }
         public unsafe float spatialBlend { get => Native.Api.AS_GetFloat(m_Id, 3); set => Native.Api.AS_SetFloat(m_Id, 3, value); }
         public unsafe float time => Native.Api.AS_GetFloat(m_Id, 4);
+        public unsafe float dopplerLevel { get => Native.Api.AS_GetFloat(m_Id, 5); set => Native.Api.AS_SetFloat(m_Id, 5, value); }
+        public unsafe float spread { get => Native.Api.AS_GetFloat(m_Id, 6); set => Native.Api.AS_SetFloat(m_Id, 6, value); }
+        public unsafe float minDistance { get => Native.Api.AS_GetFloat(m_Id, 7); set => Native.Api.AS_SetFloat(m_Id, 7, value); }
+        public unsafe float maxDistance { get => Native.Api.AS_GetFloat(m_Id, 8); set => Native.Api.AS_SetFloat(m_Id, 8, value); }
+        /// <summary>Audio Mixer 그룹으로 보낸다 (null = 마스터로 바로)</summary>
+        public unsafe NovaEngine.Audio.AudioMixerGroup outputAudioMixerGroup
+        {
+            get
+            {
+                string s = Native.Str(Native.Api.AS_GetOutput(m_Id));
+                if (string.IsNullOrEmpty(s)) return null;
+                int bar = s.IndexOf('|');
+                return new NovaEngine.Audio.AudioMixerGroup(new NovaEngine.Audio.AudioMixer(s.Substring(0, bar)), s.Substring(bar + 1));
+            }
+            set
+            {
+                fixed (byte* m = Native.Utf8(value?.audioMixer.m_Path))
+                fixed (byte* g = Native.Utf8(value?.name))
+                    Native.Api.AS_SetOutput(m_Id, m, g);
+            }
+        }
         public unsafe AudioClip clip
         {
             get { string p = Native.Str(Native.Api.AS_GetClip(m_Id)); return string.IsNullOrEmpty(p) ? null : new AudioClip(p); }

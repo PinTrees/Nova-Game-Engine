@@ -122,7 +122,7 @@ GPU 시간은 두 API 가 같거나 OpenGL 이 빠르고, 가벼운 씬에서 �
 | **애니메이션** | FBX 스킨 메시(Unity 와 같은 축 — Unity 에서 앞을 보던 캐릭터가 그대로 +Z), Animation 컴포넌트, Animator 창(상태 머신 그래프·전이·파라미터·Play 중 Live 표시), **Blend Tree**(1D · 2D, 예: Speed 로 Idle·Walk·Run 섞기 — 발이 맞게 정규화 시간), **루트 모션**(Apply Root Motion: 클립의 이동을 오브젝트로, Character Controller 면 Move), C# `Animator.Play / CrossFade / speed / applyRootMotion / deltaPosition / GetCurrentAnimatorStateInfo` |
 | **UI (UGUI)** | Canvas · Canvas Scaler · Event System, Rect Transform, Image(Sliced / Filled), Text(한글), Button, Toggle, Slider, Input Field(한글 IME), Scroll View, Mask |
 | **파티클** | Unity Shuriken 모듈(Main, Emission, Shape, over Lifetime, Noise, Collision, Sub Emitters, Trails, Texture Sheet), **Lit**(해·하늘 환경광) · **Soft Particles**(바닥·벽과 만나는 곳을 부드럽게) · **Lights**(입자가 주변을 비춤), 곡선·그라디언트 편집기, Scene 뷰 미리 재생, GPU 인스턴싱, C# `ParticleSystem` API |
-| **오디오** | XAudio2 — Audio Source / Listener, 3D 감쇠, Loop·Pitch·Pan, WAV, 미리 듣기 |
+| **오디오** | XAudio2 — Audio Source / Listener, 3D 감쇠·**도플러**·Spread, Loop·Pitch·Pan, WAV, 미리 듣기, **Audio Mixer**(.mixer 에셋 + Window > Audio Mixer: Master 아래 그룹 트리 → Audio Source 의 Output, 볼륨 페이더·레벨 미터·Mute/Solo/Bypass, 이펙트 Lowpass·Highpass·Echo·Reverb(19 가지 방), 스냅숏 + `TransitionTo`, 노출 파라미터 `AudioMixer.SetFloat`) |
 | **빌드** | Build Settings(씬 목록·순서) + Player Settings → 독립 실행 `<제품>.exe` + `NovaCore.dll` + `<제품>_Data`(쓰는 에셋·패키지만), 그래픽 API 우선순위, C# `SceneManager.LoadScene` · `Application.Quit` |
 | **패키지 매니저** | Unity 의 Package Manager — Window > Package Manager 에서 NOVA 레지스트리 패키지를 프로젝트에 Install / Remove. 프로젝트에는 `Packages/manifest.json`(이름·버전)만 남고, **넣은 패키지만** 불러오고 게임 빌드에 들어간다(프로젝트·게임 용량 그대로). 패키지 = C++ 컴포넌트 DLL + C# API. 빠진 패키지의 컴포넌트는 데이터를 지키고 있다가 다시 넣으면 살아남. 첫 패키지: **Cameras**(Follow Camera) |
 

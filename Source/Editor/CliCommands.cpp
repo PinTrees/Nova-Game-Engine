@@ -2,6 +2,7 @@
 #include "PackageManager.h"
 #include "AutoSave.h"
 #include "PackageManagerWindow.h"
+#include "AudioMixerWindow.h"
 #include "CliCommands.h"
 #include "CliServer.h"
 #include "UndoSystem.h"
@@ -990,6 +991,12 @@ namespace CliCommands
 				if (close) BuildSettingsWindow::Close(); else BuildSettingsWindow::Open();
 				r = { { "name", name }, { "open", BuildSettingsWindow::IsOpen() } };
 			}
+			else if (name == "audio-mixer" || name == "mixer")
+			{
+				// --category <Assets\X.mixer> 로 열 믹서
+				if (close) AudioMixerWindow::Close(); else AudioMixerWindow::Open(category);
+				r = { { "name", name }, { "open", AudioMixerWindow::IsOpen() } };
+			}
 			else if (name == "package-manager" || name == "packages")
 			{
 				if (close) PackageManagerWindow::Close(); else PackageManagerWindow::Open(category.empty() ? nullptr : category.c_str());
@@ -1016,7 +1023,7 @@ namespace CliCommands
 			}
 			else
 			{
-				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, package-manager, scene, game, project, console, hierarchy, inspector, animator)";
+				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, package-manager, audio-mixer, scene, game, project, console, hierarchy, inspector, animator)";
 				return false;
 			}
 			if (!category.empty()) r["category"] = category;
