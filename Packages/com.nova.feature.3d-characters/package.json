@@ -1,0 +1,15 @@
+{
+  "name": "com.nova.feature.3d-characters",
+  "displayName": "3D Characters and Animation",
+  "version": "1.0.0",
+  "type": "feature",
+  "description": "Everything for an animated 3D character in one install: Animator state machines, Blend Trees, root motion and Humanoid retargeting with Legs / Look Animator IK (Animation), a third-person Follow Camera (Cameras), and a ready-to-play third-person controller (Starter Assets).",
+  "category": "Animation",
+  "author": { "name": "NOVA" },
+  "keywords": [ "feature", "character", "animation", "camera", "third person" ],
+  "dependencies": {
+    "com.nova.animation": "1.0.0",
+    "com.nova.cameras": "1.0.0",
+    "com.nova.starter-assets": "1.0.0"
+  }
+}

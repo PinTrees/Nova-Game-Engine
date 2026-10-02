@@ -44,6 +44,21 @@ com.company.feature/
 - `dependencies`: 이 패키지를 넣을 때 먼저 넣는 다른 패키지.
 - `native`: `Plugins/` 의 DLL. 엔진 저장소의 `Packages/` 에 `Source/` 가 있으면 CMake 가 자동으로 빌드한다 (DLL 이름 = 첫 항목).
 - `components`: Add Component 메뉴에 보일 C++ 컴포넌트 (카테고리·아이콘). 씬에 저장된 타입 이름이 `type`.
+- 선택: `date`(출시 날짜 `yyyy-mm-dd`, 없으면 package.json 수정 날짜), `nova`(필요한 엔진 버전 — Package Manager 의 Minimum Editor Version), `documentationUrl`. 폴더에 `CHANGELOG.md` · `LICENSE.md` 가 있으면 Package Manager 의 Changelog · Licenses 링크와 Version History 탭에 나온다.
+
+### Feature (패키지 묶음)
+
+Unity 6 의 Features 처럼 여러 패키지를 한 번에 넣는 묶음. 코드 없이 `"type": "feature"` + `dependencies` 만 둔다. Install = 묶인 패키지를 다 넣음, 묶인 패키지가 모두 프로젝트에 있으면 "설치됨".
+
+```json
+{
+  "name": "com.nova.feature.3d-characters",
+  "displayName": "3D Characters and Animation",
+  "version": "1.0.0",
+  "type": "feature",
+  "dependencies": { "com.nova.animation": "1.0.0", "com.nova.cameras": "1.0.0", "com.nova.starter-assets": "1.0.0" }
+}
+```
 
 ## C++ 컴포넌트
 

@@ -372,7 +372,9 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | `com.nova.ai.navigation` — AI Navigation | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) 다각형 NavMesh — **NavMesh Surface**(정적 콜라이더로 굽기, 기울기·계단 높이·에이전트 반지름·높이, 타일 + 여러 스레드, 파란 다각형 표시) + **Nav Mesh Agent**(SetDestination → 벽을 돌아가는 길, 가속·자동 감속·회전, 서로 겹치지 않게, 언덕 바닥에 붙음) + **NavMesh Link**(낭떠러지·틈·사다리처럼 걸어서 못 가는 두 곳을 잇는다 — 에이전트가 건너감, 실행 중 옮겨도 바로 반영) + **Nav Mesh Obstacle**(에이전트가 피하고, Carve 면 멈춰 있는 동안 NavMesh 에 구멍 — 닿은 타일만 몇 ms 에 다시 만듦, Detour TileCache). C# `NovaEngine.AI` 의 NavMeshAgent(isOnOffMeshLink · CompleteOffMeshLink 포함) · NavMesh.CalculatePath / SamplePosition · NavMeshSurface.BuildNavMesh · NavMeshObstacle · NavMeshLink |
 | `com.nova.starter-assets` — Starter Assets - Third Person | C# **ThirdPersonController** + StarterAssetsInputs: WASD(카메라 기준)·Shift 달리기·Space 점프, 가속·부드러운 회전·중력, 오른쪽 버튼 끌기로 카메라 돌리기, Animator 파라미터(Speed·Grounded·Jump·FreeFall). Character Controller + Follow Camera 와 함께 (Cameras 를 의존성으로 같이 넣음) |
 
-- 넣기 / 빼기: Window > Package Manager, 또는 `nova package add com.nova.cameras` / `nova package remove …`
+| `com.nova.feature.3d-characters` — 3D Characters and Animation (Feature) | Unity 6 의 Feature 처럼 묶음: Animation + Cameras + Starter Assets 를 한 번에 |
+
+- 넣기 / 빼기: Window > Package Manager(Unity 6 과 같은 배치 — 왼쪽 In Project / Updates / NOVA Registry, 가운데 검색 · Features · Packages(✓ 설치됨 · ↑ 업데이트) · 마지막 새로 고침, 오른쪽 이름 · 버전 · 날짜 · Documentation / Changelog / Licenses · Install / Update / Locate / Manage ▾ · 탭 Details / Version History / Dependencies / Components, 위 막대 + ▾ · Sort · Filters), 또는 `nova package add com.nova.cameras` / `nova package remove …`
 - 구조: `package.json`(이름·버전·설명·컴포넌트) + `Source/`(C++ 컴포넌트 → `Plugins/<이름>.dll`, 엔진 `NovaCore.dll` 을 링크) + `Runtime/`(C# API — 프로젝트 스크립트와 같이 컴파일)
 - 새 패키지: `Packages/<이름>/` 에 `package.json` + `Source/`(C++) / `Runtime/`(C#) — CMake 가 자동으로 DLL 을 빌드한다. 레지스트리 밖 폴더는 *Add from disk...* (`file:` 참조). 자세히: [docs/PACKAGES.md](docs/PACKAGES.md)
 - 패키지 DLL 은 같은 엔진 버전 · 같은 구성(Debug/Release)으로 빌드해야 한다 (`<DLL>.dll.abi` 로 확인, 다르면 불러오지 않고 이유를 보여 줌)

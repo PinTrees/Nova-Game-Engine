@@ -29,6 +29,11 @@ struct PackageInfo
 	std::vector<std::string> Native;              // Plugins 안 DLL 파일 이름
 	std::vector<std::pair<std::string, std::string>> Dependencies;   // 다른 패키지 (이름, 버전) — Add 할 때 같이 넣는다
 	std::vector<PackageComponentInfo> Components;
+	std::string Type;            // "" = 패키지, "feature" = Unity 의 Feature (여러 패키지 묶음 — dependencies 만)
+	std::string Date;            // 출시 날짜 yyyy-mm-dd ("date", 없으면 package.json 수정 날짜)
+	std::string MinEditor;       // 필요한 엔진 버전 ("nova", 없으면 빈 문자열)
+	std::wstring Changelog;      // CHANGELOG.md (있으면)
+	std::wstring License;        // LICENSE.md / LICENSE (있으면)
 	std::wstring Folder;         // 패키지 폴더 (끝 \ 없음)
 	bool Embedded = false;       // 프로젝트 Packages/<이름>/ 에 들어 있는 패키지 (manifest 없이 항상 포함)
 	bool Local = false;          // manifest 의 "file:<경로>" (Add package from disk — 레지스트리 밖 폴더)
@@ -51,6 +56,9 @@ namespace PackageManager
 	NOVA_API bool IsLoaded(const std::string& name);
 	NOVA_API std::string LoadError(const std::string& name);      // 불러오지 못한 이유 (없으면 빈 문자열)
 	NOVA_API bool RestartRequired();                              // 쓰는 중이라 바로 내리지 못한 패키지가 있다
+	NOVA_API std::string ManifestVersion(const std::string& name); // manifest 에 적힌 버전 (없으면 빈 문자열)
+	NOVA_API bool HasUpdate(const std::string& name);             // 프로젝트 버전보다 레지스트리 버전이 새롭다 (Add = 업데이트)
+	NOVA_API std::string LastRefresh();                           // 마지막 Refresh 시각 (표시용)
 
 	// 프로젝트에 넣기 (manifest + 바로 불러오기 + 스크립트 다시 컴파일) / 빼기 (쓰는 컴포넌트가 없으면 바로 내린다)
 	NOVA_API bool Add(const std::string& name, std::string& error);

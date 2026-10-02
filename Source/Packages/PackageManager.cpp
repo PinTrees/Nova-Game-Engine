@@ -86,6 +86,28 @@ namespace
 				ci.Single = c.value("single", true);
 				out.Components.push_back(ci);
 			}
+		out.Type = j.value("type", "");
+		out.MinEditor = j.value("nova", "");
+		out.Date = j.value("date", "");
+		if (out.Date.empty())
+		{
+			// package.json 수정 날짜
+			const auto t = fs::last_write_time(file, ec);
+			if (!ec)
+			{
+				const auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+				const std::time_t tt = std::chrono::system_clock::to_time_t(sys);
+				std::tm tm = {};
+				localtime_s(&tm, &tt);
+				char buf[16];
+				std::strftime(buf, sizeof(buf), "%Y-%m-%d", &tm);
+				out.Date = buf;
+			}
+		}
+		for (const wchar_t* n : { L"CHANGELOG.md", L"Changelog.md" })
+			if (fs::exists(folder / n, ec)) { out.Changelog = (folder / n).wstring(); break; }
+		for (const wchar_t* n : { L"LICENSE.md", L"LICENSE", L"License.md" })
+			if (fs::exists(folder / n, ec)) { out.License = (folder / n).wstring(); break; }
 		out.Folder = folder.wstring();
 		return !out.Name.empty();
 	}
@@ -295,8 +317,20 @@ namespace PackageManager
 	std::wstring RegistryFolder() { return PathManager::GetI()->GetEnginePathW() + L"Packages"; }
 	std::wstring ManifestPath() { return ProjectPackagesDir() + L"\\manifest.json"; }
 
+	std::string s_LastRefresh;
+
+	std::string LastRefresh() { return s_LastRefresh; }
+
 	void Refresh()
 	{
+		{
+			const std::time_t now = std::time(nullptr);
+			std::tm tm = {};
+			localtime_s(&tm, &now);
+			char buf[32];
+			std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &tm);
+			s_LastRefresh = buf;
+		}
 		ScanFolder(RegistryFolder(), s_Registry, false);
 		ScanFolder(ProjectPackagesDir(), s_Embedded, true);
 		// 빌드된 게임: 엔진 폴더 = 프로젝트 폴더 (<제품>_Data) → 같은 패키지가 두 목록에 → embedded 만 남긴다
@@ -357,6 +391,36 @@ namespace PackageManager
 		for (const PackageInfo& p : s_Local) if (p.Name == name) return &p;
 		for (const PackageInfo& p : s_Registry) if (p.Name == name) return &p;
 		return nullptr;
+	}
+
+	std::string ManifestVersion(const std::string& name)
+	{
+		auto it = s_Manifest.find(name);
+		return it == s_Manifest.end() ? std::string() : it->second;
+	}
+
+	bool HasUpdate(const std::string& name)
+	{
+		const std::string have = ManifestVersion(name);
+		if (have.empty() || have.rfind("file:", 0) == 0)
+			return false;
+		auto it = std::find_if(s_Registry.begin(), s_Registry.end(), [&](const PackageInfo& p) { return p.Name == name; });
+		if (it == s_Registry.end())
+			return false;
+		// 점으로 나눈 숫자 비교 (1.10.0 > 1.9.0)
+		auto parts = [](const std::string& v) {
+			std::vector<int> out;
+			size_t i = 0;
+			while (i < v.size())
+			{
+				size_t j = v.find('.', i);
+				if (j == std::string::npos) j = v.size();
+				out.push_back(atoi(v.substr(i, j - i).c_str()));
+				i = j + 1;
+			}
+			return out;
+		};
+		return parts(it->Version) > parts(have);
 	}
 
 	bool IsInProject(const std::string& name)
