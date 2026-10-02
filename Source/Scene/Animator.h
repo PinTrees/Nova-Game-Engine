@@ -5,6 +5,7 @@
 
 class SkinnedMeshRenderer;
 class SkeletonAvataData;
+namespace Humanoid { struct Avatar; }
 
 // Unity 의 Animator 컴포넌트.
 //  - Animator Controller(.controller) 의 상태 머신을 실행한다: 조건/Exit Time 으로 전이, 전이 동안 두 상태를 섞는다(크로스페이드).
@@ -13,6 +14,7 @@ class SkeletonAvataData;
 //  - 상태의 Motion 은 클립 또는 Blend Tree (파라미터로 여러 클립을 섞는다 — Blend Tree 상태의 Time 은 정규화 시간).
 //  - 루트 모션: 클립의 가장 위쪽 움직이는 본(보통 Hips)의 수평 이동은 늘 포즈에서 뺀다 (제자리 걷기, Unity Humanoid 기본값).
 //    Apply Root Motion 이면 기본 레이어의 그 이동을 오브젝트로 옮긴다 (Character Controller 가 있으면 Move).
+//  - Avatar Auto: 클립의 본 이름이 모델과 반도 맞지 않고 둘 다 사람 모양이면 Humanoid 리타게팅 (Mixamo 애니메이션을 다른 캐릭터에)
 class Animator : public Component
 {
 public:
@@ -35,6 +37,7 @@ private:
 	bool m_AnimatePhysics = false;
 	int m_UpdateMode = 0;          // Normal / Animate Physics / Unscaled Time
 	int m_CullingMode = 0;         // Always Animate / Cull Update Transforms / Cull Completely
+	int m_AvatarMode = 0;          // 0 Auto (이름이 다르면 Humanoid 리타게팅), 1 Generic (이름이 같은 본만)
 
 	// 런타임
 	std::vector<float> m_Floats;   // 파라미터 값 (Float/Int/Bool/Trigger 모두 float 로 보관)
@@ -43,7 +46,20 @@ private:
 	bool m_Started = false;
 
 	// 포즈 계산 캐시 (RootChannel = 위치가 움직이는 채널 중 스켈레톤에서 가장 위쪽 — 루트 모션 본)
-	struct ClipMap { const AnimationClip* Clip = nullptr; const SkeletonAvataData* Skeleton = nullptr; std::vector<int> Map; int RootChannel = -1; };
+	struct ClipMap
+	{
+		const AnimationClip* Clip = nullptr;
+		const SkeletonAvataData* Skeleton = nullptr;
+		std::vector<int> Map;
+		int RootChannel = -1;
+		// Humanoid 리타게팅 (원래 스켈레톤 기준으로 샘플해 옮긴다)
+		bool Retarget = false;
+		std::shared_ptr<SkeletonAvataData> SourceSkeleton;
+		const Humanoid::Avatar* Source = nullptr;
+		const Humanoid::Avatar* Target = nullptr;
+		std::vector<int> SourceMap;
+		int SourceRootChannel = -1;
+	};
 	std::deque<ClipMap> m_ClipMaps;   // deque: 새로 넣어도 앞의 포인터가 그대로
 	std::vector<XMFLOAT4X4> m_LocalA, m_LocalB, m_LocalLayer, m_LocalFinal, m_Global, m_TreeTmp, m_TreeMix;
 

@@ -173,6 +173,11 @@ shared_ptr<MeshFile> ResourceManager::LoadMeshFile(string filename)
 			return nullptr;
 
 		shared_ptr<MeshFile> model(meshFile);
+		// 클립마다 원래 스켈레톤 (Humanoid 리타게팅)
+		if (!model->Avatas.empty())
+			for (auto& clip : model->SkinnedData.AnimationClips)
+				if (clip)
+					clip->SourceSkeleton = model->Avatas[0];
 		m_MeshFiles[filename] = model;
 		return m_MeshFiles[filename];
 	}

@@ -65,8 +65,13 @@ struct AnimationChannel
 	void from_byte(std::ifstream& inStream);
 };
 
+class SkeletonAvataData;
+
 struct AnimationClip
 {
+	// 이 클립이 들어 있던 FBX 의 스켈레톤 (Humanoid 리타게팅: 이름이 다른 모델에 옮길 때 원래 자세를 안다)
+	std::weak_ptr<SkeletonAvataData> SourceSkeleton;
+
 	float GetClipStartTime()const;
 	float GetClipEndTime()const;
 

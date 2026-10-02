@@ -6,6 +6,7 @@
 #include "SkinnedMesh.h"
 #include "PhysicsManager.h"
 #include "CharacterController.h"
+#include "HumanoidAvatar.h"
 
 using namespace AnimatorTypes;
 
@@ -392,39 +393,74 @@ void Animator::Step(float dt)
 }
 
 // ------------------------------------------------------------------ 포즈
+namespace
+{
+	// 루트 모션 채널: 위치가 실제로 움직이는 채널 중 스켈레톤에서 가장 위쪽 (보통 Hips)
+	int FindRootChannel(const AnimationClip& clip, const std::vector<int>& map, const SkeletonAvataData& skeleton)
+	{
+		int best = -1, bestDepth = INT_MAX;
+		for (size_t c = 0; c < clip.Channels.size() && c < map.size(); ++c)
+		{
+			const int node = map[c];
+			const auto& keys = clip.Channels[c].Positions;
+			if (node < 0 || keys.size() < 2)
+				continue;
+			float move = 0.0f;
+			for (const auto& k : keys)
+				move = (std::max)(move, fabsf(k.Value.x - keys[0].Value.x) + fabsf(k.Value.y - keys[0].Value.y) + fabsf(k.Value.z - keys[0].Value.z));
+			if (move < 1e-4f)
+				continue;
+			int depth = 0;
+			for (int p = node; p >= 0 && p < (int)skeleton.BoneHierarchy.size() && depth < 512; p = skeleton.BoneHierarchy[p])
+				++depth;
+			if (depth < bestDepth)
+			{
+				bestDepth = depth;
+				best = (int)c;
+			}
+		}
+		return best;
+	}
+}
+
 Animator::ClipMap* Animator::GetClipMap(const AnimationClip* clip, const SkeletonAvataData& skeleton)
 {
 	for (auto& m : m_ClipMaps)
 		if (m.Clip == clip && m.Skeleton == &skeleton)
 			return &m;
 	ClipMap m{ clip, &skeleton, AnimationPose::MapChannels(*clip, skeleton) };
-	// 루트 모션 채널: 위치가 실제로 움직이는 채널 중 스켈레톤에서 가장 위쪽 (보통 Hips)
-	int bestDepth = INT_MAX;
-	for (size_t c = 0; c < clip->Channels.size() && c < m.Map.size(); ++c)
+	// Avatar Auto: 이름으로 맞는 채널이 반도 안 되면 원래 스켈레톤과 사람 본으로 옮긴다
+	int mapped = 0;
+	for (int node : m.Map)
+		mapped += node >= 0;
+	auto source = clip->SourceSkeleton.lock();
+	if (m_AvatarMode == 0 && mapped * 2 < (int)clip->Channels.size() && source && source.get() != &skeleton)
 	{
-		const int node = m.Map[c];
-		const auto& keys = clip->Channels[c].Positions;
-		if (node < 0 || keys.size() < 2)
-			continue;
-		float move = 0.0f;
-		for (const auto& k : keys)
-			move = (std::max)(move, fabsf(k.Value.x - keys[0].Value.x) + fabsf(k.Value.y - keys[0].Value.y) + fabsf(k.Value.z - keys[0].Value.z));
-		if (move < 1e-4f)
-			continue;
-		int depth = 0;
-		for (int p = node; p >= 0 && p < (int)skeleton.BoneHierarchy.size() && depth < 512; p = skeleton.BoneHierarchy[p])
-			++depth;
-		if (depth < bestDepth)
+		const Humanoid::Avatar& src = Humanoid::Get(*source);
+		const Humanoid::Avatar& dst = Humanoid::Get(skeleton);
+		if (src.Valid && dst.Valid)
 		{
-			bestDepth = depth;
-			m.RootChannel = (int)c;
+			m.Retarget = true;
+			m.SourceSkeleton = source;
+			m.Source = &src;
+			m.Target = &dst;
+			m.SourceMap = AnimationPose::MapChannels(*clip, *source);
+			m.SourceRootChannel = FindRootChannel(*clip, m.SourceMap, *source);
+			RootSkeleton* rs = GetRootSkeleton(skeleton);
+			if (rs->Node < 0)
+				rs->Node = dst.Node[Humanoid::Hips];
+			EditorLog::Write("Animation", "retarget %s: %s -> %s (humanoid)", clip->Name.c_str(), source->Name.c_str(), skeleton.Name.c_str());
 		}
 	}
-	if (m.RootChannel >= 0)
+	if (!m.Retarget)
 	{
-		RootSkeleton* rs = GetRootSkeleton(skeleton);
-		if (rs->Node < 0)
-			rs->Node = m.Map[m.RootChannel];   // 포즈에서 수평 이동을 뺄 본
+		m.RootChannel = FindRootChannel(*clip, m.Map, skeleton);
+		if (m.RootChannel >= 0)
+		{
+			RootSkeleton* rs = GetRootSkeleton(skeleton);
+			if (rs->Node < 0)
+				rs->Node = m.Map[m.RootChannel];   // 포즈에서 수평 이동을 뺄 본
+		}
 	}
 	m_ClipMaps.push_back(std::move(m));
 	return &m_ClipMaps.back();
@@ -442,7 +478,10 @@ void Animator::SampleClip(const AnimationClip* clip, bool loop, float time, cons
 	float t = time;
 	if (d > 1e-4f)
 		t = loop ? fmodf((std::max)(0.0f, time), d) : std::clamp(time, 0.0f, d);
-	AnimationPose::SampleLocal(skeleton, clip, map->Map, t, out);
+	if (map->Retarget)
+		Humanoid::Retarget(*map->Source, *map->Target, *clip, map->SourceMap, t, out);
+	else
+		AnimationPose::SampleLocal(skeleton, clip, map->Map, t, out);
 }
 
 void Animator::SampleState(const AnimatorLayer& layer, int state, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out)
@@ -528,6 +567,19 @@ XMFLOAT3 Animator::ClipRootPosition(const AnimationClip* clip, const SkeletonAva
 {
 	XMFLOAT3 out(0.0f, 0.0f, 0.0f);
 	ClipMap* map = GetClipMap(clip, skeleton);
+	if (map->Retarget)
+	{
+		// 원래 스켈레톤에서 Hips 위치 → 이 모델 크기로
+		if (map->SourceRootChannel < 0)
+			return out;
+		const SkeletonAvataData& src = *map->SourceSkeleton;
+		const int node = map->SourceMap[map->SourceRootChannel];
+		XMFLOAT4X4 local = src.BindLocal[node];
+		clip->Channels[map->SourceRootChannel].Sample(t, local);
+		XMFLOAT3 p;
+		XMStoreFloat3(&p, XMVector3TransformCoord(XMVectorSet(local._41, local._42, local._43, 1.0f), ParentGlobal(src, map->Source->BindGlobal, node)));
+		return Humanoid::ScaleHips(*map->Source, *map->Target, p);
+	}
 	if (map->RootChannel < 0)
 		return out;
 	const int node = map->Map[map->RootChannel];
@@ -710,7 +762,9 @@ void Animator::OnInspectorGUI()
 	std::string controllerName = m_Controller ? m_Controller->Name() : "None (Runtime Animator Controller)";
 	if (ObjectField("Controller", controllerName.c_str(), 0, m_Controller ? "animator_controller" : nullptr))
 		ImGui::OpenPopup("##ControllerPicker");
-	ObjectField("Avatar", "None (Avatar)", 0);
+	static const char* kAvatar[] = { "Auto (Humanoid retarget)", "Generic (bone names)" };
+	if (Dropdown("Avatar", &m_AvatarMode, kAvatar, 2))
+		m_ClipMaps.clear();   // 다시 맞춘다
 	Toggle("Apply Root Motion", &m_ApplyRootMotion);
 	Toggle("Animate Physics", &m_AnimatePhysics);
 	static const char* kUpdate[] = { "Normal", "Animate Physics", "Unscaled Time" };
@@ -748,6 +802,26 @@ void Animator::OnInspectorGUI()
 	sprintf_s(info, "Clip Count: %d\nCurves Pos: %d Quat: %d Euler: 0 Scale: %d Muscles: 0 Generic: 0 PPtr: 0\nCurves Count: %d Constant: 0 (0.0%%) Dense: 0 (0.0%%) Stream: %d (%s)",
 		clipCount, pos, quat, scale, curves, curves, curves > 0 ? "100.0%" : "0.0%");
 	HelpBox(info, false);
+
+	// Humanoid: 이 모델의 사람 본 (자동으로 찾은 것)
+	if (m_AvatarMode == 0)
+		if (SkinnedMeshRenderer* r = PrimaryRenderer())
+		{
+			const Humanoid::Avatar& av = Humanoid::Get(*r->GetSkeleton());
+			char title[96];
+			sprintf_s(title, "Humanoid bones (%d/%d%s)", av.Found, (int)Humanoid::BoneCount, av.Valid ? "" : ", not humanoid");
+			if (FoldoutPlain(title, 0, false))
+			{
+				for (int b = 0; b < Humanoid::BoneCount; ++b)
+					ValueLabel(Humanoid::BoneName(b), av.Node[b] >= 0 ? av.Skeleton->NodeNames[av.Node[b]].c_str() : "-", 1);
+				int retargeted = 0;
+				for (const ClipMap& m : m_ClipMaps)
+					retargeted += m.Retarget;
+				char info[64];
+				sprintf_s(info, "%d clip(s) retargeted", retargeted);
+				ValueLabel("In use", info, 1);
+			}
+		}
 
 	if (Application::IsPlaying() && m_Controller && !m_Layers.empty())
 	{
@@ -808,6 +882,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(Animator)
 	j["animatePhysics"] = m_AnimatePhysics;
 	j["updateMode"] = m_UpdateMode;
 	j["cullingMode"] = m_CullingMode;
+	j["avatarMode"] = m_AvatarMode;
 	return j;
 }
 
@@ -818,5 +893,6 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Animator)
 	m_AnimatePhysics = j.value("animatePhysics", false);
 	m_UpdateMode = j.value("updateMode", 0);
 	m_CullingMode = j.value("cullingMode", 0);
+	m_AvatarMode = j.value("avatarMode", 0);
 	SetController(j.value("controller", std::string()));
 }

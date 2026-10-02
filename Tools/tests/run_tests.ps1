@@ -184,6 +184,19 @@ return $"{groundY:F3} {grounded} {maxY:F3} {p.x:F3} {f}";
         $ok = $av.Count -eq 4 -and $av[3] -eq 'True' -and [double]$av[0] -ne [double]$av[1] -and [math]::Abs([double]$av[2] - ([double]$av[0] + [double]$av[1]) / 2) -lt 0.01
         Add-Result physics 'animator 1D blend tree mixes two clips' $ok "lengths $($av[0]) / $($av[1]), at 0.5 → $($av[2]) (expect the mean), state Move $($av[3])"
         Remove-Item -LiteralPath $bc -ErrorAction SilentlyContinue
+
+        # Humanoid 리타게팅: 3ds Max Biped 클립(Rapier_Idle) → UE 마네킹 기본 캐릭터 (본 이름이 전혀 다르다)
+        $rc = Join-Path $Project 'Assets\NovaTestRetarget.controller'
+        '{ "parameters": [], "layers": [ { "name": "Base Layer", "defaultState": "Idle", "states": [ { "name": "Idle", "clipPath": "Resources\\Packages\\Character\\Animations\\Rapier_Idle.fbx", "clipIndex": 0 } ] } ] }' | Set-Content -Encoding utf8 $rc
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name RCh --controller Assets\NovaTestRetarget.controller' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        $log = ((Invoke-Nova 'log -n 400 --grep "humanoid avatar"') + (Invoke-Nova 'log -n 400 --grep "retarget "')) -join "`n"   # --grep 은 정규식이 아니다
+        $ok = $log -match 'humanoid avatar Rapier_Idle\.fbx: valid' -and $log -match 'retarget .*Rapier_Idle\.fbx -> Model_Unity_Ver1\.FBX'
+        $line = ($log -split "`n" | Where-Object { $_ -match 'retarget ' } | Select-Object -Last 1)
+        Add-Result physics 'humanoid retarget across skeletons (Biped → UE)' $ok $(if ($line) { $line.Substring($line.IndexOf('retarget')) } else { 'no retarget line' })
+        Remove-Item -LiteralPath $rc -ErrorAction SilentlyContinue
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
@@ -333,6 +346,27 @@ function Suite-Audio
             Add-Result audio 'snapshot transition lowers the group' ($c.Count -eq 3 -and [math]::Abs([double]$c[2] + 40) -lt 0.1 -and [double]$c[0] -lt [double]$a[0] - 20) "MusicVol $($c[2]) (expect -40), Music $($c[0]) dB"
         }
         Invoke-Nova 'stop' | Out-Null
+
+        # OGG · MP3 (테스트 프로젝트에 Assets/TestAssets/Audio 의 ring.ogg · hey.mp3 · long.mp3(> 20 초) 가 있을 때만)
+        $audioDir = Join-Path $Project 'Assets\TestAssets\Audio'
+        if ((Test-Path (Join-Path $audioDir 'ring.ogg')) -and (Test-Path (Join-Path $audioDir 'hey.mp3')) -and (Test-Path (Join-Path $audioDir 'long.mp3')))
+        {
+            Invoke-Nova 'scene new --force' | Out-Null
+            $k = 0
+            foreach ($f in @('ring.ogg', 'hey.mp3', 'long.mp3'))
+            {
+                Invoke-Nova "create empty --name ACodec$k" | Out-Null
+                $values = (@{ clip = "Assets\TestAssets\Audio\$f"; playOnAwake = $false } | ConvertTo-Json -Compress).Replace('"', '\"')
+                Invoke-Nova "add-component ACodec$k AudioSource --values `"$values`"" | Out-Null
+                $k++
+            }
+            $cf = Join-Path $Out 'codec_len.cs'
+            'string r = ""; for (int i = 0; i < 3; i++) r += GameObject.Find("ACodec" + i).GetComponent<AudioSource>().clip.length.ToString("F2") + " "; return r.Trim();' | Set-Content -Encoding utf8 $cf
+            $len = Invoke-NovaJson "exec --file $cf"
+            $lv = if ($len) { "$($len.result)" -split ' ' } else { @() }
+            $streamLine = (Invoke-Nova 'log -n 400 --grep "long.mp3"') -join ' '
+            Add-Result audio 'ogg and mp3 decode, long mp3 streams' ($lv.Count -eq 3 -and [double]$lv[0] -gt 1 -and [double]$lv[1] -gt 2 -and [double]$lv[2] -gt 20 -and $streamLine -match 'streaming') "lengths $($lv -join ' / ') s, streaming $([bool]($streamLine -match 'streaming'))"
+        }
     }
     finally
     {
