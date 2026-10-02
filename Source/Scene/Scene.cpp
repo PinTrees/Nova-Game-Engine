@@ -255,9 +255,16 @@ wstring Scene::GetName() const
     return std::filesystem::path(m_ScenePath).stem().wstring();
 }
 
+// 씬 경로 → 실제 파일 경로 (프로젝트 기준 상대 경로 또는 절대 경로)
+static std::wstring ResolveScenePath(const std::wstring& path)
+{
+    std::filesystem::path fp(path);
+    return fp.is_absolute() ? path : PathManager::GetI()->GetMovePathW(path);
+}
+
 Scene* Scene::Load(wstring scenePath)
 {
-    std::ifstream is(wstring_to_string(PathManager::GetI()->GetMovePathW(scenePath)));
+    std::ifstream is{ std::filesystem::path(ResolveScenePath(scenePath)) };
 
     if (!is)
     {
@@ -272,13 +279,6 @@ Scene* Scene::Load(wstring scenePath)
     from_json(j, *scene);
 
     return scene;
-}
-
-// 씬 경로 → 실제 파일 경로 (프로젝트 기준 상대 경로 또는 절대 경로)
-static std::wstring ResolveScenePath(const std::wstring& path)
-{
-    std::filesystem::path fp(path);
-    return fp.is_absolute() ? path : PathManager::GetI()->GetMovePathW(path);
 }
 
 // 씬을 JSON 으로 파일에 쓴다. 성공하면 마지막으로 연 씬으로 기록한다.

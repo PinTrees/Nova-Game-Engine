@@ -410,7 +410,8 @@ void SceneManager::HandleStop()
 	if (!m_PlayModeSceneSnapshot.empty())
 	{
 		// Play 중 LoadScene 으로 다른 씬이 열려 있어도 Play 를 시작한 씬으로 돌아간다
-		wstring scenePath = m_PlayOriginalPath.empty() ? m_pCurrScene->GetScenePath() : m_PlayOriginalPath;
+		// 빈 경로도 원래 상태다 (Untitled). 실행 중 연 씬의 저장 경로를 가져오면 그 파일을 덮어쓸 수 있다.
+		wstring scenePath = m_PlayOriginalPath;
 		m_PlayOriginalPath.clear();
 		for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
 			it = it->second == m_pCurrScene ? m_Scenes.erase(it) : std::next(it);
@@ -496,7 +497,8 @@ void SceneManager::LoadStartupScene()
 	std::wstring last = setting ? setting->LastOpenedScenePath : L"";
 
 	std::error_code ec;
-	if (!last.empty() && std::filesystem::exists(PathManager::GetI()->GetMovePathW(last), ec))
+	const std::filesystem::path lastPath(last);
+	if (!last.empty() && std::filesystem::exists(lastPath.is_absolute() ? lastPath : std::filesystem::path(PathManager::GetI()->GetMovePathW(last)), ec))
 	{
 		LoadScene(last);
 		return;
