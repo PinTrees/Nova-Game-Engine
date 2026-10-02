@@ -255,6 +255,19 @@ function(nova_add_package PKG_NAME DLL_NAME)
     target_link_libraries(${DLL_NAME} PRIVATE ${ENGINE_CORE})
     target_include_directories(${DLL_NAME} PRIVATE "${PKG_DIR}/Source")
     target_precompile_headers(${DLL_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/pch.h")
+    # 패키지 안의 외부 라이브러리 (ThirdParty/<이름>/Source/*.cpp + Include/) — 엔진 PCH 없이, 경고 없이
+    file(GLOB PKG_LIB_DIRS LIST_DIRECTORIES true "${PKG_DIR}/ThirdParty/*")
+    foreach(LIB_DIR ${PKG_LIB_DIRS})
+        if(IS_DIRECTORY "${LIB_DIR}/Source")
+            file(GLOB LIB_SOURCES "${LIB_DIR}/Source/*.cpp")
+            target_sources(${DLL_NAME} PRIVATE ${LIB_SOURCES})
+            set_source_files_properties(${LIB_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "/W0")
+            target_include_directories(${DLL_NAME} PRIVATE "${LIB_DIR}/Include")
+        endif()
+    endforeach()
+    if(IS_DIRECTORY "${PKG_DIR}/ThirdParty/Detour")
+        target_compile_definitions(${DLL_NAME} PRIVATE DT_POLYREF64)   # 큰 월드: 64 비트 다각형 참조 (타일 수 제한 없음)
+    endif()
     set_target_properties(${DLL_NAME} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${PKG_DIR}/Plugins"
         RUNTIME_OUTPUT_DIRECTORY_DEBUG "${PKG_DIR}/Plugins"

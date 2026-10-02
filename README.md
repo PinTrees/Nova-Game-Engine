@@ -367,7 +367,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | 패키지 | 내용 |
 |---|---|
 | `com.nova.cameras` — Cameras | **Follow Camera**: 3인칭 따라가기 카메라(대상 뒤·위, 부드럽게, 벽이 가리면 당김). C# `FollowCamera` |
-| `com.nova.ai.navigation` — AI Navigation | **NavMesh Surface**(걸을 수 있는 곳 굽기 — 기울기·계단 높이·에이전트 반지름·높이, 여러 층, 파란 표시) + **Nav Mesh Agent**(SetDestination → 벽을 돌아가는 길, 가속·자동 감속·회전). C# `NovaEngine.AI` 의 NavMeshAgent · NavMesh.CalculatePath / SamplePosition · NavMeshSurface.BuildNavMesh |
+| `com.nova.ai.navigation` — AI Navigation | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) 다각형 NavMesh — **NavMesh Surface**(정적 콜라이더로 굽기, 기울기·계단 높이·에이전트 반지름·높이, 타일 + 여러 스레드, 파란 다각형 표시) + **Nav Mesh Agent**(SetDestination → 벽을 돌아가는 길, 가속·자동 감속·회전, 서로 겹치지 않게). C# `NovaEngine.AI` 의 NavMeshAgent · NavMesh.CalculatePath / SamplePosition · NavMeshSurface.BuildNavMesh |
 | `com.nova.starter-assets` — Starter Assets - Third Person | C# **ThirdPersonController** + StarterAssetsInputs: WASD(카메라 기준)·Shift 달리기·Space 점프, 가속·부드러운 회전·중력, 오른쪽 버튼 끌기로 카메라 돌리기, Animator 파라미터(Speed·Grounded·Jump·FreeFall). Character Controller + Follow Camera 와 함께 (Cameras 를 의존성으로 같이 넣음) |
 
 - 넣기 / 빼기: Window > Package Manager, 또는 `nova package add com.nova.cameras` / `nova package remove …`
@@ -381,7 +381,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 
 <img src="docs/images/ai_navigation.webp" width="720"/>
 
-*AI Navigation: 구운 NavMesh(파랑, 벽 둘레는 에이전트 반지름만큼 비움) / Play 중 NPC 가 벽 끝을 돌아 목표로 (노란 선 = 경로)*
+*AI Navigation (Recast): 벽 둘레를 반지름만큼 비운 다각형 NavMesh / 400 m 숲 지형 — 169 타일, 나무 줄기마다 구멍, 0.4 초*
 
 *Starter Assets: 기본 캐릭터 + Character Controller + ThirdPersonController, Follow Camera 가 뒤에서 따라간다*
 
@@ -455,6 +455,7 @@ docs/           NOVA_CLI.md, PACKAGES.md(패키지 만들기), 이미지
 | [DirectXTex](https://github.com/microsoft/DirectXTex) · [Effects11](https://github.com/microsoft/FX11) | 텍스처, 셰이더 이펙트 |
 | [DXC](https://github.com/microsoft/DirectXShaderCompiler) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) | HLSL → SPIR-V → GLSL 셰이더 변환 (OpenGL) |
 | [nlohmann/json](https://github.com/nlohmann/json) | 씬 / 에셋 저장 |
+| [Recast & Detour](https://github.com/recastnavigation/recastnavigation) (zlib) | NavMesh 굽기·길 찾기 (AI Navigation 패키지 안에만) |
 | [Pretendard](https://github.com/orioncactus/pretendard) (SIL OFL) · [Font Awesome](https://fontawesome.com) | 폰트, 아이콘 |
 
 기본 스카이박스는 [Poly Haven](https://polyhaven.com) 의 CC0 HDRI(Kloofendal 48d Partly Cloudy Pure Sky)입니다 — `Resources/Textures/Skybox/README.md`. 에디터 아이콘과 테스트 효과음은 `Tools/` 의 스크립트로 직접 그리거나 합성한 것이며, Unity 의 아이콘·에셋은 사용하지 않았습니다.

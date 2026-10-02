@@ -73,6 +73,9 @@ public:
 	void EndEditQueries();
 	// 모든 바디를 감싸는 상자 (월드가 있을 때)
 	bool GetWorldBounds(Vec3& outMin, Vec3& outMax);
+	// 상자 안의 정적 콜라이더(트리거 제외) 삼각형 — NavMesh 굽기 (Unity 의 Use Geometry = Physics Colliders).
+	// verts = x,y,z 반복, tris = 정점 번호 3 개씩 (바깥에서 보아 반시계). 돌려주는 값 = 삼각형 수
+	int CollectStaticTriangles(const Vec3& boundsMin, const Vec3& boundsMax, std::vector<float>& verts, std::vector<int>& tris);
 
 	// ---- RigidBody 가 호출하는 바디 조작 (바디가 없으면 false / 기본값) ----
 	bool GetLinearVelocity(RigidBody* rb, Vec3& out);

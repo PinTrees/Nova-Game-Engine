@@ -34,9 +34,9 @@ bool NavMeshAgent::SetDestination(const Vec3& target)
 	if (m_pGameObject == nullptr)
 		return false;
 	const Vec3 feet = m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
-	const NavGrid* grid = NavMeshSurface::FindGrid(feet);
+	const NavData* nav = NavMeshSurface::FindData(feet);
 	std::vector<Vec3> path;
-	if (grid == nullptr || !grid->FindPath(feet, target, path) || path.size() < 2)
+	if (nav == nullptr || !nav->FindPath(feet, target, path) || path.size() < 2)
 	{
 		HasPath = false;
 		Corners.clear();
@@ -61,11 +61,11 @@ bool NavMeshAgent::Warp(const Vec3& position)
 	if (m_pGameObject == nullptr)
 		return false;
 	Vec3 p = position;
-	if (const NavGrid* grid = NavMeshSurface::FindGrid(p))
+	if (const NavData* nav = NavMeshSurface::FindData(p))
 	{
-		float y;
-		if (grid->GroundHeight(p, y))
-			p.y = y;
+		Vec3 on;
+		if (nav->Sample(p, 2.0f, on))
+			p = on;
 	}
 	m_pGameObject->GetTransform()->SetPosition(p + Vec3(0.0f, BaseOffset, 0.0f));
 	Velocity = Vec3::Zero;
@@ -78,9 +78,9 @@ bool NavMeshAgent::IsOnNavMesh() const
 	if (m_pGameObject == nullptr)
 		return false;
 	const Vec3 feet = m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
-	const NavGrid* grid = NavMeshSurface::FindGrid(feet);
-	int x, z, l;
-	return grid && grid->Sample(feet, grid->Settings.CellSize * 1.5f, x, z, l);
+	const NavData* nav = NavMeshSurface::FindData(feet);
+	Vec3 on;
+	return nav && nav->Sample(feet, (std::max)(0.3f, Radius), on);
 }
 
 float NavMeshAgent::RemainingDistance() const
@@ -161,11 +161,10 @@ void NavMeshAgent::Update()
 		const float maxPush = (std::max)(Speed, 1.0f) * dt;   // 한 프레임에 너무 튀지 않게
 		if (push.Length() > maxPush)
 			push = push / push.Length() * maxPush;
-		const Vec3 pushed = feet + push;
-		float y;
-		if (const NavGrid* grid = NavMeshSurface::FindGrid(pushed))
-			if (grid->GroundHeight(pushed, y) && fabsf(y - feet.y) <= grid->Settings.StepHeight + 0.05f)
-				feet = pushed;   // 걸을 수 있는 곳으로만 민다
+		Vec3 pushed;
+		if (const NavData* nav = NavMeshSurface::FindData(feet))
+			if (nav->MoveAlongSurface(feet, feet + push, pushed))
+				feet = pushed;   // 걸을 수 있는 곳으로만 민다 (벽에서 멈춤)
 	}
 	if (Velocity.LengthSquared() < 1e-8f)
 	{
@@ -173,12 +172,12 @@ void NavMeshAgent::Update()
 		return;
 	}
 
-	feet += Velocity * dt;
-	if (const NavGrid* grid = NavMeshSurface::FindGrid(feet))
+	// 메시 위로 미끄러지며 (벽·가장자리에서 멈춤) 바닥 높이까지
 	{
-		float y;
-		if (grid->GroundHeight(feet, y))
-			feet.y = y;
+		const Vec3 to = feet + Velocity * dt;
+		Vec3 moved;
+		const NavData* nav = NavMeshSurface::FindData(feet);
+		feet = nav && nav->MoveAlongSurface(feet, to, moved) ? moved : to;
 	}
 	tr->SetPosition(feet + Vec3(0.0f, BaseOffset, 0.0f));
 

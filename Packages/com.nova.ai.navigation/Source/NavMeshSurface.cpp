@@ -39,18 +39,17 @@ NavMeshSurface::~NavMeshSurface()
 
 const std::vector<NavMeshSurface*>& NavMeshSurface::All() { return s_All; }
 
-const NavGrid* NavMeshSurface::FindGrid(const Vec3& p)
+const NavData* NavMeshSurface::FindData(const Vec3& p)
 {
-	const NavGrid* fallback = nullptr;
+	const NavData* fallback = nullptr;
 	for (NavMeshSurface* s : s_All)
 	{
 		if (s->GetGameObject() == nullptr || !s->IsEnabled() || !ActiveInHierarchy(s->GetGameObject()))
 			continue;
-		const NavGrid* g = s->GetGrid();
+		const NavData* g = s->GetData();
 		if (g == nullptr || g->IsEmpty())
 			continue;
-		const float cs = g->Settings.CellSize;
-		if (p.x >= g->Origin.x && p.z >= g->Origin.z && p.x <= g->Origin.x + g->Width * cs && p.z <= g->Origin.z + g->Depth * cs)
+		if (g->ContainsXZ(p))
 			return g;
 		if (fallback == nullptr)
 			fallback = g;
@@ -72,28 +71,28 @@ std::wstring NavMeshSurface::DefaultDataPath() const
 	for (char& c : name)
 		if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
 			c = '_';
-	std::wstring path = dir + L"NavMesh-" + string_to_wstring(name) + L".navgrid";
+	std::wstring path = dir + L"NavMesh-" + string_to_wstring(name) + L".navmesh";
 	std::replace(path.begin(), path.end(), L'/', L'\\');
 	return path;
 }
 
-const NavGrid* NavMeshSurface::GetGrid()
+const NavData* NavMeshSurface::GetData()
 {
 	if (DataPath.empty())
-		return m_Grid && !m_Grid->IsEmpty() ? m_Grid.get() : nullptr;
+		return m_Data && !m_Data->IsEmpty() ? m_Data.get() : nullptr;
 	if (m_LoadedPath != DataPath)
 	{
 		m_LoadedPath = DataPath;   // 실패해도 매 프레임 다시 읽지 않게
-		auto g = std::make_shared<NavGrid>();
+		auto g = std::make_shared<NavData>();
 		if (g->Load(PathManager::GetI()->GetMovePathW(string_to_wstring(DataPath))))
-			m_Grid = g;
+			m_Data = g;
 		else
 		{
-			m_Grid.reset();
-			EditorLog::Write("NavMesh", "could not load %s", DataPath.c_str());
+			m_Data.reset();
+			EditorLog::Write("NavMesh", "could not load %s (bake again)", DataPath.c_str());
 		}
 	}
-	return m_Grid ? m_Grid.get() : nullptr;
+	return m_Data ? m_Data.get() : nullptr;
 }
 
 bool NavMeshSurface::Bake(std::string& log)
@@ -127,8 +126,17 @@ bool NavMeshSurface::Bake(std::string& log)
 	}
 	else
 		haveBounds = pm->GetWorldBounds(bmin, bmax);
-	auto grid = std::make_shared<NavGrid>();
-	bool ok = haveBounds && grid->Bake(bmin, bmax, Settings, log);
+	// 상자 안의 정적 콜라이더 삼각형 (Unity 의 Use Geometry = Physics Colliders) → Recast
+	std::vector<float> verts;
+	std::vector<int> tris;
+	if (haveBounds)
+	{
+		bmin -= Vec3(0.1f, 0.1f, 0.1f);
+		bmax += Vec3(0.1f, Settings.AgentHeight, 0.1f);
+		pm->CollectStaticTriangles(bmin, bmax, verts, tris);
+	}
+	auto grid = std::make_shared<NavData>();
+	bool ok = haveBounds && grid->Bake(verts, tris, bmin, bmax, Settings, log);
 	if (!haveBounds)
 		log = "nothing to bake (no colliders in the scene)";
 	if (temp)
@@ -150,7 +158,7 @@ bool NavMeshSurface::Bake(std::string& log)
 		return false;
 	}
 	DataPath = wstring_to_string(rel);
-	m_Grid = grid;
+	m_Data = grid;
 	m_LoadedPath = DataPath;
 	m_LastLog = "Baked: " + log;
 	EditorLog::Write("NavMesh", "baked %s: %s", DataPath.c_str(), log.c_str());
@@ -172,7 +180,7 @@ void NavMeshSurface::Clear()
 	}
 	DataPath.clear();
 	m_LoadedPath.clear();
-	m_Grid.reset();
+	m_Data.reset();
 	m_LastLog = "Cleared";
 	if (!Application::IsPlaying() && m_pGameObject)
 	{
@@ -199,10 +207,10 @@ void NavMeshSurface::OnInspectorGUI()
 	if (UnityGUI::Float("Voxel Size", &Settings.CellSize)) Settings.CellSize = std::clamp(Settings.CellSize, 0.05f, 5.0f);
 	UnityGUI::Toggle("Show NavMesh", &ShowNavMesh);
 	UnityGUI::ValueLabel("Data", DataPath.empty() ? "None" : DataPath.c_str());
-	if (const NavGrid* g = GetGrid())
+	if (const NavData* g = GetData())
 	{
 		char buf[96];
-		snprintf(buf, sizeof(buf), "%d x %d cells, %d walkable", g->Width, g->Depth, g->WalkableCount());
+		snprintf(buf, sizeof(buf), "%d tiles, %d polygons", g->TileCount, g->PolyCount);
 		UnityGUI::ValueLabel("Baked", buf);
 	}
 	ImGui::Dummy(ImVec2(0, 4));
@@ -235,33 +243,9 @@ void NavMeshSurface::OnDrawGizmos()
 		for (auto& p : e)
 			SceneViewOverlay::DrawLine(XMFLOAT3(c[p[0]].x, c[p[0]].y, c[p[0]].z), XMFLOAT3(c[p[1]].x, c[p[1]].y, c[p[1]].z), IM_COL32(120, 200, 255, 200), 1.0f);
 	}
-	const NavGrid* g = ShowNavMesh ? GetGrid() : nullptr;
-	if (g == nullptr)
-		return;
-	// 걸을 수 있는 칸을 반투명 파랑으로 (칸이 많으면 묶어서)
-	ImDrawList* dl = ImGui::GetWindowDrawList();
-	ImVec2 rmin, rmax, off;
-	SceneViewOverlay::GetViewRect(rmin, rmax, off);
-	dl->PushClipRect(rmin, rmax, true);
-	const int stride = (std::max)(1, (int)std::ceil(std::sqrt(g->WalkableCount() / 40000.0)));
-	const float cs = g->Settings.CellSize;
-	const ImU32 fill = IM_COL32(60, 140, 255, 90);
-	for (int z = 0; z < g->Depth; z += stride)
-		for (int x = 0; x < g->Width; x += stride)
-			for (int l = 0; l < NavGrid::kLayers; ++l)
-			{
-				const float h = g->Height(x, z, l);
-				if (std::isnan(h))
-					continue;
-				const float x0 = g->Origin.x + x * cs, z0 = g->Origin.z + z * cs;
-				const float x1 = x0 + cs * stride * 0.92f, z1 = z0 + cs * stride * 0.92f;
-				const float y = h + 0.03f;
-				ImVec2 p[4];
-				if (SceneViewOverlay::Project(XMFLOAT3(x0, y, z0), p[0]) && SceneViewOverlay::Project(XMFLOAT3(x1, y, z0), p[1]) &&
-					SceneViewOverlay::Project(XMFLOAT3(x1, y, z1), p[2]) && SceneViewOverlay::Project(XMFLOAT3(x0, y, z1), p[3]))
-					dl->AddQuadFilled(p[0], p[1], p[2], p[3], fill);
-			}
-	dl->PopClipRect();
+	// Unity 처럼 다각형을 반투명 파랑 + 바깥 가장자리
+	if (const NavData* g = ShowNavMesh ? GetData() : nullptr)
+		g->DrawGizmo(IM_COL32(60, 140, 255, 90), IM_COL32(20, 70, 160, 220), 200000);
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(NavMeshSurface)

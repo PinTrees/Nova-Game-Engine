@@ -102,9 +102,9 @@ NOVA_PACKAGE_EXPORT int NavAgent_GetCorners(uint64 go, Vec3* out, int max)
 NOVA_PACKAGE_EXPORT int NavMesh_CalculatePath(Vec3* start, Vec3* end, Vec3* out, int max)
 {
 	if (start == nullptr || end == nullptr) return -1;
-	const NavGrid* grid = NavMeshSurface::FindGrid(*start);
+	const NavData* nav = NavMeshSurface::FindData(*start);
 	std::vector<Vec3> path;
-	if (grid == nullptr || !grid->FindPath(*start, *end, path)) return -1;
+	if (nav == nullptr || !nav->FindPath(*start, *end, path)) return -1;
 	for (int i = 0; i < (int)path.size() && i < max && out; ++i)
 		out[i] = path[i];
 	return (int)path.size();
@@ -113,10 +113,10 @@ NOVA_PACKAGE_EXPORT int NavMesh_CalculatePath(Vec3* start, Vec3* end, Vec3* out,
 NOVA_PACKAGE_EXPORT int NavMesh_SamplePosition(Vec3* p, float maxDistance, Vec3* out)
 {
 	if (p == nullptr) return 0;
-	const NavGrid* grid = NavMeshSurface::FindGrid(*p);
-	int x, z, l;
-	if (grid == nullptr || !grid->Sample(*p, maxDistance, x, z, l)) return 0;
-	if (out) *out = grid->CellCenter(x, z, l);
+	const NavData* nav = NavMeshSurface::FindData(*p);
+	Vec3 on;
+	if (nav == nullptr || !nav->Sample(*p, maxDistance, on)) return 0;
+	if (out) *out = on;
 	return 1;
 }
 

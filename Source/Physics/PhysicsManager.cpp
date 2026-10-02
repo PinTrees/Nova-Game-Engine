@@ -954,6 +954,13 @@ void PhysicsManager::Init()
 	if (m_JoltInitialized)
 		return;
 	JPH::RegisterDefaultAllocator();
+#ifdef JPH_ENABLE_ASSERTS
+	// Jolt 단언: 중단점(에디터 종료) 대신 Editor.log 에 남기고 계속한다
+	JPH::AssertFailed = [](const char* expr, const char* msg, const char* file, JPH::uint line) {
+		EditorLog::Write("Physics", "Jolt assert: %s %s (%s:%u)", expr, msg ? msg : "", file, line);
+		return false;
+	};
+#endif
 	JPH::Factory::sInstance = new JPH::Factory();
 	JPH::RegisterTypes();
 	m_JoltInitialized = true;
@@ -1942,4 +1949,55 @@ bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
 	outMin = FromJ(JPH::Vec3(b.mMin));
 	outMax = FromJ(JPH::Vec3(b.mMax));
 	return true;
+}
+
+int PhysicsManager::CollectStaticTriangles(const Vec3& boundsMin, const Vec3& boundsMax, std::vector<float>& verts, std::vector<int>& tris)
+{
+	verts.clear();
+	tris.clear();
+	if (!m_World)
+		return 0;
+	const JPH::AABox box(ToJ(boundsMin), ToJ(boundsMax));
+	const JPH::BodyLockInterface& locks = m_World->physics->GetBodyLockInterface();
+	constexpr int kBatch = 256;
+	std::vector<JPH::Float3> buf(kBatch * 3);
+	for (const auto& kv : m_World->bodies)
+	{
+		const JoltWorld::BodyRecord& r = kv.second;
+		if (r.id.IsInvalid() || r.rb != nullptr)
+			continue;   // Rigidbody 가 있는 것(움직이는 것)은 빼고 정적 콜라이더만
+		bool solid = false;
+		for (Collider* c : r.colliders)
+			solid = solid || !c->IsTrigger();
+		if (!solid)
+			continue;   // 트리거만 있는 바디
+		JPH::BodyLockRead lock(locks, r.id);
+		if (!lock.Succeeded())
+			continue;
+		const JPH::TransformedShape body = lock.GetBody().GetTransformedShape();
+		if (!body.GetWorldSpaceBounds().Overlaps(box))
+			continue;
+		// 복합 형상(지형 + 나무 캡슐, 여러 콜라이더)은 잎 형상부터 모은다 — GetTriangles 는 잎에서만 된다
+		JPH::AllHitCollisionCollector<JPH::TransformedShapeCollector> leaves;
+		body.CollectTransformedShapes(box, leaves);
+		for (const JPH::TransformedShape& ts : leaves.mHits)
+		{
+			JPH::TransformedShape::GetTrianglesContext ctx;
+			ts.GetTrianglesStart(ctx, box, JPH::RVec3::sZero());
+			for (;;)
+			{
+				const int n = ts.GetTrianglesNext(ctx, kBatch, buf.data());
+				if (n <= 0)
+					break;
+				for (int i = 0; i < n * 3; ++i)
+				{
+					verts.push_back(buf[i].x);
+					verts.push_back(buf[i].y);
+					verts.push_back(buf[i].z);
+					tris.push_back((int)(verts.size() / 3) - 1);
+				}
+			}
+		}
+	}
+	return (int)(tris.size() / 3);
 }

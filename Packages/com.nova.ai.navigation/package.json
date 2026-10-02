@@ -1,8 +1,8 @@
 {
   "name": "com.nova.ai.navigation",
   "displayName": "AI Navigation",
-  "version": "1.0.0",
-  "description": "Pathfinding for NPCs and enemies (Unity AI Navigation): bake where agents can walk with NavMesh Surface (slope, step height, agent radius and height, several floors), then give a Nav Mesh Agent a destination - it finds a path around walls and obstacles and walks it with acceleration, braking and turning. C#: NavMeshAgent.SetDestination, NavMesh.CalculatePath / SamplePosition. This version bakes a layered walkable grid from the static colliders.",
+  "version": "1.1.0",
+  "description": "Pathfinding for NPCs and enemies (Unity AI Navigation): bake where agents can walk with NavMesh Surface (slope, step height, agent radius and height, several floors), then give a Nav Mesh Agent a destination - it finds a path around walls and obstacles and walks it with acceleration, braking and turning. C#: NavMeshAgent.SetDestination, NavMesh.CalculatePath / SamplePosition. Built on Recast & Detour (zlib): polygon nav mesh baked from the static colliders in tiles on all CPU cores.",
   "category": "AI",
   "author": { "name": "NOVA" },
   "keywords": [ "navmesh", "navigation", "pathfinding", "ai", "agent", "npc", "enemy" ],
