@@ -373,6 +373,51 @@ namespace Modeling
 				int root = 0;
 				for (int i = 0; i < (int)arm.Bones.size(); ++i) if (arm.Bones[i].Parent < 0) { root = i; break; }
 				gltf["skins"] = { { { "name", "Armature" }, { "joints", joints }, { "inverseBindMatrices", aIbm }, { "skeleton", root } } };
+
+				// ---- 애니메이션 클립: 본마다 rotation (파일 좌표 (x, -y, -z, w)), 루트 본 translation (쉬는 자세 + 이동)
+				//  루프 클립은 끝 (Length) 에 처음 키를 한 번 더 — 엔진 · Unity 가 끝에서 처음으로 이을 때 끊기지 않게
+				if (!doc.Clips.empty())
+				{
+					json anims = json::array();
+					auto addSampler = [&](json& samplers, const std::vector<float>& times, const std::vector<float>& values, const char* type) {
+						const int aIn = (int)accessors.size();
+						accessors.push_back({ { "bufferView", view(append(times.data(), times.size() * 4), times.size() * 4, 0) }, { "componentType", 5126 }, { "count", times.size() }, { "type", "SCALAR" },
+							{ "min", { times.front() } }, { "max", { times.back() } } });
+						const int aOut = (int)accessors.size();
+						accessors.push_back({ { "bufferView", view(append(values.data(), values.size() * 4), values.size() * 4, 0) }, { "componentType", 5126 }, { "count", times.size() }, { "type", type } });
+						samplers.push_back({ { "input", aIn }, { "output", aOut }, { "interpolation", "LINEAR" } });
+						return (int)samplers.size() - 1;
+					};
+					for (const AnimClip& cl : doc.Clips)
+					{
+						json samplers = json::array(), channels = json::array();
+						for (const auto& [boneName, keys] : cl.Tracks)
+						{
+							const int b = arm.Find(boneName);
+							if (b < 0 || keys.empty()) continue;
+							std::vector<float> times, values;
+							auto push = [&](float t, const Quaternion& q) { times.push_back(t); values.insert(values.end(), { q.x, -q.y, -q.z, q.w }); };
+							if (keys.front().Time > 1e-4f) push(0.0f, SampleRotation(cl, keys, 0.0f));
+							for (const AnimKey& k : keys) push(k.Time, k.Rot);
+							if (cl.Loop && keys.back().Time < cl.Length - 1e-4f) push(cl.Length, SampleRotation(cl, keys, 0.0f));
+							channels.push_back({ { "sampler", addSampler(samplers, times, values, "VEC4") }, { "target", { { "node", b }, { "path", "rotation" } } } });
+						}
+						const int rb = arm.Find(cl.RootBone);
+						if (rb >= 0 && !cl.Root.empty())
+						{
+							const Bone& r = arm.Bones[rb];
+							const Vec3 rest = ToFile(r.Head) - (r.Parent >= 0 ? ToFile(arm.Bones[r.Parent].Head) : Vec3(0, 0, 0));
+							std::vector<float> times, values;
+							auto push = [&](float t, const Vec3& m) { const Vec3 v = rest + ToFile(m); times.push_back(t); values.insert(values.end(), { v.x, v.y, v.z }); };
+							if (cl.Root.front().first > 1e-4f) push(0.0f, SampleRoot(cl, 0.0f));
+							for (const auto& [t, m] : cl.Root) push(t, m);
+							if (cl.Loop && cl.Root.back().first < cl.Length - 1e-4f) push(cl.Length, SampleRoot(cl, 0.0f));
+							channels.push_back({ { "sampler", addSampler(samplers, times, values, "VEC3") }, { "target", { { "node", rb }, { "path", "translation" } } } });
+						}
+						if (!channels.empty()) anims.push_back({ { "name", cl.Name }, { "samplers", samplers }, { "channels", channels } });
+					}
+					if (!anims.empty()) gltf["animations"] = anims;
+				}
 			}
 			gltf["scene"] = 0;
 			gltf["scenes"] = { { { "nodes", sceneNodes } } };
@@ -381,7 +426,13 @@ namespace Modeling
 			gltf["materials"] = materials;
 			gltf["accessors"] = accessors;
 			gltf["bufferViews"] = views;
-			if (vrm)
+			// GLB 도 사람 본이 다 있으면 VRMC_vrm humanoid 를 넣는다 — 엔진이 이 파일의 클립을 이름 추측 대신 정확한 매핑으로 리타게팅
+			bool fullHumanoid = skinned;
+			{
+				static const char* kRequired[] = { "Hips", "Spine", "Head", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot" };
+				for (const char* h : kRequired) fullHumanoid = fullHumanoid && arm.FindHuman(h) >= 0;
+			}
+			if (vrm || fullHumanoid)
 			{
 				// ---- VRM 1.0: meta · humanoid
 				json human = json::object();
@@ -419,7 +470,8 @@ namespace Modeling
 					}
 					if (!names.empty()) gltf["extensions"]["VRMC_vrm"]["expressions"] = { { "preset", preset }, { "custom", custom } };
 				}
-				json used = { "VRMC_vrm", "VRMC_materials_mtoon" };
+				json used = { "VRMC_vrm" };
+				if (vrm) used.push_back("VRMC_materials_mtoon");
 				// ---- Spring Bone: 사슬 = 같은 Chain 이름의 본 (부모가 앞) + 끝 노드
 				std::vector<std::string> chainNames;
 				for (const Bone& b : arm.Bones) if (b.Spring && std::find(chainNames.begin(), chainNames.end(), b.Chain) == chainNames.end()) chainNames.push_back(b.Chain);

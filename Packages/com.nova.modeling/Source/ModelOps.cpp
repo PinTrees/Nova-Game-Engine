@@ -1125,17 +1125,116 @@ namespace Modeling
 				Done(c, 1, "bones");
 				c.R["bone"] = BoneJson(arm, arm.Find(finalName));
 				return true; });
-			add("rig.pose", "--bone <name> --rotation x,y,z (degrees, world axes, on top of the parent) | --reset: preview pose (render / window show the skinned mesh) - check weights by bending limbs", true, [](Ctx& c) {
+			add("rig.pose", "--bone <name> --rotation x,y,z (degrees, world axes, on top of the parent) [--move x,y,z (meters, e.g. Hips bob)] | --reset: preview pose (render / window show the skinned mesh) - check weights by bending limbs", true, [](Ctx& c) {
 				Armature& arm = c.D.Rig;
 				if (B(c.A, "reset", false)) { arm.ClearPose(); return Done(c, (int)arm.Bones.size(), "bones"); }
 				const int i = arm.Find(S(c.A, "bone"));
 				if (i < 0) { c.E = "no bone '" + S(c.A, "bone") + "' (model rig.list)"; return false; }
-				Vec3 r;
-				if (!GetVec3(c.A, "rotation", r)) { c.E = "need --rotation x,y,z (degrees)"; return false; }
-				arm.Bones[i].Pose = Quaternion::CreateFromYawPitchRoll(r.y * kDeg, r.x * kDeg, r.z * kDeg);
-				arm.Bones[i].PoseEuler = r;
+				Vec3 r, mv;
+				const bool hasRot = GetVec3(c.A, "rotation", r), hasMove = GetVec3(c.A, "move", mv);
+				if (!hasRot && !hasMove) { c.E = "need --rotation x,y,z (degrees) and/or --move x,y,z (meters, root bone)"; return false; }
+				if (hasRot)
+				{
+					arm.Bones[i].Pose = Quaternion::CreateFromYawPitchRoll(r.y * kDeg, r.x * kDeg, r.z * kDeg);
+					arm.Bones[i].PoseEuler = r;
+				}
+				if (hasMove) arm.Bones[i].PoseMove = mv;
 				return Done(c, 1, "bones"); });
 			add("rig.check", "rig problems: vertices without weights, missing humanoid bones", false, RigCheck);
+
+			// ================= 애니메이션 (5 단계): rig.pose 로 자세를 잡고 anim.key 로 그 시각에 키 → export .glb / .vrm 에 glTF 애니메이션
+			auto clipInfo = [](Document& d) {
+				json list = json::array();
+				for (const AnimClip& cl : d.Clips) list.push_back({ { "name", cl.Name }, { "length", cl.Length }, { "loop", cl.Loop }, { "keys", cl.KeyCount() }, { "tracks", (int)cl.Tracks.size() } });
+				return list;
+			};
+			add("anim.new", "--name <clip> [--length 1] [--fps 30] [--loop true]: new animation clip (becomes active, pose reset)", true, [clipInfo](Ctx& c) {
+				if (c.D.Rig.Empty()) { c.E = "no armature (model rig.humanoid first)"; return false; }
+				const std::string n = S(c.A, "name");
+				if (n.empty()) { c.E = "need --name"; return false; }
+				for (const AnimClip& cl : c.D.Clips) if (cl.Name == n) { c.E = "clip '" + n + "' exists (anim.select)"; return false; }
+				AnimClip cl;
+				cl.Name = n;
+				cl.Length = (std::max)(0.05f, F(c.A, "length", 1.0f));
+				cl.Fps = std::clamp(F(c.A, "fps", 30.0f), 1.0f, 240.0f);
+				cl.Loop = B(c.A, "loop", true);
+				const int hips = c.D.Rig.FindHuman("Hips");
+				cl.RootBone = hips >= 0 ? c.D.Rig.Bones[hips].Name : (c.D.Rig.Bones.empty() ? "" : c.D.Rig.Bones[0].Name);
+				c.D.Clips.push_back(cl);
+				c.D.ActiveClip = (int)c.D.Clips.size() - 1;
+				c.D.AnimTime = 0.0f;
+				c.D.Rig.ClearPose();
+				Done(c, 1, "clips");
+				c.R["clips"] = clipInfo(c.D);
+				return true; });
+			add("anim.select", "--name <clip>: active clip (pose = its time)", true, [clipInfo](Ctx& c) {
+				for (int i = 0; i < (int)c.D.Clips.size(); ++i)
+					if (c.D.Clips[i].Name == S(c.A, "name"))
+					{
+						c.D.ActiveClip = i;
+						ApplyClip(c.D.Rig, c.D.Clips[i], c.D.AnimTime);
+						Done(c, 1, "clips");
+						c.R["clips"] = clipInfo(c.D);
+						return true;
+					}
+				c.E = "no clip '" + S(c.A, "name") + "' (anim.list)";
+				return false; });
+			add("anim.key", "--time <s> [--bones A,B (default: every bone except spring bones - the whole pose)]: record the current pose at this time in the active clip (replaces a key at the same time)", true, [clipInfo](Ctx& c) {
+				AnimClip* cl = c.D.ActiveAnim();
+				if (!cl) { c.E = "no active clip (model anim.new --name Idle --length 2)"; return false; }
+				const float t = std::clamp(F(c.A, "time", c.D.AnimTime), 0.0f, cl->Length);
+				std::vector<std::string> only;
+				if (c.A.contains("bones"))
+				{
+					if (c.A["bones"].is_array()) for (const auto& b : c.A["bones"]) only.push_back(b.get<std::string>());
+					else { std::stringstream ss(S(c.A, "bones")); std::string x; while (std::getline(ss, x, ',')) if (!x.empty()) only.push_back(x); }
+				}
+				int n = 0;
+				for (const Bone& b : c.D.Rig.Bones)
+				{
+					// 기본 = 흔들림 본을 뺀 모든 본 (안 굽힌 본은 쉬는 자세 키 — Mixamo 처럼 키마다 전체 자세)
+					const bool listed = std::find(only.begin(), only.end(), b.Name) != only.end();
+					if (!only.empty() ? !listed : b.Spring) continue;
+					auto& keys = cl->Tracks[b.Name];
+					keys.erase(std::remove_if(keys.begin(), keys.end(), [&](const AnimKey& k) { return fabsf(k.Time - t) < 1e-4f; }), keys.end());
+					keys.push_back({ t, b.Pose, b.PoseEuler });
+					std::sort(keys.begin(), keys.end(), [](const AnimKey& a, const AnimKey& b2) { return a.Time < b2.Time; });
+					++n;
+				}
+				const int root = c.D.Rig.Find(cl->RootBone);
+				if (root >= 0 && (c.D.Rig.Bones[root].PoseMove.LengthSquared() > 1e-12f || !cl->Root.empty()))
+				{
+					cl->Root.erase(std::remove_if(cl->Root.begin(), cl->Root.end(), [&](const auto& k) { return fabsf(k.first - t) < 1e-4f; }), cl->Root.end());
+					cl->Root.push_back({ t, c.D.Rig.Bones[root].PoseMove });
+					std::sort(cl->Root.begin(), cl->Root.end(), [](const auto& a, const auto& b2) { return a.first < b2.first; });
+					++n;
+				}
+				c.D.AnimTime = t;
+				Done(c, n, "keys");
+				c.R["clips"] = clipInfo(c.D);
+				return true; });
+			add("anim.time", "--time <s>: show the active clip at this time (pose = sampled keys) - render to check", true, [](Ctx& c) {
+				AnimClip* cl = c.D.ActiveAnim();
+				if (!cl) { c.E = "no active clip"; return false; }
+				c.D.AnimTime = std::clamp(F(c.A, "time", 0.0f), 0.0f, cl->Length);
+				ApplyClip(c.D.Rig, *cl, c.D.AnimTime);
+				return Done(c, 1, "frames"); });
+			add("anim.list", "animation clips (name, length, keys, tracks)", false, [clipInfo](Ctx& c) {
+				c.R = { { "clips", clipInfo(c.D) }, { "active", c.D.ActiveAnim() ? c.D.ActiveAnim()->Name : "" }, { "time", c.D.AnimTime } };
+				return true; });
+			add("anim.delete", "--name <clip>", true, [clipInfo](Ctx& c) {
+				for (int i = 0; i < (int)c.D.Clips.size(); ++i)
+					if (c.D.Clips[i].Name == S(c.A, "name"))
+					{
+						c.D.Clips.erase(c.D.Clips.begin() + i);
+						c.D.ActiveClip = c.D.Clips.empty() ? -1 : 0;
+						c.D.Rig.ClearPose();
+						Done(c, 1, "deleted");
+						c.R["clips"] = clipInfo(c.D);
+						return true;
+					}
+				c.E = "no clip '" + S(c.A, "name") + "'";
+				return false; });
 			add("rig.paint", "--bone <name> --center x,y,z --radius 0.05 [--weight 1] [--strength 1] [--mode add|subtract|smooth] [--normalize true] [--object]: weight brush (world sphere, smooth falloff); normalize lowers the other bones so the sum stays 1", true, [](Ctx& c) {
 				const int b = c.D.Rig.Find(S(c.A, "bone"));
 				if (b < 0) { c.E = "no bone '" + S(c.A, "bone") + "' (model rig.list)"; return false; }

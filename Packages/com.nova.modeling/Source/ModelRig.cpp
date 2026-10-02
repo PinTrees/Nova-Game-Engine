@@ -93,11 +93,11 @@ namespace Modeling
 	bool Armature::HasPose() const
 	{
 		for (const Bone& b : Bones)
-			if (fabsf(b.Pose.x) + fabsf(b.Pose.y) + fabsf(b.Pose.z) > 1e-6f) return true;
+			if (fabsf(b.Pose.x) + fabsf(b.Pose.y) + fabsf(b.Pose.z) > 1e-6f || b.PoseMove.LengthSquared() > 1e-12f) return true;
 		return false;
 	}
 
-	void Armature::ClearPose() { for (Bone& b : Bones) { b.Pose = Quaternion::Identity; b.PoseEuler = Vec3(0, 0, 0); } }
+	void Armature::ClearPose() { for (Bone& b : Bones) { b.Pose = Quaternion::Identity; b.PoseEuler = Vec3(0, 0, 0); b.PoseMove = Vec3(0, 0, 0); } }
 
 	std::vector<Matrix> Armature::SkinMatrices() const
 	{
@@ -106,7 +106,7 @@ namespace Modeling
 		for (int i = 0; i < (int)Bones.size(); ++i)
 		{
 			const Bone& b = Bones[i];
-			Matrix local = Matrix::CreateTranslation(-b.Head) * Matrix::CreateFromQuaternion(b.Pose) * Matrix::CreateTranslation(b.Head);
+			Matrix local = Matrix::CreateTranslation(-b.Head) * Matrix::CreateFromQuaternion(b.Pose) * Matrix::CreateTranslation(b.Head + b.PoseMove);
 			s[i] = b.Parent >= 0 && b.Parent < i ? local * s[b.Parent] : local;
 		}
 		return s;
@@ -166,7 +166,7 @@ namespace Modeling
 			if (!b.Deform) j["deform"] = false;
 			if (b.Spring)
 				j["spring"] = { { "stiffness", b.Stiffness }, { "drag", b.Drag }, { "gravity", b.Gravity }, { "radius", b.HitRadius }, { "chain", b.Chain } };
-			if (withPose) { j["pose"] = { b.Pose.x, b.Pose.y, b.Pose.z, b.Pose.w }; j["poseEuler"] = { b.PoseEuler.x, b.PoseEuler.y, b.PoseEuler.z }; }
+			if (withPose) { j["pose"] = { b.Pose.x, b.Pose.y, b.Pose.z, b.Pose.w }; j["poseEuler"] = { b.PoseEuler.x, b.PoseEuler.y, b.PoseEuler.z }; j["poseMove"] = { b.PoseMove.x, b.PoseMove.y, b.PoseMove.z }; }
 			bones.push_back(j);
 		}
 		json cols = json::array();
@@ -206,6 +206,7 @@ namespace Modeling
 			if (bj.contains("pose") && bj["pose"].size() == 4)
 				b.Pose = Quaternion(bj["pose"][0].get<float>(), bj["pose"][1].get<float>(), bj["pose"][2].get<float>(), bj["pose"][3].get<float>());
 			b.PoseEuler = ToV(bj.value("poseEuler", json()), Vec3(0, 0, 0));
+			b.PoseMove = ToV(bj.value("poseMove", json()), Vec3(0, 0, 0));
 			Bones.push_back(b);
 		}
 		for (const json& cj : j.value("colliders", json::array()))
@@ -218,6 +219,106 @@ namespace Modeling
 			if (c.Capsule) c.Tail = ToV(cj["tail"], c.Tail);
 			Colliders.push_back(c);
 		}
+	}
+
+	// ================================================================== 애니메이션 클립
+	json AnimClip::ToJson() const
+	{
+		json tracks = json::object();
+		for (const auto& [bone, keys] : Tracks)
+		{
+			json kj = json::array();
+			for (const AnimKey& k : keys) kj.push_back({ k.Time, k.Rot.x, k.Rot.y, k.Rot.z, k.Rot.w, k.Euler.x, k.Euler.y, k.Euler.z });
+			tracks[bone] = kj;
+		}
+		json root = json::array();
+		for (const auto& [t, p] : Root) root.push_back({ t, p.x, p.y, p.z });
+		return { { "name", Name }, { "length", Length }, { "fps", Fps }, { "loop", Loop }, { "tracks", tracks }, { "rootBone", RootBone }, { "root", root } };
+	}
+
+	void AnimClip::FromJson(const json& j)
+	{
+		Name = j.value("name", std::string("Clip"));
+		Length = j.value("length", 1.0f);
+		Fps = j.value("fps", 30.0f);
+		Loop = j.value("loop", true);
+		RootBone = j.value("rootBone", std::string());
+		Tracks.clear();
+		Root.clear();
+		if (j.contains("tracks"))
+			for (auto it = j["tracks"].begin(); it != j["tracks"].end(); ++it)
+				for (const json& k : it.value())
+					if (k.size() >= 5)
+					{
+						AnimKey key;
+						key.Time = k[0].get<float>();
+						key.Rot = Quaternion(k[1].get<float>(), k[2].get<float>(), k[3].get<float>(), k[4].get<float>());
+						if (k.size() >= 8) key.Euler = Vec3(k[5].get<float>(), k[6].get<float>(), k[7].get<float>());
+						Tracks[it.key()].push_back(key);
+					}
+		for (const json& r : j.value("root", json::array()))
+			if (r.size() == 4) Root.push_back({ r[0].get<float>(), Vec3(r[1].get<float>(), r[2].get<float>(), r[3].get<float>()) });
+	}
+
+	int AnimClip::KeyCount() const
+	{
+		int n = (int)Root.size();
+		for (const auto& [b, k] : Tracks) n += (int)k.size();
+		return n;
+	}
+
+	namespace
+	{
+		// 키 배열에서 t 앞뒤 (루프면 마지막 → 처음 + Length)
+		template <class K, class Get, class Mix>
+		auto SampleKeys(const AnimClip& clip, const std::vector<K>& keys, float t, Get get, Mix mix) -> decltype(get(keys[0]))
+		{
+			if (keys.size() == 1) return get(keys[0]);
+			if (clip.Loop && clip.Length > 0.0f) { t = fmodf(t, clip.Length); if (t < 0.0f) t += clip.Length; }
+			auto time = [](const K& k) -> float { if constexpr (std::is_same_v<K, AnimKey>) return k.Time; else return k.first; };
+			if (t <= time(keys.front()))
+			{
+				if (!clip.Loop || time(keys.front()) <= 0.0f) return get(keys.front());
+				const float span = time(keys.front()) + (clip.Length - time(keys.back()));
+				const float f = span > 1e-6f ? (t + clip.Length - time(keys.back())) / span : 0.0f;
+				return mix(get(keys.back()), get(keys.front()), f);
+			}
+			for (size_t i = 0; i + 1 < keys.size(); ++i)
+				if (t <= time(keys[i + 1]))
+				{
+					const float span = time(keys[i + 1]) - time(keys[i]);
+					return mix(get(keys[i]), get(keys[i + 1]), span > 1e-6f ? (t - time(keys[i])) / span : 0.0f);
+				}
+			if (!clip.Loop) return get(keys.back());
+			const float span = clip.Length - time(keys.back()) + time(keys.front());
+			const float f = span > 1e-6f ? (t - time(keys.back())) / span : 0.0f;
+			return mix(get(keys.back()), get(keys.front()), f);
+		}
+	}
+
+	Quaternion SampleRotation(const AnimClip& clip, const std::vector<AnimKey>& keys, float t)
+	{
+		if (keys.empty()) return Quaternion::Identity;
+		return SampleKeys(clip, keys, t, [](const AnimKey& k) { return k.Rot; }, [](const Quaternion& a, const Quaternion& b, float f) { return Quaternion::Slerp(a, b, f); });
+	}
+
+	Vec3 SampleRoot(const AnimClip& clip, float t)
+	{
+		if (clip.Root.empty()) return Vec3(0, 0, 0);
+		return SampleKeys(clip, clip.Root, t, [](const std::pair<float, Vec3>& k) { return k.second; }, [](const Vec3& a, const Vec3& b, float f) { return Vec3::Lerp(a, b, f); });
+	}
+
+	void ApplyClip(Armature& arm, const AnimClip& clip, float t)
+	{
+		for (Bone& b : arm.Bones)
+		{
+			auto it = clip.Tracks.find(b.Name);
+			b.Pose = it != clip.Tracks.end() ? SampleRotation(clip, it->second, t) : Quaternion::Identity;
+			b.PoseEuler = Vec3(0, 0, 0);
+			b.PoseMove = Vec3(0, 0, 0);
+		}
+		const int root = arm.Find(clip.RootBone);
+		if (root >= 0) arm.Bones[root].PoseMove = SampleRoot(clip, t);
 	}
 
 	// ================================================================== 도우미

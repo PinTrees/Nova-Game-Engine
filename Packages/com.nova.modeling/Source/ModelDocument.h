@@ -70,6 +70,10 @@ namespace Modeling
 		Vec3 MaterialColor(int index) const { return index >= 0 && index < (int)MaterialColors.size() ? MaterialColors[index] : Vec3(0.8f, 0.8f, 0.8f); }
 		std::vector<RefImage> Refs;           // 기준 그림 (Undo 에 들지 않음)
 		Armature Rig;                         // 아마추어 (본 · 충돌체 · 포즈 미리보기)
+		std::vector<AnimClip> Clips;          // 애니메이션 클립 (glTF / VRM 로 내보낸다)
+		int ActiveClip = -1;
+		float AnimTime = 0.0f;                // 지금 보는 시각 (포즈 = 이 시각의 클립)
+		AnimClip* ActiveAnim() { return ActiveClip >= 0 && ActiveClip < (int)Clips.size() ? &Clips[ActiveClip] : nullptr; }
 		RefImage* FindRef(const std::string& name);
 		int Active = -1;
 		bool EditMode = false;

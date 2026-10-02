@@ -179,6 +179,22 @@ Blender 의 Shape Keys: 점마다 셰이프별 위치 차이를 갖고 (버텍�
 
 ![표정 (셰이프 키)](images/model_editor_face.webp)
 
+## 애니메이션 (5 단계)
+
+리깅한 캐릭터에 클립을 만든다: `rig.pose` 로 자세를 잡고 `anim.key --time t` 로 그 시각에 **전체 자세 키** (흔들림 본 제외), 루트 (Hips) 는 `rig.pose --bone Hips --move x,y,z` 의 이동도 키. 키 사이 = slerp / lerp, 루프 클립은 끝 → 처음. 내보내기 `export *.glb` / `*.vrm` 에 glTF 애니메이션 (본 rotation + Hips translation, 루프면 끝에 처음 키를 한 번 더) — GLB 도 사람 본이 다 있으면 `VRMC_vrm.humanoid` 를 넣어 엔진이 정확한 매핑으로 **어떤 캐릭터에든 Humanoid 리타게팅**.
+
+| op | 인자 | 설명 |
+|---|---|---|
+| `anim.new` | `--name <클립> [--length 1] [--fps 30] [--loop true]` | 새 클립 (활성, 자세 초기화) |
+| `anim.key` | `--time <초> [--bones A,B]` | 지금 자세를 그 시각에 (같은 시각 키는 바꾼다) |
+| `anim.time` | `--time <초>` | 활성 클립의 그 시각 자세로 (`render` 로 확인) |
+| `anim.select` · `anim.list` · `anim.delete` | `--name` | |
+| `rig.pose` | `... [--move x,y,z]` | 루트 본 이동 (걸음의 오르내림 등) |
+
+회전 = 도 (월드 축, 부모 위에): 다리 `pitch −` = 앞으로, 아래팔 `pitch −` = 팔꿈치를 앞으로, 왼팔 `roll −` / 오른팔 `roll +` = 몸 밖으로, `yaw +` = 캐릭터 오른쪽으로. 리타게팅은 **쉬는 자세에서의 회전** 을 옮기므로 원본 캐릭터의 쉬는 자세 (예: 팔이 25° 벌어진 치비) 를 보고 값을 정한다.
+
+예: [examples/anim_basic.txt](examples/anim_basic.txt) — Idle (숨쉬기 · 무게 이동) · Walk (제자리 걸음) · Wave (손 흔들기). 이것을 내보낸 것이 엔진의 **기본 캐릭터 애니메이션** `Resources/Packages/Character/Animations/Nova_Basic.glb` (DefaultCharacter.controller: Idle 기본 + Walk · Wave 상태, C# `Animator.Play("Wave")`).
+
 ## AI 작업 순서 (권장)
 
 0. (그림이 있으면) `ref.add front.png --view front --height 1.5`, `ref.add side.png --view right --height 1.5` — 같은 키로
@@ -253,4 +269,5 @@ nova model export Assets/Models/Chibi.fbx
 | 1 | 메시 편집 기본 · 창 · Undo · FBX/OBJ/GLB 가져오기 · 내보내기 · CLI · 시점별 PNG | **완료 (0.1.0)** |
 | 2 | AI 모델링 규격: 버텍스 그룹(이름 있는 선택 + 가중치, 연산을 따라감), 체크포인트, `batch`(Undo 한 번), 기준 그림 겹쳐 보기, 실루엣 비교(IoU · 높이 띠 · 힌트 · 차이 그림) | **완료 (0.2.0)** |
 | 3 | 캐릭터 도구: Mirror 모디파이어(실시간 대칭 + Clipping), 비례 편집, Subsurf 미리보기 · 적용, 머리 다발 · 카드, Smart UV · 투영 UV (연산을 거쳐도 UV 유지), 재질 색, 툰 2 톤 + 외곽선 · UV 바둑판 | **완료 (0.3.0)** |
+| 5 | 애니메이션: 자세 → 키 (`anim.*`), glTF 애니메이션 + humanoid 로 내보내기 → 엔진 기본 Idle · Walk · Wave | **완료 (0.6.0)** — 남음: 창의 타임라인, FBX 애니메이션 |
 | 4 | 리깅: Humanoid 뼈대 맞추기 (부위 이름), 자동 가중치 (덩어리 안 본 + 이웃 섞기), 흔들림 사슬 (머리 다발 · 치마 방사) + 몸 충돌체, 포즈 미리보기 · 가중치 보기 · **가중치 붓**, 셰이프 키 (표정), 스킨 **FBX** · GLB · **VRM 1.0** 내보내기 → 엔진 Humanoid · Dynamic Bone · Expressions · lilToon | **완료 (0.5.0)** |

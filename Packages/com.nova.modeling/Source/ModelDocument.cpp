@@ -204,6 +204,9 @@ namespace Modeling
 		MaterialColors.clear();
 		Refs.clear();
 		Rig = Armature();
+		Clips.clear();
+		ActiveClip = -1;
+		AnimTime = 0.0f;
 		m_Checkpoints.clear();
 		Active = -1;
 		EditMode = false;
@@ -256,6 +259,12 @@ namespace Modeling
 		}
 		j["objects"] = objs;
 		if (!Rig.Empty()) j["armature"] = Rig.ToJson();
+		if (!Clips.empty())
+		{
+			nlohmann::json cj = nlohmann::json::array();
+			for (const AnimClip& c : Clips) cj.push_back(c.ToJson());
+			j["animations"] = cj;
+		}
 		if (!Refs.empty())
 		{
 			nlohmann::json refs = nlohmann::json::array();
@@ -305,6 +314,10 @@ namespace Modeling
 				Objects.push_back(std::move(o));
 			}
 		Rig.FromJson(j.value("armature", nlohmann::json()));
+		Clips.clear();
+		for (const auto& cj : j.value("animations", nlohmann::json::array())) { AnimClip c; c.FromJson(cj); Clips.push_back(c); }
+		ActiveClip = Clips.empty() ? -1 : 0;
+		AnimTime = 0.0f;
 		Active = Objects.empty() ? -1 : 0;
 		EditMode = false;
 		++Revision;
@@ -474,6 +487,13 @@ namespace Modeling
 		}
 		j["objects"] = objs;
 		j["rig"] = Rig.ToJson(true);
+		{
+			nlohmann::json cj = nlohmann::json::array();
+			for (const AnimClip& c : Clips) cj.push_back(c.ToJson());
+			j["clips"] = cj;
+			j["clip"] = ActiveClip;
+			j["clipTime"] = AnimTime;
+		}
 		return j.dump();
 	}
 
@@ -504,6 +524,10 @@ namespace Modeling
 			Objects.push_back(std::move(o));
 		}
 		Rig.FromJson(j.value("rig", nlohmann::json()));
+		Clips.clear();
+		for (const auto& cj : j.value("clips", nlohmann::json::array())) { AnimClip c; c.FromJson(cj); Clips.push_back(c); }
+		ActiveClip = j.value("clip", -1);
+		AnimTime = j.value("clipTime", 0.0f);
 		Active = j.value("active", -1);
 		if (Active >= (int)Objects.size()) Active = (int)Objects.size() - 1;
 		EditMode = j.value("edit", false) && Active >= 0;
@@ -652,6 +676,14 @@ namespace Modeling
 			int springs = 0, humans = 0;
 			for (const Bone& b : Rig.Bones) { springs += b.Spring; humans += !b.Human.empty(); }
 			r["armature"] = { { "bones", (int)Rig.Bones.size() }, { "humanoid", humans }, { "spring", springs }, { "colliders", (int)Rig.Colliders.size() }, { "posed", Rig.HasPose() } };
+			if (!Clips.empty())
+			{
+				nlohmann::json cl = nlohmann::json::array();
+				for (const AnimClip& c : Clips) cl.push_back({ { "name", c.Name }, { "length", c.Length }, { "keys", c.KeyCount() }, { "tracks", (int)c.Tracks.size() } });
+				r["animations"] = cl;
+				r["animation"] = ActiveAnim() ? ActiveAnim()->Name : "";
+				r["time"] = AnimTime;
+			}
 		}
 		r["undo"] = UndoLabel();
 		r["dirty"] = Dirty;

@@ -1,0 +1,121 @@
+# 기본 애니메이션 (Idle · Walk · Wave) — 리깅한 캐릭터 (model_chibi.txt + model_chibi_rig.txt) 위에서
+#   nova model batch docs/examples/anim_basic.txt → nova model export Resources/Packages/Character/Animations/Nova_Basic.glb
+# 회전 = 도 (월드 축, 부모 위에): 다리 pitch - = 앞으로, 아래팔 pitch - = 팔꿈치 앞으로 굽힘, 왼팔 roll - / 오른팔 roll + = 몸 밖으로
+# 이 치비의 팔은 쉬는 자세에서 25° 벌어져 있다 → 몸에 붙이려면 왼팔 roll +17 · 오른팔 -17 (리타게팅은 쉬는 자세 기준 회전을 옮긴다)
+# 엔진은 Humanoid 리타게팅으로 어떤 캐릭터에든 (VRoid · Mixamo · UE 마네킹)
+
+# ---------------- Idle (2.4 초): 똑바로 서서 숨쉬기 — 가슴 · 어깨 오르내림, 무게 중심이 살짝 옮겨 감, 고개 조금
+anim.new --name Idle --length 2.4
+rig.pose --bone Spine --rotation 1,0,0
+rig.pose --bone Chest --rotation 1,0,0
+rig.pose --bone Neck --rotation -2,0,0
+rig.pose --bone Head --rotation 4,0,0
+rig.pose --bone LeftShoulder --rotation 0,0,0
+rig.pose --bone RightShoulder --rotation 0,0,0
+rig.pose --bone LeftUpperArm --rotation 4,0,17
+rig.pose --bone RightUpperArm --rotation 4,0,-17
+rig.pose --bone LeftLowerArm --rotation -14,0,0
+rig.pose --bone RightLowerArm --rotation -14,0,0
+rig.pose --bone LeftHand --rotation 0,0,4
+rig.pose --bone RightHand --rotation 0,0,-4
+rig.pose --bone LeftUpperLeg --rotation 0,0,-2
+rig.pose --bone RightUpperLeg --rotation 0,0,2
+rig.pose --bone Hips --move 0.004,0,0
+anim.key --time 0
+# 들숨: 가슴이 펴지고 어깨가 올라감, 몸이 반대쪽으로
+rig.pose --bone Spine --rotation 0,0,0
+rig.pose --bone Chest --rotation -2,0,0
+rig.pose --bone Neck --rotation -1,0,0
+rig.pose --bone Head --rotation 3,2,0
+rig.pose --bone LeftShoulder --rotation 0,0,-2
+rig.pose --bone RightShoulder --rotation 0,0,2
+rig.pose --bone LeftUpperArm --rotation 3,0,18
+rig.pose --bone RightUpperArm --rotation 3,0,-18
+rig.pose --bone LeftLowerArm --rotation -12,0,0
+rig.pose --bone RightLowerArm --rotation -12,0,0
+rig.pose --bone Hips --move -0.004,0.002,0
+anim.key --time 1.2
+
+# ---------------- Walk (1.0 초, 제자리): 다리 앞뒤 + 무릎, 팔은 반대로, 디딜 때 엉덩이가 내려감
+anim.new --name Walk --length 1.0
+rig.pose --bone LeftUpperLeg --rotation -18,0,0
+rig.pose --bone LeftLowerLeg --rotation 6,0,0
+rig.pose --bone LeftFoot --rotation -6,0,0
+rig.pose --bone RightUpperLeg --rotation 14,0,0
+rig.pose --bone RightLowerLeg --rotation 22,0,0
+rig.pose --bone RightFoot --rotation 12,0,0
+rig.pose --bone LeftUpperArm --rotation 18,0,18
+rig.pose --bone RightUpperArm --rotation -20,0,-18
+rig.pose --bone LeftLowerArm --rotation -10,0,0
+rig.pose --bone RightLowerArm --rotation -24,0,0
+rig.pose --bone Spine --rotation 3,-4,0
+rig.pose --bone Chest --rotation 1,6,0
+rig.pose --bone Head --rotation 0,-2,0
+rig.pose --bone Hips --move 0,-0.012,0
+anim.key --time 0
+rig.pose --bone LeftUpperLeg --rotation -2,0,0
+rig.pose --bone LeftLowerLeg --rotation 4,0,0
+rig.pose --bone LeftFoot --rotation 0,0,0
+rig.pose --bone RightUpperLeg --rotation -10,0,0
+rig.pose --bone RightLowerLeg --rotation 48,0,0
+rig.pose --bone RightFoot --rotation -8,0,0
+rig.pose --bone LeftUpperArm --rotation 2,0,18
+rig.pose --bone RightUpperArm --rotation -2,0,-18
+rig.pose --bone LeftLowerArm --rotation -14,0,0
+rig.pose --bone RightLowerArm --rotation -14,0,0
+rig.pose --bone Spine --rotation 3,0,0
+rig.pose --bone Chest --rotation 1,0,0
+rig.pose --bone Head --rotation 0,0,0
+rig.pose --bone Hips --move 0,0.012,0
+anim.key --time 0.25
+rig.pose --bone LeftUpperLeg --rotation 14,0,0
+rig.pose --bone LeftLowerLeg --rotation 22,0,0
+rig.pose --bone LeftFoot --rotation 12,0,0
+rig.pose --bone RightUpperLeg --rotation -18,0,0
+rig.pose --bone RightLowerLeg --rotation 6,0,0
+rig.pose --bone RightFoot --rotation -6,0,0
+rig.pose --bone LeftUpperArm --rotation -20,0,18
+rig.pose --bone RightUpperArm --rotation 18,0,-18
+rig.pose --bone LeftLowerArm --rotation -24,0,0
+rig.pose --bone RightLowerArm --rotation -10,0,0
+rig.pose --bone Spine --rotation 3,4,0
+rig.pose --bone Chest --rotation 1,-6,0
+rig.pose --bone Head --rotation 0,2,0
+rig.pose --bone Hips --move 0,-0.012,0
+anim.key --time 0.5
+rig.pose --bone LeftUpperLeg --rotation -10,0,0
+rig.pose --bone LeftLowerLeg --rotation 48,0,0
+rig.pose --bone LeftFoot --rotation -8,0,0
+rig.pose --bone RightUpperLeg --rotation -2,0,0
+rig.pose --bone RightLowerLeg --rotation 4,0,0
+rig.pose --bone RightFoot --rotation 0,0,0
+rig.pose --bone LeftUpperArm --rotation -2,0,18
+rig.pose --bone RightUpperArm --rotation 2,0,-18
+rig.pose --bone LeftLowerArm --rotation -14,0,0
+rig.pose --bone RightLowerArm --rotation -14,0,0
+rig.pose --bone Spine --rotation 3,0,0
+rig.pose --bone Chest --rotation 1,0,0
+rig.pose --bone Head --rotation 0,0,0
+rig.pose --bone Hips --move 0,0.012,0
+anim.key --time 0.75
+
+# ---------------- Wave (1.2 초): 오른팔을 들어 아래팔을 좌우로 흔들기, 고개를 살짝 기울임
+anim.new --name Wave --length 1.2
+rig.pose --bone RightUpperArm --rotation -10,0,125
+rig.pose --bone RightLowerArm --rotation 0,0,10
+rig.pose --bone RightHand --rotation 0,0,0
+rig.pose --bone LeftUpperArm --rotation 4,0,17
+rig.pose --bone LeftLowerArm --rotation -14,0,0
+rig.pose --bone Head --rotation 3,0,-6
+rig.pose --bone Chest --rotation 0,0,-3
+anim.key --time 0
+rig.pose --bone RightLowerArm --rotation 0,0,45
+rig.pose --bone RightHand --rotation 0,0,10
+anim.key --time 0.3
+rig.pose --bone RightLowerArm --rotation 0,0,10
+rig.pose --bone RightHand --rotation 0,0,0
+anim.key --time 0.6
+rig.pose --bone RightLowerArm --rotation 0,0,45
+rig.pose --bone RightHand --rotation 0,0,10
+anim.key --time 0.9
+anim.select --name Idle

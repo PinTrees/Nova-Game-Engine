@@ -1077,6 +1077,43 @@ function Suite-Model
         $fr = Invoke-NovaJson "exec --file $ff"
         $fa = if ($fr) { "$($fr.result)" -split ' ' } else { @() }
         Add-Result model 'export .fbx with armature → engine skinned Humanoid character' ($fx -and -not $fx.warning -and $fa.Count -eq 3 -and [int]$fa[0] -ge 10 -and [double]$fa[1] -gt 0.7 -and [double]$fa[1] -lt 1.1 -and [double]$fa[2] -lt 0) "skinned=$($fa[0]) head y=$($fa[1]) left hand x=$($fa[2])"
+        # 애니메이션 (5 단계): rig.pose + anim.key → glTF 애니메이션 → 기본 컨트롤러의 Wave (엔진 리소스 Nova_Basic.glb 와 같은 예제)
+        $ab = Invoke-NovaJson "model batch $root\docs\examples\anim_basic.txt"
+        $al = M 'anim.list'
+        M 'anim.select --name Walk' | Out-Null
+        M 'anim.time --time 0' | Out-Null
+        M "render --path $dir\walk0.png --views right --size 256 --wire false --bones false" | Out-Null
+        M 'anim.time --time 0.5' | Out-Null
+        M "render --path $dir\walk5.png --views right --size 256 --wire false --bones false" | Out-Null
+        $wdiff = -1
+        if ((Test-Path "$dir\walk0.png") -and (Test-Path "$dir\walk5.png"))
+        {
+            Add-Type -AssemblyName System.Drawing
+            $b1 = [System.Drawing.Bitmap]::FromFile("$dir\walk0.png"); $b2 = [System.Drawing.Bitmap]::FromFile("$dir\walk5.png")
+            $wdiff = 0
+            for ($y = 0; $y -lt 256; $y += 2) { for ($x = 0; $x -lt 256; $x += 2) { if ($b1.GetPixel($x, $y).ToArgb() -ne $b2.GetPixel($x, $y).ToArgb()) { $wdiff++ } } }
+            $b1.Dispose(); $b2.Dispose()
+        }
+        Add-Result model 'anim: Idle · Walk · Wave clips keyed from poses, anim.time samples (walk frames differ)' ($ab -and @($al.clips).Count -eq 3 -and ($al.clips | Where-Object { $_.name -eq 'Walk' }).keys -gt 40 -and $wdiff -gt 100) "clips=$(($al.clips | ForEach-Object { $_.name }) -join ',') changed px=$wdiff"
+        $ag = M "export --path $vrmDir\Anim.glb"
+        $agJson = $null
+        if (Test-Path "$vrmDir\Anim.glb") { $bytes = [IO.File]::ReadAllBytes("$vrmDir\Anim.glb"); $len = [BitConverter]::ToUInt32($bytes, 12); $agJson = [Text.Encoding]::UTF8.GetString($bytes, 20, $len) | ConvertFrom-Json }
+        $an = if ($agJson) { @($agJson.animations | ForEach-Object { $_.name }) } else { @() }
+        Add-Result model 'export .glb: glTF animations (rotation + Hips translation) + VRMC_vrm humanoid for retargeting' ($an.Count -eq 3 -and $agJson.extensions.VRMC_vrm.humanoid -and @($agJson.animations[0].channels).Count -ge 21) "animations=$($an -join ',') channels(Idle)=$(@($agJson.animations[0].channels).Count)"
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name WaveTest' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 0.5
+        $wf = Join-Path $dir 'wave.cs'
+        'var a = GameObject.Find("WaveTest").GetComponent<Animator>(); a.Play("Wave"); return "ok";' | Set-Content -Encoding utf8 $wf
+        Invoke-Nova "exec --file $wf" | Out-Null
+        Wait-Sec 1
+        $hf = Join-Path $dir 'wave_read.cs'
+        'var a = GameObject.Find("WaveTest").GetComponent<Animator>(); var c = System.Globalization.CultureInfo.InvariantCulture; return a.GetBonePosition(HumanBodyBones.RightHand).y.ToString("F2", c) + " " + a.GetBonePosition(HumanBodyBones.Head).y.ToString("F2", c);' | Set-Content -Encoding utf8 $hf
+        $hr = Invoke-NovaJson "exec --file $hf"
+        Invoke-Nova 'stop' | Out-Null
+        $ha = if ($hr) { "$($hr.result)" -split ' ' } else { @() }
+        Add-Result model 'engine: default controller Wave (Nova_Basic.glb) raises the right hand above the head' ($ha.Count -eq 2 -and [double]$ha[0] -gt [double]$ha[1]) "right hand y $($ha[0]) head y $($ha[1])"
         Remove-Item $vrmDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$vrmDir.meta" -Force -ErrorAction SilentlyContinue
         Invoke-Nova 'log --errors -n 5' | Out-Null

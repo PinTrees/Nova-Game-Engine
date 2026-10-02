@@ -29,6 +29,7 @@ namespace Modeling
 		// 포즈 미리보기: 머리를 중심으로 한 회전 (월드 축, 부모 회전 위에) — 저장 · 내보내기 하지 않는 미리보기
 		Quaternion Pose = Quaternion::Identity;
 		Vec3 PoseEuler = Vec3(0, 0, 0);   // 같은 포즈의 오일러 각 (도, 창 · CLI 표시)
+		Vec3 PoseMove = Vec3(0, 0, 0);    // 포즈 이동 (월드, 루트 본 = Hips 의 오르내림 · 걸음)
 	};
 
 	// 흔들림 본이 피하는 몸 (구 또는 캡슐). Offset · Tail = 본 머리에서 (월드 축)
@@ -62,6 +63,27 @@ namespace Modeling
 		nlohmann::json ToJson(bool withPose = false) const;
 		void FromJson(const nlohmann::json& j);
 	};
+
+	// 애니메이션 클립 (5 단계): 본 이름 → 회전 키, 루트 이동 키. 쉬는 자세 회전이 없으므로 키 = 로컬 회전 그대로 (glTF 노드 rotation)
+	struct AnimKey { float Time = 0.0f; Quaternion Rot = Quaternion::Identity; Vec3 Euler = Vec3(0, 0, 0); };
+	struct AnimClip
+	{
+		std::string Name = "Clip";
+		float Length = 1.0f;     // 초
+		float Fps = 30.0f;
+		bool Loop = true;
+		std::map<std::string, std::vector<AnimKey>> Tracks;   // 본 이름 → 키 (시간 순)
+		std::string RootBone;                                 // 이동 키를 받는 본 (보통 Hips)
+		std::vector<std::pair<float, Vec3>> Root;             // 루트 이동 (쉬는 자세에서, 월드)
+		nlohmann::json ToJson() const;
+		void FromJson(const nlohmann::json& j);
+		int KeyCount() const;
+	};
+	// t 에서의 회전 · 이동 (키 사이 slerp · lerp, 루프 클립은 끝 → 처음)
+	Quaternion SampleRotation(const AnimClip& clip, const std::vector<AnimKey>& keys, float t);
+	Vec3 SampleRoot(const AnimClip& clip, float t);
+	// 클립의 t 를 아마추어 포즈로 (트랙 없는 본 = 쉬는 자세)
+	void ApplyClip(Armature& arm, const AnimClip& clip, float t);
 
 	// 점 p 에서 선분 ab 까지 거리
 	float SegmentDistance(const Vec3& p, const Vec3& a, const Vec3& b, float* t = nullptr);

@@ -9,12 +9,34 @@
             "states": [
                 {
                     "clipIndex": 0,
-                    "clipPath": "Resources\\Packages\\Character\\Animations\\GhostSamurai_APose_Idle.FBX",
+                    "clipPath": "Resources\\Packages\\Character\\Animations\\Nova_Basic.glb",
                     "cycleOffset": 0.0,
                     "footIK": false,
                     "loop": true,
                     "name": "Idle",
                     "pos": [-40.0, 0.0],
+                    "speed": 1.0,
+                    "writeDefaults": true
+                },
+                {
+                    "clipIndex": 1,
+                    "clipPath": "Resources\\Packages\\Character\\Animations\\Nova_Basic.glb",
+                    "cycleOffset": 0.0,
+                    "footIK": false,
+                    "loop": true,
+                    "name": "Walk",
+                    "pos": [-40.0, 120.0],
+                    "speed": 1.0,
+                    "writeDefaults": true
+                },
+                {
+                    "clipIndex": 2,
+                    "clipPath": "Resources\\Packages\\Character\\Animations\\Nova_Basic.glb",
+                    "cycleOffset": 0.0,
+                    "footIK": false,
+                    "loop": true,
+                    "name": "Wave",
+                    "pos": [200.0, 120.0],
                     "speed": 1.0,
                     "writeDefaults": true
                 }
