@@ -165,7 +165,11 @@ namespace Modeling
 			opt.Selection = B(c.A, "selection", opt.Wireframe);   // 깨끗한 그림 (--wire false) 이면 선택 표시도 끈다
 			opt.XRay = B(c.A, "xray", false);
 			const std::string shade = S(c.A, "shading", "solid");
-			opt.Shade = shade == "toon" ? Shading::Toon : (shade == "normals" ? Shading::Normals : (shade == "uv" ? Shading::UVChecker : Shading::Solid));
+			opt.Shade = shade == "toon" ? Shading::Toon : (shade == "normals" ? Shading::Normals : (shade == "uv" ? Shading::UVChecker : (shade == "weights" ? Shading::Weights : Shading::Solid)));
+			opt.Bones = B(c.A, "bones", true);
+			opt.WeightBone = S(c.A, "bone");
+			opt.SelectedBone = c.D.Rig.Find(opt.WeightBone);
+			if (opt.Shade == Shading::Weights && opt.SelectedBone < 0) { c.E = "--shading weights needs --bone <name> (model rig.list)"; return false; }
 			opt.Outline = B(c.A, "outline", shade == "toon");   // 툰이면 기본으로 외곽선
 			opt.OutlineWidth = F(c.A, "outlineWidth", (std::max)(1.0f, w / 400.0f));
 			// 경계 상자 (보이는 것)
@@ -359,6 +363,61 @@ namespace Modeling
 
 		bool Batch(Ctx& c);
 
+		// ---- 리깅 연산 (ModelRig.cpp) 을 연산 표 모양으로
+		bool RigCall(Ctx& c, bool (*fn)(Document&, const json&, json&, std::string&))
+		{
+			json report;
+			if (!fn(c.D, c.A, report, c.E)) return false;
+			c.R = c.D.Summary(false);
+			for (auto it = report.begin(); it != report.end(); ++it) c.R[it.key()] = it.value();
+			c.D.Changed();
+			return true;
+		}
+
+		json BoneJson(const Armature& arm, int i)
+		{
+			const Bone& b = arm.Bones[i];
+			auto r = [](const Vec3& v) { return json{ roundf(v.x * 1e4f) / 1e4f, roundf(v.y * 1e4f) / 1e4f, roundf(v.z * 1e4f) / 1e4f }; };
+			json j = { { "name", b.Name }, { "parent", b.Parent >= 0 ? arm.Bones[b.Parent].Name : "" }, { "head", r(b.Head) }, { "tail", r(b.Tail) } };
+			if (!b.Human.empty()) j["human"] = b.Human;
+			if (!b.Deform) j["deform"] = false;
+			if (b.Spring) j["spring"] = { { "chain", b.Chain }, { "stiffness", b.Stiffness }, { "drag", b.Drag }, { "gravity", b.Gravity }, { "radius", b.HitRadius } };
+			return j;
+		}
+
+		// 리깅 확인: 가중치 없는 점, 본마다 점 수, 필수 사람 본
+		bool RigCheck(Ctx& c)
+		{
+			const Armature& arm = c.D.Rig;
+			if (arm.Empty()) { c.E = "no armature"; return false; }
+			json objs = json::array(), problems = json::array();
+			for (const Object& o : c.D.Objects)
+			{
+				if (!o.Visible || o.M.Verts.empty()) continue;
+				const std::vector<int> g2b = GroupToBone(arm, o.M);
+				std::vector<std::pair<int, float>> bw;
+				int none = 0, maxInf = 0;
+				for (const Vert& v : o.M.Verts)
+				{
+					VertexBones(arm, g2b, v, v.P, false, bw);
+					if (bw.empty()) ++none;
+					maxInf = (std::max)(maxInf, (int)bw.size());
+				}
+				objs.push_back({ { "object", o.Name }, { "verts", (int)o.M.Verts.size() }, { "unweighted", none }, { "maxInfluences", maxInf } });
+				if (none) problems.push_back(o.Name + ": " + std::to_string(none) + " vertices have no bone weight (they would stick to the nearest bone on export) - model rig.weights");
+			}
+			static const char* kRequired[] = { "Hips", "Spine", "Head", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot" };
+			json missing = json::array();
+			for (const char* h : kRequired) if (arm.FindHuman(h) < 0) missing.push_back(h);
+			if (!missing.empty()) problems.push_back("humanoid bones missing (VRM / Humanoid retargeting need them): " + missing.dump());
+			c.R = c.D.Summary(false);
+			c.R["objects"] = objs;
+			c.R["missingHumanBones"] = missing;
+			c.R["problems"] = problems;
+			c.R["ok"] = problems.empty();
+			return true;
+		}
+
 		// Edit 모드 점 변환: fn(로컬 위치, 무게) → 새 위치. 비례 편집 (--proportional 반경 [--falloff]) · 거울 가운데 고정
 		int TransformVerts(Ctx& c, Object& o, const std::function<Vec3(const Vec3&, float)>& fn)
 		{
@@ -403,13 +462,17 @@ namespace Modeling
 			add("import", "--path <model.fbx|obj|gltf|glb|dae…> [--append]: read with Assimp (keeps quads/ngons, bakes node transforms, meters)", true, [](Ctx& c) {
 				if (!c.D.Import(S(c.A, "path"), B(c.A, "append", false), c.E)) return false;
 				c.R = c.D.Summary(true); return true; });
-			add("export", "--path <out.fbx|obj|glb> [--selected]: FBX 7.4 binary / OBJ / GLB (meters, Y up)", false, [](Ctx& c) {
+			add("export", "--path <out.fbx|obj|glb|vrm> [--selected] [--title] [--author] [--outlineWidth 0.003]: FBX 7.4 binary / OBJ / GLB (meters, Y up). With an armature GLB is skinned; .vrm = VRM 1.0 (humanoid + spring bones + MToon) for the engine (create character --model x.vrm)", false, [](Ctx& c) {
 				const std::string p = S(c.A, "path");
-				if (!c.D.Export(p, B(c.A, "selected", false), c.E)) return false;
-				c.R = c.D.Summary(false); c.R["path"] = p; return true; });
+				if (!c.D.Export(p, B(c.A, "selected", false), c.E, c.A)) return false;
+				c.R = c.D.Summary(false); c.R["path"] = p;
+				std::string ext = U8String(PathU8(p).extension());
+				for (char& ch : ext) ch = (char)tolower((unsigned char)ch);
+				if (!c.D.Rig.Empty() && (ext == ".fbx" || ext == ".obj")) c.R["warning"] = "armature and weights are not written to " + ext + " (mesh only) - export .vrm or .glb for a rigged character";
+				return true; });
 			add("undo", "undo the last change", false, [](Ctx& c) { if (!c.D.Undo()) { c.E = "nothing to undo"; return false; } c.R = c.D.Summary(false); return true; });
 			add("redo", "redo", false, [](Ctx& c) { if (!c.D.Redo()) { c.E = "nothing to redo"; return false; } c.R = c.D.Summary(false); return true; });
-			add("render", "--dir <folder> [--views front,right,back,top,persp] [--size 768 | [w,h]] [--shading solid|toon|normals|uv] [--outline] [--outlineWidth px] [--wire true|false] [--selection] [--grid] [--xray] [--zoom 1] [--target [x,y,z]]: PNG per view", false, Render);
+			add("render", "--dir <folder> [--views front,right,back,top,persp] [--size 768 | [w,h]] [--shading solid|toon|normals|uv|weights --bone <name>] [--bones true] [--outline] [--outlineWidth px] [--wire true|false] [--selection] [--grid] [--xray] [--zoom 1] [--target [x,y,z]]: PNG per view", false, Render);
 
 			// ================= 오브젝트
 			add("add", "--type cube|plane|circle|cylinder|cone|uvsphere|icosphere|torus [--size 1] [--radius] [--depth] [--vertices 32] [--segments 32 --rings 16] [--subdivisions 2] [--location [x,y,z]] [--name] [--smooth]: new object (edit mode: adds into the active mesh)", true, AddPrimitive);
@@ -892,6 +955,91 @@ namespace Modeling
 				}
 				c.R = { { "materials", list } };
 				return true; });
+
+			// ================= 리깅 (4 단계): 본 이름 = 버텍스 그룹 이름 = 스킨 가중치
+			add("rig.humanoid", "[--style auto|chibi|adult] [--points {\"LeftHand\":[x,y,z],..,\"Head.end\":[x,y,z]}] [--upperChest]: fit a Unity Humanoid skeleton to the mesh (parts found by object / vertex group names: Head, Body, ArmL, ArmR, LegL, LegR, Hand, Foot; else height proportions). Non-human bones are kept", true,
+				[](Ctx& c) { return RigCall(c, FitHumanoid); });
+			add("rig.weights", "[--objects A,B] [--method auto|nearest] [--smooth 4] [--keepSpring true]: automatic skin weights (bone distance per mesh island, then smoothed along edges) into vertex groups named like the bones", true,
+				[](Ctx& c) { return RigCall(c, AutoWeights); });
+			add("rig.chain", "--objects Hair,Bang | (selected objects) [--group <vertex group>] [--radial 8 (skirt: chains around)] [--bones auto] [--parent Head] [--name] [--stiffness 0.75] [--drag 0.4] [--gravity 0.05] [--radius 0.02] [--minVerts 6]: spring bone chain per island (hair strand) root to tip, with weights; VRM Spring Bone -> engine Dynamic Bone", true,
+				[](Ctx& c) { return RigCall(c, AddChains); });
+			add("rig.colliders", "[--scale 0.9] [--clear]: body colliders for spring bones (head sphere, torso / limb capsules sized from the weighted vertices)", true, [](Ctx& c) {
+				if (B(c.A, "clear", false)) { c.D.Rig.Colliders.clear(); return Done(c, 0, "colliders"); }
+				return RigCall(c, AutoColliders); });
+			add("rig.list", "bones (name, parent, head, tail, human, spring) and colliders", false, [](Ctx& c) {
+				json bones = json::array();
+				for (int i = 0; i < (int)c.D.Rig.Bones.size(); ++i) bones.push_back(BoneJson(c.D.Rig, i));
+				json cols = json::array();
+				for (const Collider& col : c.D.Rig.Colliders)
+					cols.push_back({ { "bone", col.Bone >= 0 && col.Bone < (int)c.D.Rig.Bones.size() ? c.D.Rig.Bones[col.Bone].Name : "" }, { "radius", col.Radius }, { "shape", col.Capsule ? "capsule" : "sphere" } });
+				c.R = { { "bones", bones }, { "colliders", cols } };
+				return true; });
+			add("rig.bone", "--name <bone> [--head x,y,z] [--tail x,y,z] [--parent <bone>] [--rename] [--human <HumanBodyBones>] [--deform] [--spring true --stiffness --drag --gravity --radius] [--delete] | --add (new bone): edit one bone (world coords)", true, [](Ctx& c) {
+				Armature& arm = c.D.Rig;
+				const std::string name = S(c.A, "name");
+				if (name.empty()) { c.E = "need --name"; return false; }
+				int i = arm.Find(name);
+				if (B(c.A, "add", false))
+				{
+					if (i >= 0) { c.E = "bone '" + name + "' already exists"; return false; }
+					Bone b;
+					b.Name = name;
+					arm.Bones.push_back(b);
+					i = (int)arm.Bones.size() - 1;
+				}
+				if (i < 0) { c.E = "no bone '" + name + "' (model rig.list)"; return false; }
+				if (B(c.A, "delete", false)) { arm.Remove(i); return Done(c, 1, "deleted"); }
+				Bone& b = arm.Bones[i];
+				GetVec3(c.A, "head", b.Head);
+				GetVec3(c.A, "tail", b.Tail);
+				if (c.A.contains("parent"))
+				{
+					const std::string p = S(c.A, "parent");
+					const int pi = p.empty() ? -1 : arm.Find(p);
+					if (!p.empty() && pi < 0) { c.E = "no bone '" + p + "'"; return false; }
+					for (int k = pi; k >= 0; k = arm.Bones[k].Parent) if (k == i) { c.E = "parent would make a loop"; return false; }
+					b.Parent = pi;
+				}
+				if (c.A.contains("human")) b.Human = S(c.A, "human");
+				b.Deform = B(c.A, "deform", b.Deform);
+				b.Spring = B(c.A, "spring", b.Spring);
+				b.Stiffness = F(c.A, "stiffness", b.Stiffness);
+				b.Drag = F(c.A, "drag", b.Drag);
+				b.Gravity = F(c.A, "gravity", b.Gravity);
+				b.HitRadius = F(c.A, "radius", b.HitRadius);
+				std::string finalName = b.Name;
+				if (c.A.contains("rename"))
+				{
+					// 그룹 이름도 같이 (가중치가 따라간다)
+					const std::string nn = S(c.A, "rename");
+					if (nn.empty() || arm.Find(nn) >= 0) { c.E = "bad or taken name '" + nn + "'"; return false; }
+					for (Object& o : c.D.Objects) { const int g = o.M.FindGroup(b.Name); if (g >= 0) o.M.Groups[g] = nn; }
+					b.Name = nn;
+					finalName = nn;
+				}
+				arm.Sort();
+				Done(c, 1, "bones");
+				c.R["bone"] = BoneJson(arm, arm.Find(finalName));
+				return true; });
+			add("rig.pose", "--bone <name> --rotation x,y,z (degrees, world axes, on top of the parent) | --reset: preview pose (render / window show the skinned mesh) - check weights by bending limbs", true, [](Ctx& c) {
+				Armature& arm = c.D.Rig;
+				if (B(c.A, "reset", false)) { arm.ClearPose(); return Done(c, (int)arm.Bones.size(), "bones"); }
+				const int i = arm.Find(S(c.A, "bone"));
+				if (i < 0) { c.E = "no bone '" + S(c.A, "bone") + "' (model rig.list)"; return false; }
+				Vec3 r;
+				if (!GetVec3(c.A, "rotation", r)) { c.E = "need --rotation x,y,z (degrees)"; return false; }
+				arm.Bones[i].Pose = Quaternion::CreateFromYawPitchRoll(r.y * kDeg, r.x * kDeg, r.z * kDeg);
+				arm.Bones[i].PoseEuler = r;
+				return Done(c, 1, "bones"); });
+			add("rig.check", "rig problems: vertices without weights, missing humanoid bones", false, RigCheck);
+			add("rig.clear", "[--weights true]: delete the armature (and the bone vertex groups)", true, [](Ctx& c) {
+				if (B(c.A, "weights", true))
+					for (Object& o : c.D.Objects)
+						for (int g = (int)o.M.Groups.size() - 1; g >= 0; --g)
+							if (c.D.Rig.Find(o.M.Groups[g]) >= 0) o.M.DeleteGroup(g);
+				const int n = (int)c.D.Rig.Bones.size();
+				c.D.Rig = Armature();
+				return Done(c, n, "bones"); });
 
 			return ops;
 		}

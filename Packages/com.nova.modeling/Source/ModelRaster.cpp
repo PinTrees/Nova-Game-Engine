@@ -224,7 +224,7 @@ namespace Modeling
 	}
 
 	// ------------------------------------------------------------------ 삼각형
-	void Raster::Triangle(const Vec3 s[3], const Vec3 n[3], const Vec2* uv, const Vec3 baseColor, float alpha, int id, const Vec3& lightDir, Shading shade)
+	void Raster::Triangle(const Vec3 s[3], const Vec3 n[3], const Vec2* uv, const Vec3 baseColor, float alpha, int id, const Vec3& lightDir, Shading shade, const Vec3* vcol)
 	{
 		const float area = (s[1].x - s[0].x) * (s[2].y - s[0].y) - (s[1].y - s[0].y) * (s[2].x - s[0].x);
 		if (fabsf(area) < 1e-8f)
@@ -267,7 +267,7 @@ namespace Modeling
 					continue;
 				nn.Normalize();
 				Vec3 col;
-				Vec3 surface = baseColor;
+				Vec3 surface = vcol ? vcol[0] * k0 + vcol[1] * k1 + vcol[2] * k2 : baseColor;
 				if (shade == Shading::UVChecker)
 				{
 					// UV 확인용 바둑판 (8 x 8), UV 가 없으면 분홍
@@ -456,7 +456,19 @@ namespace Modeling
 			Object& o = doc.Objects[oi];
 			if (!o.Visible)
 				continue;
-			const Mesh& m = o.Evaluated(doc.Revision);   // 모디파이어 결과 (없으면 원래 메시)
+			const Mesh& m = doc.Displayed(oi);   // 모디파이어 결과 + 포즈 (없으면 원래 메시)
+			// 가중치 보기: 고른 본의 그룹 가중치 → 색 (0 파랑, 0.5 초록, 1 빨강)
+			std::vector<Vec3> wcol;
+			if (opt.Shade == Shading::Weights)
+			{
+				const int g = m.FindGroup(opt.WeightBone);
+				wcol.resize(m.Verts.size());
+				for (size_t v = 0; v < m.Verts.size(); ++v)
+				{
+					const float t = g >= 0 ? m.Weight((int)v, g) : 0.0f;
+					wcol[v] = t < 0.5f ? Vec3::Lerp(Vec3(0.1f, 0.2f, 0.85f), Vec3(0.15f, 0.85f, 0.25f), t * 2.0f) : Vec3::Lerp(Vec3(0.15f, 0.85f, 0.25f), Vec3(0.95f, 0.15f, 0.1f), t * 2.0f - 1.0f);
+				}
+			}
 			const Matrix world = o.World();
 			Matrix nrmW = world;
 			nrmW.Translation(Vec3(0, 0, 0));
@@ -501,7 +513,9 @@ namespace Modeling
 						n[k] = opt.Shade == Shading::Normals ? Vec3::TransformNormal(nn, nrmW) : Vec3::TransformNormal(nn, nrmV);
 						n[k].Normalize();
 					}
-					Triangle(s, n, hasUV ? uv : nullptr, base, opt.XRay ? 0.45f : 1.0f, id, lightDir, opt.Shade);
+					Vec3 vc[3];
+					if (!wcol.empty()) for (int k = 0; k < 3; ++k) vc[k] = wcol[face.V[t[k]]];
+					Triangle(s, n, hasUV ? uv : nullptr, base, opt.XRay ? 0.45f : 1.0f, id, lightDir, opt.Shade == Shading::Weights ? Shading::Solid : opt.Shade, wcol.empty() ? nullptr : vc);
 				}
 			}
 		}
@@ -560,11 +574,50 @@ namespace Modeling
 						Dot(c, m.Faces[f].Sel ? 4.5f : 3.0f, m.Faces[f].Sel ? kVertSel : kVert, depthTest);
 				}
 		}
+		if (opt.Bones && !doc.Rig.Empty())
+			DrawBones(doc, opt.SelectedBone);
 		for (const auto& [a, b] : opt.ExtraLines)
 		{
 			Vec3 sa, sb;
 			if (Project(a, sa) && Project(b, sb))
 				Line(sa, sb, opt.ExtraColor, 1.5f, false);
+		}
+	}
+
+	// 본: 머리 → 꼬리 팔면체 (Blender Octahedral 비슷하게) — 사람 본 = 노랑, 흔들림 = 하늘색, 고른 본 = 주황. 메시 앞에 그린다
+	void Raster::DrawBones(const Document& doc, int selected)
+	{
+		const Armature& arm = doc.Rig;
+		const std::vector<Matrix> skin = arm.SkinMatrices();
+		for (int i = 0; i < (int)arm.Bones.size(); ++i)
+		{
+			const Bone& b = arm.Bones[i];
+			Vec3 h, t;
+			arm.PosedSegment(i, skin, h, t);
+			Vec3 dir = t - h;
+			const float len = dir.Length();
+			if (len < 1e-5f) continue;
+			dir /= len;
+			Vec3 side = fabsf(dir.y) < 0.9f ? dir.Cross(Vec3(0, 1, 0)) : dir.Cross(Vec3(1, 0, 0));
+			side.Normalize();
+			const Vec3 up = side.Cross(dir);
+			const float r = len * 0.1f;
+			const Vec3 mid = h + dir * (len * 0.2f);
+			const Vec3 ring[4] = { mid + side * r, mid + up * r, mid - side * r, mid - up * r };
+			const uint32 col = i == selected ? Rgba(255, 150, 40) : (b.Spring ? Rgba(90, 200, 255) : (b.Human.empty() ? Rgba(200, 200, 200) : Rgba(255, 220, 60)));
+			Vec3 sh, st, sr[4];
+			if (!Project(h, sh) || !Project(t, st)) continue;
+			bool ok = true;
+			for (int k = 0; k < 4; ++k) ok = ok && Project(ring[k], sr[k]);
+			if (!ok) continue;
+			const float w = i == selected ? 2.0f : 1.3f;
+			for (int k = 0; k < 4; ++k)
+			{
+				Line(sh, sr[k], col, w, false);
+				Line(sr[k], st, col, w, false);
+				Line(sr[k], sr[(k + 1) % 4], col, w, false);
+			}
+			Dot(sh, 4.0f, col, false);
 		}
 	}
 

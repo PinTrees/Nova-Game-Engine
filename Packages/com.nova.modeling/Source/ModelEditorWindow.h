@@ -75,6 +75,8 @@ private:
 	char m_RenameBuf[128] = {};
 	int m_Group = 0;                     // Vertex Groups 목록에서 고른 것
 	char m_GroupName[64] = "Group";
+	int m_Bone = -1;                     // Armature 목록에서 고른 본 (가중치 보기 · 포즈)
+	float m_PoseEuler[3] = { 0, 0, 0 };  // 고른 본의 포즈 (도)
 	int m_RefView = 0;                   // 기준 그림 추가: 시점
 	float m_RefHeight = 1.7f;
 	std::string m_Status;                // 마지막 연산 결과 · 오류
@@ -89,6 +91,7 @@ private:
 	void DrawRefsPanel();
 	void DrawModifiersPanel();
 	void DrawMaterialsPanel();
+	void DrawRigPanel();
 	void DrawOverlay(ImDrawList* dl);
 
 	// 입력

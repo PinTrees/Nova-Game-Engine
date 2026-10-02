@@ -69,6 +69,22 @@ namespace Modeling
 		m_EvalValid = false;
 	}
 
+	const Mesh& Document::Displayed(int oi)
+	{
+		const Object& o = Objects[oi];
+		const Mesh& e = o.Evaluated(Revision);
+		if (Rig.Empty() || !Rig.HasPose())
+			return e;
+		if ((int)m_Posed.size() != (int)Objects.size()) { m_Posed.assign(Objects.size(), Mesh()); m_PosedRevision.assign(Objects.size(), 0); }
+		if (m_PosedRevision[oi] != Revision)
+		{
+			m_Posed[oi] = e;
+			PoseMesh(Rig, Rig.SkinMatrices(), o.World(), m_Posed[oi]);
+			m_PosedRevision[oi] = Revision;
+		}
+		return m_Posed[oi];
+	}
+
 	Document& Doc()
 	{
 		static Document s_Doc;
@@ -156,6 +172,7 @@ namespace Modeling
 		Materials.clear();
 		MaterialColors.clear();
 		Refs.clear();
+		Rig = Armature();
 		m_Checkpoints.clear();
 		Active = -1;
 		EditMode = false;
@@ -207,6 +224,7 @@ namespace Modeling
 			objs.push_back(oj);
 		}
 		j["objects"] = objs;
+		if (!Rig.Empty()) j["armature"] = Rig.ToJson();
 		if (!Refs.empty())
 		{
 			nlohmann::json refs = nlohmann::json::array();
@@ -255,6 +273,7 @@ namespace Modeling
 				o.Subsurf = oj.value("subsurf", 0);
 				Objects.push_back(std::move(o));
 			}
+		Rig.FromJson(j.value("armature", nlohmann::json()));
 		Active = Objects.empty() ? -1 : 0;
 		EditMode = false;
 		++Revision;
@@ -423,6 +442,7 @@ namespace Modeling
 				{ "mx", o.MirrorX }, { "mc", o.MirrorClip }, { "ss", o.Subsurf } });
 		}
 		j["objects"] = objs;
+		j["rig"] = Rig.ToJson(true);
 		return j.dump();
 	}
 
@@ -450,6 +470,7 @@ namespace Modeling
 			o.Subsurf = oj.value("ss", 0);
 			Objects.push_back(std::move(o));
 		}
+		Rig.FromJson(j.value("rig", nlohmann::json()));
 		Active = j.value("active", -1);
 		if (Active >= (int)Objects.size()) Active = (int)Objects.size() - 1;
 		EditMode = j.value("edit", false) && Active >= 0;
@@ -592,6 +613,12 @@ namespace Modeling
 				r["modifiers"] = { { "mirrorX", a->MirrorX }, { "subsurf", a->Subsurf } };
 				r["evaluated"] = { { "verts", (int)e.Verts.size() }, { "faces", (int)e.Faces.size() }, { "boundaryEdges", e.BoundaryEdges() }, { "nonManifoldEdges", e.NonManifoldEdges() } };
 			}
+		}
+		if (!Rig.Empty())
+		{
+			int springs = 0, humans = 0;
+			for (const Bone& b : Rig.Bones) { springs += b.Spring; humans += !b.Human.empty(); }
+			r["armature"] = { { "bones", (int)Rig.Bones.size() }, { "humanoid", humans }, { "spring", springs }, { "colliders", (int)Rig.Colliders.size() }, { "posed", Rig.HasPose() } };
 		}
 		r["undo"] = UndoLabel();
 		r["dirty"] = Dirty;

@@ -957,6 +957,72 @@ function Suite-Model
         Add-Result model 'save / open .nmodel' ($sv -and $op -and $op.objects -eq 2 -and $op.faces -eq $rn.faces) "objects=$($op.objects) faces=$($op.faces)/$($rn.faces)"
         $bad = Invoke-Nova 'model loopcut'
         Add-Result model 'bad arguments → error message' ($bad -match 'need --edge') ($bad -replace '\s+', ' ')
+
+        # ---- 4 단계 리깅: 예제 치비 → Humanoid 뼈대 · 자동 가중치 · 머리카락 사슬 → 포즈 렌더 → VRM → 엔진 캐릭터
+        $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        M 'new' | Out-Null
+        Invoke-NovaJson "model batch $root\docs\examples\model_chibi.txt" | Out-Null
+        $hu = M 'rig.humanoid'
+        $names = @($hu.bones | ForEach-Object { $_.name })
+        $lua = $hu.bones | Where-Object { $_.name -eq 'LeftUpperArm' }
+        Add-Result model 'rig.humanoid: 21 bones fitted by part names (left arm at -X)' ($hu -and $names.Count -eq 21 -and $hu.parts.ArmL -and $lua.head[0] -lt -0.05) "bones=$($names.Count) parts=$(@($hu.parts.PSObject.Properties).Count) LeftUpperArm x=$($lua.head[0])"
+        $wt = M 'rig.weights'
+        $arml = $wt.objects | Where-Object { $_.object -eq 'ArmL' }
+        Add-Result model 'rig.weights: left arm weighted to LeftUpperArm' ($arml -and $arml.bones.LeftUpperArm -gt 0 -and -not $arml.bones.RightUpperArm) "ArmL bones: $(($arml.bones | ConvertTo-Json -Compress))"
+        $ch = M 'rig.chain --objects Bang*,Back*,Ahoge* --parent Head'
+        Add-Result model 'rig.chain: one spring chain per hair strand (14) + body colliders' ($ch -and @($ch.chains).Count -eq 14 -and $ch.colliders -ge 5) "chains=$(@($ch.chains).Count) colliders=$($ch.colliders)"
+        $ck = M 'rig.check'
+        Add-Result model 'rig.check: every vertex weighted, humanoid complete' ($ck -and $ck.ok) "problems=$(($ck.problems | ConvertTo-Json -Compress))"
+        M "render --dir $dir\rig_rest --views front --size 256 --shading toon --wire false" | Out-Null
+        M 'rig.pose --bone LeftUpperArm --rotation 0,0,-70' | Out-Null
+        M "render --dir $dir\rig_posed --views front --size 256 --shading toon --wire false" | Out-Null
+        $info = M 'info'
+        M 'rig.pose --reset' | Out-Null
+        $diff = -1
+        if ((Test-Path "$dir\rig_rest\front.png") -and (Test-Path "$dir\rig_posed\front.png"))
+        {
+            Add-Type -AssemblyName System.Drawing
+            $b1 = [System.Drawing.Bitmap]::FromFile("$dir\rig_rest\front.png"); $b2 = [System.Drawing.Bitmap]::FromFile("$dir\rig_posed\front.png")
+            $diff = 0
+            for ($y = 0; $y -lt 256; $y += 2) { for ($x = 0; $x -lt 256; $x += 2) { if ($b1.GetPixel($x, $y).ToArgb() -ne $b2.GetPixel($x, $y).ToArgb()) { $diff++ } } }
+            $b1.Dispose(); $b2.Dispose()
+        }
+        Add-Result model 'rig.pose bends the skinned arm (render differs, posed flag)' ($info.armature.posed -and $diff -gt 100) "changed px=$diff posed=$($info.armature.posed)"
+        # 치마: 원뿔 하나 → 둘레 8 사슬
+        M 'new' | Out-Null
+        M 'add --type uvsphere --radius 0.25 --location 0,1.2,0 --name Head' | Out-Null
+        M 'add --type cylinder --vertices 12 --radius 0.15 --depth 0.5 --location 0,0.75,0 --name Body' | Out-Null
+        M 'add --type cylinder --vertices 16 --radius 0.3 --radiusTop 0.16 --depth 0.3 --location 0,0.42,0 --name Skirt' | Out-Null
+        M 'rig.humanoid --style adult' | Out-Null
+        $sk = M 'rig.chain --objects Skirt --radial 8 --parent Hips'
+        Add-Result model 'rig.chain --radial 8: skirt gets 8 chains around' ($sk -and @($sk.chains).Count -eq 8) "chains=$(@($sk.chains).Count)"
+        # VRM 1.0 내보내기 → 엔진: Humanoid + Dynamic Bone + lilToon
+        M 'new' | Out-Null
+        Invoke-NovaJson "model batch $root\docs\examples\model_chibi.txt" | Out-Null
+        Invoke-NovaJson "model batch $root\docs\examples\model_chibi_rig.txt" | Out-Null
+        $vrmDir = Join-Path $Project 'Assets\NovaTestRig'
+        Remove-Item $vrmDir -Recurse -Force -ErrorAction SilentlyContinue
+        $ex = M "export --path $vrmDir\Chibi.vrm --title Chibi"
+        $vrmJson = $null
+        if (Test-Path "$vrmDir\Chibi.vrm")
+        {
+            $bytes = [IO.File]::ReadAllBytes("$vrmDir\Chibi.vrm")
+            $len = [BitConverter]::ToUInt32($bytes, 12)
+            $vrmJson = [Text.Encoding]::UTF8.GetString($bytes, 20, $len) | ConvertFrom-Json
+        }
+        $hb = if ($vrmJson) { @($vrmJson.extensions.VRMC_vrm.humanoid.humanBones.PSObject.Properties).Count } else { 0 }
+        $sp = if ($vrmJson) { @($vrmJson.extensions.VRMC_springBone.springs).Count } else { 0 }
+        Add-Result model 'export .vrm: skin + VRMC_vrm humanoid + spring bones + MToon' ($ex -and $hb -eq 21 -and $sp -eq 14 -and $vrmJson.skins.Count -eq 1 -and $vrmJson.materials[0].extensions.VRMC_materials_mtoon) "humanBones=$hb springs=$sp skins=$(@($vrmJson.skins).Count)"
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name RigChibi --model Assets\NovaTestRig\Chibi.vrm' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $rf = Join-Path $dir 'rig_engine.cs'
+        'var g = GameObject.Find("RigChibi"); var d = g.GetComponent<DynamicBone>(); var a = g.GetComponent<Animator>(); var h = a.GetBonePosition(HumanBodyBones.Head); return d.chainCount + " " + d.colliderCount + " " + h.y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $rf
+        $er = Invoke-NovaJson "exec --file $rf"
+        $ea = if ($er) { "$($er.result)" -split ' ' } else { @() }
+        Add-Result model 'engine: rigged VRM → character (Humanoid head, 14 Dynamic Bone chains)' ($ea.Count -eq 3 -and $ea[0] -eq '14' -and [double]$ea[2] -gt 0.7 -and [double]$ea[2] -lt 1.1) "chains $($ea[0]) colliders $($ea[1]) head y $($ea[2])"
+        Remove-Item $vrmDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$vrmDir.meta" -Force -ErrorAction SilentlyContinue
         Invoke-Nova 'log --errors -n 5' | Out-Null
     }
     finally

@@ -26,7 +26,7 @@ namespace Modeling
 		void Frame(const Vec3& mn, const Vec3& mx, float aspect);
 	};
 
-	enum class Shading { Solid = 0, Toon = 1, Normals = 2, UVChecker = 3 };
+	enum class Shading { Solid = 0, Toon = 1, Normals = 2, UVChecker = 3, Weights = 4 };
 
 	// 이름 있는 시점의 화면 축 (월드): right = 화면 오른쪽, up = 화면 위, fwd = 보는 방향. 모르는 이름이면 false
 	bool ViewBasis(const std::string& view, Vec3& right, Vec3& up, Vec3& fwd);
@@ -43,6 +43,9 @@ namespace Modeling
 		bool Background = true;
 		Shading Shade = Shading::Solid;
 		int HoverObject = -1, HoverElement = -1;   // 강조 (Edit 모드: 모드에 따라 점 · 변 · 면 번호)
+		bool Bones = true;           // 아마추어 본 (앞에 그린다)
+		std::string WeightBone;      // Shading::Weights 의 본 (가중치 0 파랑 → 1 빨강)
+		int SelectedBone = -1;       // 강조할 본
 		std::vector<std::pair<Vec3, Vec3>> ExtraLines;   // 월드 선 (축 제한 안내 등)
 		uint32 ExtraColor = 0xFF3399FF;
 	};
@@ -74,7 +77,8 @@ namespace Modeling
 		Matrix m_View;
 		ViewCamera m_Cam;
 		void Clear(bool background);
-		void Triangle(const Vec3 s[3], const Vec3 n[3], const Vec2* uv, const Vec3 baseColor, float alpha, int id, const Vec3& viewDir, Shading shade);
+		void Triangle(const Vec3 s[3], const Vec3 n[3], const Vec2* uv, const Vec3 baseColor, float alpha, int id, const Vec3& viewDir, Shading shade, const Vec3* vcol = nullptr);
+		void DrawBones(const Document& doc, int selected);
 		void DrawOutline(float width);
 		void Line(Vec3 a, Vec3 b, uint32 color, float width, bool depthTest);
 		void Dot(const Vec3& s, float size, uint32 color, bool depthTest);

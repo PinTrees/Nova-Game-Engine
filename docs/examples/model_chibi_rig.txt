@@ -1,0 +1,9 @@
+# model_chibi.txt 로 만든 2 등신 캐릭터에 리깅 (4 단계) — nova model batch docs/examples/model_chibi_rig.txt
+# 1) Humanoid 뼈대: 오브젝트 이름 (Head · Body · ArmL · ArmR · LegL · LegR) 으로 부위를 찾아 맞춘다
+rig.humanoid
+# 2) 자동 가중치 (본 이름 = 버텍스 그룹)
+rig.weights
+# 3) 머리카락: 다발 (덩어리) 마다 흔들림 사슬, 부모 = 머리 — 몸 충돌체는 자동
+rig.chain --objects Bang*,Back*,Ahoge* --parent Head
+# 4) 확인 → 내보내기는 따로: nova model export Assets/Models/Chibi.vrm --title Chibi
+rig.check

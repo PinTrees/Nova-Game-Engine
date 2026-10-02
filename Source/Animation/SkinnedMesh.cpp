@@ -205,7 +205,7 @@ MeshFile::~MeshFile()
 // 캐시(.mesh / .animations / .skeletons) 형식 버전. 구조가 바뀌면 값을 올린다 → 이전 캐시는 자동으로 다시 가져오기.
 // NVC8: Unity 와 같은 축(Y 180°)으로 가져오기 (FBXLoader 의 ToEngine) — 이전 캐시는 반대쪽을 본다
 // NVC9: 형식 다음에 Import Settings(.meta) 해시 — 설정을 바꾸거나 .meta 를 지우면 다시 가져온다
-static const uint32_t kMeshCacheMagic = 0x3943564E;   // "NVC9"
+static const uint32_t kMeshCacheMagic = 0x4143564E;   // "NVCA" (glTF 재질 번호 = 파일 순서)
 
 static uint64_t ImportHash(const AssetImport::ModelSettings& settings)
 {
@@ -227,9 +227,14 @@ static void WriteCacheMagic(ofstream& out, uint64_t hash)
 	out.write(reinterpret_cast<const char*>(&hash), sizeof(hash));
 }
 
-static bool IsCacheCurrent(const string& path, uint64_t expectHash)
+// 캐시가 지금 Import Settings 로 만들어졌고, 원본 (FBX · VRM) 보다 나중이면 그대로 쓴다 (Unity 도 원본이 바뀌면 다시 가져온다)
+static bool IsCacheCurrent(const string& path, uint64_t expectHash, const string& sourcePath)
 {
 	if (!filesystem::exists(path))
+		return false;
+	std::error_code ec1, ec2;
+	const auto cacheTime = filesystem::last_write_time(path, ec1), sourceTime = filesystem::last_write_time(sourcePath, ec2);
+	if (!ec1 && !ec2 && cacheTime < sourceTime)
 		return false;
 	ifstream in(path, ios::binary);
 	return ReadCacheMagic(in, expectHash);
@@ -260,7 +265,8 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 	// 캐시를 만든 Import Settings 가 지금과 다르면 다시 가져온다
 	const wstring assetPath = string_to_wstring(loadMeshFile->FullPath);
 	const uint64_t hash = ImportHash(AssetImport::LoadModel(assetPath));
-	if (!IsCacheCurrent(load_path_mesh, hash) || !IsCacheCurrent(load_path_animations, hash) || !IsCacheCurrent(load_path_skeletone, hash))
+	const string& source = loadMeshFile->FullPath;
+	if (!IsCacheCurrent(load_path_mesh, hash, source) || !IsCacheCurrent(load_path_animations, hash, source) || !IsCacheCurrent(load_path_skeletone, hash, source))
 	{
 		if (!filesystem::exists(loadMeshFile->FullPath))
 		{

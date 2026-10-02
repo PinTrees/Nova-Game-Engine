@@ -23,11 +23,12 @@ namespace Modeling
 			std::vector<std::vector<Vec2>> UVs;         // 모서리마다 (엔진 UV = 왼쪽 위 원점)
 			std::vector<int> Materials;
 			bool HasUV = false;
+			std::vector<std::vector<std::pair<int, float>>> Skin;   // 점마다 (본 번호, 가중치) 최대 4 (아마추어가 있을 때)
 		};
 
 		Vec3 ToFile(const Vec3& v) { return Vec3(-v.x, v.y, v.z); }
 
-		ExportMesh Build(const Object& o, uint64 revision)
+		ExportMesh Build(const Object& o, uint64 revision, const Armature& arm)
 		{
 			ExportMesh e;
 			e.Name = o.Name;
@@ -45,6 +46,14 @@ namespace Modeling
 					for (int v : m.Faces[f].V) smooth[v] += faceN[f];
 			}
 			for (const Vert& v : m.Verts) e.Positions.push_back(ToFile(Vec3::Transform(v.P, w)));
+			if (!arm.Empty())
+			{
+				// 본 이름 그룹 → 가중치, 없으면 가장 가까운 본 (점이 원점에 남지 않게)
+				const std::vector<int> g2b = GroupToBone(arm, m);
+				e.Skin.resize(m.Verts.size());
+				for (size_t i = 0; i < m.Verts.size(); ++i)
+					VertexBones(arm, g2b, m.Verts[i], Vec3::Transform(m.Verts[i].P, w), true, e.Skin[i]);
+			}
 			for (int f = 0; f < (int)m.Faces.size(); ++f)
 			{
 				const Face& face = m.Faces[f];
@@ -75,7 +84,7 @@ namespace Modeling
 			std::vector<ExportMesh> out;
 			for (const Object& o : doc.Objects)
 				if (o.Visible && !o.M.Faces.empty() && (!selectedOnly || o.Selected))
-					out.push_back(Build(o, doc.Revision));
+					out.push_back(Build(o, doc.Revision, doc.Rig));
 			return out;
 		}
 
@@ -144,9 +153,22 @@ namespace Modeling
 			return true;
 		}
 
-		// ============================================================== GLB
-		bool WriteGlb(const std::filesystem::path& path, const std::vector<ExportMesh>& meshes, std::string& error)
+		// ============================================================== GLB (+ 스킨, + VRM 1.0)
+		// 아마추어가 있으면 본 노드 (회전 없음, 이동 = 부모 머리에서) + skin (JOINTS_0 · WEIGHTS_0 · inverseBindMatrices)
+		// vrm = VRMC_vrm (humanoid · meta) + VRMC_springBone (흔들림 사슬 · 충돌체) + VRMC_materials_mtoon (툰) → 엔진이 그대로 Humanoid · Dynamic Bone · lilToon
+		float ToLinear(float c) { return powf(std::clamp(c, 0.0f, 1.0f), 2.2f); }
+
+		bool WriteGlb(const std::filesystem::path& path, const std::vector<ExportMesh>& meshes, const Document& doc, bool vrm, const nlohmann::json& opts, std::string& error)
 		{
+			using json = nlohmann::json;
+			const Armature& arm = doc.Rig;
+			const bool skinned = !arm.Empty();
+			if (vrm && !skinned) { error = "VRM needs an armature (model rig.humanoid, rig.weights)"; return false; }
+			if (vrm)
+			{
+				static const char* kRequired[] = { "Hips", "Spine", "Head", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "RightUpperLeg", "RightLowerLeg", "RightFoot" };
+				for (const char* h : kRequired) if (arm.FindHuman(h) < 0) { error = std::string("VRM needs the humanoid bone ") + h + " (model rig.humanoid)"; return false; }
+			}
 			std::vector<uint8_t> bin;
 			auto append = [&](const void* data, size_t bytes) {
 				const size_t at = bin.size();
@@ -155,20 +177,78 @@ namespace Modeling
 				while (bin.size() % 4) bin.push_back(0);
 				return at;
 			};
-			nlohmann::json gltf;
+			json gltf;
 			gltf["asset"] = { { "version", "2.0" }, { "generator", "NOVA Model Editor" } };
-			nlohmann::json nodes = nlohmann::json::array(), gmeshes = nlohmann::json::array(), views = nlohmann::json::array(), accessors = nlohmann::json::array();
+			json nodes = json::array(), gmeshes = json::array(), views = json::array(), accessors = json::array();
 			auto view = [&](size_t offset, size_t length, int target) {
-				views.push_back({ { "buffer", 0 }, { "byteOffset", offset }, { "byteLength", length }, { "target", target } });
+				json v = { { "buffer", 0 }, { "byteOffset", offset }, { "byteLength", length } };
+				if (target) v["target"] = target;
+				views.push_back(v);
 				return (int)views.size() - 1;
 			};
+			// ---- 본 노드 (번호 = 본 번호), 흔들림 사슬 끝 노드
+			std::vector<int> endNode(arm.Bones.size(), -1);
+			json sceneNodes = json::array();
+			if (skinned)
+			{
+				for (int i = 0; i < (int)arm.Bones.size(); ++i)
+				{
+					const Bone& b = arm.Bones[i];
+					const Vec3 h = ToFile(b.Head), ph = b.Parent >= 0 ? ToFile(arm.Bones[b.Parent].Head) : Vec3(0, 0, 0);
+					nodes.push_back({ { "name", b.Name }, { "translation", { h.x - ph.x, h.y - ph.y, h.z - ph.z } } });
+					if (b.Parent < 0) sceneNodes.push_back(i);
+				}
+				for (int i = 0; i < (int)arm.Bones.size(); ++i)
+				{
+					const Bone& b = arm.Bones[i];
+					if (b.Parent >= 0) nodes[b.Parent]["children"].push_back(i);
+				}
+				for (int i = 0; i < (int)arm.Bones.size(); ++i)
+				{
+					const Bone& b = arm.Bones[i];
+					if (!b.Spring) continue;
+					bool hasChainChild = false;
+					for (const Bone& c : arm.Bones) if (c.Parent == i && c.Spring && c.Chain == b.Chain) hasChainChild = true;
+					if (hasChainChild) continue;
+					const Vec3 t = ToFile(b.Tail) - ToFile(b.Head);
+					endNode[i] = (int)nodes.size();
+					nodes.push_back({ { "name", b.Name + "_end" }, { "translation", { t.x, t.y, t.z } } });
+					nodes[i]["children"].push_back(endNode[i]);
+				}
+			}
+			// ---- 재질 (쓰는 번호마다)
+			std::vector<int> usedMats;
+			// 처음 쓰는 순서 (메시 노드 순서) 로 — Assimp glTF 읽기는 재질 번호를 처음 만난 순서로 다시 매긴다 (LazyDict).
+			//  파일 순서가 같아야 엔진의 VRM 재질 꺼내기 (glTF 순서) 와 메시 재질 번호 (Assimp 순서) 가 맞는다
+			for (const ExportMesh& e : meshes) for (int m : e.Materials) if (std::find(usedMats.begin(), usedMats.end(), m) == usedMats.end()) usedMats.push_back(m);
+			json materials = json::array();
+			for (int m : usedMats)
+			{
+				const Vec3 c = doc.MaterialColor(m);
+				json mat = { { "name", MaterialName(doc, m) }, { "pbrMetallicRoughness", { { "baseColorFactor", { ToLinear(c.x), ToLinear(c.y), ToLinear(c.z), 1.0 } }, { "metallicFactor", 0.0 }, { "roughnessFactor", 0.8 } } } };
+				if (vrm)
+				{
+					// 툰: 그림자 = 푸르스름하게 어둡게 (편집기 툰 미리보기와 같은 색), 얇은 외곽선
+					const Vec3 sh = c * Vec3(0.72f, 0.68f, 0.84f);
+					mat["extensions"]["VRMC_materials_mtoon"] = {
+						{ "specVersion", "1.0" },
+						{ "shadeColorFactor", { ToLinear(sh.x), ToLinear(sh.y), ToLinear(sh.z) } },
+						{ "shadingShiftFactor", -0.05 }, { "shadingToonyFactor", 0.95 },
+						{ "outlineWidthMode", "worldCoordinates" }, { "outlineWidthFactor", opts.value("outlineWidth", 0.003) },
+						{ "outlineColorFactor", { ToLinear(c.x * 0.3f), ToLinear(c.y * 0.25f), ToLinear(c.z * 0.3f) } }, { "outlineLightingMixFactor", 1.0 },
+						{ "parametricRimColorFactor", { 0.0, 0.0, 0.0 } } };
+				}
+				materials.push_back(mat);
+			}
+			// ---- 메시 (재질마다 primitive, 정점 속성은 같이)
+			std::vector<int> meshNodes;
 			for (const ExportMesh& e : meshes)
 			{
-				// 정점 분리: (점, UV, 법선) 이 같으면 공유
 				struct Key { int P; float u, v, nx, ny, nz; bool operator<(const Key& o) const { return std::tie(P, u, v, nx, ny, nz) < std::tie(o.P, o.u, o.v, o.nx, o.ny, o.nz); } };
 				std::map<Key, uint32_t> index;
-				std::vector<float> pos, nrm, uv;
-				std::vector<uint32_t> idx;
+				std::vector<float> pos, nrm, uv, wts;
+				std::vector<uint16_t> jnt;
+				std::map<int, std::vector<uint32_t>> idxByMat;
 				for (size_t p = 0; p < e.Polys.size(); ++p)
 				{
 					const auto& poly = e.Polys[p];
@@ -185,43 +265,147 @@ namespace Modeling
 							pos.insert(pos.end(), { q.x, q.y, q.z });
 							nrm.insert(nrm.end(), { n.x, n.y, n.z });
 							uv.insert(uv.end(), { t.x, t.y });   // glTF = 왼쪽 위 원점 (엔진과 같음)
+							if (skinned)
+							{
+								const auto& sk = e.Skin[poly[c]];
+								for (int s = 0; s < 4; ++s)
+								{
+									jnt.push_back(s < (int)sk.size() ? (uint16_t)sk[s].first : 0);
+									wts.push_back(s < (int)sk.size() ? sk[s].second : 0.0f);
+								}
+							}
 							it = index.emplace(k, (uint32_t)(pos.size() / 3 - 1)).first;
 						}
 						corners.push_back(it->second);
 					}
 					// 부채꼴 (볼록한 면 가정 — 오목한 면은 내보내기 전에 Triangulate)
+					std::vector<uint32_t>& idx = idxByMat[e.Materials[p]];
 					for (size_t c = 1; c + 1 < corners.size(); ++c)
 						idx.insert(idx.end(), { corners[0], corners[c], corners[c + 1] });
 				}
-				if (idx.empty())
+				if (pos.empty())
 					continue;
 				Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 				for (size_t i = 0; i < pos.size(); i += 3) { mn = Vec3::Min(mn, Vec3(pos[i], pos[i + 1], pos[i + 2])); mx = Vec3::Max(mx, Vec3(pos[i], pos[i + 1], pos[i + 2])); }
 				const size_t count = pos.size() / 3;
-				const int vPos = view(append(pos.data(), pos.size() * 4), pos.size() * 4, 34962);
-				const int vNrm = view(append(nrm.data(), nrm.size() * 4), nrm.size() * 4, 34962);
-				const int vUv = view(append(uv.data(), uv.size() * 4), uv.size() * 4, 34962);
-				const int vIdx = view(append(idx.data(), idx.size() * 4), idx.size() * 4, 34963);
 				const int aPos = (int)accessors.size();
-				accessors.push_back({ { "bufferView", vPos }, { "componentType", 5126 }, { "count", count }, { "type", "VEC3" }, { "min", { mn.x, mn.y, mn.z } }, { "max", { mx.x, mx.y, mx.z } } });
-				accessors.push_back({ { "bufferView", vNrm }, { "componentType", 5126 }, { "count", count }, { "type", "VEC3" } });
-				accessors.push_back({ { "bufferView", vUv }, { "componentType", 5126 }, { "count", count }, { "type", "VEC2" } });
-				accessors.push_back({ { "bufferView", vIdx }, { "componentType", 5125 }, { "count", idx.size() }, { "type", "SCALAR" } });
-				nlohmann::json attrs = { { "POSITION", aPos }, { "NORMAL", aPos + 1 } };
+				accessors.push_back({ { "bufferView", view(append(pos.data(), pos.size() * 4), pos.size() * 4, 34962) }, { "componentType", 5126 }, { "count", count }, { "type", "VEC3" }, { "min", { mn.x, mn.y, mn.z } }, { "max", { mx.x, mx.y, mx.z } } });
+				accessors.push_back({ { "bufferView", view(append(nrm.data(), nrm.size() * 4), nrm.size() * 4, 34962) }, { "componentType", 5126 }, { "count", count }, { "type", "VEC3" } });
+				accessors.push_back({ { "bufferView", view(append(uv.data(), uv.size() * 4), uv.size() * 4, 34962) }, { "componentType", 5126 }, { "count", count }, { "type", "VEC2" } });
+				json attrs = { { "POSITION", aPos }, { "NORMAL", aPos + 1 } };
 				if (e.HasUV) attrs["TEXCOORD_0"] = aPos + 2;
-				gmeshes.push_back({ { "name", e.Name }, { "primitives", { { { "attributes", attrs }, { "indices", aPos + 3 }, { "material", 0 } } } } });
-				nodes.push_back({ { "name", e.Name }, { "mesh", (int)gmeshes.size() - 1 } });
+				if (skinned)
+				{
+					attrs["JOINTS_0"] = (int)accessors.size();
+					accessors.push_back({ { "bufferView", view(append(jnt.data(), jnt.size() * 2), jnt.size() * 2, 34962) }, { "componentType", 5123 }, { "count", count }, { "type", "VEC4" } });
+					attrs["WEIGHTS_0"] = (int)accessors.size();
+					accessors.push_back({ { "bufferView", view(append(wts.data(), wts.size() * 4), wts.size() * 4, 34962) }, { "componentType", 5126 }, { "count", count }, { "type", "VEC4" } });
+				}
+				json prims = json::array();
+				for (int m : usedMats)   // 재질 순서 그대로 (위 참고)
+				{
+					auto found = idxByMat.find(m);
+					if (found == idxByMat.end() || found->second.empty()) continue;
+					const std::vector<uint32_t>& idx = found->second;
+					const int aIdx = (int)accessors.size();
+					accessors.push_back({ { "bufferView", view(append(idx.data(), idx.size() * 4), idx.size() * 4, 34963) }, { "componentType", 5125 }, { "count", idx.size() }, { "type", "SCALAR" } });
+					prims.push_back({ { "attributes", attrs }, { "indices", aIdx }, { "material", (int)(std::find(usedMats.begin(), usedMats.end(), m) - usedMats.begin()) } });
+				}
+				// 노드 이름은 본과 겹치면 안 된다 (엔진 · Unity 가 이름으로 노드를 찾는다 — 메시 "Head" 와 본 "Head")
+				std::string nodeName = e.Name;
+				auto taken = [&](const std::string& n) { for (const json& nd : nodes) if (nd.value("name", std::string()) == n) return true; return false; };
+				if (taken(nodeName)) { nodeName = e.Name + "_Mesh"; for (int k = 2; taken(nodeName); ++k) nodeName = e.Name + "_Mesh" + std::to_string(k); }
+				gmeshes.push_back({ { "name", nodeName }, { "primitives", prims } });
+				json node = { { "name", nodeName }, { "mesh", (int)gmeshes.size() - 1 } };
+				if (skinned) node["skin"] = 0;
+				meshNodes.push_back((int)nodes.size());
+				nodes.push_back(node);
 			}
-			if (nodes.empty()) { error = "nothing to export"; return false; }
-			nlohmann::json sceneNodes = nlohmann::json::array();
-			for (int i = 0; i < (int)nodes.size(); ++i) sceneNodes.push_back(i);
+			if (meshNodes.empty()) { error = "nothing to export"; return false; }
+			for (int n : meshNodes) sceneNodes.push_back(n);
+			if (skinned)
+			{
+				// 역 바인드 = 머리 위치의 반대 이동 (열 우선 4x4)
+				std::vector<float> ibm;
+				json joints = json::array();
+				for (int i = 0; i < (int)arm.Bones.size(); ++i)
+				{
+					const Vec3 h = ToFile(arm.Bones[i].Head);
+					const float m[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -h.x, -h.y, -h.z, 1 };
+					ibm.insert(ibm.end(), m, m + 16);
+					joints.push_back(i);
+				}
+				const int aIbm = (int)accessors.size();
+				accessors.push_back({ { "bufferView", view(append(ibm.data(), ibm.size() * 4), ibm.size() * 4, 0) }, { "componentType", 5126 }, { "count", arm.Bones.size() }, { "type", "MAT4" } });
+				int root = 0;
+				for (int i = 0; i < (int)arm.Bones.size(); ++i) if (arm.Bones[i].Parent < 0) { root = i; break; }
+				gltf["skins"] = { { { "name", "Armature" }, { "joints", joints }, { "inverseBindMatrices", aIbm }, { "skeleton", root } } };
+			}
 			gltf["scene"] = 0;
 			gltf["scenes"] = { { { "nodes", sceneNodes } } };
 			gltf["nodes"] = nodes;
 			gltf["meshes"] = gmeshes;
-			gltf["materials"] = { { { "name", "Material" }, { "pbrMetallicRoughness", { { "baseColorFactor", { 0.8, 0.8, 0.8, 1.0 } }, { "metallicFactor", 0.0 }, { "roughnessFactor", 0.5 } } } } };
+			gltf["materials"] = materials;
 			gltf["accessors"] = accessors;
 			gltf["bufferViews"] = views;
+			if (vrm)
+			{
+				// ---- VRM 1.0: meta · humanoid
+				json human = json::object();
+				for (int i = 0; i < (int)arm.Bones.size(); ++i) if (!arm.Bones[i].Human.empty()) human[VrmHumanName(arm.Bones[i].Human)] = { { "node", i } };
+				const std::string title = opts.value("title", std::string("NOVA Character"));
+				gltf["extensions"]["VRMC_vrm"] = {
+					{ "specVersion", "1.0" },
+					{ "meta", { { "name", title }, { "version", "1.0" }, { "authors", { opts.value("author", std::string("NOVA Model Editor")) } },
+						{ "licenseUrl", "https://vrm.dev/licenses/1.0/" }, { "avatarPermission", "onlyAuthor" }, { "allowExcessivelyViolentUsage", false }, { "allowExcessivelySexualUsage", false },
+						{ "commercialUsage", "personalNonProfit" }, { "allowPoliticalOrReligiousUsage", false }, { "allowAntisocialOrHateUsage", false },
+						{ "creditNotation", "required" }, { "allowRedistribution", false }, { "modification", "prohibited" } } },
+					{ "humanoid", { { "humanBones", human } } } };
+				json used = { "VRMC_vrm", "VRMC_materials_mtoon" };
+				// ---- Spring Bone: 사슬 = 같은 Chain 이름의 본 (부모가 앞) + 끝 노드
+				std::vector<std::string> chainNames;
+				for (const Bone& b : arm.Bones) if (b.Spring && std::find(chainNames.begin(), chainNames.end(), b.Chain) == chainNames.end()) chainNames.push_back(b.Chain);
+				if (!chainNames.empty())
+				{
+					json colliders = json::array(), group = json::array();
+					for (const Collider& c : arm.Colliders)
+					{
+						if (c.Bone < 0) continue;
+						const Vec3 o = ToFile(c.Offset);
+						json shape;
+						if (c.Capsule) { const Vec3 t = ToFile(c.Tail); shape["capsule"] = { { "offset", { o.x, o.y, o.z } }, { "radius", c.Radius }, { "tail", { t.x, t.y, t.z } } }; }
+						else shape["sphere"] = { { "offset", { o.x, o.y, o.z } }, { "radius", c.Radius } };
+						group.push_back((int)colliders.size());
+						colliders.push_back({ { "node", c.Bone }, { "shape", shape } });
+					}
+					json springs = json::array();
+					for (const std::string& cn : chainNames)
+					{
+						json jts = json::array();
+						int last = -1;
+						for (int i = 0; i < (int)arm.Bones.size(); ++i)
+						{
+							const Bone& b = arm.Bones[i];
+							if (!b.Spring || b.Chain != cn) continue;
+							jts.push_back({ { "node", i }, { "hitRadius", b.HitRadius }, { "stiffness", b.Stiffness }, { "gravityPower", b.Gravity }, { "gravityDir", { 0.0, -1.0, 0.0 } }, { "dragForce", b.Drag } });
+							last = i;
+						}
+						if (last >= 0 && endNode[last] >= 0)
+						{
+							const Bone& b = arm.Bones[last];
+							jts.push_back({ { "node", endNode[last] }, { "hitRadius", b.HitRadius }, { "stiffness", b.Stiffness }, { "gravityPower", b.Gravity }, { "gravityDir", { 0.0, -1.0, 0.0 } }, { "dragForce", b.Drag } });
+						}
+						json sp = { { "name", cn }, { "joints", jts } };
+						if (!group.empty()) sp["colliderGroups"] = { 0 };
+						springs.push_back(sp);
+					}
+					json sb = { { "specVersion", "1.0" }, { "springs", springs } };
+					if (!colliders.empty()) { sb["colliders"] = colliders; sb["colliderGroups"] = { { { "name", "Body" }, { "colliders", group } } }; }
+					gltf["extensions"]["VRMC_springBone"] = sb;
+					used.push_back("VRMC_springBone");
+				}
+				gltf["extensionsUsed"] = used;
+			}
 			gltf["buffers"] = { { { "byteLength", bin.size() } } };
 			std::string js = gltf.dump();
 			while (js.size() % 4) js.push_back(' ');
@@ -503,7 +687,7 @@ namespace Modeling
 		}
 	}
 
-	bool Document::Export(const std::string& path, bool selectedOnly, std::string& error) const
+	bool Document::Export(const std::string& path, bool selectedOnly, std::string& error, const nlohmann::json& options) const
 	{
 		const std::filesystem::path p = PathU8(path);
 		std::string ext = U8String(p.extension());
@@ -518,8 +702,9 @@ namespace Modeling
 		if (p.has_parent_path()) std::filesystem::create_directories(p.parent_path(), ec);
 		if (ext == ".fbx") return WriteFbx(p, meshes, *this, error);
 		if (ext == ".obj") return WriteObj(p, meshes, *this, error);
-		if (ext == ".glb") return WriteGlb(p, meshes, error);
-		error = "unsupported export format '" + ext + "' (use .fbx, .obj or .glb)";
+		if (ext == ".glb") return WriteGlb(p, meshes, *this, false, options, error);
+		if (ext == ".vrm") return WriteGlb(p, meshes, *this, true, options, error);
+		error = "unsupported export format '" + ext + "' (use .fbx, .obj, .glb or .vrm)";
 		return false;
 	}
 }

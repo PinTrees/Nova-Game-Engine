@@ -954,6 +954,8 @@ void ModelEditorWindow::DrawMenuBar()
 		if (ImGui::MenuItem("Toon", nullptr, m_Opt.Shade == Shading::Toon)) { m_Opt.Shade = Shading::Toon; m_Dirty = true; }
 		if (ImGui::MenuItem("Normals", nullptr, m_Opt.Shade == Shading::Normals)) { m_Opt.Shade = Shading::Normals; m_Dirty = true; }
 		if (ImGui::MenuItem("UV Checker", nullptr, m_Opt.Shade == Shading::UVChecker)) { m_Opt.Shade = Shading::UVChecker; m_Dirty = true; }
+		if (ImGui::MenuItem("Weights (selected bone)", nullptr, m_Opt.Shade == Shading::Weights)) { m_Opt.Shade = Shading::Weights; m_Dirty = true; }
+		if (ImGui::MenuItem("Bones", nullptr, m_Opt.Bones)) { m_Opt.Bones = !m_Opt.Bones; m_Dirty = true; }
 		if (ImGui::MenuItem("Toon Outline", nullptr, m_Opt.Outline)) { m_Opt.Outline = !m_Opt.Outline; m_Dirty = true; }
 		ImGui::EndMenu();
 	}
@@ -1244,6 +1246,7 @@ void ModelEditorWindow::DrawSidePanel()
 		DrawGroupsPanel();
 	}
 	DrawRefsPanel();
+	DrawRigPanel();
 
 	// ---- Last Operation (값을 바꾸면 되돌리고 다시)
 	const LastOp& last = Last();
@@ -1384,6 +1387,75 @@ void ModelEditorWindow::DrawGroupsPanel()
 	if (ImGui::Button("Deselect")) Run("group.select", { { "name", name }, { "deselect", true } });
 	ImGui::SameLine();
 	if (ImGui::Button(ICON_FA_TRASH)) Run("group.delete", { { "name", name } });
+}
+
+// 아마추어 (리깅): Humanoid 맞추기 · 자동 가중치 · 머리카락 사슬 · 충돌체, 본 목록 (고르면 가중치 보기 · 포즈)
+void ModelEditorWindow::DrawRigPanel()
+{
+	Document& d = Doc();
+	Armature& arm = d.Rig;
+	ImGui::Spacing();
+	ImGui::TextDisabled("ARMATURE");
+	if (ImGui::Button("Humanoid")) Run("rig.humanoid");
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Fit a Humanoid skeleton (parts by name: Head, Body, ArmL/R, LegL/R)");
+	ImGui::SameLine();
+	ImGui::BeginDisabled(arm.Empty());
+	if (ImGui::Button("Auto Weights")) Run("rig.weights");
+	ImGui::SameLine();
+	if (ImGui::Button("Chains")) Run("rig.chain");
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Spring bone chain per island of the selected objects (hair strands)");
+	ImGui::SameLine();
+	if (ImGui::Button("Colliders")) Run("rig.colliders");
+	ImGui::EndDisabled();
+	if (arm.Empty())
+	{
+		ImGui::TextDisabled("No armature");
+		return;
+	}
+	int springs = 0;
+	for (const Bone& b : arm.Bones) springs += b.Spring;
+	ImGui::TextDisabled("%d bones (%d spring), %d colliders", (int)arm.Bones.size(), springs, (int)arm.Colliders.size());
+	if (m_Bone >= (int)arm.Bones.size()) m_Bone = -1;
+	ImGui::BeginChild("##bones", ImVec2(0, 120.0f), true);
+	for (int i = 0; i < (int)arm.Bones.size(); ++i)
+	{
+		const Bone& b = arm.Bones[i];
+		int depth = 0;
+		for (int p = b.Parent; p >= 0 && depth < 12; p = arm.Bones[p].Parent) ++depth;
+		ImGui::PushID(i);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + depth * 8.0f);
+		if (ImGui::Selectable((b.Spring ? "~ " + b.Name : b.Name).c_str(), m_Bone == i))
+		{
+			m_Bone = i;
+			m_PoseEuler[0] = b.PoseEuler.x; m_PoseEuler[1] = b.PoseEuler.y; m_PoseEuler[2] = b.PoseEuler.z;
+			m_Opt.SelectedBone = i;
+			m_Opt.WeightBone = b.Name;
+			m_Dirty = true;
+		}
+		ImGui::PopID();
+	}
+	ImGui::EndChild();
+	if (m_Bone >= 0)
+	{
+		Bone& b = arm.Bones[m_Bone];
+		bool weights = m_Opt.Shade == Shading::Weights;
+		if (ImGui::Checkbox("Show Weights", &weights)) { m_Opt.Shade = weights ? Shading::Weights : Shading::Solid; m_Dirty = true; }
+		// 포즈 미리보기 (Undo 없이 바로 — 저장 · 내보내기 하지 않는다)
+		ImGui::SetNextItemWidth(-1);
+		if (ImGui::DragFloat3("##pose", m_PoseEuler, 0.5f, -180.0f, 180.0f, "%.0f°"))
+		{
+			b.Pose = Quaternion::CreateFromYawPitchRoll(m_PoseEuler[1] / 57.29578f, m_PoseEuler[0] / 57.29578f, m_PoseEuler[2] / 57.29578f);
+			b.PoseEuler = Vec3(m_PoseEuler[0], m_PoseEuler[1], m_PoseEuler[2]);
+			d.Changed();
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pose preview (degrees X Y Z) - bend to check the weights");
+	}
+	if (arm.HasPose() && ImGui::Button("Reset Pose"))
+	{
+		arm.ClearPose();
+		m_PoseEuler[0] = m_PoseEuler[1] = m_PoseEuler[2] = 0.0f;
+		d.Changed();
+	}
 }
 
 void ModelEditorWindow::DrawRefsPanel()

@@ -87,6 +87,9 @@ void OptimizeVertices(std::vector<Vertex::PosNormalTexTanSkinned>& vertices, std
 // VRM 0.x 는 glTF 에서 -Z 를 본다 (UniVRM 이 Unity 의 Z 를 뒤집어 내보냄) → ConvertToLeftHanded 만으로 Unity 와 같은 축이라 R 을 하지 않는다
 // -1 = R (Y 180°), 1 = 그대로 — 파일을 읽을 때 정한다. 비동기 읽기가 겹쳐도 섞이지 않게 스레드마다
 static thread_local float s_AxisFlip = -1.0f;
+// Assimp 재질 번호 → 파일 재질 번호 (Unity 처럼 메시 재질 번호 = 파일의 재질 번호 — VRM 재질 꺼내기가 이 순서)
+static thread_local std::vector<int> s_MaterialRemap;
+static unsigned FileMaterialIndex(unsigned i) { return i < s_MaterialRemap.size() && s_MaterialRemap[i] >= 0 ? (unsigned)s_MaterialRemap[i] : i; }
 
 static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string& path, bool withMeshes)
 {
@@ -104,6 +107,23 @@ static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string
     {
         printf("ERROR::ASSIMP:: %s\n", importer.GetErrorString());
         return nullptr;
+    }
+    // glTF · VRM: Assimp 는 재질 번호를 처음 만난 순서로 다시 매긴다 (LazyDict) — 이름으로 파일 순서로 되돌린다
+    s_MaterialRemap.clear();
+    nlohmann::json gltf;
+    std::string ext = std::filesystem::path(path).extension().string();
+    for (char& ch : ext) ch = (char)tolower((unsigned char)ch);
+    if ((ext == ".vrm" || ext == ".glb") && VrmImport::ReadGlb(string_to_wstring(path), gltf) && gltf.contains("materials"))
+    {
+        const auto& mats = gltf["materials"];
+        std::vector<uint8_t> taken(mats.size(), 0);
+        s_MaterialRemap.assign(scene->mNumMaterials, -1);
+        for (unsigned k = 0; k < scene->mNumMaterials; ++k)
+        {
+            const std::string name = scene->mMaterials[k]->GetName().C_Str();
+            for (size_t j = 0; j < mats.size(); ++j)
+                if (!taken[j] && mats[j].value("name", std::string()) == name) { s_MaterialRemap[k] = (int)j; taken[j] = 1; break; }
+        }
     }
     return scene;
 }
@@ -389,7 +409,7 @@ void FBXLoader::ProcessMesh(
     subset.FaceStart = indices.size() / 3;
     subset.VertexCount = mesh->mNumVertices;
     subset.FaceCount = mesh->mNumFaces;
-    subset.MaterialIndex = mesh->mMaterialIndex;
+    subset.MaterialIndex = FileMaterialIndex(mesh->mMaterialIndex);
 
 
     for (UINT i = 0; i < mesh->mNumVertices; ++i)
@@ -437,7 +457,7 @@ void FBXLoader::ProcessMeshSkinned(
     subset.FaceStart = (UINT)(indices.size() / 3);
     subset.VertexCount = mesh->mNumVertices;
     subset.FaceCount = mesh->mNumFaces;
-    subset.MaterialIndex = mesh->mMaterialIndex;
+    subset.MaterialIndex = FileMaterialIndex(mesh->mMaterialIndex);
 
     const size_t startVertex = vertices.size();
     for (uint32 i = 0; i < mesh->mNumVertices; ++i)

@@ -1,5 +1,6 @@
 #pragma once
 #include "ModelMesh.h"
+#include "ModelRig.h"
 
 // 모델 편집기 문서: 오브젝트 (이름 + 변환 + 편집 메시) 목록, 모드, Undo.
 //  - Object 모드 = 오브젝트를 고르고 옮긴다, Edit 모드 = 활성 오브젝트의 점 · 변 · 면을 고친다 (Blender 와 같음)
@@ -60,6 +61,7 @@ namespace Modeling
 		std::vector<Vec3> MaterialColors;     // 같은 번호의 색 (툰 미리보기 · FBX Diffuse), 없으면 회색
 		Vec3 MaterialColor(int index) const { return index >= 0 && index < (int)MaterialColors.size() ? MaterialColors[index] : Vec3(0.8f, 0.8f, 0.8f); }
 		std::vector<RefImage> Refs;           // 기준 그림 (Undo 에 들지 않음)
+		Armature Rig;                         // 아마추어 (본 · 충돌체 · 포즈 미리보기)
 		RefImage* FindRef(const std::string& name);
 		int Active = -1;
 		bool EditMode = false;
@@ -74,6 +76,8 @@ namespace Modeling
 		int Find(const std::string& name) const;
 		std::string UniqueName(const std::string& base) const;
 		void Changed() { ++Revision; Dirty = true; }
+		// 그릴 메시 = 모디파이어 결과 + 포즈 (아마추어에 포즈가 있을 때). Revision 이 바뀌면 다시
+		const Mesh& Displayed(int objectIndex);
 		void New();
 
 		// 오브젝트 하나 더하기 (활성 · 선택), 번호를 돌려준다
@@ -86,7 +90,8 @@ namespace Modeling
 		// Assimp 로 읽는다 (append = 지금 문서에 더하기). 노드 변환은 점에 굽는다 (엔진과 같은 축 · 미터)
 		bool Import(const std::string& path, bool append, std::string& error);
 		// 확장자로 형식 (.fbx · .obj · .glb · .gltf). selectedOnly = Object 모드에서 고른 것만
-		bool Export(const std::string& path, bool selectedOnly, std::string& error) const;
+		// .vrm = GLB + VRM 1.0 (humanoid · spring bone · MToon) — 아마추어 필요. options: title, author, outlineWidth (m)
+		bool Export(const std::string& path, bool selectedOnly, std::string& error, const nlohmann::json& options = nlohmann::json::object()) const;
 
 		// ---- Undo (문서 전체 스냅숏, 최대 64) ----
 		void PushUndo(const std::string& label);
@@ -114,6 +119,8 @@ namespace Modeling
 		struct Snapshot { std::string Label; std::string Data; };
 		std::vector<Snapshot> m_Undo, m_Redo;
 		std::map<std::string, std::string> m_Checkpoints;
+		std::vector<Mesh> m_Posed;
+		std::vector<uint64> m_PosedRevision;
 		std::string Serialize() const;
 		void Deserialize(const std::string& data);
 	};
