@@ -2,6 +2,9 @@
 #include "SkinnedMeshRenderer.h"
 #include "SpriteRenderer.h"
 #include "SpriteAnimator.h"
+#include "Physics2DComponents.h"
+#include "Physics2DManager.h"
+#include "Physics2DSettings.h"
 #include "TagsAndLayers.h"
 #include "PhysicsSettings.h"
 #include "Debug.h"
@@ -41,6 +44,14 @@ namespace
 		Vec3 point;
 		Vec3 normal;
 		float distance;
+		uint64 gameObject;
+	};
+	struct Ray2DData   // C# Ray2DData 와 같은 배치 (32 바이트)
+	{
+		Vec2 point;
+		Vec2 normal;
+		float distance;
+		float fraction;
 		uint64 gameObject;
 	};
 	struct ControllerHitData
@@ -201,6 +212,20 @@ namespace
 		// Camera.cullingMask (which 0) · Light.cullingMask (which 1)
 		int(*CL_GetMask)(uint64, int);
 		void(*CL_SetMask)(uint64, int, int);
+		// 2D 물리 (Rigidbody2D · Collider2D · Physics2D)
+		void(*R2_GetVec)(uint64, int, Vec2*);          // 0 velocity, 1 position
+		void(*R2_SetVec)(uint64, int, Vec2*);
+		float(*R2_GetFloat)(uint64, int);              // 0 angularVelocity, 1 rotation, 2 mass, 3 gravityScale, 4 linearDamping, 5 angularDamping, 6 bodyType, 7 freezeRotation, 8 collisionDetection
+		void(*R2_SetFloat)(uint64, int, float);
+		void(*R2_Act)(uint64, int, Vec2*, Vec2*, float, int);   // 0 AddForce, 1 AddForceAtPosition, 2 AddTorque, 3 MovePosition, 4 MoveRotation (mode 1 = Impulse)
+		int(*C2_Get)(uint64, u8*, int, float*);        // 0 isTrigger, 1 offset, 2 size, 3 radius, 4 friction, 5 bounciness, 6 enabled
+		void(*C2_Set)(uint64, u8*, int, float*);
+		int(*P2_Raycast)(Vec2*, Vec2*, float, int, Ray2DData*);
+		uint64(*P2_Overlap)(int, Vec2*, Vec2*, float, int);   // 0 point, 1 circle (value = radius), 2 box (size, value = angle)
+		void(*P2_Gravity)(int, Vec2*);                 // 0 get, 1 set
+		void(*P2_IgnoreLayer)(int, int, int);
+		int(*P2_GetIgnoreLayer)(int, int);
+		int(*P2_Contact)(uint64, uint64, float*);      // self, other → point xy, normal xy, relativeVelocity xy
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -327,6 +352,8 @@ namespace
 			}
 			if (type == "Collider")
 				return dynamic_cast<Collider*>(c) != nullptr;
+			if (type == "Collider2D")
+				return dynamic_cast<Collider2D*>(c) != nullptr;
 			return c->GetType() == type;
 		};
 		for (const auto& c : g->GetComponents())
@@ -1247,6 +1274,151 @@ namespace ScriptBindings
 		t.CL_SetMask = [](uint64 id, int which, int mask) {
 			if (which == 0) { if (Camera* c = Get<Camera>(id)) c->SetCullingMask((uint32)mask); }
 			else if (Light* l = Get<Light>(id)) l->SetCullingMaskBits((uint32)mask);
+		};
+		t.R2_GetVec = [](uint64 id, int prop, Vec2* out) {
+			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			if (!out) return;
+			*out = !rb ? Vec2(0, 0) : prop == 0 ? rb->GetVelocity() : rb->GetPosition();
+		};
+		t.R2_SetVec = [](uint64 id, int prop, Vec2* v) {
+			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			if (!rb || !v) return;
+			if (prop == 0) rb->SetVelocity(*v);
+			else
+			{
+				// position: 바로 옮긴다 (Transform → 다음 물리 단계에 몸체도)
+				Transform* tr = rb->GetGameObject()->GetTransform();
+				const Vec3 p = tr->GetPosition();
+				tr->SetPosition(Vec3(v->x, v->y, p.z));
+			}
+		};
+		t.R2_GetFloat = [](uint64 id, int prop) -> float {
+			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			if (!rb) return 0.0f;
+			switch (prop)
+			{
+			case 0: return rb->GetAngularVelocity();
+			case 1: return rb->GetRotation();
+			case 2: return rb->Mass;
+			case 3: return rb->GravityScale;
+			case 4: return rb->LinearDamping;
+			case 5: return rb->AngularDamping;
+			case 6: return (float)(int)rb->Type;
+			case 7: return rb->FreezeRotation ? 1.0f : 0.0f;
+			case 8: return (float)rb->CollisionDetection;
+			default: return 0.0f;
+			}
+		};
+		t.R2_SetFloat = [](uint64 id, int prop, float v) {
+			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			if (!rb) return;
+			switch (prop)
+			{
+			case 0: rb->SetAngularVelocity(v); return;
+			case 1:
+			{
+				Transform* tr = rb->GetGameObject()->GetTransform();
+				tr->SetRotation(Quaternion::CreateFromAxisAngle(Vec3(0, 0, 1), v * 3.14159265f / 180.0f));
+				return;
+			}
+			case 2: rb->Mass = (std::max)(0.0001f, v); break;
+			case 3: rb->GravityScale = v; break;
+			case 4: rb->LinearDamping = (std::max)(0.0f, v); break;
+			case 5: rb->AngularDamping = (std::max)(0.0f, v); break;
+			case 6: rb->Type = (Rigidbody2D::BodyType)std::clamp((int)v, 0, 2); break;
+			case 7: rb->FreezeRotation = v != 0.0f; break;
+			case 8: rb->CollisionDetection = v != 0.0f ? 1 : 0; break;
+			default: return;
+			}
+			rb->ApplyDynamicSettings();
+		};
+		t.R2_Act = [](uint64 id, int kind, Vec2* a, Vec2* b, float value, int mode) {
+			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			if (!rb) return;
+			switch (kind)
+			{
+			case 0: if (a) rb->AddForce(*a, mode == 1); break;
+			case 1: if (a && b) rb->AddForceAtPosition(*a, *b, mode == 1); break;
+			case 2: rb->AddTorque(value, mode == 1); break;
+			case 3: if (a) rb->MovePosition(*a); break;
+			case 4: rb->MoveRotation(value); break;
+			default: break;
+			}
+		};
+		t.C2_Get = [](uint64 id, u8* type, int prop, float* out) -> int {
+			GameObject* g = Find(id);
+			Collider2D* c = g ? dynamic_cast<Collider2D*>(FindComponent(g, type && type[0] ? (const char*)type : "Collider2D")) : nullptr;
+			if (!c || !out) return 0;
+			switch (prop)
+			{
+			case 0: out[0] = c->IsTrigger ? 1.0f : 0.0f; break;
+			case 1: out[0] = c->Offset.x; out[1] = c->Offset.y; break;
+			case 2:
+				if (auto* bx = dynamic_cast<BoxCollider2D*>(c)) { out[0] = bx->Size.x; out[1] = bx->Size.y; }
+				else if (auto* cp = dynamic_cast<CapsuleCollider2D*>(c)) { out[0] = cp->Size.x; out[1] = cp->Size.y; }
+				break;
+			case 3: if (auto* ci = dynamic_cast<CircleCollider2D*>(c)) out[0] = ci->Radius; break;
+			case 4: out[0] = c->Friction; break;
+			case 5: out[0] = c->Bounciness; break;
+			case 6: out[0] = c->IsEnabled() ? 1.0f : 0.0f; break;
+			default: return 0;
+			}
+			return 1;
+		};
+		t.C2_Set = [](uint64 id, u8* type, int prop, float* in) {
+			GameObject* g = Find(id);
+			Collider2D* c = g ? dynamic_cast<Collider2D*>(FindComponent(g, type && type[0] ? (const char*)type : "Collider2D")) : nullptr;
+			if (!c || !in) return;
+			switch (prop)
+			{
+			case 0: c->IsTrigger = in[0] != 0.0f; break;
+			case 1: c->Offset = Vec2(in[0], in[1]); break;
+			case 2:
+				if (auto* bx = dynamic_cast<BoxCollider2D*>(c)) bx->Size = Vec2(in[0], in[1]);
+				else if (auto* cp = dynamic_cast<CapsuleCollider2D*>(c)) cp->Size = Vec2(in[0], in[1]);
+				break;
+			case 3: if (auto* ci = dynamic_cast<CircleCollider2D*>(c)) ci->Radius = (std::max)(0.0001f, in[0]); break;
+			case 4: c->Friction = (std::max)(0.0f, in[0]); break;
+			case 5: c->Bounciness = std::clamp(in[0], 0.0f, 1.0f); break;
+			case 6: c->SetEnabled(in[0] != 0.0f); break;
+			default: return;
+			}
+			c->Touch();
+		};
+		t.P2_Raycast = [](Vec2* origin, Vec2* dir, float distance, int mask, Ray2DData* out) -> int {
+			if (!origin || !dir || !out) return 0;
+			*out = Ray2DData{};
+			Physics2DManager::Hit hit;
+			if (!Physics2DManager::Raycast(*origin, *dir, distance, (uint32)mask, hit) || !hit.Collider)
+				return 0;
+			out->point = hit.Point;
+			out->normal = hit.Normal;
+			out->distance = hit.Distance;
+			out->fraction = hit.Fraction;
+			out->gameObject = hit.Collider->GetGameObject()->GetFileID();
+			return 1;
+		};
+		t.P2_Overlap = [](int kind, Vec2* p, Vec2* size, float value, int mask) -> uint64 {
+			if (!p) return 0;
+			Collider2D* c = nullptr;
+			if (kind == 2 && size) c = Physics2DManager::OverlapBox(*p, *size, value, (uint32)mask);
+			else c = Physics2DManager::OverlapCircle(*p, kind == 1 ? value : 0.0001f, (uint32)mask);
+			return c ? c->GetGameObject()->GetFileID() : 0;
+		};
+		t.P2_Gravity = [](int set, Vec2* g) {
+			if (!g) return;
+			if (set) Physics2DManager::SetGravity(*g);
+			else *g = Physics2DManager::Gravity();
+		};
+		t.P2_IgnoreLayer = [](int a, int b, int ignore) { Physics2DSettings::IgnoreLayerCollisionRuntime(a, b, ignore != 0); };
+		t.P2_GetIgnoreLayer = [](int a, int b) -> int { return Physics2DSettings::LayersCollide(a, b) ? 0 : 1; };
+		t.P2_Contact = [](uint64 self, uint64 other, float* out) -> int {
+			GameObject* a = Find(self);
+			GameObject* b = Find(other);
+			Vec2 p, n, v;
+			if (!a || !b || !out || !Physics2DManager::ContactInfo(a, b, p, n, v)) return 0;
+			out[0] = p.x; out[1] = p.y; out[2] = n.x; out[3] = n.y; out[4] = v.x; out[5] = v.y;
+			return 1;
 		};
 		t.SR_SetSortingLayer = [](uint64 id, u8* name) -> int {
 			SpriteRenderer* r = Get<SpriteRenderer>(id);

@@ -192,6 +192,13 @@ void CSharpScript::Collision(Collider* other, bool trigger, int phase)
 	ScriptEngine::InvokeCollision(m_Handle, trigger, phase, other->GetGameObject()->GetFileID());
 }
 
+void CSharpScript::Collision2D(GameObject* other, bool trigger, int phase)
+{
+	if (!Ready() || other == nullptr)
+		return;
+	ScriptEngine::InvokeCollision(m_Handle, trigger ? 5 : 4, phase, other->GetFileID());   // kind 4 = Collision2D, 5 = 트리거 2D
+}
+
 void CSharpScript::OnCollisionEnter(Collider* other) { Collision(other, false, 0); }
 void CSharpScript::OnCollisionStay(Collider* other) { Collision(other, false, 1); }
 void CSharpScript::OnCollisionExit(Collider* other) { Collision(other, false, 2); }

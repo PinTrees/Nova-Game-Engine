@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1521,6 +1521,120 @@ function Suite-Sprites
     }
 }
 
+function Suite-Physics2D
+{
+    # 2D 물리 (Box2D): 떨어져 바닥에 서기 · 스프라이트 윤곽 Polygon Collider 2D (오목한 L) · OnCollisionEnter2D (법선) · OnTriggerEnter2D ·
+    # Physics2D.Raycast (layerMask) · Physics 2D Layer Collision Matrix · velocity
+    Write-Host '[physics2d]'
+    $dir = Join-Path $Out 'physics2d'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\Physics2DTest'
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    $settingsFiles = @('TagManager.json', 'Physics2DSettings.json')
+    $saved = @{}
+    foreach ($f in $settingsFiles) { $p = Join-Path $Project "ProjectSettings\$f"; $saved[$f] = if (Test-Path $p) { Get-Content $p -Raw } else { $null } }
+    # 오목한 L 모양 그림 (100 PPU → 1 × 1 단위)
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap 100, 100
+    $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::Transparent)
+    $br = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 230, 120, 40))
+    $g.FillRectangle($br, 0, 0, 40, 100); $g.FillRectangle($br, 0, 60, 100, 40); $g.Dispose(); $br.Dispose()
+    $bmp.Save((Join-Path $assetDir 'L.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    @'
+using NovaEngine;
+public class Hit2DProbe : MonoBehaviour
+{
+    public static int collisions, triggers, exits;
+    public static string normal = "";
+    void OnCollisionEnter2D(Collision2D c) { collisions++; var n = c.GetContact(0).normal; normal = n.x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + "," + n.y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture); }
+    void OnTriggerEnter2D(Collider2D other) { triggers++; }
+    void OnTriggerExit2D(Collider2D other) { exits++; }
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $assetDir 'Hit2DProbe.cs')
+    $ed = Start-TestEditor
+    try
+    {
+        Wait-Compile
+        function Wait-Sec([double]$sec) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $sec) { Invoke-Nova 'wait 10' | Out-Null } }
+        function Y([string]$name) { $f = Join-Path $dir 'y.cs'; ('return GameObject.Find("' + $name + '").transform.position.y.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);') | Set-Content -Encoding utf8 $f; [double](Invoke-NovaJson "exec --file $f").result }
+        Invoke-Nova 'layers --set 8 --name Enemy' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        # 바닥: 정사각형 스프라이트 10 × 1 (윗면 y = -0.5)
+        Invoke-Nova 'create empty --name Ground --position 0,-1,0 --scale 10,1,1' | Out-Null
+        Invoke-Nova 'add-component Ground SpriteRenderer --values "{\"sprite\":\"builtin:Square\"}"' | Out-Null
+        Invoke-Nova 'add-component Ground BoxCollider2D' | Out-Null
+        # 상자 (스프라이트 크기에 자동으로 맞는 Box Collider 2D) + 길목의 트리거
+        Invoke-Nova 'create empty --name Crate --position 0,3,0' | Out-Null
+        Invoke-Nova 'add-component Crate SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.9,0.6,0.2,1]}"' | Out-Null
+        Invoke-Nova 'add-component Crate BoxCollider2D' | Out-Null
+        Invoke-Nova 'add-component Crate Rigidbody2D' | Out-Null
+        Invoke-Nova 'add-component Crate Hit2DProbe' | Out-Null
+        Invoke-Nova 'create empty --name Zone --position 0,1.5,0' | Out-Null
+        Invoke-Nova 'add-component Zone BoxCollider2D --values "{\"isTrigger\":true,\"size\":[2,0.5]}"' | Out-Null
+        # 공 (원) · L (스프라이트 윤곽 Polygon) · Enemy 레이어 상자 (바닥과 안 부딪히게)
+        Invoke-Nova 'create empty --name Ball --position 2.5,4,0' | Out-Null
+        Invoke-Nova 'add-component Ball SpriteRenderer --values "{\"sprite\":\"builtin:Circle\"}"' | Out-Null
+        Invoke-Nova 'add-component Ball CircleCollider2D' | Out-Null
+        Invoke-Nova 'add-component Ball Rigidbody2D' | Out-Null
+        Invoke-Nova 'create empty --name Ell --position -3,2,0' | Out-Null
+        Invoke-Nova 'add-component Ell SpriteRenderer --values "{\"sprite\":\"Assets/Physics2DTest/L.png\"}"' | Out-Null
+        Invoke-Nova 'add-component Ell PolygonCollider2D' | Out-Null
+        Invoke-Nova 'add-component Ell Rigidbody2D --values "{\"freezeRotation\":true}"' | Out-Null
+        Invoke-Nova 'create empty --name Ghost2D --position 4.5,2,0' | Out-Null
+        Invoke-Nova 'set Ghost2D --layer Enemy' | Out-Null
+        Invoke-Nova 'add-component Ghost2D SpriteRenderer --values "{\"sprite\":\"builtin:Square\"}"' | Out-Null
+        Invoke-Nova 'add-component Ghost2D BoxCollider2D' | Out-Null
+        Invoke-Nova 'add-component Ghost2D Rigidbody2D' | Out-Null
+        $p2 = Invoke-NovaJson 'physics --2d --ignore Enemy,Default'
+        Add-Result physics2d 'Physics 2D matrix: Enemy / Default ignored' (@($p2.ignoredPairs | Where-Object { ($_ -join '/') -eq 'Default/Enemy' }).Count -eq 1) "ignored=$($p2.ignoredPairs | ConvertTo-Json -Compress)"
+        Invoke-Nova 'select Ell' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $ell = Invoke-NovaJson 'get Ell'
+        $poly = @($ell.components | Where-Object { $_.type -eq 'PolygonCollider2D' })[0]
+        $pts = if ($poly) { @($poly.paths[0]).Count } else { 0 }
+        Add-Result physics2d 'Polygon Collider 2D traced the L sprite (concave outline)' ($poly -and @($poly.paths).Count -eq 1 -and $pts -ge 6 -and $pts -le 12) "paths=$(@($poly.paths).Count) points=$pts"
+        Invoke-Nova 'camera --position 0,1,-9 --target 0,1,0' | Out-Null
+
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 2.0
+        $crate = Y 'Crate'; $ball = Y 'Ball'; $ellY = Y 'Ell'; $ghost = Y 'Ghost2D'
+        Invoke-Nova "screenshot $(Join-Path $dir 'physics2d.png') --view scene" | Out-Null
+        Invoke-Nova "screenshot $(Join-Path $dir 'physics2d_game.png') --view game" | Out-Null
+        $cf = Join-Path $dir 'probe.cs'
+        @'
+var c = System.Globalization.CultureInfo.InvariantCulture;
+var down = Physics2D.Raycast(new Vector2(-1.5f, 5f), Vector2.down);
+var none = Physics2D.Raycast(new Vector2(-1.5f, 5f), Vector2.down, 20f, LayerMask.GetMask("Enemy"));
+var rb = GameObject.Find("Ball").GetComponent<Rigidbody2D>();
+return Hit2DProbe.collisions + " " + Hit2DProbe.triggers + " " + Hit2DProbe.exits + " " + Hit2DProbe.normal + " " + (down ? down.collider.gameObject.name + ":" + down.distance.ToString("F2", c) : "none") + " " + (none ? "hit" : "none") + " " + rb.bodyType + " " + Physics2D.gravity.y.ToString("F2", c);
+'@ | Set-Content -Encoding utf8 $cf
+        $pr = Invoke-NovaJson "exec --file $cf"
+        $vf = Join-Path $dir 'vel.cs'
+        'var rb = GameObject.Find("Crate").GetComponent<Rigidbody2D>(); rb.velocity = new Vector2(4, 0); return rb.position.x.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $vf
+        $x0 = [double](Invoke-NovaJson "exec --file $vf").result
+        Wait-Sec 0.3
+        $xf = Join-Path $dir 'x.cs'
+        'return GameObject.Find("Crate").transform.position.x.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $xf
+        $x1 = [double](Invoke-NovaJson "exec --file $xf").result
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result physics2d 'box falls and rests on the ground (y = 0)' ([math]::Abs($crate) -lt 0.05) "crate y=$crate"
+        Add-Result physics2d 'circle and L-shaped polygon rest on the ground' ([math]::Abs($ball) -lt 0.06 -and $ellY -gt -0.1 -and $ellY -lt 0.1) "ball y=$ball, L y=$ellY"
+        Add-Result physics2d 'Enemy layer box falls through (2D matrix)' ($ghost -lt -3) "ghost y=$ghost"
+        $pp = "$($pr.result)" -split ' '
+        Add-Result physics2d 'OnCollisionEnter2D once (normal up) + OnTriggerEnter2D / Exit2D' ($pp.Count -ge 4 -and [int]$pp[0] -eq 1 -and [int]$pp[1] -eq 1 -and [int]$pp[2] -eq 1 -and $pp[3] -eq '0.0,1.0') "$($pr.result)"
+        Add-Result physics2d 'Physics2D.Raycast hits the ground, layerMask Enemy misses' ($pp.Count -ge 6 -and $pp[4] -eq 'Ground:5.50' -and $pp[5] -eq 'none') "$($pr.result)"
+        Add-Result physics2d 'Rigidbody2D.velocity moves the body' ($x1 - $x0 -gt 0.5) "x $x0 → $x1"
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Stop-TestEditor $ed
+        foreach ($f in $settingsFiles) { $p = Join-Path $Project "ProjectSettings\$f"; if ($null -ne $saved[$f]) { Set-Content -Path $p -Value $saved[$f] -NoNewline -Encoding utf8 } else { Remove-Item $p -Force -ErrorAction SilentlyContinue } }
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -1831,6 +1945,7 @@ try
                 'anim2d' { Suite-Anim2D }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
+                'physics2d' { Suite-Physics2D }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

@@ -472,6 +472,21 @@ namespace NovaEngine.Interop
                 catch (Exception e) { LogException(e); }
                 return;
             }
+            if (kind == 4 || kind == 5)
+            {
+                // 2D: OnCollisionEnter2D(Collision2D) · OnTriggerEnter2D(Collider2D) …
+                string name2 = (kind == 4 ? "OnCollision" : "OnTrigger") + (phase == 0 ? "Enter" : phase == 1 ? "Stay" : "Exit") + "2D";
+                MethodInfo m2 = FindMethod(mb.GetType(), name2, kind == 4 ? typeof(Collision2D) : typeof(Collider2D)) ?? FindMethod(mb.GetType(), name2, null);
+                if (m2 == null) return;
+                try
+                {
+                    if (m2.GetParameters().Length == 0) m2.Invoke(mb, null);
+                    else m2.Invoke(mb, new object[] { kind == 4 ? new Collision2D(mb.m_Id, other) : (object)Collider2D.Of(other) });
+                }
+                catch (TargetInvocationException e) { LogException(e.InnerException ?? e); }
+                catch (Exception e) { LogException(e); }
+                return;
+            }
             string name = (kind == 0 ? "OnCollision" : "OnTrigger") + (phase == 0 ? "Enter" : phase == 1 ? "Stay" : "Exit");
             MethodInfo mi = FindMethod(mb.GetType(), name, kind == 0 ? typeof(Collision) : typeof(Collider)) ?? FindMethod(mb.GetType(), name, null);
             if (mi == null) return;

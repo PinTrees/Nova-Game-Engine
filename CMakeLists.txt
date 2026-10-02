@@ -52,6 +52,20 @@ set(TARGET_SAMPLES OFF CACHE BOOL "" FORCE)
 set(TARGET_VIEWER OFF CACHE BOOL "" FORCE)
 add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/JoltPhysics/Build" "${CMAKE_BINARY_DIR}/JoltPhysics")
 
+# ---------------------------------------------------------------------------
+# Box2D v3 (ThirdParty/box2d, MIT) - Rigidbody2D / Collider2D (Unity 의 2D 물리도 Box2D)
+# C17 정적 라이브러리. 경고는 끈다 (원본 그대로 두기 위해)
+# ---------------------------------------------------------------------------
+file(GLOB BOX2D_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/box2d/src/*.c")
+add_library(box2d STATIC ${BOX2D_SOURCES})
+target_include_directories(box2d
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/box2d/include"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/box2d/src")
+set_target_properties(box2d PROPERTIES C_STANDARD 17 C_STANDARD_REQUIRED YES C_EXTENSIONS YES FOLDER "ThirdParty")
+if(MSVC)
+    target_compile_options(box2d PRIVATE /W0)
+endif()
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}/Binaries")
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/Binaries")
@@ -131,6 +145,7 @@ set(ENGINE_MODULE_DIRS
     Source/Math
     Source/Graphics
     Source/Graphics/Common
+    Source/Physics2D
     Source/Graphics/DX11
     Source/Graphics/OpenGL
     Source/Graphics/RHI
@@ -173,6 +188,7 @@ target_link_directories(${ENGINE_CORE} PUBLIC
 # System and Core Libraries
 target_link_libraries(${ENGINE_CORE} PRIVATE
     Jolt
+    box2d
     d3d11
     dxgi
     d3dcompiler

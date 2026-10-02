@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "TagsAndLayers.h"
 #include "RenderLayers.h"
+#include "Physics2DManager.h"
 #include "Scene.h"
 #include <functional>
 #include "InstancingBuffer.h"
@@ -71,6 +72,7 @@ void Scene::Enter()
 
     // Unity 와 같이 Start 에서 Rigidbody 를 바로 쓸 수 있도록 물리 바디를 먼저 만든다
     PhysicsManager::GetI()->Start();
+    Physics2DManager::Start(this);   // 2D 물리 (Box2D) — 3D 와 따로
 
     for (auto& gameObject : objects)
     {
@@ -83,7 +85,8 @@ void Scene::Enter()
 
 void Scene::Exit()
 {
-    PhysicsManager::GetI()->Exit(); 
+    PhysicsManager::GetI()->Exit();
+    Physics2DManager::Exit();
 }
 
 // 화면 하나 동안 쓰는 Skinned Mesh Renderer / 지형 목록: 그림자 조각마다 모든 오브젝트를 다시 훑지 않게 (화면 시작 뒤 첫 패스가 만든다)

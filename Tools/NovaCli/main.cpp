@@ -627,6 +627,7 @@ namespace
 		"layers / physics (Project Settings > Tags and Layers / Physics)\n"
 		"  layers [--set 8 --name Enemy] [--add-tag Boss] [--remove-tag Boss]   layer names (3, 6..31) and tags\n"
 		"  physics [--gravity 0,-9.81,0] [--ignore Player,Enemy] [--collide A,B] [--all true|false]   Layer Collision Matrix\n"
+		"  physics --2d [--gravity 0,-9.81] [--ignore A,B] ...   Physics 2D (Box2D) settings\n"
 		"  set <target> --layer Water             layer by name or number\n"
 		"  layers --add-sorting-layer Background [--move-sorting-layer Background --by -1]   sprite Sorting Layers\n"
 		"  sprite-slice <png> --mode grid --cell 32,32 [--animation 12]   Sprite Mode = Multiple (+ .spriteanim)\n"
@@ -1018,7 +1019,8 @@ int Run(const std::vector<std::string>& in)
 	{
 		// nova physics [--gravity 0,-9.81,0] [--ignore Player,Enemy] [--collide Player,Enemy] [--all true|false]
 		rc = "physics-settings";
-		if (a.Has("gravity")) args["gravity"] = Vec(a.Get("gravity"));
+		if (a.Has("2d")) args["2d"] = true;   // Project Settings > Physics 2D
+		if (a.Has("gravity")) args["gravity"] = NumberList(a.Get("gravity"));
 		for (const char* key : { "ignore", "collide" })
 			if (a.Has(key))
 			{

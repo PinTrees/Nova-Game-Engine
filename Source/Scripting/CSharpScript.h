@@ -56,6 +56,9 @@ public:
 	virtual void fromJson(const json& j) override;
 	virtual std::string GetType() const override { return "CSharpScript"; }
 
+	// 2D 물리 (Physics2DManager): OnCollision/OnTrigger Enter·Stay·Exit 2D — phase 0 Enter, 1 Stay, 2 Exit
+	void Collision2D(GameObject* other, bool trigger, int phase);
+
 private:
 	bool Ready();          // 인스턴스가 있고 켜져 있고 GameObject 가 활성
 	void SyncEnabled();

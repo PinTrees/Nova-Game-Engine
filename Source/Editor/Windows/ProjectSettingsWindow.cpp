@@ -8,6 +8,7 @@
 #include "GraphicsSettings.h"
 #include "TagsAndLayers.h"
 #include "PhysicsSettings.h"
+#include "Physics2DSettings.h"
 
 namespace
 {
@@ -15,7 +16,7 @@ namespace
 	bool s_FocusNext = false;
 	std::string s_Category = "Graphics";
 
-	const char* kCategories[] = { "Graphics", "Physics", "Player", "Tags and Layers" };
+	const char* kCategories[] = { "Graphics", "Physics", "Physics 2D", "Player", "Tags and Layers" };
 
 	// Unity 의 Graphics APIs for Windows 목록: 위가 우선. 선택한 줄을 위/아래로, + 로 추가, - 로 제거 (하나는 남긴다)
 	bool DrawGraphicsApiList(std::vector<GraphicsAPI>& list)
@@ -303,7 +304,15 @@ namespace
 	}
 
 	// Unity 의 Layer Collision Matrix: 왼쪽 = 레이어 (위 → 아래 번호 순), 위 = 레이어 (세로 글자, 오른쪽 → 왼쪽 번호 순), 삼각형
-	void DrawCollisionMatrix()
+	// 3D (Physics) 와 2D (Physics 2D) 가 같은 그림을 쓴다
+	struct MatrixOps
+	{
+		bool (*Get)(int, int);
+		void (*Set)(int, int, bool);
+		void (*All)(bool);
+	};
+
+	void DrawCollisionMatrix(const MatrixOps& ops)
 	{
 		const std::vector<int> layers = TagsAndLayers::NamedLayers();
 		const int n = (int)layers.size();
@@ -338,11 +347,11 @@ namespace
 				ImGui::SetCursorScreenPos(p0);
 				ImGui::PushID(a * 64 + b);
 				if (ImGui::InvisibleButton("##m", ImVec2(cell - 4.0f, cell - 4.0f)))
-					PhysicsSettings::SetLayersCollide(a, b, !PhysicsSettings::LayersCollide(a, b));
+					ops.Set(a, b, !ops.Get(a, b));
 				const bool hovered = ImGui::IsItemHovered();
 				ImGui::PopID();
 				if (hovered) { hoverA = a; hoverB = b; }
-				const bool on = PhysicsSettings::LayersCollide(a, b);
+				const bool on = ops.Get(a, b);
 				dl->AddRectFilled(p0, p1, hovered ? IM_COL32(80, 80, 80, 255) : IM_COL32(56, 56, 56, 255), 2.0f);
 				dl->AddRect(p0, p1, IM_COL32(30, 30, 30, 255), 2.0f);
 				if (on)
@@ -359,10 +368,10 @@ namespace
 		ImGui::SetCursorScreenPos(ImVec2(origin.x, grid.y + n * cell + 8.0f));
 		ImGui::Dummy(ImVec2(labelW + n * cell, 1.0f));
 		if (ImGui::Button("Disable All"))
-			PhysicsSettings::SetAllCollide(false);
+			ops.All(false);
 		ImGui::SameLine();
 		if (ImGui::Button("Enable All"))
-			PhysicsSettings::SetAllCollide(true);
+			ops.All(true);
 	}
 
 	void DrawPhysics()
@@ -379,9 +388,32 @@ namespace
 		if (UnityGUI::FoldoutPlain("Layer Collision Matrix"))
 		{
 			ImGui::Indent(18.0f);
-			DrawCollisionMatrix();
+			DrawCollisionMatrix({ PhysicsSettings::LayersCollide, [](int a, int b, bool c) { PhysicsSettings::SetLayersCollide(a, b, c); }, PhysicsSettings::SetAllCollide });
 			ImGui::Unindent(18.0f);
 			UnityGUI::HelpBox("Unchecked pairs of layers do not collide (triggers and Character Controllers too). The Include / Exclude Layers of a collider or Rigidbody override this matrix. Name more layers in Tags and Layers.", false);
+		}
+	}
+
+	// Unity 의 Project Settings > Physics 2D (3D 와 따로: Box2D)
+	void DrawPhysics2D()
+	{
+		ImGui::PushFont(UnityGUI::HeaderFont());
+		ImGui::TextUnformatted("Physics 2D");
+		ImGui::PopFont();
+		ImGui::Spacing();
+		Vec2 g = Physics2DSettings::Gravity();
+		if (UnityGUI::Vector2Pair("Gravity", "X", &g.x, "Y", &g.y))
+			Physics2DSettings::SetGravity(g);
+		bool hit = Physics2DSettings::QueriesHitTriggers();
+		if (UnityGUI::Toggle("Queries Hit Triggers", &hit))
+			Physics2DSettings::SetQueriesHitTriggers(hit);
+		UnityGUI::Spacing(8.0f);
+		if (UnityGUI::FoldoutPlain("Layer Collision Matrix"))
+		{
+			ImGui::Indent(18.0f);
+			DrawCollisionMatrix({ Physics2DSettings::LayersCollide, [](int a, int b, bool c) { Physics2DSettings::SetLayersCollide(a, b, c); }, Physics2DSettings::SetAllCollide });
+			ImGui::Unindent(18.0f);
+			UnityGUI::HelpBox("2D physics (Rigidbody 2D, Collider 2D) uses its own matrix, like Unity. Unchecked pairs do not collide or trigger.", false);
 		}
 	}
 
@@ -479,6 +511,8 @@ namespace ProjectSettingsWindow
 			DrawPlayer();
 		else if (s_Category == "Physics")
 			DrawPhysics();
+		else if (s_Category == "Physics 2D")
+			DrawPhysics2D();
 		else if (s_Category == "Tags and Layers")
 			DrawTagsAndLayers();
 		ImGui::EndChild();

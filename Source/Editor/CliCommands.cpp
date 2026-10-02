@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "PhysicsSettings.h"
+#include "Physics2DSettings.h"
+#include "Physics2DManager.h"
 #include "TagsAndLayers.h"
 #include "SpriteSlicer.h"
 #include "SpriteAnimator.h"
@@ -633,6 +635,31 @@ namespace CliCommands
 		// Project Settings > Physics: Gravity, Layer Collision Matrix
 		Register("physics-settings", "physics settings: get, or {gravity: [x,y,z]} / {collide: [a,b] | ignore: [a,b]} (layer numbers or names) / {all: true|false}", [](const json& a, json& r, std::string& e) {
 			auto layerOf = [&](const json& v) { return v.is_string() ? TagsAndLayers::NameToLayer(v.get<std::string>()) : v.get<int>(); };
+			if (a.value("2d", false))
+			{
+				// Project Settings > Physics 2D (Box2D)
+				if (a.contains("gravity") && a["gravity"].is_array() && a["gravity"].size() >= 2)
+					Physics2DSettings::SetGravity(Vec2(a["gravity"][0].get<float>(), a["gravity"][1].get<float>()));
+				for (const char* key : { "collide", "ignore" })
+					if (a.contains(key))
+					{
+						const json& p = a[key];
+						if (!p.is_array() || p.size() != 2) { e = std::string(key) + " needs two layers [a, b]"; return false; }
+						const int la = layerOf(p[0]), lb = layerOf(p[1]);
+						if (la < 0 || lb < 0 || la > 31 || lb > 31) { e = "unknown layer in " + p.dump(); return false; }
+						Physics2DSettings::SetLayersCollide(la, lb, std::string(key) == "collide");
+					}
+				if (a.contains("all")) Physics2DSettings::SetAllCollide(a["all"].get<bool>());
+				const Vec2 g2 = Physics2DSettings::Gravity();
+				json ignored2 = json::array();
+				const std::vector<int> named2 = TagsAndLayers::NamedLayers();
+				for (size_t i = 0; i < named2.size(); ++i)
+					for (size_t k = i; k < named2.size(); ++k)
+						if (!Physics2DSettings::LayersCollide(named2[i], named2[k]))
+							ignored2.push_back({ TagsAndLayers::LayerName(named2[i]), TagsAndLayers::LayerName(named2[k]) });
+				r = { { "gravity", { g2.x, g2.y } }, { "ignoredPairs", ignored2 }, { "bodies", Physics2DManager::BodyCount() }, { "playing", Physics2DManager::Active() } };
+				return true;
+			}
 			if (a.contains("gravity") && a["gravity"].is_array() && a["gravity"].size() == 3)
 				PhysicsSettings::SetGravity(Vec3(a["gravity"][0].get<float>(), a["gravity"][1].get<float>(), a["gravity"][2].get<float>()));
 			for (const char* key : { "collide", "ignore" })

@@ -27,6 +27,16 @@ namespace NovaEngine.Interop
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct Ray2DData
+    {
+        public Vector2 point;
+        public Vector2 normal;
+        public float distance;
+        public float fraction;
+        public ulong gameObject;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     internal struct ControllerHitData
     {
         public Vector3 point;
@@ -219,6 +229,21 @@ namespace NovaEngine.Interop
         // Camera / Light cullingMask
         public delegate* unmanaged<ulong, int, int> CL_GetMask;
         public delegate* unmanaged<ulong, int, int, void> CL_SetMask;
+
+        // 2D 물리
+        public delegate* unmanaged<ulong, int, Vector2*, void> R2_GetVec;
+        public delegate* unmanaged<ulong, int, Vector2*, void> R2_SetVec;
+        public delegate* unmanaged<ulong, int, float> R2_GetFloat;
+        public delegate* unmanaged<ulong, int, float, void> R2_SetFloat;
+        public delegate* unmanaged<ulong, int, Vector2*, Vector2*, float, int, void> R2_Act;
+        public delegate* unmanaged<ulong, byte*, int, float*, int> C2_Get;
+        public delegate* unmanaged<ulong, byte*, int, float*, void> C2_Set;
+        public delegate* unmanaged<Vector2*, Vector2*, float, int, Ray2DData*, int> P2_Raycast;
+        public delegate* unmanaged<int, Vector2*, Vector2*, float, int, ulong> P2_Overlap;
+        public delegate* unmanaged<int, Vector2*, void> P2_Gravity;
+        public delegate* unmanaged<int, int, int, void> P2_IgnoreLayer;
+        public delegate* unmanaged<int, int, int> P2_GetIgnoreLayer;
+        public delegate* unmanaged<ulong, ulong, float*, int> P2_Contact;
     }
 
     internal static unsafe class Native

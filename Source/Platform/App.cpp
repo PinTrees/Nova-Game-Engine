@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "Physics2DManager.h"
 #include "PackageManager.h"
 #include "AutoSave.h"
 #include "PackageManagerWindow.h"
@@ -123,6 +124,7 @@ int32 App::Run()
 					{ PROFILE_SCOPE("Scripts.BeginFrame"); ScriptEngine::BeginFrame(); }   // C# 입력 상태 / 시간
 					{ PROFILE_SCOPE("Scene.Update"); UpdateScene(_timer.DeltaTime()); SceneManager::GetI()->UpdateScene(); }
 					{ PROFILE_SCOPE("Physics.Update"); PhysicsManager::GetI()->Update(_timer.DeltaTime()); }
+					{ PROFILE_SCOPE("Physics2D.Update"); Physics2DManager::Update(_timer.DeltaTime()); }
 				}
 
 				// Editor Update
