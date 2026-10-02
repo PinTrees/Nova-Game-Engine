@@ -41,7 +41,12 @@ namespace Modeling
 		bool Sel = false;
 		bool Smooth = false;     // Shade Smooth
 		int Material = 0;
+		int Origin = -1;         // 모디파이어 결과 면 → 원래 면 번호 (그리기 · 고르기, 저장하지 않음)
 	};
+
+	// 비례 편집 감쇠 (Blender 의 Proportional Editing Falloff)
+	enum class Falloff { Smooth = 0, Sphere, Root, Sharp, Linear, Constant };
+	Falloff FalloffFromName(const std::string& name);
 
 	struct Edge
 	{
@@ -135,6 +140,19 @@ namespace Modeling
 		int SetSmooth(bool smooth);
 		int Triangulate();
 		int Duplicate();                         // 선택을 복제 (새 것 선택)
+
+		// ---- 비례 편집: 고른 점 = 1, 반경 안 = 감쇠 (가장 가까운 고른 점까지 거리), 밖 = 0
+		std::vector<float> ProportionalWeights(float radius, Falloff falloff) const;
+
+		// ---- UV (고른 면, 없으면 전체) — 0..1 안에 맞춘다
+		int ProjectUV(int mode);                     // 0 box, 1 cylinder (Y 축), 2 sphere, 3 planar (평균 법선)
+		int SmartUV(float angleDeg, float margin);   // Smart UV Project: 법선이 비슷한 면끼리 덩어리 → 평면 투영 → 쌓기. 덩어리 수
+		int FacesWithUV() const;
+
+		// ---- 머리카락 (애니메이션풍 머리 다발 · 카드): 점들을 Catmull-Rom 으로 이은 곡선을 따라
+		//  sides >= 3 = 단면이 납작한 다발 (width × thickness, 끝으로 가늘어짐, 뿌리는 막힘), sides < 3 = 평평한 카드 (앞면 = center 반대쪽)
+		//  tip = 끝 굵기 비율 (0 = 뾰족), UV: u = 둘레, v = 뿌리 0 → 끝 1. 새 것만 선택된다
+		int AddStrand(const std::vector<Vec3>& points, float width, float thickness, float tip, int sides, const Vec3& center, int segments);
 
 		// 쓰지 않는 점 지우기 · 빈 면 정리 (연산 뒤 자동)
 		void Cleanup();

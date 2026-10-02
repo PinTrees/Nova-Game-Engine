@@ -478,9 +478,29 @@ void ModelEditorWindow::BeginModal(Modal m, const std::string& op)
 	m_StartRotations.clear();
 	m_StartScales.clear();
 	if (d.EditMode)
+	{
 		for (const Vert& v : a->M.Verts) m_StartPositions.push_back(v.P);
+		ComputeWeights();
+	}
 	else
 		for (const Object& o : d.Objects) { m_StartPositions.push_back(o.Position); m_StartRotations.push_back(o.Rotation); m_StartScales.push_back(o.Scale); }
+}
+
+// 비례 편집 무게 (끔 / 돌출 · 복제 뒤 이동 = 고른 점만 1)
+void ModelEditorWindow::ComputeWeights()
+{
+	m_Weights.clear();
+	Object* a = Doc().ActiveObject();
+	if (!a || !m_Prop || m_ModalOp == "extrude" || m_ModalOp == "duplicate") return;
+	const float s = (std::max)(1e-6f, (fabsf(a->Scale.x) + fabsf(a->Scale.y) + fabsf(a->Scale.z)) / 3.0f);
+	m_Weights = a->M.ProportionalWeights(m_PropRadius / s, (Falloff)m_PropFalloff);
+}
+
+float ModelEditorWindow::WeightOf(size_t i) const
+{
+	if (i < m_Weights.size()) return m_Weights[i];
+	const Object* a = Doc().ActiveObject();
+	return a && i < a->M.Verts.size() && a->M.Verts[i].Sel ? 1.0f : 0.0f;
 }
 
 void ModelEditorWindow::ApplyModal()
@@ -539,7 +559,7 @@ void ModelEditorWindow::ApplyModal()
 		{
 			const Vec3 local = Vec3::TransformNormal(delta, a->World().Invert());
 			for (size_t i = 0; i < a->M.Verts.size() && i < m_StartPositions.size(); ++i)
-				a->M.Verts[i].P = a->M.Verts[i].Sel ? m_StartPositions[i] + local : m_StartPositions[i];
+				a->M.Verts[i].P = m_StartPositions[i] + local * WeightOf(i);
 		}
 		else
 			for (size_t i = 0; i < d.Objects.size() && i < m_StartPositions.size(); ++i)
@@ -566,10 +586,12 @@ void ModelEditorWindow::ApplyModal()
 			const Matrix inv = a->World().Invert();
 			Vec3 la = Vec3::TransformNormal(axis, inv);
 			la.Normalize();
-			const Quaternion lq = Quaternion::CreateFromAxisAngle(la, angle);
 			const Vec3 lp = Vec3::Transform(m_Pivot, inv);
 			for (size_t i = 0; i < a->M.Verts.size() && i < m_StartPositions.size(); ++i)
-				a->M.Verts[i].P = a->M.Verts[i].Sel ? Vec3::Transform(m_StartPositions[i] - lp, lq) + lp : m_StartPositions[i];
+			{
+				const float k = WeightOf(i);
+				a->M.Verts[i].P = k > 0.0f ? Vec3::Transform(m_StartPositions[i] - lp, Quaternion::CreateFromAxisAngle(la, angle * k)) + lp : m_StartPositions[i];
+			}
 		}
 		else
 			for (size_t i = 0; i < d.Objects.size() && i < m_StartRotations.size(); ++i)
@@ -586,12 +608,22 @@ void ModelEditorWindow::ApplyModal()
 		{
 			const Vec3 lp = Vec3::Transform(m_Pivot, a->World().Invert());
 			for (size_t i = 0; i < a->M.Verts.size() && i < m_StartPositions.size(); ++i)
-				a->M.Verts[i].P = a->M.Verts[i].Sel ? lp + (m_StartPositions[i] - lp) * s : m_StartPositions[i];
+				a->M.Verts[i].P = lp + (m_StartPositions[i] - lp) * (Vec3(1, 1, 1) + (s - Vec3(1, 1, 1)) * WeightOf(i));
 		}
 		else
 			for (size_t i = 0; i < d.Objects.size() && i < m_StartScales.size(); ++i)
 				d.Objects[i].Scale = d.Objects[i].Selected ? m_StartScales[i] * s : m_StartScales[i];
 		m_ModalArgs = { { "factor", { s.x, s.y, s.z } } };
+	}
+	if (a && d.EditMode && a->MirrorX && a->MirrorClip)
+		for (size_t i = 0; i < a->M.Verts.size() && i < m_StartPositions.size(); ++i)
+			if (fabsf(m_StartPositions[i].x) < 1e-4f) a->M.Verts[i].P.x = 0.0f;   // 거울 가운데는 X = 0 에 (Clipping)
+	if (d.EditMode && m_Prop && !m_Weights.empty() && m_ModalArgs.is_object())
+	{
+		// Last Operation 으로 다시 할 때도 같은 비례 편집
+		m_ModalArgs["proportional"] = m_PropRadius;
+		static const char* kFall[] = { "smooth", "sphere", "root", "sharp", "linear", "constant" };
+		m_ModalArgs["falloff"] = kFall[std::clamp(m_PropFalloff, 0, 5)];
 	}
 	if (a) a->M.Touch();
 	++d.Revision;
@@ -694,6 +726,7 @@ void ModelEditorWindow::HandleShortcuts()
 	if (pressed(ImGuiKey_Keypad3)) preset(ctrl ? "left" : "right");
 	if (pressed(ImGuiKey_Keypad7)) preset(ctrl ? "bottom" : "top");
 	if (pressed(ImGuiKey_Keypad5)) { m_Cam.Ortho = !m_Cam.Ortho; m_Dirty = true; }
+	if (pressed(ImGuiKey_O) && !ctrl && !alt) { m_Prop = !m_Prop; SetStatus(m_Prop ? "Proportional Editing on (wheel while moving = radius)" : "Proportional Editing off"); return; }
 	if (pressed(ImGuiKey_KeypadDecimal) || (pressed(ImGuiKey_F) && !d.EditMode)) FrameSelected();
 	if (pressed(ImGuiKey_Home)) FrameAll();
 	if (alt && pressed(ImGuiKey_Z)) { m_Opt.XRay = !m_Opt.XRay; m_Dirty = true; return; }
@@ -785,7 +818,14 @@ void ModelEditorWindow::HandleViewportInput(bool hovered)
 		}
 		m_Dirty = true;
 	}
-	if (hovered && io.MouseWheel != 0.0f && m_Modal != Modal::LoopCut)
+	const bool propModal = m_Prop && Doc().EditMode && (m_Modal == Modal::Grab || m_Modal == Modal::Rotate || m_Modal == Modal::Scale) && !m_Weights.empty();
+	if (propModal && io.MouseWheel != 0.0f)
+	{
+		m_PropRadius = std::clamp(m_PropRadius * powf(1.15f, -io.MouseWheel), 0.001f, 1000.0f);
+		ComputeWeights();
+		ApplyModal();
+	}
+	else if (hovered && io.MouseWheel != 0.0f && m_Modal != Modal::LoopCut)
 	{
 		m_Cam.Distance = std::clamp(m_Cam.Distance * powf(0.88f, io.MouseWheel), 0.01f, 10000.0f);
 		m_Dirty = true;
@@ -913,6 +953,8 @@ void ModelEditorWindow::DrawMenuBar()
 		if (ImGui::MenuItem("Solid", nullptr, m_Opt.Shade == Shading::Solid)) { m_Opt.Shade = Shading::Solid; m_Dirty = true; }
 		if (ImGui::MenuItem("Toon", nullptr, m_Opt.Shade == Shading::Toon)) { m_Opt.Shade = Shading::Toon; m_Dirty = true; }
 		if (ImGui::MenuItem("Normals", nullptr, m_Opt.Shade == Shading::Normals)) { m_Opt.Shade = Shading::Normals; m_Dirty = true; }
+		if (ImGui::MenuItem("UV Checker", nullptr, m_Opt.Shade == Shading::UVChecker)) { m_Opt.Shade = Shading::UVChecker; m_Dirty = true; }
+		if (ImGui::MenuItem("Toon Outline", nullptr, m_Opt.Outline)) { m_Opt.Outline = !m_Opt.Outline; m_Dirty = true; }
 		ImGui::EndMenu();
 	}
 	if (ImGui::BeginMenu("Add"))
@@ -965,6 +1007,16 @@ void ModelEditorWindow::DrawMenuBar()
 			if (ImGui::MenuItem("Flip Normals")) Run("flip");
 			if (ImGui::MenuItem("Smooth Vertices")) Run("smooth");
 			if (ImGui::MenuItem("Triangulate")) Run("triangulate");
+			ImGui::Separator();
+			if (ImGui::BeginMenu("UV"))
+			{
+				if (ImGui::MenuItem("Smart UV Project")) { Run("uv.smart"); m_Opt.Shade = Shading::UVChecker; }
+				if (ImGui::MenuItem("Cube Projection")) { Run("uv.project", { { "mode", "box" } }); m_Opt.Shade = Shading::UVChecker; }
+				if (ImGui::MenuItem("Cylinder Projection")) { Run("uv.project", { { "mode", "cylinder" } }); m_Opt.Shade = Shading::UVChecker; }
+				if (ImGui::MenuItem("Sphere Projection")) { Run("uv.project", { { "mode", "sphere" } }); m_Opt.Shade = Shading::UVChecker; }
+				if (ImGui::MenuItem("Project From Normal")) { Run("uv.project", { { "mode", "planar" } }); m_Opt.Shade = Shading::UVChecker; }
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Delete Vertices", "X")) Run("delete", { { "type", "verts" } });
 			if (ImGui::MenuItem("Delete Faces")) Run("delete", { { "type", "faces" } });
@@ -1045,6 +1097,18 @@ void ModelEditorWindow::DrawOverlay(ImDrawList* dl)
 			dl->AddCircleFilled(e, 8.0f, ax.Col);
 			dl->AddText(ImVec2(e.x - 4.0f, e.y - 7.0f), IM_COL32(20, 20, 20, 255), ax.L);
 		}
+	}
+
+	// 비례 편집 반경 (끄는 중)
+	if (m_Prop && !m_Weights.empty() && (m_Modal == Modal::Grab || m_Modal == Modal::Rotate || m_Modal == Modal::Scale))
+	{
+		Vec3 c, e;
+		const Vec3 f = m_Cam.Forward();
+		Vec3 right = Vec3(0, 1, 0).Cross(f);
+		if (right.LengthSquared() < 1e-6f) right = Vec3(1, 0, 0);
+		right.Normalize();
+		if (m_Raster.Project(m_Pivot, c) && m_Raster.Project(m_Pivot + right * m_PropRadius, e))
+			dl->AddCircle(ImVec2(o.x + c.x, o.y + c.y), Len(ImVec2(e.x - c.x, e.y - c.y)), IM_COL32(255, 255, 255, 120), 64, 1.5f);
 	}
 
 	// 상자 고르기
@@ -1173,8 +1237,12 @@ void ModelEditorWindow::DrawSidePanel()
 		}
 	}
 
+	DrawModifiersPanel();
 	if (d.EditMode)
+	{
+		DrawMaterialsPanel();
 		DrawGroupsPanel();
+	}
 	DrawRefsPanel();
 
 	// ---- Last Operation (값을 바꾸면 되돌리고 다시)
@@ -1209,6 +1277,77 @@ void ModelEditorWindow::DrawSidePanel()
 			if (!RerunLast(args, r, err)) SetStatus("! " + err);
 			m_Dirty = true;
 		}
+	}
+}
+
+void ModelEditorWindow::DrawModifiersPanel()
+{
+	Document& d = Doc();
+	Object* a = d.ActiveObject();
+	if (!a) return;
+	ImGui::Spacing();
+	ImGui::TextDisabled("MODIFIERS");
+	bool mirror = a->MirrorX;
+	if (ImGui::Checkbox("Mirror X", &mirror)) Run("modifier.mirror", { { "enable", mirror } });
+	if (a->MirrorX)
+	{
+		ImGui::SameLine();
+		bool clip = a->MirrorClip;
+		if (ImGui::Checkbox("Clipping", &clip)) Run("modifier.mirror", { { "enable", true }, { "clip", clip } });
+	}
+	int levels = a->Subsurf;
+	ImGui::SetNextItemWidth(120.0f);
+	if (ImGui::SliderInt("Subdivision", &levels, 0, 3)) Run("modifier.subsurf", { { "levels", levels } });
+	if (a->HasModifiers())
+	{
+		ImGui::SameLine();
+		if (ImGui::Button("Apply")) Run("modifier.apply");
+	}
+	// 비례 편집 (O)
+	ImGui::Checkbox("Proportional (O)", &m_Prop);
+	if (m_Prop)
+	{
+		static const char* kFall[] = { "Smooth", "Sphere", "Root", "Sharp", "Linear", "Constant" };
+		ImGui::SetNextItemWidth(90.0f);
+		ImGui::Combo("##falloff", &m_PropFalloff, kFall, 6);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(80.0f);
+		ImGui::DragFloat("Radius", &m_PropRadius, 0.005f, 0.001f, 100.0f, "%.3f m");
+	}
+}
+
+void ModelEditorWindow::DrawMaterialsPanel()
+{
+	Document& d = Doc();
+	Object* a = d.ActiveObject();
+	if (!a) return;
+	ImGui::Spacing();
+	ImGui::TextDisabled("MATERIALS");
+	const int count = (int)(std::max)((std::max)(d.Materials.size(), d.MaterialColors.size()), (size_t)1);
+	for (int i = 0; i < count; ++i)
+	{
+		ImGui::PushID(i);
+		Vec3 c = d.MaterialColor(i);
+		float col[3] = { c.x, c.y, c.z };
+		if (ImGui::ColorEdit3("##col", col, ImGuiColorEditFlags_NoInputs))
+		{
+			while ((int)d.MaterialColors.size() <= i) d.MaterialColors.push_back(Vec3(0.8f, 0.8f, 0.8f));
+			d.MaterialColors[i] = Vec3(col[0], col[1], col[2]);
+			d.Changed();
+		}
+		ImGui::SameLine();
+		const std::string name = i < (int)d.Materials.size() && !d.Materials[i].empty() ? d.Materials[i] : (i == 0 ? "Material" : "Material." + std::to_string(i));
+		ImGui::TextUnformatted(name.c_str());
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Assign")) Run("material.set", { { "index", i } });
+		ImGui::PopID();
+	}
+	if (ImGui::SmallButton("+ Slot"))
+	{
+		d.Materials.resize(count + 1);
+		d.MaterialColors.resize(count + 1, Vec3(0.8f, 0.8f, 0.8f));
+		d.Materials[count] = "Material." + std::to_string(count);
+		d.Changed();
 	}
 }
 

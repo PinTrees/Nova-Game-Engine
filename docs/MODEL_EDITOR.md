@@ -88,6 +88,28 @@ Blender 처럼 메시를 고치는 창과, 같은 연산을 AI 에이전트가 �
 | `face.add` | `--points [[x,y,z],..]` | 점들로 면 하나 (같은 자리 점은 합쳐 이어 붙인다) |
 | `material.set` | `--index n [--name]` | 고른 면의 재질 칸 (FBX 에 재질로) |
 
+### 캐릭터 도구 (3 단계)
+
+| op | 인자 | 설명 |
+|---|---|---|
+| `modifier.mirror` | `--enable true\|false [--clip true]` | **실시간 X 거울**: 반쪽(+X)만 만들면 나머지가 늘 따라온다 (원래 메시는 반쪽 그대로). Clipping = 가운데(X = 0) 점은 옮겨도 0 에 남는다 |
+| `modifier.subsurf` | `--levels 0..3` | Subdivision Surface **미리보기** (원래 메시는 거친 그대로 편집) |
+| `modifier.apply` | | 결과를 원래 메시로 굽고 모디파이어를 끈다 |
+| (변환) `--proportional` | `translate / rotate / scale … --proportional <반경 m> [--falloff smooth\|sphere\|root\|sharp\|linear\|constant]` | **비례 편집**: 고른 점 = 100 %, 반경 안 점 = 거리에 따라 덜 — 얼굴 · 몸 모양을 부드럽게 끌기 |
+| `hair.strand` | `--points [[x,y,z],..] (뿌리 → 끝) [--width 0.08] [--thickness 0.03] [--tip 0] [--sides 4] [--center 머리 중심] [--segments] [--material n] [--name Hair]` | **애니메이션풍 머리 다발**: 점들을 부드러운 곡선으로 잇고 납작한 단면이 끝으로 갈수록 가늘어진다 (끝 뾰족, 뿌리 막힘, 닫힌 메시). 단면은 center 에서 바깥을 본다. Edit 모드면 활성 메시에, 아니면 새 오브젝트 |
+| `hair.card` | 같은 인자 (`--sides` 없음) | 평평한 머리카락 카드 (앞면 = 머리 바깥), UV u = 가로 · v = 뿌리 → 끝 |
+| `uv.smart` | `[--angle 66] [--margin 0.02]` | **Smart UV Project**: 법선 각도로 덩어리 → 평면 투영 → 0..1 에 쌓기 (자동 이음매) |
+| `uv.project` | `--mode box\|cylinder\|sphere\|planar` | 투영 UV (0..1 에 맞춤) |
+| `material.set` | `--index n [--name] [--color r,g,b] [--only]` | 고른 면 (없으면 전체) 의 재질 + **색** (툰 미리보기 · FBX Diffuse · OBJ .mtl) |
+| `material.list` | | 번호 · 이름 · 색 · 쓰는 면 수 |
+| `render` | `--shading toon` (외곽선 기본 켬) `\| uv` `[--outline] [--outlineWidth px]` | 툰 = 2 톤(그림자 = 푸르스름) + 잉크 외곽선, uv = 바둑판 (늘어남 확인, UV 없는 면 = 분홍) |
+
+UV 는 Subdivide · Loop Cut · Subsurf 를 거쳐도 남는다 (모서리 UV 를 보간). 결과(`info`)에 `uvFaces`(UV 있는 면 수), 모디파이어가 있으면 `modifiers` · `evaluated {verts, faces, boundaryEdges}`. 내보내기 · 렌더 · 비교는 모디파이어 결과를 쓴다.
+
+![툰 렌더 (CLI 만으로)](images/model_editor_toon.webp)
+
+예: [examples/model_chibi.txt](examples/model_chibi.txt) — `nova model new` 뒤 `nova model batch docs/examples/model_chibi.txt` 한 번 (연산 62 개) 으로 위 캐릭터.
+
 ### 버텍스 그룹 (이름 있는 선택 집합)
 
 점마다 그룹 · 가중치(0..1) 를 가진다. **연산을 거쳐도 따라간다**: 돌출 · Inset · 복제 = 복사, Subdivide · Loop Cut · Subsurf 의 새 점 = 양쪽 가중치 보간, Mirror X = `.L ↔ .R` (`_L/_R`, `Left/Right`) 이름을 바꿔 붙인다. 점 번호가 바뀌어도 `group.select` 로 다시 고를 수 있어 AI 가 부위(머리 · 팔 · 앞머리 …)를 이름으로 다룬다. 리깅 단계에서는 이 가중치가 스킨 가중치가 된다.
@@ -122,8 +144,10 @@ Blender 처럼 메시를 고치는 창과, 같은 연산을 AI 에이전트가 �
 1. `nova model new` → 큰 덩어리부터 `add` (머리 = uvsphere, 몸 = cylinder `--radiusTop`, 팔다리 = cylinder + `object.transform --rotation`)
 2. 자주 `render --dir <폴더> --views front,right,three-quarter --shading toon --wire false` 로 **보고 고친다** (그림을 열어 비례 · 대칭 확인)
 3. 모양 다듬기: `mode --mode edit` → `select.box` / `select.normal` 로 고르고 `extrude` · `inset` · `scale` · `translate`
-4. 대칭: 오른쪽 반(+X)만 만들고 `mirror --axis x`, 또는 `symmetrize --direction +x`
-5. 부드럽게: `subsurf --levels 1` + `shade --smooth true`
+4. 대칭: `modifier.mirror --enable true` 를 켜고 +X 반쪽만 고친다 (끝나면 `modifier.apply`), 또는 `mirror --axis x` / `symmetrize --direction +x`
+5. 부드럽게: `modifier.subsurf --levels 2` 로 보면서 거친 메시를 고치고, 모양은 `--proportional 0.2` 로 부드럽게 끈다. `shade --smooth true`
+5-1. 머리카락: 머리 중심을 `--center` 로 주고 `hair.strand` 를 뿌리 → 끝 점으로 (앞머리 · 옆머리 · 뒷머리 · 아호게), 색은 `material.set --index 1 --color …` + `--material 1`
+5-2. UV: `uv.smart`, 확인 `render --shading uv`
 6. 확인: `info` 의 `boundaryEdges` (닫힌 몸이면 0), `nonManifoldEdges` (0 이 정상), 기준 그림이 있으면 `compare` 의 `hints` 를 따라 고치고 `iou` 가 오르는지 본다
    - 부위마다 `group.assign --name Head` 처럼 이름을 붙여 두면, 번호가 바뀐 뒤에도 `group.select` 로 다시 고른다
    - 큰 변경 전 `checkpoint --save v1`, 여러 연산은 파일에 적어 `batch` 로 (한 번에 되돌릴 수 있다)
@@ -154,11 +178,12 @@ nova model export Assets/Models/Chibi.fbx
 | 모드 | Tab = Object ↔ Edit, 1 / 2 / 3 = 점 · 변 · 면 (Edit), 오브젝트 두 번 클릭 = Edit |
 | 고르기 | 클릭 (Shift = 더하기/빼기), 끌기 = 상자 (Shift 더하기, Ctrl 빼기), Alt + 클릭 = 변 고리, A / Alt+A / Ctrl+I, L 연결 |
 | 변환 | G 옮기기 · R 돌리기 · S 크기 — 그 뒤 X / Y / Z 축 제한, 숫자 입력, Ctrl = 눈금 맞춤, 클릭 · Enter 확정, 오른쪽 · Esc 취소 |
+| 비례 편집 | O 켜고 끄기, G/R/S 하는 동안 휠 = 반경 (흰 원), 패널에서 감쇠 · 반경 |
 | 편집 | E 돌출 (법선 방향으로 끌기), I Inset (끌기), Ctrl+B Bevel (끌기), Ctrl+R Loop Cut (휠 = 자르는 수, 클릭할 변), Shift+D 복제, X / Delete 지우기, M 합치기, F 채우기, Shift+Ctrl+N 법선 다시 |
-| 보기 | Alt+Z X-Ray, View 메뉴: Solid · Toon · Normals, 선 겹쳐 보기, 격자 |
+| 보기 | Alt+Z X-Ray, View 메뉴: Solid · Toon · Normals · UV Checker, Toon Outline, 선 겹쳐 보기, 격자, 기준 그림. Mesh > UV: Smart UV Project · Cube · Cylinder · Sphere · Project From Normal |
 | Undo | Ctrl+Z / Ctrl+Shift+Z (이 창이 포커스면 씬 Undo 대신 이 창의 Undo) |
 
-오른쪽 패널: Outliner(눈 = 보이기), 활성 오브젝트 이름 · 위치 · 회전 · 크기, Edit 모드면 고른 점의 **Median**(값을 바꾸면 옮김), 점 · 면 · 삼각형 수와 열린 변, **Vertex Groups**(Assign · Remove · Select · Deselect · 지우기), **Reference Images**(보이기 · 투명도 · 높이 · 중심, 시점 고르고 Add Image… → 그 시점으로, Compare Silhouette), **Last Operation**(마지막 연산의 값 — 바꾸면 되돌리고 다시, Blender 의 Adjust Last Operation).
+오른쪽 패널: Outliner(눈 = 보이기), 활성 오브젝트 이름 · 위치 · 회전 · 크기, Edit 모드면 고른 점의 **Median**(값을 바꾸면 옮김), 점 · 면 · 삼각형 수와 열린 변, **Modifiers**(Mirror X · Clipping · Subdivision 0..3 · Apply, Proportional 감쇠 · 반경), **Materials**(Edit: 색 · Assign · + Slot), **Vertex Groups**(Assign · Remove · Select · Deselect · 지우기), **Reference Images**(보이기 · 투명도 · 높이 · 중심, 시점 고르고 Add Image… → 그 시점으로, Compare Silhouette), **Last Operation**(마지막 연산의 값 — 바꾸면 되돌리고 다시, Blender 의 Adjust Last Operation).
 
 ## 구조
 
@@ -182,5 +207,5 @@ nova model export Assets/Models/Chibi.fbx
 |---|---|---|
 | 1 | 메시 편집 기본 · 창 · Undo · FBX/OBJ/GLB 가져오기 · 내보내기 · CLI · 시점별 PNG | **완료 (0.1.0)** |
 | 2 | AI 모델링 규격: 버텍스 그룹(이름 있는 선택 + 가중치, 연산을 따라감), 체크포인트, `batch`(Undo 한 번), 기준 그림 겹쳐 보기, 실루엣 비교(IoU · 높이 띠 · 힌트 · 차이 그림) | **완료 (0.2.0)** |
-| 3 | 캐릭터 도구: Mirror 모디파이어(실시간 대칭), 비례 편집(Proportional Editing), Subsurf 미리보기, 머리카락 카드 · 커브, UV 펼치기 · 자동 시임, 툰 셰이딩 미리보기 · 외곽선 | |
+| 3 | 캐릭터 도구: Mirror 모디파이어(실시간 대칭 + Clipping), 비례 편집, Subsurf 미리보기 · 적용, 머리 다발 · 카드, Smart UV · 투영 UV (연산을 거쳐도 UV 유지), 재질 색, 툰 2 톤 + 외곽선 · UV 바둑판 | **완료 (0.3.0)** |
 | 4 | 리깅: 아마추어(본) 편집, Humanoid 템플릿, 자동 가중치(열 확산), 가중치 페인트, 스킨 FBX 내보내기 → 엔진 Animator / Humanoid 리타게팅 | |

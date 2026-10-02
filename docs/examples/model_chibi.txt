@@ -1,0 +1,63 @@
+# 3 단계 데모: CLI 만으로 만든 치비 캐릭터
+add --type uvsphere --segments 24 --rings 16 --radius 0.3 --location 0,1.12,0 --name Head --smooth
+mode --mode edit
+material.set --index 0 --name Skin --color 1.0,0.86,0.78
+mode --mode object
+add --type uvsphere --segments 16 --rings 8 --radius 0.055 --location 0.10,1.1,0.255 --name EyeR --smooth
+object.transform --scale 0.8,1.25,0.45
+mode --mode edit
+material.set --index 3 --name Eye --color 0.25,0.35,0.75
+mode --mode object
+add --type uvsphere --segments 16 --rings 8 --radius 0.055 --location -0.10,1.1,0.255 --name EyeL --smooth
+object.transform --scale 0.8,1.25,0.45
+mode --mode edit
+material.set --index 3 --name Eye --color 0.25,0.35,0.75
+mode --mode object
+add --type uvsphere --segments 24 --rings 16 --radius 0.32 --location 0,1.14,-0.01 --name HairCap --smooth
+mode --mode edit --select vertex
+select.box --min -1,0,0.12 --max 1,1.26,1
+select.box --min -1,0,-1 --max 1,1.0,1 --extend
+delete --type verts
+select.all
+material.set --index 1 --name Hair --color 0.98,0.62,0.74
+mode --mode object
+hair.strand --points [[-0.092,1.400,0.077],[-0.230,1.300,0.193],[-0.257,1.160,0.212]] --center 0,1.12,0 --width 0.13 --thickness 0.035 --sides 4 --material 1 --name Bang
+hair.strand --points [[-0.051,1.400,0.109],[-0.127,1.300,0.272],[-0.142,1.160,0.299]] --center 0,1.12,0 --width 0.13 --thickness 0.035 --sides 4 --material 1 --name Bang
+hair.strand --points [[0.000,1.400,0.120],[0.000,1.300,0.300],[0.000,1.160,0.330]] --center 0,1.12,0 --width 0.13 --thickness 0.035 --sides 4 --material 1 --name Bang
+hair.strand --points [[0.051,1.400,0.109],[0.127,1.300,0.272],[0.142,1.160,0.299]] --center 0,1.12,0 --width 0.13 --thickness 0.035 --sides 4 --material 1 --name Bang
+hair.strand --points [[0.092,1.400,0.077],[0.230,1.300,0.193],[0.257,1.160,0.212]] --center 0,1.12,0 --width 0.13 --thickness 0.035 --sides 4 --material 1 --name Bang
+hair.strand --points [[0.155,1.400,0.041],[0.348,1.180,0.093],[0.328,0.860,0.088]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[0.155,1.400,-0.041],[0.348,1.180,-0.093],[0.328,0.860,-0.088]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[0.113,1.400,-0.113],[0.255,1.180,-0.255],[0.240,0.860,-0.240]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[0.041,1.400,-0.155],[0.093,1.180,-0.348],[0.088,0.860,-0.328]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[-0.041,1.400,-0.155],[-0.093,1.180,-0.348],[-0.088,0.860,-0.328]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[-0.113,1.400,-0.113],[-0.255,1.180,-0.255],[-0.240,0.860,-0.240]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[-0.155,1.400,-0.041],[-0.348,1.180,-0.093],[-0.328,0.860,-0.088]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[-0.155,1.400,0.041],[-0.348,1.180,0.093],[-0.328,0.860,0.088]] --center 0,1.12,0 --width 0.17 --thickness 0.05 --sides 4 --material 1 --name Back
+hair.strand --points [[0,1.42,0],[0.03,1.55,0.03],[0.0,1.6,0.1]] --center 0,1.12,0 --width 0.05 --thickness 0.02 --material 1 --name Ahoge
+add --type cylinder --vertices 16 --radius 0.2 --radiusTop 0.12 --depth 0.42 --location 0,0.62,0 --name Body --smooth
+mode --mode edit --select face
+select.normal --direction 0,-1,0 --angle 10
+extrude --distance 0.14
+scale --factor 1.45,1,1.45
+select.all
+material.set --index 2 --name Dress --color 0.35,0.38,0.62
+mode --mode object
+add --type cylinder --vertices 10 --radius 0.045 --radiusTop 0.055 --depth 0.36 --location 0.20,0.66,0 --name ArmR --smooth
+object.transform --rotation 0,0,25
+mode --mode edit
+material.set --index 0
+mode --mode object
+add --type cylinder --vertices 10 --radius 0.045 --radiusTop 0.055 --depth 0.36 --location -0.20,0.66,0 --name ArmL --smooth
+object.transform --rotation 0,0,-25
+mode --mode edit
+material.set --index 0
+mode --mode object
+add --type cylinder --vertices 10 --radius 0.055 --radiusTop 0.06 --depth 0.36 --location 0.08,0.2,0 --name LegR --smooth
+mode --mode edit
+material.set --index 4 --name Stocking --color 0.22,0.2,0.26
+mode --mode object
+add --type cylinder --vertices 10 --radius 0.055 --radiusTop 0.06 --depth 0.36 --location -0.08,0.2,0 --name LegL --smooth
+mode --mode edit
+material.set --index 4 --name Stocking --color 0.22,0.2,0.26
+mode --mode object

@@ -882,41 +882,52 @@ namespace Modeling
 		std::vector<Face> out;
 		for (int f = 0; f < (int)Faces.size(); ++f)
 		{
-			Face& face = Faces[f];
+			const Face& face = Faces[f];
 			const auto v = face.V;
 			const size_t n = v.size();
+			const bool hasUV = face.UV.size() == n;
+			auto uv = [&](size_t i) { return hasUV ? face.UV[i % n] : Vec2(0, 0); };
+			auto uvMid = [&](size_t i) { return (uv(i) + uv(i + 1)) * 0.5f; };   // 변 i → i+1 의 가운데
 			if (!selSet.count(f))
 			{
-				// 이웃 면: 나뉜 변에 중점을 끼워 넣는다 (구멍 방지)
+				// 이웃 면: 나뉜 변에 중점을 끼워 넣는다 (구멍 방지, UV 도 가운데)
 				Face g = face;
 				g.V.clear();
+				g.UV.clear();
 				for (size_t i = 0; i < n; ++i)
 				{
 					g.V.push_back(v[i]);
+					if (hasUV) g.UV.push_back(uv(i));
 					auto it = mid.find(EdgeKey(v[i], v[(i + 1) % n]));
-					if (it != mid.end()) g.V.push_back(it->second);
+					if (it != mid.end()) { g.V.push_back(it->second); if (hasUV) g.UV.push_back(uvMid(i)); }
 				}
-				g.UV.clear();
 				out.push_back(g);
 				continue;
 			}
 			std::vector<int> m(n);
 			for (size_t i = 0; i < n; ++i) m[i] = mid[EdgeKey(v[i], v[(i + 1) % n])];
+			auto emit = [&](std::vector<int> vs, std::vector<Vec2> uvs) {
+				Face g = face;   // Smooth · Material · Origin 유지
+				g.V = std::move(vs);
+				g.UV = hasUV ? std::move(uvs) : std::vector<Vec2>();
+				g.Sel = true;
+				out.push_back(g);
+			};
 			if (n == 3)
 			{
-				for (auto tri : { std::array<int, 3>{ v[0], m[0], m[2] }, { m[0], v[1], m[1] }, { m[2], m[1], v[2] }, { m[0], m[1], m[2] } })
-				{
-					Face g; g.V = { tri[0], tri[1], tri[2] }; g.Sel = true; g.Smooth = face.Smooth; g.Material = face.Material; out.push_back(g);
-				}
+				emit({ v[0], m[0], m[2] }, { uv(0), uvMid(0), uvMid(2) });
+				emit({ m[0], v[1], m[1] }, { uvMid(0), uv(1), uvMid(1) });
+				emit({ m[2], m[1], v[2] }, { uvMid(2), uvMid(1), uv(2) });
+				emit({ m[0], m[1], m[2] }, { uvMid(0), uvMid(1), uvMid(2) });
 			}
 			else
 			{
 				Verts.push_back(AverageVert(Verts, v));
 				const int ci = (int)Verts.size() - 1;
+				Vec2 cuv(0, 0);
+				for (size_t i = 0; i < n; ++i) cuv += uv(i) / (float)n;
 				for (size_t i = 0; i < n; ++i)
-				{
-					Face g; g.V = { v[i], m[i], ci, m[(i + n - 1) % n] }; g.Sel = true; g.Smooth = face.Smooth; g.Material = face.Material; out.push_back(g);
-				}
+					emit({ v[i], m[i], ci, m[(i + n - 1) % n] }, { uv(i), uvMid(i), cuv, uvMid(i + n - 1) });
 			}
 		}
 		Faces = out;
@@ -998,7 +1009,16 @@ namespace Modeling
 				for (size_t i = 0; i < n; ++i)
 				{
 					const int eNext = FindEdge(v[i], v[(i + 1) % n]), ePrev = FindEdge(v[(i + n - 1) % n], v[i]);
-					Face g; g.V = { v[i], edgeIdx[eNext], faceIdx[f], edgeIdx[ePrev] }; g.Sel = Faces[f].Sel; g.Smooth = true; g.Material = Faces[f].Material;
+					Face g = Faces[f];   // Material · Origin 유지
+					g.V = { v[i], edgeIdx[eNext], faceIdx[f], edgeIdx[ePrev] };
+					g.Smooth = true;
+					if (Faces[f].UV.size() == n)
+					{
+						const auto& u = Faces[f].UV;
+						Vec2 c(0, 0);
+						for (const Vec2& t : u) c += t / (float)n;
+						g.UV = { u[i], (u[i] + u[(i + 1) % n]) * 0.5f, c, (u[(i + n - 1) % n] + u[i]) * 0.5f };
+					}
 					faces.push_back(g);
 				}
 			}
@@ -1061,11 +1081,19 @@ namespace Modeling
 			cutPts[EdgeKey(r.A, r.B)] = pts;
 			startOf[EdgeKey(r.A, r.B)] = r.A;
 		}
+		auto cutT = [&](int c) { return cuts == 1 ? std::clamp(factor, 0.01f, 0.99f) : (c + 1) / (float)(cuts + 1); };   // 시작 쪽에서
 		auto ptsFrom = [&](int a, int b) {
 			// a → b 방향 순서로
 			std::vector<int> p = cutPts[EdgeKey(a, b)];
 			if (startOf[EdgeKey(a, b)] != a) std::reverse(p.begin(), p.end());
 			return p;
+		};
+		auto tFrom = [&](int a, int b) {
+			// ptsFrom 과 같은 순서의 a 에서의 비율
+			std::vector<float> t(cuts);
+			const bool fromA = startOf[EdgeKey(a, b)] == a;
+			for (int c = 0; c < cuts; ++c) t[c] = fromA ? cutT(c) : 1.0f - cutT(cuts - 1 - c);
+			return t;
 		};
 		DeselectAll();
 		std::vector<Face> out;
@@ -1080,15 +1108,25 @@ namespace Modeling
 			{
 				// 고리 밖 면 (고리 끝의 삼각형 등): 잘린 변에 새 점을 끼워 구멍을 막는다
 				Face g = Faces[f];
+				const bool hasUV = g.UV.size() == v.size();
 				g.V.clear();
+				g.UV.clear();
 				for (size_t i = 0; i < v.size(); ++i)
 				{
 					const int a = v[i], b = v[(i + 1) % v.size()];
 					g.V.push_back(a);
+					if (hasUV) g.UV.push_back(Faces[f].UV[i]);
 					if (cutPts.count(EdgeKey(a, b)))
-						for (int p : ptsFrom(a, b)) g.V.push_back(p);
+					{
+						const std::vector<int> p = ptsFrom(a, b);
+						const std::vector<float> t = tFrom(a, b);
+						for (size_t j = 0; j < p.size(); ++j)
+						{
+							g.V.push_back(p[j]);
+							if (hasUV) g.UV.push_back(Faces[f].UV[i] + (Faces[f].UV[(i + 1) % v.size()] - Faces[f].UV[i]) * t[j]);
+						}
+					}
 				}
-				if (g.V.size() != v.size()) g.UV.clear();
 				out.push_back(g);
 				continue;
 			}
@@ -1097,11 +1135,21 @@ namespace Modeling
 			std::vector<int> colA = { p0 }, colB = { p3 };
 			colA.insert(colA.end(), top.begin(), top.end()); colA.push_back(p1);
 			colB.insert(colB.end(), bottom.begin(), bottom.end()); colB.push_back(p2);
+			// UV: 위 · 아래 변을 같은 비율로
+			const bool hasUV = Faces[f].UV.size() == 4;
+			std::vector<Vec2> uvA, uvB;
+			if (hasUV)
+			{
+				const Vec2 u0 = Faces[f].UV[k], u1 = Faces[f].UV[(k + 1) % 4], u2 = Faces[f].UV[(k + 2) % 4], u3 = Faces[f].UV[(k + 3) % 4];
+				const std::vector<float> tt = tFrom(p0, p1), tb = tFrom(p3, p2);
+				uvA.push_back(u0); for (float t : tt) uvA.push_back(u0 + (u1 - u0) * t); uvA.push_back(u1);
+				uvB.push_back(u3); for (float t : tb) uvB.push_back(u3 + (u2 - u3) * t); uvB.push_back(u2);
+			}
 			for (size_t s = 0; s + 1 < colA.size(); ++s)
 			{
 				Face g = Faces[f];
 				g.V = { colA[s], colA[s + 1], colB[s + 1], colB[s] };
-				g.UV.clear();
+				g.UV = hasUV ? std::vector<Vec2>{ uvA[s], uvA[s + 1], uvB[s + 1], uvB[s] } : std::vector<Vec2>();
 				g.Sel = false;
 				out.push_back(g);
 			}

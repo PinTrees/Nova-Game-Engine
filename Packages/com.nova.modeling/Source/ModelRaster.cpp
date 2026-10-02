@@ -224,7 +224,7 @@ namespace Modeling
 	}
 
 	// ------------------------------------------------------------------ 삼각형
-	void Raster::Triangle(const Vec3 s[3], const Vec3 n[3], const Vec3 baseColor, float alpha, int id, const Vec3& lightDir, Shading shade)
+	void Raster::Triangle(const Vec3 s[3], const Vec3 n[3], const Vec2* uv, const Vec3 baseColor, float alpha, int id, const Vec3& lightDir, Shading shade)
 	{
 		const float area = (s[1].x - s[0].x) * (s[2].y - s[0].y) - (s[1].y - s[0].y) * (s[2].x - s[0].x);
 		if (fabsf(area) < 1e-8f)
@@ -251,23 +251,37 @@ namespace Modeling
 					continue;
 				float depth;
 				Vec3 nn;
+				float k0 = w0, k1 = w1, k2 = w2;   // 원근 보정한 무게
 				if (persp)
 				{
 					const float a = w0 * inv[0], b = w1 * inv[1], c = w2 * inv[2];
 					const float sum = a + b + c;
 					depth = 1.0f / sum;
-					nn = (n[0] * a + n[1] * b + n[2] * c) / sum;
+					k0 = a / sum; k1 = b / sum; k2 = c / sum;
 				}
 				else
-				{
 					depth = w0 * s[0].z + w1 * s[1].z + w2 * s[2].z;
-					nn = n[0] * w0 + n[1] * w1 + n[2] * w2;
-				}
+				nn = n[0] * k0 + n[1] * k1 + n[2] * k2;
 				const size_t i = (size_t)y * Width + x;
 				if (depth >= Depth[i])
 					continue;
 				nn.Normalize();
 				Vec3 col;
+				Vec3 surface = baseColor;
+				if (shade == Shading::UVChecker)
+				{
+					// UV 확인용 바둑판 (8 x 8), UV 가 없으면 분홍
+					if (uv)
+					{
+						const Vec2 t = uv[0] * k0 + uv[1] * k1 + uv[2] * k2;
+						const int cx = (int)floorf(t.x * 8.0f), cy = (int)floorf(t.y * 8.0f);
+						const bool odd = ((cx + cy) & 1) != 0;
+						surface = odd ? Vec3(0.35f, 0.35f, 0.4f) : Vec3(0.92f, 0.92f, 0.95f);
+						if (t.x < 0.0f || t.y < 0.0f || t.x > 1.0f || t.y > 1.0f) surface = surface * Vec3(1.0f, 0.55f, 0.55f);   // 0..1 밖 = 붉게
+					}
+					else
+						surface = Vec3(0.95f, 0.35f, 0.75f);
+				}
 				if (shade == Shading::Normals)
 					col = nn * 0.5f + Vec3(0.5f, 0.5f, 0.5f);
 				else
@@ -277,12 +291,14 @@ namespace Modeling
 					const float key = (std::max)(0.0f, nn.Dot(lightDir));
 					const float fill = (std::max)(0.0f, nn.Dot(Vec3(0.6f, -0.2f, -0.75f))) * 0.25f;
 					const float rim = powf(1.0f - (std::max)(0.0f, -nn.z), 3.0f) * 0.18f;
-					float light;
 					if (shade == Shading::Toon)
-						light = key > 0.45f ? 1.0f : (key > 0.12f ? 0.72f : 0.5f);   // 셀 셰이딩 3 단계
+					{
+						// 애니메이션풍 2 톤: 밝은 면 = 색 그대로, 그림자 = 푸르스름하게 어둡게, 가장자리 살짝 밝게
+						const bool lit = key > 0.3f;
+						col = lit ? surface * (0.98f + rim * 0.4f) : surface * Vec3(0.68f, 0.64f, 0.8f);
+					}
 					else
-						light = 0.36f + key * 0.62f + fill + rim;
-					col = baseColor * light;
+						col = surface * (0.36f + key * 0.62f + fill + rim);
 				}
 				Depth[i] = depth;
 				FaceId[i] = id;
@@ -360,6 +376,32 @@ namespace Modeling
 			}
 	}
 
+	void Raster::DrawOutline(float width)
+	{
+		// 앞에 있는 픽셀만 칠한다: 둘레 (반경 width) 에 빈 곳 · 다른 오브젝트 · 훨씬 먼 면이 있으면 외곽선
+		const int r = (std::max)(1, (int)roundf(width));
+		std::vector<uint8_t> edge((size_t)Width * Height, 0);
+		static const int dirs[8][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { -1, -1 }, { 1, -1 }, { -1, 1 } };
+		for (int y = 0; y < Height; ++y)
+			for (int x = 0; x < Width; ++x)
+			{
+				const size_t i = (size_t)y * Width + x;
+				const int id = FaceId[i];
+				if (id < 0) continue;
+				const float d = Depth[i];
+				for (const auto& dv : dirs)
+				{
+					const int xx = x + dv[0] * r, yy = y + dv[1] * r;
+					if (xx < 0 || yy < 0 || xx >= Width || yy >= Height) { edge[i] = 1; break; }
+					const size_t j = (size_t)yy * Width + xx;
+					if (FaceId[j] < 0 || (FaceId[j] >> 20) != (id >> 20) || Depth[j] > d * 1.04f + 0.02f) { edge[i] = 1; break; }
+				}
+			}
+		const uint32 ink = Rgba(30, 24, 32);
+		for (size_t i = 0; i < edge.size(); ++i)
+			if (edge[i]) Color[i] = ink;
+	}
+
 	void Raster::DrawGrid()
 	{
 		// 바닥 (XZ) 격자: 거리에 따라 1 m / 10 m, 축 = X 빨강 · Z 파랑
@@ -414,12 +456,12 @@ namespace Modeling
 			Object& o = doc.Objects[oi];
 			if (!o.Visible)
 				continue;
-			Mesh& m = o.M;
+			const Mesh& m = o.Evaluated(doc.Revision);   // 모디파이어 결과 (없으면 원래 메시)
 			const Matrix world = o.World();
 			Matrix nrmW = world;
 			nrmW.Translation(Vec3(0, 0, 0));
 			const Matrix nrmV = nrmW * view;
-			const bool editing = doc.EditMode && oi == doc.Active;
+			const bool editing = doc.EditMode && oi == doc.Active && opt.Selection;   // 깨끗한 렌더 (--selection false) 면 편집 표시 없이
 			// 점마다 화면 좌표 · 부드러운 법선
 			std::vector<Vec3> screen(m.Verts.size());
 			std::vector<uint8_t> ok(m.Verts.size());
@@ -440,13 +482,17 @@ namespace Modeling
 				if (!all)
 					continue;   // 카메라 뒤에 걸친 면은 건너뛴다 (편집기 카메라는 보통 밖에 있다)
 				Triangulate(m, f, tris);
-				Vec3 base = kBase;
+				const int origin = face.Origin >= 0 ? face.Origin : f;
+				Vec3 base = doc.MaterialColor(face.Material);
 				if (editing && face.Sel) base = base * 0.6f + kSelFace * 0.4f;
-				if (editing && doc.Mode == SelectMode::Face && opt.HoverObject == oi && opt.HoverElement == f) base = base * 0.8f + Vec3(1, 1, 1) * 0.2f;
-				const int id = (oi << 20) | f;
+				if (editing && doc.Mode == SelectMode::Face && opt.HoverObject == oi && opt.HoverElement == origin) base = base * 0.8f + Vec3(1, 1, 1) * 0.2f;
+				const int id = (oi << 20) | origin;
+				const bool hasUV = face.UV.size() == face.V.size();
 				for (const auto& t : tris)
 				{
 					Vec3 s[3], n[3];
+					Vec2 uv[3];
+					if (hasUV) for (int k = 0; k < 3; ++k) uv[k] = face.UV[t[k]];
 					for (int k = 0; k < 3; ++k)
 					{
 						const int v = face.V[t[k]];
@@ -455,10 +501,12 @@ namespace Modeling
 						n[k] = opt.Shade == Shading::Normals ? Vec3::TransformNormal(nn, nrmW) : Vec3::TransformNormal(nn, nrmV);
 						n[k].Normalize();
 					}
-					Triangle(s, n, base, opt.XRay ? 0.45f : 1.0f, id, lightDir, opt.Shade);
+					Triangle(s, n, hasUV ? uv : nullptr, base, opt.XRay ? 0.45f : 1.0f, id, lightDir, opt.Shade);
 				}
 			}
 		}
+		if (opt.Outline)
+			DrawOutline(opt.OutlineWidth);
 		if (opt.Grid)
 			DrawGrid();
 		// 선 · 점
@@ -469,7 +517,7 @@ namespace Modeling
 				continue;
 			Mesh& m = o.M;
 			const Matrix world = o.World();
-			const bool editing = doc.EditMode && oi == doc.Active;
+			const bool editing = doc.EditMode && oi == doc.Active && opt.Selection;   // 깨끗한 렌더 (--selection false) 면 편집 표시 없이
 			if (!editing && !opt.Wireframe && !(o.Selected && opt.Selection))
 				continue;
 			std::vector<Vec3> screen(m.Verts.size());

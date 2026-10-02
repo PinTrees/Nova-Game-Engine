@@ -165,7 +165,9 @@ namespace Modeling
 			opt.Selection = B(c.A, "selection", opt.Wireframe);   // 깨끗한 그림 (--wire false) 이면 선택 표시도 끈다
 			opt.XRay = B(c.A, "xray", false);
 			const std::string shade = S(c.A, "shading", "solid");
-			opt.Shade = shade == "toon" ? Shading::Toon : (shade == "normals" ? Shading::Normals : Shading::Solid);
+			opt.Shade = shade == "toon" ? Shading::Toon : (shade == "normals" ? Shading::Normals : (shade == "uv" ? Shading::UVChecker : Shading::Solid));
+			opt.Outline = B(c.A, "outline", shade == "toon");   // 툰이면 기본으로 외곽선
+			opt.OutlineWidth = F(c.A, "outlineWidth", (std::max)(1.0f, w / 400.0f));
 			// 경계 상자 (보이는 것)
 			Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 			for (const Object& o : c.D.Objects)
@@ -357,6 +359,28 @@ namespace Modeling
 
 		bool Batch(Ctx& c);
 
+		// Edit 모드 점 변환: fn(로컬 위치, 무게) → 새 위치. 비례 편집 (--proportional 반경 [--falloff]) · 거울 가운데 고정
+		int TransformVerts(Ctx& c, Object& o, const std::function<Vec3(const Vec3&, float)>& fn)
+		{
+			const float s = (std::max)(1e-6f, (fabsf(o.Scale.x) + fabsf(o.Scale.y) + fabsf(o.Scale.z)) / 3.0f);
+			const float radius = F(c.A, "proportional", 0.0f) / s;
+			std::vector<float> w;
+			if (radius > 0.0f) w = o.M.ProportionalWeights(radius, FalloffFromName(S(c.A, "falloff", "smooth")));
+			int n = 0;
+			for (size_t i = 0; i < o.M.Verts.size(); ++i)
+			{
+				Vert& v = o.M.Verts[i];
+				const float k = radius > 0.0f ? w[i] : (v.Sel ? 1.0f : 0.0f);
+				if (k <= 0.0f) continue;
+				const bool onPlane = o.MirrorX && o.MirrorClip && fabsf(v.P.x) < 1e-4f;
+				v.P = fn(v.P, k);
+				if (onPlane) v.P.x = 0.0f;   // 거울 가운데는 그대로 (Clipping)
+				++n;
+			}
+			o.M.Touch();
+			return n;
+		}
+
 		std::vector<OpEntry>& Registry()
 		{
 			static std::vector<OpEntry> ops;
@@ -385,7 +409,7 @@ namespace Modeling
 				c.R = c.D.Summary(false); c.R["path"] = p; return true; });
 			add("undo", "undo the last change", false, [](Ctx& c) { if (!c.D.Undo()) { c.E = "nothing to undo"; return false; } c.R = c.D.Summary(false); return true; });
 			add("redo", "redo", false, [](Ctx& c) { if (!c.D.Redo()) { c.E = "nothing to redo"; return false; } c.R = c.D.Summary(false); return true; });
-			add("render", "--dir <folder> [--views front,right,back,top,persp] [--size 768 | [w,h]] [--shading solid|toon|normals] [--wire true|false] [--selection] [--grid] [--xray] [--zoom 1] [--target [x,y,z]]: PNG per view", false, Render);
+			add("render", "--dir <folder> [--views front,right,back,top,persp] [--size 768 | [w,h]] [--shading solid|toon|normals|uv] [--outline] [--outlineWidth px] [--wire true|false] [--selection] [--grid] [--xray] [--zoom 1] [--target [x,y,z]]: PNG per view", false, Render);
 
 			// ================= 오브젝트
 			add("add", "--type cube|plane|circle|cylinder|cone|uvsphere|icosphere|torus [--size 1] [--radius] [--depth] [--vertices 32] [--segments 32 --rings 16] [--subdivisions 2] [--location [x,y,z]] [--name] [--smooth]: new object (edit mode: adds into the active mesh)", true, AddPrimitive);
@@ -541,7 +565,7 @@ namespace Modeling
 			add("select.shrink", "shrink selection", false, [](Ctx& c) { Mesh* m = EditMesh(c); if (!m) return false; m->ShrinkSelection(); c.R = c.D.Summary(false); c.D.Changed(); return true; });
 
 			// ================= 변환 (Edit 모드 = 고른 점, Object 모드 = 고른 오브젝트)
-			add("translate", "--delta [x,y,z] | --to [x,y,z] (moves selection center there)", true, [](Ctx& c) {
+			add("translate", "--delta [x,y,z] | --to [x,y,z] (moves selection center there) [--proportional <radius m> --falloff smooth|sphere|root|sharp|linear|constant]", true, [](Ctx& c) {
 				if (!c.D.EditMode)
 				{
 					Vec3 d = Vec3Or(c.A, "delta", Vec3(0, 0, 0));
@@ -552,8 +576,9 @@ namespace Modeling
 				Object* o = Active(c); if (!o) return false;
 				Vec3 to, d = Vec3Or(c.A, "delta", Vec3(0, 0, 0));
 				if (GetVec3(c.A, "to", to)) d = to - Vec3::Transform(o->M.SelectionCenter(), o->World());
-				return Done(c, o->M.Translate(DirToLocal(*o, d)), "moved"); });
-			add("rotate", "--angle <deg> --axis x|y|z|[x,y,z] [--pivot [x,y,z]] (default: selection center)", true, [](Ctx& c) {
+				const Vec3 ld = DirToLocal(*o, d);
+				return Done(c, TransformVerts(c, *o, [&](const Vec3& p, float k) { return p + ld * k; }), "moved"); });
+			add("rotate", "--angle <deg> --axis x|y|z|[x,y,z] [--pivot [x,y,z]] (default: selection center) [--proportional <radius m> --falloff ..]", true, [](Ctx& c) {
 				Vec3 axis(0, 1, 0);
 				if (!GetVec3(c.A, "axis", axis)) { const int a = Axis(c.A, "axis", 1); axis = Vec3(a == 0 ? 1.0f : 0.0f, a == 1 ? 1.0f : 0.0f, a == 2 ? 1.0f : 0.0f); }
 				axis.Normalize();
@@ -570,8 +595,9 @@ namespace Modeling
 				Vec3 lan = la; lan.Normalize();
 				Vec3 pivotW;
 				const Vec3 pivot = GetVec3(c.A, "pivot", pivotW) ? Vec3::Transform(pivotW, ToLocal(*o)) : o->M.SelectionCenter();
-				return Done(c, o->M.Rotate(Quaternion::CreateFromAxisAngle(lan, F(c.A, "angle", 0.0f) * kDeg), pivot), "rotated"); });
-			add("scale", "--factor s|[x,y,z] [--pivot [x,y,z]] (default: selection center)", true, [](Ctx& c) {
+				const float ang = F(c.A, "angle", 0.0f) * kDeg;
+				return Done(c, TransformVerts(c, *o, [&](const Vec3& p, float k) { return Vec3::Transform(p - pivot, Quaternion::CreateFromAxisAngle(lan, ang * k)) + pivot; }), "rotated"); });
+			add("scale", "--factor s|[x,y,z] [--pivot [x,y,z]] (default: selection center) [--proportional <radius m> --falloff ..]", true, [](Ctx& c) {
 				const Vec3 s = Vec3Or(c.A, "factor", Vec3(1, 1, 1));
 				if (!c.D.EditMode)
 				{
@@ -582,7 +608,7 @@ namespace Modeling
 				Object* o = Active(c); if (!o) return false;
 				Vec3 pivotW;
 				const Vec3 pivot = GetVec3(c.A, "pivot", pivotW) ? Vec3::Transform(pivotW, ToLocal(*o)) : o->M.SelectionCenter();
-				return Done(c, o->M.Scale(s, pivot), "scaled"); });
+				return Done(c, TransformVerts(c, *o, [&](const Vec3& p, float k) { return pivot + (p - pivot) * (Vec3(1, 1, 1) + (s - Vec3(1, 1, 1)) * k); }), "scaled"); });
 			add("set.positions", "--positions [[index, x, y, z], ..] (world coords)", true, [](Ctx& c) {
 				Object* o = Active(c); if (!o) return false;
 				std::vector<std::pair<int, Vec3>> pos;
@@ -670,11 +696,19 @@ namespace Modeling
 				o->M.MergeByDistance(1e-5f, false);
 				o->M.Flush(SelectMode::Face);
 				return Done(c, n, "faces"); });
-			add("material.set", "--index <n> [--name <name>]: material slot for selected faces", true, [](Ctx& c) {
+			add("material.set", "--index <n> [--name <name>] [--color r,g,b (0..1)] [--only true = just name/color, no faces]: material slot for selected faces (all if none)", true, [](Ctx& c) {
 				Mesh* m = EditMesh(c); if (!m) return false;
 				const int idx = (std::max)(0, I(c.A, "index", 0));
 				if ((int)c.D.Materials.size() <= idx) c.D.Materials.resize(idx + 1);
 				if (c.A.contains("name")) c.D.Materials[idx] = S(c.A, "name");
+				Vec3 col;
+				if (GetVec3(c.A, "color", col))
+				{
+					while ((int)c.D.MaterialColors.size() <= idx) c.D.MaterialColors.push_back(Vec3(0.8f, 0.8f, 0.8f));
+					c.D.MaterialColors[idx] = Vec3(std::clamp(col.x, 0.0f, 1.0f), std::clamp(col.y, 0.0f, 1.0f), std::clamp(col.z, 0.0f, 1.0f));
+				}
+				if (B(c.A, "only", false)) return Done(c, 0, "faces");
+				if (m->SelectedFaces().empty()) { for (Face& f : m->Faces) f.Material = idx; return Done(c, (int)m->Faces.size(), "faces"); }
 				int n = 0;
 				for (Face& f : m->Faces) if (f.Sel) { f.Material = idx; ++n; }
 				return Done(c, n, "faces"); });
@@ -787,6 +821,77 @@ namespace Modeling
 
 			// ================= 여러 연산을 한 번에
 			add("batch", "--steps [{\"op\":\"add\",\"type\":\"cube\"}, ...] [--atomic true]: run ops in order as ONE undo step; stops at the first failure (atomic = roll everything back). CLI: nova model batch <file> (one op per line)", false, Batch);
+
+			// ================= 모디파이어 (원래 메시는 그대로)
+			add("modifier.mirror", "--enable true|false [--clip true]: live X mirror of the active object (model one half; center verts stay on X = 0)", true, [](Ctx& c) {
+				Object* o = Active(c); if (!o) return false;
+				o->MirrorX = B(c.A, "enable", true);
+				o->MirrorClip = B(c.A, "clip", o->MirrorClip);
+				return Done(c, 1, "objects"); });
+			add("modifier.subsurf", "--levels 0..3: Subdivision Surface preview (render / export / compare use it)", true, [](Ctx& c) {
+				Object* o = Active(c); if (!o) return false;
+				o->Subsurf = std::clamp(I(c.A, "levels", 1), 0, 3);
+				return Done(c, 1, "objects"); });
+			add("modifier.apply", "bake the active object's modifiers into its mesh", true, [](Ctx& c) {
+				Object* o = Active(c); if (!o) return false;
+				if (!o->HasModifiers()) { c.E = "no modifiers on " + o->Name; return false; }
+				o->ApplyModifiers();
+				for (Vert& v : o->M.Verts) v.Sel = false;
+				for (Face& f : o->M.Faces) f.Sel = false;
+				o->M.SelEdges.clear();
+				return Done(c, (int)o->M.Faces.size(), "faces"); });
+
+			// ================= UV
+			add("uv.smart", "[--angle 66] [--margin 0.02]: Smart UV Project of selected faces (all if none): charts by normal angle, packed into 0..1", true, [](Ctx& c) {
+				Mesh* m = EditMesh(c); if (!m) return false;
+				return Done(c, m->SmartUV(F(c.A, "angle", 66.0f), std::clamp(F(c.A, "margin", 0.02f), 0.0f, 0.2f)), "charts"); });
+			add("uv.project", "--mode box|cylinder|sphere|planar: project UVs of selected faces (all if none), fitted to 0..1", true, [](Ctx& c) {
+				Mesh* m = EditMesh(c); if (!m) return false;
+				const std::string mode = S(c.A, "mode", "box");
+				const int k = mode == "cylinder" ? 1 : (mode == "sphere" ? 2 : (mode == "planar" ? 3 : 0));
+				return Done(c, m->ProjectUV(k), "faces"); });
+
+			// ================= 머리카락
+			auto strand = [](Ctx& c, int defaultSides) {
+				std::vector<Vec3> pts;
+				if (c.A.contains("points"))
+					for (const auto& p : c.A["points"])
+						if (p.is_array() && p.size() == 3) pts.push_back(Vec3(p[0].get<float>(), p[1].get<float>(), p[2].get<float>()));
+				if (pts.size() < 2) { c.E = "need --points [[x,y,z], [x,y,z], ...] (root first, at least 2)"; return false; }
+				Vec3 center(0, 1.2f, 0);
+				GetVec3(c.A, "center", center);
+				// Edit 모드면 활성 메시에, 아니면 새 오브젝트 (이름 기본 Hair)
+				Object* o = c.D.EditMode ? c.D.ActiveObject() : nullptr;
+				if (!o)
+				{
+					const int idx = c.D.AddObject(S(c.A, "name", "Hair"));
+					o = &c.D.Objects[idx];
+				}
+				const Matrix l = ToLocal(*o);
+				for (Vec3& p : pts) p = Vec3::Transform(p, l);
+				center = Vec3::Transform(center, l);
+				const int before = (int)o->M.Faces.size();
+				const int n = o->M.AddStrand(pts, F(c.A, "width", 0.08f), F(c.A, "thickness", 0.03f), F(c.A, "tip", 0.0f), I(c.A, "sides", defaultSides), center, I(c.A, "segments", 0));
+				if (c.A.contains("material")) for (int f = before; f < (int)o->M.Faces.size(); ++f) o->M.Faces[f].Material = (std::max)(0, I(c.A, "material", 0));
+				Done(c, n, "faces_added");
+				c.R["object"] = o->Name;
+				return true;
+			};
+			add("hair.strand", "--points [[x,y,z],..] (root → tip) [--width 0.08] [--thickness 0.03] [--tip 0] [--sides 4] [--center x,y,z (head center, strands face away)] [--segments] [--material n] [--name Hair]: anime hair clump along a smooth curve", true,
+				[strand](Ctx& c) { return strand(c, 4); });
+			add("hair.card", "--points [[x,y,z],..] [--width 0.06] [--tip 0.2] [--center x,y,z] [--segments] [--material n]: flat hair card (front faces away from center), UV u across / v root→tip", true,
+				[strand](Ctx& c) { return strand(c, 0); });
+			add("material.list", "material slots: index, name, color, faces using it (active mesh)", false, [](Ctx& c) {
+				json list = json::array();
+				Object* o = c.D.ActiveObject();
+				for (int i = 0; i < (int)(std::max)(c.D.Materials.size(), c.D.MaterialColors.size()); ++i)
+				{
+					int faces = 0;
+					if (o) for (const Face& f : o->M.Faces) faces += f.Material == i;
+					list.push_back({ { "index", i }, { "name", i < (int)c.D.Materials.size() ? c.D.Materials[i] : "" }, { "color", V(c.D.MaterialColor(i)) }, { "faces", faces } });
+				}
+				c.R = { { "materials", list } };
+				return true; });
 
 			return ops;
 		}

@@ -26,7 +26,7 @@ namespace Modeling
 		void Frame(const Vec3& mn, const Vec3& mx, float aspect);
 	};
 
-	enum class Shading { Solid = 0, Toon = 1, Normals = 2 };
+	enum class Shading { Solid = 0, Toon = 1, Normals = 2, UVChecker = 3 };
 
 	// 이름 있는 시점의 화면 축 (월드): right = 화면 오른쪽, up = 화면 위, fwd = 보는 방향. 모르는 이름이면 false
 	bool ViewBasis(const std::string& view, Vec3& right, Vec3& up, Vec3& fwd);
@@ -37,6 +37,8 @@ namespace Modeling
 		bool Grid = true;
 		bool Selection = true;       // Object 모드에서 고른 오브젝트 선 (주황)
 		bool Refs = true;            // 기준 그림 (보는 방향이 그 그림의 시점과 같을 때만, 뒤에 깐다)
+		bool Outline = false;        // 툰 외곽선 (실루엣 · 앞뒤로 떨어진 곳)
+		float OutlineWidth = 2.0f;   // 픽셀
 		bool XRay = false;           // 면을 반투명 · 가려진 점도 고르기
 		bool Background = true;
 		Shading Shade = Shading::Solid;
@@ -72,7 +74,8 @@ namespace Modeling
 		Matrix m_View;
 		ViewCamera m_Cam;
 		void Clear(bool background);
-		void Triangle(const Vec3 s[3], const Vec3 n[3], const Vec3 baseColor, float alpha, int id, const Vec3& viewDir, Shading shade);
+		void Triangle(const Vec3 s[3], const Vec3 n[3], const Vec2* uv, const Vec3 baseColor, float alpha, int id, const Vec3& viewDir, Shading shade);
+		void DrawOutline(float width);
 		void Line(Vec3 a, Vec3 b, uint32 color, float width, bool depthTest);
 		void Dot(const Vec3& s, float size, uint32 color, bool depthTest);
 		void Blend(int x, int y, uint32 color, float coverage);

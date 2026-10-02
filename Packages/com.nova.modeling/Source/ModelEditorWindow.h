@@ -21,6 +21,7 @@ public:
 	void Update() override;
 	void OnRender() override;
 	Modeling::ViewCamera& Camera() { return m_Cam; }
+	Modeling::RasterOptions& ViewOptions() { m_Dirty = true; return m_Opt; }
 	void FrameAll();
 
 protected:
@@ -59,6 +60,13 @@ private:
 	nlohmann::json m_ModalArgs;
 	std::string m_Numeric;               // 끄는 중 숫자 입력 (Blender 처럼)
 	int m_LoopCuts = 1;
+	// 비례 편집 (O): 반경 (월드 미터), 감쇠, 끄는 동안 점마다 무게
+	bool m_Prop = false;
+	float m_PropRadius = 0.3f;
+	int m_PropFalloff = 0;
+	std::vector<float> m_Weights;
+	void ComputeWeights();
+	float WeightOf(size_t i) const;
 	ImVec2 m_BoxStart = ImVec2(0, 0);
 	bool m_BoxPending = false;           // 왼쪽 버튼을 눌렀다 (움직이면 상자, 그대로 떼면 클릭)
 
@@ -79,6 +87,8 @@ private:
 	void DrawSidePanel();
 	void DrawGroupsPanel();
 	void DrawRefsPanel();
+	void DrawModifiersPanel();
+	void DrawMaterialsPanel();
 	void DrawOverlay(ImDrawList* dl);
 
 	// 입력

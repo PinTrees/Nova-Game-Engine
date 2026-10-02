@@ -27,11 +27,11 @@ namespace Modeling
 
 		Vec3 ToFile(const Vec3& v) { return Vec3(-v.x, v.y, v.z); }
 
-		ExportMesh Build(const Object& o)
+		ExportMesh Build(const Object& o, uint64 revision)
 		{
 			ExportMesh e;
 			e.Name = o.Name;
-			const Mesh& m = o.M;
+			const Mesh& m = o.Evaluated(revision);   // 모디파이어 결과 (Blender 처럼 적용해서 내보낸다)
 			const Matrix w = o.World();
 			Matrix nrm = w;
 			nrm.Translation(Vec3(0, 0, 0));
@@ -75,7 +75,7 @@ namespace Modeling
 			std::vector<ExportMesh> out;
 			for (const Object& o : doc.Objects)
 				if (o.Visible && !o.M.Faces.empty() && (!selectedOnly || o.Selected))
-					out.push_back(Build(o));
+					out.push_back(Build(o, doc.Revision));
 			return out;
 		}
 
@@ -94,6 +94,20 @@ namespace Modeling
 			f << "# NOVA Model Editor\n";
 			f.precision(6);
 			f << std::fixed;
+			// 재질 색 (.mtl 옆에)
+			{
+				std::filesystem::path mtl = path;
+				mtl.replace_extension(".mtl");
+				std::ofstream m(mtl, std::ios::binary);
+				std::vector<int> used;
+				for (const ExportMesh& e : meshes) for (int i : e.Materials) if (std::find(used.begin(), used.end(), i) == used.end()) used.push_back(i);
+				for (int i : used)
+				{
+					const Vec3 c = doc.MaterialColor(i);
+					m << "newmtl " << MaterialName(doc, i) << "\nKd " << c.x << " " << c.y << " " << c.z << "\n\n";
+				}
+				f << "mtllib " << U8String(mtl.filename()) << "\n";
+			}
 			size_t vBase = 1, tBase = 1, nBase = 1;
 			for (const ExportMesh& e : meshes)
 			{
@@ -438,7 +452,8 @@ namespace Modeling
 						mat.Add("ShadingModel").S("phong");
 						mat.Add("MultiLayer").I(0);
 						FbxNode& pp = mat.Add("Properties70");
-						FbxNode::P(pp, "DiffuseColor", "Color", "", "A", { 0.8, 0.8, 0.8 });
+						const Vec3 dc = doc.MaterialColor(m);
+						FbxNode::P(pp, "DiffuseColor", "Color", "", "A", { (double)dc.x, (double)dc.y, (double)dc.z });
 					}
 					links.push_back({ materialIds[m], modelId });
 				}

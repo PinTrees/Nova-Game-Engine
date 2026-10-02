@@ -823,6 +823,64 @@ function Suite-Model
         $band = @($c2.bands | Where-Object { [math]::Abs($_.meshWidth - 0.9) -lt 0.02 -and [math]::Abs($_.refWidth - 0.6) -lt 0.02 })
         Add-Result model 'compare: 1.5x wider mesh → IoU ~0.67, widths 0.9 vs 0.6, hint, diff PNG' ($c2 -and $c2.iou -lt 0.75 -and $c2.iou -gt 0.6 -and $band.Count -gt 0 -and @($c2.hints).Count -gt 0 -and (Test-Path "$dir\diff.png")) "iou=$($c2.iou) bands ok=$($band.Count) hint=$(@($c2.hints)[0])"
 
+        # ---- 3 단계: 캐릭터 도구
+        # 거울 모디파이어: 왼쪽 면을 뺀 반쪽 상자 → 결과는 닫힌 상자, 가운데 점은 옮겨도 X = 0 (Clipping), 내보내기 = 결과
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null; M 'mode --mode edit --select face' | Out-Null
+        M 'select.normal --direction -1,0,0 --angle 10' | Out-Null; M 'delete --type faces' | Out-Null
+        M 'select.all' | Out-Null; M 'translate --delta 0.5,0,0' | Out-Null
+        $mm = M 'modifier.mirror --enable true'
+        Add-Result model 'mirror modifier: half box (5 faces) → closed 10 faces' ($mm -and $mm.faces -eq 5 -and $mm.evaluated.faces -eq 10 -and $mm.evaluated.boundaryEdges -eq 0) "base $($mm.faces), evaluated $($mm.evaluated.faces) open $($mm.evaluated.boundaryEdges)"
+        $mc = M 'translate --delta 0.3,0,0'
+        Add-Result model 'mirror clipping keeps center verts on X = 0' ($mc -and [math]::Abs($mc.min[0]) -lt 0.0001 -and [math]::Abs($mc.max[0] - 1.3) -lt 0.001 -and $mc.evaluated.boundaryEdges -eq 0) "x $($mc.min[0])..$($mc.max[0]) open $($mc.evaluated.boundaryEdges)"
+        M "export $dir\mirrored.fbx" | Out-Null
+        $mi2 = M "import $dir\mirrored.fbx"
+        Add-Result model 'export applies the mirror (re-import 10 faces, x -1.3..1.3)' ($mi2 -and $mi2.faces -eq 10 -and [math]::Abs($mi2.min[0] + 1.3) -lt 0.002) "faces=$($mi2.faces) min x=$($mi2.min[0])"
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null
+        $sp = M 'modifier.subsurf --levels 2'
+        $sa = M 'modifier.apply'
+        Add-Result model 'subsurf preview 2 (96 faces) → apply' ($sp -and $sp.faces -eq 6 -and $sp.evaluated.faces -eq 96 -and $sa -and $sa.faces -eq 96 -and -not $sa.modifiers) "preview base $($sp.faces) eval $($sp.evaluated.faces), applied $($sa.faces)"
+
+        # 비례 편집: 평면 가운데 점을 반경 0.5 로 들어 올림 → 가까운 점은 조금, 먼 점은 그대로
+        M 'new' | Out-Null; M 'add --type plane --size 2 --cutsX 10 --cutsZ 10' | Out-Null; M 'mode --mode edit' | Out-Null
+        M 'select.box --min -0.01,-1,-0.01 --max 0.01,1,0.01' | Out-Null
+        M 'translate --delta 0,1,0 --proportional 0.5' | Out-Null
+        $pv = M 'get --what verts --limit 500'
+        $full = @($pv.items | Where-Object { $_[2] -gt 0.999 }).Count
+        $part = @($pv.items | Where-Object { $_[2] -gt 0.001 -and $_[2] -lt 0.999 })
+        $far = @($pv.items | Where-Object { [math]::Sqrt($_[1] * $_[1] + $_[3] * $_[3]) -gt 0.501 -and $_[2] -gt 0.0001 }).Count
+        Add-Result model 'proportional editing (radius 0.5, smooth falloff)' ($full -eq 1 -and $part.Count -ge 8 -and $far -eq 0) "lifted 1: $full, partly: $($part.Count), moved outside radius: $far"
+
+        # UV: Smart UV Project (정육면체 = 6 덩어리), Loop Cut · Subsurf 뒤에도 UV 가 남는다
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null; M 'mode --mode edit' | Out-Null
+        $uv = M 'uv.smart'
+        $lc = M 'loopcut --edge 0'
+        $ss2 = M 'subsurf'
+        Add-Result model 'Smart UV (6 charts) survives loop cut + subsurf' ($uv -and $uv.changed.charts -eq 6 -and $uv.uvFaces -eq 6 -and $lc.uvFaces -eq 10 -and $ss2.uvFaces -eq $ss2.faces) "charts=$($uv.changed.charts) uvFaces 6→$($lc.uvFaces) (of $($lc.faces))→$($ss2.uvFaces) (of $($ss2.faces))"
+
+        # 머리카락: 다발 (닫힘, 바깥을 봄) · 카드
+        M 'new' | Out-Null
+        $hs = M 'hair.strand --points [[0,1.5,0.05],[0,1.62,0.2],[0,1.55,0.38]] --center 0,1.25,0 --width 0.1 --thickness 0.04 --sides 4'
+        M 'mode --mode edit' | Out-Null
+        $hi = M 'info'
+        $hf = M 'get --what faces'
+        $rn = M 'recalc_normals'
+        Add-Result model 'hair.strand: closed clump (33 faces), normals already outward (recalc flips 0)' ($hs -and $hi.faces -eq 33 -and $hi.boundaryEdges -eq 0 -and $rn -and $rn.changed.flipped -eq 0) "faces=$($hi.faces) open=$($hi.boundaryEdges) flipped=$($rn.changed.flipped)"
+        M 'mode --mode object' | Out-Null
+        M 'hair.card --points [[0.1,1.5,0],[0.2,1.4,0.1],[0.25,1.2,0.12]] --center 0,1.25,0 --width 0.06 --name Card' | Out-Null
+        M 'mode --mode edit' | Out-Null
+        $cf = M 'get --what faces'
+        $cOut = @($cf.items | Where-Object { $c = $_[3]; $n = $_[2]; ($c[0] * $n[0] + ($c[1] - 1.25) * $n[1] + $c[2] * $n[2]) -gt 0 }).Count
+        Add-Result model 'hair.card faces away from the head' ($cf -and $cf.total -eq 8 -and $cOut -eq 8) "faces=$($cf.total) outward=$cOut"
+
+        # 재질 색 + 툰 렌더 (외곽선) · UV 바둑판
+        M 'select.all' | Out-Null
+        $ms = M 'material.set --index 1 --name HairPink --color 0.95,0.45,0.6'
+        $ml = M 'material.list'
+        $tr = M "render --dir $dir\toon --views front,three-quarter --size 320 --shading toon --wire false"
+        $ur = M "render --path $dir\uv.png --views persp --size 320 --shading uv --wire false"
+        $mat1 = $ml.materials | Where-Object { $_.index -eq 1 }
+        Add-Result model 'material color + toon / UV checker renders' ($mat1 -and $mat1.faces -eq 8 -and [math]::Abs($mat1.color[0] - 0.95) -lt 0.01 -and (Test-Path "$dir\toon\front.png") -and (Test-Path "$dir\uv.png")) "HairPink faces=$($mat1.faces) color=$($mat1.color -join ',')"
+
         # 렌더: 시점마다 PNG
         M 'new' | Out-Null; M 'add --type uvsphere --radius 0.5 --location 0,0.5,0 --smooth' | Out-Null; M 'add --type cube --size 0.6 --location 1,0.3,0' | Out-Null
         $rn = M "render --dir $dir\render --views front,right,top,persp --size 320 --shading solid"

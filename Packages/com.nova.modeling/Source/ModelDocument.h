@@ -17,7 +17,21 @@ namespace Modeling
 		bool Visible = true;
 		bool Selected = false;   // Object 모드 선택
 
+		// ---- 모디파이어 (Blender 처럼 원래 메시는 그대로, 그림 · 내보내기 · 비교는 결과 메시)
+		bool MirrorX = false;    // X 거울 (로컬 X = 0 에서 용접) — 반쪽만 만들면 나머지가 늘 따라온다
+		bool MirrorClip = true;  // 가운데 점이 X = 0 을 넘어가지 않게 (옮겨도 0 에 남음)
+		int Subsurf = 0;         // Subdivision Surface 미리보기 단계 (0 = 끔, 최대 3)
+		bool HasModifiers() const { return MirrorX || Subsurf > 0; }
+		// 결과 메시 (Revision 이 바뀌면 다시 만든다). 면의 Origin = 원래 면 번호
+		const Mesh& Evaluated(uint64 revision) const;
+		void ApplyModifiers();   // 결과를 원래 메시로 굽고 모디파이어를 끈다
+
 		Matrix World() const { return Matrix::CreateScale(Scale) * Matrix::CreateFromQuaternion(Rotation) * Matrix::CreateTranslation(Position); }
+
+	private:
+		mutable Mesh m_Eval;
+		mutable uint64 m_EvalRevision = 0;
+		mutable bool m_EvalValid = false;
 	};
 
 	// 기준 그림 (Blender 의 Reference / Background Image): 앞 · 옆 그림을 그 시점의 뒤에 깔고, 모양을 맞춰 본다 (compare)
@@ -43,6 +57,8 @@ namespace Modeling
 	public:
 		std::vector<Object> Objects;
 		std::vector<std::string> Materials;   // 면의 Material 번호 → 이름 (비어 있으면 "Material")
+		std::vector<Vec3> MaterialColors;     // 같은 번호의 색 (툰 미리보기 · FBX Diffuse), 없으면 회색
+		Vec3 MaterialColor(int index) const { return index >= 0 && index < (int)MaterialColors.size() ? MaterialColors[index] : Vec3(0.8f, 0.8f, 0.8f); }
 		std::vector<RefImage> Refs;           // 기준 그림 (Undo 에 들지 않음)
 		RefImage* FindRef(const std::string& name);
 		int Active = -1;

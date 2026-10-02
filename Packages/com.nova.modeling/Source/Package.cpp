@@ -28,7 +28,7 @@ namespace
 		for (const Modeling::OpInfo& op : Modeling::Ops())
 			j[op.Name] = op.Help;
 		j["window"] = "open / focus Window > Model Editor";
-		j["view"] = "--preset front|back|left|right|top|bottom|persp [--frame]: editor window camera";
+		j["view"] = "[--preset front|back|left|right|top|bottom|persp] [--frame] [--shading solid|toon|normals|uv] [--outline] [--wire] [--xray]: editor window camera / display";
 		return j;
 	}
 }
@@ -86,6 +86,16 @@ NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 			const std::string preset = args.value("preset", std::string());
 			if (!preset.empty() && !cam.SetPreset(preset)) { error = "unknown preset '" + preset + "'"; return false; }
 			if (args.value("frame", false)) s_Window->FrameAll();
+			// 창 보기 설정: --shading solid|toon|normals|uv, --outline, --wire, --xray
+			auto& opt = s_Window->ViewOptions();
+			const std::string shade = args.value("shading", std::string());
+			if (shade == "solid") opt.Shade = Modeling::Shading::Solid;
+			else if (shade == "toon") opt.Shade = Modeling::Shading::Toon;
+			else if (shade == "normals") opt.Shade = Modeling::Shading::Normals;
+			else if (shade == "uv") opt.Shade = Modeling::Shading::UVChecker;
+			if (args.contains("outline")) opt.Outline = args["outline"].get<bool>();
+			if (args.contains("wire")) opt.Wireframe = args["wire"].get<bool>();
+			if (args.contains("xray")) opt.XRay = args["xray"].get<bool>();
 			++Modeling::Doc().Revision;
 			result = { { "yaw", cam.Yaw }, { "pitch", cam.Pitch }, { "distance", cam.Distance }, { "ortho", cam.Ortho } };
 			return true;

@@ -37,6 +37,38 @@ namespace Modeling
 		}
 	}
 
+	const Mesh& Object::Evaluated(uint64 revision) const
+	{
+		if (!HasModifiers())
+			return M;
+		if (m_EvalValid && m_EvalRevision == revision)
+			return m_Eval;
+		m_Eval = M;
+		for (int f = 0; f < (int)m_Eval.Faces.size(); ++f) m_Eval.Faces[f].Origin = f;
+		if (MirrorX)
+		{
+			for (Vert& v : m_Eval.Verts) v.Sel = false;
+			m_Eval.Mirror(0, true, 1e-4f);
+		}
+		if (Subsurf > 0)
+			m_Eval.CatmullClark((std::min)(Subsurf, 3));
+		m_EvalRevision = revision;
+		m_EvalValid = true;
+		return m_Eval;
+	}
+
+	void Object::ApplyModifiers()
+	{
+		if (!HasModifiers()) return;
+		Mesh baked = Evaluated(~0ull - 1);
+		for (Face& f : baked.Faces) f.Origin = -1;
+		M = baked;
+		M.Touch();
+		MirrorX = false;
+		Subsurf = 0;
+		m_EvalValid = false;
+	}
+
 	Document& Doc()
 	{
 		static Document s_Doc;
@@ -122,6 +154,7 @@ namespace Modeling
 	{
 		Objects.clear();
 		Materials.clear();
+		MaterialColors.clear();
 		Refs.clear();
 		m_Checkpoints.clear();
 		Active = -1;
@@ -153,6 +186,11 @@ namespace Modeling
 		j["format"] = "nova-model";
 		j["version"] = 1;
 		j["materials"] = Materials;
+		{
+			nlohmann::json cols = nlohmann::json::array();
+			for (const Vec3& c : MaterialColors) cols.push_back(Vec(c));
+			j["materialColors"] = cols;
+		}
 		nlohmann::json objs = nlohmann::json::array();
 		for (const Object& o : Objects)
 		{
@@ -163,6 +201,9 @@ namespace Modeling
 			oj["scale"] = Vec(o.Scale);
 			if (!o.Visible) oj["visible"] = false;
 			oj["mesh"] = o.M.ToJson();
+			if (o.MirrorX) oj["mirrorX"] = true;
+			if (!o.MirrorClip) oj["mirrorClip"] = false;
+			if (o.Subsurf) oj["subsurf"] = o.Subsurf;
 			objs.push_back(oj);
 		}
 		j["objects"] = objs;
@@ -196,6 +237,8 @@ namespace Modeling
 				Refs.push_back(std::move(r));
 			}
 		Materials = j.value("materials", std::vector<std::string>());
+		MaterialColors.clear();
+		if (j.contains("materialColors")) for (const auto& cj : j["materialColors"]) MaterialColors.push_back(ToVec3(cj, Vec3(0.8f, 0.8f, 0.8f)));
 		if (j.contains("objects"))
 			for (const auto& oj : j["objects"])
 			{
@@ -207,6 +250,9 @@ namespace Modeling
 				o.Scale = ToVec3(oj.value("scale", nlohmann::json()), Vec3(1, 1, 1));
 				o.Visible = oj.value("visible", true);
 				if (oj.contains("mesh")) o.M.FromJson(oj["mesh"]);
+				o.MirrorX = oj.value("mirrorX", false);
+				o.MirrorClip = oj.value("mirrorClip", true);
+				o.Subsurf = oj.value("subsurf", 0);
 				Objects.push_back(std::move(o));
 			}
 		Active = Objects.empty() ? -1 : 0;
@@ -361,6 +407,11 @@ namespace Modeling
 	{
 		nlohmann::json j;
 		j["materials"] = Materials;
+		{
+			nlohmann::json cols = nlohmann::json::array();
+			for (const Vec3& c : MaterialColors) cols.push_back(Vec(c));
+			j["materialColors"] = cols;
+		}
 		j["active"] = Active;
 		j["edit"] = EditMode;
 		j["mode"] = (int)Mode;
@@ -368,7 +419,8 @@ namespace Modeling
 		for (const Object& o : Objects)
 		{
 			objs.push_back({ { "name", o.Name }, { "p", Vec(o.Position) }, { "r", { o.Rotation.x, o.Rotation.y, o.Rotation.z, o.Rotation.w } },
-				{ "s", Vec(o.Scale) }, { "vis", o.Visible }, { "sel", o.Selected }, { "mesh", o.M.ToJson(true) } });
+				{ "s", Vec(o.Scale) }, { "vis", o.Visible }, { "sel", o.Selected }, { "mesh", o.M.ToJson(true) },
+				{ "mx", o.MirrorX }, { "mc", o.MirrorClip }, { "ss", o.Subsurf } });
 		}
 		j["objects"] = objs;
 		return j.dump();
@@ -380,6 +432,8 @@ namespace Modeling
 		if (j.is_discarded())
 			return;
 		Materials = j.value("materials", std::vector<std::string>());
+		MaterialColors.clear();
+		if (j.contains("materialColors")) for (const auto& cj : j["materialColors"]) MaterialColors.push_back(ToVec3(cj, Vec3(0.8f, 0.8f, 0.8f)));
 		Objects.clear();
 		for (const auto& oj : j["objects"])
 		{
@@ -391,6 +445,9 @@ namespace Modeling
 			o.Visible = oj.value("vis", true);
 			o.Selected = oj.value("sel", false);
 			o.M.FromJson(oj["mesh"]);
+			o.MirrorX = oj.value("mx", false);
+			o.MirrorClip = oj.value("mc", true);
+			o.Subsurf = oj.value("ss", 0);
 			Objects.push_back(std::move(o));
 		}
 		Active = j.value("active", -1);
@@ -524,6 +581,17 @@ namespace Modeling
 			if (!m.Groups.empty()) r["groups"] = m.Groups;
 			r["boundaryEdges"] = m.BoundaryEdges();
 			r["nonManifoldEdges"] = m.NonManifoldEdges();
+		}
+		if (Object* a = ActiveObject())
+		{
+			r["uvFaces"] = a->M.FacesWithUV();
+			if (a->HasModifiers())
+			{
+				// 모디파이어 결과 (그림 · 내보내기 · 비교에 쓰이는 것)
+				Mesh e = a->Evaluated(Revision);
+				r["modifiers"] = { { "mirrorX", a->MirrorX }, { "subsurf", a->Subsurf } };
+				r["evaluated"] = { { "verts", (int)e.Verts.size() }, { "faces", (int)e.Faces.size() }, { "boundaryEdges", e.BoundaryEdges() }, { "nonManifoldEdges", e.NonManifoldEdges() } };
+			}
 		}
 		r["undo"] = UndoLabel();
 		r["dirty"] = Dirty;
