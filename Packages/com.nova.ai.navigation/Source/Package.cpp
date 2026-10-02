@@ -2,6 +2,8 @@
 #include "pch.h"
 #include "NavMeshAgent.h"
 #include "NavMeshSurface.h"
+#include "NavMeshLink.h"
+#include "NavMeshObstacle.h"
 #include "ScriptBindings.h"
 
 NOVA_PACKAGE_EXPORT const char* NovaPackage_Abi() { return NOVA_PACKAGE_ABI_VERSION; }
@@ -40,12 +42,12 @@ NOVA_PACKAGE_EXPORT void NavAgent_SetFloat(uint64 go, int prop, float v)
 	}
 }
 
-// bool: 0 isStopped, 1 hasPath(읽기), 2 autoBraking, 3 isOnNavMesh(읽기), 4 pathPending(항상 false)
+// bool: 0 isStopped, 1 hasPath(읽기), 2 autoBraking, 3 isOnNavMesh(읽기), 4 pathPending(항상 false), 5 isOnOffMeshLink(읽기), 6 autoTraverseOffMeshLink
 NOVA_PACKAGE_EXPORT int NavAgent_GetBool(uint64 go, int prop)
 {
 	NavMeshAgent* a = Find<NavMeshAgent>(go);
 	if (a == nullptr) return 0;
-	switch (prop) { case 0: return a->IsStopped; case 1: return a->HasPath; case 2: return a->AutoBraking; case 3: return a->IsOnNavMesh(); default: return 0; }
+	switch (prop) { case 0: return a->IsStopped; case 1: return a->HasPath; case 2: return a->AutoBraking; case 3: return a->IsOnNavMesh(); case 5: return a->OnLink; case 6: return a->AutoTraverseOffMeshLink; default: return 0; }
 }
 
 NOVA_PACKAGE_EXPORT void NavAgent_SetBool(uint64 go, int prop, int v)
@@ -54,6 +56,7 @@ NOVA_PACKAGE_EXPORT void NavAgent_SetBool(uint64 go, int prop, int v)
 	if (a == nullptr) return;
 	if (prop == 0) a->IsStopped = v != 0;
 	else if (prop == 2) a->AutoBraking = v != 0;
+	else if (prop == 6) a->AutoTraverseOffMeshLink = v != 0;
 }
 
 // vector: 0 destination, 1 velocity, 2 steeringTarget
@@ -126,4 +129,116 @@ NOVA_PACKAGE_EXPORT int NavSurface_Build(uint64 go)
 	NavMeshSurface* s = Find<NavMeshSurface>(go);
 	std::string log;
 	return s && s->Bake(log) ? 1 : 0;
+}
+
+// Off-Mesh Link: 지나는 중인 링크의 시작·끝 (지나는 중이 아니면 0)
+NOVA_PACKAGE_EXPORT int NavAgent_GetLinkData(uint64 go, Vec3* start, Vec3* end)
+{
+	NavMeshAgent* a = Find<NavMeshAgent>(go);
+	if (a == nullptr || !a->OnLink) return 0;
+	if (start) *start = a->LinkStart;
+	if (end) *end = a->LinkEnd;
+	return 1;
+}
+
+NOVA_PACKAGE_EXPORT void NavAgent_CompleteOffMeshLink(uint64 go)
+{
+	if (NavMeshAgent* a = Find<NavMeshAgent>(go))
+		a->CompleteOffMeshLink();
+}
+
+// ---- NavMeshObstacle — float: 0 radius, 1 height, 2 carvingMoveThreshold, 3 carvingTimeToStationary / bool: 0 carving, 1 carveOnlyStationary / int shape
+NOVA_PACKAGE_EXPORT float NavObstacle_GetFloat(uint64 go, int prop)
+{
+	NavMeshObstacle* o = Find<NavMeshObstacle>(go);
+	if (o == nullptr) return 0.0f;
+	switch (prop) { case 0: return o->Radius; case 1: return o->Height; case 2: return o->MoveThreshold; default: return o->TimeToStationary; }
+}
+
+NOVA_PACKAGE_EXPORT void NavObstacle_SetFloat(uint64 go, int prop, float v)
+{
+	NavMeshObstacle* o = Find<NavMeshObstacle>(go);
+	if (o == nullptr) return;
+	v = (std::max)(0.0f, v);
+	switch (prop) { case 0: o->Radius = v; break; case 1: o->Height = v; break; case 2: o->MoveThreshold = v; break; default: o->TimeToStationary = v; break; }
+}
+
+NOVA_PACKAGE_EXPORT int NavObstacle_GetBool(uint64 go, int prop)
+{
+	NavMeshObstacle* o = Find<NavMeshObstacle>(go);
+	if (o == nullptr) return 0;
+	return prop == 0 ? o->Carve : (prop == 1 ? o->CarveOnlyStationary : o->IsCarving());
+}
+
+NOVA_PACKAGE_EXPORT void NavObstacle_SetBool(uint64 go, int prop, int v)
+{
+	if (NavMeshObstacle* o = Find<NavMeshObstacle>(go))
+	{
+		if (prop == 0) o->Carve = v != 0;
+		else if (prop == 1) o->CarveOnlyStationary = v != 0;
+	}
+}
+
+NOVA_PACKAGE_EXPORT int NavObstacle_GetShape(uint64 go)
+{
+	NavMeshObstacle* o = Find<NavMeshObstacle>(go);
+	return o ? o->Shape : 1;
+}
+
+NOVA_PACKAGE_EXPORT void NavObstacle_SetShape(uint64 go, int shape)
+{
+	if (NavMeshObstacle* o = Find<NavMeshObstacle>(go))
+		o->Shape = shape == 0 ? 0 : 1;
+}
+
+// vector: 0 center, 1 size
+NOVA_PACKAGE_EXPORT void NavObstacle_GetVector(uint64 go, int prop, Vec3* out)
+{
+	NavMeshObstacle* o = Find<NavMeshObstacle>(go);
+	if (out) *out = o == nullptr ? Vec3::Zero : (prop == 0 ? o->Center : o->Size);
+}
+
+NOVA_PACKAGE_EXPORT void NavObstacle_SetVector(uint64 go, int prop, Vec3* v)
+{
+	NavMeshObstacle* o = Find<NavMeshObstacle>(go);
+	if (o == nullptr || v == nullptr) return;
+	(prop == 0 ? o->Center : o->Size) = *v;
+}
+
+// ---- NavMeshLink — vector: 0 startPoint, 1 endPoint / float width / bool bidirectional
+NOVA_PACKAGE_EXPORT void NavLink_GetVector(uint64 go, int prop, Vec3* out)
+{
+	NavMeshLink* l = Find<NavMeshLink>(go);
+	if (out) *out = l == nullptr ? Vec3::Zero : (prop == 0 ? l->StartPoint : l->EndPoint);
+}
+
+NOVA_PACKAGE_EXPORT void NavLink_SetVector(uint64 go, int prop, Vec3* v)
+{
+	NavMeshLink* l = Find<NavMeshLink>(go);
+	if (l == nullptr || v == nullptr) return;
+	(prop == 0 ? l->StartPoint : l->EndPoint) = *v;
+}
+
+NOVA_PACKAGE_EXPORT float NavLink_GetWidth(uint64 go)
+{
+	NavMeshLink* l = Find<NavMeshLink>(go);
+	return l ? l->Width : 0.0f;
+}
+
+NOVA_PACKAGE_EXPORT void NavLink_SetWidth(uint64 go, float v)
+{
+	if (NavMeshLink* l = Find<NavMeshLink>(go))
+		l->Width = (std::max)(0.0f, v);
+}
+
+NOVA_PACKAGE_EXPORT int NavLink_GetBidirectional(uint64 go)
+{
+	NavMeshLink* l = Find<NavMeshLink>(go);
+	return l && l->Bidirectional ? 1 : 0;
+}
+
+NOVA_PACKAGE_EXPORT void NavLink_SetBidirectional(uint64 go, int v)
+{
+	if (NavMeshLink* l = Find<NavMeshLink>(go))
+		l->Bidirectional = v != 0;
 }

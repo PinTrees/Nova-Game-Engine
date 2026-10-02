@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "NavMeshAgent.h"
 #include "NavMeshSurface.h"
+#include "NavMeshObstacle.h"
 #include "UnityGUI.h"
 #include "SceneViewOverlay.h"
 #include "SelectionManager.h"
@@ -29,23 +30,36 @@ NavMeshAgent::~NavMeshAgent()
 
 const std::vector<NavMeshAgent*>& NavMeshAgent::All() { return s_Agents; }
 
+Vec3 NavMeshAgent::Feet() const
+{
+	return m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
+}
+
 bool NavMeshAgent::SetDestination(const Vec3& target)
 {
 	if (m_pGameObject == nullptr)
 		return false;
-	const Vec3 feet = m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
+	const Vec3 feet = Feet();
 	const NavData* nav = NavMeshSurface::FindData(feet);
 	std::vector<Vec3> path;
-	if (nav == nullptr || !nav->FindPath(feet, target, path) || path.size() < 2)
+	std::vector<unsigned char> flags;
+	Destination = target;
+	if (nav == nullptr || !nav->FindPath(feet, target, path, nullptr, &flags) || path.size() < 2)
 	{
 		HasPath = false;
 		Corners.clear();
+		CornerFlags.clear();
+		m_PathData = nav;
+		m_PathRevision = nav ? nav->Revision : 0;
 		return false;
 	}
 	Corners = std::move(path);
-	Next = 1;
-	Destination = target;
+	CornerFlags = std::move(flags);
+	// 링크 시작 위에 서 있으면 처음 점이 링크 시작이다
+	Next = (!CornerFlags.empty() && (CornerFlags[0] & NavData::CornerLinkStart)) ? 0 : 1;
 	HasPath = true;
+	m_PathData = nav;
+	m_PathRevision = nav->Revision;
 	return true;
 }
 
@@ -53,7 +67,9 @@ void NavMeshAgent::ResetPath()
 {
 	HasPath = false;
 	Corners.clear();
+	CornerFlags.clear();
 	Next = 0;
+	OnLink = false;
 }
 
 bool NavMeshAgent::Warp(const Vec3& position)
@@ -77,7 +93,9 @@ bool NavMeshAgent::IsOnNavMesh() const
 {
 	if (m_pGameObject == nullptr)
 		return false;
-	const Vec3 feet = m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
+	if (OnLink)
+		return true;
+	const Vec3 feet = Feet();
 	const NavData* nav = NavMeshSurface::FindData(feet);
 	Vec3 on;
 	return nav && nav->Sample(feet, (std::max)(0.3f, Radius), on);
@@ -87,11 +105,22 @@ float NavMeshAgent::RemainingDistance() const
 {
 	if (!HasPath || m_pGameObject == nullptr || Next >= Corners.size())
 		return HasPath ? 0.0f : std::numeric_limits<float>::infinity();
-	const Vec3 feet = m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
-	float d = Horizontal(feet, Corners[Next]);
-	for (size_t i = Next + 1; i < Corners.size(); ++i)
+	const Vec3 feet = Feet();
+	float d = OnLink ? Vec3::Distance(feet, LinkEnd) : Horizontal(feet, Corners[Next]);
+	for (size_t i = Next + (OnLink ? 2 : 1); i < Corners.size(); ++i)
 		d += Vec3::Distance(Corners[i - 1], Corners[i]);
 	return d;
+}
+
+void NavMeshAgent::CompleteOffMeshLink()
+{
+	if (!OnLink || m_pGameObject == nullptr)
+		return;
+	OnLink = false;
+	m_pGameObject->GetTransform()->SetPosition(LinkEnd + Vec3(0.0f, BaseOffset, 0.0f));
+	// [Next] = 링크 시작, [Next+1] = 링크 끝 → 그 다음 점으로
+	if (!Corners.empty())
+		Next = (std::min)(Next + 2, Corners.size() - 1);
 }
 
 void NavMeshAgent::Update()
@@ -102,15 +131,58 @@ void NavMeshAgent::Update()
 	if (dt <= 0.0f)
 		return;
 	Transform* tr = m_pGameObject->GetTransform();
-	Vec3 feet = tr->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
+	auto turnTowards = [&](const Vec3& dir)
+	{
+		if (dir.x * dir.x + dir.z * dir.z < 1e-6f)
+			return;
+		const float targetYaw = XMConvertToDegrees(atan2f(dir.x, dir.z));
+		Vec3 e = tr->GetEulerAngle();
+		float delta = fmodf(targetYaw - e.y + 540.0f, 360.0f) - 180.0f;
+		const float maxTurn = AngularSpeed * dt;
+		delta = std::clamp(delta, -maxTurn, maxTurn);
+		tr->SetEulerAngle(Vec3(e.x, e.y + delta, e.z));
+	};
+
+	// Off-Mesh Link 를 지나는 중: 시작 → 끝을 Speed 로 (Unity 의 자동 통과와 같이 곧게). 자동이 아니면 스크립트가 움직인다
+	if (OnLink)
+	{
+		if (!AutoTraverseOffMeshLink)
+			return;
+		const float len = (std::max)(0.01f, Vec3::Distance(LinkStart, LinkEnd));
+		LinkProgress = (std::min)(1.0f, LinkProgress + (std::max)(0.1f, Speed) * dt / len);
+		tr->SetPosition(Vec3::Lerp(LinkStart, LinkEnd, LinkProgress) + Vec3(0.0f, BaseOffset, 0.0f));
+		Velocity = (LinkEnd - LinkStart) / len * Speed;
+		turnTowards(LinkEnd - LinkStart);
+		if (LinkProgress >= 1.0f)
+			CompleteOffMeshLink();
+		return;
+	}
+
+	Vec3 feet = Feet();
+	const NavData* nav = NavMeshSurface::FindData(feet);
+	// 내비 메시가 바뀌었다 (장애물 깎기·링크·다시 굽기) → 같은 목적지로 길을 다시 찾는다
+	if (HasPath && (nav != m_PathData || (nav && nav->Revision != m_PathRevision)))
+		SetDestination(Destination);
 
 	Vec3 desired = Vec3::Zero;
 	if (HasPath && !IsStopped && Next < Corners.size())
 	{
-		// 지나간 꺾이는 점 넘기기 (마지막 점 제외)
+		auto isLinkStart = [&](size_t i) { return i + 1 < Corners.size() && i < CornerFlags.size() && (CornerFlags[i] & NavData::CornerLinkStart); };
+		// 지나간 꺾이는 점 넘기기 (마지막 점과 링크 시작은 넘기지 않는다)
 		const float pass = (std::max)(0.05f, Velocity.Length() * dt * 1.5f);
-		while (Next + 1 < Corners.size() && Horizontal(feet, Corners[Next]) <= pass)
+		while (Next + 1 < Corners.size() && !isLinkStart(Next) && Horizontal(feet, Corners[Next]) <= pass)
 			++Next;
+		// 링크 시작에 닿았다 → 링크로
+		if (isLinkStart(Next) && Horizontal(feet, Corners[Next]) <= (std::max)(pass, 0.15f) && fabsf(feet.y - Corners[Next].y) < Height)
+		{
+			OnLink = true;
+			LinkStart = feet;
+			LinkEnd = Corners[Next + 1];
+			LinkProgress = 0.0f;
+			if (!AutoTraverseOffMeshLink)
+				Velocity = Vec3::Zero;
+			return;
+		}
 		const float remaining = RemainingDistance();
 		if (remaining <= (std::max)(StoppingDistance, 0.02f))
 		{
@@ -137,13 +209,13 @@ void NavMeshAgent::Update()
 	Velocity += dv;
 	Velocity.y = 0.0f;
 
-	// 다른 에이전트와 겹치지 않게 밀어내기 (반지름 합 안쪽 — Unity 의 회피를 단순하게: 우선순위가 높은(숫자 작은) 쪽은 덜 밀린다)
+	// 다른 에이전트·장애물과 겹치지 않게 밀어내기 (반지름 합 안쪽 — Unity 의 회피를 단순하게: 우선순위가 높은(숫자 작은) 쪽은 덜 밀린다)
 	Vec3 push = Vec3::Zero;
 	for (NavMeshAgent* other : s_Agents)
 	{
-		if (other == this || other->m_pGameObject == nullptr || !other->IsEnabled() || !other->m_pGameObject->IsActive())
+		if (other == this || other->m_pGameObject == nullptr || !other->IsEnabled() || !other->m_pGameObject->IsActive() || other->OnLink)
 			continue;
-		const Vec3 op = other->m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, other->BaseOffset, 0.0f);
+		const Vec3 op = other->Feet();
 		if (fabsf(op.y - feet.y) > (std::max)(Height, other->Height))
 			continue;   // 다른 층
 		Vec3 d = feet - op;
@@ -156,43 +228,50 @@ void NavMeshAgent::Update()
 		const float share = AvoidancePriority == other->AvoidancePriority ? 0.5f : (AvoidancePriority > other->AvoidancePriority ? 0.8f : 0.2f);
 		push += dir * ((minDist - dist) * share);
 	}
+	for (NavMeshObstacle* o : NavMeshObstacle::All())
+	{
+		if (o->GetGameObject() == nullptr || !o->IsEnabled() || !o->GetGameObject()->IsActive())
+			continue;
+		Vec3 p;
+		if (o->PushOut(feet, Radius, Height, p))
+			push += p;   // 장애물은 움직이지 않으니 에이전트가 다 비킨다
+	}
 	if (push.LengthSquared() > 1e-10f)
 	{
 		const float maxPush = (std::max)(Speed, 1.0f) * dt;   // 한 프레임에 너무 튀지 않게
 		if (push.Length() > maxPush)
 			push = push / push.Length() * maxPush;
 		Vec3 pushed;
-		if (const NavData* nav = NavMeshSurface::FindData(feet))
-			if (nav->MoveAlongSurface(feet, feet + push, pushed))
-				feet = pushed;   // 걸을 수 있는 곳으로만 민다 (벽에서 멈춤)
+		if (nav && nav->MoveAlongSurface(feet, feet + push, pushed))
+			feet = pushed;   // 걸을 수 있는 곳으로만 민다 (벽에서 멈춤)
 	}
-	if (Velocity.LengthSquared() < 1e-8f)
+	if (Velocity.LengthSquared() >= 1e-8f)
 	{
-		tr->SetPosition(feet + Vec3(0.0f, BaseOffset, 0.0f));
-		return;
-	}
-
-	// 메시 위로 미끄러지며 (벽·가장자리에서 멈춤) 바닥 높이까지
-	{
+		// 메시 위로 미끄러지며 (벽·가장자리에서 멈춤) 바닥 높이까지
 		const Vec3 to = feet + Velocity * dt;
 		Vec3 moved;
-		const NavData* nav = NavMeshSurface::FindData(feet);
 		feet = nav && nav->MoveAlongSurface(feet, to, moved) ? moved : to;
 	}
+	// 다각형 높이는 꼭짓점 사이에서 언덕보다 뜨거나 묻힐 수 있다 → 정적 콜라이더 바닥에 붙인다 (Unity 의 Height Mesh 역할)
+	{
+		const float window = (nav ? nav->Settings.StepHeight : 0.4f) + 0.5f;
+		RaycastHit hits[4];
+		const int n = PhysicsManager::GetI()->RaycastAll(feet + Vec3(0.0f, window, 0.0f), Vec3(0.0f, -1.0f, 0.0f), window * 2.0f, hits, 4, true);
+		for (int i = 0; i < n; ++i)
+			if (hits[i].distance > 1e-3f && hits[i].normal.y > 0.3f)
+			{
+				feet.y = hits[i].point.y;
+				break;
+			}
+	}
 	tr->SetPosition(feet + Vec3(0.0f, BaseOffset, 0.0f));
+	if (Velocity.LengthSquared() < 1e-8f)
+		return;
 
 	// 움직이는 쪽으로 돌기 (Angular Speed 도/초)
 	if (Velocity.LengthSquared() > 0.01f)
-	{
-		const float targetYaw = XMConvertToDegrees(atan2f(Velocity.x, Velocity.z));
-		Vec3 e = tr->GetEulerAngle();
-		float delta = fmodf(targetYaw - e.y + 540.0f, 360.0f) - 180.0f;
-		const float maxTurn = AngularSpeed * dt;
-		delta = std::clamp(delta, -maxTurn, maxTurn);
-		tr->SetEulerAngle(Vec3(e.x, e.y + delta, e.z));
-	}
+		turnTowards(Velocity);
 }
-
 void NavMeshAgent::OnInspectorGUI()
 {
 	UnityGUI::Label("Steering", 0, true);
@@ -201,6 +280,8 @@ void NavMeshAgent::OnInspectorGUI()
 	UnityGUI::Float("Acceleration", &Acceleration, 1);
 	UnityGUI::Float("Stopping Distance", &StoppingDistance, 1);
 	UnityGUI::Toggle("Auto Braking", &AutoBraking, 1);
+	UnityGUI::Label("Path Finding", 0, true);
+	UnityGUI::Toggle("Auto Traverse Off Mesh Link", &AutoTraverseOffMeshLink, 1);
 	UnityGUI::Label("Obstacle Avoidance", 0, true);
 	UnityGUI::Float("Radius", &Radius, 1);
 	UnityGUI::Float("Height", &Height, 1);
@@ -209,7 +290,7 @@ void NavMeshAgent::OnInspectorGUI()
 	if (Application::IsPlaying())
 	{
 		char buf[96];
-		snprintf(buf, sizeof(buf), "%s, %.2f m left, %.2f m/s", HasPath ? "has path" : "no path", HasPath ? RemainingDistance() : 0.0f, Velocity.Length());
+		snprintf(buf, sizeof(buf), "%s, %.2f m left, %.2f m/s", OnLink ? "on off-mesh link" : (HasPath ? "has path" : "no path"), HasPath ? RemainingDistance() : 0.0f, Velocity.Length());
 		UnityGUI::ValueLabel("State", buf);
 	}
 	if (NavMeshSurface::All().empty())
@@ -246,6 +327,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(NavMeshAgent)
 	j["height"] = Height;
 	j["baseOffset"] = BaseOffset;
 	j["avoidancePriority"] = AvoidancePriority;
+	j["autoTraverseOffMeshLink"] = AutoTraverseOffMeshLink;
 	return j;
 }
 
@@ -261,4 +343,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(NavMeshAgent)
 	Height = j.value("height", 2.0f);
 	BaseOffset = j.value("baseOffset", 0.0f);
 	AvoidancePriority = j.value("avoidancePriority", 50);
+	AutoTraverseOffMeshLink = j.value("autoTraverseOffMeshLink", true);
 }

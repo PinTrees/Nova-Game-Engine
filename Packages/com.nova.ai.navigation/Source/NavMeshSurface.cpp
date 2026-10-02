@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "NavMeshSurface.h"
+#include "NavMeshLink.h"
 #include "UnityGUI.h"
 #include "SceneViewOverlay.h"
 #include "SelectionManager.h"
@@ -39,9 +40,9 @@ NavMeshSurface::~NavMeshSurface()
 
 const std::vector<NavMeshSurface*>& NavMeshSurface::All() { return s_All; }
 
-const NavData* NavMeshSurface::FindData(const Vec3& p)
+std::shared_ptr<NavData> NavMeshSurface::FindDataShared(const Vec3& p)
 {
-	const NavData* fallback = nullptr;
+	std::shared_ptr<NavData> fallback;
 	for (NavMeshSurface* s : s_All)
 	{
 		if (s->GetGameObject() == nullptr || !s->IsEnabled() || !ActiveInHierarchy(s->GetGameObject()))
@@ -50,11 +51,42 @@ const NavData* NavMeshSurface::FindData(const Vec3& p)
 		if (g == nullptr || g->IsEmpty())
 			continue;
 		if (g->ContainsXZ(p))
-			return g;
+			return s->m_Data;
 		if (fallback == nullptr)
-			fallback = g;
+			fallback = s->m_Data;
 	}
 	return fallback;
+}
+
+const NavData* NavMeshSurface::FindData(const Vec3& p)
+{
+	return FindDataShared(p).get();
+}
+
+namespace
+{
+	bool SameLinks(const std::vector<NavLink>& a, const std::vector<NavLink>& b)
+	{
+		if (a.size() != b.size())
+			return false;
+		for (size_t i = 0; i < a.size(); ++i)
+			if (Vec3::DistanceSquared(a[i].Start, b[i].Start) > 1e-6f || Vec3::DistanceSquared(a[i].End, b[i].End) > 1e-6f ||
+				a[i].Width != b[i].Width || a[i].Bidirectional != b[i].Bidirectional)
+				return false;
+		return true;
+	}
+}
+
+void NavMeshSurface::LastUpdate()
+{
+	NavData* data = GetData() ? m_Data.get() : nullptr;
+	if (data == nullptr)
+		return;
+	std::vector<NavLink> links;
+	NavMeshLink::Collect(links);
+	if (!SameLinks(links, data->GetLinks()))
+		data->SetLinks(links);
+	data->UpdateObstacles();
 }
 
 std::wstring NavMeshSurface::DefaultDataPath() const
@@ -84,6 +116,9 @@ const NavData* NavMeshSurface::GetData()
 	{
 		m_LoadedPath = DataPath;   // 실패해도 매 프레임 다시 읽지 않게
 		auto g = std::make_shared<NavData>();
+		std::vector<NavLink> links;
+		NavMeshLink::Collect(links);
+		g->SetLinks(links);   // 타일을 만들 때 같이 넣는다
 		if (g->Load(PathManager::GetI()->GetMovePathW(string_to_wstring(DataPath))))
 			m_Data = g;
 		else
@@ -136,6 +171,11 @@ bool NavMeshSurface::Bake(std::string& log)
 		pm->CollectStaticTriangles(bmin, bmax, verts, tris);
 	}
 	auto grid = std::make_shared<NavData>();
+	{
+		std::vector<NavLink> links;
+		NavMeshLink::Collect(links);
+		grid->SetLinks(links);
+	}
 	bool ok = haveBounds && grid->Bake(verts, tris, bmin, bmax, Settings, log);
 	if (!haveBounds)
 		log = "nothing to bake (no colliders in the scene)";

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaEngine VERSION 0.1.0 LANGUAGES CXX)
+project(NovaEngine VERSION 0.1.0 LANGUAGES CXX C)   # C: 패키지 ThirdParty 의 C 라이브러리 (FastLZ)
 
 # 엔진/실행 파일 이름 (변경 시 Source/Core/EngineInfo.h 도 함께 수정)
 set(ENGINE_NAME NovaEngine)
@@ -255,11 +255,11 @@ function(nova_add_package PKG_NAME DLL_NAME)
     target_link_libraries(${DLL_NAME} PRIVATE ${ENGINE_CORE})
     target_include_directories(${DLL_NAME} PRIVATE "${PKG_DIR}/Source")
     target_precompile_headers(${DLL_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/pch.h")
-    # 패키지 안의 외부 라이브러리 (ThirdParty/<이름>/Source/*.cpp + Include/) — 엔진 PCH 없이, 경고 없이
+    # 패키지 안의 외부 라이브러리 (ThirdParty/<이름>/Source/*.cpp, *.c + Include/) — 엔진 PCH 없이, 경고 없이
     file(GLOB PKG_LIB_DIRS LIST_DIRECTORIES true "${PKG_DIR}/ThirdParty/*")
     foreach(LIB_DIR ${PKG_LIB_DIRS})
         if(IS_DIRECTORY "${LIB_DIR}/Source")
-            file(GLOB LIB_SOURCES "${LIB_DIR}/Source/*.cpp")
+            file(GLOB LIB_SOURCES "${LIB_DIR}/Source/*.cpp" "${LIB_DIR}/Source/*.c")
             target_sources(${DLL_NAME} PRIVATE ${LIB_SOURCES})
             set_source_files_properties(${LIB_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "/W0")
             target_include_directories(${DLL_NAME} PRIVATE "${LIB_DIR}/Include")

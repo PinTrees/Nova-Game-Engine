@@ -20,12 +20,15 @@ public:
 	static const std::vector<NavMeshSurface*>& All();
 	// 점이 들어 있는 (없으면 아무) 구운 표면의 내비 메시
 	static const NavData* FindData(const Vec3& p);
+	static std::shared_ptr<NavData> FindDataShared(const Vec3& p);
 
 	bool Bake(std::string& log);       // 편집 중이면 임시 물리 월드로
 	void Clear();
 	const NavData* GetData();          // 필요하면 파일에서 읽는다
 
 	void Awake() override { GetData(); }
+	// 매 프레임 (편집 중에도): NavMesh Link 가 바뀌었으면 반영, 장애물 깎기 처리
+	void LastUpdate() override;
 	void OnInspectorGUI() override;
 	void OnDrawGizmos() override;
 	bool UsesUnityInspector() const override { return true; }

@@ -1,14 +1,16 @@
 {
   "name": "com.nova.ai.navigation",
   "displayName": "AI Navigation",
-  "version": "1.1.0",
-  "description": "Pathfinding for NPCs and enemies (Unity AI Navigation): bake where agents can walk with NavMesh Surface (slope, step height, agent radius and height, several floors), then give a Nav Mesh Agent a destination - it finds a path around walls and obstacles and walks it with acceleration, braking and turning. C#: NavMeshAgent.SetDestination, NavMesh.CalculatePath / SamplePosition. Built on Recast & Detour (zlib): polygon nav mesh baked from the static colliders in tiles on all CPU cores.",
+  "version": "1.2.0",
+  "description": "Pathfinding for NPCs and enemies (Unity AI Navigation): bake where agents can walk with NavMesh Surface (slope, step height, agent radius and height, several floors), then give a Nav Mesh Agent a destination - it finds a path around walls and obstacles and walks it with acceleration, braking and turning. NavMesh Link joins places you cannot walk between (jump down a ledge, cross a gap, climb a ladder); Nav Mesh Obstacle blocks agents and, with Carve, cuts a hole in the NavMesh while it stands still (doors, crates). C#: NavMeshAgent.SetDestination, NavMesh.CalculatePath / SamplePosition. Built on Recast & Detour (zlib) with TileCache: polygon nav mesh baked from the static colliders in tiles on all CPU cores.",
   "category": "AI",
   "author": { "name": "NOVA" },
-  "keywords": [ "navmesh", "navigation", "pathfinding", "ai", "agent", "npc", "enemy" ],
+  "keywords": [ "navmesh", "navigation", "pathfinding", "ai", "agent", "npc", "enemy", "offmesh", "link", "obstacle" ],
   "native": [ "NovaNavigation.dll" ],
   "components": [
     { "type": "NavMeshSurface", "display": "NavMesh Surface", "category": "Navigation", "icon": "terrain_paint", "single": false },
-    { "type": "NavMeshAgent", "display": "Nav Mesh Agent", "category": "Navigation", "icon": "capsule_collider", "single": true }
+    { "type": "NavMeshAgent", "display": "Nav Mesh Agent", "category": "Navigation", "icon": "capsule_collider", "single": true },
+    { "type": "NavMeshObstacle", "display": "Nav Mesh Obstacle", "category": "Navigation", "icon": "box_collider", "single": true },
+    { "type": "NavMeshLink", "display": "NavMesh Link", "category": "Navigation", "icon": "terrain_paint", "single": false }
   ]
 }

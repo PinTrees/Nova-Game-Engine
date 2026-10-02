@@ -17,7 +17,7 @@ com.company.feature/
   package.json            이름·버전·설명·의존성·네이티브 DLL·컴포넌트
   Runtime/*.cs            C# API (프로젝트 스크립트와 같은 Assembly-CSharp 로 컴파일 — C# 만 있는 패키지도 됨)
   Source/*.cpp, *.h       C++ 컴포넌트 (있으면) → Plugins/<DLL>.dll
-  ThirdParty/<라이브러리>/  (선택) 패키지만 쓰는 외부 라이브러리 — Source/*.cpp + Include/ 를 PCH 없이 같이 컴파일 (예: AI Navigation 의 Recast · Detour)
+  ThirdParty/<라이브러리>/  (선택) 패키지만 쓰는 외부 라이브러리 — Source/*.cpp, *.c + Include/ 를 PCH 없이 같이 컴파일 (예: AI Navigation 의 Recast · Detour · DetourTileCache · FastLZ)
   Plugins/                빌드 결과 (<DLL>.dll + <DLL>.dll.abi) — 저장소에 넣지 않음
   Resources/              (선택) 게임 빌드에 같이 들어가는 파일
 ```

@@ -230,8 +230,47 @@ function Suite-Packages
         $np = (Invoke-NovaJson 'get NNpc').position
         Add-Result packages 'nav mesh agent walks to the destination' ([math]::Abs([double]$np[0] - 5) -lt 0.2 -and [math]::Abs([double]$np[2]) -lt 0.2) ("NPC {0:F2}, {1:F2} (expect 5, 0)" -f [double]$np[0], [double]$np[2])
         Invoke-Nova 'stop' | Out-Null
+
+        # NavMesh Link: 2 m 틈으로 떨어진 두 발판 → 링크로 이어진 길 → NPC 가 건너편에 도착
+        foreach ($l in @('scene new --force', 'create cube --name NA --position -6,-0.5,0 --scale 10,1,10', 'create cube --name NB --position 6,-0.5,0 --scale 10,1,10',
+                         'create empty --name NSurface', 'add-component NSurface NavMeshSurface', 'create empty --name NLink',
+                         'add-component NLink NavMeshLink --values "{\"startPoint\":[-1.6,0,0],\"endPoint\":[1.6,0,0]}"',
+                         'create capsule --name NNpc --position -6,1,0', 'remove-component NNpc CapsuleCollider', 'add-component NNpc NavMeshAgent --values "{\"baseOffset\":1}"')) { Invoke-Nova $l | Out-Null }
+        Invoke-Nova 'wait 3' | Out-Null
+        $lf = Join-Path $Out 'nav_link.cs'
+        'GameObject.Find("NSurface").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); var p = new NovaEngine.AI.NavMeshPath(); NovaEngine.AI.NavMesh.CalculatePath(new Vector3(-6,0,0), new Vector3(6,0,0), NovaEngine.AI.NavMesh.AllAreas, p); return p.corners.Length + " " + p.corners[p.corners.Length - 1].x.ToString("F2");' | Set-Content -Encoding utf8 $lf
+        $lr = Invoke-NovaJson "exec --file $lf"
+        $lv = if ($lr) { "$($lr.result)" -split ' ' } else { @() }
+        Add-Result packages 'navmesh link joins two platforms' ($lv.Count -eq 2 -and [int]$lv[0] -eq 4 -and [math]::Abs([double]$lv[1] - 6) -lt 0.1) "corners $($lv[0]), end x $($lv[1]) (expect 4, 6)"
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        Invoke-Nova "exec --file $gf" | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 6) { Invoke-Nova 'wait 20' | Out-Null }
+        $np = (Invoke-NovaJson 'get NNpc').position
+        Add-Result packages 'agent crosses the off-mesh link' ([math]::Abs([double]$np[0] - 5) -lt 0.2) ("NPC x {0:F2} (expect 5)" -f [double]$np[0])
+        Invoke-Nova 'stop' | Out-Null
+
+        # NavMesh Obstacle Carve: 콜라이더 없는 2x2x12 상자가 Play 중 멈춰 있으면 길이 돌아간다, 치우면 다시 곧게
+        foreach ($l in @('scene new --force', 'create cube --name NGround --position 0,-0.5,0 --scale 20,1,20',
+                         'create empty --name NSurface', 'add-component NSurface NavMeshSurface',
+                         'create cube --name NObs --position 0,1,0 --scale 2,2,12', 'remove-component NObs BoxCollider',
+                         'add-component NObs NavMeshObstacle --values "{\"carve\":true}"')) { Invoke-Nova $l | Out-Null }
+        $of = Join-Path $Out 'nav_obs.cs'
+        'var p = new NovaEngine.AI.NavMeshPath(); NovaEngine.AI.NavMesh.CalculatePath(new Vector3(-5,0,0), new Vector3(5,0,0), NovaEngine.AI.NavMesh.AllAreas, p); float mz = 0; foreach (var c in p.corners) mz = Mathf.Max(mz, Mathf.Abs(c.z)); return mz.ToString("F2");' | Set-Content -Encoding utf8 $of
+        $obf = Join-Path $Out 'nav_obs_bake.cs'
+        'GameObject.Find("NSurface").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); return "ok";' | Set-Content -Encoding utf8 $obf
+        Invoke-Nova "exec --file $obf" | Out-Null
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.2) { Invoke-Nova 'wait 10' | Out-Null }
+        $z1 = [double](Invoke-NovaJson "exec --file $of").result
+        $omf = Join-Path $Out 'nav_obs_move.cs'
+        'GameObject.Find("NObs").transform.position = new Vector3(0, 1, 40); return "moved";' | Set-Content -Encoding utf8 $omf
+        Invoke-Nova "exec --file $omf" | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.2) { Invoke-Nova 'wait 10' | Out-Null }
+        $z2 = [double](Invoke-NovaJson "exec --file $of").result
+        Add-Result packages 'carving obstacle reroutes the path' ($z1 -gt 6.0 -and $z2 -lt 0.1) ("max |z| {0:F2} with obstacle, {1:F2} after moving it (expect > 6, 0)" -f $z1, $z2)
+        Invoke-Nova 'stop' | Out-Null
         Invoke-Nova 'package remove com.nova.ai.navigation' | Out-Null
-        Remove-Item (Join-Path $Project 'Assets\NavMesh-NSurface.navgrid') -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $Project 'Assets\NavMesh-NSurface.navmesh') -ErrorAction SilentlyContinue
     }
     finally
     {

@@ -1,9 +1,13 @@
 #include "pch.h"
 #include "NavData.h"
 #include "Recast.h"
+#include "DetourCommon.h"
 #include "DetourNavMesh.h"
 #include "DetourNavMeshBuilder.h"
 #include "DetourNavMeshQuery.h"
+#include "DetourTileCache.h"
+#include "DetourTileCacheBuilder.h"
+#include "fastlz.h"
 #include "SceneViewOverlay.h"
 #include <fstream>
 #include <thread>
@@ -13,8 +17,10 @@
 namespace
 {
 	constexpr uint32_t kMagic = 0x4D4E564E;   // 'NVNM'
-	constexpr uint32_t kVersion = 1;
-	constexpr int kTileSize = 128;            // 복셀
+	constexpr uint32_t kVersion = 2;          // 2 = TileCache 층 (1 = Detour 타일 그대로 — 다시 굽는다)
+	constexpr int kTileSize = 64;             // 복셀 (장애물이 바뀌면 이 크기만큼 다시 만든다)
+	constexpr int kMaxLayersPerTile = 32;
+	constexpr int kMaxObstacles = 1024;
 	constexpr int kMaxPathPolys = 4096;
 	constexpr int kMaxCorners = 512;
 
@@ -25,17 +31,55 @@ namespace
 		QuietContext() : rcContext(false) {}
 	};
 
-	struct TileResult
+	// 층 데이터 압축 (RecastDemo 와 같은 FastLZ)
+	struct FastLZCompressor : public dtTileCacheCompressor
 	{
-		int X = 0, Y = 0;
+		int maxCompressedSize(const int bufferSize) override { return (int)(bufferSize * 1.05f) + 66; }
+		dtStatus compress(const unsigned char* buffer, const int bufferSize, unsigned char* compressed, const int, int* compressedSize) override
+		{
+			*compressedSize = fastlz_compress((const void*)buffer, bufferSize, compressed);
+			return DT_SUCCESS;
+		}
+		dtStatus decompress(const unsigned char* compressed, const int compressedSize, unsigned char* buffer, const int maxBufferSize, int* bufferSize) override
+		{
+			*bufferSize = fastlz_decompress(compressed, compressedSize, buffer, maxBufferSize);
+			return *bufferSize < 0 ? DT_FAILURE : DT_SUCCESS;
+		}
+	};
+
+	struct MeshProcess : public dtTileCacheMeshProcess
+	{
+		const NavData* Owner = nullptr;
+		void process(dtNavMeshCreateParams* params, unsigned char* polyAreas, unsigned short* polyFlags) override
+		{
+			Owner->ProcessTile(params, polyAreas, polyFlags);
+		}
+	};
+
+	struct LayerBlob
+	{
+		unsigned char* Data = nullptr;
+		int Size = 0;
+	};
+
+	struct NavTileBlob
+	{
 		unsigned char* Data = nullptr;
 		int Size = 0;
 	};
 
 	const dtQueryFilter& Filter()
 	{
-		static dtQueryFilter filter;   // 기본: 모든 플래그(우리는 걸을 수 있는 다각형에 1 을 단다)
+		static dtQueryFilter filter;   // 기본: 모든 플래그(걸을 수 있는 다각형·링크에 1 을 단다)
 		return filter;
+	}
+
+	int NextPow2(int v)
+	{
+		int p = 1;
+		while (p < v)
+			p <<= 1;
+		return p;
 	}
 
 	struct FileHeader
@@ -43,20 +87,103 @@ namespace
 		uint32_t Magic, Version;
 		NavBakeSettings Settings;
 		float BoundsMin[3], BoundsMax[3];
-		dtNavMeshParams Params;
-		int TileCount;
+		dtNavMeshParams MeshParams;
+		dtTileCacheParams CacheParams;
+		int LayerCount;
 	};
+
+	// 압축한 층 하나 → Detour 타일 데이터 (dtTileCache::buildNavMeshTile 과 같은 순서, 장애물 없이 — 여러 스레드에서)
+	NavTileBlob BuildNavTile(const dtTileCacheParams& tp, dtTileCacheCompressor* comp, dtTileCacheMeshProcess* proc, const dtCompressedTile* tile)
+	{
+		NavTileBlob out;
+		dtTileCacheAlloc alloc;
+		dtTileCacheLayer* layer = nullptr;
+		dtTileCacheContourSet* lcset = nullptr;
+		dtTileCachePolyMesh* lmesh = nullptr;
+		const int climbVx = (int)(tp.walkableClimb / tp.ch);
+		bool ok = dtStatusSucceed(dtDecompressTileCacheLayer(&alloc, comp, tile->data, tile->dataSize, &layer))
+			&& dtStatusSucceed(dtBuildTileCacheRegions(&alloc, *layer, climbVx));
+		if (ok)
+		{
+			lcset = dtAllocTileCacheContourSet(&alloc);
+			ok = lcset && dtStatusSucceed(dtBuildTileCacheContours(&alloc, *layer, climbVx, tp.maxSimplificationError, *lcset));
+		}
+		if (ok)
+		{
+			lmesh = dtAllocTileCachePolyMesh(&alloc);
+			ok = lmesh && dtStatusSucceed(dtBuildTileCachePolyMesh(&alloc, *lcset, *lmesh));
+		}
+		if (ok && lmesh->npolys > 0)
+		{
+			dtNavMeshCreateParams p{};
+			p.verts = lmesh->verts;
+			p.vertCount = lmesh->nverts;
+			p.polys = lmesh->polys;
+			p.polyAreas = lmesh->areas;
+			p.polyFlags = lmesh->flags;
+			p.polyCount = lmesh->npolys;
+			p.nvp = DT_VERTS_PER_POLYGON;
+			p.walkableHeight = tp.walkableHeight;
+			p.walkableRadius = tp.walkableRadius;
+			p.walkableClimb = tp.walkableClimb;
+			p.tileX = tile->header->tx;
+			p.tileY = tile->header->ty;
+			p.tileLayer = tile->header->tlayer;
+			p.cs = tp.cs;
+			p.ch = tp.ch;
+			p.buildBvTree = false;
+			dtVcopy(p.bmin, tile->header->bmin);
+			dtVcopy(p.bmax, tile->header->bmax);
+			proc->process(&p, lmesh->areas, lmesh->flags);
+			if (!dtCreateNavMeshData(&p, &out.Data, &out.Size))
+			{
+				out.Data = nullptr;
+				out.Size = 0;
+			}
+		}
+		dtFreeTileCachePolyMesh(&alloc, lmesh);
+		dtFreeTileCacheContourSet(&alloc, lcset);
+		if (layer)
+			dtFreeTileCacheLayer(&alloc, layer);
+		return out;
+	}
+
+	template <typename F>
+	void ParallelFor(int count, F&& f)
+	{
+		std::atomic<int> next{ 0 };
+		auto worker = [&]() {
+			for (int i = next++; i < count; i = next++)
+				f(i);
+		};
+		const int threads = (std::max)(1, (std::min)((int)std::thread::hardware_concurrency() - 1, count));
+		std::vector<std::thread> pool;
+		for (int i = 0; i < threads; ++i)
+			pool.emplace_back(worker);
+		for (auto& t : pool)
+			t.join();
+	}
 }
 
-NavData::NavData() {}
+NavData::NavData()
+{
+	m_Alloc = std::make_unique<dtTileCacheAlloc>();
+	m_Compressor = std::make_unique<FastLZCompressor>();
+	auto proc = std::make_unique<MeshProcess>();
+	proc->Owner = this;
+	m_Process = std::move(proc);
+}
+
 NavData::~NavData() { Reset(); }
 
 void NavData::Reset()
 {
 	if (m_Query) dtFreeNavMeshQuery(m_Query);
 	if (m_Mesh) dtFreeNavMesh(m_Mesh);
+	if (m_Cache) dtFreeTileCache(m_Cache);
 	m_Query = nullptr;
 	m_Mesh = nullptr;
+	m_Cache = nullptr;
 	TileCount = 0;
 	PolyCount = 0;
 }
@@ -70,6 +197,89 @@ bool NavData::InitQuery()
 bool NavData::ContainsXZ(const Vec3& p) const
 {
 	return p.x >= BoundsMin[0] && p.x <= BoundsMax[0] && p.z >= BoundsMin[2] && p.z <= BoundsMax[2];
+}
+
+void NavData::CountPolys()
+{
+	TileCount = 0;
+	PolyCount = 0;
+	if (m_Mesh == nullptr)
+		return;
+	const dtNavMesh* mesh = m_Mesh;
+	for (int i = 0; i < mesh->getMaxTiles(); ++i)
+		if (const dtMeshTile* t = mesh->getTile(i); t && t->header)
+		{
+			++TileCount;
+			PolyCount += t->header->polyCount - t->header->offMeshConCount;
+		}
+}
+
+// ---------------------------------------------------------------------- 타일 만들기 (TileCache 가 부른다)
+void NavData::ProcessTile(dtNavMeshCreateParams* params, unsigned char* polyAreas, unsigned short* polyFlags) const
+{
+	for (int i = 0; i < params->polyCount; ++i)
+	{
+		const bool walkable = polyAreas[i] == DT_TILECACHE_WALKABLE_AREA;
+		polyAreas[i] = 0;
+		polyFlags[i] = walkable ? 1 : 0;
+	}
+	// Off-Mesh Link — Detour 가 시작 점이 이 타일 안인 것만 넣는다
+	if (!m_Links.empty())
+	{
+		params->offMeshConVerts = m_LinkVerts.data();
+		params->offMeshConRad = m_LinkRads.data();
+		params->offMeshConDir = m_LinkDirs.data();
+		params->offMeshConAreas = m_LinkAreas.data();
+		params->offMeshConFlags = m_LinkFlags.data();
+		params->offMeshConUserID = m_LinkIds.data();
+		params->offMeshConCount = (int)m_Links.size();
+	}
+}
+
+void NavData::RebuildLinkArrays()
+{
+	const size_t n = m_Links.size();
+	m_LinkVerts.resize(n * 6);
+	m_LinkRads.resize(n);
+	m_LinkDirs.resize(n);
+	m_LinkAreas.assign(n, 0);
+	m_LinkFlags.assign(n, 1);
+	m_LinkIds.resize(n);
+	for (size_t i = 0; i < n; ++i)
+	{
+		const NavLink& l = m_Links[i];
+		float* v = &m_LinkVerts[i * 6];
+		v[0] = l.Start.x; v[1] = l.Start.y; v[2] = l.Start.z;
+		v[3] = l.End.x; v[4] = l.End.y; v[5] = l.End.z;
+		// 끝점은 반지름만큼 깎인 가장자리 밖에 놓이기 쉬우니 반지름 + 여유 안에서 메시를 찾는다
+		m_LinkRads[i] = (std::max)(0.5f, Settings.AgentRadius + 0.3f) + l.Width * 0.5f;
+		m_LinkDirs[i] = l.Bidirectional ? DT_OFFMESH_CON_BIDIR : 0;
+		m_LinkIds[i] = (unsigned int)i;
+	}
+}
+
+bool NavData::BuildAllTiles()
+{
+	if (m_Cache == nullptr || m_Mesh == nullptr)
+		return false;
+	std::vector<const dtCompressedTile*> tiles;
+	for (int i = 0; i < m_Cache->getTileCount(); ++i)
+		if (const dtCompressedTile* t = m_Cache->getTile(i); t && t->header)
+			tiles.push_back(t);
+	std::vector<NavTileBlob> built(tiles.size());
+	const dtTileCacheParams params = *m_Cache->getParams();
+	dtTileCacheCompressor* comp = m_Compressor.get();
+	dtTileCacheMeshProcess* proc = m_Process.get();
+	ParallelFor((int)tiles.size(), [&](int i) { built[i] = BuildNavTile(params, comp, proc, tiles[i]); });
+	for (NavTileBlob& b : built)
+	{
+		if (b.Data == nullptr)
+			continue;
+		if (dtStatusFailed(m_Mesh->addTile(b.Data, b.Size, DT_TILE_FREE_DATA, 0, nullptr)))
+			dtFree(b.Data);
+	}
+	CountPolys();
+	return true;
 }
 
 // ---------------------------------------------------------------------- 굽기
@@ -94,25 +304,6 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 	Settings.CellSize = cs;
 	const float ch = (std::max)(0.02f, cs * 0.5f);
 
-	int gw = 0, gh = 0;
-	rcCalcGridSize(bmin, bmax, cs, &gw, &gh);
-	const int tw = (gw + kTileSize - 1) / kTileSize, th = (gh + kTileSize - 1) / kTileSize;
-	const float tileWorld = kTileSize * cs;
-
-	dtNavMeshParams params{};
-	rcVcopy(params.orig, bmin);
-	params.tileWidth = tileWorld;
-	params.tileHeight = tileWorld;
-	params.maxTiles = tw * th;
-	params.maxPolys = 1 << 16;
-	m_Mesh = dtAllocNavMesh();
-	if (m_Mesh == nullptr || dtStatusFailed(m_Mesh->init(&params)))
-	{
-		log = "could not create the nav mesh";
-		Reset();
-		return false;
-	}
-
 	rcConfig base{};
 	base.cs = cs;
 	base.ch = ch;
@@ -124,12 +315,22 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 	base.maxSimplificationError = 1.3f;
 	base.minRegionArea = 8 * 8;
 	base.mergeRegionArea = 20 * 20;
-	base.maxVertsPerPoly = 6;
-	base.tileSize = kTileSize;
+	base.maxVertsPerPoly = DT_VERTS_PER_POLYGON;
 	base.borderSize = base.walkableRadius + 3;
-	base.width = base.height = kTileSize + base.borderSize * 2;
-	base.detailSampleDist = cs * 6.0f < 0.9f ? 0.0f : cs * 6.0f;
-	base.detailSampleMaxError = ch;
+	// 층의 가로·세로는 255 칸까지 (테두리 포함)
+	base.tileSize = (std::min)(kTileSize, 255 - base.borderSize * 2);
+	if (base.tileSize < 16)
+	{
+		log = "Agent Radius is too large for the Voxel Size (raise Voxel Size)";
+		return false;
+	}
+	base.width = base.height = base.tileSize + base.borderSize * 2;
+	const int tileSize = base.tileSize;
+
+	int gw = 0, gh = 0;
+	rcCalcGridSize(bmin, bmax, cs, &gw, &gh);
+	const int tw = (gw + tileSize - 1) / tileSize, th = (gh + tileSize - 1) / tileSize;
+	const float tileWorld = tileSize * cs;
 
 	// 삼각형을 타일(+ 테두리)마다 나눈다
 	const float border = base.borderSize * cs;
@@ -152,14 +353,13 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 				buckets[(size_t)z * tw + x].push_back(t);
 	}
 
-	auto buildTile = [&](int tx, int ty) -> TileResult
+	// 타일마다 복셀화 → 높이 층 → 압축 (여러 스레드)
+	dtTileCacheCompressor* comp = m_Compressor.get();
+	auto rasterize = [&](int tx, int ty, std::vector<LayerBlob>& out)
 	{
-		TileResult out;
-		out.X = tx;
-		out.Y = ty;
 		const std::vector<int>& idx = buckets[(size_t)ty * tw + tx];
 		if (idx.empty())
-			return out;
+			return;
 		rcConfig cfg = base;
 		cfg.bmin[0] = bmin[0] + tx * tileWorld - border;
 		cfg.bmin[1] = bmin[1];
@@ -177,9 +377,7 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 
 		rcHeightfield* solid = rcAllocHeightfield();
 		rcCompactHeightfield* chf = nullptr;
-		rcContourSet* cset = nullptr;
-		rcPolyMesh* pmesh = nullptr;
-		rcPolyMeshDetail* dmesh = nullptr;
+		rcHeightfieldLayerSet* lset = nullptr;
 		bool ok = solid && rcCreateHeightfield(&ctx, *solid, cfg.width, cfg.height, cfg.bmin, cfg.bmax, cfg.cs, cfg.ch);
 		if (ok)
 		{
@@ -195,103 +393,99 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 			ok = chf && rcBuildCompactHeightfield(&ctx, cfg.walkableHeight, cfg.walkableClimb, *solid, *chf);
 		}
 		rcFreeHeightField(solid);
-		ok = ok && rcErodeWalkableArea(&ctx, cfg.walkableRadius, *chf)
-			&& rcBuildDistanceField(&ctx, *chf)
-			&& rcBuildRegions(&ctx, *chf, cfg.borderSize, cfg.minRegionArea, cfg.mergeRegionArea);
+		ok = ok && rcErodeWalkableArea(&ctx, cfg.walkableRadius, *chf);
 		if (ok)
 		{
-			cset = rcAllocContourSet();
-			ok = cset && rcBuildContours(&ctx, *chf, cfg.maxSimplificationError, cfg.maxEdgeLen, *cset) && cset->nconts > 0;
+			lset = rcAllocHeightfieldLayerSet();
+			ok = lset && rcBuildHeightfieldLayers(&ctx, *chf, cfg.borderSize, cfg.walkableHeight, *lset);
 		}
 		if (ok)
 		{
-			pmesh = rcAllocPolyMesh();
-			ok = pmesh && rcBuildPolyMesh(&ctx, *cset, cfg.maxVertsPerPoly, *pmesh);
-		}
-		if (ok)
-		{
-			dmesh = rcAllocPolyMeshDetail();
-			ok = dmesh && rcBuildPolyMeshDetail(&ctx, *pmesh, *chf, cfg.detailSampleDist, cfg.detailSampleMaxError, *dmesh);
-		}
-		if (ok && pmesh->nverts < 0xffff && pmesh->npolys > 0)
-		{
-			for (int i = 0; i < pmesh->npolys; ++i)
-				if (pmesh->areas[i] == RC_WALKABLE_AREA)
-				{
-					pmesh->areas[i] = 0;
-					pmesh->flags[i] = 1;
-				}
-			dtNavMeshCreateParams p{};
-			p.verts = pmesh->verts;
-			p.vertCount = pmesh->nverts;
-			p.polys = pmesh->polys;
-			p.polyAreas = pmesh->areas;
-			p.polyFlags = pmesh->flags;
-			p.polyCount = pmesh->npolys;
-			p.nvp = pmesh->nvp;
-			p.detailMeshes = dmesh->meshes;
-			p.detailVerts = dmesh->verts;
-			p.detailVertsCount = dmesh->nverts;
-			p.detailTris = dmesh->tris;
-			p.detailTriCount = dmesh->ntris;
-			p.walkableHeight = s.AgentHeight;
-			p.walkableRadius = s.AgentRadius;
-			p.walkableClimb = s.StepHeight;
-			p.tileX = tx;
-			p.tileY = ty;
-			p.tileLayer = 0;
-			rcVcopy(p.bmin, pmesh->bmin);
-			rcVcopy(p.bmax, pmesh->bmax);
-			p.cs = cfg.cs;
-			p.ch = cfg.ch;
-			p.buildBvTree = true;
-			if (!dtCreateNavMeshData(&p, &out.Data, &out.Size))
+			for (int i = 0; i < (std::min)(lset->nlayers, kMaxLayersPerTile); ++i)
 			{
-				out.Data = nullptr;
-				out.Size = 0;
+				const rcHeightfieldLayer* layer = &lset->layers[i];
+				dtTileCacheLayerHeader header{};
+				header.magic = DT_TILECACHE_MAGIC;
+				header.version = DT_TILECACHE_VERSION;
+				header.tx = tx;
+				header.ty = ty;
+				header.tlayer = i;
+				dtVcopy(header.bmin, layer->bmin);
+				dtVcopy(header.bmax, layer->bmax);
+				header.width = (unsigned char)layer->width;
+				header.height = (unsigned char)layer->height;
+				header.minx = (unsigned char)layer->minx;
+				header.maxx = (unsigned char)layer->maxx;
+				header.miny = (unsigned char)layer->miny;
+				header.maxy = (unsigned char)layer->maxy;
+				header.hmin = (unsigned short)layer->hmin;
+				header.hmax = (unsigned short)layer->hmax;
+				LayerBlob blob;
+				if (dtStatusSucceed(dtBuildTileCacheLayer(comp, &header, layer->heights, layer->areas, layer->cons, &blob.Data, &blob.Size)))
+					out.push_back(blob);
 			}
 		}
+		rcFreeHeightfieldLayerSet(lset);
 		rcFreeCompactHeightfield(chf);
-		rcFreeContourSet(cset);
-		rcFreePolyMesh(pmesh);
-		rcFreePolyMeshDetail(dmesh);
-		return out;
 	};
-
-	std::vector<TileResult> results((size_t)tw * th);
-	std::atomic<int> next{ 0 };
-	auto worker = [&]() {
-		for (int i = next++; i < tw * th; i = next++)
-			results[i] = buildTile(i % tw, i / tw);
-	};
+	std::vector<std::vector<LayerBlob>> layers((size_t)tw * th);
+	ParallelFor(tw * th, [&](int i) { rasterize(i % tw, i / tw, layers[i]); });
+	int layerCount = 0;
+	for (auto& l : layers)
+		layerCount += (int)l.size();
+	if (layerCount == 0)
 	{
-		const int threads = (std::max)(1, (std::min)((int)std::thread::hardware_concurrency() - 1, tw * th));
-		std::vector<std::thread> pool;
-		for (int i = 0; i < threads; ++i)
-			pool.emplace_back(worker);
-		for (auto& t : pool)
-			t.join();
+		log = "nothing walkable was found (check Max Slope / Step Height / Agent Radius)";
+		return false;
 	}
-	for (TileResult& r : results)
-	{
-		if (r.Data == nullptr)
-			continue;
-		if (dtStatusSucceed(m_Mesh->addTile(r.Data, r.Size, DT_TILE_FREE_DATA, 0, nullptr)))
+
+	dtTileCacheParams tcp{};
+	rcVcopy(tcp.orig, bmin);
+	tcp.cs = cs;
+	tcp.ch = ch;
+	tcp.width = tileSize;
+	tcp.height = tileSize;
+	tcp.walkableHeight = s.AgentHeight;
+	tcp.walkableRadius = s.AgentRadius;
+	tcp.walkableClimb = s.StepHeight;
+	tcp.maxSimplificationError = base.maxSimplificationError;
+	tcp.maxTiles = NextPow2(layerCount);
+	tcp.maxObstacles = kMaxObstacles;
+
+	dtNavMeshParams params{};
+	rcVcopy(params.orig, bmin);
+	params.tileWidth = tileWorld;
+	params.tileHeight = tileWorld;
+	params.maxTiles = NextPow2(layerCount);
+	params.maxPolys = 1 << 16;
+
+	m_Cache = dtAllocTileCache();
+	m_Mesh = dtAllocNavMesh();
+	bool ok = m_Cache && m_Mesh && dtStatusSucceed(m_Cache->init(&tcp, m_Alloc.get(), m_Compressor.get(), m_Process.get()))
+		&& dtStatusSucceed(m_Mesh->init(&params));
+	for (auto& l : layers)
+		for (LayerBlob& b : l)
 		{
-			++TileCount;
-			PolyCount += ((const dtMeshHeader*)r.Data)->polyCount;
+			if (!ok || dtStatusFailed(m_Cache->addTile(b.Data, b.Size, DT_COMPRESSEDTILE_FREE_DATA, nullptr)))
+				dtFree(b.Data);
 		}
-		else
-			dtFree(r.Data);
+	if (!ok)
+	{
+		log = "could not create the nav mesh";
+		Reset();
+		return false;
 	}
 	rcVcopy(BoundsMin, bmin);
 	rcVcopy(BoundsMax, bmax);
+	RebuildLinkArrays();
+	BuildAllTiles();
 	if (!InitQuery() || PolyCount == 0)
 	{
 		log = "nothing walkable was found (check Max Slope / Step Height / Agent Radius)";
 		Reset();
 		return false;
 	}
+	++Revision;
 	const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 	char buf[256];
 	snprintf(buf, sizeof(buf), "%d tiles, %d polygons from %d triangles (voxel %.2f m), %.0f ms", TileCount, PolyCount, ntris, cs, ms);
@@ -299,29 +493,29 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 	return true;
 }
 
-// ---------------------------------------------------------------------- 저장 / 읽기
+// ---------------------------------------------------------------------- 저장 / 읽기 (압축한 층만 — 읽을 때 타일을 만든다)
 bool NavData::Save(const std::wstring& path) const
 {
-	if (m_Mesh == nullptr)
+	if (m_Mesh == nullptr || m_Cache == nullptr)
 		return false;
 	std::ofstream out(path, std::ios::binary | std::ios::trunc);
 	if (!out)
 		return false;
-	const dtNavMesh* mesh = m_Mesh;
 	FileHeader h{};
 	h.Magic = kMagic;
 	h.Version = kVersion;
 	h.Settings = Settings;
 	rcVcopy(h.BoundsMin, BoundsMin);
 	rcVcopy(h.BoundsMax, BoundsMax);
-	h.Params = *mesh->getParams();
-	for (int i = 0; i < mesh->getMaxTiles(); ++i)
-		if (const dtMeshTile* t = mesh->getTile(i); t && t->header && t->dataSize)
-			++h.TileCount;
+	h.MeshParams = *m_Mesh->getParams();
+	h.CacheParams = *m_Cache->getParams();
+	for (int i = 0; i < m_Cache->getTileCount(); ++i)
+		if (const dtCompressedTile* t = m_Cache->getTile(i); t && t->header && t->dataSize)
+			++h.LayerCount;
 	out.write((const char*)&h, sizeof(h));
-	for (int i = 0; i < mesh->getMaxTiles(); ++i)
+	for (int i = 0; i < m_Cache->getTileCount(); ++i)
 	{
-		const dtMeshTile* t = mesh->getTile(i);
+		const dtCompressedTile* t = m_Cache->getTile(i);
 		if (!t || !t->header || !t->dataSize)
 			continue;
 		const int size = t->dataSize;
@@ -339,39 +533,116 @@ bool NavData::Load(const std::wstring& path)
 		return false;
 	FileHeader h{};
 	in.read((char*)&h, sizeof(h));
-	if (!in || h.Magic != kMagic || h.Version != kVersion || h.TileCount < 0 || h.TileCount > 1000000)
+	if (!in || h.Magic != kMagic || h.Version != kVersion || h.LayerCount < 0 || h.LayerCount > 1000000)
 		return false;
+	Settings = h.Settings;
+	rcVcopy(BoundsMin, h.BoundsMin);
+	rcVcopy(BoundsMax, h.BoundsMax);
+	m_Cache = dtAllocTileCache();
 	m_Mesh = dtAllocNavMesh();
-	if (m_Mesh == nullptr || dtStatusFailed(m_Mesh->init(&h.Params)))
+	if (m_Cache == nullptr || m_Mesh == nullptr || dtStatusFailed(m_Cache->init(&h.CacheParams, m_Alloc.get(), m_Compressor.get(), m_Process.get()))
+		|| dtStatusFailed(m_Mesh->init(&h.MeshParams)))
 	{
 		Reset();
 		return false;
 	}
-	for (int i = 0; i < h.TileCount; ++i)
+	for (int i = 0; i < h.LayerCount; ++i)
 	{
 		int size = 0;
 		in.read((char*)&size, sizeof(size));
-		if (!in || size <= 0 || size > 256 * 1024 * 1024)
+		if (!in || size <= 0 || size > 64 * 1024 * 1024)
 			break;
 		unsigned char* data = (unsigned char*)dtAlloc(size, DT_ALLOC_PERM);
 		in.read((char*)data, size);
-		if (!in || dtStatusFailed(m_Mesh->addTile(data, size, DT_TILE_FREE_DATA, 0, nullptr)))
+		if (!in || dtStatusFailed(m_Cache->addTile(data, size, DT_COMPRESSEDTILE_FREE_DATA, nullptr)))
 		{
 			dtFree(data);
 			break;
 		}
-		++TileCount;
-		PolyCount += ((const dtMeshHeader*)data)->polyCount;
 	}
-	Settings = h.Settings;
-	rcVcopy(BoundsMin, h.BoundsMin);
-	rcVcopy(BoundsMax, h.BoundsMax);
+	RebuildLinkArrays();
+	BuildAllTiles();
 	if (!InitQuery())
 	{
 		Reset();
 		return false;
 	}
+	++Revision;
 	return PolyCount > 0;
+}
+
+// ---------------------------------------------------------------------- Off-Mesh Link / 장애물
+void NavData::SetLinks(const std::vector<NavLink>& links)
+{
+	std::vector<NavLink> old = std::move(m_Links);
+	m_Links = links;
+	RebuildLinkArrays();
+	if (m_Cache == nullptr || m_Mesh == nullptr)
+		return;
+	// 링크는 시작 점이 든 타일에 들어간다 → 옛 시작 점과 새 시작 점의 타일만 다시
+	std::vector<std::pair<int, int>> done;
+	const dtTileCacheParams* tp = m_Cache->getParams();
+	auto rebuild = [&](const Vec3& p)
+	{
+		const int tx = (int)std::floor((p.x - tp->orig[0]) / (tp->width * tp->cs));
+		const int ty = (int)std::floor((p.z - tp->orig[2]) / (tp->height * tp->cs));
+		if (std::find(done.begin(), done.end(), std::make_pair(tx, ty)) != done.end())
+			return;
+		done.emplace_back(tx, ty);
+		m_Cache->buildNavMeshTilesAt(tx, ty, m_Mesh);
+	};
+	for (const NavLink& l : old)
+		rebuild(l.Start);
+	for (const NavLink& l : m_Links)
+		rebuild(l.Start);
+	CountPolys();
+	++Revision;
+}
+
+uint32_t NavData::AddObstacle(const NavObstacleShape& s)
+{
+	if (m_Cache == nullptr)
+		return 0;
+	// Unity 처럼 에이전트 반지름만큼 넓혀 깎는다 (층에는 이미 깎인 가장자리가 없어서).
+	// 아래로는 Step Height 만큼 더 — 바닥에 놓인 장애물이 바닥 면을 확실히 덮게
+	const float r = Settings.AgentRadius, down = (std::max)(0.1f, Settings.StepHeight);
+	dtObstacleRef ref = 0;
+	dtStatus st;
+	if (s.Box)
+	{
+		const float c[3] = { s.Center.x, s.Center.y - down * 0.5f, s.Center.z };
+		const float he[3] = { s.HalfExtents.x + r, s.HalfExtents.y + down * 0.5f, s.HalfExtents.z + r };
+		st = m_Cache->addBoxObstacle(c, he, s.YRadians, &ref);
+	}
+	else
+	{
+		const float p[3] = { s.Center.x, s.Center.y - down, s.Center.z };
+		st = m_Cache->addObstacle(p, s.Radius + r, s.Height + down, &ref);
+	}
+	if (dtStatusFailed(st))
+		return 0;   // 요청이 꽉 찼다 (한 프레임 64 개) — 다음 프레임에 다시
+	m_ObstaclesPending = true;
+	return ref;
+}
+
+void NavData::RemoveObstacle(uint32_t id)
+{
+	if (m_Cache && id && dtStatusSucceed(m_Cache->removeObstacle(id)))
+		m_ObstaclesPending = true;
+}
+
+void NavData::UpdateObstacles()
+{
+	if (m_Cache == nullptr || m_Mesh == nullptr || !m_ObstaclesPending)
+		return;
+	// update 한 번에 타일 하나씩 다시 만든다 — 한 프레임에 최대 64 타일, 남으면 다음 프레임
+	bool upToDate = false;
+	for (int i = 0; i < 64 && !upToDate; ++i)
+		if (dtStatusFailed(m_Cache->update(0.0f, m_Mesh, &upToDate)))
+			break;
+	m_ObstaclesPending = !upToDate;
+	CountPolys();
+	++Revision;
 }
 
 // ---------------------------------------------------------------------- 질의
@@ -388,9 +659,10 @@ bool NavData::Sample(const Vec3& p, float maxDistance, Vec3& out) const
 	return true;
 }
 
-bool NavData::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& corners, bool* partial) const
+bool NavData::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& corners, bool* partial, std::vector<unsigned char>* flagsOut) const
 {
 	corners.clear();
+	if (flagsOut) flagsOut->clear();
 	if (partial) *partial = false;
 	if (m_Query == nullptr)
 		return false;
@@ -418,9 +690,16 @@ bool NavData::FindPath(const Vec3& start, const Vec3& end, std::vector<Vec3>& co
 	if (dtStatusFailed(m_Query->findStraightPath(sPt, endPt, polys.data(), np, straight, flags, refs, &ns, kMaxCorners)) || ns == 0)
 		return false;
 	for (int i = 0; i < ns; ++i)
+	{
 		corners.push_back(Vec3(straight[i * 3], straight[i * 3 + 1], straight[i * 3 + 2]));
+		if (flagsOut)
+			flagsOut->push_back((flags[i] & DT_STRAIGHTPATH_OFFMESH_CONNECTION) && i + 1 < ns ? CornerLinkStart : 0);
+	}
 	if (corners.size() == 1)
+	{
 		corners.push_back(corners[0]);
+		if (flagsOut) flagsOut->push_back(0);
+	}
 	return true;
 }
 
@@ -455,7 +734,7 @@ void NavData::DrawGizmo(unsigned int fill, unsigned int edge, int maxTriangles) 
 	ImDrawList* dl = ImGui::GetWindowDrawList();
 	ImVec2 rmin, rmax, off;
 	SceneViewOverlay::GetViewRect(rmin, rmax, off);
-	dl->PushClipRect(rmin, rmax, true);
+	dl->PushClipRect(ImVec2(off.x + rmin.x, off.y + rmin.y), ImVec2(off.x + rmax.x, off.y + rmax.y), true);   // Project 는 화면 좌표
 	int drawn = 0;
 	auto project = [](const float* v, ImVec2& o) { return SceneViewOverlay::Project(XMFLOAT3(v[0], v[1] + 0.03f, v[2]), o); };
 	for (int ti = 0; ti < mesh->getMaxTiles() && drawn < maxTriangles; ++ti)
@@ -492,6 +771,31 @@ void NavData::DrawGizmo(unsigned int fill, unsigned int edge, int maxTriangles) 
 				if (project(&tile->verts[poly->verts[j] * 3], a) && project(&tile->verts[poly->verts[(j + 1) % poly->vertCount] * 3], b))
 					dl->AddLine(a, b, edge, 1.5f);
 			}
+		}
+		// Off-Mesh Link: 두 끝을 잇는 호 (Detour 디버그 그림과 같이 거리의 1/4 높이)
+		for (int i = 0; i < tile->header->offMeshConCount; ++i)
+		{
+			const dtOffMeshConnection* con = &tile->offMeshCons[i];
+			const float* a = &con->pos[0];
+			const float* b = &con->pos[3];
+			const float len = std::sqrt((b[0] - a[0]) * (b[0] - a[0]) + (b[2] - a[2]) * (b[2] - a[2]));
+			const ImU32 c = IM_COL32(255, 196, 0, 230);
+			ImVec2 prev;
+			bool havePrev = false;
+			for (int k = 0; k <= 16; ++k)
+			{
+				const float u = k / 16.0f;
+				const float v[3] = { a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u + len * 0.25f * 4.0f * u * (1.0f - u), a[2] + (b[2] - a[2]) * u };
+				ImVec2 s;
+				const bool ok = project(v, s);
+				if (ok && havePrev)
+					dl->AddLine(prev, s, c, 2.0f);
+				prev = s;
+				havePrev = ok;
+			}
+			ImVec2 sa, sb;
+			if (project(a, sa)) dl->AddCircleFilled(sa, 4.0f, c);
+			if (project(b, sb)) dl->AddCircle(sb, 4.0f, c, 0, (con->flags & DT_OFFMESH_CON_BIDIR) ? 3.0f : 1.5f);
 		}
 	}
 	dl->PopClipRect();
