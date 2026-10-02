@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1125,6 +1125,128 @@ function Suite-Model
     }
 }
 
+function Suite-Anim2D
+{
+    # 2D 애니메이터 패키지: 예제 batch (image.make 조각 → 뼈대 → 그림 → walk · idle) → 본 수 · 키 시각의 자세 · 첨부 바꾸기,
+    # 키 안 찍은 자세 유지, Undo · batch 되돌리기, PNG 렌더 (투명 배경), 스프라이트 시트 + JSON, .skel2d 저장 · 열기
+    Write-Host '[anim2d]'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $before = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { $null }
+    $dir = Join-Path $Out 'anim2d'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\Anim2D'
+    $ed = Start-TestEditor
+    try
+    {
+        $a = Invoke-NovaJson 'package add com.nova.animation2d'
+        Add-Result anim2d 'package loads (NovaAnimation2D.dll)' ($a -and $a.loaded) "loaded=$($a.loaded)"
+        $h = Invoke-NovaJson 'anim2d help'
+        Add-Result anim2d 'anim2d help lists ops' ($h -and $h.'bone.add' -and $h.'anim.key' -and $h.export) "ops=$(@($h.PSObject.Properties).Count)"
+        function A2([string]$line) { Invoke-NovaJson "anim2d $line" }
+        function Near([double]$a, [double]$b, [double]$eps = 0.05) { [math]::Abs($a - $b) -lt $eps }
+        function BoneRot([string]$name) { $l = A2 'bone.list'; $b = @($l.bones | Where-Object { $_.name -eq $name })[0]; if ($b) { [double]$b.world.rotation } else { [double]::NaN } }
+        function SlotCur([string]$name) { $l = A2 'slot.list'; @($l.slots | Where-Object { $_.name -eq $name })[0].current }
+
+        A2 'new --name walker' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        $b = A2 "batch $(Join-Path $Root 'docs\examples\anim2d_walker.txt')"
+        $sw.Stop()
+        $names = @($b.animations | ForEach-Object { $_.name }) -join ','
+        Add-Result anim2d 'example batch: 12 bones, 14 slots, walk + idle' ($b -and $b.bones -eq 12 -and $b.slots -eq 14 -and $names -eq 'walk,idle') "bones=$($b.bones) slots=$($b.slots) anims=$names ($([int]$sw.Elapsed.TotalMilliseconds) ms)"
+        $made = @(Get-ChildItem (Join-Path $assetDir 'Walker') -Filter *.png -ErrorAction SilentlyContinue).Count
+        Add-Result anim2d 'image.make wrote 15 part PNGs' ($made -eq 15) "png=$made"
+
+        # 키 시각의 자세 (smooth 곡선도 키를 지난다) + 사이 값
+        A2 'anim.time --time 0.2' | Out-Null
+        $r02 = BoneRot 'leg_front'
+        A2 'anim.time --time 0.4' | Out-Null
+        $r04 = BoneRot 'leg_front'
+        A2 'anim.time --time 0.3' | Out-Null
+        $r03 = BoneRot 'leg_front'
+        Add-Result anim2d 'walk keys: leg_front world rotation -92 @0.2, -118 @0.4, between @0.3' ((Near $r02 -92) -and (Near $r04 -118) -and $r03 -lt -92 -and $r03 -gt -118) "0.2=$r02 0.3=$r03 0.4=$r04"
+        A2 'anim.time --time 0.8' | Out-Null
+        Add-Result anim2d 'walk loops (0.8 = 0)' (Near (BoneRot 'leg_front') -62) "0.8=$(BoneRot 'leg_front')"
+
+        # 키 안 찍은 자세는 다른 연산 뒤에도 남고, 시각을 옮기면 키대로
+        A2 'anim.time --time 0.1' | Out-Null
+        A2 'pose --bone leg_front --rotation -30 --world' | Out-Null
+        $i = A2 'info'
+        $kept = BoneRot 'leg_front'
+        A2 'anim.time --time 0.1' | Out-Null
+        $back = BoneRot 'leg_front'
+        Add-Result anim2d 'unkeyed pose stays (info, bone.list) until the time changes' ((Near $kept -30) -and $i.unkeyedPose -and -not (Near $back -30)) "kept=$kept flag=$($i.unkeyedPose) after anim.time=$back"
+
+        # idle: 눈 깜빡임 = 첨부 바꾸기 (계단)
+        A2 'anim.select --name idle' | Out-Null
+        A2 'anim.time --time 1.65' | Out-Null
+        $c1 = SlotCur 'eye'
+        A2 'anim.time --time 1.8' | Out-Null
+        $c2 = SlotCur 'eye'
+        Add-Result anim2d 'idle blink: eye attachment closed @1.65, open @1.8' ($c1 -eq 'closed' -and $c2 -eq 'open') "1.65=$c1 1.8=$c2"
+
+        # Undo · batch 되돌리기
+        A2 'mode --mode setup' | Out-Null
+        $u0 = (A2 'info').bones
+        A2 'bone.add --name tail --parent hip --x -10 --y 0 --rotation 200 --length 30' | Out-Null
+        $u1 = (A2 'info').bones
+        $u2 = (A2 'undo').bones
+        Add-Result anim2d 'bone.add → undo' ($u1 -eq $u0 + 1 -and $u2 -eq $u0) "$u0 → $u1 → $u2"
+        $bf = Join-Path $dir 'bad.txt'
+        "bone.add --name x1`nbone.add --name x2 --parent nobody" | Set-Content -Encoding utf8 $bf
+        Invoke-Nova "anim2d batch $bf" | Out-Null
+        $u3 = (A2 'info').bones
+        Add-Result anim2d 'batch with a bad step rolls back' ($u3 -eq $u0) "bones=$u3"
+
+        # PNG 렌더 (투명 배경: 모서리 알파 0, 가운데에 그림)
+        Add-Type -AssemblyName System.Drawing
+        $png = Join-Path $dir 'walk_02.png'
+        $rr = A2 "render --path $png --anim walk --time 0.2 --size 256 --background none"
+        $ok = $false; $detail = 'no file'
+        if ($rr -and (Test-Path $png))
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($png)
+            $corner = $bm.GetPixel(1, 1).A
+            $opaque = 0
+            for ($y = 0; $y -lt $bm.Height; $y += 4) { for ($x = 0; $x -lt $bm.Width; $x += 4) { if ($bm.GetPixel($x, $y).A -gt 200) { $opaque++ } } }
+            $detail = "$($bm.Width)x$($bm.Height) corner alpha=$corner opaque samples=$opaque"
+            $ok = $bm.Width -eq 256 -and $corner -eq 0 -and $opaque -gt 200
+            $bm.Dispose()
+        }
+        Add-Result anim2d 'render PNG (transparent background, character drawn)' $ok $detail
+        A2 "render --path $(Join-Path $dir 'setup.png') --size 512 --bones --grid" | Out-Null
+
+        # 스프라이트 시트 + JSON (12 fps × 0.8 초 = 10 프레임)
+        $sheet = Join-Path $dir 'walk_sheet.png'
+        $ex = A2 "export --path $sheet --anim walk --fps 12"
+        $sj = Join-Path $dir 'walk_sheet.json'
+        $meta = if (Test-Path $sj) { Get-Content $sj -Raw | ConvertFrom-Json } else { $null }
+        Add-Result anim2d 'export sprite sheet: 10 frames + JSON' ($ex -and $ex.frames -eq 10 -and $meta -and @($meta.frames).Count -eq 10 -and $meta.image -eq 'walk_sheet.png') "frames=$($ex.frames) json frames=$(@($meta.frames).Count) image=$($meta.image)"
+
+        # 저장 · 열기
+        $sk = 'Assets/Anim2D/walker.skel2d'
+        A2 "save --path $sk" | Out-Null
+        $k0 = (A2 'info').animations
+        A2 'new' | Out-Null
+        $o = A2 "open --path $sk"
+        $same = $o -and $o.bones -eq 12 -and $o.slots -eq 14 -and (@($o.animations | ForEach-Object { "$($_.name):$($_.keys)" }) -join ',') -eq (@($k0 | ForEach-Object { "$($_.name):$($_.keys)" }) -join ',')
+        Add-Result anim2d '.skel2d save → open (same bones, slots, keys)' $same "bones=$($o.bones) slots=$($o.slots) anims=$(@($o.animations | ForEach-Object { "$($_.name):$($_.keys)" }) -join ',')"
+
+        $w = Invoke-NovaJson 'anim2d window'
+        Add-Result anim2d 'window opens (Window > 2D Animator)' ($w -and $w.bones -eq 12) "bones=$($w.bones)"
+        Invoke-Nova 'wait 10' | Out-Null
+        $sc = Join-Path $dir 'window.png'
+        Invoke-Nova "screenshot $sc --view editor" | Out-Null
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Stop-TestEditor $ed
+        if ($null -ne $before) { Set-Content -Path $manifest -Value $before -NoNewline -Encoding utf8 }
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -1432,6 +1554,7 @@ try
                 'ui' { Suite-UI }
                 'packages' { Suite-Packages }
                 'model' { Suite-Model }
+                'anim2d' { Suite-Anim2D }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

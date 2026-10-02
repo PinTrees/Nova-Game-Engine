@@ -124,6 +124,24 @@ namespace
 		return json(s);
 	}
 
+	// "a,b,c,…" 가 모두 숫자면 배열 (2 · 4 개도), 아니면 문자열 그대로
+	json NumberList(const std::string& s)
+	{
+		if (s.find(',') == std::string::npos) return json(s);
+		json arr = json::array();
+		std::stringstream ss(s);
+		std::string t;
+		while (std::getline(ss, t, ','))
+		{
+			char* end = nullptr;
+			const double d = strtod(t.c_str(), &end);
+			if (t.empty() || end == t.c_str() || *end != 0) return json(s);
+			if (t.find_first_of(".eE") == std::string::npos) arr.push_back((long long)d);   // 정수는 정수로 (--ids 1,2,3)
+			else arr.push_back(d);
+		}
+		return arr;
+	}
+
 	// 값: JSON 으로 읽히면 그대로 (숫자·true·배열·객체), 아니면 문자열
 	json Value(const std::string& s)
 	{
@@ -601,6 +619,11 @@ namespace
 		"  model ref.add <image> --view front --height 1.6   reference image;  model compare [--out diff.png]  silhouette IoU + hints\n"
 		"  model batch <file | ->                 one op per line (\"add --type cube\"), all as ONE undo step, stops at the first error\n"
 		"\n"
+		"2D animator (package com.nova.animation2d: Window > 2D Animator, Spine-style)\n"
+		"  anim2d <op> [path] [--key value ...]   bone.add, image.add (PNG on a bone), slot.set, anim.new, pose, anim.key,\n"
+		"                                         render (PNG), export (sprite sheet + JSON), image.make ... list: nova anim2d help\n"
+		"  anim2d batch <file | ->                one op per line, all as ONE undo step\n"
+		"\n"
 		"other\n"
 		"  call <command> [json args]             raw request (see: nova help --editor)\n"
 		"  ai-guide                               how an AI agent should use NOVA CLI\n"
@@ -632,6 +655,16 @@ namespace
 		"- With drawings: `model ref.add front.png --view front --height 1.5`, then `model compare --json` gives IoU and\n"
 		"  hints like \"widen by 0.3 m near y 0.6\". Name parts with `model group.assign --name Arm.R`, try ideas after\n"
 		"  `model checkpoint --save v1`, and run many ops as one undo step with `model batch steps.txt`.\n"
+		"\n"
+		"## 2D skeletal animation (package com.nova.animation2d, Spine-style)\n"
+		"- `nova package add com.nova.animation2d`, then `nova anim2d help --json`. Pixels, y up, rotation in degrees CCW\n"
+		"  (0 = right, 90 = up, -90 = down). An image's width runs along its bone. Example: docs/examples/anim2d_walker.txt\n"
+		"- Parts: `anim2d image.make --path Assets/Parts/arm.png --shape capsule --size 46,16 --color 0.2,0.5,0.9,1`;\n"
+		"  bones: `anim2d bone.add --name arm --parent torso --world --x 4 --y 170 --rotation -90 --length 38`;\n"
+		"  images back to front: `anim2d image.add --bone arm --image Assets/Parts/arm.png --x 19`.\n"
+		"- Animate: `anim2d anim.new --name walk --length 0.8`, then per key time `anim2d anim.time --time 0.2`,\n"
+		"  `anim2d pose --bone arm --rotation -60 --world`, `anim2d anim.key --curve smooth`.\n"
+		"- Look: `anim2d render --path f.png --anim walk --time 0.2 --bones`. Ship: `anim2d export --path walk.png --fps 12`.\n"
 		"\n"
 		"## Rules\n"
 		"- Use --json when you parse output. Exit code: 0 ok, 1 command failed (message on stderr), 2 no editor, 3 usage.\n"
@@ -1037,12 +1070,12 @@ int Run(const std::vector<std::string>& in)
 		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 	}
-	else if (cmd == "model")
+	else if (cmd == "model" || cmd == "anim2d")
 	{
-		// 모델 편집기 (com.nova.modeling 패키지): nova model <op> [경로] [--이름 값 …]
+		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true
-		if (!need(1, "model <op> [path] [--key value ...]   (nova model help)")) return 3;
-		rc = "model";
+		if (!need(1, (cmd + " <op> [path] [--key value ...]   (nova " + cmd + " help)").c_str())) return 3;
+		rc = cmd;
 		// 낱말들 → 연산 인자 (첫 위치 인수 = path)
 		auto parseOpts = [&](const std::vector<std::string>& t, size_t start, json& out) {
 			for (size_t i = start; i < t.size(); ++i)
@@ -1062,13 +1095,13 @@ int Run(const std::vector<std::string>& in)
 					continue;
 				if (!hasValue) { out[name] = true; continue; }
 				json v = Value(value);
-				if (v.is_string()) { json vec = Vec(value); if (vec.is_array()) v = vec; }
+				if (v.is_string()) v = NumberList(value);   // "84,46" · "1,0.5,0.2,1" → 배열 (개수 상관없이)
 				out[name] = v;
 			}
 		};
 		args["op"] = a.Pos[0];
 		parseOpts(in, 2, args);
-		// batch <파일 | -> : 줄마다 연산 하나 ("add --type cube" — 앞의 "nova model" 은 있어도 됨, # 주석) 또는 JSON 배열 → 한 요청 (Undo 한 번)
+		// batch <파일 | -> : 줄마다 연산 하나 ("add --type cube" — 앞의 "nova model" · "nova anim2d" 는 있어도 됨, # 주석) 또는 JSON 배열 → 한 요청 (Undo 한 번)
 		if (a.Pos[0] == "batch" && args.contains("path") && !args.contains("steps"))
 		{
 			const std::string file = args["path"].get<std::string>();
@@ -1104,7 +1137,7 @@ int Run(const std::vector<std::string>& in)
 					if (t.empty() || t[0].rfind("#", 0) == 0) continue;
 					size_t at = 0;
 					if (at < t.size() && (t[at] == "nova" || t[at] == "nova.exe")) ++at;
-					if (at < t.size() && t[at] == "model") ++at;
+					if (at < t.size() && t[at] == cmd) ++at;
 					if (at >= t.size()) continue;
 					json step = { { "op", t[at] } };
 					parseOpts(t, at + 1, step);

@@ -21,7 +21,7 @@ Blender 처럼 메시를 고치는 창과, 같은 연산을 AI 에이전트가 �
 
 ## CLI: `nova model <op> [경로] [--이름 값 …]`
 
-- 값은 JSON 으로 읽히면 그대로 (`0.5`, `true`, `[1,2,3]`, `{"a":1}`), `1,2,3` 은 배열, 아니면 글자. 값 없는 `--이름` = `true`
+- 값은 JSON 으로 읽히면 그대로 (`0.5`, `true`, `[1,2,3]`, `{"a":1}`), `1,2,3` · `800,600` 처럼 쉼표로 이은 숫자는 배열 (개수 상관없이), 아니면 글자. 값 없는 `--이름` = `true`
 - 결과 = JSON 요약: `objects · verts · faces · tris · min · max · size`, Edit 모드면 `selection {verts, edges, faces, center}` · `boundaryEdges`(열린 변) · `nonManifoldEdges`, 고친 연산은 `changed {무엇: 수}`, `undo`(마지막 Undo 이름)
 - 고치는 연산은 하나하나 Undo 됩니다 (`nova model undo` / 창에서 Ctrl+Z). 실패한 연산은 아무것도 바꾸지 않습니다
 - `--json` 을 붙이면 결과를 그대로 받는다 (에이전트는 늘 붙일 것). 전체 목록: `nova model help`

@@ -1,0 +1,10 @@
+{
+  "name": "com.nova.animation2d",
+  "displayName": "2D Animator",
+  "version": "0.1.0",
+  "description": "A Spine-style 2D skeletal animator inside the editor (Window > 2D Animator): bones with parent / child hierarchy, slots with image attachments and draw order, Setup and Animate modes, rotate / translate / scale / create-bone tools, a timeline with keys (linear, stepped, smooth), auto key, attachment swaps and color keys, looping playback and undo. Drop PNG parts from the Project window onto a bone. Exports sprite sheets with JSON frame data, or PNG sequences. Every operation is also a CLI command (nova anim2d <op>) with JSON results and PNG renders, and image.make draws simple part images (ellipse, capsule, rounded rect, triangle, gradient, outline), so an AI agent can build and animate a 2D character step by step and look at its work.",
+  "category": "Animation",
+  "author": { "name": "NOVA" },
+  "keywords": [ "2d", "animation", "skeleton", "spine", "bones", "sprite", "sprite sheet", "keyframe", "timeline", "ai", "cli" ],
+  "native": [ "NovaAnimation2D.dll" ]
+}

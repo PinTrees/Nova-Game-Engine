@@ -1,0 +1,126 @@
+# 2D 애니메이터 예제: 옆모습 캐릭터 (몸 조각 그림 만들기 → 뼈대 → 그림 붙이기 → walk · idle 애니메이션)
+#   nova anim2d new --name walker
+#   nova anim2d batch docs/examples/anim2d_walker.txt
+#   nova anim2d render --path Assets/Anim2D/Walker/walk.png --anim walk --time 0.2 --size 512
+#   nova anim2d export --path Assets/Anim2D/Walker/walk_sheet.png --anim walk --fps 12
+#   nova anim2d save --path Assets/Anim2D/Walker/walker.skel2d
+# 좌표: 픽셀, y 위, 땅 = 0, 오른쪽을 본다. 본 회전 = 도 (반시계, 0 = 오른쪽, 90 = 위, -90 = 아래)
+# 그림은 본의 x 축 (본 방향) 이 그림의 가로 — 아래로 향한 다리 본에 가로로 긴 캡슐을 붙이면 세로로 선다
+
+# ---- 몸 조각 그림 (image.make: 부드러운 가장자리 + 테두리 + 아래로 그라데이션)
+image.make --path Assets/Anim2D/Walker/body.png --shape capsule --size 84,46 --color 0.25,0.55,0.9,1 --gradient 0.16,0.38,0.7 --outline 0.08,0.12,0.22
+image.make --path Assets/Anim2D/Walker/head.png --shape ellipse --size 60,64 --color 1,0.86,0.74,1 --gradient 0.95,0.74,0.62 --outline 0.3,0.18,0.12
+image.make --path Assets/Anim2D/Walker/hair.png --shape ellipse --size 34,70 --color 0.42,0.25,0.14,1 --gradient 0.3,0.17,0.1 --outline 0.18,0.1,0.06
+image.make --path Assets/Anim2D/Walker/eye.png --shape ellipse --size 14,9 --color 0.1,0.08,0.12,1
+image.make --path Assets/Anim2D/Walker/eye_closed.png --shape roundrect --size 3,11 --color 0.1,0.08,0.12,1 --radius 1.5
+image.make --path Assets/Anim2D/Walker/arm.png --shape capsule --size 46,16 --color 0.25,0.55,0.9,1 --outline 0.08,0.12,0.22 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/arm_back.png --shape capsule --size 46,16 --color 0.17,0.4,0.7,1 --outline 0.06,0.09,0.18 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/forearm.png --shape capsule --size 44,14 --color 1,0.86,0.74,1 --outline 0.3,0.18,0.12 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/forearm_back.png --shape capsule --size 44,14 --color 0.85,0.7,0.6,1 --outline 0.25,0.15,0.1 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/thigh.png --shape capsule --size 62,22 --color 0.26,0.28,0.38,1 --outline 0.1,0.1,0.15 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/thigh_back.png --shape capsule --size 62,22 --color 0.18,0.2,0.28,1 --outline 0.07,0.07,0.1 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/shin.png --shape capsule --size 56,18 --color 0.26,0.28,0.38,1 --outline 0.1,0.1,0.15 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/shin_back.png --shape capsule --size 56,18 --color 0.18,0.2,0.28,1 --outline 0.07,0.07,0.1 --outlineWidth 2
+image.make --path Assets/Anim2D/Walker/foot.png --shape roundrect --size 14,34 --color 0.4,0.24,0.15,1 --outline 0.15,0.08,0.05 --outlineWidth 2 --radius 6
+image.make --path Assets/Anim2D/Walker/foot_back.png --shape roundrect --size 14,34 --color 0.3,0.18,0.11,1 --outline 0.12,0.06,0.04 --outlineWidth 2 --radius 6
+
+# ---- 뼈대 (--world: 월드 위치 · 회전으로 준다)
+bone.add --name hip --parent root --world --x 0 --y 110 --rotation 90 --length 12
+bone.add --name torso --parent hip --world --x 0 --y 112 --rotation 90 --length 70
+bone.add --name head --parent torso --world --x 0 --y 182 --rotation 90 --length 56
+bone.add --name arm_back --parent torso --world --x -4 --y 170 --rotation -90 --length 38
+bone.add --name forearm_back --parent arm_back --world --x -4 --y 132 --rotation -90 --length 36
+bone.add --name arm_front --parent torso --world --x 4 --y 170 --rotation -90 --length 38
+bone.add --name forearm_front --parent arm_front --world --x 4 --y 132 --rotation -90 --length 36
+bone.add --name leg_back --parent hip --world --x -4 --y 110 --rotation -90 --length 52
+bone.add --name shin_back --parent leg_back --world --x -4 --y 58 --rotation -90 --length 48
+bone.add --name leg_front --parent hip --world --x 4 --y 110 --rotation -90 --length 52
+bone.add --name shin_front --parent leg_front --world --x 4 --y 58 --rotation -90 --length 48
+
+# ---- 그림 (뒤 → 앞 순서로 붙인다: 나중 것이 앞)
+image.add --bone arm_back --image Assets/Anim2D/Walker/arm_back.png --name arm_back --x 18
+image.add --bone forearm_back --image Assets/Anim2D/Walker/forearm_back.png --name forearm_back --x 18
+image.add --bone leg_back --image Assets/Anim2D/Walker/thigh_back.png --name thigh_back --x 24
+image.add --bone shin_back --image Assets/Anim2D/Walker/shin_back.png --name shin_back --x 22
+image.add --bone shin_back --image Assets/Anim2D/Walker/foot_back.png --name foot_back --x 50 --y 8
+image.add --bone leg_front --image Assets/Anim2D/Walker/thigh.png --name thigh --x 24
+image.add --bone shin_front --image Assets/Anim2D/Walker/shin.png --name shin --x 22
+image.add --bone shin_front --image Assets/Anim2D/Walker/foot.png --name foot --x 50 --y 8
+image.add --bone torso --image Assets/Anim2D/Walker/body.png --name body --x 34
+image.add --bone head --image Assets/Anim2D/Walker/head.png --name head --x 28
+image.add --bone head --image Assets/Anim2D/Walker/hair.png --name hair --x 46 --y 4
+image.add --bone head --image Assets/Anim2D/Walker/eye.png --name eye --attachment open --x 28 --y -16
+attachment.add --slot eye --name closed --image Assets/Anim2D/Walker/eye_closed.png --x 28 --y -16
+image.add --bone arm_front --image Assets/Anim2D/Walker/arm.png --name arm --x 18
+image.add --bone forearm_front --image Assets/Anim2D/Walker/forearm.png --name forearm --x 18
+
+# ---- walk (0.8 초, 반복): 닿기 → 지나가기 → 반대 닿기 → 반대 지나가기 → 처음
+anim.new --name walk --length 0.8
+pose --bone hip --x 0 --y 106
+pose --bone torso --rotation 86 --world
+pose --bone leg_front --rotation -62 --world
+pose --bone shin_front --rotation -68 --world
+pose --bone leg_back --rotation -118 --world
+pose --bone shin_back --rotation -125 --world
+pose --bone arm_front --rotation -118 --world
+pose --bone forearm_front --rotation -100 --world
+pose --bone arm_back --rotation -62 --world
+pose --bone forearm_back --rotation -48 --world
+anim.key --time 0 --curve smooth
+anim.key --time 0.8 --curve smooth
+
+anim.time --time 0.2
+pose --bone hip --x 0 --y 114
+pose --bone leg_front --rotation -92 --world
+pose --bone shin_front --rotation -95 --world
+pose --bone leg_back --rotation -78 --world
+pose --bone shin_back --rotation -138 --world
+pose --bone arm_front --rotation -92 --world
+pose --bone forearm_front --rotation -82 --world
+pose --bone arm_back --rotation -88 --world
+pose --bone forearm_back --rotation -80 --world
+anim.key --curve smooth
+
+anim.time --time 0.4
+pose --bone hip --x 0 --y 106
+pose --bone leg_front --rotation -118 --world
+pose --bone shin_front --rotation -125 --world
+pose --bone leg_back --rotation -62 --world
+pose --bone shin_back --rotation -68 --world
+pose --bone arm_front --rotation -62 --world
+pose --bone forearm_front --rotation -48 --world
+pose --bone arm_back --rotation -118 --world
+pose --bone forearm_back --rotation -100 --world
+anim.key --curve smooth
+
+anim.time --time 0.6
+pose --bone hip --x 0 --y 114
+pose --bone leg_front --rotation -78 --world
+pose --bone shin_front --rotation -138 --world
+pose --bone leg_back --rotation -92 --world
+pose --bone shin_back --rotation -95 --world
+pose --bone arm_front --rotation -88 --world
+pose --bone forearm_front --rotation -80 --world
+pose --bone arm_back --rotation -92 --world
+pose --bone forearm_back --rotation -82 --world
+anim.key --curve smooth
+
+# ---- idle (2 초): 숨쉬기 (몸 늘이기 · 엉덩이 오르내림 · 고개) + 눈 깜빡임 (첨부 바꾸기)
+anim.new --name idle --length 2
+anim.key --time 0 --curve smooth
+anim.key --time 2 --curve smooth
+anim.time --time 1
+pose --bone hip --x 0 --y 108
+pose --bone torso --scale 1.04,1.02
+pose --bone head --rotation 93 --world
+pose --bone arm_front --rotation -86 --world
+pose --bone arm_back --rotation -94 --world
+anim.key --curve smooth
+anim.time --time 1.6
+pose --slot eye --attachment closed
+anim.key --bones eye
+anim.time --time 1.7
+pose --slot eye --attachment open
+anim.key --bones eye
+anim.select --name walk
+anim.time --time 0
