@@ -52,6 +52,15 @@ namespace Anim2D
 			return out;
 		}
 		float R4(float v) { return roundf(v * 1e4f) / 1e4f; }
+		// 프로젝트 안의 절대 경로 → 프로젝트 기준 (씬의 SpriteSkinnedRenderer · 게임 빌드가 같은 그림을 찾게)
+		std::string ProjectRel(std::string p)
+		{
+			const std::string root = wstring_to_string(PathManager::GetI()->GetContentPathW());
+			if (!root.empty() && _strnicmp(p.c_str(), root.c_str(), root.size()) == 0)
+				p = p.substr(root.size());
+			std::replace(p.begin(), p.end(), '\\', '/');
+			return p;
+		}
 
 		bool Done(Ctx& c, int n, const char* what)
 		{
@@ -449,7 +458,7 @@ namespace Anim2D
 				s.Bone = bi;
 				Attachment a;
 				a.Name = S(c.A, "attachment", stem);
-				a.Image = image;
+				a.Image = ProjectRel(image);
 				a.X = F(c.A, "x", 0.0f); a.Y = F(c.A, "y", 0.0f); a.Rotation = F(c.A, "rotation", 0.0f);
 				float sc[2] = { 1, 1 };
 				Vec(c.A, "scale", 2, sc);
@@ -473,7 +482,7 @@ namespace Anim2D
 				if (si < 0) { c.E = "no slot '" + S(c.A, "slot") + "'"; return false; }
 				Attachment a;
 				a.Name = S(c.A, "name");
-				a.Image = S(c.A, "image");
+				a.Image = ProjectRel(S(c.A, "image"));
 				if (a.Name.empty() || a.Image.empty()) { c.E = "need --name and --image"; return false; }
 				if (d.Slots[si].Find(a.Name)) { c.E = "attachment '" + a.Name + "' exists in " + d.Slots[si].Name; return false; }
 				if (!GetImage(a.Image)) { c.E = "cannot read image " + a.Image; return false; }
@@ -500,7 +509,7 @@ namespace Anim2D
 				Vec(c.A, "scale", 2, sc);
 				a->ScaleX = sc[0]; a->ScaleY = sc[1];
 				a->Width = F(c.A, "width", a->Width); a->Height = F(c.A, "height", a->Height);
-				if (c.A.contains("image")) { if (!GetImage(S(c.A, "image"))) { c.E = "cannot read image " + S(c.A, "image"); return false; } a->Image = S(c.A, "image"); }
+				if (c.A.contains("image")) { if (!GetImage(S(c.A, "image"))) { c.E = "cannot read image " + S(c.A, "image"); return false; } a->Image = ProjectRel(S(c.A, "image")); }
 				return Done(c, 1, "attachments"); });
 			add("slot.set", "--name <slot> [--attachment <name> | \"\" (hide)] [--color r,g,b,a] [--bone <bone>] [--order front|back|forward|backward|<index>] [--rename]: setup of a slot (draw order: later = in front)", true, [](Ctx& c) {
 				Document& d = c.D;

@@ -85,6 +85,25 @@ namespace
 		const int oldType = t.TextureType;
 		if (UnityGUI::Dropdown("Texture Type", &t.TextureType, types, 3) && t.TextureType != oldType)
 			t.MipMaps = t.TextureType != AssetImport::TextureSettings::Sprite;   // Unity: Sprite 는 밉 없이
+		if (t.TextureType == AssetImport::TextureSettings::Sprite)
+		{
+			// Unity 의 Sprite Mode = Single: 그림 전체가 스프라이트 하나 (SpriteRenderer 크기 = 픽셀 / Pixels Per Unit)
+			UnityGUI::Float("Pixels Per Unit", &t.PixelsPerUnit);
+			t.PixelsPerUnit = (std::max)(0.01f, t.PixelsPerUnit);
+			static const char* pivots[] = { "Center", "Top Left", "Top", "Top Right", "Left", "Right", "Bottom Left", "Bottom", "Bottom Right", "Custom" };
+			static const float pv[9][2] = { { 0.5f, 0.5f }, { 0, 1 }, { 0.5f, 1 }, { 1, 1 }, { 0, 0.5f }, { 1, 0.5f }, { 0, 0 }, { 0.5f, 0 }, { 1, 0 } };
+			int pi = 9;
+			for (int i = 0; i < 9; ++i)
+				if (fabsf(t.PivotX - pv[i][0]) < 1e-4f && fabsf(t.PivotY - pv[i][1]) < 1e-4f)
+					pi = i;
+			if (UnityGUI::Dropdown("Pivot", &pi, pivots, 10) && pi < 9)
+			{
+				t.PivotX = pv[pi][0];
+				t.PivotY = pv[pi][1];
+			}
+			if (pi == 9)
+				UnityGUI::Vector2Pair("Custom Pivot", "X", &t.PivotX, "Y", &t.PivotY, 1);
+		}
 		if (t.TextureType == AssetImport::TextureSettings::NormalMap)
 			UnityGUI::ValueLabel("sRGB (Color Texture)", "Off (normal maps are linear)");
 		else
@@ -99,6 +118,8 @@ namespace
 		static const char* comps[] = { "None", "Normal Quality", "High Quality" };
 		UnityGUI::Dropdown("Compression", &t.Compression, comps, 3);
 		UnityGUI::Toggle("Generate Mip Maps", &t.MipMaps);
+		static const char* filters[] = { "Point (no filter)", "Bilinear", "Trilinear" };
+		UnityGUI::Dropdown("Filter Mode", &t.FilterMode, filters, 3);   // 지금은 스프라이트 그리기에만 쓴다 (도트 그림 = Point)
 		s_State.Edit = t.ToJson();
 		ApplyRevertRow(path);
 		if (!AssetImport::AppliesTo(path))

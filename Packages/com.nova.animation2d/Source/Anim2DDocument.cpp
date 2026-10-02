@@ -214,6 +214,25 @@ namespace Anim2D
 		UpdateWorld();
 	}
 
+	bool AttachmentQuad(const Document& d, const Slot& s, const Attachment& a, float w, float h, float out[4][2])
+	{
+		if (a.Width > 0) w = a.Width;
+		if (a.Height > 0) h = a.Height;
+		if (w <= 0 || h <= 0 || s.Bone < 0 || s.Bone >= (int)d.Bones.size()) return false;
+		const Bone& b = d.Bones[s.Bone];
+		const float r = a.Rotation * kDeg, cr = cosf(r), sr = sinf(r);
+		const float hx = w * 0.5f * a.ScaleX, hy = h * 0.5f * a.ScaleY;
+		const float local[4][2] = { { -hx, -hy }, { hx, -hy }, { hx, hy }, { -hx, hy } };
+		for (int i = 0; i < 4; ++i)
+		{
+			// 첨부 기준 → 본 기준 (회전 + 위치) → 월드 (본 행렬)
+			const float lx = a.X + local[i][0] * cr - local[i][1] * sr, ly = a.Y + local[i][0] * sr + local[i][1] * cr;
+			out[i][0] = b.A * lx + b.B * ly + b.WX;
+			out[i][1] = b.C * lx + b.D * ly + b.WY;
+		}
+		return true;
+	}
+
 	void Document::UpdateWorld()
 	{
 		for (Bone& b : Bones)

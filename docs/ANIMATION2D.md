@@ -131,9 +131,36 @@ Model Editor 와 같은 방식입니다: 창에서 하는 모든 것이 `nova an
 
 스프라이트 시트 JSON: `{ "image": "walk_sheet.png", "animation", "fps", "cell": [w, h], "columns", "pivot": [x, y] (칸 안에서 원점 (0,0) 의 픽셀 — 땅을 0 에 두었으면 발 밑), "frames": [{x, y, w, h}, …] }`
 
+## 씬에서 쓰기: Sprite Skinned Renderer
+
+![Sprite Renderer + Sprite Skinned Renderer](images/sprite_renderer.webp)
+
+`.skel2d` 를 씬에 놓고 재생하는 컴포넌트 (Spine 의 SkeletonAnimation). Add Component > Rendering > **Sprite Skinned Renderer**.
+
+| 항목 | 뜻 |
+|---|---|
+| Skeleton | `.skel2d` (Project 에서 끌어 놓기, ⊙ = 목록). 2D Animator 에서 저장하면 씬도 바로 바뀐다 |
+| Animation | 재생할 애니메이션 (`(first)` = 첫 애니메이션), Loop, Time Scale |
+| Preview Time | 편집 중 씬에 보일 시각 (Play 를 누르면 0 부터) |
+| Pixels Per Unit | 뼈대 몇 픽셀이 1 단위인가 (기본 100 = Sprite Renderer 와 같은 크기). 원점 (0, 0) = GameObject 위치 |
+| Color · Flip X · Order in Layer | Sprite Renderer 와 같다 (슬롯 색과 곱한다) |
+
+C# (`NovaEngine.SpriteSkinnedRenderer`):
+
+```csharp
+var r = GetComponent<SpriteSkinnedRenderer>();
+r.Play("walk");            // 처음부터, loop = true. 없는 이름이면 false
+r.Play("jump", false);     // 한 번 — r.isComplete 로 끝 확인
+r.timeScale = 1.5f; r.flipX = moveX < 0; r.sortingOrder = 2;
+string now = r.animationName; float t = r.time;
+```
+
+그리기는 엔진의 **Sprite Renderer** 와 같은 곳 (SpriteBatch — 조명 없음, Order in Layer → 카메라에서 먼 것부터, 3D 물체 뒤면 가려짐).
+
 ## 로드맵
 
 | 단계 | 내용 |
 |---|---|
 | 1 (지금) | 본 · 슬롯 · 그림 첨부 · 키 애니메이션 (회전 · 이동 · 크기 · 첨부 · 색), 창 + CLI, PNG 렌더, 시트 · 연속 PNG 내보내기, `image.make` |
-| 2 | 씬에서 재생하는 런타임 컴포넌트 (Animator 처럼 상태 · 전환), 메시 첨부 + 가중치 (변형), IK, Spine JSON 가져오기 |
+| 2 (지금) | 씬 컴포넌트 **Sprite Skinned Renderer** (재생 · C# Play) + 엔진 **Sprite Renderer** |
+| 3 | 애니메이션 섞기 (전환 시간), 메시 첨부 + 가중치 (변형), IK, Spine JSON 가져오기, 이벤트 (발소리 등) |

@@ -254,9 +254,15 @@ void UIImage::OnInspectorGUI()
 	ImGui::InvisibleButton("##spriteDrop", ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
 	if (ImGui::BeginDragDropTarget())
 	{
-		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE"))
+		const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE");
+		if (payload == nullptr)
+			payload = ImGui::AcceptDragDropPayload("PNG_FILE");   // Project 창의 그림 = 절대 경로 → 프로젝트 기준으로
+		if (payload)
 		{
-			const std::string dropped(static_cast<const char*>(payload->Data));
+			std::string dropped(static_cast<const char*>(payload->Data));
+			const std::string root = wstring_to_string(PathManager::GetI()->GetContentPathW());
+			if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0)
+				dropped = dropped.substr(root.size());
 			if (UISprites::IsImagePath(dropped))
 				m_Sprite = dropped;
 		}

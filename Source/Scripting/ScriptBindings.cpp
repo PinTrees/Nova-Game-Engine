@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SkinnedMeshRenderer.h"
+#include "SpriteRenderer.h"
 #include "Debug.h"
 #include "ScriptBindings.h"
 #include "ScriptEngine.h"
@@ -168,6 +169,13 @@ namespace
 		int(*SMR_Index)(uint64, u8*);
 		float(*SMR_GetWeight)(uint64, int);
 		void(*SMR_SetWeight)(uint64, int, float);
+		// SpriteRenderer (Unity: color · flipX · flipY · sortingOrder · sprite)
+		int(*SR_GetColor)(uint64, float*);
+		void(*SR_SetColor)(uint64, float*);
+		int(*SR_GetInt)(uint64, int);          // 0 flipX, 1 flipY, 2 sortingOrder
+		void(*SR_SetInt)(uint64, int, int);
+		u8* (*SR_GetSprite)(uint64);
+		void(*SR_SetSprite)(uint64, u8*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1164,6 +1172,22 @@ namespace ScriptBindings
 		t.SMR_Index = [](uint64 id, u8* name) -> int { SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id); return r && name ? r->BlendShapeIndex((const char*)name) : -1; };
 		t.SMR_GetWeight = [](uint64 id, int i) -> float { SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id); return r ? r->GetBlendShapeWeight(i) : 0.0f; };
 		t.SMR_SetWeight = [](uint64 id, int i, float w) { if (SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id)) r->SetBlendShapeWeight(i, w); };
+		t.SR_GetColor = [](uint64 id, float* out) -> int { SpriteRenderer* r = Get<SpriteRenderer>(id); if (!r || !out) return 0; memcpy(out, r->GetColor(), sizeof(float) * 4); return 1; };
+		t.SR_SetColor = [](uint64 id, float* in) { if (SpriteRenderer* r = Get<SpriteRenderer>(id); r && in) r->SetColor(in); };
+		t.SR_GetInt = [](uint64 id, int field) -> int {
+			SpriteRenderer* r = Get<SpriteRenderer>(id);
+			if (!r) return 0;
+			return field == 0 ? (int)r->GetFlipX() : field == 1 ? (int)r->GetFlipY() : r->GetSortingOrder();
+		};
+		t.SR_SetInt = [](uint64 id, int field, int v) {
+			SpriteRenderer* r = Get<SpriteRenderer>(id);
+			if (!r) return;
+			if (field == 0) r->SetFlipX(v != 0);
+			else if (field == 1) r->SetFlipY(v != 0);
+			else r->SetSortingOrder(v);
+		};
+		t.SR_GetSprite = [](uint64 id) -> u8* { SpriteRenderer* r = Get<SpriteRenderer>(id); return Ret(r ? r->GetSprite() : std::string()); };
+		t.SR_SetSprite = [](uint64 id, u8* path) { if (SpriteRenderer* r = Get<SpriteRenderer>(id)) r->SetSprite(path ? (const char*)path : ""); };
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

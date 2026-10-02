@@ -7,6 +7,7 @@
 #include "Transform.h"
 #include "MeshRenderer.h"
 #include "MeshFilter.h"
+#include "SpriteRenderer.h"
 #include "Camera.h"
 #include "Light.h"
 #include "BoxCollider.h"
@@ -283,6 +284,14 @@ GameObject* GameObjectFactory::CreatePlane(const std::string& name)
 {
 	GameObject* obj = CreatePrimitive(PrimitiveType::Plane, name);
 	obj->AddComponent<MeshCollider>();
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateSprite(const std::string& name, const std::string& sprite)
+{
+	GameObject* obj = new GameObject(name);
+	auto sr = obj->AddComponent<SpriteRenderer>();
+	sr->SetSprite(sprite);
 	return obj;
 }
 

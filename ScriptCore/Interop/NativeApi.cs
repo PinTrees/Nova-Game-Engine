@@ -186,6 +186,14 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, byte*, int> SMR_Index;
         public delegate* unmanaged<ulong, int, float> SMR_GetWeight;
         public delegate* unmanaged<ulong, int, float, void> SMR_SetWeight;
+
+        // SpriteRenderer
+        public delegate* unmanaged<ulong, float*, int> SR_GetColor;
+        public delegate* unmanaged<ulong, float*, void> SR_SetColor;
+        public delegate* unmanaged<ulong, int, int> SR_GetInt;
+        public delegate* unmanaged<ulong, int, int, void> SR_SetInt;
+        public delegate* unmanaged<ulong, byte*> SR_GetSprite;
+        public delegate* unmanaged<ulong, byte*, void> SR_SetSprite;
     }
 
     internal static unsafe class Native

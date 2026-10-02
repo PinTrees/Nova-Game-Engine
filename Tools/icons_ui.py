@@ -29,6 +29,15 @@ UI_ICONS = {
     "ui_image": _svg('''<rect x="1.5" y="2.5" width="13" height="11" rx="1" fill="#3A5F85" stroke="#C8C8C8" stroke-width="1.1"/>
   <polygon points="2.5,12.5 6.5,7.5 9,10.3 10.8,8.6 13.5,12.5" fill="#9FC5E8"/>
   <circle cx="11" cy="5.5" r="1.4" fill="#F6D365"/>'''),
+    # Sprite Renderer: 기울어진 그림 카드 (Unity 의 Sprite Renderer 아이콘처럼)
+    "sprite_renderer": _svg('''<rect x="3" y="2" width="10" height="12" rx="1" fill="#3A5F85" stroke="#C8C8C8" stroke-width="1.1" transform="rotate(-10 8 8)"/>
+  <circle cx="8" cy="6.6" r="2.1" fill="#F6D365"/>
+  <path d="M5 12 Q8 8.5 11 12 Z" fill="#9FC5E8"/>'''),
+    # Sprite Skinned Renderer (2D 뼈대): 그림 카드 + 뼈 두 마디
+    "sprite_skinned_renderer": _svg('''<rect x="1.5" y="2" width="10" height="12" rx="1" fill="#3A5F85" stroke="#C8C8C8" stroke-width="1.1"/>
+  <polygon points="5,4 6.4,5.4 12.6,11.6 11.2,13 5,6.8 3.6,5.4" fill="#E6E6E6"/>
+  <circle cx="4.4" cy="4.4" r="1.6" fill="#F6B26B"/>
+  <circle cx="12.2" cy="12.2" r="1.6" fill="#F6B26B"/>'''),
     # Texture (스프라이트 선택): 체크무늬 그림
     "texture": _svg('''<rect x="1.5" y="1.5" width="13" height="13" fill="#B8B8B8"/>
   <rect x="1.5" y="1.5" width="6.5" height="6.5" fill="#E6E6E6"/>

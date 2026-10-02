@@ -4,7 +4,7 @@
 #include <nlohmann/json.hpp>
 
 // Unity 의 Import Settings: 에셋 옆 `<파일>.meta`(JSON) 에 가져오기 설정을 둔다. 없으면 기본값 (Unity 와 같은 값).
-//  - 텍스처: Texture Type (Default / Normal map / Sprite), sRGB, Max Size (기본 2048 — 큰 쪽이 넘으면 줄임),
+//  - 텍스처: Texture Type (Default / Normal map / Sprite — Pixels Per Unit · Pivot), sRGB, Max Size (기본 2048 — 큰 쪽이 넘으면 줄임), Filter Mode,
 //           Compression (None / Normal = BC1·BC3 기본 / High = BC7), Generate Mip Maps
 //    프로젝트 Assets 와 엔진 Resources\Packages 의 에셋에만 적용 (에디터 아이콘 · 엔진 내부 텍스처는 그대로 — Raw)
 //  - 모델(FBX): Scale Factor, Import Animation, Animation Type (Generic / Humanoid — 없으면 사람 본을 찾으면 Humanoid), 사람 본 매핑 직접 지정
@@ -23,6 +23,11 @@ namespace AssetImport
 		int MaxSize = 2048;
 		int Compression = NormalQuality;   // Unity 기본. 노멀맵도 선형 BC1 (알파 = 높이가 있으면 BC3 — 셰이더가 rgb 를 그대로 읽는다), High = BC7
 		bool MipMaps = true;
+		// Sprite (2D and UI): 그림 몇 픽셀이 월드 1 단위인가, 기준점 (0..1, 왼쪽 아래 = 0,0), 필터 (Point = 도트 그림)
+		enum Filter { Point = 0, Bilinear = 1, Trilinear = 2 };
+		float PixelsPerUnit = 100.0f;
+		float PivotX = 0.5f, PivotY = 0.5f;
+		int FilterMode = Bilinear;
 
 		static TextureSettings Raw();  // 가져오기 설정이 없는 엔진 내부 텍스처 (원래 크기, 압축 없음, 밉)
 

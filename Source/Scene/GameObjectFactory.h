@@ -34,6 +34,8 @@ public:
 	static GameObject* CreateCylinder(const std::string& name = "Cylinder");
 	static GameObject* CreatePlane(const std::string& name = "Plane");
 	static GameObject* CreateQuad(const std::string& name = "Quad");
+	// 2D Object > Sprites: SpriteRenderer 하나 (sprite = "builtin:Square" 같은 내장 도형 또는 Assets 의 그림)
+	static GameObject* CreateSprite(const std::string& name, const std::string& sprite);
 
 	static GameObject* CreateDirectionalLight(const std::string& name = "Directional Light");
 	static GameObject* CreatePointLight(const std::string& name = "Point Light");

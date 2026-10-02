@@ -13,6 +13,7 @@ namespace AssetImport
 	{
 		const char* kCompression[] = { "None", "NormalQuality", "HighQuality" };
 		const char* kTextureType[] = { "Default", "NormalMap", "Sprite" };
+		const char* kFilterMode[] = { "Point", "Bilinear", "Trilinear" };
 		const char* kAnimationType[] = { "Generic", "Humanoid" };
 		const char* kLoadType[] = { "DecompressOnLoad", "CompressedInMemory", "Streaming" };
 
@@ -85,7 +86,8 @@ namespace AssetImport
 	json TextureSettings::ToJson() const
 	{
 		return json{ { "textureType", kTextureType[std::clamp(TextureType, 0, 2)] }, { "sRGB", SRGB }, { "maxSize", MaxSize },
-			{ "compression", kCompression[std::clamp(Compression, 0, 2)] }, { "mipmaps", MipMaps } };
+			{ "compression", kCompression[std::clamp(Compression, 0, 2)] }, { "mipmaps", MipMaps },
+			{ "spritePixelsPerUnit", PixelsPerUnit }, { "spritePivot", { PivotX, PivotY } }, { "filterMode", kFilterMode[std::clamp(FilterMode, 0, 2)] } };
 	}
 
 	TextureSettings TextureSettings::Raw()
@@ -109,12 +111,20 @@ namespace AssetImport
 		Compression = IndexOf(j, "compression", kCompression, NormalQuality);
 		// Sprite (2D and UI) 는 Unity 처럼 밉 없이가 기본
 		MipMaps = j.value("mipmaps", TextureType != Sprite);
+		PixelsPerUnit = (std::max)(0.01f, j.value("spritePixelsPerUnit", 100.0f));
+		if (j.contains("spritePivot") && j["spritePivot"].is_array() && j["spritePivot"].size() == 2)
+		{
+			PivotX = j["spritePivot"][0].get<float>();
+			PivotY = j["spritePivot"][1].get<float>();
+		}
+		FilterMode = IndexOf(j, "filterMode", kFilterMode, Bilinear);
 	}
 
 	bool TextureSettings::IsDefault() const
 	{
 		const TextureSettings d;
-		return TextureType == d.TextureType && SRGB == d.SRGB && MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps;
+		return TextureType == d.TextureType && SRGB == d.SRGB && MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps &&
+			PixelsPerUnit == d.PixelsPerUnit && PivotX == d.PivotX && PivotY == d.PivotY && FilterMode == d.FilterMode;
 	}
 
 	std::string TextureSettings::CacheTag() const

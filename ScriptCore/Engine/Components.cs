@@ -307,6 +307,26 @@ namespace NovaEngine
         public Mesh sharedMesh => new Mesh(m_Id);
     }
 
+    /// <summary>Unity 의 SpriteRenderer: 그림 · 색 · 뒤집기 · Order in Layer</summary>
+    public sealed unsafe class SpriteRenderer : Component
+    {
+        internal SpriteRenderer() { }
+        public Color color
+        {
+            get { float* c = stackalloc float[4]; return Native.Api.SR_GetColor(m_Id, c) != 0 ? new Color(c[0], c[1], c[2], c[3]) : Color.white; }
+            set { float* c = stackalloc float[4] { value.r, value.g, value.b, value.a }; Native.Api.SR_SetColor(m_Id, c); }
+        }
+        public bool flipX { get => Native.Api.SR_GetInt(m_Id, 0) != 0; set => Native.Api.SR_SetInt(m_Id, 0, value ? 1 : 0); }
+        public bool flipY { get => Native.Api.SR_GetInt(m_Id, 1) != 0; set => Native.Api.SR_SetInt(m_Id, 1, value ? 1 : 0); }
+        public int sortingOrder { get => Native.Api.SR_GetInt(m_Id, 2); set => Native.Api.SR_SetInt(m_Id, 2, value); }
+        /// <summary>그림 (null = 없음). Sprite.FromPath("Assets/…png") 또는 "builtin:Square"</summary>
+        public Sprite sprite
+        {
+            get { string p = Native.Str(Native.Api.SR_GetSprite(m_Id)); return string.IsNullOrEmpty(p) ? null : new Sprite(p); }
+            set { fixed (byte* p = Native.Utf8(value?.m_Path)) Native.Api.SR_SetSprite(m_Id, p); }
+        }
+    }
+
     /// <summary>Unity 의 Mesh 중 BlendShape 정보 (SkinnedMeshRenderer.sharedMesh)</summary>
     public sealed class Mesh
     {

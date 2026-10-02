@@ -77,7 +77,23 @@ namespace GameObjectMenu
 		if (ImGui::MenuItem("Create Empty", "Ctrl+Shift+N"))
 			add(GameObjectFactory::CreateEmpty());
 
-		DisabledSubMenu("2D Object", { "Sprites", "Physics", "Tilemap", "Sprite Mask" });
+		// 2D Object > Sprites (Unity 와 같은 내장 도형) — Physics · Tilemap · Sprite Mask 는 아직
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("2D Object"))
+		{
+			SetMenuWidth(150.0f);
+			if (ImGui::BeginMenu("Sprites"))
+			{
+				for (const char* shape : { "Square", "Circle", "Capsule", "Triangle" })
+					if (ImGui::MenuItem(shape))
+						add(GameObjectFactory::CreateSprite(shape, std::string("builtin:") + shape));
+				ImGui::EndMenu();
+			}
+			Disabled("Physics");
+			Disabled("Tilemap");
+			Disabled("Sprite Mask");
+			ImGui::EndMenu();
+		}
 
 		SetMenuWidth(190.0f);
 		if (ImGui::BeginMenu("3D Object"))

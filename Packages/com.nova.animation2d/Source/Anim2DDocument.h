@@ -144,6 +144,10 @@ namespace Anim2D
 		void Deserialize(const std::string& s);
 	};
 
+	// 첨부 그림의 네 모서리 (뼈대 좌표, 왼아래 · 오른아래 · 오른위 · 왼위). w, h = 그림 픽셀 (첨부에 Width/Height 가 있으면 그것)
+	//  지금 자세 (UpdateWorld 뒤) 기준 — 편집기 래스터와 씬 렌더러 (SpriteSkinnedRenderer) 가 같이 쓴다
+	bool AttachmentQuad(const Document& d, const Slot& s, const Attachment& a, float w, float h, float out[4][2]);
+
 	Document& Doc();
 	// 프로젝트 상대 경로 → 절대 (UTF-8)
 	std::string FullPath(const std::string& path);

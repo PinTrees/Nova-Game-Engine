@@ -5,6 +5,7 @@
 #include "ScriptEngine.h"
 #include "UISystem.h"
 #include "ParticleRenderer.h"
+#include "SpriteBatch.h"
 #include "ParticleSystem.h"
 #include "PlayerRuntime.h"
 #include "SceneToolbar.h"
@@ -100,7 +101,7 @@ bool EditorApp::Init()
 			L"../Shaders/24. Terrain.fx", L"../Shaders/25. Fire.fx", L"../Shaders/25. Rain.fx", L"../Shaders/26. BuildShadowMap.fx",
 			L"../Shaders/26. DebugTexture.fx", L"../Shaders/27. AmbientOcclusion.fx", L"../Shaders/28. SsaoNormalDepth.fx",
 			L"../Shaders/28. Ssao.fx", L"../Shaders/28. SsaoBlur.fx", L"../Shaders/31. NormalMapSkinned.fx",
-			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx", L"../Shaders/45. SceneGrid.fx", L"../Shaders/46. Water.fx" };
+			L"../Shaders/41. PostProcess.fx", L"../Shaders/42. UI.fx", L"../Shaders/43. Particle.fx", L"../Shaders/45. SceneGrid.fx", L"../Shaders/46. Water.fx", L"../Shaders/51. Sprite.fx" };
 		LoadingScreen::BeginShaderPhase(0.22f, 0.85f, (int)kShaderFiles.size());
 		ShaderCache::PrecompileParallel(kShaderFiles, ShaderCache::DefaultFlags());
 	}
@@ -512,6 +513,11 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	phase.Next("Water");
 	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow, &atmosphere);
 
+	// 2D 스프라이트 (SpriteRenderer · 2D 뼈대): 투명 — 하늘 · 물 다음, 입자 전
+	phase.Next("Sprites");
+	_deviceContext->RSSetViewports(1, &viewport);
+	SpriteBatch::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+
 	phase.Next("Particles");
 	{
 		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, camera->GetBackgroundType() == 0);
@@ -688,6 +694,10 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	phase.Next("Grid");
 	if (SceneToolbar::GridVisible())
 		SceneGrid::Draw(_deviceContext.Get(), camera->View() * camera->Proj(), camera->GetPosition());
+
+	phase.Next("Sprites");
+	_deviceContext->RSSetViewports(1, &viewport);
+	SpriteBatch::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
 
 	phase.Next("Particles");
 	if (SceneToolbar::ParticlesVisible())

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "SpriteBatch.h"
 #include "SceneGizmoTools.h"
 #include "UndoSystem.h"
 #include "SceneToolbar.h"
@@ -225,6 +226,11 @@ namespace
 		if (Rock* rock = go ? go->GetComponent<Rock>() : nullptr)
 			if (rock->GetLocalBounds(bmin, bmax))
 				return;
+		// 2D 스프라이트 (SpriteRenderer · 패키지의 2D 렌더러)
+		if (go)
+			for (SpriteSource* src : SpriteSource::All())
+				if (src->SpriteOwner() == go && src->SpriteLocalBounds(bmin, bmax))
+					return;
 		static std::unordered_map<const Mesh*, std::pair<Vec3, Vec3>> cache;
 		Mesh* mesh = ObjectMesh(go);
 		if (mesh == nullptr || mesh->Vertices.empty())
@@ -943,8 +949,34 @@ namespace
 				}
 			}
 		}
+		// 2D 스프라이트: 로컬 사각형 (얇은 상자) 과 광선
+		bool spriteHit = false;
+		if (tr != nullptr)
+			for (SpriteSource* src : SpriteSource::All())
+			{
+				Vec3 smin, smax;
+				if (src->SpriteOwner() != go || !src->ActiveInHierarchy() || !src->SpriteLocalBounds(smin, smax))
+					continue;
+				spriteHit = true;   // 스프라이트가 있으면 위치 근처 클릭으로 고르지 않는다
+				const Matrix inv = tr->GetWorldMatrix().Invert();
+				const Vec3 lo = Vec3::Transform(ro, inv), ld = Vec3::TransformNormal(rd, inv);
+				// z = 0 평면과 만나는 곳이 사각형 안인가 (방향은 정규화하지 않아 t 가 월드와 같다)
+				if (fabsf(ld.z) > 1e-8f)
+				{
+					const float t = -lo.z / ld.z;
+					const Vec3 hit = lo + ld * t;
+					if (t > 0.0f && t < bestT && hit.x >= smin.x && hit.x <= smax.x && hit.y >= smin.y && hit.y <= smax.y)
+					{
+						bestT = t;
+						best = go;
+					}
+				}
+			}
 		Mesh* mesh = ObjectMesh(go);
-		if (tr != nullptr && mesh != nullptr && !mesh->Vertices.empty() && !mesh->Indices.empty())
+		if (spriteHit)
+		{
+		}
+		else if (tr != nullptr && mesh != nullptr && !mesh->Vertices.empty() && !mesh->Indices.empty())
 		{
 			// 광선을 메시 로컬 공간으로 (방향은 정규화하지 않아 t 가 월드와 같다)
 			Matrix w = tr->GetWorldMatrix();

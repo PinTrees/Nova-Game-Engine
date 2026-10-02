@@ -1231,6 +1231,45 @@ function Suite-Anim2D
         $same = $o -and $o.bones -eq 12 -and $o.slots -eq 14 -and (@($o.animations | ForEach-Object { "$($_.name):$($_.keys)" }) -join ',') -eq (@($k0 | ForEach-Object { "$($_.name):$($_.keys)" }) -join ',')
         Add-Result anim2d '.skel2d save → open (same bones, slots, keys)' $same "bones=$($o.bones) slots=$($o.slots) anims=$(@($o.animations | ForEach-Object { "$($_.name):$($_.keys)" }) -join ',')"
 
+        # 씬: SpriteRenderer (엔진) + SpriteSkinnedRenderer (패키지) → SpriteBatch. 그림 색이 PNG 와 같은가 (sRGB 그림을 감마로 되돌림)
+        Invoke-Nova 'create empty --name A2Walker --position 0,0,0' | Out-Null
+        Invoke-Nova ('add-component A2Walker SpriteSkinnedRenderer --values "{\"skeleton\":\"' + $sk + '\",\"animation\":\"walk\",\"previewTime\":0.2}"') | Out-Null
+        Invoke-Nova 'create empty --name A2Ball --position 0.7,1.5,-0.2' | Out-Null
+        Invoke-Nova 'add-component A2Ball SpriteRenderer --values "{\"sprite\":\"builtin:Circle\",\"color\":[1,0,0,1],\"sortingOrder\":1}"' | Out-Null
+        Invoke-Nova 'set A2Ball --scale 0.4,0.4,1' | Out-Null
+        Invoke-Nova 'camera --position 0,1.2,-4 --target 0,1.2,0' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $ss = Join-Path $dir 'scene_sprites.png'
+        Invoke-Nova "screenshot $ss --view scene" | Out-Null
+        $red = 0; $shirt = 0; $hair = 0
+        if (Test-Path $ss)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($ss)
+            for ($y = 0; $y -lt $bm.Height; $y += 2) { for ($x = 0; $x -lt $bm.Width; $x += 2) {
+                $c = $bm.GetPixel($x, $y)
+                if ($c.R -gt 180 -and $c.R - $c.G -gt 110 -and $c.R - $c.B -gt 100) { $red++ }
+                if ($c.R -lt 100 -and $c.G -gt 100 -and $c.G -lt 175 -and $c.B -gt 190) { $shirt++ }
+                if ($c.R -gt 85 -and $c.R -lt 135 -and $c.G -gt 45 -and $c.G -lt 85 -and $c.B -lt 55) { $hair++ }
+            } }
+            $bm.Dispose()
+        }
+        Add-Result anim2d 'scene: Sprite Renderer (red circle) + Sprite Skinned Renderer drawn' ($red -gt 100 -and $shirt -gt 100) "red=$red shirt=$shirt"
+        Add-Result anim2d 'scene: sprite colors match the PNG (sRGB images, brown hair not black)' ($hair -gt 30) "hair-colored samples=$hair"
+        # Play: 시간이 흐르고 C# 로 애니메이션 바꾸기
+        Wait-Compile
+        $cf = Join-Path $dir 'ssr.cs'
+        'var r = GameObject.Find("A2Walker").GetComponent<SpriteSkinnedRenderer>(); return r.animationName + " " + r.time.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $cf
+        $pf = Join-Path $dir 'ssr_play.cs'
+        'var r = GameObject.Find("A2Walker").GetComponent<SpriteSkinnedRenderer>(); var s = GameObject.Find("A2Ball").GetComponent<SpriteRenderer>(); s.flipX = true; s.sortingOrder = 3; return r.Play("idle") + " " + r.Play("nope") + " " + r.animationName + " " + s.flipX + " " + s.sortingOrder + " " + s.sprite.name;' | Set-Content -Encoding utf8 $pf
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $t1 = Invoke-NovaJson "exec --file $cf"
+        $p1 = Invoke-NovaJson "exec --file $pf"
+        Invoke-Nova 'stop' | Out-Null
+        $tv = if ($t1) { "$($t1.result)" -split ' ' } else { @() }
+        Add-Result anim2d 'play: walk time advances (Start resets the preview time)' ($tv.Count -eq 2 -and $tv[0] -eq 'walk' -and [double]$tv[1] -gt 0 -and [double]$tv[1] -lt 0.8) "$($t1.result)"
+        Add-Result anim2d 'C#: SpriteSkinnedRenderer.Play / SpriteRenderer flipX · sortingOrder · sprite' ("$($p1.result)" -eq 'True False idle True 3 Circle') "$($p1.result)"
+
         $w = Invoke-NovaJson 'anim2d window'
         Add-Result anim2d 'window opens (Window > 2D Animator)' ($w -and $w.bones -eq 12) "bones=$($w.bones)"
         Invoke-Nova 'wait 10' | Out-Null

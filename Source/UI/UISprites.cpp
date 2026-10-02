@@ -106,6 +106,25 @@ namespace
 				}
 			add("builtin:Checkmark", px, n, n, 0.0f);
 		}
+		// 2D Object > Sprites (Unity 의 Square · Circle · Capsule · Triangle): 흰 도형, SpriteRenderer 에서 너비 = 1 단위
+		{
+			auto shape = [&](const char* name, int w, int h, auto dist) {
+				std::vector<uint32> px(w * h);
+				for (int y = 0; y < h; ++y)
+					for (int x = 0; x < w; ++x)
+						px[y * w + x] = Pack(1.0f, 1.0f, 1.0f, std::clamp(0.5f - dist(x + 0.5f, y + 0.5f), 0.0f, 1.0f));
+				add(name, px, w, h, 0.0f);
+			};
+			shape("builtin:Square", 64, 64, [](float, float) { return -1.0f; });
+			shape("builtin:Circle", 128, 128, [](float x, float y) { return sqrtf((x - 64) * (x - 64) + (y - 64) * (y - 64)) - 64.0f; });
+			shape("builtin:Capsule", 128, 256, [](float x, float y) { const float cy = std::clamp(y, 64.0f, 192.0f); return sqrtf((x - 64) * (x - 64) + (y - cy) * (y - cy)) - 64.0f; });
+			// 위가 뾰족한 삼각형 (v 는 아래로)
+			shape("builtin:Triangle", 128, 128, [](float x, float y) {
+				const float e1 = ((x - 64.0f) * 128.0f - (y - 0.0f) * -64.0f) / sqrtf(128.0f * 128.0f + 64.0f * 64.0f);   // 왼쪽 변 바깥 +
+				const float e2 = (-(x - 64.0f) * 128.0f - (y - 0.0f) * -64.0f) / sqrtf(128.0f * 128.0f + 64.0f * 64.0f);  // 오른쪽 변
+				return (std::max)((std::max)(-e1, -e2), y - 128.0f);
+			});
+		}
 	}
 }
 
@@ -161,6 +180,21 @@ namespace UISprites
 		}
 		out = it->second;
 		return out.Texture != nullptr;
+	}
+
+	bool IsBuiltin2D(const std::string& path)
+	{
+		return path == "builtin:Square" || path == "builtin:Circle" || path == "builtin:Capsule" || path == "builtin:Triangle";
+	}
+
+	std::vector<std::string> FindAll2D()
+	{
+		std::vector<std::string> out = { "builtin:Square", "builtin:Circle", "builtin:Capsule", "builtin:Triangle" };
+		std::vector<std::string> all = FindAll();
+		for (const std::string& p : all)
+			if (p.rfind("builtin:", 0) != 0)
+				out.push_back(p);
+		return out;
 	}
 
 	std::vector<std::string> FindAll()

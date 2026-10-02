@@ -16,6 +16,9 @@ namespace UISprites
 
 	bool Get(const std::string& path, Info& out);
 	std::vector<std::string> FindAll();
+	// SpriteRenderer 용: 2D 내장 도형 (Square · Circle · Capsule · Triangle) + Assets 의 그림
+	std::vector<std::string> FindAll2D();
+	bool IsBuiltin2D(const std::string& path);
 	std::string DisplayName(const std::string& path);
 	bool IsImagePath(const std::string& path);
 }

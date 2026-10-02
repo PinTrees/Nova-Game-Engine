@@ -53,22 +53,10 @@ namespace Anim2D
 
 	bool AttachmentCorners(const Document& d, const Slot& s, const Attachment& a, float out[4][2])
 	{
-		float w = a.Width, h = a.Height;
-		if (w <= 0 || h <= 0)
-			if (const Image* img = GetImage(a.Image)) { if (w <= 0) w = (float)img->W; if (h <= 0) h = (float)img->H; }
-		if (w <= 0 || h <= 0) return false;
-		const Bone& b = d.Bones[s.Bone];
-		const float r = a.Rotation * kDeg, cr = cosf(r), sr = sinf(r);
-		const float hx = w * 0.5f * a.ScaleX, hy = h * 0.5f * a.ScaleY;
-		const float local[4][2] = { { -hx, -hy }, { hx, -hy }, { hx, hy }, { -hx, hy } };
-		for (int i = 0; i < 4; ++i)
-		{
-			// 첨부 기준 → 본 기준 (회전 + 위치) → 월드 (본 행렬)
-			const float lx = a.X + local[i][0] * cr - local[i][1] * sr, ly = a.Y + local[i][0] * sr + local[i][1] * cr;
-			out[i][0] = b.A * lx + b.B * ly + b.WX;
-			out[i][1] = b.C * lx + b.D * ly + b.WY;
-		}
-		return true;
+		float w = 0, h = 0;
+		if (a.Width <= 0 || a.Height <= 0)
+			if (const Image* img = GetImage(a.Image)) { w = (float)img->W; h = (float)img->H; }
+		return AttachmentQuad(d, s, a, w, h, out);
 	}
 
 	void Raster::Resize(int w, int h)
