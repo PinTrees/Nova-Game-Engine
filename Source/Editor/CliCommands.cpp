@@ -34,6 +34,7 @@
 #include "TerrainEditor.h"
 #include "Collider.h"
 #include "AssetImportSettings.h"
+#include "UISystem.h"
 #include "ImportSettingsInspector.h"
 #include "AudioClip.h"
 #include "HumanoidAvatar.h"
@@ -656,7 +657,18 @@ namespace CliCommands
 				parent = Resolve(a["parent"], e);
 				if (!parent) return false;
 			}
-			GameObject* go = CreateByType(a.value("type", std::string("empty")), a, e);
+			// UI: "ui:Button", "ui:Dropdown", "ui:ScrollView" … = GameObject > UI 메뉴와 같은 구조 (캔버스가 없으면 Canvas + EventSystem 도)
+			const std::string type = a.value("type", std::string("empty"));
+			if (type.rfind("ui:", 0) == 0)
+			{
+				GameObject* ui = UISystem::Create(type.substr(3), scene, parent);
+				if (!ui) { e = "unknown UI kind '" + type.substr(3) + "' (Image, Text, Panel, Button, Toggle, Slider, Scrollbar, ScrollView, Dropdown, InputField, Canvas, EventSystem)"; return false; }
+				if (a.contains("name") && a["name"].is_string()) ui->SetName(a["name"].get<std::string>());
+				AfterEdit("Create " + ui->GetName(), ui);
+				r = { { "path", PathOf(ui) }, { "id", IdOf(ui) } };
+				return true;
+			}
+			GameObject* go = CreateByType(type, a, e);
 			if (!go) return false;
 			if (parent)
 				go->SetParent(parent, false);

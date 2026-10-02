@@ -147,6 +147,8 @@ namespace NovaEngine.UI
         static readonly Dictionary<ulong, InputField.OnChangeEvent> s_InputChanged = new Dictionary<ulong, InputField.OnChangeEvent>();
         static readonly Dictionary<ulong, InputField.EndEditEvent> s_InputEnd = new Dictionary<ulong, InputField.EndEditEvent>();
         static readonly Dictionary<ulong, Text.LinkClickedEvent> s_Link = new Dictionary<ulong, Text.LinkClickedEvent>();
+        static readonly Dictionary<ulong, Scrollbar.ScrollEvent> s_Scrollbar = new Dictionary<ulong, Scrollbar.ScrollEvent>();
+        static readonly Dictionary<ulong, Dropdown.DropdownEvent> s_Dropdown = new Dictionary<ulong, Dropdown.DropdownEvent>();
 
         static T Get<T>(Dictionary<ulong, T> d, ulong id) where T : new()
         {
@@ -159,6 +161,8 @@ namespace NovaEngine.UI
         internal static InputField.OnChangeEvent InputChanged(ulong id) => Get(s_InputChanged, id);
         internal static InputField.EndEditEvent InputEnd(ulong id) => Get(s_InputEnd, id);
         internal static Text.LinkClickedEvent LinkClicked(ulong id) => Get(s_Link, id);
+        internal static Scrollbar.ScrollEvent ScrollbarChanged(ulong id) => Get(s_Scrollbar, id);
+        internal static Dropdown.DropdownEvent DropdownChanged(ulong id) => Get(s_Dropdown, id);
 
         internal static void Invoke(ulong id, int kind, float number, string text)
         {
@@ -170,11 +174,13 @@ namespace NovaEngine.UI
                 case 3: if (s_InputChanged.TryGetValue(id, out var ic)) ic.Invoke(text); break;
                 case 4: if (s_InputEnd.TryGetValue(id, out var ie)) ie.Invoke(text); break;
                 case 5: if (s_Link.TryGetValue(id, out var lk)) lk.Invoke(text); break;
+                case 6: if (s_Scrollbar.TryGetValue(id, out var sb)) sb.Invoke(number); break;
+                case 7: if (s_Dropdown.TryGetValue(id, out var dd)) dd.Invoke((int)number); break;
             }
         }
         internal static void Clear()
         {
-            s_Click.Clear(); s_Slider.Clear(); s_Toggle.Clear(); s_InputChanged.Clear(); s_InputEnd.Clear(); s_Link.Clear();
+            s_Click.Clear(); s_Slider.Clear(); s_Toggle.Clear(); s_InputChanged.Clear(); s_InputEnd.Clear(); s_Link.Clear(); s_Scrollbar.Clear(); s_Dropdown.Clear();
         }
     }
 
@@ -478,6 +484,84 @@ namespace NovaEngine.UI
         public SliderEvent onValueChanged => UIEvents.SliderChanged(m_Id);
     }
 
+    public class Scrollbar : Selectable
+    {
+        internal Scrollbar() { }
+        public class ScrollEvent : UnityEvent<float> { }
+        public enum Direction { LeftToRight = 0, RightToLeft = 1, BottomToTop = 2, TopToBottom = 3 }
+        unsafe float Get(int p) { Vector4 v; Native.Api.UI_GetVec(m_Id, p, &v); return v.x; }
+        unsafe void Set(int p, float x, float y = 0) { Vector4 v = new Vector4(x, y, 0, 0); Native.Api.UI_SetVec(m_Id, p, &v); }
+        public float value { get => Get(90); set => Set(90, value); }
+        public float size { get => Get(91); set => Set(91, value); }
+        public int numberOfSteps { get => (int)Get(92); set => Set(92, value); }
+        public Direction direction { get => (Direction)(int)Get(93); set => Set(93, (int)value); }
+        public void SetValueWithoutNotify(float input) => Set(90, input, 1);
+        public ScrollEvent onValueChanged => UIEvents.ScrollbarChanged(m_Id);
+    }
+
+    public class Dropdown : Selectable
+    {
+        internal Dropdown() { }
+        public class DropdownEvent : UnityEvent<int> { }
+        public class OptionData
+        {
+            public string text;
+            public Sprite image;
+            public OptionData() { }
+            public OptionData(string text) { this.text = text; }
+            public OptionData(string text, Sprite image) { this.text = text; this.image = image; }
+            public OptionData(Sprite image) { this.image = image; }
+        }
+        /// <summary>옵션 목록 — Add / Clear / 인덱서로 바꾸면 컴포넌트에 바로 반영 (Unity 처럼 dropdown.options.Add(...))</summary>
+        public class OptionDataList : System.Collections.Generic.IEnumerable<OptionData>
+        {
+            readonly Dropdown m_Owner; readonly List<OptionData> m_List;
+            internal OptionDataList(Dropdown owner, List<OptionData> list) { m_Owner = owner; m_List = list; }
+            void Push() => m_Owner.WriteOptions(m_List);
+            public int Count => m_List.Count;
+            public OptionData this[int i] { get => m_List[i]; set { m_List[i] = value; Push(); } }
+            public void Add(OptionData o) { m_List.Add(o); Push(); }
+            public void AddRange(IEnumerable<OptionData> o) { m_List.AddRange(o); Push(); }
+            public void Insert(int i, OptionData o) { m_List.Insert(i, o); Push(); }
+            public void RemoveAt(int i) { m_List.RemoveAt(i); Push(); }
+            public bool Remove(OptionData o) { bool r = m_List.Remove(o); Push(); return r; }
+            public void Clear() { m_List.Clear(); Push(); }
+            public System.Collections.Generic.IEnumerator<OptionData> GetEnumerator() => m_List.GetEnumerator();
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => m_List.GetEnumerator();
+            public static implicit operator List<OptionData>(OptionDataList l) => new List<OptionData>(l.m_List);
+        }
+        unsafe float Get(int p) { Vector4 v; Native.Api.UI_GetVec(m_Id, p, &v); return v.x; }
+        unsafe void Set(int p, float x, float y = 0) { Vector4 v = new Vector4(x, y, 0, 0); Native.Api.UI_SetVec(m_Id, p, &v); }
+        unsafe List<OptionData> ReadOptions()
+        {
+            string s = Native.Str(Native.Api.UI_GetString(m_Id, 10)) ?? "";
+            var list = new List<OptionData>();
+            if (Get(97) > 0) foreach (var t in s.Split('\u001F')) list.Add(new OptionData(t));
+            return list;
+        }
+        internal unsafe void WriteOptions(List<OptionData> list)
+        {
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < list.Count; i++) { if (i > 0) sb.Append('\u001F'); sb.Append(list[i]?.text ?? ""); }
+            fixed (byte* p = Native.Utf8(sb.ToString())) Native.Api.UI_SetString(m_Id, 10, p);
+        }
+        public OptionDataList options
+        {
+            get => new OptionDataList(this, ReadOptions());
+            set { var l = new List<OptionData>(); if (value != null) foreach (var o in value) l.Add(o); WriteOptions(l); }
+        }
+        public int value { get => (int)Get(95); set => Set(95, value); }
+        public void SetValueWithoutNotify(int input) => Set(95, input, 1);
+        public void AddOptions(List<string> labels) { var l = ReadOptions(); foreach (var s in labels) l.Add(new OptionData(s)); WriteOptions(l); }
+        public void AddOptions(List<OptionData> data) { var l = ReadOptions(); l.AddRange(data); WriteOptions(l); }
+        public void ClearOptions() => WriteOptions(new List<OptionData>());
+        public void RefreshShownValue() => Set(97, 1);
+        public void Show() => Set(96, 1);
+        public void Hide() => Set(96, 0);
+        public bool IsExpanded => Get(96) != 0;
+        public DropdownEvent onValueChanged => UIEvents.DropdownChanged(m_Id);
+    }
+
     public class InputField : Selectable
     {
         internal InputField() { }
@@ -568,6 +652,7 @@ namespace TMPro
     }
     public class TextMeshProUGUI : TMP_Text { internal TextMeshProUGUI() { } }
     public class TMP_InputField : NovaEngine.UI.InputField { internal TMP_InputField() { } }
+    public class TMP_Dropdown : NovaEngine.UI.Dropdown { internal TMP_Dropdown() { } }
 
     [System.Flags]
     public enum FontStyles { Normal = 0, Bold = 1, Italic = 2, Underline = 4, LowerCase = 8, UpperCase = 16, SmallCaps = 32, Strikethrough = 64, Superscript = 128, Subscript = 256, Highlight = 512 }

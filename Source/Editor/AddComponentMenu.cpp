@@ -57,6 +57,8 @@ namespace
 		{ "Slider",              "Slider",                "UI",            "ui_slider",         true  },
 		{ "InputField",          "Input Field",           "UI",            "ui_input_field",    true  },
 		{ "ScrollRect",          "Scroll Rect",           "UI",            "ui_scroll_rect",    true  },
+		{ "Scrollbar",           "Scrollbar",             "UI",            "ui_slider",         true  },
+		{ "Dropdown",            "Dropdown",              "UI",            "ui_button",         true  },
 		{ "Mask",                "Mask",                  "UI",            "ui_mask",           true  },
 		{ "RectMask2D",          "Rect Mask 2D",          "UI",            "ui_mask",           true  },
 		{ "RectTransform",       "Rect Transform",        "Layout",        "rect_transform",    true  },

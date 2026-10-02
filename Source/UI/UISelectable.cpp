@@ -147,3 +147,8 @@ void UISelectable::SelectableFromJson(const json& j)
 	m_FadeDuration = j.value("fadeDuration", 0.1f);
 	m_Navigation = j.value("navigation", 1);
 }
+
+void UISelectable::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	if (auto it = map.find(m_TargetGraphic); it != map.end()) m_TargetGraphic = it->second;
+}

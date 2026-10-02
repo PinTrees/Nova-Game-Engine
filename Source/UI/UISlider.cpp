@@ -159,3 +159,10 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Slider)
 	m_Value = j.value("value", 0.0f);
 	m_OnValueChanged.FromJson(j.contains("onValueChanged") ? j["onValueChanged"] : json::array());
 }
+
+void Slider::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	UISelectable::RemapFileIDs(map);
+	if (auto it = map.find(m_FillRect); it != map.end()) m_FillRect = it->second;
+	if (auto it = map.find(m_HandleRect); it != map.end()) m_HandleRect = it->second;
+}

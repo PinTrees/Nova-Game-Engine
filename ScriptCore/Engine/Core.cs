@@ -284,6 +284,8 @@ namespace NovaEngine
             if (typeof(UI.Slider).IsAssignableFrom(t)) return "Slider";
             if (typeof(UI.InputField).IsAssignableFrom(t)) return "InputField";   // TMPro.TMP_InputField 포함
             if (t == typeof(UI.ScrollRect)) return "ScrollRect";
+            if (t == typeof(UI.Scrollbar)) return "Scrollbar";
+            if (typeof(UI.Dropdown).IsAssignableFrom(t)) return "Dropdown";   // TMPro.TMP_Dropdown 포함
             if (t == typeof(UI.Mask)) return "Mask";
             if (t == typeof(UI.RectMask2D)) return "RectMask2D";
             if (t == typeof(UI.HorizontalLayoutGroup)) return "HorizontalLayoutGroup";

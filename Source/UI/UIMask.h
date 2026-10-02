@@ -44,6 +44,9 @@ public:
 	virtual ~ScrollRect();
 
 	void SetContent(uint64 content, uint64 viewport) { m_Content = content; m_Viewport = viewport; }
+	enum class ScrollbarVisibility { Permanent = 0, AutoHide = 1, AutoHideAndExpandViewport = 2 };
+	void SetScrollbars(uint64 horizontal, uint64 vertical) { m_HScrollbar = horizontal; m_VScrollbar = vertical; }
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
 	Vec2 GetNormalizedPosition();
 	void SetNormalizedPosition(const Vec2& p);
 
@@ -69,6 +72,10 @@ private:
 	Vec2 WorldToContentParent(const Vec3& worldDelta);
 
 	uint64 m_Content = 0, m_Viewport = 0;
+	uint64 m_HScrollbar = 0, m_VScrollbar = 0;
+	ScrollbarVisibility m_HVisibility = ScrollbarVisibility::AutoHideAndExpandViewport, m_VVisibility = ScrollbarVisibility::AutoHideAndExpandViewport;
+	float m_LastBar[2] = { -1.0f, -1.0f };   // 마지막으로 스크롤바에 쓴 값 (다르면 사용자가 스크롤바를 움직였다)
+	void SyncScrollbars();
 	bool m_Horizontal = true, m_Vertical = true;
 	Movement m_Movement = Movement::Elastic;
 	float m_Elasticity = 0.1f;

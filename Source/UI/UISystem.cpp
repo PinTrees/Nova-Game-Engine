@@ -12,6 +12,8 @@
 #include "UIInputField.h"
 #include "UIMask.h"
 #include "UILayout.h"
+#include "UIScrollbar.h"
+#include "UIDropdown.h"
 #include "GameViewEditorWindow.h"
 #include "GameObjectFactory.h"
 #include "ScriptEngine.h"
@@ -765,6 +767,22 @@ namespace UISystem
 		(void)cameraPosition;
 	}
 
+	// Unity: Scrollbar > Sliding Area > Handle
+	GameObject* MakeScrollbar(const char* name, GameObject* parent, bool vertical)
+	{
+		GameObject* go = NewUIObject(name, parent);
+		AddImage(go, "builtin:Background", true);
+		auto bar = std::make_shared<Scrollbar>();
+		go->AddComponent(bar);
+		GameObject* area = NewUIObject("Sliding Area", go);
+		SetStretch(area, Vec2(0, 0), Vec2(1, 1), 10, 10, 10, 10);
+		GameObject* handle = NewUIObject("Handle", area);
+		AddImage(handle, "builtin:UISprite", true);
+		SetStretch(handle, Vec2(0, 0), Vec2(0.2f, 1), -10, -10, -10, -10);
+		bar->fromJson(json{ { "targetGraphic", handle->GetFileID() }, { "handleRect", handle->GetFileID() }, { "direction", vertical ? 2 : 0 }, { "size", 0.2f } });
+		return go;
+	}
+
 	GameObject* Create(const std::string& kind, Scene* scene, GameObject* selected)
 	{
 		if (scene == nullptr)
@@ -905,6 +923,64 @@ namespace UISystem
 			GameObject* content = NewUIObject("Content", viewport);
 			SetRect(content, Vec2(0, 1), Vec2(1, 1), Vec2(0, 300), Vec2(0, 0), Vec2(0, 1));
 			scroll->SetContent(content->GetFileID(), viewport->GetFileID());
+			// Scrollbar Horizontal (아래) · Vertical (오른쪽)
+			GameObject* hbar = MakeScrollbar("Scrollbar Horizontal", go, false);
+			SetRect(hbar, Vec2(0, 0), Vec2(1, 0), Vec2(-17, 20), Vec2(-8.5f, 0), Vec2(0.5f, 0));
+			GameObject* vbar = MakeScrollbar("Scrollbar Vertical", go, true);
+			SetRect(vbar, Vec2(1, 0), Vec2(1, 1), Vec2(20, -17), Vec2(0, 8.5f), Vec2(1, 0.5f));
+			SetStretch(viewport, Vec2(0, 0), Vec2(1, 1), 0, 17, 17, 0);
+			scroll->SetScrollbars(hbar->GetFileID(), vbar->GetFileID());
+		}
+		else if (kind == "Scrollbar")
+		{
+			go = MakeScrollbar("Scrollbar", nullptr, false);
+			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(160, 20));
+		}
+		else if (kind == "Dropdown")
+		{
+			// Unity: Dropdown > Label, Arrow, Template(꺼 둠: Scroll Rect) > Viewport(RectMask2D) > Content > Item(Toggle) > Item Background, Item Checkmark, Item Label
+			go = NewUIObject("Dropdown");
+			AddImage(go, "builtin:UISprite", true);
+			auto dd = std::make_shared<Dropdown>();
+			go->AddComponent(dd);
+			SetRect(go, Vec2(0.5f, 0.5f), Vec2(0.5f, 0.5f), Vec2(160, 30));
+			GameObject* label = NewUIObject("Label", go);
+			AddText(label, "Option A", 14, dark, 3);
+			SetStretch(label, Vec2(0, 0), Vec2(1, 1), 10, 6, 25, 7);
+			GameObject* arrow = NewUIObject("Arrow", go);
+			AddText(arrow, "\xE2\x96\xBC", 12, dark, 4);   // \u25BC (UTF-8)
+			SetRect(arrow, Vec2(1, 0.5f), Vec2(1, 0.5f), Vec2(20, 20), Vec2(-15, 0));
+			GameObject* templ = NewUIObject("Template", go);
+			AddImage(templ, "builtin:UISprite", true);
+			auto tscroll = std::make_shared<ScrollRect>();
+			templ->AddComponent(tscroll);
+			SetRect(templ, Vec2(0, 0), Vec2(1, 0), Vec2(0, 150), Vec2(0, 2), Vec2(0.5f, 1));
+			GameObject* tview = NewUIObject("Viewport", templ);
+			tview->AddComponent(std::make_shared<RectMask2D>());
+			SetStretch(tview, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
+			GameObject* tcontent = NewUIObject("Content", tview);
+			SetRect(tcontent, Vec2(0, 1), Vec2(1, 1), Vec2(0, 28), Vec2(0, 0), Vec2(0.5f, 1));
+			GameObject* item = NewUIObject("Item", tcontent);
+			auto itemToggle = std::make_shared<Toggle>();
+			item->AddComponent(itemToggle);
+			SetRect(item, Vec2(0, 1), Vec2(1, 1), Vec2(0, 20), Vec2(0, -14));
+			GameObject* itemBg = NewUIObject("Item Background", item);
+			const float itemBgColor[4] = { 0.961f, 0.961f, 0.961f, 1.0f };
+			AddImage(itemBg, nullptr, false, itemBgColor);
+			SetStretch(itemBg, Vec2(0, 0), Vec2(1, 1), 0, 0, 0, 0);
+			GameObject* itemCheck = NewUIObject("Item Checkmark", item);
+			AddImage(itemCheck, "builtin:Checkmark", false, dark);
+			SetRect(itemCheck, Vec2(0, 0.5f), Vec2(0, 0.5f), Vec2(20, 20), Vec2(10, 0));
+			GameObject* itemLabel = NewUIObject("Item Label", item);
+			auto itemText = AddText(itemLabel, "Option A", 14, dark, 3);
+			itemText->SetRaycastTarget(false);
+			SetStretch(itemLabel, Vec2(0, 0), Vec2(1, 1), 20, 1, 10, 2);
+			itemToggle->fromJson(json{ { "targetGraphic", itemBg->GetFileID() }, { "graphic", itemCheck->GetFileID() }, { "isOn", true } });
+			tscroll->SetContent(tcontent->GetFileID(), tview->GetFileID());
+			tscroll->fromJson(json{ { "content", tcontent->GetFileID() }, { "viewport", tview->GetFileID() }, { "horizontal", false }, { "movementType", 2 } });
+			templ->SetActive(false);
+			dd->Options = { { "Option A", "" }, { "Option B", "" }, { "Option C", "" } };
+			dd->SetParts(templ->GetFileID(), label->GetFileID(), itemLabel->GetFileID());
 		}
 		if (go == nullptr)
 			return nullptr;

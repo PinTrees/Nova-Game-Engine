@@ -533,6 +533,57 @@ return pick(W / 2, H / 2) + " " + pick(W / 2 - 300, H / 2 + 150) + " " + pick(W 
         $wv = if ($wo) { "$($wo.result)" -split ' ' } else { @() }
         if ($wv.Count -lt 6) { Add-Result ui 'world canvas' $false "exec failed: $wo"; return }
         Add-Result ui 'world space canvas is hit by the camera ray' ($wv[0] -eq 'WBtn' -and $wv[2] -eq 'none') "center → $($wv[0]) (expect WBtn), corner → $($wv[2]) (expect none)"
+        # Dropdown · Scrollbar · Scroll View 의 스크롤바
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create ui:Dropdown --name DD' | Out-Null
+        Invoke-Nova 'create ui:Scrollbar --name SB' | Out-Null
+        Invoke-Nova 'create ui:ScrollView --name SV' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $df = Join-Path $Out 'ui_dropdown.cs'
+        @'
+var dd = GameObject.Find("DD").GetComponent<TMPro.TMP_Dropdown>();
+int before = dd.options.Count;
+dd.AddOptions(new System.Collections.Generic.List<string> { "D 옵션", "E 옵션" });
+dd.value = 2;
+dd.onValueChanged.AddListener(v => dd.gameObject.name = "DD" + v);   // 리스너가 불렸는지 = 이름으로 확인
+dd.Show();
+GameObject.Find("SB").GetComponent<Scrollbar>().value = 0.5f;
+GameObject.Find("Scrollbar Vertical").GetComponent<Scrollbar>().value = 0f;
+return before + " " + dd.options.Count + " " + dd.IsExpanded;
+'@ | Set-Content -Encoding utf8 $df
+        $d1 = Invoke-NovaJson "exec --file $df"
+        Invoke-Nova 'wait 5' | Out-Null
+        $cf = Join-Path $Out 'ui_dropdown_click.cs'
+        @'
+var item = GameObject.Find("Item 4: E 옵션");
+var caption = GameObject.Find("Label").GetComponent<Text>().text;
+if (item == null) return "noitem " + caption;
+var tg = item.GetComponent<Toggle>(); tg.isOn = !tg.isOn;   // 항목을 누른 것과 같다
+return "ok " + caption;
+'@ | Set-Content -Encoding utf8 $cf
+        $d2 = Invoke-NovaJson "exec --file $cf"
+        Invoke-Nova 'wait 5' | Out-Null
+        $rf3 = Join-Path $Out 'ui_dropdown_read.cs'
+        @'
+var dd = GameObject.Find("DD4");
+var d = dd != null ? dd.GetComponent<Dropdown>() : null;
+var handle = GameObject.Find("SB").transform.GetChild(0).GetChild(0).GetComponent<RectTransform>();
+var sv = GameObject.Find("SV").GetComponent<ScrollRect>();
+var vbar = GameObject.Find("Scrollbar Vertical").GetComponent<Scrollbar>();
+var F = (System.Func<float, string>)(x => x.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+return (d != null ? d.value + " " + d.IsExpanded + " " + GameObject.Find("Label").GetComponent<Text>().text.Replace(" ", "_") : "none none none")
+    + " " + (GameObject.Find("Dropdown List") != null) + " " + F(handle.anchorMin.x) + " " + F(handle.anchorMax.x) + " " + F(vbar.size) + " " + F(sv.normalizedPosition.y);
+'@ | Set-Content -Encoding utf8 $rf3
+        $d3 = Invoke-NovaJson "exec --file $rf3"
+        Invoke-Nova 'stop' | Out-Null
+        $dv = if ($d3) { "$($d3.result)" -split ' ' } else { @() }
+        $ok = $d1 -and "$($d1.result)" -eq '3 5 True' -and $d2 -and "$($d2.result)" -eq 'ok Option C' -and $dv.Count -ge 8 -and $dv[0] -eq '4' -and $dv[1] -eq 'False' -and $dv[2] -eq 'E_옵션' -and $dv[3] -eq 'False'
+        Add-Result ui 'dropdown: options, show list, pick item, caption' $ok "add $($d1.result); before pick caption '$($d2.result)'; after: value $($dv[0]) expanded $($dv[1]) caption $($dv[2]) list $($dv[3]) (listener renamed DD → DD4)"
+        if ($dv.Count -ge 8)
+        {
+            Add-Result ui 'scrollbar handle follows value and size' ([math]::Abs([double]$dv[4] - 0.4) -lt 0.01 -and [math]::Abs([double]$dv[5] - 0.6) -lt 0.01) "anchors $($dv[4]) ~ $($dv[5]) (expect 0.40 ~ 0.60)"
+            Add-Result ui 'scroll view vertical scrollbar drives the content' ([double]$dv[6] -gt 0.3 -and [double]$dv[6] -lt 0.95 -and [double]$dv[7] -lt 0.02) "bar size $($dv[6]), normalized y $($dv[7]) (expect 0 after bar = 0)"
+        }
         Add-Result ui 'screen space camera canvas sits at plane distance' ($wv[1] -eq 'CBtn' -and [math]::Abs([double]$wv[3] - 10) -lt 0.01 -and $wv[4] -eq '1' -and $wv[5] -eq 'True') "(-300, 150) → $($wv[1]) (expect CBtn), distance $($wv[3]) (expect 10), mode $($wv[4]), camera $($wv[5])"
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }

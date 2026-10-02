@@ -41,6 +41,9 @@ private:
 	class Text* TextComponent();
 
 	uint64 m_TextComponent = 0, m_Placeholder = 0;
+public:
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
+private:
 	std::string m_Text;
 	int m_CharacterLimit = 0;
 	ContentType m_ContentType = ContentType::Standard;

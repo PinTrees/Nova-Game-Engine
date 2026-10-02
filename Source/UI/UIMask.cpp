@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "UIMask.h"
+#include "UIScrollbar.h"
 #include "RectTransform.h"
 #include "UnityGUI.h"
 
@@ -225,8 +226,56 @@ void ScrollRect::OnScroll(float wheel)
 	m_Velocity = Vec2(0, 0);
 }
 
+void ScrollRect::SyncScrollbars()
+{
+	// Scrollbar ↔ 위치: 스크롤바를 사용자가 움직였으면 위치로, 아니면 위치를 스크롤바로 (Size = 보이는 비율)
+	RectTransform* content = ContentRect();
+	RectTransform* view = ViewportRect();
+	if (content == nullptr || view == nullptr)
+		return;
+	const Vec2 n = GetNormalizedPosition();
+	Vec2 target = n;
+	bool userMoved = false;
+	for (int axis = 0; axis < 2; ++axis)
+	{
+		GameObject* go = FindObject(axis == 0 ? m_HScrollbar : m_VScrollbar);
+		Scrollbar* sb = go ? go->GetComponent<Scrollbar>() : nullptr;
+		if (sb == nullptr)
+			continue;
+		const float viewSize = axis == 0 ? view->GetRectSize().x : view->GetRectSize().y;
+		const float contentSize = axis == 0 ? content->GetRectSize().x : content->GetRectSize().y;
+		const float size = contentSize > 1e-4f ? std::clamp(viewSize / contentSize, 0.0f, 1.0f) : 1.0f;
+		sb->SetSize(size);
+		if (m_LastBar[axis] >= 0.0f && fabsf(sb->GetValue() - m_LastBar[axis]) > 1e-5f)
+		{
+			(axis == 0 ? target.x : target.y) = sb->GetValue();
+			userMoved = true;
+		}
+		else
+			sb->SetValue(axis == 0 ? n.x : n.y, false);
+		m_LastBar[axis] = sb->GetValue();
+		// Auto Hide: 다 보이면 숨긴다
+		const ScrollbarVisibility vis = axis == 0 ? m_HVisibility : m_VVisibility;
+		if (vis != ScrollbarVisibility::Permanent && Application::IsPlaying())
+			go->SetActive(size < 0.999f);
+	}
+	if (userMoved)
+	{
+		SetNormalizedPosition(target);
+		m_Velocity = Vec2(0, 0);
+	}
+}
+
+void ScrollRect::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	for (uint64* id : { &m_Content, &m_Viewport, &m_HScrollbar, &m_VScrollbar })
+		if (auto it = map.find(*id); it != map.end())
+			*id = it->second;
+}
+
 void ScrollRect::UpdateBeforeLayout(float dt, bool playing)
 {
+	SyncScrollbars();
 	RectTransform* content = ContentRect();
 	if (!playing || content == nullptr || !m_Enabled || dt <= 0.0f)
 	{
@@ -342,8 +391,34 @@ void ScrollRect::OnInspectorGUI()
 		UnityGUI::Float("Deceleration Rate", &m_Deceleration, 1);
 	UnityGUI::Float("Scroll Sensitivity", &m_Sensitivity);
 	RefField("Viewport", m_Viewport, "##srViewport", "rect_transform");
-	UnityGUI::ValueLabel("Horizontal Scrollbar", "None (Scrollbar)");
-	UnityGUI::ValueLabel("Vertical Scrollbar", "None (Scrollbar)");
+	static const char* kVis[] = { "Permanent", "Auto Hide", "Auto Hide And Expand Viewport" };
+	auto barField = [&](const char* label, uint64& id, ScrollbarVisibility& vis, const char* key) {
+		GameObject* g = FindObject(id);
+		const std::string text = g ? g->GetName() + " (Scrollbar)" : "None (Scrollbar)";
+		ImVec2 fmin, fmax;
+		UnityGUI::ObjectFieldButtons(label, text.c_str(), "ui_slider", nullptr, 0, &fmin, &fmax);
+		const ImVec2 after = ImGui::GetCursorScreenPos();
+		ImGui::SetCursorScreenPos(fmin);
+		ImGui::InvisibleButton(key, ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("GAME_OBJECT"))
+				if (GameObject* go = *(GameObject**)payload->Data; go && go->GetComponent<Scrollbar>())
+					id = go->GetFileID();
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::SetCursorScreenPos(after);
+		if (id)
+		{
+			int v = (int)vis;
+			ImGui::PushID(key);
+			if (UnityGUI::Dropdown("Visibility", &v, kVis, 3, 1))
+				vis = (ScrollbarVisibility)v;
+			ImGui::PopID();
+		}
+	};
+	barField("Horizontal Scrollbar", m_HScrollbar, m_HVisibility, "##srHBar");
+	barField("Vertical Scrollbar", m_VScrollbar, m_VVisibility, "##srVBar");
 }
 
 GENERATE_COMPONENT_FUNC_TOJSON(ScrollRect)
@@ -360,6 +435,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(ScrollRect)
 	j["inertia"] = m_Inertia;
 	j["decelerationRate"] = m_Deceleration;
 	j["scrollSensitivity"] = m_Sensitivity;
+	if (m_HScrollbar) { j["horizontalScrollbar"] = m_HScrollbar; j["horizontalScrollbarVisibility"] = (int)m_HVisibility; }
+	if (m_VScrollbar) { j["verticalScrollbar"] = m_VScrollbar; j["verticalScrollbarVisibility"] = (int)m_VVisibility; }
 	return j;
 }
 
@@ -375,4 +452,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(ScrollRect)
 	m_Inertia = j.value("inertia", true);
 	m_Deceleration = j.value("decelerationRate", 0.135f);
 	m_Sensitivity = j.value("scrollSensitivity", 1.0f);
+	m_HScrollbar = j.value("horizontalScrollbar", (uint64)0);
+	m_VScrollbar = j.value("verticalScrollbar", (uint64)0);
+	m_HVisibility = (ScrollbarVisibility)std::clamp(j.value("horizontalScrollbarVisibility", 2), 0, 2);
+	m_VVisibility = (ScrollbarVisibility)std::clamp(j.value("verticalScrollbarVisibility", 2), 0, 2);
 }

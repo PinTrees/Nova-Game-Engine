@@ -186,10 +186,10 @@ namespace GameObjectMenu
 			if (ImGui::MenuItem("Panel")) create("Panel");
 			if (ImGui::MenuItem("Toggle")) create("Toggle");
 			if (ImGui::MenuItem("Slider")) create("Slider");
-			Disabled("Scrollbar");
+			if (ImGui::MenuItem("Scrollbar")) create("Scrollbar");
 			if (ImGui::MenuItem("Scroll View")) create("ScrollView");
 			if (ImGui::MenuItem("Button")) create("Button");
-			Disabled("Dropdown");
+			if (ImGui::MenuItem("Dropdown")) create("Dropdown");
 			if (ImGui::MenuItem("Input Field")) create("InputField");
 			ImGui::Separator();
 			if (ImGui::MenuItem("Canvas")) create("Canvas");

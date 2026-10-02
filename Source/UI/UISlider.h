@@ -29,6 +29,7 @@ public:
 	virtual void OnDrag(const Vec3& point, const Vec3& delta) override;
 	virtual bool DragsImmediately() const override { return true; }
 	virtual void UpdateBeforeLayout(float dt, bool playing) override;
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
 
 	virtual void OnInspectorGUI() override;
 	virtual bool UsesUnityInspector() const override { return true; }

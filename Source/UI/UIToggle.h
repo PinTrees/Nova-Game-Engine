@@ -27,6 +27,9 @@ private:
 	bool m_IsOn = true;
 	int m_ToggleTransition = 1;   // 0 None, 1 Fade
 	uint64 m_Graphic = 0;         // 체크 표시 GameObject
+public:
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
+private:
 	uint64 m_Group = 0;
 	UIEventList m_OnValueChanged;
 	float m_Alpha = 1.0f;         // 실행 중 체크 표시 투명도

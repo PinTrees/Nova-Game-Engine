@@ -98,3 +98,10 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Toggle)
 	m_OnValueChanged.FromJson(j.contains("onValueChanged") ? j["onValueChanged"] : json::array());
 	m_Alpha = m_IsOn ? 1.0f : 0.0f;
 }
+
+void Toggle::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	UISelectable::RemapFileIDs(map);
+	if (auto it = map.find(m_Graphic); it != map.end()) m_Graphic = it->second;
+	if (auto it = map.find(m_Group); it != map.end()) m_Group = it->second;
+}

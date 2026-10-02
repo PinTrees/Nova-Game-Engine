@@ -48,6 +48,8 @@ public:
 	virtual void OnUpdateSelected() {}
 	// 레이아웃 전에 (Slider 의 Fill/Handle 기준점, Toggle 의 체크 표시)
 	virtual void UpdateBeforeLayout(float dt, bool playing) {}
+	// 복제 · 프리팹: Target Graphic 같은 내부 참조를 새 fileID 로 (자식 클래스는 이것도 부른다)
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
 
 	// 매 프레임: 상태 색을 Target Graphic 에
 	void UpdateVisual(float dt, bool playing);

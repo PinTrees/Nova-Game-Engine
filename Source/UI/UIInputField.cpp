@@ -318,3 +318,10 @@ GENERATE_COMPONENT_FUNC_FROMJSON(InputField)
 	m_OnValueChanged.FromJson(j.contains("onValueChanged") ? j["onValueChanged"] : json::array());
 	m_OnEndEdit.FromJson(j.contains("onEndEdit") ? j["onEndEdit"] : json::array());
 }
+
+void InputField::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	UISelectable::RemapFileIDs(map);
+	if (auto it = map.find(m_TextComponent); it != map.end()) m_TextComponent = it->second;
+	if (auto it = map.find(m_Placeholder); it != map.end()) m_Placeholder = it->second;
+}

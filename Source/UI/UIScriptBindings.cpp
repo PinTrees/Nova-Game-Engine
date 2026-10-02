@@ -12,6 +12,8 @@
 #include "UIMask.h"
 #include "UIRenderer.h"
 #include "UILayout.h"
+#include "UIScrollbar.h"
+#include "UIDropdown.h"
 
 namespace
 {
@@ -56,6 +58,20 @@ namespace UIScriptBindings
 			default: return 0;
 			}
 			*out = Vec4(v.x, v.y, 0, 0);
+			return 1;
+		}
+		if (prop >= 90 && prop <= 93)
+		{
+			Scrollbar* s = g->GetComponentIncludingPending<Scrollbar>();
+			if (s == nullptr) return 0;
+			out->x = prop == 90 ? s->GetValue() : (prop == 91 ? s->GetSize() : (prop == 92 ? (float)s->GetNumberOfSteps() : (float)s->GetDirection()));
+			return 1;
+		}
+		if (prop >= 95 && prop <= 97)
+		{
+			Dropdown* d = g->GetComponentIncludingPending<Dropdown>();
+			if (d == nullptr) return 0;
+			out->x = prop == 95 ? (float)d->GetValue() : (prop == 96 ? (d->IsExpanded() ? 1.0f : 0.0f) : (float)d->Options.size());
 			return 1;
 		}
 		if (prop >= 230 && prop < 300)
@@ -304,6 +320,27 @@ namespace UIScriptBindings
 			}
 			return;
 		}
+		if (prop >= 90 && prop <= 93)
+		{
+			if (Scrollbar* s = g->GetComponentIncludingPending<Scrollbar>())
+			{
+				if (prop == 90) s->SetValue(v.x, v.y == 0.0f);   // y = 1 이면 알리지 않음 (SetValueWithoutNotify)
+				else if (prop == 91) s->SetSize(v.x);
+				else if (prop == 92) s->SetNumberOfSteps((int)v.x);
+				else s->SetDirection((Scrollbar::Direction)std::clamp((int)v.x, 0, 3));
+			}
+			return;
+		}
+		if (prop >= 95 && prop <= 97)
+		{
+			if (Dropdown* d = g->GetComponentIncludingPending<Dropdown>())
+			{
+				if (prop == 95) d->SetValue((int)v.x, v.y == 0.0f);
+				else if (prop == 96) { if (v.x != 0.0f) d->Show(); else d->Hide(); }
+				else d->RefreshShownValue();
+			}
+			return;
+		}
 		if (prop >= 230 && prop < 300)
 		{
 			if (prop < 240)
@@ -548,6 +585,15 @@ namespace UIScriptBindings
 		case 1: if (Text* t = g->GetComponentIncludingPending<Text>()) return ScriptBindings::ReturnString(t->GetFont()); break;
 		case 2: if (UIImage* i = g->GetComponentIncludingPending<UIImage>()) return ScriptBindings::ReturnString(i->GetSprite()); break;
 		case 3: case 4: if (InputField* f = g->GetComponentIncludingPending<InputField>()) return ScriptBindings::ReturnString(f->GetText()); break;
+		case 10:
+			// Dropdown 옵션 글자 (0x1F 로 이어 붙임)
+			if (Dropdown* d = g->GetComponentIncludingPending<Dropdown>())
+			{
+				std::string s;
+				for (size_t i = 0; i < d->Options.size(); ++i) { if (i) s.push_back('\x1F'); s += d->Options[i].Text; }
+				return ScriptBindings::ReturnString(s);
+			}
+			break;
 		}
 		return ScriptBindings::ReturnString("");
 	}
@@ -564,6 +610,21 @@ namespace UIScriptBindings
 		case 1: if (Text* t = g->GetComponentIncludingPending<Text>()) t->SetFont(s); break;
 		case 2: if (UIImage* i = g->GetComponentIncludingPending<UIImage>()) i->SetSprite(s); break;
 		case 3: case 4: if (InputField* f = g->GetComponentIncludingPending<InputField>()) f->SetText(s, prop == 3); break;
+		case 10:
+			if (Dropdown* d = g->GetComponentIncludingPending<Dropdown>())
+			{
+				d->Options.clear();
+				size_t start = 0;
+				while (!s.empty() && start <= s.size())
+				{
+					const size_t sep = s.find('\x1F', start);
+					d->Options.push_back({ s.substr(start, sep == std::string::npos ? std::string::npos : sep - start), std::string() });
+					if (sep == std::string::npos) break;
+					start = sep + 1;
+				}
+				d->SetValue(d->GetValue(), false);
+			}
+			break;
 		}
 	}
 }
