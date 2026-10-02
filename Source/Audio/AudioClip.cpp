@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AudioClip.h"
+#include "AudioDecoder.h"
 #include <filesystem>
 #include <fstream>
 
@@ -43,7 +44,74 @@ bool AudioClip::IsAudioPath(const std::string& path)
 {
 	std::string ext = fs::path(path).extension().string();
 	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-	return ext == ".wav";
+	return ext == ".wav" || ext == ".ogg" || ext == ".mp3";
+}
+
+std::unique_ptr<AudioDecoder> AudioDecoder::Open(int codec, const std::shared_ptr<const std::vector<uint8_t>>& data)
+{
+	if (codec == Vorbis) return OpenVorbisDecoder(data);
+	if (codec == Mp3) return OpenMp3Decoder(data);
+	return nullptr;
+}
+
+std::unique_ptr<AudioDecoder> AudioClip::OpenDecoder() const
+{
+	return Codec != 0 && Encoded ? AudioDecoder::Open(Codec, Encoded) : nullptr;
+}
+
+namespace
+{
+	// OGG / MP3: 길면 스트리밍, 짧으면 다 풀어 WAV 처럼
+	std::shared_ptr<AudioClip> LoadCompressed(const std::string& path, std::vector<uint8_t>&& file, int codec)
+	{
+		auto encoded = std::make_shared<const std::vector<uint8_t>>(std::move(file));
+		std::unique_ptr<AudioDecoder> dec = AudioDecoder::Open(codec, encoded);
+		if (dec == nullptr || dec->Channels <= 0 || dec->Channels > 8 || dec->Frequency <= 0)
+		{
+			EditorLog::Write("Audio", "cannot decode %s", path.c_str());
+			return nullptr;
+		}
+		auto clip = std::make_shared<AudioClip>();
+		clip->Path = path;
+		clip->Codec = codec;
+		clip->Channels = dec->Channels;
+		clip->Frequency = dec->Frequency;
+		WAVEFORMATEX& f = clip->Format;
+		f.wFormatTag = WAVE_FORMAT_PCM;
+		f.nChannels = (WORD)dec->Channels;
+		f.nSamplesPerSec = (DWORD)dec->Frequency;
+		f.wBitsPerSample = 16;
+		f.nBlockAlign = (WORD)(2 * dec->Channels);
+		f.nAvgBytesPerSec = f.nSamplesPerSec * f.nBlockAlign;
+		f.cbSize = 0;
+		const float seconds = dec->Frames > 0 ? (float)dec->Frames / (float)dec->Frequency : 0.0f;
+		if (seconds > AudioClip::kStreamSeconds)
+		{
+			clip->Streaming = true;
+			clip->Encoded = encoded;
+			clip->Samples = (uint32_t)dec->Frames;
+		}
+		else
+		{
+			// 다 푼다 (길이를 모르면 끝까지 읽으며 늘린다)
+			std::vector<int16_t> pcm;
+			std::vector<int16_t> chunk((size_t)4096 * dec->Channels);
+			for (;;)
+			{
+				const uint64_t got = dec->Read(chunk.data(), 4096);
+				if (got == 0)
+					break;
+				pcm.insert(pcm.end(), chunk.begin(), chunk.begin() + (size_t)got * dec->Channels);
+			}
+			clip->Samples = (uint32_t)(pcm.size() / dec->Channels);
+			clip->Data.resize(pcm.size() * sizeof(int16_t));
+			memcpy(clip->Data.data(), pcm.data(), clip->Data.size());
+		}
+		clip->Length = (float)clip->Samples / (float)clip->Frequency;
+		EditorLog::Write("Audio", "clip loaded %s (%s, %d Hz, %d ch, %.2fs%s)", path.c_str(), codec == AudioDecoder::Vorbis ? "ogg" : "mp3",
+			clip->Frequency, clip->Channels, clip->Length, clip->Streaming ? ", streaming" : "");
+		return clip;
+	}
 }
 
 std::shared_ptr<AudioClip> AudioClip::Load(const std::string& rawPath)
@@ -61,6 +129,15 @@ std::shared_ptr<AudioClip> AudioClip::Load(const std::string& rawPath)
 		return nullptr;
 	}
 	std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	std::string ext = fs::path(path).extension().string();
+	std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+	if (ext == ".ogg" || ext == ".mp3")
+	{
+		auto clip = LoadCompressed(path, std::move(file), ext == ".ogg" ? AudioDecoder::Vorbis : AudioDecoder::Mp3);
+		if (clip)
+			Cache()[path] = clip;
+		return clip;
+	}
 	if (file.size() < 12 || memcmp(file.data(), "RIFF", 4) != 0 || memcmp(file.data() + 8, "WAVE", 4) != 0)
 	{
 		EditorLog::Write("Audio", "not a RIFF/WAVE file %s", path.c_str());

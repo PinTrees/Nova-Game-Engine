@@ -6,6 +6,7 @@ struct IXAudio2SourceVoice;
 struct IXAudio2Voice;
 struct IXAudio2;
 class AudioClip;
+struct AudioStream;
 
 // XAudio2 오디오 엔진 (Windows 10 기본 포함). 처음 쓸 때 초기화한다.
 //  - 소스 보이스 생성, 믹스(볼륨/팬), 3D 감쇠·방향 계산
@@ -27,8 +28,15 @@ namespace AudioManager
 	IXAudio2SourceVoice* CreateVoice(const AudioClip& clip, IXAudio2Voice* output = nullptr);
 	void SetOutput(IXAudio2SourceVoice* voice, IXAudio2Voice* output);
 	void DestroyVoice(IXAudio2SourceVoice*& voice);
-	// clip 전체를 제출 (loop = 무한 반복)
+	// clip 전체를 제출 (loop = 무한 반복) — 스트리밍 클립은 StartStream
 	bool Submit(IXAudio2SourceVoice* voice, const AudioClip& clip, bool loop);
+
+	// 스트리밍 (긴 OGG / MP3): 오디오 스레드가 voice 에 0.5 초씩 풀어 넣는다.
+	// 멈출 때는 StopStream 이 스트림을 빼고 voice 까지 지운다 (버퍼를 놓기 전에 voice 가 다 끝나야 하므로)
+	AudioStream* StartStream(IXAudio2SourceVoice* voice, const std::shared_ptr<AudioClip>& clip, bool loop);
+	void StopStream(AudioStream*& stream, IXAudio2SourceVoice*& voice);
+	void SetStreamLoop(AudioStream* stream, bool loop);
+	bool IsStreamFinished(AudioStream* stream);   // 끝까지 풀었고 재생도 끝남
 	// 볼륨/팬(-1 왼쪽 .. 1 오른쪽) 적용. 입력 채널 수 = clip 채널, 출력 채널 = 보내는 곳 (0 = 마스터, 그룹은 2)
 	void ApplyMix(IXAudio2SourceVoice* voice, int inputChannels, float volume, float pan, int outputChannels = 0);
 	void SetPitch(IXAudio2SourceVoice* voice, float pitch);

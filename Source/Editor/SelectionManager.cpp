@@ -2,6 +2,7 @@
 #include "SelectionManager.h"
 #include <filesystem>
 #include "AnimatorController.h"
+#include "AudioClip.h"
 
 namespace fs = std::filesystem;
 
@@ -65,7 +66,7 @@ void SelectionManager::SetSelectedFile(const std::wstring& filePath)
 	{
 		m_SelectedSubType = SelectionSubType::SCRIPT;
 	}
-	else if (path.extension() == ".wav" || path.extension() == ".WAV")
+	else if (AudioClip::IsAudioPath(path.string()))   // .wav .ogg .mp3
 	{
 		m_SelectedSubType = SelectionSubType::AUDIO_CLIP;
 	}

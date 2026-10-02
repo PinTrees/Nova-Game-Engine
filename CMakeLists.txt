@@ -94,6 +94,10 @@ target_link_libraries(${ENGINE_NAME} PRIVATE ${ENGINE_CORE})
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}/Source" PREFIX "Source" FILES ${ENGINE_SOURCES} ${ENGINE_HEADERS})
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${ENGINE_NAME})
 
+# 오디오 디코더 (stb_vorbis · dr_mp3 를 감싼 파일): 엔진 PCH 없이, 경고 없이
+file(GLOB NOVA_AUDIO_CODECS "${CMAKE_CURRENT_SOURCE_DIR}/Source/Audio/Codecs/*.cpp")
+set_source_files_properties(${NOVA_AUDIO_CODECS} PROPERTIES SKIP_PRECOMPILE_HEADERS ON COMPILE_OPTIONS "/W0")
+
 # Disable PCH for ImGui and ImGuiNodeEditor third-party files
 set_source_files_properties(
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/ThirdParty/ImGui/imgui.cpp"

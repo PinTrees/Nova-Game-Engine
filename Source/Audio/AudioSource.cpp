@@ -14,12 +14,12 @@ AudioSource::AudioSource()
 
 AudioSource::~AudioSource()
 {
-	AudioManager::DestroyVoice(m_Voice);
+	AudioManager::StopStream(m_Stream, m_Voice);
 }
 
 void AudioSource::OnDestroy()
 {
-	AudioManager::DestroyVoice(m_Voice);
+	AudioManager::StopStream(m_Stream, m_Voice);
 	m_Playing = false;
 }
 
@@ -70,9 +70,9 @@ void AudioSource::Play()
 {
 	if (m_Clip == nullptr)
 		return;
-	// 형식이 다른 클립이면 보이스를 다시 만든다
-	if (m_Voice && m_VoiceClip != m_Clip)
-		AudioManager::DestroyVoice(m_Voice);
+	// 스트리밍 중이었으면 보이스째 끝낸다 (스트리밍은 Play 마다 새 보이스), 형식이 다른 클립이면 보이스를 다시 만든다
+	if (m_Stream || (m_Voice && (m_VoiceClip != m_Clip || m_Clip->Streaming)))
+		AudioManager::StopStream(m_Stream, m_Voice);
 	if (m_Voice == nullptr)
 	{
 		m_RoutedTo = OutputVoice();
@@ -88,7 +88,10 @@ void AudioSource::Play()
 	m_Voice->GetState(&st);
 	m_SamplesAtStart = st.SamplesPlayed;
 	UpdateMix();
-	AudioManager::Submit(m_Voice, *m_Clip, m_Loop);
+	if (m_Clip->Streaming)
+		m_Stream = AudioManager::StartStream(m_Voice, m_Clip, m_Loop);
+	else
+		AudioManager::Submit(m_Voice, *m_Clip, m_Loop);
 	m_VoiceLoop = m_Loop;
 	m_Voice->Start();
 	m_Playing = true;
@@ -99,6 +102,8 @@ void AudioSource::Play()
 
 void AudioSource::Stop()
 {
+	if (m_Stream)
+		AudioManager::StopStream(m_Stream, m_Voice);
 	if (m_Voice)
 	{
 		m_Voice->Stop();
@@ -145,6 +150,12 @@ bool AudioSource::IsPlaying()
 		return false;
 	if (m_Paused)
 		return false;
+	if (m_Stream)
+	{
+		if (AudioManager::IsStreamFinished(m_Stream))
+			m_Playing = false;
+		return m_Playing;
+	}
 	XAUDIO2_VOICE_STATE st = {};
 	m_Voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
 	if (st.BuffersQueued == 0)
@@ -213,7 +224,12 @@ void AudioSource::Update()
 		Stop();   // Unity: 컴포넌트를 끄면 멈춘다
 		return;
 	}
-	if (m_VoiceLoop && !m_Loop)
+	if (m_Stream)
+	{
+		AudioManager::SetStreamLoop(m_Stream, m_Loop);   // 스트리밍은 끝에서 처음으로 되감을지만 바꾼다
+		m_VoiceLoop = m_Loop;
+	}
+	else if (m_VoiceLoop && !m_Loop)
 	{
 		m_Voice->ExitLoop();   // 재생 중 Loop 해제 = 이번 반복까지만
 		m_VoiceLoop = false;
@@ -243,8 +259,8 @@ void AudioSource::OnInspectorGUI()
 			opt.Describe = [](const std::string& path) {
 				auto c = AudioClip::Load(path);
 				if (!c) return std::string("(cannot load)");
-				char b[96];
-				snprintf(b, sizeof(b), "%s, %d Hz, %.2f s", c->Channels == 1 ? "Mono" : "Stereo", c->Frequency, c->Length);
+				char b[128];
+				snprintf(b, sizeof(b), "%s, %d Hz, %.2f s%s", c->Channels == 1 ? "Mono" : "Stereo", c->Frequency, c->Length, c->Streaming ? ", streaming" : "");
 				return std::string(b);
 			};
 			opt.Preview = [](const std::string& path) { AudioManager::PlayPreview(AudioClip::Load(path)); };

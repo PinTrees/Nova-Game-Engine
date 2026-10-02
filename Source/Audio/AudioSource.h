@@ -5,6 +5,7 @@ struct IXAudio2SourceVoice;
 struct IXAudio2Voice;
 class AudioClip;
 class AudioMixer;
+struct AudioStream;
 
 // Unity 의 Audio Source.
 //  - Play On Awake / Loop / Mute / Volume / Pitch / Stereo Pan / Spatial Blend(2D↔3D) / 3D Sound Settings(거리 감쇠, 도플러, Spread)
@@ -41,6 +42,7 @@ private:
 
 	// 재생 상태
 	IXAudio2SourceVoice* m_Voice = nullptr;
+	AudioStream* m_Stream = nullptr;          // 스트리밍 클립 재생 중 (긴 OGG / MP3)
 	std::shared_ptr<AudioClip> m_VoiceClip;   // 보이스를 만든 클립 (형식이 다르면 다시 만든다)
 	bool m_Playing = false;
 	bool m_Paused = false;

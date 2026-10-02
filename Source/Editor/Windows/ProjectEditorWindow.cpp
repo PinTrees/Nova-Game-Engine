@@ -48,7 +48,7 @@ namespace
 		if (ext == L".terraindata") return Kind::TerrainData;
 		if (ext == L".terrainlayer") return Kind::TerrainLayer;
 		if (ext == L".volumeprofile") return Kind::VolumeProfile;
-		if (ext == L".wav") return Kind::Audio;
+		if (ext == L".wav" || ext == L".ogg" || ext == L".mp3") return Kind::Audio;
 		if (ext == L".mixer") return Kind::AudioMixer;
 		if (ext == L".cs") return Kind::Script;
 		if (ext == L".txt" || ext == L".json" || ext == L".md") return Kind::Text;

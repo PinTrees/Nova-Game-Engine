@@ -3,8 +3,13 @@
 #include "AudioClip.h"
 #include "AudioListener.h"
 #include "AudioMixer.h"
+#include "AudioDecoder.h"
 #include <xaudio2.h>
 #include <xaudio2fx.h>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <condition_variable>
 
 #pragma comment(lib, "xaudio2.lib")
 
@@ -19,9 +24,10 @@ namespace
 	bool s_EngineStopped = false;
 	bool s_WasPlaying = false;
 
-	struct OneShot { IXAudio2SourceVoice* Voice; std::shared_ptr<AudioClip> Clip; };
+	struct OneShot { IXAudio2SourceVoice* Voice; std::shared_ptr<AudioClip> Clip; AudioStream* Stream; };
 	std::vector<OneShot> s_OneShots;
 	IXAudio2SourceVoice* s_Preview = nullptr;
+	AudioStream* s_PreviewStream = nullptr;
 	std::shared_ptr<AudioClip> s_PreviewClip;
 
 	Vec3 s_ListenerPos(0, 0, 0), s_ListenerRight(1, 0, 0), s_ListenerVel(0, 0, 0);
@@ -33,6 +39,81 @@ namespace
 	double s_PeakTime = 0.0;
 	int s_Frames = 0, s_ClipFrames = 0;
 	AudioManager::Stats s_Stats;
+
+	// ---- 스트리밍: 스레드 하나가 모든 스트림의 보이스에 버퍼를 3 개 (1.5 초) 까지 채워 둔다
+	constexpr int kStreamBuffers = 4;      // 고리 버퍼 (보이스에는 3 개까지 → 다시 채우는 칸은 이미 재생이 끝났다)
+	constexpr int kStreamQueued = 3;
+	std::mutex s_StreamLock;
+	std::vector<AudioStream*> s_Streams;
+	std::thread s_StreamThread;
+	std::atomic<bool> s_StreamQuit{ false };
+	std::condition_variable s_StreamWake;
+}
+
+struct AudioStream
+{
+	IXAudio2SourceVoice* Voice = nullptr;
+	std::shared_ptr<AudioClip> Clip;
+	std::unique_ptr<AudioDecoder> Decoder;
+	std::atomic<bool> Loop{ false };
+	bool Ended = false;                    // 끝까지 풀어 넣었다 (반복이 아니면)
+	std::vector<int16_t> Buffers[kStreamBuffers];
+	int Next = 0;
+	uint32_t FramesPerBuffer = 0;
+};
+
+namespace
+{
+	// 보이스에 버퍼가 kStreamQueued 개보다 적으면 풀어 넣는다 (s_StreamLock 안에서, 또는 아직 등록 전)
+	void ServiceStream(AudioStream& s)
+	{
+		XAUDIO2_VOICE_STATE st = {};
+		s.Voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+		UINT32 queued = st.BuffersQueued;
+		const int ch = s.Clip->Channels;
+		while (queued < (UINT32)kStreamQueued && !s.Ended)
+		{
+			std::vector<int16_t>& buf = s.Buffers[s.Next];
+			buf.resize((size_t)s.FramesPerBuffer * ch);
+			uint64_t got = 0;
+			int rewinds = 0;
+			while (got < s.FramesPerBuffer)
+			{
+				const uint64_t n = s.Decoder->Read(buf.data() + got * ch, s.FramesPerBuffer - got);
+				got += n;
+				if (n > 0)
+					continue;
+				if (s.Loop && rewinds++ < 2 && s.Decoder->Rewind())
+					continue;   // 반복: 처음으로 돌아가 이어 채운다
+				s.Ended = true;
+				break;
+			}
+			if (got == 0)
+			{
+				s.Voice->Discontinuity();   // 남은 버퍼까지 재생하고 끝
+				break;
+			}
+			XAUDIO2_BUFFER b = {};
+			b.AudioBytes = (UINT32)(got * ch * sizeof(int16_t));
+			b.pAudioData = reinterpret_cast<const BYTE*>(buf.data());
+			b.Flags = s.Ended ? XAUDIO2_END_OF_STREAM : 0;
+			if (FAILED(s.Voice->SubmitSourceBuffer(&b)))
+				break;
+			s.Next = (s.Next + 1) % kStreamBuffers;
+			++queued;
+		}
+	}
+
+	void StreamThreadMain()
+	{
+		std::unique_lock<std::mutex> lock(s_StreamLock);
+		while (!s_StreamQuit)
+		{
+			for (AudioStream* s : s_Streams)
+				ServiceStream(*s);
+			s_StreamWake.wait_for(lock, std::chrono::milliseconds(15));
+		}
+	}
 
 	void UpdateListenerPose()
 	{
@@ -114,6 +195,12 @@ namespace AudioManager
 	{
 		StopAllOneShots();
 		StopPreview();
+		if (s_StreamThread.joinable())
+		{
+			s_StreamQuit = true;
+			s_StreamWake.notify_all();
+			s_StreamThread.join();
+		}
 		AudioMixer::ForgetAllVoices();   // 그룹 보이스는 엔진을 놓을 때 같이 지워진다
 		if (s_Master) { s_Master->DestroyVoice(); s_Master = nullptr; }
 		if (s_Engine) { s_Engine->Release(); s_Engine = nullptr; }
@@ -138,6 +225,66 @@ namespace AudioManager
 			return nullptr;
 		}
 		return voice;
+	}
+
+	AudioStream* StartStream(IXAudio2SourceVoice* voice, const std::shared_ptr<AudioClip>& clip, bool loop)
+	{
+		if (voice == nullptr || clip == nullptr || !clip->Streaming)
+			return nullptr;
+		auto* s = new AudioStream();
+		s->Voice = voice;
+		s->Clip = clip;
+		s->Decoder = clip->OpenDecoder();
+		s->Loop = loop;
+		s->FramesPerBuffer = (uint32_t)(std::max)(1024, clip->Frequency / 2);
+		if (s->Decoder == nullptr)
+		{
+			delete s;
+			return nullptr;
+		}
+		ServiceStream(*s);   // 첫 버퍼들을 바로 (Start 하자마자 소리가 나게)
+		std::lock_guard<std::mutex> g(s_StreamLock);
+		s_Streams.push_back(s);
+		if (!s_StreamThread.joinable())
+		{
+			s_StreamQuit = false;
+			s_StreamThread = std::thread(StreamThreadMain);
+		}
+		return s;
+	}
+
+	void StopStream(AudioStream*& stream, IXAudio2SourceVoice*& voice)
+	{
+		if (stream)
+		{
+			std::lock_guard<std::mutex> g(s_StreamLock);
+			s_Streams.erase(std::remove(s_Streams.begin(), s_Streams.end(), stream), s_Streams.end());
+		}
+		DestroyVoice(voice);   // 동기: 돌아오면 보이스가 버퍼를 더 읽지 않는다
+		delete stream;
+		stream = nullptr;
+	}
+
+	void SetStreamLoop(AudioStream* stream, bool loop)
+	{
+		if (stream)
+			stream->Loop = loop;
+	}
+
+	bool IsStreamFinished(AudioStream* stream)
+	{
+		if (stream == nullptr)
+			return true;
+		bool ended;
+		{
+			std::lock_guard<std::mutex> g(s_StreamLock);
+			ended = stream->Ended;
+		}
+		if (!ended)
+			return false;
+		XAUDIO2_VOICE_STATE st = {};
+		stream->Voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
+		return st.BuffersQueued == 0;
 	}
 
 	void SetOutput(IXAudio2SourceVoice* voice, IXAudio2Voice* output)
@@ -250,15 +397,19 @@ namespace AudioManager
 			return;
 		ApplyMix(voice, clip->Channels, volume, pan, output ? 2 : 0);
 		SetPitch(voice, pitch);
-		Submit(voice, *clip, false);
+		AudioStream* stream = nullptr;
+		if (clip->Streaming)
+			stream = StartStream(voice, clip, false);
+		else
+			Submit(voice, *clip, false);
 		voice->Start();
-		s_OneShots.push_back({ voice, clip });
+		s_OneShots.push_back({ voice, clip, stream });
 	}
 
 	void StopAllOneShots()
 	{
 		for (OneShot& o : s_OneShots)
-			DestroyVoice(o.Voice);
+			StopStream(o.Stream, o.Voice);
 		s_OneShots.clear();
 	}
 
@@ -272,14 +423,17 @@ namespace AudioManager
 			return;
 		s_PreviewClip = clip;
 		ApplyMix(s_Preview, clip->Channels, 1.0f, 0.0f);
-		Submit(s_Preview, *clip, false);
+		if (clip->Streaming)
+			s_PreviewStream = StartStream(s_Preview, clip, false);
+		else
+			Submit(s_Preview, *clip, false);
 		s_Preview->Start();
 		EditorLog::Write("Audio", "preview %s", clip->Path.c_str());
 	}
 
 	void StopPreview()
 	{
-		DestroyVoice(s_Preview);
+		StopStream(s_PreviewStream, s_Preview);
 		s_PreviewClip.reset();
 	}
 
@@ -287,6 +441,8 @@ namespace AudioManager
 	{
 		if (s_Preview == nullptr)
 			return false;
+		if (s_PreviewStream)
+			return !IsStreamFinished(s_PreviewStream);
 		XAUDIO2_VOICE_STATE st = {};
 		s_Preview->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
 		return st.BuffersQueued > 0;
@@ -325,9 +481,9 @@ namespace AudioManager
 		{
 			XAUDIO2_VOICE_STATE st = {};
 			s_OneShots[i].Voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
-			if (st.BuffersQueued == 0)
+			if (s_OneShots[i].Stream ? IsStreamFinished(s_OneShots[i].Stream) : st.BuffersQueued == 0)
 			{
-				DestroyVoice(s_OneShots[i].Voice);
+				StopStream(s_OneShots[i].Stream, s_OneShots[i].Voice);
 				s_OneShots.erase(s_OneShots.begin() + i);
 			}
 			else
