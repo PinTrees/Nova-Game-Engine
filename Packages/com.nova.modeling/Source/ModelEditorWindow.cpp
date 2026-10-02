@@ -908,6 +908,7 @@ void ModelEditorWindow::DrawMenuBar()
 		if (ImGui::MenuItem("X-Ray", "Alt+Z", m_Opt.XRay)) { m_Opt.XRay = !m_Opt.XRay; m_Dirty = true; }
 		if (ImGui::MenuItem("Wireframe Overlay", nullptr, m_Opt.Wireframe)) { m_Opt.Wireframe = !m_Opt.Wireframe; m_Dirty = true; }
 		if (ImGui::MenuItem("Grid", nullptr, m_Opt.Grid)) { m_Opt.Grid = !m_Opt.Grid; m_Dirty = true; }
+		if (ImGui::MenuItem("Reference Images", nullptr, m_Opt.Refs)) { m_Opt.Refs = !m_Opt.Refs; m_Dirty = true; }
 		ImGui::Separator();
 		if (ImGui::MenuItem("Solid", nullptr, m_Opt.Shade == Shading::Solid)) { m_Opt.Shade = Shading::Solid; m_Dirty = true; }
 		if (ImGui::MenuItem("Toon", nullptr, m_Opt.Shade == Shading::Toon)) { m_Opt.Shade = Shading::Toon; m_Dirty = true; }
@@ -1172,6 +1173,10 @@ void ModelEditorWindow::DrawSidePanel()
 		}
 	}
 
+	if (d.EditMode)
+		DrawGroupsPanel();
+	DrawRefsPanel();
+
 	// ---- Last Operation (값을 바꾸면 되돌리고 다시)
 	const LastOp& last = Last();
 	if (!last.Name.empty() && last.Args.is_object() && !last.Args.empty())
@@ -1204,6 +1209,92 @@ void ModelEditorWindow::DrawSidePanel()
 			if (!RerunLast(args, r, err)) SetStatus("! " + err);
 			m_Dirty = true;
 		}
+	}
+}
+
+void ModelEditorWindow::DrawGroupsPanel()
+{
+	Document& d = Doc();
+	Object* a = d.ActiveObject();
+	if (!a) return;
+	Modeling::Mesh& m = a->M;
+	ImGui::Spacing();
+	ImGui::TextDisabled("VERTEX GROUPS");
+	ImGui::BeginChild("##groups", ImVec2(0, 92.0f), true);
+	for (int g = 0; g < (int)m.Groups.size(); ++g)
+	{
+		ImGui::PushID(g);
+		if (ImGui::Selectable((m.Groups[g] + "  (" + std::to_string(m.GroupCount(g)) + ")").c_str(), m_Group == g))
+		{
+			m_Group = g;
+			strncpy_s(m_GroupName, m.Groups[g].c_str(), _TRUNCATE);
+		}
+		ImGui::PopID();
+	}
+	if (m.Groups.empty()) ImGui::TextDisabled("Select vertices, type a name, Assign");
+	ImGui::EndChild();
+	ImGui::SetNextItemWidth(-1);
+	ImGui::InputText("##groupName", m_GroupName, sizeof(m_GroupName));
+	const std::string name = m_GroupName;
+	if (ImGui::Button("Assign")) Run("group.assign", { { "name", name } });
+	ImGui::SameLine();
+	if (ImGui::Button("Remove")) Run("group.remove", { { "name", name } });
+	ImGui::SameLine();
+	if (ImGui::Button("Select")) Run("group.select", { { "name", name }, { "extend", true } });
+	ImGui::SameLine();
+	if (ImGui::Button("Deselect")) Run("group.select", { { "name", name }, { "deselect", true } });
+	ImGui::SameLine();
+	if (ImGui::Button(ICON_FA_TRASH)) Run("group.delete", { { "name", name } });
+}
+
+void ModelEditorWindow::DrawRefsPanel()
+{
+	Document& d = Doc();
+	ImGui::Spacing();
+	ImGui::TextDisabled("REFERENCE IMAGES");
+	for (int i = 0; i < (int)d.Refs.size(); ++i)
+	{
+		RefImage& r = d.Refs[i];
+		ImGui::PushID(i);
+		if (ImGui::Checkbox("##vis", &r.Visible)) m_Dirty = true;
+		ImGui::SameLine();
+		ImGui::Text("%s  (%s%s)", r.Name.c_str(), r.View.c_str(), r.Pixels.empty() ? ", missing" : "");
+		ImGui::SameLine();
+		const bool remove = ImGui::SmallButton(ICON_FA_XMARK);
+		if (ImGui::SliderFloat("Opacity", &r.Opacity, 0.0f, 1.0f, "%.2f")) m_Dirty = true;
+		float h = r.Height;
+		if (ImGui::DragFloat("Height", &h, 0.01f, 0.01f, 100.0f, "%.2f m")) { r.Height = h; m_Dirty = true; }
+		float c3[3] = { r.Center.x, r.Center.y, r.Center.z };
+		if (ImGui::DragFloat3("Center", c3, 0.005f)) { r.Center = Vec3(c3[0], c3[1], c3[2]); m_Dirty = true; }
+		ImGui::PopID();
+		if (remove) { Run("ref.remove", { { "name", r.Name } }); break; }
+	}
+	static const char* kViews[] = { "front", "right", "back", "left", "top" };
+	ImGui::SetNextItemWidth(80.0f);
+	ImGui::Combo("##refView", &m_RefView, kViews, 5);
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(70.0f);
+	ImGui::DragFloat("##refH", &m_RefHeight, 0.01f, 0.05f, 100.0f, "%.2f m");
+	ImGui::SameLine();
+	if (ImGui::Button("Add Image..."))
+	{
+		const std::string path = FileDialog(false, L"Images (*.png;*.jpg;*.jpeg;*.bmp)\0*.png;*.jpg;*.jpeg;*.bmp\0\0", nullptr);
+		if (!path.empty() && Run("ref.add", { { "path", path }, { "view", kViews[m_RefView] }, { "height", m_RefHeight } }))
+		{
+			const float dist = m_Cam.Distance;
+			m_Cam.SetPreset(kViews[m_RefView]);   // 그 시점으로 (기준 그림은 그 시점에서만 보인다)
+			m_Cam.Distance = dist;
+			m_Dirty = true;
+		}
+	}
+	if (!d.Refs.empty() && ImGui::Button("Compare Silhouette"))
+	{
+		json r;
+		std::string err;
+		if (RunOp("compare", { { "ref", d.Refs.front().Name } }, r, err))
+			SetStatus("compare " + d.Refs.front().Name + ": IoU " + r["iou"].dump() + (r["hints"].empty() ? "" : "  |  " + r["hints"][0].get<std::string>()));
+		else
+			SetStatus("! " + err);
 	}
 }
 

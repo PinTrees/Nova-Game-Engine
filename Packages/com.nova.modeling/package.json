@@ -1,10 +1,10 @@
 {
   "name": "com.nova.modeling",
   "displayName": "Model Editor",
-  "version": "0.1.0",
-  "description": "A light Blender-style modeler inside the editor (Window > Model Editor): Object / Edit mode, vertex / edge / face selection, G R S with axis lock and typed values, Extrude, Inset, Loop Cut, Bevel, Subdivide, Subdivision Surface, Mirror, Symmetrize, Merge, Fill, Bridge, Shade Smooth, Undo. Opens FBX / OBJ / glTF (quads kept) and exports FBX, OBJ and GLB. Every operation is also a CLI command (nova model <op>) with JSON results and multi-view PNG renders, so an AI agent can model step by step and look at its work.",
+  "version": "0.2.0",
+  "description": "A light Blender-style modeler inside the editor (Window > Model Editor): Object / Edit mode, vertex / edge / face selection, G R S with axis lock and typed values, Extrude, Inset, Loop Cut, Bevel, Subdivide, Subdivision Surface, Mirror, Symmetrize, Merge, Fill, Bridge, Shade Smooth, Undo, vertex groups that follow edits, checkpoints. Reference images behind front / side views with a silhouette compare (IoU + per-height width hints + diff image). Opens FBX / OBJ / glTF (quads kept) and exports FBX, OBJ and GLB. Every operation is also a CLI command (nova model <op>) with JSON results and multi-view PNG renders, so an AI agent can model step by step and look at its work.",
   "category": "Modeling",
   "author": { "name": "NOVA" },
-  "keywords": [ "modeling", "mesh", "blender", "edit mode", "extrude", "fbx", "export", "ai", "cli" ],
+  "keywords": [ "modeling", "mesh", "blender", "edit mode", "extrude", "fbx", "export", "ai", "cli", "reference", "vertex group" ],
   "native": [ "NovaModeling.dll" ]
 }

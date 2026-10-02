@@ -64,10 +64,66 @@ namespace Modeling
 		}
 	}
 
+	bool RefImage::Load(std::string& error)
+	{
+		DirectX::ScratchImage img, conv;
+		const std::filesystem::path p = PathU8(Path);
+		HRESULT hr = DirectX::LoadFromWICFile(p.wstring().c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, img);
+		if (FAILED(hr))
+		{
+			error = "cannot read image " + Path;
+			return false;
+		}
+		const DirectX::Image* src = img.GetImage(0, 0, 0);
+		if (src->format != DXGI_FORMAT_R8G8B8A8_UNORM)
+		{
+			hr = DirectX::Convert(*src, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, conv);
+			if (FAILED(hr)) { error = "cannot convert image " + Path; return false; }
+			src = conv.GetImage(0, 0, 0);
+		}
+		W = (int)src->width;
+		H = (int)src->height;
+		Pixels.resize((size_t)W * H);
+		for (int y = 0; y < H; ++y)
+			memcpy(Pixels.data() + (size_t)y * W, src->pixels + y * src->rowPitch, (size_t)W * 4);
+		return true;
+	}
+
+	RefImage* Document::FindRef(const std::string& name)
+	{
+		for (RefImage& r : Refs) if (r.Name == name) return &r;
+		return nullptr;
+	}
+
+	bool Document::SaveCheckpoint(const std::string& name)
+	{
+		if (name.empty()) return false;
+		m_Checkpoints[name] = Serialize();
+		return true;
+	}
+
+	bool Document::RestoreCheckpoint(const std::string& name)
+	{
+		auto it = m_Checkpoints.find(name);
+		if (it == m_Checkpoints.end()) return false;
+		PushUndo("Checkpoint " + name);
+		Deserialize(it->second);
+		return true;
+	}
+
+	std::vector<std::string> Document::CheckpointNames() const
+	{
+		std::vector<std::string> out;
+		for (const auto& [k, v] : m_Checkpoints) out.push_back(k);
+		return out;
+	}
+
 	void Document::New()
 	{
 		Objects.clear();
 		Materials.clear();
+		Refs.clear();
+		m_Checkpoints.clear();
 		Active = -1;
 		EditMode = false;
 		Path.clear();
@@ -110,12 +166,35 @@ namespace Modeling
 			objs.push_back(oj);
 		}
 		j["objects"] = objs;
+		if (!Refs.empty())
+		{
+			nlohmann::json refs = nlohmann::json::array();
+			for (const RefImage& r : Refs)
+				refs.push_back({ { "name", r.Name }, { "path", r.Path }, { "view", r.View }, { "center", Vec(r.Center) }, { "height", r.Height }, { "opacity", r.Opacity }, { "visible", r.Visible } });
+			j["references"] = refs;
+		}
 		return j;
 	}
 
 	void Document::FromJson(const nlohmann::json& j)
 	{
 		Objects.clear();
+		Refs.clear();
+		if (j.contains("references"))
+			for (const auto& rj : j["references"])
+			{
+				RefImage r;
+				r.Name = rj.value("name", std::string("Ref"));
+				r.Path = rj.value("path", std::string());
+				r.View = rj.value("view", std::string("front"));
+				r.Center = ToVec3(rj.value("center", nlohmann::json()), r.Center);
+				r.Height = rj.value("height", r.Height);
+				r.Opacity = rj.value("opacity", r.Opacity);
+				r.Visible = rj.value("visible", true);
+				std::string err;
+				r.Load(err);   // 그림이 없어도 설정은 남긴다
+				Refs.push_back(std::move(r));
+			}
 		Materials = j.value("materials", std::vector<std::string>());
 		if (j.contains("objects"))
 			for (const auto& oj : j["objects"])
@@ -430,8 +509,19 @@ namespace Modeling
 			s["verts"] = (int)m.SelectedVerts().size();
 			s["edges"] = (int)m.SelectedEdgeIndices().size();
 			s["faces"] = (int)m.SelectedFaces().size();
-			if (s["verts"].get<int>() > 0) s["center"] = Vec(m.SelectionCenter());
+			if (s["verts"].get<int>() > 0)
+			{
+				// 월드 좌표: 중심 + 경계 상자
+				const Matrix w = a->World();
+				Vec3 smn(FLT_MAX, FLT_MAX, FLT_MAX), smx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+				for (const Vert& v : m.Verts)
+					if (v.Sel) { const Vec3 p = Vec3::Transform(v.P, w); smn = Vec3::Min(smn, p); smx = Vec3::Max(smx, p); }
+				s["center"] = Vec(Vec3::Transform(m.SelectionCenter(), w));
+				s["min"] = Vec(smn);
+				s["max"] = Vec(smx);
+			}
 			r["selection"] = s;
+			if (!m.Groups.empty()) r["groups"] = m.Groups;
 			r["boundaryEdges"] = m.BoundaryEdges();
 			r["nonManifoldEdges"] = m.NonManifoldEdges();
 		}

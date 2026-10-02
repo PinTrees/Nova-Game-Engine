@@ -28,11 +28,15 @@ namespace Modeling
 
 	enum class Shading { Solid = 0, Toon = 1, Normals = 2 };
 
+	// 이름 있는 시점의 화면 축 (월드): right = 화면 오른쪽, up = 화면 위, fwd = 보는 방향. 모르는 이름이면 false
+	bool ViewBasis(const std::string& view, Vec3& right, Vec3& up, Vec3& fwd);
+
 	struct RasterOptions
 	{
 		bool Wireframe = false;      // Object 모드에서도 선 (Edit 모드는 늘). CLI 렌더는 기본 켬
 		bool Grid = true;
 		bool Selection = true;       // Object 모드에서 고른 오브젝트 선 (주황)
+		bool Refs = true;            // 기준 그림 (보는 방향이 그 그림의 시점과 같을 때만, 뒤에 깐다)
 		bool XRay = false;           // 면을 반투명 · 가려진 점도 고르기
 		bool Background = true;
 		Shading Shade = Shading::Solid;
@@ -73,6 +77,8 @@ namespace Modeling
 		void Dot(const Vec3& s, float size, uint32 color, bool depthTest);
 		void Blend(int x, int y, uint32 color, float coverage);
 		void DrawGrid();
+		void DrawRefs(const Document& doc);
+		Vec3 Unproject(float x, float y, float ndcZ) const;
 	};
 
 	inline uint32 Rgba(int r, int g, int b, int a = 255) { return (uint32)r | ((uint32)g << 8) | ((uint32)b << 16) | ((uint32)a << 24); }

@@ -88,6 +88,18 @@ namespace Modeling
 		Distance = radius / fit * 1.1f;
 	}
 
+	bool ViewBasis(const std::string& view, Vec3& right, Vec3& up, Vec3& fwd)
+	{
+		ViewCamera cam;
+		if (!cam.SetPreset(view))
+			return false;
+		const Matrix v = cam.View();   // 보기 행렬의 열 = 카메라 축
+		right = Vec3(v._11, v._21, v._31);
+		up = Vec3(v._12, v._22, v._32);
+		fwd = Vec3(v._13, v._23, v._33);
+		return true;
+	}
+
 	// ------------------------------------------------------------------ 버퍼
 	void Raster::Resize(int w, int h)
 	{
@@ -152,6 +164,53 @@ namespace Modeling
 		origin = Vec3(a.x, a.y, a.z) / a.w;
 		dir = Vec3(b.x, b.y, b.z) / b.w - origin;
 		dir.Normalize();
+	}
+
+	Vec3 Raster::Unproject(float x, float y, float ndcZ) const
+	{
+		const Vec4 p = Vec4::Transform(Vec4(x / Width * 2.0f - 1.0f, 1.0f - y / Height * 2.0f, ndcZ, 1.0f), m_InvViewProj);
+		return Vec3(p.x, p.y, p.z) / p.w;
+	}
+
+	void Raster::DrawRefs(const Document& doc)
+	{
+		const Vec3 camF = m_Cam.Forward();
+		for (const RefImage& ref : doc.Refs)
+		{
+			Vec3 R, U, F;
+			if (!ref.Visible || ref.Pixels.empty() || !ViewBasis(ref.View, R, U, F) || camF.Dot(F) < 0.995f)
+				continue;
+			const float w = ref.Width(), h = ref.Height;
+			// 화면 픽셀 → 광선은 픽셀 좌표에 대해 선형 (가까운 · 먼 평면 위 점)
+			const Vec3 n00 = Unproject(0, 0, 0), n10 = Unproject((float)Width, 0, 0), n01 = Unproject(0, (float)Height, 0);
+			const Vec3 f00 = Unproject(0, 0, 1), f10 = Unproject((float)Width, 0, 1), f01 = Unproject(0, (float)Height, 1);
+			const Vec3 ndx = (n10 - n00) / (float)Width, ndy = (n01 - n00) / (float)Height;
+			const Vec3 fdx = (f10 - f00) / (float)Width, fdy = (f01 - f00) / (float)Height;
+			const float a = Saturate(ref.Opacity);
+			for (int y = 0; y < Height; ++y)
+				for (int x = 0; x < Width; ++x)
+				{
+					const float px = x + 0.5f, py = y + 0.5f;
+					const Vec3 o = n00 + ndx * px + ndy * py;
+					const Vec3 d = (f00 + fdx * px + fdy * py) - o;
+					const float den = d.Dot(F);
+					if (fabsf(den) < 1e-9f) continue;
+					const Vec3 p = o + d * ((ref.Center - o).Dot(F) / den);
+					const float u = (p - ref.Center).Dot(R) / w + 0.5f, v = 0.5f - (p - ref.Center).Dot(U) / h;
+					if (u < 0.0f || v < 0.0f || u >= 1.0f || v >= 1.0f) continue;
+					// 겹선형 표본
+					const float fx = u * ref.W - 0.5f, fy = v * ref.H - 0.5f;
+					const int x0 = std::clamp((int)floorf(fx), 0, ref.W - 1), y0 = std::clamp((int)floorf(fy), 0, ref.H - 1);
+					const int x1 = (std::min)(x0 + 1, ref.W - 1), y1 = (std::min)(y0 + 1, ref.H - 1);
+					const float tx = std::clamp(fx - x0, 0.0f, 1.0f), ty = std::clamp(fy - y0, 0.0f, 1.0f);
+					Vec4 c(0, 0, 0, 0);
+					const uint32 s[4] = { ref.Pixels[(size_t)y0 * ref.W + x0], ref.Pixels[(size_t)y0 * ref.W + x1], ref.Pixels[(size_t)y1 * ref.W + x0], ref.Pixels[(size_t)y1 * ref.W + x1] };
+					const float k[4] = { (1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty };
+					for (int i = 0; i < 4; ++i)
+						c += Vec4((s[i] & 255) / 255.0f, ((s[i] >> 8) & 255) / 255.0f, ((s[i] >> 16) & 255) / 255.0f, (s[i] >> 24) / 255.0f) * k[i];
+					Blend(x, y, Pack(Vec3(c.x, c.y, c.z), c.w * a), 1.0f);
+				}
+		}
 	}
 
 	void Raster::Blend(int x, int y, uint32 color, float coverage)
@@ -344,6 +403,8 @@ namespace Modeling
 		ViewProj = view * cam.Proj(aspect);
 		m_InvViewProj = ViewProj.Invert();
 		Clear(opt.Background);
+		if (opt.Refs)
+			DrawRefs(doc);
 		// 빛: 카메라 왼쪽 위에서 (보기 공간, 표면 → 빛)
 		Vec3 lightDir(-0.45f, 0.55f, -0.7f);
 		lightDir.Normalize();

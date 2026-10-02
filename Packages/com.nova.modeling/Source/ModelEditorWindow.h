@@ -65,6 +65,10 @@ private:
 	// ---- 패널
 	float m_PanelWidth = 280.0f;
 	char m_RenameBuf[128] = {};
+	int m_Group = 0;                     // Vertex Groups 목록에서 고른 것
+	char m_GroupName[64] = "Group";
+	int m_RefView = 0;                   // 기준 그림 추가: 시점
+	float m_RefHeight = 1.7f;
 	std::string m_Status;                // 마지막 연산 결과 · 오류
 	double m_StatusTime = 0.0;
 
@@ -73,6 +77,8 @@ private:
 	void UploadTexture();
 	void DrawMenuBar();
 	void DrawSidePanel();
+	void DrawGroupsPanel();
+	void DrawRefsPanel();
 	void DrawOverlay(ImDrawList* dl);
 
 	// 입력

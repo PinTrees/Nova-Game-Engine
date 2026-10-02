@@ -20,11 +20,31 @@ namespace Modeling
 		Matrix World() const { return Matrix::CreateScale(Scale) * Matrix::CreateFromQuaternion(Rotation) * Matrix::CreateTranslation(Position); }
 	};
 
+	// 기준 그림 (Blender 의 Reference / Background Image): 앞 · 옆 그림을 그 시점의 뒤에 깔고, 모양을 맞춰 본다 (compare)
+	//  - 월드 평면: 중심 Center, 높이 Height (미터), 너비 = 높이 × 그림 비율, 방향 = View 시점의 화면 (front 면 화면 오른쪽 = -X)
+	struct RefImage
+	{
+		std::string Name;
+		std::string Path;
+		std::string View = "front";     // front back left right top bottom
+		Vec3 Center = Vec3(0, 0.85f, 0);
+		float Height = 1.7f;
+		float Opacity = 0.5f;
+		bool Visible = true;
+		// 불러온 그림 (저장하지 않음)
+		int W = 0, H = 0;
+		std::vector<uint32> Pixels;     // RGBA8
+		bool Load(std::string& error);
+		float Width() const { return H > 0 ? Height * W / (float)H : Height; }
+	};
+
 	class Document
 	{
 	public:
 		std::vector<Object> Objects;
 		std::vector<std::string> Materials;   // 면의 Material 번호 → 이름 (비어 있으면 "Material")
+		std::vector<RefImage> Refs;           // 기준 그림 (Undo 에 들지 않음)
+		RefImage* FindRef(const std::string& name);
 		int Active = -1;
 		bool EditMode = false;
 		SelectMode Mode = SelectMode::Vertex;
@@ -65,12 +85,19 @@ namespace Modeling
 		// 마지막 스냅숏으로 되돌리고 목록에서 뺀다 (연산이 실패했을 때)
 		void CancelUndo();
 
+		// ---- 체크포인트: 이름 붙인 문서 상태 (AI 가 시도해 보고 되돌릴 때). 되살리기는 Undo 된다
+		bool SaveCheckpoint(const std::string& name);
+		bool RestoreCheckpoint(const std::string& name);
+		bool DeleteCheckpoint(const std::string& name) { return m_Checkpoints.erase(name) > 0; }
+		std::vector<std::string> CheckpointNames() const;
+
 		// 요약 (AI 가 결과를 확인하는 데 쓴다): 오브젝트 · 점 · 면 수, 경계 상자, 선택
 		nlohmann::json Summary(bool objectsDetail = true);
 
 	private:
 		struct Snapshot { std::string Label; std::string Data; };
 		std::vector<Snapshot> m_Undo, m_Redo;
+		std::map<std::string, std::string> m_Checkpoints;
 		std::string Serialize() const;
 		void Deserialize(const std::string& data);
 	};

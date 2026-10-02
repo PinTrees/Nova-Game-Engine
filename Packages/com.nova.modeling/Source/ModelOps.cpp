@@ -260,6 +260,103 @@ namespace Modeling
 			return -1;
 		}
 
+		// 실루엣 비교: 기준 그림의 시점 · 크기 그대로 메시를 그려 덮이는 정도 (IoU) + 높이 띠마다 너비 차이
+		bool Compare(Ctx& c)
+		{
+			RefImage* ref = c.A.contains("ref") ? c.D.FindRef(S(c.A, "ref")) : (c.D.Refs.size() == 1 ? &c.D.Refs[0] : nullptr);
+			if (!ref) { c.E = c.D.Refs.empty() ? "no reference image (model ref.add --path front.png --view front --height 1.6)" : "several references: pass --ref <name>"; return false; }
+			if (ref->Pixels.empty()) { c.E = "reference image not loaded: " + ref->Path; return false; }
+			Vec3 R, U, Fw;
+			ViewBasis(ref->View, R, U, Fw);
+			const int maxSide = std::clamp(I(c.A, "size", 512), 64, 2048);
+			const float scale = maxSide / (float)(std::max)(ref->W, ref->H);
+			const int W = (std::max)(16, (int)roundf(ref->W * scale)), H = (std::max)(16, (int)roundf(ref->H * scale));
+			ViewCamera cam;
+			cam.SetPreset(ref->View);
+			cam.Ortho = true;
+			cam.Target = ref->Center;
+			cam.Distance = ref->Height / (2.0f * tanf(cam.Fov * 0.5f * kDeg));
+			Raster r;
+			r.Resize(W, H);
+			RasterOptions o;
+			o.Background = o.Grid = o.Wireframe = o.Selection = o.Refs = false;
+			r.Render(c.D, cam, o);
+			// 기준 그림 마스크: 투명도가 있으면 알파, 없으면 네 모서리 평균 (배경) 과 다른 색
+			bool alpha = false;
+			for (uint32 p : ref->Pixels) if ((p >> 24) < 250) { alpha = true; break; }
+			auto rgb = [](uint32 p) { return Vec3((p & 255) / 255.0f, ((p >> 8) & 255) / 255.0f, ((p >> 16) & 255) / 255.0f); };
+			const Vec3 bg = (rgb(ref->Pixels[0]) + rgb(ref->Pixels[ref->W - 1]) + rgb(ref->Pixels[(size_t)(ref->H - 1) * ref->W]) + rgb(ref->Pixels[(size_t)ref->H * ref->W - 1])) * 0.25f;
+			const float threshold = F(c.A, "threshold", 0.2f);
+			std::vector<uint8_t> refMask((size_t)W * H), meshMask((size_t)W * H);
+			int both = 0, meshOnly = 0, refOnly = 0;
+			for (int y = 0; y < H; ++y)
+				for (int x = 0; x < W; ++x)
+				{
+					const int sx = std::clamp((int)((x + 0.5f) / W * ref->W), 0, ref->W - 1), sy = std::clamp((int)((y + 0.5f) / H * ref->H), 0, ref->H - 1);
+					const uint32 p = ref->Pixels[(size_t)sy * ref->W + sx];
+					const bool inRef = alpha ? (p >> 24) > 127 : (rgb(p) - bg).Length() > threshold;
+					const bool inMesh = r.FaceId[(size_t)y * W + x] >= 0;
+					refMask[(size_t)y * W + x] = inRef;
+					meshMask[(size_t)y * W + x] = inMesh;
+					both += inRef && inMesh;
+					meshOnly += inMesh && !inRef;
+					refOnly += inRef && !inMesh;
+				}
+			const int uni = both + meshOnly + refOnly;
+			const float px = ref->Height / H;   // 픽셀 하나 = 미터
+			auto worldAt = [&](float x, float y) { return ref->Center + R * ((x / W - 0.5f) * ref->Width()) + U * ((0.5f - y / H) * ref->Height); };
+			auto rd = [](float v) { return roundf(v * 1000.0f) / 1000.0f; };
+			// 높이 띠: 띠마다 가로 범위 (왼쪽 · 오른쪽 끝) → 너비 · 가운데
+			const int bands = std::clamp(I(c.A, "bands", 12), 1, 64);
+			json bj = json::array(), hints = json::array();
+			for (int b = 0; b < bands; ++b)
+			{
+				const int y0 = b * H / bands, y1 = (b + 1) * H / bands;
+				int rl = W, rr = -1, ml = W, mr = -1;
+				for (int y = y0; y < y1; ++y)
+					for (int x = 0; x < W; ++x)
+					{
+						if (refMask[(size_t)y * W + x]) { rl = (std::min)(rl, x); rr = (std::max)(rr, x); }
+						if (meshMask[(size_t)y * W + x]) { ml = (std::min)(ml, x); mr = (std::max)(mr, x); }
+					}
+				if (rr < 0 && mr < 0) continue;
+				const Vec3 at = worldAt(W * 0.5f, (y0 + y1) * 0.5f);
+				json e = { { "at", { rd(at.x), rd(at.y), rd(at.z) } } };
+				const float refW = rr >= 0 ? (rr - rl + 1) * px : 0.0f, meshW = mr >= 0 ? (mr - ml + 1) * px : 0.0f;
+				e["refWidth"] = rd(refW);
+				e["meshWidth"] = rd(meshW);
+				if (rr >= 0) { const Vec3 p = worldAt((rl + rr + 1) * 0.5f, (y0 + y1) * 0.5f); e["refCenter"] = { rd(p.x), rd(p.y), rd(p.z) }; }
+				if (mr >= 0) { const Vec3 p = worldAt((ml + mr + 1) * 0.5f, (y0 + y1) * 0.5f); e["meshCenter"] = { rd(p.x), rd(p.y), rd(p.z) }; }
+				bj.push_back(e);
+				const float tol = ref->Height * 0.02f;
+				char buf[200];
+				if (rr < 0) { snprintf(buf, sizeof(buf), "near (%.2f, %.2f, %.2f): mesh is %.2f m wide but the reference is empty here", at.x, at.y, at.z, meshW); hints.push_back(buf); }
+				else if (mr < 0) { snprintf(buf, sizeof(buf), "near (%.2f, %.2f, %.2f): reference is %.2f m wide but the mesh is missing", at.x, at.y, at.z, refW); hints.push_back(buf); }
+				else if (fabsf(meshW - refW) > tol) { snprintf(buf, sizeof(buf), "near (%.2f, %.2f, %.2f): mesh %.2f m wide, reference %.2f m (%s %.2f m)", at.x, at.y, at.z, meshW, refW, meshW > refW ? "narrow by" : "widen by", fabsf(meshW - refW)); hints.push_back(buf); }
+			}
+			c.R = json::object();
+			c.R["ref"] = ref->Name;
+			c.R["view"] = ref->View;
+			c.R["iou"] = uni ? rd(both / (float)uni) : 0.0f;
+			c.R["extra"] = rd((both + refOnly) ? meshOnly / (float)(both + refOnly) : 0.0f);      // 기준 밖으로 나간 메시 (기준 넓이 대비)
+			c.R["missing"] = rd((both + refOnly) ? refOnly / (float)(both + refOnly) : 0.0f);    // 메시가 못 덮은 기준
+			c.R["bands"] = bj;
+			c.R["hints"] = hints;
+			c.R["metersPerPixel"] = px;
+			const std::string out = S(c.A, "out");
+			if (!out.empty())
+			{
+				// 차이 그림: 회색 = 겹침, 빨강 = 메시만, 파랑 = 기준만
+				for (size_t i = 0; i < r.Color.size(); ++i)
+					r.Color[i] = refMask[i] && meshMask[i] ? Rgba(200, 200, 200) : (meshMask[i] ? Rgba(235, 70, 60) : (refMask[i] ? Rgba(60, 120, 245) : Rgba(28, 28, 30)));
+				if (!r.SavePng(out, c.E)) return false;
+				c.R["diff"] = out;
+			}
+			return true;
+		}
+
+		bool Batch(Ctx& c);
+
 		std::vector<OpEntry>& Registry()
 		{
 			static std::vector<OpEntry> ops;
@@ -581,7 +678,157 @@ namespace Modeling
 				int n = 0;
 				for (Face& f : m->Faces) if (f.Sel) { f.Material = idx; ++n; }
 				return Done(c, n, "faces"); });
+			// ================= 버텍스 그룹 (이름 있는 선택 집합 · 나중에 스킨 가중치)
+			add("group.assign", "--name <group> [--weight 1]: put selected vertices in the group (created if new)", true, [](Ctx& c) {
+				Mesh* m = EditMesh(c); if (!m) return false;
+				const std::string n = S(c.A, "name");
+				if (n.empty()) { c.E = "need --name"; return false; }
+				if (m->SelectedVerts().empty()) { c.E = "select vertices first"; return false; }
+				const int g = m->AddGroup(n);
+				m->AssignGroup(g, std::clamp(F(c.A, "weight", 1.0f), 0.0f, 1.0f));
+				Done(c, m->GroupCount(g), "group_verts");
+				return true; });
+			add("group.remove", "--name <group>: take selected vertices out of the group", true, [](Ctx& c) {
+				Mesh* m = EditMesh(c); if (!m) return false;
+				const int g = m->FindGroup(S(c.A, "name"));
+				if (g < 0) { c.E = "no group '" + S(c.A, "name") + "'"; return false; }
+				return Done(c, m->RemoveFromGroup(g), "removed"); });
+			add("group.select", "--name <group> [--extend] [--deselect]: select (or deselect) the group's vertices", false, [](Ctx& c) {
+				Mesh* m = EditMesh(c); if (!m) return false;
+				const int g = m->FindGroup(S(c.A, "name"));
+				if (g < 0) { c.E = "no group '" + S(c.A, "name") + "'"; return false; }
+				const bool deselect = B(c.A, "deselect", false);
+				if (!deselect && !B(c.A, "extend", false)) m->SelectAll(false);
+				m->SelectGroup(g, !deselect);
+				m->Flush(SelectMode::Vertex);
+				if (c.D.Mode != SelectMode::Vertex) m->Flush(SelectMode::Vertex);
+				c.R = c.D.Summary(false); c.D.Changed(); return true; });
+			add("group.delete", "--name <group>", true, [](Ctx& c) {
+				Mesh* m = EditMesh(c); if (!m) return false;
+				const int g = m->FindGroup(S(c.A, "name"));
+				if (g < 0) { c.E = "no group '" + S(c.A, "name") + "'"; return false; }
+				m->DeleteGroup(g);
+				return Done(c, 1, "deleted"); });
+			add("group.list", "vertex groups of the active mesh: name, vertex count, bounds (world)", false, [](Ctx& c) {
+				Object* o = Active(c); if (!o) return false;
+				json list = json::array();
+				const Matrix w = o->World();
+				for (int g = 0; g < (int)o->M.Groups.size(); ++g)
+				{
+					Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+					int n = 0;
+					for (int i = 0; i < (int)o->M.Verts.size(); ++i)
+						if (o->M.Weight(i, g) > 0.0f) { const Vec3 p = Vec3::Transform(o->M.Verts[i].P, w); mn = Vec3::Min(mn, p); mx = Vec3::Max(mx, p); ++n; }
+					json e = { { "name", o->M.Groups[g] }, { "verts", n } };
+					if (n) { e["min"] = V(mn); e["max"] = V(mx); }
+					list.push_back(e);
+				}
+				c.R = { { "object", o->Name }, { "groups", list } };
+				return true; });
+
+			// ================= 체크포인트 (해 보고 되돌리기)
+			add("checkpoint", "--save <name> | --restore <name> | --delete <name> | --list: named document states (restore is undoable)", false, [](Ctx& c) {
+				if (c.A.contains("save")) { c.D.SaveCheckpoint(S(c.A, "save")); }
+				else if (c.A.contains("restore")) { if (!c.D.RestoreCheckpoint(S(c.A, "restore"))) { c.E = "no checkpoint '" + S(c.A, "restore") + "'"; return false; } }
+				else if (c.A.contains("delete")) { if (!c.D.DeleteCheckpoint(S(c.A, "delete"))) { c.E = "no checkpoint '" + S(c.A, "delete") + "'"; return false; } }
+				c.R = c.D.Summary(false);
+				c.R["checkpoints"] = c.D.CheckpointNames();
+				return true; });
+
+			// ================= 기준 그림 · 비교
+			add("ref.add", "--path <image> [--view front|back|left|right|top] [--height 1.7] [--center x,y,z (default: bottom on the floor)] [--opacity 0.5] [--name]: reference image behind that view", false, [](Ctx& c) {
+				RefImage r;
+				r.Path = S(c.A, "path");
+				r.View = S(c.A, "view", "front");
+				Vec3 R, U, Fw;
+				if (!ViewBasis(r.View, R, U, Fw)) { c.E = "unknown view '" + r.View + "'"; return false; }
+				r.Height = (std::max)(0.01f, F(c.A, "height", 1.7f));
+				r.Center = r.View == "top" || r.View == "bottom" ? Vec3(0, 0, 0) : Vec3(0, r.Height * 0.5f, 0);
+				GetVec3(c.A, "center", r.Center);
+				r.Opacity = std::clamp(F(c.A, "opacity", 0.5f), 0.0f, 1.0f);
+				r.Name = S(c.A, "name", r.View);
+				if (!r.Load(c.E)) return false;
+				if (RefImage* old = c.D.FindRef(r.Name)) *old = std::move(r);
+				else c.D.Refs.push_back(std::move(r));
+				++c.D.Revision;
+				c.R = { { "refs", (int)c.D.Refs.size() } };
+				RefImage* added = c.D.FindRef(S(c.A, "name", S(c.A, "view", "front")));
+				c.R["ref"] = { { "name", added->Name }, { "size", { added->W, added->H } }, { "width", added->Width() }, { "height", added->Height }, { "center", V(added->Center) } };
+				return true; });
+			add("ref.set", "--name <ref> [--height] [--center x,y,z] [--opacity] [--visible true|false]", false, [](Ctx& c) {
+				RefImage* r = c.D.FindRef(S(c.A, "name"));
+				if (!r) { c.E = "no reference '" + S(c.A, "name") + "'"; return false; }
+				r->Height = (std::max)(0.01f, F(c.A, "height", r->Height));
+				GetVec3(c.A, "center", r->Center);
+				r->Opacity = std::clamp(F(c.A, "opacity", r->Opacity), 0.0f, 1.0f);
+				r->Visible = B(c.A, "visible", r->Visible);
+				++c.D.Revision;
+				c.R = { { "name", r->Name }, { "width", r->Width() }, { "height", r->Height }, { "center", V(r->Center) } };
+				return true; });
+			add("ref.remove", "--name <ref> | --all", false, [](Ctx& c) {
+				if (B(c.A, "all", false)) c.D.Refs.clear();
+				else
+				{
+					const std::string n = S(c.A, "name");
+					const size_t before = c.D.Refs.size();
+					c.D.Refs.erase(std::remove_if(c.D.Refs.begin(), c.D.Refs.end(), [&](const RefImage& r) { return r.Name == n; }), c.D.Refs.end());
+					if (before == c.D.Refs.size()) { c.E = "no reference '" + n + "'"; return false; }
+				}
+				++c.D.Revision;
+				c.R = { { "refs", (int)c.D.Refs.size() } };
+				return true; });
+			add("ref.list", "reference images", false, [](Ctx& c) {
+				json list = json::array();
+				for (const RefImage& r : c.D.Refs)
+					list.push_back({ { "name", r.Name }, { "path", r.Path }, { "view", r.View }, { "center", V(r.Center) }, { "width", r.Width() }, { "height", r.Height }, { "opacity", r.Opacity }, { "visible", r.Visible }, { "loaded", !r.Pixels.empty() } });
+				c.R = { { "refs", list } };
+				return true; });
+			add("compare", "[--ref <name>] [--bands 12] [--out diff.png] [--size 512] [--threshold 0.2]: silhouette of all visible meshes vs the reference (IoU, extra, missing, width per height band, hints)", false, Compare);
+
+			// ================= 여러 연산을 한 번에
+			add("batch", "--steps [{\"op\":\"add\",\"type\":\"cube\"}, ...] [--atomic true]: run ops in order as ONE undo step; stops at the first failure (atomic = roll everything back). CLI: nova model batch <file> (one op per line)", false, Batch);
+
 			return ops;
+		}
+	}
+
+	namespace
+	{
+		// 여러 연산 = Undo 한 번. atomic 이면 실패할 때 모두 되돌린다
+		bool Batch(Ctx& c)
+		{
+			if (!c.A.contains("steps") || !c.A["steps"].is_array() || c.A["steps"].empty()) { c.E = "need --steps [{\"op\": ...}, ...]"; return false; }
+			const bool atomic = B(c.A, "atomic", true);
+			c.D.PushUndo("batch");
+			json results = json::array();
+			int i = 0;
+			for (const json& step : c.A["steps"])
+			{
+				++i;
+				const std::string op = step.is_object() ? step.value("op", std::string()) : std::string();
+				json args = step.is_object() ? step : json::object();
+				args.erase("op");
+				json r;
+				std::string err;
+				if (op == "batch" || op == "undo" || op == "redo" || op == "new" || op == "open")
+					err = "not allowed inside batch";
+				else if (op.empty())
+					err = "missing \"op\"";
+				if (!err.empty() || !RunOpNoUndo(op, args, r, err))
+				{
+					c.E = "step " + std::to_string(i) + " (" + op + "): " + err + (atomic ? "  [all steps rolled back]" : "  [earlier steps kept]");
+					if (atomic) c.D.CancelUndo();
+					return false;
+				}
+				json brief = { { "op", op } };
+				for (const char* k : { "changed", "files", "iou", "object", "path", "hints" })
+					if (r.contains(k)) brief[k] = r[k];
+				results.push_back(brief);
+			}
+			c.R = c.D.Summary(true);
+			c.R["steps"] = results;
+			c.D.Changed();
+			return true;
 		}
 	}
 

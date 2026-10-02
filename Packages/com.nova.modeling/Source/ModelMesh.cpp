@@ -40,6 +40,116 @@ namespace Modeling
 		}
 	}
 
+	// ------------------------------------------------------------------ 점 보간 · 버텍스 그룹
+	Vert MixVert(const Vert& a, const Vert& b, float t)
+	{
+		Vert v;
+		v.P = a.P + (b.P - a.P) * t;
+		v.Sel = true;
+		for (const auto& [g, w] : a.W) v.W.push_back({ g, w * (1.0f - t) });
+		for (const auto& [g, w] : b.W)
+		{
+			auto it = std::find_if(v.W.begin(), v.W.end(), [&](const auto& x) { return x.first == g; });
+			if (it != v.W.end()) it->second += w * t;
+			else v.W.push_back({ g, w * t });
+		}
+		v.W.erase(std::remove_if(v.W.begin(), v.W.end(), [](const auto& x) { return x.second <= 1e-6f; }), v.W.end());
+		return v;
+	}
+
+	Vert AverageVert(const std::vector<Vert>& verts, const std::vector<int>& ids)
+	{
+		Vert v;
+		v.Sel = true;
+		if (ids.empty()) return v;
+		const float inv = 1.0f / ids.size();
+		for (int i : ids)
+		{
+			v.P += verts[i].P * inv;
+			for (const auto& [g, w] : verts[i].W)
+			{
+				auto it = std::find_if(v.W.begin(), v.W.end(), [&](const auto& x) { return x.first == g; });
+				if (it != v.W.end()) it->second += w * inv;
+				else v.W.push_back({ g, w * inv });
+			}
+		}
+		return v;
+	}
+
+	int Mesh::FindGroup(const std::string& name) const
+	{
+		for (int i = 0; i < (int)Groups.size(); ++i) if (Groups[i] == name) return i;
+		return -1;
+	}
+
+	int Mesh::AddGroup(const std::string& name)
+	{
+		const int g = FindGroup(name);
+		if (g >= 0) return g;
+		Groups.push_back(name);
+		return (int)Groups.size() - 1;
+	}
+
+	int Mesh::AssignGroup(int group, float weight)
+	{
+		int n = 0;
+		for (Vert& v : Verts)
+		{
+			if (!v.Sel) continue;
+			auto it = std::find_if(v.W.begin(), v.W.end(), [&](const auto& x) { return x.first == group; });
+			if (it != v.W.end()) it->second = weight;
+			else v.W.push_back({ group, weight });
+			++n;
+		}
+		return n;
+	}
+
+	int Mesh::RemoveFromGroup(int group)
+	{
+		int n = 0;
+		for (Vert& v : Verts)
+			if (v.Sel)
+			{
+				const size_t before = v.W.size();
+				v.W.erase(std::remove_if(v.W.begin(), v.W.end(), [&](const auto& x) { return x.first == group; }), v.W.end());
+				n += before != v.W.size();
+			}
+		return n;
+	}
+
+	int Mesh::SelectGroup(int group, bool select)
+	{
+		int n = 0;
+		for (Vert& v : Verts)
+			if (Weight((int)(&v - Verts.data()), group) > 0.0f) { v.Sel = select; ++n; }
+		Flush(SelectMode::Vertex);
+		return n;
+	}
+
+	void Mesh::DeleteGroup(int group)
+	{
+		if (group < 0 || group >= (int)Groups.size()) return;
+		Groups.erase(Groups.begin() + group);
+		for (Vert& v : Verts)
+		{
+			v.W.erase(std::remove_if(v.W.begin(), v.W.end(), [&](const auto& x) { return x.first == group; }), v.W.end());
+			for (auto& x : v.W) if (x.first > group) --x.first;
+		}
+	}
+
+	int Mesh::GroupCount(int group) const
+	{
+		int n = 0;
+		for (const Vert& v : Verts) for (const auto& x : v.W) if (x.first == group && x.second > 0.0f) { ++n; break; }
+		return n;
+	}
+
+	float Mesh::Weight(int vert, int group) const
+	{
+		for (const auto& x : Verts[vert].W) if (x.first == group) return x.second;
+		return 0.0f;
+	}
+
 	// ------------------------------------------------------------------ 변
 	const std::vector<Edge>& Mesh::Edges()
 	{
@@ -598,7 +708,7 @@ namespace Modeling
 		std::unordered_map<int, int> dup;
 		for (int f : faces)
 			for (int i : Faces[f].V)
-				if (!dup.count(i)) { Verts.push_back({ Verts[i].P, true }); dup[i] = (int)Verts.size() - 1; }
+				if (!dup.count(i)) { Verts.push_back(CopyVert(Verts[i], Verts[i].P)); dup[i] = (int)Verts.size() - 1; }
 		for (int f : faces)
 			for (int& i : Faces[f].V) i = dup[i];
 		int sides = 0;
@@ -649,7 +759,7 @@ namespace Modeling
 		std::unordered_map<int, int> dup;
 		for (auto& [a, b] : todo)
 			for (int i : { a, b })
-				if (!dup.count(i)) { Verts.push_back({ Verts[i].P + offset, true }); dup[i] = (int)Verts.size() - 1; }
+				if (!dup.count(i)) { Verts.push_back(CopyVert(Verts[i], Verts[i].P + offset)); dup[i] = (int)Verts.size() - 1; }
 		DeselectAll();
 		for (auto& [a, b] : todo)
 		{
@@ -722,7 +832,7 @@ namespace Modeling
 				if (d.LengthSquared() < 1e-12f) d = dirs.front();
 				d.Normalize();
 				const float c = (std::max)(0.2f, d.Dot(dirs.front()));
-				Verts.push_back({ Verts[i].P + d * (thickness / c), true });
+				Verts.push_back(CopyVert(Verts[i], Verts[i].P + d * (thickness / c)));
 				dup[i] = (int)Verts.size() - 1;
 			}
 			for (int f : faces)
@@ -765,7 +875,7 @@ namespace Modeling
 			const uint64 k = EdgeKey(a, b);
 			auto it = mid.find(k);
 			if (it != mid.end()) return it->second;
-			Verts.push_back({ (Verts[a].P + Verts[b].P) * 0.5f, true });
+			Verts.push_back(MixVert(Verts[a], Verts[b], 0.5f));
 			return mid[k] = (int)Verts.size() - 1;
 		};
 		for (int f : sel) { const auto& v = Faces[f].V; for (size_t i = 0; i < v.size(); ++i) midpoint(v[i], v[(i + 1) % v.size()]); }
@@ -801,9 +911,7 @@ namespace Modeling
 			}
 			else
 			{
-				Vec3 c(0, 0, 0);
-				for (int i : v) c += Verts[i].P;
-				Verts.push_back({ c / (float)n, true });
+				Verts.push_back(AverageVert(Verts, v));
 				const int ci = (int)Verts.size() - 1;
 				for (size_t i = 0; i < n; ++i)
 				{
@@ -864,10 +972,24 @@ namespace Modeling
 			}
 			// 새 위상: 면마다 (점, 변 점, 면 점, 이전 변 점) 사각형
 			std::vector<Vert> verts(nv);
-			for (int i = 0; i < nv; ++i) verts[i] = { newPos[i], Verts[i].Sel };
+			for (int i = 0; i < nv; ++i) verts[i] = CopyVert(Verts[i], newPos[i], Verts[i].Sel);
 			std::vector<int> edgeIdx(edges.size()), faceIdx(nf);
-			for (size_t e = 0; e < edges.size(); ++e) { verts.push_back({ edgePt[e], Verts[edges[e].A].Sel && Verts[edges[e].B].Sel }); edgeIdx[e] = (int)verts.size() - 1; }
-			for (int f = 0; f < nf; ++f) { verts.push_back({ facePt[f], Faces[f].Sel }); faceIdx[f] = (int)verts.size() - 1; }
+			for (size_t e = 0; e < edges.size(); ++e)
+			{
+				Vert v = MixVert(Verts[edges[e].A], Verts[edges[e].B], 0.5f);
+				v.P = edgePt[e];
+				v.Sel = Verts[edges[e].A].Sel && Verts[edges[e].B].Sel;
+				verts.push_back(v);
+				edgeIdx[e] = (int)verts.size() - 1;
+			}
+			for (int f = 0; f < nf; ++f)
+			{
+				Vert v = AverageVert(Verts, Faces[f].V);
+				v.P = facePt[f];
+				v.Sel = Faces[f].Sel;
+				verts.push_back(v);
+				faceIdx[f] = (int)verts.size() - 1;
+			}
 			std::vector<Face> faces;
 			for (int f = 0; f < nf; ++f)
 			{
@@ -933,7 +1055,7 @@ namespace Modeling
 			for (int c = 1; c <= cuts; ++c)
 			{
 				const float t = cuts == 1 ? std::clamp(factor, 0.01f, 0.99f) : c / (float)(cuts + 1);
-				Verts.push_back({ Verts[r.A].P + (Verts[r.B].P - Verts[r.A].P) * t, true });
+				Verts.push_back(MixVert(Verts[r.A], Verts[r.B], t));
 				pts.push_back((int)Verts.size() - 1);
 			}
 			cutPts[EdgeKey(r.A, r.B)] = pts;
@@ -1057,7 +1179,7 @@ namespace Modeling
 					Vec3 d = Verts[X].P - Verts[P].P;
 					const float len = d.Length();
 					d /= (std::max)(len, 1e-9f);
-					Verts.push_back({ Verts[P].P + d * (std::min)(offset, len * 0.45f), true });
+					Verts.push_back(CopyVert(Verts[P], Verts[P].P + d * (std::min)(offset, len * 0.45f)));
 					return (int)Verts.size() - 1;
 				};
 				const int P1 = slide(X1), P2 = slide(X2);
@@ -1280,11 +1402,29 @@ namespace Modeling
 	{
 		axis = std::clamp(axis, 0, 2);
 		const int base = (int)Verts.size(), nf = (int)Faces.size();
+		// X 거울이면 좌우 그룹 이름을 바꿔 단다 (Blender: Hand.L ↔ Hand.R) — 없으면 만든다
+		const int groupCount = (int)Groups.size();   // 아래에서 .R 그룹이 늘어난다 — 원래 것만 돈다
+		std::vector<int> swap(groupCount);
+		for (int g = 0; g < groupCount; ++g)
+		{
+			swap[g] = g;
+			if (axis != 0) continue;
+			const std::string n = Groups[g];   // 복사 (AddGroup 이 목록을 키운다)
+			static const std::pair<const char*, const char*> sides[] = { { ".L", ".R" }, { "_L", "_R" }, { ".l", ".r" }, { "_l", "_r" }, { "Left", "Right" } };
+			for (const auto& [l, r] : sides)
+			{
+				const std::string sl = l, sr = r;
+				if (n.size() > sl.size() && n.compare(n.size() - sl.size(), sl.size(), sl) == 0) { swap[g] = AddGroup(n.substr(0, n.size() - sl.size()) + sr); break; }
+				if (n.size() > sr.size() && n.compare(n.size() - sr.size(), sr.size(), sr) == 0) { swap[g] = AddGroup(n.substr(0, n.size() - sr.size()) + sl); break; }
+			}
+		}
 		for (int i = 0; i < base; ++i)
 		{
 			Vec3 p = Verts[i].P;
 			(axis == 0 ? p.x : (axis == 1 ? p.y : p.z)) *= -1.0f;
-			Verts.push_back({ p, false });
+			Vert v = CopyVert(Verts[i], p, false);
+			for (auto& x : v.W) if (x.first < (int)swap.size()) x.first = swap[x.first];
+			Verts.push_back(v);
 		}
 		for (int f = 0; f < nf; ++f)
 		{
@@ -1475,7 +1615,7 @@ namespace Modeling
 			Face g = Faces[f];
 			for (int& i : g.V)
 			{
-				if (!dup.count(i)) { Verts.push_back({ Verts[i].P, true }); dup[i] = (int)Verts.size() - 1; }
+				if (!dup.count(i)) { Verts.push_back(CopyVert(Verts[i], Verts[i].P)); dup[i] = (int)Verts.size() - 1; }
 				i = dup[i];
 			}
 			add.push_back(g);
@@ -1551,6 +1691,20 @@ namespace Modeling
 			faces.push_back(fj);
 		}
 		j["faces"] = faces;
+		if (!Groups.empty())
+		{
+			// 그룹마다 [[점, 가중치], …]
+			nlohmann::json gj = nlohmann::json::array();
+			for (int g = 0; g < (int)Groups.size(); ++g)
+			{
+				nlohmann::json members = nlohmann::json::array();
+				for (int i = 0; i < (int)Verts.size(); ++i)
+					for (const auto& x : Verts[i].W)
+						if (x.first == g) members.push_back({ i, x.second });
+				gj.push_back({ { "name", Groups[g] }, { "verts", members } });
+			}
+			j["groups"] = gj;
+		}
 		if (withSelection)
 		{
 			std::vector<int> vs, fs;
@@ -1569,6 +1723,7 @@ namespace Modeling
 		Verts.clear();
 		Faces.clear();
 		SelEdges.clear();
+		Groups.clear();
 		if (j.contains("positions"))
 		{
 			const auto& p = j["positions"];
@@ -1590,6 +1745,18 @@ namespace Modeling
 				for (int i : f.V) ok = ok && i >= 0 && i < (int)Verts.size();
 				if (ok) Faces.push_back(f);
 			}
+		if (j.contains("groups"))
+			for (const auto& gj : j["groups"])
+			{
+				const int g = (int)Groups.size();
+				Groups.push_back(gj.value("name", std::string("Group")));
+				if (gj.contains("verts"))
+					for (const auto& m : gj["verts"])
+					{
+						const int i = m[0].get<int>();
+						if (i >= 0 && i < (int)Verts.size()) Verts[i].W.push_back({ g, m[1].get<float>() });
+					}
+			}
 		if (j.contains("vsel")) for (int i : j["vsel"]) if (i >= 0 && i < (int)Verts.size()) Verts[i].Sel = true;
 		if (j.contains("fsel")) for (int i : j["fsel"]) if (i >= 0 && i < (int)Faces.size()) Faces[i].Sel = true;
 		if (j.contains("esel")) for (uint64 k : j["esel"]) SelEdges.insert(k);
@@ -1599,7 +1766,14 @@ namespace Modeling
 	void Mesh::Append(const Mesh& other, const Matrix& transform)
 	{
 		const int base = (int)Verts.size();
-		for (const Vert& v : other.Verts) Verts.push_back({ Vec3::Transform(v.P, transform), v.Sel });
+		std::vector<int> remap(other.Groups.size());
+		for (size_t g = 0; g < other.Groups.size(); ++g) remap[g] = AddGroup(other.Groups[g]);
+		for (const Vert& v : other.Verts)
+		{
+			Vert c = CopyVert(v, Vec3::Transform(v.P, transform), v.Sel);
+			for (auto& x : c.W) x.first = remap[x.first];
+			Verts.push_back(c);
+		}
 		for (const Face& f : other.Faces) { Face g = f; for (int& i : g.V) i += base; Faces.push_back(g); }
 		Touch();
 	}

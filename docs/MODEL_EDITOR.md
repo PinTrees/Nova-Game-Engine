@@ -88,14 +88,45 @@ Blender 처럼 메시를 고치는 창과, 같은 연산을 AI 에이전트가 �
 | `face.add` | `--points [[x,y,z],..]` | 점들로 면 하나 (같은 자리 점은 합쳐 이어 붙인다) |
 | `material.set` | `--index n [--name]` | 고른 면의 재질 칸 (FBX 에 재질로) |
 
+### 버텍스 그룹 (이름 있는 선택 집합)
+
+점마다 그룹 · 가중치(0..1) 를 가진다. **연산을 거쳐도 따라간다**: 돌출 · Inset · 복제 = 복사, Subdivide · Loop Cut · Subsurf 의 새 점 = 양쪽 가중치 보간, Mirror X = `.L ↔ .R` (`_L/_R`, `Left/Right`) 이름을 바꿔 붙인다. 점 번호가 바뀌어도 `group.select` 로 다시 고를 수 있어 AI 가 부위(머리 · 팔 · 앞머리 …)를 이름으로 다룬다. 리깅 단계에서는 이 가중치가 스킨 가중치가 된다.
+
+| op | 인자 |
+|---|---|
+| `group.assign` | `--name <그룹> [--weight 1]` — 고른 점을 그룹에 (없으면 만든다) |
+| `group.remove` | `--name` — 고른 점을 그룹에서 뺀다 |
+| `group.select` | `--name [--extend] [--deselect]` |
+| `group.delete` · `group.list` | list = 이름 · 점 수 · 경계 상자 (월드) |
+
+### 체크포인트 · 여러 연산 한 번에
+
+| op | 인자 | 설명 |
+|---|---|---|
+| `checkpoint` | `--save <이름> \| --restore <이름> \| --delete <이름> \| --list` | 문서 상태에 이름을 붙여 두고 되살린다 (되살리기도 Undo 된다). 시도해 보고 마음에 안 들면 돌아가기 |
+| `batch` | `nova model batch <파일 \| ->` (줄마다 `add --type cube …`, 앞의 `nova model` 있어도 됨, `#` 주석) 또는 `--steps [{"op":…}, …]` `[--atomic true]` | **Undo 한 번**으로 차례로 실행. 실패하면 그 단계 번호 · 이유를 알리고 (atomic) 모두 되돌린다. 결과 = 요약 + 단계마다 `changed` 등. `new` · `open` · `undo` · `redo` 는 안에 못 쓴다 |
+
+### 기준 그림 · 실루엣 비교 (AI 가 그림에 맞춰 모델링)
+
+| op | 인자 | 설명 |
+|---|---|---|
+| `ref.add` | `<그림> [--view front\|back\|left\|right\|top] [--height 1.7] [--center x,y,z] [--opacity 0.5] [--name]` | 그 시점에서 볼 때 모델 뒤에 까는 그림 (Blender 의 Reference). 높이 = 그림 세로가 차지하는 미터, 기본 위치 = 아래 끝이 바닥 (y = 0). 창 · `render` 에서 그 시점을 볼 때만 보인다. `.nmodel` 에 경로로 저장 |
+| `ref.set` · `ref.remove` · `ref.list` | `--name [--height] [--center] [--opacity] [--visible]` | |
+| `compare` | `[--ref 이름] [--bands 12] [--out diff.png] [--size 512] [--threshold 0.2]` | 기준 그림의 시점 · 크기 그대로 보이는 메시 전체를 그려 겹쳐 본다. `iou`(1 = 같음), `extra`(기준 밖으로 나간 메시), `missing`(못 덮은 기준), 높이 띠마다 `refWidth` · `meshWidth` · 가운데, **`hints`**(예: `near (0.00, 0.63, 0.00): mesh 0.37 m wide, reference 0.71 m (widen by 0.34 m)`), `--out` = 차이 그림 (회색 겹침 · 빨강 메시만 · 파랑 기준만). 기준 그림 = 투명 PNG 면 알파, 아니면 네 모서리 색 (배경) 과 다른 픽셀 |
+
+![기준 그림 + 비교](images/model_editor_compare.webp)
+
 ## AI 작업 순서 (권장)
 
+0. (그림이 있으면) `ref.add front.png --view front --height 1.5`, `ref.add side.png --view right --height 1.5` — 같은 키로
 1. `nova model new` → 큰 덩어리부터 `add` (머리 = uvsphere, 몸 = cylinder `--radiusTop`, 팔다리 = cylinder + `object.transform --rotation`)
 2. 자주 `render --dir <폴더> --views front,right,three-quarter --shading toon --wire false` 로 **보고 고친다** (그림을 열어 비례 · 대칭 확인)
 3. 모양 다듬기: `mode --mode edit` → `select.box` / `select.normal` 로 고르고 `extrude` · `inset` · `scale` · `translate`
 4. 대칭: 오른쪽 반(+X)만 만들고 `mirror --axis x`, 또는 `symmetrize --direction +x`
 5. 부드럽게: `subsurf --levels 1` + `shade --smooth true`
-6. 확인: `info` 의 `boundaryEdges` (닫힌 몸이면 0), `nonManifoldEdges` (0 이 정상)
+6. 확인: `info` 의 `boundaryEdges` (닫힌 몸이면 0), `nonManifoldEdges` (0 이 정상), 기준 그림이 있으면 `compare` 의 `hints` 를 따라 고치고 `iou` 가 오르는지 본다
+   - 부위마다 `group.assign --name Head` 처럼 이름을 붙여 두면, 번호가 바뀐 뒤에도 `group.select` 로 다시 고른다
+   - 큰 변경 전 `checkpoint --save v1`, 여러 연산은 파일에 적어 `batch` 로 (한 번에 되돌릴 수 있다)
 7. `save <파일.nmodel>`, `export <Assets\…\이름.fbx>` → 엔진에서 바로 쓴다
 
 ```bash
@@ -127,7 +158,7 @@ nova model export Assets/Models/Chibi.fbx
 | 보기 | Alt+Z X-Ray, View 메뉴: Solid · Toon · Normals, 선 겹쳐 보기, 격자 |
 | Undo | Ctrl+Z / Ctrl+Shift+Z (이 창이 포커스면 씬 Undo 대신 이 창의 Undo) |
 
-오른쪽 패널: Outliner(눈 = 보이기), 활성 오브젝트 이름 · 위치 · 회전 · 크기, Edit 모드면 고른 점의 **Median**(값을 바꾸면 옮김), 점 · 면 · 삼각형 수와 열린 변, **Last Operation**(마지막 연산의 값 — 바꾸면 되돌리고 다시, Blender 의 Adjust Last Operation).
+오른쪽 패널: Outliner(눈 = 보이기), 활성 오브젝트 이름 · 위치 · 회전 · 크기, Edit 모드면 고른 점의 **Median**(값을 바꾸면 옮김), 점 · 면 · 삼각형 수와 열린 변, **Vertex Groups**(Assign · Remove · Select · Deselect · 지우기), **Reference Images**(보이기 · 투명도 · 높이 · 중심, 시점 고르고 Add Image… → 그 시점으로, Compare Silhouette), **Last Operation**(마지막 연산의 값 — 바꾸면 되돌리고 다시, Blender 의 Adjust Last Operation).
 
 ## 구조
 
@@ -150,6 +181,6 @@ nova model export Assets/Models/Chibi.fbx
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 1 | 메시 편집 기본 · 창 · Undo · FBX/OBJ/GLB 가져오기 · 내보내기 · CLI · 시점별 PNG | **완료 (0.1.0)** |
-| 2 | AI 모델링 규격 다듬기: 이름 붙인 선택 집합, 기준 이미지(앞 · 옆 그림) 겹쳐 보기, 실루엣 비교 점수, 여러 연산을 한 번에 (`model batch`) | 다음 |
+| 2 | AI 모델링 규격: 버텍스 그룹(이름 있는 선택 + 가중치, 연산을 따라감), 체크포인트, `batch`(Undo 한 번), 기준 그림 겹쳐 보기, 실루엣 비교(IoU · 높이 띠 · 힌트 · 차이 그림) | **완료 (0.2.0)** |
 | 3 | 캐릭터 도구: Mirror 모디파이어(실시간 대칭), 비례 편집(Proportional Editing), Subsurf 미리보기, 머리카락 카드 · 커브, UV 펼치기 · 자동 시임, 툰 셰이딩 미리보기 · 외곽선 | |
 | 4 | 리깅: 아마추어(본) 편집, Humanoid 템플릿, 자동 가중치(열 확산), 가중치 페인트, 스킨 FBX 내보내기 → 엔진 Animator / Humanoid 리타게팅 | |

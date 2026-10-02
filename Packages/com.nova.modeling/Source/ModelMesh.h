@@ -23,7 +23,16 @@ namespace Modeling
 	{
 		Vec3 P = Vec3(0, 0, 0);
 		bool Sel = false;
+		// 버텍스 그룹 (Mesh::Groups 번호, 가중치 0..1) — 이름 있는 선택 집합, 리깅 단계의 스킨 가중치
+		std::vector<std::pair<int, float>> W;
 	};
+
+	// 새 점 = 두 점 사이 (위치 · 그룹 가중치 보간, 선택됨)
+	Vert MixVert(const Vert& a, const Vert& b, float t);
+	// 여러 점의 평균 (면 중심 등)
+	Vert AverageVert(const std::vector<Vert>& verts, const std::vector<int>& ids);
+	// 점을 복사해 위치만 바꾼다 (그룹 유지)
+	inline Vert CopyVert(const Vert& v, const Vec3& p, bool sel = true) { Vert c = v; c.P = p; c.Sel = sel; return c; }
 
 	struct Face
 	{
@@ -48,6 +57,17 @@ namespace Modeling
 		std::vector<Vert> Verts;
 		std::vector<Face> Faces;
 		std::unordered_set<uint64> SelEdges;   // 변 선택 (EdgeKey)
+		std::vector<std::string> Groups;       // 버텍스 그룹 이름 (Vert::W 의 번호)
+
+		// ---- 버텍스 그룹 ----
+		int FindGroup(const std::string& name) const;
+		int AddGroup(const std::string& name);              // 있으면 그 번호
+		int AssignGroup(int group, float weight);           // 고른 점을 그룹에 (가중치 덮어씀)
+		int RemoveFromGroup(int group);                     // 고른 점을 그룹에서 뺀다
+		int SelectGroup(int group, bool select);            // 그룹 점 고르기 / 해제 (가중치 > 0)
+		void DeleteGroup(int group);
+		int GroupCount(int group) const;
+		float Weight(int vert, int group) const;
 
 		// ---- 변 / 이웃 (바뀌면 다시) ----
 		const std::vector<Edge>& Edges();

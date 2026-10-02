@@ -766,6 +766,63 @@ function Suite-Model
         $mi = M 'mirror --axis x'
         Add-Result model 'mirror X with center weld (12 verts, x -1..1)' ($mi -and $mi.verts -eq 12 -and (Near $mi.min[0] -1) -and (Near $mi.max[0] 1)) "verts=$($mi.verts) min x=$($mi.min[0])"
 
+        # ---- 2 단계: 버텍스 그룹 (돌출 · 나누기 · 거울에서 따라감), 체크포인트, batch (Undo 한 번), 기준 그림 + 실루엣 비교
+        M 'new' | Out-Null; M 'add --type cube --size 2' | Out-Null; M 'mode --mode edit --select face' | Out-Null
+        M 'select.normal --direction 0,1,0' | Out-Null
+        M 'group.assign --name Top' | Out-Null
+        M 'extrude --distance 1' | Out-Null
+        M 'subdivide' | Out-Null
+        $gl = M 'group.list'
+        $top = $gl.groups | Where-Object { $_.name -eq 'Top' }
+        Add-Result model 'vertex group follows extrude + subdivide (4 → 8 → 13 verts)' ($top -and $top.verts -eq 13) "Top verts=$($top.verts)"
+        $gs = M 'group.select --name Top'
+        Add-Result model 'group.select selects the group' ($gs -and $gs.selection.verts -eq 13) "selected=$($gs.selection.verts)"
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null; M 'mode --mode edit' | Out-Null; M 'select.all' | Out-Null
+        M 'translate --delta 0.5,0,0' | Out-Null; M 'group.assign --name Hand.L' | Out-Null
+        M 'mirror --axis x' | Out-Null
+        $mg = (M 'group.list').groups
+        $hr = $mg | Where-Object { $_.name -eq 'Hand.R' }
+        Add-Result model 'mirror X: new side goes to Hand.R' ($hr -and $hr.verts -eq 4 -and $hr.max[0] -le 0.0001) "groups=$(($mg | ForEach-Object { "$($_.name):$($_.verts)" }) -join ' ')"
+        M "save $dir\groups.nmodel" | Out-Null; M 'new' | Out-Null; M "open $dir\groups.nmodel" | Out-Null
+        M 'object.select --name Cube' | Out-Null
+        $og = (M 'group.list').groups
+        Add-Result model 'groups saved in .nmodel' (@($og).Count -eq 2) "groups=$(($og | ForEach-Object { "$($_.name):$($_.verts)" }) -join ' ')"
+
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null
+        M 'checkpoint --save one' | Out-Null
+        M 'add --type uvsphere --location 2,0,0' | Out-Null
+        $cr = M 'checkpoint --restore one'
+        $cu = M 'undo'
+        Add-Result model 'checkpoint restore (and undo it)' ($cr -and $cr.objects -eq 1 -and $cu -and $cu.objects -eq 2) "restore → $($cr.objects) objects, undo → $($cu.objects)"
+
+        $bf = Join-Path $dir 'steps.txt'
+        @('# 탑', 'add --type cube --size 1 --name Tower', 'mode --mode edit --select face', 'select.normal --direction 0,1,0', 'extrude --distance 0.5', 'nova model inset --thickness 0.1') | Set-Content -Encoding utf8 $bf
+        M 'new' | Out-Null
+        $bt = M "batch $bf"
+        $bu = M 'undo'
+        Add-Result model 'batch file (5 ops) = one undo step' ($bt -and $bt.faces -eq 14 -and @($bt.steps).Count -eq 5 -and $bu -and $bu.objects -eq 0) "faces=$($bt.faces) steps=$(@($bt.steps).Count) after undo objects=$($bu.objects)"
+        M 'redo' | Out-Null
+        @('select.all', 'extrude --distance 0.3', 'loopcut') | Set-Content -Encoding utf8 $bf
+        $bad = Invoke-Nova "model batch $bf"
+        $after = M 'info'
+        Add-Result model 'failing batch rolls back all steps' ($bad -match 'step 3' -and $after.faces -eq 14) "faces=$($after.faces) msg=$(($bad -split "`n")[0])"
+
+        # 기준 그림: 300x400 흰 바탕에 검은 사각형 (2 m 높이 = 200 px/m → 0.6 x 1.6 m, 바닥에 섬)
+        Add-Type -AssemblyName System.Drawing
+        $png = Join-Path $dir 'ref_front.png'
+        $bmp = New-Object System.Drawing.Bitmap 300, 400
+        $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::White); $g.FillRectangle([System.Drawing.Brushes]::Black, 90, 80, 120, 320); $g.Dispose()
+        $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+        M 'new' | Out-Null
+        $ra = M "ref.add $png --view front --height 2"
+        M 'add --type cube --dimensions 0.6,1.6,0.6 --location 0,0.8,0' | Out-Null
+        $c1 = M 'compare'
+        Add-Result model 'reference + compare: matching box IoU > 0.95' ($ra -and $c1 -and $c1.iou -gt 0.95) "iou=$($c1.iou) extra=$($c1.extra) missing=$($c1.missing)"
+        M 'mode --mode edit' | Out-Null; M 'select.all' | Out-Null; M 'scale --factor 1.5,1,1' | Out-Null
+        $c2 = M "compare --out $dir\diff.png"
+        $band = @($c2.bands | Where-Object { [math]::Abs($_.meshWidth - 0.9) -lt 0.02 -and [math]::Abs($_.refWidth - 0.6) -lt 0.02 })
+        Add-Result model 'compare: 1.5x wider mesh → IoU ~0.67, widths 0.9 vs 0.6, hint, diff PNG' ($c2 -and $c2.iou -lt 0.75 -and $c2.iou -gt 0.6 -and $band.Count -gt 0 -and @($c2.hints).Count -gt 0 -and (Test-Path "$dir\diff.png")) "iou=$($c2.iou) bands ok=$($band.Count) hint=$(@($c2.hints)[0])"
+
         # 렌더: 시점마다 PNG
         M 'new' | Out-Null; M 'add --type uvsphere --radius 0.5 --location 0,0.5,0 --smooth' | Out-Null; M 'add --type cube --size 0.6 --location 1,0.3,0' | Out-Null
         $rn = M "render --dir $dir\render --views front,right,top,persp --size 320 --shading solid"

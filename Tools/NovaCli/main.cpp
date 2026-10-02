@@ -598,6 +598,8 @@ namespace
 		"model editor (package com.nova.modeling: Window > Model Editor)\n"
 		"  model <op> [path] [--key value ...]    mesh modeling: add, select.*, extrude, inset, loopcut, bevel, mirror, subsurf,\n"
 		"                                         import / export (fbx obj glb), render (PNG per view) ... list: nova model help\n"
+		"  model ref.add <image> --view front --height 1.6   reference image;  model compare [--out diff.png]  silhouette IoU + hints\n"
+		"  model batch <file | ->                 one op per line (\"add --type cube\"), all as ONE undo step, stops at the first error\n"
 		"\n"
 		"other\n"
 		"  call <command> [json args]             raw request (see: nova help --editor)\n"
@@ -627,6 +629,9 @@ namespace
 		"- Every op returns counts, bounds and the selection; `boundaryEdges` 0 = closed mesh. `model undo` undoes one op.\n"
 		"- Look at your work often: `model render --dir shots --views front,right,three-quarter --shading toon --wire false`\n"
 		"  and open the PNGs. Export for the game: `model export Assets/Models/Name.fbx`. Spec: docs/MODEL_EDITOR.md\n"
+		"- With drawings: `model ref.add front.png --view front --height 1.5`, then `model compare --json` gives IoU and\n"
+		"  hints like \"widen by 0.3 m near y 0.6\". Name parts with `model group.assign --name Arm.R`, try ideas after\n"
+		"  `model checkpoint --save v1`, and run many ops as one undo step with `model batch steps.txt`.\n"
 		"\n"
 		"## Rules\n"
 		"- Use --json when you parse output. Exit code: 0 ok, 1 command failed (message on stderr), 2 no editor, 3 usage.\n"
@@ -1038,26 +1043,75 @@ int Run(const std::vector<std::string>& in)
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true
 		if (!need(1, "model <op> [path] [--key value ...]   (nova model help)")) return 3;
 		rc = "model";
-		args["op"] = a.Pos[0];
-		for (size_t i = 2; i < in.size(); ++i)
-		{
-			const std::string& s = in[i];
-			if (s.size() <= 2 || s[0] != '-' || s[1] != '-')
+		// 낱말들 → 연산 인자 (첫 위치 인수 = path)
+		auto parseOpts = [&](const std::vector<std::string>& t, size_t start, json& out) {
+			for (size_t i = start; i < t.size(); ++i)
 			{
-				if (!args.contains("path")) args["path"] = s;   // 위치 인수 = 파일 경로 (import · export · open · save)
-				continue;
+				const std::string& s = t[i];
+				if (s.size() <= 2 || s[0] != '-' || s[1] != '-')
+				{
+					if (!out.contains("path")) out["path"] = s;   // 위치 인수 = 파일 경로 (import · export · open · save)
+					continue;
+				}
+				std::string name = s.substr(2), value;
+				bool hasValue = false;
+				const size_t eq = name.find('=');
+				if (eq != std::string::npos) { value = name.substr(eq + 1); name = name.substr(0, eq); hasValue = true; }
+				else if (i + 1 < t.size() && !(t[i + 1].size() > 2 && t[i + 1][0] == '-' && t[i + 1][1] == '-')) { value = t[++i]; hasValue = true; }
+				if (name == "project" || name == "pid" || name == "json" || name == "timeout")
+					continue;
+				if (!hasValue) { out[name] = true; continue; }
+				json v = Value(value);
+				if (v.is_string()) { json vec = Vec(value); if (vec.is_array()) v = vec; }
+				out[name] = v;
 			}
-			std::string name = s.substr(2), value;
-			bool hasValue = false;
-			const size_t eq = name.find('=');
-			if (eq != std::string::npos) { value = name.substr(eq + 1); name = name.substr(0, eq); hasValue = true; }
-			else if (i + 1 < in.size() && !(in[i + 1].size() > 2 && in[i + 1][0] == '-' && in[i + 1][1] == '-')) { value = in[++i]; hasValue = true; }
-			if (name == "project" || name == "pid" || name == "json" || name == "timeout")
-				continue;
-			if (!hasValue) { args[name] = true; continue; }
-			json v = Value(value);
-			if (v.is_string()) { json vec = Vec(value); if (vec.is_array()) v = vec; }
-			args[name] = v;
+		};
+		args["op"] = a.Pos[0];
+		parseOpts(in, 2, args);
+		// batch <파일 | -> : 줄마다 연산 하나 ("add --type cube" — 앞의 "nova model" 은 있어도 됨, # 주석) 또는 JSON 배열 → 한 요청 (Undo 한 번)
+		if (a.Pos[0] == "batch" && args.contains("path") && !args.contains("steps"))
+		{
+			const std::string file = args["path"].get<std::string>();
+			args.erase("path");
+			std::string text;
+			if (file == "-")
+			{
+				std::string line;
+				while (std::getline(std::cin, line)) text += line + "\n";
+			}
+			else
+			{
+				std::ifstream f(std::filesystem::u8path(file), std::ios::binary);
+				if (!f) { Err("cannot read " + file + "\n"); return 3; }
+				text.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+			}
+			if (text.size() >= 3 && (unsigned char)text[0] == 0xEF) text = text.substr(3);   // BOM
+			json steps = json::array();
+			const size_t first = text.find_first_not_of(" \t\r\n");
+			if (first != std::string::npos && text[first] == '[')
+			{
+				steps = json::parse(text, nullptr, false);
+				if (!steps.is_array()) { Err("bad JSON in " + file + "\n"); return 3; }
+			}
+			else
+			{
+				std::stringstream ss(text);
+				std::string line;
+				while (std::getline(ss, line))
+				{
+					if (!line.empty() && line.back() == '\r') line.pop_back();
+					std::vector<std::string> t = SplitLine(line);
+					if (t.empty() || t[0].rfind("#", 0) == 0) continue;
+					size_t at = 0;
+					if (at < t.size() && (t[at] == "nova" || t[at] == "nova.exe")) ++at;
+					if (at < t.size() && t[at] == "model") ++at;
+					if (at >= t.size()) continue;
+					json step = { { "op", t[at] } };
+					parseOpts(t, at + 1, step);
+					steps.push_back(step);
+				}
+			}
+			args["steps"] = steps;
 		}
 	}
 	else if (cmd == "call")
