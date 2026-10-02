@@ -11,7 +11,6 @@
 #include "CapsuleCollider.h"
 #include "MeshCollider.h"
 #include "AnimationPlayer.h"
-#include "Animator.h"
 #include "Terrain.h"
 #include "TerrainCollider.h"
 #include "Volume.h"
@@ -74,7 +73,6 @@ void ComponentFactory::InitBuiltInComponents()
 	RegisterComponent("CapsuleCollider", []() { return std::make_shared<CapsuleCollider>(); });
 	RegisterComponent("MeshCollider", []() { return std::make_shared<MeshCollider>(); });
 	RegisterComponent("AnimationPlayer", []() { return std::make_shared<AnimationPlayer>(); });
-	RegisterComponent("Animator", []() { return std::make_shared<Animator>(); });
 	RegisterComponent("Terrain", []() { return std::make_shared<Terrain>(); });
 	RegisterComponent("TerrainCollider", []() { return std::make_shared<TerrainCollider>(); });
 	RegisterComponent("Volume", []() { return std::make_shared<Volume>(); });

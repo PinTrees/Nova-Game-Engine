@@ -15,8 +15,6 @@ namespace PhysicsSelfTest
 	// (개발/검증용) NOVA_ANIM_TEST=<로그 파일>: 기본 캐릭터 + Idle 을 씬에 추가하고 가져오기/스키닝 결과를 기록
 	void RunAnimationTest(Scene* scene, const char* logPath);
 
-	// (개발/검증용) NOVA_ANIMATOR_TEST=<로그 파일>: 상태 3개짜리 컨트롤러를 만들어 전이/트리거/Any State/크로스페이드를 검사
-	void RunAnimatorTest(Scene* scene, const char* logPath);
 
 	// (개발/검증용) NOVA_TERRAIN_TEST=<로그 파일>: 브러시로 지형을 만들고(언덕/고원/다듬기/텍스처) 물리 공을 올려 둔다
 	void RunTerrainTest(Scene* scene, const char* logPath);

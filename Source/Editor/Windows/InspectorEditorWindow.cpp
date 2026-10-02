@@ -2,8 +2,7 @@
 #include "InspectorEditorWindow.h"
 #include <filesystem>
 #include "SkinnedMesh.h"
-#include "AnimatorInspector.h"
-#include "AnimatorController.h"
+#include "EditorExtensions.h"
 #include "UndoSystem.h"
 #include "VolumeProfile.h"
 #include "VolumeEditor.h"
@@ -62,9 +61,13 @@ void InspectorEditorWindow::OnRender()
 
 			fbxObject->OnInspectorGUI();
 		}
-		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::ANIMATOR_CONTROLLER)
+		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::CUSTOM_ASSET)
 		{
-			AnimatorInspector::DrawController(SelectionManager::GetSelectAnimatorController());
+			// 패키지가 등록한 에셋 (예: Animation 패키지의 .controller)
+			const std::wstring file = SelectionManager::GetSelectedFile();
+			if (const auto* type = EditorExtensions::FindAssetType(std::filesystem::path(file).extension().string()))
+				if (type->Inspector)
+					type->Inspector(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(file)));
 		}
 		else if (SelectionManager::GetSelectedSubType() == SelectionSubType::SCRIPT)
 		{
@@ -139,16 +142,10 @@ void InspectorEditorWindow::OnRender()
 			}
 		}
 	}
-	else if (SelectionManager::GetSelectedObjectType() == SelectionType::ANIMATOR)
+	else if (SelectionManager::GetSelectedObjectType() == SelectionType::CUSTOM)
 	{
-		const AnimatorSelection& sel = SelectionManager::GetAnimatorSelection();
-		if (sel.Controller)
-		{
-			std::weak_ptr<AnimatorController> weak = sel.Controller;
-			Undo::WatchAsset("controller:" + sel.Controller->Path, sel.Controller->Name(),
-				[weak]() { auto c = weak.lock(); return c ? c->ToJsonString() : std::string(); },
-				[weak](const std::string& text) { if (auto c = weak.lock()) { c->ApplyJson(text); c->Commit(); } });
-		}
-		AnimatorInspector::DrawSelection(sel);
+		// 패키지 창이 고른 것 (예: Animator 창의 상태 / 전이)
+		if (const auto& draw = SelectionManager::GetCustomSelection().DrawInspector)
+			draw();
 	}
 }

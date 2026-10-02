@@ -5,7 +5,6 @@
 #include "App.h"
 #include "UnityGUI.h"
 #include "RenderStats.h"
-#include "Animator.h"
 #include "AnimationPlayer.h"
 #include "AudioManager.h"
 #include "UISystem.h"
@@ -705,8 +704,10 @@ void GameViewEditorWindow::DrawStats(ImVec2 viewMin, ImVec2 viewMax)
 				continue;
 			if (auto* a = go->GetComponent<AnimationPlayer>(); a && a->IsEnabled() && a->IsPlaying())
 				++animPlaying;
-			if (auto* a = go->GetComponent<Animator>(); a && a->IsEnabled() && a->GetController() && Application::IsPlaying())
-				++animatorPlaying;
+			if (Application::IsPlaying())   // Animator 는 Animation 패키지 — 이름으로 센다
+				for (const auto& c : go->GetComponents())
+					if (c && c->GetType() == "Animator" && c->IsEnabled())
+						++animatorPlaying;
 		}
 
 	auto k = [](double v) {

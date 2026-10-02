@@ -3,7 +3,7 @@
 class EditorDialog; 
 class EditorWindow;
 
-class EditorGUIManager
+class NOVA_API EditorGUIManager
 {
 	SINGLE_HEADER(EditorGUIManager)
 
@@ -33,6 +33,7 @@ public:
 
 public:
 	void RegisterWindow(EditorWindow* window);
+	void UnregisterWindow(EditorWindow* window);   // 패키지를 내릴 때 (창은 부른 쪽이 지운다)
 	EditorWindow* FindWindow(const std::string& title) const;
 	// 도킹된 창의 탭을 앞으로 (몇 프레임 동안 그 노드의 선택 탭으로) — CLI nova window scene 등
 	void SelectTab(const std::string& title) { m_PendingTab = title; m_PendingTabFrames = 3; }

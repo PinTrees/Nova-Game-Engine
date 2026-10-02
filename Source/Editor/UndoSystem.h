@@ -40,7 +40,7 @@ namespace Undo
 	NOVA_API void Touch(GameObject* gameObject);
 
 	// JSON 상태로 읽고 되돌릴 수 있는 에셋을 감시한다 (편집 중인 창이 매 프레임 부른다)
-	void WatchAsset(const std::string& key, const std::string& label,
+	NOVA_API void WatchAsset(const std::string& key, const std::string& label,
 		std::function<std::string()> capture, std::function<void(const std::string&)> restore);
 
 	// 매 프레임 (ImGui 프레임 안, 창들을 그린 뒤): 단축키 처리 + 조작이 끝났으면 변경 확정

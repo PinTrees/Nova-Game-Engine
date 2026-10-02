@@ -1,7 +1,7 @@
 #include "pch.h"
 #include "SelectionManager.h"
 #include <filesystem>
-#include "AnimatorController.h"
+#include "EditorExtensions.h"
 #include "AudioClip.h"
 
 namespace fs = std::filesystem;
@@ -16,8 +16,7 @@ GameObject* SelectionManager::m_SelectedGameObject = nullptr;
 
 shared_ptr<UMaterial> SelectionManager::m_SelectedFile_Material = nullptr;
 shared_ptr<MeshFile> SelectionManager::m_SelectFile_FbxModel = nullptr;
-shared_ptr<AnimatorController> SelectionManager::m_SelectFile_Controller = nullptr;
-AnimatorSelection SelectionManager::m_AnimatorSelection;
+CustomSelection SelectionManager::m_Custom;
 
 SelectionManager::SelectionManager()
 {
@@ -36,8 +35,7 @@ void SelectionManager::ClearSelection()
 	m_SelectedGameObject = nullptr; 
 	m_SelectedFile_Material = nullptr;
 	m_SelectFile_FbxModel = nullptr;
-	m_SelectFile_Controller = nullptr;
-	m_AnimatorSelection = AnimatorSelection();
+	m_Custom = CustomSelection();
 }
 
 void SelectionManager::SetSelectedFile(const std::wstring& filePath)
@@ -74,13 +72,9 @@ void SelectionManager::SetSelectedFile(const std::wstring& filePath)
 	{
 		m_SelectedSubType = SelectionSubType::VOLUME_PROFILE;
 	}
-	else if (path.extension() == ".controller")
+	else if (EditorExtensions::FindAssetType(path.extension().string()))
 	{
-		string cutPath = PathManager::GetI()->GetCutSolutionPath(wstring_to_string(filePath));
-		std::replace(cutPath.begin(), cutPath.end(), '/', '\\');
-
-		m_SelectFile_Controller = AnimatorController::Load(cutPath);
-		m_SelectedSubType = SelectionSubType::ANIMATOR_CONTROLLER;
+		m_SelectedSubType = SelectionSubType::CUSTOM_ASSET;   // 패키지가 등록한 에셋 (Inspector 가 그 함수로 그린다)
 	}
 	else
 	{
@@ -96,13 +90,12 @@ void SelectionManager::SetSelectedGameObject(GameObject* gameObject)
 	m_SelectedSubType = SelectionSubType::NONE;
 }
 
-void SelectionManager::SetSelectedAnimatorItem(shared_ptr<AnimatorController> controller, int layer, int state, int transition)
+void SelectionManager::SetCustomSelection(const std::string& owner, std::shared_ptr<void> data, std::function<void()> drawInspector)
 {
-	m_AnimatorSelection.Controller = controller;
-	m_AnimatorSelection.Layer = layer;
-	m_AnimatorSelection.State = state;
-	m_AnimatorSelection.Transition = transition;
-	m_SelectedType = SelectionType::ANIMATOR;
+	m_Custom.Owner = owner;
+	m_Custom.Data = std::move(data);
+	m_Custom.DrawInspector = std::move(drawInspector);
+	m_SelectedType = SelectionType::CUSTOM;
 	m_SelectedSubType = SelectionSubType::NONE;
 	m_SelectedGameObject = nullptr;
 }

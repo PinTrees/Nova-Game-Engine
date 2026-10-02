@@ -29,7 +29,6 @@
 #include "GLContext.h"
 #include "Profiler.h"
 #include "PhysicsManager.h"
-#include "Animator.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
@@ -367,17 +366,8 @@ namespace
 			const std::string controller = args.value("controller", std::string());
 			if (model.empty() && controller.empty())
 				return named(GameObjectFactory::CreateAnimatedCharacter());
-			GameObject* g = model.empty() ? GameObjectFactory::CreateAnimatedCharacter("Character")
-				: GameObjectFactory::CreateAnimatedCharacter("Character", model, controller);
-			if (!model.empty() && controller.empty())
-				if (Animator* an = g->GetComponent<Animator>())
-					an->SetController("");
-			if (model.empty() && !controller.empty())
-				if (Animator* an = g->GetComponent<Animator>())
-				{
-					an->SetController(controller);
-					an->Rebind();
-				}
+			GameObject* g = GameObjectFactory::CreateAnimatedCharacter("Character",
+				model.empty() ? std::string(GameObjectFactory::kDefaultCharacterModel) : model, controller);
 			return named(g);
 		}
 		if (type == "third-person-character" || type == "player")

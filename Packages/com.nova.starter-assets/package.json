@@ -6,5 +6,5 @@
   "category": "Templates",
   "author": { "name": "NOVA" },
   "keywords": [ "character", "controller", "third person", "starter", "player", "movement" ],
-  "dependencies": { "com.nova.cameras": "1.0.0" }
+  "dependencies": { "com.nova.cameras": "1.0.0", "com.nova.animation": "1.0.0" }
 }

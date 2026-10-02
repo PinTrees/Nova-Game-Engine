@@ -680,6 +680,11 @@ void EditorGUIManager::RegisterWindow(EditorWindow* window)
     m_pEditorWindows.push_back(window);
 }
 
+void EditorGUIManager::UnregisterWindow(EditorWindow* window)
+{
+    m_pEditorWindows.erase(std::remove(m_pEditorWindows.begin(), m_pEditorWindows.end(), window), m_pEditorWindows.end());
+}
+
 EditorWindow* EditorGUIManager::FindWindow(const std::string& title) const
 {
     for (EditorWindow* w : m_pEditorWindows)

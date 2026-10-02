@@ -30,7 +30,6 @@
 #include "InspectorEditorWindow.h"
 #include "GameViewEditorWindow.h"
 #include "ConsoleEditorWindow.h"
-#include "AnimatorEditorWindow.h"
 #include "NovaCodeWindow.h"
 #include "ProfilerEditorWindow.h"
 #include "MeshBatcher.h"
@@ -334,7 +333,6 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new GameViewEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new ProjectEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new ConsoleEditorWindow);
-	EditorGUIManager::GetI()->RegisterWindow(new AnimatorEditorWindow);
 	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
 	EditorGUIManager::GetI()->RegisterWindow(new ProfilerEditorWindow);   // Window > Analysis > Profiler (Ctrl+7)
 	EditorGUIManager::GetI()->RegisterWindow(new PackageManagerWindow);   // Window > Package Manager
@@ -430,9 +428,6 @@ bool App::Init()
 		char animLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_ANIM_TEST", animLog, sizeof(animLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunAnimationTest(SceneManager::GetI()->GetCurrentScene(), animLog);
-		char animatorLog[512] = {};
-		if (::GetEnvironmentVariableA("NOVA_ANIMATOR_TEST", animatorLog, sizeof(animatorLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
-			PhysicsSelfTest::RunAnimatorTest(SceneManager::GetI()->GetCurrentScene(), animatorLog);
 		char terrainLog[512] = {};
 		if (::GetEnvironmentVariableA("NOVA_TERRAIN_TEST", terrainLog, sizeof(terrainLog)) > 0 && SceneManager::GetI()->GetCurrentScene())
 			PhysicsSelfTest::RunTerrainTest(SceneManager::GetI()->GetCurrentScene(), terrainLog);

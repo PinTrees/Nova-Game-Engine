@@ -4,6 +4,7 @@
 #include "Animator.h"
 #include "UnityGUI.h"
 #include "UndoSystem.h"
+#include "AnimatorInspector.h"
 #include "ImGui/imgui_internal.h"
 
 using namespace AnimatorTypes;
@@ -178,9 +179,10 @@ void AnimatorEditorWindow::ResolveTarget()
 					Open(animator->GetController());
 			}
 	}
-	else if (type == SelectionType::FILE && SelectionManager::GetSelectedSubType() == SelectionSubType::ANIMATOR_CONTROLLER)
+	else if (type == SelectionType::FILE && SelectionManager::GetSelectedSubType() == SelectionSubType::CUSTOM_ASSET &&
+		_wcsicmp(std::filesystem::path(SelectionManager::GetSelectedFile()).extension().c_str(), L".controller") == 0)
 	{
-		auto controller = SelectionManager::GetSelectAnimatorController();
+		auto controller = AnimatorController::Load(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(SelectionManager::GetSelectedFile())));
 		if (controller && controller != m_Controller)
 		{
 			Open(controller);
@@ -204,13 +206,14 @@ void AnimatorEditorWindow::ResolveTarget()
 
 void AnimatorEditorWindow::SyncSelection()
 {
-	const AnimatorSelection& sel = SelectionManager::GetAnimatorSelection();
-	if (SelectionManager::GetSelectedObjectType() != SelectionType::ANIMATOR || sel.Controller != m_Controller || sel.Layer != m_Layer)
+	const AnimatorSelection* current = AnimatorInspector::Current();
+	if (current == nullptr || current->Controller != m_Controller || current->Layer != m_Layer)
 	{
 		m_SelNode = kNoNode;
 		m_SelTransition = -1;
 		return;
 	}
+	const AnimatorSelection& sel = *current;
 	const AnimatorLayer& layer = m_Controller->Layers[m_Layer];
 	if (sel.State >= 0 && sel.State < (int)layer.States.size())
 	{
@@ -243,7 +246,7 @@ void AnimatorEditorWindow::SelectNode(int node)
 	m_SelNode = node;
 	m_SelTransition = -1;
 	if (m_Controller)
-		SelectionManager::SetSelectedAnimatorItem(m_Controller, m_Layer, node >= 0 ? node : -1, -1);
+		AnimatorInspector::Select(m_Controller, m_Layer, node >= 0 ? node : -1, -1);
 }
 
 void AnimatorEditorWindow::SelectTransition(int index)
@@ -251,7 +254,7 @@ void AnimatorEditorWindow::SelectTransition(int index)
 	m_SelNode = kNoNode;
 	m_SelTransition = index;
 	if (m_Controller)
-		SelectionManager::SetSelectedAnimatorItem(m_Controller, m_Layer, -1, index);
+		AnimatorInspector::Select(m_Controller, m_Layer, -1, index);
 }
 
 void AnimatorEditorWindow::DeleteSelection()

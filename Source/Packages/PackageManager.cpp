@@ -325,6 +325,17 @@ namespace PackageManager
 	void Init()
 	{
 		Refresh();
+		// manifest 가 없는 프로젝트 (새 프로젝트 · 예전 프로젝트): Unity 기본 프로젝트처럼 기본 패키지를 넣어 둔다
+		std::error_code ec;
+		if (!Application::IsPlayer() && !fs::exists(ManifestPath(), ec) && fs::exists(PathManager::GetI()->GetMovePathW(L"Assets"), ec))
+		{
+			for (const char* name : { "com.nova.animation" })
+				if (const PackageInfo* p = Find(name); p && !p->Embedded)
+					s_Manifest[name] = p->Version;
+			std::string error;
+			if (!s_Manifest.empty() && WriteManifest(error))
+				EditorLog::Write("Packages", "created Packages/manifest.json with the default packages");
+		}
 		s_Initialized = true;
 		for (const PackageInfo* p : Wanted())
 			LoadPackage(*p);
@@ -488,6 +499,23 @@ namespace PackageManager
 					if (c.Type == type)
 						return p.Name;
 		return std::string();
+	}
+
+	bool AddForComponent(const std::string& type)
+	{
+		if (Application::IsPlayer() || Application::IsPlaying())
+			return false;
+		const std::string name = PackageForComponent(type);
+		if (name.empty() || IsLoaded(name))
+			return false;
+		std::string error;
+		if (!Add(name, error))
+		{
+			EditorLog::Write("Packages", "scene uses %s from %s but adding it failed: %s", type.c_str(), name.c_str(), error.c_str());
+			return false;
+		}
+		Debug::Log("Package Manager: the scene uses " + type + " → added " + name);
+		return true;
 	}
 
 	std::vector<std::wstring> ScriptFolders()

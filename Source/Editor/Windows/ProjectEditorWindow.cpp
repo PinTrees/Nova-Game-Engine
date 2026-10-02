@@ -4,8 +4,7 @@
 #include "EditorGUI.h"
 #include "SceneManager.h"
 #include "PathManager.h"
-#include "AnimatorController.h"
-#include "AnimatorEditorWindow.h"
+#include "EditorExtensions.h"
 #include "UndoSystem.h"
 #include "UnityGUI.h"
 #include "SkinnedMesh.h"
@@ -394,13 +393,15 @@ void ProjectEditorWindow::DrawCreateMenu(const fs::path& dir)
 		SelectionManager::SetSelectedFile(p);
 		InvalidateCache();
 	}
-	if (ImGui::MenuItem("Animator Controller"))
-	{
-		const std::wstring p = UniquePath(dir, L"New Animator Controller", L".controller");
-		AnimatorController::Create(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(p)));
-		SelectionManager::SetSelectedFile(p);
-		InvalidateCache();
-	}
+	// 패키지가 등록한 에셋 (예: Animation 패키지 → Animator Controller)
+	for (const EditorExtensions::AssetType* type : EditorExtensions::AssetTypes())
+		if (!type->CreateMenu.empty() && type->Create && ImGui::MenuItem(type->CreateMenu.c_str()))
+		{
+			const std::wstring p = UniquePath(dir, string_to_wstring(type->DefaultName), string_to_wstring(type->Extension));
+			type->Create(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(p)));
+			SelectionManager::SetSelectedFile(p);
+			InvalidateCache();
+		}
 	if (ImGui::MenuItem("Terrain Layer"))
 	{
 		const std::wstring p = UniquePath(dir, L"New Terrain Layer", L".terrainlayer");
@@ -853,7 +854,8 @@ void ProjectEditorWindow::Open(const Entry& e)
 		break;
 	case Kind::Controller:
 		SelectionManager::SetSelectedFile(e.Path.wstring());
-		AnimatorEditorWindow::Focus();
+		if (const auto* type = EditorExtensions::FindAssetType(e.Path.extension().string()); type && type->Open)
+			type->Open(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(e.Path.wstring())));
 		break;
 	case Kind::AudioMixer:
 		AudioMixerWindow::Open(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(e.Path.wstring())));

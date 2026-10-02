@@ -37,9 +37,9 @@ namespace Humanoid
 	NOVA_API const Avatar& Get(const SkeletonAvataData& skeleton);
 
 	// source 스켈레톤의 클립을 시간 t 에 샘플해 target 스켈레톤의 로컬 포즈로 (사람 본이 아닌 노드는 바인드 그대로)
-	void Retarget(const Avatar& source, const Avatar& target, const AnimationClip& clip, const std::vector<int>& sourceMap, float t,
+	NOVA_API void Retarget(const Avatar& source, const Avatar& target, const AnimationClip& clip, const std::vector<int>& sourceMap, float t,
 		std::vector<XMFLOAT4X4>& outLocal);
 
 	// source 모델 공간의 Hips 위치 → target 모델 공간 (다리 길이 비율) — 루트 모션
-	XMFLOAT3 ScaleHips(const Avatar& source, const Avatar& target, const XMFLOAT3& sourceHips);
+	NOVA_API XMFLOAT3 ScaleHips(const Avatar& source, const Avatar& target, const XMFLOAT3& sourceHips);
 }

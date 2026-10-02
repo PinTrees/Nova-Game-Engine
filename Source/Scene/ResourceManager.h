@@ -7,7 +7,7 @@ class SkinnedMesh;
 struct AnimationClip; 
 class SkeletonAvataData;
 
-class ResourceManager
+class NOVA_API ResourceManager
 {
 	SINGLE_HEADER(ResourceManager)
 

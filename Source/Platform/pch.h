@@ -117,7 +117,6 @@ namespace ed = ax::NodeEditor;
 // Component
 #include "GameObject.h"
 #include "AnimationPlayer.h"
-#include "Animator.h"
 #include "MeshFilter.h"
 #include "MeshRenderer.h"
 #include "SkinnedMeshRenderer.h"

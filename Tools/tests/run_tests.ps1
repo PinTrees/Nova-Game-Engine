@@ -177,6 +177,7 @@ return $"{groundY:F3} {grounded} {maxY:F3} {p.x:F3} {f}";
         '{ "parameters": [ { "name": "Blend", "type": "Float" } ], "layers": [ { "name": "Base Layer", "defaultState": "Move", "states": [ { "name": "Move", "blendTree": { "type": 0, "parameter": "Blend", "children": [ { "clipPath": "Resources\\Packages\\Character\\Animations\\Rapier_Idle.fbx", "threshold": 0 }, { "clipPath": "Resources\\Packages\\Character\\Animations\\GreatSword_Idle_Pose.FBX", "threshold": 1 } ] } } ] } ] }' | Set-Content -Encoding utf8 $bc
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'create character --name ACh --controller Assets\NovaTestBlend.controller' | Out-Null
+        Wait-Compile   # Animator 는 Animation 패키지 — 처음 넣었으면 C# 이 다시 컴파일된다
         $af = Join-Path $Out 'anim_blend.cs'
         'var a = GameObject.Find("ACh").GetComponent<Animator>(); a.SetFloat("Blend", 0); float l0 = a.GetCurrentAnimatorStateInfo(0).length; a.SetFloat("Blend", 1); float l1 = a.GetCurrentAnimatorStateInfo(0).length; a.SetFloat("Blend", 0.5f); var i = a.GetCurrentAnimatorStateInfo(0); return l0.ToString("F3") + " " + l1.ToString("F3") + " " + i.length.ToString("F3") + " " + i.IsName("Move");' | Set-Content -Encoding utf8 $af
         $ab = Invoke-NovaJson "exec --file $af"
@@ -364,7 +365,7 @@ function Suite-Audio
             'string r = ""; for (int i = 0; i < 3; i++) r += GameObject.Find("ACodec" + i).GetComponent<AudioSource>().clip.length.ToString("F2") + " "; return r.Trim();' | Set-Content -Encoding utf8 $cf
             $len = Invoke-NovaJson "exec --file $cf"
             $lv = if ($len) { "$($len.result)" -split ' ' } else { @() }
-            $streamLine = (Invoke-Nova 'log -n 400 --grep "long.mp3"') -join ' '
+            $streamLine = (Invoke-Nova 'log -n 5000 --grep "long.mp3"') -join ' '
             Add-Result audio 'ogg and mp3 decode, long mp3 streams' ($lv.Count -eq 3 -and [double]$lv[0] -gt 1 -and [double]$lv[1] -gt 2 -and [double]$lv[2] -gt 20 -and $streamLine -match 'streaming') "lengths $($lv -join ' / ') s, streaming $([bool]($streamLine -match 'streaming'))"
         }
     }

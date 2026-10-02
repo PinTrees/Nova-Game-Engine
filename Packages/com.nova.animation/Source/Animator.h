@@ -44,6 +44,7 @@ private:
 	std::vector<LayerRuntime> m_Layers;
 	unsigned m_ControllerRevision = 0;
 	bool m_Started = false;
+	bool m_NeedPreview = true;     // 편집 중: 컨트롤러가 바뀌면 다음 프레임에 첫 포즈 (씬을 열거나 캐릭터를 만든 직후에도 보이게)
 
 	// 포즈 계산 캐시 (RootChannel = 위치가 움직이는 채널 중 스켈레톤에서 가장 위쪽 — 루트 모션 본)
 	struct ClipMap
@@ -125,6 +126,7 @@ public:
 	virtual void Start() override;
 	virtual void Update() override;
 	virtual void FixedUpdate() override;
+	virtual void LastUpdate() override;
 
 	virtual void OnInspectorGUI() override;
 	virtual bool UsesUnityInspector() const override { return true; }
@@ -160,4 +162,4 @@ private:
 	GENERATE_COMPONENT_BODY(Animator)
 };
 
-REGISTER_COMPONENT(Animator)
+REGISTER_PACKAGE_COMPONENT(Animator)

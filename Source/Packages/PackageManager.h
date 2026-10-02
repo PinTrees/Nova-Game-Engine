@@ -60,6 +60,9 @@ namespace PackageManager
 
 	// 패키지 컴포넌트 타입 → 패키지 이름 (MissingComponent 안내용, 레지스트리에서 찾음)
 	NOVA_API std::string PackageForComponent(const std::string& componentType);
+	// 편집기에서 씬을 읽다가 모르는 타입을 만나면: 그 타입을 가진 레지스트리 패키지를 프로젝트에 넣고 불러온다
+	// (예: Animation 패키지가 나오기 전 프로젝트의 Animator). 넣었으면 true
+	NOVA_API bool AddForComponent(const std::string& componentType);
 	// 프로젝트에 들어간 패키지의 C# 폴더 (Runtime) — Assembly-CSharp.csproj 에 포함
 	NOVA_API std::vector<std::wstring> ScriptFolders();
 	NOVA_API std::wstring ManifestPath();

@@ -51,7 +51,7 @@ public:
 struct VecKey { float Time; XMFLOAT3 Value; };
 struct QuatKey { float Time; XMFLOAT4 Value; };
 
-struct AnimationChannel
+struct NOVA_API AnimationChannel
 {
 	std::string				NodeName;		// 대상 노드(본) 이름 - 재생할 때 스켈레톤의 같은 이름 노드에 적용
 	std::vector<VecKey>		Positions;
@@ -67,7 +67,7 @@ struct AnimationChannel
 
 class SkeletonAvataData;
 
-struct AnimationClip
+struct NOVA_API AnimationClip
 {
 	// 이 클립이 들어 있던 FBX 의 스켈레톤 (Humanoid 리타게팅: 이름이 다른 모델에 옮길 때 원래 자세를 안다)
 	std::weak_ptr<SkeletonAvataData> SourceSkeleton;

@@ -49,7 +49,6 @@ namespace
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
-		{ "Animator",            "Animator",              "Miscellaneous", "animator",          true  },
 		// UI (Unity 의 UI / Layout / Event 분류)
 		{ "UIImage",             "Image",                 "UI",            "ui_image",          true  },
 		{ "Text",                "Text",                  "UI",            "ui_text",           true  },

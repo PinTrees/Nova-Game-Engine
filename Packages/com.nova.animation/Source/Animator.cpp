@@ -46,6 +46,7 @@ void Animator::SetController(const std::string& path)
 	m_ControllerPath = m_Controller ? m_Controller->Path : path;
 	m_ControllerRevision = ~0u;
 	ResetRuntime();
+	m_NeedPreview = true;
 }
 
 void Animator::ResetRuntime()
@@ -747,6 +748,16 @@ void Animator::Update()
 	if (m_UpdateMode == 1 || m_AnimatePhysics)
 		return;
 	Step(m_UpdateMode == 2 ? TimeManager::GetI()->GetfDT() : DT);
+}
+
+void Animator::LastUpdate()
+{
+	// 편집 중 미리 보기: 렌더러(자식)가 다 붙은 뒤 한 번
+	if (m_NeedPreview && !Application::IsPlaying())
+	{
+		m_NeedPreview = false;
+		Rebind();
+	}
 }
 
 void Animator::FixedUpdate()

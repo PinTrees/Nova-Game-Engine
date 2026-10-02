@@ -25,7 +25,7 @@ struct ControllerColliderHit
 // Slope Limit 보다 가파른 경사는 오르지 못한다. 중력은 스크립트가 직접 더한다(SimpleMove 는 중력 포함).
 // 실제 이동은 PhysicsManager 가 Jolt CharacterVirtual 로 한다(Play 중). 다른 물체에게는 키네마틱 캡슐로 보인다.
 // 캡슐은 항상 세워져 있다(오브젝트 회전과 무관): 반지름 × max(|스케일 x|, |스케일 z|), 높이 × |스케일 y|.
-class CharacterController
+class NOVA_API CharacterController
 	: public Collider
 {
 private:

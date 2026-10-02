@@ -9,5 +9,5 @@ namespace ScriptBindings
 	void Update();                   // 지연 Destroy 처리
 	void Reset();                    // Play 종료 등: 대기 중인 작업 비우기
 	NOVA_API GameObject* FindObject(uint64 fileID);   // 씬 + 이번 프레임에 만든 오브젝트 (캐시)
-	const char* ReturnString(const std::string& s);   // 관리 코드로 돌려줄 임시 문자열
+	NOVA_API const char* ReturnString(const std::string& s);   // 관리 코드로 돌려줄 임시 문자열
 }

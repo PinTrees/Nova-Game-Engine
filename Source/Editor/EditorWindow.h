@@ -1,7 +1,7 @@
 #pragma once
 
 
-class EditorWindow
+class NOVA_API EditorWindow
 {
 private:
 	string m_WindowTitleName;

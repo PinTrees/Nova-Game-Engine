@@ -11,7 +11,7 @@ class SkeletonAvataData;
 // Unity 의 Skinned Mesh Renderer.
 //  - 메시와 스켈레톤(노드 계층)은 같은 FBX 에서 가져온다.
 //  - 본 행렬(팔레트)은 Animation 컴포넌트가 ApplyPose 로 넣어 주며, 없으면 바인드 포즈로 그린다.
-class SkinnedMeshRenderer : public Component
+class NOVA_API SkinnedMeshRenderer : public Component
 {
 	using Super = Component;
 

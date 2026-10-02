@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "MissingComponent.h"
+#include "PackageManager.h"
 #include "GameObject.h"
 #include "AddComponentMenu.h"
 #include "Transform.h"
@@ -432,6 +433,8 @@ void from_json(const json& j, GameObject& obj)
         {
             // ComponentFactory를 사용하여 컴포넌트 생성
             component = ComponentFactory::Instance().CreateComponent(type);
+            if (component == nullptr && !type.empty() && type != "MissingComponent" && PackageManager::AddForComponent(type))
+                component = ComponentFactory::Instance().CreateComponent(type);
             if (component != nullptr)
             {
                 component->fromJson(compJson);

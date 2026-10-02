@@ -3,14 +3,13 @@
 class GameObject;
 class UMaterial;
 class MeshFile;
-class AnimatorController;
 
 enum class SelectionType
 {
     NONE,
     FILE,
     GAMEOBJECT,
-    ANIMATOR,       // Animator 창에서 고른 상태 / 전이
+    CUSTOM,         // 패키지 창이 고른 것 (예: Animator 창의 상태 / 전이) — Inspector 는 그 함수로 그린다
 };
 
 enum class SelectionSubType
@@ -18,19 +17,18 @@ enum class SelectionSubType
     NONE,
     MATERIAL,
     FBX,
-    ANIMATOR_CONTROLLER,
+    CUSTOM_ASSET,   // 패키지가 등록한 에셋 종류 (EditorExtensions, 예: .controller)
     VOLUME_PROFILE,
     AUDIO_CLIP,
     SCRIPT,
 };
 
-// Animator 창 선택 (State >= 0 이면 상태, Transition >= 0 이면 전이)
-struct AnimatorSelection
+// 패키지 창이 고른 것: 데이터 + Inspector 에 그리는 함수
+struct CustomSelection
 {
-    shared_ptr<AnimatorController> Controller;
-    int Layer = 0;
-    int State = -1;
-    int Transition = -1;
+    std::string Owner;                 // 고른 창 / 패키지 ("Animator")
+    std::shared_ptr<void> Data;
+    std::function<void()> DrawInspector;
 };
 
 class NOVA_API SelectionManager
@@ -46,8 +44,7 @@ private:
 
     static shared_ptr<UMaterial> m_SelectedFile_Material;
     static shared_ptr<MeshFile> m_SelectFile_FbxModel;
-    static shared_ptr<AnimatorController> m_SelectFile_Controller;
-    static AnimatorSelection m_AnimatorSelection;
+    static CustomSelection m_Custom;
 
 public:
     static void ClearSelection();
@@ -65,9 +62,7 @@ public:
 
     static shared_ptr<MeshFile> GetSelectFbxModel() { return m_SelectFile_FbxModel; }
 
-    static shared_ptr<AnimatorController> GetSelectAnimatorController() { return m_SelectFile_Controller; }
-
-    static void SetSelectedAnimatorItem(shared_ptr<AnimatorController> controller, int layer, int state, int transition);
-    static const AnimatorSelection& GetAnimatorSelection() { return m_AnimatorSelection; }
+    static void SetCustomSelection(const std::string& owner, std::shared_ptr<void> data, std::function<void()> drawInspector);
+    static const CustomSelection& GetCustomSelection() { return m_Custom; }
 };
 

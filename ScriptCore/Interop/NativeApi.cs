@@ -100,10 +100,6 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, byte*, void> AS_SetClip;
         public delegate* unmanaged<byte*, float> Audio_ClipLength;
 
-        // Animator: kind 0 float, 1 int, 2 bool, 3 trigger
-        public delegate* unmanaged<ulong, byte*, int, float, void> AN_SetParam;
-        public delegate* unmanaged<ulong, byte*, int, float> AN_GetParam;
-
         // Physics / Camera
         public delegate* unmanaged<Vector3*, Vector3*, float, RaycastData*, int> PH_Raycast;
         public delegate* unmanaged<ulong> Camera_Main;
@@ -167,13 +163,6 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int, Vector3*, void> JT_SetVector;
         public delegate* unmanaged<ulong, int, ulong> JT_GetConnected;
         public delegate* unmanaged<ulong, int, ulong, void> JT_SetConnected;
-
-        // Animator — Play/CrossFade(fade < 0 = Play), float 0 speed 1 applyRootMotion, vector 0 deltaPosition 1 velocity, 상태(이름 + 시간·길이·전이)
-        public delegate* unmanaged<ulong, byte*, int, float, float, void> AN_Play;
-        public delegate* unmanaged<ulong, int, float> AN_GetFloat;
-        public delegate* unmanaged<ulong, int, float, void> AN_SetFloat;
-        public delegate* unmanaged<ulong, int, Vector3*, void> AN_GetVector;
-        public delegate* unmanaged<ulong, int, float*, byte*> AN_GetState;
 
         // AudioSource.outputAudioMixerGroup ("믹서|그룹") · AudioMixer (경로로)
         public delegate* unmanaged<ulong, byte*> AS_GetOutput;

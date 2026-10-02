@@ -4,6 +4,7 @@
 #include "AnimationClipLibrary.h"
 #include "SkinnedData.h"
 #include "UnityGUI.h"
+#include "UndoSystem.h"
 
 using namespace AnimatorTypes;
 
@@ -106,7 +107,7 @@ namespace
 				dl->AddRectFilled(ImVec2(x0 + 1, y), ImVec2(x1 - 1, y + rowH), kRowSelected);
 			ImGui::SetCursorScreenPos(ImVec2(x0, y));
 			if (ImGui::InvisibleButton("##tr", ImVec2(x1 - x0 - 84, rowH)))
-				SelectionManager::SetSelectedAnimatorItem(c, layerIndex, -1, indices[k]);
+				AnimatorInspector::Select(c, layerIndex, -1, indices[k]);
 			const std::string label = DisplayName(t.From) + " -> " + DisplayName(t.To);
 			dl->AddText(ImVec2(x0 + 8, y + 3), kText, label.c_str());
 			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1, 1));
@@ -491,6 +492,33 @@ namespace
 
 namespace AnimatorInspector
 {
+	void Select(const std::shared_ptr<AnimatorController>& controller, int layer, int state, int transition)
+	{
+		auto sel = std::make_shared<AnimatorSelection>();
+		sel->Controller = controller;
+		sel->Layer = layer;
+		sel->State = state;
+		sel->Transition = transition;
+		SelectionManager::SetCustomSelection("Animator", sel, [sel]() {
+			if (sel->Controller)
+			{
+				std::weak_ptr<AnimatorController> weak = sel->Controller;
+				Undo::WatchAsset("controller:" + sel->Controller->Path, sel->Controller->Name(),
+					[weak]() { auto c = weak.lock(); return c ? c->ToJsonString() : std::string(); },
+					[weak](const std::string& text) { if (auto c = weak.lock()) { c->ApplyJson(text); c->Commit(); } });
+			}
+			DrawSelection(*sel);
+		});
+	}
+
+	const AnimatorSelection* Current()
+	{
+		const CustomSelection& c = SelectionManager::GetCustomSelection();
+		if (SelectionManager::GetSelectedObjectType() != SelectionType::CUSTOM || c.Owner != "Animator" || c.Data == nullptr)
+			return nullptr;
+		return static_cast<const AnimatorSelection*>(c.Data.get());
+	}
+
 	void DrawSelection(const AnimatorSelection& sel)
 	{
 		const auto& c = sel.Controller;

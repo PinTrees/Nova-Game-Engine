@@ -569,10 +569,19 @@ GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, 
 {
 	GameObject* root = new GameObject(name);
 	AddSkinnedChildren(root, modelPath);
-	Animator* animator = root->AddComponent<Animator>();
-	animator->SetController(controllerPath);
-	// 에디터에서도 기본 상태의 첫 프레임 포즈로 보이게 한다 (Play 전)
-	animator->Rebind();
+	// Animator 는 Animation 패키지 (com.nova.animation) — 없으면 넣고, 이름으로 만든다.
+	// 컨트롤러는 JSON 으로 (패키지가 다음 프레임에 첫 포즈를 계산해 편집 중에도 보인다)
+	if (!PackageManager::IsInProject("com.nova.animation"))
+	{
+		std::string error;
+		if (!PackageManager::Add("com.nova.animation", error))
+			EditorLog::Write("Character", "could not add com.nova.animation: %s", error.c_str());
+	}
+	if (auto animator = ComponentFactory::Instance().CreateComponent("Animator"))
+	{
+		animator->fromJson({ { "type", "Animator" }, { "enabled", true }, { "controller", controllerPath } });
+		root->AddComponent(animator);
+	}
 	return root;
 }
 
