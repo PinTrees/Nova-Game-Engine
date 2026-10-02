@@ -9,6 +9,7 @@ cbuffer cbPerObject
     float4x4 gWorldInvTransposeView;
     float4x4 gWorldViewProj;
     float4x4 gTexTransform;
+    float gAlphaCutoff;   // NOVA: 재질의 Alpha Clipping 기준 (본 패스와 같아야 깊이만 남는 구멍이 없다). 0 = 예전 고정값 0.1
 }; 
 
 cbuffer cbSkinned
@@ -147,7 +148,7 @@ float4 PS(VertexOut pin, uniform bool gAlphaClip) : SV_Target
     {
         float4 texColor = gDiffuseMap.Sample(samLinear, pin.Tex);
 		 
-        clip(texColor.a - 0.1f);
+        clip(texColor.a - (gAlphaCutoff > 0.0f ? gAlphaCutoff : 0.1f));
     }
 	
     return float4(pin.NormalV, pin.PosV.z);

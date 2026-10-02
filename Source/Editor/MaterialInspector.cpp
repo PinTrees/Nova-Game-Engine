@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "CustomShaders.h"
 #include "MaterialInspector.h"
 #include "UMaterial.h"
 #include "Effects.h"
@@ -318,7 +319,7 @@ bool MaterialInspector::MaterialSlot(const char* label, const std::string& key, 
 			if (UMaterial::IsBuiltinPath(p))
 				return std::string("Universal Render Pipeline/Lit (built-in)");
 			auto m = ResourceManager::GetI()->LoadMaterial(p);
-			return m ? std::string(m->GetShader() == UMaterial::ShaderKind::Unlit ? "Universal Render Pipeline/Unlit" : "Universal Render Pipeline/Lit") : std::string("(cannot load)");
+			return m ? m->ShaderName() : std::string("(cannot load)");
 		};
 		ObjectPicker::Open(key, std::move(opt));
 	}
@@ -386,16 +387,24 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 		ImFont* bold = UnityGUI::BoldFont();
 		dl->AddText(bold, bold->FontSize, ImVec2(ix + 48.0f, p.y + 5.0f), kTextBright, (name + (builtin ? "  (Default)" : "")).c_str());
 		dl->AddText(ImVec2(ix + 48.0f, p.y + 26.0f), kText, "Shader");
-		// Shader: Lit / Unlit
-		static const char* kShaders[] = { "Universal Render Pipeline/Lit", "Universal Render Pipeline/Unlit" };
+		// Shader: Lit / Unlit + 패키지 셰이더 (CustomShaders — 예: Toon Shader 패키지의 lilToon)
+		std::vector<std::string> shaders = { "Universal Render Pipeline/Lit", "Universal Render Pipeline/Unlit" };
+		for (const std::string& n : CustomShaders::Names()) shaders.push_back(n);
+		const std::string current = m.ShaderName();
+		if (std::find(shaders.begin(), shaders.end(), current) == shaders.end()) shaders.push_back(current);   // 패키지가 빠진 셰이더도 보이게
 		ImGui::SetCursorScreenPos(ImVec2(ix + 100.0f, p.y + 24.0f));
 		ImGui::SetNextItemWidth((std::max)(80.0f, p.x + w - (ix + 100.0f) - 10.0f));
 		if (builtin) ImGui::BeginDisabled();
-		int shader = (int)m.m_Shader;
-		if (ImGui::Combo("##shader", &shader, kShaders, 2))
+		if (ImGui::BeginCombo("##shader", current.c_str()))
 		{
-			m.m_Shader = (UMaterial::ShaderKind)shader;
-			changed = true;
+			for (const std::string& n : shaders)
+				if (ImGui::Selectable(n.c_str(), n == current) && n != current)
+				{
+					const CustomShaders::Shader* cs = CustomShaders::Find(n);
+					m.SetShaderName(n, cs && cs->DefaultProperties ? cs->DefaultProperties() : json());
+					changed = true;
+				}
+			ImGui::EndCombo();
 		}
 		if (builtin) ImGui::EndDisabled();
 		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + h + 2.0f));
@@ -428,7 +437,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 		bool clip = p.AlphaClip != 0;
 		if (UnityGUI::Toggle("Alpha Clipping", &clip)) { p.AlphaClip = clip ? 1 : 0; changed = true; }
 		if (clip && UnityGUI::Slider("Threshold", &p.Cutoff, 0.0f, 1.0f, 1)) { p.Cutoff = std::clamp(p.Cutoff, 0.0f, 1.0f); changed = true; }
-		if (lit)
+		if (lit || m.IsCustom())
 		{
 			bool receive = p.ReceiveShadows != 0;
 			if (UnityGUI::Toggle("Receive Shadows", &receive)) { p.ReceiveShadows = receive ? 1 : 0; changed = true; }
@@ -490,6 +499,22 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 		UnityGUI::Spacing(4.0f);
 		if (UnityGUI::Vector2Pair("Tiling", "X", &p.Tiling.x, "Y", &p.Tiling.y)) changed = true;
 		if (UnityGUI::Vector2Pair("Offset", "X", &p.Offset.x, "Y", &p.Offset.y)) changed = true;
+	}
+
+	// ---- 패키지 셰이더 값 (그 패키지가 그린다)
+	if (m.IsCustom())
+	{
+		const CustomShaders::Shader* cs = CustomShaders::Find(m.CustomShader());
+		if (UnityGUI::Foldout((m.CustomShader() + " Settings").c_str(), 0, true, false))
+		{
+			if (cs && cs->Inspector)
+			{
+				if (cs->Inspector(m)) { m.TouchProperties(); changed = true; }
+			}
+			else
+				UnityGUI::HelpBox(("The shader '" + m.CustomShader() + "' comes from a package that is not in this project, so it is drawn with the fallback (" +
+					std::string(m.m_FallbackUnlit ? "Unlit" : "Lit") + "). Add the package in Window > Package Manager.").c_str(), true);
+		}
 	}
 
 	// ---- Advanced Options

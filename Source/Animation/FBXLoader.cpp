@@ -1,5 +1,6 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "FBXLoader.h"
+#include "VrmImport.h"
 struct VertexKey
 {
     XMFLOAT3 pos;       // Position
@@ -83,12 +84,17 @@ void OptimizeVertices(std::vector<Vertex::PosNormalTexTanSkinned>& vertices, std
 //  - 왼손 좌표계(DirectX)로 변환, 삼각형화, 정점 가중치 최대 4 개
 //  - 16 비트 인덱스를 쓰므로 메시를 65000 정점 이하로 나눈다
 //  - FBX 피벗 보조 노드($AssimpFbx$)를 만들지 않는다: 노드 변환과 애니메이션 키가 같은 값(PreRotation 포함)이 되어 이름으로 바로 연결된다
+// VRM 0.x 는 glTF 에서 -Z 를 본다 (UniVRM 이 Unity 의 Z 를 뒤집어 내보냄) → ConvertToLeftHanded 만으로 Unity 와 같은 축이라 R 을 하지 않는다
+// -1 = R (Y 180°), 1 = 그대로 — 파일을 읽을 때 정한다. 비동기 읽기가 겹쳐도 섞이지 않게 스레드마다
+static thread_local float s_AxisFlip = -1.0f;
+
 static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string& path, bool withMeshes)
 {
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);   // PreRotation 등을 노드 변환·애니메이션 키에 합쳐 넣는다
     importer.SetPropertyInteger(AI_CONFIG_PP_SLM_VERTEX_LIMIT, 65000);
     importer.SetPropertyInteger(AI_CONFIG_PP_SLM_TRIANGLE_LIMIT, 1000000);
     importer.SetPropertyInteger(AI_CONFIG_PP_LBW_MAX_WEIGHTS, 4);
+    s_AxisFlip = VrmImport::IsVrm0(string_to_wstring(path)) ? 1.0f : -1.0f;
     unsigned flags = aiProcess_ConvertToLeftHanded | aiProcess_Triangulate | aiProcess_LimitBoneWeights;
     if (withMeshes)
         flags |= aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |
@@ -113,12 +119,12 @@ static XMFLOAT4X4 ToRowMajor(const aiMatrix4x4& m)
 // Unity 와 같은 축: Assimp 의 ConvertToLeftHanded 는 Z 를 뒤집지만 Unity 는 X 를 뒤집는다 → 둘은 Y 축 180° 차이.
 // 모든 정점·노드·본·애니메이션 키에 같은 회전 R = diag(-1, 1, -1) 을 걸어 Unity 에서 +Z 를 보던 캐릭터가 여기서도 +Z 를 보게 한다
 // (R 은 회전이라 삼각형 감기 방향은 그대로). 행렬은 R·M·R = 원소 (i, j) 에 r_i·r_j 를 곱한 것.
-static aiVector3D ToEngine(const aiVector3D& v) { return aiVector3D(-v.x, v.y, -v.z); }
+static aiVector3D ToEngine(const aiVector3D& v) { return aiVector3D(s_AxisFlip * v.x, v.y, s_AxisFlip * v.z); }
 
 static XMFLOAT4X4 ToEngineMatrix(const aiMatrix4x4& m)
 {
     XMFLOAT4X4 r = ToRowMajor(m);
-    const float s[4] = { -1.0f, 1.0f, -1.0f, 1.0f };
+    const float s[4] = { s_AxisFlip, 1.0f, s_AxisFlip, 1.0f };
     for (int i = 0; i < 4; ++i)
         for (int j = 0; j < 4; ++j)
             r.m[i][j] *= s[i] * s[j];
@@ -257,13 +263,13 @@ bool FBXLoader::LoadAnimation(const std::string& filename, SkinnedData& skinnedD
             for (unsigned k = 0; k < ch->mNumPositionKeys; ++k)
             {
                 const auto& key = KeyAt(ch->mPositionKeys, posStride, k);
-                channel.Positions.push_back({ (float)(key.mTime / tps), XMFLOAT3(-key.mValue.x, key.mValue.y, -key.mValue.z) });   // ToEngine
+                channel.Positions.push_back({ (float)(key.mTime / tps), XMFLOAT3(s_AxisFlip * key.mValue.x, key.mValue.y, s_AxisFlip * key.mValue.z) });   // ToEngine
             }
             for (unsigned k = 0; k < ch->mNumRotationKeys; ++k)
             {
                 const auto& key = KeyAt(ch->mRotationKeys, rotStride, k);
                 // R·q·R (Y 축 180°): 회전축의 X·Z 를 뒤집는다
-                channel.Rotations.push_back({ (float)(key.mTime / tps), XMFLOAT4(-key.mValue.x, key.mValue.y, -key.mValue.z, key.mValue.w) });
+                channel.Rotations.push_back({ (float)(key.mTime / tps), XMFLOAT4(s_AxisFlip * key.mValue.x, key.mValue.y, s_AxisFlip * key.mValue.z, key.mValue.w) });
             }
             for (unsigned k = 0; k < ch->mNumScalingKeys; ++k)
             {

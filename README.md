@@ -379,6 +379,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | `com.nova.cameras` — Cameras | **Follow Camera**: 3인칭 따라가기 카메라(대상 뒤·위, 부드럽게, 벽이 가리면 당김). C# `FollowCamera` |
 | `com.nova.ai.navigation` — AI Navigation | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) 다각형 NavMesh — **NavMesh Surface**(정적 콜라이더로 굽기, 기울기·계단 높이·에이전트 반지름·높이, 타일 + 여러 스레드, 파란 다각형 표시) + **Nav Mesh Agent**(SetDestination → 벽을 돌아가는 길, 가속·자동 감속·회전, 서로 겹치지 않게, 언덕 바닥에 붙음) + **NavMesh Link**(낭떠러지·틈·사다리처럼 걸어서 못 가는 두 곳을 잇는다 — 에이전트가 건너감, 실행 중 옮겨도 바로 반영) + **Nav Mesh Obstacle**(에이전트가 피하고, Carve 면 멈춰 있는 동안 NavMesh 에 구멍 — 닿은 타일만 몇 ms 에 다시 만듦, Detour TileCache). C# `NovaEngine.AI` 의 NavMeshAgent(isOnOffMeshLink · CompleteOffMeshLink 포함) · NavMesh.CalculatePath / SamplePosition · NavMeshSurface.BuildNavMesh · NavMeshObstacle · NavMeshLink |
 | `com.nova.modeling` — Model Editor | Blender 처럼 가볍게 모델링하는 창 (Window > **Model Editor**): Object / Edit 모드, 점 · 변 · 면 고르기(클릭 · 상자 · Alt+클릭 변 고리), **G R S**(X/Y/Z 축 제한 · 숫자 입력 · Ctrl 눈금), **Extrude · Inset · Loop Cut · Bevel · Subdivide · Subdivision Surface · Mirror · Symmetrize · Merge · Fill · Bridge**, Shade Smooth, Undo, Last Operation 패널. FBX · OBJ · glTF 를 사각형 그대로 열고 **FBX(바이너리) · OBJ · GLB 로 내보내기**, `.nmodel` 에셋. 모든 연산이 **`nova model <op>` CLI**(JSON 결과 + 시점별 PNG 렌더) → AI 가 단계별로 모델링하고 그림으로 확인. 버텍스 그룹(연산을 따라가는 이름 있는 선택), 체크포인트, `batch`(Undo 한 번), **기준 그림 + 실루엣 비교**(IoU · "여기를 0.3 m 넓혀라" 힌트 · 차이 그림). 캐릭터 도구: **실시간 Mirror · Subsurf 모디파이어**, 비례 편집, **애니메이션풍 머리 다발 · 카드**, Smart UV, 재질 색, **툰 2 톤 + 외곽선** 미리보기 · 렌더. 자세히: [docs/MODEL_EDITOR.md](docs/MODEL_EDITOR.md) |
+| `com.nova.toon` — Toon Shader (lilToon) | 서브컬처 · 애니메이션풍 캐릭터용 툰 셰이더. [lilToon](https://github.com/lilxyzw/lilToon) (MIT) 의 셰이딩을 옮김: **그림자 2 단**(Border · Blur · 그림자 색 그림 · 경계 색), **빛 Min / Max Limit**(너무 밝거나 어둡지 않게) · 흑백 · As Unlit, **림 라이트 · 역광**, **외곽선**(뒷면 확장, 폭 cm · 거리 고정 · Z Bias). 재질 Inspector 의 Shader 에서 `lilToon` 을 고르면 "lilToon Settings" 가 나온다. **VRM 캐릭터는 자동**: VRM 1.0 MToon · VRM 0.x MToon 값을 lilToon 재질로 옮기고 패키지를 넣는다. 패키지가 없으면 재질은 Unlit 으로 그려진다 (엔진 확장 지점 `CustomShaders`) |
 | `com.nova.starter-assets` — Starter Assets - Third Person | C# **ThirdPersonController** + StarterAssetsInputs: WASD(카메라 기준)·Shift 달리기·Space 점프, 가속·부드러운 회전·중력, 오른쪽 버튼 끌기로 카메라 돌리기, Animator 파라미터(Speed·Grounded·Jump·FreeFall). Character Controller + Follow Camera 와 함께 (Cameras 를 의존성으로 같이 넣음) |
 
 | `com.nova.feature.3d-characters` — 3D Characters and Animation (Feature) | Unity 6 의 Feature 처럼 묶음: Animation + Cameras + Starter Assets 를 한 번에 |
@@ -472,9 +473,11 @@ docs/           NOVA_CLI.md, PACKAGES.md(패키지 만들기), MODEL_EDITOR.md(�
 | [dr_mp3](https://github.com/mackron/dr_libs) (공개 도메인 / MIT-0) | MP3 풀기 |
 | [Recast & Detour](https://github.com/recastnavigation/recastnavigation) (zlib) | NavMesh 굽기·길 찾기·TileCache (AI Navigation 패키지 안에만) |
 | [FastLZ](https://github.com/ariya/FastLZ) (MIT) | NavMesh 층 데이터 압축 (AI Navigation 패키지 안에만) |
+| [lilToon](https://github.com/lilxyzw/lilToon) (MIT, © lilxyzw) | 툰 셰이딩 알고리즘 (Toon Shader 패키지 안에만, `Packages/com.nova.toon/LICENSE-lilToon.txt`) |
 | [Pretendard](https://github.com/orioncactus/pretendard) (SIL OFL) · [Font Awesome](https://fontawesome.com) | 폰트, 아이콘 |
 
 스크린샷 · 문서 그림의 VRM 캐릭터: **Seed-san** © VirtualCast, Inc. — [VRM Public License 1.0](https://vrm.dev/licenses/1.0/) ([VRM 컨소시엄 샘플](https://github.com/vrm-c/vrm-specification/tree/master/samples/Seed-san)). 모델 파일은 저장소에 들어 있지 않다 (테스트 프로젝트에만).
+툰 셰이더 스크린샷의 캐릭터: **VRoid 공식 샘플 AvatarSample_A · AvatarSample_B** (pixiv Inc., VRoid Studio 샘플 모델) — 역시 저장소에는 없다 (테스트 프로젝트에만).
 
 기본 스카이박스는 [Poly Haven](https://polyhaven.com) 의 CC0 HDRI(Kloofendal 48d Partly Cloudy Pure Sky)입니다 — `Resources/Textures/Skybox/README.md`. 에디터 아이콘과 테스트 효과음은 `Tools/` 의 스크립트로 직접 그리거나 합성한 것이며, Unity 의 아이콘·에셋은 사용하지 않았습니다.
 

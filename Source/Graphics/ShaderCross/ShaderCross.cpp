@@ -56,7 +56,9 @@ namespace
 		s_Utils->CreateDefaultIncludeHandler(&include);
 		const std::wstring dir = std::filesystem::path(file).parent_path().wstring();
 		const std::wstring incArg = L"-I" + dir;
-		LPCWSTR args[] = { incArg.c_str(), L"-HV", L"2018" };
+		std::error_code ec;
+		const std::wstring engineArg = L"-I" + std::filesystem::absolute(L"../Shaders", ec).wstring();   // 패키지 셰이더 → 엔진 셰이더
+		LPCWSTR args[] = { incArg.c_str(), engineArg.c_str(), L"-HV", L"2018" };
 		ComPtr<IDxcOperationResult> result;
 		if (FAILED(s_Legacy->Preprocess(source.Get(), file.c_str(), args, _countof(args), nullptr, 0, include.Get(), &result)))
 		{

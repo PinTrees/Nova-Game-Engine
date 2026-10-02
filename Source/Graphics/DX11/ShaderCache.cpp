@@ -12,6 +12,57 @@ namespace fs = std::filesystem;
 
 namespace
 {
+	// 엔진 셰이더 폴더 (작업 폴더 = Binaries). 패키지 셰이더가 #include "32. InstancedBasic.fx" 처럼 엔진 셰이더를 포함할 때 찾는 곳
+	fs::path EngineShaderDir()
+	{
+		std::error_code ec;
+		return fs::absolute(L"../Shaders", ec);
+	}
+
+	// #include 찾기: 포함하는 파일의 폴더 → 맨 위 파일의 폴더 → 엔진 Shaders 폴더
+	//  (D3D_COMPILE_STANDARD_FILE_INCLUDE 는 패키지 폴더에서 엔진 셰이더 안의 #include 를 찾지 못했다)
+	class ShaderInclude : public ID3DInclude
+	{
+	public:
+		explicit ShaderInclude(const fs::path& top) : m_Top(top.parent_path()), m_Engine(EngineShaderDir()) {}
+		HRESULT __stdcall Open(D3D_INCLUDE_TYPE, LPCSTR name, LPCVOID parent, LPCVOID* data, UINT* bytes) override
+		{
+			fs::path base = m_Top;
+			if (parent)
+				if (auto it = m_DirOf.find(parent); it != m_DirOf.end())
+					base = it->second;
+			const fs::path rel = fs::path(string_to_wstring(name));
+			for (const fs::path& dir : { base, m_Top, m_Engine })
+			{
+				const fs::path file = dir / rel;
+				std::ifstream in(file, std::ios::binary);
+				if (!in)
+					continue;
+				std::vector<char> buf((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+				char* mem = new char[buf.size() + 1];
+				memcpy(mem, buf.data(), buf.size());
+				mem[buf.size()] = 0;
+				m_DirOf[mem] = file.parent_path();
+				*data = mem;
+				*bytes = (UINT)buf.size();
+				return S_OK;
+			}
+			return E_FAIL;
+		}
+		HRESULT __stdcall Close(LPCVOID data) override
+		{
+			m_DirOf.erase(data);
+			delete[] static_cast<const char*>(data);
+			return S_OK;
+		}
+	private:
+		fs::path m_Top, m_Engine;
+		std::map<LPCVOID, fs::path> m_DirOf;
+	};
+}
+
+namespace
+{
 	constexpr uint32_t kCacheMagic = 0x43584644; // 'DFXC'
 
 	struct CacheHeader
@@ -53,7 +104,11 @@ namespace
 			const size_t a = line.find('"', p), b = a == std::string::npos ? a : line.find('"', a + 1);
 			if (a == std::string::npos || b == std::string::npos)
 				continue;
-			CollectStamp(file.parent_path() / string_to_wstring(line.substr(a + 1, b - a - 1)), visited, h, deps);
+			fs::path inc = file.parent_path() / string_to_wstring(line.substr(a + 1, b - a - 1));
+			std::error_code ec;
+			if (!fs::exists(inc, ec))
+				inc = EngineShaderDir() / string_to_wstring(line.substr(a + 1, b - a - 1));   // 패키지 셰이더 → 엔진 셰이더
+			CollectStamp(inc, visited, h, deps);
 		}
 	}
 
@@ -109,7 +164,8 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 		EditorLog::Write("Shader", "cache miss %s (depends on: %s)", wstring_to_string(src.filename().wstring()).c_str(), depList.c_str());
 	}
 	const ULONGLONG compileStart = ::GetTickCount64();
-	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, nullptr,
+	ShaderInclude include(src);
+	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), nullptr, &include, nullptr,
 		"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
 	EditorLog::Write("Shader", "compiled %s in %llu ms (hr=0x%08X)%s%s", wstring_to_string(src.filename().wstring()).c_str(), ::GetTickCount64() - compileStart, (unsigned)hr,
 		outMsgs ? "\n" : "", outMsgs ? (const char*)outMsgs->GetBufferPointer() : "");

@@ -1,0 +1,11 @@
+{
+  "name": "com.nova.toon",
+  "displayName": "Toon Shader (lilToon)",
+  "version": "1.0.0",
+  "description": "Anime / subculture toon shading for characters, ported from lilToon (MIT, lilxyzw): two shadow layers with border and blur, shadow color textures, border color, light min / max limits (never too bright or too dark), rim light, backlight and an inverted-hull outline. Materials pick the shader \"lilToon\" in the Inspector; VRM characters (MToon) are converted to it automatically.",
+  "category": "Rendering",
+  "author": { "name": "NOVA" },
+  "keywords": [ "toon", "anime", "lilToon", "mtoon", "vrm", "outline", "cel shading", "shader" ],
+  "native": [ "NovaToon.dll" ],
+  "shaders": [ "lilToon" ]
+}

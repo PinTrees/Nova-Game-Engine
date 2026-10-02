@@ -165,7 +165,7 @@ void UMaterial::Apply(InstancedBasicEffect* fx, bool forPreview)
 	p.UseMetallicMap = MetallicMapSRV ? 1 : 0;
 	p.UseOcclusionMap = OcclusionMapSRV ? 1 : 0;
 	p.UseEmissionMap = m_EmissionEnabled && EmissionMapSRV ? 1 : 0;
-	p.Unlit = m_Shader == ShaderKind::Unlit ? 1 : 0;
+	p.Unlit = m_Shader == ShaderKind::Unlit || (m_Shader == ShaderKind::Custom && m_FallbackUnlit) ? 1 : 0;   // 패키지 셰이더가 없을 때
 	// Emission: 감마 색 → 선형 × Intensity (HDR 이라 Bloom 이 번진다)
 	if (m_EmissionEnabled)
 		p.EmissionColor = XMFLOAT4(ToLinear(m_EmissionColor.x) * m_EmissionIntensity, ToLinear(m_EmissionColor.y) * m_EmissionIntensity,
@@ -188,6 +188,37 @@ void UMaterial::Apply(InstancedBasicEffect* fx, bool forPreview)
 	fx->SetMetallicMap(MetallicMapSRV.Get());
 	fx->SetOcclusionMap(OcclusionMapSRV.Get());
 	fx->SetEmissionMap(EmissionMapSRV.Get());
+}
+
+std::string UMaterial::ShaderName() const
+{
+	if (m_Shader == ShaderKind::Custom) return m_CustomShader;
+	return m_Shader == ShaderKind::Unlit ? "Universal Render Pipeline/Unlit" : "Universal Render Pipeline/Lit";
+}
+
+void UMaterial::SetShaderName(const std::string& name, const json& defaultProperties)
+{
+	if (name == "Universal Render Pipeline/Unlit") m_Shader = ShaderKind::Unlit;
+	else if (name.empty() || name == "Universal Render Pipeline/Lit") m_Shader = ShaderKind::Lit;
+	else
+	{
+		m_Shader = ShaderKind::Custom;
+		if (m_CustomShader != name && defaultProperties.is_object())
+		{
+			// 새 셰이더의 기본값 위에 지금 값 (같은 이름) 을 남긴다
+			json merged = defaultProperties;
+			for (auto it = m_Properties.begin(); it != m_Properties.end(); ++it) merged[it.key()] = it.value();
+			m_Properties = merged;
+		}
+		m_CustomShader = name;
+	}
+	m_PropertiesRevision = NextRevision();
+}
+
+uint64 UMaterial::NextRevision()
+{
+	static std::atomic<uint64> s_Next{ 1 };
+	return s_Next++;
 }
 
 void UMaterial::ApplyOrDefault(const shared_ptr<UMaterial>& material, InstancedBasicEffect* fx)
@@ -226,7 +257,13 @@ void from_json(const json& j, UMaterial& m)
 	if (j.contains("BaseColor"))
 	{
 		// URP Lit 형식
-		m.m_Shader = j.value("Shader", std::string()) == "Universal Render Pipeline/Unlit" ? UMaterial::ShaderKind::Unlit : UMaterial::ShaderKind::Lit;
+		const std::string shaderName = j.value("Shader", std::string());
+		m.m_Shader = shaderName == "Universal Render Pipeline/Unlit" ? UMaterial::ShaderKind::Unlit :
+			(shaderName.empty() || shaderName == "Universal Render Pipeline/Lit" ? UMaterial::ShaderKind::Lit : UMaterial::ShaderKind::Custom);
+		m.m_CustomShader = m.m_Shader == UMaterial::ShaderKind::Custom ? shaderName : std::string();
+		m.m_Properties = j.contains("Properties") && j["Properties"].is_object() ? j["Properties"] : json::object();
+		m.m_FallbackUnlit = j.value("Fallback", std::string("Lit")) == "Unlit";
+		m.m_PropertiesRevision = UMaterial::NextRevision();
 		p.BaseColor = ReadF4(j, "BaseColor", p.BaseColor);
 		p.Metallic = j.value("Metallic", p.Metallic);
 		p.Smoothness = j.value("Smoothness", p.Smoothness);
@@ -263,7 +300,7 @@ void to_json(json& j, const UMaterial& m)
 {
 	const PbrMaterial& p = m.m_Pbr;
 	j = json{
-		{ "Shader", m.m_Shader == UMaterial::ShaderKind::Unlit ? "Universal Render Pipeline/Unlit" : "Universal Render Pipeline/Lit" },
+		{ "Shader", m.ShaderName() },
 		{ "ResourcePath", m.m_ResourcePath },
 		{ "BaseMapPath", wstring_to_string(m.m_BaseMapPath) },
 		{ "NormalMapPath", wstring_to_string(m.m_NormalMapPath) },
@@ -300,4 +337,9 @@ void to_json(json& j, const UMaterial& m)
 		{ "ReflectionEnabled", m.m_shaderSetting.ReflectionEnabled },
 		{ "FogEnabled", m.m_shaderSetting.FogEnabled },
 	};
+	if (m.m_Shader == UMaterial::ShaderKind::Custom)
+	{
+		j["Properties"] = m.m_Properties;
+		j["Fallback"] = m.m_FallbackUnlit ? "Unlit" : "Lit";
+	}
 }

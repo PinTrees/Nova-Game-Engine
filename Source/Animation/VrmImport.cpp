@@ -18,11 +18,13 @@ namespace VrmImport
 
 		std::string Lower(std::string s) { std::transform(s.begin(), s.end(), s.begin(), ::tolower); return s; }
 
-		// glTF (오른손) 로컬 벡터 · 방향 → 엔진 (FBXLoader 와 같은 변환)
+		// 스프링 본 벡터 → 엔진 본 로컬: VRM 1.0 = glTF (오른손) → (-x, y, z), VRM 0.x = Unity 좌표 그대로
+		bool s_ConvVrm0 = false;
 		json Conv(const json& v)
 		{
-			if (v.is_array() && v.size() == 3) return json::array({ -v[0].get<float>(), v[1].get<float>(), v[2].get<float>() });
-			if (v.is_object()) return json::array({ -v.value("x", 0.0f), v.value("y", 0.0f), v.value("z", 0.0f) });
+			const float sx = s_ConvVrm0 ? 1.0f : -1.0f;
+			if (v.is_array() && v.size() == 3) return json::array({ sx * v[0].get<float>(), v[1].get<float>(), v[2].get<float>() });
+			if (v.is_object()) return json::array({ sx * v.value("x", 0.0f), v.value("y", 0.0f), v.value("z", 0.0f) });
 			return json::array({ 0.0f, 0.0f, 0.0f });
 		}
 
@@ -62,10 +64,38 @@ namespace VrmImport
 		return ReadGlb(path, j) && VrmExt(j, v1) != nullptr;
 	}
 
+	bool IsVrm0(const std::wstring& path)
+	{
+		const std::string ext = Lower(fs::path(path).extension().string());
+		if (ext != ".vrm" && ext != ".glb") return false;
+		json j;
+		bool v1 = false;
+		return ReadGlb(path, j) && VrmExt(j, v1) != nullptr && !v1;
+	}
+
 	bool ReadGlb(const std::wstring& path, json& out, std::vector<uint8_t>* bin)
 	{
 		std::ifstream f(Full(path), std::ios::binary);
 		if (!f) return false;
+		if (!bin)
+		{
+			// JSON 덩어리만 (머리 12 + 덩어리 머리 8)
+			uint8_t head[20] = {};
+			f.read((char*)head, 20);
+			if (f.gcount() == 20 && memcmp(head, "glTF", 4) == 0)
+			{
+				uint32_t len = 0, type = 0;
+				memcpy(&len, head + 12, 4);
+				memcpy(&type, head + 16, 4);
+				if (type != 0x4E4F534A || len > (256u << 20)) return false;
+				std::string text(len, '\0');
+				f.read(text.data(), len);
+				out = json::parse(text, nullptr, false);
+				return !out.is_discarded();
+			}
+			f.clear();
+			f.seekg(0);
+		}
 		std::vector<uint8_t> d((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 		if (d.size() < 20 || memcmp(d.data(), "glTF", 4) != 0)
 		{
@@ -177,8 +207,15 @@ namespace VrmImport
 			const fs::path file = matRel / string_to_wstring(unique + ".mat");
 			result.push_back(file.wstring());
 			if (fs::exists(Full(file.wstring()), ec)) continue;
-			const json ext = mat.value("extensions", json::object());
-			const bool unlit = ext.contains("KHR_materials_unlit") || ext.contains("VRMC_materials_mtoon");
+			json ext = mat.value("extensions", json::object());
+			// VRM 0.x: MToon 값은 extensions.VRM.materialProperties (재질 이름으로 짝) — Unity 셰이더 속성 이름
+			json mtoon0;
+			if (g.contains("extensions") && g["extensions"].contains("VRM"))
+				for (const json& mp : g["extensions"]["VRM"].value("materialProperties", json::array()))
+					if (mp.value("name", std::string()) == mat.value("name", std::string()) && mp.value("shader", std::string()).find("MToon") != std::string::npos)
+						mtoon0 = mp;
+			const bool mtoon = ext.contains("VRMC_materials_mtoon") || !mtoon0.is_null();
+			const bool unlit = mtoon || ext.contains("KHR_materials_unlit");
 			const json pbr = mat.value("pbrMetallicRoughness", json::object());
 			json bc = pbr.value("baseColorFactor", json::array({ 1.0, 1.0, 1.0, 1.0 }));
 			const std::string alpha = mat.value("alphaMode", std::string("OPAQUE"));
@@ -204,6 +241,108 @@ namespace VrmImport
 			j["Emission"] = emissive;
 			j["EmissionColor"] = { ToGamma(em[0].get<float>()), ToGamma(em[1].get<float>()), ToGamma(em[2].get<float>()) };
 			j["EmissionIntensity"] = 1.0f;
+			if (mtoon)
+			{
+				// MToon → lilToon (패키지 com.nova.toon). 패키지가 없으면 Unlit 으로 그린다
+				//  MToon: shading = linearstep(-1 + toony, 1 - toony, N·L + shift) → lilToon 의 N·L*0.5+0.5 에서 Border = 0.5 - shift/2, Blur = 1 - toony
+				json props;
+				if (!mtoon0.is_null())
+				{
+					// VRM 0.x MToon: smoothstep(ShadeShift, ShadeShift + (1 - Toony), N·L) — 색은 Unity 색 (감마) 그대로
+					const json fp = mtoon0.value("floatProperties", json::object());
+					const json vp = mtoon0.value("vectorProperties", json::object());
+					const json tp = mtoon0.value("textureProperties", json::object());
+					auto fv = [&](const char* k, float d) { return fp.contains(k) && fp[k].is_number() ? fp[k].get<float>() : d; };
+					auto col3 = [&](const char* k, std::initializer_list<float> d) {
+						const json c = vp.contains(k) && vp[k].is_array() && vp[k].size() >= 3 ? vp[k] : json(d);
+						return json::array({ c[0].get<float>(), c[1].get<float>(), c[2].get<float>() });
+					};
+					auto tex = [&](const char* k) {
+						if (!tp.contains(k) || !tp[k].is_number_integer()) return std::string();
+						return wstring_to_string(texFile(json{ { "index", tp[k].get<int>() } }));
+					};
+					const float shift = fv("_ShadeShift", 0.0f), toony = fv("_ShadeToony", 0.9f);
+					props["UseShadow"] = true;
+					props["ShadowColor"] = col3("_ShadeColor", { 0.97f, 0.81f, 0.86f });
+					props["ShadowColorTex"] = tex("_ShadeTexture");
+					props["ShadowBorder"] = std::clamp(0.5f + (shift + (1.0f - toony) * 0.5f) * 0.5f, 0.0f, 1.0f);
+					props["ShadowBlur"] = std::clamp((1.0f - toony) * 0.5f, 0.01f, 1.0f);
+					props["ShadowStrength"] = 1.0f;
+					props["ShadowMainStrength"] = 0.0f;
+					props["ShadowEnvStrength"] = 0.0f;
+					props["ShadowReceive"] = std::clamp(fv("_ReceiveShadowRate", 1.0f), 0.0f, 1.0f);
+					props["ShadowBorderRange"] = 0.0f;
+					const json rim = col3("_RimColor", { 0.0f, 0.0f, 0.0f });
+					props["UseRim"] = rim[0].get<float>() + rim[1].get<float>() + rim[2].get<float>() > 0.001f;
+					props["RimColor"] = rim;
+					props["RimStrength"] = 1.0f;
+					props["RimBorder"] = 0.5f;
+					props["RimBlur"] = 1.0f;
+					props["RimFresnelPower"] = fv("_RimFresnelPower", 1.0f);
+					props["RimShadowMask"] = 0.0f;
+					props["RimEnableLighting"] = fv("_RimLightingMix", 0.0f);
+					const int mode = (int)fv("_OutlineWidthMode", 0.0f);   // 0 없음, 1 월드 (cm), 2 화면
+					const float w = fv("_OutlineWidth", 0.0f);
+					const float widthCm = mode == 1 ? w : (mode == 2 ? w * 2.0f : 0.0f);
+					props["UseOutline"] = widthCm > 0.0f;
+					props["OutlineWidth"] = widthCm;
+					props["OutlineFixWidth"] = 0.0f;
+					props["OutlineColor"] = col3("_OutlineColor", { 0.0f, 0.0f, 0.0f });
+					props["OutlineEnableLighting"] = fv("_OutlineLightingMix", 1.0f);
+					// 기본 색 · 잘라내기 (0.x 는 glTF 재질보다 이 값이 맞다)
+					if (vp.contains("_Color") && vp["_Color"].is_array() && vp["_Color"].size() == 4)
+						j["BaseColor"] = vp["_Color"];
+					const std::string mainTex = tex("_MainTex");
+					if (!mainTex.empty()) j["BaseMapPath"] = mainTex;
+					const int blend = (int)fv("_BlendMode", 0.0f);
+					j["AlphaClipping"] = blend != 0 ? 1 : 0;
+					j["Cutoff"] = blend == 1 ? fv("_Cutoff", 0.5f) : 0.5f;
+					j["Shader"] = "lilToon";
+					j["Fallback"] = "Unlit";
+					j["Properties"] = props;
+					j["NormalMapPath"] = tex("_BumpMap");
+				}
+				else
+				{
+				const json mt = ext["VRMC_materials_mtoon"];
+				auto gamma3 = [&](const char* key, std::initializer_list<float> def) {
+					const json c = mt.contains(key) ? mt[key] : json(def);
+					return json::array({ ToGamma(c[0].get<float>()), ToGamma(c[1].get<float>()), ToGamma(c[2].get<float>()) });
+				};
+				props["UseShadow"] = true;
+				props["ShadowColor"] = gamma3("shadeColorFactor", { 1.0f, 1.0f, 1.0f });
+				props["ShadowColorTex"] = wstring_to_string(texFile(mt.value("shadeMultiplyTexture", json())));
+				props["ShadowBorder"] = std::clamp(0.5f - mt.value("shadingShiftFactor", 0.0f) * 0.5f, 0.0f, 1.0f);
+				props["ShadowBlur"] = std::clamp(1.0f - mt.value("shadingToonyFactor", 0.9f), 0.01f, 1.0f);
+				props["ShadowStrength"] = 1.0f;
+				props["ShadowMainStrength"] = 0.0f;
+				props["ShadowEnvStrength"] = 0.0f;
+				props["ShadowReceive"] = 1.0f;
+				props["ShadowBorderRange"] = 0.0f;
+				const json rim = gamma3("parametricRimColorFactor", { 0.0f, 0.0f, 0.0f });
+				props["UseRim"] = rim[0].get<float>() + rim[1].get<float>() + rim[2].get<float>() > 0.001f;
+				props["RimColor"] = rim;
+				props["RimStrength"] = 1.0f;
+				props["RimBorder"] = 0.5f;
+				props["RimBlur"] = 1.0f;
+				props["RimFresnelPower"] = mt.value("parametricRimFresnelPowerFactor", 5.0f);
+				props["RimShadowMask"] = 0.0f;
+				props["RimEnableLighting"] = mt.value("rimLightingMixFactor", 1.0f);
+				const std::string mode = mt.value("outlineWidthMode", std::string("none"));
+				const float wf = mt.value("outlineWidthFactor", 0.0f);
+				// 외곽선: worldCoordinates = 미터 → cm, screenCoordinates = 화면 비율 → 대략 2 m 거리 기준
+				const float widthCm = mode == "worldCoordinates" ? wf * 100.0f : (mode == "screenCoordinates" ? wf * 200.0f : 0.0f);
+				props["UseOutline"] = widthCm > 0.0f;
+				props["OutlineWidth"] = widthCm;
+				props["OutlineFixWidth"] = 0.0f;
+				props["OutlineColor"] = gamma3("outlineColorFactor", { 0.0f, 0.0f, 0.0f });
+				props["OutlineEnableLighting"] = mt.value("outlineLightingMixFactor", 1.0f);
+				j["Shader"] = "lilToon";
+				j["Fallback"] = "Unlit";
+				j["Properties"] = props;
+				j["NormalMapPath"] = wstring_to_string(texFile(mat.value("normalTexture", json())));
+				}
+			}
 			std::ofstream o(Full(file.wstring()));
 			o << j.dump(4);
 		}
@@ -214,6 +353,7 @@ namespace VrmImport
 	{
 		json g;
 		if (!ReadGlb(path, g) || !g.contains("extensions")) return nullptr;
+		s_ConvVrm0 = !g["extensions"].contains("VRMC_springBone") && g["extensions"].contains("VRM");
 		const json& e = g["extensions"];
 		json chains = json::array(), colliders = json::array();
 		if (e.contains("VRMC_springBone"))

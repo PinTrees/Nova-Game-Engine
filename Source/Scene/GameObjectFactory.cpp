@@ -544,7 +544,16 @@ void GameObjectFactory::AddSkinnedChildren(GameObject* root, const std::string& 
 		// VRM: 묻힌 그림 · 재질을 꺼내 (<파일>.Textures · <파일>.Materials) 재질 칸에 붙인다 (Unity 의 Extract Materials)
 		std::vector<std::wstring> vrmMaterials;
 		if (VrmImport::IsVrm(string_to_wstring(modelPath)))
+		{
 			vrmMaterials = VrmImport::ExtractMaterials(string_to_wstring(modelPath));
+			// MToon 재질은 lilToon (Toon Shader 패키지) 으로 — 없으면 넣는다 (없어도 Unlit 으로 그려진다)
+			if (!vrmMaterials.empty() && !PackageManager::IsInProject("com.nova.toon"))
+			{
+				std::string error;
+				if (!PackageManager::Add("com.nova.toon", error))
+					EditorLog::Write("Character", "could not add com.nova.toon: %s", error.c_str());
+			}
+		}
 		for (int i = 0; i < (int)file->SkinnedMeshs.size(); ++i)
 		{
 			const std::string childName = file->SkinnedMeshs[i]->Name.empty() ? "Mesh" + std::to_string(i) : file->SkinnedMeshs[i]->Name;

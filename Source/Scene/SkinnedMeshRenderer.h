@@ -1,4 +1,5 @@
 #pragma once
+#include "CustomShaders.h"
 #include "Component.h"
 
 class Model;
@@ -29,6 +30,11 @@ private:
 	XMFLOAT4X4				m_MeshBind;           // 메시 노드의 바인드 전역 행렬 (단위 변환 제외) - 정점을 장면 공간으로
 
 	vector<shared_ptr<UMaterial>>	m_pMaterials;
+
+	// Alpha Clipping 재질: 깊이 사전 패스 · 그림자에서도 잘라낸다
+	UMaterial* ClipMaterial(int subset, float& cutoff) const;
+	static XMMATRIX ClipTexTransform(const UMaterial& m);
+	void DrawSkinnedNormalDepth(bool editor);
 	vector<wstring>					m_MaterialPaths;
 
 	// Runtime Value
@@ -55,6 +61,11 @@ public:
 	void AddMaterial(shared_ptr<UMaterial> mat) { m_pMaterials.push_back(mat); }
 	// index 번째 재질 칸을 이 .mat 으로 (프로젝트 상대 경로, 읽지 못하면 그대로)
 	bool SetMaterialPath(int index, const wstring& path);
+
+private:
+	// 패키지 셰이더 (CustomShaders) 에 넘길 그리기 정보
+	CustomShaders::SkinnedDraw MakeCustomDraw(UMaterial* material, FXMMATRIX world, CXMMATRIX viewProj, bool editor, int subset);
+public:
 	void SetMesh(shared_ptr<SkinnedMesh> mesh) { m_Mesh = mesh; }
 	// FBX 경로의 index 번째 스킨 메시를 쓴다 (스켈레톤, 기본 재질, 바운드, 바인드 포즈를 함께 설정)
 	void SetSkinnedMesh(const wstring& path, int index);

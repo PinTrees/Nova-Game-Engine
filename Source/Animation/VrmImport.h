@@ -16,6 +16,8 @@ namespace VrmImport
 
 	// 확장자 .vrm, 또는 VRM 확장이 있는 .glb
 	bool IsVrm(const std::wstring& path);
+	// VRM 0.x (extensions.VRM): glTF 에서 -Z 를 보고, 스프링 본 오프셋 · 중력은 Unity 좌표 그대로
+	bool IsVrm0(const std::wstring& path);
 	// glb 의 JSON (+ BIN 덩어리). path 는 절대 또는 프로젝트 상대 (Assets\...)
 	bool ReadGlb(const std::wstring& path, json& out, std::vector<uint8_t>* bin = nullptr);
 	// Unity HumanBodyBones 이름 (Hips, LeftUpperArm …) → 노드 이름

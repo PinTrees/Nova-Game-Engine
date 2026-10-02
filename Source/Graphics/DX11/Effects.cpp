@@ -535,6 +535,7 @@ BuildShadowMapEffect::BuildShadowMapEffect(ComPtr<GfxDevice> device, const std::
 	ShadowLight = _fx->GetVariableByName("gShadowLight")->AsVector();
 	ShadowBias = _fx->GetVariableByName("gShadowBias");
 	DiffuseMap = _fx->GetVariableByName("gDiffuseMap")->AsShaderResource();
+	if (auto v = _fx->GetVariableByName("gAlphaCutoff"); v && v->IsValid()) AlphaCutoff = v->AsScalar();
 	NormalMap = _fx->GetVariableByName("gNormalMap")->AsShaderResource();
 }
 
@@ -591,6 +592,7 @@ SsaoNormalDepthEffect::SsaoNormalDepthEffect(ComPtr<GfxDevice> device, const std
 	WorldViewProj = _fx->GetVariableByName("gWorldViewProj")->AsMatrix();
 	TexTransform = _fx->GetVariableByName("gTexTransform")->AsMatrix();
 	DiffuseMap = _fx->GetVariableByName("gDiffuseMap")->AsShaderResource();
+	if (auto v = _fx->GetVariableByName("gAlphaCutoff"); v && v->IsValid()) AlphaCutoff = v->AsScalar();
 }
 
 SsaoNormalDepthEffect::~SsaoNormalDepthEffect()

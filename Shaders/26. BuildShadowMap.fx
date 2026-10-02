@@ -23,6 +23,7 @@ cbuffer cbPerObject
     float4x4 gViewProj;
     float4x4 gWorldViewProj;
     float4x4 gTexTransform;
+    float gAlphaCutoff;   // NOVA: 재질의 Alpha Clipping 기준. 0 = 예전 고정값 0.15
 }; 
 
 cbuffer cbSkinned
@@ -284,7 +285,7 @@ void PS(VertexOut pin)
     float4 diffuse = gDiffuseMap.Sample(samLinear, pin.Tex);
 
 	// Don't write transparent pixels to the shadow map.
-    clip(diffuse.a - 0.15f);
+    clip(diffuse.a - (gAlphaCutoff > 0.0f ? gAlphaCutoff : 0.15f));
 }
 
 // This is only used for alpha cut out geometry, so that shadows 
@@ -295,7 +296,7 @@ void TessPS(DomainOut pin)
     float4 diffuse = gDiffuseMap.Sample(samLinear, pin.Tex);
 
 	// Don't write transparent pixels to the shadow map.
-    clip(diffuse.a - 0.15f);
+    clip(diffuse.a - (gAlphaCutoff > 0.0f ? gAlphaCutoff : 0.15f));
 }
 
 RasterizerState Depth

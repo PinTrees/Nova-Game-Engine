@@ -717,6 +717,7 @@ public:
 	void SetShadowBias(float depth, float normal) { const float v[2] = { depth, normal }; ShadowBias->SetRawValue(v, 0, sizeof(v)); }
 
 	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetAlphaCutoff(float f) { if (AlphaCutoff) AlphaCutoff->SetFloat(f); }
 	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
 
 	ComPtr<FxTechnique> BuildShadowMapTech;
@@ -746,6 +747,7 @@ public:
 	ComPtr<FxVar> ShadowBias;
 
 	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> AlphaCutoff;
 	ComPtr<FxVar> NormalMap;
 };
 
@@ -796,6 +798,7 @@ public:
 	void SetWorldViewProj(CXMMATRIX M) { WorldViewProj->SetMatrix(reinterpret_cast<const float*>(&M)); }
 	void SetTexTransform(CXMMATRIX M) { TexTransform->SetMatrix(reinterpret_cast<const float*>(&M)); }
 	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
+	void SetAlphaCutoff(float f) { if (AlphaCutoff) AlphaCutoff->SetFloat(f); }
 
 	ComPtr<FxTechnique> NormalDepthTech;
 	ComPtr<FxTechnique> NormalDepthAlphaClipTech;
@@ -814,6 +817,7 @@ public:
 	ComPtr<FxVar> WorldViewProj;
 	ComPtr<FxVar> TexTransform;
 	ComPtr<FxVar> DiffuseMap;
+	ComPtr<FxVar> AlphaCutoff;
 };
 
 class SsaoEffect : public Effect

@@ -1,5 +1,6 @@
 #pragma once
 #include "Rhi.h"
+#include "NovaApi.h"
 #include <atomic>
 #include <deque>
 #include <map>
@@ -51,7 +52,7 @@ private:
 	Rhi::VarId _id;
 };
 
-class FxPass
+class NOVA_API FxPass
 {
 public:
 	FxPass(Rhi::Effect* fx, int technique, int pass) : _fx(fx), _technique(technique), _pass(pass) {}
@@ -66,7 +67,7 @@ private:
 	int _technique, _pass;
 };
 
-class FxTechnique
+class NOVA_API FxTechnique
 {
 public:
 	FxTechnique(Rhi::Effect* fx, int technique);
@@ -85,7 +86,7 @@ private:
 	FxPass _invalidPass;
 };
 
-class FxEffect
+class NOVA_API FxEffect
 {
 public:
 	// Rhi::Main() 장치로 .fx 를 불러온다. 실패하면 nullptr + error

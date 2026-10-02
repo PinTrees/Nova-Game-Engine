@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "CustomShaders.h"
 #include "MaterialInspector.h"
 #include "RenderStats.h"
 #include "SkinnedMeshRenderer.h"
@@ -198,11 +199,68 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 		{
 			const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
 			shared_ptr<UMaterial> material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr;
+			// 패키지 셰이더 (lilToon 등): 그 패키지가 그린다. 없으면 Fallback (Lit / Unlit) 으로 엔진이
+			if (material && material->IsCustom())
+				if (const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader()); shader && shader->DrawSkinned)
+				{
+					CustomShaders::SkinnedDraw d = MakeCustomDraw(material.get(), world, viewProj, editor, i);
+					shader->DrawSkinned(d);
+					continue;
+				}
 			UMaterial::ApplyOrDefault(material, Effects::InstancedBasicFX.get());
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
 			m_Mesh->ModelMesh.Draw(deviceContext, i);
 		}
 	}
+
+	// 패키지 셰이더의 두 번째 패스 (툰 외곽선 등): 래스터 · 깊이 상태를 바꾸므로 끝나면 원래대로
+	ComPtr<GfxRasterizerState> previousRS;
+	ComPtr<GfxDepthStencilState> previousDSS;
+	UINT previousRef = 0;
+	bool saved = false;
+	for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
+	{
+		const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
+		shared_ptr<UMaterial> material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr;
+		if (!material || !material->IsCustom())
+			continue;
+		const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader());
+		if (!shader || !shader->DrawSkinnedOutline || (shader->HasOutline && !shader->HasOutline(*material)))
+			continue;
+		if (!saved)
+		{
+			deviceContext->RSGetState(previousRS.GetAddressOf());
+			deviceContext->OMGetDepthStencilState(previousDSS.GetAddressOf(), &previousRef);
+			saved = true;
+		}
+		const XMMATRIX world = transform->GetWorldMatrix();
+		CustomShaders::SkinnedDraw d = MakeCustomDraw(material.get(), world, viewProj, editor, i);
+		shader->DrawSkinnedOutline(d);
+	}
+	if (saved)
+	{
+		deviceContext->RSSetState(previousRS.Get());
+		deviceContext->OMSetDepthStencilState(previousDSS.Get(), previousRef);
+	}
+}
+
+CustomShaders::SkinnedDraw SkinnedMeshRenderer::MakeCustomDraw(UMaterial* material, FXMMATRIX world, CXMMATRIX viewProj, bool editor, int subset)
+{
+	CustomShaders::SkinnedDraw d;
+	d.Context = Application::GetI()->GetDeviceContext();
+	d.Material = material;
+	d.World = world;
+	d.ViewProj = viewProj;
+	d.Bones = m_FinalTransforms.data();
+	d.BoneCount = (int)m_FinalTransforms.size();
+	d.Editor = editor;
+	d.Draw = [this, subset]() {
+		auto ctx = Application::GetI()->GetDeviceContext();
+		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		ctx->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
+		m_Mesh->ModelMesh.Draw(ctx, subset);
+	};
+	return d;
 }
 
 void SkinnedMeshRenderer::Render()
@@ -240,15 +298,48 @@ void SkinnedMeshRenderer::RenderShadow()
 		Effects::BuildShadowMapFX->SetBoneTransforms(&m_FinalTransforms[0], (int)m_FinalTransforms.size());
 		for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
 		{
+			// Alpha Clipping 재질: 투명한 곳은 그림자도 지지 않는다 (VRoid 옷은 몸 전체 껍질 + 잘라내기 마스크)
+			float cutoff = 0.0f;
+			if (UMaterial* m = ClipMaterial(i, cutoff))
+			{
+				Effects::BuildShadowMapFX->SetDiffuseMap(m->GetBaseMapSRV());
+				Effects::BuildShadowMapFX->SetAlphaCutoff(cutoff);
+				Effects::BuildShadowMapFX->SetTexTransform(ClipTexTransform(*m));
+				Effects::BuildShadowMapFX->BuildShadowMapAlphaClipSkinnedTech->GetPassByIndex(p)->Apply(0, deviceContext);
+				m_Mesh->ModelMesh.Draw(deviceContext, i);
+				Effects::BuildShadowMapFX->SetTexTransform(XMMatrixScaling(1.0f, 1.0f, 1.0f));
+				Effects::BuildShadowMapFX->SetAlphaCutoff(0.0f);   // 0 = 예전 고정값 (다른 렌더러용)
+				continue;
+			}
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
 			m_Mesh->ModelMesh.Draw(deviceContext, i);
 		}
 	}
 }
 
-// 게임/에디터 공통 SSAO 노멀·깊이 패스
-static void DrawSkinnedNormalDepth(SkinnedMesh* mesh, Transform* transform, const vector<XMFLOAT4X4>& bones, bool editor)
+// Alpha Clipping 을 쓰는 서브셋의 재질 (기본 그림이 있을 때만). cutoff = 그림 알파와 비교할 값 (본 패스는 그림 × BaseColor 알파)
+UMaterial* SkinnedMeshRenderer::ClipMaterial(int subset, float& cutoff) const
 {
+	const UINT matIndex = m_Mesh->Subsets[subset].MaterialIndex;
+	UMaterial* m = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex].get() : nullptr;
+	if (!m || !m->GetPbr().AlphaClip || !m->GetBaseMapSRV())
+		return nullptr;
+	cutoff = m->GetPbr().Cutoff / (std::max)(m->GetPbr().BaseColor.w, 1e-4f);
+	return m;
+}
+
+XMMATRIX SkinnedMeshRenderer::ClipTexTransform(const UMaterial& m)
+{
+	const PbrMaterial& pbr = m.GetPbr();
+	return XMMatrixScaling(pbr.Tiling.x, pbr.Tiling.y, 1.0f) * XMMatrixTranslation(pbr.Offset.x, pbr.Offset.y, 0.0f);
+}
+
+// 게임/에디터 공통 SSAO 노멀·깊이 패스 (= 깊이 사전 패스: 본 패스가 EQUAL 로 그린다)
+void SkinnedMeshRenderer::DrawSkinnedNormalDepth(bool editor)
+{
+	SkinnedMesh* mesh = m_Mesh.get();
+	Transform* transform = m_pGameObject->GetTransform();
+	const vector<XMFLOAT4X4>& bones = m_FinalTransforms;
 	auto deviceContext = Application::GetI()->GetDeviceContext();
 	ComPtr<FxTechnique> tech = Effects::SsaoNormalDepthFX->NormalDepthSkinnedTech;
 	deviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -270,6 +361,19 @@ static void DrawSkinnedNormalDepth(SkinnedMesh* mesh, Transform* transform, cons
 		Effects::SsaoNormalDepthFX->SetBoneTransforms(&bones[0], (int)bones.size());
 		for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
 		{
+			// Alpha Clipping 재질은 여기서도 같은 기준으로 잘라낸다 — 안 그러면 투명한 곳에 깊이만 남아 뒤가 지워진다 (카메라 배경색 구멍)
+			float cutoff = 0.0f;
+			if (UMaterial* m = ClipMaterial(i, cutoff))
+			{
+				Effects::SsaoNormalDepthFX->SetDiffuseMap(m->GetBaseMapSRV());
+				Effects::SsaoNormalDepthFX->SetAlphaCutoff(cutoff);
+				Effects::SsaoNormalDepthFX->SetTexTransform(ClipTexTransform(*m));
+				Effects::SsaoNormalDepthFX->NormalDepthAlphaClipSkinnedTech->GetPassByIndex(p)->Apply(0, deviceContext);
+				mesh->ModelMesh.Draw(deviceContext, i);
+				Effects::SsaoNormalDepthFX->SetTexTransform(XMMatrixScaling(1.0f, 1.0f, 1.0f));
+				Effects::SsaoNormalDepthFX->SetAlphaCutoff(0.0f);
+				continue;
+			}
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
 			mesh->ModelMesh.Draw(deviceContext, i);
 		}
@@ -281,7 +385,7 @@ void SkinnedMeshRenderer::RenderShadowNormal()
 	if (m_Mesh == nullptr || m_Mesh->Subsets.empty())
 		return;
 	EnsureBones();
-	DrawSkinnedNormalDepth(m_Mesh.get(), m_pGameObject->GetTransform(), m_FinalTransforms, false);
+	DrawSkinnedNormalDepth(false);
 }
 
 void SkinnedMeshRenderer::_Editor_RenderShadowNormal()
@@ -289,7 +393,7 @@ void SkinnedMeshRenderer::_Editor_RenderShadowNormal()
 	if (m_Mesh == nullptr || m_Mesh->Subsets.empty())
 		return;
 	EnsureBones();
-	DrawSkinnedNormalDepth(m_Mesh.get(), m_pGameObject->GetTransform(), m_FinalTransforms, true);
+	DrawSkinnedNormalDepth(true);
 }
 
 // ------------------------------------------------------------------ Inspector (Unity 6)

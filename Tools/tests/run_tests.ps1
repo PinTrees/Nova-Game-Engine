@@ -339,6 +339,42 @@ return t.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "
             $shift = if ($a0.Count -eq 3 -and $a1.Count -eq 3) { [double]$a1[2] - [double]$a0[2] } else { 0 }
             Add-Result animation 'VRM spring bones → Dynamic Bone (9 chains, 8 colliders), wind swings the ponytail' ($a0.Count -eq 3 -and $a0[0] -eq '9' -and $a0[1] -eq '8' -and $shift -gt 0.1) ("chains {0} colliders {1}, tail x shift with wind {2:F3} m" -f $a0[0], $a0[1], $shift)
         }
+
+        # 7) VRM 0.x (VRoid 공식 샘플 AvatarSample_B — 테스트 프로젝트에 있을 때만): +Z 를 본다, MToon → lilToon 재질, 옷 껍질의 잘라내기 구멍 없음
+        $vrm0 = 'Assets\TestAssets\VRoid\AvatarSample_B.vrm'
+        if (Test-Path (Join-Path $Project $vrm0))
+        {
+            $matDir = Join-Path $Project 'Assets\TestAssets\VRoid\AvatarSample_B.Materials'
+            Remove-Item $matDir -Recurse -Force -ErrorAction SilentlyContinue   # 다시 꺼낸다
+            Invoke-Nova 'scene new --force' | Out-Null
+            Invoke-Nova "create character --name V0 --model $vrm0" | Out-Null
+            Invoke-Nova 'wait 10' | Out-Null
+            $ff = Join-Path $Out 'vrm0_facing.cs'
+            'var a = GameObject.Find("V0").GetComponent<Animator>(); var f = a.GetBonePosition(HumanBodyBones.LeftFoot); var t = a.GetBonePosition(HumanBodyBones.LeftToes); return f.x.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + " " + (t.z - f.z).ToString("F3", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $ff
+            $fr = Invoke-NovaJson "exec --file $ff"
+            $fa = if ($fr) { "$($fr.result)" -split ' ' } else { @() }
+            $mats0 = @(Get-ChildItem $matDir -Filter *.mat -ErrorAction SilentlyContinue)
+            $body = if (Test-Path (Join-Path $matDir 'F00_000_00_Body_00_SKIN.mat')) { Get-Content (Join-Path $matDir 'F00_000_00_Body_00_SKIN.mat') -Raw | ConvertFrom-Json } else { $null }
+            $lil = @($mats0 | Where-Object { (Get-Content $_.FullName -Raw) -match '"Shader":\s*"lilToon"' }).Count
+            $okMat = $body -and $body.Shader -eq 'lilToon' -and $body.AlphaClipping -eq 1 -and $body.Properties.UseOutline -and $body.Properties.OutlineWidth -gt 0.01 -and $body.Properties.OutlineWidth -lt 1
+            Add-Result animation 'VRM 0.x (VRoid): faces +Z, MToon → lilToon (outline cm, alpha clip)' ($fa.Count -eq 2 -and [double]$fa[0] -lt 0 -and [double]$fa[1] -gt 0 -and $lil -eq $mats0.Count -and $okMat) ("left foot x {0}, toes ahead {1} m, lilToon {2}/{3}, body outline {4} cm" -f $fa[0], $fa[1], $lil, $mats0.Count, $(if ($body) { $body.Properties.OutlineWidth } else { '-' }))
+            # 잘라내기 재질이 깊이 사전 패스에 깊이만 남기면 그 자리에 카메라 배경색 (#314D79) 이 그대로 보인다
+            Invoke-Nova 'set "Main Camera" --position 0,0.9,1.6 --rotation 4,180,0' | Out-Null
+            Invoke-Nova 'window game' | Out-Null
+            Invoke-Nova 'wait 10' | Out-Null
+            $shot = Join-Path $Out 'vrm0_front.png'
+            Invoke-Nova "screenshot $shot --view game" | Out-Null
+            $holes = -1
+            if (Test-Path $shot)
+            {
+                Add-Type -AssemblyName System.Drawing
+                $bmp = [System.Drawing.Bitmap]::FromFile($shot)
+                $holes = 0
+                for ($y = 0; $y -lt $bmp.Height; $y += 2) { for ($x = 0; $x -lt $bmp.Width; $x += 2) { $c = $bmp.GetPixel($x, $y); if ([math]::Abs($c.R - 49) -le 2 -and [math]::Abs($c.G - 77) -le 2 -and [math]::Abs($c.B - 121) -le 2) { $holes++ } } }
+                $bmp.Dispose()
+            }
+            Add-Result animation 'VRM 0.x alpha-clipped clothes leave no depth-only holes' ($holes -ge 0 -and $holes -lt 50) "camera-clear pixels $holes (sampled every 2nd px)"
+        }
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }

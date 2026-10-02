@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "CustomShaders.h"
 #include "EditorApp.h"
 #include "Volume.h"
 #include "ScriptEngine.h"
@@ -466,6 +467,18 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_GameShadow);
+	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
+	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+		fx->SetEyePosW(camera->GetPosition());
+		fx->SetCubeMap(_sky->CubeMapSRV().Get());
+		fx->SetSsaoMap(ssao->AmbientSRV().Get());
+		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
+			var->SetFloatVector(&indirect.x);
+		fx->SetDirLights(dirLights.data(), dirLights.size());
+		fx->SetSpotLights(spotLights.data(), spotLights.size());
+		fx->SetPointLights(pointLights.data(), pointLights.size());
+		ShadowRenderer::Bind(fx, *shadowMap, s_GameShadow);
+	});
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;
@@ -620,6 +633,18 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
+	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
+	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+		fx->SetEyePosW(camera->GetPosition());
+		fx->SetCubeMap(_sky->CubeMapSRV().Get());
+		fx->SetSsaoMap(ssao->AmbientSRV().Get());
+		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
+			var->SetFloatVector(&indirect.x);
+		fx->SetDirLights(dirLights.data(), dirLights.size());
+		fx->SetSpotLights(spotLights.data(), spotLights.size());
+		fx->SetPointLights(pointLights.data(), pointLights.size());
+		ShadowRenderer::Bind(fx, *shadowMap, s_EditorShadow);
+	});
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;
