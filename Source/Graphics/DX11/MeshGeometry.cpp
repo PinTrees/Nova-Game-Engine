@@ -53,6 +53,16 @@ void MeshGeometry::Draw(ComPtr<GfxContext> dc, uint32 subsetId)
 		_subsetTable[subsetId].VertexStart);
 }
 
+void MeshGeometry::Draw(GfxContext* dc, uint32 subsetId, GfxBuffer* vertexBuffer)
+{
+	uint32 offset = 0;
+	GfxBuffer* vb = vertexBuffer ? vertexBuffer : _vb.Get();
+	dc->IASetVertexBuffers(0, 1, &vb, &_vertexStride, &offset);
+	dc->IASetIndexBuffer(_ib.Get(), _indexBufferFormat, 0);
+	RenderStats::AddDraw(_subsetTable[subsetId].FaceCount * 3, _subsetTable[subsetId].VertexCount);
+	dc->DrawIndexed(_subsetTable[subsetId].FaceCount * 3, _subsetTable[subsetId].FaceStart * 3, _subsetTable[subsetId].VertexStart);
+}
+
 void MeshGeometry::InstancingDraw(ComPtr<GfxContext> dc, uint32 subsetId, uint32 instancingSize)
 {
 	uint32 offset = 0;

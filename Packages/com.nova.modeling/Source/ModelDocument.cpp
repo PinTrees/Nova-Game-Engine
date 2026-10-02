@@ -37,13 +37,44 @@ namespace Modeling
 		}
 	}
 
+	bool Object::ShapesActive() const
+	{
+		if (ShapeEdit >= 0 && ShapeEdit < (int)M.Shapes.size()) return true;
+		for (size_t s = 0; s < ShapeValues.size() && s < M.Shapes.size(); ++s) if (ShapeValues[s] != 0.0f) return true;
+		return false;
+	}
+
+	std::vector<float> Object::ShapeWeights() const
+	{
+		std::vector<float> w(M.Shapes.size(), 0.0f);
+		for (size_t s = 0; s < w.size() && s < ShapeValues.size(); ++s) w[s] = ShapeValues[s];
+		if (ShapeEdit >= 0 && ShapeEdit < (int)w.size()) w[ShapeEdit] = 1.0f;
+		return w;
+	}
+
+	Mesh Object::RestEvaluated() const
+	{
+		Mesh e = M;
+		for (int f = 0; f < (int)e.Faces.size(); ++f) e.Faces[f].Origin = f;
+		if (MirrorX)
+		{
+			for (Vert& v : e.Verts) v.Sel = false;
+			e.Mirror(0, true, 1e-4f);
+		}
+		if (Subsurf > 0)
+			e.CatmullClark((std::min)(Subsurf, 3));
+		return e;
+	}
+
 	const Mesh& Object::Evaluated(uint64 revision) const
 	{
-		if (!HasModifiers())
+		if (!HasModifiers() && !ShapesActive())
 			return M;
 		if (m_EvalValid && m_EvalRevision == revision)
 			return m_Eval;
 		m_Eval = M;
+		if (ShapesActive())
+			m_Eval.ApplyShapes(ShapeWeights());   // 셰이프 미리보기 (모디파이어 전 — Blender 와 같음)
 		for (int f = 0; f < (int)m_Eval.Faces.size(); ++f) m_Eval.Faces[f].Origin = f;
 		if (MirrorX)
 		{
@@ -60,7 +91,7 @@ namespace Modeling
 	void Object::ApplyModifiers()
 	{
 		if (!HasModifiers()) return;
-		Mesh baked = Evaluated(~0ull - 1);
+		Mesh baked = RestEvaluated();   // 셰이프 미리보기는 굽지 않는다
 		for (Face& f : baked.Faces) f.Origin = -1;
 		M = baked;
 		M.Touch();
@@ -439,7 +470,7 @@ namespace Modeling
 		{
 			objs.push_back({ { "name", o.Name }, { "p", Vec(o.Position) }, { "r", { o.Rotation.x, o.Rotation.y, o.Rotation.z, o.Rotation.w } },
 				{ "s", Vec(o.Scale) }, { "vis", o.Visible }, { "sel", o.Selected }, { "mesh", o.M.ToJson(true) },
-				{ "mx", o.MirrorX }, { "mc", o.MirrorClip }, { "ss", o.Subsurf } });
+				{ "mx", o.MirrorX }, { "mc", o.MirrorClip }, { "ss", o.Subsurf }, { "sv", o.ShapeValues }, { "se", o.ShapeEdit } });
 		}
 		j["objects"] = objs;
 		j["rig"] = Rig.ToJson(true);
@@ -468,6 +499,8 @@ namespace Modeling
 			o.MirrorX = oj.value("mx", false);
 			o.MirrorClip = oj.value("mc", true);
 			o.Subsurf = oj.value("ss", 0);
+			o.ShapeValues = oj.value("sv", std::vector<float>());
+			o.ShapeEdit = oj.value("se", -1);
 			Objects.push_back(std::move(o));
 		}
 		Rig.FromJson(j.value("rig", nlohmann::json()));

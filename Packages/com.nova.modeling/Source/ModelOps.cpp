@@ -426,14 +426,25 @@ namespace Modeling
 			std::vector<float> w;
 			if (radius > 0.0f) w = o.M.ProportionalWeights(radius, FalloffFromName(S(c.A, "falloff", "smooth")));
 			int n = 0;
+			const int shape = o.ShapeEdit >= 0 && o.ShapeEdit < (int)o.M.Shapes.size() ? o.ShapeEdit : -1;
 			for (size_t i = 0; i < o.M.Verts.size(); ++i)
 			{
 				Vert& v = o.M.Verts[i];
 				const float k = radius > 0.0f ? w[i] : (v.Sel ? 1.0f : 0.0f);
 				if (k <= 0.0f) continue;
 				const bool onPlane = o.MirrorX && o.MirrorClip && fabsf(v.P.x) < 1e-4f;
-				v.P = fn(v.P, k);
-				if (onPlane) v.P.x = 0.0f;   // 거울 가운데는 그대로 (Clipping)
+				if (shape >= 0)
+				{
+					// 셰이프 키 고치기: 보이는 위치 (기본 + 차이) 를 옮기고 차이만 저장, 기본 위치는 그대로
+					Vec3 p = fn(v.P + o.M.ShapeDelta((int)i, shape), k) - v.P;
+					if (onPlane) p.x = 0.0f;
+					o.M.SetShapeDelta((int)i, shape, p);
+				}
+				else
+				{
+					v.P = fn(v.P, k);
+					if (onPlane) v.P.x = 0.0f;   // 거울 가운데는 그대로 (Clipping)
+				}
 				++n;
 			}
 			o.M.Touch();
@@ -541,7 +552,11 @@ namespace Modeling
 				{
 					Object& o = c.D.Objects[i];
 					const Matrix w = o.World();
-					for (Vert& v : o.M.Verts) v.P = Vec3::Transform(v.P, w);
+					for (Vert& v : o.M.Verts)
+					{
+						v.P = Vec3::Transform(v.P, w);
+						for (auto& x : v.K) x.second = Vec3::TransformNormal(x.second, w);   // 셰이프 차이도 (회전 · 크기)
+					}
 					// 거울 크기 (음수) 면 면 방향을 뒤집는다
 					if (o.Scale.x * o.Scale.y * o.Scale.z < 0.0f)
 						for (Face& f : o.M.Faces) { std::reverse(f.V.begin(), f.V.end()); std::reverse(f.UV.begin(), f.UV.end()); }
@@ -679,6 +694,12 @@ namespace Modeling
 				if (c.A.contains("positions"))
 					for (const auto& p : c.A["positions"])
 						if (p.is_array() && p.size() == 4) pos.push_back({ p[0].get<int>(), Vec3::Transform(Vec3(p[1].get<float>(), p[2].get<float>(), p[3].get<float>()), l) });
+				if (o->ShapeEdit >= 0 && o->ShapeEdit < (int)o->M.Shapes.size())
+				{
+					int n = 0;
+					for (const auto& [i, p] : pos) if (i >= 0 && i < (int)o->M.Verts.size()) { o->M.SetShapeDelta(i, o->ShapeEdit, p - o->M.Verts[i].P); ++n; }
+					return Done(c, n, "moved");
+				}
 				return Done(c, o->M.SetPositions(pos), "moved"); });
 
 			// ================= 메시 편집 (활성 메시의 선택에)
@@ -954,6 +975,89 @@ namespace Modeling
 					list.push_back({ { "index", i }, { "name", i < (int)c.D.Materials.size() ? c.D.Materials[i] : "" }, { "color", V(c.D.MaterialColor(i)) }, { "faces", faces } });
 				}
 				c.R = { { "materials", list } };
+				return true; });
+
+			// ================= 셰이프 키 (표정): VRM 표정 이름 (happy angry sad relaxed surprised aa ih ou ee oh blink blinkLeft blinkRight) 이면 그 표정으로 내보낸다
+			auto shapeObj = [](Ctx& c) -> Object* {
+				Object* o = c.A.contains("object") ? (c.D.Find(S(c.A, "object")) >= 0 ? &c.D.Objects[c.D.Find(S(c.A, "object"))] : nullptr) : c.D.ActiveObject();
+				if (!o) c.E = "no such object (select one or pass --object)";
+				return o;
+			};
+			auto shapeList = [](Object& o) {
+				json list = json::array();
+				for (int s = 0; s < (int)o.M.Shapes.size(); ++s)
+					list.push_back({ { "name", o.M.Shapes[s] }, { "verts", o.M.ShapeVertCount(s) }, { "value", s < (int)o.ShapeValues.size() ? o.ShapeValues[s] : 0.0f }, { "editing", o.ShapeEdit == s } });
+				return list;
+			};
+			add("shape.add", "--name <key> [--object]: new shape key (expression) on the object - then shape keys are edited with translate / rotate / scale (Edit mode) until shape.edit --basis", true, [shapeObj, shapeList](Ctx& c) {
+				Object* o = shapeObj(c); if (!o) return false;
+				const std::string n = S(c.A, "name");
+				if (n.empty()) { c.E = "need --name (VRM expression names: happy angry sad relaxed surprised aa ih ou ee oh blink blinkLeft blinkRight)"; return false; }
+				o->ShapeEdit = o->M.AddShape(n);
+				Done(c, (int)o->M.Shapes.size(), "shapes");
+				c.R["shapes"] = shapeList(*o);
+				return true; });
+			add("shape.edit", "--name <key> | --basis [--object]: which shape key translate / rotate / scale change (basis = the mesh itself)", true, [shapeObj, shapeList](Ctx& c) {
+				Object* o = shapeObj(c); if (!o) return false;
+				if (B(c.A, "basis", false)) o->ShapeEdit = -1;
+				else
+				{
+					const int s = o->M.FindShape(S(c.A, "name"));
+					if (s < 0) { c.E = "no shape key '" + S(c.A, "name") + "' (model shape.list)"; return false; }
+					o->ShapeEdit = s;
+				}
+				Done(c, 1, "objects");
+				c.R["shapes"] = shapeList(*o);
+				return true; });
+			add("shape.value", "--name <key> --value 0..1 [--object]: preview a shape key (render / window)", true, [shapeObj, shapeList](Ctx& c) {
+				Object* o = shapeObj(c); if (!o) return false;
+				const int s = o->M.FindShape(S(c.A, "name"));
+				if (s < 0) { c.E = "no shape key '" + S(c.A, "name") + "'"; return false; }
+				if ((int)o->ShapeValues.size() < (int)o->M.Shapes.size()) o->ShapeValues.resize(o->M.Shapes.size(), 0.0f);
+				o->ShapeValues[s] = std::clamp(F(c.A, "value", 1.0f), -1.0f, 2.0f);
+				Done(c, 1, "shapes");
+				c.R["shapes"] = shapeList(*o);
+				return true; });
+			add("shape.list", "[--object]: shape keys (name, moved vertices, preview value, editing)", false, [shapeObj, shapeList](Ctx& c) {
+				Object* o = shapeObj(c); if (!o) return false;
+				c.R = { { "object", o->Name }, { "shapes", shapeList(*o) }, { "editing", o->ShapeEdit >= 0 ? o->M.Shapes[o->ShapeEdit] : "Basis" } };
+				return true; });
+			add("shape.delete", "--name <key> [--object]", true, [shapeObj, shapeList](Ctx& c) {
+				Object* o = shapeObj(c); if (!o) return false;
+				const int s = o->M.FindShape(S(c.A, "name"));
+				if (s < 0) { c.E = "no shape key '" + S(c.A, "name") + "'"; return false; }
+				o->M.DeleteShape(s);
+				if (s < (int)o->ShapeValues.size()) o->ShapeValues.erase(o->ShapeValues.begin() + s);
+				o->ShapeEdit = o->ShapeEdit == s ? -1 : (o->ShapeEdit > s ? o->ShapeEdit - 1 : o->ShapeEdit);
+				Done(c, 1, "deleted");
+				c.R["shapes"] = shapeList(*o);
+				return true; });
+			add("shape.mirror", "--name <key> --to <new key> [--object]: copy a shape key to the other side (X mirror, e.g. blinkLeft → blinkRight) - only vertices whose mirror twin exists", true, [shapeObj, shapeList](Ctx& c) {
+				Object* o = shapeObj(c); if (!o) return false;
+				Mesh& m = o->M;
+				const int s = m.FindShape(S(c.A, "name"));
+				if (s < 0) { c.E = "no shape key '" + S(c.A, "name") + "'"; return false; }
+				const std::string to = S(c.A, "to");
+				if (to.empty()) { c.E = "need --to <new key>"; return false; }
+				const int t = m.AddShape(to);
+				// 거울 짝: 위치 (x 반대) 를 격자로
+				auto key = [](const Vec3& p) { return std::make_tuple((long long)llroundf(p.x * 10000.0f), (long long)llroundf(p.y * 10000.0f), (long long)llroundf(p.z * 10000.0f)); };
+				std::map<std::tuple<long long, long long, long long>, int> at;
+				for (int i = 0; i < (int)m.Verts.size(); ++i) at[key(m.Verts[i].P)] = i;
+				int n = 0;
+				for (int i = 0; i < (int)m.Verts.size(); ++i) m.SetShapeDelta(i, t, Vec3(0, 0, 0));
+				for (int i = 0; i < (int)m.Verts.size(); ++i)
+				{
+					const Vec3 d = m.ShapeDelta(i, s);
+					if (d.LengthSquared() < 1e-14f) continue;
+					const Vec3 p = m.Verts[i].P;
+					auto it = at.find(key(Vec3(-p.x, p.y, p.z)));
+					if (it == at.end()) continue;
+					m.SetShapeDelta(it->second, t, Vec3(-d.x, d.y, d.z));
+					++n;
+				}
+				Done(c, n, "verts");
+				c.R["shapes"] = shapeList(*o);
 				return true; });
 
 			// ================= 리깅 (4 단계): 본 이름 = 버텍스 그룹 이름 = 스킨 가중치

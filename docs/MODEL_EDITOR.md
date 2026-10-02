@@ -160,6 +160,24 @@ UV 는 Subdivide · Loop Cut · Subsurf 를 거쳐도 남는다 (모서리 UV �
 
 창: 오른쪽 패널 **ARMATURE** (Humanoid · Auto Weights · Chains (고른 오브젝트) · Colliders, 본 목록 — 고르면 Show Weights · 포즈 X Y Z 끌기 · Reset Pose), View 메뉴 **Weights (selected bone)** · **Bones**.
 
+## 셰이프 키 (표정)
+
+Blender 의 Shape Keys: 점마다 셰이프별 위치 차이를 갖고 (버텍스 그룹처럼 돌출 · 나누기 · Mirror 를 따라간다, X 거울은 `blinkLeft ↔ blinkRight` 이름도 바꾼다). **고치는 셰이프가 있으면 `translate` · `rotate` · `scale` · `set.positions` 는 그 셰이프의 차이만 바꾼다** (기본 메시는 그대로). 이름이 VRM 표정 이름이면 `export *.vrm` 에서 그 표정이 된다 (`happy angry sad relaxed surprised aa ih ou ee oh blink blinkLeft blinkRight neutral lookUp …`, 아니면 custom).
+
+| op | 인자 | 설명 |
+|---|---|---|
+| `shape.add` | `--name <키> [--object]` | 새 셰이프 (고치는 셰이프가 된다) |
+| `shape.edit` | `--name <키> \| --basis` | 무엇을 고치나 (basis = 메시 자체) |
+| `shape.value` | `--name <키> --value 0..1` | 미리보기 (창 · `render`) |
+| `shape.list` · `shape.delete --name` | | 이름 · 움직이는 점 수 · 값 · 고치는 중 |
+| `shape.mirror` | `--name blinkLeft --to blinkRight` | 반대쪽으로 복사 (X 거울 짝이 있는 점) |
+
+내보내기: GLB · VRM 의 모프 타깃 (`targets` POSITION 차이 + `extras.targetNames`), VRM 은 `VRMC_vrm.expressions` (같은 이름 셰이프가 여러 오브젝트에 있으면 묶음 여러 개 — 예: `blink` = 왼눈 + 오른눈, 웃음 · 화남 · 슬픔 · 놀람 · relaxed 는 `overrideBlink: block`). 엔진에서는 **Expressions** 컴포넌트 (자동 깜빡임) + Skinned Mesh Renderer 의 BlendShape.
+
+예: [examples/model_chibi_face.txt](examples/model_chibi_face.txt) — 입 + 눈 `blink · blinkLeft/Right · happy`, 입 `aa ih ou ee oh happy`. 창: 오른쪽 **SHAPE KEYS** (Basis, 셰이프마다 연필 = 고치기 · 값 끌기 = 미리보기, + Shape).
+
+![표정 (셰이프 키)](images/model_editor_face.webp)
+
 ## AI 작업 순서 (권장)
 
 0. (그림이 있으면) `ref.add front.png --view front --height 1.5`, `ref.add side.png --view right --height 1.5` — 같은 키로
@@ -174,6 +192,7 @@ UV 는 Subdivide · Loop Cut · Subsurf 를 거쳐도 남는다 (모서리 UV �
    - 부위마다 `group.assign --name Head` 처럼 이름을 붙여 두면, 번호가 바뀐 뒤에도 `group.select` 로 다시 고른다
    - 큰 변경 전 `checkpoint --save v1`, 여러 연산은 파일에 적어 `batch` 로 (한 번에 되돌릴 수 있다)
 7. 리깅: 부위 이름을 `Head` · `Body` · `ArmL` · `ArmR` · `LegL` · `LegR` 처럼 붙여 두고 `rig.humanoid` → `rig.weights` → `rig.chain --objects <머리카락 오브젝트>* --parent Head` → `rig.check` (`ok`), `rig.pose` 로 팔다리를 굽혀 `render` 로 확인 (팔이 원기둥 하나면 팔꿈치가 안 굽는다 — `loopcut` 으로 마디를 넣는다)
+7-1. 표정: `object.select --name <눈 · 입>` → `mode --mode edit` → `select.all` → `shape.add --name happy` → `scale` / `translate` (그 셰이프만) → `shape.edit --basis`, 확인 `shape.value --name happy --value 1` + `render`
 8. `save <파일.nmodel>`, `export <Assets\…\이름.fbx>` (메시만) 또는 `export <Assets\…\이름.vrm>` (리깅 캐릭터) → 엔진에서 바로 쓴다
 
 ```bash
@@ -217,6 +236,7 @@ nova model export Assets/Models/Chibi.fbx
 | `Source/ModelExport.cpp` | FBX 7.4 바이너리 · OBJ · GLB 를 직접 쓴다 (Assimp Exporter 는 헤더와 DLL 의 구조체 크기가 달라 쓰지 않음) |
 | `Source/ModelRaster.*` | CPU 래스터라이저 — 뷰포트와 `render` 가 같은 그림 (DX11 / OpenGL 무관, 창 없이도), 픽셀마다 깊이 · 면 번호 → 고르기 |
 | `Source/ModelOps.*` | 연산 표 (이름 → 인자 → 함수). 창 · CLI 가 같은 표를 쓴다, Last Operation |
+| `Source/ModelMesh.*` (셰이프 키) | `Vert::K` (셰이프 번호, 차이), `Mesh::Shapes`, `ApplyShapes`, Mirror 의 Left ↔ Right |
 | `Source/ModelRig.*` | 아마추어 (본 · 충돌체 · 포즈), Humanoid 맞추기, 자동 가중치, 흔들림 사슬, 포즈 스킨 (창 · 렌더) |
 | `Source/ModelEditorWindow.*` | 창 (뷰포트 · 단축키 · 끌기 연산 · 패널) |
 | `Source/Package.cpp` | 창 · `.nmodel` 에셋 · CLI 명령 `model` 등록 |

@@ -40,6 +40,16 @@ private:
 	// Runtime Value
 	vector<XMFLOAT4X4>				m_FinalTransforms;   // 셰이더로 넘기는 본 행렬 (Offset * 전역)
 
+	// BlendShape (Unity 와 같이 0..100): 가중치가 있으면 CPU 로 섞은 정점을 렌더러 자기 동적 버퍼에 (GPU 스키닝은 그대로)
+	vector<float>					m_BlendWeights;
+	vector<Vertex::PosNormalTexTanSkinned> m_MorphVerts;
+	ComPtr<GfxBuffer>				m_MorphVB;
+	uint32							m_MorphVBCount = 0;
+	bool							m_MorphDirty = true;
+	bool							m_MorphActive = false;
+	void EnsureMorph();
+	void DrawSubset(GfxContext* dc, int subset);
+
 	// ---- Unity Inspector 값 ----
 	Vec3	m_BoundsCenter = Vec3::Zero;
 	Vec3	m_BoundsExtent = Vec3::Zero;
@@ -74,6 +84,13 @@ public:
 	vector<XMFLOAT4X4>& GetFinalTransforms() { return m_FinalTransforms; }
 
 	shared_ptr<SkinnedMesh> GetMesh() { return m_Mesh; }
+
+	// ---- BlendShape (Unity: SkinnedMeshRenderer.SetBlendShapeWeight · sharedMesh.blendShapeCount …)
+	int BlendShapeCount() const;
+	std::string BlendShapeName(int index) const;
+	int BlendShapeIndex(const std::string& name) const;   // 없으면 -1
+	float GetBlendShapeWeight(int index) const;            // 0..100
+	void SetBlendShapeWeight(int index, float weight);
 	const wstring& GetMeshPath() const { return m_MeshPath; }
 	shared_ptr<SkeletonAvataData> GetSkeleton() { return m_Skeleton; }
 

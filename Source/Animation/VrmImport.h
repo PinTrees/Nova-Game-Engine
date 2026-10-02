@@ -26,6 +26,8 @@ namespace VrmImport
 	std::vector<std::wstring> ExtractMaterials(const std::wstring& assetPath);
 	// Dynamic Bone 컴포넌트 JSON ({"type":"DynamicBone", "chains":[…], "colliders":[…]}), Spring Bone 이 없으면 null
 	json DynamicBoneJson(const std::wstring& path);
+	// Expressions 컴포넌트 JSON ({"type":"Expressions", "expressions":[{name, binds:[{renderer, shape, index, weight}], …}]}) — VRM 1.0 expressions / 0.x blendShapeMaster, 없으면 null
+	json ExpressionsJson(const std::wstring& path);
 	// 라이선스 · 작가 (meta) — 크레딧 표시용
 	json Meta(const std::wstring& path);
 }

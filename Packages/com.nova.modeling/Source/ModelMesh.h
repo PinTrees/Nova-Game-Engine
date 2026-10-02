@@ -25,6 +25,8 @@ namespace Modeling
 		bool Sel = false;
 		// 버텍스 그룹 (Mesh::Groups 번호, 가중치 0..1) — 이름 있는 선택 집합, 리깅 단계의 스킨 가중치
 		std::vector<std::pair<int, float>> W;
+		// 셰이프 키 (Mesh::Shapes 번호, 위치 차이) — 표정 (BlendShape). 연산을 거쳐도 그룹처럼 따라간다
+		std::vector<std::pair<int, Vec3>> K;
 	};
 
 	// 새 점 = 두 점 사이 (위치 · 그룹 가중치 보간, 선택됨)
@@ -63,6 +65,17 @@ namespace Modeling
 		std::vector<Face> Faces;
 		std::unordered_set<uint64> SelEdges;   // 변 선택 (EdgeKey)
 		std::vector<std::string> Groups;       // 버텍스 그룹 이름 (Vert::W 의 번호)
+		std::vector<std::string> Shapes;       // 셰이프 키 이름 (Vert::K 의 번호) — VRM 표정 이름 (happy, blink, aa …) 이면 그 표정으로 내보낸다
+
+		// ---- 셰이프 키
+		int FindShape(const std::string& name) const;
+		int AddShape(const std::string& name);              // 있으면 그 번호
+		void DeleteShape(int shape);
+		Vec3 ShapeDelta(int vert, int shape) const;
+		void SetShapeDelta(int vert, int shape, const Vec3& d);   // 0 이면 지운다
+		int ShapeVertCount(int shape) const;                // 움직이는 점 수
+		// 점마다 위치 + Σ 값 × 차이 (values[셰이프])
+		void ApplyShapes(const std::vector<float>& values);
 
 		// ---- 버텍스 그룹 ----
 		int FindGroup(const std::string& name) const;

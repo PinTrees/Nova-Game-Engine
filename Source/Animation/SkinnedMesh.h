@@ -47,6 +47,14 @@ public:
 	std::vector<std::string>	BoneNames;
 	std::vector<XMFLOAT4X4>		BoneOffsets;
 
+	// BlendShape (모프 타깃): 순서 = 파일 순서 (glTF targets · FBX 셰이프), 이름 = targetNames
+	std::vector<BlendShapeData>	BlendShapes;
+	int FindBlendShape(const std::string& name) const
+	{
+		for (int i = 0; i < (int)BlendShapes.size(); ++i) if (BlendShapes[i].Name == name) return i;
+		return -1;
+	}
+
 	BouncingBall	Ball;
 	wstring			Path;
 	string			Name;

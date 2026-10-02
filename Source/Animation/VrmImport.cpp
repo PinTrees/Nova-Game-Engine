@@ -439,6 +439,82 @@ namespace VrmImport
 		return { { "type", "DynamicBone" }, { "enabled", true }, { "chains", chains }, { "colliders", colliders } };
 	}
 
+	json ExpressionsJson(const std::wstring& path)
+	{
+		json g;
+		bool v1 = false;
+		if (!ReadGlb(path, g)) return nullptr;
+		const json* vrm = VrmExt(g, v1);
+		if (!vrm) return nullptr;
+		// 셰이프 이름: mesh.extras.targetNames (없으면 첫 primitive 의 것) — Assimp 도 이 이름을 쓴다, 없으면 번호로 찾는다
+		auto shapeName = [&](int mesh, int index) -> std::string {
+			if (!g.contains("meshes") || mesh < 0 || mesh >= (int)g["meshes"].size()) return std::string();
+			const json& m = g["meshes"][mesh];
+			const json* names = nullptr;
+			if (m.contains("extras") && m["extras"].contains("targetNames")) names = &m["extras"]["targetNames"];
+			else if (m.contains("primitives") && !m["primitives"].empty() && m["primitives"][0].contains("extras") && m["primitives"][0]["extras"].contains("targetNames"))
+				names = &m["primitives"][0]["extras"]["targetNames"];
+			return names && index >= 0 && index < (int)names->size() && (*names)[index].is_string() ? (*names)[index].get<std::string>() : std::string();
+		};
+		auto meshOfNode = [&](int node) { return g.contains("nodes") && node >= 0 && node < (int)g["nodes"].size() ? g["nodes"][node].value("mesh", -1) : -1; };
+		auto nodeOfMesh = [&](int mesh) {
+			if (g.contains("nodes")) for (int i = 0; i < (int)g["nodes"].size(); ++i) if (g["nodes"][i].value("mesh", -1) == mesh) return i;
+			return -1;
+		};
+		json list = json::array();
+		if (v1)
+		{
+			const json ex = vrm->value("expressions", json::object());
+			for (const char* group : { "preset", "custom" })
+			{
+				const json set = ex.value(group, json::object());
+				for (auto it = set.begin(); it != set.end(); ++it)
+				{
+					const json& e = it.value();
+					json binds = json::array();
+					for (const json& b : e.value("morphTargetBinds", json::array()))
+					{
+						const int node = b.value("node", -1), index = b.value("index", -1);
+						binds.push_back({ { "renderer", NodeName(g, node) }, { "shape", shapeName(meshOfNode(node), index) }, { "index", index }, { "weight", b.value("weight", 1.0f) * 100.0f } });
+					}
+					json ej = { { "name", it.key() }, { "binds", binds } };
+					if (e.value("isBinary", false)) ej["binary"] = true;
+					ej["overrideBlink"] = e.value("overrideBlink", std::string("none"));
+					ej["overrideMouth"] = e.value("overrideMouth", std::string("none"));
+					list.push_back(ej);
+				}
+			}
+		}
+		else
+		{
+			// VRM 0.x: presetName → VRM 1.0 이름, 웃음 · 화남 · 슬픔 · 놀람은 눈 깜빡임을 막는다 (1.0 의 기본과 같게)
+			static const std::map<std::string, std::string> kPreset = {
+				{ "joy", "happy" }, { "angry", "angry" }, { "sorrow", "sad" }, { "fun", "relaxed" }, { "surprised", "surprised" },
+				{ "a", "aa" }, { "i", "ih" }, { "u", "ou" }, { "e", "ee" }, { "o", "oh" },
+				{ "blink", "blink" }, { "blink_l", "blinkLeft" }, { "blink_r", "blinkRight" }, { "neutral", "neutral" },
+				{ "lookup", "lookUp" }, { "lookdown", "lookDown" }, { "lookleft", "lookLeft" }, { "lookright", "lookRight" } };
+			const json master = vrm->value("blendShapeMaster", json::object());
+			for (const json& e : master.value("blendShapeGroups", json::array()))
+			{
+				const std::string preset = Lower(e.value("presetName", std::string()));
+				auto it = kPreset.find(preset);
+				const std::string name = it != kPreset.end() ? it->second : e.value("name", std::string("Expression"));
+				json binds = json::array();
+				for (const json& b : e.value("binds", json::array()))
+				{
+					const int mesh = b.value("mesh", -1), index = b.value("index", -1);
+					binds.push_back({ { "renderer", NodeName(g, nodeOfMesh(mesh)) }, { "shape", shapeName(mesh, index) }, { "index", index }, { "weight", b.value("weight", 100.0f) } });
+				}
+				json ej = { { "name", name }, { "binds", binds } };
+				if (e.value("isBinary", false)) ej["binary"] = true;
+				if (name == "happy" || name == "angry" || name == "sad" || name == "surprised" || name == "relaxed") ej["overrideBlink"] = "block";
+				list.push_back(ej);
+			}
+		}
+		if (list.empty()) return nullptr;
+		return { { "type", "Expressions" }, { "enabled", true }, { "autoBlink", true }, { "expressions", list } };
+	}
+
 	json Meta(const std::wstring& path)
 	{
 		json g;

@@ -344,7 +344,7 @@ void FBXLoader::ParsingMeshNode(aiNode* node, const aiScene* scene, MeshFile* mo
 
                 MeshGeometry::Subset subset; 
                 subset.Id = i;
-                ProcessMeshSkinned(aiMesh, scene, mesh->Vertices, mesh->Indices, subset, mesh->BoneNames, mesh->BoneOffsets);
+                ProcessMeshSkinned(aiMesh, scene, mesh->Vertices, mesh->Indices, subset, mesh->BoneNames, mesh->BoneOffsets, &mesh->BlendShapes);
                 mesh->Subsets.push_back(subset);
             }
             //OptimizeVertices(mesh->Vertices, mesh->Indices); 
@@ -450,7 +450,7 @@ void FBXLoader::ProcessMeshSkinned(
     vector<Vertex::PosNormalTexTanSkinned>& vertices,
     vector<USHORT>& indices,
     MeshGeometry::Subset& subset,
-    vector<string>& boneNames, vector<XMFLOAT4X4>& boneOffsets)
+    vector<string>& boneNames, vector<XMFLOAT4X4>& boneOffsets, vector<BlendShapeData>* blendShapes)
 {
     subset.Name = mesh->mName.C_Str();
     subset.VertexStart = (UINT)vertices.size();
@@ -479,6 +479,33 @@ void FBXLoader::ProcessMeshSkinned(
             vertex.tex = XMFLOAT2(mesh->mTextureCoords[0][i].x, mesh->mTextureCoords[0][i].y);
         vertices.push_back(vertex);
     }
+
+    // BlendShape: Assimp 의 aiAnimMesh = 그 셰이프일 때의 절대 위치 (glTF = 기본 + 차이) → 차이만 (바뀐 정점)
+    //  한 노드의 여러 primitive (서브셋) 는 같은 번호의 타깃을 가진다 — 같은 BlendShape 에 정점 번호만 이어 붙인다
+    if (blendShapes)
+        for (unsigned a = 0; a < mesh->mNumAnimMeshes; ++a)
+        {
+            const aiAnimMesh* am = mesh->mAnimMeshes[a];
+            if (blendShapes->size() <= a)
+                blendShapes->push_back({});
+            BlendShapeData& shape = (*blendShapes)[a];
+            if (shape.Name.empty())
+                shape.Name = am->mName.length > 0 ? am->mName.C_Str() : "Shape" + std::to_string(a);
+            if (!am->mVertices || am->mNumVertices != mesh->mNumVertices)
+                continue;
+            for (uint32 i = 0; i < mesh->mNumVertices; ++i)
+            {
+                const aiVector3D d = ToEngine(am->mVertices[i] - mesh->mVertices[i]);
+                aiVector3D dn(0, 0, 0);
+                if (am->mNormals && mesh->mNormals)
+                    dn = ToEngine(am->mNormals[i] - mesh->mNormals[i]);
+                if (d.SquareLength() < 1e-12f && dn.SquareLength() < 1e-10f)
+                    continue;
+                shape.Index.push_back((uint32)(startVertex + i));
+                shape.DPos.push_back(XMFLOAT3(d.x, d.y, d.z));
+                shape.DNrm.push_back(XMFLOAT3(dn.x, dn.y, dn.z));
+            }
+        }
 
     // 정점별 (본, 가중치) 모으기 → 큰 것 4 개만 남기고 합이 1 이 되게 정규화
     std::vector<std::vector<std::pair<float, int>>> influences(mesh->mNumVertices);

@@ -24,6 +24,8 @@ namespace Modeling
 			std::vector<int> Materials;
 			bool HasUV = false;
 			std::vector<std::vector<std::pair<int, float>>> Skin;   // 점마다 (본 번호, 가중치) 최대 4 (아마추어가 있을 때)
+			std::vector<std::string> ShapeNames;                    // 셰이프 키 (모프 타깃)
+			std::vector<std::vector<Vec3>> ShapeDeltas;             // [셰이프][점] 위치 차이 (파일 좌표)
 		};
 
 		Vec3 ToFile(const Vec3& v) { return Vec3(-v.x, v.y, v.z); }
@@ -32,7 +34,7 @@ namespace Modeling
 		{
 			ExportMesh e;
 			e.Name = o.Name;
-			const Mesh& m = o.Evaluated(revision);   // 모디파이어 결과 (Blender 처럼 적용해서 내보낸다)
+			const Mesh m = o.RestEvaluated();   // 모디파이어 결과 (Blender 처럼 적용해서 내보낸다) — 셰이프 미리보기 없이, 셰이프는 모프 타깃으로
 			const Matrix w = o.World();
 			Matrix nrm = w;
 			nrm.Translation(Vec3(0, 0, 0));
@@ -46,6 +48,12 @@ namespace Modeling
 					for (int v : m.Faces[f].V) smooth[v] += faceN[f];
 			}
 			for (const Vert& v : m.Verts) e.Positions.push_back(ToFile(Vec3::Transform(v.P, w)));
+			// 셰이프 키 → 모프 타깃 (월드 회전 · 크기만, 파일 좌표)
+			e.ShapeNames = m.Shapes;
+			e.ShapeDeltas.assign(m.Shapes.size(), std::vector<Vec3>(m.Verts.size(), Vec3(0, 0, 0)));
+			for (size_t i = 0; i < m.Verts.size(); ++i)
+				for (const auto& [sh, d] : m.Verts[i].K)
+					if (sh >= 0 && sh < (int)m.Shapes.size()) e.ShapeDeltas[sh][i] = ToFile(Vec3::TransformNormal(d, w));
 			if (!arm.Empty())
 			{
 				// 본 이름 그룹 → 가중치, 없으면 가장 가까운 본 (점이 원점에 남지 않게)
@@ -242,6 +250,7 @@ namespace Modeling
 			}
 			// ---- 메시 (재질마다 primitive, 정점 속성은 같이)
 			std::vector<int> meshNodes;
+			std::map<ptrdiff_t, int> meshNodeOf;   // meshes 번호 → 노드 번호 (표정 묶음)
 			for (const ExportMesh& e : meshes)
 			{
 				struct Key { int P; float u, v, nx, ny, nz; bool operator<(const Key& o) const { return std::tie(P, u, v, nx, ny, nz) < std::tie(o.P, o.u, o.v, o.nx, o.ny, o.nz); } };
@@ -315,9 +324,33 @@ namespace Modeling
 				std::string nodeName = e.Name;
 				auto taken = [&](const std::string& n) { for (const json& nd : nodes) if (nd.value("name", std::string()) == n) return true; return false; };
 				if (taken(nodeName)) { nodeName = e.Name + "_Mesh"; for (int k = 2; taken(nodeName); ++k) nodeName = e.Name + "_Mesh" + std::to_string(k); }
-				gmeshes.push_back({ { "name", nodeName }, { "primitives", prims } });
+				json gm = { { "name", nodeName }, { "primitives", prims } };
+				if (!e.ShapeNames.empty())
+				{
+					// 모프 타깃: 셰이프마다 POSITION 차이 (정점 분리 순서), 이름 = extras.targetNames (Assimp · UniVRM 이 읽는다)
+					json targets = json::array();
+					for (size_t s = 0; s < e.ShapeNames.size(); ++s)
+					{
+						std::vector<float> d(count * 3, 0.0f);
+						for (const auto& [k, out] : index)
+						{
+							const Vec3& v = e.ShapeDeltas[s][k.P];
+							d[out * 3] = v.x; d[out * 3 + 1] = v.y; d[out * 3 + 2] = v.z;
+						}
+						Vec3 dmn(FLT_MAX, FLT_MAX, FLT_MAX), dmx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+						for (size_t i = 0; i < d.size(); i += 3) { dmn = Vec3::Min(dmn, Vec3(d[i], d[i + 1], d[i + 2])); dmx = Vec3::Max(dmx, Vec3(d[i], d[i + 1], d[i + 2])); }
+						const int aT = (int)accessors.size();
+						accessors.push_back({ { "bufferView", view(append(d.data(), d.size() * 4), d.size() * 4, 34962) }, { "componentType", 5126 }, { "count", count }, { "type", "VEC3" }, { "min", { dmn.x, dmn.y, dmn.z } }, { "max", { dmx.x, dmx.y, dmx.z } } });
+						targets.push_back({ { "POSITION", aT } });
+					}
+					for (json& p : gm["primitives"]) p["targets"] = targets;
+					gm["weights"] = std::vector<float>(e.ShapeNames.size(), 0.0f);
+					gm["extras"]["targetNames"] = e.ShapeNames;
+				}
+				gmeshes.push_back(gm);
 				json node = { { "name", nodeName }, { "mesh", (int)gmeshes.size() - 1 } };
 				if (skinned) node["skin"] = 0;
+				meshNodeOf[&e - meshes.data()] = (int)nodes.size();
 				meshNodes.push_back((int)nodes.size());
 				nodes.push_back(node);
 			}
@@ -361,6 +394,31 @@ namespace Modeling
 						{ "commercialUsage", "personalNonProfit" }, { "allowPoliticalOrReligiousUsage", false }, { "allowAntisocialOrHateUsage", false },
 						{ "creditNotation", "required" }, { "allowRedistribution", false }, { "modification", "prohibited" } } },
 					{ "humanoid", { { "humanBones", human } } } };
+				// ---- 표정: 셰이프 키 이름이 VRM 프리셋이면 preset, 아니면 custom (같은 이름 셰이프가 여러 메시에 있으면 묶음 여러 개)
+				{
+					static const char* kPresets[] = { "happy", "angry", "sad", "relaxed", "surprised", "aa", "ih", "ou", "ee", "oh", "blink", "blinkLeft", "blinkRight", "lookUp", "lookDown", "lookLeft", "lookRight", "neutral" };
+					std::vector<std::string> names;
+					for (const ExportMesh& e : meshes) for (const std::string& n : e.ShapeNames) if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
+					json preset = json::object(), custom = json::object();
+					for (const std::string& n : names)
+					{
+						json binds = json::array();
+						for (size_t mi = 0; mi < meshes.size(); ++mi)
+						{
+							auto it = meshNodeOf.find((ptrdiff_t)mi);
+							if (it == meshNodeOf.end()) continue;
+							const auto& sn = meshes[mi].ShapeNames;
+							const auto f = std::find(sn.begin(), sn.end(), n);
+							if (f != sn.end()) binds.push_back({ { "node", it->second }, { "index", (int)(f - sn.begin()) }, { "weight", 1.0 } });
+						}
+						const bool emotion = n == "happy" || n == "angry" || n == "sad" || n == "relaxed" || n == "surprised";
+						json ex = { { "morphTargetBinds", binds }, { "isBinary", false }, { "overrideBlink", emotion ? "block" : "none" }, { "overrideLookAt", "none" }, { "overrideMouth", "none" } };
+						bool isPreset = false;
+						for (const char* p : kPresets) isPreset = isPreset || n == p;
+						(isPreset ? preset : custom)[n] = ex;
+					}
+					if (!names.empty()) gltf["extensions"]["VRMC_vrm"]["expressions"] = { { "preset", preset }, { "custom", custom } };
+				}
 				json used = { "VRMC_vrm", "VRMC_materials_mtoon" };
 				// ---- Spring Bone: 사슬 = 같은 Chain 이름의 본 (부모가 앞) + 끝 노드
 				std::vector<std::string> chainNames;

@@ -374,6 +374,11 @@ return t.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "
                 $bmp.Dispose()
             }
             Add-Result animation 'VRM 0.x alpha-clipped clothes leave no depth-only holes' ($holes -ge 0 -and $holes -lt 50) "camera-clear pixels $holes (sampled every 2nd px)"
+            $ef = Join-Path $Out 'vrm0_expr.cs'
+            'var g = GameObject.Find("V0"); var e = g.GetComponent<Expressions>(); e.SetWeight("happy", 1f); float sum = 0; int shapes = 0; foreach (var r in g.GetComponentsInChildren<SkinnedMeshRenderer>()) { shapes += r.sharedMesh.blendShapeCount; for (int i = 0; i < r.sharedMesh.blendShapeCount; i++) sum += r.GetBlendShapeWeight(i); } return e.count + " " + shapes + " " + sum.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $ef
+            $exr = Invoke-NovaJson "exec --file $ef"
+            $exa = if ($exr) { "$($exr.result)" -split ' ' } else { @() }
+            Add-Result animation 'VRM 0.x expressions → Expressions (happy moves face blend shapes)' ($exa.Count -eq 3 -and [int]$exa[0] -ge 10 -and [int]$exa[1] -gt 20 -and [double]$exa[2] -gt 50) "expressions $($exa[0]) blend shapes $($exa[1]) weight sum $($exa[2])"
         }
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
@@ -999,6 +1004,23 @@ function Suite-Model
         # VRM 1.0 내보내기 → 엔진: Humanoid + Dynamic Bone + lilToon
         M 'new' | Out-Null
         Invoke-NovaJson "model batch $root\docs\examples\model_chibi.txt" | Out-Null
+        # 표정: 입 + 셰이프 키 (눈 blink · happy, 입 aa ih ou ee oh happy)
+        $fc = Invoke-NovaJson "model batch $root\docs\examples\model_chibi_face.txt"
+        $sl = M 'shape.list --object Mouth'
+        M "render --path $dir\face_rest.png --views front --size 256 --shading toon --wire false --bones false --zoom 2 --target 0,1.05,0" | Out-Null
+        M 'shape.value --object Mouth --name aa --value 1' | Out-Null
+        M "render --path $dir\face_aa.png --views front --size 256 --shading toon --wire false --bones false --zoom 2 --target 0,1.05,0" | Out-Null
+        M 'shape.value --object Mouth --name aa --value 0' | Out-Null
+        $fdiff = -1
+        if ((Test-Path "$dir\face_rest.png") -and (Test-Path "$dir\face_aa.png"))
+        {
+            Add-Type -AssemblyName System.Drawing
+            $b1 = [System.Drawing.Bitmap]::FromFile("$dir\face_rest.png"); $b2 = [System.Drawing.Bitmap]::FromFile("$dir\face_aa.png")
+            $fdiff = 0
+            for ($y = 0; $y -lt 256; $y += 2) { for ($x = 0; $x -lt 256; $x += 2) { if ($b1.GetPixel($x, $y).ToArgb() -ne $b2.GetPixel($x, $y).ToArgb()) { $fdiff++ } } }
+            $b1.Dispose(); $b2.Dispose()
+        }
+        Add-Result model 'shape keys: 6 mouth shapes, shape.value aa opens the mouth in the render' ($fc -and @($sl.shapes).Count -eq 6 -and $fdiff -gt 20) "mouth shapes=$(@($sl.shapes).Count) changed px=$fdiff"
         Invoke-NovaJson "model batch $root\docs\examples\model_chibi_rig.txt" | Out-Null
         $vrmDir = Join-Path $Project 'Assets\NovaTestRig'
         Remove-Item $vrmDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -1013,6 +1035,9 @@ function Suite-Model
         $hb = if ($vrmJson) { @($vrmJson.extensions.VRMC_vrm.humanoid.humanBones.PSObject.Properties).Count } else { 0 }
         $sp = if ($vrmJson) { @($vrmJson.extensions.VRMC_springBone.springs).Count } else { 0 }
         Add-Result model 'export .vrm: skin + VRMC_vrm humanoid + spring bones + MToon' ($ex -and $hb -eq 21 -and $sp -eq 14 -and $vrmJson.skins.Count -eq 1 -and $vrmJson.materials[0].extensions.VRMC_materials_mtoon) "humanBones=$hb springs=$sp skins=$(@($vrmJson.skins).Count)"
+        $pre = if ($vrmJson) { @($vrmJson.extensions.VRMC_vrm.expressions.preset.PSObject.Properties | ForEach-Object { $_.Name }) } else { @() }
+        $mouthMesh = if ($vrmJson) { $vrmJson.meshes | Where-Object { $_.name -eq 'Mouth' } } else { $null }
+        Add-Result model 'export .vrm: morph targets + VRMC_vrm expressions (happy, blink, aa …)' ($pre.Count -eq 9 -and ($pre -contains 'happy') -and ($pre -contains 'blinkLeft') -and @($mouthMesh.extras.targetNames).Count -eq 6 -and @($mouthMesh.primitives[0].targets).Count -eq 6) "presets=$($pre -join ',') mouth targets=$(@($mouthMesh.primitives[0].targets).Count)"
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'create character --name RigChibi --model Assets\NovaTestRig\Chibi.vrm' | Out-Null
         Invoke-Nova 'wait 10' | Out-Null
@@ -1021,6 +1046,11 @@ function Suite-Model
         $er = Invoke-NovaJson "exec --file $rf"
         $ea = if ($er) { "$($er.result)" -split ' ' } else { @() }
         Add-Result model 'engine: rigged VRM → character (Humanoid head, 14 Dynamic Bone chains)' ($ea.Count -eq 3 -and $ea[0] -eq '14' -and [double]$ea[2] -gt 0.7 -and [double]$ea[2] -lt 1.1) "chains $($ea[0]) colliders $($ea[1]) head y $($ea[2])"
+        $xf = Join-Path $dir 'rig_expr.cs'
+        'var g = GameObject.Find("RigChibi"); var e = g.GetComponent<Expressions>(); e.SetWeight("happy", 1f); SkinnedMeshRenderer mouth = null; foreach (var r in g.GetComponentsInChildren<SkinnedMeshRenderer>()) if (r.gameObject.name.StartsWith("Mouth")) mouth = r; int i = mouth.sharedMesh.GetBlendShapeIndex("happy"); return e.count + " " + mouth.sharedMesh.blendShapeCount + " " + mouth.GetBlendShapeWeight(i).ToString("F0", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $xf
+        $xr = Invoke-NovaJson "exec --file $xf"
+        $xa = if ($xr) { "$($xr.result)" -split ' ' } else { @() }
+        Add-Result model 'engine: VRM expressions → Expressions + BlendShape (happy = 100 on the mouth)' ($xa.Count -eq 3 -and $xa[0] -eq '9' -and $xa[1] -eq '6' -and $xa[2] -eq '100') "expressions $($xa[0]) mouth shapes $($xa[1]) happy weight $($xa[2])"
         Remove-Item $vrmDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$vrmDir.meta" -Force -ErrorAction SilentlyContinue
         Invoke-Nova 'log --errors -n 5' | Out-Null

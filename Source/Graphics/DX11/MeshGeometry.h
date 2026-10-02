@@ -1,6 +1,15 @@
 #pragma once
 #include "Utils.h"
 
+// BlendShape (모프 타깃 · Unity 의 Mesh BlendShape): 바뀌는 정점만 위치 · 법선 차이
+struct BlendShapeData
+{
+	string Name;
+	std::vector<uint32> Index;      // 정점 번호 (메시 전체 정점 배열에서)
+	std::vector<XMFLOAT3> DPos;     // 위치 차이 (가중치 100 % 일 때)
+	std::vector<XMFLOAT3> DNrm;     // 법선 차이
+};
+
 class MeshGeometry
 {
 public:
@@ -38,6 +47,8 @@ public:
 	void SetSubsetTable(std::vector<Subset>& subsetTable);
 
 	void Draw(ComPtr<GfxContext> dc, uint32 subsetId);
+	// 정점 버퍼만 바꿔서 (BlendShape 를 섞은 렌더러 자기 버퍼) — null 이면 원래 것
+	void Draw(GfxContext* dc, uint32 subsetId, GfxBuffer* vertexBuffer);
 	void InstancingDraw(ComPtr<GfxContext> dc, uint32 subsetId, uint32 instancingSize);
 
 	size_t GpuBytes() const;   // 정점 + 인덱스 버퍼 (Profiler 메모리)

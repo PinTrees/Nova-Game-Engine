@@ -68,7 +68,7 @@ private:
         const aiScene* scene,
         vector<Vertex::PosNormalTexTanSkinned>& vertices,
         vector<USHORT>& indices, MeshGeometry::Subset& subset,
-        vector<string>& boneNames, vector<XMFLOAT4X4>& boneOffsets);
+        vector<string>& boneNames, vector<XMFLOAT4X4>& boneOffsets, vector<BlendShapeData>* blendShapes = nullptr);
 
     void ParseBonesFromNodes(aiNode* node, std::map<std::string, int>& boneMapping); 
     void ParseBoneOffsets(const aiScene* scene, const std::map<std::string, int>& boneMapping, std::vector<XMFLOAT4X4>& boneOffsets);

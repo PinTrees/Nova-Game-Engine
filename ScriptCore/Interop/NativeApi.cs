@@ -179,6 +179,13 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int, float*, int, int> TX_Info;
         public delegate* unmanaged<ulong, int, int, byte*> TX_Link;
         public delegate* unmanaged<float, float, ulong> UI_RaycastScreen;
+
+        // SkinnedMeshRenderer BlendShape
+        public delegate* unmanaged<ulong, int> SMR_Count;
+        public delegate* unmanaged<ulong, int, byte*> SMR_Name;
+        public delegate* unmanaged<ulong, byte*, int> SMR_Index;
+        public delegate* unmanaged<ulong, int, float> SMR_GetWeight;
+        public delegate* unmanaged<ulong, int, float, void> SMR_SetWeight;
     }
 
     internal static unsafe class Native

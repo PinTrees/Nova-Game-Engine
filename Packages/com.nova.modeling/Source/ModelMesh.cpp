@@ -54,6 +54,14 @@ namespace Modeling
 			else v.W.push_back({ g, w * t });
 		}
 		v.W.erase(std::remove_if(v.W.begin(), v.W.end(), [](const auto& x) { return x.second <= 1e-6f; }), v.W.end());
+		// 셰이프 키 차이도 같은 비율로
+		for (const auto& [s, d] : a.K) v.K.push_back({ s, d * (1.0f - t) });
+		for (const auto& [s, d] : b.K)
+		{
+			auto it = std::find_if(v.K.begin(), v.K.end(), [&](const auto& x) { return x.first == s; });
+			if (it != v.K.end()) it->second += d * t;
+			else v.K.push_back({ s, d * t });
+		}
 		return v;
 	}
 
@@ -72,8 +80,70 @@ namespace Modeling
 				if (it != v.W.end()) it->second += w * inv;
 				else v.W.push_back({ g, w * inv });
 			}
+			for (const auto& [s, d] : verts[i].K)
+			{
+				auto it = std::find_if(v.K.begin(), v.K.end(), [&](const auto& x) { return x.first == s; });
+				if (it != v.K.end()) it->second += d * inv;
+				else v.K.push_back({ s, d * inv });
+			}
 		}
 		return v;
+	}
+
+	// ------------------------------------------------------------------ 셰이프 키
+	int Mesh::FindShape(const std::string& name) const
+	{
+		for (int i = 0; i < (int)Shapes.size(); ++i) if (Shapes[i] == name) return i;
+		return -1;
+	}
+
+	int Mesh::AddShape(const std::string& name)
+	{
+		const int s = FindShape(name);
+		if (s >= 0) return s;
+		Shapes.push_back(name);
+		return (int)Shapes.size() - 1;
+	}
+
+	void Mesh::DeleteShape(int shape)
+	{
+		if (shape < 0 || shape >= (int)Shapes.size()) return;
+		Shapes.erase(Shapes.begin() + shape);
+		for (Vert& v : Verts)
+		{
+			v.K.erase(std::remove_if(v.K.begin(), v.K.end(), [&](const auto& x) { return x.first == shape; }), v.K.end());
+			for (auto& x : v.K) if (x.first > shape) --x.first;
+		}
+	}
+
+	Vec3 Mesh::ShapeDelta(int vert, int shape) const
+	{
+		for (const auto& x : Verts[vert].K) if (x.first == shape) return x.second;
+		return Vec3(0, 0, 0);
+	}
+
+	void Mesh::SetShapeDelta(int vert, int shape, const Vec3& d)
+	{
+		auto& k = Verts[vert].K;
+		auto it = std::find_if(k.begin(), k.end(), [&](const auto& x) { return x.first == shape; });
+		if (d.LengthSquared() < 1e-14f) { if (it != k.end()) k.erase(it); return; }
+		if (it != k.end()) it->second = d;
+		else k.push_back({ shape, d });
+	}
+
+	int Mesh::ShapeVertCount(int shape) const
+	{
+		int n = 0;
+		for (const Vert& v : Verts) for (const auto& x : v.K) if (x.first == shape && x.second.LengthSquared() > 1e-14f) { ++n; break; }
+		return n;
+	}
+
+	void Mesh::ApplyShapes(const std::vector<float>& values)
+	{
+		for (Vert& v : Verts)
+			for (const auto& [s, d] : v.K)
+				if (s >= 0 && s < (int)values.size() && values[s] != 0.0f) v.P += d * values[s];
+		Touch();
 	}
 
 	int Mesh::FindGroup(const std::string& name) const
@@ -1466,12 +1536,33 @@ namespace Modeling
 				if (n.size() > sr.size() && n.compare(n.size() - sr.size(), sr.size(), sr) == 0) { swap[g] = AddGroup(n.substr(0, n.size() - sr.size()) + sl); break; }
 			}
 		}
+		// 셰이프 키도: blinkLeft ↔ blinkRight (없으면 만든다), 차이는 같은 축으로 뒤집는다
+		const int shapeCount = (int)Shapes.size();
+		std::vector<int> shapeSwap(shapeCount);
+		for (int s = 0; s < shapeCount; ++s)
+		{
+			shapeSwap[s] = s;
+			if (axis != 0) continue;
+			const std::string n = Shapes[s];
+			static const std::pair<const char*, const char*> sides[] = { { "Left", "Right" }, { "_L", "_R" }, { ".L", ".R" } };
+			for (const auto& [l, r] : sides)
+			{
+				const std::string sl = l, sr = r;
+				if (n.size() > sl.size() && n.compare(n.size() - sl.size(), sl.size(), sl) == 0) { shapeSwap[s] = AddShape(n.substr(0, n.size() - sl.size()) + sr); break; }
+				if (n.size() > sr.size() && n.compare(n.size() - sr.size(), sr.size(), sr) == 0) { shapeSwap[s] = AddShape(n.substr(0, n.size() - sr.size()) + sl); break; }
+			}
+		}
 		for (int i = 0; i < base; ++i)
 		{
 			Vec3 p = Verts[i].P;
 			(axis == 0 ? p.x : (axis == 1 ? p.y : p.z)) *= -1.0f;
 			Vert v = CopyVert(Verts[i], p, false);
 			for (auto& x : v.W) if (x.first < (int)swap.size()) x.first = swap[x.first];
+			for (auto& x : v.K)
+			{
+				(axis == 0 ? x.second.x : (axis == 1 ? x.second.y : x.second.z)) *= -1.0f;
+				if (x.first < (int)shapeSwap.size()) x.first = shapeSwap[x.first];
+			}
 			Verts.push_back(v);
 		}
 		for (int f = 0; f < nf; ++f)
@@ -1753,6 +1844,20 @@ namespace Modeling
 			}
 			j["groups"] = gj;
 		}
+		if (!Shapes.empty())
+		{
+			// 셰이프마다 [[점, dx, dy, dz], …]
+			nlohmann::json sj = nlohmann::json::array();
+			for (int s = 0; s < (int)Shapes.size(); ++s)
+			{
+				nlohmann::json members = nlohmann::json::array();
+				for (int i = 0; i < (int)Verts.size(); ++i)
+					for (const auto& x : Verts[i].K)
+						if (x.first == s) members.push_back({ i, x.second.x, x.second.y, x.second.z });
+				sj.push_back({ { "name", Shapes[s] }, { "verts", members } });
+			}
+			j["shapes"] = sj;
+		}
 		if (withSelection)
 		{
 			std::vector<int> vs, fs;
@@ -1772,6 +1877,7 @@ namespace Modeling
 		Faces.clear();
 		SelEdges.clear();
 		Groups.clear();
+		Shapes.clear();
 		if (j.contains("positions"))
 		{
 			const auto& p = j["positions"];
@@ -1805,6 +1911,18 @@ namespace Modeling
 						if (i >= 0 && i < (int)Verts.size()) Verts[i].W.push_back({ g, m[1].get<float>() });
 					}
 			}
+		if (j.contains("shapes"))
+			for (const auto& sj : j["shapes"])
+			{
+				const int s = (int)Shapes.size();
+				Shapes.push_back(sj.value("name", std::string("Key")));
+				if (sj.contains("verts"))
+					for (const auto& m : sj["verts"])
+					{
+						const int i = m[0].get<int>();
+						if (i >= 0 && i < (int)Verts.size() && m.size() == 4) Verts[i].K.push_back({ s, Vec3(m[1].get<float>(), m[2].get<float>(), m[3].get<float>()) });
+					}
+			}
 		if (j.contains("vsel")) for (int i : j["vsel"]) if (i >= 0 && i < (int)Verts.size()) Verts[i].Sel = true;
 		if (j.contains("fsel")) for (int i : j["fsel"]) if (i >= 0 && i < (int)Faces.size()) Faces[i].Sel = true;
 		if (j.contains("esel")) for (uint64 k : j["esel"]) SelEdges.insert(k);
@@ -1814,12 +1932,14 @@ namespace Modeling
 	void Mesh::Append(const Mesh& other, const Matrix& transform)
 	{
 		const int base = (int)Verts.size();
-		std::vector<int> remap(other.Groups.size());
+		std::vector<int> remap(other.Groups.size()), shapeRemap(other.Shapes.size());
 		for (size_t g = 0; g < other.Groups.size(); ++g) remap[g] = AddGroup(other.Groups[g]);
+		for (size_t s = 0; s < other.Shapes.size(); ++s) shapeRemap[s] = AddShape(other.Shapes[s]);
 		for (const Vert& v : other.Verts)
 		{
 			Vert c = CopyVert(v, Vec3::Transform(v.P, transform), v.Sel);
 			for (auto& x : c.W) x.first = remap[x.first];
+			for (auto& x : c.K) { x.first = shapeRemap[x.first]; x.second = Vec3::TransformNormal(x.second, transform); }
 			Verts.push_back(c);
 		}
 		for (const Face& f : other.Faces) { Face g = f; for (int& i : g.V) i += base; Faces.push_back(g); }

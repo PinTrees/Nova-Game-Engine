@@ -296,4 +296,27 @@ namespace NovaEngine
     }
     public sealed class Light : Behaviour { internal Light() { } }
     public sealed class MeshRenderer : Component { internal MeshRenderer() { } }
+
+    /// <summary>Unity 의 SkinnedMeshRenderer: BlendShape (모프 타깃) 가중치 0..100</summary>
+    public sealed class SkinnedMeshRenderer : Component
+    {
+        internal SkinnedMeshRenderer() { }
+        public unsafe float GetBlendShapeWeight(int index) => Native.Api.SMR_GetWeight(m_Id, index);
+        public unsafe void SetBlendShapeWeight(int index, float value) => Native.Api.SMR_SetWeight(m_Id, index, value);
+        /// <summary>이 렌더러의 메시 (BlendShape 이름 · 수)</summary>
+        public Mesh sharedMesh => new Mesh(m_Id);
+    }
+
+    /// <summary>Unity 의 Mesh 중 BlendShape 정보 (SkinnedMeshRenderer.sharedMesh)</summary>
+    public sealed class Mesh
+    {
+        private readonly ulong m_Owner;
+        internal Mesh(ulong owner) { m_Owner = owner; }
+        public unsafe int blendShapeCount => Native.Api.SMR_Count(m_Owner);
+        public unsafe string GetBlendShapeName(int index) => Native.Str(Native.Api.SMR_Name(m_Owner, index));
+        public unsafe int GetBlendShapeIndex(string name)
+        {
+            fixed (byte* p = Native.Utf8(name)) return Native.Api.SMR_Index(m_Owner, p);
+        }
+    }
 }

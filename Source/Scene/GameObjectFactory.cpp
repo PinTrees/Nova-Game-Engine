@@ -603,6 +603,14 @@ GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, 
 	// VRM 의 Spring Bone → Dynamic Bone (머리카락 · 옷 · 끈이 흔들린다)
 	if (VrmImport::IsVrm(string_to_wstring(modelPath)))
 	{
+		// 표정 (BlendShape 묶음, 자동 깜빡임)
+		const json expressions = VrmImport::ExpressionsJson(string_to_wstring(modelPath));
+		if (!expressions.is_null())
+			if (auto expr = ComponentFactory::Instance().CreateComponent("Expressions"))
+			{
+				expr->fromJson(expressions);
+				root->AddComponent(expr);
+			}
 		const json springs = VrmImport::DynamicBoneJson(string_to_wstring(modelPath));
 		if (!springs.is_null())
 			if (auto dyn = ComponentFactory::Instance().CreateComponent("DynamicBone"))

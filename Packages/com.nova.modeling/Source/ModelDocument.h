@@ -23,6 +23,14 @@ namespace Modeling
 		bool MirrorClip = true;  // 가운데 점이 X = 0 을 넘어가지 않게 (옮겨도 0 에 남음)
 		int Subsurf = 0;         // Subdivision Surface 미리보기 단계 (0 = 끔, 최대 3)
 		bool HasModifiers() const { return MirrorX || Subsurf > 0; }
+
+		// ---- 셰이프 키 (표정): 미리보기 값 · 고치는 셰이프 (Blender 의 Active Shape Key — 이때 옮기기 · 돌리기 · 크기는 그 셰이프의 차이를 고친다)
+		std::vector<float> ShapeValues;   // M.Shapes 번호 → 0..1
+		int ShapeEdit = -1;               // -1 = Basis
+		bool ShapesActive() const;
+		std::vector<float> ShapeWeights() const;   // 고치는 셰이프 = 1, 나머지 = 미리보기 값
+		// 셰이프 없이 모디파이어만 (내보내기 · 굽기 — 셰이프는 모프 타깃으로 따로)
+		Mesh RestEvaluated() const;
 		// 결과 메시 (Revision 이 바뀌면 다시 만든다). 면의 Origin = 원래 면 번호
 		const Mesh& Evaluated(uint64 revision) const;
 		void ApplyModifiers();   // 결과를 원래 메시로 굽고 모디파이어를 끈다

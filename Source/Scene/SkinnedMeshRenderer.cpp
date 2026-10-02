@@ -155,6 +155,100 @@ void SkinnedMeshRenderer::EnsureBones()
 {
 	if (m_FinalTransforms.empty())
 		ResetToBindPose();
+	EnsureMorph();
+}
+
+// ------------------------------------------------------------------ BlendShape
+int SkinnedMeshRenderer::BlendShapeCount() const { return m_Mesh ? (int)m_Mesh->BlendShapes.size() : 0; }
+
+std::string SkinnedMeshRenderer::BlendShapeName(int index) const
+{
+	return index >= 0 && index < BlendShapeCount() ? m_Mesh->BlendShapes[index].Name : std::string();
+}
+
+int SkinnedMeshRenderer::BlendShapeIndex(const std::string& name) const { return m_Mesh ? m_Mesh->FindBlendShape(name) : -1; }
+
+float SkinnedMeshRenderer::GetBlendShapeWeight(int index) const
+{
+	return index >= 0 && index < (int)m_BlendWeights.size() ? m_BlendWeights[index] : 0.0f;
+}
+
+void SkinnedMeshRenderer::SetBlendShapeWeight(int index, float weight)
+{
+	if (index < 0 || index >= BlendShapeCount())
+		return;
+	if ((int)m_BlendWeights.size() < BlendShapeCount())
+		m_BlendWeights.resize(BlendShapeCount(), 0.0f);
+	if (m_BlendWeights[index] == weight)
+		return;
+	m_BlendWeights[index] = weight;
+	m_MorphDirty = true;
+}
+
+// 가중치가 바뀐 프레임에만: 원래 정점 + Σ 가중치 × 차이 → 동적 정점 버퍼 (WRITE_DISCARD)
+void SkinnedMeshRenderer::EnsureMorph()
+{
+	if (!m_Mesh || m_Mesh->BlendShapes.empty() || m_Mesh->Vertices.empty())
+	{
+		m_MorphActive = false;
+		return;
+	}
+	if (!m_MorphDirty)
+		return;
+	m_MorphDirty = false;
+	const auto& shapes = m_Mesh->BlendShapes;
+	if ((int)m_BlendWeights.size() < (int)shapes.size())
+		m_BlendWeights.resize(shapes.size(), 0.0f);
+	bool any = false;
+	for (size_t k = 0; k < shapes.size(); ++k) any = any || fabsf(m_BlendWeights[k]) > 1e-4f;
+	m_MorphActive = any;
+	if (!any)
+		return;
+	m_MorphVerts = m_Mesh->Vertices;
+	const size_t count = m_MorphVerts.size();
+	for (size_t k = 0; k < shapes.size(); ++k)
+	{
+		const float w = m_BlendWeights[k] * 0.01f;
+		if (fabsf(w) <= 1e-6f)
+			continue;
+		const BlendShapeData& sh = shapes[k];
+		for (size_t j = 0; j < sh.Index.size(); ++j)
+		{
+			if (sh.Index[j] >= count) continue;
+			auto& v = m_MorphVerts[sh.Index[j]];
+			v.pos.x += sh.DPos[j].x * w; v.pos.y += sh.DPos[j].y * w; v.pos.z += sh.DPos[j].z * w;
+			v.normal.x += sh.DNrm[j].x * w; v.normal.y += sh.DNrm[j].y * w; v.normal.z += sh.DNrm[j].z * w;
+		}
+	}
+	GfxContext* dc = Application::GetI()->GetDeviceContext();
+	if (!m_MorphVB || m_MorphVBCount != (uint32)count)
+	{
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_DYNAMIC;
+		bd.ByteWidth = (UINT)(count * sizeof(Vertex::PosNormalTexTanSkinned));
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		m_MorphVB.Reset();
+		if (FAILED(Application::GetI()->GetDevice()->CreateBuffer(&bd, nullptr, m_MorphVB.GetAddressOf())))
+		{
+			m_MorphActive = false;
+			return;
+		}
+		m_MorphVBCount = (uint32)count;
+	}
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (FAILED(dc->Map(m_MorphVB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+	{
+		m_MorphActive = false;
+		return;
+	}
+	memcpy(mapped.pData, m_MorphVerts.data(), count * sizeof(Vertex::PosNormalTexTanSkinned));
+	dc->Unmap(m_MorphVB.Get(), 0);
+}
+
+void SkinnedMeshRenderer::DrawSubset(GfxContext* dc, int subset)
+{
+	m_Mesh->ModelMesh.Draw(dc, (uint32)subset, m_MorphActive ? m_MorphVB.Get() : nullptr);
 }
 
 // ------------------------------------------------------------------ 그리기
@@ -209,7 +303,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 				}
 			UMaterial::ApplyOrDefault(material, Effects::InstancedBasicFX.get());
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
-			m_Mesh->ModelMesh.Draw(deviceContext, i);
+			DrawSubset(deviceContext, i);
 		}
 	}
 
@@ -258,7 +352,7 @@ CustomShaders::SkinnedDraw SkinnedMeshRenderer::MakeCustomDraw(UMaterial* materi
 		auto ctx = Application::GetI()->GetDeviceContext();
 		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		ctx->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
-		m_Mesh->ModelMesh.Draw(ctx, subset);
+		DrawSubset(ctx, subset);
 	};
 	return d;
 }
@@ -306,13 +400,13 @@ void SkinnedMeshRenderer::RenderShadow()
 				Effects::BuildShadowMapFX->SetAlphaCutoff(cutoff);
 				Effects::BuildShadowMapFX->SetTexTransform(ClipTexTransform(*m));
 				Effects::BuildShadowMapFX->BuildShadowMapAlphaClipSkinnedTech->GetPassByIndex(p)->Apply(0, deviceContext);
-				m_Mesh->ModelMesh.Draw(deviceContext, i);
+				DrawSubset(deviceContext, i);
 				Effects::BuildShadowMapFX->SetTexTransform(XMMatrixScaling(1.0f, 1.0f, 1.0f));
 				Effects::BuildShadowMapFX->SetAlphaCutoff(0.0f);   // 0 = 예전 고정값 (다른 렌더러용)
 				continue;
 			}
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
-			m_Mesh->ModelMesh.Draw(deviceContext, i);
+			DrawSubset(deviceContext, i);
 		}
 	}
 }
@@ -369,13 +463,13 @@ void SkinnedMeshRenderer::DrawSkinnedNormalDepth(bool editor)
 				Effects::SsaoNormalDepthFX->SetAlphaCutoff(cutoff);
 				Effects::SsaoNormalDepthFX->SetTexTransform(ClipTexTransform(*m));
 				Effects::SsaoNormalDepthFX->NormalDepthAlphaClipSkinnedTech->GetPassByIndex(p)->Apply(0, deviceContext);
-				mesh->ModelMesh.Draw(deviceContext, i);
+				DrawSubset(deviceContext, i);
 				Effects::SsaoNormalDepthFX->SetTexTransform(XMMatrixScaling(1.0f, 1.0f, 1.0f));
 				Effects::SsaoNormalDepthFX->SetAlphaCutoff(0.0f);
 				continue;
 			}
 			tech->GetPassByIndex(p)->Apply(0, deviceContext);
-			mesh->ModelMesh.Draw(deviceContext, i);
+			DrawSubset(deviceContext, i);
 		}
 	}
 }
@@ -417,6 +511,21 @@ void SkinnedMeshRenderer::OnInspectorGUI()
 	Toggle("Update When Offscreen", &m_UpdateWhenOffscreen);
 	std::string root = m_RootBone.empty() ? "None (Transform)" : m_RootBone;
 	ObjectField("Root Bone", root.c_str(), 0, m_RootBone.empty() ? nullptr : "transform");
+
+	// ---- BlendShapes (Unity: 셰이프마다 0..100 슬라이더)
+	if (BlendShapeCount() > 0 && FoldoutPlain("BlendShapes", 0, false))
+	{
+		if ((int)m_BlendWeights.size() < BlendShapeCount())
+			m_BlendWeights.resize(BlendShapeCount(), 0.0f);
+		for (int i = 0; i < BlendShapeCount(); ++i)
+		{
+			ImGui::PushID(i);
+			float w = m_BlendWeights[i];
+			if (UnityGUI::Slider(m_Mesh->BlendShapes[i].Name.c_str(), &w, 0.0f, 100.0f, 1))
+				SetBlendShapeWeight(i, w);
+			ImGui::PopID();
+		}
+	}
 
 	// ---- Materials ----
 	int count = (int)m_pMaterials.size();
@@ -497,6 +606,9 @@ GENERATE_COMPONENT_FUNC_TOJSON(SkinnedMeshRenderer)
 	j["dynamicOcclusion"] = m_DynamicOcclusion;
 	j["renderingLayerMask"] = m_RenderingLayerMask;
 	j["maskInteraction"] = m_MaskInteraction;
+	bool anyWeight = false;
+	for (float w : m_BlendWeights) anyWeight = anyWeight || w != 0.0f;
+	if (anyWeight) j["blendShapeWeights"] = m_BlendWeights;
 	return j;
 }
 
@@ -535,6 +647,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SkinnedMeshRenderer)
 	m_DynamicOcclusion = j.value("dynamicOcclusion", true);
 	m_RenderingLayerMask = j.value("renderingLayerMask", 0);
 	m_MaskInteraction = j.value("maskInteraction", 0);
+	m_BlendWeights = j.value("blendShapeWeights", std::vector<float>());
+	m_MorphDirty = true;
 
 	// 메시 + 스켈레톤 (재질 수가 부족하면 기본 재질로 채움)
 	SetSkinnedMesh(meshPath, m_MeshSubsetIndex);

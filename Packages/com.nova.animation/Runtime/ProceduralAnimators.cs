@@ -27,6 +27,12 @@ namespace NovaEngine
         [DllImport(Dll)] internal static extern int DYN_Info(ulong go, int what, int chain);
         [DllImport(Dll)] internal static extern int DYN_GetTail(ulong go, int chain, int joint, Vector3* v);
         [DllImport(Dll)] internal static extern void DYN_Reset(ulong go);
+        [DllImport(Dll)] internal static extern int EXP_SetWeight(ulong go, byte* name, float v);
+        [DllImport(Dll)] internal static extern float EXP_GetWeight(ulong go, byte* name);
+        [DllImport(Dll)] internal static extern int EXP_Count(ulong go);
+        [DllImport(Dll)] internal static extern byte* EXP_Name(ulong go, int index);
+        [DllImport(Dll)] internal static extern float EXP_GetFloat(ulong go, int prop);
+        [DllImport(Dll)] internal static extern void EXP_SetFloat(ulong go, int prop, float v);
     }
 
     /// <summary>
@@ -138,5 +144,36 @@ namespace NovaEngine
         }
         /// <summary>흔들림을 지금 자세로 되돌린다 (순간 이동 뒤)</summary>
         public void ResetSimulation() => ProceduralNative.DYN_Reset(nativeId);
+    }
+
+    /// <summary>
+    /// Expressions (VRM 의 표정): 이름 있는 표정 = BlendShape 묶음. SetWeight("happy", 1) · 입 모양 aa ih ou ee oh · blink (자동 깜빡임).
+    /// </summary>
+    [NativeComponent("Expressions")]
+    public sealed unsafe class Expressions : Behaviour
+    {
+        internal Expressions() { }
+        /// <summary>표정 값 (0..1). 없는 이름이면 false</summary>
+        public bool SetWeight(string name, float value)
+        {
+            byte[] b = System.Text.Encoding.UTF8.GetBytes((name ?? "") + "\0");
+            fixed (byte* p = b) return ProceduralNative.EXP_SetWeight(nativeId, p, value) != 0;
+        }
+        public float GetWeight(string name)
+        {
+            byte[] b = System.Text.Encoding.UTF8.GetBytes((name ?? "") + "\0");
+            fixed (byte* p = b) return ProceduralNative.EXP_GetWeight(nativeId, p);
+        }
+        public int count => ProceduralNative.EXP_Count(nativeId);
+        public string GetName(int index)
+        {
+            byte* p = ProceduralNative.EXP_Name(nativeId, index);
+            return p == null ? null : System.Runtime.InteropServices.Marshal.PtrToStringUTF8((System.IntPtr)p);
+        }
+        public bool autoBlink { get => ProceduralNative.EXP_GetFloat(nativeId, 3) != 0; set => ProceduralNative.EXP_SetFloat(nativeId, 3, value ? 1 : 0); }
+        public float blinkInterval { get => ProceduralNative.EXP_GetFloat(nativeId, 0); set => ProceduralNative.EXP_SetFloat(nativeId, 0, value); }
+        public float blinkDuration { get => ProceduralNative.EXP_GetFloat(nativeId, 1); set => ProceduralNative.EXP_SetFloat(nativeId, 1, value); }
+        /// <summary>지금 자동 깜빡임 값 (0 = 뜸, 1 = 감음)</summary>
+        public float autoBlinkValue => ProceduralNative.EXP_GetFloat(nativeId, 2);
     }
 }

@@ -11,6 +11,7 @@
 #include "LookAnimator.h"
 #include "HandsAnimator.h"
 #include "DynamicBone.h"
+#include "Expressions.h"
 
 NOVA_PACKAGE_EXPORT const char* NovaPackage_Abi() { return NOVA_PACKAGE_ABI_VERSION; }
 
@@ -300,6 +301,54 @@ NOVA_PACKAGE_EXPORT void HANDS_GetHand(uint64 id, int hand, Vec3* out)
 {
 	HandsAnimator* h = FindHands(id);
 	if (out) *out = h ? h->GetHandPosition(hand) : Vec3::Zero;
+}
+
+// ---- Expressions: 이름으로 표정 값 (0..1), 0 autoBlink / float 0 blinkInterval, 1 blinkDuration, 2 자동 깜빡임 값
+namespace
+{
+	Expressions* FindExpr(uint64 id)
+	{
+		GameObject* go = ScriptBindings::FindObject(id);
+		return go ? go->GetComponentIncludingPending<Expressions>() : nullptr;
+	}
+}
+
+NOVA_PACKAGE_EXPORT int EXP_SetWeight(uint64 id, const char* name, float v)
+{
+	Expressions* e = FindExpr(id);
+	return e && name && e->SetWeight(name, v) ? 1 : 0;
+}
+
+NOVA_PACKAGE_EXPORT float EXP_GetWeight(uint64 id, const char* name)
+{
+	Expressions* e = FindExpr(id);
+	return e && name ? e->GetWeight(name) : 0.0f;
+}
+
+NOVA_PACKAGE_EXPORT int EXP_Count(uint64 id)
+{
+	Expressions* e = FindExpr(id);
+	return e ? (int)e->List.size() : 0;
+}
+
+NOVA_PACKAGE_EXPORT const char* EXP_Name(uint64 id, int index)
+{
+	Expressions* e = FindExpr(id);
+	return e && index >= 0 && index < (int)e->List.size() ? ScriptBindings::ReturnString(e->List[index].Name) : nullptr;
+}
+
+NOVA_PACKAGE_EXPORT float EXP_GetFloat(uint64 id, int prop)
+{
+	Expressions* e = FindExpr(id);
+	if (!e) return 0.0f;
+	switch (prop) { case 0: return e->BlinkInterval; case 1: return e->BlinkDuration; case 2: return e->AutoBlinkValue(); case 3: return e->AutoBlink ? 1.0f : 0.0f; default: return 0.0f; }
+}
+
+NOVA_PACKAGE_EXPORT void EXP_SetFloat(uint64 id, int prop, float v)
+{
+	Expressions* e = FindExpr(id);
+	if (!e) return;
+	switch (prop) { case 0: e->BlinkInterval = (std::max)(0.5f, v); break; case 1: e->BlinkDuration = (std::max)(0.05f, v); break; case 3: e->AutoBlink = v != 0.0f; break; default: break; }
 }
 
 // ---- DynamicBone: float 0 weight, 1 stiffnessScale, 2 gravityScale, 3 dragScale, 4 windTurbulence / vector 0 wind

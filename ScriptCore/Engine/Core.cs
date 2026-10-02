@@ -198,6 +198,19 @@ namespace NovaEngine
             }
             return null;
         }
+        /// <summary>자기와 모든 자식 (깊이 우선) 의 T 컴포넌트 (Unity 와 같음)</summary>
+        public T[] GetComponentsInChildren<T>() where T : class
+        {
+            var list = new System.Collections.Generic.List<T>();
+            CollectInChildren(this, list);
+            return list.ToArray();
+        }
+        private static void CollectInChildren<T>(GameObject go, System.Collections.Generic.List<T> list) where T : class
+        {
+            list.AddRange(go.GetComponents<T>());
+            var tr = go.transform;
+            for (int i = 0; i < tr.childCount; i++) CollectInChildren(tr.GetChild(i).gameObject, list);
+        }
         public T GetComponentInParent<T>() where T : class
         {
             for (Transform t = transform; t != null; t = t.parent)
@@ -245,6 +258,7 @@ namespace NovaEngine
         public bool TryGetComponent<T>(out T component) where T : class => gameObject.TryGetComponent(out component);
         public T[] GetComponents<T>() where T : class => gameObject.GetComponents<T>();
         public T GetComponentInChildren<T>() where T : class => gameObject.GetComponentInChildren<T>();
+        public T[] GetComponentsInChildren<T>() where T : class => gameObject.GetComponentsInChildren<T>();
         public T GetComponentInParent<T>() where T : class => gameObject.GetComponentInParent<T>();
         public void SendMessage(string methodName, object value = null) => gameObject.SendMessage(methodName, value);
 
@@ -274,6 +288,7 @@ namespace NovaEngine
             if (t == typeof(Camera)) return "Camera";
             if (t == typeof(Light)) return "Light";
             if (t == typeof(MeshRenderer)) return "MeshRenderer";
+            if (t == typeof(SkinnedMeshRenderer)) return "SkinnedMeshRenderer";
             // UI
             if (t == typeof(RectTransform)) return "RectTransform";
             if (t == typeof(Canvas)) return "Canvas";

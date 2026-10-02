@@ -1246,6 +1246,7 @@ void ModelEditorWindow::DrawSidePanel()
 		DrawGroupsPanel();
 	}
 	DrawRefsPanel();
+	DrawShapesPanel();
 	DrawRigPanel();
 
 	// ---- Last Operation (값을 바꾸면 되돌리고 다시)
@@ -1387,6 +1388,41 @@ void ModelEditorWindow::DrawGroupsPanel()
 	if (ImGui::Button("Deselect")) Run("group.select", { { "name", name }, { "deselect", true } });
 	ImGui::SameLine();
 	if (ImGui::Button(ICON_FA_TRASH)) Run("group.delete", { { "name", name } });
+}
+
+// 셰이프 키 (표정): 목록 (값 끌기 = 미리보기), 연필 = 이 셰이프를 고친다 (G R S 가 그 셰이프만), Basis = 메시 자체
+void ModelEditorWindow::DrawShapesPanel()
+{
+	Document& d = Doc();
+	Object* a = d.ActiveObject();
+	if (!a) return;
+	Modeling::Mesh& m = a->M;
+	ImGui::Spacing();
+	ImGui::TextDisabled("SHAPE KEYS");
+	if (ImGui::Selectable(a->ShapeEdit < 0 ? "> Basis" : "  Basis", a->ShapeEdit < 0)) Run("shape.edit", { { "basis", true } });
+	if ((int)a->ShapeValues.size() < (int)m.Shapes.size()) a->ShapeValues.resize(m.Shapes.size(), 0.0f);
+	for (int s = 0; s < (int)m.Shapes.size(); ++s)
+	{
+		ImGui::PushID(s);
+		const bool editing = a->ShapeEdit == s;
+		if (ImGui::SmallButton(editing ? ICON_FA_PEN : ICON_FA_PEN_TO_SQUARE)) Run("shape.edit", { { "name", m.Shapes[s] } });
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Edit this shape (G / R / S move only this shape)");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(-1);
+		if (ImGui::SliderFloat("##v", &a->ShapeValues[s], 0.0f, 1.0f, (m.Shapes[s] + (editing ? "  (editing)" : "") + "  %.2f").c_str()))
+			d.Changed();
+		ImGui::PopID();
+	}
+	ImGui::SetNextItemWidth(140.0f);
+	ImGui::InputText("##shapeName", m_ShapeName, sizeof(m_ShapeName));
+	ImGui::SameLine();
+	if (ImGui::Button("+ Shape")) Run("shape.add", { { "name", std::string(m_ShapeName) } });
+	if (a->ShapeEdit >= 0)
+	{
+		ImGui::SameLine();
+		if (ImGui::Button(ICON_FA_TRASH)) Run("shape.delete", { { "name", m.Shapes[a->ShapeEdit] } });
+	}
+	if (m.Shapes.empty()) ImGui::TextDisabled("VRM names: happy angry sad relaxed surprised aa ih ou ee oh blink");
 }
 
 // 아마추어 (리깅): Humanoid 맞추기 · 자동 가중치 · 머리카락 사슬 · 충돌체, 본 목록 (고르면 가중치 보기 · 포즈)

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "SkinnedMeshRenderer.h"
 #include "Debug.h"
 #include "ScriptBindings.h"
 #include "ScriptEngine.h"
@@ -161,6 +162,12 @@ namespace
 		int(*TX_Info)(uint64, int, int, float*, int);
 		u8* (*TX_Link)(uint64, int, int);
 		uint64(*UI_RaycastScreen)(float, float);
+		// SkinnedMeshRenderer BlendShape (Unity: SetBlendShapeWeight · sharedMesh.blendShapeCount · GetBlendShapeName · GetBlendShapeIndex)
+		int(*SMR_Count)(uint64);
+		u8* (*SMR_Name)(uint64, int);
+		int(*SMR_Index)(uint64, u8*);
+		float(*SMR_GetWeight)(uint64, int);
+		void(*SMR_SetWeight)(uint64, int, float);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1152,6 +1159,11 @@ namespace ScriptBindings
 		t.TX_Info = UIScriptBindings::TextInfo;
 		t.TX_Link = [](uint64 id, int index, int which) -> u8* { return (u8*)UIScriptBindings::TextLink(id, index, which); };
 		t.UI_RaycastScreen = [](float x, float y) -> uint64 { GameObject* g = UISystem::RaycastScreen(x, y); return g ? g->GetFileID() : 0; };
+		t.SMR_Count = [](uint64 id) -> int { SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id); return r ? r->BlendShapeCount() : 0; };
+		t.SMR_Name = [](uint64 id, int i) -> u8* { SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id); return Ret(r ? r->BlendShapeName(i) : std::string()); };
+		t.SMR_Index = [](uint64 id, u8* name) -> int { SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id); return r && name ? r->BlendShapeIndex((const char*)name) : -1; };
+		t.SMR_GetWeight = [](uint64 id, int i) -> float { SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id); return r ? r->GetBlendShapeWeight(i) : 0.0f; };
+		t.SMR_SetWeight = [](uint64 id, int i, float w) { if (SkinnedMeshRenderer* r = Get<SkinnedMeshRenderer>(id)) r->SetBlendShapeWeight(i, w); };
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

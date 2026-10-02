@@ -117,6 +117,28 @@ void SkinnedMesh::from_byte(ifstream& inStream)
 	Mat.resize(matCount);
 	if (matCount) inStream.read(reinterpret_cast<char*>(Mat.data()), matCount * sizeof(Material));
 
+	// 7. BlendShape (이름 + 정점 번호 · 위치 차이 · 법선 차이)
+	uint32_t shapeCount = 0;
+	inStream.read(reinterpret_cast<char*>(&shapeCount), sizeof(shapeCount));
+	BlendShapes.resize(inStream.good() ? shapeCount : 0);
+	for (BlendShapeData& s : BlendShapes)
+	{
+		uint32_t n = 0, count = 0;
+		inStream.read(reinterpret_cast<char*>(&n), sizeof(n));
+		s.Name.resize(n);
+		if (n) inStream.read(&s.Name[0], n);
+		inStream.read(reinterpret_cast<char*>(&count), sizeof(count));
+		s.Index.resize(count);
+		s.DPos.resize(count);
+		s.DNrm.resize(count);
+		if (count)
+		{
+			inStream.read(reinterpret_cast<char*>(s.Index.data()), count * sizeof(uint32));
+			inStream.read(reinterpret_cast<char*>(s.DPos.data()), count * sizeof(XMFLOAT3));
+			inStream.read(reinterpret_cast<char*>(s.DNrm.data()), count * sizeof(XMFLOAT3));
+		}
+	}
+
 	if (!Vertices.empty() && !Indices.empty())
 		Setup();
 }
@@ -179,6 +201,23 @@ void SkinnedMesh::to_byte(ofstream& outStream)
 	uint32_t matCount = (uint32_t)Mat.size();
 	outStream.write(reinterpret_cast<const char*>(&matCount), sizeof(matCount));
 	if (matCount) outStream.write(reinterpret_cast<const char*>(Mat.data()), matCount * sizeof(Material));
+
+	// 7. BlendShape
+	const uint32_t shapeCount = (uint32_t)BlendShapes.size();
+	outStream.write(reinterpret_cast<const char*>(&shapeCount), sizeof(shapeCount));
+	for (const BlendShapeData& sh : BlendShapes)
+	{
+		const uint32_t n = (uint32_t)sh.Name.size(), count = (uint32_t)sh.Index.size();
+		outStream.write(reinterpret_cast<const char*>(&n), sizeof(n));
+		if (n) outStream.write(sh.Name.data(), n);
+		outStream.write(reinterpret_cast<const char*>(&count), sizeof(count));
+		if (count)
+		{
+			outStream.write(reinterpret_cast<const char*>(sh.Index.data()), count * sizeof(uint32));
+			outStream.write(reinterpret_cast<const char*>(sh.DPos.data()), count * sizeof(XMFLOAT3));
+			outStream.write(reinterpret_cast<const char*>(sh.DNrm.data()), count * sizeof(XMFLOAT3));
+		}
+	}
 }
 
 
@@ -205,7 +244,7 @@ MeshFile::~MeshFile()
 // 캐시(.mesh / .animations / .skeletons) 형식 버전. 구조가 바뀌면 값을 올린다 → 이전 캐시는 자동으로 다시 가져오기.
 // NVC8: Unity 와 같은 축(Y 180°)으로 가져오기 (FBXLoader 의 ToEngine) — 이전 캐시는 반대쪽을 본다
 // NVC9: 형식 다음에 Import Settings(.meta) 해시 — 설정을 바꾸거나 .meta 를 지우면 다시 가져온다
-static const uint32_t kMeshCacheMagic = 0x4143564E;   // "NVCA" (glTF 재질 번호 = 파일 순서)
+static const uint32_t kMeshCacheMagic = 0x4243564E;   // "NVCB" (BlendShape)
 
 static uint64_t ImportHash(const AssetImport::ModelSettings& settings)
 {
