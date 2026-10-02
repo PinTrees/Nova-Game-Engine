@@ -133,7 +133,7 @@ namespace
 		UnityGUI::Label("Rendering", 0, true);
 		changed |= UnityGUI::Toggle("Auto Graphics API for Windows", &p.AutoGraphicsAPI, 1);
 		if (p.AutoGraphicsAPI)
-			UnityGUI::HelpBox("Auto: the game tries DirectX 11 first, then OpenGL.", false, 1);
+			UnityGUI::HelpBox("Auto: the game uses DirectX 11 (like Unity). Turn Auto off and add OpenGL to the list to ship it too - the build then also includes the shader converter (about 23 MB).", false, 1);
 		else
 			changed |= DrawGraphicsApiList(p.GraphicsAPIs);
 		if (changed)

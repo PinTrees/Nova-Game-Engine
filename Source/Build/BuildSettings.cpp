@@ -133,7 +133,7 @@ namespace BuildSettings
 	{
 		const Player& p = GetPlayer();
 		if (p.AutoGraphicsAPI || p.GraphicsAPIs.empty())
-			return { GraphicsAPI::DirectX11, GraphicsAPI::OpenGL };   // Windows 기본: DirectX 11 먼저
+			return { GraphicsAPI::DirectX11 };   // Unity 의 Windows Auto 와 같이 DirectX 11 만 (OpenGL 변환기 23 MB 가 게임에 들어가지 않는다)
 		return p.GraphicsAPIs;
 	}
 
