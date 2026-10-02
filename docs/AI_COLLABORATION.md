@@ -76,6 +76,60 @@ Codex의 씬 작업은 Shader Graph API, 재질 직렬화, 렌더링, C# 바인�
 - 그래프 셰이더 이름과 생성 파일이 파일의 stem으로 만들어져, 서로 다른 폴더의 같은 파일명이 충돌할 수 있다. 경로나 안정적인 식별자를 사용해 구분하는 방안을 검토한다.
 - `TestResults/sg2/results.json`은 14개 중 10개 통과, 4개 실패다. Checkerboard, Time, 전체 노드 컴파일, 편집 창 캡처의 실패를 엔진과 검사 도구 문제로 나누어 조사할 필요가 있다. 현재 코드로 재실행한 결과는 아니다.
 
+## 다음 분담 — 렌더링 (Claude) · 게임 기능 (Codex)
+
+작성: Claude, 2026년 10월 3일 03시 56분 KST. 사용자가 Claude 에게 "GPT 한테도 기능적인 부분 맡겨줘" 라고 지시했다. 렌더링은 Claude, 게임 기능은 Codex 가 맡아 **동시에 같은 파일을 고치지 않게** 나눈다. 이 분담은 사용자의 지시를 Claude 가 정리한 것이다 — Codex 는 착수 전에 사용자에게 확인받고 자기 상태 문서에 담당 파일을 적는다. 진행 중인 "씬 저장 실패 보호" 는 Codex 가 판단해 먼저 끝내도 된다.
+
+| 담당 | 작업 | 주 파일 | 상태 |
+|---|---|---|---|
+| **Codex** | **Joint 2D** (Unity 의 2D Joint 6 종) | `Source/Physics2D/` (새 `Physics2DJoints.*` 권장), `ScriptCore/Engine/Physics2D.cs`, `Source/Scripting/ScriptBindings.cpp` · `ScriptCore/Interop/NativeApi.cs` (C# 네이티브 표 — **이번 회차는 Codex 만** 고친다), 새 검사 `Tools/tests/joints2d.ps1` | 사용자 확인 후 착수 |
+| Codex (다음 후보) | Tilemap (Tile Palette 창, Tilemap Renderer, Tilemap Collider 2D) | `Source/` 아래 새 폴더 (예: `Source/Tilemap/`), 위 C# 표 | Joint 2D 다음 |
+| **Claude** | **Decal** (Unity URP 의 Decal Projector — 깊이 버퍼에서 표면 위치를 되살려 그림 투영, 일반 재질 + Shader Graph 데칼) | 새 `Source/Scene/DecalProjector.*`, 새 셰이더 (`Shaders/52. Decal.fx`), `Source/Editor/EditorApp.cpp` (그리는 순서), `Source/ShaderGraph/` | 사용자 진행 지시 대기 |
+
+### Joint 2D 명세 (Codex)
+
+엔진의 2D 물리는 Box2D v3.1.1 (`ThirdParty/box2d`) 이고 Unity 의 2D 물리도 Box2D 라 동작을 Unity 와 같게 맞춘다. 배경: `AGENT_HANDOFF.md` 의 "2D 물리" 항목, `Source/Physics2D/Physics2DManager.cpp` (매 프레임 `Sync` 가 Rigidbody2D · Collider2D 를 모아 몸체를 만들고 지운다).
+
+- **컴포넌트 (Unity 이름 · 필드 그대로)**
+  - 공통 `Joint2D`: Connected Rigid Body (없으면 월드에 고정 — Unity 와 같다), Enable Collision, Break Force · Break Torque (기본 Infinity), Anchor · Connected Anchor (로컬), Auto Configure Connected Anchor
+  - `HingeJoint2D` (Box2D `b2RevoluteJoint`): Use Motor + Motor (Motor Speed 도/초, Maximum Motor Force), Use Limits + Angle Limits (Lower · Upper 도)
+  - `SpringJoint2D` (`b2DistanceJoint` + spring): Auto Configure Distance, Distance, Damping Ratio, Frequency
+  - `DistanceJoint2D` (`b2DistanceJoint`): Auto Configure Distance, Distance, Max Distance Only (가까워지는 것은 허용)
+  - `WheelJoint2D` (`b2WheelJoint`): Suspension (Damping Ratio, Frequency, Angle), Use Motor + Motor
+  - `FixedJoint2D` (`b2WeldJoint`): Damping Ratio, Frequency
+  - `SliderJoint2D` (`b2PrismaticJoint`): Auto Configure Angle, Angle, Use Motor + Motor, Use Limits + Translation Limits
+- 같은 GameObject 에 `Rigidbody2D` 가 필요하다 (Unity 의 RequireComponent — 붙일 때 없으면 함께 붙인다). 몸체를 다시 만들면 (Box2D 는 몸체를 지울 때 그 Joint 도 지운다) Joint 도 다시 만든다. 설정을 바꾸면 (Inspector · C#) 바로 반영
+- 끊어짐: 반작용 힘 / 토크가 Break Force / Torque 를 넘으면 Joint 를 지우고 `OnJointBreak2D(Joint2D)` 를 한 번 (C# 메시지 — `Bridge.cs` 의 InvokeCollision 방식 참고), 컴포넌트는 Unity 처럼 지워진다
+- **C#** (`ScriptCore/Engine/Physics2D.cs`): `Joint2D` (connectedBody, anchor, connectedAnchor, autoConfigureConnectedAnchor, enableCollision, breakForce, breakTorque, reactionForce, reactionTorque), `AnchoredJoint2D`, `HingeJoint2D` (useMotor, motor: `JointMotor2D`, useLimits, limits: `JointAngleLimits2D`, jointAngle, jointSpeed), `SpringJoint2D`, `DistanceJoint2D`, `WheelJoint2D` (suspension: `JointSuspension2D`, useMotor, motor, jointSpeed), `FixedJoint2D`, `SliderJoint2D` (jointTranslation, limits: `JointTranslationLimits2D`). 네이티브 함수는 **표 맨 끝에 붙인다** (`ScriptBindings.cpp` 의 표와 `NativeApi.cs` 의 순서가 같아야 한다 — 가운데에 넣으면 이후 함수가 모두 어긋난다)
+- **에디터**: Add Component > Physics 2D (`Source/Editor/AddComponentMenu.cpp` 의 `kKnown` 표 — 아래 공용 파일 규칙), Inspector 필드 (Unity 순서), Scene 뷰에서 고른 Joint 의 Anchor 점 · 연결선 (Collider 2D 윤곽 그리는 곳 참고)
+- 저장 (`toJson` · `fromJson`), Undo, Play/Stop 복원, 프리팹, 게임 빌드
+- **완료 조건** (새 검사 `Tools/tests/joints2d.ps1`, 별도 테스트 프로젝트 · 결과 폴더):
+  1. Hinge: 월드에 고정한 막대가 중력으로 흔들려 각도가 바뀌고 Anchor 거리는 그대로
+  2. Hinge Limits ±30° 를 넘지 않음, Motor 로 정한 속도로 돎
+  3. Spring: 늘어났다 돌아오며 진동 (Frequency), Damping Ratio 1 이면 진동 없이 멈춤
+  4. Distance: 두 몸체 거리 유지, Max Distance Only 면 가까워질 수 있음
+  5. Wheel: 바퀴 두 개 차가 Motor 로 바닥 위를 달림
+  6. Fixed: 두 몸체가 붙어 함께 떨어짐. Slider: 정한 축으로만 움직이고 Limits 에서 멈춤
+  7. Break Force 를 넘으면 끊기고 `OnJointBreak2D` 가 한 번
+  8. 저장 → 다시 열기 · Undo · Play/Stop 뒤 설정 그대로
+  9. C# 으로 motor · limits 를 바꾸면 반영
+  10. 기존 2D 물리 검사 (`run_tests.ps1 -Only physics2d`) 가 그대로 통과
+
+### 공용 파일 편집 규칙 (둘 다 고칠 수 있는 파일)
+
+같은 작업 폴더를 동시에 쓰므로 둘 다 고칠 수 있는 파일은 짧게, 줄 단위로 고친다.
+
+- 대상: `Source/Editor/AddComponentMenu.cpp`, `Source/Editor/CliCommands.cpp`, `Source/Platform/App.cpp`, `Tools/NovaCli/main.cpp`, `README.md`, `AGENT_HANDOFF.md`, `docs/NOVA_CLI.md`, `Showcase/목록.md`, `Tools/tests/run_tests.ps1` (각자 자기 묶음 함수만 — Codex 는 지금처럼 별도 검사 스크립트를 권장), `CMakeLists.txt`
+- **고치기 직전에 파일을 다시 읽는다.** 예전에 읽은 내용을 통째로 다시 쓰지 않는다 (상대의 변경이 사라진다). 바꿀 줄만 바꾸고 바로 저장한다
+- 오래 걸리는 편집이면 자기 상태 문서의 "편집 중인 공용 파일" 에 적고 끝나면 지운다. 상대 상태에 그 파일이 "편집 중" 이면 기다린다
+- 커밋은 자기 변경만: 파일을 골라 `git add`, 한 파일에 상대 변경이 섞여 있으면 `git add -p` 로 자기 줄만
+- 이번 회차에 Claude 는 C# 네이티브 표 (`ScriptBindings.cpp` · `NativeApi.cs`) 를 고치지 않는다 (Decal 의 C# 는 Codex 의 Joint 2D 가 끝난 뒤). Codex 는 렌더링 파일 (`EditorApp.cpp` 의 그리기 순서, `Source/Graphics/`, `Shaders/`, `Source/ShaderGraph/`, `Source/Scene/MeshBatcher.cpp`) 을 고치지 않는다
+
+### 빌드 · 검사
+
+- Codex 는 지금처럼 자기 독립 엔진 복사본과 전용 테스트 프로젝트를 쓴다. Claude 는 공용 `build/` · `Binaries/` · `E:\NovaTest\ScriptTest`
+- 서로의 변경이 다 들어간 통합 검사는 기능이 끝날 때 상태 문서로 순서를 정해 한 번 돌린다
+
 ## 상태 공유 방법
 
 공동 명세는 담당 경계와 완료 조건을 담는다. 수시 진행 상황은 각자의 상태 파일에 기록하여 같은 문서를 동시에 고치는 일을 줄인다.

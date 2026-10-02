@@ -1,9 +1,16 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 3일 03시 52분 KST
-- 단계: **Shader Graph 3단계 완료** (Vertex 단계 · Sub Graph · Custom Function) — 검증 끝, 커밋 `125cb4f` — 사용자 지시로 origin/main 에 push 함 (**Codex 의 `7751c5e` · `6f2f642` 도 같이 push 됨** — 사용자가 함께 올리라고 함)
-- 기준: Codex 의 로컬 커밋 `7751c5e` · `6f2f642` 위 (그 커밋들은 건드리지 않았다)
-- 사용자 지시: "Shader Graph 3단계 진행" (앞서: 2단계 미리보기 · 투명 · 컷아웃 — 끝, 공유 명세를 필요할 때마다 같이 갱신)
+- 갱신 시각: 2026년 10월 3일 03시 57분 KST
+- 단계: Shader Graph 3단계 끝 (`125cb4f`, push 됨). **다음 분담을 공동 명세에 적음** — Claude = Decal (사용자 진행 지시 대기), Codex = Joint 2D (사용자 확인 후)
+- 사용자 지시 (이번): "GPT 한테도 기능적인 부분 맡겨줘" → `docs/AI_COLLABORATION.md` 의 "다음 분담 — 렌더링 (Claude) · 게임 기능 (Codex)" 절 (Joint 2D 명세 · 완료 조건, 공용 파일 편집 규칙)
+
+## 편집 중인 공용 파일
+
+- 없음
+
+## 다음 작업 (Claude)
+
+- **Decal** (Unity URP Decal Projector): 새 `Source/Scene/DecalProjector.*`, 새 `Shaders/52. Decal.fx`, `Source/Editor/EditorApp.cpp` (그리는 순서), `Source/ShaderGraph/` (Decal 그래프). 이번 회차에 C# 네이티브 표 (`ScriptBindings.cpp` · `NativeApi.cs`) 와 `Source/Physics2D/` 는 고치지 않는다 (Codex 의 Joint 2D)
 
 ## 3단계 결과
 
