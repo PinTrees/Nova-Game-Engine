@@ -7,6 +7,8 @@
 #include "EditorExtensions.h"
 #include "EditorGUIManager.h"
 #include "ScriptBindings.h"
+#include "LegsAnimator.h"
+#include "LookAnimator.h"
 
 NOVA_PACKAGE_EXPORT const char* NovaPackage_Abi() { return NOVA_PACKAGE_ABI_VERSION; }
 
@@ -126,4 +128,96 @@ NOVA_PACKAGE_EXPORT const char* AN_GetState(uint64 id, int layer, float* out)
 		out[2] = r->Next >= 0 ? 1.0f : 0.0f;
 	}
 	return ScriptBindings::ReturnString(an->GetCurrentStateName(layer));
+}
+
+// 사람 본 (Unity HumanBodyBones 번호) → 월드 위치·회전. out[0..2] 위치, out[3..6] 회전. 없으면 0
+NOVA_PACKAGE_EXPORT int AN_GetBone(uint64 id, int unityBone, float* out)
+{
+	// HumanBodyBones 0..20 → Humanoid::Bone, 54 = UpperChest
+	static const int map[21] = { Humanoid::Hips, Humanoid::LeftUpperLeg, Humanoid::RightUpperLeg, Humanoid::LeftLowerLeg, Humanoid::RightLowerLeg,
+		Humanoid::LeftFoot, Humanoid::RightFoot, Humanoid::Spine, Humanoid::Chest, Humanoid::Neck, Humanoid::Head,
+		Humanoid::LeftShoulder, Humanoid::RightShoulder, Humanoid::LeftUpperArm, Humanoid::RightUpperArm,
+		Humanoid::LeftLowerArm, Humanoid::RightLowerArm, Humanoid::LeftHand, Humanoid::RightHand, Humanoid::LeftToes, Humanoid::RightToes };
+	const int bone = unityBone == 54 ? (int)Humanoid::UpperChest : (unityBone >= 0 && unityBone < 21 ? map[unityBone] : -1);
+	Animator* an = Find(id);
+	XMFLOAT3 p; XMFLOAT4 q;
+	if (an == nullptr || out == nullptr || bone < 0 || !an->GetHumanBoneWorld(bone, p, q))
+		return 0;
+	out[0] = p.x; out[1] = p.y; out[2] = p.z;
+	out[3] = q.x; out[4] = q.y; out[5] = q.z; out[6] = q.w;
+	return 1;
+}
+
+// ---- LegsAnimator: float 0 weight, 1 maxStepDown, 2 maxStepUp, 3 hipsMaxDown / bool 0 adjustHips, 1 alignFeet
+NOVA_PACKAGE_EXPORT float LEGS_GetFloat(uint64 id, int prop)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr;
+	if (l == nullptr) return 0.0f;
+	switch (prop) { case 0: return l->Weight; case 1: return l->MaxStepDown; case 2: return l->MaxStepUp; default: return l->HipsMaxDown; }
+}
+
+NOVA_PACKAGE_EXPORT void LEGS_SetFloat(uint64 id, int prop, float v)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr;
+	if (l == nullptr) return;
+	switch (prop) { case 0: l->Weight = std::clamp(v, 0.0f, 1.0f); break; case 1: l->MaxStepDown = (std::max)(0.0f, v); break; case 2: l->MaxStepUp = (std::max)(0.0f, v); break; default: l->HipsMaxDown = (std::max)(0.0f, v); break; }
+}
+
+NOVA_PACKAGE_EXPORT int LEGS_GetBool(uint64 id, int prop)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr;
+	return l ? (prop == 0 ? l->AdjustHips : l->AlignFeet) : 0;
+}
+
+NOVA_PACKAGE_EXPORT void LEGS_SetBool(uint64 id, int prop, int v)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	if (LegsAnimator* l = go ? go->GetComponentIncludingPending<LegsAnimator>() : nullptr)
+		(prop == 0 ? l->AdjustHips : l->AlignFeet) = v != 0;
+}
+
+// ---- LookAnimator: float 0 weight, 1 maxYaw, 2 speed / 대상 오브젝트 / 위치
+NOVA_PACKAGE_EXPORT float LOOK_GetFloat(uint64 id, int prop)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LookAnimator* l = go ? go->GetComponentIncludingPending<LookAnimator>() : nullptr;
+	if (l == nullptr) return 0.0f;
+	return prop == 0 ? l->Weight : (prop == 1 ? l->MaxYaw : l->Speed);
+}
+
+NOVA_PACKAGE_EXPORT void LOOK_SetFloat(uint64 id, int prop, float v)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LookAnimator* l = go ? go->GetComponentIncludingPending<LookAnimator>() : nullptr;
+	if (l == nullptr) return;
+	if (prop == 0) l->Weight = std::clamp(v, 0.0f, 1.0f);
+	else if (prop == 1) l->MaxYaw = std::clamp(v, 0.0f, 180.0f);
+	else l->Speed = (std::max)(0.1f, v);
+}
+
+NOVA_PACKAGE_EXPORT uint64 LOOK_GetTarget(uint64 id)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LookAnimator* l = go ? go->GetComponentIncludingPending<LookAnimator>() : nullptr;
+	return l ? l->Target : 0;
+}
+
+NOVA_PACKAGE_EXPORT void LOOK_SetTarget(uint64 id, uint64 target)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	if (LookAnimator* l = go ? go->GetComponentIncludingPending<LookAnimator>() : nullptr)
+		l->Target = target;
+}
+
+// use = 0 이면 위치를 풀고 Target 을 다시 본다
+NOVA_PACKAGE_EXPORT void LOOK_SetPosition(uint64 id, Vec3* p, int use)
+{
+	GameObject* go = ScriptBindings::FindObject(id);
+	LookAnimator* l = go ? go->GetComponentIncludingPending<LookAnimator>() : nullptr;
+	if (l == nullptr) return;
+	if (use && p) l->SetLookAtPosition(*p);
+	else l->ClearLookAtPosition();
 }

@@ -7,6 +7,7 @@
 #include "PhysicsManager.h"
 #include "CharacterController.h"
 #include "HumanoidAvatar.h"
+#include "AnimatorIK.h"
 
 using namespace AnimatorTypes;
 
@@ -725,10 +726,51 @@ void Animator::EvaluatePose()
 			}
 			PinRoot(*skeleton, m_LocalFinal);
 			AnimationPose::ComputeGlobals(*skeleton, m_LocalFinal, m_Global);
+			if (Application::IsPlaying())
+				ApplyPoseModifiers(*skeleton, renderer);
 			computedFor = skeleton.get();
+			if (m_GlobalFor == nullptr || renderer == PrimaryRenderer())
+				m_GlobalFor = computedFor;
 		}
 		renderer->ApplyPose(m_Global);
 	}
+}
+
+bool Animator::GetHumanBoneWorld(int bone, XMFLOAT3& position, XMFLOAT4& rotation)
+{
+	SkinnedMeshRenderer* r = PrimaryRenderer();
+	if (bone < 0 || bone >= Humanoid::BoneCount || r == nullptr || r->GetGameObject() == nullptr || r->GetSkeleton().get() != m_GlobalFor)
+		return false;
+	const int node = Humanoid::Get(*m_GlobalFor).Node[bone];
+	if (node < 0 || node >= (int)m_Global.size())
+		return false;
+	const XMMATRIX toWorld = r->GetGameObject()->GetTransform()->GetWorldMatrix();
+	const XMMATRIX world = XMMatrixMultiply(XMLoadFloat4x4(&m_Global[node]), toWorld);
+	XMVECTOR s, q, t;
+	if (!XMMatrixDecompose(&s, &q, &t, world))
+		return false;
+	XMStoreFloat3(&position, t);
+	XMStoreFloat4(&rotation, XMQuaternionNormalize(q));
+	return true;
+}
+
+void Animator::ApplyPoseModifiers(const SkeletonAvataData& skeleton, SkinnedMeshRenderer* renderer)
+{
+	if (m_pGameObject == nullptr || renderer == nullptr || renderer->GetGameObject() == nullptr)
+		return;
+	std::vector<IAnimatorPoseModifier*> mods;
+	for (const auto& c : m_pGameObject->GetComponents())
+		if (c && c->IsEnabled())
+			if (auto* m = dynamic_cast<IAnimatorPoseModifier*>(c.get()))
+				mods.push_back(m);
+	if (mods.empty())
+		return;
+	std::stable_sort(mods.begin(), mods.end(), [](auto* a, auto* b) { return a->PoseOrder() < b->PoseOrder(); });
+	const XMMATRIX toWorld = renderer->GetGameObject()->GetTransform()->GetWorldMatrix();
+	XMVECTOR det;
+	AnimatorPose pose{ skeleton, Humanoid::Get(skeleton), m_LocalFinal, m_Global, toWorld, XMMatrixInverse(&det, toWorld), m_LastDt };
+	for (IAnimatorPoseModifier* m : mods)
+		m->ModifyPose(pose);
 }
 
 // ------------------------------------------------------------------ 컴포넌트

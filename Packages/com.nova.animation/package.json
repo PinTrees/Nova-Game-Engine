@@ -8,6 +8,8 @@
   "keywords": [ "animation", "animator", "state machine", "blend tree", "root motion", "humanoid", "retarget", "ik", "legs", "look" ],
   "native": [ "NovaAnimation.dll" ],
   "components": [
-    { "type": "Animator", "display": "Animator", "category": "Miscellaneous", "icon": "animator", "single": true }
+    { "type": "Animator", "display": "Animator", "category": "Miscellaneous", "icon": "animator", "single": true },
+    { "type": "LegsAnimator", "display": "Legs Animator", "category": "Animation", "icon": "animator", "single": true },
+    { "type": "LookAnimator", "display": "Look Animator", "category": "Animation", "icon": "animator", "single": true }
   ]
 }

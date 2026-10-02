@@ -71,6 +71,7 @@ private:
 	Vec3 m_RootDeltaModel = Vec3::Zero;   // 이번 Step 동안 모은 모델 공간 이동
 	Vec3 m_DeltaPosition = Vec3::Zero;    // 마지막으로 오브젝트에 옮긴 월드 이동
 	float m_LastDt = 0.0f;
+	const SkeletonAvataData* m_GlobalFor = nullptr;   // m_Global 을 마지막으로 계산한 스켈레톤
 
 public:
 	Animator();
@@ -120,6 +121,8 @@ public:
 	void Update(float deltaTime) { Step(deltaTime); }
 	// Unity 의 Animator.Rebind(): 기본 상태로 되돌리고 포즈를 다시 계산한다
 	void Rebind() { ResetRuntime(); EvaluatePose(); }
+	// Unity 의 GetBoneTransform 대신: 사람 본(Humanoid::Bone)의 월드 위치·회전 (마지막 포즈, IK 포함). 없으면 false
+	bool GetHumanBoneWorld(int bone, XMFLOAT3& position, XMFLOAT4& rotation);
 
 public:
 	virtual void Awake() override;
@@ -156,6 +159,8 @@ private:
 	Vec3 StateRootDelta(const AnimatorLayer& layer, int state, const SkeletonAvataData& skeleton, float t0, float t1);
 	void ApplyRootMotion(float dt);
 	void PinRoot(const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& local);
+	// LegsAnimator · LookAnimator 등 같은 GameObject 의 포즈 후처리 (Play 중)
+	void ApplyPoseModifiers(const SkeletonAvataData& skeleton, SkinnedMeshRenderer* renderer);
 	SkinnedMeshRenderer* PrimaryRenderer();
 	void CollectRenderers(GameObject* go, std::vector<SkinnedMeshRenderer*>& out);
 

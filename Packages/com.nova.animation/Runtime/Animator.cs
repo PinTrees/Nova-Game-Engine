@@ -13,6 +13,7 @@ namespace NovaEngine
         [DllImport(Dll)] internal static extern void AN_SetFloat(ulong go, int prop, float v);
         [DllImport(Dll)] internal static extern void AN_GetVector(ulong go, int prop, Vector3* v);
         [DllImport(Dll)] internal static extern byte* AN_GetState(ulong go, int layer, float* outValues);
+        [DllImport(Dll)] internal static extern int AN_GetBone(ulong go, int bone, float* outValues);
 
         internal static byte[] Utf8(string s) => System.Text.Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");
         internal static string Str(byte* p) => p == null ? null : Marshal.PtrToStringUTF8((System.IntPtr)p);
@@ -65,6 +66,28 @@ namespace NovaEngine
             AnimatorNative.AN_GetState(nativeId, layerIndex, v);
             return v[2] != 0;
         }
+
+        /// <summary>NOVA: 사람 본의 월드 위치 (마지막 포즈, Legs/Look Animator 포함). Unity 의 GetBoneTransform(bone).position 대신 — 본은 GameObject 가 아니다</summary>
+        public unsafe Vector3 GetBonePosition(HumanBodyBones bone)
+        {
+            float* v = stackalloc float[7];
+            return AnimatorNative.AN_GetBone(nativeId, (int)bone, v) != 0 ? new Vector3(v[0], v[1], v[2]) : Vector3.zero;
+        }
+        /// <summary>NOVA: 사람 본의 월드 회전 (GetBoneTransform(bone).rotation 대신)</summary>
+        public unsafe Quaternion GetBoneRotation(HumanBodyBones bone)
+        {
+            float* v = stackalloc float[7];
+            return AnimatorNative.AN_GetBone(nativeId, (int)bone, v) != 0 ? new Quaternion(v[3], v[4], v[5], v[6]) : Quaternion.identity;
+        }
+    }
+
+    /// <summary>Unity 의 HumanBodyBones (NOVA 아바타에 있는 본만 값을 돌려준다: 몸통·팔·다리·발가락)</summary>
+    public enum HumanBodyBones
+    {
+        Hips = 0, LeftUpperLeg = 1, RightUpperLeg = 2, LeftLowerLeg = 3, RightLowerLeg = 4, LeftFoot = 5, RightFoot = 6,
+        Spine = 7, Chest = 8, Neck = 9, Head = 10, LeftShoulder = 11, RightShoulder = 12, LeftUpperArm = 13, RightUpperArm = 14,
+        LeftLowerArm = 15, RightLowerArm = 16, LeftHand = 17, RightHand = 18, LeftToes = 19, RightToes = 20,
+        LeftEye = 21, RightEye = 22, Jaw = 23, UpperChest = 54, LastBone = 55
     }
 
     /// <summary>Unity 의 AnimatorStateInfo (이름·정규화 시간·길이)</summary>

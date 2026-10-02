@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, packages, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, packages, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -203,6 +203,63 @@ return $"{groundY:F3} {grounded} {maxY:F3} {p.x:F3} {f}";
 }
 
 # ------------------------------------------------------------------ 패키지: 레지스트리 → 프로젝트에 넣기 → DLL·C# → 빼기 (쓰지 않으면 바로 내림)
+# ------------------------------------------------------------------ 절차적 애니메이션: Legs Animator (턱 위 발) · Look Animator (머리 돌리기)
+function Suite-Animation
+{
+    Write-Host '[animation]'
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name IKGround --position 0,-0.5,0 --scale 10,1,10' | Out-Null
+        Invoke-Nova 'create character --name LCh' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'add-component LCh LegsAnimator' | Out-Null
+        Invoke-Nova 'add-component LCh LookAnimator' | Out-Null
+        $rf = Join-Path $Out 'ik_read.cs'
+        'var a = GameObject.Find("LCh").GetComponent<Animator>(); var l = a.GetBonePosition(HumanBodyBones.LeftFoot); var r = a.GetBonePosition(HumanBodyBones.RightFoot); var h = a.GetBonePosition(HumanBodyBones.Head); var q = a.GetBoneRotation(HumanBodyBones.Head); var f = new float[] { l.x, l.y, l.z, r.x, r.y, r.z, h.x, h.y, h.z, q.x, q.y, q.z, q.w }; var s = new string[f.Length]; for (int i = 0; i < f.Length; i++) s[i] = f[i].ToString("F4", System.Globalization.CultureInfo.InvariantCulture); return string.Join(" ", s);' | Set-Content -Encoding utf8 $rf
+        function Read-Bones { $m = Invoke-NovaJson "exec --file $rf"; if ($m) { @("$($m.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() } }
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
+
+        # 1) 평지: 발 위치 · 머리 위치를 읽는다
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 0.5
+        $flat = Read-Bones
+        Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        if ($flat.Count -ne 13 -or [math]::Abs($flat[0] - $flat[3]) -lt 0.08)
+        {
+            Add-Result animation 'humanoid bone positions (GetBonePosition)' $false "feet $($flat[0..5] -join ' ')"
+            return
+        }
+        Add-Result animation 'humanoid bone positions (GetBonePosition)' $true ("left foot x {0:F2}, right foot x {1:F2}, head y {2:F2}" -f $flat[0], $flat[3], $flat[7])
+
+        # 2) 왼발 밑에만 0.2 m 턱 (오른발 쪽으로 넘어가지 않게 바깥으로 치우쳐) + 오른쪽 45° 에 볼 대상
+        $side = [math]::Sign($flat[0] - $flat[3])
+        $stepX = $flat[0] + $side * 0.12
+        Invoke-Nova ('create cube --name IKStep --position {0:F3},0.1,{1:F3} --scale 0.3,0.2,0.5' -f $stepX, $flat[2]) | Out-Null
+        Invoke-Nova ('create sphere --name LookT --position {0:F3},{1:F3},{2:F3} --scale 0.2,0.2,0.2' -f ($flat[6] + 2 * 0.7071), $flat[7], ($flat[8] + 2 * 0.7071)) | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $tf = Join-Path $Out 'ik_target.cs'
+        'GameObject.Find("LCh").GetComponent<LookAnimator>().target = GameObject.Find("LookT"); return 1;' | Set-Content -Encoding utf8 $tf
+        Invoke-Nova "exec --file $tf" | Out-Null
+        Wait-Sec 1.5
+        $on = Read-Bones
+        # 끄기 (Play 중에는 nova set 이 막혀 있다 → C#): Legs 는 바로, Look 은 Speed 로 부드럽게 돌아온다
+        $xf = Join-Path $Out 'ik_off.cs'
+        'var g = GameObject.Find("LCh"); g.GetComponent<LegsAnimator>().weight = 0; g.GetComponent<LookAnimator>().weight = 0; return 1;' | Set-Content -Encoding utf8 $xf
+        Invoke-Nova "exec --file $xf" | Out-Null
+        Wait-Sec 1.5
+        $off = Read-Bones
+        Invoke-Nova 'stop' | Out-Null
+        if ($on.Count -ne 13 -or $off.Count -ne 13) { Add-Result animation 'legs animator' $false "read failed: on $($on.Count) off $($off.Count)"; return }
+        $dl = $on[1] - $off[1]; $dr = $on[4] - $off[4]
+        Add-Result animation 'legs animator lifts the foot onto a 0.2 m step' ([math]::Abs($dl - 0.2) -lt 0.04 -and [math]::Abs($dr) -lt 0.03) ("left +{0:F3} m (expect 0.2), right {1:F3} m (expect 0)" -f $dl, $dr)
+        $dot = [math]::Abs($on[9] * $off[9] + $on[10] * $off[10] + $on[11] * $off[11] + $on[12] * $off[12])
+        $ang = 2 * [math]::Acos([math]::Min(1.0, $dot)) * 180 / [math]::PI
+        Add-Result animation 'look animator turns the head toward a target 45° aside' ($ang -gt 35 -and $ang -lt 55) ("head turned {0:F1}° (expect ~45)" -f $ang)
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
 function Wait-Compile { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 60) { Invoke-Nova 'wait 20' | Out-Null; if (-not (Info).compiling) { return } } }
 
 function Suite-Packages
@@ -606,6 +663,7 @@ try
             {
                 'cli' { Suite-Cli }
                 'physics' { Suite-Physics }
+                'animation' { Suite-Animation }
                 'packages' { Suite-Packages }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }

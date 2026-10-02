@@ -99,6 +99,20 @@ C++ 쪽은 `NOVA_PACKAGE_EXPORT float Spinner_GetSpeed(uint64 go)` 처럼 내보
 
 C# 만 있는 패키지는 `Runtime/` 에 MonoBehaviour 를 두면 된다 (예: `com.nova.starter-assets`).
 
+## 엔진 확장 지점 (편집기 · 에셋 · 포즈)
+
+패키지가 엔진 코드를 고치지 않고 편집기에 끼어드는 곳. 예: `com.nova.animation` (Animator 전체가 이 패키지).
+
+| 무엇 | 어떻게 | 예 |
+|---|---|---|
+| 창 | `NovaPackage_OnLoad` 에서 `EditorGUIManager::GetI()->RegisterWindow(new MyWindow)`, `OnUnload` 에서 `UnregisterWindow` + `delete` (게임 빌드 `Application::IsPlayer()` 면 건너뜀) | Window > Animator |
+| 에셋 형식 | `EditorExtensions::RegisterAssetType({Owner, Extension, Icon, CreateMenu, DefaultName, DragPayload, Create, Open, Inspector})` — Project 창 Create 메뉴 · 더블클릭 · Inspector · 끌기. `OnUnload` 에서 `UnregisterOwner(패키지 이름)` | `.controller` |
+| Inspector 선택 | `SelectionManager::SetCustomSelection(owner, data, drawFn)` (`SelectionType::CUSTOM`) — 상태·전이처럼 GameObject 가 아닌 것. 빼기 전에 내 owner 의 선택을 지운다 (함수가 DLL 안에 있다) | Animator 상태 · 전이 |
+| 포즈 후처리 | 컴포넌트가 `IAnimatorPoseModifier`(`Packages/com.nova.animation/Source/AnimatorIK.h`) 를 상속 → Animator 가 Play 중 같은 GameObject 의 것을 `PoseOrder()` 순으로 부른다. `AnimatorPose` = 스켈레톤 · Humanoid 아바타 · 로컬/모델 공간 행렬 · 모델↔월드 · dt. 도우미 `AnimatorIK::RotateBone / TranslateBone / SolveTwoBone / FromTo / Damp` | Legs Animator(0) → Look Animator(10) |
+| 자동으로 넣기 | 씬을 읽다가 모르는 컴포넌트 타입이면 `PackageManager::AddForComponent(type)` 가 레지스트리 `components` 에서 찾아 넣는다 (그 뒤 C# 다시 컴파일) | Animator 가 있는 옛 씬 |
+
+패키지가 쓰는 엔진 함수·클래스는 `NOVA_API` 로 내보내져 있어야 링크된다 (없으면 엔진 쪽에 붙인다).
+
 ## ABI (꼭 맞아야 하는 것)
 
 패키지 DLL 은 **같은 엔진 버전 · 같은 구성(Debug/Release) · 같은 컴파일러(MSVC v143, /MD)** 로 빌드해야 합니다. 빌드가 만든 `<DLL>.dll.abi`(예: `nova-0.1-msvc143-release`)를 엔진이 불러오기 전에 비교하고, 다르면 불러오지 않고 Package Manager 에 이유를 보여 줍니다.
