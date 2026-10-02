@@ -10,6 +10,7 @@
 #include "LegsAnimator.h"
 #include "LookAnimator.h"
 #include "HandsAnimator.h"
+#include "DynamicBone.h"
 
 NOVA_PACKAGE_EXPORT const char* NovaPackage_Abi() { return NOVA_PACKAGE_ABI_VERSION; }
 
@@ -299,4 +300,71 @@ NOVA_PACKAGE_EXPORT void HANDS_GetHand(uint64 id, int hand, Vec3* out)
 {
 	HandsAnimator* h = FindHands(id);
 	if (out) *out = h ? h->GetHandPosition(hand) : Vec3::Zero;
+}
+
+// ---- DynamicBone: float 0 weight, 1 stiffnessScale, 2 gravityScale, 3 dragScale, 4 windTurbulence / vector 0 wind
+namespace
+{
+	DynamicBone* FindDyn(uint64 id)
+	{
+		GameObject* go = ScriptBindings::FindObject(id);
+		return go ? go->GetComponentIncludingPending<DynamicBone>() : nullptr;
+	}
+}
+
+NOVA_PACKAGE_EXPORT float DYN_GetFloat(uint64 id, int prop)
+{
+	DynamicBone* d = FindDyn(id);
+	if (d == nullptr) return 0.0f;
+	switch (prop) { case 0: return d->Weight; case 1: return d->StiffnessScale; case 2: return d->GravityScale; case 3: return d->DragScale; case 4: return d->WindTurbulence; default: return 0.0f; }
+}
+
+NOVA_PACKAGE_EXPORT void DYN_SetFloat(uint64 id, int prop, float v)
+{
+	DynamicBone* d = FindDyn(id);
+	if (d == nullptr) return;
+	switch (prop)
+	{
+	case 0: d->Weight = std::clamp(v, 0.0f, 1.0f); break;
+	case 1: d->StiffnessScale = (std::max)(0.0f, v); break;
+	case 2: d->GravityScale = (std::max)(0.0f, v); break;
+	case 3: d->DragScale = (std::max)(0.0f, v); break;
+	case 4: d->WindTurbulence = std::clamp(v, 0.0f, 1.0f); break;
+	default: break;
+	}
+}
+
+NOVA_PACKAGE_EXPORT void DYN_GetVector(uint64 id, int prop, Vec3* out)
+{
+	DynamicBone* d = FindDyn(id);
+	if (out) *out = d && prop == 0 ? d->Wind : Vec3::Zero;
+}
+
+NOVA_PACKAGE_EXPORT void DYN_SetVector(uint64 id, int prop, Vec3* v)
+{
+	if (DynamicBone* d = FindDyn(id); d && v && prop == 0) d->Wind = *v;
+}
+
+// what: 0 사슬 수, 1 chain 의 본 수, 2 충돌체 수
+NOVA_PACKAGE_EXPORT int DYN_Info(uint64 id, int what, int chain)
+{
+	DynamicBone* d = FindDyn(id);
+	if (d == nullptr) return 0;
+	if (what == 0) return (int)d->Chains.size();
+	if (what == 1) return chain >= 0 && chain < (int)d->Chains.size() ? (int)d->Chains[chain].Joints.size() : 0;
+	return (int)d->Colliders.size();
+}
+
+NOVA_PACKAGE_EXPORT int DYN_GetTail(uint64 id, int chain, int joint, Vec3* out)
+{
+	DynamicBone* d = FindDyn(id);
+	Vec3 p;
+	if (d == nullptr || out == nullptr || !d->TailPosition(chain, joint, p)) return 0;
+	*out = p;
+	return 1;
+}
+
+NOVA_PACKAGE_EXPORT void DYN_Reset(uint64 id)
+{
+	if (DynamicBone* d = FindDyn(id)) d->ResetSimulation();
 }

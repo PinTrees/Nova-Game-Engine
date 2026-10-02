@@ -20,6 +20,13 @@ namespace NovaEngine
         [DllImport(Dll)] internal static extern void HANDS_SetObject(ulong go, int hand, int which, ulong target);
         [DllImport(Dll)] internal static extern void HANDS_SetIK(ulong go, int hand, int mode, float* v);
         [DllImport(Dll)] internal static extern void HANDS_GetHand(ulong go, int hand, Vector3* v);
+        [DllImport(Dll)] internal static extern float DYN_GetFloat(ulong go, int prop);
+        [DllImport(Dll)] internal static extern void DYN_SetFloat(ulong go, int prop, float v);
+        [DllImport(Dll)] internal static extern void DYN_GetVector(ulong go, int prop, Vector3* v);
+        [DllImport(Dll)] internal static extern void DYN_SetVector(ulong go, int prop, Vector3* v);
+        [DllImport(Dll)] internal static extern int DYN_Info(ulong go, int what, int chain);
+        [DllImport(Dll)] internal static extern int DYN_GetTail(ulong go, int chain, int joint, Vector3* v);
+        [DllImport(Dll)] internal static extern void DYN_Reset(ulong go);
     }
 
     /// <summary>
@@ -96,5 +103,40 @@ namespace NovaEngine
         /// <summary>오브젝트 대신 이 위치를 본다 (ClearLookAtPosition 까지)</summary>
         public unsafe void SetLookAtPosition(Vector3 position) => ProceduralNative.LOOK_SetPosition(nativeId, &position, 1);
         public unsafe void ClearLookAtPosition() => ProceduralNative.LOOK_SetPosition(nativeId, null, 0);
+    }
+
+    /// <summary>
+    /// Dynamic Bone: 머리카락 · 치마 · 꼬리 · 끈이 움직임 · 중력 · 바람에 흔들리고 충돌체(몸) 밖으로 밀린다 (Play 중, Animator 와 같은 GameObject).
+    /// VRM 캐릭터는 파일의 Spring Bone 설정으로 자동으로 붙는다.
+    /// </summary>
+    [NativeComponent("DynamicBone")]
+    public sealed class DynamicBone : Behaviour
+    {
+        internal DynamicBone() { }
+        /// <summary>0 = 애니메이션 그대로, 1 = 흔들림 전부</summary>
+        public float weight { get => ProceduralNative.DYN_GetFloat(nativeId, 0); set => ProceduralNative.DYN_SetFloat(nativeId, 0, value); }
+        public float stiffnessScale { get => ProceduralNative.DYN_GetFloat(nativeId, 1); set => ProceduralNative.DYN_SetFloat(nativeId, 1, value); }
+        public float gravityScale { get => ProceduralNative.DYN_GetFloat(nativeId, 2); set => ProceduralNative.DYN_SetFloat(nativeId, 2, value); }
+        public float dragScale { get => ProceduralNative.DYN_GetFloat(nativeId, 3); set => ProceduralNative.DYN_SetFloat(nativeId, 3, value); }
+        public float windTurbulence { get => ProceduralNative.DYN_GetFloat(nativeId, 4); set => ProceduralNative.DYN_SetFloat(nativeId, 4, value); }
+        /// <summary>바람 (월드, m/s)</summary>
+        public unsafe Vector3 wind
+        {
+            get { Vector3 v; ProceduralNative.DYN_GetVector(nativeId, 0, &v); return v; }
+            set => ProceduralNative.DYN_SetVector(nativeId, 0, &value);
+        }
+        public int chainCount => ProceduralNative.DYN_Info(nativeId, 0, 0);
+        public int colliderCount => ProceduralNative.DYN_Info(nativeId, 2, 0);
+        public int GetBoneCount(int chain) => ProceduralNative.DYN_Info(nativeId, 1, chain);
+        /// <summary>마지막 프레임에 흔들린 꼬리 위치 (월드)</summary>
+        public unsafe bool TryGetTailPosition(int chain, int bone, out Vector3 position)
+        {
+            Vector3 v;
+            int ok = ProceduralNative.DYN_GetTail(nativeId, chain, bone, &v);
+            position = v;
+            return ok != 0;
+        }
+        /// <summary>흔들림을 지금 자세로 되돌린다 (순간 이동 뒤)</summary>
+        public void ResetSimulation() => ProceduralNative.DYN_Reset(nativeId);
     }
 }

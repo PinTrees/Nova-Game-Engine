@@ -25,6 +25,23 @@ SkinnedMeshRenderer::~SkinnedMeshRenderer()
 }
 
 // ------------------------------------------------------------------ 메시 / 스켈레톤 / 포즈
+bool SkinnedMeshRenderer::SetMaterialPath(int index, const wstring& path)
+{
+	if (index < 0 || path.empty())
+		return false;
+	shared_ptr<UMaterial> material = ResourceManager::GetI()->LoadMaterial(wstring_to_string(path));
+	if (!material)
+		return false;
+	while ((int)m_pMaterials.size() <= index)
+	{
+		m_pMaterials.push_back(UMaterial::GetDefault());
+		m_MaterialPaths.push_back(L"builtin:Default-Material");
+	}
+	m_pMaterials[index] = material;
+	m_MaterialPaths[index] = path;
+	return true;
+}
+
 void SkinnedMeshRenderer::SetSkinnedMesh(const wstring& path, int index)
 {
 	m_MeshPath = path;

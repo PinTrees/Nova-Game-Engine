@@ -372,8 +372,10 @@ namespace
 			const std::string controller = args.value("controller", std::string());
 			if (model.empty() && controller.empty())
 				return named(GameObjectFactory::CreateAnimatedCharacter());
-			GameObject* g = GameObjectFactory::CreateAnimatedCharacter("Character",
-				model.empty() ? std::string(GameObjectFactory::kDefaultCharacterModel) : model, controller);
+			// 컨트롤러를 주지 않으면 기본 컨트롤러 (Humanoid 리타게팅으로 다른 모델도 Idle · 걷기)
+			GameObject* g = GameObjectFactory::CreateAnimatedCharacter(args.value("name", std::string("Character")),
+				model.empty() ? std::string(GameObjectFactory::kDefaultCharacterModel) : model,
+				controller.empty() ? std::string(GameObjectFactory::kDefaultCharacterController) : controller);
 			return named(g);
 		}
 		if (type == "third-person-character" || type == "player")

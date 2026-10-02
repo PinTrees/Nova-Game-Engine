@@ -165,7 +165,7 @@ namespace AssetImport
 		const std::string ext = Lower(fs::path(path).extension().string());
 		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tga" || ext == ".dds")
 			return Kind::Texture;
-		if (ext == ".fbx")
+		if (ext == ".fbx" || ext == ".vrm" || ext == ".glb" || ext == ".gltf")
 			return Kind::Model;
 		if (ext == ".wav" || ext == ".ogg" || ext == ".mp3")
 			return Kind::Audio;

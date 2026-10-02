@@ -158,7 +158,10 @@ bool FBXLoader::LoadSkeletonAvata(const std::string& filepath, vector<shared_ptr
     CollectNodes(scene->mRootNode, -1, *skeletonData);
 
     // 파일 단위 → 미터 (Unity 의 Convert Units). FBX UnitScaleFactor 는 cm 기준 (cm = 1, m = 100)
-    double unit = 1.0;
+    // glTF · GLB · VRM 은 늘 미터 (= 100)
+    std::string ext = filesystem::path(filepath).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    double unit = ext == ".fbx" ? 1.0 : 100.0;
     if (scene->mMetaData != nullptr)
     {
         float f = 0.0f;

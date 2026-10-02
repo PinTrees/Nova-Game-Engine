@@ -2,6 +2,7 @@
 #include "HumanoidAvatar.h"
 #include "AnimationPose.h"
 #include "AssetImportSettings.h"
+#include "VrmImport.h"
 
 namespace Humanoid
 {
@@ -240,6 +241,20 @@ namespace Humanoid
 					a.Generic = true;
 					std::fill(std::begin(a.Node), std::end(a.Node), -1);
 					return;
+				}
+				// VRM: 파일에 사람 본 매핑이 있다 → 이름으로 추측한 것 대신 그대로 (그 위에 사용자가 고친 .meta)
+				if (VrmImport::IsVrm(s.SourcePath))
+				{
+					const std::map<std::string, std::string> vrm = VrmImport::HumanBones(s.SourcePath);
+					if (!vrm.empty())
+					{
+						std::fill(N, N + BoneCount, -1);
+						for (const auto& [bone, node] : vrm)
+						{
+							const int b = BoneFromName(bone);
+							if (b >= 0) N[b] = s.FindNode(node);
+						}
+					}
 				}
 				for (const auto& [bone, node] : ms.HumanBones)
 				{

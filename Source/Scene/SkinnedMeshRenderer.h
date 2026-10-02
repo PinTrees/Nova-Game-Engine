@@ -53,6 +53,8 @@ public:
 	virtual ~SkinnedMeshRenderer();
 
 	void AddMaterial(shared_ptr<UMaterial> mat) { m_pMaterials.push_back(mat); }
+	// index 번째 재질 칸을 이 .mat 으로 (프로젝트 상대 경로, 읽지 못하면 그대로)
+	bool SetMaterialPath(int index, const wstring& path);
 	void SetMesh(shared_ptr<SkinnedMesh> mesh) { m_Mesh = mesh; }
 	// FBX 경로의 index 번째 스킨 메시를 쓴다 (스켈레톤, 기본 재질, 바운드, 바인드 포즈를 함께 설정)
 	void SetSkinnedMesh(const wstring& path, int index);

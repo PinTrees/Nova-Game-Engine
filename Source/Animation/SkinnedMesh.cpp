@@ -243,8 +243,10 @@ MeshFile* MeshFile::LoadFromMetaFile(string path)
 	loadMeshFile->Path		= string_to_wstring(path); 
 	loadMeshFile->Name		= PathManager::GetI()->GetFileName(path); 
 
-	string fileExtension = File::GetExtension(loadMeshFile->FullPath); 
-	if (fileExtension != "FBX" && fileExtension != "fbx") 
+	// FBX + glTF / GLB / VRM
+	string fileExtension = File::GetExtension(loadMeshFile->FullPath);
+	std::transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::tolower);
+	if (fileExtension != "fbx" && fileExtension != "vrm" && fileExtension != "glb" && fileExtension != "gltf")
 	{
 		delete loadMeshFile;
 		return nullptr;
@@ -318,8 +320,10 @@ MeshFile* MeshFile::LoadFromFbxFile(string path)
 	loadMeshFile->Path = string_to_wstring(path); 
 	loadMeshFile->Name = PathManager::GetI()->GetFileName(path); 
 
+	// FBX + glTF / GLB / VRM (Assimp 가 읽는다 — VRM 은 glTF 기반 아바타)
 	string fileExtension = File::GetExtension(loadMeshFile->FullPath);
-	if (fileExtension != "FBX" && fileExtension != "fbx")
+	std::transform(fileExtension.begin(), fileExtension.end(), fileExtension.begin(), ::tolower);
+	if (fileExtension != "fbx" && fileExtension != "vrm" && fileExtension != "glb" && fileExtension != "gltf")
 	{
 		delete loadMeshFile; 
 		return nullptr; 

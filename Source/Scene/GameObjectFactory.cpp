@@ -28,6 +28,7 @@
 #include "TerrainData.h"
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
+#include "VrmImport.h"
 #include "SkinnedMesh.h"
 #include "GeometryGenerator.h"
 #include "Mesh.h"
@@ -540,11 +541,19 @@ void GameObjectFactory::AddSkinnedChildren(GameObject* root, const std::string& 
 	auto file = ResourceManager::GetI()->LoadMeshFile(modelPath);
 	if (file != nullptr)
 	{
+		// VRM: 묻힌 그림 · 재질을 꺼내 (<파일>.Textures · <파일>.Materials) 재질 칸에 붙인다 (Unity 의 Extract Materials)
+		std::vector<std::wstring> vrmMaterials;
+		if (VrmImport::IsVrm(string_to_wstring(modelPath)))
+			vrmMaterials = VrmImport::ExtractMaterials(string_to_wstring(modelPath));
 		for (int i = 0; i < (int)file->SkinnedMeshs.size(); ++i)
 		{
 			const std::string childName = file->SkinnedMeshs[i]->Name.empty() ? "Mesh" + std::to_string(i) : file->SkinnedMeshs[i]->Name;
 			GameObject* child = new GameObject(childName);
-			child->AddComponent<SkinnedMeshRenderer>()->SetSkinnedMesh(string_to_wstring(modelPath), i);
+			SkinnedMeshRenderer* smr = child->AddComponent<SkinnedMeshRenderer>();
+			smr->SetSkinnedMesh(string_to_wstring(modelPath), i);
+			for (int m = 0; m < (int)vrmMaterials.size(); ++m)
+				for (const auto& subset : file->SkinnedMeshs[i]->Subsets)
+					if ((int)subset.MaterialIndex == m) { smr->SetMaterialPath(m, vrmMaterials[m]); break; }
 			child->SetParentImmediate(root);
 			child->GetTransform()->SetParent(root->GetComponent_SP<Transform>());
 			root->SetChild(child);
@@ -581,6 +590,17 @@ GameObject* GameObjectFactory::CreateAnimatedCharacter(const std::string& name, 
 	{
 		animator->fromJson({ { "type", "Animator" }, { "enabled", true }, { "controller", controllerPath } });
 		root->AddComponent(animator);
+	}
+	// VRM 의 Spring Bone → Dynamic Bone (머리카락 · 옷 · 끈이 흔들린다)
+	if (VrmImport::IsVrm(string_to_wstring(modelPath)))
+	{
+		const json springs = VrmImport::DynamicBoneJson(string_to_wstring(modelPath));
+		if (!springs.is_null())
+			if (auto dyn = ComponentFactory::Instance().CreateComponent("DynamicBone"))
+			{
+				dyn->fromJson(springs);
+				root->AddComponent(dyn);
+			}
 	}
 	return root;
 }

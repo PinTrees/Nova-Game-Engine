@@ -1,16 +1,17 @@
 {
   "name": "com.nova.animation",
   "displayName": "Animation",
-  "version": "1.0.0",
-  "description": "Unity's Animator: state machines with parameters and transitions (Animator Controller assets and the Animator window), Blend Trees (1D / 2D), root motion, and Humanoid retargeting so clips made for one skeleton play on another. Procedural animation components: Legs Animator (feet stay on uneven ground, planted feet lock, hips follow, body leans on slopes), Hands Animator (hand IK to grips and walls) and Look Animator (head, neck and spine turn toward a target). C#: Animator.SetFloat / Play / CrossFade / applyRootMotion, LegsAnimator, HandsAnimator.SetIKPosition, LookAnimator. Included in new projects by default.",
+  "version": "1.1.0",
+  "description": "Unity's Animator: state machines with parameters and transitions (Animator Controller assets and the Animator window), Blend Trees (1D / 2D), root motion, and Humanoid retargeting so clips made for one skeleton play on another. Procedural animation components: Legs Animator (feet stay on uneven ground, planted feet lock, hips follow, body leans on slopes), Hands Animator (hand IK to grips and walls) and Look Animator (head, neck and spine turn toward a target) and Dynamic Bone (hair, skirts, tails and straps sway with movement, gravity and wind and bounce off sphere / capsule colliders — VRM Spring Bones are imported automatically). C#: Animator.SetFloat / Play / CrossFade / applyRootMotion, LegsAnimator, HandsAnimator.SetIKPosition, LookAnimator. Included in new projects by default.",
   "category": "Animation",
   "author": { "name": "NOVA" },
-  "keywords": [ "animation", "animator", "state machine", "blend tree", "root motion", "humanoid", "retarget", "ik", "legs", "look" ],
+  "keywords": [ "animation", "animator", "state machine", "blend tree", "root motion", "humanoid", "retarget", "ik", "legs", "look", "dynamic bone", "spring bone", "vrm" ],
   "native": [ "NovaAnimation.dll" ],
   "components": [
     { "type": "Animator", "display": "Animator", "category": "Miscellaneous", "icon": "animator", "single": true },
     { "type": "LegsAnimator", "display": "Legs Animator", "category": "Animation", "icon": "animator", "single": true },
     { "type": "LookAnimator", "display": "Look Animator", "category": "Animation", "icon": "animator", "single": true },
-    { "type": "HandsAnimator", "display": "Hands Animator", "category": "Animation", "icon": "animator", "single": true }
+    { "type": "HandsAnimator", "display": "Hands Animator", "category": "Animation", "icon": "animator", "single": true },
+    { "type": "DynamicBone", "display": "Dynamic Bone", "category": "Animation", "icon": "animator", "single": true }
   ]
 }

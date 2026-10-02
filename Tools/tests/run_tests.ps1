@@ -311,6 +311,34 @@ return t.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + "
         Invoke-Nova 'stop' | Out-Null
         $lv = if ($lean) { [double]$lean.result } else { 0 }
         Add-Result animation 'legs animator leans forward uphill' ($lv -gt 4 -and $lv -lt 10) ("lean {0:F2}° on a 15° ramp (body lean 0.5 → ~7.5)" -f $lv)
+
+        # 6) VRM 캐릭터 (Seed-san, VRM 컨소시엄 샘플 — 테스트 프로젝트에 있을 때만): 스킨 메시 · 재질 꺼내기 · Humanoid · Dynamic Bone
+        $vrm = 'Assets\TestAssets\SeedSan\Seed-san.vrm'
+        if (Test-Path (Join-Path $Project $vrm))
+        {
+            Invoke-Nova 'scene new --force' | Out-Null
+            Invoke-Nova "create character --name VCh --model $vrm" | Out-Null
+            Invoke-Nova 'wait 10' | Out-Null
+            $found = Invoke-NovaJson 'find --component SkinnedMeshRenderer'   # (PS 5.1: 배열이 한 덩어리로 온다 — @() 로 감싸지 않음)
+            $smr = if ($found) { $found.Count } else { 0 }
+            $mats = @(Get-ChildItem (Join-Path $Project 'Assets\TestAssets\SeedSan\Seed-san.Materials') -Filter *.mat -ErrorAction SilentlyContinue).Count
+            $vi = Invoke-NovaJson "import-settings $vrm"
+            Add-Result animation 'VRM: 5 skinned meshes, 17 materials extracted, Humanoid from the file, meters' ($smr -ge 5 -and $mats -eq 17 -and $vi.imported.humanoid -and [math]::Abs($vi.imported.unitScale - 1) -lt 0.001) "skinned=$smr mats=$mats humanoid=$($vi.imported.humanoid) unitScale=$($vi.imported.unitScale)"
+            Invoke-Nova 'play' | Out-Null; Wait-Sec 1.5
+            $df = Join-Path $Out 'dyn_read.cs'
+            'var d = GameObject.Find("VCh").GetComponent<DynamicBone>(); Vector3 a; d.TryGetTailPosition(0, 5, out a); return d.chainCount + " " + d.colliderCount + " " + a.x.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $df
+            $d0 = Invoke-NovaJson "exec --file $df"
+            $wf = Join-Path $Out 'dyn_wind.cs'
+            'var d = GameObject.Find("VCh").GetComponent<DynamicBone>(); d.wind = new Vector3(6, 0, 0); d.windTurbulence = 0; return "ok";' | Set-Content -Encoding utf8 $wf
+            Invoke-Nova "exec --file $wf" | Out-Null
+            Wait-Sec 1.5
+            $d1 = Invoke-NovaJson "exec --file $df"
+            Invoke-Nova 'stop' | Out-Null
+            $a0 = if ($d0) { "$($d0.result)" -split ' ' } else { @() }
+            $a1 = if ($d1) { "$($d1.result)" -split ' ' } else { @() }
+            $shift = if ($a0.Count -eq 3 -and $a1.Count -eq 3) { [double]$a1[2] - [double]$a0[2] } else { 0 }
+            Add-Result animation 'VRM spring bones → Dynamic Bone (9 chains, 8 colliders), wind swings the ponytail' ($a0.Count -eq 3 -and $a0[0] -eq '9' -and $a0[1] -eq '8' -and $shift -gt 0.1) ("chains {0} colliders {1}, tail x shift with wind {2:F3} m" -f $a0[0], $a0[1], $shift)
+        }
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
