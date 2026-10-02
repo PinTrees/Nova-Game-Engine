@@ -78,6 +78,12 @@ private:
 	int m_Bone = -1;                     // Armature 목록에서 고른 본 (가중치 보기 · 포즈)
 	char m_ShapeName[64] = "happy";      // Shape Keys 새 이름
 	float m_PoseEuler[3] = { 0, 0, 0 };  // 고른 본의 포즈 (도)
+	// 가중치 붓 (Weight Paint): 고른 본의 그룹을 왼쪽 끌기로 칠한다
+	bool m_WeightPaint = false;
+	bool m_Painting = false;
+	float m_BrushPx = 40.0f, m_BrushWeight = 1.0f, m_BrushStrength = 0.25f;
+	int m_BrushMode = 0;                 // 0 add, 1 subtract, 2 smooth
+	ImVec2 m_LastDab = ImVec2(-1e6f, -1e6f);
 	int m_RefView = 0;                   // 기준 그림 추가: 시점
 	float m_RefHeight = 1.7f;
 	std::string m_Status;                // 마지막 연산 결과 · 오류

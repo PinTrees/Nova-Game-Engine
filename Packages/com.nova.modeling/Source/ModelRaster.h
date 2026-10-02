@@ -69,6 +69,8 @@ namespace Modeling
 		// 화면 픽셀 → 월드 광선
 		void Ray(float x, float y, Vec3& origin, Vec3& dir) const;
 		int FaceAt(int x, int y) const { return x >= 0 && y >= 0 && x < Width && y < Height ? FaceId[y * Width + x] : -1; }
+		// 화면 픽셀 아래 메시 표면의 월드 점 (깊이 버퍼). 메시가 없으면 false
+		bool HitPoint(int x, int y, Vec3& out) const;
 
 		bool SavePng(const std::string& path, std::string& error) const;
 

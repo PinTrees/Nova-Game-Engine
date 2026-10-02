@@ -22,6 +22,8 @@ private:
 	map<tuple<wstring, int>, shared_ptr<Mesh>>				m_Meshs; 
 	map<tuple<string, int>, shared_ptr<AnimationClip>>		m_AnimationClips;
 	map<tuple<string, int>, shared_ptr<SkeletonAvataData>>	m_SkeletonAvatas;
+	// 불러온 모델의 원본 (전체 경로, 수정 시각) — 원본이 바뀌면 다시 가져온다 (Unity 처럼)
+	map<string, std::pair<std::string, std::filesystem::file_time_type>>	m_ModelSources;
 
 public:
 	void Init(ComPtr<GfxDevice> device);
@@ -40,6 +42,8 @@ public:
 	// Import Settings 를 바꾼 뒤: 이 파일(상대 경로)로 불러 둔 텍스처 · 메시 · 클립 · 스켈레톤을 캐시에서 뺀다.
 	// 이미 받은 shared_ptr 은 그대로 살아 있다 (씬을 다시 만들면 새로 불러온다)
 	void ForgetAsset(const std::string& relativePath);
+	// 원본 (FBX · VRM · GLB) 이 불러온 뒤 바뀐 모델의 상대 경로 (부를 때마다 확인하고 시각을 새로 적는다)
+	std::vector<std::string> TakeChangedModels();
 	// 불러 둔 재질의 텍스처를 다시 연결 (텍스처를 다시 가져온 뒤)
 	void ReloadMaterialTextures();
 

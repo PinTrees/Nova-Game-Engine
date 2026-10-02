@@ -538,6 +538,8 @@ void SceneManager::RestoreSceneState(const std::string& sceneJson)
 	const wstring scenePath = m_pCurrScene->GetScenePath();
 	if (selected)
 		SelectionManager::ClearSelection();
+	// C# 의 id → 포인터 캐시를 비운다: 새 씬도 fileID 가 같아 지운 오브젝트를 가리키게 된다 (Undo · 다시 가져오기 뒤 exec / 스크립트)
+	ScriptEngine::OnSceneSwapped();
 	delete m_pCurrScene;
 	m_pCurrScene = new Scene();
 	m_pCurrScene->SetScenePath(scenePath);

@@ -597,6 +597,7 @@ namespace Modeling
 			std::vector<std::pair<int64_t, int64_t>> links;   // (자식, 부모)
 			std::map<int, int64_t> materialIds;
 			int geometryCount = 0, modelCount = 0;
+			std::vector<std::tuple<int64_t, int64_t, const ExportMesh*>> meshIds;   // (Geometry, Model, 메시) — 스킨
 			for (const ExportMesh& e : meshes)
 			{
 				const int64_t geomId = nextId++, modelId = nextId++;
@@ -701,15 +702,104 @@ namespace Modeling
 				}
 				++geometryCount;
 				++modelCount;
+				meshIds.push_back({ geomId, modelId, &e });
+			}
+			// ---- 아마추어: 본 = LimbNode 모델 (회전 없음, 이동 = 부모 머리에서), 메시마다 Skin + 본마다 Cluster, BindPose
+			//  (Unity · Blender · Assimp 가 읽는 FBX SDK 의 형식. 행렬 = 열 우선 16 개, 미터)
+			const Armature& arm = doc.Rig;
+			int attrCount = 0, deformerCount = 0, poseCount = 0;
+			if (!arm.Empty())
+			{
+				auto translation = [](const Vec3& t) { return std::vector<double>{ 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, t.x, t.y, t.z, 1 }; };
+				std::vector<int64_t> boneModel(arm.Bones.size());
+				for (int i = 0; i < (int)arm.Bones.size(); ++i)
+				{
+					const Bone& b = arm.Bones[i];
+					const int64_t attrId = nextId++, id = nextId++;
+					FbxNode& na = objects.Add("NodeAttribute");
+					na.L(attrId).S(FbxName(b.Name, "NodeAttribute")).S("LimbNode");
+					FbxNode::P(na.Add("Properties70"), "Size", "double", "Number", "", { 10.0 });
+					na.Add("TypeFlags").S("Skeleton");
+					FbxNode& m = objects.Add("Model");
+					m.L(id).S(FbxName(b.Name, "Model")).S("LimbNode");
+					m.Add("Version").I(232);
+					FbxNode& mp = m.Add("Properties70");
+					const Vec3 h = ToFile(b.Head), ph = b.Parent >= 0 ? ToFile(arm.Bones[b.Parent].Head) : Vec3(0, 0, 0);
+					FbxNode::P(mp, "Lcl Translation", "Lcl Translation", "", "A", { (double)(h.x - ph.x), (double)(h.y - ph.y), (double)(h.z - ph.z) });
+					FbxNode::P(mp, "Lcl Rotation", "Lcl Rotation", "", "A", { 0.0, 0.0, 0.0 });
+					FbxNode::P(mp, "Lcl Scaling", "Lcl Scaling", "", "A", { 1.0, 1.0, 1.0 });
+					FbxNode::P(mp, "DefaultAttributeIndex", "int", "Integer", "", { 0 }, true);
+					m.Add("Shading").C(true);
+					m.Add("Culling").S("CullingOff");
+					boneModel[i] = id;
+					links.push_back({ attrId, id });
+					++attrCount;
+					++modelCount;
+				}
+				for (int i = 0; i < (int)arm.Bones.size(); ++i)
+					links.push_back({ boneModel[i], arm.Bones[i].Parent >= 0 ? boneModel[arm.Bones[i].Parent] : 0 });
+				// 메시마다 Skin, 그 메시에 쓰이는 본마다 Cluster (점 번호 · 가중치, Transform = 메시 (단위), TransformLink = 본 전역)
+				// (objects 에 더하면 앞의 참조가 무효가 될 수 있어 Pose 는 맨 끝에 만든다)
+				std::vector<std::pair<int64_t, std::vector<double>>> poseNodes;
+				auto poseNode = [&](int64_t node, const std::vector<double>& mtx) { poseNodes.push_back({ node, mtx }); };
+				for (const auto& [geomId, modelId, em] : meshIds)
+				{
+					if (em->Skin.empty()) continue;
+					const int64_t skinId = nextId++;
+					FbxNode& skin = objects.Add("Deformer");
+					skin.L(skinId).S(FbxName(em->Name, "Deformer")).S("Skin");
+					skin.Add("Version").I(101);
+					skin.Add("Link_DeformAcuracy").D(50.0);
+					links.push_back({ skinId, geomId });
+					++deformerCount;
+					std::vector<std::vector<int32_t>> idx(arm.Bones.size());
+					std::vector<std::vector<double>> wts(arm.Bones.size());
+					for (size_t v = 0; v < em->Skin.size(); ++v)
+						for (const auto& [bone, w] : em->Skin[v])
+							if (bone >= 0 && bone < (int)arm.Bones.size() && w > 0.0f) { idx[bone].push_back((int32_t)v); wts[bone].push_back(w); }
+					for (int b = 0; b < (int)arm.Bones.size(); ++b)
+					{
+						if (idx[b].empty()) continue;
+						const int64_t clusterId = nextId++;
+						FbxNode& cl = objects.Add("Deformer");
+						cl.L(clusterId).S(FbxName(arm.Bones[b].Name, "SubDeformer")).S("Cluster");
+						cl.Add("Version").I(100);
+						cl.Add("UserData").S("").S("");
+						cl.Add("Indexes").Ii(idx[b]);
+						cl.Add("Weights").Di(wts[b]);
+						cl.Add("Transform").Di(translation(Vec3(0, 0, 0)));
+						cl.Add("TransformLink").Di(translation(ToFile(arm.Bones[b].Head)));
+						links.push_back({ clusterId, skinId });
+						links.push_back({ boneModel[b], clusterId });
+						++deformerCount;
+					}
+					poseNode(modelId, translation(Vec3(0, 0, 0)));
+				}
+				for (int i = 0; i < (int)arm.Bones.size(); ++i) poseNode(boneModel[i], translation(ToFile(arm.Bones[i].Head)));
+				FbxNode& pose = objects.Add("Pose");
+				pose.L(nextId++).S(FbxName("BindPose", "Pose")).S("BindPose");
+				pose.Add("Type").S("BindPose");
+				pose.Add("Version").I(100);
+				pose.Add("NbPoseNodes").I((int32_t)poseNodes.size());
+				for (const auto& [node, mtx] : poseNodes)
+				{
+					FbxNode& pn = pose.Add("PoseNode");
+					pn.Add("Node").L(node);
+					pn.Add("Matrix").Di(mtx);
+				}
+				poseCount = 1;
 			}
 			{
 				FbxNode defs("Definitions");
 				defs.Add("Version").I(100);
-				defs.Add("Count").I(1 + geometryCount + modelCount + (int)materialIds.size());
+				defs.Add("Count").I(1 + geometryCount + modelCount + (int)materialIds.size() + attrCount + deformerCount + poseCount);
 				defs.Add("ObjectType").S("GlobalSettings").Add("Count").I(1);
 				defs.Add("ObjectType").S("Model").Add("Count").I(modelCount);
 				defs.Add("ObjectType").S("Geometry").Add("Count").I(geometryCount);
 				if (!materialIds.empty()) defs.Add("ObjectType").S("Material").Add("Count").I((int)materialIds.size());
+				if (attrCount) defs.Add("ObjectType").S("NodeAttribute").Add("Count").I(attrCount);
+				if (deformerCount) defs.Add("ObjectType").S("Deformer").Add("Count").I(deformerCount);
+				if (poseCount) defs.Add("ObjectType").S("Pose").Add("Count").I(poseCount);
 				top.push_back(defs);
 			}
 			top.push_back(objects);

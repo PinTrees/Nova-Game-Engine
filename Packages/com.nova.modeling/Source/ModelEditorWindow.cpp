@@ -832,6 +832,34 @@ void ModelEditorWindow::HandleViewportInput(bool hovered)
 	}
 	if (m_Modal != Modal::None)
 		return;
+	// 가중치 붓: 왼쪽 끌기 = 고른 본 그룹을 칠한다 (한 획 = Undo 하나)
+	if (m_WeightPaint && m_Bone >= 0 && m_Bone < (int)Doc().Rig.Bones.size())
+	{
+		if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
+		{
+			Doc().PushUndo("Weight Paint");
+			m_Painting = true;
+			m_LastDab = ImVec2(-1e6f, -1e6f);
+		}
+		if (m_Painting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			m_Painting = false;
+		if (m_Painting)
+		{
+			const ImVec2 mouse = ToView(io.MousePos);
+			Vec3 hit;
+			if (Len(Sub(mouse, m_LastDab)) >= m_BrushPx * 0.15f && m_Raster.HitPoint((int)mouse.x, (int)mouse.y, hit))
+			{
+				const float r = m_BrushPx * PixelToWorld(hit);
+				if (PaintWeights(Doc(), m_Bone, hit, r, m_BrushWeight, m_BrushStrength, m_BrushMode, true) > 0)
+				{
+					Doc().Changed();
+					m_Dirty = true;
+				}
+				m_LastDab = mouse;
+			}
+		}
+		return;
+	}
 	// 왼쪽 클릭 = 고르기, 끌기 = 상자 고르기
 	if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt)
 	{
@@ -1099,6 +1127,13 @@ void ModelEditorWindow::DrawOverlay(ImDrawList* dl)
 			dl->AddCircleFilled(e, 8.0f, ax.Col);
 			dl->AddText(ImVec2(e.x - 4.0f, e.y - 7.0f), IM_COL32(20, 20, 20, 255), ax.L);
 		}
+	}
+
+	// 가중치 붓 원
+	if (m_WeightPaint && m_Bone >= 0)
+	{
+		const ImVec2 mp = ImGui::GetIO().MousePos;
+		dl->AddCircle(mp, m_BrushPx, m_BrushMode == 1 ? IM_COL32(120, 170, 255, 200) : IM_COL32(255, 120, 90, 200), 48, 1.5f);
 	}
 
 	// 비례 편집 반경 (끄는 중)
@@ -1476,6 +1511,27 @@ void ModelEditorWindow::DrawRigPanel()
 		Bone& b = arm.Bones[m_Bone];
 		bool weights = m_Opt.Shade == Shading::Weights;
 		if (ImGui::Checkbox("Show Weights", &weights)) { m_Opt.Shade = weights ? Shading::Weights : Shading::Solid; m_Dirty = true; }
+		ImGui::SameLine();
+		if (ImGui::Checkbox("Paint", &m_WeightPaint))
+		{
+			if (m_WeightPaint) { m_Opt.Shade = Shading::Weights; m_Opt.WeightBone = b.Name; m_Opt.SelectedBone = m_Bone; }
+			m_Dirty = true;
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Weight Paint: drag on the mesh to paint this bone's weight (other bones are lowered so the sum stays 1)");
+		if (m_WeightPaint)
+		{
+			static const char* kModes[] = { "Add", "Subtract", "Smooth" };
+			ImGui::SetNextItemWidth(90.0f);
+			ImGui::Combo("##brushMode", &m_BrushMode, kModes, 3);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(-1);
+			ImGui::SliderFloat("##brushWeight", &m_BrushWeight, 0.0f, 1.0f, "Weight %.2f");
+			ImGui::SetNextItemWidth(130.0f);
+			ImGui::SliderFloat("##brushPx", &m_BrushPx, 5.0f, 200.0f, "Radius %.0f px");
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(-1);
+			ImGui::SliderFloat("##brushStrength", &m_BrushStrength, 0.01f, 1.0f, "Strength %.2f");
+		}
 		// 포즈 미리보기 (Undo 없이 바로 — 저장 · 내보내기 하지 않는다)
 		ImGui::SetNextItemWidth(-1);
 		if (ImGui::DragFloat3("##pose", m_PoseEuler, 0.5f, -180.0f, 180.0f, "%.0f°"))

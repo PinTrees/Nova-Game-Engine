@@ -76,6 +76,10 @@ namespace Modeling
 	bool AutoWeights(Document& d, const nlohmann::json& args, nlohmann::json& report, std::string& error);
 	// 흔들림 사슬: 오브젝트 (또는 덩어리 · 방사 조각) 마다 뿌리 → 끝 본 + 가중치
 	bool AddChains(Document& d, const nlohmann::json& args, nlohmann::json& report, std::string& error);
+	// 가중치 붓: 월드 구 (center, radius) 안의 점에서 그 본 그룹 가중치를 칠한다 (부드러운 감쇠).
+	//  mode 0 add (weight 쪽으로 strength 만큼), 1 subtract, 2 smooth (이웃 평균 쪽으로). normalize = 다른 deform 본 가중치를 줄여 합 1 (Blender 의 Auto Normalize)
+	//  objectIndex < 0 이면 보이는 모든 오브젝트. 칠한 점 수
+	int PaintWeights(Document& d, int bone, const Vec3& center, float radius, float weight, float strength, int mode, bool normalize, int objectIndex = -1);
 	// 몸 충돌체: 머리 = 구, 몸통 · 팔 · 다리 = 캡슐, 굵기 = 그 본 점까지 거리
 	bool AutoColliders(Document& d, const nlohmann::json& args, nlohmann::json& report, std::string& error);
 

@@ -58,6 +58,20 @@ namespace
 	}
 }
 
+std::vector<std::string> ResourceManager::TakeChangedModels()
+{
+	std::vector<std::string> changed;
+	for (auto& [rel, src] : m_ModelSources)
+	{
+		std::error_code ec;
+		const auto t = std::filesystem::last_write_time(std::filesystem::path(string_to_wstring(src.first)), ec);
+		if (ec || t == src.second) continue;
+		src.second = t;
+		changed.push_back(rel);
+	}
+	return changed;
+}
+
 void ResourceManager::ForgetAsset(const std::string& relativePath)
 {
 	const std::string key = AssetKey(relativePath);
@@ -230,6 +244,9 @@ shared_ptr<MeshFile> ResourceManager::LoadMeshFile(string filename)
 				if (clip)
 					clip->SourceSkeleton = model->Avatas[0];
 		m_MeshFiles[filename] = model;
+		std::error_code ec;
+		const auto t = std::filesystem::last_write_time(std::filesystem::path(string_to_wstring(model->FullPath)), ec);
+		if (!ec) m_ModelSources[filename] = { model->FullPath, t };
 		return m_MeshFiles[filename];
 	}
 }

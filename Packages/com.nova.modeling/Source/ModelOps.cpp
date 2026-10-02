@@ -473,13 +473,13 @@ namespace Modeling
 			add("import", "--path <model.fbx|obj|gltf|glb|dae…> [--append]: read with Assimp (keeps quads/ngons, bakes node transforms, meters)", true, [](Ctx& c) {
 				if (!c.D.Import(S(c.A, "path"), B(c.A, "append", false), c.E)) return false;
 				c.R = c.D.Summary(true); return true; });
-			add("export", "--path <out.fbx|obj|glb|vrm> [--selected] [--title] [--author] [--outlineWidth 0.003]: FBX 7.4 binary / OBJ / GLB (meters, Y up). With an armature GLB is skinned; .vrm = VRM 1.0 (humanoid + spring bones + MToon) for the engine (create character --model x.vrm)", false, [](Ctx& c) {
+			add("export", "--path <out.fbx|obj|glb|vrm> [--selected] [--title] [--author] [--outlineWidth 0.003]: FBX 7.4 binary / OBJ / GLB (meters, Y up). With an armature FBX and GLB are skinned (Unity / Blender read the FBX bones and weights); .vrm = VRM 1.0 (humanoid + spring bones + MToon) for the engine (create character --model x.vrm)", false, [](Ctx& c) {
 				const std::string p = S(c.A, "path");
 				if (!c.D.Export(p, B(c.A, "selected", false), c.E, c.A)) return false;
 				c.R = c.D.Summary(false); c.R["path"] = p;
 				std::string ext = U8String(PathU8(p).extension());
 				for (char& ch : ext) ch = (char)tolower((unsigned char)ch);
-				if (!c.D.Rig.Empty() && (ext == ".fbx" || ext == ".obj")) c.R["warning"] = "armature and weights are not written to " + ext + " (mesh only) - export .vrm or .glb for a rigged character";
+				if (!c.D.Rig.Empty() && ext == ".obj") c.R["warning"] = "armature and weights are not written to .obj (mesh only) - export .fbx, .vrm or .glb for a rigged character";
 				return true; });
 			add("undo", "undo the last change", false, [](Ctx& c) { if (!c.D.Undo()) { c.E = "nothing to undo"; return false; } c.R = c.D.Summary(false); return true; });
 			add("redo", "redo", false, [](Ctx& c) { if (!c.D.Redo()) { c.E = "nothing to redo"; return false; } c.R = c.D.Summary(false); return true; });
@@ -1136,6 +1136,16 @@ namespace Modeling
 				arm.Bones[i].PoseEuler = r;
 				return Done(c, 1, "bones"); });
 			add("rig.check", "rig problems: vertices without weights, missing humanoid bones", false, RigCheck);
+			add("rig.paint", "--bone <name> --center x,y,z --radius 0.05 [--weight 1] [--strength 1] [--mode add|subtract|smooth] [--normalize true] [--object]: weight brush (world sphere, smooth falloff); normalize lowers the other bones so the sum stays 1", true, [](Ctx& c) {
+				const int b = c.D.Rig.Find(S(c.A, "bone"));
+				if (b < 0) { c.E = "no bone '" + S(c.A, "bone") + "' (model rig.list)"; return false; }
+				Vec3 center;
+				if (!GetVec3(c.A, "center", center)) { c.E = "need --center x,y,z (world)"; return false; }
+				const std::string mode = S(c.A, "mode", "add");
+				const int obj = c.A.contains("object") ? c.D.Find(S(c.A, "object")) : -1;
+				if (c.A.contains("object") && obj < 0) { c.E = "no object '" + S(c.A, "object") + "'"; return false; }
+				const int n = PaintWeights(c.D, b, center, F(c.A, "radius", 0.05f), F(c.A, "weight", 1.0f), F(c.A, "strength", 1.0f), mode == "subtract" ? 1 : (mode == "smooth" ? 2 : 0), B(c.A, "normalize", true), obj);
+				return Done(c, n, "verts"); });
 			add("rig.clear", "[--weights true]: delete the armature (and the bone vertex groups)", true, [](Ctx& c) {
 				if (B(c.A, "weights", true))
 					for (Object& o : c.D.Objects)

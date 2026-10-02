@@ -12,6 +12,8 @@ namespace AutoSave
 {
 	void Init();          // 시작 씬을 연 뒤 (지난 세션 확인 + 이번 세션 표시)
 	void Update();        // 매 프레임 (편집 중에만)
+	// 모델 원본 (FBX · VRM · GLB) 이 바뀌면 다시 가져오기 (1 초마다 확인, Play 중이 아닐 때) — Unity 의 자동 Reimport
+	void WatchModels();
 	void Shutdown();      // 정상 종료
 	void OnEnterPlay();   // Play 직전: 변경이 있으면 저장
 	void EmergencySave(); // 충돌 처리기

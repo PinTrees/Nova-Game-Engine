@@ -166,6 +166,20 @@ namespace Modeling
 		dir.Normalize();
 	}
 
+	bool Raster::HitPoint(int x, int y, Vec3& out) const
+	{
+		if (FaceAt(x, y) < 0)
+			return false;
+		// 깊이 버퍼 = 보기 공간 z (원근 · 직교 모두) → 광선에서 그 z 가 되는 점
+		Vec3 o, d;
+		Ray(x + 0.5f, y + 0.5f, o, d);
+		const float oz = Vec3::Transform(o, m_View).z, dz = Vec3::TransformNormal(d, m_View).z;
+		if (fabsf(dz) < 1e-8f)
+			return false;
+		out = o + d * ((Depth[(size_t)y * Width + x] - oz) / dz);
+		return true;
+	}
+
 	Vec3 Raster::Unproject(float x, float y, float ndcZ) const
 	{
 		const Vec4 p = Vec4::Transform(Vec4(x / Width * 2.0f - 1.0f, 1.0f - y / Height * 2.0f, ndcZ, 1.0f), m_InvViewProj);

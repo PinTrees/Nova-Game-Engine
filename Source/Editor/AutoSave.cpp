@@ -1,5 +1,8 @@
 #include "pch.h"
 #include "AutoSave.h"
+#include "ImportSettingsInspector.h"
+#include "ResourceManager.h"
+#include "PathManager.h"
 #include "EditorPrefs.h"
 #include "Debug.h"
 #include <filesystem>
@@ -341,5 +344,19 @@ namespace AutoSave
 			SceneManager::GetI()->AddLastUpdate([accept]() { Recover(accept); });
 		}
 		ImGui::EndPopup();
+	}
+
+	void WatchModels()
+	{
+		static auto s_Last = std::chrono::steady_clock::now();
+		const auto now = std::chrono::steady_clock::now();
+		if (now - s_Last < std::chrono::seconds(1) || Application::IsPlaying())
+			return;
+		s_Last = now;
+		for (const std::string& rel : ResourceManager::GetI()->TakeChangedModels())
+		{
+			EditorLog::Write("Import", "%s changed on disk - reimporting", rel.c_str());
+			ImportSettingsInspector::Reimport(string_to_wstring(PathManager::GetI()->GetMovePathS(rel)));
+		}
 	}
 }

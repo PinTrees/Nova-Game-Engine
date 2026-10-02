@@ -781,6 +781,7 @@ function Suite-Model
         function M([string]$line) { Invoke-NovaJson "model $line" }
         function Closed($r) { $r -and $r.boundaryEdges -eq 0 -and $r.nonManifoldEdges -eq 0 }
         function Near([double]$a, [double]$b) { [math]::Abs($a - $b) -lt 0.002 }
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
 
         # 정육면체 → 윗면 돌출 → Inset → 다시 돌출 → Undo
         M 'new' | Out-Null
@@ -1051,6 +1052,31 @@ function Suite-Model
         $xr = Invoke-NovaJson "exec --file $xf"
         $xa = if ($xr) { "$($xr.result)" -split ' ' } else { @() }
         Add-Result model 'engine: VRM expressions → Expressions + BlendShape (happy = 100 on the mouth)' ($xa.Count -eq 3 -and $xa[0] -eq '9' -and $xa[1] -eq '6' -and $xa[2] -eq '100') "expressions $($xa[0]) mouth shapes $($xa[1]) happy weight $($xa[2])"
+        # 원본이 바뀌면 다시 가져오기 (Unity 처럼): 같은 경로로 다시 내보낸 뒤 1 초 넘게 기다리면 로그 + 씬이 새 메시로
+        M 'object.transform --object Body --scale 1.2,1,1.2' | Out-Null
+        M "export --path $vrmDir\Chibi.vrm --title Chibi" | Out-Null
+        Wait-Sec 2.5
+        $rl = Invoke-Nova 'log --grep "changed on disk" -n 3'
+        $still = Invoke-NovaJson "exec --file $rf"
+        Add-Result model 'auto reimport: re-exported VRM reloads in the open scene' (($rl -match 'Chibi.vrm changed on disk') -and $still -and "$($still.result)" -match '^14 ') "log=$((($rl | Out-String) -replace '\s+', ' ').Trim()) after=$($still.result)"
+        # 가중치 붓: 왼팔 가운데를 LeftLowerArm 100 % 로 → 그 그룹 점이 늘고 합은 1 (rig.check)
+        M 'object.select --name ArmL' | Out-Null
+        $g0 = M 'group.list'
+        $c0 = ($g0.groups | Where-Object { $_.name -eq 'LeftLowerArm' }).verts
+        $pt = M 'rig.paint --bone LeftLowerArm --center -0.22,0.66,0 --radius 0.25 --weight 1 --strength 1 --object ArmL'
+        $g1 = M 'group.list'
+        $c1 = ($g1.groups | Where-Object { $_.name -eq 'LeftLowerArm' }).verts
+        $ck2 = M 'rig.check'
+        Add-Result model 'rig.paint: brush paints LeftLowerArm on the arm, weights stay normalized' ($pt.changed.verts -gt 0 -and [int]$c1 -gt [int]$c0 -and $ck2.ok) "painted=$($pt.changed.verts) LeftLowerArm verts $c0 → $c1 check=$($ck2.ok)"
+        # 스킨 FBX: 본 (LimbNode) + Skin / Cluster + BindPose → 엔진이 Humanoid 캐릭터로 (Unity · Blender 도 같은 형식)
+        $fx = M "export --path $vrmDir\ChibiRig.fbx"
+        Invoke-Nova 'create character --name FbxChibi --model Assets\NovaTestRig\ChibiRig.fbx' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $ff = Join-Path $dir 'rig_fbx.cs'
+        'var g = GameObject.Find("FbxChibi"); var a = g.GetComponent<Animator>(); var h = a.GetBonePosition(HumanBodyBones.Head); var l = a.GetBonePosition(HumanBodyBones.LeftHand); return g.GetComponentsInChildren<SkinnedMeshRenderer>().Length + " " + h.y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " " + l.x.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $ff
+        $fr = Invoke-NovaJson "exec --file $ff"
+        $fa = if ($fr) { "$($fr.result)" -split ' ' } else { @() }
+        Add-Result model 'export .fbx with armature → engine skinned Humanoid character' ($fx -and -not $fx.warning -and $fa.Count -eq 3 -and [int]$fa[0] -ge 10 -and [double]$fa[1] -gt 0.7 -and [double]$fa[1] -lt 1.1 -and [double]$fa[2] -lt 0) "skinned=$($fa[0]) head y=$($fa[1]) left hand x=$($fa[2])"
         Remove-Item $vrmDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$vrmDir.meta" -Force -ErrorAction SilentlyContinue
         Invoke-Nova 'log --errors -n 5' | Out-Null

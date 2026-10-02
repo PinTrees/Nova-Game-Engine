@@ -35,7 +35,7 @@ Blender 처럼 메시를 고치는 창과, 같은 연산을 AI 에이전트가 �
 | `new` | | 빈 문서 |
 | `open` / `save` | `<파일.nmodel>` | NOVA 모델 (JSON: 오브젝트 · 변환 · 다각형 · UV · 재질 번호) |
 | `import` | `<파일> [--append]` | Assimp: FBX · OBJ · glTF/GLB · DAE · 3DS … **사각형 · n 각형 그대로**, 노드 변환은 점에 굽고, FBX 단위 → 미터, 같은 위치 점은 합침 (UV 는 면 모서리에 남음), 부드러운 면 = 파일 법선으로 판단 |
-| `export` | `<파일.fbx\|obj\|glb\|vrm> [--selected] [--title] [--author] [--outlineWidth 0.003]` | FBX 7.4 바이너리 (미터, Y 위, n 각형 + 모서리 법선 · UV · 재질), OBJ, GLB (삼각형, 아마추어가 있으면 **스킨**), **VRM 1.0** (스킨 + humanoid + spring bone + MToon 재질 — [리깅](#리깅-4-단계)). FBX · OBJ 에는 본이 들어가지 않는다 (결과에 `warning`) |
+| `export` | `<파일.fbx\|obj\|glb\|vrm> [--selected] [--title] [--author] [--outlineWidth 0.003]` | FBX 7.4 바이너리 (미터, Y 위, n 각형 + 모서리 법선 · UV · 재질, 아마추어가 있으면 **본 (LimbNode) + Skin / Cluster + BindPose** — Unity · Blender 가 그대로 읽는다), OBJ, GLB (삼각형, 아마추어가 있으면 **스킨**), **VRM 1.0** (스킨 + humanoid + spring bone + MToon 재질 + 표정 — [리깅](#리깅-4-단계)). OBJ 에는 본이 들어가지 않는다 (결과에 `warning`) |
 | `undo` / `redo` | | |
 | `render` | `--dir <폴더> [--views front,right,back,top,persp] [--size 768\|[w,h]] [--shading solid\|toon\|normals\|weights --bone <본>] [--bones true] [--wire true\|false] [--selection] [--grid] [--xray] [--zoom 1] [--target x,y,z]` | 시점마다 PNG (`<폴더>/<시점>.png`, 또는 `--path 파일.png` 하나). 보이는 것 전체에 맞춰 화면을 채운다. **AI 가 결과를 눈으로 확인하는 방법** |
 | `window` / `view` | `view --preset front [--frame]` | 편집기 창 열기 / 창 카메라 |
@@ -150,6 +150,7 @@ UV 는 Subdivide · Loop Cut · Subsurf 를 거쳐도 남는다 (모서리 UV �
 | `rig.colliders` | `[--scale 0.9] [--clear]` | 머리 = 구, 몸통 · 팔 · 다리 = 캡슐. 굵기 = 그 본이 주인 점까지 거리의 중앙값 |
 | `rig.bone` | `--name <본> [--head x,y,z] [--tail x,y,z] [--parent <본>] [--rename] [--human <이름>] [--deform] [--spring true --stiffness …] [--delete] \| --add` | 본 하나 고치기 (이름을 바꾸면 그룹 이름도) |
 | `rig.pose` | `--bone <본> --rotation x,y,z (도, 월드 축, 부모 위에) \| --reset` | **포즈 미리보기**: 창 · `render` 가 스킨 메시를 그린다 (가중치 확인 — 팔을 들어 보고, 무릎을 굽혀 본다). 저장 · 내보내기 하지 않음 |
+| `rig.paint` | `--bone <본> --center x,y,z --radius 0.05 [--weight 1] [--strength 1] [--mode add\|subtract\|smooth] [--normalize true] [--object]` | **가중치 붓**: 월드 구 안 점의 그 본 가중치를 부드러운 감쇠로 칠한다. normalize = 다른 본을 줄여 합 1 (Blender 의 Auto Normalize). 창: 본을 고르고 **Paint** → 메시 위를 왼쪽 끌기 (한 획 = Undo 하나, Add / Subtract / Smooth, 반경 px · 세기 · 값) |
 | `rig.list` · `rig.check` · `rig.clear [--weights true]` | | 본 목록 · 문제 (가중치 없는 점, 빠진 사람 본) · 지우기 |
 
 내보내기 `export Chibi.vrm` = **VRM 1.0**: 본 노드 (회전 없음) + skin, `VRMC_vrm` humanoid · meta, `VRMC_springBone` (사슬 + 끝 노드, 충돌체), `VRMC_materials_mtoon` (재질 색 → 그림자 = 푸르스름하게, 외곽선). 엔진에서 `nova create character --model Assets/…/Chibi.vrm` 한 번으로 **Humanoid Idle 리타게팅 + Dynamic Bone (머리카락) + lilToon 툰** 이 붙는다. 메시 노드 이름이 본과 겹치면 `_Mesh` 를 붙인다 (메시 `Head` · 본 `Head`), 재질은 처음 쓰는 순서로 쓴다 (Assimp 가 그 순서로 읽는다).
@@ -252,4 +253,4 @@ nova model export Assets/Models/Chibi.fbx
 | 1 | 메시 편집 기본 · 창 · Undo · FBX/OBJ/GLB 가져오기 · 내보내기 · CLI · 시점별 PNG | **완료 (0.1.0)** |
 | 2 | AI 모델링 규격: 버텍스 그룹(이름 있는 선택 + 가중치, 연산을 따라감), 체크포인트, `batch`(Undo 한 번), 기준 그림 겹쳐 보기, 실루엣 비교(IoU · 높이 띠 · 힌트 · 차이 그림) | **완료 (0.2.0)** |
 | 3 | 캐릭터 도구: Mirror 모디파이어(실시간 대칭 + Clipping), 비례 편집, Subsurf 미리보기 · 적용, 머리 다발 · 카드, Smart UV · 투영 UV (연산을 거쳐도 UV 유지), 재질 색, 툰 2 톤 + 외곽선 · UV 바둑판 | **완료 (0.3.0)** |
-| 4 | 리깅: Humanoid 뼈대 맞추기 (부위 이름), 자동 가중치 (덩어리 안 본 + 이웃 섞기), 흔들림 사슬 (머리 다발 · 치마 방사) + 몸 충돌체, 포즈 미리보기 · 가중치 보기, 스킨 GLB · **VRM 1.0** 내보내기 → 엔진 Humanoid · Dynamic Bone · lilToon | **완료 (0.4.0)** — 남음: 가중치 붓 (창에서 칠하기), 스킨 FBX, 표정 (BlendShape) |
+| 4 | 리깅: Humanoid 뼈대 맞추기 (부위 이름), 자동 가중치 (덩어리 안 본 + 이웃 섞기), 흔들림 사슬 (머리 다발 · 치마 방사) + 몸 충돌체, 포즈 미리보기 · 가중치 보기 · **가중치 붓**, 셰이프 키 (표정), 스킨 **FBX** · GLB · **VRM 1.0** 내보내기 → 엔진 Humanoid · Dynamic Bone · Expressions · lilToon | **완료 (0.5.0)** |

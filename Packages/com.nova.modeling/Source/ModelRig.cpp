@@ -1082,6 +1082,79 @@ namespace Modeling
 		return true;
 	}
 
+	// ================================================================== 가중치 붓
+	int PaintWeights(Document& d, int bone, const Vec3& center, float radius, float weight, float strength, int mode, bool normalize, int objectIndex)
+	{
+		Armature& arm = d.Rig;
+		if (bone < 0 || bone >= (int)arm.Bones.size() || radius <= 0.0f) return 0;
+		const std::string boneName = arm.Bones[bone].Name;
+		int painted = 0;
+		for (int oi = 0; oi < (int)d.Objects.size(); ++oi)
+		{
+			if (objectIndex >= 0 && oi != objectIndex) continue;
+			Object& o = d.Objects[oi];
+			if (!o.Visible || o.M.Verts.empty()) continue;
+			Mesh& m = o.M;
+			const Matrix w = o.World();
+			std::vector<float> fall(m.Verts.size(), 0.0f);
+			bool any = false;
+			for (size_t i = 0; i < m.Verts.size(); ++i)
+			{
+				const float dist = (Vec3::Transform(m.Verts[i].P, w) - center).Length();
+				if (dist >= radius) continue;
+				const float t = 1.0f - dist / radius;
+				fall[i] = t * t * (3.0f - 2.0f * t);   // smoothstep
+				any = true;
+			}
+			if (!any) continue;
+			const int g = m.AddGroup(boneName);
+			std::vector<float> cur(m.Verts.size());
+			for (size_t i = 0; i < m.Verts.size(); ++i) cur[i] = m.Weight((int)i, g);
+			std::vector<std::vector<int>> nbr;
+			if (mode == 2) nbr = Neighbors(m);
+			// 다른 deform 본 그룹 (정규화 대상)
+			std::vector<uint8_t> deformGroup(m.Groups.size(), 0);
+			for (int k = 0; k < (int)m.Groups.size(); ++k)
+			{
+				const int b = arm.Find(m.Groups[k]);
+				deformGroup[k] = k != g && b >= 0 && arm.Bones[b].Deform;
+			}
+			for (size_t i = 0; i < m.Verts.size(); ++i)
+			{
+				if (fall[i] <= 0.0f) continue;
+				const float k = std::clamp(strength, 0.0f, 1.0f) * fall[i];
+				float target = weight;
+				if (mode == 1) target = 0.0f;
+				else if (mode == 2)
+				{
+					float s = 0.0f;
+					for (int j : nbr[i]) s += cur[j];
+					target = nbr[i].empty() ? cur[i] : s / nbr[i].size();
+				}
+				const float nw = std::clamp(cur[i] + (target - cur[i]) * k, 0.0f, 1.0f);
+				Vert& v = m.Verts[i];
+				auto it = std::find_if(v.W.begin(), v.W.end(), [&](const auto& x) { return x.first == g; });
+				if (nw <= 1e-4f) { if (it != v.W.end()) v.W.erase(it); }
+				else if (it != v.W.end()) it->second = nw;
+				else v.W.push_back({ g, nw });
+				if (normalize)
+				{
+					float others = 0.0f;
+					for (const auto& [gg, ww] : v.W) if (gg >= 0 && gg < (int)deformGroup.size() && deformGroup[gg]) others += ww;
+					if (others > 1e-6f)
+					{
+						const float scale = (std::max)(0.0f, 1.0f - nw) / others;
+						for (auto& [gg, ww] : v.W) if (gg >= 0 && gg < (int)deformGroup.size() && deformGroup[gg]) ww *= scale;
+						v.W.erase(std::remove_if(v.W.begin(), v.W.end(), [](const auto& x) { return x.second <= 1e-4f; }), v.W.end());
+					}
+				}
+				++painted;
+			}
+			m.Touch();
+		}
+		return painted;
+	}
+
 	// ================================================================== 충돌체
 	bool AutoColliders(Document& d, const json& args, json& report, std::string& error)
 	{
