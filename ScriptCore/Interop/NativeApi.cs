@@ -178,6 +178,7 @@ namespace NovaEngine.Interop
         // Text (TextMeshPro 기능): textInfo · 링크 · 글자 애니메이션 (번호표 = UIScriptBindings.h)
         public delegate* unmanaged<ulong, int, int, float*, int, int> TX_Info;
         public delegate* unmanaged<ulong, int, int, byte*> TX_Link;
+        public delegate* unmanaged<float, float, ulong> UI_RaycastScreen;
     }
 
     internal static unsafe class Native

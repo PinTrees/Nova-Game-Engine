@@ -493,6 +493,47 @@ return F(R("H0").width) + " " + F(R("H1").width) + " " + F(P("H1").x - P("H0").x
         Add-Result ui 'vertical group + content size fitter' ($l[6] -gt 15 -and [math]::Abs($l[5] - (4 * $l[6] + 3 * 4)) -lt 0.5) "height $($l[5]) = 4 x $($l[6]) + 3 x 4"
         Add-Result ui 'grid layout wraps after 3 columns' ([math]::Abs($l[7]) -lt 0.1 -and [math]::Abs($l[8] - 100) -lt 0.1) "G3 - G0 = ($($l[7]), $($l[8])) (expect 0, 100)"
         Add-Result ui 'aspect ratio fitter (width controls height)' ([math]::Abs($l[9] - 200) -lt 0.1) "height $($l[9]) (expect 200)"
+
+        # World Space · Screen Space - Camera 캔버스: 배치 + 카메라 광선으로 맞추기 (UIRaycast.Pick)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create empty --name WC' | Out-Null
+        Invoke-Nova 'add-component WC Canvas --values "{\"renderMode\":2}"' | Out-Null
+        Invoke-Nova 'add-component WC GraphicRaycaster' | Out-Null
+        Invoke-Nova 'create empty --name CC' | Out-Null
+        Invoke-Nova 'add-component CC Canvas --values "{\"renderMode\":1,\"planeDistance\":10}"' | Out-Null
+        Invoke-Nova 'add-component CC GraphicRaycaster' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $wf = Join-Path $Out 'ui_world.cs'
+        @'
+var cam = Camera.main.transform;
+var wc = GameObject.Find("WC");
+wc.transform.position = cam.position + cam.forward * 5f; wc.transform.rotation = cam.rotation; wc.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+wc.GetComponent<RectTransform>().sizeDelta = new Vector2(400, 200);
+var w = new GameObject("WBtn"); w.transform.SetParent(wc.transform, false); w.AddComponent<Image>().color = new Color(0.2f, 0.6f, 1f, 1f);
+w.GetComponent<RectTransform>().sizeDelta = new Vector2(200, 100);
+var cc = GameObject.Find("CC").GetComponent<Canvas>(); cc.worldCamera = Camera.main;
+var c = new GameObject("CBtn"); c.transform.SetParent(cc.transform, false); c.AddComponent<Image>().color = new Color(1f, 0.5f, 0.2f, 1f);
+var crt = c.GetComponent<RectTransform>(); crt.sizeDelta = new Vector2(150, 80); crt.anchoredPosition = new Vector2(-300, 150);
+return "made";
+'@ | Set-Content -Encoding utf8 $wf
+        Invoke-Nova "exec --file $wf" | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $wr = Join-Path $Out 'ui_world_read.cs'
+        @'
+float W = Screen.width, H = Screen.height;
+System.Func<float, float, string> pick = (x, y) => { var g = UIRaycast.Pick(new Vector2(x, y)); return g == null ? "none" : g.name; };
+var cam = Camera.main.transform;
+var cc = GameObject.Find("CC");
+float dist = (cc.transform.position - cam.position).magnitude;
+var cv = cc.GetComponent<Canvas>();
+return pick(W / 2, H / 2) + " " + pick(W / 2 - 300, H / 2 + 150) + " " + pick(W - 5, 5) + " " + dist.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + " " + (int)cv.renderMode + " " + (cv.worldCamera != null);
+'@ | Set-Content -Encoding utf8 $wr
+        $wo = Invoke-NovaJson "exec --file $wr"
+        Invoke-Nova 'stop' | Out-Null
+        $wv = if ($wo) { "$($wo.result)" -split ' ' } else { @() }
+        if ($wv.Count -lt 6) { Add-Result ui 'world canvas' $false "exec failed: $wo"; return }
+        Add-Result ui 'world space canvas is hit by the camera ray' ($wv[0] -eq 'WBtn' -and $wv[2] -eq 'none') "center → $($wv[0]) (expect WBtn), corner → $($wv[2]) (expect none)"
+        Add-Result ui 'screen space camera canvas sits at plane distance' ($wv[1] -eq 'CBtn' -and [math]::Abs([double]$wv[3] - 10) -lt 0.01 -and $wv[4] -eq '1' -and $wv[5] -eq 'True') "(-300, 150) → $($wv[1]) (expect CBtn), distance $($wv[3]) (expect 10), mode $($wv[4]), camera $($wv[5])"
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }

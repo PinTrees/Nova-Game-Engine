@@ -121,14 +121,14 @@ RectTransform* ScrollRect::ViewportRect()
 	return go ? go->GetComponent<RectTransform>() : nullptr;
 }
 
-Vec2 ScrollRect::WorldToContentParent(const Vec2& worldDelta)
+Vec2 ScrollRect::WorldToContentParent(const Vec3& worldDelta)
 {
 	RectTransform* content = ContentRect();
 	GameObject* parent = content && content->GetGameObject() ? content->GetGameObject()->GetParent() : nullptr;
 	if (parent == nullptr)
-		return worldDelta;
+		return Vec2(worldDelta.x, worldDelta.y);
 	const Matrix inv = parent->GetTransform()->GetWorldMatrix().Invert();
-	const Vec3 d = Vec3::TransformNormal(Vec3(worldDelta.x, worldDelta.y, 0.0f), inv);
+	const Vec3 d = Vec3::TransformNormal(worldDelta, inv);
 	return Vec2(d.x, d.y);
 }
 
@@ -169,7 +169,7 @@ Vec2 ScrollRect::CalculateOffset(const Vec2& extraDelta)
 	return offset;
 }
 
-void ScrollRect::OnBeginDrag(const Vec2& point)
+void ScrollRect::OnBeginDrag(const Vec3& point)
 {
 	RectTransform* content = ContentRect();
 	if (content == nullptr)
@@ -180,7 +180,7 @@ void ScrollRect::OnBeginDrag(const Vec2& point)
 	m_Velocity = Vec2(0, 0);
 }
 
-void ScrollRect::OnDrag(const Vec2& point, const Vec2&)
+void ScrollRect::OnDrag(const Vec3& point, const Vec3&)
 {
 	RectTransform* content = ContentRect();
 	RectTransform* view = ViewportRect();
@@ -203,7 +203,7 @@ void ScrollRect::OnDrag(const Vec2& point, const Vec2&)
 	content->SetAnchoredPosition(pos);
 }
 
-void ScrollRect::OnEndDrag(const Vec2&)
+void ScrollRect::OnEndDrag(const Vec3&)
 {
 	m_Dragging = false;
 }

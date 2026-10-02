@@ -3,6 +3,7 @@
 #include "UnityGUI.h"
 #include "RectTransform.h"
 #include "SceneViewOverlay.h"
+#include "Camera.h"
 
 std::vector<Canvas*> Canvas::s_All;
 std::vector<EventSystem*> EventSystem::s_All;
@@ -47,14 +48,41 @@ void Canvas::OnInspectorGUI()
 {
 	static const char* kModes[] = { "Screen Space - Overlay", "Screen Space - Camera", "World Space" };
 	int mode = (int)m_RenderMode;
-	if (UnityGUI::Dropdown("Render Mode", &mode, kModes, 3))
+	if (UnityGUI::Dropdown("Render Mode", &mode, kModes, 3) && mode != (int)m_RenderMode)
+	{
+		// World Space 로 바꾸면: 화면 크기 그대로, 1 단위 = 1 cm 정도로 줄여 원점 근처에 (Unity 는 그대로 두지만 픽셀 단위라 너무 크다)
+		if ((RenderMode)mode == RenderMode::WorldSpace)
+			if (RectTransform* rt = m_pGameObject ? m_pGameObject->GetComponent<RectTransform>() : nullptr)
+			{
+				rt->SetAnchorMin(Vec2(0.5f, 0.5f));
+				rt->SetAnchorMax(Vec2(0.5f, 0.5f));
+				rt->SetSizeDelta(rt->GetRectSize());
+				rt->SetAnchoredPosition(Vec2(0.0f, 1.5f));
+				m_pGameObject->GetTransform()->SetLocalPosition(Vec3(0.0f, 1.5f, 0.0f));
+				m_pGameObject->GetTransform()->SetLocalScale(Vec3(0.01f, 0.01f, 0.01f));
+			}
 		m_RenderMode = (RenderMode)mode;
-	if (m_RenderMode != RenderMode::ScreenSpaceOverlay)
-		UnityGUI::HelpBox("Only Screen Space - Overlay is rendered in this version. The Canvas is drawn as Overlay.", true);
-	UnityGUI::Toggle("Pixel Perfect", &m_PixelPerfect);
-	UnityGUI::Int("Sort Order", &m_SortOrder);
+	}
+	if (m_RenderMode == RenderMode::ScreenSpaceCamera)
+	{
+		UnityGUI::GameObjectField("Render Camera", &m_WorldCamera, 1);
+		if (m_WorldCamera == 0 || FindWorldCamera() == nullptr)
+			UnityGUI::HelpBox("A Screen Space Canvas with no specified camera acts like an Overlay Canvas.", false);
+		if (UnityGUI::Float("Plane Distance", &m_PlaneDistance, 1))
+			m_PlaneDistance = (std::max)(0.01f, m_PlaneDistance);
+	}
+	else if (m_RenderMode == RenderMode::WorldSpace)
+	{
+		UnityGUI::GameObjectField("Event Camera", &m_WorldCamera, 1);
+		if (m_WorldCamera == 0)
+			UnityGUI::HelpBox("No Event Camera: the Game view camera receives clicks.", false);
+	}
+	if (m_RenderMode != RenderMode::WorldSpace)
+		UnityGUI::Toggle("Pixel Perfect", &m_PixelPerfect);
+	UnityGUI::Int(m_RenderMode == RenderMode::ScreenSpaceOverlay ? "Sort Order" : "Order in Layer", &m_SortOrder);
 	static const char* kDisplays[] = { "Display 1", "Display 2", "Display 3", "Display 4", "Display 5", "Display 6", "Display 7", "Display 8" };
-	UnityGUI::Dropdown("Target Display", &m_TargetDisplay, kDisplays, 8);
+	if (m_RenderMode == RenderMode::ScreenSpaceOverlay)
+		UnityGUI::Dropdown("Target Display", &m_TargetDisplay, kDisplays, 8);
 	UnityGUI::ValueLabel("Additional Shader Channels", "Nothing");
 	UnityGUI::Toggle("Vertex Color Always In Gamma Space", &m_VertexColorGamma);
 }
@@ -69,6 +97,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(Canvas)
 	j["sortOrder"] = m_SortOrder;
 	j["targetDisplay"] = m_TargetDisplay;
 	j["vertexColorGamma"] = m_VertexColorGamma;
+	if (m_WorldCamera) j["worldCamera"] = m_WorldCamera;
+	if (m_PlaneDistance != 100.0f) j["planeDistance"] = m_PlaneDistance;
 	return j;
 }
 
@@ -80,6 +110,26 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Canvas)
 	m_SortOrder = j.value("sortOrder", 0);
 	m_TargetDisplay = j.value("targetDisplay", 0);
 	m_VertexColorGamma = j.value("vertexColorGamma", false);
+	m_WorldCamera = j.value("worldCamera", (uint64)0);
+	m_PlaneDistance = (std::max)(0.01f, j.value("planeDistance", 100.0f));
+}
+
+Camera* Canvas::FindWorldCamera() const
+{
+	if (m_WorldCamera == 0)
+		return nullptr;
+	Scene* scene = SceneManager::GetI()->GetCurrentScene();
+	GameObject* go = scene ? scene->FindByFileID(m_WorldCamera) : nullptr;
+	if (go == nullptr || !go->IsActive())
+		return nullptr;
+	Camera* cam = go->GetComponent<Camera>();
+	return cam && cam->IsEnabled() ? cam : nullptr;
+}
+
+void Canvas::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
+{
+	if (auto it = map.find(m_WorldCamera); it != map.end())
+		m_WorldCamera = it->second;
 }
 
 // ================================================================== Canvas Scaler

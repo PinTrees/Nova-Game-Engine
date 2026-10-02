@@ -141,6 +141,7 @@ public:
 	int GetPriority() const { return m_priority; }
 	const float* GetBackgroundColor() const { return m_backgroundColor; }
 	float GetOrthoSize() const { return m_orthoSize; }
+	bool IsOrthographic() const { return m_cameraType == ProjectionType::Orthographic; }
 	virtual void OnDrawGizmos() override;
 
 	GENERATE_COMPONENT_BODY(Camera)

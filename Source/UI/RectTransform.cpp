@@ -138,6 +138,23 @@ void RectTransform::Layout(const Vec2& parentMin, const Vec2& parentSize)
 	m_HasWritten = true;
 }
 
+void RectTransform::AdoptTransformPosition()
+{
+	if (m_HasWritten || m_pGameObject == nullptr)
+		return;
+	const Vec3 lp = m_pGameObject->GetTransform()->GetLocalPosition();
+	m_AnchoredPosition = Vec2(lp.x, lp.y);
+	m_AnchorMin = m_AnchorMax = Vec2(0.0f, 0.0f);   // 부모 사각형이 없다 (0 크기)
+}
+
+bool RectTransform::ContainsWorldPoint(const Vec3& p)
+{
+	if (m_pGameObject == nullptr)
+		return false;
+	const Vec3 l = Vec3::Transform(p, m_pGameObject->GetTransform()->GetWorldMatrix().Invert());
+	return l.x >= m_RectMin.x && l.x <= m_RectMin.x + m_RectSize.x && l.y >= m_RectMin.y && l.y <= m_RectMin.y + m_RectSize.y;
+}
+
 void RectTransform::GetWorldCorners(Vec3 out[4])
 {
 	const Vec2 mn = m_RectMin, mx = m_RectMin + m_RectSize;

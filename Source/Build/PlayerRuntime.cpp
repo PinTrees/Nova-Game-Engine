@@ -115,7 +115,7 @@ namespace PlayerRuntime
 			RenderManager::GetI()->CameraViewProjectionMatrix = camera->View() * camera->Proj();
 			Application::GetI()->GetApp()->OnSceneRender(backBuffer, camera.get());
 		}
-		UISystem::RenderGameView(backBuffer, (UINT)width, (UINT)height, 0);
+		UISystem::RenderGameView(backBuffer, (UINT)width, (UINT)height, 0, camera.get(), camera ? Application::GetI()->GetApp()->SceneDepth((UINT)width, (UINT)height) : nullptr);
 		ctx->OMSetRenderTargets(1, rtvs, depth);
 	}
 

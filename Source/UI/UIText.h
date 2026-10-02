@@ -83,7 +83,8 @@ public:
 	// 지금 그리는 배치는 그대로 둔다 (결과는 입력이 같으면 캐시)
 	Vec2 MeasurePreferred(float width);
 	// 캔버스 월드 점 → 그 자리의 <link> 번호 (없으면 -1)
-	int FindLinkAt(const Vec2& canvasWorld);
+	int FindLinkAt(const Vec2& canvasWorld) { return FindLinkAt(Vec3(canvasWorld.x, canvasWorld.y, 0.0f)); }
+	int FindLinkAt(const Vec3& canvasWorld);
 
 	// 스크립트 글자 애니메이션 (글자 번호 = CharInfo 순번, 텍스트가 바뀌면 지워진다)
 	void SetCharacterOffset(int index, const Vec2& offset);

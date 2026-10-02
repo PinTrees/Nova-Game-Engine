@@ -59,7 +59,23 @@ namespace NovaEngine
             set { Vector4 v = new Vector4(value, 0, 0, 0); Native.Api.UI_SetVec(m_Id, 50, &v); }
         }
         public unsafe float scaleFactor { get { Vector4 v; Native.Api.UI_GetVec(m_Id, 51, &v); return v.x; } }
-        public RenderMode renderMode => RenderMode.ScreenSpaceOverlay;
+        public unsafe RenderMode renderMode
+        {
+            get { Vector4 v; Native.Api.UI_GetVec(m_Id, 52, &v); return (RenderMode)(int)v.x; }
+            set { Vector4 v = new Vector4((int)value, 0, 0, 0); Native.Api.UI_SetVec(m_Id, 52, &v); }
+        }
+        /// <summary>Screen Space - Camera 의 Render Camera / World Space 의 Event Camera</summary>
+        public unsafe Camera worldCamera
+        {
+            // fileID 64 비트 = float 두 개의 비트 그대로
+            get { Vector4 v; Native.Api.UI_GetVec(m_Id, 53, &v); ulong id = ((ulong)(uint)System.BitConverter.SingleToInt32Bits(v.y) << 32) | (uint)System.BitConverter.SingleToInt32Bits(v.x); return id == 0 ? null : new GameObject(id).GetComponent<Camera>(); }
+            set { ulong id = value == null ? 0 : value.gameObject.GetInstanceID(); Vector4 v = new Vector4(System.BitConverter.Int32BitsToSingle((int)(uint)(id & 0xFFFFFFFF)), System.BitConverter.Int32BitsToSingle((int)(uint)(id >> 32)), 0, 0); Native.Api.UI_SetVec(m_Id, 53, &v); }
+        }
+        public unsafe float planeDistance
+        {
+            get { Vector4 v; Native.Api.UI_GetVec(m_Id, 54, &v); return v.x; }
+            set { Vector4 v = new Vector4(value, 0, 0, 0); Native.Api.UI_SetVec(m_Id, 54, &v); }
+        }
     }
 
     // Unity 의 Sprite: 이 엔진에서는 텍스처 경로 (Assets\..., 또는 "builtin:UISprite" 등)
@@ -372,6 +388,17 @@ namespace NovaEngine.UI
         public float flexibleWidth { get => GetV(262).x; set { var v = GetV(262); SetV(262, new Vector4(value, v.y, 0, 0)); } }
         public float flexibleHeight { get => GetV(262).y; set { var v = GetV(262); SetV(262, new Vector4(v.x, value, 0, 0)); } }
         public int layoutPriority { get => (int)GetV(264).x; set => SetV(264, new Vector4(value, 0, 0, 0)); }
+    }
+
+    /// <summary>NOVA: 화면 점의 UI (EventSystem 의 레이캐스트와 같은 규칙 — Overlay 먼저, World Space 캔버스는 카메라 광선)</summary>
+    public static class UIRaycast
+    {
+        /// <summary>screenPosition = Input.mousePosition 과 같은 좌표 (게임 화면 픽셀, 왼쪽 아래 0,0). 없으면 null</summary>
+        public static unsafe GameObject Pick(Vector2 screenPosition)
+        {
+            ulong id = Native.Api.UI_RaycastScreen(screenPosition.x, screenPosition.y);
+            return id == 0 ? null : new GameObject(id);
+        }
     }
 
     /// <summary>Unity 의 LayoutRebuilder</summary>

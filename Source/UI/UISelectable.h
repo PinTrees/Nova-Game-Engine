@@ -8,9 +8,10 @@ class IUIDragHandler
 {
 public:
 	virtual ~IUIDragHandler() = default;
-	virtual void OnBeginDrag(const Vec2& point) {}
-	virtual void OnDrag(const Vec2& point, const Vec2& delta) = 0;
-	virtual void OnEndDrag(const Vec2& point) {}
+	// 점 = 캔버스 월드 좌표 (Overlay = 화면 픽셀, World / Camera 캔버스 = 마우스 광선이 캔버스 평면과 만나는 3D 점)
+	virtual void OnBeginDrag(const Vec3& point) {}
+	virtual void OnDrag(const Vec3& point, const Vec3& delta) = 0;
+	virtual void OnEndDrag(const Vec3& point) {}
 	// Slider 처럼 누르는 순간부터 끄는 것인지 (ScrollRect 는 조금 움직인 뒤부터 = 버튼 클릭 취소)
 	virtual bool DragsImmediately() const { return false; }
 };
@@ -39,7 +40,7 @@ public:
 	void SetPointer(bool hovered, bool pressed) { m_Hovered = hovered; m_Down = pressed; }
 	bool IsSelected() const { return m_Selected; }
 
-	virtual void OnPointerDown(const Vec2& point) {}
+	virtual void OnPointerDown(const Vec3& point) {}
 	virtual void OnClick() {}
 	virtual void OnSelect() { m_Selected = true; }
 	virtual void OnDeselect() { m_Selected = false; }

@@ -36,7 +36,9 @@ public:
 	virtual void UpdateScene(float dt) = 0;
 	virtual void RenderApplication();
 
-	virtual void OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* camera) { } 
+	virtual void OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* camera) { }
+	// 방금 그린 씬의 깊이 버퍼 (World Space UI 가 씬에 가려지게, 없으면 nullptr)
+	virtual GfxDepthStencilView* SceneDepth(UINT width, UINT height) { return nullptr; }
 	virtual void _Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, EditorCamera* camera) { }
 
 	virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

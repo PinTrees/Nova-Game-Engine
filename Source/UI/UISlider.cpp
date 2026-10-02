@@ -38,7 +38,7 @@ void Slider::SetNormalized(float t, bool notify)
 	SetValue(m_Min + (m_Max - m_Min) * std::clamp(t, 0.0f, 1.0f), notify);
 }
 
-void Slider::SetFromPoint(const Vec2& point)
+void Slider::SetFromPoint(const Vec3& point)
 {
 	if (!m_Interactable)
 		return;
@@ -54,7 +54,7 @@ void Slider::SetFromPoint(const Vec2& point)
 	if (area == nullptr || area->GetGameObject() == nullptr)
 		return;
 	const Matrix inv = area->GetGameObject()->GetTransform()->GetWorldMatrix().Invert();
-	const Vec3 local = Vec3::Transform(Vec3(point.x, point.y, 0.0f), inv);
+	const Vec3 local = Vec3::Transform(point, inv);
 	const Vec2 mn = area->GetRectMin(), size = area->GetRectSize();
 	float t = Vertical() ? (size.y > 1e-4f ? (local.y - mn.y) / size.y : 0.0f) : (size.x > 1e-4f ? (local.x - mn.x) / size.x : 0.0f);
 	if (Reversed())
@@ -62,8 +62,8 @@ void Slider::SetFromPoint(const Vec2& point)
 	SetNormalized(t);
 }
 
-void Slider::OnPointerDown(const Vec2& point) { SetFromPoint(point); }
-void Slider::OnDrag(const Vec2& point, const Vec2&) { SetFromPoint(point); }
+void Slider::OnPointerDown(const Vec3& point) { SetFromPoint(point); }
+void Slider::OnDrag(const Vec3& point, const Vec3&) { SetFromPoint(point); }
 
 void Slider::UpdateBeforeLayout(float, bool)
 {

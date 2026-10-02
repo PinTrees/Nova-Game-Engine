@@ -1,8 +1,11 @@
 #pragma once
 #include "Component.h"
 
-// Unity 의 Canvas (UI 를 그리는 영역). 지금은 Screen Space - Overlay 만 그린다 (화면 맨 위에 픽셀 단위).
-// Canvas 의 Transform 은 매 프레임 화면 가운데·배율로 정해지고, RectTransform 크기 = 화면 / Canvas Scaler 배율.
+// Unity 의 Canvas (UI 를 그리는 영역).
+//  - Screen Space - Overlay: 화면 맨 위에 픽셀 단위. Transform = 화면 가운데·배율, RectTransform 크기 = 화면 / Canvas Scaler 배율
+//  - Screen Space - Camera: Render Camera 앞 Plane Distance 에 화면 크기로 놓인다 (3D 물체가 앞에 오면 가린다, 카메라가 없으면 Overlay 로)
+//  - World Space: 씬 안의 평면 (Transform 위치 · 회전 · 크기 그대로, 크기 = Rect Transform Width/Height) — 머리 위 체력바, 3D 메뉴
+//    입력은 Event Camera(없으면 Game 뷰 카메라) 의 마우스 광선과 평면이 만나는 점, 씬 깊이로 가려진다
 class Canvas : public Component
 {
 public:
@@ -12,6 +15,14 @@ public:
 	virtual ~Canvas();
 
 	RenderMode GetRenderMode() const { return m_RenderMode; }
+	void SetRenderMode(RenderMode m) { m_RenderMode = m; }
+	uint64 GetWorldCamera() const { return m_WorldCamera; }
+	void SetWorldCamera(uint64 fileID) { m_WorldCamera = fileID; }
+	float GetPlaneDistance() const { return m_PlaneDistance; }
+	void SetPlaneDistance(float d) { m_PlaneDistance = (std::max)(0.01f, d); }
+	// Screen Space - Camera 의 Render Camera / World Space 의 Event Camera (없으면 nullptr)
+	class Camera* FindWorldCamera() const;
+	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) override;
 	int GetSortOrder() const { return m_SortOrder; }
 	void SetSortOrder(int order) { m_SortOrder = order; }
 	int GetTargetDisplay() const { return m_TargetDisplay; }
@@ -30,6 +41,8 @@ public:
 
 private:
 	RenderMode m_RenderMode = RenderMode::ScreenSpaceOverlay;
+	uint64 m_WorldCamera = 0;      // Render Camera (Camera 모드) / Event Camera (World 모드)
+	float m_PlaneDistance = 100.0f;
 	bool m_PixelPerfect = false;
 	int m_SortOrder = 0;
 	int m_TargetDisplay = 0;

@@ -38,6 +38,8 @@ public:
 	void Layout(const Vec2& parentMin, const Vec2& parentSize);
 	// 지난 레이아웃의 부모 사각형으로 다시 (Layout Group · Content Size Fitter 가 값을 바꾼 뒤)
 	void Relayout() { Layout(m_ParentMin, m_ParentSize); }
+	// World Space 캔버스 루트: 처음 레이아웃 전에 지금 Transform 위치를 anchoredPosition 으로 (기본값 0,0 이 위치를 덮어쓰지 않게)
+	void AdoptTransformPosition();
 	Vec2 GetParentSize() const { return m_ParentSize; }
 	// Layout Group · Fitter 가 이 값을 정했다 (Inspector 안내, 프레임마다 다시 표시)
 	void SetDrivenBy(const std::string& by) { m_DrivenBy = by; m_DrivenFrame = ImGui::GetFrameCount(); }
@@ -49,6 +51,8 @@ public:
 	void GetWorldCorners(Vec3 out[4]);
 	// 캔버스 월드 점(z 무시)이 사각형 안인지
 	bool ContainsWorldPoint(const Vec2& p);
+	// 3D 점 (World Space 캔버스: 광선이 평면과 만난 점) — 자기 평면으로 되돌려 x, y 만 비교
+	bool ContainsWorldPoint(const Vec3& p);
 
 	static RectTransform* Of(GameObject* go);
 

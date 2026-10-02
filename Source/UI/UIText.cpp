@@ -817,13 +817,13 @@ Vec2 Text::MeasurePreferred(float width)
 	return result;
 }
 
-int Text::FindLinkAt(const Vec2& canvasWorld)
+int Text::FindLinkAt(const Vec3& canvasWorld)
 {
 	ForceMeshUpdate();
 	if (m_Links.empty() || m_pGameObject == nullptr)
 		return -1;
 	const Matrix inv = m_pGameObject->GetTransform()->GetWorldMatrix().Invert();
-	const Vec3 local = Vec3::Transform(Vec3(canvasWorld.x, canvasWorld.y, 0.0f), inv);
+	const Vec3 local = Vec3::Transform(canvasWorld, inv);
 	for (const CharInfo& c : m_Chars)
 		if (c.Link >= 0 && c.Line >= 0 && local.x >= c.PenX && local.x <= c.PenX + (std::max)(c.Advance, 1.0f))
 		{

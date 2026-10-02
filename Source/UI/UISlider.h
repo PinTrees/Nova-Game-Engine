@@ -25,8 +25,8 @@ public:
 	void SetNormalized(float t, bool notify = true);
 	void SetRects(uint64 fill, uint64 handle) { m_FillRect = fill; m_HandleRect = handle; }
 
-	virtual void OnPointerDown(const Vec2& point) override;
-	virtual void OnDrag(const Vec2& point, const Vec2& delta) override;
+	virtual void OnPointerDown(const Vec3& point) override;
+	virtual void OnDrag(const Vec3& point, const Vec3& delta) override;
 	virtual bool DragsImmediately() const override { return true; }
 	virtual void UpdateBeforeLayout(float dt, bool playing) override;
 
@@ -37,7 +37,7 @@ public:
 	GENERATE_COMPONENT_BODY(Slider)
 
 private:
-	void SetFromPoint(const Vec2& point);
+	void SetFromPoint(const Vec3& point);
 	bool Reversed() const { return m_Direction == Direction::RightToLeft || m_Direction == Direction::TopToBottom; }
 	bool Vertical() const { return m_Direction == Direction::BottomToTop || m_Direction == Direction::TopToBottom; }
 

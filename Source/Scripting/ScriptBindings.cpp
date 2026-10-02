@@ -160,6 +160,7 @@ namespace
 		// Text (TextMeshPro 기능) — UIScriptBindings::TextInfo / TextLink
 		int(*TX_Info)(uint64, int, int, float*, int);
 		u8* (*TX_Link)(uint64, int, int);
+		uint64(*UI_RaycastScreen)(float, float);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1150,6 +1151,7 @@ namespace ScriptBindings
 		t.MX_GroupLevel = MX_GroupLevel;
 		t.TX_Info = UIScriptBindings::TextInfo;
 		t.TX_Link = [](uint64 id, int index, int which) -> u8* { return (u8*)UIScriptBindings::TextLink(id, index, which); };
+		t.UI_RaycastScreen = [](float x, float y) -> uint64 { GameObject* g = UISystem::RaycastScreen(x, y); return g ? g->GetFileID() : 0; };
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

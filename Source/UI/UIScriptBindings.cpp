@@ -211,6 +211,23 @@ namespace UIScriptBindings
 			out->x = (prop == 40 ? b->IsInteractable() : b->IsEnabled()) ? 1.0f : 0.0f;
 			return 1;
 		}
+		if (prop >= 52 && prop <= 54)
+		{
+			Canvas* c = g->GetComponentIncludingPending<Canvas>();
+			if (c == nullptr)
+				return 0;
+			if (prop == 52) out->x = (float)c->GetRenderMode();
+			else if (prop == 53)
+			{
+				// fileID 64 비트 → float 두 개의 비트 그대로 (C# BitConverter)
+				const uint64 id = c->GetWorldCamera();
+				const uint32 lo = (uint32)id, hi = (uint32)(id >> 32);
+				memcpy(&out->x, &lo, 4);
+				memcpy(&out->y, &hi, 4);
+			}
+			else out->x = c->GetPlaneDistance();
+			return 1;
+		}
 		if (prop == 50 || prop == 51)
 		{
 			Canvas* c = g->GetComponentIncludingPending<Canvas>();
@@ -429,6 +446,19 @@ namespace UIScriptBindings
 		if (prop == 50)
 			if (Canvas* c = g->GetComponentIncludingPending<Canvas>())
 				c->SetSortOrder((int)v.x);
+		if (prop >= 52 && prop <= 54)
+			if (Canvas* c = g->GetComponentIncludingPending<Canvas>())
+			{
+				if (prop == 52) c->SetRenderMode((Canvas::RenderMode)std::clamp((int)v.x, 0, 2));
+				else if (prop == 53)
+				{
+					uint32 lo = 0, hi = 0;
+					memcpy(&lo, &v.x, 4);
+					memcpy(&hi, &v.y, 4);
+					c->SetWorldCamera(((uint64)hi << 32) | lo);
+				}
+				else c->SetPlaneDistance(v.x);
+			}
 		if (prop >= 60 && prop <= 65)
 			if (Slider* s = g->GetComponentIncludingPending<Slider>())
 				switch (prop)

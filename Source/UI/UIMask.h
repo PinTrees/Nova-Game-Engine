@@ -47,9 +47,9 @@ public:
 	Vec2 GetNormalizedPosition();
 	void SetNormalizedPosition(const Vec2& p);
 
-	virtual void OnBeginDrag(const Vec2& point) override;
-	virtual void OnDrag(const Vec2& point, const Vec2& delta) override;
-	virtual void OnEndDrag(const Vec2& point) override;
+	virtual void OnBeginDrag(const Vec3& point) override;
+	virtual void OnDrag(const Vec3& point, const Vec3& delta) override;
+	virtual void OnEndDrag(const Vec3& point) override;
 	virtual void OnScroll(float wheel) override;
 	void UpdateBeforeLayout(float dt, bool playing);
 
@@ -66,7 +66,7 @@ private:
 	// Content 가 Viewport 밖으로 나간 양 (Content 부모 공간, 이만큼 움직이면 안으로 들어옴)
 	Vec2 CalculateOffset(const Vec2& extraDelta);
 	// 월드 이동량 → Content 부모 공간 이동량
-	Vec2 WorldToContentParent(const Vec2& worldDelta);
+	Vec2 WorldToContentParent(const Vec3& worldDelta);
 
 	uint64 m_Content = 0, m_Viewport = 0;
 	bool m_Horizontal = true, m_Vertical = true;
@@ -78,7 +78,8 @@ private:
 
 	// 실행 중
 	bool m_Dragging = false;
-	Vec2 m_DragStartPointer = Vec2(0, 0), m_ContentStart = Vec2(0, 0);
+	Vec3 m_DragStartPointer = Vec3(0, 0, 0);
+	Vec2 m_ContentStart = Vec2(0, 0);
 	Vec2 m_Velocity = Vec2(0, 0), m_PrevPosition = Vec2(0, 0);
 	static std::vector<ScrollRect*> s_All;
 };

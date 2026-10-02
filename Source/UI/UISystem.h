@@ -6,13 +6,16 @@ class GameObject;
 
 // Unity UGUI 의 실행부 (CanvasUpdateRegistry + EventSystem + 그리기).
 //  - Update(): 매 프레임. 캔버스 레이아웃(RectTransform → Transform), Play 중 마우스 입력(버튼 Hover/Press/Click), 버튼 색
-//  - RenderGameView(): Game 뷰 렌더 타깃 위에 Screen Space - Overlay 캔버스를 그린다 (Sort Order 순)
+//  - RenderGameView(): Game 뷰 렌더 타깃 위에 World / Camera 캔버스(게임 카메라 + 씬 깊이) → Screen Space - Overlay 캔버스 (Sort Order 순)
 //  - RenderSceneView(): Scene 뷰에 캔버스를 월드(1 픽셀 = 1 단위)로 그리고 캔버스/선택 요소 테두리
 //  - Create(): GameObject > UI 메뉴 (Canvas 가 없으면 Canvas + EventSystem 을 함께 만든다)
 namespace UISystem
 {
 	void Update();
-	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display);
+	// 게임 화면 점(픽셀, 왼쪽 아래 0,0) 에 있는 맨 위 UI 그래픽 (Overlay 먼저, World / Camera 캔버스는 마우스 광선으로). 없으면 nullptr
+	GameObject* RaycastScreen(float x, float y);
+	// camera / depth = 이 화면을 그린 게임 카메라와 씬 깊이 (World · Camera 캔버스, 없으면 그리지 않음 / 가리지 않음)
+	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display, class Camera* camera = nullptr, GfxDepthStencilView* depth = nullptr);
 	void RenderSceneView(GfxRenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition);
 
 	// kind: "Canvas", "EventSystem", "Image", "Text", "Button", "Panel", "Toggle", "Slider", "InputField", "ScrollView"

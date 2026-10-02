@@ -15,6 +15,8 @@
 #include "GameViewEditorWindow.h"
 #include "GameObjectFactory.h"
 #include "ScriptEngine.h"
+#include "Camera.h"
+#include "DisplayManager.h"
 
 namespace
 {
@@ -31,7 +33,9 @@ namespace
 		IUIDragHandler* DragTarget = nullptr;    // 끌기를 받을 것 (Slider, ScrollRect)
 		Component* DragComponent = nullptr;      // DragTarget 의 컴포넌트 (살아 있는지 확인용)
 		bool Dragging = false;
-		Vec2 DownPos = Vec2(0, 0), LastPos = Vec2(0, 0);
+		Vec3 DownPos = Vec3(0, 0, 0), LastPos = Vec3(0, 0, 0);   // 캔버스 월드 점 (World 캔버스면 3D)
+		Vec2 DownScreen = Vec2(0, 0);            // 끌기 문턱은 화면 픽셀로
+		Canvas* PressCanvas = nullptr;           // 누른 캔버스 (끄는 동안 이 평면으로 마우스를 옮긴다)
 		UISelectable* Selected = nullptr;        // 키보드 포커스 (InputField)
 	} s_Pointer;
 
@@ -59,6 +63,64 @@ namespace
 
 	template <typename T>
 	bool IsLive(T* p, const std::vector<T*>& all) { return p && std::find(all.begin(), all.end(), p) != all.end(); }
+
+	// 실제로 쓰는 모드: Screen Space - Camera 인데 카메라가 없으면 Overlay (Unity 와 같음)
+	enum class Space { Overlay, CameraSpace, World };
+	Space SpaceOf(Canvas* c)
+	{
+		if (c->GetRenderMode() == Canvas::RenderMode::WorldSpace) return Space::World;
+		if (c->GetRenderMode() == Canvas::RenderMode::ScreenSpaceCamera && c->FindWorldCamera()) return Space::CameraSpace;
+		return Space::Overlay;
+	}
+
+	// 입력 카메라: Camera 모드 = Render Camera, World 모드 = Event Camera (없으면 Game 뷰 카메라)
+	Camera* EventCameraOf(Canvas* c)
+	{
+		if (Camera* cam = c->FindWorldCamera())
+			return cam;
+		static std::shared_ptr<Camera> s_Main;
+		s_Main = DisplayManager::GetI()->GetCameraForDisplay(DisplayManager::GetI()->GetActiveDisplay());
+		return s_Main.get();
+	}
+
+	void GameScreenSize(float& w, float& h);
+
+	// 마우스(게임 화면 픽셀) 가 가리키는 이 캔버스의 점. Overlay = 화면 픽셀 그대로, World / Camera = 카메라 광선이 캔버스 평면과 만나는 3D 점
+	bool PointerOnCanvas(Canvas* c, float mx, float my, Vec3& out, float* distance = nullptr)
+	{
+		if (distance) *distance = 0.0f;
+		if (SpaceOf(c) == Space::Overlay)
+		{
+			out = Vec3(mx, my, 0.0f);
+			return true;
+		}
+		Camera* cam = EventCameraOf(c);
+		if (cam == nullptr || c->GetGameObject() == nullptr)
+			return false;
+		float w, h;
+		GameScreenSize(w, h);
+		const Matrix inv = (Matrix(cam->View()) * Matrix(cam->Proj())).Invert();
+		const float nx = mx / w * 2.0f - 1.0f, ny = my / h * 2.0f - 1.0f;
+		const Vec3 p0 = Vec3::Transform(Vec3(nx, ny, 0.0f), inv), p1 = Vec3::Transform(Vec3(nx, ny, 1.0f), inv);
+		Vec3 dir = p1 - p0;
+		if (dir.LengthSquared() < 1e-12f)
+			return false;
+		dir.Normalize();
+		const Matrix world = c->GetGameObject()->GetTransform()->GetWorldMatrix();
+		Vec3 n = Vec3::TransformNormal(Vec3(0, 0, 1), world);
+		if (n.LengthSquared() < 1e-12f)
+			return false;
+		n.Normalize();
+		const float denom = dir.Dot(n);
+		if (fabsf(denom) < 1e-6f)
+			return false;
+		const float t = (world.Translation() - p0).Dot(n) / denom;
+		if (t < 0.0f)
+			return false;
+		out = p0 + dir * t;
+		if (distance) *distance = t;
+		return true;
+	}
 
 	// 부모 쪽에 켜진 Canvas 가 없는 Canvas (= 화면에 그리는 루트 캔버스), Sort Order 순
 	std::vector<Canvas*> RootCanvases()
@@ -114,7 +176,7 @@ namespace
 	}
 
 	// 그리는 순서 (Hierarchy 위 → 아래, 부모 → 자식), Mask / RectMask2D 는 자식을 자기 사각형으로 자른다
-	void CollectGraphics(GameObject* go, std::vector<DrawItem>& out, bool clip, const Vec4& clipRect)
+	void CollectGraphics(GameObject* go, std::vector<DrawItem>& out, bool clip, const Vec4& clipRect, bool allowClip = true)
 	{
 		if (!go->IsActive())
 			return;
@@ -127,14 +189,14 @@ namespace
 		Vec4 childRect = clipRect;
 		RectTransform* rt = go->GetComponent<RectTransform>();
 		RectMask2D* rm = go->GetComponent<RectMask2D>();
-		if (rt && ((mask) || (rm && rm->IsEnabled())))
+		if (allowClip && rt && ((mask) || (rm && rm->IsEnabled())))
 		{
 			const Vec4 own = WorldBounds(rt, rm && rm->IsEnabled() ? rm->GetPadding() : Vec4(0, 0, 0, 0));
 			childRect = clip ? Intersect(clipRect, own) : own;
 			childClip = true;
 		}
 		for (GameObject* child : go->GetChildren())
-			CollectGraphics(child, out, childClip, childRect);
+			CollectGraphics(child, out, childClip, childRect, allowClip);
 	}
 
 	void GameScreenSize(float& w, float& h)
@@ -181,18 +243,32 @@ namespace
 			s->OnSelect();
 	}
 
-	void ProcessInput(const std::vector<Canvas*>& roots)
+	// 화면 점(게임 화면 픽셀, 왼쪽 아래 0,0) 에 맞는 맨 위 그래픽 (Raycast Target, GraphicRaycaster 가 있는 캔버스만)
+	GameObject* HitTest(const std::vector<Canvas*>& roots, float mx, float my, Canvas*& hitCanvas, Vec3& hitPoint)
 	{
-		float mx = 0.0f, my = 0.0f;
-		const bool inside = GameViewEditorWindow::MouseToGame(mx, my) && GameViewEditorWindow::HasInputFocus();
-		const Vec2 mouse(mx, my);
 		GameObject* hitObject = nullptr;
-		if (inside)
+		hitCanvas = nullptr;
+		hitPoint = Vec3(mx, my, 0.0f);
 		{
-			// 위에 그려진 캔버스(Sort Order 큰 것)와 나중에 그린 그래픽부터 (Mask 밖은 맞지 않음)
-			for (auto it = roots.rbegin(); it != roots.rend() && hitObject == nullptr; ++it)
+			// 맞춰 볼 순서: Overlay (Sort Order 큰 것 = 위) → World / Camera 캔버스 (가까운 것부터)
+			struct Candidate { Canvas* C; Vec3 P; float Dist; bool Overlay; };
+			std::vector<Candidate> order;
+			for (auto it = roots.rbegin(); it != roots.rend(); ++it)
 			{
-				GameObject* cgo = (*it)->GetGameObject();
+				Vec3 p;
+				float d = 0.0f;
+				if (PointerOnCanvas(*it, mx, my, p, &d))
+					order.push_back({ *it, p, d, SpaceOf(*it) == Space::Overlay });
+			}
+			std::stable_sort(order.begin(), order.end(), [](const Candidate& a, const Candidate& b) {
+				if (a.Overlay != b.Overlay) return a.Overlay;
+				return !a.Overlay && a.Dist < b.Dist;
+			});
+			for (const Candidate& cand : order)
+			{
+				if (hitObject)
+					break;
+				GameObject* cgo = cand.C->GetGameObject();
 				GraphicRaycaster* ray = cgo->GetComponent<GraphicRaycaster>();
 				if (ray == nullptr || !ray->IsEnabled())
 					continue;
@@ -202,17 +278,31 @@ namespace
 				{
 					if (!g->Graphic->IsRaycastTarget())
 						continue;
-					if (g->Clip && (mx < g->ClipRect.x || mx > g->ClipRect.z || my < g->ClipRect.y || my > g->ClipRect.w))
+					// Mask 밖은 맞지 않음 (Overlay 의 잘라내기 사각형은 화면 픽셀)
+					if (cand.Overlay && g->Clip && (mx < g->ClipRect.x || mx > g->ClipRect.z || my < g->ClipRect.y || my > g->ClipRect.w))
 						continue;
 					RectTransform* rt = g->Graphic->GetRect();
-					if (rt && rt->ContainsWorldPoint(mouse))
+					if (rt && rt->ContainsWorldPoint(cand.P))
 					{
 						hitObject = g->Graphic->GetGameObject();
+						hitCanvas = cand.C;
+						hitPoint = cand.P;
 						break;
 					}
 				}
 			}
 		}
+		return hitObject;
+	}
+
+	void ProcessInput(const std::vector<Canvas*>& roots)
+	{
+		float mx = 0.0f, my = 0.0f;
+		const bool inside = GameViewEditorWindow::MouseToGame(mx, my) && GameViewEditorWindow::HasInputFocus();
+		const Vec2 screen(mx, my);
+		Canvas* hitCanvas = nullptr;
+		Vec3 hitPoint(mx, my, 0.0f);
+		GameObject* hitObject = inside ? HitTest(roots, mx, my, hitCanvas, hitPoint) : nullptr;
 		UISelectable* hovered = hitObject ? FindUp<UISelectable>(hitObject) : nullptr;
 		if (hovered && !hovered->IsInteractable())
 			hovered = nullptr;
@@ -221,11 +311,23 @@ namespace
 		const bool down = io.MouseDown[0] && (inside || s_Pointer.WasDown);
 		if (!IsLive(s_Pointer.Pressed, UISelectable::All()))
 			s_Pointer.Pressed = nullptr;
+		if (!IsLive(s_Pointer.PressCanvas, Canvas::All()))
+			s_Pointer.PressCanvas = nullptr;
 		if (!DragTargetAlive())
 		{
 			s_Pointer.DragTarget = nullptr;
 			s_Pointer.DragComponent = nullptr;
 			s_Pointer.Dragging = false;
+		}
+		// 누르고 있는 동안: 누른 캔버스 평면 위의 점 (그래픽 밖으로 나가도 Slider · ScrollRect 가 따라온다)
+		Vec3 point = hitPoint;
+		if (s_Pointer.WasDown && s_Pointer.PressCanvas)
+		{
+			Vec3 p;
+			if (PointerOnCanvas(s_Pointer.PressCanvas, mx, my, p))
+				point = p;
+			else
+				point = s_Pointer.LastPos;
 		}
 
 		UISelectable* clicked = nullptr;
@@ -233,7 +335,9 @@ namespace
 		{
 			// 누름: Selectable, 끌기 대상, 선택(포커스) 결정
 			s_Pointer.Pressed = hovered;
-			s_Pointer.DownPos = s_Pointer.LastPos = mouse;
+			s_Pointer.PressCanvas = hitCanvas;
+			s_Pointer.DownPos = s_Pointer.LastPos = hitPoint;
+			s_Pointer.DownScreen = screen;
 			s_Pointer.Dragging = false;
 			s_Pointer.DragTarget = hitObject ? FindUp<IUIDragHandler>(hitObject) : nullptr;
 			s_Pointer.DragComponent = s_Pointer.DragTarget ? dynamic_cast<Component*>(s_Pointer.DragTarget) : nullptr;
@@ -241,26 +345,26 @@ namespace
 				s_Pointer.DragTarget = nullptr, s_Pointer.DragComponent = nullptr;
 			Select(hovered);   // 빈 곳을 누르면 선택 해제 (InputField 입력 끝)
 			if (hovered)
-				hovered->OnPointerDown(mouse);
+				hovered->OnPointerDown(hitPoint);
 			if (s_Pointer.DragTarget && s_Pointer.DragTarget->DragsImmediately())
 			{
 				s_Pointer.Dragging = true;
-				s_Pointer.DragTarget->OnBeginDrag(mouse);
+				s_Pointer.DragTarget->OnBeginDrag(hitPoint);
 			}
 		}
 		else if (down && s_Pointer.WasDown)
 		{
 			// 끄는 중: 조금 움직이면 끌기 시작 (ScrollRect 안의 버튼은 클릭 취소)
-			if (s_Pointer.DragTarget && !s_Pointer.Dragging && (mouse - s_Pointer.DownPos).Length() > kDragThreshold)
+			if (s_Pointer.DragTarget && !s_Pointer.Dragging && (screen - s_Pointer.DownScreen).Length() > kDragThreshold)
 			{
 				s_Pointer.Dragging = true;
 				s_Pointer.DragTarget->OnBeginDrag(s_Pointer.DownPos);
 				if (s_Pointer.Pressed && dynamic_cast<Component*>(s_Pointer.Pressed) != s_Pointer.DragComponent)
 					s_Pointer.Pressed = nullptr;
 			}
-			if (s_Pointer.Dragging && s_Pointer.DragTarget && (mouse - s_Pointer.LastPos).LengthSquared() > 0.0f)
-				s_Pointer.DragTarget->OnDrag(mouse, mouse - s_Pointer.LastPos);
-			s_Pointer.LastPos = mouse;
+			if (s_Pointer.Dragging && s_Pointer.DragTarget && (point - s_Pointer.LastPos).LengthSquared() > 0.0f)
+				s_Pointer.DragTarget->OnDrag(point, point - s_Pointer.LastPos);
+			s_Pointer.LastPos = point;
 		}
 		else if (!down && s_Pointer.WasDown)
 		{
@@ -268,7 +372,7 @@ namespace
 			if (hitObject && !s_Pointer.Dragging)
 				if (Text* t = hitObject->GetComponent<Text>())
 				{
-					const int up = t->FindLinkAt(mouse);
+					const int up = t->FindLinkAt(hitPoint);
 					if (up >= 0 && up == t->FindLinkAt(s_Pointer.DownPos))
 					{
 						const std::string id = t->GetLinks()[up].Id;
@@ -278,10 +382,11 @@ namespace
 				}
 			// 뗌: 같은 Selectable 위면 클릭
 			if (s_Pointer.Dragging && s_Pointer.DragTarget)
-				s_Pointer.DragTarget->OnEndDrag(mouse);
+				s_Pointer.DragTarget->OnEndDrag(point);
 			if (s_Pointer.Pressed && s_Pointer.Pressed == hovered)
 				clicked = s_Pointer.Pressed;
 			s_Pointer.Pressed = nullptr;
+			s_Pointer.PressCanvas = nullptr;
 			s_Pointer.DragTarget = nullptr;
 			s_Pointer.DragComponent = nullptr;
 			s_Pointer.Dragging = false;
@@ -488,16 +593,48 @@ namespace UISystem
 			RectTransform* rt = go->GetComponent<RectTransform>();
 			if (rt == nullptr)
 				continue;
-			// Screen Space - Overlay: 캔버스는 화면 가운데, 크기 = 화면 / 배율 (월드 1 단위 = 화면 1 픽셀)
-			rt->SetDrivenRect(Vec2(w / scale, h / scale));
 			Transform* tr = go->GetTransform();
-			const Vec3 pos(w * 0.5f, h * 0.5f, 0.0f), s(scale, scale, scale);
-			if ((tr->GetLocalPosition() - pos).LengthSquared() > 1e-6f)
-				tr->SetLocalPosition(pos);
-			if ((tr->GetLocalScale() - s).LengthSquared() > 1e-10f)
-				tr->SetLocalScale(s);
-			if (fabsf(tr->GetLocalRotation().w) < 0.999999f)
-				tr->SetLocalRotation(Quaternion::Identity);
+			const Space space = SpaceOf(c);
+			if (space == Space::World)
+			{
+				// World Space: Transform 위치 · 회전 · 크기 그대로, 사각형 = Width / Height (부모 사각형 없음)
+				c->SetScaleFactor(1.0f);
+				rt->AdoptTransformPosition();
+				rt->Layout(Vec2(0, 0), Vec2(0, 0));
+			}
+			else if (space == Space::CameraSpace)
+			{
+				// Screen Space - Camera: Render Camera 앞 Plane Distance, 화면 크기 (그 거리에서 1 캔버스 단위 = 화면 1 픽셀 / 배율)
+				Camera* cam = c->FindWorldCamera();
+				rt->SetDrivenRect(Vec2(w / scale, h / scale));
+				Transform* ct = cam->GetGameObject()->GetTransform();
+				const float d = c->GetPlaneDistance();
+				const float worldH = cam->IsOrthographic() ? 2.0f * cam->GetOrthoSize() : 2.0f * d * tanf(cam->GetFovY() * 0.5f);
+				const float k = worldH / (std::max)(1.0f, h / scale);
+				Vec3 fwd = Vec3::TransformNormal(Vec3(0, 0, 1), ct->GetWorldMatrix());
+				fwd.Normalize();
+				const Vec3 pos = ct->GetPosition() + fwd * d;
+				if ((tr->GetPosition() - pos).LengthSquared() > 1e-8f)
+					tr->SetPosition(pos);
+				const Quaternion rot = ct->GetRotation();
+				if (fabsf(tr->GetRotation().Dot(rot)) < 0.999999f)
+					tr->SetRotation(rot);
+				const Vec3 s(k, k, k);
+				if ((tr->GetLocalScale() - s).LengthSquared() > 1e-14f)
+					tr->SetLocalScale(s);
+			}
+			else
+			{
+				// Screen Space - Overlay: 캔버스는 화면 가운데, 크기 = 화면 / 배율 (월드 1 단위 = 화면 1 픽셀)
+				rt->SetDrivenRect(Vec2(w / scale, h / scale));
+				const Vec3 pos(w * 0.5f, h * 0.5f, 0.0f), s(scale, scale, scale);
+				if ((tr->GetLocalPosition() - pos).LengthSquared() > 1e-6f)
+					tr->SetLocalPosition(pos);
+				if ((tr->GetLocalScale() - s).LengthSquared() > 1e-10f)
+					tr->SetLocalScale(s);
+				if (fabsf(tr->GetLocalRotation().w) < 0.999999f)
+					tr->SetLocalRotation(Quaternion::Identity);
+			}
 			LayoutTree(go, rt->GetRectMin(), rt->GetRectSize());
 			UILayout::Apply(go);   // Layout Group · Content Size Fitter · Aspect Ratio Fitter (RectTransform 레이아웃 뒤에)
 		}
@@ -520,20 +657,59 @@ namespace UISystem
 			s->UpdateVisual(dt, playing);
 	}
 
-	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display)
+	GameObject* RaycastScreen(float x, float y)
+	{
+		Canvas* c = nullptr;
+		Vec3 p;
+		return HitTest(RootCanvases(), x, y, c, p);
+	}
+
+	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display, Camera* camera, GfxDepthStencilView* depth)
 	{
 		UIRenderer& r = UIRenderer::Get();
-		r.Begin();
-		for (Canvas* c : RootCanvases())
+		const std::vector<Canvas*> roots = RootCanvases();
+		int drawCalls = 0;
+		// 1) World / Camera 캔버스: 게임 카메라로, 씬 깊이로 가려지게 (Order in Layer 순, 같으면 먼 것부터)
+		if (camera)
 		{
-			if (c->GetTargetDisplay() != display)
+			const Vec3 eye = camera->GetGameObject() ? camera->GetGameObject()->GetTransform()->GetPosition() : Vec3(0, 0, 0);
+			std::vector<std::pair<Canvas*, float>> worlds;
+			for (Canvas* c : roots)
+			{
+				const Space space = SpaceOf(c);
+				if (space == Space::Overlay || (space == Space::CameraSpace && c->FindWorldCamera() != camera))
+					continue;
+				worlds.push_back({ c, (c->GetGameObject()->GetTransform()->GetPosition() - eye).LengthSquared() });
+			}
+			std::stable_sort(worlds.begin(), worlds.end(), [](const auto& a, const auto& b) {
+				if (a.first->GetSortOrder() != b.first->GetSortOrder()) return a.first->GetSortOrder() < b.first->GetSortOrder();
+				return a.second > b.second;
+			});
+			if (!worlds.empty())
+			{
+				r.Begin();
+				for (const auto& [c, dist] : worlds)
+				{
+					std::vector<DrawItem> items;
+					CollectGraphics(c->GetGameObject(), items, false, Vec4(), false);
+					DrawItems(r, items, 1.0f);
+				}
+				r.Flush(rtv, width, height, Matrix(camera->View()) * Matrix(camera->Proj()), depth);
+				drawCalls += r.LastDrawCalls();
+			}
+		}
+		// 2) Screen Space - Overlay (맨 위)
+		r.Begin();
+		for (Canvas* c : roots)
+		{
+			if (SpaceOf(c) != Space::Overlay || c->GetTargetDisplay() != display)
 				continue;
 			std::vector<DrawItem> items;
 			CollectGraphics(c->GetGameObject(), items, false, Vec4());
 			DrawItems(r, items, c->GetScaleFactor());
 		}
 		r.Flush(rtv, width, height, ScreenOrtho((float)width, (float)height));
-		s_DrawCalls = r.LastDrawCalls();
+		s_DrawCalls = drawCalls + r.LastDrawCalls();
 	}
 
 	void RenderSceneView(GfxRenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition)
@@ -544,8 +720,11 @@ namespace UISystem
 		if (roots.empty())
 			return;
 		// (캔버스 / 선택 요소의 테두리는 1 픽셀 선이라 Canvas / RectTransform::OnDrawGizmos 가 오버레이로 그린다)
+		// World / Camera 캔버스는 씬 깊이로 가려지게 따로 (아래에서)
 		for (Canvas* c : roots)
 		{
+			if (SpaceOf(c) != Space::Overlay)
+				continue;
 			std::vector<DrawItem> items;
 			CollectGraphics(c->GetGameObject(), items, false, Vec4());
 			DrawItems(r, items, c->GetScaleFactor());
@@ -562,6 +741,20 @@ namespace UISystem
 		GfxDepthStencilView* dsv = nullptr;
 		Application::GetI()->GetDeviceContext()->OMGetRenderTargets(0, nullptr, &dsv);
 		r.Flush(rtv, width, height, view * p, nullptr);
+		// World / Camera 캔버스: Scene 카메라 + 씬 깊이
+		r.Begin();
+		bool anyWorld = false;
+		for (Canvas* c : roots)
+		{
+			if (SpaceOf(c) == Space::Overlay)
+				continue;
+			std::vector<DrawItem> items;
+			CollectGraphics(c->GetGameObject(), items, false, Vec4(), false);
+			DrawItems(r, items, 1.0f);
+			anyWorld = true;
+		}
+		if (anyWorld)
+			r.Flush(rtv, width, height, view * proj, dsv);
 		if (dsv)
 		{
 			// 원래 대상 복원 (이후 Scene 뷰 그리기를 위해)
