@@ -171,6 +171,19 @@ return $"{groundY:F3} {grounded} {maxY:F3} {p.x:F3} {f}";
         $mv = Invoke-NovaJson "exec --file $jf"
         Add-Result physics 'hinge motor reaches target velocity' ($mv -and [math]::Abs([double]$mv.result - 180) -lt 5) "velocity $($mv.result) deg/s (expect 180)"
         Invoke-Nova 'stop' | Out-Null
+
+        # Animator Blend Tree: 엔진 클립 두 개(1D 문턱값 0 · 1) → Blend 0.5 의 한 바퀴 길이 = 두 길이의 평균
+        $bc = Join-Path $Project 'Assets\NovaTestBlend.controller'
+        '{ "parameters": [ { "name": "Blend", "type": "Float" } ], "layers": [ { "name": "Base Layer", "defaultState": "Move", "states": [ { "name": "Move", "blendTree": { "type": 0, "parameter": "Blend", "children": [ { "clipPath": "Resources\\Packages\\Character\\Animations\\Rapier_Idle.fbx", "threshold": 0 }, { "clipPath": "Resources\\Packages\\Character\\Animations\\GreatSword_Idle_Pose.FBX", "threshold": 1 } ] } } ] } ] }' | Set-Content -Encoding utf8 $bc
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name ACh --controller Assets\NovaTestBlend.controller' | Out-Null
+        $af = Join-Path $Out 'anim_blend.cs'
+        'var a = GameObject.Find("ACh").GetComponent<Animator>(); a.SetFloat("Blend", 0); float l0 = a.GetCurrentAnimatorStateInfo(0).length; a.SetFloat("Blend", 1); float l1 = a.GetCurrentAnimatorStateInfo(0).length; a.SetFloat("Blend", 0.5f); var i = a.GetCurrentAnimatorStateInfo(0); return l0.ToString("F3") + " " + l1.ToString("F3") + " " + i.length.ToString("F3") + " " + i.IsName("Move");' | Set-Content -Encoding utf8 $af
+        $ab = Invoke-NovaJson "exec --file $af"
+        $av = if ($ab) { "$($ab.result)" -split ' ' } else { @() }
+        $ok = $av.Count -eq 4 -and $av[3] -eq 'True' -and [double]$av[0] -ne [double]$av[1] -and [math]::Abs([double]$av[2] - ([double]$av[0] + [double]$av[1]) / 2) -lt 0.01
+        Add-Result physics 'animator 1D blend tree mixes two clips' $ok "lengths $($av[0]) / $($av[1]), at 0.5 → $($av[2]) (expect the mean), state Move $($av[3])"
+        Remove-Item -LiteralPath $bc -ErrorAction SilentlyContinue
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }

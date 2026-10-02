@@ -1073,7 +1073,14 @@ void AnimatorEditorWindow::DrawGraphContextMenu()
 					SelectNode(s);
 				}
 				ImGui::MenuItem("From Selected Clip", nullptr, false, false);
-				ImGui::MenuItem("From New Blend Tree", nullptr, false, false);
+				if (ImGui::MenuItem("From New Blend Tree"))
+				{
+					const ImVec2 p = Sub(m_ContextGraphPos, ImVec2(kStateW * 0.5f, kStateH * 0.5f));
+					const int s = m_Controller->AddState(m_Layer, "Blend Tree", roundf(p.x), roundf(p.y));
+					m_Controller->MakeBlendTree(m_Layer, s);
+					m_Controller->Commit();
+					SelectNode(s);
+				}
 				ImGui::EndMenu();
 			}
 			ImGui::MenuItem("Create Sub-State Machine", nullptr, false, false);

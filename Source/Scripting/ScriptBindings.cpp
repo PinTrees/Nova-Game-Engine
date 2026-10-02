@@ -151,6 +151,11 @@ namespace
 		void(*JT_SetVector)(uint64, int, int, Vec3*);
 		uint64(*JT_GetConnected)(uint64, int);
 		void(*JT_SetConnected)(uint64, int, uint64);
+		void(*AN_Play)(uint64, u8*, int, float, float);
+		float(*AN_GetFloat)(uint64, int);
+		void(*AN_SetFloat)(uint64, int, float);
+		void(*AN_GetVector)(uint64, int, Vec3*);
+		u8*(*AN_GetState)(uint64, int, float*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -775,6 +780,51 @@ namespace
 		switch (kind) { case 0: return an->GetFloat(name); case 1: return (float)an->GetInteger(name); case 2: return an->GetBool(name) ? 1.0f : 0.0f; default: return 0.0f; }
 	}
 
+	// Play / CrossFade: fade < 0 이면 Play(normalizedTime), 아니면 CrossFade(fade 초). layer < 0 = 0
+	void AN_Play(uint64 id, u8* state, int layer, float normalizedTime, float fade)
+	{
+		Animator* an = Get<Animator>(id);
+		if (an == nullptr || state == nullptr) return;
+		if (layer < 0) layer = 0;
+		if (fade < 0.0f) an->Play(state, layer, std::isfinite(normalizedTime) ? normalizedTime : 0.0f);
+		else an->CrossFade(state, fade, layer);
+	}
+	// float: 0 speed, 1 applyRootMotion (0/1)
+	float AN_GetFloat(uint64 id, int prop)
+	{
+		Animator* an = Get<Animator>(id);
+		if (an == nullptr) return 0.0f;
+		return prop == 0 ? an->GetSpeed() : (an->GetApplyRootMotion() ? 1.0f : 0.0f);
+	}
+	void AN_SetFloat(uint64 id, int prop, float v)
+	{
+		Animator* an = Get<Animator>(id);
+		if (an == nullptr) return;
+		if (prop == 0) an->SetSpeed(v);
+		else an->SetApplyRootMotion(v != 0.0f);
+	}
+	// vector: 0 deltaPosition, 1 velocity
+	void AN_GetVector(uint64 id, int prop, Vec3* out)
+	{
+		Animator* an = Get<Animator>(id);
+		if (out) *out = an == nullptr ? Vec3::Zero : (prop == 0 ? an->GetDeltaPosition() : an->GetVelocity());
+	}
+	// 현재 상태 이름 + out[0] 정규화 시간, out[1] 길이(초), out[2] 전이 중(0/1)
+	u8* AN_GetState(uint64 id, int layer, float* out)
+	{
+		Animator* an = Get<Animator>(id);
+		if (out) out[0] = out[1] = out[2] = 0.0f;
+		if (an == nullptr) return Ret(std::string());
+		const Animator::LayerRuntime* r = an->GetLayerRuntime(layer);
+		if (out && r)
+		{
+			out[0] = an->GetNormalizedTime(layer, r->Current, r->Time);
+			out[1] = an->GetCurrentStateLength(layer);
+			out[2] = r->Next >= 0 ? 1.0f : 0.0f;
+		}
+		return Ret(an->GetCurrentStateName(layer));
+	}
+
 	int PH_Raycast(Vec3* origin, Vec3* dir, float maxDistance, RaycastData* out)
 	{
 		if (origin == nullptr || dir == nullptr || out == nullptr) return 0;
@@ -1094,6 +1144,11 @@ namespace ScriptBindings
 		t.JT_SetVector = JT_SetVector;
 		t.JT_GetConnected = JT_GetConnected;
 		t.JT_SetConnected = JT_SetConnected;
+		t.AN_Play = AN_Play;
+		t.AN_GetFloat = AN_GetFloat;
+		t.AN_SetFloat = AN_SetFloat;
+		t.AN_GetVector = AN_GetVector;
+		t.AN_GetState = AN_GetState;
 	}
 
 	GameObject* FindObject(uint64 fileID) { return Find(fileID); }

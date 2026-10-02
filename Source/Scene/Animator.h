@@ -1,6 +1,7 @@
 #pragma once
 #include "Component.h"
 #include "AnimatorController.h"
+#include <deque>
 
 class SkinnedMeshRenderer;
 class SkeletonAvataData;
@@ -9,6 +10,9 @@ class SkeletonAvataData;
 //  - Animator Controller(.controller) 의 상태 머신을 실행한다: 조건/Exit Time 으로 전이, 전이 동안 두 상태를 섞는다(크로스페이드).
 //  - 파라미터 API: SetFloat / SetInteger / SetBool / SetTrigger (+ Get), Play / CrossFade.
 //  - 포즈는 자기와 자식들의 Skinned Mesh Renderer 에 넣는다 (Animation 컴포넌트와 같은 방식).
+//  - 상태의 Motion 은 클립 또는 Blend Tree (파라미터로 여러 클립을 섞는다 — Blend Tree 상태의 Time 은 정규화 시간).
+//  - 루트 모션: 클립의 가장 위쪽 움직이는 본(보통 Hips)의 수평 이동은 늘 포즈에서 뺀다 (제자리 걷기, Unity Humanoid 기본값).
+//    Apply Root Motion 이면 기본 레이어의 그 이동을 오브젝트로 옮긴다 (Character Controller 가 있으면 Move).
 class Animator : public Component
 {
 public:
@@ -38,10 +42,18 @@ private:
 	unsigned m_ControllerRevision = 0;
 	bool m_Started = false;
 
-	// 포즈 계산 캐시
-	struct ClipMap { const AnimationClip* Clip = nullptr; const SkeletonAvataData* Skeleton = nullptr; std::vector<int> Map; };
-	std::vector<ClipMap> m_ClipMaps;
-	std::vector<XMFLOAT4X4> m_LocalA, m_LocalB, m_LocalLayer, m_LocalFinal, m_Global;
+	// 포즈 계산 캐시 (RootChannel = 위치가 움직이는 채널 중 스켈레톤에서 가장 위쪽 — 루트 모션 본)
+	struct ClipMap { const AnimationClip* Clip = nullptr; const SkeletonAvataData* Skeleton = nullptr; std::vector<int> Map; int RootChannel = -1; };
+	std::deque<ClipMap> m_ClipMaps;   // deque: 새로 넣어도 앞의 포인터가 그대로
+	std::vector<XMFLOAT4X4> m_LocalA, m_LocalB, m_LocalLayer, m_LocalFinal, m_Global, m_TreeTmp, m_TreeMix;
+
+	// 루트 모션
+	struct RootSkeleton { const SkeletonAvataData* Skeleton = nullptr; std::vector<XMFLOAT4X4> BindGlobal; int Node = -1; };
+	std::vector<RootSkeleton> m_RootSkeletons;
+	float m_Speed = 1.0f;
+	Vec3 m_RootDeltaModel = Vec3::Zero;   // 이번 Step 동안 모은 모델 공간 이동
+	Vec3 m_DeltaPosition = Vec3::Zero;    // 마지막으로 오브젝트에 옮긴 월드 이동
+	float m_LastDt = 0.0f;
 
 public:
 	Animator();
@@ -75,6 +87,18 @@ public:
 
 	// 현재 포즈를 렌더러에 적용
 	void EvaluatePose();
+
+	// ---- Unity: speed, applyRootMotion, deltaPosition, velocity
+	void SetSpeed(float s) { m_Speed = s; }
+	float GetSpeed() const { return m_Speed; }
+	void SetApplyRootMotion(bool b) { m_ApplyRootMotion = b; }
+	bool GetApplyRootMotion() const { return m_ApplyRootMotion; }
+	Vec3 GetDeltaPosition() const { return m_DeltaPosition; }
+	Vec3 GetVelocity() const { return m_LastDt > 1e-6f ? m_DeltaPosition / m_LastDt : Vec3::Zero; }
+	// 현재 상태 한 바퀴 길이 (초, Blend Tree 는 지금 가중치로)
+	float GetCurrentStateLength(int layer = 0) const;
+	// Blend Tree 상태의 자식 가중치 (에디터 표시·검사용)
+	void GetBlendWeights(const AnimatorState& state, std::vector<float>& weights) const;
 	// Unity 의 Animator.Update(deltaTime): 수동으로 시간을 진행한다
 	void Update(float deltaTime) { Step(deltaTime); }
 	// Unity 의 Animator.Rebind(): 기본 상태로 되돌리고 포즈를 다시 계산한다
@@ -98,8 +122,23 @@ private:
 	bool CheckConditions(const AnimatorTransition& t);
 	void ConsumeTriggers(const AnimatorTransition& t);
 	void StartTransition(int layerIndex, int transitionIndex, int target);
+	// Time 단위의 한 바퀴 (클립 = 초, Blend Tree = 1 — 정규화)
 	float StateDuration(const AnimatorLayer& layer, int state) const;
+	// 한 바퀴의 실제 초 (전이 길이 등)
+	float RealDuration(const AnimatorLayer& layer, int state) const;
+	// 초당 Time 증가 (클립 1, Blend Tree 1/길이)
+	float TimeRate(const AnimatorLayer& layer, int state) const;
+	float BlendTreeDuration(const AnimatorState& state) const;
 	void SampleState(const AnimatorLayer& layer, int state, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out);
+	void SampleClip(const AnimationClip* clip, bool loop, float t, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out);
+	ClipMap* GetClipMap(const AnimationClip* clip, const SkeletonAvataData& skeleton);
+	RootSkeleton* GetRootSkeleton(const SkeletonAvataData& skeleton);
+	XMFLOAT3 ClipRootPosition(const AnimationClip* clip, const SkeletonAvataData& skeleton, float t);
+	Vec3 ClipRootDelta(const AnimationClip* clip, bool loop, const SkeletonAvataData& skeleton, float t0, float t1);
+	Vec3 StateRootDelta(const AnimatorLayer& layer, int state, const SkeletonAvataData& skeleton, float t0, float t1);
+	void ApplyRootMotion(float dt);
+	void PinRoot(const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& local);
+	SkinnedMeshRenderer* PrimaryRenderer();
 	void CollectRenderers(GameObject* go, std::vector<SkinnedMeshRenderer*>& out);
 
 	GENERATE_COMPONENT_BODY(Animator)

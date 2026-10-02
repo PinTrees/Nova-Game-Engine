@@ -28,6 +28,7 @@
 #include "GLContext.h"
 #include "Profiler.h"
 #include "PhysicsManager.h"
+#include "Animator.h"
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
@@ -358,7 +359,26 @@ namespace
 		if (type == "lake") return named(GameObjectFactory::CreateWaterBody(1));
 		if (type == "river") return named(GameObjectFactory::CreateWaterBody(2));
 		if (type == "volume") return named(GameObjectFactory::CreateVolume(GameObjectFactory::VolumeShape::Global));
-		if (type == "character") return named(GameObjectFactory::CreateAnimatedCharacter());   // 기본 캐릭터 (스킨 메시 + Animator)
+		if (type == "character")
+		{
+			// 기본 캐릭터 (스킨 메시 + Animator). --model <FBX> --controller <.controller> 로 다른 모델·컨트롤러
+			const std::string model = args.value("model", std::string());
+			const std::string controller = args.value("controller", std::string());
+			if (model.empty() && controller.empty())
+				return named(GameObjectFactory::CreateAnimatedCharacter());
+			GameObject* g = model.empty() ? GameObjectFactory::CreateAnimatedCharacter("Character")
+				: GameObjectFactory::CreateAnimatedCharacter("Character", model, controller);
+			if (!model.empty() && controller.empty())
+				if (Animator* an = g->GetComponent<Animator>())
+					an->SetController("");
+			if (model.empty() && !controller.empty())
+				if (Animator* an = g->GetComponent<Animator>())
+				{
+					an->SetController(controller);
+					an->Rebind();
+				}
+			return named(g);
+		}
 		if (type == "third-person-character" || type == "player")
 		{
 			// + Character Controller + ThirdPersonController + Main Camera 의 Follow Camera (패키지가 없으면 넣는다)

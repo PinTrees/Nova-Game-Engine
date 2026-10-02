@@ -557,6 +557,7 @@ namespace
 		"               [--position x,y,z] [--rotation x,y,z] [--scale x,y,z] [--world-position x,y,z]\n"
 		"               [Component.field=value ...]          e.g. Light.intensity=2 MeshRenderer.castShadows=1\n"
 		"  create <type> [--name N] [--parent P] [--position x,y,z] [--rotation ..] [--scale ..] [--preset N]\n"
+"                character: [--model <FBX>] [--controller <.controller>]\n"
 		"         types: empty cube sphere capsule cylinder plane quad directional-light point-light spot-light camera\n"
 		"                terrain tree rock rock-scatter ocean lake river particle-system audio-source volume character\n"
 		"                third-person-character (character + Character Controller + ThirdPersonController + Follow Camera, adds packages)\n"
@@ -821,6 +822,8 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("rotation")) args["rotation"] = Vec(a.Get("rotation"));
 		if (a.Has("scale")) args["scale"] = Vec(a.Get("scale"));
 		if (a.Has("preset")) args["preset"] = std::stoi(a.Get("preset"));
+		if (a.Has("model")) args["model"] = a.Get("model");               // character: 모델 FBX
+		if (a.Has("controller")) args["controller"] = a.Get("controller");   // character: Animator Controller
 		if (a.Has("no-select")) args["select"] = false;
 	}
 	else if (cmd == "delete")

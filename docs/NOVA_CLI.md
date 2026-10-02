@@ -41,7 +41,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 **대상** = 이름, `부모/자식` 경로, 또는 `#id` (`hierarchy` 가 보여 주는 fileID). 같은 이름이 여럿이면 오류와 함께 후보 id 를 알려 줍니다.
 
 **만들 수 있는 종류**: empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, camera,
-terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character (기본 캐릭터: 스킨 메시 + Animator),
+terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character (기본 캐릭터: 스킨 메시 + Animator, `--model <FBX> --controller <.controller>` 로 다른 모델·컨트롤러),
 third-person-character (= player: 캐릭터 + Character Controller + ThirdPersonController + Main Camera 의 Follow Camera — 패키지 Starter Assets·Cameras 가 없으면 넣는다).
 
 ### C# 실행 · 한 번에 여러 명령

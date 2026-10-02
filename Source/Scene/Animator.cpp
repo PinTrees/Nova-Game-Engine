@@ -5,6 +5,7 @@
 #include "SkinnedMeshRenderer.h"
 #include "SkinnedMesh.h"
 #include "PhysicsManager.h"
+#include "CharacterController.h"
 
 using namespace AnimatorTypes;
 
@@ -110,8 +111,53 @@ float Animator::StateDuration(const AnimatorLayer& layer, int state) const
 	if (state < 0 || state >= (int)layer.States.size())
 		return 1.0f;
 	const AnimatorState& s = layer.States[state];
+	if (s.IsBlendTree)
+		return 1.0f;   // Blend Tree 의 Time 은 정규화 시간
 	const float d = s.Clip ? s.Clip->GetClipEndTime() : 0.0f;
 	return d > 1e-4f ? d : 1.0f;
+}
+
+float Animator::RealDuration(const AnimatorLayer& layer, int state) const
+{
+	if (state >= 0 && state < (int)layer.States.size() && layer.States[state].IsBlendTree)
+		return BlendTreeDuration(layer.States[state]);
+	return StateDuration(layer, state);
+}
+
+float Animator::TimeRate(const AnimatorLayer& layer, int state) const
+{
+	if (state >= 0 && state < (int)layer.States.size() && layer.States[state].IsBlendTree)
+		return 1.0f / BlendTreeDuration(layer.States[state]);
+	return 1.0f;
+}
+
+void Animator::GetBlendWeights(const AnimatorState& s, std::vector<float>& w) const
+{
+	s.Tree.ComputeWeights(GetFloat(s.Tree.ParameterX), GetFloat(s.Tree.ParameterY), w);
+}
+
+// Unity 와 같이 자식 길이를 가중치로 평균 (Time Scale 이 크면 짧아진다)
+float Animator::BlendTreeDuration(const AnimatorState& s) const
+{
+	std::vector<float> w;
+	GetBlendWeights(s, w);
+	float d = 0.0f;
+	for (size_t i = 0; i < w.size(); ++i)
+	{
+		const BlendTreeChild& c = s.Tree.Children[i];
+		if (w[i] <= 0.0f || c.Clip == nullptr)
+			continue;
+		d += w[i] * c.Clip->GetClipEndTime() / (std::max)(0.01f, c.TimeScale);
+	}
+	return d > 1e-3f ? d : 1.0f;
+}
+
+float Animator::GetCurrentStateLength(int layerIndex) const
+{
+	const LayerRuntime* r = GetLayerRuntime(layerIndex);
+	if (r == nullptr || m_Controller == nullptr || layerIndex >= (int)m_Controller->Layers.size())
+		return 0.0f;
+	return RealDuration(m_Controller->Layers[layerIndex], r->Current);
 }
 
 float Animator::GetNormalizedTime(int layerIndex, int state, float time) const
@@ -207,7 +253,7 @@ void Animator::StartTransition(int layerIndex, int transitionIndex, int target)
 	const AnimatorLayer& layer = m_Controller->Layers[layerIndex];
 	const AnimatorTransition& t = layer.Transitions[transitionIndex];
 	LayerRuntime& r = m_Layers[layerIndex];
-	const float duration = t.FixedDuration ? t.Duration : t.Duration * StateDuration(layer, r.Current);
+	const float duration = t.FixedDuration ? t.Duration : t.Duration * RealDuration(layer, r.Current);
 	const float startTime = t.Offset * StateDuration(layer, target);
 	if (duration <= 1e-4f || r.Current < 0)
 	{
@@ -233,14 +279,27 @@ void Animator::StepLayer(int layerIndex, float dt)
 	if (r.Current < 0)
 		r.Current = (std::max)(0, layer.FindState(layer.DefaultState));
 
-	auto speedOf = [&](int s) { return s >= 0 && s < (int)layer.States.size() ? layer.States[s].Speed : 1.0f; };
+	// 초당 Time 증가: 상태 Speed × (Blend Tree 면 1/길이)
+	auto speedOf = [&](int s) { return s >= 0 && s < (int)layer.States.size() ? layer.States[s].Speed * TimeRate(layer, s) : 1.0f; };
+	// 루트 모션은 기본 레이어에서만 모은다
+	const SkeletonAvataData* rootSkeleton = nullptr;
+	if (layerIndex == 0 && m_ApplyRootMotion && Application::IsPlaying())
+		if (SkinnedMeshRenderer* pr = PrimaryRenderer())
+			rootSkeleton = pr->GetSkeleton().get();
 
 	// 전이 진행 중 (중단 없음)
 	if (r.Next >= 0)
 	{
+		const float a0 = r.Time, b0 = r.NextTime;
 		r.Time += dt * speedOf(r.Current);
 		r.NextTime += dt * speedOf(r.Next);
 		r.TransitionElapsed += dt;
+		if (rootSkeleton)
+		{
+			const float w = r.TransitionDuration > 0.0f ? std::clamp(r.TransitionElapsed / r.TransitionDuration, 0.0f, 1.0f) : 1.0f;
+			m_RootDeltaModel += StateRootDelta(layer, r.Current, *rootSkeleton, a0, r.Time) * (1.0f - w)
+				+ StateRootDelta(layer, r.Next, *rootSkeleton, b0, r.NextTime) * w;
+		}
 		if (r.TransitionElapsed >= r.TransitionDuration)
 		{
 			r.Current = r.Next;
@@ -253,7 +312,10 @@ void Animator::StepLayer(int layerIndex, float dt)
 
 	const float duration = StateDuration(layer, r.Current);
 	const float prevNorm = r.Time / duration;
+	const float prevTime = r.Time;
 	r.Time += dt * speedOf(r.Current);
+	if (rootSkeleton)
+		m_RootDeltaModel += StateRootDelta(layer, r.Current, *rootSkeleton, prevTime, r.Time);
 	const float curNorm = r.Time / duration;
 	const std::string& currentName = layer.States[r.Current].Name;
 
@@ -321,41 +383,241 @@ void Animator::Step(float dt)
 	if (m_Controller == nullptr)
 		return;
 	SyncWithController();
+	const float scaled = dt * m_Speed;   // Animator.speed
+	m_RootDeltaModel = Vec3::Zero;
 	for (int i = 0; i < (int)m_Layers.size(); ++i)
-		StepLayer(i, dt);
+		StepLayer(i, scaled);
+	ApplyRootMotion(dt);
 	EvaluatePose();
 }
 
 // ------------------------------------------------------------------ 포즈
-void Animator::SampleState(const AnimatorLayer& layer, int state, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out)
+Animator::ClipMap* Animator::GetClipMap(const AnimationClip* clip, const SkeletonAvataData& skeleton)
 {
-	const AnimationClip* clip = nullptr;
-	if (state >= 0 && state < (int)layer.States.size())
+	for (auto& m : m_ClipMaps)
+		if (m.Clip == clip && m.Skeleton == &skeleton)
+			return &m;
+	ClipMap m{ clip, &skeleton, AnimationPose::MapChannels(*clip, skeleton) };
+	// 루트 모션 채널: 위치가 실제로 움직이는 채널 중 스켈레톤에서 가장 위쪽 (보통 Hips)
+	int bestDepth = INT_MAX;
+	for (size_t c = 0; c < clip->Channels.size() && c < m.Map.size(); ++c)
 	{
-		AnimatorState& s = const_cast<AnimatorState&>(layer.States[state]);
-		if (s.Clip == nullptr && !s.ClipPath.empty())
-			s.LoadClip();
-		clip = s.Clip.get();
+		const int node = m.Map[c];
+		const auto& keys = clip->Channels[c].Positions;
+		if (node < 0 || keys.size() < 2)
+			continue;
+		float move = 0.0f;
+		for (const auto& k : keys)
+			move = (std::max)(move, fabsf(k.Value.x - keys[0].Value.x) + fabsf(k.Value.y - keys[0].Value.y) + fabsf(k.Value.z - keys[0].Value.z));
+		if (move < 1e-4f)
+			continue;
+		int depth = 0;
+		for (int p = node; p >= 0 && p < (int)skeleton.BoneHierarchy.size() && depth < 512; p = skeleton.BoneHierarchy[p])
+			++depth;
+		if (depth < bestDepth)
+		{
+			bestDepth = depth;
+			m.RootChannel = (int)c;
+		}
 	}
+	if (m.RootChannel >= 0)
+	{
+		RootSkeleton* rs = GetRootSkeleton(skeleton);
+		if (rs->Node < 0)
+			rs->Node = m.Map[m.RootChannel];   // 포즈에서 수평 이동을 뺄 본
+	}
+	m_ClipMaps.push_back(std::move(m));
+	return &m_ClipMaps.back();
+}
+
+void Animator::SampleClip(const AnimationClip* clip, bool loop, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out)
+{
 	if (clip == nullptr)
 	{
 		out = skeleton.BindLocal;
 		return;
 	}
-	ClipMap* map = nullptr;
-	for (auto& m : m_ClipMaps)
-		if (m.Clip == clip && m.Skeleton == &skeleton)
-			map = &m;
-	if (map == nullptr)
-	{
-		m_ClipMaps.push_back({ clip, &skeleton, AnimationPose::MapChannels(*clip, skeleton) });
-		map = &m_ClipMaps.back();
-	}
+	ClipMap* map = GetClipMap(clip, skeleton);
 	const float d = clip->GetClipEndTime();
 	float t = time;
 	if (d > 1e-4f)
-		t = layer.States[state].Loop ? fmodf((std::max)(0.0f, time), d) : std::clamp(time, 0.0f, d);
+		t = loop ? fmodf((std::max)(0.0f, time), d) : std::clamp(time, 0.0f, d);
 	AnimationPose::SampleLocal(skeleton, clip, map->Map, t, out);
+}
+
+void Animator::SampleState(const AnimatorLayer& layer, int state, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out)
+{
+	if (state < 0 || state >= (int)layer.States.size())
+	{
+		out = skeleton.BindLocal;
+		return;
+	}
+	AnimatorState& s = const_cast<AnimatorState&>(layer.States[state]);
+	if (!s.IsBlendTree)
+	{
+		if (s.Clip == nullptr && !s.ClipPath.empty())
+			s.LoadClip();
+		SampleClip(s.Clip.get(), s.Loop, time, skeleton, out);
+		return;
+	}
+	// Blend Tree: 가중치가 있는 자식을 같은 정규화 시간으로 샘플해 차례로 섞는다
+	std::vector<float> w;
+	GetBlendWeights(s, w);
+	float acc = 0.0f;
+	bool first = true;
+	for (size_t i = 0; i < w.size(); ++i)
+	{
+		if (w[i] < 0.001f)
+			continue;
+		BlendTreeChild& c = s.Tree.Children[i];
+		if (c.Clip == nullptr && !c.ClipPath.empty())
+			c.LoadClip();
+		const float d = c.Clip ? c.Clip->GetClipEndTime() : 0.0f;
+		SampleClip(c.Clip.get(), s.Loop, time * d, skeleton, m_TreeTmp);
+		if (first)
+		{
+			out = m_TreeTmp;
+			acc = w[i];
+			first = false;
+			continue;
+		}
+		acc += w[i];
+		AnimationPose::Blend(out, m_TreeTmp, w[i] / acc, m_TreeMix);
+		out.swap(m_TreeMix);
+	}
+	if (first)
+		out = skeleton.BindLocal;
+}
+
+// ------------------------------------------------------------------ 루트 모션
+SkinnedMeshRenderer* Animator::PrimaryRenderer()
+{
+	std::vector<SkinnedMeshRenderer*> renderers;
+	CollectRenderers(m_pGameObject, renderers);
+	for (SkinnedMeshRenderer* r : renderers)
+		if (r->GetSkeleton())
+			return r;
+	return nullptr;
+}
+
+Animator::RootSkeleton* Animator::GetRootSkeleton(const SkeletonAvataData& skeleton)
+{
+	for (auto& r : m_RootSkeletons)
+		if (r.Skeleton == &skeleton)
+			return &r;
+	RootSkeleton r;
+	r.Skeleton = &skeleton;
+	AnimationPose::ComputeGlobals(skeleton, skeleton.BindLocal, r.BindGlobal);
+	m_RootSkeletons.push_back(std::move(r));
+	return &m_RootSkeletons.back();
+}
+
+namespace
+{
+	// 노드의 부모까지 바인드 포즈 전역 행렬 (로컬 위치 → 모델 공간)
+	XMMATRIX ParentGlobal(const SkeletonAvataData& skeleton, const std::vector<XMFLOAT4X4>& bindGlobal, int node)
+	{
+		const int parent = node >= 0 && node < (int)skeleton.BoneHierarchy.size() ? skeleton.BoneHierarchy[node] : -1;
+		if (parent >= 0 && parent < (int)bindGlobal.size())
+			return XMLoadFloat4x4(&bindGlobal[parent]);
+		return XMMatrixScaling(skeleton.UnitScale, skeleton.UnitScale, skeleton.UnitScale);
+	}
+}
+
+XMFLOAT3 Animator::ClipRootPosition(const AnimationClip* clip, const SkeletonAvataData& skeleton, float t)
+{
+	XMFLOAT3 out(0.0f, 0.0f, 0.0f);
+	ClipMap* map = GetClipMap(clip, skeleton);
+	if (map->RootChannel < 0)
+		return out;
+	const int node = map->Map[map->RootChannel];
+	RootSkeleton* rs = GetRootSkeleton(skeleton);
+	XMFLOAT4X4 local = skeleton.BindLocal[node];
+	clip->Channels[map->RootChannel].Sample(t, local);
+	XMStoreFloat3(&out, XMVector3TransformCoord(XMVectorSet(local._41, local._42, local._43, 1.0f), ParentGlobal(skeleton, rs->BindGlobal, node)));
+	return out;
+}
+
+Vec3 Animator::ClipRootDelta(const AnimationClip* clip, bool loop, const SkeletonAvataData& skeleton, float t0, float t1)
+{
+	if (clip == nullptr)
+		return Vec3::Zero;
+	const float d = clip->GetClipEndTime();
+	if (d <= 1e-4f || t1 == t0)
+		return Vec3::Zero;
+	auto at = [&](float t) { const XMFLOAT3 p = ClipRootPosition(clip, skeleton, t); return Vec3(p.x, p.y, p.z); };
+	if (!loop)
+		return at(std::clamp(t1, 0.0f, d)) - at(std::clamp(t0, 0.0f, d));
+	// 반복: 한 바퀴를 넘어가면 (끝 - 처음) 을 바퀴 수만큼 더한다
+	const float n0 = floorf(t0 / d), n1 = floorf(t1 / d);
+	Vec3 delta = at(t1 - n1 * d) - at(t0 - n0 * d);
+	if (n1 != n0)
+		delta += (at(d) - at(0.0f)) * (n1 - n0);
+	return delta;
+}
+
+Vec3 Animator::StateRootDelta(const AnimatorLayer& layer, int state, const SkeletonAvataData& skeleton, float t0, float t1)
+{
+	if (state < 0 || state >= (int)layer.States.size())
+		return Vec3::Zero;
+	const AnimatorState& s = layer.States[state];
+	if (!s.IsBlendTree)
+		return ClipRootDelta(s.Clip.get(), s.Loop, skeleton, t0, t1);
+	std::vector<float> w;
+	GetBlendWeights(s, w);
+	Vec3 delta = Vec3::Zero;
+	for (size_t i = 0; i < w.size(); ++i)
+	{
+		const BlendTreeChild& c = s.Tree.Children[i];
+		if (w[i] < 0.001f || c.Clip == nullptr)
+			continue;
+		const float d = c.Clip->GetClipEndTime();
+		delta += ClipRootDelta(c.Clip.get(), s.Loop, skeleton, t0 * d, t1 * d) * w[i];
+	}
+	return delta;
+}
+
+void Animator::ApplyRootMotion(float dt)
+{
+	m_DeltaPosition = Vec3::Zero;
+	m_LastDt = dt;
+	if (!m_ApplyRootMotion || !Application::IsPlaying() || m_pGameObject == nullptr || m_RootDeltaModel.LengthSquared() < 1e-14f)
+		return;
+	SkinnedMeshRenderer* r = PrimaryRenderer();
+	if (r == nullptr || r->GetGameObject() == nullptr)
+		return;
+	// 모델 공간 → 월드 (렌더러 오브젝트의 회전·크기), 수평만 (높이는 중력·바닥이 정한다)
+	Vec3 d = Vec3::TransformNormal(m_RootDeltaModel, r->GetGameObject()->GetTransform()->GetWorldMatrix());
+	d.y = 0.0f;
+	m_DeltaPosition = d;
+	if (CharacterController* cc = m_pGameObject->GetComponent<CharacterController>())
+		cc->Move(d, dt);   // 벽·계단은 Character Controller 가 처리
+	else
+	{
+		Transform* t = m_pGameObject->GetTransform();
+		t->SetPosition(t->GetPosition() + d);
+	}
+}
+
+// 루트 모션 본의 수평 위치를 바인드 포즈 자리로 — Unity Humanoid 기본값(Root Transform Position XZ 를 포즈에 굽지 않음)과 같이 늘.
+// Apply Root Motion 이면 그 이동을 오브젝트가 대신 하고, 아니면 버린다 (에이전트·스크립트가 움직이는 캐릭터는 제자리에서 걷는다)
+void Animator::PinRoot(const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& local)
+{
+	RootSkeleton* rs = GetRootSkeleton(skeleton);
+	const int node = rs->Node;
+	if (node < 0 || node >= (int)local.size() || node >= (int)skeleton.BindLocal.size())
+		return;
+	const XMMATRIX pg = ParentGlobal(skeleton, rs->BindGlobal, node);
+	XMVECTOR det;
+	const XMMATRIX inv = XMMatrixInverse(&det, pg);
+	XMFLOAT3 cur, bind;
+	XMStoreFloat3(&cur, XMVector3TransformCoord(XMVectorSet(local[node]._41, local[node]._42, local[node]._43, 1.0f), pg));
+	XMStoreFloat3(&bind, XMVector3TransformCoord(XMVectorSet(skeleton.BindLocal[node]._41, skeleton.BindLocal[node]._42, skeleton.BindLocal[node]._43, 1.0f), pg));
+	XMFLOAT3 back;
+	XMStoreFloat3(&back, XMVector3TransformCoord(XMVectorSet(bind.x, cur.y, bind.z, 1.0f), inv));
+	local[node]._41 = back.x;
+	local[node]._42 = back.y;
+	local[node]._43 = back.z;
 }
 
 void Animator::CollectRenderers(GameObject* go, std::vector<SkinnedMeshRenderer*>& out)
@@ -408,6 +670,7 @@ void Animator::EvaluatePose()
 					m_LocalFinal.swap(mixed);
 				}
 			}
+			PinRoot(*skeleton, m_LocalFinal);
 			AnimationPose::ComputeGlobals(*skeleton, m_LocalFinal, m_Global);
 			computedFor = skeleton.get();
 		}
@@ -458,21 +721,27 @@ void Animator::OnInspectorGUI()
 	// Unity 의 정보 상자: 클립 수와 커브 수
 	int clipCount = 0, pos = 0, quat = 0, scale = 0;
 	std::vector<const AnimationClip*> seen;
+	auto countClip = [&](const AnimationClip* clip) {
+		if (clip == nullptr || std::find(seen.begin(), seen.end(), clip) != seen.end())
+			return;
+		seen.push_back(clip);
+		++clipCount;
+		for (const auto& ch : clip->Channels)
+		{
+			pos += !ch.Positions.empty();
+			quat += !ch.Rotations.empty();
+			scale += !ch.Scales.empty();
+		}
+	};
 	if (m_Controller)
 		for (auto& layer : m_Controller->Layers)
 			for (auto& s : layer.States)
 			{
 				if (s.Clip == nullptr && !s.ClipPath.empty()) s.LoadClip();
-				if (s.Clip == nullptr || std::find(seen.begin(), seen.end(), s.Clip.get()) != seen.end())
-					continue;
-				seen.push_back(s.Clip.get());
-				++clipCount;
-				for (const auto& ch : s.Clip->Channels)
-				{
-					pos += !ch.Positions.empty();
-					quat += !ch.Rotations.empty();
-					scale += !ch.Scales.empty();
-				}
+				countClip(s.Clip.get());
+				for (const auto& ch : s.Tree.Children)
+					if (s.IsBlendTree)
+						countClip(ch.Clip.get());
 			}
 	const int curves = pos * 3 + quat * 4 + scale * 3;
 	char info[512];
@@ -486,6 +755,23 @@ void Animator::OnInspectorGUI()
 		const LayerRuntime& r = m_Layers[0];
 		sprintf_s(buf, "%s  (%.2f)%s", GetCurrentStateName(0).c_str(), GetNormalizedTime(0, r.Current, r.Time), r.Next >= 0 ? "  → 전이 중" : "");
 		ValueLabel("Current State", buf);
+		// Blend Tree 면 자식마다 가중치 (Unity 의 Blend Tree 미리 보기 대신)
+		const AnimatorLayer& base = m_Controller->Layers[0];
+		if (r.Current >= 0 && r.Current < (int)base.States.size() && base.States[r.Current].IsBlendTree)
+		{
+			const AnimatorState& s = base.States[r.Current];
+			std::vector<float> w;
+			GetBlendWeights(s, w);
+			std::string text;
+			for (size_t i = 0; i < w.size(); ++i)
+			{
+				const BlendTreeChild& c = s.Tree.Children[i];
+				char part[96];
+				sprintf_s(part, "%s%s %.0f%%", text.empty() ? "" : ", ", c.DisplayName().c_str(), w[i] * 100.0f);
+				text += part;
+			}
+			ValueLabel("Blend", text.c_str());
+		}
 	}
 
 	// ---- 컨트롤러 선택 팝업 ----

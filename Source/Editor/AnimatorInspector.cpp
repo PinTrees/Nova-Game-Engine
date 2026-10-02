@@ -285,6 +285,105 @@ namespace
 		ImGui::SetCursorScreenPos(ImVec2(p.x, p.y + headerH + bodyH + 28));
 	}
 
+	// Blend Tree: 종류, 파라미터, 자식 클립 목록 (클립 · 문턱값 또는 위치 · Time Scale)
+	void DrawBlendTree(const std::shared_ptr<AnimatorController>& c, AnimatorState& s)
+	{
+		using namespace UnityGUI;
+		BlendTree& t = s.Tree;
+		static const char* kTypes[] = { "1D", "2D Simple Directional", "2D Freeform Directional", "2D Freeform Cartesian" };
+		if (Dropdown("Blend Type", &t.BlendType, kTypes, 4)) Changed(c);
+		std::vector<std::string> floats;
+		for (const auto& p : c->Parameters)
+			if (p.Type == ParamType::Float)
+				floats.push_back(p.Name);
+		std::vector<const char*> items;
+		for (const auto& f : floats)
+			items.push_back(f.c_str());
+		auto paramField = [&](const char* label, std::string& value) {
+			int cur = -1;
+			for (int i = 0; i < (int)floats.size(); ++i)
+				if (floats[i] == value) cur = i;
+			if (items.empty())
+				ValueLabel(label, "(no Float parameter)");
+			else if (Dropdown(label, &cur, items.data(), (int)items.size()) && cur >= 0)
+			{
+				value = floats[cur];
+				Changed(c);
+			}
+		};
+		paramField(t.Is2D() ? "Parameter X" : "Parameter", t.ParameterX);
+		if (t.Is2D())
+			paramField("Parameter Y", t.ParameterY);
+
+		// 자식 목록: [클립 ▾] [문턱값 | X Y] [Time Scale] [x]
+		Spacing(4);
+		Label("Motions", 0, true);
+		const float w = ImGui::GetContentRegionAvail().x;
+		int removeAt = -1;
+		for (int i = 0; i < (int)t.Children.size(); ++i)
+		{
+			BlendTreeChild& ch = t.Children[i];
+			ImGui::PushID(i);
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+			if (ch.Clip == nullptr && !ch.ClipPath.empty())
+				ch.LoadClip();
+			const std::string label = (ch.Clip ? ch.DisplayName() : std::string("None (Motion)")) + "##clip";
+			const float numW = t.Is2D() ? 52.0f : 64.0f;
+			const float clipW = (std::max)(80.0f, w - 14 - (t.Is2D() ? numW * 2 : numW) - 52 - 26 - 16);
+			if (ImGui::Button(label.c_str(), ImVec2(clipW, 0)))
+				ImGui::OpenPopup("##childclip");
+			if (AnimationClipLibrary::DrawPickerPopup("##childclip", ch.ClipPath, ch.ClipIndex, true))
+			{
+				ch.LoadClip();
+				Changed(c);
+			}
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(numW);
+			if (!t.Is2D())
+			{
+				if (ImGui::InputFloat("##th", &ch.Threshold, 0, 0, "%g")) Changed(c);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Threshold");
+			}
+			else
+			{
+				if (ImGui::InputFloat("##px", &ch.PosX, 0, 0, "%g")) Changed(c);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pos X");
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(numW);
+				if (ImGui::InputFloat("##py", &ch.PosY, 0, 0, "%g")) Changed(c);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pos Y");
+			}
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(46);
+			if (ImGui::InputFloat("##ts", &ch.TimeScale, 0, 0, "%g")) { ch.TimeScale = (std::max)(0.01f, ch.TimeScale); Changed(c); }
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Time Scale");
+			ImGui::SameLine();
+			if (ImGui::Button("x", ImVec2(22, 0)))
+				removeAt = i;
+			ImGui::PopID();
+		}
+		if (removeAt >= 0)
+		{
+			t.Children.erase(t.Children.begin() + removeAt);
+			Changed(c);
+		}
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+		if (ImGui::Button("+ Add Motion"))
+		{
+			BlendTreeChild ch;
+			// 다음 문턱값 = 마지막 + 1 (Unity 의 Automate Thresholds 처럼 고르게)
+			if (!t.Children.empty())
+			{
+				ch.Threshold = t.Children.back().Threshold + 1.0f;
+				ch.PosX = t.Children.back().PosX + 1.0f;
+			}
+			t.Children.push_back(ch);
+			Changed(c);
+		}
+		if (t.Children.empty())
+			HelpBox("Add motions (clips) and set where each one plays: the threshold of the parameter (1D) or a point (2D).", false);
+	}
+
 	void DrawState(const std::shared_ptr<AnimatorController>& c, int layerIndex, int stateIndex)
 	{
 		using namespace UnityGUI;
@@ -296,22 +395,37 @@ namespace
 			if (c->RenameState(layerIndex, stateIndex, name))
 				Changed(c);
 
-		if (s.Clip == nullptr && !s.ClipPath.empty())
-			s.LoadClip();
-		const std::string motion = s.Clip ? s.Clip->Name : "None (Motion)";
-		if (ObjectField("Motion", motion.c_str(), 0, s.Clip ? "animation_clip" : nullptr))
-			ImGui::OpenPopup("##statemotion");
-		if (AnimationClipLibrary::DrawPickerPopup("##statemotion", s.ClipPath, s.ClipIndex, true))
+		static const char* kMotionKinds[] = { "Clip", "Blend Tree" };
+		int kind = s.IsBlendTree ? 1 : 0;
+		if (Dropdown("Motion Type", &kind, kMotionKinds, 2))
 		{
-			s.LoadClip();
+			if (kind == 1)
+				c->MakeBlendTree(layerIndex, stateIndex);
+			else
+				s.IsBlendTree = false;
 			Changed(c);
 		}
+		if (!s.IsBlendTree)
+		{
+			if (s.Clip == nullptr && !s.ClipPath.empty())
+				s.LoadClip();
+			const std::string motion = s.Clip ? s.Clip->Name : "None (Motion)";
+			if (ObjectField("Motion", motion.c_str(), 0, s.Clip ? "animation_clip" : nullptr))
+				ImGui::OpenPopup("##statemotion");
+			if (AnimationClipLibrary::DrawPickerPopup("##statemotion", s.ClipPath, s.ClipIndex, true))
+			{
+				s.LoadClip();
+				Changed(c);
+			}
+		}
+		else
+			DrawBlendTree(c, s);
 		if (Float("Speed", &s.Speed)) Changed(c);
 		if (Toggle("Loop Time", &s.Loop)) Changed(c);
 		if (Float("Cycle Offset", &s.CycleOffset)) Changed(c);
 		if (Toggle("Foot IK", &s.FootIK)) Changed(c);
 		if (Toggle("Write Defaults", &s.WriteDefaults)) Changed(c);
-		if (s.Clip)
+		if (s.Clip && !s.IsBlendTree)
 		{
 			char info[128];
 			sprintf_s(info, "%.2f s", s.Clip->GetClipEndTime());

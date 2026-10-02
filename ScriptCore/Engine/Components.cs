@@ -102,6 +102,51 @@ namespace NovaEngine
         public float GetFloat(string name) => Get(name, 0);
         public int GetInteger(string name) => (int)Get(name, 1);
         public bool GetBool(string name) => Get(name, 2) != 0;
+
+        /// <summary>재생 속도 배율 (1 = 보통)</summary>
+        public unsafe float speed { get => Native.Api.AN_GetFloat(m_Id, 0); set => Native.Api.AN_SetFloat(m_Id, 0, value); }
+        /// <summary>애니메이션의 이동(Hips)을 오브젝트 이동으로 쓴다</summary>
+        public unsafe bool applyRootMotion { get => Native.Api.AN_GetFloat(m_Id, 1) != 0; set => Native.Api.AN_SetFloat(m_Id, 1, value ? 1 : 0); }
+        /// <summary>마지막 프레임에 루트 모션이 옮긴 월드 이동</summary>
+        public unsafe Vector3 deltaPosition { get { Vector3 v; Native.Api.AN_GetVector(m_Id, 0, &v); return v; } }
+        public unsafe Vector3 velocity { get { Vector3 v; Native.Api.AN_GetVector(m_Id, 1, &v); return v; } }
+
+        public unsafe void Play(string stateName, int layer = -1, float normalizedTime = float.NegativeInfinity)
+        {
+            fixed (byte* p = Native.Utf8(stateName)) Native.Api.AN_Play(m_Id, p, layer, normalizedTime, -1);
+        }
+        public unsafe void CrossFade(string stateName, float normalizedTransitionDuration, int layer = -1)
+        {
+            // NOVA: 길이는 초 (Unity 의 CrossFadeInFixedTime 과 같다)
+            fixed (byte* p = Native.Utf8(stateName)) Native.Api.AN_Play(m_Id, p, layer, 0, Mathf.Max(0, normalizedTransitionDuration));
+        }
+        public void CrossFadeInFixedTime(string stateName, float fixedTransitionDuration, int layer = -1) => CrossFade(stateName, fixedTransitionDuration, layer);
+
+        public unsafe AnimatorStateInfo GetCurrentAnimatorStateInfo(int layerIndex)
+        {
+            float* v = stackalloc float[3];
+            string name = Native.Str(Native.Api.AN_GetState(m_Id, layerIndex, v));
+            return new AnimatorStateInfo(name, v[0], v[1]);
+        }
+        public unsafe bool IsInTransition(int layerIndex)
+        {
+            float* v = stackalloc float[3];
+            Native.Api.AN_GetState(m_Id, layerIndex, v);
+            return v[2] != 0;
+        }
+    }
+
+    /// <summary>Unity 의 AnimatorStateInfo (이름·정규화 시간·길이)</summary>
+    public struct AnimatorStateInfo
+    {
+        readonly string m_Name;
+        public float normalizedTime { get; }
+        public float length { get; }
+        public int shortNameHash => m_Name == null ? 0 : m_Name.GetHashCode();
+        internal AnimatorStateInfo(string name, float normalizedTime, float length) { m_Name = name; this.normalizedTime = normalizedTime; this.length = length; }
+        public bool IsName(string name) => m_Name != null && (m_Name == name || name.EndsWith("." + m_Name));
+        /// <summary>NOVA: 상태 이름</summary>
+        public string name => m_Name;
     }
 
     // ------------------------------------------------------------------ Physics

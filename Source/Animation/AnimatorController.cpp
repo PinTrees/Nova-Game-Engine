@@ -73,6 +73,92 @@ namespace
 void AnimatorState::LoadClip()
 {
 	Clip = ClipPath.empty() ? nullptr : ResourceManager::GetI()->LoadAnimationClip(ClipPath, ClipIndex);
+	for (BlendTreeChild& c : Tree.Children)
+		c.LoadClip();
+}
+
+void BlendTreeChild::LoadClip()
+{
+	Clip = ClipPath.empty() ? nullptr : ResourceManager::GetI()->LoadAnimationClip(ClipPath, ClipIndex);
+}
+
+std::string BlendTreeChild::DisplayName() const
+{
+	if (Clip == nullptr)
+		return "None";
+	const std::string& n = Clip->Name;
+	if (n.empty() || n.rfind("Take ", 0) == 0 || n == "mixamo.com" || n == "Default Take")
+		return std::filesystem::path(ClipPath).stem().string();
+	return n;
+}
+
+void BlendTree::ComputeWeights(float x, float y, std::vector<float>& w) const
+{
+	const int n = (int)Children.size();
+	w.assign(n, 0.0f);
+	if (n == 0)
+		return;
+	if (n == 1)
+	{
+		w[0] = 1.0f;
+		return;
+	}
+	if (!Is2D())
+	{
+		// 문턱값 순으로 가장 가까운 두 자식 사이를 선형으로 (범위 밖이면 끝 자식)
+		std::vector<int> order(n);
+		for (int i = 0; i < n; ++i) order[i] = i;
+		std::sort(order.begin(), order.end(), [&](int a, int b) { return Children[a].Threshold < Children[b].Threshold; });
+		if (x <= Children[order[0]].Threshold) { w[order[0]] = 1.0f; return; }
+		if (x >= Children[order[n - 1]].Threshold) { w[order[n - 1]] = 1.0f; return; }
+		for (int k = 0; k + 1 < n; ++k)
+		{
+			const float a = Children[order[k]].Threshold, b = Children[order[k + 1]].Threshold;
+			if (x >= a && x <= b)
+			{
+				const float t = b - a > 1e-6f ? (x - a) / (b - a) : 0.0f;
+				w[order[k]] = 1.0f - t;
+				w[order[k + 1]] = t;
+				return;
+			}
+		}
+		return;
+	}
+	// Gradient Band 보간 (Johansen): 자식 i 의 가중치 = 다른 모든 자식 j 쪽 "띠" 값 중 가장 작은 것, 그 뒤 합 1 로
+	float sum = 0.0f;
+	for (int i = 0; i < n; ++i)
+	{
+		const float pix = Children[i].PosX, piy = Children[i].PosY;
+		float wi = 1.0f;
+		for (int j = 0; j < n && wi > 0.0f; ++j)
+		{
+			if (j == i)
+				continue;
+			const float dx = Children[j].PosX - pix, dy = Children[j].PosY - piy;
+			const float len2 = dx * dx + dy * dy;
+			if (len2 < 1e-8f)
+				continue;
+			const float h = 1.0f - ((x - pix) * dx + (y - piy) * dy) / len2;
+			wi = (std::min)(wi, std::clamp(h, 0.0f, 1.0f));
+		}
+		w[i] = wi;
+		sum += wi;
+	}
+	if (sum > 1e-6f)
+	{
+		for (float& v : w)
+			v /= sum;
+		return;
+	}
+	// 어느 띠에도 안 들어갔다 → 가장 가까운 자식
+	int best = 0;
+	float bd = FLT_MAX;
+	for (int i = 0; i < n; ++i)
+	{
+		const float d = (x - Children[i].PosX) * (x - Children[i].PosX) + (y - Children[i].PosY) * (y - Children[i].PosY);
+		if (d < bd) { bd = d; best = i; }
+	}
+	w[best] = 1.0f;
 }
 
 int AnimatorLayer::FindState(const std::string& name) const
@@ -116,8 +202,19 @@ std::string AnimatorController::ToJsonString() const
 		lj["exit"] = { l.ExitX, l.ExitY };
 		json states = json::array();
 		for (const auto& s : l.States)
-			states.push_back({ { "name", s.Name }, { "clipPath", s.ClipPath }, { "clipIndex", s.ClipIndex }, { "speed", s.Speed },
-				{ "cycleOffset", s.CycleOffset }, { "loop", s.Loop }, { "writeDefaults", s.WriteDefaults }, { "footIK", s.FootIK }, { "pos", { s.PosX, s.PosY } } });
+		{
+			json sj = { { "name", s.Name }, { "clipPath", s.ClipPath }, { "clipIndex", s.ClipIndex }, { "speed", s.Speed },
+				{ "cycleOffset", s.CycleOffset }, { "loop", s.Loop }, { "writeDefaults", s.WriteDefaults }, { "footIK", s.FootIK }, { "pos", { s.PosX, s.PosY } } };
+			if (s.IsBlendTree)
+			{
+				json children = json::array();
+				for (const auto& ch : s.Tree.Children)
+					children.push_back({ { "clipPath", ch.ClipPath }, { "clipIndex", ch.ClipIndex }, { "threshold", ch.Threshold },
+						{ "pos", { ch.PosX, ch.PosY } }, { "timeScale", ch.TimeScale } });
+				sj["blendTree"] = { { "type", s.Tree.BlendType }, { "parameter", s.Tree.ParameterX }, { "parameterY", s.Tree.ParameterY }, { "children", children } };
+			}
+			states.push_back(sj);
+		}
 		lj["states"] = states;
 		json transitions = json::array();
 		for (const auto& t : l.Transitions)
@@ -215,6 +312,25 @@ void AnimatorController::ApplyJson(const std::string& text)
 					s.WriteDefaults = sj.value("writeDefaults", true);
 					s.FootIK = sj.value("footIK", false);
 					if (sj.contains("pos")) { s.PosX = sj["pos"][0]; s.PosY = sj["pos"][1]; }
+					if (sj.contains("blendTree") && sj["blendTree"].is_object())
+					{
+						const json& bj = sj["blendTree"];
+						s.IsBlendTree = true;
+						s.Tree.BlendType = std::clamp(bj.value("type", 0), 0, 3);
+						s.Tree.ParameterX = bj.value("parameter", std::string("Blend"));
+						s.Tree.ParameterY = bj.value("parameterY", std::string("Blend"));
+						if (bj.contains("children"))
+							for (const auto& cj : bj["children"])
+							{
+								BlendTreeChild ch;
+								ch.ClipPath = cj.value("clipPath", std::string());
+								ch.ClipIndex = cj.value("clipIndex", 0);
+								ch.Threshold = cj.value("threshold", 0.0f);
+								if (cj.contains("pos") && cj["pos"].is_array() && cj["pos"].size() == 2) { ch.PosX = cj["pos"][0]; ch.PosY = cj["pos"][1]; }
+								ch.TimeScale = cj.value("timeScale", 1.0f);
+								s.Tree.Children.push_back(ch);
+							}
+					}
 					s.LoadClip();
 					l.States.push_back(s);
 				}
@@ -287,6 +403,29 @@ int AnimatorController::AddState(int layer, const std::string& name, float x, fl
 	if (l.FindState(l.DefaultState) < 0)
 		l.DefaultState = s.Name;
 	return (int)l.States.size() - 1;
+}
+
+void AnimatorController::MakeBlendTree(int layer, int state)
+{
+	if (layer < 0 || layer >= (int)Layers.size() || state < 0 || state >= (int)Layers[layer].States.size())
+		return;
+	AnimatorState& s = Layers[layer].States[state];
+	s.IsBlendTree = true;
+	// 쓰던 Float 파라미터가 있으면 그대로, 없으면 첫 Float, 그것도 없으면 "Blend" 를 만든다
+	const int cur = FindParameter(s.Tree.ParameterX);
+	if (cur >= 0 && Parameters[cur].Type == ParamType::Float)
+		return;
+	for (const auto& p : Parameters)
+		if (p.Type == ParamType::Float)
+		{
+			s.Tree.ParameterX = s.Tree.ParameterY = p.Name;
+			return;
+		}
+	AnimatorParameter p;
+	p.Name = MakeUniqueParameterName("Blend");
+	p.Type = ParamType::Float;
+	Parameters.push_back(p);
+	s.Tree.ParameterX = s.Tree.ParameterY = p.Name;
 }
 
 void AnimatorController::RemoveState(int layer, int state)
@@ -386,10 +525,17 @@ bool AnimatorController::RenameParameter(int index, const std::string& newName)
 	const std::string name = MakeUniqueParameterName(newName);
 	Parameters[index].Name = name;
 	for (auto& l : Layers)
+	{
 		for (auto& t : l.Transitions)
 			for (auto& c : t.Conditions)
 				if (c.Parameter == old)
 					c.Parameter = name;
+		for (auto& s : l.States)
+		{
+			if (s.Tree.ParameterX == old) s.Tree.ParameterX = name;
+			if (s.Tree.ParameterY == old) s.Tree.ParameterY = name;
+		}
+	}
 	return true;
 }
 

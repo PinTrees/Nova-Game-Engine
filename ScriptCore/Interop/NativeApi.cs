@@ -167,6 +167,13 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int, Vector3*, void> JT_SetVector;
         public delegate* unmanaged<ulong, int, ulong> JT_GetConnected;
         public delegate* unmanaged<ulong, int, ulong, void> JT_SetConnected;
+
+        // Animator — Play/CrossFade(fade < 0 = Play), float 0 speed 1 applyRootMotion, vector 0 deltaPosition 1 velocity, 상태(이름 + 시간·길이·전이)
+        public delegate* unmanaged<ulong, byte*, int, float, float, void> AN_Play;
+        public delegate* unmanaged<ulong, int, float> AN_GetFloat;
+        public delegate* unmanaged<ulong, int, float, void> AN_SetFloat;
+        public delegate* unmanaged<ulong, int, Vector3*, void> AN_GetVector;
+        public delegate* unmanaged<ulong, int, float*, byte*> AN_GetState;
     }
 
     internal static unsafe class Native

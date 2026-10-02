@@ -119,7 +119,7 @@ GPU 시간은 두 API 가 같거나 OpenGL 이 빠르고, 가벼운 씬에서 �
 |---|---|
 | **C# 스크립팅** | Unity 와 같은 `MonoBehaviour` API(GameObject, Transform, Vector3, Quaternion, Mathf, Time, Input, Debug, Rigidbody, Physics.Raycast, 코루틴, Invoke …), `.cs` 자동 컴파일 + 핫 리로드, Inspector 필드(`[SerializeField]`, `[Range]`, `[Header]`, enum, 참조), 오류는 Console 에 표시하고 Play 를 막음 |
 | **물리** | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) — Rigidbody, Box / Sphere / Capsule / Mesh / Terrain Collider(나무 포함), **Character Controller**(계단·경사·벽 미끄러짐), **Joint**(Fixed · Hinge(모터·스프링·각도 제한) · Spring, Break Force → `OnJointBreak`), 트리거, 레이어 오버라이드, 레이캐스트, 충돌 콜백 |
-| **애니메이션** | FBX 스킨 메시, Animation 컴포넌트, Animator 창(상태 머신 그래프·전이·파라미터·Play 중 Live 표시) |
+| **애니메이션** | FBX 스킨 메시(Unity 와 같은 축 — Unity 에서 앞을 보던 캐릭터가 그대로 +Z), Animation 컴포넌트, Animator 창(상태 머신 그래프·전이·파라미터·Play 중 Live 표시), **Blend Tree**(1D · 2D, 예: Speed 로 Idle·Walk·Run 섞기 — 발이 맞게 정규화 시간), **루트 모션**(Apply Root Motion: 클립의 이동을 오브젝트로, Character Controller 면 Move), C# `Animator.Play / CrossFade / speed / applyRootMotion / deltaPosition / GetCurrentAnimatorStateInfo` |
 | **UI (UGUI)** | Canvas · Canvas Scaler · Event System, Rect Transform, Image(Sliced / Filled), Text(한글), Button, Toggle, Slider, Input Field(한글 IME), Scroll View, Mask |
 | **파티클** | Unity Shuriken 모듈(Main, Emission, Shape, over Lifetime, Noise, Collision, Sub Emitters, Trails, Texture Sheet), **Lit**(해·하늘 환경광) · **Soft Particles**(바닥·벽과 만나는 곳을 부드럽게) · **Lights**(입자가 주변을 비춤), 곡선·그라디언트 편집기, Scene 뷰 미리 재생, GPU 인스턴싱, C# `ParticleSystem` API |
 | **오디오** | XAudio2 — Audio Source / Listener, 3D 감쇠, Loop·Pitch·Pan, WAV, 미리 듣기 |

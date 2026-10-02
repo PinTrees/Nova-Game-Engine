@@ -50,11 +50,41 @@ struct AnimatorTransition
 	std::vector<AnimatorCondition> Conditions;
 };
 
+// Unity 의 Blend Tree: 파라미터 값에 따라 여러 클립을 섞는다 (예: Speed 0 = Idle, 2 = Walk, 6 = Run).
+// 자식 클립은 정규화 시간을 맞춰 재생한다 (걷기·뛰기 발이 맞게).
+struct BlendTreeChild
+{
+	std::string ClipPath;
+	int ClipIndex = 0;
+	float Threshold = 0.0f;           // 1D
+	float PosX = 0.0f, PosY = 0.0f;   // 2D
+	float TimeScale = 1.0f;
+	std::shared_ptr<AnimationClip> Clip;
+	void LoadClip();
+	// 표시 이름: 클립 이름이 "Take 001"·"mixamo.com" 같은 기본값이면 파일 이름 (Cameron@Walk)
+	std::string DisplayName() const;
+};
+
+struct BlendTree
+{
+	enum Type { Simple1D = 0, SimpleDirectional2D = 1, FreeformDirectional2D = 2, FreeformCartesian2D = 3 };
+	int BlendType = Simple1D;
+	std::string ParameterX = "Blend";
+	std::string ParameterY = "Blend";
+	std::vector<BlendTreeChild> Children;
+
+	bool Is2D() const { return BlendType != Simple1D; }
+	// 파라미터 값 → 자식마다 가중치 (합 1). 1D = 이웃 두 개 선형, 2D = Gradient Band (Unity Freeform 과 같은 방식)
+	void ComputeWeights(float x, float y, std::vector<float>& weights) const;
+};
+
 struct AnimatorState
 {
 	std::string Name;
 	std::string ClipPath;             // FBX 경로
 	int ClipIndex = 0;
+	bool IsBlendTree = false;         // true 면 Clip 대신 Tree
+	BlendTree Tree;
 	float Speed = 1.0f;
 	float CycleOffset = 0.0f;
 	bool Loop = true;                 // Unity 의 클립 Loop Time
@@ -102,6 +132,8 @@ public:
 	// ---- 편집 (Animator 창 / Inspector) ----
 	std::string MakeUniqueStateName(int layer, const std::string& base) const;
 	int AddState(int layer, const std::string& name, float x, float y);
+	// 상태의 Motion 을 Blend Tree 로 (Float 파라미터가 없으면 "Blend" 를 만든다)
+	void MakeBlendTree(int layer, int state);
 	void RemoveState(int layer, int state);
 	bool RenameState(int layer, int state, const std::string& newName);
 	int AddTransition(int layer, const std::string& from, const std::string& to);
