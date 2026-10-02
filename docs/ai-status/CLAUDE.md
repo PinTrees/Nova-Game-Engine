@@ -1,7 +1,7 @@
 # NOVA Claude 작업 상태
 
 - 갱신 시각: 2026년 10월 3일 03시 52분 KST
-- 단계: **Shader Graph 3단계 완료** (Vertex 단계 · Sub Graph · Custom Function) — 검증 끝, 로컬 커밋 (push 는 사용자 지시 대기)
+- 단계: **Shader Graph 3단계 완료** (Vertex 단계 · Sub Graph · Custom Function) — 검증 끝, 커밋 `125cb4f` — 사용자 지시로 origin/main 에 push 함 (**Codex 의 `7751c5e` · `6f2f642` 도 같이 push 됨** — 사용자가 함께 올리라고 함)
 - 기준: Codex 의 로컬 커밋 `7751c5e` · `6f2f642` 위 (그 커밋들은 건드리지 않았다)
 - 사용자 지시: "Shader Graph 3단계 진행" (앞서: 2단계 미리보기 · 투명 · 컷아웃 — 끝, 공유 명세를 필요할 때마다 같이 갱신)
 
