@@ -61,7 +61,7 @@ function Write-JsonFile([string]$Path, $Value)
 }
 Write-JsonFile (Join-Path $project 'Packages/manifest.json') @{ dependencies = @{} }
 Write-JsonFile (Join-Path $project 'ProjectSettings/ProjectSettings.json') @{ projectName = 'CodexSceneTests' }
-Write-JsonFile (Join-Path $project 'ProjectSettings/EditorBuildSettings.json') @{ scenes = @(@{ path = 'Assets/Scenes/Destination.scene'; enabled = $true }) }
+Write-JsonFile (Join-Path $project 'ProjectSettings/EditorBuildSettings.json') @{ scenes = @(@{ path = 'Assets/Scenes/Destination.scene'; enabled = $true }, @{ path = 'Assets/Scenes/BrokenPlay.scene'; enabled = $true }) }
 Write-JsonFile (Join-Path $project 'Assets/EditorSettings.json') @{ LastOpenedScenePath = '' }
 
 $nova = Join-Path $sandboxBin 'nova.exe'
@@ -125,6 +125,22 @@ function Close-Editor
 }
 function Path-Equals([string]$A, [string]$B) { $A.Replace('/', '\') -eq $B.Replace('/', '\') }
 function Has-Origin { @((Command @('find', 'CodexOrigin'))).Count -eq 1 }
+function Capture-GuardState
+{
+    [pscustomobject]@{
+        Info = (Command @('info'))
+        Object = ((Command @('get', 'CodexLoadGuard')) | ConvertTo-Json -Depth 20 -Compress)
+    }
+}
+function Guard-Unchanged($Before, $After)
+{
+    $a = $Before.Info; $b = $After.Info
+    (Path-Equals $a.scene $b.scene) -and $a.dirty -eq $b.dirty -and $a.playing -eq $b.playing -and
+        $a.objects -eq $b.objects -and $a.liveObjects -eq $b.liveObjects -and
+        $a.canUndo -eq $b.canUndo -and $a.undo -eq $b.undo -and
+        ($a.selection | ConvertTo-Json -Compress) -eq ($b.selection | ConvertTo-Json -Compress) -and
+        $Before.Object -eq $After.Object
+}
 function Switch-DuringPlay
 {
     $switchScript = Join-Path $Out 'switch_scene.cs'
@@ -199,10 +215,150 @@ try
     $info = Command @('info')
     Check 'Missing file is rejected without changing the current scene' ($missing.ExitCode -ne 0 -and (Path-Equals $info.scene $externalFile) -and (Has-Origin)) $missing.Text
 
+    $goodExternal = [IO.File]::ReadAllText($externalFile)
+    Command @('create', 'empty', '--name', 'CodexLoadGuard') | Out-Null
+    Command @('set', 'CodexLoadGuard', '--position', '2,3,4') | Out-Null
+    Command @('select', 'CodexLoadGuard') | Out-Null
+    $before = Capture-GuardState
+    Check 'Load protection starts with unsaved work and selection' ($before.Info.dirty -and $before.Info.selection) 'Saved scene with an unsaved object'
+
+    # 성공적으로 복원된 루트/컴포넌트/자식 뒤에 오류를 넣어 부분 복원의 정리도 확인한다.
+    $valid = @{ name = 'TemporaryRoot'; components = @(@{ type = 'Transform' }); children = @() }
+    $fixtures = @(
+        @{ Name = 'truncated JSON'; Text = '{"rootGameObjects":[' },
+        @{ Name = 'empty file'; Text = '' },
+        @{ Name = 'trailing garbage'; Text = ($goodExternal + ' broken') },
+        @{ Name = 'non-object scene'; Text = '[]' },
+        @{ Name = 'missing roots'; Text = '{}' },
+        @{ Name = 'null roots'; Text = '{"rootGameObjects":null}' },
+        @{ Name = 'object instead of roots array'; Text = '{"rootGameObjects":{}}' },
+        @{ Name = 'invalid root after a valid root'; Data = @{ rootGameObjects = @($valid, @{ components = @() }) } },
+        @{ Name = 'missing components'; Data = @{ rootGameObjects = @(@{ name = 'Broken' }) } },
+        @{ Name = 'invalid components collection'; Data = @{ rootGameObjects = @(@{ name = 'Broken'; components = @{} }) } },
+        @{ Name = 'invalid component type after a light'; Data = @{ rootGameObjects = @(@{ name = 'Broken'; components = @(@{ type = 'Light' }, @{ type = 1 }) }) } },
+        @{ Name = 'invalid component field'; Data = @{ rootGameObjects = @(@{ name = 'Broken'; components = @(@{ type = 'Light'; intensity = 'bad' }) }) } },
+        @{ Name = 'invalid children collection'; Data = @{ rootGameObjects = @(@{ name = 'Broken'; components = @(); children = @{} }) } },
+        @{ Name = 'nested child failure'; Data = @{ rootGameObjects = @(@{ name = 'Parent'; components = @(); children = @(@{ name = 'Child'; components = @(@{ type = 'Light' }); children = @($valid, @{ components = @() }) }) }) } }
+    )
+    $invalidDir = Join-Path $scenes 'Invalid'
+    New-Item -ItemType Directory -Path $invalidDir | Out-Null
+    $index = 0
+    foreach ($fixture in $fixtures)
+    {
+        $badFile = Join-Path $invalidDir ("invalid-$index.scene")
+        $text = if ($fixture.ContainsKey('Text')) { $fixture.Text } else { $fixture.Data | ConvertTo-Json -Depth 20 }
+        [IO.File]::WriteAllText($badFile, $text, $utf8)
+        $reply = Invoke-Editor @('scene', 'open', $badFile, '--force')
+        $after = Capture-GuardState
+        Check ("Reject $($fixture.Name) and preserve work") ($reply.ExitCode -ne 0 -and (Guard-Unchanged $before $after)) $reply.Text
+        $index++
+    }
+    $missing = Invoke-Editor @('scene', 'open', (Join-Path $invalidDir 'missing.scene'), '--force')
+    Check 'Missing file preserves dirty content selection and Undo' ($missing.ExitCode -ne 0 -and (Guard-Unchanged $before (Capture-GuardState))) $missing.Text
+
+    # 같은 파일 다시 열기(Don't Save)는 DiscardChanges 경로를 사용한다.
+    try
+    {
+        [IO.File]::WriteAllText($externalFile, ($fixtures[-1].Data | ConvertTo-Json -Depth 20), $utf8)
+        $reload = Invoke-Editor @('scene', 'open', $externalFile, '--force')
+        Check 'Failed reload preserves current work' ($reload.ExitCode -ne 0 -and (Guard-Unchanged $before (Capture-GuardState))) $reload.Text
+    }
+    finally { [IO.File]::WriteAllText($externalFile, $goodExternal, $utf8) }
+    Command @('scene', 'open', $externalFile, '--force') | Out-Null
+    $info = Command @('info')
+    Check 'Valid reload discards edits and restores the saved scene' (-not $info.dirty -and @((Command @('find', 'CodexLoadGuard'))).Count -eq 0 -and (Has-Origin)) $info.scene
+
+    Command @('create', 'empty', '--name', 'CodexLoadGuard') | Out-Null
+    Command @('scene', 'save') | Out-Null
+    Command @('play') | Out-Null
+    $playBefore = Capture-GuardState
+    $badPlayFile = Join-Path $scenes 'BrokenPlay.scene'
+    [IO.File]::WriteAllText($badPlayFile, '{', $utf8)
+    $switchScript = Join-Path $Out 'switch_broken_scene.cs'
+    [IO.File]::WriteAllText($switchScript, 'NovaEngine.SceneManagement.SceneManager.LoadScene("Assets/Scenes/BrokenPlay.scene"); return true;', $utf8)
+    Command @('exec', '--file', $switchScript) | Out-Null
+    Command @('wait', '10') | Out-Null
+    Check 'Play rejects a broken scene and keeps the running scene' (Guard-Unchanged $playBefore (Capture-GuardState)) 'LoadSceneDuringPlay'
+    Command @('stop') | Out-Null
     Close-Editor
+    $logFiles = @(Get-ChildItem -LiteralPath $sandboxEngine -Filter 'Editor.log' -File -Recurse)
+    $logs = ($logFiles | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
+    Check 'Load failures report the path and reason in the editor log' ($logs -match 'Could not open scene.*invalid-0.scene' -and $logs -match 'rootGameObjects must be an array') 'Console errors are also written to Editor.log'
+    Check 'Play failure reaches the scene loader' ($logs -match 'Could not open scene.*BrokenPlay.scene') 'Broken scene is in Build Settings'
+
     Start-Editor
     $info = Command @('info')
     Check 'Startup restores the last external absolute scene' ((Path-Equals $info.scene $externalFile) -and (Has-Origin)) $info.scene
+
+    # 충돌을 만들지 않고, 종료된 세션의 자동 복구 파일만 테스트 프로젝트에 준비한다.
+    $recoveryDir = Join-Path $project 'Library/AutoSave'
+    $recoveryScene = Join-Path $recoveryDir 'autosave_999999999.scene'
+    foreach ($recoveryFixture in @($fixtures[4], $fixtures[-1]))
+    {
+        Close-Editor
+        New-Item -ItemType Directory -Force -Path $recoveryDir | Out-Null
+        Write-JsonFile (Join-Path $recoveryDir 'session_999999999.json') @{}
+        Write-JsonFile (Join-Path $recoveryDir 'autosave_999999999.json') @{ scenePath = $externalFile; sceneName = 'CodexRecovery'; time = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 60); objects = 1 }
+        $text = if ($recoveryFixture.ContainsKey('Text')) { $recoveryFixture.Text } else { $recoveryFixture.Data | ConvertTo-Json -Depth 20 }
+        [IO.File]::WriteAllText($recoveryScene, $text, $utf8)
+        Start-Editor
+        Command @('set', 'CodexLoadGuard', '--position', '8,9,10') | Out-Null
+        Command @('select', 'CodexLoadGuard') | Out-Null
+        $recoveryBefore = Capture-GuardState
+        $reply = Invoke-Editor @('autosave', 'recover')
+        Check ("Recovery rejects $($recoveryFixture.Name) and preserves work") ($reply.ExitCode -ne 0 -and (Guard-Unchanged $recoveryBefore (Capture-GuardState))) $reply.Text
+    }
+
+    Close-Editor
+    Write-JsonFile (Join-Path $recoveryDir 'session_999999999.json') @{}
+    Write-JsonFile (Join-Path $recoveryDir 'autosave_999999999.json') @{ scenePath = $externalFile; sceneName = 'CodexRecovery'; time = ([DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 60); objects = 1 }
+    Write-JsonFile $recoveryScene @{ rootGameObjects = @(@{ name = 'CodexRecovered'; components = @(); children = @($valid) }) }
+    Start-Editor
+    Command @('autosave', 'recover') | Out-Null
+    $info = Command @('info')
+    Check 'Valid recovery replaces the scene and keeps unsaved status' ((Path-Equals $info.scene $externalFile) -and $info.dirty -and $info.objects -eq 2 -and @((Command @('find', 'CodexRecovered'))).Count -eq 1) $info.scene
+
+    Close-Editor
+    try
+    {
+        [IO.File]::WriteAllText($externalFile, '{', $utf8)
+        Start-Editor
+        $info = Command @('info')
+        Check 'Broken startup scene opens a valid Untitled scene' ($info.scene -eq '' -and $info.objects -ge 2 -and -not $info.dirty) 'Editor remains available without overwriting the broken file'
+        Check 'Startup does not overwrite the broken scene file' ([IO.File]::ReadAllText($externalFile) -eq '{') $externalFile
+    }
+    finally { [IO.File]::WriteAllText($externalFile, $goodExternal, $utf8) }
+
+    # 새 씬을 먼저 읽어도, 성공한 교체에서 이전 씬의 미저장 지형이 따라오면 안 된다.
+    Command @('create', 'terrain', '--name', 'CodexTerrain') | Out-Null
+    Command @('terrain-trees', 'CodexTerrain', '--count', '0', '--clear') | Out-Null
+    $terrainScene = 'Assets/Scenes/TerrainOrigin.scene'
+    Command @('scene', 'save', '--as', $terrainScene) | Out-Null
+    $terrainJson = [IO.File]::ReadAllText((Join-Path $project $terrainScene))
+    $terrainData = Command @('get', 'CodexTerrain', '--component', 'Terrain')
+    $terrainFile = Join-Path $project $terrainData.terrainData
+    $terrainHash = (Get-FileHash -LiteralPath $terrainFile).Hash
+    $trees = Command @('terrain-trees', 'CodexTerrain', '--count', '3')
+    Check 'Terrain test starts with unsaved trees' ($trees.trees -eq 3 -and (Command @('info')).dirty -and (Get-FileHash -LiteralPath $terrainFile).Hash -eq $terrainHash) 'Three trees in memory; terrain file remains unchanged'
+
+    $badTerrain = ConvertFrom-Json -InputObject $terrainJson
+    $badTerrain.rootGameObjects = @($badTerrain.rootGameObjects) + @(@{ components = @() })
+    $badTerrainFile = Join-Path $scenes 'InvalidTerrain.scene'
+    Write-JsonFile $badTerrainFile $badTerrain
+    $reply = Invoke-Editor @('scene', 'open', $badTerrainFile, '--force')
+    $trees = Command @('terrain-trees', 'CodexTerrain', '--count', '0')
+    Check 'Failed scene load preserves unsaved terrain data' ($reply.ExitCode -ne 0 -and $trees.trees -eq 3 -and (Command @('info')).dirty -and (Get-FileHash -LiteralPath $terrainFile).Hash -eq $terrainHash) $reply.Text
+
+    Command @('scene', 'open', $terrainScene, '--force') | Out-Null
+    $trees = Command @('terrain-trees', 'CodexTerrain', '--count', '0')
+    Check 'Successful reload drops unsaved terrain edits' ($trees.trees -eq 0 -and -not (Command @('info')).dirty) 'Saved terrain has zero trees'
+
+    $terrainDestination = 'Assets/Scenes/TerrainDestination.scene'
+    [IO.File]::WriteAllText((Join-Path $project $terrainDestination), $terrainJson, $utf8)
+    Command @('terrain-trees', 'CodexTerrain', '--count', '3') | Out-Null
+    Command @('scene', 'open', $terrainDestination, '--force') | Out-Null
+    $trees = Command @('terrain-trees', 'CodexTerrain', '--count', '0')
+    Check 'Scene switch reloads shared terrain from the saved file' ($trees.trees -eq 0 -and -not (Command @('info')).dirty) 'Destination shares the same terrain asset'
 }
 catch { Check 'Test harness completed' $false $_.Exception.Message }
 finally

@@ -1026,9 +1026,21 @@ namespace CliCommands
 				e = "the current scene has unsaved changes (nova scene save, or --force to discard)";
 				return false;
 			}
-			SelectionManager::ClearSelection();
-			SceneManager::GetI()->LoadScene(PathManager::GetI()->GetCutSolutionPath(file));
+			const std::wstring scenePath = PathManager::GetI()->GetCutSolutionPath(file);
+			Scene* previous = CurrentScene();
+			const bool reload = previous && previous->GetScenePath() == scenePath;
+			const uint64 serial = previous ? previous->GetSerial() : 0;
+			if (reload)
+				SceneManager::GetI()->DiscardChanges();
+			else
+				SceneManager::GetI()->LoadScene(scenePath);
 			Scene* scene = CurrentScene();
+			if (!scene || scene->GetScenePath() != scenePath || (reload && scene->GetSerial() == serial))
+			{
+				e = "scene could not be loaded (see nova log): " + path;
+				return false;
+			}
+			SelectionManager::ClearSelection();
 			r = { { "scene", scene ? wstring_to_string(scene->GetScenePath()) : "" }, { "objects", scene ? scene->GetAllGameObjects().size() : 0 } };
 			return true;
 		});

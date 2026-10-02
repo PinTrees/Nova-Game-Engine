@@ -13,6 +13,9 @@
 #include "SceneCulling.h"
 #include "MeshBatcher.h"
 #include "SelectionManager.h"
+#include "Debug.h"
+#include <memory>
+#include <stdexcept>
 
 Scene::Scene()
 	: m_VecRootGameObjects(),
@@ -264,21 +267,26 @@ static std::wstring ResolveScenePath(const std::wstring& path)
 
 Scene* Scene::Load(wstring scenePath)
 {
-    std::ifstream is{ std::filesystem::path(ResolveScenePath(scenePath)) };
-
-    if (!is)
+    if (scenePath.empty())
+        return nullptr;   // 저장하지 않은 기본 씬으로 시작하는 정상 경로
+    try
     {
+        std::ifstream is{ std::filesystem::path(ResolveScenePath(scenePath)) };
+        if (!is)
+            throw std::runtime_error("could not read the scene file");
+
+        // parse()는 파일 뒤의 잘못된 내용도 거절한다. 복원이 끝나기 전까지 임시 씬이 소유한다.
+        const json j = json::parse(is);
+        auto scene = std::make_unique<Scene>();
+        scene->m_ScenePath = scenePath;
+        from_json(j, *scene);
+        return scene.release();
+    }
+    catch (const std::exception& error)
+    {
+        Debug::LogError("Could not open scene '" + wstring_to_string(scenePath) + "': " + error.what());
         return nullptr;
     }
-
-    json j;
-    is >> j;
-
-    Scene* scene = new Scene();
-    scene->m_ScenePath = scenePath;
-    from_json(j, *scene);
-
-    return scene;
 }
 
 // 씬을 JSON 으로 파일에 쓴다. 성공하면 마지막으로 연 씬으로 기록한다.
@@ -454,11 +462,18 @@ void to_json(json& j, const Scene& scene)
 
 void from_json(const json& j, Scene& scene)
 {
+    if (!j.is_object() || !j.contains("rootGameObjects") || !j.at("rootGameObjects").is_array())
+        throw std::runtime_error("scene rootGameObjects must be an array");
+
     // 예전 레이어 번호 (3 Water, 4 UI) 로 저장한 씬 → Unity 번호
     const bool legacyLayers = j.value("layerFormat", 1) < TagsAndLayers::kLayerFormat;
     for (const auto& gameObjectJson : j.at("rootGameObjects"))
     {
-        GameObject* gameObject = new GameObject();
+        auto owned = std::make_unique<GameObject>();
+        GameObject* gameObject = owned.get();
+        // 복원 중 예외가 나도 Scene 소멸자가 이 루트와 이미 붙인 자손을 정리한다.
+        scene.AddRootGameObject(gameObject);
+        owned.release();
         if (legacyLayers)
         {
             json migrated = gameObjectJson;
@@ -467,7 +482,7 @@ void from_json(const json& j, Scene& scene)
         }
         else
             from_json(gameObjectJson, *gameObject);
-        scene.AddRootGameObject(gameObject);   // 저장된 자식 오브젝트까지 렌더/업데이트 목록에 등록
+        scene.RegisterGameObjectTree(gameObject);   // 복원이 끝난 자손도 렌더/업데이트 목록에 등록
     }
 }
 

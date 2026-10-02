@@ -10,6 +10,8 @@
 #include "MeshFilter.h"
 #include "MeshRenderer.h"
 #include <random>
+#include <memory>
+#include <stdexcept>
 
 atomic<uint64> GameObject::g_NextInstanceID = 0;
 
@@ -392,6 +394,8 @@ void to_json(json& j, const GameObject& obj)
 
 void from_json(const json& j, GameObject& obj)
 {
+    if (!j.is_object())
+        throw std::runtime_error("scene game object must be an object");
     // 프리팹 인스턴스 루트: 현재 에셋 값 + 저장된 오버라이드로 다시 조립한 JSON 으로 만든다 (에셋 변경이 반영됨)
     if (PrefabUtility::NeedsMerge(j))
     {
@@ -412,6 +416,11 @@ void from_json(const json& j, GameObject& obj)
     obj.m_Tag = j.value("tag", std::string("Untagged"));
     obj.m_LayerIndex = (uint8)j.value("layer", 0);
     obj.m_IsStatic = j.value("static", false);
+
+    if (!j.at("components").is_array())
+        throw std::runtime_error("game object components must be an array");
+    if (j.contains("children") && !j.at("children").is_array())
+        throw std::runtime_error("game object children must be an array");
 
     // 컴포넌트 복원
     for (const auto& compJson : j.at("components"))
@@ -468,12 +477,15 @@ void from_json(const json& j, GameObject& obj)
     {
         for (const auto& childJson : j.at("children"))
         {
-            GameObject* child = new GameObject;
-            from_json(childJson, *child); 
+            auto owned = std::make_unique<GameObject>();
+            GameObject* child = owned.get();
+            // 자식 복원 전에 트리에 넣어 씬의 실패 정리가 부분 복원된 자손까지 찾게 한다.
             child->SetParentImmediate(&obj); 
+            obj.SetChild(child);
+            owned.release();
+            from_json(childJson, *child);
             child->GetComponent<Transform>()->SetParent(obj.GetComponent_SP<Transform>()); 
             child->GetComponent<Transform>()->UpdateTransform(); 
-            obj.SetChild(child); 
         }
     }
 }

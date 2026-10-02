@@ -16,9 +16,24 @@
 #include "Volume.h"
 #include "RenderPipelineSettings.h"
 #include "EditorUtility.h"
+#include "Terrain.h"
+#include <memory>
 
 
 SINGLE_BODY(SceneManager)
+
+namespace
+{
+	void DropDiscardedTerrain(Scene* next)
+	{
+		TerrainData::DropUnsaved();
+		// 임시 씬을 먼저 만들면서 공유한 미저장 지형은 교체 성공 뒤 파일에서 다시 읽는다.
+		for (GameObject* go : next->GetAllGameObjects())
+			if (Terrain* terrain = go->GetComponent<Terrain>())
+				if (terrain->GetTerrainData() && terrain->GetTerrainData()->Dirty)
+					terrain->SetTerrainData(terrain->GetTerrainDataPath());
+	}
+}
 
 SceneManager::SceneManager()
 	: m_pCurrScene(nullptr)
@@ -37,7 +52,18 @@ void SceneManager::Init()
 
 void SceneManager::LoadScene(wstring scenePath)
 {
-	Scene* scene = nullptr;
+	const auto cached = m_Scenes.find(scenePath);
+	Scene* scene = cached != m_Scenes.end() ? cached->second : Scene::Load(scenePath);
+	if (scene == nullptr)
+	{
+		// 불러오기가 실패하면 경로/선택/Undo/수정 상태를 포함한 현재 작업을 그대로 둔다.
+		if (m_pCurrScene == nullptr)
+		{
+			CreateScene();   // 시작 씬을 읽지 못해도 에디터에는 유효한 기본 씬이 필요하다.
+			m_pCurrScene->Enter();
+		}
+		return;
+	}
 
 	// Unity 의 씬 열기와 같이 이전 씬을 내린다 (Play 중이 아닐 때). 예전에는 캐시에 남겨 두어
 	// 그 씬의 나무·물·지형·입자가 전역 목록(Tree::All 등)에 남아 새 씬에 같이 그려졌고, 물리도 Exit 되지 않았다.
@@ -51,27 +77,11 @@ void SceneManager::LoadScene(wstring scenePath)
 		m_pCurrScene = nullptr;
 		SelectionManager::ClearSelection();
 		delete old;
-		TerrainData::DropUnsaved();   // 저장하지 않고 닫은 지형 편집은 버린다 (다시 열면 파일에서)
+		DropDiscardedTerrain(scene);
 	}
 
-	if (m_Scenes.find(scenePath) != m_Scenes.end())
-	{
-		scene = m_Scenes[scenePath];
-		m_pCurrScene = scene;
-	}
-	else
-	{
-		scene = Scene::Load(scenePath);
-		if (scene == nullptr)
-		{
-			CreateScene();
-		}
-		else
-		{
-			m_Scenes[scenePath] = scene;
-			m_pCurrScene = scene;
-		}
-	}
+	m_Scenes[scenePath] = scene;
+	m_pCurrScene = scene;
 
 	m_pCurrScene->Enter();
 	DisplayManager::GetI()->Init();
@@ -315,9 +325,19 @@ bool SceneManager::OpenRecoveredScene(const std::string& sceneJson, const std::w
 {
 	if (Application::IsPlaying())
 		return false;
-	json j = json::parse(sceneJson, nullptr, false);
-	if (j.is_discarded() || !j.is_object())
+	std::unique_ptr<Scene> recovered;
+	try
+	{
+		const json j = json::parse(sceneJson);
+		recovered = std::make_unique<Scene>();
+		recovered->SetScenePath(scenePath);
+		from_json(j, *recovered);
+	}
+	catch (const std::exception& error)
+	{
+		Debug::LogError("Could not recover scene '" + wstring_to_string(scenePath) + "': " + error.what());
 		return false;
+	}
 	if (m_pCurrScene != nullptr)
 	{
 		Scene* old = m_pCurrScene;
@@ -327,11 +347,9 @@ bool SceneManager::OpenRecoveredScene(const std::string& sceneJson, const std::w
 		m_pCurrScene = nullptr;
 		SelectionManager::ClearSelection();
 		delete old;
-		TerrainData::DropUnsaved();
+		DropDiscardedTerrain(recovered.get());
 	}
-	Scene* scene = new Scene();
-	scene->SetScenePath(scenePath);
-	from_json(j, *scene);
+	Scene* scene = recovered.release();
 	if (!scenePath.empty())
 		m_Scenes[scenePath] = scene;
 	m_pCurrScene = scene;
@@ -350,13 +368,19 @@ void SceneManager::DiscardChanges()
 	if (m_pCurrScene == nullptr || m_pCurrScene->GetScenePath().empty() || Application::IsPlaying())
 		return;
 	const std::wstring path = m_pCurrScene->GetScenePath();
+	Scene* next = Scene::Load(path);
+	if (next == nullptr)
+		return;
 	m_pCurrScene->Exit();
-	m_Scenes.erase(path);
+	for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
+		it = it->second == m_pCurrScene ? m_Scenes.erase(it) : std::next(it);
 	delete m_pCurrScene;
-	m_pCurrScene = nullptr;
 	SelectionManager::ClearSelection();
-	TerrainData::DropUnsaved();   // 지형 편집도 버린다 (예전에는 캐시에 남아 Discard 뒤에도 그대로였다)
-	LoadScene(path);
+	DropDiscardedTerrain(next);
+	m_Scenes[path] = m_pCurrScene = next;
+	next->Enter();
+	DisplayManager::GetI()->Init();
+	MarkCurrentSceneSaved();
 }
 
 void SceneManager::HandlePlay()
