@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -693,6 +693,100 @@ function Suite-Packages
 }
 
 # ------------------------------------------------------------------ 오디오: Audio Mixer 그룹으로 보내기 · 노출 파라미터 · 스냅숏 전환 (그룹 레벨 미터로 확인)
+function Suite-Model
+{
+    # 모델 편집기 패키지: CLI 연산 (만들기 · 돌출 · Inset · Loop Cut · Bevel · Subsurf · Mirror · Undo) → 점 · 면 수 · 경계 상자,
+    # 내보내기 (FBX · OBJ · GLB) → 다시 가져와 같은 모양인지, PNG 렌더, .nmodel 저장 · 열기
+    Write-Host '[model]'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $before = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { $null }
+    $dir = Join-Path $Out 'model'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ed = Start-TestEditor
+    try
+    {
+        $a = Invoke-NovaJson 'package add com.nova.modeling'
+        Add-Result model 'package loads (NovaModeling.dll)' ($a -and $a.loaded) "loaded=$($a.loaded)"
+        $h = Invoke-NovaJson 'model help'
+        Add-Result model 'model help lists ops' ($h -and $h.extrude -and $h.loopcut -and $h.render) "ops=$(@($h.PSObject.Properties).Count)"
+        function M([string]$line) { Invoke-NovaJson "model $line" }
+        function Closed($r) { $r -and $r.boundaryEdges -eq 0 -and $r.nonManifoldEdges -eq 0 }
+        function Near([double]$a, [double]$b) { [math]::Abs($a - $b) -lt 0.002 }
+
+        # 정육면체 → 윗면 돌출 → Inset → 다시 돌출 → Undo
+        M 'new' | Out-Null
+        $c = M 'add --type cube --size 2'
+        Add-Result model 'add cube (8 verts, 6 faces, 2 m)' ($c -and $c.verts -eq 8 -and $c.faces -eq 6 -and (Near $c.size[0] 2)) "verts=$($c.verts) faces=$($c.faces) size=$($c.size -join ',')"
+        M 'mode --mode edit --select face' | Out-Null
+        $s = M 'select.normal --direction 0,1,0'
+        Add-Result model 'select.normal up → 1 face' ($s -and $s.selection.faces -eq 1) "faces=$($s.selection.faces)"
+        $e = M 'extrude --distance 1'
+        Add-Result model 'extrude top face 1 m (12 verts, 10 faces, top y=2, closed)' ($e -and $e.verts -eq 12 -and $e.faces -eq 10 -and (Near $e.max[1] 2) -and (Closed $e)) "verts=$($e.verts) faces=$($e.faces) maxY=$($e.max[1]) open=$($e.boundaryEdges)"
+        $i = M 'inset --thickness 0.25'
+        Add-Result model 'inset (16 verts, 14 faces, closed)' ($i -and $i.verts -eq 16 -and $i.faces -eq 14 -and (Closed $i)) "verts=$($i.verts) faces=$($i.faces) open=$($i.boundaryEdges)"
+        $e2 = M 'extrude --distance 0.5'
+        $sel = M 'get --what verts --selected'
+        $inner = $sel -and $sel.total -eq 4 -and @($sel.items | Where-Object { [math]::Abs([math]::Abs($_[1]) - 0.75) -lt 0.002 }).Count -eq 4
+        Add-Result model 'extrude inset face (top y=2.5, cap = inner 1.5 m square)' ($e2 -and (Near $e2.max[1] 2.5) -and $inner -and (Closed $e2)) "maxY=$($e2.max[1]) cap verts=$($sel.total)"
+        $u = M 'undo'
+        Add-Result model 'undo → top back at y=2' ($u -and (Near $u.max[1] 2) -and $u.faces -eq 14) "maxY=$($u.max[1]) faces=$($u.faces)"
+        $tower = M 'extrude --distance 0.5'
+        M 'mode --mode object' | Out-Null
+        foreach ($ext in 'fbx', 'obj', 'glb')
+        {
+            $x = M "export $dir\tower.$ext"
+            $f = Join-Path $dir "tower.$ext"
+            Add-Result model "export .$ext" ($x -and (Test-Path $f) -and (Get-Item $f).Length -gt 200) "bytes=$(if (Test-Path $f) { (Get-Item $f).Length })"
+        }
+        # 다시 가져오기: FBX · OBJ 는 사각형 그대로 (같은 점 · 면 수), GLB 는 삼각형 (같은 삼각형 수), 경계 상자 같음
+        foreach ($ext in 'fbx', 'obj', 'glb')
+        {
+            $r = M "import $dir\tower.$ext"
+            $sameShape = $r -and (Near $r.min[0] $tower.min[0]) -and (Near $r.max[1] $tower.max[1]) -and (Near $r.min[2] $tower.min[2]) -and (Near $r.max[2] $tower.max[2])
+            $counts = if ($ext -eq 'glb') { $r.tris -eq $tower.tris } else { $r.verts -eq $tower.verts -and $r.faces -eq $tower.faces }
+            Add-Result model "re-import .$ext (same shape$(if ($ext -ne 'glb') { ', quads kept' }))" ($sameShape -and $counts) "verts $($r.verts)/$($tower.verts) faces $($r.faces)/$($tower.faces) tris $($r.tris)/$($tower.tris) min $($r.min -join ',') max $($r.max -join ',')"
+        }
+
+        # Loop Cut: 정육면체 변 하나 → 고리 4 면이 나뉜다
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null; M 'mode --mode edit' | Out-Null
+        $l = M 'loopcut --edge 0'
+        Add-Result model 'loop cut on a cube (12 verts, 10 faces, closed)' ($l -and $l.verts -eq 12 -and $l.faces -eq 10 -and (Closed $l)) "verts=$($l.verts) faces=$($l.faces) open=$($l.boundaryEdges)"
+        # Bevel: 변 하나 → 띠 면 + 점 2 개
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null; M 'mode --mode edit --select edge' | Out-Null
+        M 'select.edges --ids [0]' | Out-Null
+        $b = M 'bevel --offset 0.1'
+        Add-Result model 'bevel one cube edge (10 verts, 7 faces, closed)' ($b -and $b.verts -eq 10 -and $b.faces -eq 7 -and (Closed $b)) "verts=$($b.verts) faces=$($b.faces) open=$($b.boundaryEdges) nonManifold=$($b.nonManifoldEdges)"
+        # Subdivision Surface: 정육면체 1 단계 = 24 면, 26 점, 둥글어진다
+        M 'new' | Out-Null; M 'add --type cube --size 2' | Out-Null; M 'mode --mode edit' | Out-Null
+        $ss = M 'subsurf --levels 1'
+        Add-Result model 'subsurf level 1 (26 verts, 24 faces, closed)' ($ss -and $ss.verts -eq 26 -and $ss.faces -eq 24 -and (Closed $ss)) "verts=$($ss.verts) faces=$($ss.faces) open=$($ss.boundaryEdges)"
+        # Mirror: 오른쪽 반 → X 로 뒤집어 붙이고 가운데 용접
+        M 'new' | Out-Null; M 'add --type cube' | Out-Null; M 'mode --mode edit' | Out-Null
+        M 'select.all' | Out-Null; M 'translate --delta 0.5,0,0' | Out-Null
+        $mi = M 'mirror --axis x'
+        Add-Result model 'mirror X with center weld (12 verts, x -1..1)' ($mi -and $mi.verts -eq 12 -and (Near $mi.min[0] -1) -and (Near $mi.max[0] 1)) "verts=$($mi.verts) min x=$($mi.min[0])"
+
+        # 렌더: 시점마다 PNG
+        M 'new' | Out-Null; M 'add --type uvsphere --radius 0.5 --location 0,0.5,0 --smooth' | Out-Null; M 'add --type cube --size 0.6 --location 1,0.3,0' | Out-Null
+        $rn = M "render --dir $dir\render --views front,right,top,persp --size 320 --shading solid"
+        $pngs = @('front', 'right', 'top', 'persp' | ForEach-Object { Join-Path "$dir\render" "$_.png" } | Where-Object { (Test-Path $_) -and (Get-Item $_).Length -gt 2000 })
+        Add-Result model 'render 4 views to PNG' ($rn -and $pngs.Count -eq 4) "files=$($pngs.Count)"
+        # .nmodel 저장 → 새 문서 → 열기
+        $sv = M "save $dir\scene.nmodel"
+        M 'new' | Out-Null
+        $op = M "open $dir\scene.nmodel"
+        Add-Result model 'save / open .nmodel' ($sv -and $op -and $op.objects -eq 2 -and $op.faces -eq $rn.faces) "objects=$($op.objects) faces=$($op.faces)/$($rn.faces)"
+        $bad = Invoke-Nova 'model loopcut'
+        Add-Result model 'bad arguments → error message' ($bad -match 'need --edge') ($bad -replace '\s+', ' ')
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Stop-TestEditor $ed
+        if ($null -ne $before) { Set-Content -Path $manifest -Value $before -NoNewline -Encoding utf8 }
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -999,6 +1093,7 @@ try
                 'import' { Suite-Import }
                 'ui' { Suite-UI }
                 'packages' { Suite-Packages }
+                'model' { Suite-Model }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

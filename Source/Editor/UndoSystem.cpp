@@ -29,6 +29,7 @@ namespace
 	bool s_PrevInteracting = false;
 	int s_CheckFrames = 0;
 	int s_Frame = 0;
+	int s_BlockFrame = -1;   // BlockShortcuts: 이 프레임까지 단축키를 받지 않는다
 
 	// ---- 에셋 감시 ----
 	struct Tracker
@@ -540,6 +541,7 @@ namespace Undo
 
 	void SetActionName(const std::string& name) { s_PendingName = name; }
 	void RequestCheck() { s_Requested = true; }
+	void BlockShortcuts() { s_BlockFrame = s_Frame + 1; }
 	void Touch(GameObject* gameObject) { if (gameObject) s_TouchedRoots.insert(RootOf(gameObject)); }
 
 	void WatchAsset(const std::string& key, const std::string& label,
@@ -573,7 +575,7 @@ namespace Undo
 
 		ImGuiIO& io = ImGui::GetIO();
 		// 단축키 (글자 입력 중이면 입력 칸의 자체 Undo 에 맡긴다)
-		if (!io.WantTextInput && io.KeyCtrl && !NovaCodeWindow::IsFocused())   // NOVA Code 는 자체 Undo
+		if (!io.WantTextInput && io.KeyCtrl && !NovaCodeWindow::IsFocused() && s_Frame > s_BlockFrame)   // NOVA Code · 모델 편집기는 자체 Undo
 		{
 			if (ImGui::IsKeyPressed(ImGuiKey_Z, false) && !io.KeyShift)
 				PerformUndo();

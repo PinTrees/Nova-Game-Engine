@@ -38,6 +38,8 @@ namespace Undo
 	NOVA_API void RequestCheck();
 	// 이 오브젝트(의 루트)를 다음 확정에서 다시 직렬화한다 (선택하지 않은 오브젝트의 값을 도구·CLI 가 바꿨을 때)
 	NOVA_API void Touch(GameObject* gameObject);
+	// 이번 프레임 Ctrl+Z / Ctrl+Y 를 씬 Undo 가 받지 않는다 (자체 Undo 가 있는 창이 포커스일 때 매 프레임 부른다)
+	NOVA_API void BlockShortcuts();
 
 	// JSON 상태로 읽고 되돌릴 수 있는 에셋을 감시한다 (편집 중인 창이 매 프레임 부른다)
 	NOVA_API void WatchAsset(const std::string& key, const std::string& label,

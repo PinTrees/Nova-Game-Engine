@@ -2,6 +2,7 @@
 #include <functional>
 #include <string>
 #include <nlohmann/json.hpp>
+#include "NovaApi.h"
 
 // NOVA CLI 서버 (Unity CLI 처럼 터미널·AI 가 실행 중인 에디터를 다룬다).
 //  - 이름 있는 파이프 \\.\pipe\nova-editor-<pid> 에서 듣는다 (이 PC 안에서만, 포트·방화벽 없음).
@@ -18,7 +19,9 @@ namespace CliServer
 
 	// delayFrames: 실행 전에 기다릴 프레임 수 (예: 스크린샷은 앞 명령의 변경이 그려진 뒤)
 	// beforePresent: 프레임 끝이 아니라 백버퍼를 다 그린 뒤 Present 직전에 실행 (에디터 전체 캡처)
-	void Register(const std::string& cmd, const std::string& help, Handler handler, int delayFrames = 0, bool beforePresent = false);
+	// 패키지도 명령을 더할 수 있다 (NOVA_API). 패키지는 내릴 때 Unregister 로 지운다 (DLL 의 함수를 가리키므로)
+	NOVA_API void Register(const std::string& cmd, const std::string& help, Handler handler, int delayFrames = 0, bool beforePresent = false);
+	NOVA_API void Unregister(const std::string& cmd);
 
 	void Start();                    // 에디터가 프로젝트를 연 뒤 한 번
 	void Stop();                     // 종료 때 (인스턴스 파일 삭제)

@@ -202,6 +202,12 @@ namespace CliServer
 		s_CommandList[cmd] = help;
 	}
 
+	void Unregister(const std::string& cmd)
+	{
+		Handlers().erase(cmd);
+		s_CommandList.erase(cmd);
+	}
+
 	const json& Commands() { return s_CommandList; }
 	const std::wstring& PipeName() { return s_PipeName; }
 

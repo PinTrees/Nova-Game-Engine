@@ -124,6 +124,8 @@ C# 만 있는 패키지는 `Runtime/` 에 MonoBehaviour 를 두면 된다 (예: 
 | 에셋 형식 | `EditorExtensions::RegisterAssetType({Owner, Extension, Icon, CreateMenu, DefaultName, DragPayload, Create, Open, Inspector})` — Project 창 Create 메뉴 · 더블클릭 · Inspector · 끌기. `OnUnload` 에서 `UnregisterOwner(패키지 이름)` | `.controller` |
 | Inspector 선택 | `SelectionManager::SetCustomSelection(owner, data, drawFn)` (`SelectionType::CUSTOM`) — 상태·전이처럼 GameObject 가 아닌 것. 빼기 전에 내 owner 의 선택을 지운다 (함수가 DLL 안에 있다) | Animator 상태 · 전이 |
 | 포즈 후처리 | 컴포넌트가 `IAnimatorPoseModifier`(`Packages/com.nova.animation/Source/AnimatorIK.h`) 를 상속 → Animator 가 Play 중 같은 GameObject 의 것을 `PoseOrder()` 순으로 부른다. `AnimatorPose` = 스켈레톤 · Humanoid 아바타 · 로컬/모델 공간 행렬 · 모델↔월드 · dt. 도우미 `AnimatorIK::RotateBone / TranslateBone / SolveTwoBone / FromTo / Damp` | Legs Animator(0) → Look Animator(10) |
+| CLI 명령 | `CliServer::Register("이름", "도움말", [](const json& args, json& result, std::string& error) { … })` — `nova call 이름 '{…}'` 로 불린다 (메인 스레드). `OnUnload` 에서 `CliServer::Unregister("이름")` | `model` (Model Editor) |
+| 자체 Undo 창 | 창이 포커스인 프레임마다 `Undo::BlockShortcuts()` → Ctrl+Z / Ctrl+Y 를 씬 Undo 가 받지 않는다 | Model Editor |
 | 자동으로 넣기 | 씬을 읽다가 모르는 컴포넌트 타입이면 `PackageManager::AddForComponent(type)` 가 레지스트리 `components` 에서 찾아 넣는다 (그 뒤 C# 다시 컴파일) | Animator 가 있는 옛 씬 |
 
 패키지가 쓰는 엔진 함수·클래스는 `NOVA_API` 로 내보내져 있어야 링크된다 (없으면 엔진 쪽에 붙인다).

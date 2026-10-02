@@ -378,6 +378,7 @@ ps.Stop();        // 방출 멈춤 (남은 입자는 수명대로)
 | `com.nova.animation` — Animation (새 프로젝트 기본) | **Animator**(상태 머신 · Blend Tree · 루트 모션 · Humanoid 리타게팅, Animator 창, `.controller` 에셋) + 절차적 애니메이션 컴포넌트 **Legs Animator**(발마다 바닥 레이캐스트 → 계단·경사 위에 발을 올리고 무릎을 굽힘, 낮은 쪽 발에 맞춰 엉덩이를 내림, 발바닥을 기울기에, **Foot Locking** = 디딘 발 미끄럼 방지, **Body Lean** = 오르막에서 앞으로) · **Hands Animator**(손 IK — 무기 손잡이 · 벽 짚기, 팔꿈치 힌트, `SetIKPosition / SetIKRotation(AvatarIKGoal)`) · **Look Animator**(머리·목·가슴·척추가 나눠서 대상 쪽으로, 좌우·위아래 한계, 뒤쪽이면 정면으로). 같은 GameObject 의 Animator 포즈 위에 Play 중 적용. C# `Animator` · `LegsAnimator` · `LookAnimator`(target · SetLookAtPosition) · `Animator.GetBonePosition / GetBoneRotation(HumanBodyBones)`. 씬이 Animator 를 쓰는데 패키지가 없으면 열 때 자동으로 넣는다 |
 | `com.nova.cameras` — Cameras | **Follow Camera**: 3인칭 따라가기 카메라(대상 뒤·위, 부드럽게, 벽이 가리면 당김). C# `FollowCamera` |
 | `com.nova.ai.navigation` — AI Navigation | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) 다각형 NavMesh — **NavMesh Surface**(정적 콜라이더로 굽기, 기울기·계단 높이·에이전트 반지름·높이, 타일 + 여러 스레드, 파란 다각형 표시) + **Nav Mesh Agent**(SetDestination → 벽을 돌아가는 길, 가속·자동 감속·회전, 서로 겹치지 않게, 언덕 바닥에 붙음) + **NavMesh Link**(낭떠러지·틈·사다리처럼 걸어서 못 가는 두 곳을 잇는다 — 에이전트가 건너감, 실행 중 옮겨도 바로 반영) + **Nav Mesh Obstacle**(에이전트가 피하고, Carve 면 멈춰 있는 동안 NavMesh 에 구멍 — 닿은 타일만 몇 ms 에 다시 만듦, Detour TileCache). C# `NovaEngine.AI` 의 NavMeshAgent(isOnOffMeshLink · CompleteOffMeshLink 포함) · NavMesh.CalculatePath / SamplePosition · NavMeshSurface.BuildNavMesh · NavMeshObstacle · NavMeshLink |
+| `com.nova.modeling` — Model Editor | Blender 처럼 가볍게 모델링하는 창 (Window > **Model Editor**): Object / Edit 모드, 점 · 변 · 면 고르기(클릭 · 상자 · Alt+클릭 변 고리), **G R S**(X/Y/Z 축 제한 · 숫자 입력 · Ctrl 눈금), **Extrude · Inset · Loop Cut · Bevel · Subdivide · Subdivision Surface · Mirror · Symmetrize · Merge · Fill · Bridge**, Shade Smooth, Undo, Last Operation 패널. FBX · OBJ · glTF 를 사각형 그대로 열고 **FBX(바이너리) · OBJ · GLB 로 내보내기**, `.nmodel` 에셋. 모든 연산이 **`nova model <op>` CLI**(JSON 결과 + 시점별 PNG 렌더) → AI 가 단계별로 모델링하고 그림으로 확인. 자세히: [docs/MODEL_EDITOR.md](docs/MODEL_EDITOR.md) |
 | `com.nova.starter-assets` — Starter Assets - Third Person | C# **ThirdPersonController** + StarterAssetsInputs: WASD(카메라 기준)·Shift 달리기·Space 점프, 가속·부드러운 회전·중력, 오른쪽 버튼 끌기로 카메라 돌리기, Animator 파라미터(Speed·Grounded·Jump·FreeFall). Character Controller + Follow Camera 와 함께 (Cameras 를 의존성으로 같이 넣음) |
 
 | `com.nova.feature.3d-characters` — 3D Characters and Animation (Feature) | Unity 6 의 Feature 처럼 묶음: Animation + Cameras + Starter Assets 를 한 번에 |
@@ -445,7 +446,7 @@ ScriptCore/     C# 엔진 API (NovaScriptCore.dll — Unity 의 UnityEngine.dll 
 Shaders/        HLSL (FX11 이펙트 — OpenGL 은 자동 변환)
 Resources/      엔진 기본 리소스와 패키지
 Tools/          nova CLI(NovaCli), 아이콘·로고·하늘·효과음 생성 스크립트
-docs/           NOVA_CLI.md, PACKAGES.md(패키지 만들기), 이미지
+docs/           NOVA_CLI.md, PACKAGES.md(패키지 만들기), MODEL_EDITOR.md(모델 편집기 · AI 모델링 CLI), 이미지
 ```
 
 ## 문서 · 링크

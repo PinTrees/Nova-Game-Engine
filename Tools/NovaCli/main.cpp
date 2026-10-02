@@ -101,8 +101,8 @@ namespace
 					value = name.substr(eq + 1);
 					name = name.substr(0, eq);
 				}
-				else if (!IsFlag(name) && i + 1 < in.size())
-					value = in[++i];
+				else if (!IsFlag(name) && i + 1 < in.size() && in[i + 1].rfind("--", 0) != 0)
+					value = in[++i];   // 다음 낱말이 --이름 이면 값이 없는 플래그 (뒤 옵션을 먹지 않는다)
 				a.Opt[name] = value;
 			}
 			else if (s == "-n" && i + 1 < in.size())
@@ -595,6 +595,10 @@ namespace
 		"  package list                           registry packages + what the project uses (loaded / error)\n"
 		"  package add <name> | package remove <name>   e.g. com.nova.cameras (writes Packages/manifest.json)\n"
 		"\n"
+		"model editor (package com.nova.modeling: Window > Model Editor)\n"
+		"  model <op> [path] [--key value ...]    mesh modeling: add, select.*, extrude, inset, loopcut, bevel, mirror, subsurf,\n"
+		"                                         import / export (fbx obj glb), render (PNG per view) ... list: nova model help\n"
+		"\n"
 		"other\n"
 		"  call <command> [json args]             raw request (see: nova help --editor)\n"
 		"  ai-guide                               how an AI agent should use NOVA CLI\n"
@@ -615,6 +619,14 @@ namespace
 		"   `nova set Box MeshRenderer.castShadows=1`, `nova add-component Box RigidBody`.\n"
 		"6. Look at the result: `nova camera --frame Box` then `nova screenshot shot.png` and open the image.\n"
 		"7. Check `nova log --errors` after changes. Save only when asked: `nova scene save`.\n"
+		"\n"
+		"## 3D modeling (package com.nova.modeling)\n"
+		"- `nova package add com.nova.modeling`, then `nova model help --json` lists every op with its arguments.\n"
+		"- World coords in meters, Y up, a character faces +Z (its right hand = +X). Prefer index-free selection:\n"
+		"  `model select.box --min x,y,z --max x,y,z`, `model select.normal --direction 0,1,0`.\n"
+		"- Every op returns counts, bounds and the selection; `boundaryEdges` 0 = closed mesh. `model undo` undoes one op.\n"
+		"- Look at your work often: `model render --dir shots --views front,right,three-quarter --shading toon --wire false`\n"
+		"  and open the PNGs. Export for the game: `model export Assets/Models/Name.fbx`. Spec: docs/MODEL_EDITOR.md\n"
 		"\n"
 		"## Rules\n"
 		"- Use --json when you parse output. Exit code: 0 ok, 1 command failed (message on stderr), 2 no editor, 3 usage.\n"
@@ -1019,6 +1031,34 @@ int Run(const std::vector<std::string>& in)
 	{
 		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
+	}
+	else if (cmd == "model")
+	{
+		// 모델 편집기 (com.nova.modeling 패키지): nova model <op> [경로] [--이름 값 …]
+		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true
+		if (!need(1, "model <op> [path] [--key value ...]   (nova model help)")) return 3;
+		rc = "model";
+		args["op"] = a.Pos[0];
+		for (size_t i = 2; i < in.size(); ++i)
+		{
+			const std::string& s = in[i];
+			if (s.size() <= 2 || s[0] != '-' || s[1] != '-')
+			{
+				if (!args.contains("path")) args["path"] = s;   // 위치 인수 = 파일 경로 (import · export · open · save)
+				continue;
+			}
+			std::string name = s.substr(2), value;
+			bool hasValue = false;
+			const size_t eq = name.find('=');
+			if (eq != std::string::npos) { value = name.substr(eq + 1); name = name.substr(0, eq); hasValue = true; }
+			else if (i + 1 < in.size() && !(in[i + 1].size() > 2 && in[i + 1][0] == '-' && in[i + 1][1] == '-')) { value = in[++i]; hasValue = true; }
+			if (name == "project" || name == "pid" || name == "json" || name == "timeout")
+				continue;
+			if (!hasValue) { args[name] = true; continue; }
+			json v = Value(value);
+			if (v.is_string()) { json vec = Vec(value); if (vec.is_array()) v = vec; }
+			args[name] = v;
+		}
 	}
 	else if (cmd == "call")
 	{
