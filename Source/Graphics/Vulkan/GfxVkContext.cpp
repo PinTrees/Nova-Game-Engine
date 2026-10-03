@@ -61,8 +61,7 @@ namespace GfxVkImpl
 	{
 		if (!Rendering) return;
 		vkCmdEndRendering(D->Cmd());
-		Rendering = false;
-		NeedBarrier = true;
+		Rendering = false;   // 타깃은 그릴 때 Written 으로 표시했다 (다시 쓰거나 읽을 때 그 서브리소스만 장벽)
 	}
 
 	void Ctx::FlushBarrier()
@@ -101,10 +100,11 @@ namespace GfxVkImpl
 			while (m < lastMip)
 			{
 				const VkImageLayout from = img.LayoutOf(m, layer);
-				if (from == newLayout) { ++m; continue; }
-				// 같은 옛 배치가 이어지는 밉들을 한 장벽으로
+				auto need = [&](UINT k) { return img.LayoutOf(k, layer) != newLayout || img.Written[layer * img.Mips + k]; };
+				if (!need(m)) { ++m; continue; }
+				// 같은 옛 배치가 이어지는 밉들을 한 장벽으로 (배치가 같아도 쓴 뒤면 장벽 — 쓰기 → 다시 쓰기 · 읽기)
 				UINT end = m + 1;
-				while (end < lastMip && img.LayoutOf(end, layer) == from) ++end;
+				while (end < lastMip && img.LayoutOf(end, layer) == from && need(end)) ++end;
 				VkImageMemoryBarrier2 b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
 				b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 				b.srcAccessMask = from == VK_IMAGE_LAYOUT_UNDEFINED ? 0 : VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -116,7 +116,11 @@ namespace GfxVkImpl
 				b.image = img.Handle;
 				b.subresourceRange = { img.Fmt.Aspect, m, end - m, layer, 1 };
 				out.push_back(b);
-				for (UINT k = m; k < end; ++k) img.LayoutOf(k, layer) = newLayout;
+				for (UINT k = m; k < end; ++k)
+				{
+					img.LayoutOf(k, layer) = newLayout;
+					img.Written[layer * img.Mips + k] = 0;
+				}
 				m = end;
 			}
 		}
@@ -136,10 +140,18 @@ namespace GfxVkImpl
 		FlushBarrier();
 	}
 
+	void Ctx::BeforeBufferWrite()
+	{
+		// 버퍼는 배치를 따라가지 않는다 → 앞 그리기의 읽기(정점 · 인덱스)와 앞 쓰기가 끝난 뒤에 덮어쓴다
+		EndRendering();
+		NeedBarrier = true;
+		FlushBarrier();
+	}
+
 	void Ctx::AfterSubmit()
 	{
+		// 장벽은 제출 순서를 넘어 효력이 있다 (같은 큐) → 남은 버퍼 장벽 · 이미지 Written 은 그대로 이어 간다
 		Rendering = false;
-		NeedBarrier = true;   // 앞 제출의 쓰기 → 다음 명령 (같은 큐라도 실행 의존이 저절로 생기지 않는다)
 		BoundEpoch = ~0ull;
 	}
 
@@ -468,12 +480,7 @@ namespace GfxVkImpl
 		for (UINT i = 0; i < RtvCount; ++i)
 			if ((colors[i] = AsRtv(Rtvs[i].Get())) != nullptr) colorCount = i + 1;
 		Dsv* dsv = AsDsv(DsvView.Get());
-		for (UINT i = 0; i < colorCount; ++i)
-			if (colors[i])
-				Transition(*colors[i]->V.Img, colors[i]->V.BaseMip, 1, colors[i]->V.BaseLayer, colors[i]->V.Layers, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, barriers);
 		const VkImageLayout depthLayout = dsv && dsv->V.ReadOnlyDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		if (dsv)
-			Transition(*dsv->V.Img, dsv->V.BaseMip, 1, dsv->V.BaseLayer, dsv->V.Layers, depthLayout, barriers);
 
 		// ---- 디스크립터 (읽는 이미지의 배치도 여기서)
 		thread_local std::vector<uint32_t> offsets;
@@ -505,17 +512,28 @@ namespace GfxVkImpl
 			ibOffset += IbOffset;
 		}
 
+		// 읽는 이미지의 배치를 바꿔야 하면 렌더링을 끊는다. 타깃 배치는 렌더링을 새로 시작할 때만 (렌더링 중에는 이미 타깃)
 		if (!barriers.empty())
-		{
 			EndRendering();
-			Barrier(barriers);
+		if (!Rendering)
+		{
+			for (UINT i = 0; i < colorCount; ++i)
+				if (colors[i])
+					Transition(*colors[i]->V.Img, colors[i]->V.BaseMip, 1, colors[i]->V.BaseLayer, colors[i]->V.Layers, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, barriers);
+			if (dsv)
+				Transition(*dsv->V.Img, dsv->V.BaseMip, 1, dsv->V.BaseLayer, dsv->V.Layers, depthLayout, barriers);
 		}
+		Barrier(barriers);   // 비었고 버퍼 장벽도 없으면 아무 일도 안 한다
 
 		// ---- 렌더링 시작 (타깃이 바뀌었거나 앞에서 끝냈으면)
 		VkCommandBuffer cb = D->Cmd();
 		if (!Rendering)
 		{
-			FlushBarrier();
+			for (UINT i = 0; i < colorCount; ++i)
+				if (colors[i])
+					colors[i]->V.Img->MarkWritten(colors[i]->V.BaseMip, 1, colors[i]->V.BaseLayer, colors[i]->V.Layers);
+			if (dsv && !dsv->V.ReadOnlyDepth)
+				dsv->V.Img->MarkWritten(dsv->V.BaseMip, 1, dsv->V.BaseLayer, dsv->V.Layers);
 			VkRenderingAttachmentInfo ca[8] = {};
 			VkRenderingAttachmentInfo da = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 			uint32_t w = UINT32_MAX, h = UINT32_MAX, layers = UINT32_MAX;
@@ -690,7 +708,7 @@ namespace GfxVkImpl
 		if (img.Fmt.Integer)
 			for (int i = 0; i < 4; ++i) cv.uint32[i] = (uint32_t)c[i];
 		else
-			for (int i = 0; i < 4; ++i) cv.float32[i] = IsSrgb(v->V.Format) ? c[i] : color[i];
+			for (int i = 0; i < 4; ++i) cv.float32[i] = color[i];
 		// 렌더링 중이고 이 뷰가 지금 타깃 전체이면 렌더링 안에서
 		if (Rendering)
 		{
@@ -709,7 +727,7 @@ namespace GfxVkImpl
 		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, v->V.BaseMip, 1, img.Type == VK_IMAGE_TYPE_3D ? 0 : v->V.BaseLayer,
 			img.Type == VK_IMAGE_TYPE_3D ? 1 : v->V.Layers };
 		vkCmdClearColorImage(D->Cmd(), img.Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &cv, 1, &range);
-		NeedBarrier = true;
+		img.MarkWritten(v->V.BaseMip, 1, v->V.BaseLayer, v->V.Layers);
 	}
 
 	void Ctx::ClearDepthStencilView(GfxDepthStencilView* view, UINT flags, FLOAT depth, UINT8 stencil)
@@ -735,7 +753,7 @@ namespace GfxVkImpl
 		TransitionNow(img, v->V.BaseMip, 1, v->V.BaseLayer, v->V.Layers, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		const VkImageSubresourceRange range = { aspect, v->V.BaseMip, 1, v->V.BaseLayer, v->V.Layers };
 		vkCmdClearDepthStencilImage(D->Cmd(), img.Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &value, 1, &range);
-		NeedBarrier = true;
+		img.MarkWritten(v->V.BaseMip, 1, v->V.BaseLayer, v->V.Layers);
 	}
 
 	// ============================================================ 자원
@@ -830,7 +848,7 @@ namespace GfxVkImpl
 			t->Type == VK_IMAGE_TYPE_3D ? 0 : layer, 1 };
 		c.imageExtent = { t->MipW(mip), t->MipH(mip), t->MipD(mip) };
 		vkCmdCopyBufferToImage(D->Cmd(), loc.Buffer, t->Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
-		NeedBarrier = true;
+		t->MarkWritten(mip, 1, layer, 1);
 	}
 
 	void Ctx::UpdateSubresource(GfxResource* r, UINT sub, const D3D11_BOX* box, const void* data, UINT row, UINT depth)
@@ -857,7 +875,7 @@ namespace GfxVkImpl
 			uint8_t* p = D->RingAlloc(size, 16, loc);
 			if (!p) return;
 			memcpy(p, data, size);
-			BeforeTransfer();
+			BeforeBufferWrite();
 			const VkBufferCopy c = { loc.Offset, off, size };
 			vkCmdCopyBuffer(D->Cmd(), loc.Buffer, b->Buffer, 1, &c);
 			NeedBarrier = true;
@@ -879,7 +897,7 @@ namespace GfxVkImpl
 		BeforeTransfer();
 		TransitionNow(*t, mip, 1, layer, 1, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		D->UploadImage(D->Cmd(), *t, sub, box, data, row, depth);
-		NeedBarrier = true;
+		t->MarkWritten(mip, 1, layer, 1);
 	}
 
 	void Ctx::CopyImageRegion(Image& dst, UINT dstSub, UINT x, UINT y, UINT z, Image& src, UINT srcSub, const D3D11_BOX* box)
@@ -910,7 +928,7 @@ namespace GfxVkImpl
 		}
 		else add(VK_IMAGE_ASPECT_COLOR_BIT);
 		vkCmdCopyImage(D->Cmd(), src.Handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, count, regions);
-		NeedBarrier = true;
+		dst.MarkWritten(dm, 1, dl, 1);
 	}
 
 	void Ctx::CopyResource(GfxResource* dst, GfxResource* src)
@@ -925,7 +943,7 @@ namespace GfxVkImpl
 			if (!bd->Buffer) { D->Once("copy-dynamic", "%s", "copy into a DYNAMIC buffer is not supported"); return; }
 			ResolveBuffer(dst, d2, dO);
 			if (!s) return;
-			BeforeTransfer();
+			BeforeBufferWrite();
 			const VkBufferCopy c = { so, dO, (std::min)(bs->Desc.ByteWidth, bd->Desc.ByteWidth) };
 			vkCmdCopyBuffer(D->Cmd(), s, d2, 1, &c);
 			NeedBarrier = true;
@@ -952,7 +970,7 @@ namespace GfxVkImpl
 			ResolveBuffer(dst, d2, dO);
 			if (!s) return;
 			const UINT off = box ? box->left : 0, size = box ? box->right - box->left : bs->Desc.ByteWidth;
-			BeforeTransfer();
+			BeforeBufferWrite();
 			const VkBufferCopy c = { so + off, dO + x, size };
 			vkCmdCopyBuffer(D->Cmd(), s, d2, 1, &c);
 			NeedBarrier = true;
@@ -967,7 +985,8 @@ namespace GfxVkImpl
 		}
 		// 이미지 ↔ STAGING (버퍼): 서브리소스 전체 (box 는 원점부터의 크기만 따른다)
 		const UINT sm = srcSub % ts->Mips, sl = srcSub / ts->Mips, dm = dstSub % td->Mips, dl = dstSub / td->Mips;
-		BeforeTransfer();
+		if (ts->Handle && td->Staging) BeforeBufferWrite();   // STAGING 버퍼에 쓴다 (앞 읽기가 끝난 뒤)
+		else BeforeTransfer();
 		if (ts->Handle && td->Staging)
 		{
 			TransitionNow(*ts, sm, 1, sl, 1, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -991,10 +1010,10 @@ namespace GfxVkImpl
 			c.imageExtent = { (std::min)(ts->MipW(sm), td->MipW(dm)), (std::min)(ts->MipH(sm), td->MipH(dm)), (std::min)(ts->MipD(sm), td->MipD(dm)) };
 			vkCmdCopyBufferToImage(D->Cmd(), ts->Staging, td->Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &c);
 			ts->LastUse = D->Recording();
+			td->MarkWritten(dm, 1, dl, 1);
 		}
 		else
 			D->Once("copy-staging", "%s", "staging to staging texture copies are not supported");
-		NeedBarrier = true;
 	}
 
 	void Ctx::GenerateMips(GfxShaderResourceView* view)
@@ -1017,7 +1036,7 @@ namespace GfxVkImpl
 				blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, m, layer, 1 };
 				blit.dstOffsets[1] = { (int32_t)img.MipW(m), (int32_t)img.MipH(m), (int32_t)img.MipD(m) };
 				vkCmdBlitImage(D->Cmd(), img.Handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, img.Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, filter);
-				NeedBarrier = true;
+				img.MarkWritten(m, 1, layer, 1);
 			}
 	}
 
@@ -1191,8 +1210,7 @@ namespace GfxVk
 				r.imageExtent = { t->MipW(m), t->MipH(m), 1 };
 				regions.push_back(r);
 			}
-		vkCmdCopyImageToBuffer(d->Cmd(), t->Handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, (uint32_t)regions.size(), regions.data());
-		c->NeedBarrier = true;
+		vkCmdCopyImageToBuffer(d->Cmd(), t->Handle, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, (uint32_t)regions.size(), regions.data());   // 호스트 읽기 장벽은 제출 끝
 		d->Submit(true);
 		hr = d->Lost ? E_FAIL : S_OK;
 		if (SUCCEEDED(hr))

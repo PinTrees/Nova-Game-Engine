@@ -11,7 +11,8 @@
 //  - 기록: 본 명령 버퍼 하나 + 업로드 명령 버퍼 (새 자원의 처음 데이터 — 본 버퍼보다 먼저 제출)
 //  - 이미지 배치(layout)는 서브리소스마다 CPU 가 기록 순서대로 따라간다. 렌더링(동적 렌더링)은 그리기 때 늦게 시작하고
 //    타깃이 바뀌거나 복사 · 지우기 · 배치 바꾸기가 필요하면 끝낸다
-//  - 동기화는 일부러 거칠게: 렌더링을 끝낸 뒤 · 복사 뒤에 전역 메모리 장벽 하나 (D3D11 드라이버가 하는 일)
+//  - 동기화: 이미지는 서브리소스마다 "쓴 뒤 아직 장벽 없음" (Written) 을 따라가 배치가 바뀌거나 같은 배치로 다시 쓰고 읽을 때만 장벽.
+//    버퍼 복사 쓰기는 앞뒤로 전역 메모리 장벽 (드물다). 제출 끝에 호스트 읽기 장벽 하나
 namespace GfxVkImpl
 {
 	class Dev;
@@ -94,6 +95,7 @@ namespace GfxVkImpl
 		D3D11_USAGE Usage = D3D11_USAGE_DEFAULT;
 		UINT CpuAccess = 0, Bind = 0;
 		std::vector<VkImageLayout> Layouts;      // 서브리소스 (layer * Mips + mip) 마다
+		std::vector<uint8_t> Written;            // 서브리소스마다: 마지막 장벽 뒤에 GPU 가 썼다 (같은 배치로 다시 쓸 때 장벽)
 		// STAGING 텍스처 = 버퍼 (서브리소스마다 빽빽한 행)
 		VkBuffer Staging = VK_NULL_HANDLE;
 		std::vector<VkDeviceSize> SubOffset;
@@ -107,6 +109,12 @@ namespace GfxVkImpl
 		UINT MipH(UINT m) const { return (std::max)(1u, Height >> m); }
 		UINT MipD(UINT m) const { return (std::max)(1u, Depth >> m); }
 		VkImageLayout& LayoutOf(UINT mip, UINT layer) { return Layouts[layer * Mips + mip]; }
+		void MarkWritten(UINT baseMip, UINT mips, UINT baseLayer, UINT layers)
+		{
+			for (UINT l = baseLayer; l < (std::min)(baseLayer + layers, Layers); ++l)
+				for (UINT m = baseMip; m < (std::min)(baseMip + mips, Mips); ++m)
+					Written[l * Mips + m] = 1;
+		}
 	};
 
 	class Buf : public Obj<GfxBuffer>
@@ -348,9 +356,10 @@ namespace GfxVkImpl
 		VkSampler DummySampler = VK_NULL_HANDLE, DummyCompare = VK_NULL_HANDLE;   // 빈 샘플러 칸 (보통 · 비교)
 		uint64_t DummySamplerId = 0, DummyCompareId = 0;
 
-		// ---- 창 (스왑체인 — GfxVkSwapchain.cpp)
+		// ---- 창 (스왑체인 — GfxVkSwapchain.cpp). 본 창 + ImGui 가 만든 OS 창(뷰포트)마다 하나
 		struct Swap
 		{
+			HWND Wnd = nullptr;
 			VkSurfaceKHR Surface = VK_NULL_HANDLE;
 			VkSwapchainKHR Chain = VK_NULL_HANDLE;
 			VkFormat Format = VK_FORMAT_UNDEFINED;
@@ -361,13 +370,17 @@ namespace GfxVkImpl
 			std::vector<VkSemaphore> Acquire;   // 고리 (이미지 수 + 1)
 			std::vector<VkSemaphore> Done;      // 이미지마다 (표시가 기다린다)
 			uint32_t AcquireIndex = 0;
-			std::deque<uint64_t> Frames;        // 표시한 프레임의 제출 값 (2 프레임 넘게 앞서 가지 않게)
 			bool Failed = false;
-		} Sw;
-		bool CreateSurface(std::string& error);
-		bool RecreateSwapchain(uint32_t width, uint32_t height, int interval);
-		void DestroySwapchain(bool surfaceToo);
-		void PresentFrame(class Tex2D* backBuffer, int width, int height, int interval);
+		};
+		std::map<HWND, std::unique_ptr<Swap>> Swaps;
+		std::deque<uint64_t> Frames;            // 본 창에 표시한 프레임의 제출 값 (2 프레임 넘게 앞서 가지 않게)
+		Swap* SwapFor(HWND wnd, std::string& error);   // 없으면 표면을 만든다
+		bool CreateSurface(Swap& s, std::string& error);
+		bool RecreateSwapchain(Swap& s, uint32_t width, uint32_t height, int interval);
+		void DestroySwapchain(Swap& s, bool surfaceToo);
+		void DestroyAllSwapchains();
+		void ReleaseWindow(HWND wnd);
+		void PresentFrame(Swap& s, class Tex2D* backBuffer, int width, int height, int interval, bool pace);
 
 		Ctx* Immediate = nullptr;   // 약한 참조 (컨텍스트가 장치를 잡는다)
 		std::set<std::string> Reported;
@@ -471,7 +484,7 @@ namespace GfxVkImpl
 		// 기록 상태
 		bool Rendering = false;
 		VkRect2D RenderArea = {};
-		bool NeedBarrier = false;    // 렌더링 끝 · 복사 뒤 전역 장벽
+		bool NeedBarrier = false;    // 버퍼 복사 쓰기 뒤 전역 장벽 (다음 읽기 전에)
 		uint64_t BoundEpoch = ~0ull;
 		VkPipeline BoundPipeline = VK_NULL_HANDLE;
 		VkDescriptorSet BoundSet = VK_NULL_HANDLE;
@@ -488,7 +501,8 @@ namespace GfxVkImpl
 		// 서브리소스 범위를 newLayout 으로 (바뀌는 것만 장벽에 더한다)
 		void Transition(Image& img, UINT baseMip, UINT mips, UINT baseLayer, UINT layers, VkImageLayout newLayout, std::vector<VkImageMemoryBarrier2>& out);
 		void TransitionNow(Image& img, UINT baseMip, UINT mips, UINT baseLayer, UINT layers, VkImageLayout newLayout);
-		void BeforeTransfer();   // 렌더링 끝 + 앞 쓰기 장벽
+		void BeforeTransfer();   // 렌더링 끝 + 앞 버퍼 쓰기 장벽
+		void BeforeBufferWrite();   // 렌더링 끝 + 앞 읽기 · 쓰기 모두 끝날 때까지 (버퍼 덮어쓰기)
 		void AfterSubmit();
 		bool PrepareDraw(bool indexed);
 		void ResolveBuffer(GfxResource* b, VkBuffer& buffer, VkDeviceSize& offset);

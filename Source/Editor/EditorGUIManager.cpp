@@ -68,8 +68,7 @@ void EditorGUIManager::Init(bool hubMode)
     if (!hubMode)
     {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        if (!vulkan)   // Vulkan: 창 밖 OS 창(뷰포트)은 아직 없다 (창마다 스왑체인 — ImGuiGfx.h)
-            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // 창 밖으로 뺀 창 = OS 창 (DX11: 스왑 체인, OpenGL: ImGuiGL 이 창 DC 에 본 컨텍스트를 붙여 그림)
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // Vulkan: ImGuiGfx 가 창마다 스왑체인 (GfxVk::PresentWindow)   // 창 밖으로 뺀 창 = OS 창 (DX11: 스왑 체인, OpenGL: ImGuiGL 이 창 DC 에 본 컨텍스트를 붙여 그림)
     }
     else
     {

@@ -19,6 +19,7 @@ namespace
 	int s_Refs = 0;
 	uint32_t s_Version = 0;
 	bool s_Validation = false;
+	bool s_SyncValidation = false;   // 검증 레이어의 동기화 검사 (NOVA_VK_SYNC_VALIDATION=1 — 느리다)
 	bool s_Surface = false;
 	std::atomic<int> s_Errors{ 0 }, s_Warnings{ 0 };
 	std::set<int32_t> s_Reported;   // 같은 메시지(id)는 한 번만 기록
@@ -129,6 +130,22 @@ namespace VkLoader
 					s_Validation = true;
 				}
 		}
+		// 동기화 검사 (장벽 빠짐 · 경쟁 탐지): 레이어가 주는 VK_EXT_validation_features 로 켠다
+		s_SyncValidation = false;
+		char syncEnv[8] = {};
+		if (s_Validation && ::GetEnvironmentVariableA("NOVA_VK_SYNC_VALIDATION", syncEnv, sizeof(syncEnv)) && syncEnv[0] == '1')
+		{
+			uint32_t ln = 0;
+			vkEnumerateInstanceExtensionProperties("VK_LAYER_KHRONOS_validation", &ln, nullptr);
+			std::vector<VkExtensionProperties> lexts(ln);
+			vkEnumerateInstanceExtensionProperties("VK_LAYER_KHRONOS_validation", &ln, lexts.data());
+			for (const auto& e : lexts)
+				if (strcmp(e.extensionName, VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME) == 0)
+				{
+					enable.push_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+					s_SyncValidation = true;
+				}
+		}
 
 		VkApplicationInfo app = { VK_STRUCTURE_TYPE_APPLICATION_INFO };
 		app.pApplicationName = "NOVA";
@@ -144,15 +161,26 @@ namespace VkLoader
 		dm.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 		dm.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT;
 		dm.pfnUserCallback = DebugCallback;
+		const VkValidationFeatureEnableEXT syncFeature = VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+		VkValidationFeaturesEXT vf = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
+		vf.enabledValidationFeatureCount = 1;
+		vf.pEnabledValidationFeatures = &syncFeature;
 		if (s_Validation)
 			ci.pNext = &dm;   // 인스턴스 만들기 · 없애기 중의 메시지도
+		if (s_SyncValidation)
+		{
+			dm.pNext = &vf;
+			ci.enabledExtensionCount = (uint32_t)enable.size();
+			ci.ppEnabledExtensionNames = enable.data();
+		}
 		VkResult r = vkCreateInstance(&ci, nullptr, &s_Instance);
 		if (r != VK_SUCCESS && s_Validation)
 		{
 			// 레이어가 깨져 있으면 레이어 없이 다시
 			ci.enabledLayerCount = 0;
 			ci.pNext = nullptr;
-			s_Validation = false;
+			if (s_SyncValidation) { enable.pop_back(); ci.enabledExtensionCount = (uint32_t)enable.size(); }
+			s_Validation = s_SyncValidation = false;
 			r = vkCreateInstance(&ci, nullptr, &s_Instance);
 		}
 		if (r != VK_SUCCESS)
@@ -186,11 +214,12 @@ namespace VkLoader
 			}
 			s_Surface = false;
 		}
+		dm.pNext = nullptr;
 		if (s_Validation && vkCreateDebugUtilsMessengerEXT)
 			vkCreateDebugUtilsMessengerEXT(s_Instance, &dm, nullptr, &s_Messenger);
 		s_Refs = 1;
 		EditorLog::Write("Vulkan", "instance %u.%u.%u, validation %s, surface %s", VK_API_VERSION_MAJOR(s_Version), VK_API_VERSION_MINOR(s_Version),
-			VK_API_VERSION_PATCH(s_Version), s_Validation ? "on" : "off", s_Surface ? "yes" : "no");
+			VK_API_VERSION_PATCH(s_Version), s_Validation ? (s_SyncValidation ? "on + synchronization" : "on") : "off", s_Surface ? "yes" : "no");
 		return true;
 	}
 

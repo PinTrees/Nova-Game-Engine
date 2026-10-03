@@ -21,6 +21,9 @@ namespace GfxVk
 
 	// backBuffer(RGBA8 텍스처) → 창 + 표시. syncInterval 0 = 수직 동기 없음
 	void Present(GfxDevice* device, GfxTexture2D* backBuffer, int windowWidth, int windowHeight, int syncInterval);
+	// 다른 OS 창 (ImGui 뷰포트) 에 표시: 창마다 스왑체인 (처음 부를 때 만든다). ReleaseWindow = 창을 닫을 때
+	bool PresentWindow(GfxDevice* device, HWND window, GfxTexture2D* texture, int width, int height, int syncInterval);
+	void ReleaseWindow(GfxDevice* device, HWND window);
 	// 지금까지 기록한 명령을 GPU 에 보내고 끝날 때까지 기다린다 (검사 · 종료)
 	void WaitIdle(GfxDevice* device);
 

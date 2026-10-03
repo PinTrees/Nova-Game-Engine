@@ -1,6 +1,9 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Vulkan 그래픽 백엔드 1 ~ 3 단계 + 4 단계 장면 · 빌드한 게임 완료 · push `0b6db63`** (사용자 지시 "그래픽 … Vulkan … 이거 먼저 진행", 안드로이드의 첫 단계). 문서 `docs/VULKAN_BACKEND.md`
+- 갱신 시각: 2026년 10월 4일 — **Vulkan 마무리 (1 순위) 완료 · 로컬 커밋, push 전**: Release 성능 (Materials DX 0.93 / VK 1.02 ms, Trees DX 2.27 / VK 1.40 ms),
+  장벽을 서브리소스 단위로 (`Image::Written`), 동기화 검사 (`NOVA_VK_SYNC_VALIDATION=1`) 경쟁 0, 창 밖 ImGui 창 (창마다 스왑체인 — `GfxVk::PresentWindow`).
+  검사 vulkan 10/10 · perf 4/4 (Vulkan 줄 추가). 다음 후보: 안드로이드 빌드 (범위를 사용자와 정한 뒤)
+- 이전: Vulkan 그래픽 백엔드 1 ~ 3 단계 + 4 단계 장면 · 빌드한 게임 완료 · push `0b6db63`
   - 검사 `vulkan` **10/10**: 화면 없는 장치 gfx · rhi (차이 최대 1), 에디터를 Vulkan 으로 띄운 렌더 7 장면이 DX11 과 같음, 검증 레이어 오류 0. 회귀 gfx 2/2, animation 11/11
   - 에디터: 스왑체인 · ImGuiGfx (`Shaders/56. ImGui.fx`) · 창 크기 따라감 · `-force-vulkan` · `nova open --graphics vulkan` · 실패하면 DX11. Graphics API 메뉴에서 고를 수 있음 (시험 단계). 창 밖 ImGui 창(뷰포트)은 Vulkan 에서 꺼 둠
   - 빌드한 게임: Player Settings 에 Vulkan → dxcompiler · SPIR-V 캐시를 넣고 Vulkan 으로 실행 확인

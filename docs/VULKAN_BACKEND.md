@@ -10,13 +10,23 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
 | 1 | 화면 없는 Vulkan 장치 + Gfx 검사 장면이 DX11 과 같다 (`nova vulkan gfx-test`) | **완료** — 화소 차이 최대 1, 검증 레이어 오류 0 |
 | 2 | RHI 검사 장면 (`nova vulkan rhi-test`) | **완료** — 화소 차이 최대 1, 검증 레이어 오류 0 |
 | 3 | 에디터가 Vulkan 으로 실행 (스왑체인 · ImGui · 창 크기 · `-force-vulkan` · 안 되면 DX11) | **완료** — 에디터 전체 화면이 DX11 과 같다, 창 크기 바꾸기 따라감 |
-| 4 | 렌더 회귀 7 장면이 DX11 과 같다 · 빌드한 게임 · 성능 | 장면 **7/7** · 빌드한 게임 실행 **완료**, 성능 (Release) 은 다음 |
+| 4 | 렌더 회귀 7 장면이 DX11 과 같다 · 빌드한 게임 · 성능 | **완료** — 장면 7/7, 빌드한 게임 실행, Release 성능 (아래) |
+
+### 성능 (Release, GTX 1660 SUPER, `run_tests.ps1 -Only perf`, 240 프레임 평균 ms — 낮을수록 좋음)
+
+| 장면 | DirectX 11 | OpenGL | Vulkan |
+|---|---|---|---|
+| Materials | 0.93 (GPU 0.81) | 1.32 (GPU 1.01) | 1.02 (GPU 0.76) |
+| Trees | 2.27 (GPU 2.18) | 2.24 (GPU 1.98) | **1.40** (GPU 1.14) |
+
+장벽을 서브리소스 단위로 바꾼 뒤 Vulkan 이 Materials 1.14 → 1.02, Trees 1.49 → 1.40. 가벼운 장면은 CPU 쪽 (그리기마다 디스크립터 키 · 파이프라인 키) 이 DX11 보다 조금 무겁다
 
 - 고르기: Edit → Graphics API 메뉴의 Vulkan (시험 단계), 실행 인자 `-force-vulkan`, CLI `nova open <프로젝트> --graphics vulkan`, Player Settings 의 API 목록.
   Vulkan 장치를 못 만들면 DirectX 11 로 대체한다 (`[Graphics] Vulkan failed to start - using DirectX 11`)
 - 창 표시 (`GfxVkSwapchain.cpp`): 엔진은 백버퍼 텍스처에 그리고 Present 가 스왑체인 이미지로 블릿 (Vulkan 은 행 0 = 위 → 뒤집지 않음).
   수직 동기 0 = MAILBOX (없으면 IMMEDIATE), 창 크기 · OUT_OF_DATE 면 다시 만든다. CPU 는 GPU 보다 2 프레임 넘게 앞서 가지 않는다
-- 에디터 UI: `Source/Editor/ImGuiGfx.*` — Gfx 층 + `Shaders/56. ImGui.fx` 로 그리는 API 공용 ImGui 렌더러 (imgui_impl_dx11 과 같은 그림)
+- 에디터 UI: `Source/Editor/ImGuiGfx.*` — Gfx 층 + `Shaders/56. ImGui.fx` 로 그리는 API 공용 ImGui 렌더러 (imgui_impl_dx11 과 같은 그림).
+  창 밖으로 뺀 창 (ImGui 뷰포트 = OS 창) 은 창마다 그림 텍스처 + 자기 스왑체인 (`GfxVk::PresentWindow`, 창을 닫으면 `ReleaseWindow`)
 - 빌드한 게임: Player Settings 에 Vulkan 이 있으면 셰이더 변환기 (dxcompiler) 와 `ShaderCache/SPIRV` 를 같이 넣는다
 
 ## SDK 없이 빌드 · 실행
@@ -55,7 +65,9 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
   기다림은 10 초가 넘으면 장치 잃음으로 본다 (PC 가 굳지 않게)
 - **기록**: 본 명령 버퍼 + 업로드 명령 버퍼 (새 자원의 처음 데이터, 같은 제출에서 먼저). 렌더링(동적 렌더링)은 그리기 때 시작하고
   타깃이 바뀌거나 복사 · 지우기 · 배치 바꾸기가 필요하면 끝낸다. 이미지 배치는 서브리소스마다 따라간다.
-  동기화는 일부러 거칠다 — 렌더링을 끝낸 뒤 · 복사 뒤 전역 장벽 하나 (D3D11 드라이버가 하는 일)
+  **동기화**: 서브리소스마다 "쓴 뒤 아직 장벽 없음" (`Image::Written`) 을 따라가 배치가 바뀌거나 같은 배치로 다시 쓰고 읽을 때만 그 서브리소스에 장벽
+  (그림자 캐스케이드처럼 다른 조각을 차례로 그리면 장벽이 없다). 버퍼 복사 쓰기는 앞뒤 전역 장벽, 제출 끝에 호스트 읽기 장벽.
+  `NOVA_VK_SYNC_VALIDATION=1` 이면 검증 레이어의 동기화 검사(경쟁 탐지)를 켠다 — 검사 vulkan 10/10 에서 경쟁 0
 - **그리기**: 타깃 · 읽는 이미지 배치 → 파이프라인 (효과 pass · 입력 배치 · 래스터 · 블렌드 · 깊이 상태 · 타깃 형식 키 캐시) →
   디스크립터 집합 (내용 해시 캐시, 상수는 UNIFORM_BUFFER_DYNAMIC 오프셋) → 정점 · 인덱스 → 동적 상태 (뷰포트 · 가위 · 블렌드 상수 · 스텐실 기준 · 정점 간격)
 - **DYNAMIC 버퍼**: Map(WRITE_DISCARD) = CPU 사본, Unmap 때 링으로. 다음 기록에서 링 위치가 사라졌으면 사본에서 다시 올린다 (GL 과 같은 방식)
@@ -64,8 +76,7 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
 
 ## 아직 없는 것
 
-- 창 밖으로 뺀 ImGui 창 (OS 창 = 뷰포트): 창마다 스왑체인이 필요해 Vulkan 에디터에서는 꺼 둔다 (떠 있는 창은 에디터 창 안에)
-- 성능 비교 (Release 빌드), 동기화 장벽 다듬기 (지금은 렌더링 끝 · 복사 뒤 전역 장벽)
+- 그리기마다의 CPU 비용 줄이기 (가벼운 장면에서 DX11 보다 약 10 % 느림)
 - compute · UAV · 구조화 버퍼 · 스트림 출력 (OpenGL 과 같이 옛 예제만 쓴다) — 그런 자원을 쓰는 pass 는 로그를 남기고 그리지 않는다
 - 오클루전 쿼리 (결과 1), 인스턴스 간격 > 1, 테두리 색은 Vulkan 기본 세 가지 중 가까운 것
 

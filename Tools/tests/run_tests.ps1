@@ -2967,9 +2967,9 @@ function Suite-Perf
 {
     Write-Host '[perf] (meaningful on a Release build)'
     $rows = @{}
-    foreach ($api in 'dx', 'gl')
+    foreach ($api in 'dx', 'gl', 'vk')
     {
-        $ed = Start-TestEditor -OpenGL:($api -eq 'gl')
+        $ed = Start-TestEditor -OpenGL:($api -eq 'gl') -Vulkan:($api -eq 'vk')
         try
         {
             Invoke-Nova 'window scene' | Out-Null
@@ -2986,10 +2986,14 @@ function Suite-Perf
     }
     foreach ($n in 'Materials', 'Trees')
     {
-        $d = $rows["dx/$n"]; $g = $rows["gl/$n"]
-        if (-not $d -or -not $g) { Add-Result perf $n $false 'no perf result'; continue }
-        $ratio = [double]$g.frameMs / [math]::Max(0.001, [double]$d.frameMs)
-        Add-Result perf "$n OpenGL vs DX11" ($ratio -le 2.0) ('frame ms DX {0} / GL {1} (×{2:N2}), GPU ms DX {3} / GL {4}' -f $d.frameMs, $g.frameMs, $ratio, $d.gpuMs, $g.gpuMs)
+        $d = $rows["dx/$n"]
+        foreach ($o in @(@('gl', 'OpenGL'), @('vk', 'Vulkan')))
+        {
+            $g = $rows["$($o[0])/$n"]
+            if (-not $d -or -not $g) { Add-Result perf "$n $($o[1]) vs DX11" $false 'no perf result'; continue }
+            $ratio = [double]$g.frameMs / [math]::Max(0.001, [double]$d.frameMs)
+            Add-Result perf "$n $($o[1]) vs DX11" ($ratio -le 2.0) ('frame ms DX {0} / {5} {1} (×{2:N2}), GPU ms DX {3} / {5} {4}' -f $d.frameMs, $g.frameMs, $ratio, $d.gpuMs, $g.gpuMs, $o[1])
+        }
     }
 }
 

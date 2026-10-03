@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "ImGuiGfx.h"
 #include "PathManager.h"
+#include "GfxVk.h"
 
 namespace
 {
@@ -17,6 +18,36 @@ namespace
 		bool Failed = false;   // 셰이더를 못 불렀다 (한 번만 기록)
 	};
 	State* s_State = nullptr;
+
+	// 뷰포트(ImGui 가 만든 OS 창)마다: 그 창 크기의 그림 텍스처 (Present 가 창의 스왑체인으로 복사)
+	struct ViewportData
+	{
+		HWND Wnd = nullptr;
+		ComPtr<GfxTexture2D> Tex;
+		ComPtr<GfxRenderTargetView> Rtv;
+		int W = 0, H = 0;
+	};
+
+	bool EnsureTarget(ViewportData& d, int w, int h)
+	{
+		if (d.Tex && d.W == w && d.H == h) return true;
+		d.Rtv.Reset();
+		d.Tex.Reset();
+		d.W = w;
+		d.H = h;
+		if (w <= 0 || h <= 0) return false;
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = (UINT)w;
+		td.Height = (UINT)h;
+		td.MipLevels = 1;
+		td.ArraySize = 1;
+		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		td.SampleDesc.Count = 1;
+		td.Usage = D3D11_USAGE_DEFAULT;
+		td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+		return SUCCEEDED(Gfx::Device()->CreateTexture2D(&td, nullptr, d.Tex.GetAddressOf())) &&
+			SUCCEEDED(Gfx::Device()->CreateRenderTargetView(d.Tex.Get(), nullptr, d.Rtv.GetAddressOf()));
+	}
 
 	bool CreateFont()
 	{
@@ -64,11 +95,56 @@ namespace ImGuiGfx
 		io.BackendRendererName = "nova_imgui_gfx";
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 		s_State = new State();
+		if (GfxVk::IsVulkan(Gfx::Device()))
+		{
+			io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
+			ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+			pio.Renderer_CreateWindow = [](ImGuiViewport* vp)
+			{
+				auto* d = IM_NEW(ViewportData)();
+				d->Wnd = (HWND)vp->PlatformHandleRaw;
+				vp->RendererUserData = d;
+			};
+			pio.Renderer_DestroyWindow = [](ImGuiViewport* vp)
+			{
+				if (auto* d = static_cast<ViewportData*>(vp->RendererUserData))
+				{
+					if (d->Wnd && Gfx::Device()) GfxVk::ReleaseWindow(Gfx::Device(), d->Wnd);
+					IM_DELETE(d);
+				}
+				vp->RendererUserData = nullptr;
+			};
+			pio.Renderer_SetWindowSize = [](ImGuiViewport*, ImVec2) {};   // 그릴 때 크기를 맞춘다
+			pio.Renderer_RenderWindow = [](ImGuiViewport* vp, void*)
+			{
+				auto* d = static_cast<ViewportData*>(vp->RendererUserData);
+				if (!d || !s_State || !s_State->Fx) return;
+				if (!EnsureTarget(*d, (int)vp->Size.x, (int)vp->Size.y)) return;
+				GfxContext* ctx = Gfx::Context();
+				GfxRenderTargetView* rtv = d->Rtv.Get();
+				ctx->OMSetRenderTargets(1, &rtv, nullptr);
+				if (!(vp->Flags & ImGuiViewportFlags_NoRendererClear))
+				{
+					const float black[4] = { 0, 0, 0, 1 };
+					ctx->ClearRenderTargetView(rtv, black);
+				}
+				RenderDrawData(vp->DrawData);
+				ctx->OMSetRenderTargets(0, nullptr, nullptr);
+			};
+			pio.Renderer_SwapBuffers = [](ImGuiViewport* vp, void*)
+			{
+				auto* d = static_cast<ViewportData*>(vp->RendererUserData);
+				if (d && d->Wnd && d->Tex)
+					GfxVk::PresentWindow(Gfx::Device(), d->Wnd, d->Tex.Get(), d->W, d->H, 0);
+			};
+		}
 		return true;   // 효과 · 글꼴 텍스처는 첫 NewFrame 에서 (에디터가 글꼴을 다 넣고 Build 한 뒤 — DX11 백엔드와 같음)
 	}
 
 	void Shutdown()
 	{
+		if (ImGui::GetIO().BackendFlags & ImGuiBackendFlags_RendererHasViewports)
+			ImGui::DestroyPlatformWindows();   // 뷰포트 창의 스왑체인을 먼저 놓는다 (Renderer_DestroyWindow)
 		InvalidateDeviceObjects();
 		delete s_State;
 		s_State = nullptr;

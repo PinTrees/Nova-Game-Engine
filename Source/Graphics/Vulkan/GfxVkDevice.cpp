@@ -238,7 +238,7 @@ namespace GfxVkImpl
 		if (Device)
 		{
 			vkDeviceWaitIdle(Device);
-			DestroySwapchain(true);
+			DestroyAllSwapchains();
 			Completed = Submitted;
 			for (auto& d : Deferred) d.second();
 			Deferred.clear();
@@ -270,7 +270,7 @@ namespace GfxVkImpl
 			Mem.Shutdown();
 			vkDestroyDevice(Device, nullptr);
 		}
-		DestroySwapchain(true);   // 장치를 못 만들었어도 창 표면은 있을 수 있다
+		DestroyAllSwapchains();   // 장치를 못 만들었어도 창 표면은 있을 수 있다
 		if (Loader)
 			VkLoader::Release();
 	}
@@ -393,7 +393,7 @@ namespace GfxVkImpl
 		di.pQueueCreateInfos = &qi;
 		di.enabledExtensionCount = (uint32_t)enable.size();
 		di.ppEnabledExtensionNames = enable.data();
-		if (Window && !CreateSurface(error))
+		if (Window && !SwapFor(Window, error))
 			return false;
 		if (!Check(vkCreateDevice(Phys, &di, nullptr, &Device), "vkCreateDevice", &error))
 		{
@@ -489,6 +489,18 @@ namespace GfxVkImpl
 		{
 			Immediate->EndRendering();
 			Immediate->FlushBarrier();
+		}
+		{
+			// 제출 끝: GPU 쓰기 → 호스트 읽기 (Map(READ) · 텍스처 읽기는 이 제출을 기다린 뒤 읽는다)
+			VkMemoryBarrier2 hb = { VK_STRUCTURE_TYPE_MEMORY_BARRIER_2 };
+			hb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			hb.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+			hb.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+			hb.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
+			VkDependencyInfo hd = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+			hd.memoryBarrierCount = 1;
+			hd.pMemoryBarriers = &hb;
+			vkCmdPipelineBarrier2(Main.Cb, &hd);
 		}
 		VkCommandBufferSubmitInfo cbs[2] = {};
 		uint32_t count = 0;
@@ -939,6 +951,7 @@ namespace GfxVkImpl
 		vkBindImageMemory(Device, img.Handle, img.Mem.Memory, img.Mem.Offset);
 		img.Bytes = req.size;
 		img.Layouts.assign((size_t)img.Layers * img.Mips, VK_IMAGE_LAYOUT_UNDEFINED);
+		img.Written.assign((size_t)img.Layers * img.Mips, 0);
 		if (data)
 		{
 			// 처음 데이터: 업로드 명령 (본 명령보다 먼저 제출) → 모두 셰이더 읽기 배치로
@@ -1861,7 +1874,30 @@ namespace GfxVk
 	void Present(GfxDevice* device, GfxTexture2D* backBuffer, int windowWidth, int windowHeight, int syncInterval)
 	{
 		auto* d = static_cast<Dev*>(device);
-		d->PresentFrame(backBuffer && backBuffer->Api() == GfxApi::Vulkan ? static_cast<Tex2D*>(backBuffer) : nullptr, windowWidth, windowHeight, syncInterval);
+		std::string error;
+		Dev::Swap* s = d->Window ? d->SwapFor(d->Window, error) : nullptr;
+		Tex2D* t = backBuffer && backBuffer->Api() == GfxApi::Vulkan ? static_cast<Tex2D*>(backBuffer) : nullptr;
+		if (s) d->PresentFrame(*s, t, windowWidth, windowHeight, syncInterval, true);
+		else d->Submit(false);
+	}
+
+	bool PresentWindow(GfxDevice* device, HWND window, GfxTexture2D* texture, int width, int height, int syncInterval)
+	{
+		auto* d = static_cast<Dev*>(device);
+		std::string error;
+		Dev::Swap* s = d->SwapFor(window, error);
+		if (!s)
+		{
+			d->Once("window-swap:" + error, "%s", ("window swapchain: " + error).c_str());
+			return false;
+		}
+		d->PresentFrame(*s, texture && texture->Api() == GfxApi::Vulkan ? static_cast<Tex2D*>(texture) : nullptr, width, height, syncInterval, false);
+		return true;
+	}
+
+	void ReleaseWindow(GfxDevice* device, HWND window)
+	{
+		static_cast<Dev*>(device)->ReleaseWindow(window);
 	}
 
 	void WaitIdle(GfxDevice* device)
