@@ -96,7 +96,9 @@ namespace AnimatorIK
 		if (rawD < 1e-5f)
 			return;
 		const XMVECTOR dir = at / rawD;
-		const float d = std::clamp(rawD, fabsf(l1 - l2) + 1e-4f, (l1 + l2) * 0.9995f);
+		// 길이 0 인 뼈면 아래 한계가 위 한계를 넘는다 (std::clamp 는 Debug 에서 assert)
+		const float lo = fabsf(l1 - l2) + 1e-4f;
+		const float d = std::clamp(rawD, lo, (std::max)(lo, (l1 + l2) * 0.9995f));
 		// 굽는 쪽: 지금 무릎이 a→target 선에서 떨어진 방향
 		XMVECTOR pole = (b - a) - dir * XMVector3Dot(b - a, dir);
 		if (XMVectorGetX(XMVector3LengthSq(pole)) < 1e-10f)

@@ -428,7 +428,8 @@ void AnimatorEditorWindow::OnRender()
 	if (avail.x < 50 || avail.y < 50)
 		return;
 
-	float left = m_ShowLeft ? std::clamp(m_LeftWidth, 160.0f, avail.x - 200.0f) : 0.0f;
+	// 창이 360 px 보다 좁으면 위 한계가 아래 한계보다 작아진다 (std::clamp 는 Debug 에서 assert) → 위 한계를 160 이상으로
+	float left = m_ShowLeft ? std::clamp(m_LeftWidth, 160.0f, (std::max)(160.0f, avail.x - 200.0f)) : 0.0f;
 	if (m_ShowLeft)
 	{
 		DrawLeftPanel(pos, ImVec2(left, avail.y));
