@@ -4,6 +4,8 @@
 //  - BloomPrefilter / BloomDown / BloomUp : 밝은 부분을 뽑아 절반 해상도부터 밉 체인으로 흐리게 (URP Bloom 과 같은 구조)
 //  - Uber : 색수차 → Bloom 합성 → 비네트 → 색 보정(노출, 화이트 밸런스, 대비, 컬러 필터, 색조, 채도) → 톤매핑 → 감마 → 필름 그레인 → 디더링
 //  - Fxaa : 카메라 Anti-aliasing = FXAA
+//  - Smaa (경계 → 무게 → 섞기) : 카메라 Anti-aliasing = SMAA (Uber 다음, LDR)
+//  - Taa (+ Sharpen) : 카메라 Anti-aliasing = TAA (맨 앞, 지터 + 히스토리 — Depth Of Field 앞)
 //  - Depth Of Field (Gaussian · Bokeh) · Motion Blur (카메라): Bloom 앞 — 깊이 프리패스의 뷰 깊이를 쓴다
 // 씬은 감마 공간 값으로 그려지므로 Uber 는 선형으로 바꿔 처리한 뒤 다시 감마로 돌린다.
 // 화면 전체를 덮는 삼각형 하나를 SV_VertexID 로 만든다 (정점 버퍼 없음, Draw(3)).
@@ -540,6 +542,248 @@ float4 PS_Copy(VertexOut pin) : SV_Target
     return gSource.SampleLevel(samLinear, pin.Tex, 0);
 }
 
+
+// ================================================================ TAA (URP Temporal Anti-aliasing — 카메라)
+// 카메라 투영을 프레임마다 서브픽셀만큼 흔들고 (Halton 2·3), 깊이로 지난 프레임 위치를 되찾아 히스토리와 섞는다.
+// 고스트: 3x3 이웃 범위로 히스토리를 자른다 (Quality: Very Low = RGB 최소·최대, Low = YCoCg, Medium+ = 분산, High+ = Catmull-Rom 히스토리)
+cbuffer cbTaa
+{
+    float4 gTaaParams;   // x 새 프레임 비중 (1 - Base Blend Factor), y Variance Clamp Scale, z 1 = 히스토리 있음, w Quality (0..4)
+    float4 gTaaJitter;   // xy 이번 프레임 지터 (uv)
+    float4 gTaaSharpen;  // x Contrast Adaptive Sharpening
+};
+Texture2D gTaaHistory;
+
+float3 RGBToYCoCg(float3 c) { return float3(dot(c, float3(0.25f, 0.5f, 0.25f)), dot(c, float3(0.5f, 0.0f, -0.5f)), dot(c, float3(-0.25f, 0.5f, -0.25f))); }
+float3 YCoCgToRGB(float3 c) { return float3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
+
+// 히스토리 Catmull-Rom (5 탭) — 쌍선형보다 덜 흐리다
+float3 SampleHistoryCatmullRom(float2 uv, float2 size)
+{
+    float2 pos = uv * size;
+    float2 c = floor(pos - 0.5f) + 0.5f;
+    float2 f = pos - c;
+    float2 w0 = f * (-0.5f + f * (1.0f - 0.5f * f));
+    float2 w1 = 1.0f + f * f * (-2.5f + 1.5f * f);
+    float2 w2 = f * (0.5f + f * (2.0f - 1.5f * f));
+    float2 w3 = f * f * (-0.5f + 0.5f * f);
+    float2 w12 = w1 + w2;
+    float2 o12 = w2 / w12;
+    float2 t0 = (c - 1.0f) / size, t3 = (c + 2.0f) / size, t12 = (c + o12) / size;
+    float3 r = gTaaHistory.SampleLevel(samLinear, float2(t12.x, t0.y), 0).rgb * (w12.x * w0.y)
+             + gTaaHistory.SampleLevel(samLinear, float2(t0.x, t12.y), 0).rgb * (w0.x * w12.y)
+             + gTaaHistory.SampleLevel(samLinear, float2(t12.x, t12.y), 0).rgb * (w12.x * w12.y)
+             + gTaaHistory.SampleLevel(samLinear, float2(t3.x, t12.y), 0).rgb * (w3.x * w12.y)
+             + gTaaHistory.SampleLevel(samLinear, float2(t12.x, t3.y), 0).rgb * (w12.x * w3.y);
+    float wsum = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+    return max(r / max(wsum, 1e-4f), 0.0f);
+}
+
+float4 PS_Taa(VertexOut pin) : SV_Target
+{
+    float2 size = gProjFlags.yz;
+    int2 p = int2(pin.PosH.xy);
+    float3 cur = gSource.Load(int3(p, 0)).rgb;
+    if (gTaaParams.z < 0.5f)
+        return float4(cur, 1.0f);
+    // 지난 프레임 위치 (카메라만 — 지터 뺀 픽셀 중심의 깊이로)
+    float z = SceneDepthAt(pin.Tex);
+    float2 prevUV = pin.Tex;
+    if (z < 1e4f)
+    {
+        float4 posW = mul(float4(ViewPosFromDepth(pin.Tex - gTaaJitter.xy, z), 1.0f), gMBInvView);
+        float4 prev = mul(posW, gMBPrevViewProj);
+        if (prev.w > 1e-4f)
+            prevUV = float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f);
+    }
+    else
+    {
+        // 하늘: 무한히 먼 방향 — 회전만 되돌린다
+        float4 dirW = mul(float4(ViewPosFromDepth(pin.Tex - gTaaJitter.xy, 1.0f), 0.0f), gMBInvView);
+        float4 prev = mul(float4(dirW.xyz, 0.0f), gMBPrevViewProj);
+        if (prev.w > 1e-4f)
+            prevUV = float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f);
+    }
+    if (any(prevUV < 0.0f) || any(prevUV > 1.0f))
+        return float4(cur, 1.0f);   // 화면 밖에서 들어옴 → 이번 프레임만
+
+    int quality = (int)(gTaaParams.w + 0.5f);
+    bool ycocg = quality >= 1;
+    // 3x3 이웃 (최소 · 최대 · 평균 · 분산)
+    float3 mn = 1e5f, mx = -1e5f, m1 = 0.0f, m2 = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; ++x)
+        {
+            float3 c = gSource.Load(int3(clamp(p + int2(x, y), int2(0, 0), int2(size) - 1), 0)).rgb;
+            c = ycocg ? RGBToYCoCg(c) : c;
+            mn = min(mn, c);
+            mx = max(mx, c);
+            m1 += c;
+            m2 += c * c;
+        }
+    }
+    float3 hist = quality >= 3 ? SampleHistoryCatmullRom(prevUV, size) : gTaaHistory.SampleLevel(samLinear, prevUV, 0).rgb;
+    hist = ycocg ? RGBToYCoCg(hist) : hist;
+    if (quality >= 2)
+    {
+        // 분산 범위 (Variance Clamp Scale) — 최소 · 최대 상자 안으로
+        float3 mean = m1 / 9.0f;
+        float3 sigma = sqrt(max(m2 / 9.0f - mean * mean, 0.0f));
+        mn = max(mn, mean - sigma * gTaaParams.y);
+        mx = min(mx, mean + sigma * gTaaParams.y);
+    }
+    hist = clamp(hist, mn, mx);
+    float3 curC = ycocg ? RGBToYCoCg(cur) : cur;
+    // 밝기 가중 (반짝임 줄임)
+    float lumC = ycocg ? curC.x : dot(curC, float3(0.299f, 0.587f, 0.114f));
+    float lumH = ycocg ? hist.x : dot(hist, float3(0.299f, 0.587f, 0.114f));
+    float wC = gTaaParams.x / (1.0f + lumC), wH = (1.0f - gTaaParams.x) / (1.0f + lumH);
+    float3 res = (curC * wC + hist * wH) / max(wC + wH, 1e-5f);
+    res = ycocg ? YCoCgToRGB(res) : res;
+    return float4(max(res, 0.0f), 1.0f);
+}
+
+// TAA 뒤 Contrast Adaptive Sharpening (AMD CAS 의 단순형) — 대비가 낮은 곳만 더 날카롭게
+float4 PS_TaaSharpen(VertexOut pin) : SV_Target
+{
+    int2 p = int2(pin.PosH.xy);
+    int2 lim = int2(gProjFlags.yz) - 1;
+    float3 c = gSource.Load(int3(p, 0)).rgb;
+    float3 n = gSource.Load(int3(clamp(p + int2(0, -1), 0, lim), 0)).rgb;
+    float3 s = gSource.Load(int3(clamp(p + int2(0, 1), 0, lim), 0)).rgb;
+    float3 w = gSource.Load(int3(clamp(p + int2(-1, 0), 0, lim), 0)).rgb;
+    float3 e = gSource.Load(int3(clamp(p + int2(1, 0), 0, lim), 0)).rgb;
+    float3 mn = min(c, min(min(n, s), min(w, e))), mx = max(c, max(max(n, s), max(w, e)));
+    float3 amp = sqrt(saturate(min(mn, 2.0f - mx) / max(mx, 1e-4f)));
+    float3 k = -amp * lerp(0.125f, 0.2f, saturate(gTaaSharpen.x));
+    float3 res = (c + (n + s + w + e) * k) / (1.0f + 4.0f * k);
+    return float4(max(lerp(c, res, saturate(gTaaSharpen.x * 2.0f)), 0.0f), 1.0f);
+}
+
+// ================================================================ SMAA (URP Subpixel Morphological Anti-aliasing — 카메라)
+// 1) 경계: 루마 차 (국소 대비 적응) — x = 왼쪽 경계, y = 위 경계
+// 2) 무게: 경계를 따라 양 끝까지 찾고 (Quality = 찾는 거리), 끝의 교차 경계로 모양 (L · Z · U) → 되살린 선이 이 픽셀을 덮는 면적
+//    (SMAA 의 면적 텍스처를 해석적으로 — 선 = 끝점 (±0.5) 에서 경계 가운데 (0) 까지)
+// 3) 이웃 섞기
+cbuffer cbSmaa
+{
+    float4 gSmaaParams;   // x 경계 문턱 (루마), y 찾는 걸음 수, z 국소 대비 배율
+};
+Texture2D gSmaaEdges;
+Texture2D gSmaaWeights;
+
+float SmaaLuma(int2 p)
+{
+    int2 lim = int2(gProjFlags.yz) - 1;
+    return dot(gSource.Load(int3(clamp(p, int2(0, 0), lim), 0)).rgb, float3(0.2126f, 0.7152f, 0.0722f));
+}
+
+float4 PS_SmaaEdges(VertexOut pin) : SV_Target
+{
+    int2 p = int2(pin.PosH.xy);
+    float L = SmaaLuma(p);
+    float Ll = SmaaLuma(p + int2(-1, 0)), Lt = SmaaLuma(p + int2(0, -1));
+    float2 delta = abs(L.xx - float2(Ll, Lt));
+    float2 edges = step(gSmaaParams.x, delta);
+    if (dot(edges, 1.0f) == 0.0f)
+        return float4(0, 0, 0, 0);
+    // 국소 대비 적응: 둘레에 훨씬 큰 대비가 있으면 이 약한 경계는 버린다 (SMAA)
+    float Lr = SmaaLuma(p + int2(1, 0)), Lb = SmaaLuma(p + int2(0, 1));
+    float Lll = SmaaLuma(p + int2(-2, 0)), Ltt = SmaaLuma(p + int2(0, -2));
+    float2 maxDelta = max(delta, abs(float2(L, L) - float2(Lr, Lb)));
+    maxDelta = max(maxDelta, abs(float2(Ll, Lt) - float2(Lll, Ltt)));
+    float finalDelta = max(maxDelta.x, maxDelta.y);
+    edges *= step(finalDelta, gSmaaParams.z * delta);
+    return float4(edges, 0, 1);
+}
+
+float2 SmaaEdge(int2 p)
+{
+    int2 lim = int2(gProjFlags.yz) - 1;
+    if (any(p < 0) || any(p > lim))
+        return float2(0, 0);
+    return gSmaaEdges.Load(int3(p, 0)).rg;
+}
+
+// 선 h(x) 가 [a, b] 에서 만드는 양 · 음 면적 (각 반쪽은 끝점 → 가운데 0 으로 선형, 부호가 한 가지)
+float2 SmaaHalfArea(float a, float b, float x0, float o, float mid)
+{
+    // h(x) = o * (mid - x) / (mid - x0)  (x0 = 끝, mid = 가운데)
+    float lo = max(a, min(x0, mid)), hi = min(b, max(x0, mid));
+    if (hi <= lo || abs(mid - x0) < 1e-4f)
+        return float2(0, 0);
+    float h0 = o * (mid - lo) / (mid - x0), h1 = o * (mid - hi) / (mid - x0);
+    float area = (hi - lo) * (h0 + h1) * 0.5f;
+    return float2(max(area, 0.0f), max(-area, 0.0f));
+}
+
+// 경계 하나 (이 픽셀의 위 또는 왼쪽): 반환 x = 이 픽셀이 건너편 색을 받는 양, y = 건너편 픽셀이 이 픽셀 색을 받는 양
+float2 SmaaEdgeWeights(int2 p, int2 along, int2 across, int comp)
+{
+    int steps = (int)gSmaaParams.y;
+    int d1 = 0, d2 = 0;
+    [loop]
+    for (int i = 1; i <= steps; ++i)
+    {
+        if (SmaaEdge(p - along * i)[comp] < 0.5f) break;
+        d1 = i;
+    }
+    [loop]
+    for (int j = 1; j <= steps; ++j)
+    {
+        if (SmaaEdge(p + along * j)[comp] < 0.5f) break;
+        d2 = j;
+    }
+    // 끝의 교차 경계: 이 줄 쪽 (+0.5) · 건너편 줄 쪽 (-0.5)
+    int other = 1 - comp;
+    int2 endL = p - along * d1, endR = p + along * (d2 + 1);
+    float cLin = SmaaEdge(endL)[other], cLout = SmaaEdge(endL + across)[other];
+    float cRin = SmaaEdge(endR)[other], cRout = SmaaEdge(endR + across)[other];
+    float oL = (cLin > 0.5f ? 0.5f : 0.0f) - (cLout > 0.5f ? 0.5f : 0.0f);
+    float oR = (cRin > 0.5f ? 0.5f : 0.0f) - (cRout > 0.5f ? 0.5f : 0.0f);
+    if (oL == 0.0f && oR == 0.0f)
+        return float2(0, 0);
+    float xL = -(float)d1, xR = (float)d2 + 1.0f, mid = (xL + xR) * 0.5f;
+    float2 area = SmaaHalfArea(0.0f, 1.0f, xL, oL, mid) + SmaaHalfArea(0.0f, 1.0f, xR, oR, mid);
+    return area;
+}
+
+float4 PS_SmaaWeights(VertexOut pin) : SV_Target
+{
+    int2 p = int2(pin.PosH.xy);
+    float2 e = SmaaEdge(p);
+    float4 w = 0.0f;
+    if (e.y > 0.5f)
+        w.rg = SmaaEdgeWeights(p, int2(1, 0), int2(0, -1), 1);   // 위 경계 (가로로 이어짐, 건너편 = 위)
+    if (e.x > 0.5f)
+        w.ba = SmaaEdgeWeights(p, int2(0, 1), int2(-1, 0), 0);   // 왼쪽 경계 (세로로 이어짐, 건너편 = 왼쪽)
+    return w;
+}
+
+float4 PS_SmaaBlend(VertexOut pin) : SV_Target
+{
+    int2 p = int2(pin.PosH.xy);
+    int2 lim = int2(gProjFlags.yz) - 1;
+    float4 c = gSource.Load(int3(p, 0));
+    float4 wp = gSmaaWeights.Load(int3(p, 0));
+    float wTop = wp.r, wLeft = wp.b;
+    float wBottom = gSmaaWeights.Load(int3(min(p + int2(0, 1), lim), 0)).g;
+    float wRight = gSmaaWeights.Load(int3(min(p + int2(1, 0), lim), 0)).a;
+    float total = wTop + wLeft + wBottom + wRight;
+    if (total <= 0.0f)
+        return c;
+    float scale = total > 1.0f ? 1.0f / total : 1.0f;
+    float3 sum = c.rgb * (1.0f - total * scale);
+    sum += gSource.Load(int3(max(p + int2(0, -1), 0), 0)).rgb * (wTop * scale);
+    sum += gSource.Load(int3(max(p + int2(-1, 0), 0), 0)).rgb * (wLeft * scale);
+    sum += gSource.Load(int3(min(p + int2(0, 1), lim), 0)).rgb * (wBottom * scale);
+    sum += gSource.Load(int3(min(p + int2(1, 0), lim), 0)).rgb * (wRight * scale);
+    return float4(sum, c.a);
+}
+
 #define POST_TECH(NAME, PSFUNC) \
 technique11 NAME \
 { \
@@ -556,6 +800,11 @@ POST_TECH(BloomDownTech, PS_BloomDown)
 POST_TECH(BloomUpTech, PS_BloomUp)
 POST_TECH(UberTech, PS_Uber)
 POST_TECH(FxaaTech, PS_Fxaa)
+POST_TECH(TaaTech, PS_Taa)
+POST_TECH(TaaSharpenTech, PS_TaaSharpen)
+POST_TECH(SmaaEdgesTech, PS_SmaaEdges)
+POST_TECH(SmaaWeightsTech, PS_SmaaWeights)
+POST_TECH(SmaaBlendTech, PS_SmaaBlend)
 POST_TECH(CopyTech, PS_Copy)
 POST_TECH(LuminanceTech, PS_Luminance)
 POST_TECH(AdaptTech, PS_Adapt)

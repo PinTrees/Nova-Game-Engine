@@ -429,7 +429,9 @@ void Camera::OnInspectorGUI()
 	static const char* kProjection[] = { "Perspective", "Orthographic" };
 	static const char* kFovAxis[] = { "Vertical", "Horizontal" };
 	static const char* kRenderer[] = { "Default Renderer (Forward)" };
-	static const char* kAA[] = { "No Anti-aliasing", "Fast Approximate Anti-aliasing (FXAA)", "Subpixel Morphological Anti-aliasing (SMAA)" };
+	static const char* kAA[] = { "No Anti-aliasing", "Fast Approximate Anti-aliasing (FXAA)", "Subpixel Morphological Anti-aliasing (SMAA)", "Temporal Anti-aliasing (TAA)" };
+	static const char* kSmaaQuality[] = { "Low", "Medium", "High" };
+	static const char* kTaaQuality[] = { "Very Low", "Low", "Medium", "High", "Very High" };
 	static const char* kTexture[] = { "Off", "On", "Use settings from Render Pipeline Asset" };
 	static const char* kCulling[] = { "Everything", "Nothing", "Default", "TransparentFX", "Ignore Raycast", "Water", "UI" };
 	static const char* kBackground[] = { "Skybox", "Solid Color", "Uninitialized" };
@@ -493,7 +495,18 @@ void Camera::OnInspectorGUI()
 	{
 		UnityGUI::Dropdown("Renderer", &m_renderer, kRenderer, 1, 1);
 		UnityGUI::Toggle("Post Processing", &m_postProcessing, 1);
-		UnityGUI::Dropdown("Anti-aliasing", &m_antiAliasing, kAA, 3, 1);
+		UnityGUI::Dropdown("Anti-aliasing", &m_antiAliasing, kAA, 4, 1);
+		if (m_antiAliasing == 2)
+			UnityGUI::Dropdown("Quality", &m_smaaQuality, kSmaaQuality, 3, 2);
+		else if (m_antiAliasing == 3)
+		{
+			// URP 의 TAA 설정 (Game 뷰 — Scene 뷰에는 없음)
+			UnityGUI::Dropdown("Quality", &m_taaQuality, kTaaQuality, 5, 2);
+			UnityGUI::Slider("Contrast Adaptive Sharpening", &m_taaSharpening, 0.0f, 1.0f, 2);
+			UnityGUI::Slider("Base Blend Factor", &m_taaBaseBlend, 0.6f, 0.98f, 2);
+			UnityGUI::Slider("Jitter Scale", &m_taaJitterScale, 0.0f, 1.0f, 2);
+			UnityGUI::Slider("Variance Clamp Scale", &m_taaVarianceClamp, 0.6f, 1.2f, 2);
+		}
 		UnityGUI::Toggle("Stop NaNs", &m_stopNaNs, 1);
 		UnityGUI::Toggle("Dithering", &m_dithering, 1);
 		UnityGUI::Toggle("Render Shadows", &m_renderShadows, 1);
@@ -568,6 +581,12 @@ GENERATE_COMPONENT_FUNC_TOJSON(Camera)
 	j["renderer"] = m_renderer;
 	j["postProcessing"] = m_postProcessing;
 	j["antiAliasing"] = m_antiAliasing;
+	j["smaaQuality"] = m_smaaQuality;
+	j["taaQuality"] = m_taaQuality;
+	j["taaBaseBlendFactor"] = m_taaBaseBlend;
+	j["taaJitterScale"] = m_taaJitterScale;
+	j["taaVarianceClampScale"] = m_taaVarianceClamp;
+	j["taaContrastAdaptiveSharpening"] = m_taaSharpening;
 	j["stopNaNs"] = m_stopNaNs;
 	j["dithering"] = m_dithering;
 	j["renderShadows"] = m_renderShadows;
@@ -603,7 +622,13 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Camera)
 	m_renderType = j.value("renderType", 0);
 	m_renderer = j.value("renderer", 0);
 	m_postProcessing = j.value("postProcessing", false);
-	m_antiAliasing = j.value("antiAliasing", 0);
+	m_antiAliasing = std::clamp(j.value("antiAliasing", 0), 0, 3);
+	m_smaaQuality = std::clamp(j.value("smaaQuality", 2), 0, 2);
+	m_taaQuality = std::clamp(j.value("taaQuality", 3), 0, 4);
+	m_taaBaseBlend = std::clamp(j.value("taaBaseBlendFactor", 0.875f), 0.6f, 0.98f);
+	m_taaJitterScale = std::clamp(j.value("taaJitterScale", 1.0f), 0.0f, 1.0f);
+	m_taaVarianceClamp = std::clamp(j.value("taaVarianceClampScale", 0.9f), 0.6f, 1.2f);
+	m_taaSharpening = std::clamp(j.value("taaContrastAdaptiveSharpening", 0.0f), 0.0f, 1.0f);
 	m_stopNaNs = j.value("stopNaNs", false);
 	m_dithering = j.value("dithering", false);
 	m_renderShadows = j.value("renderShadows", true);

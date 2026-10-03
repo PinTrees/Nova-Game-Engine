@@ -52,6 +52,10 @@ private:
 		D3D11_VIEWPORT Viewport = {};
 		float ShadowDistance = 100.0f;
 		ShadowRenderer::FrameData* Shadow = nullptr;
+		// TAA: Proj 는 지터한 것, UnjitteredProj 는 원래 것 (후처리 · 지난 프레임 위치), JitterUV = 화면 비율 지터
+		bool Jittered = false;
+		XMMATRIX UnjitteredProj = XMMatrixIdentity();
+		XMFLOAT2 JitterUV = {};
 	};
 	void RenderGameView(GfxRenderTargetView* renderTargetView, const GameViewDesc& d);
 	void CaptureProbeFace(const ReflectionProbes::CaptureView& v);

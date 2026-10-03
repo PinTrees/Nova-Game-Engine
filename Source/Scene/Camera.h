@@ -41,7 +41,13 @@ private:
 	int   m_renderType = 0;          // Base / Overlay
 	int   m_renderer = 0;
 	bool  m_postProcessing = true;   // 새 카메라는 켬 (Unity URP 템플릿의 Main Camera 와 같음)
-	int   m_antiAliasing = 0;
+	int   m_antiAliasing = 0;          // 0 없음, 1 FXAA, 2 SMAA, 3 TAA (URP 와 같은 순서)
+	int   m_smaaQuality = 2;           // Low · Medium · High
+	int   m_taaQuality = 3;            // Very Low · Low · Medium · High · Very High
+	float m_taaBaseBlend = 0.875f;     // Base Blend Factor (히스토리 비중)
+	float m_taaJitterScale = 1.0f;     // Jitter Scale
+	float m_taaVarianceClamp = 0.9f;   // Variance Clamp Scale
+	float m_taaSharpening = 0.0f;      // Contrast Adaptive Sharpening
 	bool  m_stopNaNs = false;
 	bool  m_dithering = false;
 	bool  m_renderShadows = true;
@@ -134,7 +140,13 @@ public:
 	bool UsesSolidBackground() const { return m_backgroundType == 1; }
 	int  GetBackgroundType() const { return m_backgroundType; }
 	bool PostProcessingEnabled() const { return m_postProcessing; }
-	int AntiAliasingMode() const { return m_antiAliasing; }   // 0 없음, 1 FXAA, 2 SMAA(=FXAA 로 처리)
+	int AntiAliasingMode() const { return m_antiAliasing; }   // 0 없음, 1 FXAA, 2 SMAA, 3 TAA
+	int SmaaQuality() const { return m_smaaQuality; }
+	int TaaQuality() const { return m_taaQuality; }
+	float TaaBaseBlend() const { return m_taaBaseBlend; }
+	float TaaJitterScale() const { return m_taaJitterScale; }
+	float TaaVarianceClamp() const { return m_taaVarianceClamp; }
+	float TaaSharpening() const { return m_taaSharpening; }
 	bool DitheringEnabled() const { return m_dithering; }
 	bool StopNaNsEnabled() const { return m_stopNaNs; }
 	int GetTargetDisplay() const { return m_targetDisplay; }   // 0 = Display 1

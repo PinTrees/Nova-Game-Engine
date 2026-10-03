@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2647,6 +2647,82 @@ function Suite-ModelPlace
     }
 }
 
+function Suite-AntiAliasing
+{
+    # 카메라 Anti-aliasing (URP): 없음 · FXAA · SMAA · TAA — 비스듬한 상자 모서리의 중간 밝기 픽셀 (계단이 풀린 정도)
+    Write-Host '[antialiasing]'
+    $dir = Join-Path $Out 'antialiasing'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function Shot([string]$name, [int]$frames = 30) { $p = Join-Path $dir $name; Invoke-Nova "wait $frames" | Out-Null; Invoke-Nova "screenshot $p --view game" | Out-Null; $p }
+        function AA([int]$mode, [string]$extra = '') { Invoke-Nova ('set "Main Camera" --component Camera --values "{\"antiAliasing\":' + $mode + $extra + '}"') | Out-Null }
+        # 상자 위 모서리: 열마다 위 (하늘) · 아래 (상자) 밝기 사이에서 모서리 둘레 ±3 px 안의 중간 밝기 픽셀 수 (계단이 풀린 정도)
+        function Mid([string]$p)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $x0 = [int]($bm.Width * 0.46); $x1 = [int]($bm.Width * 0.54); $y0 = [int]($bm.Height * 0.24); $y1 = [int]($bm.Height * 0.42)
+            $mid = 0
+            for ($x = $x0; $x -lt $x1; $x++) {
+                $ls = @(); for ($y = $y0; $y -lt $y1; $y++) { $c = $bm.GetPixel($x, $y); $ls += 0.3 * $c.R + 0.59 * $c.G + 0.11 * $c.B }
+                # 모서리 = 위아래 2 px 차가 가장 큰 곳, 기준 밝기 = 그 위 · 아래 4 px (상자 쪽 그늘 · 하늘 그라디언트는 빼고)
+                $edge = 4; $best = 0.0
+                for ($i = 4; $i -lt $ls.Count - 4; $i++) { $d = $ls[$i - 2] - $ls[$i + 2]; if ($d -gt $best) { $best = $d; $edge = $i } }
+                $lt = $ls[$edge - 4]; $lb = $ls[$edge + 4]
+                for ($i = $edge - 3; $i -le $edge + 3; $i++) { $t = ($ls[$i] - $lb) / [math]::Max(1.0, $lt - $lb); if ($t -gt 0.2 -and $t -lt 0.8) { $mid++ } } }
+            $bm.Dispose(); $mid / [math]::Max(1, $x1 - $x0)
+        }
+        function ImgDiff([string]$a, [string]$b)   # (Diff 는 Compare-Object 별칭)
+        {
+            $ba = [System.Drawing.Bitmap]::FromFile($a); $bb = [System.Drawing.Bitmap]::FromFile($b); $s = 0.0; $n = 0
+            for ($y = 0; $y -lt $ba.Height; $y += 3) { for ($x = 0; $x -lt $ba.Width; $x += 3) {
+                $p = $ba.GetPixel($x, $y); $q = $bb.GetPixel($x, $y); $s += [math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B); $n++ } }
+            $ba.Dispose(); $bb.Dispose(); $s / [math]::Max(1, $n)
+        }
+        Invoke-Nova 'scene new --force' | Out-Null
+        # 어두운 상자 (하늘과 대비) 를 17 도 기울여 — 위 모서리가 화면 가운데 위쪽을 가로지른다
+        Invoke-Nova 'create cube --name Slab --position 0,1.0,4 --rotation 0,0,17 --scale 1.6,1.6,0.3' | Out-Null
+        $mat = Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json
+        $matDir = Join-Path $Project 'Assets\AATest'; New-Item -ItemType Directory -Force $matDir | Out-Null
+        $mat.BaseColor = @(0.05, 0.05, 0.06, 1); $mat.ResourcePath = 'Assets\AATest\Dark.mat'
+        $mat | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $matDir 'Dark.mat')
+        Invoke-Nova 'set Slab --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/AATest/Dark.mat\"]}"' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.0,0 --rotation 0,0,0' | Out-Null   # 상자 높이 — 윗면이 안 보이게
+
+        AA 0; $p0 = Shot 'none.png'; $m0 = Mid $p0
+        AA 1; $p1 = Shot 'fxaa.png'; $m1 = Mid $p1
+        AA 2 ',\"smaaQuality\":2'; $p2 = Shot 'smaa.png'; $m2 = Mid $p2
+        AA 3; $p3 = Shot 'taa.png' 60; $m3 = Mid $p3
+        Add-Result antialiasing 'No AA = hard steps on the slanted edge' ($m0 -lt 1.0) ("in-between pixels per column {0:N2}" -f $m0)
+        Add-Result antialiasing 'FXAA softens the steps' ($m1 -gt $m0 + 0.4) ("{0:N2} -> {1:N2}" -f $m0, $m1)
+        Add-Result antialiasing 'SMAA (High): steps blended along the edge (pattern + area)' ($m2 -gt $m0 + 0.4) ("{0:N2} -> {1:N2}" -f $m0, $m2)
+        Add-Result antialiasing 'TAA: jittered frames resolve into a smooth edge' ($m3 -gt $m0 + 0.4) ("{0:N2} -> {1:N2}" -f $m0, $m3)
+
+        # TAA 가 가만히 있는 화면에서 흔들리지 않음 (히스토리가 수렴) · SMAA 는 모서리 밖을 흐리지 않음
+        $p4 = Shot 'taa_again.png' 10
+        $d34 = ImgDiff $p3 $p4; $d02 = ImgDiff $p0 $p2
+        Add-Result antialiasing 'TAA is stable on a still camera (two frames ~ same); SMAA leaves flat areas alone' ($d34 -lt 3.0 -and $d02 -lt 3.0) ("TAA frame diff {0:N2}, none vs SMAA {1:N2}" -f $d34, $d02)
+
+        # 저장되는 값 (URP 이름)
+        AA 3 ',\"taaQuality\":1,\"taaBaseBlendFactor\":0.9,\"taaContrastAdaptiveSharpening\":0.5'
+        $c = Invoke-NovaJson 'get "Main Camera" --component Camera'
+        Add-Result antialiasing 'Camera keeps the AA settings (TAA Quality · Base Blend Factor · Sharpening)' ($c.antiAliasing -eq 3 -and $c.taaQuality -eq 1 -and [math]::Abs($c.taaBaseBlendFactor - 0.9) -lt 1e-4 -and [math]::Abs($c.taaContrastAdaptiveSharpening - 0.5) -lt 1e-4) ("aa {0}, quality {1}, blend {2}, sharpen {3}" -f $c.antiAliasing, $c.taaQuality, $c.taaBaseBlendFactor, $c.taaContrastAdaptiveSharpening)
+        $p5 = Shot 'taa_sharpen.png'
+        $m5 = Mid $p5
+        Add-Result antialiasing 'TAA + Contrast Adaptive Sharpening still anti-aliased' ($m5 -gt $m0 + 0.3) ("{0:N2}" -f $m5)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item (Join-Path $Project 'Assets\AATest'), (Join-Path $Project 'Assets\AATest.meta') -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2966,6 +3042,7 @@ try
                 'lodgroup' { Suite-LODGroup }
                 'ssr' { Suite-SSR }
                 'modelplace' { Suite-ModelPlace }
+                'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

@@ -101,7 +101,7 @@ GfxRenderTargetView* PostProcessPass::Begin(UINT width, UINT height)
 
 bool PostProcessPass::IsNeeded(const VolumeStack& stack, const CameraOptions& options)
 {
-	if (options.Fxaa || options.Dithering)
+	if (options.Fxaa || options.Smaa || options.Taa || options.Dithering)
 		return true;
 	if (!options.PostProcessing)
 		return false;
@@ -266,6 +266,48 @@ GfxShaderResourceView* PostProcessPass::DepthOfField(const VolumeComponent& dof,
 	return src;
 }
 
+// TAA (URP): 지터된 이번 프레임 + 히스토리 (깊이로 지난 프레임 위치) → 3x3 이웃 범위로 자르고 섞기 (+ Contrast Adaptive Sharpening)
+GfxShaderResourceView* PostProcessPass::TemporalAA(const CameraOptions& options, GfxShaderResourceView* src)
+{
+	for (Target& t : m_Taa)
+		if (t.W != m_Width || t.H != m_Height)
+		{
+			CreateTarget(t, m_Width, m_Height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+			m_TaaValid = false;
+		}
+	if (!m_Taa[0].RTV || !m_Taa[1].RTV)
+		return src;
+	// 새 프레임이면 지난 결과를 읽는 쪽으로 (같은 프레임에 다시 그리면 그대로 — 스크린샷)
+	const uint32_t frame = SceneCulling::FrameIndex();
+	if (frame != m_TaaFrame)
+	{
+		if (m_TaaFrame != 0)
+			m_TaaRead ^= 1;
+		m_TaaFrame = frame;
+	}
+	Target& history = m_Taa[m_TaaRead];
+	Target& out = m_Taa[m_TaaRead ^ 1];
+	const bool valid = m_TaaValid && m_PrevValid;
+	SetVec("gTaaParams", 1.0f - std::clamp(options.TaaBaseBlend, 0.6f, 0.98f), std::clamp(options.TaaVarianceClamp, 0.6f, 1.2f), valid ? 1.0f : 0.0f, (float)std::clamp(options.TaaQuality, 0, 4));
+	SetVec("gTaaJitter", options.TaaJitterUV.x, options.TaaJitterUV.y, 0.0f, 0.0f);
+	SetVec("gTaaSharpen", options.TaaSharpening, 0.0f, 0.0f, 0.0f);
+	SetSRV("gDepth", options.Depth);
+	SetSRV("gTaaHistory", history.SRV.Get());
+	SetSRV("gSource", src);
+	Draw("TaaTech", out.RTV.Get(), m_Width, m_Height);
+	SetSRV("gTaaHistory", nullptr);
+	m_TaaValid = true;
+	if (options.TaaSharpening <= 0.0f)
+		return out.SRV.Get();
+	if (m_TaaSharp.W != m_Width || m_TaaSharp.H != m_Height)
+		CreateTarget(m_TaaSharp, m_Width, m_Height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	if (!m_TaaSharp.RTV)
+		return out.SRV.Get();
+	SetSRV("gSource", out.SRV.Get());
+	Draw("TaaSharpenTech", m_TaaSharp.RTV.Get(), m_Width, m_Height);
+	return m_TaaSharp.SRV.Get();
+}
+
 // Motion Blur (카메라): 깊이로 되살린 월드 위치가 지난 프레임에 화면 어디였는지 → 그 방향으로 표본
 GfxShaderResourceView* PostProcessPass::MotionBlur(const VolumeComponent& mb, const CameraOptions& options, GfxShaderResourceView* src)
 {
@@ -333,6 +375,18 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 		const bool ortho = fabsf(p._34) < 1e-6f;
 		SetVec("gProjParams", p._11, p._22, ortho ? p._41 : p._31, ortho ? p._42 : p._32);
 		SetVec("gProjFlags", ortho ? 1.0f : 0.0f, (float)m_Width, (float)m_Height, 0.0f);
+		// 지난 프레임 위치 되찾기 (TAA · Motion Blur 가 같이 쓴다)
+		if (auto* v = m_Effect->GetFX()->GetVariableByName("gMBInvView")->AsMatrix(); v && v->IsValid())
+		{
+			const XMMATRIX inv = XMMatrixInverse(nullptr, XMLoadFloat4x4(&options.View));
+			v->SetMatrix(reinterpret_cast<const float*>(&inv));
+		}
+		if (auto* v = m_Effect->GetFX()->GetVariableByName("gMBPrevViewProj")->AsMatrix(); v && v->IsValid())
+			v->SetMatrix(reinterpret_cast<const float*>(&m_PrevViewProj));
+		if (options.Taa && !options.SceneView)
+			src = TemporalAA(options, src);
+		else
+			m_TaaValid = false;
 		const VolumeComponent* dof = stack.Get("DepthOfField");
 		if (usePost && dof && stack.IsActive("DepthOfField"))
 			src = DepthOfField(*dof, options, src);
@@ -441,7 +495,30 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 	SetVec("gFlags", (float)toneMode, options.Dithering ? 1.0f : 0.0f, options.StopNaNs ? 1.0f : 0.0f, gradingOn ? 1.0f : 0.0f);
 
 	SetSRV("gSource", src);
-	if (options.Fxaa)
+	if (options.Smaa)
+	{
+		// SMAA (URP): 경계 → 무게 → 섞기 — LDR (Uber 출력) 에서
+		if (m_SmaaEdges.W != m_Width || m_SmaaEdges.H != m_Height)
+		{
+			CreateTarget(m_SmaaEdges, m_Width, m_Height, DXGI_FORMAT_R8G8B8A8_UNORM);
+			CreateTarget(m_SmaaWeights, m_Width, m_Height, DXGI_FORMAT_R8G8B8A8_UNORM);
+		}
+		Draw("UberTech", m_Ldr.RTV.Get(), m_Width, m_Height);
+		static const float kThreshold[3] = { 0.15f, 0.1f, 0.1f };   // Low · Medium · High (SMAA 프리셋)
+		static const float kSteps[3] = { 4.0f, 8.0f, 16.0f };
+		const int q = std::clamp(options.SmaaQuality, 0, 2);
+		SetVec("gSmaaParams", kThreshold[q], kSteps[q], 2.0f, 0.0f);
+		SetVec("gProjFlags", 0.0f, (float)m_Width, (float)m_Height, 0.0f);
+		SetSRV("gSource", m_Ldr.SRV.Get());
+		Draw("SmaaEdgesTech", m_SmaaEdges.RTV.Get(), m_Width, m_Height);
+		SetSRV("gSmaaEdges", m_SmaaEdges.SRV.Get());
+		Draw("SmaaWeightsTech", m_SmaaWeights.RTV.Get(), m_Width, m_Height);
+		SetSRV("gSmaaEdges", nullptr);
+		SetSRV("gSmaaWeights", m_SmaaWeights.SRV.Get());
+		Draw("SmaaBlendTech", output, m_Width, m_Height);
+		SetSRV("gSmaaWeights", nullptr);
+	}
+	else if (options.Fxaa)
 	{
 		Draw("UberTech", m_Ldr.RTV.Get(), m_Width, m_Height);
 		SetSRV("gSource", m_Ldr.SRV.Get());

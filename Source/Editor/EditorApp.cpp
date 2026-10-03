@@ -397,6 +397,18 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 		memcpy(d.Background, camera->GetBackgroundColor(), sizeof(d.Background));
 	d.Viewport = RenderManager::GetI()->Viewport;
 	d.Shadow = &s_GameShadow;
+	// TAA: 프레임마다 투영을 서브픽셀만큼 흔든다 (Halton 2 · 3, 8 개) — 후처리가 히스토리와 섞어 계단을 지운다
+	if (camera->AntiAliasingMode() == 3 && d.Viewport.Width > 0 && d.Viewport.Height > 0)
+	{
+		auto halton = [](int i, int b) { float f = 1.0f, r = 0.0f; for (; i > 0; i /= b) { f /= b; r += f * (i % b); } return r; };
+		const int k = (int)(SceneCulling::FrameIndex() % 8) + 1;
+		const float s = camera->TaaJitterScale();
+		const float jx = (halton(k, 2) - 0.5f) * s, jy = (halton(k, 3) - 0.5f) * s;   // 픽셀
+		d.Jittered = true;
+		d.UnjitteredProj = d.Proj;
+		d.Proj = d.Proj * XMMatrixTranslation(2.0f * jx / d.Viewport.Width, -2.0f * jy / d.Viewport.Height, 0.0f);
+		d.JitterUV = XMFLOAT2(jx / d.Viewport.Width, jy / d.Viewport.Height);
+	}
 	ProbeVolumes::SetFocus(d.Position, false);
 	RenderGameView(renderTargetView, d);
 }
@@ -568,12 +580,24 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	auto& post = PostProcessingManager::GetI()->GamePost();   // stack 은 그림자 패스 앞에서 섞었다
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = !probe && d.Cam->PostProcessingEnabled();
-	postOptions.Fxaa = !probe && d.Cam->AntiAliasingMode() != 0;   // SMAA 는 아직 없어 FXAA 로
+	const int aa = probe ? 0 : d.Cam->AntiAliasingMode();   // URP: 0 없음, 1 FXAA, 2 SMAA, 3 TAA
+	postOptions.Fxaa = aa == 1;
+	postOptions.Smaa = aa == 2;
+	postOptions.Taa = aa == 3 && d.Jittered;
+	if (!probe)
+	{
+		postOptions.SmaaQuality = d.Cam->SmaaQuality();
+		postOptions.TaaQuality = d.Cam->TaaQuality();
+		postOptions.TaaBaseBlend = d.Cam->TaaBaseBlend();
+		postOptions.TaaVarianceClamp = d.Cam->TaaVarianceClamp();
+		postOptions.TaaSharpening = d.Cam->TaaSharpening();
+		postOptions.TaaJitterUV = d.JitterUV;
+	}
 	postOptions.Dithering = !probe && d.Cam->DitheringEnabled();
 	postOptions.StopNaNs = !probe && d.Cam->StopNaNsEnabled();
 	postOptions.Depth = normalDepthSRV;   // Depth Of Field · Motion Blur
 	XMStoreFloat4x4(&postOptions.View, d.View);
-	XMStoreFloat4x4(&postOptions.Proj, d.Proj);
+	XMStoreFloat4x4(&postOptions.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);   // 지난 프레임 위치는 지터 없이
 	const bool usePost = !probe && PostProcessPass::IsNeeded(stack, postOptions);
 	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 

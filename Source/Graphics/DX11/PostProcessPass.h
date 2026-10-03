@@ -5,7 +5,7 @@
 
 // URP 식 후처리 실행기 (뷰마다 하나: Scene 뷰 / Game 뷰).
 //  1) Begin(): 씬을 그릴 HDR(R16G16B16A16F) 타깃을 뷰 크기로 준비해 돌려준다
-//  2) Execute(): (Depth Of Field → Motion Blur) → Bloom 밉 체인 → Uber(색 보정/톤매핑/비네트/...) → (FXAA) → 출력 타깃
+//  2) Execute(): (TAA) → (Depth Of Field → Motion Blur) → Bloom 밉 체인 → Uber(색 보정/톤매핑/비네트/...) → (FXAA · SMAA) → 출력 타깃
 // 설정은 VolumeStack(섞인 Volume 값) + 카메라 옵션.
 class PostProcessPass
 {
@@ -14,6 +14,13 @@ public:
 	{
 		bool PostProcessing = true;   // false 면 Volume 효과 없이 (FXAA/디더링만)
 		bool Fxaa = false;
+		// 카메라 Anti-aliasing: SMAA (Quality 0..2) · TAA (Game 뷰 — 투영 지터는 호출하는 쪽이 넣고 Proj 는 지터 없는 것)
+		bool Smaa = false;
+		int SmaaQuality = 2;
+		bool Taa = false;
+		int TaaQuality = 3;
+		float TaaBaseBlend = 0.875f, TaaVarianceClamp = 0.9f, TaaSharpening = 0.0f;
+		XMFLOAT2 TaaJitterUV = {};   // 이번 프레임 지터 (uv)
 		bool Dithering = false;
 		bool StopNaNs = false;
 		// Depth Of Field · Motion Blur: 깊이 프리패스 (뷰 노멀 + 뷰 깊이 w) 와 이 화면의 카메라
@@ -53,6 +60,14 @@ private:
 	std::vector<Target> m_Down, m_Up;   // Bloom 밉 체인
 	Target m_Dof, m_Motion;              // Depth Of Field · Motion Blur 결과 (전체 해상도 HDR)
 	Target m_Half[2];                    // Depth Of Field 반 해상도 (선형 색 + CoC)
+	// TAA: 히스토리 두 장 (지난 프레임 결과 · 이번 결과), 같은 프레임에 다시 그리면 바꾸지 않는다
+	Target m_Taa[2], m_TaaSharp;
+	int m_TaaRead = 0;
+	uint32_t m_TaaFrame = 0;
+	bool m_TaaValid = false;
+	// SMAA: 경계 · 무게
+	Target m_SmaaEdges, m_SmaaWeights;
+	GfxShaderResourceView* TemporalAA(const CameraOptions& options, GfxShaderResourceView* src);
 	// Motion Blur: 지난 프레임 카메라 — 프레임마다 한 번만 넘긴다 (스크린샷처럼 한 프레임에 다시 그려도 속도가 0 이 되지 않게)
 	XMFLOAT4X4 m_PrevViewProj = {}, m_CurViewProj = {};
 	uint32_t m_CurFrame = 0;
