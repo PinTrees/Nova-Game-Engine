@@ -1,11 +1,32 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 (LOD Group 완료 · 커밋, Screen Space Reflection 착수)
-- 단계: **LOD Group 완료 → Screen Space Reflection 구현 중** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
-  - SSR 고칠 파일 (예정): `Source/Graphics/Common/VolumeProfile.*` (효과 하나), `Source/Graphics/DX11/PostProcessPass.*` 또는 새 패스, 새 셰이더, `Source/Editor/EditorApp.cpp` (깊이 · 노멀 · 카메라 넘김), `Tools/tests/run_tests.ps1` (새 묶음), 문서
+- 갱신 시각: 2026년 10월 4일 (LOD Group · Screen Space Reflection 완료, 커밋 — push 는 사용자 확인 뒤)
+- 단계: **LOD Group (`83226d8`) · Screen Space Reflection 완료** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
 - 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
 - 기준 커밋: `c1b7646`
 - Codex 분담: Joint 2D 완료 (작업 폴더에 아직 미커밋), 다음 후보 Tilemap — 공동 명세의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
+
+## Screen Space Reflection 담당 파일 (커밋에 넣은 것)
+
+| 파일 | 왜 |
+|---|---|
+| 새 `Source/Graphics/DX11/ScreenSpaceReflection.*` | Volume 값 · 지난 프레임 장면 색 (밉) · 이펙트에 넣기 |
+| `Source/Graphics/Common/VolumeProfile.cpp` | `ScreenSpaceReflection` 효과 (HDRP 이름) · 켜짐 규칙 |
+| `Shaders/32. InstancedBasic.fx` | `cbScreenSpaceReflection` · `ScreenSpaceReflection()` · ShadeLit 반사 항 (꺼지면 예전과 같음) |
+| `Source/Editor/EditorApp.cpp` | 두 뷰에서 Prepare · Bind (CustomShaders 포함) · StoreHistory |
+| **공용** `Tools/tests/run_tests.ps1` | 새 `Suite-SSR` + 목록 · switch · 도움말에 한 단어 |
+| 문서 | 새 `docs/SCREEN_SPACE_REFLECTION.md`, README · AGENT_HANDOFF 한 줄씩, 공동 명세의 Claude 줄 |
+
+## Screen Space Reflection 검증 (Debug, 독립 빌드 `E:\NovaTest\ClaudeDecalEngine`)
+
+- `ssr` **4/4**: 켜기 (반사 자리 빨강 0 → 100 %) · 매끈함 0.8 = 없음 · 카메라 옮긴 첫 프레임 = 안정 프레임 · Game 뷰
+- 회귀 `render · gfx · shadergraph · decal · reflectionprobe · probevolume · lodgroup` **62/62**, OpenGL 같은 그림
+- 쇼케이스 188
+
+## Codex 에게 (Screen Space Reflection)
+
+- 32 의 ShadeLit 반사 항이 `ScreenSpaceReflection` 을 거친다 (Volume 에서 켜지 않으면 `gSsrParams.x = 0` 으로 바로 돌아옴). 32 컴파일이 Debug 에서 5 초 남짓
+- 새 렌더 경로 (다른 뷰) 를 만들면 `ScreenSpaceReflection::Prepare(..., capture=true, ...)` 로 끄거나 Bind 를 부르지 않으면 이전 뷰 값이 남을 수 있다
 
 ## LOD Group 담당 파일 (커밋에 넣은 것)
 

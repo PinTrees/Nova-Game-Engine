@@ -34,6 +34,7 @@
 #include "ReflectionProbes.h"
 #include "ProbeVolumes.h"
 #include "LODGroup.h"
+#include "ScreenSpaceReflection.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -606,6 +607,9 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 		Effects::InstancedBasicFX->SetSsaoMap(ssaoMap);
 		ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
 		ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
+		// Screen Space Reflection: 깊이 프리패스 + 지난 프레임 장면 색 (찍기에는 없음)
+		ScreenSpaceReflection::Prepare(stack, false, probe, normalDepthSRV, d.View, d.Proj);
+		ScreenSpaceReflection::Bind(Effects::InstancedBasicFX.get());
 
 		// lights
 		Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
@@ -623,6 +627,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 			fx->SetSsaoMap(ssaoMap);
 			ReflectionProbes::Bind(fx);
 			ProbeVolumes::Bind(fx);
+			ScreenSpaceReflection::Bind(fx);
 			if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 				var->SetFloatVector(&indirect.x);
 			fx->SetDirLights(dirLights.data(), dirLights.size());
@@ -699,6 +704,9 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 
 	GfxShaderResourceView* nullSRV[128] = { 0 };
 	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+	// 다음 프레임 Screen Space Reflection 이 쓸 장면 색 (후처리 전 — 톤매핑 · 블룸이 두 번 들지 않게)
+	if (!probe)
+		ScreenSpaceReflection::StoreHistory(_deviceContext.Get(), sceneTarget, false);
 
 	if (usePost)
 	{
@@ -809,6 +817,8 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
 	ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
 	ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
+	ScreenSpaceReflection::Prepare(stack, true, false, ssao->NormalDepthSRV().Get(), camera->View(), camera->Proj());
+	ScreenSpaceReflection::Bind(Effects::InstancedBasicFX.get());
 	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
 
 	// lights
@@ -827,6 +837,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		fx->SetSsaoMap(ssao->AmbientSRV().Get());
 		ReflectionProbes::Bind(fx);
 		ProbeVolumes::Bind(fx);
+		ScreenSpaceReflection::Bind(fx);
 		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&indirect.x);
 		fx->SetDirLights(dirLights.data(), dirLights.size());
@@ -889,6 +900,13 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	phase.Next("Water");
 	if (!RenderManager::GetI()->WireFrameMode)
 		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow, &atmosphere);
+
+	// 다음 프레임 Screen Space Reflection 이 쓸 장면 색 (격자 · 스프라이트 · 입자 전 — 격자 선이 반사에 비치지 않게)
+	{
+		GfxShaderResourceView* none[128] = { 0 };
+		_deviceContext->PSSetShaderResources(0, 128, none);
+		ScreenSpaceReflection::StoreHistory(_deviceContext.Get(), sceneTarget, true);
+	}
 
 	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
 	phase.Next("Grid");

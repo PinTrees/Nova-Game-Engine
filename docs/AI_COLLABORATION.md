@@ -89,7 +89,7 @@ Codex의 씬 작업은 Shader Graph API, 재질 직렬화, 렌더링, C# 바인�
 | **Claude** | **Adaptive Probe Volume — 실시간** (Unity 6 APV 자리 · 이름, 굽기 없음. 레거시 Light Probe Group · Proxy Volume 제거) | 새 `Source/Scene/AdaptiveProbeVolume.*`, 새 `Source/Graphics/DX11/ProbeVolumes.*`, 새 `Shaders/55. ProbeVolume.fx`, `Shaders/32. InstancedBasic.fx` (확산 환경광), `Source/Editor/EditorApp.*`, `Source/Scene/SceneCulling.*` (바뀐 렌더러 상자), `Source/Scene/MeshRenderer.cpp` · `SkinnedMeshRenderer.cpp` (레거시 드롭다운) | 완료 · push (`efbab1e`) |
 | **Claude** | **후처리 Depth of Field (Gaussian · Bokeh) + Motion Blur** (Volume, Unity URP 이름) | `Source/Graphics/Common/VolumeProfile.*`, `Source/Editor/VolumeEditor.cpp`, `Source/Graphics/DX11/PostProcessPass.*`, `Shaders/41. PostProcess.fx`, `Source/Editor/EditorApp.cpp` | 완료 · push (`11002fe`) |
 | **Claude** | **LOD Group** (Unity 의 LOD Group — 화면 높이로 LOD 고르기, Cross Fade 디더, 그림자도 LOD) | 새 `Source/Scene/LODGroup.*`, `Source/Scene/Component.h` · `SceneCulling.*` · `MeshBatcher.*`, `Shaders/32` · `28` (디더), `Source/Editor/EditorApp.cpp` | 완료 · 커밋 (10월 4일): lodgroup 7/7, 회귀 39/39 |
-| **Claude** | **Screen Space Reflection** (URP 의 Volume 효과 — 화면에 보이는 것을 반사) | `Source/Graphics/Common/VolumeProfile.*`, `Source/Graphics/DX11/PostProcessPass.*` 또는 새 패스, 새 셰이더, `Source/Editor/EditorApp.cpp` | 진행 중 (10월 4일, 사용자 지시) |
+| **Claude** | **Screen Space Reflection** (URP 의 Volume 효과 — 화면에 보이는 것을 반사) | `Source/Graphics/Common/VolumeProfile.*`, `Source/Graphics/DX11/PostProcessPass.*` 또는 새 패스, 새 셰이더, `Source/Editor/EditorApp.cpp` | 완료 · 커밋 (10월 4일): ssr 4/4, 회귀 62/62 |
 
 ### Reflection Probe (Claude)
 

@@ -107,7 +107,7 @@ const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
 		"Bloom", "ChromaticAberration", "ColorAdjustments", "DepthOfField", "FilmGrain", "MotionBlur", "Tonemapping", "Vignette", "WhiteBalance",
-		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "Exposure" };
+		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "ScreenSpaceReflection", "Exposure" };
 	return kTypes;
 }
 
@@ -272,6 +272,20 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("indirectDiffuse", "Indirect Diffuse Intensity", K::Float, 1.0f, 0.0f),
 			P("reflection", "Reflection Intensity", K::Float, 1.0f, 0.0f),
 			PColor("ambientTint", "Ambient Tint", 1.0f, 1.0f, 1.0f),
+		};
+	}
+	else if (type == "ScreenSpaceReflection")
+	{
+		// HDRP Screen Space Reflection (URP 에는 없다): 반사 광선이 깊이 프리패스에 맞으면 그 자리의 지난 프레임 장면 색 — 못 맞으면 프로브 · 하늘
+		c->DisplayName = "Screen Space Reflection";
+		c->Category = "Lighting";
+		c->Params = {
+			P("enabled", "Enable", K::Bool, 0.0f),
+			PEnum("quality", "Quality", { "Low", "Medium", "High" }, 1),
+			P("minSmoothness", "Minimum Smoothness", K::Clamped, 0.9f, 0.0f, 1.0f),
+			P("smoothnessFadeStart", "Smoothness Fade Start", K::Clamped, 0.9f, 0.0f, 1.0f),
+			P("screenFadeDistance", "Screen Edge Fade Distance", K::Clamped, 0.1f, 0.0f, 1.0f),
+			P("depthBufferThickness", "Object Thickness", K::Clamped, 0.01f, 0.0f, 1.0f),
 		};
 	}
 	else if (type == "Exposure")
@@ -502,7 +516,7 @@ bool VolumeStack::IsActive(const std::string& type) const
 	if (type == "MotionBlur") return c->F("intensity") > 0.0f;
 	if (type == "FilmGrain") return c->F("intensity") > 0.0f;
 	if (type == "WhiteBalance") return c->F("temperature") != 0.0f || c->F("tint") != 0.0f;
-	if (type == "Fog" || type == "Atmosphere") return c->B("enabled");
+	if (type == "Fog" || type == "Atmosphere" || type == "ScreenSpaceReflection") return c->B("enabled");
 	if (type == "Exposure") return c->I("mode") == 1 || c->F("compensation") != 0.0f;
 	if (type == "IndirectLighting")
 	{

@@ -161,6 +161,24 @@ cbuffer cbReflectionProbes
     float4 gProbeParams;       // x 이 뷰의 프로브 수 (0 = 하늘만), y 배열의 밉 수
     float4 gProbeData[24];     // 프로브마다 3 개: 상자 최소 + Blend Distance, 상자 최대 + Intensity, 찍은 점 + (칸 × 2 + Box Projection)
 };
+// Screen Space Reflection (ScreenSpaceReflection::Prepare · Bind): 깊이 프리패스 + 지난 프레임 장면 색
+Texture2D gSsrNormalDepth;   // 뷰 노멀 xyz + 뷰 깊이 w (하늘 1e5)
+Texture2D gSsrHistory;       // 지난 프레임 장면 색 (감마, 밉)
+cbuffer cbScreenSpaceReflection
+{
+    float4x4 gSsrView;
+    float4x4 gSsrProj;
+    float4x4 gSsrPrevViewProj;   // 지난 프레임 장면 색을 그린 카메라
+    float4 gSsrParams = float4(0, 0, 0, 0);    // x 켜짐, y 걸음 수, z 최대 거리 (m), w Object Thickness (깊이 비율)
+    float4 gSsrParams2;   // x Minimum Smoothness, y Smoothness Fade Start, z Screen Edge Fade Distance, w 장면 색 밉 수
+    float4 gSsrSize;      // 깊이 프리패스 (w, h, 1/w, 1/h)
+};
+SamplerState samSsr
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+};
 
 // object
 Texture2D gDiffuseMap;     // Base Map
@@ -699,6 +717,136 @@ float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float s
     return sum;
 }
 
+// ---------------------------------------------------------------------------
+// Screen Space Reflection (HDRP): 반사 방향으로 깊이 프리패스를 걸어 (뷰 공간, 가까울수록 촘촘 + 픽셀마다 어긋남) 처음 면 뒤로 들어간
+//  곳을 이분 탐색으로 좁힌다 → 그 점의 지난 프레임 장면 색 (지난 ViewProj 로 되돌려 찾음). a = 믿음 (0 = 프로브 · 하늘 그대로)
+// ---------------------------------------------------------------------------
+bool SsrProject(float3 pV, out float2 uv)
+{
+    float4 c = mul(float4(pV, 1.0f), gSsrProj);
+    uv = c.xy / max(c.w, 1e-5f) * float2(0.5f, -0.5f) + 0.5f;
+    return c.w > 1e-4f && uv.x > 0.0f && uv.y > 0.0f && uv.x < 1.0f && uv.y < 1.0f;
+}
+
+float4 SsrDepth(float2 uv)
+{
+    return gSsrNormalDepth.Load(int3(min(uv * gSsrSize.xy, gSsrSize.xy - 1.0f), 0));
+}
+
+float4 ScreenSpaceReflection(float3 posW, float3 N, float3 R, float smoothness, float perceptualRoughness)
+{
+    if (gSsrParams.x < 0.5f || smoothness < gSsrParams2.x)
+        return float4(0, 0, 0, 0);
+    // 매끈함: Minimum Smoothness → Smoothness Fade Start 사이에서 서서히
+    float fadeS = gSsrParams2.y > gSsrParams2.x + 1e-4f ? saturate((smoothness - gSsrParams2.x) / (gSsrParams2.y - gSsrParams2.x)) : 1.0f;
+    float3 startW = posW + N * 0.02f;
+    float3 originV = mul(float4(startW, 1.0f), gSsrView).xyz;
+    float3 dirV = normalize(mul(R, (float3x3)gSsrView));
+    float maxDist = gSsrParams.z;
+    if (dirV.z < -1e-4f)
+        maxDist = min(maxDist, (originV.z - 0.05f) / -dirV.z);   // 카메라 쪽 광선은 가까운 면 앞까지
+    float2 uv0;
+    if (maxDist <= 0.0f || !SsrProject(originV, uv0))
+        return float4(0, 0, 0, 0);
+    float jitter = LodDither(uv0 * gSsrSize.xy);   // 화면 고정 무늬 — 걸음 띠를 흩뜨린다
+    int steps = (int)gSsrParams.y;
+    // 화면에서 고르게 걷는다: 화면 비율 f 의 광선 거리 = 원근 보정 (1/w 를 선형으로) — 가까운 곳이 촘촘하다
+    float4 c1 = mul(float4(originV + dirV * maxDist, 1.0f), gSsrProj);
+    float k0 = 1.0f / max(mul(float4(originV, 1.0f), gSsrProj).w, 1e-4f);
+    float k1 = 1.0f / max(c1.w, 1e-4f);
+    // 화면 밖으로 나가는 곳까지만 걸음을 쓴다 (하늘로 가는 광선이 걸음을 버리지 않게 — 같은 걸음 수로 더 촘촘)
+    float2 uv1 = c1.xy * k1 * float2(0.5f, -0.5f) + 0.5f;
+    float2 duv = uv1 - uv0;
+    float2 exitF = (step(0.0f, duv) - uv0) / (abs(duv) > 1e-6f ? duv : 1e-6f);
+    float fEnd = saturate(min(abs(duv.x) > 1e-6f ? exitF.x : 1.0f, abs(duv.y) > 1e-6f ? exitF.y : 1.0f));
+    float prevT = 0.0f, hitT = -1.0f;
+    float prevSceneZ = 1e5f;
+    [loop]
+    for (int i = 0; i < steps; ++i)
+    {
+        float f = fEnd * (i + jitter) / (float)steps;
+        float t = maxDist * max(f * k1 / lerp(k0, k1, f), 0.0005f);
+        float3 p = originV + dirV * t;
+        float2 uv;
+        if (!SsrProject(p, uv))
+            break;
+        float sceneZ = SsrDepth(uv).w;
+        float dz = p.z - sceneZ;
+        // 면 뒤로 들어갔고 (두께 안) — 두께 = 깊이 비율 + 이번 걸음의 깊이 변화 (성긴 걸음이 얇은 면을 건너뛰지 않게)
+        if (dz > 0.0f && dz < gSsrParams.w * sceneZ + abs(dirV.z) * (t - prevT) + 0.02f)
+        {
+            hitT = t;
+            break;
+        }
+        // 깊이가 크게 끊김 (앞 표본은 면 앞, 이번은 훨씬 먼 곳 · 하늘): 그 사이 면 가장자리에서 면 뒤로 짧게 들어갔을 수 있다
+        //  — 걸음 사이가 그 구간보다 길면 놓친다 (물체 위 모서리 반사의 털 같은 띠). 사이를 좁혀 찾는다
+        float edgeZ = prevSceneZ * 1.1f + 0.3f;
+        if (prevSceneZ < 1e4f && sceneZ > edgeZ)
+        {
+            float a = prevT, b = t;
+            [loop]
+            for (int j = 0; j < 5; ++j)
+            {
+                float m = (a + b) * 0.5f;
+                float2 um;
+                SsrProject(originV + dirV * m, um);
+                float zm = SsrDepth(um).w;
+                if (zm > edgeZ)
+                    b = m;   // 이미 가장자리 밖
+                else if (originV.z + dirV.z * m > zm)
+                {
+                    hitT = m;   // 가장자리 안에서 면 뒤 → 맞음 (아래 이분 탐색이 [a, m] 을 좁힌다)
+                    break;
+                }
+                else
+                    a = m;
+            }
+            if (hitT >= 0.0f)
+            {
+                prevT = a;
+                break;
+            }
+        }
+        prevT = t;
+        prevSceneZ = sceneZ;
+    }
+    if (hitT < 0.0f)
+        return float4(0, 0, 0, 0);
+    // 이분 탐색
+    float a = prevT, b = hitT;
+    float2 hitUV = uv0;
+    [unroll]
+    for (int k = 0; k < 5; ++k)
+    {
+        float m = (a + b) * 0.5f;
+        float2 uv;
+        SsrProject(originV + dirV * m, uv);
+        if (originV.z + dirV.z * m > SsrDepth(uv).w)
+            b = m;
+        else
+            a = m;
+    }
+    SsrProject(originV + dirV * b, hitUV);
+    float4 hit = SsrDepth(hitUV);
+    if (hit.w > 1e4f || dot(hit.xyz, dirV) > 0.2f)
+        return float4(0, 0, 0, 0);   // 하늘 · 면 뒷면
+    // 좁힌 점이 면에 붙어 있어야 맞음 — 물체 위를 살짝 넘어 그 뒤로 지나간 광선 (걸음 허용으로 잡힌 것) 은 버린다
+    if (originV.z + dirV.z * b - hit.w > gSsrParams.w * hit.w + 0.03f)
+        return float4(0, 0, 0, 0);
+    // 지난 프레임 화면 위치
+    float4 prev = mul(float4(startW + R * b, 1.0f), gSsrPrevViewProj);
+    if (prev.w <= 1e-4f)
+        return float4(0, 0, 0, 0);
+    float2 prevUV = prev.xy / prev.w * float2(0.5f, -0.5f) + 0.5f;
+    // 화면 가장자리 (Screen Edge Fade Distance) · 광선 끝 · 매끈함
+    float2 e = min(min(hitUV, 1.0f - hitUV), min(prevUV, 1.0f - prevUV));
+    float edge = gSsrParams2.z > 1e-4f ? saturate(min(e.x, e.y) / (gSsrParams2.z * 0.5f)) : (min(e.x, e.y) > 0.0f ? 1.0f : 0.0f);
+    float distFade = 1.0f - smoothstep(0.75f, 1.0f, b / gSsrParams.z);
+    float mip = min(perceptualRoughness * (gSsrParams2.w - 1.0f) * 1.5f, gSsrParams2.w - 1.0f);
+    float3 color = ToLinear(gSsrHistory.SampleLevel(samSsr, prevUV, mip).rgb);
+    return float4(color, fadeS * edge * distFade);
+}
+
 float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPosH)
 {
     // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
@@ -822,6 +970,8 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         float3 R = reflect(-V, N);
         // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
         float3 env = ProbeReflection(R, posW, perceptualRoughness, (float)mips, skyOcclusion);
+        float4 ssr = ScreenSpaceReflection(posW, N, R, surf.Smoothness, perceptualRoughness);
+        env = lerp(env, ssr.rgb, ssr.a);   // 화면에서 맞은 만큼 프로브 · 하늘 대신
         float fresnel = pow(1.0f - NoV, 4.0f);
         float grazing = saturate(surf.Smoothness + (1.0f - oneMinusReflectivity));
         float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);

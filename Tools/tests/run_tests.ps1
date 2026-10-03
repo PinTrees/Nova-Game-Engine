@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2484,6 +2484,86 @@ function Suite-LODGroup
     }
 }
 
+function Suite-SSR
+{
+    # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
+    Write-Host '[ssr]'
+    $dir = Join-Path $Out 'ssr'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\SsrTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $base = Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json
+    foreach ($m in @(@('Mirror', @(0.7, 0.7, 0.72, 1), 1.0, 1.0), @('Satin', @(0.7, 0.7, 0.72, 1), 1.0, 0.8), @('Red', @(0.9, 0.1, 0.1, 1), 0.0, 0.3)))
+    {
+        $mat = $base.PSObject.Copy(); $mat.BaseColor = $m[1]; $mat.Metallic = $m[2]; $mat.Smoothness = $m[3]; $mat.ResourcePath = "Assets\SsrTest\$($m[0]).mat"
+        $mat | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir "$($m[0]).mat")
+    }
+    foreach ($p in @(@('On', 1), @('Off', 0)))
+    {
+        @{ nova_volume_profile = 1; components = @(@{ type = 'ScreenSpaceReflection'; active = $true; params = @{ enabled = @{ override = $true; value = @($p[1], 0, 0, 0) } } }) } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $assetDir "$($p[0]).volumeprofile")
+    }
+    $ed = Start-TestEditor
+    try
+    {
+        function Mat([string]$obj, [string]$mat) { Invoke-Nova ("set $obj --component MeshRenderer --values `"{\`"m_MaterialPaths\`":[\`"Assets/SsrTest/$mat.mat\`"]}`"") | Out-Null }
+        function Vol([string]$name) { Invoke-Nova ('set "Global Volume" --component Volume --values "{\"profile\":\"Assets/SsrTest/' + $name + '.volumeprofile\"}"') | Out-Null }
+        function Shot([string]$name, [string]$view = 'scene') { $p = Join-Path $dir $name; Invoke-Nova 'wait 5' | Out-Null; Invoke-Nova "screenshot $p --view $view" | Out-Null; $p }
+        # 영역 안 빨간 픽셀 비율
+        function RedShare([string]$p, [double]$x0, [double]$x1, [double]$y0, [double]$y1)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($p); $r = 0; $n = 0
+            for ($y = [int]($bm.Height * $y0); $y -lt [int]($bm.Height * $y1); $y++) {
+                for ($x = [int]($bm.Width * $x0); $x -lt [int]($bm.Width * $x1); $x++) {
+                    $c = $bm.GetPixel($x, $y); $n++
+                    if ($c.R -gt $c.G + 40 -and $c.R -gt $c.B + 40) { $r++ } } }
+            $bm.Dispose(); $r / [math]::Max(1, $n)
+        }
+        $refl = @(0.36, 0.42, 0.62, 0.72)   # 바닥에 비친 빨간 상자 (Scene 뷰)
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 120) { $t = Invoke-Nova 'log -n 400'; if ($t -match 'compiled 32\. InstancedBasic|cache hit 32\. InstancedBasic') { break }; Start-Sleep -Milliseconds 500 }
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Floor --position 0,-0.5,4 --scale 12,1,14' | Out-Null; Mat 'Floor' 'Mirror'
+        Invoke-Nova 'create cube --name RedBox --position -1.6,0.75,5 --scale 1,1.5,1' | Out-Null; Mat 'RedBox' 'Red'
+        Invoke-Nova 'camera --position 0,1.2,-1.5 --target 0,0.4,5' | Out-Null
+
+        Vol 'Off'; $p0 = Shot 'off.png'; $r0 = RedShare $p0 @refl
+        Vol 'On'; $p1 = Shot 'on.png'; $r1 = RedShare $p1 @refl
+        Add-Result ssr 'Enable: the red box shows up in the mirror floor (probe / sky reflection before)' ($r0 -lt 0.05 -and $r1 -gt 0.8) ("red in the reflection {0:P0} -> {1:P0}" -f $r0, $r1)
+
+        # Minimum Smoothness 0.9: 매끈함 0.8 바닥은 반사 없음 (프로브 · 하늘 그대로)
+        Mat 'Floor' 'Satin'
+        $p2 = Shot 'satin.png'; $r2 = RedShare $p2 @refl
+        Mat 'Floor' 'Mirror'
+        Add-Result ssr 'Minimum Smoothness 0.9: a floor with smoothness 0.8 gets no screen space reflection' ($r2 -lt 0.05) ("red {0:P0}" -f $r2)
+
+        # 카메라가 움직인 첫 프레임: 지난 프레임 색을 지난 ViewProj 로 되돌려 찾는다 — 반사가 제자리
+        Invoke-Nova 'camera --position 0.4,1.3,-1.6 --target 0.2,0.4,5' | Out-Null
+        $p3 = Join-Path $dir 'moved_first.png'; Invoke-Nova "screenshot $p3 --view scene" | Out-Null
+        $p4 = Shot 'moved_settled.png'
+        $bx = @(0.33, 0.47, 0.55, 0.8)
+        $r3 = RedShare $p3 @bx; $r4 = RedShare $p4 @bx
+        Add-Result ssr 'Camera jump: the first frame (previous frame colors reprojected) matches the settled frame' ($r4 -gt 0.1 -and [math]::Abs($r3 - $r4) -lt $r4 * 0.15) ("red first {0:P1}, settled {1:P1}" -f $r3, $r4)
+
+        # Game 뷰도 (Main Camera)
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.2,-1.5 --rotation 9,0,0' | Out-Null
+        Vol 'Off'; $g0 = Shot 'game_off.png' 'game'
+        Vol 'On'; $g1 = Shot 'game_on.png' 'game'
+        $ga = @(0.3, 0.48, 0.55, 0.85)
+        $rg0 = RedShare $g0 @ga; $rg1 = RedShare $g1 @ga
+        Invoke-Nova 'window scene' | Out-Null
+        Add-Result ssr 'Game view: the reflection also appears (Main Camera)' ($rg1 -gt $rg0 + 0.05) ("red {0:P1} -> {1:P1}" -f $rg0, $rg1)
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2801,6 +2881,7 @@ try
                 'probevolume' { Suite-ProbeVolume }
                 'depthoffield' { Suite-DepthOfField }
                 'lodgroup' { Suite-LODGroup }
+                'ssr' { Suite-SSR }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }
