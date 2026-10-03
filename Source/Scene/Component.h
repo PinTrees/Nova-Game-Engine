@@ -65,6 +65,12 @@ public:
 	// 절두체 컬링 (SceneCulling): 추적 중인 렌더러는 CullStamp == SceneCulling::Stamp 일 때만 그린다
 	uint32_t CullStamp = 0;
 	bool CullTracked = false;
+	// LOD Group (LODGroup::SelectForView 가 뷰마다 매김): LodStamp == SceneCulling::LodStamp 일 때만 따른다
+	uint32_t LodStamp = 0;
+	bool LodHidden = false;         // 카메라 패스 (깊이 · 본 · 투명) 에서 안 그림
+	bool LodShadowHidden = false;   // 그림자 패스에서 안 그림
+	bool LodFadeBelow = false;      // 크로스페이드 디더: true = 무늬 < LodFade 인 픽셀만, false = 무늬 ≥ LodFade 인 픽셀만
+	float LodFade = 0.0f;           // 0 = 디더 없음
 
 private:
 	friend class GameObject;

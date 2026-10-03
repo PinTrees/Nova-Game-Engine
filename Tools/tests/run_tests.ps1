@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2375,6 +2375,115 @@ public class DofTestSpin : MonoBehaviour
     }
 }
 
+function Suite-LODGroup
+{
+    # LOD Group: 같은 자리의 빨강 (LOD 0, 지름 1) · 초록 (LOD 1, 0.9) · 파랑 (LOD 2, 0.8) 구 — 카메라 거리로 하나만, 크로스페이드는 화면 디더
+    Write-Host '[lodgroup]'
+    $dir = Join-Path $Out 'lodgroup'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\LodTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $base = Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json
+    foreach ($m in @(@('Red', @(0.9, 0.08, 0.08, 1)), @('Green', @(0.08, 0.8, 0.08, 1)), @('Blue', @(0.08, 0.15, 0.9, 1))))
+    {
+        $mat = $base.PSObject.Copy(); $mat.BaseColor = $m[1]; $mat.Smoothness = 0.1; $mat.ResourcePath = "Assets\LodTest\$($m[0]).mat"
+        $mat | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir "$($m[0]).mat")
+    }
+    $ed = Start-TestEditor
+    try
+    {
+        function Mat([string]$obj, [string]$mat) { Invoke-Nova ("set $obj --component MeshRenderer --values `"{\`"m_MaterialPaths\`":[\`"Assets/LodTest/$mat.mat\`"]}`"") | Out-Null }
+        function Shot([string]$name, [string]$view = 'scene') { $p = Join-Path $dir $name; Invoke-Nova "screenshot $p --view $view" | Out-Null; $p }
+        function Cam([double]$d) { Invoke-Nova ("camera --position 0,1,-{0} --target 0,1,0" -f $d) | Out-Null; Invoke-Nova 'wait 3' | Out-Null }
+        function LodInfo { (Invoke-NovaJson 'lod info').groups[0] }   # (Group 은 Group-Object 별칭)
+        # 화면 가운데 영역의 빨강 · 초록 · 파랑 · 그 밖 (하늘 · 바닥) 비율
+        function Colors([string]$p, [double]$x0 = 0.485, [double]$x1 = 0.515, [double]$y0 = 0.47, [double]$y1 = 0.53)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($p); $r = 0; $g = 0; $b = 0; $o = 0
+            for ($y = [int]($bm.Height * $y0); $y -lt [int]($bm.Height * $y1); $y++) {
+                for ($x = [int]($bm.Width * $x0); $x -lt [int]($bm.Width * $x1); $x++) {
+                    $c = $bm.GetPixel($x, $y)
+                    if ($c.R -gt $c.G + 40 -and $c.R -gt $c.B + 40) { $r++ } elseif ($c.G -gt $c.R + 40 -and $c.G -gt $c.B + 30) { $g++ } elseif ($c.B -gt $c.R + 40 -and $c.B -gt $c.G + 30) { $b++ } else { $o++ } } }
+            $bm.Dispose(); $n = [math]::Max(1, $r + $g + $b + $o)
+            [pscustomobject]@{ R = $r / $n; G = $g / $n; B = $b / $n; O = $o / $n }
+        }
+        function Fmt($c) { "R {0:P0} G {1:P0} B {2:P0} other {3:P0}" -f $c.R, $c.G, $c.B, $c.O }
+
+        # 32 (디더) 가 백그라운드로 다 만들어질 때까지
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 120) { $t = Invoke-Nova 'log -n 400'; if ($t -match 'compiled 32\. InstancedBasic|cache hit 32\. InstancedBasic') { break }; Start-Sleep -Milliseconds 500 }
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create sphere --name L0 --position 0,1,0' | Out-Null; Mat 'L0' 'Red'
+        Invoke-Nova 'create sphere --name L1 --position 0,1,0 --scale 0.9,0.9,0.9' | Out-Null; Mat 'L1' 'Green'
+        Invoke-Nova 'create sphere --name L2 --position 0,1,0 --scale 0.8,0.8,0.8' | Out-Null; Mat 'L2' 'Blue'
+        Invoke-Nova 'create empty --name Group --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component Group LODGroup' | Out-Null
+        foreach ($i in 0..2) { Invoke-Nova "lod assign --name Group --lod $i --object L$i" | Out-Null }
+        $g = LodInfo
+        Add-Result lodgroup 'Add LOD Group: Unity defaults (60 / 30 / 10 %), renderers assigned, bounds = sphere (Object Size 1)' ($g.lods.Count -eq 3 -and [math]::Abs($g.lods[1].height - 0.3) -lt 1e-4 -and $g.lods[2].renderers[0] -eq 'L2' -and [math]::Abs($g.size - 1) -lt 0.02) ("lods {0}, size {1:N3}" -f $g.lods.Count, $g.size)
+
+        # 거리 → LOD (Scene 뷰 FOV 60: 화면 높이 = 0.866 / 거리)
+        $ok = $true; $detail = @()
+        foreach ($case in @(@(1.2, 0, 'R'), @(2.0, 1, 'G'), @(5.0, 2, 'B'), @(12.0, -1, 'O')))
+        {
+            Cam $case[0]; $p = Shot ("dist_{0}.png" -f $case[0]); $c = Colors $p; $g = LodInfo
+            $pass = $g.sceneLOD -eq $case[1] -and $c.($case[2]) -gt 0.9
+            $ok = $ok -and $pass
+            $detail += ("{0} m: LOD {1} ({2:P1}) {3}" -f $case[0], $g.sceneLOD, $g.sceneHeight, (Fmt $c))
+        }
+        Add-Result lodgroup 'Distance picks LOD 0 / 1 / 2 / Culled — only that LOD draws' $ok ($detail -join '; ')
+
+        # Cross Fade: LOD 0 의 Fade Transition Width 1 → 화면 높이 60 ~ 100 % 에서 빨강 비율 = (높이 - 0.6) / 0.4
+        Invoke-Nova 'lod set --name Group --fadeMode 1 --lod 0 --fadeWidth 1' | Out-Null
+        Cam 1.0825
+        $p = Shot 'crossfade.png'; $c = Colors $p; $g = LodInfo
+        $wide = Colors $p 0.42 0.58 0.3 0.7   # 초록 구 안쪽 전체 — 빈 픽셀 (하늘) 이 하나도 없어야
+        $expect = ($g.sceneHeight - 0.6) / 0.4
+        Add-Result lodgroup 'Cross Fade (Fade Transition Width 1): both LODs dithered, red share = fade, no holes (depth prepass = same pattern)' ([math]::Abs($c.R - $expect) -lt 0.08 -and $c.G -gt 0.2 -and $wide.O -lt 0.0002) ("height {0:P1}, expected red {1:P0}: {2}; holes {3:P3}" -f $g.sceneHeight, $expect, (Fmt $c), $wide.O)
+
+        # Animate Cross-fading: 경계를 넘는 순간부터 0.5 초 동안 섞고 끝나면 새 LOD 만
+        Invoke-Nova 'lod set --name Group --animate true --lod 0 --fadeWidth 0' | Out-Null
+        Cam 1.2; Start-Sleep -Milliseconds 800
+        Invoke-Nova ("camera --position 0,1,-2 --target 0,1,0") | Out-Null
+        $p1 = Shot 'animate_now.png'; $c1 = Colors $p1
+        Start-Sleep -Milliseconds 900
+        $p2 = Shot 'animate_after.png'; $c2 = Colors $p2
+        Add-Result lodgroup 'Animate Cross-fading: right after the switch both show, after 0.5 s only LOD 1' ($c1.R -gt 0.3 -and $c1.G -gt 0.01 -and $c2.G -gt 0.97) ("now {0} -> later {1}" -f (Fmt $c1), (Fmt $c2))
+
+        # Game 뷰: Main Camera 로 따로 고른다
+        Invoke-Nova 'lod set --name Group --fadeMode 0 --animate false' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1,-5 --rotation 0,0,0' | Out-Null
+        $p = Shot 'game.png' 'game'; $c = Colors $p; $g1 = LodInfo
+        Invoke-Nova 'window scene' | Out-Null
+        Cam 1.2
+        $g = LodInfo
+        Add-Result lodgroup 'Game view picks with the Main Camera (5 m → LOD 2), the Scene view with its own camera (LOD 0)' ($g1.gameLOD -eq 2 -and $c.B -gt 0.9 -and $g.sceneLOD -eq 0 -and $g.gameLOD -eq 2) ("game LOD {0} ({1:P1}) {2}; scene LOD {3}" -f $g1.gameLOD, $g1.gameHeight, (Fmt $c), $g.sceneLOD)
+
+        # 꺼진 LOD Group = 모든 LOD 를 그린다 (Unity) — Culled 거리에서도 보인다
+        Invoke-Nova 'set Group --component LODGroup --values "{\"enabled\":false}"' | Out-Null
+        Cam 12.0
+        $p = Shot 'disabled.png'; $c = Colors $p 0.49 0.51 0.48 0.52
+        Invoke-Nova 'set Group --component LODGroup --values "{\"enabled\":true}"' | Out-Null
+        Add-Result lodgroup 'Disabled LOD Group draws every LOD (seen even past Culled)' ($c.R -gt 0.9) (Fmt $c)
+
+        # 저장 · 다시 열기: 렌더러 참조 (fileID) 가 그대로
+        Invoke-Nova 'scene save --as Assets/LodTest/LodScene.scene' | Out-Null
+        Invoke-Nova 'scene open Assets/LodTest/LodScene.scene --force' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        Cam 5.0
+        $p = Shot 'reopen.png'; $c = Colors $p; $g = LodInfo
+        Add-Result lodgroup 'Save → reopen: LODs and renderer references kept' ($g.lods[0].renderers[0] -eq 'L0' -and $g.lods[2].renderers[0] -eq 'L2' -and $g.sceneLOD -eq 2 -and $c.B -gt 0.9) ("renderers {0} / {1} / {2}, LOD {3}" -f $g.lods[0].renderers[0], $g.lods[1].renderers[0], $g.lods[2].renderers[0], $g.sceneLOD)
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2691,6 +2800,7 @@ try
                 'reflectionprobe' { Suite-ReflectionProbe }
                 'probevolume' { Suite-ProbeVolume }
                 'depthoffield' { Suite-DepthOfField }
+                'lodgroup' { Suite-LODGroup }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

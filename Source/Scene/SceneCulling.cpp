@@ -377,6 +377,7 @@ namespace SceneCulling
 	{
 		PROFILE_SCOPE("Culling");
 		++Stamp;
+		ShadowPass = shadowPass;
 		if (s_Nodes.empty())
 			return;
 		const CullFrustum fr = MakeFrustum(viewProj, shadowPass);

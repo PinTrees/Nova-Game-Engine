@@ -14,6 +14,7 @@
 #include "RenderLayers.h"
 #include "CustomShaders.h"
 #include "RenderStates.h"
+#include "LODGroup.h"
 #include <unordered_map>
 
 namespace
@@ -59,10 +60,12 @@ namespace
 	int s_MainCount = 0, s_DepthCount = 0;
 	std::unordered_map<Key, int, KeyHash> s_MainIndex, s_DepthIndex;
 	bool s_Collected = false;
+	bool s_Capture = false;
 	Scene* s_CollectedScene = nullptr;
 	uint32_t s_CollectedFrame = 0;
 
 	std::vector<int> s_Order;
+	std::vector<const Caster*> s_Fading;   // LOD 크로스페이드 중 (묶지 않고 gLodFade 를 넣어 하나씩)
 	MeshBatcher::Stats s_Stats[2];
 
 	// 투명 재질 (CustomShaders::Transparent): 묶지 않고 물체마다 — 투명 패스에서 먼 것부터
@@ -126,8 +129,10 @@ namespace
 	}
 
 	// 씬을 한 번 훑는다: 켜진 Mesh Renderer 마다 월드 행렬과 서브셋별 묶음 번호
-	void Collect(Scene* scene)
+	void Collect(Scene* scene, bool editor)
 	{
+		// LOD Group: 이 뷰의 카메라로 LOD 를 골라 렌더러에 숨김 · 페이드를 매긴다 (그림자 · 깊이 · 본 패스 모두 같은 값)
+		LODGroup::SelectForView(scene, editor, s_Capture);
 		s_Casters.clear();
 		s_MainItems.clear();
 		s_DepthItems.clear();
@@ -281,7 +286,7 @@ namespace MeshBatcher
 		}
 	}
 
-	void BeginView() { s_Collected = false; }
+	void BeginView(bool capture) { s_Collected = false; s_Capture = capture; }
 
 	void Draw(Scene* scene, Pass pass, bool editor)
 	{
@@ -294,7 +299,7 @@ namespace MeshBatcher
 		if (!s_Collected || s_CollectedScene != scene || s_CollectedFrame != SceneCulling::FrameIndex())
 		{
 			PROFILE_SCOPE("MeshBatcher.Collect");
-			Collect(scene);
+			Collect(scene, editor);
 		}
 		if (pass == Pass::Transparent)
 		{
@@ -310,6 +315,7 @@ namespace MeshBatcher
 		for (int i = 0; i < batchCount; ++i)
 			batches[i].Worlds.clear();
 		s_Order.clear();
+		s_Fading.clear();
 		int objects = 0;
 		for (const Caster& c : s_Casters)
 		{
@@ -319,6 +325,12 @@ namespace MeshBatcher
 				continue;   // Camera / Light 의 Culling Mask
 			if ((pass == Pass::Shadow && c.Cast == 1) || (pass != Pass::Shadow && c.Cast == 3))
 				continue;
+			if (pass != Pass::Shadow && c.Renderer->LodStamp == SceneCulling::LodStamp && c.Renderer->LodFade > 0.0f)
+			{
+				s_Fading.push_back(&c);   // 그림자는 LOD Group 이 고른 한 쪽만 (LodShadowHidden)
+				++objects;
+				continue;
+			}
 			for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 			{
 				if (items[k] < 0)
@@ -332,7 +344,7 @@ namespace MeshBatcher
 			if (pass == Pass::Shadow)
 				RenderStats::AddShadowCaster();
 		}
-		if (s_Order.empty())
+		if (s_Order.empty() && s_Fading.empty())
 		{
 			if (main)
 				s_Stats[editor ? 1 : 0] = Stats{ 0, 0 };
@@ -385,12 +397,11 @@ namespace MeshBatcher
 		const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
 		uint32 appliedLayer = 0;
 		int drawn = 0;
-		for (int index : s_Order)
+		auto drawBatch = [&](Batch* b)
 		{
-			Batch* b = &batches[index];
 			GfxBuffer* inst = Upload(dc, b->Worlds);
 			if (inst == nullptr)
-				continue;
+				return;
 			// 패키지 · Shader Graph 셰이더 (CustomShaders::DrawInstanced): 그 셰이더가 값을 넣고 그린다
 			if (pass == Pass::Main && b->Material && b->Material->IsCustom())
 				if (const CustomShaders::Shader* cs = CustomShaders::Find(b->Material->CustomShader()); cs && cs->DrawInstanced)
@@ -412,7 +423,7 @@ namespace MeshBatcher
 					applied = reinterpret_cast<const UMaterial*>(1);   // 다음 엔진 묶음은 재질 · 레이어를 다시
 					appliedLayer = 0;
 					++drawn;
-					continue;
+					return;
 				}
 			// 깊이 · 그림자: 잘라내는 재질 (사용자 셰이더 → 그 셰이더, 엔진 Lit → 그림 알파로 자르는 기법)
 			if (pass != Pass::Main && b->Material)
@@ -437,7 +448,7 @@ namespace MeshBatcher
 					};
 					cs->DrawInstanced(d);
 					++drawn;
-					continue;
+					return;
 				}
 				if (clip == Clip::Engine)
 				{
@@ -477,7 +488,7 @@ namespace MeshBatcher
 						SetMatrix(fx, "gTexTransform", XMMatrixIdentity());
 						Effects::SsaoNormalDepthFX->SetAlphaCutoff(0.0f);
 					}
-					continue;
+					return;
 				}
 			}
 			if (pass == Pass::Main && b->Material.get() != applied)
@@ -495,6 +506,37 @@ namespace MeshBatcher
 			tech->GetPassByIndex(0)->Apply(0, dc);
 			b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
 			++drawn;
+		};
+		for (int index : s_Order)
+			drawBatch(&batches[index]);
+
+		// LOD 크로스페이드 중인 렌더러: 서브셋마다 하나씩, gLodFade 로 화면 디더 (깊이 프리패스와 본 패스가 같은 무늬 — EQUAL 깊이 검사가 맞는다)
+		if (!s_Fading.empty())
+		{
+			FxEffect* fadeFx = main ? Effects::InstancedBasicFX->GetFX() : Effects::SsaoNormalDepthFX->GetFX();
+			auto* fadeVar = fadeFx->GetVariableByName("gLodFade")->AsVector();
+			Batch one;
+			for (const Caster* c : s_Fading)
+			{
+				const float fade[4] = { c->Renderer->LodFade, c->Renderer->LodFadeBelow ? 1.0f : 0.0f, 1.0f, 0.0f };
+				if (fadeVar && fadeVar->IsValid())
+					fadeVar->SetFloatVector(fade);
+				for (uint32_t k = c->First; k < c->First + c->Count; ++k)
+				{
+					if (items[k] < 0)
+						continue;
+					const Batch& src = batches[items[k]];
+					one.MeshPtr = src.MeshPtr;
+					one.Subset = src.Subset;
+					one.Material = src.Material;
+					one.Layer = src.Layer;
+					one.Worlds.assign(1, c->World);
+					drawBatch(&one);
+				}
+			}
+			const float off[4] = { 0, 0, 0, 0 };
+			if (fadeVar && fadeVar->IsValid())
+				fadeVar->SetFloatVector(off);
 		}
 		GfxBuffer* none = nullptr;
 		UINT zero = 0;

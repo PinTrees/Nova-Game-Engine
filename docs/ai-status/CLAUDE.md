@@ -1,11 +1,38 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 (Depth of Field · Motion Blur 완료 · push `11002fe`)
-- 단계: **후처리 Depth of Field (Gaussian · Bokeh) + Motion Blur 완료** — 사용자 지시 "Volume 에 Unity URP 와 같은 이름으로 … 진행"
-- 이전 단계: Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
-- 기준 커밋: `11002fe`
-- 다음: 사용자 지시 대기 (추천 — LOD Group, APV 2 단계, Screen Space Reflection)
+- 갱신 시각: 2026년 10월 4일 (LOD Group 완료 · 커밋, Screen Space Reflection 착수)
+- 단계: **LOD Group 완료 → Screen Space Reflection 구현 중** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
+  - SSR 고칠 파일 (예정): `Source/Graphics/Common/VolumeProfile.*` (효과 하나), `Source/Graphics/DX11/PostProcessPass.*` 또는 새 패스, 새 셰이더, `Source/Editor/EditorApp.cpp` (깊이 · 노멀 · 카메라 넘김), `Tools/tests/run_tests.ps1` (새 묶음), 문서
+- 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
+- 기준 커밋: `c1b7646`
 - Codex 분담: Joint 2D 완료 (작업 폴더에 아직 미커밋), 다음 후보 Tilemap — 공동 명세의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
+
+## LOD Group 담당 파일 (커밋에 넣은 것)
+
+| 파일 | 왜 |
+|---|---|
+| 새 `Source/Scene/LODGroup.*` | 컴포넌트 (Unity 필드), 뷰마다 LOD 고르기, Inspector LOD 막대, CLI `nova lod` |
+| `Source/Scene/Component.h` | 렌더러마다 `LodStamp` · `LodHidden` · `LodShadowHidden` · `LodFade` · `LodFadeBelow` (기본값 = 예전과 같음) |
+| `Source/Scene/SceneCulling.*` | `LodStamp` · `ShadowPass`, `IsVisible` 이 LOD 숨김도 본다 |
+| `Source/Scene/MeshBatcher.*` | `BeginView(capture)`, Collect 에서 `LODGroup::SelectForView`, 크로스페이드 렌더러는 묶음 밖에서 `gLodFade` 로 (묶음 그리기를 람다로) |
+| `Shaders/32. InstancedBasic.fx` · `Shaders/28. SsaoNormalDepth.fx` | `gLodFade` + `LodFadeClip` (PS 첫 줄 — 기본 0 이면 그대로) |
+| `Source/Editor/EditorApp.cpp` | `BeginView(probe)`, `LODGroup::RegisterEditor` |
+| `Tools/NovaCli/main.cpp` | `lod` op 명령 + 도움말 한 줄 |
+| **공용** `Source/Editor/AddComponentMenu.cpp` | Rendering > LOD Group 한 줄만 stage |
+| **공용** `Tools/tests/run_tests.ps1` | 새 `Suite-LODGroup` + 목록 · switch · 도움말에 한 단어 |
+| 문서 | 새 `docs/LOD_GROUP.md`, README · AGENT_HANDOFF · NOVA_CLI 한 줄씩, 공동 명세의 Claude 줄 |
+
+## LOD Group 검증 (Debug, 독립 빌드 `E:\NovaTest\ClaudeDecalEngine`)
+
+- `lodgroup` **7/7**: 기본값 · 거리별 LOD 0 / 1 / 2 / Culled · Cross Fade 반반 + 빈 픽셀 0 · Animate Cross-fading · Game / Scene 뷰 따로 · 끈 그룹 = 모두 · 저장 → 다시 열기
+- 회귀 `render · gfx · shadergraph · decal` **39/39**, OpenGL 크로스페이드 확인 (빈 픽셀 0)
+- 쇼케이스 187
+
+## Codex 에게 (LOD Group)
+
+- `SceneCulling::IsVisible` 이 LOD Group 이 숨긴 렌더러도 false 를 준다 (LOD Group 이 없으면 예전과 같음). 렌더러를 직접 그리는 새 경로를 만들면 이 검사를 쓰면 LOD 를 따른다
+- `Component` 에 LOD 필드 5 개가 늘었다 (직렬화 안 함)
+- `MeshBatcher::BeginView` 에 `capture` 인자 (기본 false)
 
 ## Depth of Field · Motion Blur 담당 파일 (커밋에 넣은 것)
 

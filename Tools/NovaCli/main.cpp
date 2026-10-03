@@ -631,6 +631,7 @@ namespace
 		"  shadergraph batch <file | ->           one op per line, all as ONE undo step ... list: nova shadergraph help\n"
 		"  probe info | bake [--name X] | render  Reflection Probe: list, bake to <scene>/ReflectionProbe-<n>.dds, re-capture realtime\n"
 		"  probevolume info                       Adaptive Probe Volume (realtime GI): cascades, voxels live, probes\n"
+		"  lod info | assign --name G --lod 1 --object O | recalc --name G   LOD Group: LOD each view picked, add renderers\n"
 		"\n"
 		"layers / physics (Project Settings > Tags and Layers / Physics)\n"
 		"  layers [--set 8 --name Enemy] [--add-tag Boss] [--remove-tag Boss]   layer names (3, 6..31) and tags\n"
@@ -1128,7 +1129,7 @@ int Run(const std::vector<std::string>& in)
 		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "probe" || cmd == "probevolume")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "probe" || cmd == "probevolume" || cmd == "lod")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

@@ -14,13 +14,21 @@ namespace SceneCulling
 {
 	inline uint32_t Stamp = 1;   // 마지막 Cull 번호 (Component::CullStamp 와 같으면 보임)
 	inline bool Enabled = true;  // 끄면 모두 그린다 (비교 측정용: NOVA_DEV_NOCULL=1)
+	inline uint32_t LodStamp = 1;   // LOD Group 이 이번 뷰에 매긴 번호 (Component::LodStamp 와 같으면 LOD 숨김을 따른다)
+	inline bool ShadowPass = false; // 마지막 Cull 이 그림자 패스 (LOD 는 그림자를 따로 고른다)
 
 	void Update(Scene* scene);                          // 프레임마다 한 번 (그리기 전)
 	void Cull(CXMMATRIX viewProj, bool shadowPass);     // 패스마다 (같은 절두체면 한 번으로 여러 패스)
 	uint32_t FrameIndex();                              // Update 마다 1 씩 (프레임 안에서만 쓰는 목록의 유효성 검사용)
 
 	// 추적하지 않는 컴포넌트(렌더러가 아니거나 메시가 없음)는 늘 보인다
-	inline bool IsVisible(const Component* c) { return !Enabled || !c->CullTracked || c->CullStamp == Stamp; }
+	//  LOD Group 이 이 뷰에서 숨긴 렌더러 (다른 LOD) 도 안 보인다
+	inline bool IsVisible(const Component* c)
+	{
+		if (c->LodStamp == LodStamp && (ShadowPass ? c->LodShadowHidden : c->LodHidden))
+			return false;
+		return !Enabled || !c->CullTracked || c->CullStamp == Stamp;
+	}
 
 	struct Stats
 	{

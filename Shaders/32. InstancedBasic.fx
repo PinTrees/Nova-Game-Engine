@@ -99,10 +99,23 @@ cbuffer cbPerObject
     ShaderSetting gShaderSetting;
     PbrMaterial gPbr;   // URP Lit (메시 PS 가 쓰는 재질 값)
     uint gObjectLayer = 0xFFFFFFFF;   // 그리는 물체의 레이어 비트 (1 << layer). 정하지 않으면 모든 빛을 받는다
+    float4 gLodFade = float4(0, 0, 0, 0);   // LOD Group 크로스페이드 (LodFadeClip)
 };
 
 // 이 빛이 이 물체를 비추나 (Light.cullingMask & 물체 레이어)
 bool LightHits(uint mask) { return (mask & gObjectLayer) != 0u; }
+
+// LOD Group 크로스페이드 (gLodFade: x = 문턱, y = 1 이면 무늬 < x 인 픽셀만 / 0 이면 무늬 ≥ x, z = 1 켜짐)
+//  화면 픽셀마다 고정 무늬 — 깊이 프리패스 (28) 와 본 패스 (32) 가 같은 픽셀을 남긴다
+float LodDither(float2 pixel) { return frac(52.9829189f * frac(dot(floor(pixel), float2(0.06711056f, 0.00583715f)))); }
+void LodFadeClip(float2 pixel)
+{
+    if (gLodFade.z > 0.5f)
+    {
+        const float d = LodDither(pixel);
+        clip(gLodFade.y > 0.5f ? gLodFade.x - d : d - gLodFade.x);   // 같은 값은 양쪽 다 남김 (구멍 없이 — 깊이 검사가 고름)
+    }
+}
 
 cbuffer cbSkinned
 {
@@ -831,6 +844,7 @@ float4 FinishLit(float3 color, float alpha, float distToEye)
 
 float4 PS(VertexOut pin) : SV_Target
 {
+    LodFadeClip(pin.PosH.xy);
     float3 N = normalize(pin.NormalW);
     float3 toEye = gEyePosW - pin.PosW.xyz;
     float distToEye = length(toEye);

@@ -33,6 +33,7 @@
 #include "DecalRenderer.h"
 #include "ReflectionProbes.h"
 #include "ProbeVolumes.h"
+#include "LODGroup.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -213,6 +214,7 @@ bool EditorApp::Init()
 	{
 		ReflectionProbes::RegisterEditor();   // nova probe
 		ProbeVolumes::RegisterEditor();       // nova probevolume
+		LODGroup::RegisterEditor();           // nova lod
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
 		CliCommands::RegisterAll();
 		CliServer::Start();
@@ -461,7 +463,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	const bool probe = d.Cam == nullptr;
 	const bool giCapture = d.Mode == 2;   // Adaptive Probe Volume 판 찍기 (알베도만)
 	Profiler::Phases phase;
-	MeshBatcher::BeginView();    // 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다
+	MeshBatcher::BeginView(probe);   // 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다 (찍기 = LOD 바로 고름)
 	TreeRenderer::BeginView();
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();

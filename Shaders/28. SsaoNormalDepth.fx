@@ -10,7 +10,20 @@ cbuffer cbPerObject
     float4x4 gWorldViewProj;
     float4x4 gTexTransform;
     float gAlphaCutoff;   // NOVA: 재질의 Alpha Clipping 기준 (본 패스와 같아야 깊이만 남는 구멍이 없다). 0 = 예전 고정값 0.1
-}; 
+    float4 gLodFade = float4(0, 0, 0, 0);   // NOVA: LOD Group 크로스페이드 (32 와 같은 무늬)
+};
+
+// LOD Group 크로스페이드 (gLodFade: x = 문턱, y = 1 이면 무늬 < x 인 픽셀만 / 0 이면 무늬 ≥ x, z = 1 켜짐)
+//  화면 픽셀마다 고정 무늬 — 본 패스 (32) 와 같은 픽셀을 남겨 EQUAL 깊이 검사가 맞는다
+float LodDither(float2 pixel) { return frac(52.9829189f * frac(dot(floor(pixel), float2(0.06711056f, 0.00583715f)))); }
+void LodFadeClip(float2 pixel)
+{
+    if (gLodFade.z > 0.5f)
+    {
+        const float d = LodDither(pixel);
+        clip(gLodFade.y > 0.5f ? gLodFade.x - d : d - gLodFade.x);   // 같은 값은 양쪽 다 남김 (구멍 없이 — 깊이 검사가 고름)
+    }
+}
 
 cbuffer cbSkinned
 {
@@ -141,6 +154,7 @@ VertexOut SkinnedVS(SkinnedVertexIn vin)
 
 float4 PS(VertexOut pin, uniform bool gAlphaClip) : SV_Target
 {
+    LodFadeClip(pin.PosH.xy);
 	// Interpolating normal can unnormalize it, so normalize it.
     pin.NormalV = normalize(pin.NormalV);
 
