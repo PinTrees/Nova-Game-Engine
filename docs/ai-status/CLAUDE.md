@@ -4,7 +4,9 @@
 - 단계: **LOD Group (`83226d8`) · Screen Space Reflection 완료** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
 - 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
 - 기준 커밋: `564e00a`
-- 다음: 사용자 지시 대기
+- 진행 중 (10월 4일, 사용자 지시): ① FBX · 모델을 끌어 놓으면 Mesh Filter + Mesh Renderer 계층 (모델에 `_LOD0` · `_LOD1` 노드가 있으면 LOD Group 자동) ② 카메라 Anti-aliasing TAA + SMAA ③ APV 2 단계 (발광 재질 빛, 틈 · 모서리 빛 줄)
+  - ① 모델 끌어 놓기 **완료 · 커밋** — 새 `Source/Editor/ModelPlacement.*`, `SceneHierachyEditorWindow.cpp` · `SceneEditorWindow.cpp` (끌어 놓기), `GameObjectFactory.*` (`AttachChild` 공개 도우미), `MeshRenderer.*` (`SetMaterialPath`), `EditorApp.cpp` · `Tools/NovaCli/main.cpp` (CLI `modelfile`), 검사 `modelplace` **6/6** (`Tools/tests/make_lod_gltf.py`), 문서 `docs/MODEL_PLACEMENT.md`
+  - 고칠 파일 (예정): `Source/Editor/Windows/SceneHierachyEditorWindow.cpp` (끌어 놓기), `Source/Scene/GameObjectFactory.*`, `Source/Graphics/DX11/PostProcessPass.*` · `Shaders/41. PostProcess.fx` (TAA · SMAA), `Source/Graphics/DX11/ProbeVolumes.*` · `Shaders/55. ProbeVolume.fx` · `32` (APV), `Source/Editor/EditorApp.cpp`, 검사 · 문서
 - Codex 분담: Joint 2D 완료 (작업 폴더에 아직 미커밋), 다음 후보 Tilemap — 공동 명세의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
 
 ## Screen Space Reflection 담당 파일 (커밋에 넣은 것)

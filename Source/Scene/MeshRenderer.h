@@ -39,6 +39,8 @@ public:
 	virtual ~MeshRenderer();
 
 	void AddMaterial(shared_ptr<UMaterial> mat) { m_pMaterials.push_back(mat); }
+	// 재질 칸 index 를 경로로 (모자란 칸은 Default-Material). "builtin:Default-Material" = 기본 재질 — 모델 배치 (ModelPlacement)
+	bool SetMaterialPath(int index, const wstring& path);
 	const vector<shared_ptr<UMaterial>>& GetMaterials() const { return m_pMaterials; }
 	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }
 	// 엔진 내장 메시("builtin:Cube" 등)를 지정: 경로를 저장해 두었다가 씬을 다시 열 때 복원한다

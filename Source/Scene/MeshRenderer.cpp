@@ -425,6 +425,23 @@ void MeshRenderer::_Editor_RenderShadowNormal()
 	}
 }
 
+bool MeshRenderer::SetMaterialPath(int index, const wstring& path)
+{
+	if (index < 0 || path.empty())
+		return false;
+	shared_ptr<UMaterial> material = path == L"builtin:Default-Material" ? UMaterial::GetDefault() : ResourceManager::GetI()->LoadMaterial(wstring_to_string(path));
+	if (!material)
+		return false;
+	while ((int)m_pMaterials.size() <= index)
+	{
+		m_pMaterials.push_back(UMaterial::GetDefault());
+		m_MaterialPaths.push_back(L"builtin:Default-Material");
+	}
+	m_pMaterials[index] = material;
+	m_MaterialPaths[index] = path;
+	return true;
+}
+
 void MeshRenderer::SyncMeshFromFilter()
 {
 	if (m_pGameObject == nullptr)

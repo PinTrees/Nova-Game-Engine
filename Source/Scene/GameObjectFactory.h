@@ -82,6 +82,8 @@ private:
 	static void AddSkinnedChildren(GameObject* root, const std::string& modelPath);
 
 public:
+	// 씬에 넣기 전의 트리에 자식을 붙인다 (씬 목록은 건드리지 않음 — 모델 배치 ModelPlacement)
+	static void AttachChild(GameObject* child, GameObject* parent);
 
 private:
 	static std::map<PrimitiveType, std::shared_ptr<Mesh>> s_PrimitiveMeshes;

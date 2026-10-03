@@ -580,6 +580,14 @@ void GameObjectFactory::AddSkinnedChildren(GameObject* root, const std::string& 
 	}
 }
 
+void GameObjectFactory::AttachChild(GameObject* child, GameObject* parent)
+{
+	child->SetParentImmediate(parent);
+	child->GetTransform()->SetParent(parent->GetComponent_SP<Transform>());
+	parent->SetChild(child);
+	child->GetTransform()->UpdateTransform();
+}
+
 GameObject* GameObjectFactory::CreateCharacter(const std::string& name, const std::string& modelPath, const std::string& clipPath)
 {
 	GameObject* root = new GameObject(name);

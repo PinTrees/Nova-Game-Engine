@@ -11,6 +11,7 @@
 #include "TerrainSplineEditor.h"
 #include "SceneViewState.h"
 #include "ParticleSystemEditor.h"
+#include "ModelPlacement.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -171,6 +172,29 @@ void SceneEditorWindow::OnRender()
     ImGui::SetCursorScreenPos(imageMin);
     ImGui::SetNextItemAllowOverlap();
     ImGui::InvisibleButton("##SceneViewInput", windowSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+    // Project 창의 모델 (FBX · GLB …) 을 끌어 놓기: 마우스 아래 바닥 (y = 0) 에 — 못 맞으면 카메라 앞 10 m (Unity 와 같은 결과 — ModelPlacement)
+    if (ImGui::BeginDragDropTarget())
+    {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("FBX_FILE"))
+        {
+            const ImVec2 m = ImGui::GetIO().MousePos;
+            const float nx = (m.x - imageMin.x) / (std::max)(windowSize.x, 1.0f) * 2.0f - 1.0f;
+            const float ny = 1.0f - (m.y - imageMin.y) / (std::max)(windowSize.y, 1.0f) * 2.0f;
+            const XMMATRIX inv = XMMatrixInverse(nullptr, m_Camera->View() * m_Camera->Proj());
+            const XMVECTOR a = XMVector3TransformCoord(XMVectorSet(nx, ny, 0.0f, 1.0f), inv);
+            const XMVECTOR b = XMVector3TransformCoord(XMVectorSet(nx, ny, 1.0f, 1.0f), inv);
+            const XMVECTOR dir = XMVector3Normalize(b - a);
+            const float dy = XMVectorGetY(dir);
+            float t = dy < -1e-4f ? -XMVectorGetY(a) / dy : -1.0f;
+            if (t < 0.0f || t > 200.0f)
+                t = 10.0f;
+            XMFLOAT3 p;
+            XMStoreFloat3(&p, a + dir * t);
+            std::string error;
+            ModelPlacement::Instantiate(static_cast<const char*>(payload->Data), nullptr, Vec3(p.x, p.y, p.z), &error);
+        }
+        ImGui::EndDragDropTarget();
+    }
     ImGuiIO& io = ImGui::GetIO();
     const ImVec2 mouse = io.MousePos;
     const bool overPalette = mouse.x < imageMin.x + 40.0f && mouse.y < imageMin.y + 170.0f;

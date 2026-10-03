@@ -43,6 +43,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 | Reflection Probe | `probe info` (프로브 목록 · 마지막 뷰가 쓴 수) · `probe bake [--name X]` (지금 찍어 `<씬 폴더>/<씬 이름>/ReflectionProbe-<n>.dds` — 씬이 저장돼 있어야, 이름이 없으면 모든 Baked) · `probe render [--name X]` (Realtime 다시 찍기). 값은 `set X --component ReflectionProbe --values '{"mode":"Realtime","size":[10,4,10],"boxProjection":true}'`. 자세히: [REFLECTION_PROBE.md](REFLECTION_PROBE.md) |
 | Adaptive Probe Volume | `probevolume info` (단계 · 복셀 준비 · 짓는 판) · `probevolume probe --position x,y,z` (그 자리 프로브 · 복셀 값, DX11) · `probevolume voxels` · `probevolume debug --view 1\|2\|0 [--nodirect true]` (진단 보기). 값은 `set X --component AdaptiveProbeVolume --values '{"probeSpacing":0.5,"cascades":3}'`. 자세히: [ADAPTIVE_PROBE_VOLUME.md](ADAPTIVE_PROBE_VOLUME.md) |
 | LOD Group | `lod info` (LOD · 렌더러 · 뷰마다 고른 LOD 와 화면 높이) · `lod assign --name G --lod 1 --object O` · `lod set --name G --fadeMode 1 --lod 0 --fadeWidth 0.3` · `lod recalc --name G`. 컴포넌트는 `add-component G LODGroup`. 자세히: [LOD_GROUP.md](LOD_GROUP.md) |
+| 모델 끌어 놓기 | `modelfile place Assets/x.fbx [--parent P] [--position x,y,z]` (Project 끌어 놓기와 같은 결과 — 노드마다 Mesh Renderer, `_LODn` → LOD Group) · `modelfile info Assets/x.fbx`. 자세히: [MODEL_PLACEMENT.md](MODEL_PLACEMENT.md) |
 | 기타 | `assets [폴더] [--pattern 글자]`, `build <출력 폴더> [--run]`, `build-status [--wait]`, `call <명령> [json]`, `ai-guide`, `help`, `nova help --editor`(에디터가 아는 명령) |
 
 **대상** = 이름, `부모/자식` 경로, 또는 `#id` (`hierarchy` 가 보여 주는 fileID). 같은 이름이 여럿이면 오류와 함께 후보 id 를 알려 줍니다.

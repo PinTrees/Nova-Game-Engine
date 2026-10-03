@@ -57,7 +57,10 @@ LOD Group 을 끄면 모든 LOD 를 그립니다 (Unity 와 같음).
 6. 끈 LOD Group = 모든 LOD (Culled 거리에서도 보임)
 7. 저장 → 다시 열기: LOD · 렌더러 참조 그대로
 
+## 모델의 LOD 노드 (자동)
+
+Project 창에서 모델 (FBX · GLB · glTF) 을 Hierarchy · Scene 뷰에 끌어 놓을 때 노드 이름이 `이름_LOD0` · `이름_LOD1` … 인 형제가 **둘 이상** 있으면 Unity 처럼 그 부모에 LOD Group 을 만들어 LOD 마다 넣습니다 (LOD 0 = 60 %, 다음 LOD 는 반씩, 마지막 LOD 는 1 % 까지). LOD 노드가 없는 모델은 그냥 Mesh Renderer 입니다 — LOD Group 은 사용자가 추가합니다. 자세히: [MODEL_PLACEMENT.md](MODEL_PLACEMENT.md)
+
 ## 아직
 
-- FBX 의 `_LOD0` · `_LOD1` 노드로 LOD Group 자동 만들기 (Unity 모델 가져오기 — 정적 FBX 끌어 놓기부터 필요)
 - LOD Bias (Quality 설정), C# `LODGroup` API (`SetLODs` · `ForceLOD`)

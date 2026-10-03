@@ -3,6 +3,7 @@
 #include "ScriptEngine.h"
 #include "CSharpScript.h"
 #include "UndoSystem.h"
+#include "ModelPlacement.h"
 #include "SceneHierachyEditorWindow.h"
 #include <filesystem>
 #include <algorithm>
@@ -588,45 +589,8 @@ void SceneHierachyEditorWindow::CollectRows(GameObject* gameObject, int depth)
 
 void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, GameObject* parent)
 {
-	// 파일 경로 유효성 검사
-	std::filesystem::path path(filePath);
-	if (!std::filesystem::exists(path))
-	{
-		std::cerr << "File does not exist: " << filePath << std::endl;
-		return;
-	}
-
-	// 파일 이름 추출 (확장자 제외)
-	std::string fileName = path.stem().string();
-
-	// 스킨 메시가 있는 모델 (FBX · VRM …) = Unity 처럼 캐릭터로 (스킨 메시 + Animator, VRM 은 재질 · Dynamic Bone 까지)
-	const std::string rel = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(path.wstring()));
-	if (auto model = ResourceManager::GetI()->LoadMeshFile(rel); model && !model->SkinnedMeshs.empty())
-	{
-		Undo::SetActionName("Instantiate Model");
-		GameObject* character = GameObjectFactory::CreateAnimatedCharacter(fileName, rel);
-		Scene* scene = SceneManager::GetI()->GetCurrentScene();
-		if (scene)
-		{
-			if (parent == nullptr) scene->AddRootGameObject(character);
-			else { character->SetParent(parent, false); scene->RegisterGameObjectTree(character); }
-		}
-		SelectionManager::SetSelectedGameObject(character);
-		return;
-	}
-
-	GameObject* newGameObject = new GameObject(fileName);
-
-	Scene* currentScene = SceneManager::GetI()->GetCurrentScene();
-	if (currentScene != nullptr)
-	{
-		if (parent == nullptr)
-		{
-			currentScene->AddRootGameObject(newGameObject);
-		}
-		else
-		{
-			newGameObject->SetParent(parent, false);
-		}
-	}
+	// Unity 처럼: 정적 모델 = 노드마다 Mesh Filter + Mesh Renderer (_LOD 노드 → LOD Group), 스킨 메시 = 캐릭터
+	std::string error;
+	if (!ModelPlacement::Instantiate(filePath, parent, Vec3(0, 0, 0), &error))
+		std::cerr << error << std::endl;
 }

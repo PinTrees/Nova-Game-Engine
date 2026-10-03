@@ -90,6 +90,7 @@ Codex의 씬 작업은 Shader Graph API, 재질 직렬화, 렌더링, C# 바인�
 | **Claude** | **후처리 Depth of Field (Gaussian · Bokeh) + Motion Blur** (Volume, Unity URP 이름) | `Source/Graphics/Common/VolumeProfile.*`, `Source/Editor/VolumeEditor.cpp`, `Source/Graphics/DX11/PostProcessPass.*`, `Shaders/41. PostProcess.fx`, `Source/Editor/EditorApp.cpp` | 완료 · push (`11002fe`) |
 | **Claude** | **LOD Group** (Unity 의 LOD Group — 화면 높이로 LOD 고르기, Cross Fade 디더, 그림자도 LOD) | 새 `Source/Scene/LODGroup.*`, `Source/Scene/Component.h` · `SceneCulling.*` · `MeshBatcher.*`, `Shaders/32` · `28` (디더), `Source/Editor/EditorApp.cpp` | 완료 · push (`83226d8`) |
 | **Claude** | **Screen Space Reflection** (URP 의 Volume 효과 — 화면에 보이는 것을 반사) | `Source/Graphics/Common/VolumeProfile.*`, `Source/Graphics/DX11/PostProcessPass.*` 또는 새 패스, 새 셰이더, `Source/Editor/EditorApp.cpp` | 완료 · push (`564e00a`) |
+| **Claude** | **모델 끌어 놓기 (Mesh Renderer 계층 + `_LOD` 자동 LOD Group) · TAA + SMAA · APV 2 단계** | `Source/Editor/Windows/SceneHierachyEditorWindow.cpp`, `Source/Scene/GameObjectFactory.*`, `Source/Graphics/DX11/PostProcessPass.*`, `Shaders/41`, `Source/Graphics/DX11/ProbeVolumes.*`, `Shaders/55` · `32`, `Source/Editor/EditorApp.cpp` | 진행 중 (10월 4일, 사용자 지시) |
 
 ### Reflection Probe (Claude)
 

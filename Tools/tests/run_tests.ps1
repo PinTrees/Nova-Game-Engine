@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2564,6 +2564,89 @@ function Suite-SSR
     }
 }
 
+function Suite-ModelPlace
+{
+    # 모델 끌어 놓기 (Project → Hierarchy · Scene 뷰 와 같은 길 = nova modelfile place): 노드마다 Mesh Renderer, _LODn → LOD Group
+    Write-Host '[modelplace]'
+    $dir = Join-Path $Out 'modelplace'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\ModelTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Copy-Item (Join-Path $Root 'Resources\Meshs\SmallBoat.fbx') $assetDir
+    Copy-Item (Join-Path $Root 'Resources\Meshs\Factory_04_02_closed.FBX') $assetDir
+    # LOD 노드 셋 (높이 2 · 1.4 · 0.8 상자) 짜리 glTF
+    & python (Join-Path $PSScriptRoot 'make_lod_gltf.py') (Join-Path $assetDir 'LodCrate.gltf') | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function Place([string]$args1) { Invoke-NovaJson "modelfile place $args1" }
+        function Size($b) { [math]::Max([math]::Max($b[1][0] - $b[0][0], $b[1][1] - $b[0][1]), $b[1][2] - $b[0][2]) }
+        function LodGroups([string]$name) { @((Invoke-NovaJson 'lod info').groups | Where-Object { $_.name -eq $name }) }
+        # 영역 안에 하늘 · 바닥 아닌 (회색 재질) 픽셀 비율
+        function Solid([string]$p)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($p); $n = 0; $s = 0
+            for ($y = [int]($bm.Height * 0.3); $y -lt [int]($bm.Height * 0.7); $y += 2) { for ($x = [int]($bm.Width * 0.3); $x -lt [int]($bm.Width * 0.7); $x += 2) {
+                $c = $bm.GetPixel($x, $y); $n++
+                if ([math]::Abs($c.R - $c.B) -lt 25 -and $c.B -lt 200) { $s++ } } }
+            $bm.Dispose(); $s / [math]::Max(1, $n)
+        }
+        Invoke-Nova 'scene new --force' | Out-Null
+
+        $boat = Place 'Assets/ModelTest/SmallBoat.fbx --position 0,0,0'
+        $bs = Size $boat.bounds
+        Invoke-Nova ('camera --position {0},{1},{2} --target 0,{3},0' -f ($bs * 0.9), ($bs * 0.6), (-$bs * 1.2), ($bs * 0.1)) | Out-Null
+        $p = Join-Path $dir 'boat.png'; Invoke-Nova 'wait 5' | Out-Null; Invoke-Nova "screenshot $p --view scene" | Out-Null
+        $sv = Solid $p
+        Add-Result modelplace 'Static FBX: root + a GameObject per node with Mesh Filter + Mesh Renderer, file units (cm -> m)' ($boat.gameObjects -eq 4 -and $boat.meshRenderers -eq 3 -and $bs -gt 0.5 -and $bs -lt 20 -and $sv -gt 0.05) ("{0} objects, {1} renderers, size {2:N2} m, on screen {3:P0}" -f $boat.gameObjects, $boat.meshRenderers, $bs, $sv)
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        $fac = Place 'Assets/ModelTest/Factory_04_02_closed.FBX'
+        $inner = @(LodGroups 'Factory_04_02_closed')
+        $lods = @($inner | Where-Object { $_.lods.Count -eq 4 })
+        $ok = $lods.Count -eq 1 -and $inner.Count -eq 1 -and $lods[0].lods[3].renderers[0] -eq 'Factory_04_02_closed_LOD3'
+        Add-Result modelplace 'FBX with _LOD0.._LOD3 nodes: a LOD Group with 4 LODs (a lone UCX_.._LOD0 collision mesh stays a plain mesh)' $ok ("{0} renderers, groups {1}, LODs {2}, size {3:N1} m" -f $fac.meshRenderers, $inner.Count, (@($inner | ForEach-Object { $_.lods.Count }) -join '/'), (Size $fac.bounds))
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        $crate = Place 'Assets/ModelTest/LodCrate.gltf --position 0,0,0'
+        $g = @(LodGroups 'LodCrate')
+        Invoke-Nova 'camera --position 0,1,-2.5 --target 0,1,0' | Out-Null; Invoke-Nova 'wait 3' | Out-Null
+        $near = @(LodGroups 'LodCrate')[0].sceneLOD
+        Invoke-Nova 'camera --position 0,1,-12 --target 0,1,0' | Out-Null; Invoke-Nova 'wait 3' | Out-Null
+        $far = @(LodGroups 'LodCrate')[0].sceneLOD
+        Add-Result modelplace 'glTF Crate_LOD0..2: LOD Group on the root (60 / 30 / 1 %), near = LOD 0, far = LOD 2' ($g.Count -eq 1 -and $g[0].lods.Count -eq 3 -and $near -eq 0 -and $far -eq 2) ("lods {0}, near LOD {1}, far LOD {2}" -f $g[0].lods.Count, $near, $far)
+
+        # 부모 아래 (Hierarchy 의 행에 끌어 놓기와 같은 길)
+        Invoke-Nova 'create empty --name Holder --position 5,0,0' | Out-Null
+        $b2 = Place 'Assets/ModelTest/SmallBoat.fbx --parent Holder'
+        $w = Invoke-NovaJson 'get SmallBoat_hull'   # 모델 루트와 같은 이름 (SmallBoat) 의 노드가 있어 이름이 하나뿐인 것으로
+        Add-Result modelplace 'Drop on a Hierarchy row: the model goes under that object at its origin (world x = Holder 5)' ($w -and [math]::Abs($w.worldPosition[0] - 5) -lt 0.01) ("hull world x {0}" -f $(if ($w) { $w.worldPosition[0] } else { 'n/a' }))
+
+        # 저장 → 다시 열기: 메시 참조 (모델 경로 + 메시 번호) 가 그대로
+        Invoke-Nova 'scene save --as Assets/ModelTest/ModelScene.scene' | Out-Null
+        Invoke-Nova 'scene open Assets/ModelTest/ModelScene.scene --force' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $h = Invoke-Nova 'hierarchy'
+        $g2 = @(LodGroups 'LodCrate')
+        Add-Result modelplace 'Save -> reopen: the placed models and their LOD Group come back' ($h -match 'SmallBoat_hull' -and $h -match 'Crate_LOD2' -and $g2.Count -eq 1 -and $g2[0].lods[2].renderers[0] -eq 'Crate_LOD2') ("LOD Group {0}" -f $g2.Count)
+
+        # Undo: 놓기 한 번 = 되돌리기 한 번
+        Invoke-Nova 'scene new --force' | Out-Null
+        Place 'Assets/ModelTest/SmallBoat.fbx' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        Invoke-Nova 'undo' | Out-Null; Invoke-Nova 'wait 3' | Out-Null
+        $h2 = Invoke-Nova 'hierarchy'
+        Add-Result modelplace 'Undo removes the placed model in one step' (-not ($h2 -match 'SmallBoat')) ($(if ($h2 -match 'SmallBoat') { 'still there' } else { 'gone' }))
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2882,6 +2965,7 @@ try
                 'depthoffield' { Suite-DepthOfField }
                 'lodgroup' { Suite-LODGroup }
                 'ssr' { Suite-SSR }
+                'modelplace' { Suite-ModelPlace }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

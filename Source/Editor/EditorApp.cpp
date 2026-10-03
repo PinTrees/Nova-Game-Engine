@@ -35,6 +35,7 @@
 #include "ProbeVolumes.h"
 #include "LODGroup.h"
 #include "ScreenSpaceReflection.h"
+#include "ModelPlacement.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -216,6 +217,7 @@ bool EditorApp::Init()
 		ReflectionProbes::RegisterEditor();   // nova probe
 		ProbeVolumes::RegisterEditor();       // nova probevolume
 		LODGroup::RegisterEditor();           // nova lod
+		ModelPlacement::RegisterEditor();     // nova modelfile
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
 		CliCommands::RegisterAll();
 		CliServer::Start();
