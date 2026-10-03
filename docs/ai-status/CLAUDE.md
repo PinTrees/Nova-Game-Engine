@@ -1,9 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 (Depth of Field · Motion Blur 완료, 커밋 — push 는 사용자 확인 뒤)
+- 갱신 시각: 2026년 10월 4일 (Depth of Field · Motion Blur 완료 · push `11002fe`)
 - 단계: **후처리 Depth of Field (Gaussian · Bokeh) + Motion Blur 완료** — 사용자 지시 "Volume 에 Unity URP 와 같은 이름으로 … 진행"
 - 이전 단계: Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
-- 기준 커밋: `efbab1e`
+- 기준 커밋: `11002fe`
+- 다음: 사용자 지시 대기 (추천 — LOD Group, APV 2 단계, Screen Space Reflection)
 - Codex 분담: Joint 2D 완료 (작업 폴더에 아직 미커밋), 다음 후보 Tilemap — 공동 명세의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
 
 ## Depth of Field · Motion Blur 담당 파일 (커밋에 넣은 것)
