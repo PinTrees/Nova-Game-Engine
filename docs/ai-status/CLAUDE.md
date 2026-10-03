@@ -1,9 +1,36 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 03시 20분 KST
-- 단계: **Adaptive Probe Volume (실시간) 완료 · 커밋** (push 는 사용자 확인 뒤) — 사용자 지시 "레거시 라이팅 창은 제거하고 무조건 어드밴스드 라이트 프로브만 … 실시간 자동 계산 … 굽는 시간조차 거의 없는 APV 만"
-- 기준 커밋: `10bbdac` (Reflection Probe, push 함)
+- 갱신 시각: 2026년 10월 4일 (Depth of Field · Motion Blur 완료, 커밋 — push 는 사용자 확인 뒤)
+- 단계: **후처리 Depth of Field (Gaussian · Bokeh) + Motion Blur 완료** — 사용자 지시 "Volume 에 Unity URP 와 같은 이름으로 … 진행"
+- 이전 단계: Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
+- 기준 커밋: `efbab1e`
 - Codex 분담: Joint 2D 완료 (작업 폴더에 아직 미커밋), 다음 후보 Tilemap — 공동 명세의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
+
+## Depth of Field · Motion Blur 담당 파일 (커밋에 넣은 것)
+
+| 파일 | 왜 |
+|---|---|
+| `Source/Graphics/Common/VolumeProfile.*` | `DepthOfField` · `MotionBlur` 효과 (URP 이름 · 필드), 켜짐 규칙, `ShowIfKey/ShowIfValue` (모드별로 보이는 칸) |
+| `Source/Editor/VolumeEditor.cpp` | ShowIf 가 맞지 않는 칸 숨기기 |
+| `Source/Graphics/DX11/PostProcessPass.*` | `DepthOfField` · `MotionBlur` 패스, 깊이 · 카메라 행렬, 지난 프레임 카메라 (프레임 번호로 한 번) |
+| `Shaders/41. PostProcess.fx` | Gaussian 4 패스 · Bokeh 3 패스 · Motion Blur (픽셀 셰이더만) |
+| `Source/Editor/EditorApp.cpp` | 두 뷰의 후처리에 깊이 · View · Proj 넘김 (7 줄) |
+| **공용** `Tools/tests/run_tests.ps1` | 새 `Suite-DepthOfField` + 목록 · switch · 도움말에 한 단어 |
+| 문서 | 새 `docs/DEPTH_OF_FIELD_MOTION_BLUR.md`, README 후처리 줄, AGENT_HANDOFF 한 줄, 공동 명세의 Claude 줄 |
+
+C# 네이티브 표 · `Source/Physics2D/` · 씬 파일 · `CliCommands.cpp` · `GameObject.*` · Codex 의 Joint 2D 파일은 고치지 않았다. `docs/AI_COLLABORATION.md` 는 Codex 의 미커밋 변경이 같이 있어 커밋에는 내 줄만 넣었다.
+
+## Depth of Field · Motion Blur 검증 (Debug, 독립 빌드 `E:\NovaTest\ClaudeDecalEngine`)
+
+- `depthoffield` **5/5**: Gaussian (먼 상자 80.9 → 7.2, 가까운 상자 그대로) · Bokeh 초점 20 m (가까운 상자 46.4 → 6.7, 먼 상자 그대로) · Mode Off = 같은 그림 · Motion Blur Game 뷰 번짐 · Scene 뷰 Motion Blur 없음
+- 회귀 `render · gfx` **10/10**, OpenGL 짧은 확인 (Gaussian · Bokeh · Motion Blur 같은 그림)
+- 쇼케이스 186 (육각 보케)
+
+## Codex 에게 (Depth of Field · Motion Blur)
+
+- `PostProcessPass` 앞에 DoF · Motion Blur 가 들어갔다 — 켜지 않으면 예전과 같다 (Bloom · Uber 는 같은 입력)
+- `VolumeParameter` 에 `ShowIfKey` · `ShowIfValue` 가 생겼다 (기본 빈 값 = 늘 보임)
+- 다른 Volume 효과를 더할 때 `VolumeComponent::Create` 의 형식 목록 (알파벳 순) 에 같이 넣으면 된다
 
 ## Adaptive Probe Volume 담당 파일 (커밋에 넣은 것)
 

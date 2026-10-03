@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2277,6 +2277,104 @@ function Suite-ProbeVolume
     }
 }
 
+function Suite-DepthOfField
+{
+    # Volume 후처리 Depth Of Field (Gaussian · Bokeh) · Motion Blur: 가장자리 선명도 (옆 픽셀 밝기 차의 합) 로 흐림을 잰다
+    Write-Host '[depthoffield]'
+    $dir = Join-Path $Out 'depthoffield'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\DofTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    function Profile([string]$name, [string]$type, [hashtable]$values)
+    {
+        $params = @{}
+        foreach ($k in $values.Keys) { $params[$k] = @{ override = $true; value = @($values[$k], 0, 0, 0) } }
+        @{ nova_volume_profile = 1; components = @(@{ type = $type; active = $true; params = $params }) } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.volumeprofile")
+    }
+    Profile 'Gauss' 'DepthOfField' @{ mode = 1; gaussianStart = 8; gaussianEnd = 16; gaussianMaxRadius = 1.5 }
+    Profile 'BokehFar' 'DepthOfField' @{ mode = 2; focusDistance = 20; focalLength = 85; aperture = 1.4 }
+    Profile 'DofOff' 'DepthOfField' @{ mode = 0; gaussianStart = 1; gaussianEnd = 2 }
+    Profile 'Motion' 'MotionBlur' @{ intensity = 1; clamp = 0.1; quality = 2 }
+    '{"nova_volume_profile": 1, "components": []}' | Set-Content -Encoding utf8 (Join-Path $assetDir 'None.volumeprofile')
+    @'
+using NovaEngine;
+
+// Motion Blur 검사: 카메라를 프레임마다 2 도씩 돌린다
+public class DofTestSpin : MonoBehaviour
+{
+    void Update() { transform.Rotate(0f, 2f, 0f); }   // 프레임마다 같은 각 — 켜고 끈 두 번이 같은 화면, 프레임 속도와 상관없는 흐림
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $assetDir 'DofTestSpin.cs')
+    $ed = Start-TestEditor
+    try
+    {
+        function Vol([string]$name) { Invoke-Nova ('set "Global Volume" --component Volume --values "{\"profile\":\"Assets/DofTest/' + $name + '.volumeprofile\"}"') | Out-Null }
+        # 상자 윤곽의 가장 큰 밝기 계단 (줄마다 가로 이웃 차의 최대값, 줄 평균) — 초점이 맞으면 계단이 그대로
+        function Edge([string]$p, [double]$x0, [double]$x1, [double]$y0, [double]$y1)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($p); $sum = 0.0; $rows = 0
+            for ($y = [int]($bm.Height * $y0); $y -lt [int]($bm.Height * $y1); $y++) {
+                $best = 0.0
+                for ($x = [int]($bm.Width * $x0); $x -lt [int]($bm.Width * $x1) - 1; $x++) {
+                    $c = $bm.GetPixel($x, $y); $r = $bm.GetPixel($x + 1, $y)
+                    $d = [math]::Abs((0.3 * $c.R + 0.59 * $c.G + 0.11 * $c.B) - (0.3 * $r.R + 0.59 * $r.G + 0.11 * $r.B))
+                    if ($d -gt $best) { $best = $d } }
+                $sum += $best; $rows++ }
+            $bm.Dispose(); $sum / [math]::Max(1, $rows)
+        }
+        function Shot([string]$name, [string]$view = 'scene') { $p = Join-Path $dir $name; Invoke-Nova 'wait 10' | Out-Null; Invoke-Nova "screenshot $p --view $view" | Out-Null; $p }
+        $near = @(0.11, 0.19, 0.42, 0.72)   # 4 m 상자의 왼쪽 윤곽 (화면 영역)
+        $far = @(0.49, 0.525, 0.47, 0.53)   # 20 m 상자의 왼쪽 윤곽
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,20 --scale 40,1,80' | Out-Null
+        $i = 0
+        foreach ($z in @(4, 10, 20, 40)) { Invoke-Nova "create cube --name C$z --position $(-3 + $i * 2),1,$z --scale 1.2,2,1.2" | Out-Null; $i++ }
+        Invoke-Nova 'camera --position 0,1.3,-1 --target 0,1,30' | Out-Null
+        Vol 'None'; $p0 = Shot 'none.png'
+        $n0 = Edge $p0 @near; $f0 = Edge $p0 @far
+        Vol 'Gauss'; $p1 = Shot 'gaussian.png'
+        $n1 = Edge $p1 @near; $f1 = Edge $p1 @far
+        Add-Result depthoffield 'Gaussian (Start 8, End 16): 4 m cube stays sharp, 20 m cube blurs' ($n1 -gt $n0 * 0.85 -and $f1 -lt $f0 * 0.6) ("near {0:N2} -> {1:N2}, far {2:N2} -> {3:N2}" -f $n0, $n1, $f0, $f1)
+        Vol 'BokehFar'; $p2 = Shot 'bokeh_far.png'
+        $n2 = Edge $p2 @near; $f2 = Edge $p2 @far
+        Add-Result depthoffield 'Bokeh (focus 20 m, 85 mm f/1.4): the 20 m cube is sharp, the 4 m cube blurs' ($n2 -lt $n0 * 0.6 -and $f2 -gt $f0 * 0.7) ("near {0:N2} -> {1:N2}, far {2:N2} -> {3:N2}" -f $n0, $n2, $f0, $f2)
+        Vol 'DofOff'; $p3 = Shot 'mode_off.png'
+        $n3 = Edge $p3 @near; $f3 = Edge $p3 @far
+        Add-Result depthoffield 'Mode Off = no blur (same as no override)' ([math]::Abs($n3 - $n0) -lt $n0 * 0.05 -and [math]::Abs($f3 - $f0) -lt $f0 * 0.05) ("near {0:N2}/{1:N2}, far {2:N2}/{3:N2}" -f $n3, $n0, $f3, $f0)
+
+        # Motion Blur: Game 뷰, Play 중 카메라가 돈다 (C# 컴파일이 끝난 뒤)
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 60) { $t = Invoke-Nova 'log -n 300'; if ($t -match 'Assembly-CSharp loaded') { break }; Start-Sleep -Milliseconds 500 }
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.3,-1 --rotation 0,0,0' | Out-Null
+        Invoke-Nova 'add-component "Main Camera" DofTestSpin' | Out-Null
+        Vol 'Motion'
+        Invoke-Nova 'play' | Out-Null
+        $p4 = Shot 'motion_on.png' 'game'
+        Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+        Vol 'None'
+        Invoke-Nova 'play' | Out-Null
+        $p5 = Shot 'motion_off.png' 'game'
+        Invoke-Nova 'stop' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+        $m1 = Edge $p4 0.0 0.35 0.42 0.62; $m0 = Edge $p5 0.0 0.35 0.42 0.62   # 왼쪽 상자들의 세로 윤곽
+        Add-Result depthoffield 'Motion Blur (camera turning 2 deg per frame): the cube edges smear sideways in the Game view' ($m1 -lt $m0 * 0.6) ("edge step off {0:N1} -> on {1:N1}" -f $m0, $m1)
+        Invoke-Nova 'window scene' | Out-Null
+        Vol 'Motion'
+        $p6 = Shot 'motion_sceneview.png'
+        $s6 = Edge $p6 @near
+        Add-Result depthoffield 'Motion Blur is not applied in the Scene view (Unity)' ([math]::Abs($s6 - $n0) -lt $n0 * 0.05) ("near {0:N2} (none {1:N2})" -f $s6, $n0)
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2592,6 +2690,7 @@ try
                 'decal' { Suite-Decal }
                 'reflectionprobe' { Suite-ReflectionProbe }
                 'probevolume' { Suite-ProbeVolume }
+                'depthoffield' { Suite-DepthOfField }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

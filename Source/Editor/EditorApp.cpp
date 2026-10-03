@@ -566,6 +566,9 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	postOptions.Fxaa = !probe && d.Cam->AntiAliasingMode() != 0;   // SMAA 는 아직 없어 FXAA 로
 	postOptions.Dithering = !probe && d.Cam->DitheringEnabled();
 	postOptions.StopNaNs = !probe && d.Cam->StopNaNsEnabled();
+	postOptions.Depth = normalDepthSRV;   // Depth Of Field · Motion Blur
+	XMStoreFloat4x4(&postOptions.View, d.View);
+	XMStoreFloat4x4(&postOptions.Proj, d.Proj);
 	const bool usePost = !probe && PostProcessPass::IsNeeded(stack, postOptions);
 	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
@@ -777,6 +780,10 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	auto& post = PostProcessingManager::GetI()->EditorPost();   // stack 은 그림자 패스 앞에서 섞었다
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = SceneToolbar::PostProcessingVisible() && !RenderManager::GetI()->WireFrameMode;
+	postOptions.Depth = ssao->NormalDepthSRV().Get();   // Depth Of Field (Motion Blur 는 Scene 뷰에 없음 — Unity 와 같음)
+	XMStoreFloat4x4(&postOptions.View, camera->View());
+	XMStoreFloat4x4(&postOptions.Proj, camera->Proj());
+	postOptions.SceneView = true;
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
 	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 

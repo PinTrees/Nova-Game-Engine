@@ -4,6 +4,7 @@
 //  - BloomPrefilter / BloomDown / BloomUp : 밝은 부분을 뽑아 절반 해상도부터 밉 체인으로 흐리게 (URP Bloom 과 같은 구조)
 //  - Uber : 색수차 → Bloom 합성 → 비네트 → 색 보정(노출, 화이트 밸런스, 대비, 컬러 필터, 색조, 채도) → 톤매핑 → 감마 → 필름 그레인 → 디더링
 //  - Fxaa : 카메라 Anti-aliasing = FXAA
+//  - Depth Of Field (Gaussian · Bokeh) · Motion Blur (카메라): Bloom 앞 — 깊이 프리패스의 뷰 깊이를 쓴다
 // 씬은 감마 공간 값으로 그려지므로 Uber 는 선형으로 바꿔 처리한 뒤 다시 감마로 돌린다.
 // 화면 전체를 덮는 삼각형 하나를 SV_VertexID 로 만든다 (정점 버퍼 없음, Draw(3)).
 //=============================================================================
@@ -30,6 +31,21 @@ Texture2D gBloomTex;   // Uber: 최종 Bloom (절반 해상도)
 Texture2D gLumTex;        // 자동 노출: 로그 휘도 (밉 끝 = 평균)
 Texture2D gPrevExposure;  // 자동 노출: 지난 프레임 배율 (1x1)
 Texture2D gExposureTex;   // 자동 노출: 이번 프레임 배율 (1x1)
+
+// ---- Depth Of Field · Motion Blur (Bloom 앞, URP 와 같은 순서)
+cbuffer cbDofMotion
+{
+    float4 gDofParams;       // Gaussian: x Start, y End, z 반 해상도 한 칸 간격 (Max Radius), w 1 = High Quality
+                             // Bokeh: x 초점 거리, y CoC 배율 (1 = 최대 반지름), z 최대 반지름 (반 해상도 px), w 표본 수
+    float4 gProjParams;      // x P11, y P22, z P31 (원근) / P41 (직교), w P32 / P42
+    float4 gProjFlags;       // x 1 = 직교, yz = 전체 해상도 (px)
+    float4x4 gMBInvView;     // 이 프레임 뷰 → 월드
+    float4x4 gMBPrevViewProj;// 지난 프레임 월드 → 클립
+    float4 gMBParams;        // x Intensity, y Clamp (화면 비율), z 표본 수
+    float4 gDofKernel[72];   // Bokeh 표본 (가운데 + 고리 4 개 = 71): xy 단위 원 안 위치 (조리개 날 모양), z 가운데에서 거리
+};
+Texture2D gDepth;     // 뷰 노멀 + 뷰 깊이 (w, 빈 곳 1e5) — 깊이 프리패스
+Texture2D gDofBlur;   // 반 해상도 흐린 결과 (선형, a = 섞는 비율 또는 CoC)
 
 SamplerState samLinear
 {
@@ -371,6 +387,153 @@ float4 PS_Adapt(VertexOut pin) : SV_Target
     return float4(exp2(lerp(lp, lt, 1.0f - exp(-rate))), 0, 0, 1);
 }
 
+// ================================================================ Depth Of Field · Motion Blur
+// 씬 색은 감마 → 선형으로 섞고 감마로 돌려 다음 단계 (Bloom · Uber) 에 넘긴다
+
+float SceneDepthAt(float2 uv)
+{
+    int2 p = int2(saturate(uv) * gProjFlags.yz);
+    p = min(p, int2(gProjFlags.yz) - 1);
+    return gDepth.Load(int3(p, 0)).w;
+}
+
+// 화면 uv + 뷰 깊이 → 뷰 공간 위치
+float3 ViewPosFromDepth(float2 uv, float z)
+{
+    float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+    if (gProjFlags.x > 0.5f)
+        return float3((ndc.x - gProjParams.z) / gProjParams.x, (ndc.y - gProjParams.w) / gProjParams.y, z);
+    return float3((ndc.x - gProjParams.z) * z / gProjParams.x, (ndc.y - gProjParams.w) * z / gProjParams.y, z);
+}
+
+// ---------------------------------------------------------------- Gaussian (먼 곳만: Start ~ End 에서 0 → 1)
+float GaussianCoC(float z)
+{
+    return saturate((z - gDofParams.x) / max(gDofParams.y - gDofParams.x, 1e-4f));
+}
+
+// 전체 → 반 해상도: 2x2 평균 (선형) + CoC
+float4 PS_DofGaussianPrefilter(VertexOut pin) : SV_Target
+{
+    float2 t = 0.5f / gProjFlags.yz;
+    float3 c = GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(-t.x, -t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(t.x, -t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(-t.x, t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(t.x, t.y), 0).rgb);
+    return float4(c * 0.25f, GaussianCoC(SceneDepthAt(pin.Tex)));
+}
+
+// 한 방향 가우시안: 표본마다 그 CoC 를 곱한다 — 초점 안 (CoC 0) 앞 물체가 흐린 배경으로 번지지 않게
+float4 DofGaussianBlur(float2 uv, float2 dir)
+{
+    float2 step = dir * TexelSize(gSource) * gDofParams.z;
+    float4 center = gSource.SampleLevel(samLinear, uv, 0);
+    const int taps = gDofParams.w > 0.5f ? 6 : 4;
+    const float sigma = taps * 0.5f;
+    float3 sum = 0.0f;
+    float wsum = 0.0f;
+    [loop]
+    for (int i = -taps; i <= taps; ++i)
+    {
+        float4 s = gSource.SampleLevel(samLinear, uv + step * (float)i, 0);
+        float w = exp(-(i * i) / (2.0f * sigma * sigma)) * s.a;
+        sum += s.rgb * w;
+        wsum += w;
+    }
+    return float4(wsum > 1e-4f ? sum / wsum : center.rgb, center.a);
+}
+float4 PS_DofGaussianBlurH(VertexOut pin) : SV_Target { return DofGaussianBlur(pin.Tex, float2(1.0f, 0.0f)); }
+float4 PS_DofGaussianBlurV(VertexOut pin) : SV_Target { return DofGaussianBlur(pin.Tex, float2(0.0f, 1.0f)); }
+
+float4 PS_DofGaussianComposite(VertexOut pin) : SV_Target
+{
+    float4 sharp = gSource.SampleLevel(samLinear, pin.Tex, 0);
+    float coc = GaussianCoC(SceneDepthAt(pin.Tex));
+    float3 blur = LinearToGamma(gDofBlur.SampleLevel(samLinear, pin.Tex, 0).rgb);
+    return float4(lerp(sharp.rgb, blur, smoothstep(0.0f, 1.0f, coc)), sharp.a);
+}
+
+// ---------------------------------------------------------------- Bokeh (얇은 렌즈: 초점 거리 · 초점 거리 · 조리개)
+// CoC = (1 - 초점 거리 / 깊이) x 배율 — 앞 (음수) · 뒤 (양수), ±1 = 최대 반지름
+float BokehCoC(float z)
+{
+    return clamp((1.0f - gDofParams.x / max(z, 1e-3f)) * gDofParams.y, -1.0f, 1.0f);
+}
+
+float4 PS_DofBokehPrefilter(VertexOut pin) : SV_Target
+{
+    float2 t = 0.5f / gProjFlags.yz;
+    float3 c = GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(-t.x, -t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(t.x, -t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(-t.x, t.y), 0).rgb)
+             + GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + float2(t.x, t.y), 0).rgb);
+    return float4(c * 0.25f, BokehCoC(SceneDepthAt(pin.Tex)));
+}
+
+// 모아 그리기 (scatter-as-gather): 표본의 흐림 원이 이 픽셀을 덮으면 그 색을 받는다.
+//  뒤 (먼) 표본은 가운데보다 크게 번지지 않게 (초점 맞은 물체 둘레에 흐린 배경이 겹치지 않게), 앞 (가까운) 표본은 그대로 번진다
+float4 PS_DofBokehBlur(VertexOut pin) : SV_Target
+{
+    float2 texel = TexelSize(gSource);
+    float R = gDofParams.z;
+    float4 center = gSource.SampleLevel(samLinear, pin.Tex, 0);
+    float centerFar = max(center.a, 0.0f) * R;
+    float3 sum = 0.0f;
+    float wsum = 0.0f;
+    float nearCover = 0.0f;
+    int count = (int)gDofParams.w;
+    [loop]
+    for (int i = 0; i < count; ++i)
+    {
+        float3 k = gDofKernel[i].xyz;
+        float dist = k.z * R;
+        float4 s = gSource.SampleLevel(samLinear, pin.Tex + k.xy * R * texel, 0);
+        float coc = abs(s.a) * R;
+        if (s.a >= 0.0f)
+            coc = min(coc, centerFar + 1.0f);
+        float w = saturate(coc - dist + 1.0f);
+        if (s.a < 0.0f)
+            nearCover = max(nearCover, w * saturate(-s.a * R - 1.0f));
+        sum += s.rgb * w;
+        wsum += w;
+    }
+    float3 c = wsum > 1e-4f ? sum / wsum : center.rgb;
+    // 섞는 비율: 이 픽셀 자신의 흐림 (반 px 부터) 또는 앞 물체의 번짐
+    float blend = saturate(max(abs(center.a) * R - 0.5f, nearCover));
+    return float4(c, blend);
+}
+
+float4 PS_DofBokehComposite(VertexOut pin) : SV_Target
+{
+    float4 sharp = gSource.SampleLevel(samLinear, pin.Tex, 0);
+    float4 blur = gDofBlur.SampleLevel(samLinear, pin.Tex, 0);
+    return float4(lerp(sharp.rgb, LinearToGamma(blur.rgb), blur.a), sharp.a);
+}
+
+// ---------------------------------------------------------------- Motion Blur (카메라)
+// 깊이 → 월드 위치 → 지난 프레임 화면 위치: 그 차이 (x Intensity, Clamp 까지) 를 따라 표본을 모은다
+float4 PS_MotionBlur(VertexOut pin) : SV_Target
+{
+    float z = SceneDepthAt(pin.Tex);
+    float3 posV = ViewPosFromDepth(pin.Tex, z);
+    float4 posW = mul(float4(posV, 1.0f), gMBInvView);
+    float4 prev = mul(posW, gMBPrevViewProj);
+    float2 prevUV = prev.w > 1e-4f ? float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f) : pin.Tex;
+    float2 vel = (pin.Tex - prevUV) * gMBParams.x;
+    float len = length(vel);
+    if (len > gMBParams.y)
+        vel *= gMBParams.y / len;
+    int n = (int)gMBParams.z;
+    float3 c = 0.0f;
+    [loop]
+    for (int i = 0; i < n; ++i)
+    {
+        float t = (float)i / (float)(n - 1) - 0.5f;
+        c += GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + vel * t, 0).rgb);
+    }
+    return float4(LinearToGamma(c / (float)n), gSource.SampleLevel(samLinear, pin.Tex, 0).a);
+}
+
 // 단순 복사 (후처리 없이 해상도만 맞출 때)
 float4 PS_Copy(VertexOut pin) : SV_Target
 {
@@ -396,3 +559,11 @@ POST_TECH(FxaaTech, PS_Fxaa)
 POST_TECH(CopyTech, PS_Copy)
 POST_TECH(LuminanceTech, PS_Luminance)
 POST_TECH(AdaptTech, PS_Adapt)
+POST_TECH(DofGaussianPrefilterTech, PS_DofGaussianPrefilter)
+POST_TECH(DofGaussianBlurHTech, PS_DofGaussianBlurH)
+POST_TECH(DofGaussianBlurVTech, PS_DofGaussianBlurV)
+POST_TECH(DofGaussianCompositeTech, PS_DofGaussianComposite)
+POST_TECH(DofBokehPrefilterTech, PS_DofBokehPrefilter)
+POST_TECH(DofBokehBlurTech, PS_DofBokehBlur)
+POST_TECH(DofBokehCompositeTech, PS_DofBokehComposite)
+POST_TECH(MotionBlurTech, PS_MotionBlur)

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "PostProcessPass.h"
 #include "Effects.h"
+#include "SceneCulling.h"
 
 namespace
 {
@@ -187,6 +188,107 @@ void PostProcessPass::UpdateAutoExposure(const VolumeComponent& exposure, float 
 	m_ExposureValid = true;
 }
 
+// Depth Of Field: 반 해상도에서 흐리게 → 전체 해상도로 섞기 (Gaussian = 먼 곳만, Bokeh = 얇은 렌즈 + 조리개 날)
+GfxShaderResourceView* PostProcessPass::DepthOfField(const VolumeComponent& dof, const CameraOptions& options, GfxShaderResourceView* src)
+{
+	const int mode = dof.I("mode");
+	const UINT hw = (std::max)(1u, m_Width / 2), hh = (std::max)(1u, m_Height / 2);
+	if (m_Dof.W != m_Width || m_Dof.H != m_Height)
+		CreateTarget(m_Dof, m_Width, m_Height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	for (Target& t : m_Half)
+		if (t.W != hw || t.H != hh)
+			CreateTarget(t, hw, hh, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	if (!m_Dof.RTV || !m_Half[0].RTV || !m_Half[1].RTV)
+		return src;
+	SetSRV("gDepth", options.Depth);
+	if (mode == 1)
+	{
+		// 반 해상도 한 칸 간격: Max Radius x 1.5 (1080p 기준) — 해상도가 달라도 같은 화면 비율로 흐리게
+		const float step = dof.F("gaussianMaxRadius") * 1.5f * (float)hh / 540.0f;
+		const float start = (std::max)(0.0f, dof.F("gaussianStart"));
+		SetVec("gDofParams", start, (std::max)(start + 0.01f, dof.F("gaussianEnd")), step, dof.B("highQualitySampling") ? 1.0f : 0.0f);
+		SetSRV("gSource", src);
+		Draw("DofGaussianPrefilterTech", m_Half[0].RTV.Get(), hw, hh);
+		SetSRV("gSource", m_Half[0].SRV.Get());
+		Draw("DofGaussianBlurHTech", m_Half[1].RTV.Get(), hw, hh);
+		SetSRV("gSource", m_Half[1].SRV.Get());
+		Draw("DofGaussianBlurVTech", m_Half[0].RTV.Get(), hw, hh);
+		SetSRV("gSource", src);
+		SetSRV("gDofBlur", m_Half[0].SRV.Get());
+		SetSRV("gDepth", options.Depth);
+		Draw("DofGaussianCompositeTech", m_Dof.RTV.Get(), m_Width, m_Height);
+		return m_Dof.SRV.Get();
+	}
+	if (mode == 2)
+	{
+		// 얇은 렌즈: 흐림 원 지름 (센서) = A · f / (P - f) · |1 - P / z|, A = f / 조리개. 센서 높이 24 mm (35 mm 풀프레임)
+		const float f = std::clamp(dof.F("focalLength"), 1.0f, 300.0f) / 1000.0f;
+		const float N = std::clamp(dof.F("aperture"), 1.0f, 32.0f);
+		const float P = (std::max)(dof.F("focusDistance"), f + 0.01f);
+		const float A = f / N;
+		const float cocInf = A * f / (P - f);                                     // 무한대에서의 지름 (m, 센서)
+		const float pxPerMeter = (float)m_Height / 0.024f;                        // 센서 → 화면 px
+		const float maxRadiusFull = 32.0f * (float)m_Height / 1080.0f;            // 최대 반지름 (1080p 에서 32 px)
+		const float scale = cocInf * 0.5f * pxPerMeter / (std::max)(maxRadiusFull, 1.0f);   // CoC 1 = 최대 반지름
+		// 표본: 고리 4 개 (7 · 14 · 21 · 28) + 가운데 = 71 — 조리개 날 수 · 곡률 · 회전으로 모양 (곡률 1 = 원)
+		XMFLOAT4 kernel[72] = {};
+		int count = 0;
+		kernel[count++] = XMFLOAT4(0, 0, 0, 0);
+		const int blades = std::clamp(dof.I("bladeCount"), 3, 9);
+		const float curvature = Clamp01(dof.F("bladeCurvature"));
+		const float rotation = XMConvertToRadians(dof.F("bladeRotation"));
+		const float nt = cosf(XM_PI / blades);
+		for (int ring = 1; ring <= 4; ++ring)
+		{
+			const float r = (float)ring / 4.0f;
+			const int points = ring * 7;
+			for (int i = 0; i < points && count < 72; ++i)
+			{
+				const float phi = XM_2PI * (float)i / (float)points;
+				const float dt = cosf(phi - (XM_2PI / blades) * floorf((blades * phi + XM_PI) / XM_2PI));
+				const float shaped = r * (curvature + (1.0f - curvature) * nt / (std::max)(dt, 1e-3f));
+				const float a = phi + rotation;
+				kernel[count++] = XMFLOAT4(shaped * cosf(a), shaped * sinf(a), shaped, 0);
+			}
+		}
+		if (auto* v = m_Effect->GetFX()->GetVariableByName("gDofKernel")->AsVector(); v && v->IsValid())
+			v->SetFloatVectorArray(&kernel[0].x, 0, 72);
+		SetVec("gDofParams", P, scale, maxRadiusFull * 0.5f, (float)count);
+		SetSRV("gSource", src);
+		Draw("DofBokehPrefilterTech", m_Half[0].RTV.Get(), hw, hh);
+		SetSRV("gSource", m_Half[0].SRV.Get());
+		Draw("DofBokehBlurTech", m_Half[1].RTV.Get(), hw, hh);
+		SetSRV("gSource", src);
+		SetSRV("gDofBlur", m_Half[1].SRV.Get());
+		Draw("DofBokehCompositeTech", m_Dof.RTV.Get(), m_Width, m_Height);
+		return m_Dof.SRV.Get();
+	}
+	return src;
+}
+
+// Motion Blur (카메라): 깊이로 되살린 월드 위치가 지난 프레임에 화면 어디였는지 → 그 방향으로 표본
+GfxShaderResourceView* PostProcessPass::MotionBlur(const VolumeComponent& mb, const CameraOptions& options, GfxShaderResourceView* src)
+{
+	if (m_Motion.W != m_Width || m_Motion.H != m_Height)
+		CreateTarget(m_Motion, m_Width, m_Height, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	if (!m_Motion.RTV)
+		return src;
+	const XMMATRIX view = XMLoadFloat4x4(&options.View);
+	if (auto* v = m_Effect->GetFX()->GetVariableByName("gMBInvView")->AsMatrix(); v && v->IsValid())
+	{
+		const XMMATRIX m = XMMatrixInverse(nullptr, view);
+		v->SetMatrix(reinterpret_cast<const float*>(&m));
+	}
+	if (auto* v = m_Effect->GetFX()->GetVariableByName("gMBPrevViewProj")->AsMatrix(); v && v->IsValid())
+		v->SetMatrix(reinterpret_cast<const float*>(&m_PrevViewProj));
+	static const int kSamples[3] = { 8, 12, 16 };   // Low · Medium · High
+	SetVec("gMBParams", Clamp01(mb.F("intensity")), std::clamp(mb.F("clamp"), 0.0f, 0.2f), (float)kSamples[std::clamp(mb.I("quality"), 0, 2)], 0.0f);
+	SetSRV("gDepth", options.Depth);
+	SetSRV("gSource", src);
+	Draw("MotionBlurTech", m_Motion.RTV.Get(), m_Width, m_Height);
+	return m_Motion.SRV.Get();
+}
+
 void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& options, GfxRenderTargetView* output)
 {
 	auto ctx = Application::GetI()->GetDeviceContext();
@@ -212,6 +314,32 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 	const VolumeComponent* vig = stack.Get("Vignette");
 	const VolumeComponent* ca = stack.Get("ChromaticAberration");
 	const VolumeComponent* grain = stack.Get("FilmGrain");
+
+	// ---------------- Depth Of Field → Motion Blur (Bloom · Uber 는 그 결과를 받는다)
+	GfxShaderResourceView* src = m_Scene.SRV.Get();
+	if (options.Depth)
+	{
+		// 새 프레임이면 지난 프레임 카메라를 넘긴다 (같은 프레임에 다시 그리면 그대로)
+		const uint32_t frame = SceneCulling::FrameIndex();
+		if (frame != m_CurFrame)
+		{
+			m_PrevViewProj = m_CurViewProj;
+			m_PrevValid = m_CurValid;
+			m_CurFrame = frame;
+		}
+		XMStoreFloat4x4(&m_CurViewProj, XMMatrixMultiply(XMLoadFloat4x4(&options.View), XMLoadFloat4x4(&options.Proj)));
+		m_CurValid = true;
+		const XMFLOAT4X4& p = options.Proj;
+		const bool ortho = fabsf(p._34) < 1e-6f;
+		SetVec("gProjParams", p._11, p._22, ortho ? p._41 : p._31, ortho ? p._42 : p._32);
+		SetVec("gProjFlags", ortho ? 1.0f : 0.0f, (float)m_Width, (float)m_Height, 0.0f);
+		const VolumeComponent* dof = stack.Get("DepthOfField");
+		if (usePost && dof && stack.IsActive("DepthOfField"))
+			src = DepthOfField(*dof, options, src);
+		const VolumeComponent* mb = stack.Get("MotionBlur");
+		if (usePost && mb && stack.IsActive("MotionBlur") && !options.SceneView && m_PrevValid)
+			src = MotionBlur(*mb, options, src);
+	}
 
 	// ---------------- Bloom
 	const bool bloomOn = usePost && bloom && stack.IsActive("Bloom");
@@ -242,7 +370,7 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 			}
 		}
 
-		SetSRV("gSource", m_Scene.SRV.Get());
+		SetSRV("gSource", src);
 		Draw("BloomPrefilterTech", m_Down[0].RTV.Get(), m_Down[0].W, m_Down[0].H);
 		for (int i = 1; i < levels; ++i)
 		{
@@ -312,7 +440,7 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 	const int toneMode = (usePost && tone) ? tone->I("mode") : 0;
 	SetVec("gFlags", (float)toneMode, options.Dithering ? 1.0f : 0.0f, options.StopNaNs ? 1.0f : 0.0f, gradingOn ? 1.0f : 0.0f);
 
-	SetSRV("gSource", m_Scene.SRV.Get());
+	SetSRV("gSource", src);
 	if (options.Fxaa)
 	{
 		Draw("UberTech", m_Ldr.RTV.Get(), m_Width, m_Height);

@@ -31,6 +31,9 @@ struct VolumeParameter
 	std::vector<std::string> Items;   // Enum 항목
 	bool Override = false;
 	float Value[4] = { 0, 0, 0, 0 };
+	// Inspector: 같은 효과의 다른 칸 (Enum) 이 이 값일 때만 보인다 (예: Depth Of Field 의 Gaussian 칸 · Bokeh 칸)
+	std::string ShowIfKey;
+	int ShowIfValue = 0;
 
 	float F() const { return Value[0]; }
 	int I() const { return (int)(Value[0] + 0.5f); }

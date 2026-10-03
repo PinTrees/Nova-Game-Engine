@@ -199,7 +199,8 @@ namespace VolumeEditor
 			{
 				UnityGUI::Spacing(3.0f);
 				for (VolumeParameter& p : comp->Params)
-					DrawParam(p, isDefault, changed);
+					if (p.ShowIfKey.empty() || comp->I(p.ShowIfKey) == p.ShowIfValue)   // 모드에 맞는 칸만 (Depth Of Field 등)
+						DrawParam(p, isDefault, changed);
 				if (comp->Type == "Shadows")
 					DrawCascadeBar(*comp);
 				UnityGUI::Spacing(4.0f);

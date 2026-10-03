@@ -33,6 +33,12 @@ namespace
 		p.Items = std::move(items);
 		return p;
 	}
+	VolumeParameter ShowIf(VolumeParameter p, const char* key, int value)
+	{
+		p.ShowIfKey = key;
+		p.ShowIfValue = value;
+		return p;
+	}
 
 	std::string NormalizePath(std::string path)
 	{
@@ -100,7 +106,7 @@ const float* VolumeComponent::V(const std::string& key) const
 const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
-		"Bloom", "ChromaticAberration", "ColorAdjustments", "FilmGrain", "Tonemapping", "Vignette", "WhiteBalance",
+		"Bloom", "ChromaticAberration", "ColorAdjustments", "DepthOfField", "FilmGrain", "MotionBlur", "Tonemapping", "Vignette", "WhiteBalance",
 		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "Exposure" };
 	return kTypes;
 }
@@ -161,6 +167,35 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("intensity", "Intensity", K::Clamped, 0.0f, 0.0f, 1.0f),
 			P("smoothness", "Smoothness", K::Clamped, 0.2f, 0.01f, 1.0f),
 			P("rounded", "Rounded", K::Bool, 0.0f),
+		};
+	}
+	else if (type == "DepthOfField")
+	{
+		// Unity URP Depth Of Field: Gaussian (먼 곳만, 거리로) · Bokeh (카메라처럼 초점 거리 · 렌즈 · 조리개) — 기본값 그대로
+		c->DisplayName = "Depth Of Field";
+		c->Params = {
+			PEnum("mode", "Mode", { "Off", "Gaussian", "Bokeh" }, 0),
+			ShowIf(P("gaussianStart", "Start", K::Float, 10.0f, 0.0f), "mode", 1),
+			ShowIf(P("gaussianEnd", "End", K::Float, 30.0f, 0.0f), "mode", 1),
+			ShowIf(P("gaussianMaxRadius", "Max Radius", K::Clamped, 1.0f, 0.5f, 1.5f), "mode", 1),
+			ShowIf(P("highQualitySampling", "High Quality Sampling", K::Bool, 0.0f), "mode", 1),
+			ShowIf(P("focusDistance", "Focus Distance", K::Float, 10.0f, 0.1f), "mode", 2),
+			ShowIf(P("focalLength", "Focal Length", K::Clamped, 50.0f, 1.0f, 300.0f), "mode", 2),
+			ShowIf(P("aperture", "Aperture", K::Clamped, 5.6f, 1.0f, 32.0f), "mode", 2),
+			ShowIf(P("bladeCount", "Blade Count", K::Int, 5.0f, 3.0f, 9.0f), "mode", 2),
+			ShowIf(P("bladeCurvature", "Blade Curvature", K::Clamped, 1.0f, 0.0f, 1.0f), "mode", 2),
+			ShowIf(P("bladeRotation", "Blade Rotation", K::Clamped, 0.0f, -180.0f, 180.0f), "mode", 2),
+		};
+	}
+	else if (type == "MotionBlur")
+	{
+		// Unity URP Motion Blur (카메라 움직임 — 깊이와 지난 프레임 카메라로 화면 속도를 되살림). Scene 뷰에는 없음 (Unity 와 같음)
+		c->DisplayName = "Motion Blur";
+		c->Params = {
+			PEnum("mode", "Mode", { "Camera Only" }, 0),
+			PEnum("quality", "Quality", { "Low", "Medium", "High" }, 0),
+			P("intensity", "Intensity", K::Clamped, 0.0f, 0.0f, 1.0f),
+			P("clamp", "Clamp", K::Clamped, 0.05f, 0.0f, 0.2f),
 		};
 	}
 	else if (type == "ChromaticAberration")
@@ -463,6 +498,8 @@ bool VolumeStack::IsActive(const std::string& type) const
 	if (type == "Tonemapping") return c->I("mode") != 0;
 	if (type == "Vignette") return c->F("intensity") > 0.0f;
 	if (type == "ChromaticAberration") return c->F("intensity") > 0.0f;
+	if (type == "DepthOfField") return c->I("mode") != 0;
+	if (type == "MotionBlur") return c->F("intensity") > 0.0f;
 	if (type == "FilmGrain") return c->F("intensity") > 0.0f;
 	if (type == "WhiteBalance") return c->F("temperature") != 0.0f || c->F("tint") != 0.0f;
 	if (type == "Fog" || type == "Atmosphere") return c->B("enabled");
