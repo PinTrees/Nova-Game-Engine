@@ -6,6 +6,7 @@ enum class GraphicsAPI
 {
 	DirectX11 = 0,
 	OpenGL,
+	Vulkan,
 	Count
 };
 
@@ -15,6 +16,7 @@ inline const char* GraphicsAPIToString(GraphicsAPI api)
 	{
 	case GraphicsAPI::DirectX11: return "DirectX 11";
 	case GraphicsAPI::OpenGL:    return "OpenGL";
+	case GraphicsAPI::Vulkan:    return "Vulkan";
 	default:                     return "Unknown";
 	}
 }
@@ -25,6 +27,7 @@ inline const char* GraphicsAPIToKey(GraphicsAPI api)
 	{
 	case GraphicsAPI::DirectX11: return "DirectX11";
 	case GraphicsAPI::OpenGL:    return "OpenGL";
+	case GraphicsAPI::Vulkan:    return "Vulkan";
 	default:                     return "DirectX11";
 	}
 }

@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 (모델 끌어 놓기 · TAA + SMAA · APV 2 단계 완료 · push `19591a4`) — 다음: 사용자 지시 대기 (Vulkan · Android 가능성 문의에 답함)
+- 갱신 시각: 2026년 10월 4일 — **Vulkan 그래픽 백엔드 1 · 2 단계 완료 (로컬 커밋, push 전)** (사용자 지시 "그래픽 … Vulkan … 이거 먼저 진행", 안드로이드의 첫 단계). 문서 `docs/VULKAN_BACKEND.md`
+  - 1 단계 `nova vulkan gfx-test` · 2 단계 `nova vulkan rhi-test`: 화면 없는 Vulkan 장치가 DX11 과 화소 차이 최대 1, 검증 레이어 오류 · 경고 0 (GTX 1660 SUPER, Debug)
+  - 다음 3 단계: 에디터를 Vulkan 으로 (스왑체인 · ImGui · 창 크기 · `-force-vulkan` · 안 되면 DX11). 그때까지 Graphics API 메뉴의 Vulkan 은 고를 수 없음
+  - 담당 파일: 새 `Source/Graphics/Vulkan/*` · `ThirdParty/Vulkan/` · `docs/VULKAN_BACKEND.md`, 고친 공용 파일 `Source/Graphics/RHI/Gfx.h` (`GfxObject::Api()` — Native() == nullptr 만으로 GL 을 가르던 곳을 고침) · `Rhi.cpp` · `DX11/GfxDx11.cpp` · `OpenGL/GfxGL.cpp` (`GfxGL_TextureName`) · `Common/GraphicsAPI.h` (`GraphicsAPI::Vulkan`) · `GraphicsBackendFactory.cpp` · `ShaderCross/ShaderCross.*` (SPIR-V 경로) · `CMakeLists.txt` (폴더 · 헤더 경로 두 줄) · `Editor/EditorApp.cpp` (CLI 등록 두 줄) · `Tools/NovaCli/main.cpp` (명령 이름 하나)
+  - Codex 에게: `GraphicsAPI::Count` 가 3 이 되어 API 를 도는 화면 (Hub 의 API 배지 · 에디터 Graphics API 메뉴 · Player Settings) 에 Vulkan 이 "미구현" 으로 보인다. `GfxObject::Native() == nullptr` 를 "OpenGL" 로 보는 새 코드는 `Api() == GfxApi::OpenGL` 로
+- 이전: 모델 끌어 놓기 · TAA + SMAA · APV 2 단계 완료 · push `19591a4`
 - 단계: **LOD Group (`83226d8`) · Screen Space Reflection 완료** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
 - 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
 - 기준 커밋: `564e00a`

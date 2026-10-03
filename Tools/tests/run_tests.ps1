@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2925,6 +2925,26 @@ function Suite-Gfx
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
 
+# ------------------------------------------------------------------ Vulkan (docs/VULKAN_BACKEND.md): 화면 없는 Vulkan 장치 ↔ DX11 엔진 장치
+function Suite-Vulkan
+{
+    Write-Host '[vulkan]'
+    $ed = Start-TestEditor
+    try
+    {
+        foreach ($t in 'gfx-test', 'rhi-test')
+        {
+            $j = Invoke-NovaJson "vulkan $t"
+            $vk = if ($j) { @($j.results | Where-Object { $_.api -eq 'Vulkan' })[0] } else { $null }
+            $ok = $j -and $j.diff -and [double]$j.diff.max -le 2 -and $vk -and [int]$vk.validationErrors -eq 0
+            $detail = if ($j -and $j.diff) { "diff max $($j.diff.max), validation errors $($vk.validationErrors) / warnings $($vk.validationWarnings)" }
+                      elseif ($vk) { "Vulkan: $($vk.error)" } else { 'no result' }
+            Add-Result vulkan $t $ok $detail
+        }
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -3088,6 +3108,7 @@ try
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }
                 'gfx' { Suite-Gfx }
+                'vulkan' { Suite-Vulkan }
                 'perf' { Suite-Perf }
                 'particles' { Suite-Particles }
                 'keys' { Suite-Keys }

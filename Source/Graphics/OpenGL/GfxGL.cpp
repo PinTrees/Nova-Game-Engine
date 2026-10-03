@@ -1349,7 +1349,7 @@ namespace
 
 unsigned int GfxGL_TextureName(GfxShaderResourceView* view)
 {
-	if (!view || view->Native()) return 0;   // Native 가 있으면 D3D11 뷰
+	if (!view || view->Api() != GfxApi::OpenGL) return 0;   // D3D11 · Vulkan 뷰
 	return static_cast<GLSrv*>(view)->V.Name;
 }
 

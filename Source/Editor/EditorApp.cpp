@@ -36,6 +36,7 @@
 #include "LODGroup.h"
 #include "ScreenSpaceReflection.h"
 #include "ModelPlacement.h"
+#include "VulkanTools.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -218,6 +219,7 @@ bool EditorApp::Init()
 		ProbeVolumes::RegisterEditor();       // nova probevolume
 		LODGroup::RegisterEditor();           // nova lod
 		ModelPlacement::RegisterEditor();     // nova modelfile
+		VulkanTools::RegisterEditor();        // nova vulkan
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
 		CliCommands::RegisterAll();
 		CliServer::Start();

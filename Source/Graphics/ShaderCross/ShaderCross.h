@@ -74,4 +74,54 @@ namespace ShaderCross
 	bool Available(std::string* error = nullptr);   // dxcompiler.dll 을 불러올 수 있는지
 	// fxPath = .fx 파일. 모든 technique 의 모든 pass 를 변환 (pass 마다 성공/실패)
 	bool CompileEffect(const std::wstring& fxPath, EffectGlsl& out);
+
+	// ---- Vulkan: pass 마다 단계별 SPIR-V 를 그대로 쓴다 (GLSL 로 바꾸지 않음)
+	//  - DXC 의 SPIR-V 에서 장식 (decoration) 값만 고친다: 모든 자원 = set 0, 바인딩 = 효과 안에서 이름마다 고정
+	//    (cbuffer · 텍스처 · 샘플러가 따로 — Vulkan 은 텍스처와 샘플러를 나눠 묶을 수 있어 GL 처럼 합치지 않는다)
+	//  - 단계 사이 location = 앞 단계 출력의 같은 의미(SEMANTIC) 의 location (구조체가 달라도 맞물린다)
+	//  - 좌표는 GL 과 같은 -fvk-invert-y (Vulkan 프레임버퍼 행 0 = 위 = D3D), SV_InstanceID = D3D 처럼 시작 인스턴스를 빼고
+	struct ResourceBinding
+	{
+		enum class Kind { SampledImage, Sampler, StorageImage, StorageBuffer, TexelBuffer };
+		std::string Name;
+		Kind Type = Kind::SampledImage;
+		int Binding = 0;
+		int Count = 1;           // 배열 원소 수
+		int Dim = 1;             // 이미지: 0 1D, 1 2D, 2 3D, 3 Cube (spv::Dim)
+		bool Arrayed = false;    // 1D/2D/Cube 배열
+		bool Depth = false;      // SampleCmp 로 읽는 깊이 텍스처 (빈 칸에는 깊이 더미)
+		bool Integer = false;    // 정수 텍스처 (uint/int)
+		bool Comparison = false; // 샘플러: SamplerComparisonState
+	};
+
+	struct StageSpirv
+	{
+		Stage StageType = Stage::Vertex;
+		std::string Entry;
+		std::vector<uint32_t> Code;
+	};
+
+	struct PassSpirv
+	{
+		std::string Technique, Pass;
+		std::vector<StageSpirv> Stages;
+		std::vector<std::pair<std::string, int>> VertexInputs;   // 의미 → location
+		uint32_t PixelOutputs = 0;   // 픽셀 셰이더가 쓰는 SV_Target 번호 (비트) — 쓰지 않는 색 타깃은 쓰기 마스크 0
+		std::vector<int> Bindings;   // 이 pass 의 단계들이 쓰는 바인딩 번호 (지원하지 않는 자원을 쓰는 pass 를 가린다)
+		std::string Error;
+	};
+
+	struct EffectSpirv
+	{
+		std::wstring File;
+		FxParser::Effect Fx;
+		std::vector<PassSpirv> Passes;
+		std::map<std::string, UniformBlock> Blocks;          // 이름 → cbuffer (Binding = 바인딩)
+		std::map<std::string, ResourceBinding> Resources;    // 이름 → 텍스처 · 샘플러 · 버퍼
+		int BindingCount = 0;                                // 바인딩 번호 0 .. BindingCount - 1
+		std::string Error;
+		int PassesOk() const;
+	};
+
+	bool CompileEffectSpirv(const std::wstring& fxPath, EffectSpirv& out);
 }

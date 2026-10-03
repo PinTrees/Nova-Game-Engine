@@ -102,7 +102,7 @@ namespace
 		}
 	}
 
-	bool CompileSpirv(const std::string& source, const std::wstring& name, const FxParser::ShaderRef& ref, bool invertY, std::vector<uint32_t>& spirv, std::string& error)
+	bool CompileSpirv(const std::string& source, const std::wstring& name, const FxParser::ShaderRef& ref, bool invertY, std::vector<uint32_t>& spirv, std::string& error, bool vulkan = false)
 	{
 		DxcBuffer buf = { source.data(), source.size(), DXC_CP_UTF8 };
 		const std::wstring entry = string_to_wstring(ref.Entry);
@@ -115,6 +115,9 @@ namespace
 		//  (없으면 물이 waterZ = PosH.w 로 깊이를 잘못 계산해 굴절·흡수가 틀렸다)
 		if (ref.StageType == Stage::Pixel)
 			args.push_back(L"-fvk-use-dx-position-w");
+		// Vulkan: gl_InstanceIndex 는 시작 인스턴스를 더한다 → D3D SV_InstanceID 처럼 뺀다 (GL 은 SPIRV_Cross_BaseInstance = 0 으로)
+		if (vulkan && ref.StageType == Stage::Vertex)
+			args.push_back(L"-fvk-support-nonzero-base-instance");
 		ComPtr<IDxcResult> result;
 		DWORD exception = 0;
 		if (FAILED(GuardedCompile(s_Compiler.Get(), &buf, args.data(), (UINT32)args.size(), result.GetAddressOf(), &exception)) || !result)
@@ -361,12 +364,12 @@ namespace
 		return h;
 	}
 
-	json ToJson(const EffectGlsl& e)
+	json FxToJson(const FxParser::Effect& e)
 	{
 		json fx;
-		fx["source"] = e.Fx.Source;
+		fx["source"] = e.Source;
 		json techs = json::array();
-		for (const auto& t : e.Fx.Techniques)
+		for (const auto& t : e.Techniques)
 		{
 			json passes = json::array();
 			for (const auto& p : t.Passes)
@@ -381,42 +384,17 @@ namespace
 		}
 		fx["techniques"] = techs;
 		json states = json::object();
-		for (const auto& [n, b] : e.Fx.States)
+		for (const auto& [n, b] : e.States)
 			states[n] = { { "type", b.Type }, { "fields", b.Fields } };
 		fx["states"] = states;
-		fx["defaults"] = e.Fx.Defaults;
-		fx["warnings"] = e.Fx.Warnings;
-		json passes = json::array();
-		for (const auto& p : e.Passes)
-		{
-			json stages = json::array();
-			for (const auto& s : p.Stages)
-				stages.push_back({ (int)s.StageType, s.Entry, s.Glsl });
-			json inputs = json::array();
-			for (const auto& [sem, loc] : p.VertexInputs)
-				inputs.push_back({ sem, loc });
-			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "inputs", inputs }, { "error", p.Error } });
-		}
-		json blocks = json::object();
-		for (const auto& [n, b] : e.Blocks)
-		{
-			json members = json::array();
-			for (const auto& m : b.Members)
-				members.push_back({ m.Name, m.Offset, m.Size, m.ArrayCount, m.ArrayStride, m.Rows, m.Columns, m.Transpose, m.Struct, m.Integer });
-			blocks[n] = { { "binding", b.Binding }, { "size", b.Size }, { "members", members } };
-		}
-		json samplers = json::object();
-		for (const auto& [n, s] : e.Samplers)
-			samplers[n] = { s.Texture, s.Sampler, s.Unit, s.Count };
-		return { { "version", kCacheVersion }, { "fx", fx }, { "passes", passes }, { "blocks", blocks }, { "samplers", samplers },
-			{ "images", e.Images }, { "buffers", e.Buffers } };
+		fx["defaults"] = e.Defaults;
+		fx["warnings"] = e.Warnings;
+		return fx;
 	}
 
-	bool FromJson(const json& j, EffectGlsl& e)
+	void FxFromJson(const json& fx, FxParser::Effect& e)
 	{
-		if (j.value("version", 0) != kCacheVersion) return false;
-		const json& fx = j.at("fx");
-		e.Fx.Source = fx.at("source").get<std::string>();
+		e.Source = fx.at("source").get<std::string>();
 		for (const auto& t : fx.at("techniques"))
 		{
 			FxParser::Technique tech;
@@ -435,30 +413,35 @@ namespace
 				pass.SampleMask = p.at("sampleMask").get<unsigned>();
 				tech.Passes.push_back(pass);
 			}
-			e.Fx.Techniques.push_back(tech);
+			e.Techniques.push_back(tech);
 		}
 		for (const auto& [n, b] : fx.at("states").items())
 		{
 			FxParser::StateBlock block;
 			block.Type = b.at("type").get<std::string>();
 			block.Fields = b.at("fields").get<std::map<std::string, std::string>>();
-			e.Fx.States[n] = block;
+			e.States[n] = block;
 		}
-		e.Fx.Defaults = fx.at("defaults").get<std::map<std::string, std::string>>();
-		e.Fx.Warnings = fx.at("warnings").get<std::vector<std::string>>();
-		for (const auto& p : j.at("passes"))
+		e.Defaults = fx.at("defaults").get<std::map<std::string, std::string>>();
+		e.Warnings = fx.at("warnings").get<std::vector<std::string>>();
+	}
+
+	json BlocksToJson(const std::map<std::string, UniformBlock>& blocks)
+	{
+		json out = json::object();
+		for (const auto& [n, b] : blocks)
 		{
-			PassGlsl pg;
-			pg.Technique = p.at("technique").get<std::string>();
-			pg.Pass = p.at("pass").get<std::string>();
-			for (const auto& s : p.at("stages"))
-				pg.Stages.push_back({ (Stage)s[0].get<int>(), s[1].get<std::string>(), s[2].get<std::string>() });
-			for (const auto& i : p.at("inputs"))
-				pg.VertexInputs.push_back({ i[0].get<std::string>(), i[1].get<int>() });
-			pg.Error = p.at("error").get<std::string>();
-			e.Passes.push_back(pg);
+			json members = json::array();
+			for (const auto& m : b.Members)
+				members.push_back({ m.Name, m.Offset, m.Size, m.ArrayCount, m.ArrayStride, m.Rows, m.Columns, m.Transpose, m.Struct, m.Integer });
+			out[n] = { { "binding", b.Binding }, { "size", b.Size }, { "members", members } };
 		}
-		for (const auto& [n, b] : j.at("blocks").items())
+		return out;
+	}
+
+	void BlocksFromJson(const json& j, std::map<std::string, UniformBlock>& blocks)
+	{
+		for (const auto& [n, b] : j.items())
 		{
 			UniformBlock ub;
 			ub.Name = n;
@@ -479,8 +462,49 @@ namespace
 				mem.Integer = m[9].get<bool>();
 				ub.Members.push_back(mem);
 			}
-			e.Blocks[n] = ub;
+			blocks[n] = ub;
 		}
+	}
+
+	json ToJson(const EffectGlsl& e)
+	{
+		json fx = FxToJson(e.Fx);
+		json passes = json::array();
+		for (const auto& p : e.Passes)
+		{
+			json stages = json::array();
+			for (const auto& s : p.Stages)
+				stages.push_back({ (int)s.StageType, s.Entry, s.Glsl });
+			json inputs = json::array();
+			for (const auto& [sem, loc] : p.VertexInputs)
+				inputs.push_back({ sem, loc });
+			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "inputs", inputs }, { "error", p.Error } });
+		}
+		json blocks = BlocksToJson(e.Blocks);
+		json samplers = json::object();
+		for (const auto& [n, s] : e.Samplers)
+			samplers[n] = { s.Texture, s.Sampler, s.Unit, s.Count };
+		return { { "version", kCacheVersion }, { "fx", fx }, { "passes", passes }, { "blocks", blocks }, { "samplers", samplers },
+			{ "images", e.Images }, { "buffers", e.Buffers } };
+	}
+
+	bool FromJson(const json& j, EffectGlsl& e)
+	{
+		if (j.value("version", 0) != kCacheVersion) return false;
+		FxFromJson(j.at("fx"), e.Fx);
+		for (const auto& p : j.at("passes"))
+		{
+			PassGlsl pg;
+			pg.Technique = p.at("technique").get<std::string>();
+			pg.Pass = p.at("pass").get<std::string>();
+			for (const auto& s : p.at("stages"))
+				pg.Stages.push_back({ (Stage)s[0].get<int>(), s[1].get<std::string>(), s[2].get<std::string>() });
+			for (const auto& i : p.at("inputs"))
+				pg.VertexInputs.push_back({ i[0].get<std::string>(), i[1].get<int>() });
+			pg.Error = p.at("error").get<std::string>();
+			e.Passes.push_back(pg);
+		}
+		BlocksFromJson(j.at("blocks"), e.Blocks);
 		for (const auto& [n, s] : j.at("samplers").items())
 		{
 			SamplerBinding sb;
@@ -606,6 +630,423 @@ namespace ShaderCross
 				if (f.path().filename().wstring().rfind(prefix, 0) == 0 && f.path() != cacheFile)
 					std::filesystem::remove(f.path(), ec);
 			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << ToJson(out).dump();
+		}
+		catch (const std::exception&)
+		{
+		}
+		return true;
+	}
+}
+
+// ============================================================================ Vulkan: SPIR-V 그대로 (장식만 고침)
+namespace
+{
+	// ShaderCache/SPIRV/<이름>_<해시>.json — 규칙이 바뀌면 올린다
+	constexpr int kSpirvCacheVersion = 3;
+
+	const char* kB64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+	std::string ToBase64(const std::vector<uint32_t>& words)
+	{
+		const uint8_t* p = reinterpret_cast<const uint8_t*>(words.data());
+		const size_t n = words.size() * 4;
+		std::string out;
+		out.reserve((n + 2) / 3 * 4);
+		for (size_t i = 0; i < n; i += 3)
+		{
+			const uint32_t v = (uint32_t)p[i] << 16 | (i + 1 < n ? (uint32_t)p[i + 1] << 8 : 0) | (i + 2 < n ? p[i + 2] : 0);
+			out += kB64[(v >> 18) & 63];
+			out += kB64[(v >> 12) & 63];
+			out += i + 1 < n ? kB64[(v >> 6) & 63] : '=';
+			out += i + 2 < n ? kB64[v & 63] : '=';
+		}
+		return out;
+	}
+
+	bool FromBase64(const std::string& s, std::vector<uint32_t>& words)
+	{
+		int map[256];
+		for (int& m : map) m = -1;
+		for (int i = 0; i < 64; ++i) map[(uint8_t)kB64[i]] = i;
+		std::vector<uint8_t> bytes;
+		bytes.reserve(s.size() / 4 * 3);
+		uint32_t acc = 0;
+		int bits = 0;
+		for (char c : s)
+		{
+			if (c == '=') break;
+			const int v = map[(uint8_t)c];
+			if (v < 0) return false;
+			acc = acc << 6 | (uint32_t)v;
+			bits += 6;
+			if (bits >= 8)
+			{
+				bits -= 8;
+				bytes.push_back((uint8_t)(acc >> bits));
+			}
+		}
+		if (bytes.size() % 4 != 0) return false;
+		words.resize(bytes.size() / 4);
+		memcpy(words.data(), bytes.data(), bytes.size());
+		return true;
+	}
+
+	std::string SpvName(spirv_cross::Compiler& c, const spirv_cross::Resource& r)
+	{
+		std::string name = c.get_name(r.id);
+		if (name.empty())
+			name = c.get_name(r.base_type_id);
+		if (name.rfind("type_", 0) == 0)
+			name = name.substr(5);
+		if (name == "_Globals" || name == "$Globals")
+			name = "$Globals";
+		return name;
+	}
+
+	// DXC 가 늘 적는 장식 (Binding · DescriptorSet · Location) 의 값 워드를 바꾼다
+	bool PatchDecoration(const spirv_cross::Compiler& c, std::vector<uint32_t>& code, uint32_t id, spv::Decoration dec, uint32_t value)
+	{
+		uint32_t offset = 0;
+		if (!c.get_binary_offset_for_decoration(id, dec, offset) || offset >= code.size())
+			return false;
+		code[offset] = value;
+		return true;
+	}
+
+	// cbuffer 반사 (GL 쪽 ToGlsl 과 같은 값)
+	UniformBlock ReflectBlock(spirv_cross::Compiler& c, const spirv_cross::Resource& r, const std::string& name)
+	{
+		UniformBlock b;
+		b.Name = name;
+		const spirv_cross::SPIRType& type = c.get_type(r.base_type_id);
+		b.Size = (int)c.get_declared_struct_size(type);
+		for (uint32_t m = 0; m < (uint32_t)type.member_types.size(); ++m)
+		{
+			UniformBlock::Member mem;
+			mem.Name = c.get_member_name(r.base_type_id, m);
+			mem.Offset = (int)c.get_member_decoration(r.base_type_id, m, spv::DecorationOffset);
+			mem.Size = (int)c.get_declared_struct_member_size(type, m);
+			const spirv_cross::SPIRType& mt = c.get_type(type.member_types[m]);
+			if (!mt.array.empty())
+			{
+				mem.ArrayCount = (int)mt.array[0];
+				mem.ArrayStride = (int)c.type_struct_member_array_stride(type, m);
+			}
+			mem.Struct = mt.basetype == spirv_cross::SPIRType::Struct;
+			mem.Integer = mt.basetype == spirv_cross::SPIRType::Int || mt.basetype == spirv_cross::SPIRType::UInt || mt.basetype == spirv_cross::SPIRType::Boolean;
+			mem.Rows = (int)mt.vecsize;
+			mem.Columns = (int)mt.columns;
+			mem.Transpose = mt.columns > 1 && c.has_member_decoration(r.base_type_id, m, spv::DecorationRowMajor);
+			b.Members.push_back(mem);
+		}
+		return b;
+	}
+
+	// DXC -fspv-reflect 가 넣은 HLSL 정보 (의미 이름 · 사용자 타입 · 카운터 버퍼) 지우기. 반사(PatchStage)가 끝난 뒤에.
+	//  남겨 두면 장치에 VK_GOOGLE_hlsl_functionality1 · VK_GOOGLE_user_type 이 있어야 한다 (안드로이드 등 없는 GPU 가 많다)
+	void StripHlslDecorations(std::vector<uint32_t>& code)
+	{
+		if (code.size() < 5) return;
+		std::vector<uint32_t> out(code.begin(), code.begin() + 5);
+		out.reserve(code.size());
+		size_t i = 5;
+		while (i < code.size())
+		{
+			const uint32_t count = code[i] >> 16, op = code[i] & 0xFFFF;
+			if (count == 0 || i + count > code.size()) { out.insert(out.end(), code.begin() + i, code.end()); break; }
+			bool drop = false;
+			if (op == 10 /* OpExtension */)
+			{
+				const char* name = reinterpret_cast<const char*>(&code[i + 1]);
+				drop = strcmp(name, "SPV_GOOGLE_hlsl_functionality1") == 0 || strcmp(name, "SPV_GOOGLE_user_type") == 0;
+			}
+			else if (op == 5632 /* OpDecorateString */ && count >= 3)
+				drop = code[i + 2] == 5635 /* UserSemantic */ || code[i + 2] == 5636 /* UserTypeGOOGLE */;
+			else if (op == 5633 /* OpMemberDecorateString */ && count >= 4)
+				drop = code[i + 3] == 5635 || code[i + 3] == 5636;
+			else if (op == 332 /* OpDecorateId */ && count >= 3)
+				drop = code[i + 2] == 5634 /* HlslCounterBufferGOOGLE */;
+			if (!drop) out.insert(out.end(), code.begin() + i, code.begin() + i + count);
+			i += count;
+		}
+		code.swap(out);
+	}
+
+	// 단계 하나의 SPIR-V 장식 고치기: 자원 = set 0 · 효과 안 고정 바인딩, 단계 사이 입력 location = 앞 단계 출력
+	//  prevOutputs = 앞 단계의 (의미 → location), outputs = 이 단계의 것 (다음 단계가 쓴다)
+	bool PatchStage(std::vector<uint32_t>& code, Stage stage, const std::map<std::string, int>& prevOutputs, std::map<std::string, int>& outputs,
+		EffectSpirv& fx, PassSpirv& pass, std::string& error)
+	{
+		try
+		{
+			spirv_cross::Compiler c(code);
+			const spirv_cross::ShaderResources res = c.get_shader_resources();
+			for (const auto& r : res.stage_inputs)
+			{
+				if (!c.has_decoration(r.id, spv::DecorationLocation))
+					continue;   // SV_ 내장 값
+				const std::string sem = NormSemantic(c.get_decoration_string(r.id, spv::DecorationUserSemantic));
+				if (stage == Stage::Vertex)
+				{
+					pass.VertexInputs.push_back({ sem, (int)c.get_decoration(r.id, spv::DecorationLocation) });
+					continue;
+				}
+				auto it = prevOutputs.find(sem);
+				if (it == prevOutputs.end())
+				{
+					error = "input " + sem + " is not written by the previous stage";
+					return false;
+				}
+				PatchDecoration(c, code, r.id, spv::DecorationLocation, (uint32_t)it->second);
+			}
+			for (const auto& r : res.stage_outputs)
+				if (c.has_decoration(r.id, spv::DecorationLocation))
+				{
+					const int loc = (int)c.get_decoration(r.id, spv::DecorationLocation);
+					outputs[NormSemantic(c.get_decoration_string(r.id, spv::DecorationUserSemantic))] = loc;
+					if (stage == Stage::Pixel && loc < 32)
+					{
+						// SV_Target 배열 (float4 o[2] : SV_Target0) 이면 원소마다
+						const spirv_cross::SPIRType& t = c.get_type(r.type_id);
+						const int n = t.array.empty() ? 1 : (int)t.array[0];
+						for (int i = 0; i < n && loc + i < 32; ++i)
+							pass.PixelOutputs |= 1u << (loc + i);
+					}
+				}
+
+			auto bind = [&](const spirv_cross::Resource& r, int binding) {
+				PatchDecoration(c, code, r.id, spv::DecorationDescriptorSet, 0);
+				PatchDecoration(c, code, r.id, spv::DecorationBinding, (uint32_t)binding);
+				if (std::find(pass.Bindings.begin(), pass.Bindings.end(), binding) == pass.Bindings.end())
+					pass.Bindings.push_back(binding);
+			};
+			for (const auto& r : res.uniform_buffers)
+			{
+				const std::string name = SpvName(c, r);
+				auto it = fx.Blocks.find(name);
+				if (it == fx.Blocks.end())
+				{
+					UniformBlock b = ReflectBlock(c, r, name);
+					b.Binding = fx.BindingCount++;
+					it = fx.Blocks.emplace(name, b).first;
+				}
+				bind(r, it->second.Binding);
+			}
+			// 텍스처 · 샘플러 · 버퍼: 이름마다 바인딩 하나 (배열이면 원소 수)
+			auto resource = [&](const spirv_cross::Resource& r, ResourceBinding::Kind kind) -> ResourceBinding& {
+				const std::string name = SpvName(c, r);
+				auto it = fx.Resources.find(name);
+				if (it == fx.Resources.end())
+				{
+					ResourceBinding rb;
+					rb.Name = name;
+					rb.Type = kind;
+					const spirv_cross::SPIRType& t = c.get_type(r.type_id);
+					rb.Count = t.array.empty() ? 1 : (int)t.array[0];
+					if (t.basetype == spirv_cross::SPIRType::Image || t.basetype == spirv_cross::SPIRType::SampledImage)
+					{
+						rb.Dim = (int)t.image.dim;
+						rb.Arrayed = t.image.arrayed;
+						const spirv_cross::SPIRType& sampled = c.get_type(t.image.type);
+						rb.Integer = sampled.basetype == spirv_cross::SPIRType::Int || sampled.basetype == spirv_cross::SPIRType::UInt;
+						if (t.image.dim == spv::DimBuffer && kind == ResourceBinding::Kind::SampledImage)
+							rb.Type = ResourceBinding::Kind::TexelBuffer;
+					}
+					if (kind == ResourceBinding::Kind::Sampler)
+					{
+						auto st = fx.Fx.States.find(name);
+						rb.Comparison = st != fx.Fx.States.end() && st->second.Type == "SamplerComparisonState";
+					}
+					rb.Binding = fx.BindingCount++;
+					it = fx.Resources.emplace(name, rb).first;
+				}
+				bind(r, it->second.Binding);
+				return it->second;
+			};
+			for (const auto& r : res.separate_images) resource(r, ResourceBinding::Kind::SampledImage);
+			for (const auto& r : res.separate_samplers) resource(r, ResourceBinding::Kind::Sampler);
+			for (const auto& r : res.storage_images) resource(r, ResourceBinding::Kind::StorageImage);
+			for (const auto& r : res.storage_buffers) resource(r, ResourceBinding::Kind::StorageBuffer);
+			// 비교 샘플러와 같이 쓰는 텍스처 = 깊이 텍스처 (빈 칸에 깊이 더미를 묶는다): 결합 쌍을 따로 분석
+			{
+				spirv_cross::CompilerGLSL pairs(code);
+				pairs.build_dummy_sampler_for_combined_images();   // Load 만 쓰는 텍스처
+				pairs.build_combined_image_samplers();
+				for (const auto& p : pairs.get_combined_image_samplers())
+				{
+					auto img = fx.Resources.find(pairs.get_name(p.image_id));
+					auto smp = fx.Resources.find(pairs.get_name(p.sampler_id));
+					if (img != fx.Resources.end() && smp != fx.Resources.end() && smp->second.Comparison)
+						img->second.Depth = true;
+				}
+			}
+			StripHlslDecorations(code);
+			return true;
+		}
+		catch (const std::exception& e)
+		{
+			error = std::string("SPIRV-Cross: ") + e.what();
+			return false;
+		}
+	}
+
+	json SpirvToJson(const EffectSpirv& e)
+	{
+		json passes = json::array();
+		for (const auto& p : e.Passes)
+		{
+			json stages = json::array();
+			for (const auto& s : p.Stages)
+				stages.push_back({ (int)s.StageType, s.Entry, ToBase64(s.Code) });
+			json inputs = json::array();
+			for (const auto& [sem, loc] : p.VertexInputs)
+				inputs.push_back({ sem, loc });
+			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "inputs", inputs }, { "psOut", p.PixelOutputs }, { "bindings", p.Bindings }, { "error", p.Error } });
+		}
+		json resources = json::object();
+		for (const auto& [n, r] : e.Resources)
+			resources[n] = { (int)r.Type, r.Binding, r.Count, r.Dim, r.Arrayed, r.Depth, r.Integer, r.Comparison };
+		return { { "version", kSpirvCacheVersion }, { "fx", FxToJson(e.Fx) }, { "passes", passes }, { "blocks", BlocksToJson(e.Blocks) },
+			{ "resources", resources }, { "bindingCount", e.BindingCount } };
+	}
+
+	bool SpirvFromJson(const json& j, EffectSpirv& e)
+	{
+		if (j.value("version", 0) != kSpirvCacheVersion) return false;
+		FxFromJson(j.at("fx"), e.Fx);
+		for (const auto& p : j.at("passes"))
+		{
+			PassSpirv ps;
+			ps.Technique = p.at("technique").get<std::string>();
+			ps.Pass = p.at("pass").get<std::string>();
+			for (const auto& s : p.at("stages"))
+			{
+				StageSpirv st;
+				st.StageType = (Stage)s[0].get<int>();
+				st.Entry = s[1].get<std::string>();
+				if (!FromBase64(s[2].get<std::string>(), st.Code)) return false;
+				ps.Stages.push_back(std::move(st));
+			}
+			for (const auto& i : p.at("inputs"))
+				ps.VertexInputs.push_back({ i[0].get<std::string>(), i[1].get<int>() });
+			ps.PixelOutputs = p.value("psOut", 0u);
+			ps.Bindings = p.value("bindings", std::vector<int>());
+			ps.Error = p.at("error").get<std::string>();
+			e.Passes.push_back(std::move(ps));
+		}
+		BlocksFromJson(j.at("blocks"), e.Blocks);
+		for (const auto& [n, r] : j.at("resources").items())
+		{
+			ResourceBinding rb;
+			rb.Name = n;
+			rb.Type = (ResourceBinding::Kind)r[0].get<int>();
+			rb.Binding = r[1].get<int>();
+			rb.Count = r[2].get<int>();
+			rb.Dim = r[3].get<int>();
+			rb.Arrayed = r[4].get<bool>();
+			rb.Depth = r[5].get<bool>();
+			rb.Integer = r[6].get<bool>();
+			rb.Comparison = r[7].get<bool>();
+			e.Resources[n] = rb;
+		}
+		e.BindingCount = j.at("bindingCount").get<int>();
+		return true;
+	}
+}
+
+namespace ShaderCross
+{
+	int EffectSpirv::PassesOk() const
+	{
+		int n = 0;
+		for (const PassSpirv& p : Passes)
+			n += p.Error.empty() ? 1 : 0;
+		return n;
+	}
+
+	bool CompileEffectSpirv(const std::wstring& fxPath, EffectSpirv& out)
+	{
+		out = EffectSpirv();
+		out.File = fxPath;
+		if (!Load())
+		{
+			out.Error = s_LoadError;
+			return false;
+		}
+		std::string pre;
+		if (!Preprocess(fxPath, pre, out.Error))
+			return false;
+		const uint64_t hash = Fnv1a(pre) ^ ((uint64_t)kSpirvCacheVersion << 32);
+		char hex[32];
+		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)hash);
+		const std::wstring stem = std::filesystem::path(fxPath).stem().wstring();
+		const std::filesystem::path cacheFile = std::filesystem::path(L"ShaderCache") / L"SPIRV" / (stem + L"_" + string_to_wstring(hex) + L".json");
+		{
+			std::ifstream in(cacheFile, std::ios::binary);
+			if (in)
+			{
+				try
+				{
+					const json j = json::parse(in);
+					EffectSpirv cached;
+					cached.File = fxPath;
+					if (SpirvFromJson(j, cached))
+					{
+						out = std::move(cached);
+						EditorLog::Write("ShaderCross", "SPIR-V cache hit %s", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str());
+						return true;
+					}
+				}
+				catch (const std::exception&)
+				{
+				}
+			}
+		}
+		if (!FxParser::Parse(pre, out.Fx, out.Error))
+			return false;
+		const std::wstring name = std::filesystem::path(fxPath).filename().wstring() + L".hlsl";
+		for (const FxParser::Technique& tech : out.Fx.Techniques)
+			for (const FxParser::Pass& pass : tech.Passes)
+			{
+				PassSpirv ps;
+				ps.Technique = tech.Name;
+				ps.Pass = pass.Name;
+				Stage lastGeom = Stage::Vertex;
+				for (const auto& s : pass.Shaders)
+					if (s.StageType == Stage::Geometry || (s.StageType == Stage::Domain && lastGeom != Stage::Geometry))
+						lastGeom = s.StageType;
+				// 파이프라인 순서로 (단계 사이 location 을 앞 단계에서 받는다)
+				std::vector<const FxParser::ShaderRef*> refs;
+				for (const auto& s : pass.Shaders) refs.push_back(&s);
+				std::sort(refs.begin(), refs.end(), [](const FxParser::ShaderRef* a, const FxParser::ShaderRef* b) { return a->StageType < b->StageType; });
+				std::map<std::string, int> prev;
+				for (const FxParser::ShaderRef* ref : refs)
+				{
+					StageSpirv st;
+					st.StageType = ref->StageType;
+					st.Entry = ref->Entry;
+					std::string error;
+					std::map<std::string, int> outputs;
+					if (!CompileSpirv(out.Fx.Source, name, *ref, ref->StageType == lastGeom, st.Code, error, true) ||
+						!PatchStage(st.Code, ref->StageType, prev, outputs, out, ps, error))
+					{
+						ps.Error = std::string(FxParser::StageName(ref->StageType)) + " " + ref->Entry + ": " + error;
+						break;
+					}
+					prev = std::move(outputs);
+					ps.Stages.push_back(std::move(st));
+				}
+				out.Passes.push_back(std::move(ps));
+			}
+		try
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(cacheFile.parent_path(), ec);
+			const std::wstring prefix = stem + L"_";
+			for (const auto& f : std::filesystem::directory_iterator(cacheFile.parent_path(), ec))
+				if (f.path().filename().wstring().rfind(prefix, 0) == 0 && f.path() != cacheFile)
+					std::filesystem::remove(f.path(), ec);
+			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << SpirvToJson(out).dump();
 		}
 		catch (const std::exception&)
 		{

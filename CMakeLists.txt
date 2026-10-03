@@ -149,6 +149,7 @@ set(ENGINE_MODULE_DIRS
     Source/ShaderGraph
     Source/Graphics/DX11
     Source/Graphics/OpenGL
+    Source/Graphics/Vulkan
     Source/Graphics/RHI
     Source/Animation
     Source/Physics
@@ -179,6 +180,7 @@ target_include_directories(${ENGINE_CORE} PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/Libraries/Include"
     "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross"
     "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/inc"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/Vulkan/include"   # Vulkan 헤더 (Khronos, 함수는 vulkan-1.dll 에서 실행 중에)
 )
 
 # Library search directories

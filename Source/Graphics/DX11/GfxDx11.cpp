@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Gfx.h"
 #include "GfxGL.h"
+#include "GfxVk.h"
 #include <mutex>
 #include <dxgi1_4.h>   // IDXGIAdapter3 (VRAM 예산)
 
@@ -498,6 +499,8 @@ namespace Gfx
 	HRESULT CreateTexture(GfxDevice* device, const DirectX::Image* images, size_t count, const DirectX::TexMetadata& meta,
 		D3D11_USAGE usage, UINT bindFlags, UINT cpuAccess, UINT miscFlags, GfxResource** out)
 	{
+		if (device->Api() == GfxApi::Vulkan)
+			return GfxVk::CreateTextureFromImages(device, images, count, meta, usage, bindFlags, cpuAccess, miscFlags, out);
 		if (!device->Native())   // OpenGL 장치
 			return GfxGL::CreateTextureFromImages(device, images, count, meta, usage, bindFlags, cpuAccess, miscFlags, out);
 		ID3D11Resource* n = nullptr;
@@ -511,11 +514,13 @@ namespace Gfx
 
 	HRESULT CreateShaderResourceView(GfxDevice* device, const DirectX::Image* images, size_t count, const DirectX::TexMetadata& meta, GfxShaderResourceView** out)
 	{
-		if (!device->Native())   // OpenGL 장치: 텍스처 → 전체 뷰
+		if (!device->Native())   // OpenGL · Vulkan 장치: 텍스처 → 전체 뷰
 		{
 			ComPtr<GfxResource> tex;
 			*out = nullptr;
-			HRESULT hr = GfxGL::CreateTextureFromImages(device, images, count, meta, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, tex.GetAddressOf());
+			HRESULT hr = device->Api() == GfxApi::Vulkan
+				? GfxVk::CreateTextureFromImages(device, images, count, meta, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, tex.GetAddressOf())
+				: GfxGL::CreateTextureFromImages(device, images, count, meta, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, tex.GetAddressOf());
 			if (FAILED(hr)) return hr;
 			return device->CreateShaderResourceView(tex.Get(), nullptr, out);
 		}
@@ -526,6 +531,8 @@ namespace Gfx
 
 	HRESULT CaptureTexture(GfxContext* context, GfxResource* texture, DirectX::ScratchImage& out)
 	{
+		if (context->Api() == GfxApi::Vulkan)
+			return GfxVk::CaptureTexture(context, texture, out);
 		if (!context->Native())
 			return GfxGL::CaptureTexture(context, texture, out);
 		auto* ctx = static_cast<ID3D11DeviceContext*>(context->Native());

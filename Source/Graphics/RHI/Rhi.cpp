@@ -3,6 +3,7 @@
 
 std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error);   // Dx11Rhi.cpp
 std::unique_ptr<Rhi::Device> CreateGLRhiDevice(std::string& error);     // GLRhi.cpp
+std::unique_ptr<Rhi::Device> CreateVkRhiDeviceHeadless(std::string& error);   // VkRhi.cpp
 
 namespace Rhi
 {
@@ -36,6 +37,7 @@ namespace Rhi
 		{
 		case GraphicsAPI::DirectX11: return CreateDx11RhiDevice(error);
 		case GraphicsAPI::OpenGL: return CreateGLRhiDevice(error);
+		case GraphicsAPI::Vulkan: return CreateVkRhiDeviceHeadless(error);
 		default: error = "unknown graphics API"; return nullptr;
 		}
 	}
