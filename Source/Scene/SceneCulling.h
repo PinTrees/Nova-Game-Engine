@@ -31,5 +31,8 @@ namespace SceneCulling
 		int Depth = 0;          // 가장 깊은 노드
 	};
 	const Stats& LastStats(bool editorView);
+	// 이번 Update 에서 옮겨지거나 생기거나 지워진 렌더러의 월드 상자 (예전 · 새 자리 모두, 최소 · 최대)
+	//  — 실시간 간접광 (Adaptive Probe Volume) 이 그 근처 단계만 다시 찍는다
+	const std::vector<std::pair<Vec3, Vec3>>& ChangedBounds();
 	void SetEditorView(bool editorView);   // 다음 카메라 Cull 의 통계를 어느 뷰에 쌓을지
 }

@@ -32,6 +32,7 @@
 #include "MeshBatcher.h"
 #include "DecalRenderer.h"
 #include "ReflectionProbes.h"
+#include "ProbeVolumes.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -205,11 +206,13 @@ bool EditorApp::Init()
 
 	// Reflection Probe 의 한 면 = Game 뷰 그리기
 	ReflectionProbes::SetCapture([this](const ReflectionProbes::CaptureView& v) { CaptureProbeFace(v); });
+	ProbeVolumes::SetCapture([this](const ProbeVolumes::CaptureView& v) { return CaptureGIView(v); });
 	if (Application::IsPlayer())
 		PlayerRuntime::Start();   // 빌드된 게임: 첫 씬을 바로 Play
 	else
 	{
 		ReflectionProbes::RegisterEditor();   // nova probe
+		ProbeVolumes::RegisterEditor();       // nova probevolume
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
 		CliCommands::RegisterAll();
 		CliServer::Start();
@@ -237,7 +240,9 @@ void EditorApp::UpdateScene(float dt)
 
 void EditorApp::RenderApplication()
 {
-	// Reflection Probe: 굽기 요청 · 실시간 프로브 다시 찍기 (Game · Scene 뷰를 그리기 전, 프레임마다 한 번)
+	// Adaptive Probe Volume (실시간 간접광) → Reflection Probe (굽기 요청 · 실시간 찍기): Game · Scene 뷰를 그리기 전, 프레임마다 한 번
+	//  간접광이 먼저 — 다시 비추기가 마지막 뷰의 그림자 맵을 쓰는데, 프로브 찍기가 그 맵을 덮어쓴다
+	ProbeVolumes::Update();
 	ReflectionProbes::Update();
 }
 
@@ -387,7 +392,24 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 		memcpy(d.Background, camera->GetBackgroundColor(), sizeof(d.Background));
 	d.Viewport = RenderManager::GetI()->Viewport;
 	d.Shadow = &s_GameShadow;
+	ProbeVolumes::SetFocus(d.Position, false);
 	RenderGameView(renderTargetView, d);
+}
+
+// Adaptive Probe Volume 의 판 하나: 빛 없이 알베도 (32 의 gGIParams.z) — 그림자 · 하늘 · 투명 · 물 · 입자 없음. 노멀 · 깊이를 돌려준다
+GfxShaderResourceView* EditorApp::CaptureGIView(const ProbeVolumes::CaptureView& v)
+{
+	GameViewDesc d;
+	d.Mode = 2;
+	d.View = v.View;
+	d.Proj = v.Proj;
+	d.Position = v.Position;
+	d.BackgroundType = 1;
+	for (float& f : d.Background) f = 0.0f;   // 알파 0 = 빈 곳
+	d.Viewport = v.Viewport;
+	d.Shadow = &s_ProbeShadow;
+	RenderGameView(v.Target, d);
+	return _probeNormalDepthSRV.Get();
 }
 
 // Reflection Probe 한 면: Game 뷰와 같은 길 (후처리 · SSAO 없음, 프로브 반사 끔 — ReflectionProbes::Capturing)
@@ -437,6 +459,7 @@ bool EditorApp::ProbeNormalDepth(UINT width, UINT height)
 void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const GameViewDesc& d)
 {
 	const bool probe = d.Cam == nullptr;
+	const bool giCapture = d.Mode == 2;   // Adaptive Probe Volume 판 찍기 (알베도만)
 	Profiler::Phases phase;
 	MeshBatcher::BeginView();    // 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다
 	TreeRenderer::BeginView();
@@ -455,7 +478,8 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	RenderManager::GetI()->CameraProjectionMatrix = d.Proj;
 	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(d.View, d.Proj);
 	// 이 뷰에 쓸 Reflection Probe (큐브 배열 칸 필터 — 렌더 타깃을 묶기 전에)
-	ReflectionProbes::Select(d.Position, XMMatrixMultiply(d.View, d.Proj));
+	if (!giCapture)
+		ReflectionProbes::Select(d.Position, XMMatrixMultiply(d.View, d.Proj));
 
 	// 와이어프레임 제어처럼 전체 그림자맵 제어도 가능하게
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
@@ -477,13 +501,14 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 			shadowSettings.MaxDistance = (std::max)(d.ShadowDistance, 0.01f);   // 프로브의 Shadow Distance
 			shadowSettings.FarCascadeUpdate = 0;
 		}
-		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
-			gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
-			[]() {
-				// 그림자 조각마다 빛의 절두체로 컬링
-				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-			});
+		if (!giCapture)   // 알베도 찍기는 빛 · 그림자가 없다
+			ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
+				gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
+				[]() {
+					// 그림자 조각마다 빛의 절두체로 컬링
+					SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+				});
 		if (!probe)
 			Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
 		_deviceContext->RSSetState(0);
@@ -561,35 +586,47 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 	// cbPerFrame
-	Effects::InstancedBasicFX->SetEyePosW(d.Position);
-	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
-	Effects::InstancedBasicFX->SetSsaoMap(ssaoMap);
-	ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
 	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
+	if (giCapture)
+	{
+		// 알베도 찍기: 32 의 ShadeLit 이 빛 없이 확산 색만 돌려준다. 다른 프레임 값 (빛 · 그림자 · 눈 위치) 은 건드리지 않는다
+		//  — Adaptive Probe Volume 의 다시 비추기가 마지막 뷰의 값을 쓴다
+		ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
+		CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) { ProbeVolumes::Bind(fx); });
+	}
+	else
+	{
+		Effects::InstancedBasicFX->SetEyePosW(d.Position);
+		Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
+		Effects::InstancedBasicFX->SetSsaoMap(ssaoMap);
+		ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
+		ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
 
-	// lights
-	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
-	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
-	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
+		// lights
+		Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
+		Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
+		Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
-	RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
+		RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
 
-	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
-	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
-	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
-	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
-		fx->SetEyePosW(d.Position);
-		fx->SetCubeMap(_sky->CubeMapSRV().Get());
-		fx->SetSsaoMap(ssaoMap);
-		ReflectionProbes::Bind(fx);
-		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
-			var->SetFloatVector(&indirect.x);
-		fx->SetDirLights(dirLights.data(), dirLights.size());
-		fx->SetSpotLights(spotLights.data(), spotLights.size());
-		fx->SetPointLights(pointLights.data(), pointLights.size());
-		ShadowRenderer::Bind(fx, *shadowMap, *d.Shadow);
-		RenderLayers::SetLightMasks(fx, scenePointLights, false);
-	});
+		// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
+		ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
+		// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
+		CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+			fx->SetEyePosW(d.Position);
+			fx->SetCubeMap(_sky->CubeMapSRV().Get());
+			fx->SetSsaoMap(ssaoMap);
+			ReflectionProbes::Bind(fx);
+			ProbeVolumes::Bind(fx);
+			if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
+				var->SetFloatVector(&indirect.x);
+			fx->SetDirLights(dirLights.data(), dirLights.size());
+			fx->SetSpotLights(spotLights.data(), spotLights.size());
+			fx->SetPointLights(pointLights.data(), pointLights.size());
+			ShadowRenderer::Bind(fx, *shadowMap, *d.Shadow);
+			RenderLayers::SetLightMasks(fx, scenePointLights, false);
+		});
+	}
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);
 	uint32 offset = 0;
@@ -617,6 +654,8 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 
 	// 안개·대기 (Volume > Fog / Atmosphere): 불투명 + 하늘 다음, 물 전 (물은 같은 값으로 자기 표면에 입힌다)
 	const AtmospherePass::Params atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
+	if (giCapture)
+		return;   // 알베도 찍기: 불투명 (+ 데칼) 까지만
 	if (atmosphere.Active())
 	{
 		phase.Next("Atmosphere");
@@ -689,6 +728,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	RenderManager::GetI()->EditorCameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->EditorCameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
 	ReflectionProbes::Select(camera->GetPosition(), XMMatrixMultiply(camera->View(), camera->Proj()));
+	ProbeVolumes::SetFocus(camera->GetPosition(), true);
 
 	auto shadowMap = RenderManager::GetI()->EditorShadowMap;
 	auto viewport = RenderManager::GetI()->EditorViewport;
@@ -759,6 +799,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
 	ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
+	ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
 	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
 
 	// lights
@@ -776,6 +817,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		fx->SetCubeMap(_sky->CubeMapSRV().Get());
 		fx->SetSsaoMap(ssao->AmbientSRV().Get());
 		ReflectionProbes::Bind(fx);
+		ProbeVolumes::Bind(fx);
 		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&indirect.x);
 		fx->SetDirLights(dirLights.data(), dirLights.size());

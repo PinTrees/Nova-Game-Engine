@@ -117,6 +117,31 @@ Texture2DArray gSpotShadowMaps[LIGHT_SIZE];    // 조각 1 개
 Texture2DArray gPointShadowMaps[LIGHT_SIZE];   // 큐브 6 면 = 조각 6 개
 Texture2D gSsaoMap;
 TextureCube gCubeMap;
+// Adaptive Probe Volume (ProbeVolumes — 실시간): 확산 간접광 = 카메라 둘레 단계 (32 x 16 x 32 프로브) 의 L1 SH
+//  아틀라스는 단계를 Z 로 쌓은 3D 텍스처. 물체 속 (유효하지 않은) 프로브는 이웃 값으로 채워 두고 (Dilate) 가중치를 낮춘다
+Texture3D gGISH0;     // 빨강 (L0, L1x, L1y, L1z)
+Texture3D gGISH1;     // 초록
+Texture3D gGISH2;     // 파랑
+Texture3D gGIValid;   // x 유효도
+Texture3D gGIRadiance; // 복셀 빛 아틀라스 (a = 차 있음) — 프로브 갱신 (55) 이 쓴다
+Texture3D gGIPlaneP;   // 복셀 속 면 평면 (노멀의 가장 큰 축이 + 인 면): rg 노멀 (팔면체), b 복셀 가운데에서 면까지 (노멀 방향), a 있음
+Texture3D gGIPlaneN;   //  같은 것, - 인 면 — 얇은 벽은 두 면이 한 복셀에 들어 따로 둔다
+cbuffer cbProbeVolume
+{
+    float4 gGIParams;      // x 단계 수 (0 = 없음 → 하늘), y Intensity, z 1 = 알베도 찍기 (빛 없이 표면 색만), w 1 = Local 상자 안만
+    float4 gGIBias;        // x Normal Bias, y View Bias (미터), z -, w 아틀라스의 단계 수
+    float4 gGICascade[4];  // xyz 볼륨 최소 모서리, w 프로브 간격
+    float4 gGIVoxAll[4];   // 단계마다 복셀 볼륨 (최소 모서리, 복셀 크기) — w 0 = 아직 없음
+    float4 gGILocalMin;
+    float4 gGILocalMax;
+};
+SamplerState samGI
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+    AddressW = CLAMP;
+};
 TextureCubeArray gProbeCubes;   // Reflection Probe — 칸마다 GGX 로 필터한 밉 (ReflectionProbes)
 cbuffer cbReflectionProbes
 {
@@ -477,10 +502,143 @@ struct LitSurface
 };
 
 // ---------------------------------------------------------------------------
+// Adaptive Probe Volume: 확산 환경광 (조도 / π — 하늘 큐브의 흐린 밉과 같은 단위)
+//  xyz = 값, w = 덮은 정도 (0 = 볼륨 밖 → 하늘, 단계 가장자리 두 칸에서 다음 단계 · 하늘로 섞임)
+// ---------------------------------------------------------------------------
+static const float3 kGIProbes = float3(32.0f, 16.0f, 32.0f);
+static const float3 kGIVoxels = float3(64.0f, 32.0f, 64.0f);
+// 팔면체 노멀 (0..1 두 값)
+float2 GIOctEncode(float3 n)
+{
+    n /= (abs(n.x) + abs(n.y) + abs(n.z));
+    float2 o = n.xy;
+    if (n.z < 0.0f)
+        o = (1.0f - abs(n.yx)) * float2(n.x >= 0.0f ? 1.0f : -1.0f, n.y >= 0.0f ? 1.0f : -1.0f);
+    return o * 0.5f + 0.5f;
+}
+float3 GIOctDecode(float2 e)
+{
+    float2 f = e * 2.0f - 1.0f;
+    float3 n = float3(f.x, f.y, 1.0f - abs(f.x) - abs(f.y));
+    float t = saturate(-n.z);
+    n.xy += float2(n.x >= 0.0f ? -t : t, n.y >= 0.0f ? -t : t);
+    return normalize(n);
+}
+// x 가 단계 c 의 복셀 속 면 뒤 (물체 속) 인지 — 복셀 크기보다 정확하게 (면이 복셀 어디에 있는지)
+bool GIBlocked(float3 x, int c, float4 vox)
+{
+    float3 vv = (x - vox.xyz) / vox.w;
+    if (any(vv < 0.0f) || any(vv >= kGIVoxels))
+        return false;
+    int3 iv = int3(floor(vv));
+    int4 t = int4(iv.x, iv.y, c * (int)kGIVoxels.z + iv.z, 0);
+    float4 a = gGIPlaneP.Load(t);
+    float4 b = gGIPlaneN.Load(t);
+    if (a.a < 0.5f && b.a < 0.5f)
+        return false;
+    float3 vc = vox.xyz + ((float3)iv + 0.5f) * vox.w;
+    bool behind = true;
+    if (a.a > 0.5f)
+    {
+        float3 n = GIOctDecode(a.xy);
+        behind = behind && dot(x - (vc + n * ((a.z - 0.5f) * 1.8f * vox.w)), n) < 0.0f;
+    }
+    if (b.a > 0.5f)
+    {
+        float3 n = GIOctDecode(b.xy);
+        behind = behind && dot(x - (vc + n * ((b.z - 0.5f) * 1.8f * vox.w)), n) < 0.0f;
+    }
+    return behind;
+}
+static float3 s_GIDebug = float3(0, 0, 0);   // 진단 보기 (gGIBias.z = 2): 섞은 방법 색 — 초록 벽 검사 + 노멀, 노랑 노멀만, 빨강 삼선형만, 파랑 큰 단계
+//  irrR = 반사 방향 R 쪽에서 오는 빛 (같은 SH — 하늘 반사를 가리는 데 쓴다)
+float4 ProbeVolumeAmbient(float3 posW, float3 N, float3 V, float3 R, out float3 irrR)
+{
+    irrR = 0.0f;
+    int count = (int)gGIParams.x;
+    if (count <= 0)
+        return float4(0, 0, 0, 0);
+    if (gGIParams.w > 0.5f && (any(posW < gGILocalMin.xyz) || any(posW > gGILocalMax.xyz)))
+        return float4(0, 0, 0, 0);
+    float3 acc = 0.0f;
+    float remaining = 1.0f;
+    [loop]
+    for (int c = 0; c < count; ++c)
+    {
+        float s = gGICascade[c].w;
+        float3 p = posW + N * gGIBias.x + V * gGIBias.y;
+        float3 local = (p - gGICascade[c].xyz) / (kGIProbes * s);
+        float3 edge = min(local, 1.0f - local) * kGIProbes;   // 가장자리까지 프로브 칸 수
+        float e = min(edge.x, min(edge.y, edge.z));
+        if (e < 0.5f)
+            continue;
+        float w = saturate((e - 0.5f) / 2.0f) * remaining;
+        // 둘레 8 프로브를 직접 섞는다 (Unity APV 의 Leak Reduction: Validity and Normal Based)
+        //  - 유효도: 물체 속 프로브 (이웃 값으로 채운 것) 는 가중치 0.05 — 둘레가 모두 그럴 때만 쓰인다
+        //  - 노멀: 면 뒤쪽 프로브는 빼고, 벽 너머 (가운데 복셀이 참) 도 뺀다. 다 빠지면 노멀만 → 삼선형만
+        float3 gp = local * kGIProbes - 0.5f;
+        int3 base = (int3)floor(gp);
+        float3 f = gp - (float3)base;
+        float4 r = 0, g = 0, b = 0;
+        float v = 0.0f;
+        float4 r2 = 0, g2 = 0, b2 = 0;   // 노멀만 (벽 검사 없이)
+        float v2 = 0.0f;
+        float4 r3 = 0, g3 = 0, b3 = 0;   // 삼선형만
+        float v3 = 0.0f;
+        [loop]   // 펼치면 셰이더가 커져 컴파일이 수십 초 (Debug)
+        for (int k = 0; k < 8; ++k)
+        {
+            int3 o = int3(k & 1, (k >> 1) & 1, (k >> 2) & 1);
+            int3 idx = clamp(base + o, int3(0, 0, 0), (int3)kGIProbes - 1);
+            float3 tw = lerp(1.0f - f, f, (float3)o);
+            float tri = tw.x * tw.y * tw.z;
+            float3 toProbe = gGICascade[c].xyz + ((float3)idx + 0.5f) * s - p;
+            float facing = saturate(dot(toProbe, N) / max(length(toProbe), 1e-4f) + 0.3f);
+            int4 texel = int4(idx.x, idx.y, c * (int)kGIProbes.z + idx.z, 0);
+            float4 sr = gGISH0.Load(texel), sg = gGISH1.Load(texel), sb = gGISH2.Load(texel);
+            float sv = gGIValid.Load(texel).x;
+            float visible = 1.0f;
+            float4 vox = gGIVoxAll[c];
+            if (vox.w > 0.0f)
+            {
+                // 면 앞 (p) 에서 프로브까지 네 점이 물체 속 (복셀 속 면 평면의 뒤) 이면 벽 너머 — 얇은 지붕 · 벽, 모서리 모두
+                [loop]
+                for (int q = 1; q <= 4; ++q)
+                    if (GIBlocked(p + toProbe * (q * 0.2f), c, vox))
+                        visible = 0.0f;
+            }
+            const float vw = sv > 0.5f ? 1.0f : 0.05f;
+            const float w1 = tri * facing * visible * vw, w2 = tri * facing * vw, w3 = tri * vw;
+            r += sr * w1; g += sg * w1; b += sb * w1; v += w1;
+            r2 += sr * w2; g2 += sg * w2; b2 += sb * w2; v2 += w2;
+            r3 += sr * w3; g3 += sg * w3; b3 += sb * w3; v3 += w3;
+        }
+        float3 dbg = c > 0 ? float3(0, 0, 1) : float3(0, 1, 0);
+        if (v < 1e-5f) { r = r2; g = g2; b = b2; v = v2; dbg = float3(1, 1, 0); }   // 채운 프로브 (0.05) 라도 있으면 그것 — 문턱이 크면 벽 너머 프로브로 넘어가 모서리에 초승달 무늬
+        if (v < 1e-5f) { r = r3; g = g3; b = b3; v = v3; dbg = float3(1, 0, 0); }
+        s_GIDebug += dbg * w;
+        if (v < 1e-4f)
+            continue;
+        r /= v; g /= v; b /= v;
+        // E / π = Y00 L00 + (2/3) Y1 (L1 · n)   (Ramamoorthi — A0 = π, A1 = 2π/3)
+        const float c0 = 0.282095f;
+        const float c1 = 0.488603f * (2.0f / 3.0f);
+        float3 irr = float3(c0 * r.x + c1 * dot(r.yzw, N), c0 * g.x + c1 * dot(g.yzw, N), c0 * b.x + c1 * dot(b.yzw, N));
+        acc += max(irr, 0.0f) * w;
+        irrR += max(float3(c0 * r.x + c1 * dot(r.yzw, R), c0 * g.x + c1 * dot(g.yzw, R), c0 * b.x + c1 * dot(b.yzw, R)), 0.0f) * w;
+        remaining -= w;
+        if (remaining <= 0.001f)
+            break;
+    }
+    irrR *= gGIParams.y;
+    return float4(acc * gGIParams.y, 1.0f - remaining);
+}
+
+// ---------------------------------------------------------------------------
 // Reflection Probe (ReflectionProbes::Select · Bind): 반사 = 프로브들 (Importance 순, 상자 안쪽 Blend Distance 로 가중)
 //  + 남는 몫은 하늘 — Unity URP Forward+ 의 프로브 블렌드. 확산 환경광은 하늘 그대로 (Unity 도 확산은 Light Probe / 하늘)
 // ---------------------------------------------------------------------------
-float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float skyMips)
+float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float skyMips, float skyScale)
 {
     float3 sum = 0.0f;
     float total = 0.0f;
@@ -523,7 +681,7 @@ float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float s
     if (total < 0.999f)
     {
         float skyMip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max(skyMips - 4.0f, 6.0f);
-        sum += (1.0f - total) * ToLinear(gCubeMap.SampleLevel(samLinear, R, min(skyMip, skyMips - 1.0f)).rgb);
+        sum += (1.0f - total) * skyScale * ToLinear(gCubeMap.SampleLevel(samLinear, R, min(skyMip, skyMips - 1.0f)).rgb);
     }
     return sum;
 }
@@ -533,6 +691,9 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
     float oneMinusReflectivity = 0.96f * (1.0f - surf.Metallic);
     float3 diffuse = surf.Albedo * oneMinusReflectivity;
+    // Adaptive Probe Volume 의 장면 찍기: 빛 · 그림자 없이 확산 색만 (복셀이 매 프레임 다시 비춘다)
+    if (gGIParams.z > 0.5f)
+        return diffuse;
     float3 specular = lerp(float3(0.04f, 0.04f, 0.04f), surf.Albedo, surf.Metallic);
     float perceptualRoughness = 1.0f - saturate(surf.Smoothness);
     float roughness = max(perceptualRoughness * perceptualRoughness, 0.0078125f);
@@ -622,16 +783,32 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     uint w, h, mips;
     gCubeMap.GetDimensions(0, w, h, mips);
     float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
+    // Adaptive Probe Volume 안이면 확산 환경광 = 프로브 (벽 · 지붕이 가린 하늘, 주변 색이 번진 빛)
+    float3 giReflect;
+    float4 giAmbient = ProbeVolumeAmbient(posW, N, V, reflect(-V, N), giReflect);
+    // 하늘 반사 가림 (스페큘러 오클루전): 반사 방향에서 프로브가 받는 빛이 그쪽 하늘빛보다 어두운 만큼
+    //  — 닫힌 방의 바닥 · 천장이 비스듬히 하늘을 비추지 않게
+    const float3 kLum = float3(0.2126f, 0.7152f, 0.0722f);
+    float3 skyR = ToLinear(gCubeMap.SampleLevel(samLinear, reflect(-V, N), max((float)mips - 3.0f, 0.0f)).rgb);
+    float skyOcclusion = lerp(1.0f, saturate(dot(giReflect, kLum) / max(dot(skyR, kLum) * giAmbient.w, 1e-3f)), giAmbient.w);
+    ambient = giAmbient.rgb + ambient * (1.0f - giAmbient.w);
+    if (gGIBias.z > 0.5f && gGIParams.x > 0.0f)
+        return gGIBias.z > 1.5f ? s_GIDebug : giAmbient.rgb * 6.0f;   // 진단 보기: 1 = 프로브 빛만 (6 배), 2 = 섞은 방법
     float NoV = saturate(dot(N, V));
     float ao = surf.Occlusion * ambientAccess;
     color += ambient * diffuse * ao * gIndirect.rgb;
     if (translucent)
-        color += ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * surf.Transmission * 0.5f * ao * gIndirect.rgb;
+    {
+        float3 giUnused;
+        float4 giBack = ProbeVolumeAmbient(posW, -N, V, -N, giUnused);
+        float3 back = giBack.rgb + ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * (1.0f - giBack.w);
+        color += back * surf.Transmission * 0.5f * ao * gIndirect.rgb;
+    }
     if (surf.Reflections)
     {
         float3 R = reflect(-V, N);
         // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
-        float3 env = ProbeReflection(R, posW, perceptualRoughness, (float)mips);
+        float3 env = ProbeReflection(R, posW, perceptualRoughness, (float)mips, skyOcclusion);
         float fresnel = pow(1.0f - NoV, 4.0f);
         float grazing = saturate(surf.Smoothness + (1.0f - oneMinusReflectivity));
         float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);
@@ -644,7 +821,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
 float4 FinishLit(float3 color, float alpha, float distToEye)
 {
     float4 litColor = float4(ToGamma(color), alpha);
-    if (gShaderSetting.gFogEnabled)
+    if (gShaderSetting.gFogEnabled && gGIParams.z < 0.5f)
     {
         float fogLerp = saturate((distToEye - gFogStart) / gFogRange);
         litColor.rgb = lerp(litColor.rgb, gFogColor.rgb, fogLerp);

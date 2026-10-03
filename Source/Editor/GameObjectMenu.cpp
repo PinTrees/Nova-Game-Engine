@@ -9,6 +9,7 @@
 #include "EditorTheme.h"
 #include "UISystem.h"
 #include "ReflectionProbe.h"
+#include "AdaptiveProbeVolume.h"
 #include "DecalProjector.h"
 
 namespace GameObjectMenu
@@ -183,7 +184,7 @@ namespace GameObjectMenu
 			Disabled("Area Light");
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reflection Probe")) { GameObject* o = GameObjectFactory::CreateEmpty("Reflection Probe"); o->AddComponent<ReflectionProbe>(); add(o); }
-			Disabled("Light Probe Group");
+			if (ImGui::MenuItem("Adaptive Probe Volume")) { GameObject* o = GameObjectFactory::CreateEmpty("Adaptive Probe Volume"); o->AddComponent<AdaptiveProbeVolume>(); add(o); }
 			ImGui::EndMenu();
 		}
 

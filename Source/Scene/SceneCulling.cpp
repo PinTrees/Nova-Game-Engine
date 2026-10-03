@@ -270,6 +270,8 @@ namespace
 				Query(fr, c, visible, visited);
 	}
 
+	std::vector<std::pair<Vec3, Vec3>> s_Changed;
+
 	void Track(Component* renderer, const Box& local, const void* meshKey, const XMFLOAT4X4& world, bool& needRebuild)
 	{
 		renderer->CullTracked = true;
@@ -292,9 +294,12 @@ namespace
 		e.Seen = s_Frame;
 		if (e.MeshKey == meshKey && e.Node >= 0 && memcmp(&e.World, &world, sizeof(world)) == 0)
 			return;   // 그대로
+		if (e.Node >= 0)
+			s_Changed.push_back({ e.Bounds.Min, e.Bounds.Max });   // 예전 자리
 		e.MeshKey = meshKey;
 		e.World = world;
 		e.Bounds = WorldBox(local, world);
+		s_Changed.push_back({ e.Bounds.Min, e.Bounds.Max });
 		RemoveFromNode(e);
 		if (!needRebuild && FitsRoot(e.Bounds))
 			InsertIntoTree(index);
@@ -310,6 +315,7 @@ namespace SceneCulling
 		static const bool s_NoCull = [] { char v[8] = {}; return ::GetEnvironmentVariableA("NOVA_DEV_NOCULL", v, sizeof(v)) > 0 && v[0] == '1'; }();
 		Enabled = !s_NoCull;
 		++s_Frame;
+		s_Changed.clear();
 		bool needRebuild = s_Nodes.empty();
 		if (scene)
 			for (GameObject* go : scene->GetAllGameObjects())
@@ -352,6 +358,7 @@ namespace SceneCulling
 				++it;
 				continue;
 			}
+			s_Changed.push_back({ e.Bounds.Min, e.Bounds.Max });   // 지워짐
 			RemoveFromNode(e);
 			e.Alive = false;
 			e.Renderer = nullptr;
@@ -363,6 +370,8 @@ namespace SceneCulling
 	}
 
 	void SetEditorView(bool editorView) { s_EditorView = editorView; }
+
+	const std::vector<std::pair<Vec3, Vec3>>& ChangedBounds() { return s_Changed; }
 
 	void Cull(CXMMATRIX viewProj, bool shadowPass)
 	{

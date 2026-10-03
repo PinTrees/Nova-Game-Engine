@@ -11,6 +11,7 @@
 #include "ParticleRenderer.h"
 
 namespace ReflectionProbes { struct CaptureView; }
+namespace ProbeVolumes { struct CaptureView; }
 namespace ShadowRenderer { struct FrameData; }
 
 class EditorApp : public App
@@ -43,6 +44,7 @@ private:
 	{
 		XMMATRIX View, Proj;
 		Camera* Cam = nullptr;
+		int Mode = 0;             // 0 Game 뷰, 1 Reflection Probe 면, 2 Adaptive Probe Volume 판 (알베도만)
 		XMFLOAT3 Position = {};
 		uint32 CullingMask = 0xFFFFFFFFu;
 		int BackgroundType = 0;   // 0 Skybox, 1 Solid Color
@@ -53,6 +55,7 @@ private:
 	};
 	void RenderGameView(GfxRenderTargetView* renderTargetView, const GameViewDesc& d);
 	void CaptureProbeFace(const ReflectionProbes::CaptureView& v);
+	GfxShaderResourceView* CaptureGIView(const ProbeVolumes::CaptureView& v);
 	bool ProbeNormalDepth(UINT width, UINT height);
 	ComPtr<GfxRenderTargetView> _probeNormalDepthRTV;
 	ComPtr<GfxShaderResourceView> _probeNormalDepthSRV;

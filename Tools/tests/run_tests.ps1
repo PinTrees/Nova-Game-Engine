@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2164,6 +2164,119 @@ function Suite-ReflectionProbe
     }
 }
 
+function Suite-ProbeVolume
+{
+    # Adaptive Probe Volume (실시간 간접광): 닫힌 방 안이 어두움 · 색 번짐 · 굽기 없이 따라감 (빛깔 · 지붕) · 저장
+    Write-Host '[probevolume]'
+    $dir = Join-Path $Out 'probevolume'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\APVTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $base = Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json
+    function MakeMat([string]$name, $color)
+    {
+        $m = $base.PSObject.Copy(); $m.BaseColor = $color; $m.Metallic = 0.0; $m.Smoothness = 0.1; $m.ResourcePath = "Assets\APVTest\$name.mat"
+        $m | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.mat")
+    }
+    MakeMat 'Red' @(0.9, 0.05, 0.05, 1)
+    MakeMat 'Green' @(0.05, 0.9, 0.05, 1)
+    MakeMat 'White' @(0.9, 0.9, 0.9, 1)
+    $ed = Start-TestEditor
+    try
+    {
+        # 큰 셰이더 (32) 가 백그라운드로 다 만들어질 때까지 (그동안은 예전 셰이더로 그린다)
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 120)
+        {
+            $t = Invoke-Nova 'log -n 400'
+            if ($t -match 'compiled 32\. InstancedBasic|cache hit 32\. InstancedBasic') { break }
+            Start-Sleep -Milliseconds 500
+        }
+        function Mat([string]$obj, [string]$mat) { Invoke-Nova ("set $obj --component MeshRenderer --values `"{\`"m_MaterialPaths\`":[\`"Assets/APVTest/$mat.mat\`"]}`"") | Out-Null }
+        function Shot([string]$name, [double]$x0, [double]$x1, [double]$y0, [double]$y1)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova "screenshot $p --view scene" | Out-Null
+            if (-not (Test-Path $p)) { return $null }
+            $bm = [System.Drawing.Bitmap]::FromFile($p); $n = 0; $r = 0; $g = 0; $b = 0
+            for ($y = [int]($bm.Height * $y0); $y -lt [int]($bm.Height * $y1); $y += 2) { for ($x = [int]($bm.Width * $x0); $x -lt [int]($bm.Width * $x1); $x += 2) { $c = $bm.GetPixel($x, $y); $n++; $r += $c.R; $g += $c.G; $b += $c.B } }
+            $bm.Dispose(); $n = [math]::Max(1, $n)
+            [pscustomobject]@{ R = $r / $n; G = $g / $n; B = $b / $n; L = (0.2126 * $r + 0.7152 * $g + 0.0722 * $b) / $n }
+        }
+        function Txt($s) { if ($s) { 'rgb={0:N0},{1:N0},{2:N0}' -f $s.R, $s.G, $s.B } else { 'no capture' } }
+        function Up($pos) { $j = Invoke-NovaJson "probevolume probe --position $pos"; $u = $j.cascades[0].probe.ambientUp; if ($u) { 0.2126 * $u[0] + 0.7152 * $u[1] + 0.0722 * $u[2] } else { -1 } }
+
+        # ---- 닫힌 방 (벽 · 지붕 0.3 m)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        Invoke-Nova 'create cube --name WallL --position -3,1.5,0 --scale 0.3,3,6' | Out-Null
+        Invoke-Nova 'create cube --name WallR --position 3,1.5,0 --scale 0.3,3,6' | Out-Null
+        Invoke-Nova 'create cube --name WallB --position 0,1.5,3 --scale 6.3,3,0.3' | Out-Null
+        Invoke-Nova 'create cube --name WallF --position 0,1.5,-3 --scale 6.3,3,0.3' | Out-Null
+        Invoke-Nova 'create cube --name Roof --position 0,3.15,0 --scale 6.6,0.3,6.6' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 0,0.5,1 --scale 1,1,1' | Out-Null
+        Invoke-Nova 'camera --position 0,1.6,-2.5 --target 0,0.8,2' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $sky = Shot 'room_sky.png' 0.3 0.7 0.2 0.8
+        Invoke-Nova 'create empty --name APV --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component APV AdaptiveProbeVolume' | Out-Null
+        Invoke-Nova 'camera --position 0,1.6,-2.5 --target 0,0.8,2' | Out-Null
+        Invoke-Nova 'wait 300' | Out-Null
+        $info = Invoke-NovaJson 'probevolume info'
+        $live = @($info.cascades | Where-Object { $_.voxelsLive }).Count
+        Add-Result probevolume 'Adaptive Probe Volume starts by itself (no bake): 3 cascades of 32 x 16 x 32 probes with live voxels' ($info.active -and $live -eq 3 -and $info.probesPerCascade -eq 16384) "active=$($info.active) live=$live probes=$($info.probesPerCascade)"
+        $in = Up '0,1.5,0'; $outside = Up '8,1.5,0'
+        Add-Result probevolume 'closed room: probe inside gets far less light than outside (walls · roof block the sky)' ($in -ge 0 -and $outside -gt 0 -and $in -lt $outside * 0.2) ("inside={0:N3} outside={1:N3}" -f $in, $outside)
+        $apv = Shot 'room_apv.png' 0.3 0.7 0.2 0.8
+        Add-Result probevolume 'closed room on screen: much darker than sky-only ambient' ($sky -and $apv -and $apv.L -lt $sky.L * 0.6) ("sky L={0:N0} apv L={1:N0}" -f $sky.L, $apv.L)
+
+        # 지붕을 치우면 (장면이 바뀜) 굽지 않아도 방 안이 밝아진다
+        Invoke-Nova 'delete Roof' | Out-Null
+        Invoke-Nova 'wait 300' | Out-Null
+        $open = Up '0,1.5,0'
+        Add-Result probevolume 'remove the roof: the scene change re-voxelizes by itself and the room fills with sky light' ($open -gt $in * 3) ("closed={0:N3} open={1:N3}" -f $in, $open)
+
+        # ---- 색 번짐: 해를 받는 빨간 벽 옆 흰 벽 (그늘 쪽)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        Mat 'Ground' 'White'
+        Invoke-Nova 'create cube --name ColorWall --position 0,1.5,2 --scale 4,3,0.3' | Out-Null
+        Mat 'ColorWall' 'Red'
+        Invoke-Nova 'create cube --name WhiteWall --position 2,1.5,0.3 --scale 0.3,3,3.4' | Out-Null
+        Mat 'WhiteWall' 'White'
+        Invoke-Nova 'camera --position -2.5,1.6,-2.5 --target 1.8,1.2,0.8' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $w0 = Shot 'bleed_sky.png' 0.50 0.66 0.35 0.70
+        Invoke-Nova 'create empty --name APV --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component APV AdaptiveProbeVolume' | Out-Null
+        Invoke-Nova 'camera --position -2.5,1.6,-2.5 --target 1.8,1.2,0.8' | Out-Null
+        Invoke-Nova 'wait 300' | Out-Null
+        $w1 = Shot 'bleed_red.png' 0.50 0.66 0.35 0.70
+        Add-Result probevolume 'color bleeding: the shaded white wall turns reddish from the sunlit red wall' ($w0 -and $w1 -and ($w1.R - $w1.B) -gt ($w0.R - $w0.B) + 6) "sky: $(Txt $w0) | apv: $(Txt $w1)"
+        Mat 'ColorWall' 'Green'
+        Invoke-Nova 'wait 300' | Out-Null
+        $w2 = Shot 'bleed_green.png' 0.50 0.66 0.35 0.70
+        Add-Result probevolume 'realtime: paint the wall green — the bounce turns green with no bake' ($w1 -and $w2 -and ($w2.G - $w2.R) -gt ($w1.G - $w1.R) + 8) "red: $(Txt $w1) | green: $(Txt $w2)"
+
+        # ---- 저장 → 다시 열기
+        Invoke-Nova 'set APV --component AdaptiveProbeVolume --values "{\"probeSpacing\":0.5,\"cascades\":2,\"raysPerProbe\":64,\"intensityMultiplier\":1.5}"' | Out-Null
+        Invoke-Nova 'scene save --as Assets/APVTest/APVScene.scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'scene open Assets/APVTest/APVScene.scene --force' | Out-Null
+        $g = Invoke-NovaJson 'get APV'
+        $c = @($g.components | Where-Object { $_.type -eq 'AdaptiveProbeVolume' })[0]
+        Add-Result probevolume 'saved and reopened: spacing, cascades, rays, intensity kept' ($c -and [double]$c.probeSpacing -eq 0.5 -and $c.cascades -eq 2 -and $c.raysPerProbe -eq 64 -and [double]$c.intensityMultiplier -eq 1.5) "spacing=$($c.probeSpacing) cascades=$($c.cascades) rays=$($c.raysPerProbe) intensity=$($c.intensityMultiplier)"
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2478,6 +2591,7 @@ try
                 'shadergraph' { Suite-ShaderGraph }
                 'decal' { Suite-Decal }
                 'reflectionprobe' { Suite-ReflectionProbe }
+                'probevolume' { Suite-ProbeVolume }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }

@@ -442,7 +442,6 @@ void MeshRenderer::OnInspectorGUI()
 	using namespace UnityGUI;
 	static const char* kCast[] = { "On", "Off", "Two Sided", "Shadows Only" };
 	static const char* kGI[] = { "Light Probes" };
-	static const char* kProbes[] = { "Off", "Blend Probes", "Use Proxy Volume", "Custom Provided" };
 	static const char* kMotion[] = { "Camera Motion", "Per Object Motion", "Force No Motion" };
 	static const char* kLayerMask[] = { "Default", "Nothing", "Everything" };
 	static const char* kMask[] = { "None", "Visible Inside Mask", "Visible Outside Mask" };
@@ -485,8 +484,8 @@ void MeshRenderer::OnInspectorGUI()
 	// ---- Probes ----
 	if (FoldoutPlain("Probes"))
 	{
-		Dropdown("Light Probes", &m_LightProbes, kProbes, 4, 0);
-		ObjectField("Anchor Override", "None (Transform)", 0);
+		// 확산 간접광은 Adaptive Probe Volume 만 (레거시 Light Probe Group · Proxy Volume 없음)
+		ValueLabel("Light Probes", "Adaptive Probe Volume");
 	}
 
 	// ---- Additional Settings ----

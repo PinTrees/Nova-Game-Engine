@@ -56,6 +56,7 @@ namespace
 		{ "SpriteRenderer",      "Sprite Renderer",       "Rendering",     "sprite_renderer",   true  },
 		{ "DecalProjector",      "Decal Projector",       "Rendering",     "material_ball",     true  },
 		{ "ReflectionProbe",     "Reflection Probe",      "Rendering",     "scene_light",       true  },
+		{ "AdaptiveProbeVolume", "Adaptive Probe Volume", "Rendering",     "light_point",       true  },
 		{ "SpriteAnimator",      "Sprite Animator",       "Miscellaneous", "sprite_animator",   true  },
 		{ "Light",               "Light",                 "Rendering",     "light_directional", true  },
 		{ "AnimationPlayer",     "Animation",             "Miscellaneous", "animation",         true  },
