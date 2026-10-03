@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 (LOD Group · Screen Space Reflection 완료 · push `564e00a`)
+- 갱신 시각: 2026년 10월 4일 (모델 끌어 놓기 · TAA + SMAA · APV 2 단계 완료 · push `19591a4`) — 다음: 사용자 지시 대기 (Vulkan · Android 가능성 문의에 답함)
 - 단계: **LOD Group (`83226d8`) · Screen Space Reflection 완료** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
 - 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
 - 기준 커밋: `564e00a`
