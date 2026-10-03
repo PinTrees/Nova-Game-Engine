@@ -43,4 +43,6 @@ namespace SceneCulling
 	//  — 실시간 간접광 (Adaptive Probe Volume) 이 그 근처 단계만 다시 찍는다
 	const std::vector<std::pair<Vec3, Vec3>>& ChangedBounds();
 	void SetEditorView(bool editorView);   // 다음 카메라 Cull 의 통계를 어느 뷰에 쌓을지
+	// 추적 중인 렌더러의 월드 상자 (마지막 Update 기준). 추적하지 않으면 false — 발광 렌더러 찾기 (Adaptive Probe Volume)
+	bool TrackedBounds(const Component* renderer, Vec3& mn, Vec3& mx);
 }

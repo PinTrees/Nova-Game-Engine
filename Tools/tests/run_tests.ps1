@@ -2268,6 +2268,47 @@ function Suite-ProbeVolume
         $g = Invoke-NovaJson 'get APV'
         $c = @($g.components | Where-Object { $_.type -eq 'AdaptiveProbeVolume' })[0]
         Add-Result probevolume 'saved and reopened: spacing, cascades, rays, intensity kept' ($c -and [double]$c.probeSpacing -eq 0.5 -and $c.cascades -eq 2 -and $c.raysPerProbe -eq 64 -and [double]$c.intensityMultiplier -eq 1.5) "spacing=$($c.probeSpacing) cascades=$($c.cascades) rays=$($c.raysPerProbe) intensity=$($c.intensityMultiplier)"
+        # ---- 발광 재질 (APV 2 단계): 닫힌 방 (햇빛 없음) 안의 주황 발광 구가 바닥 · 벽을 비춘다 — 굽기 없이
+        $lamp = $base.PSObject.Copy(); $lamp.BaseColor = @(1, 0.6, 0.2, 1); $lamp.Metallic = 0.0; $lamp.Smoothness = 0.2; $lamp.ResourcePath = 'Assets\APVTest\Lamp.mat'
+        $lamp.Emission = $true; $lamp.EmissionColor = @(1, 0.55, 0.15); $lamp.EmissionIntensity = 8
+        $lamp | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Lamp.mat')
+        function UpRgb($pos) { $j = Invoke-NovaJson "probevolume probe --position $pos"; $j.cascades[0].probe.ambientUp }
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null; Mat 'Ground' 'White'
+        foreach ($w in @(@('WallL', '-3,1.5,0', '0.3,3,6'), @('WallR', '3,1.5,0', '0.3,3,6'), @('WallB', '0,1.5,3', '6.3,3,0.3'), @('WallF', '0,1.5,-3', '6.3,3,0.3'), @('Roof', '0,3.15,0', '6.6,0.3,6.6')))
+        {
+            Invoke-Nova "create cube --name $($w[0]) --position $($w[1]) --scale $($w[2])" | Out-Null; Mat $w[0] 'White'
+        }
+        Invoke-Nova 'create sphere --name Lamp --position 0,0.5,0.8 --scale 0.8,0.8,0.8' | Out-Null; Mat 'Lamp' 'White'
+        Invoke-Nova 'create empty --name APV --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component APV AdaptiveProbeVolume' | Out-Null
+        Invoke-Nova 'select Ground' | Out-Null
+        Invoke-Nova 'camera --position -0.5,1.2,-1.5 --target -3,0.6,3' | Out-Null
+        Invoke-Nova 'wait 240' | Out-Null
+        $e0 = UpRgb '-1.5,0.6,0.8'
+        # 방 안쪽 모서리 (왼쪽 벽 · 뒤 벽 · 천장 · 바닥이 만나는 곳): 양옆보다 밝은 1 px 선 (예전엔 벽 너머 프로브가 모서리 복셀로 새어 생겼다)
+        function Ridges([string]$pc)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($pc); $ridge = 0; $rows = 0
+            for ($y = [int]($bm.Height * 0.05); $y -lt [int]($bm.Height * 0.55); $y += 2) {   # 바닥 (격자선) 위
+                $rows++
+                for ($x = [int]($bm.Width * 0.3); $x -lt [int]($bm.Width * 0.7); $x++) {
+                    $a = $bm.GetPixel($x - 2, $y); $m = $bm.GetPixel($x, $y); $b = $bm.GetPixel($x + 2, $y)
+                    $la = 0.3 * $a.R + 0.59 * $a.G + 0.11 * $a.B; $lm = 0.3 * $m.R + 0.59 * $m.G + 0.11 * $m.B; $lb = 0.3 * $b.R + 0.59 * $b.G + 0.11 * $b.B
+                    if ($lm -gt $la + 4 -and $lm -gt $lb + 4) { $ridge++ } } }
+            $bm.Dispose(); @($ridge, $rows)
+        }
+        $pc = Join-Path $dir 'corner.png'; Invoke-Nova "screenshot $pc --view scene" | Out-Null
+        $rl = Ridges $pc
+        Invoke-Nova 'camera --position 0.5,1.2,-1.5 --target 3,0.6,3' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+        $pr = Join-Path $dir 'corner_right.png'; Invoke-Nova "screenshot $pr --view scene" | Out-Null
+        $rr = Ridges $pr
+        Add-Result probevolume 'room corners (+X/-Z and -X/-Z walls): no thin bright line where the walls meet (6 face slots per voxel)' ($rl[0] -lt $rl[1] * 0.1 -and $rr[0] -lt $rr[1] * 0.1) ("bright 1-px ridges: left {0} / {1} rows, right {2} / {3} rows" -f $rl[0], $rl[1], $rr[0], $rr[1])
+        Mat 'Lamp' 'Lamp'
+        Invoke-Nova 'wait 240' | Out-Null
+        $e1 = UpRgb '-1.5,0.6,0.8'
+        $i = Invoke-NovaJson 'probevolume info'
+        Add-Result probevolume 'emissive material lights the dark room (orange) without a bake' ($e0 -and $e1 -and $e1[0] -gt $e0[0] * 5 -and $e1[0] -gt $e1[2] * 3 -and $i.emissiveRenderers -eq 1) ("probe near the lamp {0:N3},{1:N3},{2:N3} -> {3:N3},{4:N3},{5:N3}, emissive renderers {6}" -f $e0[0], $e0[1], $e0[2], $e1[0], $e1[1], $e1[2], $i.emissiveRenderers)
         Invoke-Nova 'log --errors -n 5' | Out-Null
     }
     finally

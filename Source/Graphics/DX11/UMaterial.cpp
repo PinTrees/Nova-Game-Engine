@@ -49,6 +49,13 @@ UMaterial::UMaterial()
 	Mat.Reflect = Reflect;
 }
 
+XMFLOAT3 UMaterial::EmissionLinear() const
+{
+	if (!m_EmissionEnabled)
+		return XMFLOAT3(0, 0, 0);
+	return XMFLOAT3(ToLinear(m_EmissionColor.x) * m_EmissionIntensity, ToLinear(m_EmissionColor.y) * m_EmissionIntensity, ToLinear(m_EmissionColor.z) * m_EmissionIntensity);
+}
+
 shared_ptr<UMaterial> UMaterial::GetDefault()
 {
 	static shared_ptr<UMaterial> s_Default;

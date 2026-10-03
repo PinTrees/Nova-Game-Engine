@@ -137,8 +137,9 @@ Texture3D gGISH1;     // 초록
 Texture3D gGISH2;     // 파랑
 Texture3D gGIValid;   // x 유효도
 Texture3D gGIRadiance; // 복셀 빛 아틀라스 (a = 차 있음) — 프로브 갱신 (55) 이 쓴다
-Texture3D gGIPlaneP;   // 복셀 속 면 평면 (노멀의 가장 큰 축이 + 인 면): rg 노멀 (팔면체), b 복셀 가운데에서 면까지 (노멀 방향), a 있음
-Texture3D gGIPlaneN;   //  같은 것, - 인 면 — 얇은 벽은 두 면이 한 복셀에 들어 따로 둔다
+// 복셀 속 면 평면 6 칸 (노멀의 가장 큰 축 x 부호: 0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z): rg 노멀 (팔면체), b 복셀 가운데에서 면까지 (노멀 방향), a 있음
+//  — 방 모서리 (두 벽) · 얇은 벽의 두 면 · 바닥과 벽이 한 복셀에 있어도 따로 둔다. 칸은 Z 로 쌓는다: 칸 s · 단계 c 의 z = (s × 단계 수 + c) × 64 + z
+Texture3D gGIPlanes;
 cbuffer cbProbeVolume
 {
     float4 gGIParams;      // x 단계 수 (0 = 없음 → 하늘), y Intensity, z 1 = 알베도 찍기 (빛 없이 표면 색만), w 1 = Local 상자 안만
@@ -556,6 +557,28 @@ float3 GIOctDecode(float2 e)
     return normalize(n);
 }
 // x 가 단계 c 의 복셀 속 면 뒤 (물체 속) 인지 — 복셀 크기보다 정확하게 (면이 복셀 어디에 있는지)
+// 한 축의 두 칸 (+ 면, - 면): 있는 면들의 뒤인가 — 둘 다 있으면 둘 다 뒤 (얇은 벽 = 두 면 사이), 없으면 false
+bool GIBehindAxis(float4 pp, float4 pn, float3 x, float3 vc, float vs)
+{
+    if (pp.a < 0.5f && pn.a < 0.5f)
+        return false;
+    bool behind = true;
+    if (pp.a > 0.5f)
+    {
+        float3 n = GIOctDecode(pp.xy);
+        behind = dot(x - (vc + n * ((pp.z - 0.5f) * 1.8f * vs)), n) < 0.0f;
+    }
+    if (pn.a > 0.5f)
+    {
+        float3 n = GIOctDecode(pn.xy);
+        behind = behind && dot(x - (vc + n * ((pn.z - 0.5f) * 1.8f * vs)), n) < 0.0f;
+    }
+    return behind;
+}
+
+// 점 x 가 물체 속인가 (복셀 속 면 평면). 같은 축의 두 면은 둘 다 뒤 (얇은 벽), 다른 축끼리는 어느 하나라도 (방 안쪽 모서리 = 두 벽 중 하나의 속)
+//  — 예전엔 면 칸이 + / - 두 개뿐이라 방 모서리의 두 벽 (-X · -Z) 이나 바닥과 벽 (+Y · +X) 이 한 칸을 다투고, 다른 축도 둘 다 뒤여야 막혀
+//    모서리 복셀로 벽 너머 프로브가 새어 가는 빛 줄이 났다
 bool GIBlocked(float3 x, int c, float4 vox)
 {
     float3 vv = (x - vox.xyz) / vox.w;
@@ -563,23 +586,17 @@ bool GIBlocked(float3 x, int c, float4 vox)
         return false;
     int3 iv = int3(floor(vv));
     int4 t = int4(iv.x, iv.y, c * (int)kGIVoxels.z + iv.z, 0);
-    float4 a = gGIPlaneP.Load(t);
-    float4 b = gGIPlaneN.Load(t);
-    if (a.a < 0.5f && b.a < 0.5f)
-        return false;
     float3 vc = vox.xyz + ((float3)iv + 0.5f) * vox.w;
-    bool behind = true;
-    if (a.a > 0.5f)
+    int stride = (int)gGIBias.w * (int)kGIVoxels.z;   // 칸 하나 = 모든 단계
+    [loop]
+    for (int axis = 0; axis < 3; ++axis)
     {
-        float3 n = GIOctDecode(a.xy);
-        behind = behind && dot(x - (vc + n * ((a.z - 0.5f) * 1.8f * vox.w)), n) < 0.0f;
+        float4 pp = gGIPlanes.Load(int4(t.xy, t.z + axis * 2 * stride, 0));
+        float4 pn = gGIPlanes.Load(int4(t.xy, t.z + (axis * 2 + 1) * stride, 0));
+        if (GIBehindAxis(pp, pn, x, vc, vox.w))
+            return true;
     }
-    if (b.a > 0.5f)
-    {
-        float3 n = GIOctDecode(b.xy);
-        behind = behind && dot(x - (vc + n * ((b.z - 0.5f) * 1.8f * vox.w)), n) < 0.0f;
-    }
-    return behind;
+    return false;
 }
 static float3 s_GIDebug = float3(0, 0, 0);   // 진단 보기 (gGIBias.z = 2): 섞은 방법 색 — 초록 벽 검사 + 노멀, 노랑 노멀만, 빨강 삼선형만, 파랑 큰 단계
 //  irrR = 반사 방향 R 쪽에서 오는 빛 (같은 SH — 하늘 반사를 가리는 데 쓴다)
@@ -634,7 +651,7 @@ float4 ProbeVolumeAmbient(float3 posW, float3 N, float3 V, float3 R, out float3 
             {
                 // 면 앞 (p) 에서 프로브까지 네 점이 물체 속 (복셀 속 면 평면의 뒤) 이면 벽 너머 — 얇은 지붕 · 벽, 모서리 모두
                 [loop]
-                for (int q = 1; q <= 4; ++q)
+                for (int q = 1; q <= 4 && visible > 0.0f; ++q)
                     if (GIBlocked(p + toProbe * (q * 0.2f), c, vox))
                         visible = 0.0f;
             }
@@ -852,7 +869,9 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
     float oneMinusReflectivity = 0.96f * (1.0f - surf.Metallic);
     float3 diffuse = surf.Albedo * oneMinusReflectivity;
-    // Adaptive Probe Volume 의 장면 찍기: 빛 · 그림자 없이 확산 색만 (복셀이 매 프레임 다시 비춘다)
+    // Adaptive Probe Volume 의 장면 찍기: 빛 · 그림자 없이 확산 색만 (복셀이 매 프레임 다시 비춘다), 2 = 발광만 (발광 복셀)
+    if (gGIParams.z > 1.5f)
+        return surf.Emission;
     if (gGIParams.z > 0.5f)
         return diffuse;
     float3 specular = lerp(float3(0.04f, 0.04f, 0.04f), surf.Albedo, surf.Metallic);

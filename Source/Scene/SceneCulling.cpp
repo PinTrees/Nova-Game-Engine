@@ -373,6 +373,17 @@ namespace SceneCulling
 
 	const std::vector<std::pair<Vec3, Vec3>>& ChangedBounds() { return s_Changed; }
 
+	bool TrackedBounds(const Component* renderer, Vec3& mn, Vec3& mx)
+	{
+		auto it = s_Map.find(const_cast<Component*>(renderer));
+		if (it == s_Map.end())
+			return false;
+		const Entry& e = s_Entries[it->second];
+		mn = e.Bounds.Min;
+		mx = e.Bounds.Max;
+		return true;
+	}
+
 	void Cull(CXMMATRIX viewProj, bool shadowPass)
 	{
 		PROFILE_SCOPE("Culling");

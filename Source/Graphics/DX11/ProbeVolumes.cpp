@@ -10,6 +10,10 @@
 #include "Application.h"
 #include "GameObject.h"
 #include "SceneCulling.h"
+#include "Scene.h"
+#include "SceneManager.h"
+#include "MeshRenderer.h"
+#include "UMaterial.h"
 
 namespace
 {
@@ -85,9 +89,19 @@ namespace
 	// 상태
 	bool s_Ready = false, s_Failed = false;
 	Tex3D s_VoxA[kCascades][2], s_VoxN[kCascades][2];   // 단계 복셀 (앞 · 뒤)
-	Tex3D s_VoxP[kCascades][2], s_VoxQ[kCascades][2];   // 복셀 속 면 평면 (+ 면, - 면)
+	// 복셀 속 면 평면 6 칸 (노멀의 가장 큰 축 x 부호: +X -X +Y -Y +Z -Z) — 방 모서리 · 얇은 벽의 두 면 · 바닥과 벽이 한 복셀에 함께 있어도 다투지 않는다
+	static constexpr int kPlaneSlots = 6;
+	Tex3D s_VoxPl[kCascades][2][kPlaneSlots];
+	Tex3D s_VoxE[kCascades][2];   // 발광 복셀 (선형 HDR) — 발광 재질이 주변을 비춘다
+	ComPtr<GfxTexture2D> s_CapETex;   // 판의 발광 찍기
+	ComPtr<GfxRenderTargetView> s_CapERTV;
+	ComPtr<GfxShaderResourceView> s_CapESRV;
+	std::vector<std::pair<Vec3, Vec3>> s_Emissive;   // 이번 프레임의 발광 렌더러 월드 상자
+	int s_CaptureMode = 1;   // 1 = 알베도, 2 = 발광 (gGIParams.z)
+	int s_EmissionCaptures = 0;   // 통계: 발광 찍기 수
+	float s_EmissiveSignature = 0.0f, s_PrevEmissiveSignature = 0.0f;   // 발광 렌더러 (상자 · 세기) 가 바뀌면 다시 짓는다
 	Tex3D s_Rad, s_Nrm;                                 // 빛 · 노멀 아틀라스 (단계를 Z 로)
-	Tex3D s_PlaneP, s_PlaneN;                           // 면 평면 아틀라스 (그리는 셰이더의 벽 검사)
+	Tex3D s_Planes;   // 면 평면 아틀라스 (그리는 셰이더의 벽 검사): 칸 s · 단계 c 의 복셀 z = (s × 단계 수 + c) × kVZ + z — 텍스처 하나 (셰이더가 작다)
 	Tex3D s_SH[4], s_Old[4];                            // 프로브 SH (R · G · B · 유효도) + 옮길 때 복사본
 	ComPtr<GfxTexture2D> s_CapTex;
 	ComPtr<GfxRenderTargetView> s_CapRTV;
@@ -139,13 +153,13 @@ namespace
 			{
 				ok &= Make3D(s_VoxA[c][b], kVX, kVY, kVZ, DXGI_FORMAT_R8G8B8A8_UNORM, false);
 				ok &= Make3D(s_VoxN[c][b], kVX, kVY, kVZ, DXGI_FORMAT_R8G8B8A8_UNORM, false);
-				ok &= Make3D(s_VoxP[c][b], kVX, kVY, kVZ, DXGI_FORMAT_R8G8B8A8_UNORM, false);
-				ok &= Make3D(s_VoxQ[c][b], kVX, kVY, kVZ, DXGI_FORMAT_R8G8B8A8_UNORM, false);
+				for (int s = 0; s < kPlaneSlots; ++s)
+					ok &= Make3D(s_VoxPl[c][b][s], kVX, kVY, kVZ, DXGI_FORMAT_R8G8B8A8_UNORM, false);
+				ok &= Make3D(s_VoxE[c][b], kVX, kVY, kVZ, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
 			}
 		ok &= Make3D(s_Rad, kVX, kVY, kVZ * kCascades, DXGI_FORMAT_R16G16B16A16_FLOAT, true);
 		ok &= Make3D(s_Nrm, kVX, kVY, kVZ * kCascades, DXGI_FORMAT_R8G8B8A8_UNORM, false);
-		ok &= Make3D(s_PlaneP, kVX, kVY, kVZ * kCascades, DXGI_FORMAT_R8G8B8A8_UNORM, false);
-		ok &= Make3D(s_PlaneN, kVX, kVY, kVZ * kCascades, DXGI_FORMAT_R8G8B8A8_UNORM, false);
+		ok &= Make3D(s_Planes, kVX, kVY, kVZ * kCascades * kPlaneSlots, DXGI_FORMAT_R8G8B8A8_UNORM, false, false);
 		for (int i = 0; i < 4; ++i)
 		{
 			ok &= Make3D(s_SH[i], kPX, kPY, kPZ * kCascades, DXGI_FORMAT_R16G16B16A16_FLOAT, false);
@@ -161,6 +175,12 @@ namespace
 		td.Usage = D3D11_USAGE_DEFAULT;
 		td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 		ok &= SUCCEEDED(dev->CreateTexture2D(&td, nullptr, s_CapTex.GetAddressOf()));
+		ok &= SUCCEEDED(dev->CreateTexture2D(&td, nullptr, s_CapETex.GetAddressOf()));
+		if (s_CapETex)
+		{
+			dev->CreateRenderTargetView(s_CapETex.Get(), nullptr, s_CapERTV.GetAddressOf());
+			dev->CreateShaderResourceView(s_CapETex.Get(), nullptr, s_CapESRV.GetAddressOf());
+		}
 		if (s_CapTex)
 		{
 			dev->CreateRenderTargetView(s_CapTex.Get(), nullptr, s_CapRTV.GetAddressOf());
@@ -199,8 +219,11 @@ namespace
 		for (int i = 0; i < 4; ++i) ctx->ClearRenderTargetView(s_SH[i].All.Get(), zero);
 		ctx->ClearRenderTargetView(s_Rad.All.Get(), zero);
 		ctx->ClearRenderTargetView(s_Nrm.All.Get(), zero);
-		ctx->ClearRenderTargetView(s_PlaneP.All.Get(), zero);
-		ctx->ClearRenderTargetView(s_PlaneN.All.Get(), zero);
+		// 면 평면 아틀라스 (렌더 타깃 아님): 지운 복셀 볼륨을 칸 · 단계마다 복사해 0 으로
+		ctx->ClearRenderTargetView(s_VoxPl[0][0][0].All.Get(), zero);
+		for (int s = 0; s < kPlaneSlots; ++s)
+			for (int c = 0; c < kCascades; ++c)
+				ctx->CopySubresourceRegion(s_Planes.Tex.Get(), 0, 0, 0, (UINT)((s * kCascades + c) * kVZ), s_VoxPl[0][0][0].Tex.Get(), 0, nullptr);
 		// 판 찍기 순서: 축마다 두께 kSlab 의 판, 양쪽 방향
 		s_Steps.clear();
 		for (int axis = 0; axis < 3; ++axis)
@@ -308,16 +331,13 @@ namespace
 		else if (st.Axis == 1) { vp.TopLeftY = (float)st.K0; vp.Height = (float)(st.K1 - st.K0); }
 		else { z0 = st.K0; z1 = st.K1; }
 		ctx->RSSetViewports(1, &vp);
-		for (int z = z0; z < z1; z += 2)   // 2 조각 (알베도 · 노멀 · 평면 + · 평면 -) = 8 타깃
+		for (int z = z0; z < z1; ++z)   // 조각 하나 = 알베도 · 노멀 · 면 평면 6 칸 = 8 타깃
 		{
 			GfxRenderTargetView* rtv[8] = {};
-			for (int k = 0; k < 2 && z + k < kVZ; ++k)
-			{
-				rtv[k * 4] = s_VoxA[c][back].Slice[z + k].Get();
-				rtv[k * 4 + 1] = s_VoxN[c][back].Slice[z + k].Get();
-				rtv[k * 4 + 2] = s_VoxP[c][back].Slice[z + k].Get();
-				rtv[k * 4 + 3] = s_VoxQ[c][back].Slice[z + k].Get();
-			}
+			rtv[0] = s_VoxA[c][back].Slice[z].Get();
+			rtv[1] = s_VoxN[c][back].Slice[z].Get();
+			for (int s = 0; s < kPlaneSlots; ++s)
+				rtv[2 + s] = s_VoxPl[c][back][s].Slice[z].Get();
 			ctx->OMSetRenderTargets(8, rtv, nullptr);
 			SetV(fx, "gGICap", (float)resX, (float)resY, (float)z, 0.0f);
 			tech->GetPassByIndex(0)->Apply(0, ctx);
@@ -327,6 +347,55 @@ namespace
 		ctx->OMSetRenderTargets(8, noneRtv, nullptr);
 		ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
 		SetR(fx, "gGICapColor", nullptr);
+		SetR(fx, "gGICapNormalDepth", nullptr);
+		UnbindSRVs(ctx);
+
+		// 발광: 판의 월드 상자와 겹치는 발광 렌더러가 있을 때만 (없으면 비용 0)
+		Vec3 slabMin = O, slabMax = O + size;
+		const float lo = o[st.Axis] + st.K0 * vs - vs, hi = o[st.Axis] + st.K1 * vs + vs;
+		(&slabMin.x)[st.Axis] = lo;
+		(&slabMax.x)[st.Axis] = hi;
+		bool emissive = false;
+		for (const auto& b : s_Emissive)
+			if (b.first.x <= slabMax.x && b.second.x >= slabMin.x && b.first.y <= slabMax.y && b.second.y >= slabMin.y && b.first.z <= slabMax.z && b.second.z >= slabMin.z)
+			{
+				emissive = true;
+				break;
+			}
+		FxTechnique* emitTech = Tech("InjectEmissionTech");
+		if (!emissive || !emitTech || !s_CapERTV)
+			return;
+		v.Target = s_CapERTV.Get();
+		s_Capturing = true;
+		s_CaptureMode = 2;
+		GfxShaderResourceView* nd2 = s_Capture(v);
+		s_CaptureMode = 1;
+		s_Capturing = false;
+		if (!nd2)
+			return;
+		++s_EmissionCaptures;
+		UnbindSRVs(ctx);
+		ctx->OMSetDepthStencilState(nullptr, 0);
+		ctx->OMSetBlendState(s_KeepBS.Get(), nullptr, 0xffffffff);
+		ctx->RSSetState(nullptr);
+		ctx->IASetInputLayout(nullptr);
+		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		SetR(fx, "gGICapEmission", s_CapESRV.Get());
+		SetR(fx, "gGICapNormalDepth", nd2);
+		ctx->RSSetViewports(1, &vp);
+		for (int z = z0; z < z1; z += 8)
+		{
+			GfxRenderTargetView* rtv[8] = {};
+			for (int k = 0; k < 8 && z + k < kVZ; ++k)
+				rtv[k] = s_VoxE[c][back].Slice[z + k].Get();
+			ctx->OMSetRenderTargets(8, rtv, nullptr);
+			SetV(fx, "gGICap", (float)resX, (float)resY, (float)z, 0.0f);
+			emitTech->GetPassByIndex(0)->Apply(0, ctx);
+			ctx->Draw(3, 0);
+		}
+		ctx->OMSetRenderTargets(8, noneRtv, nullptr);
+		ctx->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+		SetR(fx, "gGICapEmission", nullptr);
 		SetR(fx, "gGICapNormalDepth", nullptr);
 		UnbindSRVs(ctx);
 	}
@@ -360,9 +429,9 @@ namespace
 		SetV(fx, "gGIVox", cs.VoxOrigin.x, cs.VoxOrigin.y, cs.VoxOrigin.z, vs);
 		SetR(fx, "gGIVoxAlbedo", s_VoxA[c][cs.Front].SRV.Get());
 		SetR(fx, "gGIVoxNormal", s_VoxN[c][cs.Front].SRV.Get());
+		SetR(fx, "gGIVoxEmission", s_VoxE[c][cs.Front].SRV.Get());
 		SetR(fx, "gGIRadiance", nullptr);
-		SetR(fx, "gGIPlaneP", nullptr);
-		SetR(fx, "gGIPlaneN", nullptr);
+		SetR(fx, "gGIPlanes", nullptr);
 		const D3D11_VIEWPORT vp = { 0, 0, (float)kVX, (float)kVY, 0.0f, 1.0f };
 		ctx->RSSetViewports(1, &vp);
 		for (int z = 0; z < kVZ; z += 8)
@@ -377,13 +446,14 @@ namespace
 		}
 		SetR(fx, "gGIVoxAlbedo", nullptr);
 		SetR(fx, "gGIVoxNormal", nullptr);
+		SetR(fx, "gGIVoxEmission", nullptr);
 		UnbindSRVs(ctx);
 		GfxRenderTargetView* none[8] = {};
 		ctx->OMSetRenderTargets(8, none, nullptr);
 		// 노멀 아틀라스 = 이 단계 복셀 노멀 그대로
 		ctx->CopySubresourceRegion(s_Nrm.Tex.Get(), 0, 0, 0, (UINT)(c * kVZ), s_VoxN[c][cs.Front].Tex.Get(), 0, nullptr);
-		ctx->CopySubresourceRegion(s_PlaneP.Tex.Get(), 0, 0, 0, (UINT)(c * kVZ), s_VoxP[c][cs.Front].Tex.Get(), 0, nullptr);
-		ctx->CopySubresourceRegion(s_PlaneN.Tex.Get(), 0, 0, 0, (UINT)(c * kVZ), s_VoxQ[c][cs.Front].Tex.Get(), 0, nullptr);
+		for (int s = 0; s < kPlaneSlots; ++s)
+			ctx->CopySubresourceRegion(s_Planes.Tex.Get(), 0, 0, 0, (UINT)((s * kCascades + c) * kVZ), s_VoxPl[c][cs.Front][s].Tex.Get(), 0, nullptr);
 		ctx->GenerateMips(s_Rad.SRV.Get());
 	}
 
@@ -556,6 +626,32 @@ namespace ProbeVolumes
 		}
 		PROFILE_SCOPE("Adaptive Probe Volume");
 		++s_Frame;
+		// 발광 렌더러 (재질 Emission 이 0 이 아닌 Mesh Renderer) 의 월드 상자 — 판 찍기가 겹칠 때만 발광을 한 번 더 찍는다
+		s_Emissive.clear();
+		s_PrevEmissiveSignature = s_EmissiveSignature;
+		s_EmissiveSignature = 0.0f;
+		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+			for (GameObject* go : scene->GetAllGameObjects())
+			{
+				if (!go || !go->IsActive())
+					continue;
+				MeshRenderer* mr = go->GetComponent<MeshRenderer>();
+				if (!mr || !mr->IsEnabled())
+					continue;
+				float emits = 0.0f;
+				for (const auto& m : mr->GetMaterials())
+					if (m && !m->IsCustom())
+					{
+						const XMFLOAT3 e = m->EmissionLinear();
+						emits += e.x + e.y * 1.7f + e.z * 2.3f;
+					}
+				Vec3 mn, mx;
+				if (emits > 1e-3f && SceneCulling::TrackedBounds(mr, mn, mx))
+				{
+					s_Emissive.emplace_back(mn, mx);
+					s_EmissiveSignature += emits * (1.0f + (float)s_Emissive.size() * 0.37f) + (mn.x + mn.y * 3.1f + mn.z * 7.3f + mx.x * 1.3f + mx.y * 2.9f + mx.z * 5.1f) * 0.01f;
+				}
+			}
 		// 설정
 		const float spacing = s_Active->GetProbeSpacing();
 		s_Count = s_Active->GetCascades();
@@ -628,6 +724,9 @@ namespace ProbeVolumes
 						cs.Dirty = true;
 						break;
 					}
+				// 발광 재질을 켜거나 바꿈 (물체 상자는 그대로) → 다시 짓는다
+				if (fabsf(s_EmissiveSignature - s_PrevEmissiveSignature) > 1e-4f)
+					cs.Dirty = true;
 			}
 			if (s_BuildCascade >= s_Count)
 				s_BuildCascade = 0;
@@ -655,8 +754,9 @@ namespace ProbeVolumes
 					const int back = 1 - cs.Front;
 					ctx->ClearRenderTargetView(s_VoxA[s_BuildCascade][back].All.Get(), zero);
 					ctx->ClearRenderTargetView(s_VoxN[s_BuildCascade][back].All.Get(), zero);
-					ctx->ClearRenderTargetView(s_VoxP[s_BuildCascade][back].All.Get(), zero);
-					ctx->ClearRenderTargetView(s_VoxQ[s_BuildCascade][back].All.Get(), zero);
+					for (int s = 0; s < kPlaneSlots; ++s)
+						ctx->ClearRenderTargetView(s_VoxPl[s_BuildCascade][back][s].All.Get(), zero);
+					ctx->ClearRenderTargetView(s_VoxE[s_BuildCascade][back].All.Get(), zero);
 					cs.BuildStep = 0;
 				}
 				CaptureStep(s_BuildCascade, s_Steps[cs.BuildStep]);
@@ -691,7 +791,7 @@ namespace ProbeVolumes
 		if (!fx)
 			return;
 		const int count = (s_Active && s_Ready) ? s_Count : 0;
-		SetV(fx, "gGIParams", (float)count, s_Intensity, s_Capturing ? 1.0f : 0.0f, s_Local ? 1.0f : 0.0f);
+		SetV(fx, "gGIParams", (float)count, s_Intensity, s_Capturing ? (float)s_CaptureMode : 0.0f, s_Local ? 1.0f : 0.0f);
 		if (count <= 0)
 			return;
 		SetV(fx, "gGIBias", s_NormalBias, s_ViewBias, s_Capturing ? 0.0f : (float)s_DebugView, (float)kCascades);
@@ -707,8 +807,7 @@ namespace ProbeVolumes
 		SetR(fx, "gGIValid", s_SH[3].SRV.Get());
 		SetVoxAll(fx);
 		SetR(fx, "gGIRadiance", s_Rad.SRV.Get());
-		SetR(fx, "gGIPlaneP", s_PlaneP.SRV.Get());
-		SetR(fx, "gGIPlaneN", s_PlaneN.SRV.Get());
+		SetR(fx, "gGIPlanes", s_Planes.SRV.Get());
 	}
 
 	bool CascadeBox(int c, Vec3& min, Vec3& max)
@@ -847,7 +946,8 @@ namespace ProbeVolumes
 			result = { { "active", s_Active != nullptr && s_Ready && s_Count > 0 }, { "failed", s_Failed },
 				{ "volume", s_Active && s_Active->GetGameObject() ? s_Active->GetGameObject()->GetName() : std::string() },
 				{ "mode", s_Local ? "Local" : "Global" }, { "cascades", cascades }, { "builtCascades", s_BuiltCascades },
-				{ "frames", s_Frame }, { "raysPerProbe", s_Rays }, { "probesPerCascade", kPX * kPY * kPZ } };
+				{ "frames", s_Frame }, { "raysPerProbe", s_Rays }, { "probesPerCascade", kPX * kPY * kPZ },
+				{ "emissiveRenderers", s_Emissive.size() }, { "emissionCaptures", s_EmissionCaptures } };
 			return true;
 		});
 	}

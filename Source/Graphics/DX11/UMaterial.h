@@ -105,6 +105,8 @@ public:
 	GfxShaderResourceView* GetNormalMapSRV() { return NormalMapSRV.Get(); }
 	ShaderSetting GetShaderSetting() { return m_shaderSetting; }
 	const PbrMaterial& GetPbr() const { return m_Pbr; }
+	// 발광 (선형 × Intensity, 꺼져 있으면 0) — Adaptive Probe Volume 이 발광 렌더러를 찾는다
+	XMFLOAT3 EmissionLinear() const;
 	ShaderKind GetShader() const { return m_Shader; }
 
 	// Inspector: 재질 에셋을 골랐을 때(전체) 와 Mesh Renderer 아래(embedded = 머리글을 접을 수 있게)

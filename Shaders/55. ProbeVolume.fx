@@ -26,6 +26,8 @@ cbuffer cbGIPass
 
 Texture2D gGICapColor;         // Inject: 알베도 찍기 (감마, a = 덮임)
 Texture2D gGICapNormalDepth;   // Inject: 뷰 노멀 + 뷰 깊이
+Texture2D gGICapEmission;      // InjectEmission: 발광 찍기 (감마, a = 덮임)
+Texture3D gGIVoxEmission;      // Relight: 이 단계의 발광 복셀 (선형 HDR)
 Texture3D gGIVoxAlbedo;        // Relight: 이 단계의 복셀 (앞 버퍼)
 Texture3D gGIVoxNormal;
 Texture3D gGINormals;          // Update: 모든 단계의 노멀 아틀라스
@@ -60,8 +62,7 @@ struct VoxOut
 {
     float4 Albedo;
     float4 Normal;
-    float4 PlaneP;
-    float4 PlaneN;
+    float4 Plane[6];   // 노멀의 가장 큰 축 x 부호: +X -X +Y -Y +Z -Z
 };
 
 // 복셀 하나: 쓸 것이 없으면 알파 0 (블렌드 SrcAlpha / InvSrcAlpha 로 예전 값이 남는다 — MRT 라 discard 를 못 쓴다)
@@ -70,8 +71,9 @@ VoxOut InjectVoxel(float3 idx)
     VoxOut o;
     o.Albedo = float4(0, 0, 0, 0);
     o.Normal = float4(0, 0, 0, 0);
-    o.PlaneP = float4(0, 0, 0, 0);
-    o.PlaneN = float4(0, 0, 0, 0);
+    [unroll]
+    for (int s = 0; s < 6; ++s)
+        o.Plane[s] = float4(0, 0, 0, 0);
     float3 posW = gGIVox.xyz + (idx + 0.5f) * gGIVox.w;
     float4 clip = mul(float4(posW, 1.0f), gGICapViewProj);
     float2 ndc = clip.xy / clip.w;
@@ -96,26 +98,71 @@ VoxOut InjectVoxel(float3 idx)
     float offset = dot(surface - posW, n) / gGIVox.w;   // -0.87 .. 0.87
     float4 plane = float4(GIOctEncode(n), saturate(offset / 1.8f + 0.5f), 1.0f);
     float3 an = abs(n);
-    float major = an.x >= an.y && an.x >= an.z ? n.x : (an.y >= an.z ? n.y : n.z);
-    if (major >= 0.0f) o.PlaneP = plane; else o.PlaneN = plane;
+    int axis = an.x >= an.y && an.x >= an.z ? 0 : (an.y >= an.z ? 1 : 2);
+    float major = axis == 0 ? n.x : (axis == 1 ? n.y : n.z);
+    int slot = axis * 2 + (major >= 0.0f ? 0 : 1);
+    [unroll]
+    for (int s2 = 0; s2 < 6; ++s2)
+        if (s2 == slot)
+            o.Plane[s2] = plane;
     return o;
 }
 
-// 2 조각 (gGICap.z, +1) 을 한 번에: 타깃 = 알베도 · 노멀 · 평면 + · 평면 - x 2
-struct Vox2Out
+// 조각 하나 (gGICap.z): 타깃 = 알베도 · 노멀 · 면 평면 6 칸
+struct Vox1Out
 {
-    float4 A0 : SV_Target0; float4 N0 : SV_Target1; float4 P0 : SV_Target2; float4 Q0 : SV_Target3;
-    float4 A1 : SV_Target4; float4 N1 : SV_Target5; float4 P1 : SV_Target6; float4 Q1 : SV_Target7;
+    float4 A : SV_Target0; float4 N : SV_Target1;
+    float4 P0 : SV_Target2; float4 P1 : SV_Target3; float4 P2 : SV_Target4; float4 P3 : SV_Target5; float4 P4 : SV_Target6; float4 P5 : SV_Target7;
 };
 
-Vox2Out PS_Inject(GIVOut pin)
+Vox1Out PS_Inject(GIVOut pin)
 {
     float2 xy = floor(pin.PosH.xy);
-    VoxOut v0 = InjectVoxel(float3(xy, gGICap.z));
-    VoxOut v1 = InjectVoxel(float3(xy, gGICap.z + 1.0f));
-    Vox2Out o;
-    o.A0 = v0.Albedo; o.N0 = v0.Normal; o.P0 = v0.PlaneP; o.Q0 = v0.PlaneN;
-    o.A1 = v1.Albedo; o.N1 = v1.Normal; o.P1 = v1.PlaneP; o.Q1 = v1.PlaneN;
+    VoxOut v = InjectVoxel(float3(xy, gGICap.z));
+    Vox1Out o;
+    o.A = v.Albedo; o.N = v.Normal;
+    o.P0 = v.Plane[0]; o.P1 = v.Plane[1]; o.P2 = v.Plane[2]; o.P3 = v.Plane[3]; o.P4 = v.Plane[4]; o.P5 = v.Plane[5];
+    return o;
+}
+
+// 발광 넣기 (판 안에 발광 렌더러가 있을 때만): 같은 판의 발광 찍기 → 덮인 복셀에 선형 발광 (없는 곳은 알파 0 = 예전 값)
+float4 InjectEmissionVoxel(float3 idx)
+{
+    float3 posW = gGIVox.xyz + (idx + 0.5f) * gGIVox.w;
+    float4 clip = mul(float4(posW, 1.0f), gGICapViewProj);
+    float2 ndc = clip.xy / clip.w;
+    int2 texel = int2((ndc.x * 0.5f + 0.5f) * gGICap.x, (0.5f - ndc.y * 0.5f) * gGICap.y);
+    if (any(texel < 0) || texel.x >= (int)gGICap.x || texel.y >= (int)gGICap.y)
+        return float4(0, 0, 0, 0);
+    float4 e = gGICapEmission.Load(int3(texel, 0));
+    if (e.a < 0.5f)
+        return float4(0, 0, 0, 0);
+    float4 nd = gGICapNormalDepth.Load(int3(texel, 0));
+    float viewZ = mul(float4(posW, 1.0f), gGICapView).z;
+    float dd = (nd.w + gGIVox.w * 0.05f) - viewZ;
+    if (dd <= -gGIVox.w * 0.5f || dd > gGIVox.w * 0.5f)
+        return float4(0, 0, 0, 0);
+    float3 lin = ToLinear(max(e.rgb, 0.0f));
+    if (max(lin.r, max(lin.g, lin.b)) < 1e-3f)
+        return float4(0, 0, 0, 0);
+    return float4(lin, 1.0f);
+}
+
+struct Emit8Out
+{
+    float4 E0 : SV_Target0; float4 E1 : SV_Target1; float4 E2 : SV_Target2; float4 E3 : SV_Target3;
+    float4 E4 : SV_Target4; float4 E5 : SV_Target5; float4 E6 : SV_Target6; float4 E7 : SV_Target7;
+};
+
+Emit8Out PS_InjectEmission(GIVOut pin)
+{
+    float2 xy = floor(pin.PosH.xy);
+    float z = gGICap.z;
+    Emit8Out o;
+    o.E0 = InjectEmissionVoxel(float3(xy, z + 0.0f)); o.E1 = InjectEmissionVoxel(float3(xy, z + 1.0f));
+    o.E2 = InjectEmissionVoxel(float3(xy, z + 2.0f)); o.E3 = InjectEmissionVoxel(float3(xy, z + 3.0f));
+    o.E4 = InjectEmissionVoxel(float3(xy, z + 4.0f)); o.E5 = InjectEmissionVoxel(float3(xy, z + 5.0f));
+    o.E6 = InjectEmissionVoxel(float3(xy, z + 6.0f)); o.E7 = InjectEmissionVoxel(float3(xy, z + 7.0f));
     return o;
 }
 
@@ -145,6 +192,7 @@ float4 RelightVoxel(int3 idx)
     surf.ReceiveShadows = true;
     // 표면 바로 앞 (반 복셀) 에서 비춘다 — 그림자 맵 자기 그림자 방지
     float3 rad = ShadeLit(surf, posW + N * (gGIVox.w * 0.5f), N, N, float4(0.5f, 0.5f, 0.0f, 1.0f));
+    rad += gGIVoxEmission.Load(int4(idx, 0)).rgb;   // 발광 재질 — 프로브 광선이 모아 주변을 비춘다
     return float4(rad, 1.0f);
 }
 
@@ -375,6 +423,16 @@ technique11 InjectTech
         SetVertexShader(CompileShader(vs_5_0, VS_GIFull()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS_Inject()));
+    }
+}
+
+technique11 InjectEmissionTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_GIFull()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_InjectEmission()));
     }
 }
 
