@@ -1,51 +1,50 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 3일 05시 05분 KST
-- 단계: **Decal 완료 · 커밋 `ce15018`** (push 는 사용자 확인 뒤), **Joint 2D 와 통합 검사 통과**
-- 기준 커밋: `673c3b3`
-- Codex 분담: Joint 2D — 04시 39분 완료 보고 확인 (Joint 42/42, 물리 8/8, 씬 44/44, 독립 빌드)
+- 갱신 시각: 2026년 10월 4일 02시 KST
+- 단계: **Reflection Probe 완료 · 커밋** (push 는 사용자 확인 뒤) — 사용자 지시 "푸시하고 리플렉션 프로브 진행해줘"
+- 기준 커밋: `89086c1` (push 함 — Decal `ce15018` 포함)
+- Codex 분담: Joint 2D 완료 (작업 폴더에 미커밋), 다음 후보 Tilemap — 명세는 `docs/AI_COLLABORATION.md` 의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
 
-## Decal 결과
-
-- Unity URP 의 Decal Projector (화면 공간 방식): Add Component > Rendering > Decal Projector, 재질을 상자로 표면에 투영 (깊이 프리패스로 위치를 되살려 상자 안만), Draw Distance · Start Fade · Angle Fade · UV · Pivot · 크기 · Opacity, 엔진 Lit/Unlit 재질 또는 Shader Graph (Material = Decal), Game · Scene 뷰 · 게임 빌드, DX11 = OpenGL
-- 자세히: `docs/DECAL.md`, 기록: `AGENT_HANDOFF.md` 의 Decal Projector 항목
-
-## 고친 파일 (커밋에 넣은 것)
+## Reflection Probe 담당 파일 (커밋에 넣은 것)
 
 | 파일 | 왜 |
 |---|---|
-| 새 `Source/Scene/DecalProjector.*`, `Source/Graphics/DX11/DecalRenderer.*`, `Shaders/52. Decal.fx`, `Shaders/53. DecalCommon.fx` | 컴포넌트 · 그리기 · 셰이더 |
-| `Shaders/32. InstancedBasic.fx` | technique11 12 개를 `#ifndef NOVA_NO_ENGINE_TECHNIQUES` 로 감쌈 (데칼 셰이더는 함수만 — OpenGL 변환 3 ~ 4 초 멈춤 방지). 정의하지 않은 파일은 그대로 |
-| `Source/Graphics/DX11/CustomShaders.h` | `DecalDraw`, `Shader::DrawDecal` |
-| `Source/Graphics/DX11/RenderStates.*` | `DecalBS` (RGB 만 섞기) |
-| `Source/Editor/EditorApp.cpp` | Game · Scene 뷰에서 불투명 다음 `DecalRenderer::Render` |
-| `Source/Editor/UnityGUI.*` | 새 `MinMaxSlider` (Angle Fade) — 함수 추가만 |
-| `Source/ShaderGraph/` | Material = Decal (`GenerateDecal`, 런타임 `DrawDecal`), `new --material Decal` 이 Lit 으로 바뀌던 것 |
-| `Tools/NovaCli/main.cpp` | 도움말 한 줄 (`--material Lit\|Unlit\|Decal`) |
-| **공용** `Source/Editor/AddComponentMenu.cpp` | `DecalProjector` 한 줄만 stage (Codex 의 Joint 6 줄은 작업 폴더에 그대로) |
-| **공용** `Tools/tests/run_tests.ps1` | `Suite-Decal` 함수 + 목록 · switch · 도움말에 `decal` 한 단어씩만 stage |
-| 문서 | 새 `docs/DECAL.md`, `README.md` · `AGENT_HANDOFF.md` 한 줄씩, `docs/NOVA_CLI.md` · `docs/SHADER_GRAPH.md` 는 `Decal` 단어 |
+| 새 `Source/Scene/ReflectionProbe.*` | Unity 의 Reflection Probe 컴포넌트 (Type Baked · Custom · Realtime, Importance, Intensity, Box Projection, Blend Distance, Box Size · Offset, Resolution, HDR, Shadow Distance, Clear Flags, Background, Culling Mask, Clipping Planes, Refresh Mode, Time Slicing, Bake 버튼, 기즈모) |
+| 새 `Source/Graphics/DX11/ReflectionProbes.*` | 찍기 (6 면) · GGX 필터 · 큐브 배열 (최대 8) · 뷰마다 고르기 · 셰이더 값 · 굽기 (DDS) · CLI `probe` |
+| 새 `Shaders/54. ReflectionProbe.fx` | 면 · 밉마다 GGX 필터 |
+| `Shaders/32. InstancedBasic.fx` | 반사 = `ProbeReflection` (프로브 블렌드 + Box Projection + 남는 몫 하늘). 확산 환경광은 하늘 그대로 |
+| `Source/Editor/EditorApp.*` | Game 뷰 본문을 `RenderGameView(target, GameViewDesc)` 로 (프로브 찍기가 같은 길), 두 뷰에 `Select` · `Bind`, `RenderApplication` 에서 `Update` |
+| `Source/Graphics/OpenGL/GfxGL.cpp` | `CaptureTexture` 가 큐브 · 배열 · 밉도 (OpenGL 굽기) |
+| `Tools/NovaCli/main.cpp` | `probe` 를 op 형 명령 줄에 한 단어 + 도움말 한 줄 |
+| **공용** `Source/Editor/AddComponentMenu.cpp` | Rendering > Reflection Probe 한 줄만 stage (Codex 의 Joint 6 줄은 작업 폴더에 그대로) |
+| **공용** `Source/Editor/GameObjectMenu.cpp` | Light > Reflection Probe 켬, Rendering 하위 메뉴 (Reflection Probe · URP Decal Projector) |
+| **공용** `Tools/tests/run_tests.ps1` | 새 `Suite-ReflectionProbe` + 목록 · switch · 도움말에 한 단어 |
+| 문서 | 새 `docs/REFLECTION_PROBE.md`, README · AGENT_HANDOFF · NOVA_CLI 한 줄씩, 공동 명세의 Claude 줄 · 절 |
 
-C# 네이티브 표 (`ScriptBindings.cpp` · `NativeApi.cs`) · `Source/Physics2D/` · `GameObject.*` · 씬 파일 · `CliCommands.cpp` 는 고치지 않았다. Decal 은 C# 바인딩이 아직 없다 (필요하면 Codex 의 `J2_*` 8 개 뒤에).
+C# 네이티브 표 · `Source/Physics2D/` · 씬 파일 · `CliCommands.cpp` · Codex 의 Joint 2D 파일은 고치지 않았다.
 
-## 검증 (Debug, 독립 빌드 `E:\NovaTest\ClaudeDecalEngine` = `673c3b3` + Claude 변경만)
+## 검증 (Debug, 독립 빌드 `E:\NovaTest\ClaudeDecalEngine` = `89086c1` + 작업 폴더의 Codex Joint 2D 변경 + Claude Reflection Probe)
 
-- `decal` **5/5** (`TestResults/decal3`): 바닥 빨강 (상자 안 1800/1800, 밖 0) · Opacity 0 · Base Map 알파 줄무늬 (870/1800) · Shader Graph 체커 데칼 · 저장 → 다시 열기
-- `decal · shadergraph · render` **37/37** (`TestResults/regress2`, 32 를 고친 뒤 다시)
-- OpenGL 짧은 확인: DX 와 같은 그림, HANG 없음 (DecalTech 만 변환)
-- 커밋한 파일은 독립 빌드와 바이트가 같음을 확인 (`cmp`), 공용 두 파일은 독립 빌드의 내용을 그대로 stage
+- `reflectionprobe` **9/9** (`TestResults/probe2`): 프로브 없으면 하늘 · 굽기 (DDS + 빨간 벽 반사) · 다시 열기 · 상자 밖은 하늘 · Intensity 0 · Custom · Realtime On Awake 는 `probe render` 까지 유지 · Every Frame (Individual Faces) · Box Projection (347 → 801)
+- 회귀 `render · shadergraph · decal · packages` **47/47** (`TestResults/probe_reg1`) — 32 셰이더 변경 · Game 뷰 함수 분리 뒤
+- OpenGL 짧은 확인: DX 와 같은 그림, OpenGL 굽기 (큐브 읽기) 성공
+- 커밋한 파일은 독립 빌드와 내용이 같다 (공용 파일은 내 줄만 stage)
 
 ## 공용 빌드 · 테스트 에디터 사용
 
-- **공용 `build/` · `Binaries/` 는 사용 안 함.** Claude 의 테스트 에디터는 모두 닫았다
-- 따로 빌드한 엔진으로 검사할 때는 `$env:NOVA_ENGINE` 을 그 엔진으로 (안 하면 `nova open` 이 Hub 의 `engine.json` 엔진을 띄운다)
-
-## 편집 중인 공용 파일
-
-- 없음
+- **공용 `build/` · `Binaries/` 는 사용 안 함.** Claude 의 테스트 에디터는 모두 닫았다. 독립 빌드 `E:\NovaTest\ClaudeDecalEngine` 에서 빌드 · 검사, 테스트 프로젝트 `E:\NovaTest\ScriptTest` (`$env:NOVA_ENGINE` 으로 그 엔진)
 
 ## Codex 에게
 
-- Decal 이 `32. InstancedBasic.fx` 를 바꿨다 (기법을 매크로로 감쌈 — 기존 셰이더는 결과가 같다, `render` 8/8). 셰이더 캐시가 한 번 다시 컴파일된다
-- **통합 검사 (05시 05분)**: 독립 빌드 `E:\NovaTest\ClaudeDecalEngine` 에 `ce15018` + 작업 폴더의 Codex Joint 2D 변경 (17 파일 — 작업 폴더와 내용이 같음을 `diff --strip-trailing-cr` 로 확인), CMake 재구성 + 엔진 · SDK 빌드 → `joints2d.ps1` **42/42** (`TestResults/integ_joints`, 빌드한 게임 포함), `physics2d · decal` **13/13** (`TestResults/integ_reg`). 씬 44 개 (`scene_lifecycle.ps1`) 는 돌리지 않았다 (Decal 이 씬 코드를 건드리지 않음)
-- Joint 2D 는 Codex 가 커밋한다 (작업 폴더의 `AddComponentMenu.cpp` 에는 Codex 6 줄이 unstaged 로 남아 있음 — 내 줄은 이미 커밋)
+- `Shaders/32. InstancedBasic.fx` 의 ShadeLit 반사가 `ProbeReflection` 을 거친다 (프로브가 없으면 예전과 같은 하늘). 셰이더 캐시가 한 번 다시 컴파일된다
+- `EditorApp::OnSceneRender` 의 본문이 `RenderGameView(target, GameViewDesc)` 로 옮겨졌다 (동작은 같음). 씬 쪽 코드는 건드리지 않았다
+- `GameObjectMenu.cpp` 의 Rendering 하위 메뉴를 켰다 (Reflection Probe · URP Decal Projector). Tilemap 메뉴는 2D Object 쪽이라 겹치지 않는다
+- 공동 명세에 "Tilemap 명세 (Codex)" 를 적었다 — 사용자 확인 후 착수
+
+## 편집 중인 공용 파일
+
+- 없음. `docs/AI_COLLABORATION.md` 는 Codex 의 미커밋 변경 (Joint 줄 · 인계 절) 과 같은 파일이라 커밋에는 내 줄 (Decal 줄 · Reflection Probe 줄 · Tilemap 줄 · 새 절 둘) 만 넣었다
+
+## 지난 작업
+
+- Decal Projector (`ce15018`, push): `docs/DECAL.md`. Joint 2D 와 합친 독립 빌드 검사 joints2d 42/42, physics2d · decal 13/13

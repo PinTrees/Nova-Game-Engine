@@ -83,8 +83,31 @@ Codex의 씬 작업은 Shader Graph API, 재질 직렬화, 렌더링, C# 바인�
 | 담당 | 작업 | 주 파일 | 상태 |
 |---|---|---|---|
 | **Codex** | **Joint 2D** (Unity 의 2D Joint 6 종) | `Source/Physics2D/` (새 `Physics2DJoints.*` 권장), `ScriptCore/Engine/Physics2D.cs`, `Source/Scripting/ScriptBindings.cpp` · `ScriptCore/Interop/NativeApi.cs` (C# 네이티브 표 — **이번 회차는 Codex 만** 고친다), 새 검사 `Tools/tests/joints2d.ps1` | 사용자 확인 후 착수 |
-| Codex (다음 후보) | Tilemap (Tile Palette 창, Tilemap Renderer, Tilemap Collider 2D) | `Source/` 아래 새 폴더 (예: `Source/Tilemap/`), 위 C# 표 | Joint 2D 다음 |
-| **Claude** | **Decal** (Unity URP 의 Decal Projector — 깊이 버퍼에서 표면 위치를 되살려 그림 투영, 일반 재질 + Shader Graph 데칼) | 새 `Source/Scene/DecalProjector.*`, 새 셰이더 (`Shaders/52. Decal.fx`), `Source/Editor/EditorApp.cpp` (그리는 순서), `Source/ShaderGraph/` | 사용자 진행 지시 대기 |
+| Codex (다음 후보) | Tilemap (Tile Palette 창, Tilemap Renderer, Tilemap Collider 2D) — 아래 "Tilemap 명세" | `Source/` 아래 새 폴더 (예: `Source/Tilemap/`), 위 C# 표 | Joint 2D 다음 — 사용자 확인 후 착수 |
+| **Claude** | **Decal** (Unity URP 의 Decal Projector — 깊이 버퍼에서 표면 위치를 되살려 그림 투영, 일반 재질 + Shader Graph 데칼) | 새 `Source/Scene/DecalProjector.*`, 새 셰이더 (`Shaders/52. Decal.fx`), `Source/Editor/EditorApp.cpp` (그리는 순서), `Source/ShaderGraph/` | 완료 · push (`ce15018`). Joint 2D 와 합친 독립 빌드 검사: joints2d 42/42, physics2d · decal 13/13 (10월 3일 05시 05분) |
+| **Claude** | **Reflection Probe** (Unity 의 Reflection Probe — Baked · Realtime · Custom, Box Projection, 블렌드) — 아래 "Reflection Probe (Claude)" | 새 `Source/Scene/ReflectionProbe.*`, 새 `Source/Graphics/DX11/ReflectionProbes.*`, 새 셰이더, `Shaders/32. InstancedBasic.fx` (반사 함수), `Source/Editor/EditorApp.cpp` (Game 뷰 그리기를 함수로 나눔) | 구현 · 독립 빌드 검사 완료 (10월 4일): reflectionprobe 9/9, render · shadergraph · decal · packages 47/47 |
+
+### Reflection Probe (Claude)
+
+작성: Claude, 2026년 10월 4일. 사용자 지시 "푸시하고 리플렉션 프로브 진행해줘".
+
+- 고치는 파일: 새 `Source/Scene/ReflectionProbe.*` (컴포넌트), 새 `Source/Graphics/DX11/ReflectionProbes.*` (캡처 · 필터 · 큐브 배열 · 바인딩 · CLI `probe`), 새 `Shaders/54. ReflectionProbe.fx`, `Shaders/32. InstancedBasic.fx` (반사를 프로브 블렌드로 — 확산 환경광은 하늘 그대로), `Source/Editor/EditorApp.cpp` (Game 뷰 그리기를 `RenderGameView` 로 나눠 프로브 캡처가 같은 길을 씀), `Source/Graphics/OpenGL/GfxGL.cpp` (`CaptureTexture` 가 큐브 · 밉도), 공용 `AddComponentMenu.cpp` · `GameObjectMenu.cpp` 한 줄씩, `Tools/tests/run_tests.ps1` 의 새 `Suite-ReflectionProbe`
+- 안 고치는 파일: `Source/Physics2D/`, 씬 파일, `CliCommands.cpp` (CLI 는 Shader Graph 처럼 내 파일에서 등록), C# 표 (C# `ReflectionProbe.RenderProbe()` 는 다음 회차 — Codex 의 `J2_*` 뒤에)
+- 굽기 결과는 Unity 처럼 씬 옆 폴더 (`Assets/.../<씬 이름>/ReflectionProbe-<n>.dds`), 컴포넌트 JSON 의 `bakedTexture` 에 경로
+
+### Tilemap 명세 (Codex)
+
+작성: Claude, 2026년 10월 4일 (Joint 2D 다음 후보 — 사용자 확인 후 착수). Unity 의 2D Tilemap 과 같은 이름 · 동작.
+
+- **컴포넌트**: `Grid` (Cell Size, Cell Gap, Cell Layout = Rectangle 부터, Cell Swizzle XYZ), `Tilemap` (Grid 의 자식, Animation Frame Rate, Color, Tile Anchor (0.5, 0.5, 0), Orientation XY), `TilemapRenderer` (Sort Order, Mode = Chunk, Sorting Layer · Order in Layer, Material), `TilemapCollider2D` (Used By Composite 는 나중, Is Trigger, Offset — 칸마다 사각형 또는 Tile 의 Collider Type: None · Sprite · Grid)
+- **Tile 에셋** (`.asset` JSON — Unity 의 Tile ScriptableObject): Sprite (`스프라이트시트.png#이름` 형식 — 엔진의 sprite-slice 결과), Color, Collider Type. Project 창 Create > 2D > Tiles > Tile, 스프라이트를 Tile Palette 로 끌면 Tile 자동 생성
+- **Tile Palette 창** (Window > 2D > Tile Palette): 팔레트 (`.palette` — 칸 → Tile), 도구 Select · Move · **Paint (B)** · **Box Fill (U)** · Pick (I) · **Erase (D)** · **Flood Fill (G)**, Active Tilemap 고르기, Scene 뷰에서 칸 미리보기 · 칠하기 (Undo 한 번에 한 획)
+- **저장**: 씬 JSON 의 Tilemap 에 칸 목록 (`[x, y, tile 번호]` + tile 경로 표 — 큰 맵도 작게), Undo, Play/Stop 복원, 프리팹, 게임 빌드 (Tile · 그림이 따라감 — `BuildPipeline` 은 JSON 의 문자열 경로를 따라간다)
+- **그리기**: 기존 2D 스프라이트 경로 (`SpriteBatch`, Sorting Layer) 에 칸을 덩어리 (Chunk) 로 — 보이는 칸만. `SpriteBatch` 를 고쳐야 하면 공용 파일 규칙
+- **C#** (`ScriptCore/Engine/`): `Tilemap.SetTile(Vector3Int, TileBase)` · `GetTile` · `HasTile` · `ClearAllTiles` · `GetCellCenterWorld` · `WorldToCell` · `CellToWorld` · `origin` · `size` · `cellBounds`, `Grid.WorldToCell` · `CellToWorld`, `Tile` (sprite, color, colliderType). 네이티브 함수는 표 맨 끝 (`J2_*` 다음)
+- **CLI** (예: `nova tilemap paint --target Ground --cells 0,0:9,0 --tile Assets/Tiles/grass.asset`, `tilemap info`) — 검사와 AI 가 맵을 만들 수 있게
+- **완료 조건** (새 검사, 별도 테스트 프로젝트): 칠한 칸이 Scene · Game 뷰에 보임 (그림 비교), Box Fill · Erase · Flood Fill, Tilemap Collider 2D 위에 Rigidbody2D 상자가 섬 · 지운 칸으로 떨어짐, 저장 → 다시 열기 · Undo · Play/Stop, C# SetTile 로 바꾼 칸이 보이고 충돌함, 빌드한 게임에서 보임
+- Claude 는 이 동안 `Source/Tilemap/` · 2D 물리 · C# 표를 고치지 않는다
 
 ### Joint 2D 명세 (Codex)
 

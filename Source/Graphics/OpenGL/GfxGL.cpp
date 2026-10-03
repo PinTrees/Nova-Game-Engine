@@ -1511,7 +1511,28 @@ namespace GfxGL
 		auto* c = static_cast<GLCtx*>(context);
 		TexInfo* t = TexOf(texture);
 		if (!t || !c->Dev->Check("CaptureTexture")) return E_INVALIDARG;
-		if (t->Target != GL_TEXTURE_2D || t->Fmt.BlockBytes) return E_NOTIMPL;   // 스크린샷·검사용: 2D 비압축만
+		if (t->Fmt.BlockBytes) return E_NOTIMPL;   // 비압축만
+		if (t->Target == GL_TEXTURE_CUBE_MAP || t->Target == GL_TEXTURE_CUBE_MAP_ARRAY || t->Target == GL_TEXTURE_2D_ARRAY)
+		{
+			// 큐브 · 배열 (Reflection Probe 굽기): 모든 조각 · 밉 (DX11 의 DirectX::CaptureTexture 와 같은 모양)
+			const bool cube = t->Target != GL_TEXTURE_2D_ARRAY;
+			HRESULT hr = cube ? out.InitializeCube(t->Dxgi, t->Width, t->Height, (std::max)(1u, t->Layers / 6), t->Mips)
+				: out.Initialize2D(t->Dxgi, t->Width, t->Height, t->Layers, t->Mips);
+			if (FAILED(hr)) return hr;
+			glPixelStorei(GL_PACK_ALIGNMENT, 1);
+			for (UINT layer = 0; layer < t->Layers; ++layer)
+				for (UINT mip = 0; mip < t->Mips; ++mip)
+				{
+					const DirectX::Image* img = out.GetImage(mip, layer, 0);
+					if (!img) continue;
+					glPixelStorei(0x0D02 /* GL_PACK_ROW_LENGTH */, (GLint)(img->rowPitch / (std::max)(1u, t->Fmt.Bits / 8)));
+					glGetTextureSubImage(t->Id, (GLint)mip, 0, 0, (GLint)layer, (GLsizei)img->width, (GLsizei)img->height, 1,
+						t->Fmt.Upload, t->Fmt.Type, (GLsizei)img->slicePitch, img->pixels);
+				}
+			glPixelStorei(0x0D02, 0);
+			return S_OK;
+		}
+		if (t->Target != GL_TEXTURE_2D) return E_NOTIMPL;   // 스크린샷·검사용: 2D 는 밉 0 만
 		HRESULT hr = out.Initialize2D(t->Dxgi, t->Width, t->Height, 1, 1);
 		if (FAILED(hr)) return hr;
 		const DirectX::Image* img = out.GetImage(0, 0, 0);

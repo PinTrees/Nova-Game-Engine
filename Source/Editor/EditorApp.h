@@ -10,6 +10,9 @@
 #include "TextureMgr.h"
 #include "ParticleRenderer.h"
 
+namespace ReflectionProbes { struct CaptureView; }
+namespace ShadowRenderer { struct FrameData; }
+
 class EditorApp : public App
 {
 public:
@@ -34,6 +37,26 @@ private:
 	void DrawScreenQuad(ComPtr<GfxShaderResourceView> srv);
 	void BuildShadowTransform();
 	void BuildScreenQuadGeometryBuffers();
+
+	// Game 뷰 그리기 (카메라 없이도 — Reflection Probe 의 면). Cam 이 없으면 프로브: SSAO · 후처리 없음
+	struct GameViewDesc
+	{
+		XMMATRIX View, Proj;
+		Camera* Cam = nullptr;
+		XMFLOAT3 Position = {};
+		uint32 CullingMask = 0xFFFFFFFFu;
+		int BackgroundType = 0;   // 0 Skybox, 1 Solid Color
+		float Background[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
+		D3D11_VIEWPORT Viewport = {};
+		float ShadowDistance = 100.0f;
+		ShadowRenderer::FrameData* Shadow = nullptr;
+	};
+	void RenderGameView(GfxRenderTargetView* renderTargetView, const GameViewDesc& d);
+	void CaptureProbeFace(const ReflectionProbes::CaptureView& v);
+	bool ProbeNormalDepth(UINT width, UINT height);
+	ComPtr<GfxRenderTargetView> _probeNormalDepthRTV;
+	ComPtr<GfxShaderResourceView> _probeNormalDepthSRV;
+	UINT _probeNormalDepthSize = 0;
 
 private:
 	TextureMgr _texMgr;

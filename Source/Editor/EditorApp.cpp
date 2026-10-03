@@ -31,6 +31,7 @@
 #include "Profiler.h"
 #include "MeshBatcher.h"
 #include "DecalRenderer.h"
+#include "ReflectionProbes.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "EditorCamera.h"
@@ -202,10 +203,13 @@ bool EditorApp::Init()
 	
 	_sceneBounds.Radius = sqrtf(extent.x * extent.x + extent.y * extent.y + extent.z * extent.z);
 
+	// Reflection Probe 의 한 면 = Game 뷰 그리기
+	ReflectionProbes::SetCapture([this](const ReflectionProbes::CaptureView& v) { CaptureProbeFace(v); });
 	if (Application::IsPlayer())
 		PlayerRuntime::Start();   // 빌드된 게임: 첫 씬을 바로 Play
 	else
 	{
+		ReflectionProbes::RegisterEditor();   // nova probe
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
 		CliCommands::RegisterAll();
 		CliServer::Start();
@@ -233,7 +237,8 @@ void EditorApp::UpdateScene(float dt)
 
 void EditorApp::RenderApplication()
 {
-
+	// Reflection Probe: 굽기 요청 · 실시간 프로브 다시 찍기 (Game · Scene 뷰를 그리기 전, 프레임마다 한 번)
+	ReflectionProbes::Update();
 }
 
 GfxDepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
@@ -363,6 +368,7 @@ ParticleRenderer::Environment EditorApp::ParticleEnvironment(GfxDepthStencilView
 
 // 화면별 그림자 결과 (그림자 패스 → 받는 쪽 셰이더)
 static ShadowRenderer::FrameData s_GameShadow;
+static ShadowRenderer::FrameData s_ProbeShadow;   // Reflection Probe 찍기 (캐시 없음)
 static ShadowRenderer::FrameData s_EditorShadow;
 
 void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* camera)
@@ -370,6 +376,67 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	FRAME_PROFILE("GameView render");
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
 	PROFILE_GPU("Game View");
+	GameViewDesc d;
+	d.Cam = camera;
+	d.View = camera->View();
+	d.Proj = camera->Proj();
+	d.Position = camera->GetPosition();
+	d.CullingMask = camera->GetCullingMask();
+	d.BackgroundType = camera->GetBackgroundType();
+	if (camera->UsesSolidBackground())
+		memcpy(d.Background, camera->GetBackgroundColor(), sizeof(d.Background));
+	d.Viewport = RenderManager::GetI()->Viewport;
+	d.Shadow = &s_GameShadow;
+	RenderGameView(renderTargetView, d);
+}
+
+// Reflection Probe 한 면: Game 뷰와 같은 길 (후처리 · SSAO 없음, 프로브 반사 끔 — ReflectionProbes::Capturing)
+void EditorApp::CaptureProbeFace(const ReflectionProbes::CaptureView& v)
+{
+	GameViewDesc d;
+	d.View = v.View;
+	d.Proj = v.Proj;
+	d.Position = v.Position;
+	d.CullingMask = v.CullingMask;
+	d.BackgroundType = v.SolidColor ? 1 : 0;
+	memcpy(d.Background, v.Background, sizeof(d.Background));
+	d.Viewport = v.Viewport;
+	d.ShadowDistance = v.ShadowDistance;
+	// 프로브는 캐시 없이 그림자를 다시 그리고, Game 뷰가 같은 그림자 맵에 캐시해 둔 먼 캐스케이드도 무효로
+	for (auto& c : s_ProbeShadow.Cache) c.Valid = false;
+	d.Shadow = &s_ProbeShadow;
+	RenderGameView(v.Target, d);
+	for (auto& c : s_GameShadow.Cache) c.Valid = false;
+}
+
+// Reflection Probe 찍기의 깊이 프리패스 타깃 (뷰 노멀 + 뷰 깊이, 커지기만 함)
+bool EditorApp::ProbeNormalDepth(UINT width, UINT height)
+{
+	if (_probeNormalDepthRTV && width <= _probeNormalDepthSize && height <= _probeNormalDepthSize)
+		return true;
+	_probeNormalDepthRTV.Reset();
+	_probeNormalDepthSRV.Reset();
+	const UINT size = (std::max)((std::max)(width, height), _probeNormalDepthSize);
+	D3D11_TEXTURE2D_DESC desc = {};
+	desc.Width = desc.Height = size;
+	desc.MipLevels = 1;
+	desc.ArraySize = 1;
+	desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+	desc.SampleDesc.Count = 1;
+	desc.Usage = D3D11_USAGE_DEFAULT;
+	desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+	ComPtr<GfxTexture2D> tex;
+	if (FAILED(_device->CreateTexture2D(&desc, nullptr, tex.GetAddressOf())))
+		return false;
+	_device->CreateRenderTargetView(tex.Get(), nullptr, _probeNormalDepthRTV.GetAddressOf());
+	_device->CreateShaderResourceView(tex.Get(), nullptr, _probeNormalDepthSRV.GetAddressOf());
+	_probeNormalDepthSize = size;
+	return _probeNormalDepthRTV && _probeNormalDepthSRV;
+}
+
+void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const GameViewDesc& d)
+{
+	const bool probe = d.Cam == nullptr;
 	Profiler::Phases phase;
 	MeshBatcher::BeginView();    // 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다
 	TreeRenderer::BeginView();
@@ -382,34 +449,43 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	//BuildShadowTransform();
 
 	RenderManager::GetI()->RenderingEditorView = false;
-	RenderLayers::SetViewMask(camera->GetCullingMask());   // Camera.cullingMask: 이 화면에 그릴 레이어
+	RenderLayers::SetViewMask(d.CullingMask);   // Camera.cullingMask: 이 화면에 그릴 레이어
 	RenderLayers::SetPassMask(~0u);
-	RenderManager::GetI()->CameraViewMatrix = camera->View();
-	RenderManager::GetI()->CameraProjectionMatrix = camera->Proj();
-	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
+	RenderManager::GetI()->CameraViewMatrix = d.View;
+	RenderManager::GetI()->CameraProjectionMatrix = d.Proj;
+	RenderManager::GetI()->CameraViewProjectionMatrix = XMMatrixMultiply(d.View, d.Proj);
+	// 이 뷰에 쓸 Reflection Probe (큐브 배열 칸 필터 — 렌더 타깃을 묶기 전에)
+	ReflectionProbes::Select(d.Position, XMMatrixMultiply(d.View, d.Proj));
 
 	// 와이어프레임 제어처럼 전체 그림자맵 제어도 가능하게
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
-	auto viewport = RenderManager::GetI()->Viewport;
+	const D3D11_VIEWPORT viewport = d.Viewport;
 	// 뷰(렌더 타깃) 크기의 깊이 버퍼: 창 백버퍼보다 큰 해상도(예: 1080x1920)로 그릴 때도 깊이가 맞도록
 	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
-	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
+	Effects::BuildShadowMapFX->SetEyePosW(d.Position);
 
 	// 그림자 맵: 카메라 위치의 Volume 값(Shadows)을 먼저 섞어 캐스케이드/해상도/바이어스를 정한다
 	auto& stack = PostProcessingManager::GetI()->GameStack();
 	{
-		const XMFLOAT3 gameCamPos = camera->GetPosition();
+		const XMFLOAT3 gameCamPos = d.Position;
 		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
 		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
 		phase.Next("Shadows");
+		ShadowRenderer::Settings shadowSettings = ShadowRenderer::Settings::FromStack(stack);
+		if (probe)
+		{
+			shadowSettings.MaxDistance = (std::max)(d.ShadowDistance, 0.01f);   // 프로브의 Shadow Distance
+			shadowSettings.FarCascadeUpdate = 0;
+		}
 		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
-			gameCamPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_GameShadow,
+			gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
 			[]() {
 				// 그림자 조각마다 빛의 절두체로 컬링
 				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
 				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 			});
-		Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
+		if (!probe)
+			Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
 		_deviceContext->RSSetState(0);
 		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 		_deviceContext->RSSetViewports(1, &viewport);
@@ -418,7 +494,25 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	// PostProcessing - SSAO
 	phase.Next("Depth Prepass");
 	auto ssao = PostProcessingManager::GetI()->GetSSAO();
-	ssao->SetNormalDepthRenderTarget(viewDsv);
+	GfxShaderResourceView* normalDepthSRV = nullptr;
+	if (probe)
+	{
+		// 프로브: 자기 크기의 노멀 · 깊이 타깃 (SSAO 의 것은 Game 뷰 크기 — 큰 프로브 면이 잘린다)
+		if (!ProbeNormalDepth((UINT)viewport.Width, (UINT)viewport.Height))
+			return;
+		GfxRenderTargetView* nd[1] = { _probeNormalDepthRTV.Get() };
+		_deviceContext->OMSetRenderTargets(1, nd, viewDsv);
+		const float clearND[4] = { 0.0f, 0.0f, -1.0f, 1e5f };
+		_deviceContext->ClearRenderTargetView(_probeNormalDepthRTV.Get(), clearND);
+		normalDepthSRV = _probeNormalDepthSRV.Get();
+	}
+	else
+	{
+		if (!ssao)
+			return;
+		ssao->SetNormalDepthRenderTarget(viewDsv);
+		normalDepthSRV = ssao->NormalDepthSRV().Get();
+	}
 
 	if (RenderManager::GetI()->WireFrameMode)
 		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
@@ -426,23 +520,28 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	// Draw Scene Objects
 	// 카메라 절두체 컬링 (깊이 사전 패스와 본 패스가 같이 쓴다)
 	SceneCulling::SetEditorView(false);
-	SceneCulling::Cull(camera->View() * camera->Proj(), false);
+	SceneCulling::Cull(d.View * d.Proj, false);
 	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadowNormal();
 
 	_deviceContext->RSSetState(0);
 
 	// PostProcessing - SSAO
-	phase.Next("SSAO");
-	PostProcessingManager::GetI()->RenderSSAO(camera);
+	// 프로브: SSAO 없음 (노멀 · 깊이 타깃은 화면 크기라 프로브 크기의 화면과 맞지 않는다 — 흰 그림으로)
+	if (!probe)
+	{
+		phase.Next("SSAO");
+		PostProcessingManager::GetI()->RenderSSAO(d.Cam);
+	}
+	GfxShaderResourceView* ssaoMap = probe ? SpriteBatch::WhiteTexture() : ssao->AmbientSRV().Get();
 
 	// Volume 후처리: 필요하면 씬을 HDR 타깃에 그린 뒤 마지막에 뷰 타깃으로 합성한다
 	auto& post = PostProcessingManager::GetI()->GamePost();   // stack 은 그림자 패스 앞에서 섞었다
 	PostProcessPass::CameraOptions postOptions;
-	postOptions.PostProcessing = camera->PostProcessingEnabled();
-	postOptions.Fxaa = camera->AntiAliasingMode() != 0;   // SMAA 는 아직 없어 FXAA 로
-	postOptions.Dithering = camera->DitheringEnabled();
-	postOptions.StopNaNs = camera->StopNaNsEnabled();
-	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
+	postOptions.PostProcessing = !probe && d.Cam->PostProcessingEnabled();
+	postOptions.Fxaa = !probe && d.Cam->AntiAliasingMode() != 0;   // SMAA 는 아직 없어 FXAA 로
+	postOptions.Dithering = !probe && d.Cam->DitheringEnabled();
+	postOptions.StopNaNs = !probe && d.Cam->StopNaNsEnabled();
+	const bool usePost = !probe && PostProcessPass::IsNeeded(stack, postOptions);
 	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
 
 	phase.Next("Opaque");
@@ -452,8 +551,8 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	{
 		// Game 뷰: 카메라의 Background Type 이 Solid Color 이면 그 색, 아니면 Unity 기본 카메라 배경색(#314D79)
 		float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
-		if (camera && camera->UsesSolidBackground())
-			memcpy(gameClear, camera->GetBackgroundColor(), sizeof(gameClear));
+		if (d.BackgroundType == 1)
+			memcpy(gameClear, d.Background, sizeof(gameClear));
 		_deviceContext->ClearRenderTargetView(sceneTarget, gameClear);
 	}
 
@@ -462,9 +561,10 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
 
 	// cbPerFrame
-	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
+	Effects::InstancedBasicFX->SetEyePosW(d.Position);
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
-	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
+	Effects::InstancedBasicFX->SetSsaoMap(ssaoMap);
+	ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
 	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
 
 	// lights
@@ -475,18 +575,19 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
 
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
-	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_GameShadow);
+	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
 	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
 	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
-		fx->SetEyePosW(camera->GetPosition());
+		fx->SetEyePosW(d.Position);
 		fx->SetCubeMap(_sky->CubeMapSRV().Get());
-		fx->SetSsaoMap(ssao->AmbientSRV().Get());
+		fx->SetSsaoMap(ssaoMap);
+		ReflectionProbes::Bind(fx);
 		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&indirect.x);
 		fx->SetDirLights(dirLights.data(), dirLights.size());
 		fx->SetSpotLights(spotLights.data(), spotLights.size());
 		fx->SetPointLights(pointLights.data(), pointLights.size());
-		ShadowRenderer::Bind(fx, *shadowMap, s_GameShadow);
+		ShadowRenderer::Bind(fx, *shadowMap, *d.Shadow);
 		RenderLayers::SetLightMasks(fx, scenePointLights, false);
 	});
 
@@ -502,14 +603,14 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 
 	// 데칼 (Decal Projector): 불투명 다음 — 깊이 프리패스의 노멀 · 깊이로 표면을 되살려 상자 안을 칠한다 (하늘 · 투명 · 물 · 입자에는 안 묻는다)
 	phase.Next("Decals");
-	DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, camera->View(), camera->Proj(), ssao->NormalDepthSRV().Get(), false);
+	DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, d.View, d.Proj, normalDepthSRV, false);
 
 	// 입자 (투명): 불투명 물체 다음, 후처리 전 → Bloom 이 Additive 불꽃을 빛나게 한다
 	// Background Type = Skybox 면 불투명 물체 다음(빈 곳 깊이 = 1)에 하늘을 그린다. 입자(투명)보다는 먼저.
-	if (camera->GetBackgroundType() == 0)
+	if (d.BackgroundType == 0)
 	{
 		phase.Next("Sky");
-		_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
+		_sky->Draw(_deviceContext.Get(), d.Position, d.View * d.Proj);
 		_deviceContext->RSSetState(0);
 		_deviceContext->OMSetDepthStencilState(0, 0);
 	}
@@ -519,7 +620,7 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	if (atmosphere.Active())
 	{
 		phase.Next("Atmosphere");
-		DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, camera->GetBackgroundType() == 0);
+		DrawAtmosphere(&atmosphere, d.View * d.Proj, d.Position, sceneTarget, viewDsv, viewport, d.BackgroundType == 0);
 	}
 
 	// 투명 메시 (Shader Graph 의 Surface Type = Transparent): 불투명 · 하늘 · 대기 다음, 물 전 — 먼 것부터, 깊이는 읽기만
@@ -535,17 +636,17 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 
 	// 물 (바다·호수·강): 불투명 + 하늘 다음 (굴절에 화면 색을 쓴다), 입자 전
 	phase.Next("Water");
-	DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, camera->GetBackgroundType() == 0, shadowMap.get(), &s_GameShadow, &atmosphere);
+	DrawWater(d.View, d.Proj, d.Position, sceneTarget, viewDsv, viewport, dirLights, d.BackgroundType == 0, shadowMap.get(), d.Shadow, &atmosphere);
 
 	// 2D 스프라이트 (SpriteRenderer · 2D 뼈대): 투명 — 하늘 · 물 다음, 입자 전
 	phase.Next("Sprites");
 	_deviceContext->RSSetViewports(1, &viewport);
-	SpriteBatch::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+	SpriteBatch::Render(d.View, d.Proj, sceneTarget, viewDsv);
 
 	phase.Next("Particles");
 	{
-		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, camera->GetBackgroundType() == 0);
-		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
+		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, d.BackgroundType == 0);
+		ParticleRenderer::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);
 	}
 	_deviceContext->RSSetViewports(1, &viewport);
 
@@ -587,6 +688,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	RenderManager::GetI()->EditorCameraViewMatrix = camera->View();
 	RenderManager::GetI()->EditorCameraProjectionMatrix = camera->Proj();
 	RenderManager::GetI()->EditorCameraViewProjectionMatrix = XMMatrixMultiply(camera->View(), camera->Proj());
+	ReflectionProbes::Select(camera->GetPosition(), XMMatrixMultiply(camera->View(), camera->Proj()));
 
 	auto shadowMap = RenderManager::GetI()->EditorShadowMap;
 	auto viewport = RenderManager::GetI()->EditorViewport;
@@ -656,6 +758,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
 	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
 	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
+	ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
 	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
 
 	// lights
@@ -672,6 +775,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		fx->SetEyePosW(camera->GetPosition());
 		fx->SetCubeMap(_sky->CubeMapSRV().Get());
 		fx->SetSsaoMap(ssao->AmbientSRV().Get());
+		ReflectionProbes::Bind(fx);
 		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&indirect.x);
 		fx->SetDirLights(dirLights.data(), dirLights.size());

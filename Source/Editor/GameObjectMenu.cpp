@@ -8,6 +8,8 @@
 #include "RockDesc.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
+#include "ReflectionProbe.h"
+#include "DecalProjector.h"
 
 namespace GameObjectMenu
 {
@@ -180,7 +182,7 @@ namespace GameObjectMenu
 			if (ImGui::MenuItem("Spot Light")) add(GameObjectFactory::CreateSpotLight());
 			Disabled("Area Light");
 			ImGui::Separator();
-			Disabled("Reflection Probe");
+			if (ImGui::MenuItem("Reflection Probe")) { GameObject* o = GameObjectFactory::CreateEmpty("Reflection Probe"); o->AddComponent<ReflectionProbe>(); add(o); }
 			Disabled("Light Probe Group");
 			ImGui::EndMenu();
 		}
@@ -219,7 +221,13 @@ namespace GameObjectMenu
 		}
 		DisabledSubMenu("AI", { "Navigation" });
 		DisabledSubMenu("UI Toolkit", { "UI Document" });
-		DisabledSubMenu("Rendering", { "Reflection Probe" });
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("Rendering"))
+		{
+			if (ImGui::MenuItem("Reflection Probe")) { GameObject* o = GameObjectFactory::CreateEmpty("Reflection Probe"); o->AddComponent<ReflectionProbe>(); add(o); }
+			if (ImGui::MenuItem("URP Decal Projector")) { GameObject* o = GameObjectFactory::CreateEmpty("Decal Projector"); o->AddComponent<DecalProjector>(); add(o); }
+			ImGui::EndMenu();
+		}
 
 		SetMenuWidth(190.0f);
 		if (ImGui::BeginMenu("Volume"))

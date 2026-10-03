@@ -117,6 +117,12 @@ Texture2DArray gSpotShadowMaps[LIGHT_SIZE];    // 조각 1 개
 Texture2DArray gPointShadowMaps[LIGHT_SIZE];   // 큐브 6 면 = 조각 6 개
 Texture2D gSsaoMap;
 TextureCube gCubeMap;
+TextureCubeArray gProbeCubes;   // Reflection Probe — 칸마다 GGX 로 필터한 밉 (ReflectionProbes)
+cbuffer cbReflectionProbes
+{
+    float4 gProbeParams;       // x 이 뷰의 프로브 수 (0 = 하늘만), y 배열의 밉 수
+    float4 gProbeData[24];     // 프로브마다 3 개: 상자 최소 + Blend Distance, 상자 최대 + Intensity, 찍은 점 + (칸 × 2 + Box Projection)
+};
 
 // object
 Texture2D gDiffuseMap;     // Base Map
@@ -470,6 +476,58 @@ struct LitSurface
     bool ReceiveShadows;
 };
 
+// ---------------------------------------------------------------------------
+// Reflection Probe (ReflectionProbes::Select · Bind): 반사 = 프로브들 (Importance 순, 상자 안쪽 Blend Distance 로 가중)
+//  + 남는 몫은 하늘 — Unity URP Forward+ 의 프로브 블렌드. 확산 환경광은 하늘 그대로 (Unity 도 확산은 Light Probe / 하늘)
+// ---------------------------------------------------------------------------
+float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float skyMips)
+{
+    float3 sum = 0.0f;
+    float total = 0.0f;
+    int count = (int)gProbeParams.x;
+    if (count > 0)
+    {
+        float probeMips = gProbeParams.y;
+        float probeMip = min(perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max(probeMips - 4.0f, 6.0f), probeMips - 1.0f);
+        [loop]
+        for (int i = 0; i < count; ++i)
+        {
+            if (total >= 0.999f)
+                break;
+            float4 bmin = gProbeData[i * 3 + 0];
+            float4 bmax = gProbeData[i * 3 + 1];
+            float4 cap = gProbeData[i * 3 + 2];
+            float3 inside = min(posW - bmin.xyz, bmax.xyz - posW);
+            float edge = min(inside.x, min(inside.y, inside.z));
+            if (edge < 0.0f)
+                continue;
+            float w = bmin.w > 0.0f ? saturate(edge / bmin.w) : 1.0f;
+            w = min(w, 1.0f - total);
+            if (w <= 0.0f)
+                continue;
+            float slot = floor(cap.w * 0.5f + 0.01f);
+            float3 dir = R;
+            if (cap.w - slot * 2.0f > 0.5f)
+            {
+                // Box Projection: 반사 광선이 상자 벽에 닿는 점을 찍은 점에서 본 방향
+                float3 safeR = max(abs(R), 1e-5f) * (step(0.0f, R) * 2.0f - 1.0f);
+                float3 boxMinMax = lerp(bmin.xyz, bmax.xyz, step(0.0f, R));
+                float3 rb = (boxMinMax - posW) / safeR;
+                float fa = min(min(rb.x, rb.y), rb.z);
+                dir = (posW - cap.xyz) + R * fa;
+            }
+            sum += (w * bmax.w) * ToLinear(gProbeCubes.SampleLevel(samLinear, float4(dir, slot), probeMip).rgb);
+            total += w;
+        }
+    }
+    if (total < 0.999f)
+    {
+        float skyMip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max(skyMips - 4.0f, 6.0f);
+        sum += (1.0f - total) * ToLinear(gCubeMap.SampleLevel(samLinear, R, min(skyMip, skyMips - 1.0f)).rgb);
+    }
+    return sum;
+}
+
 float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPosH)
 {
     // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
@@ -573,8 +631,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     {
         float3 R = reflect(-V, N);
         // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
-        float mip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max((float)mips - 4.0f, 6.0f);
-        float3 env = ToLinear(gCubeMap.SampleLevel(samLinear, R, min(mip, (float)(mips - 1))).rgb);
+        float3 env = ProbeReflection(R, posW, perceptualRoughness, (float)mips);
         float fresnel = pow(1.0f - NoV, 4.0f);
         float grazing = saturate(surf.Smoothness + (1.0f - oneMinusReflectivity));
         float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);

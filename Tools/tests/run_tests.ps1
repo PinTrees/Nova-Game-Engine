@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, recovery, render, gfx, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, recovery, render, gfx, perf, particles, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -24,7 +24,7 @@ if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.b
 if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'audio', 'recovery', 'render', 'gfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2039,6 +2039,131 @@ function Suite-Decal
     }
 }
 
+function Suite-ReflectionProbe
+{
+    # Reflection Probe: 거울 구가 카메라 뒤의 빨간 벽을 비추는지 (하늘 대신), 굽기 · 다시 열기 · 상자 밖 · Intensity · Custom · Box Projection · 실시간
+    Write-Host '[reflectionprobe]'
+    $dir = Join-Path $Out 'reflectionprobe'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\ProbeTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $base = Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json
+    function MakeMat([string]$name, $color, [double]$metallic, [double]$smooth, $emission)
+    {
+        $m = $base.PSObject.Copy(); $m.BaseColor = $color; $m.Metallic = $metallic; $m.Smoothness = $smooth; $m.ResourcePath = "Assets\ProbeTest\$name.mat"
+        if ($emission) { $m.Emission = $true; $m.EmissionColor = $emission }
+        $m | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.mat")
+    }
+    MakeMat 'Chrome' @(1, 1, 1, 1) 1.0 1.0 $null
+    MakeMat 'RedWall' @(1, 0, 0, 1) 0.0 0.25 @(1, 0, 0)
+    MakeMat 'GreenWall' @(0, 1, 0, 1) 0.0 0.25 @(0, 1, 0)
+    $ed = Start-TestEditor
+    try
+    {
+        function SetProbe([string]$values) { Invoke-Nova ('set Probe --component ReflectionProbe --values "' + $values.Replace('"', '\"') + '"') }
+        function SetWall([string]$mat) { Invoke-Nova ('set Wall --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/ProbeTest/' + $mat + '.mat\"]}"') | Out-Null }
+        function View { Invoke-Nova 'camera --position 0,1,-3 --target 0,1,0' | Out-Null }
+        # 구 가운데 (카메라 뒤를 비추는 곳) 의 평균 색 + 구 상자 안의 빨강 · 초록 점 수
+        function Shot([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova 'wait 5' | Out-Null
+            Invoke-Nova "screenshot $p --view scene" | Out-Null
+            if (-not (Test-Path $p)) { return $null }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $n = 0; $r = 0; $g = 0; $b = 0; $red = 0; $green = 0
+            for ($y = [int]($bm.Height * 0.35); $y -lt [int]($bm.Height * 0.65); $y += 2) { for ($x = [int]($bm.Width * 0.42); $x -lt [int]($bm.Width * 0.58); $x += 2) {
+                $c = $bm.GetPixel($x, $y)
+                if ($c.R -gt $c.G + 80 -and $c.R -gt $c.B + 80) { $red++ }
+                if ($c.G -gt $c.R + 80 -and $c.G -gt $c.B + 60) { $green++ }
+                $fx = $x / $bm.Width; $fy = $y / $bm.Height
+                if ($fx -gt 0.48 -and $fx -lt 0.52 -and $fy -gt 0.46 -and $fy -lt 0.50) { $n++; $r += $c.R; $g += $c.G; $b += $c.B } } }
+            $bm.Dispose()
+            $n = [math]::Max(1, $n)
+            [pscustomobject]@{ R = [int]($r / $n); G = [int]($g / $n); B = [int]($b / $n); Red = $red; Green = $green }
+        }
+        function IsRed($s) { $s -and $s.R -gt 150 -and $s.R -gt $s.G + 80 -and $s.R -gt $s.B + 80 }
+        function IsGreen($s) { $s -and $s.G -gt 150 -and $s.G -gt $s.R + 80 }
+        function Txt($s) { if ($s) { "rgb=$($s.R),$($s.G),$($s.B) red=$($s.Red) green=$($s.Green)" } else { 'no capture' } }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        Invoke-Nova 'create sphere --name Mirror --position 0,1,0' | Out-Null
+        Invoke-Nova 'set Mirror --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/ProbeTest/Chrome.mat\"]}"' | Out-Null
+        Invoke-Nova 'create cube --name Wall --position 0,1.5,-6 --scale 20,8,1' | Out-Null
+        SetWall 'RedWall'
+        View
+        $s0 = Shot 'probe_none.png'
+        Add-Result reflectionprobe 'without a probe the mirror sphere reflects the sky (not the red wall behind the camera)' ($s0 -and -not (IsRed $s0)) (Txt $s0)
+
+        Invoke-Nova 'create empty --name Probe --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component Probe ReflectionProbe' | Out-Null
+        SetProbe '{"size":[30,20,30]}' | Out-Null
+        Invoke-Nova 'scene save --as Assets/ProbeTest/ProbeScene.scene' | Out-Null
+        $bake = Invoke-NovaJson 'probe bake'
+        $file = Join-Path $Project 'Assets\ProbeTest\ProbeScene\ReflectionProbe-0.dds'
+        View
+        $s1 = Shot 'probe_baked.png'
+        Add-Result reflectionprobe 'Bake: Assets/ProbeTest/ProbeScene/ReflectionProbe-0.dds, the sphere reflects the red wall' ((Test-Path $file) -and $bake.baked[0].bakedTexture -eq 'Assets/ProbeTest/ProbeScene/ReflectionProbe-0.dds' -and (IsRed $s1)) "file=$(Test-Path $file) baked=$($bake.baked[0].bakedTexture) $(Txt $s1)"
+
+        Invoke-Nova 'scene save' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'scene open Assets/ProbeTest/ProbeScene.scene --force' | Out-Null
+        View
+        $g = Invoke-NovaJson 'get Probe'
+        $c = @($g.components | Where-Object { $_.type -eq 'ReflectionProbe' })[0]
+        $s2 = Shot 'probe_reopened.png'
+        Add-Result reflectionprobe 'saved and reopened: baked texture kept and loaded (still red), box size kept' ($c -and $c.bakedTexture -eq 'Assets/ProbeTest/ProbeScene/ReflectionProbe-0.dds' -and (@($c.size | ForEach-Object { [double]$_ }) -join ',') -eq '30,20,30' -and (IsRed $s2)) "baked=$($c.bakedTexture) size=$($c.size -join ',') $(Txt $s2)"
+
+        SetProbe '{"center":[0,0,60]}' | Out-Null
+        $s3 = Shot 'probe_outside.png'
+        SetProbe '{"center":[0,0,0]}' | Out-Null
+        Add-Result reflectionprobe 'outside the probe box (Box Offset moved away) the sphere falls back to the sky' ($s3 -and -not (IsRed $s3)) (Txt $s3)
+
+        SetProbe '{"intensity":0}' | Out-Null
+        $s4 = Shot 'probe_intensity0.png'
+        SetProbe '{"intensity":1}' | Out-Null
+        Add-Result reflectionprobe 'Intensity 0 = dark reflection inside the box (no sky either)' ($s4 -and $s0 -and $s4.R -lt 120 -and $s4.B -lt $s0.B - 50 -and -not (IsRed $s4)) "$(Txt $s4) (sky $($s0.B))"
+
+        SetProbe '{"mode":"Custom","customCubemap":"Assets/ProbeTest/ProbeScene/ReflectionProbe-0.dds"}' | Out-Null
+        SetWall 'GreenWall'
+        $s6 = Shot 'probe_custom.png'
+        Add-Result reflectionprobe 'Custom: the chosen cubemap (the baked red one) even after the wall turned green' ((IsRed $s6)) (Txt $s6)
+
+        SetProbe '{"mode":"Realtime","refreshMode":"OnAwake"}' | Out-Null
+        $s7 = Shot 'probe_realtime_awake.png'
+        SetWall 'RedWall'
+        $s8 = Shot 'probe_realtime_awake_after.png'
+        Invoke-Nova 'probe render' | Out-Null
+        $s9 = Shot 'probe_realtime_rendered.png'
+        Add-Result reflectionprobe 'Realtime On Awake: captures the green wall once, keeps it after the wall turns red until probe render' ((IsGreen $s7) -and (IsGreen $s8) -and (IsRed $s9)) "awake: $(Txt $s7) | after: $(Txt $s8) | render: $(Txt $s9)"
+
+        SetProbe '{"refreshMode":"EveryFrame","timeSlicing":"IndividualFaces"}' | Out-Null
+        SetWall 'GreenWall'
+        Invoke-Nova 'wait 15' | Out-Null
+        $s10 = Shot 'probe_everyframe.png'
+        Add-Result reflectionprobe 'Realtime Every Frame (Individual Faces): follows the wall turning green by itself' ((IsGreen $s10)) (Txt $s10)
+
+        # Box Projection: 찍는 점을 구에서 4 떨어뜨리고 (상자는 그대로 — Box Offset) 벽이 작아 보이던 것을 상자 벽에 맞춰 바로잡는다
+        SetProbe '{"timeSlicing":"AllFacesAtOnce","center":[0,0,-4],"size":[12,8,12]}' | Out-Null
+        Invoke-Nova 'set Probe --position 0,1,4' | Out-Null
+        SetWall 'RedWall'
+        $s11 = Shot 'probe_far_plain.png'
+        SetProbe '{"boxProjection":true}' | Out-Null
+        $s12 = Shot 'probe_far_boxprojection.png'
+        Add-Result reflectionprobe 'Box Projection: capture point 4 m away, the wall reflection is corrected to its real size (bigger red patch)' ($s11 -and $s12 -and (IsRed $s12) -and $s12.Red -gt $s11.Red * 1.2) "plain red=$($s11.Red) boxProjection red=$($s12.Red)"
+        $info = Invoke-NovaJson 'probe info'
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Audio
 {
     Write-Host '[audio]'
@@ -2352,6 +2477,7 @@ try
                 'physics2d' { Suite-Physics2D }
                 'shadergraph' { Suite-ShaderGraph }
                 'decal' { Suite-Decal }
+                'reflectionprobe' { Suite-ReflectionProbe }
                 'audio' { Suite-Audio }
                 'recovery' { Suite-Recovery }
                 'render' { Suite-Render }
