@@ -1,9 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 (LOD Group · Screen Space Reflection 완료, 커밋 — push 는 사용자 확인 뒤)
+- 갱신 시각: 2026년 10월 4일 (LOD Group · Screen Space Reflection 완료 · push `564e00a`)
 - 단계: **LOD Group (`83226d8`) · Screen Space Reflection 완료** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
 - 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록
-- 기준 커밋: `c1b7646`
+- 기준 커밋: `564e00a`
+- 다음: 사용자 지시 대기
 - Codex 분담: Joint 2D 완료 (작업 폴더에 아직 미커밋), 다음 후보 Tilemap — 공동 명세의 "Tilemap 명세 (Codex)" (사용자 확인 후 착수)
 
 ## Screen Space Reflection 담당 파일 (커밋에 넣은 것)
