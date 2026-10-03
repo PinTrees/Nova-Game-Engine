@@ -13,10 +13,11 @@ function Get-VramMB
 }
 
 # 에디터를 띄우고 감시 작업을 건다. 돌려주는 객체로 Invoke-Nova / Stop-TestEditor
-function Start-TestEditor([switch]$OpenGL, [int]$MaxGrowMB = 1500, [int]$WatchSeconds = 900)
+function Start-TestEditor([switch]$OpenGL, [switch]$Vulkan, [int]$MaxGrowMB = 1500, [int]$WatchSeconds = 900)
 {
     $base = Get-VramMB
     if ($OpenGL) { $out = & $Nova open $script:Project --background --graphics opengl --timeout 300 2>&1 | Out-String }
+    elseif ($Vulkan) { $out = & $Nova open $script:Project --background --graphics vulkan --timeout 300 2>&1 | Out-String }
     else { $out = & $Nova open $script:Project --background --timeout 300 2>&1 | Out-String }
     if ($out -notmatch 'pid (\d+)') { throw "editor did not open: $out" }
     $editorPid = [int]$Matches[1]
@@ -30,7 +31,7 @@ function Start-TestEditor([switch]$OpenGL, [int]$MaxGrowMB = 1500, [int]$WatchSe
             $v = 0; try { $v = [int]((& nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | Select-Object -First 1).Trim()) } catch { }
             if ($v -gt $peak) { $peak = $v }
             if ($base -gt 0 -and $v - $base -gt $maxGrow) { Stop-Process -Id $editorPid -Force; return "STOP: VRAM +$($v - $base) MB - editor killed" }
-            $bad = Select-String -Path $log -Pattern 'device removed|DEVICE_REMOVED|Present failed|VRAM budget: refused|\[CRASH\]' -ErrorAction SilentlyContinue | Select-Object -First 1
+            $bad = Select-String -Path $log -Pattern 'device removed|DEVICE_REMOVED|device lost|Present failed|VRAM budget: refused|\[CRASH\]' -ErrorAction SilentlyContinue | Select-Object -First 1
             if ($bad) { Stop-Process -Id $editorPid -Force; return "STOP: $($bad.Line) - editor killed" }
         }
         return "watch ended, VRAM peak +$($peak - $base) MB"

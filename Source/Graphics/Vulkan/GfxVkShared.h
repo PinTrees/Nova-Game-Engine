@@ -56,8 +56,10 @@ namespace GfxVkShared
 	uint32_t ElementCount(GfxObject* layout);                  // 원소 수 (BindingValue 표 크기)
 	uint32_t ElementOffset(GfxObject* layout, uint32_t binding);
 
+	// usedBindings = 이 pass 의 단계들이 쓰는 바인딩 (나머지 칸은 더미 — Effects11 처럼 pass 가 쓰는 자원만 묶는다)
 	HRESULT CreateProgram(GfxDevice* device, GfxObject* layout, const StageCode* stages, uint32_t count,
-		const std::vector<std::pair<std::string, int>>& vertexInputs, uint32_t pixelOutputs, const std::string& name, GfxObject** out, std::string& error);
+		const std::vector<std::pair<std::string, int>>& vertexInputs, uint32_t pixelOutputs, const std::vector<int>& usedBindings,
+		const std::string& name, GfxObject** out, std::string& error);
 
 	// 링에 상수 블록 쓰기 (minUniformBufferOffsetAlignment 맞춤). IsCurrent = 앞에 쓴 위치를 이번 기록에서 그대로 써도 되는지
 	bool WriteConstants(GfxDevice* device, const void* data, uint32_t size, RingLoc& loc);

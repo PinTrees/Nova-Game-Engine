@@ -238,6 +238,7 @@ namespace GfxVkImpl
 		if (Device)
 		{
 			vkDeviceWaitIdle(Device);
+			DestroySwapchain(true);
 			Completed = Submitted;
 			for (auto& d : Deferred) d.second();
 			Deferred.clear();
@@ -269,6 +270,7 @@ namespace GfxVkImpl
 			Mem.Shutdown();
 			vkDestroyDevice(Device, nullptr);
 		}
+		DestroySwapchain(true);   // 장치를 못 만들었어도 창 표면은 있을 수 있다
 		if (Loader)
 			VkLoader::Release();
 	}
@@ -391,6 +393,8 @@ namespace GfxVkImpl
 		di.pQueueCreateInfos = &qi;
 		di.enabledExtensionCount = (uint32_t)enable.size();
 		di.ppEnabledExtensionNames = enable.data();
+		if (Window && !CreateSurface(error))
+			return false;
 		if (!Check(vkCreateDevice(Phys, &di, nullptr, &Device), "vkCreateDevice", &error))
 		{
 			Device = VK_NULL_HANDLE;
@@ -478,7 +482,7 @@ namespace GfxVkImpl
 		return Upload.Cb;
 	}
 
-	void Dev::Submit(bool wait)
+	void Dev::Submit(bool wait, VkSemaphore waitSemaphore, VkSemaphore signalSemaphore)
 	{
 		if (Lost) return;
 		if (Immediate)
@@ -508,15 +512,22 @@ namespace GfxVkImpl
 		cbs[count].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
 		cbs[count++].commandBuffer = Main.Cb;
 		const uint64_t serial = Recording();
-		VkSemaphoreSubmitInfo signal = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-		signal.semaphore = Timeline;
-		signal.value = serial;
-		signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		VkSemaphoreSubmitInfo signal[2] = { { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO }, { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO } };
+		signal[0].semaphore = Timeline;
+		signal[0].value = serial;
+		signal[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		signal[1].semaphore = signalSemaphore;   // 표시 (스왑체인)
+		signal[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		VkSemaphoreSubmitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+		waitInfo.semaphore = waitSemaphore;      // 스왑체인 이미지 받기
+		waitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 		VkSubmitInfo2 si = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
 		si.commandBufferInfoCount = count;
 		si.pCommandBufferInfos = cbs;
-		si.signalSemaphoreInfoCount = 1;
-		si.pSignalSemaphoreInfos = &signal;
+		si.signalSemaphoreInfoCount = signalSemaphore ? 2 : 1;
+		si.pSignalSemaphoreInfos = signal;
+		si.waitSemaphoreInfoCount = waitSemaphore ? 1 : 0;
+		si.pWaitSemaphoreInfos = &waitInfo;
 		const VkResult r = vkQueueSubmit2(Queue, 1, &si, VK_NULL_HANDLE);
 		if (r != VK_SUCCESS)
 		{
@@ -1750,12 +1761,16 @@ namespace GfxVkShared
 	}
 
 	HRESULT CreateProgram(GfxDevice* device, GfxObject* layout, const StageCode* stages, uint32_t count,
-		const std::vector<std::pair<std::string, int>>& vertexInputs, uint32_t pixelOutputs, const std::string& name, GfxObject** out, std::string& error)
+		const std::vector<std::pair<std::string, int>>& vertexInputs, uint32_t pixelOutputs, const std::vector<int>& usedBindings,
+		const std::string& name, GfxObject** out, std::string& error)
 	{
 		*out = nullptr;
 		auto* d = static_cast<Dev*>(device);
 		auto* p = new Program(d);
 		p->Layout = static_cast<BindingLayout*>(layout);
+		p->Used.assign(p->Layout->Bindings.size(), false);
+		for (int b : usedBindings)
+			if (b >= 0 && b < (int)p->Used.size()) p->Used[b] = true;
 		p->VertexInputs = vertexInputs;
 		p->PixelOutputs = pixelOutputs;
 		p->Name = name;
@@ -1843,11 +1858,10 @@ namespace GfxVk
 
 	bool IsVulkan(const GfxObject* object) { return object && object->Api() == GfxApi::Vulkan; }
 
-	void Present(GfxDevice* device, GfxTexture2D*, int, int, int)
+	void Present(GfxDevice* device, GfxTexture2D* backBuffer, int windowWidth, int windowHeight, int syncInterval)
 	{
 		auto* d = static_cast<Dev*>(device);
-		d->Once("present", "%s", "Present: swapchain is not implemented yet (submitting only)");
-		d->Submit(false);
+		d->PresentFrame(backBuffer && backBuffer->Api() == GfxApi::Vulkan ? static_cast<Tex2D*>(backBuffer) : nullptr, windowWidth, windowHeight, syncInterval);
 	}
 
 	void WaitIdle(GfxDevice* device)

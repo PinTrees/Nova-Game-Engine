@@ -2869,10 +2869,10 @@ function Suite-Recovery
 $script:Targets = [ordered]@{ 'Trees' = @('Oak', 30); 'Forest' = @('Terrain', 80); 'Materials' = @('Gold', 12); 'Particles' = @('Campfire', 12);
     'Shadows' = @('Near Box', 15); 'Culling' = @('Obj 0_4', 25); 'SampleScene' = @('Canvas', 30) }
 
-function Capture-Scenes([switch]$OpenGL, [string]$dir)
+function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [string]$dir)
 {
     New-Item -ItemType Directory -Force $dir | Out-Null
-    $ed = Start-TestEditor -OpenGL:$OpenGL
+    $ed = Start-TestEditor -OpenGL:$OpenGL -Vulkan:$Vulkan
     try
     {
         Invoke-Nova 'window scene' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
@@ -2943,6 +2943,23 @@ function Suite-Vulkan
         }
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    # 에디터가 Vulkan 으로: 렌더 장면들이 DX11 과 같은지 (render 묶음과 같은 기준)
+    Write-Host '[vulkan] scenes DirectX 11'
+    Capture-Scenes -dir (Join-Path $Out 'vulkan\dx')
+    Write-Host '[vulkan] scenes Vulkan'
+    Capture-Scenes -Vulkan -dir (Join-Path $Out 'vulkan\vk')
+    # 로그: 검증 레이어 · 장치 오류 (로더의 다른 프로그램 레이어 JSON 줄과 옛 compute 예제는 빼고)
+    $vkErrors = Get-Content $EditorLog | Where-Object { $_ -match '\[Vulkan\] (ERROR|.*failed|.*device lost)' -and $_ -notmatch 'Loader Message' }
+    Add-Result vulkan 'Vulkan log clean' ($vkErrors.Count -eq 0) $(if ($vkErrors) { $vkErrors[0] } else { 'no validation errors / failures' })
+    foreach ($n in $Targets.Keys)
+    {
+        $a = Join-Path $Out "vulkan\dx\$n.png"; $b = Join-Path $Out "vulkan\vk\$n.png"
+        if (-not (Test-Path $a) -or -not (Test-Path $b)) { Add-Result vulkan "$n DX = Vulkan" $false 'capture missing'; continue }
+        $c = [NovaImageCompare]::Compare($a, $b, (Join-Path $Out "vulkan\${n}_diff.png"))
+        if (-not $c) { Add-Result vulkan "$n DX = Vulkan" $false 'size differs'; continue }
+        $ok = if ($n -eq 'Trees') { $c[2] -le 6.0 } else { $c[0] -le 20 }
+        Add-Result vulkan "$n DX = Vulkan" $ok ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2])
+    }
 }
 
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)

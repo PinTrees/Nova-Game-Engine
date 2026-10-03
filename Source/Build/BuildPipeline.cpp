@@ -25,7 +25,7 @@ namespace
 		std::vector<std::string> Scenes;
 		std::map<std::string, std::string> ShaderGraphs;   // 셰이더 이름 → .shadergraph (Shader Graph 목록은 메인 스레드에서만 읽는다)
 	std::vector<std::pair<std::string, std::wstring>> Packages;   // 프로젝트에 넣은 패키지 (이름, 폴더) — 시작할 때 모아 둔다
-	bool NeedsShaderCross = true;   // 플레이어 API 에 OpenGL 이 있으면 HLSL → GLSL 변환기(dxcompiler·dxil 23 MB)가 필요
+	bool NeedsShaderCross = true;   // 플레이어 API 에 OpenGL · Vulkan 이 있으면 HLSL → GLSL · SPIR-V 변환기(dxcompiler·dxil 23 MB)가 필요
 		json PlayerJson;
 		bool Development = false, Run = false, Reveal = true;
 
@@ -222,7 +222,7 @@ namespace
 			const std::string file = Lower(e.path().filename().string());
 			if (!e.is_regular_file(ec) || Lower(e.path().extension().string()) != ".dll" || file == unusedAssimp)
 				continue;
-			// DirectX 11 만 쓰는 게임은 셰이더 변환기(OpenGL 용)가 필요 없다
+			// DirectX 11 만 쓰는 게임은 셰이더 변환기(OpenGL · Vulkan 용)가 필요 없다
 			if (!job->NeedsShaderCross && (file == "dxcompiler.dll" || file == "dxil.dll"))
 				continue;
 			copies.push_back({ e.path(), job->Out / e.path().filename() });
@@ -252,7 +252,10 @@ namespace
 					copies.push_back({ e.path(), data / L"Binaries" / L"ShaderCache" / name });
 			}
 			if (job->NeedsShaderCross)
+			{
 				addDir(cacheDir / L"GLSL", data / L"Binaries" / L"ShaderCache" / L"GLSL", true);
+				addDir(cacheDir / L"SPIRV", data / L"Binaries" / L"ShaderCache" / L"SPIRV", false);   // 하위 dump (검사용 .spv) 는 빼고
+			}
 		}
 		addDir(job->BinDir / L"Scripting", data / L"Binaries" / L"Scripting", false, job->Development ? std::set<std::string>{} : std::set<std::string>{ ".pdb" });
 		addDir(job->EngineRoot / L"ProjectSetting" / L"fonts", data / L"ProjectSetting" / L"fonts", false);
@@ -375,7 +378,7 @@ namespace BuildPipeline
 			for (GraphicsAPI api : BuildSettings::PlayerGraphicsAPIs())
 			{
 				apis.push_back(GraphicsAPIToKey(api));
-				if (api == GraphicsAPI::OpenGL)
+				if (api == GraphicsAPI::OpenGL || api == GraphicsAPI::Vulkan)
 					job->NeedsShaderCross = true;
 			}
 			job->PlayerJson["graphicsAPIs"] = apis;

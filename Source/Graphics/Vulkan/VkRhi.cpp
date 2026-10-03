@@ -603,7 +603,7 @@ namespace
 					std::vector<StageCode> stages;
 					for (const auto& s : ps.Stages)
 						stages.push_back({ StageFlag(s.StageType), &s.Code, s.Entry });
-					CreateProgram(Dev.Get(), e->Layout.Get(), stages.data(), (uint32_t)stages.size(), ps.VertexInputs, ps.PixelOutputs,
+					CreateProgram(Dev.Get(), e->Layout.Get(), stages.data(), (uint32_t)stages.size(), ps.VertexInputs, ps.PixelOutputs, ps.Bindings,
 						stem + "/" + tech.Name + "/" + pass.Name, pp.Program.GetAddressOf(), pp.Error);
 				}
 				if (!pp.Error.empty())

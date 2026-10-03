@@ -334,7 +334,7 @@ namespace GfxVkImpl
 				}
 				case GfxVkShared::BindingType::SampledImage:
 				{
-					Srv* s = AsSrv(v.View);
+					Srv* s = bi < Prog->Used.size() && Prog->Used[bi] ? AsSrv(v.View) : nullptr;   // 이 pass 가 쓰지 않는 칸 = 더미 (배치를 바꾸지 않는다)
 					if (s && s->V.Img && s->V.Img->Handle)
 					{
 						const ViewInfo& vi = s->V;

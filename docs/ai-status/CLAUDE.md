@@ -1,10 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Vulkan 그래픽 백엔드 1 · 2 단계 완료 (로컬 커밋, push 전)** (사용자 지시 "그래픽 … Vulkan … 이거 먼저 진행", 안드로이드의 첫 단계). 문서 `docs/VULKAN_BACKEND.md`
-  - 1 단계 `nova vulkan gfx-test` · 2 단계 `nova vulkan rhi-test`: 화면 없는 Vulkan 장치가 DX11 과 화소 차이 최대 1, 검증 레이어 오류 · 경고 0 (GTX 1660 SUPER, Debug)
-  - 다음 3 단계: 에디터를 Vulkan 으로 (스왑체인 · ImGui · 창 크기 · `-force-vulkan` · 안 되면 DX11). 그때까지 Graphics API 메뉴의 Vulkan 은 고를 수 없음
-  - 담당 파일: 새 `Source/Graphics/Vulkan/*` · `ThirdParty/Vulkan/` · `docs/VULKAN_BACKEND.md`, 고친 공용 파일 `Source/Graphics/RHI/Gfx.h` (`GfxObject::Api()` — Native() == nullptr 만으로 GL 을 가르던 곳을 고침) · `Rhi.cpp` · `DX11/GfxDx11.cpp` · `OpenGL/GfxGL.cpp` (`GfxGL_TextureName`) · `Common/GraphicsAPI.h` (`GraphicsAPI::Vulkan`) · `GraphicsBackendFactory.cpp` · `ShaderCross/ShaderCross.*` (SPIR-V 경로) · `CMakeLists.txt` (폴더 · 헤더 경로 두 줄) · `Editor/EditorApp.cpp` (CLI 등록 두 줄) · `Tools/NovaCli/main.cpp` (명령 이름 하나)
-  - Codex 에게: `GraphicsAPI::Count` 가 3 이 되어 API 를 도는 화면 (Hub 의 API 배지 · 에디터 Graphics API 메뉴 · Player Settings) 에 Vulkan 이 "미구현" 으로 보인다. `GfxObject::Native() == nullptr` 를 "OpenGL" 로 보는 새 코드는 `Api() == GfxApi::OpenGL` 로
+- 갱신 시각: 2026년 10월 4일 — **Vulkan 그래픽 백엔드 1 ~ 3 단계 + 4 단계 장면 · 빌드한 게임 완료 (로컬 커밋, push 전)** (사용자 지시 "그래픽 … Vulkan … 이거 먼저 진행", 안드로이드의 첫 단계). 문서 `docs/VULKAN_BACKEND.md`
+  - 검사 `vulkan` **10/10**: 화면 없는 장치 gfx · rhi (차이 최대 1), 에디터를 Vulkan 으로 띄운 렌더 7 장면이 DX11 과 같음, 검증 레이어 오류 0. 회귀 gfx 2/2, animation 11/11
+  - 에디터: 스왑체인 · ImGuiGfx (`Shaders/56. ImGui.fx`) · 창 크기 따라감 · `-force-vulkan` · `nova open --graphics vulkan` · 실패하면 DX11. Graphics API 메뉴에서 고를 수 있음 (시험 단계). 창 밖 ImGui 창(뷰포트)은 Vulkan 에서 꺼 둠
+  - 빌드한 게임: Player Settings 에 Vulkan → dxcompiler · SPIR-V 캐시를 넣고 Vulkan 으로 실행 확인
+  - 다음: Release 성능 비교, 장벽 다듬기, 그다음 안드로이드 (사용자 확인 후)
+  - 사용자 보고로 고친 것: Animator 창이 360 px 보다 좁으면 `std::clamp` Debug assert (`AnimatorEditorWindow.cpp`), 같은 꼴의 `AnimatorIK.cpp` (길이 0 뼈)
+  - 담당 파일: 새 `Source/Graphics/Vulkan/*` · `ThirdParty/Vulkan/` · `Source/Editor/ImGuiGfx.*` · `Shaders/56. ImGui.fx` · `docs/VULKAN_BACKEND.md`, 고친 공용 파일 `Source/Graphics/RHI/Gfx.h` (`GfxObject::Api()`) · `Rhi.cpp` · `DX11/GfxDx11.cpp` · `OpenGL/GfxGL.cpp` · `Common/GraphicsAPI.h` · `GraphicsBackendFactory.cpp` · `GraphicsSettings.cpp` (`-force-vulkan`) · `ShaderCross/ShaderCross.*` · `Source/Platform/App.*` (InitVulkan · Present · 백버퍼) · `Editor/EditorGUIManager.cpp` · `EditorGUIResourceManager.cpp` · `CliCommands.cpp` (`screenshot-editor` 한 줄) · `Build/BuildPipeline.cpp` · `CMakeLists.txt` · `Editor/EditorApp.cpp` · `Tools/NovaCli/main.cpp` · `Tools/tests/run_tests.ps1` (`Suite-Vulkan`, `Capture-Scenes -Vulkan`) · `Tools/tests/common.ps1` (`Start-TestEditor -Vulkan`, 감시에 `device lost`)
+  - Codex 에게: `GraphicsAPI::Count` 가 3 이 되어 API 를 도는 화면 (Hub 의 API 배지 · 에디터 Graphics API 메뉴 · Player Settings) 에 Vulkan 이 보인다. `GfxObject::Native() == nullptr` 를 "OpenGL" 로 보는 새 코드는 `Api() == GfxApi::OpenGL` 로, `App::IsOpenGL()` 분기에는 `IsVulkan()` 도 (백버퍼 텍스처를 쓰는 쪽)
 - 이전: 모델 끌어 놓기 · TAA + SMAA · APV 2 단계 완료 · push `19591a4`
 - 단계: **LOD Group (`83226d8`) · Screen Space Reflection 완료** — 사용자 지시 "LOD Group … Screen Space Reflection … 진행"
 - 이전 단계: Depth of Field · Motion Blur (`11002fe`, push), Adaptive Probe Volume (`efbab1e`, push) — 아래 기록

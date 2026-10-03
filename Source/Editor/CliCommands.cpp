@@ -1186,8 +1186,8 @@ namespace CliCommands
 		Register("screenshot-editor", "save the whole editor window (UI included) to PNG/JPG {path}", [](const json& a, json& r, std::string& e) {
 			App* app = Application::GetI()->GetApp();
 			ComPtr<GfxTexture2D> back;
-			if (app && app->IsOpenGL())
-				back = app->BackBufferTexture();   // OpenGL: 엔진이 그리는 백버퍼 텍스처
+			if (app && (app->IsOpenGL() || app->IsVulkan()))
+				back = app->BackBufferTexture();   // OpenGL · Vulkan: 엔진이 그리는 백버퍼 텍스처
 			else
 			{
 				IDXGISwapChain* swap = app ? app->SwapChain() : nullptr;

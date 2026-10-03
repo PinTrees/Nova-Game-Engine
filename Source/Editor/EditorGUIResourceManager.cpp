@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "EditorGUIResourceManager.h"
 #include "ImGuiGL.h"
+#include "ImGuiGfx.h"
 #include "App.h"
 #include "TaskSystem.h"
 #include "EditorTheme.h"
@@ -118,6 +119,11 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
             {
                 ImGuiGL::InvalidateDeviceObjects();
                 ImGuiGL::CreateDeviceObjects();
+            }
+            else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan())
+            {
+                ImGuiGfx::InvalidateDeviceObjects();
+                ImGuiGfx::CreateDeviceObjects();
             }
             else
             {

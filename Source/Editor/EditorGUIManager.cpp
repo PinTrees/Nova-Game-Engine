@@ -6,6 +6,7 @@
 #include "FrameProfiler.h"
 #include "EditorGUIManager.h"
 #include "ImGuiGL.h"
+#include "ImGuiGfx.h"
 #include "App.h"
 #include "EngineInfo.h"
 #include "GraphicsSettings.h"
@@ -63,10 +64,12 @@ void EditorGUIManager::Init(bool hubMode)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     const bool openGL = Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL();
+    const bool vulkan = Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan();
     if (!hubMode)
     {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // 창 밖으로 뺀 창 = OS 창 (DX11: 스왑 체인, OpenGL: ImGuiGL 이 창 DC 에 본 컨텍스트를 붙여 그림)
+        if (!vulkan)   // Vulkan: 창 밖 OS 창(뷰포트)은 아직 없다 (창마다 스왑체인 — ImGuiGfx.h)
+            io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;   // 창 밖으로 뺀 창 = OS 창 (DX11: 스왑 체인, OpenGL: ImGuiGL 이 창 DC 에 본 컨텍스트를 붙여 그림)
     }
     else
     {
@@ -94,6 +97,8 @@ void EditorGUIManager::Init(bool hubMode)
     // ImGui DX11 백엔드는 진짜 D3D11 객체로 (그림 텍스처 ImTextureID = GfxShaderResourceView* — 백엔드가 풀어 씀)
     if (openGL)   // OpenGL: ImGuiGL (ImTextureID = Gfx 뷰 → GL 텍스처)
         ImGuiGL::Init();
+    else if (vulkan)   // Vulkan: Gfx 층 + 56. ImGui.fx
+        ImGuiGfx::Init();
     else
         ImGui_ImplDX11_Init(static_cast<ID3D11Device*>(Application::GetI()->GetDevice()->Native()), static_cast<ID3D11DeviceContext*>(Application::GetI()->GetDeviceContext()->Native()));
 
@@ -197,6 +202,8 @@ void EditorGUIManager::Destroy()
 {
     if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
         ImGuiGL::Shutdown();
+    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan())
+        ImGuiGfx::Shutdown();
     else
         ImGui_ImplDX11_Shutdown();  
     ImGui_ImplWin32_Shutdown();  
@@ -208,6 +215,8 @@ void EditorGUIManager::Update()
     ImportSettingsInspector::Update();   // Inspector 에서 누른 Apply · Fix Now (그리기 밖에서 씬을 다시 만든다)
     if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
         ImGuiGL::NewFrame();
+    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan())
+        ImGuiGfx::NewFrame();
     else
         ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();

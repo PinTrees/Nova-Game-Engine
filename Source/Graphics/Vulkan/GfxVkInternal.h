@@ -270,6 +270,7 @@ namespace GfxVkImpl
 		std::vector<Stage> Stages;
 		std::vector<std::pair<std::string, int>> VertexInputs;
 		uint32_t PixelOutputs = 0;
+		std::vector<bool> Used;   // 바인딩마다: 이 pass 가 쓰나
 		bool Tessellation = false;
 		std::string Name;
 		uint64_t Id = 0;
@@ -347,6 +348,27 @@ namespace GfxVkImpl
 		VkSampler DummySampler = VK_NULL_HANDLE, DummyCompare = VK_NULL_HANDLE;   // 빈 샘플러 칸 (보통 · 비교)
 		uint64_t DummySamplerId = 0, DummyCompareId = 0;
 
+		// ---- 창 (스왑체인 — GfxVkSwapchain.cpp)
+		struct Swap
+		{
+			VkSurfaceKHR Surface = VK_NULL_HANDLE;
+			VkSwapchainKHR Chain = VK_NULL_HANDLE;
+			VkFormat Format = VK_FORMAT_UNDEFINED;
+			VkExtent2D Extent = {};
+			VkPresentModeKHR Mode = VK_PRESENT_MODE_FIFO_KHR;
+			int Interval = -1;
+			std::vector<VkImage> Images;
+			std::vector<VkSemaphore> Acquire;   // 고리 (이미지 수 + 1)
+			std::vector<VkSemaphore> Done;      // 이미지마다 (표시가 기다린다)
+			uint32_t AcquireIndex = 0;
+			std::deque<uint64_t> Frames;        // 표시한 프레임의 제출 값 (2 프레임 넘게 앞서 가지 않게)
+			bool Failed = false;
+		} Sw;
+		bool CreateSurface(std::string& error);
+		bool RecreateSwapchain(uint32_t width, uint32_t height, int interval);
+		void DestroySwapchain(bool surfaceToo);
+		void PresentFrame(class Tex2D* backBuffer, int width, int height, int interval);
+
 		Ctx* Immediate = nullptr;   // 약한 참조 (컨텍스트가 장치를 잡는다)
 		std::set<std::string> Reported;
 		uint64_t Resources = 0;
@@ -357,7 +379,7 @@ namespace GfxVkImpl
 		// 제출 · 대기
 		VkCommandBuffer Cmd() { return Main.Cb; }
 		VkCommandBuffer UploadCmd();
-		void Submit(bool wait);
+		void Submit(bool wait, VkSemaphore waitSemaphore = VK_NULL_HANDLE, VkSemaphore signalSemaphore = VK_NULL_HANDLE);
 		void Poll();
 		void WaitSerial(uint64_t serial);
 		bool IsDone(uint64_t serial) { if (serial <= Completed) return true; Poll(); return serial <= Completed; }

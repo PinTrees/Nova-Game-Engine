@@ -19,7 +19,7 @@ namespace
 		return j.is_object() ? j : nlohmann::json::object();
 	}
 
-	// 실행 인자 -force-d3d11 / -force-opengl (Unity 와 같은 이름, -- 도 받는다)
+	// 실행 인자 -force-d3d11 / -force-opengl / -force-vulkan (Unity 와 같은 이름, -- 도 받는다)
 	bool CommandLineAPI(GraphicsAPI& out)
 	{
 		int argc = 0;
@@ -32,6 +32,7 @@ namespace
 				a.erase(0, 1);
 			if (a == L"force-d3d11" || a == L"force-directx11") { out = GraphicsAPI::DirectX11; found = true; }
 			else if (a == L"force-opengl" || a == L"force-glcore") { out = GraphicsAPI::OpenGL; found = true; }
+			else if (a == L"force-vulkan") { out = GraphicsAPI::Vulkan; found = true; }
 		}
 		::LocalFree(argv);
 		return found;

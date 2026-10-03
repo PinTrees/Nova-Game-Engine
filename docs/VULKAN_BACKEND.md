@@ -9,10 +9,15 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
 |---|---|---|
 | 1 | 화면 없는 Vulkan 장치 + Gfx 검사 장면이 DX11 과 같다 (`nova vulkan gfx-test`) | **완료** — 화소 차이 최대 1, 검증 레이어 오류 0 |
 | 2 | RHI 검사 장면 (`nova vulkan rhi-test`) | **완료** — 화소 차이 최대 1, 검증 레이어 오류 0 |
-| 3 | 에디터가 Vulkan 으로 실행 (스왑체인 · ImGui · 창 크기 · `-force-vulkan` · 안 되면 DX11) | 다음 |
-| 4 | 렌더 회귀 7 장면이 DX11 과 같다 · 성능 · 빌드한 게임 | 예정 |
+| 3 | 에디터가 Vulkan 으로 실행 (스왑체인 · ImGui · 창 크기 · `-force-vulkan` · 안 되면 DX11) | **완료** — 에디터 전체 화면이 DX11 과 같다, 창 크기 바꾸기 따라감 |
+| 4 | 렌더 회귀 7 장면이 DX11 과 같다 · 빌드한 게임 · 성능 | 장면 **7/7** · 빌드한 게임 실행 **완료**, 성능 (Release) 은 다음 |
 
-3 단계 전까지 설정의 Graphics API 메뉴에서는 Vulkan 을 고를 수 없다 (`VulkanGraphicsBackend::IsSupported() = false`).
+- 고르기: Edit → Graphics API 메뉴의 Vulkan (시험 단계), 실행 인자 `-force-vulkan`, CLI `nova open <프로젝트> --graphics vulkan`, Player Settings 의 API 목록.
+  Vulkan 장치를 못 만들면 DirectX 11 로 대체한다 (`[Graphics] Vulkan failed to start - using DirectX 11`)
+- 창 표시 (`GfxVkSwapchain.cpp`): 엔진은 백버퍼 텍스처에 그리고 Present 가 스왑체인 이미지로 블릿 (Vulkan 은 행 0 = 위 → 뒤집지 않음).
+  수직 동기 0 = MAILBOX (없으면 IMMEDIATE), 창 크기 · OUT_OF_DATE 면 다시 만든다. CPU 는 GPU 보다 2 프레임 넘게 앞서 가지 않는다
+- 에디터 UI: `Source/Editor/ImGuiGfx.*` — Gfx 층 + `Shaders/56. ImGui.fx` 로 그리는 API 공용 ImGui 렌더러 (imgui_impl_dx11 과 같은 그림)
+- 빌드한 게임: Player Settings 에 Vulkan 이 있으면 셰이더 변환기 (dxcompiler) 와 `ShaderCache/SPIRV` 를 같이 넣는다
 
 ## SDK 없이 빌드 · 실행
 
@@ -59,7 +64,8 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
 
 ## 아직 없는 것
 
-- 스왑체인 · ImGui 렌더러 · 창 크기 바꾸기 (3 단계)
+- 창 밖으로 뺀 ImGui 창 (OS 창 = 뷰포트): 창마다 스왑체인이 필요해 Vulkan 에디터에서는 꺼 둔다 (떠 있는 창은 에디터 창 안에)
+- 성능 비교 (Release 빌드), 동기화 장벽 다듬기 (지금은 렌더링 끝 · 복사 뒤 전역 장벽)
 - compute · UAV · 구조화 버퍼 · 스트림 출력 (OpenGL 과 같이 옛 예제만 쓴다) — 그런 자원을 쓰는 pass 는 로그를 남기고 그리지 않는다
 - 오클루전 쿼리 (결과 1), 인스턴스 간격 > 1, 테두리 색은 Vulkan 기본 세 가지 중 가까운 것
 
@@ -71,4 +77,6 @@ nova vulkan rhi-test --out <폴더>
 ```
 
 DX11 엔진 장치와 화면 없는 Vulkan 장치에 같은 장면을 그려 PNG 와 차이 그림을 남긴다. 결과 JSON 의 `diff.max` (성분 차이 최대) 와 `validationErrors`.
-2026-10-04, GTX 1660 SUPER (드라이버 560.94), Debug + 검증 레이어: 두 장면 모두 차이 최대 1, 검증 오류 · 경고 0.
+
+`run_tests.ps1 -Only vulkan` = 위 두 검사 + 에디터를 DX11 · Vulkan 으로 띄워 렌더 7 장면 비교 (render 묶음과 같은 기준) + 로그에 검증 오류 없음.
+2026-10-04, GTX 1660 SUPER (드라이버 560.94), Debug + 검증 레이어: **10/10** — gfx · rhi 차이 최대 1, 장면 최대 차이 1 ~ 14 (Trees 는 바람 잎만 4.3 %), 검증 오류 0.
