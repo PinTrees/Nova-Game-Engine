@@ -365,3 +365,4 @@ build/
 
 # NOVA 패키지 빌드 결과 (CMake 가 Packages/<이름>/Plugins 에 만든다)
 Packages/*/Plugins/
+ThirdParty/MonoAndroid/

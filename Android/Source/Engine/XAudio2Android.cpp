@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AndroidEngine.h"
+#include "AudioReverb.h"
 #include <xaudio2.h>
 #include <xaudio2fx.h>
 #include <xapofx.h>
@@ -13,7 +14,7 @@
 //  (그래픽의 GfxGLES 처럼 — 엔진이 쓰는 XAudio2 의 부분만).
 //  - 소스 보이스: PCM 8 · 16 · 24 · 32 비트 · float, 버퍼 대기열 (PlayBegin/Length · 반복 구간 · LoopCount · END_OF_STREAM), 재생 속도 (SetFrequencyRatio)
 //    와 샘플 레이트 차이는 선형 보간, 출력 행렬 (SetOutputMatrix — 팬 · 3D), 보낼 곳 (SetOutputVoices — 믹서 그룹)
-//  - 서브믹스 (믹서 그룹): 처리 순서 (ProcessingStage), 필터 (XAudio2 의 상태 변수 필터), 효과 체인 = 레벨 측정기 · 에코 (FXEcho) · 리버브 (단순 Schroeder)
+//  - 서브믹스 (믹서 그룹): 처리 순서 (ProcessingStage), 필터 (XAudio2 의 상태 변수 필터), 효과 체인 = 레벨 측정기 · 에코 (FXEcho) · 리버브 (AudioReverb.h — I3DL2 프리셋)
 //  - 마스터: 2 채널 · AAudio 장치 레이트 (보통 48000), 레벨 측정기
 //  - 앱이 뒤로 가면 (NovaAndroid::SetAudioPaused) AAudio 스트림을 멈춘다
 namespace
@@ -93,68 +94,29 @@ namespace
 		void SetParameters(const void* params, uint32_t bytes) override { if (bytes >= sizeof(P)) P = *static_cast<const FXECHO_PARAMETERS*>(params); }
 	};
 
-	// 리버브: 채널마다 빗살 4 개 + 전역 통과 2 개 (Schroeder/Freeverb). 감쇠 = DecayTime, 섞기 = WetDryMix (0..100)
+	// 리버브: AudioReverb.h (앞 지연 · 초기 반사 · 빗살 8 개 + 전역 통과 4 개 · 방 필터 — I3DL2 프리셋 값을 따른다)
 	struct Reverb final : Effect
 	{
-		float Decay = 1.5f, Wet = 0.0f;
-		struct Line { std::vector<float> B; uint32_t P = 0; float Damp = 0.0f; };
-		std::vector<Line> Combs, Alls;   // [채널 * 4 + i], [채널 * 2 + i]
-		uint32_t Rate = 0, Channels = 0;
-		void Build(uint32_t rate, uint32_t channels)
-		{
-			static const int kComb[4] = { 1116, 1188, 1277, 1356 }, kAll[2] = { 556, 441 };
-			Combs.assign(channels * 4, {});
-			Alls.assign(channels * 2, {});
-			for (uint32_t c = 0; c < channels; ++c)
-			{
-				const int spread = (int)c * 23;   // 채널마다 조금 다르게 (넓게)
-				for (int i = 0; i < 4; ++i) Combs[c * 4 + i].B.assign((size_t)((kComb[i] + spread) * rate / 44100), 0.0f);
-				for (int i = 0; i < 2; ++i) Alls[c * 2 + i].B.assign((size_t)((kAll[i] + spread) * rate / 44100), 0.0f);
-			}
-			Rate = rate;
-			Channels = channels;
-		}
-		void Process(float* data, uint32_t frames, uint32_t channels, uint32_t rate) override
-		{
-			if (Wet <= 0.0f) return;
-			if (Rate != rate || Channels != channels) Build(rate, channels);
-			for (uint32_t c = 0; c < channels; ++c)
-			{
-				float g[4];
-				for (int i = 0; i < 4; ++i)   // 60 dB 감쇠가 DecayTime 이 되게
-					g[i] = powf(10.0f, -3.0f * (float)Combs[c * 4 + i].B.size() / (float)rate / (std::max)(0.1f, Decay));
-				for (uint32_t f = 0; f < frames; ++f)
-				{
-					float& x = data[f * channels + c];
-					const float in = x * 0.25f;
-					float out = 0.0f;
-					for (int i = 0; i < 4; ++i)
-					{
-						Line& l = Combs[c * 4 + i];
-						const float y = l.B[l.P];
-						l.Damp = y * 0.7f + l.Damp * 0.3f;
-						l.B[l.P] = in + l.Damp * g[i];
-						l.P = (l.P + 1) % (uint32_t)l.B.size();
-						out += y;
-					}
-					for (int i = 0; i < 2; ++i)
-					{
-						Line& l = Alls[c * 2 + i];
-						const float b = l.B[l.P];
-						l.B[l.P] = out + b * 0.5f;
-						out = b - out;
-						l.P = (l.P + 1) % (uint32_t)l.B.size();
-					}
-					x = x * (1.0f - Wet) + out * Wet;
-				}
-			}
-		}
+		NovaReverb R;
+		void Process(float* data, uint32_t frames, uint32_t channels, uint32_t rate) override { R.Process(data, frames, channels, rate); }
 		void SetParameters(const void* params, uint32_t bytes) override
 		{
 			if (bytes < sizeof(XAUDIO2FX_REVERB_PARAMETERS)) return;
-			const auto* p = static_cast<const XAUDIO2FX_REVERB_PARAMETERS*>(params);
-			Decay = p->DecayTime > 0.0f ? p->DecayTime : 1.5f;
-			Wet = std::clamp(p->WetDryMix / 100.0f, 0.0f, 1.0f);
+			const auto* n = static_cast<const XAUDIO2FX_REVERB_PARAMETERS*>(params);
+			NovaReverb::Params p;
+			p.WetDryMix = n->WetDryMix;
+			p.ReflectionsDelayMs = (float)n->ReflectionsDelay;
+			p.ReverbDelayMs = (float)n->ReverbDelay;
+			p.ReflectionsGainDb = n->ReflectionsGain;
+			p.ReverbGainDb = n->ReverbGain;
+			p.RoomFilterMainDb = n->RoomFilterMain;
+			p.RoomFilterHFDb = n->RoomFilterHF;
+			p.RoomFilterFreq = n->RoomFilterFreq > 0.0f ? n->RoomFilterFreq : 5000.0f;
+			p.DecayTime = n->DecayTime > 0.0f ? n->DecayTime : 1.0f;
+			p.DecayHFRatio = n->HighEQGain / 4.0f;
+			p.Density = n->Density;
+			p.Diffusion = n->LateDiffusion / 0.15f;
+			R.SetParams(p);
 		}
 	};
 

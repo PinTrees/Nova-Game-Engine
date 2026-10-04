@@ -48,6 +48,101 @@ namespace AndroidTools
 			return false;
 		}
 
+		// .NET 어셈블리가 참조하는 어셈블리 이름 (메타데이터의 AssemblyRef 표, ECMA-335 II.22) — 기기에 BCL 중 쓰는 것만 넣으려고.
+		//  PE → CLI 머리 → 메타데이터 루트 → #~ 스트림의 표 크기를 차례로 더해 AssemblyRef (0x23) 행의 Name 을 #Strings 에서 읽는다
+		std::vector<std::string> AssemblyReferences(const fs::path& dll)
+		{
+			std::vector<std::string> out;
+			std::ifstream in(dll, std::ios::binary);
+			std::vector<uint8_t> d((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			auto u16 = [&](size_t o) -> uint32_t { return o + 2 <= d.size() ? (uint32_t)d[o] | (uint32_t)d[o + 1] << 8 : 0; };
+			auto u32 = [&](size_t o) -> uint32_t { return o + 4 <= d.size() ? u16(o) | u16(o + 2) << 16 : 0; };
+			if (d.size() < 0x40 || u16(0) != 0x5A4D) return out;
+			const size_t pe = u32(0x3C);
+			if (u32(pe) != 0x00004550) return out;
+			const uint32_t sections = u16(pe + 6), optSize = u16(pe + 20);
+			const size_t opt = pe + 24;
+			const size_t dirs = opt + (u16(opt) == 0x20B ? 112 : 96);
+			const uint32_t cliRva = u32(dirs + 14 * 8);
+			auto offset = [&](uint32_t rva) -> size_t {
+				for (uint32_t s = 0; s < sections; ++s)
+				{
+					const size_t sh = opt + optSize + (size_t)s * 40;
+					const uint32_t va = u32(sh + 12), size = (std::max)(u32(sh + 8), u32(sh + 16)), raw = u32(sh + 20);
+					if (rva >= va && rva < va + size) return (size_t)raw + (rva - va);
+				}
+				return 0;
+			};
+			const size_t cli = offset(cliRva);
+			if (!cli) return out;
+			const size_t meta = offset(u32(cli + 8));
+			if (!meta || u32(meta) != 0x424A5342) return out;
+			size_t p = meta + 16 + u32(meta + 12);
+			const uint32_t streams = u16(p + 2);
+			p += 4;
+			size_t tables = 0, strings = 0;
+			for (uint32_t s = 0; s < streams; ++s)
+			{
+				const uint32_t off = u32(p);
+				std::string name;
+				size_t q = p + 8;
+				while (q < d.size() && d[q]) name += (char)d[q++];
+				if (name == "#~" || name == "#-") tables = meta + off;
+				if (name == "#Strings") strings = meta + off;
+				p = p + 8 + ((name.size() + 4) & ~(size_t)3);
+			}
+			if (!tables || !strings) return out;
+			const uint8_t heaps = d[tables + 6];
+			const uint64_t valid = (uint64_t)u32(tables + 8) | (uint64_t)u32(tables + 12) << 32;
+			uint32_t rows[64] = {};
+			size_t q = tables + 24;
+			for (int t = 0; t < 64; ++t)
+				if (valid >> t & 1) { rows[t] = u32(q); q += 4; }
+			const uint32_t str = heaps & 1 ? 4 : 2, guid = heaps & 2 ? 4 : 2, blob = heaps & 4 ? 4 : 2;
+			auto idx = [&](int t) { return rows[t] < 65536 ? 2u : 4u; };
+			auto coded = [&](std::initializer_list<int> ts, int bits) { uint32_t mx = 0; for (int t : ts) if (t >= 0) mx = (std::max)(mx, rows[t]); return mx < (1u << (16 - bits)) ? 2u : 4u; };
+			const uint32_t typeDefOrRef = coded({ 0x02, 0x01, 0x1B }, 2), resolutionScope = coded({ 0x00, 0x1A, 0x23, 0x01 }, 2);
+			const uint32_t memberRefParent = coded({ 0x02, 0x01, 0x1A, 0x06, 0x1B }, 3), hasConstant = coded({ 0x04, 0x08, 0x17 }, 2);
+			const uint32_t hasCustomAttribute = coded({ 0x06, 0x04, 0x01, 0x02, 0x08, 0x09, 0x0A, 0x00, 0x0E, 0x17, 0x14, 0x11, 0x1A, 0x1B, 0x20, 0x23, 0x26, 0x27, 0x28, 0x2A, 0x2C, 0x2B }, 5);
+			const uint32_t customAttributeType = coded({ -1, -1, 0x06, 0x0A, -1 }, 3), hasFieldMarshal = coded({ 0x04, 0x08 }, 1);
+			const uint32_t hasDeclSecurity = coded({ 0x02, 0x06, 0x20 }, 2), hasSemantics = coded({ 0x14, 0x17 }, 1), methodDefOrRef = coded({ 0x06, 0x0A }, 1);
+			const uint32_t memberForwarded = coded({ 0x04, 0x06 }, 1);
+			const uint32_t size[0x23] = {
+				2 + str + guid * 3,                                   // Module
+				resolutionScope + str * 2,                            // TypeRef
+				4 + str * 2 + typeDefOrRef + idx(0x04) + idx(0x06),   // TypeDef
+				idx(0x04), 2 + str + blob, idx(0x06),                 // FieldPtr, Field, MethodPtr
+				4 + 2 + 2 + str + blob + idx(0x08), idx(0x08),        // MethodDef, ParamPtr
+				2 + 2 + str,                                          // Param
+				idx(0x02) + typeDefOrRef,                             // InterfaceImpl
+				memberRefParent + str + blob,                         // MemberRef
+				2 + hasConstant + blob,                               // Constant
+				hasCustomAttribute + customAttributeType + blob,      // CustomAttribute
+				hasFieldMarshal + blob,                               // FieldMarshal
+				2 + hasDeclSecurity + blob,                           // DeclSecurity
+				2 + 4 + idx(0x02), 4 + idx(0x04), blob,               // ClassLayout, FieldLayout, StandAloneSig
+				idx(0x02) + idx(0x14), idx(0x14), 2 + str + typeDefOrRef,   // EventMap, EventPtr, Event
+				idx(0x02) + idx(0x17), idx(0x17), 2 + str + blob,     // PropertyMap, PropertyPtr, Property
+				2 + idx(0x06) + hasSemantics,                         // MethodSemantics
+				idx(0x02) + methodDefOrRef * 2,                       // MethodImpl
+				str, blob,                                            // ModuleRef, TypeSpec
+				2 + memberForwarded + str + idx(0x1A),                // ImplMap
+				4 + idx(0x04), 8, 4,                                  // FieldRVA, EncLog, EncMap
+				4 + 8 + 4 + blob + str * 2, 4, 12 };                  // Assembly, AssemblyProcessor, AssemblyOS
+			for (int t = 0; t < 0x23; ++t)
+				q += (size_t)rows[t] * size[t];
+			const uint32_t refRow = 8 + 4 + blob + str * 2 + blob;
+			for (uint32_t r = 0; r < rows[0x23]; ++r)
+			{
+				const size_t row = q + (size_t)r * refRow;
+				const uint32_t nameIndex = str == 4 ? u32(row + 12 + blob) : u16(row + 12 + blob);
+				std::string name;
+				for (size_t c = strings + nameIndex; c < d.size() && d[c]; ++c) name += (char)d[c];
+				if (!name.empty()) out.push_back(name);
+			}
+			return out;
+		}
+
 		// 게임 데이터 (APK 의 assets/game): 플레이어 빌드와 같은 에셋 모음 + 경로를 '/' 로 + player.json + files.txt (기기가 풀어 놓을 목록)
 		bool Export(const nlohmann::json& args, nlohmann::json& result, std::string& error)
 		{
@@ -163,6 +258,53 @@ namespace AndroidTools
 				bytes += fs::file_size(dst, ec);
 				files.push_back(r);
 			}
+			// C# 스크립트: 프로젝트에 Assembly-CSharp.dll 이 있으면 Mono 런타임의 어셈블리 (CoreLib · BCL) + NovaScriptCore + Assembly-CSharp 를 Managed/ 에
+			//  (기기의 ScriptEngineAndroid 가 읽는다 — 없으면 스크립트 없이 돈다)
+			nlohmann::json csharp = { { "included", false } };
+			{
+				const fs::path game_cs = PathManager::GetI()->GetMovePathW(L"Library\\ScriptAssemblies\\Assembly-CSharp.dll");
+				const fs::path core = fs::path(PathManager::GetI()->GetEnginePathW()) / L"Binaries" / L"Scripting" / L"NovaScriptCore.dll";
+				std::wstring monoLib, monoNative;
+				if (fs::exists(game_cs, ec))
+				{
+					if (!MonoRuntime("x86_64", monoLib, monoNative) || !fs::exists(core, ec))
+						csharp = { { "included", false }, { "error", !fs::exists(core, ec) ? "NovaScriptCore.dll missing in the engine" : "Mono runtime missing (Tools/fetch_android_mono.ps1)" } };
+					else
+					{
+						const fs::path managed = game / L"Managed";
+						fs::create_directories(managed, ec);
+						uint64_t managedBytes = 0;
+						int count = 0;
+						auto add = [&](const fs::path& src) {
+							fs::copy_file(src, managed / src.filename(), fs::copy_options::overwrite_existing, ec);
+							managedBytes += fs::file_size(src, ec);
+							files.push_back("Managed/" + wstring_to_string(src.filename().wstring()));
+							++count;
+						};
+						// BCL 은 게임 · 엔진 어셈블리가 (AssemblyRef 로) 닿는 것만 — 모두 넣으면 21 MB
+						std::map<std::string, fs::path> bcl;
+						for (const auto& e : fs::directory_iterator(monoLib, ec))
+							if (e.path().extension() == L".dll") bcl[wstring_to_string(e.path().stem().wstring())] = e.path();
+						bcl["System.Private.CoreLib"] = fs::path(monoNative) / L"System.Private.CoreLib.dll";
+						std::set<std::string> needed;
+						std::vector<fs::path> queue = { core, game_cs, bcl["System.Private.CoreLib"] };
+						for (const char* always : { "System.Runtime", "System.Private.Uri", "System.Runtime.InteropServices", "System.Console" })   // 리플렉션 · 런타임이 이름으로 찾는 것
+							if (bcl.count(always)) queue.push_back(bcl[always]);
+						while (!queue.empty())
+						{
+							const fs::path next = queue.back();
+							queue.pop_back();
+							if (!needed.insert(wstring_to_string(next.filename().wstring())).second) continue;
+							add(next);
+							for (const std::string& ref : AssemblyReferences(next))
+								if (auto it = bcl.find(ref); it != bcl.end() && !needed.count(wstring_to_string(it->second.filename().wstring())))
+									queue.push_back(it->second);
+						}
+						bytes += managedBytes;
+						csharp = { { "included", true }, { "assemblies", count }, { "bytes", managedBytes } };
+					}
+				}
+			}
 			nlohmann::json player = { { "productName", BuildSettings::ProductName() }, { "graphicsAPIs", { "OpenGL" } } };
 			nlohmann::json sceneList = nlohmann::json::array();
 			for (std::string s : scenes)
@@ -178,7 +320,7 @@ namespace AndroidTools
 			manifest << "# export " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "\n";
 			for (const std::string& f : files) manifest << f << "\n";
 			result = { { "files", files.size() }, { "jsonConverted", converted }, { "bytes", bytes }, { "scenes", sceneList },
-				{ "textureCompression", TextureCompressor::AndroidDefaultName(texDefault) }, { "textures", textures }, { "models", models },
+				{ "textureCompression", TextureCompressor::AndroidDefaultName(texDefault) }, { "textures", textures }, { "models", models }, { "csharp", csharp },
 				{ "seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() },
 				{ "out", wstring_to_string(fs::absolute(game, ec).wstring()) } };
 			return true;
@@ -320,6 +462,24 @@ namespace AndroidTools
 	bool ExportGame(const nlohmann::json& args, nlohmann::json& result, std::string& error)
 	{
 		return Export(args, result, error);
+	}
+
+	bool MonoRuntime(const std::string& abi, std::wstring& managedDir, std::wstring& nativeDir)
+	{
+		std::error_code ec;
+		const fs::path engine = PathManager::GetI()->GetEnginePathW();
+		const std::wstring rid = abi == "arm64-v8a" ? L"android-arm64" : L"android-x64";
+		// 배포판: Android/Player/<ABI>/mono/{lib,native}, 엔진 개발: ThirdParty/MonoAndroid/<ABI>/runtimes/<rid>/{lib/net8.0,native}
+		const fs::path release = engine / L"Android" / L"Player" / string_to_wstring(abi) / L"mono";
+		const fs::path dev = engine / L"ThirdParty" / L"MonoAndroid" / string_to_wstring(abi) / L"runtimes" / rid;
+		for (const auto& [lib, native] : { std::pair{ release / L"lib", release / L"native" }, std::pair{ dev / L"lib" / L"net8.0", dev / L"native" } })
+			if (fs::exists(native / L"libmonosgen-2.0.so", ec) && fs::exists(native / L"System.Private.CoreLib.dll", ec) && fs::is_directory(lib, ec))
+			{
+				managedDir = lib.wstring();
+				nativeDir = native.wstring();
+				return true;
+			}
+		return false;
 	}
 
 	void RegisterEditor()

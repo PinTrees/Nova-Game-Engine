@@ -150,6 +150,13 @@ namespace AndroidBuild
 			}
 		}
 
+		// Mono 의 선택 구성 요소 (디버거 · 진단 추적 · 핫 리로드) 는 게임에 넣지 않는다 (없으면 Mono 가 빈 구현을 쓴다)
+		bool IsOptionalMonoLibrary(const std::string& name)
+		{
+			return name.find("component-debugger") != std::string::npos || name.find("component-diagnostics_tracing") != std::string::npos ||
+				name.find("component-hot_reload") != std::string::npos;
+		}
+
 		std::wstring Adb() { return (fs::path(FindSdk()) / L"platform-tools" / L"adb.exe").wstring(); }
 
 		uint32_t Crc32(const uint8_t* data, size_t size)
@@ -171,9 +178,9 @@ namespace AndroidBuild
 			return crc ^ 0xFFFFFFFFu;
 		}
 
-		// APK (zip) 끝에 파일 하나를 압축 없이 (stored) 더한다 (aapt 없이 — SDK 의 옛 도구에 기대지 않는다).
+		// APK (zip) 끝에 파일들을 압축 없이 (stored) 한 번에 더한다 (aapt 없이 — SDK 의 옛 도구에 기대지 않는다).
 		//  기존 항목은 그대로 두고 중앙 디렉터리 · 끝 레코드만 다시 쓴다 (zip64 아님 — APK 는 4 GB 보다 작다)
-		bool ZipAppendStored(const fs::path& zipPath, const std::string& name, const fs::path& file, std::string& error)
+		bool ZipAppendStored(const fs::path& zipPath, const std::vector<std::pair<std::string, fs::path>>& adds, std::string& error)
 		{
 			auto readAll = [](const fs::path& p, std::vector<uint8_t>& out) {
 				std::ifstream in(p, std::ios::binary);
@@ -181,8 +188,8 @@ namespace AndroidBuild
 				out.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 				return true;
 			};
-			std::vector<uint8_t> zip, data;
-			if (!readAll(zipPath, zip) || !readAll(file, data)) { error = "cannot read " + wstring_to_string(zipPath.wstring()) + " or " + wstring_to_string(file.wstring()); return false; }
+			std::vector<uint8_t> zip;
+			if (!readAll(zipPath, zip)) { error = "cannot read " + wstring_to_string(zipPath.wstring()); return false; }
 			auto rd16 = [&](size_t o) { return (uint32_t)zip[o] | ((uint32_t)zip[o + 1] << 8); };
 			auto rd32 = [&](size_t o) { return rd16(o) | (rd16(o + 2) << 16); };
 			size_t eocd = std::string::npos;
@@ -190,29 +197,40 @@ namespace AndroidBuild
 				if (rd32(i) == 0x06054b50u) { eocd = i; break; }
 			if (eocd == std::string::npos) { error = "not a zip (no end record)"; return false; }
 			const uint32_t entries = rd16(eocd + 10), cdSize = rd32(eocd + 12), cdOffset = rd32(eocd + 16);
-			const uint32_t crc = Crc32(data.data(), data.size()), size = (uint32_t)data.size(), nameLen = (uint32_t)name.size();
 			std::vector<uint8_t> out(zip.begin(), zip.begin() + cdOffset);
-			auto w16 = [&](uint32_t v) { out.push_back((uint8_t)v); out.push_back((uint8_t)(v >> 8)); };
+			auto w16 = [&](uint32_t v) { const uint8_t b[2] = { (uint8_t)v, (uint8_t)(v >> 8) }; out.insert(out.end(), b, b + 2); };
 			auto w32 = [&](uint32_t v) { w16(v & 0xFFFF); w16(v >> 16); };
-			const uint32_t localOffset = (uint32_t)out.size();
-			// 지역 머리 + 데이터
-			w32(0x04034b50u); w16(10); w16(0); w16(0); w16(0); w16(0x21); w32(crc); w32(size); w32(size); w16(nameLen); w16(0);
-			out.insert(out.end(), name.begin(), name.end());
-			out.insert(out.end(), data.begin(), data.end());
-			// 예전 중앙 디렉터리 + 새 항목
+			// 지역 머리 + 데이터 (파일마다)
+			struct Added { std::string Name; uint32_t Crc, Size, Offset; };
+			std::vector<Added> added;
+			for (const auto& [name, file] : adds)
+			{
+				std::vector<uint8_t> data;
+				if (!readAll(file, data)) { error = "cannot read " + wstring_to_string(file.wstring()); return false; }
+				const Added a = { name, Crc32(data.data(), data.size()), (uint32_t)data.size(), (uint32_t)out.size() };
+				w32(0x04034b50u); w16(10); w16(0); w16(0); w16(0); w16(0x21); w32(a.Crc); w32(a.Size); w32(a.Size); w16((uint32_t)name.size()); w16(0);
+				out.insert(out.end(), name.begin(), name.end());
+				out.insert(out.end(), data.begin(), data.end());
+				added.push_back(a);
+			}
+			// 예전 중앙 디렉터리 + 새 항목들
 			const uint32_t newCdOffset = (uint32_t)out.size();
 			out.insert(out.end(), zip.begin() + cdOffset, zip.begin() + cdOffset + cdSize);
-			w32(0x02014b50u); w16(20); w16(10); w16(0); w16(0); w16(0); w16(0x21); w32(crc); w32(size); w32(size); w16(nameLen); w16(0); w16(0); w16(0); w16(0); w32(0); w32(localOffset);
-			out.insert(out.end(), name.begin(), name.end());
-			const uint32_t newCdSize = (uint32_t)out.size() - newCdOffset;
+			for (const Added& a : added)
+			{
+				w32(0x02014b50u); w16(20); w16(10); w16(0); w16(0); w16(0); w16(0x21); w32(a.Crc); w32(a.Size); w32(a.Size); w16((uint32_t)a.Name.size());
+				w16(0); w16(0); w16(0); w16(0); w32(0); w32(a.Offset);
+				out.insert(out.end(), a.Name.begin(), a.Name.end());
+			}
+			const uint32_t newCdSize = (uint32_t)out.size() - newCdOffset, total = entries + (uint32_t)added.size();
 			// 끝 레코드
-			w32(0x06054b50u); w16(0); w16(0); w16(entries + 1); w16(entries + 1); w32(newCdSize); w32(newCdOffset); w16(0);
+			w32(0x06054b50u); w16(0); w16(0); w16(total); w16(total); w32(newCdSize); w32(newCdOffset); w16(0);
 			// 항목 이름의 '\' → '/' (중앙 디렉터리와 지역 머리 모두, 길이가 같아 제자리에서). 에디터에서 띄운 aapt2 는 하위 폴더를
 			//  'assets/game\Assets\…' 로 적어 기기의 AssetManager 가 assets/game/… 을 못 찾는다 (명령 창 · 파이썬에서 띄우면 '/')
 			auto o16 = [&](size_t o) { return (uint32_t)out[o] | ((uint32_t)out[o + 1] << 8); };
 			auto o32 = [&](size_t o) { return o16(o) | (o16(o + 2) << 16); };
 			size_t p = newCdOffset;
-			for (uint32_t i = 0; i < entries + 1 && p + 46 <= out.size() && o32(p) == 0x02014b50u; ++i)
+			for (uint32_t i = 0; i < total && p + 46 <= out.size() && o32(p) == 0x02014b50u; ++i)
 			{
 				const uint32_t nl = o16(p + 28), el = o16(p + 30), cl = o16(p + 32), local = o32(p + 42);
 				for (uint32_t k = 0; k < nl; ++k)
@@ -295,9 +313,16 @@ namespace AndroidBuild
 				L" -I " + Quote(j->AndroidJar) + L" -A assets", stage.wstring(), out) != 0)   // 하위 폴더 이름의 '\' 는 아래 ZipAppendStored 가 '/' 로
 				return fail("aapt2 link failed", out);
 
+			// 플레이어 라이브러리 + C# 스크립트가 있으면 (게임 데이터의 Managed/) Mono 의 네이티브 라이브러리 (libmonosgen-2.0 · System.Native · 구성 요소)
 			j->SetStatus("Adding the player library (libnova.so)", 0.7f);
-			if (!ZipAppendStored(base, std::string("lib/") + kAbi + "/libnova.so", j->Lib, out))
-				return fail("adding libnova.so failed", out);
+			std::vector<std::pair<std::string, fs::path>> libs = { { std::string("lib/") + kAbi + "/libnova.so", j->Lib } };
+			std::wstring monoLib, monoNative;
+			if (fs::exists(stage / L"assets" / L"game" / L"Managed", ec) && AndroidTools::MonoRuntime(kAbi, monoLib, monoNative))
+				for (const auto& e : fs::directory_iterator(monoNative, ec))
+					if (e.path().extension() == L".so" && !IsOptionalMonoLibrary(e.path().filename().string()))
+						libs.push_back({ std::string("lib/") + kAbi + "/" + wstring_to_string(e.path().filename().wstring()), e.path() });
+			if (!ZipAppendStored(base, libs, out))
+				return fail("adding native libraries failed", out);
 
 			j->SetStatus("Aligning (zipalign)", 0.78f);
 			fs::remove(aligned, ec);

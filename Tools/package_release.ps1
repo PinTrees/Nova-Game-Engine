@@ -78,6 +78,22 @@ foreach ($abi in 'x86_64', 'arm64-v8a')
 {
     $so = "Android\build\cmake\$abi-Release\libnova.so"
     if (Test-Path $so) { New-Item -ItemType Directory -Force (Join-Path $stage "Android\Player\$abi") | Out-Null; Copy-Item $so (Join-Path $stage "Android\Player\$abi") }
+    # C# 런타임 (Mono — Tools/fetch_android_mono.ps1): 관리 어셈블리 (BCL) + 네이티브 (.so · System.Private.CoreLib.dll, 정적 .a 는 빼고)
+    $rid = if ($abi -eq 'arm64-v8a') { 'android-arm64' } else { 'android-x64' }
+    $mono = "ThirdParty\MonoAndroid\$abiuntimes\$rid"
+    if (Test-Path "$mono
+ative\libmonosgen-2.0.so")
+    {
+        $dst = Join-Path $stage "Android\Player\$abi\mono"
+        New-Item -ItemType Directory -Force "$dst\lib", "$dst
+ative" | Out-Null
+        Copy-Item "$mono\lib
+et8.0\*.dll" "$dst\lib"
+        Get-ChildItem "$mono
+ative" -File | Where-Object { $_.Extension -in '.so', '.dll' } | Copy-Item -Destination "$dst
+ative"
+        Copy-Item "ThirdParty\MonoAndroid\$abi\LICENSE.TXT", "ThirdParty\MonoAndroid\$abi\THIRD-PARTY-NOTICES.TXT" "$dst" -ErrorAction SilentlyContinue
+    }
 }
 
 # ---- 4. VC++ 런타임 (앱 로컬 배포 — Microsoft 가 재배포를 허락한 Redist 폴더의 DLL)

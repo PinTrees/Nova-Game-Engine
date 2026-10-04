@@ -8,7 +8,7 @@
 #  5) 엔진 플레이어 (창) 6) 텍스처 압축: -TextureScene 을 ASTC · ETC2 로 구워 APK 마다 실행 → DX11 기준과 비교 (APK 의 게임 데이터는 마지막 형식으로 남는다)
 param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [switch]$SkipEditor, [int]$MaxDiff = 20,
     [string]$Scene = 'Assets\Scenes\Shadows.scene', [string]$TextureScene = 'Assets\Scenes\Materials.scene', [string[]]$TextureFormats = @('astc', 'etc2'),
-    [string]$ModelScene = 'Assets\Scenes\AndroidModels.scene', [string]$TouchScene = 'Assets\Scenes\AndroidTouch.scene')
+    [string]$ModelScene = 'Assets\Scenes\AndroidModels.scene', [string]$TouchScene = 'Assets\Scenes\AndroidTouch.scene', [string]$ScriptScene = 'Assets\Scenes\AndroidScript.scene')
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Project = $Project
 $ErrorActionPreference = 'Continue'
@@ -50,8 +50,29 @@ $serial = "127.0.0.1:$($info.adb_port)"
 $abi = (& $Adb -s $serial shell getprop ro.product.cpu.abi | Out-String).Trim()
 Check 'emulator ready' ($info.player_state -eq 'start_finished') ("VM {0} '{1}', adb {2}, abi {3}" -f $index, $Vm, $serial, $abi)
 
+# ---- 리버브 (PC 에서): 안드로이드 믹서의 리버브 (Android/Source/Engine/AudioReverb.h) 임펄스 응답 — RT60 이 프리셋의 DecayTime 과 맞는지
+Write-Host '[android] reverb impulse response (PC)'
+$vcvars = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio' -Recurse -Filter vcvars64.bat -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+if ($vcvars)
+{
+    $env:PATH = "C:\Program Files (x86)\Microsoft Visual Studio\Installer;" + $env:PATH
+    $exe = Join-Path $Out 'android_reverb_test.exe'
+    $rv = (cmd /c "`"$vcvars`" >nul 2>nul & cl /nologo /O2 /EHsc /std:c++20 `"$(Join-Path $PSScriptRoot 'android_reverb_test.cpp')`" /Fe:`"$exe`" /Fo:`"$Out\\`" >nul & `"$exe`"" | Out-String)
+    Check 'reverb RT60 follows the preset (PC)' ($LASTEXITCODE -eq 0 -and $rv -match 'Hangar.*OK') (($rv -split "`n" | Where-Object { $_ -match 'RT60' } | ForEach-Object { ($_ -replace '\s+', ' ').Trim() }) -join '; ')
+}
+
 # ---- 2) 셰이더 · 기준 그림 (에디터)
 $assets = Join-Path $Root 'Android\build\assets\Shaders'
+# 복사 엔진이면 안드로이드 C# 런타임 (Mono) 을 엔진 배포판 자리 (Android/Player/x86_64/mono) 에 (Tools/fetch_android_mono.ps1 로 받은 것)
+$engineRoot = if ($env:NOVA_ENGINE) { Split-Path (Split-Path $env:NOVA_ENGINE) } else { $Root }
+$monoSrc = Join-Path $Root 'ThirdParty\MonoAndroid\x86_64\runtimes\android-x64'
+$monoDst = Join-Path $engineRoot 'Android\Player\x86_64\mono'
+if ((Test-Path "$monoSrc\native\libmonosgen-2.0.so") -and $engineRoot -ne $Root -and -not (Test-Path "$monoDst\native\libmonosgen-2.0.so"))
+{
+    New-Item -ItemType Directory -Force "$monoDst\lib", "$monoDst\native" | Out-Null
+    Copy-Item "$monoSrc\lib\net8.0\*.dll" "$monoDst\lib"
+    Get-ChildItem "$monoSrc\native" -File | Where-Object { $_.Extension -in '.so', '.dll' } | Copy-Item -Destination "$monoDst\native"
+}
 if (-not $SkipEditor)
 {
     Write-Host '[android] shaders + DX11 reference'
@@ -110,6 +131,46 @@ if (-not $SkipEditor)
         Invoke-Nova 'wait 10' | Out-Null
         $tt = Invoke-NovaJson "android export --out `"$(Join-Path $Out 'touch')`" --scenes `"$TouchScene`""
         Check 'touch scene exported' ($tt -and $tt.files -gt 0) $(if ($tt) { "$($tt.files) files" } else { 'no result' })
+        # C# 스크립트: 검사 스크립트 (Start · Update · LINQ · Transform) 를 붙인 상자 → Mono 런타임 · BCL (참조하는 것만) · Assembly-CSharp 를 넣은 게임 데이터
+        $probeDir = Join-Path $Project 'Assets\AndroidProbe'
+        New-Item -ItemType Directory -Force $probeDir | Out-Null
+        @'
+using System.Collections.Generic;
+using System.Linq;
+using NovaEngine;
+
+// Android C# probe (Tools/tests/android.ps1): Start, Update, Transform and BCL (LINQ, strings) on the device Mono runtime
+public class AndroidScriptProbe : MonoBehaviour
+{
+    public float speed = 90f;
+    int frames;
+    float yaw;
+
+    void Start()
+    {
+        var squares = Enumerable.Range(1, 10).Select(i => i * i).ToList();
+        var words = new Dictionary<string, int> { ["nova"] = 4, ["mono"] = 4 };
+        Debug.Log($"AndroidScriptProbe start {name} speed={speed} sum={squares.Sum()} words={string.Join(",", words.Keys)}");
+    }
+
+    void Update()
+    {
+        yaw += speed * Time.deltaTime;
+        transform.rotation = Quaternion.Euler(0, yaw, 0);
+        if (++frames == 60)
+            Debug.Log($"AndroidScriptProbe frames={frames} yaw={transform.eulerAngles.y:F1} time={Time.time:F2}");
+    }
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $probeDir 'AndroidScriptProbe.cs')
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info' } while ($sw.Elapsed.TotalSeconds -lt 90 -and $inf -and $inf.compiling)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Spinner --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'add-component Spinner AndroidScriptProbe' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.5,-4 --rotation 12,0,0' | Out-Null
+        Invoke-Nova "scene save --as $($ScriptScene -replace '\\', '/')" | Out-Null
+        $cs = Invoke-NovaJson "android export --out `"$(Join-Path $Out 'script')`" --scenes `"$ScriptScene`""
+        Check 'C# runtime exported (Mono, referenced BCL only)' ($cs -and $cs.csharp.included) $(if ($cs) { "$($cs.csharp.assemblies) assemblies, $([math]::Round($cs.csharp.bytes / 1MB, 1)) MB $($cs.csharp.error)" } else { 'no result' })
     }
     finally
     {
@@ -262,6 +323,12 @@ while ($sw.Elapsed.TotalSeconds -lt 60 -and -not $eng)
 Check 'engine starts in the window' ([bool]$eng) $(if ($eng) { $eng.Matches[0].Groups[1].Value } else { 'no engine event in 60 s' })
 if ($eng)
 {
+    # 시작 시간: 셰이더 효과는 pass 를 처음 쓸 때 만든다 (예전에는 모든 technique 을 미리 + 샘플러마다 정규식 — 약 10 초)
+    $loadMs = [double]($eng.Matches[0].Groups[1].Value | ConvertFrom-Json).loadMs
+    Check 'engine starts quickly' ($loadMs -lt 3000) "loadMs $loadMs (< 3000)"
+}
+if ($eng)
+{
     EnsureFront | Out-Null
     Start-Sleep -Seconds 3
     $ws = Screen 'engine_window'
@@ -407,6 +474,37 @@ if (Test-Path $src)
         Check 'audio stops in the background' ($after -lt $playing) "active tracks $playing → $after after HOME"
     }
     & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out 'logcat_touch.txt')
+    & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+}
+
+# ---- 7c) C# 스크립트: 기기의 Mono 가 Assembly-CSharp 를 읽어 Start · Update 를 부른다 (logcat 의 Debug.Log)
+$src = Join-Path $Out 'script\game'
+if (Test-Path (Join-Path $src 'Managed'))
+{
+    Write-Host '[android] C# scripts (Mono)'
+    Remove-Item -Recurse -Force $gameDir -ErrorAction SilentlyContinue
+    Copy-Item -Recurse $src $gameDir
+    $py = (& python (Join-Path $Root 'Android\build.py') --abi $abi 2>&1 | Out-String)
+    $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String)
+    & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+    & $Adb -s $serial logcat -c
+    & $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity | Out-Null
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $done = $null
+    while ($sw.Elapsed.TotalSeconds -lt 40 -and -not $done)
+    {
+        Start-Sleep -Milliseconds 500
+        $done = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'AndroidScriptProbe frames=60' | Select-Object -Last 1)
+    }
+    $log = @(& $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F)
+    $log | Set-Content -Encoding utf8 (Join-Path $Out 'logcat_script.txt')
+    $ready = $log | Select-String '\[Script\] (Mono runtime ready.*)' | Select-Object -First 1
+    $loaded = $log | Select-String '\[Script\] (Assembly-CSharp loaded.*)' | Select-Object -First 1
+    Check 'Mono runtime starts on the device' ([bool]$ready -and [bool]$loaded) $(if ($ready) { $ready.Matches[0].Groups[1].Value + '; ' + $(if ($loaded) { $loaded.Matches[0].Groups[1].Value } else { 'no Assembly-CSharp' }) } else { 'no "[Script] Mono runtime ready" (logcat_script.txt)' })
+    $start = $log | Select-String 'AndroidScriptProbe start (.*)' | Select-Object -First 1
+    Check 'C# Start runs (LINQ, Dictionary)' ($start -and $start.Line -match 'sum=385' -and $start.Line -match 'words=nova,mono') $(if ($start) { $start.Matches[0].Groups[1].Value } else { 'no Start log' })
+    Check 'C# Update runs (Transform, Time)' ($done -and $done.Line -match 'yaw=(\d+)' -and [double]$Matches[1] -gt 0) $(if ($done) { ($done.Line -split 'Log: ')[-1] } else { 'no frame 60 log in 40 s' })
+    $crash = @($log | Select-String 'FATAL|signal \d')
+    Check 'no crash with Mono' ($crash.Count -eq 0) $(if ($crash.Count) { $crash[0].Line } else { 'logcat clean' })
     & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
 }
 

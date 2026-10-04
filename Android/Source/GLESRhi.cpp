@@ -9,7 +9,8 @@
 #include "Gfx.h"
 #include <GLES3/gl32.h>
 #include <GLES2/gl2ext.h>
-#include <regex>
+#include <fstream>
+#include "AndroidEngine.h"
 
 bool NovaReadAsset(const std::string& path, std::string& out);   // AndroidMain.cpp
 
@@ -115,6 +116,8 @@ namespace
 			GLuint Program = 0;
 			std::string Error;
 			const FxParser::Pass* Fx = nullptr;
+			int SrcIndex = -1;       // Src.Passes 의 번호
+			bool Built = false;      // 처음 Apply 할 때 컴파일 · 링크 (안 쓰는 technique 은 만들지 않는다 — 시작 시간)
 			bool StatesMade = false;
 			GLInputSignature Signature;   // Gfx 층 CreateInputLayout 이 받는 의미 → location 표
 			ComPtr<GfxRasterizerState> SinkRs;   // Gfx 장치에 붙은 효과: pass 상태를 Gfx 컨텍스트로
@@ -130,6 +133,7 @@ namespace
 		ShaderCross::EffectGlsl Src;
 		std::vector<std::string> TechniqueNames;
 		std::vector<std::vector<PassProgram>> Programs;
+		std::string Name;   // 효과 이름 (로그)
 		std::vector<Block> Blocks;
 		std::vector<Var> Vars;
 		std::map<std::string, Rhi::VarId> VarIds;
@@ -652,10 +656,134 @@ namespace
 		return s;
 	}
 
+	// ---- 프로그램 바이너리 캐시 (앱 파일 폴더의 glcache/): 같은 GPU 드라이버 · 같은 GLSL 이면 다음 실행부터 컴파일 · 링크 없이 (glProgramBinary)
+	uint64_t Fnv(uint64_t h, const std::string& s)
+	{
+		for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }
+		return h;
+	}
+
+	int BinaryFormats()
+	{
+		static int n = -1;
+		if (n < 0)
+		{
+			glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &n);
+			EditorLog::Write("GLES", "program binary formats: %d%s", n, n > 0 ? " (shader cache on)" : " (no shader cache)");
+		}
+		return n;
+	}
+
+	std::string CachePath(uint64_t key)
+	{
+		char name[32];
+		snprintf(name, sizeof(name), "%016llx.bin", (unsigned long long)key);
+		return NovaAndroid::FilesDir() + "/glcache/" + name;
+	}
+
+	bool LoadBinary(GLuint program, uint64_t key)
+	{
+		std::ifstream in(CachePath(key), std::ios::binary);
+		if (!in) return false;
+		GLenum format = 0;
+		in.read(reinterpret_cast<char*>(&format), sizeof(format));
+		std::vector<char> data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		if (data.empty()) return false;
+		glProgramBinary(program, format, data.data(), (GLsizei)data.size());
+		GLint ok = 0;
+		glGetProgramiv(program, GL_LINK_STATUS, &ok);
+		return ok != 0;   // 드라이버가 바뀌었으면 실패 → 다시 컴파일
+	}
+
+	void SaveBinary(GLuint program, uint64_t key)
+	{
+		GLint len = 0;
+		glGetProgramiv(program, GL_PROGRAM_BINARY_LENGTH, &len);
+		if (len <= 0) return;
+		std::vector<char> data((size_t)len);
+		GLenum format = 0;
+		glGetProgramBinary(program, len, nullptr, &format, data.data());
+		if (glGetError() != GL_NO_ERROR) return;
+		std::error_code ec;
+		std::filesystem::create_directories(NovaAndroid::FilesDir() + "/glcache", ec);
+		std::ofstream out(CachePath(key), std::ios::binary | std::ios::trunc);
+		out.write(reinterpret_cast<const char*>(&format), sizeof(format));
+		out.write(data.data(), (std::streamsize)data.size());
+	}
+
+	// 한 pass 의 프로그램: 캐시 → 없으면 단계마다 컴파일 + 링크 (+ 캐시에 저장)
+	void BuildPass(const ShaderCross::EffectGlsl& src, const std::string& effectName, const std::string& techName, ESEffect::PassProgram& pp)
+	{
+		pp.Built = true;
+		if (!pp.Error.empty() || pp.SrcIndex < 0)
+			return;
+		const ShaderCross::PassGlsl& pg = src.Passes[(size_t)pp.SrcIndex];
+		uint64_t key = 14695981039346656037ull;
+		key = Fnv(key, reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
+		key = Fnv(key, reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+		for (const ShaderCross::StageGlsl& sg : pg.Stages)
+			key = Fnv(Fnv(key, std::to_string((int)sg.StageType)), sg.Glsl);
+		const bool cache = BinaryFormats() > 0;
+		pp.Program = glCreateProgram();
+		if (cache && LoadBinary(pp.Program, key))
+		{
+			const GLint loc = glGetUniformLocation(pp.Program, "SPIRV_Cross_BaseInstance");
+			if (loc >= 0) { glUseProgram(pp.Program); glUniform1i(loc, 0); }
+			return;
+		}
+		std::vector<GLuint> shaders;
+		for (const ShaderCross::StageGlsl& sg : pg.Stages)
+		{
+			static const GLenum types[] = { GL_VERTEX_SHADER, GL_TESS_CONTROL_SHADER, GL_TESS_EVALUATION_SHADER, GL_GEOMETRY_SHADER, GL_FRAGMENT_SHADER, GL_COMPUTE_SHADER };
+			std::string err;
+			GLuint sh = CompileStage(types[(int)sg.StageType], sg.Glsl, err);
+			if (!sh)
+			{
+				pp.Error = std::string(FxParser::StageName(sg.StageType)) + " " + sg.Entry + ": GLSL ES: " + err;
+				break;
+			}
+			shaders.push_back(sh);
+		}
+		if (pp.Error.empty())
+		{
+			for (GLuint sh : shaders) glAttachShader(pp.Program, sh);
+			if (cache) glProgramParameteri(pp.Program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+			glLinkProgram(pp.Program);
+			GLint ok = 0;
+			glGetProgramiv(pp.Program, GL_LINK_STATUS, &ok);
+			if (!ok)
+			{
+				GLint len = 0;
+				glGetProgramiv(pp.Program, GL_INFO_LOG_LENGTH, &len);
+				std::string log((std::max)(len, 1), '\0');
+				glGetProgramInfoLog(pp.Program, len, nullptr, log.data());
+				pp.Error = "link: " + std::string(log.c_str());
+			}
+			else
+			{
+				if (cache) SaveBinary(pp.Program, key);
+				const GLint loc = glGetUniformLocation(pp.Program, "SPIRV_Cross_BaseInstance");
+				if (loc >= 0) { glUseProgram(pp.Program); glUniform1i(loc, 0); }
+			}
+		}
+		for (GLuint sh : shaders)
+		{
+			glDetachShader(pp.Program, sh);
+			glDeleteShader(sh);
+		}
+		if (!pp.Error.empty())
+		{
+			glDeleteProgram(pp.Program);
+			pp.Program = 0;
+			EditorLog::Write("GLES", "%s %s: %s", effectName.c_str(), techName.c_str(), pp.Error.c_str());
+		}
+	}
+
 	std::unique_ptr<Rhi::Effect> ESDevice::LoadEffect(const std::wstring& fxPath, std::string& error)
 	{
 		auto e = std::make_unique<ESEffect>();
 		e->Device = this;
+		e->Name = std::filesystem::path(wstring_to_string(fxPath)).stem().string();
 		// 미리 변환한 GLSL ES (assets/Shaders/<이름>.json)
 		const std::string stem = std::filesystem::path(wstring_to_string(fxPath)).stem().string();
 		std::string text;
@@ -689,50 +817,7 @@ namespace
 				pp.Fx = &pass;
 				pp.Signature.Inputs = &pg.VertexInputs;
 				pp.Error = pg.Error;
-				if (pp.Error.empty())
-				{
-					std::vector<GLuint> shaders;
-					for (const ShaderCross::StageGlsl& sg : pg.Stages)
-					{
-						static const GLenum types[] = { GL_VERTEX_SHADER, GL_TESS_CONTROL_SHADER, GL_TESS_EVALUATION_SHADER, GL_GEOMETRY_SHADER, GL_FRAGMENT_SHADER, GL_COMPUTE_SHADER };
-						std::string err;
-						GLuint s = CompileStage(types[(int)sg.StageType], sg.Glsl, err);
-						if (!s)
-						{
-							pp.Error = std::string(FxParser::StageName(sg.StageType)) + " " + sg.Entry + ": GLSL ES: " + err;
-							break;
-						}
-						shaders.push_back(s);
-					}
-					if (pp.Error.empty())
-					{
-						pp.Program = glCreateProgram();
-						for (GLuint s : shaders) glAttachShader(pp.Program, s);
-						glLinkProgram(pp.Program);
-						GLint ok = 0;
-						glGetProgramiv(pp.Program, GL_LINK_STATUS, &ok);
-						if (!ok)
-						{
-							GLint len = 0;
-							glGetProgramiv(pp.Program, GL_INFO_LOG_LENGTH, &len);
-							std::string log((std::max)(len, 1), '\0');
-							glGetProgramInfoLog(pp.Program, len, nullptr, log.data());
-							pp.Error = "link: " + std::string(log.c_str());
-							glDeleteProgram(pp.Program);
-							pp.Program = 0;
-						}
-						else
-						{
-							const GLint loc = glGetUniformLocation(pp.Program, "SPIRV_Cross_BaseInstance");
-							if (loc >= 0) { glUseProgram(pp.Program); glUniform1i(loc, 0); glUseProgram(0); }
-						}
-					}
-					for (GLuint s : shaders)
-					{
-						if (pp.Program) glDetachShader(pp.Program, s);
-						glDeleteShader(s);
-					}
-				}
+				pp.SrcIndex = (int)index - 1;
 				if (!pp.Error.empty())
 					EditorLog::Write("GLES", "%s %s/%s: %s", stem.c_str(), tech.Name.c_str(), pass.Name.c_str(), pp.Error.c_str());
 				passes.push_back(pp);
@@ -787,24 +872,30 @@ namespace
 			for (int i = 0; i < s.Count; ++i)
 				e->UnitSamplers[s.Unit + i] = s.Sampler == "nosampler" ? 0 : e->SamplerObjects[s.Sampler];
 		// 그림자(비교) 샘플러 유닛: GLSL ES 선언 (uniform highp sampler2DArrayShadow 이름) 에서 종류를 읽는다
+		//  (모든 단계의 'uniform [정밀도] sampler…Shadow 이름' 을 한 번 훑는다 — 샘플러 × pass 마다 std::regex 를 돌리면 큰 효과가 몇 초 걸렸다)
+		std::map<std::string, GLenum> shadowDecl;
+		for (const auto& pass : e->Src.Passes)
+			for (const auto& stage : pass.Stages)
+			{
+				const std::string& g = stage.Glsl;
+				for (size_t at = g.find("uniform "); at != std::string::npos; at = g.find("uniform ", at + 8))
+				{
+					std::istringstream line(g.substr(at, g.find(';', at) - at));
+					std::string word, type, name;
+					line >> word;   // uniform
+					while (line >> word)
+					{
+						if (word.rfind("sampler", 0) == 0) { type = word; line >> name; break; }
+						if (word != "highp" && word != "mediump" && word != "lowp") break;
+					}
+					if (type.size() > 6 && type.compare(type.size() - 6, 6, "Shadow") == 0 && !name.empty())
+						shadowDecl[name] = type == "sampler2DArrayShadow" ? GL_TEXTURE_2D_ARRAY : type == "samplerCubeShadow" ? GL_TEXTURE_CUBE_MAP : type == "sampler2DShadow" ? GL_TEXTURE_2D : 0;
+				}
+			}
 		for (const auto& [n, s] : e->Src.Samplers)
 		{
-			const std::regex decl("uniform\\s+(?:\\w+\\s+)?(sampler\\w*Shadow)\\s+" + n + "\\b");
-			GLenum target = 0;
-			for (const auto& pass : e->Src.Passes)
-			{
-				for (const auto& stage : pass.Stages)
-				{
-					std::smatch m;
-					if (std::regex_search(stage.Glsl, m, decl))
-					{
-						const std::string type = m[1];
-						target = type == "sampler2DArrayShadow" ? GL_TEXTURE_2D_ARRAY : type == "samplerCubeShadow" ? GL_TEXTURE_CUBE_MAP : type == "sampler2DShadow" ? GL_TEXTURE_2D : 0;
-						break;
-					}
-				}
-				if (target) break;
-			}
+			auto it = shadowDecl.find(n);
+			const GLenum target = it != shadowDecl.end() ? it->second : 0;
 			for (int i = 0; target && i < s.Count; ++i)
 				e->UnitShadowTarget[s.Unit + i] = target;
 		}
@@ -817,6 +908,8 @@ namespace
 		if (technique < 0 || technique >= (int)Programs.size() || pass < 0 || pass >= (int)Programs[technique].size())
 			return;
 		PassProgram& pp = Programs[technique][pass];
+		if (!pp.Built)
+			BuildPass(Src, Name, TechniqueNames[technique] + "/" + std::to_string(pass), pp);
 		if (!pp.Program)
 		{
 			if (Reported.insert(TechniqueNames[technique] + "/" + std::to_string(pass)).second)

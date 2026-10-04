@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드: 모델 메시 캐시 · Build Settings APK · 터치 → UI · Input · 소리 (AAudio)** (사용자 지시: 추천 1 ~ 4 진행). **완료** — android **47/47** (MuMu), PC 회귀 ui 15 · model 56 · audio 4 · physics 13
+- 갱신 시각: 2026년 10월 4일 — **안드로이드: C# 스크립트 (Mono) · 시작 시간 · 리버브** (사용자 지시: 남은 점 진행). **완료** — android **54/54** (MuMu)
+  - C#: 새 `Android/Source/Engine/ScriptEngineAndroid.cpp` (Mono 임베딩 — dlopen, TPA, PINVOKE_OVERRIDE, [UnmanagedCallersOnly] 진입점), 안드로이드가 `Source/Scripting/ScriptBindings.cpp` 도 빌드
+    (작업 트리의 Codex 미커밋 변경을 포함해 컴파일됨 — 커밋된 상태끼리도 표 크기는 맞다). export 가 Managed/ (참조하는 BCL 만 — AssemblyRef 따라가기), 런타임은 `Tools/fetch_android_mono.ps1` → `ThirdParty/MonoAndroid` (gitignore)
+  - 시작 시간: `GLESRhi.cpp` 효과의 pass 를 처음 쓸 때 컴파일 (+ 프로그램 바이너리 캐시), 그림자 샘플러 정규식 제거 → loadMs 약 9.7 s → 0.3 s
+  - 리버브: 새 `Android/Source/Engine/AudioReverb.h` + `xaudio2.h` 의 I3DL2 프리셋 실제 값 · 변환, PC 검사 `Tools/tests/android_reverb_test.cpp`
+  - Codex 에게: ScriptCore 는 고치지 않았다. C# 쪽 Input.touchCount 는 ScriptCore 담당 범위라 손대지 않음 (네이티브 `Input::GetTouch` 는 있음)
+- 이전: 2026년 10월 4일 — **안드로이드: 모델 메시 캐시 · Build Settings APK · 터치 → UI · Input · 소리 (AAudio)** (사용자 지시: 추천 1 ~ 4 진행). **완료** — android **47/47** (MuMu), PC 회귀 ui 15 · model 56 · audio 4 · physics 13
   - 모델: `nova android export` 가 fbx · gltf · glb · vrm 을 메시 캐시만 넣음 (`SkinnedMesh.cpp` 의 ImportHash = FNV-1a 64 — MSVC std::hash 와 같은 값이라 PC 캐시 그대로)
   - 패키지: `Packages/*/Source` 를 안드로이드 엔진에 정적으로 (Animator · Toon …, `Android/CMakeLists.txt` + 만든 `nova_packages.cpp`), 패키지 셰이더도 GLES 로. lilToon.fx 에 `NOVA_GLES` 밉 개수 대체 (엔진 32 번과 같게)
   - **컴포넌트 등록 고침**: 안드로이드가 `NOVA_ENGINE_BUILD` 없이 빌드돼 `REGISTER_COMPONENT` 가 비어 기본 29 개만 있었다 (UI · 오디오 · 물리 컴포넌트가 씬에서 빠짐) → 켜고, `define.h` 에 `NOVA_KEEP_REGISTRATION` (clang `used`) — 83 개

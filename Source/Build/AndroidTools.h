@@ -14,4 +14,6 @@ namespace AndroidTools
 	// AndroidBuild 도 쓰는 단계 (CLI 와 같은 인자 · 결과 JSON)
 	bool ExportShaders(const nlohmann::json& args, nlohmann::json& result, std::string& error);
 	bool ExportGame(const nlohmann::json& args, nlohmann::json& result, std::string& error);
+	// 안드로이드 C# 런타임 (Microsoft 의 Mono): 관리 어셈블리 폴더 (BCL) 와 네이티브 폴더 (libmonosgen-2.0.so · System.Private.CoreLib.dll …). 없으면 false
+	bool MonoRuntime(const std::string& abi, std::wstring& managedDir, std::wstring& nativeDir);
 }

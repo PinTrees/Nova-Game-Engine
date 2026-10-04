@@ -63,6 +63,7 @@ list(APPEND ENGINE_SOURCES ${AUDIO_CODEC_SOURCES}
     "${ROOT}/Source/Editor/UnityGUI.cpp"
     "${ROOT}/Source/Editor/EditorGUI.cpp"
     "${ROOT}/Source/Scripting/CSharpScript.cpp"
+    "${ROOT}/Source/Scripting/ScriptBindings.cpp"
     "${ROOT}/Source/Scripting/MonoBehaviour.cpp")
 add_library(nova_engine STATIC
     ${ENGINE_SOURCES}

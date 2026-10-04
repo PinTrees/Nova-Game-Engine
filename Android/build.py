@@ -86,6 +86,13 @@ def main():
     with zipfile.ZipFile(base, 'a', zipfile.ZIP_DEFLATED) as z:
         for abi, so in libs.items():
             z.write(so, f'lib/{abi}/libnova.so')
+            # C# 스크립트 (게임 데이터에 Managed/ 가 있으면): Mono 의 네이티브 라이브러리 (Tools/fetch_android_mono.ps1 가 받아 둔 것)
+            rid = 'android-arm64' if abi == 'arm64-v8a' else 'android-x64'
+            mono = os.path.join(HERE, '..', 'ThirdParty', 'MonoAndroid', abi, 'runtimes', rid, 'native')
+            if os.path.isdir(os.path.join(a.assets, 'game', 'Managed')) and os.path.isdir(mono):
+                for f in sorted(os.listdir(mono)):
+                    if f.endswith('.so') and not any(k in f for k in ('component-debugger', 'component-diagnostics_tracing', 'component-hot_reload')):
+                        z.write(os.path.join(mono, f), f'lib/{abi}/{f}')
     aligned = os.path.join(a.out, 'aligned.apk')
     run([os.path.join(bt, 'zipalign.exe'), '-p', '-f', '4', base, aligned])
     keystore = os.path.expanduser(r'~\.android\debug.keystore')

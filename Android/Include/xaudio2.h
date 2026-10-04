@@ -2,6 +2,7 @@
 // 안드로이드: 엔진이 쓰는 XAudio2 의 선언. 구현 = Android/Source/Engine/XAudio2Android.cpp (소프트웨어 믹서 + AAudio 출력)
 #include "WinCompat.h"
 #include "mmreg.h"
+#include <algorithm>
 #define XAUDIO2_DEFAULT_PROCESSOR 0x1
 #define XAUDIO2_END_OF_STREAM 0x40
 #define XAUDIO2_LOOP_INFINITE 255
@@ -18,26 +19,27 @@
 #define XAUDIO2_HELPER_FUNCTIONS 1
 #define XAUDIO2FX_REVERB_MIN_WET_DRY_MIX 0.0f
 #define XAUDIO2FX_REVERB_MAX_WET_DRY_MIX 100.0f
+// I3DL2 프리셋 (Windows SDK 의 xaudio2fx.h 와 같은 값 — 엔진 AudioMixer 의 Reverb Preset)
 #define XAUDIO2FX_I3DL2_PRESET_DEFAULT { 100, -10000, 0, 0.0f, 1.00f, 0.50f, -10000, 0.020f, -10000, 0.040f, 100.0f, 100.0f, 5000.0f }
-#define XAUDIO2FX_I3DL2_PRESET_ALLEY XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_ARENA XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_AUDITORIUM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_BATHROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_CAVE XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_CONCERTHALL XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_FOREST XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_HALLWAY XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_HANGAR XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_LARGEHALL XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_LARGEROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_LIVINGROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_MEDIUMROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_PLATE XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_ROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_SMALLROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_STONECORRIDOR XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_STONEROOM XAUDIO2FX_I3DL2_PRESET_DEFAULT
-#define XAUDIO2FX_I3DL2_PRESET_UNDERWATER XAUDIO2FX_I3DL2_PRESET_DEFAULT
+#define XAUDIO2FX_I3DL2_PRESET_ALLEY {100, -1000, -270,0.0f, 1.49f,0.86f, -1204,0.007f,    -4,0.011f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_ARENA {100, -1000, -698,0.0f, 7.24f,0.33f, -1166,0.020f,    16,0.030f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_AUDITORIUM {100, -1000, -476,0.0f, 4.32f,0.59f,  -789,0.020f,  -289,0.030f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_BATHROOM {100, -1000,-1200,0.0f, 1.49f,0.54f,  -370,0.007f,  1030,0.011f,100.0f, 60.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_CAVE {100, -1000,    0,0.0f, 2.91f,1.30f,  -602,0.015f,  -302,0.022f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_CONCERTHALL {100, -1000, -500,0.0f, 3.92f,0.70f, -1230,0.020f,    -2,0.029f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_FOREST {100, -1000,-3300,0.0f, 1.49f,0.54f, -2560,0.162f,  -613,0.088f, 79.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_HALLWAY {100, -1000, -300,0.0f, 1.49f,0.59f, -1219,0.007f,   441,0.011f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_HANGAR {100, -1000,-1000,0.0f,10.05f,0.23f,  -602,0.020f,   198,0.030f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_LARGEHALL {100, -1000, -600,0.0f, 1.80f,0.70f, -2000,0.030f, -1400,0.060f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_LARGEROOM {100, -1000, -600,0.0f, 1.50f,0.83f, -1600,0.020f, -1000,0.040f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_LIVINGROOM {100, -1000,-6000,0.0f, 0.50f,0.10f, -1376,0.003f, -1104,0.004f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_MEDIUMROOM {100, -1000, -600,0.0f, 1.30f,0.83f, -1000,0.010f,  -200,0.020f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_PLATE {100, -1000, -200,0.0f, 1.30f,0.90f,     0,0.002f,     0,0.010f,100.0f, 75.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_ROOM {100, -1000, -454,0.0f, 0.40f,0.83f, -1646,0.002f,    53,0.003f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_SMALLROOM {100, -1000, -600,0.0f, 1.10f,0.83f,  -400,0.005f,   500,0.010f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_STONECORRIDOR {100, -1000, -237,0.0f, 2.70f,0.79f, -1214,0.013f,   395,0.020f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_STONEROOM {100, -1000, -300,0.0f, 2.31f,0.64f,  -711,0.012f,    83,0.017f,100.0f,100.0f,5000.0f}
+#define XAUDIO2FX_I3DL2_PRESET_UNDERWATER {100, -1000,-4000,0.0f, 1.49f,0.10f,  -449,0.007f,  1700,0.011f,100.0f,100.0f,5000.0f}
 
 enum XAUDIO2_FILTER_TYPE { LowPassFilter, BandPassFilter, HighPassFilter, NotchFilter, LowPassOnePoleFilter, HighPassOnePoleFilter };
 struct XAUDIO2_FILTER_PARAMETERS { XAUDIO2_FILTER_TYPE Type; float Frequency; float OneOverQ; };
@@ -68,13 +70,23 @@ struct XAUDIO2FX_REVERB_I3DL2_PARAMETERS
 	float WetDryMix; int Room, RoomHF; float RoomRolloffFactor, DecayTime, DecayHFRatio; int Reflections; float ReflectionsDelay; int Reverb;
 	float ReverbDelay, Diffusion, Density, HFReference;
 };
-// I3DL2 프리셋 → 리버브 값 (안드로이드 리버브가 쓰는 것만: 감쇠 시간 · 섞기)
+// I3DL2 → 리버브 값 (안드로이드 리버브 AudioReverb.h 가 쓰는 것: 지연 · 이득 (mB → dB) · 감쇠 · 고역 감쇠 비 · 밀도 · 확산 · 방 필터)
+//  DecayHFRatio 는 HighEQGain 에 ×4 로 담는다 (0..8 = 0..2 — 이 안드로이드 판끼리만 쓰는 약속)
 inline void ReverbConvertI3DL2ToNative(const XAUDIO2FX_REVERB_I3DL2_PARAMETERS* i3dl2, XAUDIO2FX_REVERB_PARAMETERS* native, BOOL = FALSE)
 {
 	*native = {};
-	native->DecayTime = i3dl2->DecayTime;
 	native->WetDryMix = i3dl2->WetDryMix;
+	native->ReflectionsDelay = (UINT32)(i3dl2->ReflectionsDelay * 1000.0f + 0.5f);
+	native->ReverbDelay = (BYTE)(std::min)(85.0f, i3dl2->ReverbDelay * 1000.0f + 0.5f);
+	native->ReflectionsGain = i3dl2->Reflections / 100.0f;
+	native->ReverbGain = i3dl2->Reverb / 100.0f;
+	native->RoomFilterMain = i3dl2->Room / 100.0f;
+	native->RoomFilterHF = i3dl2->RoomHF / 100.0f;
+	native->RoomFilterFreq = i3dl2->HFReference;
+	native->DecayTime = i3dl2->DecayTime;
+	native->HighEQGain = (BYTE)(std::min)(8.0f, (std::max)(0.0f, i3dl2->DecayHFRatio * 4.0f + 0.5f));
 	native->Density = i3dl2->Density;
+	native->LateDiffusion = (BYTE)(std::min)(15.0f, i3dl2->Diffusion * 0.15f + 0.5f);
 	native->RoomSize = 100.0f;
 }
 inline float XAudio2CutoffFrequencyToRadians(float cutoff, UINT32 sampleRate) { return sampleRate ? 2.0f * sinf(3.14159265f * cutoff / sampleRate) : 1.0f; }

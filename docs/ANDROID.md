@@ -1,7 +1,7 @@
 # 안드로이드
 
 NOVA 를 안드로이드에서 돌리는 작업 (지금은 MuMu 플레이어 — x86_64 에뮬레이터). 엔진 전체를 NDK 로 빌드해 OpenGL ES 3.2 로 PC 플레이어와 같은 그림
-(DirectX 11 과 화소 차이 최대 1), 텍스처 압축 (ASTC · ETC2) · 모델 메시 캐시 · 패키지 (Animator · Toon) · 터치 → UI · Input · 소리 (AAudio),
+(DirectX 11 과 화소 차이 최대 1), 텍스처 압축 (ASTC · ETC2) · 모델 메시 캐시 · 패키지 (Animator · Toon) · 터치 → UI · Input · 소리 (AAudio) · C# 스크립트 (Mono),
 그리고 에디터의 **Build Settings → Android → Build And Run** 으로 APK 를 만들어 설치 · 실행한다.
 
 ## 그래픽 API
@@ -50,7 +50,21 @@ PC 플레이어와 **같은 렌더 경로** (`EditorApp` 의 게임 뷰 그리�
 | `Source/Build/AndroidTools.cpp` | 에디터 CLI `nova android export --out Android/build/assets --scenes A.scene,…` — 플레이어 빌드와 같은 에셋 모음 (`BuildPipeline::CollectGameFiles`), JSON 안의 경로 `\` → `/`, `player.json` · `files.txt`. `nova android reference --out x.png --width --height --frames` — 열린 씬을 플레이어 순서로 그린 DX11 기준 그림 |
 | `Android/Source/AndroidMain.cpp` | APK 의 `assets/game` → 앱 파일 폴더 (`files.txt` 가 바뀌었을 때만), 게임 데이터가 있으면 엔진 플레이어 (`-e mode shell` 이면 셸), `-e test scene` = 화면 없이 첫 씬을 N 프레임 그려 BMP |
 
-아직: C# 스크립트 (기기에 .NET 런타임이 없다 — 네이티브 컴포넌트 · 패키지 · UI · 소리는 돈다).
+### C# 스크립트 (Mono)
+
+PC 는 .NET (hostfxr) 을 띄우지만 기기에서는 Microsoft 의 **Mono** (.NET 8 의 모바일 런타임, MIT — NuGet `Microsoft.NETCore.App.Runtime.Mono.android-x64` 8.0.31) 를 쓴다.
+`Android/Source/Engine/ScriptEngineAndroid.cpp` 가 Windows 의 ScriptEngine 과 같은 일을 한다 (빌드된 게임처럼 Assembly-CSharp.dll 을 읽기만).
+
+- `libmonosgen-2.0.so` 는 `dlopen` (APK 에 없으면 스크립트 없이 돈다), 헤더 없이 dlsym 으로 임베딩 함수만
+- `monovm_initialize_preparsed`: 믿을 수 있는 어셈블리 (TPA) = 게임 데이터의 `Managed/`, 문화권 데이터 없이 (`System.Globalization.Invariant`),
+  **PINVOKE_OVERRIDE** — 패키지 C# 의 `DllImport("NovaAnimation")` 등을 libnova.so 안의 함수로 (패키지를 엔진에 함께 넣었으므로)
+- 진입점은 PC 와 같은 `NovaEngine.Interop.Bridge` 의 `[UnmanagedCallersOnly]` 함수 (`mono_method_get_unmanaged_callers_only_ftnptr`), 엔진 API 표도 같다 (`ScriptBindings.cpp` 를 안드로이드도 빌드)
+- `nova android export` 는 프로젝트에 `Library/ScriptAssemblies/Assembly-CSharp.dll` 이 있을 때만 `Managed/` 에: System.Private.CoreLib · NovaScriptCore · Assembly-CSharp 와
+  **그것들이 닿는 BCL 만** (메타데이터의 AssemblyRef 표를 따라가며 — 모두 넣으면 21.9 MB, 검사 씬은 26 개 6.9 MB)
+- APK 의 `lib/x86_64` 에 Mono 의 네이티브 라이브러리 (libmonosgen-2.0 · System.Native · 압축 · 암호 · marshal-ilgen — 디버거 · 진단 · 핫 리로드는 뺀다)
+- 런타임 받기: `powershell -File Tools/fetch_android_mono.ps1` → `ThirdParty/MonoAndroid` (git 에 넣지 않음, nuget.org 의 SHA512 확인). 엔진 배포판은
+  `Tools/package_release.ps1` 가 `Android/Player/<ABI>/mono/{lib,native}` 에 넣고, 에디터는 그 자리 → `ThirdParty/MonoAndroid` 순서로 찾는다
+- MuMu: 런타임 시작 30 ~ 45 ms, Assembly-CSharp 읽기 약 140 ms (JIT)
 
 ### 모델 · 캐릭터 (메시 캐시)
 
@@ -91,6 +105,10 @@ UI · 오디오 · 물리 … 컴포넌트가 씬에서 빠졌다 (지금 83 개
 - 소프트웨어 믹서: 소스 보이스 (PCM 8 · 16 · 24 · 32 · float, 버퍼 대기열 · 반복 구간 · END_OF_STREAM, 재생 속도 · 샘플 레이트는 선형 보간,
   출력 행렬 = 팬 · 3D), 서브믹스 (믹서 그룹 — 처리 순서, XAudio2 의 상태 변수 필터, 레벨 측정기 · 에코 · 리버브 (단순 Schroeder)), 마스터 (2 채널)
 - 출력: AAudio (float, 저지연, 장치 레이트 — MuMu 는 48000 Hz · 512 프레임 버스트). 앱이 뒤로 가면 스트림을 멈추고 돌아오면 다시
+- 리버브 (`Android/Source/Engine/AudioReverb.h`, 플랫폼 코드 없음): I3DL2 프리셋 (Windows SDK 와 같은 값) 을 따른다 — 앞 지연 (ReflectionsDelay) 뒤
+  초기 반사 6 탭, 그 뒤 (ReverbDelay) 늦은 잔향 = 채널마다 빗살 8 개 (60 dB 감쇠 = DecayTime, 고역 감쇠 = DecayHFRatio) + 전역 통과 4 개 (Diffusion),
+  방 필터 (Room / RoomHF @ HFReference), WetDryMix. PC 검사 (`Tools/tests/android_reverb_test.cpp`): 임펄스 응답의 RT60 이 DecayTime 과 맞는다
+  (Bathroom 1.49 → 1.49 s, Concert Hall 3.92 → 3.88 s, Hangar 10.05 → 9.99 s)
 - mp3 · ogg · wav 디코더는 PC 와 같은 코드 (스트리밍 스레드 포함)
 
 ### Build Settings → Android (Unity 의 Build / Build And Run)
@@ -138,6 +156,9 @@ GLSL ES 3.20 으로 바꿔 `<이름>.json` 으로 쓰고, APK 의 `assets/Shader
 - ES 변환 때만 `NOVA_GLES` 가 정의된다. ES 에 없는 밉 개수 조회(`GetDimensions(0, w, h, mips)` = `textureQueryLevels`)는 크기로 계산
   (`Shaders/32 · 41 · 49 · 55`, 전체 밉 사슬일 때 같은 값). DX11 · GL · Vulkan 은 그대로
 - 476 pass 중 1 개 (옛 compute 예제) 만 변환 실패
+- 기기는 효과를 읽을 때 GLSL 을 컴파일하지 않고 **pass 를 처음 쓸 때** 컴파일 · 링크한다 (안 쓰는 technique 은 만들지 않는다). 그림자 샘플러 종류는 uniform 선언을 한 번 훑어 찾는다
+  (예전에는 샘플러 × pass 마다 std::regex — lilToon · InstancedBasic 에서 각 4 초). 엔진 시작 (MuMu) 약 10 초 → **0.3 초**
+- 드라이버가 프로그램 바이너리를 주면 (`GL_NUM_PROGRAM_BINARY_FORMATS` > 0) 앱 파일 폴더의 `glcache/` 에 저장해 다음 실행부터 컴파일 없이 (MuMu 는 0 — 쓰지 않음)
 
 ## 검사 (MuMu 플레이어, 창 없이 터미널로)
 
@@ -161,7 +182,9 @@ powershell -File Tools/tests/android.ps1
    패키지가 엔진에 들어갔는지 (logcat `[Packages]`), 10 · 90 프레임 그림이 다른지 (Animator 가 돈다)
 9. 터치 · 소리: Toggle · Slider · AudioSource 씬 → `input tap` 으로 Toggle, `input swipe` 로 Slider 손잡이 → 화면 영역이 바뀌는지, 엔진 Input 의 Touch (logcat `[Input] touch`),
    frame 이벤트의 `audioFrames` 가 늘고 레벨 > 0, `dumpsys media.audio_flinger` 의 재생 중 트랙 → HOME 이면 줄어든다
-10. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
+10. C# 스크립트: 검사 스크립트 (LINQ · Dictionary · Transform · Time) 를 붙인 씬 → Mono 런타임 · BCL 이 들어갔는지, 기기 logcat 에 Start · Update 의 Debug.Log
+11. 엔진 시작 시간 (loadMs < 3 초), 리버브 임펄스 응답 (PC)
+12. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.
@@ -176,5 +199,6 @@ SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\
 
 - 2 단계: 창 표면 · 메인 루프 · 생명 주기 · 터치 → Gfx 층의 GLES 구현 → 엔진 런타임 · 엔진 플레이어 → 텍스처 압축 (ASTC · ETC2) →
   모델 메시 캐시 · 패키지 → Build Settings 의 APK 빌드 → 터치 → UI · Input → 소리 (AAudio) **모두 완료**
-- 다음 후보: C# 스크립트 런타임 (게임 로직), 엔진 시작 시간 (MuMu 에서 약 10 초 — 셰이더 · lilToon 효과 만들기), 화면 회전 · 안전 영역
+- C# 스크립트 (Mono) · 엔진 시작 시간 (약 10 초 → 0.3 초) · 리버브 (I3DL2) **완료**
+- 다음 후보: C# 의 Input.touchCount · GetTouch (네이티브는 있음 — ScriptCore 에 API), 화면 회전 · 안전 영역, arm64 (실제 휴대폰 — 사용자 결정 뒤)
 - 실제 휴대폰 (arm64 · Vulkan) 은 한참 뒤 (사용자 결정)

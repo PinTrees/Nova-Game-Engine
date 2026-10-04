@@ -31,7 +31,7 @@
 #include <Assimp/material.h>
 
 // 안드로이드 플레이어에는 에디터가 없다: 런타임 코드가 부르는 에디터 함수 (Inspector · 선택 · Undo · 대화 상자 · 창) 의 빈 구현.
-//  C# 스크립트 런타임 · 패키지 DLL 도 아직 없다 (ScriptEngine::IsAvailable = false → 스크립트 컴포넌트는 조용히 아무것도 하지 않는다).
+//  C# 스크립트는 ScriptEngineAndroid.cpp (Mono — 게임 데이터에 런타임이 없으면 IsAvailable = false, 스크립트 컴포넌트는 조용히 아무것도 하지 않는다).
 //  게임 뷰의 마우스 · 크기 (GameViewEditorWindow 의 정적 함수) 는 진짜 구현: 터치 = 마우스, 게임 화면 = 창 전체
 
 // ---- 게임 뷰 (UI 입력 · 스크립트 입력이 쓴다)
@@ -176,32 +176,7 @@ namespace PackageManager
 	bool AddForComponent(const std::string&) { return false; }
 }
 
-// ---- C# 스크립트 런타임 (안드로이드에는 아직 없다)
-namespace ScriptEngine
-{
-	bool IsAvailable() { return false; }
-	bool IsCompiling() { return false; }
-	bool CanEnterPlayMode() { return true; }
-	void OnSceneSwapped() {}
-	const ClassInfo* FindClass(const std::string&) { return nullptr; }
-	std::wstring FindScriptFile(const std::string&) { return {}; }
-	void OpenInCodeEditor(const std::wstring&, int) {}
-	void* CreateInstance(const std::string&, uint64_t, void*, const std::string&, bool) { return nullptr; }
-	void DestroyInstance(void*) {}
-	void Invoke(void*, Message) {}
-	void SetInstanceEnabled(void*, bool) {}
-	void InvokeCollision(void*, bool, int, uint64_t) {}
-	void InvokeCollision(void*, int, int, uint64_t) {}
-	std::string GetFieldsJson(void*) { return "{}"; }
-	void SetFieldsJson(void*, const std::string&) {}
-	bool InvokeMethod(uint64_t, const std::string&, const std::string&, const std::string&) { return false; }
-	void InvokeUIEvent(uint64_t, int, float, const std::string&) {}
-}
-namespace ScriptBindings
-{
-	GameObject* FindObject(uint64 fileID) { (void)fileID; return nullptr; }
-	const char* ReturnString(const std::string& s) { static thread_local std::string keep; keep = s; return keep.c_str(); }
-}
+// ---- C# 스크립트 런타임: ScriptEngineAndroid.cpp (Mono), 엔진 API 표: Source/Scripting/ScriptBindings.cpp
 
 // ---- Assimp (Windows 전용 미리 빌드된 라이브러리) — 안드로이드는 PC 가 구운 메시 캐시(.mesh)만 읽는다
 namespace Assimp
@@ -249,10 +224,3 @@ namespace LoadingScreen
 	void BeginShaderPhase(float, float, int) {}
 }
 XMMATRIX EditorCamera::View() const { return XMMatrixIdentity(); }
-namespace ScriptEngine
-{
-	void Init() {}
-	void Shutdown() {}
-	void Update() {}
-	void BeginFrame() {}
-}
