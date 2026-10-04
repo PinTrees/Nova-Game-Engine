@@ -23,6 +23,8 @@ private:
 
 	// Unity(URP) MeshRenderer Inspector 항목. Cast Shadows 는 실제로 적용되고 나머지는 값 저장용이다.
 	int  m_CastShadows = 0;             // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
+	int  m_SortingLayerId = 0;          // 투명 패스: Sorting Layer → Order in Layer → 거리 (Unity 와 같은 순서 — 불투명은 영향 없음)
+	int  m_SortingOrder = 0;
 	bool m_StaticShadowCaster = false;
 	bool m_ContributeGI = false;
 	int  m_ReceiveGI = 0;
@@ -52,6 +54,7 @@ public:
 	// MaterialPropertyBlock (SetPropertyBlock — MaterialBlock.h). 빈 목록 = 블록 없음
 	void SetPropertyBlock(MaterialBlock::Values values) { m_Block.Set(std::move(values)); }
 	const MaterialBlock::Values& GetPropertyBlock() const { return m_Block.Get(); }
+	MaterialBlock& PropertyBlock() { return m_Block; }   // 재질 칸 블록 (SetAt · GetAt) 까지
 	// 그릴 재질: 블록이 없으면 GetMaterials 그대로, 있으면 파생 재질 (재질 값이 바뀌면 다시 만든다)
 	const vector<shared_ptr<UMaterial>>& GetRenderMaterials() { return m_Block.Apply(m_pMaterials); }
 	// MeshBatcher: 블록이 인스턴스 값으로 되면 (MaterialBlock::Instanced) 원래 재질 + instanced = true, 아니면 GetRenderMaterials
@@ -61,6 +64,10 @@ public:
 		return instanced ? m_pMaterials : GetRenderMaterials();
 	}
 	void SetCastShadows(int mode) { m_CastShadows = mode; }   // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
+	int GetSortingLayerId() const { return m_SortingLayerId; }
+	void SetSortingLayerId(int id) { m_SortingLayerId = id; }
+	int GetSortingOrder() const { return m_SortingOrder; }
+	void SetSortingOrder(int order) { m_SortingOrder = order; }
 	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }
 	// 엔진 내장 메시("builtin:Cube" 등)를 지정: 경로를 저장해 두었다가 씬을 다시 열 때 복원한다
 void SetBuiltinMesh(const wstring& builtinPath, shared_ptr<Mesh> mesh)

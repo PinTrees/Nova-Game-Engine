@@ -651,6 +651,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(SkinnedMeshRenderer)
 	j["quality"] = m_Quality;
 	j["updateWhenOffscreen"] = m_UpdateWhenOffscreen;
 	j["castShadows"] = m_CastShadows;
+	if (m_SortingLayerId != 0) j["sortingLayerID"] = m_SortingLayerId;
+	if (m_SortingOrder != 0) j["sortingOrder"] = m_SortingOrder;
 	j["staticShadowCaster"] = m_StaticShadowCaster;
 	j["lightProbes"] = m_LightProbes;
 	j["skinnedMotionVectors"] = m_SkinnedMotionVectors;
@@ -692,6 +694,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SkinnedMeshRenderer)
 	m_Quality = j.value("quality", 0);
 	m_UpdateWhenOffscreen = j.value("updateWhenOffscreen", false);
 	m_CastShadows = j.value("castShadows", 0);
+	m_SortingLayerId = j.value("sortingLayerID", 0);
+	m_SortingOrder = j.value("sortingOrder", 0);
 	m_StaticShadowCaster = j.value("staticShadowCaster", false);
 	m_LightProbes = j.value("lightProbes", 1);
 	m_SkinnedMotionVectors = j.value("skinnedMotionVectors", true);

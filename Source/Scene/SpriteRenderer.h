@@ -25,6 +25,8 @@ public:
 	void SetSortingOrder(int v) { m_SortingOrder = v; }
 	int GetSortingLayerId() const { return m_SortingLayerId; }
 	void SetSortingLayerId(int id) { m_SortingLayerId = id; }
+	// Inspector 의 Sorting Layer (Tags and Layers 목록 + Add Sorting Layer...) · Order in Layer — Line · Trail Renderer 도 쓴다
+	static void SortingFields(int& layerId, int& order);
 	// 그림 크기 (월드 단위, 크기 조절 전). 그림이 없으면 false
 	bool GetSpriteSize(Vec2& size, Vec2& pivot);
 

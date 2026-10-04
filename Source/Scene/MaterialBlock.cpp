@@ -35,21 +35,58 @@ namespace
 	}
 }
 
+namespace
+{
+	// 이름 순으로 정렬하고 해시 (같은 값 = 같은 해시 → 같은 파생 재질)
+	uint64 SortAndHash(MaterialBlock::Values& values)
+	{
+		std::sort(values.begin(), values.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+		uint64 h = 1469598103934665603ull;
+		for (const auto& [name, value] : values)
+		{
+			h = MixHash(h, std::hash<std::string>()(name));
+			h = MixHash(h, value.Color ? 1 : 2);
+			uint32_t bits[4];
+			memcpy(bits, &value.V, sizeof(bits));
+			for (uint32_t b : bits) h = MixHash(h, b);
+		}
+		return h;
+	}
+
+	const MaterialBlock::Values s_NoValues;
+}
+
 void MaterialBlock::Set(Values values)
 {
-	std::sort(values.begin(), values.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+	m_Hash = SortAndHash(values);
 	m_Values = std::move(values);
-	uint64 h = 1469598103934665603ull;
-	for (const auto& [name, value] : m_Values)
-	{
-		h = MixHash(h, std::hash<std::string>()(name));
-		h = MixHash(h, value.Color ? 1 : 2);
-		uint32_t bits[4];
-		memcpy(bits, &value.V, sizeof(bits));
-		for (uint32_t b : bits) h = MixHash(h, b);
-	}
-	m_Hash = h;
 	m_Stamp = 0;
+}
+
+void MaterialBlock::SetAt(int materialIndex, Values values)
+{
+	if (materialIndex < 0)
+	{
+		Set(std::move(values));
+		return;
+	}
+	if (values.empty())
+		m_PerIndex.erase(materialIndex);
+	else
+	{
+		IndexBlock& b = m_PerIndex[materialIndex];
+		b.Hash = SortAndHash(values);
+		b.V = std::move(values);
+	}
+	m_Stamp = 0;
+}
+
+const MaterialBlock::Values& MaterialBlock::GetAt(int materialIndex) const
+{
+	if (materialIndex < 0)
+		return m_Values;
+	auto it = m_PerIndex.find(materialIndex);
+	return it != m_PerIndex.end() ? it->second.V : s_NoValues;
 }
 
 namespace
@@ -109,8 +146,8 @@ namespace
 
 bool MaterialBlock::Instanced(const std::vector<std::shared_ptr<UMaterial>>& materials, InstanceValues& out) const
 {
-	if (m_Values.empty())
-		return false;
+	if (m_Values.empty() || !m_PerIndex.empty())
+		return false;   // 재질 칸 블록은 칸마다 값이 달라 파생 재질
 	// 재질이 모두 엔진 Lit · Unlit 이거나 모두 Shader Graph 여야 한다 (같은 칸이라도 값의 뜻이 다르다 — 엔진 Emission 은 선형)
 	bool engine = false, graph = false;
 	for (const auto& m : materials)
@@ -143,16 +180,32 @@ bool MaterialBlock::Instanced(const std::vector<std::shared_ptr<UMaterial>>& mat
 
 const std::vector<std::shared_ptr<UMaterial>>& MaterialBlock::Apply(const std::vector<std::shared_ptr<UMaterial>>& materials)
 {
-	if (m_Values.empty())
+	if (Empty())
 		return materials;
 	uint64 stamp = MixHash(m_Hash, materials.size());
+	for (const auto& [index, b] : m_PerIndex)
+		stamp = MixHash(MixHash(stamp, (uint64)index), b.Hash);
 	for (const auto& m : materials)
 		stamp = MixHash(MixHash(stamp, (uint64)(uintptr_t)m.get()), m ? m->StateHash() : 0);
 	if (stamp != m_Stamp || m_Render.size() != materials.size())
 	{
 		m_Render.resize(materials.size());
 		for (size_t i = 0; i < materials.size(); ++i)
-			m_Render[i] = VariantOf(materials[i], m_Hash, m_Values);
+		{
+			auto it = m_PerIndex.find((int)i);
+			if (it == m_PerIndex.end())
+			{
+				m_Render[i] = m_Values.empty() ? materials[i] : VariantOf(materials[i], m_Hash, m_Values);
+				continue;
+			}
+			// 칸 블록을 렌더러 블록 위에 (같은 이름이면 칸 쪽)
+			Values merged = it->second.V;
+			for (const auto& [name, value] : m_Values)
+				if (std::none_of(merged.begin(), merged.end(), [&](const auto& e) { return e.first == name; }))
+					merged.push_back({ name, value });
+			const uint64 hash = SortAndHash(merged);
+			m_Render[i] = VariantOf(materials[i], hash, merged);
+		}
 		m_Stamp = stamp;
 	}
 	return m_Render;

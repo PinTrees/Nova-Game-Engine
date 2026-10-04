@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "SpriteRenderer.h"
 #include "LineRenderer.h"
 #include "ParticleSystemEditor.h"
 #include "RenderLayers.h"
@@ -95,6 +96,8 @@ void LineRendererBase::SetEndColor(bool end, const Vec4& color)
 void LineRendererBase::StyleToJson(json& j) const
 {
 	j["enabled"] = m_Enabled;
+	if (SortingLayerId != 0) j["sortingLayerID"] = SortingLayerId;
+	if (SortingOrder != 0) j["sortingOrder"] = SortingOrder;
 	j["widthCurve"] = WidthCurve;
 	j["widthMultiplier"] = WidthMultiplier;
 	j["colorGradient"] = ColorGradient;
@@ -110,6 +113,8 @@ void LineRendererBase::StyleToJson(json& j) const
 void LineRendererBase::StyleFromJson(const json& j)
 {
 	m_Enabled = j.value("enabled", true);
+	SortingLayerId = j.value("sortingLayerID", 0);
+	SortingOrder = j.value("sortingOrder", 0);
 	if (j.contains("widthCurve")) WidthCurve = j["widthCurve"].get<MinMaxCurve>();
 	WidthMultiplier = j.value("widthMultiplier", 1.0f);
 	if (j.contains("colorGradient")) ColorGradient = j["colorGradient"].get<MinMaxGradient>();
@@ -142,6 +147,8 @@ void LineRendererBase::DrawStyleInspector()
 	UnityGUI::Label("Materials", 0, true);
 	ParticleSystemEditor::TexturePicker("Texture", &Texture, "line_texture");
 	UnityGUI::Dropdown("Blend Mode", &Blend, kBlend, 2);
+	if (UnityGUI::FoldoutPlain("Additional Settings"))
+		SpriteRenderer::SortingFields(SortingLayerId, SortingOrder);
 }
 
 // ------------------------------------------------------------------ Line Renderer

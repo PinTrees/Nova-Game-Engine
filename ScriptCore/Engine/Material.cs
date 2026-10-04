@@ -21,14 +21,19 @@ namespace NovaEngine
         [DllImport(Lib)] internal static extern int NovaMat_SetFloat(ulong handle, byte* name, float v);
         [DllImport(Lib)] internal static extern int NovaMat_GetFloat(ulong handle, byte* name, float* v);
         [DllImport(Lib)] internal static extern int NovaMat_HasProperty(ulong handle, byte* name);
-        [DllImport(Lib)] internal static extern int NovaMat_SetBlock(ulong id, int kind, int count, byte* names, float* values, int* colors);
-        [DllImport(Lib)] internal static extern int NovaMat_BlockCount(ulong id, int kind);
-        [DllImport(Lib)] internal static extern byte* NovaMat_BlockEntry(ulong id, int kind, int index, float* value, int* color);
+        [DllImport(Lib)] internal static extern int NovaMat_SetBlock(ulong id, int kind, int materialIndex, int count, byte* names, float* values, int* colors);
+        [DllImport(Lib)] internal static extern int NovaMat_BlockCount(ulong id, int kind, int materialIndex);
+        [DllImport(Lib)] internal static extern int NovaMat_HasBlock(ulong id, int kind);
+        [DllImport(Lib)] internal static extern byte* NovaMat_BlockEntry(ulong id, int kind, int materialIndex, int index, float* value, int* color);
         [DllImport(Lib)] internal static extern int NovaRenderer_GetEnabled(ulong id, int kind);
         [DllImport(Lib)] internal static extern void NovaRenderer_SetEnabled(ulong id, int kind, int enabled);
         [DllImport(Lib)] internal static extern int NovaRenderer_Bounds(ulong id, int kind, float* min, float* max);
         [DllImport(Lib)] internal static extern int NovaRenderer_GetShadows(ulong id, int kind);
         [DllImport(Lib)] internal static extern void NovaRenderer_SetShadows(ulong id, int kind, int mode);
+        [DllImport(Lib)] internal static extern int NovaRenderer_GetSorting(ulong id, int kind, int which);
+        [DllImport(Lib)] internal static extern void NovaRenderer_SetSorting(ulong id, int kind, int which, int value);
+        [DllImport(Lib)] internal static extern byte* NovaRenderer_SortingLayerName(int layerId);
+        [DllImport(Lib)] internal static extern int NovaRenderer_SortingLayerId(byte* name);
     }
 
     /// <summary>Unity 의 Shader.PropertyToID: 속성 이름 ↔ 번호 (같은 이름 = 같은 번호)</summary>

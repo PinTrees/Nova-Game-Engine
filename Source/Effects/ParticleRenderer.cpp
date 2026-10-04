@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TagsAndLayers.h"
 #include "RenderLayers.h"
 #include "ParticleRenderer.h"
 #include "ParticleSystem.h"
@@ -27,6 +28,8 @@ namespace
 	{
 		ParticleSystem* System = nullptr;
 		LineRendererBase* Line = nullptr;   // Line · Trail Renderer (System 대신)
+		int SortingLayer = 0;               // Line · Trail: Sorting Layer 순서 · Order in Layer (입자 시스템 = Default · 0)
+		int SortingOrder = 0;
 		UINT Start;
 		UINT Count;
 		UINT TrailStart = 0;
@@ -208,6 +211,7 @@ namespace ParticleRenderer
 
 			Batch b;
 			b.System = ps;
+			b.SortingLayer = TagsAndLayers::SortingLayerIndex(0);   // 입자 시스템: Default · 0
 			b.Start = (UINT)s_Instances.size();
 			b.Count = 0;
 			const Vec3 origin = ps->GetGameObject()->GetTransform()->GetPosition();
@@ -295,14 +299,20 @@ namespace ParticleRenderer
 				mx = Vec3::Max(mx, v);
 			}
 			b.Distance = ((mn + mx) * 0.5f - camPos).Dot(camForward);
+			b.SortingLayer = TagsAndLayers::SortingLayerIndex(line->SortingLayerId);
+			b.SortingOrder = line->SortingOrder;
 			batches.push_back(b);
 		}
 		if (batches.empty() || !Init() || !EnsureBuffer((UINT)(std::max)((size_t)1, s_Instances.size())))
 			return;
 		const bool drawTrails = !s_TrailVertices.empty() && s_TrailLayout && EnsureTrailBuffer((UINT)s_TrailVertices.size());
 
-		// 먼 시스템부터 (투명 물체끼리의 순서)
-		std::stable_sort(batches.begin(), batches.end(), [](const Batch& a, const Batch& b) { return a.Distance > b.Distance; });
+		// Sorting Layer → Order in Layer → 먼 시스템부터 (투명 물체끼리의 순서 — Unity 와 같음)
+		std::stable_sort(batches.begin(), batches.end(), [](const Batch& a, const Batch& b) {
+			if (a.SortingLayer != b.SortingLayer) return a.SortingLayer < b.SortingLayer;
+			if (a.SortingOrder != b.SortingOrder) return a.SortingOrder < b.SortingOrder;
+			return a.Distance > b.Distance;
+		});
 
 		auto ctx = Application::GetI()->GetDeviceContext();
 		D3D11_MAPPED_SUBRESOURCE mapped;

@@ -170,7 +170,9 @@ namespace NovaEngine
             }
             // 추상 UI 타입: 실제 컴포넌트로 (Image → Text 순)
             if (type == typeof(UI.Graphic)) return GetComponent(typeof(UI.Image)) ?? GetComponent(typeof(UI.Text));
-            if (type == typeof(Renderer)) return GetComponent(typeof(MeshRenderer)) ?? GetComponent(typeof(SkinnedMeshRenderer)) ?? GetComponent(typeof(SpriteRenderer));
+            if (type == typeof(Renderer) || type == typeof(LineRendererCommon))
+                return (type == typeof(Renderer) ? GetComponent(typeof(MeshRenderer)) ?? GetComponent(typeof(SkinnedMeshRenderer)) ?? GetComponent(typeof(SpriteRenderer)) : null)
+                    ?? GetComponent(typeof(LineRenderer)) ?? GetComponent(typeof(TrailRenderer));
             if (type == typeof(UI.Selectable))
                 return GetComponent(typeof(UI.Button)) ?? GetComponent(typeof(UI.Toggle)) ?? GetComponent(typeof(UI.Slider)) ?? GetComponent(typeof(UI.InputField));
             if (typeof(MonoBehaviour).IsAssignableFrom(type) || type == typeof(Behaviour))

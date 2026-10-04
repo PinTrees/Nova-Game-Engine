@@ -376,13 +376,7 @@ namespace NovaEngine
         }
         public bool flipX { get => Native.Api.SR_GetInt(m_Id, 0) != 0; set => Native.Api.SR_SetInt(m_Id, 0, value ? 1 : 0); }
         public bool flipY { get => Native.Api.SR_GetInt(m_Id, 1) != 0; set => Native.Api.SR_SetInt(m_Id, 1, value ? 1 : 0); }
-        public int sortingOrder { get => Native.Api.SR_GetInt(m_Id, 2); set => Native.Api.SR_SetInt(m_Id, 2, value); }
-        /// <summary>Sorting Layer 이름 (Project Settings > Tags and Layers). 없는 이름은 무시</summary>
-        public string sortingLayerName
-        {
-            get => Native.Str(Native.Api.SR_GetSortingLayer(m_Id)) ?? "Default";
-            set { fixed (byte* p = Native.Utf8(value)) Native.Api.SR_SetSortingLayer(m_Id, p); }
-        }
+        // sortingOrder · sortingLayerName · sortingLayerID = Renderer (Renderer.cs)
         /// <summary>그림 (null = 없음). Sprite.FromPath("Assets/…png") 또는 "builtin:Square"</summary>
         public Sprite sprite
         {

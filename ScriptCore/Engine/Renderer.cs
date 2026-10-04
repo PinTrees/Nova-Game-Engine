@@ -36,14 +36,14 @@ namespace NovaEngine
     }
 
     /// <summary>
-    /// Unity 의 Renderer: MeshRenderer · SkinnedMeshRenderer · SpriteRenderer 의 공통 부분 (GetComponent&lt;Renderer&gt;() 은 이 순서로 찾는다).
-    /// 재질 · MaterialPropertyBlock 은 Mesh · Skinned 만 — SpriteRenderer 는 재질이 없어 material 이 null, SetPropertyBlock 은 무시된다
-    /// (그림 색은 SpriteRenderer.color). 함수는 Source/Scene/MaterialScripting.cpp
+    /// Unity 의 Renderer: MeshRenderer · SkinnedMeshRenderer · SpriteRenderer · LineRenderer · TrailRenderer 의 공통 부분
+    /// (GetComponent&lt;Renderer&gt;() 은 이 순서로 찾는다). 재질 · MaterialPropertyBlock 은 Mesh · Skinned 만 — Sprite · Line · Trail 은
+    /// 재질이 없어 material 이 null, SetPropertyBlock 은 무시된다 (색은 각자의 color · startColor). 함수는 Source/Scene/MaterialScripting.cpp
     /// </summary>
     public abstract unsafe class Renderer : Component
     {
         internal Renderer() { }
-        internal abstract int Kind { get; }   // 0 Mesh, 1 Skinned, 2 Sprite (네이티브 함수의 kind)
+        internal abstract int Kind { get; }   // 0 Mesh, 1 Skinned, 2 Sprite, 3 Line, 4 Trail (네이티브 함수의 kind)
 
         /// <summary>꺼지면 그리지 않는다 (Inspector 의 체크 상자, 씬에 저장된다)</summary>
         public bool enabled
@@ -70,7 +70,7 @@ namespace NovaEngine
             }
         }
 
-        /// <summary>그림자를 드리우는지 (Sprite 는 늘 Off)</summary>
+        /// <summary>그림자를 드리우는지 (Sprite · Line · Trail 은 늘 Off)</summary>
         public Rendering.ShadowCastingMode shadowCastingMode
         {
             get => (Rendering.ShadowCastingMode)MaterialNative.NovaRenderer_GetShadows(m_Id, Kind);
@@ -101,10 +101,14 @@ namespace NovaEngine
         }
 
         /// <summary>렌더러의 값 덮어쓰기 (null · 빈 블록 = 없앰). 블록은 복사된다 (나중에 블록을 바꾸면 다시 불러야 한다 — Unity 와 같음)</summary>
-        public void SetPropertyBlock(MaterialPropertyBlock properties)
+        public void SetPropertyBlock(MaterialPropertyBlock properties) => SetPropertyBlock(properties, -1);
+        /// <summary>재질 칸 하나만 덮어쓰기: 그 칸은 렌더러 블록 위에 덮인다 (같은 이름이면 칸 쪽). null · 빈 블록 = 그 칸 블록을 없앰.
+        /// 칸 블록이 있는 렌더러는 GPU 인스턴싱 속성 대신 파생 재질로 그린다</summary>
+        public void SetPropertyBlock(MaterialPropertyBlock properties, int materialIndex)
         {
+            if (materialIndex < -1) return;
             int n = properties?.m_Values.Count ?? 0;
-            if (n == 0) { MaterialNative.NovaMat_SetBlock(m_Id, Kind, 0, null, null, null); return; }
+            if (n == 0) { MaterialNative.NovaMat_SetBlock(m_Id, Kind, materialIndex, 0, null, null, null); return; }
             var names = new StringBuilder();
             float* values = stackalloc float[n * 4];
             int* colors = stackalloc int[n];
@@ -117,22 +121,49 @@ namespace NovaEngine
                 colors[i] = kv.Value.Color ? 1 : 0;
                 ++i;
             }
-            fixed (byte* p = Native.Utf8(names.ToString())) MaterialNative.NovaMat_SetBlock(m_Id, Kind, n, p, values, colors);
+            fixed (byte* p = Native.Utf8(names.ToString())) MaterialNative.NovaMat_SetBlock(m_Id, Kind, materialIndex, n, p, values, colors);
         }
         /// <summary>렌더러에 넣은 블록 값을 properties 에 (먼저 비운다)</summary>
-        public void GetPropertyBlock(MaterialPropertyBlock properties)
+        public void GetPropertyBlock(MaterialPropertyBlock properties) => GetPropertyBlock(properties, -1);
+        /// <summary>재질 칸 블록의 값 (렌더러 블록과 합치지 않은, 그 칸에 넣은 값만)</summary>
+        public void GetPropertyBlock(MaterialPropertyBlock properties, int materialIndex)
         {
             if (properties == null) return;
             properties.Clear();
-            int n = MaterialNative.NovaMat_BlockCount(m_Id, Kind);
+            int n = MaterialNative.NovaMat_BlockCount(m_Id, Kind, materialIndex);
             float* v = stackalloc float[4];
             for (int i = 0; i < n; ++i)
             {
                 int color = 0;
-                string name = Native.Str(MaterialNative.NovaMat_BlockEntry(m_Id, Kind, i, v, &color)) ?? string.Empty;
+                string name = Native.Str(MaterialNative.NovaMat_BlockEntry(m_Id, Kind, materialIndex, i, v, &color)) ?? string.Empty;
                 properties.m_Values[name] = (new Vector4(v[0], v[1], v[2], v[3]), color != 0);
             }
         }
-        public bool HasPropertyBlock() => MaterialNative.NovaMat_BlockCount(m_Id, Kind) > 0;
+        /// <summary>렌더러 블록이나 재질 칸 블록이 하나라도 있는지</summary>
+        public bool HasPropertyBlock() => MaterialNative.NovaMat_HasBlock(m_Id, Kind) != 0;
+
+        /// <summary>투명 순서: Sorting Layer → Order in Layer → 거리 (Sprite · 투명 재질 Mesh · Line · Trail — 불투명에는 영향 없음, Unity 와 같음)</summary>
+        public int sortingOrder
+        {
+            get => MaterialNative.NovaRenderer_GetSorting(m_Id, Kind, 1);
+            set => MaterialNative.NovaRenderer_SetSorting(m_Id, Kind, 1, value);
+        }
+        /// <summary>Sorting Layer id (Project Settings > Tags and Layers, Default = 0)</summary>
+        public int sortingLayerID
+        {
+            get => MaterialNative.NovaRenderer_GetSorting(m_Id, Kind, 0);
+            set => MaterialNative.NovaRenderer_SetSorting(m_Id, Kind, 0, value);
+        }
+        /// <summary>Sorting Layer 이름. 없는 이름은 무시</summary>
+        public string sortingLayerName
+        {
+            get => Native.Str(MaterialNative.NovaRenderer_SortingLayerName(sortingLayerID)) ?? "Default";
+            set
+            {
+                int id;
+                fixed (byte* p = Native.Utf8(value)) id = MaterialNative.NovaRenderer_SortingLayerId(p);
+                if (id >= 0) sortingLayerID = id;
+            }
+        }
     }
 }

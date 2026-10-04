@@ -60,6 +60,8 @@ private:
 	bool	m_UpdateWhenOffscreen = false;
 	std::string m_RootBone;                // 루트 본 이름 (표시용)
 	int		m_CastShadows = 0;
+	int		m_SortingLayerId = 0;   // C# Renderer.sortingLayerID · sortingOrder (값만 — 이 렌더러는 정렬하지 않는다)
+	int		m_SortingOrder = 0;
 	bool	m_StaticShadowCaster = false;
 	int		m_LightProbes = 1;
 	bool	m_SkinnedMotionVectors = true;
@@ -80,8 +82,13 @@ public:
 	void SetMaterialAt(int index, shared_ptr<UMaterial> material, const wstring& path);   // path 가 비면 씬에 저장하는 경로는 그대로 (런타임 사본)
 	void SetPropertyBlock(MaterialBlock::Values values) { m_Block.Set(std::move(values)); }
 	const MaterialBlock::Values& GetPropertyBlock() const { return m_Block.Get(); }
+	MaterialBlock& PropertyBlock() { return m_Block; }   // 재질 칸 블록 (SetAt · GetAt) 까지
 	int GetCastShadows() const { return m_CastShadows; }
 	void SetCastShadows(int mode) { m_CastShadows = mode; }
+	int GetSortingLayerId() const { return m_SortingLayerId; }
+	void SetSortingLayerId(int id) { m_SortingLayerId = id; }
+	int GetSortingOrder() const { return m_SortingOrder; }
+	void SetSortingOrder(int order) { m_SortingOrder = order; }
 
 private:
 	// 패키지 셰이더 (CustomShaders) 에 넘길 그리기 정보

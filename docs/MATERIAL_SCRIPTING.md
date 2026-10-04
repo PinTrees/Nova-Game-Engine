@@ -1,9 +1,9 @@
-# C# 재질 · Renderer — Material · Renderer.material · MaterialPropertyBlock · enabled · bounds
+# C# 재질 · Renderer — Material · Renderer.material · MaterialPropertyBlock · enabled · bounds · sorting
 
 Unity 와 같은 이름 · 같은 뜻 (`using NovaEngine;`).
 
 ```csharp
-var r = GetComponent<Renderer>();             // MeshRenderer → SkinnedMeshRenderer → SpriteRenderer 순서로 찾는다
+var r = GetComponent<Renderer>();             // MeshRenderer → SkinnedMeshRenderer → SpriteRenderer → LineRenderer → TrailRenderer 순서로 찾는다
 r.material.color = Color.red;                 // 이 렌더러만의 사본 ("Shared (Instance)") — 다른 렌더러는 그대로
 r.sharedMaterial.SetFloat("_Smoothness", 0.9f); // 공유 재질 — 이 재질을 쓰는 모든 렌더러
 var m = Material.Load("Assets/Materials/Gold.mat");
@@ -12,13 +12,16 @@ r.sharedMaterial = m;
 var block = new MaterialPropertyBlock();
 block.SetColor("_BaseColor", Color.yellow);   // Shader.PropertyToID("_BaseColor") 도
 r.SetPropertyBlock(block);                    // 재질은 공유한 채 값만 — null 이면 없앰
+r.SetPropertyBlock(other, 1);                 // 재질 칸 1 만 (렌더러 블록 위에 덮는다)
 
 r.enabled = false;                            // 그리지 않는다 (그림자 포함)
 Bounds b = r.bounds;                          // 월드 상자
 r.shadowCastingMode = NovaEngine.Rendering.ShadowCastingMode.Off;
+r.sortingLayerName = "Foreground";            // 투명 순서: Sorting Layer → Order in Layer → 거리
+r.sortingOrder = 2;
 ```
 
-`MeshRenderer` · `SkinnedMeshRenderer` · `SpriteRenderer` 모두 `Renderer` 를 물려받는다 (Unity 와 같음).
+`MeshRenderer` · `SkinnedMeshRenderer` · `SpriteRenderer` · `LineRenderer` · `TrailRenderer` 모두 `Renderer` 를 물려받는다 (Unity 와 같음).
 
 | API | 하는 일 |
 |---|---|
@@ -26,18 +29,20 @@ r.shadowCastingMode = NovaEngine.Rendering.ShadowCastingMode.Off;
 | `Renderer.sharedMaterial` · `sharedMaterials` | 공유 재질 (바꾸면 같은 재질의 모든 렌더러). 대입하면 그 재질 파일 경로가 씬에 저장된다 |
 | `Material.color` · `SetColor` · `GetColor` · `SetFloat` · `GetFloat` · `SetVector` · `SetInt` · `HasProperty` · `name` · `shaderName` | URP 이름 `_BaseColor` (`_Color`) · `_EmissionColor` (HDR — 1 넘는 성분은 Intensity) · `_Metallic` · `_Smoothness` (`_Glossiness`) · `_Cutoff` · `_BumpScale` · `_OcclusionStrength`, 그 밖의 이름 = 패키지 · Shader Graph 속성. 색은 감마 |
 | `new Material(source)` · `Material.Load(path)` | 런타임 사본 · 프로젝트의 `.mat` |
-| `MaterialPropertyBlock` · `Renderer.SetPropertyBlock` · `GetPropertyBlock` · `HasPropertyBlock` | 렌더러마다 값 덮어쓰기 |
+| `MaterialPropertyBlock` · `Renderer.SetPropertyBlock` · `GetPropertyBlock` · `HasPropertyBlock` | 렌더러마다 값 덮어쓰기. `(block, materialIndex)` = 그 재질 칸만 — 렌더러 블록 위에 덮는다 (같은 이름이면 칸 쪽), `GetPropertyBlock(block, i)` 는 칸에 넣은 값만 |
 | `Renderer.enabled` · `isVisible` | Inspector 의 체크 상자 (씬에 저장된다). 꺼지면 본 패스 · 그림자 · 깊이 모두 그리지 않는다 |
 | `Renderer.bounds` (`Bounds`: `center` · `extents` · `size` · `min` · `max` · `Contains` · `Intersects` · `Encapsulate`) | 월드 상자 — 아래 표 |
 | `Renderer.shadowCastingMode` (`NovaEngine.Rendering.ShadowCastingMode`: `Off` · `On` · `TwoSided` · `ShadowsOnly`) | Inspector 의 Cast Shadows |
+| `Renderer.sortingOrder` · `sortingLayerName` · `sortingLayerID` | 투명 순서: Sorting Layer (Tags and Layers) → Order in Layer → 거리 (씬에 저장). 불투명에는 영향 없음 (Unity 와 같음) |
 
 ## 렌더러마다 다른 점
 
-| | MeshRenderer | SkinnedMeshRenderer | SpriteRenderer |
-|---|---|---|---|
-| 재질 · `MaterialPropertyBlock` | 있음 (`_BaseColor` · `_EmissionColor` · `_Metallic` · `_Smoothness` 는 인스턴스 값 — 아래) | 있음 (원래 낱개로 그린다) | 없음 — `material` · `sharedMaterial` 은 `null`, `materials` 는 빈 배열, `SetPropertyBlock` 은 무시 (색은 `SpriteRenderer.color`) |
-| `bounds` | 컬링이 마지막 프레임에 잰 상자 | 같음 — 애니메이션 여유 (기본 자세 상자의 60 % + 0.25 m) 를 더해 Unity 보다 크다 | 그림 사각형 × 월드 행렬 (바로) |
-| `shadowCastingMode` | 바꿀 수 있다 | 바꿀 수 있다 | 늘 `Off` (바꿔도 무시) |
+| | MeshRenderer | SkinnedMeshRenderer | SpriteRenderer | LineRenderer · TrailRenderer |
+|---|---|---|---|---|
+| 재질 · `MaterialPropertyBlock` | 있음 (`_BaseColor` · `_EmissionColor` · `_Metallic` · `_Smoothness` 는 인스턴스 값 — 아래) | 있음 (원래 낱개로 그린다) | 없음 — `material` · `sharedMaterial` 은 `null`, `materials` 는 빈 배열, `SetPropertyBlock` 은 무시 (색은 `SpriteRenderer.color`) | 없음 (재질 대신 텍스처 · Blend — 색은 `startColor` · `endColor`) |
+| `bounds` | 컬링이 마지막 프레임에 잰 상자 | 같음 — 애니메이션 여유 (기본 자세 상자의 60 % + 0.25 m) 를 더해 Unity 보다 크다 | 그림 사각형 × 월드 행렬 (바로) | 점들 + 가장 넓은 너비의 반 (바로) |
+| `shadowCastingMode` | 바꿀 수 있다 | 바꿀 수 있다 | 늘 `Off` (바꿔도 무시) | 늘 `Off` |
+| `sortingOrder` · `sortingLayerName` | 투명 재질의 순서 (투명 패스) | 값만 (낱개로 그려 정렬하지 않는다) | 스프라이트 순서 (예전과 같다) | 입자와 함께 그리는 순서 (Inspector 의 Additional Settings) |
 
 같은 프레임에 만든 Mesh · Skinned 렌더러의 `bounds` 는 다음 프레임부터 맞다 (그 전엔 위치에 크기 0).
 

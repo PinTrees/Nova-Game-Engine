@@ -26,6 +26,8 @@ public:
 	float TextureScale[2] = { 1.0f, 1.0f };
 	std::string Texture;           // 비면 흰색
 	int Blend = 0;                 // 0 Alpha Blended, 1 Additive
+	int SortingLayerId = 0;        // 투명 순서: Sorting Layer → Order in Layer → 거리 (입자 시스템과 함께 — ParticleRenderer)
+	int SortingOrder = 0;
 
 	LineRendererBase();
 	~LineRendererBase() override;

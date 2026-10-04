@@ -2887,6 +2887,26 @@ function Suite-Material([string]$Api = 'dx')
         Add-Result $sn 'SpriteRenderer is a Renderer: no material (null), shadows Off, bounds = sprite rect' ("$r8" -eq 'True|True|Off|2.0,3.0|50.0') "$r8"
         Invoke-Nova 'delete Spr' | Out-Null
 
+        # 9. 재질 칸 블록 (SetPropertyBlock(block, materialIndex)): 렌더러 블록 (청록) 위에 칸 0 블록 (노랑) — 칸 쪽이 이긴다, 칸 블록을 지우면 청록
+        $r9a = Exec 'var r = GameObject.Find("P0").GetComponent<MeshRenderer>(); var c = new MaterialPropertyBlock(); c.SetColor("_BaseColor", new Color(0.1f, 0.8f, 0.85f, 1f)); r.SetPropertyBlock(c); var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); r.SetPropertyBlock(y, 0); var got = new MaterialPropertyBlock(); r.GetPropertyBlock(got, 0); var all = new MaterialPropertyBlock(); r.GetPropertyBlock(all); return got.GetColor("_BaseColor").b.ToString("0.0") + "|" + all.GetColor("_BaseColor").b.ToString("0.00") + "|" + r.HasPropertyBlock();'
+        $c9a = Colors 'index_block.png'
+        Exec 'GameObject.Find("P0").GetComponent<MeshRenderer>().SetPropertyBlock(null, 0); return 0;' | Out-Null
+        $c9b = Colors 'index_block_cleared.png'
+        Exec 'GameObject.Find("P0").GetComponent<MeshRenderer>().SetPropertyBlock(null); return 0;' | Out-Null
+        Add-Result $sn 'SetPropertyBlock(block, materialIndex): the slot block overrides the renderer block, clearing it shows the renderer block again' ("$r9a" -eq '0.1|0.85|True' -and $c9a.Yellow -gt 20 -and $c9b.Yellow -lt 5 -and $c9b.Cyan -gt $c9a.Cyan) ("$r9a; yellow {0} -> {1}, cyan {2} -> {3}" -f $c9a.Yellow, $c9b.Yellow, $c9a.Cyan, $c9b.Cyan)
+
+        # 10. Line Renderer 도 Renderer: GetComponent<Renderer>, bounds = 점 + 너비의 반, 재질 없음, 정렬 값 (sortingOrder · sortingLayerName)
+        $lx = '{0}f, {1}f, {2}f' -f $cp[0], ($cp[1] + 3.6), ($z + 1)
+        $r10 = Exec ('var center = new Vector3(' + $lx + '); var a = new GameObject("LineA").AddComponent<LineRenderer>(); a.SetPositions(new[] { center + new Vector3(-1.5f, 0, 0), center + new Vector3(1.5f, 0, 0) }); a.widthMultiplier = 0.5f; a.startColor = new Color(1, 0, 0, 1); a.endColor = new Color(1, 0, 0, 1); var b = new GameObject("LineB").AddComponent<LineRenderer>(); b.SetPositions(new[] { center + new Vector3(0, -1.5f, 0), center + new Vector3(0, 1.5f, 0) }); b.widthMultiplier = 0.5f; b.startColor = new Color(0, 0, 1, 1); b.endColor = new Color(0, 0, 1, 1); Renderer r = a.gameObject.GetComponent<Renderer>(); var bb = r.bounds; r.sortingOrder = 1; return (r is LineRenderer) + "|" + bb.size.x.ToString("0.0") + "," + bb.size.y.ToString("0.0") + "|" + (r.material == null) + "|" + r.shadowCastingMode + "|" + r.sortingOrder + "|" + r.sortingLayerName + "|" + r.enabled;')
+        $c10a = Colors 'lines_red_on_top.png'
+        Exec 'GameObject.Find("LineA").GetComponent<Renderer>().sortingOrder = 0; GameObject.Find("LineB").GetComponent<Renderer>().sortingOrder = 1; return 0;' | Out-Null
+        $c10b = Colors 'lines_blue_on_top.png'
+        Exec 'GameObject.Find("LineA").GetComponent<Renderer>().enabled = false; return 0;' | Out-Null
+        $c10c = Colors 'line_a_disabled.png'
+        Add-Result $sn 'LineRenderer is a Renderer: bounds, no material, shadows Off; sortingOrder decides which crossing line is on top; enabled = false hides it' ("$r10" -eq 'True|3.5,0.5|True|Off|1|Default|True' -and $c10a.Red -gt $c10b.Red -and $c10b.Blue -gt $c10a.Blue -and $c10c.Red -lt $c10b.Red * 0.3) ("$r10; red {0} -> {1} (blue on top), blue {2} -> {3}; A disabled red {4}" -f $c10a.Red, $c10b.Red, $c10a.Blue, $c10b.Blue, $c10c.Red)
+        Invoke-Nova 'delete LineA' | Out-Null
+        Invoke-Nova 'delete LineB' | Out-Null
+
         # 5. 사본은 씬에 저장되지 않는다 (Unity 처럼): 저장 · 다시 열면 A 는 공유 재질
         Invoke-Nova 'scene save --as Assets/MatTest/MatTest.scene' | Out-Null
         Invoke-Nova 'scene open Assets/MatTest/MatTest.scene --force' | Out-Null

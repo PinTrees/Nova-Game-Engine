@@ -2,6 +2,7 @@
 #include "MeshBatcher.h"
 #include "Scene.h"
 #include "MeshRenderer.h"
+#include "TagsAndLayers.h"
 #include "Mesh.h"
 #include "Transform.h"
 #include "UMaterial.h"
@@ -119,6 +120,8 @@ namespace
 		Mesh* MeshPtr;
 		int Subset;
 		shared_ptr<UMaterial> Material;
+		int SortingLayer;   // TagsAndLayers::SortingLayerIndex (앞 = 먼저 그림)
+		int SortingOrder;
 	};
 	std::vector<TransparentItem> s_Transparent;
 
@@ -234,7 +237,7 @@ namespace
 					// 투명: 본 패스 · 프리패스 · 그림자에서 빼고 투명 패스로
 					s_MainItems.push_back(-1);
 					s_DepthItems.push_back(-1);
-					s_Transparent.push_back({ (int)s_Casters.size(), mesh.get(), i, mat });
+					s_Transparent.push_back({ (int)s_Casters.size(), mesh.get(), i, mat, TagsAndLayers::SortingLayerIndex(mr->GetSortingLayerId()), mr->GetSortingOrder() });
 					continue;
 				}
 				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit, s_LastMain));
@@ -311,7 +314,12 @@ namespace MeshBatcher
 			}
 			if (list.empty())
 				return;
-			std::stable_sort(list.begin(), list.end(), [](const Item& a, const Item& b) { return a.Depth > b.Depth; });
+			// Unity 와 같이 Sorting Layer → Order in Layer → 먼 것부터
+			std::stable_sort(list.begin(), list.end(), [](const Item& a, const Item& b) {
+				if (a.T->SortingLayer != b.T->SortingLayer) return a.T->SortingLayer < b.T->SortingLayer;
+				if (a.T->SortingOrder != b.T->SortingOrder) return a.T->SortingOrder < b.T->SortingOrder;
+				return a.Depth > b.Depth;
+			});
 			GfxContext* dc = Application::GetI()->GetDeviceContext();
 			const float blendFactor[4] = { 0, 0, 0, 0 };
 			dc->OMSetBlendState(RenderStates::TransparentBS.Get(), blendFactor, 0xFFFFFFFF);

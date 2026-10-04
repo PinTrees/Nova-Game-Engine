@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **인스턴스 속성 넓히기** (사용자 지시 "원래 순서로 진행해줘" — 추천 2). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **Renderer 마무리** (같은 지시 — 추천 3). **완료 (커밋, 푸시 전)**
+  - 재질 칸 블록: `Scene/MaterialBlock.*` (SetAt · GetAt — 렌더러 블록 위에 덮음, 있으면 인스턴스 값 대신 파생 재질), `MeshRenderer.h` · `SkinnedMeshRenderer.h` (PropertyBlock()),
+    `MaterialScripting.cpp` (NovaMat_SetBlock · BlockCount · BlockEntry 에 materialIndex, NovaMat_HasBlock)
+  - 정렬: `MeshRenderer.*` · `SkinnedMeshRenderer.*` · `Effects/LineRenderer.*` 에 Sorting Layer · Order (저장), `MeshBatcher.cpp` 투명 패스 · `Effects/ParticleRenderer.cpp` 입자와 선 정렬 (레이어 → 순서 → 거리),
+    `SpriteRenderer.*` (SortingFields — Line · Trail Inspector 도), `MaterialScripting.cpp` (kind 3 Line · 4 Trail, 선 bounds, NovaRenderer_GetSorting · SetSorting · SortingLayerName · SortingLayerId)
+  - C#: `Renderer.cs` (SetPropertyBlock(block, i) · GetPropertyBlock(block, i) · sortingOrder · sortingLayerID · sortingLayerName), `Material.cs`, `Components.cs` (SpriteRenderer 의 정렬은 Renderer 로),
+    `LineRenderer.cs` (LineRendererCommon : Renderer, LineKind), `Core.cs` (GetComponent<Renderer> 에 Line · Trail)
+  - 검사: material · materialgl · materialvk **14/14**, linetrail · sprites, particles · anim2d · layers **31/31**, 안드로이드 빌드. Showcase 211
+- 이전: 2026년 10월 5일 — **인스턴스 속성 넓히기** (사용자 지시 "원래 순서로 진행해줘" — 추천 2). **완료 (커밋 5b4e4de, 푸시 전)**
   - 인스턴스 값 80 → 112 바이트 (+ Surface: _Metallic · _Smoothness, + Emission: 선형 _EmissionColor): `Shaders/32. InstancedBasic.fx` (VertexIn_Batch · LitPS 인자 · PS_Batch · BatchToInstancing),
     `57. OcclusionCulling.fx`, `DX11/Vertex.*` (INSTSURFACE · INSTEMISSION), `DX11/OcclusionCulling.h`, `Scene/MeshBatcher.cpp` (InstanceProps · PropsOf), `Scene/MaterialBlock.*` (Instanced · InstanceValues),
     `Scene/MeshRenderer.h`, `DX11/UMaterial.*` (InstancePropOf · EmissionToLinear · CanInstanceEmission · ScriptProp — 패키지 · 그래프 재질은 같은 이름의 속성을 SetColor/GetColor)

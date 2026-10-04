@@ -103,6 +103,28 @@ bool SpriteRenderer::SpriteLocalBounds(Vec3& bmin, Vec3& bmax)
 }
 
 // ------------------------------------------------------------------ Inspector (Unity 와 같은 순서)
+void SpriteRenderer::SortingFields(int& layerId, int& order)
+{
+	// Sorting Layer: Tags and Layers 의 목록 (+ Add Sorting Layer...)
+	const auto& layers = TagsAndLayers::SortingLayers();
+	std::vector<const char*> names;
+	int cur = 0;
+	for (int i = 0; i < (int)layers.size(); ++i)
+	{
+		names.push_back(layers[i].Name.c_str());
+		if (layers[i].Id == layerId) cur = i;
+	}
+	names.push_back("Add Sorting Layer...");
+	if (UnityGUI::Dropdown("Sorting Layer", &cur, names.data(), (int)names.size(), 1))
+	{
+		if (cur == (int)layers.size())
+			ProjectSettingsWindow::Open("Tags and Layers");
+		else
+			layerId = layers[cur].Id;
+	}
+	UnityGUI::Int("Order in Layer", &order, 1);
+}
+
 void SpriteRenderer::OnInspectorGUI()
 {
 	// Sprite [ 이름 ⊙ ] — ⊙ = 선택 창, Project 의 그림을 끌어 놓기
@@ -157,26 +179,7 @@ void SpriteRenderer::OnInspectorGUI()
 	UnityGUI::ValueLabel("Draw Mode", "Simple");
 	UnityGUI::ValueLabel("Material", "Sprites-Default");
 	if (UnityGUI::FoldoutPlain("Additional Settings"))
-	{
-		// Sorting Layer: Tags and Layers 의 목록 (+ Add Sorting Layer...)
-		const auto& layers = TagsAndLayers::SortingLayers();
-		std::vector<const char*> names;
-		int cur = 0;
-		for (int i = 0; i < (int)layers.size(); ++i)
-		{
-			names.push_back(layers[i].Name.c_str());
-			if (layers[i].Id == m_SortingLayerId) cur = i;
-		}
-		names.push_back("Add Sorting Layer...");
-		if (UnityGUI::Dropdown("Sorting Layer", &cur, names.data(), (int)names.size(), 1))
-		{
-			if (cur == (int)layers.size())
-				ProjectSettingsWindow::Open("Tags and Layers");
-			else
-				m_SortingLayerId = layers[cur].Id;
-		}
-		UnityGUI::Int("Order in Layer", &m_SortingOrder, 1);
-	}
+		SortingFields(m_SortingLayerId, m_SortingOrder);
 	Vec2 size, pivot;
 	if (GetSpriteSize(size, pivot))
 	{

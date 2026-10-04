@@ -564,6 +564,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(MeshRenderer)
 
 	j["enabled"] = m_Enabled;
 	j["castShadows"] = m_CastShadows;
+	if (m_SortingLayerId != 0) j["sortingLayerID"] = m_SortingLayerId;
+	if (m_SortingOrder != 0) j["sortingOrder"] = m_SortingOrder;
 	j["staticShadowCaster"] = m_StaticShadowCaster;
 	j["contributeGI"] = m_ContributeGI;
 	j["receiveGI"] = m_ReceiveGI;
@@ -581,6 +583,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(MeshRenderer)
 
 	m_Enabled = j.value("enabled", true);
 	m_CastShadows = j.value("castShadows", 0);
+	m_SortingLayerId = j.value("sortingLayerID", 0);
+	m_SortingOrder = j.value("sortingOrder", 0);
 	m_StaticShadowCaster = j.value("staticShadowCaster", false);
 	m_ContributeGI = j.value("contributeGI", false);
 	m_ReceiveGI = j.value("receiveGI", 0);
