@@ -347,6 +347,20 @@ struct VertexIn_Instancing
     uint InstanceId : SV_InstanceID;
 };
 
+// MeshBatcher 의 본 패스 (BatchTech): 인스턴스 = 월드 행렬 + 기본색 (MaterialPropertyBlock 의 _BaseColor).
+//  w < 0 = 그 색 (알파 = -1 - w), w >= 0 = 재질 값 — 입력이 꺼진 배치 (OpenGL 의 기본 0,0,0,1) 도 재질 값이 되게
+//  인스턴스 하나 80 바이트. INSTCOLOR 는 WORLD 뒤 (location 8 — 같은 입력 배치를 쓰는 다른 셰이더와 location 이 같게 끝에 붙인다)
+struct VertexIn_Batch
+{
+    float3 PosL : POSITION;
+    float3 NormalL : NORMAL;
+    float2 Tex : TEXCOORD;
+    float4 TangentL : TANGENT;
+    row_major float4x4 World : WORLD;
+    float4 BaseColor : INSTCOLOR;
+    uint InstanceId : SV_InstanceID;
+};
+
 struct SkinnedVertexIn
 {
     float3 PosL : POSITION;
@@ -1016,7 +1030,8 @@ float4 FinishLit(float3 color, float alpha, float distToEye)
     return litColor;
 }
 
-float4 PS(VertexOut pin) : SV_Target
+// baseColorFactor = 기본색 (재질 _BaseColor, 인스턴스 값이 있으면 그 값)
+float4 LitPS(VertexOut pin, float4 baseColorFactor)
 {
     LodFadeClip(pin.PosH.xy);
     float3 N = normalize(pin.NormalW);
@@ -1027,7 +1042,7 @@ float4 PS(VertexOut pin) : SV_Target
 
     // ---- 표면
     float4 baseSample = gPbr.UseBaseMap ? gDiffuseMap.Sample(samLinear, uv) : float4(1, 1, 1, 1);
-    float4 baseColor = baseSample * gPbr.BaseColor;
+    float4 baseColor = baseSample * baseColorFactor;
     if (gPbr.AlphaClip)
         clip(baseColor.a - gPbr.Cutoff);
 
@@ -1070,6 +1085,11 @@ float4 PS(VertexOut pin) : SV_Target
     surf.ReceiveShadows = gPbr.ReceiveShadows != 0;
     return FinishLit(ShadeLit(surf, pin.PosW.xyz, N, V, pin.SsaoPosH), baseColor.a, distToEye);
 }
+
+float4 PS(VertexOut pin) : SV_Target
+{
+    return LitPS(pin, gPbr.BaseColor);
+}
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 Tech
 {
@@ -1107,14 +1127,59 @@ VertexOut VS_Batch(VertexIn_Instancing vin)
     return vout;
 }
 
+// 본 패스: VS_Batch 에 인스턴스 기본색을 더한다 (VS_Batch 는 Shader Graph 도 부른다 — 입력 그대로 둔다)
+struct BatchVertexOut
+{
+    float4 PosH : SV_POSITION;
+    float4 PosW : POSITION;
+    float3 NormalW : NORMAL;
+    float4 TangentW : TANGENT;
+    float2 Tex : TEXCOORD0;
+    float4 SsaoPosH : TEXCOORD1;
+    nointerpolation float4 BaseColor : TEXCOORD2;
+};
+
+BatchVertexOut VS_BatchColor(VertexIn_Batch vin)
+{
+    VertexIn_Instancing v;
+    v.PosL = vin.PosL;
+    v.NormalL = vin.NormalL;
+    v.Tex = vin.Tex;
+    v.TangentL = vin.TangentL;
+    v.World = vin.World;
+    v.InstanceId = vin.InstanceId;
+    const VertexOut o = VS_Batch(v);
+    BatchVertexOut b;
+    b.PosH = o.PosH;
+    b.PosW = o.PosW;
+    b.NormalW = o.NormalW;
+    b.TangentW = o.TangentW;
+    b.Tex = o.Tex;
+    b.SsaoPosH = o.SsaoPosH;
+    b.BaseColor = vin.BaseColor;
+    return b;
+}
+
+float4 PS_Batch(BatchVertexOut pin) : SV_Target
+{
+    VertexOut v;
+    v.PosH = pin.PosH;
+    v.PosW = pin.PosW;
+    v.NormalW = pin.NormalW;
+    v.TangentW = pin.TangentW;
+    v.Tex = pin.Tex;
+    v.SsaoPosH = pin.SsaoPosH;
+    return LitPS(v, pin.BaseColor.w < 0.0f ? float4(pin.BaseColor.rgb, -1.0f - pin.BaseColor.w) : gPbr.BaseColor);
+}
+
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 BatchTech
 {
     pass P0
     {
-        SetVertexShader(CompileShader(vs_5_0, VS_Batch()));
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
         SetGeometryShader(NULL);
-        SetPixelShader(CompileShader(ps_5_0, PS()));
+        SetPixelShader(CompileShader(ps_5_0, PS_Batch()));
     }
 }
 #endif

@@ -107,7 +107,7 @@ public:
 	static const D3D11_INPUT_ELEMENT_DESC Particle[5];
 	static const D3D11_INPUT_ELEMENT_DESC AmbientOcclusion[4];
 	static const D3D11_INPUT_ELEMENT_DESC PosNormalTexTanSkinned[6];
-	static const D3D11_INPUT_ELEMENT_DESC InstancedBasic[8];
+	static const D3D11_INPUT_ELEMENT_DESC InstancedBasic[9];
 	static const D3D11_INPUT_ELEMENT_DESC TerrainVertex[7];
 };
 

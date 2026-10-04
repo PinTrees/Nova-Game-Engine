@@ -38,13 +38,23 @@ namespace
 		}
 	};
 
+	// 인스턴스 하나 (정점 버퍼 슬롯 1 · 오클루전 Compact 출력과 같은 80 바이트): 월드 행렬 + 기본색.
+	//  기본색 w < 0 = MaterialPropertyBlock 의 _BaseColor (알파 = -1 - w), w >= 0 = 재질 값 (32. InstancedBasic.fx 의 VertexIn_Batch)
+	struct Instance
+	{
+		XMFLOAT4X4 World;
+		XMFLOAT4 BaseColor;
+	};
+	static_assert(sizeof(Instance) == OcclusionCulling::InstanceBytes, "instance layout");
+	const XMFLOAT4 kMaterialColor(0.0f, 0.0f, 0.0f, 1.0f);   // 재질 값 그대로
+
 	struct Batch
 	{
 		Mesh* MeshPtr = nullptr;
 		int Subset = 0;
 		shared_ptr<UMaterial> Material;
 		uint32 Layer = 0xFFFFFFFFu;   // gObjectLayer (레이어 비트)
-		std::vector<XMFLOAT4X4> Worlds;
+		std::vector<Instance> Instances;
 	};
 
 	// 화면 하나 동안 쓰는 렌더러 목록 (BeginView 뒤 첫 Draw 가 만든다)
@@ -52,13 +62,14 @@ namespace
 	{
 		const Component* Renderer;
 		XMFLOAT4X4 World;
+		XMFLOAT4 BaseColor;     // 인스턴스 기본색 (Instance::BaseColor)
 		int Cast;               // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
 		uint32 LayerBit;        // 1 << GameObject 레이어 (Culling Mask)
 		uint32_t First, Count;  // s_MainItems / s_DepthItems 범위 (서브셋마다 묶음 번호)
 	};
 	std::vector<Caster> s_Casters;
 	std::vector<int> s_MainItems, s_DepthItems;
-	// 묶음 배열: 본 패스 = (메시, 서브셋, 재질), 그림자·깊이 = (메시, 서브셋). 원소는 화면마다 다시 쓰고 Worlds 용량은 남긴다
+	// 묶음 배열: 본 패스 = (메시, 서브셋, 재질), 그림자·깊이 = (메시, 서브셋). 원소는 화면마다 다시 쓰고 Instances 용량은 남긴다
 	std::vector<Batch> s_MainBatches, s_DepthBatches;
 	int s_MainCount = 0, s_DepthCount = 0;
 	std::unordered_map<Key, int, KeyHash> s_MainIndex, s_DepthIndex;
@@ -144,7 +155,7 @@ namespace
 		b.Subset = subset;
 		b.Material = mat;
 		b.Layer = layer == 0 ? 0xFFFFFFFFu : layer;
-		b.Worlds.clear();
+		b.Instances.clear();
 		index.emplace(key, count);
 		last.Index = count;
 		return count++;
@@ -181,7 +192,11 @@ namespace
 			c.LayerBit = 1u << (go->GetLayerIndex() & 31);
 			c.First = (uint32_t)s_MainItems.size();
 			c.Count = (uint32_t)mesh->Subsets.size();
-			const auto& materials = mr->GetRenderMaterials();   // MaterialPropertyBlock 이 있으면 파생 재질
+			// MaterialPropertyBlock: _BaseColor 뿐이고 엔진 재질이면 원래 재질 + 인스턴스 기본색 (값이 달라도 한 묶음), 아니면 파생 재질
+			XMFLOAT4 blockColor;
+			bool instanceColor = false;
+			const auto& materials = mr->GetBatchMaterials(blockColor, instanceColor);
+			c.BaseColor = instanceColor ? XMFLOAT4(blockColor.x, blockColor.y, blockColor.z, -1.0f - (std::max)(0.0f, blockColor.w)) : kMaterialColor;
 			for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
 			{
 				const UINT matIndex = mesh->Subsets[i].MaterialIndex;
@@ -208,7 +223,7 @@ namespace
 			}
 			s_Casters.push_back(c);
 		}
-		// 이번 화면에 안 쓰는 묶음은 재질·메시를 놓는다 (Worlds 용량은 남김)
+		// 이번 화면에 안 쓰는 묶음은 재질·메시를 놓는다 (Instances 용량은 남김)
 		for (size_t i = (size_t)s_MainCount; i < s_MainBatches.size(); ++i) { s_MainBatches[i].Material.reset(); s_MainBatches[i].MeshPtr = nullptr; }
 		for (size_t i = (size_t)s_DepthCount; i < s_DepthBatches.size(); ++i) s_DepthBatches[i].MeshPtr = nullptr;
 		s_Collected = true;
@@ -219,15 +234,15 @@ namespace
 	ComPtr<GfxBuffer> s_InstanceBuffer;
 	UINT s_Capacity = 0;
 
-	GfxBuffer* Upload(GfxContext* dc, const std::vector<XMFLOAT4X4>& worlds)
+	GfxBuffer* Upload(GfxContext* dc, const std::vector<Instance>& instances)
 	{
-		const UINT count = (UINT)worlds.size();
+		const UINT count = (UINT)instances.size();
 		if (count > s_Capacity)
 		{
 			s_Capacity = (std::max)(count, s_Capacity * 2 + 256);
 			D3D11_BUFFER_DESC bd = {};
 			bd.Usage = D3D11_USAGE_DYNAMIC;
-			bd.ByteWidth = s_Capacity * sizeof(XMFLOAT4X4);
+			bd.ByteWidth = s_Capacity * sizeof(Instance);
 			bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 			bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 			s_InstanceBuffer.Reset();
@@ -236,7 +251,7 @@ namespace
 		D3D11_MAPPED_SUBRESOURCE mapped;
 		if (!s_InstanceBuffer || FAILED(dc->Map(s_InstanceBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
 			return nullptr;
-		memcpy(mapped.pData, worlds.data(), count * sizeof(XMFLOAT4X4));
+		memcpy(mapped.pData, instances.data(), count * sizeof(Instance));
 		dc->Unmap(s_InstanceBuffer.Get(), 0);
 		return s_InstanceBuffer.Get();
 	}
@@ -281,14 +296,14 @@ namespace MeshBatcher
 			const float blendFactor[4] = { 0, 0, 0, 0 };
 			dc->OMSetBlendState(RenderStates::TransparentBS.Get(), blendFactor, 0xFFFFFFFF);
 			dc->OMSetDepthStencilState(RenderStates::DepthReadDSS.Get(), 0);
-			std::vector<XMFLOAT4X4> one(1);
+			std::vector<Instance> one(1);
 			for (const Item& it : list)
 			{
 				const TransparentItem& t = *it.T;
 				const CustomShaders::Shader* cs = CustomOf(t.Material.get());
 				if (!cs || !cs->DrawInstanced)
 					continue;
-				one[0] = s_Casters[t.Caster].World;
+				one[0] = { s_Casters[t.Caster].World, s_Casters[t.Caster].BaseColor };
 				GfxBuffer* inst = Upload(dc, one);
 				if (!inst)
 					continue;
@@ -301,7 +316,7 @@ namespace MeshBatcher
 				d.LayerBit = s_Casters[t.Caster].LayerBit;
 				d.Pass = CustomShaders::DrawPass::Transparent;
 				d.Draw = [&]() {
-					const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+					const UINT stride = sizeof(Instance), offset = 0;
 					dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
 					dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 					dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
@@ -355,7 +370,7 @@ namespace MeshBatcher
 				}
 				const uint32_t untracked = SceneCulling::SlotCount();   // 상자가 없는 렌더러: 늘 보임 (아주 큰 상자)
 				f.Casters.reserve(s_Casters.size());
-				f.Worlds.reserve(s_Casters.size() * 16);
+				f.Worlds.reserve(s_Casters.size() * OcclusionCulling::InstanceFloats);
 				f.Items[0].reserve(s_DepthItems.size());
 				f.Items[1].reserve(s_MainItems.size());
 				for (const Caster& c : s_Casters)
@@ -376,8 +391,9 @@ namespace MeshBatcher
 					const uint32_t index = (uint32_t)f.Casters.size();
 					f.Casters.push_back(oc);
 					const size_t w = f.Worlds.size();
-					f.Worlds.resize(w + 16);
-					memcpy(&f.Worlds[w], &c.World, sizeof(c.World));
+					f.Worlds.resize(w + OcclusionCulling::InstanceFloats);
+					const Instance inst{ c.World, c.BaseColor };
+					memcpy(&f.Worlds[w], &inst, sizeof(inst));
 					for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 					{
 						if (s_DepthItems[k] >= 0) f.Items[0].push_back({ index, (uint32_t)s_DepthItems[k], 0 });
@@ -421,7 +437,7 @@ namespace MeshBatcher
 			}
 			const Vec3 sweep = Vec3(cp.Direction.x, cp.Direction.y, cp.Direction.z) * cp.Reach;
 			f.Casters.reserve(s_Casters.size());
-			f.Worlds.reserve(s_Casters.size() * 16);
+			f.Worlds.reserve(s_Casters.size() * OcclusionCulling::InstanceFloats);
 			for (const Caster& c : s_Casters)
 			{
 				if (!Candidate(c, Pass::Shadow))
@@ -443,8 +459,9 @@ namespace MeshBatcher
 				const uint32_t index = (uint32_t)f.Casters.size();
 				f.Casters.push_back(oc);
 				const size_t w = f.Worlds.size();
-				f.Worlds.resize(w + 16);
-				memcpy(&f.Worlds[w], &c.World, sizeof(c.World));
+				f.Worlds.resize(w + OcclusionCulling::InstanceFloats);
+				const Instance inst{ c.World, c.BaseColor };
+				memcpy(&f.Worlds[w], &inst, sizeof(inst));
 				for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 					if (s_DepthItems[k] >= 0)
 						f.Items[0].push_back({ index, (uint32_t)s_DepthItems[k], 0 });
@@ -462,7 +479,7 @@ namespace MeshBatcher
 		// 패스 하나. gpuSet >= 0 = 오클루전 컬링 목록 (GPU 가 고른 인스턴스, 간접 그리기), -1 = CPU 목록
 		void DrawPass(Pass pass, bool editor, int gpuSet)
 		{
-			// ---- 이번 패스: 보이는 렌더러의 월드 행렬만 묶음에 쌓는다 (GPU 목록이면 크로스페이드만)
+			// ---- 이번 패스: 보이는 렌더러의 인스턴스 값만 묶음에 쌓는다 (GPU 목록이면 크로스페이드만)
 			const bool main = pass == Pass::Main;
 			std::vector<Batch>& batches = main ? s_MainBatches : s_DepthBatches;
 			const std::vector<int>& items = main ? s_MainItems : s_DepthItems;
@@ -490,7 +507,7 @@ namespace MeshBatcher
 			else
 			{
 				for (int i = 0; i < batchCount; ++i)
-					batches[i].Worlds.clear();
+					batches[i].Instances.clear();
 				for (const Caster& c : s_Casters)
 				{
 					if (!Candidate(c, pass))
@@ -506,9 +523,9 @@ namespace MeshBatcher
 						if (items[k] < 0)
 							continue;   // 투명 (투명 패스)
 						Batch& b = batches[items[k]];
-						if (b.Worlds.empty())
+						if (b.Instances.empty())
 							s_Order.push_back(items[k]);
-						b.Worlds.push_back(c.World);
+						b.Instances.push_back({ c.World, c.BaseColor });
 					}
 					++objects;
 					if (pass == Pass::Shadow)
@@ -570,11 +587,11 @@ namespace MeshBatcher
 			const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
 			uint32 appliedLayer = 0;
 			int drawn = 0;
-			// gpu = GPU 목록의 묶음 번호 (-1 = b->Worlds 를 올려 그린다)
+			// gpu = GPU 목록의 묶음 번호 (-1 = b->Instances 를 올려 그린다)
 			auto drawBatch = [&](Batch* b, int gpu)
 			{
 				GfxBuffer* inst = nullptr;
-				if (gpu < 0 && (inst = Upload(dc, b->Worlds)) == nullptr)
+				if (gpu < 0 && (inst = Upload(dc, b->Instances)) == nullptr)
 					return;
 				auto drawInstances = [&]()
 				{
@@ -582,9 +599,9 @@ namespace MeshBatcher
 						OcclusionCulling::DrawIndirect(dc, (OcclusionCulling::Set)gpuSet, (uint32_t)gpu, b->MeshPtr->ModelMesh, b->Subset);
 					else
 					{
-						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+						const UINT stride = sizeof(Instance), offset = 0;
 						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
+						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Instances.size());
 					}
 				};
 				// 패키지 · Shader Graph 셰이더 (CustomShaders::DrawInstanced): 그 셰이더가 값을 넣고 그린다
@@ -707,7 +724,7 @@ namespace MeshBatcher
 						one.Subset = src.Subset;
 						one.Material = src.Material;
 						one.Layer = src.Layer;
-						one.Worlds.assign(1, c->World);
+						one.Instances.assign(1, { c->World, c->BaseColor });
 						drawBatch(&one, -1);
 					}
 				}

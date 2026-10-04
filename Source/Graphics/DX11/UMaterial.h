@@ -121,6 +121,7 @@ public:
 	bool SetFloatProperty(const std::string& name, float v);
 	bool GetFloatProperty(const std::string& name, float& v) const;
 	bool HasProperty(const std::string& name) const;
+	static bool IsBaseColorProperty(const std::string& name);   // _BaseColor · _Color
 	// 런타임 사본 (Renderer.material · new Material(source)) — 같은 값 · 텍스처, 파일에는 저장하지 않는다
 	std::shared_ptr<UMaterial> CloneInstance() const;
 	bool IsInstance() const { return m_Instance; }

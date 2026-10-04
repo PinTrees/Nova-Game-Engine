@@ -38,10 +38,13 @@ namespace OcclusionCulling
 		uint32_t Candidates;    // 이 묶음의 후보 인스턴스 수 (Begin 이 채운다)
 		uint32_t Base = 0;      // 이 묶음의 첫 인스턴스 자리 (Begin 이 채운다 — OpenGL ES 는 간접 인자 대신 정점 버퍼 오프셋으로)
 	};
+	// 인스턴스 정점 버퍼 한 칸 (MeshBatcher · Compact): 월드 행렬 64 바이트 + 기본색 16 바이트 (32. InstancedBasic.fx 의 VertexIn_Batch)
+	constexpr uint32_t InstanceBytes = 80;
+	constexpr uint32_t InstanceFloats = InstanceBytes / 4;
 	struct Frame
 	{
 		std::vector<Caster> Casters;
-		std::vector<float> Worlds;              // 렌더러마다 4x4 (16 개)
+		std::vector<float> Worlds;              // 렌더러마다 InstanceFloats 개 (4x4 월드 + 기본색 — MeshBatcher 의 인스턴스 값)
 		std::vector<Item> Items[2];             // 0 = 깊이 묶음, 1 = 본 패스 묶음
 		std::vector<Batch> Batches[2];
 	};

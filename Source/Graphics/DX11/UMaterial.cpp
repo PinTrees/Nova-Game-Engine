@@ -111,6 +111,11 @@ namespace
 	}
 }
 
+bool UMaterial::IsBaseColorProperty(const std::string& name)
+{
+	return PropOf(name) == Prop::BaseColor;
+}
+
 bool UMaterial::SetColorProperty(const std::string& name, const XMFLOAT4& c)
 {
 	switch (PropOf(name))

@@ -2727,17 +2727,19 @@ function Suite-OcclusionApi([string]$suite, [string]$api)
     }
 }
 
-function Suite-Material
+function Suite-Material([string]$Api = 'dx')
 {
+    # Api = dx · gl · vk (스위트 이름 material · materialgl · materialvk)
     # C# Renderer.material (이 렌더러만의 사본) · sharedMaterial · Material.SetColor/GetFloat · MaterialPropertyBlock (같은 값 = 한 인스턴싱 묶음)
-    Write-Host '[material]'
-    $dir = Join-Path $Out 'material'
+    $sn = if ($Api -eq 'dx') { 'material' } else { 'material' + $Api }
+    Write-Host "[$sn]"
+    $dir = Join-Path $Out $sn
     New-Item -ItemType Directory -Force $dir | Out-Null
     Add-Type -AssemblyName System.Drawing
     $matDir = Join-Path $Project 'Assets\MatTest'
     New-Item -ItemType Directory -Force $matDir | Out-Null
     Copy-Item (Join-Path $Project 'Assets\Materials\Red Plastic.mat') (Join-Path $matDir 'Shared.mat') -Force
-    $ed = Start-TestEditor
+    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk')
     try
     {
         function Exec([string]$code) { $f = Join-Path $dir 'exec.cs'; $code | Set-Content -Encoding utf8 $f; (Invoke-NovaJson "exec --file $f").result }
@@ -2777,26 +2779,51 @@ function Suite-Material
         # 1. material: A 만 파랑 (B 는 공유 재질 그대로 빨강), 이름 "Shared (Instance)"
         $r1 = Exec 'var a = GameObject.Find("A").GetComponent<MeshRenderer>(); var b = GameObject.Find("B").GetComponent<MeshRenderer>(); var m = a.material; m.color = Color.blue; return a.material.name + "|" + b.sharedMaterial.name + "|" + (a.sharedMaterial == b.sharedMaterial) + "|" + (a.material == m) + "|" + b.sharedMaterial.GetFloat("_Smoothness").ToString("0.00") + "|" + b.sharedMaterial.HasProperty("_BaseColor") + "|" + b.sharedMaterial.HasProperty("_Nope");'
         $c1 = Colors 'instance_blue.png'
-        Add-Result material 'Renderer.material: a copy for A only (A blue, B keeps the shared red), name "Shared (Instance)"' ($c0.Red -gt 200 -and $c1.Blue -gt $c0.Blue + 1000 -and $c1.Red -gt 100 -and $c1.Red -lt $c0.Red * 0.7 -and "$r1" -like 'Shared (Instance)|Shared|False|True|*|True|False') ("$r1; red {0} -> {1}, blue {2}" -f $c0.Red, $c1.Red, $c1.Blue)
+        Add-Result $sn 'Renderer.material: a copy for A only (A blue, B keeps the shared red), name "Shared (Instance)"' ($c0.Red -gt 200 -and $c1.Blue -gt $c0.Blue + 1000 -and $c1.Red -gt 100 -and $c1.Red -lt $c0.Red * 0.7 -and "$r1" -like 'Shared (Instance)|Shared|False|True|*|True|False') ("$r1; red {0} -> {1}, blue {2}" -f $c0.Red, $c1.Red, $c1.Blue)
 
         # 2. sharedMaterial: B 의 공유 재질을 초록으로 — 공유하는 렌더러 모두 (A 는 사본이라 파랑 그대로)
         $r2 = Exec 'var b = GameObject.Find("B").GetComponent<MeshRenderer>(); b.sharedMaterial.SetColor("_BaseColor", new Color(0.1f, 0.8f, 0.1f, 1f)); return b.sharedMaterial.color.g.ToString("0.0");'
         $c2 = Colors 'shared_green.png'
-        Add-Result material 'Renderer.sharedMaterial: changing the shared material recolors its users (B green), the copy stays (A blue)' ($c2.Green -gt 100 -and $c2.Blue -gt $c0.Blue + 1000 -and $c2.Red -lt 30 -and "$r2" -eq '0.8') ("green {0}, blue {1}, red {2}; color.g={3}" -f $c2.Green, $c2.Blue, $c2.Red, $r2)
+        Add-Result $sn 'Renderer.sharedMaterial: changing the shared material recolors its users (B green), the copy stays (A blue)' ($c2.Green -gt 100 -and $c2.Blue -gt $c0.Blue + 1000 -and $c2.Red -lt 30 -and "$r2" -eq '0.8') ("green {0}, blue {1}, red {2}; color.g={3}" -f $c2.Green, $c2.Blue, $c2.Red, $r2)
 
-        # 3. MaterialPropertyBlock: 공유 재질 상자 24 개 (Material.Load + sharedMaterial) — 노랑 12 · 청록 12, 묶음은 2 개만 늘어난다
+        # 3. MaterialPropertyBlock: 공유 재질 상자 24 개 (Material.Load + sharedMaterial) — 노랑 12 · 청록 12. _BaseColor 뿐이라 인스턴스 값 → 묶음이 늘지 않는다
         $pos = '{0}f + (i % 12) * 0.9f, {1}f + (i / 12) * 0.9f, {2}f' -f ($cp[0] - 5), ($cp[1] + 1.4), ($z + 3)
         $r3 = Exec ('var mat = Material.Load("Assets/MatTest/Shared.mat"); for (int i = 0; i < 24; i++) { var g = GameObject.CreatePrimitive(PrimitiveType.Cube); g.name = "P" + i; g.transform.position = new Vector3(' + $pos + '); g.transform.localScale = new Vector3(0.6f, 0.6f, 0.6f); g.GetComponent<MeshRenderer>().sharedMaterial = mat; } return mat.name;')
         $b0 = Batches
         $r4 = Exec 'var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); var c = new MaterialPropertyBlock(); c.SetColor(Shader.PropertyToID("_BaseColor"), new Color(0.1f, 0.8f, 0.85f, 1f)); for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(i % 2 == 0 ? y : c); var got = new MaterialPropertyBlock(); var r = GameObject.Find("P1").GetComponent<MeshRenderer>(); r.GetPropertyBlock(got); return got.GetColor("_BaseColor").b.ToString("0.00") + "|" + r.HasPropertyBlock() + "|" + r.sharedMaterial.name;'
         $b1 = Batches
         $c3 = Colors 'block_colors.png'
-        Add-Result material 'MaterialPropertyBlock: per-renderer colors on a shared material (yellow · cyan), same values = one instanced batch' ($c3.Yellow -gt 30 -and $c3.Cyan -gt 30 -and ($b1 - $b0) -ge 1 -and ($b1 - $b0) -le 2 -and "$r3" -eq 'Shared' -and "$r4" -eq '0.85|True|Shared') ("yellow {0}, cyan {1}; mesh batches {2} -> {3}; {4}; {5}" -f $c3.Yellow, $c3.Cyan, $b0, $b1, $r3, $r4)
+        Add-Result $sn 'MaterialPropertyBlock: per-renderer colors on a shared material (yellow · cyan) — GPU instancing property, no extra batch' ($c3.Yellow -gt 30 -and $c3.Cyan -gt 30 -and $b1 -eq $b0 -and "$r3" -eq 'Shared' -and "$r4" -eq '0.85|True|Shared') ("yellow {0}, cyan {1}; mesh batches {2} -> {3}; {4}; {5}" -f $c3.Yellow, $c3.Cyan, $b0, $b1, $r3, $r4)
+
+        # 3b. 다른 속성 (_Smoothness) 이 든 블록은 인스턴스 값이 아니라 파생 재질 → 묶음이 나뉜다 (같은 값끼리는 하나)
+        Exec 'var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); y.SetFloat("_Smoothness", 0.1f); for (int i = 0; i < 24; i += 2) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(y); return 0;' | Out-Null
+        $b2 = Batches
+        $c3b = Colors 'block_derived.png'
+        Add-Result $sn 'A block with other properties (_Smoothness) uses a derived material: one more batch, same colors' (($b2 - $b0) -eq 1 -and $c3b.Yellow -gt $c3.Yellow * 0.7 -and $c3b.Cyan -gt 30) ("mesh batches {0} -> {1}; yellow {2}, cyan {3}" -f $b0, $b2, $c3b.Yellow, $c3b.Cyan)
+
+        # 3c. 렌더러마다 다른 색 100 개: 묶음 하나 그대로, 렌더러가 64 개를 넘어 GPU 오클루전 경로 (Compact 가 기본색도 옮긴다) — 끈 화면과 같은 그림
+        #  (A 뒤에 숨은 작은 상자 8 개: 가린 것이 있어야 오클루전이 쉬지 않는다)
+        $pos = '{0}f + (i % 20) * 0.5f, {1}f + (i / 20) * 0.5f, {2}f' -f ($cp[0] - 4.75), ($cp[1] + 2.6), ($z + 4)
+        $hid = '{0}f + (i % 4) * 0.3f, {1}f + (i / 4) * 0.3f, {2}f' -f ($cp[0] - 2.05), ($cp[1] - 0.35), ($z + 1.6)
+        Exec ('var mat = Material.Load("Assets/MatTest/Shared.mat"); for (int i = 0; i < 100; i++) { var g = GameObject.CreatePrimitive(PrimitiveType.Cube); g.name = "R" + i; g.transform.position = new Vector3(' + $pos + '); g.transform.localScale = new Vector3(0.4f, 0.4f, 0.4f); g.GetComponent<MeshRenderer>().sharedMaterial = mat; } for (int i = 0; i < 8; i++) { var h = GameObject.CreatePrimitive(PrimitiveType.Cube); h.name = "Hid" + i; h.transform.position = new Vector3(' + $hid + '); h.transform.localScale = new Vector3(0.2f, 0.2f, 0.2f); } return 0;') | Out-Null
+        $b3 = Batches
+        Exec 'var block = new MaterialPropertyBlock(); for (int i = 0; i < 100; i++) { float h = (i % 20) / 20f * 6f; float r = Mathf.Clamp01(Mathf.Abs(h - 3f) - 1f), g = Mathf.Clamp01(2f - Mathf.Abs(h - 2f)), b = Mathf.Clamp01(2f - Mathf.Abs(h - 4f)); block.SetColor("_BaseColor", new Color(r, g, b, 1f)); GameObject.Find("R" + i).GetComponent<MeshRenderer>().SetPropertyBlock(block); } return 0;' | Out-Null
+        $b4 = Batches
+        Invoke-Nova 'wait 40' | Out-Null   # 쉬던 오클루전이 다시 검사할 때까지 (30 번)
+        $occ = Invoke-NovaJson 'occlusion info'
+        $cR = Colors 'rainbow_occlusion.png'
+        Invoke-Nova 'occlusion set --enabled false' | Out-Null
+        $cRoff = Colors 'rainbow_cpu.png'
+        Invoke-Nova 'occlusion set --enabled true' | Out-Null
+        $hues = @($cR.Red, $cR.Yellow, $cR.Green, $cR.Cyan, $cR.Blue) | Where-Object { $_ -gt 15 }
+        $sameRain = [math]::Abs($cR.Red - $cRoff.Red) + [math]::Abs($cR.Yellow - $cRoff.Yellow) + [math]::Abs($cR.Green - $cRoff.Green) + [math]::Abs($cR.Cyan - $cRoff.Cyan) + [math]::Abs($cR.Blue - $cRoff.Blue)
+        Add-Result $sn '100 renderers, 100 different colors: still one batch, GPU occlusion path keeps the colors (same as CPU path)' ($b4 -eq $b3 -and $hues.Count -ge 5 -and $occ.game.active -and $sameRain -le 20) ("mesh batches {0} -> {1}; hues R {2} Y {3} G {4} C {5} B {6}; GPU path {7} (tested {8}, culled {10}); diff vs CPU {9}" -f $b3, $b4, $cR.Red, $cR.Yellow, $cR.Green, $cR.Cyan, $cR.Blue, $occ.game.active, $occ.game.tested, $sameRain, $occ.game.culled)
+        Exec 'for (int i = 0; i < 100; i++) GameObject.Destroy(GameObject.Find("R" + i)); for (int i = 0; i < 8; i++) GameObject.Destroy(GameObject.Find("Hid" + i)); return 0;' | Out-Null
 
         # 4. SetPropertyBlock(null) → 공유 재질 색 (초록) 으로
         Exec 'for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(null); return 0;' | Out-Null
         $c4 = Colors 'block_cleared.png'
-        Add-Result material 'SetPropertyBlock(null): back to the shared material' ($c4.Yellow -lt 10 -and $c4.Cyan -lt 10 -and $c4.Green -gt $c2.Green) ("yellow {0}, cyan {1}, green {2}" -f $c4.Yellow, $c4.Cyan, $c4.Green)
+        Add-Result $sn 'SetPropertyBlock(null): back to the shared material' ($c4.Yellow -lt 10 -and $c4.Cyan -lt 10 -and $c4.Green -gt $c2.Green) ("yellow {0}, cyan {1}, green {2}" -f $c4.Yellow, $c4.Cyan, $c4.Green)
 
         # 6. Renderer 공통 (GetComponent<Renderer>): bounds · shadowCastingMode (Unity 값) · enabled = false 면 그리지 않는다
         $want = '{0:0.00},{1:0.00},{2:0.00}' -f ($cp[0] - 1.6), ($cp[1] - 0.2), $z
@@ -2804,7 +2831,7 @@ function Suite-Material
         $c6 = Colors 'renderer_disabled.png'
         Exec 'GameObject.Find("A").GetComponent<Renderer>().enabled = true; return 0;' | Out-Null
         $c6b = Colors 'renderer_enabled.png'
-        Add-Result material 'Renderer base class: GetComponent<Renderer>, bounds, shadowCastingMode, enabled = false hides A' ("$r6" -eq "True|$want|2.00|On|ShadowsOnly|False" -and $c6.Blue -le $c0.Blue + 100 -and $c6b.Blue -gt $c0.Blue + 1000) ("$r6 (want center $want); blue disabled {0} / enabled {1} (sky {2})" -f $c6.Blue, $c6b.Blue, $c0.Blue)
+        Add-Result $sn 'Renderer base class: GetComponent<Renderer>, bounds, shadowCastingMode, enabled = false hides A' ("$r6" -eq "True|$want|2.00|On|ShadowsOnly|False" -and $c6.Blue -le $c0.Blue + 100 -and $c6b.Blue -gt $c0.Blue + 1000) ("$r6 (want center $want); blue disabled {0} / enabled {1} (sky {2})" -f $c6.Blue, $c6b.Blue, $c0.Blue)
 
         # 7. Skinned Mesh Renderer 도 같은 API: MaterialPropertyBlock 노랑 · enabled
         Invoke-Nova 'create character --name Hero' | Out-Null
@@ -2815,19 +2842,19 @@ function Suite-Material
         Exec 'foreach (var k in GameObject.Find("Hero").GetComponentsInChildren<SkinnedMeshRenderer>()) k.enabled = false; return 0;' | Out-Null
         $h2 = Colors 'hero_disabled.png'
         $p7 = "$r7".Split('|')
-        Add-Result material 'SkinnedMeshRenderer: SetPropertyBlock recolors the character, enabled = false hides it' ($p7.Count -eq 6 -and [int]$p7[0] -ge 1 -and $p7[1] -eq 'True' -and [int]$p7[2] -ge 1 -and $p7[3] -eq 'True' -and $p7[4] -eq 'On' -and [double]$p7[5] -gt 1 -and $h1.Yellow -gt $h0.Yellow + 50 -and $h2.Yellow -lt $h0.Yellow + 20) ("$r7; yellow {0} -> {1} -> disabled {2}" -f $h0.Yellow, $h1.Yellow, $h2.Yellow)
+        Add-Result $sn 'SkinnedMeshRenderer: SetPropertyBlock recolors the character, enabled = false hides it' ($p7.Count -eq 6 -and [int]$p7[0] -ge 1 -and $p7[1] -eq 'True' -and [int]$p7[2] -ge 1 -and $p7[3] -eq 'True' -and $p7[4] -eq 'On' -and [double]$p7[5] -gt 1 -and $h1.Yellow -gt $h0.Yellow + 50 -and $h2.Yellow -lt $h0.Yellow + 20) ("$r7; yellow {0} -> {1} -> disabled {2}" -f $h0.Yellow, $h1.Yellow, $h2.Yellow)
         Invoke-Nova 'delete Hero' | Out-Null
 
         # 8. Sprite Renderer 도 Renderer: 재질은 없다 (null), 그림자 Off, bounds = 그림 사각형 × 크기
         $r8 = Exec 'var g = new GameObject("Spr"); var sr = g.AddComponent<SpriteRenderer>(); sr.sprite = Sprite.FromPath("builtin:Square"); g.transform.position = new Vector3(0f, 50f, 0f); g.transform.localScale = new Vector3(2f, 3f, 1f); Renderer r = g.GetComponent<Renderer>(); var bb = r.bounds; r.SetPropertyBlock(new MaterialPropertyBlock()); return (r is SpriteRenderer) + "|" + (r.material == null) + "|" + r.shadowCastingMode + "|" + bb.size.x.ToString("0.0") + "," + bb.size.y.ToString("0.0") + "|" + bb.center.y.ToString("0.0");'
-        Add-Result material 'SpriteRenderer is a Renderer: no material (null), shadows Off, bounds = sprite rect' ("$r8" -eq 'True|True|Off|2.0,3.0|50.0') "$r8"
+        Add-Result $sn 'SpriteRenderer is a Renderer: no material (null), shadows Off, bounds = sprite rect' ("$r8" -eq 'True|True|Off|2.0,3.0|50.0') "$r8"
         Invoke-Nova 'delete Spr' | Out-Null
 
         # 5. 사본은 씬에 저장되지 않는다 (Unity 처럼): 저장 · 다시 열면 A 는 공유 재질
         Invoke-Nova 'scene save --as Assets/MatTest/MatTest.scene' | Out-Null
         Invoke-Nova 'scene open Assets/MatTest/MatTest.scene --force' | Out-Null
         $c5 = Colors 'reopened.png'
-        Add-Result material 'Runtime copies are not saved: after reopening, A uses the shared material again' ($c5.Blue -le $c0.Blue + 100 -and $c5.Green -gt $c4.Green * 0.8) ("blue {0} (sky only before: {3}), green {1}, red {2}" -f $c5.Blue, $c5.Green, $c5.Red, $c0.Blue)
+        Add-Result $sn 'Runtime copies are not saved: after reopening, A uses the shared material again' ($c5.Blue -le $c0.Blue + 100 -and $c5.Green -gt $c4.Green * 0.8) ("blue {0} (sky only before: {3}), green {1}, red {2}" -f $c5.Blue, $c5.Green, $c5.Red, $c0.Blue)
         Invoke-Nova 'log --errors -n 5' | Out-Null
     }
     finally
@@ -3605,6 +3632,8 @@ try
                 'occlusion' { Suite-Occlusion }
                 'occlusiongl' { Suite-OcclusionGL }
                 'material' { Suite-Material }
+                'materialgl' { Suite-Material -Api gl }
+                'materialvk' { Suite-Material -Api vk }
                 'occlusionvk' { Suite-OcclusionVK }
                 'linetrail' { Suite-LineTrail }
                 'ssr' { Suite-SSR }

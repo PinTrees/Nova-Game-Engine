@@ -512,7 +512,7 @@ namespace OcclusionCulling
 
 		const UINT casters = (UINT)frame.Casters.size();
 		bool ok = EnsureStructured(s_Casters, sizeof(Caster), casters) && Upload(dc, s_Casters, frame.Casters.data(), casters * sizeof(Caster))
-			&& EnsureStructured(s_Worlds, 64, casters) && Upload(dc, s_Worlds, frame.Worlds.data(), casters * 64)
+			&& EnsureStructured(s_Worlds, InstanceBytes, casters) && Upload(dc, s_Worlds, frame.Worlds.data(), casters * InstanceBytes)
 			&& EnsureRaw(dc, s_Flags, casters * 4, 0, 0, true)
 			&& EnsureRaw(dc, s_Counters, 32, 0, 0, false)
 			&& EnsureRaw(dc, v.History, (slotCount + 1) * 4, 0, 0, false, true);
@@ -522,7 +522,7 @@ namespace OcclusionCulling
 		{
 			const int s = set == Main ? 1 : 0;
 			ok = EnsureRaw(dc, s_Args[set], (UINT)args[s].size() * 4, 0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, false)
-				&& EnsureRaw(dc, s_Out[set], (UINT)frame.Items[s].size() * 64, D3D11_BIND_VERTEX_BUFFER, 0, false);
+				&& EnsureRaw(dc, s_Out[set], (UINT)frame.Items[s].size() * InstanceBytes, D3D11_BIND_VERTEX_BUFFER, 0, false);
 			if (ok)
 				UploadArgs(dc, s_Args[set], args[s]);
 		}
@@ -664,12 +664,12 @@ namespace OcclusionCulling
 		const UINT casters = (UINT)frame.Casters.size(), items = (UINT)frame.Items[0].size();
 		// 카메라 컬링이 끝난 뒤라 캐스터 · 월드 · 항목 · 표시 버퍼를 다시 쓴다 (본 패스는 Main 결과만 쓴다)
 		const bool ok = EnsureStructured(s_Casters, sizeof(Caster), casters) && Upload(dc, s_Casters, frame.Casters.data(), casters * sizeof(Caster))
-			&& EnsureStructured(s_Worlds, 64, casters) && Upload(dc, s_Worlds, frame.Worlds.data(), casters * 64)
+			&& EnsureStructured(s_Worlds, InstanceBytes, casters) && Upload(dc, s_Worlds, frame.Worlds.data(), casters * InstanceBytes)
 			&& EnsureStructured(s_Items[0], sizeof(Item), items) && Upload(dc, s_Items[0], frame.Items[0].data(), items * sizeof(Item))
 			&& EnsureRaw(dc, s_Flags, casters * 4, 0, 0, true)
 			&& EnsureRaw(dc, v.ShadowCounters, 16, 0, 0, false)
 			&& EnsureRaw(dc, s_Args[ShadowSet], (UINT)args.size() * 4, 0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, false)
-			&& EnsureRaw(dc, s_Out[ShadowSet], items * 64, D3D11_BIND_VERTEX_BUFFER, 0, false);
+			&& EnsureRaw(dc, s_Out[ShadowSet], items * InstanceBytes, D3D11_BIND_VERTEX_BUFFER, 0, false);
 		if (!ok)
 			return false;
 		UploadArgs(dc, s_Args[ShadowSet], args);
@@ -899,7 +899,7 @@ namespace OcclusionCulling
 		geometry.BindForInstancing(dc);
 		GfxBuffer* inst = s_Out[set].B.Get();
 		const Batch& b = batches[batch];
-		const UINT stride = 64, offset = kGles ? b.Base * 64 : 0;   // OpenGL ES: 간접 인자의 첫 인스턴스 대신
+		const UINT stride = InstanceBytes, offset = kGles ? b.Base * InstanceBytes : 0;   // OpenGL ES: 간접 인자의 첫 인스턴스 대신
 		dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
 		RenderStats::AddDraw(b.IndexCount, geometry.GetSubset(subset).VertexCount, set == Main ? b.Candidates : 1);   // 본 패스 = 가려짐 전 후보 수
 		dc->DrawIndexedInstancedIndirect(s_Args[set].B.Get(), batch * 20);

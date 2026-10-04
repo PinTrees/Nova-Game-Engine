@@ -1,12 +1,16 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **추천 2 · 3** (사용자 지시: 추천 2 "C# Renderer 공통 클래스 확장" · 3 "인스턴스별 속성 (GPU 인스턴싱 속성)" 붙여 넣기). **2 완료 (커밋 전)**, 3 다음
+- 갱신 시각: 2026년 10월 5일 — **추천 2 · 3** (사용자 지시: 추천 2 "C# Renderer 공통 클래스 확장" · 3 "인스턴스별 속성 (GPU 인스턴싱 속성)" 붙여 넣기). **2 완료 (2ec9572 푸시)**, **3 완료 (커밋, 푸시 전)**
   - 2 (**완료**) C# `Renderer` 기본 클래스: 새 `ScriptCore/Engine/Renderer.cs` (Renderer · Bounds · `NovaEngine.Rendering.ShadowCastingMode`), `Material.cs` (렌더러 부분을 Renderer.cs 로, DllImport 에 kind),
     `Components.cs` (Mesh · Skinned · Sprite 가 Renderer 를 물려받음), `Core.cs` (GetComponent<Renderer> → Mesh → Skinned → Sprite), 새 `Source/Scene/MaterialBlock.*` (블록 · 파생 재질 공용 — MeshRenderer.cpp 에서 옮김),
     `MeshRenderer.*` (MaterialBlock 사용 · SetCastShadows), `SkinnedMeshRenderer.*` (재질 · 블록 · 그림자 API, 그릴 재질 = RenderMaterials, **enabled 를 그리기 함수에서 확인** — 예전엔 꺼도 그렸다),
     `MaterialScripting.cpp` (kind 0 Mesh · 1 Skinned · 2 Sprite, NovaRenderer_* enabled · bounds · shadows), `Scripting/ScriptBindings.cpp` (`Get<T>` 가 같은 프레임에 AddComponent 한 것도 — 예전엔 `AddComponent<SpriteRenderer>().sprite = …` 가 무시됨),
     `run_tests.ps1` (Suite-Material 3 개 더, sprites 의 Sprite Animator 검사를 여러 번 읽게 — 간격이 클립 한 바퀴 0.33 초와 겹쳐 떨어지던 것), `docs/MATERIAL_SCRIPTING.md` · `README.md`. material **8/8**, sprites · layers · physics2d · anim2d · occlusion **54/54**, 안드로이드 빌드. Showcase 207
   - Codex 에게: `Scene.cpp` 는 고치지 않았다 (Skinned 의 enabled 확인은 SkinnedMeshRenderer.cpp 안에서)
+  - 3 (**완료**) 인스턴스별 속성: 인스턴스 값 64 → 80 바이트 (월드 + 기본색). `Shaders/32. InstancedBasic.fx` (VertexIn_Batch · INSTCOLOR · VS_BatchColor · PS_Batch · LitPS — BatchTech 만),
+    `57. OcclusionCulling.fx` (World 에 Color, Compact 80 바이트), `DX11/Vertex.*` (INSTCOLOR, 배치를 BatchTech 서명으로), `DX11/OcclusionCulling.*` (InstanceBytes), `DX11/UMaterial.*` (IsBaseColorProperty),
+    `Scene/MaterialBlock.*` (InstanceColor), `Scene/MeshRenderer.h` (GetBatchMaterials), `Scene/MeshBatcher.cpp` (Instance), `run_tests.ps1` (material 10 개, materialgl · materialvk).
+    material · materialgl · materialvk **10/10** (Vulkan 검증 레이어 오류 없음), 렌더링 회귀 12 스위트 **99/99** (occlusion 세 API · render · gfx · vulkan · shadergraph · lodgroup · decal · probevolume · reflectionprobe · packages), 안드로이드 빌드. Showcase 208 (상자 576 · 색 47 — 묶음 2 대 47)
 - 이전: 2026년 10월 5일 — **다음 작업 1 · 2 · 3 모두** (사용자 지시 "어 모두 적용해줘"). **모두 완료**
   - 1 (**완료**) OpenGL 오클루전 GPU 손해: `OpenGL/GfxGL.cpp` · `GLLoader.h` — 이벤트 · STAGING 쓰기 펜스를 프레임 끝 (Present) 에, STAGING 은 늘 매핑, 조건부 그리기 NO_WAIT.
     `Android/Source/GfxGLES.cpp` · `AndroidMain.cpp` (GLES 도 펜스를 프레임 끝에). 도시 GL GPU 3.72 → 2.65 ms (켜면 늘던 것). 35/35 · android_occlusion 13/13

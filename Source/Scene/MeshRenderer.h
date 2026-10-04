@@ -54,6 +54,12 @@ public:
 	const MaterialBlock::Values& GetPropertyBlock() const { return m_Block.Get(); }
 	// 그릴 재질: 블록이 없으면 GetMaterials 그대로, 있으면 파생 재질 (재질 값이 바뀌면 다시 만든다)
 	const vector<shared_ptr<UMaterial>>& GetRenderMaterials() { return m_Block.Apply(m_pMaterials); }
+	// MeshBatcher: 블록이 인스턴스 값으로 되면 (MaterialBlock::InstanceColor) 원래 재질 + instanceColor = true, 아니면 GetRenderMaterials
+	const vector<shared_ptr<UMaterial>>& GetBatchMaterials(XMFLOAT4& color, bool& instanceColor)
+	{
+		instanceColor = m_Block.InstanceColor(m_pMaterials, color);
+		return instanceColor ? m_pMaterials : GetRenderMaterials();
+	}
 	void SetCastShadows(int mode) { m_CastShadows = mode; }   // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
 	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }
 	// 엔진 내장 메시("builtin:Cube" 등)를 지정: 경로를 저장해 두었다가 씬을 다시 열 때 복원한다

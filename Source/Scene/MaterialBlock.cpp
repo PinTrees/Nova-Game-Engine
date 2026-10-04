@@ -51,6 +51,27 @@ void MaterialBlock::Set(Values values)
 	m_Stamp = 0;
 }
 
+bool MaterialBlock::InstanceColor(const std::vector<std::shared_ptr<UMaterial>>& materials, XMFLOAT4& color) const
+{
+	if (m_Values.empty())
+		return false;
+	const Value* found = nullptr;
+	for (const auto& [name, value] : m_Values)   // 이름 순 — 둘 다 있으면 파생 재질과 같이 뒤의 것 (_Color)
+	{
+		if (!value.Color || !UMaterial::IsBaseColorProperty(name))
+			return false;
+		found = &value;
+	}
+	for (const auto& m : materials)
+	{
+		const UMaterial* u = m ? m.get() : UMaterial::GetDefault().get();
+		if (u->IsCustom() || u->GetPbr().AlphaClip)
+			return false;   // 패키지 · Shader Graph 셰이더는 인스턴스 값을 읽지 않는다, 잘라내기는 깊이 · 그림자 패스가 재질 알파를 쓴다
+	}
+	color = found->V;
+	return true;
+}
+
 const std::vector<std::shared_ptr<UMaterial>>& MaterialBlock::Apply(const std::vector<std::shared_ptr<UMaterial>>& materials)
 {
 	if (m_Values.empty())

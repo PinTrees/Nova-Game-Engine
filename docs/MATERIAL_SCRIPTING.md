@@ -35,19 +35,26 @@ r.shadowCastingMode = NovaEngine.Rendering.ShadowCastingMode.Off;
 
 | | MeshRenderer | SkinnedMeshRenderer | SpriteRenderer |
 |---|---|---|---|
-| 재질 · `MaterialPropertyBlock` | 있음 (같은 값 = 한 인스턴싱 묶음) | 있음 (원래 낱개로 그린다) | 없음 — `material` · `sharedMaterial` 은 `null`, `materials` 는 빈 배열, `SetPropertyBlock` 은 무시 (색은 `SpriteRenderer.color`) |
+| 재질 · `MaterialPropertyBlock` | 있음 (`_BaseColor` 는 인스턴스 값 — 아래) | 있음 (원래 낱개로 그린다) | 없음 — `material` · `sharedMaterial` 은 `null`, `materials` 는 빈 배열, `SetPropertyBlock` 은 무시 (색은 `SpriteRenderer.color`) |
 | `bounds` | 컬링이 마지막 프레임에 잰 상자 | 같음 — 애니메이션 여유 (기본 자세 상자의 60 % + 0.25 m) 를 더해 Unity 보다 크다 | 그림 사각형 × 월드 행렬 (바로) |
 | `shadowCastingMode` | 바꿀 수 있다 | 바꿀 수 있다 | 늘 `Off` (바꿔도 무시) |
 
 같은 프레임에 만든 Mesh · Skinned 렌더러의 `bounds` 는 다음 프레임부터 맞다 (그 전엔 위치에 크기 0).
 
-## MaterialPropertyBlock 과 인스턴싱
+## MaterialPropertyBlock 과 인스턴싱 (GPU 인스턴싱 속성)
 
-NOVA 의 인스턴싱 버퍼는 월드 행렬만 담는다 (셰이더 · GPU 오클루전 컬링이 그 배치를 쓴다). 그래서 블록은 렌더러마다 값을 버퍼에 넣지 않고,
-**(공유 재질, 재질 값, 블록 값) 마다 파생 재질 하나** 를 만들어 같은 값의 렌더러가 같이 쓴다 — 같은 값이면 한 묶음으로 그려진다
-(값이 렌더러마다 다르면 그만큼 묶음이 나뉜다). 공유 재질 값이 바뀌면 파생 재질도 다시 만든다 (`UMaterial::StateHash`).
+Mesh Renderer 는 (메시, 서브셋, 재질) 이 같으면 인스턴싱 한 번으로 그린다. 인스턴스 값은 **월드 행렬 + 기본색 (80 바이트)** 이다.
 
-검사 `run_tests.ps1 -Only material`: 사본 · 공유 재질 색, 블록 (상자 24 개에 두 값 — 묶음 2 개만 늘어남), 블록 지우기, `GetComponent<Renderer>` · `bounds` · `shadowCastingMode` · `enabled`, 캐릭터 (Skinned) 블록 색 · `enabled`, SpriteRenderer (재질 없음 · 그림 상자), 저장 뒤 다시 열면 사본이 없어짐.
+- **블록이 `_BaseColor` (`_Color`) 뿐이고 재질이 엔진 Lit · Unlit (Alpha Clipping 없음)** 이면 재질은 그대로 두고 색을 인스턴스 값으로 넣는다 —
+  **값이 렌더러마다 모두 달라도 한 묶음** (Unity 의 GPU Instancing 속성, `UNITY_INSTANCING_BUFFER` 의 `_BaseColor`). 상자 100 개에 색 100 가지 = 묶음 1 개.
+- 그 밖의 블록 (다른 속성 · 패키지 · Shader Graph 재질 · 잘라내기 재질) 은 **(공유 재질, 재질 값, 블록 값) 마다 파생 재질 하나** — 같은 값끼리는 한 묶음,
+  값이 다르면 그만큼 묶음이 나뉜다. 공유 재질 값이 바뀌면 파생 재질도 다시 만든다 (`UMaterial::StateHash`). Skinned Mesh Renderer 는 늘 이 길 (원래 낱개로 그린다).
+- GPU 오클루전 컬링 (`OcclusionCulling` 의 Compact) 도 고른 인스턴스의 기본색을 함께 옮긴다 — 켠 화면과 끈 화면이 같다.
+- 기본색 부호: `w < 0` = 블록 색 (알파 = `-1 - w`), `w >= 0` = 재질 값. 입력을 읽지 않는 배치 (OpenGL 의 꺼진 입력 = 0,0,0,1) 도 재질 값이 된다.
+  셰이더 `32. InstancedBasic.fx` 의 `BatchTech` (`VertexIn_Batch` 의 `INSTCOLOR` — WORLD 뒤 location 8) 만 읽는다. 그림자 · 깊이 · Shader Graph 는 앞 64 바이트만.
+
+검사 `run_tests.ps1 -Only material` (`materialgl` · `materialvk` = OpenGL · Vulkan): 사본 · 공유 재질 색, 블록 (상자 24 개에 두 값 — 묶음이 늘지 않음,
+`_Smoothness` 가 든 블록은 파생 재질로 1 개 늘어남), 상자 100 개 · 색 100 가지 (묶음 그대로, GPU 오클루전 경로와 CPU 경로가 같은 그림), 블록 지우기, `GetComponent<Renderer>` · `bounds` · `shadowCastingMode` · `enabled`, 캐릭터 (Skinned) 블록 색 · `enabled`, SpriteRenderer (재질 없음 · 그림 상자), 저장 뒤 다시 열면 사본이 없어짐.
 
 | 파일 | 하는 일 |
 |---|---|
@@ -56,4 +63,5 @@ NOVA 의 인스턴싱 버퍼는 월드 행렬만 담는다 (셰이더 · GPU 오
 | `Source/Scene/MaterialScripting.cpp` | 네이티브 (재질 핸들 = 주소, 스크립트에 건넨 재질은 잡아 둔다). 렌더러 함수의 `kind` = 0 Mesh · 1 Skinned · 2 Sprite |
 | `Source/Scene/MaterialBlock.*` | 블록 · 파생 재질 (Mesh · Skinned 공용) |
 | `Source/Graphics/DX11/UMaterial.*` | 이름으로 값 읽기 · 쓰기, `CloneInstance`, `StateHash` |
-| `Source/Scene/MeshRenderer.*` · `SkinnedMeshRenderer.*` · `MeshBatcher.cpp` | `SetMaterialAt`, 그릴 재질 (`GetRenderMaterials` · `RenderMaterials`), Skinned 는 `enabled` 를 그리기 함수에서 확인 |
+| `Source/Scene/MeshRenderer.*` · `SkinnedMeshRenderer.*` · `MeshBatcher.cpp` | `SetMaterialAt`, 그릴 재질 (`GetBatchMaterials` · `GetRenderMaterials` · `RenderMaterials`), 인스턴스 값 (`Instance` 80 바이트), Skinned 는 `enabled` 를 그리기 함수에서 확인 |
+| `Shaders/32. InstancedBasic.fx` · `57. OcclusionCulling.fx` · `Source/Graphics/DX11/Vertex.cpp` · `OcclusionCulling.*` | `BatchTech` 의 인스턴스 기본색, Compact 가 80 바이트씩, 입력 배치 `INSTCOLOR` (`OcclusionCulling::InstanceBytes`) |

@@ -25,9 +25,9 @@ MeshBatcher 가 보이는 Mesh Renderer 를 (메시, 서브셋, 재질) 묶음�
 4. **깊이 프리패스 2 단계** — 이번에 새로 보인 렌더러의 깊이.
 5. **본 패스** — 지금 보이는 렌더러만.
 
-- 고른 인스턴스는 compute 가 월드 행렬을 묶음마다 이어 써서 `DrawIndexedInstancedIndirect` 로 그린다 → **CPU 가 GPU 결과를 기다리지 않는다**.
+- 고른 인스턴스는 compute 가 인스턴스 값 (월드 행렬 + 기본색 80 바이트 — MaterialPropertyBlock 의 `_BaseColor`, [MATERIAL_SCRIPTING.md](MATERIAL_SCRIPTING.md)) 을 묶음마다 이어 써서 `DrawIndexedInstancedIndirect` 로 그린다 → **CPU 가 GPU 결과를 기다리지 않는다**.
 - 1 단계에 그리지 않은 것도 같은 프레임의 2 단계에서 그리므로 **한 프레임 늦은 구멍 · 튐이 없다** (카메라를 확 돌려도, 물체를 옮겨도).
-- 셰이더는 그대로 (엔진 Lit · Shader Graph · 패키지 셰이더) — 인스턴스 정점 버퍼 (월드 행렬) 만 GPU 가 채운 것으로 바뀐다.
+- 셰이더는 그대로 (엔진 Lit · Shader Graph · 패키지 셰이더) — 인스턴스 정점 버퍼만 GPU 가 채운 것으로 바뀐다.
 - **Skinned Mesh Renderer** (인스턴싱이 아니라 낱개): 깊이 프리패스가 끝난 뒤 렌더러 상자를 `D3D11_QUERY_OCCLUSION_PREDICATE` 로 그려 두고
   (색 · 깊이 안 씀, 정점 셰이더만), 본 패스의 그리기를 `SetPredication` 으로 감싼다 — 가려졌으면 GPU 가 건너뛴다 (CPU 는 결과를 기다리지 않는다,
   같은 프레임 깊이라 늦은 구멍 없음). 카메라가 상자 안이거나 가까운 면이 상자를 자르면 쿼리하지 않고 그린다.

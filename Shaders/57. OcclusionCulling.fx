@@ -42,9 +42,11 @@ struct Item             // 렌더러 × 서브셋 하나 → 묶음 하나
     uint Base;          // 묶음의 첫 인스턴스 자리 (= 간접 인자의 StartInstanceLocation)
 };
 
+// 렌더러마다 인스턴스 값 = 월드 행렬 + 기본색 (MeshBatcher — 80 바이트, 부호는 32. InstancedBasic.fx 의 VertexIn_Batch)
 struct World
 {
     float4 R0, R1, R2, R3;
+    float4 Color;
 };
 
 StructuredBuffer<Caster> gCasters;
@@ -60,7 +62,7 @@ RWByteAddressBuffer gHistory;
 RWByteAddressBuffer gFlags;
 RWByteAddressBuffer gCounters;          // CullCS: 0 = 검사, 4 = 보임. 목록 · 그림자도 각자의 카운터를 여기에
 RWByteAddressBuffer gArgs;              // 묶음 · 그리기마다 20 바이트 (InstanceCount = +4)
-RWByteAddressBuffer gOut;               // 인스턴스 정점 버퍼 (Compact = 월드 행렬 64 바이트씩, List = gStride uint 씩)
+RWByteAddressBuffer gOut;               // 인스턴스 정점 버퍼 (Compact = 월드 행렬 + 기본색 80 바이트씩, List = gStride uint 씩)
 RWTexture2D<float> gDst;
 
 bool HiZVisible(float3 mn, float3 mx)
@@ -128,11 +130,12 @@ void CompactCS(uint3 id : SV_DispatchThreadID)
     uint n;
     gArgs.InterlockedAdd(it.Batch * 20 + 4, 1, n);
     const World w = gWorlds[it.Caster];
-    const uint o = (it.Base + n) * 64;
+    const uint o = (it.Base + n) * 80;
     gOut.Store4(o, asuint(w.R0));
     gOut.Store4(o + 16, asuint(w.R1));
     gOut.Store4(o + 32, asuint(w.R2));
     gOut.Store4(o + 48, asuint(w.R3));
+    gOut.Store4(o + 64, asuint(w.Color));
 }
 
 [numthreads(8, 8, 1)]
