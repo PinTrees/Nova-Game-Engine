@@ -35,6 +35,13 @@ namespace BuildSettings
 		std::string AndroidPackageName;
 		// Android: Default Orientation (Unity 의 Resolution and Presentation) — 0 Portrait, 1 Portrait Upside Down, 2 Landscape Right, 3 Landscape Left, 4 Auto Rotation
 		int AndroidOrientation = 4;
+		// Android: Bundle Version Code (manifest versionCode — 스토어 올릴 때마다 올린다), 아이콘 (그림 경로 Assets/…, 비면 NOVA 로고)
+		int AndroidVersionCode = 1;
+		std::string AndroidIcon;
+		// Android: Publishing Settings (Unity 와 같이 비밀번호는 저장하지 않는다 — AndroidKeystorePass · AndroidKeyAliasPass 는 이번 실행 동안만)
+		bool AndroidCustomKeystore = false;
+		std::string AndroidKeystorePath;   // 프로젝트 기준 또는 절대 경로 (.keystore / .jks)
+		std::string AndroidKeyAlias;
 	};
 	// 빌드된 게임이 시도할 순서 (Auto 면 엔진 기본 순서)
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs();
@@ -53,6 +60,9 @@ namespace BuildSettings
 	int& ActivePlatform();
 	std::string& AndroidRunDevice();     // Build And Run 장치 (adb 시리얼, 비면 첫 장치)
 	std::string& LastAndroidApk();       // 마지막 .apk 경로
+	bool& AndroidBuildAppBundle();       // Build App Bundle (Google Play) — .aab
+	std::string& AndroidKeystorePass();  // 저장하지 않는다 (에디터를 켤 때마다 다시 넣는다, Unity 와 같음)
+	std::string& AndroidKeyAliasPass();
 	void SaveEditorBuild();
 
 	// 실행 중에 쓰는 씬 목록: 에디터 = Build Settings 의 켜진 씬, 플레이어 = 빌드할 때 넣은 목록

@@ -16,7 +16,14 @@ namespace AndroidBuild
 		bool Run = false;                // Build And Run
 		std::string Device;              // adb 시리얼 (비면 첫 장치)
 		std::string TextureCompression;  // "" = Player Settings, astc · etc2 · dxt · none
+		int AppBundle = -1;              // -1 = Build Settings 의 Build App Bundle, 0 = .apk, 1 = .aab (Google Play)
+		// 서명: 비면 Player Settings 의 Publishing Settings (Custom Keystore) · 이번 실행에 넣은 비밀번호, 그것도 없으면 디버그 키
+		std::string Keystore, KeystorePass, KeyAlias, KeyAliasPass;
 	};
+
+	// 새 키 저장소 (Unity 의 Keystore Manager — Create New): keytool -genkeypair (RSA 2048, validityYears 년)
+	bool CreateKeystore(const std::wstring& path, const std::string& storePass, const std::string& alias, const std::string& keyPass,
+		const std::string& distinguishedName, int validityYears, std::string& error);
 
 	bool Start(const Options& options, std::string& error);
 	bool IsRunning();
@@ -29,7 +36,7 @@ namespace AndroidBuild
 	struct Result
 	{
 		bool Done = false, Success = false;
-		std::string Error, Apk, Device, Log;
+		std::string Error, Apk, Aab, Device, Log, Signer;
 		double Seconds = 0.0;
 		uint64_t Bytes = 0;
 	};

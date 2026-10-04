@@ -156,7 +156,12 @@ namespace
 			s_Devices = AndroidBuild::Devices(true);
 		if (Toggle("Development Build", &BuildSettings::DevelopmentBuild()))
 			BuildSettings::SaveEditorBuild();
+		// Unity 의 Build App Bundle (Google Play): .aab (Build And Run 은 같은 내용의 .apk 를 설치해 실행)
+		if (Toggle("Build App Bundle (Google Play)", &BuildSettings::AndroidBuildAppBundle()))
+			BuildSettings::SaveEditorBuild();
 		ValueLabel("Package Name", AndroidBuild::PackageName().c_str());
+		const BuildSettings::Player& pl = BuildSettings::GetPlayer();
+		ValueLabel("Signing", pl.AndroidCustomKeystore ? (pl.AndroidKeystorePath + " (" + pl.AndroidKeyAlias + ")").c_str() : "Debug key (Player Settings > Publishing Settings)");
 		const std::wstring sdk = AndroidBuild::FindSdk(), java = AndroidBuild::FindJava(), lib = AndroidBuild::PlayerLibrary("x86_64");
 		ValueLabel("Android SDK", sdk.empty() ? "Not found" : wstring_to_string(sdk).c_str());
 		ValueLabel("JDK", java.empty() ? "Not found" : wstring_to_string(java).c_str());

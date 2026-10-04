@@ -759,6 +759,24 @@ namespace UnityGUI
 		return changed;
 	}
 
+	bool PasswordField(const char* label, std::string* value, int indent)
+	{
+		Row r = BeginRow(label, indent);
+		ImGui::PushID(label);
+		char buf[256];
+		strncpy_s(buf, value->c_str(), _TRUNCATE);
+		PushFieldStyle();
+		ImGui::SetNextItemWidth(r.fieldW);
+		const bool changed = ImGui::InputText("##password", buf, sizeof(buf), ImGuiInputTextFlags_Password);
+		PopFieldStyle();
+		if (changed)
+			*value = buf;
+		ImGui::PopID();
+		EndRow(r);
+		memset(buf, 0, sizeof(buf));
+		return changed;
+	}
+
 	bool TextArea(const char* label, std::string* value, float height, int indent)
 	{
 		// Unity 의 여러 줄 텍스트 (Text 컴포넌트의 Text): 레이블 행 아래에 폭 전체 입력 상자

@@ -49,6 +49,7 @@ namespace UnityGUI
 	NOVA_API bool Slider(const char* label, float* value, float minV, float maxV, int indent = 0);   // 슬라이더 + 숫자 입력
 	NOVA_API bool MinMaxSlider(const char* label, float* minValue, float* maxValue, float minLimit, float maxLimit, int indent = 0);   // 숫자 · 두 손잡이 트랙 · 숫자
 	NOVA_API bool TextField(const char* label, std::string* value, int indent = 0);   // 한 줄 문자열
+	NOVA_API bool PasswordField(const char* label, std::string* value, int indent = 0);   // 가린 한 줄 (Unity 의 EditorGUILayout.PasswordField)
 	// 여러 줄 문자열 (레이블 행 아래 폭 전체 상자, 예: Text 컴포넌트의 Text)
 	NOVA_API bool TextArea(const char* label, std::string* value, float height = 60.0f, int indent = 0);
 	// 행 구조 없이 원하는 위치에 숫자 입력 칸 하나 (RectTransform 의 Pos X / Width 칸 등). 커서는 호출자가 관리

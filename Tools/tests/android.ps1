@@ -212,6 +212,7 @@ public class AndroidScriptProbe : MonoBehaviour
 # ---- 3) APK
 Write-Host '[android] build APK'
 $py = (& python (Join-Path $Root 'Android\build.py') --abi $abi 2>&1 | Out-String)
+$py | Set-Content -Encoding utf8 (Join-Path $Out 'build_apk.txt')   # 실패하면 원인 (python · cmake · aapt2 출력)
 $apk = Join-Path $Root 'Android\build\nova.apk'
 Check 'APK build' ($py -match 'apk .*nova\.apk') (($py -split "`n" | Where-Object { $_ -match '^(built|apk|FAILED)' }) -join '; ')
 
@@ -329,7 +330,12 @@ if ($win -and $front)
     Start-Sleep -Milliseconds 800
     $s4 = Screen 'shell_resumed'
     $c4 = $s4.GetPixel($tx, $ty)
-    Check 'background → foreground keeps state' ($lost -and $pause -and $again -and (Near $c4 255 128 0)) ("pause {0}, window lost {1}, window again {2}, tap mark {3}" -f [bool]$pause, [bool]$lost, [bool]$again, (Rgb $c4))
+    # 창 표면은 안드로이드가 정한다: 빨리 돌아오면 지우지 않고 그대로 쓴다 → 잃은 창은 모두 다시 생겼는지 (잃지 않았으면 그대로 통과)
+    $evs = @(Events)
+    $lostCount = @($evs | Where-Object { $_.event -eq 'window-lost' }).Count
+    $windowCount = @($evs | Where-Object { $_.event -eq 'window' }).Count
+    $resumed = @($evs | Where-Object { $_.event -eq 'resume' }).Count -ge 2
+    Check 'background → foreground keeps state' ($pause -and $resumed -and $windowCount -eq $lostCount + 1 -and (Near $c4 255 128 0)) ("pause {0}, window lost {1}x, window {2}x, tap mark {3}" -f [bool]$pause, $lostCount, $windowCount, (Rgb $c4))
 
     # 회전은 검사하지 않는다: MuMu (태블릿 모드) 는 user_rotation · wm size 를 바꿔도 앱 창 크기를 바꾸지 않는다
     $crash = @(& $Adb -s $serial logcat -d -s AndroidRuntime:E DEBUG:F libc:F | Select-String 'FATAL|signal')
@@ -575,8 +581,15 @@ if (-not $SkipEditor)
     try
     {
         $apkOut = Join-Path $Out 'buildrun\Game.apk'
+        $aabOut = Join-Path $Out 'buildrun\Game.aab'
+        # 배포 키 (Publishing Settings 의 Create New Keystore 와 같은 길): 이번 검사에서 만든 키 · 무작위 비밀번호 (출력하지 않는다)
+        $ksFile = Join-Path $Out 'buildrun\release.keystore'
+        $ksPass = -join ((48..57) + (65..90) + (97..122) | Get-Random -Count 20 | ForEach-Object { [char]$_ })
+        $kc = Invoke-NovaJson "android keystore-create --path `"$ksFile`" --pass $ksPass --alias upload --dname `"CN=NOVA Android Test,O=NOVA`""
+        Check 'Create New Keystore (keytool)' ($kc -and (Test-Path $ksFile)) $(if ($kc) { "alias $($kc.alias)" } else { 'no keystore' })
+        & $Adb -s $serial uninstall com.NOVATest.UIDemo 2>&1 | Out-Null   # 디버그 키로 설치했던 것 (다른 키로는 덮어쓸 수 없다)
         & $Adb -s $serial logcat -c   # 앞 단계의 engine 이벤트와 섞이지 않게
-        $st = Invoke-NovaJson "android build --out `"$apkOut`" --run --device $serial"
+        $st = Invoke-NovaJson "android build --out `"$apkOut`" --run --device $serial --app-bundle --keystore `"$ksFile`" --keystore-pass $ksPass --alias upload --key-pass $ksPass"
         $sw = [Diagnostics.Stopwatch]::StartNew()
         do { Start-Sleep -Milliseconds 1000; $b = Invoke-NovaJson 'android build-status' } while ($sw.Elapsed.TotalSeconds -lt 300 -and $b -and $b.running)
         Check 'editor Android build (APK)' ($st -and $b -and $b.success) $(if ($b) { if ($b.success) { "{0:N1} MB, {1:N1} s, device {2}" -f ($b.bytes / 1MB), $b.seconds, $b.device } else { $b.error } } else { 'no status' })
@@ -587,6 +600,27 @@ if (-not $SkipEditor)
             $bt = (Get-ChildItem (Join-Path $Sdk 'build-tools') -Directory | Sort-Object { [version]($_.Name -replace '[^\d.]', '') } | Select-Object -Last 1).FullName
             $xml = (& (Join-Path $bt 'aapt2.exe') dump xmltree --file AndroidManifest.xml $apkOut 2>&1 | Out-String)
             Check 'manifest screenOrientation from Player Settings' ($xml -match 'screenOrientation.*=13') (($xml -split "`n" | Where-Object { $_ -match 'screenOrientation' } | Select-Object -First 1) -replace '\s+', ' ')
+            # 아이콘 (mipmap 5 밀도) · versionCode · 배포 키 서명 (APK = apksigner, AAB = jarsigner)
+            $badging = (& (Join-Path $bt 'aapt2.exe') dump badging $apkOut 2>&1 | Out-String)
+            Check 'app icon and versionCode in the APK' ($badging -match "icon='res/mipmap" -and $badging -match "versionCode='\d+'") (($badging -split "`n" | Where-Object { $_ -match '^package:|^application:' }) -join ' / ')
+            $jbin = Join-Path $env:ProgramFiles 'Android\Android Studio\jbr\bin'
+            if (-not (Test-Path "$jbin\java.exe")) { $jbin = Join-Path $env:LOCALAPPDATA 'NOVA\AndroidTools\jdk\bin' }
+            $certs = (& "$jbin\java.exe" -jar (Join-Path $bt 'lib\apksigner.jar') verify --print-certs $apkOut 2>&1 | Out-String)
+            Check 'APK signed with the release key' ($certs -match 'CN=NOVA Android Test') (($certs -split "`n" | Where-Object { $_ -match 'DN:' } | Select-Object -First 1).Trim())
+            $jv = (& "$jbin\jarsigner.exe" -verify $aabOut 2>&1 | Out-String)
+            Check 'App Bundle (.aab) signed (jarsigner)' ((Test-Path $aabOut) -and $jv -match 'jar verified') ("{0:N1} MB, {1}" -f ((Get-Item $aabOut -ErrorAction SilentlyContinue).Length / 1MB), (($jv -split "`n" | Where-Object { $_ -match 'verified' } | Select-Object -First 1)))
+            # bundletool (Google): 번들 검사 → 기기용 APK 묶음 → 설치 — Play 가 받는 형식인지 (Tools/fetch_bundletool.ps1 로 받아 둔 것)
+            $tool = Get-ChildItem (Join-Path $Root 'ThirdParty\bundletool') -Filter 'bundletool-all-*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($tool)
+            {
+                $val = (& "$jbin\java.exe" -jar $tool.FullName validate --bundle $aabOut 2>&1 | Out-String)
+                $pf = Join-Path $Out 'buildrun\ks.txt'
+                [IO.File]::WriteAllText($pf, $ksPass)
+                $apks = Join-Path $Out 'buildrun\Game.apks'
+                $ba = (& "$jbin\java.exe" -jar $tool.FullName build-apks --overwrite --bundle $aabOut --output $apks --ks $ksFile --ks-pass "file:$pf" --ks-key-alias upload --key-pass "file:$pf" 2>&1 | Out-String)
+                Remove-Item $pf -ErrorAction SilentlyContinue
+                Check 'bundletool accepts the App Bundle (validate, build-apks)' ($val -match 'Feature module: base' -and (Test-Path $apks)) $(if (Test-Path $apks) { "{0:N1} MB .apks" -f ((Get-Item $apks).Length / 1MB) } else { ($ba -split "`n" | Where-Object { $_ -match 'Exception|Error' } | Select-Object -First 1) })
+            }
         }
         Invoke-Nova 'window build-settings' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
         Invoke-Nova "screenshot `"$(Join-Path $Out 'build_settings_android.png')`" --view editor" | Out-Null

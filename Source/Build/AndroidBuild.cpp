@@ -24,6 +24,11 @@ namespace AndroidBuild
 			Options Opt;
 			std::wstring Sdk, Java, BuildTools, AndroidJar, Lib, Staging;
 			std::string Package, Product, Version, Orientation;
+			int VersionCode = 1;
+			bool HasIcon = false;
+			bool AppBundle = false;
+			std::wstring Keystore;            // 비면 디버그 키
+			std::string StorePass, Alias, KeyPass;
 			bool Development = false;
 			Stage Step = Stage::Shaders;
 			int Frame = 0;
@@ -360,10 +365,10 @@ namespace AndroidBuild
 		std::string Manifest(const Job& j)
 		{
 			return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-				"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"" + j.Package + "\" android:versionCode=\"1\" android:versionName=\"" + XmlEscape(j.Version) + "\">\n"
+				"<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"" + j.Package + "\" android:versionCode=\"" + std::to_string(j.VersionCode) + "\" android:versionName=\"" + XmlEscape(j.Version) + "\">\n"
 				"    <uses-sdk android:minSdkVersion=\"26\" android:targetSdkVersion=\"34\" />\n"
 				"    <uses-feature android:glEsVersion=\"0x00030002\" android:required=\"true\" />\n"
-				"    <application android:label=\"" + XmlEscape(j.Product) + "\" android:hasCode=\"false\" android:extractNativeLibs=\"true\"" + (j.Development ? " android:debuggable=\"true\"" : "") + ">\n"
+				"    <application android:label=\"" + XmlEscape(j.Product) + "\"" + (j.HasIcon ? " android:icon=\"@mipmap/ic_launcher\"" : "") + " android:hasCode=\"false\" android:extractNativeLibs=\"true\"" + (j.Development ? " android:debuggable=\"true\"" : "") + ">\n"
 				"        <activity android:name=\"android.app.NativeActivity\" android:exported=\"true\" android:configChanges=\"orientation|screenSize|keyboardHidden|screenLayout\"\n"
 				"                  android:screenOrientation=\"" + j.Orientation + "\"\n"
 				"                  android:theme=\"@android:style/Theme.NoTitleBar.Fullscreen\">\n"
@@ -377,7 +382,97 @@ namespace AndroidBuild
 				"</manifest>\n";
 		}
 
-		// 작업 스레드: APK 묶기 → 서명 → (Build And Run) 설치 · 실행
+		// zip 항목을 압축된 그대로 읽고 (풀지 않음) 쓴다 — AAB 는 aapt2 의 proto 출력 항목을 이름만 바꿔 base/ 모듈로 옮긴다
+		struct ZipItem { std::string Name; uint16_t Method = 0; uint32_t Crc = 0, Packed = 0, Size = 0; std::vector<uint8_t> Data; };
+
+		bool ZipReadRaw(const fs::path& path, std::vector<ZipItem>& items, std::string& error)
+		{
+			std::ifstream in(path, std::ios::binary);
+			std::vector<uint8_t> z((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			auto r16 = [&](size_t o) { return o + 2 <= z.size() ? (uint32_t)z[o] | (uint32_t)z[o + 1] << 8 : 0u; };
+			auto r32 = [&](size_t o) { return r16(o) | r16(o + 2) << 16; };
+			size_t eocd = std::string::npos;
+			for (size_t i = z.size() >= 22 ? z.size() - 22 : 0; i != (size_t)-1 && z.size() - i <= 22 + 65535; --i)
+				if (r32(i) == 0x06054b50u) { eocd = i; break; }
+			if (eocd == std::string::npos) { error = "not a zip: " + wstring_to_string(path.wstring()); return false; }
+			size_t p = r32(eocd + 16);
+			for (uint32_t i = 0, n = r16(eocd + 10); i < n && r32(p) == 0x02014b50u; ++i)
+			{
+				ZipItem it;
+				it.Method = (uint16_t)r16(p + 10);
+				it.Crc = r32(p + 16);
+				it.Packed = r32(p + 20);
+				it.Size = r32(p + 24);
+				const uint32_t nl = r16(p + 28), el = r16(p + 30), cl = r16(p + 32), local = r32(p + 42);
+				it.Name.assign((const char*)&z[p + 46], nl);
+				std::replace(it.Name.begin(), it.Name.end(), '\\', '/');
+				const size_t data = (size_t)local + 30 + r16(local + 26) + r16(local + 28);
+				if (data + it.Packed > z.size()) { error = "broken zip entry " + it.Name; return false; }
+				it.Data.assign(z.begin() + data, z.begin() + data + it.Packed);
+				items.push_back(std::move(it));
+				p += 46 + nl + el + cl;
+			}
+			return true;
+		}
+
+		ZipItem ZipFile(const std::string& name, const std::vector<uint8_t>& data)
+		{
+			ZipItem it;
+			it.Name = name;
+			it.Crc = Crc32(data.data(), data.size());
+			it.Size = (uint32_t)data.size();
+			std::vector<uint8_t> packed = Deflate(data.data(), data.size());
+			if (packed.size() < data.size()) { it.Method = 8; it.Data = std::move(packed); }
+			else it.Data = data;
+			it.Packed = (uint32_t)it.Data.size();
+			return it;
+		}
+
+		bool ZipWrite(const fs::path& path, const std::vector<ZipItem>& items, std::string& error)
+		{
+			std::vector<uint8_t> out;
+			auto w16 = [&](uint32_t v) { const uint8_t b[2] = { (uint8_t)v, (uint8_t)(v >> 8) }; out.insert(out.end(), b, b + 2); };
+			auto w32 = [&](uint32_t v) { w16(v & 0xFFFF); w16(v >> 16); };
+			std::vector<uint32_t> offsets;
+			for (const ZipItem& it : items)
+			{
+				offsets.push_back((uint32_t)out.size());
+				w32(0x04034b50u); w16(20); w16(0); w16(it.Method); w16(0); w16(0x21); w32(it.Crc); w32(it.Packed); w32(it.Size); w16((uint32_t)it.Name.size()); w16(0);
+				out.insert(out.end(), it.Name.begin(), it.Name.end());
+				out.insert(out.end(), it.Data.begin(), it.Data.end());
+			}
+			const uint32_t cd = (uint32_t)out.size();
+			for (size_t i = 0; i < items.size(); ++i)
+			{
+				const ZipItem& it = items[i];
+				w32(0x02014b50u); w16(20); w16(20); w16(0); w16(it.Method); w16(0); w16(0x21); w32(it.Crc); w32(it.Packed); w32(it.Size); w16((uint32_t)it.Name.size());
+				w16(0); w16(0); w16(0); w16(0); w32(0); w32(offsets[i]);
+				out.insert(out.end(), it.Name.begin(), it.Name.end());
+			}
+			const uint32_t cdSize = (uint32_t)out.size() - cd;
+			w32(0x06054b50u); w16(0); w16(0); w16((uint32_t)items.size()); w16((uint32_t)items.size()); w32(cdSize); w32(cd); w16(0);
+			std::ofstream os(path, std::ios::binary | std::ios::trunc);
+			os.write((const char*)out.data(), (std::streamsize)out.size());
+			if (!os) { error = "cannot write " + wstring_to_string(path.wstring()); return false; }
+			return true;
+		}
+
+		// 서명 비밀번호는 명령줄 (프로세스 목록에 보인다) 대신 환경 변수로 넘긴다 (apksigner env: · jarsigner :env)
+		struct SecretEnv
+		{
+			SecretEnv(const std::string& store, const std::string& key)
+			{
+				::SetEnvironmentVariableW(L"NOVA_KS_PASS", string_to_wstring(store).c_str());
+				::SetEnvironmentVariableW(L"NOVA_KEY_PASS", string_to_wstring(key).c_str());
+			}
+			~SecretEnv()
+			{
+				::SetEnvironmentVariableW(L"NOVA_KS_PASS", nullptr);
+				::SetEnvironmentVariableW(L"NOVA_KEY_PASS", nullptr);
+			}
+		};
+
+		// 작업 스레드: (아이콘 자원) → APK (aapt2 · 라이브러리 · zipalign · apksigner) · AAB (aapt2 proto · base 모듈 · jarsigner) → (Build And Run) 설치 · 실행
 		void Package(std::shared_ptr<Job> j)
 		{
 			auto fail = [&](const std::string& step, const std::string& output) {
@@ -387,65 +482,131 @@ namespace AndroidBuild
 			std::error_code ec;
 			const fs::path stage = j->Staging;
 			std::string out;
+			const std::wstring aapt2 = Quote((fs::path(j->BuildTools) / L"aapt2.exe").wstring());
+			const std::wstring javaBin = (fs::path(j->Java) / L"bin").wstring();
 
 			j->SetStatus("Writing AndroidManifest.xml", 0.55f);
 			std::ofstream(stage / L"AndroidManifest.xml", std::ios::binary | std::ios::trunc) << Manifest(*j);
 
-			j->SetStatus("Linking APK (aapt2)", 0.6f);
-			const fs::path base = stage / L"base.apk", aligned = stage / L"aligned.apk";
-			fs::remove(base, ec);
-			if (Run(Quote((fs::path(j->BuildTools) / L"aapt2.exe").wstring()) + L" link -o " + Quote(base.wstring()) + L" --manifest " + Quote((stage / L"AndroidManifest.xml").wstring()) +
-				L" -I " + Quote(j->AndroidJar) + L" -A assets", stage.wstring(), out) != 0)   // 하위 폴더 이름의 '\' 는 아래 ZipAppendStored 가 '/' 로
-				return fail("aapt2 link failed", out);
+			// 아이콘 (Start 가 res/mipmap-*/ic_launcher.png 를 만들었으면): aapt2 compile → 링크 입력
+			std::wstring resInput;
+			if (j->HasIcon)
+			{
+				fs::remove(stage / L"res.zip", ec);
+				if (Run(aapt2 + L" compile --dir res -o res.zip", stage.wstring(), out) != 0)
+					return fail("aapt2 compile (icon) failed", out);
+				resInput = L" res.zip";
+			}
 
-			// 플레이어 라이브러리 + C# 스크립트가 있으면 (게임 데이터의 Managed/) Mono 의 네이티브 라이브러리 (libmonosgen-2.0 · System.Native · 구성 요소)
-			j->SetStatus("Adding the player library (libnova.so)", 0.7f);
+			// 네이티브 라이브러리: 플레이어 + C# 스크립트가 있으면 (게임 데이터의 Managed/) Mono (libmonosgen-2.0 · System.Native · 구성 요소)
 			std::vector<std::pair<std::string, fs::path>> libs = { { std::string("lib/") + kAbi + "/libnova.so", j->Lib } };
 			std::wstring monoLib, monoNative;
 			if (fs::exists(stage / L"assets" / L"game" / L"Managed", ec) && AndroidTools::MonoRuntime(kAbi, monoLib, monoNative))
 				for (const auto& e : fs::directory_iterator(monoNative, ec))
 					if (e.path().extension() == L".so" && !IsOptionalMonoLibrary(e.path().filename().string()))
 						libs.push_back({ std::string("lib/") + kAbi + "/" + wstring_to_string(e.path().filename().wstring()), e.path() });
-			if (!ZipAppendStored(base, libs, out))
-				return fail("adding native libraries failed", out);
 
-			j->SetStatus("Aligning (zipalign)", 0.78f);
-			fs::remove(aligned, ec);
-			if (Run(Quote((fs::path(j->BuildTools) / L"zipalign.exe").wstring()) + L" -p -f 4 " + Quote(base.wstring()) + L" " + Quote(aligned.wstring()), stage.wstring(), out) != 0)
-				return fail("zipalign failed", out);
-
-			// 디버그 키 (Unity 도 Custom Keystore 가 없으면 디버그 키) — 없으면 만든다
-			j->SetStatus("Signing (apksigner, debug key)", 0.84f);
-			const fs::path keystore = fs::path(Env(L"USERPROFILE")) / L".android" / L"debug.keystore";
-			const std::wstring javaBin = (fs::path(j->Java) / L"bin").wstring();
-			if (!fs::exists(keystore, ec))
+			// 서명 키: Custom Keystore (Publishing Settings) 또는 디버그 키 (Unity 와 같이 없으면 만든다)
+			fs::path keystore = j->Keystore;
+			std::string storePass = j->StorePass, alias = j->Alias, keyPass = j->KeyPass;
+			if (keystore.empty())
 			{
-				fs::create_directories(keystore.parent_path(), ec);
-				if (Run(Quote(javaBin + L"\\keytool.exe") + L" -genkeypair -keystore " + Quote(keystore.wstring()) + L" -storepass android -alias androiddebugkey -keypass android"
-					L" -keyalg RSA -keysize 2048 -validity 10000 -dname \"CN=Android Debug,O=Android,C=US\"", L"", out) != 0)
-					return fail("keytool failed", out);
+				keystore = fs::path(Env(L"USERPROFILE")) / L".android" / L"debug.keystore";
+				storePass = keyPass = "android";
+				alias = "androiddebugkey";
+				if (!fs::exists(keystore, ec))
+				{
+					std::string err;
+					if (!CreateKeystore(keystore.wstring(), storePass, alias, keyPass, "CN=Android Debug,O=Android,C=US", 27, err))
+						return fail("debug keystore", err);
+				}
 			}
-			const fs::path apk = j->Opt.OutputApk;
-			fs::create_directories(apk.parent_path(), ec);
-			if (Run(Quote(javaBin + L"\\java.exe") + L" -jar " + Quote((fs::path(j->BuildTools) / L"lib" / L"apksigner.jar").wstring()) + L" sign --ks " + Quote(keystore.wstring()) +
-				L" --ks-pass pass:android --key-pass pass:android --ks-key-alias androiddebugkey --out " + Quote(apk.wstring()) + L" " + Quote(aligned.wstring()), stage.wstring(), out) != 0)
-				return fail("apksigner failed", out);
-			j->R.Apk = wstring_to_string(apk.wstring());
-			j->R.Bytes = fs::file_size(apk, ec);
+			j->R.Signer = keystore == fs::path(Env(L"USERPROFILE")) / L".android" / L"debug.keystore" ? "debug key" : wstring_to_string(keystore.filename().wstring()) + " (" + alias + ")";
+			SecretEnv secrets(storePass, keyPass);
+
+			const fs::path outApk = fs::path(j->Opt.OutputApk).replace_extension(L".apk");
+			const fs::path outAab = fs::path(j->Opt.OutputApk).replace_extension(L".aab");
+			fs::create_directories(outApk.parent_path(), ec);
+			// APK: 그냥 빌드 · Build And Run (AAB 를 만들 때도 실행은 같은 내용의 APK 로 — Unity 는 bundletool 로 같은 일)
+			const bool wantApk = !j->AppBundle || j->Opt.Run;
+			if (wantApk)
+			{
+				j->SetStatus("Linking APK (aapt2)", 0.6f);
+				const fs::path base = stage / L"base.apk", aligned = stage / L"aligned.apk";
+				fs::remove(base, ec);
+				if (Run(aapt2 + L" link -o " + Quote(base.wstring()) + L" --manifest " + Quote((stage / L"AndroidManifest.xml").wstring()) +
+					L" -I " + Quote(j->AndroidJar) + L" -A assets" + resInput, stage.wstring(), out) != 0)   // 하위 폴더 이름의 '\' 는 아래 ZipAppendStored 가 '/' 로
+					return fail("aapt2 link failed", out);
+				j->SetStatus("Adding the player library (libnova.so)", 0.68f);
+				if (!ZipAppendStored(base, libs, out))
+					return fail("adding native libraries failed", out);
+				j->SetStatus("Aligning (zipalign)", 0.74f);
+				fs::remove(aligned, ec);
+				if (Run(Quote((fs::path(j->BuildTools) / L"zipalign.exe").wstring()) + L" -p -f 4 " + Quote(base.wstring()) + L" " + Quote(aligned.wstring()), stage.wstring(), out) != 0)
+					return fail("zipalign failed", out);
+				j->SetStatus("Signing APK (apksigner, " + j->R.Signer + ")", 0.78f);
+				if (Run(Quote(javaBin + L"\\java.exe") + L" -jar " + Quote((fs::path(j->BuildTools) / L"lib" / L"apksigner.jar").wstring()) + L" sign --ks " + Quote(keystore.wstring()) +
+					L" --v4-signing-enabled false --ks-pass env:NOVA_KS_PASS --key-pass env:NOVA_KEY_PASS --ks-key-alias " + Quote(string_to_wstring(alias)) + L" --out " + Quote(outApk.wstring()) + L" " + Quote(aligned.wstring()),
+					stage.wstring(), out) != 0)
+					return fail("apksigner failed (keystore password or alias?)", out);
+				j->R.Apk = wstring_to_string(outApk.wstring());
+				j->R.Bytes = fs::file_size(outApk, ec);
+			}
+			// AAB (Google Play): aapt2 의 proto 형식 → base/ 모듈 (manifest/ · res/ · resources.pb · assets/ · lib/) + BundleConfig.pb → jarsigner
+			if (j->AppBundle)
+			{
+				j->SetStatus("Linking App Bundle (aapt2 --proto-format)", 0.82f);
+				const fs::path proto = stage / L"base-proto.zip";
+				fs::remove(proto, ec);
+				if (Run(aapt2 + L" link --proto-format -o " + Quote(proto.wstring()) + L" --manifest " + Quote((stage / L"AndroidManifest.xml").wstring()) +
+					L" -I " + Quote(j->AndroidJar) + L" -A assets" + resInput, stage.wstring(), out) != 0)
+					return fail("aapt2 link --proto-format failed", out);
+				std::vector<ZipItem> in, bundle;
+				if (!ZipReadRaw(proto, in, out))
+					return fail("reading the proto output failed", out);
+				// BundleConfig.pb: { bundletool { version: "1.18.3" } } (protobuf: 필드 1 메시지 · 그 안 필드 2 문자열)
+				const std::string tool = "1.18.3";
+				std::vector<uint8_t> config = { 0x0A, (uint8_t)(tool.size() + 2), 0x12, (uint8_t)tool.size() };
+				config.insert(config.end(), tool.begin(), tool.end());
+				bundle.push_back(ZipFile("BundleConfig.pb", config));
+				for (ZipItem& it : in)
+				{
+					if (it.Name == "AndroidManifest.xml") it.Name = "base/manifest/AndroidManifest.xml";
+					else if (it.Name == "resources.pb" || it.Name.rfind("res/", 0) == 0 || it.Name.rfind("assets/", 0) == 0) it.Name = "base/" + it.Name;
+					else it.Name = "base/root/" + it.Name;
+					bundle.push_back(std::move(it));
+				}
+				j->SetStatus("Adding libraries to the App Bundle", 0.86f);
+				for (const auto& [name, file] : libs)
+				{
+					std::ifstream lf(file, std::ios::binary);
+					std::vector<uint8_t> data((std::istreambuf_iterator<char>(lf)), std::istreambuf_iterator<char>());
+					bundle.push_back(ZipFile("base/" + name, data));
+				}
+				fs::remove(outAab, ec);
+				if (!ZipWrite(outAab, bundle, out))
+					return fail("writing the App Bundle failed", out);
+				j->SetStatus("Signing App Bundle (jarsigner, " + j->R.Signer + ")", 0.88f);
+				if (Run(Quote(javaBin + L"\\jarsigner.exe") + L" -keystore " + Quote(keystore.wstring()) + L" -storepass:env NOVA_KS_PASS -keypass:env NOVA_KEY_PASS" +
+					L" -sigalg SHA256withRSA -digestalg SHA-256 " + Quote(outAab.wstring()) + L" " + Quote(string_to_wstring(alias)), stage.wstring(), out) != 0)
+					return fail("jarsigner failed (keystore password or alias?)", out);
+				j->R.Aab = wstring_to_string(outAab.wstring());
+				if (!wantApk) j->R.Bytes = fs::file_size(outAab, ec);
+			}
 
 			if (j->Opt.Run)
 			{
-				j->SetStatus("Looking for a device (adb)", 0.88f);
+				j->SetStatus("Looking for a device (adb)", 0.9f);
 				const std::vector<std::string> devices = Devices(true);
 				std::string device = j->Opt.Device;
 				if (device.empty() && !devices.empty()) device = devices[0];
 				if (device.empty() || std::find(devices.begin(), devices.end(), device) == devices.end())
 					return fail("no Android device (start MuMu Player or connect a device with USB debugging)", device.empty() ? "" : "device " + device + " not connected");
 				j->R.Device = device;
-				j->SetStatus("Installing on " + device, 0.92f);
+				j->SetStatus("Installing on " + device, 0.93f);
 				const std::wstring adb = Quote(Adb()) + L" -s " + string_to_wstring(device);
-				if (Run(adb + L" install -r " + Quote(apk.wstring()), L"", out) != 0 || out.find("Success") == std::string::npos)
-					return fail("adb install failed", out);
+				if (Run(adb + L" install -r " + Quote(outApk.wstring()), L"", out) != 0 || out.find("Success") == std::string::npos)
+					return fail("adb install failed" + std::string(out.find("UPDATE_INCOMPATIBLE") != std::string::npos ? " (installed app is signed with another key - uninstall it first)" : ""), out);
 				j->SetStatus("Starting " + j->Package, 0.97f);
 				Run(adb + L" shell am force-stop " + string_to_wstring(j->Package), L"", out);
 				if (Run(adb + L" shell am start -n " + string_to_wstring(j->Package) + L"/android.app.NativeActivity", L"", out) != 0 || out.find("Error") != std::string::npos)
@@ -563,6 +724,31 @@ namespace AndroidBuild
 		return p.empty() ? DefaultPackageName() : p;
 	}
 
+	bool CreateKeystore(const std::wstring& path, const std::string& storePass, const std::string& alias, const std::string& keyPass,
+		const std::string& distinguishedName, int validityYears, std::string& error)
+	{
+		std::error_code ec;
+		if (fs::exists(path, ec)) { error = "a keystore already exists at " + wstring_to_string(path); return false; }
+		if (storePass.size() < 6 || keyPass.size() < 6) { error = "passwords need at least 6 characters (keytool)"; return false; }
+		if (alias.empty()) { error = "alias is empty"; return false; }
+		const std::wstring java = FindJava();
+		if (java.empty()) { error = "JDK not found - install \"Android Build Support\" in NOVA Hub"; return false; }
+		fs::create_directories(fs::path(path).parent_path(), ec);
+		std::string dname = distinguishedName.empty() ? "CN=" + BuildSettings::GetPlayer().CompanyName : distinguishedName;
+		dname.erase(std::remove(dname.begin(), dname.end(), '"'), dname.end());
+		SecretEnv secrets(storePass, keyPass);
+		std::string out;
+		if (Run(Quote((fs::path(java) / L"bin" / L"keytool.exe").wstring()) + L" -genkeypair -keystore " + Quote(path) + L" -storetype PKCS12 -storepass:env NOVA_KS_PASS"
+			L" -alias " + Quote(string_to_wstring(alias)) + L" -keypass:env NOVA_KEY_PASS -keyalg RSA -keysize 2048 -validity " + std::to_wstring((std::max)(1, validityYears) * 365) +
+			L" -dname " + Quote(string_to_wstring(dname)), L"", out) != 0 || !fs::exists(path, ec))
+		{
+			error = "keytool failed: " + out.substr(0, 600);
+			return false;
+		}
+		EditorLog::Write("AndroidBuild", "keystore created %s (alias %s)", wstring_to_string(path).c_str(), alias.c_str());
+		return true;
+	}
+
 	bool Start(const Options& options, std::string& error)
 	{
 		if (IsRunning()) { error = "an Android build is already running"; return false; }
@@ -587,9 +773,55 @@ namespace AndroidBuild
 		static const char* kOrientation[] = { "portrait", "reversePortrait", "reverseLandscape", "landscape", "fullUser" };
 		j->Orientation = kOrientation[std::clamp(BuildSettings::GetPlayer().AndroidOrientation, 0, 4)];
 		j->Development = BuildSettings::DevelopmentBuild();
+		const BuildSettings::Player& player = BuildSettings::GetPlayer();
+		j->VersionCode = (std::max)(1, player.AndroidVersionCode);
+		j->AppBundle = options.AppBundle < 0 ? BuildSettings::AndroidBuildAppBundle() : options.AppBundle != 0;
+		// 서명 키: 명령 (CLI) → Player Settings 의 Custom Keystore (비밀번호는 이번 실행에 넣은 것) → 디버그 키
+		auto projectPath = [](const std::string& s) {
+			const fs::path path = string_to_wstring(s);
+			return path.is_absolute() ? path : fs::path(PathManager::GetI()->GetContentPathW()) / path;
+		};
+		if (!options.Keystore.empty() || player.AndroidCustomKeystore)
+		{
+			j->Keystore = projectPath(!options.Keystore.empty() ? options.Keystore : player.AndroidKeystorePath).wstring();
+			j->Alias = !options.KeyAlias.empty() ? options.KeyAlias : player.AndroidKeyAlias;
+			j->StorePass = !options.KeystorePass.empty() ? options.KeystorePass : BuildSettings::AndroidKeystorePass();
+			j->KeyPass = !options.KeyAliasPass.empty() ? options.KeyAliasPass : BuildSettings::AndroidKeyAliasPass();
+			if (j->KeyPass.empty()) j->KeyPass = j->StorePass;
+			if (!fs::is_regular_file(j->Keystore, ec)) { error = "keystore not found: " + wstring_to_string(j->Keystore) + " (Player Settings > Publishing Settings)"; return false; }
+			if (j->Alias.empty() || j->StorePass.empty()) { error = "enter the keystore password and alias in Player Settings > Publishing Settings (passwords are not saved, like Unity)"; return false; }
+		}
 		j->Staging = (fs::path(PathManager::GetI()->GetContentPathW()) / L"Library" / L"AndroidBuild").wstring();
 		fs::remove_all(fs::path(j->Staging) / L"assets", ec);
 		fs::create_directories(j->Staging, ec);
+		// 아이콘 (Player Settings, 비면 NOVA 로고) → res/mipmap-<밀도>/ic_launcher.png (48 · 72 · 96 · 144 · 192 px). WIC 는 메인 스레드 (COM) 에서
+		{
+			const fs::path res = fs::path(j->Staging) / L"res";
+			fs::remove_all(res, ec);
+			const fs::path icon = !player.AndroidIcon.empty() ? fs::path(PathManager::GetI()->GetMovePathW(string_to_wstring(player.AndroidIcon)))
+				: fs::path(PathManager::GetI()->GetEnginePathW()) / L"ProjectSetting" / L"logo" / L"nova-logo-512.png";
+			DirectX::ScratchImage src, rgba;
+			if (fs::is_regular_file(icon, ec) && SUCCEEDED(DirectX::LoadFromWICFile(icon.c_str(), DirectX::WIC_FLAGS_FORCE_RGB, nullptr, src)))
+			{
+				const DirectX::Image* im = src.GetImage(0, 0, 0);
+				const bool ok = im->format == DXGI_FORMAT_R8G8B8A8_UNORM ? SUCCEEDED(rgba.InitializeFromImage(*im))
+					: SUCCEEDED(DirectX::Convert(*im, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, rgba));
+				static const std::pair<const wchar_t*, size_t> kDensity[] = { { L"mdpi", 48 }, { L"hdpi", 72 }, { L"xhdpi", 96 }, { L"xxhdpi", 144 }, { L"xxxhdpi", 192 } };
+				int written = 0;
+				for (const auto& [dpi, size] : kDensity)
+				{
+					DirectX::ScratchImage scaled;
+					if (!ok || FAILED(DirectX::Resize(*rgba.GetImage(0, 0, 0), size, size, DirectX::TEX_FILTER_CUBIC, scaled))) break;
+					const fs::path dir = res / (std::wstring(L"mipmap-") + dpi);
+					fs::create_directories(dir, ec);
+					if (SUCCEEDED(DirectX::SaveToWICFile(*scaled.GetImage(0, 0, 0), DirectX::WIC_FLAGS_NONE, DirectX::GetWICCodec(DirectX::WIC_CODEC_PNG), (dir / L"ic_launcher.png").c_str())))
+						++written;
+				}
+				j->HasIcon = written == (int)std::size(kDensity);
+			}
+			if (!j->HasIcon)
+				EditorLog::Write("AndroidBuild", "icon %s could not be read - the app uses the default Android icon", wstring_to_string(icon.wstring()).c_str());
+		}
 		j->SetStatus("Converting shaders to OpenGL ES", 0.02f);
 		s_Job = j;
 		BuildSettings::LastAndroidApk() = wstring_to_string(options.OutputApk);   // Build Settings 창의 Last Build (CLI 로 빌드해도)

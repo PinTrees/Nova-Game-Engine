@@ -151,6 +151,64 @@ namespace
 			UnityGUI::HelpBox(("Empty = " + AndroidBuild::DefaultPackageName()).c_str(), false, 1);
 		static const char* kOrientation[] = { "Portrait", "Portrait Upside Down", "Landscape Right", "Landscape Left", "Auto Rotation" };
 		changed |= UnityGUI::Dropdown("Default Orientation", &p.AndroidOrientation, kOrientation, 5, 1);
+		// Bundle Version Code (스토어에 올릴 때마다 올린다) · 아이콘 (Project 창의 그림을 끌어 놓기, 비면 NOVA 로고)
+		if (UnityGUI::Int("Bundle Version Code", &p.AndroidVersionCode, 1))
+		{
+			p.AndroidVersionCode = (std::max)(1, p.AndroidVersionCode);
+			changed = true;
+		}
+		const std::string iconText = p.AndroidIcon.empty() ? "None (NOVA logo)" : std::filesystem::path(string_to_wstring(p.AndroidIcon)).filename().string();
+		UnityGUI::ObjectField("Icon", iconText.c_str(), 1, "texture");
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("ASSET_FILE"))
+			{
+				std::string dropped(static_cast<const char*>(pl->Data));
+				std::string ext = std::filesystem::path(dropped).extension().string();
+				for (char& c : ext) c = (char)tolower((unsigned char)c);
+				if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp")
+				{
+					const std::string root = wstring_to_string(PathManager::GetI()->GetContentPathW());
+					if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0) dropped = dropped.substr(root.size());
+					p.AndroidIcon = dropped;
+					changed = true;
+				}
+			}
+			ImGui::EndDragDropTarget();
+		}
+		if (!p.AndroidIcon.empty() && ImGui::IsItemClicked(ImGuiMouseButton_Right))
+		{
+			p.AndroidIcon.clear();   // 오른쪽 클릭 = 비우기 (NOVA 로고)
+			changed = true;
+		}
+		// Publishing Settings (Unity 와 같이 비밀번호는 저장하지 않는다 — 에디터를 켤 때마다 다시 넣는다)
+		UnityGUI::Label("Publishing Settings", 1, true);
+		changed |= UnityGUI::Toggle("Custom Keystore", &p.AndroidCustomKeystore, 1);
+		if (p.AndroidCustomKeystore)
+		{
+			changed |= UnityGUI::TextField("Keystore", &p.AndroidKeystorePath, 2);
+			UnityGUI::PasswordField("Keystore Password", &BuildSettings::AndroidKeystorePass(), 2);
+			changed |= UnityGUI::TextField("Alias", &p.AndroidKeyAlias, 2);
+			UnityGUI::PasswordField("Alias Password", &BuildSettings::AndroidKeyAliasPass(), 2);
+			static std::string s_KeystoreMessage;
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 200.0f);
+			if (ImGui::Button("Create New Keystore", ImVec2(200, 0)))
+			{
+				// 지금 넣은 경로 (비면 <프로젝트>/user.keystore) · 비밀번호 · 별칭으로 새 키 (25 년, CN = 회사 이름)
+				if (p.AndroidKeystorePath.empty()) { p.AndroidKeystorePath = "user.keystore"; changed = true; }
+				if (p.AndroidKeyAlias.empty()) { p.AndroidKeyAlias = "upload"; changed = true; }
+				std::filesystem::path full = string_to_wstring(p.AndroidKeystorePath);
+				if (!full.is_absolute()) full = std::filesystem::path(PathManager::GetI()->GetContentPathW()) / full;
+				const std::string& keyPass = BuildSettings::AndroidKeyAliasPass().empty() ? BuildSettings::AndroidKeystorePass() : BuildSettings::AndroidKeyAliasPass();
+				std::string error;
+				s_KeystoreMessage = AndroidBuild::CreateKeystore(full.wstring(), BuildSettings::AndroidKeystorePass(), p.AndroidKeyAlias, keyPass, "", 25, error)
+					? "Created " + wstring_to_string(full.wstring()) + " - keep it and its passwords safe: Google Play needs the same key for every update." : error;
+			}
+			if (!s_KeystoreMessage.empty())
+				UnityGUI::HelpBox(s_KeystoreMessage.c_str(), s_KeystoreMessage.rfind("Created", 0) != 0, 2);
+		}
+		else
+			UnityGUI::HelpBox("Builds are signed with the debug key (fine for testing). Google Play needs your own key: turn on Custom Keystore.", false, 1);
 		if (changed)
 			BuildSettings::SavePlayer();
 		UnityGUI::Spacing(6.0f);

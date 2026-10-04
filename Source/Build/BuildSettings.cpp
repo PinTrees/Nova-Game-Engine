@@ -14,6 +14,8 @@ namespace
 	std::string s_LastFolder;
 	int s_Platform = 0;                 // 0 Windows, 1 Android
 	std::string s_AndroidDevice, s_LastApk;
+	bool s_AppBundle = false;
+	std::string s_KeystorePass, s_KeyAliasPass;   // 메모리에만
 	bool s_HasRuntimeScenes = false;
 	std::vector<std::string> s_RuntimeScenes;
 
@@ -50,6 +52,7 @@ namespace
 		s_Platform = j.value("activePlatform", std::string()) == "Android" ? 1 : 0;
 		s_AndroidDevice = j.value("androidRunDevice", std::string());
 		s_LastApk = j.value("lastAndroidApk", std::string());
+		s_AppBundle = j.value("androidBuildAppBundle", false);
 	}
 
 	json ApiKeys(const std::vector<GraphicsAPI>& apis)
@@ -74,6 +77,11 @@ namespace
 		s_Player.RunInBackground = j.value("runInBackground", true);
 		s_Player.AutoGraphicsAPI = j.value("autoGraphicsAPI", true);
 		s_Player.AndroidPackageName = j.value("androidPackageName", std::string());
+		s_Player.AndroidVersionCode = (std::max)(1, j.value("androidVersionCode", 1));
+		s_Player.AndroidIcon = j.value("androidIcon", std::string());
+		s_Player.AndroidCustomKeystore = j.value("androidCustomKeystore", false);
+		s_Player.AndroidKeystorePath = j.value("androidKeystore", std::string());
+		s_Player.AndroidKeyAlias = j.value("androidKeyAlias", std::string());
 		{
 			static const char* kOr[] = { "Portrait", "PortraitUpsideDown", "LandscapeRight", "LandscapeLeft", "AutoRotation" };
 			const std::string o = j.value("androidOrientation", std::string("AutoRotation"));
@@ -119,7 +127,8 @@ namespace BuildSettings
 		for (const SceneEntry& s : Scenes())
 			scenes.push_back({ { "path", s.Path }, { "enabled", s.Enabled } });
 		WriteJson(File(L"EditorBuildSettings.json"), json{ { "scenes", scenes }, { "developmentBuild", s_Development }, { "lastBuildFolder", s_LastFolder },
-			{ "activePlatform", s_Platform == 1 ? "Android" : "Windows" }, { "androidRunDevice", s_AndroidDevice }, { "lastAndroidApk", s_LastApk } });
+			{ "activePlatform", s_Platform == 1 ? "Android" : "Windows" }, { "androidRunDevice", s_AndroidDevice }, { "lastAndroidApk", s_LastApk },
+			{ "androidBuildAppBundle", s_AppBundle } });
 	}
 
 	void SaveScenes() { SaveEditorBuild(); }
@@ -149,6 +158,8 @@ namespace BuildSettings
 			{ "resizableWindow", p.Resizable }, { "runInBackground", p.RunInBackground },
 			{ "autoGraphicsAPI", p.AutoGraphicsAPI }, { "graphicsAPIs", ApiKeys(p.GraphicsAPIs) },
 			{ "androidTextureCompression", std::array<const char*, 4>{ "ASTC", "ETC2", "DXT", "None" }[std::clamp(p.AndroidTextureCompression, 0, 3)] }, { "androidPackageName", p.AndroidPackageName },
+			{ "androidVersionCode", p.AndroidVersionCode }, { "androidIcon", p.AndroidIcon },
+			{ "androidCustomKeystore", p.AndroidCustomKeystore }, { "androidKeystore", p.AndroidKeystorePath }, { "androidKeyAlias", p.AndroidKeyAlias },
 			{ "androidOrientation", std::array<const char*, 5>{ "Portrait", "PortraitUpsideDown", "LandscapeRight", "LandscapeLeft", "AutoRotation" }[std::clamp(p.AndroidOrientation, 0, 4)] } });
 	}
 
@@ -198,6 +209,16 @@ namespace BuildSettings
 			LoadScenes();
 		return s_AndroidDevice;
 	}
+
+	bool& AndroidBuildAppBundle()
+	{
+		if (!s_ScenesLoaded)
+			LoadScenes();
+		return s_AppBundle;
+	}
+
+	std::string& AndroidKeystorePass() { return s_KeystorePass; }
+	std::string& AndroidKeyAliasPass() { return s_KeyAliasPass; }
 
 	std::string& LastAndroidApk()
 	{

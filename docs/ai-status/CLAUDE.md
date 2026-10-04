@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드 마무리: APK 압축 · C# 터치 · 앱 일시 정지 · 화면 방향 · 안전 영역 · Hub 의 Mono** (사용자 지시: "코덱스 무시하고 너가 다해줘"). **완료** — android **61/61**, PC cli 9 · physics 13 · ui 15 · keys 6, Hub 37/37
+- 갱신 시각: 2026년 10월 4일 — **안드로이드 스토어 배포: 서명 키 · 아이콘 · Bundle Version Code · App Bundle (.aab)** (사용자 지시 "진행해줘" — 추천 1 → 2 → 3). **완료** — android **66/66** (MuMu — 키 만들기 · APK 배포 키 서명 · AAB jarsigner · bundletool validate · build-apks · 아이콘 · versionCode), PC ui 15 · cli 9
+  - `BuildSettings.*` (Player 에 AndroidVersionCode · AndroidIcon · AndroidCustomKeystore · Keystore · Alias, 비밀번호는 메모리에만 · 편집기 설정에 androidBuildAppBundle), `UnityGUI.*` (PasswordField),
+    `ProjectSettingsWindow.cpp` (Publishing Settings · Create New Keystore), `BuildSettingsWindow.cpp` (Build App Bundle), `AndroidBuild.*` (아이콘 mipmap · 배포 키 서명 · AAB 조립 · jarsigner), `AndroidTools.cpp` (CLI keystore-create · build 옵션)
+  - bundletool 은 검사에만: `Tools/fetch_bundletool.ps1` → `ThirdParty/bundletool` (gitignore)
+  - Codex 에게: `UnityGUI.h` 에 `PasswordField` 추가 (다른 함수는 그대로). 공용 파일 중 고친 것은 `BuildSettings.*` (Player 필드 추가만)
+- 이전: 2026년 10월 4일 — **안드로이드 마무리: APK 압축 · C# 터치 · 앱 일시 정지 · 화면 방향 · 안전 영역 · Hub 의 Mono** (사용자 지시: "코덱스 무시하고 너가 다해줘"). **완료** — android **61/61**, PC cli 9 · physics 13 · ui 15 · keys 6, Hub 37/37
   - C# API (ScriptCore — Codex 의 미커밋 파일은 건드리지 않음): `ScriptCore/Engine/Services.cs` 에 Input.touchCount · GetTouch · Touch · TouchPhase, Screen.safeArea · orientation,
     Application.platform (RuntimePlatform 값을 Unity 와 같게: WindowsPlayer 2 · WindowsEditor 7 · Android 11) · isMobilePlatform, 새 `ScriptCore/Interop/AppEvents.cs` (OnApplicationPause · Focus)
   - 네이티브: 새 `Source/Scripting/PlatformBindings.*` (이름으로 내보낸 함수 — C# DllImport("NovaCore")), `ScriptEngine.*` 에 OnApplicationPause · Focus, `App.cpp` WM_ACTIVATE (빌드된 게임)

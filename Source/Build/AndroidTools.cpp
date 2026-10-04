@@ -394,6 +394,11 @@ namespace AndroidTools
 				o.Run = args.value("run", false);
 				o.Device = args.value("device", std::string());
 				o.TextureCompression = args.value("texture-compression", std::string());
+				if (args.contains("app-bundle")) o.AppBundle = args.value("app-bundle", false) ? 1 : 0;
+				o.Keystore = args.value("keystore", std::string());
+				o.KeystorePass = args.value("keystore-pass", std::string());
+				o.KeyAlias = args.value("alias", std::string());
+				o.KeyAliasPass = args.value("key-pass", std::string());
 				if (o.OutputApk.empty()) { error = "--out file.apk is required"; return false; }
 				if (!AndroidBuild::Start(o, error))
 					return false;
@@ -402,7 +407,7 @@ namespace AndroidTools
 			}
 			const AndroidBuild::Result r = AndroidBuild::LastResult();
 			result = { { "running", AndroidBuild::IsRunning() }, { "progress", AndroidBuild::Progress() }, { "status", AndroidBuild::Status() }, { "done", r.Done },
-				{ "success", r.Success }, { "error", r.Error }, { "apk", r.Apk }, { "bytes", r.Bytes }, { "device", r.Device }, { "seconds", r.Seconds }, { "log", r.Log } };
+				{ "success", r.Success }, { "error", r.Error }, { "apk", r.Apk }, { "aab", r.Aab }, { "signer", r.Signer }, { "bytes", r.Bytes }, { "device", r.Device }, { "seconds", r.Seconds }, { "log", r.Log } };
 			return true;
 		}
 	}
@@ -505,7 +510,8 @@ namespace AndroidTools
 				result = { { "ops", { "shaders --out folder [--path file.fx]: convert every .fx to OpenGL ES 3.20 (<name>.json for the APK assets/Shaders)",
 					"export --out folder [--scenes a.scene,b.scene] [--texture-compression astc|etc2|dxt|none]: game data for the APK (folder/game: scenes + referenced assets, '/' paths, player.json, files.txt; images baked to <name>.dds, default = Player Settings Android Texture Compression; models (fbx, gltf, glb, vrm) as their mesh caches only)",
 "reference --out file.png [--width 960 --height 540 --frames 10]: render the open scene's game camera like the player (DX11 reference for the Android scene test)",
-					"build --out file.apk [--run] [--device serial] [--texture-compression astc|etc2|dxt|none]: Build Settings Android build (shaders + game data + APK, Build And Run installs and starts it); build-status: progress / result" } } };
+					"build --out file.apk [--run] [--device serial] [--texture-compression astc|etc2|dxt|none] [--app-bundle] [--keystore k --keystore-pass p --alias a --key-pass k]: Build Settings Android build (shaders + game data + APK or .aab, Build And Run installs and starts it); build-status: progress / result",
+					"keystore-create --path x.keystore --pass p --alias a [--key-pass k] [--dname \"CN=...\"] [--years 25]: new signing key (keytool, PKCS12)" } } };
 				return true;
 			}
 			if (op == "export")
@@ -514,6 +520,20 @@ namespace AndroidTools
 				return Reference(args, result, error);
 			if (op == "shaders")
 				return ExportShaders(args, result, error);
+			if (op == "keystore-create")
+			{
+				// keystore-create --path x.keystore --pass P --alias A [--key-pass K] [--dname "CN=…"] [--years 25]
+				const std::string path = args.value("path", std::string());
+				if (path.empty()) { error = "--path is required"; return false; }
+				fs::path full = string_to_wstring(path);
+				if (!full.is_absolute()) full = fs::path(PathManager::GetI()->GetContentPathW()) / full;
+				const std::string pass = args.value("pass", std::string());
+				if (!AndroidBuild::CreateKeystore(full.wstring(), pass, args.value("alias", std::string()), args.value("key-pass", pass), args.value("dname", std::string()),
+					args.value("years", 25), error))
+					return false;
+				result = { { "keystore", wstring_to_string(full.wstring()) }, { "alias", args.value("alias", std::string()) } };
+				return true;
+			}
 			if (op == "build" || op == "build-status")
 				return Build(op, args, result, error);
 			error = "unknown op '" + op + "' (nova android help)";

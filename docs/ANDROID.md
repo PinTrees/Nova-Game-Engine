@@ -82,9 +82,25 @@ PC 는 .NET (hostfxr) 을 띄우지만 기기에서는 Microsoft 의 **Mono** (.
 
 앱이 뒤에 있던 동안은 게임 시간이 흐르지 않는다 (돌아온 첫 프레임의 deltaTime 이 튀지 않게 타이머를 새로).
 
+### 스토어 배포: 서명 키 · 아이콘 · 버전 코드 · App Bundle (Unity 의 Publishing Settings · Build App Bundle)
+
+| 설정 | 위치 | 하는 일 |
+|---|---|---|
+| Bundle Version Code | Player Settings → Android | manifest `versionCode` (스토어에 올릴 때마다 올린다) |
+| Icon | Player Settings → Android (Project 창의 그림을 끌어 놓기, 오른쪽 클릭 = 비우기) | 48 · 72 · 96 · 144 · 192 px 로 줄여 `res/mipmap-<밀도>/ic_launcher.png` → `aapt2 compile` → `android:icon`. 비면 NOVA 로고 |
+| Custom Keystore · Keystore · Alias · 비밀번호 | Player Settings → Android → **Publishing Settings** | 배포 키로 서명. 비밀번호는 Unity 와 같이 저장하지 않는다 (에디터를 켤 때마다 넣는다). 끄면 디버그 키 |
+| Create New Keystore | 같은 곳 | `keytool -genkeypair` (PKCS12, RSA 2048, 25 년, CN = 회사 이름) — 키와 비밀번호를 잃으면 Google Play 에 업데이트를 올릴 수 없다 |
+| Build App Bundle (Google Play) | Build Settings → Android | `.aab` 를 만든다. Build And Run 은 같은 내용의 `.apk` 를 설치해 실행 (Unity 는 bundletool 로 같은 일) |
+
+- 서명 비밀번호는 명령줄 대신 환경 변수로 도구에 넘긴다 (`apksigner --ks-pass env:` · `jarsigner -storepass:env` · `keytool -storepass:env`) — 프로세스 목록에 보이지 않게
+- **AAB 만들기 (Gradle · bundletool 없이)**: `aapt2 link --proto-format` (같은 manifest · assets · 아이콘) → 엔진이 zip 항목을 압축된 그대로 옮겨
+  `base/manifest/AndroidManifest.xml` · `base/resources.pb` · `base/res/…` · `base/assets/…` · `base/lib/<ABI>/…` + `BundleConfig.pb` → `jarsigner`
+- 검사는 Google 의 **bundletool** (`Tools/fetch_bundletool.ps1` → `ThirdParty/bundletool`, git 밖, GitHub 의 SHA-256 확인): `validate` · `build-apks` (+ MuMu 에 `install-apks` 해서 엔진 · Mono 가 도는 것을 확인)
+- CLI: `nova android keystore-create --path x.keystore --pass … --alias …`, `nova android build … --app-bundle --keystore … --keystore-pass … --alias … --key-pass …`
+
 ### Player Settings → Android
 
-Texture Compression · **Package Name** · **Default Orientation** (Portrait · Portrait Upside Down · Landscape Right · Landscape Left · Auto Rotation —
+Texture Compression · **Package Name** · **Default Orientation** · **Bundle Version Code** · **Icon** · **Publishing Settings** (Portrait · Portrait Upside Down · Landscape Right · Landscape Left · Auto Rotation —
 manifest 의 `screenOrientation` = portrait · reversePortrait · reverseLandscape · landscape · fullUser)
 
 ### 모델 · 캐릭터 (메시 캐시)
@@ -206,7 +222,9 @@ powershell -File Tools/tests/android.ps1
 10. C# 스크립트: 검사 스크립트 (LINQ · Dictionary · Transform · Time) 를 붙인 씬 → Mono 런타임 · BCL 이 들어갔는지, 기기 logcat 에 Start · Update 의 Debug.Log,
     Application.platform · Screen.safeArea · Screen.orientation 요청, `input tap` → C# Input.GetTouch (왼쪽 아래 기준 좌표), HOME → OnApplicationPause · Focus 와 돌아온 뒤 deltaTime
 11. 엔진 시작 시간 (loadMs < 3 초), 리버브 임펄스 응답 (PC)
-12. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
+12. 배포: 검사용 키 (무작위 비밀번호) 를 `keystore-create` 로 만들고 `--app-bundle` 로 빌드 → APK 서명 (apksigner 의 DN) · AAB 서명 (jarsigner) · 아이콘 · versionCode (aapt2 badging) ·
+    bundletool `validate` · `build-apks`
+13. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.
@@ -222,5 +240,6 @@ SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\
 - 2 단계: 창 표면 · 메인 루프 · 생명 주기 · 터치 → Gfx 층의 GLES 구현 → 엔진 런타임 · 엔진 플레이어 → 텍스처 압축 (ASTC · ETC2) →
   모델 메시 캐시 · 패키지 → Build Settings 의 APK 빌드 → 터치 → UI · Input → 소리 (AAudio) **모두 완료**
 - C# 스크립트 (Mono) · 엔진 시작 시간 (약 10 초 → 0.3 초) · 리버브 (I3DL2) · C# 터치 · 플랫폼 API · 앱 일시 정지 · 화면 방향 · 안전 영역 · APK 압축 · Hub 의 Mono **완료**
-- 다음 후보: arm64 (실제 휴대폰 — 사용자 결정 뒤), 서명 키 (Custom Keystore — 지금은 디버그 키), 앱 아이콘
+- 서명 키 (Custom Keystore) · 앱 아이콘 · Bundle Version Code · App Bundle (.aab) **완료**
+- 다음 후보: arm64 (실제 휴대폰 — 사용자 결정 뒤 — Play 는 arm64 를 요구한다), Play Asset Delivery (base 모듈이 200 MB 를 넘는 큰 게임)
 - 실제 휴대폰 (arm64 · Vulkan) 은 한참 뒤 (사용자 결정)
