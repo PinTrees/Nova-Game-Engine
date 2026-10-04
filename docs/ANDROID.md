@@ -15,7 +15,8 @@ MuMu 플레이어(에뮬레이터) 안의 OpenGL ES 3.2 로 검사 장면을 그
 |---|---|
 | `Android/CMakeLists.txt` | NDK 로 `libnova.so` (NativeActivity, Java 코드 없음). 엔진 소스는 `Source/` 에서 필요한 것만 |
 | `Android/Include/` | 엔진의 `#include "pch.h"` 를 받는 안드로이드 pch · `WinCompat.h` (Windows · D3D11 설명 구조체 대체) · `Windows.h` · `PathManager.h` 대체 |
-| `Android/Source/AndroidMain.cpp` | 진입점: 인텐트 값(JNI) → 화면 없는 EGL (pbuffer) → 검사 실행 → 결과 BMP · JSON, logcat `NOVA_TEST {json}` |
+| `Android/Source/AndroidMain.cpp` | 진입점 (`android_main`, NDK native_app_glue): `-e test` 이면 화면 없는 EGL (pbuffer) 검사 → 결과 BMP · JSON, logcat `NOVA_TEST {json}`. 없으면 플레이어 셸 |
+| `Android/Source/AndroidPlatform.*` | EGL (컨텍스트는 앱 수명 동안, 창 표면은 생겼다 없어졌다 — 창이 없으면 pbuffer 에 묶어 GPU 자원 유지), 생명 주기 (pause · resume · 창 잃음), 터치 (여러 손가락), logcat `NOVA_EVENT {json}` |
 | `Android/Source/GLESRhi.cpp` | RHI 의 OpenGL ES 3.2 구현 (데스크톱 GL 구현과 같은 규칙, DSA 없이 바인딩 방식) |
 | `Android/build.py` | Gradle 없이 APK: NDK CMake → aapt2 link (+ assets) → zipalign → apksigner (디버그 키) |
 | `ThirdParty/DirectXMath/` | DirectXMath (MIT, Windows SDK 의 것) + `sal.h` 대체 — 안드로이드만 쓴다 |
@@ -45,7 +46,12 @@ powershell -File Tools/tests/android.ps1
 3. `Android/build.py` → `adb install` → `am start -n com.nova.engine/android.app.NativeActivity -e test rhi -e size 960x540`
 4. logcat 의 `NOVA_TEST {json}` → `adb pull` 로 그림 → 화소 비교. 끝나면 VM 을 끈다 (`-KeepEmulator` 로 켜 둠)
 
-2026-10-04: **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
+5. 플레이어 셸: 창 표면 → 화면 캡처 (`screencap`) 로 배경색 · 프레임마다 움직이는 막대, `input tap` → 터치 위치에 주황 표시,
+   HOME → 다시 열기 (창 잃음 · 다시 생김, 상태 유지). MuMu 가 켜진 직후 띄우는 광고 창이 앞에 있으면 뒤로 가기로 닫는다.
+   회전은 검사하지 않는다 (MuMu 태블릿 모드는 `user_rotation` · `wm size` 로 앱 창 크기를 바꾸지 않음)
+
+2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
+2 단계 첫 조각 (플레이어 셸) 포함 **15/15**.
 
 필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · NDK 28), Java 17+, MuMu 플레이어 12.
 SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\NOVA\AndroidTools` 에 설치한다 ([NOVA_HUB.md](NOVA_HUB.md)).
@@ -53,7 +59,8 @@ SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\
 
 ## 다음
 
-- 플레이어 실행: 장면 불러오기 · 메인 루프 · 창 표면(EGL window) · 터치 입력 · 파일(assets) — Gfx 층(GfxGL) 의 ES 판
-- 실제 휴대폰: arm64-v8a 빌드, Vulkan 1.1 대응
+- 2 단계 (진행 중): 창 표면 · 메인 루프 · 생명 주기 · 터치 **완료** → Gfx 층의 GLES 구현 (GfxGL 이 쓰는 GL 4.5 DSA 를 ES 3.2 로) →
+  엔진 코어 (씬 · 컴포넌트 · 렌더러) 를 NDK 로, 에셋은 PC 에서 미리 굽기 (텍스처 · 메시 캐시) → 씬 하나를 PC 플레이어와 같은 그림으로 → 터치를 Input 에
+- 실제 휴대폰 (arm64 · Vulkan) 은 한참 뒤 (사용자 결정)
 - C# 스크립트 런타임 (Mono 등)
 - 빌드 창(Build Settings)에서 안드로이드 APK 만들기

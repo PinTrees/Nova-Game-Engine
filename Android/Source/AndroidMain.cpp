@@ -1,27 +1,28 @@
 #include "pch.h"
 #include "Rhi.h"
 #include "RhiTest.h"
-#include <android/native_activity.h>
+#include "AndroidPlatform.h"
+#include <android_native_app_glue.h>
 #include <android/asset_manager.h>
 #include <android/log.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl32.h>
 #include <jni.h>
-#include <pthread.h>
 #include <codecvt>
 #include <fstream>
 #include <locale>
 
-// NOVA 안드로이드 진입점 (NativeActivity — Java 코드 없음).
-//  지금 단계: 검사 실행기. adb 로 `am start -n com.nova.engine/android.app.NativeActivity -e test rhi` →
-//  화면 없는 EGL (pbuffer) 의 OpenGL ES 3.2 로 엔진 검사 장면을 그려 앱 외부 파일 폴더에 BMP · 결과 JSON 을 쓰고 끝낸다.
-//  PC 는 logcat 의 "NOVA_TEST {json}" 줄과 adb pull 로 결과를 읽는다 (Tools/tests/android.ps1)
+// NOVA 안드로이드 진입점 (NativeActivity + NDK native_app_glue — Java 코드 없음).
+//  - 검사 실행기: `am start -n com.nova.engine/android.app.NativeActivity -e test rhi` → 화면 없는 EGL (pbuffer) 의
+//    OpenGL ES 3.2 로 엔진 검사 장면을 그려 앱 외부 파일 폴더에 BMP · 결과 JSON 을 쓰고 끝낸다 (Tools/tests/android.ps1)
+//  - 플레이어 셸 (-e test 없이): 창 표면 · 프레임 루프 · 생명 주기 (내렸다 올리기, 회전) · 터치. 엔진 런타임이 이 위에 올라간다.
+//    상태 변화는 logcat 의 "NOVA_EVENT {json}" 줄로 알린다
 std::unique_ptr<Rhi::Device> CreateGlesRhiDevice(std::string& error);   // GLESRhi.cpp
 
 namespace
 {
-	ANativeActivity* s_Activity = nullptr;
+	android_app* s_App = nullptr;
 	std::string s_FilesDir;
 	std::mutex s_LogLock;
 
@@ -82,41 +83,6 @@ namespace
 		return (bool)f;
 	}
 
-	struct Egl
-	{
-		EGLDisplay Display = EGL_NO_DISPLAY;
-		EGLContext Context = EGL_NO_CONTEXT;
-		EGLSurface Surface = EGL_NO_SURFACE;
-
-		bool Init(std::string& error)
-		{
-			Display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-			EGLint major = 0, minor = 0;
-			if (!eglInitialize(Display, &major, &minor)) { error = "eglInitialize failed"; return false; }
-			const EGLint cfgAttr[] = { EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT, EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8,
-				EGL_ALPHA_SIZE, 8, EGL_NONE };
-			EGLConfig cfg;
-			EGLint n = 0;
-			if (!eglChooseConfig(Display, cfgAttr, &cfg, 1, &n) || n == 0) { error = "no ES3 pbuffer config"; return false; }
-			const EGLint ctxAttr[] = { EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 2, EGL_NONE };
-			Context = eglCreateContext(Display, cfg, EGL_NO_CONTEXT, ctxAttr);
-			if (Context == EGL_NO_CONTEXT) { error = "OpenGL ES 3.2 context failed"; return false; }
-			const EGLint pb[] = { EGL_WIDTH, 16, EGL_HEIGHT, 16, EGL_NONE };
-			Surface = eglCreatePbufferSurface(Display, cfg, pb);
-			if (!eglMakeCurrent(Display, Surface, Surface, Context)) { error = "eglMakeCurrent failed"; return false; }
-			return true;
-		}
-
-		~Egl()
-		{
-			if (Display == EGL_NO_DISPLAY) return;
-			eglMakeCurrent(Display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-			if (Surface != EGL_NO_SURFACE) eglDestroySurface(Display, Surface);
-			if (Context != EGL_NO_CONTEXT) eglDestroyContext(Display, Context);
-			eglTerminate(Display);
-		}
-	};
-
 	std::string JsonEscape(const std::string& s)
 	{
 		std::string o;
@@ -136,7 +102,7 @@ namespace
 		bool ok = false;
 		double loadMs = 0, drawMs = 0;
 		{
-			Egl egl;
+			AndroidPlatform::Egl egl;
 			if (egl.Init(error))
 			{
 				std::unique_ptr<Rhi::Device> dev = CreateGlesRhiDevice(error);
@@ -169,21 +135,18 @@ namespace
 		Log("NOVA_TEST %s", line);
 	}
 
-	void* Main(void*)
+	// 이벤트 처리 중 다 쓰면 다음 이벤트가 오기 전까지 기다린다 (그리는 중이면 0 = 바로)
+	bool PumpEvents(android_app* app, bool block)
 	{
-		JNIEnv* env = nullptr;
-		s_Activity->vm->AttachCurrentThread(&env, nullptr);
-		const std::string test = IntentExtra(env, s_Activity->clazz, "test");
-		const std::string size = IntentExtra(env, s_Activity->clazz, "size");
-		s_Activity->vm->DetachCurrentThread();
-		int w = 960, h = 540;
-		if (!size.empty()) sscanf(size.c_str(), "%dx%d", &w, &h);
-		Log("NOVA start: test='%s' size %dx%d files %s", test.c_str(), w, h, s_FilesDir.c_str());
-		if (!test.empty())
-			RunTest(test, w, h);
-		Log("NOVA done");
-		ANativeActivity_finish(s_Activity);
-		return nullptr;
+		int events = 0;
+		android_poll_source* source = nullptr;
+		while (ALooper_pollOnce(block ? -1 : 0, nullptr, &events, (void**)&source) >= 0)
+		{
+			if (source) source->process(app, source);
+			if (app->destroyRequested) return false;
+			block = false;
+		}
+		return !app->destroyRequested;
 	}
 }
 
@@ -219,8 +182,8 @@ std::string wstring_to_string(const std::wstring& wstr)
 // APK 의 assets/ 에서 파일 하나 (GLESRhi 가 셰이더 JSON 을 읽는다)
 bool NovaReadAsset(const std::string& path, std::string& out)
 {
-	if (!s_Activity || !s_Activity->assetManager) return false;
-	AAsset* a = AAssetManager_open(s_Activity->assetManager, path.c_str(), AASSET_MODE_BUFFER);
+	if (!s_App || !s_App->activity->assetManager) return false;
+	AAsset* a = AAssetManager_open(s_App->activity->assetManager, path.c_str(), AASSET_MODE_BUFFER);
 	if (!a) return false;
 	const off_t n = AAsset_getLength(a);
 	out.assign((const char*)AAsset_getBuffer(a), (size_t)n);
@@ -228,14 +191,36 @@ bool NovaReadAsset(const std::string& path, std::string& out)
 	return true;
 }
 
-extern "C" JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void*, size_t)
+void android_main(android_app* app)
 {
-	s_Activity = activity;
+	s_App = app;
+	ANativeActivity* activity = app->activity;
 	s_FilesDir = activity->externalDataPath ? activity->externalDataPath : (activity->internalDataPath ? activity->internalDataPath : "");
 	std::error_code ec;
 	std::filesystem::create_directories(s_FilesDir, ec);
 	std::filesystem::remove(s_FilesDir + "/Editor.log", ec);
-	pthread_t t;
-	pthread_create(&t, nullptr, Main, nullptr);
-	pthread_detach(t);
+
+	JNIEnv* env = nullptr;
+	activity->vm->AttachCurrentThread(&env, nullptr);
+	const std::string test = IntentExtra(env, activity->clazz, "test");
+	const std::string size = IntentExtra(env, activity->clazz, "size");
+	activity->vm->DetachCurrentThread();
+
+	if (!test.empty())
+	{
+		int w = 960, h = 540;
+		if (!size.empty()) sscanf(size.c_str(), "%dx%d", &w, &h);
+		Log("NOVA start: test='%s' size %dx%d files %s", test.c_str(), w, h, s_FilesDir.c_str());
+		RunTest(test, w, h);
+		Log("NOVA done");
+		ANativeActivity_finish(activity);
+		while (PumpEvents(app, true)) {}   // 끝날 때까지 이벤트를 비운다 (glue 규칙)
+		return;
+	}
+
+	// 플레이어 셸: 창이 생기면 그리고, 내리면 멈추고, 다시 올리면 이어서
+	AndroidPlatform::Shell shell(app, s_FilesDir);
+	while (PumpEvents(app, !shell.Running()))
+		shell.Frame();
+	Log("NOVA done");
 }

@@ -4,6 +4,8 @@
 $ErrorActionPreference = 'Continue'
 $script:Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:Nova = Join-Path $Root 'Binaries\nova.exe'
+# NOVA_ENGINE (복사 엔진의 NovaEngine.exe) 을 쓰면 그 옆의 nova.exe 를 (명령 목록이 엔진과 같게)
+if ($env:NOVA_ENGINE -and (Test-Path (Join-Path (Split-Path $env:NOVA_ENGINE) 'nova.exe'))) { $script:Nova = Join-Path (Split-Path $env:NOVA_ENGINE) 'nova.exe' }
 $script:EditorLog = Join-Path $Root 'Binaries\Logs\Editor.log'
 $script:LayoutIni = Join-Path $Root 'Binaries\nova_layout_v2.ini'
 
