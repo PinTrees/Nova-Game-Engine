@@ -23,6 +23,9 @@ namespace NovaAndroid
 		s_Keys[VK_LBUTTON] = down;
 	}
 	void SetFocus(bool focused) { s_Focus = focused; }
+	static std::atomic<bool> s_Quit{ false };
+	void RequestQuit() { s_Quit = true; }
+	bool QuitRequested() { return s_Quit; }
 }
 
 SHORT GetAsyncKeyState(int vk)

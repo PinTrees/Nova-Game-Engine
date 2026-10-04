@@ -1,5 +1,7 @@
 ﻿#pragma once
 #include <string>
+#include <utility>
+#include <vector>
 
 // Unity 의 BuildPipeline: Build Settings 의 씬들로 Windows 실행 파일을 만든다.
 //  <출력 폴더>/<제품>.exe (+ 엔진 DLL)
@@ -31,4 +33,8 @@ namespace BuildPipeline
 	void Update();
 	// 진행 창 (빌드 중일 때만)
 	void DrawProgress();
+
+	// 게임에 들어가는 에셋 (씬 · 씬이 참조하는 파일 · ProjectSettings 와 그것이 참조하는 파일 · 하늘 · 글꼴): (루트 기준 경로, 전체 경로).
+	//  플레이어 빌드와 같은 규칙 — 안드로이드 내보내기 (nova android export) 가 쓴다
+	std::vector<std::pair<std::wstring, std::wstring>> CollectGameFiles(const std::vector<std::string>& scenes);
 }

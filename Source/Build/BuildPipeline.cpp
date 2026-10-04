@@ -414,6 +414,38 @@ namespace BuildPipeline
 			::ShellExecuteW(nullptr, L"open", L"explorer.exe", (L"/select,\"" + job->ExePath.wstring() + L"\"").c_str(), nullptr, SW_SHOWNORMAL);
 	}
 
+	std::vector<std::pair<std::wstring, std::wstring>> CollectGameFiles(const std::vector<std::string>& scenes)
+	{
+		const fs::path engine = PathManager::GetI()->GetEnginePathW(), project = PathManager::GetI()->GetContentPathW();
+		std::map<std::string, std::string> graphs;
+		for (const std::string& asset : ShaderGraph::GraphAssets(true))
+			graphs[ShaderGraph::ShaderNameOf(asset)] = asset;
+		DependencyCollector deps(engine, project, &graphs);
+		for (const std::string& scene : scenes)
+			deps.AddRelative(string_to_wstring(scene));
+		std::error_code ec;
+		for (const auto& e : fs::directory_iterator(project / L"ProjectSettings", ec))
+			if (e.is_regular_file(ec) && Lower(e.path().extension().string()) == ".json")
+			{
+				deps.AddRelative(L"ProjectSettings\\" + e.path().filename().wstring());
+				std::ifstream in(e.path());
+				json j = json::parse(in, nullptr, false);
+				std::function<void(const json&)> walk = [&](const json& v) {
+					if (v.is_string()) deps.AddRelative(string_to_wstring(v.get<std::string>()));
+					else if (v.is_object() || v.is_array()) for (const auto& x : v) walk(x);
+				};
+				if (!j.is_discarded()) walk(j);
+			}
+		deps.AddRelative(L"Resources\\Textures\\Skybox\\KloofendalPureSky.dds");
+		for (const auto& e : fs::directory_iterator(engine / L"ProjectSetting" / L"fonts", ec))
+			if (e.is_regular_file(ec))
+				deps.AddRelative(L"ProjectSetting\\fonts\\" + e.path().filename().wstring());
+		std::vector<std::pair<std::wstring, std::wstring>> out;
+		for (const auto& f : deps.Files)
+			out.push_back({ f.first, f.second.wstring() });
+		return out;
+	}
+
 	void DrawProgress()
 	{
 		if (!IsRunning())

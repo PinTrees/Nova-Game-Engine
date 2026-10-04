@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "AndroidPlatform.h"
 #include "AndroidEngine.h"
+#include "EditorApp.h"
+#include "GfxGLES.h"
 #include <android_native_app_glue.h>
 #include <android/log.h>
 #include <cstdarg>
@@ -75,7 +77,7 @@ namespace AndroidPlatform
 	}
 
 	// ---- 플레이어 셸
-	Shell::Shell(android_app* app, const std::string& filesDir) : m_App(app), m_FilesDir(filesDir)
+	Shell::Shell(android_app* app, const std::string& filesDir, bool engine) : m_App(app), m_FilesDir(filesDir), m_Engine(engine)
 	{
 		app->userData = this;
 		app->onAppCmd = OnCommand;
@@ -265,6 +267,35 @@ namespace AndroidPlatform
 			m_Width = w;
 			m_Height = h;
 			Event("resize");
+			if (m_GameApp)
+			{
+				m_GameApp->SetScreenSize((UINT)w, (UINT)h);
+				m_GameApp->OnResize();
+			}
+		}
+		if (m_Engine)
+		{
+			// 엔진: 첫 프레임에 만들고 (창 크기로), 프레임마다 한 바퀴 → 백버퍼를 창으로 → 표시
+			if (!m_GameApp)
+			{
+				const auto t0 = std::chrono::steady_clock::now();
+				m_GameApp = new EditorApp(nullptr);
+				m_GameApp->SetScreenSize((UINT)m_Width, (UINT)m_Height);
+				if (!m_GameApp->Init())
+				{
+					Event("error", "\"error\":\"engine init failed (Logs/Editor.log)\"");
+					m_Engine = false;
+					return;
+				}
+				Event("engine", "\"loadMs\":%.0f", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+			}
+			m_GameApp->Run();
+			GfxGLES::Present(m_GameApp->GetDevice(), m_GameApp->BackBufferTexture(), m_Width, m_Height);
+			if (!m_Egl.Swap())
+				Event("error", "\"error\":\"eglSwapBuffers 0x%x\"", eglGetError());
+			if (++m_Frames % 300 == 0) Event("frame");
+			if (NovaAndroid::QuitRequested()) ANativeActivity_finish(m_App->activity);
+			return;
 		}
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glViewport(0, 0, m_Width, m_Height);

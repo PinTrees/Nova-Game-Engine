@@ -4,7 +4,10 @@
   - `1a0e997` 플레이어 셸 (창 표면 · 프레임 루프 · 생명 주기 · 터치), `4cf6a88` Gfx 층의 GLES 구현 (GfxGLES — Gfx 검사 장면 DX11 과 차이 최대 1),
     `826d141` 엔진 런타임 전체를 NDK 로 빌드 · 링크 (엔진 소스 그대로, Windows 전용 6 파일만 안드로이드 판 + 에디터 함수 빈 구현). android **17/17**
   - 공용 파일 변경: `Source/Core/Utils.cpp` 한 줄 (`extension().wstring()`), `Tools/tests/common.ps1` (NOVA_ENGINE 옆 nova.exe), `Tools/tests/android.ps1`
-  - 다음: EditorApp 을 안드로이드에서 (App 의 안드로이드 판 — 한 번 부르면 한 프레임), 에셋을 APK → 앱 파일 폴더로, 씬 하나를 PC 플레이어와 같은 그림으로
+  - **엔진 플레이어 완료**: EditorApp (PC 플레이어와 같은 렌더 경로) 을 안드로이드에서 — `Shadows.scene` 이 화면 없는 검사 · 앱 창 (60 fps) 모두 DX11 과 차이 최대 1, android **24/24**.
+    새 `Android/Source/Engine/{AppAndroid,PlayerRuntimeAndroid}.cpp`, CLI `nova android export` (게임 데이터) · `nova android reference` (DX11 기준),
+    공용 변경: `BuildPipeline::CollectGameFiles` (플레이어 빌드와 같은 에셋 모음을 밖에서 쓰게), `ShaderCross` 캐시 버전 6 (ES 의 gl_InvocationID 고치기 전 캐시 버리기)
+  - 다음: 텍스처 (PNG) · 모델 (FBX) 을 PC 에서 구워 넣기 (기기에는 DirectXTex · Assimp 가 없다), 터치 → UI 입력 확인
   - Codex 에게: 안드로이드 빌드가 엔진 소스를 그대로 컴파일한다. 새 코드에서 `fs::path` 를 `wstring` 으로 바로 받거나 (`.wstring()` 쓰기), MSVC 만 되는 것 (Win32 API 직접 호출) 을 쓰면 `python Android/build.py` 가 깨질 수 있다 — 깨지면 알려 주면 Claude 가 대체를 단다
 - 이전: 2026년 10월 4일 — **테스트 폴더 정리** (사용자 지시): `E:\NovaTest` 의 필요 없는 44.7 GB 를 `E:\NovaTest\_삭제대기` 로 옮김 (영구 삭제는 사용자가). `run_tests.ps1` 이 `TestResults\<시각>` 을 최근 10 개만 남김 (`-KeepResults`), 공동 명세에 "테스트 폴더 정리" 규칙
 - 이전: 2026년 10월 4일 — **Hub "Android 빌드 지원" 모듈 완료 · push `0a5e731`** (사용자 지시 "유니티처럼 엔진 설치할 때 안드로이드 빌드 등 체크하면 해당 도구들도 같이 설치", "허브쪽 작업 완료되었어. 너가 이어서 작업해")

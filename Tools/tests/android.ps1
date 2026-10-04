@@ -5,7 +5,8 @@
 #  3) Android/build.py 로 APK → adb 설치 → am start -e test rhi | gfx → logcat 의 "NOVA_TEST {json}" → adb pull 로 그림 → 화소 비교
 #     (rhi = RHI 층, gfx = Gfx 층 = 엔진 렌더러가 쓰는 D3D11 모양 층의 GLES 구현)
 #  4) 플레이어 셸: 창 표면 · 프레임 루프 · input tap · HOME 뒤 다시 열기 (NOVA_EVENT 줄 + screencap)
-param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [switch]$SkipEditor, [int]$MaxDiff = 20)
+param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [switch]$SkipEditor, [int]$MaxDiff = 20,
+    [string]$Scene = 'Assets\Scenes\Shadows.scene')
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Project = $Project
 $ErrorActionPreference = 'Continue'
@@ -61,6 +62,13 @@ if (-not $SkipEditor)
         $r = Invoke-NovaJson "rhi-test DirectX11 --out `"$Out`""
         $g = Invoke-NovaJson "gfx-test DirectX11 --out `"$Out`""
         Check 'DX11 reference' ((Test-Path (Join-Path $Out 'rhi_DirectX11.png')) -and (Test-Path (Join-Path $Out 'gfx_DirectX11.png'))) 'rhi_DirectX11.png, gfx_DirectX11.png'
+        # 엔진 장면: 게임 데이터 (APK 의 assets/game) + 같은 씬을 플레이어 순서로 그린 DX11 기준 (화면 없는 검사 960x540 · 창 1600x900)
+        $x = Invoke-NovaJson "android export --out `"$(Split-Path $assets)`" --scenes `"$Scene`""
+        Check 'game data exported' ($x -and $x.files -gt 0) $(if ($x) { "$($x.files) files, $([math]::Round($x.bytes / 1MB, 1)) MB, json paths converted $($x.jsonConverted)" } else { 'no result' })
+        Invoke-Nova "scene open `"$($Scene -replace '\\', '/')`" --force" | Out-Null; Invoke-Nova 'wait 30' | Out-Null
+        $sr = Invoke-NovaJson "android reference --out `"$(Join-Path $Out 'scene_DirectX11.png')`" --width 960 --height 540 --frames 10"
+        $wr = Invoke-NovaJson "android reference --out `"$(Join-Path $Out 'window_DirectX11.png')`" --width 1600 --height 900 --frames 10"
+        Check 'DX11 scene reference' ((Test-Path (Join-Path $Out 'scene_DirectX11.png')) -and (Test-Path (Join-Path $Out 'window_DirectX11.png'))) "$Scene (960x540, 1600x900)"
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)"; Restore-Layout }
 }
@@ -75,11 +83,11 @@ Check 'APK build' ($py -match 'apk .*nova\.apk') (($py -split "`n" | Where-Objec
 Write-Host '[android] run on emulator'
 $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String).Trim()
 Check 'install' ($inst -match 'Success') ($inst -split "`n" | Select-Object -Last 1)
-function DeviceTest([string]$test, [string]$label)
+function DeviceTest([string]$test, [string]$label, [string]$extra = '')
 {
     & $Adb -s $serial logcat -c
     & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
-    & $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity -e test $test -e size 960x540 | Out-Null
+    & $Adb -s $serial shell "am start -W -n com.nova.engine/android.app.NativeActivity -e test $test -e size 960x540 $extra" | Out-Null
     $line = $null
     $sw = [Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt 120 -and -not $line)
@@ -105,6 +113,8 @@ function DeviceTest([string]$test, [string]$label)
 }
 DeviceTest 'rhi' 'RHI scene'
 DeviceTest 'gfx' 'Gfx layer scene'
+DeviceTest 'scene' "engine scene $Scene" '-e frames 10'   # 엔진 전체 (EditorApp · 플레이어 순서) 로 게임 데이터의 첫 씬
+
 # ---- 5) 플레이어 셸: 창 표면 · 프레임 루프 · 터치 · 내렸다 올리기 · 회전 (logcat 의 NOVA_EVENT 와 화면 캡처)
 Write-Host '[android] player shell'
 Add-Type -AssemblyName System.Drawing
@@ -138,7 +148,7 @@ function EnsureFront
         Write-Host "  front window is not NOVA: $($focus.Trim()) — closing it"
         & $Adb -s $serial shell input keyevent KEYCODE_BACK | Out-Null
         Start-Sleep -Milliseconds 800
-        & $Adb -s $serial shell am start -n com.nova.engine/android.app.NativeActivity | Out-Null
+        & $Adb -s $serial shell "am start -n com.nova.engine/android.app.NativeActivity $($script:StartMode)" | Out-Null
         Start-Sleep -Milliseconds 1200
     }
     return $false
@@ -147,8 +157,9 @@ function Near($c, [int]$r, [int]$g, [int]$b) { [Math]::Abs($c.R - $r) -le 12 -an
 function Rgb($c) { "rgb($($c.R),$($c.G),$($c.B))" }
 
 & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+$script:StartMode = '-e mode shell'
 & $Adb -s $serial logcat -c
-& $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity | Out-Null
+& $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity -e mode shell | Out-Null
 $win = WaitEvent 'window'
 $start = @(Events | Where-Object { $_.event -eq 'start' }) | Select-Object -First 1
 Check 'shell window surface' ($win -and $win.width -gt 0 -and $win.height -gt 0) $(if ($win) { "{0}x{1}, {2}" -f $win.width, $win.height, $start.gl } else { 'no window event (logcat)' })
@@ -178,7 +189,7 @@ if ($win -and $front)
     & $Adb -s $serial shell input keyevent KEYCODE_HOME | Out-Null
     $lost = WaitEvent 'window-lost'
     $pause = WaitEvent 'pause'
-    & $Adb -s $serial shell am start -n com.nova.engine/android.app.NativeActivity | Out-Null
+    & $Adb -s $serial shell am start -n com.nova.engine/android.app.NativeActivity -e mode shell | Out-Null
     $again = WaitEvent 'window' 1
     EnsureFront | Out-Null
     Start-Sleep -Milliseconds 800
@@ -191,6 +202,43 @@ if ($win -and $front)
     Check 'no crash' ($crash.Count -eq 0) $(if ($crash.Count) { $crash[0].Line } else { 'logcat clean' })
 }
 & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out 'logcat_shell.txt')
+& $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+$script:StartMode = ''
+
+# ---- 엔진 플레이어 (창): 그냥 실행하면 게임 데이터의 첫 씬을 화면에 — 엔진 시작 이벤트, 프레임이 이어지는지, 화면 = DX11 기준 (1600x900)
+Write-Host '[android] engine player (window)'
+& $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+& $Adb -s $serial logcat -c
+& $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity | Out-Null
+$sw = [Diagnostics.Stopwatch]::StartNew(); $eng = $null
+while ($sw.Elapsed.TotalSeconds -lt 60 -and -not $eng)
+{
+    Start-Sleep -Milliseconds 500
+    $eng = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_EVENT (\{"event":"engine".*\})' | Select-Object -Last 1)
+}
+Check 'engine starts in the window' ([bool]$eng) $(if ($eng) { $eng.Matches[0].Groups[1].Value } else { 'no engine event in 60 s' })
+if ($eng)
+{
+    EnsureFront | Out-Null
+    Start-Sleep -Seconds 3
+    $ws = Screen 'engine_window'
+    $ref = Join-Path $Out 'window_DirectX11.png'
+    if (Test-Path $ref)
+    {
+        $c = [NovaImageCompare]::Compare($ref, (Join-Path $Out 'engine_window.png'), (Join-Path $Out 'window_diff.png'))
+        # 창에서는 프레임이 계속 돈다 (TAA 지터 · 시간) → 화소 차이는 조금 있다. 8 넘는 화소가 1 % 아래면 같은 그림
+        if ($c) { Check 'window = DX11 (engine player)' ($c[2] -lt 1.0) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2]) }
+        else { Check 'window = DX11 (engine player)' $false 'size differs' }
+    }
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $fr = $null
+    while ($sw.Elapsed.TotalSeconds -lt 30 -and -not $fr)
+    {
+        Start-Sleep -Milliseconds 500
+        $fr = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_EVENT (\{"event":"frame".*\})' | Select-Object -Last 1)
+    }
+    Check 'engine frames keep coming' ([bool]$fr) $(if ($fr) { $fr.Matches[0].Groups[1].Value } else { 'no frame event (300 frames) in 30 s' })
+}
+& $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out 'logcat_engine.txt')
 & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
 if (-not $KeepEmulator) { MuMu @('control', '-v', $index, 'shutdown') | Out-Null }
 

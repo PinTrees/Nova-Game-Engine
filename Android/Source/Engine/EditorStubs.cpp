@@ -207,8 +207,42 @@ aiReturn aiGetMaterialColor(const aiMaterial*, const char*, unsigned int, unsign
 aiString aiMaterial::GetName() const { return aiString(); }
 aiNode* aiNode::FindNode(const char*) { return nullptr; }
 
-// ---- 플레이어 런타임 (안드로이드 판은 다음 단계 — 지금은 첫 씬 없음)
-std::wstring PlayerRuntime::FirstScene() { return {}; }
-
 // ---- 정적 상수의 정의 (MSVC 는 없어도 되지만 clang 은 주소를 쓰면 필요)
 const int RenderManager::SMapSize;
+
+// ---- EditorApp 이 부르는 에디터 쪽 (플레이어에서는 Scene 뷰 · 툴바 · CLI · 로딩 창이 없다)
+#include "SceneToolbar.h"
+#include "SceneGrid.h"
+#include "CliCommands.h"
+#include "ModelPlacement.h"
+#include "VulkanTools.h"
+#include "AndroidTools.h"
+namespace SceneToolbar
+{
+	bool GridVisible() { return false; }
+	bool PostProcessingVisible() { return true; }
+	bool ParticlesVisible() { return true; }
+	bool FogVisible() { return true; }
+	bool SkyboxVisible() { return true; }
+}
+namespace SceneGrid { void Draw(GfxContext*, CXMMATRIX, const XMFLOAT3&) {} }
+namespace CliCommands { void RegisterAll() {} }
+namespace CliServer { void Start() {} }
+namespace ModelPlacement { void RegisterEditor() {} }
+namespace VulkanTools { void RegisterEditor() {} }
+namespace AndroidTools { void RegisterEditor() {} }
+namespace LoadingScreen
+{
+	void Begin(const std::wstring&) {}
+	void End() {}
+	void SetProgress(float, const std::wstring&) {}
+	void BeginShaderPhase(float, float, int) {}
+}
+XMMATRIX EditorCamera::View() const { return XMMatrixIdentity(); }
+namespace ScriptEngine
+{
+	void Init() {}
+	void Shutdown() {}
+	void Update() {}
+	void BeginFrame() {}
+}

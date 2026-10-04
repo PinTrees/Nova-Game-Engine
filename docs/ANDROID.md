@@ -38,6 +38,20 @@ Physics (Jolt) · Physics2D (box2d) · Audio · ShaderGraph) 를 고치지 않�
 - Windows 전용 파일 6 개는 빼고 `Android/Source/Engine` 의 안드로이드 판, 런타임이 부르는 에디터 함수는 빈 구현
 - `--whole-archive` 로 모두 링크 (컴포넌트가 정적 초기화로 스스로 등록). 오디오는 XAudio2 가 없어 소리 없이 돈다 (AudioManager 의 규칙)
 
+### 엔진 플레이어
+
+PC 플레이어와 **같은 렌더 경로** (`EditorApp` 의 게임 뷰 그리기 + `PlayerRuntime::Render`) 를 그대로 쓴다.
+
+| 위치 | 하는 일 |
+|---|---|
+| `Android/Source/Engine/AppAndroid.cpp` | `App` 의 안드로이드 판: GfxGLES 장치 (지금 EGL 컨텍스트), Windows 판과 같은 초기화 순서, `Run()` = **한 프레임** (안드로이드 루프가 프레임마다 부름), ImGui 는 입력용 (터치 = 마우스) |
+| `Android/Source/Engine/PlayerRuntimeAndroid.cpp` | 게임 데이터 = 앱 파일 폴더의 `game/` (`player.json`), 작업 폴더 = `game/Binaries` (Windows 플레이어의 `_Data` 와 같은 배치) |
+| `Source/Build/AndroidTools.cpp` | 에디터 CLI `nova android export --out Android/build/assets --scenes A.scene,…` — 플레이어 빌드와 같은 에셋 모음 (`BuildPipeline::CollectGameFiles`), JSON 안의 경로 `\` → `/`, `player.json` · `files.txt`. `nova android reference --out x.png --width --height --frames` — 열린 씬을 플레이어 순서로 그린 DX11 기준 그림 |
+| `Android/Source/AndroidMain.cpp` | APK 의 `assets/game` → 앱 파일 폴더 (`files.txt` 가 바뀌었을 때만), 게임 데이터가 있으면 엔진 플레이어 (`-e mode shell` 이면 셸), `-e test scene` = 화면 없이 첫 씬을 N 프레임 그려 BMP |
+
+아직: 텍스처 (PNG · JPG) 와 모델 (FBX) 을 기기에서 읽지 못한다 (Windows 전용 DirectXTex · Assimp) → PC 가 미리 구운 캐시를 넣는 것이 다음.
+C# 스크립트 · 패키지 DLL · 소리 (XAudio2) 없음.
+
 ### 셰이더
 
 휴대폰에는 셰이더 변환기(DXC)를 넣지 않는다. PC 에서 `nova android shaders --out Android/build/assets/Shaders` 가 모든 `.fx` 를
@@ -60,12 +74,16 @@ powershell -File Tools/tests/android.ps1
 3. `Android/build.py` → `adb install` → `am start -n com.nova.engine/android.app.NativeActivity -e test rhi -e size 960x540`
 4. logcat 의 `NOVA_TEST {json}` → `adb pull` 로 그림 → 화소 비교. 끝나면 VM 을 끈다 (`-KeepEmulator` 로 켜 둠)
 
-5. 플레이어 셸: 창 표면 → 화면 캡처 (`screencap`) 로 배경색 · 프레임마다 움직이는 막대, `input tap` → 터치 위치에 주황 표시,
+5. 엔진 장면: 에디터가 `android export` 로 게임 데이터 → APK, `android reference` 로 DX11 기준 → 기기에서 `-e test scene` (화면 없이)
+   와 그냥 실행 (앱 창) 을 같은 크기로 비교
+6. 플레이어 셸 (`-e mode shell`): 창 표면 → 화면 캡처 (`screencap`) 로 배경색 · 프레임마다 움직이는 막대, `input tap` → 터치 위치에 주황 표시,
    HOME → 다시 열기 (창 잃음 · 다시 생김, 상태 유지). MuMu 가 켜진 직후 띄우는 광고 창이 앞에 있으면 뒤로 가기로 닫는다.
    회전은 검사하지 않는다 (MuMu 태블릿 모드는 `user_rotation` · `wm size` 로 앱 창 크기를 바꾸지 않음)
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.
+엔진 플레이어 뒤 **24/24** — `Shadows.scene` (기본 메시 32 개 · PBR 재질 · 4 단 그림자 · 하늘 · Volume 후처리) 을 엔진 전체로:
+화면 없는 검사 (960x540) 와 앱 창 (1600x900, 60 fps) 모두 PC DX11 기준과 차이 최대 1.
 
 필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · NDK 28), Java 17+, MuMu 플레이어 12.
 SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\NOVA\AndroidTools` 에 설치한다 ([NOVA_HUB.md](NOVA_HUB.md)).

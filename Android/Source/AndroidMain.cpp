@@ -4,6 +4,8 @@
 #include "GfxTest.h"
 #include "GfxGLES.h"
 #include "AndroidEngine.h"
+#include "EditorApp.h"
+#include "PlayerRuntime.h"
 #include "AndroidPlatform.h"
 #include <android_native_app_glue.h>
 #include <android/asset_manager.h>
@@ -22,6 +24,7 @@
 //  - 플레이어 셸 (-e test 없이): 창 표면 · 프레임 루프 · 생명 주기 (내렸다 올리기, 회전) · 터치. 엔진 런타임이 이 위에 올라간다.
 //    상태 변화는 logcat 의 "NOVA_EVENT {json}" 줄로 알린다
 std::unique_ptr<Rhi::Device> CreateGlesRhiDevice(std::string& error);   // GLESRhi.cpp
+bool NovaReadAsset(const std::string& path, std::string& out);         // 아래
 
 namespace
 {
@@ -97,7 +100,76 @@ namespace
 		return o;
 	}
 
-	void RunTest(const std::string& test, int width, int height)
+	// APK 의 assets/game (nova android export) → 앱 파일 폴더의 game/. files.txt 가 바뀌었을 때만 다시 푼다
+	bool ExtractGame(std::string& error)
+	{
+		AAssetManager* am = s_App->activity->assetManager;
+		std::string manifest;
+		if (!NovaReadAsset("game/files.txt", manifest)) { error = "no game data in the APK (nova android export)"; return false; }
+		const std::filesystem::path root = std::filesystem::path(s_FilesDir) / "game";
+		const std::string stamp = std::to_string(std::hash<std::string>{}(manifest)) + ":" + std::to_string(manifest.size());
+		std::string old;
+		{
+			std::ifstream in(root / ".extracted");
+			std::getline(in, old);
+		}
+		if (old == stamp) return true;
+		const auto t0 = std::chrono::steady_clock::now();
+		std::error_code ec;
+		std::filesystem::remove_all(root, ec);
+		std::filesystem::create_directories(root, ec);
+		size_t files = 0, bytes = 0;
+		size_t pos = 0;
+		while (pos < manifest.size())
+		{
+			size_t end = manifest.find('\n', pos);
+			if (end == std::string::npos) end = manifest.size();
+			std::string rel = manifest.substr(pos, end - pos);
+			pos = end + 1;
+			if (!rel.empty() && rel.back() == '\r') rel.pop_back();
+			if (rel.empty()) continue;
+			AAsset* a = AAssetManager_open(am, ("game/" + rel).c_str(), AASSET_MODE_STREAMING);
+			if (!a) { error = "missing asset game/" + rel; return false; }
+			const std::filesystem::path dst = root / rel;
+			std::filesystem::create_directories(dst.parent_path(), ec);
+			std::ofstream out(dst, std::ios::binary | std::ios::trunc);
+			char buf[65536];
+			int n;
+			while ((n = AAsset_read(a, buf, sizeof(buf))) > 0) { out.write(buf, n); bytes += (size_t)n; }
+			AAsset_close(a);
+			++files;
+		}
+		std::ofstream(root / ".extracted", std::ios::trunc) << stamp;
+		Log("game data extracted: %zu files, %.1f MB in %.0f ms", files, bytes / 1048576.0,
+			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+		return true;
+	}
+
+	// 엔진 장면 검사: 게임 데이터의 첫 씬을 화면 없이 (pbuffer) 몇 프레임 돌리고 백버퍼를 BMP 로
+	bool RunSceneTest(int width, int height, int frames, std::string& png, double& loadMs, double& drawMs, std::string& error)
+	{
+		if (!ExtractGame(error)) return false;
+		if (!PlayerRuntime::Detect()) { error = "game/player.json not found"; return false; }
+		const auto t0 = std::chrono::steady_clock::now();
+		EditorApp* app = new EditorApp(nullptr);   // 검사가 끝나면 앱이 끝난다 (지우지 않음)
+		app->SetScreenSize((UINT)width, (UINT)height);
+		if (!app->Init()) { error = "engine init failed (Logs/Editor.log)"; return false; }
+		loadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		const auto t1 = std::chrono::steady_clock::now();
+		for (int i = 0; i < frames; ++i)
+			app->Run();
+		glFinish();
+		drawMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count() / (std::max)(frames, 1);
+		DirectX::ScratchImage img;
+		if (FAILED(Gfx::CaptureTexture(Gfx::Context(), app->BackBufferTexture(), img))) { error = "backbuffer capture failed"; return false; }
+		const DirectX::Image* im = img.GetImage(0, 0, 0);
+		std::vector<uint8_t> rgba(im->pixels, im->pixels + (size_t)width * height * 4);
+		png = s_FilesDir + "/scene_GLES.bmp";
+		if (!WriteBmp(png, rgba, width, height)) { error = "bmp write failed: " + png; return false; }
+		return true;
+	}
+
+	void RunTest(const std::string& test, int width, int height, int frames)
 	{
 		const auto t0 = std::chrono::steady_clock::now();
 		std::string error, device, png;
@@ -105,7 +177,12 @@ namespace
 		double loadMs = 0, drawMs = 0;
 		{
 			AndroidPlatform::Egl egl;
-			if (egl.Init(error))
+			if (egl.Init(error) && test == "scene")
+			{
+				device = (const char*)glGetString(GL_VERSION);
+				ok = RunSceneTest(width, height, frames, png, loadMs, drawMs, error);
+			}
+			else if (error.empty())
 			{
 				std::unique_ptr<Rhi::Device> dev = CreateGlesRhiDevice(error);
 				if (dev)
@@ -214,6 +291,8 @@ void android_main(android_app* app)
 	activity->vm->AttachCurrentThread(&env, nullptr);
 	const std::string test = IntentExtra(env, activity->clazz, "test");
 	const std::string size = IntentExtra(env, activity->clazz, "size");
+	const std::string framesArg = IntentExtra(env, activity->clazz, "frames");
+	const std::string mode = IntentExtra(env, activity->clazz, "mode");   // shell = 게임 데이터가 있어도 셸 (검사)
 	activity->vm->DetachCurrentThread();
 
 	if (!test.empty())
@@ -221,15 +300,18 @@ void android_main(android_app* app)
 		int w = 960, h = 540;
 		if (!size.empty()) sscanf(size.c_str(), "%dx%d", &w, &h);
 		Log("NOVA start: test='%s' size %dx%d files %s", test.c_str(), w, h, s_FilesDir.c_str());
-		RunTest(test, w, h);
+		RunTest(test, w, h, framesArg.empty() ? 30 : atoi(framesArg.c_str()));
 		Log("NOVA done");
 		ANativeActivity_finish(activity);
 		while (PumpEvents(app, true)) {}   // 끝날 때까지 이벤트를 비운다 (glue 규칙)
 		return;
 	}
 
-	// 플레이어 셸: 창이 생기면 그리고, 내리면 멈추고, 다시 올리면 이어서
-	AndroidPlatform::Shell shell(app, s_FilesDir);
+	// 게임 데이터가 있으면 엔진 플레이어, 없으면 플레이어 셸 (창 · 루프 · 터치 확인용)
+	std::string error;
+	const bool game = mode != "shell" && ExtractGame(error) && PlayerRuntime::Detect();
+	if (!game) Log("no game data (%s) - shell only", error.c_str());
+	AndroidPlatform::Shell shell(app, s_FilesDir, game);
 	while (PumpEvents(app, !shell.Running()))
 		shell.Frame();
 	Log("NOVA done");

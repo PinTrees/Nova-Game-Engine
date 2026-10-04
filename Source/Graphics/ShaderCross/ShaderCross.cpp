@@ -370,7 +370,7 @@ namespace
 {
 	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
 	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
-	constexpr int kCacheVersion = 5;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples), 5: OpenGL ES (NOVA_GLES · gl_InvocationID)
+	constexpr int kCacheVersion = 6;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples), 5: OpenGL ES (NOVA_GLES · gl_InvocationID), 6: gl_InvocationID 를 고치기 전에 만든 ES 캐시 버리기
 	using json = nlohmann::json;
 	using namespace ShaderCross::Json;
 

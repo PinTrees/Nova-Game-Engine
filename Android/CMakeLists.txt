@@ -58,6 +58,8 @@ file(GLOB ANDROID_ENGINE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/
 # 하위 폴더 · 다른 폴더에서 플레이어도 쓰는 것: 오디오 디코더, Application, 컴포넌트 Inspector 의 ImGui 도우미, C# 스크립트 컴포넌트 (런타임은 없음)
 file(GLOB AUDIO_CODEC_SOURCES "${ROOT}/Source/Audio/Codecs/*.cpp")
 list(APPEND ENGINE_SOURCES ${AUDIO_CODEC_SOURCES}
+    "${ROOT}/Source/Editor/EditorApp.cpp"
+    "${ROOT}/Source/Build/BuildSettings.cpp"
     "${ROOT}/Source/Editor/UnityGUI.cpp"
     "${ROOT}/Source/Editor/EditorGUI.cpp"
     "${ROOT}/Source/Scripting/CSharpScript.cpp"
@@ -76,7 +78,7 @@ add_library(nova_engine STATIC
 set(MODULE_DIRS Source Source/Core Source/Math Source/Graphics Source/Graphics/Common Source/Physics2D Source/ShaderGraph Source/Graphics/DX11
     Source/Graphics/OpenGL Source/Graphics/RHI Source/Animation Source/Physics Source/Scene Source/Terrain Source/Water Source/Audio
     Source/Scripting Source/UI Source/Build Source/Effects Source/Editor Source/Editor/Windows Source/Editor/Dialogs Source/Editor/NodeEditor
-    Source/ThirdParty/ImGui Source/ThirdParty/ImGui/ImGuiNodeEditor Source/Platform Source/Graphics/ShaderCross Source/Packages)
+    Source/ThirdParty/ImGui Source/ThirdParty/ImGui/ImGuiNodeEditor Source/Platform Source/Graphics/ShaderCross Source/Packages Source/Graphics/Vulkan)
 list(TRANSFORM MODULE_DIRS PREPEND "${ROOT}/")
 target_include_directories(nova_engine PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/Include"

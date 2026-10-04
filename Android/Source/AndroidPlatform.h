@@ -7,6 +7,7 @@
 struct android_app;
 struct ANativeWindow;
 struct AInputEvent;
+class EditorApp;
 
 // 안드로이드 플랫폼 층: EGL (OpenGL ES 3.2 컨텍스트 하나, 창 표면은 생겼다 없어졌다), 생명 주기, 터치.
 //  컨텍스트는 앱이 살아 있는 동안 유지한다 — 창이 없을 때는 작은 pbuffer 에 묶어 두어 GPU 자원이 사라지지 않는다
@@ -40,7 +41,7 @@ namespace AndroidPlatform
 	class Shell
 	{
 	public:
-		Shell(android_app* app, const std::string& filesDir);
+		Shell(android_app* app, const std::string& filesDir, bool engine);   // engine = 게임 데이터의 첫 씬을 엔진으로 (EditorApp — PC 플레이어와 같은 렌더 경로)
 		~Shell();
 		bool Running() const { return m_EglReady && m_HasWindow && m_Resumed; }
 		void Frame();
@@ -67,5 +68,7 @@ namespace AndroidPlatform
 		int m_Taps = 0;
 		GLuint m_Program = 0, m_Vao = 0, m_Vbo = 0;
 		GLint m_ColorLoc = -1, m_ScreenLoc = -1;
+		bool m_Engine = false;
+		::EditorApp* m_GameApp = nullptr;   // 첫 창이 생길 때 만든다 (앱이 끝날 때까지)
 	};
 }

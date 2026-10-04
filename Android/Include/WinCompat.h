@@ -643,3 +643,10 @@ inline UINT D3D11CalcSubresource(UINT mip, UINT arraySlice, UINT mipLevels) { re
 int MultiByteToWideChar(UINT codePage, DWORD flags, const char* src, int srcLen, wchar_t* dst, int dstLen);   // UTF-8 → wchar_t (AndroidWin32.cpp)
 int WideCharToMultiByte(UINT codePage, DWORD flags, const wchar_t* src, int srcLen, char* dst, int dstLen, const char* defaultChar, BOOL* usedDefault);
 inline DWORD GetModuleFileNameA(HMODULE, char* buffer, DWORD size) { if (size) buffer[0] = 0; return 0; }
+
+// 마우스 붙잡기 (Win32 — EditorApp 의 마우스 처리, 안드로이드는 의미 없음)
+inline HWND SetCapture(HWND h) { return h; }
+inline BOOL ReleaseCapture() { return TRUE; }
+#define MK_LBUTTON 0x0001
+#define MK_RBUTTON 0x0002
+#define MK_MBUTTON 0x0010
