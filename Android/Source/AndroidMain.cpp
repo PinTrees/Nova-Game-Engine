@@ -3,6 +3,7 @@
 #include "RhiTest.h"
 #include "GfxTest.h"
 #include "GfxGLES.h"
+#include "AndroidEngine.h"
 #include "AndroidPlatform.h"
 #include <android_native_app_glue.h>
 #include <android/asset_manager.h>
@@ -26,7 +27,6 @@ namespace
 {
 	android_app* s_App = nullptr;
 	std::string s_FilesDir;
-	std::mutex s_LogLock;
 
 	void Log(const char* fmt, ...)
 	{
@@ -187,35 +187,6 @@ namespace
 	}
 }
 
-// ---- 엔진 쪽 도우미 (pch.h 선언)
-namespace EditorLog
-{
-	void Write(const char* category, const char* format, ...)
-	{
-		char msg[4096];
-		va_list ap;
-		va_start(ap, format);
-		vsnprintf(msg, sizeof(msg), format, ap);
-		va_end(ap);
-		__android_log_print(ANDROID_LOG_INFO, "NOVA", "[%s] %s", category, msg);
-		std::lock_guard<std::mutex> lock(s_LogLock);
-		if (!s_FilesDir.empty())
-			std::ofstream(s_FilesDir + "/Editor.log", std::ios::app) << "[" << category << "] " << msg << "\n";
-	}
-}
-
-std::wstring string_to_wstring(const std::string& str)
-{
-	std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-	return conv.from_bytes(str);
-}
-
-std::string wstring_to_string(const std::wstring& wstr)
-{
-	std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-	return conv.to_bytes(wstr);
-}
-
 // APK 의 assets/ 에서 파일 하나 (GLESRhi 가 셰이더 JSON 을 읽는다)
 bool NovaReadAsset(const std::string& path, std::string& out)
 {
@@ -235,7 +206,9 @@ void android_main(android_app* app)
 	s_FilesDir = activity->externalDataPath ? activity->externalDataPath : (activity->internalDataPath ? activity->internalDataPath : "");
 	std::error_code ec;
 	std::filesystem::create_directories(s_FilesDir, ec);
-	std::filesystem::remove(s_FilesDir + "/Editor.log", ec);
+	NovaAndroid::SetFilesDir(s_FilesDir);
+	EditorLog::Init();   // 앱 파일 폴더의 Logs/Editor.log (+ logcat)
+	PathManager::GetI()->Init();   // 엔진 · 프로젝트 루트 = 앱 파일 폴더의 game/
 
 	JNIEnv* env = nullptr;
 	activity->vm->AttachCurrentThread(&env, nullptr);

@@ -360,4 +360,76 @@ namespace DirectX
 		std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 		return LoadFromDDSMemory(bytes.data(), bytes.size(), flags, meta, image);
 	}
+
+	HRESULT LoadFromDDSFile(const char* file, DDS_FLAGS flags, TexMetadata* meta, ScratchImage& image)
+	{
+		std::ifstream in(file, std::ios::binary);
+		if (!in) return E_FAIL;
+		std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		return LoadFromDDSMemory(bytes.data(), bytes.size(), flags, meta, image);
+	}
+
+	HRESULT ScratchImage::OverrideFormat(DXGI_FORMAT f)
+	{
+		if (!_images || BitsPerPixel(f) != BitsPerPixel(_meta.format)) return E_INVALIDARG;
+		_meta.format = f;
+		for (size_t i = 0; i < _count; ++i) _images[i].format = f;
+		return S_OK;
+	}
+
+	bool ScratchImage::IsAlphaAllOpaque() const
+	{
+		if (_meta.format != DXGI_FORMAT_R8G8B8A8_UNORM && _meta.format != DXGI_FORMAT_R8G8B8A8_UNORM_SRGB &&
+			_meta.format != DXGI_FORMAT_B8G8R8A8_UNORM && _meta.format != DXGI_FORMAT_B8G8R8A8_UNORM_SRGB)
+			return false;
+		for (size_t i = 0; i < _count; ++i)
+			for (size_t p = 3; p < _images[i].slicePitch; p += 4)
+				if (_images[i].pixels[p] != 255) return false;
+		return true;
+	}
+
+	DXGI_FORMAT MakeTypeless(DXGI_FORMAT f)
+	{
+		switch (f)
+		{
+		case DXGI_FORMAT_R8G8B8A8_UNORM: case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB: case DXGI_FORMAT_R8G8B8A8_UINT: case DXGI_FORMAT_R8G8B8A8_SNORM:
+		case DXGI_FORMAT_R8G8B8A8_SINT: return DXGI_FORMAT_R8G8B8A8_TYPELESS;
+		case DXGI_FORMAT_B8G8R8A8_UNORM: case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8A8_TYPELESS;
+		case DXGI_FORMAT_B8G8R8X8_UNORM: case DXGI_FORMAT_B8G8R8X8_UNORM_SRGB: return DXGI_FORMAT_B8G8R8X8_TYPELESS;
+		case DXGI_FORMAT_BC1_UNORM: case DXGI_FORMAT_BC1_UNORM_SRGB: return DXGI_FORMAT_BC1_TYPELESS;
+		case DXGI_FORMAT_BC2_UNORM: case DXGI_FORMAT_BC2_UNORM_SRGB: return DXGI_FORMAT_BC2_TYPELESS;
+		case DXGI_FORMAT_BC3_UNORM: case DXGI_FORMAT_BC3_UNORM_SRGB: return DXGI_FORMAT_BC3_TYPELESS;
+		case DXGI_FORMAT_BC4_UNORM: case DXGI_FORMAT_BC4_SNORM: return DXGI_FORMAT_BC4_TYPELESS;
+		case DXGI_FORMAT_BC5_UNORM: case DXGI_FORMAT_BC5_SNORM: return DXGI_FORMAT_BC5_TYPELESS;
+		case DXGI_FORMAT_BC7_UNORM: case DXGI_FORMAT_BC7_UNORM_SRGB: return DXGI_FORMAT_BC7_TYPELESS;
+		case DXGI_FORMAT_R16G16B16A16_FLOAT: case DXGI_FORMAT_R16G16B16A16_UNORM: case DXGI_FORMAT_R16G16B16A16_UINT: case DXGI_FORMAT_R16G16B16A16_SNORM:
+		case DXGI_FORMAT_R16G16B16A16_SINT: return DXGI_FORMAT_R16G16B16A16_TYPELESS;
+		default: return f;
+		}
+	}
+
+	HRESULT LoadFromWICFile(const wchar_t*, WIC_FLAGS, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
+	HRESULT LoadFromWICFile(const char*, WIC_FLAGS, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
+	HRESULT GetMetadataFromWICFile(const wchar_t*, WIC_FLAGS, TexMetadata&) { return E_NOTIMPL; }
+	HRESULT GetMetadataFromWICFile(const char*, WIC_FLAGS, TexMetadata&) { return E_NOTIMPL; }
+	HRESULT LoadFromTGAFile(const wchar_t*, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
+	HRESULT LoadFromTGAFile(const char*, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
+	HRESULT SaveToDDSFile(const Image*, size_t, const TexMetadata&, DDS_FLAGS, const wchar_t*) { return E_NOTIMPL; }
+	HRESULT SaveToDDSFile(const Image*, size_t, const TexMetadata&, DDS_FLAGS, const char*) { return E_NOTIMPL; }
+	HRESULT Resize(const Image&, size_t, size_t, TEX_FILTER_FLAGS, ScratchImage& out) { out.Release(); return E_NOTIMPL; }
+	HRESULT GenerateMipMaps(const Image*, size_t, const TexMetadata&, TEX_FILTER_FLAGS, size_t, ScratchImage& out) { out.Release(); return E_NOTIMPL; }
+	HRESULT Compress(const Image*, size_t, const TexMetadata&, DXGI_FORMAT, TEX_COMPRESS_FLAGS, float, ScratchImage& out) { out.Release(); return E_NOTIMPL; }
+	HRESULT Decompress(const Image*, size_t, const TexMetadata&, DXGI_FORMAT, ScratchImage& out) { out.Release(); return E_NOTIMPL; }
+
+	HRESULT ScratchImage::InitializeFromImage(const Image& src, bool, CP_FLAGS flags)
+	{
+		HRESULT hr = Initialize2D(src.format, src.width, src.height, 1, 1, flags);
+		if (FAILED(hr)) return hr;
+		const Image& dst = _images[0];
+		const size_t rows = (std::min)(src.slicePitch / (std::max)(src.rowPitch, size_t(1)), dst.slicePitch / (std::max)(dst.rowPitch, size_t(1)));
+		for (size_t r = 0; r < rows; ++r)
+			memcpy(dst.pixels + r * dst.rowPitch, src.pixels + r * src.rowPitch, (std::min)(src.rowPitch, dst.rowPitch));
+		return S_OK;
+	}
+	HRESULT Convert(const Image&, DXGI_FORMAT, TEX_FILTER_FLAGS, float, ScratchImage& out) { out.Release(); return E_NOTIMPL; }
 }

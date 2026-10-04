@@ -117,7 +117,7 @@ namespace
 ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const wstring& path)
 {
 	// 파일 확장자 얻기
-	wstring ext = fs::path(path).extension();
+	wstring ext = fs::path(path).extension().wstring();
 
 	DirectX::TexMetadata md = {};
 	DirectX::ScratchImage img;

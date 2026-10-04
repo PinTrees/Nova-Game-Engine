@@ -21,11 +21,22 @@ MuMu 플레이어(에뮬레이터) 안의 OpenGL ES 3.2 로 검사 장면을 그
 | `Android/Source/GfxGLES.*` | **Gfx 층** (엔진 렌더러가 쓰는 D3D11 모양 층) 의 OpenGL ES 3.2 구현 — 데스크톱 GfxGL 을 바인딩 방식으로. 텍스처 뷰가 없어 부분 뷰 (밉 · 조각 범위, 큐브 ↔ 배열, 다른 형식, 스텐실 읽기) 는 사본 텍스처를 원본이 바뀌었을 때만 새로 고침. base instance 는 인스턴스 버퍼 시작 위치로 |
 | `Android/Source/GLESState.*` | D3D11 상태 · DXGI 형식 → GLES (GfxGLES · GLESRhi 공용). ES 에 없는 BGRA · 16 비트 UNORM 은 올릴 때 바꿈 |
 | `Android/Include/DirectXTex/` · `Android/Source/DirectXTexLite.cpp` | DirectXTex 의 일부 (ScratchImage · 메타데이터 · 행 간격 · DDS 읽기) — Windows 의 DirectXTex 는 미리 빌드된 Windows 라이브러리라 |
+| `Android/Source/Engine/` | **엔진 런타임**의 안드로이드 판: Windows 전용 파일 대신 (`PathManagerAndroid` — `/` 경로 · 앱 파일 폴더의 game/, `EngineAndroid` — EditorLog · MemoryStats · ShaderCache, `AndroidWin32` — `GetAsyncKeyState` · `GetCursorPos` 등 Win32 입력을 터치 · 키 상태로, UTF-8 변환, `ApplicationAndroid`), `EditorStubs` — 런타임이 부르는 에디터 함수 (Inspector · 선택 · Undo · 창) 의 빈 구현 · C# 스크립트 · 패키지 · Assimp 없음 |
 | `Android/build.py` | Gradle 없이 APK: NDK CMake → aapt2 link (+ assets) → zipalign → apksigner (디버그 키) |
 | `ThirdParty/DirectXMath/` | DirectXMath (MIT, Windows SDK 의 것) + `sal.h` 대체 — 안드로이드만 쓴다 |
 | `Source/Build/AndroidTools.*` | 에디터 CLI `nova android shaders --out 폴더` |
 | `Source/Graphics/Common/FxStates.*` | `.fx` 상태 블록 → D3D11 설명 (API 공용, 예전 GLState 안에 있던 것) |
 | `Source/Graphics/ShaderCross/ShaderCrossJson.*` | 셰이더 변환 결과 ↔ JSON (PC 캐시 · 안드로이드 셰이더 묶음 공용) |
+
+### 엔진 빌드
+
+`Android/CMakeLists.txt` 의 `nova_engine` = Windows 와 **같은 엔진 소스** (Core · Math · Scene · Graphics · Animation · Effects · UI · Water · Terrain ·
+Physics (Jolt) · Physics2D (box2d) · Audio · ShaderGraph) 를 고치지 않고 그대로 빌드한다. 엔진 파일은 바꾸지 않고:
+
+- `Android/Include/pch.h` 가 Windows pch 와 같은 목록, Windows 헤더 (`windows.h` · `d3d11.h` · `wrl.h` · `xaudio2.h` · DirectXTex …) 는 대체 헤더
+  (`WinCompat.h` — 타입 · Win32 함수의 안드로이드 판, MSVC 처럼 `min` · `max` 매크로, `std::execution::par` 은 차례로)
+- Windows 전용 파일 6 개는 빼고 `Android/Source/Engine` 의 안드로이드 판, 런타임이 부르는 에디터 함수는 빈 구현
+- `--whole-archive` 로 모두 링크 (컴포넌트가 정적 초기화로 스스로 등록). 오디오는 XAudio2 가 없어 소리 없이 돈다 (AudioManager 의 규칙)
 
 ### 셰이더
 

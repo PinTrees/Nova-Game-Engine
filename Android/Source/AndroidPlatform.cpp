@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AndroidPlatform.h"
+#include "AndroidEngine.h"
 #include <android_native_app_glue.h>
 #include <android/log.h>
 #include <cstdarg>
@@ -150,8 +151,8 @@ namespace AndroidPlatform
 			break;
 		case APP_CMD_RESUME: m_Resumed = true; Event("resume"); break;
 		case APP_CMD_PAUSE: m_Resumed = false; Event("pause"); break;
-		case APP_CMD_GAINED_FOCUS: Event("focus"); break;
-		case APP_CMD_LOST_FOCUS: m_Pointers.clear(); Event("focus-lost"); break;
+		case APP_CMD_GAINED_FOCUS: NovaAndroid::SetFocus(true); Event("focus"); break;
+		case APP_CMD_LOST_FOCUS: m_Pointers.clear(); NovaAndroid::SetFocus(false); NovaAndroid::SetPointer(0, 0, false); Event("focus-lost"); break;
 		case APP_CMD_CONFIG_CHANGED: Event("config"); break;
 		case APP_CMD_DESTROY: Event("destroy"); break;
 		default: break;
@@ -173,6 +174,7 @@ namespace AndroidPlatform
 		{
 			Pointer p{ AMotionEvent_getPointerId(event, index), AMotionEvent_getX(event, index), AMotionEvent_getY(event, index) };
 			m_Pointers.push_back(p);
+			if (m_Pointers.size() == 1) NovaAndroid::SetPointer(p.X, p.Y, true);   // 첫 손가락 = 마우스 왼쪽 (엔진 Input)
 			Event("touch-down", "\"id\":%d,\"x\":%.0f,\"y\":%.0f,\"pointers\":%d", p.Id, p.X, p.Y, (int)m_Pointers.size());
 			break;
 		}
@@ -182,6 +184,7 @@ namespace AndroidPlatform
 				auto it = find(AMotionEvent_getPointerId(event, i));
 				if (it != m_Pointers.end()) { it->X = AMotionEvent_getX(event, i); it->Y = AMotionEvent_getY(event, i); }
 			}
+			if (!m_Pointers.empty()) NovaAndroid::SetPointer(m_Pointers[0].X, m_Pointers[0].Y, true);
 			break;
 		case AMOTION_EVENT_ACTION_UP:
 		case AMOTION_EVENT_ACTION_POINTER_UP:
@@ -192,11 +195,14 @@ namespace AndroidPlatform
 			++m_Taps;
 			auto it = find(id);
 			if (it != m_Pointers.end()) m_Pointers.erase(it);
+			if (m_Pointers.empty()) NovaAndroid::SetPointer(m_TapX, m_TapY, false);
+			else NovaAndroid::SetPointer(m_Pointers[0].X, m_Pointers[0].Y, true);
 			Event("touch-up", "\"id\":%d,\"x\":%.0f,\"y\":%.0f,\"taps\":%d", id, m_TapX, m_TapY, m_Taps);
 			break;
 		}
 		case AMOTION_EVENT_ACTION_CANCEL:
 			m_Pointers.clear();
+			NovaAndroid::SetPointer(0, 0, false);
 			Event("touch-cancel");
 			break;
 		default: break;

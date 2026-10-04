@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstring>
 #include <atomic>
+#include <pthread.h>
 #include <utility>
 #include <memory>
 
@@ -31,6 +32,12 @@ typedef uint64_t ULONGLONG;
 typedef char CHAR;
 typedef wchar_t WCHAR;
 typedef const char* LPCSTR;
+typedef uint32_t UINT32;
+typedef int32_t INT32;
+typedef int16_t INT16;
+typedef int8_t INT8;
+typedef uintptr_t UINT_PTR;
+typedef intptr_t INT_PTR;
 #ifndef TRUE
 #define TRUE 1
 #define FALSE 0
@@ -50,15 +57,36 @@ struct RECT { LONG left, top, right, bottom; };
 
 #define ZeroMemory(p, n) memset((p), 0, (n))
 
-// 엔진 Types.h 의 정수 이름
-using int8 = int8_t;
-using int16 = int16_t;
-using int32 = int32_t;
-using int64 = int64_t;
-using uint8 = uint8_t;
-using uint16 = uint16_t;
-using uint32 = uint32_t;
-using uint64 = uint64_t;
+// MSVC 의 정수 키워드 (엔진 Types.h 의 int8 … uint64 가 쓴다)
+#define __int8 char
+#define __int16 short
+#define __int32 int
+#define __int64 long long
+
+// 그 밖의 Windows 타입 · 상수 · CRT 이름 (엔진 코드가 쓰는 것만)
+typedef void* HINSTANCE;
+typedef void* HMODULE;
+typedef void* HANDLE;
+typedef void* HDC;
+typedef void* HGLRC;
+typedef uintptr_t WPARAM;
+typedef intptr_t LPARAM;
+typedef intptr_t LRESULT;
+typedef wchar_t* LPWSTR;
+typedef const wchar_t* LPCWSTR;
+typedef char* LPSTR;
+struct POINT { LONG x, y; };
+union LARGE_INTEGER { struct { DWORD LowPart; LONG HighPart; }; LONGLONG QuadPart; };
+#define MAX_PATH 260
+#define CALLBACK
+#define WINAPI
+#define _stricmp strcasecmp
+#define _strnicmp strncasecmp
+#define _wcsicmp wcscasecmp
+#define _wcsnicmp wcsncasecmp
+#include <strings.h>
+#include <wchar.h>
+#include <cwctype>
 
 #define D3D11_FLOAT32_MAX (3.402823466e+38f)
 
@@ -206,6 +234,23 @@ struct IUnknown
 // Microsoft::WRL::ComPtr 와 같은 쓰임 (엔진이 쓰는 것만): & = 비우고 주소, As = QueryInterface
 namespace Microsoft { namespace WRL
 {
+	template <class T> class ComPtr;
+	namespace Details
+	{
+		template <class C>
+		class ComPtrRef
+		{
+		public:
+			explicit ComPtrRef(C* c) : _c(c) {}
+			operator typename C::InterfaceType**() { return _c->ReleaseAndGetAddressOf(); }
+			operator void**() { return reinterpret_cast<void**>(_c->ReleaseAndGetAddressOf()); }
+			operator C*() { return _c; }
+			typename C::InterfaceType* operator*() { return _c->Get(); }
+		private:
+			C* _c;
+		};
+	}
+
 	template <class T>
 	class ComPtr
 	{
@@ -231,12 +276,13 @@ namespace Microsoft { namespace WRL
 		T* const* GetAddressOf() const { return &_p; }
 		T** GetAddressOf() { return &_p; }
 		T** ReleaseAndGetAddressOf() { Reset(); return &_p; }
-		T** operator&() { return ReleaseAndGetAddressOf(); }
+		Details::ComPtrRef<ComPtr> operator&() { return Details::ComPtrRef<ComPtr>(this); }
 		void Reset() { if (_p) { T* p = _p; _p = nullptr; p->Release(); } }
 		void Attach(T* p) { Reset(); _p = p; }
 		T* Detach() { T* p = _p; _p = nullptr; return p; }
 		void Swap(ComPtr& o) { std::swap(_p, o._p); }
 		HRESULT CopyTo(T** out) const { *out = _p; if (_p) _p->AddRef(); return S_OK; }
+		template <class U> HRESULT As(Details::ComPtrRef<ComPtr<U>> out) const { return As(static_cast<ComPtr<U>*>(out)); }
 		template <class U> HRESULT As(ComPtr<U>* out) const
 		{
 			if (!_p) { out->Reset(); return E_POINTER; }
@@ -473,3 +519,127 @@ struct D3D11_QUERY_DATA_PIPELINE_STATISTICS
 struct D3DX11_PASS_DESC { LPCSTR Name; UINT Annotations; BYTE* pIAInputSignature; SIZE_T IAInputSignatureSize; UINT StencilRef; UINT SampleMask; FLOAT BlendFactor[4]; };
 struct D3DX11_TECHNIQUE_DESC { LPCSTR Name; UINT Passes; UINT Annotations; };
 struct D3DX11_EFFECT_DESC { UINT ConstantBuffers; UINT GlobalVariables; UINT InterfaceVariables; UINT Techniques; UINT Groups; };
+
+// ---- Windows API · MSVC CRT 의 안드로이드 판 (엔진 코드가 쓰는 것만, 같은 뜻)
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cwchar>
+#include <string>
+typedef const void* LPCVOID;
+#define CP_UTF8 65001
+#define _TRUNCATE ((size_t)-1)
+#define OUT
+#define D3D10_CPU_ACCESS_WRITE 0x10000
+#define D3D10_CPU_ACCESS_READ 0x20000
+
+inline ULONGLONG GetTickCount64()
+{
+	return (ULONGLONG)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+inline BOOL QueryPerformanceFrequency(LARGE_INTEGER* f) { f->QuadPart = 1000000000LL; return TRUE; }
+inline BOOL QueryPerformanceCounter(LARGE_INTEGER* c)
+{
+	c->QuadPart = (LONGLONG)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	return TRUE;
+}
+inline DWORD GetEnvironmentVariableA(const char* name, char* buffer, DWORD size)
+{
+	const char* v = getenv(name);
+	if (!v) return 0;
+	const size_t n = strlen(v);
+	if (!buffer || n + 1 > size) return (DWORD)(n + 1);
+	memcpy(buffer, v, n + 1);
+	return (DWORD)n;
+}
+inline DWORD GetCurrentThreadId() { return (DWORD)(uintptr_t)pthread_self(); }
+
+template <size_t N, class... A> int sprintf_s(char (&buffer)[N], const char* format, A... args) { return snprintf(buffer, N, format, args...); }
+template <class... A> int sprintf_s(char* buffer, size_t size, const char* format, A... args) { return snprintf(buffer, size, format, args...); }
+template <size_t N> int strcpy_s(char (&dst)[N], const char* src) { snprintf(dst, N, "%s", src); return 0; }
+inline int strcpy_s(char* dst, size_t size, const char* src) { snprintf(dst, size, "%s", src); return 0; }
+template <size_t N> int strncpy_s(char (&dst)[N], const char* src, size_t count)
+{
+	const size_t n = (std::min)(count == _TRUNCATE ? N - 1 : count, N - 1);
+	strncpy(dst, src, n);
+	dst[n] = 0;
+	return 0;
+}
+inline int strncpy_s(char* dst, size_t size, const char* src, size_t count)
+{
+	if (!size) return 0;
+	const size_t n = (std::min)(count == _TRUNCATE ? size - 1 : count, size - 1);
+	strncpy(dst, src, n);
+	dst[n] = 0;
+	return 0;
+}
+template <size_t N> int wcscpy_s(wchar_t (&dst)[N], const wchar_t* src) { wcsncpy(dst, src, N - 1); dst[N - 1] = 0; return 0; }
+inline int wcscpy_s(wchar_t* dst, size_t size, const wchar_t* src) { if (size) { wcsncpy(dst, src, size - 1); dst[size - 1] = 0; } return 0; }
+inline int fopen_s(FILE** f, const char* name, const char* mode) { *f = fopen(name, mode); return *f ? 0 : 1; }
+inline int _wfopen_s(FILE** f, const wchar_t* name, const wchar_t* mode)
+{
+	std::string n, m;
+	for (const wchar_t* p = name; *p; ++p) n += (char)*p;   // 경로는 UTF-8 로 (아래 MultiByte 변환과 같은 규칙은 엔진 Utils 가)
+	for (const wchar_t* p = mode; *p; ++p) m += (char)*p;
+	*f = fopen(n.c_str(), m.c_str());
+	return *f ? 0 : 1;
+}
+
+// std::execution::par — 안드로이드 libc++ 에 병렬 알고리즘이 없다 → 차례로 (결과는 같다)
+#include <algorithm>
+#include <execution>
+namespace NovaPstl { struct Par {}; }
+namespace std
+{
+	namespace execution { inline constexpr NovaPstl::Par par{}, par_unseq{}; }
+	template <class It, class F> void for_each(NovaPstl::Par, It first, It last, F f) { std::for_each(first, last, f); }
+	template <class It, class F> void sort(NovaPstl::Par, It first, It last, F f) { std::sort(first, last, f); }
+	template <class It> void sort(NovaPstl::Par, It first, It last) { std::sort(first, last); }
+}
+
+// windows.h 의 min · max 매크로 (엔진 코드는 이것을 전제로 쓴다: min(float, int) 처럼 타입이 섞여도 된다.
+//  std 쪽은 (std::max)(a, b) 처럼 괄호로 감싸 쓰고, libc++ 헤더는 이 매크로를 스스로 피한다)
+#ifndef NOMINMAX
+#ifndef max
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+#endif
+#ifndef min
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+#endif
+
+#include <ctime>
+#include <android/log.h>
+inline int localtime_s(struct tm* out, const time_t* t) { return localtime_r(t, out) ? 0 : 1; }
+inline int gmtime_s(struct tm* out, const time_t* t) { return gmtime_r(t, out) ? 0 : 1; }
+inline void OutputDebugStringA(const char* text) { __android_log_print(ANDROID_LOG_DEBUG, "NOVA", "%s", text); }
+inline LPWSTR* CommandLineToArgvW(LPCWSTR, int* argc) { *argc = 0; return nullptr; }   // 안드로이드: 명령줄 없음 (인텐트 값은 AndroidMain)
+inline LPCWSTR GetCommandLineW() { return L""; }
+inline void* LocalFree(void*) { return nullptr; }
+inline DWORD GetModuleFileNameW(HMODULE, wchar_t* buffer, DWORD size) { if (size) buffer[0] = 0; return 0; }
+
+// DXGI 스왑 체인 · 드라이버 종류 (App.h 의 멤버 타입 — 안드로이드에서는 쓰지 않는다)
+struct IDXGISwapChain : IUnknown {};
+enum D3D_DRIVER_TYPE { D3D_DRIVER_TYPE_UNKNOWN = 0, D3D_DRIVER_TYPE_HARDWARE = 1, D3D_DRIVER_TYPE_REFERENCE = 2, D3D_DRIVER_TYPE_NULL = 3, D3D_DRIVER_TYPE_SOFTWARE = 4, D3D_DRIVER_TYPE_WARP = 5 };
+
+// ---- 입력 (Win32 이름 그대로 — InputManager · 단축키 코드가 그대로 돈다). 구현 = Android/Source/Engine/AndroidWin32.cpp:
+//  터치 첫 손가락 = 마우스 왼쪽 단추 + 커서, 키보드 이벤트 = 가상 키
+enum
+{
+	VK_LBUTTON = 0x01, VK_RBUTTON = 0x02, VK_MBUTTON = 0x04, VK_BACK = 0x08, VK_TAB = 0x09, VK_RETURN = 0x0D, VK_SHIFT = 0x10, VK_CONTROL = 0x11,
+	VK_MENU = 0x12, VK_ESCAPE = 0x1B, VK_SPACE = 0x20, VK_PRIOR = 0x21, VK_NEXT = 0x22, VK_END = 0x23, VK_HOME = 0x24, VK_LEFT = 0x25, VK_UP = 0x26,
+	VK_RIGHT = 0x27, VK_DOWN = 0x28, VK_INSERT = 0x2D, VK_DELETE = 0x2E, VK_F1 = 0x70, VK_F2, VK_F3, VK_F4, VK_F5, VK_F6, VK_F7, VK_F8, VK_F9, VK_F10,
+	VK_F11, VK_F12, VK_LSHIFT = 0xA0, VK_RSHIFT = 0xA1, VK_LCONTROL = 0xA2, VK_RCONTROL = 0xA3, VK_LMENU = 0xA4, VK_RMENU = 0xA5
+};
+SHORT GetAsyncKeyState(int vk);
+SHORT GetKeyState(int vk);
+BOOL GetCursorPos(POINT* p);
+BOOL ScreenToClient(HWND, POINT* p);
+HWND GetFocus();
+HWND GetForegroundWindow();
+
+#define sscanf_s sscanf
+inline UINT D3D11CalcSubresource(UINT mip, UINT arraySlice, UINT mipLevels) { return mip + arraySlice * mipLevels; }
+int MultiByteToWideChar(UINT codePage, DWORD flags, const char* src, int srcLen, wchar_t* dst, int dstLen);   // UTF-8 → wchar_t (AndroidWin32.cpp)
+int WideCharToMultiByte(UINT codePage, DWORD flags, const wchar_t* src, int srcLen, char* dst, int dstLen, const char* defaultChar, BOOL* usedDefault);
+inline DWORD GetModuleFileNameA(HMODULE, char* buffer, DWORD size) { if (size) buffer[0] = 0; return 0; }

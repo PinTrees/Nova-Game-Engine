@@ -13,6 +13,7 @@ namespace DirectX
 	enum TEX_MISC_FLAG { TEX_MISC_TEXTURECUBE = 0x4 };
 	enum CP_FLAGS { CP_FLAGS_NONE = 0 };
 	enum DDS_FLAGS { DDS_FLAGS_NONE = 0 };
+	enum TEX_FILTER_FLAGS : unsigned long { TEX_FILTER_DEFAULT = 0, TEX_FILTER_LINEAR = 0x200000, TEX_FILTER_CUBIC = 0x300000, TEX_FILTER_BOX = 0x400000, TEX_FILTER_SRGB = 0x3000000 };
 
 	struct TexMetadata
 	{
@@ -47,6 +48,7 @@ namespace DirectX
 		HRESULT Initialize2D(DXGI_FORMAT fmt, size_t width, size_t height, size_t arraySize, size_t mipLevels, CP_FLAGS flags = CP_FLAGS_NONE);
 		HRESULT Initialize3D(DXGI_FORMAT fmt, size_t width, size_t height, size_t depth, size_t mipLevels, CP_FLAGS flags = CP_FLAGS_NONE);
 		HRESULT InitializeCube(DXGI_FORMAT fmt, size_t width, size_t height, size_t nCubes, size_t mipLevels, CP_FLAGS flags = CP_FLAGS_NONE);
+		HRESULT InitializeFromImage(const Image& src, bool allow1D = false, CP_FLAGS flags = CP_FLAGS_NONE);   // 이미지 하나를 복사
 		void Release();
 
 		const TexMetadata& GetMetadata() const { return _meta; }
@@ -55,6 +57,8 @@ namespace DirectX
 		size_t GetImageCount() const { return _count; }
 		uint8_t* GetPixels() const { return _pixels.get(); }
 		size_t GetPixelsSize() const { return _size; }
+		HRESULT OverrideFormat(DXGI_FORMAT f);   // 같은 크기의 형식으로 이름만 바꾼다 (sRGB ↔ 선형)
+		bool IsAlphaAllOpaque() const;
 
 	private:
 		TexMetadata _meta;
@@ -70,7 +74,30 @@ namespace DirectX
 	DXGI_FORMAT MakeSRGB(DXGI_FORMAT fmt);
 	HRESULT ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height, size_t& rowPitch, size_t& slicePitch, CP_FLAGS flags = CP_FLAGS_NONE);
 
+	enum WIC_FLAGS : unsigned long { WIC_FLAGS_NONE = 0, WIC_FLAGS_FORCE_RGB = 0x8, WIC_FLAGS_IGNORE_SRGB = 0x20, WIC_FLAGS_FORCE_SRGB = 0x40 };
+	enum TGA_FLAGS : unsigned long { TGA_FLAGS_NONE = 0 };
+	enum TEX_COMPRESS_FLAGS : unsigned long { TEX_COMPRESS_DEFAULT = 0, TEX_COMPRESS_PARALLEL = 0x10000000 };
+	constexpr float TEX_THRESHOLD_DEFAULT = 0.5f;
+	DXGI_FORMAT MakeTypeless(DXGI_FORMAT fmt);
+
+	// 안드로이드에서 못 하는 것 (E_NOTIMPL): 이미지 디코딩 (PNG · JPG · TGA), 크기 바꾸기 · 밉 만들기 · 압축 · 저장.
+	//  텍스처는 PC 의 에디터가 만든 DDS 캐시(TextureCache)를 쓴다
+	HRESULT LoadFromWICFile(const wchar_t* file, WIC_FLAGS flags, TexMetadata* meta, ScratchImage& image);
+	HRESULT LoadFromWICFile(const char* file, WIC_FLAGS flags, TexMetadata* meta, ScratchImage& image);
+	HRESULT GetMetadataFromWICFile(const wchar_t* file, WIC_FLAGS flags, TexMetadata& meta);
+	HRESULT GetMetadataFromWICFile(const char* file, WIC_FLAGS flags, TexMetadata& meta);
+	HRESULT LoadFromTGAFile(const wchar_t* file, TexMetadata* meta, ScratchImage& image);
+	HRESULT LoadFromTGAFile(const char* file, TexMetadata* meta, ScratchImage& image);
+	HRESULT SaveToDDSFile(const Image* images, size_t count, const TexMetadata& meta, DDS_FLAGS flags, const wchar_t* file);
+	HRESULT SaveToDDSFile(const Image* images, size_t count, const TexMetadata& meta, DDS_FLAGS flags, const char* file);
+	HRESULT Resize(const Image& src, size_t width, size_t height, TEX_FILTER_FLAGS filter, ScratchImage& out);
+	HRESULT GenerateMipMaps(const Image* images, size_t count, const TexMetadata& meta, TEX_FILTER_FLAGS filter, size_t levels, ScratchImage& out);
+	HRESULT Compress(const Image* images, size_t count, const TexMetadata& meta, DXGI_FORMAT format, TEX_COMPRESS_FLAGS flags, float threshold, ScratchImage& out);
+	HRESULT Decompress(const Image* images, size_t count, const TexMetadata& meta, DXGI_FORMAT format, ScratchImage& out);
+	HRESULT Convert(const Image& src, DXGI_FORMAT format, TEX_FILTER_FLAGS filter, float threshold, ScratchImage& out);
+
 	// DDS (DX10 머리 · 옛 FourCC DXT1/3/5 · 기본 RGBA8/BGRA8)
 	HRESULT LoadFromDDSMemory(const uint8_t* data, size_t size, DDS_FLAGS flags, TexMetadata* meta, ScratchImage& image);
 	HRESULT LoadFromDDSFile(const wchar_t* file, DDS_FLAGS flags, TexMetadata* meta, ScratchImage& image);
+	HRESULT LoadFromDDSFile(const char* file, DDS_FLAGS flags, TexMetadata* meta, ScratchImage& image);
 }
