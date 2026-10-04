@@ -4,6 +4,37 @@
 
 namespace
 {
+	bool IsJoint2DReference(const json& c)
+	{
+		const std::string type = c.value("type", std::string());
+		return type == "HingeJoint2D" || type == "SpringJoint2D" || type == "DistanceJoint2D" ||
+			type == "WheelJoint2D" || type == "FixedJoint2D" || type == "SliderJoint2D";
+	}
+	void RemapJoint2DReferences(json& obj, const std::unordered_map<uint64, uint64>& ids)
+	{
+		if (obj.contains("components")) for (auto& c : obj["components"])
+			if (c.is_object() && IsJoint2DReference(c))
+				if (auto it = ids.find(c.value("connectedBody", (uint64)0)); it != ids.end()) c["connectedBody"] = it->second;
+		if (obj.contains("children")) for (auto& child : obj["children"]) RemapJoint2DReferences(child, ids);
+	}
+	void ResolveJoint2DReferences(json& root)
+	{
+		const std::string asset = root.at("prefab").value("asset", std::string());
+		std::unordered_map<uint64, uint64> ids;
+		std::function<void(const json&)> collect = [&](const json& obj) {
+			if (obj.contains("prefab") && obj["prefab"].value("asset", std::string()) == asset)
+				ids[obj["prefab"].value("source", (uint64)0)] = obj.value("fileID", (uint64)0);
+			if (obj.contains("children")) for (const auto& child : obj["children"]) collect(child);
+		};
+		collect(root); ids.erase(0); RemapJoint2DReferences(root, ids);
+	}
+	uint64 Joint2DSourceID(uint64 id, const std::string& asset)
+	{
+		auto* scene = SceneManager::GetI()->GetCurrentScene();
+		auto* target = scene ? scene->FindByFileID(id) : nullptr;
+		if (target && target->GetPrefabLink().Asset == asset) return target->GetPrefabLink().Source;
+		return id;
+	}
 	// ---- 에셋 캐시 (파일이 바뀌면 다시 읽는다) ----
 	struct AssetVersion
 	{
@@ -351,6 +382,7 @@ namespace PrefabUtility
 			return nullptr;
 		}
 		json j = MakeInstanceJson(asset->Latest().Root, path, true);
+		ResolveJoint2DReferences(j);
 		j["prefab"]["merged"] = true;   // 방금 에셋에서 만들었으니 다시 조립할 필요 없음
 		GameObject* go = new GameObject();
 		from_json(j, *go);
@@ -390,7 +422,10 @@ namespace PrefabUtility
 			{
 				if (field.key() == "type" || AlwaysInstance(key, field.key(), link.Root))
 					continue;
-				if (!it->second->contains(field.key()) || (*it->second)[field.key()] != field.value())
+				json value = field.value();
+				if (field.key() == "connectedBody" && IsJoint2DReference(*comp))
+					value = Joint2DSourceID(field.value().get<uint64>(), link.Asset);
+				if (!it->second->contains(field.key()) || (*it->second)[field.key()] != value)
 					out.push_back(key + "/" + field.key());
 			}
 		}
@@ -409,6 +444,7 @@ namespace PrefabUtility
 	json MergeWithAsset(const json& instanceRootJson)
 	{
 		json out = MergeObject(instanceRootJson, ReadLink(instanceRootJson).Asset);
+		ResolveJoint2DReferences(out);
 		out["prefab"]["merged"] = true;
 		return out;
 	}
@@ -479,6 +515,9 @@ namespace PrefabUtility
 			return j;
 		};
 		json root = build(instanceRoot);
+		std::unordered_map<uint64, uint64> jointIds;
+		WalkObjects(instanceRoot, [&](GameObject* g) { jointIds[g->GetFileID()] = g->GetPrefabLink().Source; });
+		RemapJoint2DReferences(root, jointIds);
 		if (old)
 		{
 			const json& oldRoot = old->Latest().Root;

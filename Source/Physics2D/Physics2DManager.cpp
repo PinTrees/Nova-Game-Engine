@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Physics2DManager.h"
 #include "Physics2DComponents.h"
+#include "Physics2DJoints.h"
 #include "Physics2DSettings.h"
 #include "PhysicsManager.h"
 #include "CSharpScript.h"
@@ -15,6 +16,7 @@ namespace
 	{
 		GameObject* Owner = nullptr;
 		Rigidbody2D* Rb = nullptr;            // nullptr = 정적 (콜라이더만)
+		std::shared_ptr<Rigidbody2D> RbOwner; // 제거된 컴포넌트를 Box2D 몸체가 지워질 때까지 붙잡아 둔다
 		b2BodyId Id = b2_nullBodyId;
 		std::vector<b2ShapeId> Shapes;
 		size_t ShapeSig = 0;
@@ -305,6 +307,7 @@ namespace
 				rec.Id = b2CreateBody(s_World, &bd);
 				rec.Owner = owner;
 				rec.Rb = rb;
+				rec.RbOwner = rb ? owner->GetComponent_SP<Rigidbody2D>() : nullptr;
 				rec.Type = type;
 				rec.ShapeSig = 0;
 				rec.LastPos = pos;
@@ -546,10 +549,12 @@ namespace Physics2DManager
 		s_Accumulator = 0.0f;
 		s_FilterVersion = Physics2DSettings::Version();
 		Sync();   // Start 에서 Rigidbody2D 를 바로 쓸 수 있게 (Unity 와 같음)
+		Physics2DJointsRuntime::Sync(s_Scene, s_World);
 	}
 
 	void Exit()
 	{
+		Physics2DJointsRuntime::Reset();
 		if (B2_IS_NON_NULL(s_World))
 			b2DestroyWorld(s_World);   // 몸체 · 모양도 함께
 		for (auto& [go, rec] : s_Bodies)
@@ -582,6 +587,7 @@ namespace Physics2DManager
 		{
 			s_Accumulator -= step;
 			if (!synced) { Sync(); synced = true; }
+			Physics2DJointsRuntime::Sync(s_Scene, s_World);
 			// Kinematic MovePosition / MoveRotation: 이번 단계 동안 그곳으로
 			for (auto& [go, rec] : s_Bodies)
 				if (rec.Rb && (rec.Rb->HasMoveTarget || rec.Rb->HasMoveAngle))
@@ -596,6 +602,7 @@ namespace Physics2DManager
 				}
 			b2World_Step(s_World, step, kSubSteps);
 			WriteBack();
+			Physics2DJointsRuntime::AfterStep();
 			ProcessEvents();
 			if (B2_IS_NULL(s_World))
 				return;

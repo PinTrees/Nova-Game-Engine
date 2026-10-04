@@ -44,6 +44,7 @@ public:
 	virtual void OnTriggerEnter(Collider* other) override;
 	virtual void OnControllerColliderHit(const struct ControllerColliderHit& hit, int index) override;
 	virtual void OnJointBreak(float breakForce) override;
+	void OnJointBreak2D(int kind, int componentId);
 	virtual void OnTriggerStay(Collider* other) override;
 	virtual void OnTriggerExit(Collider* other) override;
 

@@ -108,6 +108,7 @@ public:
 		if (component == nullptr)
 			return;
 		component->SetGameObject(this);
+		EnsureRequiredComponents(component.get(), true);
 		m_ComponentsToAdd.push_back(component);
 	}
 	template <class T>
@@ -117,6 +118,7 @@ public:
 		Component* baseComponent = static_cast<Component*>(component.get());
 
 		baseComponent->SetGameObject(this);
+		EnsureRequiredComponents(baseComponent, false);
 		m_Components.push_back(component);
 		
 		if ("Light" == baseComponent->GetType())
@@ -139,6 +141,7 @@ public:
 		}
 
 		component->SetGameObject(this);
+		EnsureRequiredComponents(component.get(), false);
 		m_Components.push_back(component);
 	}
 	// 같은 자리의 컴포넌트를 바꾼다 (패키지를 넣은 뒤 MissingComponent → 실제 컴포넌트)
@@ -190,6 +193,7 @@ public:
 
 private:
 	friend class GameObject;
+	void EnsureRequiredComponents(Component* component, bool deferred);
 	friend class Scene;
 	friend class GameObjectFactory;   // Scene::DestroyGameObject 가 부모의 자식 목록을 정리한다
 	void SetChild(GameObject* child);

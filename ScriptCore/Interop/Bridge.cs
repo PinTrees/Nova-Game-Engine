@@ -451,6 +451,15 @@ namespace NovaEngine.Interop
         {
             var mb = ScriptRegistry.FromHandle(handle);
             if (mb == null || mb.m_Destroyed) return;
+            if (kind == 6)
+            {
+                MethodInfo jointMethod = FindMethod(mb.GetType(), "OnJointBreak2D", typeof(Joint2D)) ?? FindMethod(mb.GetType(), "OnJointBreak2D", null);
+                if (jointMethod == null) return;
+                try { jointMethod.Invoke(mb, jointMethod.GetParameters().Length == 0 ? null : new object[] { Joint2D.FromNative(mb.m_Id, phase, (int)other) }); }
+                catch (TargetInvocationException e) { LogException(e.InnerException ?? e); }
+                catch (Exception e) { LogException(e); }
+                return;
+            }
             if (kind == 3)
             {
                 // OnJointBreak(float breakForce): 힘 = other 의 float 비트

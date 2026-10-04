@@ -56,6 +56,7 @@ namespace NovaEngine
         public static void Destroy(Object obj, float t = 0f)
         {
             if (obj is null) return;
+            if (obj is Joint2D joint) { joint.RemoveJoint(); return; }
             if (obj is MonoBehaviour mb) { mb.RequestDestroyComponent(); return; }
             if (obj is Component c && !(obj is Transform)) { c.RemoveNative(); return; }
             GameObject.DestroyNative(obj.m_Id, t);
@@ -162,6 +163,11 @@ namespace NovaEngine
         public unsafe Component GetComponent(Type type)
         {
             if (type == typeof(Transform) || type == typeof(Component)) return transform;
+            if (typeof(Joint2D).IsAssignableFrom(type))
+            {
+                var joints = Joint2D.ListNative(m_Id, type);
+                return joints.Length == 0 ? null : joints[0];
+            }
             // 추상 UI 타입: 실제 컴포넌트로 (Image → Text 순)
             if (type == typeof(UI.Graphic)) return GetComponent(typeof(UI.Image)) ?? GetComponent(typeof(UI.Text));
             if (type == typeof(UI.Selectable))
@@ -183,6 +189,11 @@ namespace NovaEngine
         public T[] GetComponents<T>() where T : class
         {
             var list = new List<T>();
+            if (typeof(Joint2D).IsAssignableFrom(typeof(T)))
+            {
+                foreach (var joint in Joint2D.ListNative(m_Id, typeof(T))) list.Add(joint as T);
+                return list.ToArray();
+            }
             if (typeof(MonoBehaviour).IsAssignableFrom(typeof(T)) || typeof(T) == typeof(Component) || typeof(T) == typeof(Behaviour))
             {
                 foreach (var s in ScriptRegistry.Get(m_Id))
@@ -237,6 +248,11 @@ namespace NovaEngine
             if (r == IntPtr.Zero) return null;
             if (typeof(MonoBehaviour).IsAssignableFrom(type))
                 return ScriptRegistry.FromHandle(r);
+            if (typeof(Joint2D).IsAssignableFrom(type))
+            {
+                var joints = Joint2D.ListNative(m_Id, type);
+                return joints.Length == 0 ? null : joints[joints.Length - 1];
+            }
             return GetComponent(type);
         }
 

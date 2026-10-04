@@ -54,6 +54,10 @@ void SceneManager::LoadScene(wstring scenePath)
 {
 	const auto cached = m_Scenes.find(scenePath);
 	Scene* scene = cached != m_Scenes.end() ? cached->second : Scene::Load(scenePath);
+	// 다른 이름으로 저장하면 현재 씬이 같은 경로의 다른 표기를 가질 수 있다.
+	// 캐시된 포인터가 현재 씬 자신일 수 있어 내리기 전에 다시 불러온다
+	if (scene && scene == m_pCurrScene && scene->GetScenePath() != scenePath)
+		scene = Scene::Load(scenePath);
 	if (scene == nullptr)
 	{
 		// 불러오기가 실패하면 경로/선택/Undo/수정 상태를 포함한 현재 작업을 그대로 둔다.

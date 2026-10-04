@@ -244,6 +244,14 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<int, int, int, void> P2_IgnoreLayer;
         public delegate* unmanaged<int, int, int> P2_GetIgnoreLayer;
         public delegate* unmanaged<ulong, ulong, float*, int> P2_Contact;
+        public delegate* unmanaged<ulong, int, int, int, float> J2_GetFloat;
+        public delegate* unmanaged<ulong, int, int, int, float, void> J2_SetFloat;
+        public delegate* unmanaged<ulong, int, int, int, Vector2*, void> J2_GetVec;
+        public delegate* unmanaged<ulong, int, int, int, Vector2*, void> J2_SetVec;
+        public delegate* unmanaged<ulong, int, int, ulong> J2_GetConnected;
+        public delegate* unmanaged<ulong, int, int, ulong, void> J2_SetConnected;
+        public delegate* unmanaged<ulong, int, int, int> J2_Find;
+        public delegate* unmanaged<ulong, int, int, void> J2_Remove;
     }
 
     internal static unsafe class Native

@@ -8,6 +8,139 @@ namespace NovaEngine
     public enum ForceMode2D { Force = 0, Impulse = 1 }
     public enum CollisionDetectionMode2D { Discrete = 0, Continuous = 1 }
 
+    public struct JointMotor2D { public float motorSpeed, maxMotorTorque; }
+    public struct JointAngleLimits2D { public float min, max; }
+    public struct JointTranslationLimits2D { public float min, max; }
+    public struct JointSuspension2D { public float dampingRatio, frequency, angle; }
+
+    public abstract unsafe class Joint2D : Component
+    {
+        internal int InstanceId;
+        internal abstract int Kind { get; }
+        internal float GetF(int p) => Native.Api.J2_GetFloat(m_Id, Kind, InstanceId, p);
+        internal void SetF(int p, float value) => Native.Api.J2_SetFloat(m_Id, Kind, InstanceId, p, value);
+        internal Vector2 GetV(int p) { Vector2 v; Native.Api.J2_GetVec(m_Id, Kind, InstanceId, p, &v); return v; }
+        internal void SetV(int p, Vector2 v) => Native.Api.J2_SetVec(m_Id, Kind, InstanceId, p, &v);
+        internal override bool IsAlive() => m_Id != 0 && GetF(23) != 0;
+        public override bool Equals(object obj) => obj is Joint2D j && j.m_Id == m_Id && j.Kind == Kind && j.InstanceId == InstanceId;
+        public override int GetHashCode() => HashCode.Combine(m_Id, Kind, InstanceId);
+        public new ulong GetInstanceID() => (ulong)InstanceId;
+        internal void RemoveJoint() { Native.Api.J2_Remove(m_Id, Kind, InstanceId); m_Id = 0; }
+        public bool enabled { get => GetF(21) != 0; set => SetF(21, value ? 1 : 0); }
+        public Rigidbody2D attachedRigidbody => gameObject.GetComponent<Rigidbody2D>();
+        public Rigidbody2D connectedBody
+        {
+            get { ulong id = Native.Api.J2_GetConnected(m_Id, Kind, InstanceId); return id == 0 ? null : new GameObject(id).GetComponent<Rigidbody2D>(); }
+            set => Native.Api.J2_SetConnected(m_Id, Kind, InstanceId, value == null ? 0 : value.m_Id);
+        }
+        public bool enableCollision { get => GetF(2) != 0; set => SetF(2, value ? 1 : 0); }
+        public float breakForce { get => GetF(0); set => SetF(0, value); }
+        public float breakTorque { get => GetF(1); set => SetF(1, value); }
+        public Vector2 reactionForce => GetV(2);
+        public float reactionTorque => GetF(22);
+        // Box2D v3 는 마지막 시뮬레이션 단계의 시간으로 힘을 돌려준다
+        public Vector2 GetReactionForce(float timeStep) => reactionForce;
+        public float GetReactionTorque(float timeStep) => reactionTorque;
+        internal static Joint2D FromNative(ulong owner, int kind, int instance)
+        {
+            Joint2D joint = kind switch { 0 => new HingeJoint2D(), 1 => new SpringJoint2D(), 2 => new DistanceJoint2D(),
+                3 => new WheelJoint2D(), 4 => new FixedJoint2D(), 5 => new SliderJoint2D(), _ => null };
+            if (joint is null) return null;
+            joint.m_Id = owner; joint.InstanceId = instance; return joint;
+        }
+        internal static Joint2D[] ListNative(ulong owner, Type type)
+        {
+            var list = new System.Collections.Generic.List<Joint2D>();
+            for (int kind = 0; kind < 6; kind++)
+                for (int index = 0; ; index++)
+                {
+                    int id = Native.Api.J2_Find(owner, kind, index); if (id == 0) break;
+                    Joint2D joint = FromNative(owner, kind, id);
+                    if (type.IsInstanceOfType(joint)) list.Add(joint);
+                }
+            return list.ToArray();
+        }
+    }
+
+    public abstract class AnchoredJoint2D : Joint2D
+    {
+        public Vector2 anchor { get => GetV(0); set => SetV(0, value); }
+        public Vector2 connectedAnchor { get => GetV(1); set => SetV(1, value); }
+        public bool autoConfigureConnectedAnchor { get => GetF(3) != 0; set => SetF(3, value ? 1 : 0); }
+    }
+
+    [NativeComponent("HingeJoint2D")]
+    public sealed class HingeJoint2D : AnchoredJoint2D
+    {
+        internal HingeJoint2D() { }
+        internal override int Kind => 0;
+        public bool useMotor { get => GetF(4) != 0; set => SetF(4, value ? 1 : 0); }
+        public JointMotor2D motor { get => new JointMotor2D { motorSpeed = GetF(5), maxMotorTorque = GetF(6) }; set { SetF(5, value.motorSpeed); SetF(6, value.maxMotorTorque); } }
+        public bool useLimits { get => GetF(7) != 0; set => SetF(7, value ? 1 : 0); }
+        public JointAngleLimits2D limits { get => new JointAngleLimits2D { min = GetF(8), max = GetF(9) }; set { SetF(8, value.min); SetF(9, value.max); } }
+        public float jointAngle => GetF(17);
+        public float jointSpeed => GetF(18);
+        public float GetMotorTorque(float timeStep) => GetF(20);
+    }
+
+    [NativeComponent("SpringJoint2D")]
+    public sealed class SpringJoint2D : AnchoredJoint2D
+    {
+        internal SpringJoint2D() { }
+        internal override int Kind => 1;
+        public bool autoConfigureDistance { get => GetF(11) != 0; set => SetF(11, value ? 1 : 0); }
+        public float distance { get => GetF(10); set => SetF(10, value); }
+        public float dampingRatio { get => GetF(12); set => SetF(12, value); }
+        public float frequency { get => GetF(13); set => SetF(13, value); }
+    }
+
+    [NativeComponent("DistanceJoint2D")]
+    public sealed class DistanceJoint2D : AnchoredJoint2D
+    {
+        internal DistanceJoint2D() { }
+        internal override int Kind => 2;
+        public bool autoConfigureDistance { get => GetF(11) != 0; set => SetF(11, value ? 1 : 0); }
+        public float distance { get => GetF(10); set => SetF(10, value); }
+        public bool maxDistanceOnly { get => GetF(14) != 0; set => SetF(14, value ? 1 : 0); }
+    }
+
+    [NativeComponent("WheelJoint2D")]
+    public sealed class WheelJoint2D : AnchoredJoint2D
+    {
+        internal WheelJoint2D() { }
+        internal override int Kind => 3;
+        public JointSuspension2D suspension { get => new JointSuspension2D { dampingRatio = GetF(12), frequency = GetF(13), angle = GetF(15) }; set { SetF(12, value.dampingRatio); SetF(13, value.frequency); SetF(15, value.angle); } }
+        public bool useMotor { get => GetF(4) != 0; set => SetF(4, value ? 1 : 0); }
+        public JointMotor2D motor { get => new JointMotor2D { motorSpeed = GetF(5), maxMotorTorque = GetF(6) }; set { SetF(5, value.motorSpeed); SetF(6, value.maxMotorTorque); } }
+        public float jointSpeed => GetF(18);
+        public float GetMotorTorque(float timeStep) => GetF(20);
+    }
+
+    [NativeComponent("FixedJoint2D")]
+    public sealed class FixedJoint2D : AnchoredJoint2D
+    {
+        internal FixedJoint2D() { }
+        internal override int Kind => 4;
+        public float dampingRatio { get => GetF(12); set => SetF(12, value); }
+        public float frequency { get => GetF(13); set => SetF(13, value); }
+    }
+
+    [NativeComponent("SliderJoint2D")]
+    public sealed class SliderJoint2D : AnchoredJoint2D
+    {
+        internal SliderJoint2D() { }
+        internal override int Kind => 5;
+        public bool autoConfigureAngle { get => GetF(16) != 0; set => SetF(16, value ? 1 : 0); }
+        public float angle { get => GetF(15); set => SetF(15, value); }
+        public bool useMotor { get => GetF(4) != 0; set => SetF(4, value ? 1 : 0); }
+        public JointMotor2D motor { get => new JointMotor2D { motorSpeed = GetF(5), maxMotorTorque = GetF(6) }; set { SetF(5, value.motorSpeed); SetF(6, value.maxMotorTorque); } }
+        public bool useLimits { get => GetF(7) != 0; set => SetF(7, value ? 1 : 0); }
+        public JointTranslationLimits2D limits { get => new JointTranslationLimits2D { min = GetF(8), max = GetF(9) }; set { SetF(8, value.min); SetF(9, value.max); } }
+        public float jointTranslation => GetF(19);
+        public float jointSpeed => GetF(18);
+        public float GetMotorForce(float timeStep) => GetF(20);
+    }
+
     [NativeComponent("Rigidbody2D")]
     public sealed unsafe class Rigidbody2D : Component
     {

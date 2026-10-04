@@ -92,7 +92,7 @@ Codex의 씬 작업은 Shader Graph API, 재질 직렬화, 렌더링, C# 바인�
 
 | 담당 | 작업 | 주 파일 | 상태 |
 |---|---|---|---|
-| **Codex** | **Joint 2D** (Unity 의 2D Joint 6 종) | `Source/Physics2D/` (새 `Physics2DJoints.*` 권장), `ScriptCore/Engine/Physics2D.cs`, `Source/Scripting/ScriptBindings.cpp` · `ScriptCore/Interop/NativeApi.cs` (C# 네이티브 표 — **이번 회차는 Codex 만** 고친다), 새 검사 `Tools/tests/joints2d.ps1` | 사용자 확인 후 착수 |
+| **Codex** | **Joint 2D** (Unity 의 2D Joint 6 종) | `Source/Physics2D/` (새 `Physics2DJoints.*` 권장), `ScriptCore/Engine/Physics2D.cs`, `Source/Scripting/ScriptBindings.cpp` · `ScriptCore/Interop/NativeApi.cs` (C# 네이티브 표 — **이번 회차는 Codex 만** 고친다), 새 검사 `Tools/tests/joints2d.ps1` | 구현·독립 검증 완료: Joint 42/42, 기존 물리 8/8, 씬 44/44 (10월 3일 04시 39분). **통합 · 커밋 (10월 4일, Claude — 사용자 지시)**: 최신 main (안드로이드 · Decal 포함) 빌드에서 joints2d 42/42 다시 확인 |
 | Codex (다음 후보) | Tilemap (Tile Palette 창, Tilemap Renderer, Tilemap Collider 2D) — 아래 "Tilemap 명세" | `Source/` 아래 새 폴더 (예: `Source/Tilemap/`), 위 C# 표 | Joint 2D 다음 — 사용자 확인 후 착수 |
 | **Claude** | **Decal** (Unity URP 의 Decal Projector — 깊이 버퍼에서 표면 위치를 되살려 그림 투영, 일반 재질 + Shader Graph 데칼) | 새 `Source/Scene/DecalProjector.*`, 새 셰이더 (`Shaders/52. Decal.fx`), `Source/Editor/EditorApp.cpp` (그리는 순서), `Source/ShaderGraph/` | 완료 · push (`ce15018`). Joint 2D 와 합친 독립 빌드 검사: joints2d 42/42, physics2d · decal 13/13 (10월 3일 05시 05분) |
 | **Claude** | **Reflection Probe** (Unity 의 Reflection Probe — Baked · Realtime · Custom, Box Projection, 블렌드) — 아래 "Reflection Probe (Claude)" | 새 `Source/Scene/ReflectionProbe.*`, 새 `Source/Graphics/DX11/ReflectionProbes.*`, 새 셰이더, `Shaders/32. InstancedBasic.fx` (반사 함수), `Source/Editor/EditorApp.cpp` (Game 뷰 그리기를 함수로 나눔) | 완료 · push (`10bbdac`) |
@@ -152,6 +152,14 @@ Codex의 씬 작업은 Shader Graph API, 재질 직렬화, 렌더링, C# 바인�
   8. 저장 → 다시 열기 · Undo · Play/Stop 뒤 설정 그대로
   9. C# 으로 motor · limits 를 바꾸면 반영
   10. 기존 2D 물리 검사 (`run_tests.ps1 -Only physics2d`) 가 그대로 통과
+
+### Joint 2D 완료와 인계 (Codex, 2026년 10월 3일 04시 39분)
+
+사용자가 "새로운 작업 지시 내려왔어. 확인하고 작업 진행해줘"라고 직접 지시하여 위 Joint 2D 범위에 착수했다. 여섯 컴포넌트와 C# API, 에디터 필드/앵커, 몸체 재생성, 끊어짐, 저장/Undo/Play/프리팹/게임 실행을 구현했다. 검사에서 드러난 C# 오브젝트 캐시 생존 확인, 씬 캐시의 동일 포인터 재사용, 프리팹 연결 ID 변환도 담당 범위에 기록하고 보완했다.
+
+기준 커밋 `673c3b3`과 Codex 변경만 포함한 독립 엔진에서 Joint **42/42**, 기존 Physics 2D **8/8**, 씬 **44/44**를 통과했다. 차량 검사는 바퀴 두 개를 사용하며 빌드한 게임도 실행했다. Inspector UI 클릭과 앵커의 시각 검사는 미수행이고 Hinge 각도 제한은 3° 솔버 오차를 허용한다. 결과와 재실행 방법은 [Joint 2D 문서](JOINTS_2D.md), 세부 파일과 기록은 [Codex 상태](ai-status/CODEX.md)에 있다.
+
+네이티브 표 끝에 추가된 순서는 `J2_GetFloat`, `J2_SetFloat`, `J2_GetVec`, `J2_SetVec`, `J2_GetConnected`, `J2_SetConnected`, `J2_Find`, `J2_Remove`다. Codex의 표 편집은 완료했으므로 후속 Decal 바인딩은 이 뒤에 추가하고 엔진/SDK를 함께 빌드한다. 공용 AddComponentMenu의 Codex 6줄과 Claude Decal 1줄을 모두 보존했다. 최신 Decal 변경과 합친 검증은 별도로 해야 하며, 현재 공용 빌드 출력과 커밋/push는 변경하지 않았다.
 
 ### 공용 파일 편집 규칙 (둘 다 고칠 수 있는 파일)
 

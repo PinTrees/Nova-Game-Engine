@@ -9,11 +9,20 @@
 #include "UnityGUI.h"
 #include "MeshFilter.h"
 #include "MeshRenderer.h"
+#include "Physics2DComponents.h"
+#include "Physics2DJoints.h"
 #include <random>
 #include <memory>
 #include <stdexcept>
 
 atomic<uint64> GameObject::g_NextInstanceID = 0;
+
+void GameObject::EnsureRequiredComponents(Component* component, bool deferred)
+{
+    if (!dynamic_cast<Joint2D*>(component) || GetComponentIncludingPending<Rigidbody2D>()) return;
+    auto body = std::make_shared<Rigidbody2D>();
+    if (deferred) QueueComponent(body); else AddComponent(body);
+}
 
 namespace
 {
@@ -437,6 +446,11 @@ void from_json(const json& j, GameObject& obj)
             Component* pComponent = component.get();
             pComponent = obj.GetComponent<Transform>();
             pComponent->fromJson(compJson);
+        }
+        else if (type == "Rigidbody2D" && obj.GetComponent<Rigidbody2D>())
+        {
+            // 예전 JSON 에서 앞에 나온 Joint 가 이미 Rigidbody2D 를 붙였을 수 있다
+            obj.GetComponent<Rigidbody2D>()->fromJson(compJson);
         }
         else
         {

@@ -3,6 +3,7 @@
 #include "SpriteRenderer.h"
 #include "SpriteAnimator.h"
 #include "Physics2DComponents.h"
+#include "Physics2DJoints.h"
 #include "Physics2DManager.h"
 #include "Physics2DSettings.h"
 #include "TagsAndLayers.h"
@@ -226,10 +227,19 @@ namespace
 		void(*P2_IgnoreLayer)(int, int, int);
 		int(*P2_GetIgnoreLayer)(int, int);
 		int(*P2_Contact)(uint64, uint64, float*);      // self, other → point xy, normal xy, relativeVelocity xy
+		float(*J2_GetFloat)(uint64, int, int, int);
+		void(*J2_SetFloat)(uint64, int, int, int, float);
+		void(*J2_GetVec)(uint64, int, int, int, Vec2*);
+		void(*J2_SetVec)(uint64, int, int, int, Vec2*);
+		uint64(*J2_GetConnected)(uint64, int, int);
+		void(*J2_SetConnected)(uint64, int, int, uint64);
+		int(*J2_Find)(uint64, int, int);
+		void(*J2_Remove)(uint64, int, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
 	std::unordered_map<uint64, GameObject*> s_Cache;   // 프레임마다 비움
+	uint64 s_CacheSceneSerial = 0;
 	struct PendingAdd { GameObject* Object; uint64 Parent; bool WorldStays; };
 	std::vector<GameObject*> s_Created;                 // 이번 프레임에 만든 (아직 씬 목록에 없는) 오브젝트
 	struct DelayedDestroy { uint64 Id; float Time; };
@@ -252,14 +262,19 @@ namespace
 	{
 		if (id == 0)
 			return nullptr;
+		Scene* scene = CurrentScene();
+		const uint64 serial = scene ? scene->GetSerial() : 0;
+		if (serial != s_CacheSceneSerial) { s_Cache.clear(); s_CacheSceneSerial = serial; }
 		auto it = s_Cache.find(id);
 		if (it != s_Cache.end())
-			return it->second;
-		Scene* scene = CurrentScene();
+		{
+			if (GameObject::IsAlive(it->second) && it->second->GetFileID() == id) return it->second;
+			s_Cache.erase(it); // Undo 는 씬을 바꾸지 않고 루트 오브젝트를 바꿀 수 있다
+		}
 		GameObject* g = scene ? scene->FindByFileID(id) : nullptr;
 		if (g == nullptr)
 			for (GameObject* c : s_Created)
-				if (c->GetFileID() == id) { g = c; break; }
+				if (GameObject::IsAlive(c) && c->GetFileID() == id) { g = c; break; }
 		if (g)
 			s_Cache[id] = g;
 		return g;
@@ -366,6 +381,19 @@ namespace
 	}
 
 	template <typename T> T* Get(uint64 id) { GameObject* g = Find(id); return g ? g->GetComponent<T>() : nullptr; }
+	Rigidbody2D* Get2DBody(uint64 id) { auto* g = Find(id); return GameObject::IsAlive(g) ? g->GetComponentIncludingPending<Rigidbody2D>() : nullptr; }
+	Joint2D* FindJoint2D(uint64 id, int kind, int instance, int index = 0)
+	{
+		auto* go = Find(id);
+		if (!GameObject::IsAlive(go)) return nullptr;
+		for (const auto* list : { static_cast<const vector<shared_ptr<Component>>*>(&go->GetComponents()), &go->GetPendingComponents() })
+			for (const auto& c : *list)
+				if (auto* j = dynamic_cast<Joint2D*>(c.get()); j && (int)j->JointKind() == kind)
+				{
+					if (instance ? j->GetInstanceID() == instance : index-- == 0) return j;
+				}
+		return nullptr;
+	}
 
 	ForceMode ToForceMode(int m)
 	{
@@ -1276,12 +1304,12 @@ namespace ScriptBindings
 			else if (Light* l = Get<Light>(id)) l->SetCullingMaskBits((uint32)mask);
 		};
 		t.R2_GetVec = [](uint64 id, int prop, Vec2* out) {
-			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			Rigidbody2D* rb = Get2DBody(id);
 			if (!out) return;
 			*out = !rb ? Vec2(0, 0) : prop == 0 ? rb->GetVelocity() : rb->GetPosition();
 		};
 		t.R2_SetVec = [](uint64 id, int prop, Vec2* v) {
-			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			Rigidbody2D* rb = Get2DBody(id);
 			if (!rb || !v) return;
 			if (prop == 0) rb->SetVelocity(*v);
 			else
@@ -1293,7 +1321,7 @@ namespace ScriptBindings
 			}
 		};
 		t.R2_GetFloat = [](uint64 id, int prop) -> float {
-			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			Rigidbody2D* rb = Get2DBody(id);
 			if (!rb) return 0.0f;
 			switch (prop)
 			{
@@ -1310,7 +1338,7 @@ namespace ScriptBindings
 			}
 		};
 		t.R2_SetFloat = [](uint64 id, int prop, float v) {
-			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			Rigidbody2D* rb = Get2DBody(id);
 			if (!rb) return;
 			switch (prop)
 			{
@@ -1333,7 +1361,7 @@ namespace ScriptBindings
 			rb->ApplyDynamicSettings();
 		};
 		t.R2_Act = [](uint64 id, int kind, Vec2* a, Vec2* b, float value, int mode) {
-			Rigidbody2D* rb = Get<Rigidbody2D>(id);
+			Rigidbody2D* rb = Get2DBody(id);
 			if (!rb) return;
 			switch (kind)
 			{
@@ -1419,6 +1447,53 @@ namespace ScriptBindings
 			if (!a || !b || !out || !Physics2DManager::ContactInfo(a, b, p, n, v)) return 0;
 			out[0] = p.x; out[1] = p.y; out[2] = n.x; out[3] = n.y; out[4] = v.x; out[5] = v.y;
 			return 1;
+		};
+		t.J2_GetFloat = [](uint64 id, int kind, int instance, int prop) -> float {
+			auto* j = FindJoint2D(id, kind, instance); if (!j) return 0;
+			switch (prop) {
+			case 0: return j->BreakForce; case 1: return j->BreakTorque; case 2: return j->EnableCollision;
+			case 3: return j->AutoConfigureConnectedAnchor; case 4: return j->UseMotor;
+			case 5: return j->MotorSpeed; case 6: return j->MaxMotorForce; case 7: return j->UseLimits;
+			case 8: return j->LowerLimit; case 9: return j->UpperLimit; case 10: return j->Distance;
+			case 11: return j->AutoConfigureDistance; case 12: return j->DampingRatio; case 13: return j->Frequency;
+			case 14: return j->MaxDistanceOnly; case 15: return j->Angle; case 16: return j->AutoConfigureAngle;
+			case 17: return j->JointAngle; case 18: return j->JointSpeed; case 19: return j->JointTranslation;
+			case 20: return j->MotorForce; case 21: return j->IsEnabled(); case 22: return j->ReactionTorque;
+			case 23: return 1; default: return 0;
+			}
+		};
+		t.J2_SetFloat = [](uint64 id, int kind, int instance, int prop, float value) {
+			auto* j = FindJoint2D(id, kind, instance); if (!j || std::isnan(value)) return;
+			if (prop > 1 && !std::isfinite(value)) return;
+			const float positive = (std::max)(0.0f, value);
+			switch (prop) {
+			case 0: j->BreakForce = positive; break; case 1: j->BreakTorque = positive; break;
+			case 2: j->EnableCollision = value != 0; break; case 3: j->AutoConfigureConnectedAnchor = value != 0; break;
+			case 4: j->UseMotor = value != 0; break; case 5: j->MotorSpeed = value; break;
+			case 6: j->MaxMotorForce = positive; break; case 7: j->UseLimits = value != 0; break;
+			case 8: j->LowerLimit = value; break; case 9: j->UpperLimit = value; break;
+			case 10: j->Distance = positive; break; case 11: j->AutoConfigureDistance = value != 0; break;
+			case 12: j->DampingRatio = positive; break; case 13: j->Frequency = positive; break;
+			case 14: j->MaxDistanceOnly = value != 0; break; case 15: j->Angle = value; break;
+			case 16: j->AutoConfigureAngle = value != 0; break; case 21: j->SetEnabled(value != 0); break;
+			}
+		};
+		t.J2_GetVec = [](uint64 id, int kind, int instance, int prop, Vec2* out) {
+			if (!out) return; *out = Vec2(0, 0); auto* j = FindJoint2D(id, kind, instance); if (!j) return;
+			*out = prop == 0 ? j->Anchor : prop == 1 ? j->ConnectedAnchor : j->ReactionForce;
+		};
+		t.J2_SetVec = [](uint64 id, int kind, int instance, int prop, Vec2* value) {
+			auto* j = FindJoint2D(id, kind, instance); if (!j || !value || !std::isfinite(value->x) || !std::isfinite(value->y)) return;
+			if (prop == 0) j->Anchor = *value; if (prop == 1) j->ConnectedAnchor = *value;
+		};
+		t.J2_GetConnected = [](uint64 id, int kind, int instance) -> uint64 { auto* j = FindJoint2D(id, kind, instance); return j ? j->ConnectedBody : 0; };
+		t.J2_SetConnected = [](uint64 id, int kind, int instance, uint64 other) { if (auto* j = FindJoint2D(id, kind, instance)) j->ConnectedBody = other; };
+		t.J2_Find = [](uint64 id, int kind, int index) -> int { auto* j = FindJoint2D(id, kind, 0, index); return j ? j->GetInstanceID() : 0; };
+		t.J2_Remove = [](uint64 id, int kind, int instance) {
+			SceneManager::GetI()->AddLastUpdate([id, kind, instance]() {
+				if (auto* j = FindJoint2D(id, kind, instance))
+					if (auto* scene = CurrentScene()) scene->DestroyComponent(j);
+			});
 		};
 		t.SR_SetSortingLayer = [](uint64 id, u8* name) -> int {
 			SpriteRenderer* r = Get<SpriteRenderer>(id);

@@ -214,6 +214,12 @@ void CSharpScript::OnJointBreak(float breakForce)
 		ScriptEngine::InvokeCollision(m_Handle, 3, 0, (uint64_t)bits);
 }
 
+void CSharpScript::OnJointBreak2D(int kind, int componentId)
+{
+	if (m_Handle && Application::IsPlaying())
+		ScriptEngine::InvokeCollision(m_Handle, 6, kind, (uint64)componentId);
+}
+
 void CSharpScript::OnControllerColliderHit(const ControllerColliderHit& hit, int index)
 {
 	// C# 이 CC_GetHit 로 점·법선을 읽는다 (kind 2, phase = 번호)
