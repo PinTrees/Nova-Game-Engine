@@ -45,6 +45,20 @@ bool SkinnedMeshRenderer::SetMaterialPath(int index, const wstring& path)
 	return true;
 }
 
+void SkinnedMeshRenderer::SetMaterialAt(int index, shared_ptr<UMaterial> material, const wstring& path)
+{
+	if (index < 0)
+		return;
+	while ((int)m_pMaterials.size() <= index)
+	{
+		m_pMaterials.push_back(UMaterial::GetDefault());
+		m_MaterialPaths.push_back(L"builtin:Default-Material");
+	}
+	m_pMaterials[index] = material;
+	if (!path.empty())
+		m_MaterialPaths[index] = path;
+}
+
 void SkinnedMeshRenderer::SetSkinnedMesh(const wstring& path, int index)
 {
 	m_MeshPath = path;
@@ -255,9 +269,10 @@ void SkinnedMeshRenderer::DrawSubset(GfxContext* dc, int subset)
 
 // ------------------------------------------------------------------ 그리기
 // editor = true 면 Scene 뷰 카메라, false 면 게임 카메라
+// Inspector 의 체크 상자 (C# Renderer.enabled) 가 꺼지면 본 · 그림자 · 노멀 깊이 모두 그리지 않는다
 void SkinnedMeshRenderer::DrawSkinned(bool editor)
 {
-	if (m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 3)   // Shadows Only 는 본 패스에서 그리지 않음
+	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 3)   // Shadows Only 는 본 패스에서 그리지 않음
 		return;
 	EnsureBones();
 
@@ -298,7 +313,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 		for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
 		{
 			const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
-			shared_ptr<UMaterial> material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr;
+			shared_ptr<UMaterial> material = matIndex < RenderMaterials().size() ? RenderMaterials()[matIndex] : nullptr;
 			// 패키지 셰이더 (lilToon 등): 그 패키지가 그린다. 없으면 Fallback (Lit / Unlit) 으로 엔진이
 			if (material && material->IsCustom())
 				if (const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader()); shader && shader->DrawSkinned)
@@ -321,7 +336,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 	for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
 	{
 		const UINT matIndex = m_Mesh->Subsets[i].MaterialIndex;
-		shared_ptr<UMaterial> material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex] : nullptr;
+		shared_ptr<UMaterial> material = matIndex < RenderMaterials().size() ? RenderMaterials()[matIndex] : nullptr;
 		if (!material || !material->IsCustom())
 			continue;
 		const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader());
@@ -368,7 +383,7 @@ CustomShaders::SkinnedDraw SkinnedMeshRenderer::MakeCustomDraw(UMaterial* materi
 bool SkinnedMeshRenderer::DrawCustomClip(int subset, CustomShaders::DrawPass pass, FXMMATRIX world, CXMMATRIX viewProj, CXMMATRIX view, bool editor)
 {
 	const UINT matIndex = m_Mesh->Subsets[subset].MaterialIndex;
-	UMaterial* material = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex].get() : nullptr;
+	UMaterial* material = matIndex < RenderMaterials().size() ? RenderMaterials()[matIndex].get() : nullptr;
 	if (!material || !material->IsCustom())
 		return false;
 	const CustomShaders::Shader* shader = CustomShaders::Find(material->CustomShader());
@@ -403,7 +418,7 @@ void SkinnedMeshRenderer::_Editor_Render()
 
 void SkinnedMeshRenderer::RenderShadow()
 {
-	if (m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 1)   // Cast Shadows Off
+	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 1)   // Cast Shadows Off
 		return;
 	RenderStats::AddShadowCaster();
 	EnsureBones();
@@ -450,7 +465,7 @@ void SkinnedMeshRenderer::RenderShadow()
 UMaterial* SkinnedMeshRenderer::ClipMaterial(int subset, float& cutoff) const
 {
 	const UINT matIndex = m_Mesh->Subsets[subset].MaterialIndex;
-	UMaterial* m = matIndex < m_pMaterials.size() ? m_pMaterials[matIndex].get() : nullptr;
+	UMaterial* m = matIndex < RenderMaterials().size() ? RenderMaterials()[matIndex].get() : nullptr;
 	if (!m || !m->GetPbr().AlphaClip || !m->GetBaseMapSRV())
 		return nullptr;
 	cutoff = m->GetPbr().Cutoff / (std::max)(m->GetPbr().BaseColor.w, 1e-4f);
@@ -513,7 +528,7 @@ void SkinnedMeshRenderer::DrawSkinnedNormalDepth(bool editor)
 
 void SkinnedMeshRenderer::RenderShadowNormal()
 {
-	if (m_Mesh == nullptr || m_Mesh->Subsets.empty())
+	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty())
 		return;
 	EnsureBones();
 	DrawSkinnedNormalDepth(false);
@@ -521,7 +536,7 @@ void SkinnedMeshRenderer::RenderShadowNormal()
 
 void SkinnedMeshRenderer::_Editor_RenderShadowNormal()
 {
-	if (m_Mesh == nullptr || m_Mesh->Subsets.empty())
+	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty())
 		return;
 	EnsureBones();
 	DrawSkinnedNormalDepth(true);

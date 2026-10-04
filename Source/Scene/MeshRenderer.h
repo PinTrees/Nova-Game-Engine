@@ -1,6 +1,7 @@
 #pragma once
 #include "Component.h"
 #include "UMaterial.h"
+#include "MaterialBlock.h"
 
 class Model;
 class Shader;
@@ -34,15 +35,7 @@ private:
 	vector<shared_ptr<UMaterial>>	m_pMaterials;
 	vector<wstring>					m_MaterialPaths;
 
-public:
-	// MaterialPropertyBlock 값 하나 (float 은 V.x)
-	struct BlockValue { XMFLOAT4 V = XMFLOAT4(0, 0, 0, 0); bool Color = false; };
-
-private:
-	std::vector<std::pair<std::string, BlockValue>> m_Block;   // 이름 순
-	uint64 m_BlockHash = 0;
-	vector<shared_ptr<UMaterial>> m_RenderMaterials;   // 블록을 입힌 파생 재질 (GetRenderMaterials)
-	uint64 m_RenderStamp = 0;
+	MaterialBlock m_Block;   // C# MaterialPropertyBlock
 
 public:
 	MeshRenderer();
@@ -56,12 +49,12 @@ public:
 	// ---- 스크립트 (C#): Renderer.material · sharedMaterial · MaterialPropertyBlock
 	// 재질 칸에 재질 객체 (런타임 사본이면 path 를 비워 씬에 저장하는 경로는 그대로 — Unity 처럼 사본은 저장되지 않는다)
 	void SetMaterialAt(int index, shared_ptr<UMaterial> material, const wstring& path);
-	// MaterialPropertyBlock (SetPropertyBlock): 재질은 공유한 채 이 렌더러만 값을 바꾼다. 같은 재질 · 같은 블록 값의 렌더러는
-	//  파생 재질 하나를 같이 써서 인스턴싱 묶음이 유지된다 (값이 렌더러마다 다르면 그만큼 묶음이 나뉜다). 빈 목록 = 블록 없음
-	void SetPropertyBlock(std::vector<std::pair<std::string, BlockValue>> values);
-	const std::vector<std::pair<std::string, BlockValue>>& GetPropertyBlock() const { return m_Block; }
+	// MaterialPropertyBlock (SetPropertyBlock — MaterialBlock.h). 빈 목록 = 블록 없음
+	void SetPropertyBlock(MaterialBlock::Values values) { m_Block.Set(std::move(values)); }
+	const MaterialBlock::Values& GetPropertyBlock() const { return m_Block.Get(); }
 	// 그릴 재질: 블록이 없으면 GetMaterials 그대로, 있으면 파생 재질 (재질 값이 바뀌면 다시 만든다)
-	const vector<shared_ptr<UMaterial>>& GetRenderMaterials();
+	const vector<shared_ptr<UMaterial>>& GetRenderMaterials() { return m_Block.Apply(m_pMaterials); }
+	void SetCastShadows(int mode) { m_CastShadows = mode; }   // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
 	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }
 	// 엔진 내장 메시("builtin:Cube" 등)를 지정: 경로를 저장해 두었다가 씬을 다시 열 때 복원한다
 void SetBuiltinMesh(const wstring& builtinPath, shared_ptr<Mesh> mesh)

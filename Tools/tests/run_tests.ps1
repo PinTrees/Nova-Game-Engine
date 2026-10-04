@@ -1515,8 +1515,14 @@ function Suite-Sprites
         Invoke-Nova 'play' | Out-Null
         Wait-Sec 0.2
         $f1 = Invoke-NovaJson "exec --file $cf"
-        Wait-Sec 0.3
-        $f2 = Invoke-NovaJson "exec --file $cf"
+        # 4 프레임 · 12 fps = 한 바퀴 0.33 초: 한 번만 비교하면 간격이 한 바퀴와 겹쳐 같은 프레임이 나올 수 있다 → 몇 번 읽어 바뀐 것을 찾는다
+        $p1f = ("$($f1.result)" -split ' ')[2]
+        foreach ($wait in 0.15, 0.1, 0.12)
+        {
+            Wait-Sec $wait
+            $f2 = Invoke-NovaJson "exec --file $cf"
+            if (("$($f2.result)" -split ' ')[2] -ne $p1f) { break }
+        }
         $l1 = Invoke-NovaJson "exec --file $lf"
         Invoke-Nova 'stop' | Out-Null
         $p1 = "$($f1.result)" -split ' '; $p2 = "$($f2.result)" -split ' '
@@ -2791,6 +2797,31 @@ function Suite-Material
         Exec 'for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(null); return 0;' | Out-Null
         $c4 = Colors 'block_cleared.png'
         Add-Result material 'SetPropertyBlock(null): back to the shared material' ($c4.Yellow -lt 10 -and $c4.Cyan -lt 10 -and $c4.Green -gt $c2.Green) ("yellow {0}, cyan {1}, green {2}" -f $c4.Yellow, $c4.Cyan, $c4.Green)
+
+        # 6. Renderer 공통 (GetComponent<Renderer>): bounds · shadowCastingMode (Unity 값) · enabled = false 면 그리지 않는다
+        $want = '{0:0.00},{1:0.00},{2:0.00}' -f ($cp[0] - 1.6), ($cp[1] - 0.2), $z
+        $r6 = Exec 'var a = GameObject.Find("A"); Renderer r = a.GetComponent<Renderer>(); var bb = r.bounds; var s = (r is MeshRenderer) + "|" + bb.center.x.ToString("0.00") + "," + bb.center.y.ToString("0.00") + "," + bb.center.z.ToString("0.00") + "|" + bb.size.x.ToString("0.00") + "|" + r.shadowCastingMode; r.shadowCastingMode = NovaEngine.Rendering.ShadowCastingMode.ShadowsOnly; s += "|" + a.GetComponent<MeshRenderer>().shadowCastingMode; r.shadowCastingMode = NovaEngine.Rendering.ShadowCastingMode.On; r.enabled = false; return s + "|" + a.GetComponent<MeshRenderer>().enabled;'
+        $c6 = Colors 'renderer_disabled.png'
+        Exec 'GameObject.Find("A").GetComponent<Renderer>().enabled = true; return 0;' | Out-Null
+        $c6b = Colors 'renderer_enabled.png'
+        Add-Result material 'Renderer base class: GetComponent<Renderer>, bounds, shadowCastingMode, enabled = false hides A' ("$r6" -eq "True|$want|2.00|On|ShadowsOnly|False" -and $c6.Blue -le $c0.Blue + 100 -and $c6b.Blue -gt $c0.Blue + 1000) ("$r6 (want center $want); blue disabled {0} / enabled {1} (sky {2})" -f $c6.Blue, $c6b.Blue, $c0.Blue)
+
+        # 7. Skinned Mesh Renderer 도 같은 API: MaterialPropertyBlock 노랑 · enabled
+        Invoke-Nova 'create character --name Hero' | Out-Null
+        Invoke-Nova ("set Hero --position {0},0,{1}" -f ($cp[0] + 4.2), ($z - 1)) | Out-Null
+        $h0 = Colors 'hero.png'
+        $r7 = Exec 'var hero = GameObject.Find("Hero"); var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(1f, 0.85f, 0f, 1f)); int n = 0; foreach (var k in hero.GetComponentsInChildren<SkinnedMeshRenderer>()) { k.SetPropertyBlock(y); n++; } Renderer r = hero.GetComponentInChildren<Renderer>(); return n + "|" + (r is SkinnedMeshRenderer) + "|" + r.sharedMaterials.Length + "|" + r.HasPropertyBlock() + "|" + r.shadowCastingMode + "|" + r.bounds.size.y.ToString("0.0");'
+        $h1 = Colors 'hero_yellow.png'
+        Exec 'foreach (var k in GameObject.Find("Hero").GetComponentsInChildren<SkinnedMeshRenderer>()) k.enabled = false; return 0;' | Out-Null
+        $h2 = Colors 'hero_disabled.png'
+        $p7 = "$r7".Split('|')
+        Add-Result material 'SkinnedMeshRenderer: SetPropertyBlock recolors the character, enabled = false hides it' ($p7.Count -eq 6 -and [int]$p7[0] -ge 1 -and $p7[1] -eq 'True' -and [int]$p7[2] -ge 1 -and $p7[3] -eq 'True' -and $p7[4] -eq 'On' -and [double]$p7[5] -gt 1 -and $h1.Yellow -gt $h0.Yellow + 50 -and $h2.Yellow -lt $h0.Yellow + 20) ("$r7; yellow {0} -> {1} -> disabled {2}" -f $h0.Yellow, $h1.Yellow, $h2.Yellow)
+        Invoke-Nova 'delete Hero' | Out-Null
+
+        # 8. Sprite Renderer 도 Renderer: 재질은 없다 (null), 그림자 Off, bounds = 그림 사각형 × 크기
+        $r8 = Exec 'var g = new GameObject("Spr"); var sr = g.AddComponent<SpriteRenderer>(); sr.sprite = Sprite.FromPath("builtin:Square"); g.transform.position = new Vector3(0f, 50f, 0f); g.transform.localScale = new Vector3(2f, 3f, 1f); Renderer r = g.GetComponent<Renderer>(); var bb = r.bounds; r.SetPropertyBlock(new MaterialPropertyBlock()); return (r is SpriteRenderer) + "|" + (r.material == null) + "|" + r.shadowCastingMode + "|" + bb.size.x.ToString("0.0") + "," + bb.size.y.ToString("0.0") + "|" + bb.center.y.ToString("0.0");'
+        Add-Result material 'SpriteRenderer is a Renderer: no material (null), shadows Off, bounds = sprite rect' ("$r8" -eq 'True|True|Off|2.0,3.0|50.0') "$r8"
+        Invoke-Nova 'delete Spr' | Out-Null
 
         # 5. 사본은 씬에 저장되지 않는다 (Unity 처럼): 저장 · 다시 열면 A 는 공유 재질
         Invoke-Nova 'scene save --as Assets/MatTest/MatTest.scene' | Out-Null

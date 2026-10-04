@@ -1,4 +1,5 @@
 #pragma once
+#include "MaterialBlock.h"
 #include "CustomShaders.h"
 #include "Component.h"
 
@@ -30,6 +31,8 @@ private:
 	XMFLOAT4X4				m_MeshBind;           // 메시 노드의 바인드 전역 행렬 (단위 변환 제외) - 정점을 장면 공간으로
 
 	vector<shared_ptr<UMaterial>>	m_pMaterials;
+	mutable MaterialBlock			m_Block;   // C# MaterialPropertyBlock
+	const vector<shared_ptr<UMaterial>>& RenderMaterials() const { return m_Block.Apply(m_pMaterials); }   // 그릴 재질 (블록이면 파생 재질)
 
 	// Alpha Clipping 재질: 깊이 사전 패스 · 그림자에서도 잘라낸다
 	UMaterial* ClipMaterial(int subset, float& cutoff) const;
@@ -71,6 +74,14 @@ public:
 	void AddMaterial(shared_ptr<UMaterial> mat) { m_pMaterials.push_back(mat); }
 	// index 번째 재질 칸을 이 .mat 으로 (프로젝트 상대 경로, 읽지 못하면 그대로)
 	bool SetMaterialPath(int index, const wstring& path);
+
+	// ---- 스크립트 (C# Renderer): 재질 · MaterialPropertyBlock · 그림자 (Mesh Renderer 와 같은 뜻)
+	const vector<shared_ptr<UMaterial>>& GetMaterials() const { return m_pMaterials; }
+	void SetMaterialAt(int index, shared_ptr<UMaterial> material, const wstring& path);   // path 가 비면 씬에 저장하는 경로는 그대로 (런타임 사본)
+	void SetPropertyBlock(MaterialBlock::Values values) { m_Block.Set(std::move(values)); }
+	const MaterialBlock::Values& GetPropertyBlock() const { return m_Block.Get(); }
+	int GetCastShadows() const { return m_CastShadows; }
+	void SetCastShadows(int mode) { m_CastShadows = mode; }
 
 private:
 	// 패키지 셰이더 (CustomShaders) 에 넘길 그리기 정보

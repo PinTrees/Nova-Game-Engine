@@ -380,7 +380,8 @@ namespace
 		return nullptr;
 	}
 
-	template <typename T> T* Get(uint64 id) { GameObject* g = Find(id); return g ? g->GetComponent<T>() : nullptr; }
+	// 같은 프레임에 AddComponent 한 것도 (Unity 처럼 AddComponent<SpriteRenderer>().sprite = … 가 바로 먹는다)
+	template <typename T> T* Get(uint64 id) { GameObject* g = Find(id); return g ? g->GetComponentIncludingPending<T>() : nullptr; }
 	Rigidbody2D* Get2DBody(uint64 id) { auto* g = Find(id); return GameObject::IsAlive(g) ? g->GetComponentIncludingPending<Rigidbody2D>() : nullptr; }
 	Joint2D* FindJoint2D(uint64 id, int kind, int instance, int index = 0)
 	{

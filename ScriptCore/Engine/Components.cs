@@ -350,12 +350,14 @@ namespace NovaEngine
         /// <summary>이 빛이 비추는 레이어 (비트 = 레이어). 안 비추는 레이어는 이 빛의 그림자도 드리우지 않는다</summary>
         public int cullingMask { get => Native.Api.CL_GetMask(m_Id, 1); set => Native.Api.CL_SetMask(m_Id, 1, value); }
     }
-    public sealed partial class MeshRenderer : Component { internal MeshRenderer() { } }   // material · sharedMaterial · SetPropertyBlock = Material.cs
+    /// <summary>Unity 의 MeshRenderer (material · sharedMaterial · SetPropertyBlock · enabled · bounds = Renderer.cs)</summary>
+    public sealed class MeshRenderer : Renderer { internal MeshRenderer() { } internal override int Kind => 0; }
 
     /// <summary>Unity 의 SkinnedMeshRenderer: BlendShape (모프 타깃) 가중치 0..100</summary>
-    public sealed class SkinnedMeshRenderer : Component
+    public sealed class SkinnedMeshRenderer : Renderer
     {
         internal SkinnedMeshRenderer() { }
+        internal override int Kind => 1;
         public unsafe float GetBlendShapeWeight(int index) => Native.Api.SMR_GetWeight(m_Id, index);
         public unsafe void SetBlendShapeWeight(int index, float value) => Native.Api.SMR_SetWeight(m_Id, index, value);
         /// <summary>이 렌더러의 메시 (BlendShape 이름 · 수)</summary>
@@ -363,9 +365,10 @@ namespace NovaEngine
     }
 
     /// <summary>Unity 의 SpriteRenderer: 그림 · 색 · 뒤집기 · Order in Layer</summary>
-    public sealed unsafe class SpriteRenderer : Component
+    public sealed unsafe class SpriteRenderer : Renderer
     {
         internal SpriteRenderer() { }
+        internal override int Kind => 2;
         public Color color
         {
             get { float* c = stackalloc float[4]; return Native.Api.SR_GetColor(m_Id, c) != 0 ? new Color(c[0], c[1], c[2], c[3]) : Color.white; }
