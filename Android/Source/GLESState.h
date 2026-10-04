@@ -36,4 +36,22 @@ namespace GLESState
 	void ApplyDepthStencil(const D3D11_DEPTH_STENCIL_DESC& d, UINT ref);
 	GLuint CreateSampler(const D3D11_SAMPLER_DESC& d);
 	void ApplyDefaults();   // D3D11 기본 상태 + 원시 끊기 (0xFFFF / 0xFFFFFFFF)
+
+	// ---- 기억: 같은 값이면 GL 을 부르지 않는다 (에뮬레이터 · 드라이버는 GL 호출마다 비용 — 효과 Apply 가 유닛 수십 개를 매번 다시 묶었다).
+	//  이 함수들 밖에서 그 GL 상태 · 바인딩을 바꾼 곳은 Invalidate · Forget 으로 알린다
+	void InvalidateStates();          // ApplyRasterizer · ApplyBlend · ApplyDepthStencil 의 기억
+	void InvalidateBindings();        // 프로그램 · 상수 블록 · 텍스처 유닛 · 샘플러 · SSBO · image · 지금 유닛
+	void ForgetUnit(GLuint unit);     // 그 유닛의 텍스처를 밖에서 바꿨다
+	void NoteActiveUnit(GLuint unit); // 밖에서 glActiveTexture 했다
+	void UseProgram(GLuint program);
+	void BindUniformBuffer(GLuint binding, GLuint buffer);
+	void BindTexture(GLuint unit, GLenum target, GLuint texture);   // target 0 = 유닛 비우기 (2D · 배열 · 큐브 모두 0)
+	void BindSampler(GLuint unit, GLuint sampler);
+	void BindStorage(GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size);   // size 0 = 풀기
+	void BindImage(GLuint unit, GLuint texture, GLint level, GLenum format);         // texture 0 = 풀기
+	// GL 객체 (텍스처 · 버퍼 · 샘플러 · 프로그램 · 정점 배열) 를 지웠다: 이름이 다시 쓰일 수 있어 기억을 모두 버린다 (Epoch 도 하나 올린다)
+	void Deleted();
+	uint64_t Epoch();                 // 정점 배열 안의 버퍼 기억 (GfxGLES 의 GLLayout) 이 이것과 같을 때만 믿는다
+	void BindVertexArray(GLuint vao);
+	void ForgetVertexArray();         // 밖에서 glBindVertexArray 했다
 }

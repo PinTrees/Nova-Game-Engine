@@ -127,6 +127,8 @@ namespace Profiler
 		s_InFrame = Collecting();
 		if (!s_InFrame)
 			return;
+		// 프레임을 시작하는 스레드 = 구간을 재는 스레드 (안드로이드는 정적 초기화 스레드와 그리기 스레드가 다르다)
+		s_MainThread = std::this_thread::get_id();
 		static uint64_t s_Index = 0;
 		s_Current = Frame();
 		s_Current.Index = ++s_Index;

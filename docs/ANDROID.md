@@ -197,6 +197,33 @@ GLSL ES 3.20 으로 바꿔 `<이름>.json` 으로 쓰고, APK 의 `assets/Shader
   (예전에는 샘플러 × pass 마다 std::regex — lilToon · InstancedBasic 에서 각 4 초). 엔진 시작 (MuMu) 약 10 초 → **0.3 초**
 - 드라이버가 프로그램 바이너리를 주면 (`GL_NUM_PROGRAM_BINARY_FORMATS` > 0) 앱 파일 폴더의 `glcache/` 에 저장해 다음 실행부터 컴파일 없이 (MuMu 는 0 — 쓰지 않음)
 
+### 그리기 CPU (GL 상태 · 바인딩 기억)
+
+에뮬레이터 (MuMu) 는 GL 호출마다 번역 비용이 들고, 휴대폰 드라이버도 호출 수에 비례해 CPU 를 쓴다. 예전에는 효과 `Apply` 가
+프로그램 · 상수 블록 · **텍스처 유닛 전부** (셰이더 32 는 수십 개) · 샘플러 · SSBO 를 매번 다시 묶었고, 상태 (블렌드 한 번 = GL 호출 약 30 개) 도 매번 다시 썼다.
+
+- `GLESState` 가 마지막에 GL 에 넣은 값을 기억해 같으면 부르지 않는다: 프로그램, 상수 블록 바인딩, 유닛마다 텍스처 · 샘플러, SSBO · image,
+  래스터 · 블렌드 · 깊이 상태, VAO (와 VAO 안의 정점 · 인덱스 버퍼 — `GLLayout::Bound`). 상수 블록은 **바뀐 범위만** 올린다
+- 기억 밖에서 GL 을 바꾼 곳은 알린다: 지우기 (쓰기 마스크 · 가위) · Present · `RestoreState` → `InvalidateStates`, 텍스처 만들기 · 임시 유닛 → `InvalidateBindings` · `ForgetUnit`,
+  GL 객체를 지우면 (이름이 다시 쓰인다) `Deleted` (모든 기억을 버리고 VAO 기억의 Epoch 를 올린다)
+
+도시 장면 (`Tools/tests/android_city_perf.ps1 -Profile`, 1280x720, 렌더러 2128) 의 프레임마다 GL 호출:
+
+| | 전 | 후 |
+|---|---|---|
+| glUseProgram | 205 | 37 |
+| 상수 블록 바인딩 · 올리기 | 1240 · 87 KB | 33 · 31 KB |
+| 텍스처 · 샘플러 바인딩 | 3528 · 3528 | 79 · 48 |
+| 정점 · 인덱스 버퍼 | 554 | 95 |
+| 상태 적용 | 104 | 49 |
+
+프레임 (MuMu, 중앙값): 오클루전 켬 11.6 → 11.0 ms, 끔 13.9 → 11.6 ms. MuMu 는 실행마다 차이가 크다 (같은 APK 로 10 ~ 19 ms) — 여러 번 재 중앙값으로 본다.
+`-Profile` 의 구간 (켬, 9 ~ 10 ms): 그리기 (GameView render) 약 4 ms, **물리 갱신 약 3.3 ms** (정적 콜라이더 2200 개의 동기화를 고정 스텝마다 처음부터 —
+GL 과 상관없는 엔진 CPU, 다음 작업), 카메라 · 빛 1.1 ms, 컬링 갱신 0.9 ms.
+
+- 진단: `-e profile on` → 결과 (`result_scene.json`) 의 `gl` (GL 호출 종류별 수, 늘 센다 — `GlesCounters`) · `scopes` (Profiler 구간, 깊이 3 까지 프레임마다 평균).
+  logcat 의 `NOVA_TEST` 줄은 1024 자에서 잘려 검사 스크립트는 파일을 받는다. `-SkipBuild` = 에디터의 장면 단계를 건너뛰고 APK 만 다시
+
 ## 검사 (MuMu 플레이어, 창 없이 터미널로)
 
 ```bash

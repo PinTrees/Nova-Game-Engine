@@ -18,6 +18,8 @@
 #include <fstream>
 #include <locale>
 #include "OcclusionCulling.h"
+#include "Profiler.h"
+#include <map>
 
 // NOVA 안드로이드 진입점 (NativeActivity + NDK native_app_glue — Java 코드 없음).
 //  - 검사 실행기: `am start -n com.nova.engine/android.app.NativeActivity -e test rhi` → 화면 없는 EGL (pbuffer) 의
@@ -147,6 +149,33 @@ namespace
 	}
 
 	// 엔진 장면 검사: 게임 데이터의 첫 씬을 화면 없이 (pbuffer) 몇 프레임 돌리고 백버퍼를 BMP 로
+	// 그리기 CPU 진단 (-e profile on): 잰 프레임의 Profiler 구간 (깊이 3 까지, 프레임마다 평균 ms) — 측정값이 조금 늘어 따로 돌린다
+	bool s_Profile = false;
+	std::string s_Scopes = "null", s_GlCalls = "null";
+
+	std::string ScopesJson(int frames)
+	{
+		std::map<std::pair<int, std::string>, double> sum;
+		const auto& history = Profiler::History();
+		const int n = (std::min)((int)history.size(), frames);
+		for (int i = (int)history.size() - n; i < (int)history.size(); ++i)
+			for (const Profiler::CpuSample& c : history[i].Cpu)
+				if (c.Depth <= 3)
+					sum[{ c.Depth, c.Name }] += c.Ms;
+		std::vector<std::pair<double, std::string>> rows;
+		char buf[256];
+		for (const auto& [key, ms] : sum)
+		{
+			snprintf(buf, sizeof(buf), "{\"d\":%d,\"n\":\"%s\",\"ms\":%.3f}", key.first, key.second.c_str(), ms / (std::max)(n, 1));
+			rows.push_back({ ms, buf });
+		}
+		std::sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+		std::string out = "[";
+		for (size_t i = 0; i < rows.size() && i < 40; ++i)   // 전체는 result_scene.json (logcat 은 1024 자에서 잘린다)
+			out += (i ? "," : "") + rows[i].second;
+		return out + "]";
+	}
+
 	// warmup = 재기 전에 그리는 프레임 (셰이더 프로그램은 처음 쓸 때 만든다), cpuMs = 프레임마다 CPU (그리기 명령), drawMs = GPU 가 끝날 때까지 프레임마다
 	bool RunSceneTest(int width, int height, int frames, int warmup, std::string& png, double& loadMs, double& drawMs, double& cpuMs, std::string& error)
 	{
@@ -158,21 +187,43 @@ namespace
 		if (!app->Init()) { error = "engine init failed (Logs/Editor.log)"; return false; }
 		loadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		auto frame = [&]() {
-			app->Run();
+			{
+				PROFILE_SCOPE("App.Run");
+				app->Run();
+			}
+			PROFILE_SCOPE("Flush");   // 에뮬레이터는 여기서 GL 명령을 실제로 처리할 수 있다
 			Gfx::Context()->Flush();   // 프레임 끝 (화면이 없어 Present 를 부르지 않는다 — 미룬 이벤트 펜스를 여기서)
 		};
 		for (int i = 0; i < warmup; ++i)
 			frame();
 		glFinish();
+		if (s_Profile)
+			Profiler::ForceCollecting(true);
+		GlesCounters::Reset();
 		const auto t1 = std::chrono::steady_clock::now();
 		double cpu = 0;
 		for (int i = 0; i < frames; ++i)
 		{
 			const auto c0 = std::chrono::steady_clock::now();
+			if (s_Profile) Profiler::BeginFrame();
 			frame();
+			if (s_Profile) Profiler::EndFrame();
 			cpu += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - c0).count();
 		}
 		glFinish();
+		{
+			const double f = (std::max)(frames, 1);
+			char gl[512];
+			snprintf(gl, sizeof(gl), "{\"applies\":%.0f,\"programs\":%.0f,\"uboUploads\":%.0f,\"uboKB\":%.1f,\"uboBinds\":%.0f,\"texBinds\":%.0f,\"samplerBinds\":%.0f,\"computeBinds\":%.0f,\"draws\":%.0f,\"vertexBinds\":%.0f,\"states\":%.0f}",
+				GlesCounters::Applies / f, GlesCounters::Programs / f, GlesCounters::UboUploads / f, GlesCounters::UboBytes / f / 1024.0, GlesCounters::UboBinds / f,
+				GlesCounters::TexBinds / f, GlesCounters::SamplerBinds / f, GlesCounters::ComputeBinds / f, GlesCounters::Draws / f, GlesCounters::VertexBinds / f, GlesCounters::States / f);
+			s_GlCalls = gl;
+		}
+		if (s_Profile)
+		{
+			s_Scopes = ScopesJson(frames);
+			Profiler::ForceCollecting(false);
+		}
 		drawMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count() / (std::max)(frames, 1);
 		cpuMs = cpu / (std::max)(frames, 1);
 		DirectX::ScratchImage img;
@@ -267,9 +318,9 @@ namespace
 			}
 		}
 		const double totalMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		char line[4096];
-		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.2f,\"cpuMs\":%.2f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s}",
-			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, cpuMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str());
+		char line[16384];
+		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.2f,\"cpuMs\":%.2f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s,\"gl\":%s,\"scopes\":%s}",
+			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, cpuMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str(), s_GlCalls.c_str(), s_Scopes.c_str());
 		std::ofstream(s_FilesDir + "/result_" + test + ".json", std::ios::trunc) << line;
 		Log("NOVA_TEST %s", line);
 	}
@@ -319,6 +370,7 @@ void android_main(android_app* app)
 	const std::string framesArg = IntentExtra(env, activity->clazz, "frames");
 	const std::string mode = IntentExtra(env, activity->clazz, "mode");   // shell = 게임 데이터가 있어도 셸 (검사)
 	const std::string warmupArg = IntentExtra(env, activity->clazz, "warmup");   // scene 검사: 재기 전에 그릴 프레임
+	s_Profile = IntentExtra(env, activity->clazz, "profile") == "on";   // scene 검사: Profiler 구간 (그리기 CPU 진단)
 	if (IntentExtra(env, activity->clazz, "occlusion") == "off")
 		OcclusionCulling::Enabled = false;   // 오클루전 컬링 끔 (켠 화면과 비교하는 검사)
 	activity->vm->DetachCurrentThread();

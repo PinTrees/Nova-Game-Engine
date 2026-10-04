@@ -78,7 +78,7 @@ namespace
 	{
 	public:
 		explicit ESBuffer(const Rhi::BufferDesc& d) { _desc = d; }
-		~ESBuffer() override { if (Id) glDeleteBuffers(1, &Id); }
+		~ESBuffer() override { if (Id) { glDeleteBuffers(1, &Id); GLESState::Deleted(); } }
 		GLuint Id = 0;
 	};
 
@@ -86,7 +86,7 @@ namespace
 	{
 	public:
 		explicit ESTexture(const Rhi::TextureDesc& d) { _desc = d; }
-		~ESTexture() override { if (Id) glDeleteTextures(1, &Id); }
+		~ESTexture() override { if (Id) { glDeleteTextures(1, &Id); GLESState::Deleted(); } }
 		GLuint Id = 0;
 		GLenum Target = GL_TEXTURE_2D;
 	};
@@ -95,7 +95,7 @@ namespace
 	class ESInputLayout : public Rhi::InputLayout
 	{
 	public:
-		~ESInputLayout() override { if (Vao) glDeleteVertexArrays(1, &Vao); }
+		~ESInputLayout() override { if (Vao) { glDeleteVertexArrays(1, &Vao); GLESState::Deleted(); } }
 		GLuint Vao = 0;
 	};
 
@@ -104,7 +104,8 @@ namespace
 	class ESEffect : public Rhi::Effect
 	{
 	public:
-		struct Block { std::string Name; int Binding = 0; std::vector<uint8_t> Cpu; GLuint Ubo = 0; bool Dirty = true; const ShaderCross::UniformBlock* Info = nullptr; };
+		// Dirty 범위 [DirtyLo, DirtyHi) 만 올린다 (처음은 전체)
+		struct Block { std::string Name; int Binding = 0; std::vector<uint8_t> Cpu; GLuint Ubo = 0; bool Dirty = true; uint32_t DirtyLo = 0, DirtyHi = ~0u; const ShaderCross::UniformBlock* Info = nullptr; };
 		struct Var
 		{
 			int BlockIndex = -1;
@@ -159,6 +160,7 @@ namespace
 				if (b.Ubo) glDeleteBuffers(1, &b.Ubo);
 			for (auto& [n, s] : SamplerObjects)
 				if (s) glDeleteSamplers(1, &s);
+			GLESState::Deleted();
 		}
 
 		int FindTechnique(const std::string& name) const override
@@ -209,6 +211,8 @@ namespace
 			if (memcmp(b.Cpu.data() + at, data, bytes) == 0) return;
 			memcpy(b.Cpu.data() + at, data, bytes);
 			b.Dirty = true;
+			b.DirtyLo = (std::min)(b.DirtyLo, at);
+			b.DirtyHi = (std::max)(b.DirtyHi, at + bytes);
 		}
 
 		const Var* Uniform(Rhi::VarId var) const { return var >= 0 && var < (int)Vars.size() && Vars[var].Member ? &Vars[var] : nullptr; }
@@ -367,6 +371,7 @@ namespace
 				if (*t) glDeleteTextures(1, t);
 			if (DummyCompare) glDeleteSamplers(1, &DummyCompare);
 			if (Point) glDeleteSamplers(1, &Point);
+			GLESState::Deleted();
 		}
 
 		// 샘플러 없이 읽는 텍스처 (HLSL 의 Load · texelFetch) 칸: NEAREST — 텍스처 기본 필터 (LINEAR) 이면 float32 · 깊이 텍스처가
@@ -389,6 +394,7 @@ namespace
 			const float one = 1.0f;
 			glGenTextures(1, &t);
 			glBindTexture(target, t);
+			GLESState::InvalidateBindings();   // 지금 유닛의 텍스처를 바꿨다
 			if (target == GL_TEXTURE_2D_ARRAY)
 			{
 				glTexStorage3D(target, 1, GL_DEPTH_COMPONENT32F, 1, 1, 1);
@@ -449,6 +455,7 @@ namespace
 			t->Target = desc.Type == Rhi::TextureType::Cube ? GL_TEXTURE_CUBE_MAP : desc.Type == Rhi::TextureType::Tex2DArray ? GL_TEXTURE_2D_ARRAY : GL_TEXTURE_2D;
 			glGenTextures(1, &t->Id);
 			glBindTexture(t->Target, t->Id);
+			GLESState::InvalidateBindings();   // 지금 유닛의 텍스처를 바꿨다
 			if (t->Target == GL_TEXTURE_2D_ARRAY)
 				glTexStorage3D(t->Target, desc.MipLevels, f.Internal, desc.Width, desc.Height, slices);
 			else
@@ -489,6 +496,7 @@ namespace
 			auto l = std::make_unique<ESInputLayout>();
 			glGenVertexArrays(1, &l->Vao);
 			glBindVertexArray(l->Vao);
+			GLESState::ForgetVertexArray();
 			std::set<std::string> provided;
 			for (uint32_t i = 0; i < count; ++i)
 			{
@@ -570,6 +578,7 @@ namespace
 			glColorMask(mask[0], mask[1], mask[2], mask[3]);
 			glDepthMask(depthMask);
 			if (scissor) glEnable(GL_SCISSOR_TEST);
+			GLESState::InvalidateStates();   // 쓰기 마스크를 0 번 타깃 값으로 되돌렸다 (기억과 다를 수 있다)
 		}
 
 		void ClearColor(Rhi::Texture* target, const float rgba[4]) override
@@ -623,7 +632,7 @@ namespace
 		bool BindGeometry()
 		{
 			if (!Layout || !CurrentProgram) return false;
-			glBindVertexArray(Layout->Vao);
+			GLESState::BindVertexArray(Layout->Vao);
 			for (GLuint i = 0; i < 16; ++i)
 				if (Vbs[i].Id)
 					glBindVertexBuffer(i, Vbs[i].Id, Vbs[i].Offset, Vbs[i].Stride);
@@ -815,6 +824,7 @@ namespace
 		if (!pp.Error.empty())
 		{
 			glDeleteProgram(pp.Program);
+			GLESState::Deleted();
 			pp.Program = 0;
 			EditorLog::Write("GLES", "%s %s: %s", effectName.c_str(), techName.c_str(), pp.Error.c_str());
 		}
@@ -892,6 +902,8 @@ namespace
 			glBindBuffer(GL_UNIFORM_BUFFER, b.Ubo);
 			glBufferData(GL_UNIFORM_BUFFER, b.Cpu.size(), b.Cpu.data(), GL_DYNAMIC_DRAW);
 			b.Dirty = false;
+			b.DirtyLo = ~0u;
+			b.DirtyHi = 0;
 			e->Blocks.push_back(std::move(b));
 		}
 		int units = 0;
@@ -953,67 +965,67 @@ namespace
 			return;
 		PassProgram& pp = Programs[technique][pass];
 		if (!pp.Built)
+		{
 			BuildPass(Src, Name, TechniqueNames[technique] + "/" + std::to_string(pass), pp);
+			GLESState::InvalidateBindings();   // 만들 때 glUseProgram · 텍스처를 직접 만졌다
+		}
 		if (!pp.Program)
 		{
 			if (Reported.insert(TechniqueNames[technique] + "/" + std::to_string(pass)).second)
 				EditorLog::Write("GLES", "pass %s/%d is not available: %s", TechniqueNames[technique].c_str(), pass, pp.Error.c_str());
 			Device->CurrentProgram = 0;
-			glUseProgram(0);
+			GLESState::UseProgram(0);
 			return;
 		}
-		glUseProgram(pp.Program);
+		// 프로그램 · 상수 블록 · 유닛 · SSBO · image 는 GLESState 가 기억해 같은 값이면 GL 을 부르지 않는다
+		//  (예전엔 Apply 마다 유닛 수십 개를 모두 다시 묶었다 — 도시 장면 프레임마다 GL 호출 만여 개)
+		++GlesCounters::Applies;
+		GLESState::UseProgram(pp.Program);
 		Device->CurrentProgram = pp.Program;
 		for (Block& b : Blocks)
 		{
 			if (b.Dirty)
 			{
-				glBindBuffer(GL_UNIFORM_BUFFER, b.Ubo);
-				glBufferSubData(GL_UNIFORM_BUFFER, 0, b.Cpu.size(), b.Cpu.data());
+				// 바뀐 범위만 (재질 값처럼 블록 일부만 바뀌는 경우가 대부분)
+				const uint32_t lo = (std::min)(b.DirtyLo, (uint32_t)b.Cpu.size()), hi = (std::min)(b.DirtyHi, (uint32_t)b.Cpu.size());
+				if (hi > lo)
+				{
+					glBindBuffer(GL_UNIFORM_BUFFER, b.Ubo);
+					glBufferSubData(GL_UNIFORM_BUFFER, lo, hi - lo, b.Cpu.data() + lo);
+					++GlesCounters::UboUploads;
+					GlesCounters::UboBytes += hi - lo;
+				}
 				b.Dirty = false;
+				b.DirtyLo = ~0u;
+				b.DirtyHi = 0;
 			}
-			glBindBufferBase(GL_UNIFORM_BUFFER, b.Binding, b.Ubo);
+			GLESState::BindUniformBuffer(b.Binding, b.Ubo);
 		}
 		for (size_t u = 0; u < UnitTextures.size(); ++u)
 		{
-			glActiveTexture(GL_TEXTURE0 + (GLenum)u);
 			GLuint tex = UnitTextures[u];
 			GLenum target = UnitTargets[u];
 			if (!tex && UnitViews[u])
 			{
 				unsigned int t = 0;
-				tex = GfxGLES_ResolveView(UnitViews[u].Get(), &t);
+				tex = GfxGLES_ResolveView(UnitViews[u].Get(), &t);   // 사본 새로 고침은 Gfx 의 임시 유닛에서 (GLESState 에 알린다)
 				target = t;
-				glActiveTexture(GL_TEXTURE0 + (GLenum)u);   // 사본 새로 고침이 유닛을 바꿨을 수 있다
 			}
 			if (!tex && UnitShadowTarget[u])
 			{
-				glBindTexture(UnitShadowTarget[u], Device->DummyShadow(UnitShadowTarget[u]));
-				glBindSampler((GLuint)u, UnitSamplers[u] ? UnitSamplers[u] : Device->DummyCompareSampler());
+				const GLuint dummy = Device->DummyShadow(UnitShadowTarget[u]);
+				GLESState::BindTexture((GLuint)u, UnitShadowTarget[u], dummy);
+				GLESState::BindSampler((GLuint)u, UnitSamplers[u] ? UnitSamplers[u] : Device->DummyCompareSampler());
 				continue;
 			}
-			if (tex) glBindTexture(target, tex);
-			else { glBindTexture(GL_TEXTURE_2D, 0); glBindTexture(GL_TEXTURE_2D_ARRAY, 0); glBindTexture(GL_TEXTURE_CUBE_MAP, 0); }
-			glBindSampler((GLuint)u, tex ? (UnitSamplers[u] ? UnitSamplers[u] : Device->PointSampler()) : 0);
+			GLESState::BindTexture((GLuint)u, tex ? target : 0, tex);
+			GLESState::BindSampler((GLuint)u, tex ? (UnitSamplers[u] ? UnitSamplers[u] : Device->PointSampler()) : 0);
 		}
-		glActiveTexture(GL_TEXTURE0);
 		// compute 자원: SSBO · image (D3D 의 SRV · UAV)
 		for (size_t i = 0; i < Ssbos.size(); ++i)
-		{
-			const SsboBind& b = Ssbos[i];
-			if (b.Buffer && b.Size > 0)
-				glBindBufferRange(GL_SHADER_STORAGE_BUFFER, (GLuint)i, b.Buffer, b.Offset, b.Size);
-			else
-				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, (GLuint)i, 0);
-		}
+			GLESState::BindStorage((GLuint)i, Ssbos[i].Buffer, Ssbos[i].Offset, Ssbos[i].Size);
 		for (size_t i = 0; i < Images.size(); ++i)
-		{
-			const ImageBind& im = Images[i];
-			if (im.Texture)
-				glBindImageTexture((GLuint)i, im.Texture, im.Level, GL_FALSE, 0, GL_READ_WRITE, im.Format);
-			else
-				glBindImageTexture((GLuint)i, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
-		}
+			GLESState::BindImage((GLuint)i, Images[i].Texture, Images[i].Level, Images[i].Format);
 		// pass 가 정한 상태만 (Effects11 과 같이)
 		const FxParser::Pass& p = *pp.Fx;
 		if (!pp.StatesMade)

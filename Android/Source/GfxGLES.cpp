@@ -152,6 +152,16 @@ namespace
 	using GLDsv = GLView<GfxDepthStencilView, D3D11_DEPTH_STENCIL_VIEW_DESC>;
 	using GLUav = GLView<GfxUnorderedAccessView, D3D11_UNORDERED_ACCESS_VIEW_DESC>;
 
+	// VAO 하나에 묶어 둔 정점 · 인덱스 버퍼 (GL 의 VAO 상태). Epoch = GLESState::Epoch() 일 때만 믿는다 (객체를 지우면 이름이 다시 쓰인다)
+	struct VaoBindings
+	{
+		uint64_t Epoch = 0;
+		GLuint Vb[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+		UINT Offset[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {}, Stride[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {};
+		GLuint Ib = 0xFFFFFFFFu;
+		VaoBindings(uint64_t epoch = 0) : Epoch(epoch) { for (GLuint& v : Vb) v = 0xFFFFFFFFu; }
+	};
+
 	class GLLayout : public GLObj<GfxInputLayout>
 	{
 	public:
@@ -160,6 +170,7 @@ namespace
 		GLuint Vao = 0;
 		UINT SlotMask = 0;        // 쓰는 정점 버퍼 슬롯
 		UINT InstanceMask = 0;    // 그중 인스턴스 단위 슬롯 (base instance 흉내)
+		VaoBindings Bound;        // 이 VAO 에 묶어 둔 버퍼 (같으면 다시 묶지 않는다)
 	};
 
 	template <class Iface, class Desc>
@@ -205,6 +216,7 @@ namespace
 		EGLContext Ctx = EGL_NO_CONTEXT;
 		GLCtx* Immediate = nullptr;     // 약한 참조 (컨텍스트가 장치를 잡는다)
 		GLuint EmptyVao = 0, ClearFbo = 0, DrawFbo = 0, BlitFbo = 0, ReadFbo = 0;
+		VaoBindings EmptyBound;   // EmptyVao 에 묶어 둔 버퍼
 		GLuint ScratchUnit = 0;
 		std::set<std::string> Reported;
 
@@ -214,7 +226,7 @@ namespace
 			{
 				GLuint fbos[] = { ClearFbo, DrawFbo, BlitFbo, ReadFbo };
 				glDeleteFramebuffers(4, fbos);
-				if (EmptyVao) glDeleteVertexArrays(1, &EmptyVao);
+				if (EmptyVao) { glDeleteVertexArrays(1, &EmptyVao); GLESState::Deleted(); }
 			}
 		}
 
@@ -239,11 +251,15 @@ namespace
 		{
 			glActiveTexture(GL_TEXTURE0 + ScratchUnit);
 			glBindTexture(target, id);
+			GLESState::NoteActiveUnit(ScratchUnit);
+			GLESState::ForgetUnit(ScratchUnit);
 		}
 		void UnbindScratch(GLenum target)
 		{
 			glBindTexture(target, 0);
 			glActiveTexture(GL_TEXTURE0);
+			GLESState::NoteActiveUnit(0);
+			GLESState::ForgetUnit(ScratchUnit);
 		}
 
 		HRESULT CreateBuffer(const D3D11_BUFFER_DESC* desc, const D3D11_SUBRESOURCE_DATA* data, GfxBuffer** out) override;
@@ -314,18 +330,18 @@ namespace
 		return false;
 	}
 
-	GLBuf::~GLBuf() { if (Id && CanDelete(Dev)) glDeleteBuffers(1, &Id); }
-	void DeleteTex(GLDev* dev, TexInfo& t) { if (t.Id && CanDelete(dev)) glDeleteTextures(1, &t.Id); }
+	GLBuf::~GLBuf() { if (Id && CanDelete(Dev)) { glDeleteBuffers(1, &Id); GLESState::Deleted(); } }
+	void DeleteTex(GLDev* dev, TexInfo& t) { if (t.Id && CanDelete(dev)) { glDeleteTextures(1, &t.Id); GLESState::Deleted(); } }
 	GLTex1D::~GLTex1D() { DeleteTex(Dev, T); }
 	GLTex2D::~GLTex2D() { DeleteTex(Dev, T); }
 	GLTex3D::~GLTex3D() { DeleteTex(Dev, T); }
 	template <class Iface, class Desc>
 	GLView<Iface, Desc>::~GLView()
 	{
-		if (V.Copy && V.Name && CanDelete(this->Dev)) glDeleteTextures(1, &V.Name);
+		if (V.Copy && V.Name && CanDelete(this->Dev)) { glDeleteTextures(1, &V.Name); GLESState::Deleted(); }
 	}
-	GLLayout::~GLLayout() { if (Vao && CanDelete(Dev)) glDeleteVertexArrays(1, &Vao); }
-	GLSampler::~GLSampler() { if (Id && CanDelete(Dev)) glDeleteSamplers(1, &Id); }
+	GLLayout::~GLLayout() { if (Vao && CanDelete(Dev)) { glDeleteVertexArrays(1, &Vao); GLESState::Deleted(); } }
+	GLSampler::~GLSampler() { if (Id && CanDelete(Dev)) { glDeleteSamplers(1, &Id); GLESState::Deleted(); } }
 	GLQueryObj::~GLQueryObj()
 	{
 		if (!CanDelete(Dev)) return;
@@ -839,6 +855,7 @@ namespace
 		auto* l = new GLLayout(this);
 		glGenVertexArrays(1, &l->Vao);
 		glBindVertexArray(l->Vao);
+		GLESState::ForgetVertexArray();
 		UINT offsets[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {};
 		std::set<std::string> provided;
 		for (UINT i = 0; i < count; ++i)
@@ -915,7 +932,7 @@ namespace
 
 		~GLCtx() override
 		{
-			if (PredArgs && Dev && Dev->Current()) glDeleteBuffers(1, &PredArgs);
+			if (PredArgs && Dev && Dev->Current()) { glDeleteBuffers(1, &PredArgs); GLESState::Deleted(); }
 			if (Dev && Dev->Immediate == this) Dev->Immediate = nullptr;
 		}
 
@@ -1121,15 +1138,21 @@ namespace
 			mode = GLESState::Topology(Topo, patch);
 			if (patch) glPatchParameteri(GL_PATCH_VERTICES, patch);
 			GLuint vao = Dev->EmptyVao;
+			VaoBindings* bound = &Dev->EmptyBound;
 			UINT mask = 0, instanceMask = 0;
 			if (Layout)
 			{
 				auto* l = static_cast<GLLayout*>(Layout.Get());
 				vao = l->Vao;
+				bound = &l->Bound;
 				mask = l->SlotMask;
 				instanceMask = l->InstanceMask;
 			}
-			glBindVertexArray(vao);
+			// VAO 와 그 안의 정점 · 인덱스 버퍼: 지난번과 같으면 부르지 않는다 (GL 객체를 지우면 Epoch 가 바뀌어 다시)
+			GLESState::BindVertexArray(vao);
+			if (bound->Epoch != GLESState::Epoch())
+				*bound = VaoBindings{ GLESState::Epoch() };
+			++GlesCounters::Draws;
 			for (UINT s = 0; mask; ++s, mask >>= 1)
 				if (mask & 1)
 				{
@@ -1137,10 +1160,23 @@ namespace
 					GLBuf* b = BufOf(v.Buf.Get());
 					// base instance 흉내: 인스턴스 단위 버퍼를 시작 인스턴스만큼 옮긴다
 					const UINT offset = v.Offset + ((instanceMask >> s) & 1 ? startInstance * v.Stride : 0);
-					glBindVertexBuffer(s, b ? b->Id : 0, offset, v.Stride);
+					const GLuint id = b ? b->Id : 0;
+					if (bound->Vb[s] == id && bound->Offset[s] == offset && bound->Stride[s] == v.Stride)
+						continue;
+					glBindVertexBuffer(s, id, offset, v.Stride);
+					bound->Vb[s] = id;
+					bound->Offset[s] = offset;
+					bound->Stride[s] = v.Stride;
+					++GlesCounters::VertexBinds;
 				}
 			GLBuf* ib = BufOf(Ib.Get());
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ib ? ib->Id : 0);
+			const GLuint ibId = ib ? ib->Id : 0;
+			if (bound->Ib != ibId)
+			{
+				glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibId);
+				bound->Ib = ibId;
+				++GlesCounters::VertexBinds;
+			}
 			MarkTargetsWritten();
 			return true;
 		}
@@ -1270,6 +1306,7 @@ namespace
 			Attach(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, nullptr);
 			if (v.Tex) ++v.Tex->Version;
 			RebindDraw();
+			GLESState::InvalidateStates();   // 쓰기 마스크 · 가위를 직접 바꿨다
 			ApplyBlend();
 			ApplyRasterizer();
 		}
@@ -1292,6 +1329,7 @@ namespace
 			Attach(GL_FRAMEBUFFER, att, nullptr);
 			if (v.Tex) ++v.Tex->Version;
 			RebindDraw();
+			GLESState::InvalidateStates();   // 깊이 · 스텐실 쓰기 · 가위를 직접 바꿨다
 			ApplyDepthStencil();
 			ApplyRasterizer();
 		}
@@ -1643,6 +1681,7 @@ namespace GfxGLES
 		d->BlitFbo = fbos[2];
 		d->ReadFbo = fbos[3];
 		GLESState::ApplyDefaults();
+		GLESState::InvalidateBindings();   // 새 컨텍스트
 		auto* c = new GLCtx();
 		c->Dev = d;           // 컨텍스트가 장치를 잡는다
 		d->Immediate = c;     // 장치는 약하게
@@ -1670,6 +1709,7 @@ namespace GfxGLES
 		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		glDisable(GL_SCISSOR_TEST);
 		glColorMaski(0, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+		GLESState::InvalidateStates();
 		glBlitFramebuffer(0, 0, (GLint)t->Width, (GLint)t->Height, 0, windowHeight, windowWidth, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 		glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
 		if (d->Immediate)
@@ -1684,6 +1724,8 @@ namespace GfxGLES
 	{
 		auto* c = static_cast<GLCtx*>(context);
 		if (!c || !c->Dev->Check("RestoreState")) return;
+		GLESState::InvalidateStates();     // GL 을 직접 만진 뒤 — 기억은 믿을 수 없다
+		GLESState::InvalidateBindings();
 		if (c->TargetsBound) c->BindTargets();
 		if (c->ViewportCount)
 		{

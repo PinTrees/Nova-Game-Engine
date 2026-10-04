@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Profiler.h"
 #include "App.h"
 #include "AndroidEngine.h"
 #include "GfxGLES.h"
@@ -202,31 +203,37 @@ int32 App::Run()
 				t.position.x, t.position.y, (int)InputManager::GetI()->GetTouches().size(), (GetAsyncKeyState(VK_LBUTTON) & 0x8000) ? "down" : "up");
 	ImGuiNewFrame(_clientWidth, _clientHeight, dt);
 
-	if (Application::ShouldUpdateGame())
 	{
-		ScriptEngine::BeginFrame();
-		UpdateScene(dt);
-		SceneManager::GetI()->UpdateScene();
-		PhysicsManager::GetI()->Update(dt);
-		Physics2DManager::Update(dt);
+		PROFILE_SCOPE("Update");   // 게임 갱신 (스크립트 · 물리 · 입자 …) — Android 프로파일 (scene 검사 -e profile on)
+		if (Application::ShouldUpdateGame())
+		{
+			ScriptEngine::BeginFrame();
+			{ PROFILE_SCOPE("UpdateScene"); UpdateScene(dt); }
+			{ PROFILE_SCOPE("SceneManager.UpdateScene"); SceneManager::GetI()->UpdateScene(); }
+			{ PROFILE_SCOPE("Physics"); PhysicsManager::GetI()->Update(dt); Physics2DManager::Update(dt); }
+		}
+		{ PROFILE_SCOPE("Audio · ShaderGraph"); AudioManager::Update(); ShaderGraph::UpdateRuntime(); }
+		{ PROFILE_SCOPE("Scripts · UI"); ScriptEngine::Update(); UISystem::Update(); }
+		{ PROFILE_SCOPE("Particles · Trails"); ParticleSystem::UpdateAll(); TrailRenderer::UpdateAll(); }   // Trail Renderer: 점 더하기 · 오래된 점 빼기
+		{ PROFILE_SCOPE("Trees"); Tree::UpdateAll(); }
 	}
-	AudioManager::Update();
-	ShaderGraph::UpdateRuntime();
-	ScriptEngine::Update();
-	UISystem::Update();
-	ParticleSystem::UpdateAll();
-	TrailRenderer::UpdateAll();   // Trail Renderer: 점 더하기 · 오래된 점 빼기
-	Tree::UpdateAll();
 
-	if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())
-		activeCamera->ViewUpdate();
-	LightManager::GetI()->ViewUpdates();
-	SceneCulling::Update(SceneManager::GetI()->GetCurrentScene());
+	{
+		PROFILE_SCOPE("Camera · Lights");
+		if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())
+			activeCamera->ViewUpdate();
+		LightManager::GetI()->ViewUpdates();
+	}
+	{
+		PROFILE_SCOPE("SceneCulling.Update");
+		SceneCulling::Update(SceneManager::GetI()->GetCurrentScene());
+	}
 
-	RenderApplication();
-	PlayerRuntime::Render(_renderTargetView.Get(), _depthStencilView.Get(), _clientWidth, _clientHeight, GetFocus() != nullptr);
+	{ PROFILE_SCOPE("RenderApplication"); RenderApplication(); }
+	{ PROFILE_SCOPE("PlayerRuntime.Render"); PlayerRuntime::Render(_renderTargetView.Get(), _depthStencilView.Get(), _clientWidth, _clientHeight, GetFocus() != nullptr); }
 	ImGui::Render();   // 그리지 않는다 (입력용 프레임 마무리)
 
+	PROFILE_SCOPE("LastUpdate");
 	if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
 		scene->LastFramUpdate();
 	SceneManager::GetI()->LastUpdate();

@@ -1,9 +1,11 @@
 # 안드로이드 (MuMu · OpenGL ES) 도시 장면 성능: 오클루전 컬링 켬 · 끔 (docs/OCCLUSION_CULLING.md)
-#   powershell Tools/tests/android_city_perf.ps1 [-Project 테스트프로젝트] [-Vm "NOVA Test"] [-KeepEmulator] [-Runs 3]
+#   powershell Tools/tests/android_city_perf.ps1 [-Project 테스트프로젝트] [-Vm "NOVA Test"] [-KeepEmulator] [-Runs 3] [-Profile] [-SkipBuild]
+#   -SkipBuild: 에디터의 장면 · 게임 데이터 단계를 건너뛴다 (지난번 assets 그대로 — 엔진 코드만 바꿔 다시 잴 때)
+#   -Profile: 오클루전 켬으로 한 번 더 (-e profile on) — Profiler 구간 · GL 호출 수를 perf.json 의 profile 에 (그리기 CPU 진단)
 #  1) 에디터: GLES 셰이더 + 도시 장면 (Tools/tests/city_scene.py — 렌더러 2222, 사람 16, 나무 36), Main Camera = 큰길 눈높이 → 게임 데이터 + DX11 기준 그림
 #  2) APK → 설치
 #  3) 기기의 scene 검사 (화면 없이 1280x720, 예열 60 + 잰 120 프레임) 를 켬 · 끔 번갈아 Runs 번 — 프레임 · CPU 시간 중앙값, 가려진 수, 같은 그림
-param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [int]$Runs = 3, [string]$Scene = 'Assets\Scenes\AndroidCity.scene')
+param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [int]$Runs = 3, [string]$Scene = 'Assets\Scenes\AndroidCity.scene', [switch]$Profile, [switch]$SkipBuild)
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Project = $Project
 $ErrorActionPreference = 'Continue'
@@ -40,6 +42,8 @@ $abi = (& $Adb -s $serial shell getprop ro.product.cpu.abi | Out-String).Trim()
 Check 'emulator ready' ($info.player_state -eq 'start_finished') ("VM {0} '{1}', adb {2}, abi {3}" -f $index, $Vm, $serial, $abi)
 
 # ---- 1) 에디터: 셰이더 · 도시 장면 · 게임 데이터 · DX11 기준
+if (-not $SkipBuild)
+{
 Write-Host '[android-city] city scene'
 $assets = Join-Path $Root 'Android\build\assets\Shaders'
 $gameDir = Join-Path $Root 'Android\build\assets\game'
@@ -83,6 +87,8 @@ finally
     if ($editorSettingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $editorSettingsBefore) }
 }
 
+}
+
 # ---- 2) APK
 Write-Host '[android-city] build APK'
 $py = (& python (Join-Path $Root 'Android\build.py') --abi $abi 2>&1 | Out-String)
@@ -103,11 +109,16 @@ function SceneRun([string]$name, [string]$extra)
     while ($sw.Elapsed.TotalSeconds -lt 180 -and -not $line)
     {
         Start-Sleep -Milliseconds 500
-        $line = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_TEST (\{.*\})' | Select-Object -Last 1)
+        $line = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_TEST \{.*"image":"([^"]*)"' | Select-Object -Last 1)
     }
     & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out "logcat_$name.txt")
     if (-not $line) { return $null }
-    $j = $line.Matches[0].Groups[1].Value | ConvertFrom-Json
+    # logcat 은 한 줄 1024 자에서 잘린다 → 앱이 쓴 결과 파일 (그림과 같은 폴더의 result_scene.json) 을 받는다
+    $remote = ($line.Matches[0].Groups[1].Value -replace '/[^/]*$', '') + '/result_scene.json'
+    $local = Join-Path $Out "result_$name.json"
+    & $Adb -s $serial pull $remote $local 2>&1 | Out-Null
+    if (-not (Test-Path $local)) { return $null }
+    $j = Get-Content $local -Raw | ConvertFrom-Json
     if (-not $j.ok) { return $null }
     $bmp = Join-Path $Out "${name}_GLES.bmp"
     & $Adb -s $serial pull $j.image $bmp | Out-Null
@@ -123,6 +134,17 @@ for ($r = 0; $r -lt $Runs; $r++)
     if ($b) { $off += $b }
     Write-Host ("  run {0}: on {1} ms (cpu {2}), off {3} ms (cpu {4})" -f $r, $a.Json.drawMs, $a.Json.cpuMs, $b.Json.drawMs, $b.Json.cpuMs)
 }
+$prof = $null
+if ($Profile)
+{
+    $p = SceneRun 'profile' '-e profile on'
+    if ($p)
+    {
+        $prof = [pscustomobject]@{ cpuMs = $p.Json.cpuMs; drawMs = $p.Json.drawMs; gl = $p.Json.gl; scopes = $p.Json.scopes }
+        Write-Host ("  profile: cpu {0} ms, gl {1}" -f $p.Json.cpuMs, ($p.Json.gl | ConvertTo-Json -Compress))
+        foreach ($sc in $p.Json.scopes) { Write-Host ("    {0}{1} {2:N3} ms" -f ('  ' * $sc.d), $sc.n, $sc.ms) }
+    }
+}
 function Med($list, [string]$f) { $v = @($list | ForEach-Object { [double]$_.Json.$f } | Sort-Object); if ($v.Count) { $v[[math]::Floor($v.Count / 2)] } else { -1 } }
 Check 'city scene runs on the device (occlusion on · off)' ($on.Count -eq $Runs -and $off.Count -eq $Runs) ("{0}, {1}/{2} on, {3}/{2} off" -f $(if ($on.Count) { $on[0].Json.device } else { '?' }), $on.Count, $Runs, $off.Count)
 if ($on.Count -and $off.Count)
@@ -133,7 +155,7 @@ if ($on.Count -and $off.Count)
     Check 'GLES: same picture with occlusion on and off' ($c -and $c[1] -lt 0.5) $(if ($c) { 'max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'size differs' })
     $dOn = Med $on 'drawMs'; $dOff = Med $off 'drawMs'; $cOn = Med $on 'cpuMs'; $cOff = Med $off 'cpuMs'
     Check 'GLES: frame time (median of runs, 1280x720)' ($dOn -gt 0 -and $dOff -gt 0) ("off {0:N2} ms → on {1:N2} ms ({2:+0;-0}%), CPU off {3:N2} → on {4:N2} ms" -f $dOff, $dOn, (($dOn / $dOff - 1) * 100), $cOff, $cOn)
-    [pscustomobject]@{ drawOn = $dOn; drawOff = $dOff; cpuOn = $cOn; cpuOff = $cOff; device = $on[0].Json.device; occlusion = $on[-1].Json.occlusion } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 (Join-Path $Out 'perf.json')
+    [pscustomobject]@{ drawOn = $dOn; drawOff = $dOff; cpuOn = $cOn; cpuOff = $cOff; device = $on[0].Json.device; occlusion = $on[-1].Json.occlusion; gl = $on[-1].Json.gl; profile = $prof } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 (Join-Path $Out 'perf.json')
 }
 $crash = @(Get-ChildItem $Out -Filter 'logcat_*.txt' | Get-Content | Select-String 'FATAL|signal \d')
 Check 'no crash' ($crash.Count -eq 0) $(if ($crash.Count) { $crash[0].Line } else { 'logcat clean' })

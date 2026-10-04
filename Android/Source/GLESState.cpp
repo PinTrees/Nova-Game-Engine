@@ -2,6 +2,7 @@
 #include "GLESState.h"
 #include "FxStates.h"
 #include "MobileTextureFormats.h"
+#include "GfxGLES.h"
 
 namespace GLESState
 {
@@ -260,8 +261,116 @@ namespace GLESState
 	}
 
 	// 채우기 모드(선) · 깊이 자르기 끄기(depth clamp) 는 ES 에 없다 → 무시
+	namespace
+	{
+		// 마지막에 GL 에 넣은 상태 (Valid = false 면 모름 — 다음 Apply 는 늘 GL 에)
+		struct { bool Valid = false; D3D11_RASTERIZER_DESC D; } s_Rs;
+		struct { bool Valid = false; D3D11_BLEND_DESC D; float F[4]; UINT Mask; } s_Bs;
+		struct { bool Valid = false; D3D11_DEPTH_STENCIL_DESC D; UINT Ref; } s_Ds;
+
+		constexpr GLuint kUnits = 96, kUbos = 64, kSsbos = 32, kImages = 16;
+		constexpr GLuint kUnknown = 0xFFFFFFFFu;
+		struct Tex { GLenum Target = kUnknown; GLuint Id = kUnknown; };
+		struct Range { GLuint Buffer = kUnknown; GLintptr Offset = 0; GLsizeiptr Size = 0; };
+		struct Image { GLuint Texture = kUnknown; GLint Level = 0; GLenum Format = 0; };
+		GLuint s_Program = kUnknown, s_Active = kUnknown, s_Vao = kUnknown;
+		uint64_t s_Epoch = 1;
+		GLuint s_Ubo[kUbos];
+		Tex s_Tex[kUnits];
+		GLuint s_Sampler[kUnits];
+		Range s_Ssbo[kSsbos];
+		Image s_Image[kImages];
+		bool s_BindingsReset = [] { InvalidateBindings(); return true; }();
+
+		void Activate(GLuint unit)
+		{
+			if (s_Active != unit) { glActiveTexture(GL_TEXTURE0 + unit); s_Active = unit; }
+		}
+	}
+
+	void InvalidateStates() { s_Rs.Valid = s_Bs.Valid = s_Ds.Valid = false; }
+
+	void InvalidateBindings()
+	{
+		s_Program = s_Active = s_Vao = kUnknown;
+		for (GLuint& u : s_Ubo) u = kUnknown;
+		for (Tex& t : s_Tex) t = Tex();
+		for (GLuint& s : s_Sampler) s = kUnknown;
+		for (Range& r : s_Ssbo) r = Range();
+		for (Image& i : s_Image) i = Image();
+	}
+
+	void ForgetUnit(GLuint unit) { if (unit < kUnits) s_Tex[unit] = Tex(); }
+	void Deleted() { InvalidateBindings(); ++s_Epoch; }
+	uint64_t Epoch() { return s_Epoch; }
+	void ForgetVertexArray() { s_Vao = kUnknown; }
+	void BindVertexArray(GLuint vao)
+	{
+		if (s_Vao == vao) return;
+		glBindVertexArray(vao);
+		s_Vao = vao;
+	}
+	void NoteActiveUnit(GLuint unit) { s_Active = unit; }
+
+	void UseProgram(GLuint program)
+	{
+		if (s_Program == program) return;
+		glUseProgram(program);
+		s_Program = program;
+		++GlesCounters::Programs;
+	}
+
+	void BindUniformBuffer(GLuint binding, GLuint buffer)
+	{
+		if (binding < kUbos && s_Ubo[binding] == buffer) return;
+		glBindBufferBase(GL_UNIFORM_BUFFER, binding, buffer);
+		if (binding < kUbos) s_Ubo[binding] = buffer;
+		++GlesCounters::UboBinds;
+	}
+
+	void BindTexture(GLuint unit, GLenum target, GLuint texture)
+	{
+		if (unit < kUnits && s_Tex[unit].Target == target && s_Tex[unit].Id == texture) return;
+		Activate(unit);
+		if (target) glBindTexture(target, texture);
+		else { glBindTexture(GL_TEXTURE_2D, 0); glBindTexture(GL_TEXTURE_2D_ARRAY, 0); glBindTexture(GL_TEXTURE_CUBE_MAP, 0); }
+		if (unit < kUnits) s_Tex[unit] = { target, texture };
+		++GlesCounters::TexBinds;
+	}
+
+	void BindSampler(GLuint unit, GLuint sampler)
+	{
+		if (unit < kUnits && s_Sampler[unit] == sampler) return;
+		glBindSampler(unit, sampler);
+		if (unit < kUnits) s_Sampler[unit] = sampler;
+		++GlesCounters::SamplerBinds;
+	}
+
+	void BindStorage(GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size)
+	{
+		if (!buffer || size <= 0) { buffer = 0; offset = 0; size = 0; }
+		if (index < kSsbos && s_Ssbo[index].Buffer == buffer && s_Ssbo[index].Offset == offset && s_Ssbo[index].Size == size) return;
+		if (buffer) glBindBufferRange(GL_SHADER_STORAGE_BUFFER, index, buffer, offset, size);
+		else glBindBufferBase(GL_SHADER_STORAGE_BUFFER, index, 0);
+		if (index < kSsbos) s_Ssbo[index] = { buffer, offset, size };
+		++GlesCounters::ComputeBinds;
+	}
+
+	void BindImage(GLuint unit, GLuint texture, GLint level, GLenum format)
+	{
+		if (!texture) { level = 0; format = GL_R32F; }
+		if (unit < kImages && s_Image[unit].Texture == texture && s_Image[unit].Level == level && s_Image[unit].Format == format) return;
+		if (texture) glBindImageTexture(unit, texture, level, GL_FALSE, 0, GL_READ_WRITE, format);
+		else glBindImageTexture(unit, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
+		if (unit < kImages) s_Image[unit] = { texture, level, format };
+		++GlesCounters::ComputeBinds;
+	}
+
 	void ApplyRasterizer(const D3D11_RASTERIZER_DESC& d)
 	{
+		if (s_Rs.Valid && memcmp(&s_Rs.D, &d, sizeof(d)) == 0) return;
+		s_Rs = { true, d };
+		++GlesCounters::States;
 		if (d.CullMode == D3D11_CULL_NONE) glDisable(GL_CULL_FACE);
 		else
 		{
@@ -280,6 +389,16 @@ namespace GLESState
 
 	void ApplyBlend(const D3D11_BLEND_DESC& d, const float factor[4], UINT sampleMask)
 	{
+		{
+			const float one[4] = { 1, 1, 1, 1 };
+			const float* f = factor ? factor : one;
+			if (s_Bs.Valid && s_Bs.Mask == sampleMask && memcmp(s_Bs.F, f, sizeof(s_Bs.F)) == 0 && memcmp(&s_Bs.D, &d, sizeof(d)) == 0) return;
+			s_Bs.Valid = true;
+			s_Bs.D = d;
+			memcpy(s_Bs.F, f, sizeof(s_Bs.F));
+			s_Bs.Mask = sampleMask;
+			++GlesCounters::States;
+		}
 		if (d.AlphaToCoverageEnable) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
 		for (GLuint i = 0; i < 8; ++i)
 		{
@@ -303,6 +422,9 @@ namespace GLESState
 
 	void ApplyDepthStencil(const D3D11_DEPTH_STENCIL_DESC& d, UINT ref)
 	{
+		if (s_Ds.Valid && s_Ds.Ref == ref && memcmp(&s_Ds.D, &d, sizeof(d)) == 0) return;
+		s_Ds = { true, d, ref };
+		++GlesCounters::States;
 		if (d.DepthEnable)
 		{
 			glEnable(GL_DEPTH_TEST);
@@ -353,6 +475,7 @@ namespace GLESState
 
 	void ApplyDefaults()
 	{
+		InvalidateStates();   // 모르는 GL 상태 위에서 부른다 (컨텍스트를 만든 뒤 · GL 을 직접 만진 뒤)
 		ApplyRasterizer(FxStates::DefaultRasterizer());
 		ApplyBlend(FxStates::DefaultBlend(), nullptr, 0xFFFFFFFF);
 		ApplyDepthStencil(FxStates::DefaultDepthStencil(), 0);

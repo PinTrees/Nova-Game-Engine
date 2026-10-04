@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **추천 2 · 3** (사용자 지시: 추천 2 "C# Renderer 공통 클래스 확장" · 3 "인스턴스별 속성 (GPU 인스턴싱 속성)" 붙여 넣기). **2 완료 (2ec9572 푸시)**, **3 완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **GLES 그리기 CPU** (사용자 지시 "푸시하고 진행해줘" — 추천 1 → 2 → 3 의 1). **완료 (커밋, 푸시 전)** — android **66/66**, android_occlusion **13/13**, 도시 10/10, PC material · cli **19/19**, Showcase 209
+  - `Android/Source/GLESState.*` (상태 · 바인딩 기억: 프로그램 · 상수 블록 · 텍스처 유닛 · 샘플러 · SSBO · image · VAO, Invalidate · Forget · Deleted),
+    `GLESRhi.cpp` (Apply 가 기억으로, 상수 블록은 바뀐 범위만), `GfxGLES.*` (VAO 안 버퍼 기억, 지우기 · Present · RestoreState 에서 기억 버림, GlesCounters),
+    `AndroidMain.cpp` (`-e profile on` → gl · scopes), `Engine/AppAndroid.cpp` (프레임 구간), `Source/Core/Profiler.cpp` (BeginFrame 스레드 = 구간 스레드 — 안드로이드에서 구간이 모두 버려졌다),
+    `Tools/tests/android_city_perf.ps1` (`-Profile` · `-SkipBuild`, 결과를 파일로), `docs/ANDROID.md`
+  - 프레임마다 텍스처 바인딩 3528 → 79, 샘플러 3528 → 48, 상수 블록 바인딩 1240 → 33, 프로그램 205 → 37. MuMu 켬 11.6 → 11.0 ms, 끔 13.9 → 11.6 ms (편차 큼)
+  - 찾은 것: 물리 갱신 3.3 ms (`PhysicsManager::StepSimulation` 이 고정 스텝마다 모든 GameObject 를 훑어 바디 동기화를 처음부터) — 다음 작업 후보
+- 이전: 2026년 10월 5일 — **추천 2 · 3** (사용자 지시: 추천 2 "C# Renderer 공통 클래스 확장" · 3 "인스턴스별 속성 (GPU 인스턴싱 속성)" 붙여 넣기). **2 완료 (2ec9572 푸시)**, **3 완료 (커밋, 푸시 전)**
   - 2 (**완료**) C# `Renderer` 기본 클래스: 새 `ScriptCore/Engine/Renderer.cs` (Renderer · Bounds · `NovaEngine.Rendering.ShadowCastingMode`), `Material.cs` (렌더러 부분을 Renderer.cs 로, DllImport 에 kind),
     `Components.cs` (Mesh · Skinned · Sprite 가 Renderer 를 물려받음), `Core.cs` (GetComponent<Renderer> → Mesh → Skinned → Sprite), 새 `Source/Scene/MaterialBlock.*` (블록 · 파생 재질 공용 — MeshRenderer.cpp 에서 옮김),
     `MeshRenderer.*` (MaterialBlock 사용 · SetCastShadows), `SkinnedMeshRenderer.*` (재질 · 블록 · 그림자 API, 그릴 재질 = RenderMaterials, **enabled 를 그리기 함수에서 확인** — 예전엔 꺼도 그렸다),
