@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **오클루전 컬링 도시 쇼케이스 (세 API)** (사용자 지시: 다음 작업 3 번 "도시 쇼케이스 화면"). **완료** — Showcase 203 (도시 · 세 API 표) · 204 (안드로이드 MuMu)
+- 갱신 시각: 2026년 10월 5일 — **다음 작업 1 · 2 · 3 모두** (사용자 지시 "어 모두 적용해줘"). 1 · 2 완료, 3 진행 중
+  - 1 (**완료**) OpenGL 오클루전 GPU 손해: `OpenGL/GfxGL.cpp` · `GLLoader.h` — 이벤트 · STAGING 쓰기 펜스를 프레임 끝 (Present) 에, STAGING 은 늘 매핑, 조건부 그리기 NO_WAIT.
+    `Android/Source/GfxGLES.cpp` · `AndroidMain.cpp` (GLES 도 펜스를 프레임 끝에). 도시 GL GPU 3.72 → 2.65 ms (켜면 늘던 것). 35/35 · android_occlusion 13/13
+  - 2 (**완료**) C# 재질: 새 `ScriptCore/Engine/Material.cs` (Material · Shader.PropertyToID · MaterialPropertyBlock · MeshRenderer.material/sharedMaterial/SetPropertyBlock),
+    `ScriptCore/Engine/Components.cs` (MeshRenderer 를 partial 로 — 한 줄), 새 `Source/Scene/MaterialScripting.cpp` (NovaMat_* DllImport — 네이티브 표는 그대로),
+    `Graphics/DX11/UMaterial.*` (이름으로 값 · CloneInstance · StateHash), `Scene/MeshRenderer.*` (SetMaterialAt · 블록 · 파생 재질), `MeshBatcher.cpp` (GetRenderMaterials),
+    `run_tests.ps1` 의 `Suite-Material`, `docs/MATERIAL_SCRIPTING.md`. material 5/5, 회귀 69/69, 안드로이드 빌드
+  - 3 (진행 중) 안드로이드 기기 성능 측정 (MuMu, 도시 장면)
+- 이전: 2026년 10월 5일 — **오클루전 컬링 도시 쇼케이스 (세 API)** (사용자 지시: 다음 작업 3 번 "도시 쇼케이스 화면"). **완료** — Showcase 203 (도시 · 세 API 표) · 204 (안드로이드 MuMu)
   - 세 API 가 같은 렌더러 1977 / 2222 를 가리고 삼각형이 같다 (깊이 프리패스 2,351k → 970k, 불투명 2,351k → 536k) — `docs/OCCLUSION_CULLING.md` 의 도시 표
   - GL · Vulkan 파이프라인 통계 (프로파일러 · `nova perf` 의 primitives · pixels — 예전엔 0): `OpenGL/GfxGL.cpp` · `GLLoader.h` (ARB_pipeline_statistics_query, 겹친 구간 = 조각),
     `Vulkan/GfxVkContext.cpp` · `GfxVkDevice.cpp` · `GfxVkInternal.h` (pipelineStatisticsQuery, 렌더링 밖에서 조각, 제출 때 끊고 다시)

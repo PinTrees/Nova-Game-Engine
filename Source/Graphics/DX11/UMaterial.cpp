@@ -80,6 +80,170 @@ string UMaterial::GetName()
 	return filesystem::path(m_ResourcePath).filename().string();
 }
 
+std::string UMaterial::ScriptName() const
+{
+	// Unity 의 Material.name: 확장자 없는 이름, 런타임 사본은 " (Instance)"
+	std::string name = IsBuiltinPath(m_ResourcePath) ? std::string("Default-Material") : filesystem::path(m_ResourcePath).stem().string();
+	return m_Instance ? name + " (Instance)" : name;
+}
+
+namespace
+{
+	// Unity URP 속성 이름 → 엔진 값 (색 · 수)
+	enum class Prop { None, BaseColor, Emission, Metallic, Smoothness, Cutoff, BumpScale, Occlusion };
+	Prop PropOf(const std::string& n)
+	{
+		if (n == "_BaseColor" || n == "_Color") return Prop::BaseColor;
+		if (n == "_EmissionColor") return Prop::Emission;
+		if (n == "_Metallic") return Prop::Metallic;
+		if (n == "_Smoothness" || n == "_Glossiness") return Prop::Smoothness;
+		if (n == "_Cutoff") return Prop::Cutoff;
+		if (n == "_BumpScale") return Prop::BumpScale;
+		if (n == "_OcclusionStrength") return Prop::Occlusion;
+		return Prop::None;
+	}
+	// 패키지 · Shader Graph 속성 이름: 그대로, 없으면 앞의 "_" 를 뗀 이름 (그래프 속성 참조 이름이 "_" 없이 저장된 재질)
+	const char* CustomKey(const json& props, const std::string& n)
+	{
+		if (props.contains(n)) return n.c_str();
+		if (n.size() > 1 && n[0] == '_' && props.contains(n.substr(1))) return n.c_str() + 1;
+		return nullptr;
+	}
+}
+
+bool UMaterial::SetColorProperty(const std::string& name, const XMFLOAT4& c)
+{
+	switch (PropOf(name))
+	{
+	case Prop::BaseColor:
+		m_Pbr.BaseColor = c;
+		SyncLegacy();
+		m_PropertiesRevision = NextRevision();   // 패키지 셰이더도 엔진 값을 다시 읽게
+		return true;
+	case Prop::Emission:
+	{
+		// HDR 색 = 색 × Intensity (1 넘는 성분은 Intensity 로)
+		const float m = (std::max)((std::max)(c.x, c.y), c.z);
+		m_EmissionIntensity = (std::max)(1.0f, m);
+		m_EmissionColor = XMFLOAT3(c.x / m_EmissionIntensity, c.y / m_EmissionIntensity, c.z / m_EmissionIntensity);
+		m_EmissionEnabled = m > 0.0f;
+		m_PropertiesRevision = NextRevision();
+		return true;
+	}
+	case Prop::None:
+		break;
+	default:
+		return false;   // 수 속성
+	}
+	if (const char* key = CustomKey(m_Properties, name))
+	{
+		m_Properties[key] = { c.x, c.y, c.z, c.w };
+		TouchProperties();
+		return true;
+	}
+	return false;
+}
+
+bool UMaterial::GetColorProperty(const std::string& name, XMFLOAT4& c) const
+{
+	switch (PropOf(name))
+	{
+	case Prop::BaseColor: c = m_Pbr.BaseColor; return true;
+	case Prop::Emission:
+	{
+		const float k = m_EmissionEnabled ? m_EmissionIntensity : 0.0f;
+		c = XMFLOAT4(m_EmissionColor.x * k, m_EmissionColor.y * k, m_EmissionColor.z * k, 1.0f);
+		return true;
+	}
+	case Prop::None: break;
+	default: return false;
+	}
+	if (const char* key = CustomKey(m_Properties, name))
+	{
+		const json& v = m_Properties[key];
+		if (!v.is_array() || v.empty()) return false;
+		float f[4] = { 0, 0, 0, 1 };
+		for (size_t i = 0; i < v.size() && i < 4; ++i)
+			if (v[i].is_number()) f[i] = v[i].get<float>();
+		c = XMFLOAT4(f[0], f[1], f[2], f[3]);
+		return true;
+	}
+	return false;
+}
+
+bool UMaterial::SetFloatProperty(const std::string& name, float v)
+{
+	switch (PropOf(name))
+	{
+	case Prop::Metallic: m_Pbr.Metallic = v; break;
+	case Prop::Smoothness: m_Pbr.Smoothness = v; break;
+	case Prop::Cutoff: m_Pbr.Cutoff = v; break;
+	case Prop::BumpScale: m_Pbr.NormalScale = v; break;
+	case Prop::Occlusion: m_Pbr.OcclusionStrength = v; break;
+	case Prop::None:
+		if (const char* key = CustomKey(m_Properties, name))
+		{
+			m_Properties[key] = v;
+			TouchProperties();
+			return true;
+		}
+		return false;
+	default: return false;   // 색 속성
+	}
+	SyncLegacy();
+	m_PropertiesRevision = NextRevision();
+	return true;
+}
+
+bool UMaterial::GetFloatProperty(const std::string& name, float& v) const
+{
+	switch (PropOf(name))
+	{
+	case Prop::Metallic: v = m_Pbr.Metallic; return true;
+	case Prop::Smoothness: v = m_Pbr.Smoothness; return true;
+	case Prop::Cutoff: v = m_Pbr.Cutoff; return true;
+	case Prop::BumpScale: v = m_Pbr.NormalScale; return true;
+	case Prop::Occlusion: v = m_Pbr.OcclusionStrength; return true;
+	case Prop::None: break;
+	default: return false;
+	}
+	if (const char* key = CustomKey(m_Properties, name))
+	{
+		const json& j = m_Properties[key];
+		if (j.is_number()) { v = j.get<float>(); return true; }
+		if (j.is_boolean()) { v = j.get<bool>() ? 1.0f : 0.0f; return true; }
+	}
+	return false;
+}
+
+bool UMaterial::HasProperty(const std::string& name) const
+{
+	return PropOf(name) != Prop::None || CustomKey(m_Properties, name) != nullptr;
+}
+
+std::shared_ptr<UMaterial> UMaterial::CloneInstance() const
+{
+	auto c = std::make_shared<UMaterial>(*this);
+	c->m_Instance = true;
+	c->m_PropertiesRevision = NextRevision();   // 패키지 캐시 (주소 + 수정 번호) 가 섞이지 않게
+	return c;
+}
+
+uint64 UMaterial::StateHash() const
+{
+	// 엔진 값 (PBR · 발광) + 패키지 속성 수정 번호 (스크립트 · Inspector 가 바꾸면 달라진다)
+	uint64 h = 1469598103934665603ull;
+	auto mix = [&](const void* p, size_t n) { for (size_t i = 0; i < n; ++i) { h ^= static_cast<const uint8_t*>(p)[i]; h *= 1099511628211ull; } };
+	mix(&m_Pbr, sizeof(m_Pbr));
+	mix(&m_EmissionEnabled, sizeof(m_EmissionEnabled));
+	mix(&m_EmissionColor, sizeof(m_EmissionColor));
+	mix(&m_EmissionIntensity, sizeof(m_EmissionIntensity));
+	mix(&m_PropertiesRevision, sizeof(m_PropertiesRevision));
+	const void* srv = BaseMapSRV.Get();
+	mix(&srv, sizeof(srv));
+	return h;
+}
+
 string UMaterial::Create(string fullPath)
 {
 	// Unity 처럼 같은 이름이 있으면 "New Material 1", "New Material 2" ...

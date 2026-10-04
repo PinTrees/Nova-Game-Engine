@@ -350,7 +350,7 @@ namespace NovaEngine
         /// <summary>이 빛이 비추는 레이어 (비트 = 레이어). 안 비추는 레이어는 이 빛의 그림자도 드리우지 않는다</summary>
         public int cullingMask { get => Native.Api.CL_GetMask(m_Id, 1); set => Native.Api.CL_SetMask(m_Id, 1, value); }
     }
-    public sealed class MeshRenderer : Component { internal MeshRenderer() { } }
+    public sealed partial class MeshRenderer : Component { internal MeshRenderer() { } }   // material · sharedMaterial · SetPropertyBlock = Material.cs
 
     /// <summary>Unity 의 SkinnedMeshRenderer: BlendShape (모프 타깃) 가중치 0..100</summary>
     public sealed class SkinnedMeshRenderer : Component

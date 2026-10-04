@@ -56,6 +56,7 @@ private:
 	json m_Properties = json::object();
 	bool m_FallbackUnlit = false;
 	uint64 m_PropertiesRevision = NextRevision();   // 전역에서 유일 (패키지가 재질 주소 + 이 값으로 캐시)
+	bool m_Instance = false;   // 런타임 사본 (Renderer.material · new Material) — 이름에 " (Instance)", 파일에 저장하지 않는다
 
 public:
 	Material Mat;
@@ -111,6 +112,21 @@ public:
 
 	// Inspector: 재질 에셋을 골랐을 때(전체) 와 Mesh Renderer 아래(embedded = 머리글을 접을 수 있게)
 	void OnInspectorGUI(bool embedded = false);
+
+	// ---- 스크립트 (C# Material · MaterialPropertyBlock): Unity URP 의 이름 — _BaseColor · _Color · _EmissionColor (HDR) ·
+	//  _Metallic · _Smoothness · _Glossiness · _Cutoff · _BumpScale · _OcclusionStrength. 그 밖의 이름 = 패키지 · Shader Graph 속성 (Properties)
+	//  색은 감마 (Unity 의 Color 와 같은 값). 없는 이름이면 false
+	bool SetColorProperty(const std::string& name, const XMFLOAT4& c);
+	bool GetColorProperty(const std::string& name, XMFLOAT4& c) const;
+	bool SetFloatProperty(const std::string& name, float v);
+	bool GetFloatProperty(const std::string& name, float& v) const;
+	bool HasProperty(const std::string& name) const;
+	// 런타임 사본 (Renderer.material · new Material(source)) — 같은 값 · 텍스처, 파일에는 저장하지 않는다
+	std::shared_ptr<UMaterial> CloneInstance() const;
+	bool IsInstance() const { return m_Instance; }
+	std::string ScriptName() const;   // C# Material.name
+	// 값이 바뀌었는지 (MaterialPropertyBlock 의 파생 재질을 다시 만들지) — 엔진 값 + 패키지 속성 수정 번호
+	uint64 StateHash() const;
 
 private:
 	void SyncLegacy();   // m_Pbr → Mat (Diffuse = Base Color)

@@ -181,7 +181,7 @@ namespace
 			c.LayerBit = 1u << (go->GetLayerIndex() & 31);
 			c.First = (uint32_t)s_MainItems.size();
 			c.Count = (uint32_t)mesh->Subsets.size();
-			const auto& materials = mr->GetMaterials();
+			const auto& materials = mr->GetRenderMaterials();   // MaterialPropertyBlock 이 있으면 파생 재질
 			for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
 			{
 				const UINT matIndex = mesh->Subsets[i].MaterialIndex;

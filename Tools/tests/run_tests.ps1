@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2721,6 +2721,92 @@ function Suite-OcclusionApi([string]$suite, [string]$api)
     }
 }
 
+function Suite-Material
+{
+    # C# Renderer.material (이 렌더러만의 사본) · sharedMaterial · Material.SetColor/GetFloat · MaterialPropertyBlock (같은 값 = 한 인스턴싱 묶음)
+    Write-Host '[material]'
+    $dir = Join-Path $Out 'material'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $matDir = Join-Path $Project 'Assets\MatTest'
+    New-Item -ItemType Directory -Force $matDir | Out-Null
+    Copy-Item (Join-Path $Project 'Assets\Materials\Red Plastic.mat') (Join-Path $matDir 'Shared.mat') -Force
+    $ed = Start-TestEditor
+    try
+    {
+        function Exec([string]$code) { $f = Join-Path $dir 'exec.cs'; $code | Set-Content -Encoding utf8 $f; (Invoke-NovaJson "exec --file $f").result }
+        # Game 뷰 그림의 색 칸 수 (빨강 · 파랑 · 초록 · 노랑 · 청록)
+        function Colors([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova 'wait 6' | Out-Null
+            Invoke-Nova "screenshot $p --view game" | Out-Null
+            $r = [pscustomobject]@{ Red = 0; Blue = 0; Green = 0; Yellow = 0; Cyan = 0 }
+            if (-not (Test-Path $p)) { return $r }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            for ($y = 0; $y -lt $bm.Height; $y += 3) { for ($x = 0; $x -lt $bm.Width; $x += 3) {
+                $c = $bm.GetPixel($x, $y)
+                if ($c.R -gt $c.G + 50 -and $c.R -gt $c.B + 50) { $r.Red++ }
+                elseif ($c.B -gt $c.R + 50 -and $c.B -gt $c.G + 30) { $r.Blue++ }
+                elseif ($c.G -gt $c.R + 50 -and $c.G -gt $c.B + 50) { $r.Green++ }
+                elseif ($c.R -gt 120 -and $c.G -gt 120 -and $c.B -lt [math]::Min($c.R, $c.G) - 60) { $r.Yellow++ }
+                elseif ($c.G -gt 110 -and $c.B -gt 110 -and $c.R -lt [math]::Min($c.G, $c.B) - 60) { $r.Cyan++ } } }
+            $bm.Dispose()
+            $r
+        }
+        function Batches { (Invoke-NovaJson 'perf --frames 20').stats.'Game View/Mesh Batches' }
+
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        $cp = (Invoke-NovaJson 'get "Main Camera"').worldPosition
+        $z = $cp[2] + 7
+        foreach ($o in @(@('A', -1.6), @('B', 1.6)))
+        {
+            Invoke-Nova ("create cube --name {0} --position {1},{2},{3} --scale 2,2,2" -f $o[0], ($cp[0] + $o[1]), ($cp[1] - 0.2), $z) | Out-Null
+            Invoke-Nova ('set {0} --component MeshRenderer --values "{{\"m_MaterialPaths\":[\"Assets/MatTest/Shared.mat\"]}}"' -f $o[0]) | Out-Null
+        }
+        $c0 = Colors 'shared_red.png'
+
+        # 1. material: A 만 파랑 (B 는 공유 재질 그대로 빨강), 이름 "Shared (Instance)"
+        $r1 = Exec 'var a = GameObject.Find("A").GetComponent<MeshRenderer>(); var b = GameObject.Find("B").GetComponent<MeshRenderer>(); var m = a.material; m.color = Color.blue; return a.material.name + "|" + b.sharedMaterial.name + "|" + (a.sharedMaterial == b.sharedMaterial) + "|" + (a.material == m) + "|" + b.sharedMaterial.GetFloat("_Smoothness").ToString("0.00") + "|" + b.sharedMaterial.HasProperty("_BaseColor") + "|" + b.sharedMaterial.HasProperty("_Nope");'
+        $c1 = Colors 'instance_blue.png'
+        Add-Result material 'Renderer.material: a copy for A only (A blue, B keeps the shared red), name "Shared (Instance)"' ($c0.Red -gt 200 -and $c1.Blue -gt $c0.Blue + 1000 -and $c1.Red -gt 100 -and $c1.Red -lt $c0.Red * 0.7 -and "$r1" -like 'Shared (Instance)|Shared|False|True|*|True|False') ("$r1; red {0} -> {1}, blue {2}" -f $c0.Red, $c1.Red, $c1.Blue)
+
+        # 2. sharedMaterial: B 의 공유 재질을 초록으로 — 공유하는 렌더러 모두 (A 는 사본이라 파랑 그대로)
+        $r2 = Exec 'var b = GameObject.Find("B").GetComponent<MeshRenderer>(); b.sharedMaterial.SetColor("_BaseColor", new Color(0.1f, 0.8f, 0.1f, 1f)); return b.sharedMaterial.color.g.ToString("0.0");'
+        $c2 = Colors 'shared_green.png'
+        Add-Result material 'Renderer.sharedMaterial: changing the shared material recolors its users (B green), the copy stays (A blue)' ($c2.Green -gt 100 -and $c2.Blue -gt $c0.Blue + 1000 -and $c2.Red -lt 30 -and "$r2" -eq '0.8') ("green {0}, blue {1}, red {2}; color.g={3}" -f $c2.Green, $c2.Blue, $c2.Red, $r2)
+
+        # 3. MaterialPropertyBlock: 공유 재질 상자 24 개 (Material.Load + sharedMaterial) — 노랑 12 · 청록 12, 묶음은 2 개만 늘어난다
+        $pos = '{0}f + (i % 12) * 0.9f, {1}f + (i / 12) * 0.9f, {2}f' -f ($cp[0] - 5), ($cp[1] + 1.4), ($z + 3)
+        $r3 = Exec ('var mat = Material.Load("Assets/MatTest/Shared.mat"); for (int i = 0; i < 24; i++) { var g = GameObject.CreatePrimitive(PrimitiveType.Cube); g.name = "P" + i; g.transform.position = new Vector3(' + $pos + '); g.transform.localScale = new Vector3(0.6f, 0.6f, 0.6f); g.GetComponent<MeshRenderer>().sharedMaterial = mat; } return mat.name;')
+        $b0 = Batches
+        $r4 = Exec 'var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); var c = new MaterialPropertyBlock(); c.SetColor(Shader.PropertyToID("_BaseColor"), new Color(0.1f, 0.8f, 0.85f, 1f)); for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(i % 2 == 0 ? y : c); var got = new MaterialPropertyBlock(); var r = GameObject.Find("P1").GetComponent<MeshRenderer>(); r.GetPropertyBlock(got); return got.GetColor("_BaseColor").b.ToString("0.00") + "|" + r.HasPropertyBlock() + "|" + r.sharedMaterial.name;'
+        $b1 = Batches
+        $c3 = Colors 'block_colors.png'
+        Add-Result material 'MaterialPropertyBlock: per-renderer colors on a shared material (yellow · cyan), same values = one instanced batch' ($c3.Yellow -gt 30 -and $c3.Cyan -gt 30 -and ($b1 - $b0) -ge 1 -and ($b1 - $b0) -le 2 -and "$r3" -eq 'Shared' -and "$r4" -eq '0.85|True|Shared') ("yellow {0}, cyan {1}; mesh batches {2} -> {3}; {4}; {5}" -f $c3.Yellow, $c3.Cyan, $b0, $b1, $r3, $r4)
+
+        # 4. SetPropertyBlock(null) → 공유 재질 색 (초록) 으로
+        Exec 'for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(null); return 0;' | Out-Null
+        $c4 = Colors 'block_cleared.png'
+        Add-Result material 'SetPropertyBlock(null): back to the shared material' ($c4.Yellow -lt 10 -and $c4.Cyan -lt 10 -and $c4.Green -gt $c2.Green) ("yellow {0}, cyan {1}, green {2}" -f $c4.Yellow, $c4.Cyan, $c4.Green)
+
+        # 5. 사본은 씬에 저장되지 않는다 (Unity 처럼): 저장 · 다시 열면 A 는 공유 재질
+        Invoke-Nova 'scene save --as Assets/MatTest/MatTest.scene' | Out-Null
+        Invoke-Nova 'scene open Assets/MatTest/MatTest.scene --force' | Out-Null
+        $c5 = Colors 'reopened.png'
+        Add-Result material 'Runtime copies are not saved: after reopening, A uses the shared material again' ($c5.Blue -le $c0.Blue + 100 -and $c5.Green -gt $c4.Green * 0.8) ("blue {0} (sky only before: {3}), green {1}, red {2}" -f $c5.Blue, $c5.Green, $c5.Red, $c0.Blue)
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item -Recurse -Force $matDir -ErrorAction SilentlyContinue
+        Remove-Item -Force "$matDir.meta" -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-LineTrail
 {
     # Line Renderer · Trail Renderer (Unity 이름): 하늘 앞 흰 선 — 끈 화면과의 차이로 굵기 · 색 · 끝 모양 · 꼬리를 잰다
@@ -3487,6 +3573,7 @@ try
                 'lodgroup' { Suite-LODGroup }
                 'occlusion' { Suite-Occlusion }
                 'occlusiongl' { Suite-OcclusionGL }
+                'material' { Suite-Material }
                 'occlusionvk' { Suite-OcclusionVK }
                 'linetrail' { Suite-LineTrail }
                 'ssr' { Suite-SSR }
