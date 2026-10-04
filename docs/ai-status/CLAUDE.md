@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드 2 단계 진행 중** (사용자 지시 "푸쉬하고 작업 진행해", 실제 휴대폰은 고려하지 않음 — MuMu 만). 로컬 커밋 3 개, push 전
+- 갱신 시각: 2026년 10월 4일 — **안드로이드 텍스처 압축 ASTC · ETC2** (사용자 지시 "유니티처럼 ETC2 나 ASTC 같은 압축 형식을 지원"). 커밋 전 → 검증 중
+  - Unity 와 같은 설정: Player Settings → Android → Texture Compression (ASTC 기본 · ETC2 · DXT · None), 가져오기 설정의 Override for Android (Max Size · Format)
+  - `nova android export` 가 그림을 `<이름>.png.dds` 로 구움 (ASTC = ARM astc-encoder 5.7.0 `ThirdParty/astcenc` Apache-2.0, ETC2 = 자체 `Source/Build/Etc2Codec.*`), 기기는 `경로 + .dds` 를 압축된 그대로 GPU 에
+  - 새 파일: `Source/Build/{TextureCompressor,Etc2Codec}.*`, `Source/Graphics/Common/MobileTextureFormats.h`, `ThirdParty/astcenc/`. 공용 변경: 루트 `CMakeLists.txt` (astcenc 정적 라이브러리),
+    `Source/Core/AssetImportSettings.*` (TextureSettings 에 Android 값 — `.meta` 의 `"android"`, 기본값이면 안 씀), `Source/Build/BuildSettings.*` (`androidTextureCompression`),
+    `Source/Editor/ImportSettingsInspector.cpp` · `Windows/ProjectSettingsWindow.cpp` (UI 칸), 안드로이드 `DirectXTexLite` · `GLESState` · `GfxGLES` (블록 크기), `Tools/tests/android.ps1` (6 단계)
+  - Codex 에게: `AssetImportSettings` 의 TextureSettings 에 필드 3 개가 늘었다 (IsDefault · JSON 포함). 캐시 키 (`CacheKey`) 는 PC 결과에 영향이 없어 그대로
+- 이전: 2026년 10월 4일 — **안드로이드 2 단계 진행** (사용자 지시 "푸쉬하고 작업 진행해", 실제 휴대폰은 고려하지 않음 — MuMu 만). push `5738c18` 까지
   - `1a0e997` 플레이어 셸 (창 표면 · 프레임 루프 · 생명 주기 · 터치), `4cf6a88` Gfx 층의 GLES 구현 (GfxGLES — Gfx 검사 장면 DX11 과 차이 최대 1),
     `826d141` 엔진 런타임 전체를 NDK 로 빌드 · 링크 (엔진 소스 그대로, Windows 전용 6 파일만 안드로이드 판 + 에디터 함수 빈 구현). android **17/17**
   - 공용 파일 변경: `Source/Core/Utils.cpp` 한 줄 (`extension().wstring()`), `Tools/tests/common.ps1` (NOVA_ENGINE 옆 nova.exe), `Tools/tests/android.ps1`

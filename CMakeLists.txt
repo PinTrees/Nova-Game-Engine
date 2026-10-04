@@ -258,6 +258,15 @@ add_library(SPIRVCross STATIC
 target_include_directories(SPIRVCross PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/SPIRV-Cross")
 target_compile_options(SPIRVCross PRIVATE /W0 /bigobj)
 target_link_libraries(${ENGINE_CORE} PRIVATE SPIRVCross)
+
+# 안드로이드 텍스처 압축 ASTC: ARM astc-encoder 5.7.0 (ThirdParty/astcenc, Apache-2.0) — 에디터가 nova android export 때만 쓴다 (APK 에는 들어가지 않음).
+#  SSE4.1 + POPCNT (MSVC 는 자동 판별 매크로가 없어 직접 정한다)
+file(GLOB ASTCENC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/astcenc/astcenc_*.cpp")
+add_library(astcenc STATIC ${ASTCENC_SOURCES})
+target_include_directories(astcenc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/astcenc")
+target_compile_definitions(astcenc PUBLIC ASTCENC_SSE=41 ASTCENC_AVX=0 ASTCENC_POPCNT=1 ASTCENC_F16C=0 ASTCENC_NEON=0 ASTCENC_SVE=0)
+target_compile_options(astcenc PRIVATE /W0 /utf-8)
+target_link_libraries(${ENGINE_CORE} PRIVATE astcenc)
 add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/runtime/dxcompiler.dll"

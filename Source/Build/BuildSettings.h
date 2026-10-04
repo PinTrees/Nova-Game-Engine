@@ -28,6 +28,9 @@ namespace BuildSettings
 		// Unity 의 Other Settings > Rendering: Auto Graphics API for Windows / Graphics APIs (위가 우선)
 		bool AutoGraphicsAPI = true;
 		std::vector<GraphicsAPI> GraphicsAPIs = { GraphicsAPI::DirectX11 };
+		// Android: Texture Compression (Unity 의 Build Settings > Android) — 가져오기 설정의 Android Format 이 Automatic 인 텍스처의 형식.
+		//  0 ASTC (6x6, High Quality 는 4x4) · 1 ETC2 · 2 DXT (BC, 에뮬레이터 · 일부 GPU) · 3 압축 없음 (RGBA32)
+		int AndroidTextureCompression = 0;
 	};
 	// 빌드된 게임이 시도할 순서 (Auto 면 엔진 기본 순서)
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs();

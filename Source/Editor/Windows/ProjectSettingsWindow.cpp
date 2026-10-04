@@ -137,6 +137,12 @@ namespace
 			UnityGUI::HelpBox("Auto: the game uses DirectX 11 (like Unity). Turn Auto off and add OpenGL to the list to ship it too - the build then also includes the shader converter (about 23 MB).", false, 1);
 		else
 			changed |= DrawGraphicsApiList(p.GraphicsAPIs);
+		// Android (Unity 의 Build Settings > Android > Texture Compression)
+		UnityGUI::Label("Android", 0, true);
+		static const char* kTc[] = { "ASTC", "ETC2 (GLES 3.0)", "DXT (BC)", "None (RGBA32)" };
+		changed |= UnityGUI::Dropdown("Texture Compression", &p.AndroidTextureCompression, kTc, 4, 1);
+		UnityGUI::HelpBox("Format for textures whose Android Format is Automatic (texture Import Settings > Android). ASTC = 6x6 (High Quality = 4x4). "
+			"nova android export bakes them on the PC - phones have no image decoder or compressor.", false, 1);
 		if (changed)
 			BuildSettings::SavePlayer();
 		UnityGUI::Spacing(6.0f);

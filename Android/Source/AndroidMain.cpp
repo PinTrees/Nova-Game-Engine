@@ -127,7 +127,7 @@ namespace
 			std::string rel = manifest.substr(pos, end - pos);
 			pos = end + 1;
 			if (!rel.empty() && rel.back() == '\r') rel.pop_back();
-			if (rel.empty()) continue;
+			if (rel.empty() || rel[0] == '#') continue;   // '#' 줄 = 내보낸 시각 (스탬프에만 쓴다)
 			AAsset* a = AAssetManager_open(am, ("game/" + rel).c_str(), AASSET_MODE_STREAMING);
 			if (!a) { error = "missing asset game/" + rel; return false; }
 			const std::filesystem::path dst = root / rel;
@@ -234,6 +234,15 @@ namespace
 							ext += ' ';
 						}
 						Log("NOVA_GL_EXTENSIONS %s", ext.c_str());
+						// 압축 텍스처 형식 (GL 번호, 16 진수 — ETC2 0x9274.., ASTC 0x93B0..)
+						GLint nf = 0;
+						glGetIntegerv(GL_NUM_COMPRESSED_TEXTURE_FORMATS, &nf);
+						std::vector<GLint> fmts((size_t)(std::max)(nf, 0));
+						if (nf > 0) glGetIntegerv(GL_COMPRESSED_TEXTURE_FORMATS, fmts.data());
+						std::string fl;
+						char hex[16];
+						for (GLint f : fmts) { snprintf(hex, sizeof(hex), "%x ", f); fl += hex; }
+						Log("NOVA_GL_COMPRESSED %d: %s", nf, fl.c_str());
 						ok = true;
 					}
 					else error = "unknown test '" + test + "'";

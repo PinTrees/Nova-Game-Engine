@@ -6,6 +6,8 @@
 #include "PathManager.h"
 #include "BuildPipeline.h"
 #include "BuildSettings.h"
+#include "TextureCompressor.h"
+#include "AssetImportSettings.h"
 #include "UISystem.h"
 #include "App.h"
 #include <fstream>
@@ -72,6 +74,20 @@ namespace AndroidTools
 			std::vector<std::string> files;
 			uint64_t bytes = 0;
 			int converted = 0;
+			// 텍스처 압축: --texture-compression (astc · etc2 · dxt · none) 이 없으면 Player Settings 의 Android Texture Compression
+			TextureCompressor::AndroidDefault texDefault = (TextureCompressor::AndroidDefault)std::clamp(BuildSettings::GetPlayer().AndroidTextureCompression, 0, 3);
+			{
+				std::string tc = args.value("texture-compression", std::string());
+				for (char& ch : tc) ch = (char)tolower((unsigned char)ch);
+				if (tc == "astc") texDefault = TextureCompressor::AndroidDefault::ASTC;
+				else if (tc == "etc2") texDefault = TextureCompressor::AndroidDefault::ETC2;
+				else if (tc == "dxt" || tc == "bc") texDefault = TextureCompressor::AndroidDefault::DXT;
+				else if (tc == "none") texDefault = TextureCompressor::AndroidDefault::None;
+				else if (!tc.empty()) { error = "--texture-compression must be astc, etc2, dxt or none"; return false; }
+			}
+			static const std::set<std::string> kBake = { ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".tif", ".tiff", ".gif" };
+			nlohmann::json textures = nlohmann::json::array();
+			const auto t0 = std::chrono::steady_clock::now();
 			for (const auto& [rel, full] : BuildPipeline::CollectGameFiles(scenes))
 			{
 				std::string r = wstring_to_string(rel);
@@ -79,6 +95,27 @@ namespace AndroidTools
 				const fs::path dst = game / string_to_wstring(r);
 				fs::create_directories(dst.parent_path(), ec);
 				const fs::path src(full);
+				std::string ext = wstring_to_string(src.extension().wstring());
+				for (char& ch : ext) ch = (char)tolower((unsigned char)ch);
+				if (kBake.count(ext))
+				{
+					// 기기에는 그림 디코더 · 압축기가 없다 → 가져오기 설정대로 구운 DDS (<이름>.png.dds) 만 넣는다
+					const AssetImport::TextureSettings ts = AssetImport::AppliesTo(src.wstring()) ? AssetImport::LoadTexture(src.wstring()) : AssetImport::TextureSettings::Raw();
+					TextureCompressor::Result tr;
+					std::string terr;
+					const fs::path baked = dst.wstring() + L".dds";
+					if (TextureCompressor::BuildAndroid(src.wstring(), ts, texDefault, baked.wstring(), tr, terr))
+					{
+						textures.push_back({ { "path", r }, { "format", tr.Format }, { "size", std::to_string(tr.Width) + "x" + std::to_string(tr.Height) }, { "mips", tr.Mips },
+							{ "bytes", tr.Bytes }, { "psnr", std::round(tr.Psnr * 10.0) / 10.0 }, { "srgb", tr.Srgb } });
+						bytes += fs::file_size(baked, ec);
+						files.push_back(r + ".dds");
+						EditorLog::Heartbeat();
+						continue;
+					}
+					textures.push_back({ { "path", r }, { "error", terr } });
+					EditorLog::Write("Android", "texture %s: %s (copied as is)", r.c_str(), terr.c_str());
+				}
 				if (fs::file_size(src, ec) < (64ull << 20) && LooksLikeJson(src))
 				{
 					std::ifstream in(src);
@@ -106,8 +143,12 @@ namespace AndroidTools
 			std::ofstream(game / L"player.json", std::ios::trunc) << player.dump(4);
 			files.push_back("player.json");
 			std::ofstream manifest(game / L"files.txt", std::ios::binary | std::ios::trunc);
+			// 첫 줄 = 내보낸 시각: 목록이 같아도 (압축 형식만 바꿈 등) 기기가 다시 풀게
+			manifest << "# export " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "\n";
 			for (const std::string& f : files) manifest << f << "\n";
 			result = { { "files", files.size() }, { "jsonConverted", converted }, { "bytes", bytes }, { "scenes", sceneList },
+				{ "textureCompression", TextureCompressor::AndroidDefaultName(texDefault) }, { "textures", textures },
+				{ "seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() },
 				{ "out", wstring_to_string(fs::absolute(game, ec).wstring()) } };
 			return true;
 		}
@@ -179,7 +220,8 @@ namespace AndroidTools
 			if (op == "help")
 			{
 				result = { { "ops", { "shaders --out folder [--path file.fx]: convert every .fx to OpenGL ES 3.20 (<name>.json for the APK assets/Shaders)",
-					"export --out folder [--scenes a.scene,b.scene]: game data for the APK (folder/game: scenes + referenced assets, '/' paths, player.json, files.txt)", "reference --out file.png [--width 960 --height 540 --frames 10]: render the open scene's game camera like the player (DX11 reference for the Android scene test)" } } };
+					"export --out folder [--scenes a.scene,b.scene] [--texture-compression astc|etc2|dxt|none]: game data for the APK (folder/game: scenes + referenced assets, '/' paths, player.json, files.txt; images baked to <name>.dds, default = Player Settings Android Texture Compression)",
+"reference --out file.png [--width 960 --height 540 --frames 10]: render the open scene's game camera like the player (DX11 reference for the Android scene test)" } } };
 				return true;
 			}
 			if (op == "export")

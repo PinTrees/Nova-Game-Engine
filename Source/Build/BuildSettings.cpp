@@ -68,6 +68,13 @@ namespace
 		s_Player.Resizable = j.value("resizableWindow", true);
 		s_Player.RunInBackground = j.value("runInBackground", true);
 		s_Player.AutoGraphicsAPI = j.value("autoGraphicsAPI", true);
+		{
+			static const char* kTc[] = { "ASTC", "ETC2", "DXT", "None" };
+			const std::string tc = j.value("androidTextureCompression", std::string("ASTC"));
+			s_Player.AndroidTextureCompression = 0;
+			for (int i = 0; i < 4; ++i)
+				if (tc == kTc[i]) s_Player.AndroidTextureCompression = i;
+		}
 		if (j.contains("graphicsAPIs") && j["graphicsAPIs"].is_array())
 		{
 			s_Player.GraphicsAPIs.clear();
@@ -126,7 +133,8 @@ namespace BuildSettings
 			{ "companyName", p.CompanyName }, { "productName", p.ProductName }, { "version", p.Version },
 			{ "fullscreenMode", (int)p.Mode }, { "defaultScreenWidth", p.Width }, { "defaultScreenHeight", p.Height },
 			{ "resizableWindow", p.Resizable }, { "runInBackground", p.RunInBackground },
-			{ "autoGraphicsAPI", p.AutoGraphicsAPI }, { "graphicsAPIs", ApiKeys(p.GraphicsAPIs) } });
+			{ "autoGraphicsAPI", p.AutoGraphicsAPI }, { "graphicsAPIs", ApiKeys(p.GraphicsAPIs) },
+			{ "androidTextureCompression", std::array<const char*, 4>{ "ASTC", "ETC2", "DXT", "None" }[std::clamp(p.AndroidTextureCompression, 0, 3)] } });
 	}
 
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs()

@@ -49,8 +49,28 @@ PC 플레이어와 **같은 렌더 경로** (`EditorApp` 의 게임 뷰 그리�
 | `Source/Build/AndroidTools.cpp` | 에디터 CLI `nova android export --out Android/build/assets --scenes A.scene,…` — 플레이어 빌드와 같은 에셋 모음 (`BuildPipeline::CollectGameFiles`), JSON 안의 경로 `\` → `/`, `player.json` · `files.txt`. `nova android reference --out x.png --width --height --frames` — 열린 씬을 플레이어 순서로 그린 DX11 기준 그림 |
 | `Android/Source/AndroidMain.cpp` | APK 의 `assets/game` → 앱 파일 폴더 (`files.txt` 가 바뀌었을 때만), 게임 데이터가 있으면 엔진 플레이어 (`-e mode shell` 이면 셸), `-e test scene` = 화면 없이 첫 씬을 N 프레임 그려 BMP |
 
-아직: 텍스처 (PNG · JPG) 와 모델 (FBX) 을 기기에서 읽지 못한다 (Windows 전용 DirectXTex · Assimp) → PC 가 미리 구운 캐시를 넣는 것이 다음.
+아직: 모델 (FBX) 을 기기에서 읽지 못한다 (Windows 전용 Assimp) → PC 가 미리 구운 메시 캐시를 넣는 것이 다음.
 C# 스크립트 · 패키지 DLL · 소리 (XAudio2) 없음.
+
+### 텍스처 압축 (Unity 의 Android Texture Compression)
+
+기기에는 그림 디코더 · 압축기가 없다. `nova android export` 가 그림 (png · jpg · bmp · tga · tif · gif) 을 **가져오기 설정대로 구워**
+`<이름>.png.dds` 로 넣고, 기기의 `LoadFromWICFile` 은 `경로 + ".dds"` 를 읽어 압축된 그대로 GPU 에 올린다.
+
+| 설정 | 위치 | 값 |
+|---|---|---|
+| 프로젝트 기본 | Project Settings → Player → Android → **Texture Compression** (`androidTextureCompression`) | **ASTC** (기본, Unity 와 같음) · ETC2 · DXT (BC, 에뮬레이터용) · None (RGBA32) |
+| 텍스처마다 | 가져오기 설정 → **Override for Android** (`.meta` 의 `"android"`) | Max Size, Format = Automatic · ASTC 4x4 ~ 12x12 · ETC2 · RGBA32 |
+| 내보내기 | `nova android export … --texture-compression astc\|etc2\|dxt\|none` | 프로젝트 기본을 이번만 바꿈 |
+
+- Automatic: 프로젝트 기본 형식. ASTC 는 블록 6x6 (High Quality 압축이면 4x4), 압축 None 이면 RGBA32. 크기 · 밉 · sRGB · 선형은 PC 와 같은 규칙
+- ASTC: ARM **astc-encoder 5.7.0** (`ThirdParty/astcenc`, Apache-2.0, 정적 라이브러리, 여러 스레드). ETC2: 엔진 자체 인코더 (`Source/Build/Etc2Codec.*` —
+  ETC1 개별 · 차분 + ETC2 평면 모드, 알파는 EAC). 색 그림은 눈 가중치 (초록), 노멀맵 · 선형은 성분 똑같이
+- DDS: DX10 머리. ASTC 는 옛 `DXGI_FORMAT_ASTC_*` 값 (133 + 4·블록), ETC2 는 엔진 값 240 ~ 243 (`Source/Graphics/Common/MobileTextureFormats.h`)
+- 내보내기 결과의 `textures[]` 에 형식 · 크기 · 밉 · 바이트 · **PSNR** (밉 0, 원본 대비). 가져오기 설정 창의 Android 칸에 결과 형식이 보인다
+- 예 (ScriptTest `Materials.scene`): Checker — ASTC 6x6 55.4 dB, ETC2 55.9 dB, BC1 41.1 dB. Bumps_Normal (노멀맵) — ASTC 6x6 34.0, ETC2 26.2 (Texture Type 이 Normal Map 일 때, Default 면 25.7), BC1 30.2.
+  ETC2 는 블록 안 색 변화가 큰 노멀맵에 약하다 (밝기만 바꾸는 방식) — 그래서 Unity 처럼 ASTC 가 기본. T · H 모드는 아직 안 씀
+- `files.txt` 첫 줄은 내보낸 시각 (`# export …`) — 목록이 같아도 (형식만 바꿈) 기기가 다시 푼다
 
 ### 셰이더
 
@@ -79,6 +99,8 @@ powershell -File Tools/tests/android.ps1
 6. 플레이어 셸 (`-e mode shell`): 창 표면 → 화면 캡처 (`screencap`) 로 배경색 · 프레임마다 움직이는 막대, `input tap` → 터치 위치에 주황 표시,
    HOME → 다시 열기 (창 잃음 · 다시 생김, 상태 유지). MuMu 가 켜진 직후 띄우는 광고 창이 앞에 있으면 뒤로 가기로 닫는다.
    회전은 검사하지 않는다 (MuMu 태블릿 모드는 `user_rotation` · `wm size` 로 앱 창 크기를 바꾸지 않음)
+7. 텍스처 압축: `-TextureScene` (기본 `Materials.scene`) 을 ASTC · ETC2 로 구워 형식마다 APK → `-e test scene` → DX11 기준 (PC 는 BC) 과 비교.
+   압축 형식 차이만큼은 허용 (평균 < 2, 8 넘는 화소 < 5 %). APK 의 게임 데이터는 마지막 형식으로 남는다
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.

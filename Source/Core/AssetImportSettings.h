@@ -42,6 +42,12 @@ namespace AssetImport
 		enum SpriteModes { SingleSprite = 0, MultipleSprites = 1 };
 		int SpriteMode = SingleSprite;
 		std::vector<SpriteRect> Sprites;
+		// Android 플랫폼 탭 (Unity 의 "Override for Android"): 켜면 안드로이드에서만 이 크기 · 형식 (nova android export 가 굽는다).
+		//  끄면 Max Size 그대로, 형식 = Build Settings 의 Android Texture Compression (ASTC 6x6 · ETC2 · DXT · 압축 없음)
+		enum AndroidFormats { AndroidAutomatic = 0, AndroidASTC4x4, AndroidASTC5x5, AndroidASTC6x6, AndroidASTC8x8, AndroidASTC10x10, AndroidASTC12x12, AndroidETC2, AndroidRGBA32 };
+		bool AndroidOverride = false;
+		int AndroidMaxSize = 2048;
+		int AndroidFormat = AndroidAutomatic;
 		const SpriteRect* FindSprite(const std::string& name) const;
 		nlohmann::json SpritesJson() const;
 

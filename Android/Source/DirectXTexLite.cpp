@@ -1,6 +1,7 @@
 #include "pch.h"
 #include <DirectXTex/DirectXTex.h>
 #include <fstream>
+#include "MobileTextureFormats.h"
 
 // DirectXTex 의 일부 (안드로이드). 이미지 배치는 DirectXTex 와 같다:
 //  1D · 2D (배열 · 큐브) = 조각마다 [밉 0 … 밉 n], 3D = 밉마다 깊이 조각들이 이어짐
@@ -40,6 +41,7 @@ namespace DirectX
 
 	size_t BitsPerPixel(DXGI_FORMAT f)
 	{
+		if (MobileTex::IsMobile((unsigned)f)) return 8;   // ASTC · ETC2 (블록 형식 — 크기 계산은 ComputePitch)
 		switch (f)
 		{
 		case DXGI_FORMAT_R32G32B32A32_TYPELESS: case DXGI_FORMAT_R32G32B32A32_FLOAT: case DXGI_FORMAT_R32G32B32A32_UINT: case DXGI_FORMAT_R32G32B32A32_SINT:
@@ -73,7 +75,7 @@ namespace DirectX
 		}
 	}
 
-	bool IsCompressed(DXGI_FORMAT f) { return BlockBytes(f) != 0; }
+	bool IsCompressed(DXGI_FORMAT f) { return BlockBytes(f) != 0 || MobileTex::IsMobile((unsigned)f); }
 
 	bool IsSRGB(DXGI_FORMAT f)
 	{
@@ -104,6 +106,13 @@ namespace DirectX
 
 	HRESULT ComputePitch(DXGI_FORMAT fmt, size_t width, size_t height, size_t& rowPitch, size_t& slicePitch, CP_FLAGS)
 	{
+		int mbx, mby, mbytes;
+		if (MobileTex::BlockInfo((unsigned)fmt, mbx, mby, mbytes))
+		{
+			rowPitch = (std::max)(size_t(1), (width + mbx - 1) / mbx) * (size_t)mbytes;
+			slicePitch = rowPitch * (std::max)(size_t(1), (height + mby - 1) / mby);
+			return S_OK;
+		}
 		if (const size_t block = BlockBytes(fmt))
 		{
 			const size_t bw = (std::max)(size_t(1), (width + 3) / 4), bh = (std::max)(size_t(1), (height + 3) / 4);
@@ -408,8 +417,19 @@ namespace DirectX
 		}
 	}
 
-	HRESULT LoadFromWICFile(const wchar_t*, WIC_FLAGS, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
-	HRESULT LoadFromWICFile(const char*, WIC_FLAGS, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
+	// 그림 (png · jpg …): 기기에는 디코더가 없다 → nova android export 가 구워 둔 "<그림 경로>.dds" (ASTC · ETC2 · BC · RGBA32)
+	HRESULT LoadFromWICFile(const char* file, WIC_FLAGS, TexMetadata* meta, ScratchImage& image)
+	{
+		image.Release();
+		const std::string baked = std::string(file) + ".dds";
+		std::error_code ec;
+		if (!std::filesystem::exists(baked, ec)) return E_NOTIMPL;
+		return LoadFromDDSFile(baked.c_str(), DDS_FLAGS_NONE, meta, image);
+	}
+	HRESULT LoadFromWICFile(const wchar_t* file, WIC_FLAGS flags, TexMetadata* meta, ScratchImage& image)
+	{
+		return LoadFromWICFile(std::filesystem::path(file).string().c_str(), flags, meta, image);
+	}
 	HRESULT GetMetadataFromWICFile(const wchar_t*, WIC_FLAGS, TexMetadata&) { return E_NOTIMPL; }
 	HRESULT GetMetadataFromWICFile(const char*, WIC_FLAGS, TexMetadata&) { return E_NOTIMPL; }
 	HRESULT LoadFromTGAFile(const wchar_t*, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }

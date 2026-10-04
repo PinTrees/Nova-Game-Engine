@@ -1,12 +1,30 @@
 #include "pch.h"
 #include "GLESState.h"
 #include "FxStates.h"
+#include "MobileTextureFormats.h"
 
 namespace GLESState
 {
 	Format FromDxgi(DXGI_FORMAT f, bool depthBind)
 	{
 		Format r;
+		// 모바일 압축 (nova android export 가 구운 DDS): ASTC 0x93B0 + 블록 (sRGB 0x93D0 +), ETC2 · EAC (ES 3.0 기본)
+		if (const int ai = MobileTex::AstcBlockIndex((unsigned)f); ai >= 0)
+		{
+			r.Internal = (MobileTex::AstcSrgb((unsigned)f) ? 0x93D0u : 0x93B0u) + (unsigned)ai;
+			r.BlockBytes = 16;
+			r.BlockW = (UINT)MobileTex::kAstcBlocks[ai].X;
+			r.BlockH = (UINT)MobileTex::kAstcBlocks[ai].Y;
+			return r;
+		}
+		switch ((unsigned)f)
+		{
+		case MobileTex::kEtc2RGB8: r.Internal = GL_COMPRESSED_RGB8_ETC2; r.BlockBytes = 8; return r;
+		case MobileTex::kEtc2SRGB8: r.Internal = GL_COMPRESSED_SRGB8_ETC2; r.BlockBytes = 8; return r;
+		case MobileTex::kEtc2RGBA8: r.Internal = GL_COMPRESSED_RGBA8_ETC2_EAC; r.BlockBytes = 16; return r;
+		case MobileTex::kEtc2SRGB8A8: r.Internal = GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC; r.BlockBytes = 16; return r;
+		default: break;
+		}
 		auto set = [&](GLenum i, GLenum u, GLenum t, UINT bits) { r.Internal = i; r.Upload = u; r.Type = t; r.Bits = bits; };
 		auto bc = [&](GLenum i, UINT block) { r.Internal = i; r.BlockBytes = block; };
 		auto unorm16 = [&](GLenum i, GLenum u, UINT channels) { set(i, u, GL_FLOAT, 16 * channels); r.Conv = Convert::Unorm16ToFloat; r.Channels = channels; };
@@ -100,13 +118,13 @@ namespace GLESState
 
 	UINT64 RowBytes(const Format& f, UINT width)
 	{
-		if (f.BlockBytes) return (UINT64)(std::max)(1u, (width + 3) / 4) * f.BlockBytes;
+		if (f.BlockBytes) return (UINT64)(std::max)(1u, (width + f.BlockW - 1) / f.BlockW) * f.BlockBytes;
 		return (UINT64)width * f.Bits / 8;
 	}
 
 	UINT64 SliceBytes(const Format& f, UINT width, UINT height)
 	{
-		if (f.BlockBytes) return RowBytes(f, width) * (std::max)(1u, (height + 3) / 4);
+		if (f.BlockBytes) return RowBytes(f, width) * (std::max)(1u, (height + f.BlockH - 1) / f.BlockH);
 		return RowBytes(f, width) * height;
 	}
 

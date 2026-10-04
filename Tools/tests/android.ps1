@@ -5,8 +5,9 @@
 #  3) Android/build.py 로 APK → adb 설치 → am start -e test rhi | gfx → logcat 의 "NOVA_TEST {json}" → adb pull 로 그림 → 화소 비교
 #     (rhi = RHI 층, gfx = Gfx 층 = 엔진 렌더러가 쓰는 D3D11 모양 층의 GLES 구현)
 #  4) 플레이어 셸: 창 표면 · 프레임 루프 · input tap · HOME 뒤 다시 열기 (NOVA_EVENT 줄 + screencap)
+#  5) 엔진 플레이어 (창) 6) 텍스처 압축: -TextureScene 을 ASTC · ETC2 로 구워 APK 마다 실행 → DX11 기준과 비교 (APK 의 게임 데이터는 마지막 형식으로 남는다)
 param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [switch]$SkipEditor, [int]$MaxDiff = 20,
-    [string]$Scene = 'Assets\Scenes\Shadows.scene')
+    [string]$Scene = 'Assets\Scenes\Shadows.scene', [string]$TextureScene = 'Assets\Scenes\Materials.scene', [string[]]$TextureFormats = @('astc', 'etc2'))
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Project = $Project
 $ErrorActionPreference = 'Continue'
@@ -69,6 +70,17 @@ if (-not $SkipEditor)
         $sr = Invoke-NovaJson "android reference --out `"$(Join-Path $Out 'scene_DirectX11.png')`" --width 960 --height 540 --frames 10"
         $wr = Invoke-NovaJson "android reference --out `"$(Join-Path $Out 'window_DirectX11.png')`" --width 1600 --height 900 --frames 10"
         Check 'DX11 scene reference' ((Test-Path (Join-Path $Out 'scene_DirectX11.png')) -and (Test-Path (Join-Path $Out 'window_DirectX11.png'))) "$Scene (960x540, 1600x900)"
+        # 텍스처 압축: 같은 씬을 ASTC · ETC2 로 구운 게임 데이터 (6 단계에서 하나씩 APK 에 넣어 실행) + DX11 기준 (PC 는 BC)
+        foreach ($tc in $TextureFormats)
+        {
+            $t = Invoke-NovaJson "android export --out `"$(Join-Path $Out "tex_$tc")`" --scenes `"$TextureScene`" --texture-compression $tc"
+            $baked = @($t.textures | Where-Object { $_.format })
+            Check "textures baked ($tc)" ($t -and $baked.Count -gt 0 -and $baked.Count -eq @($t.textures).Count) $(if ($t) { ($t.textures | ForEach-Object { "{0} {1} {2} {3} dB" -f (Split-Path $_.path -Leaf), $_.format, $_.size, $_.psnr }) -join '; ' } else { 'no result' })
+        }
+        Invoke-Nova "scene open `"$($TextureScene -replace '\\', '/')`" --force" | Out-Null; Invoke-Nova 'wait 30' | Out-Null
+        $texRef = Join-Path $Out 'tex_DirectX11.png'
+        Invoke-NovaJson "android reference --out `"$texRef`" --width 960 --height 540 --frames 10" | Out-Null
+        foreach ($tc in $TextureFormats) { if (Test-Path $texRef) { Copy-Item $texRef (Join-Path $Out "tex_${tc}_DirectX11.png") } }
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)"; Restore-Layout }
 }
@@ -83,7 +95,7 @@ Check 'APK build' ($py -match 'apk .*nova\.apk') (($py -split "`n" | Where-Objec
 Write-Host '[android] run on emulator'
 $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String).Trim()
 Check 'install' ($inst -match 'Success') ($inst -split "`n" | Select-Object -Last 1)
-function DeviceTest([string]$test, [string]$label, [string]$extra = '')
+function DeviceTest([string]$test, [string]$label, [string]$extra = '', [string]$name = $test)
 {
     & $Adb -s $serial logcat -c
     & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
@@ -95,25 +107,23 @@ function DeviceTest([string]$test, [string]$label, [string]$extra = '')
         Start-Sleep -Milliseconds 500
         $line = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_TEST (\{.*\})' | Select-Object -Last 1)
     }
-    & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out "logcat_$test.txt")
-    if (-not $line) { Check "$test test on device" $false "no NOVA_TEST line in 120 s (logcat_$test.txt)"; return }
+    & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out "logcat_$name.txt")
+    if (-not $line) { Check "$name test on device" $false "no NOVA_TEST line in 120 s (logcat_$name.txt)"; return $null }
     $j = $line.Matches[0].Groups[1].Value | ConvertFrom-Json
-    Check "$test test on device" ([bool]$j.ok) ("{0}, load {1} ms, draw {2} ms {3}" -f $j.device, $j.loadMs, $j.drawMs, $j.error)
-    if (-not $j.ok) { return }
-    $bmp = Join-Path $Out "${test}_GLES.bmp"
+    Check "$name test on device" ([bool]$j.ok) ("{0}, load {1} ms, draw {2} ms {3}" -f $j.device, $j.loadMs, $j.drawMs, $j.error)
+    if (-not $j.ok) { return $null }
+    $bmp = Join-Path $Out "${name}_GLES.bmp"
     & $Adb -s $serial pull $j.image $bmp | Out-Null
-    $ref = Join-Path $Out "${test}_DirectX11.png"
-    if ((Test-Path $bmp) -and (Test-Path $ref))
-    {
-        $c = [NovaImageCompare]::Compare($ref, $bmp, (Join-Path $Out "${test}_diff_GLES.png"))
-        if ($c) { Check "GLES = DX11 ($label)" ($c[0] -le $MaxDiff) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2]) }
-        else { Check "GLES = DX11 ($label)" $false 'size differs' }
-    }
-    else { Check "GLES = DX11 ($label)" $false 'image missing' }
+    $ref = Join-Path $Out "${name}_DirectX11.png"
+    if (-not ((Test-Path $bmp) -and (Test-Path $ref))) { Check "GLES = DX11 ($label)" $false 'image missing'; return $null }
+    $c = [NovaImageCompare]::Compare($ref, $bmp, (Join-Path $Out "${name}_diff_GLES.png"))
+    if (-not $c) { Check "GLES = DX11 ($label)" $false 'size differs'; return $null }
+    if ($name -eq $test) { Check "GLES = DX11 ($label)" ($c[0] -le $MaxDiff) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2]) }
+    return $c
 }
-DeviceTest 'rhi' 'RHI scene'
-DeviceTest 'gfx' 'Gfx layer scene'
-DeviceTest 'scene' "engine scene $Scene" '-e frames 10'   # 엔진 전체 (EditorApp · 플레이어 순서) 로 게임 데이터의 첫 씬
+DeviceTest 'rhi' 'RHI scene' | Out-Null
+DeviceTest 'gfx' 'Gfx layer scene' | Out-Null
+DeviceTest 'scene' "engine scene $Scene" '-e frames 10' | Out-Null   # 엔진 전체 (EditorApp · 플레이어 순서) 로 게임 데이터의 첫 씬
 
 # ---- 5) 플레이어 셸: 창 표면 · 프레임 루프 · 터치 · 내렸다 올리기 · 회전 (logcat 의 NOVA_EVENT 와 화면 캡처)
 Write-Host '[android] player shell'
@@ -240,6 +250,29 @@ if ($eng)
 }
 & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out 'logcat_engine.txt')
 & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+
+# ---- 6) 텍스처 압축 (Unity 의 Android Texture Compression): 구운 ASTC · ETC2 를 기기가 그대로 GPU 에 올려 그린 씬 = DX11 기준 (PC 는 BC → 압축 차이만큼은 허용)
+$gameDir = Join-Path $Root 'Android\build\assets\game'
+foreach ($tc in $TextureFormats)
+{
+    $src = Join-Path $Out "tex_$tc\game"
+    if (-not (Test-Path $src)) { continue }
+    Write-Host "[android] texture compression $tc"
+    Remove-Item -Recurse -Force $gameDir -ErrorAction SilentlyContinue
+    Copy-Item -Recurse $src $gameDir
+    $py = (& python (Join-Path $Root 'Android\build.py') --abi $abi 2>&1 | Out-String)
+    $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String)
+    if (-not ($py -match 'apk .*nova\.apk' -and $inst -match 'Success')) { Check "texture $tc APK" $false 'build or install failed'; continue }
+    $c = DeviceTest 'scene' "textures $tc" '-e frames 10' "tex_$tc"
+    if ($c)
+    {
+        # 같은 씬이 압축 형식 차이만 남기면 8 넘는 화소는 조금 (텍스처가 빠지거나 깨지면 화면 대부분이 바뀐다)
+        Check "GLES $tc = DX11 BC ($TextureScene)" ($c[1] -lt 2.0 -and $c[2] -lt 5.0) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2])
+    }
+    $glErr = @(Get-Content (Join-Path $Out "logcat_tex_$tc.txt") -ErrorAction SilentlyContinue | Select-String 'texture|\.dds' | Select-String -Pattern 'fail|error|not found')
+    Check "no texture errors ($tc)" ($glErr.Count -eq 0) $(if ($glErr.Count) { $glErr[0].Line.Trim() } else { 'logcat clean' })
+}
+
 if (-not $KeepEmulator) { MuMu @('control', '-v', $index, 'shutdown') | Out-Null }
 
 $results | Format-Table -AutoSize | Out-String -Width 200 | Write-Host

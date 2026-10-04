@@ -396,7 +396,7 @@ namespace
 		if (t.Fmt.BlockBytes)
 		{
 			// 압축: rowPitch 가 꽉 찬 블록 행과 같다고 본다 (DirectXTex 가 만드는 데이터)
-			const UINT64 size = (UINT64)(rowPitch ? rowPitch : GLESState::RowBytes(t.Fmt, w)) * (std::max)(1u, (h + 3) / 4);
+			const UINT64 size = (UINT64)(rowPitch ? rowPitch : GLESState::RowBytes(t.Fmt, w)) * (std::max)(1u, (h + t.Fmt.BlockH - 1) / t.Fmt.BlockH);
 			if (t.Target == GL_TEXTURE_2D)
 				glCompressedTexSubImage2D(t.Target, m, x, y, w, h, t.Fmt.Internal, (GLsizei)size, data);
 			else if (t.Target == GL_TEXTURE_CUBE_MAP)

@@ -83,12 +83,18 @@ namespace AssetImport
 	}
 
 	// ------------------------------------------------------------------ 텍스처
+	static const char* kAndroidFormat[] = { "Automatic", "ASTC 4x4", "ASTC 5x5", "ASTC 6x6", "ASTC 8x8", "ASTC 10x10", "ASTC 12x12", "ETC2", "RGBA32" };
+
 	json TextureSettings::ToJson() const
 	{
-		return json{ { "textureType", kTextureType[std::clamp(TextureType, 0, 2)] }, { "sRGB", SRGB }, { "maxSize", MaxSize },
+		json j{ { "textureType", kTextureType[std::clamp(TextureType, 0, 2)] }, { "sRGB", SRGB }, { "maxSize", MaxSize },
 			{ "compression", kCompression[std::clamp(Compression, 0, 2)] }, { "mipmaps", MipMaps },
 			{ "spritePixelsPerUnit", PixelsPerUnit }, { "spritePivot", { PivotX, PivotY } }, { "filterMode", kFilterMode[std::clamp(FilterMode, 0, 2)] },
 			{ "spriteMode", SpriteMode == MultipleSprites ? "Multiple" : "Single" }, { "sprites", SpritesJson() } };
+		// Android 탭 값은 켜 두었거나 바꿨을 때만 (Unity 처럼 덮어쓰기를 꺼도 값은 남는다)
+		if (AndroidOverride || AndroidMaxSize != 2048 || AndroidFormat != AndroidAutomatic)
+			j["android"] = { { "override", AndroidOverride }, { "maxSize", AndroidMaxSize }, { "format", kAndroidFormat[std::clamp(AndroidFormat, 0, 8)] } };
+		return j;
 	}
 
 	TextureSettings TextureSettings::Raw()
@@ -119,6 +125,20 @@ namespace AssetImport
 			PivotY = j["spritePivot"][1].get<float>();
 		}
 		FilterMode = IndexOf(j, "filterMode", kFilterMode, Bilinear);
+		AndroidOverride = false;
+		AndroidMaxSize = 2048;
+		AndroidFormat = AndroidAutomatic;
+		if (j.contains("android") && j["android"].is_object())
+		{
+			const json& a = j["android"];
+			AndroidOverride = a.value("override", false);
+			const int am = a.value("maxSize", 2048);
+			int s = 32;
+			while (s < am && s < 16384)
+				s *= 2;
+			AndroidMaxSize = s;
+			AndroidFormat = IndexOf(a, "format", kAndroidFormat, AndroidAutomatic);
+		}
 		SpriteMode = j.value("spriteMode", std::string("Single")) == "Multiple" ? MultipleSprites : SingleSprite;
 		Sprites.clear();
 		if (j.contains("sprites") && j["sprites"].is_array())
@@ -160,7 +180,7 @@ namespace AssetImport
 		const TextureSettings d;
 		return TextureType == d.TextureType && SRGB == d.SRGB && MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps &&
 			PixelsPerUnit == d.PixelsPerUnit && PivotX == d.PivotX && PivotY == d.PivotY && FilterMode == d.FilterMode &&
-			SpriteMode == d.SpriteMode && Sprites.empty();
+			SpriteMode == d.SpriteMode && Sprites.empty() && AndroidOverride == d.AndroidOverride && AndroidMaxSize == d.AndroidMaxSize && AndroidFormat == d.AndroidFormat;
 	}
 
 	std::string TextureSettings::CacheTag() const

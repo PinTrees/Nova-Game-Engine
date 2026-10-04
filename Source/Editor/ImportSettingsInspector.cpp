@@ -8,6 +8,8 @@
 #include "HumanoidAvatar.h"
 #include "AudioClip.h"
 #include "SpriteSlicer.h"
+#include "TextureCompressor.h"
+#include "BuildSettings.h"
 #include "SpriteAnimator.h"
 #include <filesystem>
 
@@ -230,6 +232,24 @@ namespace
 		UnityGUI::Toggle("Generate Mip Maps", &t.MipMaps);
 		static const char* filters[] = { "Point (no filter)", "Bilinear", "Trilinear" };
 		UnityGUI::Dropdown("Filter Mode", &t.FilterMode, filters, 3);   // 지금은 스프라이트 그리기에만 쓴다 (도트 그림 = Point)
+		// Android 플랫폼 (Unity 의 플랫폼 탭 "Override for Android"): 안드로이드 굽기 (nova android export) 의 크기 · 형식
+		UnityGUI::Spacing(6.0f);
+		UnityGUI::Label(ICON_FA_MOBILE_SCREEN "  Android", 0, true);
+		UnityGUI::Toggle("Override for Android", &t.AndroidOverride, 1);
+		if (t.AndroidOverride)
+		{
+			int ai = 0;
+			while (ai < 9 && (32 << ai) < t.AndroidMaxSize)
+				++ai;
+			if (UnityGUI::Dropdown("Max Size", &ai, sizes, 10, 1))
+				t.AndroidMaxSize = 32 << ai;
+			static const char* aformats[] = { "Automatic", "ASTC 4x4 block", "ASTC 5x5 block", "ASTC 6x6 block", "ASTC 8x8 block", "ASTC 10x10 block", "ASTC 12x12 block",
+				"ETC2 (RGB / RGBA)", "RGBA 32 bit" };
+			UnityGUI::Dropdown("Format", &t.AndroidFormat, aformats, 9, 1);
+		}
+		const auto def = (TextureCompressor::AndroidDefault)std::clamp(BuildSettings::GetPlayer().AndroidTextureCompression, 0, 3);
+		const std::string androidFormat = TextureCompressor::AndroidFormatFor(t, def) + "  (max " + std::to_string(t.AndroidOverride ? t.AndroidMaxSize : t.MaxSize) + ")";
+		UnityGUI::ValueLabel("Android Result", androidFormat.c_str(), 1);
 		s_State.Edit = t.ToJson();
 		ApplyRevertRow(path);
 		if (!AssetImport::AppliesTo(path))

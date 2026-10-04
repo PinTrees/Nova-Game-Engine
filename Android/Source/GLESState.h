@@ -15,7 +15,8 @@ namespace GLESState
 		GLenum Upload = 0;       // glTexSubImage 의 format
 		GLenum Type = 0;         //               type
 		UINT Bits = 0;           // 원본(DXGI) 화소당 비트 (압축 = 0)
-		UINT BlockBytes = 0;     // 압축: 4x4 블록당 바이트
+		UINT BlockBytes = 0;     // 압축: 블록당 바이트
+		UINT BlockW = 4, BlockH = 4;   // 압축 블록 크기 (BC · ETC2 = 4x4, ASTC = 4x4 ~ 12x12)
 		Convert Conv = Convert::None;
 		UINT Channels = 4;       // Unorm16ToFloat 의 성분 수
 		bool Depth = false, Stencil = false, Integer = false;
