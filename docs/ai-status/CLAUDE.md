@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Vulkan 그리기마다의 CPU 비용** (사용자 지시: 다음 작업 2 번). **완료** — 캐릭터 64 장면 (Release) 씬 뷰 그리기 CPU **2.02 → 1.11 ms** (DX11 1.15 ms), vulkan · gfx · render · occlusion 3 종 회귀 **35/35**
+- 갱신 시각: 2026년 10월 5일 — **오클루전 컬링 도시 쇼케이스 (세 API)** (사용자 지시: 다음 작업 3 번 "도시 쇼케이스 화면"). **완료** — Showcase 203 (도시 · 세 API 표) · 204 (안드로이드 MuMu)
+  - 세 API 가 같은 렌더러 1977 / 2222 를 가리고 삼각형이 같다 (깊이 프리패스 2,351k → 970k, 불투명 2,351k → 536k) — `docs/OCCLUSION_CULLING.md` 의 도시 표
+  - GL · Vulkan 파이프라인 통계 (프로파일러 · `nova perf` 의 primitives · pixels — 예전엔 0): `OpenGL/GfxGL.cpp` · `GLLoader.h` (ARB_pipeline_statistics_query, 겹친 구간 = 조각),
+    `Vulkan/GfxVkContext.cpp` · `GfxVkDevice.cpp` · `GfxVkInternal.h` (pipelineStatisticsQuery, 렌더링 밖에서 조각, 제출 때 끊고 다시)
+  - 고친 버그: GL `ClearUnorderedAccessViewUint` 가 호출한 쪽 스택의 0 을 넘겨 Release 에서 카운터가 약 21 억으로 지워졌다 → 오클루전이 "거의 가리지 않음" 으로 쉬었다 (긴 수명 값으로)
+  - 도시 장면 · 측정 스크립트는 세션 scratchpad (`city/make_city.py` · `city_showcase.ps1` · `compose.py`), 장면은 ScriptTest 의 `Assets/Scenes/CityShowcase.scene`
+- 이전: 2026년 10월 4일 — **Vulkan 그리기마다의 CPU 비용** (사용자 지시: 다음 작업 2 번). **완료** — 캐릭터 64 장면 (Release) 씬 뷰 그리기 CPU **2.02 → 1.11 ms** (DX11 1.15 ms), vulkan · gfx · render · occlusion 3 종 회귀 **35/35**
   - `Vulkan/GfxVkInternal.h` (ImageStateSerial · LastSet · LastKey · 묶인 정점 · 인덱스 버퍼), `GfxVkContext.cpp` (같은 값이면 SetProgram 그대로, 앞 디스크립터 집합 · 동적 UBO 오프셋만, 앞 파이프라인, 같은 버퍼 다시 안 묶기),
     `GfxVkDevice.cpp` (BindingLayout::HasStorage), `run_tests.ps1` 의 `Suite-Perf` 에 Characters (씬 뷰 그리기 CPU 비교), `docs/VULKAN_BACKEND.md`
   - 측정은 Release 복사본 `E:/NovaTest/ClaudePerfEngine` (Debug · Release 가 같은 Binaries 로 나와서 — 저장소 Binaries 는 Debug 로 되돌림)

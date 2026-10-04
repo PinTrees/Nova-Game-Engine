@@ -166,6 +166,9 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 #define GL_TIMESTAMP                      0x8E28
 #define GL_SAMPLES_PASSED                 0x8914
 #define GL_ANY_SAMPLES_PASSED             0x8C2F
+#define GL_NUM_EXTENSIONS                 0x821D
+#define GL_CLIPPING_OUTPUT_PRIMITIVES_ARB 0x82F7
+#define GL_FRAGMENT_SHADER_INVOCATIONS_ARB 0x82F4
 #define GL_QUERY_WAIT                     0x8E13
 #define GL_DRAW_INDIRECT_BUFFER           0x8F3F
 #define GL_SYNC_GPU_COMMANDS_COMPLETE     0x9117
@@ -285,6 +288,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glGetNamedBufferSubData, (GLuint buffer, GLintptr offset, GLsizeiptr size, void* data)) \
 	X(void, glClearNamedFramebufferiv, (GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLint* value)) \
 	X(void, glCreateQueries, (GLenum target, GLsizei n, GLuint* ids)) \
+	X(const GLubyte*, glGetStringi, (GLenum name, GLuint index)) \
 	X(void, glDeleteQueries, (GLsizei n, const GLuint* ids)) \
 	X(void, glBeginQuery, (GLenum target, GLuint id)) \
 	X(void, glEndQuery, (GLenum target)) \

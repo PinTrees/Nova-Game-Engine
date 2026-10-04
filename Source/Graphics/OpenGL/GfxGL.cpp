@@ -193,6 +193,12 @@ namespace
 		GLuint Id = 0;
 		bool Issued = false;   // End 로 GL 쿼리를 한 번이라도 넣었나 (안 넣은 쿼리의 결과를 물으면 GL 오류)
 		GLsync Fence = nullptr;   // D3D11_QUERY_EVENT: End 때 펜스 (그 앞 명령이 다 끝났나)
+		// D3D11_QUERY_PIPELINE_STATISTICS (ARB_pipeline_statistics_query): GL 은 같은 종류 쿼리를 둘 열 수 없어 D3D 처럼 겹쳐 열 수 없다 →
+		//  안쪽 구간이 열리면 바깥 조각을 끊고, 닫히면 새 조각을 연다. 결과 = 자기 조각들 + 안쪽 쿼리들 (프로파일러의 단계 구간)
+		struct StatSeg { GLuint Prims = 0, Frags = 0; };
+		std::vector<StatSeg> Segs;
+		size_t SegUsed = 0;
+		std::vector<ComPtr<GfxQuery>> Children;
 	};
 
 	class GLCtx;
@@ -355,6 +361,11 @@ namespace
 		if (!CanDelete(Dev)) return;
 		if (Id) glDeleteQueries(1, &Id);
 		if (Fence) glDeleteSync(Fence);
+		for (const StatSeg& s : Segs)
+		{
+			glDeleteQueries(1, &s.Prims);
+			glDeleteQueries(1, &s.Frags);
+		}
 	}
 
 	UINT FullMips(UINT w, UINT h, UINT d)
@@ -1188,18 +1199,30 @@ namespace
 		{
 			if (!uav || !Dev->Check("ClearUnorderedAccessViewUint")) return false;
 			const ViewInfo& v = static_cast<GLUav*>(uav)->V;
+			// 지우기 값은 오래 사는 메모리에서 넘긴다: Release 에서 호출한 쪽 스택 배열 (0) 을 넘기면 드라이버 (NVIDIA) 가
+			//  그 자리를 늦게 읽어 다른 값 (약 21 억) 으로 지워졌다 — 오클루전 카운터가 틀려 "거의 가리지 않음" 으로 쉬었다
+			static const GLuint kZero[4] = {};
+			const GLuint* value = kZero;
+			if (values[0] || values[1] || values[2] || values[3])
+			{
+				GLuint* slot = ClearValues[ClearNext++ % 64];
+				for (int i = 0; i < 4; ++i) slot[i] = values[i];
+				value = slot;
+			}
 			if (v.Buffer)
 			{
-				glClearNamedBufferSubData(v.Buffer, GL_R32UI, v.BufferOffset, v.BufferSize, GL_RED_INTEGER, GL_UNSIGNED_INT, &values[0]);
+				glClearNamedBufferSubData(v.Buffer, GL_R32UI, v.BufferOffset, v.BufferSize, GL_RED_INTEGER, GL_UNSIGNED_INT, value);
 				return true;
 			}
 			if (v.Name)
 			{
-				glClearTexImage(v.Name, v.Level, GL_RED_INTEGER, GL_UNSIGNED_INT, &values[0]);
+				glClearTexImage(v.Name, v.Level, GL_RED_INTEGER, GL_UNSIGNED_INT, value);
 				return true;
 			}
 			return false;
 		}
+		GLuint ClearValues[64][4] = {};
+		unsigned ClearNext = 0;
 		bool Conditional = false;
 		void Dispatch(UINT x, UINT y, UINT z) override
 		{
@@ -1378,17 +1401,95 @@ namespace
 				glGenerateTextureMipmap(static_cast<GLSrv*>(srv)->V.Name);
 		}
 
+		// ---- 파이프라인 통계 (삼각형 · 픽셀 셰이더 수 — 프로파일러 · nova perf 의 gpuPasses)
+		int StatsSupported = -1;
+		std::vector<GLQueryObj*> StatStack;   // 열린 통계 쿼리 (바깥 → 안)
+		bool StatsOk()
+		{
+			if (StatsSupported < 0)
+			{
+				StatsSupported = 0;
+				GLint n = 0;
+				glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+				for (GLint i = 0; i < n && !StatsSupported; ++i)
+					if (const GLubyte* e = glGetStringi(GL_EXTENSIONS, (GLuint)i))
+						StatsSupported = strcmp((const char*)e, "GL_ARB_pipeline_statistics_query") == 0 ? 1 : 0;
+			}
+			return StatsSupported > 0;
+		}
+		static void SegBegin(GLQueryObj* g)
+		{
+			if (g->SegUsed >= g->Segs.size())
+			{
+				GLQueryObj::StatSeg s;
+				glCreateQueries(GL_CLIPPING_OUTPUT_PRIMITIVES_ARB, 1, &s.Prims);
+				glCreateQueries(GL_FRAGMENT_SHADER_INVOCATIONS_ARB, 1, &s.Frags);
+				g->Segs.push_back(s);
+			}
+			const GLQueryObj::StatSeg& s = g->Segs[g->SegUsed++];
+			glBeginQuery(GL_CLIPPING_OUTPUT_PRIMITIVES_ARB, s.Prims);
+			glBeginQuery(GL_FRAGMENT_SHADER_INVOCATIONS_ARB, s.Frags);
+		}
+		static void SegEnd()
+		{
+			glEndQuery(GL_CLIPPING_OUTPUT_PRIMITIVES_ARB);
+			glEndQuery(GL_FRAGMENT_SHADER_INVOCATIONS_ARB);
+		}
+		// 조각들 + 안쪽 쿼리 합. 하나라도 아직이면 false
+		static bool StatSum(GLQueryObj* g, uint64_t& prims, uint64_t& frags)
+		{
+			if (!g->Issued) return false;
+			for (size_t i = 0; i < g->SegUsed; ++i)
+			{
+				GLuint ready = 0;
+				glGetQueryObjectuiv(g->Segs[i].Frags, GL_QUERY_RESULT_AVAILABLE, &ready);
+				if (!ready) return false;
+				GLuint64 p = 0, f = 0;
+				glGetQueryObjectui64v(g->Segs[i].Prims, GL_QUERY_RESULT, &p);
+				glGetQueryObjectui64v(g->Segs[i].Frags, GL_QUERY_RESULT, &f);
+				prims += p;
+				frags += f;
+			}
+			for (const auto& c : g->Children)
+				if (!StatSum(static_cast<GLQueryObj*>(c.Get()), prims, frags)) return false;
+			return true;
+		}
+
 		// ---- 쿼리
 		void Begin(GfxQuery* q) override
 		{
 			auto* g = static_cast<GLQueryObj*>(q);
 			if (g && g->D.Query == D3D11_QUERY_OCCLUSION && Dev->Check("Begin")) glBeginQuery(GL_SAMPLES_PASSED, g->Id);
 			if (g && g->D.Query == D3D11_QUERY_OCCLUSION_PREDICATE && Dev->Check("Begin")) glBeginQuery(GL_ANY_SAMPLES_PASSED, g->Id);
+			if (g && g->D.Query == D3D11_QUERY_PIPELINE_STATISTICS && Dev->Check("Begin") && StatsOk())
+			{
+				if (!StatStack.empty()) SegEnd();   // 바깥 조각을 끊는다
+				g->SegUsed = 0;
+				g->Children.clear();
+				g->Issued = false;
+				StatStack.push_back(g);
+				SegBegin(g);
+			}
 		}
 		void End(GfxQuery* q) override
 		{
 			auto* g = static_cast<GLQueryObj*>(q);
 			if (!g || !Dev->Check("End")) return;
+			if (g->D.Query == D3D11_QUERY_PIPELINE_STATISTICS)
+			{
+				if (!StatStack.empty() && StatStack.back() == g)
+				{
+					SegEnd();
+					StatStack.pop_back();
+					if (!StatStack.empty())
+					{
+						StatStack.back()->Children.push_back(q);   // 바깥 쿼리 = 자기 조각 + 이 쿼리
+						SegBegin(StatStack.back());
+					}
+				}
+				g->Issued = true;
+				return;
+			}
 			if (g->D.Query == D3D11_QUERY_TIMESTAMP || g->D.Query == D3D11_QUERY_TIMESTAMP_DISJOINT) glQueryCounter(g->Id, GL_TIMESTAMP);
 			else if (g->D.Query == D3D11_QUERY_OCCLUSION) glEndQuery(GL_SAMPLES_PASSED);
 			else if (g->D.Query == D3D11_QUERY_OCCLUSION_PREDICATE) glEndQuery(GL_ANY_SAMPLES_PASSED);
@@ -1428,8 +1529,18 @@ namespace
 				return S_OK;
 			}
 			case D3D11_QUERY_PIPELINE_STATISTICS:
-				if (data && size >= sizeof(D3D11_QUERY_DATA_PIPELINE_STATISTICS)) memset(data, 0, sizeof(D3D11_QUERY_DATA_PIPELINE_STATISTICS));
+			{
+				D3D11_QUERY_DATA_PIPELINE_STATISTICS st = {};
+				if (StatsOk())
+				{
+					uint64_t prims = 0, frags = 0;
+					if (!StatSum(g, prims, frags)) return S_FALSE;
+					st.CInvocations = st.CPrimitives = prims;   // 자르기 뒤 삼각형 (D3D 의 CPrimitives)
+					st.PSInvocations = frags;
+				}
+				if (data && size >= sizeof(st)) *static_cast<D3D11_QUERY_DATA_PIPELINE_STATISTICS*>(data) = st;
 				return S_OK;
+			}
 			case D3D11_QUERY_OCCLUSION_PREDICATE:
 			{
 				if (!g->Issued) return S_FALSE;

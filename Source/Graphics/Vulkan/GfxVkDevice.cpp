@@ -360,6 +360,7 @@ namespace GfxVkImpl
 		NOVA_VK_FEATURE(fullDrawIndexUint32) NOVA_VK_FEATURE(occlusionQueryPrecise) NOVA_VK_FEATURE(shaderStorageImageExtendedFormats)
 		NOVA_VK_FEATURE(vertexPipelineStoresAndAtomics) NOVA_VK_FEATURE(largePoints) NOVA_VK_FEATURE(wideLines)
 		NOVA_VK_FEATURE(drawIndirectFirstInstance)   // 오클루전 컬링의 간접 그리기 (묶음마다 첫 인스턴스)
+		NOVA_VK_FEATURE(pipelineStatisticsQuery)     // 프로파일러 구간의 삼각형 · 픽셀 셰이더 수
 #undef NOVA_VK_FEATURE
 		VkPhysicalDeviceVulkan13Features e13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		VkPhysicalDeviceVulkan12Features e12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
@@ -515,6 +516,7 @@ namespace GfxVkImpl
 		if (Immediate)
 		{
 			Immediate->EndRendering();
+			Immediate->PauseStats();
 			Immediate->FlushBarrier();
 		}
 		{
@@ -1665,7 +1667,17 @@ namespace GfxVkImpl
 		auto* q = new Query(this);
 		q->Dsc = *desc;
 		const bool occlusion = desc->Query == D3D11_QUERY_OCCLUSION || desc->Query == D3D11_QUERY_OCCLUSION_PREDICATE;
-		if (desc->Query == D3D11_QUERY_TIMESTAMP || desc->Query == D3D11_QUERY_TIMESTAMP_DISJOINT || occlusion)
+		if (desc->Query == D3D11_QUERY_PIPELINE_STATISTICS && Features.pipelineStatisticsQuery)
+		{
+			// 자르기 뒤 삼각형 (D3D 의 CPrimitives) · 픽셀 셰이더 실행 — 결과는 비트 순서 (CLIPPING_PRIMITIVES 0x40, FRAGMENT 0x80)
+			VkQueryPoolCreateInfo ci = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+			ci.queryType = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+			ci.queryCount = Query::kStatSegs;
+			ci.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT | VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT;
+			if (vkCreateQueryPool(Device, &ci, nullptr, &q->Pool) != VK_SUCCESS) q->Pool = VK_NULL_HANDLE;
+			else vkResetQueryPool(Device, q->Pool, 0, ci.queryCount);
+		}
+		else if (desc->Query == D3D11_QUERY_TIMESTAMP || desc->Query == D3D11_QUERY_TIMESTAMP_DISJOINT || occlusion)
 		{
 			// 오클루전 = 칸 고리 (Query::kSlots), 타임스탬프 = 칸 하나
 			VkQueryPoolCreateInfo ci = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };

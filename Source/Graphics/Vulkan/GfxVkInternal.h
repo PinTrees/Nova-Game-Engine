@@ -267,6 +267,12 @@ namespace GfxVkImpl
 		bool Broken = false;                  // 렌더링이 쿼리 중간에 끝나 결과가 모자랄 수 있다 (결과 = 보임)
 		RingLoc PredLoc;                      // 조건부 렌더링 값 (쿼리 결과를 복사한 4 바이트)
 		bool HasPredLoc = false;
+		// 파이프라인 통계 (삼각형 · 픽셀 셰이더 수): Vulkan 은 같은 종류 쿼리를 겹쳐 열 수 없다 → 안쪽 구간이 열리면 끊고 닫히면 새 조각.
+		//  결과 = 자기 조각 (Pool 의 칸 0 .. StatSegs-1) + 안쪽 쿼리들. 조각은 렌더링 밖에서만 시작 · 끝 (렌더 패스를 넘을 수 있게)
+		static constexpr uint32_t kStatSegs = 32;
+		uint32_t StatSegs = 0;
+		bool StatOpen = false, StatOverflow = false;
+		std::vector<ComPtr<GfxQuery>> Children;
 	};
 
 	// 효과 하나의 바인딩 배치
@@ -533,6 +539,11 @@ namespace GfxVkImpl
 		ComPtr<GfxQuery> PendingQuery, ActiveQuery;
 		std::vector<ComPtr<GfxQuery>> ToCopy;   // 끝난 예측 쿼리 → 조건부 렌더링 값으로 복사할 것 (첫 SetPredication 때 한꺼번에)
 		ComPtr<GfxQuery> Predicate;             // SetPredication (그리기마다 조건부 렌더링으로 감싼다)
+		std::vector<Query*> StatStack;          // 열린 파이프라인 통계 쿼리 (바깥 → 안)
+		void StatSegBegin(Query* q);
+		void StatSegEnd(Query* q);
+		void PauseStats();    // 제출 앞: 열린 조각을 닫는다 (쿼리는 명령 버퍼를 넘을 수 없다)
+		void ResumeStats();   // 새 명령 버퍼: 다시 연다
 
 		// ---- 내부
 		void EndRendering();

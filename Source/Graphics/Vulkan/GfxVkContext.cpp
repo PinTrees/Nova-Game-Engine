@@ -164,6 +164,7 @@ namespace GfxVkImpl
 		// 장벽은 제출 순서를 넘어 효력이 있다 (같은 큐) → 남은 버퍼 장벽 · 이미지 Written 은 그대로 이어 간다
 		Rendering = false;
 		BoundEpoch = ~0ull;
+		ResumeStats();
 		ToCopy.clear();   // 복사하지 않은 예측 쿼리 (Skinned 를 그리지 않은 프레임 등) — 쓰려 하면 예측 없이 그린다
 	}
 
@@ -1333,9 +1334,51 @@ namespace GfxVkImpl
 	}
 
 	// ============================================================ 쿼리
+	// ---- 파이프라인 통계 조각
+	void Ctx::StatSegBegin(Query* q)
+	{
+		if (q->StatOpen) return;
+		if (q->StatSegs >= Query::kStatSegs) { q->StatOverflow = true; return; }   // 칸이 모자라다 — 그 뒤는 세지 않는다
+		vkCmdBeginQuery(D->Cmd(), q->Pool, q->StatSegs, 0);
+		q->StatOpen = true;
+	}
+
+	void Ctx::StatSegEnd(Query* q)
+	{
+		if (!q->StatOpen) return;
+		vkCmdEndQuery(D->Cmd(), q->Pool, q->StatSegs);
+		++q->StatSegs;
+		q->StatOpen = false;
+	}
+
+	void Ctx::PauseStats()
+	{
+		if (!StatStack.empty()) StatSegEnd(StatStack.back());
+	}
+
+	void Ctx::ResumeStats()
+	{
+		if (!StatStack.empty()) StatSegBegin(StatStack.back());
+	}
+
 	void Ctx::Begin(GfxQuery* q)
 	{
 		Query* g = AsQuery(q);
+		if (g && g->Pool && !D->Lost && g->Dsc.Query == D3D11_QUERY_PIPELINE_STATISTICS)
+		{
+			// 렌더링 밖에서 (쿼리가 렌더 패스를 넘을 수 있게). 바깥 쿼리의 조각을 끊는다
+			EndRendering();
+			PauseStats();
+			if (g->Serial && !D->IsDone(g->Serial)) D->WaitSerial(g->Serial);   // 앞 결과를 읽은 뒤에 다시 쓴다 (보통 이미 끝남)
+			vkResetQueryPool(D->Device, g->Pool, 0, Query::kStatSegs);
+			g->StatSegs = 0;
+			g->StatOpen = g->StatOverflow = false;
+			g->Children.clear();
+			g->Serial = 0;
+			StatStack.push_back(g);
+			StatSegBegin(g);
+			return;
+		}
 		if (!g || D->Lost || !g->Pool || !IsOcclusion(g)) return;
 		g->Recorded = g->Broken = g->HasPredLoc = false;
 		if (PendingQuery || ActiveQuery)
@@ -1356,6 +1399,22 @@ namespace GfxVkImpl
 	{
 		Query* g = AsQuery(q);
 		if (!g || D->Lost) return;
+		if (g->Dsc.Query == D3D11_QUERY_PIPELINE_STATISTICS)
+		{
+			if (g->Pool && !StatStack.empty() && StatStack.back() == g)
+			{
+				EndRendering();
+				StatSegEnd(g);
+				StatStack.pop_back();
+				if (!StatStack.empty())
+				{
+					StatStack.back()->Children.push_back(q);   // 바깥 = 자기 조각 + 이 쿼리
+					StatSegBegin(StatStack.back());
+				}
+			}
+			g->Serial = D->Recording();
+			return;
+		}
 		if (IsOcclusion(g))
 		{
 			if (ActiveQuery.Get() == q)
@@ -1417,6 +1476,27 @@ namespace GfxVkImpl
 				if (data && size >= sizeof(BOOL)) *static_cast<BOOL*>(data) = v != 0;
 			}
 			else if (data && size >= sizeof(UINT64)) *static_cast<UINT64*>(data) = v;
+			return S_OK;
+		}
+		case D3D11_QUERY_PIPELINE_STATISTICS:
+		{
+			// 자기 조각 + 안쪽 쿼리 (같은 제출이거나 앞 — 이미 끝났다)
+			std::function<void(Query*, uint64_t&, uint64_t&)> sum = [&](Query* s, uint64_t& prims, uint64_t& frags) {
+				if (s->Pool && s->StatSegs > 0)
+				{
+					std::vector<uint64_t> r((size_t)s->StatSegs * 2, 0);
+					vkGetQueryPoolResults(D->Device, s->Pool, 0, s->StatSegs, r.size() * sizeof(uint64_t), r.data(), 2 * sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+					for (uint32_t i = 0; i < s->StatSegs; ++i) { prims += r[i * 2]; frags += r[i * 2 + 1]; }
+				}
+				for (const auto& c : s->Children)
+					if (Query* cq = AsQuery(c.Get())) sum(cq, prims, frags);
+			};
+			uint64_t prims = 0, frags = 0;
+			sum(g, prims, frags);
+			D3D11_QUERY_DATA_PIPELINE_STATISTICS st = {};
+			st.CInvocations = st.CPrimitives = prims;
+			st.PSInvocations = frags;
+			if (data && size >= sizeof(st)) *static_cast<D3D11_QUERY_DATA_PIPELINE_STATISTICS*>(data) = st;
 			return S_OK;
 		}
 		case D3D11_QUERY_EVENT:
