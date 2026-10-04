@@ -7,13 +7,15 @@
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
+#   기본 TestResults\<시각> 폴더는 최근 -KeepResults 개 (기본 10) 만 남기고 오래된 것부터 지운다 (0 = 지우지 않음, 이름을 정한 -Out 폴더는 건드리지 않음)
 # 테스트 프로젝트에 필요한 것: Assets/Scenes 의 Materials, Particles, Forest, Trees, Shadows, Culling, SampleScene (+ 지형 이름 Terrain).
 param(
     [ValidateSet('quick', 'full')][string]$Suite = 'quick',
     [string[]]$Only = @(),
     [switch]$Interactive,
     [string]$Project = '',
-    [string]$Out = ''
+    [string]$Out = '',
+    [int]$KeepResults = 10
 )
 . (Join-Path $PSScriptRoot 'common.ps1')
 $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })   # -File 로 부르면 a,b 가 글자 하나로 온다
@@ -21,7 +23,17 @@ if (-not $Project) { $Project = if ($env:NOVA_TEST_PROJECT) { $env:NOVA_TEST_PRO
 $script:Project = $Project
 if (-not (Test-Path (Join-Path $Project 'Assets'))) { throw "test project not found: $Project (use -Project or NOVA_TEST_PROJECT)" }
 if (-not (Test-Path $Nova)) { throw "nova.exe not found — build first (build.bat)" }
-if (-not $Out) { $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss')) }
+if (-not $Out)
+{
+    $Out = Join-Path $Root ('TestResults\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    # 결과가 쌓이지 않게: 이번 것을 포함해 최근 KeepResults 개만 (yyyyMMdd-HHmmss 이름만 대상)
+    if ($KeepResults -gt 0 -and (Test-Path (Join-Path $Root 'TestResults')))
+    {
+        Get-ChildItem (Join-Path $Root 'TestResults') -Directory | Where-Object { $_.Name -match '^\d{8}-\d{6}$' } |
+            Sort-Object Name -Descending | Select-Object -Skip ([Math]::Max(0, $KeepResults - 1)) |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
 New-Item -ItemType Directory -Force $Out | Out-Null
 
 $suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }

@@ -1,6 +1,7 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Hub "Android 빌드 지원" 모듈 완료 · 로컬 커밋, push 전** (사용자 지시 "유니티처럼 엔진 설치할 때 안드로이드 빌드 등 체크하면 해당 도구들도 같이 설치", "허브쪽 작업 완료되었어. 너가 이어서 작업해")
+- 갱신 시각: 2026년 10월 4일 — **테스트 폴더 정리** (사용자 지시): `E:\NovaTest` 의 필요 없는 44.7 GB 를 `E:\NovaTest\_삭제대기` 로 옮김 (영구 삭제는 사용자가). `run_tests.ps1` 이 `TestResults\<시각>` 을 최근 10 개만 남김 (`-KeepResults`), 공동 명세에 "테스트 폴더 정리" 규칙
+- 이전: 2026년 10월 4일 — **Hub "Android 빌드 지원" 모듈 완료 · push `0a5e731`** (사용자 지시 "유니티처럼 엔진 설치할 때 안드로이드 빌드 등 체크하면 해당 도구들도 같이 설치", "허브쪽 작업 완료되었어. 너가 이어서 작업해")
   - **Hub 인계**: Codex 가 만든 Hub 배포 · 엔진 설치 (미커밋이던 `Source/Hub/*` · `Tools/NovaHub*` · `Tools/package_hub.ps1` · `Tools/HubSigning.ps1` · `Tools/tests/hub_signing.ps1` · `docs/NOVA_HUB.md`) 를 사용자 지시로 이어받아 함께 커밋. Codex 의 Joint 2D 미커밋 파일과 `docs/ai-status/CODEX.md` 는 건드리지 않음
   - 새 `Tools/NovaHub/Core/AndroidToolsInstaller.cs` (OpenJDK 17 Temurin + Google repository2-3 의 platform-tools · build-tools 36 · android-34 · NDK 28 · CMake 3.22.1, 크기 + SHA-1/256, `<NOVA>\AndroidTools`), 서비스 `android-status · android-catalog · android-install`
   - Hub: 엔진 카드에 "Android 빌드 지원 함께 설치" 체크 (엔진 설치 뒤 이어서), Android 빌드 지원 카드, Android SDK 라이선스 동의 창 (사용자가 직접 체크 + 동의). 예전 카드의 API 배지에서 OpenGL · Vulkan "(미구현)" 제거
