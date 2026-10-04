@@ -12,6 +12,7 @@ typedef char GLchar;
 typedef ptrdiff_t GLsizeiptr;
 typedef ptrdiff_t GLintptr;
 typedef unsigned long long GLuint64;
+typedef struct __GLsync* GLsync;
 typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const GLchar* message, const void* userParam);
 
 // ---- 상수 (GL 1.1 밖)
@@ -164,6 +165,13 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 #define GL_CLIENT_STORAGE_BIT             0x0200
 #define GL_TIMESTAMP                      0x8E28
 #define GL_SAMPLES_PASSED                 0x8914
+#define GL_ANY_SAMPLES_PASSED             0x8C2F
+#define GL_QUERY_WAIT                     0x8E13
+#define GL_DRAW_INDIRECT_BUFFER           0x8F3F
+#define GL_SYNC_GPU_COMMANDS_COMPLETE     0x9117
+#define GL_SYNC_STATUS                    0x9114
+#define GL_SIGNALED                       0x9119
+#define GL_UNSIGNALED                     0x9118
 #define GL_QUERY_RESULT                   0x8866
 #define GL_QUERY_RESULT_AVAILABLE         0x8867
 #define GL_FIRST_VERTEX_CONVENTION        0x8E4D
@@ -198,6 +206,8 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glNamedBufferSubData, (GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data)) \
 	X(void, glNamedBufferData, (GLuint buffer, GLsizeiptr size, const void* data, GLenum usage)) \
 	X(void, glBindBufferBase, (GLenum target, GLuint index, GLuint buffer)) \
+	X(void, glBindBuffer, (GLenum target, GLuint buffer)) \
+	X(void, glBindBufferRange, (GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size)) \
 	X(void, glCreateTextures, (GLenum target, GLsizei n, GLuint* textures)) \
 	X(void, glTextureStorage2D, (GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height)) \
 	X(void, glTextureStorage3D, (GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth)) \
@@ -294,6 +304,15 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glBindImageTexture, (GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format)) \
 	X(void, glDispatchCompute, (GLuint x, GLuint y, GLuint z)) \
 	X(void, glMemoryBarrier, (GLbitfield barriers)) \
+	X(void, glDrawElementsIndirect, (GLenum mode, GLenum type, const void* indirect)) \
+	X(void, glDrawArraysIndirect, (GLenum mode, const void* indirect)) \
+	X(void, glBeginConditionalRender, (GLuint id, GLenum mode)) \
+	X(void, glEndConditionalRender, (void)) \
+	X(GLsync, glFenceSync, (GLenum condition, GLbitfield flags)) \
+	X(void, glDeleteSync, (GLsync sync)) \
+	X(void, glGetSynciv, (GLsync sync, GLenum pname, GLsizei count, GLsizei* length, GLint* values)) \
+	X(void, glClearNamedBufferSubData, (GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format, GLenum type, const void* data)) \
+	X(void, glClearTexImage, (GLuint texture, GLint level, GLenum format, GLenum type, const void* data)) \
 	X(void, glSampleMaski, (GLuint maskNumber, GLbitfield mask)) \
 	X(void, glTextureBarrier, (void)) \
 	X(void, glObjectLabel, (GLenum identifier, GLuint name, GLsizei length, const GLchar* label))

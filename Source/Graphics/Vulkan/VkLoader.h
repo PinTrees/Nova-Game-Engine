@@ -44,7 +44,9 @@
 	X(vkDestroyDebugUtilsMessengerEXT) \
 	X(vkSetDebugUtilsObjectNameEXT) \
 	X(vkCmdBeginDebugUtilsLabelEXT) \
-	X(vkCmdEndDebugUtilsLabelEXT)
+	X(vkCmdEndDebugUtilsLabelEXT) \
+	X(vkCmdBeginConditionalRenderingEXT) \
+	X(vkCmdEndConditionalRenderingEXT)
 
 #define NOVA_VK_DEVICE_FUNCTIONS(X) \
 	X(vkDestroyDevice) \
@@ -75,6 +77,7 @@
 	X(vkCreatePipelineLayout) \
 	X(vkDestroyPipelineLayout) \
 	X(vkCreateGraphicsPipelines) \
+	X(vkCreateComputePipelines) \
 	X(vkDestroyPipeline) \
 	X(vkCreatePipelineCache) \
 	X(vkDestroyPipelineCache) \
@@ -114,6 +117,11 @@
 	X(vkCmdSetStencilReference) \
 	X(vkCmdDraw) \
 	X(vkCmdDrawIndexed) \
+	X(vkCmdDrawIndirect) \
+	X(vkCmdDrawIndexedIndirect) \
+	X(vkCmdDispatch) \
+	X(vkCmdFillBuffer) \
+	X(vkCmdCopyQueryPoolResults) \
 	X(vkCmdClearAttachments) \
 	X(vkCmdClearColorImage) \
 	X(vkCmdClearDepthStencilImage) \

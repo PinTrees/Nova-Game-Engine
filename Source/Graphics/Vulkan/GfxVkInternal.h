@@ -176,6 +176,9 @@ namespace GfxVkImpl
 		VkImageAspectFlags Aspect = VK_IMAGE_ASPECT_COLOR_BIT;
 		UINT BaseMip = 0, Mips = 1, BaseLayer = 0, Layers = 1;
 		bool ReadOnlyDepth = false;   // DSV 의 READ_ONLY 깃발
+		// 버퍼 뷰 (구조 · raw 버퍼 SRV · UAV → 스토리지 버퍼): Res 안의 바이트 범위
+		bool Buffer = false;
+		VkDeviceSize BufOffset = 0, BufSize = 0;
 		uint64_t Id = 0;
 	};
 
@@ -251,6 +254,14 @@ namespace GfxVkImpl
 		D3D11_QUERY_DESC Dsc = {};
 		VkQueryPool Pool = VK_NULL_HANDLE;
 		uint64_t Serial = 0;   // End 를 기록한 제출 값 (0 = 아직)
+		// 오클루전 (예측) 쿼리: 칸 고리 — 매 프레임 다시 쓰는 쿼리가 GPU 에 남은 앞 결과를 기다리지 않게 (호스트 리셋은 그 칸이 끝난 뒤)
+		static constexpr uint32_t kSlots = 4;
+		uint32_t Slot = 0;                    // 지금 칸
+		uint64_t SlotSerial[kSlots] = {};     // 칸마다 마지막으로 쓴 제출 값
+		bool Recorded = false;                // 지금 칸에 vkCmdBeginQuery 를 기록했다 (그리기가 없었으면 false — 결과 = 보임)
+		bool Broken = false;                  // 렌더링이 쿼리 중간에 끝나 결과가 모자랄 수 있다 (결과 = 보임)
+		RingLoc PredLoc;                      // 조건부 렌더링 값 (쿼리 결과를 복사한 4 바이트)
+		bool HasPredLoc = false;
 	};
 
 	// 효과 하나의 바인딩 배치
@@ -280,6 +291,7 @@ namespace GfxVkImpl
 		uint32_t PixelOutputs = 0;
 		std::vector<bool> Used;   // 바인딩마다: 이 pass 가 쓰나
 		bool Tessellation = false;
+		VkPipeline Compute = VK_NULL_HANDLE;   // compute pass (단계 하나 — 파이프라인이 상태와 상관없어 만들 때 바로)
 		std::string Name;
 		uint64_t Id = 0;
 	};
@@ -314,6 +326,7 @@ namespace GfxVkImpl
 		VkPhysicalDeviceProperties Props = {};
 		VkPhysicalDeviceFeatures Features = {};   // 켠 것
 		bool MirrorClamp = false;
+		bool ConditionalRendering = false;         // VK_EXT_conditional_rendering (SetPredication)
 		bool D24S8 = true;                         // VK_FORMAT_D24_UNORM_S8_UINT 를 깊이 타깃으로 쓸 수 있나 (아니면 D32S8)
 		std::string Name;
 		Allocator Mem;
@@ -355,6 +368,10 @@ namespace GfxVkImpl
 		std::map<int, Dummy> Dummies;   // 키 = Dim | Arrayed<<4 | Depth<<5 | Integer<<6
 		VkSampler DummySampler = VK_NULL_HANDLE, DummyCompare = VK_NULL_HANDLE;   // 빈 샘플러 칸 (보통 · 비교)
 		uint64_t DummySamplerId = 0, DummyCompareId = 0;
+		VkBuffer DummyBuffer = VK_NULL_HANDLE;   // 빈 스토리지 버퍼 칸 (256 바이트, 0)
+		Allocation DummyBufferMem;
+		const Dummy& DummyStorageImage();       // 빈 스토리지 이미지 칸 (R32F 1x1, GENERAL)
+		VkBuffer DummyStorageBuffer();
 
 		// ---- 창 (스왑체인 — GfxVkSwapchain.cpp). 본 창 + ImGui 가 만든 OS 창(뷰포트)마다 하나
 		struct Swap
@@ -493,6 +510,11 @@ namespace GfxVkImpl
 		// 디스크립터 집합 캐시 (지금 풀 안에서)
 		uint64_t SetPoolGeneration = ~0ull;
 		std::unordered_map<uint64_t, std::pair<std::vector<uint64_t>, VkDescriptorSet>> SetCache;
+		std::vector<ViewInfo*> StorageImages;   // BuildSet 이 스토리지 이미지로 묶은 뷰 (디스패치 뒤 Written)
+		// 오클루전 쿼리: Begin 이 렌더링 밖이면 다음 그리기가 렌더링을 시작한 뒤에 기록한다 (쿼리는 한 렌더링 안에서 시작 · 끝)
+		ComPtr<GfxQuery> PendingQuery, ActiveQuery;
+		std::vector<ComPtr<GfxQuery>> ToCopy;   // 끝난 예측 쿼리 → 조건부 렌더링 값으로 복사할 것 (첫 SetPredication 때 한꺼번에)
+		ComPtr<GfxQuery> Predicate;             // SetPredication (그리기마다 조건부 렌더링으로 감싼다)
 
 		// ---- 내부
 		void EndRendering();
@@ -507,6 +529,10 @@ namespace GfxVkImpl
 		bool PrepareDraw(bool indexed);
 		void ResolveBuffer(GfxResource* b, VkBuffer& buffer, VkDeviceSize& offset);
 		VkDescriptorSet BuildSet(std::vector<uint32_t>& dynamicOffsets, std::vector<VkImageMemoryBarrier2>& barriers, bool& ok);
+		void BeginPendingQuery();   // 렌더링 안: 미룬 vkCmdBeginQuery
+		void CopyPredicates();      // 렌더링 밖: 끝난 예측 쿼리 결과 → 링 (조건부 렌더링 값)
+		bool BeginCondition();      // 그리기 앞: 예측이 있으면 조건부 렌더링 시작
+		void EndCondition(bool begun);
 		bool IsWritableTarget(const Image* img, UINT baseMip, UINT mips, UINT baseLayer, UINT layers) const;
 
 		// ---- GfxContext
@@ -535,6 +561,11 @@ namespace GfxVkImpl
 		void VSSetShaderResources(UINT, UINT count, GfxShaderResourceView* const* views) override { OutsideViews("VS", count, views); }
 		void CSSetShaderResources(UINT, UINT count, GfxShaderResourceView* const* views) override { OutsideViews("CS", count, views); }
 		void CSSetUnorderedAccessViews(UINT, UINT, GfxUnorderedAccessView* const*, const UINT*) override {}
+		bool SupportsGpuDriven() const override;
+		bool DrawIndexedInstancedIndirect(GfxBuffer* args, UINT offset) override;
+		bool DrawInstancedIndirect(GfxBuffer* args, UINT offset) override;
+		bool SetPredication(GfxQuery* predicate, BOOL value) override;
+		bool ClearUnorderedAccessViewUint(GfxUnorderedAccessView* uav, const UINT values[4]) override;
 		void CSSetShader(void*, void*, UINT) override {}
 		void Draw(UINT vertexCount, UINT startVertex) override;
 		void DrawIndexed(UINT indexCount, UINT startIndex, INT baseVertex) override { DrawIndexedInstanced(indexCount, 1, startIndex, baseVertex, 0); }

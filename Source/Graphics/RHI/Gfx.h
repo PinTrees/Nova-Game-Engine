@@ -231,6 +231,15 @@ class __declspec(uuid("4E6F7661-0001-4A00-8000-000000000013")) GfxContext : publ
 	virtual HRESULT GetData(GfxQuery* query, void* data, UINT size, UINT flags) = 0;
 	virtual void Flush() = 0;
 	virtual void ClearState() = 0;
+
+	// ---- GPU 가 정하는 그리기 (오클루전 컬링): 인자 = D3D 배치 (Indexed 5 · Instanced 4 uint). 구현하지 않으면 false → 호출한 쪽이 CPU 목록으로
+	//  SupportsGpuDriven = compute (구조 · raw 버퍼 SRV · UAV, 텍스처 UAV) + 아래 함수를 모두 지원한다
+	virtual bool SupportsGpuDriven() const { return false; }
+	virtual bool DrawIndexedInstancedIndirect(GfxBuffer* args, UINT offset) { (void)args; (void)offset; return false; }
+	virtual bool DrawInstancedIndirect(GfxBuffer* args, UINT offset) { (void)args; (void)offset; return false; }
+	// D3D11_QUERY_OCCLUSION_PREDICATE 쿼리 결과로 그리기를 건너뛴다 (value = FALSE: 결과가 FALSE 면 건너뜀). nullptr = 끔
+	virtual bool SetPredication(GfxQuery* predicate, BOOL value) { (void)predicate; (void)value; return false; }
+	virtual bool ClearUnorderedAccessViewUint(GfxUnorderedAccessView* uav, const UINT values[4]) { (void)uav; (void)values; return false; }
 };
 
 namespace DirectX { struct Image; struct TexMetadata; class ScratchImage; }

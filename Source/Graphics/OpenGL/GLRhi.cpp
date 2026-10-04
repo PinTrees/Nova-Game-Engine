@@ -102,7 +102,14 @@ namespace
 			int BlockIndex = -1;                              // cbuffer 멤버
 			const ShaderCross::UniformBlock::Member* Member = nullptr;
 			std::vector<const ShaderCross::SamplerBinding*> Samplers;   // 텍스처 변수
+			int Ssbo = -1;    // (RW)StructuredBuffer · (RW)ByteAddressBuffer → SSBO 바인딩
+			int Image = -1;   // RWTexture → image 유닛
 		};
+		// compute 자원 (오클루전 컬링 등): 바인딩마다 지금 넣은 버퍼 · 이미지 (Effects11 처럼 묶인 동안 뷰를 잡아 둔다)
+		struct SsboBind { GLuint Buffer = 0; GLintptr Offset = 0; GLsizeiptr Size = 0; ComPtr<GfxObject> Hold; };
+		struct ImageBind { GLuint Texture = 0; GLint Level = 0; GLenum Format = 0; ComPtr<GfxObject> Hold; };
+		std::vector<SsboBind> Ssbos;
+		std::vector<ImageBind> Images;
 		struct PassProgram
 		{
 			GLuint Program = 0;
@@ -171,6 +178,11 @@ namespace
 					if (s.Texture == name)
 						v.Samplers.push_back(&s);
 			if (!v.Member && v.Samplers.empty())
+			{
+				if (auto b = Src.Buffers.find(name); b != Src.Buffers.end()) v.Ssbo = b->second;
+				if (auto im = Src.Images.find(name); im != Src.Images.end()) v.Image = im->second;
+			}
+			if (!v.Member && v.Samplers.empty() && v.Ssbo < 0 && v.Image < 0)
 				return -1;   // 셰이더가 쓰지 않아 지워진 변수 (D3D 는 그대로 있어도 결과는 같다)
 			Vars.push_back(v);
 			return VarIds[name] = (int)Vars.size() - 1;
@@ -244,6 +256,14 @@ namespace
 		void SetView(Rhi::VarId var, GfxShaderResourceView* view, uint32_t arrayIndex) override
 		{
 			if (var < 0) return;
+			if (Vars[var].Ssbo >= 0 && Vars[var].Ssbo < (int)Ssbos.size())
+			{
+				// 구조 · raw 버퍼 SRV → SSBO (읽기만)
+				unsigned b = 0, o = 0, n = 0;
+				SsboBind& s = Ssbos[Vars[var].Ssbo];
+				s = view && GfxGL_BufferRange(view, b, o, n) ? SsboBind{ b, (GLintptr)o, (GLsizeiptr)n, ComPtr<GfxObject>(view) } : SsboBind();
+				return;
+			}
 			const GLuint id = view ? GfxGL_TextureName(view) : 0;
 			if (view && !id && Reported.insert("non-gl-view").second)
 				EditorLog::Write("OpenGL", "%s: a texture view that is not an OpenGL view was set - ignored", wstring_to_string(std::filesystem::path(Src.File).filename().wstring()).c_str());
@@ -269,7 +289,15 @@ namespace
 			}
 		}
 
-		void SetUav(Rhi::VarId, GfxUnorderedAccessView*) override {}
+		void SetUav(Rhi::VarId var, GfxUnorderedAccessView* uav) override
+		{
+			if (var < 0) return;
+			unsigned a = 0, b = 0, c = 0;
+			if (Vars[var].Ssbo >= 0 && Vars[var].Ssbo < (int)Ssbos.size())
+				Ssbos[Vars[var].Ssbo] = uav && GfxGL_UavBuffer(uav, a, b, c) ? SsboBind{ a, (GLintptr)b, (GLsizeiptr)c, ComPtr<GfxObject>(uav) } : SsboBind();
+			else if (Vars[var].Image >= 0 && Vars[var].Image < (int)Images.size())
+				Images[Vars[var].Image] = uav && GfxGL_UavImage(uav, a, b, c) ? ImageBind{ a, (GLint)b, (GLenum)c, ComPtr<GfxObject>(uav) } : ImageBind();
+		}
 		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
 		{
 			if (technique < 0 || technique >= (int)Programs.size() || pass < 0 || pass >= (int)Programs[technique].size()) return false;
@@ -793,6 +821,9 @@ namespace
 				e->SamplerObjects[s.Sampler] = GLState::CreateSampler(st != e->Src.Fx.States.end() ? GLState::FxSampler(st->second) : GLState::DefaultSampler());
 			}
 		}
+		// compute 자원 바인딩 수 (ShaderCross 가 효과 안에서 이름마다 0, 1, 2 … 로 정했다)
+		e->Ssbos.resize(e->Src.Buffers.size());
+		e->Images.resize(e->Src.Images.size());
 		e->UnitTextures.assign(units, 0);
 		e->UnitSamplers.assign(units, 0);
 		e->UnitViews.assign(units, nullptr);
@@ -865,6 +896,23 @@ namespace
 			}
 			GLState::BindTextureUnit((GLuint)u, UnitTextures[u]);
 			GLState::BindSampler((GLuint)u, UnitTextures[u] ? UnitSamplers[u] : 0);   // 빈 유닛 + 비교 샘플러 = 드라이버 경고
+		}
+		// compute 자원: SSBO · image (D3D 의 SRV · UAV)
+		for (size_t i = 0; i < Ssbos.size(); ++i)
+		{
+			const SsboBind& s = Ssbos[i];
+			if (s.Buffer && s.Size > 0)
+				glBindBufferRange(GL_SHADER_STORAGE_BUFFER, (GLuint)i, s.Buffer, s.Offset, s.Size);
+			else
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, (GLuint)i, 0);
+		}
+		for (size_t i = 0; i < Images.size(); ++i)
+		{
+			const ImageBind& im = Images[i];
+			if (im.Texture)
+				glBindImageTexture((GLuint)i, im.Texture, im.Level, GL_FALSE, 0, GL_READ_WRITE, im.Format);
+			else
+				glBindImageTexture((GLuint)i, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
 		}
 		ApplyStates(pp);
 	}

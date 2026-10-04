@@ -12,7 +12,8 @@
 //    파이프라인 · 디스크립터 집합은 그리기 때 컨텍스트가 지금 상태(타깃 형식 · 래스터 · 블렌드 …)와 합쳐 만든다
 namespace GfxVkShared
 {
-	enum class BindingType : uint8_t { UniformBuffer, SampledImage, Sampler, Unsupported };
+	// StorageBuffer = (RW)StructuredBuffer · (RW)ByteAddressBuffer, StorageImage = RWTexture (compute — 오클루전 컬링)
+	enum class BindingType : uint8_t { UniformBuffer, SampledImage, Sampler, StorageBuffer, StorageImage, Unsupported };
 
 	struct BindingDesc
 	{
@@ -39,7 +40,8 @@ namespace GfxVkShared
 	// 바인딩 원소 하나의 값 (BindingLayout 의 원소 순서: 바인딩 0 의 원소들, 바인딩 1 …)
 	struct BindingValue
 	{
-		GfxShaderResourceView* View = nullptr;   // SampledImage (nullptr = 더미)
+		GfxShaderResourceView* View = nullptr;   // SampledImage · StorageBuffer 의 버퍼 SRV (nullptr = 더미)
+		GfxUnorderedAccessView* Uav = nullptr;   // StorageBuffer · StorageImage 의 UAV (View 보다 먼저)
 		GfxSamplerState* Sampler = nullptr;      // Sampler (nullptr = 더미)
 		RingLoc Ubo;                             // UniformBuffer
 		uint32_t Range = 0;

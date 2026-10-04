@@ -296,6 +296,14 @@ namespace
 		HRESULT CreateQuery(const D3D11_QUERY_DESC* desc, GfxQuery** out) override
 		{
 			ID3D11Query* n = nullptr;
+			// 예측 쿼리는 CreatePredicate 로 (SetPredication 은 ID3D11Predicate 만 받는다 — ID3D11Query 의 하위)
+			if (desc && (desc->Query == D3D11_QUERY_OCCLUSION_PREDICATE || desc->Query == D3D11_QUERY_SO_OVERFLOW_PREDICATE))
+			{
+				ID3D11Predicate* p = nullptr;
+				const HRESULT hr = D->CreatePredicate(desc, out ? &p : nullptr);
+				n = p;
+				return Adopt<DxQuery>(hr, &n, out);
+			}
 			return Adopt<DxQuery>(D->CreateQuery(desc, out ? &n : nullptr), &n, out);
 		}
 		void GetImmediateContext(GfxContext** out) override;
@@ -451,6 +459,25 @@ namespace
 		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT flags) override { return D->GetData(Nat<ID3D11Query>(q), data, size, flags); }
 		void Flush() override { D->Flush(); }
 		void ClearState() override { D->ClearState(); }
+
+		bool SupportsGpuDriven() const override
+		{
+			ComPtr<ID3D11Device> dev;
+			D->GetDevice(dev.GetAddressOf());
+			return dev && dev->GetFeatureLevel() >= D3D_FEATURE_LEVEL_11_0;
+		}
+		bool DrawIndexedInstancedIndirect(GfxBuffer* args, UINT offset) override { D->DrawIndexedInstancedIndirect(Nat<ID3D11Buffer>(args), offset); return true; }
+		bool DrawInstancedIndirect(GfxBuffer* args, UINT offset) override { D->DrawInstancedIndirect(Nat<ID3D11Buffer>(args), offset); return true; }
+		bool SetPredication(GfxQuery* predicate, BOOL value) override
+		{
+			D->SetPredication(static_cast<ID3D11Predicate*>(Nat<ID3D11Query>(predicate)), value);   // CreateQuery 가 예측 쿼리는 CreatePredicate 로 만들었다
+			return true;
+		}
+		bool ClearUnorderedAccessViewUint(GfxUnorderedAccessView* uav, const UINT values[4]) override
+		{
+			D->ClearUnorderedAccessViewUint(Nat<ID3D11UnorderedAccessView>(uav), values);
+			return true;
+		}
 	};
 
 	void DxDevice::GetImmediateContext(GfxContext** out)

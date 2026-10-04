@@ -5,6 +5,7 @@
 #include <vector>
 
 class GfxShaderResourceView;
+class GfxUnorderedAccessView;
 class GfxDevice;
 class GfxContext;
 
@@ -20,3 +21,7 @@ struct GLInputSignature
 
 // Gfx GL 의 셰이더 자원 뷰 → GL 텍스처 이름 (뷰가 텍스처 뷰면 그 이름). GL 이 아닌 뷰 = 0
 unsigned int GfxGL_TextureName(GfxShaderResourceView* view);
+// 버퍼 뷰 (구조 · raw 버퍼 SRV · UAV) → GL 버퍼 · 바이트 범위 (SSBO), 텍스처 UAV → 텍스처 · 밉 · 내부 형식 (image). 아니면 false
+bool GfxGL_BufferRange(GfxShaderResourceView* view, unsigned& buffer, unsigned& offset, unsigned& size);
+bool GfxGL_UavBuffer(GfxUnorderedAccessView* view, unsigned& buffer, unsigned& offset, unsigned& size);
+bool GfxGL_UavImage(GfxUnorderedAccessView* view, unsigned& texture, unsigned& level, unsigned& format);

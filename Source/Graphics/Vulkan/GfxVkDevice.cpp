@@ -252,6 +252,11 @@ namespace GfxVkImpl
 				vkDestroyImage(Device, d.Image, nullptr);
 				Mem.Free(d.Mem);
 			}
+			if (DummyBuffer)
+			{
+				vkDestroyBuffer(Device, DummyBuffer, nullptr);
+				Mem.Free(DummyBufferMem);
+			}
 			for (auto& c : Chunks)
 			{
 				vkDestroyBuffer(Device, c->Buffer, nullptr);
@@ -354,6 +359,7 @@ namespace GfxVkImpl
 		NOVA_VK_FEATURE(shaderImageGatherExtended) NOVA_VK_FEATURE(fragmentStoresAndAtomics) NOVA_VK_FEATURE(sampleRateShading)
 		NOVA_VK_FEATURE(fullDrawIndexUint32) NOVA_VK_FEATURE(occlusionQueryPrecise) NOVA_VK_FEATURE(shaderStorageImageExtendedFormats)
 		NOVA_VK_FEATURE(vertexPipelineStoresAndAtomics) NOVA_VK_FEATURE(largePoints) NOVA_VK_FEATURE(wideLines)
+		NOVA_VK_FEATURE(drawIndirectFirstInstance)   // 오클루전 컬링의 간접 그리기 (묶음마다 첫 인스턴스)
 #undef NOVA_VK_FEATURE
 		VkPhysicalDeviceVulkan13Features e13 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
 		VkPhysicalDeviceVulkan12Features e12 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES };
@@ -378,9 +384,30 @@ namespace GfxVkImpl
 		std::vector<VkExtensionProperties> exts(n);
 		vkEnumerateDeviceExtensionProperties(Phys, nullptr, &n, exts.data());
 		std::vector<const char*> enable;
+		bool conditional = false;
 		for (const auto& e : exts)
+		{
 			if (strcmp(e.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0 && VkLoader::HasSurfaceExtensions())
 				enable.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+			if (strcmp(e.extensionName, VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME) == 0)
+				conditional = true;
+		}
+		// 조건부 렌더링 (D3D 의 SetPredication — 가려진 Skinned Mesh Renderer 를 GPU 가 건너뛴다). 없으면 예측 없이 그린다
+		VkPhysicalDeviceConditionalRenderingFeaturesEXT cr = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_CONDITIONAL_RENDERING_FEATURES_EXT };
+		if (conditional && vkCmdBeginConditionalRenderingEXT && vkCmdEndConditionalRenderingEXT)
+		{
+			VkPhysicalDeviceFeatures2 q = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
+			q.pNext = &cr;
+			vkGetPhysicalDeviceFeatures2(Phys, &q);
+			if (cr.conditionalRendering)
+			{
+				cr.inheritedConditionalRendering = VK_FALSE;
+				cr.pNext = nullptr;
+				e13.pNext = &cr;
+				enable.push_back(VK_EXT_CONDITIONAL_RENDERING_EXTENSION_NAME);
+				ConditionalRendering = true;
+			}
+		}
 
 		const float priority = 1.0f;
 		VkDeviceQueueCreateInfo qi = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
@@ -653,8 +680,10 @@ namespace GfxVkImpl
 			c->Size = (std::max)(kRingChunk, AlignUp(size, 1ull << 20));
 			VkBufferCreateInfo bi = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
 			bi.size = c->Size;
+			// 스토리지 = DYNAMIC 구조 버퍼 (오클루전 컬링의 후보 목록), 조건부 렌더링 = 쿼리 결과를 복사한 값
 			bi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
-				VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+				VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+			if (ConditionalRendering) bi.usage |= VK_BUFFER_USAGE_CONDITIONAL_RENDERING_BIT_EXT;
 			if (!Check(vkCreateBuffer(Device, &bi, nullptr, &c->Buffer), "vkCreateBuffer(ring)")) return nullptr;
 			VkMemoryRequirements req;
 			vkGetBufferMemoryRequirements(Device, c->Buffer, &req);
@@ -697,7 +726,8 @@ namespace GfxVkImpl
 				{
 					const VkDescriptorPoolSize sizes[] = {
 						{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 8192 }, { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4096 },
-						{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 32768 }, { VK_DESCRIPTOR_TYPE_SAMPLER, 16384 } };
+						{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 32768 }, { VK_DESCRIPTOR_TYPE_SAMPLER, 16384 },
+						{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 8192 }, { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2048 } };
 					VkDescriptorPoolCreateInfo pi = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
 					pi.maxSets = 2048;
 					pi.poolSizeCount = _countof(sizes);
@@ -818,8 +848,10 @@ namespace GfxVkImpl
 		d->ForgetProgram(Id);
 		std::vector<VkShaderModule> modules;
 		for (const auto& s : Stages) modules.push_back(s.Module);
-		d->Defer([d, modules]() {
+		VkPipeline compute = Compute;
+		d->Defer([d, modules, compute]() {
 			for (VkShaderModule m : modules) vkDestroyShaderModule(d->Device, m, nullptr);
+			if (compute) vkDestroyPipeline(d->Device, compute, nullptr);
 		});
 	}
 
@@ -927,6 +959,7 @@ namespace GfxVkImpl
 		ci.tiling = VK_IMAGE_TILING_OPTIMAL;
 		ci.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 		if (img.Bind & D3D11_BIND_RENDER_TARGET) ci.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		if (img.Bind & D3D11_BIND_UNORDERED_ACCESS) ci.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
 		if (img.Fmt.Depth) ci.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 		if (img.Cube) ci.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 		if (img.Fmt.Typeless && !img.Fmt.Depth) ci.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
@@ -1010,6 +1043,58 @@ namespace GfxVkImpl
 		return v;
 	}
 
+	// 빈 스토리지 칸: 셰이더가 쓰지 않는 바인딩 (Effects11 처럼 pass 가 쓰는 자원만 묶는다)
+	VkBuffer Dev::DummyStorageBuffer()
+	{
+		if (DummyBuffer) return DummyBuffer;
+		VkBufferCreateInfo bi = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+		bi.size = 256;
+		bi.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		if (vkCreateBuffer(Device, &bi, nullptr, &DummyBuffer) != VK_SUCCESS) { DummyBuffer = VK_NULL_HANDLE; return VK_NULL_HANDLE; }
+		VkMemoryRequirements req;
+		vkGetBufferMemoryRequirements(Device, DummyBuffer, &req);
+		if (!Mem.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, true, DummyBufferMem))
+		{
+			vkDestroyBuffer(Device, DummyBuffer, nullptr);
+			DummyBuffer = VK_NULL_HANDLE;
+			return VK_NULL_HANDLE;
+		}
+		vkBindBufferMemory(Device, DummyBuffer, DummyBufferMem.Memory, DummyBufferMem.Offset);
+		vkCmdFillBuffer(UploadCmd(), DummyBuffer, 0, VK_WHOLE_SIZE, 0);
+		return DummyBuffer;
+	}
+
+	const Dev::Dummy& Dev::DummyStorageImage()
+	{
+		const int key = 1 << 10;   // DummyImage 의 키 (7 비트) 와 겹치지 않게
+		auto it = Dummies.find(key);
+		if (it != Dummies.end()) return it->second;
+		Dummy& d = Dummies[key];
+		Image img;
+		img.Fmt = VkMap::FromDxgi(DXGI_FORMAT_R32_FLOAT, false);
+		img.Format = img.Fmt.Vk;
+		VkImageCreateInfo ci = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+		ci.imageType = VK_IMAGE_TYPE_2D;
+		ci.format = img.Format;
+		ci.extent = { 1, 1, 1 };
+		ci.mipLevels = 1;
+		ci.arrayLayers = 1;
+		ci.samples = VK_SAMPLE_COUNT_1_BIT;
+		ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+		ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+		if (vkCreateImage(Device, &ci, nullptr, &d.Image) != VK_SUCCESS) return d;
+		VkMemoryRequirements req;
+		vkGetImageMemoryRequirements(Device, d.Image, &req);
+		Mem.Allocate(req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false, d.Mem);
+		vkBindImageMemory(Device, d.Image, d.Mem.Memory, d.Mem.Offset);
+		img.Handle = d.Image;
+		d.View = MakeView(img, VK_IMAGE_VIEW_TYPE_2D, img.Format, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1);
+		d.Layout = VK_IMAGE_LAYOUT_GENERAL;
+		d.Id = NextId();
+		RecordBarriers(UploadCmd(), { ImageBarrier(img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, 1, 0, 1) });
+		return d;
+	}
+
 	const Dev::Dummy& Dev::DummyImage(const GfxVkShared::BindingDesc& b)
 	{
 		const int dim = b.Dim == 0 || b.Dim == 2 || b.Dim == 3 ? b.Dim : 1;
@@ -1089,6 +1174,7 @@ namespace GfxVkImpl
 		if (desc->BindFlags & D3D11_BIND_INDEX_BUFFER) bi.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
 		if (desc->BindFlags & D3D11_BIND_CONSTANT_BUFFER) bi.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 		if (desc->BindFlags & (D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE)) bi.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+		if (desc->MiscFlags & D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS) bi.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
 		if (!Check(vkCreateBuffer(Device, &bi, nullptr, &b->Buffer), "vkCreateBuffer"))
 		{
 			b->Buffer = VK_NULL_HANDLE;
@@ -1205,10 +1291,41 @@ namespace GfxVkImpl
 	{
 		if (!out) return S_FALSE;
 		*out = nullptr;
+		if (Buf* b = BufOf(r))
+		{
+			// 구조 · raw 버퍼 SRV → 스토리지 버퍼 (셰이더는 읽기만). 형식 버퍼 (Buffer<float4> — texel buffer) 는 아직
+			VkDeviceSize first = 0, count = 0, stride = b->Desc.StructureByteStride;
+			if (desc && desc->ViewDimension == D3D11_SRV_DIMENSION_BUFFEREX && (desc->BufferEx.Flags & D3D11_BUFFEREX_SRV_FLAG_RAW))
+			{
+				stride = 4;
+				first = desc->BufferEx.FirstElement;
+				count = desc->BufferEx.NumElements;
+			}
+			else if (desc && desc->ViewDimension == D3D11_SRV_DIMENSION_BUFFER && (b->Desc.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) && stride)
+			{
+				first = desc->Buffer.FirstElement;
+				count = desc->Buffer.NumElements;
+			}
+			else
+			{
+				Once("srv-buffer", "%s", "typed buffer shader resource views are not supported (structured / raw only)");
+				return E_NOTIMPL;
+			}
+			if (!stride || !count || (first + count) * stride > b->Desc.ByteWidth) return E_INVALIDARG;
+			auto* v = new Srv(this);
+			if (desc) v->Dsc = *desc;
+			v->V.Res = r;
+			v->V.Buffer = true;
+			v->V.BufOffset = first * stride;
+			v->V.BufSize = count * stride;
+			v->V.Id = NextId();
+			*out = v;
+			return S_OK;
+		}
 		Image* t = ImageOf(r);
 		if (!t || !t->Handle)
 		{
-			Once("srv-buffer", "%s", "buffer / staging shader resource views are not supported");
+			Once("srv-staging", "%s", "staging texture shader resource views are not supported");
 			return E_NOTIMPL;
 		}
 		D3D11_SHADER_RESOURCE_VIEW_DESC d = {};
@@ -1379,12 +1496,72 @@ namespace GfxVkImpl
 		return S_OK;
 	}
 
-	HRESULT Dev::CreateUnorderedAccessView(GfxResource*, const D3D11_UNORDERED_ACCESS_VIEW_DESC*, GfxUnorderedAccessView** out)
+	HRESULT Dev::CreateUnorderedAccessView(GfxResource* r, const D3D11_UNORDERED_ACCESS_VIEW_DESC* desc, GfxUnorderedAccessView** out)
 	{
 		if (!out) return S_FALSE;
 		*out = nullptr;
-		Once("uav", "%s", "unordered access views are not supported yet");
-		return E_NOTIMPL;
+		if (Buf* b = BufOf(r))
+		{
+			// 구조 · raw 버퍼 UAV → 스토리지 버퍼 (append · counter 는 없다)
+			if (!b->Buffer || !(b->Desc.BindFlags & D3D11_BIND_UNORDERED_ACCESS)) return E_INVALIDARG;
+			if (!desc || desc->ViewDimension != D3D11_UAV_DIMENSION_BUFFER ||
+				(desc->Buffer.Flags & (D3D11_BUFFER_UAV_FLAG_APPEND | D3D11_BUFFER_UAV_FLAG_COUNTER)))
+			{
+				Once("uav-buffer", "%s", "only structured / raw buffer UAVs without append or counter are supported");
+				return E_NOTIMPL;
+			}
+			const VkDeviceSize stride = (desc->Buffer.Flags & D3D11_BUFFER_UAV_FLAG_RAW) ? 4 : b->Desc.StructureByteStride;
+			const VkDeviceSize first = desc->Buffer.FirstElement, count = desc->Buffer.NumElements;
+			if (!stride || !count || (first + count) * stride > b->Desc.ByteWidth) return E_INVALIDARG;
+			auto* v = new Uav(this);
+			v->Dsc = *desc;
+			v->V.Res = r;
+			v->V.Buffer = true;
+			v->V.BufOffset = first * stride;
+			v->V.BufSize = count * stride;
+			v->V.Id = NextId();
+			*out = v;
+			return S_OK;
+		}
+		// 텍스처 UAV → 스토리지 이미지 (밉 하나, 2D · 2D 배열)
+		Image* t = ImageOf(r);
+		if (!t || !t->Handle || !(t->Bind & D3D11_BIND_UNORDERED_ACCESS) || t->Fmt.Depth) return E_INVALIDARG;
+		UINT mip = 0, first = 0, count = 1;
+		VkImageViewType type = VK_IMAGE_VIEW_TYPE_2D;
+		const D3D11_UAV_DIMENSION dim = desc ? desc->ViewDimension : (t->Layers > 1 ? D3D11_UAV_DIMENSION_TEXTURE2DARRAY : D3D11_UAV_DIMENSION_TEXTURE2D);
+		switch (dim)
+		{
+		case D3D11_UAV_DIMENSION_TEXTURE2D: mip = desc ? desc->Texture2D.MipSlice : 0; break;
+		case D3D11_UAV_DIMENSION_TEXTURE2DARRAY:
+			mip = desc ? desc->Texture2DArray.MipSlice : 0;
+			first = desc ? desc->Texture2DArray.FirstArraySlice : 0;
+			count = desc ? desc->Texture2DArray.ArraySize : t->Layers;
+			type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+			break;
+		default:
+			Once("uav-dim", "%s", "only 2D / 2D array texture UAVs are supported");
+			return E_NOTIMPL;
+		}
+		if (t->Type != VK_IMAGE_TYPE_2D || mip >= t->Mips || first >= t->Layers) return E_INVALIDARG;
+		count = (std::min)(count == (UINT)-1 ? t->Layers : (std::max)(1u, count), t->Layers - first);
+		auto* v = new Uav(this);
+		if (desc) v->Dsc = *desc;
+		else { v->Dsc.Format = t->Dxgi; v->Dsc.ViewDimension = dim; }
+		const VkMap::Format vf = VkMap::FromDxgi(v->Dsc.Format == DXGI_FORMAT_UNKNOWN ? t->Dxgi : v->Dsc.Format, false);
+		v->V.Res = r;
+		v->V.Img = t;
+		v->V.Type = type;
+		v->V.Format = vf.Vk != VK_FORMAT_UNDEFINED ? vf.Vk : t->Format;
+		v->V.Aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+		v->V.BaseMip = mip;
+		v->V.Mips = 1;
+		v->V.BaseLayer = first;
+		v->V.Layers = count;
+		v->V.View = MakeView(*t, type, v->V.Format, VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, first, count);
+		v->V.Id = NextId();
+		if (!v->V.View) { v->Release(); return E_FAIL; }
+		*out = v;
+		return S_OK;
 	}
 
 	HRESULT Dev::CreateInputLayout(const D3D11_INPUT_ELEMENT_DESC* elements, UINT count, const void* signature, SIZE_T signatureSize, GfxInputLayout** out)
@@ -1487,13 +1664,15 @@ namespace GfxVkImpl
 	{
 		auto* q = new Query(this);
 		q->Dsc = *desc;
-		if (desc->Query == D3D11_QUERY_TIMESTAMP || desc->Query == D3D11_QUERY_TIMESTAMP_DISJOINT || desc->Query == D3D11_QUERY_OCCLUSION)
+		const bool occlusion = desc->Query == D3D11_QUERY_OCCLUSION || desc->Query == D3D11_QUERY_OCCLUSION_PREDICATE;
+		if (desc->Query == D3D11_QUERY_TIMESTAMP || desc->Query == D3D11_QUERY_TIMESTAMP_DISJOINT || occlusion)
 		{
+			// 오클루전 = 칸 고리 (Query::kSlots), 타임스탬프 = 칸 하나
 			VkQueryPoolCreateInfo ci = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
-			ci.queryType = desc->Query == D3D11_QUERY_OCCLUSION ? VK_QUERY_TYPE_OCCLUSION : VK_QUERY_TYPE_TIMESTAMP;
-			ci.queryCount = 1;
+			ci.queryType = occlusion ? VK_QUERY_TYPE_OCCLUSION : VK_QUERY_TYPE_TIMESTAMP;
+			ci.queryCount = occlusion ? Query::kSlots : 1;
 			if (vkCreateQueryPool(Device, &ci, nullptr, &q->Pool) != VK_SUCCESS) q->Pool = VK_NULL_HANDLE;
-			else vkResetQueryPool(Device, q->Pool, 0, 1);
+			else vkResetQueryPool(Device, q->Pool, 0, ci.queryCount);
 		}
 		*out = q;
 		return S_OK;
@@ -1734,12 +1913,14 @@ namespace GfxVkShared
 			VkDescriptorSetLayoutBinding b = {};
 			b.binding = i;
 			b.descriptorCount = bindings[i].Count;
-			b.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+			b.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS | VK_SHADER_STAGE_COMPUTE_BIT;
 			switch (bindings[i].Type)
 			{
 			case BindingType::UniformBuffer: b.descriptorType = l->DynamicUbo ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; break;
 			case BindingType::SampledImage: b.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; break;
 			case BindingType::Sampler: b.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER; break;
+			case BindingType::StorageBuffer: b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+			case BindingType::StorageImage: b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; break;
 			default: continue;   // 지원하지 않는 자원 (그것을 쓰는 pass 는 효과가 막는다)
 			}
 			lb.push_back(b);
@@ -1798,11 +1979,11 @@ namespace GfxVkShared
 				p->Release();
 				return E_NOTIMPL;
 			}
-			if (s.Stage == VK_SHADER_STAGE_COMPUTE_BIT)
+			if (s.Stage == VK_SHADER_STAGE_COMPUTE_BIT && count != 1)
 			{
-				error = "compute passes are not supported yet";
+				error = "a compute pass must have only the compute shader";
 				p->Release();
-				return E_NOTIMPL;
+				return E_INVALIDARG;
 			}
 			VkShaderModuleCreateInfo ci = { VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO };
 			ci.codeSize = s.Code->size() * 4;
@@ -1818,6 +1999,24 @@ namespace GfxVkShared
 			p->Stages.push_back({ s.Stage, m, s.Entry });
 			if (s.Stage == VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT || s.Stage == VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT)
 				p->Tessellation = true;
+			if (s.Stage == VK_SHADER_STAGE_COMPUTE_BIT)
+			{
+				// compute 파이프라인 = 셰이더 + 배치뿐 (그리기 상태 · 타깃과 상관없다) → 지금 만든다
+				VkComputePipelineCreateInfo pi = { VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO };
+				pi.stage = { VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO };
+				pi.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+				pi.stage.module = m;
+				pi.stage.pName = p->Stages.back().Entry.c_str();
+				pi.layout = p->Layout->PipelineLayout;
+				const VkResult cr = vkCreateComputePipelines(d->Device, d->PipelineCache, 1, &pi, nullptr, &p->Compute);
+				if (cr != VK_SUCCESS)
+				{
+					p->Compute = VK_NULL_HANDLE;
+					error = std::string("vkCreateComputePipelines: ") + VkLoader::ResultName(cr);
+					p->Release();
+					return E_FAIL;
+				}
+			}
 		}
 		*out = p;
 		return S_OK;

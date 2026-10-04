@@ -9,6 +9,7 @@
 // RHI 의 Vulkan 구현: Gfx Vulkan 장치 · 컨텍스트 위의 얇은 층.
 //  - 효과: ShaderCross::CompileEffectSpirv 로 .fx → pass 마다 단계별 SPIR-V (자원 = 집합 0, 이름마다 고정 바인딩).
 //    cbuffer = CPU 사본 → Apply 때 링에 (바뀌었거나 링 위치가 사라졌을 때만), 텍스처 = 바인딩 원소, 샘플러 = .fx 의 상태로 만든 Gfx 샘플러.
+//    (RW)StructuredBuffer · (RW)ByteAddressBuffer = 스토리지 버퍼 (버퍼 SRV · UAV), RWTexture = 스토리지 이미지 (compute — 오클루전 컬링)
 //    pass 상태는 Gfx 상태 객체로 컨텍스트에 (OMGet… 저장 · 복원이 맞도록 — GL 의 sink 와 같음)
 //  - 그 밖의 Rhi::Device 함수는 Gfx 호출 그대로 (Rhi 텍스처 = Gfx 텍스처 + 뷰)
 namespace
@@ -109,8 +110,9 @@ namespace
 		{
 			int BlockIndex = -1;                                   // cbuffer 멤버
 			const ShaderCross::UniformBlock::Member* Member = nullptr;
-			uint32_t Element = 0;                                  // 텍스처: 첫 원소
+			uint32_t Element = 0;                                  // 텍스처 · 스토리지: 첫 원소
 			uint32_t Count = 0;                                    // 텍스처 배열 원소 수 (0 = 텍스처 아님)
+			bool Storage = false;                                  // 스토리지 버퍼 · 이미지 (SetView = 버퍼 SRV, SetUav)
 		};
 		struct PassProgram
 		{
@@ -134,6 +136,7 @@ namespace
 		ComPtr<GfxObject> Layout;
 		std::vector<BindingValue> Values;                    // 원소마다 (BindingLayout 순서)
 		std::vector<ComPtr<GfxShaderResourceView>> Views;    // 원소마다 (텍스처 칸이 뷰를 잡는다)
+		std::vector<ComPtr<GfxUnorderedAccessView>> Uavs;   // 원소마다 (스토리지 칸)
 		std::vector<ComPtr<GfxSamplerState>> Samplers;
 		std::set<std::string> Reported;
 		std::string FileName;
@@ -169,8 +172,14 @@ namespace
 					v.Element = ElementOffset(Layout.Get(), (uint32_t)r->second.Binding);
 					v.Count = (uint32_t)r->second.Count;
 				}
+				else if (r != Src.Resources.end() && (r->second.Type == ShaderCross::ResourceBinding::Kind::StorageBuffer ||
+					r->second.Type == ShaderCross::ResourceBinding::Kind::StorageImage))
+				{
+					v.Element = ElementOffset(Layout.Get(), (uint32_t)r->second.Binding);
+					v.Storage = true;
+				}
 			}
-			if (!v.Member && !v.Count)
+			if (!v.Member && !v.Count && !v.Storage)
 				return -1;   // 셰이더가 쓰지 않아 지워진 변수
 			Vars.push_back(v);
 			return VarIds[name] = (int)Vars.size() - 1;
@@ -270,6 +279,17 @@ namespace
 
 		void SetView(Rhi::VarId var, GfxShaderResourceView* view, uint32_t arrayIndex) override
 		{
+			if (var >= 0 && var < (int)Vars.size() && Vars[var].Storage)
+			{
+				// 구조 · raw 버퍼 SRV → 스토리지 버퍼 (UAV 를 비운다 — 같은 칸에 하나만)
+				const uint32_t e = Vars[var].Element;
+				if (view && !GfxVk::IsVulkan(view)) view = nullptr;
+				Views[e] = view;
+				Values[e].View = view;
+				Uavs[e] = nullptr;
+				Values[e].Uav = nullptr;
+				return;
+			}
 			if (var < 0 || var >= (int)Vars.size() || !Vars[var].Count || arrayIndex >= Vars[var].Count) return;
 			if (view && !GfxVk::IsVulkan(view))
 			{
@@ -287,7 +307,16 @@ namespace
 			SetView(var, texture ? static_cast<VkRhiTexture*>(texture)->Srv.Get() : nullptr, arrayIndex);
 		}
 
-		void SetUav(Rhi::VarId, GfxUnorderedAccessView*) override {}
+		void SetUav(Rhi::VarId var, GfxUnorderedAccessView* uav) override
+		{
+			if (var < 0 || var >= (int)Vars.size() || !Vars[var].Storage) return;
+			if (uav && !GfxVk::IsVulkan(uav)) uav = nullptr;
+			const uint32_t e = Vars[var].Element;
+			Uavs[e] = uav;
+			Values[e].Uav = uav;
+			Views[e] = nullptr;
+			Values[e].View = nullptr;
+		}
 
 		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
 		{
@@ -571,7 +600,9 @@ namespace
 			{
 			case ShaderCross::ResourceBinding::Kind::SampledImage: d.Type = BindingType::SampledImage; break;
 			case ShaderCross::ResourceBinding::Kind::Sampler: d.Type = BindingType::Sampler; break;
-			default: d.Type = BindingType::Unsupported; break;
+			case ShaderCross::ResourceBinding::Kind::StorageBuffer: d.Type = BindingType::StorageBuffer; break;
+			case ShaderCross::ResourceBinding::Kind::StorageImage: d.Type = BindingType::StorageImage; break;
+			default: d.Type = BindingType::Unsupported; break;   // 형식 버퍼 (Buffer<T> — texel buffer)
 			}
 		}
 		if (FAILED(CreateBindingLayout(Dev.Get(), bindings.data(), (uint32_t)bindings.size(), e->Layout.GetAddressOf(), error)))
@@ -579,6 +610,7 @@ namespace
 		const uint32_t elements = ElementCount(e->Layout.Get());
 		e->Values.assign(elements, {});
 		e->Views.assign(elements, nullptr);
+		e->Uavs.assign(elements, nullptr);
 
 		// pass 마다 프로그램 (실패는 그 pass 만 못 쓴다)
 		const std::string stem = wstring_to_string(std::filesystem::path(fxPath).stem().wstring());
@@ -597,7 +629,7 @@ namespace
 				if (pp.Error.empty())
 					for (int b : ps.Bindings)
 						if (b >= 0 && b < (int)bindings.size() && bindings[b].Type == BindingType::Unsupported)
-							pp.Error = "uses UAV / structured / texel buffers (not supported on Vulkan yet)";
+							pp.Error = "uses typed buffers (Buffer<T> - not supported on Vulkan yet)";
 				if (pp.Error.empty())
 				{
 					std::vector<StageCode> stages;

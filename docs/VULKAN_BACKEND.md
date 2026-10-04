@@ -73,12 +73,20 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
 - **DYNAMIC 버퍼**: Map(WRITE_DISCARD) = CPU 사본, Unmap 때 링으로. 다음 기록에서 링 위치가 사라졌으면 사본에서 다시 올린다 (GL 과 같은 방식)
 - **좌표**: 셰이더의 `-fvk-invert-y` → 프레임버퍼 행 0 = D3D 의 위. 뷰포트 · 가위 숫자 그대로, D3D 앞면(시계) = `VK_FRONT_FACE_CLOCKWISE`
 - D3D11 처럼 렌더 타깃으로 묶인 텍스처를 셰이더가 읽으면 빈 텍스처로 바꾼다 (읽기 전용 깊이 뷰는 그대로 읽는다)
+- **compute** (오클루전 컬링 — [OCCLUSION_CULLING.md](OCCLUSION_CULLING.md)): (RW)StructuredBuffer · (RW)ByteAddressBuffer = 스토리지 버퍼
+  (버퍼 SRV · UAV, DYNAMIC 은 링 자리), RWTexture2D = 스토리지 이미지 (배치 GENERAL, 서브리소스마다 따라감). compute pass 의 파이프라인은 프로그램을 만들 때.
+  디스패치 앞뒤로 전역 장벽 (버퍼는 배치를 따라가지 않는다 — 앞의 정점 · 간접 인자 읽기, 뒤의 읽기). 간접 그리기는 `drawIndirectFirstInstance` 기능,
+  `ClearUnorderedAccessViewUint` = `vkCmdFillBuffer` · `vkCmdClearColorImage`
+- **오클루전 쿼리**: 쿼리마다 칸 4 개 고리 (호스트 리셋 — 앞 결과가 GPU 에 남은 칸을 기다리지 않게). `Begin` 은 다음 그리기가 렌더링을 시작한 뒤에 기록
+  (쿼리는 한 렌더링 안에서 시작 · 끝, 중간에 렌더링이 끊기면 "보임"). **예측** (`SetPredication`) = `VK_EXT_conditional_rendering`:
+  첫 SetPredication 때 끝난 예측 쿼리 결과를 한꺼번에 링으로 복사 (`vkCmdCopyQueryPoolResults` + WAIT — GPU 만 기다린다), 그리기마다 그 값으로 조건부 렌더링.
+  확장이 없으면 예측 없이 그린다
 
 ## 아직 없는 것
 
 - 그리기마다의 CPU 비용 줄이기 (가벼운 장면에서 DX11 보다 약 10 % 느림)
-- compute · UAV · 구조화 버퍼 · 스트림 출력 (OpenGL 과 같이 옛 예제만 쓴다) — 그런 자원을 쓰는 pass 는 로그를 남기고 그리지 않는다
-- 오클루전 쿼리 (결과 1), 인스턴스 간격 > 1, 테두리 색은 Vulkan 기본 세 가지 중 가까운 것
+- 형식 버퍼 (`Buffer<T>` — texel buffer) · append · counter UAV · 스트림 출력 — 그런 자원을 쓰는 pass 는 로그를 남기고 그리지 않는다
+- 인스턴스 간격 > 1, 테두리 색은 Vulkan 기본 세 가지 중 가까운 것
 
 ## 검사
 

@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Line Renderer · Trail Renderer** (사용자 지시: 추천 1 · 2 · 3 모두 — 3 부터). **완료** — linetrail **9/9**
+- 갱신 시각: 2026년 10월 4일 — **오클루전 컬링 OpenGL · Vulkan 지원** (사용자 지시 "그래 지원해줘" — 순서 OpenGL → Vulkan → 안드로이드). **OpenGL · Vulkan 완료** — occlusiongl **3/3**, occlusionvk **3/3** (검증 레이어 오류 0), occlusion (DX11) **9/9**
+  - `Shaders/57. OcclusionCulling.hlsl` → `57. OcclusionCulling.fx` (fx 효과 — GL 은 ShaderCross 로 GLSL compute), `OcclusionCulling.cpp` 를 D3D11 직접 호출 없이 Gfx 층 · Rhi::Effect 로
+  - `RHI/Gfx.h` (GfxContext 에 SupportsGpuDriven · 간접 그리기 · SetPredication · UAV 지우기), `DX11/GfxDx11.cpp` (그대로 넘김, 예측 쿼리 = CreatePredicate),
+    `OpenGL/GfxGL.cpp` · `GLRhi.cpp` · `GLLoader.h` · `GLShared.h` (버퍼 SRV · UAV = SSBO, 텍스처 UAV = image, ANY_SAMPLES_PASSED + 조건부 렌더링, fence), `run_tests.ps1` 의 `Suite-OcclusionGL`
+  - Vulkan: `Vulkan/GfxVkDevice.cpp` · `GfxVkContext.cpp` · `GfxVkInternal.h` · `GfxVkShared.h` · `VkRhi.cpp` · `VkLoader.h` — 스토리지 버퍼 · 이미지, compute 파이프라인 · 디스패치,
+    간접 그리기, 오클루전 쿼리 (칸 고리 — 예전엔 결과 1), `VK_EXT_conditional_rendering`. `run_tests.ps1` 의 `Suite-OcclusionApi` (GL · VK 같은 검사), `docs/VULKAN_BACKEND.md`
+  - 회귀: OpenGL 단계에서 13 스위트 110/110 (render · gfx · vulkan 포함), 안드로이드 빌드 통과
+  - 다음: 안드로이드 GLES (`GLESRhi` — GLES 3.1 compute · SSBO, 간접 그리기는 baseInstance 가 없어 정점 버퍼 오프셋으로)
+- 이전: 2026년 10월 4일 — **Line Renderer · Trail Renderer** (사용자 지시: 추천 1 · 2 · 3 모두 — 3 부터). **완료** — linetrail **9/9**
   - 새 `Source/Effects/LineRenderer.*` (두 컴포넌트 · 띠 만들기 · C# 내보내기 `NovaLine_*`), 새 `ScriptCore/Engine/LineRenderer.cs` (DllImport — 네이티브 표는 그대로), `Shaders/43. Particle.fx` (LineAlphaTech · LineAdditiveTech),
     `ParticleRenderer.cpp` (입자와 함께 정렬해 그림), `ParticleSystemEditor.h` · `ParticleSystemInspector.cpp` (TexturePicker), `GameObjectFactory.*` · `GameObjectMenu.cpp` · `AddComponentMenu.cpp` (메뉴 한 줄씩), `App.cpp` · `AppAndroid.cpp` (Trail 갱신)
   - 깊이 프리패스 "약 5 ms" 원인 (**완료**): GPU 일이 아니었다 — CPU 가 늦은 프레임에서 GPU 가 쉬는 시간이 구간에 붙음 + 오브젝트마다 CPU 비용.

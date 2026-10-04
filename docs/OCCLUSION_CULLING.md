@@ -38,7 +38,12 @@ MeshBatcher 가 보이는 Mesh Renderer 를 (메시, 서브셋, 재질) 묶음�
   그림자를 깊이 프리패스 뒤에 그린다 (그다음 카메라 컬링을 다시). 빛의 절두체 안 캐스터의 상자를 빛 방향으로 캐스케이드 구 지름만큼 쓸어 늘리면
   그 그림자가 떨어질 수 있는 곳 전부 — 그 상자가 카메라 Hi-Z 에 모두 가려졌으면 보이는 표면에 그림자가 닿지 않으므로 뺀다 (`OcclusionCulling::BeginShadow`)
 - LOD 크로스페이드 중인 렌더러 · 투명 재질 · 프로브 찍기는 CPU 목록 (예전과 같음).
-- DirectX 11 (feature level 11) 만. OpenGL · Vulkan · 안드로이드는 절두체 컬링만 (예전과 같음).
+- **DirectX 11** (feature level 11) · **OpenGL 4.5** · **Vulkan 1.3** (PC). 같은 코드가 Gfx 층 (`GfxContext` 의 `SupportsGpuDriven` · `DrawIndexedInstancedIndirect` ·
+  `SetPredication` · `ClearUnorderedAccessViewUint`) 과 `fx` 효과로 돌아간다.
+  - GL: 커널을 ShaderCross 가 GLSL compute 로, 버퍼 SRV · UAV = SSBO, 텍스처 UAV = image, 예측 쿼리 = `GL_ANY_SAMPLES_PASSED` + `glBeginConditionalRender`, event query = `glFenceSync`
+  - Vulkan: SPIR-V compute, 스토리지 버퍼 · 이미지, `vkCmdDrawIndexedIndirect` (`drawIndirectFirstInstance`), 예측 = 쿼리 결과를 복사한 값 + `VK_EXT_conditional_rendering`
+    (확장이 없으면 캐릭터만 예측 없이) — 자세히 [VULKAN_BACKEND.md](VULKAN_BACKEND.md)
+  - 안드로이드 (GLES) 는 아직 절두체 컬링만 (예전과 같음).
 - 비용을 아끼는 규칙: 후보 렌더러가 64 개 미만인 뷰는 쓰지 않는다 (Hi-Z 비용 > 아낄 것). 검사에서 거의 가리지 않았으면 (max(4, 2 %) 미만)
   30 번 쉬고 다시 본다 (탁 트인 장면). 통계 읽기는 event query 를 `DONOTFLUSH` 로 먼저 물어 — `Map` 이 명령을 밀어 넣어 GPU 가 쉬게 만들지 않는다.
 
@@ -50,8 +55,10 @@ CPU 가 늦은 프레임 (예: Debug 빌드 + 오브젝트 2000 개 — CPU 13 m
 
 | 파일 | 하는 일 |
 |---|---|
-| `Shaders/57. OcclusionCulling.hlsl` | compute 커널 5 개 (Prepare · Compact · CopyDepth · Reduce · Cull) — `fx` 효과가 아니라 `cs_5_0` 로 따로 컴파일 (GLES 변환 대상 아님) |
-| `Source/Graphics/DX11/OcclusionCulling.*` | 버퍼 · Hi-Z · 뷰 (카메라) 마다 기록, 간접 그리기, 몇 프레임 뒤 통계 읽기 (기다리지 않음), CLI `nova occlusion` |
+| `Shaders/57. OcclusionCulling.fx` | compute 기법 6 개 (Prepare · Compact · Reduce · Cull · CullList · ShadowCull) + 상자 쿼리 기법 (Box — 정점 셰이더만). DX11 = Effects11, GL = ShaderCross |
+| `Source/Graphics/DX11/OcclusionCulling.*` | 버퍼 · Hi-Z · 뷰 (카메라) 마다 기록, 간접 그리기, 몇 프레임 뒤 통계 읽기 (기다리지 않음), CLI `nova occlusion` — D3D11 직접 호출 없이 Gfx 층만 |
+| `Source/Graphics/OpenGL/GfxGL.cpp` · `GLRhi.cpp` | 버퍼 SRV · UAV → SSBO, 텍스처 UAV → image, 간접 그리기, 조건부 렌더링, fence |
+| `Source/Graphics/Vulkan/GfxVk*.cpp` · `VkRhi.cpp` | 스토리지 버퍼 · 이미지 디스크립터, compute 파이프라인 · 디스패치, 간접 그리기, 오클루전 쿼리 칸 고리, 조건부 렌더링 |
 | `Source/Scene/MeshBatcher.*` | 후보 목록 → GPU, 1 단계 · `FinishDepthPrepass` · 본 패스, CPU 목록과 같은 묶음 · 재질 순서 |
 | `Source/Editor/EditorApp.cpp` | Game · Scene 뷰의 깊이 프리패스 뒤 `FinishDepthPrepass` |
 
@@ -68,6 +75,9 @@ CPU 가 늦은 프레임 (예: Debug 빌드 + 오브젝트 2000 개 — CPU 13 m
 7. 벽 뒤 캐릭터 2 (Skinned — 쿼리 3 중 2 가려짐) · 나무 2 (인스턴스 2 중 2 가려짐), 같은 화면
 8. 성능: 벽 뒤 구 2000 개 — 삼각형 (PIPELINE_STATISTICS, `nova perf` 의 `gpuPasses[].primitives` · `pixels`) 이 깊이 프리패스 · 불투명에서 2,209k → 1k 아래,
    그림자 캐스터 198/256 빠짐 (그림자 삼각형 2,911k → 2,770k — 구 대부분은 캐시하는 먼 캐스케이드) — Scene 뷰 GPU 시간 (단계별 깊이 프리패스 · 불투명 · 그림자)
+
+`run_tests.ps1 -Only occlusiongl,occlusionvk` — 같은 장면을 OpenGL · Vulkan 으로: 상자 100/105 · 캐릭터 1/2 · 나무 인스턴스 · 그림자 캐스터 22/35 가려짐,
+끈 화면과 같다, 벽 위에서 본 첫 프레임 · 옮긴 상자 (Vulkan 은 검증 레이어 켠 채 오류 0).
 
 ```
 nova occlusion info                 # supported, enabled, game / scene: active, tested, visible, culled

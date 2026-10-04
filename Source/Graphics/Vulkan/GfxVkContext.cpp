@@ -49,6 +49,9 @@ namespace GfxVkImpl
 		Rtv* AsRtv(GfxRenderTargetView* v) { return v && v->Api() == GfxApi::Vulkan ? static_cast<Rtv*>(v) : nullptr; }
 		Dsv* AsDsv(GfxDepthStencilView* v) { return v && v->Api() == GfxApi::Vulkan ? static_cast<Dsv*>(v) : nullptr; }
 		Srv* AsSrv(GfxShaderResourceView* v) { return v && v->Api() == GfxApi::Vulkan ? static_cast<Srv*>(v) : nullptr; }
+		Uav* AsUav(GfxUnorderedAccessView* v) { return v && v->Api() == GfxApi::Vulkan ? static_cast<Uav*>(v) : nullptr; }
+		Query* AsQuery(GfxQuery* q) { return q && q->Api() == GfxApi::Vulkan ? static_cast<Query*>(q) : nullptr; }
+		bool IsOcclusion(const Query* q) { return q->Dsc.Query == D3D11_QUERY_OCCLUSION || q->Dsc.Query == D3D11_QUERY_OCCLUSION_PREDICATE; }
 	}
 
 	Ctx::~Ctx()
@@ -60,6 +63,13 @@ namespace GfxVkImpl
 	void Ctx::EndRendering()
 	{
 		if (!Rendering) return;
+		if (Query* q = AsQuery(ActiveQuery.Get()))
+		{
+			// 쿼리는 한 렌더링 안에서 시작 · 끝 — 중간에 끊기면 결과가 모자랄 수 있어 "보임" 으로 친다
+			vkCmdEndQuery(D->Cmd(), q->Pool, q->Slot);
+			q->Broken = true;
+			ActiveQuery = nullptr;
+		}
 		vkCmdEndRendering(D->Cmd());
 		Rendering = false;   // 타깃은 그릴 때 Written 으로 표시했다 (다시 쓰거나 읽을 때 그 서브리소스만 장벽)
 	}
@@ -153,6 +163,7 @@ namespace GfxVkImpl
 		// 장벽은 제출 순서를 넘어 효력이 있다 (같은 큐) → 남은 버퍼 장벽 · 이미지 Written 은 그대로 이어 간다
 		Rendering = false;
 		BoundEpoch = ~0ull;
+		ToCopy.clear();   // 복사하지 않은 예측 쿼리 (Skinned 를 그리지 않은 프레임 등) — 쓰려 하면 예측 없이 그린다
 	}
 
 	bool Ctx::IsWritableTarget(const Image* img, UINT baseMip, UINT mips, UINT baseLayer, UINT layers) const
@@ -325,6 +336,7 @@ namespace GfxVkImpl
 		images.assign(L->Elements, {});
 		buffers.assign(L->Elements, {});
 		key.push_back(L->Id);
+		StorageImages.clear();
 		if (Values.size() < L->Elements) { ok = false; return VK_NULL_HANDLE; }
 		for (uint32_t bi = 0; bi < (uint32_t)L->Bindings.size(); ++bi)
 		{
@@ -380,6 +392,55 @@ namespace GfxVkImpl
 					else
 					{
 						const Dev::Dummy& dm = D->DummyImage(b);
+						images[base + e] = { VK_NULL_HANDLE, dm.View, dm.Layout };
+						key.push_back(dm.Id);
+					}
+					break;
+				}
+				case GfxVkShared::BindingType::StorageBuffer:
+				{
+					// 버퍼 UAV 또는 버퍼 SRV (구조 · raw). 버퍼는 배치를 따라가지 않는다 — 동기화는 디스패치 앞뒤의 전역 장벽
+					const bool used = bi < Prog->Used.size() && Prog->Used[bi];
+					const ViewInfo* vi = nullptr;
+					if (used)
+					{
+						if (Uav* u = AsUav(v.Uav)) vi = &u->V;
+						else if (Srv* sv = AsSrv(v.View)) vi = &sv->V;
+					}
+					VkBuffer buf = VK_NULL_HANDLE;
+					VkDeviceSize off = 0, size = 0;
+					if (vi && vi->Buffer)
+					{
+						ResolveBuffer(vi->Res.Get(), buf, off);   // DYNAMIC = 지금 링 자리
+						off += vi->BufOffset;
+						size = vi->BufSize;
+					}
+					if (!buf)
+					{
+						buf = D->DummyStorageBuffer();
+						off = 0;
+						size = 256;
+						if (!buf) { ok = false; return VK_NULL_HANDLE; }
+					}
+					buffers[base + e] = { buf, off, size };
+					key.push_back((uint64_t)buf);
+					key.push_back(off);
+					key.push_back(size);
+					break;
+				}
+				case GfxVkShared::BindingType::StorageImage:
+				{
+					Uav* u = bi < Prog->Used.size() && Prog->Used[bi] ? AsUav(v.Uav) : nullptr;
+					if (u && !u->V.Buffer && u->V.Img && u->V.Img->Handle)
+					{
+						Transition(*u->V.Img, u->V.BaseMip, u->V.Mips, u->V.BaseLayer, u->V.Layers, VK_IMAGE_LAYOUT_GENERAL, barriers);
+						images[base + e] = { VK_NULL_HANDLE, u->V.View, VK_IMAGE_LAYOUT_GENERAL };
+						key.push_back(u->V.Id);
+						StorageImages.push_back(&u->V);
+					}
+					else
+					{
+						const Dev::Dummy& dm = D->DummyStorageImage();
 						images[base + e] = { VK_NULL_HANDLE, dm.View, dm.Layout };
 						key.push_back(dm.Id);
 					}
@@ -447,6 +508,14 @@ namespace GfxVkImpl
 				w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
 				w.pImageInfo = &images[base];
 				break;
+			case GfxVkShared::BindingType::StorageBuffer:
+				w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+				w.pBufferInfo = &buffers[base];
+				break;
+			case GfxVkShared::BindingType::StorageImage:
+				w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+				w.pImageInfo = &images[base];
+				break;
 			default:
 				continue;
 			}
@@ -463,6 +532,11 @@ namespace GfxVkImpl
 		if (!Prog)
 		{
 			D->Once("no-program", "%s", "draw without an applied effect pass - skipped");
+			return false;
+		}
+		if (Prog->Compute)
+		{
+			D->Once("draw-compute", "%s", "draw with a compute pass applied - skipped");
 			return false;
 		}
 		if (ViewportCount == 0 || Viewports[0].Width <= 0 || Viewports[0].Height <= 0)
@@ -672,28 +746,194 @@ namespace GfxVkImpl
 			vkCmdSetStencilReference(cb, VK_STENCIL_FACE_FRONT_AND_BACK, StencilRef);
 			DynamicDirty = false;
 		}
+		BeginPendingQuery();   // 렌더링이 시작된 뒤에
 		++D->DrawsSinceSubmit;
 		return true;
 	}
 
 	void Ctx::Draw(UINT c, UINT s)
 	{
-		if (PrepareDraw(false)) vkCmdDraw(D->Cmd(), c, 1, s, 0);
+		if (!PrepareDraw(false)) return;
+		const bool cond = BeginCondition();
+		vkCmdDraw(D->Cmd(), c, 1, s, 0);
+		EndCondition(cond);
 	}
 
 	void Ctx::DrawInstanced(UINT c, UINT n, UINT s, UINT si)
 	{
-		if (PrepareDraw(false)) vkCmdDraw(D->Cmd(), c, n, s, si);
+		if (!PrepareDraw(false)) return;
+		const bool cond = BeginCondition();
+		vkCmdDraw(D->Cmd(), c, n, s, si);
+		EndCondition(cond);
 	}
 
 	void Ctx::DrawIndexedInstanced(UINT c, UINT n, UINT s, INT b, UINT si)
 	{
-		if (!Ib) return;
-		if (PrepareDraw(true)) vkCmdDrawIndexed(D->Cmd(), c, n, s, b, si);
+		if (!Ib || !PrepareDraw(true)) return;
+		const bool cond = BeginCondition();
+		vkCmdDrawIndexed(D->Cmd(), c, n, s, b, si);
+		EndCondition(cond);
 	}
 
 	void Ctx::DrawAuto() { D->Once("drawauto", "%s", "DrawAuto (stream output) is not supported"); }
-	void Ctx::Dispatch(UINT, UINT, UINT) { D->Once("dispatch", "%s", "compute dispatch is not supported yet"); }
+
+	// ============================================================ GPU 가 정하는 그리기 (오클루전 컬링)
+	bool Ctx::SupportsGpuDriven() const
+	{
+		// 간접 인자의 StartInstanceLocation (묶음마다 다른 첫 인스턴스) 이 필요하다
+		return D->Features.drawIndirectFirstInstance == VK_TRUE;
+	}
+
+	void Ctx::Dispatch(UINT x, UINT y, UINT z)
+	{
+		if (D->Lost || !x || !y || !z) return;
+		if (!Prog || !Prog->Compute)
+		{
+			D->Once("dispatch-noprog", "%s", "Dispatch without an applied compute pass - skipped");
+			return;
+		}
+		EndRendering();
+		thread_local std::vector<VkImageMemoryBarrier2> barriers;
+		thread_local std::vector<uint32_t> offsets;
+		barriers.clear();
+		bool ok = true;
+		VkDescriptorSet set = BuildSet(offsets, barriers, ok);
+		if (!ok || !set) return;
+		// 버퍼는 배치를 따라가지 않는다 → 앞의 쓰기 · 읽기 (복사 · 정점 · 간접 인자 · 앞 디스패치) 가 모두 끝난 뒤에
+		NeedBarrier = true;
+		Barrier(barriers);
+		VkCommandBuffer cb = D->Cmd();
+		vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, Prog->Compute);   // 그래픽 바인딩 (BoundPipeline · BoundSet) 과 따로
+		vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, Prog->Layout->PipelineLayout, 0, 1, &set, (uint32_t)offsets.size(), offsets.data());
+		vkCmdDispatch(cb, x, y, z);
+		for (ViewInfo* v : StorageImages)
+			v->Img->MarkWritten(v->BaseMip, v->Mips, v->BaseLayer, v->Layers);   // 다음에 읽거나 다시 쓸 때 장벽
+		StorageImages.clear();
+		NeedBarrier = true;   // 다음 읽기 (간접 인자 · 정점 · SRV · 복사) 앞에서
+	}
+
+	bool Ctx::DrawIndexedInstancedIndirect(GfxBuffer* args, UINT offset)
+	{
+		Buf* b = BufOf(args);
+		if (!b || !b->Buffer || (offset & 3)) return false;
+		if (!Ib || !PrepareDraw(true)) return true;
+		const bool cond = BeginCondition();
+		vkCmdDrawIndexedIndirect(D->Cmd(), b->Buffer, offset, 1, sizeof(VkDrawIndexedIndirectCommand));   // D3D 인자와 같은 배치 (20 바이트)
+		EndCondition(cond);
+		return true;
+	}
+
+	bool Ctx::DrawInstancedIndirect(GfxBuffer* args, UINT offset)
+	{
+		Buf* b = BufOf(args);
+		if (!b || !b->Buffer || (offset & 3)) return false;
+		if (!PrepareDraw(false)) return true;
+		const bool cond = BeginCondition();
+		vkCmdDrawIndirect(D->Cmd(), b->Buffer, offset, 1, sizeof(VkDrawIndirectCommand));
+		EndCondition(cond);
+		return true;
+	}
+
+	bool Ctx::ClearUnorderedAccessViewUint(GfxUnorderedAccessView* view, const UINT values[4])
+	{
+		Uav* u = AsUav(view);
+		if (!u) return false;
+		if (D->Lost) return true;
+		if (u->V.Buffer)
+		{
+			VkBuffer b;
+			VkDeviceSize o;
+			ResolveBuffer(u->V.Res.Get(), b, o);
+			if (!b) return false;
+			BeforeBufferWrite();
+			vkCmdFillBuffer(D->Cmd(), b, o + u->V.BufOffset, u->V.BufSize & ~(VkDeviceSize)3, values[0]);
+			NeedBarrier = true;
+			return true;
+		}
+		if (!u->V.Img) return false;
+		Image& img = *u->V.Img;
+		BeforeTransfer();
+		TransitionNow(img, u->V.BaseMip, 1, u->V.BaseLayer, u->V.Layers, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+		VkClearColorValue cv = {};
+		for (int i = 0; i < 4; ++i) cv.uint32[i] = values[i];
+		const VkImageSubresourceRange range = { VK_IMAGE_ASPECT_COLOR_BIT, u->V.BaseMip, 1, u->V.BaseLayer, u->V.Layers };
+		vkCmdClearColorImage(D->Cmd(), img.Handle, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &cv, 1, &range);
+		img.MarkWritten(u->V.BaseMip, 1, u->V.BaseLayer, u->V.Layers);
+		return true;
+	}
+
+	// ---- 예측 (D3D 의 SetPredication = 조건부 렌더링)
+	//  상자 쿼리 (렌더링 안) → 첫 SetPredication 때 끝난 예측 쿼리 결과를 한꺼번에 링으로 복사 (렌더링 밖, GPU 가 결과를 기다림 — CPU 는 아님)
+	//  → 그리기마다 그 4 바이트로 조건부 렌더링 (0 = 건너뜀)
+	bool Ctx::SetPredication(GfxQuery* predicate, BOOL value)
+	{
+		if (!D->ConditionalRendering) return false;
+		if (!predicate)
+		{
+			Predicate = nullptr;
+			return true;
+		}
+		Query* q = AsQuery(predicate);
+		if (!q || q->Dsc.Query != D3D11_QUERY_OCCLUSION_PREDICATE || value)
+			return false;   // value TRUE (보이면 건너뜀) 는 쓰지 않는다
+		if (!q->HasPredLoc)
+			CopyPredicates();
+		if (!q->HasPredLoc || !D->RingCurrent(q->PredLoc))
+		{
+			Predicate = nullptr;
+			return false;   // 이번 기록의 쿼리가 아니다 — 예측 없이 그린다
+		}
+		Predicate = predicate;
+		return true;
+	}
+
+	void Ctx::CopyPredicates()
+	{
+		if (ToCopy.empty()) return;
+		EndRendering();   // 쿼리 결과 복사는 렌더링 밖
+		for (const auto& p : ToCopy)
+		{
+			Query* q = AsQuery(p.Get());
+			uint8_t* at = D->RingAlloc(4, 4, q->PredLoc);
+			q->HasPredLoc = at != nullptr;
+			if (!at) continue;
+			if (q->Recorded && !q->Broken)
+				vkCmdCopyQueryPoolResults(D->Cmd(), q->Pool, q->Slot, 1, q->PredLoc.Buffer, q->PredLoc.Offset, 4, VK_QUERY_RESULT_WAIT_BIT);
+			else
+			{
+				const uint32_t visible = 1;   // 그리기가 없었거나 끊긴 쿼리 = 보임 (제출 전 호스트 쓰기)
+				memcpy(at, &visible, 4);
+			}
+		}
+		ToCopy.clear();
+		NeedBarrier = true;   // 복사 쓰기 → 조건부 렌더링 읽기 (다음 그리기가 렌더링을 시작하기 전에)
+	}
+
+	bool Ctx::BeginCondition()
+	{
+		Query* q = AsQuery(Predicate.Get());
+		if (!q || !q->HasPredLoc || !D->RingCurrent(q->PredLoc)) return false;
+		VkConditionalRenderingBeginInfoEXT ci = { VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT };
+		ci.buffer = q->PredLoc.Buffer;
+		ci.offset = q->PredLoc.Offset;
+		vkCmdBeginConditionalRenderingEXT(D->Cmd(), &ci);   // 렌더링 안에서 시작 · 끝 (그리기 하나)
+		return true;
+	}
+
+	void Ctx::EndCondition(bool begun)
+	{
+		if (begun) vkCmdEndConditionalRenderingEXT(D->Cmd());
+	}
+
+	void Ctx::BeginPendingQuery()
+	{
+		Query* q = AsQuery(PendingQuery.Get());
+		if (!q || !Rendering) return;
+		vkCmdBeginQuery(D->Cmd(), q->Pool, q->Slot, 0);   // 정밀하지 않음 = 통과한 샘플이 있으면 0 이 아님 (ANY_SAMPLES)
+		q->Recorded = true;
+		ActiveQuery = PendingQuery;
+		PendingQuery = nullptr;
+	}
 
 	// ============================================================ 지우기 (D3D: 쓰기 마스크 · 가위와 상관없다)
 	void Ctx::ClearRenderTargetView(GfxRenderTargetView* view, const FLOAT c[4])
@@ -1043,16 +1283,43 @@ namespace GfxVkImpl
 	// ============================================================ 쿼리
 	void Ctx::Begin(GfxQuery* q)
 	{
-		auto* g = q && q->Api() == GfxApi::Vulkan ? static_cast<Query*>(q) : nullptr;
-		if (g && g->Dsc.Query == D3D11_QUERY_OCCLUSION)
-			D->Once("occlusion", "%s", "occlusion queries are not supported yet (result = 1)");
+		Query* g = AsQuery(q);
+		if (!g || D->Lost || !g->Pool || !IsOcclusion(g)) return;
+		g->Recorded = g->Broken = g->HasPredLoc = false;
+		if (PendingQuery || ActiveQuery)
+		{
+			// Vulkan 은 오클루전 쿼리를 둘 동시에 열 수 없다 → 안쪽 쿼리는 기록하지 않음 (결과 = 보임)
+			D->Once("query-nested", "%s", "overlapping occlusion queries are not supported (the inner one counts as visible)");
+			return;
+		}
+		// 다음 칸 (그 칸의 앞 결과가 GPU 에 남아 있으면 기다린다 — 칸 4 개 = 보통은 이미 끝남), 호스트 리셋
+		g->Slot = (g->Slot + 1) % Query::kSlots;
+		if (g->SlotSerial[g->Slot] && !D->IsDone(g->SlotSerial[g->Slot]))
+			D->WaitSerial(g->SlotSerial[g->Slot]);
+		vkResetQueryPool(D->Device, g->Pool, g->Slot, 1);
+		PendingQuery = q;   // vkCmdBeginQuery 는 다음 그리기의 PrepareDraw 끝 (그 그리기가 렌더링을 새로 시작해도 안쪽에서)
 	}
 
 	void Ctx::End(GfxQuery* q)
 	{
-		auto* g = q && q->Api() == GfxApi::Vulkan ? static_cast<Query*>(q) : nullptr;
+		Query* g = AsQuery(q);
 		if (!g || D->Lost) return;
-		if (g->Pool && g->Dsc.Query != D3D11_QUERY_OCCLUSION)
+		if (IsOcclusion(g))
+		{
+			if (ActiveQuery.Get() == q)
+			{
+				vkCmdEndQuery(D->Cmd(), g->Pool, g->Slot);
+				ActiveQuery = nullptr;
+			}
+			else if (PendingQuery.Get() == q)
+				PendingQuery = nullptr;   // 그리기가 없었다 (Recorded = false → 보임)
+			g->SlotSerial[g->Slot] = D->Recording();
+			g->Serial = D->Recording();
+			if (g->Dsc.Query == D3D11_QUERY_OCCLUSION_PREDICATE && D->ConditionalRendering)
+				ToCopy.push_back(q);
+			return;
+		}
+		if (g->Pool)
 		{
 			// 앞 결과가 아직 GPU 에 있으면 끝날 때까지 (보통은 이미 읽은 쿼리를 다시 쓴다)
 			if (g->Serial && !D->IsDone(g->Serial)) D->WaitSerial(g->Serial);
@@ -1087,8 +1354,19 @@ namespace GfxVkImpl
 			return S_OK;
 		}
 		case D3D11_QUERY_OCCLUSION:
-			if (data && size >= sizeof(UINT64)) *static_cast<UINT64*>(data) = 1;
+		case D3D11_QUERY_OCCLUSION_PREDICATE:
+		{
+			// 기록하지 못한 쿼리 (그리기 없음 · 끊김 · 겹침) = 보임
+			uint64_t v = 1;
+			if (g->Pool && g->Recorded && !g->Broken)
+				vkGetQueryPoolResults(D->Device, g->Pool, g->Slot, 1, sizeof(v), &v, sizeof(v), VK_QUERY_RESULT_64_BIT);
+			if (g->Dsc.Query == D3D11_QUERY_OCCLUSION_PREDICATE)
+			{
+				if (data && size >= sizeof(BOOL)) *static_cast<BOOL*>(data) = v != 0;
+			}
+			else if (data && size >= sizeof(UINT64)) *static_cast<UINT64*>(data) = v;
 			return S_OK;
+		}
 		case D3D11_QUERY_EVENT:
 			if (data && size >= sizeof(BOOL)) *static_cast<BOOL*>(data) = TRUE;
 			return S_OK;
@@ -1120,6 +1398,8 @@ namespace GfxVkImpl
 		Prog = nullptr;
 		Values.clear();
 		Held.clear();
+		Predicate = nullptr;
+		PendingQuery = nullptr;
 		DynamicDirty = true;
 	}
 }
@@ -1133,11 +1413,12 @@ namespace GfxVkShared
 		c->Prog = static_cast<GfxVkImpl::Program*>(program);
 		c->Values.assign(values, values + count);
 		// 값의 뷰 · 샘플러를 다음 Apply 까지 잡아 둔다 (D3D 의 컨텍스트가 묶인 SRV 를 잡는 것과 같이)
-		c->Held.resize((size_t)count * 2);
+		c->Held.resize((size_t)count * 3);
 		for (uint32_t i = 0; i < count; ++i)
 		{
-			c->Held[i * 2] = values[i].View;
-			c->Held[i * 2 + 1] = values[i].Sampler;
+			c->Held[i * 3] = values[i].View;
+			c->Held[i * 3 + 1] = values[i].Sampler;
+			c->Held[i * 3 + 2] = values[i].Uav;
 		}
 	}
 }

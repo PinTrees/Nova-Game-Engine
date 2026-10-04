@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'linetrail', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2652,6 +2652,75 @@ function Suite-Occlusion
     }
 }
 
+function Suite-OcclusionGL { Suite-OcclusionApi 'occlusiongl' 'OpenGL' }
+function Suite-OcclusionVK { Suite-OcclusionApi 'occlusionvk' 'Vulkan' }
+
+function Suite-OcclusionApi([string]$suite, [string]$api)
+{
+    # 오클루전 컬링을 OpenGL · Vulkan 으로: 같은 .fx (ShaderCross → GLSL compute · SPIR-V), SSBO · 스토리지 이미지, 간접 그리기,
+    # 조건부 그리기 (캐릭터 — GL 조건부 렌더링 · VK_EXT_conditional_rendering)
+    Write-Host "[$suite]"
+    $dir = Join-Path $Out $suite
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor -OpenGL:($api -eq 'OpenGL') -Vulkan:($api -eq 'Vulkan')
+    try
+    {
+        function Shot([string]$name, [int]$frames = 8) { $p = Join-Path $dir $name; Invoke-Nova "wait $frames" | Out-Null; Invoke-Nova "screenshot $p --view scene" | Out-Null; $p }
+        function Occ { Invoke-Nova 'wait 10' | Out-Null; Invoke-NovaJson 'occlusion info' }
+        function OccOn([bool]$on) { Invoke-Nova ("occlusion set --enabled {0}" -f $(if ($on) { 'true' } else { 'false' })) | Out-Null }
+        function ImgDiff([string]$a, [string]$b)
+        {
+            $ba = [System.Drawing.Bitmap]::FromFile($a); $bb = [System.Drawing.Bitmap]::FromFile($b); $s = 0.0; $n = 0; $big = 0
+            for ($y = 0; $y -lt $ba.Height; $y += 2) { for ($x = 0; $x -lt $ba.Width; $x += 2) {
+                $p = $ba.GetPixel($x, $y); $q = $bb.GetPixel($x, $y); $d = [math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B)
+                $s += $d; $n++; if ($d -gt 24) { $big++ } } }
+            $ba.Dispose(); $bb.Dispose()
+            [pscustomobject]@{ Mean = $s / [math]::Max(1, $n); Big = $big / [math]::Max(1, $n) }
+        }
+        function Same($d) { $d.Mean -lt 0.5 -and $d.Big -lt 0.0005 }
+        function Fmt($d) { "mean diff {0:N3}, differing {1:P3}" -f $d.Mean, $d.Big }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Floor --position 0,0,0 --scale 6,1,6' | Out-Null
+        Invoke-Nova 'create cube --name Wall --position 0,2.5,0 --scale 24,5,0.5' | Out-Null
+        $cs = Join-Path $dir 'cubes.cs'
+        'for (int i = 0; i < 100; i++) { var g = GameObject.CreatePrimitive(PrimitiveType.Cube); g.name = "H" + i; g.transform.position = new Vector3((i % 10) * 2 - 9, 0.5f, 2 + (i / 10) * 1.5f); } return 100;' | Set-Content -Encoding utf8 $cs
+        Invoke-Nova "exec --file $cs" | Out-Null
+        foreach ($f in @(@('F1', '-3,0.5,-4'), @('F2', '0,0.5,-5'), @('F3', '3,0.5,-4'))) { Invoke-Nova ("create cube --name {0} --position {1}" -f $f[0], $f[1]) | Out-Null }
+        Invoke-Nova 'create character --name HidA' | Out-Null; Invoke-Nova 'set HidA --position 3,0,6' | Out-Null
+        Invoke-Nova 'create character --name SeenC' | Out-Null; Invoke-Nova 'set SeenC --position -6,0,-4' | Out-Null
+        Invoke-Nova 'create tree --name TreeA --position -3,0,24 --scale 0.25,0.25,0.25' | Out-Null
+        Invoke-Nova 'camera --position 0,1.5,-14 --target 0,1.5,0' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+
+        $o = Occ
+        $pOn = Shot 'wall_on.png'
+        OccOn $false; $pOff = Shot 'wall_off.png'; OccOn $true
+        $d = ImgDiff $pOn $pOff
+        Add-Result $suite "${api}: supported, boxes · character · tree · shadow casters behind the wall culled, same picture" ($o.supported -and $o.scene.active -and $o.scene.culled -ge 98 -and $o.scene.queries -ge 2 -and $o.scene.queriesHidden -ge 1 -and $o.scene.instancesCulled -ge 1 -and $o.scene.shadowCulled -gt 0 -and (Same $d)) ("culled {0}/{1}, queries {2} (hidden {3}), tree instances culled {4}, shadow casters culled {5}/{6}; {7}" -f $o.scene.culled, $o.scene.tested, $o.scene.queries, $o.scene.queriesHidden, $o.scene.instancesCulled, $o.scene.shadowCulled, $o.scene.shadowTested, (Fmt $d))
+
+        Invoke-Nova 'camera --position 0,14,-12 --target 0,0,8' | Out-Null
+        $pOn = Shot 'above_on.png' 1
+        OccOn $false; $pOff = Shot 'above_off.png'; OccOn $true
+        $d = ImgDiff $pOn $pOff
+        Add-Result $suite "${api}: looking over the wall, first frame same picture" (Same $d) (Fmt $d)
+
+        Invoke-Nova 'camera --position 0,1.5,-14 --target 0,1.5,0' | Out-Null
+        $pBefore = Shot 'move_before.png'
+        Invoke-Nova 'set H55 --position -6,0.5,-2' | Out-Null
+        $pAfter = Shot 'move_after.png' 1
+        OccOn $false; $pOff = Shot 'move_off.png'; OccOn $true
+        $dMoved = ImgDiff $pBefore $pAfter; $d = ImgDiff $pAfter $pOff
+        Add-Result $suite "${api}: a hidden box moved in front of the wall is drawn in the next frame" ($dMoved.Big -gt 0.002 -and (Same $d)) ("moved region {0:P2}; vs off {1}" -f $dMoved.Big, (Fmt $d))
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 function Suite-LineTrail
 {
     # Line Renderer · Trail Renderer (Unity 이름): 하늘 앞 흰 선 — 끈 화면과의 차이로 굵기 · 색 · 끝 모양 · 꼬리를 잰다
@@ -3395,6 +3464,8 @@ try
                 'depthoffield' { Suite-DepthOfField }
                 'lodgroup' { Suite-LODGroup }
                 'occlusion' { Suite-Occlusion }
+                'occlusiongl' { Suite-OcclusionGL }
+                'occlusionvk' { Suite-OcclusionVK }
                 'linetrail' { Suite-LineTrail }
                 'ssr' { Suite-SSR }
                 'modelplace' { Suite-ModelPlace }
