@@ -431,6 +431,9 @@ namespace DirectX
 		return LoadFromWICFile(std::filesystem::path(file).string().c_str(), flags, meta, image);
 	}
 	HRESULT GetMetadataFromWICFile(const wchar_t*, WIC_FLAGS, TexMetadata&) { return E_NOTIMPL; }
+	const GUID& GetWICCodec(WICCodecs) { static const GUID none = {}; return none; }
+	HRESULT SaveToWICFile(const Image&, WIC_FLAGS, const GUID&, const wchar_t*, const GUID*) { return E_NOTIMPL; }
+	HRESULT SaveToWICFile(const Image&, WIC_FLAGS, const GUID&, const char*, const GUID*) { return E_NOTIMPL; }
 	HRESULT GetMetadataFromWICFile(const char*, WIC_FLAGS, TexMetadata&) { return E_NOTIMPL; }
 	HRESULT LoadFromTGAFile(const wchar_t*, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }
 	HRESULT LoadFromTGAFile(const char*, TexMetadata*, ScratchImage& image) { image.Release(); return E_NOTIMPL; }

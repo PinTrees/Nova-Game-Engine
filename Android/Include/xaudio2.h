@@ -1,6 +1,5 @@
 #pragma once
-// 안드로이드: XAudio2 의 선언만 (구현 없음). XAudio2Create 가 E_NOTIMPL → AudioManager::Init 이 실패 → 소리 없이 조용히 돈다.
-//  나중의 안드로이드 소리 (AAudio) 는 AudioManager 쪽에서 따로
+// 안드로이드: 엔진이 쓰는 XAudio2 의 선언. 구현 = Android/Source/Engine/XAudio2Android.cpp (소프트웨어 믹서 + AAudio 출력)
 #include "WinCompat.h"
 #include "mmreg.h"
 #define XAUDIO2_DEFAULT_PROCESSOR 0x1
@@ -69,7 +68,15 @@ struct XAUDIO2FX_REVERB_I3DL2_PARAMETERS
 	float WetDryMix; int Room, RoomHF; float RoomRolloffFactor, DecayTime, DecayHFRatio; int Reflections; float ReflectionsDelay; int Reverb;
 	float ReverbDelay, Diffusion, Density, HFReference;
 };
-inline void ReverbConvertI3DL2ToNative(const XAUDIO2FX_REVERB_I3DL2_PARAMETERS*, XAUDIO2FX_REVERB_PARAMETERS* native, BOOL = FALSE) { *native = {}; }
+// I3DL2 프리셋 → 리버브 값 (안드로이드 리버브가 쓰는 것만: 감쇠 시간 · 섞기)
+inline void ReverbConvertI3DL2ToNative(const XAUDIO2FX_REVERB_I3DL2_PARAMETERS* i3dl2, XAUDIO2FX_REVERB_PARAMETERS* native, BOOL = FALSE)
+{
+	*native = {};
+	native->DecayTime = i3dl2->DecayTime;
+	native->WetDryMix = i3dl2->WetDryMix;
+	native->Density = i3dl2->Density;
+	native->RoomSize = 100.0f;
+}
 inline float XAudio2CutoffFrequencyToRadians(float cutoff, UINT32 sampleRate) { return sampleRate ? 2.0f * sinf(3.14159265f * cutoff / sampleRate) : 1.0f; }
 
 struct IXAudio2Voice
@@ -112,6 +119,6 @@ struct IXAudio2 : IUnknown
 	virtual void StopEngine() = 0;
 	virtual void GetPerformanceData(XAUDIO2_PERFORMANCE_DATA* data) = 0;
 };
-inline HRESULT XAudio2Create(IXAudio2** out, UINT32 = 0, UINT32 = XAUDIO2_DEFAULT_PROCESSOR) { *out = nullptr; return E_NOTIMPL; }
-inline HRESULT XAudio2CreateReverb(IUnknown** out, UINT32 = 0) { *out = nullptr; return E_NOTIMPL; }
-inline HRESULT XAudio2CreateVolumeMeter(IUnknown** out, UINT32 = 0) { *out = nullptr; return E_NOTIMPL; }
+HRESULT XAudio2Create(IXAudio2** out, UINT32 flags = 0, UINT32 processor = XAUDIO2_DEFAULT_PROCESSOR);
+HRESULT XAudio2CreateReverb(IUnknown** out, UINT32 flags = 0);
+HRESULT XAudio2CreateVolumeMeter(IUnknown** out, UINT32 flags = 0);

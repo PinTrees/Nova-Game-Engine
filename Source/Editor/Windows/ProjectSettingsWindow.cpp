@@ -5,6 +5,7 @@
 #include "VolumeProfile.h"
 #include "RenderPipelineSettings.h"
 #include "BuildSettings.h"
+#include "AndroidBuild.h"
 #include "GraphicsSettings.h"
 #include "TagsAndLayers.h"
 #include "PhysicsSettings.h"
@@ -141,6 +142,11 @@ namespace
 		UnityGUI::Label("Android", 0, true);
 		static const char* kTc[] = { "ASTC", "ETC2 (GLES 3.0)", "DXT (BC)", "None (RGBA32)" };
 		changed |= UnityGUI::Dropdown("Texture Compression", &p.AndroidTextureCompression, kTc, 4, 1);
+		// Package Name (Unity 의 Other Settings > Identification): 비면 com.<회사>.<제품>
+		if (UnityGUI::TextField("Package Name", &p.AndroidPackageName, 1))
+			changed = true;
+		if (p.AndroidPackageName.empty())
+			UnityGUI::HelpBox(("Empty = " + AndroidBuild::DefaultPackageName()).c_str(), false, 1);
 		UnityGUI::HelpBox("Format for textures whose Android Format is Automatic (texture Import Settings > Android). ASTC = 6x6 (High Quality = 4x4). "
 			"nova android export bakes them on the PC - phones have no image decoder or compressor.", false, 1);
 		if (changed)

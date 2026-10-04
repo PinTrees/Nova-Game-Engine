@@ -10,6 +10,9 @@
 #include "AssetImportSettings.h"
 #include "UISystem.h"
 #include "App.h"
+#include "ResourceManager.h"
+#include "SkinnedMesh.h"
+#include "AndroidBuild.h"
 #include <fstream>
 
 namespace AndroidTools
@@ -87,6 +90,8 @@ namespace AndroidTools
 			}
 			static const std::set<std::string> kBake = { ".png", ".jpg", ".jpeg", ".bmp", ".tga", ".tif", ".tiff", ".gif" };
 			nlohmann::json textures = nlohmann::json::array();
+			static const std::set<std::string> kModels = { ".fbx", ".gltf", ".glb", ".vrm" };   // MeshFile 이 읽는 형식
+			nlohmann::json models = nlohmann::json::array();
 			const auto t0 = std::chrono::steady_clock::now();
 			for (const auto& [rel, full] : BuildPipeline::CollectGameFiles(scenes))
 			{
@@ -115,6 +120,32 @@ namespace AndroidTools
 					}
 					textures.push_back({ { "path", r }, { "error", terr } });
 					EditorLog::Write("Android", "texture %s: %s (copied as is)", r.c_str(), terr.c_str());
+				}
+				if (kModels.count(ext))
+				{
+					// 기기에는 Assimp 가 없다 → 가져오기 설정대로 만든 메시 캐시 (.mesh · .animations · .skeletons) 만 넣는다 (원본 모델은 빼서 용량도 줄임).
+					//  캐시가 없거나 설정이 바뀌었으면 여기서 가져온다 (에디터가 씬을 열 때와 같은 길)
+					auto model = ResourceManager::GetI()->LoadMeshFile(wstring_to_string(rel));
+					bool ok = model != nullptr;
+					uint64_t modelBytes = 0;
+					for (const wchar_t* suffix : { L".mesh", L".animations", L".skeletons" })
+					{
+						const fs::path cache = src.wstring() + suffix;
+						if (!fs::is_regular_file(cache, ec)) { ok = false; break; }
+						fs::copy_file(cache, dst.wstring() + suffix, fs::copy_options::overwrite_existing, ec);
+						modelBytes += fs::file_size(cache, ec);
+						files.push_back(r + wstring_to_string(suffix));
+					}
+					if (ok)
+					{
+						models.push_back({ { "path", r }, { "meshes", model->Meshs.size() }, { "skinnedMeshes", model->SkinnedMeshs.size() },
+							{ "clips", model->SkinnedData.AnimationClips.size() }, { "skeletons", model->Avatas.size() }, { "bytes", modelBytes }, { "sourceBytes", fs::file_size(src, ec) } });
+						bytes += modelBytes;
+						EditorLog::Heartbeat();
+						continue;
+					}
+					models.push_back({ { "path", r }, { "error", "mesh cache missing (import failed)" } });
+					EditorLog::Write("Android", "model %s: mesh cache missing (copied as is)", r.c_str());
 				}
 				if (fs::file_size(src, ec) < (64ull << 20) && LooksLikeJson(src))
 				{
@@ -147,7 +178,7 @@ namespace AndroidTools
 			manifest << "# export " << std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count() << "\n";
 			for (const std::string& f : files) manifest << f << "\n";
 			result = { { "files", files.size() }, { "jsonConverted", converted }, { "bytes", bytes }, { "scenes", sceneList },
-				{ "textureCompression", TextureCompressor::AndroidDefaultName(texDefault) }, { "textures", textures },
+				{ "textureCompression", TextureCompressor::AndroidDefaultName(texDefault) }, { "textures", textures }, { "models", models },
 				{ "seconds", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() },
 				{ "out", wstring_to_string(fs::absolute(game, ec).wstring()) } };
 			return true;
@@ -210,6 +241,85 @@ namespace AndroidTools
 			result = { { "path", outArg }, { "width", w }, { "height", h }, { "frames", frames } };
 			return true;
 		}
+
+		// build --out x.apk [--run] [--device serial] [--texture-compression ...]: Build Settings 의 Android Build 와 같은 작업을 시작 (끝은 build-status 로)
+		bool Build(const std::string& op, const nlohmann::json& args, nlohmann::json& result, std::string& error)
+		{
+			if (op == "build")
+			{
+				AndroidBuild::Options o;
+				o.OutputApk = string_to_wstring(args.value("out", std::string()));
+				o.Run = args.value("run", false);
+				o.Device = args.value("device", std::string());
+				o.TextureCompression = args.value("texture-compression", std::string());
+				if (o.OutputApk.empty()) { error = "--out file.apk is required"; return false; }
+				if (!AndroidBuild::Start(o, error))
+					return false;
+				result = { { "started", true }, { "out", args.value("out", std::string()) } };
+				return true;
+			}
+			const AndroidBuild::Result r = AndroidBuild::LastResult();
+			result = { { "running", AndroidBuild::IsRunning() }, { "progress", AndroidBuild::Progress() }, { "status", AndroidBuild::Status() }, { "done", r.Done },
+				{ "success", r.Success }, { "error", r.Error }, { "apk", r.Apk }, { "bytes", r.Bytes }, { "device", r.Device }, { "seconds", r.Seconds }, { "log", r.Log } };
+			return true;
+		}
+	}
+
+	bool ExportShaders(const nlohmann::json& args, nlohmann::json& result, std::string& error)
+	{
+		const std::string outArg = args.value("out", std::string());
+		if (outArg.empty()) { error = "--out folder is required"; return false; }
+		const std::filesystem::path out = string_to_wstring(outArg);
+		std::error_code ec;
+		std::filesystem::create_directories(out, ec);
+		std::vector<std::filesystem::path> files;
+		const std::string one = args.value("path", std::string());
+		if (!one.empty())
+			files.push_back(std::filesystem::absolute(string_to_wstring(one), ec));
+		else
+		{
+			const std::filesystem::path engine = PathManager::GetI()->GetEnginePathW();
+			for (const auto& f : std::filesystem::directory_iterator(engine / L"Shaders", ec))
+				if (f.path().extension() == L".fx")
+					files.push_back(f.path());
+			// 공식 패키지의 셰이더 (Packages/<이름>/Shaders — 예: Toon 의 lilToon.fx). 기기는 이름 (<stem>.json) 으로 찾는다
+			for (const auto& pkg : std::filesystem::directory_iterator(engine / L"Packages", ec))
+				for (const auto& f : std::filesystem::directory_iterator(pkg.path() / L"Shaders", ec))
+					if (f.path().extension() == L".fx")
+						files.push_back(f.path());
+		}
+		std::sort(files.begin(), files.end());
+		int passes = 0, failed = 0, written = 0;
+		nlohmann::json errors = nlohmann::json::array();
+		for (const auto& f : files)
+		{
+			EditorLog::Heartbeat();
+			ShaderCross::EffectGlsl e;
+			if (!ShaderCross::CompileEffectGles(f.wstring(), e) || !e.Error.empty())
+			{
+				errors.push_back(wstring_to_string(f.filename().wstring()) + ": " + e.Error.substr(0, 300));
+				continue;
+			}
+			for (const auto& p : e.Passes)
+			{
+				++passes;
+				if (!p.Error.empty())
+				{
+					++failed;
+					if (errors.size() < 40) errors.push_back(wstring_to_string(f.filename().wstring()) + " " + p.Technique + "/" + p.Pass + ": " + p.Error.substr(0, 300));
+				}
+			}
+			std::ofstream(out / (f.stem().wstring() + L".json"), std::ios::binary | std::ios::trunc) << ShaderCross::Json::ToJson(e, kGlesShaderVersion).dump();
+			++written;
+		}
+		result = { { "effects", files.size() }, { "written", written }, { "passes", passes }, { "passesFailed", failed }, { "out", wstring_to_string(std::filesystem::absolute(out, ec).wstring()) },
+			{ "errors", errors } };
+		return true;
+	}
+
+	bool ExportGame(const nlohmann::json& args, nlohmann::json& result, std::string& error)
+	{
+		return Export(args, result, error);
 	}
 
 	void RegisterEditor()
@@ -220,8 +330,9 @@ namespace AndroidTools
 			if (op == "help")
 			{
 				result = { { "ops", { "shaders --out folder [--path file.fx]: convert every .fx to OpenGL ES 3.20 (<name>.json for the APK assets/Shaders)",
-					"export --out folder [--scenes a.scene,b.scene] [--texture-compression astc|etc2|dxt|none]: game data for the APK (folder/game: scenes + referenced assets, '/' paths, player.json, files.txt; images baked to <name>.dds, default = Player Settings Android Texture Compression)",
-"reference --out file.png [--width 960 --height 540 --frames 10]: render the open scene's game camera like the player (DX11 reference for the Android scene test)" } } };
+					"export --out folder [--scenes a.scene,b.scene] [--texture-compression astc|etc2|dxt|none]: game data for the APK (folder/game: scenes + referenced assets, '/' paths, player.json, files.txt; images baked to <name>.dds, default = Player Settings Android Texture Compression; models (fbx, gltf, glb, vrm) as their mesh caches only)",
+"reference --out file.png [--width 960 --height 540 --frames 10]: render the open scene's game camera like the player (DX11 reference for the Android scene test)",
+					"build --out file.apk [--run] [--device serial] [--texture-compression astc|etc2|dxt|none]: Build Settings Android build (shaders + game data + APK, Build And Run installs and starts it); build-status: progress / result" } } };
 				return true;
 			}
 			if (op == "export")
@@ -229,48 +340,9 @@ namespace AndroidTools
 			if (op == "reference")
 				return Reference(args, result, error);
 			if (op == "shaders")
-			{
-				const std::string outArg = args.value("out", std::string());
-				if (outArg.empty()) { error = "--out folder is required"; return false; }
-				const std::filesystem::path out = string_to_wstring(outArg);
-				std::error_code ec;
-				std::filesystem::create_directories(out, ec);
-				std::vector<std::filesystem::path> files;
-				const std::string one = args.value("path", std::string());
-				if (!one.empty())
-					files.push_back(std::filesystem::absolute(string_to_wstring(one), ec));
-				else
-					for (const auto& f : std::filesystem::directory_iterator(std::filesystem::path(PathManager::GetI()->GetEnginePathW()) / L"Shaders", ec))
-						if (f.path().extension() == L".fx")
-							files.push_back(f.path());
-				std::sort(files.begin(), files.end());
-				int passes = 0, failed = 0, written = 0;
-				nlohmann::json errors = nlohmann::json::array();
-				for (const auto& f : files)
-				{
-					EditorLog::Heartbeat();
-					ShaderCross::EffectGlsl e;
-					if (!ShaderCross::CompileEffectGles(f.wstring(), e) || !e.Error.empty())
-					{
-						errors.push_back(wstring_to_string(f.filename().wstring()) + ": " + e.Error.substr(0, 300));
-						continue;
-					}
-					for (const auto& p : e.Passes)
-					{
-						++passes;
-						if (!p.Error.empty())
-						{
-							++failed;
-							if (errors.size() < 40) errors.push_back(wstring_to_string(f.filename().wstring()) + " " + p.Technique + "/" + p.Pass + ": " + p.Error.substr(0, 300));
-						}
-					}
-					std::ofstream(out / (f.stem().wstring() + L".json"), std::ios::binary | std::ios::trunc) << ShaderCross::Json::ToJson(e, kGlesShaderVersion).dump();
-					++written;
-				}
-				result = { { "effects", files.size() }, { "written", written }, { "passes", passes }, { "passesFailed", failed }, { "out", wstring_to_string(std::filesystem::absolute(out, ec).wstring()) },
-					{ "errors", errors } };
-				return true;
-			}
+				return ExportShaders(args, result, error);
+			if (op == "build" || op == "build-status")
+				return Build(op, args, result, error);
 			error = "unknown op '" + op + "' (nova android help)";
 			return false;
 		});

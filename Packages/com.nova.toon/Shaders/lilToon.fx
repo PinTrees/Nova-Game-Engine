@@ -63,7 +63,12 @@ void LilLight(out float3 L, out float3 lightColor, out float3 indLight)
         mainLight = ToLinear(gDirLights[0].Diffuse.rgb);
     }
     uint w, h, mips;
+#ifdef NOVA_GLES   // OpenGL ES 에는 밉 개수 조회(textureQueryLevels)가 없다 → 크기로 (전체 밉 사슬, 엔진 32 번과 같게)
+    gCubeMap.GetDimensions(w, h);
+    mips = firstbithigh(max(w, h)) + 1;
+#else
     gCubeMap.GetDimensions(0, w, h, mips);
+#endif
     const float lod = max((float)mips - 2.0f, 0.0f);
     const float3 skyUp = ToLinear(gCubeMap.SampleLevel(samLinear, float3(0.0f, 1.0f, 0.0f), lod).rgb) * gIndirect.rgb;
     const float3 skyDown = ToLinear(gCubeMap.SampleLevel(samLinear, float3(0.0f, -1.0f, 0.0f), lod).rgb) * gIndirect.rgb;

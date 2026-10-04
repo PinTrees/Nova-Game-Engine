@@ -95,6 +95,11 @@ namespace DirectX
 	HRESULT Compress(const Image* images, size_t count, const TexMetadata& meta, DXGI_FORMAT format, TEX_COMPRESS_FLAGS flags, float threshold, ScratchImage& out);
 	HRESULT Decompress(const Image* images, size_t count, const TexMetadata& meta, DXGI_FORMAT format, ScratchImage& out);
 	HRESULT Convert(const Image& src, DXGI_FORMAT format, TEX_FILTER_FLAGS filter, float threshold, ScratchImage& out);
+	// PNG 저장 (에디터 도구 · 패키지의 그림 내보내기) — 안드로이드에는 인코더가 없어 E_NOTIMPL
+	enum WICCodecs { WIC_CODEC_BMP = 1, WIC_CODEC_JPEG, WIC_CODEC_PNG, WIC_CODEC_TIFF, WIC_CODEC_GIF, WIC_CODEC_WMP, WIC_CODEC_ICO };
+	const GUID& GetWICCodec(WICCodecs codec);
+	HRESULT SaveToWICFile(const Image& image, WIC_FLAGS flags, const GUID& container, const wchar_t* file, const GUID* targetFormat = nullptr);
+	HRESULT SaveToWICFile(const Image& image, WIC_FLAGS flags, const GUID& container, const char* file, const GUID* targetFormat = nullptr);
 
 	// DDS (DX10 머리 · 옛 FourCC DXT1/3/5 · 기본 RGBA8/BGRA8)
 	HRESULT LoadFromDDSMemory(const uint8_t* data, size_t size, DDS_FLAGS flags, TexMetadata* meta, ScratchImage& image);

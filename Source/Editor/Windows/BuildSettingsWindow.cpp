@@ -2,6 +2,7 @@
 #include "BuildSettingsWindow.h"
 #include "BuildSettings.h"
 #include "BuildPipeline.h"
+#include "AndroidBuild.h"
 #include "ProjectSettingsWindow.h"
 #include "UnityGUI.h"
 #include "Debug.h"
@@ -84,6 +85,86 @@ namespace
 				return;
 		}
 		StartBuild(folder, run);
+	}
+
+	// Android: <폴더>/<제품>.apk (Unity 는 .apk 이름을 묻는다 — 여기서는 폴더를 묻고 제품 이름으로)
+	std::vector<std::string> s_Devices;
+	bool s_DevicesScanned = false;
+
+	void BuildAndroid(bool run, bool askFolder)
+	{
+		std::wstring apk = string_to_wstring(BuildSettings::LastAndroidApk());
+		std::wstring folder = apk.empty() ? std::wstring() : fs::path(apk).parent_path().wstring();
+		if (askFolder || folder.empty())
+		{
+			std::wstring start = folder.empty() ? PathManager::GetI()->GetContentPathW() : folder;
+			if (!PickFolder(start, folder))
+				return;
+		}
+		AndroidBuild::Options o;
+		o.OutputApk = (fs::path(folder) / (string_to_wstring(BuildSettings::ProductName()) + L".apk")).wstring();
+		o.Run = run;
+		o.Device = BuildSettings::AndroidRunDevice();
+		std::string error;
+		if (!AndroidBuild::Start(o, error))
+		{
+			s_LastError = error;
+			Debug::LogError("Android build failed: " + error);
+			return;
+		}
+		s_LastError.clear();
+	}
+
+	void DrawAndroidSettings()
+	{
+		using namespace UnityGUI;
+		auto& player = BuildSettings::GetPlayer();
+		static const char* kTc[] = { "ASTC", "ETC2", "DXT (BC)", "Don't override (RGBA32)" };
+		if (Dropdown("Texture Compression", &player.AndroidTextureCompression, kTc, 4))
+			BuildSettings::SavePlayer();
+		// Run Device (Unity 의 Run Device): 기본 = 첫 장치. Refresh = adb devices (켜진 MuMu 플레이어에는 adb connect 먼저)
+		if (!s_DevicesScanned)
+		{
+			s_DevicesScanned = true;
+			s_Devices = AndroidBuild::Devices(false);
+		}
+		std::vector<std::string> names = { "Default device" };
+		int index = 0;
+		for (const std::string& d : s_Devices)
+		{
+			if (d == BuildSettings::AndroidRunDevice()) index = (int)names.size();
+			names.push_back(d);
+		}
+		if (index == 0 && !BuildSettings::AndroidRunDevice().empty())   // 지금 연결되지 않은 장치도 이름은 보인다
+		{
+			index = (int)names.size();
+			names.push_back(BuildSettings::AndroidRunDevice() + " (not connected)");
+		}
+		std::vector<const char*> items;
+		for (const std::string& n : names) items.push_back(n.c_str());
+		if (Dropdown("Run Device", &index, items.data(), (int)items.size()))
+		{
+			if (index == 0)
+				BuildSettings::AndroidRunDevice().clear();
+			else if ((size_t)(index - 1) < s_Devices.size())
+				BuildSettings::AndroidRunDevice() = s_Devices[(size_t)(index - 1)];
+			BuildSettings::SaveEditorBuild();
+		}
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - 80.0f);
+		if (ImGui::Button("Refresh", ImVec2(80, 0)))
+			s_Devices = AndroidBuild::Devices(true);
+		if (Toggle("Development Build", &BuildSettings::DevelopmentBuild()))
+			BuildSettings::SaveEditorBuild();
+		ValueLabel("Package Name", AndroidBuild::PackageName().c_str());
+		const std::wstring sdk = AndroidBuild::FindSdk(), java = AndroidBuild::FindJava(), lib = AndroidBuild::PlayerLibrary("x86_64");
+		ValueLabel("Android SDK", sdk.empty() ? "Not found" : wstring_to_string(sdk).c_str());
+		ValueLabel("JDK", java.empty() ? "Not found" : wstring_to_string(java).c_str());
+		if (sdk.empty() || java.empty())
+			HelpBox("Install \"Android Build Support\" from NOVA Hub (Installs > engine > Add modules).", true);
+		else if (lib.empty())
+			HelpBox("This engine has no Android player library (Android/Player/x86_64/libnova.so).", true);
+		const std::string last = BuildSettings::LastAndroidApk();
+		ValueLabel("Last Build", last.empty() ? "(none)" : last.c_str());
 	}
 
 	void AddScene(const std::string& path)
@@ -225,13 +306,18 @@ namespace BuildSettingsWindow
 
 	void BuildAndRun()
 	{
-		Build(true, false);
+		if (BuildSettings::ActivePlatform() == 1)
+			BuildAndroid(true, false);
+		else
+			Build(true, false);
 	}
 
 	void Draw()
 	{
 		BuildPipeline::Update();
 		BuildPipeline::DrawProgress();
+		AndroidBuild::Update();
+		AndroidBuild::DrawProgress();
 
 		// (개발/검증용) NOVA_DEV_BUILD=<폴더>: 시작 후 한 번 그 폴더로 빌드 (대화상자 없이)
 		static bool s_DevBuilt = false;
@@ -270,20 +356,25 @@ namespace BuildSettingsWindow
 		const float leftW = 230.0f;
 		ImGui::TextUnformatted("Platform");
 		ImGui::BeginChild("##platforms", ImVec2(leftW, 200), true);
-		ImGui::Selectable(ICON_FA_DESKTOP "  Windows", true);
+		int& platform = BuildSettings::ActivePlatform();
+		if (ImGui::Selectable(ICON_FA_DESKTOP "  Windows", platform == 0)) { platform = 0; BuildSettings::SaveEditorBuild(); }
+		if (ImGui::Selectable(ICON_FA_MOBILE_SCREEN "  Android", platform == 1)) { platform = 1; BuildSettings::SaveEditorBuild(); }
 		ImGui::BeginDisabled();
 		ImGui::Selectable(ICON_FA_LAPTOP "  macOS");
 		ImGui::Selectable(ICON_FA_TERMINAL "  Linux");
-		ImGui::Selectable(ICON_FA_MOBILE_SCREEN "  Android");
 		ImGui::Selectable(ICON_FA_GLOBE "  Web");
 		ImGui::EndDisabled();
 		ImGui::EndChild();
 		ImGui::SameLine();
 		ImGui::BeginChild("##platformSettings", ImVec2(0, 200), false);
 		ImGui::PushFont(UnityGUI::BoldFont());
-		ImGui::TextUnformatted(ICON_FA_DESKTOP "  Windows");
+		ImGui::TextUnformatted(platform == 1 ? ICON_FA_MOBILE_SCREEN "  Android" : ICON_FA_DESKTOP "  Windows");
 		ImGui::PopFont();
 		ImGui::Spacing();
+		if (platform == 1)
+			DrawAndroidSettings();
+		else
+		{
 		UnityGUI::ValueLabel("Target Platform", "Windows");
 		UnityGUI::ValueLabel("Architecture", "Intel 64-bit");
 		if (UnityGUI::Toggle("Development Build", &BuildSettings::DevelopmentBuild()))
@@ -291,6 +382,7 @@ namespace BuildSettingsWindow
 		UnityGUI::ValueLabel("Product Name", BuildSettings::ProductName().c_str());
 		const std::string last = BuildSettings::LastBuildFolder();
 		UnityGUI::ValueLabel("Last Build Folder", last.empty() ? "(none)" : last.c_str());
+		}
 		ImGui::EndChild();
 		if (!s_LastError.empty())
 			UnityGUI::HelpBox(s_LastError.c_str(), true);
@@ -301,12 +393,12 @@ namespace BuildSettingsWindow
 			ProjectSettingsWindow::Open("Player");
 		const float bw = 120.0f;
 		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw * 2 - 6.0f);
-		ImGui::BeginDisabled(BuildPipeline::IsRunning());
+		ImGui::BeginDisabled(BuildPipeline::IsRunning() || AndroidBuild::IsRunning());
 		if (ImGui::Button("Build", ImVec2(bw, 24)))
-			Build(false, true);
+			platform == 1 ? BuildAndroid(false, true) : Build(false, true);
 		ImGui::SameLine();
 		if (ImGui::Button("Build And Run", ImVec2(bw, 24)))
-			Build(true, true);
+			platform == 1 ? BuildAndroid(true, true) : Build(true, true);
 		ImGui::EndDisabled();
 
 		ImGui::End();

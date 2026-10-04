@@ -246,9 +246,17 @@ MeshFile::~MeshFile()
 // NVC9: 형식 다음에 Import Settings(.meta) 해시 — 설정을 바꾸거나 .meta 를 지우면 다시 가져온다
 static const uint32_t kMeshCacheMagic = 0x4243564E;   // "NVCB" (BlendShape)
 
+// FNV-1a 64 비트 — std::hash 는 구현마다 값이 달라 (MSVC = FNV-1a, 안드로이드 libc++ = 다른 함수) PC 가 구운 캐시를 기기가 버린다.
+//  MSVC 의 std::hash<std::string> 과 같은 값이라 이미 만든 캐시도 그대로 맞는다
 static uint64_t ImportHash(const AssetImport::ModelSettings& settings)
 {
-	return (uint64_t)std::hash<std::string>{}(settings.ToJson().dump());
+	uint64_t h = 14695981039346656037ull;
+	for (const unsigned char c : settings.ToJson().dump())
+	{
+		h ^= c;
+		h *= 1099511628211ull;
+	}
+	return h;
 }
 
 static bool ReadCacheMagic(ifstream& in, uint64_t expectHash)

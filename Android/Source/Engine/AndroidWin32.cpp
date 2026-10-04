@@ -8,6 +8,12 @@ namespace
 	std::atomic<int> s_X{ 0 }, s_Y{ 0 };
 	std::atomic<bool> s_Focus{ true };
 	std::string s_FilesDir;
+	// 탭 하나가 프레임 사이에 끝나도 잃지 않게: 누른 적이 있으면 다음 프레임 한 번은 눌림
+	std::mutex s_InputLock;
+	bool s_PressedSinceFrame = false, s_LatchedDown = false;
+	std::vector<NovaAndroid::PointerEvent> s_PointerEvents;
+	struct Finger { int Id; float X, Y, PrevX, PrevY; bool Down, Began, Ended, Canceled; };
+	std::vector<Finger> s_Fingers;
 	int s_Window = 1;   // GetFocus 가 돌려주는 "창" (null 이 아니면 된다)
 }
 
@@ -18,9 +24,61 @@ namespace NovaAndroid
 	void SetKey(int vk, bool down) { s_Keys[vk & 255] = down; }
 	void SetPointer(float x, float y, bool down)
 	{
+		std::lock_guard<std::mutex> g(s_InputLock);
+		if (down && !s_Keys[VK_LBUTTON]) s_PressedSinceFrame = true;
 		s_X = (int)x;
 		s_Y = (int)y;
 		s_Keys[VK_LBUTTON] = down;
+		if (s_PointerEvents.size() < 256) s_PointerEvents.push_back({ x, y, down });
+	}
+
+	void TouchEvent(int id, float x, float y, int action)
+	{
+		std::lock_guard<std::mutex> g(s_InputLock);
+		auto it = std::find_if(s_Fingers.begin(), s_Fingers.end(), [id](const Finger& f) { return f.Id == id && f.Down; });
+		if (action == 0)
+			s_Fingers.push_back({ id, x, y, x, y, true, true, false, false });
+		else if (action == 3)
+			for (Finger& f : s_Fingers) { f.Down = false; f.Ended = true; f.Canceled = true; }
+		else if (it != s_Fingers.end())
+		{
+			it->X = x;
+			it->Y = y;
+			if (action == 2) { it->Down = false; it->Ended = true; }
+		}
+	}
+
+	void BeginInputFrame()
+	{
+		std::vector<Touch> touches;
+		{
+			std::lock_guard<std::mutex> g(s_InputLock);
+			s_LatchedDown = s_Keys[VK_LBUTTON] || s_PressedSinceFrame;
+			s_PressedSinceFrame = false;
+			for (Finger& f : s_Fingers)
+			{
+				Touch t;
+				t.fingerId = f.Id;
+				t.position = Vec2(f.X, f.Y);
+				t.deltaPosition = Vec2(f.X - f.PrevX, f.Y - f.PrevY);
+				if (f.Began) { t.phase = TouchPhase::Began; f.Began = false; }   // 이번 프레임에 뗐어도 Began 먼저, Ended 는 다음 프레임
+				else if (f.Ended) { t.phase = f.Canceled ? TouchPhase::Canceled : TouchPhase::Ended; f.Ended = false; f.Id = -1; }
+				else t.phase = (f.X != f.PrevX || f.Y != f.PrevY) ? TouchPhase::Moved : TouchPhase::Stationary;
+				f.PrevX = f.X;
+				f.PrevY = f.Y;
+				touches.push_back(t);
+			}
+			s_Fingers.erase(std::remove_if(s_Fingers.begin(), s_Fingers.end(), [](const Finger& f) { return f.Id == -1; }), s_Fingers.end());
+		}
+		InputManager::GetI()->SetTouches(std::move(touches));
+	}
+
+	std::vector<PointerEvent> TakePointerEvents()
+	{
+		std::lock_guard<std::mutex> g(s_InputLock);
+		std::vector<PointerEvent> out;
+		out.swap(s_PointerEvents);
+		return out;
 	}
 	void SetFocus(bool focused) { s_Focus = focused; }
 	static std::atomic<bool> s_Quit{ false };
@@ -33,6 +91,7 @@ SHORT GetAsyncKeyState(int vk)
 	if (vk == VK_SHIFT) return (s_Keys[VK_LSHIFT] || s_Keys[VK_RSHIFT] || s_Keys[VK_SHIFT]) ? (SHORT)0x8000 : 0;
 	if (vk == VK_CONTROL) return (s_Keys[VK_LCONTROL] || s_Keys[VK_RCONTROL] || s_Keys[VK_CONTROL]) ? (SHORT)0x8000 : 0;
 	if (vk == VK_MENU) return (s_Keys[VK_LMENU] || s_Keys[VK_RMENU] || s_Keys[VK_MENU]) ? (SHORT)0x8000 : 0;
+	if (vk == VK_LBUTTON) return s_LatchedDown ? (SHORT)0x8000 : 0;   // 프레임마다 정해진 값 (BeginInputFrame)
 	return s_Keys[vk & 255] ? (SHORT)0x8000 : 0;
 }
 SHORT GetKeyState(int vk) { return GetAsyncKeyState(vk); }

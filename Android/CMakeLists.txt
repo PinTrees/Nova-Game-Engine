@@ -90,17 +90,66 @@ target_include_directories(nova_engine PUBLIC
     "${ROOT}/Source/ThirdParty"
 )
 target_compile_definitions(nova_engine PUBLIC NOVA_ANDROID=1)
+# 엔진 컴포넌트의 자기 등록 (REGISTER_COMPONENT — Windows 의 NovaCore.dll 과 같게). 없으면 ComponentFactory 의 기본 목록 29 개만 (UI · 오디오 · 물리 … 컴포넌트가 씬에서 빠진다)
+target_compile_definitions(nova_engine PRIVATE NOVA_ENGINE_BUILD)
 target_compile_options(nova_engine PUBLIC -fexceptions -frtti -Wno-unused-parameter -Wno-unknown-pragmas -Wno-switch -Wno-deprecated-declarations
     -Wno-nonportable-include-path -Wno-microsoft-include -Wno-defaulted-function-deleted -Wno-invalid-offsetof -Wno-macro-redefined
     -Wno-format-security -Wno-error=format-security)
 target_link_libraries(nova_engine PUBLIC Jolt box2d imgui)
 
+# ---- 공식 패키지 (Packages/<이름>/Source): Windows 는 DLL 로 불러오지만 안드로이드는 엔진에 함께 넣는다 (Animator · 카메라 · 내비게이션 …)
+#  패키지마다 같은 이름인 진입점 (NovaPackage_OnLoad 등) 은 패키지 이름을 붙여 바꾸고, 만든 nova_packages.cpp 가 차례로 부른다
+file(GLOB NOVA_PACKAGE_DIRS LIST_DIRECTORIES true "${ROOT}/Packages/*")
+set(NOVA_PACKAGE_LIBS)
+set(PKG_DECLS "")
+set(PKG_CALLS "")
+foreach(PKG_DIR ${NOVA_PACKAGE_DIRS})
+    file(GLOB PKG_SOURCES "${PKG_DIR}/Source/*.cpp")
+    if(NOT PKG_SOURCES)
+        continue()
+    endif()
+    get_filename_component(PKG_NAME "${PKG_DIR}" NAME)
+    string(MAKE_C_IDENTIFIER "${PKG_NAME}" PKG_ID)
+    add_library(pkg_${PKG_ID} STATIC ${PKG_SOURCES})
+    target_include_directories(pkg_${PKG_ID} PRIVATE "${PKG_DIR}/Source")
+    target_link_libraries(pkg_${PKG_ID} PUBLIC nova_engine)
+    target_compile_definitions(pkg_${PKG_ID} PRIVATE NovaPackage_OnLoad=NovaPackage_OnLoad_${PKG_ID}
+        NovaPackage_OnUnload=NovaPackage_OnUnload_${PKG_ID} NovaPackage_Abi=NovaPackage_Abi_${PKG_ID})
+    # 패키지 안의 외부 라이브러리 (ThirdParty/<이름>/Source + Include) — Windows 빌드와 같은 규칙
+    file(GLOB PKG_LIB_DIRS LIST_DIRECTORIES true "${PKG_DIR}/ThirdParty/*")
+    foreach(LIB_DIR ${PKG_LIB_DIRS})
+        if(IS_DIRECTORY "${LIB_DIR}/Source")
+            file(GLOB LIB_SOURCES "${LIB_DIR}/Source/*.cpp" "${LIB_DIR}/Source/*.c")
+            target_sources(pkg_${PKG_ID} PRIVATE ${LIB_SOURCES})
+            set_source_files_properties(${LIB_SOURCES} PROPERTIES COMPILE_OPTIONS "-w")
+            target_include_directories(pkg_${PKG_ID} PRIVATE "${LIB_DIR}/Include")
+        endif()
+    endforeach()
+    if(IS_DIRECTORY "${PKG_DIR}/ThirdParty/Detour")
+        target_compile_definitions(pkg_${PKG_ID} PRIVATE DT_POLYREF64)
+    endif()
+    list(APPEND NOVA_PACKAGE_LIBS pkg_${PKG_ID})
+    file(GLOB PKG_ENTRY "${PKG_DIR}/Source/Package.cpp")
+    if(PKG_ENTRY)
+        file(STRINGS "${PKG_ENTRY}" PKG_HAS_ONLOAD REGEX "NovaPackage_OnLoad\\(")
+        if(PKG_HAS_ONLOAD)
+            string(APPEND PKG_DECLS "extern \"C\" void NovaPackage_OnLoad_${PKG_ID}();\n")
+            string(APPEND PKG_CALLS "    NovaPackage_OnLoad_${PKG_ID}();   // ${PKG_NAME}\n    NovaPackageLoaded(\"${PKG_NAME}\");\n")
+        endif()
+    endif()
+    message(STATUS "NOVA package (static): ${PKG_NAME}")
+endforeach()
+file(WRITE "${CMAKE_BINARY_DIR}/nova_packages.cpp"
+    "// 만든 파일 (Android/CMakeLists.txt): 엔진에 함께 넣은 패키지의 진입점을 차례로 — App::Init 이 씬보다 먼저 부른다\n"
+    "${PKG_DECLS}void NovaPackageLoaded(const char* name);\nvoid NovaAndroidLoadPackages()\n{\n${PKG_CALLS}}\n")
+
 # ---- 진입점
 add_library(nova SHARED
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/AndroidMain.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/AndroidPlatform.cpp"
+    "${CMAKE_BINARY_DIR}/nova_packages.cpp"
 )
-# 엔진 전체를 넣는다 (컴포넌트가 정적 초기화로 스스로 등록 — 참조되지 않아도 남아야 한다)
-target_link_libraries(nova PRIVATE -Wl,--whole-archive nova_engine -Wl,--no-whole-archive native_app_glue android log EGL GLESv3)
+# 엔진 · 패키지 전체를 넣는다 (컴포넌트가 정적 초기화로 스스로 등록 — 참조되지 않아도 남아야 한다)
+target_link_libraries(nova PRIVATE -Wl,--whole-archive nova_engine ${NOVA_PACKAGE_LIBS} -Wl,--no-whole-archive native_app_glue android log EGL GLESv3 aaudio)
 # NativeActivity 가 찾는 진입점을 지우지 않게
 target_link_options(nova PRIVATE "-Wl,-u,ANativeActivity_onCreate" "-Wl,--no-dependent-libraries" "-Wl,--error-limit=0" "$<$<CONFIG:Release>:-Wl,--strip-debug>")   # #pragma comment(lib, ...) (Windows 라이브러리) 무시

@@ -55,6 +55,17 @@ enum class KEY
 	LAST
 };
 
+// 터치 (Unity 의 Touch · TouchPhase). 좌표 = 게임 화면 픽셀, GetMousePos 와 같이 왼쪽 위 0,0 (C# 에서는 Unity 처럼 왼쪽 아래)
+enum class TouchPhase { Began, Moved, Stationary, Ended, Canceled };
+struct Touch
+{
+	int fingerId = 0;
+	Vec2 position;
+	Vec2 deltaPosition;
+	TouchPhase phase = TouchPhase::Began;
+	int tapCount = 1;
+};
+
 struct tKeyInfo
 {
 	KEY_STATE	eState; //키의 상태값
@@ -69,6 +80,7 @@ private:
 	vector<tKeyInfo>	m_vecKey;
 	Vec2				mvCurMousePos;
 	float				mWheelAxis;
+	vector<Touch>		m_Touches;
 
 
 public:
@@ -80,6 +92,10 @@ public:
 	Vec2		GetMousePos() { return mvCurMousePos; }
 
 	void		SetWheelAxis(float amount) { mWheelAxis = amount; }
+
+	// 터치: 플랫폼이 프레임마다 넣는다 (안드로이드. PC 는 Unity 처럼 비어 있다)
+	const vector<Touch>& GetTouches() const { return m_Touches; }
+	void		SetTouches(vector<Touch> touches) { m_Touches = std::move(touches); }
 	float		GetWheelAxis()
 	{
 		float result = mWheelAxis;

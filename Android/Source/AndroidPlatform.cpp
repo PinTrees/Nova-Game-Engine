@@ -151,8 +151,8 @@ namespace AndroidPlatform
 			m_Pointers.clear();
 			Event("window-lost");
 			break;
-		case APP_CMD_RESUME: m_Resumed = true; Event("resume"); break;
-		case APP_CMD_PAUSE: m_Resumed = false; Event("pause"); break;
+		case APP_CMD_RESUME: m_Resumed = true; NovaAndroid::SetAudioPaused(false); Event("resume"); break;
+		case APP_CMD_PAUSE: m_Resumed = false; NovaAndroid::SetAudioPaused(true); Event("pause"); break;   // 뒤로 가면 소리도 멈춘다
 		case APP_CMD_GAINED_FOCUS: NovaAndroid::SetFocus(true); Event("focus"); break;
 		case APP_CMD_LOST_FOCUS: m_Pointers.clear(); NovaAndroid::SetFocus(false); NovaAndroid::SetPointer(0, 0, false); Event("focus-lost"); break;
 		case APP_CMD_CONFIG_CHANGED: Event("config"); break;
@@ -176,6 +176,7 @@ namespace AndroidPlatform
 		{
 			Pointer p{ AMotionEvent_getPointerId(event, index), AMotionEvent_getX(event, index), AMotionEvent_getY(event, index) };
 			m_Pointers.push_back(p);
+			NovaAndroid::TouchEvent(p.Id, p.X, p.Y, 0);
 			if (m_Pointers.size() == 1) NovaAndroid::SetPointer(p.X, p.Y, true);   // 첫 손가락 = 마우스 왼쪽 (엔진 Input)
 			Event("touch-down", "\"id\":%d,\"x\":%.0f,\"y\":%.0f,\"pointers\":%d", p.Id, p.X, p.Y, (int)m_Pointers.size());
 			break;
@@ -184,7 +185,7 @@ namespace AndroidPlatform
 			for (size_t i = 0; i < AMotionEvent_getPointerCount(event); ++i)
 			{
 				auto it = find(AMotionEvent_getPointerId(event, i));
-				if (it != m_Pointers.end()) { it->X = AMotionEvent_getX(event, i); it->Y = AMotionEvent_getY(event, i); }
+				if (it != m_Pointers.end()) { it->X = AMotionEvent_getX(event, i); it->Y = AMotionEvent_getY(event, i); NovaAndroid::TouchEvent(it->Id, it->X, it->Y, 1); }
 			}
 			if (!m_Pointers.empty()) NovaAndroid::SetPointer(m_Pointers[0].X, m_Pointers[0].Y, true);
 			break;
@@ -195,6 +196,7 @@ namespace AndroidPlatform
 			m_TapX = AMotionEvent_getX(event, index);
 			m_TapY = AMotionEvent_getY(event, index);
 			++m_Taps;
+			NovaAndroid::TouchEvent(id, m_TapX, m_TapY, 2);
 			auto it = find(id);
 			if (it != m_Pointers.end()) m_Pointers.erase(it);
 			if (m_Pointers.empty()) NovaAndroid::SetPointer(m_TapX, m_TapY, false);
@@ -204,6 +206,7 @@ namespace AndroidPlatform
 		}
 		case AMOTION_EVENT_ACTION_CANCEL:
 			m_Pointers.clear();
+			NovaAndroid::TouchEvent(-1, 0, 0, 3);
 			NovaAndroid::SetPointer(0, 0, false);
 			Event("touch-cancel");
 			break;
@@ -293,7 +296,15 @@ namespace AndroidPlatform
 			GfxGLES::Present(m_GameApp->GetDevice(), m_GameApp->BackBufferTexture(), m_Width, m_Height);
 			if (!m_Egl.Swap())
 				Event("error", "\"error\":\"eglSwapBuffers 0x%x\"", eglGetError());
-			if (++m_Frames % 300 == 0) Event("frame");
+			if (++m_Frames % 300 == 0)
+			{
+				uint64_t audioFrames = 0;
+				float peak = 0.0f;
+				if (NovaAndroid::AudioStats(audioFrames, peak))   // 소리: AAudio 로 낸 프레임 · 최대 레벨 (검사)
+					Event("frame", "\"audioFrames\":%llu,\"audioPeak\":%.3f", (unsigned long long)audioFrames, peak);
+				else
+					Event("frame");
+			}
 			if (NovaAndroid::QuitRequested()) ANativeActivity_finish(m_App->activity);
 			return;
 		}

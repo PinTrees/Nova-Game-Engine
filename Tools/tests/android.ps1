@@ -7,7 +7,8 @@
 #  4) 플레이어 셸: 창 표면 · 프레임 루프 · input tap · HOME 뒤 다시 열기 (NOVA_EVENT 줄 + screencap)
 #  5) 엔진 플레이어 (창) 6) 텍스처 압축: -TextureScene 을 ASTC · ETC2 로 구워 APK 마다 실행 → DX11 기준과 비교 (APK 의 게임 데이터는 마지막 형식으로 남는다)
 param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [switch]$SkipEditor, [int]$MaxDiff = 20,
-    [string]$Scene = 'Assets\Scenes\Shadows.scene', [string]$TextureScene = 'Assets\Scenes\Materials.scene', [string[]]$TextureFormats = @('astc', 'etc2'))
+    [string]$Scene = 'Assets\Scenes\Shadows.scene', [string]$TextureScene = 'Assets\Scenes\Materials.scene', [string[]]$TextureFormats = @('astc', 'etc2'),
+    [string]$ModelScene = 'Assets\Scenes\AndroidModels.scene', [string]$TouchScene = 'Assets\Scenes\AndroidTouch.scene')
 . (Join-Path $PSScriptRoot 'common.ps1')
 $script:Project = $Project
 $ErrorActionPreference = 'Continue'
@@ -55,6 +56,9 @@ if (-not $SkipEditor)
 {
     Write-Host '[android] shaders + DX11 reference'
     Backup-Layout
+    # 검사 씬을 저장하면 에디터의 '마지막 씬' 이 바뀐다 → 끝나면 되돌린다 (다른 검사가 이 씬 (long.mp3 등) 으로 열리지 않게)
+    $editorSettings = Join-Path $Project 'Assets\EditorSettings.json'
+    $editorSettingsBefore = if (Test-Path $editorSettings) { [IO.File]::ReadAllBytes($editorSettings) } else { $null }
     $ed = Start-TestEditor
     try
     {
@@ -81,8 +85,37 @@ if (-not $SkipEditor)
         $texRef = Join-Path $Out 'tex_DirectX11.png'
         Invoke-NovaJson "android reference --out `"$texRef`" --width 960 --height 540 --frames 10" | Out-Null
         foreach ($tc in $TextureFormats) { if (Test-Path $texRef) { Copy-Item $texRef (Join-Path $Out "tex_${tc}_DirectX11.png") } }
+        # 모델: 기본 캐릭터 (FBX · Animator — 패키지) + VRM 캐릭터를 둔 씬 → 메시 캐시만 구워 넣은 게임 데이터 + DX11 기준 (편집 중 = 첫 자세)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 8,1,8' | Out-Null
+        Invoke-Nova 'create character --name Hero --position -0.7,0,0 --rotation 0,180,0' | Out-Null
+        Invoke-Nova 'create character --name Chibi --model Assets\Models\ChibiRig.vrm --position 0.7,0,0 --rotation 0,180,0' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.1,-3.2 --rotation 6,0,0' | Out-Null
+        Invoke-Nova "scene save --as $($ModelScene -replace '\\', '/')" | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $m = Invoke-NovaJson "android export --out `"$(Join-Path $Out 'models')`" --scenes `"$ModelScene`""
+        $mOk = @($m.models | Where-Object { -not $_.error })
+        Check 'models baked to mesh caches' ($m -and $mOk.Count -gt 0 -and $mOk.Count -eq @($m.models).Count) $(if ($m) { "$($mOk.Count)/$(@($m.models).Count) models, " + (($m.models | Select-Object -First 4 | ForEach-Object { "{0} {1}{2} KB (source {3} KB)" -f (Split-Path $_.path -Leaf), $(if ($_.error) { $_.error + ' ' } else { "skinned $($_.skinnedMeshes), clips $($_.clips), " }), [math]::Round($_.bytes / 1KB), [math]::Round($_.sourceBytes / 1KB) }) -join '; ') } else { 'no result' })
+        Invoke-NovaJson "android reference --out `"$(Join-Path $Out 'models_DirectX11.png')`" --width 960 --height 540 --frames 10" | Out-Null
+        # 터치 → UI: Toggle (5 배, 체크 상자 450,450) + Slider (4 배, 손잡이 520,668 · 막대 480..1120) — 앱 창 1600x900, 캔버스 가운데 800,450
+        #  + 소리: AudioSource (long.mp3, 반복, Play On Awake) — 안드로이드 XAudio2 (소프트웨어 믹서 + AAudio)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create ui:Toggle --name Tg' | Out-Null
+        Invoke-Nova 'set Tg --scale 5,5,1' | Out-Null
+        Invoke-Nova 'create ui:Slider --name Sl' | Out-Null
+        Invoke-Nova 'set Sl --position 0,-220,0 --scale 4,4,1' | Out-Null
+        Invoke-Nova 'create audio-source --name Music' | Out-Null
+        Invoke-Nova 'set Music --component AudioSource --values "{\"clip\":\"Assets/TestAssets/Audio/long.mp3\",\"loop\":true,\"playOnAwake\":true,\"volume\":0.8}"' | Out-Null
+        Invoke-Nova "scene save --as $($TouchScene -replace '\\', '/')" | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $tt = Invoke-NovaJson "android export --out `"$(Join-Path $Out 'touch')`" --scenes `"$TouchScene`""
+        Check 'touch scene exported' ($tt -and $tt.files -gt 0) $(if ($tt) { "$($tt.files) files" } else { 'no result' })
     }
-    finally { Write-Host "  $(Stop-TestEditor $ed)"; Restore-Layout }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"; Restore-Layout
+        if ($editorSettingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $editorSettingsBefore) }
+    }
 }
 
 # ---- 3) APK
@@ -271,6 +304,149 @@ foreach ($tc in $TextureFormats)
     }
     $glErr = @(Get-Content (Join-Path $Out "logcat_tex_$tc.txt") -ErrorAction SilentlyContinue | Select-String 'texture|\.dds' | Select-String -Pattern 'fail|error|not found')
     Check "no texture errors ($tc)" ($glErr.Count -eq 0) $(if ($glErr.Count) { $glErr[0].Line.Trim() } else { 'logcat clean' })
+}
+
+# ---- 7) 모델: Assimp 가 없는 기기가 PC 가 구운 메시 캐시로 캐릭터를 그리고, 엔진에 함께 넣은 Animation 패키지의 Animator 가 움직인다
+$src = Join-Path $Out 'models\game'
+if (Test-Path $src)
+{
+    Write-Host '[android] models (mesh cache + Animator package)'
+    Remove-Item -Recurse -Force $gameDir -ErrorAction SilentlyContinue
+    Copy-Item -Recurse $src $gameDir
+    $py = (& python (Join-Path $Root 'Android\build.py') --abi $abi 2>&1 | Out-String)
+    $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String)
+    if (-not ($py -match 'apk .*nova\.apk' -and $inst -match 'Success')) { Check 'models APK' $false 'build or install failed' }
+    else
+    {
+        Copy-Item (Join-Path $Out 'models_DirectX11.png') (Join-Path $Out 'models_late_DirectX11.png') -ErrorAction SilentlyContinue
+        $c = DeviceTest 'scene' 'models' '-e frames 10' 'models'
+        # DX11 기준은 편집 중 (첫 자세), 기기는 플레이어라 10 프레임 동안 Idle 이 조금 움직인다 → 캐릭터 둘레만 다를 수 있다
+        if ($c) { Check "GLES models = DX11 ($ModelScene)" ($c[1] -lt 3.0 -and $c[2] -lt 6.0) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2]) }
+        $log = Get-Content (Join-Path $Out 'logcat_models.txt') -ErrorAction SilentlyContinue
+        $pk = @($log | Select-String '\[Packages\] (\S+) \(static\)' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+        Check 'packages built into the engine' ($pk -contains 'com.nova.animation') ($pk -join ', ')
+        $meshErr = @($log | Select-String 'mesh|model|Assimp' | Select-String -Pattern 'fail|error|not available|missing')
+        Check 'no model load errors' ($meshErr.Count -eq 0) $(if ($meshErr.Count) { $meshErr[0].Line.Trim() } else { 'logcat clean' })
+        $late = DeviceTest 'scene' 'models later' '-e frames 90' 'models_late'
+        $a = Join-Path $Out 'models_GLES.bmp'; $b = Join-Path $Out 'models_late_GLES.bmp'
+        if ((Test-Path $a) -and (Test-Path $b))
+        {
+            # 같은 씬을 10 · 90 프레임 그린 두 그림: Animator 가 돌면 캐릭터 화소가 바뀐다 (멈춰 있으면 0)
+            $d = [NovaImageCompare]::Compare($a, $b, (Join-Path $Out 'models_anim_diff.png'))
+            Check 'Animator plays on device' ($d -and $d[2] -gt 0.05) $(if ($d) { 'frame 10 vs 90: max {0}, >8: {1:N2}% of pixels' -f $d[0], $d[2] } else { 'compare failed' })
+        }
+    }
+}
+
+# ---- 7b) 터치 → UI · Input: 앱 창에서 input tap (Toggle 끄기) · input swipe (Slider 끌기) → 화면이 바뀌고, 엔진 Input 이 Touch (Began · Ended) 를 받는다
+$src = Join-Path $Out 'touch\game'
+if (Test-Path $src)
+{
+    Write-Host '[android] touch → UI · Input'
+    Remove-Item -Recurse -Force $gameDir -ErrorAction SilentlyContinue
+    Copy-Item -Recurse $src $gameDir
+    $py = (& python (Join-Path $Root 'Android\build.py') --abi $abi 2>&1 | Out-String)
+    $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String)
+    & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+    & $Adb -s $serial logcat -c
+    & $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity | Out-Null
+    $sw = [Diagnostics.Stopwatch]::StartNew(); $eng = $null
+    while ($sw.Elapsed.TotalSeconds -lt 60 -and -not $eng)
+    {
+        Start-Sleep -Milliseconds 500
+        $eng = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_EVENT \{"event":"engine"' | Select-Object -Last 1)
+    }
+    if (-not ($eng -and (EnsureFront))) { Check 'touch scene starts' $false 'no engine event / not in front' }
+    else
+    {
+        Start-Sleep -Seconds 2
+        # 두 그림의 한 영역에서 (16 넘게) 다른 화소 수
+        function RegionDiff($a, $b, [int]$x0, [int]$y0, [int]$x1, [int]$y1)
+        {
+            $n = 0
+            for ($y = $y0; $y -lt $y1; $y += 2) { for ($x = $x0; $x -lt $x1; $x += 2) {
+                $p = $a.GetPixel($x, $y); $q = $b.GetPixel($x, $y)
+                if ([Math]::Abs($p.R - $q.R) + [Math]::Abs($p.G - $q.G) + [Math]::Abs($p.B - $q.B) -gt 48) { $n++ } } }
+            return $n
+        }
+        $t0 = Screen 'touch_0'
+        & $Adb -s $serial shell input tap 450 450 | Out-Null   # 체크 상자 (탭 하나 = 한 프레임보다 짧을 수 있다 — 잃지 않아야 한다)
+        Start-Sleep -Milliseconds 1200
+        $t1 = Screen 'touch_1_toggle'
+        $dToggle = RegionDiff $t0 $t1 405 405 495 495
+        Check 'tap toggles the UI Toggle' ($dToggle -gt 100) "check box pixels changed: $dToggle"
+        & $Adb -s $serial shell input swipe 520 668 1000 668 500 | Out-Null   # 손잡이를 오른쪽으로
+        Start-Sleep -Milliseconds 1200
+        $t2 = Screen 'touch_2_slider'
+        $dSlider = RegionDiff $t1 $t2 470 625 1130 710
+        Check 'swipe drags the UI Slider' ($dSlider -gt 200) "slider pixels changed: $dSlider"
+        $log = @(& $Adb -s $serial logcat -d -s NOVA:I | Select-String '\[Input\] touch (\d+) (began|ended) at (\d+),(\d+)')
+        $began = @($log | Where-Object { $_.Matches[0].Groups[2].Value -eq 'began' })
+        $first = if ($began.Count) { $began[0].Matches[0] } else { $null }
+        Check 'engine Input gets touches (Input.GetTouch)' ($began.Count -ge 2 -and $first -and [Math]::Abs([int]$first.Groups[3].Value - 450) -le 2 -and [Math]::Abs([int]$first.Groups[4].Value - 450) -le 2) `
+            $(if ($first) { "$($began.Count) began / $(@($log).Count - $began.Count) ended, first at $($first.Groups[3].Value),$($first.Groups[4].Value) (tapped 450,450)" } else { 'no [Input] touch line' })
+        # 소리: frame 이벤트의 audioFrames 가 늘고 (AAudio 가 돈다) 레벨이 0 보다 크다, 오디오 서버에 이 앱의 트랙이 재생 중 → HOME 이면 멈춘다
+        $sw = [Diagnostics.Stopwatch]::StartNew(); $af = @()
+        while ($sw.Elapsed.TotalSeconds -lt 20 -and $af.Count -lt 2)
+        {
+            Start-Sleep -Milliseconds 500
+            $af = @(& $Adb -s $serial logcat -d -s NOVA:I | Select-String '"audioFrames":(\d+),"audioPeak":([\d.]+)' | ForEach-Object { $_.Matches[0] })
+        }
+        $active = { @(& $Adb -s $serial shell dumpsys media.audio_flinger | Select-String '(\d+) Tracks of which (\d+) are active' | ForEach-Object { [int]$_.Matches[0].Groups[2].Value } | Measure-Object -Sum).Sum }
+        $playing = & $active
+        if ($af.Count -ge 2)
+        {
+            $grow = [int64]$af[-1].Groups[1].Value - [int64]$af[-2].Groups[1].Value
+            $peak = [double]$af[-1].Groups[2].Value
+            Check 'audio plays (XAudio2 → AAudio)' ($grow -gt 48000 -and $peak -gt 0.01 -and $playing -ge 1) ("{0} frames in 300 game frames, peak {1}, active tracks {2}" -f $grow, $peak, $playing)
+        }
+        else { Check 'audio plays (XAudio2 → AAudio)' $false 'no audioFrames in frame events' }
+        & $Adb -s $serial shell input keyevent KEYCODE_HOME | Out-Null
+        Start-Sleep -Seconds 2
+        $after = & $active
+        Check 'audio stops in the background' ($after -lt $playing) "active tracks $playing → $after after HOME"
+    }
+    & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out 'logcat_touch.txt')
+    & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+}
+
+# ---- 8) Build Settings 의 Android Build And Run (에디터가 셰이더 · 게임 데이터 → APK → 설치 → 실행, 플레이어 라이브러리는 3 단계에서 만든 것)
+if (-not $SkipEditor)
+{
+    Write-Host '[android] editor Build And Run'
+    $engineRoot = if ($env:NOVA_ENGINE) { Split-Path (Split-Path $env:NOVA_ENGINE) } else { $Root }
+    $playerDir = Join-Path $engineRoot 'Android\Player\x86_64'
+    New-Item -ItemType Directory -Force $playerDir | Out-Null
+    Copy-Item (Join-Path $Root 'Android\build\cmake\x86_64-Release\libnova.so') $playerDir -Force
+    # Build Settings 창이 Android 를 고른 채로 열리게 (검사 프로젝트의 EditorBuildSettings.json)
+    $ebs = Join-Path $Project 'ProjectSettings\EditorBuildSettings.json'
+    if (Test-Path $ebs) { $ej = Get-Content $ebs -Raw | ConvertFrom-Json; $ej | Add-Member -NotePropertyName activePlatform -NotePropertyValue 'Android' -Force; $ej | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 $ebs }
+    Backup-Layout
+    $ed = Start-TestEditor
+    try
+    {
+        $apkOut = Join-Path $Out 'buildrun\Game.apk'
+        & $Adb -s $serial logcat -c   # 앞 단계의 engine 이벤트와 섞이지 않게
+        $st = Invoke-NovaJson "android build --out `"$apkOut`" --run --device $serial"
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Start-Sleep -Milliseconds 1000; $b = Invoke-NovaJson 'android build-status' } while ($sw.Elapsed.TotalSeconds -lt 300 -and $b -and $b.running)
+        Check 'editor Android build (APK)' ($st -and $b -and $b.success) $(if ($b) { if ($b.success) { "{0:N1} MB, {1:N1} s, device {2}" -f ($b.bytes / 1MB), $b.seconds, $b.device } else { $b.error } } else { 'no status' })
+        Invoke-Nova 'window build-settings' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova "screenshot `"$(Join-Path $Out 'build_settings_android.png')`" --view editor" | Out-Null
+        Invoke-Nova 'window build-settings --close' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)"; Restore-Layout }
+    if ($b -and $b.success)
+    {
+        $man = (& $Adb -s $serial shell "dumpsys window" | Select-String 'mCurrentFocus' | Select-Object -First 1).Line
+        $sw = [Diagnostics.Stopwatch]::StartNew(); $eng = $null
+        while ($sw.Elapsed.TotalSeconds -lt 60 -and -not $eng)
+        {
+            Start-Sleep -Milliseconds 500
+            $eng = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_EVENT (\{"event":"engine".*\})' | Select-Object -Last 1)
+        }
+        Check 'built game runs on the device' ([bool]$eng -and $man -notmatch 'com\.nova\.engine') $(if ($eng) { "$($man.Trim()) — $($eng.Matches[0].Groups[1].Value)" } else { "no engine event in 60 s ($($man))" })
+    }
 }
 
 if (-not $KeepEmulator) { MuMu @('control', '-v', $index, 'shutdown') | Out-Null }

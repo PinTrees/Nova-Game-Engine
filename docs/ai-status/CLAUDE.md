@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드 텍스처 압축 ASTC · ETC2** (사용자 지시 "유니티처럼 ETC2 나 ASTC 같은 압축 형식을 지원"). **완료 · 커밋 `159cbfa`** (push 전) — android **32/32**, import 9/9
+- 갱신 시각: 2026년 10월 4일 — **안드로이드: 모델 메시 캐시 · Build Settings APK · 터치 → UI · Input · 소리 (AAudio)** (사용자 지시: 추천 1 ~ 4 진행). **완료** — android **47/47** (MuMu), PC 회귀 ui 15 · model 56 · audio 4 · physics 13
+  - 모델: `nova android export` 가 fbx · gltf · glb · vrm 을 메시 캐시만 넣음 (`SkinnedMesh.cpp` 의 ImportHash = FNV-1a 64 — MSVC std::hash 와 같은 값이라 PC 캐시 그대로)
+  - 패키지: `Packages/*/Source` 를 안드로이드 엔진에 정적으로 (Animator · Toon …, `Android/CMakeLists.txt` + 만든 `nova_packages.cpp`), 패키지 셰이더도 GLES 로. lilToon.fx 에 `NOVA_GLES` 밉 개수 대체 (엔진 32 번과 같게)
+  - **컴포넌트 등록 고침**: 안드로이드가 `NOVA_ENGINE_BUILD` 없이 빌드돼 `REGISTER_COMPONENT` 가 비어 기본 29 개만 있었다 (UI · 오디오 · 물리 컴포넌트가 씬에서 빠짐) → 켜고, `define.h` 에 `NOVA_KEEP_REGISTRATION` (clang `used`) — 83 개
+  - Build Settings → Android: 새 `Source/Build/AndroidBuild.*` (셰이더 · 게임 데이터 → aapt2 → libnova.so zip 에 직접 → zipalign → apksigner → adb install · am start, MuMu 자동 connect),
+    `BuildSettingsWindow.cpp` (플랫폼 Android, Run Device …), `BuildSettings.*` (activePlatform · androidRunDevice · lastAndroidApk · Player 의 androidPackageName), Player Settings 의 Package Name, CLI `nova android build · build-status`
+  - 터치: `InputManager.h` · `Input.h` 에 Unity 의 Touch (touchCount · GetTouch — PC 는 0), 안드로이드 손가락 이벤트 큐 (빠른 탭), UI 좌표 = 왼쪽 아래 (0,0) (EditorStubs), `UIFont.cpp` 기본 글꼴 경로를 fs::path 로
+  - 소리: 새 `Android/Source/Engine/XAudio2Android.cpp` (XAudio2 의 안드로이드 판 — 소프트웨어 믹서 + AAudio), 앱이 뒤로 가면 멈춤
+  - Codex 에게: `define.h` 의 `REGISTER_PACKAGE_COMPONENT` 에 `NOVA_KEEP_REGISTRATION` (MSVC 는 비어 있음 — Windows 동작 같음). `InputManager.h` 에 `Touch` 구조체 (전역 이름 `Touch` — 충돌하면 알려 주면 바꾼다)
+- 이전: 2026년 10월 4일 — **안드로이드 텍스처 압축 ASTC · ETC2** (사용자 지시 "유니티처럼 ETC2 나 ASTC 같은 압축 형식을 지원"). **완료 · push `075da13`** — android **32/32**, import 9/9
   - Unity 와 같은 설정: Player Settings → Android → Texture Compression (ASTC 기본 · ETC2 · DXT · None), 가져오기 설정의 Override for Android (Max Size · Format)
   - `nova android export` 가 그림을 `<이름>.png.dds` 로 구움 (ASTC = ARM astc-encoder 5.7.0 `ThirdParty/astcenc` Apache-2.0, ETC2 = 자체 `Source/Build/Etc2Codec.*`), 기기는 `경로 + .dds` 를 압축된 그대로 GPU 에
   - 새 파일: `Source/Build/{TextureCompressor,Etc2Codec}.*`, `Source/Graphics/Common/MobileTextureFormats.h`, `ThirdParty/astcenc/`. 공용 변경: 루트 `CMakeLists.txt` (astcenc 정적 라이브러리),

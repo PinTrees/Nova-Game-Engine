@@ -1,7 +1,8 @@
 # 안드로이드
 
-NOVA 를 안드로이드에서 돌리는 작업. 지금은 **1 단계 첫 목표 완료**: 엔진의 렌더링 코드(RHI)를 NDK 로 빌드해
-MuMu 플레이어(에뮬레이터) 안의 OpenGL ES 3.2 로 검사 장면을 그리고, PC 의 DirectX 11 그림과 화소 차이 **최대 1** 로 같다.
+NOVA 를 안드로이드에서 돌리는 작업 (지금은 MuMu 플레이어 — x86_64 에뮬레이터). 엔진 전체를 NDK 로 빌드해 OpenGL ES 3.2 로 PC 플레이어와 같은 그림
+(DirectX 11 과 화소 차이 최대 1), 텍스처 압축 (ASTC · ETC2) · 모델 메시 캐시 · 패키지 (Animator · Toon) · 터치 → UI · Input · 소리 (AAudio),
+그리고 에디터의 **Build Settings → Android → Build And Run** 으로 APK 를 만들어 설치 · 실행한다.
 
 ## 그래픽 API
 
@@ -24,7 +25,7 @@ MuMu 플레이어(에뮬레이터) 안의 OpenGL ES 3.2 로 검사 장면을 그
 | `Android/Source/Engine/` | **엔진 런타임**의 안드로이드 판: Windows 전용 파일 대신 (`PathManagerAndroid` — `/` 경로 · 앱 파일 폴더의 game/, `EngineAndroid` — EditorLog · MemoryStats · ShaderCache, `AndroidWin32` — `GetAsyncKeyState` · `GetCursorPos` 등 Win32 입력을 터치 · 키 상태로, UTF-8 변환, `ApplicationAndroid`), `EditorStubs` — 런타임이 부르는 에디터 함수 (Inspector · 선택 · Undo · 창) 의 빈 구현 · C# 스크립트 · 패키지 · Assimp 없음 |
 | `Android/build.py` | Gradle 없이 APK: NDK CMake → aapt2 link (+ assets) → zipalign → apksigner (디버그 키) |
 | `ThirdParty/DirectXMath/` | DirectXMath (MIT, Windows SDK 의 것) + `sal.h` 대체 — 안드로이드만 쓴다 |
-| `Source/Build/AndroidTools.*` | 에디터 CLI `nova android shaders --out 폴더` |
+| `Source/Build/AndroidTools.*` · `AndroidBuild.*` | 에디터 CLI `nova android shaders · export · reference · build`, Build Settings 의 Android 빌드 (APK) |
 | `Source/Graphics/Common/FxStates.*` | `.fx` 상태 블록 → D3D11 설명 (API 공용, 예전 GLState 안에 있던 것) |
 | `Source/Graphics/ShaderCross/ShaderCrossJson.*` | 셰이더 변환 결과 ↔ JSON (PC 캐시 · 안드로이드 셰이더 묶음 공용) |
 
@@ -49,8 +50,63 @@ PC 플레이어와 **같은 렌더 경로** (`EditorApp` 의 게임 뷰 그리�
 | `Source/Build/AndroidTools.cpp` | 에디터 CLI `nova android export --out Android/build/assets --scenes A.scene,…` — 플레이어 빌드와 같은 에셋 모음 (`BuildPipeline::CollectGameFiles`), JSON 안의 경로 `\` → `/`, `player.json` · `files.txt`. `nova android reference --out x.png --width --height --frames` — 열린 씬을 플레이어 순서로 그린 DX11 기준 그림 |
 | `Android/Source/AndroidMain.cpp` | APK 의 `assets/game` → 앱 파일 폴더 (`files.txt` 가 바뀌었을 때만), 게임 데이터가 있으면 엔진 플레이어 (`-e mode shell` 이면 셸), `-e test scene` = 화면 없이 첫 씬을 N 프레임 그려 BMP |
 
-아직: 모델 (FBX) 을 기기에서 읽지 못한다 (Windows 전용 Assimp) → PC 가 미리 구운 메시 캐시를 넣는 것이 다음.
-C# 스크립트 · 패키지 DLL · 소리 (XAudio2) 없음.
+아직: C# 스크립트 (기기에 .NET 런타임이 없다 — 네이티브 컴포넌트 · 패키지 · UI · 소리는 돈다).
+
+### 모델 · 캐릭터 (메시 캐시)
+
+기기에는 Assimp 가 없다. `nova android export` 가 모델 (fbx · gltf · glb · vrm) 마다 에디터와 같은 길 (`ResourceManager::LoadMeshFile` — 캐시가 없거나
+가져오기 설정이 바뀌었으면 여기서 가져온다) 로 **메시 캐시** (`.mesh` · `.animations` · `.skeletons`) 를 만들어 그것만 넣는다 (원본 모델은 빼서 용량도 줄임).
+기기의 `MeshFile::LoadFromMetaFile` 은 원본이 없으면 시각 비교를 건너뛰고 머리의 가져오기 설정 해시만 본다.
+
+- 해시는 **FNV-1a 64** 로 고정 (`std::hash` 는 MSVC · libc++ 가 다르다). MSVC 의 `std::hash<std::string>` 과 같은 값이라 PC 에 있던 캐시도 그대로 맞는다
+- 캐시 안의 값은 모두 `size_t` · `XMFLOAT*` · `uint32` (x64 와 x86_64 · arm64 가 같은 크기 · 정렬)
+
+### 패키지 (Animator · Toon …)
+
+Windows 는 공식 패키지 (`Packages/<이름>/Source`) 를 DLL 로 불러오지만 안드로이드는 **엔진에 함께 넣는다** (`Android/CMakeLists.txt` 가 패키지마다 정적 라이브러리,
+같은 이름인 진입점 `NovaPackage_OnLoad` 는 패키지 이름을 붙여 바꾸고, 만든 `nova_packages.cpp` 가 `App::Init` 에서 씬보다 먼저 차례로 부른다).
+패키지의 셰이더 (`Packages/*/Shaders/*.fx`, 예: Toon 의 lilToon) 도 `nova android shaders` 가 GLES 로 바꾼다 (기기는 이름으로 찾는다).
+Windows 전용 호출 (파일 대화 상자 · 모듈 경로 · PNG 저장) 은 `Android/Include` 의 대체 (`commdlg.h`, `GetModuleHandleExW`, `SaveToWICFile` = 늘 실패) 로 컴파일만.
+
+### 컴포넌트 등록
+
+엔진 컴포넌트는 헤더의 `REGISTER_COMPONENT` (inline 정적 변수) 로 스스로 등록한다. 안드로이드도 `NOVA_ENGINE_BUILD` 를 켜고 (Windows 의 NovaCore.dll 과 같게),
+clang 이 쓰지 않는 inline 변수를 지우지 않게 `__attribute__((used))` (`define.h` 의 `NOVA_KEEP_REGISTRATION`). 전에는 ComponentFactory 의 기본 29 개만 있어
+UI · 오디오 · 물리 … 컴포넌트가 씬에서 빠졌다 (지금 83 개).
+
+### 터치 · UI · Input
+
+- 첫 손가락 = 마우스 왼쪽 (`GetAsyncKeyState(VK_LBUTTON)` · `GetCursorPos`) — UI (Button · Toggle · Slider · ScrollRect …) 와 `Input.GetMouseButton` 이 그대로 받는다
+- 한 프레임보다 짧은 탭도 잃지 않게: 손가락 이벤트를 큐에 모아 ImGui 입력 큐로 (UI 는 '눌림 → 뗌' 을 다음 프레임들에 차례로), `Input` 의 버튼은 프레임마다 고정
+- Unity 의 `Input.touchCount` · `Input.GetTouch` (`Touch` — fingerId · position · deltaPosition · phase Began / Moved / Stationary / Ended / Canceled):
+  네이티브 `Input::TouchCount()` · `Input::GetTouch(i)` (`InputManager` 가 프레임마다 받는다, PC 는 Unity 처럼 0). C# 쪽은 C# 런타임과 함께
+- 게임 화면 좌표는 Windows 의 Game 뷰와 같이 왼쪽 아래 (0,0) — UI 의 맞히기 · 끌기가 같은 식
+- 기본 글꼴 (Pretendard) 경로를 `fs::path` 로 (전에는 `\` 로 이어 안드로이드에서 글자가 안 보였다)
+
+### 소리 (XAudio2 → AAudio)
+
+엔진의 소리 코드 (AudioManager · AudioSource · AudioMixer) 는 XAudio2 로 쓰여 있다. 그래픽의 GfxGLES 처럼 **XAudio2 의 안드로이드 판**
+(`Android/Source/Engine/XAudio2Android.cpp`) 을 두어 엔진 코드는 그대로:
+
+- 소프트웨어 믹서: 소스 보이스 (PCM 8 · 16 · 24 · 32 · float, 버퍼 대기열 · 반복 구간 · END_OF_STREAM, 재생 속도 · 샘플 레이트는 선형 보간,
+  출력 행렬 = 팬 · 3D), 서브믹스 (믹서 그룹 — 처리 순서, XAudio2 의 상태 변수 필터, 레벨 측정기 · 에코 · 리버브 (단순 Schroeder)), 마스터 (2 채널)
+- 출력: AAudio (float, 저지연, 장치 레이트 — MuMu 는 48000 Hz · 512 프레임 버스트). 앱이 뒤로 가면 스트림을 멈추고 돌아오면 다시
+- mp3 · ogg · wav 디코더는 PC 와 같은 코드 (스트리밍 스레드 포함)
+
+### Build Settings → Android (Unity 의 Build / Build And Run)
+
+`Source/Build/AndroidBuild.*`: Build Settings 창에서 **Android** 를 고르고 Build (폴더를 묻고 `<제품>.apk`) / Build And Run.
+
+1. 에디터 (프레임마다 한 단계, 진행 창): 셰이더 → GLSL ES, 게임 데이터 (위의 텍스처 굽기 · 메시 캐시) → `<프로젝트>/Library/AndroidBuild/assets`
+2. 작업 스레드: AndroidManifest (Player Settings 의 **Package Name** — 비면 `com.<회사>.<제품>`, 제품 이름, 버전) → `aapt2 link -A assets` →
+   플레이어 라이브러리 `libnova.so` 를 zip 에 직접 (압축 없이, 항목 이름의 `\` 는 `/` 로) → `zipalign` → `apksigner` (디버그 키, 없으면 `keytool` 로 만든다)
+3. Build And Run: `adb devices` (없으면 켜진 MuMu VM 의 adb 포트로 `adb connect` — `MuMuManager info`) → `install -r` → `am start`
+
+- 창: Texture Compression, **Run Device** (Default device · 연결된 장치, Refresh), Development Build, Package Name, Android SDK · JDK 위치 (없으면 Hub 안내)
+- 도구: `ANDROID_HOME` · `JAVA_HOME` → Hub 의 AndroidTools (엔진 옆 / `%LOCALAPPDATA%\NOVA\AndroidTools`) → Android Studio 기본 위치
+- 플레이어 라이브러리: `<엔진>/Android/Player/<ABI>/libnova.so` (배포판 — `Tools/package_release.ps1` 가 넣는다) → `<엔진>/Android/build/cmake/<ABI>-Release/libnova.so` (엔진 개발)
+- CLI: `nova android build --out x.apk [--run] [--device 시리얼] [--texture-compression …]`, `nova android build-status`
+- 지금은 x86_64 (MuMu) 만
 
 ### 텍스처 압축 (Unity 의 Android Texture Compression)
 
@@ -101,6 +157,11 @@ powershell -File Tools/tests/android.ps1
    회전은 검사하지 않는다 (MuMu 태블릿 모드는 `user_rotation` · `wm size` 로 앱 창 크기를 바꾸지 않음)
 7. 텍스처 압축: `-TextureScene` (기본 `Materials.scene`) 을 ASTC · ETC2 로 구워 형식마다 APK → `-e test scene` → DX11 기준 (PC 는 BC) 과 비교.
    압축 형식 차이만큼은 허용 (평균 < 2, 8 넘는 화소 < 5 %). APK 의 게임 데이터는 마지막 형식으로 남는다
+8. 모델: 기본 캐릭터 (FBX · Animator) + VRM 캐릭터 (lilToon) 씬 → 메시 캐시만 넣은 APK → DX11 기준과 비교 (기기는 Idle 이 움직이므로 평균 < 3),
+   패키지가 엔진에 들어갔는지 (logcat `[Packages]`), 10 · 90 프레임 그림이 다른지 (Animator 가 돈다)
+9. 터치 · 소리: Toggle · Slider · AudioSource 씬 → `input tap` 으로 Toggle, `input swipe` 로 Slider 손잡이 → 화면 영역이 바뀌는지, 엔진 Input 의 Touch (logcat `[Input] touch`),
+   frame 이벤트의 `audioFrames` 가 늘고 레벨 > 0, `dumpsys media.audio_flinger` 의 재생 중 트랙 → HOME 이면 줄어든다
+10. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.
@@ -113,8 +174,7 @@ SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\
 
 ## 다음
 
-- 2 단계 (진행 중): 창 표면 · 메인 루프 · 생명 주기 · 터치 **완료** → Gfx 층의 GLES 구현 **완료** →
-  엔진 코어 (씬 · 컴포넌트 · 렌더러) 를 NDK 로, 에셋은 PC 에서 미리 굽기 (텍스처 · 메시 캐시) → 씬 하나를 PC 플레이어와 같은 그림으로 → 터치를 Input 에
+- 2 단계: 창 표면 · 메인 루프 · 생명 주기 · 터치 → Gfx 층의 GLES 구현 → 엔진 런타임 · 엔진 플레이어 → 텍스처 압축 (ASTC · ETC2) →
+  모델 메시 캐시 · 패키지 → Build Settings 의 APK 빌드 → 터치 → UI · Input → 소리 (AAudio) **모두 완료**
+- 다음 후보: C# 스크립트 런타임 (게임 로직), 엔진 시작 시간 (MuMu 에서 약 10 초 — 셰이더 · lilToon 효과 만들기), 화면 회전 · 안전 영역
 - 실제 휴대폰 (arm64 · Vulkan) 은 한참 뒤 (사용자 결정)
-- C# 스크립트 런타임 (Mono 등)
-- 빌드 창(Build Settings)에서 안드로이드 APK 만들기

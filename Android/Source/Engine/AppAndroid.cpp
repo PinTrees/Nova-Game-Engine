@@ -38,10 +38,19 @@ namespace
 		ImGuiIO& io = ImGui::GetIO();
 		io.DisplaySize = ImVec2((float)(std::max)(width, 1), (float)(std::max)(height, 1));
 		io.DeltaTime = dt > 0.0f ? dt : 1.0f / 60.0f;
-		POINT p;
-		GetCursorPos(&p);
-		io.AddMousePosEvent((float)p.x, (float)p.y);
-		io.AddMouseButtonEvent(0, (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
+		// 지난 프레임 뒤의 손가락 이벤트를 차례로 (ImGui 가 한 프레임에 하나씩 풀어 빠른 탭도 UI 가 '눌림 → 뗌' 으로 받는다)
+		const std::vector<NovaAndroid::PointerEvent> events = NovaAndroid::TakePointerEvents();
+		for (const auto& e : events)
+		{
+			io.AddMousePosEvent(e.X, e.Y);
+			io.AddMouseButtonEvent(0, e.Down);
+		}
+		if (events.empty())
+		{
+			POINT p;
+			GetCursorPos(&p);
+			io.AddMousePosEvent((float)p.x, (float)p.y);
+		}
 		ImGui::NewFrame();
 	}
 }
@@ -88,7 +97,13 @@ bool App::InitPlatform()
 	return true;
 }
 
-// Windows 판 App::Init 과 같은 순서 (에디터 창 · 패키지 · 개발용 환경 변수 빼고)
+// 패키지 진입점을 부른 뒤 (nova_packages.cpp) 하나씩 로그로
+void NovaPackageLoaded(const char* name)
+{
+	EditorLog::Write("Packages", "%s (static)", name);
+}
+
+// Windows 판 App::Init 과 같은 순서 (에디터 창 · 개발용 환경 변수 빼고, 패키지는 DLL 대신 엔진에 함께 넣은 것)
 bool App::Init()
 {
 	if (!InitPlatform())
@@ -100,6 +115,7 @@ bool App::Init()
 	ResourceManager::GetI()->Init(_device);
 	InputManager::GetI()->Init();
 	ShaderGraph::InitRuntime();
+	{ extern void NovaAndroidLoadPackages(); NovaAndroidLoadPackages(); }   // 엔진에 함께 넣은 패키지 (Windows 의 PackageManager::Init — 씬보다 먼저)
 	SceneManager::GetI()->Init();
 	PhysicsManager::GetI()->Init();
 	SceneManager::GetI()->LoadStartupScene();
@@ -171,7 +187,12 @@ int32 App::Run()
 	_timer.Tick();
 	const float dt = _timer.DeltaTime();
 	TimeManager::GetI()->Update();
+	NovaAndroid::BeginInputFrame();   // 탭 고정 · 터치 (Input.GetTouch)
 	InputManager::GetI()->Update();
+	for (const Touch& t : InputManager::GetI()->GetTouches())   // 검사 · 진단: 엔진 Input 이 받은 터치
+		if (t.phase == TouchPhase::Began || t.phase == TouchPhase::Ended)
+			EditorLog::Write("Input", "touch %d %s at %.0f,%.0f (touchCount %d, mouse0 %s)", t.fingerId, t.phase == TouchPhase::Began ? "began" : "ended",
+				t.position.x, t.position.y, (int)InputManager::GetI()->GetTouches().size(), (GetAsyncKeyState(VK_LBUTTON) & 0x8000) ? "down" : "up");
 	ImGuiNewFrame(_clientWidth, _clientHeight, dt);
 
 	if (Application::ShouldUpdateGame())

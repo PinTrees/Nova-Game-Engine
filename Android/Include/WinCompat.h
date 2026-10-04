@@ -82,7 +82,7 @@ union LARGE_INTEGER { struct { DWORD LowPart; LONG HighPart; }; LONGLONG QuadPar
 #define WINAPI
 #define _stricmp strcasecmp
 #define _strnicmp strncasecmp
-#define _wcsicmp wcscasecmp
+#define _wcsicmp NovaWcsicmp   // 아래: path::c_str() 가 char* 인 안드로이드에서도 (Windows 는 wchar_t*)
 #define _wcsnicmp wcsncasecmp
 #include <strings.h>
 #include <wchar.h>
@@ -617,6 +617,17 @@ inline LPWSTR* CommandLineToArgvW(LPCWSTR, int* argc) { *argc = 0; return nullpt
 inline LPCWSTR GetCommandLineW() { return L""; }
 inline void* LocalFree(void*) { return nullptr; }
 inline DWORD GetModuleFileNameW(HMODULE, wchar_t* buffer, DWORD size) { if (size) buffer[0] = 0; return 0; }
+inline int NovaWcsicmp(const wchar_t* a, const wchar_t* b) { return wcscasecmp(a, b); }
+inline int NovaWcsicmp(const char* a, const wchar_t* b)   // std::filesystem::path::c_str() (UTF-8) 와 L"..." 비교
+{
+	std::wstring w;
+	for (const unsigned char* p = (const unsigned char*)a; *p; ++p) w.push_back((wchar_t)*p);   // 확장자 비교용 (ASCII)
+	return wcscasecmp(w.c_str(), b);
+}
+// 모듈 핸들 (패키지 DLL 이 자기 위치를 찾을 때 — 안드로이드는 패키지를 엔진에 함께 넣어 위치가 없다)
+#define GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS 0x4
+#define GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT 0x2
+inline BOOL GetModuleHandleExW(DWORD, LPCWSTR, HMODULE* out) { if (out) *out = nullptr; return FALSE; }
 
 // DXGI 스왑 체인 · 드라이버 종류 (App.h 의 멤버 타입 — 안드로이드에서는 쓰지 않는다)
 struct IDXGISwapChain : IUnknown {};

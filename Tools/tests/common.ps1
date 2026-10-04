@@ -8,6 +8,12 @@ $script:Nova = Join-Path $Root 'Binaries\nova.exe'
 if ($env:NOVA_ENGINE -and (Test-Path (Join-Path (Split-Path $env:NOVA_ENGINE) 'nova.exe'))) { $script:Nova = Join-Path (Split-Path $env:NOVA_ENGINE) 'nova.exe' }
 $script:EditorLog = Join-Path $Root 'Binaries\Logs\Editor.log'
 $script:LayoutIni = Join-Path $Root 'Binaries\nova_layout_v2.ini'
+# 복사 엔진이면 로그 · 배치 파일도 그 엔진의 것 (저장소 Binaries 의 옛 로그를 읽지 않게)
+if ($env:NOVA_ENGINE -and (Test-Path $env:NOVA_ENGINE))
+{
+    $script:EditorLog = Join-Path (Split-Path $env:NOVA_ENGINE) 'Logs\Editor.log'
+    $script:LayoutIni = Join-Path (Split-Path $env:NOVA_ENGINE) 'nova_layout_v2.ini'
+}
 
 function Get-VramMB
 {

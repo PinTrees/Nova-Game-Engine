@@ -73,6 +73,12 @@ else
     CopyDir 'Resources\Textures\Skybox' 'Resources\Textures\Skybox'
     CopyDir 'Resources\Models' 'Resources\Models'
 }
+# 안드로이드 플레이어 라이브러리 (Build Settings → Android 가 APK 에 넣는다 — python Android/build.py 로 만든 것)
+foreach ($abi in 'x86_64', 'arm64-v8a')
+{
+    $so = "Android\build\cmake\$abi-Release\libnova.so"
+    if (Test-Path $so) { New-Item -ItemType Directory -Force (Join-Path $stage "Android\Player\$abi") | Out-Null; Copy-Item $so (Join-Path $stage "Android\Player\$abi") }
+}
 
 # ---- 4. VC++ 런타임 (앱 로컬 배포 — Microsoft 가 재배포를 허락한 Redist 폴더의 DLL)
 Write-Host '[3/5] VC++ 런타임'

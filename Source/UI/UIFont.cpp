@@ -276,8 +276,9 @@ namespace UIFont
 				return full;
 		}
 		// 기본 글꼴: 엔진의 Pretendard (한글 포함, SIL OFL), 없으면 맑은 고딕
-		const std::wstring engine = PathManager::GetI()->GetEnginePathW() + L"ProjectSetting\\fonts\\";
-		const std::wstring pretendard = engine + (bold ? L"Pretendard-SemiBold.otf" : L"Pretendard-Regular.otf");
+		//  (경로는 fs::path 로 잇는다 — 안드로이드에서는 '\' 가 구분자가 아니다)
+		const std::wstring pretendard = (fs::path(PathManager::GetI()->GetEnginePathW()) / L"ProjectSetting" / L"fonts" /
+			(bold ? L"Pretendard-SemiBold.otf" : L"Pretendard-Regular.otf")).wstring();
 		if (fs::exists(pretendard, ec))
 			return pretendard;
 		return bold ? L"C:\\Windows\\Fonts\\malgunbd.ttf" : L"C:\\Windows\\Fonts\\malgun.ttf";

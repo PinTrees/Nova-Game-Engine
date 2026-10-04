@@ -41,15 +41,15 @@ namespace NovaAndroid
 	void SetGameView(int width, int height, bool focused) { s_GameW = (std::max)(1, width); s_GameH = (std::max)(1, height); s_GameFocus = focused; }
 }
 bool GameViewEditorWindow::HasInputFocus() { return s_GameFocus; }
+// 게임 화면 = 앱 창 전체. Windows 의 Game 뷰와 같이 ImGui 마우스 (터치 이벤트 큐를 따른다) 를 Unity 화면 좌표 (왼쪽 아래 0,0) 로
 bool GameViewEditorWindow::MouseToGame(float& x, float& y)
 {
-	POINT p;
-	GetCursorPos(&p);
-	x = (float)p.x;
-	y = (float)p.y;
-	return x >= 0 && y >= 0 && x < s_GameW && y < s_GameH;
+	const ImVec2 m = ImGui::GetIO().MousePos;
+	x = m.x;
+	y = (float)s_GameH - m.y;
+	return m.x >= 0 && m.y >= 0 && m.x < s_GameW && m.y < s_GameH;
 }
-ImVec2 GameViewEditorWindow::GameToScreen(float x, float y) { return ImVec2(x, y); }
+ImVec2 GameViewEditorWindow::GameToScreen(float x, float y) { return ImVec2(x, (float)s_GameH - y); }
 void GameViewEditorWindow::GameSize(int& w, int& h) { w = s_GameW; h = s_GameH; }
 float GameViewEditorWindow::ScrollDelta() { return 0.0f; }
 void GameViewEditorWindow::SetPlayerView(int width, int height, bool focused) { NovaAndroid::SetGameView(width, height, focused); }
@@ -59,6 +59,7 @@ SINGLE_BODY(EditorGUIManager)
 EditorGUIManager::EditorGUIManager() {}
 EditorGUIManager::~EditorGUIManager() {}
 void EditorGUIManager::RegisterWindow(EditorWindow*) {}
+void EditorGUIManager::UnregisterWindow(EditorWindow*) {}
 EditorWindow* EditorGUIManager::FindWindow(const std::string&) const { return nullptr; }
 
 SINGLE_BODY(EditorGUIResourceManager)
@@ -78,12 +79,18 @@ GameObject* SelectionManager::m_SelectedGameObject = nullptr;
 void SelectionManager::ClearSelection() { m_SelectedGameObject = nullptr; }
 void SelectionManager::SetSelectedFile(const std::wstring&) {}
 void SelectionManager::SetSelectedGameObject(GameObject* go) { m_SelectedGameObject = go; }
+SelectionSubType SelectionManager::m_SelectedSubType = SelectionSubType{};
+std::wstring SelectionManager::m_SelectedFilePath;
+CustomSelection SelectionManager::m_Custom;
+void SelectionManager::SetCustomSelection(const std::string&, std::shared_ptr<void>, std::function<void()>) {}
 
 EditorWindow::EditorWindow(const string&, const string&) {}
 EditorWindow::~EditorWindow() {}
 string EditorWindow::GetImGuiName() const { return {}; }
 
 bool SceneViewOverlay::s_Active = false;
+ImVec2 SceneViewOverlay::s_Min;
+ImVec2 SceneViewOverlay::s_Max;
 void SceneViewOverlay::DrawLine(const XMFLOAT3&, const XMFLOAT3&, ImU32, float) {}
 void SceneViewOverlay::DrawFrustum(const XMMATRIX&, float, float, float, ImU32) {}
 void SceneViewOverlay::DrawLightGizmo(const XMFLOAT3&, const XMFLOAT3&, int, bool) {}
@@ -104,8 +111,8 @@ std::wstring EditorUtility::SaveFileDialog(const std::wstring&, const std::wstri
 
 namespace LoadingScreen { void SetStatus(const std::wstring&) {} }
 namespace AutoSave { void OnEnterPlay() {} }
-namespace CliServer { void Register(const std::string&, const std::string&, Handler, int, bool) {} }
-namespace EditorExtensions { void RegisterAssetType(const AssetType&) {} }
+namespace CliServer { void Register(const std::string&, const std::string&, Handler, int, bool) {} void Unregister(const std::string&) {} }
+namespace EditorExtensions { void RegisterAssetType(const AssetType&) {} void UnregisterOwner(const std::string&) {} }
 namespace ProjectSettingsWindow { void Open(const char*) {} }
 namespace ObjectPicker
 {
@@ -124,6 +131,8 @@ namespace Undo
 	void RequestCheck() {}
 	void Touch(GameObject*) {}
 	bool CommittedSceneHash(size_t&) { return false; }
+	void BlockShortcuts() {}
+	void WatchAsset(const std::string&, const std::string&, std::function<std::string()>, std::function<void(const std::string&)>) {}
 }
 namespace TerrainEditor
 {
@@ -204,6 +213,7 @@ namespace Assimp
 	bool Importer::SetPropertyInteger(const char*, int) { return false; }
 }
 aiReturn aiGetMaterialColor(const aiMaterial*, const char*, unsigned int, unsigned int, aiColor4D*) { return aiReturn_FAILURE; }
+aiReturn aiGetMaterialString(const aiMaterial*, const char*, unsigned int, unsigned int, aiString*) { return aiReturn_FAILURE; }
 aiString aiMaterial::GetName() const { return aiString(); }
 aiNode* aiNode::FindNode(const char*) { return nullptr; }
 

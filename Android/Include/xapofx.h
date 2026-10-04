@@ -1,5 +1,5 @@
 #pragma once
-// 안드로이드: XAPO 효과의 선언만 (CreateFX 는 실패 → 효과 없음)
+// 안드로이드: XAPO 효과의 선언. CreateFX 는 FXEcho 만 (XAudio2Android.cpp), 나머지는 E_NOTIMPL
 #include "xaudio2.h"
 #define FXECHO_MIN_WETDRYMIX 0.0f
 #define FXECHO_MAX_WETDRYMIX 1.0f
@@ -30,4 +30,4 @@ struct FXEcho {};
 struct FXEQ {};
 struct FXMasteringLimiter {};
 struct FXReverb {};
-inline HRESULT CreateFX(REFGUID, IUnknown** out, const void* = nullptr, UINT32 = 0) { *out = nullptr; return E_NOTIMPL; }
+HRESULT CreateFX(REFGUID clsid, IUnknown** out, const void* init = nullptr, UINT32 initBytes = 0);

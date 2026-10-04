@@ -31,6 +31,8 @@ namespace BuildSettings
 		// Android: Texture Compression (Unity 의 Build Settings > Android) — 가져오기 설정의 Android Format 이 Automatic 인 텍스처의 형식.
 		//  0 ASTC (6x6, High Quality 는 4x4) · 1 ETC2 · 2 DXT (BC, 에뮬레이터 · 일부 GPU) · 3 압축 없음 (RGBA32)
 		int AndroidTextureCompression = 0;
+		// Android: Package Name (Unity 의 Other Settings > Identification) — 비면 com.<회사>.<제품>
+		std::string AndroidPackageName;
 	};
 	// 빌드된 게임이 시도할 순서 (Auto 면 엔진 기본 순서)
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs();
@@ -45,6 +47,10 @@ namespace BuildSettings
 
 	bool& DevelopmentBuild();
 	std::string& LastBuildFolder();
+	// Build Settings 의 플랫폼 (Unity 의 Switch Platform): 0 Windows, 1 Android
+	int& ActivePlatform();
+	std::string& AndroidRunDevice();     // Build And Run 장치 (adb 시리얼, 비면 첫 장치)
+	std::string& LastAndroidApk();       // 마지막 .apk 경로
 	void SaveEditorBuild();
 
 	// 실행 중에 쓰는 씬 목록: 에디터 = Build Settings 의 켜진 씬, 플레이어 = 빌드할 때 넣은 목록

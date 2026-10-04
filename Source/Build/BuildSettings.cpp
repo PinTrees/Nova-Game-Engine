@@ -12,6 +12,8 @@ namespace
 	BuildSettings::Player s_Player;
 	bool s_Development = false;
 	std::string s_LastFolder;
+	int s_Platform = 0;                 // 0 Windows, 1 Android
+	std::string s_AndroidDevice, s_LastApk;
 	bool s_HasRuntimeScenes = false;
 	std::vector<std::string> s_RuntimeScenes;
 
@@ -45,6 +47,9 @@ namespace
 				s_Scenes.push_back({ s.value("path", std::string()), s.value("enabled", true) });
 		s_Development = j.value("developmentBuild", false);
 		s_LastFolder = j.value("lastBuildFolder", std::string());
+		s_Platform = j.value("activePlatform", std::string()) == "Android" ? 1 : 0;
+		s_AndroidDevice = j.value("androidRunDevice", std::string());
+		s_LastApk = j.value("lastAndroidApk", std::string());
 	}
 
 	json ApiKeys(const std::vector<GraphicsAPI>& apis)
@@ -68,6 +73,7 @@ namespace
 		s_Player.Resizable = j.value("resizableWindow", true);
 		s_Player.RunInBackground = j.value("runInBackground", true);
 		s_Player.AutoGraphicsAPI = j.value("autoGraphicsAPI", true);
+		s_Player.AndroidPackageName = j.value("androidPackageName", std::string());
 		{
 			static const char* kTc[] = { "ASTC", "ETC2", "DXT", "None" };
 			const std::string tc = j.value("androidTextureCompression", std::string("ASTC"));
@@ -105,7 +111,8 @@ namespace BuildSettings
 		json scenes = json::array();
 		for (const SceneEntry& s : Scenes())
 			scenes.push_back({ { "path", s.Path }, { "enabled", s.Enabled } });
-		WriteJson(File(L"EditorBuildSettings.json"), json{ { "scenes", scenes }, { "developmentBuild", s_Development }, { "lastBuildFolder", s_LastFolder } });
+		WriteJson(File(L"EditorBuildSettings.json"), json{ { "scenes", scenes }, { "developmentBuild", s_Development }, { "lastBuildFolder", s_LastFolder },
+			{ "activePlatform", s_Platform == 1 ? "Android" : "Windows" }, { "androidRunDevice", s_AndroidDevice }, { "lastAndroidApk", s_LastApk } });
 	}
 
 	void SaveScenes() { SaveEditorBuild(); }
@@ -134,7 +141,7 @@ namespace BuildSettings
 			{ "fullscreenMode", (int)p.Mode }, { "defaultScreenWidth", p.Width }, { "defaultScreenHeight", p.Height },
 			{ "resizableWindow", p.Resizable }, { "runInBackground", p.RunInBackground },
 			{ "autoGraphicsAPI", p.AutoGraphicsAPI }, { "graphicsAPIs", ApiKeys(p.GraphicsAPIs) },
-			{ "androidTextureCompression", std::array<const char*, 4>{ "ASTC", "ETC2", "DXT", "None" }[std::clamp(p.AndroidTextureCompression, 0, 3)] } });
+			{ "androidTextureCompression", std::array<const char*, 4>{ "ASTC", "ETC2", "DXT", "None" }[std::clamp(p.AndroidTextureCompression, 0, 3)] }, { "androidPackageName", p.AndroidPackageName } });
 	}
 
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs()
@@ -168,6 +175,27 @@ namespace BuildSettings
 		if (!s_ScenesLoaded)
 			LoadScenes();
 		return s_LastFolder;
+	}
+
+	int& ActivePlatform()
+	{
+		if (!s_ScenesLoaded)
+			LoadScenes();
+		return s_Platform;
+	}
+
+	std::string& AndroidRunDevice()
+	{
+		if (!s_ScenesLoaded)
+			LoadScenes();
+		return s_AndroidDevice;
+	}
+
+	std::string& LastAndroidApk()
+	{
+		if (!s_ScenesLoaded)
+			LoadScenes();
+		return s_LastApk;
 	}
 
 	std::vector<std::string> RuntimeScenes()

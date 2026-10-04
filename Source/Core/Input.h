@@ -44,6 +44,14 @@ public:
 		return InputManager::GetI()->GetMousePos();
 	}
 
+	// Unity 의 Input.touchCount · Input.GetTouch (안드로이드 터치. PC 는 0)
+	static int TouchCount() { return (int)InputManager::GetI()->GetTouches().size(); }
+	static Touch GetTouch(int index)
+	{
+		const auto& t = InputManager::GetI()->GetTouches();
+		return index >= 0 && index < (int)t.size() ? t[(size_t)index] : Touch();
+	}
+
 	static float GetWheel()
 	{
 		return InputManager::GetI()->GetWheelAxis();
