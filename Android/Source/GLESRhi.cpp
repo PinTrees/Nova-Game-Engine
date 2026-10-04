@@ -3,6 +3,10 @@
 #include "ShaderCross.h"
 #include "ShaderCrossJson.h"
 #include "FxStates.h"
+#include "GLESState.h"
+#include "GLShared.h"
+#include "GfxGLES.h"
+#include "Gfx.h"
 #include <GLES3/gl32.h>
 #include <GLES2/gl2ext.h>
 #include <regex>
@@ -63,179 +67,11 @@ namespace
 		return out;
 	}
 
-	// ---- D3D11 상태 → GLES
-	GLenum Compare(D3D11_COMPARISON_FUNC f)
-	{
-		switch (f)
-		{
-		case D3D11_COMPARISON_NEVER: return GL_NEVER;
-		case D3D11_COMPARISON_LESS: return GL_LESS;
-		case D3D11_COMPARISON_EQUAL: return GL_EQUAL;
-		case D3D11_COMPARISON_LESS_EQUAL: return GL_LEQUAL;
-		case D3D11_COMPARISON_GREATER: return GL_GREATER;
-		case D3D11_COMPARISON_NOT_EQUAL: return GL_NOTEQUAL;
-		case D3D11_COMPARISON_GREATER_EQUAL: return GL_GEQUAL;
-		default: return GL_ALWAYS;
-		}
-	}
-
-	GLenum Blend(D3D11_BLEND b)
-	{
-		switch (b)
-		{
-		case D3D11_BLEND_ZERO: return GL_ZERO;
-		case D3D11_BLEND_ONE: return GL_ONE;
-		case D3D11_BLEND_SRC_COLOR: return GL_SRC_COLOR;
-		case D3D11_BLEND_INV_SRC_COLOR: return GL_ONE_MINUS_SRC_COLOR;
-		case D3D11_BLEND_SRC_ALPHA: return GL_SRC_ALPHA;
-		case D3D11_BLEND_INV_SRC_ALPHA: return GL_ONE_MINUS_SRC_ALPHA;
-		case D3D11_BLEND_DEST_ALPHA: return GL_DST_ALPHA;
-		case D3D11_BLEND_INV_DEST_ALPHA: return GL_ONE_MINUS_DST_ALPHA;
-		case D3D11_BLEND_DEST_COLOR: return GL_DST_COLOR;
-		case D3D11_BLEND_INV_DEST_COLOR: return GL_ONE_MINUS_DST_COLOR;
-		case D3D11_BLEND_SRC_ALPHA_SAT: return GL_SRC_ALPHA_SATURATE;
-		case D3D11_BLEND_BLEND_FACTOR: return GL_CONSTANT_COLOR;
-		case D3D11_BLEND_INV_BLEND_FACTOR: return GL_ONE_MINUS_CONSTANT_COLOR;
-		default: return GL_ONE;   // 이중 소스 블렌드는 ES 에 없다
-		}
-	}
-
-	GLenum BlendOp(D3D11_BLEND_OP o)
-	{
-		switch (o)
-		{
-		case D3D11_BLEND_OP_SUBTRACT: return GL_FUNC_SUBTRACT;
-		case D3D11_BLEND_OP_REV_SUBTRACT: return GL_FUNC_REVERSE_SUBTRACT;
-		case D3D11_BLEND_OP_MIN: return GL_MIN;
-		case D3D11_BLEND_OP_MAX: return GL_MAX;
-		default: return GL_FUNC_ADD;
-		}
-	}
-
-	GLenum StencilOp(D3D11_STENCIL_OP o)
-	{
-		switch (o)
-		{
-		case D3D11_STENCIL_OP_ZERO: return GL_ZERO;
-		case D3D11_STENCIL_OP_REPLACE: return GL_REPLACE;
-		case D3D11_STENCIL_OP_INCR_SAT: return GL_INCR;
-		case D3D11_STENCIL_OP_DECR_SAT: return GL_DECR;
-		case D3D11_STENCIL_OP_INVERT: return GL_INVERT;
-		case D3D11_STENCIL_OP_INCR: return GL_INCR_WRAP;
-		case D3D11_STENCIL_OP_DECR: return GL_DECR_WRAP;
-		default: return GL_KEEP;
-		}
-	}
-
-	GLenum Address(D3D11_TEXTURE_ADDRESS_MODE m)
-	{
-		switch (m)
-		{
-		case D3D11_TEXTURE_ADDRESS_WRAP: return GL_REPEAT;
-		case D3D11_TEXTURE_ADDRESS_MIRROR: return GL_MIRRORED_REPEAT;
-		case D3D11_TEXTURE_ADDRESS_BORDER: return GL_CLAMP_TO_BORDER;
-		default: return GL_CLAMP_TO_EDGE;   // MIRROR_ONCE 는 ES 에 없다
-		}
-	}
-
-	void ApplyRasterizer(const D3D11_RASTERIZER_DESC& d)
-	{
-		if (d.CullMode == D3D11_CULL_NONE) glDisable(GL_CULL_FACE);
-		else
-		{
-			glEnable(GL_CULL_FACE);
-			glCullFace(d.CullMode == D3D11_CULL_FRONT ? GL_FRONT : GL_BACK);
-		}
-		glFrontFace(d.FrontCounterClockwise ? GL_CW : GL_CCW);   // 창 y = D3D 행 번호 → 감김 방향이 뒤집혀 보인다
-		if (d.DepthBias != 0 || d.SlopeScaledDepthBias != 0.0f)
-		{
-			glEnable(GL_POLYGON_OFFSET_FILL);
-			glPolygonOffset(d.SlopeScaledDepthBias, (GLfloat)d.DepthBias);
-		}
-		else glDisable(GL_POLYGON_OFFSET_FILL);
-		if (d.ScissorEnable) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
-	}
-
-	void ApplyBlend(const D3D11_BLEND_DESC& d, const float factor[4], UINT sampleMask)
-	{
-		if (d.AlphaToCoverageEnable) glEnable(GL_SAMPLE_ALPHA_TO_COVERAGE); else glDisable(GL_SAMPLE_ALPHA_TO_COVERAGE);
-		for (GLuint i = 0; i < 8; ++i)
-		{
-			const auto& rt = d.RenderTarget[d.IndependentBlendEnable ? i : 0];
-			if (rt.BlendEnable)
-			{
-				glEnablei(GL_BLEND, i);
-				glBlendFuncSeparatei(i, Blend(rt.SrcBlend), Blend(rt.DestBlend), Blend(rt.SrcBlendAlpha), Blend(rt.DestBlendAlpha));
-				glBlendEquationSeparatei(i, BlendOp(rt.BlendOp), BlendOp(rt.BlendOpAlpha));
-			}
-			else glDisablei(GL_BLEND, i);
-			const UINT8 m = rt.RenderTargetWriteMask;
-			glColorMaski(i, (m & 1) != 0, (m & 2) != 0, (m & 4) != 0, (m & 8) != 0);
-		}
-		const float one[4] = { 1, 1, 1, 1 };
-		const float* f = factor ? factor : one;
-		glBlendColor(f[0], f[1], f[2], f[3]);
-		glSampleMaski(0, sampleMask);
-	}
-
-	void ApplyDepthStencil(const D3D11_DEPTH_STENCIL_DESC& d, UINT ref)
-	{
-		if (d.DepthEnable)
-		{
-			glEnable(GL_DEPTH_TEST);
-			glDepthFunc(Compare(d.DepthFunc));
-			glDepthMask(d.DepthWriteMask == D3D11_DEPTH_WRITE_MASK_ALL ? GL_TRUE : GL_FALSE);
-		}
-		else
-		{
-			glDisable(GL_DEPTH_TEST);
-			glDepthMask(GL_FALSE);
-		}
-		if (d.StencilEnable)
-		{
-			glEnable(GL_STENCIL_TEST);
-			glStencilMask(d.StencilWriteMask);
-			glStencilFuncSeparate(GL_FRONT, Compare(d.FrontFace.StencilFunc), (GLint)ref, d.StencilReadMask);
-			glStencilOpSeparate(GL_FRONT, StencilOp(d.FrontFace.StencilFailOp), StencilOp(d.FrontFace.StencilDepthFailOp), StencilOp(d.FrontFace.StencilPassOp));
-			glStencilFuncSeparate(GL_BACK, Compare(d.BackFace.StencilFunc), (GLint)ref, d.StencilReadMask);
-			glStencilOpSeparate(GL_BACK, StencilOp(d.BackFace.StencilFailOp), StencilOp(d.BackFace.StencilDepthFailOp), StencilOp(d.BackFace.StencilPassOp));
-		}
-		else glDisable(GL_STENCIL_TEST);
-	}
-
-	GLuint CreateSampler(const D3D11_SAMPLER_DESC& d)
-	{
-		GLuint s = 0;
-		glGenSamplers(1, &s);
-		const UINT f = (UINT)d.Filter;
-		const bool aniso = (f & 0x40) != 0;
-		const bool minLinear = aniso || (f & 0x10), magLinear = aniso || (f & 0x4), mipLinear = aniso || (f & 0x1);
-		glSamplerParameteri(s, GL_TEXTURE_MIN_FILTER, minLinear ? (mipLinear ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR_MIPMAP_NEAREST) : (mipLinear ? GL_NEAREST_MIPMAP_LINEAR : GL_NEAREST_MIPMAP_NEAREST));
-		glSamplerParameteri(s, GL_TEXTURE_MAG_FILTER, magLinear ? GL_LINEAR : GL_NEAREST);
-		glSamplerParameteri(s, GL_TEXTURE_WRAP_S, Address(d.AddressU));
-		glSamplerParameteri(s, GL_TEXTURE_WRAP_T, Address(d.AddressV));
-		glSamplerParameteri(s, GL_TEXTURE_WRAP_R, Address(d.AddressW));
-		glSamplerParameterf(s, GL_TEXTURE_MIN_LOD, (std::max)(d.MinLOD, -1000.0f));
-		glSamplerParameterf(s, GL_TEXTURE_MAX_LOD, (std::min)(d.MaxLOD, 1000.0f));
-		glSamplerParameterfv(s, GL_TEXTURE_BORDER_COLOR, d.BorderColor);
-		if (aniso && d.MaxAnisotropy > 1)
-			glSamplerParameterf(s, GL_TEXTURE_MAX_ANISOTROPY_EXT, (float)d.MaxAnisotropy);
-		if ((f & 0x180) == 0x80)
-		{
-			glSamplerParameteri(s, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
-			glSamplerParameteri(s, GL_TEXTURE_COMPARE_FUNC, Compare(d.ComparisonFunc));
-		}
-		return s;
-	}
-
-	// D3D11 기본 상태 (RHI ResetState)
-	void ApplyDefaults()
-	{
-		ApplyRasterizer(FxStates::DefaultRasterizer());
-		ApplyBlend(FxStates::DefaultBlend(), nullptr, 0xFFFFFFFF);
-		ApplyDepthStencil(FxStates::DefaultDepthStencil(), 0);
-		glEnable(GL_PRIMITIVE_RESTART_FIXED_INDEX);   // D3D 의 0xFFFF / 0xFFFFFFFF 끊기
-	}
+	using GLESState::ApplyRasterizer;
+	using GLESState::ApplyBlend;
+	using GLESState::ApplyDepthStencil;
+	using GLESState::CreateSampler;
+	using GLESState::ApplyDefaults;
 
 	class ESBuffer : public Rhi::Buffer
 	{
@@ -280,6 +116,10 @@ namespace
 			std::string Error;
 			const FxParser::Pass* Fx = nullptr;
 			bool StatesMade = false;
+			GLInputSignature Signature;   // Gfx 층 CreateInputLayout 이 받는 의미 → location 표
+			ComPtr<GfxRasterizerState> SinkRs;   // Gfx 장치에 붙은 효과: pass 상태를 Gfx 컨텍스트로
+			ComPtr<GfxBlendState> SinkBs;
+			ComPtr<GfxDepthStencilState> SinkDs;
 			D3D11_RASTERIZER_DESC Rs;
 			D3D11_BLEND_DESC Bs;
 			D3D11_DEPTH_STENCIL_DESC Ds;
@@ -295,6 +135,7 @@ namespace
 		std::map<std::string, Rhi::VarId> VarIds;
 		std::map<std::string, GLuint> SamplerObjects;
 		std::vector<GLuint> UnitTextures, UnitSamplers;
+		std::vector<ComPtr<GfxShaderResourceView>> UnitViews;   // Gfx 층 뷰 (Apply 때 GL 텍스처로)
 		std::vector<GLenum> UnitTargets, UnitShadowTarget;
 		std::set<std::string> Reported;
 
@@ -439,12 +280,28 @@ namespace
 				{
 					UnitTextures[s->Unit + arrayIndex] = t ? t->Id : 0;
 					UnitTargets[s->Unit + arrayIndex] = t ? t->Target : 0;
+					UnitViews[s->Unit + arrayIndex] = nullptr;
 				}
 		}
 
-		void SetView(Rhi::VarId, GfxShaderResourceView*, uint32_t) override {}   // Gfx 층은 안드로이드에 아직 없다
+		void SetView(Rhi::VarId var, GfxShaderResourceView* view, uint32_t arrayIndex) override
+		{
+			if (var < 0 || var >= (int)Vars.size()) return;
+			for (const ShaderCross::SamplerBinding* s : Vars[var].Samplers)
+				if ((int)arrayIndex < s->Count)
+				{
+					UnitViews[s->Unit + arrayIndex] = view;
+					UnitTextures[s->Unit + arrayIndex] = 0;
+				}
+		}
 		void SetUav(Rhi::VarId, GfxUnorderedAccessView*) override {}
-		bool NativeInputSignature(int, int, const void**, size_t*) override { return false; }
+		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
+		{
+			if (technique < 0 || technique >= (int)Programs.size() || pass < 0 || pass >= (int)Programs[technique].size()) return false;
+			*data = &Programs[technique][pass].Signature;
+			*size = sizeof(GLInputSignature);
+			return true;
+		}
 		void Apply(int technique, int pass) override;
 	};
 
@@ -460,6 +317,8 @@ namespace
 		bool Index32 = true;
 		GLuint CurrentProgram = 0;
 		GLuint DummyShadow2D = 0, DummyShadowArray = 0, DummyShadowCube = 0, DummyCompare = 0;
+		GfxDevice* SinkDevice = nullptr;     // Gfx 장치 위의 RHI: pass 상태를 이 Gfx 컨텍스트로 (읽기 전용 깊이 등 Gfx 가 아는 상태가 맞게)
+		GfxContext* SinkContext = nullptr;
 
 		ESDevice()
 		{
@@ -828,6 +687,7 @@ namespace
 				const ShaderCross::PassGlsl& pg = e->Src.Passes[index++];
 				ESEffect::PassProgram pp;
 				pp.Fx = &pass;
+				pp.Signature.Inputs = &pg.VertexInputs;
 				pp.Error = pg.Error;
 				if (pp.Error.empty())
 				{
@@ -919,6 +779,7 @@ namespace
 			}
 		}
 		e->UnitTextures.assign(units, 0);
+		e->UnitViews.assign(units, nullptr);
 		e->UnitSamplers.assign(units, 0);
 		e->UnitTargets.assign(units, 0);
 		e->UnitShadowTarget.assign(units, 0);
@@ -979,15 +840,24 @@ namespace
 		for (size_t u = 0; u < UnitTextures.size(); ++u)
 		{
 			glActiveTexture(GL_TEXTURE0 + (GLenum)u);
-			if (!UnitTextures[u] && UnitShadowTarget[u])
+			GLuint tex = UnitTextures[u];
+			GLenum target = UnitTargets[u];
+			if (!tex && UnitViews[u])
+			{
+				unsigned int t = 0;
+				tex = GfxGLES_ResolveView(UnitViews[u].Get(), &t);
+				target = t;
+				glActiveTexture(GL_TEXTURE0 + (GLenum)u);   // 사본 새로 고침이 유닛을 바꿨을 수 있다
+			}
+			if (!tex && UnitShadowTarget[u])
 			{
 				glBindTexture(UnitShadowTarget[u], Device->DummyShadow(UnitShadowTarget[u]));
 				glBindSampler((GLuint)u, UnitSamplers[u] ? UnitSamplers[u] : Device->DummyCompareSampler());
 				continue;
 			}
-			if (UnitTextures[u]) glBindTexture(UnitTargets[u], UnitTextures[u]);
+			if (tex) glBindTexture(target, tex);
 			else { glBindTexture(GL_TEXTURE_2D, 0); glBindTexture(GL_TEXTURE_2D_ARRAY, 0); glBindTexture(GL_TEXTURE_CUBE_MAP, 0); }
-			glBindSampler((GLuint)u, UnitTextures[u] ? UnitSamplers[u] : 0);
+			glBindSampler((GLuint)u, tex ? UnitSamplers[u] : 0);
 		}
 		glActiveTexture(GL_TEXTURE0);
 		// pass 가 정한 상태만 (Effects11 과 같이)
@@ -1004,6 +874,17 @@ namespace
 			if (const auto* bs = find(p.BlendState)) { pp.Bs = FxStates::Blend(*bs); pp.HasBs = true; }
 			if (const auto* ds = find(p.DepthStencilState)) { pp.Ds = FxStates::DepthStencil(*ds); pp.HasDs = true; }
 		}
+		if (Device->SinkContext)
+		{
+			// Gfx 장치 위: 상태 객체로 Gfx 컨텍스트에 (OMGet… 이 맞고, 읽기 전용 깊이 DSV 를 Gfx 가 지킨다)
+			if (pp.HasRs && !pp.SinkRs) Device->SinkDevice->CreateRasterizerState(&pp.Rs, pp.SinkRs.GetAddressOf());
+			if (pp.HasBs && !pp.SinkBs) Device->SinkDevice->CreateBlendState(&pp.Bs, pp.SinkBs.GetAddressOf());
+			if (pp.HasDs && !pp.SinkDs) Device->SinkDevice->CreateDepthStencilState(&pp.Ds, pp.SinkDs.GetAddressOf());
+			if (pp.SinkRs) Device->SinkContext->RSSetState(pp.SinkRs.Get());
+			if (pp.SinkBs) Device->SinkContext->OMSetBlendState(pp.SinkBs.Get(), p.BlendFactor, p.SampleMask);
+			if (pp.SinkDs) Device->SinkContext->OMSetDepthStencilState(pp.SinkDs.Get(), (UINT)p.StencilRef);
+			return;
+		}
 		if (pp.HasRs) ApplyRasterizer(pp.Rs);
 		if (pp.HasBs) ApplyBlend(pp.Bs, p.BlendFactor, p.SampleMask);
 		if (pp.HasDs) ApplyDepthStencil(pp.Ds, (UINT)p.StencilRef);
@@ -1016,4 +897,15 @@ std::unique_ptr<Rhi::Device> CreateGlesRhiDevice(std::string& error)
 	const GLubyte* v = glGetString(GL_VERSION);
 	if (!v) { error = "no current OpenGL ES context"; return nullptr; }
 	return std::make_unique<ESDevice>();
+}
+
+// Gfx(GLES) 장치와 같은 컨텍스트 위의 RHI 장치 — pass 상태는 sink(Gfx 컨텍스트)로
+std::unique_ptr<Rhi::Device> CreateGlesRhiDeviceOnGfx(GfxDevice* sinkDevice, GfxContext* sinkContext, std::string& error)
+{
+	const GLubyte* v = glGetString(GL_VERSION);
+	if (!v) { error = "no current OpenGL ES context"; return nullptr; }
+	auto d = std::make_unique<ESDevice>();
+	d->SinkDevice = sinkDevice;
+	d->SinkContext = sinkContext;
+	return d;
 }

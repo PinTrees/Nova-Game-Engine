@@ -2,7 +2,8 @@
 #   powershell Tools/tests/android.ps1 [-Project 테스트프로젝트] [-Vm "NOVA Test"] [-KeepEmulator] [-SkipEditor]
 #  1) MuMu 의 검사 전용 VM 을 켜고 창을 숨긴다 (없으면 만든다 — 사용자의 다른 VM 은 건드리지 않는다)
 #  2) 에디터 (NOVA_ENGINE) 로 셰이더를 OpenGL ES 3.20 으로 내보내고 (assets/Shaders), DX11 RHI 검사 그림을 기준으로 남긴다
-#  3) Android/build.py 로 APK → adb 설치 → am start -e test rhi → logcat 의 "NOVA_TEST {json}" → adb pull 로 그림 → 화소 비교
+#  3) Android/build.py 로 APK → adb 설치 → am start -e test rhi | gfx → logcat 의 "NOVA_TEST {json}" → adb pull 로 그림 → 화소 비교
+#     (rhi = RHI 층, gfx = Gfx 층 = 엔진 렌더러가 쓰는 D3D11 모양 층의 GLES 구현)
 #  4) 플레이어 셸: 창 표면 · 프레임 루프 · input tap · HOME 뒤 다시 열기 (NOVA_EVENT 줄 + screencap)
 param([string]$Project = 'E:\NovaTest\ScriptTest', [string]$Vm = 'NOVA Test', [switch]$KeepEmulator, [switch]$SkipEditor, [int]$MaxDiff = 20)
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -58,7 +59,8 @@ if (-not $SkipEditor)
         $s = Invoke-NovaJson "android shaders --out `"$assets`""
         Check 'GLES shaders exported' ($s -and $s.written -gt 0) $(if ($s) { "effects $($s.written)/$($s.effects), passes failed $($s.passesFailed)/$($s.passes)" } else { 'no result' })
         $r = Invoke-NovaJson "rhi-test DirectX11 --out `"$Out`""
-        Check 'DX11 reference' (Test-Path (Join-Path $Out 'rhi_DirectX11.png')) 'rhi_DirectX11.png'
+        $g = Invoke-NovaJson "gfx-test DirectX11 --out `"$Out`""
+        Check 'DX11 reference' ((Test-Path (Join-Path $Out 'rhi_DirectX11.png')) -and (Test-Path (Join-Path $Out 'gfx_DirectX11.png'))) 'rhi_DirectX11.png, gfx_DirectX11.png'
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)"; Restore-Layout }
 }
@@ -73,36 +75,36 @@ Check 'APK build' ($py -match 'apk .*nova\.apk') (($py -split "`n" | Where-Objec
 Write-Host '[android] run on emulator'
 $inst = (& $Adb -s $serial install -r $apk 2>&1 | Out-String).Trim()
 Check 'install' ($inst -match 'Success') ($inst -split "`n" | Select-Object -Last 1)
-& $Adb -s $serial logcat -c
-& $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
-& $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity -e test rhi -e size 960x540 | Out-Null
-$line = $null
-$sw = [Diagnostics.Stopwatch]::StartNew()
-while ($sw.Elapsed.TotalSeconds -lt 120 -and -not $line)
+function DeviceTest([string]$test, [string]$label)
 {
-    Start-Sleep -Milliseconds 500
-    $line = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_TEST (\{.*\})' | Select-Object -Last 1)
-}
-& $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out 'logcat.txt')
-if (-not $line) { Check 'rhi test on device' $false 'no NOVA_TEST line in 120 s (logcat.txt)' }
-else
-{
-    $j = $line.Matches[0].Groups[1].Value | ConvertFrom-Json
-    Check 'rhi test on device' ([bool]$j.ok) ("{0}, load {1} ms, draw {2} ms {3}" -f $j.device, $j.loadMs, $j.drawMs, $j.error)
-    if ($j.ok)
+    & $Adb -s $serial logcat -c
+    & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
+    & $Adb -s $serial shell am start -W -n com.nova.engine/android.app.NativeActivity -e test $test -e size 960x540 | Out-Null
+    $line = $null
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt 120 -and -not $line)
     {
-        $bmp = Join-Path $Out 'rhi_GLES.bmp'
-        & $Adb -s $serial pull $j.image $bmp | Out-Null
-        $ref = Join-Path $Out 'rhi_DirectX11.png'
-        if ((Test-Path $bmp) -and (Test-Path $ref))
-        {
-            $c = [NovaImageCompare]::Compare($ref, $bmp, (Join-Path $Out 'rhi_diff_GLES.png'))
-            if ($c) { Check 'GLES = DX11 (RHI scene)' ($c[0] -le $MaxDiff) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2]) }
-            else { Check 'GLES = DX11 (RHI scene)' $false 'size differs' }
-        }
-        else { Check 'GLES = DX11 (RHI scene)' $false 'image missing' }
+        Start-Sleep -Milliseconds 500
+        $line = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'NOVA_TEST (\{.*\})' | Select-Object -Last 1)
     }
+    & $Adb -s $serial logcat -d -s NOVA:* AndroidRuntime:E DEBUG:F libc:F | Set-Content -Encoding utf8 (Join-Path $Out "logcat_$test.txt")
+    if (-not $line) { Check "$test test on device" $false "no NOVA_TEST line in 120 s (logcat_$test.txt)"; return }
+    $j = $line.Matches[0].Groups[1].Value | ConvertFrom-Json
+    Check "$test test on device" ([bool]$j.ok) ("{0}, load {1} ms, draw {2} ms {3}" -f $j.device, $j.loadMs, $j.drawMs, $j.error)
+    if (-not $j.ok) { return }
+    $bmp = Join-Path $Out "${test}_GLES.bmp"
+    & $Adb -s $serial pull $j.image $bmp | Out-Null
+    $ref = Join-Path $Out "${test}_DirectX11.png"
+    if ((Test-Path $bmp) -and (Test-Path $ref))
+    {
+        $c = [NovaImageCompare]::Compare($ref, $bmp, (Join-Path $Out "${test}_diff_GLES.png"))
+        if ($c) { Check "GLES = DX11 ($label)" ($c[0] -le $MaxDiff) ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2]) }
+        else { Check "GLES = DX11 ($label)" $false 'size differs' }
+    }
+    else { Check "GLES = DX11 ($label)" $false 'image missing' }
 }
+DeviceTest 'rhi' 'RHI scene'
+DeviceTest 'gfx' 'Gfx layer scene'
 # ---- 5) 플레이어 셸: 창 표면 · 프레임 루프 · 터치 · 내렸다 올리기 · 회전 (logcat 의 NOVA_EVENT 와 화면 캡처)
 Write-Host '[android] player shell'
 Add-Type -AssemblyName System.Drawing

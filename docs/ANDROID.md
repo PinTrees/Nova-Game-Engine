@@ -14,10 +14,13 @@ MuMu 플레이어(에뮬레이터) 안의 OpenGL ES 3.2 로 검사 장면을 그
 | 위치 | 하는 일 |
 |---|---|
 | `Android/CMakeLists.txt` | NDK 로 `libnova.so` (NativeActivity, Java 코드 없음). 엔진 소스는 `Source/` 에서 필요한 것만 |
-| `Android/Include/` | 엔진의 `#include "pch.h"` 를 받는 안드로이드 pch · `WinCompat.h` (Windows · D3D11 설명 구조체 대체) · `Windows.h` · `PathManager.h` 대체 |
+| `Android/Include/` | 엔진의 `#include "pch.h"` 를 받는 안드로이드 pch · `WinCompat.h` (Windows · D3D11 · DXGI 타입, COM 의 IUnknown · ComPtr · `__uuidof` 대체) · `d3d11.h` · `Windows.h` · `PathManager.h` 대체 |
 | `Android/Source/AndroidMain.cpp` | 진입점 (`android_main`, NDK native_app_glue): `-e test` 이면 화면 없는 EGL (pbuffer) 검사 → 결과 BMP · JSON, logcat `NOVA_TEST {json}`. 없으면 플레이어 셸 |
 | `Android/Source/AndroidPlatform.*` | EGL (컨텍스트는 앱 수명 동안, 창 표면은 생겼다 없어졌다 — 창이 없으면 pbuffer 에 묶어 GPU 자원 유지), 생명 주기 (pause · resume · 창 잃음), 터치 (여러 손가락), logcat `NOVA_EVENT {json}` |
 | `Android/Source/GLESRhi.cpp` | RHI 의 OpenGL ES 3.2 구현 (데스크톱 GL 구현과 같은 규칙, DSA 없이 바인딩 방식) |
+| `Android/Source/GfxGLES.*` | **Gfx 층** (엔진 렌더러가 쓰는 D3D11 모양 층) 의 OpenGL ES 3.2 구현 — 데스크톱 GfxGL 을 바인딩 방식으로. 텍스처 뷰가 없어 부분 뷰 (밉 · 조각 범위, 큐브 ↔ 배열, 다른 형식, 스텐실 읽기) 는 사본 텍스처를 원본이 바뀌었을 때만 새로 고침. base instance 는 인스턴스 버퍼 시작 위치로 |
+| `Android/Source/GLESState.*` | D3D11 상태 · DXGI 형식 → GLES (GfxGLES · GLESRhi 공용). ES 에 없는 BGRA · 16 비트 UNORM 은 올릴 때 바꿈 |
+| `Android/Include/DirectXTex/` · `Android/Source/DirectXTexLite.cpp` | DirectXTex 의 일부 (ScratchImage · 메타데이터 · 행 간격 · DDS 읽기) — Windows 의 DirectXTex 는 미리 빌드된 Windows 라이브러리라 |
 | `Android/build.py` | Gradle 없이 APK: NDK CMake → aapt2 link (+ assets) → zipalign → apksigner (디버그 키) |
 | `ThirdParty/DirectXMath/` | DirectXMath (MIT, Windows SDK 의 것) + `sal.h` 대체 — 안드로이드만 쓴다 |
 | `Source/Build/AndroidTools.*` | 에디터 CLI `nova android shaders --out 폴더` |
@@ -51,7 +54,7 @@ powershell -File Tools/tests/android.ps1
    회전은 검사하지 않는다 (MuMu 태블릿 모드는 `user_rotation` · `wm size` 로 앱 창 크기를 바꾸지 않음)
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
-2 단계 첫 조각 (플레이어 셸) 포함 **15/15**.
+2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.
 
 필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · NDK 28), Java 17+, MuMu 플레이어 12.
 SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\NOVA\AndroidTools` 에 설치한다 ([NOVA_HUB.md](NOVA_HUB.md)).
@@ -59,7 +62,7 @@ SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\
 
 ## 다음
 
-- 2 단계 (진행 중): 창 표면 · 메인 루프 · 생명 주기 · 터치 **완료** → Gfx 층의 GLES 구현 (GfxGL 이 쓰는 GL 4.5 DSA 를 ES 3.2 로) →
+- 2 단계 (진행 중): 창 표면 · 메인 루프 · 생명 주기 · 터치 **완료** → Gfx 층의 GLES 구현 **완료** →
   엔진 코어 (씬 · 컴포넌트 · 렌더러) 를 NDK 로, 에셋은 PC 에서 미리 굽기 (텍스처 · 메시 캐시) → 씬 하나를 PC 플레이어와 같은 그림으로 → 터치를 Input 에
 - 실제 휴대폰 (arm64 · Vulkan) 은 한참 뒤 (사용자 결정)
 - C# 스크립트 런타임 (Mono 등)

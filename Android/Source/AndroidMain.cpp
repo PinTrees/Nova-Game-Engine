@@ -1,6 +1,8 @@
 #include "pch.h"
 #include "Rhi.h"
 #include "RhiTest.h"
+#include "GfxTest.h"
+#include "GfxGLES.h"
 #include "AndroidPlatform.h"
 #include <android_native_app_glue.h>
 #include <android/asset_manager.h>
@@ -121,6 +123,41 @@ namespace
 							png = s_FilesDir + "/rhi_GLES.bmp";
 							if (!WriteBmp(png, r.Rgba, r.Width, r.Height)) { ok = false; error = "bmp write failed: " + png; }
 						}
+					}
+					else if (test == "gfx")
+					{
+						// Gfx 층 (엔진 렌더러와 같은 방식: GfxDevice/GfxContext + FxEffect) — PC 의 gfx-test DirectX11 그림과 비교
+						ComPtr<GfxDevice> gdev;
+						ComPtr<GfxContext> gctx;
+						if (GfxGLES::CreateDevice(gdev.GetAddressOf(), gctx.GetAddressOf(), error))
+						{
+							std::unique_ptr<Rhi::Device> grhi = GfxGLES::CreateRhiDevice(gdev.Get(), gctx.Get(), error);
+							GfxTest::Result r;
+							ok = grhi && GfxTest::Render(gdev.Get(), gctx.Get(), grhi.get(), width, height, r, error);
+							if (ok)
+							{
+								loadMs = r.LoadMs;
+								drawMs = r.DrawMs;
+								png = s_FilesDir + "/gfx_GLES.bmp";
+								if (!WriteBmp(png, r.Rgba, r.Width, r.Height)) { ok = false; error = "bmp write failed: " + png; }
+							}
+							grhi.reset();
+							gctx->ClearState();
+						}
+					}
+					else if (test == "info")
+					{
+						// 확장 목록 (어떤 기능을 쓸 수 있는지 — logcat 의 NOVA_GL_EXTENSIONS 줄)
+						GLint n = 0;
+						glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+						std::string ext;
+						for (GLint i = 0; i < n; ++i)
+						{
+							ext += (const char*)glGetStringi(GL_EXTENSIONS, (GLuint)i);
+							ext += ' ';
+						}
+						Log("NOVA_GL_EXTENSIONS %s", ext.c_str());
+						ok = true;
 					}
 					else error = "unknown test '" + test + "'";
 					dev->Finish();

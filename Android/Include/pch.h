@@ -27,6 +27,7 @@
 #include <DirectXMath.h>
 #include <DirectXPackedVector.h>
 using namespace DirectX;
+using namespace Microsoft::WRL;   // ComPtr (WinCompat.h)
 using namespace std;   // Windows pch 와 같게 (엔진 코드가 기댄다)
 
 #define NOVA_API
@@ -41,3 +42,8 @@ namespace EditorLog
 
 std::wstring string_to_wstring(const std::string& str);
 std::string wstring_to_string(const std::wstring& wstr);
+
+// Windows pch 와 같게: DirectXTex (안드로이드 판), Gfx 층, Effects11 모양 래퍼
+#include <DirectXTex/DirectXTex.h>
+#include "Gfx.h"
+#include "RhiFx.h"

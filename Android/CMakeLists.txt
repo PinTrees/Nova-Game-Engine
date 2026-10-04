@@ -12,9 +12,14 @@ set(NOVA_ANDROID_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/AndroidMain.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/GLESRhi.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Source/AndroidPlatform.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/GLESState.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/GfxGLES.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source/DirectXTexLite.cpp"
     # 엔진 (API 와 상관없는 것)
     "${ROOT}/Source/Graphics/RHI/Rhi.cpp"
     "${ROOT}/Source/Graphics/RHI/RhiTest.cpp"
+    "${ROOT}/Source/Graphics/RHI/RhiFx.cpp"
+    "${ROOT}/Source/Graphics/RHI/GfxTest.cpp"
     "${ROOT}/Source/Graphics/Common/GeometryGenerator.cpp"
     "${ROOT}/Source/Graphics/Common/FxStates.cpp"
     "${ROOT}/Source/Graphics/ShaderCross/ShaderCrossJson.cpp"
@@ -36,6 +41,8 @@ target_include_directories(nova PRIVATE
     "${ROOT}/Source/Graphics/RHI"
     "${ROOT}/Source/Graphics/Common"
     "${ROOT}/Source/Graphics/ShaderCross"
+    "${ROOT}/Source/Graphics/OpenGL"               # GLShared.h (GL 입력 서명 — 데스크톱 GL 과 같은 모양)
+    "${ROOT}/Source/Core"
     "${ROOT}/Source/Math"
 )
 target_compile_definitions(nova PRIVATE NOVA_ANDROID=1)
