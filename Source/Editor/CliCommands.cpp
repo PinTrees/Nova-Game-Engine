@@ -436,6 +436,7 @@ namespace CliCommands
 			int frames = 0, gpuFrames = 0;
 			double cpu = 0, gpu = 0, cpuMax = 0;
 			std::map<std::string, std::pair<double, int>> passes, cpuScopes;
+			std::map<std::string, std::pair<double, double>> passWork;   // GPU 구간의 삼각형 · 픽셀 셰이더 수 (PIPELINE_STATISTICS — 시간과 달리 CPU 대기에 흔들리지 않는다)
 			for (const Profiler::Frame& f : Profiler::History())
 			{
 				if (f.Index <= s_PerfFirst + 2)   // 켠 직후 2 프레임은 건너뛴다 (구간이 다 차지 않음)
@@ -457,9 +458,13 @@ namespace CliCommands
 					for (const Profiler::GpuSample& g : f.Gpu)
 						if (g.Depth <= gpuDepth)
 						{
-							auto& p = passes[std::string(g.Depth, '.') + g.Name];
+							const std::string key = std::string(g.Depth, '.') + g.Name;
+							auto& p = passes[key];
 							p.first += g.Ms;
 							++p.second;
+							auto& w = passWork[key];
+							w.first += (double)g.Primitives;
+							w.second += (double)g.Pixels;
 						}
 				}
 			}
@@ -470,7 +475,12 @@ namespace CliCommands
 			std::sort(top.rbegin(), top.rend());
 			json list = json::array();
 			for (size_t i = 0; i < top.size() && i < (gpuDepth > 1 ? 40u : 12u); ++i)
-				list.push_back({ { "pass", top[i].second }, { "ms", std::round(top[i].first * 1000.0) / 1000.0 } });
+			{
+				const auto& w = passWork[top[i].second];
+				const double n = (std::max)(1, gpuFrames);
+				list.push_back({ { "pass", top[i].second }, { "ms", std::round(top[i].first * 1000.0) / 1000.0 },
+					{ "primitives", std::round(w.first / n) }, { "pixels", std::round(w.second / n) } });
+			}
 			std::vector<std::pair<double, std::string>> topCpu;
 			for (auto& [name, p] : cpuScopes)
 				topCpu.push_back({ p.first / frames, name });

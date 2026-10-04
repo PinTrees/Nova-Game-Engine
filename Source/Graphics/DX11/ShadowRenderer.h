@@ -68,4 +68,14 @@ namespace ShadowRenderer
 
 	// 받는 쪽(InstancedBasic) 변수 설정
 	void Bind(InstancedBasicEffect* fx, ShadowMap& maps, const FrameData& data);
+
+	// 지금 그리는 그림자 패스 (drawCasters 안에서만 — MeshBatcher 가 그림자 캐스터 오클루전 컬링에 쓴다)
+	struct CasterPass
+	{
+		bool Directional = false;   // 방향광 캐스케이드
+		bool EveryFrame = false;    // 매 프레임 다시 그리는 캐스케이드 (몇 프레임 캐시하는 먼 캐스케이드는 카메라에 따라 빼면 안 된다)
+		XMFLOAT3 Direction = {};    // 빛이 나아가는 방향 (단위)
+		float Reach = 0.0f;         // 그림자가 닿을 수 있는 거리 = 캐스케이드 구의 지름 (받는 표면은 그 구 안)
+	};
+	inline CasterPass Current;
 }

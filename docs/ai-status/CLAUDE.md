@@ -9,7 +9,9 @@
     GPU: Hi-Z 를 반 해상도부터 (2 ~ 3.5 ms 로 보이던 구간 → 0.06 ~ 0.24 ms), 통계 읽기 DONOTFLUSH, 렌더러 64 개 미만 · 거의 안 가리면 쉼. `nova perf --gpu-depth`
   - 오클루전 컬링 넓히기 (진행 중): **Skinned Mesh Renderer** = 상자 오클루전 예측 쿼리 + SetPredication (`SkinnedMeshRenderer.*` · `SceneCulling.*` — 상자를 렌더러 Bounds 로,
     예전 FBX cm 정점 그대로의 100 배 상자 고침), **나무** = GPU 인스턴스 목록 컬링 (`TreeRenderer.cpp`, `OcclusionCulling::CullList`), Hi-Z 검사 정밀도 (5x5 칸) — occlusion 8/8, animation · render 통과
-  - 다음: 그림자 (그림자를 깊이 프리패스 뒤로 옮겨 카메라 Hi-Z 로 그림자 볼륨이 가려진 캐스터를 뺀다)
+  - **그림자 캐스터** (완료): `EditorApp.cpp` 에서 그림자를 깊이 프리패스 뒤로 (그다음 카메라 컬링 다시), `ShadowRenderer.*` 의 `Current` (방향광 · 매 프레임 캐스케이드 · 빛 방향 · 구 지름),
+    `MeshBatcher` 가 빛 방향으로 쓸어 늘린 상자를 `OcclusionCulling::BeginShadow` 로 카메라 Hi-Z 검사 → 간접 그리기. `nova perf` 의 구간마다 삼각형 · 픽셀 (PIPELINE_STATISTICS — 시간보다 믿을 수 있다)
+  - 검사: 렌더링 회귀 12 스위트 **107/107** (occlusion 9 · linetrail · lodgroup · reflectionprobe · probevolume · antialiasing · decal · ssr · depthoffield · shadergraph · animation · render), 안드로이드 빌드
 - 이전: 2026년 10월 4일 — **오클루전 컬링 (굽기 없는 GPU Hi-Z)** (사용자 지시: "너가 말한 방식으로 … 최고 효율방식 … 별도 사전 작업 없이 실시간"). **완료** — occlusion **7/7**, 회귀 lodgroup · shadergraph · reflectionprobe · probevolume · antialiasing · render 포함 **71/71**
   - 새 `Shaders/57. OcclusionCulling.hlsl` (cs_5_0 커널 5 개 — fx 가 아니라 GLES 변환 대상 아님), 새 `Source/Graphics/DX11/OcclusionCulling.*` (두 단계 Hi-Z, DrawIndexedInstancedIndirect, CLI `nova occlusion`)
   - `MeshBatcher.*` (GPU 목록 · `FinishDepthPrepass`), `SceneCulling.*` (TrackedSlot · SlotCount), `MeshGeometry.*` (BindForInstancing · GetSubset), `EditorApp.cpp` (Game · Scene 뷰 프리패스 뒤), `Camera.h` (UsesOcclusionCulling),

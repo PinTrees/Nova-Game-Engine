@@ -15,7 +15,7 @@ class GfxContext;
 //  DirectX 11 만. OpenGL · Vulkan · 안드로이드는 Begin 이 false → 절두체 컬링만 (예전과 같음)
 namespace OcclusionCulling
 {
-	enum Set { DepthPhase1 = 0, DepthPhase2 = 1, Main = 2, SetCount = 3 };
+	enum Set { DepthPhase1 = 0, DepthPhase2 = 1, Main = 2, ShadowSet = 3, SetCount = 4 };
 
 	struct Caster
 	{
@@ -73,6 +73,9 @@ namespace OcclusionCulling
 		bool Indexed;
 	};
 	bool HasHiZ();   // 지금 뷰의 Hi-Z 가 있다 (깊이 프리패스 뒤)
+	// 그림자 캐스터 (방향광 캐스케이드 — 매 프레임 다시 그리는 것만): frame.Casters 의 상자 = 빛 방향으로 쓸어 늘린 상자 (그림자가 떨어질 수 있는 곳),
+	//  Items[0] / Batches[0] = 깊이 묶음. 그 상자가 카메라 Hi-Z 에 모두 가려진 캐스터는 빼고 ShadowSet 으로 간접 그리기. false = CPU 목록
+	bool BeginShadow(GfxContext* dc, Frame& frame);
 	// 반환 = 목록 번호, -1 = 못 했다 (호출한 쪽이 CPU 목록으로 그린다). spheres = 인스턴스마다 xyz 중심 + 반지름
 	int CullList(GfxContext* dc, const void* instances, uint32_t stride, uint32_t count, const float* spheres, const ListDraw* draws, int drawCount);
 	// 걸러진 인스턴스를 instanceSlot 정점 버퍼에 묶고 draw 번째 그리기 (입력 배치 · 셰이더 · 0 번 버퍼는 호출한 쪽이)
@@ -87,6 +90,7 @@ namespace OcclusionCulling
 		int Queries = 0;       // 마지막 뷰의 오클루전 쿼리 (Skinned Mesh Renderer) 수
 		int QueriesHidden = 0; // 그중 가려져 GPU 가 그리기를 건너뛴 수 (한 프레임 전 결과)
 		int ListTested = 0, ListVisible = 0;   // 인스턴스 목록 (나무) 검사 · 보임
+		int ShadowTested = 0, ShadowVisible = 0;   // 그림자 캐스터 (캐스케이드를 모두 더함) 검사 · 남김
 	};
 	// 몇 프레임 늦은 GPU 결과 (기다리지 않고 읽는다)
 	const Stats& LastStats(bool editor);

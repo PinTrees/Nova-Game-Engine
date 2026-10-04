@@ -2634,9 +2634,14 @@ function Suite-Occlusion
         OccOn $false; Invoke-Nova 'wait 10' | Out-Null
         $perfOff = Invoke-NovaJson 'perf --frames 120'
         OccOn $true
-        # 단계별 GPU (깊이 프리패스 · 불투명 · 그림자)
-        $phases = (@('Depth Prepass', 'Opaque', 'Shadows') | ForEach-Object { $n = $_; $a = @($perfOn.gpuPasses | Where-Object { $_.pass -match $n })[0]; $b = @($perfOff.gpuPasses | Where-Object { $_.pass -match $n })[0]; if ($a -and $b) { "{0} {1:N2}/{2:N2}" -f $n, $a.ms, $b.ms } }) -join ', '
-        Add-Result occlusion 'Performance: 2000 hidden spheres — Scene view GPU time lower with occlusion culling' ($o.scene.culled -ge 2000 -and $perfOn.gpuMs -gt 0 -and $perfOn.gpuMs -lt $perfOff.gpuMs) ("culled {0}/{1}; GPU {2:N2} ms (on) vs {3:N2} ms (off) [{6}], CPU {4:N2} vs {5:N2} ms" -f $o.scene.culled, $o.scene.tested, $perfOn.gpuMs, $perfOff.gpuMs, $perfOn.cpuMs, $perfOff.cpuMs, $phases)
+        # 단계별 GPU 일 (PIPELINE_STATISTICS 의 삼각형 — 시간은 CPU 가 늦은 Debug 프레임에서 GPU 가 쉬는 시간이 구간에 붙어 흔들린다)
+        function Work($perf, [string]$n) { $p = @($perf.gpuPasses | Where-Object { $_.pass -match "^\.$n$" })[0]; if ($p) { [double]$p.primitives } else { 0 } }
+        $phases = (@('Depth Prepass', 'Opaque', 'Shadows') | ForEach-Object { "{0} {1:N0}k/{2:N0}k tris" -f $_, ((Work $perfOn $_) / 1000), ((Work $perfOff $_) / 1000) }) -join ', '
+        $less = (Work $perfOn 'Depth Prepass') -lt (Work $perfOff 'Depth Prepass') -and (Work $perfOn 'Opaque') -lt (Work $perfOff 'Opaque') * 0.5
+        Add-Result occlusion 'Performance: 2000 hidden spheres — far fewer triangles in the depth prepass and opaque pass' ($o.scene.culled -ge 2000 -and $less) ("culled {0}/{1}; {6}; GPU {2:N2} ms (on) vs {3:N2} ms (off), CPU {4:N2} vs {5:N2} ms" -f $o.scene.culled, $o.scene.tested, $perfOn.gpuMs, $perfOff.gpuMs, $perfOn.cpuMs, $perfOff.cpuMs, $phases)
+        # 그림자 캐스터: 빛 방향으로 쓸어 늘린 상자가 카메라 깊이에 가려진 캐스터 (벽 뒤 구의 그림자는 벽 뒤 바닥에만 떨어진다)
+        $shOn = Work $perfOn 'Shadows'; $shOff = Work $perfOff 'Shadows'
+        Add-Result occlusion 'Shadow casters whose shadow cannot reach a visible surface are skipped (every-frame cascades) — fewer shadow triangles' ($o.scene.shadowTested -gt 0 -and $o.scene.shadowCulled -ge 100 -and $shOn -lt $shOff) ("shadow casters {0}, culled {1}; Shadows {2:N0}k vs {3:N0}k triangles" -f $o.scene.shadowTested, $o.scene.shadowCulled, ($shOn / 1000), ($shOff / 1000))
         $perfOn.gpuPasses | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $dir 'perf_on.json')
         $perfOff.gpuPasses | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $dir 'perf_off.json')
         Invoke-Nova 'log --errors -n 5' | Out-Null

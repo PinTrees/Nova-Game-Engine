@@ -513,33 +513,12 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(d.Position);
 
-	// 그림자 맵: 카메라 위치의 Volume 값(Shadows)을 먼저 섞어 캐스케이드/해상도/바이어스를 정한다
+	// Volume 값 (Shadows · 후처리) 을 카메라 위치로 섞는다
 	auto& stack = PostProcessingManager::GetI()->GameStack();
-	{
-		const XMFLOAT3 gameCamPos = d.Position;
-		VolumeManager::Update(stack, Vec3(gameCamPos.x, gameCamPos.y, gameCamPos.z));
-		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
-		phase.Next("Shadows");
-		ShadowRenderer::Settings shadowSettings = ShadowRenderer::Settings::FromStack(stack);
-		if (probe)
-		{
-			shadowSettings.MaxDistance = (std::max)(d.ShadowDistance, 0.01f);   // 프로브의 Shadow Distance
-			shadowSettings.FarCascadeUpdate = 0;
-		}
-		if (!giCapture)   // 알베도 찍기는 빛 · 그림자가 없다
-			ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
-				gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
-				[]() {
-					// 그림자 조각마다 빛의 절두체로 컬링
-					SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
-					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-				});
-		if (!probe)
-			Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
-		_deviceContext->RSSetState(0);
-		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
+	VolumeManager::Update(stack, Vec3(d.Position.x, d.Position.y, d.Position.z));
+	_deviceContext->RSSetState(0);
+	_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	_deviceContext->RSSetViewports(1, &viewport);
 
 	// PostProcessing - SSAO
 	phase.Next("Depth Prepass");
@@ -575,6 +554,34 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), false);   // 오클루전 컬링: 깊이 → Hi-Z → 새로 보인 렌더러
 
 	_deviceContext->RSSetState(0);
+
+	// 그림자 맵 (깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 그림자가 보이지 않는 캐스터를 뺀다 — 매 프레임 그리는 방향광 캐스케이드)
+	{
+		const XMFLOAT3 gameCamPos = d.Position;
+		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
+		phase.Next("Shadows");
+		ShadowRenderer::Settings shadowSettings = ShadowRenderer::Settings::FromStack(stack);
+		if (probe)
+		{
+			shadowSettings.MaxDistance = (std::max)(d.ShadowDistance, 0.01f);   // 프로브의 Shadow Distance
+			shadowSettings.FarCascadeUpdate = 0;
+		}
+		if (!giCapture)   // 알베도 찍기는 빛 · 그림자가 없다
+			ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
+				gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
+				[]() {
+					// 그림자 조각마다 빛의 절두체로 컬링
+					SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+				});
+		if (!probe)
+			Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
+		_deviceContext->RSSetState(0);
+		_deviceContext->RSSetViewports(1, &viewport);
+		// 그림자 조각마다 빛으로 컬링했다 → 카메라 컬링을 되돌린다 (본 패스 · 투명 · 스킨 메시가 따른다)
+		SceneCulling::SetEditorView(false);
+		SceneCulling::Cull(d.View * d.Proj, false);
+	}
 
 	// PostProcessing - SSAO
 	// 프로브: SSAO 없음 (노멀 · 깊이 타깃은 화면 크기라 프로브 크기의 화면과 맞지 않는다 — 흰 그림으로)
@@ -783,24 +790,12 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
-	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드)
 	auto& stack = PostProcessingManager::GetI()->EditorStack();
 	const XMFLOAT3 camPos = camera->GetPosition();
 	VolumeManager::Update(stack, Vec3(camPos.x, camPos.y, camPos.z));
-	{
-		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
-		phase.Next("Shadows");
-		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
-			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
-			[]() {
-				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-			});
-		Profiler::SetStat("Scene View/Shadow Cascades Redrawn", s_EditorShadow.CascadesDrawn);
-		_deviceContext->RSSetState(0);
-		_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
+	_deviceContext->RSSetState(0);
+	_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+	_deviceContext->RSSetViewports(1, &viewport);
 
 	// PostProcessing - SSAO
 	phase.Next("Depth Prepass");
@@ -817,6 +812,23 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), true);
 
 	_deviceContext->RSSetState(0);
+
+	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드 — 깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 캐스터를 거른다)
+	{
+		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
+		phase.Next("Shadows");
+		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
+			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
+			[]() {
+				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+			});
+		Profiler::SetStat("Scene View/Shadow Cascades Redrawn", s_EditorShadow.CascadesDrawn);
+		_deviceContext->RSSetState(0);
+		_deviceContext->RSSetViewports(1, &viewport);
+		SceneCulling::SetEditorView(true);
+		SceneCulling::Cull(camera->View() * camera->Proj(), false);   // 빛 컬링 뒤 카메라 컬링을 되돌린다
+	}
 
 	// PostProcessing - SSAO
 	phase.Next("SSAO");

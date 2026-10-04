@@ -153,6 +153,7 @@ namespace ShadowRenderer
 		++out.FrameCounter;
 		out.CascadesDrawn = 0;
 		bool redraw[4] = { true, true, true, true };
+		bool everyFrame[4] = { true, true, true, true };   // 캐시하지 않는 캐스케이드 (그림자 캐스터 오클루전 컬링을 써도 된다)
 		{
 			uint64_t key = (uint64_t)count * 1000003ull + (uint64_t)s.Resolution;
 			auto mixF = [&](float f) { uint32_t u; memcpy(&u, &f, 4); key = key * 1099511628211ull ^ u; };
@@ -171,6 +172,7 @@ namespace ShadowRenderer
 					interval = (i == 2 ? 2 : 4) * (s.FarCascadeUpdate == 2 ? 2 : 1);
 					phase = i == 2 ? 0 : 1;   // 3·4 번째가 같은 프레임에 겹치지 않게
 				}
+				everyFrame[i] = interval == 1;
 				const auto& c = out.Cache[i];
 				bool need = interval == 1 || !c.Valid || c.SettingsKey != key || (f % (uint64_t)interval) != (uint64_t)phase % interval;
 				if (!need)
@@ -246,7 +248,9 @@ namespace ShadowRenderer
 				{
 					PROFILE_GPU(kCascadeNames[i]);   // Profiler: 캐스케이드마다 GPU 시간·픽셀
 					RenderLayers::SetPassMask(light.GetCullingMaskBits());   // 이 빛이 비추지 않는 레이어는 그림자도 없다
+					Current = CasterPass{ true, everyFrame[i], lookDir, 2.0f * r };
 					drawCasters();
+					Current = CasterPass();
 					RenderLayers::SetPassMask(~0u);
 				}
 				cache.Dir[d] = out.Dir[d * 4 + i];

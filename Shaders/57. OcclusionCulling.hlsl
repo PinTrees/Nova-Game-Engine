@@ -4,6 +4,7 @@
 //                 gMode 0 = 지난 프레임에 보임 (깊이 프리패스 1 단계), 1 = 새로 보임 (2 단계), 2 = 지금 보임 (본 패스)
 //  3. ReduceCS : 깊이 버퍼 → Hi-Z 0 번 (반 해상도 — 칸 하나 = 깊이 2x2), 그 위로 밉마다 아래 2x2 의 가장 먼 깊이
 //  6. CullListCS : CPU 가 만든 인스턴스 목록 (나무) 을 같은 Hi-Z 로 — 본 패스의 간접 그리기
+//  7. ShadowCullCS : 그림자 캐스터의 빛 방향으로 쓸어 늘린 상자를 카메라 Hi-Z 로 (그림자를 깊이 프리패스 뒤에 그린다)
 //  5. BoxVS : Skinned Mesh Renderer 의 상자를 오클루전 예측 쿼리로 그린다 (본 패스는 SetPredication — 가려지면 GPU 가 건너뛴다)
 //  4. CullCS : 렌더러 상자를 화면에 투영해 덮는 Hi-Z 4 칸의 가장 먼 깊이보다 상자의 가장 가까운 깊이가 앞이면 보임 → gFlags 비트 0, gHistory
 
@@ -42,7 +43,7 @@ struct World
     float4 R0, R1, R2, R3;
 };
 
-#if defined(KERNEL_CULL) || defined(KERNEL_LIST)
+#if defined(KERNEL_CULL) || defined(KERNEL_LIST) || defined(KERNEL_SHADOW)
 
 Texture2D<float> gHiZ : register(t1);       // 모든 밉
 
@@ -175,6 +176,27 @@ void CullCS(uint3 id : SV_DispatchThreadID)
     }
     gFlags.Store(id.x * 4, f);
     gCounters.InterlockedAdd(0, 1);
+}
+
+#elif defined(KERNEL_SHADOW)
+
+// 7. ShadowCullCS : 그림자 캐스터 — 상자를 빛 방향으로 쓸어 늘린 상자 (CPU 가 만든다 = 그림자가 떨어질 수 있는 곳 전부) 가
+//    카메라 Hi-Z 에 모두 가려졌으면 그 그림자는 보이는 표면에 닿지 않는다 → 이 캐스케이드에서 뺀다. 이어서 CompactCS (gMode 2)
+StructuredBuffer<Caster> gCasters : register(t0);
+RWByteAddressBuffer gFlags : register(u1);
+RWByteAddressBuffer gCounters : register(u2);   // 0 = 검사, 4 = 보임 (뷰의 그림자 카운터)
+
+[numthreads(64, 1, 1)]
+void ShadowCullCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= gCount)
+        return;
+    const Caster c = gCasters[id.x];
+    const bool visible = gLevels == 0 || HiZVisible(c.Min, c.Max);
+    gFlags.Store(id.x * 4, visible ? 1u : 0u);
+    gCounters.InterlockedAdd(0, 1);
+    if (visible)
+        gCounters.InterlockedAdd(4, 1);
 }
 
 #elif defined(KERNEL_LIST)

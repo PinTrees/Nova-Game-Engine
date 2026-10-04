@@ -33,7 +33,7 @@ namespace
 	};
 	static_assert(sizeof(Constants) == 128, "cbOcclusion");
 
-	enum Kernel { KPrepare, KCompact, KReduce, KCull, KList, KCount };
+	enum Kernel { KPrepare, KCompact, KReduce, KCull, KList, KShadow, KCount };
 	ComPtr<ID3D11ComputeShader> s_Kernels[KCount];
 	int s_KernelState = 0;   // 0 아직, 1 됨, -1 실패 (다시 시도하지 않는다)
 
@@ -65,6 +65,8 @@ namespace
 		size_t PredicatesUsed = 0;
 		Buf ListCounters;                  // 인스턴스 목록 (나무) 검사 · 보임 수 — 다음 프레임 Finish 에서 Staging 으로
 		bool ListCountersUsed = false;
+		Buf ShadowCounters;                // 그림자 캐스터 검사 · 보임 수 (캐스케이드를 모두 더함) — 같은 방식
+		bool ShadowCountersUsed = false;
 		bool Pending[3] = {};
 		int Next = 0;
 	};
@@ -74,6 +76,7 @@ namespace
 	Buf s_Casters, s_Worlds, s_Items[2], s_Flags, s_Counters, s_Args[OcclusionCulling::SetCount], s_Out[OcclusionCulling::SetCount];
 	ComPtr<ID3D11Buffer> s_Constants;
 	std::vector<OcclusionCulling::Batch> s_Batches[2];
+	std::vector<OcclusionCulling::Batch> s_ShadowBatches;   // 그림자 (깊이 묶음, 캐스케이드마다 다시)
 	ComPtr<ID3D11Texture2D> s_DepthTex;   // 깊이 SRV 를 만든 텍스처 (같으면 다시 쓴다)
 	ComPtr<ID3D11ShaderResourceView> s_DepthSrv;
 
@@ -149,8 +152,8 @@ namespace
 	{
 		if (s_KernelState != 0)
 			return s_KernelState > 0;
-		static const char* entries[KCount] = { "PrepareCS", "CompactCS", "ReduceCS", "CullCS", "CullListCS" };
-		static const char* defines[KCount] = { "KERNEL_PREPARE", "KERNEL_COMPACT", "KERNEL_REDUCE", "KERNEL_CULL", "KERNEL_LIST" };
+		static const char* entries[KCount] = { "PrepareCS", "CompactCS", "ReduceCS", "CullCS", "CullListCS", "ShadowCullCS" };
+		static const char* defines[KCount] = { "KERNEL_PREPARE", "KERNEL_COMPACT", "KERNEL_REDUCE", "KERNEL_CULL", "KERNEL_LIST", "KERNEL_SHADOW" };
 		const ULONGLONG start = ::GetTickCount64();
 		for (int k = 0; k < KCount; ++k)
 		{
@@ -424,6 +427,8 @@ namespace
 			st.Visible = (int)p[1];
 			st.ListTested = (int)p[2];
 			st.ListVisible = (int)p[3];
+			st.ShadowTested = (int)p[4];
+			st.ShadowVisible = (int)p[5];
 			++st.Frames;
 			// 거의 아무것도 가리지 않았다 → 30 번 쉬고 다시 본다 (탁 트인 장면에서 Hi-Z 비용만 들지 않게)
 			const int culled = st.Tested - st.Visible;
@@ -495,7 +500,7 @@ namespace OcclusionCulling
 		bool ok = EnsureStructured(dev.Get(), s_Casters, sizeof(Caster), casters) && Upload(ctx, s_Casters, frame.Casters.data(), casters * sizeof(Caster))
 			&& EnsureStructured(dev.Get(), s_Worlds, 64, casters) && Upload(ctx, s_Worlds, frame.Worlds.data(), casters * 64)
 			&& EnsureRaw(dev.Get(), ctx, s_Flags, casters * 4, 0, 0, true)
-			&& EnsureRaw(dev.Get(), ctx, s_Counters, 16, 0, 0, false)
+			&& EnsureRaw(dev.Get(), ctx, s_Counters, 32, 0, 0, false)
 			&& EnsureRaw(dev.Get(), ctx, v.History, (slotCount + 1) * 4, 0, 0, false, true);
 		for (int s = 0; s < 2 && ok; ++s)
 			ok = EnsureStructured(dev.Get(), s_Items[s], sizeof(Item), (UINT)frame.Items[s].size()) && Upload(ctx, s_Items[s], frame.Items[s].data(), frame.Items[s].size() * sizeof(Item));
@@ -614,6 +619,17 @@ namespace OcclusionCulling
 			ctx->ClearUnorderedAccessViewUint(v.ListCounters.Uav.Get(), zero);
 			v.ListCountersUsed = false;
 		}
+		// 지난 프레임의 그림자 캐스터 수 → 16 · 20 바이트
+		if (v.ShadowCounters.B)
+		{
+			if (v.ShadowCountersUsed)
+			{
+				const D3D11_BOX box = { 0, 0, 0, 8, 1, 1 };
+				ctx->CopySubresourceRegion(s_Counters.B.Get(), 0, 16, 0, 0, v.ShadowCounters.B.Get(), 0, &box);
+			}
+			ctx->ClearUnorderedAccessViewUint(v.ShadowCounters.Uav.Get(), zero);
+			v.ShadowCountersUsed = false;
+		}
 		c.Count = s_Cur.Casters;
 		SetConstants(ctx, c);
 		Run(ctx, KCull, { s_Casters.Srv.Get(), v.AllSrv.Get() }, { v.History.Uav.Get(), s_Flags.Uav.Get(), s_Counters.Uav.Get() }, Groups(c.Count, 64));
@@ -627,7 +643,7 @@ namespace OcclusionCulling
 		if (!v.Staging[v.Next])
 		{
 			D3D11_BUFFER_DESC d = {};
-			d.ByteWidth = 16;
+			d.ByteWidth = 32;
 			d.Usage = D3D11_USAGE_STAGING;
 			d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 			dev->CreateBuffer(&d, nullptr, v.Staging[v.Next].GetAddressOf());
@@ -646,6 +662,66 @@ namespace OcclusionCulling
 		ctx->OMSetRenderTargets(rtCount, rtvs, dsv);
 		for (ID3D11RenderTargetView* r : rtvs) if (r) r->Release();
 		if (dsv) dsv->Release();
+	}
+
+	bool BeginShadow(GfxContext* dc, Frame& frame)
+	{
+		ID3D11DeviceContext* ctx = Native(dc);
+		if (!ctx || !HasHiZ() || frame.Casters.empty() || frame.Items[0].empty())
+			return false;
+		ComPtr<ID3D11Device> dev;
+		ctx->GetDevice(dev.GetAddressOf());
+		View& v = *s_Cur.V;
+		// 깊이 묶음마다 자리
+		std::vector<Batch>& batches = frame.Batches[0];
+		for (Batch& b : batches) b.Candidates = 0;
+		for (const Item& it : frame.Items[0]) ++batches[it.Batch].Candidates;
+		std::vector<uint32_t> args;
+		args.reserve(batches.size() * 5);
+		{
+			std::vector<uint32_t> base(batches.size());
+			uint32_t next = 0;
+			for (size_t b = 0; b < batches.size(); ++b)
+			{
+				base[b] = next;
+				args.insert(args.end(), { batches[b].IndexCount, 0u, batches[b].StartIndex, (uint32_t)batches[b].BaseVertex, next });
+				next += batches[b].Candidates;
+			}
+			for (Item& it : frame.Items[0]) it.Base = base[it.Batch];
+		}
+		s_ShadowBatches = batches;
+		const UINT casters = (UINT)frame.Casters.size(), items = (UINT)frame.Items[0].size();
+		// 카메라 컬링이 끝난 뒤라 캐스터 · 월드 · 항목 · 표시 버퍼를 다시 쓴다 (본 패스는 Main 결과만 쓴다)
+		const bool ok = EnsureStructured(dev.Get(), s_Casters, sizeof(Caster), casters) && Upload(ctx, s_Casters, frame.Casters.data(), casters * sizeof(Caster))
+			&& EnsureStructured(dev.Get(), s_Worlds, 64, casters) && Upload(ctx, s_Worlds, frame.Worlds.data(), casters * 64)
+			&& EnsureStructured(dev.Get(), s_Items[0], sizeof(Item), items) && Upload(ctx, s_Items[0], frame.Items[0].data(), items * sizeof(Item))
+			&& EnsureRaw(dev.Get(), ctx, s_Flags, casters * 4, 0, 0, true)
+			&& EnsureRaw(dev.Get(), ctx, v.ShadowCounters, 16, 0, 0, false)
+			&& EnsureRaw(dev.Get(), ctx, s_Args[ShadowSet], (UINT)args.size() * 4, 0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, false)
+			&& EnsureRaw(dev.Get(), ctx, s_Out[ShadowSet], items * 64, D3D11_BIND_VERTEX_BUFFER, 0, false);
+		if (!ok)
+			return false;
+		const D3D11_BOX box = { 0, 0, 0, (UINT)args.size() * 4, 1, 1 };
+		ctx->UpdateSubresource(s_Args[ShadowSet].B.Get(), 0, &box, args.data(), 0, 0);
+
+		PROFILE_GPU("Shadow Occlusion");
+		Constants c = {};
+		memcpy(c.ViewProj, s_Cur.ViewProj, sizeof(c.ViewProj));
+		c.ViewSize[0] = (float)s_HiZW;
+		c.ViewSize[1] = (float)s_HiZH;
+		c.Levels = s_HiZLevels;
+		c.Count = casters;
+		SetConstants(ctx, c);
+		Run(ctx, KShadow, { s_Casters.Srv.Get(), v.AllSrv.Get() }, { nullptr, s_Flags.Uav.Get(), v.ShadowCounters.Uav.Get() }, Groups(casters, 64));
+		c.Count = items;
+		c.Mode = 2;   // 보이는 것만
+		SetConstants(ctx, c);
+		Run(ctx, KCompact, { s_Items[0].Srv.Get(), s_Worlds.Srv.Get(), s_Flags.Srv.Get() }, { s_Args[ShadowSet].Uav.Get(), s_Out[ShadowSet].Uav.Get() }, Groups(items, 64));
+		ctx->CSSetShader(nullptr, nullptr, 0);
+		ID3D11Buffer* nullCb = nullptr;
+		ctx->CSSetConstantBuffers(0, 1, &nullCb);
+		v.ShadowCountersUsed = true;
+		return true;
 	}
 
 	bool HasHiZ()
@@ -848,14 +924,14 @@ namespace OcclusionCulling
 	void DrawIndirect(GfxContext* dc, Set set, uint32_t batch, MeshGeometry& geometry, uint32_t subset)
 	{
 		ID3D11DeviceContext* ctx = Native(dc);
-		const int s = set == Main ? 1 : 0;
-		if (!ctx || batch >= s_Batches[s].size() || !s_Args[set].B)
+		const std::vector<Batch>& batches = set == ShadowSet ? s_ShadowBatches : s_Batches[set == Main ? 1 : 0];
+		if (!ctx || batch >= batches.size() || !s_Args[set].B)
 			return;
 		geometry.BindForInstancing(dc);
 		ID3D11Buffer* inst = s_Out[set].B.Get();
 		const UINT stride = 64, offset = 0;
 		ctx->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-		const Batch& b = s_Batches[s][batch];
+		const Batch& b = batches[batch];
 		RenderStats::AddDraw(b.IndexCount, geometry.GetSubset(subset).VertexCount, set == Main ? b.Candidates : 1);   // 본 패스 = 가려짐 전 후보 수
 		ctx->DrawIndexedInstancedIndirect(s_Args[set].B.Get(), batch * 20);
 	}
@@ -871,6 +947,7 @@ namespace OcclusionCulling
 	void DrawIndirect(GfxContext*, Set, uint32_t, MeshGeometry&, uint32_t) {}
 	void QueryBoxes(GfxContext*, const std::vector<BoxQuery>&) {}
 	bool HasHiZ() { return false; }
+	bool BeginShadow(GfxContext*, Frame&) { return false; }
 	int CullList(GfxContext*, const void*, uint32_t, uint32_t, const float*, const ListDraw*, int) { return -1; }
 	void DrawList(GfxContext*, int, int, uint32_t) {}
 	bool BeginPredicated(GfxContext*, const void*) { return false; }
@@ -904,7 +981,8 @@ namespace OcclusionCulling
 			auto view = [](bool editor) {
 				const Stats& s = LastStats(editor);
 				return nlohmann::json{ { "active", s.Active }, { "tested", s.Tested }, { "visible", s.Visible }, { "culled", s.Tested - s.Visible }, { "frames", s.Frames }, { "queries", s.Queries }, { "queriesHidden", s.QueriesHidden },
-					{ "instancesTested", s.ListTested }, { "instancesCulled", s.ListTested - s.ListVisible } };
+					{ "instancesTested", s.ListTested }, { "instancesCulled", s.ListTested - s.ListVisible },
+					{ "shadowTested", s.ShadowTested }, { "shadowCulled", s.ShadowTested - s.ShadowVisible } };
 			};
 			result = { { "supported", Supported(Application::GetI()->GetDeviceContext()) }, { "enabled", Enabled }, { "game", view(false) }, { "scene", view(true) } };
 			return true;

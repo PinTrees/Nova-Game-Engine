@@ -16,6 +16,7 @@
 #include "RenderStates.h"
 #include "LODGroup.h"
 #include "OcclusionCulling.h"
+#include "ShadowRenderer.h"
 #include "EditorLog.h"
 #include <unordered_map>
 
@@ -77,6 +78,9 @@ namespace
 	OcclusionCulling::Frame s_OccFrame;
 	std::vector<int> s_GpuOrder[2];   // 후보가 있는 묶음 (깊이, 본 패스)
 	int s_GpuObjects = 0;
+	OcclusionCulling::Frame s_ShadowFrame;   // 그림자 캐스케이드 하나 (빛 방향으로 쓸어 늘린 상자)
+	std::vector<int> s_ShadowOrder;
+	int s_ShadowObjects = 0;
 
 	// 투명 재질 (CustomShaders::Transparent): 묶지 않고 물체마다 — 투명 패스에서 먼 것부터
 	struct TransparentItem
@@ -399,6 +403,62 @@ namespace MeshBatcher
 			return true;
 		}
 
+		// 그림자 캐스터 오클루전 컬링 (방향광 캐스케이드, 매 프레임 다시 그리는 것만): 빛의 절두체 안 캐스터의 상자를 빛 방향으로
+		//  캐스케이드 구 지름만큼 쓸어 늘려 (그림자가 떨어질 수 있는 곳 전부) 카메라 Hi-Z 로 — 모두 가려졌으면 보이는 표면에 그림자가 닿지 않는다
+		bool StartShadowOcclusion()
+		{
+			const ShadowRenderer::CasterPass& cp = ShadowRenderer::Current;
+			OcclusionCulling::Frame& f = s_ShadowFrame;
+			f.Casters.clear();
+			f.Worlds.clear();
+			f.Items[0].clear();
+			s_ShadowOrder.clear();
+			f.Batches[0].resize(s_DepthCount);
+			for (int i = 0; i < s_DepthCount; ++i)
+			{
+				const MeshGeometry::Subset& sub = s_DepthBatches[i].MeshPtr->ModelMesh.GetSubset(s_DepthBatches[i].Subset);
+				f.Batches[0][i] = { sub.FaceCount * 3, sub.FaceStart * 3, (int32_t)sub.VertexStart, 0 };
+			}
+			const Vec3 sweep = Vec3(cp.Direction.x, cp.Direction.y, cp.Direction.z) * cp.Reach;
+			f.Casters.reserve(s_Casters.size());
+			f.Worlds.reserve(s_Casters.size() * 16);
+			for (const Caster& c : s_Casters)
+			{
+				if (!Candidate(c, Pass::Shadow))
+					continue;
+				OcclusionCulling::Caster oc = {};
+				Vec3 mn, mx;
+				if (!c.Renderer->CullTracked || !SceneCulling::SlotBounds(c.Renderer->CullSlot, mn, mx))
+				{
+					mn = Vec3(-1e30f, -1e30f, -1e30f);
+					mx = Vec3(1e30f, 1e30f, 1e30f);
+				}
+				else
+				{
+					mn = Vec3::Min(mn, mn + sweep);
+					mx = Vec3::Max(mx, mx + sweep);
+				}
+				oc.Min[0] = mn.x; oc.Min[1] = mn.y; oc.Min[2] = mn.z;
+				oc.Max[0] = mx.x; oc.Max[1] = mx.y; oc.Max[2] = mx.z;
+				const uint32_t index = (uint32_t)f.Casters.size();
+				f.Casters.push_back(oc);
+				const size_t w = f.Worlds.size();
+				f.Worlds.resize(w + 16);
+				memcpy(&f.Worlds[w], &c.World, sizeof(c.World));
+				for (uint32_t k = c.First; k < c.First + c.Count; ++k)
+					if (s_DepthItems[k] >= 0)
+						f.Items[0].push_back({ index, (uint32_t)s_DepthItems[k], 0 });
+				RenderStats::AddShadowCaster();
+			}
+			if (!OcclusionCulling::BeginShadow(Application::GetI()->GetDeviceContext(), f))
+				return false;
+			for (int i = 0; i < (int)f.Batches[0].size(); ++i)
+				if (f.Batches[0][i].Candidates > 0)
+					s_ShadowOrder.push_back(i);
+			s_ShadowObjects = (int)f.Casters.size();
+			return true;
+		}
+
 		// 패스 하나. gpuSet >= 0 = 오클루전 컬링 목록 (GPU 가 고른 인스턴스, 간접 그리기), -1 = CPU 목록
 		void DrawPass(Pass pass, bool editor, int gpuSet)
 		{
@@ -410,7 +470,12 @@ namespace MeshBatcher
 			s_Order.clear();
 			s_Fading.clear();
 			int objects = 0;
-			if (gpuSet >= 0)
+			if (gpuSet == OcclusionCulling::ShadowSet)
+			{
+				s_Order = s_ShadowOrder;   // 그림자 캐스터 (크로스페이드도 함께 — 그림자는 LOD 한 쪽만)
+				objects = s_ShadowObjects;
+			}
+			else if (gpuSet >= 0)
 			{
 				s_Order = s_GpuOrder[main ? 1 : 0];
 				objects = s_GpuObjects;
@@ -706,6 +771,16 @@ namespace MeshBatcher
 		}
 		if (pass == Pass::Main && s_Occ == Occ::Phase1)
 			EditorLog::Write("Occlusion", "main pass before FinishDepthPrepass — CPU culling (depth prepass is incomplete)");
+		// 그림자: 깊이 프리패스 뒤에 그리는 방향광 캐스케이드면 카메라 Hi-Z 로 그림자가 보이지 않는 캐스터를 뺀다
+		if (pass == Pass::Shadow && s_Occ == Occ::Ready && ShadowRenderer::Current.Directional && ShadowRenderer::Current.EveryFrame)
+		{
+			PROFILE_SCOPE("MeshBatcher.ShadowOcclusion");
+			if (StartShadowOcclusion())
+			{
+				DrawPass(pass, editor, OcclusionCulling::ShadowSet);
+				return;
+			}
+		}
 		DrawPass(pass, editor, -1);
 	}
 
