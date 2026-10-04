@@ -63,6 +63,11 @@ namespace
 		// 고아 만들기(glNamedBufferData)의 비용이 그리기 호출로 넘어가 GL CPU 시간의 큰 몫이었다
 		std::vector<uint8_t> Shadow;
 		bool ShadowMapped = false;
+		// STAGING (CPU 읽기): 늘 매핑된 저장소 (persistent · coherent) — Map 은 GPU 와 동기화하지 않고 쓰기 펜스만 본다.
+		//  펜스는 프레임 끝 (Present) 에 만든다 (WritePending — 아래 PlaceFences)
+		uint8_t* Persistent = nullptr;
+		GLsync WriteFence = nullptr;
+		bool WritePending = false;
 	};
 
 	class GLTex1D : public GLObj<GfxTexture1D>
@@ -338,6 +343,7 @@ namespace
 
 	GLBuf::~GLBuf()
 	{
+		if (WriteFence && CanDelete(Dev)) glDeleteSync(WriteFence);
 		if (Id && CanDelete(Dev)) { glDeleteBuffers(1, &Id); GLState::InvalidateBindings(); }
 		Dev->FreeBytes(Desc.ByteWidth);
 	}
@@ -467,7 +473,11 @@ namespace
 		if (desc->CPUAccessFlags & D3D11_CPU_ACCESS_WRITE) flags |= GL_MAP_WRITE_BIT;
 		if (desc->CPUAccessFlags & D3D11_CPU_ACCESS_READ) flags |= GL_MAP_READ_BIT;
 		if (desc->Usage == D3D11_USAGE_STAGING) flags |= GL_CLIENT_STORAGE_BIT;
+		const bool persistent = desc->Usage == D3D11_USAGE_STAGING && desc->CPUAccessFlags == D3D11_CPU_ACCESS_READ;
+		if (persistent) flags |= GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT;
 		glNamedBufferStorage(b->Id, desc->ByteWidth, data ? data->pSysMem : nullptr, flags);
+		if (persistent)
+			b->Persistent = static_cast<uint8_t*>(glMapNamedBufferRange(b->Id, 0, desc->ByteWidth, GL_MAP_READ_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT));
 		if (desc->Usage == D3D11_USAGE_DYNAMIC)
 		{
 			b->Shadow.resize(desc->ByteWidth);
@@ -1191,7 +1201,7 @@ namespace
 			auto* g = static_cast<GLQueryObj*>(predicate);
 			if (!g || !g->Issued || g->D.Query != D3D11_QUERY_OCCLUSION_PREDICATE || value)
 				return g == nullptr;   // GL 은 결과가 TRUE 일 때 건너뛰기가 없다 (D3D 의 value = TRUE)
-			glBeginConditionalRender(g->Id, GL_QUERY_WAIT);
+			glBeginConditionalRender(g->Id, GL_QUERY_NO_WAIT);   // 결과가 아직이면 그린다 (QUERY_WAIT 는 GPU 가 결과를 기다려 도시 장면 GPU 4.1 → 2.8 ms 가 이 대기였다 — 상자 쿼리는 깊이 프리패스 뒤라 본 패스 때 보통 끝나 있다)
 			Conditional = true;
 			return true;
 		}
@@ -1265,12 +1275,34 @@ namespace
 		}
 
 		// ---- 자원
-		HRESULT Map(GfxResource* r, UINT sub, D3D11_MAP type, UINT, D3D11_MAPPED_SUBRESOURCE* m) override
+		HRESULT Map(GfxResource* r, UINT sub, D3D11_MAP type, UINT mapFlags, D3D11_MAPPED_SUBRESOURCE* m) override
 		{
 			if (!m || !Dev->Check("Map")) return E_FAIL;
 			*m = {};
 			if (GLBuf* b = BufOf(r))
 			{
+				if (b->Persistent && type == D3D11_MAP_READ)
+				{
+					// 늘 매핑된 STAGING: 마지막 복사의 펜스가 끝났으면 바로 (D3D 처럼 DO_NOT_WAIT 이면 기다리지 않는다)
+					if (b->WritePending)
+					{
+						if (mapFlags & D3D11_MAP_FLAG_DO_NOT_WAIT) return DXGI_ERROR_WAS_STILL_DRAWING;
+						PlaceFences();   // 기다린다 — 미룬 펜스를 지금
+					}
+					if (b->WriteFence)
+					{
+						if (!FenceDone(b->WriteFence, false))
+						{
+							if (mapFlags & D3D11_MAP_FLAG_DO_NOT_WAIT) return DXGI_ERROR_WAS_STILL_DRAWING;
+							glClientWaitSync(b->WriteFence, GL_SYNC_FLUSH_COMMANDS_BIT, 10ull * 1000 * 1000 * 1000);
+						}
+						glDeleteSync(b->WriteFence);
+						b->WriteFence = nullptr;
+					}
+					m->pData = b->Persistent;
+					m->RowPitch = m->DepthPitch = b->Desc.ByteWidth;
+					return S_OK;
+				}
 				GLbitfield access = 0;
 				switch (type)
 				{
@@ -1331,7 +1363,7 @@ namespace
 					b->ShadowMapped = false;
 					return;
 				}
-				if (b->MappedNow) glUnmapNamedBuffer(b->Id);
+				if (b->MappedNow) glUnmapNamedBuffer(b->Id);   // 늘 매핑된 STAGING 은 MappedNow 가 아니다 (풀지 않는다)
 				b->MappedNow = false;
 				return;
 			}
@@ -1362,6 +1394,43 @@ namespace
 			if (TexInfo* t = TexOf(r))
 				Dev->Upload(*t, sub, box, data, row, depth);
 		}
+		// 펜스가 끝났나 (기다리지 않는다, flush = 명령을 밀어 보내기를 원할 때만)
+		static bool FenceDone(GLsync fence, bool flush)
+		{
+			const GLenum r = glClientWaitSync(fence, flush ? GL_SYNC_FLUSH_COMMANDS_BIT : 0, 0);
+			return r == GL_ALREADY_SIGNALED || r == GL_CONDITION_SATISFIED;
+		}
+		// 펜스는 프레임 끝 (Present) 에 한꺼번에: 프레임 중간의 glFenceSync 에서 드라이버 (NVIDIA) 가 명령을 밀어 보내 그 뒤 GPU 가
+		//  다음 묶음까지 쉬었다 (오클루전 통계 읽기 — Occlusion Test 구간 약 2 ms). 늦게 만든 펜스 = 더 늦게 끝남 (D3D 이벤트의 뜻을 지킨다)
+		std::vector<ComPtr<GfxQuery>> PendingEvents;
+		std::vector<ComPtr<GfxBuffer>> PendingWrites;
+		void PlaceFences()
+		{
+			for (const auto& q : PendingEvents)
+			{
+				auto* g = static_cast<GLQueryObj*>(q.Get());
+				if (g->Fence) glDeleteSync(g->Fence);
+				g->Fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+			}
+			PendingEvents.clear();
+			for (const auto& w : PendingWrites)
+			{
+				auto* b = static_cast<GLBuf*>(w.Get());
+				if (!b->WritePending) continue;
+				if (b->WriteFence) glDeleteSync(b->WriteFence);
+				b->WriteFence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+				b->WritePending = false;
+			}
+			PendingWrites.clear();
+		}
+		// 늘 매핑된 STAGING 에 GPU 가 쓴 뒤: 프레임 끝에 펜스 (Map(READ) 이 끝났는지 본다)
+		void MarkStagingWrite(GLBuf* b)
+		{
+			if (!b->Persistent) return;
+			if (b->WriteFence) { glDeleteSync(b->WriteFence); b->WriteFence = nullptr; }
+			if (!b->WritePending) PendingWrites.push_back(ComPtr<GfxBuffer>(b));
+			b->WritePending = true;
+		}
 		void CopyResource(GfxResource* dst, GfxResource* src) override
 		{
 			if (!Dev->Check("CopyResource")) return;
@@ -1369,6 +1438,7 @@ namespace
 			if (bd && bs)
 			{
 				glCopyNamedBufferSubData(bs->Id, bd->Id, 0, 0, (std::min)(bs->Desc.ByteWidth, bd->Desc.ByteWidth));
+				MarkStagingWrite(bd);
 				return;
 			}
 			TexInfo* td = TexOf(dst), * ts = TexOf(src);
@@ -1385,6 +1455,7 @@ namespace
 			{
 				const UINT off = box ? box->left : 0, size = box ? box->right - box->left : bs->Desc.ByteWidth;
 				glCopyNamedBufferSubData(bs->Id, bd->Id, off, x, size);
+				MarkStagingWrite(bd);
 				return;
 			}
 			TexInfo* td = TexOf(dst), * ts = TexOf(src);
@@ -1495,12 +1566,14 @@ namespace
 			else if (g->D.Query == D3D11_QUERY_OCCLUSION_PREDICATE) glEndQuery(GL_ANY_SAMPLES_PASSED);
 			else if (g->D.Query == D3D11_QUERY_EVENT)
 			{
-				if (g->Fence) glDeleteSync(g->Fence);
-				g->Fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+				// 펜스는 프레임 끝에 (PlaceFences)
+				if (g->Fence) { glDeleteSync(g->Fence); g->Fence = nullptr; }
+				if (std::find_if(PendingEvents.begin(), PendingEvents.end(), [&](const ComPtr<GfxQuery>& e) { return e.Get() == q; }) == PendingEvents.end())
+					PendingEvents.push_back(q);
 			}
 			g->Issued = true;
 		}
-		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT) override
+		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT getFlags) override
 		{
 			auto* g = static_cast<GLQueryObj*>(q);
 			if (!g || !Dev->Check("GetData")) return E_FAIL;
@@ -1555,11 +1628,15 @@ namespace
 			case D3D11_QUERY_EVENT:
 			{
 				// 펜스가 신호되었나 (기다리지 않는다). End 를 안 했으면 아직
+				if (!g->Fence && g->Issued)
+				{
+					// 펜스를 아직 만들지 않았다 (프레임 끝을 기다림). DONOTFLUSH 가 아니면 지금 만들어 밀어 보낸다
+					if (getFlags & D3D11_ASYNC_GETDATA_DONOTFLUSH) return S_FALSE;
+					PlaceFences();
+				}
 				if (g->Fence)
 				{
-					GLint status = GL_UNSIGNALED;
-					glGetSynciv(g->Fence, GL_SYNC_STATUS, 1, nullptr, &status);   // bufSize = 정수 칸 수 (바이트 수가 아니다 — 4 를 주면 4 칸을 쓸 수 있다)
-					if (status != GL_SIGNALED) return S_FALSE;
+					if (!FenceDone(g->Fence, !(getFlags & D3D11_ASYNC_GETDATA_DONOTFLUSH))) return S_FALSE;   // DONOTFLUSH = D3D 처럼 밀어 보내지 않는다
 				}
 				else if (!g->Issued)
 					return S_FALSE;
@@ -1571,7 +1648,7 @@ namespace
 				return S_OK;
 			}
 		}
-		void Flush() override { if (Dev->Check("Flush")) glFlush(); }
+		void Flush() override { if (Dev->Check("Flush")) { PlaceFences(); glFlush(); } }
 		void ClearState() override
 		{
 			Layout = nullptr;
@@ -1711,6 +1788,7 @@ namespace GfxGL
 				d->Immediate->ApplyRasterizer();
 			}
 		}
+		if (d->Immediate) d->Immediate->PlaceFences();   // 프레임 끝: 미룬 이벤트 · STAGING 쓰기 펜스
 		GLContext::SetSwapInterval(syncInterval);
 		::SwapBuffers(d->Ctx.Dc);
 	}

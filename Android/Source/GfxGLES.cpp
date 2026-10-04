@@ -1470,12 +1470,25 @@ namespace
 			if (g->D.Query == D3D11_QUERY_OCCLUSION && g->Id) glEndQuery(GL_ANY_SAMPLES_PASSED);
 			else if (g->D.Query == D3D11_QUERY_EVENT)
 			{
-				if (g->Fence) glDeleteSync(g->Fence);
-				g->Fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+				// 펜스는 프레임 끝 (Present · Flush) 에 — 프레임 중간의 glFenceSync 에서 드라이버가 명령을 밀어 보내 GPU 가 쉰다 (데스크톱 GL 에서 잰 것)
+				if (g->Fence) { glDeleteSync(g->Fence); g->Fence = nullptr; }
+				if (std::find_if(PendingEvents.begin(), PendingEvents.end(), [&](const ComPtr<GfxQuery>& e) { return e.Get() == q; }) == PendingEvents.end())
+					PendingEvents.push_back(q);
 			}
 			g->Issued = true;
 		}
-		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT) override
+		std::vector<ComPtr<GfxQuery>> PendingEvents;
+		void PlaceFences()
+		{
+			for (const auto& q : PendingEvents)
+			{
+				auto* g = static_cast<GLQueryObj*>(q.Get());
+				if (g->Fence) glDeleteSync(g->Fence);
+				g->Fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+			}
+			PendingEvents.clear();
+		}
+		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT getFlags) override
 		{
 			auto* g = static_cast<GLQueryObj*>(q);
 			if (!g || !Dev->Check("GetData")) return E_FAIL;
@@ -1497,12 +1510,16 @@ namespace
 				return S_OK;
 			}
 			case D3D11_QUERY_EVENT:
-				// 펜스가 신호되었나 (기다리지 않는다). End 를 안 했으면 아직
+				// 펜스가 신호되었나 (기다리지 않는다 — 시간 0, DONOTFLUSH 면 밀어 보내지도 않는다). End 를 안 했으면 아직
+				if (!g->Fence && g->Issued)
+				{
+					if (getFlags & D3D11_ASYNC_GETDATA_DONOTFLUSH) return S_FALSE;   // 펜스는 프레임 끝에
+					PlaceFences();
+				}
 				if (g->Fence)
 				{
-					GLint status = GL_UNSIGNALED;
-					glGetSynciv(g->Fence, GL_SYNC_STATUS, 1, nullptr, &status);   // bufSize = 정수 칸 수 (바이트 수가 아니다 — 4 를 주면 4 칸을 쓸 수 있다)
-					if (status != GL_SIGNALED) return S_FALSE;
+					const GLenum r = glClientWaitSync(g->Fence, (getFlags & D3D11_ASYNC_GETDATA_DONOTFLUSH) ? 0 : GL_SYNC_FLUSH_COMMANDS_BIT, 0);
+					if (r != GL_ALREADY_SIGNALED && r != GL_CONDITION_SATISFIED) return S_FALSE;
 				}
 				else if (!g->Issued)
 					return S_FALSE;
@@ -1513,7 +1530,7 @@ namespace
 				return S_OK;
 			}
 		}
-		void Flush() override { if (Dev->Check("Flush")) glFlush(); }
+		void Flush() override { if (Dev->Check("Flush")) { PlaceFences(); glFlush(); } }
 		void ClearState() override
 		{
 			Layout = nullptr;
@@ -1644,6 +1661,7 @@ namespace GfxGLES
 	{
 		auto* d = static_cast<GLDev*>(device);
 		if (!d->Check("Present")) return;
+		if (d->Immediate) d->Immediate->PlaceFences();   // 프레임 끝: 미룬 이벤트 펜스
 		TexInfo* t = TexOf(backBuffer);
 		if (!t) return;
 		// 백버퍼 행 0 = 화면 위 → GL 기본 프레임버퍼는 아래가 행 0 이므로 위아래를 뒤집어 복사

@@ -159,6 +159,11 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 #define GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT 0x8E8F
 #define GL_MAP_READ_BIT                   0x0001
 #define GL_MAP_WRITE_BIT                  0x0002
+#define GL_MAP_PERSISTENT_BIT             0x0040
+#define GL_MAP_COHERENT_BIT               0x0080
+#define GL_SYNC_FLUSH_COMMANDS_BIT        0x00000001
+#define GL_ALREADY_SIGNALED               0x911A
+#define GL_CONDITION_SATISFIED            0x911C
 #define GL_MAP_INVALIDATE_RANGE_BIT       0x0004
 #define GL_MAP_INVALIDATE_BUFFER_BIT      0x0008
 #define GL_MAP_UNSYNCHRONIZED_BIT         0x0020
@@ -170,6 +175,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 #define GL_CLIPPING_OUTPUT_PRIMITIVES_ARB 0x82F7
 #define GL_FRAGMENT_SHADER_INVOCATIONS_ARB 0x82F4
 #define GL_QUERY_WAIT                     0x8E13
+#define GL_QUERY_NO_WAIT                  0x8E14
 #define GL_DRAW_INDIRECT_BUFFER           0x8F3F
 #define GL_SYNC_GPU_COMMANDS_COMPLETE     0x9117
 #define GL_SYNC_STATUS                    0x9114
@@ -313,6 +319,7 @@ typedef void (APIENTRY* GLDEBUGPROC)(GLenum source, GLenum type, GLuint id, GLen
 	X(void, glBeginConditionalRender, (GLuint id, GLenum mode)) \
 	X(void, glEndConditionalRender, (void)) \
 	X(GLsync, glFenceSync, (GLenum condition, GLbitfield flags)) \
+	X(GLenum, glClientWaitSync, (GLsync sync, GLbitfield flags, GLuint64 timeout)) \
 	X(void, glDeleteSync, (GLsync sync)) \
 	X(void, glGetSynciv, (GLsync sync, GLenum pname, GLsizei count, GLsizei* length, GLint* values)) \
 	X(void, glClearNamedBufferSubData, (GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format, GLenum type, const void* data)) \

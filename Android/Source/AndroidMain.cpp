@@ -158,7 +158,10 @@ namespace
 		loadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		const auto t1 = std::chrono::steady_clock::now();
 		for (int i = 0; i < frames; ++i)
+		{
 			app->Run();
+			Gfx::Context()->Flush();   // 프레임 끝 (화면이 없어 Present 를 부르지 않는다 — 미룬 이벤트 펜스를 여기서)
+		}
 		glFinish();
 		drawMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count() / (std::max)(frames, 1);
 		DirectX::ScratchImage img;
