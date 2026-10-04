@@ -430,6 +430,7 @@ namespace CliCommands
 		});
 		Register("perf", "finish a perf measurement: frame time, CPU / GPU ms, top GPU passes / CPU scopes {depth? (CPU scope depth, default 2)} (nova perf --frames N)", [](const json& a, json& r, std::string& e) {
 			const int cpuDepth = std::clamp(a.value("depth", 2), 0, 8);
+			const int gpuDepth = std::clamp(a.value("gpuDepth", 1), 0, 8);   // GPU 구간 깊이 (기본 = 뷰 + 단계)
 			const double wallMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s_PerfStart).count();
 			Profiler::ForceCollecting(false);
 			int frames = 0, gpuFrames = 0;
@@ -454,7 +455,7 @@ namespace CliCommands
 					++gpuFrames;
 					gpu += f.GpuMs;
 					for (const Profiler::GpuSample& g : f.Gpu)
-						if (g.Depth <= 1)
+						if (g.Depth <= gpuDepth)
 						{
 							auto& p = passes[std::string(g.Depth, '.') + g.Name];
 							p.first += g.Ms;
@@ -468,7 +469,7 @@ namespace CliCommands
 				top.push_back({ p.first / (std::max)(1, gpuFrames), name });
 			std::sort(top.rbegin(), top.rend());
 			json list = json::array();
-			for (size_t i = 0; i < top.size() && i < 12; ++i)
+			for (size_t i = 0; i < top.size() && i < (gpuDepth > 1 ? 40u : 12u); ++i)
 				list.push_back({ { "pass", top[i].second }, { "ms", std::round(top[i].first * 1000.0) / 1000.0 } });
 			std::vector<std::pair<double, std::string>> topCpu;
 			for (auto& [name, p] : cpuScopes)

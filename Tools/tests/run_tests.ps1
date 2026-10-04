@@ -2598,6 +2598,20 @@ function Suite-Occlusion
         $dMoved = ImgDiff $pBefore $pAfter; $d = ImgDiff $pAfter $pOff
         Add-Result occlusion 'A hidden box moved in front of the wall is drawn in the next frame' ($dMoved.Big -gt 0.002 -and (Same $d)) ("moved region {0:P2}; vs off {1}" -f $dMoved.Big, (Fmt $d))
 
+        # 6. Skinned Mesh Renderer (오클루전 예측 쿼리) · 나무 (GPU 인스턴스 목록) 도 벽 뒤에서 빠진다
+        Invoke-Nova 'create character --name HidA' | Out-Null; Invoke-Nova 'set HidA --position 3,0,6' | Out-Null
+        Invoke-Nova 'create character --name HidB' | Out-Null; Invoke-Nova 'set HidB --position -4,0,9' | Out-Null
+        Invoke-Nova 'create character --name SeenC' | Out-Null; Invoke-Nova 'set SeenC --position -6,0,-4' | Out-Null
+        Invoke-Nova 'create tree --name TreeA --position -3,0,24 --scale 0.25,0.25,0.25' | Out-Null
+        Invoke-Nova 'create tree --name TreeB --position 5,0,26 --scale 0.25,0.25,0.25' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $pOn = Shot 'skinned_trees_on.png' 'scene' 10
+        $o = Occ
+        OccOn $false; $pOff = Shot 'skinned_trees_off.png'; OccOn $true
+        $d = ImgDiff $pOn $pOff
+        Add-Result occlusion 'Skinned Mesh Renderers (occlusion predicate queries) and trees (GPU instance lists) behind the wall are skipped, same picture' ((Same $d) -and $o.scene.queries -ge 3 -and $o.scene.queriesHidden -ge 2 -and $o.scene.instancesTested -ge 2 -and $o.scene.instancesCulled -ge 2) ("queries {0} (hidden {1}), tree instances {2} (culled {3}); {4}" -f $o.scene.queries, $o.scene.queriesHidden, $o.scene.instancesTested, $o.scene.instancesCulled, (Fmt $d))
+        foreach ($n in 'HidA', 'HidB', 'SeenC', 'TreeA', 'TreeB') { Invoke-Nova "delete $n" | Out-Null }
+
         # 4. Game 뷰: Camera 의 Occlusion Culling (Unity 와 같은 값) 로 켜고 끈다
         Invoke-Nova 'window game' | Out-Null
         Invoke-Nova 'set "Main Camera" --position 0,1.5,-14 --rotation 0,0,0' | Out-Null

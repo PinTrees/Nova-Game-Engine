@@ -121,11 +121,18 @@ namespace
 		return XMMatrixScaling(pbr.Tiling.x, pbr.Tiling.y, 1.0f) * XMMatrixTranslation(pbr.Offset.x, pbr.Offset.y, 0.0f);
 	}
 
-	int BatchIndex(std::unordered_map<Key, int, KeyHash>& index, std::vector<Batch>& batches, int& count, Mesh* mesh, int subset, const shared_ptr<UMaterial>& mat, uint32 layer)
+	// 바로 앞에 찾은 묶음 (같은 메시 · 재질인 오브젝트가 이어지면 해시 찾기 없이) — 본 · 깊이 각각
+	struct LastBatch { Key K{ nullptr, -1, nullptr, 0 }; int Index = -1; };
+	LastBatch s_LastMain, s_LastDepth;
+
+	int BatchIndex(std::unordered_map<Key, int, KeyHash>& index, std::vector<Batch>& batches, int& count, Mesh* mesh, int subset, const shared_ptr<UMaterial>& mat, uint32 layer, LastBatch& last)
 	{
 		const Key key{ mesh, subset, mat.get(), layer };
+		if (last.Index >= 0 && last.K == key)
+			return last.Index;
+		last.K = key;
 		if (auto it = index.find(key); it != index.end())
-			return it->second;
+			return last.Index = it->second;
 		if (count >= (int)batches.size())
 			batches.emplace_back();
 		Batch& b = batches[count];
@@ -135,6 +142,7 @@ namespace
 		b.Layer = layer == 0 ? 0xFFFFFFFFu : layer;
 		b.Worlds.clear();
 		index.emplace(key, count);
+		last.Index = count;
 		return count++;
 	}
 
@@ -150,6 +158,8 @@ namespace
 		s_DepthIndex.clear();
 		s_Transparent.clear();
 		s_MainCount = s_DepthCount = 0;
+		s_LastMain = s_LastDepth = LastBatch();
+		struct { const UMaterial* Material = reinterpret_cast<const UMaterial*>(1); bool Transparent = false, Clip = false; } memo;
 		for (GameObject* go : scene->GetAllGameObjects())
 		{
 			if (go == nullptr || !go->IsActive())
@@ -173,7 +183,14 @@ namespace
 				const UINT matIndex = mesh->Subsets[i].MaterialIndex;
 				static const shared_ptr<UMaterial> s_None;
 				const shared_ptr<UMaterial>& mat = matIndex < materials.size() ? materials[matIndex] : s_None;
-				if (IsTransparent(mat.get()))
+				// 재질마다 투명 · 잘라내기 판정 (대부분 같은 재질이 이어진다 — 셰이더 이름 찾기를 한 번만)
+				if (mat.get() != memo.Material)
+				{
+					memo.Material = mat.get();
+					memo.Transparent = IsTransparent(mat.get());
+					memo.Clip = ClipOf(mat.get()) != Clip::None;
+				}
+				if (memo.Transparent)
 				{
 					// 투명: 본 패스 · 프리패스 · 그림자에서 빼고 투명 패스로
 					s_MainItems.push_back(-1);
@@ -181,9 +198,9 @@ namespace
 					s_Transparent.push_back({ (int)s_Casters.size(), mesh.get(), i, mat });
 					continue;
 				}
-				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit));
+				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit, s_LastMain));
 				// 깊이 · 그림자: 보통은 (메시, 서브셋) 만으로, 잘라내는 재질은 재질마다 (구멍이 본 패스와 같게)
-				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, ClipOf(mat.get()) != Clip::None ? mat : s_None, 0));
+				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, memo.Clip ? mat : s_None, 0, s_LastDepth));
 			}
 			s_Casters.push_back(c);
 		}
@@ -333,13 +350,18 @@ namespace MeshBatcher
 					}
 				}
 				const uint32_t untracked = SceneCulling::SlotCount();   // 상자가 없는 렌더러: 늘 보임 (아주 큰 상자)
+				f.Casters.reserve(s_Casters.size());
+				f.Worlds.reserve(s_Casters.size() * 16);
+				f.Items[0].reserve(s_DepthItems.size());
+				f.Items[1].reserve(s_MainItems.size());
 				for (const Caster& c : s_Casters)
 				{
 					if (!Candidate(c, Pass::Main) || Fading(c))
 						continue;
 					OcclusionCulling::Caster oc = {};
 					Vec3 mn, mx;
-					if (!SceneCulling::TrackedSlot(c.Renderer, oc.Slot, mn, mx))
+					oc.Slot = c.Renderer->CullSlot;
+					if (!c.Renderer->CullTracked || !SceneCulling::SlotBounds(oc.Slot, mn, mx))
 					{
 						oc.Slot = untracked;
 						mn = Vec3(-1e30f, -1e30f, -1e30f);
@@ -349,7 +371,9 @@ namespace MeshBatcher
 					oc.Max[0] = mx.x; oc.Max[1] = mx.y; oc.Max[2] = mx.z;
 					const uint32_t index = (uint32_t)f.Casters.size();
 					f.Casters.push_back(oc);
-					f.Worlds.insert(f.Worlds.end(), &c.World._11, &c.World._11 + 16);
+					const size_t w = f.Worlds.size();
+					f.Worlds.resize(w + 16);
+					memcpy(&f.Worlds[w], &c.World, sizeof(c.World));
 					for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 					{
 						if (s_DepthItems[k] >= 0) f.Items[0].push_back({ index, (uint32_t)s_DepthItems[k], 0 });
@@ -693,6 +717,19 @@ namespace MeshBatcher
 		PROFILE_GPU("Occlusion Culling");
 		OcclusionCulling::Finish(Application::GetI()->GetDeviceContext());
 		s_Occ = Occ::Ready;
-		DrawPass(Pass::NormalDepth, editor, OcclusionCulling::DepthPhase2);   // 새로 보인 렌더러의 깊이
+		{
+			PROFILE_GPU("Depth Phase 2");
+			DrawPass(Pass::NormalDepth, editor, OcclusionCulling::DepthPhase2);   // 새로 보인 렌더러의 깊이
+		}
+		// Skinned Mesh Renderer: 다 찬 깊이에 상자를 오클루전 예측 쿼리로 — 본 패스의 그리기를 GPU 가 건너뛸 수 있게
+		static std::vector<OcclusionCulling::BoxQuery> s_Boxes;
+		s_Boxes.clear();
+		SceneCulling::ForEachSkinned([](Component* r, const Vec3& mn, const Vec3& mx) {
+			GameObject* go = r->GetGameObject();
+			if (!r->IsEnabled() || !SceneCulling::IsVisible(r) || go == nullptr || !RenderLayers::Visible(go))
+				return;
+			s_Boxes.push_back({ r, { mn.x, mn.y, mn.z }, { mx.x, mx.y, mx.z } });
+		});
+		OcclusionCulling::QueryBoxes(Application::GetI()->GetDeviceContext(), s_Boxes);
 	}
 }

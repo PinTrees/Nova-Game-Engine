@@ -1131,6 +1131,7 @@ int Run(const std::vector<std::string>& in)
 	{
 		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
+		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
 	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion")
 	{

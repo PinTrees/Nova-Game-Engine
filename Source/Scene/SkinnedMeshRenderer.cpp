@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "RenderLayers.h"
+#include "OcclusionCulling.h"
 #include "CustomShaders.h"
 #include "MaterialInspector.h"
 #include "RenderStats.h"
@@ -383,12 +384,21 @@ bool SkinnedMeshRenderer::DrawCustomClip(int subset, CustomShaders::DrawPass pas
 void SkinnedMeshRenderer::Render()
 {
 	RenderStats::AddSkinnedMesh();
+	// 오클루전 컬링: 깊이 프리패스 뒤 상자 쿼리가 있으면 그 결과로 (가려졌으면 GPU 가 건너뛴다)
+	GfxContext* dc = Application::GetI()->GetDeviceContext();
+	const bool predicated = OcclusionCulling::BeginPredicated(dc, this);
 	DrawSkinned(false);
+	if (predicated)
+		OcclusionCulling::EndPredicated(dc);
 }
 
 void SkinnedMeshRenderer::_Editor_Render()
 {
+	GfxContext* dc = Application::GetI()->GetDeviceContext();
+	const bool predicated = OcclusionCulling::BeginPredicated(dc, this);
 	DrawSkinned(true);
+	if (predicated)
+		OcclusionCulling::EndPredicated(dc);
 }
 
 void SkinnedMeshRenderer::RenderShadow()

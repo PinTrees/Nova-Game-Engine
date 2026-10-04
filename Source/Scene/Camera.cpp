@@ -283,47 +283,12 @@ void Camera::GetFrustumCulling()
 {
 	FrustumUpdate();
 
-	vector<GameObject*> allObject = SceneManager::GetI()->GetCurrentScene()->GetAllGameObjects();
-	vector<GameObject*> cullingObjects;
+	// ë Œë”ëŸ¬ì˜ ì ˆë‘ì²´ ì»¬ë§ì€ SceneCulling (ì˜¥íŠ¸ë¦¬) ì´ í•œë‹¤. ì˜ˆì „ì—ëŠ” ì—¬ê¸°ì„œ ëª¨ë“  ì˜¤ë¸Œì íŠ¸ë¥¼ ë‹¤ì‹œ í›‘ì–´ ì“°ì§€ ì•ŠëŠ” ëª©ë¡
+	//  (Scene::SetCullingGameObjects) ì„ ë§Œë“¤ì—ˆë‹¤ - ì˜¤ë¸Œì íŠ¸ 2000 ê°œì—ì„œ í”„ë ˆì„ë§ˆë‹¤ ì•½ 3 ms (Debug). ë¹› ëª©ë¡ë§Œ ê³ ë¥¸ë‹¤
 	vector<shared_ptr<Light>> lights = LightManager::GetI()->GetLights();
 	vector<shared_ptr<Light>> cullingLights;
 
 	bool check;
-
-	// ¸Ş½¬·»´õ·¯ ÄÃ¸µÀÌ Á¦´ë·Î ¾ÈµÇ´Â ¹®Á¦!
-	for (const auto& gameObject : allObject)
-	{
-		auto meshRenderer = gameObject->GetComponent<MeshRenderer>();
-
-		// meshRenderer ÄÄÆ÷³ÍÆ®°¡ ¾ø´Â °´Ã¼ÀÌ°Å³ª mesh¸¦ Àû¿ë ¾È ½ÃÄ×À» °æ¿ì, editor and game Camera¿¡ SkinnedMeshµµ Æ÷ÇÔ½ÃÄÑ¾ßÇÔ
-		if (!meshRenderer || !meshRenderer->GetMesh())
-			continue;
-
-		Vec3 meshPos = meshRenderer->GetGameObject()->GetTransform()->GetPosition();
-		BouncingBall ball = meshRenderer->GetMesh()->Ball;
-
-		Vec3 ballCenter = ball.center + meshPos;
-
-		check = true;
-		for (int i = 0; i < 6; i++)
-		{
-			// Ãæµ¹Ã¼Å©
-			//plane.normal.x * center.x + plane.normal.y * center.y + plane.normal.z * center.z + plane.d;
-			float distance = m_Frustum.planes[i].normal.x * ballCenter.x +
-				m_Frustum.planes[i].normal.y * ballCenter.y +
-				m_Frustum.planes[i].normal.z * ballCenter.z +
-				m_Frustum.planes[i].d;
-
-			if (distance < -ball.radius)
-			{
-				check = false; // ±¸°¡ Æò¸éÀÇ ¹Û¿¡ ÀÖÀ½
-				break;
-			}
-		}
-
-		if (check)
-			cullingObjects.push_back(gameObject);
-	}
 
 	// Point and Spot Light
 	for (const auto& light : lights)
@@ -357,7 +322,6 @@ void Camera::GetFrustumCulling()
 			cullingLights.push_back(light);
 	}
 
-	SceneManager::GetI()->GetCurrentScene()->SetCullingGameObjects(cullingObjects);
 	LightManager::GetI()->SortingLights(cullingLights, m_pGameObject->GetTransform()->GetPosition());
 }
 

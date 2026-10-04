@@ -65,6 +65,7 @@ public:
 	// 절두체 컬링 (SceneCulling): 추적 중인 렌더러는 CullStamp == SceneCulling::Stamp 일 때만 그린다
 	uint32_t CullStamp = 0;
 	bool CullTracked = false;
+	uint32_t CullSlot = 0;          // SceneCulling 의 자리 번호 (CullTracked 일 때) — 프레임마다 해시 찾기 없이
 	// LOD Group (LODGroup::SelectForView 가 뷰마다 매김): LodStamp == SceneCulling::LodStamp 일 때만 따른다
 	uint32_t LodStamp = 0;
 	bool LodHidden = false;         // 카메라 패스 (깊이 · 본 · 투명) 에서 안 그림

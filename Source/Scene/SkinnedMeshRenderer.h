@@ -86,6 +86,13 @@ public:
 	vector<XMFLOAT4X4>& GetFinalTransforms() { return m_FinalTransforms; }
 
 	shared_ptr<SkinnedMesh> GetMesh() { return m_Mesh; }
+	// Unity 의 localBounds: 바인드 포즈 상자 (메시 노드 변환 + 단위 변환 — 이 렌더러 GameObject 공간). 없으면 false
+	bool LocalBounds(Vec3& center, Vec3& extent) const
+	{
+		center = m_BoundsCenter;
+		extent = m_BoundsExtent;
+		return extent.x > 0.0f || extent.y > 0.0f || extent.z > 0.0f;
+	}
 
 	// ---- BlendShape (Unity: SkinnedMeshRenderer.SetBlendShapeWeight · sharedMesh.blendShapeCount …)
 	int BlendShapeCount() const;

@@ -3,7 +3,13 @@
 - 갱신 시각: 2026년 10월 4일 — **Line Renderer · Trail Renderer** (사용자 지시: 추천 1 · 2 · 3 모두 — 3 부터). **완료** — linetrail **9/9**
   - 새 `Source/Effects/LineRenderer.*` (두 컴포넌트 · 띠 만들기 · C# 내보내기 `NovaLine_*`), 새 `ScriptCore/Engine/LineRenderer.cs` (DllImport — 네이티브 표는 그대로), `Shaders/43. Particle.fx` (LineAlphaTech · LineAdditiveTech),
     `ParticleRenderer.cpp` (입자와 함께 정렬해 그림), `ParticleSystemEditor.h` · `ParticleSystemInspector.cpp` (TexturePicker), `GameObjectFactory.*` · `GameObjectMenu.cpp` · `AddComponentMenu.cpp` (메뉴 한 줄씩), `App.cpp` · `AppAndroid.cpp` (Trail 갱신)
-  - 다음: 깊이 프리패스의 남은 약 5 ms 원인 → 오클루전 컬링 넓히기 (스킨 메시 · 나무 · 그림자)
+  - 깊이 프리패스 "약 5 ms" 원인 (**완료**): GPU 일이 아니었다 — CPU 가 늦은 프레임에서 GPU 가 쉬는 시간이 구간에 붙음 + 오브젝트마다 CPU 비용.
+    CPU: 프레임 20.6 → 12.8 ms (오브젝트 2000 개, Debug) — `Camera.cpp` 의 쓰지 않는 오브젝트 절두체 목록 제거 (3.3 → 2.0 ms), `Component.h` 에 CullSlot
+    (SceneCulling · 오클루전이 해시 찾기 없이), MeshBatcher 묶음 · 재질 판정 기억 (Collect 3.0 → 1.5 ms), SceneCulling 메시 상자 기억 (2.8 → 1.5 ms).
+    GPU: Hi-Z 를 반 해상도부터 (2 ~ 3.5 ms 로 보이던 구간 → 0.06 ~ 0.24 ms), 통계 읽기 DONOTFLUSH, 렌더러 64 개 미만 · 거의 안 가리면 쉼. `nova perf --gpu-depth`
+  - 오클루전 컬링 넓히기 (진행 중): **Skinned Mesh Renderer** = 상자 오클루전 예측 쿼리 + SetPredication (`SkinnedMeshRenderer.*` · `SceneCulling.*` — 상자를 렌더러 Bounds 로,
+    예전 FBX cm 정점 그대로의 100 배 상자 고침), **나무** = GPU 인스턴스 목록 컬링 (`TreeRenderer.cpp`, `OcclusionCulling::CullList`), Hi-Z 검사 정밀도 (5x5 칸) — occlusion 8/8, animation · render 통과
+  - 다음: 그림자 (그림자를 깊이 프리패스 뒤로 옮겨 카메라 Hi-Z 로 그림자 볼륨이 가려진 캐스터를 뺀다)
 - 이전: 2026년 10월 4일 — **오클루전 컬링 (굽기 없는 GPU Hi-Z)** (사용자 지시: "너가 말한 방식으로 … 최고 효율방식 … 별도 사전 작업 없이 실시간"). **완료** — occlusion **7/7**, 회귀 lodgroup · shadergraph · reflectionprobe · probevolume · antialiasing · render 포함 **71/71**
   - 새 `Shaders/57. OcclusionCulling.hlsl` (cs_5_0 커널 5 개 — fx 가 아니라 GLES 변환 대상 아님), 새 `Source/Graphics/DX11/OcclusionCulling.*` (두 단계 Hi-Z, DrawIndexedInstancedIndirect, CLI `nova occlusion`)
   - `MeshBatcher.*` (GPU 목록 · `FinishDepthPrepass`), `SceneCulling.*` (TrackedSlot · SlotCount), `MeshGeometry.*` (BindForInstancing · GetSubset), `EditorApp.cpp` (Game · Scene 뷰 프리패스 뒤), `Camera.h` (UsesOcclusionCulling),

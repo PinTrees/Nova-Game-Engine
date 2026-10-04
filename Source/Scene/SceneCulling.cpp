@@ -31,6 +31,7 @@ namespace
 		int Slot = -1;          // Node 의 Items 안 위치
 		uint32_t Seen = 0;
 		bool Alive = false;
+		bool Skinned = false;   // Skinned Mesh Renderer (오클루전 쿼리 대상)
 	};
 
 	struct Node
@@ -53,9 +54,14 @@ namespace
 	// ---- 메시 로컬 범위 (메시마다 한 번)
 	std::unordered_map<const void*, Box> s_MeshBounds;
 
+	// 바로 앞 메시 (같은 메시를 쓰는 오브젝트가 이어지면 해시 찾기 없이)
+	const void* s_LastMesh = nullptr;
+	Box s_LastBox;
+
 	bool MeshBox(const Mesh* mesh, Box& out)
 	{
-		if (auto it = s_MeshBounds.find(mesh); it != s_MeshBounds.end()) { out = it->second; return true; }
+		if (mesh == s_LastMesh) { out = s_LastBox; return true; }
+		if (auto it = s_MeshBounds.find(mesh); it != s_MeshBounds.end()) { out = s_LastBox = it->second; s_LastMesh = mesh; return true; }
 		if (mesh->Vertices.empty())
 			return false;
 		Box b{ Vec3(FLT_MAX, FLT_MAX, FLT_MAX), Vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX) };
@@ -272,12 +278,14 @@ namespace
 
 	std::vector<std::pair<Vec3, Vec3>> s_Changed;
 
-	void Track(Component* renderer, const Box& local, const void* meshKey, const XMFLOAT4X4& world, bool& needRebuild)
+	void Track(Component* renderer, const Box& local, const void* meshKey, const XMFLOAT4X4& world, bool& needRebuild, bool skinned = false)
 	{
-		renderer->CullTracked = true;
 		int index;
-		auto it = s_Map.find(renderer);
-		if (it == s_Map.end())
+		// 지난 프레임에 추적한 렌더러: 자리 번호로 바로 (해시 찾기 없이)
+		const uint32_t slot = renderer->CullSlot;
+		if (renderer->CullTracked && slot < s_Entries.size() && s_Entries[slot].Alive && s_Entries[slot].Renderer == renderer)
+			index = (int)slot;
+		else if (auto it = s_Map.find(renderer); it == s_Map.end())
 		{
 			if (!s_Free.empty()) { index = s_Free.back(); s_Free.pop_back(); }
 			else { index = (int)s_Entries.size(); s_Entries.emplace_back(); }
@@ -290,8 +298,11 @@ namespace
 		}
 		else
 			index = it->second;
+		renderer->CullTracked = true;
+		renderer->CullSlot = (uint32_t)index;
 		Entry& e = s_Entries[index];
 		e.Seen = s_Frame;
+		e.Skinned = skinned;
 		if (e.MeshKey == meshKey && e.Node >= 0 && memcmp(&e.World, &world, sizeof(world)) == 0)
 			return;   // 그대로
 		if (e.Node >= 0)
@@ -343,8 +354,17 @@ namespace SceneCulling
 				if (sr)
 				{
 					auto mesh = sr->GetMesh();
-					if (mesh && SkinnedBox(mesh.get(), local))
-						Track(sr, local, mesh.get(), world, needRebuild);
+					// 렌더러의 바운드 (메시 노드 · 단위 변환 반영) — 정점 그대로는 FBX 의 cm 단위라 100 배 큰 상자가 된다
+					//  애니메이션으로 팔다리가 기본 자세 밖으로 나가므로 넉넉하게 (SkinnedBox 와 같은 여유)
+					Vec3 bc, be;
+					if (mesh && sr->LocalBounds(bc, be))
+					{
+						const Vec3 pad = be * 0.6f + Vec3(0.25f, 0.25f, 0.25f);
+						local = Box{ bc - be - pad, bc + be + pad };
+						Track(sr, local, mesh.get(), world, needRebuild, true);
+					}
+					else if (mesh && SkinnedBox(mesh.get(), local))
+						Track(sr, local, mesh.get(), world, needRebuild, true);
 					else
 						sr->CullTracked = false;
 				}
@@ -397,6 +417,22 @@ namespace SceneCulling
 	}
 
 	uint32_t SlotCount() { return (uint32_t)s_Entries.size(); }
+
+	void ForEachSkinned(const std::function<void(Component*, const Vec3&, const Vec3&)>& f)
+	{
+		for (const Entry& e : s_Entries)
+			if (e.Alive && e.Skinned && e.Renderer)
+				f(e.Renderer, e.Bounds.Min, e.Bounds.Max);
+	}
+
+	bool SlotBounds(uint32_t slot, Vec3& mn, Vec3& mx)
+	{
+		if (slot >= s_Entries.size() || !s_Entries[slot].Alive)
+			return false;
+		mn = s_Entries[slot].Bounds.Min;
+		mx = s_Entries[slot].Bounds.Max;
+		return true;
+	}
 
 	void Cull(CXMMATRIX viewProj, bool shadowPass)
 	{

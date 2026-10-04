@@ -6,6 +6,8 @@
 #include "CliServer.h"
 #include "Application.h"
 #include "SceneCulling.h"
+#include "Profiler.h"
+#include "RenderManager.h"
 
 namespace
 {
@@ -27,10 +29,11 @@ namespace
 		uint32_t SrcSize[2];
 		uint32_t DstSize[2];
 		uint32_t Count, Frame, Mode, Levels;
+		uint32_t Stride, Pad[3];
 	};
-	static_assert(sizeof(Constants) == 112, "cbOcclusion");
+	static_assert(sizeof(Constants) == 128, "cbOcclusion");
 
-	enum Kernel { KPrepare, KCompact, KCopyDepth, KReduce, KCull, KCount };
+	enum Kernel { KPrepare, KCompact, KReduce, KCull, KList, KCount };
 	ComPtr<ID3D11ComputeShader> s_Kernels[KCount];
 	int s_KernelState = 0;   // 0 아직, 1 됨, -1 실패 (다시 시도하지 않는다)
 
@@ -54,7 +57,14 @@ namespace
 		ComPtr<ID3D11ShaderResourceView> AllSrv;
 		UINT W = 0, H = 0, Levels = 0;
 		UINT FailedW = 0, FailedH = 0;   // 만들지 못한 크기 (프레임마다 다시 시도하지 않는다)
+		uint32_t Calls = 0;              // Begin 횟수
+		uint32_t SkipUntil = 0;          // 가린 것이 거의 없으면 이 횟수까지 쉰다 (Hi-Z 비용이 아낀 것보다 크다)
 		ComPtr<ID3D11Buffer> Staging[3];   // 검사 · 보임 수 (몇 프레임 뒤에 읽는다)
+		ComPtr<ID3D11Query> Ready[3];      // 그 복사가 끝났는가 (DONOTFLUSH 로 묻는다 — Map 이 명령을 밀어 넣어 GPU 가 쉬지 않게)
+		std::vector<ComPtr<ID3D11Predicate>> Predicates;   // Skinned Mesh Renderer 상자 쿼리 (뷰마다 — 다음 프레임에 결과를 읽는다)
+		size_t PredicatesUsed = 0;
+		Buf ListCounters;                  // 인스턴스 목록 (나무) 검사 · 보임 수 — 다음 프레임 Finish 에서 Staging 으로
+		bool ListCountersUsed = false;
 		bool Pending[3] = {};
 		int Next = 0;
 	};
@@ -67,12 +77,70 @@ namespace
 	ComPtr<ID3D11Texture2D> s_DepthTex;   // 깊이 SRV 를 만든 텍스처 (같으면 다시 쓴다)
 	ComPtr<ID3D11ShaderResourceView> s_DepthSrv;
 
+	// Skinned Mesh Renderer 오클루전 예측 쿼리 (이 뷰 — RenderManager::ViewSerial 이 같을 때만 쓴다)
+	ComPtr<ID3D11VertexShader> s_BoxVS;
+	ComPtr<ID3D11Buffer> s_BoxCB;
+	ComPtr<ID3D11DepthStencilState> s_BoxDSS;
+	ComPtr<ID3D11BlendState> s_BoxBS;
+	ComPtr<ID3D11RasterizerState> s_BoxRS;
+	int s_BoxState = 0;   // 0 아직, 1 됨, -1 실패
+	std::unordered_map<const void*, ID3D11Predicate*> s_PredicateOf;
+	uint32_t s_PredicateView = ~0u;
+
+	bool InitBoxQueries(ID3D11Device* dev)
+	{
+		if (s_BoxState != 0)
+			return s_BoxState > 0;
+		s_BoxState = -1;
+		const D3D_SHADER_MACRO macros[] = { { "KERNEL_BOX", "1" }, { nullptr, nullptr } };
+		ComPtr<ID3DBlob> blob, msgs;
+		if (FAILED(::D3DCompileFromFile(L"../Shaders/57. OcclusionCulling.hlsl", macros, nullptr, "BoxVS", "vs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, blob.GetAddressOf(), msgs.GetAddressOf()))
+			|| FAILED(dev->CreateVertexShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, s_BoxVS.GetAddressOf())))
+		{
+			EditorLog::Write("Occlusion", "box query shader failed%s%s", msgs ? "\n" : "", msgs ? (const char*)msgs->GetBufferPointer() : "");
+			return false;
+		}
+		D3D11_BUFFER_DESC cb = {};
+		cb.ByteWidth = 96;
+		cb.Usage = D3D11_USAGE_DYNAMIC;
+		cb.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		cb.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		D3D11_DEPTH_STENCIL_DESC ds = {};
+		ds.DepthEnable = TRUE;
+		ds.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+		ds.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+		D3D11_BLEND_DESC bs = {};
+		bs.RenderTarget[0].RenderTargetWriteMask = 0;   // 색은 쓰지 않는다
+		D3D11_RASTERIZER_DESC rs = {};
+		rs.FillMode = D3D11_FILL_SOLID;
+		rs.CullMode = D3D11_CULL_NONE;
+		rs.DepthClipEnable = TRUE;
+		if (FAILED(dev->CreateBuffer(&cb, nullptr, s_BoxCB.GetAddressOf())) || FAILED(dev->CreateDepthStencilState(&ds, s_BoxDSS.GetAddressOf()))
+			|| FAILED(dev->CreateBlendState(&bs, s_BoxBS.GetAddressOf())) || FAILED(dev->CreateRasterizerState(&rs, s_BoxRS.GetAddressOf())))
+			return false;
+		s_BoxState = 1;
+		return true;
+	}
+
+	// CPU 가 만든 인스턴스 목록 (나무): 이 뷰의 Hi-Z 로 걸러 간접 그리기. 뷰마다 처음부터 다시 쓴다
+	struct ListBufs
+	{
+		Buf Src, Spheres, Args, Out;
+		uint32_t Stride = 0;
+		std::vector<OcclusionCulling::ListDraw> Draws;
+	};
+	std::vector<ListBufs> s_Lists;
+	int s_ListUsed = 0;
+	uint32_t s_HiZSerial = ~0u;   // Hi-Z 가 있는 뷰 (RenderManager::ViewSerial)
+	UINT s_HiZW = 0, s_HiZH = 0, s_HiZLevels = 0;
+
 	struct Current
 	{
 		View* V = nullptr;
 		uint32_t Casters = 0, Items[2] = {};
 		float ViewProj[16] = {};
 		bool Active = false;
+		bool Finished = false;   // Finish 를 지났다 (상자 쿼리는 그 뒤 — 깊이가 다 찼다)
 	} s_Cur;
 
 	ID3D11DeviceContext* Native(GfxContext* dc) { return dc ? static_cast<ID3D11DeviceContext*>(dc->Native()) : nullptr; }
@@ -81,8 +149,8 @@ namespace
 	{
 		if (s_KernelState != 0)
 			return s_KernelState > 0;
-		static const char* entries[KCount] = { "PrepareCS", "CompactCS", "CopyDepthCS", "ReduceCS", "CullCS" };
-		static const char* defines[KCount] = { "KERNEL_PREPARE", "KERNEL_COMPACT", "KERNEL_COPYDEPTH", "KERNEL_REDUCE", "KERNEL_CULL" };
+		static const char* entries[KCount] = { "PrepareCS", "CompactCS", "ReduceCS", "CullCS", "CullListCS" };
+		static const char* defines[KCount] = { "KERNEL_PREPARE", "KERNEL_COMPACT", "KERNEL_REDUCE", "KERNEL_CULL", "KERNEL_LIST" };
 		const ULONGLONG start = ::GetTickCount64();
 		for (int k = 0; k < KCount; ++k)
 		{
@@ -341,7 +409,11 @@ namespace
 		for (int i = 0; i < 3; ++i)
 		{
 			const int k = (v.Next + i) % 3;   // 오래된 것부터
-			if (!v.Pending[k] || !v.Staging[k])
+			if (!v.Pending[k] || !v.Staging[k] || !v.Ready[k])
+				continue;
+			// 끝났는지 먼저 (명령 버퍼를 밀어 넣지 않고) — Map(DO_NOT_WAIT) 만 쓰면 드라이버가 그때마다 명령을 GPU 에 보내
+			//  CPU 가 늦은 프레임에서 GPU 가 그 뒤로 쉬게 된다
+			if (ctx->GetData(v.Ready[k].Get(), nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
 				continue;
 			D3D11_MAPPED_SUBRESOURCE m;
 			if (ctx->Map(v.Staging[k].Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m) != S_OK)
@@ -350,7 +422,13 @@ namespace
 			OcclusionCulling::Stats& st = s_Stats[v.Editor ? 1 : 0];
 			st.Tested = (int)p[0];
 			st.Visible = (int)p[1];
+			st.ListTested = (int)p[2];
+			st.ListVisible = (int)p[3];
 			++st.Frames;
+			// 거의 아무것도 가리지 않았다 → 30 번 쉬고 다시 본다 (탁 트인 장면에서 Hi-Z 비용만 들지 않게)
+			const int culled = st.Tested - st.Visible;
+			if (culled < (std::max)(4, st.Tested / 50))
+				v.SkipUntil = v.Calls + 30;
 			ctx->Unmap(v.Staging[k].Get(), 0);
 			v.Pending[k] = false;
 		}
@@ -372,10 +450,13 @@ namespace OcclusionCulling
 	bool Begin(GfxContext* dc, const void* view, bool editor, const float viewProj[16], Frame& frame, uint32_t slotCount)
 	{
 		s_Cur.Active = false;
+		s_Cur.Finished = false;
 		static const bool s_Off = [] { char v[8] = {}; return ::GetEnvironmentVariableA("NOVA_DEV_NOOCCLUSION", v, sizeof(v)) > 0 && v[0] == '1'; }();
 		Stats& st = s_Stats[editor ? 1 : 0];
 		st.Active = false;
-		if (!Enabled || s_Off || view == nullptr || frame.Casters.empty() || !Supported(dc))
+		// 렌더러가 적으면 Hi-Z 를 만드는 비용이 아낄 수 있는 것보다 크다 → 절두체 컬링만
+		constexpr size_t kMinCasters = 64;
+		if (!Enabled || s_Off || view == nullptr || frame.Casters.size() < kMinCasters || !Supported(dc))
 			return false;
 		ID3D11DeviceContext* ctx = Native(dc);
 		ComPtr<ID3D11Device> dev;
@@ -406,6 +487,8 @@ namespace OcclusionCulling
 		View& v = s_Views[view];
 		v.Editor = editor;
 		v.LastUsed = now;
+		if (++v.Calls < v.SkipUntil)
+			return false;   // 쉬는 중 (지난 검사에서 가린 것이 거의 없었다)
 		++v.Frame;
 
 		const UINT casters = (UINT)frame.Casters.size();
@@ -466,6 +549,7 @@ namespace OcclusionCulling
 		if (!s_Cur.Active)
 			return;
 		s_Cur.Active = false;
+		s_Cur.Finished = true;
 		ID3D11DeviceContext* ctx = Native(dc);
 		ComPtr<ID3D11Device> dev;
 		ctx->GetDevice(dev.GetAddressOf());
@@ -487,35 +571,49 @@ namespace OcclusionCulling
 		memcpy(c.ViewProj, s_Cur.ViewProj, sizeof(c.ViewProj));
 		c.Frame = v.Frame;
 		const UINT w = vpCount ? (UINT)vp.Width : 0, h = vpCount ? (UINT)vp.Height : 0;
-		if (depth && w > 0 && h > 0 && EnsureHiZ(dev.Get(), v, w, h))
+		// Hi-Z 0 번 = 반 해상도 (칸 = 깊이 2x2) — 전체 해상도 복사 단계를 건너뛴다
+		if (depth && w > 0 && h > 0 && EnsureHiZ(dev.Get(), v, (std::max)(w >> 1, 1u), (std::max)(h >> 1, 1u)))
 		{
-			// 깊이 → Hi-Z 0 번, 그 위로 2x2 씩 가장 먼 깊이
-			c.ViewOrigin[0] = (uint32_t)vp.TopLeftX;
-			c.ViewOrigin[1] = (uint32_t)vp.TopLeftY;
-			c.DstSize[0] = w;
-			c.DstSize[1] = h;
-			SetConstants(ctx, c);
-			Run(ctx, KCopyDepth, { depth }, { v.MipUav[0].Get() }, Groups(w, 8), Groups(h, 8));
+			PROFILE_GPU("Hi-Z");
 			UINT sw = w, sh = h;
-			for (UINT i = 1; i < v.Levels; ++i)
+			for (UINT i = 0; i < v.Levels; ++i)
 			{
 				const UINT dw = (std::max)(sw >> 1, 1u), dh = (std::max)(sh >> 1, 1u);
+				c.ViewOrigin[0] = i == 0 ? (uint32_t)vp.TopLeftX : 0;
+				c.ViewOrigin[1] = i == 0 ? (uint32_t)vp.TopLeftY : 0;
 				c.SrcSize[0] = sw; c.SrcSize[1] = sh;
 				c.DstSize[0] = dw; c.DstSize[1] = dh;
 				SetConstants(ctx, c);
-				Run(ctx, KReduce, { v.MipSrv[i - 1].Get() }, { v.MipUav[i].Get() }, Groups(dw, 8), Groups(dh, 8));
+				Run(ctx, KReduce, { i == 0 ? depth : v.MipSrv[i - 1].Get() }, { v.MipUav[i].Get() }, Groups(dw, 8), Groups(dh, 8));
 				sw = dw;
 				sh = dh;
 			}
 			c.Levels = v.Levels;
 			c.ViewSize[0] = (float)w;
 			c.ViewSize[1] = (float)h;
+			s_HiZSerial = RenderManager::GetI()->ViewSerial;
+			s_HiZW = w;
+			s_HiZH = h;
+			s_HiZLevels = v.Levels;
+			s_ListUsed = 0;
 		}
 		// Hi-Z 가 없으면 (Levels 0) 모두 보인다
 
 		// 가려짐 검사 → 새로 보인 것 (깊이 2 단계) · 지금 보이는 것 (본 패스)
+		PROFILE_GPU("Occlusion Test");
 		const UINT zero[4] = {};
 		ctx->ClearUnorderedAccessViewUint(s_Counters.Uav.Get(), zero);
+		// 지난 프레임 이 뷰의 인스턴스 목록 수 (나무) → 카운터 8 · 12 바이트 (같은 staging 으로 읽는다), 그리고 지운다
+		if (v.ListCounters.B)
+		{
+			if (v.ListCountersUsed)
+			{
+				const D3D11_BOX box = { 0, 0, 0, 8, 1, 1 };
+				ctx->CopySubresourceRegion(s_Counters.B.Get(), 0, 8, 0, 0, v.ListCounters.B.Get(), 0, &box);
+			}
+			ctx->ClearUnorderedAccessViewUint(v.ListCounters.Uav.Get(), zero);
+			v.ListCountersUsed = false;
+		}
 		c.Count = s_Cur.Casters;
 		SetConstants(ctx, c);
 		Run(ctx, KCull, { s_Casters.Srv.Get(), v.AllSrv.Get() }, { v.History.Uav.Get(), s_Flags.Uav.Get(), s_Counters.Uav.Get() }, Groups(c.Count, 64));
@@ -533,10 +631,13 @@ namespace OcclusionCulling
 			d.Usage = D3D11_USAGE_STAGING;
 			d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 			dev->CreateBuffer(&d, nullptr, v.Staging[v.Next].GetAddressOf());
+			D3D11_QUERY_DESC q = { D3D11_QUERY_EVENT, 0 };
+			dev->CreateQuery(&q, v.Ready[v.Next].GetAddressOf());
 		}
-		if (v.Staging[v.Next])
+		if (v.Staging[v.Next] && v.Ready[v.Next] && !v.Pending[v.Next])
 		{
 			ctx->CopyResource(v.Staging[v.Next].Get(), s_Counters.B.Get());
+			ctx->End(v.Ready[v.Next].Get());
 			v.Pending[v.Next] = true;
 		}
 		v.Next = (v.Next + 1) % 3;
@@ -545,6 +646,203 @@ namespace OcclusionCulling
 		ctx->OMSetRenderTargets(rtCount, rtvs, dsv);
 		for (ID3D11RenderTargetView* r : rtvs) if (r) r->Release();
 		if (dsv) dsv->Release();
+	}
+
+	bool HasHiZ()
+	{
+		return s_Cur.Finished && s_Cur.V && s_Cur.V->AllSrv && s_HiZLevels > 0 && s_HiZSerial == RenderManager::GetI()->ViewSerial;
+	}
+
+	int CullList(GfxContext* dc, const void* instances, uint32_t stride, uint32_t count, const float* spheres, const ListDraw* draws, int drawCount)
+	{
+		ID3D11DeviceContext* ctx = Native(dc);
+		if (!ctx || !HasHiZ() || count == 0 || stride == 0 || stride % 4 != 0 || drawCount <= 0 || drawCount > 4)
+			return -1;
+		ComPtr<ID3D11Device> dev;
+		ctx->GetDevice(dev.GetAddressOf());
+		View& v = *s_Cur.V;
+		if (!EnsureRaw(dev.Get(), ctx, v.ListCounters, 16, 0, 0, false))
+			return -1;
+		if (s_ListUsed >= (int)s_Lists.size())
+			s_Lists.emplace_back();
+		const int id = s_ListUsed;
+		ListBufs& l = s_Lists[id];
+		const uint32_t strideU = stride / 4;
+		bool ok = EnsureStructured(dev.Get(), l.Src, 4, count * strideU) && Upload(ctx, l.Src, instances, (size_t)count * stride)
+			&& EnsureStructured(dev.Get(), l.Spheres, 16, count) && Upload(ctx, l.Spheres, spheres, (size_t)count * 16)
+			&& EnsureRaw(dev.Get(), ctx, l.Args, drawCount * 20, 0, D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS, false)
+			&& EnsureRaw(dev.Get(), ctx, l.Out, count * stride, D3D11_BIND_VERTEX_BUFFER, 0, false);
+		if (!ok)
+			return -1;
+		uint32_t args[20] = {};
+		for (int d = 0; d < drawCount; ++d)
+		{
+			memcpy(&args[d * 5], draws[d].Args, sizeof(draws[d].Args));
+			args[d * 5 + 1] = 0;   // InstanceCount = GPU 가 센다
+		}
+		const D3D11_BOX box = { 0, 0, 0, (UINT)drawCount * 20, 1, 1 };
+		ctx->UpdateSubresource(l.Args.B.Get(), 0, &box, args, 0, 0);
+		l.Stride = stride;
+		l.Draws.assign(draws, draws + drawCount);
+		Constants c = {};
+		memcpy(c.ViewProj, s_Cur.ViewProj, sizeof(c.ViewProj));
+		c.ViewSize[0] = (float)s_HiZW;
+		c.ViewSize[1] = (float)s_HiZH;
+		c.Count = count;
+		c.Mode = (uint32_t)drawCount;
+		c.Levels = s_HiZLevels;
+		c.Stride = strideU;
+		SetConstants(ctx, c);
+		Run(ctx, KList, { l.Src.Srv.Get(), v.AllSrv.Get(), l.Spheres.Srv.Get() }, { l.Args.Uav.Get(), l.Out.Uav.Get(), v.ListCounters.Uav.Get() }, Groups(count, 64));
+		ctx->CSSetShader(nullptr, nullptr, 0);
+		ID3D11Buffer* nullCb = nullptr;
+		ctx->CSSetConstantBuffers(0, 1, &nullCb);
+		v.ListCountersUsed = true;
+		++s_ListUsed;
+		return id;
+	}
+
+	void DrawList(GfxContext* dc, int list, int draw, uint32_t instanceSlot)
+	{
+		ID3D11DeviceContext* ctx = Native(dc);
+		if (!ctx || list < 0 || list >= s_ListUsed || draw < 0 || draw >= (int)s_Lists[(size_t)list].Draws.size())
+			return;
+		const ListBufs& l = s_Lists[(size_t)list];
+		ID3D11Buffer* vb = l.Out.B.Get();
+		const UINT stride = l.Stride, offset = 0;
+		ctx->IASetVertexBuffers(instanceSlot, 1, &vb, &stride, &offset);
+		const OcclusionCulling::ListDraw& d = l.Draws[(size_t)draw];
+		RenderStats::AddDraw(d.Indexed ? d.Args[0] : d.Args[0], 0, 1);
+		if (d.Indexed)
+			ctx->DrawIndexedInstancedIndirect(l.Args.B.Get(), (UINT)draw * 20);
+		else
+			ctx->DrawInstancedIndirect(l.Args.B.Get(), (UINT)draw * 20);
+	}
+
+	void QueryBoxes(GfxContext* dc, const std::vector<BoxQuery>& boxes)
+	{
+		s_PredicateOf.clear();
+		s_PredicateView = ~0u;
+		ID3D11DeviceContext* ctx = Native(dc);
+		if (!ctx || !s_Cur.Finished || boxes.empty())
+			return;
+		ComPtr<ID3D11Device> dev;
+		ctx->GetDevice(dev.GetAddressOf());
+		if (!InitBoxQueries(dev.Get()) || !s_Cur.V)
+			return;
+		PROFILE_GPU("Occlusion Queries");
+		View& view = *s_Cur.V;
+		// 지난 프레임 이 뷰의 쿼리 결과 (기다리지 않고 — 아직이면 세지 않는다)
+		{
+			int hidden = 0, read = 0;
+			for (size_t i = 0; i < view.PredicatesUsed; ++i)
+			{
+				BOOL visible = TRUE;
+				if (ctx->GetData(view.Predicates[i].Get(), &visible, sizeof(visible), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK)
+				{
+					++read;
+					hidden += visible ? 0 : 1;
+				}
+			}
+			if (read > 0)
+				s_Stats[view.Editor ? 1 : 0].QueriesHidden = hidden;
+		}
+		// 지금 상태를 저장해 두고 끝에 되돌린다
+		ComPtr<ID3D11InputLayout> il; ctx->IAGetInputLayout(il.GetAddressOf());
+		D3D11_PRIMITIVE_TOPOLOGY topo; ctx->IAGetPrimitiveTopology(&topo);
+		ComPtr<ID3D11VertexShader> vs; ctx->VSGetShader(vs.GetAddressOf(), nullptr, nullptr);
+		ComPtr<ID3D11PixelShader> ps; ctx->PSGetShader(ps.GetAddressOf(), nullptr, nullptr);
+		ComPtr<ID3D11GeometryShader> gs; ctx->GSGetShader(gs.GetAddressOf(), nullptr, nullptr);
+		ComPtr<ID3D11HullShader> hs; ctx->HSGetShader(hs.GetAddressOf(), nullptr, nullptr);
+		ComPtr<ID3D11DomainShader> ds; ctx->DSGetShader(ds.GetAddressOf(), nullptr, nullptr);
+		ComPtr<ID3D11Buffer> vcb; ctx->VSGetConstantBuffers(0, 1, vcb.GetAddressOf());
+		ComPtr<ID3D11RasterizerState> rs; ctx->RSGetState(rs.GetAddressOf());
+		ComPtr<ID3D11DepthStencilState> dss; UINT ref = 0; ctx->OMGetDepthStencilState(dss.GetAddressOf(), &ref);
+		ComPtr<ID3D11BlendState> bs; float factor[4]; UINT mask = 0; ctx->OMGetBlendState(bs.GetAddressOf(), factor, &mask);
+
+		ctx->IASetInputLayout(nullptr);
+		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		ctx->VSSetShader(s_BoxVS.Get(), nullptr, 0);
+		ctx->PSSetShader(nullptr, nullptr, 0);
+		ctx->GSSetShader(nullptr, nullptr, 0);
+		ctx->HSSetShader(nullptr, nullptr, 0);
+		ctx->DSSetShader(nullptr, nullptr, 0);
+		ID3D11Buffer* cb = s_BoxCB.Get();
+		ctx->VSSetConstantBuffers(0, 1, &cb);
+		ctx->RSSetState(s_BoxRS.Get());
+		ctx->OMSetDepthStencilState(s_BoxDSS.Get(), 0);
+		const float zero4[4] = {};
+		ctx->OMSetBlendState(s_BoxBS.Get(), zero4, 0xFFFFFFFF);
+
+		const XMMATRIX vp = XMLoadFloat4x4(reinterpret_cast<const XMFLOAT4X4*>(s_Cur.ViewProj));
+		size_t used = 0;
+		for (const BoxQuery& b : boxes)
+		{
+			// 카메라가 상자 안이거나 가까운 면이 상자를 자르면 쿼리하지 않는다 (잘린 상자는 0 이 나올 수 있다 → 늘 그린다)
+			bool nearPlane = false;
+			for (int i = 0; i < 8 && !nearPlane; ++i)
+			{
+				const XMVECTOR c = XMVector4Transform(XMVectorSet(i & 1 ? b.Max[0] : b.Min[0], i & 2 ? b.Max[1] : b.Min[1], i & 4 ? b.Max[2] : b.Min[2], 1.0f), vp);
+				nearPlane = XMVectorGetW(c) <= 1e-3f || XMVectorGetZ(c) <= 0.0f;
+			}
+			if (nearPlane)
+				continue;
+			if (used >= view.Predicates.size())
+			{
+				D3D11_QUERY_DESC q = { D3D11_QUERY_OCCLUSION_PREDICATE, 0 };
+				ComPtr<ID3D11Predicate> p;
+				if (FAILED(dev->CreatePredicate(&q, p.GetAddressOf())))
+					break;
+				view.Predicates.push_back(p);
+			}
+			ID3D11Predicate* pred = view.Predicates[used++].Get();
+			D3D11_MAPPED_SUBRESOURCE m;
+			if (FAILED(ctx->Map(s_BoxCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &m)))
+				break;
+			float* f = static_cast<float*>(m.pData);
+			memcpy(f, s_Cur.ViewProj, 64);
+			f[16] = b.Min[0]; f[17] = b.Min[1]; f[18] = b.Min[2]; f[19] = 0.0f;
+			f[20] = b.Max[0]; f[21] = b.Max[1]; f[22] = b.Max[2]; f[23] = 0.0f;
+			ctx->Unmap(s_BoxCB.Get(), 0);
+			ctx->Begin(pred);
+			ctx->Draw(36, 0);
+			ctx->End(pred);
+			s_PredicateOf[b.Renderer] = pred;
+		}
+		s_PredicateView = RenderManager::GetI()->ViewSerial;
+		view.PredicatesUsed = used;
+		s_Stats[view.Editor ? 1 : 0].Queries = (int)used;
+
+		ctx->IASetInputLayout(il.Get());
+		ctx->IASetPrimitiveTopology(topo);
+		ctx->VSSetShader(vs.Get(), nullptr, 0);
+		ctx->PSSetShader(ps.Get(), nullptr, 0);
+		ctx->GSSetShader(gs.Get(), nullptr, 0);
+		ctx->HSSetShader(hs.Get(), nullptr, 0);
+		ctx->DSSetShader(ds.Get(), nullptr, 0);
+		ID3D11Buffer* prevCb = vcb.Get();
+		ctx->VSSetConstantBuffers(0, 1, &prevCb);
+		ctx->RSSetState(rs.Get());
+		ctx->OMSetDepthStencilState(dss.Get(), ref);
+		ctx->OMSetBlendState(bs.Get(), factor, mask);
+	}
+
+	bool BeginPredicated(GfxContext* dc, const void* renderer)
+	{
+		if (s_PredicateView != RenderManager::GetI()->ViewSerial)
+			return false;   // 다른 뷰 (찍기 등) 의 쿼리는 쓰지 않는다
+		auto it = s_PredicateOf.find(renderer);
+		ID3D11DeviceContext* ctx = Native(dc);
+		if (it == s_PredicateOf.end() || !ctx)
+			return false;
+		ctx->SetPredication(it->second, FALSE);   // 상자가 한 픽셀도 통과하지 못했으면 그리기를 건너뛴다
+		return true;
+	}
+
+	void EndPredicated(GfxContext* dc)
+	{
+		if (ID3D11DeviceContext* ctx = Native(dc))
+			ctx->SetPredication(nullptr, FALSE);
 	}
 
 	void DrawIndirect(GfxContext* dc, Set set, uint32_t batch, MeshGeometry& geometry, uint32_t subset)
@@ -571,6 +869,12 @@ namespace OcclusionCulling
 	bool Begin(GfxContext*, const void*, bool editor, const float*, Frame&, uint32_t) { s_Stats[editor ? 1 : 0].Active = false; return false; }
 	void Finish(GfxContext*) {}
 	void DrawIndirect(GfxContext*, Set, uint32_t, MeshGeometry&, uint32_t) {}
+	void QueryBoxes(GfxContext*, const std::vector<BoxQuery>&) {}
+	bool HasHiZ() { return false; }
+	int CullList(GfxContext*, const void*, uint32_t, uint32_t, const float*, const ListDraw*, int) { return -1; }
+	void DrawList(GfxContext*, int, int, uint32_t) {}
+	bool BeginPredicated(GfxContext*, const void*) { return false; }
+	void EndPredicated(GfxContext*) {}
 }
 
 #endif
@@ -599,7 +903,8 @@ namespace OcclusionCulling
 			}
 			auto view = [](bool editor) {
 				const Stats& s = LastStats(editor);
-				return nlohmann::json{ { "active", s.Active }, { "tested", s.Tested }, { "visible", s.Visible }, { "culled", s.Tested - s.Visible }, { "frames", s.Frames } };
+				return nlohmann::json{ { "active", s.Active }, { "tested", s.Tested }, { "visible", s.Visible }, { "culled", s.Tested - s.Visible }, { "frames", s.Frames }, { "queries", s.Queries }, { "queriesHidden", s.QueriesHidden },
+					{ "instancesTested", s.ListTested }, { "instancesCulled", s.ListTested - s.ListVisible } };
 			};
 			result = { { "supported", Supported(Application::GetI()->GetDeviceContext()) }, { "enabled", Enabled }, { "game", view(false) }, { "scene", view(true) } };
 			return true;

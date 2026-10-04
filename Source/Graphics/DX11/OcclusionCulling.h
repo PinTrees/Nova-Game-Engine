@@ -54,12 +54,39 @@ namespace OcclusionCulling
 	// 그 목록의 묶음 하나 (입력 배치 · 셰이더는 호출한 쪽이 이미 묶었다 — 인스턴스 정점 버퍼 = 1 번)
 	void DrawIndirect(GfxContext* dc, Set set, uint32_t batch, MeshGeometry& geometry, uint32_t subset);
 
+	// 낱개로 그리는 렌더러 (Skinned Mesh Renderer): 깊이 프리패스가 끝난 뒤 상자를 오클루전 예측 쿼리로 그려 두고,
+	//  본 패스에서 그 쿼리로 그리기를 감싼다 (SetPredication — 가려졌으면 GPU 가 건너뛴다. CPU 는 기다리지 않는다)
+	struct BoxQuery
+	{
+		const void* Renderer;
+		float Min[3], Max[3];
+	};
+	void QueryBoxes(GfxContext* dc, const std::vector<BoxQuery>& boxes);   // FinishDepthPrepass 안 (같은 깊이 타깃)
+	bool BeginPredicated(GfxContext* dc, const void* renderer);           // true 면 그린 뒤 EndPredicated
+	void EndPredicated(GfxContext* dc);
+
+	// CPU 가 만든 인스턴스 목록 (나무처럼 LOD 마다 인스턴싱): 이 뷰의 Hi-Z 로 인스턴스마다 경계 구를 검사해
+	//  보이는 것만 GPU 버퍼에 이어 쓰고 간접 그리기 인자를 센다 (FinishDepthPrepass 뒤 — 본 패스)
+	struct ListDraw
+	{
+		uint32_t Args[5];   // DrawIndexedInstancedIndirect (IndexCount, -, StartIndex, BaseVertex, 0) 또는 DrawInstancedIndirect (VertexCount, -, StartVertex, 0)
+		bool Indexed;
+	};
+	bool HasHiZ();   // 지금 뷰의 Hi-Z 가 있다 (깊이 프리패스 뒤)
+	// 반환 = 목록 번호, -1 = 못 했다 (호출한 쪽이 CPU 목록으로 그린다). spheres = 인스턴스마다 xyz 중심 + 반지름
+	int CullList(GfxContext* dc, const void* instances, uint32_t stride, uint32_t count, const float* spheres, const ListDraw* draws, int drawCount);
+	// 걸러진 인스턴스를 instanceSlot 정점 버퍼에 묶고 draw 번째 그리기 (입력 배치 · 셰이더 · 0 번 버퍼는 호출한 쪽이)
+	void DrawList(GfxContext* dc, int list, int draw, uint32_t instanceSlot);
+
 	struct Stats
 	{
 		int Tested = 0;     // 절두체 안 렌더러 (GPU 가 검사)
 		int Visible = 0;    // 그중 가려지지 않은 것
 		bool Active = false;   // 마지막 뷰가 오클루전 컬링을 썼다
 		uint64_t Frames = 0;   // GPU 결과를 읽은 횟수
+		int Queries = 0;       // 마지막 뷰의 오클루전 쿼리 (Skinned Mesh Renderer) 수
+		int QueriesHidden = 0; // 그중 가려져 GPU 가 그리기를 건너뛴 수 (한 프레임 전 결과)
+		int ListTested = 0, ListVisible = 0;   // 인스턴스 목록 (나무) 검사 · 보임
 	};
 	// 몇 프레임 늦은 GPU 결과 (기다리지 않고 읽는다)
 	const Stats& LastStats(bool editor);

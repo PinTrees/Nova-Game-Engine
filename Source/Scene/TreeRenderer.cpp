@@ -11,6 +11,7 @@
 #include "UMaterial.h"
 #include "Profiler.h"
 #include "SceneCulling.h"
+#include "OcclusionCulling.h"
 #include <chrono>
 #include <map>
 #include <unordered_map>
@@ -400,6 +401,7 @@ namespace
 	{
 		const TreeDesc* Desc = nullptr;
 		std::vector<InstanceData> Lists[3];   // LOD0, LOD1, 임포스터
+		std::vector<XMFLOAT4> Spheres[3];      // 같은 순서의 경계 구 (오클루전 컬링 — 본 패스에서 GPU 가 거른다)
 		bool Used = false;
 	};
 	std::unordered_map<size_t, Batch> s_Batches;
@@ -659,8 +661,12 @@ namespace TreeRenderer
 		else
 		{
 			for (auto& kv : s_Batches)
+			{
 				for (auto& list : kv.second.Lists)
 					list.clear();
+				for (auto& list : kv.second.Spheres)
+					list.clear();
+			}
 			for (const TreeRecord& r : s_Records)
 			{
 				if (shadow && !r.CastShadows)
@@ -680,6 +686,7 @@ namespace TreeRenderer
 					inst.World = r.World;
 					inst.Extra = XMFLOAT4(r.Tint, r.Phase, t, side);
 					b.Lists[lod].push_back(inst);
+					b.Spheres[lod].push_back(XMFLOAT4(r.Center.x, r.Center.y, r.Center.z, r.Radius * 1.1f));   // 바람에 흔들리는 만큼 넉넉히
 				};
 				const float l1 = desc.LodDistance, l2 = desc.BillboardDistance, lc = desc.CullDistance;
 				const float b1 = l1 * 0.1f, b2 = l2 * 0.1f, bc2 = lc * 0.05f;
@@ -744,6 +751,8 @@ namespace TreeRenderer
 		dc->RSGetState(prevRS.GetAddressOf());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+		// 본 패스 + 이 뷰의 Hi-Z 가 있으면 (오클루전 컬링) 가려진 나무를 GPU 가 뺀다
+		const bool occlusion = pass == Pass::Main && OcclusionCulling::HasHiZ();
 		for (auto& kv : s_Batches)
 		{
 			Batch& b = kv.second;
@@ -756,10 +765,44 @@ namespace TreeRenderer
 				if (b.Lists[lod].empty())
 					continue;
 				auto mesh = GetMesh(*b.Desc, lod);
-				GfxBuffer* inst = mesh && mesh->VB ? UploadInstances(dc, b.Lists[lod]) : nullptr;
-				if (!inst)
+				if (!mesh || !mesh->VB)
 					continue;
 				const UINT count = (UINT)b.Lists[lod].size();
+				// 오클루전 컬링 (본 패스): 이 뷰의 Hi-Z 로 가려진 나무를 GPU 가 빼고 간접 그리기
+				if (occlusion)
+				{
+					const OcclusionCulling::ListDraw draws[2] = {
+						{ { mesh->BarkIndexCount, 0, 0, 0, 0 }, true },
+						{ { mesh->LeafIndexCount, 0, mesh->BarkIndexCount, 0, 0 }, true } };
+					const int list = OcclusionCulling::CullList(dc, b.Lists[lod].data(), sizeof(InstanceData), count, &b.Spheres[lod][0].x, draws, 2);
+					if (list >= 0)
+					{
+						const UINT stride = sizeof(TreeVertex), offset = 0;
+						GfxBuffer* vb = mesh->VB.Get();
+						dc->IASetInputLayout(s_MeshLayout.Get());
+						dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+						dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
+						if (mesh->BarkIndexCount > 0)
+						{
+							PROFILE_GPU(lod == 0 ? "LOD0 Bark" : "LOD1 Bark");
+							v.Bark->GetPassByIndex(0)->Apply(0, dc);
+							OcclusionCulling::DrawList(dc, list, 0, 1);
+							++stats.DrawCalls;
+						}
+						if (mesh->LeafIndexCount > 0)
+						{
+							PROFILE_GPU(lod == 0 ? "LOD0 Leaves" : "LOD1 Leaves");
+							v.Leaf->GetPassByIndex(0)->Apply(0, dc);
+							OcclusionCulling::DrawList(dc, list, 1, 1);
+							++stats.DrawCalls;
+						}
+						(lod == 0 ? stats.Lod0 : stats.Lod1) += (int)count;
+						continue;
+					}
+				}
+				GfxBuffer* inst = UploadInstances(dc, b.Lists[lod]);
+				if (!inst)
+					continue;
 				const UINT strides[2] = { sizeof(TreeVertex), sizeof(InstanceData) }, offsets[2] = { 0, 0 };
 				GfxBuffer* vbs[2] = { mesh->VB.Get(), inst };
 				dc->IASetInputLayout(s_MeshLayout.Get());
@@ -780,6 +823,24 @@ namespace TreeRenderer
 					++stats.DrawCalls;
 				}
 				(lod == 0 ? stats.Lod0 : stats.Lod1) += (int)count;
+			}
+			if (imp && !b.Lists[2].empty() && occlusion)
+			{
+				const OcclusionCulling::ListDraw draws[1] = { { { 6, 0, 0, 0, 0 }, false } };
+				const int list = OcclusionCulling::CullList(dc, b.Lists[2].data(), sizeof(InstanceData), (uint32_t)b.Lists[2].size(), &b.Spheres[2][0].x, draws, 1);
+				if (list >= 0)
+				{
+					PROFILE_GPU("Impostors");
+					GfxBuffer* none = nullptr;
+					UINT zero = 0;
+					dc->IASetVertexBuffers(0, 1, &none, &zero, &zero);
+					dc->IASetInputLayout(s_ImpostorLayout.Get());
+					v.Impostor->GetPassByIndex(0)->Apply(0, dc);
+					OcclusionCulling::DrawList(dc, list, 0, 1);
+					++stats.DrawCalls;
+					stats.Billboards += (int)b.Lists[2].size();
+					continue;
+				}
 			}
 			if (imp && !b.Lists[2].empty())
 			{

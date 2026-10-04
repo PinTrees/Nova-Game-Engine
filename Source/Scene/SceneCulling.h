@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <functional>
 #include "Component.h"
 
 class Scene;
@@ -48,4 +49,7 @@ namespace SceneCulling
 	// 추적 중인 렌더러의 자리 번호 (지워질 때까지 같다) + 월드 상자 — 오클루전 컬링이 지난 프레임 기록을 이 번호로 둔다
 	bool TrackedSlot(const Component* renderer, uint32_t& slot, Vec3& mn, Vec3& mx);
 	uint32_t SlotCount();
+	bool SlotBounds(uint32_t slot, Vec3& mn, Vec3& mx);   // Component::CullSlot 의 상자 (해시 찾기 없음)
+	// 추적 중인 Skinned Mesh Renderer 와 월드 상자 (마지막 Update 기준) — 오클루전 쿼리
+	void ForEachSkinned(const std::function<void(Component*, const Vec3&, const Vec3&)>& f);
 }
