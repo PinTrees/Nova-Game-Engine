@@ -57,6 +57,8 @@ namespace
 		void (*SetFieldsJson)(void*, const char*) = nullptr;
 		int (*InvokeMethod)(uint64_t, const char*, const char*, const char*) = nullptr;
 		void (*InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
+		void (*AppPause)(int) = nullptr;   // NovaEngine.Interop.AppEvents (없어도 된다)
+		void (*AppFocus)(int) = nullptr;
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -194,6 +196,15 @@ namespace
 		get("InvokeMethod", 4, m.InvokeMethod);
 		get("InvokeUIEvent", 4, m.InvokeUIEvent);
 		if (!ok) return false;
+		if (void* events = mono.mono_class_from_name(mono.mono_assembly_get_image(core), "NovaEngine.Interop", "AppEvents"))
+		{
+			void* k = klass;
+			klass = events;
+			get("Pause", 1, m.AppPause);
+			get("Focus", 1, m.AppFocus);
+			klass = k;
+			ok = true;   // 선택 진입점 — 없어도 스크립트는 돈다
+		}
 
 		std::vector<uint8_t> table(ScriptBindings::TableSize());
 		ScriptBindings::Fill(table.data());
@@ -304,6 +315,18 @@ namespace ScriptEngine
 		memset(s_Keys, 0, sizeof(s_Keys));
 		memset(s_PrevKeys, 0, sizeof(s_PrevKeys));
 		ScriptBindings::Reset();
+	}
+
+	void OnApplicationPause(bool paused)
+	{
+		if (s_AssemblyLoaded && m.AppPause)
+			m.AppPause(paused ? 1 : 0);
+	}
+
+	void OnApplicationFocus(bool focused)
+	{
+		if (s_AssemblyLoaded && m.AppFocus)
+			m.AppFocus(focused ? 1 : 0);
 	}
 
 	void OnSceneSwapped()

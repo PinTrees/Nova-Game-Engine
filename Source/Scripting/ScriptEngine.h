@@ -48,7 +48,10 @@ namespace ScriptEngine
 	void Update();        // 매 프레임: 파일 변경 감시, 컴파일 완료 처리, 다시 읽기, 지연 Destroy
 	void BeginFrame();    // Play 중 게임 업데이트 직전: 입력 상태, 시간
 	void OnPlayModeChanged(bool playing);
-	void OnSceneSwapped();   // Play 중 씬 교체 뒤, 새 씬 Enter 전 (id 캐시·UI 리스너 비우기)
+	void OnSceneSwapped();
+	// 앱 상태 (Unity 의 OnApplicationPause · OnApplicationFocus — C# AppEvents): 안드로이드 뒤로/앞으로, Windows 빌드된 게임의 창 활성
+	void OnApplicationPause(bool paused);
+	void OnApplicationFocus(bool focused);   // Play 중 씬 교체 뒤, 새 씬 Enter 전 (id 캐시·UI 리스너 비우기)
 
 	State GetState();
 	bool IsAvailable();              // .NET 런타임을 띄웠는지

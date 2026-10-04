@@ -3,6 +3,7 @@
 #include "BuildSettings.h"
 #include "BuildPipeline.h"
 #include "AndroidBuild.h"
+#include "AndroidTools.h"
 #include "ProjectSettingsWindow.h"
 #include "UnityGUI.h"
 #include "Debug.h"
@@ -159,6 +160,9 @@ namespace
 		const std::wstring sdk = AndroidBuild::FindSdk(), java = AndroidBuild::FindJava(), lib = AndroidBuild::PlayerLibrary("x86_64");
 		ValueLabel("Android SDK", sdk.empty() ? "Not found" : wstring_to_string(sdk).c_str());
 		ValueLabel("JDK", java.empty() ? "Not found" : wstring_to_string(java).c_str());
+		std::wstring monoLib, monoNative;
+		const bool mono = AndroidTools::MonoRuntime("x86_64", monoLib, monoNative);
+		ValueLabel("C# Runtime (Mono)", mono ? wstring_to_string(fs::path(monoNative).parent_path().wstring()).c_str() : "Not found - C# scripts will not run on Android");
 		if (sdk.empty() || java.empty())
 			HelpBox("Install \"Android Build Support\" from NOVA Hub (Installs > engine > Add modules).", true);
 		else if (lib.empty())

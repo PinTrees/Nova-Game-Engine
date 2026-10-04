@@ -685,6 +685,14 @@ LRESULT App::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	switch( msg )
 	{
 	case WM_ACTIVATE:
+		if (Application::IsPlayer())
+		{
+			// Unity 의 OnApplicationFocus (빌드된 게임의 창 활성), Run In Background 가 꺼져 있으면 OnApplicationPause 도
+			const bool active = LOWORD(wParam) != WA_INACTIVE;
+			ScriptEngine::OnApplicationFocus(active);
+			if (!PlayerRuntime::RunInBackground())
+				ScriptEngine::OnApplicationPause(!active);
+		}
 		if (Application::IsPlayer() && PlayerRuntime::RunInBackground())
 			return 0;   // Player Settings > Run In Background: 다른 창을 봐도 게임은 계속
 		if( LOWORD(wParam) == WA_INACTIVE )

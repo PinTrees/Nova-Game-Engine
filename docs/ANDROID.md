@@ -65,6 +65,27 @@ PC 는 .NET (hostfxr) 을 띄우지만 기기에서는 Microsoft 의 **Mono** (.
 - 런타임 받기: `powershell -File Tools/fetch_android_mono.ps1` → `ThirdParty/MonoAndroid` (git 에 넣지 않음, nuget.org 의 SHA512 확인). 엔진 배포판은
   `Tools/package_release.ps1` 가 `Android/Player/<ABI>/mono/{lib,native}` 에 넣고, 에디터는 그 자리 → `ThirdParty/MonoAndroid` 순서로 찾는다
 - MuMu: 런타임 시작 30 ~ 45 ms, Assembly-CSharp 읽기 약 140 ms (JIT)
+- 런타임 자리 (에디터가 찾는 순서): 엔진 배포판 `Android/Player/<ABI>/mono` → NOVA Hub 의 **Android 빌드 지원** (`<AndroidTools>/mono/<ABI>` — Hub 가 nuget.org 에서 받고 SHA512 확인)
+  → `ThirdParty/MonoAndroid` (엔진 개발). Build Settings 의 Android 칸에 찾은 위치가 보인다 (없으면 "C# scripts will not run on Android")
+
+### C# 의 플랫폼 API (Unity 와 같은 이름)
+
+엔진이 이름으로 내보낸 함수 (`Source/Scripting/PlatformBindings.cpp`) 를 C# 이 `DllImport("NovaCore")` 로 부른다 (안드로이드는 PINVOKE_OVERRIDE 로 libnova.so).
+
+| C# | 안드로이드 | PC |
+|---|---|---|
+| `Input.touchCount` · `GetTouch(i)` · `touches` (`Touch` — fingerId · position · deltaPosition · phase · tapCount) | 손가락 (좌표는 Unity 처럼 왼쪽 아래 기준) | 0 개 (Unity 와 같음) |
+| `Application.platform` · `isMobilePlatform` | `RuntimePlatform.Android` (11) | WindowsEditor (7) · WindowsPlayer (2) |
+| `Screen.safeArea` | DisplayCutout (API 28+, JNI) 의 안전 영역 | 화면 전체 |
+| `Screen.orientation` (get / set) | 지금 방향, 넣으면 `Activity.setRequestedOrientation` | 화면 비율 |
+| `OnApplicationPause(bool)` · `OnApplicationFocus(bool)` | 앱이 뒤로 / 앞으로 (C# `AppEvents`) | 빌드된 게임의 창 활성 (Run In Background 를 끄면 Pause 도) |
+
+앱이 뒤에 있던 동안은 게임 시간이 흐르지 않는다 (돌아온 첫 프레임의 deltaTime 이 튀지 않게 타이머를 새로).
+
+### Player Settings → Android
+
+Texture Compression · **Package Name** · **Default Orientation** (Portrait · Portrait Upside Down · Landscape Right · Landscape Left · Auto Rotation —
+manifest 의 `screenOrientation` = portrait · reversePortrait · reverseLandscape · landscape · fullUser)
 
 ### 모델 · 캐릭터 (메시 캐시)
 
@@ -117,7 +138,7 @@ UI · 오디오 · 물리 … 컴포넌트가 씬에서 빠졌다 (지금 83 개
 
 1. 에디터 (프레임마다 한 단계, 진행 창): 셰이더 → GLSL ES, 게임 데이터 (위의 텍스처 굽기 · 메시 캐시) → `<프로젝트>/Library/AndroidBuild/assets`
 2. 작업 스레드: AndroidManifest (Player Settings 의 **Package Name** — 비면 `com.<회사>.<제품>`, 제품 이름, 버전) → `aapt2 link -A assets` →
-   플레이어 라이브러리 `libnova.so` 를 zip 에 직접 (압축 없이, 항목 이름의 `\` 는 `/` 로) → `zipalign` → `apksigner` (디버그 키, 없으면 `keytool` 로 만든다)
+   플레이어 라이브러리 `libnova.so` (+ Mono) 를 zip 에 직접 — 엔진의 DEFLATE (LZ77 + 고정 허프만, zlib 없이 · zlib 의 약 1.15 배 크기), 항목 이름의 `\` 는 `/` 로 → `zipalign` → `apksigner` (디버그 키, 없으면 `keytool` 로 만든다)
 3. Build And Run: `adb devices` (없으면 켜진 MuMu VM 의 adb 포트로 `adb connect` — `MuMuManager info`) → `install -r` → `am start`
 
 - 창: Texture Compression, **Run Device** (Default device · 연결된 장치, Refresh), Development Build, Package Name, Android SDK · JDK 위치 (없으면 Hub 안내)
@@ -182,7 +203,8 @@ powershell -File Tools/tests/android.ps1
    패키지가 엔진에 들어갔는지 (logcat `[Packages]`), 10 · 90 프레임 그림이 다른지 (Animator 가 돈다)
 9. 터치 · 소리: Toggle · Slider · AudioSource 씬 → `input tap` 으로 Toggle, `input swipe` 로 Slider 손잡이 → 화면 영역이 바뀌는지, 엔진 Input 의 Touch (logcat `[Input] touch`),
    frame 이벤트의 `audioFrames` 가 늘고 레벨 > 0, `dumpsys media.audio_flinger` 의 재생 중 트랙 → HOME 이면 줄어든다
-10. C# 스크립트: 검사 스크립트 (LINQ · Dictionary · Transform · Time) 를 붙인 씬 → Mono 런타임 · BCL 이 들어갔는지, 기기 logcat 에 Start · Update 의 Debug.Log
+10. C# 스크립트: 검사 스크립트 (LINQ · Dictionary · Transform · Time) 를 붙인 씬 → Mono 런타임 · BCL 이 들어갔는지, 기기 logcat 에 Start · Update 의 Debug.Log,
+    Application.platform · Screen.safeArea · Screen.orientation 요청, `input tap` → C# Input.GetTouch (왼쪽 아래 기준 좌표), HOME → OnApplicationPause · Focus 와 돌아온 뒤 deltaTime
 11. 엔진 시작 시간 (loadMs < 3 초), 리버브 임펄스 응답 (PC)
 12. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
 
@@ -199,6 +221,6 @@ SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\
 
 - 2 단계: 창 표면 · 메인 루프 · 생명 주기 · 터치 → Gfx 층의 GLES 구현 → 엔진 런타임 · 엔진 플레이어 → 텍스처 압축 (ASTC · ETC2) →
   모델 메시 캐시 · 패키지 → Build Settings 의 APK 빌드 → 터치 → UI · Input → 소리 (AAudio) **모두 완료**
-- C# 스크립트 (Mono) · 엔진 시작 시간 (약 10 초 → 0.3 초) · 리버브 (I3DL2) **완료**
-- 다음 후보: C# 의 Input.touchCount · GetTouch (네이티브는 있음 — ScriptCore 에 API), 화면 회전 · 안전 영역, arm64 (실제 휴대폰 — 사용자 결정 뒤)
+- C# 스크립트 (Mono) · 엔진 시작 시간 (약 10 초 → 0.3 초) · 리버브 (I3DL2) · C# 터치 · 플랫폼 API · 앱 일시 정지 · 화면 방향 · 안전 영역 · APK 압축 · Hub 의 Mono **완료**
+- 다음 후보: arm64 (실제 휴대폰 — 사용자 결정 뒤), 서명 키 (Custom Keystore — 지금은 디버그 키), 앱 아이콘
 - 실제 휴대폰 (arm64 · Vulkan) 은 한참 뒤 (사용자 결정)

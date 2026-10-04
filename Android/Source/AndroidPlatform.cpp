@@ -3,6 +3,9 @@
 #include "AndroidEngine.h"
 #include "EditorApp.h"
 #include "GfxGLES.h"
+#include "ScriptEngine.h"
+#include "PlatformBindings.h"
+#include <android/api-level.h>
 #include <android_native_app_glue.h>
 #include <android/log.h>
 #include <cstdarg>
@@ -107,6 +110,74 @@ namespace AndroidPlatform
 	}
 
 	// logcat "NOVA_EVENT {"event":"이름", ...}" — 검사가 이 줄로 상태를 읽는다
+	// ---- Java 쪽 (JNI): 화면 안전 영역 (DisplayCutout, API 28+) · 화면 방향 요청
+	namespace
+	{
+		ANativeActivity* s_Activity = nullptr;
+
+		struct Jni
+		{
+			JNIEnv* Env = nullptr;
+			Jni() { if (s_Activity) s_Activity->vm->AttachCurrentThread(&Env, nullptr); }
+			~Jni() { if (Env && Env->ExceptionCheck()) Env->ExceptionClear(); }
+			jobject Call(jobject obj, const char* name, const char* sig)
+			{
+				if (!Env || !obj) return nullptr;
+				jclass c = Env->GetObjectClass(obj);
+				jmethodID m = Env->GetMethodID(c, name, sig);
+				if (!m || Env->ExceptionCheck()) { Env->ExceptionClear(); return nullptr; }
+				jobject r = Env->CallObjectMethod(obj, m);
+				if (Env->ExceptionCheck()) { Env->ExceptionClear(); return nullptr; }
+				return r;
+			}
+			int CallInt(jobject obj, const char* name)
+			{
+				if (!Env || !obj) return 0;
+				jmethodID m = Env->GetMethodID(Env->GetObjectClass(obj), name, "()I");
+				if (!m || Env->ExceptionCheck()) { Env->ExceptionClear(); return 0; }
+				const int r = Env->CallIntMethod(obj, m);
+				if (Env->ExceptionCheck()) { Env->ExceptionClear(); return 0; }
+				return r;
+			}
+		};
+
+		// Unity 의 ScreenOrientation → Activity.setRequestedOrientation (SCREEN_ORIENTATION_*)
+		void RequestOrientation(int unity)
+		{
+			static const int kAndroid[] = { -1, 1, 9, 0, 8, 13 };   // -, Portrait, PortraitUpsideDown, LandscapeLeft (landscape), LandscapeRight (reverseLandscape), AutoRotation (fullUser)
+			if (unity < 1 || unity > 5 || !s_Activity) return;
+			Jni j;
+			if (!j.Env) return;
+			jmethodID m = j.Env->GetMethodID(j.Env->GetObjectClass(s_Activity->clazz), "setRequestedOrientation", "(I)V");
+			if (m) j.Env->CallVoidMethod(s_Activity->clazz, m, kAndroid[unity]);
+			__android_log_print(ANDROID_LOG_INFO, "NOVA", "NOVA_EVENT {\"event\":\"orientation-request\",\"unity\":%d,\"android\":%d}", unity, kAndroid[unity]);
+		}
+	}
+
+	void Shell::QuerySafeInsets()
+	{
+		s_Activity = m_App->activity;
+		PlatformBindings::SetOrientationHandler(RequestOrientation);   // C# Screen.orientation = …
+		int l = 0, t = 0, r = 0, b = 0;
+		if (android_get_device_api_level() >= 28)
+		{
+			Jni j;
+			jobject window = j.Call(m_App->activity->clazz, "getWindow", "()Landroid/view/Window;");
+			jobject decor = j.Call(window, "getDecorView", "()Landroid/view/View;");
+			jobject insets = j.Call(decor, "getRootWindowInsets", "()Landroid/view/WindowInsets;");
+			jobject cutout = j.Call(insets, "getDisplayCutout", "()Landroid/view/DisplayCutout;");
+			if (cutout)
+			{
+				l = j.CallInt(cutout, "getSafeInsetLeft");
+				t = j.CallInt(cutout, "getSafeInsetTop");
+				r = j.CallInt(cutout, "getSafeInsetRight");
+				b = j.CallInt(cutout, "getSafeInsetBottom");
+			}
+		}
+		PlatformBindings::SetSafeInsets(l, t, r, b);
+		Event("safe-area", "\"left\":%d,\"top\":%d,\"right\":%d,\"bottom\":%d", l, t, r, b);
+	}
+
 	void Shell::Event(const char* name, const char* fmt, ...)
 	{
 		char extra[512] = "";
@@ -140,6 +211,7 @@ namespace AndroidPlatform
 			{
 				std::string error;
 				m_HasWindow = m_Egl.AttachWindow(m_App->window, error);
+				QuerySafeInsets();
 				m_Egl.WindowSize(m_Width, m_Height);
 				if (m_HasWindow) Event("window");
 				else Event("error", "\"error\":\"%s\"", error.c_str());
@@ -151,10 +223,30 @@ namespace AndroidPlatform
 			m_Pointers.clear();
 			Event("window-lost");
 			break;
-		case APP_CMD_RESUME: m_Resumed = true; NovaAndroid::SetAudioPaused(false); Event("resume"); break;
-		case APP_CMD_PAUSE: m_Resumed = false; NovaAndroid::SetAudioPaused(true); Event("pause"); break;   // 뒤로 가면 소리도 멈춘다
-		case APP_CMD_GAINED_FOCUS: NovaAndroid::SetFocus(true); Event("focus"); break;
-		case APP_CMD_LOST_FOCUS: m_Pointers.clear(); NovaAndroid::SetFocus(false); NovaAndroid::SetPointer(0, 0, false); Event("focus-lost"); break;
+		case APP_CMD_RESUME:
+			m_Resumed = true;
+			NovaAndroid::SetAudioPaused(false);
+			NovaAndroid::RequestTimeReset();
+			if (m_GameApp) ScriptEngine::OnApplicationPause(false);   // C# OnApplicationPause(false)
+			Event("resume");
+			break;
+		case APP_CMD_PAUSE:
+			m_Resumed = false;
+			NovaAndroid::SetAudioPaused(true);   // 뒤로 가면 소리도 멈춘다
+			if (m_GameApp) ScriptEngine::OnApplicationPause(true);
+			Event("pause");
+			break;
+		case APP_CMD_GAINED_FOCUS:
+			NovaAndroid::SetFocus(true);
+			QuerySafeInsets();   // 창이 붙은 뒤 (노치 · 둥근 모서리)
+			if (m_GameApp) ScriptEngine::OnApplicationFocus(true);
+			Event("focus");
+			break;
+		case APP_CMD_LOST_FOCUS:
+			m_Pointers.clear(); NovaAndroid::SetFocus(false); NovaAndroid::SetPointer(0, 0, false);
+			if (m_GameApp) ScriptEngine::OnApplicationFocus(false);
+			Event("focus-lost");
+			break;
 		case APP_CMD_CONFIG_CHANGED: Event("config"); break;
 		case APP_CMD_DESTROY: Event("destroy"); break;
 		default: break;

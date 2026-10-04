@@ -52,6 +52,7 @@ namespace AndroidPlatform
 		void Command(int32_t cmd);
 		int32_t Input(AInputEvent* event);
 		void Event(const char* name, const char* fmt = nullptr, ...);
+		void QuerySafeInsets();   // DisplayCutout → PlatformBindings (Screen.safeArea)
 		bool CreateOverlay();
 		void Rect(float x, float y, float w, float h, const float color[4]);
 

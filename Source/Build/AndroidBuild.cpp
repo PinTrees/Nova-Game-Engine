@@ -23,7 +23,7 @@ namespace AndroidBuild
 		{
 			Options Opt;
 			std::wstring Sdk, Java, BuildTools, AndroidJar, Lib, Staging;
-			std::string Package, Product, Version;
+			std::string Package, Product, Version, Orientation;
 			bool Development = false;
 			Stage Step = Stage::Shaders;
 			int Frame = 0;
@@ -178,7 +178,88 @@ namespace AndroidBuild
 			return crc ^ 0xFFFFFFFFu;
 		}
 
-		// APK (zip) 끝에 파일들을 압축 없이 (stored) 한 번에 더한다 (aapt 없이 — SDK 의 옛 도구에 기대지 않는다).
+		// DEFLATE (RFC 1951) — zlib 없이: LZ77 (32 KB 창, 해시 사슬) + 고정 허프만 (BTYPE 01) 한 블록. .so 는 원래의 40 ~ 50 %
+		std::vector<uint8_t> Deflate(const uint8_t* data, size_t n)
+		{
+			std::vector<uint8_t> out;
+			out.reserve(n / 2 + 64);
+			uint32_t bitBuf = 0;
+			int bitCount = 0;
+			auto bits = [&](uint32_t v, int count) {   // LSB 먼저
+				bitBuf |= v << bitCount;
+				bitCount += count;
+				while (bitCount >= 8) { out.push_back((uint8_t)bitBuf); bitBuf >>= 8; bitCount -= 8; }
+			};
+			auto huff = [&](uint32_t code, int len) {   // 허프만 부호는 MSB 먼저 → 뒤집어서
+				uint32_t r = 0;
+				for (int i = 0; i < len; ++i) r |= ((code >> i) & 1) << (len - 1 - i);
+				bits(r, len);
+			};
+			auto literal = [&](uint32_t sym) {
+				if (sym < 144) huff(0x30 + sym, 8);
+				else if (sym < 256) huff(0x190 + sym - 144, 9);
+				else if (sym < 280) huff(sym - 256, 7);
+				else huff(0xC0 + sym - 280, 8);
+			};
+			static const uint16_t lenBase[29] = { 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131, 163, 195, 227, 258 };
+			static const uint8_t lenExtra[29] = { 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0 };
+			static const uint16_t distBase[30] = { 1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577 };
+			static const uint8_t distExtra[30] = { 0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13, 13 };
+			constexpr uint32_t kWindow = 32768, kHashBits = 15, kMaxChain = 48, kNice = 128;
+			std::vector<int64_t> head(1u << kHashBits, -1), prev(kWindow, -1);
+			auto hash = [&](size_t i) { return (((uint32_t)data[i] << 10) ^ ((uint32_t)data[i + 1] << 5) ^ data[i + 2]) & ((1u << kHashBits) - 1); };
+			auto insert = [&](size_t i) { if (i + 2 < n) { const uint32_t h = hash(i); prev[i % kWindow] = head[h]; head[h] = (int64_t)i; } };
+			bits(1, 1);   // BFINAL
+			bits(1, 2);   // BTYPE = 01 (고정 허프만)
+			size_t i = 0;
+			while (i < n)
+			{
+				size_t bestLen = 0, bestDist = 0;
+				if (i + 2 < n)
+				{
+					int64_t cand = head[hash(i)];
+					const size_t maxLen = (std::min)((size_t)258, n - i);
+					for (uint32_t chain = 0; cand >= 0 && i - (size_t)cand <= kWindow && chain < kMaxChain; ++chain)
+					{
+						const uint8_t* a = data + cand;
+						const uint8_t* b = data + i;
+						if (bestLen == 0 || (bestLen < maxLen && a[bestLen] == b[bestLen]))
+						{
+							size_t l = 0;
+							while (l < maxLen && a[l] == b[l]) ++l;
+							if (l > bestLen) { bestLen = l; bestDist = i - (size_t)cand; if (l >= kNice) break; }
+						}
+						const int64_t next = prev[(size_t)cand % kWindow];
+						if (next >= cand) break;
+						cand = next;
+					}
+				}
+				if (bestLen >= 3)
+				{
+					int c = 0;
+					while (c < 28 && lenBase[c + 1] <= bestLen) ++c;
+					literal(257 + c);
+					if (lenExtra[c]) bits((uint32_t)(bestLen - lenBase[c]), lenExtra[c]);
+					int d = 0;
+					while (d < 29 && distBase[d + 1] <= bestDist) ++d;
+					huff((uint32_t)d, 5);
+					if (distExtra[d]) bits((uint32_t)(bestDist - distBase[d]), distExtra[d]);
+					for (size_t k = 0; k < bestLen; ++k) insert(i + k);
+					i += bestLen;
+				}
+				else
+				{
+					literal(data[i]);
+					insert(i);
+					++i;
+				}
+			}
+			literal(256);   // 블록 끝
+			if (bitCount > 0) out.push_back((uint8_t)bitBuf);
+			return out;
+		}
+
+		// APK (zip) 끝에 파일들을 한 번에 더한다 (aapt 없이 — SDK 의 옛 도구에 기대지 않는다). deflate 가 이득일 때만 압축 (Android 는 extractNativeLibs 로 푼다).
 		//  기존 항목은 그대로 두고 중앙 디렉터리 · 끝 레코드만 다시 쓴다 (zip64 아님 — APK 는 4 GB 보다 작다)
 		bool ZipAppendStored(const fs::path& zipPath, const std::vector<std::pair<std::string, fs::path>>& adds, std::string& error)
 		{
@@ -201,16 +282,19 @@ namespace AndroidBuild
 			auto w16 = [&](uint32_t v) { const uint8_t b[2] = { (uint8_t)v, (uint8_t)(v >> 8) }; out.insert(out.end(), b, b + 2); };
 			auto w32 = [&](uint32_t v) { w16(v & 0xFFFF); w16(v >> 16); };
 			// 지역 머리 + 데이터 (파일마다)
-			struct Added { std::string Name; uint32_t Crc, Size, Offset; };
+			struct Added { std::string Name; uint32_t Crc, Size, Packed, Method, Offset; };
 			std::vector<Added> added;
 			for (const auto& [name, file] : adds)
 			{
 				std::vector<uint8_t> data;
 				if (!readAll(file, data)) { error = "cannot read " + wstring_to_string(file.wstring()); return false; }
-				const Added a = { name, Crc32(data.data(), data.size()), (uint32_t)data.size(), (uint32_t)out.size() };
-				w32(0x04034b50u); w16(10); w16(0); w16(0); w16(0); w16(0x21); w32(a.Crc); w32(a.Size); w32(a.Size); w16((uint32_t)name.size()); w16(0);
+				std::vector<uint8_t> packed = Deflate(data.data(), data.size());
+				const bool deflated = packed.size() < data.size();
+				const std::vector<uint8_t>& body = deflated ? packed : data;
+				const Added a = { name, Crc32(data.data(), data.size()), (uint32_t)data.size(), (uint32_t)body.size(), deflated ? 8u : 0u, (uint32_t)out.size() };
+				w32(0x04034b50u); w16(20); w16(0); w16(a.Method); w16(0); w16(0x21); w32(a.Crc); w32(a.Packed); w32(a.Size); w16((uint32_t)name.size()); w16(0);
 				out.insert(out.end(), name.begin(), name.end());
-				out.insert(out.end(), data.begin(), data.end());
+				out.insert(out.end(), body.begin(), body.end());
 				added.push_back(a);
 			}
 			// 예전 중앙 디렉터리 + 새 항목들
@@ -218,7 +302,7 @@ namespace AndroidBuild
 			out.insert(out.end(), zip.begin() + cdOffset, zip.begin() + cdOffset + cdSize);
 			for (const Added& a : added)
 			{
-				w32(0x02014b50u); w16(20); w16(10); w16(0); w16(0); w16(0); w16(0x21); w32(a.Crc); w32(a.Size); w32(a.Size); w16((uint32_t)a.Name.size());
+				w32(0x02014b50u); w16(20); w16(20); w16(0); w16(a.Method); w16(0); w16(0x21); w32(a.Crc); w32(a.Packed); w32(a.Size); w16((uint32_t)a.Name.size());
 				w16(0); w16(0); w16(0); w16(0); w32(0); w32(a.Offset);
 				out.insert(out.end(), a.Name.begin(), a.Name.end());
 			}
@@ -281,6 +365,7 @@ namespace AndroidBuild
 				"    <uses-feature android:glEsVersion=\"0x00030002\" android:required=\"true\" />\n"
 				"    <application android:label=\"" + XmlEscape(j.Product) + "\" android:hasCode=\"false\" android:extractNativeLibs=\"true\"" + (j.Development ? " android:debuggable=\"true\"" : "") + ">\n"
 				"        <activity android:name=\"android.app.NativeActivity\" android:exported=\"true\" android:configChanges=\"orientation|screenSize|keyboardHidden|screenLayout\"\n"
+				"                  android:screenOrientation=\"" + j.Orientation + "\"\n"
 				"                  android:theme=\"@android:style/Theme.NoTitleBar.Fullscreen\">\n"
 				"            <meta-data android:name=\"android.app.lib_name\" android:value=\"nova\" />\n"
 				"            <intent-filter>\n"
@@ -498,6 +583,9 @@ namespace AndroidBuild
 		j->Package = PackageName();
 		j->Product = BuildSettings::ProductName();
 		j->Version = BuildSettings::GetPlayer().Version;
+		// Default Orientation → screenOrientation (Unity 와 같은 대응: Landscape Left = landscape, Landscape Right = reverseLandscape, Auto = fullUser)
+		static const char* kOrientation[] = { "portrait", "reversePortrait", "reverseLandscape", "landscape", "fullUser" };
+		j->Orientation = kOrientation[std::clamp(BuildSettings::GetPlayer().AndroidOrientation, 0, 4)];
 		j->Development = BuildSettings::DevelopmentBuild();
 		j->Staging = (fs::path(PathManager::GetI()->GetContentPathW()) / L"Library" / L"AndroidBuild").wstring();
 		fs::remove_all(fs::path(j->Staging) / L"assets", ec);

@@ -21,7 +21,9 @@ namespace NovaAndroid
 	void SetFocus(bool focused);
 	void RequestQuit();      // Application.Quit → 앱 끝내기 (AndroidMain 의 루프가 본다)
 	bool QuitRequested();
-	void SetAudioPaused(bool paused);                        // 앱이 뒤로 가면 소리를 멈춘다 (XAudio2Android.cpp)
+	void SetAudioPaused(bool paused);
+	void RequestTimeReset();   // 앱이 앞으로 돌아왔다: 다음 프레임의 deltaTime 이 뒤에 있던 시간만큼 튀지 않게 (AppAndroid 가 타이머를 새로)
+	bool TakeTimeReset();                        // 앱이 뒤로 가면 소리를 멈춘다 (XAudio2Android.cpp)
 	bool AudioStats(uint64_t& framesRendered, float& peak);   // AAudio 로 낸 프레임 수 · 마지막으로 물은 뒤의 최대 레벨 (검사)
 	void SetGameView(int width, int height, bool focused);   // 게임 화면 크기 (UI · 스크립트 입력의 좌표) — EditorStubs.cpp
 }

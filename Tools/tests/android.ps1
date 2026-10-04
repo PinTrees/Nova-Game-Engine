@@ -134,6 +134,10 @@ if (-not $SkipEditor)
         # C# 스크립트: 검사 스크립트 (Start · Update · LINQ · Transform) 를 붙인 상자 → Mono 런타임 · BCL (참조하는 것만) · Assembly-CSharp 를 넣은 게임 데이터
         $probeDir = Join-Path $Project 'Assets\AndroidProbe'
         New-Item -ItemType Directory -Force $probeDir | Out-Null
+        $probeFile = Join-Path $probeDir 'AndroidScriptProbe.cs'
+        $probeBefore = if (Test-Path $probeFile) { Get-Content $probeFile -Raw } else { '' }
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
         @'
 using System.Collections.Generic;
 using System.Linq;
@@ -145,12 +149,16 @@ public class AndroidScriptProbe : MonoBehaviour
     public float speed = 90f;
     int frames;
     float yaw;
+    bool resumed;
 
     void Start()
     {
         var squares = Enumerable.Range(1, 10).Select(i => i * i).ToList();
         var words = new Dictionary<string, int> { ["nova"] = 4, ["mono"] = 4 };
         Debug.Log($"AndroidScriptProbe start {name} speed={speed} sum={squares.Sum()} words={string.Join(",", words.Keys)}");
+        Rect safe = Screen.safeArea;
+        Debug.Log($"AndroidScriptProbe platform={Application.platform} mobile={Application.isMobilePlatform} screen={Screen.width}x{Screen.height} safe={safe.width:F0}x{safe.height:F0} orientation={Screen.orientation}");
+        Screen.orientation = ScreenOrientation.LandscapeLeft;
     }
 
     void Update()
@@ -159,11 +167,33 @@ public class AndroidScriptProbe : MonoBehaviour
         transform.rotation = Quaternion.Euler(0, yaw, 0);
         if (++frames == 60)
             Debug.Log($"AndroidScriptProbe frames={frames} yaw={transform.eulerAngles.y:F1} time={Time.time:F2}");
+        for (int i = 0; i < Input.touchCount; i++)
+        {
+            Touch t = Input.GetTouch(i);
+            if (t.phase == TouchPhase.Began)
+                Debug.Log($"AndroidScriptProbe touch id={t.fingerId} at={t.position.x:F0},{t.position.y:F0} count={Input.touchCount}");
+        }
+        if (resumed)
+        {
+            resumed = false;
+            Debug.Log($"AndroidScriptProbe resume dt={Time.deltaTime:F3}");
+        }
     }
+
+    void OnApplicationPause(bool paused)
+    {
+        Debug.Log($"AndroidScriptProbe pause={paused}");
+        if (!paused) resumed = true;
+    }
+
+    void OnApplicationFocus(bool focused) => Debug.Log($"AndroidScriptProbe focus={focused}");
 }
-'@ | Set-Content -Encoding utf8 (Join-Path $probeDir 'AndroidScriptProbe.cs')
+'@ | Set-Content -Encoding utf8 $probeFile
+        $probeChanged = (Get-Content $probeFile -Raw) -ne $probeBefore
+        # 에디터는 1 초마다 바뀐 스크립트를 찾는다 → Assembly-CSharp.dll 이 새로 써질 때까지 (안 바뀌었으면 그대로)
         $sw = [Diagnostics.Stopwatch]::StartNew()
-        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info' } while ($sw.Elapsed.TotalSeconds -lt 90 -and $inf -and $inf.compiling)
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or ($probeChanged -and $now -eq $dllBefore)))
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'create cube --name Spinner --position 0,0.5,0' | Out-Null
         Invoke-Nova 'add-component Spinner AndroidScriptProbe' | Out-Null
@@ -503,6 +533,27 @@ if (Test-Path (Join-Path $src 'Managed'))
     $start = $log | Select-String 'AndroidScriptProbe start (.*)' | Select-Object -First 1
     Check 'C# Start runs (LINQ, Dictionary)' ($start -and $start.Line -match 'sum=385' -and $start.Line -match 'words=nova,mono') $(if ($start) { $start.Matches[0].Groups[1].Value } else { 'no Start log' })
     Check 'C# Update runs (Transform, Time)' ($done -and $done.Line -match 'yaw=(\d+)' -and [double]$Matches[1] -gt 0) $(if ($done) { ($done.Line -split 'Log: ')[-1] } else { 'no frame 60 log in 40 s' })
+    $plat = $log | Select-String 'AndroidScriptProbe (platform=.*)' | Select-Object -First 1
+    Check 'C# Application.platform · Screen.safeArea' ($plat -and $plat.Line -match 'platform=Android' -and $plat.Line -match 'mobile=True' -and $plat.Line -match 'screen=\d{3,}x\d{3,}' -and $plat.Line -match 'safe=\d{3,}x\d{3,}') $(if ($plat) { $plat.Matches[0].Groups[1].Value } else { 'no platform log' })
+    $orient = $log | Select-String 'orientation-request.*"android":(\d+)' | Select-Object -First 1
+    Check 'C# Screen.orientation = LandscapeLeft → setRequestedOrientation' ($orient -and $orient.Matches[0].Groups[1].Value -eq '0') $(if ($orient) { $orient.Line.Substring($orient.Line.IndexOf('{')) } else { 'no orientation-request event' })
+    # 터치: 앱 창 (1600x900) 의 800,300 → C# 은 Unity 처럼 왼쪽 아래 기준 (800, 600)
+    EnsureFront | Out-Null
+    & $Adb -s $serial logcat -c
+    & $Adb -s $serial shell input tap 800 300 | Out-Null
+    Start-Sleep -Milliseconds 1500
+    $touch = (& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'AndroidScriptProbe touch (.*)' | Select-Object -First 1)
+    Check 'C# Input.GetTouch (Unity coordinates)' ($touch -and $touch.Line -match 'at=800,600') $(if ($touch) { $touch.Matches[0].Groups[1].Value + ' (tapped 800,300 from the top)' } else { 'no touch log' })
+    # 앱이 뒤로 → 앞으로: OnApplicationPause / OnApplicationFocus, 다시 돌아온 첫 프레임의 deltaTime 이 뒤에 있던 시간만큼 튀지 않는다
+    & $Adb -s $serial logcat -c
+    & $Adb -s $serial shell input keyevent KEYCODE_HOME | Out-Null
+    Start-Sleep -Seconds 3
+    & $Adb -s $serial shell am start -n com.nova.engine/android.app.NativeActivity | Out-Null
+    Start-Sleep -Seconds 3
+    $pl = @(& $Adb -s $serial logcat -d -s NOVA:I | Select-String 'AndroidScriptProbe (pause|focus|resume)' | ForEach-Object { ($_.Line -split 'AndroidScriptProbe ')[-1] })
+    $dt = ($pl | Where-Object { $_ -match '^resume dt=([\d.]+)' } | Select-Object -First 1)
+    Check 'C# OnApplicationPause · OnApplicationFocus' (($pl -contains 'pause=True') -and ($pl -contains 'pause=False') -and ($pl -contains 'focus=False') -and ($pl -contains 'focus=True')) ($pl -join ', ')
+    Check 'time does not jump after resume' ($dt -and [double]($dt -replace '.*dt=', '') -lt 0.2) $(if ($dt) { $dt + ' (in the background 3 s)' } else { 'no resume log' })
     $crash = @($log | Select-String 'FATAL|signal \d')
     Check 'no crash with Mono' ($crash.Count -eq 0) $(if ($crash.Count) { $crash[0].Line } else { 'logcat clean' })
     & $Adb -s $serial shell am force-stop com.nova.engine | Out-Null
@@ -529,6 +580,14 @@ if (-not $SkipEditor)
         $sw = [Diagnostics.Stopwatch]::StartNew()
         do { Start-Sleep -Milliseconds 1000; $b = Invoke-NovaJson 'android build-status' } while ($sw.Elapsed.TotalSeconds -lt 300 -and $b -and $b.running)
         Check 'editor Android build (APK)' ($st -and $b -and $b.success) $(if ($b) { if ($b.success) { "{0:N1} MB, {1:N1} s, device {2}" -f ($b.bytes / 1MB), $b.seconds, $b.device } else { $b.error } } else { 'no status' })
+        if ($b -and $b.success)
+        {
+            # 라이브러리를 deflate 로 (전에는 압축 없이 30 MB) · Default Orientation → manifest 의 screenOrientation (Auto Rotation = fullUser 13)
+            Check 'APK libraries are compressed' ($b.bytes -lt 25MB) ("{0:N1} MB" -f ($b.bytes / 1MB))
+            $bt = (Get-ChildItem (Join-Path $Sdk 'build-tools') -Directory | Sort-Object { [version]($_.Name -replace '[^\d.]', '') } | Select-Object -Last 1).FullName
+            $xml = (& (Join-Path $bt 'aapt2.exe') dump xmltree --file AndroidManifest.xml $apkOut 2>&1 | Out-String)
+            Check 'manifest screenOrientation from Player Settings' ($xml -match 'screenOrientation.*=13') (($xml -split "`n" | Where-Object { $_ -match 'screenOrientation' } | Select-Object -First 1) -replace '\s+', ' ')
+        }
         Invoke-Nova 'window build-settings' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
         Invoke-Nova "screenshot `"$(Join-Path $Out 'build_settings_android.png')`" --view editor" | Out-Null
         Invoke-Nova 'window build-settings --close' | Out-Null

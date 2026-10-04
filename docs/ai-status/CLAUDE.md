@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드: C# 스크립트 (Mono) · 시작 시간 · 리버브** (사용자 지시: 남은 점 진행). **완료** — android **54/54** (MuMu)
+- 갱신 시각: 2026년 10월 4일 — **안드로이드 마무리: APK 압축 · C# 터치 · 앱 일시 정지 · 화면 방향 · 안전 영역 · Hub 의 Mono** (사용자 지시: "코덱스 무시하고 너가 다해줘"). **완료** — android **61/61**, PC cli 9 · physics 13 · ui 15 · keys 6, Hub 37/37
+  - C# API (ScriptCore — Codex 의 미커밋 파일은 건드리지 않음): `ScriptCore/Engine/Services.cs` 에 Input.touchCount · GetTouch · Touch · TouchPhase, Screen.safeArea · orientation,
+    Application.platform (RuntimePlatform 값을 Unity 와 같게: WindowsPlayer 2 · WindowsEditor 7 · Android 11) · isMobilePlatform, 새 `ScriptCore/Interop/AppEvents.cs` (OnApplicationPause · Focus)
+  - 네이티브: 새 `Source/Scripting/PlatformBindings.*` (이름으로 내보낸 함수 — C# DllImport("NovaCore")), `ScriptEngine.*` 에 OnApplicationPause · Focus, `App.cpp` WM_ACTIVATE (빌드된 게임)
+  - Player Settings 의 Android Default Orientation (`BuildSettings.*` · `ProjectSettingsWindow.cpp` → manifest screenOrientation), APK 의 라이브러리를 엔진 DEFLATE 로 (AndroidBuild.cpp)
+  - Hub: `AndroidToolsInstaller.cs` 에 Mono (nuget.org, SHA-512) — Hub 검사 37/37 (+ live 39/39)
+- 이전: 2026년 10월 4일 — **안드로이드: C# 스크립트 (Mono) · 시작 시간 · 리버브** (사용자 지시: 남은 점 진행). **완료** — android **54/54** (MuMu)
   - C#: 새 `Android/Source/Engine/ScriptEngineAndroid.cpp` (Mono 임베딩 — dlopen, TPA, PINVOKE_OVERRIDE, [UnmanagedCallersOnly] 진입점), 안드로이드가 `Source/Scripting/ScriptBindings.cpp` 도 빌드
     (작업 트리의 Codex 미커밋 변경을 포함해 컴파일됨 — 커밋된 상태끼리도 표 크기는 맞다). export 가 Managed/ (참조하는 BCL 만 — AssemblyRef 따라가기), 런타임은 `Tools/fetch_android_mono.ps1` → `ThirdParty/MonoAndroid` (gitignore)
   - 시작 시간: `GLESRhi.cpp` 효과의 pass 를 처음 쓸 때 컴파일 (+ 프로그램 바이너리 캐시), 그림자 샘플러 정규식 제거 → loadMs 약 9.7 s → 0.3 s

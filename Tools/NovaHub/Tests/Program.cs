@@ -105,6 +105,10 @@ string License = string.Concat(Enumerable.Repeat("Android Software Development K
 var sdkZips = AndroidToolsInstaller.SdkPackages.ToDictionary(p => p.Id, p => p.Id == "cmake;3.22.1"
     ? Zip(("bin/cmake.exe", "cmake"), ("share/readme.txt", "flat archive")) : Zip(("top-" + p.Id.Replace(';', '-') + "/source.properties", "Pkg.Revision=1")));
 var jdkZip = Zip(("jdk-17.0.20.1+1/bin/java.exe", "java"));
+// Mono 런타임 (nupkg = zip, 맨 위에 여러 항목 — 벗기지 않는다)
+var monoZip = Zip(("[Content_Types].xml", "<Types/>"), ("runtimes/android-x64/native/libmonosgen-2.0.so", "mono"), ("runtimes/android-x64/lib/net8.0/System.Runtime.dll", "bcl"));
+string MonoCatalog(int size = -1, string algorithm = "SHA512") => JsonSerializer.Serialize(new Dictionary<string, object>
+    { ["packageSize"] = size < 0 ? monoZip.Length : size, ["packageHashAlgorithm"] = algorithm, ["packageHash"] = Convert.ToBase64String(SHA512.HashData(monoZip)) });
 string Sha1(byte[] b) => Convert.ToHexString(SHA1.HashData(b)).ToLowerInvariant();
 string Sha256(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
 string RepoXml(string urlOverride = "", string licenseId = "android-sdk-license") =>
@@ -121,6 +125,9 @@ MapHandler AndroidServer(Func<string, byte[]?>? overrideFile = null) => new(url 
 {
     if (url.EndsWith("repository2-3.xml")) return Encoding.UTF8.GetBytes(RepoXml());
     if (url.StartsWith("https://api.adoptium.net/")) return Encoding.UTF8.GetBytes(JdkJson());
+    if (url.Contains("/v3/registration5-semver1/")) return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { catalogEntry = "https://api.nuget.org/v3/catalog0/data/mono.json" }));
+    if (url.EndsWith("/v3/catalog0/data/mono.json")) return Encoding.UTF8.GetBytes(MonoCatalog());
+    if (url.Contains("/v3-flatcontainer/")) return monoZip;
     if (overrideFile?.Invoke(url) is { } custom) return custom;
     if (url.Contains("/adoptium/")) return jdkZip;
     var hit = AndroidToolsInstaller.SdkPackages.FirstOrDefault(p => url.EndsWith(p.Id.Replace(';', '-') + "-win.zip"));
@@ -157,6 +164,7 @@ await Check("Android tools download, verify and install into the shared folder",
     Assert(File.Exists(Path.Combine(androidDir, "jdk", "bin", "java.exe")) && File.Exists(Path.Combine(androidDir, "sdk", "ndk", "28.2.13676358", "source.properties")) &&
            File.Exists(Path.Combine(androidDir, "sdk", "cmake", "3.22.1", "bin", "cmake.exe")), "Folder layout wrong (top folder strip / flat archive)");
     Assert(File.ReadAllText(Path.Combine(androidDir, "sdk", "licenses", "android-sdk-license")).Trim() == Sha1(Encoding.UTF8.GetBytes(License)), "License record missing");
+    Assert(File.Exists(Path.Combine(androidDir, "mono", "x86_64", "runtimes", "android-x64", "native", "libmonosgen-2.0.so")), "Mono runtime layout wrong");
     Assert(!Directory.EnumerateDirectories(androidDir).Any(d => Path.GetFileName(d).StartsWith(".install-")), "Stage folder left");
 });
 await Check("Installed Android packages are not downloaded again", async () =>
@@ -176,6 +184,13 @@ await Check("Android checksum failure installs nothing for that package", async 
     Assert(!Directory.Exists(Path.Combine(dir, "sdk", "ndk")) && !android.Status().Installed, "Tampered package installed");
     Assert(!Directory.EnumerateDirectories(dir).Any(d => Path.GetFileName(d).StartsWith(".install-")), "Stage folder left");
 });
+await Check("Mono runtime catalog needs a SHA512 from nuget.org", async () =>
+{
+    var mono = AndroidToolsInstaller.ParseMono(MonoCatalog());
+    Assert(mono.HashType == "sha512" && mono.Hash.Length == 128 && mono.Download.Host == "api.nuget.org" && mono.Download.AbsolutePath.Contains(AndroidToolsInstaller.MonoVersion), "Mono package wrong");
+    await MustFail(() => { AndroidToolsInstaller.ParseMono(MonoCatalog(algorithm: "SHA1")); return Task.CompletedTask; });
+    await MustFail(() => { AndroidToolsInstaller.ParseMono(MonoCatalog(size: 0)); return Task.CompletedTask; });
+});
 await Check("Android root defaults next to the engine root", () =>
 {
     Assert(AndroidToolsInstaller.DefaultRoot(@"C:\Users\x\AppData\Local\NOVA\Editors") == @"C:\Users\x\AppData\Local\NOVA\AndroidTools", "Unexpected root"); return Task.CompletedTask;
@@ -185,7 +200,7 @@ if (args.Contains("--live"))
     {
         using var android = new AndroidToolsInstaller(Path.Combine(root, "android-live"));
         var catalog = await android.CatalogAsync(CancellationToken.None);
-        Assert(catalog.Packages.Count == AndroidToolsInstaller.SdkPackages.Length + 1 && catalog.License.Length > 1000, "Live catalog incomplete");
+        Assert(catalog.Packages.Count == AndroidToolsInstaller.SdkPackages.Length + 2 && catalog.License.Length > 1000, "Live catalog incomplete");
         File.WriteAllText(Path.Combine(root, "android-live-catalog.json"), JsonSerializer.Serialize(catalog.Packages.Select(p => new { p.Id, url = p.Download.ToString(), p.Size, p.HashType })));
         Console.WriteLine($"  Android download total {catalog.Packages.Sum(p => p.Size) / 1048576.0:N0} MB");
     });

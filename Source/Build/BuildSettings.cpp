@@ -75,6 +75,13 @@ namespace
 		s_Player.AutoGraphicsAPI = j.value("autoGraphicsAPI", true);
 		s_Player.AndroidPackageName = j.value("androidPackageName", std::string());
 		{
+			static const char* kOr[] = { "Portrait", "PortraitUpsideDown", "LandscapeRight", "LandscapeLeft", "AutoRotation" };
+			const std::string o = j.value("androidOrientation", std::string("AutoRotation"));
+			s_Player.AndroidOrientation = 4;
+			for (int i = 0; i < 5; ++i)
+				if (o == kOr[i]) s_Player.AndroidOrientation = i;
+		}
+		{
 			static const char* kTc[] = { "ASTC", "ETC2", "DXT", "None" };
 			const std::string tc = j.value("androidTextureCompression", std::string("ASTC"));
 			s_Player.AndroidTextureCompression = 0;
@@ -141,7 +148,8 @@ namespace BuildSettings
 			{ "fullscreenMode", (int)p.Mode }, { "defaultScreenWidth", p.Width }, { "defaultScreenHeight", p.Height },
 			{ "resizableWindow", p.Resizable }, { "runInBackground", p.RunInBackground },
 			{ "autoGraphicsAPI", p.AutoGraphicsAPI }, { "graphicsAPIs", ApiKeys(p.GraphicsAPIs) },
-			{ "androidTextureCompression", std::array<const char*, 4>{ "ASTC", "ETC2", "DXT", "None" }[std::clamp(p.AndroidTextureCompression, 0, 3)] }, { "androidPackageName", p.AndroidPackageName } });
+			{ "androidTextureCompression", std::array<const char*, 4>{ "ASTC", "ETC2", "DXT", "None" }[std::clamp(p.AndroidTextureCompression, 0, 3)] }, { "androidPackageName", p.AndroidPackageName },
+			{ "androidOrientation", std::array<const char*, 5>{ "Portrait", "PortraitUpsideDown", "LandscapeRight", "LandscapeLeft", "AutoRotation" }[std::clamp(p.AndroidOrientation, 0, 4)] } });
 	}
 
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs()

@@ -29,6 +29,11 @@ public sealed class AndroidToolsInstaller : IDisposable
     };
     public const string JdkId = "jdk;17";
     public const string JdkFolder = "jdk";
+    // C# 스크립트 런타임 (Microsoft 의 Mono — .NET 8 모바일 런타임, MIT): 엔진 C# (NovaScriptCore, net8.0) 과 같은 8.0.x. 에디터의 AndroidTools::MonoRuntime 이 찾는다
+    public const string MonoId = "mono;android-x64";
+    public const string MonoFolder = "mono/x86_64";
+    public const string MonoVersion = "8.0.31";
+    const string NuGetPackage = "microsoft.netcore.app.runtime.mono.android-x64";
     const string GoogleRepository = "https://dl.google.com/android/repository/";
     const string AdoptiumApi = "https://api.adoptium.net/v3/assets/latest/17/hotspot?architecture=x64&image_type=jdk&os=windows&vendor=eclipse";
     const long MaxArchiveBytes = 4L * 1024 * 1024 * 1024;
@@ -49,7 +54,7 @@ public sealed class AndroidToolsInstaller : IDisposable
     // 엔진 설치 루트 (…\NOVA\Editors) 옆
     public static string DefaultRoot(string engineRoot) => Path.Combine(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(engineRoot)))!, "AndroidTools");
 
-    public static IEnumerable<(string Id, string Folder)> AllPackages() => SdkPackages.Prepend((JdkId, JdkFolder));
+    public static IEnumerable<(string Id, string Folder)> AllPackages() => SdkPackages.Prepend((JdkId, JdkFolder)).Append((MonoId, MonoFolder));
 
     public bool IsInstalled(string folder) => File.Exists(Path.Combine(Root, folder, ".nova-package"));
 
@@ -62,6 +67,8 @@ public sealed class AndroidToolsInstaller : IDisposable
 
     static bool ValidGoogle(Uri u) => u.Scheme == Uri.UriSchemeHttps && u.Host.Equals("dl.google.com", StringComparison.OrdinalIgnoreCase) &&
         u.AbsolutePath.StartsWith("/android/repository/", StringComparison.Ordinal) && u.UserInfo.Length == 0 && !u.AbsolutePath.Contains("..");
+    static bool ValidNuGet(Uri u) => u.Scheme == Uri.UriSchemeHttps && u.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase) &&
+        u.AbsolutePath.StartsWith("/v3-flatcontainer/" + NuGetPackage + "/", StringComparison.Ordinal) && u.UserInfo.Length == 0 && !u.AbsolutePath.Contains("..");
     static bool ValidJdk(Uri u) => u.Scheme == Uri.UriSchemeHttps && u.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) &&
         u.AbsolutePath.StartsWith("/adoptium/", StringComparison.Ordinal) && u.UserInfo.Length == 0 && !u.AbsolutePath.Contains("..");
 
@@ -111,6 +118,20 @@ public sealed class AndroidToolsInstaller : IDisposable
         return new AndroidPackage(JdkId, JdkFolder, uri, size, sha256, "sha256");
     }
 
+    // nuget.org 카탈로그 (크기 · SHA512) → Mono 런타임 패키지 (.nupkg = zip)
+    public static AndroidPackage ParseMono(string catalogJson)
+    {
+        using var doc = JsonDocument.Parse(catalogJson);
+        var root = doc.RootElement;
+        long size = root.GetProperty("packageSize").GetInt64();
+        string algorithm = root.TryGetProperty("packageHashAlgorithm", out var a) ? a.GetString() ?? "" : "";
+        string sha512 = Convert.ToHexString(Convert.FromBase64String(root.GetProperty("packageHash").GetString() ?? "")).ToLowerInvariant();
+        var uri = new Uri($"https://api.nuget.org/v3-flatcontainer/{NuGetPackage}/{MonoVersion}/{NuGetPackage}.{MonoVersion}.nupkg");
+        if (!algorithm.Equals("SHA512", StringComparison.OrdinalIgnoreCase) || !Regex.IsMatch(sha512, "^[0-9a-f]{128}$") || size < 1 || size > MaxArchiveBytes || !ValidNuGet(uri))
+            throw new InvalidDataException("Mono 런타임 배포 정보가 올바르지 않습니다.");
+        return new AndroidPackage(MonoId, MonoFolder, uri, size, sha512, "sha512");
+    }
+
     async Task<string> GetText(string url, CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -126,6 +147,13 @@ public sealed class AndroidToolsInstaller : IDisposable
     {
         var (packages, licenseId, license) = ParseRepository(await GetText(GoogleRepository + "repository2-3.xml", token));
         packages.Insert(0, ParseJdk(await GetText(AdoptiumApi, token)));
+        // nuget.org: 버전 등록 → 카탈로그 항목 (크기 · SHA512)
+        using (var reg = JsonDocument.Parse(await GetText($"https://api.nuget.org/v3/registration5-semver1/{NuGetPackage}/{MonoVersion}.json", token)))
+        {
+            var entry = new Uri(reg.RootElement.GetProperty("catalogEntry").GetString() ?? "");
+            if (entry.Scheme != Uri.UriSchemeHttps || !entry.Host.Equals("api.nuget.org", StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("Mono 런타임 카탈로그 주소가 올바르지 않습니다.");
+            packages.Add(ParseMono(await GetText(entry.ToString(), token)));
+        }
         return new AndroidCatalog(packages, licenseId, license);
     }
 
@@ -135,7 +163,12 @@ public sealed class AndroidToolsInstaller : IDisposable
         foreach (var p in catalog.Packages)
         {
             bool known = AllPackages().Any(k => k.Id == p.Id && k.Folder == p.Folder);
-            bool valid = p.HashType == "sha1" ? ValidGoogle(p.Download) && Regex.IsMatch(p.Hash, "^[0-9a-f]{40}$") : ValidJdk(p.Download) && Regex.IsMatch(p.Hash, "^[0-9a-f]{64}$");
+            bool valid = p.HashType switch
+            {
+                "sha1" => ValidGoogle(p.Download) && Regex.IsMatch(p.Hash, "^[0-9a-f]{40}$"),
+                "sha512" => ValidNuGet(p.Download) && Regex.IsMatch(p.Hash, "^[0-9a-f]{128}$"),
+                _ => ValidJdk(p.Download) && Regex.IsMatch(p.Hash, "^[0-9a-f]{64}$"),
+            };
             if (!known || !valid || p.Size < 1 || p.Size > MaxArchiveBytes) throw new InvalidDataException($"{p.Id} 의 배포 정보가 올바르지 않습니다.");
         }
         Directory.CreateDirectory(Root);
@@ -185,6 +218,7 @@ public sealed class AndroidToolsInstaller : IDisposable
     public static string Label(string id) => id switch
     {
         JdkId => "OpenJDK 17",
+        MonoId => "C# 런타임 (Mono 8.0, Android x64)",
         "platform-tools" => "Android SDK Platform-Tools",
         "build-tools;36.0.0" => "Android SDK Build-Tools 36",
         "platforms;android-34" => "Android SDK Platform 34",
@@ -200,7 +234,7 @@ public sealed class AndroidToolsInstaller : IDisposable
         using var response = await http.GetAsync(p.Download, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is long expected && expected != p.Size) throw new InvalidDataException($"{p.Id}: 서버의 파일 크기가 목록과 다릅니다.");
-        using var hash = IncrementalHash.CreateHash(p.HashType == "sha1" ? HashAlgorithmName.SHA1 : HashAlgorithmName.SHA256);
+        using var hash = IncrementalHash.CreateHash(p.HashType switch { "sha1" => HashAlgorithmName.SHA1, "sha512" => HashAlgorithmName.SHA512, _ => HashAlgorithmName.SHA256 });
         await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
         await using var output = new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1024 * 1024, true);
         var buffer = new byte[1024 * 1024];

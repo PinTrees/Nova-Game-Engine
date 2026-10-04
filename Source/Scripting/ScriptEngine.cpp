@@ -53,6 +53,8 @@ namespace
 		int(__stdcall* InvokeMethod)(uint64_t, const char*, const char*, const char*) = nullptr;   // UI Button
 		void* (__stdcall* ExecAssembly)(const char*) = nullptr;   // nova exec (선택)
 		void(__stdcall* InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
+		void(__stdcall* AppPause)(int) = nullptr;   // 선택 (NovaEngine.Interop.AppEvents)
+		void(__stdcall* AppFocus)(int) = nullptr;
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -218,6 +220,11 @@ namespace
 			m.InvokeUIEvent = nullptr;
 		if (load(dll.c_str(), type, L"ExecAssembly", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.ExecAssembly) < 0)
 			m.ExecAssembly = nullptr;
+		const wchar_t* appEvents = L"NovaEngine.Interop.AppEvents, NovaScriptCore";
+		if (load(dll.c_str(), appEvents, L"Pause", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.AppPause) < 0)
+			m.AppPause = nullptr;
+		if (load(dll.c_str(), appEvents, L"Focus", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.AppFocus) < 0)
+			m.AppFocus = nullptr;
 
 		std::vector<uint8_t> table(ScriptBindings::TableSize());
 		ScriptBindings::Fill(table.data());
@@ -638,6 +645,18 @@ namespace ScriptEngine
 		ScriptBindings::Reset();
 		if (s_AssemblyLoaded && m.InvokeUIEvent)
 			m.InvokeUIEvent(0, -1, 0.0f, "");
+	}
+
+	void OnApplicationPause(bool paused)
+	{
+		if (s_AssemblyLoaded && m.AppPause)
+			m.AppPause(paused ? 1 : 0);
+	}
+
+	void OnApplicationFocus(bool focused)
+	{
+		if (s_AssemblyLoaded && m.AppFocus)
+			m.AppFocus(focused ? 1 : 0);
 	}
 
 	void OnPlayModeChanged(bool playing)

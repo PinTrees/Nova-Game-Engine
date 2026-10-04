@@ -469,10 +469,23 @@ namespace AndroidTools
 		std::error_code ec;
 		const fs::path engine = PathManager::GetI()->GetEnginePathW();
 		const std::wstring rid = abi == "arm64-v8a" ? L"android-arm64" : L"android-x64";
-		// 배포판: Android/Player/<ABI>/mono/{lib,native}, 엔진 개발: ThirdParty/MonoAndroid/<ABI>/runtimes/<rid>/{lib/net8.0,native}
+		// 배포판: Android/Player/<ABI>/mono/{lib,native} → NOVA Hub 의 Android 빌드 지원 (<AndroidTools>/mono/<ABI>/runtimes/<rid>/…)
+		//  → 엔진 개발: ThirdParty/MonoAndroid/<ABI>/runtimes/<rid>/{lib/net8.0,native} (Tools/fetch_android_mono.ps1)
 		const fs::path release = engine / L"Android" / L"Player" / string_to_wstring(abi) / L"mono";
+		std::vector<std::pair<fs::path, fs::path>> candidates = { { release / L"lib", release / L"native" } };
+		wchar_t env[1024] = {};
+		std::vector<fs::path> toolRoots;
+		if (::GetEnvironmentVariableW(L"NOVA_ANDROID_TOOLS", env, 1024) > 0) toolRoots.push_back(env);
+		toolRoots.push_back((engine / L".." / L".." / L"AndroidTools").lexically_normal());
+		if (::GetEnvironmentVariableW(L"LOCALAPPDATA", env, 1024) > 0) toolRoots.push_back(fs::path(env) / L"NOVA" / L"AndroidTools");
+		for (const fs::path& t : toolRoots)
+		{
+			const fs::path hub = t / L"mono" / string_to_wstring(abi) / L"runtimes" / rid;
+			candidates.push_back({ hub / L"lib" / L"net8.0", hub / L"native" });
+		}
 		const fs::path dev = engine / L"ThirdParty" / L"MonoAndroid" / string_to_wstring(abi) / L"runtimes" / rid;
-		for (const auto& [lib, native] : { std::pair{ release / L"lib", release / L"native" }, std::pair{ dev / L"lib" / L"net8.0", dev / L"native" } })
+		candidates.push_back({ dev / L"lib" / L"net8.0", dev / L"native" });
+		for (const auto& [lib, native] : candidates)
 			if (fs::exists(native / L"libmonosgen-2.0.so", ec) && fs::exists(native / L"System.Private.CoreLib.dll", ec) && fs::is_directory(lib, ec))
 			{
 				managedDir = lib.wstring();

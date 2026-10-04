@@ -81,6 +81,9 @@ namespace NovaAndroid
 		return out;
 	}
 	void SetFocus(bool focused) { s_Focus = focused; }
+	static std::atomic<bool> s_TimeReset{ false };
+	void RequestTimeReset() { s_TimeReset = true; }
+	bool TakeTimeReset() { return s_TimeReset.exchange(false); }
 	static std::atomic<bool> s_Quit{ false };
 	void RequestQuit() { s_Quit = true; }
 	bool QuitRequested() { return s_Quit; }

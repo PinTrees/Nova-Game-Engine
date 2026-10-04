@@ -128,6 +128,7 @@ void App::OnResize()
 {
 	if (!_device || !_deviceContext || _clientWidth <= 0 || _clientHeight <= 0)
 		return;
+	NovaAndroid::SetGameView(_clientWidth, _clientHeight, true);   // 첫 프레임 그리기 전 (C# Start 의 Screen.width · safeArea) 부터 창 크기
 	_deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
 	_renderTargetView.Reset();
 	_backBufferTex.Reset();
@@ -184,6 +185,11 @@ int32 App::Run()
 {
 	static bool s_Started = false;
 	if (!s_Started) { _timer.Reset(); s_Started = true; }
+	if (NovaAndroid::TakeTimeReset())   // 뒤에 있던 동안은 시간이 흐르지 않는다 (Unity 와 같이)
+	{
+		_timer.Reset();
+		TimeManager::GetI()->Init();
+	}
 	_timer.Tick();
 	const float dt = _timer.DeltaTime();
 	TimeManager::GetI()->Update();

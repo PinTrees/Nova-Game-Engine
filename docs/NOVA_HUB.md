@@ -23,13 +23,14 @@ Unity 의 "Android Build Support" 모듈처럼, Hub 의 **설치** 탭에서 안
 
 - 엔진 카드의 **"Android 빌드 지원 함께 설치"** 를 체크하면 라이선스 동의 창이 뜨고, 동의하면 엔진 설치가 끝난 뒤 이어서 설치한다.
   엔진 목록 아래의 **Android 빌드 지원** 카드에서 따로 설치할 수도 있다
-- 설치 위치: 엔진 폴더(`%LOCALAPPDATA%\NOVA\Editors`) 옆의 `%LOCALAPPDATA%\NOVA\AndroidTools\{jdk,sdk}`. 모든 엔진 버전이 함께 쓴다
-- 구성 요소와 출처 (2026-10-04 기준 약 1034 MB):
+- 설치 위치: 엔진 폴더(`%LOCALAPPDATA%\NOVA\Editors`) 옆의 `%LOCALAPPDATA%\NOVA\AndroidTools\{jdk,sdk,mono}`. 모든 엔진 버전이 함께 쓴다
+- 구성 요소와 출처 (2026-10-04 기준 약 1059 MB):
 
 | 구성 요소 | 출처 · 검증 |
 |---|---|
 | OpenJDK 17 (Eclipse Temurin) | Adoptium API → `github.com/adoptium/…` zip, 크기 + SHA-256 |
 | Platform-Tools · Build-Tools 36.0.0 · Platform android-34 · NDK 28.2.13676358 · CMake 3.22.1 | Google `dl.google.com/android/repository/repository2-3.xml` 의 Windows 묶음, 크기 + SHA-1 |
+| C# 런타임 (Microsoft Mono 8.0.31, Android x64, MIT) — 기기에서 C# 스크립트 | nuget.org `Microsoft.NETCore.App.Runtime.Mono.android-x64` 등록 → 카탈로그의 크기 + SHA-512, `mono/x86_64` 에 |
 
 - **라이선스**: Android SDK 라이선스 원문을 Google 의 공식 목록에서 받아 동의 창에 그대로 보여 준다. 체크 상자 + "동의하고 설치" 를
   사용자가 직접 눌러야 하며, 서비스는 `acceptLicense` 가 없으면 설치를 거절한다. 동의하면 `sdk/licenses/android-sdk-license` 에
@@ -47,7 +48,7 @@ Unity 의 "Android Build Support" 모듈처럼, Hub 의 **설치** 탭에서 안
 | `Tools/NovaHub/Service/Program.cs` | `android-*` 명령 |
 | `Source/Hub/HubEngineInstaller.*` | 요청의 `acceptLicense`, 결과의 `android` 상태 |
 | `Source/Hub/HubApp.*` | 모듈 카드 · "함께 설치" 체크 · 라이선스 동의 창 · 엔진 설치 뒤 이어서 설치 |
-| `Tools/NovaHub/Tests/Program.cs` | Android 검사 7 개 (+ `--live` 에서 공개 목록 확인) |
+| `Tools/NovaHub/Tests/Program.cs` | Android 검사 8 개 (Mono 카탈로그 포함, + `--live` 에서 공개 목록 확인) |
 
 ## 파일 분담
 

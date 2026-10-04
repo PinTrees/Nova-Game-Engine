@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using NovaEngine.Interop;
 
@@ -75,7 +76,8 @@ namespace NovaEngine
         public static bool isFocused => true;
         public static int targetFrameRate { get; set; } = -1;
         public static unsafe string productName => Native.Str(Native.Api.App_ProductName()) ?? "NOVA Game";
-        public static RuntimePlatform platform => isEditor ? RuntimePlatform.WindowsEditor : RuntimePlatform.WindowsPlayer;
+        public static RuntimePlatform platform => (RuntimePlatform)Platform.NovaApp_Platform();
+        public static bool isMobilePlatform => platform == RuntimePlatform.Android;
         // Unity 와 같이 에디터에서는 무시, 빌드된 게임은 종료
         public static unsafe void Quit()
         {
@@ -83,12 +85,34 @@ namespace NovaEngine
             else Native.Api.App_Quit();
         }
     }
-    public enum RuntimePlatform { WindowsEditor, WindowsPlayer }
+    // Unity 와 같은 값
+    public enum RuntimePlatform { WindowsPlayer = 2, WindowsEditor = 7, Android = 11 }
+    public enum ScreenOrientation { Portrait = 1, PortraitUpsideDown = 2, LandscapeLeft = 3, LandscapeRight = 4, AutoRotation = 5 }
+
+    // 엔진이 이름으로 내보낸 플랫폼 함수 (Source/Scripting/PlatformBindings.cpp — Windows 는 NovaCore.dll, 안드로이드는 libnova.so)
+    internal static unsafe class Platform
+    {
+        const string Lib = "NovaCore";
+        [DllImport(Lib)] internal static extern int NovaApp_Platform();
+        [DllImport(Lib)] internal static extern int NovaInput_TouchCount();
+        [DllImport(Lib)] internal static extern int NovaInput_GetTouch(int index, float* out7);
+        [DllImport(Lib)] internal static extern void NovaScreen_SafeArea(float* out4);
+        [DllImport(Lib)] internal static extern int NovaScreen_GetOrientation();
+        [DllImport(Lib)] internal static extern void NovaScreen_SetOrientation(int orientation);
+    }
 
     public static class Screen
     {
         public static unsafe int width { get { int w, h; Native.Api.Screen_Get(&w, &h); return w; } }
         public static unsafe int height { get { int w, h; Native.Api.Screen_Get(&w, &h); return h; } }
+        // 노치 · 둥근 모서리에 가리지 않는 영역 (게임 화면 픽셀, 왼쪽 아래 기준). Windows 는 화면 전체
+        public static unsafe Rect safeArea { get { float* r = stackalloc float[4]; Platform.NovaScreen_SafeArea(r); return new Rect(r[0], r[1], r[2], r[3]); } }
+        // 지금 화면 방향 (가로 = LandscapeLeft, 세로 = Portrait). 넣으면 그 방향으로 돌린다 (안드로이드 — AutoRotation 은 기기 방향을 따른다)
+        public static ScreenOrientation orientation
+        {
+            get => (ScreenOrientation)Platform.NovaScreen_GetOrientation();
+            set => Platform.NovaScreen_SetOrientation((int)value);
+        }
     }
 
     // ------------------------------------------------------------------ Input
@@ -106,6 +130,19 @@ namespace NovaEngine
         F1 = 282, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
         CapsLock = 301, RightShift = 303, LeftShift, RightControl, LeftControl, RightAlt, LeftAlt,
         Mouse0 = 323, Mouse1, Mouse2, Mouse3, Mouse4, Mouse5, Mouse6,
+    }
+
+    public enum TouchPhase { Began, Moved, Stationary, Ended, Canceled }
+    public struct Touch
+    {
+        public int fingerId;
+        public Vector2 position, deltaPosition;
+        public float deltaTime;
+        public int tapCount;
+        public TouchPhase phase;
+        public Vector2 rawPosition => position;
+        public float pressure => 1f;
+        public float radius => 0f;
     }
 
     public static class Input
@@ -168,6 +205,26 @@ namespace NovaEngine
             }
             if (Enum.TryParse(name, true, out KeyCode k)) return k;
             return KeyCode.None;
+        }
+
+        // ---- 터치 (Unity 의 Input.touchCount · GetTouch · touches). 안드로이드 손가락, PC 는 Unity 처럼 0 개
+        public static bool touchSupported => Application.platform == RuntimePlatform.Android;
+        public static bool multiTouchEnabled { get => true; set { } }
+        public static int touchCount => Platform.NovaInput_TouchCount();
+        public static unsafe Touch GetTouch(int index)
+        {
+            float* t = stackalloc float[7];
+            if (Platform.NovaInput_GetTouch(index, t) == 0) throw new ArgumentException("Index out of bounds.");
+            return new Touch { fingerId = (int)t[0], position = new Vector2(t[1], t[2]), deltaPosition = new Vector2(t[3], t[4]), phase = (TouchPhase)(int)t[5], tapCount = (int)t[6], deltaTime = Time.deltaTime };
+        }
+        public static Touch[] touches
+        {
+            get
+            {
+                var all = new Touch[touchCount];
+                for (int i = 0; i < all.Length; i++) all[i] = GetTouch(i);
+                return all;
+            }
         }
 
         public static unsafe bool GetMouseButton(int button) => Native.Api.Input_GetMouseButton(button, 0) != 0;

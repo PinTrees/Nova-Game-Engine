@@ -33,6 +33,8 @@ namespace BuildSettings
 		int AndroidTextureCompression = 0;
 		// Android: Package Name (Unity 의 Other Settings > Identification) — 비면 com.<회사>.<제품>
 		std::string AndroidPackageName;
+		// Android: Default Orientation (Unity 의 Resolution and Presentation) — 0 Portrait, 1 Portrait Upside Down, 2 Landscape Right, 3 Landscape Left, 4 Auto Rotation
+		int AndroidOrientation = 4;
 	};
 	// 빌드된 게임이 시도할 순서 (Auto 면 엔진 기본 순서)
 	std::vector<GraphicsAPI> PlayerGraphicsAPIs();
