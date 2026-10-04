@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NOVA 안드로이드 (NativeActivity — Java 코드 없음). Android/build.py 가 aapt2 로 APK 에 넣는다 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.nova.engine" android:versionCode="1" android:versionName="0.1">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+    <uses-feature android:glEsVersion="0x00030002" android:required="true" />
+    <application android:label="NOVA" android:hasCode="false" android:extractNativeLibs="true" android:debuggable="true">
+        <activity android:name="android.app.NativeActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden|screenLayout"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+            <meta-data android:name="android.app.lib_name" android:value="nova" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

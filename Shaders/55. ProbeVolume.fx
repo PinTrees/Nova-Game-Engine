@@ -262,7 +262,12 @@ SHOut PS_Update(GIVOut pin)
     float4 shR = 0, shG = 0, shB = 0;
     float backfaces = 0.0f;
     uint wi, hi, mipsSky;
+#ifdef NOVA_GLES   // OpenGL ES 에는 밉 개수 조회(textureQueryLevels)가 없다 → 크기로 (전체 밉 사슬)
+    gCubeMap.GetDimensions(wi, hi);
+    mipsSky = firstbithigh(max(wi, hi)) + 1;
+#else
     gCubeMap.GetDimensions(0, wi, hi, mipsSky);
+#endif
     [loop]
     for (uint i = 0; i < rays; ++i)
     {

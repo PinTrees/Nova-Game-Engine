@@ -51,7 +51,12 @@ float3 AtmSkyColor(float3 V)
     if (gAtmFlags.z < 0.5f)
         return float3(0.45f, 0.55f, 0.7f);
     uint w, h, mips;
+#ifdef NOVA_GLES   // OpenGL ES 에는 밉 개수 조회(textureQueryLevels)가 없다 → 크기로 (전체 밉 사슬)
+    gAtmSky.GetDimensions(w, h);
+    mips = firstbithigh(max(w, h)) + 1;
+#else
     gAtmSky.GetDimensions(0, w, h, mips);
+#endif
     const float3 dir = normalize(float3(V.x, max(V.y, 0.03f), V.z));
     return AtmToLinear(gAtmSky.SampleLevel(samAtmSky, dir, max((float)mips - 3.0f, 0.0f)).rgb);
 }

@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Vulkan 마무리 (1 순위) 완료 · 로컬 커밋, push 전**: Release 성능 (Materials DX 0.93 / VK 1.02 ms, Trees DX 2.27 / VK 1.40 ms),
+- 갱신 시각: 2026년 10월 4일 — **안드로이드 1 단계 첫 목표 완료 · 로컬 커밋, push 전** (사용자 지시 "다음 작업 진행 … MuMu 플레이어와 터미널 백그라운드 통신으로, 실제 창 없이"). 문서 `docs/ANDROID.md`
+  - MuMu 게스트에 Vulkan 이 없어 (장치 0 개) 안드로이드 그래픽 = OpenGL ES 3.2. 엔진 RHI 검사 장면을 MuMu 에서 GLES 로 그려 DX11 과 차이 최대 1 — `Tools/tests/android.ps1` **7/7** (MuMu 검사 전용 VM "NOVA Test", 창 숨김, adb · logcat)
+  - 새 파일: `Android/` (NDK CMake · NativeActivity · GLESRhi · WinCompat · build.py), `ThirdParty/DirectXMath/`, `Source/Build/AndroidTools.*` (CLI `nova android shaders`), `Source/Graphics/Common/FxStates.*` (GLState 에서 API 공용으로 옮김), `Source/Graphics/ShaderCross/ShaderCrossJson.*`
+  - 고친 공용 파일: `ShaderCross.*` (GLSL ES 변환 · NOVA_GLES 전처리 · 캐시 버전 5), `GLState.cpp` (Fx 함수는 FxStates 로 넘김), `VkRhi.cpp` (FxStates), `Rhi.cpp` (안드로이드 분기), `MathHelper.cpp` (SimpleMath 대신 XMFLOAT4X4 한 줄), `Shaders/32 · 41 · 49 · 55` (ES 일 때만 밉 개수를 크기로), `EditorApp.cpp` · `NovaCli/main.cpp` (등록 한 줄씩)
+  - 회귀: gfx 2/2 · vulkan 10/10 · render 8/8
+- 이전: 2026년 10월 4일 — **Vulkan 마무리 (1 순위) 완료 · push `34e7b09`**: Release 성능 (Materials DX 0.93 / VK 1.02 ms, Trees DX 2.27 / VK 1.40 ms),
   장벽을 서브리소스 단위로 (`Image::Written`), 동기화 검사 (`NOVA_VK_SYNC_VALIDATION=1`) 경쟁 0, 창 밖 ImGui 창 (창마다 스왑체인 — `GfxVk::PresentWindow`).
   검사 vulkan 10/10 · perf 4/4 (Vulkan 줄 추가). 다음 후보: 안드로이드 빌드 (범위를 사용자와 정한 뒤)
 - 이전: Vulkan 그래픽 백엔드 1 ~ 3 단계 + 4 단계 장면 · 빌드한 게임 완료 · push `0b6db63`

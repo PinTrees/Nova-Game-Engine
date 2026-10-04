@@ -74,6 +74,9 @@ namespace ShaderCross
 	bool Available(std::string* error = nullptr);   // dxcompiler.dll 을 불러올 수 있는지
 	// fxPath = .fx 파일. 모든 technique 의 모든 pass 를 변환 (pass 마다 성공/실패)
 	bool CompileEffect(const std::wstring& fxPath, EffectGlsl& out);
+	// OpenGL ES 3.20 (안드로이드) 변환 — 바인딩 · 이름 규칙은 위와 같고 GLSL 만 ES. 캐시 ShaderCache/GLES
+	bool CompileEffectGles(const std::wstring& fxPath, EffectGlsl& out);
+	bool CompileEffectAs(const std::wstring& fxPath, EffectGlsl& out, bool es);
 
 	// ---- Vulkan: pass 마다 단계별 SPIR-V 를 그대로 쓴다 (GLSL 로 바꾸지 않음)
 	//  - DXC 의 SPIR-V 에서 장식 (decoration) 값만 고친다: 모든 자원 = set 0, 바인딩 = 효과 안에서 이름마다 고정

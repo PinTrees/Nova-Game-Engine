@@ -961,7 +961,12 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     //  Environment Lighting = Skybox: 법선 방향 하늘을 아주 흐린 밉(면당 4x4)으로 읽어 확산 조도로 쓴다.
     //  빛의 Ambient 값은 예전 Blinn-Phong 용이라 Lit 에서는 쓰지 않는다 (Unity 에도 빛별 Ambient 는 없다).
     uint w, h, mips;
+#ifdef NOVA_GLES   // OpenGL ES 에는 밉 개수 조회(textureQueryLevels)가 없다 → 크기로 (전체 밉 사슬)
+    gCubeMap.GetDimensions(w, h);
+    mips = firstbithigh(max(w, h)) + 1;
+#else
     gCubeMap.GetDimensions(0, w, h, mips);
+#endif
     float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
     // Adaptive Probe Volume 안이면 확산 환경광 = 프로브 (벽 · 지붕이 가린 하늘, 주변 색이 번진 빛)
     float3 giReflect;

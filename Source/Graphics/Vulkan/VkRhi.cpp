@@ -3,7 +3,7 @@
 #include "GfxVk.h"
 #include "GfxVkShared.h"
 #include "ShaderCross.h"
-#include "GLState.h"    // .fx 상태 블록 → D3D11 설명 (FxRasterizer · FxBlend · FxDepthStencil · FxSampler) — API 와 상관없는 변환
+#include "FxStates.h"   // .fx 상태 블록 → D3D11 설명 (API 와 상관없는 변환)
 #include "GLShared.h"   // GLInputSignature (의미 → location)
 
 // RHI 의 Vulkan 구현: Gfx Vulkan 장치 · 컨텍스트 위의 얇은 층.
@@ -645,7 +645,7 @@ namespace
 		{
 			if (r.Type != ShaderCross::ResourceBinding::Kind::Sampler) continue;
 			auto st = e->Src.Fx.States.find(name);
-			const D3D11_SAMPLER_DESC sd = st != e->Src.Fx.States.end() ? GLState::FxSampler(st->second) : GLState::DefaultSampler();
+			const D3D11_SAMPLER_DESC sd = st != e->Src.Fx.States.end() ? FxStates::Sampler(st->second) : FxStates::DefaultSampler();
 			ComPtr<GfxSamplerState> s;
 			if (FAILED(Dev->CreateSamplerState(&sd, s.GetAddressOf()))) continue;
 			const uint32_t first = ElementOffset(e->Layout.Get(), (uint32_t)r.Binding);
@@ -690,9 +690,9 @@ namespace
 				auto it = Src.Fx.States.find(name);
 				return it != Src.Fx.States.end() ? &it->second : nullptr;
 			};
-			if (const auto* rs = find(p.RasterizerState)) { const D3D11_RASTERIZER_DESC d = GLState::FxRasterizer(*rs); Device->Dev->CreateRasterizerState(&d, pp.Rs.GetAddressOf()); }
-			if (const auto* bs = find(p.BlendState)) { const D3D11_BLEND_DESC d = GLState::FxBlend(*bs); Device->Dev->CreateBlendState(&d, pp.Bs.GetAddressOf()); }
-			if (const auto* ds = find(p.DepthStencilState)) { const D3D11_DEPTH_STENCIL_DESC d = GLState::FxDepthStencil(*ds); Device->Dev->CreateDepthStencilState(&d, pp.Ds.GetAddressOf()); }
+			if (const auto* rs = find(p.RasterizerState)) { const D3D11_RASTERIZER_DESC d = FxStates::Rasterizer(*rs); Device->Dev->CreateRasterizerState(&d, pp.Rs.GetAddressOf()); }
+			if (const auto* bs = find(p.BlendState)) { const D3D11_BLEND_DESC d = FxStates::Blend(*bs); Device->Dev->CreateBlendState(&d, pp.Bs.GetAddressOf()); }
+			if (const auto* ds = find(p.DepthStencilState)) { const D3D11_DEPTH_STENCIL_DESC d = FxStates::DepthStencil(*ds); Device->Dev->CreateDepthStencilState(&d, pp.Ds.GetAddressOf()); }
 		}
 		if (pp.Rs) ctx->RSSetState(pp.Rs.Get());
 		if (pp.Bs) ctx->OMSetBlendState(pp.Bs.Get(), p.BlendFactor, p.SampleMask);

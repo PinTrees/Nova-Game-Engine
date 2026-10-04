@@ -79,7 +79,8 @@ XMVECTOR MathHelper::RandHemisphereUnitVec3(XMVECTOR n)
 
 void MathHelper::ExtractFrustumPlanes(XMFLOAT4 planes[6], CXMMATRIX CM)
 {
-	Matrix M = CM;
+	XMFLOAT4X4 M;   // (행, 열) 읽기 — SimpleMath 없이 (안드로이드 빌드도 쓴다)
+	XMStoreFloat4x4(&M, CM);
 
 	//
 		// Left

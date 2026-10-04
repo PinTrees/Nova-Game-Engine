@@ -7,6 +7,7 @@
 #include <regex>
 #include <set>
 #include <nlohmann/json.hpp>
+#include "ShaderCrossJson.h"
 
 namespace
 {
@@ -44,7 +45,8 @@ namespace
 	std::string Narrow(const std::wstring& w) { return wstring_to_string(w); }
 
 	// 전처리 (#include, 매크로): IDxcCompiler::Preprocess
-	bool Preprocess(const std::wstring& file, std::string& out, std::string& error)
+	// es = OpenGL ES 변환: NOVA_GLES 를 정의한다 (셰이더가 ES 에 없는 기능을 피해 가는 #ifdef)
+	bool Preprocess(const std::wstring& file, std::string& out, std::string& error, bool es = false)
 	{
 		ComPtr<IDxcBlobEncoding> source;
 		if (FAILED(s_Utils->LoadFile(file.c_str(), nullptr, &source)))
@@ -60,7 +62,8 @@ namespace
 		const std::wstring engineArg = L"-I" + std::filesystem::absolute(L"../Shaders", ec).wstring();   // 패키지 셰이더 → 엔진 셰이더
 		LPCWSTR args[] = { incArg.c_str(), engineArg.c_str(), L"-HV", L"2018" };
 		ComPtr<IDxcOperationResult> result;
-		if (FAILED(s_Legacy->Preprocess(source.Get(), file.c_str(), args, _countof(args), nullptr, 0, include.Get(), &result)))
+		DxcDefine define = { L"NOVA_GLES", L"1" };
+		if (FAILED(s_Legacy->Preprocess(source.Get(), file.c_str(), args, _countof(args), es ? &define : nullptr, es ? 1 : 0, include.Get(), &result)))
 		{
 			error = "preprocess call failed";
 			return false;
@@ -219,16 +222,23 @@ namespace
 	// stageIndex = pass 안에서 이 단계의 순서 (VS 0, 다음 단계 1 …). 단계 사이 값의 이름 = v<경계>_<의미>
 	//  (경계 k = k 번째 단계의 출력 = k+1 번째 단계의 입력). 경계 번호가 없으면 지오메트리·테셀레이션 단계의 입력과 출력이
 	//  같은 이름(v_POSITION0)이 되어 SPIRV-Cross 가 출력을 v_POSITION0_1 로 바꾸고 다음 단계와 맞물리지 않았다
-	bool ToGlsl(const std::vector<uint32_t>& spirv, Stage stage, int stageIndex, EffectGlsl& fx, PassGlsl& pass, StageGlsl& out, std::string& error)
+	// es = OpenGL ES 3.20 (안드로이드): glClipControl 이 없어 깊이 0..1 → -1..1 을 셰이더가 바꾼다 (fixup_clipspace — 깊이 값은 같다)
+	bool ToGlsl(const std::vector<uint32_t>& spirv, Stage stage, int stageIndex, EffectGlsl& fx, PassGlsl& pass, StageGlsl& out, std::string& error, bool es = false)
 	{
 		try
 		{
 			spirv_cross::CompilerGLSL glsl(spirv);
 			spirv_cross::CompilerGLSL::Options opt;
-			opt.version = 450;
-			opt.es = false;
+			opt.version = es ? 320 : 450;
+			opt.es = es;
 			opt.vulkan_semantics = false;
-			opt.enable_420pack_extension = true;
+			opt.enable_420pack_extension = !es;
+			if (es)
+			{
+				opt.vertex.fixup_clipspace = true;
+				opt.fragment.default_float_precision = spirv_cross::CompilerGLSL::Options::Highp;
+				opt.fragment.default_int_precision = spirv_cross::CompilerGLSL::Options::Highp;
+			}
 			glsl.set_common_options(opt);
 
 			spirv_cross::ShaderResources res = glsl.get_shader_resources();
@@ -340,6 +350,12 @@ namespace
 			mapByName(res.storage_buffers, fx.Buffers, true);
 			out.Glsl = glsl.compile();
 			FastShadowSamples(out.Glsl);
+			if (es)
+			{
+				// GLSL ES 는 int · uint 를 저절로 바꾸지 않는다: SPIRV-Cross 가 gl_InvocationID(int) 를 uint 상수와 비교 → uint 로 감싼다
+				static const std::regex inv(R"(gl_InvocationID(\s*[=!<>]=?\s*\d+u))");
+				out.Glsl = std::regex_replace(out.Glsl, inv, "uint(gl_InvocationID)$1");
+			}
 			return true;
 		}
 		catch (const std::exception& e)
@@ -354,8 +370,9 @@ namespace
 {
 	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
 	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
-	constexpr int kCacheVersion = 4;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples)
+	constexpr int kCacheVersion = 5;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples), 5: OpenGL ES (NOVA_GLES · gl_InvocationID)
 	using json = nlohmann::json;
+	using namespace ShaderCross::Json;
 
 	uint64_t Fnv1a(const std::string& s)
 	{
@@ -364,180 +381,16 @@ namespace
 		return h;
 	}
 
-	json FxToJson(const FxParser::Effect& e)
-	{
-		json fx;
-		fx["source"] = e.Source;
-		json techs = json::array();
-		for (const auto& t : e.Techniques)
-		{
-			json passes = json::array();
-			for (const auto& p : t.Passes)
-			{
-				json shaders = json::array();
-				for (const auto& s : p.Shaders)
-					shaders.push_back({ (int)s.StageType, s.Profile, s.Entry, s.Original });
-				passes.push_back({ { "name", p.Name }, { "shaders", shaders }, { "ds", p.DepthStencilState }, { "rs", p.RasterizerState }, { "bs", p.BlendState },
-					{ "stencilRef", p.StencilRef }, { "blendFactor", { p.BlendFactor[0], p.BlendFactor[1], p.BlendFactor[2], p.BlendFactor[3] } }, { "sampleMask", p.SampleMask } });
-			}
-			techs.push_back({ { "name", t.Name }, { "passes", passes } });
-		}
-		fx["techniques"] = techs;
-		json states = json::object();
-		for (const auto& [n, b] : e.States)
-			states[n] = { { "type", b.Type }, { "fields", b.Fields } };
-		fx["states"] = states;
-		fx["defaults"] = e.Defaults;
-		fx["warnings"] = e.Warnings;
-		return fx;
-	}
-
-	void FxFromJson(const json& fx, FxParser::Effect& e)
-	{
-		e.Source = fx.at("source").get<std::string>();
-		for (const auto& t : fx.at("techniques"))
-		{
-			FxParser::Technique tech;
-			tech.Name = t.at("name").get<std::string>();
-			for (const auto& p : t.at("passes"))
-			{
-				FxParser::Pass pass;
-				pass.Name = p.at("name").get<std::string>();
-				for (const auto& s : p.at("shaders"))
-					pass.Shaders.push_back({ (Stage)s[0].get<int>(), s[1].get<std::string>(), s[2].get<std::string>(), s[3].get<std::string>() });
-				pass.DepthStencilState = p.at("ds").get<std::string>();
-				pass.RasterizerState = p.at("rs").get<std::string>();
-				pass.BlendState = p.at("bs").get<std::string>();
-				pass.StencilRef = p.at("stencilRef").get<int>();
-				for (int i = 0; i < 4; ++i) pass.BlendFactor[i] = p.at("blendFactor")[i].get<float>();
-				pass.SampleMask = p.at("sampleMask").get<unsigned>();
-				tech.Passes.push_back(pass);
-			}
-			e.Techniques.push_back(tech);
-		}
-		for (const auto& [n, b] : fx.at("states").items())
-		{
-			FxParser::StateBlock block;
-			block.Type = b.at("type").get<std::string>();
-			block.Fields = b.at("fields").get<std::map<std::string, std::string>>();
-			e.States[n] = block;
-		}
-		e.Defaults = fx.at("defaults").get<std::map<std::string, std::string>>();
-		e.Warnings = fx.at("warnings").get<std::vector<std::string>>();
-	}
-
-	json BlocksToJson(const std::map<std::string, UniformBlock>& blocks)
-	{
-		json out = json::object();
-		for (const auto& [n, b] : blocks)
-		{
-			json members = json::array();
-			for (const auto& m : b.Members)
-				members.push_back({ m.Name, m.Offset, m.Size, m.ArrayCount, m.ArrayStride, m.Rows, m.Columns, m.Transpose, m.Struct, m.Integer });
-			out[n] = { { "binding", b.Binding }, { "size", b.Size }, { "members", members } };
-		}
-		return out;
-	}
-
-	void BlocksFromJson(const json& j, std::map<std::string, UniformBlock>& blocks)
-	{
-		for (const auto& [n, b] : j.items())
-		{
-			UniformBlock ub;
-			ub.Name = n;
-			ub.Binding = b.at("binding").get<int>();
-			ub.Size = b.at("size").get<int>();
-			for (const auto& m : b.at("members"))
-			{
-				UniformBlock::Member mem;
-				mem.Name = m[0].get<std::string>();
-				mem.Offset = m[1].get<int>();
-				mem.Size = m[2].get<int>();
-				mem.ArrayCount = m[3].get<int>();
-				mem.ArrayStride = m[4].get<int>();
-				mem.Rows = m[5].get<int>();
-				mem.Columns = m[6].get<int>();
-				mem.Transpose = m[7].get<bool>();
-				mem.Struct = m[8].get<bool>();
-				mem.Integer = m[9].get<bool>();
-				ub.Members.push_back(mem);
-			}
-			blocks[n] = ub;
-		}
-	}
-
-	json ToJson(const EffectGlsl& e)
-	{
-		json fx = FxToJson(e.Fx);
-		json passes = json::array();
-		for (const auto& p : e.Passes)
-		{
-			json stages = json::array();
-			for (const auto& s : p.Stages)
-				stages.push_back({ (int)s.StageType, s.Entry, s.Glsl });
-			json inputs = json::array();
-			for (const auto& [sem, loc] : p.VertexInputs)
-				inputs.push_back({ sem, loc });
-			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "inputs", inputs }, { "error", p.Error } });
-		}
-		json blocks = BlocksToJson(e.Blocks);
-		json samplers = json::object();
-		for (const auto& [n, s] : e.Samplers)
-			samplers[n] = { s.Texture, s.Sampler, s.Unit, s.Count };
-		return { { "version", kCacheVersion }, { "fx", fx }, { "passes", passes }, { "blocks", blocks }, { "samplers", samplers },
-			{ "images", e.Images }, { "buffers", e.Buffers } };
-	}
-
-	bool FromJson(const json& j, EffectGlsl& e)
-	{
-		if (j.value("version", 0) != kCacheVersion) return false;
-		FxFromJson(j.at("fx"), e.Fx);
-		for (const auto& p : j.at("passes"))
-		{
-			PassGlsl pg;
-			pg.Technique = p.at("technique").get<std::string>();
-			pg.Pass = p.at("pass").get<std::string>();
-			for (const auto& s : p.at("stages"))
-				pg.Stages.push_back({ (Stage)s[0].get<int>(), s[1].get<std::string>(), s[2].get<std::string>() });
-			for (const auto& i : p.at("inputs"))
-				pg.VertexInputs.push_back({ i[0].get<std::string>(), i[1].get<int>() });
-			pg.Error = p.at("error").get<std::string>();
-			e.Passes.push_back(pg);
-		}
-		BlocksFromJson(j.at("blocks"), e.Blocks);
-		for (const auto& [n, s] : j.at("samplers").items())
-		{
-			SamplerBinding sb;
-			sb.Name = n;
-			sb.Texture = s[0].get<std::string>();
-			sb.Sampler = s[1].get<std::string>();
-			sb.Unit = s[2].get<int>();
-			sb.Count = s[3].get<int>();
-			e.Samplers[n] = sb;
-		}
-		e.Images = j.at("images").get<std::map<std::string, int>>();
-		e.Buffers = j.at("buffers").get<std::map<std::string, int>>();
-		return true;
-	}
-
-	std::filesystem::path CachePath(const std::wstring& fxPath, uint64_t hash)
+	std::filesystem::path CachePath(const std::wstring& fxPath, uint64_t hash, bool es = false)
 	{
 		char hex[32];
 		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)hash);
-		return std::filesystem::path(L"ShaderCache") / L"GLSL" / (std::filesystem::path(fxPath).stem().wstring() + L"_" + string_to_wstring(hex) + L".json");
+		return std::filesystem::path(L"ShaderCache") / (es ? L"GLES" : L"GLSL") / (std::filesystem::path(fxPath).stem().wstring() + L"_" + string_to_wstring(hex) + L".json");
 	}
 }
 
 namespace ShaderCross
 {
-	int EffectGlsl::PassesOk() const
-	{
-		int n = 0;
-		for (const PassGlsl& p : Passes)
-			n += p.Error.empty() ? 1 : 0;
-		return n;
-	}
-
 	bool Available(std::string* error)
 	{
 		const bool ok = Load();
@@ -548,6 +401,16 @@ namespace ShaderCross
 
 	bool CompileEffect(const std::wstring& fxPath, EffectGlsl& out)
 	{
+		return CompileEffectAs(fxPath, out, false);
+	}
+
+	bool CompileEffectGles(const std::wstring& fxPath, EffectGlsl& out)
+	{
+		return CompileEffectAs(fxPath, out, true);
+	}
+
+	bool CompileEffectAs(const std::wstring& fxPath, EffectGlsl& out, bool es)
+	{
 		out = EffectGlsl();
 		out.File = fxPath;
 		if (!Load())
@@ -556,11 +419,11 @@ namespace ShaderCross
 			return false;
 		}
 		std::string pre;
-		if (!Preprocess(fxPath, pre, out.Error))
+		if (!Preprocess(fxPath, pre, out.Error, es))
 			return false;
 		// 캐시: 전처리 결과(#include 까지 펼친 소스)가 같으면 변환 결과도 같다
 		const uint64_t hash = Fnv1a(pre) ^ (uint64_t)kCacheVersion;
-		const std::filesystem::path cacheFile = CachePath(fxPath, hash);
+		const std::filesystem::path cacheFile = CachePath(fxPath, hash, es);
 		{
 			std::ifstream in(cacheFile, std::ios::binary);
 			if (in)
@@ -570,7 +433,7 @@ namespace ShaderCross
 					const json j = json::parse(in);
 					EffectGlsl cached;
 					cached.File = fxPath;
-					if (FromJson(j, cached))
+					if (FromJson(j, cached, kCacheVersion))
 					{
 						out = std::move(cached);
 						EditorLog::Write("ShaderCross", "cache hit %s", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str());
@@ -611,7 +474,7 @@ namespace ShaderCross
 					StageGlsl sg;
 					sg.StageType = ref.StageType;
 					sg.Entry = ref.Entry;
-					if (!CompileSpirv(out.Fx.Source, name, ref, ref.StageType == lastGeom, spirv, error) || !ToGlsl(spirv, ref.StageType, stageIndex, out, pg, sg, error))
+					if (!CompileSpirv(out.Fx.Source, name, ref, ref.StageType == lastGeom, spirv, error) || !ToGlsl(spirv, ref.StageType, stageIndex, out, pg, sg, error, es))
 					{
 						pg.Error = std::string(FxParser::StageName(ref.StageType)) + " " + ref.Entry + ": " + error;
 						break;
@@ -629,7 +492,7 @@ namespace ShaderCross
 			for (const auto& f : std::filesystem::directory_iterator(cacheFile.parent_path(), ec))
 				if (f.path().filename().wstring().rfind(prefix, 0) == 0 && f.path() != cacheFile)
 					std::filesystem::remove(f.path(), ec);
-			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << ToJson(out).dump();
+			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << ToJson(out, kCacheVersion).dump();
 		}
 		catch (const std::exception&)
 		{
@@ -641,6 +504,8 @@ namespace ShaderCross
 // ============================================================================ Vulkan: SPIR-V 그대로 (장식만 고침)
 namespace
 {
+	using namespace ShaderCross::Json;
+
 	// ShaderCache/SPIRV/<이름>_<해시>.json — 규칙이 바뀌면 올린다
 	constexpr int kSpirvCacheVersion = 3;
 

@@ -1,9 +1,13 @@
 #include "pch.h"
 #include "Rhi.h"
 
+#ifdef __ANDROID__
+std::unique_ptr<Rhi::Device> CreateGlesRhiDevice(std::string& error);   // Android/Source/GLESRhi.cpp (지금 EGL 컨텍스트)
+#else
 std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error);   // Dx11Rhi.cpp
 std::unique_ptr<Rhi::Device> CreateGLRhiDevice(std::string& error);     // GLRhi.cpp
 std::unique_ptr<Rhi::Device> CreateVkRhiDeviceHeadless(std::string& error);   // VkRhi.cpp
+#endif
 
 namespace Rhi
 {
@@ -33,6 +37,10 @@ namespace Rhi
 
 	std::unique_ptr<Device> CreateDevice(GraphicsAPI api, std::string& error)
 	{
+#ifdef __ANDROID__
+		(void)api;
+		return CreateGlesRhiDevice(error);   // 안드로이드: OpenGL ES 3.2
+#else
 		switch (api)
 		{
 		case GraphicsAPI::DirectX11: return CreateDx11RhiDevice(error);
@@ -40,5 +48,6 @@ namespace Rhi
 		case GraphicsAPI::Vulkan: return CreateVkRhiDeviceHeadless(error);
 		default: error = "unknown graphics API"; return nullptr;
 		}
+#endif
 	}
 }

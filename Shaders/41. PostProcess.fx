@@ -376,7 +376,12 @@ float4 PS_Luminance(VertexOut pin) : SV_Target
 float4 PS_Adapt(VertexOut pin) : SV_Target
 {
     uint w, h, mips;
+#ifdef NOVA_GLES   // OpenGL ES 에는 밉 개수 조회(textureQueryLevels)가 없다 → 크기로 (전체 밉 사슬)
+    gLumTex.GetDimensions(w, h);
+    mips = firstbithigh(max(w, h)) + 1;
+#else
     gLumTex.GetDimensions(0, w, h, mips);
+#endif
     const float2 avg = gLumTex.SampleLevel(samLinear, float2(0.5f, 0.5f), (float)mips - 1.0f).rg;
     const float avgLum = exp2(avg.x / max(avg.y, 1e-3f));
     const float target = clamp(gAutoExposure.x / max(avgLum, 1e-4f), gAutoExposure.y, gAutoExposure.z);
