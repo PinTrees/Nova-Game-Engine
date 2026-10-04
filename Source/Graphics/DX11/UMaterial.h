@@ -122,6 +122,16 @@ public:
 	bool GetFloatProperty(const std::string& name, float& v) const;
 	bool HasProperty(const std::string& name) const;
 	static bool IsBaseColorProperty(const std::string& name);   // _BaseColor · _Color
+	// 이름 → 엔진 값 (Unity URP 이름). 패키지 · Shader Graph 재질에 같은 이름의 속성이 있으면 None (그 속성을 쓴다 — ScriptProp)
+	enum class Prop { None, BaseColor, Emission, Metallic, Smoothness, Cutoff, BumpScale, Occlusion };
+	Prop ScriptProp(const std::string& name) const;
+	// GPU 인스턴싱 속성 (MeshBatcher 의 인스턴스 값 — MaterialBlock::Instanced) 으로 넣을 수 있는 이름
+	enum class InstanceProp { None, BaseColor, Emission, Metallic, Smoothness };
+	static InstanceProp InstancePropOf(const std::string& name);
+	// _EmissionColor (HDR 감마, 1 넘는 성분 = Intensity) → 셰이더가 쓰는 선형 값 (SetColorProperty + Apply 와 같은 계산)
+	static XMFLOAT3 EmissionToLinear(const XMFLOAT4& hdr);
+	// Emission 을 인스턴스 값으로 바꿔도 같은 그림인가 (꺼져 있는데 Emission 맵이 있으면 아니다 — 켜야 맵을 곱한다)
+	bool CanInstanceEmission() const { return m_EmissionEnabled || !EmissionMapSRV; }
 	// 런타임 사본 (Renderer.material · new Material(source)) — 같은 값 · 텍스처, 파일에는 저장하지 않는다
 	std::shared_ptr<UMaterial> CloneInstance() const;
 	bool IsInstance() const { return m_Instance; }

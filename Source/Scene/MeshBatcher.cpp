@@ -38,15 +38,34 @@ namespace
 		}
 	};
 
-	// 인스턴스 하나 (정점 버퍼 슬롯 1 · 오클루전 Compact 출력과 같은 80 바이트): 월드 행렬 + 기본색.
-	//  기본색 w < 0 = MaterialPropertyBlock 의 _BaseColor (알파 = -1 - w), w >= 0 = 재질 값 (32. InstancedBasic.fx 의 VertexIn_Batch)
+	// 인스턴스 값 중 MaterialPropertyBlock 부분 (GPU 인스턴싱 속성 — 뜻 · 부호는 32. InstancedBasic.fx 의 VertexIn_Batch).
+	//  w >= 0 = 재질 값 그대로 (기본 0,0,0,1 — OpenGL 의 꺼진 입력과 같다)
+	struct InstanceProps
+	{
+		XMFLOAT4 BaseColor = XMFLOAT4(0, 0, 0, 1);   // _BaseColor: w = -1 - 알파
+		XMFLOAT4 Surface = XMFLOAT4(0, 0, 0, 1);     // x _Metallic, y _Smoothness, w = -(1 Metallic + 2 Smoothness)
+		XMFLOAT4 Emission = XMFLOAT4(0, 0, 0, 1);    // 선형 _EmissionColor, w = -1
+	};
+	InstanceProps PropsOf(const MaterialBlock::InstanceValues& v)
+	{
+		InstanceProps p;
+		if (v.HasBaseColor)
+			p.BaseColor = XMFLOAT4(v.BaseColor.x, v.BaseColor.y, v.BaseColor.z, -1.0f - (std::max)(0.0f, v.BaseColor.w));
+		const int mask = (v.HasMetallic ? 1 : 0) | (v.HasSmoothness ? 2 : 0);
+		if (mask)
+			p.Surface = XMFLOAT4(v.Metallic, v.Smoothness, 0.0f, -(float)mask);
+		if (v.HasEmission)
+			p.Emission = XMFLOAT4(v.Emission.x, v.Emission.y, v.Emission.z, -1.0f);
+		return p;
+	}
+
+	// 인스턴스 하나 (정점 버퍼 슬롯 1 · 오클루전 Compact 출력과 같은 112 바이트): 월드 행렬 + MaterialPropertyBlock 값
 	struct Instance
 	{
 		XMFLOAT4X4 World;
-		XMFLOAT4 BaseColor;
+		InstanceProps Props;
 	};
 	static_assert(sizeof(Instance) == OcclusionCulling::InstanceBytes, "instance layout");
-	const XMFLOAT4 kMaterialColor(0.0f, 0.0f, 0.0f, 1.0f);   // 재질 값 그대로
 
 	struct Batch
 	{
@@ -62,7 +81,7 @@ namespace
 	{
 		const Component* Renderer;
 		XMFLOAT4X4 World;
-		XMFLOAT4 BaseColor;     // 인스턴스 기본색 (Instance::BaseColor)
+		InstanceProps Props;    // 인스턴스 값의 MaterialPropertyBlock 부분
 		int Cast;               // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
 		uint32 LayerBit;        // 1 << GameObject 레이어 (Culling Mask)
 		uint32_t First, Count;  // s_MainItems / s_DepthItems 범위 (서브셋마다 묶음 번호)
@@ -192,11 +211,12 @@ namespace
 			c.LayerBit = 1u << (go->GetLayerIndex() & 31);
 			c.First = (uint32_t)s_MainItems.size();
 			c.Count = (uint32_t)mesh->Subsets.size();
-			// MaterialPropertyBlock: _BaseColor 뿐이고 엔진 재질이면 원래 재질 + 인스턴스 기본색 (값이 달라도 한 묶음), 아니면 파생 재질
-			XMFLOAT4 blockColor;
-			bool instanceColor = false;
-			const auto& materials = mr->GetBatchMaterials(blockColor, instanceColor);
-			c.BaseColor = instanceColor ? XMFLOAT4(blockColor.x, blockColor.y, blockColor.z, -1.0f - (std::max)(0.0f, blockColor.w)) : kMaterialColor;
+			// MaterialPropertyBlock: 인스턴스 값으로 되는 속성 (_BaseColor · _EmissionColor · _Metallic · _Smoothness) 뿐이고 엔진 재질이면
+			//  원래 재질 + 인스턴스 값 (값이 달라도 한 묶음), 아니면 파생 재질
+			MaterialBlock::InstanceValues blockValues;
+			bool instanced = false;
+			const auto& materials = mr->GetBatchMaterials(blockValues, instanced);
+			c.Props = instanced ? PropsOf(blockValues) : InstanceProps();
 			for (int i = 0; i < (int)mesh->Subsets.size(); ++i)
 			{
 				const UINT matIndex = mesh->Subsets[i].MaterialIndex;
@@ -303,7 +323,7 @@ namespace MeshBatcher
 				const CustomShaders::Shader* cs = CustomOf(t.Material.get());
 				if (!cs || !cs->DrawInstanced)
 					continue;
-				one[0] = { s_Casters[t.Caster].World, s_Casters[t.Caster].BaseColor };
+				one[0] = { s_Casters[t.Caster].World, s_Casters[t.Caster].Props };
 				GfxBuffer* inst = Upload(dc, one);
 				if (!inst)
 					continue;
@@ -392,7 +412,7 @@ namespace MeshBatcher
 					f.Casters.push_back(oc);
 					const size_t w = f.Worlds.size();
 					f.Worlds.resize(w + OcclusionCulling::InstanceFloats);
-					const Instance inst{ c.World, c.BaseColor };
+					const Instance inst{ c.World, c.Props };
 					memcpy(&f.Worlds[w], &inst, sizeof(inst));
 					for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 					{
@@ -460,7 +480,7 @@ namespace MeshBatcher
 				f.Casters.push_back(oc);
 				const size_t w = f.Worlds.size();
 				f.Worlds.resize(w + OcclusionCulling::InstanceFloats);
-				const Instance inst{ c.World, c.BaseColor };
+				const Instance inst{ c.World, c.Props };
 				memcpy(&f.Worlds[w], &inst, sizeof(inst));
 				for (uint32_t k = c.First; k < c.First + c.Count; ++k)
 					if (s_DepthItems[k] >= 0)
@@ -525,7 +545,7 @@ namespace MeshBatcher
 						Batch& b = batches[items[k]];
 						if (b.Instances.empty())
 							s_Order.push_back(items[k]);
-						b.Instances.push_back({ c.World, c.BaseColor });
+						b.Instances.push_back({ c.World, c.Props });
 					}
 					++objects;
 					if (pass == Pass::Shadow)
@@ -724,7 +744,7 @@ namespace MeshBatcher
 						one.Subset = src.Subset;
 						one.Material = src.Material;
 						one.Layer = src.Layer;
-						one.Instances.assign(1, { c->World, c->BaseColor });
+						one.Instances.assign(1, { c->World, c->Props });
 						drawBatch(&one, -1);
 					}
 				}

@@ -168,4 +168,10 @@ namespace ShaderGraph
 	std::string Cast(const std::string& expr, int from, int to);
 	std::string TypeName(int width);
 	std::string Sanitize(const std::string& s);
+
+	// GPU 인스턴싱 속성이 되는 그래프 속성 (Unity URP 이름 — MaterialPropertyBlock 의 값이 인스턴스 값으로 들어간다):
+	//  Color _BaseColor · _Color → 기본색 칸, Color _EmissionColor → Emission 칸, Float _Metallic → Metallic, Float _Smoothness · _Glossiness → Smoothness
+	enum class InstanceSlot { None, BaseColor, Emission, Metallic, Smoothness };
+	InstanceSlot InstanceSlotOf(const Property& p);
+	InstanceSlot InstanceSlotOf(const std::string& ref, const std::string& type);
 }

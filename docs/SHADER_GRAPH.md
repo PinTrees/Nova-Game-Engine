@@ -123,3 +123,11 @@ nova set Sphere --component MeshRenderer --values '{"m_MaterialPaths":["Assets/S
 ## 아직
 
 Keyword (Boolean · Enum 분기), Sampler State 노드, Gradient · Sample Gradient, Triplanar, 노드 그룹 · 메모, Sub Graph 안의 노드 그림 (지금은 Texture2D 속성으로), 스킨 메시의 Transparent (지금은 Mesh Renderer 만 — 스킨은 불투명으로), 투명 물체의 그림자, Render Face (양면), 스킨 메시의 Vertex 단계는 뼈 이전 (바인드 자세) 공간, OpenGL 경로 검사
+
+## GPU 인스턴싱 속성 (MaterialPropertyBlock)
+
+Reference 가 `_BaseColor` · `_Color` (Color), `_EmissionColor` (Color), `_Metallic` · `_Smoothness` · `_Glossiness` (Float) 인 속성은 Mesh Renderer 의
+MaterialPropertyBlock 값을 **인스턴스 값** 으로 받는다 — 값이 렌더러마다 달라도 한 묶음 (Unity 의 Per-instance 속성). 만든 코드에서는 상수 버퍼에 `gSGm_<Reference>`,
+그래프가 읽는 `gSG_<Reference>` 는 `static` 이고 진입점마다 `SG_InstanceProps` 가 인스턴스 값 또는 재질 값으로 채운다 (배치 정점 셰이더는 `VertexIn_Batch`).
+스킨 · 미리보기 · 데칼은 재질 값. 재질의 `SetColor("_BaseColor", …)` 도 이 그래프 속성을 바꾼다 — 자세한 규칙은 [MATERIAL_SCRIPTING.md](MATERIAL_SCRIPTING.md).
+

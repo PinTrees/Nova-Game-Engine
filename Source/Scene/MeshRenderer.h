@@ -54,11 +54,11 @@ public:
 	const MaterialBlock::Values& GetPropertyBlock() const { return m_Block.Get(); }
 	// 그릴 재질: 블록이 없으면 GetMaterials 그대로, 있으면 파생 재질 (재질 값이 바뀌면 다시 만든다)
 	const vector<shared_ptr<UMaterial>>& GetRenderMaterials() { return m_Block.Apply(m_pMaterials); }
-	// MeshBatcher: 블록이 인스턴스 값으로 되면 (MaterialBlock::InstanceColor) 원래 재질 + instanceColor = true, 아니면 GetRenderMaterials
-	const vector<shared_ptr<UMaterial>>& GetBatchMaterials(XMFLOAT4& color, bool& instanceColor)
+	// MeshBatcher: 블록이 인스턴스 값으로 되면 (MaterialBlock::Instanced) 원래 재질 + instanced = true, 아니면 GetRenderMaterials
+	const vector<shared_ptr<UMaterial>>& GetBatchMaterials(MaterialBlock::InstanceValues& values, bool& instanced)
 	{
-		instanceColor = m_Block.InstanceColor(m_pMaterials, color);
-		return instanceColor ? m_pMaterials : GetRenderMaterials();
+		instanced = m_Block.Instanced(m_pMaterials, values);
+		return instanced ? m_pMaterials : GetRenderMaterials();
 	}
 	void SetCastShadows(int mode) { m_CastShadows = mode; }   // 0 On, 1 Off, 2 Two Sided, 3 Shadows Only
 	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }

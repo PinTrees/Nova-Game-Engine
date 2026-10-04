@@ -23,6 +23,9 @@ namespace ShaderGraph
 	// 셰이더 이름 → 그 .shadergraph (프로젝트 상대 경로, 없거나 같은 이름이 둘이면 "" — LastError 에 이유)
 	NOVA_API std::string FindGraphAsset(const std::string& shaderName);
 	NOVA_API bool IsGraphShader(const std::string& shaderName);
+	// 지금 쓰는 그래프 셰이더에서 그 이름 (Reference) 의 속성이 GPU 인스턴싱 속성인가 (InstanceSlotOf). 아니거나 같은 칸의 속성이 둘이면 None.
+	//  isColor = 속성이 Color 인지 (MaterialPropertyBlock 값의 종류와 맞아야 한다) — MaterialBlock::Instanced
+	NOVA_API InstanceSlot InstanceSlotFor(const std::string& shaderName, const std::string& name, bool& isColor);
 	// 프로젝트의 모든 .shadergraph (Assets\...)
 	NOVA_API std::vector<std::string> GraphAssets(bool refresh = false);
 

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "MaterialBlock.h"
+#include "ShaderGraphRuntime.h"
 
 namespace
 {
@@ -51,24 +52,92 @@ void MaterialBlock::Set(Values values)
 	m_Stamp = 0;
 }
 
-bool MaterialBlock::InstanceColor(const std::vector<std::shared_ptr<UMaterial>>& materials, XMFLOAT4& color) const
+namespace
+{
+	// 엔진 Lit · Unlit: 이름 → 칸 (UMaterial 의 Unity URP 이름), 값은 엔진이 쓰는 형태로 (Emission = 선형)
+	bool PutEngine(MaterialBlock::InstanceValues& v, const std::string& name, const MaterialBlock::Value& value)
+	{
+		switch (UMaterial::InstancePropOf(name))
+		{
+		case UMaterial::InstanceProp::BaseColor:
+			if (!value.Color) return false;
+			v.HasBaseColor = true;
+			v.BaseColor = value.V;
+			return true;
+		case UMaterial::InstanceProp::Emission:
+			if (!value.Color) return false;
+			v.HasEmission = true;
+			v.Emission = UMaterial::EmissionToLinear(value.V);
+			return true;
+		case UMaterial::InstanceProp::Metallic:
+			if (value.Color) return false;   // 재질에서도 색으로는 넣을 수 없다 (SetColorProperty 가 무시)
+			v.HasMetallic = true;
+			v.Metallic = value.V.x;
+			return true;
+		case UMaterial::InstanceProp::Smoothness:
+			if (value.Color) return false;
+			v.HasSmoothness = true;
+			v.Smoothness = value.V.x;
+			return true;
+		default:
+			return false;   // 그 밖의 속성은 파생 재질
+		}
+	}
+
+	// Shader Graph: 그래프 속성 (Reference) 이 인스턴스 칸이면 그 값 그대로 (그래프가 쓰는 값 — 변환 없음). 모든 재질의 그래프에서 같은 칸이어야 한다
+	bool PutGraph(MaterialBlock::InstanceValues& v, const std::string& name, const MaterialBlock::Value& value, const std::vector<std::shared_ptr<UMaterial>>& materials)
+	{
+		ShaderGraph::InstanceSlot slot = ShaderGraph::InstanceSlot::None;
+		for (const auto& m : materials)
+		{
+			bool isColor = false;
+			const ShaderGraph::InstanceSlot s = ShaderGraph::InstanceSlotFor(m->CustomShader(), name, isColor);
+			if (s == ShaderGraph::InstanceSlot::None || isColor != value.Color || (slot != ShaderGraph::InstanceSlot::None && s != slot))
+				return false;
+			slot = s;
+		}
+		switch (slot)
+		{
+		case ShaderGraph::InstanceSlot::BaseColor: v.HasBaseColor = true; v.BaseColor = value.V; return true;
+		case ShaderGraph::InstanceSlot::Emission: v.HasEmission = true; v.Emission = XMFLOAT3(value.V.x, value.V.y, value.V.z); return true;
+		case ShaderGraph::InstanceSlot::Metallic: v.HasMetallic = true; v.Metallic = value.V.x; return true;
+		case ShaderGraph::InstanceSlot::Smoothness: v.HasSmoothness = true; v.Smoothness = value.V.x; return true;
+		default: return false;
+		}
+	}
+}
+
+bool MaterialBlock::Instanced(const std::vector<std::shared_ptr<UMaterial>>& materials, InstanceValues& out) const
 {
 	if (m_Values.empty())
 		return false;
-	const Value* found = nullptr;
-	for (const auto& [name, value] : m_Values)   // 이름 순 — 둘 다 있으면 파생 재질과 같이 뒤의 것 (_Color)
-	{
-		if (!value.Color || !UMaterial::IsBaseColorProperty(name))
-			return false;
-		found = &value;
-	}
+	// 재질이 모두 엔진 Lit · Unlit 이거나 모두 Shader Graph 여야 한다 (같은 칸이라도 값의 뜻이 다르다 — 엔진 Emission 은 선형)
+	bool engine = false, graph = false;
 	for (const auto& m : materials)
 	{
 		const UMaterial* u = m ? m.get() : UMaterial::GetDefault().get();
-		if (u->IsCustom() || u->GetPbr().AlphaClip)
-			return false;   // 패키지 · Shader Graph 셰이더는 인스턴스 값을 읽지 않는다, 잘라내기는 깊이 · 그림자 패스가 재질 알파를 쓴다
+		if (!u->IsCustom())
+		{
+			if (u->GetPbr().AlphaClip)
+				return false;   // 잘라내기는 깊이 · 그림자 패스가 재질 알파를 쓴다
+			engine = true;
+		}
+		else if (ShaderGraph::IsGraphShader(u->CustomShader()))
+			graph = true;
+		else
+			return false;   // 패키지 셰이더는 인스턴스 값을 읽지 않는다
 	}
-	color = found->V;
+	if (engine == graph)
+		return false;   // 섞였거나 재질이 없다
+	InstanceValues v;
+	for (const auto& [name, value] : m_Values)   // 이름 순 — 같은 뜻의 이름이 둘이면 파생 재질과 같이 뒤의 것 (_Color · _Glossiness)
+		if (!(engine ? PutEngine(v, name, value) : PutGraph(v, name, value, materials)))
+			return false;
+	if (engine && v.HasEmission)
+		for (const auto& m : materials)
+			if (!(m ? m.get() : UMaterial::GetDefault().get())->CanInstanceEmission())
+				return false;
+	out = v;
 	return true;
 }
 

@@ -87,10 +87,11 @@ std::string UMaterial::ScriptName() const
 	return m_Instance ? name + " (Instance)" : name;
 }
 
+using Prop = UMaterial::Prop;
+
 namespace
 {
 	// Unity URP 속성 이름 → 엔진 값 (색 · 수)
-	enum class Prop { None, BaseColor, Emission, Metallic, Smoothness, Cutoff, BumpScale, Occlusion };
 	Prop PropOf(const std::string& n)
 	{
 		if (n == "_BaseColor" || n == "_Color") return Prop::BaseColor;
@@ -116,9 +117,39 @@ bool UMaterial::IsBaseColorProperty(const std::string& name)
 	return PropOf(name) == Prop::BaseColor;
 }
 
-bool UMaterial::SetColorProperty(const std::string& name, const XMFLOAT4& c)
+UMaterial::InstanceProp UMaterial::InstancePropOf(const std::string& name)
 {
 	switch (PropOf(name))
+	{
+	case Prop::BaseColor: return InstanceProp::BaseColor;
+	case Prop::Emission: return InstanceProp::Emission;
+	case Prop::Metallic: return InstanceProp::Metallic;
+	case Prop::Smoothness: return InstanceProp::Smoothness;
+	default: return InstanceProp::None;
+	}
+}
+
+XMFLOAT3 UMaterial::EmissionToLinear(const XMFLOAT4& c)
+{
+	const float m = (std::max)((std::max)(c.x, c.y), c.z);
+	if (m <= 0.0f)
+		return XMFLOAT3(0, 0, 0);   // 꺼짐
+	const float k = (std::max)(1.0f, m);
+	return XMFLOAT3(ToLinear(c.x / k) * k, ToLinear(c.y / k) * k, ToLinear(c.z / k) * k);
+}
+
+// 패키지 · Shader Graph 셰이더에 같은 이름의 속성이 있으면 엔진 값 대신 그 속성 (Unity 와 같이 셰이더가 가진 속성 —
+//  예전엔 Shader Graph 의 _BaseColor 속성을 SetColor 해도 엔진 BaseColor 가 바뀌어 그래프에 보이지 않았다)
+UMaterial::Prop UMaterial::ScriptProp(const std::string& name) const
+{
+	if (IsCustom() && CustomKey(m_Properties, name))
+		return Prop::None;
+	return PropOf(name);
+}
+
+bool UMaterial::SetColorProperty(const std::string& name, const XMFLOAT4& c)
+{
+	switch (ScriptProp(name))
 	{
 	case Prop::BaseColor:
 		m_Pbr.BaseColor = c;
@@ -151,7 +182,7 @@ bool UMaterial::SetColorProperty(const std::string& name, const XMFLOAT4& c)
 
 bool UMaterial::GetColorProperty(const std::string& name, XMFLOAT4& c) const
 {
-	switch (PropOf(name))
+	switch (ScriptProp(name))
 	{
 	case Prop::BaseColor: c = m_Pbr.BaseColor; return true;
 	case Prop::Emission:
@@ -178,7 +209,7 @@ bool UMaterial::GetColorProperty(const std::string& name, XMFLOAT4& c) const
 
 bool UMaterial::SetFloatProperty(const std::string& name, float v)
 {
-	switch (PropOf(name))
+	switch (ScriptProp(name))
 	{
 	case Prop::Metallic: m_Pbr.Metallic = v; break;
 	case Prop::Smoothness: m_Pbr.Smoothness = v; break;
@@ -202,7 +233,7 @@ bool UMaterial::SetFloatProperty(const std::string& name, float v)
 
 bool UMaterial::GetFloatProperty(const std::string& name, float& v) const
 {
-	switch (PropOf(name))
+	switch (ScriptProp(name))
 	{
 	case Prop::Metallic: v = m_Pbr.Metallic; return true;
 	case Prop::Smoothness: v = m_Pbr.Smoothness; return true;
@@ -217,6 +248,7 @@ bool UMaterial::GetFloatProperty(const std::string& name, float& v) const
 		const json& j = m_Properties[key];
 		if (j.is_number()) { v = j.get<float>(); return true; }
 		if (j.is_boolean()) { v = j.get<bool>() ? 1.0f : 0.0f; return true; }
+		if (j.is_array() && !j.empty() && j[0].is_number()) { v = j[0].get<float>(); return true; }   // Shader Graph Float = [x, 0, 0, 0]
 	}
 	return false;
 }

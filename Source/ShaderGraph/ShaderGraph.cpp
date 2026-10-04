@@ -40,6 +40,16 @@ namespace ShaderGraph
 		return TypeName(to) + "(" + expr + pad + ")";
 	}
 
+	InstanceSlot InstanceSlotOf(const std::string& ref, const std::string& type)
+	{
+		if (type == "Color" && (ref == "_BaseColor" || ref == "_Color")) return InstanceSlot::BaseColor;
+		if (type == "Color" && ref == "_EmissionColor") return InstanceSlot::Emission;
+		if (type == "Float" && ref == "_Metallic") return InstanceSlot::Metallic;
+		if (type == "Float" && (ref == "_Smoothness" || ref == "_Glossiness")) return InstanceSlot::Smoothness;
+		return InstanceSlot::None;
+	}
+	InstanceSlot InstanceSlotOf(const Property& p) { return InstanceSlotOf(p.Ref, p.Type); }
+
 	std::string Sanitize(const std::string& s)
 	{
 		std::string out;
@@ -1111,6 +1121,36 @@ float SG_Rectangle(float2 uv, float w, float h)
 			return false;
 		}
 
+		// GPU 인스턴싱 속성 (MaterialPropertyBlock 을 인스턴스 값으로 — 32. InstancedBasic.fx 의 VertexIn_Batch 와 같은 칸 · 부호)
+		std::string InstancePropsFunction(const Graph& g)
+		{
+			std::string f = "// GPU 인스턴싱 속성: 인스턴스 값이 있으면 그 값, 없으면 재질 값 (w >= 0 = 재질 값 — 배치가 아닌 그리기도)\n"
+				"void SG_InstanceProps(float4 ib, float4 is, float4 ie)\n{\n"
+				"    const int sg_mask = is.w < -0.5 ? (int)(-is.w + 0.5) : 0;\n";
+			for (const Property& p : g.Properties)
+			{
+				const std::string n = Sanitize(p.Ref);
+				switch (InstanceSlotOf(p))
+				{
+				case InstanceSlot::BaseColor:
+					f += "    gSG_" + n + " = ib.w < 0.0 ? float4(ib.rgb, -1.0 - ib.w) : gSGm_" + n + ";\n";
+					break;
+				case InstanceSlot::Emission:
+					f += "    gSG_" + n + " = ie.w < 0.0 ? float4(ie.rgb, gSGm_" + n + ".w) : gSGm_" + n + ";\n";
+					break;
+				case InstanceSlot::Metallic:
+					f += "    gSG_" + n + " = (sg_mask & 1) ? float4(is.x, gSGm_" + n + ".yzw) : gSGm_" + n + ";\n";
+					break;
+				case InstanceSlot::Smoothness:
+					f += "    gSG_" + n + " = (sg_mask & 2) ? float4(is.y, gSGm_" + n + ".yzw) : gSGm_" + n + ";\n";
+					break;
+				default:
+					break;
+				}
+			}
+			return f + "}\n\n";
+		}
+
 		const char* kSurfaceStruct =
 			"// Master 입력 값\n"
 			"struct SGSurface\n{\n    float3 BaseColor;\n    float3 NormalTS;\n    float Metallic;\n    float Smoothness;\n    float3 Emission;\n"
@@ -1159,14 +1199,21 @@ float SG_Rectangle(float2 uv, float w, float h)
 			return f;
 		}
 
-		// 상수 버퍼 (속성) · 그림 선언
-		std::string Declarations(const Graph& g, const std::vector<int>& order, const char* cbuffer, const char* extra)
+		// 상수 버퍼 (속성) · 그림 선언. instanced = 본 셰이더 (GPU 인스턴싱 속성: InstanceSlotOf 인 속성은 상수 버퍼에 gSGm_,
+		//  그래프 코드가 읽는 gSG_ 는 static — 진입점마다 SG_InstanceProps 가 인스턴스 값 또는 재질 값으로 채운다)
+		std::string Declarations(const Graph& g, const std::vector<int>& order, const char* cbuffer, const char* extra, bool instanced = false)
 		{
 			std::string s = std::string("cbuffer ") + cbuffer + "\n{\n    float4 gSGTime;   // x 시간, y sin, z cos, w 프레임 간격\n" + extra;
+			std::string statics;
 			for (const Property& p : g.Properties)
 				if (p.Type != "Texture2D")
-					s += "    float4 gSG_" + Sanitize(p.Ref) + ";   // " + p.Name + " (" + p.Type + ")\n";
-			s += "};\n";
+				{
+					const bool inst = instanced && InstanceSlotOf(p) != InstanceSlot::None;
+					s += std::string("    float4 ") + (inst ? "gSGm_" : "gSG_") + Sanitize(p.Ref) + ";   // " + p.Name + " (" + p.Type + ")\n";
+					if (inst)
+						statics += "static float4 gSG_" + Sanitize(p.Ref) + ";   // 인스턴스 값 또는 재질 값 (SG_InstanceProps)\n";
+				}
+			s += "};\n" + statics;
 			s += "Texture2D gSG_White;   // 비어 있는 Texture2D 입력 (흰색)\n";
 			for (const Property& p : g.Properties)
 				if (p.Type == "Texture2D")
@@ -1181,9 +1228,12 @@ float SG_Rectangle(float2 uv, float w, float h)
 		// 셰이더 단계 사이의 값 (엔진 VertexOut + 오브젝트 공간 위치 · 노멀 — Position / Normal 노드의 Object)
 		const char* kVertexOut =
 			"struct SGVOut\n{\n    float4 PosH : SV_POSITION;\n    float4 PosW : POSITION;\n    float3 NormalW : NORMAL;\n    float4 TangentW : TANGENT;\n"
-			"    float2 Tex : TEXCOORD0;\n    float4 SsaoPosH : TEXCOORD1;\n    float3 PosO : TEXCOORD2;\n    float3 NormalO : TEXCOORD3;\n};\n\n"
+			"    float2 Tex : TEXCOORD0;\n    float4 SsaoPosH : TEXCOORD1;\n    float3 PosO : TEXCOORD2;\n    float3 NormalO : TEXCOORD3;\n"
+			"    nointerpolation float4 InstBase : TEXCOORD4;       // GPU 인스턴싱 속성 (VertexIn_Batch 의 BaseColor · Surface · Emission)\n"
+			"    nointerpolation float4 InstSurface : TEXCOORD5;\n    nointerpolation float4 InstEmission : TEXCOORD6;\n};\n\n"
 			"SGVOut SG_ToOut(VertexOut v, float3 posO, float3 normalO)\n{\n    SGVOut o;\n    o.PosH = v.PosH;\n    o.PosW = v.PosW;\n    o.NormalW = v.NormalW;\n"
-			"    o.TangentW = v.TangentW;\n    o.Tex = v.Tex;\n    o.SsaoPosH = v.SsaoPosH;\n    o.PosO = posO;\n    o.NormalO = normalO;\n    return o;\n}\n\n";
+			"    o.TangentW = v.TangentW;\n    o.Tex = v.Tex;\n    o.SsaoPosH = v.SsaoPosH;\n    o.PosO = posO;\n    o.NormalO = normalO;\n"
+			"    o.InstBase = float4(0, 0, 0, 1);\n    o.InstSurface = float4(0, 0, 0, 1);\n    o.InstEmission = float4(0, 0, 0, 1);\n    return o;\n}\n\n";
 
 		const char* kPinInputs =
 			"    float3 sg_normalW = normalize(pin.NormalW);\n"
@@ -1195,6 +1245,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 			"    float4 sg_screen = float4(pin.SsaoPosH.xy / max(pin.SsaoPosH.w, 1e-5), 0, 1);\n"
 			"    float3 sg_posO = pin.PosO;\n"
 			"    float3 sg_normalO = normalize(pin.NormalO);\n"
+			"    SG_InstanceProps(pin.InstBase, pin.InstSurface, pin.InstEmission);\n"
 			"    SGSurface s = SG_Evaluate(sg_uv, sg_posW, sg_normalW, sg_viewW, sg_screen, sg_posO, sg_normalO);\n";
 
 		std::string Technique(const char* name, const char* vs, const char* ps)
@@ -1204,10 +1255,15 @@ float SG_Rectangle(float2 uv, float w, float h)
 				"        SetGeometryShader(NULL);\n        " + psLine + "\n    }\n}\n\n";
 		}
 
-		// 정점 이동: VS 입력을 바꾼 뒤 엔진 VS (VS_Batch / VS_Skinned) 에 넘긴다
-		std::string VertexWrapper(const char* name, const char* input, const char* engineVS, const char* worldPos, const char* worldNormal, bool vertex)
+		// 정점 이동: VS 입력을 바꾼 뒤 엔진 VS (VS_Batch / VS_Skinned) 에 넘긴다.
+		//  batch = MeshBatcher 의 인스턴스 (VertexIn_Batch — GPU 인스턴싱 속성을 채우고 PS 로 넘긴다), 아니면 재질 값
+		std::string VertexWrapper(const char* name, const char* input, const char* engineVS, const char* worldPos, const char* worldNormal, bool vertex, bool batch = false)
 		{
-			std::string f = std::string("SGVOut ") + name + "(" + input + " vin)\n{\n";
+			std::string f = std::string("SGVOut ") + name + "(" + (batch ? "VertexIn_Batch vb" : std::string(input) + " vin") + ")\n{\n";
+			if (batch)
+				f += "    SG_InstanceProps(vb.BaseColor, vb.Surface, vb.Emission);\n    VertexIn_Instancing vin = BatchToInstancing(vb);\n";
+			else
+				f += "    SG_InstanceProps(float4(0, 0, 0, 1), float4(0, 0, 0, 1), float4(0, 0, 0, 1));\n";
 			if (vertex)
 			{
 				f += std::string("    float3 sgw = ") + worldPos + ";\n";
@@ -1216,7 +1272,10 @@ float SG_Rectangle(float2 uv, float w, float h)
 				f += "    SGVertex v = SG_EvaluateVertex(vin.PosL, vin.NormalL, vin.TangentL.xyz, vin.Tex, sgw, sgn, normalize(gEyePosW - sgw), float4(sgs.xy / max(sgs.w, 1e-5), 0, 1));\n";
 				f += "    vin.PosL = v.Position;\n    vin.NormalL = v.Normal;\n    vin.TangentL.xyz = v.Tangent;\n";
 			}
-			f += std::string("    return SG_ToOut(") + engineVS + "(vin), vin.PosL, vin.NormalL);\n}\n\n";
+			f += std::string("    SGVOut o = SG_ToOut(") + engineVS + "(vin), vin.PosL, vin.NormalL);\n";
+			if (batch)
+				f += "    o.InstBase = vb.BaseColor;\n    o.InstSurface = vb.Surface;\n    o.InstEmission = vb.Emission;\n";
+			f += "    return o;\n}\n\n";
 			return f;
 		}
 	}
@@ -1307,12 +1366,13 @@ float SG_Rectangle(float2 uv, float w, float h)
 		fx << Declarations(g, allOrder, "cbShaderGraph",
 			"    float4 gSGShadowLight;   // 그림자 패스: 빛 (w 0 = 방향광 xyz = 빛 쪽, 1 = 위치)\n"
 			"    float4 gSGShadowBias;    // x 깊이, y 노멀 바이어스\n"
-			"    float4x4 gSGView;        // 깊이 프리패스: 카메라 View\n");
+			"    float4x4 gSGView;        // 깊이 프리패스: 카메라 View\n", true);
+		fx << InstancePropsFunction(g);
 		fx << kHelpers << "\n" << S.Functions << kSurfaceStruct << EvalFunction(g, fragBody, false);
 		if (vertex)
 			fx << VertexFunction(g, vertBody);
 		fx << kVertexOut;
-		fx << VertexWrapper("VS_GraphBatch", "VertexIn_Instancing", "VS_Batch", "mul(float4(vin.PosL, 1.0), vin.World).xyz", "normalize(BatchNormal(vin.NormalL, vin.World))", vertex);
+		fx << VertexWrapper("VS_GraphBatch", "VertexIn_Instancing", "VS_Batch", "mul(float4(vin.PosL, 1.0), vin.World).xyz", "normalize(BatchNormal(vin.NormalL, vin.World))", vertex, true);
 		fx << VertexWrapper("VS_GraphSkinned", "SkinnedVertexIn", "VS_Skinned", "mul(float4(vin.PosL, 1.0), gWorld).xyz", "normalize(mul(vin.NormalL, (float3x3) gWorldInvTranspose))", vertex);
 
 		// ---- 본 패스 (투명이면 투명 패스: 알파 섞기)
@@ -1356,7 +1416,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 			fx << "    if (gSGShadowLight.w > 0.5)\n    {\n        float3 v = gSGShadowLight.xyz - posW;\n        scale = length(v);\n        L = v / max(scale, 0.0001);\n    }\n";
 			fx << "    float invNdotL = 1.0 - saturate(dot(L, normalW));\n";
 			fx << "    posW -= L * (gSGShadowBias.x * scale);\n    posW -= normalW * (invNdotL * gSGShadowBias.y * scale);\n    return posW;\n}\n\n";
-			fx << "SGVOut VS_GraphShadowBatch(VertexIn_Instancing vin)\n{\n    SGVOut o = VS_GraphBatch(vin);\n"
+			fx << "SGVOut VS_GraphShadowBatch(VertexIn_Batch vin)\n{\n    SGVOut o = VS_GraphBatch(vin);\n"
 				"    o.PosH = mul(float4(SG_ShadowBias(o.PosW.xyz, normalize(o.NormalW)), 1.0), gViewProj);\n    return o;\n}\n\n";
 			fx << "SGVOut VS_GraphShadowSkinned(SkinnedVertexIn vin)\n{\n    SGVOut o = VS_GraphSkinned(vin);\n"
 				"    o.PosH = mul(float4(SG_ShadowBias(o.PosW.xyz, normalize(o.NormalW)), 1.0), gViewProj);\n    return o;\n}\n\n";

@@ -403,7 +403,7 @@ namespace ShaderGraph
 			c->ShadowBias = var("gSGShadowBias");
 			c->White = var("gSG_White");
 			for (const Property& p : c->G.Properties)
-				c->PropVars.push_back(var("gSG_" + Sanitize(p.Ref)));
+				c->PropVars.push_back(var((InstanceSlotOf(p) != InstanceSlot::None && p.Type != "Texture2D" ? "gSGm_" : "gSG_") + Sanitize(p.Ref)));   // 인스턴스 속성은 gSGm_ (재질 값)
 			for (const Node& n : c->G.Nodes)
 			{
 				const std::string tex = n.Options.value("texture", std::string());
@@ -689,6 +689,27 @@ namespace ShaderGraph
 			if (e.Name == shaderName)
 				return true;
 		return false;
+	}
+
+	InstanceSlot InstanceSlotFor(const std::string& shaderName, const std::string& name, bool& isColor)
+	{
+		const Compiled* c = Current(shaderName);   // 아직 만드는 중이면 None (그동안은 파생 재질)
+		if (c == nullptr)
+			return InstanceSlot::None;
+		const Property* found = nullptr;
+		for (const Property& p : c->G.Properties)
+			if (p.Ref == name)
+				found = &p;
+		if (found == nullptr)
+			return InstanceSlot::None;
+		const InstanceSlot slot = InstanceSlotOf(*found);
+		if (slot == InstanceSlot::None)
+			return slot;
+		for (const Property& p : c->G.Properties)
+			if (&p != found && InstanceSlotOf(p) == slot)
+				return InstanceSlot::None;   // _BaseColor 와 _Color 가 함께 있으면 어느 쪽 값인지 셰이더가 모른다
+		isColor = found->Type == "Color";
+		return slot;
 	}
 
 	std::wstring GeneratedPath(const std::string& shaderName, const std::string& assetPath)

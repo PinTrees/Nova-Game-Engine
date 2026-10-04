@@ -2795,11 +2795,33 @@ function Suite-Material([string]$Api = 'dx')
         $c3 = Colors 'block_colors.png'
         Add-Result $sn 'MaterialPropertyBlock: per-renderer colors on a shared material (yellow · cyan) — GPU instancing property, no extra batch' ($c3.Yellow -gt 30 -and $c3.Cyan -gt 30 -and $b1 -eq $b0 -and "$r3" -eq 'Shared' -and "$r4" -eq '0.85|True|Shared') ("yellow {0}, cyan {1}; mesh batches {2} -> {3}; {4}; {5}" -f $c3.Yellow, $c3.Cyan, $b0, $b1, $r3, $r4)
 
-        # 3b. 다른 속성 (_Smoothness) 이 든 블록은 인스턴스 값이 아니라 파생 재질 → 묶음이 나뉜다 (같은 값끼리는 하나)
-        Exec 'var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); y.SetFloat("_Smoothness", 0.1f); for (int i = 0; i < 24; i += 2) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(y); return 0;' | Out-Null
+        # 3b. 인스턴스 값이 아닌 속성 (_BumpScale) 이 든 블록은 파생 재질 → 묶음이 나뉜다 (같은 값끼리는 하나)
+        Exec 'var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); y.SetFloat("_BumpScale", 0.5f); for (int i = 0; i < 24; i += 2) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(y); return 0;' | Out-Null
         $b2 = Batches
         $c3b = Colors 'block_derived.png'
-        Add-Result $sn 'A block with other properties (_Smoothness) uses a derived material: one more batch, same colors' (($b2 - $b0) -eq 1 -and $c3b.Yellow -gt $c3.Yellow * 0.7 -and $c3b.Cyan -gt 30) ("mesh batches {0} -> {1}; yellow {2}, cyan {3}" -f $b0, $b2, $c3b.Yellow, $c3b.Cyan)
+        Add-Result $sn 'A block with a non-instanced property (_BumpScale) uses a derived material: one more batch, same colors' (($b2 - $b0) -eq 1 -and $c3b.Yellow -gt $c3.Yellow * 0.7 -and $c3b.Cyan -gt 30) ("mesh batches {0} -> {1}; yellow {2}, cyan {3}" -f $b0, $b2, $c3b.Yellow, $c3b.Cyan)
+
+        # 3d. _EmissionColor · _Metallic · _Smoothness 도 인스턴스 값: 묶음 그대로, 같은 블록 + 인스턴스가 안 되는 속성 (_Cutoff — 잘라내기 없는 재질이라 그림에 영향 없음)
+        #     을 넣어 파생 재질로 그린 그림과 같아야 한다 (셰이더의 인스턴스 값 읽기 = 재질 값과 같은 결과)
+        function Blocks([string]$extra) { Exec ('for (int i = 0; i < 24; i++) { var b = new MaterialPropertyBlock(); b.SetColor("_BaseColor", i % 3 == 0 ? new Color(0.9f, 0.85f, 0.1f, 1f) : new Color(0.2f, 0.3f, 0.9f, 1f)); b.SetColor("_EmissionColor", i % 2 == 0 ? new Color(0f, 0f, 0f, 1f) : new Color(0.8f, 0.1f, 0.6f, 1f) * 1.5f); b.SetFloat("_Metallic", (i % 4) / 3f); b.SetFloat("_Smoothness", i % 5 == 0 ? 0.95f : 0.2f); ' + $extra + ' GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(b); } return 0;') | Out-Null }
+        function ShotDiff([string]$a, [string]$b)
+        {
+            $ba = [System.Drawing.Bitmap]::FromFile($a); $bb = [System.Drawing.Bitmap]::FromFile($b); $sum = 0.0; $n = 0; $big = 0
+            for ($y = 0; $y -lt $ba.Height; $y += 2) { for ($x = 0; $x -lt $ba.Width; $x += 2) {
+                $p = $ba.GetPixel($x, $y); $q = $bb.GetPixel($x, $y); $d = [math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B)
+                $sum += $d; $n++; if ($d -gt 24) { $big++ } } }
+            $ba.Dispose(); $bb.Dispose()
+            [pscustomobject]@{ Mean = $sum / [math]::Max(1, $n); Big = $big / [math]::Max(1, $n) }
+        }
+        Blocks ''
+        $b5 = Batches
+        $c5i = Colors 'props_instanced.png'
+        Blocks 'b.SetFloat("_Cutoff", 0.5f);'
+        $b6 = Batches
+        $c5d = Colors 'props_derived.png'
+        $dd = ShotDiff (Join-Path $dir 'props_instanced.png') (Join-Path $dir 'props_derived.png')
+        Add-Result $sn '_EmissionColor · _Metallic · _Smoothness are instance values too: no extra batch, same picture as derived materials' ($b5 -eq $b0 -and $b6 -gt $b0 + 4 -and $dd.Mean -lt 0.6 -and $dd.Big -lt 0.002 -and $c5i.Yellow -gt 20) ("mesh batches {0} (instanced) · {1} (derived) · base {2}; picture diff mean {3:N3}, >24: {4:P3}; yellow {5}" -f $b5, $b6, $b0, $dd.Mean, $dd.Big, $c5i.Yellow)
+        Exec 'for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(null); return 0;' | Out-Null
 
         # 3c. 렌더러마다 다른 색 100 개: 묶음 하나 그대로, 렌더러가 64 개를 넘어 GPU 오클루전 경로 (Compact 가 기본색도 옮긴다) — 끈 화면과 같은 그림
         #  (A 뒤에 숨은 작은 상자 8 개: 가린 것이 있어야 오클루전이 쉬지 않는다)
@@ -2819,6 +2841,21 @@ function Suite-Material([string]$Api = 'dx')
         $sameRain = [math]::Abs($cR.Red - $cRoff.Red) + [math]::Abs($cR.Yellow - $cRoff.Yellow) + [math]::Abs($cR.Green - $cRoff.Green) + [math]::Abs($cR.Cyan - $cRoff.Cyan) + [math]::Abs($cR.Blue - $cRoff.Blue)
         Add-Result $sn '100 renderers, 100 different colors: still one batch, GPU occlusion path keeps the colors (same as CPU path)' ($b4 -eq $b3 -and $hues.Count -ge 5 -and $occ.game.active -and $sameRain -le 20) ("mesh batches {0} -> {1}; hues R {2} Y {3} G {4} C {5} B {6}; GPU path {7} (tested {8}, culled {10}); diff vs CPU {9}" -f $b3, $b4, $cR.Red, $cR.Yellow, $cR.Green, $cR.Cyan, $cR.Blue, $occ.game.active, $occ.game.tested, $sameRain, $occ.game.culled)
         Exec 'for (int i = 0; i < 100; i++) GameObject.Destroy(GameObject.Find("R" + i)); for (int i = 0; i < 8; i++) GameObject.Destroy(GameObject.Find("Hid" + i)); return 0;' | Out-Null
+
+        # 3e. Shader Graph 도: 그래프 속성 _BaseColor 는 GPU 인스턴싱 속성 (묶음 그대로), material.SetColor · GetColor 는 그래프 속성 (엔진 값이 아니라)
+        Invoke-NovaJson 'shadergraph new Assets/MatTest/SGTint.shadergraph --timeout 240' | Out-Null
+        Invoke-NovaJson 'shadergraph property.add --name BaseColor --type Color --value 0.2,0.8,0.2,1 --node --x -300 --y 0' | Out-Null
+        Invoke-NovaJson 'shadergraph connect --from 1 --to Master --in "Base Color"' | Out-Null
+        $sgSave = Invoke-NovaJson 'shadergraph save --timeout 240'
+        Invoke-NovaJson 'shadergraph material' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        $r9 = Exec 'var mat = Material.Load("Assets/MatTest/SGTint.mat"); for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().sharedMaterial = mat; var copy = new Material(mat); copy.SetColor("_BaseColor", new Color(0.1f, 0.2f, 0.9f, 1f)); return mat.shaderName + "|" + mat.GetColor("_BaseColor").g.ToString("0.0") + "|" + copy.GetColor("_BaseColor").b.ToString("0.0") + "|" + mat.HasProperty("_BaseColor");'
+        $b9 = Batches
+        Exec 'var y = new MaterialPropertyBlock(); y.SetColor("_BaseColor", new Color(0.9f, 0.85f, 0.1f, 1f)); var c = new MaterialPropertyBlock(); c.SetColor("_BaseColor", new Color(0.1f, 0.8f, 0.85f, 1f)); for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(i % 2 == 0 ? y : c); return 0;' | Out-Null
+        $b10 = Batches
+        $c9 = Colors 'sg_block.png'
+        Add-Result $sn 'Shader Graph: _BaseColor block is a GPU instancing property (no extra batch), SetColor / GetColor use the graph property' ($sgSave.built -and "$r9" -eq 'Shader Graphs/SGTint|0.8|0.9|True' -and $b10 -eq $b9 -and $c9.Yellow -gt 30 -and $c9.Cyan -gt 30) ("built {0}; {1}; mesh batches {2} -> {3}; yellow {4}, cyan {5}" -f $sgSave.built, $r9, $b9, $b10, $c9.Yellow, $c9.Cyan)
+        Exec 'var mat = Material.Load("Assets/MatTest/Shared.mat"); for (int i = 0; i < 24; i++) { var r = GameObject.Find("P" + i).GetComponent<MeshRenderer>(); r.SetPropertyBlock(null); r.sharedMaterial = mat; } return 0;' | Out-Null
 
         # 4. SetPropertyBlock(null) → 공유 재질 색 (초록) 으로
         Exec 'for (int i = 0; i < 24; i++) GameObject.Find("P" + i).GetComponent<MeshRenderer>().SetPropertyBlock(null); return 0;' | Out-Null

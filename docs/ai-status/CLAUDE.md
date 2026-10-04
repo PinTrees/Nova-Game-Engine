@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **물리 동기화 CPU** (사용자 지시 "푸시하고. 다음 작업 진행" — GLES 측정에서 찾은 물리 갱신 3.3 ms). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **인스턴스 속성 넓히기** (사용자 지시 "원래 순서로 진행해줘" — 추천 2). **완료 (커밋, 푸시 전)**
+  - 인스턴스 값 80 → 112 바이트 (+ Surface: _Metallic · _Smoothness, + Emission: 선형 _EmissionColor): `Shaders/32. InstancedBasic.fx` (VertexIn_Batch · LitPS 인자 · PS_Batch · BatchToInstancing),
+    `57. OcclusionCulling.fx`, `DX11/Vertex.*` (INSTSURFACE · INSTEMISSION), `DX11/OcclusionCulling.h`, `Scene/MeshBatcher.cpp` (InstanceProps · PropsOf), `Scene/MaterialBlock.*` (Instanced · InstanceValues),
+    `Scene/MeshRenderer.h`, `DX11/UMaterial.*` (InstancePropOf · EmissionToLinear · CanInstanceEmission · ScriptProp — 패키지 · 그래프 재질은 같은 이름의 속성을 SetColor/GetColor)
+  - Shader Graph: `ShaderGraph.*` (InstanceSlotOf, 인스턴스 속성은 상수 버퍼 gSGm_ + static gSG_, SG_InstanceProps, 배치 VS 가 VertexIn_Batch), `ShaderGraphRuntime.*` (InstanceSlotFor, gSGm_ 바인딩)
+  - 검사: material · materialgl · materialvk **12/12** (파생 재질과 픽셀 같음, Shader Graph 묶음 그대로), shadergraph **24/24**, packages · animation **21/21**, 렌더링 회귀 12 스위트 **99/99** (112 바이트), 안드로이드 빌드. Showcase 210
+- 이전: 2026년 10월 5일 — **물리 동기화 CPU** (사용자 지시 "푸시하고. 다음 작업 진행" — GLES 측정에서 찾은 물리 갱신 3.3 ms). **완료 (커밋, 푸시 전)**
   - `Source/Physics/PhysicsManager.cpp`: StepSimulation 의 동기화를 한 번 훑기 (콜라이더 · Rigidbody · Character Controller · Joint), 버퍼 재사용, 콜라이더 표 제자리 갱신 (seen 번호),
     종류 기억 (KindOf · ComputeSignature 의 kinds), SyncJoints 가 모은 목록으로, 단계마다 Profiler 구간 (Physics.FixedUpdate · Sync · Characters · Joints · TransformToBody · Simulate · Events)
   - PC Release 도시 Play: 동기화/2D 물리 비율 3.7 → 1.7 (약 2 배), 캐릭터 · Joint 0.29 ms → 0. 회귀 physics · physics2d · animation · packages · cli **51/51**

@@ -81,8 +81,9 @@ const D3D11_INPUT_ELEMENT_DESC InputLayoutDesc::PosNormalTexTanSkinned[6] =
 	{"BONEINDICES",  0, DXGI_FORMAT_R8G8B8A8_UINT,   0, 60, D3D11_INPUT_PER_VERTEX_DATA, 0}
 };
 
-// 인스턴스 (슬롯 1) = 월드 행렬 + 기본색 80 바이트 (MeshBatcher · OcclusionCulling::InstanceBytes). INSTCOLOR 는 BatchTech 만 읽는다
-const D3D11_INPUT_ELEMENT_DESC InputLayoutDesc::InstancedBasic[9] =
+// 인스턴스 (슬롯 1) = 월드 행렬 + MaterialPropertyBlock 값 3 칸 112 바이트 (MeshBatcher · OcclusionCulling::InstanceBytes).
+//  INSTCOLOR · INSTSURFACE · INSTEMISSION 은 BatchTech 만 읽는다 (뜻은 32. InstancedBasic.fx 의 VertexIn_Batch)
+const D3D11_INPUT_ELEMENT_DESC InputLayoutDesc::InstancedBasic[11] =
 {
 	{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0,  D3D11_INPUT_PER_VERTEX_DATA, 0},
 	{"NORMAL",   0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
@@ -92,7 +93,9 @@ const D3D11_INPUT_ELEMENT_DESC InputLayoutDesc::InstancedBasic[9] =
 	{ "WORLD", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 	{ "WORLD", 2, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
 	{ "WORLD", 3, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
-	{ "INSTCOLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 64, D3D11_INPUT_PER_INSTANCE_DATA, 1 }
+	{ "INSTCOLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 64, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+	{ "INSTSURFACE", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 80, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+	{ "INSTEMISSION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 96, D3D11_INPUT_PER_INSTANCE_DATA, 1 }
 };
 
 const D3D11_INPUT_ELEMENT_DESC InputLayoutDesc::TerrainVertex[7] =
@@ -202,7 +205,7 @@ void InputLayouts::InitAll(ComPtr<GfxDevice> device)
 
 	// Basic: 입력이 가장 많은 BatchTech 로 (OpenGL 은 이 서명의 location 으로 정점 배열을 만든다 — 다른 기법은 앞 8 칸이 같다)
 	Effects::InstancedBasicFX->GetFX()->GetTechniqueByName("BatchTech")->GetPassByIndex(0)->GetDesc(&passDesc);
-	HR(device->CreateInputLayout(InputLayoutDesc::InstancedBasic, 9, passDesc.pIAInputSignature,
+	HR(device->CreateInputLayout(InputLayoutDesc::InstancedBasic, 11, passDesc.pIAInputSignature,
 		passDesc.IAInputSignatureSize, &InstancedBasic));
 
 	//

@@ -347,9 +347,12 @@ struct VertexIn_Instancing
     uint InstanceId : SV_InstanceID;
 };
 
-// MeshBatcher 의 본 패스 (BatchTech): 인스턴스 = 월드 행렬 + 기본색 (MaterialPropertyBlock 의 _BaseColor).
-//  w < 0 = 그 색 (알파 = -1 - w), w >= 0 = 재질 값 — 입력이 꺼진 배치 (OpenGL 의 기본 0,0,0,1) 도 재질 값이 되게
-//  인스턴스 하나 80 바이트. INSTCOLOR 는 WORLD 뒤 (location 8 — 같은 입력 배치를 쓰는 다른 셰이더와 location 이 같게 끝에 붙인다)
+// MeshBatcher 의 본 패스 (BatchTech): 인스턴스 = 월드 행렬 + MaterialPropertyBlock 의 값 (GPU 인스턴싱 속성 — MaterialBlock::Instanced).
+//  BaseColor (_BaseColor): w < 0 = 그 색 (알파 = -1 - w), w >= 0 = 재질 값
+//  Surface: x = _Metallic, y = _Smoothness, w = -(덮어쓸 것: 1 Metallic + 2 Smoothness) — w >= 0 = 재질 값
+//  Emission (_EmissionColor, 선형 HDR): w < 0 = 그 값, w >= 0 = 재질 값
+//  모두 입력이 꺼진 배치 (OpenGL 의 기본 0,0,0,1) 면 재질 값이 되게. 인스턴스 하나 112 바이트, WORLD 뒤에 붙인다
+//  (location 8 · 9 · 10 — 같은 입력 배치를 쓰는 다른 셰이더와 앞 location 이 같게)
 struct VertexIn_Batch
 {
     float3 PosL : POSITION;
@@ -358,6 +361,8 @@ struct VertexIn_Batch
     float4 TangentL : TANGENT;
     row_major float4x4 World : WORLD;
     float4 BaseColor : INSTCOLOR;
+    float4 Surface : INSTSURFACE;
+    float4 Emission : INSTEMISSION;
     uint InstanceId : SV_InstanceID;
 };
 
@@ -1030,8 +1035,8 @@ float4 FinishLit(float3 color, float alpha, float distToEye)
     return litColor;
 }
 
-// baseColorFactor = 기본색 (재질 _BaseColor, 인스턴스 값이 있으면 그 값)
-float4 LitPS(VertexOut pin, float4 baseColorFactor)
+// 재질 값 또는 인스턴스 값 (PS_Batch): baseColorFactor = _BaseColor, metallicValue · smoothnessValue = _Metallic · _Smoothness, emissionColor = 선형 _EmissionColor
+float4 LitPS(VertexOut pin, float4 baseColorFactor, float metallicValue, float smoothnessValue, float3 emissionColor)
 {
     LodFadeClip(pin.PosH.xy);
     float3 N = normalize(pin.NormalW);
@@ -1046,7 +1051,7 @@ float4 LitPS(VertexOut pin, float4 baseColorFactor)
     if (gPbr.AlphaClip)
         clip(baseColor.a - gPbr.Cutoff);
 
-    float3 emission = gPbr.EmissionColor.rgb;
+    float3 emission = emissionColor;
     if (gPbr.UseEmissionMap)
         emission *= ToLinear(gEmissionMap.Sample(samLinear, uv).rgb);
 
@@ -1054,16 +1059,16 @@ float4 LitPS(VertexOut pin, float4 baseColorFactor)
         return float4(ToGamma(ToLinear(baseColor.rgb) + emission), baseColor.a);
 
     float3 albedo = ToLinear(baseColor.rgb);
-    float metallic = gPbr.Metallic;
-    float smoothness = gPbr.Smoothness;
+    float metallic = metallicValue;
+    float smoothness = smoothnessValue;
     if (gPbr.UseMetallicMap)
     {
         float4 m = gMetallicMap.Sample(samLinear, uv);
         metallic = m.r;
-        smoothness = m.a * gPbr.Smoothness;
+        smoothness = m.a * smoothnessValue;
     }
     if (gPbr.SmoothnessFromAlbedo)
-        smoothness = baseSample.a * gPbr.Smoothness;
+        smoothness = baseSample.a * smoothnessValue;
 
     if (gPbr.UseNormalMap)
     {
@@ -1088,7 +1093,7 @@ float4 LitPS(VertexOut pin, float4 baseColorFactor)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    return LitPS(pin, gPbr.BaseColor);
+    return LitPS(pin, gPbr.BaseColor, gPbr.Metallic, gPbr.Smoothness, gPbr.EmissionColor.rgb);
 }
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 Tech
@@ -1137,9 +1142,12 @@ struct BatchVertexOut
     float2 Tex : TEXCOORD0;
     float4 SsaoPosH : TEXCOORD1;
     nointerpolation float4 BaseColor : TEXCOORD2;
+    nointerpolation float4 Surface : TEXCOORD3;
+    nointerpolation float4 Emission : TEXCOORD4;
 };
 
-BatchVertexOut VS_BatchColor(VertexIn_Batch vin)
+// 인스턴스 값을 뺀 정점 입력 (VS_Batch 에 넘긴다 — Shader Graph 의 VS_GraphBatch 도)
+VertexIn_Instancing BatchToInstancing(VertexIn_Batch vin)
 {
     VertexIn_Instancing v;
     v.PosL = vin.PosL;
@@ -1148,7 +1156,12 @@ BatchVertexOut VS_BatchColor(VertexIn_Batch vin)
     v.TangentL = vin.TangentL;
     v.World = vin.World;
     v.InstanceId = vin.InstanceId;
-    const VertexOut o = VS_Batch(v);
+    return v;
+}
+
+BatchVertexOut VS_BatchColor(VertexIn_Batch vin)
+{
+    const VertexOut o = VS_Batch(BatchToInstancing(vin));
     BatchVertexOut b;
     b.PosH = o.PosH;
     b.PosW = o.PosW;
@@ -1157,6 +1170,8 @@ BatchVertexOut VS_BatchColor(VertexIn_Batch vin)
     b.Tex = o.Tex;
     b.SsaoPosH = o.SsaoPosH;
     b.BaseColor = vin.BaseColor;
+    b.Surface = vin.Surface;
+    b.Emission = vin.Emission;
     return b;
 }
 
@@ -1169,7 +1184,12 @@ float4 PS_Batch(BatchVertexOut pin) : SV_Target
     v.TangentW = pin.TangentW;
     v.Tex = pin.Tex;
     v.SsaoPosH = pin.SsaoPosH;
-    return LitPS(v, pin.BaseColor.w < 0.0f ? float4(pin.BaseColor.rgb, -1.0f - pin.BaseColor.w) : gPbr.BaseColor);
+    const float4 baseColor = pin.BaseColor.w < 0.0f ? float4(pin.BaseColor.rgb, -1.0f - pin.BaseColor.w) : gPbr.BaseColor;
+    const int mask = pin.Surface.w < -0.5f ? (int)(-pin.Surface.w + 0.5f) : 0;
+    const float metallic = (mask & 1) ? pin.Surface.x : gPbr.Metallic;
+    const float smoothness = (mask & 2) ? pin.Surface.y : gPbr.Smoothness;
+    const float3 emission = pin.Emission.w < 0.0f ? pin.Emission.rgb : gPbr.EmissionColor.rgb;
+    return LitPS(v, baseColor, metallic, smoothness, emission);
 }
 
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
