@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **오클루전 컬링 안드로이드 (OpenGL ES)** (사용자 지시: 다음 작업 1 · 2 · 3 모두 — 1 부터). **완료** — android_occlusion **13/13** (MuMu), android 회귀 **66/66**, PC occlusion · occlusiongl · occlusionvk **15/15**
+- 갱신 시각: 2026년 10월 4일 — **Vulkan 그리기마다의 CPU 비용** (사용자 지시: 다음 작업 2 번). **완료** — 캐릭터 64 장면 (Release) 씬 뷰 그리기 CPU **2.02 → 1.11 ms** (DX11 1.15 ms), vulkan · gfx · render · occlusion 3 종 회귀 **35/35**
+  - `Vulkan/GfxVkInternal.h` (ImageStateSerial · LastSet · LastKey · 묶인 정점 · 인덱스 버퍼), `GfxVkContext.cpp` (같은 값이면 SetProgram 그대로, 앞 디스크립터 집합 · 동적 UBO 오프셋만, 앞 파이프라인, 같은 버퍼 다시 안 묶기),
+    `GfxVkDevice.cpp` (BindingLayout::HasStorage), `run_tests.ps1` 의 `Suite-Perf` 에 Characters (씬 뷰 그리기 CPU 비교), `docs/VULKAN_BACKEND.md`
+  - 측정은 Release 복사본 `E:/NovaTest/ClaudePerfEngine` (Debug · Release 가 같은 Binaries 로 나와서 — 저장소 Binaries 는 Debug 로 되돌림)
+  - 다음: 3 번 도시 쇼케이스 (세 API 삼각형 · 프레임 시간)
+- 이전: 2026년 10월 4일 — **오클루전 컬링 안드로이드 (OpenGL ES)** (사용자 지시: 다음 작업 1 · 2 · 3 모두 — 1 부터). **완료** — android_occlusion **13/13** (MuMu), android 회귀 **66/66**, PC occlusion · occlusiongl · occlusionvk **15/15**
   - `OcclusionCulling.cpp` 의 안드로이드 빈 함수를 지우고 같은 코드로 (`kGles`: 간접 인자 첫 인스턴스 → 정점 버퍼 오프셋, 밉 SRV → `gSrcLevel`, 조건부 렌더링 → `BoxCullTech` + `SetPredicationBuffer`),
     첫 프레임 결과로 "30 번 쉬기" 하지 않음 (`StagingFrame` — 기기 검사 30 프레임 동안 꺼져 있던 원인), `57. OcclusionCulling.fx` (gSrcLevel · gBoxes · BoxCullTech), `Gfx.h` (SetPredicationBuffer)
   - `Android/Source/GfxGLES.cpp` (SSBO · image · 간접 그리기 · 예측 버퍼 · fence), `GLESRhi.cpp` (SSBO · image 바인딩, 샘플러 없는 칸 = NEAREST), `AndroidMain.cpp` (`-e occlusion off`, NOVA_TEST 의 occlusion),

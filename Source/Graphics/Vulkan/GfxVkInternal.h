@@ -82,6 +82,10 @@ namespace GfxVkImpl
 		Dev* D;
 	};
 
+	// 이미지의 배치 · "쓴 뒤 장벽 없음" 이 바뀔 때마다 +1 (Transition · MarkWritten). 그리기가 앞 그리기의 디스크립터 집합을
+	//  그대로 쓸 수 있는지 (읽는 이미지의 배치를 다시 볼 필요가 없는지) 판단한다 — 렌더 스레드 하나
+	inline uint64_t ImageStateSerial = 0;
+
 	struct Image
 	{
 		VkImage Handle = VK_NULL_HANDLE;
@@ -111,6 +115,7 @@ namespace GfxVkImpl
 		VkImageLayout& LayoutOf(UINT mip, UINT layer) { return Layouts[layer * Mips + mip]; }
 		void MarkWritten(UINT baseMip, UINT mips, UINT baseLayer, UINT layers)
 		{
+			++ImageStateSerial;
 			for (UINT l = baseLayer; l < (std::min)(baseLayer + layers, Layers); ++l)
 				for (UINT m = baseMip; m < (std::min)(baseMip + mips, Mips); ++m)
 					Written[l * Mips + m] = 1;
@@ -271,6 +276,7 @@ namespace GfxVkImpl
 		using Obj::Obj;
 		~BindingLayout() override;
 		std::vector<GfxVkShared::BindingDesc> Bindings;
+		bool HasStorage = false;               // 스토리지 버퍼 (DYNAMIC 이면 링 자리가 값 밖에서 바뀐다 → 집합을 다시 쓰지 않는다)
 		std::vector<uint32_t> Offset;          // 바인딩 → 첫 원소 번호
 		uint32_t Elements = 0;
 		bool DynamicUbo = true;                // 상수 = UNIFORM_BUFFER_DYNAMIC (집합을 다시 쓰고 오프셋만 바꾼다)
@@ -511,6 +517,18 @@ namespace GfxVkImpl
 		uint64_t SetPoolGeneration = ~0ull;
 		std::unordered_map<uint64_t, std::pair<std::vector<uint64_t>, VkDescriptorSet>> SetCache;
 		std::vector<ViewInfo*> StorageImages;   // BuildSet 이 스토리지 이미지로 묶은 뷰 (디스패치 뒤 Written)
+		// ---- 그리기마다의 CPU 비용 (같은 상태가 이어지는 그리기 — 인스턴싱 묶음 · 같은 재질):
+		//  값이 바뀌지 않았고 (ValuesSerial) 이미지 배치 (ImageStateSerial) · 타깃 (TargetsSerial) · 풀이 그대로면 앞 집합을 그대로,
+		//  파이프라인 키가 앞과 같으면 앞 파이프라인을, 정점 · 인덱스 버퍼가 같으면 다시 묶지 않는다
+		uint64_t ValuesSerial = 1, TargetsSerial = 1;
+		bool UboOffsetsDirty = false;   // 값이 상수 링 자리 (동적 UBO 오프셋) 만 바뀌었다 — 집합은 그대로, 오프셋만 다시
+		struct LastSetInfo { Program* Prog = nullptr; uint64_t Values = 0, ImageState = 0, Pool = 0, Targets = 0; VkDescriptorSet Set = VK_NULL_HANDLE; std::vector<uint32_t> Offsets; } LastSet;
+		PipelineKey LastKey = {};
+		VkPipeline LastPipe = VK_NULL_HANDLE;
+		struct BoundVb { VkBuffer Buffer = VK_NULL_HANDLE; VkDeviceSize Offset = 0, Stride = 0; } BoundVbs[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT];
+		VkBuffer BoundIb = VK_NULL_HANDLE;
+		VkDeviceSize BoundIbOffset = 0;
+		VkIndexType BoundIbType = VK_INDEX_TYPE_UINT16;
 		// 오클루전 쿼리: Begin 이 렌더링 밖이면 다음 그리기가 렌더링을 시작한 뒤에 기록한다 (쿼리는 한 렌더링 안에서 시작 · 끝)
 		ComPtr<GfxQuery> PendingQuery, ActiveQuery;
 		std::vector<ComPtr<GfxQuery>> ToCopy;   // 끝난 예측 쿼리 → 조건부 렌더링 값으로 복사할 것 (첫 SetPredication 때 한꺼번에)

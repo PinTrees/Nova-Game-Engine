@@ -126,6 +126,7 @@ namespace GfxVkImpl
 				b.image = img.Handle;
 				b.subresourceRange = { img.Fmt.Aspect, m, end - m, layer, 1 };
 				out.push_back(b);
+				++ImageStateSerial;
 				for (UINT k = m; k < end; ++k)
 				{
 					img.LayoutOf(k, layer) = newLayout;
@@ -219,6 +220,7 @@ namespace GfxVkImpl
 			same = Rtvs[i].Get() == (rtvs ? rtvs[i] : nullptr);
 		if (same) return;
 		EndRendering();
+		++TargetsSerial;
 		RtvCount = count;
 		for (UINT i = 0; i < 8; ++i)
 			Rtvs[i] = i < count && rtvs ? rtvs[i] : nullptr;
@@ -556,11 +558,33 @@ namespace GfxVkImpl
 		Dsv* dsv = AsDsv(DsvView.Get());
 		const VkImageLayout depthLayout = dsv && dsv->V.ReadOnlyDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-		// ---- 디스크립터 (읽는 이미지의 배치도 여기서)
+		// ---- 디스크립터 (읽는 이미지의 배치도 여기서). 앞 그리기와 값 · 이미지 상태 · 타깃 · 풀이 같으면 앞 집합 그대로 (배치도 이미 맞다)
 		thread_local std::vector<uint32_t> offsets;
-		bool ok = true;
-		VkDescriptorSet set = BuildSet(offsets, barriers, ok);
-		if (!ok || !set) return false;
+		VkDescriptorSet set = VK_NULL_HANDLE;
+		const bool sameSet = LastSet.Set && LastSet.Prog == Prog.Get() && LastSet.Values == ValuesSerial && LastSet.ImageState == ImageStateSerial &&
+			LastSet.Targets == TargetsSerial && LastSet.Pool == D->PoolGeneration && !Prog->Layout->HasStorage;
+		if (sameSet)
+		{
+			set = LastSet.Set;
+			if (UboOffsetsDirty)
+			{
+				// 상수 링 자리만 바뀌었다 (그리기마다 상수가 다른 Skinned Mesh Renderer 등): BuildSet 과 같은 순서로 동적 오프셋만
+				offsets.clear();
+				const BindingLayout* L = Prog->Layout.Get();
+				for (uint32_t bi = 0; bi < (uint32_t)L->Bindings.size(); ++bi)
+					if (L->Bindings[bi].Type == GfxVkShared::BindingType::UniformBuffer)
+						for (uint32_t e = 0; e < L->Bindings[bi].Count; ++e)
+							offsets.push_back(Values[L->Offset[bi] + e].Ubo.Offset);
+			}
+			else
+				offsets = LastSet.Offsets;
+		}
+		else
+		{
+			bool ok = true;
+			set = BuildSet(offsets, barriers, ok);
+			if (!ok || !set) { LastSet.Set = VK_NULL_HANDLE; return false; }
+		}
 
 		// ---- 정점 · 인덱스 버퍼 (링 다시 올리기는 렌더링 밖이 아니어도 된다 — 호스트 메모리 쓰기)
 		VkBuffer vbs[D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT] = {};
@@ -688,8 +712,10 @@ namespace GfxVkImpl
 		key.Strip = VkMap::IsStrip(Topo) && indexed ? 1 : 0;
 		const UINT viewports = D->Features.multiViewport ? (std::max)(1u, ViewportCount) : 1u;
 		key.Viewports = (uint8_t)viewports;
-		VkPipeline pipe = D->GetPipeline(key, Prog.Get(), layout, rs, bs, ds);
+		VkPipeline pipe = LastPipe && key == LastKey ? LastPipe : D->GetPipeline(key, Prog.Get(), layout, rs, bs, ds);
 		if (!pipe) return false;
+		LastKey = key;
+		LastPipe = pipe;
 
 		if (BoundEpoch != D->Epoch)
 		{
@@ -697,6 +723,8 @@ namespace GfxVkImpl
 			BoundPipeline = VK_NULL_HANDLE;
 			BoundSet = VK_NULL_HANDLE;
 			DynamicDirty = true;
+			for (BoundVb& b : BoundVbs) b = BoundVb();
+			BoundIb = VK_NULL_HANDLE;
 		}
 		bool rebindSet = false;
 		if (pipe != BoundPipeline)
@@ -704,6 +732,8 @@ namespace GfxVkImpl
 			vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
 			BoundPipeline = pipe;
 			rebindSet = true;   // 다른 효과의 파이프라인 배치일 수 있다
+			// 정점 간격은 동적 상태 — 정점 입력이 없는 파이프라인 (간격 고정) 을 묶으면 흐트러진다 → 정점 버퍼를 다시 묶는다
+			for (BoundVb& v : BoundVbs) v = BoundVb();
 		}
 		if (rebindSet || set != BoundSet || offsets != BoundOffsets)
 		{
@@ -716,10 +746,22 @@ namespace GfxVkImpl
 				if (layout->SlotMask & (1u << s))
 				{
 					const VkDeviceSize stride = Vbs[s].Stride;
+					BoundVb& bv = BoundVbs[s];
+					if (bv.Buffer == vbs[s] && bv.Offset == vbOffsets[s] && bv.Stride == stride) continue;   // 같은 버퍼 · 자리 · 간격
 					vkCmdBindVertexBuffers2(cb, s, 1, &vbs[s], &vbOffsets[s], nullptr, &stride);
+					bv = { vbs[s], vbOffsets[s], stride };
 				}
 		if (indexed)
-			vkCmdBindIndexBuffer(cb, ib, ibOffset, IbFormat == DXGI_FORMAT_R32_UINT ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+		{
+			const VkIndexType type = IbFormat == DXGI_FORMAT_R32_UINT ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+			if (ib != BoundIb || ibOffset != BoundIbOffset || type != BoundIbType)
+			{
+				vkCmdBindIndexBuffer(cb, ib, ibOffset, type);
+				BoundIb = ib;
+				BoundIbOffset = ibOffset;
+				BoundIbType = type;
+			}
+		}
 
 		// ---- 동적 상태 (뷰포트 · 가위 · 블렌드 상수 · 스텐실 기준)
 		if (DynamicDirty)
@@ -747,6 +789,15 @@ namespace GfxVkImpl
 			DynamicDirty = false;
 		}
 		BeginPendingQuery();   // 렌더링이 시작된 뒤에
+		// 이 집합을 다음 그리기가 그대로 쓸 수 있게 (장벽 · 렌더링 시작이 바꾼 이미지 상태 뒤의 번호)
+		LastSet.Prog = Prog.Get();
+		LastSet.Values = ValuesSerial;
+		LastSet.ImageState = ImageStateSerial;
+		LastSet.Targets = TargetsSerial;
+		LastSet.Pool = D->PoolGeneration;
+		LastSet.Set = set;
+		LastSet.Offsets = offsets;
+		UboOffsetsDirty = false;
 		++D->DrawsSinceSubmit;
 		return true;
 	}
@@ -793,6 +844,7 @@ namespace GfxVkImpl
 			return;
 		}
 		EndRendering();
+		LastSet.Set = VK_NULL_HANDLE;
 		thread_local std::vector<VkImageMemoryBarrier2> barriers;
 		thread_local std::vector<uint32_t> offsets;
 		barriers.clear();
@@ -1400,6 +1452,10 @@ namespace GfxVkImpl
 		Held.clear();
 		Predicate = nullptr;
 		PendingQuery = nullptr;
+		LastSet = LastSetInfo();
+		LastPipe = VK_NULL_HANDLE;
+		++ValuesSerial;
+		++TargetsSerial;
 		DynamicDirty = true;
 	}
 }
@@ -1410,6 +1466,28 @@ namespace GfxVkShared
 	void SetProgram(GfxContext* context, GfxObject* program, const BindingValue* values, uint32_t count)
 	{
 		auto* c = static_cast<GfxVkImpl::Ctx*>(context);
+		// 같은 pass · 같은 값 (상수 링 자리 · 뷰 · 샘플러) 이면 아무것도 바꾸지 않는다 — 다음 그리기가 앞 디스크립터 집합을 그대로 쓴다
+		if (c->Prog.Get() == program && program && c->Values.size() == count && count)
+		{
+			if (memcmp(c->Values.data(), values, sizeof(BindingValue) * count) == 0)
+				return;
+			// 동적 UBO 의 링 오프셋만 다르면 (같은 링 조각 · 같은 뷰 · 샘플러) 집합은 그대로 쓸 수 있다
+			bool offsetsOnly = static_cast<GfxVkImpl::Program*>(program)->Layout->DynamicUbo;
+			for (uint32_t i = 0; i < count && offsetsOnly; ++i)
+			{
+				const BindingValue& a = c->Values[i];
+				const BindingValue& b = values[i];
+				offsetsOnly = a.View == b.View && a.Sampler == b.Sampler && a.Uav == b.Uav && a.Range == b.Range && a.Ubo.Buffer == b.Ubo.Buffer &&
+					a.Ubo.BufferId == b.Ubo.BufferId && a.Ubo.Chunk == b.Ubo.Chunk && a.Ubo.Generation == b.Ubo.Generation;
+			}
+			if (offsetsOnly)
+			{
+				c->Values.assign(values, values + count);   // 뷰 · 샘플러가 같다 → Held 그대로
+				c->UboOffsetsDirty = true;
+				return;
+			}
+		}
+		++c->ValuesSerial;
 		c->Prog = static_cast<GfxVkImpl::Program*>(program);
 		c->Values.assign(values, values + count);
 		// 값의 뷰 · 샘플러를 다음 Apply 까지 잡아 둔다 (D3D 의 컨텍스트가 묶인 SRV 를 잡는 것과 같이)

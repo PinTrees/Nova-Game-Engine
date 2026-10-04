@@ -70,6 +70,11 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
   `NOVA_VK_SYNC_VALIDATION=1` 이면 검증 레이어의 동기화 검사(경쟁 탐지)를 켠다 — 검사 vulkan 10/10 에서 경쟁 0
 - **그리기**: 타깃 · 읽는 이미지 배치 → 파이프라인 (효과 pass · 입력 배치 · 래스터 · 블렌드 · 깊이 상태 · 타깃 형식 키 캐시) →
   디스크립터 집합 (내용 해시 캐시, 상수는 UNIFORM_BUFFER_DYNAMIC 오프셋) → 정점 · 인덱스 → 동적 상태 (뷰포트 · 가위 · 블렌드 상수 · 스텐실 기준 · 정점 간격)
+- **그리기마다의 CPU 비용**: 같은 상태가 이어지는 그리기 (인스턴싱 묶음 · 같은 재질 · 상수만 다른 Skinned Mesh Renderer) 는 다시 만들지 않는다 —
+  효과의 Apply 가 같은 값이면 `SetProgram` 이 아무것도 바꾸지 않고, 값 · 이미지 상태 (`ImageStateSerial` — Transition · MarkWritten 마다 +1) · 타깃 · 풀이
+  그대로면 앞 디스크립터 집합을, 상수 링 자리만 바뀌었으면 집합은 그대로 두고 동적 UBO 오프셋만, 파이프라인 키가 앞과 같으면 앞 파이프라인을,
+  정점 · 인덱스 버퍼가 같으면 다시 묶지 않는다 (파이프라인이 바뀌면 정점 버퍼는 다시 — 정점 간격 동적 상태). 캐릭터 64 장면 (Release) 의 씬 뷰 그리기 CPU
+  2.02 → 1.11 ms (DX11 1.15 ms) — `run_tests.ps1 -Only perf` 의 Characters
 - **DYNAMIC 버퍼**: Map(WRITE_DISCARD) = CPU 사본, Unmap 때 링으로. 다음 기록에서 링 위치가 사라졌으면 사본에서 다시 올린다 (GL 과 같은 방식)
 - **좌표**: 셰이더의 `-fvk-invert-y` → 프레임버퍼 행 0 = D3D 의 위. 뷰포트 · 가위 숫자 그대로, D3D 앞면(시계) = `VK_FRONT_FACE_CLOCKWISE`
 - D3D11 처럼 렌더 타깃으로 묶인 텍스처를 셰이더가 읽으면 빈 텍스처로 바꾼다 (읽기 전용 깊이 뷰는 그대로 읽는다)
@@ -84,7 +89,6 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
 
 ## 아직 없는 것
 
-- 그리기마다의 CPU 비용 줄이기 (가벼운 장면에서 DX11 보다 약 10 % 느림)
 - 형식 버퍼 (`Buffer<T>` — texel buffer) · append · counter UAV · 스트림 출력 — 그런 자원을 쓰는 pass 는 로그를 남기고 그리지 않는다
 - 인스턴스 간격 > 1, 테두리 색은 Vulkan 기본 세 가지 중 가까운 것
 

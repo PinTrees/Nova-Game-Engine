@@ -1903,7 +1903,10 @@ namespace GfxVkShared
 		l->Bindings.assign(bindings, bindings + count);
 		uint32_t ubos = 0;
 		for (uint32_t i = 0; i < count; ++i)
+		{
 			if (bindings[i].Type == BindingType::UniformBuffer) ubos += bindings[i].Count;
+			if (bindings[i].Type == BindingType::StorageBuffer) l->HasStorage = true;
+		}
 		l->DynamicUbo = ubos <= d->Props.limits.maxDescriptorSetUniformBuffersDynamic;
 		std::vector<VkDescriptorSetLayoutBinding> lb;
 		for (uint32_t i = 0; i < count; ++i)

@@ -3322,8 +3322,30 @@ function Suite-Perf
                 $p = Invoke-NovaJson 'perf --frames 240'
                 $rows["$api/$n"] = $p
             }
+            # 그리기가 많은 장면: 캐릭터 64 (Skinned Mesh Renderer 는 낱개로 그린다 — 그리기마다의 CPU 비용, 상수가 그리기마다 다르다)
+            Invoke-Nova 'scene new --force' | Out-Null
+            Invoke-Nova 'create plane --name Floor --position 0,0,0 --scale 10,1,10' | Out-Null
+            for ($i = 0; $i -lt 64; $i++)
+            {
+                Invoke-Nova "create character --name C$i" | Out-Null
+                Invoke-Nova ("set C$i --position {0},0,{1}" -f (($i % 8) * 1.5 - 5.25), ([math]::Floor($i / 8) * 1.5)) | Out-Null
+            }
+            Invoke-Nova 'camera --position 0,6,-10 --target 0,0,5' | Out-Null
+            Invoke-Nova 'wait 200' | Out-Null
+            $rows["$api/Characters"] = Invoke-NovaJson 'perf --frames 300 --depth 3'
         }
         finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    }
+    # 씬 뷰 그리기의 CPU 시간 (SceneView render 구간 — Present 의 GPU 대기가 섞이지 않는다)
+    function RenderCpu($p) { $sc = @($p.cpuScopes | Where-Object { $_.scope -eq '..SceneView render' }); if ($sc.Count) { [double]$sc[0].ms } else { -1 } }
+    $d = $rows['dx/Characters']
+    foreach ($o in @(@('gl', 'OpenGL'), @('vk', 'Vulkan')))
+    {
+        $g = $rows["$($o[0])/Characters"]
+        if (-not $d -or -not $g) { Add-Result perf "Characters $($o[1]) vs DX11 (draw CPU)" $false 'no perf result'; continue }
+        $dc = RenderCpu $d; $gc = RenderCpu $g
+        $ratio = $gc / [math]::Max(0.001, $dc)
+        Add-Result perf "Characters $($o[1]) vs DX11 (draw CPU)" ($dc -gt 0 -and $gc -gt 0 -and $ratio -le 1.5) ('SceneView render CPU ms DX {0} / {2} {1} (×{3:N2}); frame ms DX {4} / {2} {5}' -f $dc, $gc, $o[1], $ratio, $d.frameMs, $g.frameMs)
     }
     foreach ($n in 'Materials', 'Trees')
     {
