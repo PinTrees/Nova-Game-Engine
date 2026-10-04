@@ -147,7 +147,8 @@ namespace
 	}
 
 	// 엔진 장면 검사: 게임 데이터의 첫 씬을 화면 없이 (pbuffer) 몇 프레임 돌리고 백버퍼를 BMP 로
-	bool RunSceneTest(int width, int height, int frames, std::string& png, double& loadMs, double& drawMs, std::string& error)
+	// warmup = 재기 전에 그리는 프레임 (셰이더 프로그램은 처음 쓸 때 만든다), cpuMs = 프레임마다 CPU (그리기 명령), drawMs = GPU 가 끝날 때까지 프레임마다
+	bool RunSceneTest(int width, int height, int frames, int warmup, std::string& png, double& loadMs, double& drawMs, double& cpuMs, std::string& error)
 	{
 		if (!ExtractGame(error)) return false;
 		if (!PlayerRuntime::Detect()) { error = "game/player.json not found"; return false; }
@@ -156,14 +157,24 @@ namespace
 		app->SetScreenSize((UINT)width, (UINT)height);
 		if (!app->Init()) { error = "engine init failed (Logs/Editor.log)"; return false; }
 		loadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		const auto t1 = std::chrono::steady_clock::now();
-		for (int i = 0; i < frames; ++i)
-		{
+		auto frame = [&]() {
 			app->Run();
 			Gfx::Context()->Flush();   // 프레임 끝 (화면이 없어 Present 를 부르지 않는다 — 미룬 이벤트 펜스를 여기서)
+		};
+		for (int i = 0; i < warmup; ++i)
+			frame();
+		glFinish();
+		const auto t1 = std::chrono::steady_clock::now();
+		double cpu = 0;
+		for (int i = 0; i < frames; ++i)
+		{
+			const auto c0 = std::chrono::steady_clock::now();
+			frame();
+			cpu += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - c0).count();
 		}
 		glFinish();
 		drawMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t1).count() / (std::max)(frames, 1);
+		cpuMs = cpu / (std::max)(frames, 1);
 		DirectX::ScratchImage img;
 		if (FAILED(Gfx::CaptureTexture(Gfx::Context(), app->BackBufferTexture(), img))) { error = "backbuffer capture failed"; return false; }
 		const DirectX::Image* im = img.GetImage(0, 0, 0);
@@ -173,18 +184,18 @@ namespace
 		return true;
 	}
 
-	void RunTest(const std::string& test, int width, int height, int frames)
+	void RunTest(const std::string& test, int width, int height, int frames, int warmup)
 	{
 		const auto t0 = std::chrono::steady_clock::now();
 		std::string error, device, png, occlusion = "null";
 		bool ok = false;
-		double loadMs = 0, drawMs = 0;
+		double loadMs = 0, drawMs = 0, cpuMs = 0;
 		{
 			AndroidPlatform::Egl egl;
 			if (egl.Init(error) && test == "scene")
 			{
 				device = (const char*)glGetString(GL_VERSION);
-				ok = RunSceneTest(width, height, frames, png, loadMs, drawMs, error);
+				ok = RunSceneTest(width, height, frames, warmup, png, loadMs, drawMs, cpuMs, error);
 				if (ok) occlusion = OcclusionCulling::InfoJson();   // 오클루전 컬링 검사 (몇 프레임 늦은 GPU 결과)
 			}
 			else if (error.empty())
@@ -257,8 +268,8 @@ namespace
 		}
 		const double totalMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		char line[4096];
-		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.1f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s}",
-			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str());
+		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.2f,\"cpuMs\":%.2f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s}",
+			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, cpuMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str());
 		std::ofstream(s_FilesDir + "/result_" + test + ".json", std::ios::trunc) << line;
 		Log("NOVA_TEST %s", line);
 	}
@@ -307,6 +318,7 @@ void android_main(android_app* app)
 	const std::string size = IntentExtra(env, activity->clazz, "size");
 	const std::string framesArg = IntentExtra(env, activity->clazz, "frames");
 	const std::string mode = IntentExtra(env, activity->clazz, "mode");   // shell = 게임 데이터가 있어도 셸 (검사)
+	const std::string warmupArg = IntentExtra(env, activity->clazz, "warmup");   // scene 검사: 재기 전에 그릴 프레임
 	if (IntentExtra(env, activity->clazz, "occlusion") == "off")
 		OcclusionCulling::Enabled = false;   // 오클루전 컬링 끔 (켠 화면과 비교하는 검사)
 	activity->vm->DetachCurrentThread();
@@ -316,7 +328,7 @@ void android_main(android_app* app)
 		int w = 960, h = 540;
 		if (!size.empty()) sscanf(size.c_str(), "%dx%d", &w, &h);
 		Log("NOVA start: test='%s' size %dx%d files %s", test.c_str(), w, h, s_FilesDir.c_str());
-		RunTest(test, w, h, framesArg.empty() ? 30 : atoi(framesArg.c_str()));
+		RunTest(test, w, h, framesArg.empty() ? 30 : atoi(framesArg.c_str()), warmupArg.empty() ? 0 : atoi(warmupArg.c_str()));
 		Log("NOVA done");
 		ANativeActivity_finish(activity);
 		while (PumpEvents(app, true)) {}   // 끝날 때까지 이벤트를 비운다 (glue 규칙)
