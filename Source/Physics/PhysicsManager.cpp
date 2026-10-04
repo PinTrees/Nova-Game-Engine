@@ -37,6 +37,7 @@
 #include "pch.h"
 #include "PhysicsSettings.h"
 #include "PhysicsManager.h"
+#include "Profiler.h"
 #include "MonoBehaviour.h"
 #include "RigidBody.h"
 #include "BoxCollider.h"
@@ -153,7 +154,18 @@ struct PhysicsManager::JoltWorld
 		uint32 excludeMask = 0;          // 콜라이더 + Rigidbody 의 Exclude Layers
 		uint32 includeMask = 0;          // 콜라이더 + Rigidbody 의 Include Layers
 		int priority = 0;                // Layer Override Priority
+		uint8_t kind = 0;                // ColliderKind (바디 형상으로 쓰는 종류 — 0 = 아님: Character Controller 등)
+		uint32_t seen = 0;               // 마지막으로 본 동기화 번호 (보지 못한 것은 표에서 뺀다)
 	};
+
+	// 바디 동기화 (StepSimulation 2): 스텝마다 할당하지 않게 버퍼를 둔다
+	struct ScanEntry { GameObject* owner; Collider* collider; RigidBody* rb; uint8_t kind; };
+	std::vector<ScanEntry> scan;                                  // 소유자 · 콜라이더 (nullptr = Rigidbody 만 있는 소유자)
+	std::vector<CharacterController*> scanCharacters;             // 활성 오브젝트의 첫 Character Controller
+	std::vector<std::pair<GameObject*, Joint*>> scanJoints;       // Rigidbody 가 있는 활성 오브젝트의 Joint
+	std::vector<Collider*> groupColliders;
+	std::vector<uint8_t> groupKinds;
+	uint32_t syncStamp = 0;
 
 	struct BodyRecord
 	{
@@ -165,6 +177,7 @@ struct PhysicsManager::JoltWorld
 		bool kinematic = false;
 		bool interpolate = false;
 		std::vector<Collider*> colliders;
+		uint32_t seen = 0;         // 마지막으로 본 동기화 번호
 
 		Vec3 lastPos;              // 마지막으로 Transform 과 동기화한 값 (사용자가 Transform 을 바꿨는지 판정)
 		Quaternion lastRot;
@@ -332,18 +345,6 @@ namespace
 			if (RigidBody* rb = g->GetComponent<RigidBody>())
 				return g;
 		return nullptr;
-	}
-
-	void CollectColliders(GameObject* go, std::vector<Collider*>& out)
-	{
-		for (const auto& c : go->GetComponents())
-		{
-			Collider* col = dynamic_cast<Collider*>(c.get());
-			if (col == nullptr || !col->IsEnabled())
-				continue;
-			if (dynamic_cast<BoxCollider*>(col) || dynamic_cast<SphereCollider*>(col) || dynamic_cast<CapsuleCollider*>(col) || dynamic_cast<MeshCollider*>(col) || dynamic_cast<TerrainCollider*>(col))
-				out.push_back(col);
-		}
 	}
 
 	// 콜라이더 하나를 형상 설정으로 만든다. 위치/회전은 월드 기준으로 돌려준다.
@@ -548,7 +549,19 @@ namespace
 		return result.Get();
 	}
 
-	size_t ComputeSignature(GameObject* owner, RigidBody* rb, const std::vector<Collider*>& cols)
+	// 바디 형상으로 쓰는 콜라이더 종류 (0 = 아님). 동기화가 콜라이더마다 한 번만 판정해 표에 기억한다
+	enum ColliderKind : uint8_t { KindNone = 0, KindBox, KindSphere, KindCapsule, KindMesh, KindTerrain };
+	uint8_t KindOf(Collider* c)
+	{
+		if (dynamic_cast<BoxCollider*>(c)) return KindBox;
+		if (dynamic_cast<SphereCollider*>(c)) return KindSphere;
+		if (dynamic_cast<CapsuleCollider*>(c)) return KindCapsule;
+		if (dynamic_cast<MeshCollider*>(c)) return KindMesh;
+		if (dynamic_cast<TerrainCollider*>(c)) return KindTerrain;
+		return KindNone;
+	}
+
+	size_t ComputeSignature(GameObject* owner, RigidBody* rb, const std::vector<Collider*>& cols, const uint8_t* kinds = nullptr)
 	{
 		size_t h = 0;
 		HashVec(h, owner->GetTransform()->GetScale(), 1e-4f);
@@ -570,8 +583,10 @@ namespace
 				HashCombine(h, rb->IsRotationFrozen(i));
 			}
 		}
-		for (Collider* c : cols)
+		for (size_t ci = 0; ci < cols.size(); ++ci)
 		{
+			Collider* c = cols[ci];
+			const uint8_t kind = kinds ? kinds[ci] : KindOf(c);
 			HashCombine(h, (size_t)c);
 			HashCombine(h, c->IsTrigger());
 			HashCombine(h, c->GetExcludeLayers());
@@ -579,18 +594,18 @@ namespace
 			HashCombine(h, (size_t)c->GetLayerOverridePriority());
 			HashCombine(h, c->GetGameObject()->GetLayerIndex());
 			HashVec(h, c->GetCenter());
-			if (auto* b = dynamic_cast<BoxCollider*>(c)) HashVec(h, b->GetSize());
-			if (auto* s = dynamic_cast<SphereCollider*>(c)) HashFloat(h, s->GetRadius());
-			if (auto* k = dynamic_cast<CapsuleCollider*>(c)) { HashFloat(h, k->GetRadius()); HashFloat(h, k->GetHeight()); HashCombine(h, k->GetDirection()); }
-			if (auto* m = dynamic_cast<MeshCollider*>(c)) { HashCombine(h, (size_t)m->GetMesh()); HashCombine(h, m->IsConvex()); }
-			if (auto* t = dynamic_cast<TerrainCollider*>(c))
-				if (auto data = t->GetEffectiveData())
+			if (kind == KindBox) HashVec(h, static_cast<BoxCollider*>(c)->GetSize());
+			if (kind == KindSphere) HashFloat(h, static_cast<SphereCollider*>(c)->GetRadius());
+			if (kind == KindCapsule) { auto* k = static_cast<CapsuleCollider*>(c); HashFloat(h, k->GetRadius()); HashFloat(h, k->GetHeight()); HashCombine(h, k->GetDirection()); }
+			if (kind == KindMesh) { auto* m = static_cast<MeshCollider*>(c); HashCombine(h, (size_t)m->GetMesh()); HashCombine(h, m->IsConvex()); }
+			if (kind == KindTerrain)
+				if (auto data = static_cast<TerrainCollider*>(c)->GetEffectiveData())
 				{
 					// 지형 높이·나무를 고치거나 나무 충돌을 켜고 끄면 형상을 다시 만든다
 					HashCombine(h, (size_t)data.get());
 					HashCombine(h, data->Revision);
 					HashCombine(h, data->TreeRevision);
-					HashCombine(h, t->GetEnableTreeColliders());
+					HashCombine(h, static_cast<TerrainCollider*>(c)->GetEnableTreeColliders());
 				}
 			// 자식 콜라이더: 소유자까지의 로컬 변환 체인 (정확한 값이라 흔들리지 않음)
 			for (GameObject* g = c->GetGameObject(); g != nullptr && g != owner; g = g->GetParent())
@@ -839,18 +854,15 @@ namespace
 		return c;
 	}
 
-	void SyncJoints(World& w, const std::vector<GameObject*>& all)
+	// found = Rigidbody 가 있는 활성 오브젝트의 Joint (StepSimulation 의 동기화가 모은다)
+	void SyncJoints(World& w, const std::vector<std::pair<GameObject*, Joint*>>& found)
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
 		std::unordered_set<Joint*> alive;
-		for (GameObject* go : all)
+		for (const auto& [go, jt] : found)
 		{
-			if (!IsActiveInHierarchy(go))
-				continue;
-			for (const auto& comp : go->GetComponents())
 			{
-				Joint* jt = dynamic_cast<Joint*>(comp.get());
-				if (jt == nullptr || jt->IsBroken() || go->GetComponent<RigidBody>() == nullptr)
+				if (jt->IsBroken())
 					continue;
 				auto own = w.bodies.find(go->GetInstanceID());
 				if (own == w.bodies.end() || own->second.id.IsInvalid())
@@ -1088,6 +1100,7 @@ void PhysicsManager::StepSimulation(float dt)
 	// 1) FixedUpdate (Unity: 물리 시뮬레이션 직전)
 	if (dt > 0.0f)
 	{
+		PROFILE_SCOPE("Physics.FixedUpdate");
 		for (GameObject* go : all)
 		{
 			if (!IsActiveInHierarchy(go))
@@ -1103,83 +1116,124 @@ void PhysicsManager::StepSimulation(float dt)
 		all = scene->GetAllGameObjects();
 	}
 
-	// 2) 바디 동기화: 소유자별 콜라이더 모으기
-	std::unordered_map<GameObject*, std::vector<Collider*>> owned;
+	// 2) 바디 동기화: 오브젝트마다 컴포넌트를 한 번만 훑어 콜라이더 · Rigidbody · Character Controller · Joint 를 모은다.
+	//  버퍼 · 콜라이더 표는 스텝마다 새로 만들지 않고 그 자리에서 고친다 (예전: 스텝마다 소유자 맵 · id 맵 · 표를 새로 —
+	//  정적 콜라이더 2200 개의 도시에서 스텝마다 약 3 ms). 바디가 바뀌었는지는 지금처럼 서명으로
+	static const char* kSyncName = Profiler::Intern("Physics.Sync");
+	const bool profiling = Profiler::Collecting();
+	if (profiling) Profiler::Begin(kSyncName);
+	const uint32_t stamp = ++w.syncStamp;
+	w.scan.clear();
+	w.scanCharacters.clear();
+	w.scanJoints.clear();
 	for (GameObject* go : all)
 	{
 		if (!IsActiveInHierarchy(go))
 			continue;
-		GameObject* owner = FindRigidOwner(go);
-		std::vector<Collider*> cols;
-		CollectColliders(go, cols);
-		if (owner == nullptr)
+		const size_t first = w.scan.size(), firstJoint = w.scanJoints.size();
+		RigidBody* ownRb = nullptr;
+		bool character = false;
+		for (const auto& comp : go->GetComponents())
 		{
-			if (!cols.empty())
-				owned[go].insert(owned[go].end(), cols.begin(), cols.end());
-		}
-		else
-		{
-			auto& list = owned[owner];
-			list.insert(list.end(), cols.begin(), cols.end());
-		}
-	}
-
-	// 사라진 소유자 제거
-	std::unordered_map<JPH::uint64, GameObject*> ownedIds;
-	for (auto& kv : owned)
-		ownedIds[kv.first->GetInstanceID()] = kv.first;
-	for (auto it = w.bodies.begin(); it != w.bodies.end();)
-	{
-		auto found = ownedIds.find(it->first);
-		const bool alive = found != ownedIds.end() && found->second == it->second.owner;
-		if (!alive)
-		{
-			if (!it->second.id.IsInvalid())
+			Component* c = comp.get();
+			if (Collider* col = dynamic_cast<Collider*>(c))
 			{
-				DropJointsOf(w, it->second.id);
-				bi.RemoveBody(it->second.id);
-				bi.DestroyBody(it->second.id);
+				// 종류: 표에 기억한 형상 콜라이더면 그 값 (Character Controller 판정도 건너뛴다), 처음 보거나 형상이 아니면 판정
+				auto it = w.colliders.find((JPH::uint32)col->GetInstanceID());
+				uint8_t kind = it != w.colliders.end() && it->second.collider == col ? it->second.kind : (uint8_t)KindNone;
+				if (kind == KindNone)
+				{
+					if (!character)
+						if (CharacterController* cc = dynamic_cast<CharacterController*>(col))
+						{
+							w.scanCharacters.push_back(cc);   // 오브젝트의 첫 Character Controller (예전 GetComponent 와 같음)
+							character = true;
+							continue;
+						}
+					kind = KindOf(col);
+				}
+				if (kind != KindNone && col->IsEnabled())
+					w.scan.push_back({ nullptr, col, nullptr, kind });
+				continue;
 			}
-			it = w.bodies.erase(it);
+			if (RigidBody* rb = dynamic_cast<RigidBody*>(c))
+			{
+				if (!ownRb) ownRb = rb;
+				continue;
+			}
+			if (Joint* jt = dynamic_cast<Joint*>(c))
+				w.scanJoints.push_back({ go, jt });
 		}
-		else
-			++it;
-	}
-
-	// 생성 / 재생성
-	w.colliders.clear();
-	w.rigidToOwner.clear();
-	for (auto& kv : owned)
-	{
-		GameObject* owner = kv.first;
-		RigidBody* rb = owner->GetComponent<RigidBody>();
-		const std::vector<Collider*>& cols = kv.second;
-		const JPH::uint64 key = owner->GetInstanceID();
-		const size_t sig = ComputeSignature(owner, rb, cols);
-
-		for (Collider* c : cols)
+		if (!ownRb)
+			w.scanJoints.resize(firstJoint);   // Joint 는 Rigidbody 가 있는 오브젝트만
+		// 소유자: 자기에게 Rigidbody 가 있으면 자기, 없으면 Rigidbody 가 있는 가장 가까운 조상, 그것도 없으면 자기 (정적)
+		if (w.scan.size() == first)
 		{
-			JoltWorld::ColliderEntry e;
-			e.collider = c;
-			e.owner = owner;
+			if (ownRb)
+				w.scan.push_back({ go, nullptr, ownRb, KindNone });   // 콜라이더 없는 Rigidbody (빈 형상 바디)
+			continue;
+		}
+		GameObject* owner = go;
+		RigidBody* rb = ownRb;
+		if (!ownRb)
+			if (GameObject* up = FindRigidOwner(go->GetParent()))
+			{
+				owner = up;
+				rb = up->GetComponent<RigidBody>();
+			}
+		for (size_t i = first; i < w.scan.size(); ++i)
+		{
+			w.scan[i].owner = owner;
+			w.scan[i].rb = rb;
+		}
+	}
+	// 소유자끼리 (같은 소유자 안에서는 훑은 순서 그대로 — 서명 · 형상이 스텝마다 같게)
+	std::stable_sort(w.scan.begin(), w.scan.end(), [](const JoltWorld::ScanEntry& a, const JoltWorld::ScanEntry& b) { return a.owner < b.owner; });
+
+	w.rigidToOwner.clear();
+	for (size_t g = 0; g < w.scan.size();)
+	{
+		GameObject* owner = w.scan[g].owner;
+		RigidBody* rb = w.scan[g].rb;
+		std::vector<Collider*>& cols = w.groupColliders;
+		std::vector<uint8_t>& kinds = w.groupKinds;
+		cols.clear();
+		kinds.clear();
+		size_t e = g;
+		for (; e < w.scan.size() && w.scan[e].owner == owner; ++e)
+			if (w.scan[e].collider)
+			{
+				cols.push_back(w.scan[e].collider);
+				kinds.push_back(w.scan[e].kind);
+			}
+		g = e;   // 다음 소유자
+		const JPH::uint64 key = owner->GetInstanceID();
+		const size_t sig = ComputeSignature(owner, rb, cols, kinds.data());
+
+		for (size_t ci = 0; ci < cols.size(); ++ci)
+		{
+			Collider* c = cols[ci];
+			JoltWorld::ColliderEntry& entry = w.colliders[(JPH::uint32)c->GetInstanceID()];
+			entry.collider = c;
+			entry.owner = owner;
+			entry.kind = kinds[ci];
+			entry.seen = stamp;
 			// Unity: 볼록이 아닌 Mesh Collider 는 트리거가 될 수 없다
-			MeshCollider* mc = dynamic_cast<MeshCollider*>(c);
-			e.trigger = c->IsTrigger() && !(mc != nullptr && !mc->IsConvex());
-			e.layer = c->GetGameObject()->GetLayerIndex() & 31;
-			e.layerBit = 1u << e.layer;
-			e.excludeMask = c->GetExcludeLayers() | (rb ? rb->GetExcludeLayers() : 0u);
-			e.includeMask = c->GetIncludeLayers() | (rb ? rb->GetIncludeLayers() : 0u);
-			e.priority = c->GetLayerOverridePriority();
-			w.colliders[(JPH::uint32)c->GetInstanceID()] = e;
+			entry.trigger = c->IsTrigger() && !(entry.kind == KindMesh && !static_cast<MeshCollider*>(c)->IsConvex());
+			entry.layer = c->GetGameObject()->GetLayerIndex() & 31;
+			entry.layerBit = 1u << entry.layer;
+			entry.excludeMask = c->GetExcludeLayers() | (rb ? rb->GetExcludeLayers() : 0u);
+			entry.includeMask = c->GetIncludeLayers() | (rb ? rb->GetIncludeLayers() : 0u);
+			entry.priority = c->GetLayerOverridePriority();
 		}
 
 		auto existing = w.bodies.find(key);
-		if (existing != w.bodies.end() && existing->second.signature == sig)
+		if (existing != w.bodies.end() && existing->second.signature == sig && existing->second.owner == owner)
 		{
+			existing->second.seen = stamp;
 			if (rb) w.rigidToOwner[rb] = key;
 			continue;
 		}
-
 		Vec3 keepVel = Vec3::Zero, keepAng = Vec3::Zero;
 		if (existing != w.bodies.end())
 		{
@@ -1217,7 +1271,7 @@ void PhysicsManager::StepSimulation(float dt)
 		if (emptyShape)
 		{
 			if (rb == nullptr)
-				continue;   // 콜라이더 없는 정적 오브젝트는 바디가 필요 없다
+				continue;   // 콜라이더 없는 정적 오브젝트는 바디가 필요 없다 (보지 못한 바디로 아래에서 빠진다)
 			shape = JPH::EmptyShapeSettings().Create().Get();
 		}
 
@@ -1279,29 +1333,51 @@ void PhysicsManager::StepSimulation(float dt)
 			}
 			w.rigidToOwner[rb] = key;
 		}
+		rec.seen = stamp;
 		w.bodies[key] = rec;
 	}
 
+	// 이번에 보지 못한 소유자의 바디 · 콜라이더는 뺀다 (지워짐 · 꺼짐 · 콜라이더가 없어짐)
+	for (auto it = w.bodies.begin(); it != w.bodies.end();)
+	{
+		if (it->second.seen == stamp)
+		{
+			++it;
+			continue;
+		}
+		if (!it->second.id.IsInvalid())
+		{
+			DropJointsOf(w, it->second.id);
+			bi.RemoveBody(it->second.id);
+			bi.DestroyBody(it->second.id);
+		}
+		it = w.bodies.erase(it);
+	}
+	for (auto it = w.colliders.begin(); it != w.colliders.end();)
+		it = it->second.seen == stamp ? std::next(it) : w.colliders.erase(it);   // Character Controller 항목은 아래 EnsureCharacter 가 다시 넣는다
+	if (profiling) Profiler::End();   // Physics.Sync
+
 	// Character Controller: 활성인 것만 CharacterVirtual 로 (없어진 것은 지운다 — 안쪽 바디도 같이)
 	{
+		PROFILE_SCOPE("Physics.Characters");
 		std::unordered_set<CharacterController*> alive;
-		for (GameObject* go : all)
-		{
-			if (!IsActiveInHierarchy(go))
-				continue;
-			if (CharacterController* cc = go->GetComponent<CharacterController>())
-				if (cc->IsEnabled() && EnsureCharacter(w, cc) != nullptr)
-					alive.insert(cc);
-		}
+		for (CharacterController* cc : w.scanCharacters)
+			if (cc->IsEnabled() && EnsureCharacter(w, cc) != nullptr)
+				alive.insert(cc);
 		for (auto it = w.characters.begin(); it != w.characters.end();)
 			it = alive.count(it->first) ? std::next(it) : w.characters.erase(it);
 	}
-	SyncJoints(w, all);
+	{
+		PROFILE_SCOPE("Physics.Joints");
+		SyncJoints(w, w.scanJoints);
+	}
 
 	if (dt <= 0.0f)
 		return;
 
 	// 3) Transform → 바디 (사용자가 옮긴 경우 / 키네마틱 / 정적)
+	static const char* kPushName = Profiler::Intern("Physics.TransformToBody");
+	if (profiling) Profiler::Begin(kPushName);
 	for (auto& kv : w.bodies)
 	{
 		JoltWorld::BodyRecord& r = kv.second;
@@ -1324,12 +1400,17 @@ void PhysicsManager::StepSimulation(float dt)
 		}
 	}
 
+	if (profiling) Profiler::End();   // Physics.TransformToBody
+
 	// 4) 시뮬레이션
 	{
 		std::lock_guard<std::mutex> lock(w.touchMutex);
 		w.touching.clear();
 	}
-	w.physics->Update(dt, 1, w.tempAllocator.get(), w.jobSystem.get());
+	{
+		PROFILE_SCOPE("Physics.Simulate");
+		w.physics->Update(dt, 1, w.tempAllocator.get(), w.jobSystem.get());
+	}
 
 	// 4.5) Joint 끊어짐: 구속이 쓴 힘(충격량 / dt)이 Break Force / Break Torque 를 넘으면 (Unity: OnJointBreak 후 컴포넌트 삭제)
 	if (!w.joints.empty())
@@ -1409,6 +1490,7 @@ void PhysicsManager::StepSimulation(float dt)
 	}
 
 	// 6) 충돌 / 트리거 이벤트 (Enter / Stay / Exit)
+	PROFILE_SCOPE("Physics.Events");
 	std::unordered_map<JPH::uint64, JoltWorld::TouchInfo> current;
 	{
 		std::lock_guard<std::mutex> lock(w.touchMutex);

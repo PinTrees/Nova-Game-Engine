@@ -38,8 +38,16 @@ while ($sw.Elapsed.TotalSeconds -lt 180)
 }
 $serial = "127.0.0.1:$($info.adb_port)"
 & $Adb connect $serial | Out-Null
-$abi = (& $Adb -s $serial shell getprop ro.product.cpu.abi | Out-String).Trim()
-Check 'emulator ready' ($info.player_state -eq 'start_finished') ("VM {0} '{1}', adb {2}, abi {3}" -f $index, $Vm, $serial, $abi)
+# 막 켠 VM 은 adb 가 잠시 offline — ABI 를 읽을 때까지 기다린다 (비면 APK 빌드의 --abi 가 비어 실패했다)
+$abi = ''
+$sw2 = [Diagnostics.Stopwatch]::StartNew()
+while (-not $abi -and $sw2.Elapsed.TotalSeconds -lt 60)
+{
+    & $Adb connect $serial 2>&1 | Out-Null
+    $abi = (& $Adb -s $serial shell getprop ro.product.cpu.abi 2>$null | Out-String).Trim()
+    if (-not $abi) { Start-Sleep -Seconds 1 }
+}
+Check 'emulator ready' ($info.player_state -eq 'start_finished' -and $abi) ("VM {0} '{1}', adb {2}, abi {3}" -f $index, $Vm, $serial, $abi)
 
 # ---- 1) 에디터: 셰이더 · 도시 장면 · 게임 데이터 · DX11 기준
 if (-not $SkipBuild)

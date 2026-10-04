@@ -219,7 +219,13 @@ GLSL ES 3.20 으로 바꿔 `<이름>.json` 으로 쓰고, APK 의 `assets/Shader
 
 프레임 (MuMu, 중앙값): 오클루전 켬 11.6 → 11.0 ms, 끔 13.9 → 11.6 ms. MuMu 는 실행마다 차이가 크다 (같은 APK 로 10 ~ 19 ms) — 여러 번 재 중앙값으로 본다.
 `-Profile` 의 구간 (켬, 9 ~ 10 ms): 그리기 (GameView render) 약 4 ms, **물리 갱신 약 3.3 ms** (정적 콜라이더 2200 개의 동기화를 고정 스텝마다 처음부터 —
-GL 과 상관없는 엔진 CPU, 다음 작업), 카메라 · 빛 1.1 ms, 컬링 갱신 0.9 ms.
+GL 과 상관없는 엔진 CPU), 카메라 · 빛 1.1 ms, 컬링 갱신 0.9 ms.
+
+물리 동기화 (`PhysicsManager::StepSimulation` 2): 오브젝트마다 컴포넌트를 **한 번만** 훑어 콜라이더 · Rigidbody · Character Controller · Joint 를 함께 모으고
+(예전: 동기화 · 캐릭터 · Joint 가 각자 모든 오브젝트를 다시 훑음), 소유자 · id 맵을 스텝마다 새로 만들지 않고 버퍼를 다시 쓴다. 콜라이더 표는 지우지 않고
+그 자리에서 고치며 (보지 못한 항목만 뺀다), 콜라이더 종류 (Box · Sphere …) 는 한 번 판정해 표에 기억한다 (서명 계산의 `dynamic_cast` 를 없앰).
+PC Release 도시 (Play): 동기화가 2D 물리 (그대로인 코드) 대비 3.7 배 → 1.7 배 — 약 2 배 빨라짐, 캐릭터 · Joint 훑기 (0.29 ms) 는 없어짐.
+더 줄이려면 오브젝트마다 분류를 기억해야 하는데 GameObject 에 컴포넌트 변경 번호가 없어 (지운 주소의 재사용) 하지 않았다.
 
 - 진단: `-e profile on` → 결과 (`result_scene.json`) 의 `gl` (GL 호출 종류별 수, 늘 센다 — `GlesCounters`) · `scopes` (Profiler 구간, 깊이 3 까지 프레임마다 평균).
   logcat 의 `NOVA_TEST` 줄은 1024 자에서 잘려 검사 스크립트는 파일을 받는다. `-SkipBuild` = 에디터의 장면 단계를 건너뛰고 APK 만 다시
