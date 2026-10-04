@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **오클루전 컬링 OpenGL · Vulkan 지원** (사용자 지시 "그래 지원해줘" — 순서 OpenGL → Vulkan → 안드로이드). **OpenGL · Vulkan 완료** — occlusiongl **3/3**, occlusionvk **3/3** (검증 레이어 오류 0), occlusion (DX11) **9/9**
+- 갱신 시각: 2026년 10월 4일 — **오클루전 컬링 안드로이드 (OpenGL ES)** (사용자 지시: 다음 작업 1 · 2 · 3 모두 — 1 부터). **완료** — android_occlusion **13/13** (MuMu), android 회귀 **66/66**, PC occlusion · occlusiongl · occlusionvk **15/15**
+  - `OcclusionCulling.cpp` 의 안드로이드 빈 함수를 지우고 같은 코드로 (`kGles`: 간접 인자 첫 인스턴스 → 정점 버퍼 오프셋, 밉 SRV → `gSrcLevel`, 조건부 렌더링 → `BoxCullTech` + `SetPredicationBuffer`),
+    첫 프레임 결과로 "30 번 쉬기" 하지 않음 (`StagingFrame` — 기기 검사 30 프레임 동안 꺼져 있던 원인), `57. OcclusionCulling.fx` (gSrcLevel · gBoxes · BoxCullTech), `Gfx.h` (SetPredicationBuffer)
+  - `Android/Source/GfxGLES.cpp` (SSBO · image · 간접 그리기 · 예측 버퍼 · fence), `GLESRhi.cpp` (SSBO · image 바인딩, 샘플러 없는 칸 = NEAREST), `AndroidMain.cpp` (`-e occlusion off`, NOVA_TEST 의 occlusion),
+    `Android/Include/WinCompat.h` (상수), `Tools/tests/android_occlusion.ps1` (새 검사)
+  - 고친 버그: `glGetSynciv` 의 bufSize 를 바이트 수 (4) 로 넘겨 기기에서 스택이 깨졌다 (GL · GLES 모두 1 로)
+  - 다음: 2 번 Vulkan 그리기 CPU 비용, 3 번 도시 쇼케이스
+- 이전: 2026년 10월 4일 — **오클루전 컬링 OpenGL · Vulkan 지원** (사용자 지시 "그래 지원해줘" — 순서 OpenGL → Vulkan → 안드로이드). **OpenGL · Vulkan 완료** — occlusiongl **3/3**, occlusionvk **3/3** (검증 레이어 오류 0), occlusion (DX11) **9/9**
   - `Shaders/57. OcclusionCulling.hlsl` → `57. OcclusionCulling.fx` (fx 효과 — GL 은 ShaderCross 로 GLSL compute), `OcclusionCulling.cpp` 를 D3D11 직접 호출 없이 Gfx 층 · Rhi::Effect 로
   - `RHI/Gfx.h` (GfxContext 에 SupportsGpuDriven · 간접 그리기 · SetPredication · UAV 지우기), `DX11/GfxDx11.cpp` (그대로 넘김, 예측 쿼리 = CreatePredicate),
     `OpenGL/GfxGL.cpp` · `GLRhi.cpp` · `GLLoader.h` · `GLShared.h` (버퍼 SRV · UAV = SSBO, 텍스처 UAV = image, ANY_SAMPLES_PASSED + 조건부 렌더링, fence), `run_tests.ps1` 의 `Suite-OcclusionGL`

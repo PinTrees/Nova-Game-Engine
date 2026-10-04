@@ -17,6 +17,7 @@
 #include <codecvt>
 #include <fstream>
 #include <locale>
+#include "OcclusionCulling.h"
 
 // NOVA 안드로이드 진입점 (NativeActivity + NDK native_app_glue — Java 코드 없음).
 //  - 검사 실행기: `am start -n com.nova.engine/android.app.NativeActivity -e test rhi` → 화면 없는 EGL (pbuffer) 의
@@ -172,7 +173,7 @@ namespace
 	void RunTest(const std::string& test, int width, int height, int frames)
 	{
 		const auto t0 = std::chrono::steady_clock::now();
-		std::string error, device, png;
+		std::string error, device, png, occlusion = "null";
 		bool ok = false;
 		double loadMs = 0, drawMs = 0;
 		{
@@ -181,6 +182,7 @@ namespace
 			{
 				device = (const char*)glGetString(GL_VERSION);
 				ok = RunSceneTest(width, height, frames, png, loadMs, drawMs, error);
+				if (ok) occlusion = OcclusionCulling::InfoJson();   // 오클루전 컬링 검사 (몇 프레임 늦은 GPU 결과)
 			}
 			else if (error.empty())
 			{
@@ -251,9 +253,9 @@ namespace
 			}
 		}
 		const double totalMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		char line[2048];
-		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.1f,\"totalMs\":%.1f,\"error\":\"%s\"}",
-			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, totalMs, JsonEscape(error).c_str());
+		char line[4096];
+		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.1f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s}",
+			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str());
 		std::ofstream(s_FilesDir + "/result_" + test + ".json", std::ios::trunc) << line;
 		Log("NOVA_TEST %s", line);
 	}
@@ -302,6 +304,8 @@ void android_main(android_app* app)
 	const std::string size = IntentExtra(env, activity->clazz, "size");
 	const std::string framesArg = IntentExtra(env, activity->clazz, "frames");
 	const std::string mode = IntentExtra(env, activity->clazz, "mode");   // shell = 게임 데이터가 있어도 셸 (검사)
+	if (IntentExtra(env, activity->clazz, "occlusion") == "off")
+		OcclusionCulling::Enabled = false;   // 오클루전 컬링 끔 (켠 화면과 비교하는 검사)
 	activity->vm->DetachCurrentThread();
 
 	if (!test.empty())

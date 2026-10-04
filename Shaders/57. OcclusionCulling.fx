@@ -8,6 +8,7 @@
 //  CullListTech : CPU 가 만든 인스턴스 목록 (나무) — 경계 구로 같은 검사, 보이는 것만 이어 쓰고 목록의 그리기 인자를 센다
 //  ShadowCullTech : 그림자 캐스터 — 빛 방향으로 쓸어 늘린 상자 (CPU 가 만든다) 를 카메라 Hi-Z 로
 //  BoxTech      : Skinned Mesh Renderer 의 상자를 오클루전 예측 쿼리로 그린다 (색 · 깊이 쓰기 없음)
+//  BoxCullTech  : 같은 상자를 Hi-Z 로 (OpenGL ES — 조건부 렌더링이 없어 상자마다 0 / 1 을 쓰고, 그리기의 InstanceCount 로 복사한다)
 
 cbuffer cbOcclusion
 {
@@ -21,6 +22,7 @@ cbuffer cbOcclusion
     uint gMode;         // CompactCS 의 고르기 · CullListCS 의 그리기 수
     uint gLevels;       // Hi-Z 밉 수 (0 = 깊이 없음 → 모두 보임)
     uint gStride;       // CullListCS: 인스턴스 크기 (uint 수)
+    uint gSrcLevel;     // ReduceCS: gInput 의 밉 (OpenGL ES 는 텍스처 뷰가 없어 Hi-Z 전체에서 앞 밉을 읽는다, 그 밖에는 0)
     float4 gBoxMin;     // BoxVS (xyz) — float3 이면 D3D 는 앞 레지스터 끝 (116) 에 넣지만 GL std140 은 16 의 배수여야 해서 변환이 실패한다
     float4 gBoxMax;
 };
@@ -50,6 +52,7 @@ StructuredBuffer<Item> gItems;
 StructuredBuffer<World> gWorlds;
 StructuredBuffer<uint> gSrc;            // 인스턴스 목록 (gStride uint 씩)
 StructuredBuffer<float4> gSpheres;      // xyz = 중심, w = 반지름
+StructuredBuffer<float4> gBoxes;        // BoxCullCS: 상자마다 최소 · 최대 (xyz)
 ByteAddressBuffer gFlagsIn;
 Texture2D<float> gInput;                // ReduceCS: 깊이 버퍼 또는 아래 밉 하나
 Texture2D<float> gHiZ;                  // 모든 밉
@@ -143,7 +146,7 @@ void ReduceCS(uint3 id : SV_DispatchThreadID)
     float d = 0.0;
     for (uint y = p0.y; y <= p1.y; ++y)
         for (uint x = p0.x; x <= p1.x; ++x)
-            d = max(d, gInput.Load(int3(gViewOrigin + uint2(x, y), 0)));
+            d = max(d, gInput.Load(int3(gViewOrigin + uint2(x, y), gSrcLevel)));
     gDst[id.xy] = d;
 }
 
@@ -199,6 +202,19 @@ void ShadowCullCS(uint3 id : SV_DispatchThreadID)
         gCounters.InterlockedAdd(4, 1);
 }
 
+// Skinned Mesh Renderer 상자 (OpenGL ES): 보이면 1 → gFlags (상자마다 4 바이트), 가려진 수 · 검사 수 → gCounters 0 · 4
+[numthreads(64, 1, 1)]
+void BoxCullCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= gCount)
+        return;
+    const bool visible = gLevels == 0 || HiZVisible(gBoxes[id.x * 2].xyz, gBoxes[id.x * 2 + 1].xyz);
+    gFlags.Store(id.x * 4, visible ? 1u : 0u);
+    gCounters.InterlockedAdd(4, 1);
+    if (!visible)
+        gCounters.InterlockedAdd(0, 1);
+}
+
 // 상자 36 정점을 SV_VertexID 로 (면 6 개 × 삼각형 2 개 — 모서리 번호: 비트 0 = x, 1 = y, 2 = z)
 float4 BoxVS(uint id : SV_VertexID) : SV_Position
 {
@@ -235,6 +251,7 @@ technique11 ReduceTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, Reduce
 technique11 CullTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, CullCS())); } }
 technique11 CullListTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, CullListCS())); } }
 technique11 ShadowCullTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, ShadowCullCS())); } }
+technique11 BoxCullTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, BoxCullCS())); } }
 
 technique11 BoxTech
 {

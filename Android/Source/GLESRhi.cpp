@@ -110,7 +110,14 @@ namespace
 			int BlockIndex = -1;
 			const ShaderCross::UniformBlock::Member* Member = nullptr;
 			std::vector<const ShaderCross::SamplerBinding*> Samplers;
+			int Ssbo = -1;    // (RW)StructuredBuffer · (RW)ByteAddressBuffer → SSBO 바인딩
+			int Image = -1;   // RWTexture → image 유닛
 		};
+		// compute 자원 (오클루전 컬링): 바인딩마다 지금 넣은 버퍼 · 이미지 (Effects11 처럼 묶인 동안 뷰를 잡아 둔다)
+		struct SsboBind { GLuint Buffer = 0; GLintptr Offset = 0; GLsizeiptr Size = 0; ComPtr<GfxObject> Hold; };
+		struct ImageBind { GLuint Texture = 0; GLint Level = 0; GLenum Format = 0; ComPtr<GfxObject> Hold; };
+		std::vector<SsboBind> Ssbos;
+		std::vector<ImageBind> Images;
 		struct PassProgram
 		{
 			GLuint Program = 0;
@@ -181,7 +188,12 @@ namespace
 				for (const auto& [n, s] : Src.Samplers)
 					if (s.Texture == name)
 						v.Samplers.push_back(&s);
-			if (!v.Member && v.Samplers.empty()) return -1;
+			if (!v.Member && v.Samplers.empty())
+			{
+				if (auto b = Src.Buffers.find(name); b != Src.Buffers.end()) v.Ssbo = b->second;
+				if (auto im = Src.Images.find(name); im != Src.Images.end()) v.Image = im->second;
+			}
+			if (!v.Member && v.Samplers.empty() && v.Ssbo < 0 && v.Image < 0) return -1;
 			Vars.push_back(v);
 			return VarIds[name] = (int)Vars.size() - 1;
 		}
@@ -291,6 +303,13 @@ namespace
 		void SetView(Rhi::VarId var, GfxShaderResourceView* view, uint32_t arrayIndex) override
 		{
 			if (var < 0 || var >= (int)Vars.size()) return;
+			if (Vars[var].Ssbo >= 0 && Vars[var].Ssbo < (int)Ssbos.size())
+			{
+				// 구조 · raw 버퍼 SRV → SSBO (읽기만)
+				unsigned b = 0, o = 0, n = 0;
+				Ssbos[Vars[var].Ssbo] = view && GfxGL_BufferRange(view, b, o, n) ? SsboBind{ b, (GLintptr)o, (GLsizeiptr)n, ComPtr<GfxObject>(view) } : SsboBind();
+				return;
+			}
 			for (const ShaderCross::SamplerBinding* s : Vars[var].Samplers)
 				if ((int)arrayIndex < s->Count)
 				{
@@ -298,7 +317,15 @@ namespace
 					UnitTextures[s->Unit + arrayIndex] = 0;
 				}
 		}
-		void SetUav(Rhi::VarId, GfxUnorderedAccessView*) override {}
+		void SetUav(Rhi::VarId var, GfxUnorderedAccessView* uav) override
+		{
+			if (var < 0 || var >= (int)Vars.size()) return;
+			unsigned a = 0, b = 0, c = 0;
+			if (Vars[var].Ssbo >= 0 && Vars[var].Ssbo < (int)Ssbos.size())
+				Ssbos[Vars[var].Ssbo] = uav && GfxGL_UavBuffer(uav, a, b, c) ? SsboBind{ a, (GLintptr)b, (GLsizeiptr)c, ComPtr<GfxObject>(uav) } : SsboBind();
+			else if (Vars[var].Image >= 0 && Vars[var].Image < (int)Images.size())
+				Images[Vars[var].Image] = uav && GfxGL_UavImage(uav, a, b, c) ? ImageBind{ a, (GLint)b, (GLenum)c, ComPtr<GfxObject>(uav) } : ImageBind();
+		}
 		bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) override
 		{
 			if (technique < 0 || technique >= (int)Programs.size() || pass < 0 || pass >= (int)Programs[technique].size()) return false;
@@ -320,7 +347,7 @@ namespace
 		GLuint Ib = 0;
 		bool Index32 = true;
 		GLuint CurrentProgram = 0;
-		GLuint DummyShadow2D = 0, DummyShadowArray = 0, DummyShadowCube = 0, DummyCompare = 0;
+		GLuint DummyShadow2D = 0, DummyShadowArray = 0, DummyShadowCube = 0, DummyCompare = 0, Point = 0;
 		GfxDevice* SinkDevice = nullptr;     // Gfx 장치 위의 RHI: pass 상태를 이 Gfx 컨텍스트로 (읽기 전용 깊이 등 Gfx 가 아는 상태가 맞게)
 		GfxContext* SinkContext = nullptr;
 
@@ -339,6 +366,20 @@ namespace
 			for (GLuint* t : { &DummyShadow2D, &DummyShadowArray, &DummyShadowCube })
 				if (*t) glDeleteTextures(1, t);
 			if (DummyCompare) glDeleteSamplers(1, &DummyCompare);
+			if (Point) glDeleteSamplers(1, &Point);
+		}
+
+		// 샘플러 없이 읽는 텍스처 (HLSL 의 Load · texelFetch) 칸: NEAREST — 텍스처 기본 필터 (LINEAR) 이면 float32 · 깊이 텍스처가
+		//  ES 에서 불완전이라 texelFetch 가 0 을 읽는다 (texelFetch 는 필터를 쓰지 않으니 다른 텍스처는 그대로)
+		GLuint PointSampler()
+		{
+			if (!Point)
+			{
+				glGenSamplers(1, &Point);
+				glSamplerParameteri(Point, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+				glSamplerParameteri(Point, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			}
+			return Point;
 		}
 
 		GLuint DummyShadow(GLenum target)
@@ -863,6 +904,9 @@ namespace
 				e->SamplerObjects[s.Sampler] = CreateSampler(st != e->Src.Fx.States.end() ? FxStates::Sampler(st->second) : FxStates::DefaultSampler());
 			}
 		}
+		// compute 자원 바인딩 수 (ShaderCross 가 효과 안에서 이름마다 0, 1, 2 … 로 정했다)
+		e->Ssbos.resize(e->Src.Buffers.size());
+		e->Images.resize(e->Src.Images.size());
 		e->UnitTextures.assign(units, 0);
 		e->UnitViews.assign(units, nullptr);
 		e->UnitSamplers.assign(units, 0);
@@ -950,9 +994,26 @@ namespace
 			}
 			if (tex) glBindTexture(target, tex);
 			else { glBindTexture(GL_TEXTURE_2D, 0); glBindTexture(GL_TEXTURE_2D_ARRAY, 0); glBindTexture(GL_TEXTURE_CUBE_MAP, 0); }
-			glBindSampler((GLuint)u, tex ? UnitSamplers[u] : 0);
+			glBindSampler((GLuint)u, tex ? (UnitSamplers[u] ? UnitSamplers[u] : Device->PointSampler()) : 0);
 		}
 		glActiveTexture(GL_TEXTURE0);
+		// compute 자원: SSBO · image (D3D 의 SRV · UAV)
+		for (size_t i = 0; i < Ssbos.size(); ++i)
+		{
+			const SsboBind& b = Ssbos[i];
+			if (b.Buffer && b.Size > 0)
+				glBindBufferRange(GL_SHADER_STORAGE_BUFFER, (GLuint)i, b.Buffer, b.Offset, b.Size);
+			else
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, (GLuint)i, 0);
+		}
+		for (size_t i = 0; i < Images.size(); ++i)
+		{
+			const ImageBind& im = Images[i];
+			if (im.Texture)
+				glBindImageTexture((GLuint)i, im.Texture, im.Level, GL_FALSE, 0, GL_READ_WRITE, im.Format);
+			else
+				glBindImageTexture((GLuint)i, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
+		}
 		// pass 가 정한 상태만 (Effects11 과 같이)
 		const FxParser::Pass& p = *pp.Fx;
 		if (!pp.StatesMade)

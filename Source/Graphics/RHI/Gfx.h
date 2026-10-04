@@ -239,6 +239,9 @@ class __declspec(uuid("4E6F7661-0001-4A00-8000-000000000013")) GfxContext : publ
 	virtual bool DrawInstancedIndirect(GfxBuffer* args, UINT offset) { (void)args; (void)offset; return false; }
 	// D3D11_QUERY_OCCLUSION_PREDICATE 쿼리 결과로 그리기를 건너뛴다 (value = FALSE: 결과가 FALSE 면 건너뜀). nullptr = 끔
 	virtual bool SetPredication(GfxQuery* predicate, BOOL value) { (void)predicate; (void)value; return false; }
+	// 조건부 렌더링이 없는 API (OpenGL ES): 버퍼의 uint (0 / 1 — compute 가 썼다) 로 그리기를 건너뛴다. 인스턴스 하나의 그리기만
+	//  (구현은 그리기를 간접 그리기로 바꿔 그 값을 InstanceCount 자리에 복사한다). nullptr = 끔
+	virtual bool SetPredicationBuffer(GfxBuffer* buffer, UINT offset) { (void)buffer; (void)offset; return false; }
 	virtual bool ClearUnorderedAccessViewUint(GfxUnorderedAccessView* uav, const UINT values[4]) { (void)uav; (void)values; return false; }
 };
 

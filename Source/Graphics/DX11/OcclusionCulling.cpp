@@ -15,23 +15,31 @@ namespace
 	OcclusionCulling::Stats s_Stats[2];   // Game · Scene 뷰
 }
 
-#ifndef __ANDROID__
-
-// Gfx 층 (DirectX 11 · OpenGL) 위에서: 커널은 57. OcclusionCulling.fx 의 기법 (Effects11 / ShaderCross), 버퍼 · 뷰 · 쿼리 ·
+// Gfx 층 (DirectX 11 · OpenGL · Vulkan · OpenGL ES) 위에서: 커널은 57. OcclusionCulling.fx 의 기법 (Effects11 / ShaderCross), 버퍼 · 뷰 · 쿼리 ·
 //  간접 그리기는 GfxDevice · GfxContext. GfxContext::SupportsGpuDriven 이 false 인 구현은 절두체 컬링만
 namespace
 {
 	using Microsoft::WRL::ComPtr;
 
-	enum Kernel { KPrepare, KCompact, KReduce, KCull, KList, KShadow, KCount };
+	// OpenGL ES (안드로이드) 에 없는 것 — 같은 일을 다른 길로:
+	//  · 간접 그리기의 첫 인스턴스 (reservedMustBeZero): 인자는 0, 묶음의 인스턴스 정점 버퍼를 그 자리부터 묶는다
+	//  · 텍스처 뷰 (밉 하나만 읽는 SRV): Hi-Z 를 만들 때 전체 밉 SRV 에서 앞 밉 (gSrcLevel) 을 읽는다
+	//  · 조건부 렌더링: Skinned Mesh Renderer 상자를 compute 로 Hi-Z 검사 → 상자마다 0 / 1 → 그리기의 InstanceCount 로 (SetPredicationBuffer)
+#ifdef __ANDROID__
+	constexpr bool kGles = true;
+#else
+	constexpr bool kGles = false;
+#endif
+
+	enum Kernel { KPrepare, KCompact, KReduce, KCull, KList, KShadow, KBox, KCount };
 	std::unique_ptr<Effect> s_Effect;
 	int s_EffectState = 0;   // 0 아직, 1 됨, -1 실패 (다시 시도하지 않는다)
 	FxPass* s_Pass[KCount] = {};
 	FxPass* s_BoxPass = nullptr;
 	struct Vars
 	{
-		FxVar *ViewProj, *ViewSize, *ViewOrigin, *SrcSize, *DstSize, *Count, *Frame, *Mode, *Levels, *Stride, *BoxMin, *BoxMax;
-		FxVar *Casters, *Items, *Worlds, *Src, *Spheres, *FlagsIn, *Input, *HiZ, *History, *Flags, *Counters, *Args, *Out, *Dst;
+		FxVar *ViewProj, *ViewSize, *ViewOrigin, *SrcSize, *DstSize, *Count, *Frame, *Mode, *Levels, *Stride, *SrcLevel, *BoxMin, *BoxMax;
+		FxVar *Casters, *Items, *Worlds, *Src, *Spheres, *Boxes, *FlagsIn, *Input, *HiZ, *History, *Flags, *Counters, *Args, *Out, *Dst;
 	} s_V = {};
 
 	// 57. OcclusionCulling.fx 의 cbOcclusion 값 (변수마다 넣는다)
@@ -40,7 +48,7 @@ namespace
 		float ViewProj[16] = {};
 		float ViewSize[2] = {};
 		uint32_t ViewOrigin[2] = {}, SrcSize[2] = {}, DstSize[2] = {};
-		uint32_t Count = 0, Frame = 0, Mode = 0, Levels = 0, Stride = 0;
+		uint32_t Count = 0, Frame = 0, Mode = 0, Levels = 0, Stride = 0, SrcLevel = 0;
 	};
 
 	struct Buf
@@ -69,11 +77,14 @@ namespace
 		ComPtr<GfxQuery> Ready[3];       // 그 복사가 끝났는가 (DONOTFLUSH 로 묻는다 — Map 이 명령을 밀어 넣어 GPU 가 쉬지 않게)
 		std::vector<ComPtr<GfxQuery>> Predicates;   // Skinned Mesh Renderer 상자 쿼리 (뷰마다 — 다음 프레임에 결과를 읽는다)
 		size_t PredicatesUsed = 0;
+		Buf BoxCounters;                   // OpenGL ES: 상자 compute 의 가려진 수 · 검사 수 — 다음 프레임 Finish 에서 Staging 으로
+		bool BoxCountersUsed = false;
 		Buf ListCounters;                  // 인스턴스 목록 (나무) 검사 · 보임 수 — 다음 프레임 Finish 에서 Staging 으로
 		bool ListCountersUsed = false;
 		Buf ShadowCounters;                // 그림자 캐스터 검사 · 보임 수 (캐스케이드를 모두 더함) — 같은 방식
 		bool ShadowCountersUsed = false;
 		bool Pending[3] = {};
+		uint32_t StagingFrame[3] = {};   // 그 Staging 에 복사한 검사의 Frame (1 = 지난 프레임 기록이 없어 가릴 수 없던 첫 프레임)
 		int Next = 0;
 	};
 	std::unordered_map<const void*, View> s_Views;
@@ -88,6 +99,9 @@ namespace
 	// Skinned Mesh Renderer 오클루전 예측 쿼리 (이 뷰 — RenderManager::ViewSerial 이 같을 때만 쓴다)
 	std::unordered_map<const void*, GfxQuery*> s_PredicateOf;
 	uint32_t s_PredicateView = ~0u;
+	// OpenGL ES: 상자마다 보임 0 / 1 (BoxCullTech) — 렌더러 → 상자 번호
+	Buf s_Boxes, s_BoxVisible;
+	std::unordered_map<const void*, uint32_t> s_BoxOf;
 
 	// CPU 가 만든 인스턴스 목록 (나무): 이 뷰의 Hi-Z 로 걸러 간접 그리기. 뷰마다 처음부터 다시 쓴다
 	struct ListBufs
@@ -117,7 +131,7 @@ namespace
 		if (s_EffectState != 0)
 			return s_EffectState > 0;
 		s_EffectState = -1;
-		const ULONGLONG start = ::GetTickCount64();
+		const auto start = std::chrono::steady_clock::now();
 		s_Effect = std::make_unique<Effect>(Dev(), L"../Shaders/57. OcclusionCulling.fx");
 		FxEffect* fx = s_Effect->GetFX();
 		if (fx == nullptr)
@@ -126,7 +140,7 @@ namespace
 			s_Effect.reset();
 			return false;
 		}
-		static const char* techniques[KCount] = { "PrepareTech", "CompactTech", "ReduceTech", "CullTech", "CullListTech", "ShadowCullTech" };
+		static const char* techniques[KCount] = { "PrepareTech", "CompactTech", "ReduceTech", "CullTech", "CullListTech", "ShadowCullTech", "BoxCullTech" };
 		for (int k = 0; k < KCount; ++k)
 		{
 			FxTechnique* t = fx->GetTechniqueByName(techniques[k]);
@@ -141,10 +155,10 @@ namespace
 			s_BoxPass = t->GetPassByIndex(0);
 		auto var = [&](const char* n) { return fx->GetVariableByName(n); };
 		s_V = { var("gViewProj"), var("gViewSize"), var("gViewOrigin"), var("gSrcSize"), var("gDstSize"), var("gCount"), var("gFrame"), var("gMode"),
-			var("gLevels"), var("gStride"), var("gBoxMin"), var("gBoxMax"),
-			var("gCasters"), var("gItems"), var("gWorlds"), var("gSrc"), var("gSpheres"), var("gFlagsIn"), var("gInput"), var("gHiZ"),
+			var("gLevels"), var("gStride"), var("gSrcLevel"), var("gBoxMin"), var("gBoxMax"),
+			var("gCasters"), var("gItems"), var("gWorlds"), var("gSrc"), var("gSpheres"), var("gBoxes"), var("gFlagsIn"), var("gInput"), var("gHiZ"),
 			var("gHistory"), var("gFlags"), var("gCounters"), var("gArgs"), var("gOut"), var("gDst") };
-		EditorLog::Write("Occlusion", "kernels loaded in %llu ms", ::GetTickCount64() - start);
+		EditorLog::Write("Occlusion", "kernels loaded in %.0f ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
 		s_EffectState = 1;
 		return true;
 	}
@@ -163,6 +177,7 @@ namespace
 		u1(s_V.Mode, c.Mode);
 		u1(s_V.Levels, c.Levels);
 		u1(s_V.Stride, c.Stride);
+		u1(s_V.SrcLevel, c.SrcLevel);
 	}
 
 	// CPU 가 프레임마다 쓰는 구조 버퍼 (커지기만 함)
@@ -338,7 +353,8 @@ namespace
 			u.Texture2D.MipSlice = i;
 			ComPtr<GfxShaderResourceView> srv;
 			ComPtr<GfxUnorderedAccessView> uav;
-			ok = SUCCEEDED(Dev()->CreateShaderResourceView(v.HiZ.Get(), &s, srv.GetAddressOf())) && SUCCEEDED(Dev()->CreateUnorderedAccessView(v.HiZ.Get(), &u, uav.GetAddressOf()));
+			// OpenGL ES: 밉 하나의 SRV = 사본 텍스처 (compute 가 쓴 것이 사본에 오지 않는다) → 만들지 않고 전체 SRV 에서 gSrcLevel 로 읽는다
+			ok = (kGles || SUCCEEDED(Dev()->CreateShaderResourceView(v.HiZ.Get(), &s, srv.GetAddressOf()))) && SUCCEEDED(Dev()->CreateUnorderedAccessView(v.HiZ.Get(), &u, uav.GetAddressOf()));
 			v.MipSrv.push_back(srv);
 			v.MipUav.push_back(uav);
 		}
@@ -414,10 +430,13 @@ namespace
 			st.ListVisible = (int)p[3];
 			st.ShadowTested = (int)p[4];
 			st.ShadowVisible = (int)p[5];
+			if (kGles)
+				st.QueriesHidden = (int)p[6];   // 상자 compute 의 가려진 수 (쿼리 대신)
 			++st.Frames;
-			// 거의 아무것도 가리지 않았다 → 30 번 쉬고 다시 본다 (탁 트인 장면에서 Hi-Z 비용만 들지 않게)
+			// 거의 아무것도 가리지 않았다 → 30 번 쉬고 다시 본다 (탁 트인 장면에서 Hi-Z 비용만 들지 않게).
+			//  첫 프레임 (지난 프레임 기록이 없어 1 단계 깊이가 비었다 — 가릴 수 없다) 의 결과로는 쉬지 않는다
 			const int culled = st.Tested - st.Visible;
-			if (culled < (std::max)(4, st.Tested / 50))
+			if (v.StagingFrame[k] > 1 && culled < (std::max)(4, st.Tested / 50))
 				v.SkipUntil = v.Calls + 30;
 			dc->Unmap(v.Staging[k].Get(), 0);
 			v.Pending[k] = false;
@@ -435,7 +454,9 @@ namespace
 		for (size_t b = 0; b < batches.size(); ++b)
 		{
 			base[b] = next;
-			if (args) args->insert(args->end(), { batches[b].IndexCount, 0u, batches[b].StartIndex, (uint32_t)batches[b].BaseVertex, next });
+			batches[b].Base = next;
+			// OpenGL ES 의 간접 인자에는 첫 인스턴스가 없다 (0 이어야 한다) → DrawIndirect 가 인스턴스 정점 버퍼를 그 자리부터 묶는다
+			if (args) args->insert(args->end(), { batches[b].IndexCount, 0u, batches[b].StartIndex, (uint32_t)batches[b].BaseVertex, kGles ? 0u : next });
 			next += batches[b].Candidates;
 		}
 		for (auto& it : items) it.Base = base[it.Batch];
@@ -565,10 +586,13 @@ namespace OcclusionCulling
 				c.ViewOrigin[1] = i == 0 ? (uint32_t)vp.TopLeftY : 0;
 				c.SrcSize[0] = sw; c.SrcSize[1] = sh;
 				c.DstSize[0] = dw; c.DstSize[1] = dh;
-				Run(dc, KReduce, c, { { s_V.Input, i == 0 ? depth : v.MipSrv[i - 1].Get() } }, { { s_V.Dst, v.MipUav[i].Get() } }, Groups(dw, 8), Groups(dh, 8));
+				GfxShaderResourceView* input = i == 0 ? depth : kGles ? v.AllSrv.Get() : v.MipSrv[i - 1].Get();
+				c.SrcLevel = i == 0 || !kGles ? 0 : i - 1;
+				Run(dc, KReduce, c, { { s_V.Input, input } }, { { s_V.Dst, v.MipUav[i].Get() } }, Groups(dw, 8), Groups(dh, 8));
 				sw = dw;
 				sh = dh;
 			}
+			c.SrcLevel = 0;
 			c.Levels = v.Levels;
 			c.ViewSize[0] = (float)w;
 			c.ViewSize[1] = (float)h;
@@ -584,7 +608,8 @@ namespace OcclusionCulling
 		PROFILE_GPU("Occlusion Test");
 		ClearUint(dc, s_Counters);
 		// 지난 프레임 이 뷰의 인스턴스 목록 수 (나무) → 카운터 8 · 12 바이트, 그림자 캐스터 → 16 · 20 (같은 staging 으로 읽는다), 그리고 지운다
-		for (auto [counters, used, at] : { std::make_tuple(&v.ListCounters, &v.ListCountersUsed, 8u), std::make_tuple(&v.ShadowCounters, &v.ShadowCountersUsed, 16u) })
+		for (auto [counters, used, at] : { std::make_tuple(&v.ListCounters, &v.ListCountersUsed, 8u), std::make_tuple(&v.ShadowCounters, &v.ShadowCountersUsed, 16u),
+			std::make_tuple(&v.BoxCounters, &v.BoxCountersUsed, 24u) })
 		{
 			if (!counters->B)
 				continue;
@@ -618,6 +643,7 @@ namespace OcclusionCulling
 			dc->CopyResource(v.Staging[v.Next].Get(), s_Counters.B.Get());
 			dc->End(v.Ready[v.Next].Get());
 			v.Pending[v.Next] = true;
+			v.StagingFrame[v.Next] = v.Frame;
 		}
 		v.Next = (v.Next + 1) % 3;
 		ReadStats(dc, v);
@@ -725,10 +751,49 @@ namespace OcclusionCulling
 			dc->DrawInstancedIndirect(l.Args.B.Get(), (UINT)draw * 20);
 	}
 
+	// OpenGL ES: 상자를 Hi-Z 로 검사 (compute) → 상자마다 보임 0 / 1. 본 패스의 그리기가 그 값을 InstanceCount 로 쓴다 (같은 프레임 깊이)
+	void BoxCull(GfxContext* dc, const std::vector<BoxQuery>& boxes)
+	{
+		if (!HasHiZ())
+			return;
+		PROFILE_GPU("Occlusion Boxes");
+		View& v = *s_Cur.V;
+		std::vector<float> data;
+		data.reserve(boxes.size() * 8);
+		for (const BoxQuery& b : boxes)
+			data.insert(data.end(), { b.Min[0], b.Min[1], b.Min[2], 0.0f, b.Max[0], b.Max[1], b.Max[2], 0.0f });
+		const UINT n = (UINT)boxes.size();
+		const bool ok = EnsureStructured(s_Boxes, 16, n * 2) && Upload(dc, s_Boxes, data.data(), data.size() * sizeof(float))
+			&& EnsureRaw(dc, s_BoxVisible, n * 4, 0, 0, false)
+			&& EnsureRaw(dc, v.BoxCounters, 16, 0, 0, false);
+		if (!ok)
+			return;
+		Constants c;
+		memcpy(c.ViewProj, s_Cur.ViewProj, sizeof(c.ViewProj));
+		c.ViewSize[0] = (float)s_HiZW;
+		c.ViewSize[1] = (float)s_HiZH;
+		c.Levels = s_HiZLevels;
+		c.Count = n;
+		// 카메라가 상자 안 · 가까운 면을 넘는 상자는 HiZVisible 이 보임으로 (쿼리처럼 CPU 가 거르지 않아도 된다)
+		Run(dc, KBox, c, { { s_V.Boxes, s_Boxes.Srv.Get() }, { s_V.HiZ, v.AllSrv.Get() } },
+			{ { s_V.Flags, s_BoxVisible.Uav.Get() }, { s_V.Counters, v.BoxCounters.Uav.Get() } }, Groups(n, 64));
+		v.BoxCountersUsed = true;
+		for (UINT i = 0; i < n; ++i)
+			s_BoxOf[boxes[i].Renderer] = i;
+		s_PredicateView = RenderManager::GetI()->ViewSerial;
+		s_Stats[v.Editor ? 1 : 0].Queries = (int)n;
+	}
+
 	void QueryBoxes(GfxContext* dc, const std::vector<BoxQuery>& boxes)
 	{
 		s_PredicateOf.clear();
+		s_BoxOf.clear();
 		s_PredicateView = ~0u;
+		if (kGles && dc && s_Cur.Finished && !boxes.empty() && s_Cur.V)
+		{
+			BoxCull(dc, boxes);
+			return;
+		}
 		if (!dc || !s_Cur.Finished || boxes.empty() || !s_Cur.V || !s_BoxPass || !s_BoxPass->IsValid())
 			return;
 		PROFILE_GPU("Occlusion Queries");
@@ -805,6 +870,11 @@ namespace OcclusionCulling
 	{
 		if (!dc || s_PredicateView != RenderManager::GetI()->ViewSerial)
 			return false;   // 다른 뷰 (찍기 등) 의 쿼리는 쓰지 않는다
+		if (kGles)
+		{
+			auto box = s_BoxOf.find(renderer);
+			return box != s_BoxOf.end() && dc->SetPredicationBuffer(s_BoxVisible.B.Get(), box->second * 4);   // 0 = 가려짐 → InstanceCount 0
+		}
 		auto it = s_PredicateOf.find(renderer);
 		if (it == s_PredicateOf.end())
 			return false;
@@ -813,7 +883,11 @@ namespace OcclusionCulling
 
 	void EndPredicated(GfxContext* dc)
 	{
-		if (dc)
+		if (!dc)
+			return;
+		if (kGles)
+			dc->SetPredicationBuffer(nullptr, 0);
+		else
 			dc->SetPredication(nullptr, FALSE);
 	}
 
@@ -824,32 +898,14 @@ namespace OcclusionCulling
 			return;
 		geometry.BindForInstancing(dc);
 		GfxBuffer* inst = s_Out[set].B.Get();
-		const UINT stride = 64, offset = 0;
-		dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
 		const Batch& b = batches[batch];
+		const UINT stride = 64, offset = kGles ? b.Base * 64 : 0;   // OpenGL ES: 간접 인자의 첫 인스턴스 대신
+		dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
 		RenderStats::AddDraw(b.IndexCount, geometry.GetSubset(subset).VertexCount, set == Main ? b.Candidates : 1);   // 본 패스 = 가려짐 전 후보 수
 		dc->DrawIndexedInstancedIndirect(s_Args[set].B.Get(), batch * 20);
 	}
 }
 
-#else   // 안드로이드: GLES 는 아직 절두체 컬링만
-
-namespace OcclusionCulling
-{
-	bool Supported(GfxContext*) { return false; }
-	bool Begin(GfxContext*, const void*, bool editor, const float*, Frame&, uint32_t) { s_Stats[editor ? 1 : 0].Active = false; return false; }
-	void Finish(GfxContext*) {}
-	void DrawIndirect(GfxContext*, Set, uint32_t, MeshGeometry&, uint32_t) {}
-	void QueryBoxes(GfxContext*, const std::vector<BoxQuery>&) {}
-	bool HasHiZ() { return false; }
-	bool BeginShadow(GfxContext*, Frame&) { return false; }
-	int CullList(GfxContext*, const void*, uint32_t, uint32_t, const float*, const ListDraw*, int) { return -1; }
-	void DrawList(GfxContext*, int, int, uint32_t) {}
-	bool BeginPredicated(GfxContext*, const void*) { return false; }
-	void EndPredicated(GfxContext*) {}
-}
-
-#endif
 
 namespace OcclusionCulling
 {
@@ -873,14 +929,20 @@ namespace OcclusionCulling
 				error = "unknown op (info | set --enabled true|false)";
 				return false;
 			}
-			auto view = [](bool editor) {
-				const Stats& s = LastStats(editor);
-				return nlohmann::json{ { "active", s.Active }, { "tested", s.Tested }, { "visible", s.Visible }, { "culled", s.Tested - s.Visible }, { "frames", s.Frames }, { "queries", s.Queries }, { "queriesHidden", s.QueriesHidden },
-					{ "instancesTested", s.ListTested }, { "instancesCulled", s.ListTested - s.ListVisible },
-					{ "shadowTested", s.ShadowTested }, { "shadowCulled", s.ShadowTested - s.ShadowVisible } };
-			};
-			result = { { "supported", Supported(Application::GetI()->GetDeviceContext()) }, { "enabled", Enabled }, { "game", view(false) }, { "scene", view(true) } };
+			result = nlohmann::json::parse(InfoJson());
 			return true;
 		});
+	}
+
+	std::string InfoJson()
+	{
+		auto view = [](bool editor) {
+			const Stats& s = LastStats(editor);
+			return nlohmann::json{ { "active", s.Active }, { "tested", s.Tested }, { "visible", s.Visible }, { "culled", s.Tested - s.Visible }, { "frames", s.Frames }, { "queries", s.Queries }, { "queriesHidden", s.QueriesHidden },
+				{ "instancesTested", s.ListTested }, { "instancesCulled", s.ListTested - s.ListVisible },
+				{ "shadowTested", s.ShadowTested }, { "shadowCulled", s.ShadowTested - s.ShadowVisible } };
+		};
+		const nlohmann::json j = { { "supported", Supported(Application::GetI()->GetDeviceContext()) }, { "enabled", Enabled }, { "game", view(false) }, { "scene", view(true) } };
+		return j.dump();
 	}
 }

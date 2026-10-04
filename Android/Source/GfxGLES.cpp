@@ -13,7 +13,9 @@
 //    · 텍스처 뷰 (glTextureView): 전체를 같은 모양 · 형식으로 읽는 뷰 = 텍스처 그대로. 밉 · 조각 일부, 큐브 ↔ 배열, 다른 형식으로 읽기,
 //      스텐실 읽기 = 사본 텍스처를 두고 원본이 바뀌었을 때만(쓰기 횟수) glCopyImageSubData 로 새로 고친다 (피드백 고리도 없음)
 //    · base instance 그리기: 인스턴스 단위 정점 버퍼의 시작 위치를 옮긴다 (시작 인스턴스 × 간격)
-//    · 뷰포트 · 가위 여러 개, 깊이 자르기 끄기, 선 채우기, 스트림 출력, UAV
+//    · 조건부 렌더링 (SetPredication): SetPredicationBuffer — 그리기를 간접 그리기로 바꿔 compute 가 쓴 0 / 1 을 InstanceCount 로 복사
+//    · 뷰포트 · 가위 여러 개, 깊이 자르기 끄기, 선 채우기, 스트림 출력, 형식 버퍼 · append UAV
+//  - compute (오클루전 컬링): 구조 · raw 버퍼 SRV · UAV = SSBO, 텍스처 UAV = image (밉 하나), 간접 그리기 (첫 인스턴스 없음 — 0 이어야 한다)
 //  - 묶기: Gfx 가 텍스처를 만들거나 올릴 때는 맨 끝 유닛(Scratch)에만 묶는다 → 효과가 묶어 둔 유닛을 건드리지 않는다.
 //    버퍼는 GL_COPY_WRITE_BUFFER 로 (GL_ELEMENT_ARRAY_BUFFER 는 VAO 의 상태라 쓰지 않는다)
 namespace
@@ -40,6 +42,7 @@ namespace
 		UINT Mips = 1;
 		UINT Samples = 1;
 		UINT64 Bytes = 0;
+		bool Uav = false;          // UNORDERED_ACCESS — image 로 쓴다 (필터 NEAREST: float32 는 필터할 수 없어 기본값이면 불완전 → 읽기 · 쓰기가 0)
 		uint64_t Version = 0;      // 쓸 때마다 +1 (사본 뷰가 새로 고칠지)
 		std::map<UINT, std::vector<uint8_t>> Mapped;
 		std::map<UINT, D3D11_MAP> MapType;
@@ -122,6 +125,11 @@ namespace
 		bool Copy = false;        // 사본 뷰
 		UINT MinLevel = 0, NumLevels = 1, MinLayer = 0, NumLayers = 1;
 		uint64_t CopiedVersion = ~0ull;
+		// 버퍼 뷰 (구조 · raw 버퍼 SRV · UAV = SSBO): GL 버퍼 · 바이트 범위
+		GLuint Buffer = 0;
+		UINT BufferOffset = 0, BufferSize = 0;
+		// 텍스처 UAV = image (glBindImageTexture): 텍스처 · 밉 (Level) · 형식
+		GLenum ImageFormat = 0;
 	};
 
 	template <class Iface, class Desc>
@@ -185,6 +193,7 @@ namespace
 		D3D11_QUERY_DESC D = {};
 		GLuint Id = 0;
 		bool Issued = false;
+		GLsync Fence = nullptr;   // D3D11_QUERY_EVENT: End 때 펜스 (그 앞 명령이 다 끝났나 — 오클루전 통계 읽기)
 	};
 
 	class GLCtx;
@@ -244,12 +253,7 @@ namespace
 		HRESULT CreateShaderResourceView(GfxResource* r, const D3D11_SHADER_RESOURCE_VIEW_DESC* desc, GfxShaderResourceView** out) override;
 		HRESULT CreateRenderTargetView(GfxResource* r, const D3D11_RENDER_TARGET_VIEW_DESC* desc, GfxRenderTargetView** out) override;
 		HRESULT CreateDepthStencilView(GfxResource* r, const D3D11_DEPTH_STENCIL_VIEW_DESC* desc, GfxDepthStencilView** out) override;
-		HRESULT CreateUnorderedAccessView(GfxResource*, const D3D11_UNORDERED_ACCESS_VIEW_DESC*, GfxUnorderedAccessView** out) override
-		{
-			if (out) *out = nullptr;
-			Once("uav", "%s", "OpenGL ES: unordered access views are not supported");
-			return E_NOTIMPL;
-		}
+		HRESULT CreateUnorderedAccessView(GfxResource* r, const D3D11_UNORDERED_ACCESS_VIEW_DESC* desc, GfxUnorderedAccessView** out) override;
 		HRESULT CreateInputLayout(const D3D11_INPUT_ELEMENT_DESC* elements, UINT count, const void* signature, SIZE_T signatureSize, GfxInputLayout** out) override;
 		HRESULT CreateRasterizerState(const D3D11_RASTERIZER_DESC* desc, GfxRasterizerState** out) override
 		{
@@ -322,7 +326,12 @@ namespace
 	}
 	GLLayout::~GLLayout() { if (Vao && CanDelete(Dev)) glDeleteVertexArrays(1, &Vao); }
 	GLSampler::~GLSampler() { if (Id && CanDelete(Dev)) glDeleteSamplers(1, &Id); }
-	GLQueryObj::~GLQueryObj() { if (Id && CanDelete(Dev)) glDeleteQueries(1, &Id); }
+	GLQueryObj::~GLQueryObj()
+	{
+		if (!CanDelete(Dev)) return;
+		if (Id) glDeleteQueries(1, &Id);
+		if (Fence) glDeleteSync(Fence);
+	}
 
 	UINT FullMips(UINT w, UINT h, UINT d)
 	{
@@ -368,6 +377,12 @@ namespace
 		Storage(t.Target, t.Mips, t.Fmt.Internal, t.Width, t.Height, t.Target == GL_TEXTURE_3D ? t.Depth : t.Layers, t.Samples);
 		if (t.Target != GL_TEXTURE_2D_MULTISAMPLE)
 			glTexParameteri(t.Target, GL_TEXTURE_MAX_LEVEL, (GLint)t.Mips - 1);
+		if (t.Uav)
+		{
+			// image 로 쓰는 텍스처 (Hi-Z R32F): 텍스처 자체의 필터가 NEAREST 여야 완전하다 (image 는 샘플러를 쓰지 않는다)
+			glTexParameteri(t.Target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(t.Target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		}
 		UnbindScratch(t.Target);
 		if (data)
 			for (UINT layer = 0; layer < t.Layers; ++layer)
@@ -508,6 +523,7 @@ namespace
 		i.Mips = desc->MipLevels ? desc->MipLevels : FullMips(desc->Width, desc->Height, 1);
 		t->Desc.MipLevels = i.Mips;
 		i.Samples = (std::max)(1u, desc->SampleDesc.Count);
+		i.Uav = (desc->BindFlags & D3D11_BIND_UNORDERED_ACCESS) != 0;
 		const bool cube = (desc->MiscFlags & D3D11_RESOURCE_MISC_TEXTURECUBE) != 0;
 		if (i.Samples > 1) i.Target = GL_TEXTURE_2D_MULTISAMPLE;
 		else if (cube) i.Target = i.Layers == 6 ? GL_TEXTURE_CUBE_MAP : GL_TEXTURE_CUBE_MAP_ARRAY;
@@ -603,8 +619,24 @@ namespace
 		TexInfo* t = TexOf(r);
 		if (!t)
 		{
-			Once("srv-buffer", "%s", "OpenGL ES: buffer shader resource views are not supported yet");
-			return E_NOTIMPL;
+			// 구조 · raw 버퍼 → SSBO (셰이더의 StructuredBuffer · ByteAddressBuffer)
+			GLBuf* b = BufOf(r);
+			if (!b || !desc || (desc->ViewDimension != D3D11_SRV_DIMENSION_BUFFER && desc->ViewDimension != D3D11_SRV_DIMENSION_BUFFEREX))
+			{
+				Once("srv-buffer", "%s", "OpenGL ES: this buffer shader resource view is not supported (structured / raw only)");
+				return E_NOTIMPL;
+			}
+			const UINT stride = desc->ViewDimension == D3D11_SRV_DIMENSION_BUFFEREX ? 4 : (b->Desc.StructureByteStride ? b->Desc.StructureByteStride : 4);
+			const UINT first = desc->ViewDimension == D3D11_SRV_DIMENSION_BUFFEREX ? desc->BufferEx.FirstElement : desc->Buffer.FirstElement;
+			const UINT count = desc->ViewDimension == D3D11_SRV_DIMENSION_BUFFEREX ? desc->BufferEx.NumElements : desc->Buffer.NumElements;
+			auto* v = new GLSrv(this);
+			v->D = *desc;
+			v->V.Res = r;
+			v->V.Buffer = b->Id;
+			v->V.BufferOffset = first * stride;
+			v->V.BufferSize = (std::min)(count * stride, b->Desc.ByteWidth - (std::min)(first * stride, b->Desc.ByteWidth));
+			*out = v;
+			return S_OK;
 		}
 		D3D11_SHADER_RESOURCE_VIEW_DESC d = {};
 		if (desc) d = *desc;
@@ -654,6 +686,48 @@ namespace
 			v->Release();
 			return E_INVALIDARG;
 		}
+		*out = v;
+		return S_OK;
+	}
+
+	HRESULT GLDev::CreateUnorderedAccessView(GfxResource* r, const D3D11_UNORDERED_ACCESS_VIEW_DESC* desc, GfxUnorderedAccessView** out)
+	{
+		if (!out) return S_FALSE;
+		*out = nullptr;
+		if (!desc || !Check("CreateUnorderedAccessView")) return E_INVALIDARG;
+		if (GLBuf* b = BufOf(r))
+		{
+			// 구조 · raw 버퍼 → SSBO (RWStructuredBuffer · RWByteAddressBuffer)
+			if (desc->ViewDimension != D3D11_UAV_DIMENSION_BUFFER || (desc->Buffer.Flags & (D3D11_BUFFER_UAV_FLAG_APPEND | D3D11_BUFFER_UAV_FLAG_COUNTER)))
+			{
+				Once("uav-buffer", "%s", "OpenGL ES: only structured / raw buffer UAVs without append or counter are supported");
+				return E_NOTIMPL;
+			}
+			const UINT stride = (desc->Buffer.Flags & D3D11_BUFFER_UAV_FLAG_RAW) ? 4 : (b->Desc.StructureByteStride ? b->Desc.StructureByteStride : 4);
+			auto* v = new GLUav(this);
+			v->D = *desc;
+			v->V.Res = r;
+			v->V.Buffer = b->Id;
+			v->V.BufferOffset = desc->Buffer.FirstElement * stride;
+			v->V.BufferSize = (std::min)(desc->Buffer.NumElements * stride, b->Desc.ByteWidth - (std::min)(v->V.BufferOffset, b->Desc.ByteWidth));
+			*out = v;
+			return S_OK;
+		}
+		TexInfo* t = TexOf(r);
+		if (!t || !t->Uav || t->Target != GL_TEXTURE_2D || desc->ViewDimension != D3D11_UAV_DIMENSION_TEXTURE2D || desc->Texture2D.MipSlice >= t->Mips)
+		{
+			Once("uav", "%s", "OpenGL ES: only buffer and 2D texture (one mip) unordered access views are supported");
+			return E_NOTIMPL;
+		}
+		// 텍스처 → image 유닛 (밉 하나). 형식은 텍스처 형식 그대로 (ES 의 image 는 텍스처 형식과 같아야 한다)
+		auto* v = new GLUav(this);
+		v->D = *desc;
+		v->V.Res = r;
+		v->V.Tex = t;
+		v->V.Name = t->Id;
+		v->V.Target = t->Target;
+		v->V.Level = desc->Texture2D.MipSlice;
+		v->V.ImageFormat = t->Fmt.Internal;
 		*out = v;
 		return S_OK;
 	}
@@ -841,6 +915,7 @@ namespace
 
 		~GLCtx() override
 		{
+			if (PredArgs && Dev && Dev->Current()) glDeleteBuffers(1, &PredArgs);
 			if (Dev && Dev->Immediate == this) Dev->Immediate = nullptr;
 		}
 
@@ -1075,19 +1150,97 @@ namespace
 		void Draw(UINT c, UINT s) override
 		{
 			GLenum mode;
-			if (PrepareDraw(mode, 0)) glDrawArrays(mode, s, c);
+			if (!PrepareDraw(mode, 0)) return;
+			if (!(PredBuf && DrawPredicated(mode, false, c, s, 0))) glDrawArrays(mode, s, c);
 		}
 		void DrawIndexed(UINT c, UINT s, INT b) override { DrawIndexedInstanced(c, 1, s, b, 0); }
 		void DrawInstanced(UINT c, UINT n, UINT s, UINT si) override
 		{
 			GLenum mode;
-			if (PrepareDraw(mode, si)) glDrawArraysInstanced(mode, s, c, n);
+			if (!PrepareDraw(mode, si)) return;
+			if (!(PredBuf && n == 1 && DrawPredicated(mode, false, c, s, 0))) glDrawArraysInstanced(mode, s, c, n);
 		}
 		void DrawIndexedInstanced(UINT c, UINT n, UINT s, INT b, UINT si) override
 		{
 			GLenum mode;
 			if (!Ib || !PrepareDraw(mode, si)) return;
+			if (PredBuf && n == 1 && IbOffset % IndexSize() == 0 && DrawPredicated(mode, true, c, s + IbOffset / IndexSize(), b)) return;
 			glDrawElementsInstancedBaseVertex(mode, c, IndexType(), (const void*)(uintptr_t)(IbOffset + (UINT64)s * IndexSize()), n, b);
+		}
+
+		// ---- 예측 (조건부 렌더링 대신): 그리기 인자를 CPU 가 쓰고 InstanceCount 자리에 버퍼의 0 / 1 을 복사 → 간접 그리기
+		static constexpr UINT kPredSlots = 1024;   // 인자 고리 (20 바이트씩 — 다시 쓰면 GL 이 앞 그리기 뒤로 맞춘다)
+		ComPtr<GfxBuffer> PredBuf;
+		UINT PredOffset = 0;
+		GLuint PredArgs = 0;
+		UINT PredNext = 0;
+		bool SetPredicationBuffer(GfxBuffer* buffer, UINT offset) override
+		{
+			if (!Dev->Check("SetPredicationBuffer")) return false;
+			PredBuf = buffer;
+			PredOffset = offset;
+			return true;
+		}
+		bool DrawPredicated(GLenum mode, bool indexed, UINT count, UINT first, INT baseVertex)
+		{
+			GLBuf* pb = BufOf(PredBuf.Get());
+			if (!pb || PredOffset + 4 > pb->Desc.ByteWidth) return false;
+			if (!PredArgs)
+			{
+				glGenBuffers(1, &PredArgs);
+				glBindBuffer(GL_COPY_WRITE_BUFFER, PredArgs);
+				glBufferData(GL_COPY_WRITE_BUFFER, kPredSlots * 20, nullptr, GL_DYNAMIC_DRAW);
+			}
+			const GLintptr at = (GLintptr)(PredNext++ % kPredSlots) * 20;
+			// 인덱스: (count, instanceCount, firstIndex, baseVertex, 0) · 정점: (count, instanceCount, first, 0)
+			const uint32_t args[5] = { count, 0, first, indexed ? (uint32_t)baseVertex : 0u, 0 };
+			glBindBuffer(GL_COPY_WRITE_BUFFER, PredArgs);
+			glBufferSubData(GL_COPY_WRITE_BUFFER, at, indexed ? 20 : 16, args);
+			glBindBuffer(GL_COPY_READ_BUFFER, pb->Id);
+			glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, PredOffset, at + 4, 4);
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, PredArgs);
+			if (indexed) glDrawElementsIndirect(mode, IndexType(), (const void*)(uintptr_t)at);
+			else glDrawArraysIndirect(mode, (const void*)(uintptr_t)at);
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+			return true;
+		}
+
+		// ---- GPU 가 정하는 그리기 (오클루전 컬링): 인자 배치 = D3D 와 같다. ES 에는 첫 인스턴스가 없다 (그 자리는 0 이어야 한다)
+		mutable int GpuDriven = -1;
+		bool SupportsGpuDriven() const override
+		{
+			if (GpuDriven < 0 && Dev->Current())
+			{
+				// compute 커널 하나의 SSBO 수 (많아야 5) · 효과 하나의 SSBO 바인딩 번호 (이름마다 — 12 개) · image
+				GLint blocks = 0, bindings = 0, images = 0;
+				glGetIntegerv(GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, &blocks);
+				glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &bindings);
+				glGetIntegerv(GL_MAX_COMPUTE_IMAGE_UNIFORMS, &images);
+				GpuDriven = blocks >= 6 && bindings >= 12 && images >= 1 ? 1 : 0;
+				EditorLog::Write("Gfx", "OpenGL ES: GPU-driven drawing %s (compute SSBO blocks %d, SSBO bindings %d, compute images %d)",
+					GpuDriven ? "on" : "off", blocks, bindings, images);
+			}
+			return GpuDriven > 0;
+		}
+		bool DrawIndexedInstancedIndirect(GfxBuffer* args, UINT offset) override
+		{
+			GLBuf* a = BufOf(args);
+			GLenum mode;
+			if (!a || !Ib || IbOffset != 0 || (offset & 3) || !PrepareDraw(mode, 0)) return false;
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, a->Id);
+			glDrawElementsIndirect(mode, IndexType(), (const void*)(uintptr_t)offset);
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+			return true;
+		}
+		bool DrawInstancedIndirect(GfxBuffer* args, UINT offset) override
+		{
+			GLBuf* a = BufOf(args);
+			GLenum mode;
+			if (!a || (offset & 3) || !PrepareDraw(mode, 0)) return false;
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, a->Id);
+			glDrawArraysIndirect(mode, (const void*)(uintptr_t)offset);
+			glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
+			return true;
 		}
 		void DrawAuto() override { Dev->Once("drawauto", "%s", "OpenGL ES: DrawAuto (stream output) is not supported"); }
 		void Dispatch(UINT x, UINT y, UINT z) override
@@ -1315,6 +1468,11 @@ namespace
 			auto* g = static_cast<GLQueryObj*>(q);
 			if (!g || !Dev->Check("End")) return;
 			if (g->D.Query == D3D11_QUERY_OCCLUSION && g->Id) glEndQuery(GL_ANY_SAMPLES_PASSED);
+			else if (g->D.Query == D3D11_QUERY_EVENT)
+			{
+				if (g->Fence) glDeleteSync(g->Fence);
+				g->Fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+			}
 			g->Issued = true;
 		}
 		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT) override
@@ -1339,6 +1497,15 @@ namespace
 				return S_OK;
 			}
 			case D3D11_QUERY_EVENT:
+				// 펜스가 신호되었나 (기다리지 않는다). End 를 안 했으면 아직
+				if (g->Fence)
+				{
+					GLint status = GL_UNSIGNALED;
+					glGetSynciv(g->Fence, GL_SYNC_STATUS, 1, nullptr, &status);   // bufSize = 정수 칸 수 (바이트 수가 아니다 — 4 를 주면 4 칸을 쓸 수 있다)
+					if (status != GL_SIGNALED) return S_FALSE;
+				}
+				else if (!g->Issued)
+					return S_FALSE;
 				if (data && size >= sizeof(BOOL)) *static_cast<BOOL*>(data) = TRUE;
 				return S_OK;
 			default:
@@ -1364,6 +1531,7 @@ namespace
 			for (float& f : BlendFactor) f = 1.0f;
 			ViewportCount = ScissorCount = 0;
 			TargetsBound = false;
+			PredBuf = nullptr;
 			if (Dev->Check("ClearState"))
 			{
 				glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1402,6 +1570,37 @@ unsigned int GfxGLES_ResolveView(GfxShaderResourceView* view, unsigned int* targ
 unsigned int GfxGL_TextureName(GfxShaderResourceView* view)   // GLShared.h (데스크톱과 같은 이름)
 {
 	return GfxGLES_ResolveView(view, nullptr);
+}
+
+// GLESRhi 가 SSBO · image 를 묶을 때 (GLShared.h — 데스크톱과 같은 이름)
+bool GfxGL_BufferRange(GfxShaderResourceView* view, unsigned& buffer, unsigned& offset, unsigned& size)
+{
+	if (!view || view->Api() != GfxApi::OpenGL) return false;
+	const ViewInfo& v = static_cast<GLSrv*>(view)->V;
+	buffer = v.Buffer;
+	offset = v.BufferOffset;
+	size = v.BufferSize;
+	return v.Buffer != 0;
+}
+
+bool GfxGL_UavBuffer(GfxUnorderedAccessView* view, unsigned& buffer, unsigned& offset, unsigned& size)
+{
+	if (!view || view->Api() != GfxApi::OpenGL) return false;
+	const ViewInfo& v = static_cast<GLUav*>(view)->V;
+	buffer = v.Buffer;
+	offset = v.BufferOffset;
+	size = v.BufferSize;
+	return v.Buffer != 0;
+}
+
+bool GfxGL_UavImage(GfxUnorderedAccessView* view, unsigned& texture, unsigned& level, unsigned& format)
+{
+	if (!view || view->Api() != GfxApi::OpenGL) return false;
+	const ViewInfo& v = static_cast<GLUav*>(view)->V;
+	texture = v.Name;
+	level = v.Level;
+	format = v.ImageFormat;
+	return v.Name != 0 && v.ImageFormat != 0;
 }
 
 std::unique_ptr<Rhi::Device> CreateGlesRhiDeviceOnGfx(GfxDevice* sinkDevice, GfxContext* sinkContext, std::string& error);   // GLESRhi.cpp

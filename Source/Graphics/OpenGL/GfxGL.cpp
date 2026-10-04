@@ -1447,7 +1447,7 @@ namespace
 				if (g->Fence)
 				{
 					GLint status = GL_UNSIGNALED;
-					glGetSynciv(g->Fence, GL_SYNC_STATUS, sizeof(status), nullptr, &status);
+					glGetSynciv(g->Fence, GL_SYNC_STATUS, 1, nullptr, &status);   // bufSize = 정수 칸 수 (바이트 수가 아니다 — 4 를 주면 4 칸을 쓸 수 있다)
 					if (status != GL_SIGNALED) return S_FALSE;
 				}
 				else if (!g->Issued)

@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string>
 #include <vector>
 
 class MeshGeometry;
@@ -12,7 +13,7 @@ class GfxContext;
 //   3. 본 패스: 지금 보이는 것만
 //  고른 인스턴스는 GPU 가 월드 행렬을 묶음마다 이어 써서 DrawIndexedInstancedIndirect 로 그린다 — CPU 읽기 없음, 한 프레임 늦은 구멍 없음,
 //  셰이더 (엔진 · Shader Graph · 패키지) 는 그대로 (인스턴스 정점 버퍼만 바뀐다)
-//  DirectX 11 만. OpenGL · Vulkan · 안드로이드는 Begin 이 false → 절두체 컬링만 (예전과 같음)
+//  DirectX 11 · OpenGL · Vulkan · OpenGL ES (안드로이드). GfxContext::SupportsGpuDriven 이 false 이면 Begin 이 false → 절두체 컬링만
 namespace OcclusionCulling
 {
 	enum Set { DepthPhase1 = 0, DepthPhase2 = 1, Main = 2, ShadowSet = 3, SetCount = 4 };
@@ -35,6 +36,7 @@ namespace OcclusionCulling
 		uint32_t IndexCount, StartIndex;
 		int32_t BaseVertex;
 		uint32_t Candidates;    // 이 묶음의 후보 인스턴스 수 (Begin 이 채운다)
+		uint32_t Base = 0;      // 이 묶음의 첫 인스턴스 자리 (Begin 이 채운다 — OpenGL ES 는 간접 인자 대신 정점 버퍼 오프셋으로)
 	};
 	struct Frame
 	{
@@ -96,4 +98,5 @@ namespace OcclusionCulling
 	const Stats& LastStats(bool editor);
 	bool Supported(GfxContext* dc);
 	void RegisterEditor();   // nova occlusion
+	std::string InfoJson();  // nova occlusion info 와 같은 JSON (안드로이드 기기 검사의 NOVA_TEST 줄)
 }
