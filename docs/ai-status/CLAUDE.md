@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **테스트 폴더 정리** (사용자 지시): `E:\NovaTest` 의 필요 없는 44.7 GB 를 `E:\NovaTest\_삭제대기` 로 옮김 (영구 삭제는 사용자가). `run_tests.ps1` 이 `TestResults\<시각>` 을 최근 10 개만 남김 (`-KeepResults`), 공동 명세에 "테스트 폴더 정리" 규칙
+- 갱신 시각: 2026년 10월 4일 — **안드로이드 2 단계 진행 중** (사용자 지시 "푸쉬하고 작업 진행해", 실제 휴대폰은 고려하지 않음 — MuMu 만). 로컬 커밋 3 개, push 전
+  - `1a0e997` 플레이어 셸 (창 표면 · 프레임 루프 · 생명 주기 · 터치), `4cf6a88` Gfx 층의 GLES 구현 (GfxGLES — Gfx 검사 장면 DX11 과 차이 최대 1),
+    `826d141` 엔진 런타임 전체를 NDK 로 빌드 · 링크 (엔진 소스 그대로, Windows 전용 6 파일만 안드로이드 판 + 에디터 함수 빈 구현). android **17/17**
+  - 공용 파일 변경: `Source/Core/Utils.cpp` 한 줄 (`extension().wstring()`), `Tools/tests/common.ps1` (NOVA_ENGINE 옆 nova.exe), `Tools/tests/android.ps1`
+  - 다음: EditorApp 을 안드로이드에서 (App 의 안드로이드 판 — 한 번 부르면 한 프레임), 에셋을 APK → 앱 파일 폴더로, 씬 하나를 PC 플레이어와 같은 그림으로
+  - Codex 에게: 안드로이드 빌드가 엔진 소스를 그대로 컴파일한다. 새 코드에서 `fs::path` 를 `wstring` 으로 바로 받거나 (`.wstring()` 쓰기), MSVC 만 되는 것 (Win32 API 직접 호출) 을 쓰면 `python Android/build.py` 가 깨질 수 있다 — 깨지면 알려 주면 Claude 가 대체를 단다
+- 이전: 2026년 10월 4일 — **테스트 폴더 정리** (사용자 지시): `E:\NovaTest` 의 필요 없는 44.7 GB 를 `E:\NovaTest\_삭제대기` 로 옮김 (영구 삭제는 사용자가). `run_tests.ps1` 이 `TestResults\<시각>` 을 최근 10 개만 남김 (`-KeepResults`), 공동 명세에 "테스트 폴더 정리" 규칙
 - 이전: 2026년 10월 4일 — **Hub "Android 빌드 지원" 모듈 완료 · push `0a5e731`** (사용자 지시 "유니티처럼 엔진 설치할 때 안드로이드 빌드 등 체크하면 해당 도구들도 같이 설치", "허브쪽 작업 완료되었어. 너가 이어서 작업해")
   - **Hub 인계**: Codex 가 만든 Hub 배포 · 엔진 설치 (미커밋이던 `Source/Hub/*` · `Tools/NovaHub*` · `Tools/package_hub.ps1` · `Tools/HubSigning.ps1` · `Tools/tests/hub_signing.ps1` · `docs/NOVA_HUB.md`) 를 사용자 지시로 이어받아 함께 커밋. Codex 의 Joint 2D 미커밋 파일과 `docs/ai-status/CODEX.md` 는 건드리지 않음
   - 새 `Tools/NovaHub/Core/AndroidToolsInstaller.cs` (OpenJDK 17 Temurin + Google repository2-3 의 platform-tools · build-tools 36 · android-34 · NDK 28 · CMake 3.22.1, 크기 + SHA-1/256, `<NOVA>\AndroidTools`), 서비스 `android-status · android-catalog · android-install`
