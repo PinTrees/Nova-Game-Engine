@@ -60,6 +60,7 @@ public:
 	static GameObject* CreateAudioSource();
 	// Unity 의 GameObject > Effects > Particle System: X 를 -90 도 돌려 원뿔이 위로 향한다
 	static GameObject* CreateParticleSystem(const std::string& name = "Particle System");
+	static GameObject* CreateLineEffect(bool trail);   // GameObject > Effects > Line · Trail
 	// 절차적 나무 (Oak 프리셋)
 	static GameObject* CreateTree(const std::string& name = "Tree");
 	static GameObject* CreateRock(int preset);   // 절차적 바위·절벽 (RockDesc 프리셋, 씨앗은 무작위)

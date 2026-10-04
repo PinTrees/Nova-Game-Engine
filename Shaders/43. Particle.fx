@@ -147,6 +147,19 @@ VertexOut TrailVS(TrailIn vin)
     return vout;
 }
 
+// Line · Trail Renderer: 길이 방향 (U) 을 반복 (Texture Mode = Tile · Repeat Per Segment), 빛 · Soft 없음 (Unity 의 Default-Line = Unlit)
+SamplerState samLine
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = WRAP;
+    AddressV = CLAMP;
+};
+
+float4 LinePS(VertexOut pin) : SV_Target
+{
+    return gTexture.Sample(samLine, pin.Tex) * pin.Color;
+}
+
 // 알파 채널: 아래 값을 덮어 쓰지 않고 쌓는다 (Scene 뷰는 투명 배경 위에 합성되고, Game 뷰는 1 로 유지)
 BlendState AlphaBlend
 {
@@ -218,6 +231,32 @@ technique11 TrailAdditiveTech
         SetVertexShader(CompileShader(vs_5_0, TrailVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS()));
+        SetBlendState(AdditiveBlend, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
+        SetDepthStencilState(DepthTestNoWrite, 0);
+        SetRasterizerState(NoCull);
+    }
+}
+
+technique11 LineAlphaTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TrailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, LinePS()));
+        SetBlendState(AlphaBlend, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
+        SetDepthStencilState(DepthTestNoWrite, 0);
+        SetRasterizerState(NoCull);
+    }
+}
+
+technique11 LineAdditiveTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TrailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, LinePS()));
         SetBlendState(AdditiveBlend, float4(0.0f, 0.0f, 0.0f, 0.0f), 0xFFFFFFFF);
         SetDepthStencilState(DepthTestNoWrite, 0);
         SetRasterizerState(NoCull);

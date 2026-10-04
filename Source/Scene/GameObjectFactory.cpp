@@ -18,6 +18,7 @@
 #include "AudioSource.h"
 #include "AudioListener.h"
 #include "ParticleSystem.h"
+#include "LineRenderer.h"
 #include "Tree.h"
 #include "TerrainStamp.h"
 #include "TerrainBiome.h"
@@ -371,6 +372,17 @@ GameObject* GameObjectFactory::CreateParticleSystem(const std::string& name)
 	GameObject* obj = new GameObject(name);
 	obj->GetTransform()->SetLocalEulerAngles(Vec3(-90.0f, 0.0f, 0.0f));
 	obj->AddComponent<ParticleSystem>();
+	return obj;
+}
+
+// GameObject > Effects > Line · Trail (Unity: 이름 "Line" · "Trail", 렌더러 하나)
+GameObject* GameObjectFactory::CreateLineEffect(bool trail)
+{
+	GameObject* obj = new GameObject(trail ? "Trail" : "Line");
+	if (trail)
+		obj->AddComponent<TrailRenderer>();
+	else
+		obj->AddComponent<LineRenderer>();
 	return obj;
 }
 

@@ -56,6 +56,8 @@ namespace
 		{ "TerrainSpline",       "Terrain Spline",        "Miscellaneous", "terrain_paint",     true  },
 		{ "Buoyancy",            "Buoyancy",              "Water",         "terrain_paint",     true  },
 		{ "ParticleSystem",      "Particle System",       "Effects",       "particle_system",   true  },
+		{ "LineRenderer",        "Line Renderer",         "Effects",       "particle_system",   true  },
+		{ "TrailRenderer",       "Trail Renderer",        "Effects",       "particle_system",   true  },
 		{ "AudioSource",         "Audio Source",          "Audio",         "audio_source",      false },
 		{ "AudioListener",       "Audio Listener",        "Audio",         "audio_listener",    true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },

@@ -4,6 +4,8 @@
 #include "ParticleSystem.h"
 #include "ParticleTextures.h"
 #include "Effects.h"
+#include "LineRenderer.h"
+#include "SpriteBatch.h"
 
 namespace
 {
@@ -18,17 +20,13 @@ namespace
 		XMFLOAT4 UV;
 	};
 
-	// 꼬리 정점 (43. Particle.fx 의 TrailIn)
-	struct TrailVertex
-	{
-		XMFLOAT3 Pos;
-		XMFLOAT2 UV;
-		XMFLOAT4 Color;
-	};
+	// 꼬리 정점 (43. Particle.fx 의 TrailIn) — Line · Trail Renderer 의 띠도 같은 정점
+	using TrailVertex = LineGeometry::Vertex;
 
 	struct Batch
 	{
-		ParticleSystem* System;
+		ParticleSystem* System = nullptr;
+		LineRendererBase* Line = nullptr;   // Line · Trail Renderer (System 대신)
 		UINT Start;
 		UINT Count;
 		UINT TrailStart = 0;
@@ -276,6 +274,29 @@ namespace ParticleRenderer
 			if (b.Count > 0 || b.TrailCount > 0)
 				batches.push_back(b);
 		}
+		// Line · Trail Renderer: 같은 띠 정점으로, 입자 시스템과 함께 먼 것부터
+		for (LineRendererBase* line : LineRendererBase::All())
+		{
+			if (!line->IsVisible())
+				continue;
+			Batch b;
+			b.Line = line;
+			b.Start = b.Count = 0;
+			b.TrailStart = (UINT)s_TrailVertices.size();
+			LineGeometry::Build(*line, camPos, s_TrailVertices);
+			b.TrailCount = (UINT)s_TrailVertices.size() - b.TrailStart;
+			if (b.TrailCount == 0)
+				continue;
+			Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+			for (UINT i = b.TrailStart; i < b.TrailStart + b.TrailCount; ++i)
+			{
+				const Vec3 v(s_TrailVertices[i].Pos.x, s_TrailVertices[i].Pos.y, s_TrailVertices[i].Pos.z);
+				mn = Vec3::Min(mn, v);
+				mx = Vec3::Max(mx, v);
+			}
+			b.Distance = ((mn + mx) * 0.5f - camPos).Dot(camForward);
+			batches.push_back(b);
+		}
 		if (batches.empty() || !Init() || !EnsureBuffer((UINT)(std::max)((size_t)1, s_Instances.size())))
 			return;
 		const bool drawTrails = !s_TrailVertices.empty() && s_TrailLayout && EnsureTrailBuffer((UINT)s_TrailVertices.size());
@@ -342,9 +363,37 @@ namespace ParticleRenderer
 		FxPass* addPass = fx->GetTechniqueByName("AdditiveTech")->GetPassByIndex(0);
 		FxPass* trailAlphaPass = fx->GetTechniqueByName("TrailAlphaTech")->GetPassByIndex(0);
 		FxPass* trailAddPass = fx->GetTechniqueByName("TrailAdditiveTech")->GetPassByIndex(0);
+		FxTechnique* lineAlphaTech = fx->GetTechniqueByName("LineAlphaTech");
+		FxTechnique* lineAddTech = fx->GetTechniqueByName("LineAdditiveTech");
+		FxPass* lineAlphaPass = lineAlphaTech && lineAlphaTech->IsValid() ? lineAlphaTech->GetPassByIndex(0) : trailAlphaPass;
+		FxPass* lineAddPass = lineAddTech && lineAddTech->IsValid() ? lineAddTech->GetPassByIndex(0) : trailAddPass;
 
 		for (const Batch& b : batches)
 		{
+			if (b.Line)
+			{
+				// Line · Trail Renderer: 텍스처 (비면 흰색 — Unity 의 Default-Line) · Blend, 빛 · Soft 없음
+				if (!drawTrails)
+					continue;
+				const UINT tstride = sizeof(TrailVertex), toffset = 0;
+				GfxBuffer* tvb = s_TrailBuffer.Get();
+				ctx->IASetInputLayout(s_TrailLayout.Get());
+				ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+				ctx->IASetVertexBuffers(0, 1, &tvb, &tstride, &toffset);
+				GfxShaderResourceView* tex = b.Line->Texture.empty() ? nullptr : ParticleTextures::Get(b.Line->Texture);
+				texVar->SetResource(tex ? tex : SpriteBatch::WhiteTexture());
+				depthParams.z = 0.0f;
+				depthParamsVar->SetFloatVector(&depthParams.x);
+				sunDir.w = 0.0f;
+				sunDirVar->SetFloatVector(&sunDir.x);
+				(b.Line->Blend == 1 ? lineAddPass : lineAlphaPass)->Apply(0, ctx);
+				ctx->Draw(b.TrailCount, b.TrailStart);
+				++s_LastDrawCalls;
+				ctx->IASetInputLayout(s_Layout.Get());
+				ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+				ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+				continue;
+			}
 			ParticleSystem* ps = b.System;
 			// 꼬리 먼저 (입자가 꼬리 위에 보이도록)
 			if (drawTrails && b.TrailCount > 0)

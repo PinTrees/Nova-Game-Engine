@@ -16,6 +16,7 @@
 #include "ScriptEngine.h"
 #include "UISystem.h"
 #include "ParticleSystem.h"
+#include "LineRenderer.h"
 #include "Tree.h"
 #include "Terrain.h"
 #include "TerrainData.h"
@@ -144,7 +145,7 @@ int32 App::Run()
 	AutoSave::Update();
 				AutoSave::WatchModels();   // 모델 원본이 바뀌면 다시 가져오기   // 간격마다 변경된 씬을 Library/AutoSave 에 (원본은 그대로)   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
 				{ PROFILE_SCOPE("UI.Update"); UISystem::Update(); }       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
-				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); }   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
+				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); TrailRenderer::UpdateAll(); }   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기
 				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
 				if (!Application::IsPlayer())
 				{

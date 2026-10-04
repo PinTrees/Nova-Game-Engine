@@ -170,8 +170,8 @@ namespace GameObjectMenu
 		{
 			if (ImGui::MenuItem("Particle System")) add(GameObjectFactory::CreateParticleSystem());
 			Disabled("Particle System Force Field");
-			Disabled("Trail");
-			Disabled("Line");
+			if (ImGui::MenuItem("Trail")) add(GameObjectFactory::CreateLineEffect(true));
+			if (ImGui::MenuItem("Line")) add(GameObjectFactory::CreateLineEffect(false));
 			ImGui::EndMenu();
 		}
 

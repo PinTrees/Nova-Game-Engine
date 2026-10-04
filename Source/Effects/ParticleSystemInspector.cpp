@@ -75,6 +75,11 @@ namespace
 		return changed;
 	}
 }
+
+bool ParticleSystemEditor::TexturePicker(const char* label, std::string* value, const std::string& key)
+{
+	return TextureField(label, value, key);
+}
 namespace
 {
 	const ImU32 kDim = IM_COL32(140, 140, 140, 255);

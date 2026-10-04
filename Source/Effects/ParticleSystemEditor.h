@@ -26,4 +26,6 @@ namespace ParticleSystemEditor
 	bool CurveField(const char* label, MinMaxCurve* curve, int indent = 0, bool allowCurves = true);
 	// colorModes = false 면 Gradient / Random Between Two Gradients 만 (Color over Lifetime)
 	bool GradientField(const char* label, MinMaxGradient* gradient, int indent = 0, bool colorModes = true);
+	// 텍스처 [ 이름 ⊙ ] (내장 입자 텍스처 · Project 의 이미지 끌어 놓기) — Line · Trail Renderer 도 쓴다
+	bool TexturePicker(const char* label, std::string* value, const std::string& key);
 }

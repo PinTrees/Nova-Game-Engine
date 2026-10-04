@@ -8,6 +8,7 @@
 #include "ScriptEngine.h"
 #include "UISystem.h"
 #include "ParticleSystem.h"
+#include "LineRenderer.h"
 #include "Tree.h"
 #include "SceneCulling.h"
 #include "LightManager.h"
@@ -214,6 +215,7 @@ int32 App::Run()
 	ScriptEngine::Update();
 	UISystem::Update();
 	ParticleSystem::UpdateAll();
+	TrailRenderer::UpdateAll();   // Trail Renderer: 점 더하기 · 오래된 점 빼기
 	Tree::UpdateAll();
 
 	if (auto activeCamera = DisplayManager::GetI()->GetActiveCamera())

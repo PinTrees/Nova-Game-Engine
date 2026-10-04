@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'linetrail', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2633,6 +2633,151 @@ function Suite-Occlusion
     }
 }
 
+function Suite-LineTrail
+{
+    # Line Renderer · Trail Renderer (Unity 이름): 하늘 앞 흰 선 — 끈 화면과의 차이로 굵기 · 색 · 끝 모양 · 꼬리를 잰다
+    Write-Host '[linetrail]'
+    $dir = Join-Path $Out 'linetrail'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function Shot([string]$name, [string]$view = 'scene', [int]$frames = 4) { $p = Join-Path $dir $name; Invoke-Nova "wait $frames" | Out-Null; Invoke-Nova "screenshot $p --view $view" | Out-Null; $p }
+        function Exec([string]$code) { $f = Join-Path $dir 'exec.cs'; $code | Set-Content -Encoding utf8 $f; (Invoke-NovaJson "exec --file $f").result }
+        # 기준 화면과 다른 픽셀: 열 x (화면 비율) 에서 세로로 다른 픽셀 수, 행 y 에서 가로 범위, 다른 픽셀의 평균 색
+        if (-not ('NovaLineMask' -as [type]))
+        {
+            Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+using System; using System.Drawing; using System.Drawing.Imaging; using System.Runtime.InteropServices;
+public static class NovaLineMask
+{
+    // 두 그림에서 많이 다른 픽셀 (RGB 차 합 > 60) 표시와 그 픽셀의 평균 색 (두 번째 그림)
+    public static object[] Diff(string a, string b)
+    {
+        using (var ba = new Bitmap(a)) using (var bb = new Bitmap(b))
+        {
+            int w = ba.Width, h = ba.Height; var m = new bool[w, h]; double r = 0, g = 0, bl = 0; int n = 0;
+            var ra = new Rectangle(0, 0, w, h);
+            var da = ba.LockBits(ra, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb); var db = bb.LockBits(ra, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var pa = new byte[da.Stride * h]; var pb = new byte[db.Stride * h];
+            Marshal.Copy(da.Scan0, pa, 0, pa.Length); Marshal.Copy(db.Scan0, pb, 0, pb.Length);
+            ba.UnlockBits(da); bb.UnlockBits(db);
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            {
+                int i = y * da.Stride + x * 4;
+                int d = Math.Abs(pa[i] - pb[i]) + Math.Abs(pa[i + 1] - pb[i + 1]) + Math.Abs(pa[i + 2] - pb[i + 2]);
+                if (d > 60) { m[x, y] = true; bl += pb[i]; g += pb[i + 1]; r += pb[i + 2]; n++; }
+            }
+            return new object[] { m, w, h, n, r / Math.Max(1, n), g / Math.Max(1, n), bl / Math.Max(1, n) };
+        }
+    }
+    // 열 (화면 비율 fx) 에서 다른 픽셀 수
+    public static int ColHeight(bool[,] m, double fx)
+    {
+        int x = (int)(m.GetLength(0) * fx), c = 0;
+        for (int y = 0; y < m.GetLength(1); y++) if (m[x, y]) c++;
+        return c;
+    }
+    // 다른 픽셀이 가장 많은 행의 가장 왼쪽 · 오른쪽
+    public static int[] RowSpan(bool[,] m)
+    {
+        int w = m.GetLength(0), h = m.GetLength(1), best = 0, by = 0;
+        for (int y = 0; y < h; y++) { int c = 0; for (int x = 0; x < w; x++) if (m[x, y]) c++; if (c > best) { best = c; by = y; } }
+        int l = -1, r = -1;
+        for (int x = 0; x < w; x++) if (m[x, by]) { if (l < 0) l = x; r = x; }
+        return new[] { l, r, r - l };
+    }
+}
+"@
+        }
+        function Mask([string]$a, [string]$b)
+        {
+            $d = [NovaLineMask]::Diff($a, $b)
+            [pscustomobject]@{ M = $d[0]; W = [int]$d[1]; H = [int]$d[2]; Count = [int]$d[3]; R = [double]$d[4]; G = [double]$d[5]; B = [double]$d[6] }
+        }
+        function ColHeight($k, [double]$fx) { [NovaLineMask]::ColHeight($k.M, $fx) }
+        function RowSpan($k) { $s = [NovaLineMask]::RowSpan($k.M); [pscustomobject]@{ L = $s[0]; R = $s[1]; Len = $s[2] } }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        # 바닥 (어두운 회청색) 앞에 선이 오게 위에서 비스듬히 — 지평선의 흰 구름은 흰 선과 구별되지 않는다
+        Invoke-Nova 'camera --position 0,3,-6 --target 0,1,0' | Out-Null
+        Invoke-Nova 'create empty --name Line' | Out-Null
+        Invoke-Nova 'add-component Line LineRenderer' | Out-Null
+        Invoke-Nova 'set Line --component LineRenderer --values "{\"positions\":[[-2,1,0],[2,1,0]],\"widthMultiplier\":0.3,\"enabled\":false}"' | Out-Null
+        $base = Shot 'base.png'
+        Invoke-Nova 'set Line --component LineRenderer --values "{\"enabled\":true}"' | Out-Null
+        $p = Shot 'line.png'; $k = Mask $base $p
+        # 너비 0.3 m, 거리 √40 m (카메라를 향한 띠), Scene 뷰 FOV 60 → 화면 높이의 0.3 / (2 · √40 · tan 30°)
+        $expect = 0.3 / (2 * [math]::Sqrt(40) * [math]::Tan([math]::PI / 6)) * $k.H
+        $hc = ColHeight $k 0.5
+        Add-Result linetrail 'Line Renderer draws a white line, Width 0.3 m = expected pixels' ($k.Count -gt 500 -and [math]::Abs($hc - $expect) -le [math]::Max(3, $expect * 0.2) -and $k.R -gt 200 -and $k.G -gt 200 -and $k.B -gt 200) ("height {0} px (expected {1:N1}), colour {2:N0},{3:N0},{4:N0}" -f $hc, $expect, $k.R, $k.G, $k.B)
+
+        # C#: startWidth · endWidth · startColor · endColor · positionCount
+        $r = Exec 'var l = GameObject.Find("Line").GetComponent<LineRenderer>(); l.startWidth = 0.1f; l.endWidth = 0.5f; l.startColor = new Color(1, 0, 0, 1); l.endColor = new Color(1, 0, 0, 1); return l.positionCount + "," + l.startWidth.ToString("0.00") + "," + l.endWidth.ToString("0.00");'
+        $p = Shot 'csharp.png'; $k = Mask $base $p
+        $hl = ColHeight $k 0.42; $hr = ColHeight $k 0.58
+        Add-Result linetrail 'C# startWidth / endWidth taper the line, startColor / endColor = red' ($r -eq '2,0.10,0.50' -and $hr -gt $hl * 2 -and $k.R -gt 180 -and $k.G -lt 90 -and $k.B -lt 90) ("C# {0}; left {1} px, right {2} px; colour {3:N0},{4:N0},{5:N0}" -f $r, $hl, $hr, $k.R, $k.G, $k.B)
+
+        # C# 로 만든 그 자리에서 값 넣기 (AddComponent 한 컴포넌트는 다음 프레임까지 대기 목록)
+        Exec 'var n = new GameObject("CsLine").AddComponent<LineRenderer>(); n.SetPositions(new[] { new Vector3(0, 0, 0), new Vector3(1, 0, 0), new Vector3(1, 1, 0) }); n.widthMultiplier = 0.05f; n.loop = true; return n.positionCount;' | Set-Variable made
+        Invoke-Nova 'wait 2' | Out-Null
+        $cl2 = Invoke-NovaJson 'get CsLine --component LineRenderer'
+        Add-Result linetrail 'C# new GameObject().AddComponent<LineRenderer>() then SetPositions in the same frame' ($made -eq '3' -and $cl2.positions.Count -eq 3 -and $cl2.loop -and [math]::Abs($cl2.widthMultiplier - 0.05) -lt 1e-4) ("returned {0}, saved points {1}, loop {2}, width {3}" -f $made, $cl2.positions.Count, $cl2.loop, $cl2.widthMultiplier)
+        Invoke-Nova 'delete CsLine' | Out-Null
+
+        # End Cap Vertices: 끝이 너비의 반만큼 둥글게 늘어난다
+        Exec 'var l = GameObject.Find("Line").GetComponent<LineRenderer>(); l.startWidth = 0.4f; l.endWidth = 0.4f; l.numCapVertices = 0; return 0;' | Out-Null
+        $k0 = Mask $base (Shot 'cap0.png')
+        Exec 'var l = GameObject.Find("Line").GetComponent<LineRenderer>(); l.numCapVertices = 8; return 0;' | Out-Null
+        $k8 = Mask $base (Shot 'cap8.png')
+        $s0 = RowSpan $k0; $s8 = RowSpan $k8
+        $pxPerM = $s0.Len / 4.0
+        Add-Result linetrail 'End Cap Vertices round the ends (each end longer by half the width)' ([math]::Abs(($s8.Len - $s0.Len) - 0.4 * $pxPerM) -le [math]::Max(4, 0.12 * $pxPerM)) ("span {0} -> {1} px (expected +{2:N1})" -f $s0.Len, $s8.Len, (0.4 * $pxPerM))
+
+        # Trail Renderer: 움직인 길을 따라 띠 (Time 5 초), Time 을 줄이면 곧 사라진다
+        Invoke-Nova 'set Line --component LineRenderer --values "{\"enabled\":false}"' | Out-Null
+        Invoke-Nova 'create empty --name Mover --position -2,1,0' | Out-Null
+        Invoke-Nova 'add-component Mover TrailRenderer' | Out-Null
+        Invoke-Nova 'set Mover --component TrailRenderer --values "{\"time\":5,\"widthMultiplier\":0.3,\"minVertexDistance\":0.05}"' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        foreach ($x in @(-1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2)) { Invoke-Nova ("set Mover --position {0},1,0" -f $x) | Out-Null; Invoke-Nova 'wait 2' | Out-Null }
+        $p = Shot 'trail.png' 'scene' 2; $k = Mask $base $p; $s = RowSpan $k
+        $cnt = Exec 'return GameObject.Find("Mover").GetComponent<TrailRenderer>().positionCount;'
+        Add-Result linetrail 'Trail Renderer follows the moved object (a band along its path), C# positionCount' ($k.Count -gt 500 -and $s.Len -gt $pxPerM * 2.5 -and [int]$cnt -ge 5) ("band {0} px wide ({1:N1} m), points {2}" -f $s.Len, ($s.Len / [math]::Max(1, $pxPerM)), $cnt)
+        Invoke-Nova 'set Mover --component TrailRenderer --values "{\"time\":0.5}"' | Out-Null
+        Start-Sleep -Milliseconds 900
+        $p = Shot 'trail_gone.png'; $k = Mask $base $p
+        Add-Result linetrail 'Trail fades out after Time (0.5 s) once the object stops' ($k.Count -lt 50) ("{0} differing pixels" -f $k.Count)
+        Exec 'var t = GameObject.Find("Mover").GetComponent<TrailRenderer>(); t.AddPosition(new Vector3(-2, 1, 0)); var n = t.positionCount; t.Clear(); return n + "," + t.positionCount;' | Set-Variable cl
+        Add-Result linetrail 'C# TrailRenderer.AddPosition / Clear' ($cl -match '^[1-9]\d*,0$') $cl
+
+        # 저장 · 다시 열기 · Game 뷰
+        Invoke-Nova 'set Line --component LineRenderer --values "{\"enabled\":true}"' | Out-Null
+        $assetDir = Join-Path $Project 'Assets\LineTest'; New-Item -ItemType Directory -Force $assetDir | Out-Null
+        Invoke-Nova 'scene save --as Assets/LineTest/Lines.scene' | Out-Null
+        Invoke-Nova 'scene open Assets/LineTest/Lines.scene --force' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $c = Invoke-NovaJson 'get Line --component LineRenderer'
+        $t = Invoke-NovaJson 'get Mover --component TrailRenderer'
+        Add-Result linetrail 'Save → reopen keeps positions, width, caps and trail time' ($c.positions.Count -eq 2 -and $c.numCapVertices -eq 8 -and [math]::Abs($c.widthMultiplier - 0.3) -lt 1e-4 -and [math]::Abs($t.time - 0.5) -lt 1e-4) ("points {0}, caps {1}, width x{2}, trail time {3}" -f $c.positions.Count, $c.numCapVertices, $c.widthMultiplier, $t.time)
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1,-6 --rotation 0,0,0' | Out-Null
+        Invoke-Nova 'set Line --component LineRenderer --values "{\"enabled\":false}"' | Out-Null
+        $g0 = Shot 'game_off.png' 'game' 6
+        Invoke-Nova 'set Line --component LineRenderer --values "{\"enabled\":true}"' | Out-Null
+        $g1 = Shot 'game_on.png' 'game' 6
+        $k = Mask $g0 $g1
+        Invoke-Nova 'window scene' | Out-Null
+        Add-Result linetrail 'Line also draws in the Game view' ($k.Count -gt 500) ("{0} differing pixels" -f $k.Count)
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item (Join-Path $Project 'Assets\LineTest'), (Join-Path $Project 'Assets\LineTest.meta') -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -3231,6 +3376,7 @@ try
                 'depthoffield' { Suite-DepthOfField }
                 'lodgroup' { Suite-LODGroup }
                 'occlusion' { Suite-Occlusion }
+                'linetrail' { Suite-LineTrail }
                 'ssr' { Suite-SSR }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }

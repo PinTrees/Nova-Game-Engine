@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **오클루전 컬링 (굽기 없는 GPU Hi-Z)** (사용자 지시: "너가 말한 방식으로 … 최고 효율방식 … 별도 사전 작업 없이 실시간"). **완료** — occlusion **7/7**, 회귀 lodgroup · shadergraph · reflectionprobe · probevolume · antialiasing · render 포함 **71/71**
+- 갱신 시각: 2026년 10월 4일 — **Line Renderer · Trail Renderer** (사용자 지시: 추천 1 · 2 · 3 모두 — 3 부터). **완료** — linetrail **9/9**
+  - 새 `Source/Effects/LineRenderer.*` (두 컴포넌트 · 띠 만들기 · C# 내보내기 `NovaLine_*`), 새 `ScriptCore/Engine/LineRenderer.cs` (DllImport — 네이티브 표는 그대로), `Shaders/43. Particle.fx` (LineAlphaTech · LineAdditiveTech),
+    `ParticleRenderer.cpp` (입자와 함께 정렬해 그림), `ParticleSystemEditor.h` · `ParticleSystemInspector.cpp` (TexturePicker), `GameObjectFactory.*` · `GameObjectMenu.cpp` · `AddComponentMenu.cpp` (메뉴 한 줄씩), `App.cpp` · `AppAndroid.cpp` (Trail 갱신)
+  - 다음: 깊이 프리패스의 남은 약 5 ms 원인 → 오클루전 컬링 넓히기 (스킨 메시 · 나무 · 그림자)
+- 이전: 2026년 10월 4일 — **오클루전 컬링 (굽기 없는 GPU Hi-Z)** (사용자 지시: "너가 말한 방식으로 … 최고 효율방식 … 별도 사전 작업 없이 실시간"). **완료** — occlusion **7/7**, 회귀 lodgroup · shadergraph · reflectionprobe · probevolume · antialiasing · render 포함 **71/71**
   - 새 `Shaders/57. OcclusionCulling.hlsl` (cs_5_0 커널 5 개 — fx 가 아니라 GLES 변환 대상 아님), 새 `Source/Graphics/DX11/OcclusionCulling.*` (두 단계 Hi-Z, DrawIndexedInstancedIndirect, CLI `nova occlusion`)
   - `MeshBatcher.*` (GPU 목록 · `FinishDepthPrepass`), `SceneCulling.*` (TrackedSlot · SlotCount), `MeshGeometry.*` (BindForInstancing · GetSubset), `EditorApp.cpp` (Game · Scene 뷰 프리패스 뒤), `Camera.h` (UsesOcclusionCulling),
     `App.cpp` · `GameViewEditorWindow.cpp` (통계), `Tools/NovaCli/main.cpp`, `run_tests.ps1` 의 `Suite-Occlusion`
