@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2537,6 +2537,102 @@ function Suite-LODGroup
     }
 }
 
+function Suite-Occlusion
+{
+    # 오클루전 컬링 (GPU Hi-Z, 굽기 없음): 큰 벽 뒤 상자 100 개 — 가려진 것은 그리지 않고, 화면은 끈 것과 같아야
+    Write-Host '[occlusion]'
+    $dir = Join-Path $Out 'occlusion'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function Shot([string]$name, [string]$view = 'scene', [int]$frames = 8) { $p = Join-Path $dir $name; Invoke-Nova "wait $frames" | Out-Null; Invoke-Nova "screenshot $p --view $view" | Out-Null; $p }
+        function Occ { Invoke-Nova 'wait 10' | Out-Null; Invoke-NovaJson 'occlusion info' }   # GPU 결과는 몇 프레임 늦게 읽힌다
+        function OccOn([bool]$on) { Invoke-Nova ("occlusion set --enabled {0}" -f $(if ($on) { 'true' } else { 'false' })) | Out-Null }
+        # 평균 차 (0..765) 와 많이 다른 픽셀 비율 (2 px 마다)
+        function ImgDiff([string]$a, [string]$b)
+        {
+            $ba = [System.Drawing.Bitmap]::FromFile($a); $bb = [System.Drawing.Bitmap]::FromFile($b); $s = 0.0; $n = 0; $big = 0
+            for ($y = 0; $y -lt $ba.Height; $y += 2) { for ($x = 0; $x -lt $ba.Width; $x += 2) {
+                $p = $ba.GetPixel($x, $y); $q = $bb.GetPixel($x, $y); $d = [math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B)
+                $s += $d; $n++; if ($d -gt 24) { $big++ } } }
+            $ba.Dispose(); $bb.Dispose()
+            [pscustomobject]@{ Mean = $s / [math]::Max(1, $n); Big = $big / [math]::Max(1, $n) }
+        }
+        function Same($d) { $d.Mean -lt 0.5 -and $d.Big -lt 0.0005 }
+        function Fmt($d) { "mean diff {0:N3}, differing {1:P3}" -f $d.Mean, $d.Big }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Floor --position 0,0,0 --scale 6,1,6' | Out-Null
+        Invoke-Nova 'create cube --name Wall --position 0,2.5,0 --scale 24,5,0.5' | Out-Null
+        $i = 0
+        foreach ($z in 0..9) { foreach ($x in 0..9) { Invoke-Nova ("create cube --name H{0} --position {1},0.5,{2}" -f $i, ($x * 2 - 9), (2 + $z * 1.5)) | Out-Null; $i++ } }
+        foreach ($f in @(@('F1', '-3,0.5,-4'), @('F2', '0,0.5,-5'), @('F3', '3,0.5,-4'))) { Invoke-Nova ("create cube --name {0} --position {1}" -f $f[0], $f[1]) | Out-Null }
+        Invoke-Nova 'camera --position 0,1.5,-14 --target 0,1.5,0' | Out-Null
+
+        # 1. 벽 뒤 100 개는 가려진다 (절두체 안이라 예전에는 모두 그렸다)
+        $o = Occ
+        Add-Result occlusion 'Supported on DirectX 11 and on in the Scene view' ($o.supported -and $o.enabled -and $o.scene.active) ("supported {0}, enabled {1}, scene active {2}" -f $o.supported, $o.enabled, $o.scene.active)
+        Add-Result occlusion 'Behind the wall: 100 boxes culled, the wall · floor · 3 front boxes drawn' ($o.scene.tested -ge 105 -and $o.scene.culled -ge 98 -and $o.scene.visible -le 8) ("tested {0}, visible {1}, culled {2}" -f $o.scene.tested, $o.scene.visible, $o.scene.culled)
+        $pOn = Shot 'wall_on.png'
+        OccOn $false; $pOff = Shot 'wall_off.png'; $off = Occ; OccOn $true
+        $d = ImgDiff $pOn $pOff
+        Add-Result occlusion 'Same picture as with occlusion culling off (no holes, no missing objects)' ((Same $d) -and -not $off.scene.active) ("{0}; off: active {1}" -f (Fmt $d), $off.scene.active)
+
+        # 2. 벽 위에서 내려다보면 모두 보인다 (지난 프레임 기록이 틀려도 같은 프레임에 그린다)
+        Invoke-Nova 'camera --position 0,14,-12 --target 0,0,8' | Out-Null
+        $pOn = Shot 'above_on.png' 'scene' 1
+        $o = Occ
+        OccOn $false; $pOff = Shot 'above_off.png'; OccOn $true
+        $d = ImgDiff $pOn $pOff
+        # (벽 바로 뒤 줄은 이 높이에서도 벽에 가린다 — 시선이 z = 2 에서 y 3.5 를 지난다)
+        Add-Result occlusion 'Looking over the wall: the boxes show up in the first frame (only the rows right behind the wall stay culled), same picture' ((Same $d) -and $o.scene.culled -le 30 -and $o.scene.tested -ge 105) ("first frame {0}; tested {1}, culled {2}" -f (Fmt $d), $o.scene.tested, $o.scene.culled)
+
+        # 3. 움직인 물체: 벽 뒤 상자를 앞으로 옮기면 그 프레임에 보인다 (굽기 없음 — 움직이는 물체도)
+        Invoke-Nova 'camera --position 0,1.5,-14 --target 0,1.5,0' | Out-Null
+        $pBefore = Shot 'move_before.png'
+        Invoke-Nova 'set H55 --position -6,0.5,-2' | Out-Null
+        $pAfter = Shot 'move_after.png' 'scene' 1
+        OccOn $false; $pOff = Shot 'move_off.png'; OccOn $true
+        $dMoved = ImgDiff $pBefore $pAfter; $d = ImgDiff $pAfter $pOff
+        Add-Result occlusion 'A hidden box moved in front of the wall is drawn in the next frame' ($dMoved.Big -gt 0.002 -and (Same $d)) ("moved region {0:P2}; vs off {1}" -f $dMoved.Big, (Fmt $d))
+
+        # 4. Game 뷰: Camera 의 Occlusion Culling (Unity 와 같은 값) 로 켜고 끈다
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.5,-14 --rotation 0,0,0' | Out-Null
+        $pOn = Shot 'game_on.png' 'game' 10
+        $o = Occ
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"occlusionCulling\":false}"' | Out-Null
+        $pOff = Shot 'game_off.png' 'game' 10
+        $o2 = Occ
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"occlusionCulling\":true}"' | Out-Null
+        $d = ImgDiff $pOn $pOff
+        Invoke-Nova 'window scene' | Out-Null
+        Add-Result occlusion 'Game view: Camera Occlusion Culling on culls the hidden boxes, off draws them, same picture' ($o.game.active -and $o.game.culled -ge 98 -and -not $o2.game.active -and (Same $d)) ("on: culled {0}/{1}; off: active {2}; {3}" -f $o.game.culled, $o.game.tested, $o2.game.active, (Fmt $d))
+
+        # 5. 성능: 벽 뒤 구 2000 개 (약 150 만 삼각형) — Scene 뷰 GPU 시간 (깊이 프리패스 · 본 패스에서 빠진다, 그림자는 그대로)
+        $cs = Join-Path $dir 'spheres.cs'
+        'for (int i = 0; i < 2000; i++) { var g = GameObject.CreatePrimitive(PrimitiveType.Sphere); g.name = "P" + i; g.transform.position = new Vector3(-11f + (i % 40) * 0.56f, 0.5f, 2.5f + (i / 40) * 0.55f); } return 2000;' | Set-Content -Encoding utf8 $cs
+        Invoke-Nova "exec --file $cs" | Out-Null
+        $o = Occ
+        $perfOn = Invoke-NovaJson 'perf --frames 120'
+        OccOn $false; Invoke-Nova 'wait 10' | Out-Null
+        $perfOff = Invoke-NovaJson 'perf --frames 120'
+        OccOn $true
+        # 단계별 GPU (깊이 프리패스 · 불투명 · 그림자)
+        $phases = (@('Depth Prepass', 'Opaque', 'Shadows') | ForEach-Object { $n = $_; $a = @($perfOn.gpuPasses | Where-Object { $_.pass -match $n })[0]; $b = @($perfOff.gpuPasses | Where-Object { $_.pass -match $n })[0]; if ($a -and $b) { "{0} {1:N2}/{2:N2}" -f $n, $a.ms, $b.ms } }) -join ', '
+        Add-Result occlusion 'Performance: 2000 hidden spheres — Scene view GPU time lower with occlusion culling' ($o.scene.culled -ge 2000 -and $perfOn.gpuMs -gt 0 -and $perfOn.gpuMs -lt $perfOff.gpuMs) ("culled {0}/{1}; GPU {2:N2} ms (on) vs {3:N2} ms (off) [{6}], CPU {4:N2} vs {5:N2} ms" -f $o.scene.culled, $o.scene.tested, $perfOn.gpuMs, $perfOff.gpuMs, $perfOn.cpuMs, $perfOff.cpuMs, $phases)
+        $perfOn.gpuPasses | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $dir 'perf_on.json')
+        $perfOff.gpuPasses | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $dir 'perf_off.json')
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -3134,6 +3230,7 @@ try
                 'probevolume' { Suite-ProbeVolume }
                 'depthoffield' { Suite-DepthOfField }
                 'lodgroup' { Suite-LODGroup }
+                'occlusion' { Suite-Occlusion }
                 'ssr' { Suite-SSR }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }

@@ -1,0 +1,68 @@
+#pragma once
+#include <cstdint>
+#include <vector>
+
+class MeshGeometry;
+class GfxContext;
+
+// 오클루전 컬링 — 굽기 없이 매 프레임 GPU 에서 (Unity 기본은 Umbra 로 미리 굽는다. NOVA 는 사전 작업 없이 움직이는 물체도)
+//  두 단계 Hi-Z (MeshBatcher 의 Mesh Renderer, 카메라 뷰의 깊이 프리패스 · 본 패스):
+//   1. 깊이 프리패스 1 단계: 지난 프레임에 보였던 렌더러만 그린다 (지형 · 나무 · 스킨 메시도 이어서 그려 가리는 물체가 된다)
+//   2. Finish: 깊이 버퍼 → Hi-Z 밉 → 렌더러 상자마다 가려졌는가 (compute) → 새로 보인 것만 깊이 프리패스 2 단계로
+//   3. 본 패스: 지금 보이는 것만
+//  고른 인스턴스는 GPU 가 월드 행렬을 묶음마다 이어 써서 DrawIndexedInstancedIndirect 로 그린다 — CPU 읽기 없음, 한 프레임 늦은 구멍 없음,
+//  셰이더 (엔진 · Shader Graph · 패키지) 는 그대로 (인스턴스 정점 버퍼만 바뀐다)
+//  DirectX 11 만. OpenGL · Vulkan · 안드로이드는 Begin 이 false → 절두체 컬링만 (예전과 같음)
+namespace OcclusionCulling
+{
+	enum Set { DepthPhase1 = 0, DepthPhase2 = 1, Main = 2, SetCount = 3 };
+
+	struct Caster
+	{
+		float Min[3];
+		uint32_t Slot;          // SceneCulling::Slot (지난 프레임 기록 자리)
+		float Max[3];
+		uint32_t Pad;
+	};
+	struct Item
+	{
+		uint32_t Caster;
+		uint32_t Batch;
+		uint32_t Base;          // 묶음의 첫 인스턴스 자리 (Begin 이 채운다)
+	};
+	struct Batch                // 묶음 하나의 메시 서브셋 (간접 인자)
+	{
+		uint32_t IndexCount, StartIndex;
+		int32_t BaseVertex;
+		uint32_t Candidates;    // 이 묶음의 후보 인스턴스 수 (Begin 이 채운다)
+	};
+	struct Frame
+	{
+		std::vector<Caster> Casters;
+		std::vector<float> Worlds;              // 렌더러마다 4x4 (16 개)
+		std::vector<Item> Items[2];             // 0 = 깊이 묶음, 1 = 본 패스 묶음
+		std::vector<Batch> Batches[2];
+	};
+
+	inline bool Enabled = true;   // nova occlusion set --enabled false · NOVA_DEV_NOOCCLUSION=1 (비교 측정)
+
+	// 깊이 프리패스를 시작할 때 (깊이 타깃이 묶인 상태): 올리고 1 단계 목록을 만든다. false = 이 뷰는 CPU 절두체 컬링만
+	//  view = 카메라 (뷰마다 지난 프레임 기록 · Hi-Z), editor = Scene 뷰 (통계), slotCount = SceneCulling::SlotCount
+	bool Begin(GfxContext* dc, const void* view, bool editor, const float viewProj[16], Frame& frame, uint32_t slotCount);
+	// 깊이 프리패스 1 단계 뒤 (같은 깊이 타깃이 묶인 상태): Hi-Z · 가려짐 검사 · 2 단계와 본 패스 목록
+	void Finish(GfxContext* dc);
+	// 그 목록의 묶음 하나 (입력 배치 · 셰이더는 호출한 쪽이 이미 묶었다 — 인스턴스 정점 버퍼 = 1 번)
+	void DrawIndirect(GfxContext* dc, Set set, uint32_t batch, MeshGeometry& geometry, uint32_t subset);
+
+	struct Stats
+	{
+		int Tested = 0;     // 절두체 안 렌더러 (GPU 가 검사)
+		int Visible = 0;    // 그중 가려지지 않은 것
+		bool Active = false;   // 마지막 뷰가 오클루전 컬링을 썼다
+		uint64_t Frames = 0;   // GPU 결과를 읽은 횟수
+	};
+	// 몇 프레임 늦은 GPU 결과 (기다리지 않고 읽는다)
+	const Stats& LastStats(bool editor);
+	bool Supported(GfxContext* dc);
+	void RegisterEditor();   // nova occlusion
+}

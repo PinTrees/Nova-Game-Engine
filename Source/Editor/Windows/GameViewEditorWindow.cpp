@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "OcclusionCulling.h"
 #include "SceneCulling.h"
 #include "GameViewEditorWindow.h"
 #include "MathHelper.h"
@@ -721,7 +722,7 @@ void GameViewEditorWindow::DrawStats(ImVec2 viewMin, ImVec2 viewMax)
 
 	const float w = 300.0f;
 	const float lh = ImGui::GetFontSize() + 1.0f;
-	const float h = lh * 15.0f + 20.0f;
+	const float h = lh * 16.0f + 20.0f;   // 줄 수 (오클루전 컬링 줄 포함)
 	const ImVec2 a(viewMax.x - w - 10.0f, viewMin.y + 8.0f);
 	const ImVec2 b(a.x + w, a.y + h);
 	ImDrawList* dl = ImGui::GetWindowDrawList();
@@ -757,6 +758,12 @@ void GameViewEditorWindow::DrawStats(ImVec2 viewMin, ImVec2 viewMax)
 	{
 		const SceneCulling::Stats& cs = SceneCulling::LastStats(false);
 		snprintf(buf, sizeof(buf), "Frustum culling: %d / %d visible (octree %d nodes)", cs.Visible, cs.Objects, cs.Nodes);
+		line(14.0f, cT, buf); y += lh;
+		const OcclusionCulling::Stats& oc = OcclusionCulling::LastStats(false);
+		if (oc.Active)
+			snprintf(buf, sizeof(buf), "Occlusion culling: %d / %d hidden (GPU Hi-Z)", oc.Tested - oc.Visible, oc.Tested);
+		else
+			snprintf(buf, sizeof(buf), "Occlusion culling: off");
 		line(14.0f, cT, buf); y += lh;
 	}
 	snprintf(buf, sizeof(buf), "Animation components playing: %d", animPlaying); line(14.0f, cT, buf); y += lh;

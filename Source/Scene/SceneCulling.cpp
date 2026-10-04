@@ -384,6 +384,20 @@ namespace SceneCulling
 		return true;
 	}
 
+	bool TrackedSlot(const Component* renderer, uint32_t& slot, Vec3& mn, Vec3& mx)
+	{
+		auto it = s_Map.find(const_cast<Component*>(renderer));
+		if (it == s_Map.end())
+			return false;
+		const Entry& e = s_Entries[it->second];
+		slot = (uint32_t)it->second;
+		mn = e.Bounds.Min;
+		mx = e.Bounds.Max;
+		return true;
+	}
+
+	uint32_t SlotCount() { return (uint32_t)s_Entries.size(); }
+
 	void Cull(CXMMATRIX viewProj, bool shadowPass)
 	{
 		PROFILE_SCOPE("Culling");

@@ -17,8 +17,12 @@ namespace MeshBatcher
 	// 다음 Draw 가 씬을 한 번 훑어 렌더러마다 (월드 행렬, 묶음 번호)를 정해 두고, 같은 화면의 나머지 패스
 	// (그림자 조각마다, 깊이, 본)는 보이는지 검사 + 행렬 추가만 한다
 	//  capture = 프로브 · GI 찍기 (LOD Group 이 애니메이션 크로스페이드 상태를 건드리지 않는다)
-	void BeginView(bool capture = false);
+	//  occlusionView = 오클루전 컬링 키 (카메라 — 지난 프레임 기록 · Hi-Z 가 뷰마다), nullptr = 끔 (Camera.useOcclusionCulling)
+	void BeginView(bool capture = false, const void* occlusionView = nullptr);
 	void Draw(Scene* scene, Pass pass, bool editor);
+	// 깊이 프리패스의 나머지 (스킨 메시 · 지형 · 나무 …) 를 그린 뒤, 같은 깊이 타깃이 묶인 채로 부른다:
+	//  오클루전 컬링 (Hi-Z 검사) → 새로 보인 Mesh Renderer 의 깊이. 본 패스는 지금 보이는 것만 그린다
+	void FinishDepthPrepass(Scene* scene, bool editor);
 
 	struct Stats
 	{

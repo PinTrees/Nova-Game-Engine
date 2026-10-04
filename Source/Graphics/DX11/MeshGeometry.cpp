@@ -63,6 +63,13 @@ void MeshGeometry::Draw(GfxContext* dc, uint32 subsetId, GfxBuffer* vertexBuffer
 	dc->DrawIndexed(_subsetTable[subsetId].FaceCount * 3, _subsetTable[subsetId].FaceStart * 3, _subsetTable[subsetId].VertexStart);
 }
 
+void MeshGeometry::BindForInstancing(GfxContext* dc)
+{
+	uint32 offset = 0;
+	dc->IASetVertexBuffers(0, 1, _vb.GetAddressOf(), &_vertexStride, &offset);
+	dc->IASetIndexBuffer(_ib.Get(), _indexBufferFormat, 0);
+}
+
 void MeshGeometry::InstancingDraw(ComPtr<GfxContext> dc, uint32 subsetId, uint32 instancingSize)
 {
 	uint32 offset = 0;

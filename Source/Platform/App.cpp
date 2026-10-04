@@ -21,6 +21,7 @@
 #include "TerrainData.h"
 #include "TerrainEditor.h"
 #include "TerrainGenerator.h"
+#include "OcclusionCulling.h"
 #include "SceneCulling.h"
 #include "FrameProfiler.h"
 #include "PlayerRuntime.h"
@@ -634,6 +635,9 @@ void App::RecordProfilerStats()
 		const SceneCulling::Stats& cs = SceneCulling::LastStats(false);
 		SetStat("Game View/Culling Visible", cs.Visible);
 		SetStat("Game View/Culling Total", cs.Objects);
+		const OcclusionCulling::Stats& oc = OcclusionCulling::LastStats(false);
+		SetStat("Game View/Occlusion Tested", oc.Active ? oc.Tested : 0);
+		SetStat("Game View/Occlusion Culled", oc.Active ? oc.Tested - oc.Visible : 0);
 		const TreeRenderer::Stats& ts = TreeRenderer::LastStats(false);
 		SetStat("Game View/Trees", ts.Trees);
 		SetStat("Game View/Trees LOD0", ts.Lod0);
@@ -655,6 +659,9 @@ void App::RecordProfilerStats()
 		const SceneCulling::Stats& cs = SceneCulling::LastStats(true);
 		SetStat("Scene View/Culling Visible", cs.Visible);
 		SetStat("Scene View/Culling Total", cs.Objects);
+		const OcclusionCulling::Stats& oc = OcclusionCulling::LastStats(true);
+		SetStat("Scene View/Occlusion Tested", oc.Active ? oc.Tested : 0);
+		SetStat("Scene View/Occlusion Culled", oc.Active ? oc.Tested - oc.Visible : 0);
 		SetStat("Scene View/Octree Nodes Visited", cs.NodesVisited);
 		const TreeRenderer::Stats& ts = TreeRenderer::LastStats(true);
 		SetStat("Scene View/Trees", ts.Trees);

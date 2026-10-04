@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **Codex 의 Joint 2D 통합 · 커밋** (사용자 지시 "그래 진행해줘" — 다음 작업 추천 1번). **완료** — 최신 main 빌드로 joints2d **42/42**, 씬 scene_lifecycle **44/44**, physics2d **8/8**, 엔진 빌드 (주석 변경 뒤) 통과
+- 갱신 시각: 2026년 10월 4일 — **오클루전 컬링 (굽기 없는 GPU Hi-Z)** (사용자 지시: "너가 말한 방식으로 … 최고 효율방식 … 별도 사전 작업 없이 실시간"). **완료** — occlusion **7/7**, 회귀 lodgroup · shadergraph · reflectionprobe · probevolume · antialiasing · render 포함 **71/71**
+  - 새 `Shaders/57. OcclusionCulling.hlsl` (cs_5_0 커널 5 개 — fx 가 아니라 GLES 변환 대상 아님), 새 `Source/Graphics/DX11/OcclusionCulling.*` (두 단계 Hi-Z, DrawIndexedInstancedIndirect, CLI `nova occlusion`)
+  - `MeshBatcher.*` (GPU 목록 · `FinishDepthPrepass`), `SceneCulling.*` (TrackedSlot · SlotCount), `MeshGeometry.*` (BindForInstancing · GetSubset), `EditorApp.cpp` (Game · Scene 뷰 프리패스 뒤), `Camera.h` (UsesOcclusionCulling),
+    `App.cpp` · `GameViewEditorWindow.cpp` (통계), `Tools/NovaCli/main.cpp`, `run_tests.ps1` 의 `Suite-Occlusion`
+  - Codex 에게: 씬 파일 (`Scene.cpp`) 은 고치지 않았다 — 2 단계는 EditorApp 이 `RenderSceneShadowNormal` 뒤에 부른다. 안드로이드 · GL · Vulkan 은 예전과 같은 CPU 절두체 컬링
+- 이전: 2026년 10월 4일 — **Codex 의 Joint 2D 통합 · 커밋** (사용자 지시 "그래 진행해줘" — 다음 작업 추천 1번). **완료** — 최신 main 빌드로 joints2d **42/42**, 씬 scene_lifecycle **44/44**, physics2d **8/8**, 엔진 빌드 (주석 변경 뒤) 통과
   - Codex 가 10월 3일에 끝내고 커밋하지 않은 Joint 2D (`Physics2DJoints.*` · C# `Physics2D.cs` · 네이티브 표 `J2_*` · `GameObject.*` RequireComponent · `PrefabUtility.cpp` · `SceneManager.cpp` …) 를
     최신 main 빌드 (안드로이드 · Decal 포함) 에서 다시 검사해 Codex 의 변경만 따로 커밋한다. 코드는 그대로, 영어 주석 11 줄만 한국어로 (프로젝트 규칙)
   - `docs/ai-status/CODEX.md` 는 Codex 가 쓴 그대로 커밋 (내용은 고치지 않음)

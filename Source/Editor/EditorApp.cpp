@@ -40,6 +40,7 @@
 #include "AndroidTools.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
+#include "OcclusionCulling.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
 #include "Light.h"
@@ -219,6 +220,7 @@ bool EditorApp::Init()
 		ReflectionProbes::RegisterEditor();   // nova probe
 		ProbeVolumes::RegisterEditor();       // nova probevolume
 		LODGroup::RegisterEditor();           // nova lod
+		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
 		VulkanTools::RegisterEditor();        // nova vulkan
 		AndroidTools::RegisterEditor();       // nova android
@@ -482,7 +484,9 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	const bool probe = d.Cam == nullptr;
 	const bool giCapture = d.Mode == 2;   // Adaptive Probe Volume 판 찍기 (알베도만)
 	Profiler::Phases phase;
-	MeshBatcher::BeginView(probe);   // 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다 (찍기 = LOD 바로 고름)
+	// 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다 (찍기 = LOD 바로 고름).
+	//  오클루전 컬링은 카메라마다 (Camera 의 Occlusion Culling, 찍기는 끔)
+	MeshBatcher::BeginView(probe, (!probe && d.Cam && d.Cam->UsesOcclusionCulling()) ? static_cast<const void*>(d.Cam) : nullptr);
 	TreeRenderer::BeginView();
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
@@ -568,6 +572,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	SceneCulling::SetEditorView(false);
 	SceneCulling::Cull(d.View * d.Proj, false);
 	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadowNormal();
+	MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), false);   // 오클루전 컬링: 깊이 → Hi-Z → 새로 보인 렌더러
 
 	_deviceContext->RSSetState(0);
 
@@ -755,7 +760,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
 	PROFILE_GPU("Scene View");
 	Profiler::Phases phase;
-	MeshBatcher::BeginView();
+	MeshBatcher::BeginView(false, camera);   // Scene 뷰도 오클루전 컬링 (카메라 = 지난 프레임 기록 · Hi-Z 의 키)
 	TreeRenderer::BeginView();
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
@@ -809,6 +814,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	SceneCulling::SetEditorView(true);
 	SceneCulling::Cull(camera->View() * camera->Proj(), false);
 	SceneManager::GetI()->GetCurrentScene()->_Editor_RenderSceneShadowNormal(); 
+	MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), true);
 
 	_deviceContext->RSSetState(0);
 

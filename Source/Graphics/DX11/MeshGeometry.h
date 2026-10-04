@@ -50,6 +50,9 @@ public:
 	// 정점 버퍼만 바꿔서 (BlendShape 를 섞은 렌더러 자기 버퍼) — null 이면 원래 것
 	void Draw(GfxContext* dc, uint32 subsetId, GfxBuffer* vertexBuffer);
 	void InstancingDraw(ComPtr<GfxContext> dc, uint32 subsetId, uint32 instancingSize);
+	// GPU 가 고른 인스턴스로 그리기 (OcclusionCulling 의 간접 그리기): 정점 · 인덱스 버퍼만 묶는다
+	void BindForInstancing(GfxContext* dc);
+	const Subset& GetSubset(uint32 subsetId) const { return _subsetTable[subsetId]; }
 
 	size_t GpuBytes() const;   // 정점 + 인덱스 버퍼 (Profiler 메모리)
 private:

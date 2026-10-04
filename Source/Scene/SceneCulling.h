@@ -45,4 +45,7 @@ namespace SceneCulling
 	void SetEditorView(bool editorView);   // 다음 카메라 Cull 의 통계를 어느 뷰에 쌓을지
 	// 추적 중인 렌더러의 월드 상자 (마지막 Update 기준). 추적하지 않으면 false — 발광 렌더러 찾기 (Adaptive Probe Volume)
 	bool TrackedBounds(const Component* renderer, Vec3& mn, Vec3& mx);
+	// 추적 중인 렌더러의 자리 번호 (지워질 때까지 같다) + 월드 상자 — 오클루전 컬링이 지난 프레임 기록을 이 번호로 둔다
+	bool TrackedSlot(const Component* renderer, uint32_t& slot, Vec3& mn, Vec3& mx);
+	uint32_t SlotCount();
 }

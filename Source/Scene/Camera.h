@@ -155,6 +155,7 @@ public:
 	float GetOrthoSize() const { return m_orthoSize; }
 	uint32 GetCullingMask() const { return m_cullingMask; }
 	void SetCullingMask(uint32 m) { m_cullingMask = m; }
+	bool UsesOcclusionCulling() const { return m_occlusionCulling; }   // Unity Camera.useOcclusionCulling (NOVA = 굽기 없는 GPU Hi-Z)
 	bool IsOrthographic() const { return m_cameraType == ProjectionType::Orthographic; }
 	virtual void OnDrawGizmos() override;
 

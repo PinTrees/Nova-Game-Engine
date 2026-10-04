@@ -15,6 +15,8 @@
 #include "CustomShaders.h"
 #include "RenderStates.h"
 #include "LODGroup.h"
+#include "OcclusionCulling.h"
+#include "EditorLog.h"
 #include <unordered_map>
 
 namespace
@@ -67,6 +69,14 @@ namespace
 	std::vector<int> s_Order;
 	std::vector<const Caster*> s_Fading;   // LOD 크로스페이드 중 (묶지 않고 gLodFade 를 넣어 하나씩)
 	MeshBatcher::Stats s_Stats[2];
+
+	// 오클루전 컬링 (OcclusionCulling): 이 뷰의 키 (카메라) 와 단계
+	const void* s_OccView = nullptr;
+	enum class Occ { Off, Phase1, Ready, Failed };
+	Occ s_Occ = Occ::Off;
+	OcclusionCulling::Frame s_OccFrame;
+	std::vector<int> s_GpuOrder[2];   // 후보가 있는 묶음 (깊이, 본 패스)
+	int s_GpuObjects = 0;
 
 	// 투명 재질 (CustomShaders::Transparent): 묶지 않고 물체마다 — 투명 패스에서 먼 것부터
 	struct TransparentItem
@@ -284,9 +294,356 @@ namespace MeshBatcher
 			dc->OMSetBlendState(nullptr, blendFactor, 0xFFFFFFFF);
 			dc->OMSetDepthStencilState(nullptr, 0);
 		}
+
+		// 깊이 · 본 패스에 들어가는 렌더러 (그림자 패스는 Shadows Only 를 뺀 쪽 대신 Off 를 뺀다)
+		bool Candidate(const Caster& c, Pass pass)
+		{
+			if (!SceneCulling::IsVisible(c.Renderer) || !(c.LayerBit & RenderLayers::ActiveMask()))
+				return false;   // 절두체 · Camera / Light 의 Culling Mask
+			return pass == Pass::Shadow ? c.Cast != 1 : c.Cast != 3;
+		}
+		bool Fading(const Caster& c)
+		{
+			return c.Renderer->LodStamp == SceneCulling::LodStamp && c.Renderer->LodFade > 0.0f;
+		}
+
+		// 오클루전 컬링 시작: 이 뷰의 후보 렌더러 (절두체 안, 크로스페이드 아님) 를 GPU 에 올리고 1 단계 목록을 만든다
+		bool StartOcclusion(bool editor)
+		{
+			GfxContext* dc = Application::GetI()->GetDeviceContext();
+			OcclusionCulling::Frame& f = s_OccFrame;
+			f.Casters.clear();
+			f.Worlds.clear();
+			for (int s = 0; s < 2; ++s)
+			{
+				f.Items[s].clear();
+				s_GpuOrder[s].clear();
+			}
+			if (s_OccView != nullptr)
+			{
+				for (int s = 0; s < 2; ++s)
+				{
+					const std::vector<Batch>& batches = s ? s_MainBatches : s_DepthBatches;
+					const int count = s ? s_MainCount : s_DepthCount;
+					f.Batches[s].resize(count);
+					for (int i = 0; i < count; ++i)
+					{
+						const MeshGeometry::Subset& sub = batches[i].MeshPtr->ModelMesh.GetSubset(batches[i].Subset);
+						f.Batches[s][i] = { sub.FaceCount * 3, sub.FaceStart * 3, (int32_t)sub.VertexStart, 0 };
+					}
+				}
+				const uint32_t untracked = SceneCulling::SlotCount();   // 상자가 없는 렌더러: 늘 보임 (아주 큰 상자)
+				for (const Caster& c : s_Casters)
+				{
+					if (!Candidate(c, Pass::Main) || Fading(c))
+						continue;
+					OcclusionCulling::Caster oc = {};
+					Vec3 mn, mx;
+					if (!SceneCulling::TrackedSlot(c.Renderer, oc.Slot, mn, mx))
+					{
+						oc.Slot = untracked;
+						mn = Vec3(-1e30f, -1e30f, -1e30f);
+						mx = Vec3(1e30f, 1e30f, 1e30f);
+					}
+					oc.Min[0] = mn.x; oc.Min[1] = mn.y; oc.Min[2] = mn.z;
+					oc.Max[0] = mx.x; oc.Max[1] = mx.y; oc.Max[2] = mx.z;
+					const uint32_t index = (uint32_t)f.Casters.size();
+					f.Casters.push_back(oc);
+					f.Worlds.insert(f.Worlds.end(), &c.World._11, &c.World._11 + 16);
+					for (uint32_t k = c.First; k < c.First + c.Count; ++k)
+					{
+						if (s_DepthItems[k] >= 0) f.Items[0].push_back({ index, (uint32_t)s_DepthItems[k], 0 });
+						if (s_MainItems[k] >= 0) f.Items[1].push_back({ index, (uint32_t)s_MainItems[k], 0 });
+					}
+				}
+			}
+			RenderManager* rm = RenderManager::GetI();
+			XMFLOAT4X4 vp;
+			XMStoreFloat4x4(&vp, editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix);
+			if (!OcclusionCulling::Begin(dc, s_OccView, editor, &vp._11, f, SceneCulling::SlotCount()))
+				return false;
+			// 후보가 있는 묶음만 그린다 (본 패스는 재질끼리 모아 재질 적용 횟수를 줄인다)
+			for (int s = 0; s < 2; ++s)
+				for (int i = 0; i < (int)f.Batches[s].size(); ++i)
+					if (f.Batches[s][i].Candidates > 0)
+						s_GpuOrder[s].push_back(i);
+			std::sort(s_GpuOrder[1].begin(), s_GpuOrder[1].end(), [](int a, int b) {
+				if (s_MainBatches[a].Material.get() != s_MainBatches[b].Material.get()) return s_MainBatches[a].Material.get() < s_MainBatches[b].Material.get();
+				return s_MainBatches[a].Layer < s_MainBatches[b].Layer;
+			});
+			s_GpuObjects = (int)f.Casters.size();
+			return true;
+		}
+
+		// 패스 하나. gpuSet >= 0 = 오클루전 컬링 목록 (GPU 가 고른 인스턴스, 간접 그리기), -1 = CPU 목록
+		void DrawPass(Pass pass, bool editor, int gpuSet)
+		{
+			// ---- 이번 패스: 보이는 렌더러의 월드 행렬만 묶음에 쌓는다 (GPU 목록이면 크로스페이드만)
+			const bool main = pass == Pass::Main;
+			std::vector<Batch>& batches = main ? s_MainBatches : s_DepthBatches;
+			const std::vector<int>& items = main ? s_MainItems : s_DepthItems;
+			const int batchCount = main ? s_MainCount : s_DepthCount;
+			s_Order.clear();
+			s_Fading.clear();
+			int objects = 0;
+			if (gpuSet >= 0)
+			{
+				s_Order = s_GpuOrder[main ? 1 : 0];
+				objects = s_GpuObjects;
+				if (gpuSet != OcclusionCulling::DepthPhase2)   // 크로스페이드는 1 단계 · 본 패스에서 CPU 로
+					for (const Caster& c : s_Casters)
+						if (Candidate(c, pass) && Fading(c))
+						{
+							s_Fading.push_back(&c);
+							++objects;
+						}
+			}
+			else
+			{
+				for (int i = 0; i < batchCount; ++i)
+					batches[i].Worlds.clear();
+				for (const Caster& c : s_Casters)
+				{
+					if (!Candidate(c, pass))
+						continue;
+					if (pass != Pass::Shadow && Fading(c))
+					{
+						s_Fading.push_back(&c);   // 그림자는 LOD Group 이 고른 한 쪽만 (LodShadowHidden)
+						++objects;
+						continue;
+					}
+					for (uint32_t k = c.First; k < c.First + c.Count; ++k)
+					{
+						if (items[k] < 0)
+							continue;   // 투명 (투명 패스)
+						Batch& b = batches[items[k]];
+						if (b.Worlds.empty())
+							s_Order.push_back(items[k]);
+						b.Worlds.push_back(c.World);
+					}
+					++objects;
+					if (pass == Pass::Shadow)
+						RenderStats::AddShadowCaster();
+				}
+				// 본 패스는 재질끼리 모아 재질 적용 횟수를 줄인다
+				if (main)
+					std::sort(s_Order.begin(), s_Order.end(), [&](int a, int b) {
+						if (batches[a].Material.get() != batches[b].Material.get()) return batches[a].Material.get() < batches[b].Material.get();
+						return batches[a].Layer < batches[b].Layer;
+					});
+			}
+			if (s_Order.empty() && s_Fading.empty())
+			{
+				if (main)
+					s_Stats[editor ? 1 : 0] = Stats{ 0, 0 };
+				return;
+			}
+
+			// ---- 패스 값
+			GfxContext* dc = Application::GetI()->GetDeviceContext();
+			RenderManager* rm = RenderManager::GetI();
+			const XMMATRIX viewProj = editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix;
+			FxTechnique* tech = nullptr;
+			FxEffect* fx = nullptr;
+			switch (pass)
+			{
+			case Pass::Main:
+			{
+				static const XMMATRIX toTex(0.5f, 0.0f, 0.0f, 0.0f, 0.0f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f);
+				fx = Effects::InstancedBasicFX->GetFX();
+				tech = fx->GetTechniqueByName("BatchTech");
+				Effects::InstancedBasicFX->SetViewProj(viewProj);
+				SetMatrix(fx, "gViewProjTex", viewProj * toTex);
+				Effects::InstancedBasicFX->SetTexTransform(XMMatrixIdentity());
+				break;
+			}
+			case Pass::Shadow:
+				// gViewProj 는 ShadowRenderer 가 조각마다 설정해 둔다
+				fx = Effects::BuildShadowMapFX->GetFX();
+				tech = Effects::BuildShadowMapFX->BuildShadowMapInstancingTech.Get();
+				Effects::BuildShadowMapFX->SetTexTransform(XMMatrixIdentity());
+				break;
+			case Pass::NormalDepth:
+				fx = Effects::SsaoNormalDepthFX->GetFX();
+				tech = fx->GetTechniqueByName("NormalDepthBatchTech");
+				SetMatrix(fx, "gView", editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix);
+				SetMatrix(fx, "gWorldViewProj", viewProj);
+				SetMatrix(fx, "gTexTransform", XMMatrixIdentity());
+				break;
+			default:
+				break;
+			}
+			if (tech == nullptr || !tech->IsValid())
+				return;
+
+			dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+			dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
+			uint32 appliedLayer = 0;
+			int drawn = 0;
+			// gpu = GPU 목록의 묶음 번호 (-1 = b->Worlds 를 올려 그린다)
+			auto drawBatch = [&](Batch* b, int gpu)
+			{
+				GfxBuffer* inst = nullptr;
+				if (gpu < 0 && (inst = Upload(dc, b->Worlds)) == nullptr)
+					return;
+				auto drawInstances = [&]()
+				{
+					if (gpu >= 0)
+						OcclusionCulling::DrawIndirect(dc, (OcclusionCulling::Set)gpuSet, (uint32_t)gpu, b->MeshPtr->ModelMesh, b->Subset);
+					else
+					{
+						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
+						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
+						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
+					}
+				};
+				// 패키지 · Shader Graph 셰이더 (CustomShaders::DrawInstanced): 그 셰이더가 값을 넣고 그린다
+				if (pass == Pass::Main && b->Material && b->Material->IsCustom())
+					if (const CustomShaders::Shader* cs = CustomShaders::Find(b->Material->CustomShader()); cs && cs->DrawInstanced)
+					{
+						CustomShaders::InstancedDraw d;
+						d.Context = dc;
+						d.Material = b->Material.get();
+						d.ViewProj = viewProj;
+						d.Editor = editor;
+						d.LayerBit = b->Layer;
+						d.Draw = [&]() {
+							dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+							dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+							drawInstances();
+						};
+						cs->DrawInstanced(d);
+						applied = reinterpret_cast<const UMaterial*>(1);   // 다음 엔진 묶음은 재질 · 레이어를 다시
+						appliedLayer = 0;
+						++drawn;
+						return;
+					}
+				// 깊이 · 그림자: 잘라내는 재질 (사용자 셰이더 → 그 셰이더, 엔진 Lit → 그림 알파로 자르는 기법)
+				if (pass != Pass::Main && b->Material)
+				{
+					const Clip clip = ClipOf(b->Material.get());
+					if (clip == Clip::Custom)
+					{
+						const CustomShaders::Shader* cs = CustomOf(b->Material.get());
+						CustomShaders::InstancedDraw d;
+						d.Context = dc;
+						d.Material = b->Material.get();
+						d.Editor = editor;
+						d.Pass = pass == Pass::Shadow ? CustomShaders::DrawPass::Shadow : CustomShaders::DrawPass::NormalDepth;
+						d.ViewProj = pass == Pass::Shadow ? rm->LightViewProjection : viewProj;
+						d.View = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
+						d.Draw = [&]() {
+							dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+							dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+							drawInstances();
+						};
+						cs->DrawInstanced(d);
+						++drawn;
+						return;
+					}
+					if (clip == Clip::Engine)
+					{
+						UMaterial& m = *b->Material;
+						FxTechnique* clipTech = nullptr;
+						if (pass == Pass::Shadow)
+						{
+							Effects::BuildShadowMapFX->SetDiffuseMap(m.GetBaseMapSRV());
+							Effects::BuildShadowMapFX->SetAlphaCutoff(EngineCutoff(m));
+							Effects::BuildShadowMapFX->SetTexTransform(EngineClipTexTransform(m));
+							clipTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech.Get();
+						}
+						else
+						{
+							Effects::SsaoNormalDepthFX->SetDiffuseMap(m.GetBaseMapSRV());
+							Effects::SsaoNormalDepthFX->SetAlphaCutoff(EngineCutoff(m));
+							SetMatrix(fx, "gTexTransform", EngineClipTexTransform(m));
+							clipTech = fx->GetTechniqueByName("NormalDepthAlphaClipBatchTech");
+						}
+						if (clipTech && clipTech->IsValid())
+						{
+							dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+							clipTech->GetPassByIndex(0)->Apply(0, dc);
+							drawInstances();
+							++drawn;
+						}
+						// 다음 묶음 (보통 재질) 을 위해 되돌린다
+						if (pass == Pass::Shadow)
+						{
+							Effects::BuildShadowMapFX->SetTexTransform(XMMatrixIdentity());
+							Effects::BuildShadowMapFX->SetAlphaCutoff(0.0f);
+						}
+						else
+						{
+							SetMatrix(fx, "gTexTransform", XMMatrixIdentity());
+							Effects::SsaoNormalDepthFX->SetAlphaCutoff(0.0f);
+						}
+						return;
+					}
+				}
+				if (pass == Pass::Main && b->Material.get() != applied)
+				{
+					UMaterial::ApplyOrDefault(b->Material, Effects::InstancedBasicFX.get());
+					applied = b->Material.get();
+				}
+				if (pass == Pass::Main && b->Layer != appliedLayer)
+				{
+					RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), b->Layer);   // Light.cullingMask
+					appliedLayer = b->Layer;
+				}
+				tech->GetPassByIndex(0)->Apply(0, dc);
+				drawInstances();
+				++drawn;
+			};
+			for (int index : s_Order)
+				drawBatch(&batches[index], gpuSet >= 0 ? index : -1);
+
+			// LOD 크로스페이드 중인 렌더러: 서브셋마다 하나씩, gLodFade 로 화면 디더 (깊이 프리패스와 본 패스가 같은 무늬 — EQUAL 깊이 검사가 맞는다)
+			if (!s_Fading.empty())
+			{
+				FxEffect* fadeFx = main ? Effects::InstancedBasicFX->GetFX() : Effects::SsaoNormalDepthFX->GetFX();
+				auto* fadeVar = fadeFx->GetVariableByName("gLodFade")->AsVector();
+				Batch one;
+				for (const Caster* c : s_Fading)
+				{
+					const float fade[4] = { c->Renderer->LodFade, c->Renderer->LodFadeBelow ? 1.0f : 0.0f, 1.0f, 0.0f };
+					if (fadeVar && fadeVar->IsValid())
+						fadeVar->SetFloatVector(fade);
+					for (uint32_t k = c->First; k < c->First + c->Count; ++k)
+					{
+						if (items[k] < 0)
+							continue;
+						const Batch& src = batches[items[k]];
+						one.MeshPtr = src.MeshPtr;
+						one.Subset = src.Subset;
+						one.Material = src.Material;
+						one.Layer = src.Layer;
+						one.Worlds.assign(1, c->World);
+						drawBatch(&one, -1);
+					}
+				}
+				const float off[4] = { 0, 0, 0, 0 };
+				if (fadeVar && fadeVar->IsValid())
+					fadeVar->SetFloatVector(off);
+			}
+			GfxBuffer* none = nullptr;
+			UINT zero = 0;
+			dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
+			if (pass == Pass::Main)
+			{
+				s_Stats[editor ? 1 : 0] = Stats{ objects, drawn };
+				RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);   // 다른 그리기는 모든 빛
+			}
+		}
 	}
 
-	void BeginView(bool capture) { s_Collected = false; s_Capture = capture; }
+	void BeginView(bool capture, const void* occlusionView)
+	{
+		s_Collected = false;
+		s_Capture = capture;
+		s_OccView = capture ? nullptr : occlusionView;
+		s_Occ = Occ::Off;
+	}
 
 	void Draw(Scene* scene, Pass pass, bool editor)
 	{
@@ -300,251 +657,42 @@ namespace MeshBatcher
 		{
 			PROFILE_SCOPE("MeshBatcher.Collect");
 			Collect(scene, editor);
+			s_Occ = Occ::Off;
 		}
 		if (pass == Pass::Transparent)
 		{
 			DrawTransparent(editor);
 			return;
 		}
-
-		// ---- 이번 패스: 보이는 렌더러의 월드 행렬만 묶음에 쌓는다
-		const bool main = pass == Pass::Main;
-		std::vector<Batch>& batches = main ? s_MainBatches : s_DepthBatches;
-		const std::vector<int>& items = main ? s_MainItems : s_DepthItems;
-		const int batchCount = main ? s_MainCount : s_DepthCount;
-		for (int i = 0; i < batchCount; ++i)
-			batches[i].Worlds.clear();
-		s_Order.clear();
-		s_Fading.clear();
-		int objects = 0;
-		for (const Caster& c : s_Casters)
+		// 오클루전 컬링: 깊이 프리패스 1 단계 (지난 프레임에 보인 것) → FinishDepthPrepass → 본 패스 (지금 보이는 것)
+		if (pass == Pass::NormalDepth && s_Occ == Occ::Off && !s_Capture)
 		{
-			if (!SceneCulling::IsVisible(c.Renderer))
-				continue;
-			if (!(c.LayerBit & RenderLayers::ActiveMask()))
-				continue;   // Camera / Light 의 Culling Mask
-			if ((pass == Pass::Shadow && c.Cast == 1) || (pass != Pass::Shadow && c.Cast == 3))
-				continue;
-			if (pass != Pass::Shadow && c.Renderer->LodStamp == SceneCulling::LodStamp && c.Renderer->LodFade > 0.0f)
+			PROFILE_SCOPE("MeshBatcher.Occlusion");
+			s_Occ = StartOcclusion(editor) ? Occ::Phase1 : Occ::Failed;
+			if (s_Occ == Occ::Phase1)
 			{
-				s_Fading.push_back(&c);   // 그림자는 LOD Group 이 고른 한 쪽만 (LodShadowHidden)
-				++objects;
-				continue;
-			}
-			for (uint32_t k = c.First; k < c.First + c.Count; ++k)
-			{
-				if (items[k] < 0)
-					continue;   // 투명 (투명 패스)
-				Batch& b = batches[items[k]];
-				if (b.Worlds.empty())
-					s_Order.push_back(items[k]);
-				b.Worlds.push_back(c.World);
-			}
-			++objects;
-			if (pass == Pass::Shadow)
-				RenderStats::AddShadowCaster();
-		}
-		if (s_Order.empty() && s_Fading.empty())
-		{
-			if (main)
-				s_Stats[editor ? 1 : 0] = Stats{ 0, 0 };
-			return;
-		}
-		// 본 패스는 재질끼리 모아 재질 적용 횟수를 줄인다
-		if (main)
-			std::sort(s_Order.begin(), s_Order.end(), [&](int a, int b) {
-				if (batches[a].Material.get() != batches[b].Material.get()) return batches[a].Material.get() < batches[b].Material.get();
-				return batches[a].Layer < batches[b].Layer;
-			});
-
-		// ---- 패스 값
-		GfxContext* dc = Application::GetI()->GetDeviceContext();
-		RenderManager* rm = RenderManager::GetI();
-		const XMMATRIX viewProj = editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix;
-		FxTechnique* tech = nullptr;
-		FxEffect* fx = nullptr;
-		switch (pass)
-		{
-		case Pass::Main:
-		{
-			static const XMMATRIX toTex(0.5f, 0.0f, 0.0f, 0.0f, 0.0f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f);
-			fx = Effects::InstancedBasicFX->GetFX();
-			tech = fx->GetTechniqueByName("BatchTech");
-			Effects::InstancedBasicFX->SetViewProj(viewProj);
-			SetMatrix(fx, "gViewProjTex", viewProj * toTex);
-			Effects::InstancedBasicFX->SetTexTransform(XMMatrixIdentity());
-			break;
-		}
-		case Pass::Shadow:
-			// gViewProj 는 ShadowRenderer 가 조각마다 설정해 둔다
-			fx = Effects::BuildShadowMapFX->GetFX();
-			tech = Effects::BuildShadowMapFX->BuildShadowMapInstancingTech.Get();
-			Effects::BuildShadowMapFX->SetTexTransform(XMMatrixIdentity());
-			break;
-		case Pass::NormalDepth:
-			fx = Effects::SsaoNormalDepthFX->GetFX();
-			tech = fx->GetTechniqueByName("NormalDepthBatchTech");
-			SetMatrix(fx, "gView", editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix);
-			SetMatrix(fx, "gWorldViewProj", viewProj);
-			SetMatrix(fx, "gTexTransform", XMMatrixIdentity());
-			break;
-		}
-		if (tech == nullptr || !tech->IsValid())
-			return;
-
-		dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
-		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-		const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
-		uint32 appliedLayer = 0;
-		int drawn = 0;
-		auto drawBatch = [&](Batch* b)
-		{
-			GfxBuffer* inst = Upload(dc, b->Worlds);
-			if (inst == nullptr)
+				DrawPass(pass, editor, OcclusionCulling::DepthPhase1);
 				return;
-			// 패키지 · Shader Graph 셰이더 (CustomShaders::DrawInstanced): 그 셰이더가 값을 넣고 그린다
-			if (pass == Pass::Main && b->Material && b->Material->IsCustom())
-				if (const CustomShaders::Shader* cs = CustomShaders::Find(b->Material->CustomShader()); cs && cs->DrawInstanced)
-				{
-					CustomShaders::InstancedDraw d;
-					d.Context = dc;
-					d.Material = b->Material.get();
-					d.ViewProj = viewProj;
-					d.Editor = editor;
-					d.LayerBit = b->Layer;
-					d.Draw = [&]() {
-						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
-						dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
-						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
-					};
-					cs->DrawInstanced(d);
-					applied = reinterpret_cast<const UMaterial*>(1);   // 다음 엔진 묶음은 재질 · 레이어를 다시
-					appliedLayer = 0;
-					++drawn;
-					return;
-				}
-			// 깊이 · 그림자: 잘라내는 재질 (사용자 셰이더 → 그 셰이더, 엔진 Lit → 그림 알파로 자르는 기법)
-			if (pass != Pass::Main && b->Material)
-			{
-				const Clip clip = ClipOf(b->Material.get());
-				if (clip == Clip::Custom)
-				{
-					const CustomShaders::Shader* cs = CustomOf(b->Material.get());
-					CustomShaders::InstancedDraw d;
-					d.Context = dc;
-					d.Material = b->Material.get();
-					d.Editor = editor;
-					d.Pass = pass == Pass::Shadow ? CustomShaders::DrawPass::Shadow : CustomShaders::DrawPass::NormalDepth;
-					d.ViewProj = pass == Pass::Shadow ? rm->LightViewProjection : viewProj;
-					d.View = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
-					d.Draw = [&]() {
-						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
-						dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
-						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
-					};
-					cs->DrawInstanced(d);
-					++drawn;
-					return;
-				}
-				if (clip == Clip::Engine)
-				{
-					UMaterial& m = *b->Material;
-					FxTechnique* clipTech = nullptr;
-					if (pass == Pass::Shadow)
-					{
-						Effects::BuildShadowMapFX->SetDiffuseMap(m.GetBaseMapSRV());
-						Effects::BuildShadowMapFX->SetAlphaCutoff(EngineCutoff(m));
-						Effects::BuildShadowMapFX->SetTexTransform(EngineClipTexTransform(m));
-						clipTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech.Get();
-					}
-					else
-					{
-						Effects::SsaoNormalDepthFX->SetDiffuseMap(m.GetBaseMapSRV());
-						Effects::SsaoNormalDepthFX->SetAlphaCutoff(EngineCutoff(m));
-						SetMatrix(fx, "gTexTransform", EngineClipTexTransform(m));
-						clipTech = fx->GetTechniqueByName("NormalDepthAlphaClipBatchTech");
-					}
-					if (clipTech && clipTech->IsValid())
-					{
-						const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
-						dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
-						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-						clipTech->GetPassByIndex(0)->Apply(0, dc);
-						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
-						++drawn;
-					}
-					// 다음 묶음 (보통 재질) 을 위해 되돌린다
-					if (pass == Pass::Shadow)
-					{
-						Effects::BuildShadowMapFX->SetTexTransform(XMMatrixIdentity());
-						Effects::BuildShadowMapFX->SetAlphaCutoff(0.0f);
-					}
-					else
-					{
-						SetMatrix(fx, "gTexTransform", XMMatrixIdentity());
-						Effects::SsaoNormalDepthFX->SetAlphaCutoff(0.0f);
-					}
-					return;
-				}
 			}
-			if (pass == Pass::Main && b->Material.get() != applied)
-			{
-				UMaterial::ApplyOrDefault(b->Material, Effects::InstancedBasicFX.get());
-				applied = b->Material.get();
-			}
-			if (pass == Pass::Main && b->Layer != appliedLayer)
-			{
-				RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), b->Layer);   // Light.cullingMask
-				appliedLayer = b->Layer;
-			}
-			const UINT stride = sizeof(XMFLOAT4X4), offset = 0;
-			dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-			tech->GetPassByIndex(0)->Apply(0, dc);
-			b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Worlds.size());
-			++drawn;
-		};
-		for (int index : s_Order)
-			drawBatch(&batches[index]);
+		}
+		if (pass == Pass::Main && s_Occ == Occ::Ready)
+		{
+			DrawPass(pass, editor, OcclusionCulling::Main);
+			return;
+		}
+		if (pass == Pass::Main && s_Occ == Occ::Phase1)
+			EditorLog::Write("Occlusion", "main pass before FinishDepthPrepass — CPU culling (depth prepass is incomplete)");
+		DrawPass(pass, editor, -1);
+	}
 
-		// LOD 크로스페이드 중인 렌더러: 서브셋마다 하나씩, gLodFade 로 화면 디더 (깊이 프리패스와 본 패스가 같은 무늬 — EQUAL 깊이 검사가 맞는다)
-		if (!s_Fading.empty())
-		{
-			FxEffect* fadeFx = main ? Effects::InstancedBasicFX->GetFX() : Effects::SsaoNormalDepthFX->GetFX();
-			auto* fadeVar = fadeFx->GetVariableByName("gLodFade")->AsVector();
-			Batch one;
-			for (const Caster* c : s_Fading)
-			{
-				const float fade[4] = { c->Renderer->LodFade, c->Renderer->LodFadeBelow ? 1.0f : 0.0f, 1.0f, 0.0f };
-				if (fadeVar && fadeVar->IsValid())
-					fadeVar->SetFloatVector(fade);
-				for (uint32_t k = c->First; k < c->First + c->Count; ++k)
-				{
-					if (items[k] < 0)
-						continue;
-					const Batch& src = batches[items[k]];
-					one.MeshPtr = src.MeshPtr;
-					one.Subset = src.Subset;
-					one.Material = src.Material;
-					one.Layer = src.Layer;
-					one.Worlds.assign(1, c->World);
-					drawBatch(&one);
-				}
-			}
-			const float off[4] = { 0, 0, 0, 0 };
-			if (fadeVar && fadeVar->IsValid())
-				fadeVar->SetFloatVector(off);
-		}
-		GfxBuffer* none = nullptr;
-		UINT zero = 0;
-		dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
-		if (pass == Pass::Main)
-		{
-			s_Stats[editor ? 1 : 0] = Stats{ objects, drawn };
-			RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);   // 다른 그리기는 모든 빛
-		}
+	void FinishDepthPrepass(Scene* scene, bool editor)
+	{
+		if (scene == nullptr || s_Occ != Occ::Phase1 || s_CollectedScene != scene)
+			return;
+		PROFILE_SCOPE("MeshBatcher.Occlusion");
+		PROFILE_GPU("Occlusion Culling");
+		OcclusionCulling::Finish(Application::GetI()->GetDeviceContext());
+		s_Occ = Occ::Ready;
+		DrawPass(Pass::NormalDepth, editor, OcclusionCulling::DepthPhase2);   // 새로 보인 렌더러의 깊이
 	}
 }
