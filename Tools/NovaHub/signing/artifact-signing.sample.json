@@ -1,0 +1,6 @@
+{
+  "Endpoint": "https://krc.codesigning.azure.net/",
+  "CodeSigningAccountName": "REPLACE_WITH_VERIFIED_ACCOUNT",
+  "CertificateProfileName": "REPLACE_WITH_PUBLIC_TRUST_PROFILE",
+  "ExcludeCredentials": ["InteractiveBrowserCredential"]
+}

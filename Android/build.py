@@ -1,11 +1,28 @@
 # NOVA 안드로이드 APK 빌드 (Gradle 없이): NDK CMake → libnova.so, aapt2 link (+ assets), zipalign, apksigner.
 #   python Android/build.py [--abi x86_64,arm64-v8a] [--assets 폴더] [--out 폴더] [--debug]
-# 필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · ndk 28) — 기본 %LOCALAPPDATA%\Android\Sdk 또는 ANDROID_HOME,
-#       Java 17+ (apksigner) — JAVA_HOME 또는 Android Studio 의 jbr. 서명 = ~/.android/debug.keystore (없으면 만든다)
+# 필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · ndk 28), Java 17+ (apksigner).
+#   찾는 순서: ANDROID_HOME · JAVA_HOME → NOVA Hub 의 "Android 빌드 지원" 모듈 (<NOVA>\AndroidTools\{sdk,jdk})
+#   → Android Studio 기본 위치 (%LOCALAPPDATA%\Android\Sdk, jbr). 서명 = ~/.android/debug.keystore (없으면 만든다)
 import argparse, os, shutil, subprocess, sys, zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SDK = os.environ.get('ANDROID_HOME') or os.environ.get('ANDROID_SDK_ROOT') or os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Android', 'Sdk')
+
+
+def nova_tools():
+    # Hub 가 설치한 공용 도구: 엔진 폴더(<NOVA>\Editors\<버전>) 옆의 AndroidTools, 또는 기본 %LOCALAPPDATA%\NOVA\AndroidTools
+    roots = [os.environ.get('NOVA_ANDROID_TOOLS'), os.path.normpath(os.path.join(HERE, '..', '..', '..', 'AndroidTools')),
+             os.path.join(os.environ.get('LOCALAPPDATA', ''), 'NOVA', 'AndroidTools')]
+    return [r for r in roots if r and os.path.isdir(r)]
+
+
+def find_sdk():
+    for sdk in [os.environ.get('ANDROID_HOME'), os.environ.get('ANDROID_SDK_ROOT')] + [os.path.join(r, 'sdk') for r in nova_tools()]:
+        if sdk and os.path.isdir(os.path.join(sdk, 'build-tools')):
+            return sdk
+    return os.path.join(os.environ.get('LOCALAPPDATA', ''), 'Android', 'Sdk')
+
+
+SDK = find_sdk()
 
 
 def newest(path, prefix=''):
@@ -14,7 +31,7 @@ def newest(path, prefix=''):
 
 
 def find_java():
-    for home in [os.environ.get('JAVA_HOME'), r'C:\Program Files\Android\Android Studio\jbr']:
+    for home in [os.environ.get('JAVA_HOME')] + [os.path.join(r, 'jdk') for r in nova_tools()] + [r'C:\Program Files\Android\Android Studio\jbr']:
         if home and os.path.exists(os.path.join(home, 'bin', 'java.exe')):
             return home
     return None

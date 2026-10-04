@@ -2,6 +2,7 @@
 #include "App.h"
 #include "HubProject.h"
 #include "CliInstaller.h"
+#include "HubEngineInstaller.h"
 #include <string>
 #include <wrl/client.h>
 #include <d3d11.h>
@@ -37,6 +38,10 @@ private:
 	void DrawNoticePopup(float S);
 	void DrawSettingsPopup(float S);
 	void DrawAccountPopup(float S);
+	void DrawAndroidLicensePopup(float S);
+	void DrawAndroidModule(float S, float width);
+	void RequestAndroidLicense(int target);
+	void UpdateInstallChain();
 
 	void OpenProject(size_t index);
 	void AddProjectFromDisk();
@@ -53,6 +58,18 @@ private:
 	char m_NewName[128] = "New NOVA Project";
 	char m_NewLocation[512] = {};
 	int  m_NewTemplate = 0;
+	int  m_NewEngine = 0;
+	int  m_DownloadVersion = 0;
+	HubEngineInstaller m_EngineInstaller;
+	// Android 빌드 지원 모듈 (Unity 의 모듈처럼): 라이선스 동의는 사용자가 동의 창에서 직접
+	enum AndroidTarget { AndroidNone = 0, AndroidNow = 1, AndroidWithEngine = 2 };
+	bool m_AndroidWithEngine = false;      // 엔진 설치가 끝나면 이어서 설치
+	bool m_AndroidLicenseAgreed = false;   // 이번 실행에서 동의 창의 라이선스에 동의함
+	bool m_AndroidLicenseCheck = false;    // 동의 창의 체크 상자
+	bool m_OpenAndroidLicense = false;
+	int  m_AndroidLicenseFor = AndroidNone;
+	int  m_AndroidPending = AndroidNone;   // 목록(라이선스 원문)을 받으면 동의 창을 열 대상
+	bool m_InstallerWasBusy = false;
 	std::string m_NewError;
 
 	Microsoft::WRL::ComPtr<GfxShaderResourceView> m_Logo;   // NOVA 로고

@@ -34,7 +34,7 @@ public:
 	static bool AddExisting(const std::wstring& folder, std::string& error);
 
 	// location\name 에 새 프로젝트 폴더를 만들고 목록 맨 위에 추가
-	static bool Create(const std::string& name, const std::wstring& location, const std::string& templateId, std::string& error);
+	static bool Create(const std::string& name, const std::wstring& location, const std::string& templateId, std::string& error, const std::string& engineVersion = {});
 
 	static void Remove(size_t index);
 	static void MarkOpened(size_t index);
@@ -53,7 +53,7 @@ private:
 namespace HubLauncher
 {
 	// NovaEngine.exe --project "<path>"
-	bool LaunchEditor(const std::wstring& projectPath, std::string& error);
+	bool LaunchEditor(const std::wstring& projectPath, std::string& error, const std::wstring& editorExecutable = {});
 	// 인자 없이 실행 → Hub
 	bool LaunchHub();
 	// 이 프로젝트의 에디터 프로세스가 아직 실행 중인지

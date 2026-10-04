@@ -231,6 +231,7 @@ bool HubApp::Init()
 	m_Logo = Utils::LoadTexture(_device, PathManager::GetI()->GetEnginePathW() + L"ProjectSetting\\logo\\nova-logo-128.png");
 
 	HubProjectRegistry::Load();
+	if (m_EngineInstaller.Enabled()) m_EngineInstaller.Start("catalog");
 	std::string defaultLocation = ToUtf8(m_DefaultLocation.empty() ? HubProjectRegistry::DefaultLocation() : m_DefaultLocation);
 	strncpy_s(m_NewLocation, defaultLocation.c_str(), _TRUNCATE);
 
@@ -259,6 +260,8 @@ int32 HubApp::Run()
 		}
 
 		_timer.Tick();
+		m_EngineInstaller.Poll();
+		UpdateInstallChain();
 
 		ImGui_ImplDX11_NewFrame();
 		ImGui_ImplWin32_NewFrame();
@@ -314,7 +317,14 @@ void HubApp::OpenProject(size_t index)
 	}
 
 	std::string error;
-	if (HubLauncher::LaunchEditor(p.Path, error))
+	const std::wstring editor = m_EngineInstaller.EditorFor(p.EngineVersion);
+	if (m_EngineInstaller.Enabled() && editor.empty())
+	{
+		m_Tab = Tab::Installs;
+		SetStatus("이 프로젝트의 NOVA " + p.EngineVersion + " 엔진을 먼저 설치하세요.", true);
+		return;
+	}
+	if (HubLauncher::LaunchEditor(p.Path, error, editor))
 	{
 		std::string name = p.Name;
 		HubProjectRegistry::MarkOpened(index);
@@ -388,6 +398,7 @@ void HubApp::DrawUI()
 	ImGui::PopStyleColor(3);
 
 	DrawNewProjectPopup(S);
+	DrawAndroidLicensePopup(S);
 }
 
 // ---- 앱 바: [로고 NOVA Hub ▣]  (끌기 영역)  [학습 CLI 알림 설정 (계정)] [— ▢ ✕]
@@ -813,6 +824,14 @@ LRESULT HubApp::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	switch (msg)
 	{
+	case WM_CLOSE:
+		if (m_EngineInstaller.Busy())
+		{
+			m_EngineInstaller.Cancel();
+			SetStatus("설치를 취소하고 있습니다. 완료된 뒤 창을 닫아 주세요.");
+			return 0;
+		}
+		break;
 	case WM_NCCALCSIZE:
 		// 클라이언트 = 창 전체 (Windows 제목 표시줄 없음). 최대화되면 화면 밖으로 나가는 테두리 두께만큼 줄인다
 		if (wParam == TRUE)
@@ -876,9 +895,7 @@ namespace
 {
 	fs::path HubSettingsFile()
 	{
-		wchar_t buf[MAX_PATH] = {};
-		::GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
-		return fs::path(buf) / L"NOVA" / L"Hub" / L"settings.json";
+		return HubEngineInstaller::StateRoot() / L"settings.json";
 	}
 }
 
@@ -1191,13 +1208,99 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 		ImGui::Dummy(ImVec2(0, 14.0f * S));
 
 		ImDrawList* dl = ImGui::GetWindowDrawList();
-		ImVec2 p0 = ImGui::GetCursorScreenPos();
 		float w = ImGui::GetContentRegionAvail().x;
+		const float fs = ImGui::GetFontSize();
+		if (m_EngineInstaller.Enabled())
+		{
+			const auto& releases = m_EngineInstaller.Releases();
+			if (m_DownloadVersion >= (int)releases.size()) m_DownloadVersion = 0;
+			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * S);
+			ImGui::BeginDisabled(m_EngineInstaller.Busy());
+			ImGui::SetNextItemWidth(260.0f * S);
+			if (ImGui::BeginCombo("##downloadversion", releases.empty() ? "엔진 버전 목록" : releases[m_DownloadVersion].Version.c_str()))
+			{
+				for (int i = 0; i < (int)releases.size(); ++i)
+					if (ImGui::Selectable(releases[i].Version.c_str(), m_DownloadVersion == i)) m_DownloadVersion = i;
+				ImGui::EndCombo();
+			}
+			ImGui::SameLine();
+			if (GrayButton("새로고침", ImVec2(120.0f * S, 32.0f * S))) m_EngineInstaller.Start("catalog");
+			ImGui::EndDisabled();
+			if (!releases.empty())
+			{
+				const auto& release = releases[m_DownloadVersion];
+				ImVec2 r0 = ImGui::GetCursorScreenPos(), r1(r0.x + w, r0.y + 104.0f * S);
+				dl->AddRectFilled(r0, r1, IM_COL32(37, 37, 37, 255), 8.0f * S);
+				dl->AddRect(r0, r1, kColBorder, 8.0f * S);
+				if (m_Logo) dl->AddImage((ImTextureID)m_Logo.Get(), ImVec2(r0.x + 16.0f * S, r0.y + 16.0f * S), ImVec2(r0.x + 48.0f * S, r0.y + 48.0f * S));
+				std::string title = "NOVA " + release.Version;
+				dl->AddText(HubFont(2), HubFont(2)->FontSize, ImVec2(r0.x + 64.0f * S, r0.y + 14.0f * S), kColText, title.c_str());
+				char detail[128]; snprintf(detail, sizeof(detail), "Windows 64-bit  ·  %.1f MB", release.Size / 1048576.0);
+				dl->AddText(ImVec2(r0.x + 64.0f * S, r0.y + 46.0f * S), kColSubText, detail);
+				bool installed = !m_EngineInstaller.EditorFor(release.Version).empty();
+				const auto& android = m_EngineInstaller.Android();
+				if (!installed && android.Known && !android.Installed)
+				{
+					// Unity 의 모듈 선택처럼: 체크하면 라이선스 동의 창 → 엔진 설치가 끝나면 이어서 설치
+					ImGui::SetCursorScreenPos(ImVec2(r0.x + 60.0f * S, r0.y + 70.0f * S));
+					ImGui::BeginDisabled(m_EngineInstaller.Busy());
+					bool with = m_AndroidWithEngine;
+					ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(IM_COL32(58, 58, 58, 255)));
+					ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, V4(IM_COL32(70, 70, 70, 255)));
+					if (ImGui::Checkbox("Android 빌드 지원 함께 설치  (OpenJDK · Android SDK · NDK)", &with))
+					{
+						if (!with) m_AndroidWithEngine = false;
+						else if (m_AndroidLicenseAgreed) m_AndroidWithEngine = true;
+						else RequestAndroidLicense(AndroidWithEngine);
+					}
+					ImGui::PopStyleColor(2);
+					ImGui::EndDisabled();
+				}
+				ImGui::SetCursorScreenPos(ImVec2(r1.x - 136.0f * S, r0.y + 16.0f * S));
+				ImGui::BeginDisabled(installed || m_EngineInstaller.Busy());
+				if (BlueButton(installed ? "설치됨" : "엔진 설치", ImVec2(120.0f * S, 32.0f * S))) m_EngineInstaller.Start("install", release.Version);
+				ImGui::EndDisabled();
+				ImGui::SetCursorScreenPos(ImVec2(r0.x, r1.y + 10.0f * S));
+			}
+			ImGui::TextWrapped("%s", m_EngineInstaller.Message().c_str());
+			if (m_EngineInstaller.Installing())
+			{
+				ImGui::ProgressBar(m_EngineInstaller.Progress(), ImVec2(w - 130.0f * S, 18.0f * S));
+				ImGui::SameLine();
+				if (GrayButton("취소", ImVec2(110.0f * S, 30.0f * S))) m_EngineInstaller.Cancel();
+			}
+			ImGui::Dummy(ImVec2(0, 8.0f * S));
+			for (const auto& engine : m_EngineInstaller.Engines())
+			{
+				ImVec2 r0 = ImGui::GetCursorScreenPos(), r1(r0.x + w, r0.y + 104.0f * S);
+				dl->AddRectFilled(r0, r1, IM_COL32(37, 37, 37, 255), 8.0f * S);
+				dl->AddRect(r0, r1, kColBorder, 8.0f * S);
+				if (m_Logo) dl->AddImage((ImTextureID)m_Logo.Get(), ImVec2(r0.x + 16.0f * S, r0.y + 16.0f * S), ImVec2(r0.x + 48.0f * S, r0.y + 48.0f * S));
+				std::string title = "NOVA " + engine.Version + "  ·  설치됨";
+				dl->AddText(HubFont(2), HubFont(2)->FontSize, ImVec2(r0.x + 64.0f * S, r0.y + 14.0f * S), kColText, title.c_str());
+				dl->PushClipRect(ImVec2(r0.x + 64.0f * S, r0.y), ImVec2(r1.x - 150.0f * S, r1.y), true);
+				dl->AddText(HubFont(3), HubFont(3)->FontSize, ImVec2(r0.x + 64.0f * S, r0.y + 46.0f * S), kColSubText, ToUtf8(engine.Root).c_str());
+				dl->PopClipRect();
+				ImGui::SetCursorScreenPos(ImVec2(r1.x - 136.0f * S, r0.y + 16.0f * S));
+				if (GrayButton(("폴더 열기##" + engine.Version).c_str(), ImVec2(120.0f * S, 30.0f * S))) ::ShellExecuteW(nullptr, L"open", engine.Root.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				ImGui::SetCursorScreenPos(ImVec2(r1.x - 136.0f * S, r0.y + 54.0f * S));
+				ImGui::BeginDisabled(m_EngineInstaller.Busy());
+				if (GrayButton(("제거##" + engine.Version).c_str(), ImVec2(120.0f * S, 30.0f * S)) &&
+					::MessageBoxW(_hMainWnd, L"이 엔진을 제거할까요? 프로젝트 파일은 보존됩니다.", L"NOVA Hub", MB_YESNO | MB_ICONQUESTION) == IDYES)
+					m_EngineInstaller.Start("remove", engine.Version, engine.Root);
+				ImGui::EndDisabled();
+				ImGui::SetCursorScreenPos(ImVec2(r0.x, r1.y + 10.0f * S));
+			}
+			ImGui::PopStyleVar();
+			DrawAndroidModule(S, w);
+		}
+		else
+		{
+		ImVec2 p0 = ImGui::GetCursorScreenPos();
 		ImVec2 p1(p0.x + w, p0.y + 104.0f * S);
 		dl->AddRectFilled(p0, p1, IM_COL32(37, 37, 37, 255), 8.0f * S);
 		dl->AddRect(p0, p1, kColBorder, 8.0f * S);
 
-		const float fs = ImGui::GetFontSize();
 		if (m_Logo)
 			dl->AddImage((ImTextureID)m_Logo.Get(), ImVec2(p0.x + 16.0f * S, p0.y + 16.0f * S), ImVec2(p0.x + 48.0f * S, p0.y + 48.0f * S));
 		dl->AddText(HubFont(2), HubFont(2)->FontSize, ImVec2(p0.x + 64.0f * S, p0.y + 14.0f * S), kColText, ENGINE_VERSION_LABEL_A);
@@ -1210,7 +1313,7 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 		for (int i = 0; i < (int)GraphicsAPI::Count; ++i)
 		{
 			GraphicsAPI api = (GraphicsAPI)i;
-			bool supported = (api == GraphicsAPI::DirectX11);
+			bool supported = (api == GraphicsAPI::DirectX11 || api == GraphicsAPI::OpenGL || api == GraphicsAPI::Vulkan);
 			std::string label = std::string(GraphicsAPIToString(api)) + (supported ? "" : " (미구현)");
 			ImVec2 ts = ImGui::CalcTextSize(label.c_str());
 			ImVec2 b0(bx, by), b1(bx + ts.x + 18.0f * S, by + fs + 6.0f * S);
@@ -1219,6 +1322,7 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 			bx = b1.x + 8.0f * S;
 		}
 		ImGui::Dummy(ImVec2(w, 118.0f * S));
+		}
 
 		// ---- NOVA CLI: 터미널·AI 에이전트가 실행 중인 에디터를 다룬다 (Unity CLI 처럼)
 		{
@@ -1246,7 +1350,7 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 			std::string state;
 			ImU32 stateCol = kColSubText;
 			if (!s_Cli.SourceFound)
-				state = "엔진에 nova.exe 가 없습니다 (엔진을 다시 빌드하세요)";
+				state = m_EngineInstaller.Enabled() ? "CLI를 사용하려면 먼저 엔진을 설치하세요" : "엔진에 nova.exe 가 없습니다 (엔진을 다시 빌드하세요)";
 			else if (!s_Cli.Installed)
 				state = "설치되지 않음";
 			else
@@ -1310,6 +1414,203 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 	ImGui::PopStyleColor(2);
 }
 
+// ---- Android 빌드 지원 모듈: OpenJDK 17 · Android SDK · NDK · CMake 를 <NOVA>\AndroidTools 에 (모든 엔진 버전 공용)
+void HubApp::RequestAndroidLicense(int target)
+{
+	if (!m_EngineInstaller.Android().License.empty())
+	{
+		m_AndroidLicenseFor = target;
+		m_AndroidLicenseCheck = false;
+		m_OpenAndroidLicense = true;
+	}
+	else if (m_EngineInstaller.Start("android-catalog"))
+		m_AndroidPending = target;   // 라이선스 원문은 Google 의 공식 목록에서 받아 그대로 보여 준다
+	else
+		SetStatus("다른 설치 작업이 끝난 뒤 다시 시도하세요.", true);
+}
+
+void HubApp::UpdateInstallChain()
+{
+	const bool busy = m_EngineInstaller.Busy();
+	if (m_InstallerWasBusy && !busy)
+	{
+		const std::string& command = m_EngineInstaller.Command();
+		const bool failed = m_EngineInstaller.Failed();
+		if (command == "android-catalog" && m_AndroidPending != AndroidNone)
+		{
+			if (!failed && !m_EngineInstaller.Android().License.empty())
+			{
+				m_AndroidLicenseFor = m_AndroidPending;
+				m_AndroidLicenseCheck = false;
+				m_OpenAndroidLicense = true;
+			}
+			else
+				SetStatus("Android 빌드 도구 목록을 받지 못했습니다: " + m_EngineInstaller.Message(), true);
+			m_AndroidPending = AndroidNone;
+		}
+		else if (command == "install" && m_AndroidWithEngine)
+		{
+			m_AndroidWithEngine = false;
+			if (!failed && m_AndroidLicenseAgreed)
+				m_EngineInstaller.Start("android-install", {}, {}, true);
+		}
+		else if (command == "android-install")
+			SetStatus(failed ? "Android 빌드 지원을 설치하지 못했습니다." : "Android 빌드 지원을 설치했습니다.", failed);
+	}
+	m_InstallerWasBusy = m_EngineInstaller.Busy();
+}
+
+void HubApp::DrawAndroidModule(float S, float w)
+{
+	const auto& android = m_EngineInstaller.Android();
+	ImDrawList* dl = ImGui::GetWindowDrawList();
+	const float fs = ImGui::GetFontSize();
+	const ImVec2 c0 = ImGui::GetCursorScreenPos();
+	const ImVec2 c1(c0.x + w, c0.y + 128.0f * S);
+	dl->AddRectFilled(c0, c1, IM_COL32(37, 37, 37, 255), 8.0f * S);
+	dl->AddRect(c0, c1, kColBorder, 8.0f * S);
+	ImFont* iconFont = HubFont(4);
+	dl->AddText(iconFont, iconFont->FontSize * 1.3f, ImVec2(c0.x + 22.0f * S, c0.y + 18.0f * S), kColText, ICON_FA_MOBILE_SCREEN);
+	const float tx = c0.x + 64.0f * S;
+	ImFont* semi = HubFont(2);
+	ImFont* smallF = HubFont(3);
+	float ty = c0.y + 14.0f * S;
+	dl->AddText(semi, semi->FontSize, ImVec2(tx, ty), kColText, "Android 빌드 지원");
+	ty += semi->FontSize + 6.0f * S;
+	dl->PushClipRect(ImVec2(tx, c0.y), ImVec2(c1.x - 150.0f * S, c1.y), true);
+	dl->AddText(ImVec2(tx, ty), kColSubText, "OpenJDK 17 · Android SDK · NDK 28 · CMake  —  모든 엔진 버전이 함께 씁니다");
+	ty += fs + 8.0f * S;
+	std::string state;
+	ImU32 stateCol = IM_COL32(230, 190, 90, 255);
+	if (!android.Known)
+	{
+		state = "확인 중...";
+		stateCol = kColSubText;
+	}
+	else if (android.Installed)
+	{
+		state = "설치됨";
+		stateCol = IM_COL32(120, 200, 120, 255);
+	}
+	else
+	{
+		state = "설치되지 않음";
+		if (android.DownloadBytes > 0)
+		{
+			char size[64];
+			snprintf(size, sizeof(size), "  ·  다운로드 약 %.0f MB", android.DownloadBytes / 1048576.0);
+			state += size;
+		}
+		if (!android.Missing.empty() && android.Missing.size() < 6)
+		{
+			state += "  ·  빠진 것: ";
+			for (size_t i = 0; i < android.Missing.size(); ++i)
+				state += (i ? ", " : "") + android.Missing[i];
+		}
+	}
+	dl->AddText(semi, smallF->FontSize, ImVec2(tx, ty), stateCol, state.c_str());
+	ty += smallF->FontSize + 8.0f * S;
+	if (!android.Root.empty())
+		dl->AddText(smallF, smallF->FontSize, ImVec2(tx, ty), kColSubText, ToUtf8(android.Root).c_str());
+	dl->PopClipRect();
+
+	const float bw = 120.0f * S, bh = 32.0f * S;
+	const float bx = c1.x - 16.0f * S - bw;
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f * S);
+	ImGui::SetCursorScreenPos(ImVec2(bx, c0.y + 16.0f * S));
+	ImGui::BeginDisabled(!android.Known || android.Installed || m_EngineInstaller.Busy());
+	if (BlueButton(android.Installed ? "설치됨##android" : "설치##android", ImVec2(bw, bh)))
+	{
+		if (m_AndroidLicenseAgreed)
+			m_EngineInstaller.Start("android-install", {}, {}, true);
+		else
+			RequestAndroidLicense(AndroidNow);
+	}
+	ImGui::EndDisabled();
+	std::error_code ec;
+	if (!android.Root.empty() && std::filesystem::is_directory(android.Root, ec))
+	{
+		ImGui::SetCursorScreenPos(ImVec2(bx, c0.y + 16.0f * S + bh + 6.0f * S));
+		if (GrayButton("폴더 열기##android", ImVec2(bw, bh)))
+			::ShellExecuteW(nullptr, L"open", android.Root.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+	}
+	ImGui::PopStyleVar();
+	ImGui::SetCursorScreenPos(ImVec2(c0.x, c1.y + 10.0f * S));
+	ImGui::Dummy(ImVec2(w, 1.0f));
+}
+
+void HubApp::DrawAndroidLicensePopup(float S)
+{
+	const char* title = "Android SDK 라이선스";
+	if (m_OpenAndroidLicense)
+	{
+		ImGui::OpenPopup(title);
+		m_OpenAndroidLicense = false;
+	}
+	ImGuiViewport* vp = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(ImVec2(vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(760.0f * S, 560.0f * S));
+	ImGui::PushStyleColor(ImGuiCol_PopupBg, V4(IM_COL32(34, 34, 34, 255)));
+	ImGui::PushStyleColor(ImGuiCol_Border, V4(kColBorder));
+	ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, ImVec4(0, 0, 0, 0.55f));
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 10.0f * S);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24.0f * S, 20.0f * S));
+	bool open = true;
+	if (ImGui::BeginPopupModal(title, &open, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar))
+	{
+		const auto& android = m_EngineInstaller.Android();
+		ImGui::TextWrapped("Android SDK · NDK 를 내려받으려면 Google 의 아래 라이선스(%s)에 동의해야 합니다. "
+			"OpenJDK 17 (Eclipse Temurin) 은 GPLv2 + Classpath Exception 입니다.", android.LicenseId.c_str());
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, V4(IM_COL32(28, 28, 28, 255)));
+		ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f * S);
+		if (ImGui::BeginChild("##androidLicense", ImVec2(0, -84.0f * S), ImGuiChildFlags_Border))
+		{
+			ImGui::PushTextWrapPos(0.0f);
+			ImGui::TextUnformatted(android.License.c_str(), android.License.c_str() + android.License.size());
+			ImGui::PopTextWrapPos();
+		}
+		ImGui::EndChild();
+		ImGui::PopStyleVar();
+		ImGui::PopStyleColor();
+		ImGui::Spacing();
+		ImGui::PushStyleColor(ImGuiCol_FrameBg, V4(IM_COL32(58, 58, 58, 255)));
+		ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, V4(IM_COL32(70, 70, 70, 255)));
+		ImGui::Checkbox("위 라이선스를 읽었고 동의합니다", &m_AndroidLicenseCheck);
+		ImGui::PopStyleColor(2);
+		ImGui::Spacing();
+		const float bw = 160.0f * S, bh = 34.0f * S;
+		ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - bw * 2 - 10.0f * S);
+		if (GrayButton("취소##androidLicense", ImVec2(bw, bh)))
+		{
+			if (m_AndroidLicenseFor == AndroidWithEngine) m_AndroidWithEngine = false;
+			m_AndroidLicenseFor = AndroidNone;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine(0, 10.0f * S);
+		ImGui::BeginDisabled(!m_AndroidLicenseCheck || android.License.empty());
+		if (BlueButton(m_AndroidLicenseFor == AndroidWithEngine ? "동의##androidLicense" : "동의하고 설치##androidLicense", ImVec2(bw, bh)))
+		{
+			m_AndroidLicenseAgreed = true;
+			if (m_AndroidLicenseFor == AndroidWithEngine)
+				m_AndroidWithEngine = true;
+			else if (!m_EngineInstaller.Start("android-install", {}, {}, true))
+				SetStatus("다른 설치 작업이 끝난 뒤 다시 시도하세요.", true);
+			m_AndroidLicenseFor = AndroidNone;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndDisabled();
+		ImGui::EndPopup();
+	}
+	else if (!open)
+	{
+		if (m_AndroidLicenseFor == AndroidWithEngine) m_AndroidWithEngine = false;
+		m_AndroidLicenseFor = AndroidNone;
+	}
+	ImGui::PopStyleVar(2);
+	ImGui::PopStyleColor(3);
+}
+
 void HubApp::DrawNewProjectPopup(float S)
 {
 	if (m_OpenNewProjectPopup)
@@ -1356,6 +1657,19 @@ void HubApp::DrawNewProjectPopup(float S)
 		// 우측: 프로젝트 설정
 		ImGui::SameLine(0, 20.0f * S);
 		ImGui::BeginGroup();
+		if (m_EngineInstaller.Enabled())
+		{
+			const auto& engines = m_EngineInstaller.Engines();
+			if (m_NewEngine >= (int)engines.size()) m_NewEngine = 0;
+			ImGui::TextColored(V4(kColSubText), "엔진 버전");
+			ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+			if (ImGui::BeginCombo("##newengine", engines.empty() ? "먼저 엔진을 설치하세요" : engines[m_NewEngine].Version.c_str()))
+			{
+				for (int i = 0; i < (int)engines.size(); ++i)
+					if (ImGui::Selectable(engines[i].Version.c_str(), i == m_NewEngine)) m_NewEngine = i;
+				ImGui::EndCombo();
+			}
+		}
 		ImGui::TextColored(V4(kColSubText), "템플릿 설명");
 		ImGui::TextWrapped("%s", templates[m_NewTemplate].Description);
 		ImGui::Dummy(ImVec2(0, 16.0f * S));
@@ -1410,10 +1724,13 @@ void HubApp::DrawNewProjectPopup(float S)
 		if (GrayButton("취소", ImVec2(btnW, btnH)))
 			ImGui::CloseCurrentPopup();
 		ImGui::SameLine(0, 10.0f * S);
+		ImGui::BeginDisabled(m_EngineInstaller.Enabled() && m_EngineInstaller.Engines().empty());
 		if (BlueButton("프로젝트 만들기", ImVec2(btnW, btnH)))
 		{
 			std::string error;
-			if (HubProjectRegistry::Create(m_NewName, FromUtf8(m_NewLocation), templates[m_NewTemplate].Id, error))
+			const auto& installed = m_EngineInstaller.Engines();
+			const std::string version = m_EngineInstaller.Enabled() && !installed.empty() ? installed[m_NewEngine].Version : ENGINE_VERSION_A;
+			if (HubProjectRegistry::Create(m_NewName, FromUtf8(m_NewLocation), templates[m_NewTemplate].Id, error, version))
 			{
 				ImGui::CloseCurrentPopup();
 				// 만든 프로젝트는 목록 맨 앞(가장 최근)에 있으므로 바로 에디터로 연다.
@@ -1426,6 +1743,7 @@ void HubApp::DrawNewProjectPopup(float S)
 				m_NewError = error;
 			}
 		}
+		ImGui::EndDisabled();
 		ImGui::PopStyleVar();
 
 		ImGui::EndPopup();

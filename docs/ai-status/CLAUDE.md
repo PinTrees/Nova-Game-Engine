@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드 1 단계 첫 목표 완료 · 로컬 커밋, push 전** (사용자 지시 "다음 작업 진행 … MuMu 플레이어와 터미널 백그라운드 통신으로, 실제 창 없이"). 문서 `docs/ANDROID.md`
+- 갱신 시각: 2026년 10월 4일 — **Hub "Android 빌드 지원" 모듈 완료 · 로컬 커밋, push 전** (사용자 지시 "유니티처럼 엔진 설치할 때 안드로이드 빌드 등 체크하면 해당 도구들도 같이 설치", "허브쪽 작업 완료되었어. 너가 이어서 작업해")
+  - **Hub 인계**: Codex 가 만든 Hub 배포 · 엔진 설치 (미커밋이던 `Source/Hub/*` · `Tools/NovaHub*` · `Tools/package_hub.ps1` · `Tools/HubSigning.ps1` · `Tools/tests/hub_signing.ps1` · `docs/NOVA_HUB.md`) 를 사용자 지시로 이어받아 함께 커밋. Codex 의 Joint 2D 미커밋 파일과 `docs/ai-status/CODEX.md` 는 건드리지 않음
+  - 새 `Tools/NovaHub/Core/AndroidToolsInstaller.cs` (OpenJDK 17 Temurin + Google repository2-3 의 platform-tools · build-tools 36 · android-34 · NDK 28 · CMake 3.22.1, 크기 + SHA-1/256, `<NOVA>\AndroidTools`), 서비스 `android-status · android-catalog · android-install`
+  - Hub: 엔진 카드에 "Android 빌드 지원 함께 설치" 체크 (엔진 설치 뒤 이어서), Android 빌드 지원 카드, Android SDK 라이선스 동의 창 (사용자가 직접 체크 + 동의). 예전 카드의 API 배지에서 OpenGL · Vulkan "(미구현)" 제거
+  - `Android/build.py`: `ANDROID_HOME`/`JAVA_HOME` → `NOVA_ANDROID_TOOLS` → 엔진 옆 / `%LOCALAPPDATA%\NOVA\AndroidTools` → Android Studio 순서
+  - 검증: Hub 검사 **36/36** (Android 7 개 추가), 실제 공개 목록 (1034 MB, 라이선스 원문), 복사 엔진 Hub 화면 — 별도 상태 폴더로 카드 · 체크 → 동의 창 · 취소하면 아무것도 설치 안 됨 확인 (쇼케이스 191). **실제 1 GB 설치는 라이선스 동의가 사용자 몫이라 하지 않음**
+  - Codex 에게: Hub 파일은 지금 Claude 가 이어서 맡는다. `HubEngineInstaller::Start` 에 `acceptLicense` 인자, `Android()` 상태, `Installing()` 이 `android-install` 도 포함
+- 이전: 2026년 10월 4일 — **안드로이드 1 단계 첫 목표 완료 · push `de1bd52`** (사용자 지시 "다음 작업 진행 … MuMu 플레이어와 터미널 백그라운드 통신으로, 실제 창 없이"). 문서 `docs/ANDROID.md`
   - MuMu 게스트에 Vulkan 이 없어 (장치 0 개) 안드로이드 그래픽 = OpenGL ES 3.2. 엔진 RHI 검사 장면을 MuMu 에서 GLES 로 그려 DX11 과 차이 최대 1 — `Tools/tests/android.ps1` **7/7** (MuMu 검사 전용 VM "NOVA Test", 창 숨김, adb · logcat)
   - 새 파일: `Android/` (NDK CMake · NativeActivity · GLESRhi · WinCompat · build.py), `ThirdParty/DirectXMath/`, `Source/Build/AndroidTools.*` (CLI `nova android shaders`), `Source/Graphics/Common/FxStates.*` (GLState 에서 API 공용으로 옮김), `Source/Graphics/ShaderCross/ShaderCrossJson.*`
   - 고친 공용 파일: `ShaderCross.*` (GLSL ES 변환 · NOVA_GLES 전처리 · 캐시 버전 5), `GLState.cpp` (Fx 함수는 FxStates 로 넘김), `VkRhi.cpp` (FxStates), `Rhi.cpp` (안드로이드 분기), `MathHelper.cpp` (SimpleMath 대신 XMFLOAT4X4 한 줄), `Shaders/32 · 41 · 49 · 55` (ES 일 때만 밉 개수를 크기로), `EditorApp.cpp` · `NovaCli/main.cpp` (등록 한 줄씩)

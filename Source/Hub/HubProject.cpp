@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "HubProject.h"
 #include "EngineInfo.h"
+#include "HubEngineInstaller.h"
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -45,10 +46,7 @@ namespace
 
 	fs::path RegistryFile()
 	{
-		fs::path dir = KnownFolder(FOLDERID_LocalAppData);
-		if (dir.empty())
-			dir = fs::current_path();
-		return dir / L"NOVA" / L"Hub" / L"projects.json";
+		return HubEngineInstaller::StateRoot() / L"projects.json";
 	}
 
 	std::string ReadProjectName(const fs::path& root)
@@ -211,13 +209,19 @@ bool HubProjectRegistry::AddExisting(const std::wstring& folder, std::string& er
 	p.Name = ReadProjectName(root);
 	p.Path = root.wstring();
 	p.EngineVersion = ENGINE_VERSION_A;
+	{
+		std::ifstream in(root / L"ProjectSettings" / L"ProjectSettings.json");
+		const json settings = json::parse(in, nullptr, false);
+		if (settings.is_object() && settings.contains("engineVersion") && settings["engineVersion"].is_string())
+			p.EngineVersion = settings["engineVersion"].get<std::string>();
+	}
 	p.LastOpened = (long long)std::time(nullptr);
 	s_Projects.insert(s_Projects.begin(), p);
 	Save();
 	return true;
 }
 
-bool HubProjectRegistry::Create(const std::string& name, const std::wstring& location, const std::string& templateId, std::string& error)
+bool HubProjectRegistry::Create(const std::string& name, const std::wstring& location, const std::string& templateId, std::string& error, const std::string& engineVersion)
 {
 	if (!IsValidProjectName(name, error))
 		return false;
@@ -245,7 +249,7 @@ bool HubProjectRegistry::Create(const std::string& name, const std::wstring& loc
 
 	json settings;
 	settings["projectName"] = name;
-	settings["engineVersion"] = ENGINE_VERSION_A;
+	settings["engineVersion"] = engineVersion.empty() ? ENGINE_VERSION_A : engineVersion;
 	settings["template"] = templateId;
 	settings["created"] = (long long)std::time(nullptr);
 	{
@@ -270,7 +274,7 @@ bool HubProjectRegistry::Create(const std::string& name, const std::wstring& loc
 	HubProject p;
 	p.Name = name;
 	p.Path = root.wstring();
-	p.EngineVersion = ENGINE_VERSION_A;
+	p.EngineVersion = engineVersion.empty() ? ENGINE_VERSION_A : engineVersion;
 	p.Template = templateId;
 	p.LastOpened = (long long)std::time(nullptr);
 	s_Projects.insert(s_Projects.begin(), p);
@@ -292,18 +296,17 @@ void HubProjectRegistry::MarkOpened(size_t index)
 	if (index < s_Projects.size())
 	{
 		s_Projects[index].LastOpened = (long long)std::time(nullptr);
-		s_Projects[index].EngineVersion = ENGINE_VERSION_A;
 		Save();
 	}
 }
 
-bool HubLauncher::LaunchEditor(const std::wstring& projectPath, std::string& error)
+bool HubLauncher::LaunchEditor(const std::wstring& projectPath, std::string& error, const std::wstring& editorExecutable)
 {
 	std::wstring path = projectPath;
 	while (!path.empty() && (path.back() == L'\\' || path.back() == L'/'))
 		path.pop_back();   // 끝의 역슬래시가 따옴표를 이스케이프하는 문제 방지
 
-	std::wstring exe = ExePath();
+	std::wstring exe = editorExecutable.empty() ? ExePath() : editorExecutable;
 	std::wstring cmd = L"\"" + exe + L"\" --project \"" + path + L"\"";
 	std::wstring workDir = fs::path(exe).parent_path().wstring();
 
@@ -326,6 +329,8 @@ bool HubLauncher::LaunchEditor(const std::wstring& projectPath, std::string& err
 bool HubLauncher::LaunchHub()
 {
 	std::wstring exe = ExePath();
+	const fs::path installedHub = KnownFolder(FOLDERID_LocalAppData) / L"NOVA" / L"HubApp" / L"Binaries" / L"NovaHub.exe";
+	if (fs::is_regular_file(installedHub)) exe = installedHub.wstring();
 	std::wstring cmd = L"\"" + exe + L"\"";
 	std::wstring workDir = fs::path(exe).parent_path().wstring();
 

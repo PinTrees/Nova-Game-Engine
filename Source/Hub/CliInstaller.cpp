@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "CliInstaller.h"
 #include "EngineInfo.h"
+#include "HubEngineInstaller.h"
 
 namespace
 {
@@ -22,11 +23,18 @@ namespace
 
 	bool PathDisabled() { return !Env(L"NOVA_CLI_NO_PATH").empty(); }
 
-	std::wstring SourceExe()
+	std::wstring SourceEngineExe()
 	{
 		wchar_t self[MAX_PATH] = {};
 		::GetModuleFileNameW(nullptr, self, MAX_PATH);
-		return (fs::path(self).parent_path() / L"nova.exe").wstring();
+		if (_wcsicmp(fs::path(self).filename().c_str(), L"NovaHub.exe") == 0)
+			return HubEngineInstaller().EditorFor({});
+		return self;
+	}
+	std::wstring SourceExe()
+	{
+		const auto engine = SourceEngineExe();
+		return engine.empty() ? std::wstring() : (fs::path(engine).parent_path() / L"nova.exe").wstring();
 	}
 
 	std::wstring Lower(std::wstring s)
@@ -150,8 +158,7 @@ namespace CliInstaller
 			return false;
 		}
 		// nova open 이 엔진을 찾는 곳
-		wchar_t self[MAX_PATH] = {};
-		::GetModuleFileNameW(nullptr, self, MAX_PATH);
+		const auto self = SourceEngineExe();
 		nlohmann::json j = {
 			{ "exe", wstring_to_string(self) },
 			{ "engine", wstring_to_string(fs::path(self).parent_path().parent_path().wstring()) },

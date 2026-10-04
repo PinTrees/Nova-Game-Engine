@@ -12,6 +12,16 @@ Claude가 별도 대화에서 받은 작업 지시는 여기서 추정하지 않
 
 ## 담당 범위 제안
 
+### 2026-10-04 Hub 배포 인계 (Codex)
+
+사용자 지시로 기존 `Source/Hub/HubApp` 디자인을 유지하며 웹사이트 → Hub 설치 exe → Hub 안에서 엔진 설치 흐름을 구현/배포했다. 별도 WinForms UI는 제거했다. `Source/Hub/HubApp.*`, `HubProject.*`, `CliInstaller.cpp`, 새 `HubEngineInstaller.*`, `Tools/NovaHub/`, `Tools/NovaHubSetup/`, `Tools/package_hub.ps1`가 Codex 범위다. 렌더링/CMake/공용 빌드 출력은 변경하지 않았다. 웹사이트는 `E:\GitHub\Nova-Game-Engine-Site`의 다운로드/안내만 맡았다.
+
+Core **30/30**, 기존 화면 함수 9개 동일, 설치 payload 검증, 실제 공개 다운로드와 한글 프로젝트 에디터 시작, 웹 검사/배포를 확인했다. 공개 v0.1.0의 원래 ZIP은 Debug 실행 파일 문제로 Hub에서 쓰지 않고 추가한 정상 Release `-r1.zip`을 선택한다. 소스는 아직 미커밋이다. 상세 범위/제한/다음 배포 규약은 [NOVA_HUB.md](NOVA_HUB.md)와 Codex 상태 문서에 있다. Windows 캡처 시간 초과로 버튼 클릭/팝업 시각 검사는 미확인이다.
+
+사용자의 SmartScreen 개선 지시로 `Tools/HubSigning.ps1`, `Tools/tests/hub_signing.ps1`, `Tools/NovaHub/signing/artifact-signing.sample.json`과 패키징의 자동 서명/검증도 Codex가 맡았다. 기존 화면은 수정하지 않았다. 서명 경계 검사 **26/26**, 개발용 실제 패키징/설치 payload **30/30**, 실제 Microsoft 파일 서명 검증 통과. 기본 패키징은 서명 신원 없으면 중단한다. 로컬 검사만 명시 `-AllowUnsigned`를 사용한다. 사용자는 개인사업자 등록 진행 중이며, 등록 후 공인 인증서 또는 Microsoft Public Trust 승인이 필요하다. 공개 exe는 아직 미서명이며 이번 준비에서 교체/재배포하지 않았다.
+
+**2026-10-04 Claude 인계**: 사용자 지시 ("허브쪽 작업 완료되었어. 너가 이어서 작업해") 로 위 Hub 파일은 Claude 가 이어서 맡는다. Unity 의 모듈처럼 엔진 설치 때 고르는 **Android 빌드 지원** (OpenJDK · Android SDK · NDK, 라이선스 동의 창) 을 붙이고 Hub 파일을 함께 커밋했다 ([NOVA_HUB.md](NOVA_HUB.md)). Joint 2D 미커밋 파일과 Codex 상태 문서는 건드리지 않았다.
+
 | 담당 | 작업 | 파일 범위 | 현재 상태 |
 |---|---|---|---|
 | Claude | Shader Graph와 그래프 재질 통합 | `Source/ShaderGraph/`, 그래프가 사용하는 렌더링과 재질 파일 (세부 목록은 `docs/ai-status/CLAUDE.md`) | 1단계 (`49b2632`) · 2단계 (`ffbf792`, 미리보기 · 투명 · 컷아웃) · 3단계 (Vertex · Sub Graph · Custom Function) 완료 — Claude 갱신 (10월 3일 03시 52분) |

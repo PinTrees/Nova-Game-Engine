@@ -47,7 +47,9 @@ powershell -File Tools/tests/android.ps1
 
 2026-10-04: **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 
-필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · NDK 28), Java 17+ (Android Studio 의 jbr), MuMu 플레이어 12.
+필요: Android SDK (build-tools 36 · platforms android-34 · cmake 3.22.1 · NDK 28), Java 17+, MuMu 플레이어 12.
+SDK · JDK 는 NOVA Hub 의 **Android 빌드 지원** 모듈이 `%LOCALAPPDATA%\NOVA\AndroidTools` 에 설치한다 ([NOVA_HUB.md](NOVA_HUB.md)).
+`build.py` 는 `ANDROID_HOME` · `JAVA_HOME` → Hub 의 AndroidTools → Android Studio 기본 위치 (`%LOCALAPPDATA%\Android\Sdk`, jbr) 순서로 찾는다.
 
 ## 다음
 
