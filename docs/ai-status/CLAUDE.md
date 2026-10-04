@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 4일 — **안드로이드 텍스처 압축 ASTC · ETC2** (사용자 지시 "유니티처럼 ETC2 나 ASTC 같은 압축 형식을 지원"). 커밋 전 → 검증 중
+- 갱신 시각: 2026년 10월 4일 — **안드로이드 텍스처 압축 ASTC · ETC2** (사용자 지시 "유니티처럼 ETC2 나 ASTC 같은 압축 형식을 지원"). **완료 · 커밋 `159cbfa`** (push 전) — android **32/32**, import 9/9
   - Unity 와 같은 설정: Player Settings → Android → Texture Compression (ASTC 기본 · ETC2 · DXT · None), 가져오기 설정의 Override for Android (Max Size · Format)
   - `nova android export` 가 그림을 `<이름>.png.dds` 로 구움 (ASTC = ARM astc-encoder 5.7.0 `ThirdParty/astcenc` Apache-2.0, ETC2 = 자체 `Source/Build/Etc2Codec.*`), 기기는 `경로 + .dds` 를 압축된 그대로 GPU 에
   - 새 파일: `Source/Build/{TextureCompressor,Etc2Codec}.*`, `Source/Graphics/Common/MobileTextureFormats.h`, `ThirdParty/astcenc/`. 공용 변경: 루트 `CMakeLists.txt` (astcenc 정적 라이브러리),
