@@ -33,6 +33,11 @@ namespace
 		"  block.add <path> --system N --context initialize|update --type T [--params '{...}'] [--bind '{...}'] [--index i]\n"
 		"  block.set <path> --system N --context c --index i [--params '{...}'] [--bind '{...}'] [--enabled false]   (params merge)\n"
 		"  block.remove <path> --system N --context c --index i\n"
+		"  operators                               operator node types (inputs, settings) — values computed per particle\n"
+		"  op.add <path> --type Multiply [--params '{...}'] [--x 0 --y 400]   -> id\n"
+		"  op.set <path> --id N [--params '{...}'] [--x --y]   op.remove <path> --id N\n"
+		"  op.connect <path> --from N --to M --input B        op.disconnect <path> --to M --input B\n"
+		"  block.link <path> --system S --context c --index i --param Speed --from N   block.unlink ... --param Speed\n"
 		"  property.add <path> --name N --type Float|Int|Bool|Vector3|Color --value v [--range 0,10]\n"
 		"  property.set <path> --name N [--value v] [--rename M] [--range a,b]\n"
 		"  property.remove <path> --name N\n"
@@ -137,7 +142,7 @@ namespace
 			json params = json::array();
 			for (const Vfx::ParamDesc& p : d.Params)
 			{
-				static const char* kinds[] = { "Float", "Int", "Bool", "Enum", "Vector3", "Color", "Curve", "Gradient" };
+				static const char* kinds[] = { "Float", "Int", "Bool", "Enum", "Vector3", "Color", "Curve", "Gradient", "Text" };
 				json e = { { "name", p.Name }, { "kind", kinds[(int)p.Kind] } };
 				switch (p.Kind)
 				{
@@ -210,6 +215,28 @@ namespace
 			return true;
 		}
 		if (op == "blocks") { r = DescribeBlocks(); return true; }
+		if (op == "operators")
+		{
+			static const char* kinds[] = { "Float", "Int", "Bool", "Enum", "Vector3", "Color", "Curve", "Gradient", "Text" };
+			json list = json::array();
+			for (const Vfx::OperatorDesc& d : Vfx::Operators())
+			{
+				json ins = json::array(), sets = json::array();
+				for (const Vfx::OperatorInput& in : d.Inputs)
+					ins.push_back({ { "name", in.Name }, { "kind", kinds[(int)in.Kind] }, { "default", { in.Default[0], in.Default[1], in.Default[2], in.Default[3] } } });
+				for (const Vfx::ParamDesc& p : d.Settings)
+				{
+					json e = { { "name", p.Name }, { "kind", kinds[(int)p.Kind] } };
+					if (p.Kind == Vfx::ParamKind::Enum) e["options"] = Vfx::EnumOptions(p);
+					sets.push_back(e);
+				}
+				list.push_back({ { "type", d.Type }, { "label", d.Label }, { "category", d.Category }, { "inputs", ins }, { "settings", sets },
+					{ "output", kinds[(int)d.Output] }, { "help", d.Help } });
+			}
+			r = { { "operators", list }, { "notes", "values are float4; scalars fill all four lanes. Link an operator to a block value with block.link (Float/Int/Bool/Enum/Vector3/Color values). "
+				"Attribute operators read the particle as the block sees it (Initialize: being built; Update: current)." } };
+			return true;
+		}
 		if (op == "templates") { r = { { "templates", Vfx::TemplateNames() } }; return true; }
 		if (op == "list") { r = { { "assets", Vfx::FindAssets() } }; return true; }
 		if (op == "new")
@@ -249,7 +276,7 @@ namespace
 						for (size_t i = 0; i < asset->Systems.size(); ++i)
 							systems.push_back({ { "name", asset->Systems[i].Name }, { "alive", v->SystemAliveCount((int)i) } });
 					list.push_back({ { "object", v->GetGameObject() ? v->GetGameObject()->GetName() : "" }, { "asset", v->AssetPath },
-						{ "alive", v->AliveParticleCount() }, { "systems", systems }, { "enabled", v->IsEnabled() }, { "error", v->AssetError() } });
+						{ "alive", v->AliveParticleCount() }, { "systems", systems }, { "enabled", v->IsEnabled() }, { "culled", v->IsCulled() }, { "error", v->AssetError() } });
 				}
 				r = { { "effects", list }, { "gpu", VfxRuntime::Supported() }, { "drawCalls", VfxRuntime::LastDrawCalls() } };
 				if (!VfxRuntime::LastError().empty()) r["runtimeError"] = VfxRuntime::LastError();
@@ -305,6 +332,20 @@ namespace
 		}
 		if (!LoadAsset(a, path, asset, e))
 			return false;
+		if (op == "encode")
+		{
+			// 진단: 시스템의 블록 목록 (58. VFX.fx 가 읽는 float4 — 머리 · 값 칸 · 연산 노드 식)
+			const int si = SystemIndex(asset, a, e);
+			if (si < 0) return false;
+			struct Props : Vfx::PropertySource { const Vfx::Asset& A; Props(const Vfx::Asset& x) : A(x) {} bool Get(const std::string& k, std::array<float, 4>& o) const override { const Vfx::Property* p = A.FindProperty(k); if (!p) return false; o = p->Value; return true; } } props(asset);
+			const float identity[16] = { 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1 };
+			Vfx::Encoded enc;
+			Vfx::Encode(asset.Systems[si], props, identity, enc, &asset);
+			json prog = json::array();
+			for (const auto& v : enc.Program) prog.push_back({ v[0], v[1], v[2], v[3] });
+			r = { { "initStart", enc.InitStart }, { "initCount", enc.InitCount }, { "updateStart", enc.UpdateStart }, { "updateCount", enc.UpdateCount }, { "program", prog } };
+			return true;
+		}
 		if (op == "info" || op == "get" || op == "validate")
 		{
 			r = Summary(path, asset);
@@ -395,6 +436,95 @@ namespace
 				list->insert(list->begin() + to, b);
 				return SaveAsset(path, asset, r, e);
 			}
+		}
+		if (op.rfind("op.", 0) == 0)
+		{
+			auto find = [&](int id) -> Vfx::OperatorNode* {
+				for (Vfx::OperatorNode& n : asset.Operators) if (n.Id == id) return &n;
+				return nullptr;
+			};
+			if (op == "op.add")
+			{
+				const Vfx::OperatorDesc* d = Vfx::FindOperator(a.value("type", std::string()));
+				if (!d) { e = "unknown operator type (nova vfx operators)"; return false; }
+				Vfx::OperatorNode n;
+				n.Id = asset.NewOperatorId();
+				n.Type = d->Type;
+				if (json p = JsonArg(a, "params"); p.is_object()) n.Params = p;
+				n.X = a.value("x", -420.0f);
+				n.Y = a.value("y", 120.0f * (float)asset.Operators.size());
+				asset.Operators.push_back(n);
+				if (!SaveAsset(path, asset, r, e)) return false;
+				r["id"] = n.Id;
+				return true;
+			}
+			const int id = a.value("id", a.value("to", -1));
+			Vfx::OperatorNode* n = find(id);
+			if (!n) { e = "no operator " + std::to_string(id) + " (nova vfx info lists operators)"; return false; }
+			if (op == "op.set")
+			{
+				if (json p = JsonArg(a, "params"); p.is_object()) n->Params.merge_patch(p);
+				if (a.contains("x")) n->X = a["x"].get<float>();
+				if (a.contains("y")) n->Y = a["y"].get<float>();
+				return SaveAsset(path, asset, r, e);
+			}
+			if (op == "op.remove")
+			{
+				for (Vfx::OperatorNode& o : asset.Operators)
+					for (auto it = o.Inputs.begin(); it != o.Inputs.end();)
+						it = it->is_number_integer() && it->get<int>() == id ? o.Inputs.erase(it) : std::next(it);
+				for (Vfx::System& sys : asset.Systems)
+					for (auto* list : { &sys.Initialize, &sys.Update })
+						for (Vfx::Block& b : *list)
+							for (auto it = b.Links.begin(); it != b.Links.end();)
+								it = it->is_number_integer() && it->get<int>() == id ? b.Links.erase(it) : std::next(it);
+				asset.Operators.erase(std::remove_if(asset.Operators.begin(), asset.Operators.end(), [&](const Vfx::OperatorNode& o) { return o.Id == id; }), asset.Operators.end());
+				return SaveAsset(path, asset, r, e);
+			}
+			const std::string input = a.value("input", std::string());
+			const Vfx::OperatorDesc* d = Vfx::FindOperator(n->Type);
+			const Vfx::OperatorInput* in = nullptr;
+			for (const Vfx::OperatorInput& i : d->Inputs) if (Simplify(i.Name) == Simplify(input)) in = &i;
+			if (!in) { e = n->Type + " has no input '" + input + "'"; return false; }
+			for (auto it = n->Inputs.begin(); it != n->Inputs.end(); ++it)
+				if (Simplify(it.key()) == Simplify(input)) { n->Inputs.erase(it); break; }
+			if (op == "op.connect")
+			{
+				const int from = a.value("from", -1);
+				if (!find(from)) { e = "no operator " + std::to_string(from); return false; }
+				n->Inputs[in->Name] = from;
+				// 고리 · 너무 깊은 식은 받지 않는다
+				struct Props : Vfx::PropertySource { const Vfx::Asset& A; Props(const Vfx::Asset& x) : A(x) {} bool Get(const std::string& k, std::array<float, 4>& o) const override { const Vfx::Property* p = A.FindProperty(k); if (!p) return false; o = p->Value; return true; } } props(asset);
+				std::vector<std::array<float, 4>> code;
+				std::string err;
+				if (!Vfx::CompileOperator(asset, n->Id, props, code, err) && err.find("loop") != std::string::npos) { e = err; return false; }
+				return SaveAsset(path, asset, r, e);
+			}
+			if (op == "op.disconnect")
+				return SaveAsset(path, asset, r, e);
+		}
+		if (op == "block.link" || op == "block.unlink")
+		{
+			const int si = SystemIndex(asset, a, e);
+			if (si < 0) return false;
+			std::vector<Vfx::Block>* list = BlockList(asset.Systems[si], a, e);
+			if (!list) return false;
+			const int index = a.value("index", -1);
+			if (index < 0 || index >= (int)list->size()) { e = "needs --index 0.." + std::to_string((int)list->size() - 1); return false; }
+			Vfx::Block& b = (*list)[index];
+			const Vfx::BlockDesc* d = Vfx::FindBlock(b.Type);
+			const Vfx::ParamDesc* pd = d ? Vfx::FindParam(*d, a.value("param", std::string())) : nullptr;
+			if (!pd) { e = "block " + b.Type + " has no value '" + a.value("param", std::string()) + "'"; return false; }
+			if (!Vfx::Linkable(*pd)) { e = std::string(pd->Name) + " cannot take an operator (curve / gradient)"; return false; }
+			for (auto it = b.Links.begin(); it != b.Links.end(); ++it)
+				if (Simplify(it.key()) == Simplify(pd->Name)) { b.Links.erase(it); break; }
+			if (op == "block.link")
+			{
+				const int from = a.value("from", -1);
+				if (!asset.FindOperatorNode(from)) { e = "no operator " + std::to_string(from); return false; }
+				b.Links[pd->Name] = from;
+			}
+			return SaveAsset(path, asset, r, e);
 		}
 		if (op.rfind("property.", 0) == 0)
 		{

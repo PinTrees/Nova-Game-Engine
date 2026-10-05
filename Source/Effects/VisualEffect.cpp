@@ -186,6 +186,8 @@ void VisualEffect::Advance(float dt)
 				m_Systems[i].Active = false;
 		}
 	m_Events.clear();
+	if (m_Culled)
+		return;   // 화면 밖: 시뮬레이션과 같이 쉰다
 
 	for (int i = 0; i < (int)systems.size(); ++i)
 	{
@@ -265,6 +267,13 @@ void VisualEffect::UpdateAll()
 }
 
 // ------------------------------------------------------------------ 기즈모 · Inspector
+bool VfxGpuBounds(VisualEffect* vfx, Vec3& mn, Vec3& mx);   // VfxRuntime.cpp
+
+bool VisualEffect::GetWorldBounds(Vec3& mn, Vec3& mx)
+{
+	return VfxGpuBounds(this, mn, mx);
+}
+
 void VisualEffect::OnDrawGizmos()
 {
 	if (m_pGameObject == nullptr || !SceneViewOverlay::IsActive())
@@ -273,6 +282,15 @@ void VisualEffect::OnDrawGizmos()
 	ImVec2 sp;
 	if (SceneViewOverlay::Project(XMFLOAT3(tr->GetPosition().x, tr->GetPosition().y, tr->GetPosition().z), sp))
 		UnityGUI::DrawIcon(ImGui::GetWindowDrawList(), "particle_system", ImVec2(sp.x - 12.0f, sp.y - 12.0f), 24.0f, IM_COL32(255, 200, 255, 220));
+	// 골랐을 때: 경계 상자 (컬링에 쓰는 상자 — Unity 의 Bounds 기즈모)
+	Vec3 mn, mx;
+	if (SelectionManager::GetSelectedGameObject() != m_pGameObject || !GetWorldBounds(mn, mx))
+		return;
+	const ImU32 col = IM_COL32(255, 160, 220, 180);
+	auto corner = [&](int k) { return XMFLOAT3((k & 1) ? mx.x : mn.x, (k & 2) ? mx.y : mn.y, (k & 4) ? mx.z : mn.z); };
+	const int edges[12][2] = { { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 }, { 0, 2 }, { 1, 3 }, { 4, 6 }, { 5, 7 }, { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 } };
+	for (const auto& e : edges)
+		SceneViewOverlay::DrawLine(corner(e[0]), corner(e[1]), col);
 }
 
 void VisualEffect::OnInspectorGUI()

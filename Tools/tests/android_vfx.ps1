@@ -63,6 +63,8 @@ try
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidCircle.vfx --name Circle --position 0,0,0' | Out-Null
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidFireworks.vfx --name Fireworks --position 0,0,10' | Out-Null
     Invoke-Nova "scene save --as $($Scene -replace '\\', '/')" | Out-Null
+    # 화면 밖 이펙트는 시뮬레이션을 쉰다 (Culling = Simulate When Visible) → 기준 그림 전에 Scene 뷰 카메라로 비춰 돌린다
+    Invoke-Nova 'camera --position 0,5,-12 --target 0,1.2,4' | Out-Null
     Invoke-Nova 'wait 30' | Out-Null
     Remove-Item -Recurse -Force $gameDir -ErrorAction SilentlyContinue
     $x = Invoke-NovaJson "android export --out `"$(Split-Path $assets)`" --scenes `"$Scene`""

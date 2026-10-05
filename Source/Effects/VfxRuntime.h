@@ -12,6 +12,7 @@ namespace VfxRuntime
 	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv, const ParticleRenderer::Environment* env = nullptr);
 	int LastDrawCalls();
 	int LastSystemCount();
+	int LastCulledCount();   // 지난 뷰에서 화면 밖이라 건너뛴 Visual Effect
 	bool Supported();   // compute 를 쓸 수 있고 58. VFX.fx 를 읽었다
 	const std::string& LastError();
 	// 검사용 요약 (안드로이드 scene 검사의 NOVA_TEST · nova vfx stats 와 같은 모양): {gpu, error, drawCalls, effects:[{object, asset, alive, systems:[{name, alive}]}]}

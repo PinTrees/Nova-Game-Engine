@@ -9,15 +9,22 @@ Unity 의 Visual Effect Graph 처럼 **GPU 에서 수십만 개의 파티클**�
 
 ![불꽃놀이 — GPU Event (로켓 → 폭발 → 반짝임)](../Showcase/215_VFX_불꽃놀이_GPU_Event.webp)
 
+![꼬리 · 정렬 · 화면 밖 컬링](../Showcase/217_VFX_꼬리_정렬_컬링.webp)
+
+![연산 노드 (무지개 나선)](../Showcase/218_VFX_연산노드_그래프.webp)
+
+![데모: 밤 캠프장](../Showcase/221_VFX_데모_움직임.webp)
+
 ## 쓰는 법
 
-1. Project 창 **Create > Visual Effect Graph** → `New VFX.vfx` (더블클릭 = **Window > Visual Effect Graph**). 창의 **File > New from Template** 로 견본 (Fireworks · Magic Circle · Tornado · Sparks · Galaxy · Fire · Portal) 에서 시작해도 됩니다
+1. Project 창 **Create > Visual Effect Graph** → `New VFX.vfx` (더블클릭 = **Window > Visual Effect Graph**). 창의 **File > New from Template** 로 견본 (Fireworks · Magic Circle · Tornado · Sparks · Galaxy · Fire · Portal · Energy Swirl · Rainbow Spiral) 에서 시작해도 됩니다
 2. 장면에 놓기: **GameObject > Effects > Visual Effect** 의 Asset Template 에 `.vfx` (끌어 놓기 · ⊙), 또는 그래프 창 메뉴 **Place in Scene**. Unity 처럼 **Play 모드가 아니어도** 장면에서 재생됩니다
 3. 그래프의 **시스템** 하나 = 세로로 쌓인 문맥 네 개: **Spawn** (주황 — 초당 수 · Burst · Loop/Duration/Delay · Start/Stop 이벤트) → **Initialize Particle** (초록 — 태어날 때) → **Update Particle** (노랑 — 프레임마다) → **Output Particle Quad** (보라 — 모양 · 섞기 · 방향 · HDR 세기)
 4. 문맥의 **+** 또는 캔버스에서 **Space / 오른쪽 클릭** = 검색 창 (문맥을 골랐으면 그 문맥의 블록, 아니면 새 시스템 · 견본의 시스템). 블록의 값은 노드 안 (짧게) 과 오른쪽 **Inspector** (곡선 · 그라디언트 · 콤보 · 색 고르기 · 속성 연결 🔗)
 5. 왼쪽 **Blackboard** 의 `+` = Exposed Property (Float · Int · Bool · Vector3 · Color). 블록 값의 🔗 로 속성에 잇고, 장면의 Visual Effect Inspector 에서 **오브젝트마다 덮어쓰기** (Unity 와 같은 왼쪽 체크)
 6. **GPU Event**: 시스템의 **On Die** 핀을 다른 시스템의 **GPU Event** 핀으로 끌면, 부모 파티클이 죽은 자리에서 자식이 태어납니다 (Unity 의 Trigger Event On Die → GPU Event). 불꽃놀이: 로켓 → 폭발 → 반짝임
-7. 고칠 때마다 장면의 Visual Effect 가 **저장 전에도 바로** 따라옵니다. **Ctrl+S** 저장, Ctrl+Z / Ctrl+Y
+7. **연산 노드 (Operator)**: 검색 창의 `Operator / …` (수 · 속성 · 파티클 값 · 수학 · 벡터 · 곡선 · 잡음 · 색). 블록 값 왼쪽의 **핀** 으로 노드의 출력을 끌면 그 값이 수식이 된다 (파티클마다 GPU 에서 계산). 노드끼리도 출력 → 입력으로 잇는다. 이은 값은 `<- HSV to RGB #6` 처럼 보이고 ✕ 로 끊는다. 노드를 고르고 Delete
+8. 고칠 때마다 장면의 Visual Effect 가 **저장 전에도 바로** 따라옵니다. **Ctrl+S** 저장, Ctrl+Z / Ctrl+Y
 
 ### 블록
 
@@ -44,6 +51,28 @@ Additive 는 빛 · 불 · 마법 (HDR 1 보다 크면 Bloom 으로 빛난다), 
 - **Local**: 파티클이 Visual Effect 와 함께 움직인다
 - Spawn 의 **Start Event** (기본 `OnPlay`) · **Stop Event** (`OnStop`) — 다른 이름으로 바꾸면 `SendEvent("Burst")` 로만 시작. Visual Effect 의 **Initial Event Name** (기본 OnPlay, 비우면 스스로 시작하지 않음)
 - Spawn **Rate Property**: 초당 수를 Float 속성에 연결 (예: 불꽃놀이 Launch Rate)
+- GPU Event 의 **Trigger**: `On Die` (죽을 때) 또는 **`Rate`** (Unity 의 Trigger Event Rate — 부모 파티클이 살아 있는 동안 초당 N 개, 예: 로켓을 따라가는 불티)
+
+### 꼬리 · 정렬 · 컬링
+
+- Output 의 **Trail** (Unity 의 Output Particle Strip 과 같은 쓰임): 파티클마다 지나온 점 N 개 (Points, 기본 12) 를 Length 초 동안 남기고, 너비 = 파티클 크기 × Width, 끝으로 갈수록 가늘고 흐려지는 리본. **Trail Only** 면 파티클 점은 그리지 않고 꼬리만 (에너지 소용돌이)
+- **Sort** (Auto · On · Off): Alpha Blend 출력은 기본으로 GPU 에서 **카메라 거리로 정렬** (비토닉 정렬, 뷰마다 — Scene 과 Game 이 따로), Additive 는 순서가 상관없어 하지 않는다. On 이면 Additive 도
+- **Culling** (Visual Effect 에셋): `Simulate When Visible` (기본, Unity 와 같음) = 어느 카메라에도 보이지 않으면 시뮬레이션도 쉰다. compute 가 파티클의 경계 상자를 모으고 (크기 · 꼬리 포함) 카메라 절두체 밖이면 그리지 않는다. `Always Simulate` = 화면 밖에서도 계속. 고른 Visual Effect 는 Scene 뷰에 경계 상자를 그린다
+
+### 연산 노드 (Operator)
+
+| 갈래 | 노드 |
+|---|---|
+| 값 | Float · Vector3 · Color · **Property (Blackboard)** |
+| 시간 · 무작위 | Total Time · Delta Time · Random Number (per Particle — 파티클마다 고정, per Frame — 프레임마다) |
+| 파티클 | Get Age · Get Lifetime · Age over Lifetime · Get Position · Get Velocity · Get Color · Get Size · Get Speed |
+| 수학 | Add · Subtract · Multiply · Divide · Minimum · Maximum · Power · Modulo · Step · Lerp · Clamp · Smoothstep · Remap · Absolute · Sine · Cosine · Fractional · Saturate · One Minus · Negate · Floor · Round · Square Root |
+| 벡터 | Length · Normalize · Dot Product · Cross Product · Distance · Split (Component) · Combine (Vector) |
+| 곡선 · 잡음 · 색 | Sample Curve · Sample Gradient · Noise (Value · Vector) · HSV to RGB |
+
+- 블록 값 (숫자 · 벡터 · 색 · 곡선 X 위치처럼 블록 목록의 칸이 되는 것) 에 잇는다. 셰이더는 그대로 — 연결은 블록 목록 뒤에 붙는 **작은 스택 명령** 이 되어, 블록마다 한 번 계산한다 (DirectX 11 의 fxc 를 위해 스택은 고정 레지스터 10 개 → 식의 깊이 10 까지)
+- World 시스템에 이은 위치 · 방향 값은 Visual Effect 의 변환을 따라간다 (블록 값과 같은 규칙)
+- 예: 견본 **Rainbow Spiral** — 색 = HSV(Total Time × Hue Speed + 파티클마다 무작위 → Fractional), Orbit 의 빠르기 = Sine(Time) × Swirl (나선이 번갈아 거꾸로 돈다)
 
 ## 어떻게 동작하나
 
@@ -51,9 +80,12 @@ Additive 는 빛 · 불 · 마법 (HDR 1 보다 크면 Bloom 으로 빛난다), 
 - 파티클 하나 = 96 바이트 (GPU 만 쓰는 raw 버퍼). 칸은 원자적 카운터로 고른다 (용량을 넘으면 가장 오래된 칸부터). 죽은 칸은 그리기에서 화면 밖으로
 - **그리기 = 파티클 버퍼를 그대로 인스턴스 정점 버퍼로** (CPU 로 읽어 오지 않는다 — 안드로이드 GLES 도 같은 길). 시스템마다 그리기 한 번
 - GPU Event: 부모의 Update 가 죽는 파티클의 위치 · 속도 · 색을 이벤트 버퍼에 (프레임마다 최대 4096), 자식의 Spawn 이 이벤트마다 N 개. 부모가 먼저 돌도록 시스템 순서를 정한다 (고리는 거부)
+- 꼬리: Update 가 점 링 버퍼 (파티클 × 점) 에 기록 간격마다 위치를 넣고, compute 가 이웃한 두 점마다 마디 인스턴스 (64 바이트) 를 만들어 인스턴스 그리기 한 번
+- 정렬: 키 (카메라 앞 방향 거리) → 그룹 공유 메모리의 512 칸 비토닉 정렬 + 큰 단계는 전역 → 정렬된 순서로 파티클을 정점 버퍼에 모은다 (용량 2 의 거듭제곱으로 올림)
+- 경계: Update 가 그룹마다 최소 · 최대를 모아 원자적으로 합치고 (몇 프레임 늦게 읽음), 지난 프레임에 그렸는지로 컬링을 정한다 (`nova vfx stats` 의 `culled`)
 - 살아 있는 수는 몇 프레임 늦게 읽는다 (기다리지 않음) — Inspector · `nova vfx stats` · C# `aliveParticleCount`
 - 시뮬레이션은 프레임의 첫 그리기 (Game 또는 Scene 뷰) 에서 한 번 — DirectX 11 · OpenGL 4.5 · Vulkan · **OpenGL ES 3.2 (안드로이드)**. compute 가 없는 장치 (`SupportsGpuDriven` = false) 에서는 그리지 않는다
-- 코드: `Source/Effects/VfxAsset.*` (에셋 · 블록 정의표 · 블록 목록 만들기), `VfxTemplates.cpp` (견본), `VisualEffect.*` (컴포넌트 · 이벤트 · Spawn 수), `VfxRuntime.*` (GPU),
+- 코드: `Source/Effects/VfxAsset.*` (에셋 · 블록 정의표 · 블록 목록 만들기), `VfxOperators.cpp` (연산 노드 정의표 · 스택 명령으로 옮기기), `VfxTemplates.cpp` (견본), `VisualEffect.*` (컴포넌트 · 이벤트 · Spawn 수), `VfxRuntime.*` (GPU),
   `VfxScripting.cpp` (C#), `Source/Editor/Windows/VfxGraphWindow.*` · `VfxAssistantWindow.*`, `Source/Editor/VfxCli.*`
 
 ## VFX Assistant (Claude Code)
@@ -99,16 +131,47 @@ nova vfx event --object Boom --name OnStop        장면의 Visual Effect 에 �
 nova vfx override --object Boom --name Wind --value 0,3,0
 nova vfx stats                                    시스템마다 살아 있는 수
 nova vfx window Assets/VFX/Boom.vfx [--system Rocket --context update --block 0]
+nova vfx operators                                연산 노드 종류 (입력 · 설정)
+nova vfx op.add Assets/VFX/Boom.vfx --type Sine   → id
+nova vfx op.connect Assets/VFX/Boom.vfx --from 1 --to 2 --input X
+nova vfx block.link Assets/VFX/Boom.vfx --system Explosion --context initialize --index 3 --param ColorA --from 2
+nova vfx block.unlink ... --param ColorA          op.set · op.remove · op.disconnect
+nova vfx encode Assets/VFX/Boom.vfx               블록 목록 (셰이더가 읽는 칸 — 문제 찾기)
 ```
 
-`.vfx` 는 JSON (`properties` · `systems[{name, capacity, space, spawn, initialize[], update[], output, editor}]`, 블록 = `{type, params, bind}`) — 게임 빌드는 씬이 가리키는 `.vfx` 를 따라 넣습니다.
+`.vfx` 는 JSON (`properties` · `systems[{name, capacity, space, spawn, initialize[], update[], output, editor}]` · `operators[{id, type, params, inputs, x, y}]` · `culling`, 블록 = `{type, params, bind, links}`) — 게임 빌드는 씬이 가리키는 `.vfx` 를 따라 넣습니다.
 
 ## 검사
 
-- `run_tests.ps1 -Only vfx,vfxgl,vfxvk` — CLI 편집 (속성 이름 바꾸면 연결도 따라감, 잘못된 문맥 거부, 없는 부모 알림), 세 API 의 GPU Spawn · Update (마법진 다섯 시스템), **GPU Event 사슬** (로켓 → 폭발 → 반짝임), OnStop · OnPlay, 속성 덮어쓰기 (Launch Rate 0 → 로켓 없음), 그리기 (켬 · 끔 화면 차이), C# API, 컴포넌트 JSON, Assistant 상태
+- `run_tests.ps1 -Only vfx,vfxgl,vfxvk` — CLI 편집 (속성 이름 바꾸면 연결도 따라감, 잘못된 문맥 거부, 없는 부모 알림), 세 API 의 GPU Spawn · Update (마법진 다섯 시스템), **GPU Event 사슬** (로켓 → 폭발 → 반짝임), OnStop · OnPlay, 속성 덮어쓰기 (Launch Rate 0 → 로켓 없음), 그리기 (켬 · 끔 화면 차이), **연산 노드 + GPU 정렬** (위치 → Split → Remap → Lerp 색, 정렬해야 가까운 빨강이 위), 연산 노드로 수명 줄이기, **꼬리** 그리기, **화면 밖 컬링** (카메라 뒤 = culled · 멈춤, 다시 보이면 이어서), C# API, 컴포넌트 JSON, Assistant 상태
 - `Tools/tests/android_vfx.ps1` — MuMu (OpenGL ES 3.2): GLES 셰이더에 VFX 커널, `.vfx` 가 게임 데이터에, 기기의 compute 로 마법진 · 불꽃놀이 GPU Event, 그리기 시간
+
+## 성능 (PC Release)
+
+![견본마다 GPU 시간](../Showcase/219_VFX_견본별_성능_Release.webp)
+
+에디터 Scene 뷰, 견본 하나씩, 파티클 패스 GPU 시간 (180 프레임 × 3 번 중앙값, 끈 프레임과 번갈아). 비싼 것은 개수보다 **화면을 덮는 면적** (토네이도 — 큰 반투명 조각이 겹침, 용량을 줄여 1.85 → 1.68 ms). 은하는 별 10 만 개가 작아 0.98 ms.
+
+| 견본 | 파티클 | DX11 ms | Vulkan ms |
+|---|---|---|---|
+| Fireworks | 3.5 천 | 0.43 | 0.40 |
+| Magic Circle | 1.3 만 | 0.29 | 0.30 |
+| Tornado | 2.5 만 | 1.68 | 2.19 |
+| Galaxy | 10.3 만 | 0.98 | 1.00 |
+| Portal | 1.6 만 | 0.26 | 0.27 |
+| Sparks | 1.5 천 | 0.20 | 0.24 |
+| Fire | 600 | 0.37 | 0.42 |
+| Energy Swirl (꼬리만) | 300 | 0.09 | 0.12 |
+| Rainbow Spiral (연산 노드 + 꼬리) | 3.6 천 | 0.17 | — |
+
+## 데모: 밤 캠프장
+
+![밤 캠프장](../Showcase/220_VFX_데모_밤캠프장.webp)
+
+테스트 프로젝트 `E:\NovaTest\VfxDemo` 의 `Assets/Scenes/VfxDemo.scene` — Third Person Character 로 걸어 다니며 포털 · 모닥불 (돌 · 따뜻한 빛) · 마법진 · 무지개 나선 · 에너지 소용돌이 · 불티 · 하늘의 은하 · 멀리 불꽃놀이.
+`Assets/Scripts/VfxDemo.cs`: **F** = 불꽃놀이 한꺼번에 (Launch Rate 를 1.6 초 올림), **E** = 발밑에 마법진 (옮기고 Reinit), 모닥불 Size 가 일렁이고, 포털은 가까울수록 초록 → 보라 (SetVector4). 모두 Exposed Property 를 C# 에서 바꾸는 예.
 
 ## 아직 없는 것
 
-- Unity 의 연산 노드 (Operator — 블록 값에 수식 잇기), Sub Graph, Output Mesh · Strip (꼬리 띠), GPU 정렬 (Alpha 끼리 순서), Bounds 컬링, 깊이 버퍼 충돌 · SDF
-- Trigger Event Always / Rate (살아 있는 동안 GPU Event — 로켓 꼬리), 파티클 속성 (Custom Attribute)
+- Sub Graph, Output Mesh, 깊이 버퍼 충돌 · SDF, 파티클 속성 (Custom Attribute), Trigger Event Always
+- 연산 노드: Branch · Compare (조건), 블록 안의 그라디언트 · 곡선 값 통째로 잇기

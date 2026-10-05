@@ -2,6 +2,7 @@
 #include "VfxAsset.h"
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <fstream>
 #include <sstream>
 #include <unordered_map>
@@ -332,6 +333,7 @@ namespace Vfx
 		if (!b.Enabled) j["enabled"] = false;
 		if (!b.Params.empty()) j["params"] = b.Params;
 		if (!b.Bind.empty()) j["bind"] = b.Bind;
+		if (!b.Links.empty()) j["links"] = b.Links;
 		return j;
 	}
 
@@ -344,6 +346,7 @@ namespace Vfx
 		b.Enabled = j.value("enabled", true);
 		if (j.contains("params") && j["params"].is_object()) b.Params = j["params"];
 		if (j.contains("bind") && j["bind"].is_object()) b.Bind = j["bind"];
+		if (j.contains("links") && j["links"].is_object()) b.Links = j["links"];
 		return b;
 	}
 
@@ -408,6 +411,8 @@ namespace Vfx
 		const char* kBlendNames[] = { "Additive", "Alpha" };
 		const char* kShapeNames[] = { "SoftDot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart" };
 		const char* kOrientNames[] = { "FaceCamera", "AlongVelocity", "Horizontal" };
+		const char* kSortNames[] = { "Auto", "On", "Off" };
+		const char* kTriggerNames[] = { "OnDie", "Rate" };
 
 		template<size_t N>
 		int NameIndex(const json& j, const char* key, const char* (&names)[N], int fallback)
@@ -437,6 +442,9 @@ namespace Vfx
 		{
 			spawn["parent"] = s.SpawnCtx.Parent;
 			spawn["countPerEvent"] = s.SpawnCtx.CountPerEvent;
+			spawn["trigger"] = kTriggerNames[(int)s.SpawnCtx.Trigger];
+			if (s.SpawnCtx.Trigger == EventTrigger::Rate)
+				spawn["eventRate"] = s.SpawnCtx.EventRate;
 		}
 		json init = json::array(), update = json::array();
 		for (const Block& b : s.Initialize) init.push_back(BlockToJson(b));
@@ -447,6 +455,9 @@ namespace Vfx
 		if (!o.Texture.empty()) output["texture"] = o.Texture;
 		if (o.FlipbookColumns * o.FlipbookRows > 1)
 			output["flipbook"] = { { "columns", o.FlipbookColumns }, { "rows", o.FlipbookRows }, { "fps", o.FlipbookFps } };
+		if (o.Sort != SortMode::Auto) output["sort"] = kSortNames[(int)o.Sort];
+		if (o.Trail)
+			output["trail"] = { { "points", o.TrailPoints }, { "length", o.TrailLength }, { "width", o.TrailWidth }, { "only", o.TrailOnly } };
 		json j = { { "name", s.Name }, { "capacity", s.Capacity }, { "space", s.Local ? "Local" : "World" },
 			{ "spawn", spawn }, { "initialize", init }, { "update", update }, { "output", output } };
 		if (!s.Enabled) j["enabled"] = false;
@@ -474,6 +485,8 @@ namespace Vfx
 			d.Parent = sp.value("parent", std::string());
 			d.RateBind = sp.value("rateBind", std::string());
 			d.CountPerEvent = std::clamp(sp.value("countPerEvent", d.CountPerEvent), 1, 4096);
+			d.Trigger = (EventTrigger)NameIndex(sp, "trigger", kTriggerNames, 0);
+			d.EventRate = (std::max)(0.0f, sp.value("eventRate", d.EventRate));
 			if (sp.contains("bursts") && sp["bursts"].is_array())
 				for (const json& b : sp["bursts"])
 					d.Bursts.push_back({ b.value("time", 0.0f), (std::max)(0, b.value("count", 100)), (std::max)(0, b.value("cycles", 1)), (std::max)(0.01f, b.value("interval", 1.0f)) });
@@ -502,6 +515,16 @@ namespace Vfx
 				d.FlipbookRows = std::clamp(o["flipbook"].value("rows", 1), 1, 64);
 				d.FlipbookFps = o["flipbook"].value("fps", 0.0f);
 			}
+			d.Sort = (SortMode)NameIndex(o, "sort", kSortNames, 0);
+			if (o.contains("trail") && o["trail"].is_object())
+			{
+				const json& t = o["trail"];
+				d.Trail = t.value("enabled", true);
+				d.TrailPoints = std::clamp(t.value("points", d.TrailPoints), 2, 32);
+				d.TrailLength = (std::max)(0.01f, t.value("length", d.TrailLength));
+				d.TrailWidth = (std::max)(0.0f, t.value("width", d.TrailWidth));
+				d.TrailOnly = t.value("only", false);
+			}
 		}
 		if (j.contains("editor") && j["editor"].is_object()) s.Editor = j["editor"];
 		return s;
@@ -513,6 +536,13 @@ namespace Vfx
 		for (const Property& p : Properties) props.push_back(PropertyToJson(p));
 		for (const System& s : Systems) systems.push_back(SystemToJson(s));
 		json j = { { "version", 1 }, { "properties", props }, { "systems", systems } };
+		if (!Operators.empty())
+		{
+			json ops = json::array();
+			for (const OperatorNode& n : Operators) ops.push_back(OperatorToJson(n));
+			j["operators"] = ops;
+		}
+		if (CullingMode == Culling::AlwaysSimulate) j["culling"] = "AlwaysSimulate";
 		if (!Editor.empty()) j["editor"] = Editor;
 		return j;
 	}
@@ -532,6 +562,11 @@ namespace Vfx
 		for (const json& s : j["systems"])
 			Systems.push_back(SystemFromJson(s));
 		Editor = j.contains("editor") && j["editor"].is_object() ? j["editor"] : json::object();
+		Operators.clear();
+		if (j.contains("operators") && j["operators"].is_array())
+			for (const json& o : j["operators"])
+				Operators.push_back(OperatorFromJson(o));
+		CullingMode = Simplify(j.value("culling", std::string())) == "alwayssimulate" ? Culling::AlwaysSimulate : Culling::SimulateWhenVisible;
 		return true;
 	}
 
@@ -600,10 +635,34 @@ namespace Vfx
 					for (auto it = b.Bind.begin(); it != b.Bind.end(); ++it)
 						if (!it->is_string() || !FindProperty(it->get<std::string>()))
 							issues.push_back(s.Name + ": block '" + b.Type + "' binds '" + it.key() + "' to a missing property");
+					for (auto it = b.Links.begin(); it != b.Links.end(); ++it)
+					{
+						const ParamDesc* pd = FindParam(*d, it.key());
+						if (!pd || !Linkable(*pd))
+							issues.push_back(s.Name + ": block '" + b.Type + "' value '" + it.key() + "' cannot take an operator");
+						else if (!it->is_number_integer() || !FindOperatorNode(it->get<int>()))
+							issues.push_back(s.Name + ": block '" + b.Type + "' links '" + it.key() + "' to a missing operator");
+						else
+						{
+							struct NoProps : PropertySource { const Asset& A; NoProps(const Asset& a) : A(a) {} bool Get(const std::string& n, std::array<float, 4>& o) const override { const Property* p = A.FindProperty(n); if (!p) return false; o = p->Value; return true; } } props(*this);
+							std::vector<std::array<float, 4>> code;
+							std::string error;
+							if (!CompileOperator(*this, it->get<int>(), props, code, error))
+								issues.push_back(s.Name + ": block '" + b.Type + "' value '" + it.key() + "': " + error);
+						}
+					}
 				}
 			};
 			check(s.Initialize, Context::Initialize);
 			check(s.Update, Context::Update);
+		}
+		for (const OperatorNode& n : Operators)
+		{
+			const OperatorDesc* od = FindOperator(n.Type);
+			if (!od) { issues.push_back("unknown operator '" + n.Type + "' (id " + std::to_string(n.Id) + ")"); continue; }
+			for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
+				if (!it->is_number_integer() || !FindOperatorNode(it->get<int>()))
+					issues.push_back("operator " + std::to_string(n.Id) + " (" + n.Type + ") input '" + it.key() + "' points to a missing operator");
 		}
 		const std::vector<int> order = SimulationOrder();
 		if (order.size() != Systems.size())
@@ -659,7 +718,178 @@ namespace Vfx
 		F4 Make(float x, float y = 0, float z = 0, float w = 0) { return { x, y, z, w }; }
 	}
 
-	void Encode(const System& s, const PropertySource& props, const float* world, Encoded& out)
+	// 블록 하나의 값 칸들 (58. VFX.fx 의 블록 코드가 읽는 배치). 모르는 블록이면 false
+	static bool EncodeSlots(const Block& b, const BlockDesc& d0, const PropertySource& props, const float* w, std::vector<F4>& v)
+	{
+		const BlockDesc* d = &d0;
+		const Ctx c{ b, *d, props, w };
+		v.clear();
+		switch (d->Id)
+		{
+		case 1:
+		{
+			const float shape = std::round(c.S("Shape"));
+			const F4 size = c.V("Size");
+			const F4 center = c.V("Center");
+			// Center 는 Visual Effect 기준 (World 시스템은 Spawn 이 gWorld 로 옮긴다 — 여기서 변환하지 않는다)
+			v.push_back(shape == 3 ? Make(3, size[0], size[1], size[2]) : Make(shape, c.S("Radius")));
+			v.push_back(Make(center[0], center[1], center[2], c.S("Surface")));
+			v.push_back(Make(c.S("Arc"), c.S("Height"), c.S("ConeAngle"), c.S("Thickness")));
+			v.push_back(Make(std::round(c.S("Plane"))));
+			break;
+		}
+		case 8:
+		{
+			const F4 center = c.V("Center");
+			v.push_back(Make(std::round(c.S("Arms")), c.S("Radius"), c.S("Twist"), c.S("Spread")));
+			v.push_back(Make(center[0], center[1], center[2], c.S("Thickness")));
+			break;
+		}
+		case 2:
+		{
+			// 방향은 Spawn 이 gWorld 로 옮긴다 (World 시스템)
+			const F4 dir = c.V("Direction");
+			v.push_back(Make(std::round(c.S("Mode")), c.S("MinSpeed"), c.S("MaxSpeed"), c.S("Spread")));
+			v.push_back(Make(dir[0], dir[1], dir[2]));
+			break;
+		}
+		case 3: case 4: v.push_back(Make(c.S("Min"), c.S("Max"))); break;
+		case 5:
+			v.push_back(c.V("ColorA"));
+			v.push_back(c.V("ColorB"));
+			v.push_back(Make(std::round(c.S("Mode")), c.S("Saturation"), c.S("Brightness"), c.S("Intensity")));
+			break;
+		case 6: v.push_back(Make(c.S("AngleMin"), c.S("AngleMax"), c.S("SpinMin"), c.S("SpinMax"))); break;
+		case 7: v.push_back(Make(c.S("Velocity"), c.S("Color"))); break;
+		case 20: { const F4 f = c.V("Force"); v.push_back(Make(f[0], f[1], f[2])); break; }
+		case 21: v.push_back(Make(c.S("Coefficient"))); break;
+		case 22:
+		{
+			const F4 scroll = c.V("Scroll");
+			v.push_back(Make(c.S("Intensity"), c.S("Frequency"), std::round(c.S("Octaves")), c.S("Drag")));
+			v.push_back(Make(scroll[0], scroll[1], scroll[2]));
+			break;
+		}
+		case 23:
+		{
+			const F4 axis = c.V("Axis"), center = c.V("Center");
+			v.push_back(Make(axis[0], axis[1], axis[2], c.S("Speed")));
+			v.push_back(Make(center[0], center[1], center[2], c.S("Pull")));
+			break;
+		}
+		case 24:
+		{
+			const F4 p = c.V("Position");
+			v.push_back(Make(p[0], p[1], p[2], c.S("Strength")));
+			v.push_back(Make(c.S("Radius"), c.S("Drag")));
+			break;
+		}
+		case 25:
+		{
+			F4 n = c.V("Normal");
+			const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+			if (len > 1e-6f) for (int i = 0; i < 3; ++i) n[i] /= len;
+			float offset = c.S("Offset");
+			if (w) offset += n[0] * w[12] + n[1] * w[13] + n[2] * w[14];   // 평면이 Visual Effect 와 함께 움직인다
+			v.push_back(Make(n[0], n[1], n[2], offset));
+			v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss")));
+			break;
+		}
+		case 26:
+		{
+			v.push_back(Make(std::round(c.S("Mode"))));
+			const auto g = b.GetGradient(*d, "Gradient");
+			for (int i = 0; i < 8; ++i) v.push_back(SampleGradient(g, i / 7.0f));
+			break;
+		}
+		case 27:
+		{
+			v.push_back(Make(0));
+			const auto k = b.GetCurve(*d, "Curve");
+			for (int i = 0; i < 4; ++i)
+				v.push_back(Make(SampleCurve(k, (i * 4 + 0) / 15.0f), SampleCurve(k, (i * 4 + 1) / 15.0f), SampleCurve(k, (i * 4 + 2) / 15.0f), SampleCurve(k, (i * 4 + 3) / 15.0f)));
+			break;
+		}
+		case 28: v.push_back(Make(c.S("Max"))); break;
+		case 29:
+		{
+			const F4 p = c.V("Center"), axis = c.V("Axis");
+			v.push_back(Make(p[0], p[1], p[2], c.S("Speed")));
+			v.push_back(Make(axis[0], axis[1], axis[2], c.S("Falloff")));
+			break;
+		}
+		default: return false;
+		}
+		return true;
+	}
+
+	// 연산 노드에 이은 값 → 칸마다 식. 값이 든 칸 · 성분은 그 값만 표지 값으로 바꿔 다시 만들어 찾는다 (블록마다 배치표를 따로 두지 않게)
+	static void EncodeLinks(const Asset& asset, const Block& b, const BlockDesc& d, const PropertySource& props, const float* w,
+		const std::vector<F4>& slots, std::vector<F4>& exprs, uint32_t& mask)
+	{
+		struct Patch { int Slot, Comp, Src; };
+		struct Piece { std::vector<F4> Code; std::vector<Patch> Patches; };
+		std::map<int, std::vector<Piece>> perSlot;
+		static const float kSentinel[4] = { 1.2345e30f, 1.3579e30f, 1.4321e30f, 1.5791e30f };
+		for (auto it = b.Links.begin(); it != b.Links.end(); ++it)
+		{
+			const ParamDesc* pd = FindParam(d, it.key());
+			if (!pd || !Linkable(*pd) || !it->is_number_integer())
+				continue;
+			const int n = pd->Kind == ParamKind::Vector3 ? 3 : pd->Kind == ParamKind::Color ? 4 : 1;
+			Block probe = b;
+			probe.Links = json::object();
+			for (auto bi = probe.Bind.begin(); bi != probe.Bind.end(); ++bi)
+				if (Simplify(bi.key()) == Simplify(pd->Name)) { probe.Bind.erase(bi); break; }
+			if (n == 1)
+				probe.Params[pd->Name] = kSentinel[0];
+			else
+			{
+				json arr = json::array();
+				for (int c = 0; c < n; ++c) arr.push_back(kSentinel[c]);
+				probe.Params[pd->Name] = arr;
+			}
+			std::vector<F4> pv;
+			if (!EncodeSlots(probe, d, props, nullptr, pv))
+				continue;
+			Piece piece;
+			for (int c = 0; c < n; ++c)
+				for (int k = 0; k < (int)pv.size() && k < 8; ++k)   // 식은 앞 8 칸까지 (58. VFX.fx 의 sSlot)
+					for (int m = 0; m < 4; ++m)
+						if (pv[k][m] == kSentinel[c])
+							piece.Patches.push_back({ k, m, c });
+			if (piece.Patches.empty())
+				continue;   // 이 블록은 값을 바꿔 써서 (예: 법선을 정규화) 이을 수 없다 — Validate 가 알린다
+			std::string error;
+			if (!CompileOperator(asset, it->get<int>(), props, piece.Code, error))
+				continue;
+			// World 시스템의 위치 · 방향 값: 연산 결과에 Visual Effect 변환
+			if (w && pd->Space == ParamSpace::Position) piece.Code.push_back(Make(90));
+			else if (w && pd->Space == ParamSpace::Direction) piece.Code.push_back(Make(91));
+			std::map<int, std::vector<Patch>> bySlot;
+			for (const Patch& pt : piece.Patches) bySlot[pt.Slot].push_back(pt);
+			for (auto& [slot, list] : bySlot)
+				perSlot[slot].push_back({ piece.Code, list });
+		}
+		for (auto& [slot, pieces] : perSlot)
+		{
+			// 칸의 상수 → (식 → 성분 바꾸기) … — 마지막 성분 바꾸기가 식 값을 내린다
+			std::vector<F4> e;
+			e.push_back(Make(1));
+			e.push_back(slots[slot]);
+			for (const Piece& pc : pieces)
+			{
+				e.insert(e.end(), pc.Code.begin(), pc.Code.end());
+				for (size_t k = 0; k < pc.Patches.size(); ++k)
+					e.push_back(Make(95, (float)pc.Patches[k].Comp, (float)pc.Patches[k].Src, k + 1 == pc.Patches.size() ? 1.0f : 0.0f));
+			}
+			exprs.push_back(Make((float)slot, (float)e.size()));
+			exprs.insert(exprs.end(), e.begin(), e.end());
+			mask |= 1u << slot;
+		}
+	}
+
+	void Encode(const System& s, const PropertySource& props, const float* world, Encoded& out, const Asset* asset)
 	{
 		out.Program.clear();
 		const float* w = s.Local ? nullptr : world;
@@ -671,106 +901,17 @@ namespace Vfx
 				const BlockDesc* d = FindBlock(b.Type);
 				if (!b.Enabled || !d || d->Ctx != ctx)
 					continue;
-				const Ctx c{ b, *d, props, w };
 				std::vector<F4> v;
-				switch (d->Id)
-				{
-				case 1:
-				{
-					const float shape = std::round(c.S("Shape"));
-					const F4 size = c.V("Size");
-					const F4 center = c.V("Center");
-					// Center 는 Visual Effect 기준 (World 시스템은 Spawn 이 gWorld 로 옮긴다 — 여기서 변환하지 않는다)
-					v.push_back(shape == 3 ? Make(3, size[0], size[1], size[2]) : Make(shape, c.S("Radius")));
-					v.push_back(Make(center[0], center[1], center[2], c.S("Surface")));
-					v.push_back(Make(c.S("Arc"), c.S("Height"), c.S("ConeAngle"), c.S("Thickness")));
-					v.push_back(Make(std::round(c.S("Plane"))));
-					break;
-				}
-				case 8:
-				{
-					const F4 center = c.V("Center");
-					v.push_back(Make(std::round(c.S("Arms")), c.S("Radius"), c.S("Twist"), c.S("Spread")));
-					v.push_back(Make(center[0], center[1], center[2], c.S("Thickness")));
-					break;
-				}
-				case 2:
-				{
-					// 방향은 Spawn 이 gWorld 로 옮긴다 (World 시스템)
-					const F4 dir = c.V("Direction");
-					v.push_back(Make(std::round(c.S("Mode")), c.S("MinSpeed"), c.S("MaxSpeed"), c.S("Spread")));
-					v.push_back(Make(dir[0], dir[1], dir[2]));
-					break;
-				}
-				case 3: case 4: v.push_back(Make(c.S("Min"), c.S("Max"))); break;
-				case 5:
-					v.push_back(c.V("ColorA"));
-					v.push_back(c.V("ColorB"));
-					v.push_back(Make(std::round(c.S("Mode")), c.S("Saturation"), c.S("Brightness"), c.S("Intensity")));
-					break;
-				case 6: v.push_back(Make(c.S("AngleMin"), c.S("AngleMax"), c.S("SpinMin"), c.S("SpinMax"))); break;
-				case 7: v.push_back(Make(c.S("Velocity"), c.S("Color"))); break;
-				case 20: { const F4 f = c.V("Force"); v.push_back(Make(f[0], f[1], f[2])); break; }
-				case 21: v.push_back(Make(c.S("Coefficient"))); break;
-				case 22:
-				{
-					const F4 scroll = c.V("Scroll");
-					v.push_back(Make(c.S("Intensity"), c.S("Frequency"), std::round(c.S("Octaves")), c.S("Drag")));
-					v.push_back(Make(scroll[0], scroll[1], scroll[2]));
-					break;
-				}
-				case 23:
-				{
-					const F4 axis = c.V("Axis"), center = c.V("Center");
-					v.push_back(Make(axis[0], axis[1], axis[2], c.S("Speed")));
-					v.push_back(Make(center[0], center[1], center[2], c.S("Pull")));
-					break;
-				}
-				case 24:
-				{
-					const F4 p = c.V("Position");
-					v.push_back(Make(p[0], p[1], p[2], c.S("Strength")));
-					v.push_back(Make(c.S("Radius"), c.S("Drag")));
-					break;
-				}
-				case 25:
-				{
-					F4 n = c.V("Normal");
-					const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-					if (len > 1e-6f) for (int i = 0; i < 3; ++i) n[i] /= len;
-					float offset = c.S("Offset");
-					if (w) offset += n[0] * w[12] + n[1] * w[13] + n[2] * w[14];   // 평면이 Visual Effect 와 함께 움직인다
-					v.push_back(Make(n[0], n[1], n[2], offset));
-					v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss")));
-					break;
-				}
-				case 26:
-				{
-					v.push_back(Make(std::round(c.S("Mode"))));
-					const auto g = b.GetGradient(*d, "Gradient");
-					for (int i = 0; i < 8; ++i) v.push_back(SampleGradient(g, i / 7.0f));
-					break;
-				}
-				case 27:
-				{
-					v.push_back(Make(0));
-					const auto k = b.GetCurve(*d, "Curve");
-					for (int i = 0; i < 4; ++i)
-						v.push_back(Make(SampleCurve(k, (i * 4 + 0) / 15.0f), SampleCurve(k, (i * 4 + 1) / 15.0f), SampleCurve(k, (i * 4 + 2) / 15.0f), SampleCurve(k, (i * 4 + 3) / 15.0f)));
-					break;
-				}
-				case 28: v.push_back(Make(c.S("Max"))); break;
-				case 29:
-				{
-					const F4 p = c.V("Center"), axis = c.V("Axis");
-					v.push_back(Make(p[0], p[1], p[2], c.S("Speed")));
-					v.push_back(Make(axis[0], axis[1], axis[2], c.S("Falloff")));
-					break;
-				}
-				default: continue;
-				}
-				out.Program.push_back(Make((float)d->Id, (float)v.size()));
+				if (!EncodeSlots(b, *d, props, w, v))
+					continue;
+				// 연산 노드에 이은 값: 그 값이 든 칸마다 식 (칸의 상수 → 노드 값으로 성분 바꾸기). 머리 = (종류, 칸 + 식 수, 칸 수, 식 있는 칸 비트)
+				std::vector<F4> exprs;
+				uint32_t mask = 0;
+				if (asset && !b.Links.empty())
+					EncodeLinks(*asset, b, *d, props, w, v, exprs, mask);
+				out.Program.push_back(Make((float)d->Id, (float)(v.size() + exprs.size()), (float)v.size(), (float)mask));
 				out.Program.insert(out.Program.end(), v.begin(), v.end());
+				out.Program.insert(out.Program.end(), exprs.begin(), exprs.end());
 				++count;
 			}
 		};

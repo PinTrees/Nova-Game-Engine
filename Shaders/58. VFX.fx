@@ -4,9 +4,12 @@
 //  - 시스템마다 파티클 버퍼 (96 바이트씩, GPU 만 쓴다) 를 compute 가 만들고 (Spawn) 움직인다 (Update).
 //    블록 (Initialize · Update) 은 그래프가 만든 목록 (gProgram) 을 셰이더가 차례로 읽어 실행 — 그래프를 바꿔도 다시 컴파일하지 않는다
 //  - 칸 고르기: 상태 버퍼의 카운터를 원자적으로 올려 (용량으로 나눈 나머지) — 가장 오래된 칸부터 다시 쓴다
-//  - GPU Event (Trigger Event On Die): 죽은 파티클의 위치 · 속도 · 색을 이벤트 버퍼에, 하위 시스템이 그 자리에서 태어난다
+//  - GPU Event: 죽을 때 (Trigger Event On Die) · 살아 있는 동안 초당 N 번 (Trigger Event Rate) 위치 · 속도 · 색을 이벤트 버퍼에, 하위 시스템이 그 자리에서 태어난다
 //  - 그리기: 파티클 버퍼를 그대로 인스턴스 정점 버퍼로 (정점 셰이더가 GPU 버퍼를 읽지 않는다 — 휴대폰 GLES 에서도 같은 길)
 //    모양은 그림 없이 셰이더가 만든다 (빛 · 별 · 고리 · 불꽃 줄기 · 연기) 또는 텍스처 + 플립북
+//  - 꼬리 (Unity 의 Output Particle Strip): 파티클마다 지난 자리 몇 개를 기록 → compute 가 띠 조각 (인스턴스 정점) 을 만들어 그린다
+//  - 정렬 (Alpha): 카메라 거리 키를 bitonic 정렬 (512 개는 그룹 메모리에서) → 정렬된 순서로 파티클을 복사해 그린다
+//  - 경계 상자: Update 가 살아 있는 파티클의 최소 · 최대 자리를 원자적으로 모은다 (CPU 가 몇 프레임 늦게 읽어 화면 밖이면 건너뜀)
 //=============================================================================
 
 cbuffer cbVfx
@@ -19,15 +22,21 @@ cbuffer cbVfx
     float gDt;
     float3 gCamPos;
     uint gCapacity;
+    float3 gCamFwd;                 // 정렬 키 (카메라 앞 방향 거리)
     uint gSpawnCount;               // Spawn: 이번에 태어날 수 (이벤트면 이벤트당 수)
-    uint gFromEvents;               // Spawn: 1 = 상위 시스템의 이벤트 자리에서
-    uint gEventCapacity;            // 이벤트 버퍼 칸 수
+    uint gFromEvents;               // Spawn: 0 스스로, 1 부모의 죽음 이벤트, 2 부모의 Rate 이벤트
+    uint gEventCapacity;            // 이벤트 칸 수 (죽음 · Rate 따로)
     uint gEmitOnDie;                // Update: 1 = 죽을 때 이벤트를 쓴다
+    float gEmitRate;                // Update: 살아 있는 파티클 하나가 초당 쓰는 이벤트 (0 = 끔)
     uint gInitStart, gInitCount;    // gProgram 의 Initialize 블록 (시작 칸 · 블록 수)
     uint gUpdateStart, gUpdateCount;
     uint gSeed;                     // 이번 프레임 Spawn 의 씨앗
     uint gLocalSpace;               // 1 = Local (그릴 때 gWorld)
-    float2 gPad0;
+    uint gTrailPoints;              // 꼬리: 파티클마다 기록하는 자리 수 (0 = 꼬리 없음)
+    float gTrailInterval;           // 꼬리: 기록 사이 (초)
+    float gTrailWidth;              // 꼬리: 너비 = 파티클 크기 × 이 값
+    uint gSortCount;                // 정렬: 키 수 (2 의 거듭제곱)
+    uint gSortK, gSortJ;            // 정렬: bitonic 단계 (J = 0 이면 512 개 안에서 처음부터)
     float4 gOutput0;                // x 모양, y 방향 (0 카메라, 1 속도로 늘림, 2 수평), z 늘림 배율, w Soft 거리
     float4 gOutput1;                // x 세기 (HDR), y 플립북 열, z 행, w 플립북 (0 = 수명 동안 한 번, >0 = 초당 칸)
     float4 gDepthParams;            // x, y = 투영 _33, _43, z = 미사용, w = 장면 깊이 있음
@@ -35,11 +44,13 @@ cbuffer cbVfx
 
 StructuredBuffer<float4> gProgram;      // 블록 목록 (VfxRuntime 이 만든다)
 RWByteAddressBuffer gParticles;         // 96 바이트씩
-RWByteAddressBuffer gState;             // 0 = 칸 카운터, 4 = 이번 Update 의 살아 있는 수 (CPU 가 0 으로 두고 몇 프레임 뒤에 읽는다)
-RWByteAddressBuffer gEventsOut;         // 이벤트 48 바이트씩 (위치 · 속도 · 색)
-RWByteAddressBuffer gEventCountOut;     // 0 = 이벤트 수
-ByteAddressBuffer gEventsIn;            // 상위 시스템의 이벤트
-ByteAddressBuffer gEventCountIn;
+RWByteAddressBuffer gState;             // 0 칸 카운터, 4 살아 있는 수, 8..20 최소 · 20..32 최대 자리 (순서 키), 32 최대 크기 — 4 부터는 Update 마다 CPU 가 처음 값으로
+RWByteAddressBuffer gEvents;            // 0 죽음 이벤트 수, 4 Rate 이벤트 수, 16.. 죽음 이벤트 48 바이트씩 (위치 · 속도 · 색), 그 뒤 Rate 이벤트
+ByteAddressBuffer gEventsIn;            // 부모 시스템의 이벤트 버퍼 (같은 배치)
+RWByteAddressBuffer gTrail;             // 꼬리 기록: 파티클마다 gTrailPoints 칸 (위치, 기록한 나이)
+RWByteAddressBuffer gTrailVerts;        // 꼬리 띠 조각: 64 바이트씩 (A 위치 · 너비, B 위치 · 너비, 색, u0 · u1 · 있음) — 인스턴스 정점 버퍼
+RWByteAddressBuffer gSortKeys;          // 정렬: 8 바이트씩 (키 float, 칸 uint)
+RWByteAddressBuffer gSorted;            // 정렬된 순서의 파티클 사본 (인스턴스 정점 버퍼)
 
 Texture2D gTexture;
 Texture2D gSceneDepth;
@@ -140,12 +151,188 @@ void Store(uint i, Particle p)
     gParticles.Store4(a + 80, asuint(float4(p.BaseSize, p.Spare0, p.Spare1, p.Spare2)));
 }
 
-// ---------------------------------------------------------------- 블록 (gProgram: 블록마다 머리 칸 (종류, 값 칸 수, 0, 0) + 값 칸들)
-//  번호는 Source/Effects/VfxAsset.h 의 VfxBlockType 과 같다
-float4 P(uint at, uint k) { return gProgram[at + 1 + k]; }
-
 // 칸 i (0..3) 를 동적 색인 없이 (동적 색인은 블록 반복문을 펼치게 만든다)
 float Lane(float4 v, uint i) { return dot(v, float4(i == 0, i == 1, i == 2, i == 3)); }
+
+// ---------------------------------------------------------------- 블록 (gProgram: 블록마다 머리 칸 (종류, 칸 + 식 수, 값 칸 수, 식 있는 칸 비트) + 값 칸들 + 식들)
+//  번호는 Source/Effects/VfxAsset.cpp 의 블록 정의표와 같다. 연산 노드 (Operator) 에 이은 값 칸은 식으로 — 파티클마다 계산 (Eval)
+static Particle sP;   // 지금 블록이 보는 파티클 (식의 Age · Position · Seed …)
+
+float4 HsvToRgb(float3 c)
+{
+    const float3 k = saturate(abs(frac(c.x + float3(1.0f, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f - 3.0f) - 1.0f);
+    return float4(c.z * lerp(1.0f.xxx, k, c.y), 1.0f);
+}
+
+// 스택 명령 (Source/Effects/VfxOperators.cpp 의 Op): 값은 float4, 스칼라는 네 칸에 같은 값.
+//  스택은 고정 레지스터 열 개 (r0 = 맨 위) — 배열을 동적 색인으로 쓰면 fxc (DirectX 11) 가 쓰기 · 읽기를 잘못 옮겨 값이 사라졌다
+#define VFX_PUSH(v) { const float4 pv_ = (v); r9 = r8; r8 = r7; r7 = r6; r6 = r5; r5 = r4; r4 = r3; r3 = r2; r2 = r1; r1 = r0; r0 = pv_; }
+#define VFX_POP { r0 = r1; r1 = r2; r2 = r3; r3 = r4; r4 = r5; r5 = r6; r6 = r7; r7 = r8; r8 = r9; }
+
+float4 Eval(uint pc, uint end)
+{
+    float4 r0 = 0.0f, r1 = 0.0f, r2 = 0.0f, r3 = 0.0f, r4 = 0.0f, r5 = 0.0f, r6 = 0.0f, r7 = 0.0f, r8 = 0.0f, r9 = 0.0f;
+    [loop] for (uint i = pc; i < end; ++i)
+    {
+        const float4 ins = gProgram[i];
+        const uint op = (uint)ins.x;
+        if (op == 1)   // 상수 (다음 칸)
+        {
+            VFX_PUSH(gProgram[i + 1]);
+            ++i;
+        }
+        else if (op >= 2 && op <= 13)
+        {
+            float4 v = 0.0f;
+            const float t = sP.Life > 0.0f ? saturate(sP.Age / sP.Life) : 0.0f;
+            if (op == 2) v = gTime.xxxx;
+            else if (op == 3) v = gDt.xxxx;
+            else if (op == 4) v = sP.Age.xxxx;
+            else if (op == 5) v = sP.Life.xxxx;
+            else if (op == 6) v = t.xxxx;
+            else if (op == 7) v = float4(sP.Pos, 0.0f);
+            else if (op == 8) v = float4(sP.Vel, 0.0f);
+            else if (op == 9) v = sP.Color;
+            else if (op == 10) v = sP.Size.xxxx;
+            else if (op == 11) v = length(sP.Vel).xxxx;
+            else if (op == 12) v = ((Hash(sP.Seed ^ ((uint)ins.y * 0x9E3779B9u)) & 0x00FFFFFFu) / 16777216.0f).xxxx;   // 파티클마다 고정
+            else v = ((Hash(sP.Seed ^ ((uint)ins.y * 0x9E3779B9u) ^ (asuint(gTime) * 0x85EBCA6Bu)) & 0x00FFFFFFu) / 16777216.0f).xxxx;   // 프레임마다
+            VFX_PUSH(v);
+        }
+        else if (op >= 20 && op <= 31)
+        {
+            // 둘: A (r1) B (r0) → 결과
+            const float4 a = r1, b = r0;
+            float4 r = 0.0f;
+            if (op == 20) r = a + b;
+            else if (op == 21) r = a - b;
+            else if (op == 22) r = a * b;
+            else if (op == 23) r = a / (abs(b) > 1e-12f ? b : 1e-12f);
+            else if (op == 24) r = min(a, b);
+            else if (op == 25) r = max(a, b);
+            else if (op == 26) r = pow(abs(a), b) * sign(a);
+            else if (op == 27) r = step(a, b);
+            else if (op == 28) r = dot(a.xyz, b.xyz).xxxx;
+            else if (op == 29) r = float4(cross(a.xyz, b.xyz), 0.0f);
+            else if (op == 30) r = distance(a.xyz, b.xyz).xxxx;
+            else r = a - b * floor(a / (abs(b) > 1e-12f ? b : 1e-12f));
+            VFX_POP;
+            r0 = r;
+        }
+        else if (op >= 40 && op <= 42)
+        {
+            // 셋: A (r2) B (r1) C (r0)
+            const float4 a = r2, b = r1, c = r0;
+            float4 r = 0.0f;
+            if (op == 40) r = lerp(a, b, c);
+            else if (op == 41) r = clamp(a, b, c);
+            else r = smoothstep(a, b, c);
+            VFX_POP;
+            VFX_POP;
+            r0 = r;
+        }
+        else if (op == 43)
+        {
+            // Remap: X (r4) InMin InMax OutMin OutMax (r0)
+            const float4 range = abs(r2 - r3) > 1e-12f ? r2 - r3 : 1e-12f;
+            const float4 r = r1 + (r4 - r3) / range * (r0 - r1);
+            VFX_POP;
+            VFX_POP;
+            VFX_POP;
+            VFX_POP;
+            r0 = r;
+        }
+        else if (op >= 50 && op <= 62)
+        {
+            const float4 x = r0;
+            float4 r = x;
+            if (op == 50) r = abs(x);
+            else if (op == 51) r = sin(x);
+            else if (op == 52) r = cos(x);
+            else if (op == 53) r = frac(x);
+            else if (op == 54) r = saturate(x);
+            else if (op == 55) r = 1.0f - x;
+            else if (op == 56) r = -x;
+            else if (op == 57) r = length(x.xyz).xxxx;
+            else if (op == 58) r = float4(dot(x.xyz, x.xyz) > 1e-12f ? normalize(x.xyz) : float3(0, 1, 0), 0.0f);
+            else if (op == 59) r = floor(x);
+            else if (op == 60) r = sqrt(abs(x));
+            else if (op == 61) r = round(x);
+            else r = HsvToRgb(x.xyz);
+            r0 = r;
+        }
+        else if (op == 70)   // Split: 성분 ins.y
+            r0 = dot(r0, float4(ins.y == 0.0f, ins.y == 1.0f, ins.y == 2.0f, ins.y == 3.0f)).xxxx;
+        else if (op == 71)   // Combine: X (r3) Y Z W (r0) 의 x 성분 넷
+        {
+            const float4 r = float4(r3.x, r2.x, r1.x, r0.x);
+            VFX_POP;
+            VFX_POP;
+            VFX_POP;
+            r0 = r;
+        }
+        else if (op == 80)   // 곡선 16 칸 (다음 4 칸)
+        {
+            const float x = saturate(r0.x) * 15.0f;
+            const uint i0 = min((uint)x, 14u);
+            const float a = Lane(gProgram[i + 1 + i0 / 4], i0 % 4);
+            const float b = Lane(gProgram[i + 1 + (i0 + 1) / 4], (i0 + 1) % 4);
+            r0 = lerp(a, b, x - i0).xxxx;
+            i += 4;
+        }
+        else if (op == 81)   // 그라디언트 8 칸 (다음 8 칸)
+        {
+            const float x = saturate(r0.x) * 7.0f;
+            const uint i0 = min((uint)x, 6u);
+            r0 = lerp(gProgram[i + 1 + i0], gProgram[i + 2 + i0], x - i0);
+            i += 8;
+        }
+        else if (op == 82 || op == 83)   // 잡음: Position (r1) Frequency (r0)
+        {
+            const float3 q = r1.xyz * r0.x;
+            const float4 r = op == 82 ? Noise3(q).xxxx : float4(NoiseVec(q, 2.0f), 0.0f);
+            VFX_POP;
+            r0 = r;
+        }
+        else if (op == 90 || op == 91)   // World 시스템의 위치 · 방향 값: Visual Effect 변환
+            r0 = float4(mul(float4(r0.xyz, op == 90 ? 1.0f : 0.0f), gWorld).xyz, r0.w);
+        else if (op == 95)   // 성분 바꾸기: r1[ins.y] = r0[ins.z], ins.w = 1 이면 r0 을 내린다
+        {
+            const float x = dot(r0, float4(ins.z == 0.0f, ins.z == 1.0f, ins.z == 2.0f, ins.z == 3.0f));
+            const float4 m = float4(ins.y == 0.0f, ins.y == 1.0f, ins.y == 2.0f, ins.y == 3.0f);
+            r1 = lerp(r1, x.xxxx, m);
+            if (ins.w > 0.5f)
+                VFX_POP;
+        }
+    }
+    return r0;
+}
+
+// 블록이 시작할 때 식 있는 칸을 한 번 계산해 둔다 (P 마다 Eval 을 펼치면 셰이더가 너무 커진다)
+static float4 sSlot[8];
+static uint sMask = 0u;
+
+void PrepareSlots(uint at)
+{
+    const float4 h = gProgram[at];
+    sMask = (uint)h.w;
+    if (sMask == 0u)
+        return;
+    uint e = at + 1 + (uint)h.z;
+    const uint end = at + 1 + (uint)h.y;
+    [loop] while (e < end)
+    {
+        const float4 eh = gProgram[e];
+        const uint len = (uint)eh.y;
+        sSlot[min((uint)eh.x, 7u)] = Eval(e + 1, e + 1 + len);
+        e += 1 + len;
+    }
+}
+
+float4 P(uint at, uint k)
+{
+    return ((sMask >> k) & 1u) != 0u ? sSlot[min(k, 7u)] : gProgram[at + 1 + k];
+}
 
 // 곡선 16 칸 (값 칸 4 개) · 그라디언트 8 칸 (값 칸 8 개) 을 t 로
 float Curve16(uint at, uint first, float t)
@@ -264,6 +451,8 @@ void RunInitialize(inout Particle p, inout uint s)
     uint at = gInitStart;
     for (uint n = 0; n < gInitCount; ++n)
     {
+        sP = p;
+        PrepareSlots(at);
         const float4 h = gProgram[at];
         const int type = (int)h.x;
         if (type == 1)   // Set Position (Shape)
@@ -337,6 +526,8 @@ void RunUpdate(inout Particle p, uint s)
     uint at = gUpdateStart;
     for (uint n = 0; n < gUpdateCount; ++n)
     {
+        sP = p;
+        PrepareSlots(at);
         const float4 h = gProgram[at];
         const int type = (int)h.x;
         if (type == 20)   // Gravity
@@ -433,10 +624,10 @@ void SpawnCS(uint3 id : SV_DispatchThreadID)
     if (gFromEvents != 0)
     {
         const uint ev = id.x / max(gSpawnCount, 1u);
-        const uint count = min(gEventCountIn.Load(0), gEventCapacity);
+        const uint count = min(gEventsIn.Load(gFromEvents == 2 ? 4 : 0), gEventCapacity);
         if (ev >= count)
             return;
-        const uint a = ev * 48;
+        const uint a = 16 + (gFromEvents == 2 ? gEventCapacity * 48 : 0) + ev * 48;
         p.Pos = asfloat(gEventsIn.Load3(a));
         sSrcVel = asfloat(gEventsIn.Load3(a + 16));
         sSrcColor = asfloat(gEventsIn.Load4(a + 32));
@@ -463,49 +654,242 @@ void SpawnCS(uint3 id : SV_DispatchThreadID)
     Store(slot % gCapacity, p);
 }
 
+// 이벤트 하나 (위치 · 속도는 월드)
+void EmitEvent(uint countOffset, uint baseOffset, Particle p)
+{
+    uint e;
+    gEvents.InterlockedAdd(countOffset, 1, e);
+    if (e >= gEventCapacity)
+        return;
+    const float3 wp = gLocalSpace != 0 ? mul(float4(p.Pos, 1.0f), gWorld).xyz : p.Pos;
+    const float3 wv = gLocalSpace != 0 ? mul(float4(p.Vel, 0.0f), gWorld).xyz : p.Vel;
+    const uint a = baseOffset + e * 48;
+    gEvents.Store4(a, asuint(float4(wp, 0.0f)));
+    gEvents.Store4(a + 16, asuint(float4(wv, 0.0f)));
+    gEvents.Store4(a + 32, asuint(p.Color));
+}
+
+// float 를 크기 순서가 같은 uint 로 (원자적 최소 · 최대에 쓴다 — 음수도)
+uint OrderKey(float f)
+{
+    const uint u = asuint(f);
+    return (u & 0x80000000u) != 0 ? ~u : (u | 0x80000000u);
+}
+
 groupshared uint gsAlive;
+groupshared uint gsBounds[7];   // 최소 xyz, 최대 xyz, 최대 크기 (순서 키)
 
 [numthreads(64, 1, 1)]
 void UpdateCS(uint3 id : SV_DispatchThreadID, uint local : SV_GroupIndex)
 {
     if (local == 0)
+    {
         gsAlive = 0;
+        gsBounds[0] = 0xFFFFFFFFu; gsBounds[1] = 0xFFFFFFFFu; gsBounds[2] = 0xFFFFFFFFu;
+        gsBounds[3] = 0u; gsBounds[4] = 0u; gsBounds[5] = 0u; gsBounds[6] = 0u;
+    }
     GroupMemoryBarrierWithGroupSync();
     if (id.x < gCapacity)
     {
         Particle p = Load(id.x);
         if (p.Life > 0.0f)
         {
+            const float ageBefore = p.Age;
             RunUpdate(p, p.Seed);
             p.Pos += p.Vel * gDt;
             p.Rot += p.AngVel * gDt;
             p.Age += gDt;
+            // Trigger Event Rate: 살아 있는 동안 초당 gEmitRate 번 (한 프레임에 많아야 4)
+            if (gEmitRate > 0.0f)
+            {
+                const uint n = (uint)clamp(floor(min(p.Age, p.Life) * gEmitRate) - floor(ageBefore * gEmitRate), 0.0f, 4.0f);
+                for (uint k = 0; k < n; ++k)
+                    EmitEvent(4, 16 + gEventCapacity * 48, p);
+            }
             if (p.Age >= p.Life)
             {
                 if (gEmitOnDie != 0)
-                {
-                    uint e;
-                    gEventCountOut.InterlockedAdd(0, 1, e);
-                    if (e < gEventCapacity)
-                    {
-                        const float3 wp = gLocalSpace != 0 ? mul(float4(p.Pos, 1.0f), gWorld).xyz : p.Pos;
-                        const float3 wv = gLocalSpace != 0 ? mul(float4(p.Vel, 0.0f), gWorld).xyz : p.Vel;
-                        gEventsOut.Store4(e * 48, asuint(float4(wp, 0.0f)));
-                        gEventsOut.Store4(e * 48 + 16, asuint(float4(wv, 0.0f)));
-                        gEventsOut.Store4(e * 48 + 32, asuint(p.Color));
-                    }
-                }
+                    EmitEvent(0, 16, p);
                 p.Life = 0.0f;
+            }
+            else if (gTrailPoints > 0)
+            {
+                // 꼬리: 처음, 또는 gTrailInterval 이 지났으면 지금 자리를 다음 칸에 (Spare0 기록한 나이, Spare1 마지막 칸, Spare2 기록 수)
+                const uint n = gTrailPoints;
+                const float count = p.Spare2;
+                if (count < 0.5f || p.Age - p.Spare0 >= gTrailInterval)
+                {
+                    const uint head = count < 0.5f ? 0u : ((uint)p.Spare1 + 1u) % n;
+                    gTrail.Store4((id.x * n + head) * 16, asuint(float4(p.Pos, p.Age)));
+                    p.Spare0 = p.Age;
+                    p.Spare1 = (float)head;
+                    p.Spare2 = min(count + 1.0f, (float)n);
+                }
             }
             Store(id.x, p);
             if (p.Life > 0.0f)
+            {
                 InterlockedAdd(gsAlive, 1u);
+                InterlockedMin(gsBounds[0], OrderKey(p.Pos.x));
+                InterlockedMin(gsBounds[1], OrderKey(p.Pos.y));
+                InterlockedMin(gsBounds[2], OrderKey(p.Pos.z));
+                InterlockedMax(gsBounds[3], OrderKey(p.Pos.x));
+                InterlockedMax(gsBounds[4], OrderKey(p.Pos.y));
+                InterlockedMax(gsBounds[5], OrderKey(p.Pos.z));
+                InterlockedMax(gsBounds[6], OrderKey(p.Size));
+            }
         }
     }
-    // 살아 있는 수: 그룹 안에서 먼저 더하고 그룹마다 한 번만 전역 원자 연산 (백만 개에서도 한 주소에 몰리지 않게)
+    // 살아 있는 수 · 경계: 그룹 안에서 먼저 모으고 그룹마다 한 번만 전역 원자 연산 (백만 개에서도 한 주소에 몰리지 않게)
     GroupMemoryBarrierWithGroupSync();
     if (local == 0 && gsAlive > 0)
+    {
         gState.InterlockedAdd(4, gsAlive);
+        gState.InterlockedMin(8, gsBounds[0]);
+        gState.InterlockedMin(12, gsBounds[1]);
+        gState.InterlockedMin(16, gsBounds[2]);
+        gState.InterlockedMax(20, gsBounds[3]);
+        gState.InterlockedMax(24, gsBounds[4]);
+        gState.InterlockedMax(28, gsBounds[5]);
+        gState.InterlockedMax(32, gsBounds[6]);
+    }
+}
+
+// ---------------------------------------------------------------- 꼬리 띠 조각 (파티클마다 gTrailPoints 조각: 0 = 지금 자리 → 마지막 기록, k = 기록 k-1 → k)
+float4 TrailPoint(uint particle, uint slot) { return asfloat(gTrail.Load4((particle * gTrailPoints + slot) * 16)); }
+
+[numthreads(64, 1, 1)]
+void TrailCS(uint3 id : SV_DispatchThreadID)
+{
+    const uint n = gTrailPoints;
+    if (n == 0 || id.x >= gCapacity * n)
+        return;
+    const uint pi = id.x / n, seg = id.x % n;
+    const Particle p = Load(pi);
+    float4 A = 0.0f, B = 0.0f, C = 0.0f, D = 0.0f;
+    const uint count = (uint)p.Spare2;
+    if (p.Life > 0.0f && p.Age < p.Life && seg + 1 <= count)
+    {
+        const uint head = (uint)p.Spare1;
+        const float4 q0 = seg == 0 ? float4(p.Pos, p.Age) : TrailPoint(pi, (head + n - (seg - 1)) % n);
+        const float4 q1 = TrailPoint(pi, (head + n - seg) % n);
+        // u = 꼬리 길이 (기록 수 × 간격) 에서 지난 시간의 비율 → 끝으로 갈수록 가늘고 흐려진다
+        const float len = max(n * gTrailInterval, 1e-4f);
+        const float u0 = saturate((p.Age - q0.w) / len), u1 = saturate((p.Age - q1.w) / len);
+        const float w = p.Size * gTrailWidth;
+        A = float4(q0.xyz, w * (1.0f - u0));
+        B = float4(q1.xyz, w * (1.0f - u1));
+        C = p.Color;
+        D = float4(u0, u1, 1.0f, 0.0f);
+    }
+    const uint a = id.x * 64;
+    gTrailVerts.Store4(a, asuint(A));
+    gTrailVerts.Store4(a + 16, asuint(B));
+    gTrailVerts.Store4(a + 32, asuint(C));
+    gTrailVerts.Store4(a + 48, asuint(D));
+}
+
+// ---------------------------------------------------------------- 정렬 (Alpha 시스템을 먼 것부터): 키 = -카메라 앞 거리 → 오름차순
+[numthreads(64, 1, 1)]
+void SortKeysCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= gSortCount)
+        return;
+    float key = 3.0e38f;   // 빈 칸 · 남는 칸 = 맨 뒤
+    if (id.x < gCapacity)
+    {
+        const float4 v0 = asfloat(gParticles.Load4(id.x * kStride));
+        const float4 v1 = asfloat(gParticles.Load4(id.x * kStride + 16));
+        if (v1.w > 0.0f && v0.w < v1.w)
+        {
+            const float3 pos = gLocalSpace != 0 ? mul(float4(v0.xyz, 1.0f), gWorld).xyz : v0.xyz;
+            key = -dot(pos - gCamPos, gCamFwd);
+        }
+    }
+    gSortKeys.Store2(id.x * 8, uint2(asuint(key), id.x));
+}
+
+groupshared float gsKey[512];
+groupshared uint gsIdx[512];
+
+void SortStep(uint base, uint t, uint k, uint j)
+{
+    GroupMemoryBarrierWithGroupSync();
+    const uint i = 2 * t - (t & (j - 1));
+    const uint ixj = i + j;
+    const bool ascending = ((base + i) & k) == 0;
+    const float ka = gsKey[i], kb = gsKey[ixj];
+    if (ascending ? ka > kb : ka < kb)
+    {
+        gsKey[i] = kb;
+        gsKey[ixj] = ka;
+        const uint ia = gsIdx[i];
+        gsIdx[i] = gsIdx[ixj];
+        gsIdx[ixj] = ia;
+    }
+}
+
+// 512 개 안에서: gSortJ = 0 이면 처음부터 정렬 (k = 2..512), 아니면 큰 k (gSortK) 의 j = 256..1 단계 (전역 단계 뒤 마무리)
+[numthreads(256, 1, 1)]
+void SortLocalCS(uint3 gid : SV_GroupID, uint t : SV_GroupIndex)
+{
+    const uint base = gid.x * 512;
+    uint2 e = gSortKeys.Load2((base + t) * 8);
+    gsKey[t] = asfloat(e.x);
+    gsIdx[t] = e.y;
+    e = gSortKeys.Load2((base + t + 256) * 8);
+    gsKey[t + 256] = asfloat(e.x);
+    gsIdx[t + 256] = e.y;
+    if (gSortJ == 0)
+    {
+        for (uint k = 2; k <= 512; k <<= 1)
+            for (uint j = k >> 1; j > 0; j >>= 1)
+                SortStep(base, t, k, j);
+    }
+    else
+    {
+        for (uint j = 256; j > 0; j >>= 1)
+            SortStep(base, t, gSortK, j);
+    }
+    GroupMemoryBarrierWithGroupSync();
+    gSortKeys.Store2((base + t) * 8, uint2(asuint(gsKey[t]), gsIdx[t]));
+    gSortKeys.Store2((base + t + 256) * 8, uint2(asuint(gsKey[t + 256]), gsIdx[t + 256]));
+}
+
+// 512 보다 먼 짝 (j >= 512): 짝마다 스레드 하나
+[numthreads(64, 1, 1)]
+void SortGlobalCS(uint3 id : SV_DispatchThreadID)
+{
+    const uint t = id.x;
+    if (t >= gSortCount / 2)
+        return;
+    const uint i = 2 * t - (t & (gSortJ - 1));
+    const uint ixj = i + gSortJ;
+    const uint2 a = gSortKeys.Load2(i * 8), b = gSortKeys.Load2(ixj * 8);
+    const bool ascending = (i & gSortK) == 0;
+    if (ascending ? asfloat(a.x) > asfloat(b.x) : asfloat(a.x) < asfloat(b.x))
+    {
+        gSortKeys.Store2(i * 8, b);
+        gSortKeys.Store2(ixj * 8, a);
+    }
+}
+
+// 정렬된 순서로 파티클을 복사 (그리기는 이 사본을 정점 버퍼로)
+[numthreads(64, 1, 1)]
+void SortGatherCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= gCapacity)
+        return;
+    const uint src = gSortKeys.Load2(id.x * 8).y;
+    const uint dst = id.x * kStride;
+    if (src >= gCapacity)
+    {
+        gSorted.Store4(dst + 16, uint4(0, 0, 0, 0));   // 남는 칸: 빈 파티클
+        return;
+    }
+    const uint a = src * kStride;
+    [unroll] for (uint k = 0; k < kStride; k += 16)
+        gSorted.Store4(dst + k, gParticles.Load4(a + k));
 }
 
 // ---------------------------------------------------------------- 그리기 (파티클 버퍼 = 인스턴스 정점 버퍼)
@@ -659,6 +1043,62 @@ float4 PS_Additive(VfxOut pin) : SV_Target
     return float4(c.rgb * c.a, 0.0f);
 }
 
+// ---------------------------------------------------------------- 꼬리 그리기 (띠 조각 = 인스턴스 하나, 정점 4 개)
+struct TrailIn
+{
+    float4 A : POSITION0;         // xyz 앞 자리, w 너비
+    float4 B : POSITION1;         // xyz 뒤 자리, w 너비
+    float4 Color : COLOR;
+    float4 D : TEXCOORD0;         // x u0, y u1, z 있음
+    uint VertexId : SV_VertexID;
+};
+
+VfxOut TrailVS(TrailIn vin)
+{
+    VfxOut o;
+    o.Tex = 0.0f;
+    o.Color = 0.0f;
+    o.Extra = 0.0f;
+    if (vin.D.z < 0.5f)
+    {
+        o.PosH = float4(2.0f, 2.0f, 2.0f, 1.0f);
+        return o;
+    }
+    float3 a = vin.A.xyz, b = vin.B.xyz;
+    if (gLocalSpace != 0)
+    {
+        a = mul(float4(a, 1.0f), gWorld).xyz;
+        b = mul(float4(b, 1.0f), gWorld).xyz;
+    }
+    const float along = (vin.VertexId & 2) ? 1.0f : 0.0f;
+    const float side = (vin.VertexId & 1) ? 1.0f : -1.0f;
+    const float3 p = lerp(a, b, along);
+    const float w = lerp(vin.A.w, vin.B.w, along);
+    float3 dir = b - a;
+    dir = dot(dir, dir) > 1e-12f ? normalize(dir) : gCamUp;
+    float3 across = cross(dir, gCamPos - p);
+    across = dot(across, across) > 1e-12f ? normalize(across) : gCamRight;
+    o.PosH = mul(float4(p + across * side * w * 0.5f, 1.0f), gViewProj);
+    o.Tex = float2(side, lerp(vin.D.x, vin.D.y, along));
+    o.Color = vin.Color;
+    return o;
+}
+
+float4 TrailPS(VfxOut pin) : SV_Target
+{
+    float4 c = pin.Color;
+    const float x = saturate(1.0f - abs(pin.Tex.x));
+    c.a *= x * x * (3.0f - 2.0f * x) * (1.0f - pin.Tex.y);   // 가운데가 밝은 띠, 끝으로 흐려진다
+    c.rgb *= gOutput1.x;
+    return c;
+}
+
+float4 TrailPS_Additive(VfxOut pin) : SV_Target
+{
+    const float4 c = TrailPS(pin);
+    return float4(c.rgb * c.a, 0.0f);
+}
+
 BlendState VfxAlpha
 {
     BlendEnable[0] = TRUE;
@@ -696,6 +1136,38 @@ RasterizerState VfxNoCull
 technique11 ResetTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, ResetCS())); } }
 technique11 SpawnTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, SpawnCS())); } }
 technique11 UpdateTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, UpdateCS())); } }
+technique11 TrailTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, TrailCS())); } }
+technique11 SortKeysTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, SortKeysCS())); } }
+technique11 SortLocalTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, SortLocalCS())); } }
+technique11 SortGlobalTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, SortGlobalCS())); } }
+technique11 SortGatherTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, SortGatherCS())); } }
+
+technique11 TrailAlphaTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TrailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TrailPS()));
+        SetBlendState(VfxAlpha, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetDepthStencilState(VfxDepthTestNoWrite, 0);
+        SetRasterizerState(VfxNoCull);
+    }
+}
+
+technique11 TrailAdditiveTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TrailVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TrailPS_Additive()));
+        SetBlendState(VfxAdditive, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetDepthStencilState(VfxDepthTestNoWrite, 0);
+        SetRasterizerState(VfxNoCull);
+    }
+}
+
 
 technique11 AlphaTech
 {

@@ -50,6 +50,7 @@ private:
 	int m_SelContext = -1;           // 0 Spawn, 1 Initialize, 2 Update, 3 Output
 	int m_SelBlock = -1;
 	int m_SelProperty = -1;
+	int m_SelOp = -1;                // 고른 연산 노드 (Id)
 
 	// 검색 창 (Space)
 	bool m_OpenSearch = false;
@@ -75,7 +76,12 @@ private:
 	void DrawCanvas(float width, float height);
 	void DrawInspector(float width, float height);
 	void DrawSystem(int s);
-	bool DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, bool compact);
+	// compact = 노드 안 (s · ctx · block 이 있으면 연산 노드를 이을 핀도), allowBind = 속성 연결 단추 (Inspector)
+	bool DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, bool compact, int s = -1, int ctx = -1, int block = -1, bool allowBind = true);
+	void DrawOperator(Vfx::OperatorNode& n);
+	void DrawOperatorInspector(Vfx::OperatorNode& n);
+	void AddOperator(const std::string& type, ImVec2 canvasPos);
+	void RemoveOperator(int id);
 	void DrawSearchPopup();
 	void AddSystem(const Vfx::System& s, ImVec2 canvasPos);
 };

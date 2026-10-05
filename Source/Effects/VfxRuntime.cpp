@@ -22,27 +22,36 @@ namespace
 
 	constexpr UINT kStride = 96;        // 58. VFX.fx 의 kStride
 	constexpr UINT kEventBytes = 48;
-	constexpr UINT kMaxEvents = 4096;   // 부모 시스템이 한 프레임에 보내는 GPU Event 의 위 한계
+	constexpr UINT kMaxEvents = 4096;   // 부모 시스템이 한 프레임에 보내는 GPU Event 의 위 한계 (죽음 · Rate 따로)
+	constexpr UINT kTrailVertBytes = 64;
+	constexpr UINT kStateBytes = 48;    // 0 칸 카운터, 4 살아 있는 수, 8..32 경계 (순서 키), 32 최대 크기
 }
 
 struct VfxGpuSystem
 {
-	Buf Particles, State, Events, EventCount, Program;
-	UINT Capacity = 0, EventCapacity = 0;
+	Buf Particles, State, Events, Program;
+	Buf Trail, TrailVerts;              // 꼬리: 기록 · 띠 조각 (정점 버퍼)
+	Buf SortKeys, Sorted;               // 정렬: 키 · 정렬된 사본 (정점 버퍼)
+	UINT Capacity = 0, EventCapacity = 0, TrailPoints = 0, SortCount = 0;
 	bool NeedsReset = true;
+	bool TrailReady = false;            // 이번 프레임 띠 조각을 만들었다
 	uint64 ProgramKey = 0;              // 블록 목록이 바뀌었는가 (에셋 · 속성 · 변환)
 	Vfx::Encoded Enc;
-	ComPtr<GfxBuffer> Staging[3];       // 살아 있는 수 (몇 프레임 뒤에 읽는다)
+	ComPtr<GfxBuffer> Staging[3];       // 살아 있는 수 · 경계 (몇 프레임 뒤에 읽는다)
 	ComPtr<GfxQuery> Ready[3];
 	bool Pending[3] = {};
 	int Next = 0;
 	int Alive = 0;
+	bool HasBounds = false;             // 시뮬레이션 공간 (Local 이면 Visual Effect 기준) 의 경계
+	Vec3 BoundsMin, BoundsMax;
+	float MaxSize = 0.0f;
 };
 
 struct VfxGpu
 {
 	std::vector<VfxGpuSystem> Systems;
 	float Time = 0.0f;
+	uint64 DrawnMark = 0;               // 마지막으로 어느 뷰에든 그린 프레임 (VfxRuntime::MarkFrame 번호)
 };
 
 void VfxGpuDeleter::operator()(VfxGpu* gpu) const { delete gpu; }
@@ -53,18 +62,21 @@ namespace
 	int s_State = 0;   // 0 아직, 1 됨, -1 실패
 	std::string s_Error;
 	FxPass *s_Reset = nullptr, *s_Spawn = nullptr, *s_Update = nullptr, *s_Alpha = nullptr, *s_Add = nullptr;
-	ComPtr<GfxInputLayout> s_Layout;
+	FxPass *s_TrailBuild = nullptr, *s_TrailAlpha = nullptr, *s_TrailAdd = nullptr;
+	FxPass *s_SortKeys = nullptr, *s_SortLocal = nullptr, *s_SortGlobal = nullptr, *s_SortGather = nullptr;
+	ComPtr<GfxInputLayout> s_Layout, s_TrailLayout;
 	struct Vars
 	{
-		FxVar *ViewProj, *World, *CamRight, *Time, *CamUp, *Dt, *CamPos, *Capacity, *SpawnCount, *FromEvents, *EventCapacity, *EmitOnDie,
-			*InitStart, *InitCount, *UpdateStart, *UpdateCount, *Seed, *LocalSpace, *Output0, *Output1, *DepthParams;
-		FxVar *Program, *Particles, *State, *EventsOut, *EventCountOut, *EventsIn, *EventCountIn, *Texture, *SceneDepth;
+		FxVar *ViewProj, *World, *CamRight, *Time, *CamUp, *Dt, *CamPos, *CamFwd, *Capacity, *SpawnCount, *FromEvents, *EventCapacity, *EmitOnDie, *EmitRate,
+			*InitStart, *InitCount, *UpdateStart, *UpdateCount, *Seed, *LocalSpace, *TrailPoints, *TrailInterval, *TrailWidth, *SortCount, *SortK, *SortJ,
+			*Output0, *Output1, *DepthParams;
+		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth;
 	} s_V = {};
 	uint64 s_FrameMark = 1, s_SimulatedMark = 0;
 	// 쓰지 않는 칸에 묶는 작은 버퍼 (Vulkan · GL 은 셰이더가 선언한 버퍼가 모두 묶여 있어야 한다).
 	//  칸마다 따로 — 같은 UAV 를 두 칸에 묶으면 DirectX 11 이 묶기 전체를 무시한다 (Update 가 아무것도 쓰지 않았다)
-	Buf s_Dummy[2];
-	int s_LastDraws = 0, s_LastSystems = 0;
+	Buf s_Dummy[3];
+	int s_LastDraws = 0, s_LastSystems = 0, s_LastCulled = 0;
 
 	GfxDevice* Dev() { return Application::GetI()->GetDevice(); }
 
@@ -92,6 +104,13 @@ namespace
 		s_Update = pass("UpdateTech");
 		s_Alpha = pass("AlphaTech");
 		s_Add = pass("AdditiveTech");
+		s_TrailBuild = pass("TrailTech");
+		s_TrailAlpha = pass("TrailAlphaTech");
+		s_TrailAdd = pass("TrailAdditiveTech");
+		s_SortKeys = pass("SortKeysTech");
+		s_SortLocal = pass("SortLocalTech");
+		s_SortGlobal = pass("SortGlobalTech");
+		s_SortGather = pass("SortGatherTech");
 		if (!s_Reset || !s_Spawn || !s_Update || !s_Alpha || !s_Add)
 		{
 			s_Error = "58. VFX.fx: a technique is missing or failed";
@@ -99,6 +118,8 @@ namespace
 			s_Effect.reset();
 			return false;
 		}
+		if (!s_TrailBuild || !s_TrailAlpha || !s_TrailAdd || !s_SortKeys || !s_SortLocal || !s_SortGlobal || !s_SortGather)
+			EditorLog::Write("VFX", "58. VFX.fx: trail or sort techniques failed - trails and sorting are off");
 		D3DX11_PASS_DESC pd = {};
 		s_Add->GetDesc(&pd);
 		const D3D11_INPUT_ELEMENT_DESC desc[] = {
@@ -114,11 +135,25 @@ namespace
 			s_Effect.reset();
 			return false;
 		}
+		if (s_TrailAdd)
+		{
+			D3DX11_PASS_DESC td = {};
+			s_TrailAdd->GetDesc(&td);
+			const D3D11_INPUT_ELEMENT_DESC trail[] = {
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "POSITION", 1, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+			};
+			if (FAILED(Dev()->CreateInputLayout(trail, _countof(trail), td.pIAInputSignature, td.IAInputSignatureSize, s_TrailLayout.GetAddressOf())))
+				EditorLog::Write("VFX", "trail input layout failed - trails are not drawn");
+		}
 		auto var = [&](const char* n) { return fx->GetVariableByName(n); };
-		s_V = { var("gViewProj"), var("gWorld"), var("gCamRight"), var("gTime"), var("gCamUp"), var("gDt"), var("gCamPos"), var("gCapacity"),
-			var("gSpawnCount"), var("gFromEvents"), var("gEventCapacity"), var("gEmitOnDie"), var("gInitStart"), var("gInitCount"),
-			var("gUpdateStart"), var("gUpdateCount"), var("gSeed"), var("gLocalSpace"), var("gOutput0"), var("gOutput1"), var("gDepthParams"),
-			var("gProgram"), var("gParticles"), var("gState"), var("gEventsOut"), var("gEventCountOut"), var("gEventsIn"), var("gEventCountIn"),
+		s_V = { var("gViewProj"), var("gWorld"), var("gCamRight"), var("gTime"), var("gCamUp"), var("gDt"), var("gCamPos"), var("gCamFwd"), var("gCapacity"),
+			var("gSpawnCount"), var("gFromEvents"), var("gEventCapacity"), var("gEmitOnDie"), var("gEmitRate"), var("gInitStart"), var("gInitCount"),
+			var("gUpdateStart"), var("gUpdateCount"), var("gSeed"), var("gLocalSpace"), var("gTrailPoints"), var("gTrailInterval"), var("gTrailWidth"),
+			var("gSortCount"), var("gSortK"), var("gSortJ"), var("gOutput0"), var("gOutput1"), var("gDepthParams"),
+			var("gProgram"), var("gParticles"), var("gState"), var("gEvents"), var("gEventsIn"), var("gTrail"), var("gTrailVerts"), var("gSortKeys"), var("gSorted"),
 			var("gTexture"), var("gSceneDepth") };
 		s_State = 1;
 		EditorLog::Write("VFX", "58. VFX.fx loaded");
@@ -203,25 +238,19 @@ namespace
 		return true;
 	}
 
+	void WriteBytes(GfxContext* dc, Buf& b, UINT from, const void* data, UINT bytes)
+	{
+		const D3D11_BOX box = { from, 0, 0, from + bytes, 1, 1 };
+		dc->UpdateSubresource(b.B.Get(), 0, &box, data, 0, 0);
+	}
+
 	void ZeroBytes(GfxContext* dc, Buf& b, UINT from, UINT to)
 	{
-		const uint32_t zero[4] = {};
-		const D3D11_BOX box = { from, 0, 0, to, 1, 1 };
-		dc->UpdateSubresource(b.B.Get(), 0, &box, zero, 0, 0);
+		const uint32_t zero[8] = {};
+		WriteBytes(dc, b, from, zero, to - from);
 	}
 
-	void ClearUint(GfxContext* dc, Buf& b)
-	{
-		const UINT zero[4] = {};
-		if (!dc->ClearUnorderedAccessViewUint(b.Uav.Get(), zero))
-		{
-			std::vector<uint8_t> z(b.Bytes, 0);
-			const D3D11_BOX box = { 0, 0, 0, b.Bytes, 1, 1 };
-			dc->UpdateSubresource(b.B.Get(), 0, &box, z.data(), 0, 0);
-		}
-	}
-
-	Buf& Dummy(int i = 0)
+	Buf& Dummy(int i)
 	{
 		if (!s_Dummy[i].B)
 			EnsureRaw(s_Dummy[i], 64, 0, true);
@@ -232,20 +261,25 @@ namespace
 	using Uavs = std::initializer_list<std::pair<FxVar*, GfxUnorderedAccessView*>>;
 
 	// 커널 하나: 뷰를 넣고 돌린 뒤 바로 푼다 (다음 단계가 같은 버퍼를 정점 버퍼 · SRV 로 쓴다)
-	void Run(GfxContext* dc, FxPass* pass, Srvs srvs, Uavs uavs, UINT threads)
+	void RunGroups(GfxContext* dc, FxPass* pass, Srvs srvs, Uavs uavs, UINT groups)
 	{
-		if (threads == 0)
+		if (groups == 0)
 			return;
 		for (const auto& [var, view] : srvs) if (var && var->IsValid()) var->SetResource(view);
 		for (const auto& [var, view] : uavs) if (var && var->IsValid()) var->SetUnorderedAccessView(view);
 		pass->Apply(0, dc);
-		dc->Dispatch((threads + 63) / 64, 1, 1);
+		dc->Dispatch(groups, 1, 1);
 		for (const auto& [var, view] : srvs) if (var && var->IsValid()) var->SetResource(nullptr);
 		for (const auto& [var, view] : uavs) if (var && var->IsValid()) var->SetUnorderedAccessView(nullptr);
 		GfxShaderResourceView* ns[8] = {};
 		GfxUnorderedAccessView* nu[8] = {};
 		dc->CSSetShaderResources(0, 8, ns);
 		dc->CSSetUnorderedAccessViews(0, 8, nu, nullptr);
+	}
+
+	void Run(GfxContext* dc, FxPass* pass, Srvs srvs, Uavs uavs, UINT threads)
+	{
+		RunGroups(dc, pass, srvs, uavs, (threads + 63) / 64);
 	}
 
 	uint64 HashBytes(uint64 h, const void* data, size_t n)
@@ -256,8 +290,17 @@ namespace
 		return h;
 	}
 
-	// 살아 있는 수: 몇 프레임 전 복사를 기다리지 않고 읽는다
-	void ReadAlive(GfxContext* dc, VfxGpuSystem& g)
+	// 셰이더의 OrderKey 를 되돌린다
+	float FromOrderKey(uint32_t u)
+	{
+		const uint32_t v = (u & 0x80000000u) ? (u & 0x7FFFFFFFu) : ~u;
+		float f;
+		memcpy(&f, &v, 4);
+		return f;
+	}
+
+	// 살아 있는 수 · 경계: 몇 프레임 전 복사를 기다리지 않고 읽는다
+	void ReadState(GfxContext* dc, VfxGpuSystem& g)
 	{
 		for (int i = 0; i < 3; ++i)
 		{
@@ -267,18 +310,26 @@ namespace
 			D3D11_MAPPED_SUBRESOURCE m;
 			if (dc->Map(g.Staging[k].Get(), 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &m) != S_OK)
 				continue;
-			g.Alive = (int)static_cast<const uint32_t*>(m.pData)[1];
+			const uint32_t* u = static_cast<const uint32_t*>(m.pData);
+			g.Alive = (int)u[1];
+			g.HasBounds = g.Alive > 0;
+			if (g.HasBounds)
+			{
+				g.BoundsMin = Vec3(FromOrderKey(u[2]), FromOrderKey(u[3]), FromOrderKey(u[4]));
+				g.BoundsMax = Vec3(FromOrderKey(u[5]), FromOrderKey(u[6]), FromOrderKey(u[7]));
+				g.MaxSize = (std::max)(0.0f, FromOrderKey(u[8]));
+			}
 			dc->Unmap(g.Staging[k].Get(), 0);
 			g.Pending[k] = false;
 		}
 	}
 
-	void CopyAlive(GfxContext* dc, VfxGpuSystem& g)
+	void CopyState(GfxContext* dc, VfxGpuSystem& g)
 	{
 		if (!g.Staging[g.Next])
 		{
 			D3D11_BUFFER_DESC d = {};
-			d.ByteWidth = 16;
+			d.ByteWidth = kStateBytes;
 			d.Usage = D3D11_USAGE_STAGING;
 			d.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
 			Dev()->CreateBuffer(&d, nullptr, g.Staging[g.Next].GetAddressOf());
@@ -294,6 +345,20 @@ namespace
 		g.Next = (g.Next + 1) % 3;
 	}
 
+	// Update 전에 살아 있는 수 · 경계를 처음 값으로 (최소 = 가장 큰 키, 최대 = 0)
+	void ResetStateStats(GfxContext* dc, VfxGpuSystem& g)
+	{
+		const uint32_t init[8] = { 0u, 0xFFFFFFFFu, 0xFFFFFFFFu, 0xFFFFFFFFu, 0u, 0u, 0u, 0u };
+		WriteBytes(dc, g.State, 4, init, 32);
+	}
+
+	UINT NextPow2(UINT v)
+	{
+		UINT p = 512;
+		while (p < v) p <<= 1;
+		return p;
+	}
+
 	void Simulate(GfxContext* dc, VisualEffect* vfx)
 	{
 		const std::shared_ptr<const Vfx::Asset> asset = vfx->GetAsset();
@@ -303,25 +368,41 @@ namespace
 			vfx->SetGpu(VfxGpuPtr(new VfxGpu()));
 		VfxGpu& gpu = *vfx->Gpu();
 		const bool reset = vfx->TakeResetRequest();
-		const float dt = vfx->TakePendingDt();
 		auto& states = vfx->Systems();
 		if (gpu.Systems.size() != asset->Systems.size())
 			gpu.Systems.resize(asset->Systems.size());
 		if (reset)
 		{
 			gpu.Time = 0.0f;
+			gpu.DrawnMark = s_FrameMark;   // 다시 시작: 경계를 다시 잴 때까지 보이는 것으로
 			for (VfxGpuSystem& g : gpu.Systems)
+			{
 				g.NeedsReset = true;
+				g.HasBounds = false;
+			}
 		}
+		// 화면 밖 (지난 프레임에 어느 뷰에도 그리지 않음 · 경계를 안다): Unity 처럼 시뮬레이션도 쉰다 (Culling = Always Simulate 면 계속)
+		bool anyBounds = false;
+		for (const VfxGpuSystem& g : gpu.Systems) anyBounds |= g.HasBounds;
+		const bool culled = asset->CullingMode == Vfx::Culling::SimulateWhenVisible && anyBounds && gpu.DrawnMark + 1 < s_FrameMark;
+		vfx->SetCulled(culled);
+		const float dt = vfx->TakePendingDt();
+		for (auto& st : states) if (culled) st.PendingSpawn = 0;
+		if (culled)
+			return;
 		gpu.Time += dt;
 		const Matrix world = vfx->GetGameObject()->GetTransform()->GetWorldMatrix();
 
-		// GPU Event 를 보내는 시스템 (자식이 있다)
-		std::vector<bool> emits(asset->Systems.size(), false);
+		// GPU Event 를 보내는 시스템 (자식이 있다): 죽을 때 · 초당 (Rate 는 자식들 가운데 가장 큰 값)
+		std::vector<bool> emitsDie(asset->Systems.size(), false);
+		std::vector<float> emitRate(asset->Systems.size(), 0.0f);
 		for (const Vfx::System& s : asset->Systems)
 			if (s.Enabled && !s.SpawnCtx.Parent.empty())
 				if (const int p = asset->FindSystem(s.SpawnCtx.Parent); p >= 0)
-					emits[p] = true;
+				{
+					if (s.SpawnCtx.Trigger == Vfx::EventTrigger::Rate) emitRate[p] = (std::max)(emitRate[p], s.SpawnCtx.EventRate);
+					else emitsDie[p] = true;
+				}
 
 		// 속성 · 변환 지문 (같으면 블록 목록을 다시 만들지 않는다)
 		uint64 propKey = 1469598103934665603ull;
@@ -332,7 +413,8 @@ namespace
 			propKey = HashBytes(propKey, o.Value.data(), sizeof(float) * 4);
 			propKey = HashBytes(propKey, &o.Enabled, 1);
 		}
-		propKey = HashBytes(propKey, asset.get(), sizeof(void*));
+		const uint64 revision = vfx->AssetRevision();   // 주소가 아니라 판 (새 에셋이 같은 주소에 올 수 있다)
+		propKey = HashBytes(propKey, &revision, sizeof(revision));
 
 		SetM(s_V.World, world);
 		SetF(s_V.Time, gpu.Time);
@@ -343,6 +425,7 @@ namespace
 			const Vfx::System& sys = asset->Systems[i];
 			VfxGpuSystem& g = gpu.Systems[i];
 			VisualEffect::SystemState& st = states[i];
+			g.TrailReady = false;
 			if (!sys.Enabled)
 			{
 				st.PendingSpawn = 0;
@@ -350,21 +433,31 @@ namespace
 			}
 			const UINT capacity = (UINT)std::clamp(sys.Capacity, 1, 4 * 1024 * 1024);
 			bool recreated = false;
-			if (!EnsureRaw(g.Particles, capacity * kStride, D3D11_BIND_VERTEX_BUFFER, false, &recreated) || !EnsureRaw(g.State, 16, 0, false))
+			if (!EnsureRaw(g.Particles, capacity * kStride, D3D11_BIND_VERTEX_BUFFER, false, &recreated) || !EnsureRaw(g.State, kStateBytes, 0, false))
 				continue;
 			g.Capacity = capacity;
 			if (recreated)
 				g.NeedsReset = true;
-			if (emits[i])
+			const bool emits = emitsDie[i] || emitRate[i] > 0.0f;
+			if (emits)
 			{
 				g.EventCapacity = (std::min)(capacity, kMaxEvents);
-				if (!EnsureRaw(g.Events, g.EventCapacity * kEventBytes, 0, true) || !EnsureRaw(g.EventCount, 16, 0, true))
+				if (!EnsureRaw(g.Events, 16 + 2 * g.EventCapacity * kEventBytes, 0, true))
 					continue;
 			}
+			// 꼬리 버퍼 (켜진 시스템만)
+			const Vfx::Output& o = sys.OutputCtx;
+			const UINT trailPoints = o.Trail && s_TrailBuild ? (UINT)std::clamp(o.TrailPoints, 2, 32) : 0u;
+			if (trailPoints > 0)
+			{
+				if (!EnsureRaw(g.Trail, capacity * trailPoints * 16, 0, false) || !EnsureRaw(g.TrailVerts, capacity * trailPoints * kTrailVertBytes, D3D11_BIND_VERTEX_BUFFER, false))
+					continue;
+			}
+			g.TrailPoints = trailPoints;
 			const uint64 key = HashBytes(propKey, &i, sizeof(i));
 			if (g.ProgramKey != key || !g.Program.B)
 			{
-				Vfx::Encode(sys, vfx->Properties(), &world._11, g.Enc);
+				Vfx::Encode(sys, vfx->Properties(), &world._11, g.Enc, asset.get());
 				if (!UploadProgram(dc, g.Program, g.Enc.Program))
 					continue;
 				g.ProgramKey = key;
@@ -375,12 +468,16 @@ namespace
 			SetU(s_V.UpdateStart, g.Enc.UpdateStart);
 			SetU(s_V.UpdateCount, g.Enc.UpdateCount);
 			SetU(s_V.LocalSpace, sys.Local ? 1u : 0u);
+			SetU(s_V.TrailPoints, trailPoints);
+			SetF(s_V.TrailInterval, trailPoints > 0 ? (std::max)(0.005f, o.TrailLength / trailPoints) : 1.0f);
+			SetF(s_V.TrailWidth, o.TrailWidth);
 			if (g.NeedsReset)
 			{
 				Run(dc, s_Reset, {}, { { s_V.Particles, g.Particles.Uav.Get() } }, capacity);
 				ZeroBytes(dc, g.State, 0, 16);
 				g.NeedsReset = false;
 				g.Alive = 0;
+				g.HasBounds = false;
 				for (bool& p : g.Pending) p = false;
 			}
 			// Spawn: 스스로 (CPU 가 센 수) 또는 부모의 GPU Event 자리에서
@@ -388,14 +485,14 @@ namespace
 			{
 				const int p = asset->FindSystem(sys.SpawnCtx.Parent);
 				VfxGpuSystem* parent = p >= 0 ? &gpu.Systems[p] : nullptr;
-				if (dt > 0.0f && parent && parent->Events.B && parent->EventCount.B)
+				if (dt > 0.0f && parent && parent->Events.B)
 				{
 					const UINT per = (UINT)std::clamp(sys.SpawnCtx.CountPerEvent, 1, 4096);
-					SetU(s_V.FromEvents, 1u);
+					SetU(s_V.FromEvents, sys.SpawnCtx.Trigger == Vfx::EventTrigger::Rate ? 2u : 1u);
 					SetU(s_V.SpawnCount, per);
 					SetU(s_V.EventCapacity, parent->EventCapacity);
 					SetU(s_V.Seed, vfx->NextSeed());
-					Run(dc, s_Spawn, { { s_V.Program, g.Program.Srv.Get() }, { s_V.EventsIn, parent->Events.Srv.Get() }, { s_V.EventCountIn, parent->EventCount.Srv.Get() } },
+					Run(dc, s_Spawn, { { s_V.Program, g.Program.Srv.Get() }, { s_V.EventsIn, parent->Events.Srv.Get() } },
 						{ { s_V.Particles, g.Particles.Uav.Get() }, { s_V.State, g.State.Uav.Get() } }, parent->EventCapacity * per);
 				}
 			}
@@ -405,33 +502,134 @@ namespace
 				SetU(s_V.SpawnCount, st.PendingSpawn);
 				SetU(s_V.EventCapacity, 0u);
 				SetU(s_V.Seed, vfx->NextSeed());
-				Run(dc, s_Spawn, { { s_V.Program, g.Program.Srv.Get() }, { s_V.EventsIn, Dummy(0).Srv.Get() }, { s_V.EventCountIn, Dummy(1).Srv.Get() } },
+				Run(dc, s_Spawn, { { s_V.Program, g.Program.Srv.Get() }, { s_V.EventsIn, Dummy(0).Srv.Get() } },
 					{ { s_V.Particles, g.Particles.Uav.Get() }, { s_V.State, g.State.Uav.Get() } }, st.PendingSpawn);
 			}
 			st.PendingSpawn = 0;
 			// Update (멈춤 · 일시 정지면 건너뛴다 — 다음 프레임에 GPU Event 를 다시 쓰지 않게 이벤트 수도 그대로)
 			if (dt > 0.0f)
 			{
-				ZeroBytes(dc, g.State, 4, 8);
-				if (emits[i])
-					ClearUint(dc, g.EventCount);
-				SetU(s_V.EmitOnDie, emits[i] ? 1u : 0u);
+				ResetStateStats(dc, g);
+				if (emits)
+					ZeroBytes(dc, g.Events, 0, 16);
+				SetU(s_V.EmitOnDie, emitsDie[i] ? 1u : 0u);
+				SetF(s_V.EmitRate, emitRate[i]);
 				SetU(s_V.EventCapacity, g.EventCapacity);
 				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() } },
 					{ { s_V.Particles, g.Particles.Uav.Get() }, { s_V.State, g.State.Uav.Get() },
-					  { s_V.EventsOut, emits[i] ? g.Events.Uav.Get() : Dummy(0).Uav.Get() }, { s_V.EventCountOut, emits[i] ? g.EventCount.Uav.Get() : Dummy(1).Uav.Get() } }, capacity);
-				CopyAlive(dc, g);
+					  { s_V.Events, emits ? g.Events.Uav.Get() : Dummy(0).Uav.Get() }, { s_V.Trail, trailPoints > 0 ? g.Trail.Uav.Get() : Dummy(1).Uav.Get() } }, capacity);
+				CopyState(dc, g);
 			}
-			ReadAlive(dc, g);
+			// 꼬리 띠 조각 (카메라와 상관없어 프레임마다 한 번)
+			if (trailPoints > 0)
+			{
+				Run(dc, s_TrailBuild, {}, { { s_V.Particles, g.Particles.Uav.Get() }, { s_V.Trail, g.Trail.Uav.Get() }, { s_V.TrailVerts, g.TrailVerts.Uav.Get() } },
+					capacity * trailPoints);
+				g.TrailReady = true;
+			}
+			ReadState(dc, g);
 			alive[i] = g.Alive;
 		}
 		vfx->SetAliveCounts(alive);
+	}
+
+	// Alpha 시스템: 이 카메라에서 먼 것부터 (키 → 512 개씩 그룹 정렬 → 큰 단계 → 사본)
+	bool SortForView(GfxContext* dc, VfxGpuSystem& g, bool local)
+	{
+		if (!s_SortKeys || !s_SortLocal || !s_SortGlobal || !s_SortGather)
+			return false;
+		const UINT n = NextPow2(g.Capacity);
+		if (!EnsureRaw(g.SortKeys, n * 8, 0, false) || !EnsureRaw(g.Sorted, g.Capacity * kStride, D3D11_BIND_VERTEX_BUFFER, false))
+			return false;
+		g.SortCount = n;
+		SetU(s_V.Capacity, g.Capacity);
+		SetU(s_V.SortCount, n);
+		SetU(s_V.LocalSpace, local ? 1u : 0u);
+		Run(dc, s_SortKeys, {}, { { s_V.Particles, g.Particles.Uav.Get() }, { s_V.SortKeys, g.SortKeys.Uav.Get() } }, n);
+		SetU(s_V.SortJ, 0u);
+		RunGroups(dc, s_SortLocal, {}, { { s_V.SortKeys, g.SortKeys.Uav.Get() } }, n / 512);
+		for (UINT k = 1024; k <= n; k <<= 1)
+		{
+			SetU(s_V.SortK, k);
+			for (UINT j = k >> 1; j >= 512; j >>= 1)
+			{
+				SetU(s_V.SortJ, j);
+				Run(dc, s_SortGlobal, {}, { { s_V.SortKeys, g.SortKeys.Uav.Get() } }, n / 2);
+			}
+			SetU(s_V.SortJ, 1u);   // 512 안의 단계 (j = 256..1)
+			RunGroups(dc, s_SortLocal, {}, { { s_V.SortKeys, g.SortKeys.Uav.Get() } }, n / 512);
+		}
+		Run(dc, s_SortGather, {}, { { s_V.Particles, g.Particles.Uav.Get() }, { s_V.SortKeys, g.SortKeys.Uav.Get() }, { s_V.Sorted, g.Sorted.Uav.Get() } }, g.Capacity);
+		return true;
 	}
 
 	bool Drawable(VisualEffect* vfx)
 	{
 		return vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset() && RenderLayers::Visible(vfx->GetGameObject());
 	}
+
+	// Visual Effect 의 월드 경계 (모든 시스템 + 자기 자리 둘레 1 m). 아는 시스템이 없으면 false (= 보이는 것으로)
+	bool WorldBounds(VisualEffect* vfx, Vec3& mn, Vec3& mx)
+	{
+		const auto asset = vfx->GetAsset();
+		VfxGpu* gpu = vfx->Gpu();
+		if (!asset || !gpu)
+			return false;
+		const Matrix world = vfx->GetGameObject()->GetTransform()->GetWorldMatrix();
+		const Vec3 origin(world._41, world._42, world._43);
+		mn = origin - Vec3(1, 1, 1);
+		mx = origin + Vec3(1, 1, 1);
+		bool any = false;
+		for (size_t i = 0; i < asset->Systems.size() && i < gpu->Systems.size(); ++i)
+		{
+			const VfxGpuSystem& g = gpu->Systems[i];
+			if (!g.HasBounds || !asset->Systems[i].Enabled)
+				continue;
+			any = true;
+			const Vfx::Output& o = asset->Systems[i].OutputCtx;
+			// 크기 · 꼬리 · 몇 프레임 늦은 값 만큼 넉넉하게
+			const float pad = g.MaxSize * (o.Orientation == Vfx::Orient::AlongVelocity ? 3.0f : 1.0f) + (o.Trail ? 1.5f : 0.0f) + 0.5f;
+			Vec3 a = g.BoundsMin, b = g.BoundsMax;
+			if (asset->Systems[i].Local)
+			{
+				Vec3 c[8];
+				for (int k = 0; k < 8; ++k)
+					c[k] = Vec3::Transform(Vec3((k & 1) ? b.x : a.x, (k & 2) ? b.y : a.y, (k & 4) ? b.z : a.z), world);
+				a = b = c[0];
+				for (int k = 1; k < 8; ++k) { a = Vec3::Min(a, c[k]); b = Vec3::Max(b, c[k]); }
+			}
+			mn = Vec3::Min(mn, a - Vec3(pad, pad, pad));
+			mx = Vec3::Max(mx, b + Vec3(pad, pad, pad));
+		}
+		return any;
+	}
+
+	// 상자가 화면 안 (절두체 평면 6 개 — 행 벡터 viewProj 의 열로)
+	bool BoxVisible(const Matrix& vp, const Vec3& mn, const Vec3& mx)
+	{
+		const float planes[6][4] = {
+			{ vp._14 + vp._11, vp._24 + vp._21, vp._34 + vp._31, vp._44 + vp._41 },
+			{ vp._14 - vp._11, vp._24 - vp._21, vp._34 - vp._31, vp._44 - vp._41 },
+			{ vp._14 + vp._12, vp._24 + vp._22, vp._34 + vp._32, vp._44 + vp._42 },
+			{ vp._14 - vp._12, vp._24 - vp._22, vp._34 - vp._32, vp._44 - vp._42 },
+			{ vp._13, vp._23, vp._33, vp._43 },
+			{ vp._14 - vp._13, vp._24 - vp._23, vp._34 - vp._33, vp._44 - vp._43 },
+		};
+		for (const auto& p : planes)
+		{
+			// 평면 쪽으로 가장 먼 꼭짓점이 뒤에 있으면 상자 전체가 밖
+			const Vec3 v(p[0] >= 0 ? mx.x : mn.x, p[1] >= 0 ? mx.y : mn.y, p[2] >= 0 ? mx.z : mn.z);
+			if (p[0] * v.x + p[1] * v.y + p[2] * v.z + p[3] < 0.0f)
+				return false;
+		}
+		return true;
+	}
+}
+
+// VisualEffect 의 기즈모 · 통계용
+bool VfxGpuBounds(VisualEffect* vfx, Vec3& mn, Vec3& mx)
+{
+	return WorldBounds(vfx, mn, mx);
 }
 
 namespace VfxRuntime
@@ -439,6 +637,7 @@ namespace VfxRuntime
 	void MarkFrame() { ++s_FrameMark; }
 	int LastDrawCalls() { return s_LastDraws; }
 	int LastSystemCount() { return s_LastSystems; }
+	int LastCulledCount() { return s_LastCulled; }
 	const std::string& LastError() { return s_Error; }
 
 	std::string InfoJson()
@@ -450,10 +649,14 @@ namespace VfxRuntime
 			if (auto asset = v->GetAsset())
 				for (size_t i = 0; i < asset->Systems.size(); ++i)
 					systems.push_back({ { "name", asset->Systems[i].Name }, { "alive", v->SystemAliveCount((int)i) } });
-			effects.push_back({ { "object", v->GetGameObject() ? v->GetGameObject()->GetName() : std::string() }, { "asset", v->AssetPath },
-				{ "alive", v->AliveParticleCount() }, { "systems", systems } });
+			json e = { { "object", v->GetGameObject() ? v->GetGameObject()->GetName() : std::string() }, { "asset", v->AssetPath },
+				{ "alive", v->AliveParticleCount() }, { "culled", v->IsCulled() }, { "systems", systems } };
+			Vec3 mn, mx;
+			if (WorldBounds(v, mn, mx))
+				e["bounds"] = { { mn.x, mn.y, mn.z }, { mx.x, mx.y, mx.z } };
+			effects.push_back(e);
 		}
-		const json r = { { "gpu", s_State > 0 }, { "error", s_Error }, { "drawCalls", s_LastDraws }, { "effects", effects } };
+		const json r = { { "gpu", s_State > 0 }, { "error", s_Error }, { "drawCalls", s_LastDraws }, { "culled", s_LastCulled }, { "effects", effects } };
 		return r.dump();
 	}
 
@@ -467,6 +670,7 @@ namespace VfxRuntime
 	{
 		s_LastDraws = 0;
 		s_LastSystems = 0;
+		s_LastCulled = 0;
 		if (rtv == nullptr || VisualEffect::All().empty())
 			return;
 		GfxContext* dc = Application::GetI()->GetDeviceContext();
@@ -497,12 +701,23 @@ namespace VfxRuntime
 		const Vec3 camUp(camWorld._21, camWorld._22, camWorld._23);
 		const Vec3 camForward(camWorld._31, camWorld._32, camWorld._33);
 		const Vec3 camPos(camWorld._41, camWorld._42, camWorld._43);
+		const Matrix viewProj = view * proj;
 
-		// 먼 Visual Effect 부터 (투명 물체끼리의 순서)
+		// 화면 안의 Visual Effect 를 먼 것부터 (투명 물체끼리의 순서)
 		std::vector<std::pair<float, VisualEffect*>> list;
 		for (VisualEffect* vfx : VisualEffect::All())
-			if (Drawable(vfx) && vfx->Gpu())
-				list.push_back({ (vfx->GetGameObject()->GetTransform()->GetPosition() - camPos).Dot(camForward), vfx });
+		{
+			if (!Drawable(vfx) || !vfx->Gpu())
+				continue;
+			Vec3 mn, mx;
+			if (WorldBounds(vfx, mn, mx) && !BoxVisible(viewProj, mn, mx))
+			{
+				++s_LastCulled;
+				continue;
+			}
+			vfx->Gpu()->DrawnMark = s_FrameMark;
+			list.push_back({ (vfx->GetGameObject()->GetTransform()->GetPosition() - camPos).Dot(camForward), vfx });
+		}
 		if (list.empty())
 			return;
 		std::stable_sort(list.begin(), list.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
@@ -511,15 +726,14 @@ namespace VfxRuntime
 		GfxRenderTargetView* rtvs[1] = { rtv };
 		const bool sceneDepth = env && env->DepthReadOnly && env->DepthSRV;
 		dc->OMSetRenderTargets(1, rtvs, sceneDepth ? env->DepthReadOnly : dsv);
-		dc->IASetInputLayout(s_Layout.Get());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
-		SetM(s_V.ViewProj, view * proj);
+		SetM(s_V.ViewProj, viewProj);
 		SetV3(s_V.CamRight, camRight);
 		SetV3(s_V.CamUp, camUp);
 		SetV3(s_V.CamPos, camPos);
+		SetV3(s_V.CamFwd, camForward);
 		const float depthParams[4] = { proj._33, proj._43, 0.0f, sceneDepth ? 1.0f : 0.0f };
 		SetV(s_V.DepthParams, depthParams);
-		if (s_V.SceneDepth) s_V.SceneDepth->SetResource(sceneDepth ? env->DepthSRV : nullptr);
 
 		for (const auto& [dist, vfx] : list)
 		{
@@ -533,20 +747,43 @@ namespace VfxRuntime
 				if (!sys.Enabled || !g.Particles.B || g.Capacity == 0)
 					continue;
 				const Vfx::Output& o = sys.OutputCtx;
+				// 정렬 (compute) 은 그리기 상태를 묶기 전에 — 깊이 SRV 를 풀어 둔 채로
+				const bool sorted = !o.TrailOnly && o.Sorted() && SortForView(dc, g, sys.Local);
 				const float out0[4] = { (float)(int)o.Look, (float)(int)o.Orientation, o.Stretch, sceneDepth ? (std::max)(0.0f, o.SoftDistance) : 0.0f };
 				const float out1[4] = { (std::max)(0.0f, o.Intensity), (float)(std::max)(1, o.FlipbookColumns), (float)(std::max)(1, o.FlipbookRows), (std::max)(0.0f, o.FlipbookFps) };
 				SetV(s_V.Output0, out0);
 				SetV(s_V.Output1, out1);
 				SetU(s_V.LocalSpace, sys.Local ? 1u : 0u);
+				if (s_V.SceneDepth) s_V.SceneDepth->SetResource(sceneDepth ? env->DepthSRV : nullptr);
 				GfxShaderResourceView* tex = o.Look == Vfx::Shape::Texture && !o.Texture.empty() ? ParticleTextures::Get(o.Texture) : nullptr;
 				if (s_V.Texture) s_V.Texture->SetResource(tex ? tex : SpriteBatch::WhiteTexture());
-				const UINT stride = kStride, offset = 0;
-				GfxBuffer* vb = g.Particles.B.Get();
-				dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-				(o.BlendMode == Vfx::Blend::Alpha ? s_Alpha : s_Add)->Apply(0, dc);
-				dc->DrawInstanced(4, g.Capacity, 0, 0);
-				++s_LastDraws;
+				const bool alpha = o.BlendMode == Vfx::Blend::Alpha;
+				// 꼬리 먼저 (파티클이 꼬리 위에 보이게)
+				if (g.TrailReady && g.TrailPoints > 0 && s_TrailLayout)
+				{
+					const UINT stride = kTrailVertBytes, offset = 0;
+					GfxBuffer* vb = g.TrailVerts.B.Get();
+					dc->IASetInputLayout(s_TrailLayout.Get());
+					dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+					(alpha ? s_TrailAlpha : s_TrailAdd)->Apply(0, dc);
+					dc->DrawInstanced(4, g.Capacity * g.TrailPoints, 0, 0);
+					++s_LastDraws;
+				}
+				if (!o.TrailOnly)
+				{
+					const UINT stride = kStride, offset = 0;
+					GfxBuffer* vb = sorted ? g.Sorted.B.Get() : g.Particles.B.Get();
+					dc->IASetInputLayout(s_Layout.Get());
+					dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+					(alpha ? s_Alpha : s_Add)->Apply(0, dc);
+					dc->DrawInstanced(4, g.Capacity, 0, 0);
+					++s_LastDraws;
+				}
 				++s_LastSystems;
+				// 다음 시스템의 정렬 compute 가 깊이를 쓸 수 있게 SRV 를 푼다
+				if (s_V.SceneDepth) s_V.SceneDepth->SetResource(nullptr);
+				GfxShaderResourceView* nullSrv[8] = {};
+				dc->PSSetShaderResources(0, 8, nullSrv);
 			}
 		}
 		if (s_V.Texture) s_V.Texture->SetResource(nullptr);

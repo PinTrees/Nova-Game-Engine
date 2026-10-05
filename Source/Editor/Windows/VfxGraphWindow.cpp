@@ -30,16 +30,40 @@ namespace
 	const char* kOrientNames[] = { "Face Camera", "Along Velocity", "Horizontal" };
 	const char* kPropTypes[] = { "Float", "Int", "Bool", "Vector3", "Color" };
 
-	ed::NodeId NodeOf(int s) { return ed::NodeId((uintptr_t)(s + 1) * 16); }
-	ed::PinId EventIn(int s) { return ed::PinId((uintptr_t)(s + 1) * 16 + 1); }
-	ed::PinId EventOut(int s) { return ed::PinId((uintptr_t)(s + 1) * 16 + 2); }
-	ed::LinkId LinkOf(int child) { return ed::LinkId((uintptr_t)(child + 1) * 16 + 3); }
-	int SystemOfId(uintptr_t id) { return (int)(id / 16) - 1; }
+	// 노드 · 핀 · 선 Id: 위 8 비트 = 종류, 나머지 = 값 (시스템 · 연산 노드 Id · 블록 값 자리)
+	enum : uint64_t { kTagSystem = 1, kTagOp, kTagEventIn, kTagEventOut, kTagOpOut, kTagOpIn, kTagParam, kTagEventLink, kTagOpLink, kTagParamLink };
+	uintptr_t Tagged(uint64_t tag, uint64_t v) { return (uintptr_t)((tag << 56) | (v & 0x00FFFFFFFFFFFFFFull)); }
+	uint64_t TagOf(uintptr_t id) { return (uint64_t)id >> 56; }
+	uint64_t ValOf(uintptr_t id) { return (uint64_t)id & 0x00FFFFFFFFFFFFFFull; }
+	ed::NodeId NodeOf(int s) { return ed::NodeId(Tagged(kTagSystem, (uint64_t)s)); }
+	ed::NodeId OpNodeOf(int id) { return ed::NodeId(Tagged(kTagOp, (uint64_t)id)); }
+	ed::PinId EventIn(int s) { return ed::PinId(Tagged(kTagEventIn, (uint64_t)s)); }
+	ed::PinId EventOut(int s) { return ed::PinId(Tagged(kTagEventOut, (uint64_t)s)); }
+	ed::LinkId LinkOf(int child) { return ed::LinkId(Tagged(kTagEventLink, (uint64_t)child)); }
+	ed::PinId OpOut(int id) { return ed::PinId(Tagged(kTagOpOut, (uint64_t)id)); }
+	uint64_t OpInVal(int id, int input) { return ((uint64_t)id << 8) | (uint64_t)input; }
+	ed::PinId OpIn(int id, int input) { return ed::PinId(Tagged(kTagOpIn, OpInVal(id, input))); }
+	uint64_t ParamVal(int s, int ctx, int block, int param) { return ((uint64_t)s << 40) | ((uint64_t)ctx << 36) | ((uint64_t)block << 16) | (uint64_t)param; }
+	ed::PinId ParamPin(int s, int ctx, int block, int param) { return ed::PinId(Tagged(kTagParam, ParamVal(s, ctx, block, param))); }
+	struct ParamRef { int S, Ctx, Block, Param; };
+	ParamRef DecodeParam(uint64_t v) { return { (int)(v >> 40), (int)((v >> 36) & 0xF), (int)((v >> 16) & 0xFFFFF), (int)(v & 0xFFFF) }; }
+	int SystemOfId(uintptr_t id) { return (int)ValOf(id); }
+	const ImU32 kOpColor = IM_COL32(70, 140, 220, 255);
+
+
 
 	std::string Lower(std::string s)
 	{
 		for (char& c : s) c = (char)tolower((unsigned char)c);
 		return s;
+	}
+
+	int LinkedTo(const Vfx::Block& b, const char* param)
+	{
+		for (auto it = b.Links.begin(); it != b.Links.end(); ++it)
+			if (Lower(it.key()) == Lower(param) && it->is_number_integer())
+				return it->get<int>();
+		return -1;
 	}
 
 	std::string Stem(const std::string& path) { return fs::path(string_to_wstring(path)).stem().string(); }
@@ -542,7 +566,7 @@ void VfxGraphWindow::DrawBlackboard(float width, float height)
 }
 
 // 노드 안의 짧은 값 편집 (콤보 · 색 고르기 창은 노드 편집기 안에서 열 수 없어 Inspector 로)
-bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, bool compact)
+bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, bool compact, int sys, int ctx, int block, bool allowBind)
 {
 	bool changed = false;
 	const float labelW = compact ? 92.0f : 120.0f;
@@ -571,14 +595,42 @@ bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, boo
 			if ((n == "ColorB" && mode != 1) || ((n == "Saturation" || n == "Brightness") && mode != 2)) continue;
 		}
 		ImGui::PushID(p.Name);
+		const int linked = LinkedTo(b, p.Name);
+		// 노드 안: 연산 노드를 이을 핀 (이을 수 있는 값만)
+		if (compact && sys >= 0 && Vfx::Linkable(p))
+		{
+			ed::BeginPin(ParamPin(sys, ctx, block, (int)(&p - d.Params.data())), ed::PinKind::Input);
+			ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+			ImGui::TextColored(linked >= 0 ? ImVec4(0.45f, 0.75f, 1.0f, 1.0f) : ImVec4(0.45f, 0.45f, 0.45f, 1.0f), linked >= 0 ? ICON_FA_CIRCLE : ICON_FA_CIRCLE_NOTCH);
+			ed::EndPin();
+			ImGui::SameLine(0, 4);
+		}
 		ImGui::AlignTextToFramePadding();
 		ImGui::TextUnformatted(p.Name);
 		if (!compact && p.Tip && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", p.Tip);
-		ImGui::SameLine(labelW);
-		ImGui::SetNextItemWidth(fieldW);
+		ImGui::SameLine(labelW + (compact && sys >= 0 ? 14.0f : 0.0f));
+		ImGui::SetNextItemWidth(fieldW - (compact && sys >= 0 ? 14.0f : 0.0f));
 		const std::string bound = BoundTo(b, p.Name);
 		std::array<float, 4> v = b.GetVector(d, p.Name);
-		if (!bound.empty())
+		if (linked >= 0)
+		{
+			// 연산 노드에 이은 값 (파티클마다 계산)
+			const Vfx::OperatorNode* on = m_Asset.FindOperatorNode(linked);
+			const Vfx::OperatorDesc* od = on ? Vfx::FindOperator(on->Type) : nullptr;
+			ImGui::TextColored(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), "<- %s #%d", od ? od->Label : "?", linked);
+			if (!compact)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(ICON_FA_XMARK "##unlink"))
+				{
+					Snapshot();
+					for (auto it = b.Links.begin(); it != b.Links.end(); ++it)
+						if (Lower(it.key()) == Lower(p.Name)) { b.Links.erase(it); break; }
+					changed = true;
+				}
+			}
+		}
+		else if (!bound.empty())
 		{
 			ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), ICON_FA_LINK " %s", bound.c_str());
 		}
@@ -590,6 +642,19 @@ bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, boo
 			case Vfx::ParamKind::Float:
 				if (ImGui::DragFloat("##v", &v[0], speed, 0.0f, 0.0f, "%.3g")) { BeginEdit(); b.Params[p.Name] = v[0]; changed = true; }
 				break;
+			case Vfx::ParamKind::Text:
+			{
+				// 속성 이름 (연산 노드 Property): Blackboard 에서 고른다
+				std::string cur;
+				if (b.Params.contains(p.Name) && b.Params[p.Name].is_string()) cur = b.Params[p.Name].get<std::string>();
+				if (ImGui::BeginCombo("##t", cur.empty() ? "(property)" : cur.c_str()))
+				{
+					for (const Vfx::Property& prop : m_Asset.Properties)
+						if (ImGui::Selectable(prop.Name.c_str(), prop.Name == cur)) { Snapshot(); b.Params[p.Name] = prop.Name; changed = true; }
+					ImGui::EndCombo();
+				}
+				break;
+			}
 			case Vfx::ParamKind::Int:
 			{
 				int i = (int)v[0];
@@ -722,7 +787,7 @@ bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, boo
 			}
 		}
 		// 속성 연결 (Inspector)
-		if (!compact && p.Kind != Vfx::ParamKind::Curve && p.Kind != Vfx::ParamKind::Gradient)
+		if (!compact && allowBind && linked < 0 && p.Kind != Vfx::ParamKind::Curve && p.Kind != Vfx::ParamKind::Gradient && p.Kind != Vfx::ParamKind::Text)
 		{
 			ImGui::SameLine();
 			const bool any = std::any_of(m_Asset.Properties.begin(), m_Asset.Properties.end(), [&](const Vfx::Property& prop) { return Compatible(p, prop.Type); });
@@ -876,10 +941,21 @@ void VfxGraphWindow::DrawSystem(int s)
 				ImGui::Indent(22.0f);
 				if (sel)
 				{
-					if (DrawBlockFields(b, *d, true)) Changed();
+					if (DrawBlockFields(b, *d, true, s, ctx, i)) Changed();
 				}
 				else
 				{
+					// 연산 노드에 이은 값은 고르지 않아도 핀과 함께 (선이 이어진다)
+					for (int pi = 0; pi < (int)d->Params.size(); ++pi)
+					{
+						const int linked = LinkedTo(b, d->Params[pi].Name);
+						if (linked < 0)
+							continue;
+						ed::BeginPin(ParamPin(s, ctx, i, pi), ed::PinKind::Input);
+						ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+						ImGui::TextColored(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), ICON_FA_CIRCLE " %s", d->Params[pi].Name);
+						ed::EndPin();
+					}
 					const std::string sum = Summary(b, *d);
 					if (!sum.empty()) ImGui::TextDisabled("%s", sum.c_str());
 					else if (d->Id == 26) GradientBar(b.GetGradient(*d, "Gradient"), ImVec2(kNodeW - 40.0f, 10.0f));
@@ -924,13 +1000,141 @@ void VfxGraphWindow::DrawSystem(int s)
 	{
 		const Vfx::Output& o = sys.OutputCtx;
 		ImGui::TextDisabled("%s  |  %s  |  %s", kShapeNames[(int)o.Look], kBlendNames[(int)o.BlendMode], kOrientNames[(int)o.Orientation]);
-		ImGui::TextDisabled("intensity %.2g%s", o.Intensity, o.SoftDistance > 0 ? "  |  soft" : "");
+		ImGui::TextDisabled("intensity %.2g%s%s%s", o.Intensity, o.SoftDistance > 0 ? "  |  soft" : "", o.Trail ? "  |  trail" : "", o.Sorted() ? "  |  sorted" : "");
 	}
 	ImGui::Dummy(ImVec2(kNodeW, 2));
 	ImGui::PopItemWidth();
 	ImGui::PopID();
 	ed::EndNode();
 	ed::PopStyleColor();
+}
+
+void VfxGraphWindow::DrawOperator(Vfx::OperatorNode& n)
+{
+	const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type);
+	const bool sel = m_SelOp == n.Id;
+	ed::PushStyleColor(ed::StyleColor_NodeBorder, ImColor(sel ? IM_COL32(255, 255, 255, 255) : kOpColor));
+	ed::BeginNode(OpNodeOf(n.Id));
+	ImGui::PushID(n.Id + 100000);
+	const float w = 190.0f;
+	// 머리: 이름 + 출력 핀
+	const ImVec2 p0 = ImGui::GetCursorScreenPos();
+	ImGui::GetWindowDrawList()->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + ImGui::GetFrameHeight()), kOpColor, 3.0f);
+	ImGui::SetCursorScreenPos(ImVec2(p0.x + 6, p0.y + ImGui::GetStyle().FramePadding.y));
+	ImGui::PushFont(UnityGUI::BoldFont());
+	ImGui::TextUnformatted(d ? d->Label : n.Type.c_str());
+	ImGui::PopFont();
+	ImGui::SameLine(w - 34.0f);
+	ed::BeginPin(OpOut(n.Id), ed::PinKind::Output);
+	ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
+	ImGui::TextUnformatted(ICON_FA_CIRCLE);
+	ed::EndPin();
+	ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + ImGui::GetFrameHeight() + 2.0f));
+	if (d)
+	{
+		ImGui::PushItemWidth(w - 70.0f);
+		for (int i = 0; i < (int)d->Inputs.size(); ++i)
+		{
+			const Vfx::OperatorInput& in = d->Inputs[i];
+			ImGui::PushID(i);
+			int from = -1;
+			for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
+				if (Lower(it.key()) == Lower(in.Name) && it->is_number_integer()) from = it->get<int>();
+			ed::BeginPin(OpIn(n.Id, i), ed::PinKind::Input);
+			ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+			ImGui::TextColored(from >= 0 ? ImVec4(0.45f, 0.75f, 1.0f, 1.0f) : ImVec4(0.45f, 0.45f, 0.45f, 1.0f), from >= 0 ? ICON_FA_CIRCLE : ICON_FA_CIRCLE_NOTCH);
+			ed::EndPin();
+			ImGui::SameLine(0, 4);
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(in.Name);
+			if (from < 0)
+			{
+				ImGui::SameLine(62.0f);
+				std::array<float, 4> v = in.Default;
+				if (n.Params.contains(in.Name)) v = Vfx::ValueFromJson(n.Params[in.Name], v);
+				if (in.Kind == Vfx::ParamKind::Float)
+				{
+					if (ImGui::DragFloat("##v", &v[0], 0.01f, 0.0f, 0.0f, "%.3g")) { BeginEdit(); n.Params[in.Name] = v[0]; Changed(); }
+				}
+				else if (in.Kind == Vfx::ParamKind::Vector3)
+				{
+					if (ImGui::DragFloat3("##v", v.data(), 0.01f, 0.0f, 0.0f, "%.1f")) { BeginEdit(); n.Params[in.Name] = { v[0], v[1], v[2] }; Changed(); }
+				}
+				else
+					ImGui::ColorButton("##c", ImVec4(v[0], v[1], v[2], v[3]), ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_AlphaPreviewHalf, ImVec2(w - 70.0f, 0));
+			}
+			ImGui::PopID();
+		}
+		ImGui::PopItemWidth();
+		// 설정 (짧게 — 편집은 Inspector)
+		for (const Vfx::ParamDesc& sp : d->Settings)
+		{
+			if (sp.Kind == Vfx::ParamKind::Curve)
+			{
+				Vfx::Block tmp;
+				if (n.Params.contains(sp.Name)) tmp.Params[sp.Name] = n.Params[sp.Name];
+				CurvePlot(tmp.GetCurve(Vfx::BlockDesc{}, sp.Name), ImVec2(w, 22.0f));
+			}
+			else if (sp.Kind == Vfx::ParamKind::Gradient)
+			{
+				Vfx::Block tmp;
+				if (n.Params.contains(sp.Name)) tmp.Params[sp.Name] = n.Params[sp.Name];
+				GradientBar(tmp.GetGradient(Vfx::BlockDesc{}, sp.Name), ImVec2(w, 12.0f));
+			}
+			else if (sp.Kind == Vfx::ParamKind::Enum)
+			{
+				const auto opts = Vfx::EnumOptions(sp);
+				int cur = 0;
+				if (n.Params.contains(sp.Name))
+				{
+					const json& v = n.Params[sp.Name];
+					if (v.is_number()) cur = v.get<int>();
+					else if (v.is_string()) for (int k = 0; k < (int)opts.size(); ++k) if (Lower(opts[k]) == Lower(v.get<std::string>())) cur = k;
+				}
+				cur = std::clamp(cur, 0, (int)opts.size() - 1);
+				ImGui::TextDisabled("%s", sp.Name);
+				ImGui::SameLine(62.0f);
+				if (ImGui::Button((opts[cur] + "##set").c_str(), ImVec2(w - 62.0f, 0))) { Snapshot(); n.Params[sp.Name] = opts[(cur + 1) % opts.size()]; Changed(); }
+			}
+			else if (sp.Kind == Vfx::ParamKind::Text)
+			{
+				const std::string v = n.Params.contains(sp.Name) && n.Params[sp.Name].is_string() ? n.Params[sp.Name].get<std::string>() : std::string("(pick in Inspector)");
+				ImGui::TextColored(ImVec4(0.55f, 0.8f, 1.0f, 1.0f), ICON_FA_LINK " %s", v.c_str());
+			}
+		}
+	}
+	ImGui::Dummy(ImVec2(w, 1));
+	ImGui::PopID();
+	ed::EndNode();
+	ed::PopStyleColor();
+}
+
+void VfxGraphWindow::AddOperator(const std::string& type, ImVec2 canvasPos)
+{
+	Snapshot();
+	Vfx::OperatorNode n;
+	n.Id = m_Asset.NewOperatorId();
+	n.Type = type;
+	n.X = canvasPos.x;
+	n.Y = canvasPos.y;
+	m_Asset.Operators.push_back(n);
+	m_SelOp = n.Id;
+	m_SelSystem = m_SelContext = m_SelBlock = m_SelProperty = -1;
+	Changed(true);
+}
+
+void VfxGraphWindow::RemoveOperator(int id)
+{
+	for (Vfx::OperatorNode& o : m_Asset.Operators)
+		for (auto it = o.Inputs.begin(); it != o.Inputs.end();)
+			it = it->is_number_integer() && it->get<int>() == id ? o.Inputs.erase(it) : std::next(it);
+	for (Vfx::System& sys : m_Asset.Systems)
+		for (auto* list : { &sys.Initialize, &sys.Update })
+			for (Vfx::Block& b : *list)
+				for (auto it = b.Links.begin(); it != b.Links.end();)
+					it = it->is_number_integer() && it->get<int>() == id ? b.Links.erase(it) : std::next(it);
+	m_Asset.Operators.erase(std::remove_if(m_Asset.Operators.begin(), m_Asset.Operators.end(), [&](const Vfx::OperatorNode& o) { return o.Id == id; }), m_Asset.Operators.end());
+	if (m_SelOp == id) m_SelOp = -1;
 }
 
 void VfxGraphWindow::DrawCanvas(float width, float height)
@@ -959,10 +1163,34 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 			}
 			ed::SetNodePosition(NodeOf(s), ImVec2(e["x"].get<float>(), e["y"].get<float>()));
 		}
+		for (const Vfx::OperatorNode& n : m_Asset.Operators)
+			ed::SetNodePosition(OpNodeOf(n.Id), ImVec2(n.X, n.Y));
 	}
 
 	for (int s = 0; s < (int)m_Asset.Systems.size(); ++s)
 		DrawSystem(s);
+	for (Vfx::OperatorNode& n : m_Asset.Operators)
+		DrawOperator(n);
+	// 연산 노드 선: 노드 → 노드 입력, 노드 → 블록 값
+	for (const Vfx::OperatorNode& n : m_Asset.Operators)
+		if (const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type))
+			for (int i = 0; i < (int)d->Inputs.size(); ++i)
+				for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
+					if (Lower(it.key()) == Lower(d->Inputs[i].Name) && it->is_number_integer() && m_Asset.FindOperatorNode(it->get<int>()))
+						ed::Link(ed::LinkId(Tagged(kTagOpLink, OpInVal(n.Id, i))), OpOut(it->get<int>()), OpIn(n.Id, i), ImColor(IM_COL32(110, 170, 240, 255)), 2.0f);
+	for (int si = 0; si < (int)m_Asset.Systems.size(); ++si)
+		for (int ctx = 1; ctx <= 2; ++ctx)
+		{
+			const auto& list = ctx == 1 ? m_Asset.Systems[si].Initialize : m_Asset.Systems[si].Update;
+			for (int bi = 0; bi < (int)list.size(); ++bi)
+				if (const Vfx::BlockDesc* d = Vfx::FindBlock(list[bi].Type))
+					for (int pi = 0; pi < (int)d->Params.size(); ++pi)
+					{
+						const int from = LinkedTo(list[bi], d->Params[pi].Name);
+						if (from >= 0 && m_Asset.FindOperatorNode(from))
+							ed::Link(ed::LinkId(Tagged(kTagParamLink, ParamVal(si, ctx, bi, pi))), OpOut(from), ParamPin(si, ctx, bi, pi), ImColor(IM_COL32(110, 170, 240, 255)), 2.0f);
+					}
+		}
 	// GPU Event 선 (부모 Update 의 On Die → 자식 Spawn)
 	for (int s = 0; s < (int)m_Asset.Systems.size(); ++s)
 	{
@@ -978,11 +1206,61 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 		if (ed::QueryNewLink(&a, &b) && a && b)
 		{
 			uintptr_t pa = a.Get(), pb = b.Get();
-			if (pa % 16 == 1) std::swap(pa, pb);   // pa = 출력 (On Die)
+			if (TagOf(pa) != kTagEventOut && TagOf(pa) != kTagOpOut) std::swap(pa, pb);   // pa = 출력
+			const uint64_t ta = TagOf(pa), tb = TagOf(pb);
 			const int from = SystemOfId(pa), to = SystemOfId(pb);
-			const bool ok = pa % 16 == 2 && pb % 16 == 1 && from != to && from >= 0 && to >= 0 &&
+			const bool ok = ta == kTagEventOut && tb == kTagEventIn && from != to && from >= 0 && to >= 0 &&
 				from < (int)m_Asset.Systems.size() && to < (int)m_Asset.Systems.size();
-			if (!ok)
+			if (ta == kTagOpOut && (tb == kTagOpIn || tb == kTagParam))
+			{
+				// 연산 노드 → 노드 입력 · 블록 값
+				const int src = (int)ValOf(pa);
+				if (ed::AcceptNewItem(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), 2.0f))
+				{
+					Snapshot();
+					bool okLink = false;
+					if (tb == kTagOpIn)
+					{
+						const int dst = (int)(ValOf(pb) >> 8), input = (int)(ValOf(pb) & 0xFF);
+						for (Vfx::OperatorNode& n : m_Asset.Operators)
+							if (n.Id == dst && dst != src)
+								if (const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type); d && input < (int)d->Inputs.size())
+								{
+									n.Inputs[d->Inputs[input].Name] = src;
+									okLink = true;
+								}
+						// 고리는 받지 않는다
+						struct Props : Vfx::PropertySource { const Vfx::Asset& A; Props(const Vfx::Asset& x) : A(x) {} bool Get(const std::string& k, std::array<float, 4>& o) const override { const Vfx::Property* p = A.FindProperty(k); if (!p) return false; o = p->Value; return true; } } props(m_Asset);
+						std::vector<std::array<float, 4>> code;
+						std::string err;
+						if (okLink && !Vfx::CompileOperator(m_Asset, dst, props, code, err) && err.find("loop") != std::string::npos)
+						{
+							m_Asset = m_Undo.back();
+							m_Undo.pop_back();
+							m_Status = "operators cannot form a loop";
+							m_StatusError = true;
+							okLink = false;
+						}
+					}
+					else
+					{
+						const ParamRef pr = DecodeParam(ValOf(pb));
+						if (pr.S < (int)m_Asset.Systems.size())
+						{
+							auto& list = pr.Ctx == 1 ? m_Asset.Systems[pr.S].Initialize : m_Asset.Systems[pr.S].Update;
+							if (pr.Block < (int)list.size())
+								if (const Vfx::BlockDesc* d = Vfx::FindBlock(list[pr.Block].Type); d && pr.Param < (int)d->Params.size())
+								{
+									list[pr.Block].Links[d->Params[pr.Param].Name] = src;
+									okLink = true;
+								}
+						}
+					}
+					if (okLink) Changed();
+					else if (!m_Undo.empty() && m_Status != "operators cannot form a loop") m_Undo.pop_back();
+				}
+			}
+			else if (!ok)
 				ed::RejectNewItem(ImVec4(1, 0.3f, 0.3f, 1), 2.0f);
 			else if (ed::AcceptNewItem())
 			{
@@ -1007,17 +1285,60 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 		while (ed::QueryDeletedLink(&l))
 			if (ed::AcceptDeletedItem())
 			{
-				const int child = SystemOfId(l.Get());
-				if (child >= 0 && child < (int)m_Asset.Systems.size())
+				const uint64_t tag = TagOf(l.Get()), val = ValOf(l.Get());
+				if (tag == kTagEventLink)
 				{
-					Snapshot();
-					m_Asset.Systems[child].SpawnCtx.Parent.clear();
-					Changed();
+					const int child = (int)val;
+					if (child >= 0 && child < (int)m_Asset.Systems.size())
+					{
+						Snapshot();
+						m_Asset.Systems[child].SpawnCtx.Parent.clear();
+						Changed();
+					}
+				}
+				else if (tag == kTagOpLink)
+				{
+					const int dst = (int)(val >> 8), input = (int)(val & 0xFF);
+					for (Vfx::OperatorNode& n : m_Asset.Operators)
+						if (n.Id == dst)
+							if (const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type); d && input < (int)d->Inputs.size())
+							{
+								Snapshot();
+								for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
+									if (Lower(it.key()) == Lower(d->Inputs[input].Name)) { n.Inputs.erase(it); break; }
+								Changed();
+							}
+				}
+				else if (tag == kTagParamLink)
+				{
+					const ParamRef pr = DecodeParam(val);
+					if (pr.S < (int)m_Asset.Systems.size())
+					{
+						auto& list = pr.Ctx == 1 ? m_Asset.Systems[pr.S].Initialize : m_Asset.Systems[pr.S].Update;
+						if (pr.Block < (int)list.size())
+							if (const Vfx::BlockDesc* d = Vfx::FindBlock(list[pr.Block].Type); d && pr.Param < (int)d->Params.size())
+							{
+								Snapshot();
+								for (auto it = list[pr.Block].Links.begin(); it != list[pr.Block].Links.end(); ++it)
+									if (Lower(it.key()) == Lower(d->Params[pr.Param].Name)) { list[pr.Block].Links.erase(it); break; }
+								Changed();
+							}
+					}
 				}
 			}
 		ed::NodeId n;
 		while (ed::QueryDeletedNode(&n))
-			ed::RejectDeletedItem();   // 시스템 지우기는 머리의 × (실수로 Delete 키에 사라지지 않게)
+		{
+			// 연산 노드는 Delete 로 지운다, 시스템은 머리의 × 로만 (실수로 Delete 키에 사라지지 않게)
+			if (TagOf(n.Get()) == kTagOp && ed::AcceptDeletedItem())
+			{
+				Snapshot();
+				RemoveOperator((int)ValOf(n.Get()));
+				Changed(true);
+			}
+			else if (TagOf(n.Get()) != kTagOp)
+				ed::RejectDeletedItem();
+		}
 	}
 	ed::EndDelete();
 
@@ -1035,6 +1356,33 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 				m_Dirty = true;
 			}
 		}
+
+	if (!resync && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		for (Vfx::OperatorNode& n : m_Asset.Operators)
+		{
+			const ImVec2 pos = ed::GetNodePosition(OpNodeOf(n.Id));
+			if (fabsf(pos.x - n.X) > 0.5f || fabsf(pos.y - n.Y) > 0.5f)
+			{
+				n.X = pos.x;
+				n.Y = pos.y;
+				m_Dirty = true;
+			}
+		}
+	// 고른 연산 노드 (Inspector)
+	{
+		ed::NodeId selected[2];
+		const int count = ed::GetSelectedNodes(selected, 2);
+		if (count == 1 && TagOf(selected[0].Get()) == kTagOp)
+		{
+			if (m_SelOp != (int)ValOf(selected[0].Get()))
+			{
+				m_SelOp = (int)ValOf(selected[0].Get());
+				m_SelSystem = m_SelContext = m_SelBlock = m_SelProperty = -1;
+			}
+		}
+		else if (m_SelOp >= 0 && (count != 0 || m_SelSystem >= 0))
+			m_SelOp = -1;
+	}
 
 	// 오른쪽 클릭 · Space = 검색 창 (블록이나 문맥을 골랐으면 그 문맥에, 아니면 새 시스템)
 	const ImVec2 mouse = ImGui::GetMousePos();
@@ -1099,7 +1447,7 @@ void VfxGraphWindow::DrawSearchPopup()
 	if (!ImGui::BeginPopup("##vfxsearch"))
 		return;
 	const bool forContext = m_SearchSystem >= 0 && m_SearchSystem < (int)m_Asset.Systems.size() && (m_SearchContext == 1 || m_SearchContext == 2);
-	ImGui::TextDisabled("%s", forContext ? (std::string("Add block to ") + m_Asset.Systems[m_SearchSystem].Name + " / " + kContextNames[m_SearchContext]).c_str() : "Create System");
+	ImGui::TextDisabled("%s", forContext ? (std::string("Add block to ") + m_Asset.Systems[m_SearchSystem].Name + " / " + kContextNames[m_SearchContext]).c_str() : "Create System or Operator");
 	if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
 	ImGui::SetNextItemWidth(-1);
 	ImGui::InputTextWithHint("##q", "Search", m_Search, sizeof(m_Search));
@@ -1130,6 +1478,8 @@ void VfxGraphWindow::DrawSearchPopup()
 		Vfx::System empty;
 		empty.Name = "Empty System";
 		items.push_back({ "Empty System", "System", [this, empty] { AddSystem(empty, m_SearchPos); } });
+		for (const Vfx::OperatorDesc& od : Vfx::Operators())
+			items.push_back({ od.Label, std::string("Operator / ") + od.Category, [this, &od] { AddOperator(od.Type, m_SearchPos); } });
 		for (const std::string& t : Vfx::TemplateNames())
 		{
 			Vfx::Asset a;
@@ -1170,6 +1520,63 @@ void VfxGraphWindow::DrawSearchPopup()
 	ImGui::EndPopup();
 }
 
+void VfxGraphWindow::DrawOperatorInspector(Vfx::OperatorNode& n)
+{
+	const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type);
+	ImGui::PushFont(UnityGUI::BoldFont());
+	ImGui::Text("%s  #%d", d ? d->Label : n.Type.c_str(), n.Id);
+	ImGui::PopFont();
+	if (!d)
+		return;
+	ImGui::TextWrapped("%s", d->Help);
+	ImGui::Separator();
+	// 연결하지 않은 입력 · 설정을 블록 값처럼 (가짜 블록 정의로 같은 편집기를 쓴다)
+	Vfx::BlockDesc fake{ "", "", "", Vfx::Context::Update, 0, {}, "" };
+	for (const Vfx::OperatorInput& in : d->Inputs)
+	{
+		bool connected = false;
+		for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
+			if (Lower(it.key()) == Lower(in.Name) && it->is_number_integer())
+			{
+				connected = true;
+				ImGui::TextDisabled("%s", in.Name);
+				ImGui::SameLine(120.0f);
+				ImGui::TextColored(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), "<- #%d", it->get<int>());
+			}
+		if (!connected)
+			fake.Params.push_back({ in.Name, in.Kind, in.Default });
+	}
+	for (const Vfx::ParamDesc& sp : d->Settings)
+		fake.Params.push_back(sp);
+	Vfx::Block tmp;
+	tmp.Params = n.Params;
+	if (DrawBlockFields(tmp, fake, false, -1, -1, -1, false))
+	{
+		n.Params = tmp.Params;
+		Changed();
+	}
+	ImGui::Dummy(ImVec2(0, 6));
+	// 이 노드를 쓰는 블록 값
+	ImGui::TextDisabled("Used by:");
+	for (const Vfx::System& sys : m_Asset.Systems)
+		for (const auto* list : { &sys.Initialize, &sys.Update })
+			for (const Vfx::Block& b : *list)
+				for (auto it = b.Links.begin(); it != b.Links.end(); ++it)
+					if (it->is_number_integer() && it->get<int>() == n.Id)
+						ImGui::BulletText("%s / %s . %s", sys.Name.c_str(), b.Type.c_str(), it.key().c_str());
+	for (const Vfx::OperatorNode& o : m_Asset.Operators)
+		for (auto it = o.Inputs.begin(); it != o.Inputs.end(); ++it)
+			if (it->is_number_integer() && it->get<int>() == n.Id)
+				ImGui::BulletText("operator #%d %s . %s", o.Id, o.Type.c_str(), it.key().c_str());
+	ImGui::Dummy(ImVec2(0, 6));
+	if (ImGui::Button(ICON_FA_TRASH " Delete Operator"))
+	{
+		Snapshot();
+		RemoveOperator(n.Id);
+		Changed(true);
+	}
+}
+
 void VfxGraphWindow::DrawInspector(float width, float height)
 {
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 6.0f));
@@ -1186,6 +1593,16 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 		ImGui::SameLine(labelW);
 		ImGui::SetNextItemWidth(-1);
 	};
+
+	// 연산 노드
+	if (m_SelOp >= 0)
+		for (Vfx::OperatorNode& n : m_Asset.Operators)
+			if (n.Id == m_SelOp)
+			{
+				DrawOperatorInspector(n);
+				ImGui::EndChild();
+				return;
+			}
 
 	// 속성
 	if (m_SelSystem < 0 && m_SelProperty >= 0 && m_SelProperty < (int)m_Asset.Properties.size())
@@ -1242,6 +1659,12 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 	if (m_SelSystem < 0 || m_SelSystem >= (int)m_Asset.Systems.size())
 	{
 		ImGui::TextDisabled("Select a system, context or block.");
+		ImGui::Dummy(ImVec2(0, 8));
+		// 에셋 설정: 화면 밖일 때 (Unity 의 Culling Flags)
+		row("Culling");
+		int cull = (int)m_Asset.CullingMode;
+		const char* culls[] = { "Simulate When Visible", "Always Simulate" };
+		if (ImGui::Combo("##culling", &cull, culls, 2)) { Snapshot(); m_Asset.CullingMode = (Vfx::Culling)cull; Changed(); }
 		ImGui::Dummy(ImVec2(0, 8));
 		ImGui::TextWrapped("Space / right-click: add blocks or systems. Drag a system's \"On Die\" pin to another system's \"GPU Event\" pin to spawn particles where they die.");
 		const auto issues = m_Asset.Validate();
@@ -1321,6 +1744,15 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 		}
 		if (!sp.Parent.empty())
 		{
+			row("Trigger");
+			int trig = (int)sp.Trigger;
+			const char* triggers[] = { "On Die (when the parent dies)", "Rate (while the parent lives)" };
+			if (ImGui::Combo("##trigger", &trig, triggers, 2)) { Snapshot(); sp.Trigger = (Vfx::EventTrigger)trig; Changed(); }
+			if (sp.Trigger == Vfx::EventTrigger::Rate)
+			{
+				row("Events / s");
+				if (ImGui::DragFloat("##erate", &sp.EventRate, 0.5f, 0.0f, 240.0f, "%.1f per parent")) { BeginEdit(); Changed(); }
+			}
 			row("Count per Event");
 			if (ImGui::DragInt("##cpe", &sp.CountPerEvent, 1.0f, 1, 4096)) { BeginEdit(); Changed(); }
 		}
@@ -1410,6 +1842,24 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 			if (ImGui::DragInt2("##fb", fb, 0.05f, 1, 64)) { BeginEdit(); o.FlipbookColumns = fb[0]; o.FlipbookRows = fb[1]; Changed(); }
 			row("Flipbook FPS");
 			if (ImGui::DragFloat("##fps", &o.FlipbookFps, 0.1f, 0.0f, 120.0f, o.FlipbookFps <= 0 ? "once per life" : "%.1f")) { BeginEdit(); Changed(); }
+		}
+		row("Sort");
+		int sort = (int)o.Sort;
+		const char* sorts[] = { "Auto (Alpha Blend)", "On", "Off" };
+		if (ImGui::Combo("##sort", &sort, sorts, 3)) { Snapshot(); o.Sort = (Vfx::SortMode)sort; Changed(); }
+		// 꼬리 (Unity 의 Output Particle Strip)
+		row("Trail");
+		if (ImGui::Checkbox("##trail", &o.Trail)) { Snapshot(); Changed(); }
+		if (o.Trail)
+		{
+			row("Trail Points");
+			if (ImGui::DragInt("##tp", &o.TrailPoints, 0.2f, 2, 32)) { BeginEdit(); Changed(); }
+			row("Trail Length");
+			if (ImGui::DragFloat("##tl", &o.TrailLength, 0.01f, 0.02f, 10.0f, "%.2f s")) { BeginEdit(); Changed(); }
+			row("Trail Width");
+			if (ImGui::DragFloat("##tw", &o.TrailWidth, 0.01f, 0.0f, 20.0f, "x %.2f size")) { BeginEdit(); Changed(); }
+			row("Trail Only");
+			if (ImGui::Checkbox("##to", &o.TrailOnly)) { Snapshot(); Changed(); }
 		}
 	}
 	if (ctx == 1 || ctx == 2)

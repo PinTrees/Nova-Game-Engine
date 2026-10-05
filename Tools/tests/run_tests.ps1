@@ -3654,6 +3654,8 @@ function Suite-Vfx([string]$Api = 'dx')
         Invoke-Nova "vfx new $root/Fireworks_$Api.vfx --template Fireworks --overwrite" | Out-Null
         Invoke-Nova "create visual-effect --asset $root/Circle_$Api.vfx --name Circle --position 0,0,0" | Out-Null
         Invoke-Nova "create visual-effect --asset $root/Fireworks_$Api.vfx --name Fireworks --position 30,0,0" | Out-Null
+        # 둘 다 화면에 (화면 밖이면 Unity 처럼 시뮬레이션을 쉰다 — 컬링 검사는 아래에서 따로)
+        Invoke-Nova 'camera --position 15,10,-34 --target 15,5,0' | Out-Null
         $s = WaitFor { param($s) (Sys $s 'Circle' 'Outer Ring').alive -gt 1000 -and (Sys $s 'Fireworks' 'Crackle').alive -gt 0 } 30
         $outer = (Sys $s 'Circle' 'Outer Ring').alive; $pillar = (Sys $s 'Circle' 'Pillar').alive
         Add-Result $suite "${Api}: GPU spawn + update (Magic Circle systems alive)" ($s.gpu -and $outer -gt 1000 -and $pillar -gt 100) ("gpu {0}, Outer Ring {1}, Pillar {2}" -f $s.gpu, $outer, $pillar)
@@ -3681,6 +3683,106 @@ function Suite-Vfx([string]$Api = 'dx')
         Invoke-Nova 'set Circle --active true' | Out-Null
         $c = [NovaImageCompare]::Compare($offPng, $onPng, $null)
         Add-Result $suite "${Api}: Visual Effect is drawn (on vs off)" ($c -and $c[2] -gt 1.0) $(if ($c) { 'pixels >8 different: {0:N2}%' -f $c[2] } else { 'capture missing' })
+
+        # ---- 연산 노드 + 정렬: 색 = Lerp(빨강, 파랑, Remap(Position.z)) — 가까운 (z = -2) 것이 빨강. 정렬하면 가운데가 빨강, 안 하면 섞인다
+        if (-not ('NovaCenterColor' -as [type]))
+        {
+            Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+using System; using System.Drawing;
+public static class NovaCenterColor
+{
+    // 가운데 (가로 · 세로 30 %) 의 평균 빨강 · 파랑 비율 r / (r + b)
+    public static double RedShare(string path)
+    {
+        using (var b = new Bitmap(path))
+        {
+            double r = 0, bl = 0;
+            for (int y = (int)(b.Height * 0.35); y < (int)(b.Height * 0.65); y += 3)
+                for (int x = (int)(b.Width * 0.35); x < (int)(b.Width * 0.65); x += 3) { var c = b.GetPixel(x, y); r += c.R; bl += c.B; }
+            return r / Math.Max(1.0, r + bl);
+        }
+    }
+}
+"@
+        }
+        function SortAsset([string]$sort)
+        {
+            $j = @{
+                systems = @(@{ name = 'Layers'; capacity = 4096
+                    spawn = @{ rate = 0; loop = $false; duration = 0; bursts = @(@{ time = 0; count = 4000; cycles = 1; interval = 1 }) }
+                    initialize = @(
+                        @{ type = 'SetPosition'; params = @{ Shape = 'Box'; Size = @(1.2, 1.2, 4); Center = @(0, 1, 0) } },
+                        @{ type = 'SetLifetime'; params = @{ Min = 100; Max = 100 } },
+                        @{ type = 'SetSize'; params = @{ Min = 0.35; Max = 0.35 } },
+                        @{ type = 'SetColor'; params = @{ ColorA = @(1, 1, 1, 1) }; links = @{ ColorA = 4 } })
+                    update = @()
+                    output = @{ blend = 'Alpha'; shape = 'Square'; sort = $sort; softDistance = 0 } })
+                operators = @(
+                    @{ id = 1; type = 'Position' },
+                    @{ id = 2; type = 'Split'; params = @{ Component = 'Z' }; inputs = @{ X = 1 } },
+                    @{ id = 3; type = 'Remap'; params = @{ InMin = -2; InMax = 2; OutMin = 0; OutMax = 1 }; inputs = @{ X = 2 } },
+                    @{ id = 4; type = 'Lerp'; params = @{ A = @(1, 0, 0, 1); B = @(0, 0, 1, 1) }; inputs = @{ T = 3 } })
+            }
+            $f = Join-Path $dir "sort_$sort.json"
+            ($j | ConvertTo-Json -Depth 10) | Set-Content -Encoding utf8 $f
+            $f
+        }
+        $shares = @{}
+        foreach ($mode in 'On', 'Off')
+        {
+            $f = SortAsset $mode
+            Invoke-Nova "vfx set $root/Sort_$Api.vfx --file $f" | Out-Null
+            if ($mode -eq 'On') { Invoke-Nova "create visual-effect --asset $root/Sort_$Api.vfx --name Sorter --position 0,0,-60" | Out-Null } else { Invoke-Nova 'vfx restart --object Sorter' | Out-Null }
+            Invoke-Nova 'camera --position 0,1,-63.5 --target 0,1,-60' | Out-Null
+            WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Sorter' }).alive -ge 3990 } 15 | Out-Null
+            $png = Join-Path $dir "sort_$mode.png"
+            Invoke-Nova 'wait 10' | Out-Null
+            Invoke-Nova "screenshot $png --view scene" | Out-Null
+            $shares[$mode] = [NovaCenterColor]::RedShare($png)
+        }
+        Add-Result $suite "${Api}: operators (Position -> Split -> Remap -> Lerp color) + GPU sort (near red on top only when sorted)" ($shares['On'] -gt 0.85 -and $shares['On'] - $shares['Off'] -gt 0.15) ("red share sorted {0:N2}, unsorted {1:N2}" -f $shares['On'], $shares['Off'])
+        Invoke-Nova 'delete Sorter' | Out-Null
+
+        # ---- 연산 노드가 블록 값을 바꾼다: 수명 = Float 0.05 → 살아 있는 수가 크게 준다
+        Invoke-Nova "vfx new $root/OpLife_$Api.vfx --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/OpLife_$Api.vfx --name OpLife --position 0,0,-60" | Out-Null
+        Invoke-Nova 'camera --position 0,2,-66 --target 0,1,-60' | Out-Null
+        $before = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'OpLife' }).alive -gt 60 } 15).effects | Where-Object { $_.object -eq 'OpLife' }
+        $op = Invoke-NovaJson "vfx op.add $root/OpLife_$Api.vfx --type Float --params {\`"Value\`":0.05}"
+        Invoke-Nova "vfx block.link $root/OpLife_$Api.vfx --system Particles --context initialize --index 2 --param Max --from $($op.id)" | Out-Null
+        Invoke-Nova "vfx block.link $root/OpLife_$Api.vfx --system Particles --context initialize --index 2 --param Min --from $($op.id)" | Out-Null
+        $after = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'OpLife' }).alive -lt 15 } 15).effects | Where-Object { $_.object -eq 'OpLife' }
+        $info = Invoke-NovaJson "vfx info $root/OpLife_$Api.vfx"
+        Add-Result $suite "${Api}: operator linked to Set Lifetime (Float 0.05) shortens lives" ($before.alive -gt 60 -and $after.alive -lt 15 -and $info.issues.Count -eq 0) ("alive {0} -> {1}, issues {2}" -f $before.alive, $after.alive, $info.issues.Count)
+        Invoke-Nova 'delete OpLife' | Out-Null
+
+        # ---- 꼬리 (Trail Only): 띠만 그린다
+        Invoke-Nova "vfx new $root/Swirl_$Api.vfx --template `"Energy Swirl`" --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Swirl_$Api.vfx --name Swirl --position 0,0,-60" | Out-Null
+        Invoke-Nova 'camera --position 0,2.5,-67 --target 0,1.5,-60' | Out-Null
+        WaitFor { param($s) (Sys $s 'Swirl' 'Ribbons').alive -gt 100 } 15 | Out-Null
+        $on = Join-Path $dir 'trail_on.png'; $off = Join-Path $dir 'trail_off.png'
+        Invoke-Nova 'wait 20' | Out-Null; Invoke-Nova "screenshot $on --view scene" | Out-Null
+        Invoke-Nova "vfx system.set $root/Swirl_$Api.vfx --system Ribbons --data {\`"output\`":{\`"trail\`":{\`"enabled\`":false},\`"shape\`":\`"Glow\`",\`"intensity\`":0}}" | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null; Invoke-Nova "screenshot $off --view scene" | Out-Null
+        $c = [NovaImageCompare]::Compare($off, $on, $null)
+        Add-Result $suite "${Api}: particle trails (Energy Swirl ribbons, trail only) are drawn" ($c -and $c[2] -gt 2.0) $(if ($c) { 'pixels >8 different: {0:N2}%' -f $c[2] } else { 'capture missing' })
+        Invoke-Nova 'delete Swirl' | Out-Null
+
+        # ---- 화면 밖 컬링: 등 뒤의 Visual Effect 는 그리지도 시뮬레이션하지도 않는다, 돌아보면 다시
+        Invoke-Nova "create visual-effect --asset $root/Circle_$Api.vfx --name Behind --position 0,0,40" | Out-Null
+        Invoke-Nova 'camera --position 0,2,30 --target 0,2,40' | Out-Null
+        WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Behind' }).alive -gt 1000 } 15 | Out-Null
+        Invoke-Nova 'camera --position 0,2,30 --target 0,2,0' | Out-Null
+        $s1 = WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Behind' }).culled } 15
+        $c1 = $s1.effects | Where-Object { $_.object -eq 'Behind' }
+        Invoke-Nova 'wait 60' | Out-Null
+        $c2 = (Stats).effects | Where-Object { $_.object -eq 'Behind' }
+        Invoke-Nova 'camera --position 0,2,30 --target 0,2,40' | Out-Null
+        $s3 = WaitFor { param($s) -not ($s.effects | Where-Object { $_.object -eq 'Behind' }).culled } 15
+        $c3 = $s3.effects | Where-Object { $_.object -eq 'Behind' }
+        Add-Result $suite "${Api}: off-screen culling (behind the camera: culled + paused, visible again: resumes)" ($c1.culled -and $c2.culled -and $c2.alive -eq $c1.alive -and -not $c3.culled) ("behind: culled {0} alive {1} -> {2}; back in view: culled {3}" -f $c1.culled, $c1.alive, $c2.alive, $c3.culled)
+        Invoke-Nova 'delete Behind' | Out-Null
 
         if ($Api -eq 'dx')
         {

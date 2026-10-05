@@ -86,6 +86,24 @@ namespace Vfx
 			rocket.SpawnCtx.RateBind = "Launch Rate";
 			rocket.Update = { B("Gravity", { { "Force", { 0, -6.0, 0 } } }) };
 			rocket.OutputCtx = Out(Shape::Spark, 3.0f, Blend::Additive, Orient::AlongVelocity, 0.06f);
+			rocket.OutputCtx.Trail = true;   // 솟는 로켓 뒤의 빛 꼬리
+			rocket.OutputCtx.TrailPoints = 16;
+			rocket.OutputCtx.TrailLength = 0.45f;
+			rocket.OutputCtx.TrailWidth = 0.7f;
+			// 로켓이 날아가는 동안 흘리는 불티 (Trigger Event Rate — 살아 있는 동안 초당 40 번)
+			System sparkle = Sys("Rocket Sparks", 6000, 0.0f);
+			sparkle.SpawnCtx.Parent = "Rocket";
+			sparkle.SpawnCtx.Trigger = EventTrigger::Rate;
+			sparkle.SpawnCtx.EventRate = 40.0f;
+			sparkle.SpawnCtx.CountPerEvent = 1;
+			sparkle.Initialize = {
+				B("InheritSource", { { "Velocity", 0.1 }, { "Color", true } }),
+				B("SetVelocity", { { "Mode", "Random" }, { "MinSpeed", 0.3 }, { "MaxSpeed", 1.2 } }),
+				B("SetLifetime", { { "Min", 0.3 }, { "Max", 0.8 } }),
+				B("SetSize", { { "Min", 0.03 }, { "Max", 0.06 } }),
+			};
+			sparkle.Update = { B("Gravity", { { "Force", { 0, -4.0, 0 } } }), B("ColorOverLife", { { "Gradient", kFade } }) };
+			sparkle.OutputCtx = Out(Shape::Glow, 4.0f);
 			System boom = Sys("Explosion", 150000, 0.0f);
 			boom.SpawnCtx.Parent = "Rocket";
 			boom.SpawnCtx.CountPerEvent = 900;
@@ -113,7 +131,7 @@ namespace Vfx
 			};
 			crackle.Update = { B("Gravity", { { "Force", { 0, -1.0, 0 } } }), B("ColorOverLife", { { "Gradient", json::array({ { 0.0, 1, 1, 1, 1 }, { 0.3, 1, 1, 1, 0.2 }, { 0.5, 1, 1, 1, 1 }, { 1.0, 1, 1, 1, 0 } }) } }) };
 			crackle.OutputCtx = Out(Shape::Sparkle, 1.0f);
-			a.Systems = { rocket, boom, crackle };
+			a.Systems = { rocket, sparkle, boom, crackle };
 			a.Systems[2].Initialize[3].Bind = { { "Intensity", "Glow" } };   // Glow 속성 → 반짝임 세기
 			return a;
 		}
@@ -195,7 +213,7 @@ namespace Vfx
 		{
 			Asset a;
 			a.Properties = { Prop("Spin", PropertyType::Float, { 260.0f }, 0.0f, 900.0f), Prop("Dust Color", PropertyType::Color, { 0.6f, 0.55f, 0.5f, 0.45f }) };
-			System funnel = Sys("Funnel", 60000, 7000.0f);
+			System funnel = Sys("Funnel", 24000, 7000.0f);   // 용량 ≈ 초당 수 × 가장 긴 수명 (정렬은 용량만큼 — 넉넉하면 그만큼 느리다)
 			funnel.Initialize = {
 				B("SetPosition", { { "Shape", "Circle" }, { "Radius", 0.35 }, { "Surface", true } }),
 				B("SetVelocity", { { "Mode", "From Shape" }, { "MinSpeed", 0.35 }, { "MaxSpeed", 0.7 } }),
@@ -212,7 +230,7 @@ namespace Vfx
 				B("SizeOverLife", { { "Curve", json::array({ { 0, 0.5 }, { 1, 2.2 } }) } }),
 			};
 			funnel.OutputCtx = Out(Shape::Smoke, 1.0f, Blend::Alpha);
-			System debris = Sys("Debris", 6000, 500.0f);
+			System debris = Sys("Debris", 2500, 500.0f);
 			debris.Initialize = {
 				B("SetPosition", { { "Shape", "Circle" }, { "Radius", 3.0 } }),
 				B("SetVelocity", { { "Mode", "From Shape" }, { "MinSpeed", -0.6 }, { "MaxSpeed", -0.2 } }),
@@ -223,7 +241,7 @@ namespace Vfx
 			};
 			debris.Update = { B("Orbit", { { "Speed", 200 } }), B("ColorOverLife", { { "Gradient", kFade } }) };
 			debris.OutputCtx = Out(Shape::Spark, 1.0f, Blend::Additive, Orient::AlongVelocity, 0.03f);
-			System ground = Sys("Ground Dust", 12000, 1800.0f);
+			System ground = Sys("Ground Dust", 5000, 1800.0f);
 			ground.Initialize = {
 				B("SetPosition", { { "Shape", "Circle" }, { "Radius", 3.5 } }),
 				B("SetVelocity", { { "Mode", "From Shape" }, { "MinSpeed", 0.3 }, { "MaxSpeed", 1.0 } }),
@@ -413,10 +431,103 @@ namespace Vfx
 			return a;
 		}
 
+		// 에너지 소용돌이: 꼬리만 그리는 빛줄기가 가운데 둘레를 휘감는다 (Output 의 Trail Only)
+		Asset EnergySwirl()
+		{
+			Asset a;
+			a.Properties = { Prop("Core Color", PropertyType::Color, { 0.35f, 0.6f, 1.0f, 1.0f }), Prop("Swirl", PropertyType::Float, { 9.0f }, 0.0f, 40.0f) };
+			System ribbons = Sys("Ribbons", 800, 90.0f);
+			ribbons.Initialize = {
+				B("SetPosition", { { "Shape", "Sphere" }, { "Radius", 2.2 }, { "Surface", true }, { "Center", { 0, 1.5, 0 } } }),
+				B("SetVelocity", { { "Mode", "Random" }, { "MinSpeed", 1.5 }, { "MaxSpeed", 3.0 } }),
+				B("SetLifetime", { { "Min", 2.0 }, { "Max", 3.0 } }),
+				B("SetSize", { { "Min", 0.12 }, { "Max", 0.2 } }),
+				B("SetColor", { { "Mode", "Random Between" }, { "ColorA", { 0.35, 0.6, 1.0, 1 } }, { "ColorB", { 0.8, 0.4, 1.0, 1 } }, { "Intensity", 5 } }, { { "ColorA", "Core Color" } }),
+			};
+			ribbons.Update = {
+				B("Vortex", { { "Speed", 9 }, { "Center", { 0, 1.5, 0 } }, { "Pull", 2 } }, { { "Speed", "Swirl" } }),
+				B("Attractor", { { "Position", { 0, 1.5, 0 } }, { "Strength", 2.5 }, { "Radius", 1.6 }, { "Drag", 0.6 } }),
+				B("ColorOverLife", { { "Gradient", kFade } }),
+			};
+			ribbons.OutputCtx = Out(Shape::Glow, 1.0f);
+			ribbons.OutputCtx.Trail = true;
+			ribbons.OutputCtx.TrailOnly = true;
+			ribbons.OutputCtx.TrailPoints = 24;
+			ribbons.OutputCtx.TrailLength = 0.6f;
+			ribbons.OutputCtx.TrailWidth = 0.6f;
+			System core = Sys("Core", 400, 120.0f);
+			core.Initialize = {
+				B("SetPosition", { { "Shape", "Sphere" }, { "Radius", 0.3 }, { "Center", { 0, 1.5, 0 } } }),
+				B("SetLifetime", { { "Min", 0.5 }, { "Max", 0.8 } }),
+				B("SetSize", { { "Min", 0.6 }, { "Max", 1.0 } }),
+				B("SetColor", { { "ColorA", { 0.35, 0.6, 1.0, 1 } }, { "Intensity", 1.2 } }, { { "ColorA", "Core Color" } }),
+			};
+			core.Update = { B("ColorOverLife", { { "Gradient", kFade } }) };
+			core.OutputCtx = Out(Shape::Glow, 1.0f);
+			a.Systems = { core, ribbons };
+			return a;
+		}
+
+		OperatorNode Op(int id, const char* type, json params, json inputs, float x, float y)
+		{
+			OperatorNode n;
+			n.Id = id;
+			n.Type = type;
+			n.Params = std::move(params);
+			n.Inputs = std::move(inputs);
+			n.X = x;
+			n.Y = y;
+			return n;
+		}
+
+		// 무지개 나선 (연산 노드 예): 색 = HSV(시간 × 0.15 + 파티클마다 무작위), 도는 빠르기 = sin(시간) × 220 — 나선이 번갈아 거꾸로 돈다
+		Asset RainbowSpiral()
+		{
+			Asset a;
+			a.Properties = { Prop("Hue Speed", PropertyType::Float, { 0.15f }, 0.0f, 2.0f), Prop("Swirl", PropertyType::Float, { 220.0f }, 0.0f, 720.0f) };
+			System s = Sys("Spiral", 8000, 1800.0f);
+			s.Initialize = {
+				B("SetPosition", { { "Shape", "Circle" }, { "Radius", 0.25 }, { "Surface", true } }),
+				B("SetVelocity", { { "Mode", "From Shape" }, { "MinSpeed", 0.6 }, { "MaxSpeed", 1.0 } }),
+				B("SetVelocity", { { "Mode", "Direction" }, { "MinSpeed", 3.0 }, { "MaxSpeed", 4.5 } }),
+				B("SetLifetime", { { "Min", 1.6 }, { "Max", 2.4 } }),
+				B("SetSize", { { "Min", 0.04 }, { "Max", 0.08 } }),
+				B("SetColor", { { "ColorA", { 1, 1, 1, 1 } }, { "Intensity", 2.2 } }),
+			};
+			s.Initialize[5].Links = { { "ColorA", 6 } };
+			s.Update = {
+				B("Orbit", { { "Speed", 180 } }),
+				B("Gravity", { { "Force", { 0, -1.5, 0 } } }),
+				B("ColorOverLife", { { "Gradient", kFade } }),
+				B("SizeOverLife", { { "Curve", json::array({ { 0, 0.4 }, { 0.2, 1 }, { 1, 0.2 } }) } }),
+			};
+			s.Update[0].Links = { { "Speed", 9 } };
+			s.OutputCtx = Out(Shape::Glow, 1.0f);
+			s.OutputCtx.Trail = true;
+			s.OutputCtx.TrailPoints = 8;
+			s.OutputCtx.TrailLength = 0.25f;
+			s.OutputCtx.TrailWidth = 0.8f;
+			s.Editor = { { "x", 0.0f }, { "y", 0.0f } };
+			a.Systems = { s };
+			a.Operators = {
+				Op(1, "Time", json::object(), json::object(), -720, 40),
+				Op(10, "Property", { { "Name", "Hue Speed" } }, json::object(), -720, 140),
+				Op(2, "Multiply", json::object(), { { "A", 1 }, { "B", 10 } }, -500, 60),
+				Op(3, "RandomPerParticle", { { "Min", 0.0 }, { "Max", 0.25 } }, json::object(), -500, 200),
+				Op(4, "Add", json::object(), { { "A", 2 }, { "B", 3 } }, -300, 100),
+				Op(5, "Fractional", json::object(), { { "X", 4 } }, -300, 230),
+				Op(6, "HSVToRGB", { { "S", 0.85 }, { "V", 1.0 } }, { { "H", 5 } }, -300, 330),
+				Op(7, "Sine", json::object(), { { "X", 1 } }, -500, 420),
+				Op(11, "Property", { { "Name", "Swirl" } }, json::object(), -720, 520),
+				Op(9, "Multiply", json::object(), { { "A", 7 }, { "B", 11 } }, -300, 480),
+			};
+			return a;
+		}
+
 		struct Entry { const char* Name; Asset (*Make)(); };
 		const Entry kTemplates[] = {
 			{ "Simple Loop", SimpleLoop }, { "Fireworks", Fireworks }, { "Magic Circle", MagicCircle }, { "Tornado", Tornado },
-			{ "Sparks", Sparks }, { "Galaxy", Galaxy }, { "Fire", Fire }, { "Portal", Portal },
+			{ "Sparks", Sparks }, { "Galaxy", Galaxy }, { "Fire", Fire }, { "Portal", Portal }, { "Energy Swirl", EnergySwirl }, { "Rainbow Spiral", RainbowSpiral },
 		};
 	}
 

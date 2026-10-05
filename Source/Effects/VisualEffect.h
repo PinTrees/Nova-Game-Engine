@@ -49,6 +49,7 @@ public:
 	int SystemAliveCount(int system) const;
 	bool HasAnySystemAwake() const;                  // Spawn 이 도는 시스템이 있다
 	std::shared_ptr<const Vfx::Asset> GetAsset() const { return m_Asset; }
+	uint64 AssetRevision() const { return m_Revision; }   // 에셋이 바뀔 때마다 오른다 (Vfx::Load)
 	const std::string& AssetError() const { return m_AssetError; }
 	float TotalTime() const { return m_TotalTime; }
 	bool ActiveInHierarchy();
@@ -77,6 +78,11 @@ public:
 	};
 	std::vector<SystemState>& Systems() { return m_Systems; }
 	float TakePendingDt() { const float dt = m_PendingDt; m_PendingDt = 0.0f; return dt; }
+	// 화면 밖 (VfxRuntime 이 정한다 — 지난 프레임에 어느 뷰에도 그리지 않았다): Spawn 수 · 시간을 쌓지 않는다 (Unity 의 Culling)
+	bool IsCulled() const { return m_Culled; }
+	void SetCulled(bool culled) { m_Culled = culled; }
+	// 월드 경계 상자 (GPU 가 모은 파티클 자리, 몇 프레임 늦음). 모르면 false
+	bool GetWorldBounds(Vec3& mn, Vec3& mx);
 	bool TakeResetRequest() { const bool r = m_ResetGpu; m_ResetGpu = false; return r; }
 	uint32 NextSeed() { return m_Seed = m_Seed * 1664525u + 1013904223u; }
 	VfxGpu* Gpu() { return m_Gpu.get(); }
@@ -99,6 +105,7 @@ private:
 	std::vector<SystemState> m_Systems;
 	std::vector<std::string> m_Events;
 	bool m_Initialized = false;
+	bool m_Culled = false;
 	bool m_ResetGpu = true;
 	float m_PendingDt = 0.0f;
 	float m_TotalTime = 0.0f;
