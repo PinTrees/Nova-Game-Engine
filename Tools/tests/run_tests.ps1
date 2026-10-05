@@ -3512,8 +3512,11 @@ function Suite-Vulkan
         if (-not (Test-Path $a) -or -not (Test-Path $b)) { Add-Result vulkan "$n DX = Vulkan" $false 'capture missing'; continue }
         $c = [NovaImageCompare]::Compare($a, $b, (Join-Path $Out "vulkan\${n}_diff.png"))
         if (-not $c) { Add-Result vulkan "$n DX = Vulkan" $false 'size differs'; continue }
-        $ok = if ($n -eq 'Trees') { $c[2] -le 6.0 } else { $c[0] -le 20 }
-        Add-Result vulkan "$n DX = Vulkan" $ok ('max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2])
+        # 화소 최대 차이 20 이하. 넘어도 몇 화소뿐이면 통과: 모서리에 거의 걸친 화소 중심은 정점 계산의 마지막 자리 차이
+        #  (DX = fxc, Vulkan = DXC → SPIR-V) 로 이쪽 · 저쪽 면에 갈린다 — 실행마다 다른 1 ~ 3 화소 (창 크기에 따라 max 14 · 39).
+        #  0.005 % (1143 x 567 에서 약 30 화소) 를 넘으면 진짜 다른 그림으로 본다
+        $ok = if ($n -eq 'Trees') { $c[2] -le 6.0 } else { $c[0] -le 20 -or ($c[2] -le 0.005 -and $c[1] -le 0.05) }
+        Add-Result vulkan "$n DX = Vulkan" $ok ('max {0}, mean {1:N3}, >8: {2:N4}%' -f $c[0], $c[1], $c[2])
     }
 }
 

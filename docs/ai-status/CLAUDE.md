@@ -10,10 +10,15 @@
   - 검사: vfx 18/18 · vfxgl + vfxvk 26/26 (깊이 충돌 · 사용자 속성 · Sub Graph · Output Mesh 추가), `android_vfx.ps1` MuMu **12/12** (파편 메시 · 깊이 충돌 · 반딧불 추가). Showcase 222 ~ 224
   - **v0.2.0 게시함** (사용자 확인: 푸시 + 공개 릴리스, Hub 설치 파일은 v0.1.0 것을 다시) — https://github.com/PinTrees/Nova-Game-Engine/releases/tag/v0.2.0 (태그 778acb5, latest, 사이트 다운로드 링크 200): 버전 0.2.0 (EngineInfo.h · NovaCli · CMake), `dist/NOVA-Engine-0.2.0-win64.zip` 56.2 MB (SHA256 02C4D219…F38AFD, Debug CRT 의존 없음, 안드로이드 x86_64 플레이어 · Mono 포함), `dist/release_notes_0.2.0.md`
     - 전체 회귀 (Debug, -Suite full): 355/360 — model 3 개 (VRM 다시 가져오기가 긴 실행 중 늦어 그 뒤 연쇄) · shadergraph 1 개 (미리보기 로그 대기) 는 따로 다시 돌려 56/56 · 24/24, perf Trees Vulkan 은 Debug 수치 (Release 에서 통과)
-    - Release 묶음 시험 (풀어서 NOVA_ENGINE): cli · vfx · vulkan · perf — 남은 것: perf OpenGL 대 DX11 비율 2 개 (Characters ×1.6, Materials ×2.1~2.4) 는 예전 Release 복사본에서도 같아 이번 작업 전부터, Culling DX = Vulkan max 39 는 묶음에 없는 예제 텍스처의 대체 색이 API 마다 달라서 (전체 Resources 면 14 로 통과 — 따로 작업 칩)
+    - Release 묶음 시험 (풀어서 NOVA_ENGINE): cli · vfx · vulkan · perf — 남은 것: perf OpenGL 대 DX11 비율 2 개 (Characters ×1.6, Materials ×2.1~2.4) 는 예전 Release 복사본에서도 같아 이번 작업 전부터, Culling DX = Vulkan max 39 는 텍스처 탓이 아니었다 (아래 고침)
     - 고친 것: `Tools/package_release.ps1` 의 Mono 복사 경로에 `\r` `\n` 이 실제 글자로 들어가 있던 것 (cac1b68 때 깨짐), zip 의 읽어 보기에 Vulkan, 메시 그리기 검사의 카메라를 가까이 (Release 에서 0.92 %)
     - Hub 설치 파일: v0.1.0 의 NovaHubSetup.exe (SHA256 43a0692b…) 를 그대로 다시 올림 — Hub 의 안드로이드 모듈 · Mono 변경은 다음 서명 빌드 (package_hub.ps1 + 인증서) 때
   - 처음 깊이 충돌이 듣지 않던 까닭: 깊이 텍스처가 뷰보다 커서 NDC → 화소를 텍스처 크기로 바꾸면 엉뚱한 화소 → 지금 뷰포트 (RSGetViewports) 로
+- 같은 날 이어서 — **DX = Vulkan 비교 검사 고침** (사용자 지시: 작업 칩 "Fix missing-texture fallback differing DX vs Vulkan" 을 여기서). **완료 (커밋, 푸시 전)**
+  - 칩의 가정 (묶음에 없는 텍스처의 대체 색) 은 틀렸다: Culling 장면 재질은 텍스처를 쓰지 않는다. 묶음 실행은 창 배치 파일이 달라 캡처가 1243 x 630 (저장소는 1143 x 567)
+  - 다른 화소는 두 실행 모두 1 ~ 3 개뿐 (0.0002 ~ 0.0004 %), 셋 다 두 면이 만나는 가로 모서리에 걸친 화소가 다른 면으로 갈린 것 — 채우기 규칙 (Y 뒤집기) 문제라면 같은 모서리의 화소가 줄줄이 달라야 한다 →
+    정점 계산의 마지막 자리 차이 (DX = fxc, Vulkan = DXC → SPIR-V) 로 모서리에 거의 걸친 화소 중심이 갈리는 것. 엔진은 정상, 화소 하나의 최대 차이 (20) 기준이 약했다 (Shadows 도 한 화소 max 14)
+  - `Tools/tests/run_tests.ps1` vulkan: max 20 이하 또는 (8 넘게 다른 화소 0.005 % 이하 + 평균 0.05 이하), 비율을 소수 넷째 자리까지. 검사: Release 묶음 · Debug 둘 다 vulkan 통과 (Debug 10/10)
 - 이전: 2026년 10월 5일 — **VFX Graph 마무리: 꼬리 · 정렬 · 컬링, 연산 노드, 성능 · 데모** (사용자 지시: 추천 1 · 2 · 3 "이거해줘. 대화는 일단 킵 하고"). **완료 (커밋 bff097c, 푸시함)**
   - 셰이더 `Shaders/58. VFX.fx`: 이벤트 버퍼 하나 (죽음 · Rate), 꼬리 기록 (링 버퍼) + `TrailCS` (마디 인스턴스) + TrailVS/PS, 정렬 (SortKeys · 512 그룹 비토닉 · 전역 단계 · Gather), Update 가 경계 상자를 모음 (gState 48 바이트),
     연산 노드 해석 `Eval` (고정 레지스터 r0..r9 스택 — fxc 가 동적 색인 배열을 잘못 옮겨 DX11 에서 값이 사라졌음), 블록마다 한 번 계산 (`PrepareSlots` — fxc 컴파일 61 → 약 5 초)
