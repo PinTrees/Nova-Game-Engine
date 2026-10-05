@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **VFX Turbulence 가 안드로이드 GLES 에서 NaN** (사용자 지시: 작업 칩 "Fix VFX Turbulence producing NaN on Android GLES" 를 여기서) + 편집기 abort 대화상자 + MuMu 창 숨기기. **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 6일 — **VFX Turbulence 가 안드로이드 GLES 에서 NaN** (사용자 지시: 작업 칩 "Fix VFX Turbulence producing NaN on Android GLES" 를 여기서) + 편집기 abort 대화상자 + MuMu 창 숨기기. **완료 (커밋 27ba508, 푸시함)**
   - 원인: `58. VFX.fx` NoiseVec 의 횟수가 값에 따라 바뀌는 고리 (`for (int o = 0; o < n; ++o)`) — MuMu GLES 3.2 에서 그 이펙트의 파티클이 통째로 NaN (그려지지 않음). 진단: 변형 이펙트 여러 개를 한 장면에 두고 기기 경계 · 그림 (모드 3 · 4 = 고리 없는 Noise3 는 정상)
     고침: 4 번 정해진 고리 + `[branch] if (o < n)`. 날씨의 안드로이드 우회 (Turbulence 빼기) 지움. 잘못 짚은 것: 정수 변환 · gTime · 잡음 함수 · sSlot 배열 (배열을 0 으로 채우면 오히려 모든 이펙트가 깨졌다 — 되돌림)
     주의: `vfx new` 기본 견본에 Turbulence 가 들어 있다 (진단의 "대조군" 이 아니었다). GLES 에서 경계 상자가 null 이면 그 이펙트 전체가 망가진 것
