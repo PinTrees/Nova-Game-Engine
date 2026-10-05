@@ -1246,6 +1246,15 @@ namespace Vfx
 		e.Revision = ++s_Revision;
 	}
 
+	bool SetLiveJson(const std::string& assetPath, const json& j, std::string& error)
+	{
+		auto a = std::make_shared<Asset>();
+		if (!a->FromJson(j, error))
+			return false;
+		SetLive(assetPath, a);
+		return true;
+	}
+
 	void ClearLive(const std::string& assetPath)
 	{
 		auto it = s_Cache.find(Key(assetPath));

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AtmospherePass.h"
+#include "WeatherState.h"
 #include "Effects.h"
 #include "VolumeProfile.h"
 #include "LightHelper.h"
@@ -108,6 +109,31 @@ namespace AtmospherePass
 			const float* c = skyColor ? f->V("tint") : f->V("color");
 			p.FogColor = XMFLOAT4(skyColor ? (std::max)(c[0], 0.0f) : ToLinear(c[0]), skyColor ? (std::max)(c[1], 0.0f) : ToLinear(c[1]),
 				skyColor ? (std::max)(c[2], 0.0f) : ToLinear(c[2]), skyColor ? 1.0f : 0.0f);
+		}
+		// 날씨 안개 (WeatherState — 비 · 눈 · 폭풍): 장면 Volume 의 Fog 와 FogAmount 만큼 섞는다 (없으면 날씨 안개만)
+		if (const WeatherState& w = WeatherState::Get(); w.FogAmount > 0.001f)
+		{
+			const float a = std::clamp(w.FogAmount, 0.0f, 1.0f);
+			const float density = 1.0f / (std::max)(w.FogDistance, 1.0f);
+			const float invScale = 2.302585f / (std::max)(w.FogHeight, 1.0f);
+			if (!p.Fog)
+			{
+				// 장면에 안개가 없으면 0 에서 시작 (바닥 아래 기준 · 끝없이 · 해 쪽 밝음은 조금)
+				p.Fog = true;
+				p.FogA = XMFLOAT4(0.0f, -20.0f, invScale, 0.0f);
+				p.FogB = XMFLOAT4(5000.0f, 0.0f, 0.4f, 0.6f);
+				p.FogColor = XMFLOAT4(w.FogColor.x, w.FogColor.y, w.FogColor.z, 0.0f);
+			}
+			auto mix = [a](float x, float y) { return x + (y - x) * a; };
+			p.FogA.x = mix(p.FogA.x, density);
+			p.FogA.z = mix(p.FogA.z, invScale);
+			p.FogA.w = mix(p.FogA.w, 0.0f);
+			p.FogB.x = mix(p.FogB.x, 5000.0f);
+			p.FogB.y = mix(p.FogB.y, 1.0f);
+			p.FogB.z = mix(p.FogB.z, 0.15f);   // 먹구름: 해 쪽으로 밝게 번지지 않는다
+			// 하늘색 모드 (w = 1, rgb = 하늘에 곱하는 색) 는 날씨가 절반을 넘으면 날씨의 상수 색으로
+			if (p.FogColor.w > 0.5f && a > 0.5f) p.FogColor = XMFLOAT4(w.FogColor.x, w.FogColor.y, w.FogColor.z, 0.0f);
+			else if (p.FogColor.w < 0.5f) p.FogColor = XMFLOAT4(mix(p.FogColor.x, w.FogColor.x), mix(p.FogColor.y, w.FogColor.y), mix(p.FogColor.z, w.FogColor.z), 0.0f);
 		}
 		if (stack.IsActive("Atmosphere"))
 		{

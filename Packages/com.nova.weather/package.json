@@ -1,0 +1,13 @@
+{
+  "name": "com.nova.weather",
+  "displayName": "Weather",
+  "version": "1.0.0",
+  "description": "Open-world weather: one Weather Controller blends profiles (Clear, Cloudy, Rain, Storm, Snow, Blizzard or your own .weather assets) over time. GPU rain and snow follow the camera, so they cost the same anywhere in a large world; raindrops splash and ripple where they hit the visible scene, snow settles on it. Clouds darken the sun, sky and ambient light, weather fog rolls in, wind bends trees and grass with gusts, storms throw lightning bolts with thunder, and rain and wind sound loops follow the intensity. C# Weather.Set(\"Storm\", 10) and nova call weather.",
+  "category": "Environment",
+  "author": { "name": "NOVA" },
+  "keywords": [ "weather", "rain", "snow", "storm", "lightning", "thunder", "wind", "fog", "open world", "environment", "enviro", "unistorm" ],
+  "native": [ "NovaWeather.dll" ],
+  "components": [
+    { "type": "WeatherController", "display": "Weather Controller", "category": "Environment", "icon": "volume", "single": true }
+  ]
+}

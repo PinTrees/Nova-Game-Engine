@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Sky.h"
+#include "WeatherState.h"
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
 #include "Effects.h"
@@ -76,6 +77,13 @@ void Sky::Draw(GfxContext* dc, const XMFLOAT3& eyePos, CXMMATRIX viewProj)
 
 	Effects::SkyFX->SetWorldViewProj(WVP);
 	Effects::SkyFX->SetCubeMap(_cubeMapSRV.Get());
+	{
+		// 날씨 (먹구름 · 번개) — 기본값이면 그대로
+		const WeatherState& w = WeatherState::Get();
+		const float sky[4] = { w.SkyTint.x * w.SkyBrightness, w.SkyTint.y * w.SkyBrightness, w.SkyTint.z * w.SkyBrightness, w.SkyDesaturate };
+		if (FxVar* v = Effects::SkyFX->GetFX()->GetVariableByName("gSkyWeather"); v && v->IsValid()) v->SetRawValue(sky, 0, 16);
+		if (FxVar* v = Effects::SkyFX->GetFX()->GetVariableByName("gSkyFlash"); v && v->IsValid()) v->SetRawValue(&w.Flash, 0, 4);
+	}
 
 	uint32 stride = sizeof(XMFLOAT3);
 	uint32 offset = 0;

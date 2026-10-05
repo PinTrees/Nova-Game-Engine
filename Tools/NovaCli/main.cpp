@@ -625,6 +625,10 @@ namespace
 		"                                         render (PNG), export (sprite sheet + JSON), image.make ... list: nova anim2d help\n"
 		"  anim2d batch <file | ->                one op per line, all as ONE undo step\n"
 		"\n"
+		"weather (package com.nova.weather: Weather Controller component)\n"
+		"  weather status | set --profile Storm [--seconds 10] | strike | list | save --path Assets/X.weather\n"
+		"                                         profiles: Clear Cloudy Rain Storm Snow Blizzard or a .weather file\n"
+		"\n"
 		"shader graph (Window > Shader Graph: node-based material shaders, Unity Shader Graph style)\n"
 		"  shadergraph new <Assets/X.shadergraph> [--material Lit|Unlit|Decal] then node.add, connect, property.add, save ...\n"
 		"  shadergraph <op> [--key value ...]     nodes (types + ports), info, node.add/set/delete, connect --from 2 --out Out\n"
@@ -1140,7 +1144,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

@@ -275,7 +275,9 @@ namespace Vfx
 	Loaded Load(const std::string& assetPath);
 	// 그래프 창: 저장 전에도 장면의 Visual Effect 가 바로 따라오게 (저장하면 파일과 같아진다)
 	void SetLive(const std::string& assetPath, std::shared_ptr<const Asset> asset);
-	void ClearLive(const std::string& assetPath);
+	NOVA_API void ClearLive(const std::string& assetPath);
+	// 패키지용: 파일 없이 JSON (.vfx 와 같은 형식) 을 그 경로의 에셋으로 (예: com.nova.weather 의 비 · 눈). 실패하면 false + 이유
+	NOVA_API bool SetLiveJson(const std::string& assetPath, const json& j, std::string& error);
 	bool Save(const std::string& assetPath, const Asset& asset, std::string& error);
 	std::wstring FullPath(const std::string& assetPath);
 	std::vector<std::string> FindAssets(const char* extension = ".vfx");   // 프로젝트의 .vfx (또는 .vfxoperator — Assets 기준 경로)

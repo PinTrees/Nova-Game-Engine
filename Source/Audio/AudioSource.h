@@ -12,7 +12,7 @@ struct AudioStream;
 //  - Output: Audio Mixer 그룹으로 보낸다 (없으면 바로 마스터)
 //  - Bypass Effects·Listener Effects·Reverb Zones, Priority, Reverb Zone Mix 는 값만 저장한다
 //  - 스크립트 API: Play, Stop, Pause, UnPause, PlayOneShot, IsPlaying, GetTime
-class AudioSource : public Component
+class NOVA_API AudioSource : public Component
 {
 private:
 	std::string m_ClipPath;

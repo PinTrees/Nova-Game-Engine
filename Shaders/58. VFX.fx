@@ -1153,6 +1153,25 @@ VfxOut VS(ParticleIn vin)
         right = float3(1, 0, 0);
         up = float3(0, 0, 1);
     }
+    // 화면에서 1.4 픽셀보다 가는 것은 1.4 픽셀로 넓히고 그만큼 옅게 — 먼 빗줄기 · 눈송이가 점선 · 깜빡임으로 끊겨 보이지 않게
+    //  (gDepthParams.z = 깊이 1 에서 1 m 의 픽셀 수, 0 = 모름)
+    float thin = 1.0f;
+    if (gDepthParams.z > 0.0f && orient != 2)
+    {
+        // Spark 는 보이는 심이 사각형 너비의 1/4 쯤 (ShapeAlpha 의 exp(-x² · 30)) → 사각형을 그만큼 더 넓게
+        const float core = (int)gOutput0.x == 5 ? 4.0f : 1.0f;
+        const float minHalf = 0.7f * core * max(mul(float4(pos, 1.0f), gViewProj).w, 1e-3f) / gDepthParams.z;
+        if (halfSize.x < minHalf)
+        {
+            thin = halfSize.x / minHalf;
+            if (orient == 0)
+            {
+                thin *= min(halfSize.y / minHalf, 1.0f);
+                halfSize.y = max(halfSize.y, minHalf);
+            }
+            halfSize.x = minHalf;
+        }
+    }
     float2 c = corner * halfSize;
     if (orient != 1)
     {
@@ -1164,6 +1183,7 @@ VfxOut VS(ParticleIn vin)
     o.PosH = mul(float4(world, 1.0f), gViewProj);
     o.Tex = corner;
     o.Color = vin.Color;
+    o.Color.a *= thin;
     const float t = saturate(vin.PosAge.w / life);
     // 플립북 칸: 수명 동안 한 번 (w = 0) 또는 초당 w 칸
     const float frames = max(gOutput1.y * gOutput1.z, 1.0f);

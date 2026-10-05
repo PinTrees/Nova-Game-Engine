@@ -13,7 +13,7 @@ class AudioDecoder;
 //    Decompress On Load(기본) = 읽을 때 16 비트 PCM 으로 다 푼다
 //    Compressed In Memory · Streaming = 압축된 채로 두고 재생할 때 조금씩 푼다 (긴 배경음악)
 //  - Force To Mono: 채널을 평균해 모노로 (WAV 는 16 비트로 바꾼다)
-class AudioClip
+class NOVA_API AudioClip
 {
 public:
 	std::string Path;              // 상대 경로 (Assets\... 또는 Resources\Packages\...)

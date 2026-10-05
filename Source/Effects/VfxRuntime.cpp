@@ -874,7 +874,12 @@ namespace VfxRuntime
 		SetV3(s_V.CamUp, camUp);
 		SetV3(s_V.CamPos, camPos);
 		SetV3(s_V.CamFwd, camForward);
-		const float depthParams[4] = { proj._33, proj._43, 0.0f, sceneDepth ? 1.0f : 0.0f };
+		// z = 깊이 1 에서 1 m 의 픽셀 수 (아주 가는 파티클을 1 픽셀 남짓으로 넓힌다)
+		D3D11_VIEWPORT drawVp = {};
+		UINT drawVpCount = 1;
+		dc->RSGetViewports(&drawVpCount, &drawVp);
+		const float pixelScale = drawVpCount > 0 ? 0.5f * drawVp.Height * fabsf(proj._22) : 0.0f;
+		const float depthParams[4] = { proj._33, proj._43, pixelScale, sceneDepth ? 1.0f : 0.0f };
 		SetV(s_V.DepthParams, depthParams);
 		// Output Mesh 의 빛: 방향광 0 (없으면 위에서) · 환경광 (Volume 의 Indirect Lighting)
 		{

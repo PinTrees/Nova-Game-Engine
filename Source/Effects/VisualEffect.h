@@ -12,7 +12,7 @@ using VfxGpuPtr = std::unique_ptr<VfxGpu, VfxGpuDeleter>;
 //  - 이벤트: Initial Event (기본 OnPlay) 로 시작, SendEvent 로 시스템의 Start · Stop 이벤트, GPU Event 는 GPU 안에서
 //  - Exposed Property 덮어쓰기 (Inspector · SetFloat …) — 블록의 bind 로 값이 들어간다
 //  - Unity 처럼 Play 모드가 아니어도 장면에서 재생한다 (에셋을 고치면 바로 다시 시작)
-class VisualEffect : public Component
+class NOVA_API VisualEffect : public Component
 {
 public:
 	struct OverrideValue

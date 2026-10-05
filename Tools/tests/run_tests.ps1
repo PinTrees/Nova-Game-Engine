@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -3612,6 +3612,151 @@ function Suite-Particles
     }
 }
 
+function Suite-Weather
+{
+    # 날씨 (com.nova.weather): Weather Controller — 프로필 (먹구름 · 해 · 안개 · 바람), 비 · 눈 입자, 전환, 번개, .weather 에셋, C# API, 소리 (Play)
+    Write-Host '[weather]'
+    $dir = Join-Path $Out 'weather'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\WeatherTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function Wait-Sec([double]$sec) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $sec) { Invoke-Nova 'wait 10' | Out-Null } }
+        function W([string]$line) { Invoke-NovaJson "weather $line" }
+        function SetCtl([string]$values) { Invoke-Nova ('set Weather --component WeatherController --values "' + $values.Replace('"', '\"') + '"') | Out-Null }
+        function Exec([string]$code) { $f = Join-Path $dir 'exec.cs'; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file $f"; if ($r) { "$($r.result)" } else { '' } }
+        # 화면 전체의 평균 밝기 · 아주 밝은 화소 수
+        function Shot([string]$name)
+        {
+            $p = Join-Path $dir $name
+            Invoke-Nova "screenshot $p --view scene" | Out-Null
+            if (-not (Test-Path $p)) { return $null }
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            $sum = 0.0; $n = 0; $bright = 0
+            for ($y = 0; $y -lt $bm.Height; $y += 2) { for ($x = 0; $x -lt $bm.Width; $x += 2) {
+                $c = $bm.GetPixel($x, $y); $l = 0.2126 * $c.R + 0.7152 * $c.G + 0.0722 * $c.B
+                $sum += $l; $n++; if ($c.R -gt 235 -and $c.G -gt 235 -and $c.B -gt 235) { $bright++ } } }
+            $bm.Dispose()
+            [pscustomobject]@{ Path = $p; Mean = $sum / [math]::Max(1, $n); Bright = $bright }
+        }
+        # 두 그림에서 눈에 띄게 다른 화소 비율 (비 · 눈 입자)
+        function DiffRatio([string]$a, [string]$b)
+        {
+            $x1 = [System.Drawing.Bitmap]::FromFile($a); $x2 = [System.Drawing.Bitmap]::FromFile($b)
+            $d = 0; $n = 0
+            for ($y = 0; $y -lt $x1.Height; $y += 2) { for ($x = 0; $x -lt $x1.Width; $x += 2) {
+                $c1 = $x1.GetPixel($x, $y); $c2 = $x2.GetPixel($x, $y); $n++
+                if ([math]::Abs([int]$c1.R - $c2.R) + [math]::Abs([int]$c1.G - $c2.G) + [math]::Abs([int]$c1.B - $c2.B) -gt 30) { $d++ } } }
+            $x1.Dispose(); $x2.Dispose()
+            $d / [math]::Max(1, $n)
+        }
+        function F($v) { ([double]$v).ToString('0.###', [Globalization.CultureInfo]::InvariantCulture) }
+
+        Invoke-Nova 'autosave discard' | Out-Null
+        $pa = Invoke-NovaJson 'package add com.nova.weather'
+        Wait-Compile   # Runtime/Weather.cs (C# API)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 400,1,400' | Out-Null
+        Invoke-Nova 'camera --position 0,2,-10 --target 0,1,10' | Out-Null
+        Wait-Sec 0.5
+        $s0 = Shot 'none.png'
+
+        # ---- 붙이기: 맑음 = 장면 그대로
+        Invoke-Nova 'create empty --name Weather' | Out-Null
+        Invoke-Nova 'add-component Weather WeatherController' | Out-Null
+        SetCtl '{"lightning":false}'
+        Wait-Sec 0.5
+        $st = W 'status'
+        $sc = Shot 'clear.png'
+        Add-Result weather 'package loads, Weather Controller starts Clear (scene unchanged)' ($pa -and $st.profile -eq 'Clear' -and [double]$st.sunIntensity -eq 1 -and $s0 -and $sc -and [math]::Abs($sc.Mean - $s0.Mean) -lt 3) ("profile {0}, sun {1}, brightness {2:N1} → {3:N1}" -f $st.profile, (F $st.sunIntensity), $s0.Mean, $sc.Mean)
+
+        # ---- 폭풍: 어두워지고 바람이 세지고, 비가 화면에 보인다 (Density 0 과 비교)
+        W 'set --profile Storm --seconds 0' | Out-Null
+        SetCtl '{"density":0}'
+        Wait-Sec 1.0
+        $sd0 = Shot 'storm_norain.png'
+        SetCtl '{"density":1}'
+        Wait-Sec 2.5
+        $ss = Shot 'storm.png'
+        $st = W 'status'
+        $rainDiff = if ($sd0 -and $ss) { DiffRatio $sd0.Path $ss.Path } else { 0 }
+        Add-Result weather 'Storm: sun · sky · ambient darken, fog, wind x2+' ($st.profile -eq 'Storm' -and [double]$st.sunIntensity -lt 0.2 -and [double]$st.windStrength -gt 2 -and $ss -and $ss.Mean -lt $sc.Mean * 0.8) ("sun {0}, wind strength {1}, brightness {2:N1} → {3:N1}" -f (F $st.sunIntensity), (F $st.windStrength), $sc.Mean, $ss.Mean)
+        Add-Result weather 'Storm: GPU rain streaks + splashes cover the view (vs Density 0)' ($rainDiff -gt 0.005) ("{0:P1} pixels changed by rain" -f $rainDiff)
+
+        # ---- 전환: Transition 동안 섞인다
+        W 'set --profile Clear --seconds 3' | Out-Null
+        Wait-Sec 1.2
+        $mid = W 'status'
+        Wait-Sec 2.6
+        $end = W 'status'
+        Add-Result weather 'transition Storm → Clear over 3 s (values blend, then settle)' ([double]$mid.progress -gt 0.1 -and [double]$mid.progress -lt 0.95 -and [double]$mid.rain -gt 0.02 -and [double]$mid.rain -lt 0.98 -and [double]$end.progress -eq 1 -and [double]$end.rain -eq 0) ("mid: progress {0} rain {1}; end: progress {2} rain {3}" -f (F $mid.progress), (F $mid.rain), (F $end.progress), (F $end.rain))
+
+        # ---- 번개: 보는 쪽에 빛줄기 (아주 밝은 화소) + 번쩍임
+        W 'set --profile Storm --seconds 0' | Out-Null
+        Wait-Sec 1.0
+        $b0 = Shot 'before_strike.png'
+        $k = W 'strike'
+        $b1 = Shot 'strike.png'
+        Add-Result weather 'lightning strike: bolt in front of the camera (bright pixels), strike counted' ($k -and [int]$k.strikes -ge 1 -and $b0 -and $b1 -and $b1.Bright -gt $b0.Bright + 30) ("strikes {0}, bright pixels {1} → {2}" -f $k.strikes, $b0.Bright, $b1.Bright)
+
+        # ---- 눈: 흰 눈송이 (Density 0 과 비교), 눈보라는 안개가 짙다
+        W 'set --profile Snow --seconds 0' | Out-Null
+        SetCtl '{"density":0}'
+        Wait-Sec 1.0
+        $n0 = Shot 'snow_none.png'
+        SetCtl '{"density":1}'
+        Wait-Sec 4.0
+        $n1 = Shot 'snow.png'
+        $snowDiff = if ($n0 -and $n1) { DiffRatio $n0.Path $n1.Path } else { 0 }
+        W 'set --profile Blizzard --seconds 0' | Out-Null
+        Wait-Sec 3.0
+        $bz = W 'status'
+        Shot 'blizzard.png' | Out-Null
+        Add-Result weather 'Snow: flakes drift down (vs Density 0); Blizzard: snow 1, wind 15 m/s' ($snowDiff -gt 0.004 -and [double]$bz.snow -eq 1 -and [double]$bz.wind -eq 15) ("{0:P2} pixels changed by snow, blizzard snow {1} wind {2}" -f $snowDiff, (F $bz.snow), (F $bz.wind))
+
+        # ---- .weather 에셋: 지금 날씨 저장 → 다른 날씨 → 파일로 되돌리기, list 에 보인다
+        $sv = W 'save --path Assets/WeatherTest/Mine.weather'
+        W 'set --profile Clear --seconds 0' | Out-Null
+        $set = W 'set --profile Assets/WeatherTest/Mine.weather --seconds 0'
+        $ls = W 'list'
+        $bad = Invoke-Nova 'weather set --profile Nope --seconds 0'
+        Add-Result weather '.weather asset: save, load by path, listed; unknown profile refused' ($sv -and $set -and [double]$set.snow -eq 1 -and [double]$set.wind -eq 15 -and (@($ls.assets) -contains 'Assets\WeatherTest\Mine.weather' -or @($ls.assets) -contains 'Assets/WeatherTest/Mine.weather') -and $bad -match 'no weather profile') ("snow {0}, wind {1}, assets [{2}], bad '{3}'" -f (F $set.snow), (F $set.wind), (@($ls.assets) -join ', '), (($bad -split "`n")[0] -replace '^nova(\.exe)? : ', '').Trim())
+
+        # ---- C# API
+        $cs = Exec 'NovaEngine.Weather.Set("Rain", 0f); return NovaEngine.Weather.profile;'
+        Wait-Sec 0.3
+        $cs2 = Exec 'return NovaEngine.Weather.exists + " " + NovaEngine.Weather.rain.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture);'
+        Add-Result weather 'C# Weather.Set / profile / rain / exists' ($cs -eq 'Rain' -and $cs2 -eq 'True 0.55') "Set → '$cs', state '$cs2'"
+
+        # ---- 소리 (Play): 폭풍이면 센 비 · 바람 소리가 돈다
+        SetCtl '{"profile":"Storm","transitionTime":0}'
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 2.0
+        $pl = W 'status'
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null   # Play 뒤에는 Game 탭이 앞 → Scene 뷰를 다시 그리게
+        Invoke-Nova 'wait 10' | Out-Null
+        Add-Result weather 'Play: rain + wind loops play with Storm volumes' ($pl -and $pl.sound.playing -and [double]$pl.sound.rainHeavy -gt 0.5 -and [double]$pl.sound.wind -gt 0.2) ("playing {0}, heavy {1}, light {2}, wind {3}" -f $pl.sound.playing, (F $pl.sound.rainHeavy), (F $pl.sound.rainLight), (F $pl.sound.wind))
+
+        # ---- 끄면 장면 그대로 (엔진의 날씨 값이 처음으로)
+        Invoke-Nova 'set Weather --active false' | Out-Null
+        Wait-Sec 0.5
+        $off = W 'status'
+        $so = Shot 'off.png'
+        Add-Result weather 'inactive Weather Controller → lighting back to the scene' ($off -and [double]$off.sunIntensity -eq 1 -and $so -and [math]::Abs($so.Mean - $s0.Mean) -lt 3) ("sun {0}, brightness {1:N1} (no weather {2:N1})" -f (F $off.sunIntensity), $so.Mean, $s0.Mean)
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Vfx([string]$Api = 'dx')
 {
     # Visual Effect Graph (Unity VFX Graph): .vfx 편집 (nova vfx), GPU 시뮬레이션 (58. VFX.fx — Spawn · Update · GPU Event), 이벤트 · 속성 덮어쓰기, C# API, 그리기
@@ -4089,6 +4234,7 @@ try
                 'vfx' { Suite-Vfx }
                 'vfxgl' { Suite-Vfx -Api gl }
                 'vfxvk' { Suite-Vfx -Api vk }
+                'weather' { Suite-Weather }
                 'keys' { Suite-Keys }
                 default { Write-Host "unknown suite $s" }
             }

@@ -6,6 +6,7 @@
 #include "UISystem.h"
 #include "ParticleRenderer.h"
 #include "VfxRuntime.h"
+#include "WeatherState.h"
 #include "SpriteBatch.h"
 #include "SpriteAnimator.h"
 #include "RenderLayers.h"
@@ -359,6 +360,7 @@ static XMFLOAT4 ApplyIndirectLighting(const VolumeStack& stack)
 		const float* t = c->V("ambientTint");
 		v = XMFLOAT4(d * (std::max)(t[0], 0.0f), d * (std::max)(t[1], 0.0f), d * (std::max)(t[2], 0.0f), (std::max)(c->F("reflection"), 0.0f));
 	}
+	WeatherState::Get().ApplyAmbient(v);   // 날씨 (흐림 · 번개) — 기본값이면 그대로
 	if (auto* var = Effects::InstancedBasicFX->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 		var->SetFloatVector(&v.x);
 	return v;
@@ -492,6 +494,17 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	TreeRenderer::BeginView();
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetDirLights();
+	{
+		// 날씨: 해 (방향광 0) 를 흐리게 · 번개, 그리고 날씨가 따라갈 카메라 자리
+		WeatherState& ws = WeatherState::Get();
+		if (!dirLights.empty()) ws.ApplySun(dirLights[0].Diffuse, dirLights[0].Specular);
+		if (!probe)
+		{
+			ws.GameViewPosition = XMFLOAT3(d.Position.x, d.Position.y, d.Position.z);
+			ws.GameViewForward = d.Cam->GetLook();
+			ws.GameViewFrame = ws.Frame;
+		}
+	}
 	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
 	const int scenePointLights = (int)pointLights.size();      // 그림자는 장면의 Light 컴포넌트만 (입자 빛은 그림자 없음)
 	ParticleSystem::CollectLights(pointLights, LIGHT_SIZE);   // Lights 모듈 (남은 점광 칸에)
@@ -774,6 +787,14 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	TreeRenderer::BeginView();
 	++RenderManager::GetI()->ViewSerial;
 	vector<DirectionalLight> dirLights = LightManager::GetI()->GetEditorDirLights();
+	{
+		WeatherState& ws = WeatherState::Get();
+		if (!dirLights.empty()) ws.ApplySun(dirLights[0].Diffuse, dirLights[0].Specular);
+		const Vec3 cp = camera->GetPosition();
+		ws.SceneViewPosition = XMFLOAT3(cp.x, cp.y, cp.z);
+		ws.SceneViewForward = camera->GetLook();
+		ws.SceneViewFrame = ws.Frame;
+	}
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
 	const int scenePointLights = (int)pointLights.size();      // 그림자는 장면의 Light 컴포넌트만 (입자 빛은 그림자 없음)
 	ParticleSystem::CollectLights(pointLights, LIGHT_SIZE);   // Lights 모듈 (남은 점광 칸에)

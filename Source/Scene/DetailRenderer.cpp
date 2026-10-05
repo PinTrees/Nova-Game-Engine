@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "WeatherState.h"
 #include "RenderLayers.h"
 #include "DetailRenderer.h"
 #include "Terrain.h"
@@ -984,7 +985,8 @@ namespace DetailRenderer
 			const DetailSettings& ds = *b.Settings;
 			const float yaw = XMConvertToRadians(ds.WindDirection);
 			SetVec(v.Cam, XMFLOAT4(camPos.x, camPos.y, camPos.z, b.Distance));
-			SetVec(v.Wind, XMFLOAT4(sinf(yaw), cosf(yaw), s_Time * ds.WindSpeed, ds.WindBending));
+			// 날씨 바람은 휘는 정도만 (빠르기를 바꾸면 물결 위상이 튄다)
+			SetVec(v.Wind, XMFLOAT4(sinf(yaw), cosf(yaw), s_Time * ds.WindSpeed, ds.WindBending * std::clamp(WeatherState::Get().WindStrength, 0.0f, 4.0f)));
 			for (int lod = 0; lod < 3; ++lod)
 			{
 				const UINT count = (UINT)b.Lists[lod].size();

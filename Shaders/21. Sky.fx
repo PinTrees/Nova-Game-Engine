@@ -2,6 +2,8 @@
 cbuffer cbPerFrame
 {
 	float4x4 gWorldViewProj;
+	float4 gSkyWeather;   // 날씨 (WeatherState): rgb 색 × 밝기, w 회색으로 (먹구름)
+	float gSkyFlash;      // 번개 (위쪽이 더 밝다)
 };
 
 // Nonnumeric values cannot be added to a cbuffer.
@@ -40,7 +42,12 @@ VertexOut VS(VertexIn vin)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-	return gCubeMap.Sample(samTriLinearSam, pin.PosL);
+	float4 c = gCubeMap.Sample(samTriLinearSam, pin.PosL);
+	const float gray = dot(c.rgb, float3(0.299f, 0.587f, 0.114f));
+	c.rgb = lerp(c.rgb, gray.xxx, gSkyWeather.w) * gSkyWeather.rgb;
+	const float up = saturate(normalize(pin.PosL).y * 0.7f + 0.5f);
+	c.rgb += gSkyFlash * up * float3(0.75f, 0.8f, 1.0f);
+	return c;
 }
 
 RasterizerState NoCull

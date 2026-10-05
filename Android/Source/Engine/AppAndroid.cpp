@@ -10,6 +10,7 @@
 #include "UISystem.h"
 #include "ParticleSystem.h"
 #include "VisualEffect.h"
+#include "WeatherState.h"
 #include "LineRenderer.h"
 #include "Tree.h"
 #include "SceneCulling.h"
@@ -215,6 +216,7 @@ int32 App::Run()
 		}
 		{ PROFILE_SCOPE("Audio · ShaderGraph"); AudioManager::Update(); ShaderGraph::UpdateRuntime(); }
 		{ PROFILE_SCOPE("Scripts · UI"); ScriptEngine::Update(); UISystem::Update(); }
+		++WeatherState::Get().Frame;   // 날씨: 어느 화면을 최근에 그렸는가 (Weather Controller 가 따라갈 카메라)
 		{ PROFILE_SCOPE("Particles · Trails"); ParticleSystem::UpdateAll(); TrailRenderer::UpdateAll(); VisualEffect::UpdateAll(); }   // Trail Renderer: 점 더하기 · 오래된 점 빼기, Visual Effect: 이벤트 · Spawn 수
 		{ PROFILE_SCOPE("Trees"); Tree::UpdateAll(); }
 	}

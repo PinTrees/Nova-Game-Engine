@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "WeatherState.h"
 #include "RenderLayers.h"
 #include "TreeRenderer.h"
 #include "Tree.h"
@@ -759,7 +760,7 @@ namespace TreeRenderer
 			if (b.Lists[0].empty() && b.Lists[1].empty() && b.Lists[2].empty())
 				continue;
 			Impostor* imp = b.Lists[2].empty() ? nullptr : GetImpostor(*b.Desc, false);
-			SetLook(v, *b.Desc, imp, 1.0f);
+			SetLook(v, *b.Desc, imp, (std::max)(0.0f, WeatherState::Get().WindStrength));   // 날씨 바람 (돌풍) 배율
 			for (int lod = 0; lod < 2; ++lod)
 			{
 				if (b.Lists[lod].empty())
