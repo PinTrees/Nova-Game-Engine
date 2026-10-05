@@ -3918,6 +3918,51 @@ function Suite-Tessellation([string]$Api = 'dx')
         $farOff = Tris (Invoke-NovaJson 'perf --frames 20')
         Add-Result $sn 'Near: subdivided (many more triangles); beyond Fade Distance: not subdivided' ($nearOn -gt $nearOff * 10 -and $farOn -le $farOff * 1.2 + 50) ("near {0:N0} vs flat {1:N0}; far {2:N0} vs flat {3:N0} triangles" -f $nearOn, $nearOff, $farOn, $farOff)
 
+        # 5. POM (테셀레이션이 없는 기기 · 나눔 거리 너머): 테셀레이션을 끄면 시차 가림 + 픽셀 높이 법선 — 평면과 다르고 깊이는 그대로 (검은 얼룩 없음)
+        Cam '-1.6,1.4,-1.2' '0.3,0.6,1.8'
+        Invoke-Nova 'tessellation set --enabled false' | Out-Null
+        Mats ''
+        $pom = Shot 'pom.png'
+        Invoke-Nova 'tessellation set --enabled true' | Out-Null
+        Mats 'Flat'
+        $flat = Shot 'pom_flat.png'
+        Mats ''
+        $dp = DiffRatio $pom $flat; $sp = Stats $pom
+        Add-Result $sn 'Without tessellation (nova tessellation set --enabled false): POM + per-pixel height normals still show the relief' ($dp -gt 0.05 -and $sp.Dark -lt 0.002) ("{0:P1} pixels differ from the flat material; near-black {1:P3}" -f $dp, $sp.Dark)
+
+        # 6. Shader Graph: Graph Settings 의 Tessellation + Vertex 블록 Displacement (docs/examples/shadergraph_tessellation.txt — 사인 물결)
+        Remove-Item (Join-Path $Project 'Assets\SGTess') -Recurse -Force -ErrorAction SilentlyContinue
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-NovaJson 'shadergraph new Assets/SGTess/TessWave.shadergraph --timeout 240' | Out-Null
+        Invoke-NovaJson "shadergraph batch $(Join-Path $Root 'docs\examples\shadergraph_tessellation.txt')" | Out-Null
+        $sgs = Invoke-NovaJson 'shadergraph save --timeout 240'
+        Invoke-NovaJson 'shadergraph material' | Out-Null
+        $sgh = Invoke-NovaJson 'shadergraph compile --hlsl'
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'create plane --name Sea --position 0,0,0 --scale 0.6,1,0.6' | Out-Null
+        Invoke-Nova 'set Sea --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/SGTess/TessWave.mat\"]}"' | Out-Null
+        Invoke-Nova 'camera --position 0,1.6,-3.5 --target 0,0,0.5' | Out-Null
+        $wOn = Shot 'graph_on.png' 30
+        Invoke-Nova 'tessellation set --enabled false' | Out-Null
+        $wOff = Shot 'graph_off.png'
+        Invoke-Nova 'tessellation set --enabled true' | Out-Null
+        $dw = DiffRatio $wOn $wOff; $sw2 = Stats $wOn
+        Add-Result $sn 'Shader Graph Tessellation: Displacement (Vertex block) makes waves on a plane, depth prepass matches' ($sgs.built -and $sgh.hlsl -match 'GraphTessBatchTech' -and $dw -gt 0.05 -and $sw2.Dark -lt 0.002) ("built {0}, tess techniques {1}; {2:P1} pixels differ from tessellation off; near-black {3:P3}" -f $sgs.built, ($sgh.hlsl -match 'GraphTessBatchTech'), $dw, $sw2.Dark)
+
+        # 7. Terrain Layer 의 Height Map (흙에 박힌 돌, 0.25 m): 가까운 지형이 잘게 나뉘어 돌이 솟는다 — 끈 것과 다르고 검은 얼룩 없음
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create terrain --name Ground --position -500,0,-500' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --add Assets\TessTest\Rocks.terrainlayer' | Out-Null
+        Invoke-Nova 'camera --position 0,0.9,-2 --target 0,0.1,4' | Out-Null
+        $tOn = Shot 'terrain_on.png' 30
+        $trOn = Tris (Invoke-NovaJson 'perf --frames 20')
+        Invoke-Nova 'tessellation set --enabled false' | Out-Null
+        $tOff = Shot 'terrain_off.png'
+        $trOff = Tris (Invoke-NovaJson 'perf --frames 20')
+        Invoke-Nova 'tessellation set --enabled true' | Out-Null
+        $dt = DiffRatio $tOn $tOff; $st2 = Stats $tOn
+        Add-Result $sn 'Terrain Layer height map: near terrain subdivided and displaced (rocks), no black speckles' ($trOn -gt $trOff * 3 -and $dt -gt 0.05 -and $st2.Dark -lt 0.002) ("terrain triangles {0:N0} vs off {1:N0}; {2:P1} pixels differ; near-black {3:P3}" -f $trOn, $trOff, $dt, $st2.Dark)
+
         # 4. 쌓인 눈의 지형 (날씨): 지형을 실제로 올린다 → 같은 눈 덮임에서 삼각형이 늘고, 공이 지나간 자국이 파인다 (검은 얼룩 없음)
         if ($Api -eq 'dx')
         {

@@ -529,6 +529,23 @@ namespace ImportSettingsInspector
 		ApplyDeferred(fullPath, s);
 	}
 
+	void MarkAsHeightMap(const std::wstring& fullPath)
+	{
+		json s = AssetImport::LoadJson(fullPath);
+		s["textureType"] = "Default";
+		s["sRGB"] = false;
+		s["compression"] = "HighQuality";
+		ApplyDeferred(fullPath, s);
+	}
+
+	bool IsLinearHeightMap(const std::wstring& fullPath)
+	{
+		if (!AssetImport::AppliesTo(fullPath))
+			return true;
+		const AssetImport::TextureSettings t = AssetImport::LoadTexture(fullPath);
+		return !t.SRGB || t.TextureType == AssetImport::TextureSettings::NormalMap;
+	}
+
 	bool Apply(const std::wstring& fullPath, const json& settings, std::string& error)
 	{
 		if (AssetImport::KindOf(fullPath) == AssetImport::Kind::None)

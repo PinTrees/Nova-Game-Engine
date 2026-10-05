@@ -1,0 +1,25 @@
+# 테셀레이션 물결 (Lit Shader Graph, Graph Settings > Tessellation): 나눈 정점마다 법선 쪽으로 sin(x · 8 + 시간) · 8 cm
+#   nova shadergraph new Assets/Shaders/TessWave.shadergraph
+#   nova shadergraph batch docs/examples/shadergraph_tessellation.txt
+#   nova shadergraph save          → 셰이더 "Shader Graphs/TessWave" (깊이 프리패스 · 그림자도 같은 모양)
+#   nova shadergraph material      → Assets/Shaders/TessWave.mat
+# Displacement 는 Tessellation 을 켜야 Master 에 생긴다. 노드 id 는 새 그래프에서 1 부터 차례로
+settings --tessellation true --tessFactor 32
+node.add --type Position --x -1100 --y 0 --options '{"space":"World"}'
+node.add --type Split --x -900 --y 0
+connect --from 1 --to 2 --in In
+node.add --type Multiply --x -700 --y 0 --values '{"B":8}'
+connect --from 2 --out R --to 3 --in A
+node.add --type Time --x -900 --y 250
+node.add --type Add --x -500 --y 100
+connect --from 3 --to 5 --in A
+connect --from 4 --out Time --to 5 --in B
+node.add --type Sine --x -300 --y 100
+connect --from 5 --to 6 --in In
+node.add --type Multiply --x -100 --y 100 --values '{"B":0.08}'
+connect --from 6 --to 7 --in A
+connect --from 7 --to Master --in Displacement
+node.add --type Color --x -300 --y 400 --options '{"color":[0.25,0.55,0.85,1]}'
+connect --from 8 --to Master --in "Base Color"
+node.add --type Float --x -300 --y 550 --values '{"X":0.7}'
+connect --from 9 --to Master --in Smoothness

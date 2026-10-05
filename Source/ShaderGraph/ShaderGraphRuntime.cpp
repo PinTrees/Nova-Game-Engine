@@ -5,6 +5,7 @@
 #include "UMaterial.h"
 #include "Effects.h"
 #include "RenderLayers.h"
+#include "MeshBatcher.h"
 #include "SpriteBatch.h"
 #include "UnityGUI.h"
 #include "EngineTime.h"
@@ -38,6 +39,9 @@ namespace ShaderGraph
 			FxTechnique* DepthSkinned = nullptr;
 			FxTechnique* ShadowBatch = nullptr;
 			FxTechnique* ShadowSkinned = nullptr;
+			FxTechnique* TessBatch = nullptr;        // Graph Settings 의 Tessellation (본 · 깊이 · 그림자)
+			FxTechnique* TessDepthBatch = nullptr;
+			FxTechnique* TessShadowBatch = nullptr;
 			FxTechnique* Decal = nullptr;           // Material = Decal
 			FxVar* Time = nullptr;
 			FxVar* ViewProjTex = nullptr;
@@ -389,6 +393,9 @@ namespace ShaderGraph
 			c->DepthSkinned = tech("GraphDepthSkinnedTech");
 			c->ShadowBatch = tech("GraphShadowBatchTech");
 			c->ShadowSkinned = tech("GraphShadowSkinnedTech");
+			c->TessBatch = tech("GraphTessBatchTech");
+			c->TessDepthBatch = tech("GraphTessDepthBatchTech");
+			c->TessShadowBatch = tech("GraphTessShadowBatchTech");
 			c->Decal = tech("GraphDecalTech");
 			if (!c->Batch && !c->Decal)
 			{
@@ -449,6 +456,21 @@ namespace ShaderGraph
 					RenderLayers::SetObjectLayer(c->Fx, d.LayerBit);
 					break;
 				}
+				}
+				// 테셀레이션 (Graph Settings): 패치로 — 나눔은 화면 카메라, 그 단계가 없는 기기 · 꺼 두면 보통
+				FxTechnique* tessTech = d.Pass == CustomShaders::DrawPass::NormalDepth ? c->TessDepthBatch :
+					(d.Pass == CustomShaders::DrawPass::Shadow ? c->TessShadowBatch : c->TessBatch);
+				if (c->G.UsesTessellation() && MeshBatcher::TessellationEnabled() && tessTech && tessTech->GetPassByIndex(0)->IsUsable())
+				{
+					tech = tessTech;
+					d.Topology = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+					FxEffect* fx = c->Fx->GetFX();
+					SetMatrixVar(fx->GetVariableByName("gTessViewProj"), d.CameraViewProj);
+					const float edge = c->G.TessTriangleSize * 2.0f / ((std::max)(d.CameraProj22, 0.01f) * 1080.0f);   // 1 m 거리의 변 길이 (m)
+					const float params[4] = { 0.0f, 0.0f, c->G.TessFactor, c->G.TessFadeDistance };
+					const float eye[4] = { d.CameraPos.x, d.CameraPos.y, d.CameraPos.z, edge };
+					if (FxVar* v = fx->GetVariableByName("gTessParams"); v && v->IsValid()) v->AsVector()->SetFloatVector(params);
+					if (FxVar* v = fx->GetVariableByName("gTessEye"); v && v->IsValid()) v->AsVector()->SetFloatVector(eye);
 				}
 				if (!tech) return;
 				Bind(*c, d.Material, d.Context, tech);

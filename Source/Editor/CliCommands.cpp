@@ -39,6 +39,7 @@
 #include "Terrain.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
+#include "MeshBatcher.h"
 #include "Collider.h"
 #include "AssetImportSettings.h"
 #include "UISystem.h"
@@ -540,6 +541,85 @@ namespace CliCommands
 					TerrainEditor::AddTreePrototype(*data, preset);
 			const int placed = TerrainEditor::MassPlaceTrees(terrain, (std::max)(0, a.value("count", 100)));
 			r = { { "placed", placed }, { "trees", data->TreeInstances.size() }, { "prototypes", data->TreePrototypes.size() } };
+			return true;
+		});
+
+		// 테셀레이션 전체 켜기 · 끄기 (끄면 테셀레이션이 없는 기기처럼 — POM · 픽셀 범프): nova tessellation info | set --enabled false
+		Register("tessellation", "tessellation op: {op: info | set, enabled?} (material Displacement Mode, terrain heights, snow)", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			if (op == "set" && a.contains("enabled"))
+			{
+				const auto& v = a["enabled"];
+				MeshBatcher::TessellationEnabled() = v.is_boolean() ? v.get<bool>() : (v.is_string() ? v.get<std::string>() != "false" : v.get<int>() != 0);
+			}
+			else if (op != "info" && op != "set")
+			{
+				e = "unknown op (info | set --enabled true|false)";
+				return false;
+			}
+			r = { { "enabled", MeshBatcher::TessellationEnabled() } };
+			return true;
+		});
+
+		// Terrain Layer: 목록 · 더하기 · 바꾸기 · 칠하기 (Paint Texture 와 같은 컨트롤 맵) — 검사 · 자동화용
+		Register("terrain-layer", "terrain layers {target, add?: .terrainlayer, set?: index + layer, fill?: index [center [x,z], radius m]}: list after", [](const json& a, json& r, std::string& e) {
+			if (!RequireEditMode(e)) return false;
+			GameObject* go = Resolve(a.value("target", json()), e);
+			if (!go) return false;
+			Terrain* terrain = go->GetComponent<Terrain>();
+			std::shared_ptr<TerrainData> data = terrain ? terrain->GetTerrainData() : nullptr;
+			if (!data) { e = PathOf(go) + " has no Terrain with terrain data"; return false; }
+			TerrainData& d = *data;
+			if (a.contains("add"))
+			{
+				if ((int)d.Layers.size() >= TerrainData::kMaxLayers) { e = "a terrain has at most 4 layers"; return false; }
+				auto layer = TerrainLayer::Load(a["add"].get<std::string>());
+				if (!layer) { e = "terrain layer not found: " + a["add"].get<std::string>(); return false; }
+				d.Layers.push_back(layer);
+				if (d.Layers.size() == 1)
+					for (size_t i = 0; i < d.Control.size(); i += 4)
+						d.Control[i] = 255, d.Control[i + 1] = d.Control[i + 2] = d.Control[i + 3] = 0;
+				d.OnControlChanged(0, 0, d.ControlResolution - 1, d.ControlResolution - 1);
+			}
+			if (a.contains("set"))
+			{
+				const int index = a["set"].get<int>();
+				if (index < 0 || index >= (int)d.Layers.size()) { e = "no layer " + std::to_string(index); return false; }
+				auto layer = TerrainLayer::Load(a.value("layer", std::string()));
+				if (!layer) { e = "terrain layer not found"; return false; }
+				d.Layers[index] = layer;
+				d.OnControlChanged(0, 0, d.ControlResolution - 1, d.ControlResolution - 1);
+			}
+			if (a.contains("fill"))
+			{
+				// 그 레이어 가중치 1 (원 안만 — center 는 월드 xz, 가장자리 1 m 부드럽게)
+				const int index = a["fill"].get<int>();
+				if (index < 0 || index >= (int)d.Layers.size()) { e = "no layer " + std::to_string(index); return false; }
+				const Vec3 origin = go->GetTransform()->GetPosition();
+				Vec3 c(0, 0, 0);
+				const bool circle = a.contains("center") && ReadVec3(json::array({ a["center"][0], 0, a["center"][1] }), c);
+				const float radius = a.value("radius", 1e9f);
+				const int res = d.ControlResolution;
+				for (int z = 0; z < res; ++z)
+					for (int x = 0; x < res; ++x)
+					{
+						float k = 1.0f;
+						if (circle)
+						{
+							const float wx = origin.x + (x + 0.5f) / res * d.Size.x - c.x, wz = origin.z + (z + 0.5f) / res * d.Size.z - c.z;
+							k = std::clamp(radius - sqrtf(wx * wx + wz * wz), 0.0f, 1.0f);
+						}
+						if (k <= 0.0f) continue;
+						uint8_t* px = &d.Control[((size_t)z * res + x) * 4];
+						for (int ch = 0; ch < 4; ++ch)
+							px[ch] = (uint8_t)std::lround(px[ch] * (1.0f - k) + (ch == index ? 255.0f : 0.0f) * k);
+					}
+				d.OnControlChanged(0, 0, res - 1, res - 1);
+			}
+			json layers = json::array();
+			for (const auto& l : d.Layers)
+				layers.push_back({ { "path", l->Path }, { "diffuse", l->DiffusePath }, { "height", l->HeightPath }, { "heightAmplitude", l->HeightAmplitude } });
+			r = { { "layers", layers } };
 			return true;
 		});
 

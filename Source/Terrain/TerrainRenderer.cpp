@@ -4,6 +4,7 @@
 #include "Effects.h"
 #include "RenderStats.h"
 #include "WeatherState.h"
+#include "MeshBatcher.h"
 
 namespace
 {
@@ -81,9 +82,20 @@ namespace
 		FxVar* ColorMap = nullptr;
 		FxVar* UseColorMap = nullptr;
 		FxVar* Layers[4] = {};
+		// 레이어 높이 변위 (61. TerrainTessellation.fx)
+		FxVar* Heights[4] = {};
+		FxVar* LayerHeight = nullptr;
+		FxVar* HeightParams = nullptr;
+		FxTechnique* TessTech = nullptr;
 
-		void Bind(FxEffect* fx, const char* tech)
+		void Bind(FxEffect* fx, const char* tech, const char* tessTech)
 		{
+			TessTech = fx->GetTechniqueByName(tessTech);
+			LayerHeight = fx->GetVariableByName("gTerrainLayerHeight")->AsVector();
+			HeightParams = fx->GetVariableByName("gTerrainHeightParams")->AsVector();
+			const char* heightNames[4] = { "gTerrainHeight0", "gTerrainHeight1", "gTerrainHeight2", "gTerrainHeight3" };
+			for (int i = 0; i < 4; ++i)
+				Heights[i] = fx->GetVariableByName(heightNames[i])->AsShaderResource();
 			Tech = fx->GetTechniqueByName(tech);
 			Patch = fx->GetVariableByName("gTerrainPatch")->AsVector();
 			Size = fx->GetVariableByName("gTerrainSize")->AsVector();
@@ -109,9 +121,9 @@ namespace
 		if (!bound)
 		{
 			bound = true;
-			main.Bind(Effects::InstancedBasicFX->GetFX(), "TerrainTech");
-			shadow.Bind(Effects::BuildShadowMapFX->GetFX(), "TerrainShadowTech");
-			normalDepth.Bind(Effects::SsaoNormalDepthFX->GetFX(), "TerrainNormalDepthTech");
+			main.Bind(Effects::InstancedBasicFX->GetFX(), "TerrainTech", "TerrainTessTech");
+			shadow.Bind(Effects::BuildShadowMapFX->GetFX(), "TerrainShadowTech", "TerrainTessShadowTech");
+			normalDepth.Bind(Effects::SsaoNormalDepthFX->GetFX(), "TerrainNormalDepthTech", "TerrainTessNormalDepthTech");
 		}
 		switch (pass)
 		{
@@ -133,10 +145,10 @@ namespace
 			v->SetFloatVector(v4);
 	}
 
-	// 쌓인 눈 (날씨) 의 지형 테셀레이션: 나눔 (60. Tessellation.fx 의 cbTessellation). 발자국 맵 한 칸 (5 cm) 이 보이게 가까이에서 촘촘히
-	constexpr float kSnowTriangleSize = 10.0f;    // 원하는 삼각형 변 (1080p 화면의 픽셀)
-	constexpr float kSnowMaxFactor = 16.0f;
-	constexpr float kSnowTessDistance = 40.0f;   // 이 거리 너머는 나누지 않는다 (발자국 맵 창 48 m 의 거의 끝)
+	// 지형 테셀레이션 (레이어 높이 변위 · 쌓인 눈): 나눔 (60. Tessellation.fx 의 cbTessellation). 가까이에서 촘촘히
+	//  지형 칸은 크다 (1000 m · 513 = 2 m) → 높이 변위가 있으면 최대 32 조각, 눈만이면 16 (발자국 맵 한 칸 5 cm)
+	constexpr float kTessTriangleSize = 10.0f;     // 원하는 삼각형 변 (1080p 화면의 픽셀)
+	constexpr float kTessDistance = 40.0f;        // 이 거리 너머는 나누지 않는다 (발자국 맵 창 48 m 의 거의 끝)
 
 	// 상자가 절두체 밖이면 true (클립 공간에서 8 꼭짓점이 모두 한 평면 바깥)
 	bool OutsideFrustum(const Vec3& mn, const Vec3& mx, CXMMATRIX viewProj)
@@ -163,7 +175,9 @@ namespace
 	//  2) 이웃 노드 크기 차이를 최대 2배로 맞춘다 (더 큰 이웃을 쪼갠다)
 	//  3) 두 배 큰 이웃과 닿는 변은 마스크로 표시해 격자점을 붙인다
 	//  절두체와 상관없이 지형 전체를 덮도록 고른 뒤 그릴 때만 컬링한다 → 화면 밖 때문에 균형/봉합이 달라지지 않는다.
-	void SelectLeaves(const TerrainData& data, const Vec3& origin, const Vec3& cameraPos, float errorPerMeter, std::vector<Leaf>& leaves, std::vector<int>& masks)
+	// fineDistance > 0 (테셀레이션 — 레이어 높이 · 눈): 그 거리 안은 가장 깊은 단계까지 (평평한 지형도 칸이 높이맵 한 칸 — 나눔이 높이 맵 무늬를 담게).
+	//  거리 + 노드 크기의 1.5 배로 넓혀 이웃 단계 차이가 2:1 을 넘지 않게
+	void SelectLeaves(const TerrainData& data, const Vec3& origin, const Vec3& cameraPos, float errorPerMeter, float fineDistance, std::vector<Leaf>& leaves, std::vector<int>& masks)
 	{
 		const int maxDepth = data.MaxDepth();
 		leaves.clear();
@@ -182,7 +196,7 @@ namespace
 				const Vec3 mx = origin + Vec3((n.X + 1) * cells * data.CellSizeX(), node.MaxHeight, (n.Z + 1) * cells * data.CellSizeZ());
 				const Vec3 closest(std::clamp(cameraPos.x, mn.x, mx.x), std::clamp(cameraPos.y, mn.y, mx.y), std::clamp(cameraPos.z, mn.z, mx.z));
 				const float dist = (std::max)(0.01f, (closest - cameraPos).Length());
-				split = node.Error > errorPerMeter * dist;
+				split = node.Error > errorPerMeter * dist || (fineDistance > 0.0f && dist < fineDistance + 1.5f * cells * (std::max)(data.CellSizeX(), data.CellSizeZ()));
 			}
 			if (split)
 				for (int k = 0; k < 4; ++k)
@@ -291,7 +305,16 @@ namespace TerrainRenderer
 		const float errorPerMeter = (std::max)(0.1f, pixelError) / K;
 		static std::vector<Leaf> leaves;
 		static std::vector<int> masks;
-		SelectLeaves(data, origin, cameraPos, errorPerMeter, leaves, masks);
+		// 테셀레이션 (레이어 높이 · 쌓인 눈): 가까운 노드는 가장 잘게 — 모든 패스가 같은 잎 (같은 날씨 · 레이어)
+		bool fine = false;
+		if (MeshBatcher::TessellationEnabled())
+		{
+			const WeatherState& w = WeatherState::Get();
+			fine = w.NeedsCover() && w.SnowCover > 0.001f;
+			for (int i = 0; i < (std::min)((int)data.Layers.size(), TerrainData::kMaxLayers) && !fine; ++i)
+				fine = data.Layers[i]->HasHeight();
+		}
+		SelectLeaves(data, origin, cameraPos, errorPerMeter, fine ? kTessDistance : 0.0f, leaves, masks);
 
 		// ---- 효과 변수 ----
 		FxEffect* fx = nullptr;
@@ -330,9 +353,11 @@ namespace TerrainRenderer
 		v.Size->SetFloatVector(reinterpret_cast<const float*>(&sizeVec));
 		v.Origin->SetFloatVector(reinterpret_cast<const float*>(&originVec));
 		v.HeightMap->SetResource(heightSRV);
-		if (pass == Pass::Main)
+		// 레이어 타일 · 컨트롤 맵 · 높이 변위: 모든 패스 (테셀레이션의 Domain 이 깊이 · 그림자에서도 같은 높이를 읽는다)
+		bool anyHeight = false;
+		float maxLift = 0.0f;   // 가장 큰 높이 변위 (m) — 노드 컬링 상자를 그만큼 넓힌다
 		{
-			XMFLOAT4 st[4] = {}, tint[4] = {};
+			XMFLOAT4 st[4] = {}, tint[4] = {}, height[4] = {};
 			const int layerCount = (std::min)((int)data.Layers.size(), TerrainData::kMaxLayers);
 			for (int i = 0; i < 4; ++i)
 			{
@@ -340,12 +365,30 @@ namespace TerrainRenderer
 				const Vec2 tile = layer ? Vec2((std::max)(0.01f, layer->TileSize.x), (std::max)(0.01f, layer->TileSize.y)) : Vec2(15.0f, 15.0f);
 				st[i] = XMFLOAT4(1.0f / tile.x, 1.0f / tile.y, layer ? layer->TileOffset.x / tile.x : 0.0f, layer ? layer->TileOffset.y / tile.y : 0.0f);
 				tint[i] = layer ? layer->Tint : XMFLOAT4(1, 1, 1, 1);
-				v.Layers[i]->SetResource(layer ? layer->DiffuseSRV() : nullptr);
+				const bool has = layer && layer->HasHeight();
+				height[i] = XMFLOAT4(has ? layer->HeightAmplitude : 0.0f, layer ? layer->HeightBase : 0.5f, 0.0f, 0.0f);
+				anyHeight |= has;
+				if (has) maxLift = (std::max)(maxLift, layer->HeightAmplitude);
+				if (v.Heights[i] && v.Heights[i]->IsValid())
+					v.Heights[i]->SetResource(has ? layer->HeightSRV() : nullptr);
 			}
 			v.LayerST->SetFloatVectorArray(reinterpret_cast<const float*>(st), 0, 4);
-			v.LayerTint->SetFloatVectorArray(reinterpret_cast<const float*>(tint), 0, 4);
 			v.LayerCount->SetInt(layerCount);
 			v.Control->SetResource(data.ControlSRV());
+			if (v.LayerHeight && v.LayerHeight->IsValid())
+				v.LayerHeight->SetFloatVectorArray(reinterpret_cast<const float*>(height), 0, 4);
+			const float hp[4] = { anyHeight ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f };
+			if (v.HeightParams && v.HeightParams->IsValid())
+				v.HeightParams->SetFloatVector(hp);
+			if (pass == Pass::Main)
+			{
+				v.LayerTint->SetFloatVectorArray(reinterpret_cast<const float*>(tint), 0, 4);
+				for (int i = 0; i < 4; ++i)
+					v.Layers[i]->SetResource(i < layerCount ? data.Layers[i]->DiffuseSRV() : nullptr);
+			}
+		}
+		if (pass == Pass::Main)
+		{
 			// 컬러 맵 (생성기의 색·그라디언트 재질)
 			GfxShaderResourceView* colorSRV = data.ColorMapSRV();
 			if (v.ColorMap && v.ColorMap->IsValid())
@@ -354,24 +397,27 @@ namespace TerrainRenderer
 				v.UseColorMap->SetInt(colorSRV ? 1 : 0);
 		}
 
-		// 쌓인 눈 (날씨): 지형을 실제로 올린다 (TerrainSnowTech — 테셀레이션). 그 단계가 없는 기기 (일부 OpenGL ES) 는 보통 지형 + 시차 발자국
+		// 테셀레이션 (TerrainTessTech · TerrainTessNormalDepthTech · TerrainTessShadowTech): 레이어 높이 변위가 있으면 세 패스 모두,
+		//  쌓인 눈 (날씨) 만이면 본 패스만 (눈은 위로만 — 프리패스는 맨 지형). 그 단계가 없는 기기 (일부 OpenGL ES) 는 보통 지형 (픽셀 범프 · 시차 발자국)
 		FxTechnique* tech = v.Tech;
-		bool snowTess = false;
-		if (pass == Pass::Main)
+		bool tess = false;
 		{
 			const WeatherState& w = WeatherState::Get();
-			FxTechnique* snowTech = w.NeedsCover() && w.SnowCover > 0.001f ? fx->GetTechniqueByName("TerrainSnowTech") : nullptr;
-			if (snowTech && snowTech->IsValid() && snowTech->GetPassByIndex(0)->IsUsable())
+			const bool snow = pass == Pass::Main && w.NeedsCover() && w.SnowCover > 0.001f;
+			if ((anyHeight || snow) && MeshBatcher::TessellationEnabled() && v.TessTech && v.TessTech->IsValid() && v.TessTech->GetPassByIndex(0)->IsUsable())
 			{
-				tech = snowTech;
-				snowTess = true;
-				const float edge = kSnowTriangleSize * 2.0f / ((std::max)(fabsf(p._22), 0.01f) * 1080.0f);   // 1 m 거리의 변 길이 (m)
-				const float params[4] = { 0.0f, 0.0f, kSnowMaxFactor, kSnowTessDistance };
+				tech = v.TessTech;
+				tess = true;
+				// 나눔은 늘 화면 카메라 기준 (그림자 패스도) — 패스마다 같은 값이라 같은 삼각형
+				const float edge = kTessTriangleSize * 2.0f / ((std::max)(fabsf(p._22), 0.01f) * 1080.0f);   // 1 m 거리의 변 길이 (m)
+				const float params[4] = { 0.0f, 0.0f, anyHeight ? 32.0f : 16.0f, kTessDistance };
 				const float eye[4] = { cameraPos.x, cameraPos.y, cameraPos.z, edge };
 				SetVector(fx, "gTessParams", params);
 				SetVector(fx, "gTessEye", eye);
 			}
 		}
+
+		const float pad = tess ? maxLift + 1.0f : 0.0f;   // 민 높이 · 쌓인 눈 (Snow Depth 1 m 까지) 만큼 컬링 상자를 넓힌다
 
 		// ---- 그리기 ----
 		GfxContext* dc = Application::GetI()->GetDeviceContext();
@@ -382,7 +428,7 @@ namespace TerrainRenderer
 		GfxBuffer* nullVB = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(0, 1, &nullVB, &zero, &zero);
-		dc->IASetPrimitiveTopology(snowTess ? D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		dc->IASetPrimitiveTopology(tess ? D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 		const int grid = data.NodeGrid();
 		IndexSet& indices = GetIndexSet(grid);
@@ -397,8 +443,8 @@ namespace TerrainRenderer
 			const Leaf& l = leaves[i];
 			const TerrainData::Node& node = data.GetNode(l.Depth, l.X, l.Z);
 			const int cells = data.NodeCells(l.Depth);
-			const Vec3 mn = origin + Vec3(l.X * cells * data.CellSizeX(), node.MinHeight - 0.01f, l.Z * cells * data.CellSizeZ());
-			const Vec3 mx = origin + Vec3((l.X + 1) * cells * data.CellSizeX(), node.MaxHeight + 0.01f, (l.Z + 1) * cells * data.CellSizeZ());
+			const Vec3 mn = origin + Vec3(l.X * cells * data.CellSizeX(), node.MinHeight - 0.01f - pad, l.Z * cells * data.CellSizeZ());
+			const Vec3 mx = origin + Vec3((l.X + 1) * cells * data.CellSizeX(), node.MaxHeight + 0.01f + pad, (l.Z + 1) * cells * data.CellSizeZ());
 			if (OutsideFrustum(mn, mx, cullViewProj))
 				continue;
 			GfxBuffer* ib = indices.Buffers[masks[i]].Get();
@@ -422,9 +468,12 @@ namespace TerrainRenderer
 
 		// 높이맵 등을 풀어 두고 (다음 그리기에 남지 않게), 본 패스의 다른 물체는 EQUAL 깊이 검사에 기대므로 깊이 상태를 되돌린다
 		v.HeightMap->SetResource(nullptr);
+		v.Control->SetResource(nullptr);
+		for (auto* h : v.Heights)
+			if (h && h->IsValid())
+				h->SetResource(nullptr);
 		if (pass == Pass::Main)
 		{
-			v.Control->SetResource(nullptr);
 			if (v.ColorMap && v.ColorMap->IsValid())
 				v.ColorMap->SetResource(nullptr);
 			for (auto* layer : v.Layers)
@@ -432,7 +481,7 @@ namespace TerrainRenderer
 		}
 		fxPass->Apply(0, dc);
 		dc->OMSetDepthStencilState(prevDSS.Get(), prevRef);
-		if (snowTess)
+		if (tess)
 		{
 			dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			dc->ClearTessellationShaders();

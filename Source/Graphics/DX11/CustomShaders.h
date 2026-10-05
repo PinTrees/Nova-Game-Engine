@@ -50,6 +50,12 @@ namespace CustomShaders
 		std::function<void()> Draw;
 		DrawPass Pass = DrawPass::Main;
 		XMMATRIX View = XMMatrixIdentity();   // NormalDepth: 카메라 View. Shadow: ViewProj = 빛의 ViewProj (CurrentShadow 의 빛 · 바이어스와 같이)
+		// 테셀레이션 (Shader Graph 의 Tessellation): 셰이더가 패치로 그리면 Topology 를 바꾼다 — Draw 가 이 값으로 묶는다.
+		//  나눔은 늘 화면 카메라 기준 (그림자 패스도 — 패스마다 같은 삼각형)
+		D3D11_PRIMITIVE_TOPOLOGY Topology = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		XMMATRIX CameraViewProj = XMMatrixIdentity();
+		XMFLOAT3 CameraPos = XMFLOAT3(0, 0, 0);
+		float CameraProj22 = 1.732f;   // 투영 행렬 _22 (1 / tan(fovY / 2))
 	};
 
 	// 데칼 (Decal Projector 의 재질이 이 셰이더 — 예: Shader Graph 의 Material = Decal): SetDecalVars = 그 이펙트에 데칼 상자 · 화면 값을 넣는다

@@ -58,7 +58,7 @@
 | | |
 |---|---|
 | 그래픽 API | DirectX 11 · OpenGL 4.5 · **Vulkan 1.3** (에디터 · 게임 모두, 화소 차이 최대 1) — [VULKAN_BACKEND](docs/VULKAN_BACKEND.md) |
-| 재질 · 셰이더 | URP Lit (PBR), **테셀레이션 높이 변위** (Height Map 만큼 벽 · 바닥을 실제로 민다 — DX11 · OpenGL · Vulkan), **Shader Graph** (노드 65 종 · Vertex 단계 · Sub Graph · Custom Function) — [TESSELLATION](docs/TESSELLATION.md) · [SHADER_GRAPH](docs/SHADER_GRAPH.md) |
+| 재질 · 셰이더 | URP Lit (PBR), **테셀레이션 높이 변위** (Height Map 만큼 벽 · 바닥 · 지형 레이어를 실제로 민다, Shader Graph Displacement, 먼 곳 · 테셀레이션 없는 기기는 POM — DX11 · OpenGL · Vulkan), **Shader Graph** (노드 65 종 · Vertex 단계 · Sub Graph · Custom Function) — [TESSELLATION](docs/TESSELLATION.md) · [SHADER_GRAPH](docs/SHADER_GRAPH.md) |
 | 조명 | Cascaded 그림자, **Adaptive Probe Volume** (굽지 않는 실시간 간접광), **Reflection Probe**, 높이 안개 · 대기 — [APV](docs/ADAPTIVE_PROBE_VOLUME.md) · [Probe](docs/REFLECTION_PROBE.md) |
 | 후처리 (Volume) | Bloom · ACES · Color Adjustments · **Depth of Field (Bokeh)** · **Motion Blur** · **SSR** · Vignette · Film Grain — [DoF](docs/DEPTH_OF_FIELD_MOTION_BLUR.md) · [SSR](docs/SCREEN_SPACE_REFLECTION.md) |
 | 안티에일리어싱 | FXAA · SMAA · **TAA** (URP 카메라 4 가지) — [ANTI_ALIASING](docs/ANTI_ALIASING.md) |

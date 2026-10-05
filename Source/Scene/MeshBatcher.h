@@ -30,4 +30,8 @@ namespace MeshBatcher
 		int Batches = 0;     // 그리기 호출 수
 	};
 	const Stats& LastStats(bool editor);   // 마지막 본 패스
+
+	// 테셀레이션 (재질 Displacement Mode · 지형 높이 · 쌓인 눈) 전체 켜기 · 끄기 — 끄면 테셀레이션이 없는 기기처럼
+	//  (재질은 POM + 픽셀 높이 법선, 지형은 픽셀 범프 · 시차 발자국). nova tessellation set --enabled false
+	NOVA_API bool& TessellationEnabled();
 }

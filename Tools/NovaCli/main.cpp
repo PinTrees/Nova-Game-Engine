@@ -1129,6 +1129,26 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("count")) args["count"] = std::stoi(a.Get("count"));
 		if (a.Has("clear")) args["clear"] = true;
 	}
+	else if (cmd == "terrain-layer")
+	{
+		// Terrain Layer: nova terrain-layer <지형> [--add <.terrainlayer>] [--set i --layer <.terrainlayer>] [--fill i [--center x,z --radius m]]
+		if (!need(1, "terrain-layer <terrain> [--add <path>] [--set i --layer <path>] [--fill i [--center x,z --radius m]]")) return 3;
+		args["target"] = a.Pos[0];
+		if (a.Has("add")) args["add"] = a.Get("add");
+		if (a.Has("set")) { args["set"] = std::stoi(a.Get("set")); args["layer"] = a.Get("layer"); }
+		if (a.Has("fill"))
+		{
+			args["fill"] = std::stoi(a.Get("fill"));
+			if (a.Has("center"))
+			{
+				const std::string c = a.Get("center");
+				const size_t comma = c.find(',');
+				if (comma != std::string::npos)
+					args["center"] = { std::stof(c.substr(0, comma)), std::stof(c.substr(comma + 1)) };
+			}
+			if (a.Has("radius")) args["radius"] = std::stof(a.Get("radius"));
+		}
+	}
 	else if (cmd == "raycast")
 	{
 		// Unity 의 Physics.Raycast (Play 중): nova raycast x,y,z dx,dy,dz [--max d] [--triggers]
@@ -1144,7 +1164,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

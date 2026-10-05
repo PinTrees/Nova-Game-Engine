@@ -509,6 +509,17 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 				changed |= UnityGUI::FloatBox("##heightAmp", &m.m_Tess.Amplitude, ImVec2(row.fieldX, row.p.y), 60.0f);
 			UnityGUI::EndFieldRow(row);
 			if (m.HeightMapSRV && m.m_Tess.Enabled && UnityGUI::Slider("Base", &m.m_Tess.Base, 0.0f, 1.0f, 1)) { m.m_Tess.Base = std::clamp(m.m_Tess.Base, 0.0f, 1.0f); changed = true; }
+			// 높이 맵이 sRGB (색) 로 가져와졌으면 높이가 감마로 휜다 → "Fix Now" (선형 + High Quality)
+			if (m.HeightMapSRV && !m.m_HeightMapPath.empty())
+			{
+				const std::wstring full = PathManager::GetI()->GetMovePathW(m.m_HeightMapPath);
+				if (!ImportSettingsInspector::IsLinearHeightMap(full))
+				{
+					UnityGUI::HelpBox("This height map is imported as a color (sRGB) texture. Height maps should be linear.", true, 1);
+					if (UnityGUI::CenterButton("Fix Now##heightFix", 120.0f))
+						ImportSettingsInspector::MarkAsHeightMap(full);
+				}
+			}
 			// Occlusion Map + Strength
 			changed |= TextureRow("Occlusion Map", &m.m_OcclusionMapPath, std::addressof(m.OcclusionMapSRV), "matOcc:" + key, row);
 			UnityGUI::EndFieldRow(row);

@@ -467,6 +467,32 @@ technique11 TerrainShadowTech
     }
 }
 
+// 지형 테셀레이션 (Terrain Layer 의 Height Map — 61. TerrainTessellation.fx): 본 패스와 같은 모양으로 그림자
+#include "61. TerrainTessellation.fx"
+
+[domain("tri")]
+float4 TerrainTessShadowDS(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TerrainCP, 3> tri) : SV_POSITION
+{
+    float2 uv;
+    float3 n;
+    float spacing, d;
+    const float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n, spacing, d);
+    return mul(float4(ApplyShadowBias(p, n), 1.0f), gViewProj);
+}
+
+technique11 TerrainTessShadowTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TerrainTessVS()));
+        SetHullShader(CompileShader(hs_5_0, TerrainHS()));
+        SetDomainShader(CompileShader(ds_5_0, TerrainTessShadowDS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+        SetRasterizerState(Depth);
+    }
+}
+
 //=============================================================================
 // NOVA 나무 (Tree / 지형 나무) - 그림자맵 패스 (인스턴싱). 잎은 구운 잎 텍스처로, 임포스터는 빛을 보는 사각형으로
 //=============================================================================

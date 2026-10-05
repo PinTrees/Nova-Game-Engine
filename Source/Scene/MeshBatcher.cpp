@@ -292,6 +292,28 @@ namespace
 			v->SetFloatVector(v4);
 	}
 
+	// 사용자 셰이더 (CustomShaders) 그리기의 화면 카메라 — 테셀레이션 나눔 (Shader Graph 의 Tessellation)
+	void FillCamera(CustomShaders::InstancedDraw& d, bool editor)
+	{
+		RenderManager* rm = RenderManager::GetI();
+		const XMMATRIX view = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
+		const XMMATRIX proj = editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix;
+		XMVECTOR det;
+		const XMMATRIX inv = XMMatrixInverse(&det, view);
+		d.CameraViewProj = view * proj;
+		XMStoreFloat3(&d.CameraPos, inv.r[3]);
+		d.CameraProj22 = fabsf(XMVectorGetY(proj.r[1]));
+	}
+
+	// 사용자 셰이더가 패치로 그렸으면 되돌린다 (DX11 — Effects11 이 Hull · Domain 을 남긴다)
+	void EndCustomDraw(GfxContext* dc, const CustomShaders::InstancedDraw& d)
+	{
+		if (d.Topology == D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
+			return;
+		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		dc->ClearTessellationShaders();
+	}
+
 	// 재질 테셀레이션 값 (60. Tessellation.fx 의 cbTessellation · gHeightMap) — 본 · 깊이 · 그림자 이펙트마다 따로 넣는다
 	//  나눔은 언제나 화면 카메라 기준 (view · proj): 그림자 패스도 같은 모양을 민다
 	void SetTessellation(FxEffect* fx, const UMaterial& m, CXMMATRIX viewProj, CXMMATRIX view, CXMMATRIX proj)
@@ -319,6 +341,12 @@ namespace
 namespace MeshBatcher
 {
 	const Stats& LastStats(bool editor) { return s_Stats[editor ? 1 : 0]; }
+
+	bool& TessellationEnabled()
+	{
+		static bool s_Enabled = true;
+		return s_Enabled;
+	}
 
 	namespace
 	{
@@ -672,12 +700,14 @@ namespace MeshBatcher
 						d.ViewProj = viewProj;
 						d.Editor = editor;
 						d.LayerBit = b->Layer;
+						FillCamera(d, editor);
 						d.Draw = [&]() {
 							dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
-							dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+							dc->IASetPrimitiveTopology(d.Topology);
 							drawInstances();
 						};
 						cs->DrawInstanced(d);
+						EndCustomDraw(dc, d);
 						applied = reinterpret_cast<const UMaterial*>(1);   // 다음 엔진 묶음은 재질 · 레이어를 다시
 						appliedLayer = 0;
 						++drawn;
@@ -697,12 +727,14 @@ namespace MeshBatcher
 						d.Pass = pass == Pass::Shadow ? CustomShaders::DrawPass::Shadow : CustomShaders::DrawPass::NormalDepth;
 						d.ViewProj = pass == Pass::Shadow ? rm->LightViewProjection : viewProj;
 						d.View = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
+						FillCamera(d, editor);
 						d.Draw = [&]() {
 							dc->IASetInputLayout(InputLayouts::InstancedBasic.Get());
-							dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+							dc->IASetPrimitiveTopology(d.Topology);
 							drawInstances();
 						};
 						cs->DrawInstanced(d);
+						EndCustomDraw(dc, d);
 						++drawn;
 						return;
 					}
@@ -761,7 +793,7 @@ namespace MeshBatcher
 					const char* tessName = pass == Pass::Main ? "TessBatchTech" :
 						(pass == Pass::Shadow ? "TessBuildShadowMapInstancingTech" : "TessNormalDepthBatchTech");
 					FxTechnique* tessTech = fx->GetTechniqueByName(tessName);
-					if (tessTech && tessTech->IsValid() && tessTech->GetPassByIndex(0)->IsUsable())   // 테셀레이션이 없는 기기 (일부 OpenGL ES) = 보통 그리기
+					if (TessellationEnabled() && tessTech && tessTech->IsValid() && tessTech->GetPassByIndex(0)->IsUsable())   // 테셀레이션이 없는 기기 (일부 OpenGL ES) = 아래 POM
 					{
 						SetTessellation(fx, *b->Material, viewProj, editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix,
 							editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix);
@@ -773,6 +805,17 @@ namespace MeshBatcher
 						++drawn;
 						return;
 					}
+					// 테셀레이션 없이: 본 패스는 POM + 픽셀 높이 법선 (깊이 · 그림자는 보통 — 깊이를 바꾸지 않아 EQUAL 그대로)
+					if (pass == Pass::Main)
+						if (FxTechnique* pomTech = fx->GetTechniqueByName("PomBatchTech"); pomTech && pomTech->IsValid() && pomTech->GetPassByIndex(0)->IsUsable())
+						{
+							SetTessellation(fx, *b->Material, viewProj, editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix,
+								editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix);
+							pomTech->GetPassByIndex(0)->Apply(0, dc);
+							drawInstances();
+							++drawn;
+							return;
+						}
 				}
 				tech->GetPassByIndex(0)->Apply(0, dc);
 				drawInstances();

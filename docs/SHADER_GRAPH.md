@@ -59,6 +59,7 @@ Create Node > Utility > **Custom Function** — HLSL 을 직접 씁니다 (Unity
 | Material | Lit (엔진 URP Lit 조명) / Unlit / **Decal** (Decal Projector 의 재질 — UV = 투영 UV, [DECAL.md](DECAL.md)) |
 | Surface Type | **Opaque** / **Transparent** — 투명은 불투명 · 하늘 · 대기 다음, 물 앞에 **먼 것부터** 알파로 섞어 그립니다 (깊이는 읽기만, 그림자 · 깊이 프리패스에는 없음) |
 | Alpha Clipping | 켜면 Master 에 **Alpha Clip Threshold** — Alpha 가 그보다 작은 곳을 잘라냅니다. **깊이 프리패스 · 그림자도 같은 구멍** (잎 · 철망 · 체커) |
+| Tessellation | 켜면 Vertex 블록에 **Displacement** (m, 법선 쪽) — 카메라 가까이에서 삼각형을 잘게 나누고 나눈 정점마다 민다 (Tessellation Factor · Triangle Size · Fade Distance). 불투명만, 깊이 프리패스 · 그림자도 같은 모양 — [TESSELLATION.md](TESSELLATION.md#shader-graph) ([예제](examples/shadergraph_tessellation.txt)) |
 | 경로 (Blackboard 제목 아래) | 셰이더 이름 = `<경로>/<파일 이름>` (기본 `Shader Graphs`). 다른 폴더에 같은 이름의 그래프가 있으면 저장할 때 알려 주므로 한쪽 경로를 바꿉니다 (Unity 와 같은 방법) |
 
 - 이어지지 않은 입력은 노드 안에서 값을 바로 바꿉니다 (UV · Position 같은 입력은 기본으로 메시 값)
@@ -107,6 +108,7 @@ nova set Sphere --component MeshRenderer --values '{"m_MaterialPaths":["Assets/S
 | `node.add --type "Sub Graph" --options '{"asset":"Assets/x.shadersubgraph"}'` | Sub Graph 노드 (입력 = 그 Blackboard 속성 이름) |
 | `node.add --type "Custom Function" --options '{"name":"Flip","mode":"String","body":"Out = A.zyx;","inputs":[{"name":"A","type":"Vector3"}],"outputs":[{"name":"Out","type":"Vector3"}]}'` | File 이면 `"mode":"File","file":"Assets/x.hlsl"` |
 | `node.add --type Position --options '{"space":"Object"}'` · `connect ... --in "Vertex Position"` | Vertex 단계 ([예제](examples/shadergraph_wave.txt)) |
+| `settings --tessellation true [--tessFactor 32 --tessTriangleSize 12 --tessFadeDistance 50]` · `connect ... --in Displacement` | 테셀레이션 ([예제](examples/shadergraph_tessellation.txt)) |
 
 ## 구조 (엔진 코드)
 

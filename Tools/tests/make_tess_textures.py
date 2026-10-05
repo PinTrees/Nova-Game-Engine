@@ -85,9 +85,37 @@ def main(out):
     dirt = np.array([0.3, 0.26, 0.2]) * (0.8 + 0.3 * fbm[..., None])
     save_rgb(os.path.join(out, 'Cobble_Base.png'), np.where((g > 0.02)[..., None], cobble, dirt))
 
+    # 지형 레이어: 흙에 박힌 둥근 돌 (큰 돌 · 작은 돌, 흙은 낮게) — Rocks.terrainlayer (타일 3 m, 높이 0.25 m)
+    rng2 = np.random.default_rng(11)
+    pts2 = rng2.random((45, 2))
+    rad = 0.035 + rng2.random(45) * 0.06
+    tiled2 = np.concatenate([pts2 + np.array([dx, dy]) for dx in (-1, 0, 1) for dy in (-1, 0, 1)])
+    rad9 = np.tile(rad, 9)
+    d2 = np.sqrt(((np.stack([x, y], -1).reshape(-1, 1, 2) - tiled2[None]) ** 2).sum(-1))
+    k = np.clip(1.0 - d2 / rad9[None], 0, 1)                    # 돌 안 = 0..1 (가운데 1)
+    dome2 = np.sqrt(1 - (1 - k) ** 2) * (rad9[None] / rad.max())   # 둥근 단면, 큰 돌일수록 높다
+    best = dome2.max(axis=1).reshape(N, N)
+    which = (np.argmax(dome2, axis=1) % 45).reshape(N, N)
+    soil = 0.12 + 0.08 * fbm
+    hr = np.maximum(soil, 0.1 + 0.85 * best)
+    save_gray(os.path.join(out, 'Rocks_Height.png'), hr)
+    tone = rng2.random(45)[which]
+    grain = noise(64, 5)   # 돌 표면의 잔 얼룩
+    stone_c = np.stack([0.30 + 0.12 * tone, 0.29 + 0.1 * tone, 0.27 + 0.08 * tone], -1) * (0.7 + 0.3 * fbm[..., None]) * (0.8 + 0.4 * grain[..., None])
+    soil_c = np.array([0.32, 0.25, 0.18]) * (0.75 + 0.4 * fbm[..., None])
+    save_rgb(os.path.join(out, 'Rocks_Base.png'), np.where((best > 0.05)[..., None], stone_c, soil_c))
+    with open(os.path.join(out, 'Rocks_Height.png.meta'), 'w', encoding='utf-8') as f:
+        json.dump({"textureType": "Default", "sRGB": False, "compression": "HighQuality"}, f, indent=4)
+    with open(os.path.join(out, 'Rocks.terrainlayer'), 'w', encoding='utf-8') as f:
+        json.dump({"diffuse": "Assets\\TessTest\\Rocks_Base.png", "tileSize": [3, 3], "tileOffset": [0, 0], "tint": [1, 1, 1, 1],
+                   "height": "Assets\\TessTest\\Rocks_Height.png", "heightAmplitude": 0.25, "heightBase": 0.3}, f, indent=4)
+
     for name, tiling, amp in (('StoneWall', [2, 1.5], 0.08), ('Cobble', [3, 3], 0.06)):
         with open(os.path.join(out, name + '.mat'), 'w', encoding='utf-8') as f:
             json.dump(material(name, tiling, amp), f, indent=4)
+        # 높이 맵은 선형 (재질 Inspector 의 Fix Now 와 같은 가져오기 설정)
+        with open(os.path.join(out, name + '_Height.png.meta'), 'w', encoding='utf-8') as f:
+            json.dump({"textureType": "Default", "sRGB": False, "compression": "HighQuality"}, f, indent=4)
     print(out)
 
 

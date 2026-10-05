@@ -335,6 +335,36 @@ technique11 TerrainNormalDepthTech
     }
 }
 
+// 지형 테셀레이션 (Terrain Layer 의 Height Map — 61. TerrainTessellation.fx): 본 패스 (32 의 TerrainTessDS) 와 같은 자리
+#include "61. TerrainTessellation.fx"
+
+[domain("tri")]
+TerrainNormalDepthOut TerrainTessNormalDepthDS(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TerrainCP, 3> tri)
+{
+    TerrainNormalDepthOut o;
+    float2 uv;
+    float3 n;
+    float spacing, d;
+    const float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n, spacing, d);
+    o.PosV = mul(float4(p, 1.0f), gView).xyz;
+    precise const float4 posH = mul(float4(p, 1.0f), gWorldViewProj);   // 본 패스와 같은 비트 (precise)
+    o.PosH = posH;
+    o.UV = uv;
+    return o;
+}
+
+technique11 TerrainTessNormalDepthTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, TerrainTessVS()));
+        SetHullShader(CompileShader(hs_5_0, TerrainHS()));
+        SetDomainShader(CompileShader(ds_5_0, TerrainTessNormalDepthDS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, TerrainNormalDepthPS()));
+    }
+}
+
 //=============================================================================
 // NOVA 나무 (Tree / 지형 나무) - SSAO 노멀/깊이 패스 (gView, gWorldViewProj = ViewProj). 본 패스와 같은 LOD 디더·잎 자르기
 //=============================================================================

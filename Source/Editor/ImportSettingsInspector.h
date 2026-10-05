@@ -20,4 +20,8 @@ namespace ImportSettingsInspector
 	void Update();   // EditorGUIManager::Update 가 프레임마다
 	// 텍스처를 Normal map 으로 (재질 Inspector 의 "Fix Now")
 	void MarkAsNormalMap(const std::wstring& fullPath);
+	// 높이 맵 (재질 · Terrain Layer 의 "Fix Now"): sRGB 끄기 (감마로 휘지 않게) + High Quality (BC7 — BC1 은 높이가 계단이 된다)
+	void MarkAsHeightMap(const std::wstring& fullPath);
+	// 이 텍스처가 높이 맵으로 알맞게 가져와졌는가 (가져오기 설정이 없거나 선형이면 true)
+	bool IsLinearHeightMap(const std::wstring& fullPath);
 }

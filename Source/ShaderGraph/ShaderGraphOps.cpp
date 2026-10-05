@@ -366,6 +366,12 @@ namespace ShaderGraph
 			bool clip = g.AlphaClip;
 			if (a.contains("alpha-clip")) clip = a["alpha-clip"].is_boolean() ? a["alpha-clip"].get<bool>() : Lower(a["alpha-clip"].dump()).find("true") != std::string::npos;
 			if (a.contains("alphaClip") && a["alphaClip"].is_boolean()) clip = a["alphaClip"].get<bool>();
+			bool tess = g.Tessellation;
+			if (a.contains("tessellation")) tess = a["tessellation"].is_boolean() ? a["tessellation"].get<bool>() : Lower(a["tessellation"].dump()).find("true") != std::string::npos;
+			auto num = [&](const char* key, float v) { return a.contains(key) && a[key].is_number() ? a[key].get<float>() : v; };
+			const float tessFactor = std::clamp(num("tessFactor", g.TessFactor), 1.0f, 64.0f);
+			const float tessTriangle = std::clamp(num("tessTriangleSize", g.TessTriangleSize), 2.0f, 100.0f);
+			const float tessFade = (std::max)(1.0f, num("tessFadeDistance", g.TessFadeDistance));
 			std::string path = a.value("path", g.Path);
 			while (!path.empty() && (path.back() == '/' || path.back() == ' ')) path.pop_back();
 			if (path.empty()) { e = "path must not be empty (default: Shader Graphs)"; return false; }
@@ -373,11 +379,16 @@ namespace ShaderGraph
 			g.Material = m;
 			g.Surface = surface;
 			g.AlphaClip = clip;
+			g.Tessellation = tess;
+			g.TessFactor = tessFactor;
+			g.TessTriangleSize = tessTriangle;
+			g.TessFadeDistance = tessFade;
 			g.Path = path;
 			// 새 Master 에 없는 입력의 선은 지운다 (Unlit 의 Normal, Alpha Clipping 을 끈 Threshold …)
 			g.Edges.erase(std::remove_if(g.Edges.begin(), g.Edges.end(), [&](const Edge& x) { return x.ToNode == 0 && InPortName(g, 0, x.ToPort).empty(); }), g.Edges.end());
 			d.Changed();
-			r = { { "material", g.Material }, { "surface", g.Surface }, { "alphaClip", g.AlphaClip }, { "path", g.Path } };
+			r = { { "material", g.Material }, { "surface", g.Surface }, { "alphaClip", g.AlphaClip }, { "path", g.Path }, { "tessellation", g.Tessellation },
+				{ "tessFactor", g.TessFactor }, { "tessTriangleSize", g.TessTriangleSize }, { "tessFadeDistance", g.TessFadeDistance } };
 			return true;
 		}
 		if (op == "node.add")

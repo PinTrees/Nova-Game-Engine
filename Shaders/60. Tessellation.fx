@@ -118,6 +118,56 @@ float3 TessPixelNormal(float3 baseN, float3 dPdu, float3 dPdv, float2 uv)
     return TessBentNormal(normalize(baseN), dPdu, dPdv, hu, hv);
 }
 
+// ---- 시차 가림 (POM — HDRP Lit 의 Pixel Displacement): 테셀레이션이 끝나는 거리 너머 · 테셀레이션이 없는 기기에서 깊이감
+//  보이는 면 = 가운데 (Base) 평면이라고 보고, 시선을 높이 맵의 맨 위 ((1 - Base) × 높이) 에서 맨 아래까지 걸어 내려가며 처음 닿는 곳의 uv.
+//  weight 0 = 원래 uv. 깊이는 바꾸지 않는다 (깊이 프리패스와 EQUAL 그대로)
+float2 TessParallaxUV(float3 posW, float3 n, float3 dPdu, float3 dPdv, float2 uv, float weight)
+{
+    const float2 gx = ddx(uv) * gTessUV.xy, gy = ddy(uv) * gTessUV.xy;   // 분기 전에 (화면 미분)
+    const float amp = gTessParams.x;
+    if (weight <= 0.001f || amp <= 0.0f)
+        return uv;
+    const float du2 = dot(dPdu, dPdu), dv2 = dot(dPdv, dPdv);
+    const float3 D = normalize(posW - gTessEye.xyz);   // 눈 → 그 점
+    const float dz = dot(D, n);
+    if (du2 < 1e-12f || dv2 < 1e-12f || dz > -0.05f)   // uv 축이 없거나 거의 옆에서 본다
+        return uv;
+    // 1 m 내려갈 때 uv 가 움직이는 양 (uv 축으로 투영)
+    const float2 duv = float2(dot(D, dPdu) / du2, dot(D, dPdv) / dv2) / -dz;
+    const float top = (1.0f - gTessParams.y) * amp;
+    const float2 uvTop = uv - duv * top;
+    const int steps = (int) lerp(16.0f, 6.0f, saturate(-dz));   // 비스듬할수록 촘촘히
+    float prevGap = top - ((gHeightMap.SampleGrad(samTessHeight, uvTop * gTessUV.xy + gTessUV.zw, gx, gy).r - gTessParams.y) * amp);
+    float prevS = 0.0f;
+    float2 hit = uv + duv * (gTessParams.y * amp);   // 끝까지 안 닿으면 맨 아래
+    [loop]
+    for (int i = 1; i <= steps; ++i)
+    {
+        const float s = amp * i / steps;   // 맨 위에서 내려간 깊이 (m)
+        const float2 u = uvTop + duv * s;
+        const float surf = (gHeightMap.SampleGrad(samTessHeight, u * gTessUV.xy + gTessUV.zw, gx, gy).r - gTessParams.y) * amp;
+        const float gap = (top - s) - surf;   // > 0 = 아직 표면 위
+        if (gap <= 0.0f)
+        {
+            const float t = prevGap / max(prevGap - gap, 1e-6f);
+            hit = uvTop + duv * lerp(prevS, s, t);
+            break;
+        }
+        prevGap = gap;
+        prevS = s;
+    }
+    return lerp(uv, hit, weight);
+}
+
+// POM 가중치: 테셀레이션 (나눔 거리 끝 1/4 에서 줄어든다) 을 이어 받고, 나눔 거리의 2.5 배에서 사라진다. tess = 테셀레이션으로 그리는 중
+float TessParallaxWeight(float3 posW, bool tess)
+{
+    const float dist = distance(posW, gTessEye.xyz);
+    const float far = max(gTessParams.w, 0.01f);
+    const float fadeIn = tess ? saturate((dist - far * 0.75f) / (far * 0.25f)) : 1.0f;
+    return fadeIn * saturate((far * 2.5f - dist) / (far * 0.5f));
+}
+
 // 나눈 점 하나: 무게중심 보간 → 높이만큼 밀기 → 법선 다시
 TessCP TessEvaluate(TessCP a, TessCP b, TessCP c, float3 w)
 {

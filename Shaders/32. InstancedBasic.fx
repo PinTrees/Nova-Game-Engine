@@ -1490,12 +1490,15 @@ TessBatchOut DS_TessBatch(TessPatch pt, float3 w : SV_DomainLocation, const Outp
 
 float4 PS_TessBatch(TessBatchOut pin) : SV_Target
 {
+    // 나눔이 끝나는 거리 너머는 POM 이 깊이감을 이어 받는다
+    const float3 baseN = normalize(pin.BaseN);
+    const float2 uv = TessParallaxUV(pin.PosW.xyz, baseN, pin.DPdu, pin.DPdv, pin.Tex, TessParallaxWeight(pin.PosW.xyz, true));
     BatchVertexOut v;
     v.PosH = pin.PosH;
     v.PosW = pin.PosW;
-    v.NormalW = TessPixelNormal(pin.BaseN, pin.DPdu, pin.DPdv, pin.Tex);
+    v.NormalW = TessPixelNormal(baseN, pin.DPdu, pin.DPdv, uv);
     v.TangentW = pin.TangentW;
-    v.Tex = pin.Tex;
+    v.Tex = uv;
     v.SsaoPosH = pin.SsaoPosH;
     v.BaseColor = pin.BaseColor;
     v.Surface = pin.Surface;
@@ -1503,7 +1506,34 @@ float4 PS_TessBatch(TessBatchOut pin) : SV_Target
     return PS_Batch(v);
 }
 
+// 테셀레이션이 없는 기기 (일부 OpenGL ES): 보통 정점 + POM · 픽셀 높이 법선 (uv 축은 화면 미분으로)
+float4 PS_PomBatch(BatchVertexOut pin) : SV_Target
+{
+    const float3 dpx = ddx(pin.PosW.xyz), dpy = ddy(pin.PosW.xyz);
+    const float2 dux = ddx(pin.Tex), duy = ddy(pin.Tex);
+    const float det = dux.x * duy.y - dux.y * duy.x;
+    const float inv = abs(det) > 1e-14f ? 1.0f / det : 0.0f;
+    const float3 dPdu = (dpx * duy.y - dpy * dux.y) * inv;
+    const float3 dPdv = (dpy * dux.x - dpx * duy.x) * inv;
+    const float3 baseN = normalize(pin.NormalW);
+    const float2 uv = TessParallaxUV(pin.PosW.xyz, baseN, dPdu, dPdv, pin.Tex, TessParallaxWeight(pin.PosW.xyz, false));
+    BatchVertexOut v = pin;
+    v.NormalW = TessPixelNormal(baseN, dPdu, dPdv, uv);
+    v.Tex = uv;
+    return PS_Batch(v);
+}
+
 #ifndef NOVA_NO_ENGINE_TECHNIQUES
+technique11 PomBatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_PomBatch()));
+    }
+}
+
 technique11 TessBatchTech
 {
     pass P0
@@ -1544,6 +1574,7 @@ technique11 SkinnedTech
 // NOVA 지형 (Terrain 컴포넌트) - 본 패스
 //=============================================================================
 #include "40. TerrainCommon.fx"
+#include "61. TerrainTessellation.fx"   // 레이어 높이 변위 (테셀레이션)
 
 DepthStencilState TerrainDepthLessEqual
 {
@@ -1572,9 +1603,8 @@ TerrainVertexOut TerrainVS(uint vid : SV_VertexID)
     return vout;
 }
 
-float4 TerrainPS(TerrainVertexOut pin) : SV_Target
+float4 TerrainShade(TerrainVertexOut pin, float3 normalW)
 {
-    float3 normalW = TerrainNormalUV(pin.UV);
     float3 toEye = gEyePosW - pin.PosW.xyz;
     float distToEye = length(toEye);
     toEye /= distToEye;
@@ -1596,67 +1626,65 @@ float4 TerrainPS(TerrainVertexOut pin) : SV_Target
     return FinishLit(ShadeLit(surf, pin.PosW.xyz, normalW, toEye, pin.SsaoPosH), 1.0f, distToEye);
 }
 
-// ---- 지형의 쌓인 눈 (날씨): 눈 덮임만큼 지형을 실제로 올린다 (테셀레이션 — 나눔은 60. Tessellation.fx), 발자국 자리는 땅까지
-//  깊이 프리패스 (28) · 그림자 · 덮개 맵은 맨 지형 그대로: 눈은 위로만 쌓이니 본 패스가 늘 그 앞이라 LESS_EQUAL 이 맞는다
-//  (그 위에 선 물체의 발은 눈에 묻힌다 — 본 패스가 깊이를 쓴다). 보통 지형 (눈 없음) 은 TerrainTech
-struct TerrainCP
+float4 TerrainPS(TerrainVertexOut pin) : SV_Target
 {
-    float3 PosW : POSITION;
-    float2 UV : TEXCOORD0;
-};
-
-TerrainCP TerrainTessVS(uint vid : SV_VertexID)
-{
-    TerrainCP o;
-    o.PosW = TerrainVertexWorld(vid, o.UV);
-    return o;
+    return TerrainShade(pin, TerrainNormalUV(pin.UV));
 }
 
-TessPatch TerrainPatchHS(InputPatch<TerrainCP, 3> p)
-{
-    return TessFactors(p[0].PosW, p[1].PosW, p[2].PosW);
-}
-
-[domain("tri")]
-[partitioning("fractional_odd")]
-[outputtopology("triangle_cw")]
-[outputcontrolpoints(3)]
-[patchconstantfunc("TerrainPatchHS")]
-[maxtessfactor(64.0f)]
-TerrainCP TerrainHS(InputPatch<TerrainCP, 3> p, uint i : SV_OutputControlPointID)
-{
-    return p[i];
-}
+// ---- 지형 테셀레이션 (61. TerrainTessellation.fx): Terrain Layer 의 Height Map 만큼 + 날씨의 쌓인 눈만큼 지형을 실제로 올린다
+//  레이어 높이는 깊이 프리패스 (28) · 그림자 (26) 도 같은 함수로 민다 (EQUAL · LESS_EQUAL 이 맞게).
+//  눈은 본 패스만 — 위로만 쌓이니 본 패스가 늘 프리패스 앞이라 LESS_EQUAL 이 맞는다 (그 위의 물체 발은 눈에 묻힌다). 발자국 자리는 땅까지
 
 // 그 자리의 눈 높이 (m): ApplyWeather 의 눈 덮임 (위를 향한 면부터, 덜 쌓였으면 군데군데, 하늘 아래만) × 눈 깊이, 발자국만큼 낮게
-float TerrainSnowLift(float3 posW, float2 uv)
+float TerrainSnowLift(float3 posW, float3 n)
 {
     const float snow0 = gWeatherSnow.x;
     if (snow0 <= 0.001f)
         return 0.0f;
-    const float up = saturate(TerrainNormalUV(uv).y);
+    const float up = saturate(n.y);
     const float n2 = WeatherNoise(posW.xz * 1.7f) * 0.6f + WeatherNoise(posW.xz * 0.23f + 5.1f) * 0.4f;
     const float snow = saturate((snow0 * 1.25f - (1.0f - up) * 1.5f - n2 * 0.45f * (1.0f - snow0)) * 5.0f) * WeatherSky(posW);
     return gWeatherSnow.y * snow * (1.0f - SnowPressAt(posW.xz));
 }
 
-[domain("tri")]
-TerrainVertexOut TerrainSnowDS(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TerrainCP, 3> tri)
+// 본 패스 Domain 출력: + 민 면의 법선 (레이어 높이 변위가 있으면)
+struct TerrainTessOut
 {
-    TerrainVertexOut o;
-    float3 p = tri[0].PosW * w.x + tri[1].PosW * w.y + tri[2].PosW * w.z;
-    o.UV = tri[0].UV * w.x + tri[1].UV * w.y + tri[2].UV * w.z;
-    p.y += TerrainSnowLift(p, o.UV);
+    float4 PosH : SV_POSITION;
+    float4 PosW : POSITION;
+    float2 UV : TEXCOORD0;
+    float4 SsaoPosH : TEXCOORD1;
+    float3 NormalW : NORMAL;
+};
+
+[domain("tri")]
+TerrainTessOut TerrainTessDS(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TerrainCP, 3> tri)
+{
+    TerrainTessOut o;
+    float2 uv;
+    float3 n;
+    float spacing, d;
+    float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n, spacing, d);
+    o.NormalW = TerrainDisplacedNormal(p - n * d - gTerrainOrigin.xyz, uv, n, spacing, d);
+    p.y += TerrainSnowLift(p, o.NormalW);
+    o.UV = uv;
     o.PosW = float4(p, 1.0f);
-    o.PosH = mul(o.PosW, gViewProj);
+    precise const float4 posH = mul(o.PosW, gViewProj);   // 깊이 프리패스와 같은 비트 (precise)
+    o.PosH = posH;
     o.SsaoPosH = mul(o.PosW, gViewProjTex);
     return o;
 }
 
-float4 TerrainSnowPS(TerrainVertexOut pin) : SV_Target
+float4 TerrainTessPS(TerrainTessOut pin) : SV_Target
 {
     s_SnowDisplaced = true;
-    return TerrainPS(pin);
+    TerrainVertexOut v;
+    v.PosH = pin.PosH;
+    v.PosW = pin.PosW;
+    v.UV = pin.UV;
+    v.SsaoPosH = pin.SsaoPosH;
+    // 레이어 높이 변위가 있으면 Domain 이 민 면의 법선, 없으면 (눈만) 픽셀마다 높이맵 법선
+    return TerrainShade(v, gTerrainHeightParams.x > 0.5f ? normalize(pin.NormalW) : TerrainNormalUV(pin.UV));
 }
 
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
@@ -1671,15 +1699,15 @@ technique11 TerrainTech
     }
 }
 
-technique11 TerrainSnowTech
+technique11 TerrainTessTech
 {
     pass P0
     {
         SetVertexShader(CompileShader(vs_5_0, TerrainTessVS()));
         SetHullShader(CompileShader(hs_5_0, TerrainHS()));
-        SetDomainShader(CompileShader(ds_5_0, TerrainSnowDS()));
+        SetDomainShader(CompileShader(ds_5_0, TerrainTessDS()));
         SetGeometryShader(NULL);
-        SetPixelShader(CompileShader(ps_5_0, TerrainSnowPS()));
+        SetPixelShader(CompileShader(ps_5_0, TerrainTessPS()));
         SetDepthStencilState(TerrainDepthLessEqual, 0);
     }
 }

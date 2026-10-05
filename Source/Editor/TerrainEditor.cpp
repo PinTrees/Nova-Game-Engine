@@ -15,6 +15,8 @@
 #include "TerrainSpline.h"
 #include "GameObjectFactory.h"
 #include "SelectionManager.h"
+#include "PathManager.h"
+#include "ImportSettingsInspector.h"
 #include <random>
 
 namespace
@@ -1254,6 +1256,44 @@ namespace
 			}
 			if (UnityGUI::Vector2Pair("Tile Size", "X", &layer.TileSize.x, "Y", &layer.TileSize.y, 1)) layer.Save();
 			if (UnityGUI::Vector2Pair("Tile Offset", "X", &layer.TileOffset.x, "Y", &layer.TileOffset.y, 1)) layer.Save();
+			// 높이 변위 (테셀레이션): Height Map + Amplitude (m) · Base — 바위 · 자갈 · 흙길이 실제 입체로
+			const std::string heightName = layer.HeightPath.empty() ? "None (Texture 2D)" : std::filesystem::path(layer.HeightPath).filename().string();
+			if (UnityGUI::ObjectField("Height Map", heightName.c_str(), 1))
+				ImGui::OpenPopup("##heightpick");
+			ImGui::SetNextWindowSizeConstraints(ImVec2(280, 0), ImVec2(520, 360));
+			if (ImGui::BeginPopup("##heightpick"))
+			{
+				static std::vector<std::string> textures;
+				if (ImGui::IsWindowAppearing())
+				{
+					textures = ScanFiles(L".png");
+					for (auto& t : ScanFiles(L".jpg")) textures.push_back(t);
+				}
+				if (ImGui::Selectable("None", layer.HeightPath.empty()))
+				{
+					layer.SetHeight(std::string());
+					layer.Save();
+				}
+				for (const std::string& t : textures)
+					if (ImGui::Selectable(t.c_str(), t == layer.HeightPath))
+					{
+						layer.SetHeight(t);
+						layer.Save();
+					}
+				ImGui::EndPopup();
+			}
+			if (!layer.HeightPath.empty())
+			{
+				if (UnityGUI::Float("Amplitude", &layer.HeightAmplitude, 2)) { layer.HeightAmplitude = std::clamp(layer.HeightAmplitude, 0.0f, 4.0f); layer.Save(); }
+				if (UnityGUI::Slider("Base", &layer.HeightBase, 0.0f, 1.0f, 2)) { layer.HeightBase = std::clamp(layer.HeightBase, 0.0f, 1.0f); layer.Save(); }
+				const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(layer.HeightPath));
+				if (!ImportSettingsInspector::IsLinearHeightMap(full))
+				{
+					UnityGUI::HelpBox("This height map is imported as a color (sRGB) texture. Height maps should be linear.", true, 1);
+					if (UnityGUI::CenterButton("Fix Now##terrainHeightFix", 120.0f))
+						ImportSettingsInspector::MarkAsHeightMap(full);
+				}
+			}
 		}
 	}
 

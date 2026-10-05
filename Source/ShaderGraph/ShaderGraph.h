@@ -86,6 +86,13 @@ namespace ShaderGraph
 		std::string Path = "Shader Graphs";   // 셰이더 이름 앞부분 (Unity 의 Blackboard 경로) → "<Path>/<파일 이름>"
 		std::string Surface = "Opaque";       // Opaque, Transparent (투명 패스: 먼 것부터 섞기, 그림자 · 프리패스 없음)
 		bool AlphaClip = false;               // Alpha Clipping: Alpha < Alpha Clip Threshold 를 잘라낸다 (프리패스 · 그림자도)
+		// 테셀레이션 (HDRP 의 Tessellation): 카메라 가까이에서 삼각형을 잘게 나누고 Vertex 블록의 Displacement (m, 법선 쪽) 만큼 민다
+		//  (60. Tessellation.fx 의 나눔 — 재질의 Displacement Mode 와 같은 값). 불투명 Lit · Unlit 만
+		bool Tessellation = false;
+		float TessFactor = 16.0f;             // 변 하나를 최대 몇 조각으로 (1..64)
+		float TessTriangleSize = 12.0f;       // 원하는 삼각형 변 (1080p 화면의 픽셀)
+		float TessFadeDistance = 50.0f;       // 이 거리 (m) 너머는 나누지 않는다
+		bool UsesTessellation() const { return Tessellation && Material != "Decal" && Surface != "Transparent" && !IsSubGraph(); }
 		std::vector<SubOutput> Outputs;       // Sub Graph 만
 		std::vector<Property> Properties;
 		std::vector<Node> Nodes;

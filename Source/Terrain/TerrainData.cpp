@@ -73,6 +73,23 @@ void TerrainLayer::SetDiffuse(const std::string& path)
 	m_Diffuse = nullptr;
 }
 
+GfxShaderResourceView* TerrainLayer::HeightSRV()
+{
+	if (!m_HeightLoaded)
+	{
+		m_HeightLoaded = true;
+		m_Height = HeightPath.empty() ? nullptr : ResourceManager::GetI()->LoadTexture(string_to_wstring(HeightPath));
+	}
+	return m_Height.Get();
+}
+
+void TerrainLayer::SetHeight(const std::string& path)
+{
+	HeightPath = NormalizePath(path);
+	m_HeightLoaded = false;
+	m_Height = nullptr;
+}
+
 bool TerrainLayer::Save() const
 {
 	json j;
@@ -80,6 +97,12 @@ bool TerrainLayer::Save() const
 	j["tileSize"] = { TileSize.x, TileSize.y };
 	j["tileOffset"] = { TileOffset.x, TileOffset.y };
 	j["tint"] = { Tint.x, Tint.y, Tint.z, Tint.w };
+	if (!HeightPath.empty())
+	{
+		j["height"] = HeightPath;
+		j["heightAmplitude"] = HeightAmplitude;
+		j["heightBase"] = HeightBase;
+	}
 	std::ofstream os(FilePath(Path), std::ios::binary | std::ios::trunc);
 	if (!os)
 		return false;
@@ -107,6 +130,9 @@ std::shared_ptr<TerrainLayer> TerrainLayer::Load(const std::string& rawPath)
 	if (j.contains("tileSize")) layer->TileSize = Vec2(j["tileSize"][0], j["tileSize"][1]);
 	if (j.contains("tileOffset")) layer->TileOffset = Vec2(j["tileOffset"][0], j["tileOffset"][1]);
 	if (j.contains("tint")) layer->Tint = XMFLOAT4(j["tint"][0], j["tint"][1], j["tint"][2], j["tint"][3]);
+	layer->HeightPath = NormalizePath(j.value("height", std::string()));
+	layer->HeightAmplitude = (std::max)(0.0f, j.value("heightAmplitude", layer->HeightAmplitude));
+	layer->HeightBase = std::clamp(j.value("heightBase", layer->HeightBase), 0.0f, 1.0f);
 	LayerCache()[path] = layer;
 	return layer;
 }

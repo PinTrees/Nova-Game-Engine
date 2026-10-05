@@ -496,7 +496,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 
 	bool IsVertexPort(const std::string& masterPort)
 	{
-		return masterPort == "Vertex Position" || masterPort == "Vertex Normal" || masterPort == "Vertex Tangent";
+		return masterPort == "Vertex Position" || masterPort == "Vertex Normal" || masterPort == "Vertex Tangent" || masterPort == "Displacement";
 	}
 
 	std::vector<PortDef> MasterInputs(const Graph& g)
@@ -514,6 +514,9 @@ float SG_Rectangle(float2 uv, float w, float h)
 			v.push_back(P("Vertex Position", 3, 0, 0, 0, 0, "posO"));
 			v.push_back(P("Vertex Normal", 3, 0, 0, 0, 0, "normalO"));
 			v.push_back(P("Vertex Tangent", 3, 0, 0, 0, 0, "tangentO"));
+			// 테셀레이션: 나눈 정점마다 법선 쪽으로 이만큼 (m) — Domain 에서 계산한다 (HDRP 의 Tessellation Displacement)
+			if (g.UsesTessellation())
+				v.push_back(P("Displacement", 1, 0));
 		}
 		// Fragment 블록: Alpha Clipping 을 켜면 Alpha Clip Threshold
 		v.push_back(P("Base Color", 3, 0.5f, 0.5f, 0.5f));
@@ -1155,7 +1158,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 			"// Master 입력 값\n"
 			"struct SGSurface\n{\n    float3 BaseColor;\n    float3 NormalTS;\n    float Metallic;\n    float Smoothness;\n    float3 Emission;\n"
 			"    float Occlusion;\n    float Alpha;\n    float AlphaClipThreshold;\n};\n\n"
-			"struct SGVertex\n{\n    float3 Position;\n    float3 Normal;\n    float3 Tangent;\n};\n\n";
+			"struct SGVertex\n{\n    float3 Position;\n    float3 Normal;\n    float3 Tangent;\n    float Displacement;\n};\n\n";
 
 		const char* kEvalParams = "float2 sg_uv, float3 sg_posW, float3 sg_normalW, float3 sg_viewW, float4 sg_screen, float3 sg_posO, float3 sg_normalO";
 
@@ -1195,6 +1198,7 @@ float SG_Rectangle(float2 uv, float w, float h)
 			f += "    v.Position = " + MasterExpr(g, "Vertex Position", 3) + ";\n";
 			f += "    v.Normal = " + MasterExpr(g, "Vertex Normal", 3) + ";\n";
 			f += "    v.Tangent = " + MasterExpr(g, "Vertex Tangent", 3) + ";\n";
+			f += "    v.Displacement = " + std::string(g.UsesTessellation() ? MasterExpr(g, "Displacement", 1) : "0.0") + ";\n";
 			f += "    return v;\n}\n\n";
 			return f;
 		}
@@ -1253,6 +1257,85 @@ float SG_Rectangle(float2 uv, float w, float h)
 			const std::string psLine = ps ? std::string("SetPixelShader(CompileShader(ps_5_0, ") + ps + "()));" : std::string("SetPixelShader(NULL);");
 			return std::string("technique11 ") + name + "\n{\n    pass P0\n    {\n        SetVertexShader(CompileShader(vs_5_0, " + vs + "()));\n"
 				"        SetGeometryShader(NULL);\n        " + psLine + "\n    }\n}\n\n";
+		}
+
+		// 테셀레이션 (Graph Settings 의 Tessellation): 조절점 = 정점 출력 (SGVOut), 나눔 = 60. Tessellation.fx 의 TessFactors,
+		//  나눈 점마다 Vertex 블록 (SG_EvaluateVertex) 의 Displacement 만큼 법선 쪽으로. 본 · 깊이 · 그림자가 같은 SG_TessEval →
+		//  같은 자리 (precise — 깊이 프리패스와 EQUAL). 화면 좌표 노드는 gTessViewProj (카메라 — 그림자 패스도) 로
+		std::string TessellationCode(bool vertex, bool alphaClip)
+		{
+			std::string f =
+				"// ---- 테셀레이션 (Graph Settings > Tessellation)\n"
+				"TessPatch SG_TessPatch(InputPatch<SGVOut, 3> p)\n{\n    return TessFactors(p[0].PosW.xyz, p[1].PosW.xyz, p[2].PosW.xyz);\n}\n\n"
+				"[domain(\"tri\")]\n[partitioning(\"fractional_odd\")]\n[outputtopology(\"triangle_cw\")]\n[outputcontrolpoints(3)]\n"
+				"[patchconstantfunc(\"SG_TessPatch\")]\n[maxtessfactor(64.0f)]\n"
+				"SGVOut HS_GraphTess(InputPatch<SGVOut, 3> p, uint i : SV_OutputControlPointID)\n{\n    return p[i];\n}\n\n"
+				// 무게중심 w 의 자리를 Displacement 만큼 민다 (본 · 깊이 · 그림자가 같은 비트 — precise). n = 민 쪽 (보간한 법선)
+				"float3 SG_TessDisplaced(const OutputPatch<SGVOut, 3> tri, float3 w, out float3 n)\n{\n"
+				"    precise const float3 p = tri[0].PosW.xyz * w.x + tri[1].PosW.xyz * w.y + tri[2].PosW.xyz * w.z;\n"
+				"    precise const float3 nS = tri[0].NormalW * w.x + tri[1].NormalW * w.y + tri[2].NormalW * w.z;\n"
+				"    precise const float3 nn = nS * (1.0f / sqrt(max(TESS_DOT3(nS, nS), 1e-20f)));\n"
+				"    n = nn;\n";
+			if (vertex)
+				f +=
+					"    precise const float2 uv = tri[0].Tex * w.x + tri[1].Tex * w.y + tri[2].Tex * w.z;\n"
+					"    precise const float3 posO = tri[0].PosO * w.x + tri[1].PosO * w.y + tri[2].PosO * w.z;\n"
+					"    precise const float3 normalO = tri[0].NormalO * w.x + tri[1].NormalO * w.y + tri[2].NormalO * w.z;\n"
+					"    const float3 tangentW = (tri[0].TangentW * w.x + tri[1].TangentW * w.y + tri[2].TangentW * w.z).xyz;\n"
+					"    precise const float4 sgc = mul(float4(p, 1.0f), gTessViewProj);\n"
+					"    const float4 sgs = float4(sgc.x / max(sgc.w, 1e-5f) * 0.5f + 0.5f, -sgc.y / max(sgc.w, 1e-5f) * 0.5f + 0.5f, 0, 1);\n"
+					"    const SGVertex v = SG_EvaluateVertex(posO, normalize(normalO), tangentW, uv, p, nn, normalize(gTessEye.xyz - p), sgs);\n"
+					"    precise const float d = v.Displacement;\n"
+					"    precise const float3 moved = p + nn * d;\n"
+					"    return moved;\n}\n\n";
+			else
+				f += "    return p;\n}\n\n";
+			f +=
+				"SGVOut SG_TessEval(const OutputPatch<SGVOut, 3> tri, float3 w)\n{\n"
+				"    SGVOut o = tri[0];\n"
+				"    SG_InstanceProps(o.InstBase, o.InstSurface, o.InstEmission);\n"
+				"    float3 n;\n"
+				"    precise const float3 p0 = SG_TessDisplaced(tri, w, n);\n"
+				"    o.PosW = float4(p0, 1.0f);\n"
+				"    o.NormalW = n;\n"
+				"    o.TangentW = tri[0].TangentW * w.x + tri[1].TangentW * w.y + tri[2].TangentW * w.z;\n"
+				"    o.Tex = tri[0].Tex * w.x + tri[1].Tex * w.y + tri[2].Tex * w.z;\n"
+				"    o.PosO = tri[0].PosO * w.x + tri[1].PosO * w.y + tri[2].PosO * w.z;\n"
+				"    o.NormalO = tri[0].NormalO * w.x + tri[1].NormalO * w.y + tri[2].NormalO * w.z;\n";
+			if (vertex)
+				f +=
+					"    // 민 면의 법선: 무게중심을 조금 옮긴 두 점도 밀어 기울기로 (uv · 오브젝트 위치가 같이 움직인다 — 높이 맵 Displacement 도 맞는다)\n"
+					"    const float3 e1 = tri[1].PosW.xyz - tri[0].PosW.xyz, e2 = tri[2].PosW.xyz - tri[0].PosW.xyz, e3 = tri[2].PosW.xyz - tri[1].PosW.xyz;\n"
+					"    const float edge = sqrt(max(max(dot(e1, e1), dot(e2, e2)), dot(e3, e3)));\n"
+					"    const float k = clamp(0.02f / max(edge, 1e-4f), 1e-4f, 0.1f);   // 월드 2 cm 쯤\n"
+					"    float3 n1, n2;\n"
+					"    const float3 p1 = SG_TessDisplaced(tri, w + float3(-k, k, 0.0f), n1);\n"
+					"    const float3 p2 = SG_TessDisplaced(tri, w + float3(-k, 0.0f, k), n2);\n"
+					"    float3 nd = cross(p1 - p0, p2 - p0);\n"
+					"    if (dot(nd, nd) > 1e-20f)\n    {\n        nd = normalize(nd);\n        o.NormalW = dot(nd, n) < 0.0f ? -nd : nd;\n    }\n";
+			f += "    return o;\n}\n\n";
+			// 본 · 깊이 프리패스: 같은 자리 (gTessViewProj = 카메라)
+			f += "[domain(\"tri\")]\nSGVOut DS_GraphTess(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<SGVOut, 3> tri)\n{\n"
+				"    SGVOut o = SG_TessEval(tri, w);\n"
+				"    precise const float4 posH = mul(o.PosW, gTessViewProj);\n"
+				"    o.PosH = posH;\n"
+				"    o.SsaoPosH = float4(posH.x * 0.5f + posH.w * 0.5f, -posH.y * 0.5f + posH.w * 0.5f, posH.z, posH.w);\n"
+				"    return o;\n}\n\n";
+			// 그림자: 빛의 gViewProj + 엔진과 같은 바이어스
+			f += "[domain(\"tri\")]\nSGVOut DS_GraphTessShadow(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<SGVOut, 3> tri)\n{\n"
+				"    SGVOut o = SG_TessEval(tri, w);\n"
+				"    o.PosH = mul(float4(SG_ShadowBias(o.PosW.xyz, o.NormalW), 1.0f), gViewProj);\n"
+				"    return o;\n}\n\n";
+			auto tech = [](const char* name, const char* ds, const char* ps) {
+				const std::string psLine = ps ? std::string("SetPixelShader(CompileShader(ps_5_0, ") + ps + "()));" : std::string("SetPixelShader(NULL);");
+				return std::string("technique11 ") + name + "\n{\n    pass P0\n    {\n        SetVertexShader(CompileShader(vs_5_0, VS_GraphBatch()));\n"
+					"        SetHullShader(CompileShader(hs_5_0, HS_GraphTess()));\n        SetDomainShader(CompileShader(ds_5_0, " + ds + "()));\n"
+					"        SetGeometryShader(NULL);\n        " + psLine + "\n    }\n}\n\n";
+			};
+			f += tech("GraphTessBatchTech", "DS_GraphTess", "PS_Graph");
+			f += tech("GraphTessDepthBatchTech", "DS_GraphTess", "PS_GraphDepth");
+			f += tech("GraphTessShadowBatchTech", "DS_GraphTessShadow", alphaClip ? "PS_GraphShadow" : nullptr);
+			return f;
 		}
 
 		// 정점 이동: VS 입력을 바꾼 뒤 엔진 VS (VS_Batch / VS_Skinned) 에 넘긴다.
@@ -1352,7 +1435,8 @@ float SG_Rectangle(float2 uv, float w, float h)
 		}
 		const bool transparent = g.Surface == "Transparent";
 		r.Vertex = vertex;
-		r.OwnDepth = g.AlphaClip || vertex;
+		const bool tess = g.UsesTessellation();
+		r.OwnDepth = g.AlphaClip || vertex || tess;
 		r.Files = S.Files;
 		std::vector<int> allOrder = fragOrder;
 		allOrder.insert(allOrder.end(), vertOrder.begin(), vertOrder.end());
@@ -1427,6 +1511,8 @@ float SG_Rectangle(float2 uv, float w, float h)
 			fx << Technique("GraphShadowBatchTech", "VS_GraphShadowBatch", g.AlphaClip ? "PS_GraphShadow" : nullptr);
 			fx << Technique("GraphShadowSkinnedTech", "VS_GraphShadowSkinned", g.AlphaClip ? "PS_GraphShadow" : nullptr);
 		}
+		if (tess)
+			fx << TessellationCode(vertex, g.AlphaClip);
 		r.Hlsl = fx.str();
 		return r;
 	}
@@ -1558,6 +1644,13 @@ float SG_Rectangle(float2 uv, float w, float h)
 			outputs.push_back({ { "name", o.Name }, { "type", o.Type } });
 		json j = { { "format", "nova-shadergraph" }, { "version", 1 }, { "kind", Kind }, { "material", Material }, { "path", Path }, { "surface", Surface }, { "alphaClip", AlphaClip },
 			{ "properties", props }, { "nodes", nodes }, { "edges", edges }, { "nextId", NextId } };
+		if (Tessellation)
+		{
+			j["tessellation"] = true;
+			j["tessFactor"] = TessFactor;
+			j["tessTriangleSize"] = TessTriangleSize;
+			j["tessFadeDistance"] = TessFadeDistance;
+		}
 		if (IsSubGraph())
 			j["outputs"] = outputs;
 		return j;
@@ -1579,6 +1672,10 @@ float SG_Rectangle(float2 uv, float w, float h)
 		Path = j.value("path", std::string("Shader Graphs"));
 		Surface = j.value("surface", std::string("Opaque"));
 		AlphaClip = j.value("alphaClip", false);
+		Tessellation = j.value("tessellation", false);
+		TessFactor = std::clamp(j.value("tessFactor", 16.0f), 1.0f, 64.0f);
+		TessTriangleSize = std::clamp(j.value("tessTriangleSize", 12.0f), 2.0f, 100.0f);
+		TessFadeDistance = (std::max)(1.0f, j.value("tessFadeDistance", 50.0f));
 		Properties.clear();
 		Nodes.clear();
 		Edges.clear();

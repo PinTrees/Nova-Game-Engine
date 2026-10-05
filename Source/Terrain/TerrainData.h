@@ -15,10 +15,17 @@ public:
 	Vec2 TileSize = Vec2(15.0f, 15.0f);
 	Vec2 TileOffset = Vec2(0.0f, 0.0f);
 	XMFLOAT4 Tint = XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+	// 높이 변위 (테셀레이션 — docs/TESSELLATION.md): 높이 맵 (회색, 선형) 만큼 지형 표면을 실제로 민다. Diffuse 와 같은 타일 · 같은 무늬
+	std::string HeightPath;
+	float HeightAmplitude = 0.15f;   // 높이 맵 0..1 → 이 높이 (m)
+	float HeightBase = 0.5f;         // 원래 면의 자리 (0..1)
 
 	std::string Name() const;
 	GfxShaderResourceView* DiffuseSRV();
 	void SetDiffuse(const std::string& path);
+	GfxShaderResourceView* HeightSRV();
+	void SetHeight(const std::string& path);
+	bool HasHeight() { return HeightAmplitude > 0.0f && HeightSRV() != nullptr; }
 	bool Save() const;
 
 	static std::shared_ptr<TerrainLayer> Load(const std::string& path);
@@ -29,6 +36,8 @@ public:
 private:
 	ComPtr<GfxShaderResourceView> m_Diffuse;
 	bool m_DiffuseLoaded = false;
+	ComPtr<GfxShaderResourceView> m_Height;
+	bool m_HeightLoaded = false;
 };
 
 // 지형에 칠한 나무 한 그루 (Unity 의 TreeInstance). 위치는 지형 기준 0~1, 높이는 그릴 때 지형에서 읽는다

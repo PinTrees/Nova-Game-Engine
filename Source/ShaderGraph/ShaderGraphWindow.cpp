@@ -999,6 +999,41 @@ void ShaderGraphWindow::DrawInspector(float width, float height)
 		RunOp("settings", { { "alphaClip", clip } }, r, e);
 	}
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cut away pixels whose Alpha is below Alpha Clip Threshold (also in shadows)");
+	// 테셀레이션 (HDRP 처럼): 켜면 Vertex 블록에 Displacement (m, 법선 쪽)
+	if (g.Material != "Decal" && g.Surface != "Transparent")
+	{
+		bool tess = g.Tessellation;
+		if (ImGui::Checkbox("Tessellation", &tess))
+		{
+			nlohmann::json r;
+			std::string e;
+			RunOp("settings", { { "tessellation", tess } }, r, e);
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Subdivide triangles near the camera and move each new vertex along the normal by the Displacement input (Vertex block)");
+		if (g.Tessellation)
+		{
+			// 끄는 동안은 그래프 값만 (셰이더를 다시 만들지 않는다 — 실행 값), 놓을 때 settings 로 저장 · 되돌리기
+			static float s_before = 0.0f;
+			auto field = [&](const char* id, float* value, float minV, float maxV, const char* format, const char* key, bool drag) {
+				ImGui::SetNextItemWidth(-1);
+				const float now = *value;
+				if (drag) ImGui::DragFloat(id, value, 0.5f, minV, maxV, format);
+				else ImGui::SliderFloat(id, value, minV, maxV, format);
+				if (ImGui::IsItemActivated()) s_before = now;
+				if (ImGui::IsItemDeactivatedAfterEdit())
+				{
+					const float v = *value;
+					*value = s_before;
+					nlohmann::json r;
+					std::string e;
+					RunOp("settings", { { key, v } }, r, e);
+				}
+			};
+			field("##tessFactor", &g.TessFactor, 1.0f, 64.0f, "Tessellation Factor %.0f", "tessFactor", false);
+			field("##tessTri", &g.TessTriangleSize, 2.0f, 100.0f, "Triangle Size %.0f px", "tessTriangleSize", false);
+			field("##tessFade", &g.TessFadeDistance, 1.0f, 1000.0f, "Fade Distance %.1f m", "tessFadeDistance", true);
+		}
+	}
 	}
 	ImGui::Spacing();
 	ImGui::Separator();
