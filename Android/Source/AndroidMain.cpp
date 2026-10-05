@@ -18,6 +18,7 @@
 #include <fstream>
 #include <locale>
 #include "OcclusionCulling.h"
+#include "VfxRuntime.h"
 #include "Profiler.h"
 #include <map>
 
@@ -238,7 +239,7 @@ namespace
 	void RunTest(const std::string& test, int width, int height, int frames, int warmup)
 	{
 		const auto t0 = std::chrono::steady_clock::now();
-		std::string error, device, png, occlusion = "null";
+		std::string error, device, png, occlusion = "null", vfx = "null";
 		bool ok = false;
 		double loadMs = 0, drawMs = 0, cpuMs = 0;
 		{
@@ -248,6 +249,7 @@ namespace
 				device = (const char*)glGetString(GL_VERSION);
 				ok = RunSceneTest(width, height, frames, warmup, png, loadMs, drawMs, cpuMs, error);
 				if (ok) occlusion = OcclusionCulling::InfoJson();   // 오클루전 컬링 검사 (몇 프레임 늦은 GPU 결과)
+				if (ok) vfx = VfxRuntime::InfoJson();               // Visual Effect: 시스템마다 살아 있는 파티클 (GPU 가 센 수)
 			}
 			else if (error.empty())
 			{
@@ -319,8 +321,8 @@ namespace
 		}
 		const double totalMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		char line[16384];
-		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.2f,\"cpuMs\":%.2f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s,\"gl\":%s,\"scopes\":%s}",
-			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, cpuMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str(), s_GlCalls.c_str(), s_Scopes.c_str());
+		snprintf(line, sizeof(line), "{\"test\":\"%s\",\"ok\":%s,\"device\":\"%s\",\"image\":\"%s\",\"width\":%d,\"height\":%d,\"loadMs\":%.1f,\"drawMs\":%.2f,\"cpuMs\":%.2f,\"totalMs\":%.1f,\"error\":\"%s\",\"occlusion\":%s,\"vfx\":%s,\"gl\":%s,\"scopes\":%s}",
+			test.c_str(), ok ? "true" : "false", JsonEscape(device).c_str(), png.c_str(), width, height, loadMs, drawMs, cpuMs, totalMs, JsonEscape(error).c_str(), occlusion.c_str(), vfx.c_str(), s_GlCalls.c_str(), s_Scopes.c_str());
 		std::ofstream(s_FilesDir + "/result_" + test + ".json", std::ios::trunc) << line;
 		Log("NOVA_TEST %s", line);
 	}

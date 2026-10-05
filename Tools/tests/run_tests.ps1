@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -3609,6 +3609,108 @@ function Suite-Particles
     }
 }
 
+function Suite-Vfx([string]$Api = 'dx')
+{
+    # Visual Effect Graph (Unity VFX Graph): .vfx 편집 (nova vfx), GPU 시뮬레이션 (58. VFX.fx — Spawn · Update · GPU Event), 이벤트 · 속성 덮어쓰기, C# API, 그리기
+    $suite = if ($Api -eq 'dx') { 'vfx' } else { "vfx$Api" }
+    Write-Host "[$suite]"
+    $dir = Join-Path $Out $suite
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk')
+    try
+    {
+        function Stats { (Invoke-NovaJson 'vfx stats') }
+        function Sys($s, [string]$obj, [string]$name) { ($s.effects | Where-Object { $_.object -eq $obj } | Select-Object -First 1).systems | Where-Object { $_.name -eq $name } | Select-Object -First 1 }
+        # 조건이 맞을 때까지 (백그라운드 에디터는 프레임이 빠르다 — 시간으로 기다린다)
+        function WaitFor([scriptblock]$cond, [int]$seconds = 20) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $seconds) { Invoke-Nova 'wait 30' | Out-Null; $s = Stats; if (& $cond $s) { return $s }; Start-Sleep -Milliseconds 250 }; Stats }
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        $root = 'Assets/VFX/Test'
+
+        if ($Api -eq 'dx')
+        {
+            # ---- 에셋 편집 (CLI)
+            $a = Invoke-NovaJson "vfx new $root/Edit.vfx --overwrite"
+            $okNew = $a -and $a.systems.Count -eq 1 -and $a.issues.Count -eq 0
+            Invoke-Nova "vfx property.add $root/Edit.vfx --name Power --type Float --value 3" | Out-Null
+            Invoke-Nova "vfx block.add $root/Edit.vfx --system Particles --context update --type Gravity --params {\`"Force\`":[0,-2,0]}" | Out-Null
+            Invoke-Nova "vfx block.add $root/Edit.vfx --system Particles --context update --type Vortex --bind {\`"Speed\`":\`"Power\`"}" | Out-Null
+            Invoke-Nova "vfx property.set $root/Edit.vfx --name Power --rename Strength" | Out-Null
+            Invoke-Nova "vfx system.set $root/Edit.vfx --system Particles --data {\`"capacity\`":777,\`"output\`":{\`"shape\`":\`"Star\`"}}" | Out-Null
+            $bad = Invoke-Nova "vfx block.add $root/Edit.vfx --system Particles --context initialize --type Gravity"
+            $i = Invoke-NovaJson "vfx info $root/Edit.vfx"
+            $sys = $i.systems[0]
+            $vortex = $sys.update | Where-Object { $_.type -eq 'Vortex' }
+            $okEdit = $okNew -and $sys.capacity -eq 777 -and $sys.output.shape -eq 'Star' -and ($sys.update | Where-Object { $_.type -eq 'Gravity' }).params.Force[1] -eq -2 -and
+                $vortex.bind.Speed -eq 'Strength' -and $i.properties[0].name -eq 'Strength' -and $i.issues.Count -eq 0 -and $bad -match 'belongs to update'
+            Add-Result $suite 'nova vfx: new, property.add/rename (binds follow), block.add (+params/bind), system.set merge, wrong context refused' $okEdit ("capacity {0}, shape {1}, vortex bind {2}, issues {3}, bad '{4}'" -f $sys.capacity, $sys.output.shape, $vortex.bind.Speed, $i.issues.Count, $bad)
+            $badParent = Invoke-NovaJson "vfx system.set $root/Edit.vfx --system Particles --data {\`"spawn\`":{\`"parent\`":\`"Nope\`"}}"
+            Add-Result $suite 'validate: missing GPU event parent is reported' ([bool](@($badParent.issues) -match 'does not exist')) (@($badParent.issues) -join '; ')
+        }
+
+        # ---- GPU 시뮬레이션: 견본 두 개 (마법진 = 5 시스템 · Orbit, 불꽃놀이 = GPU Event 사슬)
+        Invoke-Nova "vfx new $root/Circle_$Api.vfx --template `"Magic Circle`" --overwrite" | Out-Null
+        Invoke-Nova "vfx new $root/Fireworks_$Api.vfx --template Fireworks --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Circle_$Api.vfx --name Circle --position 0,0,0" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Fireworks_$Api.vfx --name Fireworks --position 30,0,0" | Out-Null
+        $s = WaitFor { param($s) (Sys $s 'Circle' 'Outer Ring').alive -gt 1000 -and (Sys $s 'Fireworks' 'Crackle').alive -gt 0 } 30
+        $outer = (Sys $s 'Circle' 'Outer Ring').alive; $pillar = (Sys $s 'Circle' 'Pillar').alive
+        Add-Result $suite "${Api}: GPU spawn + update (Magic Circle systems alive)" ($s.gpu -and $outer -gt 1000 -and $pillar -gt 100) ("gpu {0}, Outer Ring {1}, Pillar {2}" -f $s.gpu, $outer, $pillar)
+        $rocket = (Sys $s 'Fireworks' 'Rocket').alive; $boom = (Sys $s 'Fireworks' 'Explosion').alive; $crackle = (Sys $s 'Fireworks' 'Crackle').alive
+        Add-Result $suite "${Api}: GPU events chain (Rocket dies -> Explosion -> Crackle)" ($boom -gt 100 -and $crackle -gt 0) ("Rocket {0}, Explosion {1}, Crackle {2}" -f $rocket, $boom, $crackle)
+
+        # ---- 이벤트 · 속성: OnStop 이면 마법진이 사라진다, OnPlay 로 다시
+        Invoke-Nova 'vfx event --object Circle --name OnStop' | Out-Null
+        $s = WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Circle' }).alive -eq 0 } 15
+        $stopped = ($s.effects | Where-Object { $_.object -eq 'Circle' }).alive
+        Invoke-Nova 'vfx event --object Circle --name OnPlay' | Out-Null
+        $s = WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Circle' }).alive -gt 1000 } 15
+        $again = ($s.effects | Where-Object { $_.object -eq 'Circle' }).alive
+        Add-Result $suite "${Api}: OnStop stops spawning (particles die out), OnPlay starts again" ($stopped -eq 0 -and $again -gt 1000) "after OnStop $stopped, after OnPlay $again"
+        # Launch Rate 0 (Spawn rate 에 연결된 속성) → 로켓이 더 오르지 않는다
+        Invoke-Nova 'vfx override --object Fireworks --name "Launch Rate" --value 0' | Out-Null
+        $s = WaitFor { param($s) (Sys $s 'Fireworks' 'Rocket').alive -eq 0 } 15
+        Add-Result $suite "${Api}: exposed property override (Launch Rate 0 -> no rockets)" ((Sys $s 'Fireworks' 'Rocket').alive -eq 0) ("Rocket {0}" -f (Sys $s 'Fireworks' 'Rocket').alive)
+
+        # ---- 그리기: 마법진 앞 화면이 끈 것과 다르다 (밝은 고리)
+        Invoke-Nova 'camera --position 0,4.5,-7.5 --target 0,0.8,0' | Out-Null
+        $onPng = Join-Path $dir 'circle_on.png'; $offPng = Join-Path $dir 'circle_off.png'
+        Invoke-Nova 'wait 60' | Out-Null; Invoke-Nova "screenshot $onPng --view scene" | Out-Null
+        Invoke-Nova 'set Circle --active false' | Out-Null; Invoke-Nova 'wait 30' | Out-Null; Invoke-Nova "screenshot $offPng --view scene" | Out-Null
+        Invoke-Nova 'set Circle --active true' | Out-Null
+        $c = [NovaImageCompare]::Compare($offPng, $onPng, $null)
+        Add-Result $suite "${Api}: Visual Effect is drawn (on vs off)" ($c -and $c[2] -gt 1.0) $(if ($c) { 'pixels >8 different: {0:N2}%' -f $c[2] } else { 'capture missing' })
+
+        if ($Api -eq 'dx')
+        {
+            # ---- C# API (Unity 의 UnityEngine.VFX.VisualEffect)
+            $cs = Join-Path $dir 'vfx.cs'
+            @'
+var v = GameObject.Find("Circle").GetComponent<NovaEngine.VFX.VisualEffect>();
+v.SetFloat("Spin", 123f);
+v.SetVector4("Main Color", new Vector4(1f, 0.2f, 0.1f, 1f));
+return (v != null) + " " + v.GetFloat("Spin") + " " + v.HasFloat("Spin") + " " + v.HasVector4("Main Color") + " " + v.HasFloat("Nope") + " " + (v.aliveParticleCount > 0) + " " + v.visualEffectAsset;
+'@ | Set-Content -Encoding utf8 $cs
+            $r = (Invoke-NovaJson "exec --file $cs").result
+            Add-Result $suite 'C# VisualEffect: SetFloat/GetFloat, HasFloat/HasVector4, aliveParticleCount, visualEffectAsset' ($r -match '^True 123 True True False True Assets/VFX/Test/Circle_dx\.vfx$') "$r"
+            # ---- 컴포넌트 JSON (씬에 저장되는 값): 에셋 · 덮어쓰기
+            $comp = Invoke-NovaJson 'get Circle --component VisualEffect'
+            $ov = $comp.overrides | Where-Object { $_.name -eq 'Spin' }
+            Add-Result $suite 'component JSON: asset + overrides saved' ($comp.asset -eq "$root/Circle_dx.vfx" -and $ov.value[0] -eq 123) ("asset {0}, Spin {1}" -f $comp.asset, $ov.value[0])
+            # ---- VFX Assistant: 이 PC 의 Claude Code 를 찾는다 (실제 대화는 로그인이 필요해 자동 검사에서 보내지 않는다)
+            Invoke-Nova 'vfx assistant' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
+            $st = Invoke-NovaJson 'vfx assistant.status'
+            Add-Result $suite 'VFX Assistant window + status (local Claude Code, no API)' ($null -ne $st -and $st.running -eq $false) ("running {0}, log {1}" -f $st.running, $st.log.Count)
+        }
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 # ------------------------------------------------------------------ 실제 키 입력 (에디터를 앞으로 — -Interactive)
 function Suite-Keys
 {
@@ -3716,6 +3818,9 @@ try
                 'vulkan' { Suite-Vulkan }
                 'perf' { Suite-Perf }
                 'particles' { Suite-Particles }
+                'vfx' { Suite-Vfx }
+                'vfxgl' { Suite-Vfx -Api gl }
+                'vfxvk' { Suite-Vfx -Api vk }
                 'keys' { Suite-Keys }
                 default { Write-Host "unknown suite $s" }
             }

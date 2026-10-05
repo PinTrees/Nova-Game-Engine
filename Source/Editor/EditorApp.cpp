@@ -5,6 +5,7 @@
 #include "ScriptEngine.h"
 #include "UISystem.h"
 #include "ParticleRenderer.h"
+#include "VfxRuntime.h"
 #include "SpriteBatch.h"
 #include "SpriteAnimator.h"
 #include "RenderLayers.h"
@@ -738,6 +739,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	{
 		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, d.BackgroundType == 0);
 		ParticleRenderer::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);
+		VfxRuntime::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);   // Visual Effect (GPU 파티클 — 프레임의 첫 뷰에서 시뮬레이션)
 	}
 	_deviceContext->RSSetViewports(1, &viewport);
 
@@ -970,6 +972,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	{
 		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, SceneToolbar::SkyboxVisible());
 		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
+		VfxRuntime::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
 	}
 	_deviceContext->RSSetViewports(1, &viewport);
 

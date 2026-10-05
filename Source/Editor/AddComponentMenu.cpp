@@ -58,6 +58,7 @@ namespace
 		{ "ParticleSystem",      "Particle System",       "Effects",       "particle_system",   true  },
 		{ "LineRenderer",        "Line Renderer",         "Effects",       "particle_system",   true  },
 		{ "TrailRenderer",       "Trail Renderer",        "Effects",       "particle_system",   true  },
+		{ "VisualEffect",        "Visual Effect",         "Effects",       "particle_system",   true  },
 		{ "AudioSource",         "Audio Source",          "Audio",         "audio_source",      false },
 		{ "AudioListener",       "Audio Listener",        "Audio",         "audio_listener",    true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },

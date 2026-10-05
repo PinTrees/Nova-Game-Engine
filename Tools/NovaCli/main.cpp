@@ -576,9 +576,9 @@ namespace
 		"               [--position x,y,z] [--rotation x,y,z] [--scale x,y,z] [--world-position x,y,z]\n"
 		"               [Component.field=value ...]          e.g. Light.intensity=2 MeshRenderer.castShadows=1\n"
 		"  create <type> [--name N] [--parent P] [--position x,y,z] [--rotation ..] [--scale ..] [--preset N]\n"
-"                character: [--model <FBX>] [--controller <.controller>]\n"
+"                character: [--model <FBX>] [--controller <.controller>]   visual-effect: [--asset <.vfx>]\n"
 		"         types: empty cube sphere capsule cylinder plane quad directional-light point-light spot-light camera\n"
-		"                terrain tree rock rock-scatter ocean lake river particle-system audio-source volume character\n"
+		"                terrain tree rock rock-scatter ocean lake river particle-system visual-effect audio-source volume character\n"
 		"                third-person-character (character + Character Controller + ThirdPersonController + Follow Camera, adds packages)\n"
 		"                ui:Image ui:Text ui:Panel ui:Button ui:Toggle ui:Slider ui:Scrollbar ui:ScrollView ui:Dropdown ui:InputField ui:Canvas ui:EventSystem\n"
 		"                (= GameObject > UI menu: under --parent or the first Canvas; makes Canvas + EventSystem if missing)\n"
@@ -630,6 +630,12 @@ namespace
 		"  shadergraph <op> [--key value ...]     nodes (types + ports), info, node.add/set/delete, connect --from 2 --out Out\n"
 		"                                         --to Master --in \"Base Color\", property.add, save (builds; errors), material\n"
 		"  shadergraph batch <file | ->           one op per line, all as ONE undo step ... list: nova shadergraph help\n"
+		"\n"
+		"visual effect graph (Window > Visual Effects > Visual Effect Graph: GPU particles, Unity VFX Graph style)\n"
+		"  vfx new <Assets/X.vfx> [--template Fireworks|Magic Circle|Tornado|Sparks|Galaxy|Fire|Portal]\n"
+		"  vfx <op> <path> [--key value ...]      blocks, info, system.add/set/remove, block.add/set/remove, property.add/set\n"
+		"  vfx event|override|restart|stats       scene Visual Effects: send OnPlay/OnStop, set exposed property, alive counts\n"
+		"  vfx batch <file | ->                   one op per line ... list: nova vfx help\n"
 		"  probe info | bake [--name X] | render  Reflection Probe: list, bake to <scene>/ReflectionProbe-<n>.dds, re-capture realtime\n"
 		"  probevolume info                       Adaptive Probe Volume (realtime GI): cascades, voxels live, probes\n"
 		"  lod info | assign --name G --lod 1 --object O | recalc --name G   LOD Group: LOD each view picked, add renderers\n"
@@ -899,6 +905,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("preset")) args["preset"] = std::stoi(a.Get("preset"));
 		if (a.Has("model")) args["model"] = a.Get("model");               // character: 모델 FBX
 		if (a.Has("controller")) args["controller"] = a.Get("controller");   // character: Animator Controller
+		if (a.Has("asset")) args["asset"] = a.Get("asset");                  // visual-effect: .vfx
 		if (a.Has("no-select")) args["select"] = false;
 	}
 	else if (cmd == "delete")
@@ -1133,7 +1140,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

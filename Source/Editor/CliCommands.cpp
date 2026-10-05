@@ -365,6 +365,7 @@ namespace
 		if (type == "terrain") return named(GameObjectFactory::CreateTerrain());
 		if (type == "tree") return named(GameObjectFactory::CreateTree());
 		if (type == "particle-system") return named(GameObjectFactory::CreateParticleSystem());
+		if (type == "visual-effect") return named(GameObjectFactory::CreateVisualEffect(args.value("asset", std::string())));
 		if (type == "audio-source") return named(GameObjectFactory::CreateAudioSource());
 		if (type == "rock") return named(GameObjectFactory::CreateRock(args.value("preset", 2)));
 		if (type == "rock-scatter") return named(GameObjectFactory::CreateRockScatter(args.value("preset", 2)));
@@ -394,7 +395,7 @@ namespace
 			return named(g);
 		}
 		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, "
-			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character, third-person-character)";
+			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character)";
 		return nullptr;
 	}
 

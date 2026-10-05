@@ -18,6 +18,7 @@
 #include "AudioSource.h"
 #include "AudioListener.h"
 #include "ParticleSystem.h"
+#include "VisualEffect.h"
 #include "LineRenderer.h"
 #include "Tree.h"
 #include "TerrainStamp.h"
@@ -372,6 +373,15 @@ GameObject* GameObjectFactory::CreateParticleSystem(const std::string& name)
 	GameObject* obj = new GameObject(name);
 	obj->GetTransform()->SetLocalEulerAngles(Vec3(-90.0f, 0.0f, 0.0f));
 	obj->AddComponent<ParticleSystem>();
+	return obj;
+}
+
+// GameObject > Effects > Visual Effect (Unity 와 같은 이름 · 회전 없음)
+GameObject* GameObjectFactory::CreateVisualEffect(const std::string& assetPath)
+{
+	GameObject* obj = new GameObject("Visual Effect");
+	VisualEffect* vfx = obj->AddComponent<VisualEffect>();
+	vfx->AssetPath = assetPath;
 	return obj;
 }
 

@@ -302,6 +302,7 @@ namespace NovaEngine
             if (t == typeof(AudioSource)) return "AudioSource";
             if (t == typeof(AudioListener)) return "AudioListener";
             if (t == typeof(ParticleSystem)) return "ParticleSystem";
+            if (t == typeof(VFX.VisualEffect)) return "VisualEffect";
             if (t == typeof(Collider)) return "Collider";
             if (t == typeof(BoxCollider)) return "BoxCollider";
             if (t == typeof(SphereCollider)) return "SphereCollider";

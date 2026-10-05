@@ -1,6 +1,16 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **활성 카메라 찾기 · 물리 동기화 남은 비용** (사용자 지시: 추천 1 · 2 진행, "코덱스는 이제 작업 안해. 너가 다해"). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **Visual Effect Graph + VFX Assistant** (사용자 지시: "vfx 그래프? 유니티의 해당 기능 만들어줘 … 대화는 클로드 코드랑 연결 … API 같은거는 고려하지마"). **완료 (커밋, 푸시 전)**
+  - GPU 런타임: 새 `Shaders/58. VFX.fx` (Reset · Spawn · Update compute, 블록 목록을 셰이더가 해석, GPU Event, 그림 없는 모양 · 플립북 · Soft), `Source/Effects/VfxAsset.*` (.vfx JSON · 블록 정의표 19 종 · Encode),
+    `VfxTemplates.cpp` (견본 8), `VisualEffect.*` (컴포넌트 · 이벤트 · Spawn 수 · Inspector), `VfxRuntime.*` (버퍼 · 시뮬레이션 · 그리기 · 살아 있는 수 읽기), `VfxScripting.cpp` (C# NovaVfx_*)
+  - 연결: `Platform/App.cpp` · `Android/Source/Engine/AppAndroid.cpp` (UpdateAll), `Editor/EditorApp.cpp` (Particles 단계 뒤 VfxRuntime::Render — 두 뷰), `AddComponentMenu` · `GameObjectMenu` · `GameObjectFactory` (CreateVisualEffect),
+    `CliCommands.cpp` (create visual-effect), `Build/BuildPipeline.cpp` (.vfx), `Tools/NovaCli/main.cpp` (vfx 명령 · create --asset), `Android/Source/AndroidMain.cpp` (scene 검사 결과에 vfx)
+  - 편집기: `Editor/Windows/VfxGraphWindow.*` (시스템 노드 · 블록 · Blackboard · Inspector · 검색 창 · GPU Event 핀 · Undo · 저장 전 장면 반영 Vfx::SetLive), `VfxAssistantWindow.*` (로컬 Claude Code headless —
+    claude.exe · npm cli.js · 데스크톱 앱 claude.exe 중 높은 판, 자식 환경에서 ANTHROPIC_* · CLAUDE_CODE_* 제거, --allowedTools nova vfx/screenshot/camera/create visual-effect + Read), `Editor/VfxCli.*` (nova vfx)
+  - C#: `ScriptCore/Engine/VisualEffect.cs` (NovaEngine.VFX.VisualEffect), `Core.cs` 매핑
+  - 검사: vfx · vfxgl · vfxvk **20/20** (run_tests), `Tools/tests/android_vfx.ps1` MuMu **11/11**, 회귀 cli · particles · linetrail **21/21**, 안드로이드 빌드. 문서 `docs/VFX_GRAPH.md` · README. Showcase 213 ~ 216
+  - Assistant 실제 대화는 아직 못 해 봄: 이 PC 의 claude CLI 로그인이 만료 ("OAuth session expired") — 사용자가 터미널에서 `claude` → `/login` 하면 동작. 파이프 · stream-json · 오류 안내까지는 확인
+- 이전: 2026년 10월 5일 — **활성 카메라 찾기 · 물리 동기화 남은 비용** (사용자 지시: 추천 1 · 2 진행, "코덱스는 이제 작업 안해. 너가 다해"). **완료 (커밋, 푸시 전)**
   - 카메라 · 빛 1.1 ms (안드로이드) 의 원인 = `DisplayManager::GetCameraForDisplay` 가 부를 때마다 씬 전체 (복사 + 오브젝트마다 GetComponent_SP). `Camera::All` (생성 · 소멸 때 등록,
     복사 생성자 삭제) 에서 고른다 — 규칙 그대로 (현재 씬 · 활성 계층 · 켜짐 · 디스플레이 · 첫 Camera · Priority, 같으면 씬 순서), 지워진 오브젝트는 `GameObject::IsAlive` (Play 멈춤 때 충돌을 검사가 잡음)
   - 새 `Source/Scene/ComponentIndex.*`: 오브젝트마다 컴포넌트 분류 (콜라이더 · Rigidbody · Character Controller · Joint · 2D 콜라이더 · Rigidbody2D · Joint2D) 를 InstanceID 지문으로 기억.
