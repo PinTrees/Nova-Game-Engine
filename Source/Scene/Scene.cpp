@@ -162,6 +162,51 @@ void Scene::RenderSceneShadow()
     DetailRenderer::DrawAll(DetailRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
 }
 
+void Scene::RenderSceneCover()
+{
+    // 위에서 본 덮개: 지붕 · 처마 · 나무 · 바위 · 지형 (풀은 비를 막지 않고, 캐릭터 밑은 눈이 쌓인 채 밟힌다)
+    MeshBatcher::Draw(this, MeshBatcher::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
+    const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    for (Terrain* terrain : view.Terrains)
+        if (RenderLayers::Visible(terrain->GetGameObject())) terrain->RenderShadow();
+    TreeRenderer::DrawAll(TreeRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
+    RockRenderer::DrawAll(RockRenderer::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
+}
+
+void Scene::RenderSceneDeformers()
+{
+    // 아래에서 본 깊이로 눈을 누른다: 움직이는 것만 (스킨 메시 · 물리로 움직이는 메시 · 캐릭터)
+    auto moves = [](GameObject* go) {
+        for (GameObject* g = go; g != nullptr; g = g->GetParent())
+            for (const auto& c : g->GetComponents())
+            {
+                const std::string t = c->GetType();
+                if (t == "RigidBody" || t == "CharacterController")
+                    return true;
+            }
+        return false;
+    };
+    auto active = [](GameObject* go) {
+        for (GameObject* g = go; g != nullptr; g = g->GetParent())
+            if (!g->IsActive()) return false;
+        return true;
+    };
+    for (GameObject* go : m_ArrGameObjects[0])
+    {
+        if (!active(go) || !RenderLayers::Visible(go))
+            continue;
+        for (const auto& c : go->GetComponents())
+        {
+            if (!c->IsEnabled())
+                continue;
+            if (auto* skinned = dynamic_cast<SkinnedMeshRenderer*>(c.get()))
+                skinned->RenderShadow();
+            else if (auto* mesh = dynamic_cast<MeshRenderer*>(c.get()); mesh && moves(go))
+                mesh->RenderShadow();
+        }
+    }
+}
+
 void Scene::RenderSceneShadowNormal()
 {
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, false);

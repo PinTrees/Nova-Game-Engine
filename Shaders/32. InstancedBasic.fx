@@ -188,7 +188,19 @@ Texture2D gMetallicMap;    // R = Metallic, A = Smoothness (Unity 와 같음)
 Texture2D gOcclusionMap;   // G = Occlusion
 Texture2D gEmissionMap;
 
-
+// ---- 날씨 (com.nova.weather — WeatherCover.cpp 가 넣는다. 넣지 않은 이펙트는 0 = 끔)
+cbuffer cbWeather
+{
+    float4 gWeatherSurface;       // x 젖음, y 웅덩이, z 빗방울 물결, w 시간 (초)
+    float4 gWeatherCoverParams;   // x 덮개 맵 있음, y 1 / 맵 크기, z 깊이 바이어스, w 미사용
+    float4x4 gWeatherCoverVP;     // 월드 → 덮개 맵 (u, v, 깊이)
+    float4 gWeatherSky;           // 먹구름 하늘 (하늘에서 온 환경광 · 반사): rgb = 1 - 색 배율, w = 채도 빼기 (0 = 그대로)
+    float4 gWeatherSnow;          // x 눈 덮임, y 눈 깊이 (m), z 발자국 맵 있음, w 미사용
+    float4 gWeatherSnowWin;       // 발자국 맵 창: xy 첫 칸의 월드 xz, z 한 변 (m), w 칸 수
+};
+Texture2D gWeatherCover;          // 위에서 본 깊이 (R24)
+Texture2D gSnowDeform;            // 눈 발자국 (59. WeatherSnow.fx — 고리 배치, 1 = 바닥까지 눌림)
+static float s_WeatherPuddles = 1.0f;   // 웅덩이 양 배율: 메시 1, 지형 0.45, 나무 · 풀 · 바위 0 (잎 · 바위 위에 웅덩이가 생기지 않게)
 
 SamplerState samLinear
 {
@@ -883,8 +895,171 @@ float4 ScreenSpaceReflection(float3 posW, float3 N, float3 R, float smoothness, 
     return float4(color, fadeS * edge * distFade);
 }
 
+// ---------------------------------------------------------------------------
+// 날씨: 젖은 표면 · 웅덩이 · 빗방울 물결 (gWeatherSurface 가 0 이면 아무것도 하지 않는다)
+// ---------------------------------------------------------------------------
+float WeatherHash(float2 p) { return frac(sin(dot(p, float2(127.1f, 311.7f))) * 43758.5453f); }
+float WeatherNoise(float2 p)
+{
+    const float2 i = floor(p), f = frac(p);
+    const float2 u = f * f * (3.0f - 2.0f * f);
+    return lerp(lerp(WeatherHash(i), WeatherHash(i + float2(1, 0)), u.x), lerp(WeatherHash(i + float2(0, 1)), WeatherHash(i + float2(1, 1)), u.x), u.y);
+}
+
+// 하늘 큐브에서 온 빛을 먹구름 하늘처럼 (Sky.fx 의 gSkyWeather 와 같은 값). tint = 밝기 · 색까지, 아니면 채도만
+float3 WeatherSkyGrade(float3 c, bool tint)
+{
+    c = lerp(c, dot(c, float3(0.2126f, 0.7152f, 0.0722f)).xxx, gWeatherSky.w);
+    return tint ? c * (1.0f - gWeatherSky.rgb) : c;
+}
+
+// 하늘 아래인 정도 (1 = 비를 맞는다, 0 = 지붕 · 처마 · 나무 아래). 덮개 맵 밖은 하늘 아래
+float WeatherSky(float3 posW)
+{
+    if (gWeatherCoverParams.x < 0.5f)
+        return 1.0f;
+    const float4 c = mul(float4(posW, 1.0f), gWeatherCoverVP);
+    const float d = c.z - gWeatherCoverParams.z;
+    const float o = gWeatherCoverParams.y * 1.5f;
+    // 맵 깊이보다 위 (작거나 같음) = 맨 위 표면 → 젖는다. 네 번 (가장자리를 부드럽게)
+    float s = gWeatherCover.SampleCmpLevelZero(samShadow, c.xy + float2(-o, -o), d);
+    s += gWeatherCover.SampleCmpLevelZero(samShadow, c.xy + float2(o, -o), d);
+    s += gWeatherCover.SampleCmpLevelZero(samShadow, c.xy + float2(-o, o), d);
+    s += gWeatherCover.SampleCmpLevelZero(samShadow, c.xy + float2(o, o), d);
+    return s * 0.25f;
+}
+
+// 빗방울 물결 한 겹: 칸마다 정한 자리 · 때에 고리가 퍼지며 사라진다 → 높이의 기울기 (xz)
+float2 WeatherRipple(float2 p, float t, float seed)
+{
+    const float2 cell = floor(p);
+    const float2 f = frac(p);
+    const float2 center = 0.25f + 0.5f * float2(WeatherHash(cell + seed), WeatherHash(cell + seed + 7.31f));
+    const float life = frac(t * 1.1f + WeatherHash(cell + seed + 3.7f));
+    const float2 d = f - center;
+    const float r = length(d);
+    const float x = (r - life * 0.48f) * 40.0f;   // 고리 둘레 물결 (반 칸까지 퍼진다)
+    if (abs(x) > 3.14159f || r < 1e-4f)
+        return float2(0, 0);
+    const float amp = (1.0f - life) * (1.0f - life) * (0.5f + 0.5f * cos(x));
+    return (d / r) * (cos(x * 2.0f) * amp);
+}
+
+// 눈 발자국: 눌린 정도 (창 밖 = 0). 고리 배치 = WRAP 샘플러로 uv = 월드 xz / 창 크기 (칸 번호 % 칸 수와 같다)
+//  분기 없이 (조기 return 이 있으면 fxc 가 이 이펙트 전체를 컴파일하다 스택이 넘친다)
+float SnowPressAt(float2 xz)
+{
+    const float2 rel = xz - gWeatherSnowWin.xy;
+    const float inside = (gWeatherSnow.z > 0.5f && all(rel >= 0.0f) && all(rel < gWeatherSnowWin.z)) ? 1.0f : 0.0f;
+    return inside * gSnowDeform.SampleLevel(samLinear, xz / max(gWeatherSnowWin.z, 1e-3f), 0.0f).r;
+}
+
+// 표면을 날씨에 맞게: 젖으면 어둡고 반들 (다공질일수록 더 어둡다), 위를 향한 면의 낮은 무늬에 웅덩이 (물 = 거울, 빗방울 고리)
+void ApplyWeather(inout LitSurface surf, float3 posW, inout float3 N, float3 V)
+{
+    const float wet0 = gWeatherSurface.x, puddle0 = gWeatherSurface.y, snow0 = gWeatherSnow.x;
+    if (wet0 <= 0.001f && puddle0 <= 0.001f && snow0 <= 0.001f)
+        return;
+    const float sky = WeatherSky(posW);
+    if (sky <= 0.001f)
+        return;
+    const float up = saturate(N.y);
+    // 옆면은 덜 (빗물이 흘러내린다), 아래를 향한 면은 마른다
+    const float wet = wet0 * sky * lerp(0.6f, 1.0f, up) * saturate(N.y * 2.0f + 1.3f);
+    const float porosity = saturate((1.0f - surf.Smoothness) * 1.2f) * (1.0f - surf.Metallic);
+    surf.Albedo *= lerp(1.0f, lerp(0.85f, 0.45f, porosity), wet);
+    surf.Smoothness = lerp(surf.Smoothness, max(surf.Smoothness, lerp(0.75f, 0.5f, porosity)), wet);   // 흙 · 풀은 덜 반들
+
+    if (s_WeatherPuddles > 0.01f && puddle0 > 0.001f && up > 0.8f)
+    {
+        // 큰 무늬 + 작은 무늬: 웅덩이 수위가 오를수록 낮은 곳부터 찬다
+        const float n = WeatherNoise(posW.xz * 0.3f) * 0.6f + WeatherNoise(posW.xz * 0.97f + 17.3f) * 0.4f;   // 2 ~ 3 m 웅덩이
+        const float p = saturate((n - (1.0f - 0.36f * puddle0 * s_WeatherPuddles)) * 10.0f) * smoothstep(0.85f, 0.97f, up) * sky;   // 다 차면 바닥의 2 할쯤
+        if (p > 0.001f)
+        {
+            float3 waterN = float3(0, 1, 0);
+            const float rippleFade = gWeatherSurface.z * saturate(1.0f - distance(gEyePosW, posW) / 30.0f);   // 멀면 물결이 반짝이는 점으로 깨진다
+            if (rippleFade > 0.001f)
+            {
+                const float t = gWeatherSurface.w;
+                const float2 g = WeatherRipple(posW.xz / 0.32f, t, 0.0f) + WeatherRipple(posW.xz / 0.32f + 0.5f, t + 0.37f, 11.0f) * 0.8f;
+                waterN = normalize(float3(-g.x * 0.9f * rippleFade, 1.0f, -g.y * 0.9f * rippleFade));
+            }
+            surf.Albedo *= lerp(1.0f, 0.3f, p);
+            surf.Smoothness = lerp(surf.Smoothness, 0.97f, p);
+            surf.Metallic = lerp(surf.Metallic, 0.0f, p);
+            N = normalize(lerp(N, waterN, p));
+        }
+    }
+
+    // ---- 쌓인 눈: 위를 향한 면부터 (덜 쌓였으면 잡음 무늬로 군데군데), 하늘 아래만
+    if (snow0 > 0.001f)
+    {
+        const float n2 = WeatherNoise(posW.xz * 1.7f) * 0.6f + WeatherNoise(posW.xz * 0.23f + 5.1f) * 0.4f;
+        const float snow = saturate((snow0 * 1.25f - (1.0f - up) * 1.5f - n2 * 0.45f * (1.0f - snow0)) * 5.0f) * sky;
+        if (snow > 0.001f)
+        {
+            const float depth = gWeatherSnow.y;
+            float2 xz = posW.xz;
+            // 발자국 깊이 (시차): 보는 방향으로 내려가며 눌린 바닥을 만나는 자리
+            float press = SnowPressAt(xz);
+            const float3 dir = -V;
+            if (dir.y < -0.05f && gWeatherSnow.z > 0.5f)
+            {
+                const float2 slide = dir.xz / -dir.y;
+                // 8 걸음, 지나친 걸음과 앞 걸음 사이를 직선으로 (계단 무늬 없이)
+                float prevGap = press * depth;   // 눌린 깊이 - 내려간 높이 (> 0 = 아직 바닥 위)
+                float prevH = 0.0f;
+                [loop]
+                for (int k = 1; k <= 8; ++k)
+                {
+                    const float dh = depth * k * 0.125f;
+                    const float pq = SnowPressAt(posW.xz + slide * dh);
+                    const float gap = pq * depth - dh;
+                    if (gap < 0.0f)
+                    {
+                        const float t = prevGap / max(prevGap - gap, 1e-5f);
+                        const float h = lerp(prevH, dh, t);
+                        xz = posW.xz + slide * h;
+                        press = SnowPressAt(xz);
+                        break;
+                    }
+                    prevGap = gap;
+                    prevH = dh;
+                    xz = posW.xz + slide * dh;
+                    press = pq;
+                }
+            }
+            // 발자국 가장자리의 기울기 → 법선 (눌린 곳 = 아래)
+            const float e = gWeatherSnowWin.z / max(gWeatherSnowWin.w, 1.0f);
+            float3 snowN = float3(0, 1, 0);
+            [branch]
+            if (gWeatherSnow.z > 0.5f)
+            {
+                // 가운데 차분 (2 칸)
+                const float dx = (SnowPressAt(xz + float2(e * 2.0f, 0)) - SnowPressAt(xz - float2(e * 2.0f, 0))) / (4.0f * e);
+                const float dz = (SnowPressAt(xz + float2(0, e * 2.0f)) - SnowPressAt(xz - float2(0, e * 2.0f))) / (4.0f * e);
+                snowN = normalize(float3(dx * depth, 1.0f, dz * depth));
+            }
+            // 고운 눈 결 (작은 기복)
+            const float b = WeatherNoise(xz * 9.0f) - 0.5f, b2 = WeatherNoise(xz * 9.0f + 3.3f) - 0.5f;
+            snowN = normalize(snowN + float3(b, 0.0f, b2) * 0.12f);
+            // 다져진 눈은 조금 어둡고 푸르다
+            const float3 fresh = float3(0.9f, 0.92f, 0.96f);
+            const float3 packed = float3(0.58f, 0.63f, 0.72f);
+            surf.Albedo = lerp(surf.Albedo, lerp(fresh, packed, press * 0.8f), snow);
+            surf.Smoothness = lerp(surf.Smoothness, lerp(0.28f, 0.45f, press), snow);
+            surf.Metallic = lerp(surf.Metallic, 0.0f, snow);
+            surf.Occlusion = lerp(surf.Occlusion, surf.Occlusion * (1.0f - 0.3f * press), snow);
+            N = normalize(lerp(N, snowN, snow * 0.9f));
+        }
+    }
+}
+
 float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPosH)
 {
+    if (gGIParams.z < 0.5f)
+        ApplyWeather(surf, posW, N, V);
     // Unity: kDielectricSpec = 0.04, oneMinusReflectivity = 0.96 * (1 - metallic)
     float oneMinusReflectivity = 0.96f * (1.0f - surf.Metallic);
     float3 diffuse = surf.Albedo * oneMinusReflectivity;
@@ -986,7 +1161,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
 #else
     gCubeMap.GetDimensions(0, w, h, mips);
 #endif
-    float3 ambient = ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb);
+    float3 ambient = WeatherSkyGrade(ToLinear(gCubeMap.SampleLevel(samLinear, N, max((float)mips - 3.0f, 0.0f)).rgb), false);   // 밝기는 gIndirect 가
     // Adaptive Probe Volume 안이면 확산 환경광 = 프로브 (벽 · 지붕이 가린 하늘, 주변 색이 번진 빛)
     float3 giReflect;
     float4 giAmbient = ProbeVolumeAmbient(posW, N, V, reflect(-V, N), giReflect);
@@ -1012,7 +1187,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     {
         float3 R = reflect(-V, N);
         // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
-        float3 env = ProbeReflection(R, posW, perceptualRoughness, (float)mips, skyOcclusion);
+        float3 env = WeatherSkyGrade(ProbeReflection(R, posW, perceptualRoughness, (float)mips, skyOcclusion), true);   // 먹구름이면 파란 하늘 · 흰 구름을 비추지 않게
         float4 ssr = ScreenSpaceReflection(posW, N, R, surf.Smoothness, perceptualRoughness);
         env = lerp(env, ssr.rgb, ssr.a);   // 화면에서 맞은 만큼 프로브 · 하늘 대신
         float fresnel = pow(1.0f - NoV, 4.0f);
@@ -1279,6 +1454,7 @@ float4 TerrainPS(TerrainVertexOut pin) : SV_Target
     surf.Highlights = true;
     surf.Reflections = true;
     surf.ReceiveShadows = true;
+    s_WeatherPuddles = 0.45f;   // 풀 · 흙 위 웅덩이는 적게
     return FinishLit(ShadeLit(surf, pin.PosW.xyz, normalW, toEye, pin.SsaoPosH), 1.0f, distToEye);
 }
 
@@ -1447,6 +1623,7 @@ float4 TreeLit(TreeSurf s, float3 posW, float4 ssaoPosH)
     surf.Highlights = true;
     surf.Reflections = s.Reflections;
     surf.ReceiveShadows = true;
+    s_WeatherPuddles = 0.0f;   // 젖기만 (웅덩이 없음)
     return FinishLit(ShadeLit(surf, posW, s.N, toEye / max(distToEye, 0.0001f), ssaoPosH), 1.0f, distToEye);
 }
 
@@ -1710,6 +1887,7 @@ float4 RockPS(RockVertexOut pin) : SV_Target
     surf.ReceiveShadows = true;
     const float3 toEye = gEyePosW - pin.PosW;
     const float distToEye = length(toEye);
+    s_WeatherPuddles = 0.0f;   // 젖기만 (웅덩이 없음)
     return FinishLit(ShadeLit(surf, pin.PosW, N, toEye / max(distToEye, 0.0001f), pin.SsaoPosH), 1.0f, distToEye);
 }
 
@@ -1838,6 +2016,7 @@ float4 DetailPS(DetailVertexOut pin) : SV_Target
         const float soften = lerp(0.45f, 0.85f, saturate(distToEye / max(gDetailCam.w, 1.0f) * 1.5f));
         N = normalize(lerp(N, G, soften));
     }
+    s_WeatherPuddles = 0.0f;   // 젖기만 (웅덩이 없음)
     return FinishLit(ShadeLit(surf, pin.PosW, N, V, pin.SsaoPosH), 1.0f, distToEye);
 }
 

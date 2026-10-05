@@ -22,6 +22,7 @@ public:
 	bool Lightning = true;
 	bool Sound = true;
 	float Volume = 1.0f;
+	float SnowDepth = 0.25f;         // 쌓인 눈 깊이 (m) — 발자국이 이만큼 꺼진다
 
 	WeatherController();
 	~WeatherController() override;
@@ -41,6 +42,9 @@ public:
 	const std::string& TargetProfile() const { return m_TargetName; }
 	const std::string& ProfileError() const { return m_Error; }
 	int StrikeCount() const { return m_Strikes; }
+	float SurfaceWetness() const { return m_SurfaceWet; }   // 지금 표면 (비에 따라 천천히 젖고 마른다)
+	float Puddles() const { return m_Puddles; }
+	float SnowAmount() const { return m_Snow; }        // 쌓인 눈 (천천히 쌓이고 녹는다)
 	// 소리 (Play 중): 비 약 · 비 강 · 바람 소리 크기, 재생 중이면 true
 	bool SoundLevels(float out[3]) const;
 
@@ -59,6 +63,8 @@ private:
 	double m_Time = 0.0;             // 돌풍 · 번개 시계
 	unsigned m_Rng = 0x9E3779B9u;
 	bool m_WasOn = false;
+	float m_SurfaceWet = 0.0f, m_Puddles = 0.0f, m_Snow = 0.0f;
+	static float PuddleTarget(const WeatherParams& p);
 
 	// 따라가는 카메라
 	bool m_HaveViewer = false;

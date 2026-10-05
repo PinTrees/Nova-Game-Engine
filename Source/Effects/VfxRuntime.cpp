@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "VfxRuntime.h"
+#include "WeatherCover.h"
 #include "VisualEffect.h"
 #include "ParticleTextures.h"
 #include "RenderLayers.h"
@@ -76,7 +77,8 @@ namespace
 		FxVar *ViewProj, *World, *CamRight, *Time, *CamUp, *Dt, *CamPos, *CamFwd, *Capacity, *SpawnCount, *FromEvents, *EventCapacity, *EmitOnDie, *EmitRate,
 			*InitStart, *InitCount, *UpdateStart, *UpdateCount, *Seed, *LocalSpace, *TrailPoints, *TrailInterval, *TrailWidth, *SortCount, *SortK, *SortJ,
 			*Output0, *Output1, *DepthParams, *WorldInv, *CollViewProj, *CollInvViewProj, *CollParams, *CollCam, *CollViewport, *SunDir, *SunColor, *Ambient;
-		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth, *CollDepth, *Sdf;
+		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth, *CollDepth, *Sdf,
+			*Cover, *CoverVP, *CoverParams;   // Collide with Weather Cover (WeatherCover 의 위에서 본 깊이)
 	} s_V = {};
 	uint64 s_FrameMark = 1, s_SimulatedMark = 0;
 	// 쓰지 않는 칸에 묶는 작은 버퍼 (Vulkan · GL 은 셰이더가 선언한 버퍼가 모두 묶여 있어야 한다).
@@ -87,7 +89,7 @@ namespace
 	struct MeshBuf { ComPtr<GfxBuffer> Vb, Ib; UINT Count = 0; bool Tried = false; };
 	std::map<std::string, MeshBuf> s_Meshes;
 	// 깊이 버퍼 충돌: 프레임의 첫 뷰 (시뮬레이션하는 뷰) 의 장면 깊이
-	struct CollisionView { bool On = false; GfxShaderResourceView* Depth = nullptr; };
+	struct CollisionView { bool On = false; GfxShaderResourceView* Depth = nullptr; GfxShaderResourceView* Cover = nullptr; };
 
 	GfxDevice* Dev() { return Application::GetI()->GetDevice(); }
 
@@ -188,7 +190,8 @@ namespace
 			var("gSortCount"), var("gSortK"), var("gSortJ"), var("gOutput0"), var("gOutput1"), var("gDepthParams"),
 			var("gWorldInv"), var("gCollViewProj"), var("gCollInvViewProj"), var("gCollParams"), var("gCollCam"), var("gCollViewport"), var("gSunDir"), var("gSunColor"), var("gAmbient"),
 			var("gProgram"), var("gParticles"), var("gState"), var("gEvents"), var("gEventsIn"), var("gTrail"), var("gTrailVerts"), var("gSortKeys"), var("gSorted"),
-			var("gTexture"), var("gSceneDepth"), var("gCollDepth"), var("gSdf") };
+			var("gTexture"), var("gSceneDepth"), var("gCollDepth"), var("gSdf"),
+			var("gCover"), var("gCoverVP"), var("gCoverParams") };
 		s_State = 1;
 		EditorLog::Write("VFX", "58. VFX.fx loaded");
 		return true;
@@ -627,7 +630,8 @@ namespace
 						}
 					}
 				}
-				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() }, { s_V.CollDepth, coll.On && coll.Depth ? coll.Depth : SpriteBatch::WhiteTexture() }, { s_V.Sdf, sdfSrv } },
+				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() }, { s_V.CollDepth, coll.On && coll.Depth ? coll.Depth : SpriteBatch::WhiteTexture() }, { s_V.Sdf, sdfSrv },
+					  { s_V.Cover, coll.Cover ? coll.Cover : SpriteBatch::WhiteTexture() } },
 					{ { s_V.Particles, g.Particles.Uav.Get() }, { s_V.State, g.State.Uav.Get() },
 					  { s_V.Events, emits ? g.Events.Uav.Get() : Dummy(0).Uav.Get() }, { s_V.Trail, trailPoints > 0 ? g.Trail.Uav.Get() : Dummy(1).Uav.Get() } }, capacity);
 				CopyState(dc, g);
@@ -820,6 +824,14 @@ namespace VfxRuntime
 			SetM(s_V.CollViewProj, viewProj);
 			SetM(s_V.CollInvViewProj, viewProj.Invert());
 			SetV(s_V.CollParams, collParams);
+			// 날씨 덮개 맵 (Collide with Weather Cover): 이 뷰의 것 — 없으면 블록이 아무것도 하지 않는다
+			{
+				const WeatherCover::Info& cover = WeatherCover::Get(RenderManager::GetI()->RenderingEditorView ? 1 : 0);
+				const float coverParams[4] = { cover.Valid ? 1.0f : 0.0f, cover.TopY, cover.Range, cover.InvSize > 0.0f ? 1.0f / cover.InvSize : 0.0f };
+				SetV(s_V.CoverParams, coverParams);
+				SetM(s_V.CoverVP, Matrix(cover.ToTex));
+				coll.Cover = cover.Valid ? cover.Srv : nullptr;
+			}
 			SetV(s_V.CollCam, collCam);
 			D3D11_VIEWPORT vp = {};
 			UINT vpCount = 1;

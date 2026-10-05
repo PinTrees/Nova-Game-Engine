@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **날씨 패키지 com.nova.weather 1 단계: 비 · 눈 · 먹구름 · 안개 · 바람 · 번개 · 소리** (사용자 지시: "오픈월드 게임 기반 웨더 컨트롤러 … 비오는거 + 눈오는거 … 눈은 쌓이는거 + 밟으면 … 패키지매니저로" → 4 단계 계획에 "어 진행해줘"). **1 단계 완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 6일 — **날씨 2 · 3 단계: 젖은 세상 · 쌓이는 눈 + 발자국** (사용자 지시: "푸시하고 2 단계 … 3 단계 … 4 단계 … 진행해줘"). **진행 중 (2 · 3 단계 코드 · 검사 완료, 4 단계 데모 준비)**
+  - 엔진: 새 `Source/Graphics/DX11/WeatherCover.*` — 덮개 맵 (카메라 둘레 128 m 를 위에서 본 깊이, 그림자 캐스터 패스, 8 m 칸 · 30 프레임마다), 발자국 맵 (48 m, 1024², RGBA16F 두 장 번갈아 + 도장 R32F,
+    아래에서 본 깊이 = `Scene::RenderSceneDeformers` (스킨 메시 + RigidBody · CharacterController 의 메시), `Scene::RenderSceneCover` (풀 · 캐릭터 뺌)), 새 셰이더 `59. WeatherSnow.fx` (StampCS · DeformCS — 고리 배치, 12 cm 비탈, 다시 덮임)
+  - `32. InstancedBasic.fx`: cbWeather + `ApplyWeather` (ShadeLit 앞 — 젖음 · 웅덩이 · 빗방울 물결 (30 m 안) · 쌓인 눈 · 발자국 시차 8 걸음 · 기울기 법선), `WeatherSkyGrade` (하늘에서 온 환경광 · 반사를 먹구름처럼),
+    `s_WeatherPuddles` (지형 0.45, 나무 · 바위 · 풀 0). **fxc 주의**: SnowPressAt 에 조기 return 이 있으면 fxc 가 스택 넘침 (0xC00000FD) → 분기 없이 WRAP 샘플러로
+  - `58. VFX.fx` + `VfxAsset.cpp` + `VfxRuntime.cpp`: 블록 32 **Collide with Weather Cover** (빗방울이 지붕 · 나무 위에서 죽는다 — 화면 밖도). `WeatherState` 에 PuddleLevel · RainIntensity · Time · SnowDepth · SnowFall
+  - 패키지: 표면 상태가 천천히 (젖음 · 웅덩이 · 눈 쌓임 · 녹음), Snow Depth, status 에 surfaceWetness · puddles · snowAmount. 안드로이드 소리: `BuildPipeline::CollectGameFiles` 가 넣은 패키지의 Resources 를 게임 데이터에
+  - 검사: weather **14/14** (젖은 바닥 · 지붕 아래 마름 · 천천히 젖기 · 쌓인 눈 · 발자국 추가), 회귀 vfx · vfxgl · vfxvk · shadergraph · decal · render · material · reflectionprobe · probevolume · ssr **129/129** (2 단계 뒤), render · shadergraph · decal · material (DX · GL · Vulkan) · vfx (DX · GL · Vulkan) **135/135** (3 단계 뒤), 안드로이드 빌드
+  - 데모 프로젝트 `E:\NovaTest\WeatherDemo` (WeatherDirector.cs 시간표 + 도는 카메라, Walker.cs) — 장면은 아직
+- 이전: 2026년 10월 5일 — **날씨 패키지 com.nova.weather 1 단계: 비 · 눈 · 먹구름 · 안개 · 바람 · 번개 · 소리** (사용자 지시: "오픈월드 게임 기반 웨더 컨트롤러 … 비오는거 + 눈오는거 … 눈은 쌓이는거 + 밟으면 … 패키지매니저로" → 4 단계 계획에 "어 진행해줘"). **1 단계 완료 (커밋 af2346c, 푸시함)**
   - 엔진: 새 `Source/Graphics/Common/WeatherState.*` (NOVA_API 전역 — 그릴 때만 적용, 장면에 저장 안 됨, 카메라 자리 · 방향 · 프레임 기록), `EditorApp.cpp` (해 · 환경광에 적용, Game · Scene 뷰 카메라 기록),
     `Sky.cpp` + `21. Sky.fx` (gSkyWeather 채도 · 밝기, gSkyFlash), `AtmospherePass.cpp` (날씨 안개를 Volume Fog 와 섞기 — 장면에 안개가 없어도), `TreeRenderer.cpp` · `DetailRenderer.cpp` (바람 배율), `App.cpp` · `AppAndroid.cpp` (Frame),
     내보내기 `VisualEffect` · `AudioSource` · `AudioClip`, `Vfx::SetLiveJson` (패키지가 파일 없이 .vfx JSON 등록)

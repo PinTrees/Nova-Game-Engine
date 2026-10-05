@@ -24,9 +24,18 @@ struct NOVA_API WeatherState
 	// ---- 바람 (나무 · 풀 · 물결 배율)
 	float WindStrength = 1.0f;          // 각 에셋의 바람 세기에 곱한다 (돌풍 포함)
 
-	// ---- 2 · 3 단계 (젖음 · 눈) — 아직 쓰지 않는다
-	float Wetness = 0.0f;
-	float SnowCover = 0.0f;
+	// ---- 젖은 표면 (32. InstancedBasic.fx 의 ShadeLit — 하늘 아래만, WeatherCover 의 덮개 맵)
+	float Wetness = 0.0f;               // 0..1 표면이 어둡고 반들해진다
+	float PuddleLevel = 0.0f;           // 0..1 위를 향한 면의 웅덩이 (잡음 무늬의 낮은 곳부터)
+	float RainIntensity = 0.0f;         // 0..1 웅덩이의 빗방울 물결
+	float Time = 0.0f;                  // 물결 시계 (초)
+	// ---- 쌓인 눈 (32 의 ShadeLit — 위를 향한 면 · 하늘 아래, 발자국 맵 59. WeatherSnow.fx)
+	float SnowCover = 0.0f;             // 0..1 덮인 정도 (덜 쌓였으면 군데군데)
+	float SnowDepth = 0.25f;            // 발자국 깊이 (m)
+	float SnowFall = 0.0f;              // 0..1 지금 내리는 눈 (발자국이 다시 덮이는 빠르기)
+
+	// 덮개 맵 (위에서 본 깊이 — 지붕 아래는 마르고 빗방울이 지붕에서 멈춘다) 이 필요한가
+	bool NeedsCover() const { return Wetness > 0.001f || PuddleLevel > 0.001f || RainIntensity > 0.001f || SnowCover > 0.001f; }
 
 	// ---- 엔진이 채운다: 이번 프레임 화면들의 카메라 자리 (날씨가 따라갈 곳)
 	XMFLOAT3 GameViewPosition = { 0, 0, 0 };

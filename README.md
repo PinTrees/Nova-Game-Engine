@@ -97,7 +97,7 @@
 | `com.nova.animation` | Animator · Legs / Hands / Look Animator · Dynamic Bone · Expressions |
 | `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) |
 | `com.nova.ai.navigation` | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) — NavMesh Surface · Agent · Link · Obstacle (Carve) |
-| `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자, 튀는 물 · 물결), 먹구름 · 안개 · 돌풍, 번개 + 천둥, 비 · 바람 소리, 프로필 전환 — [WEATHER](docs/WEATHER.md) |
+| `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결, **쌓이는 눈 · 발자국**, 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
 | `com.nova.modeling` | Blender 식 **Model Editor** (Extrude · Bevel · Subsurf · 리깅 · 가중치 붓 · 셰이프 키), FBX · GLB · VRM 내보내기, 전부 CLI — [MODEL_EDITOR](docs/MODEL_EDITOR.md) |
 | `com.nova.animation2d` | Spine 식 **2D 뼈대 애니메이션** — [ANIMATION2D](docs/ANIMATION2D.md) |
 | `com.nova.toon` | [lilToon](https://github.com/lilxyzw/lilToon) 툰 셰이더 (VRM MToon 자동 변환) |

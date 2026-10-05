@@ -147,6 +147,12 @@ namespace Vfx
 					{ "LifetimeLoss", K::Float, { 0 }, 0, 1, nullptr, "부딪힐 때마다 줄어드는 수명 비율 (1 = 바로 죽음)" },
 					{ "Thickness", K::Float, { 1 }, 0.01f, 20, nullptr, "보이는 표면 뒤로 이 두께까지를 물체 속으로 본다 (m)" },
 				}, "화면에 보이는 장면 (프레임의 첫 뷰 깊이) 에 튕긴다 — 바닥 · 벽 · 물체 모양 그대로. 화면 밖 · 가려진 곳은 지나간다" },
+				{ "CollideCover", "Collide with Weather Cover", "Collision", Context::Update, 32, {
+					{ "Bounce", K::Float, { 0 }, 0, 1 },
+					{ "Friction", K::Float, { 1 }, 0, 1 },
+					{ "LifetimeLoss", K::Float, { 1 }, 0, 1, nullptr, "부딪힐 때 줄어드는 수명 비율 (1 = 바로 죽음 — 빗방울)" },
+					{ "Thickness", K::Float, { 1.5f }, 0.01f, 20, nullptr, "맨 위 표면 아래 이 두께까지를 물체 속으로 본다 (m)" },
+				}, "날씨 (com.nova.weather) 의 덮개 맵 — 위에서 본 맨 위 표면 (지붕 · 나무 · 땅) 에 부딪힌다. 화면 밖 · 가려진 곳도, 집 안에 비가 들지 않는다. 날씨가 없으면 아무것도 하지 않는다" },
 				{ "CollideSDF", "Collide with Signed Distance Field", "Collision", Context::Update, 31, {
 					{ "Mesh", K::Text, {}, 0, 0, nullptr, "거리장을 구울 메시: Cube · Sphere · Cylinder · Cone · Crystal 또는 모델 파일 (Assets/…/x.fbx, #n = n 번째 메시)" },
 					{ "Position", K::Vector3, { 0, 0, 0 }, -50, 50, nullptr, "거리장의 자리 (Visual Effect 기준)", S::None, true },
@@ -984,7 +990,7 @@ namespace Vfx
 			break;
 		}
 		case 28: v.push_back(Make(c.S("Max"))); break;
-		case 30: v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss"), c.S("Thickness"))); break;
+		case 30: case 32: v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss"), c.S("Thickness"))); break;
 		case 31:
 		{
 			// 거리장: 시뮬레이션 공간 → 메시 공간 (역행렬 세 열), 메시 → 시뮬레이션 (세 열), 칸 (모서리 · 한 변), 칸 수 · 거리 배율, 튕김 값

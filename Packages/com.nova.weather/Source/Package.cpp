@@ -23,6 +23,9 @@ namespace
 		j["progress"] = w->TransitionProgress();
 		j["strikes"] = w->StrikeCount();
 		j["instances"] = WeatherController::InstanceCount();
+		j["surfaceWetness"] = w->SurfaceWetness();
+		j["puddles"] = w->Puddles();
+		j["snowAmount"] = w->SnowAmount();
 		j["flash"] = s.Flash;
 		j["sunIntensity"] = s.SunIntensity;
 		j["windStrength"] = s.WindStrength;

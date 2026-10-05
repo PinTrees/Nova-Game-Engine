@@ -41,5 +41,5 @@ void WeatherState::ApplyAmbient(XMFLOAT4& v) const
 	v.x = v.x * AmbientTint.x * k + Flash * 0.9f;
 	v.y = v.y * AmbientTint.y * k + Flash * 0.95f;
 	v.z = v.z * AmbientTint.z * k + Flash * 1.1f;
-	v.w = v.w * (0.35f + 0.65f * k) + Flash * 0.5f;   // 반사는 덜 (젖은 면은 2 단계에서 따로)
+	v.w = v.w + Flash * 0.5f;   // 반사의 어두움 · 잿빛은 32 의 WeatherSkyGrade (하늘과 같은 값)
 }

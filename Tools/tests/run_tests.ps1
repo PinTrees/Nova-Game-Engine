@@ -3727,6 +3727,74 @@ function Suite-Weather
         $bad = Invoke-Nova 'weather set --profile Nope --seconds 0'
         Add-Result weather '.weather asset: save, load by path, listed; unknown profile refused' ($sv -and $set -and [double]$set.snow -eq 1 -and [double]$set.wind -eq 15 -and (@($ls.assets) -contains 'Assets\WeatherTest\Mine.weather' -or @($ls.assets) -contains 'Assets/WeatherTest/Mine.weather') -and $bad -match 'no weather profile') ("snow {0}, wind {1}, assets [{2}], bad '{3}'" -f (F $set.snow), (F $set.wind), (@($ls.assets) -join ', '), (($bad -split "`n")[0] -replace '^nova(\.exe)? : ', '').Trim())
 
+        # ---- 젖은 표면 (2 단계): 같은 빛 (젖음만 다른 폭풍 프로필 둘) 에서 하늘 아래 바닥만 어두워지고, 지붕 아래는 그대로 (덮개 맵)
+        '{"rain":1,"wind":2,"clouds":1,"fog":0,"wetness":0}' | Set-Content -Encoding utf8 (Join-Path $assetDir 'Dry.weather')
+        '{"rain":1,"wind":2,"clouds":1,"fog":0,"wetness":1}' | Set-Content -Encoding utf8 (Join-Path $assetDir 'Wet.weather')
+        Invoke-Nova 'create cube --name Roof --position 0,3,8 --scale 6,0.3,6' | Out-Null
+        Invoke-Nova 'camera --position 0,1.2,0 --target 0,0.8,8' | Out-Null
+        SetCtl '{"density":0}'
+        function Band([string]$path, [double]$y0, [double]$y1)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($path); $sum = 0.0; $n = 0
+            for ($y = [int]($bm.Height * $y0); $y -lt [int]($bm.Height * $y1); $y += 2) { for ($x = [int]($bm.Width * 0.42); $x -lt [int]($bm.Width * 0.58); $x += 2) {
+                $c = $bm.GetPixel($x, $y); $sum += 0.2126 * $c.R + 0.7152 * $c.G + 0.0722 * $c.B; $n++ } }
+            $bm.Dispose(); $sum / [math]::Max(1, $n)
+        }
+        W 'set --profile Assets/WeatherTest/Dry.weather --seconds 0' | Out-Null
+        Wait-Sec 1.0
+        $dry = Shot 'surface_dry.png'
+        W 'set --profile Assets/WeatherTest/Wet.weather --seconds 0' | Out-Null
+        Wait-Sec 1.0
+        $wetShot = Shot 'surface_wet.png'
+        $ws = W 'status'
+        if ($dry -and $wetShot)
+        {
+            $underDry = Band $dry.Path 0.57 0.63; $underWet = Band $wetShot.Path 0.57 0.63
+            $openDry = Band $dry.Path 0.82 0.92; $openWet = Band $wetShot.Path 0.82 0.92
+            Add-Result weather 'wet surfaces: open ground darkens, ground under a roof stays dry (cover map)' ($openWet -lt $openDry * 0.85 -and [math]::Abs($underWet - $underDry) -lt $underDry * 0.06 -and [double]$ws.surfaceWetness -eq 1) ("open {0:N1} → {1:N1}, under roof {2:N1} → {3:N1}, wetness {4}" -f $openDry, $openWet, $underDry, $underWet, (F $ws.surfaceWetness))
+        }
+        else { Add-Result weather 'wet surfaces: open ground darkens, ground under a roof stays dry (cover map)' $false 'no capture' }
+        # 비가 오면 천천히 젖는다 (바로 바꾸지 않으면)
+        W 'set --profile Clear --seconds 0' | Out-Null
+        W 'set --profile Rain --seconds 1' | Out-Null
+        Wait-Sec 3.0
+        $gr = W 'status'
+        Add-Result weather 'surfaces get wet gradually while it rains (then puddles)' ([double]$gr.surfaceWetness -gt 0.02 -and [double]$gr.surfaceWetness -lt 0.75 -and [double]$gr.puddles -lt [double]$gr.surfaceWetness) ("after 3 s of Rain: wetness {0}, puddles {1}" -f (F $gr.surfaceWetness), (F $gr.puddles))
+        # ---- 쌓인 눈 (3 단계): 같은 빛에서 눈 덮임만 다른 프로필 → 하늘 아래 바닥이 하얘지고, 지붕 아래는 그대로
+        '{"snow":1,"wind":1,"clouds":0,"fog":0,"snowCover":0}' | Set-Content -Encoding utf8 (Join-Path $assetDir 'Bare.weather')
+        '{"snow":1,"wind":1,"clouds":0,"fog":0,"snowCover":1}' | Set-Content -Encoding utf8 (Join-Path $assetDir 'Snowy.weather')
+        W 'set --profile Assets/WeatherTest/Bare.weather --seconds 0' | Out-Null
+        Wait-Sec 1.0
+        $bare = Shot 'snow_bare.png'
+        W 'set --profile Assets/WeatherTest/Snowy.weather --seconds 0' | Out-Null
+        Wait-Sec 1.0
+        $snowy = Shot 'snow_cover.png'
+        $sn = W 'status'
+        if ($bare -and $snowy)
+        {
+            $underB = Band $bare.Path 0.57 0.63; $underS = Band $snowy.Path 0.57 0.63
+            $openB = Band $bare.Path 0.82 0.92; $openS = Band $snowy.Path 0.82 0.92
+            Add-Result weather 'snow cover: open ground turns white, ground under a roof stays bare' ($openS -gt $openB + 8 -and [math]::Abs($underS - $underB) -lt $underB * 0.06 -and [double]$sn.snowAmount -eq 1) ("open {0:N1} → {1:N1}, under roof {2:N1} → {3:N1}, snow {4}" -f $openB, $openS, $underB, $underS, (F $sn.snowAmount))
+        }
+        else { Add-Result weather 'snow cover: open ground turns white, ground under a roof stays bare' $false 'no capture' }
+        # 발자국: RigidBody 공이 눈 위를 지나갔다 제자리로 → 지나간 자리만 다르다 (눌린 눈)
+        Invoke-Nova 'create sphere --name Roller --position 0,0.5,3' | Out-Null
+        Invoke-Nova 'add-component Roller RigidBody' | Out-Null
+        Invoke-Nova 'camera --position 0,4,-2 --target 0,0,4' | Out-Null
+        Wait-Sec 1.0
+        $fp0 = Shot 'footprint_before.png'
+        for ($i = 0; $i -le 24; $i++) { Invoke-Nova ("set Roller --position {0},0.5,{1}" -f ((-2.4 + $i * 0.2).ToString([Globalization.CultureInfo]::InvariantCulture)), '4') | Out-Null; Invoke-Nova 'wait 3' | Out-Null }
+        Invoke-Nova 'set Roller --position 0,0.5,3' | Out-Null
+        Wait-Sec 1.0
+        $fp1 = Shot 'footprint_after.png'
+        $trail = if ($fp0 -and $fp1) { DiffRatio $fp0.Path $fp1.Path } else { 0 }
+        Add-Result weather 'footprints: a RigidBody rolling over the snow leaves a pressed trail (depth map from below)' ($trail -gt 0.01) ("{0:P2} pixels changed by the trail" -f $trail)
+        Invoke-Nova 'delete Roller' | Out-Null
+
+        Invoke-Nova 'delete Roof' | Out-Null
+        Invoke-Nova 'camera --position 0,2,-10 --target 0,1,10' | Out-Null
+        SetCtl '{"density":1}'
+
         # ---- C# API
         $cs = Exec 'NovaEngine.Weather.Set("Rain", 0f); return NovaEngine.Weather.profile;'
         Wait-Sec 0.3

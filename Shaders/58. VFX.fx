@@ -53,6 +53,8 @@ cbuffer cbVfx
     float4 gSunDir;                 // Output Mesh 빛: xyz 해가 비추는 방향, w 빛 (1 = Lit)
     float4 gSunColor;               // rgb 해 색 × 세기
     float4 gAmbient;                // rgb 환경광
+    row_major float4x4 gCoverVP;    // 날씨 덮개 맵: 월드 → (u, v, 깊이)
+    float4 gCoverParams;            // x 있음, y 깊이 0 의 높이, z 깊이 범위 (m), w 맵 크기 (텍셀)
 };
 
 StructuredBuffer<float4> gProgram;      // 블록 목록 (VfxRuntime 이 만든다)
@@ -69,6 +71,7 @@ ByteAddressBuffer gSdf;                 // Collide with SDF: 거리장 칸 (x �
 Texture2D gTexture;
 Texture2D gSceneDepth;
 Texture2D gCollDepth;                   // 깊이 충돌 (compute 에서 Load)
+Texture2D gCover;                       // Collide with Weather Cover: 위에서 본 깊이 (com.nova.weather 가 켠다)
 
 SamplerState samVfx
 {
@@ -528,6 +531,44 @@ float3 DepthWorld(int2 q)
     return v.xyz / v.w;
 }
 
+// a = (튕김, 마찰, 수명 줄이기, 두께 m). 날씨 덮개 맵 (위에서 본 맨 위 표면 — 지붕 · 나무 · 땅) 아래로 들어가면 그 높이에서 위로 튕긴다
+//  화면에 보이지 않는 곳도 (집 안에 비가 오지 않게, 지붕 위의 튀는 물)
+void CollideCover(inout Particle p, uint at)
+{
+    if (gCoverParams.x < 0.5f)
+        return;
+    const float4 a = P(at, 0);
+    float3 wp = gLocalSpace != 0 ? mul(float4(p.Pos, 1.0f), gWorld).xyz : p.Pos;
+    float3 wv = gLocalSpace != 0 ? mul(float4(p.Vel, 0.0f), gWorld).xyz : p.Vel;
+    const float3 next = wp + wv * gDt;
+    const float4 c = mul(float4(next, 1.0f), gCoverVP);
+    if (any(c.xy <= 0.0f) || any(c.xy >= 1.0f))
+        return;
+    const float d = gCover.Load(int3(int2(c.xy * gCoverParams.w), 0)).r;
+    if (d >= 0.999999f)
+        return;   // 아무것도 없다
+    const float topY = gCoverParams.y - d * gCoverParams.z;
+    if (next.y > topY || next.y < topY - max(a.w, 0.01f))
+        return;   // 표면 위 · 두께 아래 (처마 밑으로 들어온 것은 지나간다)
+    wp.y = max(wp.y, topY + 0.002f);
+    if (wv.y < 0.0f)
+    {
+        wv.xz *= 1.0f - a.y;
+        wv.y = -wv.y * a.x;
+        p.Age += a.z * p.Life;
+    }
+    if (gLocalSpace != 0)
+    {
+        p.Pos = mul(float4(wp, 1.0f), gWorldInv).xyz;
+        p.Vel = mul(float4(wv, 0.0f), gWorldInv).xyz;
+    }
+    else
+    {
+        p.Pos = wp;
+        p.Vel = wv;
+    }
+}
+
 // a = (튕김, 마찰, 수명 줄이기, 두께 m). 다음 자리 (자리 + 속도 × dt) 가 보이는 표면 뒤 두께 안이면 표면 법선으로 튕긴다
 void CollideDepth(inout Particle p, uint at)
 {
@@ -805,6 +846,8 @@ void RunUpdate(inout Particle p, uint s)
             CollideDepth(p, at);
         else if (type == 31)   // Collide with Signed Distance Field
             CollideSdf(p, at);
+        else if (type == 32)   // Collide with Weather Cover
+            CollideCover(p, at);
         at += 1 + (uint)h.y;
     }
 }

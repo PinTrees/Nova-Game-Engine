@@ -39,6 +39,8 @@ public:
 	void UpdateScene();
 	void RenderScene();
 	void RenderSceneShadow();
+	void RenderSceneCover();   // 날씨 덮개 맵 (WeatherCover): 지붕 · 나무 · 바위 · 지형 (풀 · 캐릭터는 뺀다)
+	void RenderSceneDeformers();   // 눈을 밟는 것 (WeatherCover 의 발자국): 스킨 메시 + Rigidbody · Character Controller 의 메시
 	void RenderSceneShadowNormal();
 
 	// Editor Only

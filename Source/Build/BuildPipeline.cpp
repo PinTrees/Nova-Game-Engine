@@ -443,6 +443,19 @@ namespace BuildPipeline
 		std::vector<std::pair<std::wstring, std::wstring>> out;
 		for (const auto& f : deps.Files)
 			out.push_back({ f.first, f.second.wstring() });
+		// 넣은 패키지의 Resources (예: 날씨 소리) — 안드로이드는 패키지 폴더가 없다 → 게임 데이터의 Packages\<이름>\Resources 로
+		for (const PackageInfo* p : PackageManager::InProject())
+		{
+			const fs::path res = fs::path(p->Folder) / L"Resources";
+			if (!fs::is_directory(res, ec))
+				continue;
+			for (fs::recursive_directory_iterator it(res, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec))
+			{
+				if (ec) break;
+				if (it->is_regular_file(ec))
+					out.push_back({ L"Packages\\" + string_to_wstring(p->Name) + L"\\Resources\\" + fs::relative(it->path(), res, ec).wstring(), it->path().wstring() });
+			}
+		}
 		return out;
 	}
 

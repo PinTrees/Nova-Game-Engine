@@ -7,6 +7,7 @@
 #include "ParticleRenderer.h"
 #include "VfxRuntime.h"
 #include "WeatherState.h"
+#include "WeatherCover.h"
 #include "SpriteBatch.h"
 #include "SpriteAnimator.h"
 #include "RenderLayers.h"
@@ -591,6 +592,8 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 				});
 		if (!probe)
 			Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
+		if (!probe && !giCapture)   // 날씨: 위에서 본 덮개 (지붕 아래는 젖지 않는다)
+			WeatherCover::Render(_deviceContext.Get(), 0, gameCamPos);
 		_deviceContext->RSSetState(0);
 		_deviceContext->RSSetViewports(1, &viewport);
 		// 그림자 조각마다 빛으로 컬링했다 → 카메라 컬링을 되돌린다 (본 패스 · 투명 · 스킨 메시가 따른다)
@@ -677,8 +680,10 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 
 		// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 		ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
+		WeatherCover::Bind(Effects::InstancedBasicFX.get(), 0);   // 젖은 표면 · 웅덩이
 		// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
 		CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+			WeatherCover::Bind(fx, 0);
 			fx->SetEyePosW(d.Position);
 			fx->SetCubeMap(_sky->CubeMapSRV().Get());
 			fx->SetSsaoMap(ssaoMap);
@@ -848,6 +853,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
 			});
 		Profiler::SetStat("Scene View/Shadow Cascades Redrawn", s_EditorShadow.CascadesDrawn);
+		WeatherCover::Render(_deviceContext.Get(), 1, XMFLOAT3(camPos.x, camPos.y, camPos.z));
 		_deviceContext->RSSetState(0);
 		_deviceContext->RSSetViewports(1, &viewport);
 		SceneCulling::SetEditorView(true);
@@ -902,8 +908,10 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
+	WeatherCover::Bind(Effects::InstancedBasicFX.get(), 1);
 	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
 	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+		WeatherCover::Bind(fx, 1);
 		fx->SetEyePosW(camera->GetPosition());
 		fx->SetCubeMap(_sky->CubeMapSRV().Get());
 		fx->SetSsaoMap(ssao->AmbientSRV().Get());

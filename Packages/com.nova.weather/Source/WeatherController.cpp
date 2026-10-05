@@ -41,11 +41,17 @@ namespace
 
 	std::string AudioPath(const char* file)
 	{
-		const PackageInfo* p = PackageManager::Find("com.nova.weather");
-		if (p == nullptr)
-			return {};
-		return wstring_to_string(p->Folder) + "\\Resources\\Audio\\" + file;
+		// 편집기 · PC 빌드: 패키지 폴더. 안드로이드: 게임 데이터의 Packages\<이름>\Resources (BuildPipeline::CollectGameFiles)
+		if (const PackageInfo* p = PackageManager::Find("com.nova.weather"))
+			return wstring_to_string(p->Folder) + "\\Resources\\Audio\\" + file;
+		return std::string("Packages\\com.nova.weather\\Resources\\Audio\\") + file;
 	}
+}
+
+// 웅덩이 목표: 젖음 × 비 (가는 비는 조금만)
+float WeatherController::PuddleTarget(const WeatherParams& p)
+{
+	return std::clamp(p.Wetness * std::clamp(p.Rain * 1.6f, 0.0f, 1.0f), 0.0f, 1.0f);
 }
 
 WeatherController::WeatherController()
@@ -137,6 +143,9 @@ bool WeatherController::SetProfile(const std::string& nameOrPath, float seconds,
 	{
 		m_Current = m_To;
 		m_Duration = 0.0f;
+		m_SurfaceWet = m_To.Rain > 0.01f ? m_To.Wetness : 0.0f;   // 바로 = 표면도 바로 (Advance 의 목표와 같게)
+		m_Puddles = PuddleTarget(m_To);
+		m_Snow = m_To.Snow > 0.01f ? m_To.SnowCover : 0.0f;
 	}
 	m_Started = true;
 	return true;
@@ -200,6 +209,22 @@ void WeatherController::Advance(float dt, bool running)
 	else
 		m_Current = m_To;
 	m_Time += dt;
+
+	// 표면: 비가 오면 젖고 (센 비면 7 초쯤), 웅덩이는 더 천천히 찬다. 그치면 천천히 마른다 (1 분 · 웅덩이 2 분)
+	{
+		const float rain = std::clamp(m_Current.Rain, 0.0f, 1.0f);
+		const float wetTarget = rain > 0.01f ? m_Current.Wetness : 0.0f;
+		if (m_SurfaceWet < wetTarget) m_SurfaceWet = (std::min)(wetTarget, m_SurfaceWet + dt * (0.02f + 0.13f * rain));
+		else m_SurfaceWet = (std::max)(wetTarget, m_SurfaceWet - dt * 0.017f);
+		const float puddleTarget = PuddleTarget(m_Current);
+		if (m_Puddles < puddleTarget) m_Puddles = (std::min)(puddleTarget, m_Puddles + dt * 0.045f * rain);
+		else m_Puddles = (std::max)(puddleTarget, m_Puddles - dt * 0.008f);
+		// 눈: 내리는 만큼 쌓이고 (눈보라면 40 초쯤), 그치면 아주 천천히 녹는다 (비가 오면 빨리)
+		const float snowing = std::clamp(m_Current.Snow, 0.0f, 1.0f);
+		const float snowTarget = snowing > 0.01f ? m_Current.SnowCover : 0.0f;
+		if (m_Snow < snowTarget) m_Snow = (std::min)(snowTarget, m_Snow + dt * (0.005f + 0.02f * snowing));
+		else m_Snow = (std::max)(snowTarget, m_Snow - dt * (0.004f + 0.03f * rain));
+	}
 
 	// 돌풍: 느린 물결 셋을 겹친다
 	const float t = (float)m_Time;
@@ -510,8 +535,13 @@ void WeatherController::ApplyState(float gust)
 
 	// 바람: 2 m/s (맑은 날 산들바람) = 각 에셋의 바람 그대로
 	s.WindStrength = std::clamp(0.5f + p.Wind * gust / 4.0f, 0.0f, 4.5f);
-	s.Wetness = std::clamp(p.Wetness, 0.0f, 1.0f);
-	s.SnowCover = std::clamp(p.SnowCover, 0.0f, 1.0f);
+	s.Wetness = std::clamp(m_SurfaceWet, 0.0f, 1.0f);
+	s.PuddleLevel = std::clamp(m_Puddles, 0.0f, 1.0f);
+	s.RainIntensity = std::clamp(p.Rain, 0.0f, 1.0f);
+	s.Time = (float)fmod(m_Time, 3600.0);
+	s.SnowCover = std::clamp(m_Snow, 0.0f, 1.0f);
+	s.SnowFall = std::clamp(p.Snow, 0.0f, 1.0f);
+	s.SnowDepth = (std::max)(0.02f, SnowDepth);
 	s.Flash = flash;
 }
 
@@ -561,6 +591,7 @@ void WeatherController::OnInspectorGUI()
 		Profile = names[index];
 	if (UnityGUI::Float("Transition Time", &TransitionTime)) TransitionTime = (std::max)(0.0f, TransitionTime);
 	UnityGUI::Slider("Density", &Density, 0.0f, 2.0f);
+	if (UnityGUI::Float("Snow Depth", &SnowDepth)) SnowDepth = std::clamp(SnowDepth, 0.02f, 1.0f);
 	UnityGUI::Toggle("Lightning", &Lightning);
 	UnityGUI::Toggle("Sound", &Sound);
 	if (Sound)
@@ -579,6 +610,8 @@ void WeatherController::OnInspectorGUI()
 	UnityGUI::ValueLabel("Precipitation", buf);
 	snprintf(buf, sizeof(buf), "%.1f m/s  %.0f deg  Fog %.2f", m_Current.Wind, m_Current.WindDirection, m_Current.Fog);
 	UnityGUI::ValueLabel("Wind", buf);
+	snprintf(buf, sizeof(buf), "Wet %.2f  Puddles %.2f  Snow %.2f", m_SurfaceWet, m_Puddles, m_Snow);
+	UnityGUI::ValueLabel("Surface", buf);
 	if (Lightning && UnityGUI::CenterButton("Strike Lightning"))
 		Strike();
 	if (Sound && !Application::IsPlaying())
@@ -597,6 +630,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(WeatherController)
 	j["lightning"] = Lightning;
 	j["sound"] = Sound;
 	j["volume"] = Volume;
+	j["snowDepth"] = SnowDepth;
 	return j;
 }
 
@@ -609,4 +643,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(WeatherController)
 	Lightning = j.value("lightning", true);
 	Sound = j.value("sound", true);
 	Volume = j.value("volume", 1.0f);
+	SnowDepth = j.value("snowDepth", 0.25f);
 }

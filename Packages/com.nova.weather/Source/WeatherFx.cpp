@@ -27,7 +27,7 @@ namespace WeatherFx
 		}
 
 		const json kFadeInOut = json::array({ { 0.0, 1, 1, 1, 0 }, { 0.06, 1, 1, 1, 1 }, { 0.85, 1, 1, 1, 1 }, { 1.0, 1, 1, 1, 0 } });
-		const json kRipple = json::array({ { 0.0, 1, 1, 1, 0.9 }, { 1.0, 1, 1, 1, 0 } });
+		const json kRipple = json::array({ { 0.0, 1, 1, 1, 0.55 }, { 1.0, 1, 1, 1, 0 } });
 	}
 
 	json Precipitation()
@@ -46,6 +46,8 @@ namespace WeatherFx
 				Block("SetColor", { { "ColorA", { 0.72, 0.78, 0.88, 0.42 } }, { "Intensity", 1.0 } }),
 			}) },
 			{ "update", json::array({
+				// 위에서 본 맨 위 표면 (지붕 · 나무 · 땅) 에서 죽는다 — 집 안에 비가 들지 않는다. 벽 · 화면에 보이는 표면은 깊이 버퍼로
+				Block("CollideCover", { { "Bounce", 0.0 }, { "Friction", 0.0 }, { "LifetimeLoss", 1.0 }, { "Thickness", 1.5 } }),
 				Block("CollideDepth", { { "Bounce", 0.0 }, { "Friction", 0.0 }, { "LifetimeLoss", 1.0 }, { "Thickness", 1.5 } }),
 			}) },
 			{ "output", { { "blend", "Alpha" }, { "shape", "Spark" }, { "orient", "AlongVelocity" }, { "stretch", 1.7 }, { "softDistance", 0.0 }, { "intensity", 1.25 }, { "sort", "Off" } } },
@@ -72,10 +74,10 @@ namespace WeatherFx
 			{ "initialize", json::array({
 				Block("SetLifetime", { { "Min", 0.3 }, { "Max", 0.45 } }),
 				Block("SetSize", { { "Min", 0.05 }, { "Max", 0.09 } }),
-				Block("SetColor", { { "ColorA", { 0.85, 0.9, 1.0, 0.35 } } }),
+				Block("SetColor", { { "ColorA", { 0.85, 0.9, 1.0, 0.22 } } }),
 			}) },
 			{ "update", json::array({
-				Block("SizeOverLife", { { "Curve", json::array({ { 0, 0.3 }, { 1, 3.5 } }) } }),
+				Block("SizeOverLife", { { "Curve", json::array({ { 0, 0.3 }, { 1, 2.6 } }) } }),
 				Block("ColorOverLife", { { "Gradient", kRipple } }),
 			}) },
 			{ "output", { { "blend", "Alpha" }, { "shape", "Ring" }, { "orient", "Horizontal" }, { "softDistance", 0.0 }, { "intensity", 1.0 }, { "sort", "Off" } } },
@@ -93,7 +95,7 @@ namespace WeatherFx
 				Block("SetSize", { { "Min", 0.03 }, { "Max", 0.05 } }),
 				Block("SetColor", { { "ColorA", { 0.7, 0.75, 0.85, 0.16 } } }),
 			}) },
-			{ "update", json::array() },
+			{ "update", json::array({ Block("CollideCover", { { "Bounce", 0.0 }, { "Friction", 0.0 }, { "LifetimeLoss", 1.0 }, { "Thickness", 2.0 } }) }) },
 			{ "output", { { "blend", "Alpha" }, { "shape", "Spark" }, { "orient", "AlongVelocity" }, { "stretch", 2.2 }, { "softDistance", 0.6 }, { "intensity", 1.2 }, { "sort", "Off" } } },
 			{ "editor", { { "x", 0.0 }, { "y", 520.0 } } },
 		});
@@ -113,6 +115,7 @@ namespace WeatherFx
 			}) },
 			{ "update", json::array({
 				Block("Turbulence", { { "Intensity", 0.7 }, { "Frequency", 0.3 }, { "Octaves", 2 }, { "Drag", 0.0 }, { "Scroll", { 0, 0.15, 0 } } }),
+				Block("CollideCover", { { "Bounce", 0.0 }, { "Friction", 1.0 }, { "LifetimeLoss", 0.0 }, { "Thickness", 0.6 } }),   // 지붕 · 땅에 앉는다
 				Block("CollideDepth", { { "Bounce", 0.0 }, { "Friction", 1.0 }, { "LifetimeLoss", 0.0 }, { "Thickness", 0.6 } }),
 				Block("ColorOverLife", { { "Gradient", kFadeInOut } }),
 			}) },

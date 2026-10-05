@@ -50,6 +50,7 @@ Unity 의 Visual Effect Graph 처럼 **GPU 에서 수십만 개의 파티클**�
 | | **Collide with Plane** | 튕김 · 마찰 · 부딪힐 때 수명 줄이기 |
 | | **Collide with Signed Distance Field** | 메시 (기본 · 모델 파일) 를 거리장으로 구워 그 모양에 튕긴다 — 자리 · 회전 · 크기, 해상도, 파티클 반지름 |
 | | **Collide with Depth Buffer** | 화면에 보이는 장면 (깊이) 에 튕긴다 — 바닥 · 벽 · 물체 모양 그대로, 두께 (표면 뒤 몇 m 까지 속으로 볼지) |
+| | **Collide with Weather Cover** | 날씨 패키지의 덮개 맵 (위에서 본 맨 위 표면 — 지붕 · 나무 · 땅) 에 부딪힌다. 화면 밖도, 집 안에 비가 들지 않게 — [WEATHER](WEATHER.md). 날씨가 없으면 아무것도 하지 않는다 |
 | 둘 다 | **Set Color** | Update 에 두면 프레임마다 (연산 노드로 반짝임 · 색 바꾸기, 뒤의 Color over Life 가 곱한다) |
 | | **Set Attribute (Custom)** | 사용자 속성에 Set · Add · Multiply (값에 연산 노드를 이을 수 있다) |
 | | **Sub Graph Block** | `.vfxblock` 파일의 블록 묶음을 블록 하나로 — 그 파일의 Blackboard 속성이 이 블록의 값 |
