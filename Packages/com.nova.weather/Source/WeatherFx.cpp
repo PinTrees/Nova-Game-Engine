@@ -108,13 +108,20 @@ namespace WeatherFx
 				Block("SetPosition", { { "Shape", "Box" }, { "Size", { 40, 18, 40 } }, { "Center", { 0, 6, 0 } } }, { { "Center", "Snow Offset" } }),
 				Block("SetVelocity", { { "Mode", "Direction" }, { "Direction", { 0, -1, 0 } }, { "MinSpeed", 0.7 }, { "MaxSpeed", 1.3 } }),
 				Block("SetVelocity", { { "Mode", "Direction" }, { "MinSpeed", 0.85 }, { "MaxSpeed", 1.0 } }, { { "Direction", "Wind" } }),
+#if defined(__ANDROID__)
+				// 안드로이드 (낮은 품질): Turbulence 대신 처음 흔들림만 크게 — MuMu GLES 에서 Turbulence 가 속도를 NaN 으로 깨뜨린다 (엔진 문제, 따로)
+				Block("SetVelocity", { { "Mode", "Random" }, { "MinSpeed", 0.15 }, { "MaxSpeed", 0.6 } }),
+#else
 				Block("SetVelocity", { { "Mode", "Random" }, { "MinSpeed", 0.05 }, { "MaxSpeed", 0.3 } }),
+#endif
 				Block("SetLifetime", { { "Min", 7.0 }, { "Max", 9.0 } }, { { "Min", "Snow Life" }, { "Max", "Snow Life Max" } }),
 				Block("SetSize", { { "Min", 0.03 }, { "Max", 0.06 } }),
 				Block("SetColor", { { "ColorA", { 1, 1, 1, 0.92 } }, { "Intensity", 1.15 } }),
 			}) },
 			{ "update", json::array({
+#if !defined(__ANDROID__)
 				Block("Turbulence", { { "Intensity", 0.7 }, { "Frequency", 0.3 }, { "Octaves", 2 }, { "Drag", 0.0 }, { "Scroll", { 0, 0.15, 0 } } }),
+#endif
 				Block("CollideCover", { { "Bounce", 0.0 }, { "Friction", 1.0 }, { "LifetimeLoss", 0.0 }, { "Thickness", 0.6 } }),   // 지붕 · 땅에 앉는다
 				Block("CollideDepth", { { "Bounce", 0.0 }, { "Friction", 1.0 }, { "LifetimeLoss", 0.0 }, { "Thickness", 0.6 } }),
 				Block("ColorOverLife", { { "Gradient", kFadeInOut } }),

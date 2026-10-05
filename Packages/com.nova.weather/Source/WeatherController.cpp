@@ -515,7 +515,8 @@ void WeatherController::ApplyState(float gust)
 	WeatherState& s = WeatherState::Get();
 	const WeatherParams& p = m_Current;
 	const float c = std::clamp(p.Clouds, 0.0f, 1.0f);
-	s.SunIntensity = 1.0f - 0.85f * c;
+	// 해: 먹구름 + 짙은 안개 (눈보라 · 폭풍) 에는 그림자가 거의 없을 만큼
+	s.SunIntensity = (1.0f - 0.85f * c) * (1.0f - 0.6f * std::clamp(p.Fog, 0.0f, 1.0f));
 	s.SunTint = Mix3({ 1, 1, 1 }, { 0.82f, 0.88f, 1.0f }, c);
 	s.AmbientIntensity = 1.0f - 0.5f * c;
 	s.AmbientTint = Mix3({ 1, 1, 1 }, { 0.86f, 0.9f, 1.0f }, c);

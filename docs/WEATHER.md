@@ -5,7 +5,13 @@
 
 ![맑음 · 비 · 폭풍 (번개) · 눈보라](images/weather_presets.webp)
 
+![데모: 숲속 오두막 — 맑음 → 비 → 폭풍 → 눈 → 눈보라 → 갠 뒤 (눈이 남는다)](images/weather_demo_anim.webp)
+
+![데모 장면: 맑음 · 비 · 폭풍 (젖은 돌 마당) · 쌓이기 시작한 눈 · 눈보라 (발자국) · 갠 뒤](images/weather_demo_scenes.webp)
+
 ![폭풍 — 바람에 기운 비, 번개와 번쩍임](images/weather_storm_anim.webp)
+
+![지붕 아래는 마른다 · 지붕 아래는 눈이 없다 · RigidBody 공의 발자국](images/weather_wet_snow.webp)
 
 ## 쓰는 법
 
@@ -69,9 +75,25 @@ nova weather save --path Assets/Weather/Mine.weather
 
 젖음 · 눈은 모든 Lit 표면 (메시 · Shader Graph · 지형 · 나무 · 바위 · 풀) 이 같은 `ShadeLit` 에서 받는다 — 셰이더를 고치지 않아도 된다. 웅덩이는 메시 · 지형만 (나무 · 풀 · 바위 위에는 없다). 지형 정점을 실제로 올리지는 않는다 (눈 두께와 발자국 깊이는 음영 · 시차로).
 
-## 다음 단계
+## 데모
 
-- 4 단계 — 시네마틱 데모 (큰 지형 + 숲, 맑음 → 폭풍 → 눈보라), 안드로이드 낮은 품질 (소리 경로 · R32F 거르기)
+새 프로젝트 (예: `E:\NovaTest\WeatherDemo`) 에 [docs/examples/weather](examples/weather) 의 스크립트 둘과 장면 만들기 스크립트를 쓴다:
+
+- `WeatherDirector.cs` — Play 하면 시간표 (0 초 맑음 → 8 흐림 → 16 비 → 28 폭풍 → 46 눈 → 62 눈보라 → 80 맑음, 되풀이) 와 오두막 둘레를 천천히 도는 카메라. 1 ~ 6 = 프로필 바로, L = 번개, Space = 시간표 멈춤, C = 카메라 멈춤
+- `Walker.cs` — 캐릭터가 원을 따라 걷는다 (Animator 의 Speed · MotionSpeed · Grounded) → 눈 위 발자국
+- `build_cabin_scene.ps1` — 오두막 · 돌 마당 · 처마 · 등불 · 숲 900 그루 · 걷는 사람 · Weather Controller · Director (CLI 로). Volume 에 Screen Space Reflection 을 켜면 웅덩이에 오두막 · 나무가 비친다
+
+## 안드로이드
+
+같은 패키지가 플레이어에 들어간다 (OpenGL ES 3.2 — 덮개 맵 · 발자국 compute 그대로, 소리는 게임 데이터의 `Packages\com.nova.weather\Resources`). MuMu 960 x 540: 폭풍 2.4 ms, 눈보라 4.5 ms (프레임 전체). 낮은 품질: 눈송이의 Turbulence 대신 처음 흔들림만 (MuMu GLES 에서 Turbulence 가 파티클 자리를 NaN 으로 깨뜨린다 — 엔진 쪽 문제로 따로 고친다).
+
+![안드로이드 (MuMu GLES) — 왼쪽 PC DirectX 11, 오른쪽 기기: 폭풍 · 눈보라](images/weather_android.webp)
+
+## 한계
+
+- 지형 정점을 실제로 올리지 않는다 — 눈 두께 · 발자국 깊이는 음영 · 시차 (가까이서 보면 발자국 테두리가 조금 들쭉날쭉)
+- 젖음 · 눈은 Lit 표면만 (스킨 메시 캐릭터 · 물 · 입자는 그대로)
+- 덮개 맵 · 발자국 맵은 카메라 둘레만 (128 m · 48 m) — 그 밖은 하늘 아래로 보고, 발자국은 창을 벗어나면 지워진다
 
 ## 검사
 
@@ -79,4 +101,9 @@ nova weather save --path Assets/Weather/Mine.weather
 powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1 -Only weather
 ```
 
-14 개: 붙이면 맑음 (장면 그대로), 폭풍의 어두움 · 바람, 비 입자 (Density 0 과 비교), 3 초 전환, 번개 (밝은 화소), 눈 · 눈보라, `.weather` 저장 · 불러오기, 젖은 바닥 · 지붕 아래 마름 (같은 빛에서 젖음만 다른 프로필), 천천히 젖기, 쌓인 눈 · 지붕 아래 맨땅, RigidBody 공의 발자국, C# API, Play 의 소리, 끄면 장면 그대로.
+```bash
+powershell -ExecutionPolicy Bypass -File Tools\tests\android_weather.ps1 -Profile Blizzard
+```
+
+PC 14 개: 붙이면 맑음 (장면 그대로), 폭풍의 어두움 · 바람, 비 입자 (Density 0 과 비교), 3 초 전환, 번개 (밝은 화소), 눈 · 눈보라, `.weather` 저장 · 불러오기, 젖은 바닥 · 지붕 아래 마름 (같은 빛에서 젖음만 다른 프로필), 천천히 젖기, 쌓인 눈 · 지붕 아래 맨땅, RigidBody 공의 발자국, C# API, Play 의 소리, 끄면 장면 그대로.
+안드로이드 11 개 (MuMu): GLES 셰이더 (눈 compute 포함), 게임 데이터의 날씨 소리, 기기 장면 · 날씨 오류 없음, 비 · 눈 입자 (살아 있고 자리가 유한), DX11 기준과 같은 밝기, 그리기 시간, 충돌 없음.

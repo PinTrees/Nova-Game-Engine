@@ -542,13 +542,14 @@ void CollideCover(inout Particle p, uint at)
     float3 wv = gLocalSpace != 0 ? mul(float4(p.Vel, 0.0f), gWorld).xyz : p.Vel;
     const float3 next = wp + wv * gDt;
     const float4 c = mul(float4(next, 1.0f), gCoverVP);
-    if (any(c.xy <= 0.0f) || any(c.xy >= 1.0f))
+    // 맞는 쪽으로 묻는다 (NaN 이면 거짓 → 지나간다)
+    if (!(all(c.xy > 0.0f) && all(c.xy < 1.0f)))
         return;
     const float d = gCover.Load(int3(int2(c.xy * gCoverParams.w), 0)).r;
-    if (d >= 0.999999f)
+    if (!(d < 0.999999f))
         return;   // 아무것도 없다
     const float topY = gCoverParams.y - d * gCoverParams.z;
-    if (next.y > topY || next.y < topY - max(a.w, 0.01f))
+    if (!(next.y <= topY && next.y >= topY - max(a.w, 0.01f)))
         return;   // 표면 위 · 두께 아래 (처마 밑으로 들어온 것은 지나간다)
     wp.y = max(wp.y, topY + 0.002f);
     if (wv.y < 0.0f)
@@ -557,6 +558,8 @@ void CollideCover(inout Particle p, uint at)
         wv.y = -wv.y * a.x;
         p.Age += a.z * p.Life;
     }
+    if (!(all(abs(wp) < 1e9f) && all(abs(wv) < 1e9f)))
+        return;   // NaN · 무한이면 그대로 둔다 (한 번 망가진 자리는 영영 그려지지 않는다)
     if (gLocalSpace != 0)
     {
         p.Pos = mul(float4(wp, 1.0f), gWorldInv).xyz;
@@ -596,6 +599,8 @@ void CollideDepth(inout Particle p, uint at)
         return;   // 표면 앞 · 두께 너머 (물체 뒤로 지나간다)
     // 표면 자리 · 법선: 이웃 화소 중 깊이가 가까운 쪽 (모서리를 넘지 않게)
     const float3 c = DepthWorld(q);
+    if (!all(abs(c) < 1e9f))
+        return;   // 되살린 자리가 NaN · 무한 (깊이 · 행렬이 어긋난 뷰)
     const float3 l = DepthWorld(q - int2(1, 0)), r = DepthWorld(q + int2(1, 0));
     const float3 u = DepthWorld(q - int2(0, 1)), b = DepthWorld(q + int2(0, 1));
     const float3 dx = dot(r - c, r - c) < dot(c - l, c - l) ? r - c : c - l;
@@ -614,6 +619,8 @@ void CollideDepth(inout Particle p, uint at)
         wv = vt * (1.0f - a.y) - n * vn * a.x;
         p.Age += a.z * p.Life;
     }
+    if (!(all(abs(wp) < 1e9f) && all(abs(wv) < 1e9f)))
+        return;   // NaN · 무한이면 그대로 둔다 (한 번 망가진 자리는 영영 그려지지 않는다)
     if (gLocalSpace != 0)
     {
         p.Pos = mul(float4(wp, 1.0f), gWorldInv).xyz;

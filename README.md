@@ -127,6 +127,8 @@ nova exec "GameObject.Find(\"Box\").transform.position"
 | <img src="docs/images/model_editor.webp" width="440"/><br/>Model Editor (패키지) | <img src="docs/images/animator2d.webp" width="440"/><br/>2D Animator (패키지) |
 | <img src="docs/images/ai_navigation.webp" width="440"/><br/>AI Navigation — NavMesh Link · Obstacle | <img src="docs/images/profiler.webp" width="440"/><br/>Profiler |
 
+<p align="center"><img src="docs/images/weather_demo_scenes.webp" width="900"/><br/><sub>날씨 (패키지) — 숲속 오두막: 맑음 → 비 → 폭풍 (젖은 돌 마당) → 눈 → 눈보라 (발자국) → 갠 뒤</sub></p>
+
 <p align="center"><img src="docs/images/toon_shader.webp" width="900"/><br/><sub>lilToon 툰 셰이더 (VRoid 샘플 캐릭터)</sub></p>
 
 <p align="center"><img src="docs/images/android_player.webp" width="900"/><br/><sub>안드로이드 (MuMu · OpenGL ES 3.2) — PC DirectX 11 과 같은 그림</sub></p>
