@@ -60,6 +60,8 @@ public:
 	ULONG Release() { return 1; }
 	bool IsValid() const { return _technique >= 0 && _pass >= 0 && _pass < _fx->PassCount(_technique); }
 	HRESULT Apply(UINT, GfxContext*) { if (IsValid()) _fx->Apply(_technique, _pass); return S_OK; }
+	// 이 기기에서 그릴 수 있는가 (IsValid = 이름이 있다, IsUsable = 셰이더가 만들어졌다 — Rhi::Effect::PassUsable)
+	bool IsUsable() const { return IsValid() && _fx->PassUsable(_technique, _pass); }
 	HRESULT GetDesc(D3DX11_PASS_DESC* desc);
 
 private:

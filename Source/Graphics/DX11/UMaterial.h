@@ -20,6 +20,17 @@ class NOVA_API UMaterial
 public:
 	enum class ShaderKind { Lit = 0, Unlit = 1, Custom = 2 };
 
+	// 테셀레이션 변위 (HDRP Lit 의 Displacement Mode = Tessellation): 카메라 가까이에서 삼각형을 잘게 나눠 Height Map 만큼 민다 (60. Tessellation.fx)
+	struct Tessellation
+	{
+		bool Enabled = false;
+		float Amplitude = 0.05f;     // 높이 맵 0..1 → 이 높이 (m)
+		float Base = 0.5f;           // 높이 맵에서 원래 면의 자리 (0..1) — 아래는 들어가고 위는 나온다
+		float MaxFactor = 16.0f;     // 변 하나를 최대 몇 조각으로 (1..64)
+		float TriangleSize = 12.0f;  // 원하는 삼각형 변 길이 (1080p 화면의 픽셀)
+		float FadeDistance = 50.0f;  // 이 거리 (m) 너머는 나누지 않는다 (끝 1/4 에서 줄어든다)
+	};
+
 private:
 	string m_ResourcePath;
 
@@ -46,10 +57,13 @@ private:
 	// URP Lit
 	ShaderKind m_Shader = ShaderKind::Lit;
 	PbrMaterial m_Pbr;
+	wstring m_HeightMapPath;
+	ComPtr<GfxShaderResourceView> HeightMapSRV;
 	bool m_EmissionEnabled = false;
 	XMFLOAT3 m_EmissionColor = XMFLOAT3(0, 0, 0);   // 감마 공간 색
 	float m_EmissionIntensity = 1.0f;
 	int m_Priority = 0;
+	Tessellation m_Tess;
 
 	// 패키지 셰이더
 	std::string m_CustomShader;
@@ -104,6 +118,10 @@ public:
 
 	GfxShaderResourceView* GetBaseMapSRV() { return BaseMapSRV.Get(); }
 	GfxShaderResourceView* GetNormalMapSRV() { return NormalMapSRV.Get(); }
+	GfxShaderResourceView* GetHeightMapSRV() const { return HeightMapSRV.Get(); }
+	const Tessellation& GetTessellation() const { return m_Tess; }
+	// 테셀레이션으로 그리는가: Lit · 켜짐 · Height Map 있음 · 알파 자르기 아님 (자르는 재질은 예전 길로)
+	bool UsesTessellation() const;
 	ShaderSetting GetShaderSetting() { return m_shaderSetting; }
 	const PbrMaterial& GetPbr() const { return m_Pbr; }
 	// 발광 (선형 × Intensity, 꺼져 있으면 0) — Adaptive Probe Volume 이 발광 렌더러를 찾는다

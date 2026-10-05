@@ -266,6 +266,11 @@ std::shared_ptr<UMaterial> UMaterial::CloneInstance() const
 	return c;
 }
 
+bool UMaterial::UsesTessellation() const
+{
+	return m_Tess.Enabled && HeightMapSRV && m_Shader == ShaderKind::Lit && m_Pbr.AlphaClip == 0;
+}
+
 uint64 UMaterial::StateHash() const
 {
 	// 엔진 값 (PBR · 발광) + 패키지 속성 수정 번호 (스크립트 · Inspector 가 바꾸면 달라진다)
@@ -276,6 +281,8 @@ uint64 UMaterial::StateHash() const
 	mix(&m_EmissionColor, sizeof(m_EmissionColor));
 	mix(&m_EmissionIntensity, sizeof(m_EmissionIntensity));
 	mix(&m_PropertiesRevision, sizeof(m_PropertiesRevision));
+	mix(&m_Tess.Enabled, sizeof(bool));
+	mix(&m_Tess.Amplitude, sizeof(float) * 5);   // Amplitude ~ FadeDistance (붙어 있는 float 다섯)
 	const void* srv = BaseMapSRV.Get();
 	mix(&srv, sizeof(srv));
 	return h;
@@ -335,6 +342,7 @@ void UMaterial::ReloadTextures()
 	MetallicMapSRV = LoadTex(m_MetallicMapPath);
 	OcclusionMapSRV = LoadTex(m_OcclusionMapPath);
 	EmissionMapSRV = LoadTex(m_EmissionMapPath);
+	HeightMapSRV = LoadTex(m_HeightMapPath);
 	SyncLegacy();
 }
 
@@ -448,6 +456,17 @@ void from_json(const json& j, UMaterial& m)
 	m.m_MetallicMapPath = ReadPath(j, "MetallicMapPath");
 	m.m_OcclusionMapPath = ReadPath(j, "OcclusionMapPath");
 	m.m_EmissionMapPath = ReadPath(j, "EmissionMapPath");
+	m.m_HeightMapPath = ReadPath(j, "HeightMapPath");
+	{
+		UMaterial::Tessellation& s = m.m_Tess;
+		s = UMaterial::Tessellation();
+		s.Enabled = j.value("DisplacementMode", std::string("None")) == "Tessellation";
+		s.Amplitude = j.value("HeightAmplitude", s.Amplitude);
+		s.Base = j.value("HeightBase", s.Base);
+		s.MaxFactor = j.value("TessellationFactor", s.MaxFactor);
+		s.TriangleSize = j.value("TessellationTriangleSize", s.TriangleSize);
+		s.FadeDistance = j.value("TessellationFadeDistance", s.FadeDistance);
+	}
 
 	m.Ambient = ReadF4(j, "Ambient", m.Ambient);
 	m.Diffuse = ReadF4(j, "Diffuse", m.Diffuse);
@@ -515,6 +534,13 @@ void to_json(json& j, const UMaterial& m)
 		{ "MetallicMapPath", wstring_to_string(m.m_MetallicMapPath) },
 		{ "OcclusionMapPath", wstring_to_string(m.m_OcclusionMapPath) },
 		{ "EmissionMapPath", wstring_to_string(m.m_EmissionMapPath) },
+		{ "HeightMapPath", wstring_to_string(m.m_HeightMapPath) },
+		{ "DisplacementMode", m.m_Tess.Enabled ? "Tessellation" : "None" },
+		{ "HeightAmplitude", m.m_Tess.Amplitude },
+		{ "HeightBase", m.m_Tess.Base },
+		{ "TessellationFactor", m.m_Tess.MaxFactor },
+		{ "TessellationTriangleSize", m.m_Tess.TriangleSize },
+		{ "TessellationFadeDistance", m.m_Tess.FadeDistance },
 		{ "BaseColor", F4(p.BaseColor) },
 		{ "Metallic", p.Metallic },
 		{ "Smoothness", p.Smoothness },

@@ -355,6 +355,38 @@ technique11 BuildShadowMapInstancingTech
     }
 }
 
+// 재질 테셀레이션 (60. Tessellation.fx): 높이 맵만큼 민 모양으로 그림자. 나눔은 화면 카메라 (gTessEye) 기준
+#include "60. Tessellation.fx"
+
+TessCP VS_TessInstancing(VertexIn_Instancing vin)
+{
+    return TessBatchCP(vin.PosL, vin.NormalL, vin.TangentL, mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy, vin.World);
+}
+
+[domain("tri")]
+VertexOut DS_TessShadow(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TessCP, 3> tri)
+{
+    const TessCP v = TessEvaluate(tri[0], tri[1], tri[2], w);
+    VertexOut o;
+    o.PosH = mul(float4(ApplyShadowBias(v.PosW, normalize(v.NormalW)), 1.0f), gViewProj);
+    o.Tex = v.Tex;
+    return o;
+}
+
+technique11 TessBuildShadowMapInstancingTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_TessInstancing()));
+        SetHullShader(CompileShader(hs_5_0, TessHS()));
+        SetDomainShader(CompileShader(ds_5_0, DS_TessShadow()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+
+        SetRasterizerState(Depth);
+    }
+}
+
 technique11 BuildShadowMapAlphaClipInstancingTech
 {
     pass P0

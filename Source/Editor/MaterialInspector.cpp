@@ -445,6 +445,26 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 			bool receive = p.ReceiveShadows != 0;
 			if (UnityGUI::Toggle("Receive Shadows", &receive)) { p.ReceiveShadows = receive ? 1 : 0; changed = true; }
 		}
+		// HDRP Lit 의 Displacement Mode: Tessellation = Height Map 만큼 실제로 민다
+		if (lit)
+		{
+			static const char* kDisplacement[] = { "None", "Tessellation Displacement" };
+			int mode = m.m_Tess.Enabled ? 1 : 0;
+			if (UnityGUI::Dropdown("Displacement Mode", &mode, kDisplacement, 2)) { m.m_Tess.Enabled = mode == 1; changed = true; }
+		}
+	}
+
+	// ---- Tessellation Options (HDRP Lit 처럼)
+	if (lit && m.m_Tess.Enabled && UnityGUI::Foldout("Tessellation Options", 0, true, false))
+	{
+		UMaterial::Tessellation& s = m.m_Tess;
+		if (UnityGUI::Slider("Tessellation Factor", &s.MaxFactor, 1.0f, 64.0f)) { s.MaxFactor = std::clamp(s.MaxFactor, 1.0f, 64.0f); changed = true; }
+		if (UnityGUI::Slider("Triangle Size", &s.TriangleSize, 2.0f, 100.0f)) { s.TriangleSize = std::clamp(s.TriangleSize, 2.0f, 100.0f); changed = true; }
+		if (UnityGUI::Float("Fade Distance", &s.FadeDistance)) { s.FadeDistance = (std::max)(1.0f, s.FadeDistance); changed = true; }
+		if (!m.HeightMapSRV)
+			UnityGUI::HelpBox("Assign a Height Map in Surface Inputs to displace the surface.", true);
+		else if (p.AlphaClip)
+			UnityGUI::HelpBox("Tessellation is not used with Alpha Clipping.", true);
 	}
 
 	// ---- Surface Inputs
@@ -483,8 +503,12 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 						ImportSettingsInspector::MarkAsNormalMap(full);
 				}
 			}
-			TextureRow("Height Map", nullptr, nullptr, "", row, 0, true);
+			// Height Map + Amplitude (m) — Displacement Mode 가 Tessellation 일 때 민다
+			changed |= TextureRow("Height Map", &m.m_HeightMapPath, std::addressof(m.HeightMapSRV), "matHeight:" + key, row);
+			if (m.HeightMapSRV)
+				changed |= UnityGUI::FloatBox("##heightAmp", &m.m_Tess.Amplitude, ImVec2(row.fieldX, row.p.y), 60.0f);
 			UnityGUI::EndFieldRow(row);
+			if (m.HeightMapSRV && m.m_Tess.Enabled && UnityGUI::Slider("Base", &m.m_Tess.Base, 0.0f, 1.0f, 1)) { m.m_Tess.Base = std::clamp(m.m_Tess.Base, 0.0f, 1.0f); changed = true; }
 			// Occlusion Map + Strength
 			changed |= TextureRow("Occlusion Map", &m.m_OcclusionMapPath, std::addressof(m.OcclusionMapSRV), "matOcc:" + key, row);
 			UnityGUI::EndFieldRow(row);

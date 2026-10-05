@@ -203,6 +203,39 @@ technique11 NormalDepthAlphaClipBatchTech
     }
 }
 
+// 재질 테셀레이션 (60. Tessellation.fx): 본 패스 (32 의 TessBatchTech) 와 같은 함수로 같은 깊이
+#include "60. Tessellation.fx"
+
+TessCP VS_TessBatchND(VertexIn_Instancing vin)
+{
+    return TessBatchCP(vin.PosL, vin.NormalL, vin.TangentL, mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy, vin.World);
+}
+
+[domain("tri")]
+VertexOut DS_TessBatchND(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TessCP, 3> tri)
+{
+    const TessCP v = TessEvaluate(tri[0], tri[1], tri[2], w);
+    VertexOut o;
+    precise const float4 posH = mul(float4(v.PosW, 1.0f), gTessViewProj);   // 본 패스와 같은 비트 (precise)
+    o.PosH = posH;
+    o.PosV = mul(float4(v.PosW, 1.0f), gTessView).xyz;
+    o.NormalV = mul(v.NormalW, (float3x3) gTessView);
+    o.Tex = v.Tex;
+    return o;
+}
+
+technique11 TessNormalDepthBatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_TessBatchND()));
+        SetHullShader(CompileShader(hs_5_0, TessHS()));
+        SetDomainShader(CompileShader(ds_5_0, DS_TessBatchND()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(false)));
+    }
+}
+
 technique11 NormalDepth
 {
     pass P0

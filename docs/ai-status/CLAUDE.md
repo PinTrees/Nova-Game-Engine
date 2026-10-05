@@ -1,6 +1,16 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **VFX Turbulence 가 안드로이드 GLES 에서 NaN** (사용자 지시: 작업 칩 "Fix VFX Turbulence producing NaN on Android GLES" 를 여기서) + 편집기 abort 대화상자 + MuMu 창 숨기기. **완료 (커밋 27ba508, 푸시함)**
+- 갱신 시각: 2026년 10월 6일 — **날씨 품질 보강 (캐릭터 · 물 · 지형 눈 두께) + 재질 테셀레이션** (사용자 지시: "캐릭터도 비에 젖고 어깨 · 머리에 눈 … 물 수면에 빗방울 물결과 먹구름 하늘 반사 … 지형 높이를 실제로 올려 눈 두께 … 이거 하고 그 테셀레이션도 추가해줘. 벽, 바닥 등 … 높이 가변"). **완료 (커밋함, 푸시는 사용자 확인 뒤)**
+  - 새 `Shaders/60. Tessellation.fx` (cbTessellation · gHeightMap, 변마다 가운데 거리로 나눔 — 틈 없음, 높이 밉 = 정점 간격, 정점 법선 다시), 32 `TessBatchTech` (+ `PS_TessBatch` 픽셀마다 높이 기울기 법선) · 28 `TessNormalDepthBatchTech` · 26 `TessBuildShadowMapInstancingTech`
+    **EQUAL 깊이**: 자리 계산은 `precise` + 덧셈 · 곱셈 매크로만 (TESS_DOT3 · TESS_CROSS — GLSL 의 distance · normalize · mix 에는 precise 가 붙지 않는다), `ShaderCross.cpp` 가 TES 에 `invariant gl_Position` (kCacheVersion 7 — GL 캐시 다시 만듦). 없으면 OpenGL 에서 검은 얼룩
+  - `UMaterial` Tessellation (DisplacementMode · HeightMapPath · HeightAmplitude · HeightBase · TessellationFactor · TessellationTriangleSize · TessellationFadeDistance), `MaterialInspector` (Surface Options > Displacement Mode, Height Map + Amplitude · Base, Tessellation Options)
+  - `MeshBatcher`: 테셀레이션 재질은 깊이 · 그림자 묶음도 재질마다 (예전엔 메시만 → 프리패스가 평면이었다), 패치 토폴로지 + `GfxContext::ClearTessellationShaders` (DX11 — Effects11 이 HS · DS 를 남긴다), `FxPass::IsUsable` / `Rhi::Effect::PassUsable` (GL · Vulkan 은 프로그램이 만들어졌는가 — 테셀레이션 없는 GLES 는 보통 그리기)
+  - 지형 눈: 32 `TerrainSnowTech` (TerrainHS · TerrainSnowDS — 눈 덮임 × Snow Depth 만큼 올리고 발자국 자리는 땅까지, `s_SnowDisplaced` 로 시차 건너뜀), `TerrainRenderer.cpp` (눈이 있으면, 40 m · 10 픽셀). 프리패스 · 그림자는 맨 지형 (눈은 위로만 → LESS_EQUAL 이 맞는다)
+  - 캐릭터: 이미 ShadeLit 으로 젖음 · 눈을 받았다 — 발자국 음영이 몸에 찍히던 것만 `WeatherAboveCover` (onGround) 로. 물 `46. Water.fx` + `WaterRenderer.cpp`: 먹구름 반사 · 물속 잿빛 · 번쩍임 · 바람 잔물결 · 빗방울 고리 (1.8 배)
+  - 검사: 새 스위트 `tessellation` · `tessellationgl` · `tessellationvk` (6 · 5 · 5) — 회귀 tessellation ×3 · weather · material · occlusion · lodgroup · render · shadergraph · decal · vulkan **107/107**, 새 `Tools/tests/android_tessellation.ps1` (+ `make_tess_textures.py`, `-SkipBuild`). `common.ps1` Start-MuMuHidden: VM (headless) 이 죽었으면 다시 켠다
+  - **안드로이드 기기 확인 못 함**: GLES 셰이더 내보내기 (TCS · TES · invariant) · 게임 데이터 · APK · 설치는 통과, 그 뒤 MuMu VM (MuMuVMMHeadless) 이 몇 초 안에 죽는다 (네 번, 부팅 다 끝난 뒤 · 다른 일 없이도). VBox.log 는 종료 기록 없이 끊김. 다음에 MuMu 를 살펴볼 것
+  - 문서 `docs/TESSELLATION.md` (새), WEATHER.md (캐릭터 · 지형 눈 · 물, 한계), README. Showcase 233 ~ 237
+- 이전: 2026년 10월 6일 — **VFX Turbulence 가 안드로이드 GLES 에서 NaN** (사용자 지시: 작업 칩 "Fix VFX Turbulence producing NaN on Android GLES" 를 여기서) + 편집기 abort 대화상자 + MuMu 창 숨기기. **완료 (커밋 27ba508, 푸시함)**
   - 원인: `58. VFX.fx` NoiseVec 의 횟수가 값에 따라 바뀌는 고리 (`for (int o = 0; o < n; ++o)`) — MuMu GLES 3.2 에서 그 이펙트의 파티클이 통째로 NaN (그려지지 않음). 진단: 변형 이펙트 여러 개를 한 장면에 두고 기기 경계 · 그림 (모드 3 · 4 = 고리 없는 Noise3 는 정상)
     고침: 4 번 정해진 고리 + `[branch] if (o < n)`. 날씨의 안드로이드 우회 (Turbulence 빼기) 지움. 잘못 짚은 것: 정수 변환 · gTime · 잡음 함수 · sSlot 배열 (배열을 0 으로 채우면 오히려 모든 이펙트가 깨졌다 — 되돌림)
     주의: `vfx new` 기본 견본에 Turbulence 가 들어 있다 (진단의 "대조군" 이 아니었다). GLES 에서 경계 상자가 null 이면 그 이펙트 전체가 망가진 것

@@ -58,7 +58,7 @@
 | | |
 |---|---|
 | 그래픽 API | DirectX 11 · OpenGL 4.5 · **Vulkan 1.3** (에디터 · 게임 모두, 화소 차이 최대 1) — [VULKAN_BACKEND](docs/VULKAN_BACKEND.md) |
-| 재질 · 셰이더 | URP Lit (PBR), **Shader Graph** (노드 65 종 · Vertex 단계 · Sub Graph · Custom Function) — [SHADER_GRAPH](docs/SHADER_GRAPH.md) |
+| 재질 · 셰이더 | URP Lit (PBR), **테셀레이션 높이 변위** (Height Map 만큼 벽 · 바닥을 실제로 민다 — DX11 · OpenGL · Vulkan), **Shader Graph** (노드 65 종 · Vertex 단계 · Sub Graph · Custom Function) — [TESSELLATION](docs/TESSELLATION.md) · [SHADER_GRAPH](docs/SHADER_GRAPH.md) |
 | 조명 | Cascaded 그림자, **Adaptive Probe Volume** (굽지 않는 실시간 간접광), **Reflection Probe**, 높이 안개 · 대기 — [APV](docs/ADAPTIVE_PROBE_VOLUME.md) · [Probe](docs/REFLECTION_PROBE.md) |
 | 후처리 (Volume) | Bloom · ACES · Color Adjustments · **Depth of Field (Bokeh)** · **Motion Blur** · **SSR** · Vignette · Film Grain — [DoF](docs/DEPTH_OF_FIELD_MOTION_BLUR.md) · [SSR](docs/SCREEN_SPACE_REFLECTION.md) |
 | 안티에일리어싱 | FXAA · SMAA · **TAA** (URP 카메라 4 가지) — [ANTI_ALIASING](docs/ANTI_ALIASING.md) |
@@ -97,7 +97,7 @@
 | `com.nova.animation` | Animator · Legs / Hands / Look Animator · Dynamic Bone · Expressions |
 | `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) |
 | `com.nova.ai.navigation` | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) — NavMesh Surface · Agent · Link · Obstacle (Carve) |
-| `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결, **쌓이는 눈 · 발자국**, 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
+| `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결 (캐릭터 · 물도), **쌓이는 눈 · 발자국** (지형은 실제로 파인다), 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
 | `com.nova.modeling` | Blender 식 **Model Editor** (Extrude · Bevel · Subsurf · 리깅 · 가중치 붓 · 셰이프 키), FBX · GLB · VRM 내보내기, 전부 CLI — [MODEL_EDITOR](docs/MODEL_EDITOR.md) |
 | `com.nova.animation2d` | Spine 식 **2D 뼈대 애니메이션** — [ANIMATION2D](docs/ANIMATION2D.md) |
 | `com.nova.toon` | [lilToon](https://github.com/lilxyzw/lilToon) 툰 셰이더 (VRM MToon 자동 변환) |

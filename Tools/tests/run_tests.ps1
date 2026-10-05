@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -3825,6 +3825,142 @@ function Suite-Weather
     }
 }
 
+function Suite-Tessellation([string]$Api = 'dx')
+{
+    # 재질 테셀레이션 (docs/TESSELLATION.md): 돌 벽 · 자갈 바닥 (Displacement Mode = Tessellation, Tools/tests/make_tess_textures.py)
+    #  켬 · 끔 비교 (모양 · 윤곽), 깊이 프리패스와 본 패스가 같은 자리 (검은 얼룩 없음), 멀면 나누지 않는다, 쌓인 눈의 지형 (dx)
+    # Api = dx · gl · vk (스위트 이름 tessellation · tessellationgl · tessellationvk)
+    $sn = if ($Api -eq 'dx') { 'tessellation' } else { 'tessellation' + $Api }
+    Write-Host "[$sn]"
+    $dir = Join-Path $Out $sn
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $tessDir = Join-Path $Project 'Assets\TessTest'
+    & python (Join-Path $PSScriptRoot 'make_tess_textures.py') $tessDir | Out-Null
+    foreach ($m in 'StoneWall', 'Cobble')
+    {
+        # 끔 사본 (같은 텍스처, Displacement Mode = None)
+        $j = Get-Content -Raw (Join-Path $tessDir "$m.mat") | ConvertFrom-Json
+        $j.DisplacementMode = 'None'
+        $j.ResourcePath = "Assets\TessTest\${m}Flat.mat"
+        $j | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $tessDir "${m}Flat.mat")
+    }
+    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk')
+    try
+    {
+        function Shot([string]$name, [int]$frames = 10) { $p = Join-Path $dir $name; Invoke-Nova "wait $frames" | Out-Null; Invoke-Nova "screenshot $p --view scene" | Out-Null; $p }
+        # 재질을 바꾸면 (set) Scene 뷰가 그 물체로 옮겨 갈 수 있다 → 바꾼 뒤 카메라를 다시 놓는다
+        $script:tessCam = $null
+        function Cam([string]$pos, [string]$target) { $script:tessCam = "camera --position $pos --target $target"; Invoke-Nova $script:tessCam | Out-Null }
+        function Mats([string]$suffix)
+        {
+            Invoke-Nova ('set Floor --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/TessTest/Cobble' + $suffix + '.mat\"]}"') | Out-Null
+            Invoke-Nova ('set Wall --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/TessTest/StoneWall' + $suffix + '.mat\"]}"') | Out-Null
+            if ($script:tessCam) { Invoke-Nova $script:tessCam | Out-Null }
+        }
+        # 그림 하나: 아주 어두운 화소 (깊이가 어긋나 본 패스가 못 그린 자리 = 검정) · 하늘 화소 비율 (2 px 마다)
+        function Stats([string]$p, [double]$top = 1.0)
+        {
+            # top = 위에서부터 이 비율만 (하늘 셈 — 아래의 푸른 격자 바닥을 빼고)
+            $bm = [System.Drawing.Bitmap]::FromFile($p); $dark = 0; $sky = 0; $n = 0
+            for ($y = 0; $y -lt $bm.Height * $top; $y += 2) { for ($x = 0; $x -lt $bm.Width; $x += 2) {
+                $c = $bm.GetPixel($x, $y); $n++
+                if ($c.R + $c.G + $c.B -lt 30) { $dark++ }
+                if ($c.B -gt $c.R + 25) { $sky++ } } }
+            $bm.Dispose()
+            [pscustomobject]@{ Dark = $dark / [math]::Max(1, $n); Sky = $sky / [math]::Max(1, $n) }
+        }
+        function DiffRatio([string]$a, [string]$b)
+        {
+            $x1 = [System.Drawing.Bitmap]::FromFile($a); $x2 = [System.Drawing.Bitmap]::FromFile($b); $d = 0; $n = 0
+            for ($y = 0; $y -lt $x1.Height; $y += 2) { for ($x = 0; $x -lt $x1.Width; $x += 2) {
+                $c1 = $x1.GetPixel($x, $y); $c2 = $x2.GetPixel($x, $y); $n++
+                if ([math]::Abs([int]$c1.R - $c2.R) + [math]::Abs([int]$c1.G - $c2.G) + [math]::Abs([int]$c1.B - $c2.B) -gt 30) { $d++ } } }
+            $x1.Dispose(); $x2.Dispose()
+            $d / [math]::Max(1, $n)
+        }
+        function Tris($perf) { $p = @($perf.gpuPasses | Where-Object { $_.pass -match '^\.Opaque$' })[0]; if ($p) { [double]$p.primitives } else { 0 } }
+
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'create plane --name Floor --position 0,0,0 --scale 0.6,1,0.6' | Out-Null
+        Invoke-Nova 'create plane --name Wall --position 0,1.5,2 --rotation -90,0,0 --scale 0.4,1,0.3' | Out-Null
+
+        # 1. 앞에서: 켬은 벽돌 · 자갈의 입체가 끔 (평면 + 색) 과 다르고, 검은 얼룩이 없다 (깊이 프리패스 = 본 패스, OpenGL 은 invariant)
+        Cam '-1.6,1.4,-1.2' '0.3,0.6,1.8'
+        Mats ''
+        $on = Shot 'front_on.png' 30
+        Mats 'Flat'
+        $off = Shot 'front_off.png'
+        $d = DiffRatio $on $off; $sOn = Stats $on; $sOff = Stats $off
+        Add-Result $sn 'Displacement changes the surface (relief vs the flat material with the same textures)' ($d -gt 0.05) ("{0:P1} pixels differ" -f $d)
+        Add-Result $sn 'No depth mismatch speckles (depth prepass and main pass displace identically)' ($sOn.Dark -lt 0.002 -and $sOn.Dark -le $sOff.Dark + 0.001) ("near-black {0:P3} (flat {1:P3})" -f $sOn.Dark, $sOff.Dark)
+
+        # 2. 벽면 안에서 (카메라가 벽의 평면 위): 평평한 벽은 두께가 없어 안 보이고, 민 벽돌은 그 평면 밖으로 나와 하늘을 가린다
+        Cam '3.5,1.5,2.0' '-2,1.5,2.0'
+        Mats ''
+        $sideOn = Stats (Shot 'edge_on.png') 0.45
+        Mats 'Flat'
+        $sideOff = Stats (Shot 'edge_off.png') 0.45
+        Add-Result $sn 'Silhouette: seen edge-on, the displaced bricks stick out of the wall plane (less sky above the horizon)' ($sideOn.Sky -lt $sideOff.Sky - 0.003) ("sky in the upper image {0:P2} (flat) → {1:P2}" -f $sideOff.Sky, $sideOn.Sky)
+
+        # 3. 삼각형: 가까우면 잘게 나눈다, Fade Distance (50 m) 너머는 나누지 않는다
+        Cam '-1.6,1.4,-1.2' '0.3,0.6,1.8'
+        Mats ''; Invoke-Nova 'wait 10' | Out-Null
+        $nearOn = Tris (Invoke-NovaJson 'perf --frames 20')
+        Mats 'Flat'; Invoke-Nova 'wait 10' | Out-Null
+        $nearOff = Tris (Invoke-NovaJson 'perf --frames 20')
+        Cam '0,8,-70' '0,1,2'
+        Mats ''; Invoke-Nova 'wait 10' | Out-Null
+        $farOn = Tris (Invoke-NovaJson 'perf --frames 20')
+        Mats 'Flat'; Invoke-Nova 'wait 10' | Out-Null
+        $farOff = Tris (Invoke-NovaJson 'perf --frames 20')
+        Add-Result $sn 'Near: subdivided (many more triangles); beyond Fade Distance: not subdivided' ($nearOn -gt $nearOff * 10 -and $farOn -le $farOff * 1.2 + 50) ("near {0:N0} vs flat {1:N0}; far {2:N0} vs flat {3:N0} triangles" -f $nearOn, $nearOff, $farOn, $farOff)
+
+        # 4. 쌓인 눈의 지형 (날씨): 지형을 실제로 올린다 → 같은 눈 덮임에서 삼각형이 늘고, 공이 지나간 자국이 파인다 (검은 얼룩 없음)
+        if ($Api -eq 'dx')
+        {
+            $wdir = Join-Path $Project 'Assets\WeatherTest'
+            New-Item -ItemType Directory -Force $wdir | Out-Null
+            '{"snow":0.3,"wind":1,"clouds":0,"fog":0,"snowCover":1}' | Set-Content -Encoding utf8 (Join-Path $wdir 'Snowy.weather')
+            '{"snow":0,"wind":1,"clouds":0,"fog":0,"snowCover":0}' | Set-Content -Encoding utf8 (Join-Path $wdir 'Bare.weather')
+            Invoke-NovaJson 'package add com.nova.weather' | Out-Null
+            Wait-Compile
+            Invoke-Nova 'scene new --force' | Out-Null
+            Invoke-Nova 'create terrain --name Ground --position -50,0,-50' | Out-Null
+            Invoke-Nova 'create empty --name Weather' | Out-Null
+            Invoke-Nova 'add-component Weather WeatherController' | Out-Null
+            Invoke-Nova 'set Weather --component WeatherController --values "{\"lightning\":false,\"density\":0}"' | Out-Null
+            Invoke-Nova 'camera --position 0,3,-2 --target 0,0,4' | Out-Null
+            Invoke-NovaJson 'weather set --profile Assets/WeatherTest/Bare.weather --seconds 0' | Out-Null
+            Invoke-Nova 'wait 20' | Out-Null
+            $bare = Tris (Invoke-NovaJson 'perf --frames 20')
+            Invoke-NovaJson 'weather set --profile Assets/WeatherTest/Snowy.weather --seconds 0' | Out-Null
+            Invoke-Nova 'wait 20' | Out-Null
+            $snowy = Tris (Invoke-NovaJson 'perf --frames 20')
+            Invoke-Nova 'create sphere --name Roller --position 0,0.5,3' | Out-Null
+            Invoke-Nova 'add-component Roller RigidBody' | Out-Null
+            Invoke-Nova 'camera --position 1.6,0.6,2.6 --target -0.5,0.1,4' | Out-Null
+            $before = Shot 'snow_before.png' 30
+            for ($i = 0; $i -le 24; $i++) { Invoke-Nova ("set Roller --position {0},0.5,4" -f ((-2.4 + $i * 0.2).ToString([Globalization.CultureInfo]::InvariantCulture))) | Out-Null; Invoke-Nova 'wait 3' | Out-Null }
+            Invoke-Nova 'set Roller --position 3,0.5,8' | Out-Null
+            Invoke-Nova 'camera --position 1.6,0.6,2.6 --target -0.5,0.1,4' | Out-Null
+            $after = Shot 'snow_after.png' 30
+            $trail = DiffRatio $before $after; $st = Stats $after
+            Add-Result $sn 'Snow on terrain: tessellated and raised (more triangles), a rolled ball carves a trail, no black speckles' ($snowy -gt $bare * 1.5 -and $trail -gt 0.02 -and $st.Dark -lt 0.002) ("terrain triangles {0:N0} → {1:N0}; trail {2:P1}; near-black {3:P3}" -f $bare, $snowy, $trail, $st.Dark)
+        }
+        $errs = Invoke-Nova 'log --errors -n 20' | Out-String
+        $tessErr = @($errs -split "`n" | Where-Object { $_ -match 'Tess|60\. Tessellation' })
+        Add-Result $sn 'No tessellation shader errors in the log' ($tessErr.Count -eq 0) $(if ($tessErr.Count) { $tessErr[0].Trim() } else { 'clean' })
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item (Join-Path $tessDir 'StoneWallFlat.mat'), (Join-Path $tessDir 'CobbleFlat.mat') -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Vfx([string]$Api = 'dx')
 {
     # Visual Effect Graph (Unity VFX Graph): .vfx 편집 (nova vfx), GPU 시뮬레이션 (58. VFX.fx — Spawn · Update · GPU Event), 이벤트 · 속성 덮어쓰기, C# API, 그리기
@@ -4303,6 +4439,9 @@ try
                 'vfxgl' { Suite-Vfx -Api gl }
                 'vfxvk' { Suite-Vfx -Api vk }
                 'weather' { Suite-Weather }
+                'tessellation' { Suite-Tessellation }
+                'tessellationgl' { Suite-Tessellation -Api gl }
+                'tessellationvk' { Suite-Tessellation -Api vk }
                 'keys' { Suite-Keys }
                 default { Write-Host "unknown suite $s" }
             }

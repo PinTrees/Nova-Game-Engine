@@ -434,6 +434,7 @@ namespace
 			D->CSSetUnorderedAccessViews(start, count, n, initialCounts);
 		}
 		void CSSetShader(void* shader, void*, UINT) override { D->CSSetShader(static_cast<ID3D11ComputeShader*>(shader), nullptr, 0); }
+		void ClearTessellationShaders() override { D->HSSetShader(nullptr, nullptr, 0); D->DSSetShader(nullptr, nullptr, 0); }
 
 		void Draw(UINT c, UINT s) override { D->Draw(c, s); }
 		void DrawIndexed(UINT c, UINT s, INT b) override { D->DrawIndexed(c, s, b); }

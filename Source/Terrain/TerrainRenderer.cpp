@@ -3,6 +3,7 @@
 #include "TerrainData.h"
 #include "Effects.h"
 #include "RenderStats.h"
+#include "WeatherState.h"
 
 namespace
 {
@@ -125,6 +126,17 @@ namespace
 		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));
 	}
+
+	void SetVector(FxEffect* fx, const char* name, const float (&v4)[4])
+	{
+		if (auto* v = fx->GetVariableByName(name)->AsVector(); v && v->IsValid())
+			v->SetFloatVector(v4);
+	}
+
+	// 쌓인 눈 (날씨) 의 지형 테셀레이션: 나눔 (60. Tessellation.fx 의 cbTessellation). 발자국 맵 한 칸 (5 cm) 이 보이게 가까이에서 촘촘히
+	constexpr float kSnowTriangleSize = 10.0f;    // 원하는 삼각형 변 (1080p 화면의 픽셀)
+	constexpr float kSnowMaxFactor = 16.0f;
+	constexpr float kSnowTessDistance = 40.0f;   // 이 거리 너머는 나누지 않는다 (발자국 맵 창 48 m 의 거의 끝)
 
 	// 상자가 절두체 밖이면 true (클립 공간에서 8 꼭짓점이 모두 한 평면 바깥)
 	bool OutsideFrustum(const Vec3& mn, const Vec3& mx, CXMMATRIX viewProj)
@@ -342,6 +354,25 @@ namespace TerrainRenderer
 				v.UseColorMap->SetInt(colorSRV ? 1 : 0);
 		}
 
+		// 쌓인 눈 (날씨): 지형을 실제로 올린다 (TerrainSnowTech — 테셀레이션). 그 단계가 없는 기기 (일부 OpenGL ES) 는 보통 지형 + 시차 발자국
+		FxTechnique* tech = v.Tech;
+		bool snowTess = false;
+		if (pass == Pass::Main)
+		{
+			const WeatherState& w = WeatherState::Get();
+			FxTechnique* snowTech = w.NeedsCover() && w.SnowCover > 0.001f ? fx->GetTechniqueByName("TerrainSnowTech") : nullptr;
+			if (snowTech && snowTech->IsValid() && snowTech->GetPassByIndex(0)->IsUsable())
+			{
+				tech = snowTech;
+				snowTess = true;
+				const float edge = kSnowTriangleSize * 2.0f / ((std::max)(fabsf(p._22), 0.01f) * 1080.0f);   // 1 m 거리의 변 길이 (m)
+				const float params[4] = { 0.0f, 0.0f, kSnowMaxFactor, kSnowTessDistance };
+				const float eye[4] = { cameraPos.x, cameraPos.y, cameraPos.z, edge };
+				SetVector(fx, "gTessParams", params);
+				SetVector(fx, "gTessEye", eye);
+			}
+		}
+
 		// ---- 그리기 ----
 		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		ComPtr<GfxDepthStencilState> prevDSS;
@@ -351,11 +382,11 @@ namespace TerrainRenderer
 		GfxBuffer* nullVB = nullptr;
 		UINT zero = 0;
 		dc->IASetVertexBuffers(0, 1, &nullVB, &zero, &zero);
-		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+		dc->IASetPrimitiveTopology(snowTess ? D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST : D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 		const int grid = data.NodeGrid();
 		IndexSet& indices = GetIndexSet(grid);
-		FxPass* fxPass = v.Tech->GetPassByIndex(0);
+		FxPass* fxPass = tech->GetPassByIndex(0);
 		if (stats)
 		{
 			*stats = Stats();
@@ -401,5 +432,10 @@ namespace TerrainRenderer
 		}
 		fxPass->Apply(0, dc);
 		dc->OMSetDepthStencilState(prevDSS.Get(), prevRef);
+		if (snowTess)
+		{
+			dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+			dc->ClearTessellationShaders();
+		}
 	}
 }

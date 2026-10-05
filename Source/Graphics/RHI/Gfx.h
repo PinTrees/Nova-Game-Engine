@@ -206,6 +206,9 @@ class __declspec(uuid("4E6F7661-0001-4A00-8000-000000000013")) GfxContext : publ
 	virtual void CSSetShaderResources(UINT start, UINT count, GfxShaderResourceView* const* views) = 0;
 	virtual void CSSetUnorderedAccessViews(UINT start, UINT count, GfxUnorderedAccessView* const* views, const UINT* initialCounts) = 0;
 	virtual void CSSetShader(void* shader, void* classInstances, UINT count) = 0;   // 효과 밖 compute 셰이더 풀기 (nullptr) 용
+	// 테셀레이션 (Hull · Domain) 셰이더 풀기 — 테셀레이션 그리기 뒤. DX11 의 Effects11 은 그 단계를 정하지 않는 패스가 풀지 않는다
+	//  (OpenGL · Vulkan · GLES 는 패스마다 프로그램 · 파이프라인이 따로라 할 일이 없다)
+	virtual void ClearTessellationShaders() {}
 
 	// ---- 그리기
 	virtual void Draw(UINT vertexCount, UINT startVertex) = 0;

@@ -347,6 +347,10 @@ namespace
 		}
 
 		void Apply(int technique, int pass) override;
+		bool PassUsable(int technique, int pass) const override
+		{
+			return technique >= 0 && technique < (int)Programs.size() && pass >= 0 && pass < (int)Programs[technique].size() && Programs[technique][pass].Program != 0;
+		}
 		void ApplyStates(PassProgram& pp);
 	};
 

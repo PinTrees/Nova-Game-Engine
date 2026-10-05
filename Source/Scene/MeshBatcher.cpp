@@ -196,7 +196,7 @@ namespace
 		s_Transparent.clear();
 		s_MainCount = s_DepthCount = 0;
 		s_LastMain = s_LastDepth = LastBatch();
-		struct { const UMaterial* Material = reinterpret_cast<const UMaterial*>(1); bool Transparent = false, Clip = false; } memo;
+		struct { const UMaterial* Material = reinterpret_cast<const UMaterial*>(1); bool Transparent = false, Clip = false, Tess = false; } memo;
 		for (GameObject* go : scene->GetAllGameObjects())
 		{
 			if (go == nullptr || !go->IsActive())
@@ -231,6 +231,7 @@ namespace
 					memo.Material = mat.get();
 					memo.Transparent = IsTransparent(mat.get());
 					memo.Clip = ClipOf(mat.get()) != Clip::None;
+					memo.Tess = mat && mat->UsesTessellation();
 				}
 				if (memo.Transparent)
 				{
@@ -241,8 +242,8 @@ namespace
 					continue;
 				}
 				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit, s_LastMain));
-				// 깊이 · 그림자: 보통은 (메시, 서브셋) 만으로, 잘라내는 재질은 재질마다 (구멍이 본 패스와 같게)
-				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, memo.Clip ? mat : s_None, 0, s_LastDepth));
+				// 깊이 · 그림자: 보통은 (메시, 서브셋) 만으로, 잘라내는 · 테셀레이션 재질은 재질마다 (구멍 · 민 모양이 본 패스와 같게)
+				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, memo.Clip || memo.Tess ? mat : s_None, 0, s_LastDepth));
 			}
 			s_Casters.push_back(c);
 		}
@@ -283,6 +284,35 @@ namespace
 	{
 		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));
+	}
+
+	void SetVector(FxEffect* fx, const char* name, const float (&v4)[4])
+	{
+		if (auto* v = fx->GetVariableByName(name)->AsVector(); v && v->IsValid())
+			v->SetFloatVector(v4);
+	}
+
+	// 재질 테셀레이션 값 (60. Tessellation.fx 의 cbTessellation · gHeightMap) — 본 · 깊이 · 그림자 이펙트마다 따로 넣는다
+	//  나눔은 언제나 화면 카메라 기준 (view · proj): 그림자 패스도 같은 모양을 민다
+	void SetTessellation(FxEffect* fx, const UMaterial& m, CXMMATRIX viewProj, CXMMATRIX view, CXMMATRIX proj)
+	{
+		const UMaterial::Tessellation& s = m.GetTessellation();
+		const PbrMaterial& pbr = m.GetPbr();
+		SetMatrix(fx, "gTessViewProj", viewProj);
+		SetMatrix(fx, "gTessView", view);
+		XMVECTOR det;
+		const XMMATRIX inv = XMMatrixInverse(&det, view);
+		// Triangle Size (1080p 화면의 픽셀) → 1 m 거리에서의 길이 (m): 화면 높이 = 2 / proj._22 (m, 1 m 거리)
+		const float p22 = (std::max)(fabsf(XMVectorGetY(proj.r[1])), 0.01f);
+		const float edge = s.TriangleSize * 2.0f / (p22 * 1080.0f);
+		const float params[4] = { s.Amplitude, s.Base, std::clamp(s.MaxFactor, 1.0f, 64.0f), (std::max)(s.FadeDistance, 1.0f) };
+		const float uv[4] = { pbr.Tiling.x, pbr.Tiling.y, pbr.Offset.x, pbr.Offset.y };
+		const float eye[4] = { XMVectorGetX(inv.r[3]), XMVectorGetY(inv.r[3]), XMVectorGetZ(inv.r[3]), edge };
+		SetVector(fx, "gTessParams", params);
+		SetVector(fx, "gTessUV", uv);
+		SetVector(fx, "gTessEye", eye);
+		if (auto* v = fx->GetVariableByName("gHeightMap")->AsShaderResource(); v && v->IsValid())
+			v->SetResource(m.GetHeightMapSRV());
 	}
 }
 
@@ -724,6 +754,25 @@ namespace MeshBatcher
 				{
 					RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), b->Layer);   // Light.cullingMask
 					appliedLayer = b->Layer;
+				}
+				// 재질 테셀레이션 (Displacement Mode = Tessellation): 패치로 그려 Height Map 만큼 민다. 기법이 없는 백엔드는 보통 그리기
+				if (b->Material && b->Material->UsesTessellation())
+				{
+					const char* tessName = pass == Pass::Main ? "TessBatchTech" :
+						(pass == Pass::Shadow ? "TessBuildShadowMapInstancingTech" : "TessNormalDepthBatchTech");
+					FxTechnique* tessTech = fx->GetTechniqueByName(tessName);
+					if (tessTech && tessTech->IsValid() && tessTech->GetPassByIndex(0)->IsUsable())   // 테셀레이션이 없는 기기 (일부 OpenGL ES) = 보통 그리기
+					{
+						SetTessellation(fx, *b->Material, viewProj, editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix,
+							editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix);
+						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
+						tessTech->GetPassByIndex(0)->Apply(0, dc);
+						drawInstances();
+						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+						dc->ClearTessellationShaders();
+						++drawn;
+						return;
+					}
 				}
 				tech->GetPassByIndex(0)->Apply(0, dc);
 				drawInstances();

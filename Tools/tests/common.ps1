@@ -155,6 +155,13 @@ function Add-Result([string]$suite, [string]$name, [bool]$pass, [string]$detail)
 function Start-MuMuHidden([string]$MuMuExe, [string]$Index, [int]$TimeoutSec = 180)
 {
     $state = (& $MuMuExe info -v $Index 2>&1 | Out-String) | ConvertFrom-Json
+    # VM (MuMuVMMHeadless) 이 죽었는데 창 쪽은 start_finished 로 남는 일이 있다 → 껐다 다시 켠다
+    if ($state.is_android_started -and $state.headless_pid -and -not (Get-Process -Id $state.headless_pid -ErrorAction SilentlyContinue))
+    {
+        & $MuMuExe control -v $Index shutdown 2>&1 | Out-Null
+        Start-Sleep -Seconds 3
+        $state = (& $MuMuExe info -v $Index 2>&1 | Out-String) | ConvertFrom-Json
+    }
     if (-not $state.is_android_started) { & $MuMuExe control -v $Index launch 2>&1 | Out-Null }
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ($watch.Elapsed.TotalSeconds -lt $TimeoutSec)

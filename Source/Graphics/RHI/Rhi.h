@@ -133,6 +133,9 @@ namespace Rhi
 		virtual bool NativeInputSignature(int technique, int pass, const void** data, size_t* size) = 0;
 
 		virtual void Apply(int technique, int pass) = 0;
+		// 그 pass 를 이 기기에서 쓸 수 있는가 (OpenGL · Vulkan: 변환 · 링크 · 파이프라인이 실패했거나 기기에 그 단계가 없으면 false
+		//  — 예: 테셀레이션이 없는 OpenGL ES). 기법이 있는지는 FindTechnique
+		virtual bool PassUsable(int technique, int pass) const { return technique >= 0 && pass >= 0 && pass < PassCount(technique); }
 	};
 
 	class Device

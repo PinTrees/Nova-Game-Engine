@@ -37,6 +37,8 @@ cbuffer cbWaterFrame
     float4 gCascadeSpheres[4];
     float4 gShadowParams;    // x 캐스케이드 수, z 흐려지기 시작 거리, w 1/폭
     float4 gSunShadowData;   // x Strength, y 필터
+    float4 gWeatherWater;    // 날씨: x 빗방울 물결 세기 (0 = 없음), y 시간 (초), z 하늘 채도 빼기, w 번개 번쩍임
+    float4 gWeatherSky;      // 날씨: rgb = 1 - 하늘 색 배율 (0 = 그대로), w = 바람으로 거칠어지는 정도 (0 = 그대로)
 };
 
 cbuffer cbWaterBody
@@ -310,6 +312,34 @@ VSOut SurfaceVS(SurfaceIn v)
 // ---------------------------------------------------------------- 픽셀
 float ViewZ(float d) { return gProjParams.y / (d - gProjParams.x); }
 
+// ---- 빗방울 물결 (날씨): 칸마다 정한 자리 · 때에 고리가 퍼진다 (32. InstancedBasic.fx 의 웅덩이 물결과 같은 식)
+float WaterHash(float2 p) { return frac(sin(dot(p, float2(127.1f, 311.7f))) * 43758.5453f); }
+float2 RainRippleLayer(float2 p, float t, float seed)
+{
+    const float2 cell = floor(p);
+    const float2 f = frac(p);
+    const float2 center = 0.25f + 0.5f * float2(WaterHash(cell + seed), WaterHash(cell + seed + 7.31f));
+    const float life = frac(t * 1.1f + WaterHash(cell + seed + 3.7f));
+    const float2 d = f - center;
+    const float r = length(d);
+    const float x = (r - life * 0.48f) * 40.0f;
+    if (abs(x) > 3.14159f || r < 1e-4f)
+        return float2(0, 0);
+    const float amp = (1.0f - life) * (1.0f - life) * (0.5f + 0.5f * cos(x));
+    return (d / r) * (cos(x * 2.0f) * amp);
+}
+// 법선에 더할 기울기 (가까운 40 m — 멀면 반짝이는 점으로 깨진다)
+float3 RainRipples(float2 xz, float dist)
+{
+    const float k = gWeatherWater.x * saturate(1.0f - dist / 40.0f);
+    if (k <= 0.001f)
+        return float3(0, 0, 0);
+    const float t = gWeatherWater.y;
+    const float2 g = RainRippleLayer(xz / 0.32f, t, 0.0f) + RainRippleLayer(xz / 0.32f + 0.5f, t + 0.37f, 11.0f) * 0.8f
+        + RainRippleLayer(xz / 0.55f + 0.25f, t + 0.71f, 23.0f) * 0.6f;
+    return float3(-g.x, 0.0f, -g.y) * (1.8f * k);   // 먹구름 하늘은 어두워 반사 대비가 작다 → 물결을 세게
+}
+
 float3 DetailNormal(float2 xz, float dist)
 {
     const float tiling = max(gNormalParams.y, 0.1f);
@@ -475,7 +505,8 @@ float4 WaterPS(VSOut pin) : SV_Target
         const float hz = ShoreWaveHeight(pin.BaseXZ + float2(0.0f, 0.6f), ShoreDepthAt(pin.BaseXZ + float2(0.0f, 0.6f)), cz);
         N = normalize(N + float3(-(hx - h0) / 0.6f, 0.0f, -(hz - h0) / 0.6f));
     }
-    N = normalize(N + detail);
+    detail *= 1.0f + gWeatherSky.w;   // 센 바람 (폭풍 · 눈보라) 에 잔물결이 거칠어진다
+    N = normalize(N + detail + RainRipples(pin.BaseXZ, dist));
     if (gEyeUnder > 0.5f && V.y < 0.0f)
         return UnderSurface(pin, N, V, dist);
     if (dot(N, V) < 0.02f)   // 비스듬히 볼 때 뒤집힌 법선 (검은 점) 막기
@@ -544,6 +575,8 @@ float4 WaterPS(VSOut pin) : SV_Target
     const float fresnel = 0.02f + 0.98f * pow(1.0f - saturate(dot(N, V)), 5.0f);
     const float3 R = reflect(-V, N);
     float3 refl = gHasSky > 0.5f ? ToLinear(gSky.SampleLevel(samClamp, float3(R.x, max(R.y, 0.02f), R.z), 0.0f).rgb) : ambient * 1.5f;
+    // 먹구름: 하늘 반사도 하늘처럼 잿빛 · 어둡게 (21. Sky.fx 와 같은 값), 번개 때 번쩍
+    refl = lerp(refl, dot(refl, float3(0.2126f, 0.7152f, 0.0722f)).xxx, gWeatherWater.z) * (1.0f - gWeatherSky.rgb) + gWeatherWater.w * float3(0.6f, 0.65f, 0.8f);
     {
         float3 ssr;
         float ssrFade;
@@ -557,6 +590,8 @@ float4 WaterPS(VSOut pin) : SV_Target
     const float specPow = exp2(4.0f + smooth * 9.0f);
     const float3 H = normalize(L + V);
     const float spec = pow(saturate(dot(N, H)), specPow) * (specPow + 8.0f) / (8.0f * PI) * smooth;
+    // 먹구름: 물빛도 잿빛 · 탁하게 (맑은 날의 청록이 폭풍에 그대로 빛나지 않게)
+    under = lerp(under, dot(under, float3(0.2126f, 0.7152f, 0.0722f)).xxx, gWeatherWater.z * 0.5f) * (1.0f - 0.35f * gWeatherWater.z);
     float3 color = lerp(under, refl, fresnel) + sun * spec * fresnel * 4.0f * saturate(L.y * 4.0f);
 
     // ---- 거품: 파도 마루(접힘) + 물가 + 강 가장자리·물살

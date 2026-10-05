@@ -5,6 +5,7 @@
 #include "WaterProfile.h"
 #include "WaterWaves.h"
 #include "Effects.h"
+#include "WeatherState.h"
 #include "LightHelper.h"
 #include "Terrain.h"
 #include "TerrainData.h"
@@ -529,6 +530,15 @@ namespace WaterRenderer
 		var("gSunDir")->AsVector()->SetFloatVector(F4(sunDir.x, sunDir.y, sunDir.z, 0));
 		var("gSunIntensity")->AsScalar()->SetFloat(1.0f);
 		var("gSunColor")->AsVector()->SetFloatVector(F4(sunColor.x, sunColor.y, sunColor.z, 0));
+		// 날씨 (com.nova.weather): 환경광은 먹구름만큼, 하늘 반사는 먹구름 하늘처럼, 비가 오면 빗방울 물결 — 기본값이면 그대로
+		{
+			const WeatherState& w = WeatherState::Get();
+			const float k = (std::max)(0.0f, w.AmbientIntensity);
+			ambient = XMFLOAT3(ambient.x * w.AmbientTint.x * k + w.Flash * 0.3f, ambient.y * w.AmbientTint.y * k + w.Flash * 0.32f, ambient.z * w.AmbientTint.z * k + w.Flash * 0.36f);
+			var("gWeatherWater")->AsVector()->SetFloatVector(F4(w.RainIntensity, w.Time, w.SkyDesaturate, w.Flash));
+			var("gWeatherSky")->AsVector()->SetFloatVector(F4(1.0f - w.SkyTint.x * w.SkyBrightness, 1.0f - w.SkyTint.y * w.SkyBrightness, 1.0f - w.SkyTint.z * w.SkyBrightness,
+				std::clamp((w.WindStrength - 1.0f) * 0.45f, 0.0f, 1.6f)));   // w: 바람 (맑은 날 1 = 그대로)
+		}
 		var("gAmbient")->AsVector()->SetFloatVector(F4(ambient.x, ambient.y, ambient.z, 0));
 		float mips = 1.0f;
 		if (v.Sky)
