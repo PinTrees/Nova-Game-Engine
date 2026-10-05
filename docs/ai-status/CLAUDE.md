@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **VFX Graph 남은 기능: Output Mesh · 깊이 버퍼 충돌 · Sub Graph · 사용자 속성** + 문서 그림 고침 (사용자 지시: "기능 문서의 깨진 그림 고치기 … v0.2.0 릴리스 … VFX Graph 남은 기능 … 이거진행하고 알려줘"). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **VFX Graph 남은 기능: Output Mesh · 깊이 버퍼 충돌 · Sub Graph · 사용자 속성** + 문서 그림 고침 (사용자 지시: "기능 문서의 깨진 그림 고치기 … v0.2.0 릴리스 … VFX Graph 남은 기능 … 이거진행하고 알려줘"). **완료 (푸시 · v0.2.0 게시)**
   - 문서 그림: docs/*.md 10 개가 git 밖 `Showcase/` 를 가리켜 GitHub 에서 깨짐 → 18 장을 `docs/images/` (영문 이름) 로 옮김
   - 셰이더 `58. VFX.fx`: 파티클 96 → 112 바이트 (사용자 속성 float4), Eval op 14 (Get Attribute), 블록 9 (Set Attribute) · 30 (Collide with Depth Buffer — gCollDepth 를 compute 가 Load, 뷰포트로 화소 · 이웃 깊이 법선), Set Color 를 Update 에서도,
     MeshVS/PS (메시 정점 0 번 + 파티클 인스턴스 1 번, 무작위 축 · 속도 방향 · Y 회전, 해 · 환경광), Opaque (사각형 잘라내기 · 메시) 기법
@@ -8,11 +8,11 @@
     `VfxOperators.cpp` (Get Attribute · Sub Graph · Output (Sub Graph), 컴파일러를 겹 (Frame) 으로 — Sub Graph 안의 Property = 부른 노드의 입력), `VfxRuntime.cpp` (메시 캐시 GeometryGenerator, 첫 뷰 시뮬레이션 전에 출력 깊이를 풀고 깊이 SRV 를 compute 에, 뷰포트, 불투명은 쓰기 깊이로),
     `VfxTemplates.cpp` (Debris · Fireflies), `VfxGraphWindow.*` (Custom Attributes Blackboard · Inspector, 속성 · 파일 고르기, Sub Graph 입력 핀 · Open, Mesh · Lit, Sub Graph 파일 화면, Create > Visual Effect Subgraph Operator), `VfxCli.cpp` (attribute.* · subgraph.new · list subgraphs · stats bounds), `BuildPipeline.cpp` (.vfxoperator)
   - 검사: vfx 18/18 · vfxgl + vfxvk 26/26 (깊이 충돌 · 사용자 속성 · Sub Graph · Output Mesh 추가), `android_vfx.ps1` MuMu **12/12** (파편 메시 · 깊이 충돌 · 반딧불 추가). Showcase 222 ~ 224
-  - **v0.2.0 준비** (커밋, 푸시 · 릴리스 게시 전 — 사용자 확인 기다림): 버전 0.2.0 (EngineInfo.h · NovaCli · CMake), `dist/NOVA-Engine-0.2.0-win64.zip` 56.2 MB (SHA256 02C4D219…F38AFD, Debug CRT 의존 없음, 안드로이드 x86_64 플레이어 · Mono 포함), `dist/release_notes_0.2.0.md`
+  - **v0.2.0 게시함** (사용자 확인: 푸시 + 공개 릴리스, Hub 설치 파일은 v0.1.0 것을 다시) — https://github.com/PinTrees/Nova-Game-Engine/releases/tag/v0.2.0 (태그 778acb5, latest, 사이트 다운로드 링크 200): 버전 0.2.0 (EngineInfo.h · NovaCli · CMake), `dist/NOVA-Engine-0.2.0-win64.zip` 56.2 MB (SHA256 02C4D219…F38AFD, Debug CRT 의존 없음, 안드로이드 x86_64 플레이어 · Mono 포함), `dist/release_notes_0.2.0.md`
     - 전체 회귀 (Debug, -Suite full): 355/360 — model 3 개 (VRM 다시 가져오기가 긴 실행 중 늦어 그 뒤 연쇄) · shadergraph 1 개 (미리보기 로그 대기) 는 따로 다시 돌려 56/56 · 24/24, perf Trees Vulkan 은 Debug 수치 (Release 에서 통과)
     - Release 묶음 시험 (풀어서 NOVA_ENGINE): cli · vfx · vulkan · perf — 남은 것: perf OpenGL 대 DX11 비율 2 개 (Characters ×1.6, Materials ×2.1~2.4) 는 예전 Release 복사본에서도 같아 이번 작업 전부터, Culling DX = Vulkan max 39 는 묶음에 없는 예제 텍스처의 대체 색이 API 마다 달라서 (전체 Resources 면 14 로 통과 — 따로 작업 칩)
     - 고친 것: `Tools/package_release.ps1` 의 Mono 복사 경로에 `\r` `\n` 이 실제 글자로 들어가 있던 것 (cac1b68 때 깨짐), zip 의 읽어 보기에 Vulkan, 메시 그리기 검사의 카메라를 가까이 (Release 에서 0.92 %)
-    - Hub 설치 파일 (NovaHubSetup.exe): Hub 가 v0.1.0 설치 파일 뒤에 바뀌었다 (안드로이드 모듈 · Mono) — 서명 인증서가 있어야 package_hub.ps1 (없으면 -AllowUnsigned 는 개발용) → 사용자에게 물음
+    - Hub 설치 파일: v0.1.0 의 NovaHubSetup.exe (SHA256 43a0692b…) 를 그대로 다시 올림 — Hub 의 안드로이드 모듈 · Mono 변경은 다음 서명 빌드 (package_hub.ps1 + 인증서) 때
   - 처음 깊이 충돌이 듣지 않던 까닭: 깊이 텍스처가 뷰보다 커서 NDC → 화소를 텍스처 크기로 바꾸면 엉뚱한 화소 → 지금 뷰포트 (RSGetViewports) 로
 - 이전: 2026년 10월 5일 — **VFX Graph 마무리: 꼬리 · 정렬 · 컬링, 연산 노드, 성능 · 데모** (사용자 지시: 추천 1 · 2 · 3 "이거해줘. 대화는 일단 킵 하고"). **완료 (커밋 bff097c, 푸시함)**
   - 셰이더 `Shaders/58. VFX.fx`: 이벤트 버퍼 하나 (죽음 · Rate), 꼬리 기록 (링 버퍼) + `TrailCS` (마디 인스턴스) + TrailVS/PS, 정렬 (SortKeys · 512 그룹 비토닉 · 전역 단계 · Gather), Update 가 경계 상자를 모음 (gState 48 바이트),
