@@ -85,7 +85,7 @@ nova weather save --path Assets/Weather/Mine.weather
 
 ## 안드로이드
 
-같은 패키지가 플레이어에 들어간다 (OpenGL ES 3.2 — 덮개 맵 · 발자국 compute 그대로, 소리는 게임 데이터의 `Packages\com.nova.weather\Resources`). MuMu 960 x 540: 폭풍 2.4 ms, 눈보라 4.5 ms (프레임 전체). 낮은 품질: 눈송이의 Turbulence 대신 처음 흔들림만 (MuMu GLES 에서 Turbulence 가 파티클 자리를 NaN 으로 깨뜨린다 — 엔진 쪽 문제로 따로 고친다).
+같은 패키지가 플레이어에 들어간다 (OpenGL ES 3.2 — 덮개 맵 · 발자국 compute 그대로, 소리는 게임 데이터의 `Packages\com.nova.weather\Resources`). MuMu 960 x 540: 폭풍 2.4 ms, 눈보라 4.7 ms (프레임 전체) — PC 와 같은 이펙트 (눈송이 Turbulence 포함).
 
 ![안드로이드 (MuMu GLES) — 왼쪽 PC DirectX 11, 오른쪽 기기: 폭풍 · 눈보라](images/weather_android.webp)
 

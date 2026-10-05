@@ -149,3 +149,22 @@ function Add-Result([string]$suite, [string]$name, [bool]$pass, [string]$detail)
     $mark = if ($pass) { 'PASS' } else { 'FAIL' }
     Write-Host ("  [{0}] {1} — {2}" -f $mark, $name, $detail)
 }
+
+# MuMu 를 화면에 보이지 않게 켠다 (검사 전용 VM): 켜는 순간부터 0.3 초마다 창을 화면 밖으로 옮기고 숨긴다.
+#  MuMu 는 창 자리를 기억한다 (window_save_rect) → 한 번 밖으로 옮겨 두면 다음부터는 처음부터 화면 밖에서 뜬다
+function Start-MuMuHidden([string]$MuMuExe, [string]$Index, [int]$TimeoutSec = 180)
+{
+    $state = (& $MuMuExe info -v $Index 2>&1 | Out-String) | ConvertFrom-Json
+    if (-not $state.is_android_started) { & $MuMuExe control -v $Index launch 2>&1 | Out-Null }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while ($watch.Elapsed.TotalSeconds -lt $TimeoutSec)
+    {
+        & $MuMuExe control -v $Index layout_window -px -32000 -py -32000 2>&1 | Out-Null
+        & $MuMuExe control -v $Index hide_window 2>&1 | Out-Null
+        $state = (& $MuMuExe info -v $Index 2>&1 | Out-String) | ConvertFrom-Json
+        if ($state.player_state -eq 'start_finished' -and $state.adb_port) { break }
+        Start-Sleep -Milliseconds 300
+    }
+    & $MuMuExe control -v $Index hide_window 2>&1 | Out-Null
+    return $state
+}

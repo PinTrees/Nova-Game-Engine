@@ -121,12 +121,17 @@ float3 NoiseVec(float3 p, float octaves)
 {
     float3 sum = 0.0f;
     float amp = 1.0f, freq = 1.0f, norm = 0.0f;
-    const int n = clamp((int)octaves, 1, 4);
-    for (int o = 0; o < n; ++o)
+    const float n = clamp(round(octaves), 1.0f, 4.0f);
+    // 횟수가 정해진 고리 (4) + 안 쓰는 옥타브는 건너뛴다: 횟수가 값에 따라 바뀌는 고리는 MuMu GLES 3.2 에서
+    //  Turbulence 의 파티클을 통째로 망가뜨렸다 (자리가 NaN — 그려지지 않음)
+    [unroll] for (int o = 0; o < 4; ++o)
     {
-        const float3 q = p * freq;
-        sum += amp * float3(Noise3(q), Noise3(q + float3(31.4f, 7.7f, 2.1f)), Noise3(q + float3(-13.1f, 19.3f, 47.9f)));
-        norm += amp;
+        [branch] if ((float)o < n)
+        {
+            const float3 q = p * freq;
+            sum += amp * float3(Noise3(q), Noise3(q + float3(31.4f, 7.7f, 2.1f)), Noise3(q + float3(-13.1f, 19.3f, 47.9f)));
+            norm += amp;
+        }
         amp *= 0.5f;
         freq *= 2.0f;
     }

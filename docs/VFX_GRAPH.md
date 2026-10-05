@@ -119,6 +119,7 @@ Project 창 **Create > Visual Effect Subgraph Block** → `.vfxblock`. 파일의
 - 경계: Update 가 그룹마다 최소 · 최대를 모아 원자적으로 합치고 (몇 프레임 늦게 읽음), 지난 프레임에 그렸는지로 컬링을 정한다 (`nova vfx stats` 의 `culled`)
 - 살아 있는 수는 몇 프레임 늦게 읽는다 (기다리지 않음) — Inspector · `nova vfx stats` · C# `aliveParticleCount`
 - 시뮬레이션은 프레임의 첫 그리기 (Game 또는 Scene 뷰) 에서 한 번 — DirectX 11 · OpenGL 4.5 · Vulkan · **OpenGL ES 3.2 (안드로이드)**. compute 가 없는 장치 (`SupportsGpuDriven` = false) 에서는 그리지 않는다
+- GLES 주의: 횟수가 값에 따라 바뀌는 셰이더 고리는 쓰지 않는다 — Turbulence 의 옥타브 고리 (`for (o < n)`) 가 MuMu GLES 3.2 에서 파티클을 통째로 망가뜨렸다 (자리가 NaN, 그려지지 않음). 지금은 4 번 정해진 고리 + 안 쓰는 옥타브 건너뛰기
 - 코드: `Source/Effects/VfxAsset.*` (에셋 · 블록 정의표 · 블록 목록 만들기), `VfxOperators.cpp` (연산 노드 정의표 · 스택 명령으로 옮기기), `VfxTemplates.cpp` (견본), `VisualEffect.*` (컴포넌트 · 이벤트 · Spawn 수), `VfxRuntime.*` (GPU),
   `VfxScripting.cpp` (C#), `Source/Editor/Windows/VfxGraphWindow.*` · `VfxAssistantWindow.*`, `Source/Editor/VfxCli.*`
 
@@ -186,7 +187,7 @@ nova vfx stats                                    + bounds (월드 경계)
 - `run_tests.ps1 -Only vfx,vfxgl,vfxvk` — CLI 편집 (속성 이름 바꾸면 연결도 따라감, 잘못된 문맥 거부, 없는 부모 알림), 세 API 의 GPU Spawn · Update (마법진 다섯 시스템), **GPU Event 사슬** (로켓 → 폭발 → 반짝임), OnStop · OnPlay, 속성 덮어쓰기 (Launch Rate 0 → 로켓 없음), 그리기 (켬 · 끔 화면 차이), **연산 노드 + GPU 정렬** (위치 → Split → Remap → Lerp 색, 정렬해야 가까운 빨강이 위), 연산 노드로 수명 줄이기, **꼬리** 그리기, **화면 밖 컬링** (카메라 뒤 = culled · 멈춤, 다시 보이면 이어서), C# API, 컴포넌트 JSON, Assistant 상태
 - 추가 (2): **Compare · Branch** (수명을 고른다), **Collide with SDF** (glTF 모델로 구운 거리장의 판 위에 멈춤 · 블록을 끄면 지나 떨어짐), 모델 파일 **Output Mesh**, **Block Sub Graph** (입력 → 안의 Set Lifetime) — 세 API 56 개, 안드로이드 MuMu 13 개
 - 추가: **깊이 버퍼 충돌** (상자 윗면에 멈춤 · 블록을 끄면 지나 떨어짐 — `vfx stats` 의 경계), **사용자 속성** (Set Attribute → Get Attribute → 수명), **Sub Graph** (파일 입력 · 파일을 고치면 다시 만든다), **Output Mesh** 그리기 — 세 API 44 개
-- `Tools/tests/android_vfx.ps1` — MuMu (OpenGL ES 3.2): GLES 셰이더에 VFX 커널, `.vfx` 가 게임 데이터에, 기기의 compute 로 마법진 · 불꽃놀이 GPU Event, 파편 메시 · 깊이 충돌 · 반딧불, 그리기 시간
+- `Tools/tests/android_vfx.ps1` — MuMu (OpenGL ES 3.2): GLES 셰이더에 VFX 커널, `.vfx` 가 게임 데이터에, 기기의 compute 로 마법진 · 불꽃놀이 GPU Event, 파편 메시 · 깊이 충돌 · 반딧불, 그리기 시간, Turbulence (기본 견본) 의 파티클 자리가 유한한가
 
 ## 성능 (PC Release)
 

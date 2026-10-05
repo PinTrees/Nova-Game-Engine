@@ -124,6 +124,7 @@ namespace
 namespace
 {
 	std::mutex s_MsgLock;
+	std::mutex s_DebugCompileLock;   // 디버그 정보 컴파일 · 내부 오류 다시 하기는 한 번에 하나
 	std::map<std::wstring, std::string> s_LastMsgs;
 }
 
@@ -178,8 +179,28 @@ HRESULT ShaderCache::CompileEffect(const std::wstring& filename, UINT shaderFlag
 	}
 	const ULONGLONG compileStart = ::GetTickCount64();
 	ShaderInclude include(src);
-	HRESULT hr = ::D3DCompileFromFile(filename.c_str(), nullptr, &include, nullptr,
-		"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
+	HRESULT hr;
+	{
+		// 디버그 정보 (D3D10_SHADER_DEBUG) 를 넣는 컴파일은 한 번에 하나: 여러 스레드가 함께 하면 컴파일러의 PDB 쓰기가
+		//  깨져 ("failed to create inline type info in PDB") 프로세스가 abort() 로 죽는다
+		std::unique_lock<std::mutex> serial(s_DebugCompileLock, std::defer_lock);
+		if (shaderFlags & D3D10_SHADER_DEBUG)
+			serial.lock();
+		hr = ::D3DCompileFromFile(filename.c_str(), nullptr, &include, nullptr,
+			"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
+	}
+	// 컴파일러 내부 오류 (메모리 · PDB) 는 다른 컴파일과 겹쳐서 날 수 있다 → 혼자서 한 번 더
+	if (FAILED(hr) && outMsgs && (strstr((const char*)outMsgs->GetBufferPointer(), "internal error") != nullptr ||
+		strstr((const char*)outMsgs->GetBufferPointer(), "out of memory") != nullptr))
+	{
+		std::lock_guard<std::mutex> serial(s_DebugCompileLock);
+		EditorLog::Write("Shader", "retry %s alone (compiler internal error while compiling in parallel)", wstring_to_string(src.filename().wstring()).c_str());
+		outBlob.Reset();
+		outMsgs.Reset();
+		ShaderInclude retryInclude(src);
+		hr = ::D3DCompileFromFile(filename.c_str(), nullptr, &retryInclude, nullptr,
+			"fx_5_0", shaderFlags, 0, outBlob.GetAddressOf(), outMsgs.GetAddressOf());
+	}
 	EditorLog::Write("Shader", "compiled %s in %llu ms (hr=0x%08X)%s%s", wstring_to_string(src.filename().wstring()).c_str(), ::GetTickCount64() - compileStart, (unsigned)hr,
 		outMsgs ? "\n" : "", outMsgs ? (const char*)outMsgs->GetBufferPointer() : "");
 	{
@@ -205,8 +226,12 @@ UINT ShaderCache::DefaultFlags()
 {
 	UINT flags = 0;
 #if defined( DEBUG ) || defined( _DEBUG )
-	flags |= D3D10_SHADER_DEBUG;
+	// Debug 빌드: 최적화만 끈다. 셰이더 디버그 정보 (PIX 에서 HLSL 줄 단위 디버깅) 는 NOVA_SHADER_DEBUG=1 일 때만 —
+	//  큰 이펙트 (32 · 58) 를 디버그 정보와 함께 여러 스레드에서 컴파일하면 컴파일러가 abort() 했다 (켜면 한 번에 하나씩)
 	flags |= D3D10_SHADER_SKIP_OPTIMIZATION;
+	static const bool s_ShaderDebug = [] { char v[8] = {}; return ::GetEnvironmentVariableA("NOVA_SHADER_DEBUG", v, sizeof(v)) > 0 && v[0] == '1'; }();
+	if (s_ShaderDebug)
+		flags |= D3D10_SHADER_DEBUG;
 #endif
 	return flags;
 }

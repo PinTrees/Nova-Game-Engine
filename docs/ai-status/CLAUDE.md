@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **날씨 4 단계: 시네마틱 데모 · 안드로이드** (같은 지시). **완료 (커밋 078280f, 푸시함)**
+- 갱신 시각: 2026년 10월 6일 — **VFX Turbulence 가 안드로이드 GLES 에서 NaN** (사용자 지시: 작업 칩 "Fix VFX Turbulence producing NaN on Android GLES" 를 여기서) + 편집기 abort 대화상자 + MuMu 창 숨기기. **완료 (커밋, 푸시 전)**
+  - 원인: `58. VFX.fx` NoiseVec 의 횟수가 값에 따라 바뀌는 고리 (`for (int o = 0; o < n; ++o)`) — MuMu GLES 3.2 에서 그 이펙트의 파티클이 통째로 NaN (그려지지 않음). 진단: 변형 이펙트 여러 개를 한 장면에 두고 기기 경계 · 그림 (모드 3 · 4 = 고리 없는 Noise3 는 정상)
+    고침: 4 번 정해진 고리 + `[branch] if (o < n)`. 날씨의 안드로이드 우회 (Turbulence 빼기) 지움. 잘못 짚은 것: 정수 변환 · gTime · 잡음 함수 · sSlot 배열 (배열을 0 으로 채우면 오히려 모든 이펙트가 깨졌다 — 되돌림)
+    주의: `vfx new` 기본 견본에 Turbulence 가 들어 있다 (진단의 "대조군" 이 아니었다). GLES 에서 경계 상자가 null 이면 그 이펙트 전체가 망가진 것
+  - 편집기 시작 abort() (사용자가 본 Debug Error): 셰이더 미리 컴파일 12 스레드 × 디버그 정보 (D3D10_SHADER_DEBUG) → 컴파일러 PDB 내부 오류 · out of memory 로 abort. 그때 커밋 여유 2.5 GB (Unity 10 GB)
+    `ShaderCache.cpp`: Debug 도 디버그 정보 없이 (NOVA_SHADER_DEBUG=1 이면 넣고 한 번에 하나), 내부 오류 · 메모리 부족이면 혼자서 한 번 더. 빌드도 메모리가 모자라면 `/m:4`
+  - MuMu: `common.ps1` 의 `Start-MuMuHidden` (창을 화면 밖 -32000 + 숨기기, MuMu 가 자리를 기억) — android · android_vfx · android_weather · android_occlusion · android_city_perf
+  - 검사: android_vfx **14/14** (Turbulence 경계 유한 추가), android_weather 눈보라 **11/11** (Turbulence 포함, 눈송이 8.6 만), PC vfx · vfxgl · vfxvk · weather · shadergraph **94/94**
+- 이전: 2026년 10월 6일 — **날씨 4 단계: 시네마틱 데모 · 안드로이드** (같은 지시). **완료 (커밋 078280f, 푸시함)**
   - 데모 프로젝트 `E:\NovaTest\WeatherDemo` (Forest.terraindata 지형, 오두막 · 돌 마당 · 처마 · 등불 · 숲 900 그루 · 걷는 사람, Volume 에 SSR · 그림자) — 스크립트는 `docs/examples/weather/` (WeatherDirector.cs · Walker.cs · build_cabin_scene.ps1)
   - 패키지: 해 = 먹구름 × 안개 (눈보라 · 폭풍에 그림자가 거의 없게), 안드로이드는 눈송이 Turbulence 빼고 처음 흔들림 크게 (아래)
   - `58. VFX.fx`: Collide with Depth · Weather Cover 가 NaN · 무한을 쓰지 않게 (맞는 쪽으로 묻기 + 쓰기 전 검사)

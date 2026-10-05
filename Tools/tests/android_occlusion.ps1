@@ -24,16 +24,7 @@ $all = MuMu @('info', '-v', 'all') | ConvertFrom-Json
 $index = $null
 foreach ($p in $all.PSObject.Properties) { if ($p.Value.name -eq $Vm) { $index = $p.Name } }
 if (-not $index) { Check 'emulator' $false "no MuMu VM '$Vm' (run Tools/tests/android.ps1 once to create it)"; exit 1 }
-$info = MuMu @('info', '-v', $index) | ConvertFrom-Json
-if (-not $info.is_android_started) { MuMu @('control', '-v', $index, 'launch') | Out-Null }
-$sw = [Diagnostics.Stopwatch]::StartNew()
-while ($sw.Elapsed.TotalSeconds -lt 180)
-{
-    MuMu @('control', '-v', $index, 'hide_window') | Out-Null
-    $info = MuMu @('info', '-v', $index) | ConvertFrom-Json
-    if ($info.player_state -eq 'start_finished' -and $info.adb_port) { break }
-    Start-Sleep -Seconds 2
-}
+$info = Start-MuMuHidden $MuMu $index   # 화면에 보이지 않게 (common.ps1)
 $serial = "127.0.0.1:$($info.adb_port)"
 & $Adb connect $serial | Out-Null
 $abi = (& $Adb -s $serial shell getprop ro.product.cpu.abi | Out-String).Trim()

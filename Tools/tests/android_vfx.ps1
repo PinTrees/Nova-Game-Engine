@@ -24,16 +24,7 @@ $all = MuMu @('info', '-v', 'all') | ConvertFrom-Json
 $index = $null
 foreach ($p in $all.PSObject.Properties) { if ($p.Value.name -eq $Vm) { $index = $p.Name } }
 if (-not $index) { Check 'emulator' $false "no MuMu VM '$Vm' (run Tools/tests/android.ps1 once to create it)"; exit 1 }
-$info = MuMu @('info', '-v', $index) | ConvertFrom-Json
-if (-not $info.is_android_started) { MuMu @('control', '-v', $index, 'launch') | Out-Null }
-$sw = [Diagnostics.Stopwatch]::StartNew()
-while ($sw.Elapsed.TotalSeconds -lt 180)
-{
-    MuMu @('control', '-v', $index, 'hide_window') | Out-Null
-    $info = MuMu @('info', '-v', $index) | ConvertFrom-Json
-    if ($info.player_state -eq 'start_finished' -and $info.adb_port) { break }
-    Start-Sleep -Seconds 2
-}
+$info = Start-MuMuHidden $MuMu $index   # 화면에 보이지 않게 (common.ps1)
 $serial = "127.0.0.1:$($info.adb_port)"
 & $Adb connect $serial | Out-Null
 $abi = ''
@@ -77,6 +68,9 @@ try
     Invoke-Nova "vfx op.connect Assets/VFX/Test/AndroidSdf.vfx --from $($cmp.id) --to $($br.id) --input Predicate" | Out-Null
     Invoke-Nova "vfx block.link Assets/VFX/Test/AndroidSdf.vfx --system Particles --context initialize --index 2 --param Max --from $($br.id)" | Out-Null
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidSdf.vfx --name Sdf --position 0,1.5,4' | Out-Null
+    # Turbulence (새 이펙트 기본 견본에 들어 있다) — GLES 에서 옥타브 고리가 파티클을 NaN 으로 깨뜨리던 일
+    Invoke-Nova 'vfx new Assets/VFX/Test/AndroidTurb.vfx --overwrite' | Out-Null
+    Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidTurb.vfx --name Turb --position -2,1,6' | Out-Null
     Invoke-Nova "scene save --as $($Scene -replace '\\', '/')" | Out-Null
     # 화면 밖 이펙트는 시뮬레이션을 쉰다 (Culling = Simulate When Visible) → 기준 그림 전에 Scene 뷰 카메라로 비춰 돌린다
     Invoke-Nova 'camera --position 0,5,-12 --target 0,1.2,4' | Out-Null
@@ -133,6 +127,9 @@ if ($j -and $j.ok)
     Check 'GLES: GPU events chain (Explosion, Crackle)' ((SysAlive 'Fireworks' 'Explosion') -gt 100) ("Rocket {0}, Explosion {1}, Crackle {2}" -f (SysAlive 'Fireworks' 'Rocket'), (SysAlive 'Fireworks' 'Explosion'), (SysAlive 'Fireworks' 'Crackle'))
     Check 'GLES: Output Mesh + depth collision (Debris shards), custom attribute (Fireflies)' ((SysAlive 'Debris' 'Shards') -gt 50 -and (SysAlive 'Fireflies' 'Fireflies') -gt 100) ("Shards {0}, Dust {1}, Fireflies {2}" -f (SysAlive 'Debris' 'Shards'), (SysAlive 'Debris' 'Dust'), (SysAlive 'Fireflies' 'Fireflies'))
     Check 'GLES: Collide with SDF + Compare/Branch (Sdf particles alive)' ((SysAlive 'Sdf' 'Particles') -gt 50) ("Particles {0}" -f (SysAlive 'Sdf' 'Particles'))
+    $t = @($v.effects | Where-Object { $_.object -eq 'Turb' })[0]
+    $finite = $t -and $t.bounds -and @($t.bounds[0] + $t.bounds[1] | Where-Object { $null -eq $_ }).Count -eq 0
+    Check 'GLES: Turbulence keeps particles finite (bounds)' ($t -and [int]$t.alive -gt 10 -and $finite) $(if ($t) { "alive {0}, bounds [{1}] ~ [{2}]" -f $t.alive, ($t.bounds[0] -join ', '), ($t.bounds[1] -join ', ') } else { 'no Turb effect' })
     Check 'GLES: draw time (report)' $true ("{0} ms per frame (960x540), VFX draw calls {1}" -f $j.drawMs, $v.drawCalls)
     $bmp = Join-Path $Out 'vfx_GLES.bmp'
     & $Adb -s $serial pull $j.image $bmp | Out-Null
