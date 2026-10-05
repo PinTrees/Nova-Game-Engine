@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **VFX Graph 마무리: 꼬리 · 정렬 · 컬링, 연산 노드, 성능 · 데모** (사용자 지시: 추천 1 · 2 · 3 "이거해줘. 대화는 일단 킵 하고"). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **VFX Graph 마무리: 꼬리 · 정렬 · 컬링, 연산 노드, 성능 · 데모** (사용자 지시: 추천 1 · 2 · 3 "이거해줘. 대화는 일단 킵 하고"). **완료 (커밋 bff097c, 푸시함)**
   - 셰이더 `Shaders/58. VFX.fx`: 이벤트 버퍼 하나 (죽음 · Rate), 꼬리 기록 (링 버퍼) + `TrailCS` (마디 인스턴스) + TrailVS/PS, 정렬 (SortKeys · 512 그룹 비토닉 · 전역 단계 · Gather), Update 가 경계 상자를 모음 (gState 48 바이트),
     연산 노드 해석 `Eval` (고정 레지스터 r0..r9 스택 — fxc 가 동적 색인 배열을 잘못 옮겨 DX11 에서 값이 사라졌음), 블록마다 한 번 계산 (`PrepareSlots` — fxc 컴파일 61 → 약 5 초)
   - `Source/Effects/VfxAsset.*` (Trigger On Die · Rate, Output Sort · Trail, Culling, operators · links, EncodeSlots · EncodeLinks — 칸 찾기는 표식 값으로), 새 `VfxOperators.cpp` (노드 약 50 종 · 스택 명령으로 옮기기, 깊이 · 고리 검사),
@@ -8,6 +8,7 @@
   - 편집기: `VfxGraphWindow.*` (연산 노드 · 블록 값 핀 · 연결 만들기 · 끊기, Trigger · Sort · Trail · Culling 칸), `VfxCli.*` (operators · op.add/set/remove/connect/disconnect · block.link/unlink · encode, stats 에 culled), `EditorApp.cpp` (58. VFX.fx 를 미리 컴파일 목록에 — 첫 컴파일 5 초 HANG)
   - 검사: vfx · vfxgl · vfxvk **32/32** (연산 노드 + 정렬, 연산 노드 수명, 꼬리, 화면 밖 컬링 추가), `android_vfx.ps1` MuMu **11/11** (Scene 카메라로 비춘 뒤 DX11 기준 그림 — 컬링 때문에 멈춰 있었다), Debug 복원 뒤 vfx 14/14
   - 성능 (PC Release, `E:\NovaTest\ClaudePerfEngine`, MuMu 끔): 견본마다 파티클 패스 0.09 ~ 1.68 ms (DX11) — docs/VFX_GRAPH.md 표. 데모 `E:\NovaTest\VfxDemo` (밤 캠프장, F · E, C# 이 Exposed Property 를 바꿈). Showcase 217 ~ 221
+  - 이어서 README 최신화 · 압축 (사용자 지시 "리드미 … 글자는 압축 … 메인 썸네일 더 이쁜 사진으로") — 메인 그림 `docs/images/hero_night_camp.webp` (VfxDemo 의 Hero.scene), 커밋 f494ce8 푸시
   - 대화 (VFX Assistant) 는 사용자 지시로 보류 — claude CLI 로그인 만료 그대로, Assistant 시스템 안내에 연산 노드는 아직 안 적음
 - 이전: 2026년 10월 5일 — **Visual Effect Graph + VFX Assistant** (사용자 지시: "vfx 그래프? 유니티의 해당 기능 만들어줘 … 대화는 클로드 코드랑 연결 … API 같은거는 고려하지마"). **완료 (커밋 087b296, 푸시함)**
   - GPU 런타임: 새 `Shaders/58. VFX.fx` (Reset · Spawn · Update compute, 블록 목록을 셰이더가 해석, GPU Event, 그림 없는 모양 · 플립북 · Soft), `Source/Effects/VfxAsset.*` (.vfx JSON · 블록 정의표 19 종 · Encode),
