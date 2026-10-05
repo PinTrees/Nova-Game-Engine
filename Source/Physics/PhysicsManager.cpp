@@ -38,6 +38,7 @@
 #include "PhysicsSettings.h"
 #include "PhysicsManager.h"
 #include "Profiler.h"
+#include "ComponentIndex.h"
 #include "MonoBehaviour.h"
 #include "RigidBody.h"
 #include "BoxCollider.h"
@@ -342,7 +343,7 @@ namespace
 	GameObject* FindRigidOwner(GameObject* go)
 	{
 		for (GameObject* g = go; g != nullptr; g = g->GetParent())
-			if (RigidBody* rb = g->GetComponent<RigidBody>())
+			if (ComponentIndex::Of(g).Rigid)   // 기억한 분류 (스텝마다 dynamic_cast 하지 않는다)
 				return g;
 		return nullptr;
 	}
@@ -1105,6 +1106,7 @@ void PhysicsManager::StepSimulation(float dt)
 		{
 			if (!IsActiveInHierarchy(go))
 				continue;
+			// (ComponentIndex 를 쓰면 표 조회 · 복사가 더 들었다 — 0.13 → 0.19 ms, 도시 PC Release. 여기는 그대로)
 			for (const auto& c : go->GetComponents())
 			{
 				if (MonoBehaviour* mb = dynamic_cast<MonoBehaviour*>(c.get()))
@@ -1130,42 +1132,25 @@ void PhysicsManager::StepSimulation(float dt)
 	{
 		if (!IsActiveInHierarchy(go))
 			continue;
-		const size_t first = w.scan.size(), firstJoint = w.scanJoints.size();
-		RigidBody* ownRb = nullptr;
-		bool character = false;
-		for (const auto& comp : go->GetComponents())
+		const size_t first = w.scan.size();
+		// 분류는 ComponentIndex 가 기억한다 (컴포넌트가 그대로면 dynamic_cast 없이)
+		const ComponentIndex::Entry& e = ComponentIndex::Of(go);
+		RigidBody* ownRb = e.Rigid;
+		if (e.Character)
+			w.scanCharacters.push_back(e.Character);   // 오브젝트의 첫 Character Controller (예전 GetComponent 와 같음)
+		for (Collider* col : e.Colliders)
 		{
-			Component* c = comp.get();
-			if (Collider* col = dynamic_cast<Collider*>(c))
-			{
-				// 종류: 표에 기억한 형상 콜라이더면 그 값 (Character Controller 판정도 건너뛴다), 처음 보거나 형상이 아니면 판정
-				auto it = w.colliders.find((JPH::uint32)col->GetInstanceID());
-				uint8_t kind = it != w.colliders.end() && it->second.collider == col ? it->second.kind : (uint8_t)KindNone;
-				if (kind == KindNone)
-				{
-					if (!character)
-						if (CharacterController* cc = dynamic_cast<CharacterController*>(col))
-						{
-							w.scanCharacters.push_back(cc);   // 오브젝트의 첫 Character Controller (예전 GetComponent 와 같음)
-							character = true;
-							continue;
-						}
-					kind = KindOf(col);
-				}
-				if (kind != KindNone && col->IsEnabled())
-					w.scan.push_back({ nullptr, col, nullptr, kind });
+			if (col == e.Character)
 				continue;
-			}
-			if (RigidBody* rb = dynamic_cast<RigidBody*>(c))
-			{
-				if (!ownRb) ownRb = rb;
-				continue;
-			}
-			if (Joint* jt = dynamic_cast<Joint*>(c))
-				w.scanJoints.push_back({ go, jt });
+			// 형상 종류: 표에 기억한 값, 처음 보는 콜라이더면 판정 (두 번째 Character Controller 등 형상이 아니면 None)
+			auto it = w.colliders.find((JPH::uint32)col->GetInstanceID());
+			const uint8_t kind = it != w.colliders.end() && it->second.collider == col && it->second.kind != KindNone ? it->second.kind : KindOf(col);
+			if (kind != KindNone && col->IsEnabled())
+				w.scan.push_back({ nullptr, col, nullptr, kind });
 		}
-		if (!ownRb)
-			w.scanJoints.resize(firstJoint);   // Joint 는 Rigidbody 가 있는 오브젝트만
+		if (ownRb)
+			for (Joint* jt : e.Joints)
+				w.scanJoints.push_back({ go, jt });   // Joint 는 Rigidbody 가 있는 오브젝트만
 		// 소유자: 자기에게 Rigidbody 가 있으면 자기, 없으면 Rigidbody 가 있는 가장 가까운 조상, 그것도 없으면 자기 (정적)
 		if (w.scan.size() == first)
 		{
@@ -1179,7 +1164,7 @@ void PhysicsManager::StepSimulation(float dt)
 			if (GameObject* up = FindRigidOwner(go->GetParent()))
 			{
 				owner = up;
-				rb = up->GetComponent<RigidBody>();
+				rb = ComponentIndex::Of(up).Rigid;
 			}
 		for (size_t i = first; i < w.scan.size(); ++i)
 		{
@@ -1355,6 +1340,7 @@ void PhysicsManager::StepSimulation(float dt)
 	}
 	for (auto it = w.colliders.begin(); it != w.colliders.end();)
 		it = it->second.seen == stamp ? std::next(it) : w.colliders.erase(it);   // Character Controller 항목은 아래 EnsureCharacter 가 다시 넣는다
+	ComponentIndex::EndPass();
 	if (profiling) Profiler::End();   // Physics.Sync
 
 	// Character Controller: 활성인 것만 CharacterVirtual 로 (없어진 것은 지운다 — 안쪽 바디도 같이)

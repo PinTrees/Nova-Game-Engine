@@ -5,6 +5,7 @@
 #include "Physics2DSettings.h"
 #include "PhysicsManager.h"
 #include "CSharpScript.h"
+#include "ComponentIndex.h"
 #include <box2d/box2d.h>
 
 namespace
@@ -70,7 +71,7 @@ namespace
 	Rigidbody2D* FindRigidbody(GameObject* go)
 	{
 		for (GameObject* g = go; g; g = g->GetParent())
-			if (Rigidbody2D* rb = g->GetComponent<Rigidbody2D>(); rb && rb->IsEnabled() && ActiveInHierarchy(g))
+			if (Rigidbody2D* rb = ComponentIndex::Of(g).Rigid2D; rb && rb->IsEnabled() && ActiveInHierarchy(g))   // 기억한 분류
 				return rb;
 		return nullptr;
 	}
@@ -237,21 +238,23 @@ namespace
 		{
 			if (!go || !ActiveInHierarchy(go))
 				continue;
-			if (Rigidbody2D* rb = go->GetComponent<Rigidbody2D>(); rb && rb->IsEnabled())
+			// 분류는 ComponentIndex 가 기억한다 (컴포넌트가 그대로면 dynamic_cast 없이 — 2D 몸체가 없는 3D 장면에서도 스텝마다 모든 오브젝트를 캐스트했다)
+			const ComponentIndex::Entry& e = ComponentIndex::Of(go);
+			if (Rigidbody2D* rb = e.Rigid2D; rb && rb->IsEnabled())
 			{
 				rbs[go] = rb;
 				groups[go];   // 콜라이더 없는 몸체도
 			}
-			for (const auto& comp : go->GetComponents())
+			for (Collider2D* col : e.Colliders2D)
 			{
-				Collider2D* col = dynamic_cast<Collider2D*>(comp.get());
-				if (!col || !col->IsEnabled())
+				if (!col->IsEnabled())
 					continue;
 				Rigidbody2D* rb = FindRigidbody(go);
 				groups[rb ? rb->GetGameObject() : go].push_back(col);
 				s_Alive.insert(col);
 			}
 		}
+		ComponentIndex::EndPass();   // 오래된 기억 정리 (2D 만 쓰는 게임에서도)
 		for (auto& [go, rec] : s_Bodies)
 			rec.Seen = false;
 		const bool filtersChanged = s_FilterVersion != Physics2DSettings::Version();

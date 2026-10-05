@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Physics2DJoints.h"
+#include "ComponentIndex.h"
 #include "Physics2DComponents.h"
 #include "CSharpScript.h"
 #include "UnityGUI.h"
@@ -314,14 +315,22 @@ namespace Physics2DJointsRuntime
         if (scene) for (auto* go : scene->GetAllGameObjects())
         {
             if (!Active(go)) continue;
-            for (const auto& c : go->GetComponents())
+            // 분류는 ComponentIndex 가 기억한다 (예전: 스텝마다 모든 컴포넌트를 dynamic_pointer_cast — 원자적 참조 수 증감)
+            const ComponentIndex::Entry& e = ComponentIndex::Of(go);
+            if (e.Joints2D.empty()) continue;
+            Rigidbody2D* const ownRb = e.Rigid2D;
+            const std::vector<Joint2D*> joints = e.Joints2D;   // 아래에서 다른 오브젝트의 분류를 만들 수 있다
+            for (Joint2D* raw : joints)
             {
-                auto j = std::dynamic_pointer_cast<Joint2D>(c);
-                if (!j || !j->IsEnabled() || j->Broken) continue;
-                auto* rb = go->GetComponent<Rigidbody2D>();
+                if (!raw->IsEnabled() || raw->Broken) continue;
+                std::shared_ptr<Joint2D> j;
+                for (const auto& c : go->GetComponents())
+                    if (c.get() == raw) { j = std::static_pointer_cast<Joint2D>(c); break; }
+                if (!j) continue;
+                auto* rb = ownRb;
                 const auto ownerBody = Body(rb);
                 auto* other = j->ConnectedBody ? scene->FindByFileID(j->ConnectedBody) : nullptr;
-                auto* connected = other ? other->GetComponent<Rigidbody2D>() : nullptr;
+                auto* connected = other ? ComponentIndex::Of(other).Rigid2D : nullptr;
                 if (!rb || !rb->IsEnabled() || !b2Body_IsValid(ownerBody) || other == go) continue;
                 if (j->ConnectedBody && (!Active(other) || !connected || !connected->IsEnabled() || !b2Body_IsValid(Body(connected)))) continue;
                 if (!b2Body_IsValid(Ground)) { auto d = b2DefaultBodyDef(); Ground = b2CreateBody(world, &d); }

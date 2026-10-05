@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **Renderer 마무리** (같은 지시 — 추천 3). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 5일 — **활성 카메라 찾기 · 물리 동기화 남은 비용** (사용자 지시: 추천 1 · 2 진행, "코덱스는 이제 작업 안해. 너가 다해"). **완료 (커밋, 푸시 전)**
+  - 카메라 · 빛 1.1 ms (안드로이드) 의 원인 = `DisplayManager::GetCameraForDisplay` 가 부를 때마다 씬 전체 (복사 + 오브젝트마다 GetComponent_SP). `Camera::All` (생성 · 소멸 때 등록,
+    복사 생성자 삭제) 에서 고른다 — 규칙 그대로 (현재 씬 · 활성 계층 · 켜짐 · 디스플레이 · 첫 Camera · Priority, 같으면 씬 순서), 지워진 오브젝트는 `GameObject::IsAlive` (Play 멈춤 때 충돌을 검사가 잡음)
+  - 새 `Source/Scene/ComponentIndex.*`: 오브젝트마다 컴포넌트 분류 (콜라이더 · Rigidbody · Character Controller · Joint · 2D 콜라이더 · Rigidbody2D · Joint2D) 를 InstanceID 지문으로 기억.
+    `Physics/PhysicsManager.cpp` (동기화 · FindRigidOwner), `Physics2D/Physics2DManager.cpp` (Sync · FindRigidbody), `Physics2D/Physics2DJoints.cpp` (Sync), `Scene/Scene.h` (GameObjectsView)
+  - PC Release 도시 Play A/B: 프레임 7.95 → 6.6 ms, 카메라 · 빛 1.01 → 0.08 아래, 동기화 0.64 → 0.46, 2D 0.36 → 0.08 ms. FixedUpdate 는 예전 방식이 더 싸서 그대로
+  - 검사: cli (새 활성 카메라 검사) · physics · physics2d · animation · packages · ui · render · material · occlusion · audio · layers · sprites · anim2d, joints2d **42/42**, scene_lifecycle **43/43**, 안드로이드 빌드. Showcase 212
+  - Codex 작업 종료 — AI_COLLABORATION.md 에 적음
+- 이전: 2026년 10월 5일 — **Renderer 마무리** (같은 지시 — 추천 3). **완료 (커밋, 푸시 전)**
   - 재질 칸 블록: `Scene/MaterialBlock.*` (SetAt · GetAt — 렌더러 블록 위에 덮음, 있으면 인스턴스 값 대신 파생 재질), `MeshRenderer.h` · `SkinnedMeshRenderer.h` (PropertyBlock()),
     `MaterialScripting.cpp` (NovaMat_SetBlock · BlockCount · BlockEntry 에 materialIndex, NovaMat_HasBlock)
   - 정렬: `MeshRenderer.*` · `SkinnedMeshRenderer.*` · `Effects/LineRenderer.*` 에 Sorting Layer · Order (저장), `MeshBatcher.cpp` 투명 패스 · `Effects/ParticleRenderer.cpp` 입자와 선 정렬 (레이어 → 순서 → 거리),

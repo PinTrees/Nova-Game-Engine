@@ -10,6 +10,11 @@ enum class ProjectionType
 
 class NOVA_API Camera : public Component
 {
+public:
+	// 지금 있는 모든 Camera 컴포넌트 (만들 때 넣고 지울 때 뺀다) — 활성 카메라 찾기가 씬 전체를 훑지 않게 (DisplayManager)
+	static const std::vector<Camera*>& All();
+	Camera(const Camera&) = delete;   // 복사본은 등록되지 않는다 — 만들지 않게
+
 private:
 	ProjectionType m_cameraType = ProjectionType::Perspective;
 	// Camera coordinate system with coordinates relative to world space.

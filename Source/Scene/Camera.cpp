@@ -14,8 +14,20 @@
 #include "LightManager.h"
 #include "EditorGUI.h"
 
+namespace
+{
+	std::vector<Camera*>& Registry()
+	{
+		static std::vector<Camera*> s_Cameras;
+		return s_Cameras;
+	}
+}
+
+const std::vector<Camera*>& Camera::All() { return Registry(); }
+
 Camera::Camera()
 {
+	Registry().push_back(this);
 	m_InspectorTitleName = "Camera";
 	m_InspectorIconPath = L"camera.png";
 	SetLens(XM_PI / 3.0f, 1.0f, 0.3f, 1000.0f);   // Unity 기본값: FOV 60, Near 0.3, Far 1000
@@ -23,6 +35,8 @@ Camera::Camera()
 
 Camera::~Camera()
 {
+	auto& r = Registry();
+	r.erase(std::remove(r.begin(), r.end(), this), r.end());
 }
 
 XMVECTOR Camera::GetPositionXM()

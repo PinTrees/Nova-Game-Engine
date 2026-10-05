@@ -90,6 +90,19 @@ function Suite-Cli
         "# batch`ninfo`nexec 2 + 2`nwait 5" | Set-Content -Encoding utf8 $bf
         $b = (& $Nova batch $bf --project $Project 2>&1 | Out-String)
         Add-Result cli 'batch runs every line' ($b -match '3 commands, 0 failed' -and $b -match '"result": "4"') (($b -split "`n" | Where-Object { $_ -match 'batch:' }) -join '')
+
+        # 활성 카메라 (Camera.main = DisplayManager::GetActiveCamera — 등록된 카메라에서 고른다): Priority 가 높은 것, 꺼진 오브젝트는 빼고, 실행 중 붙인 카메라도
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create camera --name CamB' | Out-Null
+        Invoke-Nova 'set CamB --component Camera --values "{\"priority\":5}"' | Out-Null
+        $cm1 = (Invoke-NovaJson 'exec Camera.main.gameObject.name').result
+        $f = Join-Path $Out 'cli_cam.cs'
+        'GameObject.Find("CamB").SetActive(false); var g = new GameObject("CamC"); g.AddComponent<Camera>(); return Camera.main.gameObject.name;' | Set-Content -Encoding utf8 $f
+        $cm2 = (Invoke-NovaJson "exec --file `"$f`"").result
+        Invoke-Nova 'wait 2' | Out-Null
+        Invoke-Nova 'set CamC --component Camera --values "{\"priority\":9}"' | Out-Null
+        $cm3 = (Invoke-NovaJson 'exec Camera.main.gameObject.name').result
+        Add-Result cli 'active camera: highest priority, inactive objects skipped, a camera added at runtime is found' ("$cm1" -eq 'CamB' -and "$cm2" -eq 'Main Camera' -and "$cm3" -eq 'CamC') "priority 5: $cm1; CamB off: $cm2; runtime CamC priority 9: $cm3"
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }

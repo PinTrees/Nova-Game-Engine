@@ -46,26 +46,38 @@ void DisplayManager::DeleteCameraComponent(const weak_ptr<Camera>& camera)
 
 shared_ptr<Camera> DisplayManager::GetCameraForDisplay(int display)
 {
+	// 등록된 카메라만 본다 (예전: 부를 때마다 씬의 모든 오브젝트를 훑었다 — 렌더러 2000 개의 도시에서 프레임마다 여러 번, 안드로이드 약 1 ms).
+	//  규칙은 그대로: 현재 씬 · 활성 계층 · 켜짐 · 그 디스플레이, 오브젝트의 첫 Camera, Priority 가 같으면 씬 순서가 앞인 것
 	Scene* scene = SceneManager::GetI()->GetCurrentScene();
 	if (scene == nullptr)
 		return nullptr;
-	shared_ptr<Camera> best;
-	for (GameObject* go : scene->GetAllGameObjects())
+	const vector<GameObject*>& objects = scene->GameObjectsView();
+	Camera* best = nullptr;
+	size_t bestOrder = 0;
+	for (Camera* camera : Camera::All())
 	{
-		if (go == nullptr)
+		GameObject* go = camera->GetGameObject();
+		if (go == nullptr || !camera->IsEnabled() || camera->GetTargetDisplay() != display)
+			continue;
+		if (!GameObject::IsAlive(go))
+			continue;   // 오브젝트는 지워졌는데 컴포넌트가 아직 살아 있다 (Play 를 멈추고 씬을 다시 읽는 중 등)
+		if (best != nullptr && camera->GetPriority() < best->GetPriority())
 			continue;
 		bool active = true;
 		for (GameObject* g = go; g != nullptr; g = g->GetParent())
 			if (!g->IsActive()) { active = false; break; }
-		if (!active)
-			continue;
-		auto camera = go->GetComponent_SP<Camera>();
-		if (camera == nullptr || !camera->IsEnabled() || camera->GetTargetDisplay() != display)
-			continue;
-		if (best == nullptr || camera->GetPriority() > best->GetPriority())
+		if (!active || go->GetComponent<Camera>() != camera)
+			continue;   // 꺼진 계층 · 아직 붙지 않은 (AddComponent 대기) 또는 두 번째 Camera
+		const size_t order = (size_t)(std::find(objects.begin(), objects.end(), go) - objects.begin());
+		if (order == objects.size())
+			continue;   // 다른 씬 (프리팹 편집 · 미리보기)
+		if (best == nullptr || camera->GetPriority() > best->GetPriority() || order < bestOrder)
+		{
 			best = camera;
+			bestOrder = order;
+		}
 	}
-	return best;
+	return best ? best->GetGameObject()->GetComponent_SP<Camera>() : nullptr;
 }
 
 shared_ptr<Camera> DisplayManager::GetActiveCamera()

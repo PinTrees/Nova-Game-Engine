@@ -67,6 +67,8 @@ public:
 	// 저장되는 고유 ID 로 찾기 (없으면 nullptr)
 	GameObject* FindByFileID(uint64 fileID) const;
 	vector<GameObject*> GetAllGameObjects() const { return m_ArrGameObjects[0]; }
+	// 복사하지 않는 전체 목록 (훑는 동안 씬을 바꾸지 않는 곳만 — 오브젝트를 만들거나 지우면 목록이 바뀐다)
+	const vector<GameObject*>& GameObjectsView() const { return m_ArrGameObjects[0]; }
 
 	// 오브젝트와 모든 자손을 전체 목록(렌더/업데이트/물리 대상)에 등록 (이미 있으면 건너뜀)
 	void RegisterGameObjectTree(GameObject* gameObject);

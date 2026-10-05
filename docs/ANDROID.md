@@ -225,7 +225,12 @@ GL 과 상관없는 엔진 CPU), 카메라 · 빛 1.1 ms, 컬링 갱신 0.9 ms.
 (예전: 동기화 · 캐릭터 · Joint 가 각자 모든 오브젝트를 다시 훑음), 소유자 · id 맵을 스텝마다 새로 만들지 않고 버퍼를 다시 쓴다. 콜라이더 표는 지우지 않고
 그 자리에서 고치며 (보지 못한 항목만 뺀다), 콜라이더 종류 (Box · Sphere …) 는 한 번 판정해 표에 기억한다 (서명 계산의 `dynamic_cast` 를 없앰).
 PC Release 도시 (Play): 동기화가 2D 물리 (그대로인 코드) 대비 3.7 배 → 1.7 배 — 약 2 배 빨라짐, 캐릭터 · Joint 훑기 (0.29 ms) 는 없어짐.
-더 줄이려면 오브젝트마다 분류를 기억해야 하는데 GameObject 에 컴포넌트 변경 번호가 없어 (지운 주소의 재사용) 하지 않았다.
+이어서 (2026-10-05): **오브젝트마다 컴포넌트 분류를 기억** 한다 (`Source/Scene/ComponentIndex.*` — 오브젝트 InstanceID + 컴포넌트 InstanceID 목록이 같으면
+dynamic_cast 없이, InstanceID 는 다시 쓰이지 않아 지운 주소의 재사용에도 안전). 3D 동기화 · 2D 동기화 · 2D Joint 가 쓴다. 또 **활성 카메라 찾기** 가 부를 때마다
+씬 전체를 훑던 것 (`DisplayManager::GetCameraForDisplay` — 그림자 · UI · 소리 · Camera.main 이 프레임마다 여러 번) 을 카메라가 스스로 등록한 목록에서 고르게 했다
+(`Camera::All`, 규칙 그대로 — 지워진 오브젝트의 카메라는 `GameObject::IsAlive` 로 뺀다).
+PC Release 도시 (Play, 같은 조건 A/B): 프레임 7.95 → 6.6 ms, 카메라 · 빛 1.01 → 0.08 ms 아래, 물리 동기화 0.64 → 0.46 ms, 2D 물리 0.36 → 0.08 ms (Showcase 212).
+남은 동기화 (소유자마다 서명 · 표 갱신) 를 없애려면 Transform · 콜라이더 · Rigidbody 값에 변경 번호가 필요하다 (setter · Inspector · 불러오기 · Undo).
 
 - 진단: `-e profile on` → 결과 (`result_scene.json`) 의 `gl` (GL 호출 종류별 수, 늘 센다 — `GlesCounters`) · `scopes` (Profiler 구간, 깊이 3 까지 프레임마다 평균).
   logcat 의 `NOVA_TEST` 줄은 1024 자에서 잘려 검사 스크립트는 파일을 받는다. `-SkipBuild` = 에디터의 장면 단계를 건너뛰고 APK 만 다시
