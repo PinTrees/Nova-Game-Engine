@@ -1,13 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **날씨 4 단계: 시네마틱 데모 · 안드로이드** (같은 지시). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 6일 — **날씨 4 단계: 시네마틱 데모 · 안드로이드** (같은 지시). **완료 (커밋 078280f, 푸시함)**
   - 데모 프로젝트 `E:\NovaTest\WeatherDemo` (Forest.terraindata 지형, 오두막 · 돌 마당 · 처마 · 등불 · 숲 900 그루 · 걷는 사람, Volume 에 SSR · 그림자) — 스크립트는 `docs/examples/weather/` (WeatherDirector.cs · Walker.cs · build_cabin_scene.ps1)
   - 패키지: 해 = 먹구름 × 안개 (눈보라 · 폭풍에 그림자가 거의 없게), 안드로이드는 눈송이 Turbulence 빼고 처음 흔들림 크게 (아래)
   - `58. VFX.fx`: Collide with Depth · Weather Cover 가 NaN · 무한을 쓰지 않게 (맞는 쪽으로 묻기 + 쓰기 전 검사)
   - 새 검사 `Tools/tests/android_weather.ps1` (MuMu): 폭풍 **11/11** · 눈보라 **11/11** — GLES 셰이더 (59 포함), 게임 데이터의 소리, 기기 오류 없음, 입자 자리 유한, DX11 과 같은 밝기 (차이 평균 1.1 ~ 1.7), 폭풍 2.4 ms · 눈보라 4.5 ms
   - **남은 엔진 문제**: MuMu GLES 에서 VFX Turbulence 블록이 파티클 자리를 NaN 으로 깨뜨린다 (잡음 · gTime · 정수 변환이 원인 아님, 블록을 빼면 정상) — 작업 칩 "Fix VFX Turbulence producing NaN on Android GLES" 로 따로
   - 검사: weather 14/14 + vfx · vfxgl · vfxvk 56/56 (70/70), 안드로이드 위. Showcase 229 ~ 232, 문서 WEATHER.md (데모 · 안드로이드 · 한계), README 그림
-- 이전: 2026년 10월 6일 — **날씨 2 · 3 단계: 젖은 세상 · 쌓이는 눈 + 발자국** (사용자 지시: "푸시하고 2 단계 … 3 단계 … 4 단계 … 진행해줘"). **완료 (커밋 c8a2f15, 푸시 전)**
+- 이전: 2026년 10월 6일 — **날씨 2 · 3 단계: 젖은 세상 · 쌓이는 눈 + 발자국** (사용자 지시: "푸시하고 2 단계 … 3 단계 … 4 단계 … 진행해줘"). **완료 (커밋 c8a2f15, 푸시함)**
   - 엔진: 새 `Source/Graphics/DX11/WeatherCover.*` — 덮개 맵 (카메라 둘레 128 m 를 위에서 본 깊이, 그림자 캐스터 패스, 8 m 칸 · 30 프레임마다), 발자국 맵 (48 m, 1024², RGBA16F 두 장 번갈아 + 도장 R32F,
     아래에서 본 깊이 = `Scene::RenderSceneDeformers` (스킨 메시 + RigidBody · CharacterController 의 메시), `Scene::RenderSceneCover` (풀 · 캐릭터 뺌)), 새 셰이더 `59. WeatherSnow.fx` (StampCS · DeformCS — 고리 배치, 12 cm 비탈, 다시 덮임)
   - `32. InstancedBasic.fx`: cbWeather + `ApplyWeather` (ShadeLit 앞 — 젖음 · 웅덩이 · 빗방울 물결 (30 m 안) · 쌓인 눈 · 발자국 시차 8 걸음 · 기울기 법선), `WeatherSkyGrade` (하늘에서 온 환경광 · 반사를 먹구름처럼),
