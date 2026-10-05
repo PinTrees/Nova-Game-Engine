@@ -25,8 +25,8 @@ namespace
 	const char* kContextNames[4] = { "Spawn", "Initialize Particle", "Update Particle", "Output Particle Quad" };
 	// Unity VFX Graph 의 문맥 색 (Spawn 주황 · Initialize 초록 · Update 노랑 · Output 보라)
 	const ImU32 kContextColors[4] = { IM_COL32(214, 128, 52, 255), IM_COL32(64, 160, 92, 255), IM_COL32(196, 160, 48, 255), IM_COL32(128, 92, 196, 255) };
-	const char* kBlendNames[] = { "Additive", "Alpha Blend" };
-	const char* kShapeNames[] = { "Soft Dot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart" };
+	const char* kBlendNames[] = { "Additive", "Alpha Blend", "Opaque" };
+	const char* kShapeNames[] = { "Soft Dot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart", "Mesh" };
 	const char* kOrientNames[] = { "Face Camera", "Along Velocity", "Horizontal" };
 	const char* kPropTypes[] = { "Float", "Int", "Bool", "Vector3", "Color" };
 
@@ -522,19 +522,74 @@ void VfxGraphWindow::DrawBlackboard(float width, float height)
 			}
 		ImGui::EndPopup();
 	}
-	ImGui::TextDisabled("Exposed properties (Inspector override)");
+	const bool subgraph = Lower(fs::path(m_Path).extension().string()) == Vfx::kSubgraphExtension;
+	ImGui::TextDisabled("%s", subgraph ? "Sub Graph inputs (Property nodes read them)" : "Exposed properties (Inspector override)");
 	ImGui::Separator();
 	for (int i = 0; i < (int)m_Asset.Properties.size(); ++i)
 	{
 		const Vfx::Property& p = m_Asset.Properties[i];
 		ImGui::PushID(i);
-		if (ImGui::Selectable(p.Name.c_str(), m_SelProperty == i && m_SelSystem < 0))
+		if (ImGui::Selectable(p.Name.c_str(), m_SelProperty == i && m_SelSystem < 0 && m_SelAttribute < 0))
 		{
 			m_SelProperty = i;
+			m_SelAttribute = m_SelOp = -1;
 			m_SelSystem = m_SelContext = m_SelBlock = -1;
 		}
 		ImGui::SameLine(width - 70.0f);
 		ImGui::TextDisabled("%s", kPropTypes[(int)p.Type]);
+		ImGui::PopID();
+	}
+	if (subgraph)
+	{
+		ImGui::Dummy(ImVec2(0, 12));
+		ImGui::TextWrapped("Sub Graph: Property nodes read the inputs above, the Output (Sub Graph) node's input is the result.");
+		ImGui::EndChild();
+		return;
+	}
+	// 사용자 속성 (Custom Attributes — 파티클마다 float 4 칸)
+	ImGui::Dummy(ImVec2(0, 12));
+	ImGui::PushFont(UnityGUI::BoldFont());
+	ImGui::TextUnformatted("Custom Attributes");
+	ImGui::PopFont();
+	ImGui::SameLine(width - 34.0f);
+	if (ImGui::SmallButton(ICON_FA_PLUS "##addattr")) ImGui::OpenPopup("##addattr");
+	if (ImGui::BeginPopup("##addattr"))
+	{
+		int used = 0;
+		for (const Vfx::Attribute& a : m_Asset.Attributes) used += a.Vector ? 3 : 1;
+		for (int t = 0; t < 2; ++t)
+		{
+			const bool fits = used + (t == 1 ? 3 : 1) <= Vfx::kAttributeLanes;
+			if (ImGui::MenuItem(t == 0 ? "Float" : "Vector3", nullptr, false, fits))
+			{
+				Snapshot();
+				Vfx::Attribute a;
+				a.Vector = t == 1;
+				a.Name = "Attribute";
+				for (int n = 2; m_Asset.FindAttribute(a.Name); ++n) a.Name = "Attribute " + std::to_string(n);
+				m_Asset.Attributes.push_back(a);
+				m_SelAttribute = (int)m_Asset.Attributes.size() - 1;
+				m_SelProperty = m_SelOp = m_SelSystem = m_SelContext = m_SelBlock = -1;
+				Changed();
+			}
+		}
+		ImGui::TextDisabled("%d / %d floats used", used, Vfx::kAttributeLanes);
+		ImGui::EndPopup();
+	}
+	ImGui::TextDisabled("Per-particle values (Set / Get Attribute)");
+	ImGui::Separator();
+	for (int i = 0; i < (int)m_Asset.Attributes.size(); ++i)
+	{
+		const Vfx::Attribute& a = m_Asset.Attributes[i];
+		ImGui::PushID(500 + i);
+		if (ImGui::Selectable(a.Name.c_str(), m_SelAttribute == i && m_SelSystem < 0))
+		{
+			m_SelAttribute = i;
+			m_SelProperty = m_SelOp = -1;
+			m_SelSystem = m_SelContext = m_SelBlock = -1;
+		}
+		ImGui::SameLine(width - 70.0f);
+		ImGui::TextDisabled("%s", a.Vector ? "Vector3" : "Float");
 		ImGui::PopID();
 	}
 	ImGui::Dummy(ImVec2(0, 12));
@@ -594,6 +649,14 @@ bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, boo
 			const std::string n = p.Name;
 			if ((n == "ColorB" && mode != 1) || ((n == "Saturation" || n == "Brightness") && mode != 2)) continue;
 		}
+		if (d.Id == 9)
+		{
+			std::string attr;
+			if (b.Params.contains("Attribute") && b.Params["Attribute"].is_string()) attr = b.Params["Attribute"].get<std::string>();
+			const Vfx::Attribute* at = m_Asset.FindAttribute(attr);
+			const bool vec = at && at->Vector;
+			if ((p.Name == std::string("Value") && vec) || (p.Name == std::string("VectorValue") && !vec)) continue;
+		}
 		ImGui::PushID(p.Name);
 		const int linked = LinkedTo(b, p.Name);
 		// 노드 안: 연산 노드를 이을 핀 (이을 수 있는 값만)
@@ -644,13 +707,20 @@ bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, boo
 				break;
 			case Vfx::ParamKind::Text:
 			{
-				// 속성 이름 (연산 노드 Property): Blackboard 에서 고른다
+				// 이름 고르기: Name = Blackboard 속성 (연산 노드 Property), Attribute = 사용자 속성, Path = Sub Graph 파일
 				std::string cur;
 				if (b.Params.contains(p.Name) && b.Params[p.Name].is_string()) cur = b.Params[p.Name].get<std::string>();
-				if (ImGui::BeginCombo("##t", cur.empty() ? "(property)" : cur.c_str()))
+				const std::string kind = p.Name;
+				std::vector<std::string> names;
+				if (kind == "Attribute") for (const Vfx::Attribute& a : m_Asset.Attributes) names.push_back(a.Name);
+				else if (kind == "Path") names = Vfx::FindAssets(Vfx::kSubgraphExtension);
+				else for (const Vfx::Property& prop : m_Asset.Properties) names.push_back(prop.Name);
+				const char* empty = kind == "Attribute" ? "(attribute)" : kind == "Path" ? "(sub graph file)" : "(property)";
+				if (ImGui::BeginCombo("##t", cur.empty() ? empty : cur.c_str()))
 				{
-					for (const Vfx::Property& prop : m_Asset.Properties)
-						if (ImGui::Selectable(prop.Name.c_str(), prop.Name == cur)) { Snapshot(); b.Params[p.Name] = prop.Name; changed = true; }
+					for (const std::string& n : names)
+						if (ImGui::Selectable(n.c_str(), n == cur)) { Snapshot(); b.Params[p.Name] = n; changed = true; }
+					if (names.empty()) ImGui::TextDisabled(kind == "Attribute" ? "add one in the Blackboard" : kind == "Path" ? "Project: Create > Visual Effect Subgraph Operator" : "add one in the Blackboard");
 					ImGui::EndCombo();
 				}
 				break;
@@ -854,7 +924,7 @@ void VfxGraphWindow::DrawSystem(int s)
 		if (sel) ImGui::GetWindowDrawList()->AddRect(p, ImVec2(p.x + kNodeW, p.y + ImGui::GetFrameHeight()), IM_COL32(255, 255, 255, 255), 3.0f, 0, 1.5f);
 		ImGui::SetCursorScreenPos(ImVec2(p.x + 6, p.y + ImGui::GetStyle().FramePadding.y));
 		ImGui::PushFont(UnityGUI::BoldFont());
-		ImGui::TextUnformatted(kContextNames[ctx]);
+		ImGui::TextUnformatted(ctx == 3 && sys.OutputCtx.Look == Vfx::Shape::Mesh ? "Output Particle Mesh" : kContextNames[ctx]);
 		ImGui::PopFont();
 		if (extra && *extra)
 		{
@@ -1033,9 +1103,10 @@ void VfxGraphWindow::DrawOperator(Vfx::OperatorNode& n)
 	if (d)
 	{
 		ImGui::PushItemWidth(w - 70.0f);
-		for (int i = 0; i < (int)d->Inputs.size(); ++i)
+		const std::vector<Vfx::NodeInput> inputs = Vfx::OperatorInputs(n);
+		for (int i = 0; i < (int)inputs.size(); ++i)
 		{
-			const Vfx::OperatorInput& in = d->Inputs[i];
+			const Vfx::NodeInput& in = inputs[i];
 			ImGui::PushID(i);
 			int from = -1;
 			for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
@@ -1046,7 +1117,7 @@ void VfxGraphWindow::DrawOperator(Vfx::OperatorNode& n)
 			ed::EndPin();
 			ImGui::SameLine(0, 4);
 			ImGui::AlignTextToFramePadding();
-			ImGui::TextUnformatted(in.Name);
+			ImGui::TextUnformatted(in.Name.c_str());
 			if (from < 0)
 			{
 				ImGui::SameLine(62.0f);
@@ -1173,11 +1244,13 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 		DrawOperator(n);
 	// 연산 노드 선: 노드 → 노드 입력, 노드 → 블록 값
 	for (const Vfx::OperatorNode& n : m_Asset.Operators)
-		if (const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type))
-			for (int i = 0; i < (int)d->Inputs.size(); ++i)
-				for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
-					if (Lower(it.key()) == Lower(d->Inputs[i].Name) && it->is_number_integer() && m_Asset.FindOperatorNode(it->get<int>()))
+	{
+		const std::vector<Vfx::NodeInput> inputs = Vfx::OperatorInputs(n);
+		for (int i = 0; i < (int)inputs.size(); ++i)
+			for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
+				if (Lower(it.key()) == Lower(inputs[i].Name) && it->is_number_integer() && m_Asset.FindOperatorNode(it->get<int>()))
 						ed::Link(ed::LinkId(Tagged(kTagOpLink, OpInVal(n.Id, i))), OpOut(it->get<int>()), OpIn(n.Id, i), ImColor(IM_COL32(110, 170, 240, 255)), 2.0f);
+	}
 	for (int si = 0; si < (int)m_Asset.Systems.size(); ++si)
 		for (int ctx = 1; ctx <= 2; ++ctx)
 		{
@@ -1224,11 +1297,14 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 						const int dst = (int)(ValOf(pb) >> 8), input = (int)(ValOf(pb) & 0xFF);
 						for (Vfx::OperatorNode& n : m_Asset.Operators)
 							if (n.Id == dst && dst != src)
-								if (const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type); d && input < (int)d->Inputs.size())
+							{
+								const std::vector<Vfx::NodeInput> inputs = Vfx::OperatorInputs(n);
+								if (input < (int)inputs.size())
 								{
-									n.Inputs[d->Inputs[input].Name] = src;
+									n.Inputs[inputs[input].Name] = src;
 									okLink = true;
 								}
+							}
 						// 고리는 받지 않는다
 						struct Props : Vfx::PropertySource { const Vfx::Asset& A; Props(const Vfx::Asset& x) : A(x) {} bool Get(const std::string& k, std::array<float, 4>& o) const override { const Vfx::Property* p = A.FindProperty(k); if (!p) return false; o = p->Value; return true; } } props(m_Asset);
 						std::vector<std::array<float, 4>> code;
@@ -1301,13 +1377,16 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 					const int dst = (int)(val >> 8), input = (int)(val & 0xFF);
 					for (Vfx::OperatorNode& n : m_Asset.Operators)
 						if (n.Id == dst)
-							if (const Vfx::OperatorDesc* d = Vfx::FindOperator(n.Type); d && input < (int)d->Inputs.size())
+						{
+							const std::vector<Vfx::NodeInput> inputs = Vfx::OperatorInputs(n);
+							if (input < (int)inputs.size())
 							{
 								Snapshot();
 								for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
-									if (Lower(it.key()) == Lower(d->Inputs[input].Name)) { n.Inputs.erase(it); break; }
+									if (Lower(it.key()) == Lower(inputs[input].Name)) { n.Inputs.erase(it); break; }
 								Changed();
 							}
+						}
 				}
 				else if (tag == kTagParamLink)
 				{
@@ -1459,7 +1538,7 @@ void VfxGraphWindow::DrawSearchPopup()
 	{
 		const Vfx::Context ctx = m_SearchContext == 1 ? Vfx::Context::Initialize : Vfx::Context::Update;
 		for (const Vfx::BlockDesc& d : Vfx::Blocks())
-			if (d.Ctx == ctx)
+			if (Vfx::AllowedIn(d, ctx))
 				items.push_back({ d.Label, d.Category, [this, &d] {
 					Snapshot();
 					Vfx::Block b;
@@ -1532,19 +1611,20 @@ void VfxGraphWindow::DrawOperatorInspector(Vfx::OperatorNode& n)
 	ImGui::Separator();
 	// 연결하지 않은 입력 · 설정을 블록 값처럼 (가짜 블록 정의로 같은 편집기를 쓴다)
 	Vfx::BlockDesc fake{ "", "", "", Vfx::Context::Update, 0, {}, "" };
-	for (const Vfx::OperatorInput& in : d->Inputs)
+	const std::vector<Vfx::NodeInput> inputs = Vfx::OperatorInputs(n);
+	for (const Vfx::NodeInput& in : inputs)
 	{
 		bool connected = false;
 		for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
 			if (Lower(it.key()) == Lower(in.Name) && it->is_number_integer())
 			{
 				connected = true;
-				ImGui::TextDisabled("%s", in.Name);
+				ImGui::TextDisabled("%s", in.Name.c_str());
 				ImGui::SameLine(120.0f);
 				ImGui::TextColored(ImVec4(0.45f, 0.75f, 1.0f, 1.0f), "<- #%d", it->get<int>());
 			}
 		if (!connected)
-			fake.Params.push_back({ in.Name, in.Kind, in.Default });
+			fake.Params.push_back({ in.Name.c_str(), in.Kind, in.Default });
 	}
 	for (const Vfx::ParamDesc& sp : d->Settings)
 		fake.Params.push_back(sp);
@@ -1554,6 +1634,14 @@ void VfxGraphWindow::DrawOperatorInspector(Vfx::OperatorNode& n)
 	{
 		n.Params = tmp.Params;
 		Changed();
+	}
+	if (n.Type == "SubGraph")
+	{
+		const std::string path = n.Params.contains("Path") && n.Params["Path"].is_string() ? n.Params["Path"].get<std::string>() : std::string();
+		if (!path.empty() && ImGui::Button(ICON_FA_UP_RIGHT_FROM_SQUARE " Open Sub Graph"))
+			Open(path);
+		if (!path.empty() && inputs.empty())
+			ImGui::TextColored(ImVec4(1, 0.75f, 0.3f, 1), "the file has no inputs (Blackboard properties)");
 	}
 	ImGui::Dummy(ImVec2(0, 6));
 	// 이 노드를 쓰는 블록 값
@@ -1604,6 +1692,55 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 				return;
 			}
 
+	// 사용자 속성
+	if (m_SelSystem < 0 && m_SelAttribute >= 0 && m_SelAttribute < (int)m_Asset.Attributes.size())
+	{
+		Vfx::Attribute& a = m_Asset.Attributes[m_SelAttribute];
+		char name[128];
+		snprintf(name, sizeof(name), "%s", a.Name.c_str());
+		row("Name");
+		if (ImGui::InputText("##aname", name, sizeof(name), ImGuiInputTextFlags_EnterReturnsTrue) && name[0] && !m_Asset.FindAttribute(name))
+		{
+			// 이름을 바꾸면 Set Attribute 블록 · Get Attribute 노드도 따라간다
+			Snapshot();
+			const std::string old = a.Name;
+			for (Vfx::System& sys : m_Asset.Systems)
+				for (auto* list : { &sys.Initialize, &sys.Update })
+					for (Vfx::Block& b : *list)
+						if (b.Params.contains("Attribute") && b.Params["Attribute"] == old) b.Params["Attribute"] = name;
+			for (Vfx::OperatorNode& o : m_Asset.Operators)
+				if (o.Params.contains("Attribute") && o.Params["Attribute"] == old) o.Params["Attribute"] = name;
+			a.Name = name;
+			Changed();
+		}
+		row("Type");
+		int type = a.Vector ? 1 : 0;
+		const char* types[] = { "Float", "Vector3" };
+		if (ImGui::Combo("##atype", &type, types, 2))
+		{
+			Snapshot();
+			a.Vector = type == 1;
+			int lane = 0, w = 0;
+			if (!m_Asset.AttributeLanes(a.Name, lane, w)) { m_Status = "custom attributes are 4 floats per particle"; m_StatusError = true; }
+			Changed();
+		}
+		int lane = 0, w = 0;
+		row("Floats");
+		if (m_Asset.AttributeLanes(a.Name, lane, w)) ImGui::TextDisabled("%d..%d of 4", lane, lane + w - 1);
+		else ImGui::TextColored(ImVec4(1, 0.4f, 0.3f, 1), "past the 4 floats - remove another attribute");
+		ImGui::Dummy(ImVec2(0, 6));
+		ImGui::TextWrapped("Set it with the Set Attribute block (Initialize or Update), read it with the Get Attribute operator.");
+		ImGui::Dummy(ImVec2(0, 6));
+		if (ImGui::Button(ICON_FA_TRASH " Delete Attribute"))
+		{
+			Snapshot();
+			m_Asset.Attributes.erase(m_Asset.Attributes.begin() + m_SelAttribute);
+			m_SelAttribute = -1;
+			Changed();
+		}
+		ImGui::EndChild();
+		return;
+	}
 	// 속성
 	if (m_SelSystem < 0 && m_SelProperty >= 0 && m_SelProperty < (int)m_Asset.Properties.size())
 	{
@@ -1660,11 +1797,14 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 	{
 		ImGui::TextDisabled("Select a system, context or block.");
 		ImGui::Dummy(ImVec2(0, 8));
-		// 에셋 설정: 화면 밖일 때 (Unity 의 Culling Flags)
-		row("Culling");
-		int cull = (int)m_Asset.CullingMode;
-		const char* culls[] = { "Simulate When Visible", "Always Simulate" };
-		if (ImGui::Combo("##culling", &cull, culls, 2)) { Snapshot(); m_Asset.CullingMode = (Vfx::Culling)cull; Changed(); }
+		// 에셋 설정: 화면 밖일 때 (Unity 의 Culling Flags) — Sub Graph 파일에는 없다
+		if (Lower(fs::path(m_Path).extension().string()) != Vfx::kSubgraphExtension)
+		{
+			row("Culling");
+			int cull = (int)m_Asset.CullingMode;
+			const char* culls[] = { "Simulate When Visible", "Always Simulate" };
+			if (ImGui::Combo("##culling", &cull, culls, 2)) { Snapshot(); m_Asset.CullingMode = (Vfx::Culling)cull; Changed(); }
+		}
 		ImGui::Dummy(ImVec2(0, 8));
 		ImGui::TextWrapped("Space / right-click: add blocks or systems. Drag a system's \"On Die\" pin to another system's \"GPU Event\" pin to spawn particles where they die.");
 		const auto issues = m_Asset.Validate();
@@ -1810,14 +1950,28 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 	}
 	if (ctx == 3 || m_SelContext < 0)
 	{
-		ImGui::SeparatorText("Output Particle Quad");
 		Vfx::Output& o = sys.OutputCtx;
+		ImGui::SeparatorText(o.Look == Vfx::Shape::Mesh ? "Output Particle Mesh" : "Output Particle Quad");
 		int v = (int)o.BlendMode;
 		row("Blend Mode");
-		if (ImGui::Combo("##blend", &v, kBlendNames, 2)) { Snapshot(); o.BlendMode = (Vfx::Blend)v; Changed(); }
+		if (ImGui::Combo("##blend", &v, kBlendNames, 3)) { Snapshot(); o.BlendMode = (Vfx::Blend)v; Changed(); }
 		v = (int)o.Look;
 		row("Shape");
 		if (ImGui::Combo("##shape", &v, kShapeNames, IM_ARRAYSIZE(kShapeNames))) { Snapshot(); o.Look = (Vfx::Shape)v; Changed(); }
+		if (o.Look == Vfx::Shape::Mesh)
+		{
+			// Unity 의 Output Particle Mesh: 파티클마다 메시 (크기 = 파티클 크기, Orient = 회전 방식)
+			row("Mesh");
+			if (ImGui::BeginCombo("##mesh", o.Mesh.c_str()))
+			{
+				for (const std::string& m : Vfx::MeshNames())
+					if (ImGui::Selectable(m.c_str(), m == o.Mesh)) { Snapshot(); o.Mesh = m; Changed(); }
+				ImGui::EndCombo();
+			}
+			row("Lit");
+			if (ImGui::Checkbox("##lit", &o.Lit)) { Snapshot(); Changed(); }
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shade with the main directional light and the ambient light");
+		}
 		v = (int)o.Orientation;
 		row("Orient");
 		if (ImGui::Combo("##orient", &v, kOrientNames, 3)) { Snapshot(); o.Orientation = (Vfx::Orient)v; Changed(); }
@@ -1909,6 +2063,31 @@ void VfxGraphWindow::RegisterEditor()
 			PlaceInScene(path);
 	};
 	EditorExtensions::RegisterAssetType(t);
+
+	// Create > Visual Effect Subgraph Operator (.vfxoperator): 연산 노드 묶음을 다른 그래프에서 노드 하나로
+	EditorExtensions::AssetType sub = t;
+	sub.Extension = Vfx::kSubgraphExtension;
+	sub.CreateMenu = "Visual Effect Subgraph Operator";
+	sub.DefaultName = "New VFX Subgraph Operator";
+	sub.Create = [](const std::string& path) {
+		std::string err;
+		Vfx::Save(path, Vfx::DefaultSubgraph(), err);
+	};
+	sub.Inspector = [](const std::string& path) {
+		const Vfx::Loaded l = Vfx::Load(path);
+		if (!l.Data)
+		{
+			UnityGUI::HelpBox(l.Error.c_str(), true);
+			return;
+		}
+		UnityGUI::ValueLabel("Inputs", std::to_string(l.Data->Properties.size()).c_str());
+		UnityGUI::ValueLabel("Operators", std::to_string(l.Data->Operators.size()).c_str());
+		const bool hasOut = std::any_of(l.Data->Operators.begin(), l.Data->Operators.end(), [](const Vfx::OperatorNode& n) { return n.Type == "SubgraphOutput"; });
+		if (!hasOut) UnityGUI::HelpBox("No Output (Sub Graph) node - add one; its input is the result", true);
+		if (UnityGUI::CenterButton("Open in Visual Effect Graph"))
+			VfxGraphWindow::Open(path);
+	};
+	EditorExtensions::RegisterAssetType(sub);
 
 	VfxCli::Register([](const std::string& op, const json& args, json& result, std::string& error) {
 		const std::string path = args.value("path", std::string());

@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 5일 — **VFX Graph 마무리: 꼬리 · 정렬 · 컬링, 연산 노드, 성능 · 데모** (사용자 지시: 추천 1 · 2 · 3 "이거해줘. 대화는 일단 킵 하고"). **완료 (커밋 bff097c, 푸시함)**
+- 갱신 시각: 2026년 10월 5일 — **VFX Graph 남은 기능: Output Mesh · 깊이 버퍼 충돌 · Sub Graph · 사용자 속성** + 문서 그림 고침 (사용자 지시: "기능 문서의 깨진 그림 고치기 … v0.2.0 릴리스 … VFX Graph 남은 기능 … 이거진행하고 알려줘"). **완료 (커밋, 푸시 전)**
+  - 문서 그림: docs/*.md 10 개가 git 밖 `Showcase/` 를 가리켜 GitHub 에서 깨짐 → 18 장을 `docs/images/` (영문 이름) 로 옮김
+  - 셰이더 `58. VFX.fx`: 파티클 96 → 112 바이트 (사용자 속성 float4), Eval op 14 (Get Attribute), 블록 9 (Set Attribute) · 30 (Collide with Depth Buffer — gCollDepth 를 compute 가 Load, 뷰포트로 화소 · 이웃 깊이 법선), Set Color 를 Update 에서도,
+    MeshVS/PS (메시 정점 0 번 + 파티클 인스턴스 1 번, 무작위 축 · 속도 방향 · Y 회전, 해 · 환경광), Opaque (사각형 잘라내기 · 메시) 기법
+  - `VfxAsset.*` (Blend Opaque, Shape Mesh · Mesh · Lit, Attribute · AttributeLanes, BlockDesc.AnyContext · AllowedIn, OperatorInputs · NodeInput, DependencyRevision, FindAssets(ext), DefaultSubgraph),
+    `VfxOperators.cpp` (Get Attribute · Sub Graph · Output (Sub Graph), 컴파일러를 겹 (Frame) 으로 — Sub Graph 안의 Property = 부른 노드의 입력), `VfxRuntime.cpp` (메시 캐시 GeometryGenerator, 첫 뷰 시뮬레이션 전에 출력 깊이를 풀고 깊이 SRV 를 compute 에, 뷰포트, 불투명은 쓰기 깊이로),
+    `VfxTemplates.cpp` (Debris · Fireflies), `VfxGraphWindow.*` (Custom Attributes Blackboard · Inspector, 속성 · 파일 고르기, Sub Graph 입력 핀 · Open, Mesh · Lit, Sub Graph 파일 화면, Create > Visual Effect Subgraph Operator), `VfxCli.cpp` (attribute.* · subgraph.new · list subgraphs · stats bounds), `BuildPipeline.cpp` (.vfxoperator)
+  - 검사: vfx 18/18 · vfxgl + vfxvk 26/26 (깊이 충돌 · 사용자 속성 · Sub Graph · Output Mesh 추가), `android_vfx.ps1` MuMu **12/12** (파편 메시 · 깊이 충돌 · 반딧불 추가). Showcase 222 ~ 224
+  - 처음 깊이 충돌이 듣지 않던 까닭: 깊이 텍스처가 뷰보다 커서 NDC → 화소를 텍스처 크기로 바꾸면 엉뚱한 화소 → 지금 뷰포트 (RSGetViewports) 로
+- 이전: 2026년 10월 5일 — **VFX Graph 마무리: 꼬리 · 정렬 · 컬링, 연산 노드, 성능 · 데모** (사용자 지시: 추천 1 · 2 · 3 "이거해줘. 대화는 일단 킵 하고"). **완료 (커밋 bff097c, 푸시함)**
   - 셰이더 `Shaders/58. VFX.fx`: 이벤트 버퍼 하나 (죽음 · Rate), 꼬리 기록 (링 버퍼) + `TrailCS` (마디 인스턴스) + TrailVS/PS, 정렬 (SortKeys · 512 그룹 비토닉 · 전역 단계 · Gather), Update 가 경계 상자를 모음 (gState 48 바이트),
     연산 노드 해석 `Eval` (고정 레지스터 r0..r9 스택 — fxc 가 동적 색인 배열을 잘못 옮겨 DX11 에서 값이 사라졌음), 블록마다 한 번 계산 (`PrepareSlots` — fxc 컴파일 61 → 약 5 초)
   - `Source/Effects/VfxAsset.*` (Trigger On Die · Rate, Output Sort · Trail, Culling, operators · links, EncodeSlots · EncodeLinks — 칸 찾기는 표식 값으로), 새 `VfxOperators.cpp` (노드 약 50 종 · 스택 명령으로 옮기기, 깊이 · 고리 검사),

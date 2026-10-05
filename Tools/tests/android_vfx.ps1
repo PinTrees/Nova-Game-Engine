@@ -62,6 +62,12 @@ try
     Invoke-Nova 'vfx new Assets/VFX/Test/AndroidFireworks.vfx --template Fireworks --overwrite' | Out-Null
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidCircle.vfx --name Circle --position 0,0,0' | Out-Null
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidFireworks.vfx --name Fireworks --position 0,0,10' | Out-Null
+    # Output Mesh · 불투명 · 깊이 버퍼 충돌 (파편이 바닥에), 사용자 속성 (반딧불)
+    Invoke-Nova 'vfx new Assets/VFX/Test/AndroidDebris.vfx --template Debris --overwrite' | Out-Null
+    Invoke-Nova 'vfx new Assets/VFX/Test/AndroidFireflies.vfx --template Fireflies --overwrite' | Out-Null
+    Invoke-Nova 'create plane --name Ground --position 0,0,0 --scale 3,1,3' | Out-Null
+    Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidDebris.vfx --name Debris --position 3.5,0,1' | Out-Null
+    Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidFireflies.vfx --name Fireflies --position -3.5,0,1' | Out-Null
     Invoke-Nova "scene save --as $($Scene -replace '\\', '/')" | Out-Null
     # 화면 밖 이펙트는 시뮬레이션을 쉰다 (Culling = Simulate When Visible) → 기준 그림 전에 Scene 뷰 카메라로 비춰 돌린다
     Invoke-Nova 'camera --position 0,5,-12 --target 0,1.2,4' | Out-Null
@@ -116,6 +122,7 @@ if ($j -and $j.ok)
     function SysAlive([string]$obj, [string]$name) { (($v.effects | Where-Object { $_.object -eq $obj }).systems | Where-Object { $_.name -eq $name }).alive }
     Check 'GLES: VFX compute (Magic Circle systems alive)' ($v.gpu -and (SysAlive 'Circle' 'Outer Ring') -gt 1000 -and (SysAlive 'Circle' 'Pillar') -gt 100) ("gpu {0}, Outer Ring {1}, Pillar {2}, error '{3}'" -f $v.gpu, (SysAlive 'Circle' 'Outer Ring'), (SysAlive 'Circle' 'Pillar'), $v.error)
     Check 'GLES: GPU events chain (Explosion, Crackle)' ((SysAlive 'Fireworks' 'Explosion') -gt 100) ("Rocket {0}, Explosion {1}, Crackle {2}" -f (SysAlive 'Fireworks' 'Rocket'), (SysAlive 'Fireworks' 'Explosion'), (SysAlive 'Fireworks' 'Crackle'))
+    Check 'GLES: Output Mesh + depth collision (Debris shards), custom attribute (Fireflies)' ((SysAlive 'Debris' 'Shards') -gt 50 -and (SysAlive 'Fireflies' 'Fireflies') -gt 100) ("Shards {0}, Dust {1}, Fireflies {2}" -f (SysAlive 'Debris' 'Shards'), (SysAlive 'Debris' 'Dust'), (SysAlive 'Fireflies' 'Fireflies'))
     Check 'GLES: draw time (report)' $true ("{0} ms per frame (960x540), VFX draw calls {1}" -f $j.drawMs, $v.drawCalls)
     $bmp = Join-Path $Out 'vfx_GLES.bmp'
     & $Adb -s $serial pull $j.image $bmp | Out-Null

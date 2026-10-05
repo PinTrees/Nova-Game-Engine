@@ -15,9 +15,13 @@ Unity 의 Visual Effect Graph 처럼 **GPU 에서 수십만 개의 파티클**�
 
 ![데모: 밤 캠프장](images/vfx_demo_anim.webp)
 
+![Output Mesh + 깊이 버퍼 충돌 (Debris)](images/vfx_mesh_depth_collision.webp)
+
+![사용자 속성 · Sub Graph (Fireflies · Twinkle)](images/vfx_attribute_subgraph.webp)
+
 ## 쓰는 법
 
-1. Project 창 **Create > Visual Effect Graph** → `New VFX.vfx` (더블클릭 = **Window > Visual Effect Graph**). 창의 **File > New from Template** 로 견본 (Fireworks · Magic Circle · Tornado · Sparks · Galaxy · Fire · Portal · Energy Swirl · Rainbow Spiral) 에서 시작해도 됩니다
+1. Project 창 **Create > Visual Effect Graph** → `New VFX.vfx` (더블클릭 = **Window > Visual Effect Graph**). 창의 **File > New from Template** 로 견본 (Fireworks · Magic Circle · Tornado · Sparks · Galaxy · Fire · Portal · Energy Swirl · Rainbow Spiral · Debris · Fireflies) 에서 시작해도 됩니다
 2. 장면에 놓기: **GameObject > Effects > Visual Effect** 의 Asset Template 에 `.vfx` (끌어 놓기 · ⊙), 또는 그래프 창 메뉴 **Place in Scene**. Unity 처럼 **Play 모드가 아니어도** 장면에서 재생됩니다
 3. 그래프의 **시스템** 하나 = 세로로 쌓인 문맥 네 개: **Spawn** (주황 — 초당 수 · Burst · Loop/Duration/Delay · Start/Stop 이벤트) → **Initialize Particle** (초록 — 태어날 때) → **Update Particle** (노랑 — 프레임마다) → **Output Particle Quad** (보라 — 모양 · 섞기 · 방향 · HDR 세기)
 4. 문맥의 **+** 또는 캔버스에서 **Space / 오른쪽 클릭** = 검색 창 (문맥을 골랐으면 그 문맥의 블록, 아니면 새 시스템 · 견본의 시스템). 블록의 값은 노드 안 (짧게) 과 오른쪽 **Inspector** (곡선 · 그라디언트 · 콤보 · 색 고르기 · 속성 연결 🔗)
@@ -40,10 +44,15 @@ Unity 의 Visual Effect Graph 처럼 **GPU 에서 수십만 개의 파티클**�
 | | **Vortex** · **Conform to Sphere (Attractor)** | 축 둘레 회전 + 당김, 한 점 / 구 표면으로 |
 | | **Orbit** | 축 둘레로 위치 · 속도를 돌린다 (Falloff = 멀수록 느리게 — 은하의 차등 회전) |
 | | **Collide with Plane** | 튕김 · 마찰 · 부딪힐 때 수명 줄이기 |
+| | **Collide with Depth Buffer** | 화면에 보이는 장면 (깊이) 에 튕긴다 — 바닥 · 벽 · 물체 모양 그대로, 두께 (표면 뒤 몇 m 까지 속으로 볼지) |
+| 둘 다 | **Set Color** | Update 에 두면 프레임마다 (연산 노드로 반짝임 · 색 바꾸기, 뒤의 Color over Life 가 곱한다) |
+| | **Set Attribute (Custom)** | 사용자 속성에 Set · Add · Multiply (값에 연산 노드를 이을 수 있다) |
 | | **Color over Life · Size over Life** | 그라디언트 (HDR) · 곡선 |
 
 Output 모양은 그림 없이 셰이더가 만듭니다: Soft Dot · Glow · Star · Sparkle · Ring · **Spark** (속도로 늘린 불꽃 줄기) · **Smoke** (잡음 덩어리) · Square · Heart, 또는 **Texture** (+ 플립북 열 × 행, 수명 동안 한 번 / 초당 칸).
-Additive 는 빛 · 불 · 마법 (HDR 1 보다 크면 Bloom 으로 빛난다), Alpha Blend 는 연기 · 먼지. Soft Particles (장면 깊이에 닿는 곳을 부드럽게).
+Additive 는 빛 · 불 · 마법 (HDR 1 보다 크면 Bloom 으로 빛난다), Alpha Blend 는 연기 · 먼지, **Opaque** 는 깊이를 쓰는 단단한 것 (사각형은 알파 0.5 로 잘림). Soft Particles (장면 깊이에 닿는 곳을 부드럽게).
+
+**Output Mesh** (Unity 의 Output Particle Mesh): Shape = Mesh 이면 파티클마다 메시 하나 — Cube · Sphere · Cylinder · Cone · Crystal (크기 1 → 파티클 크기). 회전은 Set Angle 의 각 · 각속도로: Face Camera = 파티클마다 무작위 축 (구르는 파편), Along Velocity = +Y 를 속도 방향으로, Horizontal = Y 축. **Lit** 이면 방향광 0 · 환경광 (Volume 의 Indirect Lighting) 으로 음영. 메시 정점 + 파티클 버퍼를 인스턴스로 그리기 한 번 (정렬 · Alpha · Additive · Opaque 모두).
 
 ### 공간 · 이벤트
 
@@ -57,6 +66,7 @@ Additive 는 빛 · 불 · 마법 (HDR 1 보다 크면 Bloom 으로 빛난다), 
 
 - Output 의 **Trail** (Unity 의 Output Particle Strip 과 같은 쓰임): 파티클마다 지나온 점 N 개 (Points, 기본 12) 를 Length 초 동안 남기고, 너비 = 파티클 크기 × Width, 끝으로 갈수록 가늘고 흐려지는 리본. **Trail Only** 면 파티클 점은 그리지 않고 꼬리만 (에너지 소용돌이)
 - **Sort** (Auto · On · Off): Alpha Blend 출력은 기본으로 GPU 에서 **카메라 거리로 정렬** (비토닉 정렬, 뷰마다 — Scene 과 Game 이 따로), Additive 는 순서가 상관없어 하지 않는다. On 이면 Additive 도
+- **Collide with Depth Buffer**: 프레임의 첫 뷰 (Play 중 Game, 편집 중 Scene) 의 장면 깊이를 compute 가 읽는다 — 다음 자리 (자리 + 속도 × dt) 가 보이는 표면 뒤 두께 안이면, 이웃 화소 깊이로 되살린 법선으로 튕긴다. 화면 밖 · 가려진 곳은 지나간다 (Unity 와 같은 한계 — 바닥이 화면 밖으로 나가면 Collide with Plane 을 함께)
 - **Culling** (Visual Effect 에셋): `Simulate When Visible` (기본, Unity 와 같음) = 어느 카메라에도 보이지 않으면 시뮬레이션도 쉰다. compute 가 파티클의 경계 상자를 모으고 (크기 · 꼬리 포함) 카메라 절두체 밖이면 그리지 않는다. `Always Simulate` = 화면 밖에서도 계속. 고른 Visual Effect 는 Scene 뷰에 경계 상자를 그린다
 
 ### 연산 노드 (Operator)
@@ -69,10 +79,21 @@ Additive 는 빛 · 불 · 마법 (HDR 1 보다 크면 Bloom 으로 빛난다), 
 | 수학 | Add · Subtract · Multiply · Divide · Minimum · Maximum · Power · Modulo · Step · Lerp · Clamp · Smoothstep · Remap · Absolute · Sine · Cosine · Fractional · Saturate · One Minus · Negate · Floor · Round · Square Root |
 | 벡터 | Length · Normalize · Dot Product · Cross Product · Distance · Split (Component) · Combine (Vector) |
 | 곡선 · 잡음 · 색 | Sample Curve · Sample Gradient · Noise (Value · Vector) · HSV to RGB |
+| 사용자 속성 | **Get Attribute (Custom)** |
+| Sub Graph | **Sub Graph** (파일 하나 = 노드 하나) · **Output (Sub Graph)** (Sub Graph 파일의 결과) |
 
 - 블록 값 (숫자 · 벡터 · 색 · 곡선 X 위치처럼 블록 목록의 칸이 되는 것) 에 잇는다. 셰이더는 그대로 — 연결은 블록 목록 뒤에 붙는 **작은 스택 명령** 이 되어, 블록마다 한 번 계산한다 (DirectX 11 의 fxc 를 위해 스택은 고정 레지스터 10 개 → 식의 깊이 10 까지)
 - World 시스템에 이은 위치 · 방향 값은 Visual Effect 의 변환을 따라간다 (블록 값과 같은 규칙)
+- 예: 견본 **Fireflies** — 태어날 때 Set Attribute 로 `Phase` = 무작위, Update 의 Set Color 가 Get Attribute (Phase) 로 제각각 깜빡인다
 - 예: 견본 **Rainbow Spiral** — 색 = HSV(Total Time × Hue Speed + 파티클마다 무작위 → Fractional), Orbit 의 빠르기 = Sine(Time) × Swirl (나선이 번갈아 거꾸로 돈다)
+
+### 사용자 속성 (Custom Attribute)
+
+Blackboard 의 **Custom Attributes** `+` 로 Float · Vector3 를 만든다 — 파티클마다 float **4 칸** (Float 1 칸, Vector3 3 칸, 선언 순서대로). **Set Attribute** 블록 (Initialize · Update) 이 쓰고 **Get Attribute** 연산 노드가 읽는다. 이름을 바꾸면 블록 · 노드가 따라간다. 태어날 때 한 번 정한 값 (무작위 위상 · 종류 번호 · 처음 자리) 을 Update 의 식에서 쓰는 데 알맞다. 파티클 112 바이트 (96 + 16).
+
+### Sub Graph (Visual Effect Subgraph Operator)
+
+Project 창 **Create > Visual Effect Subgraph Operator** → `.vfxoperator` (그래프 창으로 열린다). 파일의 **Blackboard 속성 = 입력**, 안의 Property 노드가 그 입력을 읽고, **Output (Sub Graph)** 노드에 이은 값이 결과. 다른 그래프에서 **Sub Graph** 노드의 Path 에 그 파일을 고르면 입력 핀이 생긴다 (잇지 않으면 노드의 값 → 파일의 기본값). 블록 목록을 만들 때 펼쳐 넣으므로 셰이더 · 성능은 같다. 파일을 고치면 그 파일을 쓰는 Visual Effect 가 바로 다시 만든다. Sub Graph 안의 Sub Graph 는 8 겹까지 (자기를 부르면 오류). 게임 빌드는 `.vfx` 가 가리키는 `.vfxoperator` 를 따라 넣는다.
 
 ## 어떻게 동작하나
 
@@ -137,14 +158,19 @@ nova vfx op.connect Assets/VFX/Boom.vfx --from 1 --to 2 --input X
 nova vfx block.link Assets/VFX/Boom.vfx --system Explosion --context initialize --index 3 --param ColorA --from 2
 nova vfx block.unlink ... --param ColorA          op.set · op.remove · op.disconnect
 nova vfx encode Assets/VFX/Boom.vfx               블록 목록 (셰이더가 읽는 칸 — 문제 찾기)
+nova vfx attribute.add Assets/VFX/Boom.vfx --name Phase --type Float      (attribute.remove)
+nova vfx subgraph.new Assets/VFX/Twinkle.vfxoperator                      Sub Graph 파일 (property.* · op.* 로 고친다)
+nova vfx op.add Assets/VFX/Boom.vfx --type SubGraph --params '{"Path":"Assets/VFX/Twinkle.vfxoperator"}'
+nova vfx stats                                    + bounds (월드 경계)
 ```
 
-`.vfx` 는 JSON (`properties` · `systems[{name, capacity, space, spawn, initialize[], update[], output, editor}]` · `operators[{id, type, params, inputs, x, y}]` · `culling`, 블록 = `{type, params, bind, links}`) — 게임 빌드는 씬이 가리키는 `.vfx` 를 따라 넣습니다.
+`.vfx` 는 JSON (`properties` · `systems[{name, capacity, space, spawn, initialize[], update[], output, editor}]` · `operators[{id, type, params, inputs, x, y}]` · `attributes[{name, type}]` · `culling`, 블록 = `{type, params, bind, links}`, output 의 `mesh` · `lit`) — 게임 빌드는 씬이 가리키는 `.vfx` 를 따라 넣습니다.
 
 ## 검사
 
 - `run_tests.ps1 -Only vfx,vfxgl,vfxvk` — CLI 편집 (속성 이름 바꾸면 연결도 따라감, 잘못된 문맥 거부, 없는 부모 알림), 세 API 의 GPU Spawn · Update (마법진 다섯 시스템), **GPU Event 사슬** (로켓 → 폭발 → 반짝임), OnStop · OnPlay, 속성 덮어쓰기 (Launch Rate 0 → 로켓 없음), 그리기 (켬 · 끔 화면 차이), **연산 노드 + GPU 정렬** (위치 → Split → Remap → Lerp 색, 정렬해야 가까운 빨강이 위), 연산 노드로 수명 줄이기, **꼬리** 그리기, **화면 밖 컬링** (카메라 뒤 = culled · 멈춤, 다시 보이면 이어서), C# API, 컴포넌트 JSON, Assistant 상태
-- `Tools/tests/android_vfx.ps1` — MuMu (OpenGL ES 3.2): GLES 셰이더에 VFX 커널, `.vfx` 가 게임 데이터에, 기기의 compute 로 마법진 · 불꽃놀이 GPU Event, 그리기 시간
+- 추가: **깊이 버퍼 충돌** (상자 윗면에 멈춤 · 블록을 끄면 지나 떨어짐 — `vfx stats` 의 경계), **사용자 속성** (Set Attribute → Get Attribute → 수명), **Sub Graph** (파일 입력 · 파일을 고치면 다시 만든다), **Output Mesh** 그리기 — 세 API 44 개
+- `Tools/tests/android_vfx.ps1` — MuMu (OpenGL ES 3.2): GLES 셰이더에 VFX 커널, `.vfx` 가 게임 데이터에, 기기의 compute 로 마법진 · 불꽃놀이 GPU Event, 파편 메시 · 깊이 충돌 · 반딧불, 그리기 시간
 
 ## 성능 (PC Release)
 
@@ -173,5 +199,6 @@ nova vfx encode Assets/VFX/Boom.vfx               블록 목록 (셰이더가 �
 
 ## 아직 없는 것
 
-- Sub Graph, Output Mesh, 깊이 버퍼 충돌 · SDF, 파티클 속성 (Custom Attribute), Trigger Event Always
+- SDF 충돌 (Signed Distance Field), Block Sub Graph (블록 묶음), 모델 파일 (FBX) 메시의 Output Mesh, Trigger Event Always
 - 연산 노드: Branch · Compare (조건), 블록 안의 그라디언트 · 곡선 값 통째로 잇기
+- 사용자 속성을 GPU Event 자식에게 물려주기 (Inherit Attribute)

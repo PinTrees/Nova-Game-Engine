@@ -39,7 +39,10 @@ namespace Vfx
 		int Id;                  // 58. VFX.fx 의 블록 번호
 		std::vector<ParamDesc> Params;
 		const char* Help;
+		bool AnyContext = false; // Initialize · Update 둘 다 (Set Color · Set Attribute)
 	};
+	// 블록을 이 문맥에 놓을 수 있는가
+	inline bool AllowedIn(const BlockDesc& d, Context c) { return d.AnyContext || d.Ctx == c; }
 
 	const std::vector<BlockDesc>& Blocks();
 	const BlockDesc* FindBlock(const std::string& type);   // 대소문자 · 공백 무시 (Label 도 받는다)
@@ -91,9 +94,11 @@ namespace Vfx
 		int CountPerEvent = 20;          // GPU Event 하나마다 태어나는 수
 	};
 
-	enum class Blend { Additive = 0, Alpha = 1 };
-	// 58. VFX.fx 의 ShapeAlpha 와 같은 번호 (8 = 텍스처)
-	enum class Shape { SoftDot = 0, Glow, Star, Sparkle, Ring, Spark, Smoke, Square, Texture, Heart };
+	enum class Blend { Additive = 0, Alpha = 1, Opaque = 2 };   // Opaque: 깊이를 쓴다 (사각형은 알파 0.5 로 잘림)
+	// 58. VFX.fx 의 ShapeAlpha 와 같은 번호 (8 = 텍스처, 10 = 메시 — Unity 의 Output Particle Mesh)
+	enum class Shape { SoftDot = 0, Glow, Star, Sparkle, Ring, Spark, Smoke, Square, Texture, Heart, Mesh };
+	// Output Mesh 의 메시 (엔진 기본 — 크기 1)
+	const std::vector<std::string>& MeshNames();
 	enum class Orient { FaceCamera = 0, AlongVelocity, Horizontal };
 	enum class SortMode { Auto = 0, On, Off };   // Auto = Alpha 섞기면 정렬
 
@@ -115,6 +120,8 @@ namespace Vfx
 		float TrailLength = 0.4f;        // 초 (자리 사이 = 길이 / 수)
 		float TrailWidth = 1.0f;         // 파티클 크기의 배율
 		bool TrailOnly = false;          // 꼬리만 그린다 (파티클 사각형은 그리지 않음)
+		std::string Mesh = "Cube";       // Shape = Mesh: Cube · Sphere · Cylinder · Cone · Crystal
+		bool Lit = true;                 // Shape = Mesh: 해 · 환경광으로 음영
 		bool Sorted() const { return Sort == SortMode::On || (Sort == SortMode::Auto && BlendMode == Blend::Alpha); }
 	};
 
@@ -140,6 +147,14 @@ namespace Vfx
 		float Min = 0.0f, Max = 0.0f;
 		std::string Tooltip;
 	};
+
+	// 사용자 속성 (Unity 의 Custom Attribute): 파티클마다 float 4 칸 — Float 1 칸, Vector3 3 칸 (선언 순서대로 채운다)
+	struct Attribute
+	{
+		std::string Name;
+		bool Vector = false;             // false = Float, true = Vector3
+	};
+	constexpr int kAttributeLanes = 4;
 
 	// 화면 밖일 때 (Unity 의 Culling Flags): 보일 때만 시뮬레이션 (기본) · 늘 시뮬레이션
 	enum class Culling { SimulateWhenVisible = 0, AlwaysSimulate = 1 };
@@ -180,13 +195,28 @@ namespace Vfx
 	// 블록 값에 이을 수 있는 종류 (곡선 · 그라디언트 · 글은 안 됨)
 	bool Linkable(const ParamDesc& p);
 
+	// 노드의 입력 (Sub Graph 노드는 그 파일의 Blackboard 속성이 입력)
+	struct NodeInput
+	{
+		std::string Name;
+		ParamKind Kind = ParamKind::Float;
+		std::array<float, 4> Default = { 0, 0, 0, 0 };
+	};
+	std::vector<NodeInput> OperatorInputs(const OperatorNode& n);
+	// Sub Graph 파일 (.vfxoperator — Unity 의 Visual Effect Subgraph Operator): 속성 = 입력, Output (Sub Graph) 노드 = 결과
+	constexpr const char* kSubgraphExtension = ".vfxoperator";
+
 	struct Asset
 	{
 		Culling CullingMode = Culling::SimulateWhenVisible;
 		std::vector<Property> Properties;
 		std::vector<System> Systems;
 		std::vector<OperatorNode> Operators;
+		std::vector<Attribute> Attributes;
 		const OperatorNode* FindOperatorNode(int id) const;
+		// 사용자 속성의 칸 (첫 칸 · 칸 수). 없거나 4 칸을 넘으면 false
+		bool AttributeLanes(const std::string& name, int& lane, int& width) const;
+		const Attribute* FindAttribute(const std::string& name) const;
 		int NewOperatorId() const;
 		json Editor = json::object();    // 그래프 창 (보기 자리 등)
 
@@ -227,6 +257,8 @@ namespace Vfx
 	void Encode(const System& s, const PropertySource& props, const float* world, Encoded& out, const Asset* asset = nullptr);
 	// 연산 노드 하나를 스택 명령으로 (Validate · 그래프 창이 확인에 쓴다). 실패하면 false + 이유
 	bool CompileOperator(const Asset& asset, int id, const PropertySource& props, std::vector<std::array<float, 4>>& out, std::string& error);
+	// 에셋이 쓰는 Sub Graph 파일들의 판 (바뀌면 Visual Effect 가 블록 목록을 다시 만든다)
+	uint64_t DependencyRevision(const Asset& asset);
 
 	// ---------------------------------------------------------------- 에셋 읽기 (경로마다 하나, 파일이 바뀌면 다시)
 	struct Loaded
@@ -241,7 +273,9 @@ namespace Vfx
 	void ClearLive(const std::string& assetPath);
 	bool Save(const std::string& assetPath, const Asset& asset, std::string& error);
 	std::wstring FullPath(const std::string& assetPath);
-	std::vector<std::string> FindAssets();   // 프로젝트의 .vfx (Assets 기준 경로)
+	std::vector<std::string> FindAssets(const char* extension = ".vfx");   // 프로젝트의 .vfx (또는 .vfxoperator — Assets 기준 경로)
+	// 새 Sub Graph (입력 하나 → Output)
+	Asset DefaultSubgraph();
 
 	// 새 에셋의 기본 (Unity 의 Simple Loop: 위로 흩어지는 빛 알갱이)
 	Asset DefaultAsset();

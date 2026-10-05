@@ -6,6 +6,8 @@
 #include "SpriteBatch.h"
 #include "Effects.h"
 #include "Profiler.h"
+#include "GeometryGenerator.h"
+#include <map>
 
 // GPU 버퍼 (Visual Effect 하나 = 시스템마다 한 벌)
 namespace
@@ -20,7 +22,8 @@ namespace
 		UINT Bytes = 0;
 	};
 
-	constexpr UINT kStride = 96;        // 58. VFX.fx 의 kStride
+	constexpr UINT kStride = 112;       // 58. VFX.fx 의 kStride (96 + 사용자 속성 16)
+	constexpr UINT kMeshVertexBytes = 24;   // Output Mesh 정점: 자리 · 법선
 	constexpr UINT kEventBytes = 48;
 	constexpr UINT kMaxEvents = 4096;   // 부모 시스템이 한 프레임에 보내는 GPU Event 의 위 한계 (죽음 · Rate 따로)
 	constexpr UINT kTrailVertBytes = 64;
@@ -64,19 +67,25 @@ namespace
 	FxPass *s_Reset = nullptr, *s_Spawn = nullptr, *s_Update = nullptr, *s_Alpha = nullptr, *s_Add = nullptr;
 	FxPass *s_TrailBuild = nullptr, *s_TrailAlpha = nullptr, *s_TrailAdd = nullptr;
 	FxPass *s_SortKeys = nullptr, *s_SortLocal = nullptr, *s_SortGlobal = nullptr, *s_SortGather = nullptr;
-	ComPtr<GfxInputLayout> s_Layout, s_TrailLayout;
+	FxPass *s_Opaque = nullptr, *s_MeshAlpha = nullptr, *s_MeshAdd = nullptr, *s_MeshOpaque = nullptr;
+	ComPtr<GfxInputLayout> s_Layout, s_TrailLayout, s_MeshLayout;
 	struct Vars
 	{
 		FxVar *ViewProj, *World, *CamRight, *Time, *CamUp, *Dt, *CamPos, *CamFwd, *Capacity, *SpawnCount, *FromEvents, *EventCapacity, *EmitOnDie, *EmitRate,
 			*InitStart, *InitCount, *UpdateStart, *UpdateCount, *Seed, *LocalSpace, *TrailPoints, *TrailInterval, *TrailWidth, *SortCount, *SortK, *SortJ,
-			*Output0, *Output1, *DepthParams;
-		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth;
+			*Output0, *Output1, *DepthParams, *WorldInv, *CollViewProj, *CollInvViewProj, *CollParams, *CollCam, *CollViewport, *SunDir, *SunColor, *Ambient;
+		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth, *CollDepth;
 	} s_V = {};
 	uint64 s_FrameMark = 1, s_SimulatedMark = 0;
 	// 쓰지 않는 칸에 묶는 작은 버퍼 (Vulkan · GL 은 셰이더가 선언한 버퍼가 모두 묶여 있어야 한다).
 	//  칸마다 따로 — 같은 UAV 를 두 칸에 묶으면 DirectX 11 이 묶기 전체를 무시한다 (Update 가 아무것도 쓰지 않았다)
 	Buf s_Dummy[3];
 	int s_LastDraws = 0, s_LastSystems = 0, s_LastCulled = 0;
+	// Output Mesh 의 기본 메시 (크기 1, 가운데 0)
+	struct MeshBuf { ComPtr<GfxBuffer> Vb, Ib; UINT Count = 0; bool Tried = false; };
+	std::map<std::string, MeshBuf> s_Meshes;
+	// 깊이 버퍼 충돌: 프레임의 첫 뷰 (시뮬레이션하는 뷰) 의 장면 깊이
+	struct CollisionView { bool On = false; GfxShaderResourceView* Depth = nullptr; };
 
 	GfxDevice* Dev() { return Application::GetI()->GetDevice(); }
 
@@ -111,6 +120,10 @@ namespace
 		s_SortLocal = pass("SortLocalTech");
 		s_SortGlobal = pass("SortGlobalTech");
 		s_SortGather = pass("SortGatherTech");
+		s_Opaque = pass("OpaqueTech");
+		s_MeshAlpha = pass("MeshAlphaTech");
+		s_MeshAdd = pass("MeshAdditiveTech");
+		s_MeshOpaque = pass("MeshOpaqueTech");
 		if (!s_Reset || !s_Spawn || !s_Update || !s_Alpha || !s_Add)
 		{
 			s_Error = "58. VFX.fx: a technique is missing or failed";
@@ -120,6 +133,8 @@ namespace
 		}
 		if (!s_TrailBuild || !s_TrailAlpha || !s_TrailAdd || !s_SortKeys || !s_SortLocal || !s_SortGlobal || !s_SortGather)
 			EditorLog::Write("VFX", "58. VFX.fx: trail or sort techniques failed - trails and sorting are off");
+		if (!s_Opaque || !s_MeshAlpha || !s_MeshAdd || !s_MeshOpaque)
+			EditorLog::Write("VFX", "58. VFX.fx: mesh or opaque techniques failed - mesh outputs are not drawn");
 		D3DX11_PASS_DESC pd = {};
 		s_Add->GetDesc(&pd);
 		const D3D11_INPUT_ELEMENT_DESC desc[] = {
@@ -148,13 +163,30 @@ namespace
 			if (FAILED(Dev()->CreateInputLayout(trail, _countof(trail), td.pIAInputSignature, td.IAInputSignatureSize, s_TrailLayout.GetAddressOf())))
 				EditorLog::Write("VFX", "trail input layout failed - trails are not drawn");
 		}
+		if (s_MeshAdd)
+		{
+			// 0 번 = 메시 정점 (자리 · 법선), 1 번 = 파티클 (인스턴스)
+			D3DX11_PASS_DESC md = {};
+			s_MeshAdd->GetDesc(&md);
+			const D3D11_INPUT_ELEMENT_DESC mesh[] = {
+				{ "POSITION", 1, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+				{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "VELOCITY", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 16, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 32, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+				{ "TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 1, 48, D3D11_INPUT_PER_INSTANCE_DATA, 1 },
+			};
+			if (FAILED(Dev()->CreateInputLayout(mesh, _countof(mesh), md.pIAInputSignature, md.IAInputSignatureSize, s_MeshLayout.GetAddressOf())))
+				EditorLog::Write("VFX", "mesh input layout failed - mesh outputs are not drawn");
+		}
 		auto var = [&](const char* n) { return fx->GetVariableByName(n); };
 		s_V = { var("gViewProj"), var("gWorld"), var("gCamRight"), var("gTime"), var("gCamUp"), var("gDt"), var("gCamPos"), var("gCamFwd"), var("gCapacity"),
 			var("gSpawnCount"), var("gFromEvents"), var("gEventCapacity"), var("gEmitOnDie"), var("gEmitRate"), var("gInitStart"), var("gInitCount"),
 			var("gUpdateStart"), var("gUpdateCount"), var("gSeed"), var("gLocalSpace"), var("gTrailPoints"), var("gTrailInterval"), var("gTrailWidth"),
 			var("gSortCount"), var("gSortK"), var("gSortJ"), var("gOutput0"), var("gOutput1"), var("gDepthParams"),
+			var("gWorldInv"), var("gCollViewProj"), var("gCollInvViewProj"), var("gCollParams"), var("gCollCam"), var("gCollViewport"), var("gSunDir"), var("gSunColor"), var("gAmbient"),
 			var("gProgram"), var("gParticles"), var("gState"), var("gEvents"), var("gEventsIn"), var("gTrail"), var("gTrailVerts"), var("gSortKeys"), var("gSorted"),
-			var("gTexture"), var("gSceneDepth") };
+			var("gTexture"), var("gSceneDepth"), var("gCollDepth") };
 		s_State = 1;
 		EditorLog::Write("VFX", "58. VFX.fx loaded");
 		return true;
@@ -359,7 +391,79 @@ namespace
 		return p;
 	}
 
-	void Simulate(GfxContext* dc, VisualEffect* vfx)
+	// Output Mesh 의 기본 메시 (GeometryGenerator — 크기 1). Crystal = 위아래로 늘린 정이십면체, 면마다 평평한 법선
+	MeshBuf* GetMesh(const std::string& name)
+	{
+		MeshBuf& m = s_Meshes[name];
+		if (m.Tried)
+			return m.Count > 0 ? &m : nullptr;
+		m.Tried = true;
+		GeometryGenerator gen;
+		GeometryGenerator::MeshData data;
+		bool flat = false;
+		if (name == "Sphere") gen.CreateSphere(0.5f, 16, 12, data);
+		else if (name == "Cylinder") gen.CreateCylinder(0.5f, 0.5f, 1.0f, 16, 1, data);
+		else if (name == "Cone") gen.CreateCylinder(0.5f, 0.001f, 1.0f, 16, 1, data);
+		else if (name == "Crystal") { gen.CreateGeosphere(0.5f, 0, data); flat = true; }
+		else gen.CreateBox(1.0f, 1.0f, 1.0f, data);
+		std::vector<float> v;
+		std::vector<uint32_t> idx;
+		if (flat)
+		{
+			for (size_t i = 0; i + 2 < data.indices.size(); i += 3)
+			{
+				XMFLOAT3 p[3];
+				for (int k = 0; k < 3; ++k)
+				{
+					p[k] = data.vertices[data.indices[i + k]].position;
+					p[k].y *= 1.7f;
+				}
+				const Vec3 a(p[0].x, p[0].y, p[0].z), b(p[1].x, p[1].y, p[1].z), c(p[2].x, p[2].y, p[2].z);
+				Vec3 n = (b - a).Cross(c - a);
+				n.Normalize();
+				for (int k = 0; k < 3; ++k)
+				{
+					v.insert(v.end(), { p[k].x, p[k].y, p[k].z, n.x, n.y, n.z });
+					idx.push_back((uint32_t)idx.size());
+				}
+			}
+		}
+		else
+		{
+			for (const auto& vx : data.vertices)
+				v.insert(v.end(), { vx.position.x, vx.position.y, vx.position.z, vx.normal.x, vx.normal.y, vx.normal.z });
+			idx.assign(data.indices.begin(), data.indices.end());
+		}
+		if (v.empty() || idx.empty())
+			return nullptr;
+		D3D11_BUFFER_DESC d = {};
+		d.Usage = D3D11_USAGE_IMMUTABLE;
+		d.ByteWidth = (UINT)(v.size() * sizeof(float));
+		d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		D3D11_SUBRESOURCE_DATA init = { v.data(), 0, 0 };
+		if (FAILED(Dev()->CreateBuffer(&d, &init, m.Vb.GetAddressOf())))
+			return nullptr;
+		d.ByteWidth = (UINT)(idx.size() * sizeof(uint32_t));
+		d.BindFlags = D3D11_BIND_INDEX_BUFFER;
+		init.pSysMem = idx.data();
+		if (FAILED(Dev()->CreateBuffer(&d, &init, m.Ib.GetAddressOf())))
+			return nullptr;
+		m.Count = (UINT)idx.size();
+		return &m;
+	}
+
+	// 이 에셋에 깊이 버퍼 충돌 블록이 있는가
+	bool UsesDepthCollision(const Vfx::Asset& a)
+	{
+		for (const Vfx::System& s : a.Systems)
+			if (s.Enabled)
+				for (const Vfx::Block& b : s.Update)
+					if (b.Enabled && b.Type == "CollideDepth")
+						return true;
+		return false;
+	}
+
+	void Simulate(GfxContext* dc, VisualEffect* vfx, const CollisionView& coll)
 	{
 		const std::shared_ptr<const Vfx::Asset> asset = vfx->GetAsset();
 		if (!asset)
@@ -415,8 +519,11 @@ namespace
 		}
 		const uint64 revision = vfx->AssetRevision();   // 주소가 아니라 판 (새 에셋이 같은 주소에 올 수 있다)
 		propKey = HashBytes(propKey, &revision, sizeof(revision));
+		const uint64 subgraphs = Vfx::DependencyRevision(*asset);   // 쓰는 Sub Graph 파일이 바뀌면
+		propKey = HashBytes(propKey, &subgraphs, sizeof(subgraphs));
 
 		SetM(s_V.World, world);
+		SetM(s_V.WorldInv, world.Invert());
 		SetF(s_V.Time, gpu.Time);
 		SetF(s_V.Dt, dt);
 		std::vector<int> alive(asset->Systems.size(), 0);
@@ -515,7 +622,7 @@ namespace
 				SetU(s_V.EmitOnDie, emitsDie[i] ? 1u : 0u);
 				SetF(s_V.EmitRate, emitRate[i]);
 				SetU(s_V.EventCapacity, g.EventCapacity);
-				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() } },
+				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() }, { s_V.CollDepth, coll.On && coll.Depth ? coll.Depth : SpriteBatch::WhiteTexture() } },
 					{ { s_V.Particles, g.Particles.Uav.Get() }, { s_V.State, g.State.Uav.Get() },
 					  { s_V.Events, emits ? g.Events.Uav.Get() : Dummy(0).Uav.Get() }, { s_V.Trail, trailPoints > 0 ? g.Trail.Uav.Get() : Dummy(1).Uav.Get() } }, capacity);
 				CopyState(dc, g);
@@ -686,22 +793,53 @@ namespace VfxRuntime
 		if (!Init())
 			return;
 
+		const Matrix camWorld = view.Invert();
+		const Matrix viewProj = view * proj;
+		GfxRenderTargetView* rtvs[1] = { rtv };
+
 		// 프레임의 첫 뷰에서 시뮬레이션 (Game · Scene 뷰가 같은 결과를 그린다)
 		if (s_SimulatedMark != s_FrameMark)
 		{
 			s_SimulatedMark = s_FrameMark;
 			PROFILE_SCOPE("VFX.Simulate");
+			// 깊이 버퍼 충돌: 이 뷰의 장면 깊이를 compute 가 읽는다 (쓰기 깊이로 묶여 있으면 읽을 수 없어 잠깐 푼다)
+			CollisionView coll;
+			bool wantDepth = false;
+			for (VisualEffect* vfx : VisualEffect::All())
+				if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset() && UsesDepthCollision(*vfx->GetAsset()))
+					wantDepth = true;
+			coll.On = wantDepth && env && env->DepthSRV;
+			coll.Depth = coll.On ? env->DepthSRV : nullptr;
+			const float collParams[4] = { coll.On ? 1.0f : 0.0f, proj._33, proj._43, 0.0f };
+			const float collCam[4] = { camWorld._41, camWorld._42, camWorld._43, 0.0f };
+			SetM(s_V.CollViewProj, viewProj);
+			SetM(s_V.CollInvViewProj, viewProj.Invert());
+			SetV(s_V.CollParams, collParams);
+			SetV(s_V.CollCam, collCam);
+			D3D11_VIEWPORT vp = {};
+			UINT vpCount = 1;
+			dc->RSGetViewports(&vpCount, &vp);
+			const float collViewport[4] = { vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height };
+			SetV(s_V.CollViewport, collViewport);
+			static bool s_Logged = false;
+			if (coll.On && !s_Logged)
+			{
+				s_Logged = true;
+				EditorLog::Write("VFX", "depth collision on: viewport %.0f,%.0f %.0fx%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+			}
+			if (coll.On)
+				dc->OMSetRenderTargets(0, nullptr, nullptr);
 			for (VisualEffect* vfx : VisualEffect::All())
 				if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset())
-					Simulate(dc, vfx);
+					Simulate(dc, vfx, coll);
+			if (coll.On)
+				dc->OMSetRenderTargets(1, rtvs, dsv);
 		}
 
-		const Matrix camWorld = view.Invert();
 		const Vec3 camRight(camWorld._11, camWorld._12, camWorld._13);
 		const Vec3 camUp(camWorld._21, camWorld._22, camWorld._23);
 		const Vec3 camForward(camWorld._31, camWorld._32, camWorld._33);
 		const Vec3 camPos(camWorld._41, camWorld._42, camWorld._43);
-		const Matrix viewProj = view * proj;
 
 		// 화면 안의 Visual Effect 를 먼 것부터 (투명 물체끼리의 순서)
 		std::vector<std::pair<float, VisualEffect*>> list;
@@ -723,7 +861,6 @@ namespace VfxRuntime
 		std::stable_sort(list.begin(), list.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
 
 		PROFILE_SCOPE("VFX.Draw");
-		GfxRenderTargetView* rtvs[1] = { rtv };
 		const bool sceneDepth = env && env->DepthReadOnly && env->DepthSRV;
 		dc->OMSetRenderTargets(1, rtvs, sceneDepth ? env->DepthReadOnly : dsv);
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
@@ -734,6 +871,15 @@ namespace VfxRuntime
 		SetV3(s_V.CamFwd, camForward);
 		const float depthParams[4] = { proj._33, proj._43, 0.0f, sceneDepth ? 1.0f : 0.0f };
 		SetV(s_V.DepthParams, depthParams);
+		// Output Mesh 의 빛: 방향광 0 (없으면 위에서) · 환경광 (Volume 의 Indirect Lighting)
+		{
+			const bool sun = env && env->HasSun;
+			const float sunColor[4] = { sun ? env->SunColor.x : 0.8f, sun ? env->SunColor.y : 0.8f, sun ? env->SunColor.z : 0.8f, 0.0f };
+			const float ind[3] = { env ? env->Indirect.x : 1.0f, env ? env->Indirect.y : 1.0f, env ? env->Indirect.z : 1.0f };
+			const float ambient[4] = { 0.35f * ind[0], 0.37f * ind[1], 0.42f * ind[2], 0.0f };
+			SetV(s_V.SunColor, sunColor);
+			SetV(s_V.Ambient, ambient);
+		}
 
 		for (const auto& [dist, vfx] : list)
 		{
@@ -753,11 +899,19 @@ namespace VfxRuntime
 				const float out1[4] = { (std::max)(0.0f, o.Intensity), (float)(std::max)(1, o.FlipbookColumns), (float)(std::max)(1, o.FlipbookRows), (std::max)(0.0f, o.FlipbookFps) };
 				SetV(s_V.Output0, out0);
 				SetV(s_V.Output1, out1);
+				{
+					const Vec3 sd = env && env->HasSun ? Vec3(env->SunDirection.x, env->SunDirection.y, env->SunDirection.z) : Vec3(0.3f, -1.0f, 0.2f);
+					Vec3 n = sd;
+					n.Normalize();
+					const float sunDir[4] = { n.x, n.y, n.z, o.Lit ? 1.0f : 0.0f };
+					SetV(s_V.SunDir, sunDir);
+				}
 				SetU(s_V.LocalSpace, sys.Local ? 1u : 0u);
 				if (s_V.SceneDepth) s_V.SceneDepth->SetResource(sceneDepth ? env->DepthSRV : nullptr);
 				GfxShaderResourceView* tex = o.Look == Vfx::Shape::Texture && !o.Texture.empty() ? ParticleTextures::Get(o.Texture) : nullptr;
 				if (s_V.Texture) s_V.Texture->SetResource(tex ? tex : SpriteBatch::WhiteTexture());
 				const bool alpha = o.BlendMode == Vfx::Blend::Alpha;
+				const bool opaque = o.BlendMode == Vfx::Blend::Opaque;
 				// 꼬리 먼저 (파티클이 꼬리 위에 보이게)
 				if (g.TrailReady && g.TrailPoints > 0 && s_TrailLayout)
 				{
@@ -771,13 +925,46 @@ namespace VfxRuntime
 				}
 				if (!o.TrailOnly)
 				{
-					const UINT stride = kStride, offset = 0;
 					GfxBuffer* vb = sorted ? g.Sorted.B.Get() : g.Particles.B.Get();
-					dc->IASetInputLayout(s_Layout.Get());
-					dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-					(alpha ? s_Alpha : s_Add)->Apply(0, dc);
-					dc->DrawInstanced(4, g.Capacity, 0, 0);
-					++s_LastDraws;
+					// 불투명: 깊이를 쓴다 (읽기 전용 깊이 · 깊이 SRV 를 풀고 쓰기 깊이로)
+					if (opaque)
+					{
+						if (s_V.SceneDepth) s_V.SceneDepth->SetResource(nullptr);
+						GfxShaderResourceView* nullSrv[8] = {};
+						dc->PSSetShaderResources(0, 8, nullSrv);
+						dc->OMSetRenderTargets(1, rtvs, dsv);
+					}
+					MeshBuf* mesh = o.Look == Vfx::Shape::Mesh && s_MeshLayout ? GetMesh(o.Mesh) : nullptr;
+					FxPass* meshPass = opaque ? s_MeshOpaque : alpha ? s_MeshAlpha : s_MeshAdd;
+					if (mesh && meshPass)
+					{
+						// Output Mesh: 메시 정점 (0 번) + 파티클 인스턴스 (1 번)
+						GfxBuffer* vbs[2] = { mesh->Vb.Get(), vb };
+						const UINT strides[2] = { kMeshVertexBytes, kStride }, offsets[2] = { 0, 0 };
+						dc->IASetInputLayout(s_MeshLayout.Get());
+						dc->IASetVertexBuffers(0, 2, vbs, strides, offsets);
+						dc->IASetIndexBuffer(mesh->Ib.Get(), DXGI_FORMAT_R32_UINT, 0);
+						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+						meshPass->Apply(0, dc);
+						dc->DrawIndexedInstanced(mesh->Count, g.Capacity, 0, 0, 0);
+						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+						GfxBuffer* nullVbs[2] = {};
+						const UINT zeros[2] = {};
+						dc->IASetVertexBuffers(0, 2, nullVbs, zeros, zeros);
+						dc->IASetIndexBuffer(nullptr, DXGI_FORMAT_R32_UINT, 0);
+						++s_LastDraws;
+					}
+					else if (o.Look != Vfx::Shape::Mesh && (!opaque || s_Opaque))
+					{
+						const UINT stride = kStride, offset = 0;
+						dc->IASetInputLayout(s_Layout.Get());
+						dc->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+						(opaque ? s_Opaque : alpha ? s_Alpha : s_Add)->Apply(0, dc);
+						dc->DrawInstanced(4, g.Capacity, 0, 0);
+						++s_LastDraws;
+					}
+					if (opaque)
+						dc->OMSetRenderTargets(1, rtvs, sceneDepth ? env->DepthReadOnly : dsv);
 				}
 				++s_LastSystems;
 				// 다음 시스템의 정렬 compute 가 깊이를 쓸 수 있게 SRV 를 푼다

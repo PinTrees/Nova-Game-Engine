@@ -38,6 +38,9 @@ namespace
 		"  op.set <path> --id N [--params '{...}'] [--x --y]   op.remove <path> --id N\n"
 		"  op.connect <path> --from N --to M --input B        op.disconnect <path> --to M --input B\n"
 		"  block.link <path> --system S --context c --index i --param Speed --from N   block.unlink ... --param Speed\n"
+		"  attribute.add <path> --name Phase --type Float|Vector3   attribute.remove <path> --name Phase   (custom attributes, 4 floats)\n"
+		"  subgraph.new <Assets/X.vfxoperator> [--overwrite]   Sub Graph file: properties = inputs, Output (Sub Graph) node = result;\n"
+		"      edit it with property.* / op.* like a .vfx, use it with op.add --type SubGraph --params '{\"Path\":\"Assets/X.vfxoperator\"}'\n"
 		"  property.add <path> --name N --type Float|Int|Bool|Vector3|Color --value v [--range 0,10]\n"
 		"  property.set <path> --name N [--value v] [--rename M] [--range a,b]\n"
 		"  property.remove <path> --name N\n"
@@ -157,15 +160,17 @@ namespace
 				if (p.Tip) e["tip"] = p.Tip;
 				params.push_back(e);
 			}
-			list.push_back({ { "type", d.Type }, { "label", d.Label }, { "context", d.Ctx == Vfx::Context::Initialize ? "initialize" : "update" },
+			list.push_back({ { "type", d.Type }, { "label", d.Label }, { "context", d.AnyContext ? "initialize or update" : d.Ctx == Vfx::Context::Initialize ? "initialize" : "update" },
 				{ "help", d.Help }, { "params", params } });
 		}
 		json r = { { "blocks", list } };
 		r["output"] = {
-			{ "blend", { "Additive", "Alpha" } },
-			{ "shape", { "SoftDot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart" } },
+			{ "blend", { "Additive", "Alpha", "Opaque" } },
+			{ "shape", { "SoftDot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart", "Mesh" } },
+			{ "mesh", Vfx::MeshNames() },
 			{ "orient", { "FaceCamera", "AlongVelocity", "Horizontal" } },
-			{ "fields", "stretch (AlongVelocity length per speed), softDistance, intensity (HDR, >1 blooms), texture, flipbook{columns,rows,fps}" } };
+			{ "fields", "stretch (AlongVelocity length per speed), softDistance, intensity (HDR, >1 blooms), texture, flipbook{columns,rows,fps}, "
+				"sort Auto|On|Off, trail{points,length,width,only}, mesh (shape Mesh: Cube|Sphere|Cylinder|Cone|Crystal), lit (mesh shading)" } };
 		r["spawn"] = "rate (per second), rateBind (Float property), bursts[{time,count,cycles(0=forever),interval}], loop, duration (0 = forever), delay, "
 			"startEvent (OnPlay), stopEvent (OnStop), parent (GPU event: spawn when that system's particles die) + countPerEvent";
 		r["system"] = "name, capacity (max alive), space World|Local, spawn{}, initialize[], update[], output{}";
@@ -238,7 +243,23 @@ namespace
 			return true;
 		}
 		if (op == "templates") { r = { { "templates", Vfx::TemplateNames() } }; return true; }
-		if (op == "list") { r = { { "assets", Vfx::FindAssets() } }; return true; }
+		if (op == "list") { r = { { "assets", Vfx::FindAssets() }, { "subgraphs", Vfx::FindAssets(Vfx::kSubgraphExtension) } }; return true; }
+		if (op == "subgraph.new")
+		{
+			const std::string path = a.value("path", std::string());
+			if (path.empty() || Simplify(std::filesystem::path(path).extension().string()) != "vfxoperator")
+			{
+				e = "subgraph.new needs a path ending in .vfxoperator";
+				return false;
+			}
+			std::error_code ec;
+			if (std::filesystem::exists(Vfx::FullPath(path), ec) && !a.value("overwrite", false))
+			{
+				e = path + " exists (use --overwrite)";
+				return false;
+			}
+			return SaveAsset(path, Vfx::DefaultSubgraph(), r, e);
+		}
 		if (op == "new")
 		{
 			const std::string path = a.value("path", std::string());
@@ -275,8 +296,13 @@ namespace
 					if (auto asset = v->GetAsset())
 						for (size_t i = 0; i < asset->Systems.size(); ++i)
 							systems.push_back({ { "name", asset->Systems[i].Name }, { "alive", v->SystemAliveCount((int)i) } });
-					list.push_back({ { "object", v->GetGameObject() ? v->GetGameObject()->GetName() : "" }, { "asset", v->AssetPath },
-						{ "alive", v->AliveParticleCount() }, { "systems", systems }, { "enabled", v->IsEnabled() }, { "culled", v->IsCulled() }, { "error", v->AssetError() } });
+					json item = { { "object", v->GetGameObject() ? v->GetGameObject()->GetName() : "" }, { "asset", v->AssetPath },
+						{ "alive", v->AliveParticleCount() }, { "systems", systems }, { "enabled", v->IsEnabled() }, { "culled", v->IsCulled() }, { "error", v->AssetError() } };
+					// 월드 경계 (몇 프레임 늦은 GPU 값 + 크기 · 꼬리 여유) — 검사 · 디버그용
+					Vec3 mn, mx;
+					if (v->GetWorldBounds(mn, mx))
+						item["bounds"] = { { mn.x, mn.y, mn.z }, { mx.x, mx.y, mx.z } };
+					list.push_back(item);
 				}
 				r = { { "effects", list }, { "gpu", VfxRuntime::Supported() }, { "drawCalls", VfxRuntime::LastDrawCalls() } };
 				if (!VfxRuntime::LastError().empty()) r["runtimeError"] = VfxRuntime::LastError();
@@ -404,7 +430,7 @@ namespace
 				const Vfx::BlockDesc* d = Vfx::FindBlock(a.value("type", std::string()));
 				if (!d) { e = "unknown block type (nova vfx blocks)"; return false; }
 				const bool wantInit = list == &sys.Initialize;
-				if ((d->Ctx == Vfx::Context::Initialize) != wantInit) { e = std::string(d->Type) + " belongs to " + (wantInit ? "update" : "initialize"); return false; }
+				if (!Vfx::AllowedIn(*d, wantInit ? Vfx::Context::Initialize : Vfx::Context::Update)) { e = std::string(d->Type) + " belongs to " + (wantInit ? "update" : "initialize"); return false; }
 				Vfx::Block b;
 				b.Type = d->Type;
 				if (json p = JsonArg(a, "params"); p.is_object()) b.Params = p;
@@ -482,9 +508,9 @@ namespace
 				return SaveAsset(path, asset, r, e);
 			}
 			const std::string input = a.value("input", std::string());
-			const Vfx::OperatorDesc* d = Vfx::FindOperator(n->Type);
-			const Vfx::OperatorInput* in = nullptr;
-			for (const Vfx::OperatorInput& i : d->Inputs) if (Simplify(i.Name) == Simplify(input)) in = &i;
+			const std::vector<Vfx::NodeInput> inputs = Vfx::OperatorInputs(*n);
+			const Vfx::NodeInput* in = nullptr;
+			for (const Vfx::NodeInput& i : inputs) if (Simplify(i.Name) == Simplify(input)) in = &i;
 			if (!in) { e = n->Type + " has no input '" + input + "'"; return false; }
 			for (auto it = n->Inputs.begin(); it != n->Inputs.end(); ++it)
 				if (Simplify(it.key()) == Simplify(input)) { n->Inputs.erase(it); break; }
@@ -524,6 +550,26 @@ namespace
 				if (!asset.FindOperatorNode(from)) { e = "no operator " + std::to_string(from); return false; }
 				b.Links[pd->Name] = from;
 			}
+			return SaveAsset(path, asset, r, e);
+		}
+		if (op == "attribute.add" || op == "attribute.remove")
+		{
+			const std::string name = a.value("name", std::string());
+			if (name.empty()) { e = "needs --name"; return false; }
+			auto it = std::find_if(asset.Attributes.begin(), asset.Attributes.end(), [&](const Vfx::Attribute& x) { return x.Name == name; });
+			if (op == "attribute.remove")
+			{
+				if (it == asset.Attributes.end()) { e = "no custom attribute '" + name + "'"; return false; }
+				asset.Attributes.erase(it);
+				return SaveAsset(path, asset, r, e);
+			}
+			if (it != asset.Attributes.end()) { e = "custom attribute '" + name + "' exists"; return false; }
+			const std::string type = Simplify(a.value("type", std::string("Float")));
+			if (type != "float" && type != "vector3") { e = "--type Float or Vector3"; return false; }
+			int lanes = type == "vector3" ? 3 : 1;
+			for (const Vfx::Attribute& x : asset.Attributes) lanes += x.Vector ? 3 : 1;
+			if (lanes > Vfx::kAttributeLanes) { e = "custom attributes are 4 floats per particle (Float = 1, Vector3 = 3) - no room for " + name; return false; }
+			asset.Attributes.push_back({ name, type == "vector3" });
 			return SaveAsset(path, asset, r, e);
 		}
 		if (op.rfind("property.", 0) == 0)

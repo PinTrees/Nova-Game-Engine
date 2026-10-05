@@ -10,6 +10,9 @@
 //  - 꼬리 (Unity 의 Output Particle Strip): 파티클마다 지난 자리 몇 개를 기록 → compute 가 띠 조각 (인스턴스 정점) 을 만들어 그린다
 //  - 정렬 (Alpha): 카메라 거리 키를 bitonic 정렬 (512 개는 그룹 메모리에서) → 정렬된 순서로 파티클을 복사해 그린다
 //  - 경계 상자: Update 가 살아 있는 파티클의 최소 · 최대 자리를 원자적으로 모은다 (CPU 가 몇 프레임 늦게 읽어 화면 밖이면 건너뜀)
+//  - 사용자 속성 (Custom Attribute): 파티클마다 float 4 칸 (Float 1 칸 · Vector3 3 칸), Set Attribute 블록 · Get Attribute 연산 노드
+//  - 깊이 버퍼 충돌 (Collide with Depth Buffer): 프레임의 첫 뷰 장면 깊이에서 표면 자리 · 법선을 되살려 튕긴다
+//  - Output Mesh: 파티클마다 메시 하나 (인스턴스 그리기 — 메시 정점 + 파티클 버퍼), 빛 (해 · 환경광)
 //=============================================================================
 
 cbuffer cbVfx
@@ -40,10 +43,19 @@ cbuffer cbVfx
     float4 gOutput0;                // x 모양, y 방향 (0 카메라, 1 속도로 늘림, 2 수평), z 늘림 배율, w Soft 거리
     float4 gOutput1;                // x 세기 (HDR), y 플립북 열, z 행, w 플립북 (0 = 수명 동안 한 번, >0 = 초당 칸)
     float4 gDepthParams;            // x, y = 투영 _33, _43, z = 미사용, w = 장면 깊이 있음
+    row_major float4x4 gWorldInv;   // gWorld 의 역 (Local 시스템의 깊이 충돌 결과를 되돌린다)
+    row_major float4x4 gCollViewProj;     // 깊이 충돌: 깊이를 그린 뷰
+    row_major float4x4 gCollInvViewProj;
+    float4 gCollParams;             // x 있음, y, z = 투영 _33, _43
+    float4 gCollCam;                // xyz 그 뷰의 카메라 자리
+    float4 gCollViewport;           // 그 뷰의 뷰포트 (왼쪽 위 x, y, 너비, 높이 — 깊이 텍스처는 뷰보다 클 수 있다)
+    float4 gSunDir;                 // Output Mesh 빛: xyz 해가 비추는 방향, w 빛 (1 = Lit)
+    float4 gSunColor;               // rgb 해 색 × 세기
+    float4 gAmbient;                // rgb 환경광
 };
 
 StructuredBuffer<float4> gProgram;      // 블록 목록 (VfxRuntime 이 만든다)
-RWByteAddressBuffer gParticles;         // 96 바이트씩
+RWByteAddressBuffer gParticles;         // 112 바이트씩
 RWByteAddressBuffer gState;             // 0 칸 카운터, 4 살아 있는 수, 8..20 최소 · 20..32 최대 자리 (순서 키), 32 최대 크기 — 4 부터는 Update 마다 CPU 가 처음 값으로
 RWByteAddressBuffer gEvents;            // 0 죽음 이벤트 수, 4 Rate 이벤트 수, 16.. 죽음 이벤트 48 바이트씩 (위치 · 속도 · 색), 그 뒤 Rate 이벤트
 ByteAddressBuffer gEventsIn;            // 부모 시스템의 이벤트 버퍼 (같은 배치)
@@ -54,6 +66,7 @@ RWByteAddressBuffer gSorted;            // 정렬된 순서의 파티클 사본 
 
 Texture2D gTexture;
 Texture2D gSceneDepth;
+Texture2D gCollDepth;                   // 깊이 충돌 (compute 에서 Load)
 
 SamplerState samVfx
 {
@@ -62,7 +75,7 @@ SamplerState samVfx
     AddressV = CLAMP;
 };
 
-static const uint kStride = 96;
+static const uint kStride = 112;
 
 // ---------------------------------------------------------------- 난수 · 잡음
 uint Hash(uint x)
@@ -124,6 +137,7 @@ struct Particle
     float Size; float Rot; float AngVel; uint Seed;
     float4 BaseColor;
     float BaseSize; float Spare0; float Spare1; float Spare2;
+    float4 Custom;                  // 사용자 속성 4 칸
 };
 
 Particle Load(uint i)
@@ -137,6 +151,7 @@ Particle Load(uint i)
     v = asfloat(gParticles.Load4(a + 48)); p.Size = v.x; p.Rot = v.y; p.AngVel = v.z; p.Seed = asuint(v.w);
     p.BaseColor = asfloat(gParticles.Load4(a + 64));
     v = asfloat(gParticles.Load4(a + 80)); p.BaseSize = v.x; p.Spare0 = v.y; p.Spare1 = v.z; p.Spare2 = v.w;
+    p.Custom = asfloat(gParticles.Load4(a + 96));
     return p;
 }
 
@@ -149,10 +164,19 @@ void Store(uint i, Particle p)
     gParticles.Store4(a + 48, uint4(asuint(p.Size), asuint(p.Rot), asuint(p.AngVel), p.Seed));
     gParticles.Store4(a + 64, asuint(p.BaseColor));
     gParticles.Store4(a + 80, asuint(float4(p.BaseSize, p.Spare0, p.Spare1, p.Spare2)));
+    gParticles.Store4(a + 96, asuint(p.Custom));
 }
 
 // 칸 i (0..3) 를 동적 색인 없이 (동적 색인은 블록 반복문을 펼치게 만든다)
 float Lane(float4 v, uint i) { return dot(v, float4(i == 0, i == 1, i == 2, i == 3)); }
+
+// 사용자 속성: lane 부터 width 칸 (1 = Float → 네 칸에 같은 값, 3 = Vector3)
+float4 GetCustom(float4 c, uint lane, uint width)
+{
+    if (width <= 1u)
+        return Lane(c, lane).xxxx;
+    return float4(Lane(c, lane), Lane(c, lane + 1u), Lane(c, lane + 2u), 0.0f);
+}
 
 // ---------------------------------------------------------------- 블록 (gProgram: 블록마다 머리 칸 (종류, 칸 + 식 수, 값 칸 수, 식 있는 칸 비트) + 값 칸들 + 식들)
 //  번호는 Source/Effects/VfxAsset.cpp 의 블록 정의표와 같다. 연산 노드 (Operator) 에 이은 값 칸은 식으로 — 파티클마다 계산 (Eval)
@@ -199,6 +223,8 @@ float4 Eval(uint pc, uint end)
             else v = ((Hash(sP.Seed ^ ((uint)ins.y * 0x9E3779B9u) ^ (asuint(gTime) * 0x85EBCA6Bu)) & 0x00FFFFFFu) / 16777216.0f).xxxx;   // 프레임마다
             VFX_PUSH(v);
         }
+        else if (op == 14)   // Get Attribute (사용자 속성): ins.y 첫 칸, ins.z 칸 수
+            VFX_PUSH(GetCustom(sP.Custom, (uint)ins.y, (uint)ins.z))
         else if (op >= 20 && op <= 31)
         {
             // 둘: A (r1) B (r0) → 결과
@@ -441,6 +467,106 @@ float3 SpiralPosition(uint at, inout uint s, out float3 dir)
     return p + b.xyz;
 }
 
+// Set Attribute: a = (첫 칸, 칸 수, 모드 0 바꾸기 · 1 더하기 · 2 곱하기), v = 값
+void SetCustom(inout Particle p, uint at)
+{
+    const float4 a = P(at, 0), v = P(at, 1);
+    const uint lane = (uint)a.x, width = (uint)a.y, mode = (uint)a.z;
+    [unroll] for (uint k = 0; k < 3; ++k)
+    {
+        if (k >= width || lane + k > 3u)
+            continue;
+        const float4 m = float4(lane + k == 0u, lane + k == 1u, lane + k == 2u, lane + k == 3u);
+        const float cur = Lane(p.Custom, lane + k), x = Lane(v, k);
+        const float n = mode == 1u ? cur + x : (mode == 2u ? cur * x : x);
+        p.Custom = lerp(p.Custom, n.xxxx, m);
+    }
+}
+
+// Set Color (Initialize · Update 둘 다): m = (모드, 채도, 밝기, 세기)
+float4 BlockColor(uint at, inout uint s)
+{
+    const float4 a = P(at, 0), b = P(at, 1), m = P(at, 2);
+    float4 col = a;
+    const int mode = (int)m.x;
+    if (mode == 1) col = lerp(a, b, Rand(s));
+    else if (mode == 2)
+    {
+        const float hue = Rand(s) * 6.0f;
+        const float3 rgb = saturate(float3(abs(hue - 3.0f) - 1.0f, 2.0f - abs(hue - 2.0f), 2.0f - abs(hue - 4.0f)));
+        col = float4(lerp(1.0f.xxx, rgb, m.y) * m.z, a.w);
+    }
+    col.rgb *= max(m.w, 0.0f);
+    return col;
+}
+
+// 깊이 버퍼 충돌: 그 뷰의 장면 깊이 화소 → 월드 자리
+float3 DepthWorld(int2 q)
+{
+    const float d = gCollDepth.Load(int3(q, 0)).r;
+    const float2 uv = (float2(q) + 0.5f - gCollViewport.xy) / gCollViewport.zw;
+    const float2 ndc = float2(uv.x * 2.0f - 1.0f, 1.0f - uv.y * 2.0f);
+    const float4 v = mul(float4(ndc, d, 1.0f), gCollInvViewProj);
+    return v.xyz / v.w;
+}
+
+// a = (튕김, 마찰, 수명 줄이기, 두께 m). 다음 자리 (자리 + 속도 × dt) 가 보이는 표면 뒤 두께 안이면 표면 법선으로 튕긴다
+void CollideDepth(inout Particle p, uint at)
+{
+    if (gCollParams.x < 0.5f)
+        return;
+    const float4 a = P(at, 0);
+    float3 wp = gLocalSpace != 0 ? mul(float4(p.Pos, 1.0f), gWorld).xyz : p.Pos;
+    float3 wv = gLocalSpace != 0 ? mul(float4(p.Vel, 0.0f), gWorld).xyz : p.Vel;
+    const float3 next = wp + wv * gDt;
+    const float4 clip = mul(float4(next, 1.0f), gCollViewProj);
+    if (clip.w <= 1e-4f)
+        return;
+    const float2 ndc = clip.xy / clip.w;
+    if (abs(ndc.x) >= 1.0f || abs(ndc.y) >= 1.0f)
+        return;
+    if (gCollViewport.z < 3.0f || gCollViewport.w < 3.0f)
+        return;
+    const int2 lo = int2(gCollViewport.xy) + 1, hi = int2(gCollViewport.xy + gCollViewport.zw) - 2;
+    const int2 q = clamp(int2(gCollViewport.xy + float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f) * gCollViewport.zw), lo, hi);
+    const float d = gCollDepth.Load(int3(q, 0)).r;
+    if (d >= 0.999999f)
+        return;   // 하늘
+    const float sceneZ = gCollParams.z / min(d - gCollParams.y, -1e-7f);
+    if (clip.w < sceneZ || clip.w > sceneZ + max(a.w, 0.01f))
+        return;   // 표면 앞 · 두께 너머 (물체 뒤로 지나간다)
+    // 표면 자리 · 법선: 이웃 화소 중 깊이가 가까운 쪽 (모서리를 넘지 않게)
+    const float3 c = DepthWorld(q);
+    const float3 l = DepthWorld(q - int2(1, 0)), r = DepthWorld(q + int2(1, 0));
+    const float3 u = DepthWorld(q - int2(0, 1)), b = DepthWorld(q + int2(0, 1));
+    const float3 dx = dot(r - c, r - c) < dot(c - l, c - l) ? r - c : c - l;
+    const float3 dy = dot(b - c, b - c) < dot(c - u, c - u) ? b - c : c - u;
+    float3 n = cross(dy, dx);
+    n = dot(n, n) > 1e-12f ? normalize(n) : normalize(gCollCam.xyz - c + 1e-6f);
+    if (dot(n, gCollCam.xyz - c) < 0.0f)
+        n = -n;
+    const float dist = dot(wp - c, n);
+    if (dist < 0.0f)
+        wp -= n * (dist - 0.002f);
+    const float vn = dot(wv, n);
+    if (vn < 0.0f)
+    {
+        const float3 vt = wv - n * vn;
+        wv = vt * (1.0f - a.y) - n * vn * a.x;
+        p.Age += a.z * p.Life;
+    }
+    if (gLocalSpace != 0)
+    {
+        p.Pos = mul(float4(wp, 1.0f), gWorldInv).xyz;
+        p.Vel = mul(float4(wv, 0.0f), gWorldInv).xyz;
+    }
+    else
+    {
+        p.Pos = wp;
+        p.Vel = wv;
+    }
+}
+
 // GPU Event 로 태어날 때 부모 파티클의 속도 · 색 (Inherit Source 블록이 쓴다 — 없으면 이어받지 않는다)
 static float3 sSrcVel = 0.0f;
 static float4 sSrcColor = 1.0f;
@@ -488,20 +614,9 @@ void RunInitialize(inout Particle p, inout uint s)
         else if (type == 4)   // Set Size Random
             p.BaseSize = lerp(P(at, 0).x, P(at, 0).y, Rand(s));
         else if (type == 5)   // Set Color
-        {
-            const float4 a = P(at, 0), b = P(at, 1), m = P(at, 2);   // m: x 모드 (0 고정, 1 a..b 사이, 2 무지개), y 채도, z 밝기, w 세기
-            float4 col = a;
-            const int mode = (int)m.x;
-            if (mode == 1) col = lerp(a, b, Rand(s));
-            else if (mode == 2)
-            {
-                const float hue = Rand(s) * 6.0f;
-                const float3 rgb = saturate(float3(abs(hue - 3.0f) - 1.0f, 2.0f - abs(hue - 2.0f), 2.0f - abs(hue - 4.0f)));
-                col = float4(lerp(1.0f.xxx, rgb, m.y) * m.z, a.w);
-            }
-            col.rgb *= max(m.w, 0.0f);
-            p.BaseColor = col;
-        }
+            p.BaseColor = BlockColor(at, s);
+        else if (type == 9)   // Set Attribute (사용자 속성)
+            SetCustom(p, at);
         else if (type == 6)   // Set Angle · Angular Velocity (도)
         {
             const float4 a = P(at, 0);
@@ -522,6 +637,7 @@ void RunInitialize(inout Particle p, inout uint s)
 
 void RunUpdate(inout Particle p, uint s)
 {
+    s = Hash(s ^ asuint(gTime));   // Update 의 무작위 (Set Color Random) 는 프레임마다
     const float t = p.Life > 0.0f ? saturate(p.Age / p.Life) : 1.0f;
     uint at = gUpdateStart;
     for (uint n = 0; n < gUpdateCount; ++n)
@@ -602,6 +718,15 @@ void RunUpdate(inout Particle p, uint s)
             p.Pos = a.xyz + r * c + cross(k, r) * sn + k * dot(k, r) * (1.0f - c);   // 로드리게스 회전
             p.Vel = p.Vel * c + cross(k, p.Vel) * sn + k * dot(k, p.Vel) * (1.0f - c);   // 속도도 함께 (바깥으로 가던 것은 계속 바깥으로 — 토네이도 깔때기)
         }
+        else if (type == 5)   // Set Color (Update): 이 프레임의 색 — 뒤의 Color over Life (곱하기) 가 이 색에 곱한다
+        {
+            p.BaseColor = BlockColor(at, s);
+            p.Color = p.BaseColor;
+        }
+        else if (type == 9)   // Set Attribute
+            SetCustom(p, at);
+        else if (type == 30)   // Collide with Depth Buffer
+            CollideDepth(p, at);
         at += 1 + (uint)h.y;
     }
 }
@@ -1043,6 +1168,119 @@ float4 PS_Additive(VfxOut pin) : SV_Target
     return float4(c.rgb * c.a, 0.0f);
 }
 
+// 불투명 (Opaque): 모양의 알파 0.5 로 잘라 깊이를 쓴다
+float4 PS_Cutout(VfxOut pin) : SV_Target
+{
+    const float4 c = PS(pin);
+    clip(c.a - 0.5f);
+    return float4(c.rgb, 1.0f);
+}
+
+// ---------------------------------------------------------------- Output Mesh (메시 정점 = 0 번 버퍼, 파티클 = 1 번 버퍼 인스턴스)
+struct MeshIn
+{
+    float3 MPos : POSITION1;      // 메시 자리 (크기 1 기준)
+    float3 MNormal : NORMAL;
+    float4 PosAge : POSITION0;
+    float4 VelLife : VELOCITY;
+    float4 Color : COLOR;
+    float4 Params : TEXCOORD0;    // x 크기, y 회전, z 각속도, w 씨앗
+};
+
+struct MeshOut
+{
+    float4 PosH : SV_POSITION;
+    float4 Color : COLOR;
+    float3 Normal : NORMAL;
+};
+
+// 축 k (단위) 둘레로 a 라디안 (로드리게스)
+float3 RotateAxis(float3 v, float3 k, float a)
+{
+    float s, c;
+    sincos(a, s, c);
+    return v * c + cross(k, v) * s + k * dot(k, v) * (1.0f - c);
+}
+
+MeshOut MeshVS(MeshIn vin)
+{
+    MeshOut o;
+    o.Color = 0.0f;
+    o.Normal = float3(0, 1, 0);
+    const float life = vin.VelLife.w;
+    if (life <= 0.0f || vin.PosAge.w >= life)
+    {
+        o.PosH = float4(2.0f, 2.0f, 2.0f, 1.0f);
+        return o;
+    }
+    float3 pos = vin.PosAge.xyz;
+    float3 vel = vin.VelLife.xyz;
+    if (gLocalSpace != 0)
+    {
+        pos = mul(float4(pos, 1.0f), gWorld).xyz;
+        vel = mul(float4(vel, 0.0f), gWorld).xyz;
+    }
+    float3 v = vin.MPos * vin.Params.x;
+    float3 n = vin.MNormal;
+    const int orient = (int)gOutput0.y;
+    if (orient == 1)
+    {
+        // 메시의 +Y 를 속도 방향으로, 그 둘레로 회전 각
+        v = RotateAxis(v, float3(0, 1, 0), vin.Params.y);
+        n = RotateAxis(n, float3(0, 1, 0), vin.Params.y);
+        const float speed = length(vel);
+        const float3 dir = speed > 1e-5f ? vel / speed : float3(0, 1, 0);
+        const float3 axis = cross(float3(0, 1, 0), dir);
+        const float sa = length(axis);
+        if (sa > 1e-5f)
+        {
+            const float ang = atan2(sa, dir.y);
+            v = RotateAxis(v, axis / sa, ang);
+            n = RotateAxis(n, axis / sa, ang);
+        }
+        else if (dir.y < 0.0f)
+        {
+            v = float3(v.x, -v.y, -v.z);
+            n = float3(n.x, -n.y, -n.z);
+        }
+    }
+    else if (orient == 2)
+    {
+        v = RotateAxis(v, float3(0, 1, 0), vin.Params.y);
+        n = RotateAxis(n, float3(0, 1, 0), vin.Params.y);
+    }
+    else
+    {
+        // 파티클마다 무작위 축 둘레로 회전 각 (구르는 파편)
+        uint sd = asuint(vin.Params.w);
+        const float3 axis = RandDir(sd);
+        v = RotateAxis(v, axis, vin.Params.y);
+        n = RotateAxis(n, axis, vin.Params.y);
+    }
+    o.PosH = mul(float4(pos + v, 1.0f), gViewProj);
+    o.Color = vin.Color;
+    o.Normal = n;
+    return o;
+}
+
+float4 MeshColor(MeshOut pin)
+{
+    float4 c = pin.Color;
+    if (gSunDir.w > 0.5f)
+    {
+        const float3 n = normalize(pin.Normal);
+        const float ndl = saturate(dot(n, -gSunDir.xyz));
+        const float sky = 0.6f + 0.4f * n.y;   // 위를 보는 면이 하늘빛을 더 받는다
+        c.rgb *= gAmbient.rgb * sky + gSunColor.rgb * ndl;
+    }
+    c.rgb *= gOutput1.x;
+    return c;
+}
+
+float4 MeshPS(MeshOut pin) : SV_Target { return MeshColor(pin); }
+float4 MeshPS_Additive(MeshOut pin) : SV_Target { const float4 c = MeshColor(pin); return float4(c.rgb * c.a, 0.0f); }
+float4 MeshPS_Opaque(MeshOut pin) : SV_Target { return float4(MeshColor(pin).rgb, 1.0f); }
+
 // ---------------------------------------------------------------- 꼬리 그리기 (띠 조각 = 인스턴스 하나, 정점 4 개)
 struct TrailIn
 {
@@ -1121,6 +1359,11 @@ BlendState VfxAdditive
     BlendOpAlpha = ADD;
 };
 
+BlendState VfxOpaque
+{
+    BlendEnable[0] = FALSE;
+};
+
 DepthStencilState VfxDepthTestNoWrite
 {
     DepthEnable = TRUE;
@@ -1131,6 +1374,18 @@ DepthStencilState VfxDepthTestNoWrite
 RasterizerState VfxNoCull
 {
     CullMode = NONE;
+};
+
+RasterizerState VfxCullBack
+{
+    CullMode = BACK;
+};
+
+DepthStencilState VfxDepthWrite
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ALL;
+    DepthFunc = LESS_EQUAL;
 };
 
 technique11 ResetTech { pass P0 { SetComputeShader(CompileShader(cs_5_0, ResetCS())); } }
@@ -1192,5 +1447,57 @@ technique11 AdditiveTech
         SetBlendState(VfxAdditive, float4(0, 0, 0, 0), 0xFFFFFFFF);
         SetDepthStencilState(VfxDepthTestNoWrite, 0);
         SetRasterizerState(VfxNoCull);
+    }
+}
+
+technique11 OpaqueTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_Cutout()));
+        SetBlendState(VfxOpaque, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetDepthStencilState(VfxDepthWrite, 0);
+        SetRasterizerState(VfxNoCull);
+    }
+}
+
+technique11 MeshAlphaTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, MeshVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, MeshPS()));
+        SetBlendState(VfxAlpha, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetDepthStencilState(VfxDepthTestNoWrite, 0);
+        SetRasterizerState(VfxCullBack);
+    }
+}
+
+technique11 MeshAdditiveTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, MeshVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, MeshPS_Additive()));
+        SetBlendState(VfxAdditive, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetDepthStencilState(VfxDepthTestNoWrite, 0);
+        SetRasterizerState(VfxCullBack);
+    }
+}
+
+technique11 MeshOpaqueTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, MeshVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, MeshPS_Opaque()));
+        SetBlendState(VfxOpaque, float4(0, 0, 0, 0), 0xFFFFFFFF);
+        SetDepthStencilState(VfxDepthWrite, 0);
+        SetRasterizerState(VfxCullBack);
     }
 }

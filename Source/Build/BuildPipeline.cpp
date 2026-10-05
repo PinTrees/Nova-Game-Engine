@@ -55,7 +55,7 @@ namespace
 		return _wcsicmp(first.c_str(), L"ProjectSetting") == 0 || _wcsicmp(first.c_str(), L"Resources") == 0 || _wcsicmp(first.c_str(), L"Shaders") == 0;
 	}
 
-	const std::set<std::string> kJsonExt = { ".scene", ".prefab", ".mat", ".material", ".controller", ".volumeprofile", ".terraindata", ".terrainlayer", ".json", ".asset", ".anim", ".physicmaterial", ".mixer", ".shadergraph", ".shadersubgraph", ".vfx" };
+	const std::set<std::string> kJsonExt = { ".scene", ".prefab", ".mat", ".material", ".controller", ".volumeprofile", ".terraindata", ".terrainlayer", ".json", ".asset", ".anim", ".physicmaterial", ".mixer", ".shadergraph", ".shadersubgraph", ".vfx", ".vfxoperator" };
 	const std::set<std::string> kModelExt = { ".fbx", ".obj", ".dae", ".gltf", ".glb", ".vrm", ".3ds", ".blend", ".x" };
 	const std::set<std::string> kTextureExt = { ".png", ".jpg", ".jpeg", ".tga", ".dds", ".bmp", ".psd", ".tif", ".tiff", ".hdr" };
 

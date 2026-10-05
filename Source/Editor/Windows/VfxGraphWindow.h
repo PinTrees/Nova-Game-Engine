@@ -51,6 +51,7 @@ private:
 	int m_SelBlock = -1;
 	int m_SelProperty = -1;
 	int m_SelOp = -1;                // 고른 연산 노드 (Id)
+	int m_SelAttribute = -1;         // 고른 사용자 속성
 
 	// 검색 창 (Space)
 	bool m_OpenSearch = false;

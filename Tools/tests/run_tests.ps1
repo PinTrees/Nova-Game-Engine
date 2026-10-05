@@ -3784,6 +3784,79 @@ public static class NovaCenterColor
         Add-Result $suite "${Api}: off-screen culling (behind the camera: culled + paused, visible again: resumes)" ($c1.culled -and $c2.culled -and $c2.alive -eq $c1.alive -and -not $c3.culled) ("behind: culled {0} alive {1} -> {2}; back in view: culled {3}" -f $c1.culled, $c1.alive, $c2.alive, $c3.culled)
         Invoke-Nova 'delete Behind' | Out-Null
 
+        # ---- 깊이 버퍼 충돌: 상자 (윗면 y = 1) 위에서 떨어진 파티클이 윗면에 멈춘다, 블록을 끄면 지나 떨어진다
+        Invoke-Nova 'create cube --name DepthBox --position 0,0.5,-80 --scale 3,1,3' | Out-Null
+        $dj = @{
+            systems = @(@{ name = 'Drops'; capacity = 512
+                spawn = @{ rate = 0; loop = $false; duration = 0; bursts = @(@{ time = 0; count = 300; cycles = 1; interval = 1 }) }
+                initialize = @(
+                    @{ type = 'SetPosition'; params = @{ Shape = 'Sphere'; Radius = 0.4; Center = @(0, 1, 0) } },
+                    @{ type = 'SetLifetime'; params = @{ Min = 100; Max = 100 } },
+                    @{ type = 'SetSize'; params = @{ Min = 0.1; Max = 0.1 } })
+                update = @(@{ type = 'Gravity' }, @{ type = 'CollideDepth'; params = @{ Bounce = 0.2; Friction = 0.6; Thickness = 1 } })
+                output = @{ blend = 'Additive'; shape = 'Glow' } })
+        }
+        $df = Join-Path $dir 'depth.json'
+        ($dj | ConvertTo-Json -Depth 10) | Set-Content -Encoding utf8 $df
+        Invoke-Nova "vfx set $root/Depth_$Api.vfx --file $df" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Depth_$Api.vfx --name Drops --position 0,3,-80" | Out-Null
+        Invoke-Nova 'camera --position 0,4,-87 --target 0,1,-80' | Out-Null
+        function DropsMinY { $e = (Stats).effects | Where-Object { $_.object -eq 'Drops' }; if ($e -and $e.bounds) { [double]$e.bounds[0][1] } else { [double]::NaN } }
+        WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Drops' }).alive -ge 300 } 10 | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 20' | Out-Null }
+        $restY = DropsMinY
+        Invoke-Nova "vfx block.set $root/Depth_$Api.vfx --system Drops --context update --index 1 --enabled false" | Out-Null
+        Invoke-Nova 'vfx restart --object Drops' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 20' | Out-Null }
+        $fallY = DropsMinY
+        # 경계 = 파티클 자리 - (크기 + 0.5) 여유 (Visual Effect 자리 y 3 둘레 1 m 도 들어간다) → 윗면 (1) 에 멈추면 0.4 쯤
+        Add-Result $suite "${Api}: Collide with Depth Buffer (particles rest on a box seen by the camera, fall through when the block is off)" ($restY -gt 0.2 -and $fallY -lt -5) ("lowest y with collision {0:N2}, without {1:N2}" -f $restY, $fallY)
+        Invoke-Nova 'delete Drops' | Out-Null
+        Invoke-Nova 'delete DepthBox' | Out-Null
+
+        # ---- 사용자 속성: Set Attribute (Life = 0.05) → Get Attribute 를 Set Lifetime 에 → 살아 있는 수가 준다
+        Invoke-Nova "vfx new $root/Attr_$Api.vfx --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Attr_$Api.vfx --name Attr --position 0,0,-60" | Out-Null
+        Invoke-Nova 'camera --position 0,2,-66 --target 0,1,-60' | Out-Null
+        $before = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Attr' }).alive -gt 60 } 15).effects | Where-Object { $_.object -eq 'Attr' }
+        Invoke-Nova "vfx attribute.add $root/Attr_$Api.vfx --name Life --type Float" | Out-Null
+        Invoke-Nova "vfx block.add $root/Attr_$Api.vfx --system Particles --context initialize --type SetAttribute --index 0 --params {\`"Attribute\`":\`"Life\`",\`"Value\`":0.05}" | Out-Null
+        $op = Invoke-NovaJson "vfx op.add $root/Attr_$Api.vfx --type GetAttribute --params {\`"Attribute\`":\`"Life\`"}"
+        Invoke-Nova "vfx block.link $root/Attr_$Api.vfx --system Particles --context initialize --index 3 --param Min --from $($op.id)" | Out-Null
+        Invoke-Nova "vfx block.link $root/Attr_$Api.vfx --system Particles --context initialize --index 3 --param Max --from $($op.id)" | Out-Null
+        $after = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Attr' }).alive -lt 15 } 15).effects | Where-Object { $_.object -eq 'Attr' }
+        $info = Invoke-NovaJson "vfx info $root/Attr_$Api.vfx"
+        Add-Result $suite "${Api}: custom attribute (Set Attribute Life 0.05 -> Get Attribute -> Set Lifetime) shortens lives" ($before.alive -gt 60 -and $after.alive -lt 15 -and $info.issues.Count -eq 0) ("alive {0} -> {1}, issues {2}" -f $before.alive, $after.alive, $info.issues.Count)
+        Invoke-Nova 'delete Attr' | Out-Null
+
+        # ---- Sub Graph: Float 0.025 → Sub Graph (In × 2) → Set Lifetime = 0.05 → 적다. Sub Graph 파일의 배율을 200 으로 → 다시 많다 (파일이 바뀌면 다시 만든다)
+        Invoke-Nova "vfx subgraph.new $root/Scale_$Api.vfxoperator --overwrite" | Out-Null
+        Invoke-Nova "vfx new $root/Sub_$Api.vfx --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Sub_$Api.vfx --name Sub --position 0,0,-60" | Out-Null
+        $f1 = Invoke-NovaJson "vfx op.add $root/Sub_$Api.vfx --type Float --params {\`"Value\`":0.025}"
+        $sg = Invoke-NovaJson "vfx op.add $root/Sub_$Api.vfx --type SubGraph --params {\`"Path\`":\`"$root/Scale_$Api.vfxoperator\`"}"
+        $con = Invoke-Nova "vfx op.connect $root/Sub_$Api.vfx --from $($f1.id) --to $($sg.id) --input In"
+        Invoke-Nova "vfx block.link $root/Sub_$Api.vfx --system Particles --context initialize --index 2 --param Min --from $($sg.id)" | Out-Null
+        Invoke-Nova "vfx block.link $root/Sub_$Api.vfx --system Particles --context initialize --index 2 --param Max --from $($sg.id)" | Out-Null
+        $short = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Sub' }).alive -lt 15 } 15).effects | Where-Object { $_.object -eq 'Sub' }
+        Invoke-Nova "vfx op.set $root/Scale_$Api.vfxoperator --id 2 --params {\`"B\`":200}" | Out-Null
+        $long = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Sub' }).alive -gt 60 } 15).effects | Where-Object { $_.object -eq 'Sub' }
+        $info = Invoke-NovaJson "vfx info $root/Sub_$Api.vfx"
+        Add-Result $suite "${Api}: Sub Graph operator (file inputs, edits to the .vfxoperator re-encode users)" ($short.alive -lt 15 -and $long.alive -gt 60 -and $info.issues.Count -eq 0 -and $con -notmatch '"error"') ("alive x2 -> {0}, x200 -> {1}, issues {2}" -f $short.alive, $long.alive, $info.issues.Count)
+        Invoke-Nova 'delete Sub' | Out-Null
+
+        # ---- Output Mesh (Debris: Crystal 메시 · 불투명 · 빛): 켬 · 끔 화면 차이
+        Invoke-Nova "vfx new $root/Debris_$Api.vfx --template Debris --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Debris_$Api.vfx --name Debris --position 0,0,-100" | Out-Null
+        Invoke-Nova 'camera --position 0,3,-106 --target 0,1,-100' | Out-Null
+        WaitFor { param($s) (Sys $s 'Debris' 'Shards').alive -gt 100 } 15 | Out-Null
+        $on = Join-Path $dir 'mesh_on.png'; $off = Join-Path $dir 'mesh_off.png'
+        Invoke-Nova 'wait 10' | Out-Null; Invoke-Nova "screenshot $on --view scene" | Out-Null
+        Invoke-Nova 'set Debris --active false' | Out-Null; Invoke-Nova 'wait 20' | Out-Null; Invoke-Nova "screenshot $off --view scene" | Out-Null
+        $c = [NovaImageCompare]::Compare($off, $on, $null)
+        Add-Result $suite "${Api}: Output Particle Mesh (Debris: lit Crystal shards, opaque) is drawn" ($c -and $c[2] -gt 1.0) $(if ($c) { 'pixels >8 different: {0:N2}%' -f $c[2] } else { 'capture missing' })
+        Invoke-Nova 'delete Debris' | Out-Null
+
         if ($Api -eq 'dx')
         {
             # ---- C# API (Unity 의 UnityEngine.VFX.VisualEffect)

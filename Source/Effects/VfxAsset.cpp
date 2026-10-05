@@ -73,7 +73,7 @@ namespace Vfx
 					{ "Saturation", K::Float, { 1 }, 0, 1, nullptr, "Rainbow 채도" },
 					{ "Brightness", K::Float, { 1 }, 0, 4, nullptr, "Rainbow 밝기" },
 					{ "Intensity", K::Float, { 1 }, 0, 50, nullptr, "HDR 배율 (1 보다 크면 Bloom)" },
-				}, "색 (HDR)" },
+				}, "색 (HDR). Update 에 두면 프레임마다 (연산 노드를 이어 반짝임 · 색 바꾸기 — 뒤의 Color over Life 가 곱한다)", true },
 				{ "SetAngle", "Set Angle · Angular Velocity", "Attribute", Context::Initialize, 6, {
 					{ "AngleMin", K::Float, { 0 }, -360, 360 },
 					{ "AngleMax", K::Float, { 360 }, -360, 360 },
@@ -84,6 +84,12 @@ namespace Vfx
 					{ "Velocity", K::Float, { 0.3f }, 0, 2, nullptr, "부모 파티클 속도의 배율" },
 					{ "Color", K::Bool, { 1 }, 0, 0, nullptr, "부모 색을 이어받는다" },
 				}, "GPU Event 로 태어날 때 부모 파티클의 속도 · 색" },
+				{ "SetAttribute", "Set Attribute (Custom)", "Attribute", Context::Initialize, 9, {
+					{ "Attribute", K::Text, {}, 0, 0, nullptr, "사용자 속성 이름 (Blackboard 의 Custom Attributes)" },
+					{ "Mode", K::Enum, { 0 }, 0, 0, "Set|Add|Multiply", "바꾸기 · 더하기 · 곱하기" },
+					{ "Value", K::Float, { 0 }, -100, 100, nullptr, "Float 속성의 값" },
+					{ "VectorValue", K::Vector3, { 0, 0, 0 }, -100, 100, nullptr, "Vector3 속성의 값" },
+				}, "사용자 속성에 값을 쓴다 (Initialize · Update). 연산 노드 Get Attribute 로 읽는다", true },
 				// ---------------------------------------------------------------- Update Particle
 				{ "Gravity", "Gravity", "Force", Context::Update, 20, {
 					{ "Force", K::Vector3, { 0, -9.81f, 0 }, -50, 50, nullptr, "가속도 (m/s², 월드 — Visual Effect 가 돌아도 아래로)" },
@@ -133,6 +139,12 @@ namespace Vfx
 					{ "Axis", K::Vector3, { 0, 1, 0 }, -1, 1, nullptr, "도는 축", S::Direction },
 					{ "Falloff", K::Float, { 0 }, 0, 2, nullptr, "0 = 모두 같은 빠르기, 1 = 거리에 반비례 (은하의 차등 회전)" },
 				}, "축 둘레로 위치를 돌린다 (마법진 · 토네이도 · 은하)" },
+				{ "CollideDepth", "Collide with Depth Buffer", "Collision", Context::Update, 30, {
+					{ "Bounce", K::Float, { 0.3f }, 0, 1 },
+					{ "Friction", K::Float, { 0.3f }, 0, 1 },
+					{ "LifetimeLoss", K::Float, { 0 }, 0, 1, nullptr, "부딪힐 때마다 줄어드는 수명 비율 (1 = 바로 죽음)" },
+					{ "Thickness", K::Float, { 1 }, 0.01f, 20, nullptr, "보이는 표면 뒤로 이 두께까지를 물체 속으로 본다 (m)" },
+				}, "화면에 보이는 장면 (프레임의 첫 뷰 깊이) 에 튕긴다 — 바닥 · 벽 · 물체 모양 그대로. 화면 밖 · 가려진 곳은 지나간다" },
 			};
 		}
 
@@ -201,6 +213,12 @@ namespace Vfx
 			for (int i = 0; i < n; ++i) a.push_back(v[i]);
 			return a;
 		}
+	}
+
+	const std::vector<std::string>& MeshNames()
+	{
+		static const std::vector<std::string> s = { "Cube", "Sphere", "Cylinder", "Cone", "Crystal" };
+		return s;
 	}
 
 	const std::vector<BlockDesc>& Blocks()
@@ -408,8 +426,8 @@ namespace Vfx
 
 	namespace
 	{
-		const char* kBlendNames[] = { "Additive", "Alpha" };
-		const char* kShapeNames[] = { "SoftDot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart" };
+		const char* kBlendNames[] = { "Additive", "Alpha", "Opaque" };
+		const char* kShapeNames[] = { "SoftDot", "Glow", "Star", "Sparkle", "Ring", "Spark", "Smoke", "Square", "Texture", "Heart", "Mesh" };
 		const char* kOrientNames[] = { "FaceCamera", "AlongVelocity", "Horizontal" };
 		const char* kSortNames[] = { "Auto", "On", "Off" };
 		const char* kTriggerNames[] = { "OnDie", "Rate" };
@@ -458,6 +476,11 @@ namespace Vfx
 		if (o.Sort != SortMode::Auto) output["sort"] = kSortNames[(int)o.Sort];
 		if (o.Trail)
 			output["trail"] = { { "points", o.TrailPoints }, { "length", o.TrailLength }, { "width", o.TrailWidth }, { "only", o.TrailOnly } };
+		if (o.Look == Shape::Mesh)
+		{
+			output["mesh"] = o.Mesh;
+			output["lit"] = o.Lit;
+		}
 		json j = { { "name", s.Name }, { "capacity", s.Capacity }, { "space", s.Local ? "Local" : "World" },
 			{ "spawn", spawn }, { "initialize", init }, { "update", update }, { "output", output } };
 		if (!s.Enabled) j["enabled"] = false;
@@ -525,6 +548,8 @@ namespace Vfx
 				d.TrailWidth = (std::max)(0.0f, t.value("width", d.TrailWidth));
 				d.TrailOnly = t.value("only", false);
 			}
+			d.Mesh = o.value("mesh", d.Mesh);
+			d.Lit = o.value("lit", d.Lit);
 		}
 		if (j.contains("editor") && j["editor"].is_object()) s.Editor = j["editor"];
 		return s;
@@ -543,6 +568,12 @@ namespace Vfx
 			j["operators"] = ops;
 		}
 		if (CullingMode == Culling::AlwaysSimulate) j["culling"] = "AlwaysSimulate";
+		if (!Attributes.empty())
+		{
+			json at = json::array();
+			for (const Attribute& a : Attributes) at.push_back({ { "name", a.Name }, { "type", a.Vector ? "Vector3" : "Float" } });
+			j["attributes"] = at;
+		}
 		if (!Editor.empty()) j["editor"] = Editor;
 		return j;
 	}
@@ -567,7 +598,37 @@ namespace Vfx
 			for (const json& o : j["operators"])
 				Operators.push_back(OperatorFromJson(o));
 		CullingMode = Simplify(j.value("culling", std::string())) == "alwayssimulate" ? Culling::AlwaysSimulate : Culling::SimulateWhenVisible;
+		Attributes.clear();
+		if (j.contains("attributes") && j["attributes"].is_array())
+			for (const json& a : j["attributes"])
+				if (a.is_object() && a.contains("name"))
+					Attributes.push_back({ a.value("name", std::string()), Simplify(a.value("type", std::string("Float"))).rfind("vector", 0) == 0 });
 		return true;
+	}
+
+	const Attribute* Asset::FindAttribute(const std::string& name) const
+	{
+		for (const Attribute& a : Attributes)
+			if (a.Name == name)
+				return &a;
+		return nullptr;
+	}
+
+	bool Asset::AttributeLanes(const std::string& name, int& lane, int& width) const
+	{
+		int at = 0;
+		for (const Attribute& a : Attributes)
+		{
+			const int w = a.Vector ? 3 : 1;
+			if (a.Name == name)
+			{
+				lane = at;
+				width = w;
+				return at + w <= kAttributeLanes;
+			}
+			at += w;
+		}
+		return false;
 	}
 
 	const Property* Asset::FindProperty(const std::string& name) const
@@ -631,7 +692,16 @@ namespace Vfx
 				{
 					const BlockDesc* d = FindBlock(b.Type);
 					if (!d) { issues.push_back(s.Name + ": unknown block '" + b.Type + "'"); continue; }
-					if (d->Ctx != ctx) issues.push_back(s.Name + ": block '" + b.Type + "' belongs to " + (d->Ctx == Context::Initialize ? "initialize" : "update"));
+					if (!AllowedIn(*d, ctx)) issues.push_back(s.Name + ": block '" + b.Type + "' belongs to " + (d->Ctx == Context::Initialize ? "initialize" : "update"));
+					if (d->Id == 9)
+					{
+						std::string name;
+						for (auto it = b.Params.begin(); it != b.Params.end(); ++it)
+							if (Simplify(it.key()) == "attribute" && it->is_string()) name = it->get<std::string>();
+						int lane = 0, width = 0;
+						if (!AttributeLanes(name, lane, width))
+							issues.push_back(s.Name + ": Set Attribute uses " + (name.empty() ? std::string("no attribute") : "a missing (or past 4 floats) attribute '" + name + "'"));
+					}
 					for (auto it = b.Bind.begin(); it != b.Bind.end(); ++it)
 						if (!it->is_string() || !FindProperty(it->get<std::string>()))
 							issues.push_back(s.Name + ": block '" + b.Type + "' binds '" + it.key() + "' to a missing property");
@@ -663,6 +733,18 @@ namespace Vfx
 			for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
 				if (!it->is_number_integer() || !FindOperatorNode(it->get<int>()))
 					issues.push_back("operator " + std::to_string(n.Id) + " (" + n.Type + ") input '" + it.key() + "' points to a missing operator");
+		}
+		{
+			int lanes = 0;
+			std::unordered_map<std::string, int> seen;
+			for (const Attribute& a : Attributes)
+			{
+				lanes += a.Vector ? 3 : 1;
+				if (a.Name.empty()) issues.push_back("a custom attribute has no name");
+				if (++seen[a.Name] == 2) issues.push_back("two custom attributes are named '" + a.Name + "'");
+			}
+			if (lanes > kAttributeLanes)
+				issues.push_back("custom attributes use " + std::to_string(lanes) + " floats (at most " + std::to_string(kAttributeLanes) + " - Float = 1, Vector3 = 3)");
 		}
 		const std::vector<int> order = SimulationOrder();
 		if (order.size() != Systems.size())
@@ -719,7 +801,7 @@ namespace Vfx
 	}
 
 	// 블록 하나의 값 칸들 (58. VFX.fx 의 블록 코드가 읽는 배치). 모르는 블록이면 false
-	static bool EncodeSlots(const Block& b, const BlockDesc& d0, const PropertySource& props, const float* w, std::vector<F4>& v)
+	static bool EncodeSlots(const Block& b, const BlockDesc& d0, const PropertySource& props, const float* w, std::vector<F4>& v, const Asset* asset)
 	{
 		const BlockDesc* d = &d0;
 		const Ctx c{ b, *d, props, w };
@@ -761,6 +843,27 @@ namespace Vfx
 			break;
 		case 6: v.push_back(Make(c.S("AngleMin"), c.S("AngleMax"), c.S("SpinMin"), c.S("SpinMax"))); break;
 		case 7: v.push_back(Make(c.S("Velocity"), c.S("Color"))); break;
+		case 9:
+		{
+			// 사용자 속성: (첫 칸, 칸 수, 모드), 값 (Float 은 네 칸에 같은 값)
+			std::string name;
+			if (const json* j = ParamJson(b, "Attribute"); j && j->is_string()) name = j->get<std::string>();
+			int lane = 0, width = 0;
+			if (!asset || !asset->AttributeLanes(name, lane, width))
+				return false;
+			v.push_back(Make((float)lane, (float)width, std::round(c.S("Mode"))));
+			if (width == 1)
+			{
+				const float x = c.S("Value");
+				v.push_back(Make(x, x, x, x));
+			}
+			else
+			{
+				const F4 vv = c.V("VectorValue");
+				v.push_back(Make(vv[0], vv[1], vv[2]));
+			}
+			break;
+		}
 		case 20: { const F4 f = c.V("Force"); v.push_back(Make(f[0], f[1], f[2])); break; }
 		case 21: v.push_back(Make(c.S("Coefficient"))); break;
 		case 22:
@@ -811,6 +914,7 @@ namespace Vfx
 			break;
 		}
 		case 28: v.push_back(Make(c.S("Max"))); break;
+		case 30: v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss"), c.S("Thickness"))); break;
 		case 29:
 		{
 			const F4 p = c.V("Center"), axis = c.V("Axis");
@@ -850,7 +954,7 @@ namespace Vfx
 				probe.Params[pd->Name] = arr;
 			}
 			std::vector<F4> pv;
-			if (!EncodeSlots(probe, d, props, nullptr, pv))
+			if (!EncodeSlots(probe, d, props, nullptr, pv, &asset))
 				continue;
 			Piece piece;
 			for (int c = 0; c < n; ++c)
@@ -899,10 +1003,10 @@ namespace Vfx
 			for (const Block& b : blocks)
 			{
 				const BlockDesc* d = FindBlock(b.Type);
-				if (!b.Enabled || !d || d->Ctx != ctx)
+				if (!b.Enabled || !d || !AllowedIn(*d, ctx))
 					continue;
 				std::vector<F4> v;
-				if (!EncodeSlots(b, *d, props, w, v))
+				if (!EncodeSlots(b, *d, props, w, v, asset))
 					continue;
 				// 연산 노드에 이은 값: 그 값이 든 칸마다 식 (칸의 상수 → 노드 값으로 성분 바꾸기). 머리 = (종류, 칸 + 식 수, 칸 수, 식 있는 칸 비트)
 				std::vector<F4> exprs;
@@ -1034,7 +1138,7 @@ namespace Vfx
 		return true;
 	}
 
-	std::vector<std::string> FindAssets()
+	std::vector<std::string> FindAssets(const char* extension)
 	{
 		std::vector<std::string> found;
 		const fs::path root = PathManager::GetI()->GetContentPathW();
@@ -1042,7 +1146,7 @@ namespace Vfx
 		for (fs::recursive_directory_iterator it(root / L"Assets", fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec))
 		{
 			if (ec) break;
-			if (it->is_regular_file(ec) && Lower(it->path().extension().string()) == ".vfx")
+			if (it->is_regular_file(ec) && Lower(it->path().extension().string()) == extension)
 				found.push_back(wstring_to_string(fs::relative(it->path(), root, ec).wstring()));
 		}
 		std::sort(found.begin(), found.end());

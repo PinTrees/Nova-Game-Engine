@@ -524,10 +524,91 @@ namespace Vfx
 			return a;
 		}
 
+		// 파편 (Output Mesh + 깊이 버퍼 충돌): 2.5 초마다 돌 조각이 터져 바닥 · 장면의 물체에 튕기고 굴러 멈춘다, 먼지와 함께
+		Asset Debris()
+		{
+			Asset a;
+			System shards = Sys("Shards", 1500, 0.0f);
+			shards.SpawnCtx.Duration = 2.5f;
+			shards.SpawnCtx.Bursts = { { 0.0f, 140, 1, 1.0f } };
+			shards.Initialize = {
+				B("SetPosition", { { "Shape", "Sphere" }, { "Radius", 0.3 }, { "Center", { 0, 0.3, 0 } } }),
+				B("SetVelocity", { { "Mode", "Cone" }, { "MinSpeed", 3.5 }, { "MaxSpeed", 8.0 }, { "Spread", 45 } }),
+				B("SetLifetime", { { "Min", 3.0 }, { "Max", 4.5 } }),
+				B("SetSize", { { "Min", 0.07 }, { "Max", 0.2 } }),
+				B("SetColor", { { "Mode", "Random Between" }, { "ColorA", { 0.62, 0.56, 0.5, 1 } }, { "ColorB", { 0.32, 0.29, 0.27, 1 } } }),
+				B("SetAngle", { { "AngleMin", 0 }, { "AngleMax", 360 }, { "SpinMin", -400 }, { "SpinMax", 400 } }),
+			};
+			shards.Update = {
+				B("Gravity"),
+				B("CollideDepth", { { "Bounce", 0.3 }, { "Friction", 0.5 }, { "Thickness", 0.8 } }),
+				B("CollidePlane", { { "Bounce", 0.3 }, { "Friction", 0.5 } }),   // 화면 밖 (깊이가 없는 곳) 에서도 바닥
+				B("Drag", { { "Coefficient", 0.15 } }),
+				B("SizeOverLife", { { "Curve", json::array({ { 0, 1 }, { 0.85, 1 }, { 1, 0 } }) } }),
+			};
+			shards.OutputCtx = Out(Shape::Mesh, 1.0f, Blend::Opaque);
+			shards.OutputCtx.Mesh = "Crystal";
+			shards.Editor = { { "x", 0.0f }, { "y", 0.0f } };
+			System dust = Sys("Dust", 400, 0.0f);
+			dust.SpawnCtx.Duration = 2.5f;
+			dust.SpawnCtx.Bursts = { { 0.0f, 40, 1, 1.0f } };
+			dust.Initialize = {
+				B("SetPosition", { { "Shape", "Sphere" }, { "Radius", 0.5 }, { "Center", { 0, 0.4, 0 } } }),
+				B("SetVelocity", { { "Mode", "Random" }, { "MinSpeed", 0.5 }, { "MaxSpeed", 2.0 } }),
+				B("SetLifetime", { { "Min", 1.5 }, { "Max", 2.5 } }),
+				B("SetSize", { { "Min", 0.6 }, { "Max", 1.2 } }),
+				B("SetColor", { { "ColorA", { 0.55, 0.5, 0.45, 0.45 } } }),
+			};
+			dust.Update = { B("Drag", { { "Coefficient", 1.5 } }), B("ColorOverLife", { { "Gradient", kFade } }),
+				B("SizeOverLife", { { "Curve", json::array({ { 0, 0.5 }, { 1, 1.6 } }) } }) };
+			dust.OutputCtx = Out(Shape::Smoke, 1.0f, Blend::Alpha);
+			dust.Editor = { { "x", 360.0f }, { "y", 0.0f } };
+			a.Systems = { shards, dust };
+			return a;
+		}
+
+		// 반딧불 (사용자 속성 · Update 의 Set Color): 태어날 때 Phase 를 기억해 제각각 깜빡인다
+		//  색 = 연두 HDR × saturate(sin(Time × 3 + Phase))³ — Get Attribute 로 Phase 를 읽는다
+		Asset Fireflies()
+		{
+			Asset a;
+			a.Attributes = { { "Phase", false } };
+			System s = Sys("Fireflies", 800, 70.0f);
+			s.Initialize = {
+				B("SetPosition", { { "Shape", "Box" }, { "Size", { 9, 2.5, 9 } }, { "Center", { 0, 1.4, 0 } } }),
+				B("SetLifetime", { { "Min", 6.0 }, { "Max", 9.0 } }),
+				B("SetSize", { { "Min", 0.07 }, { "Max", 0.13 } }),
+				B("SetAttribute", { { "Attribute", "Phase" } }),
+			};
+			s.Initialize[3].Links = { { "Value", 1 } };
+			s.Update = {
+				B("Turbulence", { { "Intensity", 0.9 }, { "Frequency", 0.35 }, { "Drag", 1.2 }, { "Scroll", { 0, 0.15, 0 } } }),
+				B("SetColor", { { "ColorA", { 1, 1, 1, 1 } } }),
+				B("ColorOverLife", { { "Gradient", kFade } }),
+			};
+			s.Update[1].Links = { { "ColorA", 8 } };
+			s.OutputCtx = Out(Shape::Glow, 1.0f);
+			s.Editor = { { "x", 0.0f }, { "y", 0.0f } };
+			a.Systems = { s };
+			a.Operators = {
+				Op(1, "RandomPerParticle", { { "Min", 0.0 }, { "Max", 6.2832 } }, json::object(), -760, 80),
+				Op(2, "Time", json::object(), json::object(), -760, 260),
+				Op(3, "GetAttribute", { { "Attribute", "Phase" } }, json::object(), -760, 360),
+				Op(4, "Multiply", { { "B", 3.0 } }, { { "A", 2 } }, -560, 260),
+				Op(5, "Add", json::object(), { { "A", 4 }, { "B", 3 } }, -560, 380),
+				Op(6, "Sine", json::object(), { { "X", 5 } }, -360, 300),
+				Op(7, "Power", { { "B", 3.0 } }, { { "A", 9 } }, -160, 400),
+				Op(9, "Saturate", json::object(), { { "X", 6 } }, -360, 420),
+				Op(8, "Multiply", { { "A", { 4.0, 6.5, 1.2, 1.0 } } }, { { "B", 7 } }, -160, 260),
+			};
+			return a;
+		}
+
 		struct Entry { const char* Name; Asset (*Make)(); };
 		const Entry kTemplates[] = {
 			{ "Simple Loop", SimpleLoop }, { "Fireworks", Fireworks }, { "Magic Circle", MagicCircle }, { "Tornado", Tornado },
 			{ "Sparks", Sparks }, { "Galaxy", Galaxy }, { "Fire", Fire }, { "Portal", Portal }, { "Energy Swirl", EnergySwirl }, { "Rainbow Spiral", RainbowSpiral },
+			{ "Debris", Debris }, { "Fireflies", Fireflies },
 		};
 	}
 

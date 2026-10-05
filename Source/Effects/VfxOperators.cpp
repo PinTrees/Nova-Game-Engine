@@ -2,6 +2,7 @@
 #include "VfxAsset.h"
 #include <functional>
 #include <set>
+#include <utility>
 
 // 연산 노드 (Unity VFX Graph 의 Operator): 정의표 · JSON · 스택 명령으로 바꾸기.
 //  명령 = float4 (번호, a, b, c). 번호는 58. VFX.fx 의 Eval 과 같다. 값은 늘 float4, 스칼라는 네 칸에 같은 값
@@ -25,7 +26,7 @@ namespace Vfx
 		enum Op
 		{
 			OpConst = 1, OpTime = 2, OpDeltaTime = 3, OpAge = 4, OpLifetime = 5, OpAge01 = 6, OpPosition = 7, OpVelocity = 8, OpColor = 9,
-			OpSize = 10, OpSpeed = 11, OpRandParticle = 12, OpRandFrame = 13,
+			OpSize = 10, OpSpeed = 11, OpRandParticle = 12, OpRandFrame = 13, OpGetAttribute = 14,
 			OpAdd = 20, OpSub = 21, OpMul = 22, OpDiv = 23, OpMin = 24, OpMax = 25, OpPow = 26, OpStep = 27, OpDot = 28, OpCross = 29, OpDistance = 30, OpMod = 31,
 			OpLerp = 40, OpClamp = 41, OpSmoothstep = 42, OpRemap = 43,
 			OpAbs = 50, OpSin = 51, OpCos = 52, OpFrac = 53, OpSaturate = 54, OpOneMinus = 55, OpNegate = 56, OpLength = 57, OpNormalize = 58,
@@ -34,6 +35,7 @@ namespace Vfx
 			OpCurve = 80, OpGradient = 81, OpNoise = 82, OpNoiseVec = 83,
 		};
 		constexpr int kMaxStack = 10;   // 58. VFX.fx 의 Eval 스택 크기
+		constexpr int kMaxSubgraphLevel = 8;   // Sub Graph 안의 Sub Graph (자기를 부르는 고리도 여기서 멈춘다)
 
 		std::vector<OperatorDesc> MakeOperators()
 		{
@@ -56,6 +58,8 @@ namespace Vfx
 				{ "ParticleColor", "Get Color", "Attributes", {}, {}, K::Color, "지금 색" },
 				{ "Size", "Get Size", "Attributes", {}, {}, K::Float, "지금 크기" },
 				{ "Speed", "Get Speed", "Attributes", {}, {}, K::Float, "속력 (속도의 길이)" },
+				{ "GetAttribute", "Get Attribute (Custom)", "Attributes", {}, { { "Attribute", K::Text, {}, 0, 0, nullptr, "사용자 속성 이름" } }, K::Float,
+					"사용자 속성 (Blackboard 의 Custom Attributes) 값 — Set Attribute 블록이 쓴다" },
 				// ---------------------------------------------------------------- Random
 				{ "RandomPerParticle", "Random Number (per Particle)", "Random", { { "Min", K::Float, { 0 } }, { "Max", K::Float, { 1 } } }, {}, K::Float, "파티클마다 고정된 무작위 값 (Min..Max)" },
 				{ "RandomPerFrame", "Random Number (per Frame)", "Random", { { "Min", K::Float, { 0 } }, { "Max", K::Float, { 1 } } }, {}, K::Float, "프레임마다 바뀌는 무작위 값 (Min..Max)" },
@@ -98,21 +102,28 @@ namespace Vfx
 				{ "NoiseVector", "Noise (Vector)", "Sampling", { { "Position", K::Vector3, zero }, { "Frequency", K::Float, one } }, {}, K::Vector3, "3D 잡음 벡터 (-1..1) — 흔들림 · 흐름" },
 				// ---------------------------------------------------------------- Color
 				{ "HSVToRGB", "HSV to RGB", "Color", { { "H", K::Float, zero }, { "S", K::Float, one }, { "V", K::Float, one } }, {}, K::Color, "색상 (0..1 한 바퀴) · 채도 · 밝기 → 색" },
+				// ---------------------------------------------------------------- Sub Graph (Unity 의 Visual Effect Subgraph Operator)
+				{ "SubGraph", "Sub Graph", "Sub Graph", {}, { { "Path", K::Text, {}, 0, 0, nullptr, "Sub Graph 파일 (.vfxoperator)" } }, K::Float,
+					"다른 파일 (.vfxoperator) 의 연산 노드 묶음을 노드 하나로 — 그 파일의 Blackboard 속성이 입력, Output (Sub Graph) 노드가 결과" },
+				{ "SubgraphOutput", "Output (Sub Graph)", "Sub Graph", { { "Value", K::Float, zero } }, {}, K::Float,
+					"Sub Graph 파일의 결과 — 이 노드에 이은 값이 그 파일을 쓰는 Sub Graph 노드의 출력" },
 			};
 		}
 
 		F4 Make(float x, float y = 0, float z = 0, float w = 0) { return { x, y, z, w }; }
 
 		// 연결하지 않은 입력의 값 (스칼라는 네 칸에 같은 값)
-		F4 InputConst(const OperatorNode& n, const OperatorInput& in)
+		F4 InputConst(const OperatorNode& n, const NodeInput& in)
 		{
 			F4 v = in.Default;
 			if (in.Kind == K::Float) v = { v[0], v[0], v[0], v[0] };
 			for (auto it = n.Params.begin(); it != n.Params.end(); ++it)
 				if (Simplify(it.key()) == Simplify(in.Name))
+				{
 					v = ValueFromJson(*it, v);
-			if (in.Kind == K::Float && n.Params.contains(in.Name) && n.Params[in.Name].is_number())
-				v = { v[0], v[0], v[0], v[0] };
+					if (in.Kind == K::Float && it->is_number())
+						v = { v[0], v[0], v[0], v[0] };
+				}
 			return v;
 		}
 
@@ -124,54 +135,131 @@ namespace Vfx
 			return nullptr;
 		}
 
+		std::string SettingText(const OperatorNode& n, const char* name)
+		{
+			const json* s = Setting(n, name);
+			return s && s->is_string() ? s->get<std::string>() : std::string();
+		}
+
+		// 속성 값의 모양: Float · Int · Bool 은 네 칸에 같은 값, Vector3 는 w = 0
+		F4 ShapeProperty(const Property& p, F4 v)
+		{
+			if (p.Type == PropertyType::Float || p.Type == PropertyType::Int || p.Type == PropertyType::Bool) v = { v[0], v[0], v[0], v[0] };
+			else if (p.Type == PropertyType::Vector3) v[3] = 0.0f;
+			return v;
+		}
+
+		const OperatorNode* SubgraphOutputNode(const Asset& a)
+		{
+			for (const OperatorNode& n : a.Operators)
+				if (n.Type == "SubgraphOutput")
+					return &n;
+			return nullptr;
+		}
+
+		// 그래프 한 겹: 지금 에셋 · 이 겹을 부른 Sub Graph 노드 (맨 위는 없음) · 부른 겹
+		struct Frame
+		{
+			const Asset* A;
+			const OperatorNode* Call;
+			const Frame* Parent;
+			int Level;
+		};
+
 		struct Compiler
 		{
-			const Asset& A;
 			const PropertySource& Props;
 			std::vector<F4>& Out;
 			std::string& Error;
-			std::set<int> Visiting;
+			std::set<std::pair<const Asset*, int>> Visiting;
+			std::vector<std::shared_ptr<const Asset>> Keep;   // 컴파일 동안 Sub Graph 파일을 붙들어 둔다
 			int Depth = 0, MaxDepth = 0;
 
 			void Push(int n = 1) { Depth += n; MaxDepth = (std::max)(MaxDepth, Depth); }
 			void Pop(int n = 1) { Depth -= n; }
 			void Const(const F4& v) { Out.push_back(Make((float)OpConst)); Out.push_back(v); Push(); }
 
-			bool Input(const OperatorNode& n, const OperatorInput& in)
+			bool Input(const Frame& f, const OperatorNode& n, const NodeInput& in)
 			{
 				for (auto it = n.Inputs.begin(); it != n.Inputs.end(); ++it)
 					if (Simplify(it.key()) == Simplify(in.Name) && it->is_number_integer())
-						return Node(it->get<int>());
+						return Node(f, it->get<int>());
 				Const(InputConst(n, in));
 				return true;
 			}
 
-			bool Node(int id)
+			// Blackboard 속성: 맨 위면 Visual Effect 의 값 (덮어쓰기 포함), Sub Graph 안이면 부른 노드의 입력 (연결 · 값 · 파일의 기본값)
+			bool PropertyValue(const Frame& f, const std::string& name)
 			{
-				const OperatorNode* n = A.FindOperatorNode(id);
+				const Property* p = f.A->FindProperty(name);
+				if (!p) { Error = "operator Property: no property '" + name + "'"; return false; }
+				F4 v = p->Value;
+				if (f.Call)
+				{
+					for (auto it = f.Call->Inputs.begin(); it != f.Call->Inputs.end(); ++it)
+						if (Simplify(it.key()) == Simplify(name) && it->is_number_integer())
+							return Node(*f.Parent, it->get<int>());
+					for (auto it = f.Call->Params.begin(); it != f.Call->Params.end(); ++it)
+						if (Simplify(it.key()) == Simplify(name))
+							v = ValueFromJson(*it, v);
+				}
+				else
+					Props.Get(name, v);
+				Const(ShapeProperty(*p, v));
+				return true;
+			}
+
+			bool SubGraph(const Frame& f, const OperatorNode& n)
+			{
+				if (f.Level >= kMaxSubgraphLevel) { Error = "Sub Graphs nest too deep (or a Sub Graph uses itself)"; return false; }
+				const std::string path = SettingText(n, "Path");
+				if (path.empty()) { Error = "Sub Graph node " + std::to_string(n.Id) + " has no file"; return false; }
+				const Loaded l = Load(path);
+				if (!l.Data) { Error = "Sub Graph '" + path + "': " + (l.Error.empty() ? std::string("not found") : l.Error); return false; }
+				Keep.push_back(l.Data);
+				const OperatorNode* out = SubgraphOutputNode(*l.Data);
+				if (!out) { Error = "Sub Graph '" + path + "' has no Output (Sub Graph) node"; return false; }
+				const Frame inner{ l.Data.get(), &n, &f, f.Level + 1 };
+				return Node(inner, out->Id);
+			}
+
+			bool Node(const Frame& f, int id)
+			{
+				const OperatorNode* n = f.A->FindOperatorNode(id);
 				if (!n) { Error = "operator " + std::to_string(id) + " does not exist"; return false; }
 				const OperatorDesc* d = FindOperator(n->Type);
 				if (!d) { Error = "unknown operator '" + n->Type + "'"; return false; }
-				if (!Visiting.insert(id).second) { Error = "operators form a loop"; return false; }
-				for (const OperatorInput& in : d->Inputs)
-					if (!Input(*n, in))
-						return false;
-				Visiting.erase(id);
+				if (!Visiting.insert({ f.A, id }).second) { Error = "operators form a loop"; return false; }
 				const std::string t = d->Type;
+				if (t == "SubGraph")
+				{
+					// 입력은 안의 Property 노드가 쓸 때 계산한다
+					const bool ok = SubGraph(f, *n);
+					Visiting.erase({ f.A, id });
+					return ok;
+				}
+				for (const OperatorInput& in : d->Inputs)
+					if (!Input(f, *n, { in.Name, in.Kind, in.Default }))
+						return false;
+				Visiting.erase({ f.A, id });
 				const int nin = (int)d->Inputs.size();
 				auto op = [&](int code, float a = 0, float b = 0) { Out.push_back(Make((float)code, a, b)); Pop(nin); Push(); };
-				if (t == "Float" || t == "Vector3" || t == "Color") { /* 입력 값이 곧 결과 */ }
+				if (t == "Float" || t == "Vector3" || t == "Color" || t == "SubgraphOutput") { /* 입력 값이 곧 결과 */ }
 				else if (t == "Property")
 				{
-					const json* s = Setting(*n, "Name");
-					const std::string name = s && s->is_string() ? s->get<std::string>() : std::string();
-					F4 v = { 0, 0, 0, 0 };
-					const Property* p = A.FindProperty(name);
-					if (!p) { Error = "operator Property: no property '" + name + "'"; return false; }
-					Props.Get(name, v);
-					if (p->Type == PropertyType::Float || p->Type == PropertyType::Int || p->Type == PropertyType::Bool) v = { v[0], v[0], v[0], v[0] };
-					else if (p->Type == PropertyType::Vector3) v[3] = 0.0f;
-					Const(v);
+					if (!PropertyValue(f, SettingText(*n, "Name")))
+						return false;
+				}
+				else if (t == "GetAttribute")
+				{
+					// 사용자 속성은 맨 위 에셋 (Visual Effect 의 .vfx) 것 — Sub Graph 안에서도
+					const Frame* top = &f;
+					while (top->Parent) top = top->Parent;
+					const std::string name = SettingText(*n, "Attribute");
+					int lane = 0, width = 0;
+					if (!top->A->AttributeLanes(name, lane, width)) { Error = "operator Get Attribute: no custom attribute '" + name + "' (or past 4 floats)"; return false; }
+					Out.push_back(Make((float)OpGetAttribute, (float)lane, (float)width));
+					Push();
 				}
 				else if (t == "Time") op(OpTime);
 				else if (t == "DeltaTime") op(OpDeltaTime);
@@ -185,8 +273,9 @@ namespace Vfx
 				else if (t == "Speed") op(OpSpeed);
 				else if (t == "RandomPerParticle" || t == "RandomPerFrame")
 				{
-					// Min, Max 가 쌓여 있다 → 무작위 t (노드마다 다른 소금) → Lerp
-					Out.push_back(Make((float)(t == "RandomPerParticle" ? OpRandParticle : OpRandFrame), (float)(id * 7919 % 65536)));
+					// Min, Max 가 쌓여 있다 → 무작위 t (노드마다 다른 소금 — Sub Graph 겹마다도) → Lerp
+					const int salt = (id * 7919 + f.Level * 104729 + (f.Call ? f.Call->Id * 15485863 : 0)) % 65536;
+					Out.push_back(Make((float)(t == "RandomPerParticle" ? OpRandParticle : OpRandFrame), (float)(salt < 0 ? -salt : salt)));
 					Push();
 					Out.push_back(Make((float)OpLerp));
 					Pop(3);
@@ -267,8 +356,8 @@ namespace Vfx
 								else
 									for (size_t k = 1; k < keys.size(); ++k)
 										if (x <= keys[k].T) { a = &keys[k - 1]; b = &keys[k]; break; }
-								const float f = a == b ? 0.0f : (x - a->T) / (std::max)(b->T - a->T, 1e-6f);
-								for (int m = 0; m < 4; ++m) c[m] = a->C[m] + (b->C[m] - a->C[m]) * f;
+								const float fr = a == b ? 0.0f : (x - a->T) / (std::max)(b->T - a->T, 1e-6f);
+								for (int m = 0; m < 4; ++m) c[m] = a->C[m] + (b->C[m] - a->C[m]) * fr;
 							}
 							Out.push_back(c);
 						}
@@ -353,8 +442,8 @@ namespace Vfx
 	bool CompileOperator(const Asset& asset, int id, const PropertySource& props, std::vector<std::array<float, 4>>& out, std::string& error)
 	{
 		out.clear();
-		Compiler c{ asset, props, out, error };
-		if (!c.Node(id))
+		Compiler c{ props, out, error };
+		if (!c.Node(Frame{ &asset, nullptr, nullptr, 0 }, id))
 			return false;
 		if (c.MaxDepth > kMaxStack)
 		{
@@ -362,5 +451,63 @@ namespace Vfx
 			return false;
 		}
 		return true;
+	}
+
+	std::vector<NodeInput> OperatorInputs(const OperatorNode& n)
+	{
+		std::vector<NodeInput> r;
+		const OperatorDesc* d = FindOperator(n.Type);
+		if (!d)
+			return r;
+		if (std::string(d->Type) == "SubGraph")
+		{
+			// Sub Graph 파일의 Blackboard 속성 = 입력 (기본값 = 그 파일의 값)
+			const std::string path = SettingText(n, "Path");
+			const Loaded l = path.empty() ? Loaded{} : Load(path);
+			if (l.Data)
+				for (const Property& p : l.Data->Properties)
+					r.push_back({ p.Name, p.Type == PropertyType::Vector3 ? K::Vector3 : p.Type == PropertyType::Color ? K::Color : K::Float, ShapeProperty(p, p.Value) });
+			return r;
+		}
+		for (const OperatorInput& in : d->Inputs)
+			r.push_back({ in.Name, in.Kind, in.Default });
+		return r;
+	}
+
+	uint64_t DependencyRevision(const Asset& asset)
+	{
+		uint64_t h = 0;
+		std::function<void(const Asset&, int)> visit = [&](const Asset& a, int level) {
+			for (const OperatorNode& n : a.Operators)
+			{
+				if (n.Type != "SubGraph")
+					continue;
+				const std::string path = SettingText(n, "Path");
+				if (path.empty())
+					continue;
+				const Loaded l = Load(path);
+				h = (h ^ (l.Revision + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2))) * 1099511628211ull;
+				if (l.Data && level < kMaxSubgraphLevel)
+					visit(*l.Data, level + 1);
+			}
+		};
+		visit(asset, 0);
+		return h;
+	}
+
+	Asset DefaultSubgraph()
+	{
+		// In × 2 → Output (Sub Graph)
+		Asset a;
+		Property in;
+		in.Name = "In";
+		in.Value = { 1, 1, 1, 1 };
+		a.Properties.push_back(in);
+		OperatorNode p, m, o;
+		p.Id = 1; p.Type = "Property"; p.Params = { { "Name", "In" } }; p.X = -420; p.Y = 0;
+		m.Id = 2; m.Type = "Multiply"; m.Inputs = { { "A", 1 } }; m.Params = { { "B", 2.0f } }; m.X = -200; m.Y = 0;
+		o.Id = 3; o.Type = "SubgraphOutput"; o.Inputs = { { "Value", 2 } }; o.X = 20; o.Y = 0;
+		a.Operators = { p, m, o };
+		return a;
 	}
 }
