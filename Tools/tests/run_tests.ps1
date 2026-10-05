@@ -3848,7 +3848,8 @@ public static class NovaCenterColor
         # ---- Output Mesh (Debris: Crystal 메시 · 불투명 · 빛): 켬 · 끔 화면 차이
         Invoke-Nova "vfx new $root/Debris_$Api.vfx --template Debris --overwrite" | Out-Null
         Invoke-Nova "create visual-effect --asset $root/Debris_$Api.vfx --name Debris --position 0,0,-100" | Out-Null
-        Invoke-Nova 'camera --position 0,3,-106 --target 0,1,-100' | Out-Null
+        # 가까이 (파편이 작아 Release 처럼 빠른 빌드에서는 화면에 남는 시간이 짧다)
+        Invoke-Nova 'camera --position 0,2.2,-104 --target 0,0.6,-100' | Out-Null
         WaitFor { param($s) (Sys $s 'Debris' 'Shards').alive -gt 100 } 15 | Out-Null
         $on = Join-Path $dir 'mesh_on.png'; $off = Join-Path $dir 'mesh_off.png'
         Invoke-Nova 'wait 10' | Out-Null; Invoke-Nova "screenshot $on --view scene" | Out-Null

@@ -80,18 +80,13 @@ foreach ($abi in 'x86_64', 'arm64-v8a')
     if (Test-Path $so) { New-Item -ItemType Directory -Force (Join-Path $stage "Android\Player\$abi") | Out-Null; Copy-Item $so (Join-Path $stage "Android\Player\$abi") }
     # C# 런타임 (Mono — Tools/fetch_android_mono.ps1): 관리 어셈블리 (BCL) + 네이티브 (.so · System.Private.CoreLib.dll, 정적 .a 는 빼고)
     $rid = if ($abi -eq 'arm64-v8a') { 'android-arm64' } else { 'android-x64' }
-    $mono = "ThirdParty\MonoAndroid\$abiuntimes\$rid"
-    if (Test-Path "$mono
-ative\libmonosgen-2.0.so")
+    $mono = "ThirdParty\MonoAndroid\$abi\runtimes\$rid"
+    if (Test-Path "$mono\native\libmonosgen-2.0.so")
     {
         $dst = Join-Path $stage "Android\Player\$abi\mono"
-        New-Item -ItemType Directory -Force "$dst\lib", "$dst
-ative" | Out-Null
-        Copy-Item "$mono\lib
-et8.0\*.dll" "$dst\lib"
-        Get-ChildItem "$mono
-ative" -File | Where-Object { $_.Extension -in '.so', '.dll' } | Copy-Item -Destination "$dst
-ative"
+        New-Item -ItemType Directory -Force "$dst\lib", "$dst\native" | Out-Null
+        Copy-Item "$mono\lib\net8.0\*.dll" "$dst\lib"
+        Get-ChildItem "$mono\native" -File | Where-Object { $_.Extension -in '.so', '.dll' } | Copy-Item -Destination "$dst\native"
         Copy-Item "ThirdParty\MonoAndroid\$abi\LICENSE.TXT", "ThirdParty\MonoAndroid\$abi\THIRD-PARTY-NOTICES.TXT" "$dst" -ErrorAction SilentlyContinue
     }
 }
@@ -121,10 +116,10 @@ $debugNote
 실행
   Binaries\NovaEngine.exe                    NOVA Hub (프로젝트 만들기 / 열기, NOVA CLI 설치)
   Binaries\NovaEngine.exe --project <폴더>   그 프로젝트를 에디터로
-  -force-opengl / -force-d3d11                이번만 그래픽 API 바꾸기
+  -force-opengl / -force-vulkan / -force-d3d11   이번만 그래픽 API 바꾸기
 
 필요한 것
-  - Windows 10 / 11 (x64), DirectX 11 또는 OpenGL 4.5 GPU
+  - Windows 10 / 11 (x64), DirectX 11 · OpenGL 4.5 · Vulkan 1.3 중 하나를 지원하는 GPU
   - C# 스크립트를 쓰려면 .NET SDK 8 이상 (https://dotnet.microsoft.com/download)
 
 처음 실행은 셰이더를 컴파일하느라 몇 초 더 걸립니다 (Binaries\ShaderCache 에 저장).

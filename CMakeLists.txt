@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaEngine VERSION 0.1.0 LANGUAGES CXX C)   # C: 패키지 ThirdParty 의 C 라이브러리 (FastLZ)
+project(NovaEngine VERSION 0.2.0 LANGUAGES CXX C)   # C: 패키지 ThirdParty 의 C 라이브러리 (FastLZ)
 
 # 엔진/실행 파일 이름 (변경 시 Source/Core/EngineInfo.h 도 함께 수정)
 set(ENGINE_NAME NovaEngine)

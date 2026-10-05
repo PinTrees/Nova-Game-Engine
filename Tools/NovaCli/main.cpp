@@ -23,7 +23,7 @@ namespace fs = std::filesystem;
 
 namespace
 {
-	constexpr const char* kVersion = "0.1.0";
+	constexpr const char* kVersion = "0.2.0";
 	bool g_Json = false;            // --json: 결과를 JSON 그대로
 	int g_Timeout = 120;
 
