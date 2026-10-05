@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **날씨 품질 보강 (캐릭터 · 물 · 지형 눈 두께) + 재질 테셀레이션** (사용자 지시: "캐릭터도 비에 젖고 어깨 · 머리에 눈 … 물 수면에 빗방울 물결과 먹구름 하늘 반사 … 지형 높이를 실제로 올려 눈 두께 … 이거 하고 그 테셀레이션도 추가해줘. 벽, 바닥 등 … 높이 가변"). **완료 (커밋함, 푸시는 사용자 확인 뒤)**
+- 갱신 시각: 2026년 10월 6일 — **날씨 품질 보강 (캐릭터 · 물 · 지형 눈 두께) + 재질 테셀레이션** (사용자 지시: "캐릭터도 비에 젖고 어깨 · 머리에 눈 … 물 수면에 빗방울 물결과 먹구름 하늘 반사 … 지형 높이를 실제로 올려 눈 두께 … 이거 하고 그 테셀레이션도 추가해줘. 벽, 바닥 등 … 높이 가변"). **완료 (커밋 5349765, 푸시함)**
   - 새 `Shaders/60. Tessellation.fx` (cbTessellation · gHeightMap, 변마다 가운데 거리로 나눔 — 틈 없음, 높이 밉 = 정점 간격, 정점 법선 다시), 32 `TessBatchTech` (+ `PS_TessBatch` 픽셀마다 높이 기울기 법선) · 28 `TessNormalDepthBatchTech` · 26 `TessBuildShadowMapInstancingTech`
     **EQUAL 깊이**: 자리 계산은 `precise` + 덧셈 · 곱셈 매크로만 (TESS_DOT3 · TESS_CROSS — GLSL 의 distance · normalize · mix 에는 precise 가 붙지 않는다), `ShaderCross.cpp` 가 TES 에 `invariant gl_Position` (kCacheVersion 7 — GL 캐시 다시 만듦). 없으면 OpenGL 에서 검은 얼룩
   - `UMaterial` Tessellation (DisplacementMode · HeightMapPath · HeightAmplitude · HeightBase · TessellationFactor · TessellationTriangleSize · TessellationFadeDistance), `MaterialInspector` (Surface Options > Displacement Mode, Height Map + Amplitude · Base, Tessellation Options)
