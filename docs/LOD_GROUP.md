@@ -2,7 +2,7 @@
 
 Unity 의 **LOD Group** 과 같은 이름 · 필드 · 규칙입니다. 카메라에서 본 화면 크기로 LOD 0, 1, 2 … 의 렌더러 중 하나만 그려, 멀리 있는 물체를 단순한 메시로 바꾸거나 아예 그리지 않습니다 (Culled).
 
-![LOD Group](../Showcase/187_LOD_Group_거리별_LOD_크로스페이드.webp)
+![LOD Group](images/lod_group_crossfade.webp)
 
 ## 쓰는 법
 

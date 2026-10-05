@@ -2,7 +2,7 @@
 
 Unity URP 카메라의 **Anti-aliasing** 과 같은 4 가지입니다: No Anti-aliasing · **FXAA** · **SMAA** · **TAA**. 예전에는 SMAA 를 골라도 FXAA 로 처리했습니다.
 
-![Anti-aliasing](../Showcase/189_Anti_aliasing_FXAA_SMAA_TAA.webp)
+![Anti-aliasing](images/anti_aliasing.webp)
 
 ## 쓰는 법
 

@@ -2,11 +2,11 @@
 
 Unity 의 Shader Graph 처럼 **노드를 이어 재질 셰이더를 만듭니다**. 엔진 코어 기능이라 패키지 없이 쓸 수 있고, 게임 빌드에서도 동작합니다.
 
-![Shader Graph](../Showcase/180_ShaderGraph_용암_Voronoi.webp)
+![Shader Graph](images/shadergraph_lava.webp)
 
-![Alpha Clipping · Transparent · 미리보기](../Showcase/181_ShaderGraph_AlphaClip_Transparent_미리보기.webp)
+![Alpha Clipping · Transparent · 미리보기](images/shadergraph_alpha_transparent.webp)
 
-![Vertex 단계 (물결)](../Showcase/182_ShaderGraph_Vertex_물결.webp)
+![Vertex 단계 (물결)](images/shadergraph_vertex_wave.webp)
 
 ## 쓰는 법
 

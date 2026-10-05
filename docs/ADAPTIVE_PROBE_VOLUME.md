@@ -2,7 +2,7 @@
 
 Unity 6 의 **Adaptive Probe Volume (APV)** 와 같은 자리 · 이름의 확산 간접광입니다. 다만 **굽지 않습니다** — 장면 · 빛 · 물체가 바뀌면 몇 프레임 만에 저절로 따라갑니다. 큰 씬도 카메라 둘레 단계만 계산하므로 비용이 같습니다. 레거시 Light Probe Group · Light Probe Proxy Volume · Lighting 창의 굽기는 없습니다 (이것만 씁니다).
 
-![Adaptive Probe Volume](../Showcase/185_Adaptive_Probe_Volume_실시간_간접광.webp)
+![Adaptive Probe Volume](images/apv_realtime_gi.webp)
 
 ## 쓰는 법
 

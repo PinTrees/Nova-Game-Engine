@@ -2,7 +2,7 @@
 
 HDRP 의 Volume 효과 **Screen Space Reflection** 과 같은 이름 · 필드입니다 (URP 에는 없습니다). 화면에 보이는 물체를 반질한 면에 비춥니다 — 물웅덩이, 매끈한 바닥, 금속. Reflection Probe 가 못 담는 움직이는 물체와 가까운 반사를 채웁니다.
 
-![Screen Space Reflection](../Showcase/188_Screen_Space_Reflection_반질한_바닥.webp)
+![Screen Space Reflection](images/ssr_floor.webp)
 
 ## 쓰는 법
 

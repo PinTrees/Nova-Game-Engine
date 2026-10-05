@@ -3,17 +3,17 @@
 Unity 의 Visual Effect Graph 처럼 **GPU 에서 수십만 개의 파티클**을 시뮬레이션하고 그립니다. 엔진 코어 기능 (패키지 없이), Game · Scene 뷰 · 게임 빌드 (PC · 안드로이드) 에서 동작합니다.
 대화로 이펙트를 만드는 **VFX Assistant** 는 이 PC 에 설치된 Claude Code 를 그대로 씁니다 (API 키 없이, 구독 로그인으로만).
 
-![VFX Graph 견본](../Showcase/213_VFX_Graph_견본_7종.webp)
+![VFX Graph 견본](images/vfx_samples_7.webp)
 
-![Visual Effect Graph 창 · VFX Assistant](../Showcase/214_VFX_Graph_편집창.webp)
+![Visual Effect Graph 창 · VFX Assistant](images/vfx_graph_window.webp)
 
-![불꽃놀이 — GPU Event (로켓 → 폭발 → 반짝임)](../Showcase/215_VFX_불꽃놀이_GPU_Event.webp)
+![불꽃놀이 — GPU Event (로켓 → 폭발 → 반짝임)](images/vfx_fireworks_events.webp)
 
-![꼬리 · 정렬 · 화면 밖 컬링](../Showcase/217_VFX_꼬리_정렬_컬링.webp)
+![꼬리 · 정렬 · 화면 밖 컬링](images/vfx_trails_sort_cull.webp)
 
-![연산 노드 (무지개 나선)](../Showcase/218_VFX_연산노드_그래프.webp)
+![연산 노드 (무지개 나선)](images/vfx_operators.webp)
 
-![데모: 밤 캠프장](../Showcase/221_VFX_데모_움직임.webp)
+![데모: 밤 캠프장](images/vfx_demo_anim.webp)
 
 ## 쓰는 법
 
@@ -148,7 +148,7 @@ nova vfx encode Assets/VFX/Boom.vfx               블록 목록 (셰이더가 �
 
 ## 성능 (PC Release)
 
-![견본마다 GPU 시간](../Showcase/219_VFX_견본별_성능_Release.webp)
+![견본마다 GPU 시간](images/vfx_perf_release.webp)
 
 에디터 Scene 뷰, 견본 하나씩, 파티클 패스 GPU 시간 (180 프레임 × 3 번 중앙값, 끈 프레임과 번갈아). 비싼 것은 개수보다 **화면을 덮는 면적** (토네이도 — 큰 반투명 조각이 겹침, 용량을 줄여 1.85 → 1.68 ms). 은하는 별 10 만 개가 작아 0.98 ms.
 
@@ -166,7 +166,7 @@ nova vfx encode Assets/VFX/Boom.vfx               블록 목록 (셰이더가 �
 
 ## 데모: 밤 캠프장
 
-![밤 캠프장](../Showcase/220_VFX_데모_밤캠프장.webp)
+![밤 캠프장](images/vfx_demo_night_camp.webp)
 
 테스트 프로젝트 `E:\NovaTest\VfxDemo` 의 `Assets/Scenes/VfxDemo.scene` — Third Person Character 로 걸어 다니며 포털 · 모닥불 (돌 · 따뜻한 빛) · 마법진 · 무지개 나선 · 에너지 소용돌이 · 불티 · 하늘의 은하 · 멀리 불꽃놀이.
 `Assets/Scripts/VfxDemo.cs`: **F** = 불꽃놀이 한꺼번에 (Launch Rate 를 1.6 초 올림), **E** = 발밑에 마법진 (옮기고 Reinit), 모닥불 Size 가 일렁이고, 포털은 가까울수록 초록 → 보라 (SetVector4). 모두 Exposed Property 를 C# 에서 바꾸는 예.

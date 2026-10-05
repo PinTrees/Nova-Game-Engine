@@ -2,7 +2,7 @@
 
 Unity URP 의 **Decal Projector** 처럼 재질을 상자 모양으로 **표면에 투영**합니다 (총알 자국 · 얼룩 · 표지 · 바닥 표시). 엔진 코어 기능이라 패키지 없이 쓸 수 있고, 게임 빌드에서도 동작합니다.
 
-![Decal Projector](../Showcase/183_Decal_Projector_바닥_상자_ShaderGraph.webp)
+![Decal Projector](images/decal_projector.webp)
 
 ## 쓰는 법
 

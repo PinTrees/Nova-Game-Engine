@@ -2,7 +2,7 @@
 
 Unity 의 **Reflection Probe** 처럼 한 점에서 본 주변을 큐브맵으로 찍어, 상자 안의 물체가 **하늘 대신 그 장면을 반사**하게 합니다 (방 안의 금속 · 유리 · 젖은 바닥). 엔진 코어 기능이라 패키지 없이 쓸 수 있습니다.
 
-![Reflection Probe](../Showcase/184_Reflection_Probe_방_거칠기_BoxProjection.webp)
+![Reflection Probe](images/reflection_probe.webp)
 
 ## 쓰는 법
 

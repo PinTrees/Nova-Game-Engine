@@ -2,7 +2,7 @@
 
 Unity URP 의 Volume 후처리 **Depth Of Field** (Gaussian · Bokeh) 와 **Motion Blur** (Camera Only) 를 같은 이름 · 같은 필드로 넣었습니다. Volume Profile 의 **Add Override** 에서 고릅니다.
 
-![Depth of Field Bokeh](../Showcase/186_Depth_of_Field_Bokeh_육각_조리개.webp)
+![Depth of Field Bokeh](images/dof_bokeh_hex.webp)
 
 ## 쓰는 법
 
