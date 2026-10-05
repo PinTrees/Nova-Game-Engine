@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "VfxAsset.h"
+#include "VfxMeshes.h"
+#include <set>
 #include <filesystem>
 #include <functional>
 #include <map>
@@ -145,6 +147,21 @@ namespace Vfx
 					{ "LifetimeLoss", K::Float, { 0 }, 0, 1, nullptr, "부딪힐 때마다 줄어드는 수명 비율 (1 = 바로 죽음)" },
 					{ "Thickness", K::Float, { 1 }, 0.01f, 20, nullptr, "보이는 표면 뒤로 이 두께까지를 물체 속으로 본다 (m)" },
 				}, "화면에 보이는 장면 (프레임의 첫 뷰 깊이) 에 튕긴다 — 바닥 · 벽 · 물체 모양 그대로. 화면 밖 · 가려진 곳은 지나간다" },
+				{ "CollideSDF", "Collide with Signed Distance Field", "Collision", Context::Update, 31, {
+					{ "Mesh", K::Text, {}, 0, 0, nullptr, "거리장을 구울 메시: Cube · Sphere · Cylinder · Cone · Crystal 또는 모델 파일 (Assets/…/x.fbx, #n = n 번째 메시)" },
+					{ "Position", K::Vector3, { 0, 0, 0 }, -50, 50, nullptr, "거리장의 자리 (Visual Effect 기준)", S::None, true },
+					{ "Rotation", K::Vector3, { 0, 0, 0 }, -360, 360, nullptr, "회전 (도)", S::None, true },
+					{ "Scale", K::Vector3, { 1, 1, 1 }, 0.01f, 50, nullptr, "크기 (메시 단위의 배율)", S::None, true },
+					{ "Resolution", K::Int, { 48 }, 16, 96, nullptr, "가장 긴 변의 칸 수 (클수록 정확, 굽기 · 메모리가 늘어난다)", S::None, true },
+					{ "Radius", K::Float, { 0.05f }, 0, 5, nullptr, "파티클 반지름 (표면에서 이만큼 띄운다)" },
+					{ "Bounce", K::Float, { 0.3f }, 0, 1 },
+					{ "Friction", K::Float, { 0.3f }, 0, 1 },
+					{ "LifetimeLoss", K::Float, { 0 }, 0, 1, nullptr, "부딪힐 때마다 줄어드는 수명 비율" },
+				}, "메시를 거리장으로 구워 그 모양에 튕긴다 — 화면에 보이지 않아도 (Collide with Depth Buffer 와 달리). 시스템마다 거리장 하나" },
+				// ---------------------------------------------------------------- 둘 다: Block Sub Graph (값은 그 파일의 속성 — EffectiveBlockDesc)
+				{ "SubgraphBlock", "Sub Graph Block", "Sub Graph", Context::Initialize, 0, {
+					{ "Path", K::Text, {}, 0, 0, nullptr, "Block Sub Graph 파일 (.vfxblock)" },
+				}, "다른 파일 (.vfxblock) 의 블록 묶음을 블록 하나로 — 그 파일의 Blackboard 속성이 이 블록의 값, 놓인 문맥 (Initialize · Update) 의 블록들이 펼쳐진다", true },
 			};
 		}
 
@@ -243,6 +260,37 @@ namespace Vfx
 			if (Simplify(p.Name) == n)
 				return &p;
 		return nullptr;
+	}
+
+	std::shared_ptr<const BlockDesc> EffectiveBlockDesc(const Block& b)
+	{
+		const BlockDesc* d = FindBlock(b.Type);
+		if (!d)
+			return nullptr;
+		if (std::string(d->Type) != "SubgraphBlock")
+			return std::shared_ptr<const BlockDesc>(d, [](const BlockDesc*) {});   // 정의표 그대로 (지우지 않는다)
+		// Sub Graph Block: Path + 파일의 속성 (파일의 판이 바뀌면 다시)
+		std::string path;
+		for (auto it = b.Params.begin(); it != b.Params.end(); ++it)
+			if (Simplify(it.key()) == "path" && it->is_string()) path = it->get<std::string>();
+		const Loaded l = path.empty() ? Loaded{} : Load(path);
+		static std::map<std::string, std::pair<uint64_t, std::shared_ptr<BlockDesc>>> s_Cache;
+		static std::set<std::string> s_Names;   // ParamDesc.Name 이 가리키는 글자 (오래 산다)
+		auto& slot = s_Cache[path];
+		if (slot.second && slot.first == l.Revision)
+			return slot.second;
+		auto desc = std::make_shared<BlockDesc>(*d);
+		if (l.Data)
+			for (const Property& p : l.Data->Properties)
+			{
+				const char* name = s_Names.insert(p.Name).first->c_str();
+				ParamDesc pd{ name, K::Float, p.Value, p.Min, p.Max, nullptr, "Sub Graph Block 입력 (파일의 Blackboard 속성)" };
+				pd.Kind = p.Type == PropertyType::Vector3 ? K::Vector3 : p.Type == PropertyType::Color ? K::Color : p.Type == PropertyType::Int ? K::Int : p.Type == PropertyType::Bool ? K::Bool : K::Float;
+				pd.NoLink = true;   // 연산 노드는 이을 수 없다 (속성 연결 🔗 은 된다)
+				desc->Params.push_back(pd);
+			}
+		slot = { l.Revision, desc };
+		return desc;
 	}
 
 	std::vector<std::string> EnumOptions(const ParamDesc& p)
@@ -702,6 +750,28 @@ namespace Vfx
 						if (!AttributeLanes(name, lane, width))
 							issues.push_back(s.Name + ": Set Attribute uses " + (name.empty() ? std::string("no attribute") : "a missing (or past 4 floats) attribute '" + name + "'"));
 					}
+					auto text = [&](const char* key) { const json* j = ParamJson(b, key); return j && j->is_string() ? j->get<std::string>() : std::string(); };
+					if (d->Id == 0)
+					{
+						const std::string path = text("Path");
+						const Loaded l = path.empty() ? Loaded{} : Load(path);
+						if (path.empty()) issues.push_back(s.Name + ": Sub Graph Block has no file (.vfxblock)");
+						else if (!l.Data) issues.push_back(s.Name + ": Sub Graph Block '" + path + "': " + (l.Error.empty() ? std::string("cannot load") : l.Error));
+						else if (l.Data->Systems.empty()) issues.push_back(s.Name + ": Sub Graph Block '" + path + "' has no block list (needs one system)");
+					}
+					if (d->Id == 31)
+					{
+						const std::string mesh = text("Mesh").empty() ? std::string("Sphere") : text("Mesh");
+						const auto m = LoadCpuMesh(mesh);
+						if (!m->Error.empty()) issues.push_back(s.Name + ": Collide with SDF: " + m->Error);
+						for (const Block& o : blocks)
+							if (&o != &b && o.Type == b.Type)
+							{
+								const json* oj = ParamJson(o, "Mesh");
+								const std::string om = oj && oj->is_string() && !oj->get<std::string>().empty() ? oj->get<std::string>() : std::string("Sphere");
+								if (om != mesh) { issues.push_back(s.Name + ": one SDF mesh per system - Collide with SDF blocks use '" + mesh + "' and '" + om + "'"); break; }
+							}
+					}
 					for (auto it = b.Bind.begin(); it != b.Bind.end(); ++it)
 						if (!it->is_string() || !FindProperty(it->get<std::string>()))
 							issues.push_back(s.Name + ": block '" + b.Type + "' binds '" + it.key() + "' to a missing property");
@@ -915,6 +985,30 @@ namespace Vfx
 		}
 		case 28: v.push_back(Make(c.S("Max"))); break;
 		case 30: v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss"), c.S("Thickness"))); break;
+		case 31:
+		{
+			// 거리장: 시뮬레이션 공간 → 메시 공간 (역행렬 세 열), 메시 → 시뮬레이션 (세 열), 칸 (모서리 · 한 변), 칸 수 · 거리 배율, 튕김 값
+			std::string mesh = "Sphere";
+			if (const json* j = ParamJson(b, "Mesh"); j && j->is_string() && !j->get<std::string>().empty()) mesh = j->get<std::string>();
+			const auto sdf = BakeSdf(mesh, (int)std::round(std::clamp(c.S("Resolution"), 16.0f, 96.0f)));
+			if (!sdf->Error.empty())
+				return false;
+			const F4 pos = c.V("Position"), rot = c.V("Rotation"), scl = c.V("Scale");
+			auto rad = [](float d) { return d * 3.14159265f / 180.0f; };
+			Matrix m = Matrix::CreateScale(Vec3((std::max)(scl[0], 1e-4f), (std::max)(scl[1], 1e-4f), (std::max)(scl[2], 1e-4f))) *
+				Matrix::CreateFromYawPitchRoll(rad(rot[1]), rad(rot[0]), rad(rot[2])) * Matrix::CreateTranslation(Vec3(pos[0], pos[1], pos[2]));
+			if (w) m = m * Matrix(w);   // World 시스템: Visual Effect 의 변환까지 (파티클 자리는 월드)
+			const Matrix inv = m.Invert();
+			// 행 벡터 (p' = p M): p'.x = dot((p, 1), 열 0)
+			auto column = [](const Matrix& x, int k) { const float* f = &x._11; return Make(f[k], f[4 + k], f[8 + k], f[12 + k]); };
+			for (int k = 0; k < 3; ++k) v.push_back(column(inv, k));
+			for (int k = 0; k < 3; ++k) v.push_back(column(m, k));
+			const float scale = (Vec3(m._11, m._12, m._13).Length() + Vec3(m._21, m._22, m._23).Length() + Vec3(m._31, m._32, m._33).Length()) / 3.0f;
+			v.push_back(Make(sdf->Min[0], sdf->Min[1], sdf->Min[2], sdf->Voxel));
+			v.push_back(Make((float)sdf->N[0], (float)sdf->N[1], (float)sdf->N[2], scale));
+			v.push_back(Make(c.S("Bounce"), c.S("Friction"), c.S("LifetimeLoss"), c.S("Radius")));
+			break;
+		}
 		case 29:
 		{
 			const F4 p = c.V("Center"), axis = c.V("Axis");
@@ -993,20 +1087,59 @@ namespace Vfx
 		}
 	}
 
-	void Encode(const System& s, const PropertySource& props, const float* world, Encoded& out, const Asset* asset)
+	namespace
 	{
-		out.Program.clear();
-		const float* w = s.Local ? nullptr : world;
-		auto encodeList = [&](const std::vector<Block>& blocks, Context ctx, uint32_t& start, uint32_t& count) {
-			start = (uint32_t)out.Program.size();
-			count = 0;
+		// Sub Graph Block 안의 속성: 파일의 Blackboard 기본값 → 바깥 블록의 값 → 바깥 블록의 속성 연결 (바깥 Visual Effect 의 값)
+		struct SubgraphProps : PropertySource
+		{
+			const Asset& Sub;
+			const Block& Outer;
+			const PropertySource& OuterProps;
+			SubgraphProps(const Asset& sub, const Block& outer, const PropertySource& outerProps) : Sub(sub), Outer(outer), OuterProps(outerProps) {}
+			bool Get(const std::string& name, std::array<float, 4>& out) const override
+			{
+				const Property* p = Sub.FindProperty(name);
+				if (!p)
+					return false;
+				out = p->Value;
+				for (auto it = Outer.Bind.begin(); it != Outer.Bind.end(); ++it)
+					if (Simplify(it.key()) == Simplify(name) && it->is_string())
+					{
+						std::array<float, 4> v;
+						if (OuterProps.Get(it->get<std::string>(), v)) { out = v; return true; }
+					}
+				if (const json* j = ParamJson(Outer, name.c_str()))
+					out = ValueFromJson(*j, out);
+				return true;
+			}
+		};
+		constexpr int kMaxBlockSubgraphLevel = 4;
+
+		// 블록 목록 하나 (Sub Graph Block 은 그 파일의 같은 문맥 블록들로 펼친다). top = 사용자 속성을 정한 에셋 (맨 위 .vfx)
+		void EncodeBlocks(const std::vector<Block>& blocks, Context ctx, const PropertySource& props, const float* w, const Asset* asset, const Asset* top,
+			Encoded& out, uint32_t& count, int level)
+		{
 			for (const Block& b : blocks)
 			{
 				const BlockDesc* d = FindBlock(b.Type);
 				if (!b.Enabled || !d || !AllowedIn(*d, ctx))
 					continue;
+				if (d->Id == 0)
+				{
+					if (level >= kMaxBlockSubgraphLevel)
+						continue;
+					const json* pj = ParamJson(b, "Path");
+					const std::string path = pj && pj->is_string() ? pj->get<std::string>() : std::string();
+					const Loaded l = path.empty() ? Loaded{} : Load(path);
+					if (!l.Data || l.Data->Systems.empty())
+						continue;
+					const System& inner = l.Data->Systems[0];
+					const SubgraphProps sp(*l.Data, b, props);
+					EncodeBlocks(ctx == Context::Initialize ? inner.Initialize : inner.Update, ctx, sp, w, l.Data.get(), top, out, count, level + 1);
+					continue;
+				}
 				std::vector<F4> v;
-				if (!EncodeSlots(b, *d, props, w, v, asset))
+				if (!EncodeSlots(b, *d, props, w, v, top))
 					continue;
 				// 연산 노드에 이은 값: 그 값이 든 칸마다 식 (칸의 상수 → 노드 값으로 성분 바꾸기). 머리 = (종류, 칸 + 식 수, 칸 수, 식 있는 칸 비트)
 				std::vector<F4> exprs;
@@ -1018,9 +1151,19 @@ namespace Vfx
 				out.Program.insert(out.Program.end(), exprs.begin(), exprs.end());
 				++count;
 			}
-		};
-		encodeList(s.Initialize, Context::Initialize, out.InitStart, out.InitCount);
-		encodeList(s.Update, Context::Update, out.UpdateStart, out.UpdateCount);
+		}
+	}
+
+	void Encode(const System& s, const PropertySource& props, const float* world, Encoded& out, const Asset* asset)
+	{
+		out.Program.clear();
+		const float* w = s.Local ? nullptr : world;
+		out.InitStart = (uint32_t)out.Program.size();
+		out.InitCount = 0;
+		EncodeBlocks(s.Initialize, Context::Initialize, props, w, asset, asset, out, out.InitCount, 0);
+		out.UpdateStart = (uint32_t)out.Program.size();
+		out.UpdateCount = 0;
+		EncodeBlocks(s.Update, Context::Update, props, w, asset, asset, out, out.UpdateCount, 0);
 		if (out.Program.empty())
 			out.Program.push_back(Make(0));   // 빈 버퍼는 만들 수 없다
 	}

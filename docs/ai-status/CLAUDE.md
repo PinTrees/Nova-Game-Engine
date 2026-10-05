@@ -14,6 +14,15 @@
     - 고친 것: `Tools/package_release.ps1` 의 Mono 복사 경로에 `\r` `\n` 이 실제 글자로 들어가 있던 것 (cac1b68 때 깨짐), zip 의 읽어 보기에 Vulkan, 메시 그리기 검사의 카메라를 가까이 (Release 에서 0.92 %)
     - Hub 설치 파일: v0.1.0 의 NovaHubSetup.exe (SHA256 43a0692b…) 를 그대로 다시 올림 — Hub 의 안드로이드 모듈 · Mono 변경은 다음 서명 빌드 (package_hub.ps1 + 인증서) 때
   - 처음 깊이 충돌이 듣지 않던 까닭: 깊이 텍스처가 뷰보다 커서 NDC → 화소를 텍스처 크기로 바꾸면 엉뚱한 화소 → 지금 뷰포트 (RSGetViewports) 로
+- 같은 날 이어서 — **VFX Graph 끝: SDF 충돌 · 모델 파일 Output Mesh · Compare / Branch · Block Sub Graph** (사용자 지시: "이거로 일단 VFX 그래프 끝내고"). **완료 (커밋, 푸시 전)**
+  - 새 `Source/Effects/VfxMeshes.*`: 메시 이름 → CPU 사본 (엔진 기본 GeometryGenerator · 모델 파일 ResourceManager::LoadMeshFile — FBX · glTF · GLB · VRM, OBJ 는 엔진이 불러오지 않는다;
+    번호 없으면 스킨 메시 모두 합침, `#n`), `BakeSdf` (가장 긴 변 N 칸 — 삼각형 둘레 정확한 거리 → 가장 가까운 점 물려받기 두 번 → 가장자리에서 칠한 바깥 + 정점 법선 부호)
+  - 셰이더 `58. VFX.fx`: 블록 31 Collide with SDF (gSdf raw 버퍼, 세 방향 보간 · 기울기 법선, 다음 자리 기준), Eval op 32 Compare · 33 And · 34 Or · 44 Branch · 63 Not
+  - `VfxAsset.*`: ParamDesc.NoLink, CollideSDF (행렬 = 크기 · 회전 · 자리 × World 의 역 · 정방향 열, 거리 배율), SubgraphBlock (Id 0, AnyContext — Encode 가 .vfxblock 첫 시스템의 같은 문맥 블록으로 펼친다,
+    SubgraphProps 로 입력 = 파일 기본 → 바깥 값 → 바깥 속성 연결, 4 겹), EffectiveBlockDesc (입력을 값으로 — 이름은 오래 사는 표), Validate (파일 · 메시 · 시스템마다 SDF 하나)
+  - `VfxOperators.cpp` (Compare · Branch · And · Or · Not, DependencyRevision 에 .vfxblock, DefaultBlockSubgraph), `VfxRuntime.cpp` (메시 = VfxMeshes, 시스템마다 SDF 굽기 · 올리기 · gSdf 묶기),
+    `VfxGraphWindow.*` (EffectiveBlockDesc 로 그리기, Mesh 고르기 = 기본 + 프로젝트 모델, Path = .vfxblock / .vfxoperator, Open Sub Graph Block, Create > Visual Effect Subgraph Block), `VfxCli.cpp` (blockgraph.new · list)
+  - 검사: vfx · vfxgl · vfxvk **56/56** (Compare + Branch, glTF 로 구운 SDF 에 멈춤, 모델 Output Mesh, Block Sub Graph 추가 — 검사가 2 x 1 x 2 glTF 상자를 base64 로 쓴다), `android_vfx.ps1` MuMu **13/13** (SDF + Compare/Branch 추가). Showcase 225 ~ 226
 - 같은 날 이어서 — **DX = Vulkan 비교 검사 고침** (사용자 지시: 작업 칩 "Fix missing-texture fallback differing DX vs Vulkan" 을 여기서). **완료 (커밋, 푸시 전)**
   - 칩의 가정 (묶음에 없는 텍스처의 대체 색) 은 틀렸다: Culling 장면 재질은 텍스처를 쓰지 않는다. 묶음 실행은 창 배치 파일이 달라 캡처가 1243 x 630 (저장소는 1143 x 567)
   - 다른 화소는 두 실행 모두 1 ~ 3 개뿐 (0.0002 ~ 0.0004 %), 셋 다 두 면이 만나는 가로 모서리에 걸친 화소가 다른 면으로 갈린 것 — 채우기 규칙 (Y 뒤집기) 문제라면 같은 모서리의 화소가 줄줄이 달라야 한다 →

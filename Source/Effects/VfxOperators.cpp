@@ -27,10 +27,10 @@ namespace Vfx
 		{
 			OpConst = 1, OpTime = 2, OpDeltaTime = 3, OpAge = 4, OpLifetime = 5, OpAge01 = 6, OpPosition = 7, OpVelocity = 8, OpColor = 9,
 			OpSize = 10, OpSpeed = 11, OpRandParticle = 12, OpRandFrame = 13, OpGetAttribute = 14,
-			OpAdd = 20, OpSub = 21, OpMul = 22, OpDiv = 23, OpMin = 24, OpMax = 25, OpPow = 26, OpStep = 27, OpDot = 28, OpCross = 29, OpDistance = 30, OpMod = 31,
-			OpLerp = 40, OpClamp = 41, OpSmoothstep = 42, OpRemap = 43,
+			OpAdd = 20, OpSub = 21, OpMul = 22, OpDiv = 23, OpMin = 24, OpMax = 25, OpPow = 26, OpStep = 27, OpDot = 28, OpCross = 29, OpDistance = 30, OpMod = 31, OpCompare = 32, OpAnd = 33, OpOr = 34,
+			OpLerp = 40, OpClamp = 41, OpSmoothstep = 42, OpRemap = 43, OpBranch = 44,
 			OpAbs = 50, OpSin = 51, OpCos = 52, OpFrac = 53, OpSaturate = 54, OpOneMinus = 55, OpNegate = 56, OpLength = 57, OpNormalize = 58,
-			OpFloor = 59, OpSqrt = 60, OpRound = 61, OpHsv = 62,
+			OpFloor = 59, OpSqrt = 60, OpRound = 61, OpHsv = 62, OpNot = 63,
 			OpSplit = 70, OpCombine = 71,
 			OpCurve = 80, OpGradient = 81, OpNoise = 82, OpNoiseVec = 83,
 		};
@@ -102,6 +102,14 @@ namespace Vfx
 				{ "NoiseVector", "Noise (Vector)", "Sampling", { { "Position", K::Vector3, zero }, { "Frequency", K::Float, one } }, {}, K::Vector3, "3D 잡음 벡터 (-1..1) — 흔들림 · 흐름" },
 				// ---------------------------------------------------------------- Color
 				{ "HSVToRGB", "HSV to RGB", "Color", { { "H", K::Float, zero }, { "S", K::Float, one }, { "V", K::Float, one } }, {}, K::Color, "색상 (0..1 한 바퀴) · 채도 · 밝기 → 색" },
+				// ---------------------------------------------------------------- Logic (Unity 의 Compare · Branch · Logical And / Or / Not — 참 = 1, 거짓 = 0)
+				{ "Compare", "Compare", "Logic", { { "A", K::Float, zero }, { "B", K::Float, zero } },
+					{ { "Condition", K::Enum, { 2 }, 0, 0, "Equal|Not Equal|Less|Less Or Equal|Greater|Greater Or Equal", "A 와 B 를 견준다 (x 성분)" } }, K::Bool, "A ? B → 1 (참) 또는 0 (거짓)" },
+				{ "Branch", "Branch", "Logic", { { "Predicate", K::Float, one }, { "True", K::Float, one }, { "False", K::Float, zero } }, {}, K::Float,
+					"Predicate 가 참 (0.5 보다 크면) 이면 True, 아니면 False — 벡터 · 색도" },
+				{ "And", "Logical And", "Logic", { { "A", K::Float, one }, { "B", K::Float, one } }, {}, K::Bool, "둘 다 참이면 1" },
+				{ "Or", "Logical Or", "Logic", { { "A", K::Float, zero }, { "B", K::Float, zero } }, {}, K::Bool, "하나라도 참이면 1" },
+				{ "Not", "Logical Not", "Logic", { { "X", K::Float, zero } }, {}, K::Bool, "참이면 0, 거짓이면 1" },
 				// ---------------------------------------------------------------- Sub Graph (Unity 의 Visual Effect Subgraph Operator)
 				{ "SubGraph", "Sub Graph", "Sub Graph", {}, { { "Path", K::Text, {}, 0, 0, nullptr, "Sub Graph 파일 (.vfxoperator)" } }, K::Float,
 					"다른 파일 (.vfxoperator) 의 연산 노드 묶음을 노드 하나로 — 그 파일의 Blackboard 속성이 입력, Output (Sub Graph) 노드가 결과" },
@@ -318,6 +326,22 @@ namespace Vfx
 					op(OpSplit, (float)c);
 				}
 				else if (t == "Combine") op(OpCombine);
+				else if (t == "Compare")
+				{
+					const json* s = Setting(*n, "Condition");
+					int c = 2;
+					if (s && s->is_number()) c = std::clamp(s->get<int>(), 0, 5);
+					else if (s && s->is_string())
+					{
+						static const char* names[] = { "equal", "notequal", "less", "lessorequal", "greater", "greaterorequal" };
+						for (int k = 0; k < 6; ++k) if (Simplify(s->get<std::string>()) == names[k]) c = k;
+					}
+					op(OpCompare, (float)c);
+				}
+				else if (t == "Branch") op(OpBranch);
+				else if (t == "And") op(OpAnd);
+				else if (t == "Or") op(OpOr);
+				else if (t == "Not") op(OpNot);
 				else if (t == "SampleCurve" || t == "SampleGradient")
 				{
 					// 곡선 16 칸 (명령 뒤 4 칸) · 그라디언트 8 칸 (8 칸) — 블록의 곡선 · 그라디언트와 같은 표본
@@ -397,8 +421,8 @@ namespace Vfx
 
 	bool Linkable(const ParamDesc& p)
 	{
-		return p.Kind == ParamKind::Float || p.Kind == ParamKind::Int || p.Kind == ParamKind::Bool || p.Kind == ParamKind::Enum ||
-			p.Kind == ParamKind::Vector3 || p.Kind == ParamKind::Color;
+		return !p.NoLink && (p.Kind == ParamKind::Float || p.Kind == ParamKind::Int || p.Kind == ParamKind::Bool || p.Kind == ParamKind::Enum ||
+			p.Kind == ParamKind::Vector3 || p.Kind == ParamKind::Color);
 	}
 
 	json OperatorToJson(const OperatorNode& n)
@@ -478,21 +502,49 @@ namespace Vfx
 	{
 		uint64_t h = 0;
 		std::function<void(const Asset&, int)> visit = [&](const Asset& a, int level) {
-			for (const OperatorNode& n : a.Operators)
-			{
-				if (n.Type != "SubGraph")
-					continue;
-				const std::string path = SettingText(n, "Path");
+			auto file = [&](const std::string& path) {
 				if (path.empty())
-					continue;
+					return;
 				const Loaded l = Load(path);
 				h = (h ^ (l.Revision + 0x9E3779B97F4A7C15ull + (h << 6) + (h >> 2))) * 1099511628211ull;
 				if (l.Data && level < kMaxSubgraphLevel)
 					visit(*l.Data, level + 1);
-			}
+			};
+			for (const OperatorNode& n : a.Operators)
+				if (n.Type == "SubGraph")
+					file(SettingText(n, "Path"));
+			// Block Sub Graph (.vfxblock)
+			for (const System& s : a.Systems)
+				for (const auto* list : { &s.Initialize, &s.Update })
+					for (const Block& b : *list)
+						if (b.Type == "SubgraphBlock")
+							for (auto it = b.Params.begin(); it != b.Params.end(); ++it)
+								if (Simplify(it.key()) == "path" && it->is_string())
+									file(it->get<std::string>());
 		};
 		visit(asset, 0);
 		return h;
+	}
+
+	Asset DefaultBlockSubgraph()
+	{
+		// 입력 Strength → Update 의 Turbulence 세기 (Initialize 에 놓으면 그쪽 목록 — 비어 있다)
+		Asset a;
+		Property in;
+		in.Name = "Strength";
+		in.Value = { 3, 3, 3, 3 };
+		in.Min = 0.0f;
+		in.Max = 20.0f;
+		a.Properties.push_back(in);
+		System s;
+		s.Name = "Block";
+		s.SpawnCtx.Rate = 0.0f;
+		Block t;
+		t.Type = "Turbulence";
+		t.Bind = { { "Intensity", "Strength" } };
+		s.Update.push_back(t);
+		a.Systems.push_back(s);
+		return a;
 	}
 
 	Asset DefaultSubgraph()

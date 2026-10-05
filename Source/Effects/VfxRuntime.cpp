@@ -6,7 +6,7 @@
 #include "SpriteBatch.h"
 #include "Effects.h"
 #include "Profiler.h"
-#include "GeometryGenerator.h"
+#include "VfxMeshes.h"
 #include <map>
 
 // GPU 버퍼 (Visual Effect 하나 = 시스템마다 한 벌)
@@ -35,6 +35,8 @@ struct VfxGpuSystem
 	Buf Particles, State, Events, Program;
 	Buf Trail, TrailVerts;              // 꼬리: 기록 · 띠 조각 (정점 버퍼)
 	Buf SortKeys, Sorted;               // 정렬: 키 · 정렬된 사본 (정점 버퍼)
+	Buf Sdf;                            // Collide with SDF 의 거리장 (칸마다 float)
+	const void* SdfSource = nullptr;    // 올린 거리장 (Vfx::BakeSdf 결과 — 바뀌면 다시 올린다)
 	UINT Capacity = 0, EventCapacity = 0, TrailPoints = 0, SortCount = 0;
 	bool NeedsReset = true;
 	bool TrailReady = false;            // 이번 프레임 띠 조각을 만들었다
@@ -74,7 +76,7 @@ namespace
 		FxVar *ViewProj, *World, *CamRight, *Time, *CamUp, *Dt, *CamPos, *CamFwd, *Capacity, *SpawnCount, *FromEvents, *EventCapacity, *EmitOnDie, *EmitRate,
 			*InitStart, *InitCount, *UpdateStart, *UpdateCount, *Seed, *LocalSpace, *TrailPoints, *TrailInterval, *TrailWidth, *SortCount, *SortK, *SortJ,
 			*Output0, *Output1, *DepthParams, *WorldInv, *CollViewProj, *CollInvViewProj, *CollParams, *CollCam, *CollViewport, *SunDir, *SunColor, *Ambient;
-		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth, *CollDepth;
+		FxVar *Program, *Particles, *State, *Events, *EventsIn, *Trail, *TrailVerts, *SortKeys, *Sorted, *Texture, *SceneDepth, *CollDepth, *Sdf;
 	} s_V = {};
 	uint64 s_FrameMark = 1, s_SimulatedMark = 0;
 	// 쓰지 않는 칸에 묶는 작은 버퍼 (Vulkan · GL 은 셰이더가 선언한 버퍼가 모두 묶여 있어야 한다).
@@ -186,7 +188,7 @@ namespace
 			var("gSortCount"), var("gSortK"), var("gSortJ"), var("gOutput0"), var("gOutput1"), var("gDepthParams"),
 			var("gWorldInv"), var("gCollViewProj"), var("gCollInvViewProj"), var("gCollParams"), var("gCollCam"), var("gCollViewport"), var("gSunDir"), var("gSunColor"), var("gAmbient"),
 			var("gProgram"), var("gParticles"), var("gState"), var("gEvents"), var("gEventsIn"), var("gTrail"), var("gTrailVerts"), var("gSortKeys"), var("gSorted"),
-			var("gTexture"), var("gSceneDepth"), var("gCollDepth") };
+			var("gTexture"), var("gSceneDepth"), var("gCollDepth"), var("gSdf") };
 		s_State = 1;
 		EditorLog::Write("VFX", "58. VFX.fx loaded");
 		return true;
@@ -391,65 +393,48 @@ namespace
 		return p;
 	}
 
-	// Output Mesh 의 기본 메시 (GeometryGenerator — 크기 1). Crystal = 위아래로 늘린 정이십면체, 면마다 평평한 법선
+	// Output Mesh 의 메시 (VfxMeshes: 엔진 기본 · 모델 파일) → 정점 · 인덱스 버퍼
 	MeshBuf* GetMesh(const std::string& name)
 	{
 		MeshBuf& m = s_Meshes[name];
 		if (m.Tried)
 			return m.Count > 0 ? &m : nullptr;
 		m.Tried = true;
-		GeometryGenerator gen;
-		GeometryGenerator::MeshData data;
-		bool flat = false;
-		if (name == "Sphere") gen.CreateSphere(0.5f, 16, 12, data);
-		else if (name == "Cylinder") gen.CreateCylinder(0.5f, 0.5f, 1.0f, 16, 1, data);
-		else if (name == "Cone") gen.CreateCylinder(0.5f, 0.001f, 1.0f, 16, 1, data);
-		else if (name == "Crystal") { gen.CreateGeosphere(0.5f, 0, data); flat = true; }
-		else gen.CreateBox(1.0f, 1.0f, 1.0f, data);
-		std::vector<float> v;
-		std::vector<uint32_t> idx;
-		if (flat)
-		{
-			for (size_t i = 0; i + 2 < data.indices.size(); i += 3)
-			{
-				XMFLOAT3 p[3];
-				for (int k = 0; k < 3; ++k)
-				{
-					p[k] = data.vertices[data.indices[i + k]].position;
-					p[k].y *= 1.7f;
-				}
-				const Vec3 a(p[0].x, p[0].y, p[0].z), b(p[1].x, p[1].y, p[1].z), c(p[2].x, p[2].y, p[2].z);
-				Vec3 n = (b - a).Cross(c - a);
-				n.Normalize();
-				for (int k = 0; k < 3; ++k)
-				{
-					v.insert(v.end(), { p[k].x, p[k].y, p[k].z, n.x, n.y, n.z });
-					idx.push_back((uint32_t)idx.size());
-				}
-			}
-		}
-		else
-		{
-			for (const auto& vx : data.vertices)
-				v.insert(v.end(), { vx.position.x, vx.position.y, vx.position.z, vx.normal.x, vx.normal.y, vx.normal.z });
-			idx.assign(data.indices.begin(), data.indices.end());
-		}
-		if (v.empty() || idx.empty())
+		const auto cpu = Vfx::LoadCpuMesh(name);
+		if (!cpu->Error.empty())
 			return nullptr;
 		D3D11_BUFFER_DESC d = {};
 		d.Usage = D3D11_USAGE_IMMUTABLE;
-		d.ByteWidth = (UINT)(v.size() * sizeof(float));
+		d.ByteWidth = (UINT)(cpu->PosNormal.size() * sizeof(float));
 		d.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-		D3D11_SUBRESOURCE_DATA init = { v.data(), 0, 0 };
+		D3D11_SUBRESOURCE_DATA init = { cpu->PosNormal.data(), 0, 0 };
 		if (FAILED(Dev()->CreateBuffer(&d, &init, m.Vb.GetAddressOf())))
 			return nullptr;
-		d.ByteWidth = (UINT)(idx.size() * sizeof(uint32_t));
+		d.ByteWidth = (UINT)(cpu->Indices.size() * sizeof(uint32_t));
 		d.BindFlags = D3D11_BIND_INDEX_BUFFER;
-		init.pSysMem = idx.data();
+		init.pSysMem = cpu->Indices.data();
 		if (FAILED(Dev()->CreateBuffer(&d, &init, m.Ib.GetAddressOf())))
 			return nullptr;
-		m.Count = (UINT)idx.size();
+		m.Count = (UINT)cpu->Indices.size();
 		return &m;
+	}
+
+	// 시스템의 Collide with SDF 메시 · 해상도 (첫 블록 — 시스템마다 거리장 하나)
+	bool SdfOf(const Vfx::System& s, std::string& mesh, int& res)
+	{
+		for (const Vfx::Block& b : s.Update)
+			if (b.Enabled && b.Type == "CollideSDF")
+			{
+				mesh = "Sphere";
+				res = 48;
+				for (auto it = b.Params.begin(); it != b.Params.end(); ++it)
+				{
+					if (it.key() == "Mesh" && it->is_string() && !it->get<std::string>().empty()) mesh = it->get<std::string>();
+					if (it.key() == "Resolution" && it->is_number()) res = std::clamp((int)std::round(it->get<float>()), 16, 96);
+				}
+				return true;
+			}
+		return false;
 	}
 
 	// 이 에셋에 깊이 버퍼 충돌 블록이 있는가
@@ -622,7 +607,27 @@ namespace
 				SetU(s_V.EmitOnDie, emitsDie[i] ? 1u : 0u);
 				SetF(s_V.EmitRate, emitRate[i]);
 				SetU(s_V.EventCapacity, g.EventCapacity);
-				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() }, { s_V.CollDepth, coll.On && coll.Depth ? coll.Depth : SpriteBatch::WhiteTexture() } },
+				// Collide with SDF: 메시 거리장 (처음 · 바뀌면 굽고 올린다)
+				GfxShaderResourceView* sdfSrv = Dummy(2).Srv.Get();
+				{
+					std::string mesh;
+					int res = 48;
+					if (SdfOf(sys, mesh, res))
+					{
+						const auto sdf = Vfx::BakeSdf(mesh, res);
+						if (sdf->Error.empty())
+						{
+							if (g.SdfSource != sdf.get() && EnsureRaw(g.Sdf, (UINT)(sdf->Distance.size() * 4), 0, true))
+							{
+								WriteBytes(dc, g.Sdf, 0, sdf->Distance.data(), (UINT)(sdf->Distance.size() * 4));
+								g.SdfSource = sdf.get();
+							}
+							if (g.SdfSource == sdf.get())
+								sdfSrv = g.Sdf.Srv.Get();
+						}
+					}
+				}
+				Run(dc, s_Update, { { s_V.Program, g.Program.Srv.Get() }, { s_V.CollDepth, coll.On && coll.Depth ? coll.Depth : SpriteBatch::WhiteTexture() }, { s_V.Sdf, sdfSrv } },
 					{ { s_V.Particles, g.Particles.Uav.Get() }, { s_V.State, g.State.Uav.Get() },
 					  { s_V.Events, emits ? g.Events.Uav.Get() : Dummy(0).Uav.Get() }, { s_V.Trail, trailPoints > 0 ? g.Trail.Uav.Get() : Dummy(1).Uav.Get() } }, capacity);
 				CopyState(dc, g);

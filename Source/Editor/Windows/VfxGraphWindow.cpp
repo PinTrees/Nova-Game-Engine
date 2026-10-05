@@ -523,7 +523,8 @@ void VfxGraphWindow::DrawBlackboard(float width, float height)
 		ImGui::EndPopup();
 	}
 	const bool subgraph = Lower(fs::path(m_Path).extension().string()) == Vfx::kSubgraphExtension;
-	ImGui::TextDisabled("%s", subgraph ? "Sub Graph inputs (Property nodes read them)" : "Exposed properties (Inspector override)");
+	const bool blockSubgraph = Lower(fs::path(m_Path).extension().string()) == Vfx::kBlockSubgraphExtension;
+	ImGui::TextDisabled("%s", subgraph ? "Sub Graph inputs (Property nodes read them)" : blockSubgraph ? "Block inputs (bind block values to them)" : "Exposed properties (Inspector override)");
 	ImGui::Separator();
 	for (int i = 0; i < (int)m_Asset.Properties.size(); ++i)
 	{
@@ -620,6 +621,22 @@ void VfxGraphWindow::DrawBlackboard(float width, float height)
 	ImGui::EndChild();
 }
 
+// 메시 고르기: 엔진 기본 + 프로젝트의 모델 파일 (FBX · GLB · glTF · VRM — 첫 메시, 다른 메시는 이름 뒤 #n)
+std::vector<std::string> VfxGraphWindow::MeshChoices()
+{
+	std::vector<std::string> out = Vfx::MeshNames();
+	if (m_MeshFilesAge-- <= 0)
+	{
+		m_MeshFiles.clear();
+		for (const char* ext : { ".fbx", ".glb", ".gltf", ".vrm" })
+			for (const std::string& f : Vfx::FindAssets(ext))
+				m_MeshFiles.push_back(f);
+		m_MeshFilesAge = 120;   // 프로젝트를 훑는 것은 가끔 (콤보는 프레임마다 그린다)
+	}
+	out.insert(out.end(), m_MeshFiles.begin(), m_MeshFiles.end());
+	return out;
+}
+
 // 노드 안의 짧은 값 편집 (콤보 · 색 고르기 창은 노드 편집기 안에서 열 수 없어 Inspector 로)
 bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, bool compact, int sys, int ctx, int block, bool allowBind)
 {
@@ -713,14 +730,15 @@ bool VfxGraphWindow::DrawBlockFields(Vfx::Block& b, const Vfx::BlockDesc& d, boo
 				const std::string kind = p.Name;
 				std::vector<std::string> names;
 				if (kind == "Attribute") for (const Vfx::Attribute& a : m_Asset.Attributes) names.push_back(a.Name);
-				else if (kind == "Path") names = Vfx::FindAssets(Vfx::kSubgraphExtension);
+				else if (kind == "Path") names = Vfx::FindAssets(std::string(d.Type) == "SubgraphBlock" ? Vfx::kBlockSubgraphExtension : Vfx::kSubgraphExtension);
+				else if (kind == "Mesh") names = MeshChoices();
 				else for (const Vfx::Property& prop : m_Asset.Properties) names.push_back(prop.Name);
-				const char* empty = kind == "Attribute" ? "(attribute)" : kind == "Path" ? "(sub graph file)" : "(property)";
+				const char* empty = kind == "Attribute" ? "(attribute)" : kind == "Path" ? "(sub graph file)" : kind == "Mesh" ? "Sphere" : "(property)";
 				if (ImGui::BeginCombo("##t", cur.empty() ? empty : cur.c_str()))
 				{
 					for (const std::string& n : names)
 						if (ImGui::Selectable(n.c_str(), n == cur)) { Snapshot(); b.Params[p.Name] = n; changed = true; }
-					if (names.empty()) ImGui::TextDisabled(kind == "Attribute" ? "add one in the Blackboard" : kind == "Path" ? "Project: Create > Visual Effect Subgraph Operator" : "add one in the Blackboard");
+					if (names.empty()) ImGui::TextDisabled(kind == "Attribute" ? "add one in the Blackboard" : kind == "Path" ? "Project: Create > Visual Effect Subgraph Operator / Block" : "add one in the Blackboard");
 					ImGui::EndCombo();
 				}
 				break;
@@ -989,7 +1007,8 @@ void VfxGraphWindow::DrawSystem(int s)
 		for (int i = 0; i < (int)list.size(); ++i)
 		{
 			Vfx::Block& b = list[i];
-			const Vfx::BlockDesc* d = Vfx::FindBlock(b.Type);
+			const auto dHold = Vfx::EffectiveBlockDesc(b);
+			const Vfx::BlockDesc* d = dHold.get();
 			ImGui::PushID(i);
 			bool on = b.Enabled;
 			if (ImGui::Checkbox("##on", &on)) { Snapshot(); b.Enabled = on; Changed(); }
@@ -1256,7 +1275,7 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 		{
 			const auto& list = ctx == 1 ? m_Asset.Systems[si].Initialize : m_Asset.Systems[si].Update;
 			for (int bi = 0; bi < (int)list.size(); ++bi)
-				if (const Vfx::BlockDesc* d = Vfx::FindBlock(list[bi].Type))
+				if (const auto d = Vfx::EffectiveBlockDesc(list[bi]))
 					for (int pi = 0; pi < (int)d->Params.size(); ++pi)
 					{
 						const int from = LinkedTo(list[bi], d->Params[pi].Name);
@@ -1325,7 +1344,7 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 						{
 							auto& list = pr.Ctx == 1 ? m_Asset.Systems[pr.S].Initialize : m_Asset.Systems[pr.S].Update;
 							if (pr.Block < (int)list.size())
-								if (const Vfx::BlockDesc* d = Vfx::FindBlock(list[pr.Block].Type); d && pr.Param < (int)d->Params.size())
+								if (const auto d = Vfx::EffectiveBlockDesc(list[pr.Block]); d && pr.Param < (int)d->Params.size())
 								{
 									list[pr.Block].Links[d->Params[pr.Param].Name] = src;
 									okLink = true;
@@ -1395,7 +1414,7 @@ void VfxGraphWindow::DrawCanvas(float width, float height)
 					{
 						auto& list = pr.Ctx == 1 ? m_Asset.Systems[pr.S].Initialize : m_Asset.Systems[pr.S].Update;
 						if (pr.Block < (int)list.size())
-							if (const Vfx::BlockDesc* d = Vfx::FindBlock(list[pr.Block].Type); d && pr.Param < (int)d->Params.size())
+							if (const auto d = Vfx::EffectiveBlockDesc(list[pr.Block]); d && pr.Param < (int)d->Params.size())
 							{
 								Snapshot();
 								for (auto it = list[pr.Block].Links.begin(); it != list[pr.Block].Links.end(); ++it)
@@ -1822,7 +1841,7 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 		if (m_SelBlock < (int)list.size())
 		{
 			Vfx::Block& b = list[m_SelBlock];
-			if (const Vfx::BlockDesc* d = Vfx::FindBlock(b.Type))
+			if (const auto d = Vfx::EffectiveBlockDesc(b))
 			{
 				ImGui::PushFont(UnityGUI::BoldFont());
 				ImGui::TextUnformatted(d->Label);
@@ -1830,6 +1849,13 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 				ImGui::TextWrapped("%s", d->Help);
 				ImGui::Separator();
 				if (DrawBlockFields(b, *d, false)) Changed();
+				if (b.Type == "SubgraphBlock" && b.Params.contains("Path") && b.Params["Path"].is_string() && !b.Params["Path"].get<std::string>().empty())
+				{
+					if (ImGui::Button(ICON_FA_UP_RIGHT_FROM_SQUARE " Open Sub Graph Block"))
+						Open(b.Params["Path"].get<std::string>());
+					if (d->Params.size() <= 1)
+						ImGui::TextColored(ImVec4(1, 0.75f, 0.3f, 1), "the file has no inputs (Blackboard properties)");
+				}
 				ImGui::Dummy(ImVec2(0, 6));
 				if (m_SelBlock > 0 && ImGui::Button("Move Up")) { Snapshot(); std::swap(list[m_SelBlock], list[m_SelBlock - 1]); --m_SelBlock; Changed(); }
 				ImGui::SameLine();
@@ -1964,10 +1990,11 @@ void VfxGraphWindow::DrawInspector(float width, float height)
 			row("Mesh");
 			if (ImGui::BeginCombo("##mesh", o.Mesh.c_str()))
 			{
-				for (const std::string& m : Vfx::MeshNames())
+				for (const std::string& m : MeshChoices())
 					if (ImGui::Selectable(m.c_str(), m == o.Mesh)) { Snapshot(); o.Mesh = m; Changed(); }
 				ImGui::EndCombo();
 			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Built-in mesh or a model file (Assets/.../x.fbx, add #n for its n-th mesh)");
 			row("Lit");
 			if (ImGui::Checkbox("##lit", &o.Lit)) { Snapshot(); Changed(); }
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shade with the main directional light and the ambient light");
@@ -2088,6 +2115,35 @@ void VfxGraphWindow::RegisterEditor()
 			VfxGraphWindow::Open(path);
 	};
 	EditorExtensions::RegisterAssetType(sub);
+
+	// Create > Visual Effect Subgraph Block (.vfxblock): 블록 묶음을 다른 그래프에서 블록 하나로 (첫 시스템의 Initialize / Update)
+	EditorExtensions::AssetType blockSub = t;
+	blockSub.Extension = Vfx::kBlockSubgraphExtension;
+	blockSub.CreateMenu = "Visual Effect Subgraph Block";
+	blockSub.DefaultName = "New VFX Subgraph Block";
+	blockSub.Create = [](const std::string& path) {
+		std::string err;
+		Vfx::Save(path, Vfx::DefaultBlockSubgraph(), err);
+	};
+	blockSub.Inspector = [](const std::string& path) {
+		const Vfx::Loaded l = Vfx::Load(path);
+		if (!l.Data)
+		{
+			UnityGUI::HelpBox(l.Error.c_str(), true);
+			return;
+		}
+		UnityGUI::ValueLabel("Inputs", std::to_string(l.Data->Properties.size()).c_str());
+		if (!l.Data->Systems.empty())
+		{
+			UnityGUI::ValueLabel("Initialize blocks", std::to_string(l.Data->Systems[0].Initialize.size()).c_str());
+			UnityGUI::ValueLabel("Update blocks", std::to_string(l.Data->Systems[0].Update.size()).c_str());
+		}
+		else
+			UnityGUI::HelpBox("No system - the first system's Initialize / Update blocks are the block list", true);
+		if (UnityGUI::CenterButton("Open in Visual Effect Graph"))
+			VfxGraphWindow::Open(path);
+	};
+	EditorExtensions::RegisterAssetType(blockSub);
 
 	VfxCli::Register([](const std::string& op, const json& args, json& result, std::string& error) {
 		const std::string path = args.value("path", std::string());

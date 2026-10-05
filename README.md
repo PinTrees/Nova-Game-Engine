@@ -69,7 +69,7 @@
 
 | | |
 |---|---|
-| **Visual Effect Graph** | GPU 파티클 수십만 개 (compute) — 블록 18 종, **GPU Event**, **연산 노드 ~50 종** · **Sub Graph** · 사용자 속성, **Output Mesh**, **깊이 버퍼 충돌**, 꼬리 (Particle Strip), GPU 정렬, 화면 밖 컬링, 견본 11 개, **VFX Assistant** (로컬 Claude Code 와 대화로 이펙트 만들기) — [VFX_GRAPH](docs/VFX_GRAPH.md) |
+| **Visual Effect Graph** | GPU 파티클 수십만 개 (compute) — 블록 18 종, **GPU Event**, **연산 노드 ~55 종** (Compare · Branch 포함) · **Sub Graph** (연산 · 블록) · 사용자 속성, **Output Mesh** (모델 파일도), **깊이 버퍼 · SDF 충돌**, 꼬리 (Particle Strip), GPU 정렬, 화면 밖 컬링, 견본 11 개, **VFX Assistant** (로컬 Claude Code 와 대화로 이펙트 만들기) — [VFX_GRAPH](docs/VFX_GRAPH.md) |
 | Particle System | Unity Shuriken 모듈 (Sub Emitters · Trails · Collision · Noise …), Lit · Soft · Lights |
 
 **월드 제작**

@@ -41,6 +41,8 @@ namespace
 		"  attribute.add <path> --name Phase --type Float|Vector3   attribute.remove <path> --name Phase   (custom attributes, 4 floats)\n"
 		"  subgraph.new <Assets/X.vfxoperator> [--overwrite]   Sub Graph file: properties = inputs, Output (Sub Graph) node = result;\n"
 		"      edit it with property.* / op.* like a .vfx, use it with op.add --type SubGraph --params '{\"Path\":\"Assets/X.vfxoperator\"}'\n"
+		"  blockgraph.new <Assets/X.vfxblock> [--overwrite]   Block Sub Graph: properties = inputs, system 'Block' initialize/update = the blocks;\n"
+		"      use it with block.add --type SubgraphBlock --params '{\"Path\":\"Assets/X.vfxblock\",\"Strength\":5}' (either context)\n"
 		"  property.add <path> --name N --type Float|Int|Bool|Vector3|Color --value v [--range 0,10]\n"
 		"  property.set <path> --name N [--value v] [--rename M] [--range a,b]\n"
 		"  property.remove <path> --name N\n"
@@ -243,7 +245,23 @@ namespace
 			return true;
 		}
 		if (op == "templates") { r = { { "templates", Vfx::TemplateNames() } }; return true; }
-		if (op == "list") { r = { { "assets", Vfx::FindAssets() }, { "subgraphs", Vfx::FindAssets(Vfx::kSubgraphExtension) } }; return true; }
+		if (op == "list") { r = { { "assets", Vfx::FindAssets() }, { "subgraphs", Vfx::FindAssets(Vfx::kSubgraphExtension) }, { "blockSubgraphs", Vfx::FindAssets(Vfx::kBlockSubgraphExtension) } }; return true; }
+		if (op == "blockgraph.new")
+		{
+			const std::string path = a.value("path", std::string());
+			if (path.empty() || Simplify(std::filesystem::path(path).extension().string()) != "vfxblock")
+			{
+				e = "blockgraph.new needs a path ending in .vfxblock";
+				return false;
+			}
+			std::error_code ec;
+			if (std::filesystem::exists(Vfx::FullPath(path), ec) && !a.value("overwrite", false))
+			{
+				e = path + " exists (use --overwrite)";
+				return false;
+			}
+			return SaveAsset(path, Vfx::DefaultBlockSubgraph(), r, e);
+		}
 		if (op == "subgraph.new")
 		{
 			const std::string path = a.value("path", std::string());

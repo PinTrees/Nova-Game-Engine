@@ -28,6 +28,7 @@ namespace Vfx
 		const char* Options = nullptr;     // Enum: "A|B|C"
 		const char* Tip = nullptr;
 		ParamSpace Space = ParamSpace::None;
+		bool NoLink = false;               // 연산 노드를 이을 수 없다 (값이 행렬 · 굽기로 바뀌는 것)
 	};
 
 	struct BlockDesc
@@ -43,6 +44,8 @@ namespace Vfx
 	};
 	// 블록을 이 문맥에 놓을 수 있는가
 	inline bool AllowedIn(const BlockDesc& d, Context c) { return d.AnyContext || d.Ctx == c; }
+	// 블록의 실제 값 목록: 보통은 정의표 그대로, Sub Graph Block 은 그 파일의 Blackboard 속성이 값 (입력)
+	std::shared_ptr<const BlockDesc> EffectiveBlockDesc(const struct Block& b);
 
 	const std::vector<BlockDesc>& Blocks();
 	const BlockDesc* FindBlock(const std::string& type);   // 대소문자 · 공백 무시 (Label 도 받는다)
@@ -205,6 +208,8 @@ namespace Vfx
 	std::vector<NodeInput> OperatorInputs(const OperatorNode& n);
 	// Sub Graph 파일 (.vfxoperator — Unity 의 Visual Effect Subgraph Operator): 속성 = 입력, Output (Sub Graph) 노드 = 결과
 	constexpr const char* kSubgraphExtension = ".vfxoperator";
+	// Block Sub Graph 파일 (.vfxblock — Unity 의 Visual Effect Subgraph Block): 속성 = 입력, 첫 시스템의 Initialize / Update 블록이 놓인 문맥에 펼쳐진다
+	constexpr const char* kBlockSubgraphExtension = ".vfxblock";
 
 	struct Asset
 	{
@@ -276,6 +281,8 @@ namespace Vfx
 	std::vector<std::string> FindAssets(const char* extension = ".vfx");   // 프로젝트의 .vfx (또는 .vfxoperator — Assets 기준 경로)
 	// 새 Sub Graph (입력 하나 → Output)
 	Asset DefaultSubgraph();
+	// 새 Block Sub Graph (입력 Strength → Update 의 Turbulence 세기)
+	Asset DefaultBlockSubgraph();
 
 	// 새 에셋의 기본 (Unity 의 Simple Loop: 위로 흩어지는 빛 알갱이)
 	Asset DefaultAsset();

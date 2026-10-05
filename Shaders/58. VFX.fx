@@ -12,6 +12,7 @@
 //  - 경계 상자: Update 가 살아 있는 파티클의 최소 · 최대 자리를 원자적으로 모은다 (CPU 가 몇 프레임 늦게 읽어 화면 밖이면 건너뜀)
 //  - 사용자 속성 (Custom Attribute): 파티클마다 float 4 칸 (Float 1 칸 · Vector3 3 칸), Set Attribute 블록 · Get Attribute 연산 노드
 //  - 깊이 버퍼 충돌 (Collide with Depth Buffer): 프레임의 첫 뷰 장면 깊이에서 표면 자리 · 법선을 되살려 튕긴다
+//  - Collide with SDF: 메시를 구운 거리장 (gSdf — 칸마다 float) 을 세 방향 보간해 거리 · 기울기 (법선) 로 튕긴다
 //  - Output Mesh: 파티클마다 메시 하나 (인스턴스 그리기 — 메시 정점 + 파티클 버퍼), 빛 (해 · 환경광)
 //=============================================================================
 
@@ -63,6 +64,7 @@ RWByteAddressBuffer gTrail;             // 꼬리 기록: 파티클마다 gTrail
 RWByteAddressBuffer gTrailVerts;        // 꼬리 띠 조각: 64 바이트씩 (A 위치 · 너비, B 위치 · 너비, 색, u0 · u1 · 있음) — 인스턴스 정점 버퍼
 RWByteAddressBuffer gSortKeys;          // 정렬: 8 바이트씩 (키 float, 칸 uint)
 RWByteAddressBuffer gSorted;            // 정렬된 순서의 파티클 사본 (인스턴스 정점 버퍼)
+ByteAddressBuffer gSdf;                 // Collide with SDF: 거리장 칸 (x 가 가장 빠르게, float)
 
 Texture2D gTexture;
 Texture2D gSceneDepth;
@@ -225,7 +227,7 @@ float4 Eval(uint pc, uint end)
         }
         else if (op == 14)   // Get Attribute (사용자 속성): ins.y 첫 칸, ins.z 칸 수
             VFX_PUSH(GetCustom(sP.Custom, (uint)ins.y, (uint)ins.z))
-        else if (op >= 20 && op <= 31)
+        else if (op >= 20 && op <= 34)
         {
             // 둘: A (r1) B (r0) → 결과
             const float4 a = r1, b = r0;
@@ -241,7 +243,15 @@ float4 Eval(uint pc, uint end)
             else if (op == 28) r = dot(a.xyz, b.xyz).xxxx;
             else if (op == 29) r = float4(cross(a.xyz, b.xyz), 0.0f);
             else if (op == 30) r = distance(a.xyz, b.xyz).xxxx;
-            else r = a - b * floor(a / (abs(b) > 1e-12f ? b : 1e-12f));
+            else if (op == 31) r = a - b * floor(a / (abs(b) > 1e-12f ? b : 1e-12f));
+            else if (op == 32)   // Compare (x 성분): ins.y = 0 같음 · 1 다름 · 2 작음 · 3 작거나 같음 · 4 큼 · 5 크거나 같음
+            {
+                const uint c = (uint)ins.y;
+                const bool t = c == 0 ? a.x == b.x : c == 1 ? a.x != b.x : c == 2 ? a.x < b.x : c == 3 ? a.x <= b.x : c == 4 ? a.x > b.x : a.x >= b.x;
+                r = t ? 1.0f : 0.0f;
+            }
+            else if (op == 33) r = (a.x > 0.5f && b.x > 0.5f) ? 1.0f : 0.0f;   // And
+            else r = (a.x > 0.5f || b.x > 0.5f) ? 1.0f : 0.0f;                  // Or
             VFX_POP;
             r0 = r;
         }
@@ -257,6 +267,13 @@ float4 Eval(uint pc, uint end)
             VFX_POP;
             r0 = r;
         }
+        else if (op == 44)   // Branch: Predicate (r2) True (r1) False (r0)
+        {
+            const float4 r = r2.x > 0.5f ? r1 : r0;
+            VFX_POP;
+            VFX_POP;
+            r0 = r;
+        }
         else if (op == 43)
         {
             // Remap: X (r4) InMin InMax OutMin OutMax (r0)
@@ -268,7 +285,7 @@ float4 Eval(uint pc, uint end)
             VFX_POP;
             r0 = r;
         }
-        else if (op >= 50 && op <= 62)
+        else if (op >= 50 && op <= 63)
         {
             const float4 x = r0;
             float4 r = x;
@@ -284,7 +301,8 @@ float4 Eval(uint pc, uint end)
             else if (op == 59) r = floor(x);
             else if (op == 60) r = sqrt(abs(x));
             else if (op == 61) r = round(x);
-            else r = HsvToRgb(x.xyz);
+            else if (op == 62) r = HsvToRgb(x.xyz);
+            else r = x.x > 0.5f ? 0.0f : 1.0f;   // Not
             r0 = r;
         }
         else if (op == 70)   // Split: 성분 ins.y
@@ -567,6 +585,64 @@ void CollideDepth(inout Particle p, uint at)
     }
 }
 
+// Collide with SDF: 칸 값 (범위 밖은 가장자리)
+float SdfCell(int3 c, int3 n)
+{
+    c = clamp(c, int3(0, 0, 0), n - 1);
+    return asfloat(gSdf.Load(((c.z * n.y + c.y) * n.x + c.x) * 4));
+}
+
+// 메시 공간 자리 q 의 거리 (칸 가운데 기준 세 방향 보간)
+float SdfSample(float3 q, float4 grid, int3 n)
+{
+    const float3 g = (q - grid.xyz) / grid.w - 0.5f;
+    const int3 i = (int3)floor(g);
+    const float3 f = g - i;
+    const float c00 = lerp(SdfCell(i, n), SdfCell(i + int3(1, 0, 0), n), f.x);
+    const float c10 = lerp(SdfCell(i + int3(0, 1, 0), n), SdfCell(i + int3(1, 1, 0), n), f.x);
+    const float c01 = lerp(SdfCell(i + int3(0, 0, 1), n), SdfCell(i + int3(1, 0, 1), n), f.x);
+    const float c11 = lerp(SdfCell(i + int3(0, 1, 1), n), SdfCell(i + int3(1, 1, 1), n), f.x);
+    return lerp(lerp(c00, c10, f.y), lerp(c01, c11, f.y), f.z);
+}
+
+// 칸: 0..2 시뮬레이션 → 메시 (열), 3..5 메시 → 시뮬레이션 (열), 6 (모서리 xyz, 칸 한 변), 7 (칸 수 xyz, 거리 배율), 8 (튕김, 마찰, 수명 줄이기, 반지름)
+void CollideSdf(inout Particle p, uint at)
+{
+    const float4 i0 = P(at, 0), i1 = P(at, 1), i2 = P(at, 2);
+    const float4 f0 = P(at, 3), f1 = P(at, 4), f2 = P(at, 5);
+    const float4 grid = P(at, 6), dims = P(at, 7), a = P(at, 8);
+    const int3 n = int3(dims.xyz);
+    if (n.x < 2 || n.y < 2 || n.z < 2)
+        return;
+    // 다음 자리 (자리 + 속도 × dt) 로 — 빠른 파티클이 얇은 면을 건너뛰지 않게
+    const float3 next = p.Pos + p.Vel * gDt;
+    const float4 h = float4(next, 1.0f);
+    const float3 q = float3(dot(h, i0), dot(h, i1), dot(h, i2));
+    const float3 lo = grid.xyz, hi = grid.xyz + grid.w * float3(n);
+    if (any(q < lo) || any(q > hi))
+        return;   // 거리장 상자 밖
+    const float d = SdfSample(q, grid, n) * dims.w - a.w;   // 시뮬레이션 단위 (반지름만큼 띄운다)
+    if (d >= 0.0f)
+        return;
+    // 법선 = 기울기 (메시 공간) → 시뮬레이션 공간
+    const float e = grid.w * 0.5f;
+    const float3 gl = float3(SdfSample(q + float3(e, 0, 0), grid, n) - SdfSample(q - float3(e, 0, 0), grid, n),
+                             SdfSample(q + float3(0, e, 0), grid, n) - SdfSample(q - float3(0, e, 0), grid, n),
+                             SdfSample(q + float3(0, 0, e), grid, n) - SdfSample(q - float3(0, 0, e), grid, n));
+    float3 nrm = float3(dot(float4(gl, 0.0f), f0), dot(float4(gl, 0.0f), f1), dot(float4(gl, 0.0f), f2));
+    if (dot(nrm, nrm) < 1e-12f)
+        return;
+    nrm = normalize(nrm);
+    p.Pos = next - nrm * d - p.Vel * gDt;   // 다음 자리가 표면 위에 오도록 (적분이 속도만큼 옮긴다)
+    const float vn = dot(p.Vel, nrm);
+    if (vn < 0.0f)
+    {
+        const float3 vt = p.Vel - nrm * vn;
+        p.Vel = vt * (1.0f - a.y) - nrm * vn * a.x;
+        p.Age += a.z * p.Life;
+    }
+}
+
 // GPU Event 로 태어날 때 부모 파티클의 속도 · 색 (Inherit Source 블록이 쓴다 — 없으면 이어받지 않는다)
 static float3 sSrcVel = 0.0f;
 static float4 sSrcColor = 1.0f;
@@ -727,6 +803,8 @@ void RunUpdate(inout Particle p, uint s)
             SetCustom(p, at);
         else if (type == 30)   // Collide with Depth Buffer
             CollideDepth(p, at);
+        else if (type == 31)   // Collide with Signed Distance Field
+            CollideSdf(p, at);
         at += 1 + (uint)h.y;
     }
 }

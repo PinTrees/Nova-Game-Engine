@@ -3861,6 +3861,95 @@ public static class NovaCenterColor
         Add-Result $suite "${Api}: Output Particle Mesh (Debris: lit Crystal shards, opaque) is drawn" ($c -and $c[2] -gt 1.0) $(if ($c) { 'pixels >8 different: {0:N2}%' -f $c[2] } else { 'capture missing' })
         Invoke-Nova 'delete Debris' | Out-Null
 
+        # ---- Compare · Branch: 수명 = Branch(Compare(1 ? 0), 0.05, 5) — Greater 면 짧고, Less 로 바꾸면 길다
+        Invoke-Nova "vfx new $root/Logic_$Api.vfx --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Logic_$Api.vfx --name Logic --position 0,0,-60" | Out-Null
+        Invoke-Nova 'camera --position 0,2,-66 --target 0,1,-60' | Out-Null
+        $cmp = Invoke-NovaJson "vfx op.add $root/Logic_$Api.vfx --type Compare --params {\`"A\`":1,\`"B\`":0,\`"Condition\`":\`"Greater\`"}"
+        $br = Invoke-NovaJson "vfx op.add $root/Logic_$Api.vfx --type Branch --params {\`"True\`":0.05,\`"False\`":5}"
+        Invoke-Nova "vfx op.connect $root/Logic_$Api.vfx --from $($cmp.id) --to $($br.id) --input Predicate" | Out-Null
+        Invoke-Nova "vfx block.link $root/Logic_$Api.vfx --system Particles --context initialize --index 2 --param Min --from $($br.id)" | Out-Null
+        Invoke-Nova "vfx block.link $root/Logic_$Api.vfx --system Particles --context initialize --index 2 --param Max --from $($br.id)" | Out-Null
+        $short = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Logic' }).alive -lt 15 } 15).effects | Where-Object { $_.object -eq 'Logic' }
+        Invoke-Nova "vfx op.set $root/Logic_$Api.vfx --id $($cmp.id) --params {\`"Condition\`":\`"Less\`"}" | Out-Null
+        $long = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'Logic' }).alive -gt 60 } 15).effects | Where-Object { $_.object -eq 'Logic' }
+        Add-Result $suite "${Api}: Compare + Branch operators pick the lifetime (1 > 0 -> 0.05 s, 1 < 0 -> 5 s)" ($short.alive -lt 15 -and $long.alive -gt 60) ("Greater: alive {0}, Less: alive {1}" -f $short.alive, $long.alive)
+        Invoke-Nova 'delete Logic' | Out-Null
+
+        # ---- 모델 파일 메시 (glTF — 2 x 1 x 2 상자, 윗면 y 1, 면마다 평평한 법선): Collide with SDF 에 멈춘다 · Output Mesh 로 그린다
+        $objDir = Join-Path $Project 'Assets\VFX\Test'
+        New-Item -ItemType Directory -Force $objDir | Out-Null
+        # 버퍼 (자리 24 · 법선 24 · 인덱스 36, 바깥에서 보아 반시계) — 만든 스크립트: 상자 면마다 네 모서리
+        $slabB64 = 'AACAvwAAgD8AAIC/AACAvwAAgD8AAIA/AACAPwAAgD8AAIA/AACAPwAAgD8AAIC/AACAPwAAAAAAAIC/AACAPwAAAAAAAIA/AACAvwAAAAAAAIA/AACAvwAAAAAAAIC/AACAPwAAAAAAAIC/AACAPwAAgD8AAIC/AACAPwAAgD8AAIA/AACAPwAAAAAAAIA/AACAvwAAAAAAAIA/AACAvwAAgD8AAIA/AACAvwAAgD8AAIC/AACAvwAAAAAAAIC/AACAvwAAAAAAAIA/AACAPwAAAAAAAIA/AACAPwAAgD8AAIA/AACAvwAAgD8AAIA/AACAvwAAgD8AAIC/AACAPwAAgD8AAIC/AACAPwAAAAAAAIC/AACAvwAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAABAAIAAAACAAMABAAFAAYABAAGAAcACAAJAAoACAAKAAsADAANAA4ADAAOAA8AEAARABIAEAASABMAFAAVABYAFAAWABcA'
+        $gltf = @{
+            asset = @{ version = '2.0' }; scene = 0; scenes = @(@{ nodes = @(0) }); nodes = @(@{ mesh = 0; name = 'Slab' })
+            meshes = @(@{ primitives = @(@{ attributes = @{ POSITION = 0; NORMAL = 1 }; indices = 2 }) })
+            buffers = @(@{ byteLength = 648; uri = 'data:application/octet-stream;base64,' + $slabB64 })
+            bufferViews = @(@{ buffer = 0; byteOffset = 0; byteLength = 288; target = 34962 }, @{ buffer = 0; byteOffset = 288; byteLength = 288; target = 34962 }, @{ buffer = 0; byteOffset = 576; byteLength = 72; target = 34963 })
+            accessors = @(@{ bufferView = 0; componentType = 5126; count = 24; type = 'VEC3'; min = @(-1, 0, -1); max = @(1, 1, 1) }, @{ bufferView = 1; componentType = 5126; count = 24; type = 'VEC3' }, @{ bufferView = 2; componentType = 5123; count = 36; type = 'SCALAR' })
+        }
+        ($gltf | ConvertTo-Json -Depth 10 -Compress) | Set-Content -Encoding ascii (Join-Path $objDir "Slab_$Api.gltf")
+        $sj = @{
+            systems = @(@{ name = 'Drops'; capacity = 512
+                spawn = @{ rate = 0; loop = $false; duration = 0; bursts = @(@{ time = 0; count = 300; cycles = 1; interval = 1 }) }
+                initialize = @(
+                    @{ type = 'SetPosition'; params = @{ Shape = 'Sphere'; Radius = 0.4; Center = @(0, 1, 0) } },
+                    @{ type = 'SetLifetime'; params = @{ Min = 100; Max = 100 } },
+                    @{ type = 'SetSize'; params = @{ Min = 0.1; Max = 0.1 } })
+                update = @(@{ type = 'Gravity' }, @{ type = 'CollideSDF'; params = @{ Mesh = "$root/Slab_$Api.gltf"; Position = @(0, -3, 0); Radius = 0.05; Bounce = 0.2; Friction = 0.6 } })
+                output = @{ blend = 'Additive'; shape = 'Glow' } })
+        }
+        $sf = Join-Path $dir 'sdf.json'
+        ($sj | ConvertTo-Json -Depth 10) | Set-Content -Encoding utf8 $sf
+        Invoke-Nova "vfx set $root/Sdf_$Api.vfx --file $sf" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/Sdf_$Api.vfx --name SdfDrops --position 0,3,-120" | Out-Null
+        Invoke-Nova 'camera --position 0,4,-127 --target 0,1,-120' | Out-Null
+        function SdfMinY { $e = (Stats).effects | Where-Object { $_.object -eq 'SdfDrops' }; if ($e -and $e.bounds) { [double]$e.bounds[0][1] } else { [double]::NaN } }
+        WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'SdfDrops' }).alive -ge 300 } 10 | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 20' | Out-Null }
+        $restY = SdfMinY
+        $sdfInfo = Invoke-NovaJson "vfx info $root/Sdf_$Api.vfx"
+        Invoke-Nova "vfx block.set $root/Sdf_$Api.vfx --system Drops --context update --index 1 --enabled false" | Out-Null
+        Invoke-Nova 'vfx restart --object SdfDrops' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 20' | Out-Null }
+        $fallY = SdfMinY
+        # 상자 윗면 (월드 y 1) 에 멈추면 경계 = 1 - (크기 0.1 + 0.5) 쯤
+        Add-Result $suite "${Api}: Collide with SDF (baked from a glTF model: particles rest on the slab top, fall through when off)" ($restY -gt 0.2 -and $restY -lt 1.0 -and $fallY -lt -5 -and @($sdfInfo.issues).Count -eq 0) ("lowest y with SDF {0:N2}, without {1:N2}, issues {2}" -f $restY, $fallY, @($sdfInfo.issues).Count)
+        # 같은 glTF 를 Output Mesh 로 (파티클마다 상자): 켬 · 끔 화면 차이
+        Invoke-Nova "vfx block.set $root/Sdf_$Api.vfx --system Drops --context update --index 1 --enabled true" | Out-Null
+        Invoke-Nova "vfx system.set $root/Sdf_$Api.vfx --system Drops --data {\`"output\`":{\`"shape\`":\`"Mesh\`",\`"mesh\`":\`"$root/Slab_$Api.gltf\`",\`"blend\`":\`"Opaque\`"}}" | Out-Null
+        Invoke-Nova 'vfx restart --object SdfDrops' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.5) { Invoke-Nova 'wait 20' | Out-Null }
+        $on = Join-Path $dir 'objmesh_on.png'; $off = Join-Path $dir 'objmesh_off.png'
+        Invoke-Nova "screenshot $on --view scene" | Out-Null
+        Invoke-Nova 'set SdfDrops --active false' | Out-Null; Invoke-Nova 'wait 20' | Out-Null; Invoke-Nova "screenshot $off --view scene" | Out-Null
+        $c = [NovaImageCompare]::Compare($off, $on, $null)
+        # 0.1 m 크기 판 300 개가 보이지 않는 거리장 판 위에 쌓인 더미 — 화면에서 작다 (0.1 % 넘으면 그린 것)
+        Add-Result $suite "${Api}: Output Mesh from a model file (glTF slab per particle) is drawn" ($c -and $c[2] -gt 0.1) $(if ($c) { 'pixels >8 different: {0:N2}%' -f $c[2] } else { 'capture missing' })
+        Invoke-Nova 'delete SdfDrops' | Out-Null
+
+        # ---- Block Sub Graph: Life.vfxblock (입력 Life → Set Lifetime) 을 Initialize 에 — Life 0.05 면 적고, 5 면 많다
+        $bj = @{
+            version = 1
+            properties = @(@{ name = 'Life'; type = 'Float'; value = 2 })
+            systems = @(@{ name = 'Block'; capacity = 1; spawn = @{ rate = 0 }
+                initialize = @(@{ type = 'SetLifetime'; bind = @{ Min = 'Life'; Max = 'Life' } }); update = @(); output = @{ shape = 'Glow' } })
+        }
+        $bf = Join-Path $dir 'lifeblock.json'
+        ($bj | ConvertTo-Json -Depth 10) | Set-Content -Encoding utf8 $bf
+        $bnew = Invoke-Nova "vfx blockgraph.new $root/Life_$Api.vfxblock --overwrite"
+        Invoke-Nova "vfx set $root/Life_$Api.vfxblock --file $bf" | Out-Null
+        Invoke-Nova "vfx new $root/BlockSub_$Api.vfx --overwrite" | Out-Null
+        Invoke-Nova "create visual-effect --asset $root/BlockSub_$Api.vfx --name BlockSub --position 0,0,-60" | Out-Null
+        Invoke-Nova 'camera --position 0,2,-66 --target 0,1,-60' | Out-Null
+        Invoke-Nova "vfx block.add $root/BlockSub_$Api.vfx --system Particles --context initialize --type SubgraphBlock --params {\`"Path\`":\`"$root/Life_$Api.vfxblock\`",\`"Life\`":0.05}" | Out-Null
+        $short = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'BlockSub' }).alive -lt 15 } 15).effects | Where-Object { $_.object -eq 'BlockSub' }
+        Invoke-Nova "vfx block.set $root/BlockSub_$Api.vfx --system Particles --context initialize --index 5 --params {\`"Life\`":5}" | Out-Null
+        $long = (WaitFor { param($s) ($s.effects | Where-Object { $_.object -eq 'BlockSub' }).alive -gt 60 } 15).effects | Where-Object { $_.object -eq 'BlockSub' }
+        $info = Invoke-NovaJson "vfx info $root/BlockSub_$Api.vfx"
+        Add-Result $suite "${Api}: Block Sub Graph (.vfxblock input Life -> Set Lifetime inside)" ($short.alive -lt 15 -and $long.alive -gt 60 -and @($info.issues).Count -eq 0 -and $bnew -notmatch '"error"') ("Life 0.05: alive {0}, Life 5: alive {1}, issues {2}" -f $short.alive, $long.alive, @($info.issues).Count)
+        Invoke-Nova 'delete BlockSub' | Out-Null
+
         if ($Api -eq 'dx')
         {
             # ---- C# API (Unity 의 UnityEngine.VFX.VisualEffect)

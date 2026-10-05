@@ -52,6 +52,9 @@ private:
 	int m_SelProperty = -1;
 	int m_SelOp = -1;                // 고른 연산 노드 (Id)
 	int m_SelAttribute = -1;         // 고른 사용자 속성
+	std::vector<std::string> m_MeshFiles;   // 메시 고르기의 모델 파일 (가끔 다시 훑는다)
+	int m_MeshFilesAge = 0;
+	std::vector<std::string> MeshChoices();
 
 	// 검색 창 (Space)
 	bool m_OpenSearch = false;

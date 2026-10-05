@@ -68,6 +68,15 @@ try
     Invoke-Nova 'create plane --name Ground --position 0,0,0 --scale 3,1,3' | Out-Null
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidDebris.vfx --name Debris --position 3.5,0,1' | Out-Null
     Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidFireflies.vfx --name Fireflies --position -3.5,0,1' | Out-Null
+    # Collide with SDF (구운 거리장 — 기본 구) + Compare · Branch 연산 노드
+    Invoke-Nova 'vfx new Assets/VFX/Test/AndroidSdf.vfx --overwrite' | Out-Null
+    Invoke-Nova 'vfx block.add Assets/VFX/Test/AndroidSdf.vfx --system Particles --context update --type Gravity' | Out-Null
+    Invoke-Nova 'vfx block.add Assets/VFX/Test/AndroidSdf.vfx --system Particles --context update --type CollideSDF --params {\"Mesh\":\"Sphere\",\"Scale\":[2,2,2],\"Position\":[0,-0.5,0]}' | Out-Null
+    $cmp = Invoke-NovaJson 'vfx op.add Assets/VFX/Test/AndroidSdf.vfx --type Compare --params {\"A\":1,\"B\":0,\"Condition\":\"Greater\"}'
+    $br = Invoke-NovaJson 'vfx op.add Assets/VFX/Test/AndroidSdf.vfx --type Branch --params {\"True\":3,\"False\":0.05}'
+    Invoke-Nova "vfx op.connect Assets/VFX/Test/AndroidSdf.vfx --from $($cmp.id) --to $($br.id) --input Predicate" | Out-Null
+    Invoke-Nova "vfx block.link Assets/VFX/Test/AndroidSdf.vfx --system Particles --context initialize --index 2 --param Max --from $($br.id)" | Out-Null
+    Invoke-Nova 'create visual-effect --asset Assets/VFX/Test/AndroidSdf.vfx --name Sdf --position 0,1.5,4' | Out-Null
     Invoke-Nova "scene save --as $($Scene -replace '\\', '/')" | Out-Null
     # 화면 밖 이펙트는 시뮬레이션을 쉰다 (Culling = Simulate When Visible) → 기준 그림 전에 Scene 뷰 카메라로 비춰 돌린다
     Invoke-Nova 'camera --position 0,5,-12 --target 0,1.2,4' | Out-Null
@@ -123,6 +132,7 @@ if ($j -and $j.ok)
     Check 'GLES: VFX compute (Magic Circle systems alive)' ($v.gpu -and (SysAlive 'Circle' 'Outer Ring') -gt 1000 -and (SysAlive 'Circle' 'Pillar') -gt 100) ("gpu {0}, Outer Ring {1}, Pillar {2}, error '{3}'" -f $v.gpu, (SysAlive 'Circle' 'Outer Ring'), (SysAlive 'Circle' 'Pillar'), $v.error)
     Check 'GLES: GPU events chain (Explosion, Crackle)' ((SysAlive 'Fireworks' 'Explosion') -gt 100) ("Rocket {0}, Explosion {1}, Crackle {2}" -f (SysAlive 'Fireworks' 'Rocket'), (SysAlive 'Fireworks' 'Explosion'), (SysAlive 'Fireworks' 'Crackle'))
     Check 'GLES: Output Mesh + depth collision (Debris shards), custom attribute (Fireflies)' ((SysAlive 'Debris' 'Shards') -gt 50 -and (SysAlive 'Fireflies' 'Fireflies') -gt 100) ("Shards {0}, Dust {1}, Fireflies {2}" -f (SysAlive 'Debris' 'Shards'), (SysAlive 'Debris' 'Dust'), (SysAlive 'Fireflies' 'Fireflies'))
+    Check 'GLES: Collide with SDF + Compare/Branch (Sdf particles alive)' ((SysAlive 'Sdf' 'Particles') -gt 50) ("Particles {0}" -f (SysAlive 'Sdf' 'Particles'))
     Check 'GLES: draw time (report)' $true ("{0} ms per frame (960x540), VFX draw calls {1}" -f $j.drawMs, $v.drawCalls)
     $bmp = Join-Path $Out 'vfx_GLES.bmp'
     & $Adb -s $serial pull $j.image $bmp | Out-Null
