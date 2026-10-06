@@ -11,6 +11,7 @@
 #include "ReflectionProbe.h"
 #include "AdaptiveProbeVolume.h"
 #include "DecalProjector.h"
+#include "EditorExtensions.h"
 
 namespace GameObjectMenu
 {
@@ -80,7 +81,7 @@ namespace GameObjectMenu
 		if (ImGui::MenuItem("Create Empty", "Ctrl+Shift+N"))
 			add(GameObjectFactory::CreateEmpty());
 
-		// 2D Object > Sprites (Unity 와 같은 내장 도형) — Physics · Tilemap · Sprite Mask 는 아직
+		// 2D Object > Sprites (Unity 와 같은 내장 도형), Tilemap (2D Tilemap 패키지가 항목을 등록 — 없으면 회색) — Physics · Sprite Mask 는 아직
 		SetMenuWidth(190.0f);
 		if (ImGui::BeginMenu("2D Object"))
 		{
@@ -93,7 +94,21 @@ namespace GameObjectMenu
 				ImGui::EndMenu();
 			}
 			Disabled("Physics");
-			Disabled("Tilemap");
+			const auto tilemapItems = EditorExtensions::CreateMenuItems("2D Object/Tilemap");
+			if (tilemapItems.empty())
+				Disabled("Tilemap");
+			else
+			{
+				SetMenuWidth(190.0f);
+				if (ImGui::BeginMenu("Tilemap"))
+				{
+					for (const EditorExtensions::CreateMenuItem* it : tilemapItems)
+						if (ImGui::MenuItem(it->Path.substr(it->Path.rfind('/') + 1).c_str()) && it->Create && scene)
+							if (GameObject* made = it->Create(scene, parent))
+								SelectionManager::SetSelectedGameObject(made);
+					ImGui::EndMenu();
+				}
+			}
 			Disabled("Sprite Mask");
 			ImGui::EndMenu();
 		}

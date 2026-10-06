@@ -20,33 +20,47 @@ bool SpriteRenderer::Resolve()
 	m_Resolved = true;
 	m_ResolvedAt = now;
 	m_Texture = nullptr;
-	if (m_Sprite.empty())
+	SpriteInfo s;
+	if (!ResolveSprite(m_Sprite, s))
+		return false;
+	m_Texture = s.Texture;
+	m_SizePx = s.SizePx;
+	m_PixelsPerUnit = s.PixelsPerUnit;
+	m_Pivot = s.Pivot;
+	m_UV = s.UV;
+	m_Point = s.Point;
+	return true;
+}
+
+bool SpriteRenderer::ResolveSprite(const std::string& path, SpriteInfo& out)
+{
+	out = SpriteInfo();
+	if (path.empty())
 		return false;
 	UISprites::Info info;
-	if (!UISprites::Get(m_Sprite, info) || info.Texture == nullptr || info.Size.x <= 0 || info.Size.y <= 0)
+	if (!UISprites::Get(path, info) || info.Texture == nullptr || info.Size.x <= 0 || info.Size.y <= 0)
 		return false;
-	m_Texture = info.Texture;
-	m_SizePx = info.Size;
-	m_Pivot = info.Pivot;
-	m_UV = info.UV;
-	m_Point = false;
-	if (m_Sprite.rfind("builtin:", 0) == 0)
+	out.Texture = info.Texture;
+	out.SizePx = info.Size;
+	out.Pivot = info.Pivot;
+	out.UV = info.UV;
+	if (path.rfind("builtin:", 0) == 0)
 	{
-		m_PixelsPerUnit = info.Size.x;   // 내장 도형: 너비 = 1 단위
+		out.PixelsPerUnit = info.Size.x;   // 내장 도형: 너비 = 1 단위
 		return true;
 	}
 	// 파일: 가져오기 설정 (Sprite 의 Pixels Per Unit · Pivot · Filter Mode). 크기는 원본 픽셀 (Max Size 로 줄어도 같은 크기)
-	const std::string file = m_Sprite.substr(0, m_Sprite.find('#'));
+	const std::string file = path.substr(0, path.find('#'));
 	const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(file));
 	const AssetImport::TextureSettings ts = AssetImport::LoadTexture(full);
-	m_PixelsPerUnit = (std::max)(0.01f, ts.PixelsPerUnit);
-	m_Point = ts.FilterMode == AssetImport::TextureSettings::Point;
+	out.PixelsPerUnit = (std::max)(0.01f, ts.PixelsPerUnit);
+	out.Point = ts.FilterMode == AssetImport::TextureSettings::Point;
 	if (info.SubSprite)
 		return true;   // 크기 · 기준점 · UV = 그 사각형
-	m_Pivot = Vec2(ts.PivotX, ts.PivotY);
+	out.Pivot = Vec2(ts.PivotX, ts.PivotY);
 	AssetImport::TextureInfo ti;
 	if (AssetImport::GetTextureInfo(full, ti) && ti.SourceWidth > 0 && ti.SourceHeight > 0)
-		m_SizePx = Vec2((float)ti.SourceWidth, (float)ti.SourceHeight);
+		out.SizePx = Vec2((float)ti.SourceWidth, (float)ti.SourceHeight);
 	return true;
 }
 

@@ -625,6 +625,11 @@ namespace
 		"                                         render (PNG), export (sprite sheet + JSON), image.make ... list: nova anim2d help\n"
 		"  anim2d batch <file | ->                one op per line, all as ONE undo step\n"
 		"\n"
+		"2D tilemap (package com.nova.tilemap: Grid + Tilemap, Window > Tile Palette)\n"
+		"  tilemap create [--name Ground] [--collider]   Grid + child Tilemap (+ Tilemap Renderer [+ Tilemap Collider 2D])\n"
+		"  tilemap tile.fromtexture --texture <png> --folder Assets/Palettes/X   one .tile per (sliced) sprite\n"
+		"  tilemap set|erase|get --x 3 --y 0 [--tile <tile>]; box --from 0,0 --to 9,2 --tile <tile>; fill; clear; info\n"
+		"\n"
 		"weather (package com.nova.weather: Weather Controller component)\n"
 		"  weather status | set --profile Storm [--seconds 10] | strike | list | save --path Assets/X.weather\n"
 		"                                         profiles: Clear Cloudy Rain Storm Snow Blizzard or a .weather file\n"
@@ -695,6 +700,12 @@ namespace
 		"- Animate: `anim2d anim.new --name walk --length 0.8`, then per key time `anim2d anim.time --time 0.2`,\n"
 		"  `anim2d pose --bone arm --rotation -60 --world`, `anim2d anim.key --curve smooth`.\n"
 		"- Look: `anim2d render --path f.png --anim walk --time 0.2 --bones`. Ship: `anim2d export --path walk.png --fps 12`.\n"
+		"\n"
+		"## 2D tilemaps (package com.nova.tilemap, Unity-style)\n"
+		"- `nova package add com.nova.tilemap`. Slice a tileset: `nova sprite-slice Assets/T.png --cell 16,16 --ppu 16 --filter point`,\n"
+		"  tiles: `tilemap tile.fromtexture --texture Assets/T.png --folder Assets/Palettes/Main` (or `tile.create --sprite builtin:Square`).\n"
+		"- `tilemap create --name Ground --collider`, then `tilemap box --from 0,0 --to 19,1 --tile Assets/Palettes/Main/T_0.tile`;\n"
+		"  cell (x, y) = grid units, y up. `tilemap info` = count, bounds, collider boxes. `nova screenshot` to look.\n"
 		"\n"
 		"## Rules\n"
 		"- Use --json when you parse output. Exit code: 0 ok, 1 command failed (message on stderr), 2 no editor, 3 usage.\n"
@@ -1181,7 +1192,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

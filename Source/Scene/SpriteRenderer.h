@@ -30,6 +30,18 @@ public:
 	// 그림 크기 (월드 단위, 크기 조절 전). 그림이 없으면 false
 	bool GetSpriteSize(Vec2& size, Vec2& pivot);
 
+	// 스프라이트 경로 → 텍스처 · 원본 픽셀 크기 · Pixels Per Unit · 기준점 · UV · 점 필터 (가져오기 설정을 따른다 — Tilemap 의 타일도 쓴다)
+	struct SpriteInfo
+	{
+		GfxShaderResourceView* Texture = nullptr;
+		Vec2 SizePx = Vec2(0, 0);
+		float PixelsPerUnit = 100.0f;
+		Vec2 Pivot = Vec2(0.5f, 0.5f);
+		Vec4 UV = Vec4(0, 0, 1, 1);   // u0, v위, u1, v아래
+		bool Point = false;
+	};
+	static bool ResolveSprite(const std::string& path, SpriteInfo& out);
+
 	// SpriteSource
 	GameObject* SpriteOwner() const override { return m_pGameObject; }
 	bool SpriteEnabled() const override { return m_Enabled; }

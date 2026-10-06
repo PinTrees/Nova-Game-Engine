@@ -1,0 +1,16 @@
+{
+  "name": "com.nova.tilemap",
+  "displayName": "2D Tilemap",
+  "version": "0.1.0",
+  "description": "Unity-style 2D tilemaps: a Grid with Tilemap children (GameObject > 2D Object > Tilemap > Rectangular), Tile assets (.tile: a sprite, a color and a collider type), a Tilemap Renderer sorted with Sprite Renderers (Sorting Layer, Order in Layer) and a Tilemap Collider 2D whose touching tiles merge into few boxes. Window Tile Palette: drag a sliced tileset in to make tiles, then paint in the Scene view with Brush (B), Box Fill (U), Picker (I), Eraser (D) and Flood Fill (G); [ and ] rotate, Shift erases. C# Tilemap.SetTile(new Vector3Int(x, y, 0), tile), GetTile, BoxFill, FloodFill, cellBounds, Grid.WorldToCell. Every operation is also a CLI command (nova tilemap <op>).",
+  "category": "2D",
+  "author": { "name": "NOVA" },
+  "keywords": [ "2d", "tilemap", "tile", "tileset", "tile palette", "grid", "platformer", "level", "collider", "pixel art", "cli" ],
+  "native": [ "NovaTilemap.dll" ],
+  "components": [
+    { "type": "Grid", "display": "Grid", "category": "Layout", "icon": "grid", "single": true },
+    { "type": "Tilemap", "display": "Tilemap", "category": "Tilemap", "icon": "tilemap", "single": true },
+    { "type": "TilemapRenderer", "display": "Tilemap Renderer", "category": "Tilemap", "icon": "tilemap_renderer", "single": true },
+    { "type": "TilemapCollider2D", "display": "Tilemap Collider 2D", "category": "Physics 2D", "icon": "tilemap_collider", "single": true }
+  ]
+}

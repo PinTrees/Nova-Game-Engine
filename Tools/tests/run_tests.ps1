@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1300,6 +1300,154 @@ function Suite-Anim2D
         Invoke-Nova 'wait 10' | Out-Null
         $sc = Join-Path $dir 'window.png'
         Invoke-Nova "screenshot $sc --view editor" | Out-Null
+        Invoke-Nova 'log --errors -n 5' | Out-Null
+    }
+    finally
+    {
+        Stop-TestEditor $ed
+        if ($null -ne $before) { Set-Content -Path $manifest -Value $before -NoNewline -Encoding utf8 }
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Tilemap
+{
+    # 2D Tilemap 패키지: 타일셋 자르기 → .tile, Grid + Tilemap, 상자 채우기 · 흘려 채우기 · 회전, 맞닿은 칸 콜라이더 합치기,
+    # 화면 (점 필터 타일 색), Play 에서 상자가 타일 바닥에 선다, Tile Palette (붓 · 고르기 · 지우개), Undo, 씬 저장 · 열기, C# API
+    Write-Host '[tilemap]'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $before = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { $null }
+    $dir = Join-Path $Out 'tilemap'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\TilemapTest'
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    # 16 px 타일 4 개 (풀 · 흙 · 돌 · 물), 64 × 16
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap 64, 16
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $cols = @(@(70, 170, 60), @(140, 90, 45), @(128, 128, 128), @(40, 90, 210))
+    for ($i = 0; $i -lt 4; $i++) { $br = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, $cols[$i][0], $cols[$i][1], $cols[$i][2])); $g.FillRectangle($br, $i * 16, 0, 16, 16); $br.Dispose() }
+    $g.Dispose()
+    $bmp.Save((Join-Path $assetDir 'Tiles.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    $ed = Start-TestEditor
+    try
+    {
+        $a = Invoke-NovaJson 'package add com.nova.tilemap'
+        Add-Result tilemap 'package loads (NovaTilemap.dll)' ($a -and $a.loaded) "loaded=$($a.loaded)"
+        function TM([string]$line) { Invoke-NovaJson "tilemap $line" }
+        $h = TM 'help'
+        Add-Result tilemap 'tilemap help lists ops' ($h -and $h.box -and $h.'tile.fromtexture' -and $h.paint) "ops=$(@($h.PSObject.Properties).Count)"
+
+        # 타일셋 자르기 (16 px, PPU 16 → 칸 하나 = 1 단위, 점 필터) → 팔레트 폴더에 .tile 4 개
+        $s = Invoke-NovaJson 'sprite-slice Assets/TilemapTest/Tiles.png --cell 16,16 --ppu 16 --filter point'
+        $pal = 'Assets\TilemapTest\Palette'
+        $ft = TM "tile.fromtexture --texture Assets/TilemapTest/Tiles.png --folder $pal --collider grid"
+        $names = @($ft.tiles | ForEach-Object { [IO.Path]::GetFileNameWithoutExtension($_) }) -join ','
+        Add-Result tilemap 'sliced tileset → one .tile per sprite' ($s.sprites -eq 4 -and $ft.count -eq 4 -and $names -eq 'Tiles_0,Tiles_1,Tiles_2,Tiles_3') "sprites=$($s.sprites) tiles=$names"
+        $grass = "$pal\Tiles_0.tile"; $dirt = "$pal\Tiles_1.tile"; $stone = "$pal\Tiles_2.tile"; $water = "$pal\Tiles_3.tile"
+        $ti = TM "tile.info --path $grass"
+        Add-Result tilemap '.tile: sprite of the slice, 1 x 1 units, collider grid' ($ti.hasSprite -and [math]::Abs($ti.size[0] - 1) -lt 0.001 -and $ti.colliderType -eq 'grid') "sprite=$($ti.sprite) size=$($ti.size -join 'x') collider=$($ti.colliderType)"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        $c = TM 'create --name Ground --collider'
+        Add-Result tilemap 'create: Grid + child Tilemap (+ renderer, collider)' ($c -and $c.grid -eq 'Grid' -and $c.count -eq 0 -and $null -ne $c.shapes) "grid=$($c.grid) count=$($c.count) shapes=$($c.shapes)"
+        TM "box --tilemap Ground --from -8,-3 --to 7,-3 --tile $grass" | Out-Null
+        TM "box --tilemap Ground --from -8,-5 --to 7,-4 --tile $dirt" | Out-Null
+        $i1 = TM 'info --tilemap Ground'
+        Add-Result tilemap 'box fill 16 x 3 → 48 tiles, touching cells merge into ONE collider box' ($i1.count -eq 48 -and $i1.shapes -eq 1 -and $i1.quads -eq 48) "count=$($i1.count) shapes=$($i1.shapes) quads=$($i1.quads) bounds=$($i1.bounds.min -join ',')..$($i1.bounds.max -join ',')"
+        TM "box --tilemap Ground --from 2,0 --to 5,0 --tile $stone" | Out-Null
+        TM "set --tilemap Ground --x 6 --y 1 --tile $stone --rotation 90 --flipx" | Out-Null
+        $gt = TM 'get --tilemap Ground --x 6 --y 1'
+        $i2 = TM 'info --tilemap Ground'
+        Add-Result tilemap 'platform + rotated / flipped tile (separate boxes: 3)' ($gt.rotation -eq 90 -and $gt.flipx -and $i2.shapes -eq 3) "rotation=$($gt.rotation) flipx=$($gt.flipx) shapes=$($i2.shapes)"
+
+        # 흘려 채우기: 테두리 안의 빈 칸 9 개만 (범위 = 타일이 있는 칸 상자)
+        TM 'create --name Deco --grid Grid' | Out-Null
+        TM "box --tilemap Deco --from -7,2 --to -3,6 --tile $stone" | Out-Null
+        TM 'box --tilemap Deco --from -6,3 --to -4,5' | Out-Null
+        $f1 = TM "fill --tilemap Deco --x -5 --y 4 --tile $water"
+        $f2 = TM "fill --tilemap Deco --x -7 --y 2 --tile $grass"
+        $di = TM 'info --tilemap Deco'
+        Add-Result tilemap 'flood fill: 9 empty cells inside a stone ring, then the 16-tile ring' ($f1.changed -eq 9 -and $f2.changed -eq 16 -and $di.count -eq 25) "inside=$($f1.changed) ring=$($f2.changed) count=$($di.count)"
+
+        # 화면: 점 필터 타일 색 (풀 · 흙 · 돌 · 물)
+        Invoke-Nova 'camera --position -0.5,0,-14 --target -0.5,0,0' | Out-Null
+        Invoke-Nova 'wait 15' | Out-Null
+        $ss = Join-Path $dir 'scene.png'
+        Invoke-Nova "screenshot $ss --view scene" | Out-Null
+        $n = @{ grass = 0; dirt = 0; stone = 0; water = 0 }
+        if (Test-Path $ss)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($ss)
+            for ($y = 0; $y -lt $bm.Height; $y += 3) { for ($x = 0; $x -lt $bm.Width; $x += 3) {
+                $p = $bm.GetPixel($x, $y)
+                foreach ($k in 0..3) { if ([math]::Abs($p.R - $cols[$k][0]) -lt 25 -and [math]::Abs($p.G - $cols[$k][1]) -lt 25 -and [math]::Abs($p.B - $cols[$k][2]) -lt 25) { $n[@('grass', 'dirt', 'stone', 'water')[$k]]++ } }
+            } }
+            $bm.Dispose()
+        }
+        Add-Result tilemap 'scene view: tile colors drawn (grass, dirt, stone, water)' ($n.grass -gt 300 -and $n.dirt -gt 600 -and $n.stone -gt 100 -and $n.water -gt 50) "grass=$($n.grass) dirt=$($n.dirt) stone=$($n.stone) water=$($n.water)"
+
+        # Tile Palette: 붓 · 고르기 · 지우개 (Scene 뷰 클릭과 같은 함수)
+        $w = TM 'window'
+        TM "palette --folder $pal" | Out-Null
+        TM "select --tile $water" | Out-Null
+        TM 'tool --tool brush' | Out-Null
+        $p1 = TM 'paint --tilemap Ground --x 10 --y -3'
+        $p2 = TM 'paint --tilemap Ground --x 0 --y -3 --tool picker'
+        $p3 = TM 'paint --tilemap Ground --x 10 --y -3 --tool eraser'
+        Add-Result tilemap 'palette: brush paints, picker takes the tile (→ brush), eraser removes' ($w.window -and $p1.changed -eq 1 -and $p2.selected -like '*Tiles_0.tile' -and $p2.tool -eq 'brush' -and $p3.changed -eq 1 -and $p3.count -eq 53) "brush=$($p1.changed) picked=$([IO.Path]::GetFileName($p2.selected)) tool=$($p2.tool) erase=$($p3.changed) count=$($p3.count)"
+        Invoke-Nova 'wait 5' | Out-Null
+        Invoke-Nova "screenshot $(Join-Path $dir 'palette.png') --view editor" | Out-Null
+
+        # Undo
+        $u0 = (TM 'info --tilemap Ground').count
+        TM "set --tilemap Ground --x -8 --y 3 --tile $water" | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $u1 = (TM 'info --tilemap Ground').count
+        Invoke-Nova 'undo' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $u2 = (TM 'info --tilemap Ground').count
+        Add-Result tilemap 'set tile → undo' ($u1 -eq $u0 + 1 -and $u2 -eq $u0) "$u0 → $u1 → $u2"
+
+        # 저장 · 열기
+        $scene = 'Assets/TilemapTest/Tilemap.scene'
+        Invoke-Nova "scene save --as $scene" | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova "scene open $scene" | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $r = TM 'info --tilemap Ground'
+        $rg = TM 'get --tilemap Ground --x 6 --y 1'
+        Add-Result tilemap 'scene save → open (tiles, rotation, collider boxes)' ($r.count -eq $u0 -and $r.shapes -eq 3 -and $rg.rotation -eq 90 -and $rg.flipx) "count=$($r.count) shapes=$($r.shapes) rotation=$($rg.rotation)"
+
+        # Play: 상자가 떨어져 풀 위 (윗면 y = -2) 에 선다 + C# API
+        Invoke-Nova 'create empty --name Crate --position -4,2,0' | Out-Null
+        Invoke-Nova 'add-component Crate SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.9,0.2,0.2,1]}"' | Out-Null
+        Invoke-Nova 'add-component Crate BoxCollider2D' | Out-Null
+        Invoke-Nova 'add-component Crate Rigidbody2D' | Out-Null
+        Wait-Compile
+        $yf = Join-Path $dir 'y.cs'
+        'return GameObject.Find("Crate").transform.position.y.ToString("F3", System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $yf
+        $cf = Join-Path $dir 'api.cs'
+        @'
+var t = GameObject.Find("Ground").GetComponent<NovaEngine.Tilemaps.Tilemap>();
+var grid = GameObject.Find("Grid").GetComponent<Grid>();
+var before = t.GetUsedTilesCount();
+t.SetTile(new Vector3Int(-8, 3, 0), new NovaEngine.Tilemaps.Tile("Assets/TilemapTest/Palette/Tiles_3.tile"));
+var b = t.cellBounds;
+var cell = t.WorldToCell(new Vector3(2.5f, 0.5f, 0));
+var got = t.GetTile(cell);
+var center = t.GetCellCenterWorld(new Vector3Int(2, 0, 0));
+return before + " " + t.GetUsedTilesCount() + " " + b.xMin + "," + b.yMin + "," + b.size.x + "," + b.size.y + " " + cell + " " + (got == null ? "null" : got.name) + " " + t.HasTile(new Vector3Int(-8, 3, 0)) + " " + center.x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " " + grid.cellSize.x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+'@ | Set-Content -Encoding utf8 $cf
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 10' | Out-Null }
+        $cy = [double](Invoke-NovaJson "exec --file $yf").result
+        $api = Invoke-NovaJson "exec --file $cf"
+        $ci = TM 'info --tilemap Ground'
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result tilemap 'play: a falling crate rests on the tile ground (center y = -1.5)' ([math]::Abs($cy + 1.5) -lt 0.05) "y=$cy"
+        Add-Result tilemap 'C#: SetTile / GetTile / cellBounds / WorldToCell / GetCellCenterWorld / Grid.cellSize' ("$($api.result)" -eq '53 54 -8,-5,16,9 (2, 0, 0) Tiles_2 True 2.5 1.0' -and $ci.shapes -eq 4) "$($api.result) shapes=$($ci.shapes)"
         Invoke-Nova 'log --errors -n 5' | Out-Null
     }
     finally
@@ -4512,6 +4660,7 @@ try
                 'packages' { Suite-Packages }
                 'model' { Suite-Model }
                 'anim2d' { Suite-Anim2D }
+                'tilemap' { Suite-Tilemap }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

@@ -1,12 +1,17 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **지형 본 패스 비용 줄이기** (사용자 지시: "지형 본 패스 비용 줄이기 … 다음 작업은 유니티 컴포넌트 중 중요도 순으로 하나씩"). **완료 (커밋 · 푸시함)**
+- 갱신 시각: 2026년 10월 6일 — **Unity 컴포넌트 1 순위: 2D Tilemap** (같은 지시). **완료 (커밋함, 푸시 전)**
+  - 새 패키지 `Packages/com.nova.tilemap` (NovaTilemap.dll): Grid · Tilemap (칸 = 타일 번호 + 회전 · 뒤집기, JSON 은 평평한 정수 배열) · Tilemap Renderer (SpriteSource, Chunk) · Tilemap Collider 2D (Collider2D 상속, 맞닿은 칸을 큰 사각형으로 합침),
+    `.tile` 에셋 (sprite · color · colliderType, Inspector), Window > Tile Palette (팔레트 = 폴더, 그림 끌어 놓기 → 조각마다 .tile, B/U/I/D/G · [ ] · Shift 지우기 · Ctrl 고르기), Scene 뷰 붓, GameObject > 2D Object > Tilemap > Rectangular,
+    CLI `nova tilemap` (20 연산), C# `NovaEngine.Tilemaps` (Tilemap · TileBase · Tile · TilemapRenderer · TilemapCollider2D) + `NovaEngine.Grid`
+  - 엔진: `EditorExtensions` RegisterSceneTool (SceneViewContext — 광선 · 행렬 · 뷰 영역) · RegisterCreateMenu, `SpriteRenderer::ResolveSprite`, `UISprites` NOVA_API, C# Vector2Int · Vector3Int · BoundsInt, 아이콘 5 개 (Tools/icons_tilemap.py)
+  - 검사: 새 스위트 `tilemap` **14/14** (CLI 만 — 마우스 입력 흉내 금지). 문서 TILEMAP.md (새), NOVA_CLI.md, README. Showcase 243
+  - 다음: **웹 빌드 (WebGPU)** — 사용자 선택. Emscripten · WGSL 변환기 · .NET browser-wasm 받기 허락 대기
+- 이전: 2026년 10월 6일 — **지형 본 패스 비용 줄이기** (사용자 지시: "지형 본 패스 비용 줄이기 … 다음 작업은 유니티 컴포넌트 중 중요도 순으로 하나씩"). **완료 (커밋 · 푸시함)**
   - Release (ClaudePerfEngine, 1660 SUPER, 가까운 돌 지형): 테셀레이션 켬 2.16 → **1.72 ms** (본 패스 1.24 → 0.83), 끔 (POM) 1.85 → 1.77
   - 61 `TerrainLayerHN` noTile (위 투영 타일 없애기 3 표본은 30 m 안만), 3 % 미만 레이어는 높이 · 노멀을 읽지 않음, POM 걸음 = 높이 범위의 화면 픽셀 / 2 (2 ~ 10), 32 지형 250 m 너머 높이 · 노멀 건너뜀, `TerrainRenderer.cpp` kTessTriangleSize 14
   - 남은 것: 먼 시점에서 테셀레이션 켬이 끔보다 0.9 ms 더 (원인 못 찾음 — 화면 공간 나눔 실험은 그림자가 나빠져 되돌림)
   - 검사: tessellation · tessellationgl · tessellationvk **37/37**. 문서 TESSELLATION.md 성능 표
-  - 다음 (진행 중, 커밋 전): Unity 컴포넌트 1 순위 **2D Tilemap** — 새 패키지 `Packages/com.nova.tilemap` (Grid · Tilemap · Tilemap Renderer · Tilemap Collider 2D · .tile · Tile Palette · CLI `nova tilemap` · C#),
-    엔진 쪽 `EditorExtensions` (RegisterSceneTool · RegisterCreateMenu), `SpriteRenderer::ResolveSprite`, `UISprites` NOVA_API, C# Vector2Int · Vector3Int · BoundsInt, 스위트 `tilemap`
 - 이전: 2026년 10월 6일 — **테셀레이션 Release 성능 · 절벽 POM · Terrain Layer Normal Map** (사용자 지시: "절벽 POM 과 레이어 Normal Map · 테셀레이션 Release 성능 측정과 최적화"). **완료 (커밋 · 푸시함)**
   - 성능 (Release, ClaudePerfEngine, MuMu 끔, 번갈아 3 번 중앙값, 1660 SUPER Scene 뷰 1904x1001, 돌 지형): 테셀레이션 켬 2.40 → **1.72 ms** — 화면 밖 패치를 Hull 에서 버림 (60 `TessPatchOutside` · `gTessCull`, 본 · 깊이만),
     방향광 캐스케이드 1 ~ 3 은 나누지 않음 (`ShadowRenderer::CasterPass::Cascade` · `TessellateShadow()`). Normal Map 을 더한 뒤 2.16 ms (그림자 0.38 · 깊이 0.16 · 본 1.24), 끔 (POM) 1.85, 높이 없음 0.92

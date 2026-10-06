@@ -12,6 +12,7 @@
 #include "SceneViewState.h"
 #include "ParticleSystemEditor.h"
 #include "ModelPlacement.h"
+#include "EditorExtensions.h"
 
 SceneEditorWindow::SceneEditorWindow()
     : EditorWindow("Scene", ICON_FA_BORDER_ALL),
@@ -213,8 +214,30 @@ void SceneEditorWindow::OnRender()
     // 물 점 편집 (Edit Points 가 켜진 Water Body)
     const bool waterTool = WaterEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
     const bool splineTool = TerrainSplineEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
+    // 패키지의 Scene 뷰 도구 (Tile Palette 붓 등)
+    bool packageTool = false;
+    if (m_Camera)
+    {
+        EditorExtensions::SceneViewContext ctx;
+        ctx.View = m_Camera->View();
+        ctx.Proj = m_Camera->Proj();
+        ctx.ViewMin = imageMin;
+        ctx.ViewMax = imageMax;
+        ctx.Hovered = viewHovered;
+        const float nx = (mouse.x - imageMin.x) / (std::max)(1.0f, imageMax.x - imageMin.x) * 2.0f - 1.0f;
+        const float ny = 1.0f - (mouse.y - imageMin.y) / (std::max)(1.0f, imageMax.y - imageMin.y) * 2.0f;
+        const XMMATRIX inv = XMMatrixInverse(nullptr, m_Camera->View() * m_Camera->Proj());
+        const Vec3 nearP = XMVector3TransformCoord(XMVectorSet(nx, ny, 0.0f, 1.0f), inv);
+        const Vec3 farP = XMVector3TransformCoord(XMVectorSet(nx, ny, 1.0f, 1.0f), inv);
+        const Vec3 dir = farP - nearP;
+        ctx.RayLength = dir.Length();
+        ctx.RayValid = ctx.RayLength > 1e-6f && std::isfinite(ctx.RayLength);
+        ctx.RayOrigin = nearP;
+        ctx.RayDir = ctx.RayValid ? dir * (1.0f / ctx.RayLength) : Vec3(0, 0, 1);
+        packageTool = EditorExtensions::RunSceneTools(ctx);
+    }
     SceneViewOverlay::End();
-    SceneGizmoTools::SetSuppressed(terrainTool || waterTool || splineTool);
+    SceneGizmoTools::SetSuppressed(terrainTool || waterTool || splineTool || packageTool);
 
     // 도구 단축키(Q/W/E/R/T/Y) → Move/Rotate/Scale/Rect 핸들, 클릭 선택, Hand/휠/Alt 궤도/F 포커스
     SceneToolbar::HandleShortcuts(viewHovered);

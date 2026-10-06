@@ -100,6 +100,7 @@
 | `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결 (캐릭터 · 물도), **쌓이는 눈 · 발자국** (지형은 실제로 파인다), 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
 | `com.nova.modeling` | Blender 식 **Model Editor** (Extrude · Bevel · Subsurf · 리깅 · 가중치 붓 · 셰이프 키), FBX · GLB · VRM 내보내기, 전부 CLI — [MODEL_EDITOR](docs/MODEL_EDITOR.md) |
 | `com.nova.animation2d` | Spine 식 **2D 뼈대 애니메이션** — [ANIMATION2D](docs/ANIMATION2D.md) |
+| `com.nova.tilemap` | Unity 식 **2D Tilemap** — Grid · Tilemap · Tile Palette (붓 · 상자 · 흘려 채우기), 맞닿은 칸을 합치는 Tilemap Collider 2D — [TILEMAP](docs/TILEMAP.md) |
 | `com.nova.toon` | [lilToon](https://github.com/lilxyzw/lilToon) 툰 셰이더 (VRM MToon 자동 변환) |
 
 **NOVA CLI** — 실행 중인 에디터를 명령으로 (창 포커스 없이, Undo 로 남음). AI 에이전트는 `nova ai-guide` 부터 — [NOVA_CLI](docs/NOVA_CLI.md)

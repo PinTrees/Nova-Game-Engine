@@ -476,4 +476,78 @@ namespace NovaEngine
         public static Quaternion rotation => Quaternion.Euler(Range(0f, 360f), Range(0f, 360f), Range(0f, 360f));
         public static Color ColorHSV() => new Color(value, value, value);
     }
+
+    // 정수 칸 좌표 (Tilemap · Grid 의 칸)
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Vector2Int : IEquatable<Vector2Int>
+    {
+        public int x, y;
+        public Vector2Int(int x, int y) { this.x = x; this.y = y; }
+        public static Vector2Int zero => new Vector2Int(0, 0);
+        public static Vector2Int one => new Vector2Int(1, 1);
+        public static Vector2Int up => new Vector2Int(0, 1);
+        public static Vector2Int down => new Vector2Int(0, -1);
+        public static Vector2Int left => new Vector2Int(-1, 0);
+        public static Vector2Int right => new Vector2Int(1, 0);
+        public static Vector2Int operator +(Vector2Int a, Vector2Int b) => new Vector2Int(a.x + b.x, a.y + b.y);
+        public static Vector2Int operator -(Vector2Int a, Vector2Int b) => new Vector2Int(a.x - b.x, a.y - b.y);
+        public static Vector2Int operator *(Vector2Int a, int d) => new Vector2Int(a.x * d, a.y * d);
+        public static bool operator ==(Vector2Int a, Vector2Int b) => a.x == b.x && a.y == b.y;
+        public static bool operator !=(Vector2Int a, Vector2Int b) => !(a == b);
+        public static implicit operator Vector2(Vector2Int v) => new Vector2(v.x, v.y);
+        public static explicit operator Vector3Int(Vector2Int v) => new Vector3Int(v.x, v.y, 0);
+        public static Vector2Int FloorToInt(Vector2 v) => new Vector2Int((int)MathF.Floor(v.x), (int)MathF.Floor(v.y));
+        public static Vector2Int RoundToInt(Vector2 v) => new Vector2Int((int)MathF.Round(v.x), (int)MathF.Round(v.y));
+        public bool Equals(Vector2Int o) => this == o;
+        public override bool Equals(object o) => o is Vector2Int v && this == v;
+        public override int GetHashCode() => HashCode.Combine(x, y);
+        public override string ToString() => $"({x}, {y})";
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Vector3Int : IEquatable<Vector3Int>
+    {
+        public int x, y, z;
+        public Vector3Int(int x, int y, int z = 0) { this.x = x; this.y = y; this.z = z; }
+        public static Vector3Int zero => new Vector3Int(0, 0, 0);
+        public static Vector3Int one => new Vector3Int(1, 1, 1);
+        public static Vector3Int up => new Vector3Int(0, 1, 0);
+        public static Vector3Int down => new Vector3Int(0, -1, 0);
+        public static Vector3Int left => new Vector3Int(-1, 0, 0);
+        public static Vector3Int right => new Vector3Int(1, 0, 0);
+        public static Vector3Int operator +(Vector3Int a, Vector3Int b) => new Vector3Int(a.x + b.x, a.y + b.y, a.z + b.z);
+        public static Vector3Int operator -(Vector3Int a, Vector3Int b) => new Vector3Int(a.x - b.x, a.y - b.y, a.z - b.z);
+        public static Vector3Int operator *(Vector3Int a, int d) => new Vector3Int(a.x * d, a.y * d, a.z * d);
+        public static bool operator ==(Vector3Int a, Vector3Int b) => a.x == b.x && a.y == b.y && a.z == b.z;
+        public static bool operator !=(Vector3Int a, Vector3Int b) => !(a == b);
+        public static implicit operator Vector3(Vector3Int v) => new Vector3(v.x, v.y, v.z);
+        public static explicit operator Vector2Int(Vector3Int v) => new Vector2Int(v.x, v.y);
+        public static Vector3Int FloorToInt(Vector3 v) => new Vector3Int((int)MathF.Floor(v.x), (int)MathF.Floor(v.y), (int)MathF.Floor(v.z));
+        public static Vector3Int RoundToInt(Vector3 v) => new Vector3Int((int)MathF.Round(v.x), (int)MathF.Round(v.y), (int)MathF.Round(v.z));
+        public bool Equals(Vector3Int o) => this == o;
+        public override bool Equals(object o) => o is Vector3Int v && this == v;
+        public override int GetHashCode() => HashCode.Combine(x, y, z);
+        public override string ToString() => $"({x}, {y}, {z})";
+    }
+
+    // 정수 상자 (Tilemap.cellBounds): position = 최소 칸, size = 칸 수 (max 는 포함하지 않는다 — Unity 와 같다)
+    public struct BoundsInt
+    {
+        public Vector3Int position, size;
+        public BoundsInt(Vector3Int position, Vector3Int size) { this.position = position; this.size = size; }
+        public BoundsInt(int x, int y, int z, int sizeX, int sizeY, int sizeZ) { position = new Vector3Int(x, y, z); size = new Vector3Int(sizeX, sizeY, sizeZ); }
+        public int x => position.x;
+        public int y => position.y;
+        public int z => position.z;
+        public int xMin => position.x;
+        public int yMin => position.y;
+        public int zMin => position.z;
+        public int xMax => position.x + size.x;
+        public int yMax => position.y + size.y;
+        public int zMax => position.z + size.z;
+        public Vector3Int min => position;
+        public Vector3Int max => position + size;
+        public bool Contains(Vector3Int p) => p.x >= xMin && p.y >= yMin && p.z >= zMin && p.x < xMax && p.y < yMax && p.z < zMax;
+        public override string ToString() => $"Position: {position}, Size: {size}";
+    }
 }
