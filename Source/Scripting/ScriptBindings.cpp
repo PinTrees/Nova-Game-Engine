@@ -311,6 +311,9 @@ namespace
 		void(*CL_GetVector)(uint64, int, Vec3*);
 		void(*CL_SetVector)(uint64, int, Vec3*);
 		int(*CL_GetVertices)(uint64, Vec3*, int);      // 메시 정점마다 로컬 위치 (Unity Cloth.vertices) — 개수를 돌려준다
+		// Behaviour.enabled · Collider.enabled: 네이티브 컴포넌트 (타입 이름 — GO_HasComponent 와 같다) 의 Inspector 체크 상자. 없으면 -1
+		int(*Comp_GetEnabled)(uint64, u8*);
+		void(*Comp_SetEnabled)(uint64, u8*, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -570,6 +573,16 @@ namespace
 	}
 
 	int GO_HasComponent(uint64 id, u8* type) { return FindComponent(Find(id), type ? type : "") != nullptr; }
+	int Comp_GetEnabled(uint64 id, u8* type)
+	{
+		Component* c = FindComponent(Find(id), type ? type : "");
+		return c == nullptr ? -1 : (c->IsEnabled() ? 1 : 0);
+	}
+	void Comp_SetEnabled(uint64 id, u8* type, int on)
+	{
+		if (Component* c = FindComponent(Find(id), type ? type : ""))
+			c->SetEnabled(on != 0);   // Unity: 끈 컴포넌트는 멈춘다 (각 컴포넌트가 IsEnabled 를 본다)
+	}
 
 	void* GO_AddComponent(uint64 id, u8* type)
 	{
@@ -1867,6 +1880,8 @@ namespace ScriptBindings
 			if (pos) *pos = p;
 			if (rot) *rot = Vec4(q.x, q.y, q.z, q.w);
 		};
+		t.Comp_GetEnabled = Comp_GetEnabled;
+		t.Comp_SetEnabled = Comp_SetEnabled;
 		t.CL_GetFloat = [](uint64 id, int p) -> float {
 			Cloth* c = Get<Cloth>(id);
 			if (c == nullptr) return 0.0f;

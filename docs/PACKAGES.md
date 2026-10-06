@@ -113,6 +113,10 @@ namespace NovaEngine
 
 C++ 쪽은 `NOVA_PACKAGE_EXPORT float Spinner_GetSpeed(uint64 go)` 처럼 내보내고, `ScriptBindings::FindObject(go)` + `GetComponentIncludingPending<Spinner>()` 로 찾는다 (같은 프레임에 AddComponent 한 것까지).
 
+**켜고 끄기**: C# 클래스를 `Behaviour` 에서 내리면 (`class Spinner : Behaviour`) `spinner.enabled` 가 네이티브 컴포넌트의 체크 상자 (`Component::IsEnabled · SetEnabled`) 를 읽고 쓴다
+(Unity 와 같이 — Animator · Light · Camera · AudioSource 와 같은 길). 엔진은 꺼진 컴포넌트의 `Update` · `LateUpdate` 도 부르므로, C++ 컴포넌트가
+`if (!m_Enabled) return;` 으로 멈춰야 한다. `Collider.enabled` 도 같은 길 (끄면 부딪히지 않고, 그 위에 잠든 바디가 깨어 떨어진다).
+
 C# 만 있는 패키지는 `Runtime/` 에 MonoBehaviour 를 두면 된다 (예: `com.nova.starter-assets`).
 
 ## 엔진 확장 지점 (편집기 · 에셋 · 포즈)

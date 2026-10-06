@@ -245,3 +245,13 @@ void LightManager::SortingEditorLights(vector<shared_ptr<Light>> cullingLights, 
 
 	m_SortedEditorLightSize = m_SortedEditorLights.size();
 }
+
+bool LightManager::IsLit(const shared_ptr<Light>& light)
+{
+	if (light == nullptr || !light->IsEnabled() || light->GetGameObject() == nullptr)
+		return false;
+	for (GameObject* g = light->GetGameObject(); g != nullptr; g = g->GetParent())
+		if (!g->IsActive())
+			return false;
+	return true;
+}

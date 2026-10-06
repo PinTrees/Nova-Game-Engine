@@ -46,6 +46,8 @@ public:
 	int GetSortedLightSize() { return m_SortedLightSize; }
 	int GetSortedEditorLightSize() { return m_SortedEditorLightSize; }
 
+	// 켜져 있고 (enabled) 계층이 모두 활성인 빛만 비춘다 (Unity: light.enabled = false)
+	static bool IsLit(const shared_ptr<Light>& light);
 	vector<shared_ptr<Light>> GetLights() { return m_Lights; }
 	vector<shared_ptr<Light>> GetSortedLights() { return m_SortedLights; }
 	vector<shared_ptr<Light>> GetSortedEditorLights() { return m_SortedEditorLights; }

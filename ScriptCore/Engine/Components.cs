@@ -115,7 +115,12 @@ namespace NovaEngine
         internal Collider() { }
         internal Collider(ulong id) { m_Id = id; }
         public Rigidbody attachedRigidbody => GetComponent<Rigidbody>();
-        public bool enabled { get => true; set { } }
+        /// <summary>끄면 부딪히지 않는다 (트리거도) — Inspector 의 체크 상자와 같은 값</summary>
+        public unsafe bool enabled
+        {
+            get { fixed (byte* p = Native.Utf8(NativeTypeName(GetType()) ?? "Collider")) return Native.Api.Comp_GetEnabled(m_Id, p) != 0; }
+            set { fixed (byte* p = Native.Utf8(NativeTypeName(GetType()) ?? "Collider")) Native.Api.Comp_SetEnabled(m_Id, p, value ? 1 : 0); }
+        }
     }
     public sealed class BoxCollider : Collider { internal BoxCollider() { } }
     public sealed class SphereCollider : Collider { internal SphereCollider() { } }

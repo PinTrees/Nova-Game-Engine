@@ -312,6 +312,8 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, Vector3*, void> CL_GetVector;
         public delegate* unmanaged<ulong, int, Vector3*, void> CL_SetVector;
         public delegate* unmanaged<ulong, Vector3*, int, int> CL_GetVertices;
+        public delegate* unmanaged<ulong, byte*, int> Comp_GetEnabled;          // Behaviour.enabled · Collider.enabled (네이티브 타입 이름, 없으면 -1)
+        public delegate* unmanaged<ulong, byte*, int, void> Comp_SetEnabled;
     }
 
     internal static unsafe class Native

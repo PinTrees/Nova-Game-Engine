@@ -370,7 +370,30 @@ namespace NovaEngine
 
     public class Behaviour : Component
     {
-        public virtual bool enabled { get; set; } = true;
+        bool m_ManagedEnabled = true;   // 네이티브 컴포넌트가 없는 C# 만의 Behaviour
+
+        /// <summary>Unity 와 같이 끄면 그 컴포넌트가 멈춘다 (Animator · Light · Camera · AudioSource … — Inspector 의 체크 상자와 같은 값)</summary>
+        public virtual unsafe bool enabled
+        {
+            get
+            {
+                string t = NativeTypeName(GetType());
+                if (t != null)
+                    fixed (byte* p = Native.Utf8(t))
+                    {
+                        int v = Native.Api.Comp_GetEnabled(m_Id, p);
+                        if (v >= 0) return v != 0;
+                    }
+                return m_ManagedEnabled;
+            }
+            set
+            {
+                m_ManagedEnabled = value;
+                string t = NativeTypeName(GetType());
+                if (t != null)
+                    fixed (byte* p = Native.Utf8(t)) Native.Api.Comp_SetEnabled(m_Id, p, value ? 1 : 0);
+            }
+        }
         public bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy;
     }
 

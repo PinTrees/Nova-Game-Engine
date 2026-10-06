@@ -785,6 +785,20 @@ namespace
 		}
 	}
 
+	// 바디를 빼거나 다시 만들기 전에: 그 둘레에서 잠든 바디를 깨운다 (Unity: 콜라이더를 끄거나 지우면 위에 놓인 것이 떨어진다)
+	void WakeAround(World& w, const JPH::BodyID& id)
+	{
+		JPH::AABox box;
+		{
+			JPH::BodyLockRead lock(w.physics->GetBodyLockInterface(), id);
+			if (!lock.Succeeded())
+				return;
+			box = lock.GetBody().GetWorldSpaceBounds();
+		}
+		box.ExpandBy(JPH::Vec3::sReplicate(0.1f));
+		w.BI().ActivateBodiesInAABox(box, {}, {});
+	}
+
 	// 다이내믹 바디를 계층 깊이 순서로 (부모 먼저)
 	std::vector<World::BodyRecord*> DynamicByDepth(World& w)
 	{
@@ -1465,6 +1479,7 @@ void PhysicsManager::StepSimulation(float dt)
 				keepVel = FromJ(bi.GetLinearVelocity(existing->second.id));
 				keepAng = FromJ(bi.GetAngularVelocity(existing->second.id));
 				DropJointsOf(w, existing->second.id);
+				WakeAround(w, existing->second.id);
 				bi.RemoveBody(existing->second.id);
 				bi.DestroyBody(existing->second.id);
 			}
@@ -1571,6 +1586,7 @@ void PhysicsManager::StepSimulation(float dt)
 		if (!it->second.id.IsInvalid())
 		{
 			DropJointsOf(w, it->second.id);
+			WakeAround(w, it->second.id);
 			bi.RemoveBody(it->second.id);
 			bi.DestroyBody(it->second.id);
 		}

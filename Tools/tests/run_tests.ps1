@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2316,6 +2316,72 @@ function Suite-Cloth
         'var c = GameObject.Find("Curtain").GetComponent<Cloth>(); c.damping = 0.3f; c.externalAcceleration = new Vector3(1, 0, 0); return c.pin + " " + c.damping.ToString("F1") + " " + c.externalAcceleration.x.ToString("F0") + " " + c.useGravity + " " + c.stretchingStiffness.ToString("F0");' | Set-Content -Encoding utf8 $apiCs
         $api = Invoke-NovaJson "exec --file `"$apiCs`""
         Add-Result cloth 'C# Cloth API (pin, damping, externalAcceleration, useGravity, stiffness)' ("$($api.result)" -eq 'TopEdge 0.3 1 True 1') "$($api.result)"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
+function Suite-Behaviour
+{
+    # C# Behaviour.enabled · Collider.enabled → 네이티브 컴포넌트 (Inspector 체크 상자): Animator 를 끄면 멈추고 다시 켜면 간다,
+    #  Directional Light 를 끄면 바닥이 어두워진다, 바닥 Collider 를 끄면 위의 상자가 떨어진다
+    Write-Host '[behaviour]'
+    $dir = Join-Path $Out 'behaviour'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 3,1,3' | Out-Null
+        Invoke-Nova 'create character --name Ch' | Out-Null
+        Invoke-Nova 'create cube --name Floor --position 4,1,0 --scale 2,0.2,2' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 4,2,0 --scale 0.5,0.5,0.5' | Out-Null
+        Invoke-Nova 'add-component Box RigidBody' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,3,-6 --rotation 25,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Add-Type -AssemblyName System.Drawing
+        function GroundLum([string]$png)
+        {
+            $b = New-Object System.Drawing.Bitmap $png
+            try { $s = 0.0; $n = 0; for ($y = [int]($b.Height * 0.8); $y -lt [int]($b.Height * 0.95); $y += 3) { for ($x = [int]($b.Width * 0.1); $x -lt [int]($b.Width * 0.4); $x += 3) { $c = $b.GetPixel($x, $y); $s += ($c.R + $c.G + $c.B) / 3.0; $n++ } }; return $s / $n }
+            finally { $b.Dispose() }
+        }
+        function Cs([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; return (Invoke-NovaJson "exec --file `"$f`"").result }
+
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.5) { Invoke-Nova 'wait 10' | Out-Null }
+
+        # Animator
+        $off = Cs 'anim_off' 'var a = GameObject.Find("Ch").GetComponent<Animator>(); a.enabled = false; return a.enabled + " " + a.GetCurrentAnimatorStateInfo(0).normalizedTime.ToString("F4");'
+        Invoke-Nova 'wait 30' | Out-Null
+        $still = Cs 'anim_still' 'return GameObject.Find("Ch").GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).normalizedTime.ToString("F4");'
+        $json = Invoke-NovaJson 'get Ch --component Animator'
+        $on = Cs 'anim_on' 'var a = GameObject.Find("Ch").GetComponent<Animator>(); a.enabled = true; return a.enabled.ToString();'
+        Invoke-Nova 'wait 30' | Out-Null
+        $moved = Cs 'anim_moved' 'return GameObject.Find("Ch").GetComponent<Animator>().GetCurrentAnimatorStateInfo(0).normalizedTime.ToString("F4");'
+        $ov = "$off" -split ' '
+        Add-Result behaviour 'Animator.enabled = false stops it (Inspector flag too), true resumes' ($ov.Count -eq 2 -and $ov[0] -eq 'False' -and $ov[1] -eq "$still" -and $json.enabled -eq $false -and "$on" -eq 'True' -and "$moved" -ne "$still") "off: $off, after 30 frames $still, json enabled $($json.enabled); on: $on, after 30 frames $moved"
+
+        # Light
+        Invoke-Nova 'wait 3' | Out-Null
+        $litPng = Join-Path $dir 'lit.png'
+        Invoke-Nova "screenshot `"$litPng`" --view game" | Out-Null
+        $lres = Cs 'light_off' 'var l = GameObject.Find("Directional Light").GetComponent<Light>(); l.enabled = false; return l.enabled.ToString();'
+        Invoke-Nova 'wait 5' | Out-Null
+        $darkPng = Join-Path $dir 'dark.png'
+        Invoke-Nova "screenshot `"$darkPng`" --view game" | Out-Null
+        $lj = Invoke-NovaJson 'get "Directional Light" --component Light'
+        $lit = GroundLum $litPng; $dark = GroundLum $darkPng
+        Add-Result behaviour 'Light.enabled = false: the scene loses that light' ("$lres" -eq 'False' -and $lj.enabled -eq $false -and $dark -lt $lit * 0.9) ("ground {0:F0} → {1:F0}, C# {2}, json enabled {3}" -f $lit, $dark, $lres, $lj.enabled)
+
+        # Collider
+        $y0 = [double](Invoke-NovaJson 'get Box').position[1]
+        $cres = Cs 'col_off' 'GameObject.Find("Floor").GetComponent<Collider>().enabled = false; return GameObject.Find("Floor").GetComponent<BoxCollider>().enabled.ToString();'
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.5) { Invoke-Nova 'wait 10' | Out-Null }
+        $y1 = [double](Invoke-NovaJson 'get Box').position[1]
+        Add-Result behaviour 'Collider.enabled = false: the box on it falls through' ("$cres" -eq 'False' -and $y0 -gt 1.1 -and $y1 -lt 0.5) ("box y {0:F2} on the floor → {1:F2} (C# enabled {2})" -f $y0, $y1, $cres)
         Invoke-Nova 'stop' | Out-Null
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
@@ -5534,6 +5600,7 @@ try
                 'wheel' { Suite-Wheel }
                 'daynight' { Suite-DayNight }
                 'cloth' { Suite-Cloth }
+                'behaviour' { Suite-Behaviour }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

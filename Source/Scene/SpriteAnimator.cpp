@@ -207,7 +207,7 @@ void SpriteAnimator::ShowFrame(const SpriteAnimClip& c, int frame)
 
 void SpriteAnimator::Update()
 {
-	if (!m_Playing || m_Current < 0 || m_Current >= (int)m_Clips.size())
+	if (!m_Enabled || !m_Playing || m_Current < 0 || m_Current >= (int)m_Clips.size())
 		return;
 	auto c = SpriteAnimClips::Load(m_Clips[m_Current]);
 	if (!c || c->Frames.empty())

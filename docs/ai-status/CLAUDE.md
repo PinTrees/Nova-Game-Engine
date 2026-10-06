@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **천 (Cloth)** (같은 지시 순서의 8 번 — 마지막). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **C# Behaviour.enabled → 네이티브 컴포넌트** (사용자 요청 — 래그돌 작업에서 남긴 일). **완료 (커밋, 푸시 전)**
+  - 바인딩 `Comp_GetEnabled · Comp_SetEnabled` (타입 이름 — 표 끝), C# `Behaviour.enabled` (MonoBehaviour · UI Graphic · Selectable 은 그대로 자기 것) · `Collider.enabled` (전에는 늘 true)
+  - 네이티브가 끄면 멈추게: 빛 (`LightManager::IsLit` — 꺼짐 · 꺼진 계층, 게임 · Scene 뷰 모두), SpriteAnimator, Expressions. (오디오 · 카메라 · 콜라이더 · 2D 렌더러 · 포즈 수정자 · UI · Animator 는 이미 봄)
+  - 물리: 바디를 빼거나 다시 만들 때 둘레의 잠든 바디를 깨운다 (`WakeAround` — 콜라이더를 끄면 위의 상자가 떨어진다)
+  - 검사 `-Only behaviour` 3/3 (Animator 멈춤 · 다시 · Inspector 값, 빛 끄기, 콜라이더 끄기), 함께 physics · ui · audio · animation · sprites · light2d · ragdoll · cloth — 75/75. 문서 `docs/PACKAGES.md`
+- 이전: 2026년 10월 7일 — **천 (Cloth)** (같은 지시 순서의 8 번 — 마지막). **완료 (커밋, 푸시 전)**
   - `Source/Scene/Cloth.*`: Unity Cloth (Mesh Filter 메시 → Jolt Soft Body: 정점 묶기 · 늘어남 · 비틀림 · dihedral 접힘 · LRA, 고정 Top Edge · Top Corners · 고른 정점, 바람 · 출렁임, 순간 이동 = 천 전체 이동), 메시 사본을 동적 정점 버퍼로 (`MeshGeometry::UpdateVertices`)
   - `PhysicsManager`: CreateCloth · DriveCloth · ShiftCloth · GetClothVertices · WorldSerial, Soft Body 접촉 거르기 (자기 콜라이더 · 트리거)
   - C# `Cloth · ClothPinMode`, Add Component > Physics > Cloth. 검사 `-Only cloth` 4/4, 문서 `docs/CLOTH.md`, Showcase 252
@@ -19,7 +24,6 @@
   - `Source/Scene/Ragdoll.*`: Ragdoll Wizard (휴머노이드 Skinned Mesh → 바디 11 · Unity 값) + Ragdoll 컴포넌트 (Active = 바디가 스키닝 자세를 정함 / 꺼짐 = 키네마틱으로 애니메이션 따라감). `SkinnedMeshRenderer::GetNodeGlobals`. 메뉴 3D Object > Ragdoll..., CLI `ragdoll create|info|active`, C# `Ragdoll · CharacterJoint · ConfigurableJoint · SoftJointLimit · JointDrive`
   - 엔진 수정: 다이내믹 바디를 부모 먼저 Transform 에 쓰기, `Physics.IgnoreCollision` (쉬는 자세에서 겹친 래그돌 쌍), Animator · AnimationPlayer 가 enabled 꺼지면 멈춤 (Unity), **Transform 월드 크기 기본 1** (한 번도 갱신 안 된 루트 아래 콜라이더가 1 mm 이던 버그 — 예전 씬의 0 도 고쳐 읽음)
   - 검사 `-Only ragdoll` 9/9, physics · animation 함께 33/33, 문서 `docs/RAGDOLL.md`, Showcase 249
-  - 남은 것: C# `Behaviour.enabled` 가 네이티브 컴포넌트 (Animator 등) 에는 C# 쪽 값만 바꾼다 (따로 할 일)
 - 이전: 2026년 10월 7일 — **2D 내비게이션 (NavMesh Surface Plane = 2D)** (같은 지시 순서의 5 번). **완료 (커밋, 푸시 전)**
   - 패키지 `com.nova.ai.navigation`: `NavMeshSurface` 의 Plane (3D XZ / 2D XY) — 2D 굽기 = 바닥 사각형 (콜라이더 · 스프라이트 범위 또는 Volume) + 정적 2D 콜라이더 윤곽 (귀 자르기 삼각형, Edge 는 얇은 사각형, Tilemap Collider 2D 포함, 움직이는 Rigidbody 2D · 트리거 제외)
   - `NavData`: 내비 공간 (x, 0, y), 벽 삼각형을 반 칸 키운 볼록 다각형으로 `RC_NULL_AREA` 표시 (깎기 전), `.navmesh` 버전 3 (머리 뒤 2D 플래그, 버전 2 도 읽음), 2D 기즈모

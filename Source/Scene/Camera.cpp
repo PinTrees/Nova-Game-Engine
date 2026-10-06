@@ -307,6 +307,8 @@ void Camera::GetFrustumCulling()
 	// Point and Spot Light
 	for (const auto& light : lights)
 	{
+		if (!LightManager::IsLit(light))
+			continue;   // 꺼진 빛 · 꺼진 계층 (Unity)
 		if (LightType::Directional == light->GetLightType())
 		{
 			cullingLights.push_back(light);

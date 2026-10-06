@@ -56,6 +56,8 @@ SkinnedMeshRenderer* Expressions::FindRenderer(const std::string& name) const
 
 void Expressions::Update()
 {
+	if (!m_Enabled)
+		return;   // Unity: 끄면 멈춘다 (깜빡임 · 표정 적용)
 	// 자동 깜빡임: 다음 시각이 되면 닫고 (40 %) 잠깐 멈췄다 (20 %) 연다 (40 %)
 	const float dt = std::clamp(Time::DeltaTime(), 0.0f, 0.1f);
 	if (AutoBlink && Find("blink") >= 0)
