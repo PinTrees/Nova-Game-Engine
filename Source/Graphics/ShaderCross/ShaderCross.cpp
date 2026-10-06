@@ -6,6 +6,8 @@
 #include <fstream>
 #include <regex>
 #include <set>
+#include <sstream>
+#include <atomic>
 #include <nlohmann/json.hpp>
 #include "ShaderCrossJson.h"
 
@@ -45,8 +47,8 @@ namespace
 	std::string Narrow(const std::wstring& w) { return wstring_to_string(w); }
 
 	// 전처리 (#include, 매크로): IDxcCompiler::Preprocess
-	// es = OpenGL ES 변환: NOVA_GLES 를 정의한다 (셰이더가 ES 에 없는 기능을 피해 가는 #ifdef)
-	bool Preprocess(const std::wstring& file, std::string& out, std::string& error, bool es = false)
+	// es = OpenGL ES 변환: NOVA_GLES 를 정의한다 (셰이더가 ES 에 없는 기능을 피해 가는 #ifdef), web = WebGPU: NOVA_WEBGPU
+	bool Preprocess(const std::wstring& file, std::string& out, std::string& error, bool es = false, bool web = false)
 	{
 		ComPtr<IDxcBlobEncoding> source;
 		if (FAILED(s_Utils->LoadFile(file.c_str(), nullptr, &source)))
@@ -62,8 +64,8 @@ namespace
 		const std::wstring engineArg = L"-I" + std::filesystem::absolute(L"../Shaders", ec).wstring();   // 패키지 셰이더 → 엔진 셰이더
 		LPCWSTR args[] = { incArg.c_str(), engineArg.c_str(), L"-HV", L"2018" };
 		ComPtr<IDxcOperationResult> result;
-		DxcDefine define = { L"NOVA_GLES", L"1" };
-		if (FAILED(s_Legacy->Preprocess(source.Get(), file.c_str(), args, _countof(args), es ? &define : nullptr, es ? 1 : 0, include.Get(), &result)))
+		DxcDefine define = { web ? L"NOVA_WEBGPU" : L"NOVA_GLES", L"1" };
+		if (FAILED(s_Legacy->Preprocess(source.Get(), file.c_str(), args, _countof(args), es || web ? &define : nullptr, es || web ? 1 : 0, include.Get(), &result)))
 		{
 			error = "preprocess call failed";
 			return false;
@@ -801,6 +803,12 @@ namespace
 					auto smp = fx.Resources.find(pairs.get_name(p.sampler_id));
 					if (img != fx.Resources.end() && smp != fx.Resources.end() && smp->second.Comparison)
 						img->second.Depth = true;
+					if (img != fx.Resources.end() && smp != fx.Resources.end())
+					{
+						const std::pair<int, int> pr = { img->second.Binding, smp->second.Binding };
+						if (std::find(pass.SamplerPairs.begin(), pass.SamplerPairs.end(), pr) == pass.SamplerPairs.end())
+							pass.SamplerPairs.push_back(pr);
+					}
 				}
 			}
 			StripHlslDecorations(code);
@@ -875,10 +883,154 @@ namespace
 		e.BindingCount = j.at("bindingCount").get<int>();
 		return true;
 	}
+
+	// ShaderCache/WGSL/<이름>_<해시>.json — 규칙이 바뀌면 올린다
+	constexpr int kWgslCacheVersion = 1;
+
+	// 창 없이 실행하고 출력 (stdout + stderr) 을 모은다
+	DWORD RunTool(const std::wstring& commandLine, std::string& output)
+	{
+		SECURITY_ATTRIBUTES sa = { sizeof(sa), nullptr, TRUE };
+		HANDLE readPipe = nullptr, writePipe = nullptr;
+		if (!::CreatePipe(&readPipe, &writePipe, &sa, 0))
+			return (DWORD)-1;
+		::SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+		STARTUPINFOW si = {};
+		si.cb = sizeof(si);
+		si.dwFlags = STARTF_USESTDHANDLES;
+		si.hStdOutput = writePipe;
+		si.hStdError = writePipe;
+		PROCESS_INFORMATION pi = {};
+		std::wstring cmd = commandLine;
+		const BOOL ok = ::CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+		::CloseHandle(writePipe);
+		if (!ok)
+		{
+			::CloseHandle(readPipe);
+			output = "cannot start " + Narrow(commandLine);
+			return (DWORD)-1;
+		}
+		char buf[4096];
+		DWORD read = 0;
+		while (::ReadFile(readPipe, buf, sizeof(buf), &read, nullptr) && read > 0)
+			output.append(buf, read);
+		::WaitForSingleObject(pi.hProcess, INFINITE);
+		DWORD code = 1;
+		::GetExitCodeProcess(pi.hProcess, &code);
+		::CloseHandle(pi.hProcess);
+		::CloseHandle(pi.hThread);
+		::CloseHandle(readPipe);
+		return code;
+	}
+
+	// Tint --dump-inspector-bindings 출력 → 바인딩 정보
+	//  [0][3]:
+	//      resource_type = Sampler
+	//      dim = None ...
+	void ParseInspector(const std::string& text, StageSpirv& st)
+	{
+		std::istringstream in(text);
+		std::string line;
+		WgslBinding* cur = nullptr;
+		auto trim = [](std::string s) {
+			const size_t a = s.find_first_not_of(" \t\r"), b = s.find_last_not_of(" \t\r");
+			return a == std::string::npos ? std::string() : s.substr(a, b - a + 1);
+		};
+		while (std::getline(in, line))
+		{
+			const std::string l = trim(line);
+			if (l.rfind("Entry Point = ", 0) == 0)
+			{
+				st.WgslEntry = l.substr(14);
+				continue;
+			}
+			if (l.size() > 4 && l[0] == '[' && l.back() == ':')
+			{
+				int group = 0, binding = 0;
+				if (sscanf_s(l.c_str(), "[%d][%d]:", &group, &binding) == 2)
+				{
+					st.WgslBindings.push_back(WgslBinding());
+					cur = &st.WgslBindings.back();
+					cur->Binding = binding;
+				}
+				continue;
+			}
+			const size_t eq = l.find(" = ");
+			if (!cur || eq == std::string::npos)
+				continue;
+			const std::string key = l.substr(0, eq), value = l.substr(eq + 3);
+			if (key == "resource_type") cur->Type = value;
+			else if (key == "dim") cur->Dim = value;
+			else if (key == "sampled_kind") cur->Sampled = value;
+			else if (key == "image_format") cur->Format = value;
+		}
+	}
+
+	// SPIR-V → WGSL (tint.exe). 균일하지 않은 흐름의 미분 (textureSample 등) 은 허용한다 — HLSL 은 막지 않는다
+	bool SpirvToWgsl(const std::wstring& tint, const std::vector<uint32_t>& code, StageSpirv& st, std::string& error)
+	{
+		wchar_t tmpDir[MAX_PATH] = {};
+		::GetTempPathW(MAX_PATH, tmpDir);
+		static std::atomic<uint32_t> counter{ 0 };
+		const std::wstring base = std::wstring(tmpDir) + L"nova_wgsl_" + std::to_wstring(::GetCurrentProcessId()) + L"_" + std::to_wstring(counter++);
+		const std::wstring spv = base + L".spv", wgsl = base + L".wgsl";
+		{
+			std::ofstream f(spv, std::ios::binary | std::ios::trunc);
+			f.write(reinterpret_cast<const char*>(code.data()), code.size() * 4);
+		}
+		std::string output;
+		const DWORD rc = RunTool(L"\"" + tint + L"\" --input-format spirv --format wgsl --allow-non-uniform-derivatives true --dump-inspector-bindings true -o \"" +
+			wgsl + L"\" \"" + spv + L"\"", output);
+		std::error_code ec;
+		std::filesystem::remove(spv, ec);
+		if (rc != 0)
+		{
+			std::filesystem::remove(wgsl, ec);
+			// Tint 의 긴 진단에서 오류 줄만
+			std::string first;
+			std::istringstream in(output);
+			std::string line;
+			while (std::getline(in, line))
+				if (line.find("error") != std::string::npos || line.find("not supported") != std::string::npos)
+				{
+					first = line;
+					break;
+				}
+			error = "Tint: " + (first.empty() ? output.substr(0, 300) : first);
+			return false;
+		}
+		std::ifstream in(wgsl, std::ios::binary);
+		st.Wgsl.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		in.close();
+		std::filesystem::remove(wgsl, ec);
+		ParseInspector(output, st);
+		st.Code.clear();   // 웹에는 SPIR-V 가 필요 없다
+		return !st.Wgsl.empty();
+	}
 }
 
 namespace ShaderCross
 {
+	std::wstring TintPath()
+	{
+		std::error_code ec;
+		wchar_t env[MAX_PATH] = {};
+		if (::GetEnvironmentVariableW(L"NOVA_TINT", env, MAX_PATH) > 0 && std::filesystem::exists(env, ec))
+			return env;
+		wchar_t exe[MAX_PATH] = {};
+		::GetModuleFileNameW(nullptr, exe, MAX_PATH);
+		const std::filesystem::path local = std::filesystem::path(exe).parent_path() / L"tint.exe";
+		if (std::filesystem::exists(local, ec))
+			return local.wstring();
+		if (::GetEnvironmentVariableW(L"USERPROFILE", env, MAX_PATH) > 0)
+		{
+			const std::filesystem::path home = std::filesystem::path(env) / L".nova" / L"dawn" / L"out" / L"tint" / L"Release" / L"tint.exe";
+			if (std::filesystem::exists(home, ec))
+				return home.wstring();
+		}
+		return std::wstring();
+	}
+
 	int EffectSpirv::PassesOk() const
 	{
 		int n = 0;
@@ -887,7 +1039,12 @@ namespace ShaderCross
 		return n;
 	}
 
-	bool CompileEffectSpirv(const std::wstring& fxPath, EffectSpirv& out)
+	bool CompileEffectSpirvAs(const std::wstring& fxPath, EffectSpirv& out, bool web);
+	bool CompileEffectSpirv(const std::wstring& fxPath, EffectSpirv& out) { return CompileEffectSpirvAs(fxPath, out, false); }
+	bool CompileEffectWgsl(const std::wstring& fxPath, EffectSpirv& out) { return CompileEffectSpirvAs(fxPath, out, true); }
+
+	// web = WebGPU: NOVA_WEBGPU, Y 뒤집기 · 시작 인스턴스 보정 없음, 테셀레이션 · 지오메트리 pass 는 Error, 단계마다 Tint 로 WGSL
+	bool CompileEffectSpirvAs(const std::wstring& fxPath, EffectSpirv& out, bool web)
 	{
 		out = EffectSpirv();
 		out.File = fxPath;
@@ -896,14 +1053,25 @@ namespace ShaderCross
 			out.Error = s_LoadError;
 			return false;
 		}
+		std::wstring tint;
+		if (web)
+		{
+			tint = TintPath();
+			if (tint.empty())
+			{
+				out.Error = "tint.exe not found (Tools/web/build_tint.ps1, or set NOVA_TINT)";
+				return false;
+			}
+		}
 		std::string pre;
-		if (!Preprocess(fxPath, pre, out.Error))
+		if (!Preprocess(fxPath, pre, out.Error, false, web))
 			return false;
-		const uint64_t hash = Fnv1a(pre) ^ ((uint64_t)kSpirvCacheVersion << 32);
+		const int version = web ? kWgslCacheVersion : kSpirvCacheVersion;
+		const uint64_t hash = Fnv1a(pre) ^ ((uint64_t)version << 32);
 		char hex[32];
 		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)hash);
 		const std::wstring stem = std::filesystem::path(fxPath).stem().wstring();
-		const std::filesystem::path cacheFile = std::filesystem::path(L"ShaderCache") / L"SPIRV" / (stem + L"_" + string_to_wstring(hex) + L".json");
+		const std::filesystem::path cacheFile = std::filesystem::path(L"ShaderCache") / (web ? L"WGSL" : L"SPIRV") / (stem + L"_" + string_to_wstring(hex) + L".json");
 		{
 			std::ifstream in(cacheFile, std::ios::binary);
 			if (in)
@@ -913,10 +1081,10 @@ namespace ShaderCross
 					const json j = json::parse(in);
 					EffectSpirv cached;
 					cached.File = fxPath;
-					if (SpirvFromJson(j, cached))
+					if (web ? WgslFromJson(j, cached, kWgslCacheVersion) : SpirvFromJson(j, cached))
 					{
 						out = std::move(cached);
-						EditorLog::Write("ShaderCross", "SPIR-V cache hit %s", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str());
+						EditorLog::Write("ShaderCross", "%s cache hit %s", web ? "WGSL" : "SPIR-V", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str());
 						return true;
 					}
 				}
@@ -934,6 +1102,18 @@ namespace ShaderCross
 				PassSpirv ps;
 				ps.Technique = tech.Name;
 				ps.Pass = pass.Name;
+				if (web)
+				{
+					bool unsupported = false;
+					for (const auto& s : pass.Shaders)
+						unsupported |= s.StageType == Stage::Hull || s.StageType == Stage::Domain || s.StageType == Stage::Geometry;
+					if (unsupported)
+					{
+						ps.Error = "WebGPU has no tessellation / geometry stage";
+						out.Passes.push_back(std::move(ps));
+						continue;
+					}
+				}
 				Stage lastGeom = Stage::Vertex;
 				for (const auto& s : pass.Shaders)
 					if (s.StageType == Stage::Geometry || (s.StageType == Stage::Domain && lastGeom != Stage::Geometry))
@@ -950,8 +1130,9 @@ namespace ShaderCross
 					st.Entry = ref->Entry;
 					std::string error;
 					std::map<std::string, int> outputs;
-					if (!CompileSpirv(out.Fx.Source, name, *ref, ref->StageType == lastGeom, st.Code, error, true) ||
-						!PatchStage(st.Code, ref->StageType, prev, outputs, out, ps, error))
+					if (!CompileSpirv(out.Fx.Source, name, *ref, !web && ref->StageType == lastGeom, st.Code, error, !web) ||
+						!PatchStage(st.Code, ref->StageType, prev, outputs, out, ps, error) ||
+						(web && !SpirvToWgsl(tint, st.Code, st, error)))
 					{
 						ps.Error = std::string(FxParser::StageName(ref->StageType)) + " " + ref->Entry + ": " + error;
 						break;
@@ -969,7 +1150,7 @@ namespace ShaderCross
 			for (const auto& f : std::filesystem::directory_iterator(cacheFile.parent_path(), ec))
 				if (f.path().filename().wstring().rfind(prefix, 0) == 0 && f.path() != cacheFile)
 					std::filesystem::remove(f.path(), ec);
-			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << SpirvToJson(out).dump();
+			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << (web ? WgslToJson(out, kWgslCacheVersion) : SpirvToJson(out)).dump();
 		}
 		catch (const std::exception&)
 		{

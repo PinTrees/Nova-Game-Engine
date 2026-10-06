@@ -41,6 +41,7 @@
 #include "ModelPlacement.h"
 #include "VulkanTools.h"
 #include "AndroidTools.h"
+#include "WebTools.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "OcclusionCulling.h"
@@ -228,6 +229,7 @@ bool EditorApp::Init()
 		ModelPlacement::RegisterEditor();     // nova modelfile
 		VulkanTools::RegisterEditor();        // nova vulkan
 		AndroidTools::RegisterEditor();       // nova android
+		WebTools::RegisterEditor();           // nova web
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
 		CliCommands::RegisterAll();
 		CliServer::Start();

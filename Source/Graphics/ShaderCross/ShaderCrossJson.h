@@ -12,4 +12,7 @@ namespace ShaderCross::Json
 	void BlocksFromJson(const json& j, std::map<std::string, UniformBlock>& blocks);
 	json ToJson(const EffectGlsl& e, int version);
 	bool FromJson(const json& j, EffectGlsl& e, int version);   // version 이 다르면 false
+	// WebGPU 효과 (웹 빌드 게임 데이터 Shaders/<이름>.wgsl.json · PC 캐시 ShaderCache/WGSL): SPIR-V 코드는 넣지 않는다
+	json WgslToJson(const EffectSpirv& e, int version);
+	bool WgslFromJson(const json& j, EffectSpirv& e, int version);   // version 이 다르면 false
 }

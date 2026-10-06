@@ -158,6 +158,83 @@ namespace ShaderCross::Json
 		e.Buffers = j.at("buffers").get<std::map<std::string, int>>();
 		return true;
 	}
+
+	json WgslToJson(const EffectSpirv& e, int version)
+	{
+		json passes = json::array();
+		for (const auto& p : e.Passes)
+		{
+			json stages = json::array();
+			for (const auto& s : p.Stages)
+			{
+				json binds = json::array();
+				for (const WgslBinding& b : s.WgslBindings)
+					binds.push_back({ b.Binding, b.Type, b.Dim, b.Sampled, b.Format });
+				stages.push_back({ (int)s.StageType, s.Entry, s.WgslEntry, s.Wgsl, binds });
+			}
+			json inputs = json::array();
+			for (const auto& [sem, loc] : p.VertexInputs)
+				inputs.push_back({ sem, loc });
+			json pairs = json::array();
+			for (const auto& [tex, smp] : p.SamplerPairs)
+				pairs.push_back({ tex, smp });
+			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "inputs", inputs }, { "psOut", p.PixelOutputs },
+				{ "bindings", p.Bindings }, { "pairs", pairs }, { "error", p.Error } });
+		}
+		json resources = json::object();
+		for (const auto& [n, r] : e.Resources)
+			resources[n] = { (int)r.Type, r.Binding, r.Count, r.Dim, r.Arrayed, r.Depth, r.Integer, r.Comparison };
+		return { { "version", version }, { "fx", FxToJson(e.Fx) }, { "passes", passes }, { "blocks", BlocksToJson(e.Blocks) },
+			{ "resources", resources }, { "bindingCount", e.BindingCount } };
+	}
+
+	bool WgslFromJson(const json& j, EffectSpirv& e, int version)
+	{
+		if (j.value("version", 0) != version) return false;
+		FxFromJson(j.at("fx"), e.Fx);
+		for (const auto& p : j.at("passes"))
+		{
+			PassSpirv ps;
+			ps.Technique = p.at("technique").get<std::string>();
+			ps.Pass = p.at("pass").get<std::string>();
+			for (const auto& s : p.at("stages"))
+			{
+				StageSpirv st;
+				st.StageType = (Stage)s[0].get<int>();
+				st.Entry = s[1].get<std::string>();
+				st.WgslEntry = s[2].get<std::string>();
+				st.Wgsl = s[3].get<std::string>();
+				for (const auto& b : s[4])
+					st.WgslBindings.push_back({ b[0].get<int>(), b[1].get<std::string>(), b[2].get<std::string>(), b[3].get<std::string>(), b[4].get<std::string>() });
+				ps.Stages.push_back(std::move(st));
+			}
+			for (const auto& i : p.at("inputs"))
+				ps.VertexInputs.push_back({ i[0].get<std::string>(), i[1].get<int>() });
+			ps.PixelOutputs = p.value("psOut", 0u);
+			ps.Bindings = p.value("bindings", std::vector<int>());
+			for (const auto& pr : p.value("pairs", json::array()))
+				ps.SamplerPairs.push_back({ pr[0].get<int>(), pr[1].get<int>() });
+			ps.Error = p.at("error").get<std::string>();
+			e.Passes.push_back(std::move(ps));
+		}
+		BlocksFromJson(j.at("blocks"), e.Blocks);
+		for (const auto& [n, r] : j.at("resources").items())
+		{
+			ResourceBinding rb;
+			rb.Name = n;
+			rb.Type = (ResourceBinding::Kind)r[0].get<int>();
+			rb.Binding = r[1].get<int>();
+			rb.Count = r[2].get<int>();
+			rb.Dim = r[3].get<int>();
+			rb.Arrayed = r[4].get<bool>();
+			rb.Depth = r[5].get<bool>();
+			rb.Integer = r[6].get<bool>();
+			rb.Comparison = r[7].get<bool>();
+			e.Resources[n] = rb;
+		}
+		e.BindingCount = j.at("bindingCount").get<int>();
+		return true;
+	}
 }
 
 namespace ShaderCross

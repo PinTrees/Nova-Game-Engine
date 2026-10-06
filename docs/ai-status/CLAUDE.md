@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **Unity 컴포넌트 1 순위: 2D Tilemap** (같은 지시). **완료 (커밋함, 푸시 전)**
+- 갱신 시각: 2026년 10월 6일 — **웹 빌드 (WebGPU) 1 단계: 도구 · 셰이더** (사용자 지시: "WebGPU 최신기능으로 가자" · Tint 받기 허락 · 5 단계 계획 "이 대로 진행"). **진행 중 (1 단계 커밋, 푸시 전)**
+  - 도구: Emscripten = .NET 10 wasm-tools 워크로드의 3.1.56 (C# 런타임과 같은 버전이라 한 wasm 으로 — `Tools/web/emenv.sh`, 캐시 ~/.nova/emcache), Tint = Dawn 얕은 복제 + 의존성 셋만 (`Tools/web/build_tint.ps1` → ~/.nova/dawn/out/tint/Release/tint.exe)
+  - 확인: 3.1.56 의 USE_WEBGPU 로 Chrome (headless, NVIDIA Turing) 삼각형 + 컴퓨트, .NET browser-wasm 에서 C# → C 호출 (4.9 MB). 앱 안 브라우저는 WebGPU 어댑터가 없다 → `Tools/web/headless.mjs` (창 없는 Chrome · 별도 프로필 · CDP: 콘솔 · eval · 캡처)
+  - 셰이더: `ShaderCross::CompileEffectWgsl` (NOVA_WEBGPU, Y 뒤집기 · 시작 인스턴스 보정 없음, 테셀레이션 · GS pass 는 건너뜀, Tint --allow-non-uniform-derivatives + 바인딩 정보, ShaderCache/WGSL), `WgslToJson/FromJson`, 결합 쌍 SamplerPairs,
+    CLI `nova web shaders --out` (`Source/Build/WebTools.*`). 32 · lilToon 그림자 맵 배열 → NOVA_WEBGPU 에서 원소마다 (gDirShadowMaps_0..3), 41 KillNaN 비트 검사
+  - 결과: 529 pass 중 458 성공 · 68 건너뜀 · 3 실패 (Stream Out 2 · 예제 VecAdd). `Tools/web/check_wgsl.html` 로 Chrome 에서 단계 888 · 파이프라인 458 **오류 0**. 회귀 render 8/8
+  - 다음: 2 단계 웹 플랫폼 층 (Web/CMakeLists — 안드로이드처럼 대체 헤더, 프레임 루프 · 파일 · 입력) → 3 단계 WebGPU Gfx 백엔드 → 4 C# → 5 Build Settings Web · nova web build · 스위트
+- 이전: 2026년 10월 6일 — **Unity 컴포넌트 1 순위: 2D Tilemap** (같은 지시). **완료 (커밋 · 푸시함)**
   - 새 패키지 `Packages/com.nova.tilemap` (NovaTilemap.dll): Grid · Tilemap (칸 = 타일 번호 + 회전 · 뒤집기, JSON 은 평평한 정수 배열) · Tilemap Renderer (SpriteSource, Chunk) · Tilemap Collider 2D (Collider2D 상속, 맞닿은 칸을 큰 사각형으로 합침),
     `.tile` 에셋 (sprite · color · colliderType, Inspector), Window > Tile Palette (팔레트 = 폴더, 그림 끌어 놓기 → 조각마다 .tile, B/U/I/D/G · [ ] · Shift 지우기 · Ctrl 고르기), Scene 뷰 붓, GameObject > 2D Object > Tilemap > Rectangular,
     CLI `nova tilemap` (20 연산), C# `NovaEngine.Tilemaps` (Tilemap · TileBase · Tile · TilemapRenderer · TilemapCollider2D) + `NovaEngine.Grid`

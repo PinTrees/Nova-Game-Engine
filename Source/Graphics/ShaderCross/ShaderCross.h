@@ -97,11 +97,24 @@ namespace ShaderCross
 		bool Comparison = false; // 샘플러: SamplerComparisonState
 	};
 
+	// WebGPU: Tint 가 알려 준 바인딩 하나 (--dump-inspector-bindings) — 바인딩 배치의 종류를 정할 때
+	struct WgslBinding
+	{
+		int Binding = 0;
+		std::string Type;      // UniformBuffer · StorageBuffer · ReadOnlyStorageBuffer · SampledTexture · DepthTexture · Sampler · ComparisonSampler · WriteOnlyStorageTexture …
+		std::string Dim;       // 1d · 2d · 2d-array · cube · cube-array · 3d
+		std::string Sampled;   // Float · SInt · UInt · unknown-filterable
+		std::string Format;    // 스토리지 텍스처 형식 (r32float …)
+	};
+
 	struct StageSpirv
 	{
 		Stage StageType = Stage::Vertex;
 		std::string Entry;
 		std::vector<uint32_t> Code;
+		// WebGPU (CompileEffectWgsl): Tint 가 바꾼 WGSL + 바인딩 정보. 진입점 이름은 Tint 가 정한다 (WgslEntry)
+		std::string Wgsl, WgslEntry;
+		std::vector<WgslBinding> WgslBindings;
 	};
 
 	struct PassSpirv
@@ -111,6 +124,7 @@ namespace ShaderCross
 		std::vector<std::pair<std::string, int>> VertexInputs;   // 의미 → location
 		uint32_t PixelOutputs = 0;   // 픽셀 셰이더가 쓰는 SV_Target 번호 (비트) — 쓰지 않는 색 타깃은 쓰기 마스크 0
 		std::vector<int> Bindings;   // 이 pass 의 단계들이 쓰는 바인딩 번호 (지원하지 않는 자원을 쓰는 pass 를 가린다)
+		std::vector<std::pair<int, int>> SamplerPairs;   // (텍스처, 샘플러) 바인딩 — 같이 쓰는 쌍 (WebGPU: 깊이 텍스처면 샘플러도 non-filtering)
 		std::string Error;
 	};
 
@@ -127,4 +141,11 @@ namespace ShaderCross
 	};
 
 	bool CompileEffectSpirv(const std::wstring& fxPath, EffectSpirv& out);
+
+	// WebGPU (웹 빌드): SPIR-V 와 같은 바인딩 · 배치에 단계마다 WGSL (DXC → SPIR-V → Tint).
+	//  - NOVA_WEBGPU 를 정의한다. Y 뒤집기 · 시작 인스턴스 보정 없음 (WebGPU 좌표 = D3D, SV_InstanceID 는 백엔드가 맞춘다)
+	//  - 테셀레이션 · 지오메트리 단계가 있는 pass 는 Error (웹에 없다 — 셰이더가 테셀레이션 없는 기법으로 갈아탄다)
+	//  - Tint = tint.exe (TintPath). 캐시 ShaderCache/WGSL
+	bool CompileEffectWgsl(const std::wstring& fxPath, EffectSpirv& out);
+	std::wstring TintPath();   // NOVA_TINT 환경 변수 → Binaries/tint.exe → %USERPROFILE%/.nova/dawn/out/tint/Release/tint.exe (없으면 "")
 }

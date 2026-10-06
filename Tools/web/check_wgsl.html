@@ -1,0 +1,68 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>WGSL check</title></head>
+<body>
+<script type="module">
+// nova web shaders 결과 (<이름>.wgsl.json) 를 브라우저의 WebGPU 가 정말 받는지: 단계마다 createShaderModule + getCompilationInfo,
+// 기법마다 렌더 · 컴퓨트 파이프라인 (layout: auto) 까지 만들어 본다. 결과 = window.novaResult
+const list = await (await fetch('list.json')).json();
+const adapter = await navigator.gpu.requestAdapter();
+const want = ['float32-filterable', 'texture-compression-bc', 'depth32float-stencil8', 'timestamp-query', 'texture-formats-tier1', 'texture-formats-tier2'].filter(f => adapter.features.has(f));
+const limits = {};
+for (const k of ['maxSampledTexturesPerShaderStage', 'maxSamplersPerShaderStage', 'maxStorageBuffersPerShaderStage', 'maxUniformBuffersPerShaderStage',
+    'maxBindingsPerBindGroup', 'maxDynamicUniformBuffersPerPipelineLayout', 'maxColorAttachments', 'maxColorAttachmentBytesPerSample',
+    'maxInterStageShaderVariables', 'maxStorageTexturesPerShaderStage', 'maxVertexAttributes'])
+    limits[k] = adapter.limits[k];
+const device = await adapter.requestDevice({ requiredFeatures: want, requiredLimits: limits });
+const result = { effects: 0, stages: 0, stageErrors: [], pipelines: 0, pipelineErrors: [] };
+const stageKind = ['vertex', 'hull', 'domain', 'geometry', 'fragment', 'compute'];
+for (const file of list) {
+    const fx = await (await fetch(file)).json();
+    result.effects++;
+    for (const p of fx.passes) {
+        if (p.error) continue;
+        const mods = {};
+        let ok = true;
+        for (const s of p.stages) {
+            result.stages++;
+            const m = device.createShaderModule({ code: s[3] });
+            const info = await m.getCompilationInfo();
+            const errs = info.messages.filter(x => x.type === 'error');
+            if (errs.length) {
+                ok = false;
+                if (result.stageErrors.length < 80) result.stageErrors.push(`${file} ${p.technique}/${p.pass} ${stageKind[s[0]]} ${s[1]}: ${errs[0].message} @${errs[0].lineNum}: ${s[3].split('\n')[errs[0].lineNum - 1]?.trim().slice(0, 120)}`);
+            }
+            mods[s[0]] = { module: m, entry: s[2] };
+        }
+        if (!ok) continue;
+        // 파이프라인 (자동 배치) — 바인딩 개수 · 단계 사이 변수 한계까지 본다
+        device.pushErrorScope('validation');
+        try {
+            if (mods[5]) device.createComputePipeline({ layout: 'auto', compute: { module: mods[5].module, entryPoint: mods[5].entry } });
+            else if (mods[0]) {
+                const targets = [];
+                for (let i = 0; i < 8; i++) if (p.psOut & (1 << i)) targets[i] = { format: 'rgba16float' };
+                // 정점 입력 = 진입 함수 인자의 @location (형식은 성분 종류만 맞춘다 — 남는 성분은 WebGPU 가 채운다)
+                const vsCode = p.stages.find(s => s[0] === 0)[3];
+                const sig = (vsCode.match(new RegExp('fn ' + mods[0].entry + '\\(([\\s\\S]*?)\\)\\s*(->|\\{)')) || [, ''])[1];
+                // 엔진처럼 버퍼 하나에 속성을 모은다 (WebGPU 는 정점 버퍼 8 개까지)
+                const attributes = [...sig.matchAll(/@location\((\d+)u?\)\s*\w+\s*:\s*([\w<>]+)/g)].map((m, i) => ({
+                    shaderLocation: +m[1], offset: i * 16, format: m[2].includes('u32') ? 'uint32x4' : m[2].includes('i32') ? 'sint32x4' : 'float32x4' }));
+                const buffers = attributes.length ? [{ arrayStride: attributes.length * 16, attributes }] : [];
+                device.createRenderPipeline({
+                    layout: 'auto',
+                    vertex: { module: mods[0].module, entryPoint: mods[0].entry, buffers },
+                    fragment: mods[4] ? { module: mods[4].module, entryPoint: mods[4].entry, targets: targets.map(t => t || null) } : undefined,
+                    depthStencil: { format: 'depth32float', depthWriteEnabled: true, depthCompare: 'less' },
+                    primitive: { topology: 'triangle-list' },
+                });
+            }
+        } catch (e) { result.pipelineErrors.push(`${file} ${p.technique}/${p.pass}: throw ${e.message}`); }
+        const err = await device.popErrorScope();
+        result.pipelines++;
+        if (err && result.pipelineErrors.length < 80) result.pipelineErrors.push(`${file} ${p.technique}/${p.pass}: ${err.message.split('\n')[0].slice(0, 300)}`);
+    }
+}
+window.novaResult = result;
+document.title = 'done';
+</script>
+</body></html>

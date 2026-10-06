@@ -86,7 +86,12 @@ float Luminance(float3 c) { return dot(c, float3(0.2126729f, 0.7151522f, 0.07217
 float3 KillNaN(float3 c)
 {
     // NaN 이나 무한대는 0 으로 (한 픽셀의 NaN 이 Bloom 으로 화면 전체에 번지는 것을 막는다)
+#ifdef NOVA_WEBGPU
+    // WGSL 에는 isnan · isinf 가 없다 — 지수 비트가 모두 1 이면 NaN 또는 무한
+    return any((asuint(c) & 0x7F800000u) == 0x7F800000u) ? float3(0.0f, 0.0f, 0.0f) : c;
+#else
     return (any(isnan(c)) || any(isinf(c))) ? float3(0.0f, 0.0f, 0.0f) : c;
+#endif
 }
 
 float Hash(float2 p)

@@ -125,9 +125,16 @@ cbuffer cbSkinned
 // Nonnumeric values cannot be added to a cbuffer.
 
 // frame
+#ifdef NOVA_WEBGPU
+// WebGPU (WGSL) 에는 텍스처 배열이 없다 → 원소마다 따로 (효과가 "gDirShadowMaps" 의 i 번째를 gDirShadowMaps_i 로 묶는다). LIGHT_SIZE = 4
+Texture2DArray gDirShadowMaps_0, gDirShadowMaps_1, gDirShadowMaps_2, gDirShadowMaps_3;
+Texture2DArray gSpotShadowMaps_0, gSpotShadowMaps_1, gSpotShadowMaps_2, gSpotShadowMaps_3;
+Texture2DArray gPointShadowMaps_0, gPointShadowMaps_1, gPointShadowMaps_2, gPointShadowMaps_3;
+#else
 Texture2DArray gDirShadowMaps[LIGHT_SIZE];   // 캐스케이드 = 배열 조각
 Texture2DArray gSpotShadowMaps[LIGHT_SIZE];    // 조각 1 개
 Texture2DArray gPointShadowMaps[LIGHT_SIZE];   // 큐브 6 면 = 조각 6 개
+#endif
 Texture2D gSsaoMap;
 TextureCube gCubeMap;
 // Adaptive Probe Volume (ProbeVolumes — 실시간): 확산 간접광 = 카메라 둘레 단계 (32 x 16 x 32 프로브) 의 L1 SH
@@ -1101,6 +1108,20 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         const int cascade = SelectCascade(posW);
         const float fade = ShadowFade(posW);
         const float blend = CascadeBlend(posW, cascade);
+#ifdef NOVA_WEBGPU
+        dirShadows[0] = DirShadow(gDirShadowMaps_0, 0, posW, cascade, fade, blend);
+        dirShadows[1] = DirShadow(gDirShadowMaps_1, 1, posW, cascade, fade, blend);
+        dirShadows[2] = DirShadow(gDirShadowMaps_2, 2, posW, cascade, fade, blend);
+        dirShadows[3] = DirShadow(gDirShadowMaps_3, 3, posW, cascade, fade, blend);
+        spotShadows[0] = SpotShadow(gSpotShadowMaps_0, 0, posW);
+        spotShadows[1] = SpotShadow(gSpotShadowMaps_1, 1, posW);
+        spotShadows[2] = SpotShadow(gSpotShadowMaps_2, 2, posW);
+        spotShadows[3] = SpotShadow(gSpotShadowMaps_3, 3, posW);
+        pointShadows[0] = PointShadow(gPointShadowMaps_0, 0, posW);
+        pointShadows[1] = PointShadow(gPointShadowMaps_1, 1, posW);
+        pointShadows[2] = PointShadow(gPointShadowMaps_2, 2, posW);
+        pointShadows[3] = PointShadow(gPointShadowMaps_3, 3, posW);
+#else
         [unroll]
         for (int i = 0; i < LIGHT_SIZE; i++)
             dirShadows[i] = DirShadow(gDirShadowMaps[i], i, posW, cascade, fade, blend);
@@ -1110,6 +1131,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         [unroll]
         for (int l = 0; l < LIGHT_SIZE; l++)
             pointShadows[l] = PointShadow(gPointShadowMaps[l], l, posW);
+#endif
     }
 
     ssaoPosH /= ssaoPosH.w;
