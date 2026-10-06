@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Sky.h"
 #include "WeatherState.h"
+#include "DayNightState.h"
 #include "MathHelper.h"
 #include "GeometryGenerator.h"
 #include "Effects.h"
@@ -80,9 +81,26 @@ void Sky::Draw(GfxContext* dc, const XMFLOAT3& eyePos, CXMMATRIX viewProj)
 	{
 		// 날씨 (먹구름 · 번개) — 기본값이면 그대로
 		const WeatherState& w = WeatherState::Get();
-		const float sky[4] = { w.SkyTint.x * w.SkyBrightness, w.SkyTint.y * w.SkyBrightness, w.SkyTint.z * w.SkyBrightness, w.SkyDesaturate };
-		if (FxVar* v = Effects::SkyFX->GetFX()->GetVariableByName("gSkyWeather"); v && v->IsValid()) v->SetRawValue(sky, 0, 16);
-		if (FxVar* v = Effects::SkyFX->GetFX()->GetVariableByName("gSkyFlash"); v && v->IsValid()) v->SetRawValue(&w.Flash, 0, 4);
+		const XMFLOAT3 scale = w.SkyScale();
+		const float sky[4] = { scale.x, scale.y, scale.z, w.SkyDesaturate };
+		FxEffect* fx = Effects::SkyFX->GetFX();
+		if (FxVar* v = fx->GetVariableByName("gSkyWeather"); v && v->IsValid()) v->SetRawValue(sky, 0, 16);
+		if (FxVar* v = fx->GetVariableByName("gSkyFlash"); v && v->IsValid()) v->SetRawValue(&w.Flash, 0, 4);
+		// 낮 · 밤 순환 (DayNightState): 그라데이션 · 해 쪽 빛 · 해 · 달 · 별 · 은하수. 꺼져 있으면 (w = 0) 예전 그대로
+		const DayNightState& d = DayNightState::Get();
+		const float cycleSun[4] = { d.SunDirection.x, d.SunDirection.y, d.SunDirection.z, d.Enabled ? 1.0f : 0.0f };
+		const float zenith[4] = { d.Zenith.x, d.Zenith.y, d.Zenith.z, d.Enabled ? d.Zenith.w : 0.0f };
+		const float horizon[4] = { d.Horizon.x, d.Horizon.y, d.Horizon.z, 0.0f };
+		const float glow[4] = { d.Glow.x, d.Glow.y, d.Glow.z, d.Enabled ? d.Glow.w : 0.0f };
+		const float disk[4] = { d.SunDisk.x, d.SunDisk.y, d.SunDisk.z, d.Enabled ? d.SunDisk.w : 0.0f };
+		const float night[4] = { d.Enabled ? d.Stars : 0.0f, d.Enabled ? d.MilkyWay : 0.0f, d.Time, d.Enabled ? d.Moon : 0.0f };
+		auto set = [fx](const char* name, const float* v4) { if (FxVar* v = fx->GetVariableByName(name); v && v->IsValid()) v->SetRawValue(v4, 0, 16); };
+		set("gCycleSun", cycleSun);
+		set("gCycleZenith", zenith);
+		set("gCycleHorizon", horizon);
+		set("gCycleGlow", glow);
+		set("gCycleSunDisk", disk);
+		set("gCycleNight", night);
 	}
 
 	uint32 stride = sizeof(XMFLOAT3);

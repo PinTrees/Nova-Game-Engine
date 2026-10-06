@@ -368,7 +368,8 @@ namespace WeatherCover
 		// z = 깊이 바이어스 (0.25 m — 표면 자신이 덮개가 되지 않게)
 		const float params[4] = { on && info.Valid ? 1.0f : 0.0f, info.InvSize, 0.25f / kRange, 0.0f };
 		// 먹구름 하늘 (덮개 맵과 상관없이 늘): 0 = 그대로
-		const float sky[4] = { 1.0f - w.SkyTint.x * w.SkyBrightness, 1.0f - w.SkyTint.y * w.SkyBrightness, 1.0f - w.SkyTint.z * w.SkyBrightness, w.SkyDesaturate };
+		const XMFLOAT3 skyScale = w.SkyScale();   // 날씨 × 낮 · 밤 — 밤에는 반사도 어둡다
+		const float sky[4] = { 1.0f - skyScale.x, 1.0f - skyScale.y, 1.0f - skyScale.z, w.SkyDesaturate };
 		const bool snowMap = on && s_Snow.Valid;
 		const float texel = kSnowSize / (float)kSnowRes;
 		const float snow[4] = { on ? w.SnowCover : 0.0f, w.SnowDepth, snowMap ? 1.0f : 0.0f, 0.0f };

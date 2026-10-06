@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "AtmospherePass.h"
 #include "WeatherState.h"
+#include "DayNightState.h"
 #include "Effects.h"
 #include "VolumeProfile.h"
 #include "LightHelper.h"
@@ -134,6 +135,21 @@ namespace AtmospherePass
 			// 하늘색 모드 (w = 1, rgb = 하늘에 곱하는 색) 는 날씨가 절반을 넘으면 날씨의 상수 색으로
 			if (p.FogColor.w > 0.5f && a > 0.5f) p.FogColor = XMFLOAT4(w.FogColor.x, w.FogColor.y, w.FogColor.z, 0.0f);
 			else if (p.FogColor.w < 0.5f) p.FogColor = XMFLOAT4(mix(p.FogColor.x, w.FogColor.x), mix(p.FogColor.y, w.FogColor.y), mix(p.FogColor.z, w.FogColor.z), 0.0f);
+		}
+		// 낮 · 밤 (DayNightState): 안개 색에 곱한다 (밤 = 어둡고 푸르게, 노을 = 붉게). 하늘색 모드면 하늘에 곱하는 색에
+		if (const DayNightState& dn = DayNightState::Get(); dn.Enabled && p.Fog)
+		{
+			p.FogColor.x *= dn.FogTint.x;
+			p.FogColor.y *= dn.FogTint.y;
+			p.FogColor.z *= dn.FogTint.z;
+		}
+		// 하늘색 모드 (w = 1): 안개가 스카이박스를 그대로 읽으므로 하늘과 같이 어둡게 (먹구름 · 밤)
+		if (p.Fog && p.FogColor.w > 0.5f)
+		{
+			const XMFLOAT3 sky = WeatherState::Get().SkyScale();
+			p.FogColor.x *= sky.x;
+			p.FogColor.y *= sky.y;
+			p.FogColor.z *= sky.z;
 		}
 		if (stack.IsActive("Atmosphere"))
 		{

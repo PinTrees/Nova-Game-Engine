@@ -1,11 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **차량 (Wheel Collider)** (같은 지시 순서의 7 번). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **낮 · 밤 순환 패키지 `com.nova.daynight`** (사용자 추가 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수). **완료 (커밋, 푸시 전)**
+  - 패키지: `DayNightCycle` (전역 하나 — 시각 · 하루 길이 · 단계별 Look 7 개를 섞음, Directional Light 를 해 · 달로 돌림), CLI `nova daynight status|set|phase`, C# `DayNight · DayPhase · DayNightCycle`
+  - 엔진: `Source/Graphics/Common/DayNightState.*` (기본값 = 그대로), `WeatherState::SkyScale · AmbientScale` (날씨 × 낮 · 밤) 을 Sky · WeatherCover (반사) · 물 · ApplySun/Ambient 가 쓰도록, AtmospherePass 안개 색 (하늘색 모드는 하늘 밝기만큼), `21. Sky.fx` 에 그라데이션 · 노을 빛 · 해 · 달 · 별 · 은하수 (fxc 확인)
+  - 검사 `-Only daynight` 8/8, weather 14/14, OpenGL · Vulkan = DX11 (노을 차이 0, 은하수 0.2 — 반짝임). 문서 `docs/DAY_NIGHT.md`, Showcase 251
+  - 다음: 천 (Cloth)
+- 이전: 2026년 10월 7일 — **차량 (Wheel Collider)** (같은 지시 순서의 7 번). **완료 (커밋, 푸시 전)**
   - `Source/Scene/WheelCollider.*`: Unity WheelCollider (레이 서스펜션 — 매달린 질량 × g + 스프링 · 댐퍼로 Target Position 에서 쉼, 슬립 곡선 타이어, 모터 · 브레이크 · 조향, 바퀴 각속도, GetWorldPose · GetGroundHit, 기즈모). Add Component > Physics > Wheel Collider, C# `WheelCollider · WheelHit · WheelFrictionCurve`
   - 안정: 마찰 반작용이 구르는 속도를 넘지 않게, 잠긴 바퀴는 브레이크가 버티면 미끄럼 마찰 그대로, 낮은 속도의 마찰은 접점의 실제 질량 (`PhysicsManager::GetEffectiveMass` — 회전 몫 포함) ÷ 바퀴 수의 절반까지 (서 있는 차가 좌우로 흔들리던 것)
   - 검사 `-Only wheel` 5/5, 문서 `docs/WHEEL_COLLIDER.md`, Showcase 250
   - 지켜볼 것: `-Only ragdoll` 이 느린 세션 (90 초 컴파일 대기) 에서 두 번 물리가 통째로 멈췄다 (바디는 다이내믹, 스텝 없음 — 같은 빌드로 다시 돌리면 9/9). 원인 미확인 → Editor.log 에 `[Physics] start · exit · heartbeat` (Play 처음 3 초 스텝 수) 를 남기게 했다
-  - 다음: 낮 · 밤 순환 패키지 (사용자 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수), 그다음 천 (Cloth)
 - 이전: 2026년 10월 7일 — **래그돌 (Character · Configurable Joint · Ragdoll Wizard)** (같은 지시 순서의 6 번). **완료 (커밋, 푸시 전)**
   - `Source/Scene/Joint.*`: CharacterJoint (Jolt SwingTwist — 흔들기 1 = Swing Axis 둘레 → Jolt Normal Half Cone, 흔들기 2 → Plane Half Cone), ConfigurableJoint (SixDOF — 축마다 Locked/Limited/Free, 선 한계 스프링, X·Y·Z · Angular X/YZ · Slerp 드라이브, 목표는 Unity 처럼 반대). 처음 만든 때의 쉬는 틀을 `Joint::Rest` 로 기억 (다시 만들어도 같은 기준)
   - `Source/Scene/Ragdoll.*`: Ragdoll Wizard (휴머노이드 Skinned Mesh → 바디 11 · Unity 값) + Ragdoll 컴포넌트 (Active = 바디가 스키닝 자세를 정함 / 꺼짐 = 키네마틱으로 애니메이션 따라감). `SkinnedMeshRenderer::GetNodeGlobals`. 메뉴 3D Object > Ragdoll..., CLI `ragdoll create|info|active`, C# `Ragdoll · CharacterJoint · ConfigurableJoint · SoftJointLimit · JointDrive`

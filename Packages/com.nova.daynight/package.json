@@ -1,0 +1,13 @@
+{
+  "name": "com.nova.daynight",
+  "displayName": "Day Night Cycle",
+  "version": "1.0.0",
+  "description": "One Day Night Cycle component manages time of day for the whole scene: dawn, morning, day, evening, sunset, night and the Milky Way night follow each other and blend smoothly. It turns the scene's Directional Light into the sun (and the moon at night, so shadows follow), tints sun, ambient light, reflections and fog, and draws a sky gradient, sunrise and sunset glow, the sun and moon discs, twinkling stars and the Milky Way over the skybox. Works together with the Weather package. C# DayNight.timeOfDay, DayNight.phase and nova daynight.",
+  "category": "Environment",
+  "author": { "name": "NOVA" },
+  "keywords": [ "day", "night", "time of day", "sun", "moon", "stars", "milky way", "sunset", "sunrise", "sky", "environment", "enviro", "unistorm" ],
+  "native": [ "NovaDayNight.dll" ],
+  "components": [
+    { "type": "DayNightCycle", "display": "Day Night Cycle", "category": "Environment", "icon": "light_directional", "single": true }
+  ]
+}

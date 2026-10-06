@@ -47,7 +47,11 @@ struct NOVA_API WeatherState
 
 	static WeatherState& Get();
 	static void Reset();                // 패키지를 내릴 때 · Weather Controller 가 사라질 때
-	bool AffectsLight() const;
+	bool AffectsLight() const;          // 날씨 또는 낮 · 밤 순환 (DayNightState) 이 빛을 바꾸는가
+
+	// 날씨 × 낮 · 밤 순환 (DayNightState) — 하늘 · 환경광을 읽는 곳은 이것을 쓴다
+	XMFLOAT3 SkyScale() const;          // 스카이박스 색 배율 (SkyTint × SkyBrightness)
+	XMFLOAT3 AmbientScale() const;      // 환경광 색 배율 (AmbientTint × AmbientIntensity)
 
 	// 엔진 쪽 적용 (EditorApp · Sky · AtmospherePass)
 	void ApplySun(XMFLOAT4& diffuse, XMFLOAT4& specular) const;

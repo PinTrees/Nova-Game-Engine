@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2161,6 +2161,108 @@ function Suite-Wheel
         Write-Host "  $(Stop-TestEditor $ed)"
         Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
         Remove-Item -Force "$probeDir.meta" -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-DayNight
+{
+    # 낮 · 밤 순환 (com.nova.daynight): 시각 → 단계 이름, 해 (정오) · 달 (자정) 방향의 Directional Light,
+    #  하늘: 낮 밝기, 노을 · 새벽 지평이 붉다, 밤은 어둡다, 은하수 시각에 별이 많다, Play 중 7 단계가 차례로, C# DayNight API
+    Write-Host '[daynight]'
+    $dir = Join-Path $Out 'daynight'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $before = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { $null }
+    $ed = Start-TestEditor
+    try
+    {
+        $a = Invoke-NovaJson 'package add com.nova.daynight'
+        Add-Result daynight 'package loads (NovaDayNight.dll)' ($a -and $a.loaded) "loaded=$($a.loaded)"
+        Wait-Compile
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 20,1,20' | Out-Null
+        Invoke-Nova 'create empty --name TimeOfDay' | Out-Null
+        Invoke-Nova 'add-component TimeOfDay DayNightCycle' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.6,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+
+        # 단계 이름
+        $names = foreach ($h in @(5, 7, 12, 17, 18.5, 20, 0)) { (Invoke-NovaJson "daynight set --time $h").phase }
+        $nameStr = $names -join ','
+        Add-Result daynight 'phase by hour (5 7 12 17 18.5 20 0)' ($nameStr -eq 'Dawn,Morning,Day,Evening,Sunset,Night,MilkyWay') $nameStr
+
+        # 빛 방향: 정오 = 해가 위에서 (빛이 아래로), 자정 = 해는 아래, 달이 위에서
+        $noon = Invoke-NovaJson 'daynight set --time 12'
+        $mid = Invoke-NovaJson 'daynight set --time 0'
+        Add-Result daynight 'Directional Light = sun at noon, moon at midnight' ([double]$noon.sunElevation -gt 55 -and [double]$noon.lightForward[1] -lt -0.8 -and [double]$mid.sunElevation -lt -55 -and [double]$mid.lightForward[1] -lt -0.8 -and $mid.moon -gt 0.9) ("noon sun {0:F0} deg, light y {1:F2}; midnight sun {2:F0} deg, light y {3:F2}, moon {4}" -f [double]$noon.sunElevation, [double]$noon.lightForward[1], [double]$mid.sunElevation, [double]$mid.lightForward[1], $mid.moon)
+
+        Add-Type -AssemblyName System.Drawing
+        function Shot([string]$name, [double]$time, [string]$rot)
+        {
+            Invoke-Nova "daynight set --time $time" | Out-Null
+            Invoke-Nova "set `"Main Camera`" --rotation $rot" | Out-Null
+            Invoke-Nova 'wait 6' | Out-Null
+            $p = Join-Path $dir "$name.png"
+            Invoke-Nova "screenshot `"$p`" --view game" | Out-Null
+            return $p
+        }
+        # 화면 띠의 평균 (r, g, b) · 밝은 점 수 — y0..y1 은 화면 높이의 비율
+        function Stats([string]$png, [double]$y0, [double]$y1)
+        {
+            $b = New-Object System.Drawing.Bitmap $png
+            try
+            {
+                $r = 0.0; $g = 0.0; $bl = 0.0; $n = 0; $bright = 0
+                for ($y = [int]($b.Height * $y0); $y -lt [int]($b.Height * $y1); $y += 2)
+                {
+                    for ($x = 0; $x -lt $b.Width; $x += 2)
+                    {
+                        $c = $b.GetPixel($x, $y); $r += $c.R; $g += $c.G; $bl += $c.B; $n++
+                        if (($c.R + $c.G + $c.B) / 3 -gt 120) { $bright++ }
+                    }
+                }
+                return [pscustomobject]@{ R = $r / $n; G = $g / $n; B = $bl / $n; L = ($r + $g + $bl) / (3 * $n); Bright = $bright }
+            }
+            finally { $b.Dispose() }
+        }
+
+        $day = Stats (Shot 'day' 13 '-15,180,0') 0.0 0.35
+        $sunset = Stats (Shot 'sunset' 18.9 '-4,-90,0') 0.38 0.5
+        $dawn = Stats (Shot 'dawn' 5.6 '-4,90,0') 0.38 0.5
+        $night = Stats (Shot 'night' 21.25 '-15,180,0') 0.0 0.35
+        $mw = Stats (Shot 'milkyway' 1.75 '-55,180,0') 0.0 0.6
+        Add-Result daynight 'day sky is bright, night sky is dark' ($day.L -gt 90 -and $night.L -lt $day.L * 0.2) ("day {0:F0}, night {1:F0}" -f $day.L, $night.L)
+        Add-Result daynight 'sunset (west) and dawn (east) horizons glow red' ($sunset.R -gt $sunset.B * 1.3 -and $dawn.R -gt $dawn.B * 1.2) ("sunset r {0:F0} b {1:F0}; dawn r {2:F0} b {3:F0}" -f $sunset.R, $sunset.B, $dawn.R, $dawn.B)
+        Add-Result daynight 'Milky Way night: dark sky full of stars' ($mw.L -lt 60 -and $mw.Bright -gt 40) ("mean {0:F0}, bright points {1}" -f $mw.L, $mw.Bright)
+
+        # Play: 6 초에 하루 → 단계가 차례로 바뀐다
+        Invoke-Nova 'daynight set --time 4.6 --minutes 0.1' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $seen = New-Object System.Collections.Generic.List[string]
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 9)
+        {
+            $s = Invoke-NovaJson 'daynight status'
+            if ($s -and ($seen.Count -eq 0 -or $seen[$seen.Count - 1] -ne $s.phase)) { $seen.Add($s.phase) }
+            Invoke-Nova 'wait 3' | Out-Null
+        }
+        $order = @('Dawn', 'Morning', 'Day', 'Evening', 'Sunset', 'Night', 'MilkyWay')
+        $ok = $seen.Count -ge 7
+        for ($i = 1; $i -lt $seen.Count -and $ok; $i++) { $ok = ($order.IndexOf($seen[$i]) -eq ($order.IndexOf($seen[$i - 1]) + 1) % 7) }
+        Add-Result daynight 'Play: phases follow each other (dawn → … → milky way → dawn)' $ok ($seen -join ' > ')
+        $csf = Join-Path $dir 'daynight_api.cs'
+        'DayNight.paused = true; DayNight.SetPhase(DayPhase.Sunset); return DayNight.phase + " " + DayNight.timeOfDay.ToString("F2") + " " + DayNight.isNight + " " + (DayNight.sunElevation < 0);' | Set-Content -Encoding utf8 $csf
+        $api = Invoke-NovaJson "exec --file `"$csf`""
+        Add-Result daynight 'C# DayNight API (SetPhase, phase, timeOfDay, isNight)' ("$($api.result)" -eq 'Sunset 18.75 False True') "$($api.result)"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'package remove com.nova.daynight' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($before) { [IO.File]::WriteAllText($manifest, $before) }
     }
 }
 
@@ -5373,6 +5475,7 @@ try
                 'nav2d' { Suite-Nav2D }
                 'ragdoll' { Suite-Ragdoll }
                 'wheel' { Suite-Wheel }
+                'daynight' { Suite-DayNight }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

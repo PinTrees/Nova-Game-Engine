@@ -99,6 +99,7 @@
 | `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) |
 | `com.nova.ai.navigation` | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) — NavMesh Surface · Agent · Link · Obstacle (Carve), 탑다운 2D (XY 평면 — [NAVIGATION_2D.md](docs/NAVIGATION_2D.md)) |
 | `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결 (캐릭터 · 물도), **쌓이는 눈 · 발자국** (지형은 실제로 파인다), 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
+| `com.nova.daynight` | **낮 · 밤 순환** — 새벽 · 아침 · 낮 · 저녁 · 노을 · 밤 · 은하수, Directional Light 가 해 · 달로 돈다, 하늘 그라데이션 · 노을 빛 · 별 · 은하수, 빛 · 환경광 · 안개 색 (날씨와 함께) — [DAY_NIGHT](docs/DAY_NIGHT.md) |
 | `com.nova.modeling` | Blender 식 **Model Editor** (Extrude · Bevel · Subsurf · 리깅 · 가중치 붓 · 셰이프 키), FBX · GLB · VRM 내보내기, 전부 CLI — [MODEL_EDITOR](docs/MODEL_EDITOR.md) |
 | `com.nova.animation2d` | Spine 식 **2D 뼈대 애니메이션** — [ANIMATION2D](docs/ANIMATION2D.md) |
 | `com.nova.tween` | **트윈** (DOTween 같은 쓰임) — `transform.DOMove(p, 1f).SetEase(Ease.OutBack)`, Sequence, 곡선 30 종, 반복 · Yoyo, 튀기기 · 흔들기 · 뛰기, UI · 빛 · 카메라 · 소리, 코드 없는 Tween Animation 컴포넌트 — [TWEEN](docs/TWEEN.md) |
