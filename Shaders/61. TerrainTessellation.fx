@@ -253,13 +253,15 @@ float3 TerrainUnpackNormal(float2 xy, float scale)
 }
 
 // 레이어 하나: 높이 (0..1) 와 그 레이어의 월드 노멀 (n = 지형 법선, scale 0 = Normal Map 없음 → n)
-float TerrainLayerHN(float slice, float4 st, TerrainTriplanar t, float3 n, float scale, out float3 nW)
+// noTile = 위 투영을 타일 없애기 무늬로 (3 표본) — 가까울 때만. 멀면 1 표본 (돌이 한 픽셀보다 작아 무늬 차이가 보이지 않는다 — 색은 그대로 타일 없애기)
+float TerrainLayerHN(float slice, float4 st, TerrainTriplanar t, float3 n, float scale, bool noTile, out float3 nW)
 {
     float h = 0.0f;
     float3 acc = 0.0f;
     [branch] if (t.W.y > 0.0f)
     {
-        const float3 s = TerrainNoTileHN(slice, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy);
+        const float3 s = noTile ? TerrainNoTileHN(slice, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy)
+                                : gTerrainHeights.SampleGrad(samTerrainWrap, float3(t.Top * st.xy + st.zw, slice), t.TopDx * st.xy, t.TopDy * st.xy).rgb;
         h += t.W.y * s.x;
         const float3 tn = TerrainUnpackNormal(s.yz, scale);
         acc += t.W.y * float3(tn.x + n.x, abs(tn.z) * n.y, tn.y + n.z);   // 위: u = +x, v = +z
@@ -291,29 +293,30 @@ struct TerrainPixelHeight
     float3 Normal;    // 레이어 Normal Map 을 섞은 월드 노멀 (없으면 지형 법선)
 };
 
-TerrainPixelHeight TerrainHeightsAt(float4 c, TerrainTriplanar t, float3 n)
+// noTile = 가까운 픽셀 (위 투영 3 표본). 3 % 미만으로 섞인 레이어는 높이 · 노멀을 읽지 않는다 (Base · 지형 법선으로)
+TerrainPixelHeight TerrainHeightsAt(float4 c, TerrainTriplanar t, float3 n, bool noTile)
 {
     float4 h = float4(gTerrainLayerHeight[0].y, gTerrainLayerHeight[1].y, gTerrainLayerHeight[2].y, gTerrainLayerHeight[3].y);
     float3 n0 = n, n1 = n, n2 = n, n3 = n;
     // 높이 (x) 또는 Normal Map (z) 이 있는 레이어만 배열을 읽는다
-    [branch] if (c.r > 0.0f && (gTerrainLayerHeight[0].x > 0.0f || gTerrainLayerHeight[0].z != 0.0f))
+    [branch] if (c.r > 0.03f && (gTerrainLayerHeight[0].x > 0.0f || gTerrainLayerHeight[0].z != 0.0f))
     {
-        const float v = TerrainLayerHN(0, gTerrainLayerST[0], t, n, gTerrainLayerHeight[0].z, n0);
+        const float v = TerrainLayerHN(0, gTerrainLayerST[0], t, n, gTerrainLayerHeight[0].z, noTile, n0);
         if (gTerrainLayerHeight[0].x > 0.0f) h.r = v;
     }
-    [branch] if (c.g > 0.0f && (gTerrainLayerHeight[1].x > 0.0f || gTerrainLayerHeight[1].z != 0.0f))
+    [branch] if (c.g > 0.03f && (gTerrainLayerHeight[1].x > 0.0f || gTerrainLayerHeight[1].z != 0.0f))
     {
-        const float v = TerrainLayerHN(1, gTerrainLayerST[1], t, n, gTerrainLayerHeight[1].z, n1);
+        const float v = TerrainLayerHN(1, gTerrainLayerST[1], t, n, gTerrainLayerHeight[1].z, noTile, n1);
         if (gTerrainLayerHeight[1].x > 0.0f) h.g = v;
     }
-    [branch] if (c.b > 0.0f && (gTerrainLayerHeight[2].x > 0.0f || gTerrainLayerHeight[2].z != 0.0f))
+    [branch] if (c.b > 0.03f && (gTerrainLayerHeight[2].x > 0.0f || gTerrainLayerHeight[2].z != 0.0f))
     {
-        const float v = TerrainLayerHN(2, gTerrainLayerST[2], t, n, gTerrainLayerHeight[2].z, n2);
+        const float v = TerrainLayerHN(2, gTerrainLayerST[2], t, n, gTerrainLayerHeight[2].z, noTile, n2);
         if (gTerrainLayerHeight[2].x > 0.0f) h.b = v;
     }
-    [branch] if (c.a > 0.0f && (gTerrainLayerHeight[3].x > 0.0f || gTerrainLayerHeight[3].z != 0.0f))
+    [branch] if (c.a > 0.03f && (gTerrainLayerHeight[3].x > 0.0f || gTerrainLayerHeight[3].z != 0.0f))
     {
-        const float v = TerrainLayerHN(3, gTerrainLayerST[3], t, n, gTerrainLayerHeight[3].z, n3);
+        const float v = TerrainLayerHN(3, gTerrainLayerST[3], t, n, gTerrainLayerHeight[3].z, noTile, n3);
         if (gTerrainLayerHeight[3].x > 0.0f) h.a = v;
     }
     TerrainPixelHeight o;
@@ -386,7 +389,8 @@ float3 TerrainParallax(float3 lp, float3 posW, float3 eye, float3 n, float4 c, f
     const float2 gx = TerrainProjUV(proj, dLx), gy = TerrainProjUV(proj, dLy);
     const float3 step = D / -dz;   // 법선 쪽으로 1 m 내려갈 때 옮겨 가는 자리
     const float3 pTop = lp - step * top;
-    const int steps = (int) lerp(10.0f, 5.0f, saturate(-dz));
+    const float metersPerPixel = max(max(length(dLx), length(dLy)), 1e-5f);
+    const int steps = (int) clamp(ceil(range / -dz / (metersPerPixel * 2.0f)), 2.0f, 10.0f);   // 높이 범위가 화면에서 두 픽셀에 한 걸음
     float prevGap = 0.0f, prevS = 0.0f;
     float3 hit = lp + step * bottom;
     [loop]

@@ -148,7 +148,7 @@ namespace
 
 	// 지형 테셀레이션 (레이어 높이 변위 · 쌓인 눈): 나눔 (60. Tessellation.fx 의 cbTessellation). 가까이에서 촘촘히
 	//  지형 칸은 크다 (1000 m · 513 = 2 m) → 높이 변위가 있으면 최대 32 조각, 눈만이면 16 (발자국 맵 한 칸 5 cm)
-	constexpr float kTessTriangleSize = 10.0f;     // 원하는 삼각형 변 (1080p 화면의 픽셀)
+	constexpr float kTessTriangleSize = 14.0f;     // 원하는 삼각형 변 (1080p 화면의 픽셀) — 10 에서 14 로: 본 패스 0.15 ms 덜 (Release, 돌 지형), 돌 모양은 그대로
 	constexpr float kTessDistance = 40.0f;        // 이 거리 너머는 나누지 않는다 (발자국 맵 창 48 m 의 거의 끝)
 	constexpr float kPomDistance = 100.0f;        // 레이어 높이의 POM 이 끝나는 거리 (나눔 거리 끝에서 이어 받는다)
 

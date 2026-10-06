@@ -1612,7 +1612,7 @@ float4 TerrainShade(TerrainVertexOut pin, bool tess)
     toEye /= distToEye;
 
     float4 texColor;
-    [branch] if (gTerrainHeightParams.x > 0.5f && gTerrainLayerCount > 0)
+    [branch] if (gTerrainHeightParams.x > 0.5f && gTerrainLayerCount > 0 && distToEye < 250.0f)   // 250 m 너머 = 범프 0 → 높이 · 노멀을 읽지 않는다
     {
         // 레이어 높이 · Normal Map (61): POM 으로 옮긴 자리 (절벽도) 에서 높이 기반으로 섞은 색 · 노멀 + 높이 범프 (모든 거리)
         const float4 c = TerrainControlWeights(pin.UV);
@@ -1620,7 +1620,7 @@ float4 TerrainShade(TerrainVertexOut pin, bool tess)
         const float3 dLx = ddx(lp), dLy = ddy(lp);
         lp = TerrainParallax(lp, pin.PosW.xyz, gEyePosW, normalW, c, dLx, dLy, TerrainParallaxWeight(distToEye, tess));
         const TerrainTriplanar tri = TerrainTriplanarSetup(lp, normalW);   // 절벽은 triplanar
-        const TerrainPixelHeight ph = TerrainHeightsAt(c, tri, normalW);
+        const TerrainPixelHeight ph = TerrainHeightsAt(c, tri, normalW, distToEye < 30.0f);   // 30 m 안만 타일 없애기 3 표본
         texColor = TerrainAlbedoW(ph.Weights, pin.UV, tri, distToEye);
         normalW = TerrainBumpNormal(ph.Normal, pin.PosW.xyz, ph.D, saturate((250.0f - distToEye) / 150.0f));
     }
