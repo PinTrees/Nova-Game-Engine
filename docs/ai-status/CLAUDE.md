@@ -1,6 +1,6 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **테셀레이션 2 차: 지형 레이어 높이 · POM · Shader Graph Displacement · 높이 맵 Fix Now** (사용자 지시: 추천 목록 "지형 레이어의 높이 변위 · POM 섞어 쓰기 · Shader Graph 에 테셀레이션 연결 · 높이 맵 가져오기 설정 진행해줘"). **완료 (커밋함 — 푸시는 사용자 확인 뒤)**
+- 갱신 시각: 2026년 10월 6일 — **테셀레이션 2 차: 지형 레이어 높이 · POM · Shader Graph Displacement · 높이 맵 Fix Now** (사용자 지시: 추천 목록 "지형 레이어의 높이 변위 · POM 섞어 쓰기 · Shader Graph 에 테셀레이션 연결 · 높이 맵 가져오기 설정 진행해줘"). **완료 (커밋 7119936, 푸시함)**
   - 높이 맵: `ImportSettingsInspector::MarkAsHeightMap` (sRGB 끔 + High Quality BC7) · `IsLinearHeightMap`, 재질 · Terrain Layer Inspector 의 Fix Now. `make_tess_textures.py` 가 높이 맵 .meta (선형) 도
   - 지형: 새 `Shaders/61. TerrainTessellation.fx` (cbTerrainHeight · gTerrainHeight0~3, 색과 같은 타일 없애기 무늬의 밉 지정판 TerrainNoTileLevel, 삼평면, precise, TerrainDisplacedNormal — 법선은 Domain 에서),
     32 `TerrainTessTech` (레이어 + 눈, TerrainShade 로 나눔) · 28 `TerrainTessNormalDepthTech` · 26 `TerrainTessShadowTech`. `TerrainLayer` HeightPath · HeightAmplitude · HeightBase (+ 저장), `TerrainEditor` UI,
