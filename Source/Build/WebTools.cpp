@@ -5,6 +5,8 @@
 #include "CliServer.h"
 #include "PathManager.h"
 #include "AndroidTools.h"
+#include "BuildSettings.h"
+#include "WebBuild.h"
 #include <fstream>
 #include <set>
 
@@ -238,7 +240,18 @@ namespace WebTools
 			}
 		const fs::path shell = fs::path(PathManager::GetI()->GetEnginePathW()) / L"Web" / L"Shell" / L"index.html";
 		if (!args.value("keep-page", false) || !fs::exists(out / L"index.html", ec))
-			fs::copy_file(shell, out / L"index.html", fs::copy_options::overwrite_existing, ec);
+		{
+			// 페이지 제목 = 제품 이름 (Player Settings)
+			std::ifstream in(shell, std::ios::binary);
+			std::string page((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			std::string title;
+			for (char c : BuildSettings::ProductName())
+				title += c == '<' ? "&lt;" : c == '>' ? "&gt;" : c == '&' ? "&amp;" : std::string(1, c);
+			const size_t t = page.find("<title>NOVA</title>");
+			if (t != std::string::npos && !title.empty())
+				page.replace(t, 19, "<title>" + title + "</title>");
+			std::ofstream(out / L"index.html", std::ios::binary | std::ios::trunc) << page;
+		}
 		if (!args.value("keep-stage", false))
 			fs::remove_all(stage, ec);
 		const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -259,7 +272,9 @@ namespace WebTools
 			if (op == "help")
 			{
 				result = { { "ops", { "shaders --out folder [--path file.fx]: convert every .fx to WGSL for WebGPU (<name>.wgsl.json; tessellation / geometry passes are skipped)",
-					"export --out folder [--scenes a.scene,b.scene] [--texture-compression dxt|none]: web game (index.html, nova.js + nova.wasm or _framework/ with C#, game.json, game.data); serve the folder (node Tools/web/serve.mjs folder)" } },
+					"export --out folder [--scenes a.scene,b.scene] [--texture-compression dxt|none]: web game (index.html, nova.js + nova.wasm or _framework/ with C#, game.json, game.data); serve the folder (node Tools/web/serve.mjs folder)",
+					"build --out folder [--run] [--port N] [--open]: Build Settings web build (scenes in Build Settings); --run serves it at http://localhost:<port>/ (--open also opens the default browser)",
+					"serve --path folder [--port N] | stop-server: the editor's preview web server" } },
 					{ "player", wstring_to_string(PlayerDir().wstring()) },
 					{ "dotnetPlayer", wstring_to_string(HostFrameworkDir().wstring()) },
 					{ "tint", wstring_to_string(ShaderCross::TintPath()) } };
@@ -269,6 +284,41 @@ namespace WebTools
 				return ExportShaders(args, result, error);
 			if (op == "export")
 				return ExportGame(args, result, error);
+			if (op == "build")
+			{
+				const std::string outArg = args.value("out", std::string());
+				if (outArg.empty()) { error = "--out folder is required"; return false; }
+				WebBuild::Options o;
+				o.OutputFolder = string_to_wstring(outArg);
+				o.TextureCompression = args.value("texture-compression", std::string());
+				if (!WebBuild::Build(o, result, error))
+					return false;
+				// --run: 미리 보기 서버 (CLI 는 브라우저를 열지 않는다 — --open 일 때만)
+				if (args.value("run", false))
+				{
+					const std::string url = WebBuild::Serve(o.OutputFolder, args.value("port", 0));
+					if (url.empty()) { error = "built, but the web server could not start (port in use?)"; return false; }
+					result["url"] = url;
+					if (args.value("open", false))
+						::ShellExecuteW(nullptr, L"open", string_to_wstring(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+				}
+				return true;
+			}
+			if (op == "serve")
+			{
+				const std::string path = args.value("path", std::string());
+				if (path.empty()) { error = "--path folder is required"; return false; }
+				const std::string url = WebBuild::Serve(string_to_wstring(path), args.value("port", 0));
+				if (url.empty()) { error = "could not start the web server (port in use?)"; return false; }
+				result = { { "url", url } };
+				return true;
+			}
+			if (op == "stop-server")
+			{
+				WebBuild::StopServer();
+				result = { { "stopped", true } };
+				return true;
+			}
 			error = "unknown op " + op + " (nova web help)";
 			return false;
 		});

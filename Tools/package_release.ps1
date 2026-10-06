@@ -90,6 +90,21 @@ foreach ($abi in 'x86_64', 'arm64-v8a')
         Copy-Item "ThirdParty\MonoAndroid\$abi\LICENSE.TXT", "ThirdParty\MonoAndroid\$abi\THIRD-PARTY-NOTICES.TXT" "$dst" -ErrorAction SilentlyContinue
     }
 }
+# 웹 플레이어 (Build Settings → Web — bash Web/build.sh Release · Web/build.sh Release host 로 만든 것) + 페이지 셸 + WGSL 변환기 (Tint)
+if (Test-Path 'Web\build\Release\nova.wasm')
+{
+    New-Item -ItemType Directory -Force (Join-Path $stage 'Binaries\Web') | Out-Null
+    Copy-Item 'Web\build\Release\nova.js', 'Web\build\Release\nova.wasm' (Join-Path $stage 'Binaries\Web')
+}
+if (Test-Path 'Web\build\Release\host\wwwroot\_framework\dotnet.js') { CopyDir 'Web\build\Release\host\wwwroot\_framework' 'Binaries\Web\_framework' }
+New-Item -ItemType Directory -Force (Join-Path $stage 'Web\Shell') | Out-Null
+Copy-Item 'Web\Shell\index.html' (Join-Path $stage 'Web\Shell')
+$tint = Join-Path $env:USERPROFILE '.nova\dawn\out\tint\Release\tint.exe'
+if (Test-Path $tint)
+{
+    Copy-Item $tint $bin
+    Copy-Item (Join-Path $env:USERPROFILE '.nova\dawn\LICENSE') (Join-Path $bin 'tint-LICENSE.txt') -ErrorAction SilentlyContinue   # Dawn · Tint (BSD-3-Clause)
+}
 
 # ---- 4. VC++ 런타임 (앱 로컬 배포 — Microsoft 가 재배포를 허락한 Redist 폴더의 DLL)
 Write-Host '[3/5] VC++ 런타임'

@@ -46,7 +46,7 @@ namespace
 		if (NovaAndroid::QuitRequested())
 		{
 			emscripten_cancel_main_loop();
-			EM_ASM({ document.title = document.title + ' (quit)'; });
+			EM_ASM({ if (window.novaState) window.novaState.phase = 'quit'; });   // Application.Quit (페이지 제목은 게임 것 — 건드리지 않는다)
 		}
 	}
 
@@ -117,7 +117,6 @@ extern "C" EMSCRIPTEN_KEEPALIVE int nova_web_start()
 	{
 		EditorLog::Write("Web", "no game data (/game/player.json) - nothing to run");
 		s_Failed = true;
-		EM_ASM({ document.title = 'NOVA: no game data'; });
 		return 0;
 	}
 	emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, nullptr, true, OnKey);
@@ -140,10 +139,8 @@ extern "C" EMSCRIPTEN_KEEPALIVE int nova_web_start()
 	{
 		EditorLog::Write("Web", "engine init failed");
 		s_Failed = true;
-		EM_ASM({ document.title = 'NOVA: init failed'; });
 		return 0;
 	}
-	EM_ASM({ document.title = 'NOVA: running'; });
 	emscripten_set_main_loop(Frame, 0, false);
 	return 1;
 }

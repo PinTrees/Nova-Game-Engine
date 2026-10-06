@@ -16,6 +16,7 @@
   <img src="https://img.shields.io/badge/OpenGL-4.5-5586A4?logo=opengl&logoColor=white" alt="OpenGL 4.5"/>
   <img src="https://img.shields.io/badge/Vulkan-1.3-AC162C?logo=vulkan&logoColor=white" alt="Vulkan 1.3"/>
   <img src="https://img.shields.io/badge/Android-GLES%203.2-3DDC84?logo=android&logoColor=white" alt="Android"/>
+  <img src="https://img.shields.io/badge/Web-WebGPU-005A9C?logo=webgpu&logoColor=white" alt="Web WebGPU"/>
   <img src="https://img.shields.io/badge/C%23-.NET%208-512BD4?logo=dotnet&logoColor=white" alt=".NET 8"/>
   <a href="https://github.com/PinTrees/Nova-Game-Engine/releases/latest"><img src="https://img.shields.io/github/v/release/PinTrees/Nova-Game-Engine?label=%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C&logo=github" alt="최신 릴리스"/></a>
 </p>
@@ -88,7 +89,7 @@
 | 물리 | [Jolt](https://github.com/jrouwe/JoltPhysics) (Rigidbody · Collider · Character Controller · Joint), **2D 물리** [Box2D](https://github.com/erincatto/box2d) (Collider 2D · Joint 2D), 레이어 충돌 행렬 — [JOINTS_2D](docs/JOINTS_2D.md) |
 | 애니메이션 | Animator (Blend Tree · 루트 모션 · **Humanoid 리타게팅**), BlendShape · VRM 표정, 발 · 손 · 시선 IK, Dynamic Bone |
 | UI · 오디오 | UGUI + **TextMeshPro 통합** (SDF), 자동 레이아웃, World Space Canvas · XAudio2, 3D 사운드, **Audio Mixer** (리버브 19 종), OGG · MP3 |
-| 빌드 | Windows `.exe` · **안드로이드 APK / AAB** (ASTC · ETC2, C# Mono, 터치, 서명 키) — [ANDROID](docs/ANDROID.md) |
+| 빌드 | Windows `.exe` · **안드로이드 APK / AAB** (ASTC · ETC2, C# Mono, 터치, 서명 키) — [ANDROID](docs/ANDROID.md) · **웹 (WebGPU)** (WGSL, C# = .NET 웹어셈블리, Build And Run 미리 보기 서버) — [WEB](docs/WEB.md) |
 
 **패키지** (Window > Package Manager — 넣은 것만 불러오고 빌드에 포함) — [PACKAGES](docs/PACKAGES.md)
 
@@ -134,6 +135,8 @@ nova exec "GameObject.Find(\"Box\").transform.position"
 
 <p align="center"><img src="docs/images/android_player.webp" width="900"/><br/><sub>안드로이드 (MuMu · OpenGL ES 3.2) — PC DirectX 11 과 같은 그림</sub></p>
 
+<p align="center"><img src="docs/images/web_player.webp" width="900"/><br/><sub>웹 (Chrome WebGPU) — 엔진 전체를 WebAssembly 로, PC DirectX 11 과 같은 그림</sub></p>
+
 > 더 많은 그림: **[공식 사이트 갤러리](https://nova-game-engine.web.app)**
 
 ## 빠른 시작
@@ -152,7 +155,7 @@ build.bat release    :: Release (성능 측정 · 게임 빌드용)
 | `NovaEngine.exe` | NOVA Hub (프로젝트 · 설치) |
 | `NovaEngine.exe --project "<폴더>"` | 에디터로 열기 (`-force-opengl` · `-force-vulkan` · `-force-d3d11`) |
 
-게임 빌드: **File > Build Settings** (`Ctrl+Shift+B`) → 씬 추가 → Windows / Android → **Build And Run**.
+게임 빌드: **File > Build Settings** (`Ctrl+Shift+B`) → 씬 추가 → Windows / Android / Web → **Build And Run**.
 배포 zip: `Tools\package_release.ps1`. 자동 검사: `Tools\tests\run_tests.ps1 [-Only vfx,render …]` (실행 중인 에디터를 CLI 로 확인, 결과 `TestResults\`).
 
 ```csharp

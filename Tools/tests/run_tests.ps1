@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1456,6 +1456,133 @@ return before + " " + t.GetUsedTilesCount() + " " + b.xMin + "," + b.yMin + "," 
         if ($null -ne $before) { Set-Content -Path $manifest -Value $before -NoNewline -Encoding utf8 }
         Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Web
+{
+    # 웹 빌드 (WebGPU + WebAssembly): 창 없는 Chrome (Tools/web — CLI 만, 화면 · 마우스를 쓰지 않는다)
+    #  1) C# 검사 장면 (강체 낙하 · 긴 mp3 · 검사 스크립트) 내보내기 → .NET 판 플레이어 · 쓰는 BCL 만
+    #  2) 브라우저에서 실행: WebGPU 오류 0 · C# (Start · Update · WebGLPlayer) · 물리 (상자가 바닥에 선다) · 소리 (출력 진폭)
+    #  3) 재질 장면 그림 = PC DX11 (android reference 와 같은 그리기 순서)
+    #  4) nova web build --run: Build Settings 씬 → 에디터의 미리 보기 서버 (wasm MIME · 격리 머리 · 폴더 밖 404) → 브라우저에서 돈다
+    Write-Host '[web]'
+    $dir = Join-Path $Out 'web'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $bash = 'C:\Program Files\Git\bin\bash.exe'
+    $runScene = Join-Path $Root 'Tools\web\run_scene.sh'
+    function RunScene([string]$folder, [string]$shot, [int]$frames, [int]$port)
+    {
+        $o = & $bash $runScene ($folder -replace '\\', '/') ($shot -replace '\\', '/') $frames $port 2>$null | Out-String
+        try { return $o | ConvertFrom-Json } catch { return $null }
+    }
+    $editorSettings = Join-Path $Project 'Assets\EditorSettings.json'
+    $settingsBefore = if (Test-Path $editorSettings) { [IO.File]::ReadAllBytes($editorSettings) } else { $null }   # 씬 저장이 LastOpenedScenePath 를 바꾼다
+    $probeDir = Join-Path $Project 'Assets\WebProbe'
+    New-Item -ItemType Directory -Force $probeDir | Out-Null
+    $probeFile = Join-Path $probeDir 'WebProbe.cs'
+    $probeBefore = if (Test-Path $probeFile) { Get-Content $probeFile -Raw } else { '' }
+    $ed = Start-TestEditor
+    try
+    {
+        $h = Invoke-NovaJson 'web help'
+        Add-Result web 'web players built' ($h -and $h.player -and $h.dotnetPlayer) "engine: $($h.player); C#: $($h.dotnetPlayer)"
+        if (-not ($h -and $h.player -and $h.dotnetPlayer)) { return }   # Web/build.sh Release · Web/build.sh Release host
+
+        # ---- 1) C# 검사 장면
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        @'
+using System.Linq;
+using NovaEngine;
+
+// Web probe (Tools/tests/run_tests.ps1 -Only web): C# on the .NET WebAssembly runtime, physics on the box, platform
+public class WebProbe : MonoBehaviour
+{
+    int frames;
+
+    void Start()
+    {
+        int sum = Enumerable.Range(1, 10).Select(i => i * i).Sum();
+        Debug.Log($"WebProbe start sum={sum} platform={Application.platform} mobile={Application.isMobilePlatform}");
+    }
+
+    void Update()
+    {
+        if (++frames == 150)
+            Debug.Log($"WebProbe frames={frames} y={transform.position.y:F2} time={Time.time:F2}");
+    }
+}
+'@ | Set-Content -Encoding utf8 $probeFile
+        $probeChanged = (Get-Content $probeFile -Raw) -ne $probeBefore
+        $sw2 = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw2.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or ($probeChanged -and $now -eq $dllBefore)))
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 0,4,0 --rotation 20,30,10' | Out-Null
+        Invoke-Nova 'add-component Box RigidBody' | Out-Null
+        Invoke-Nova 'add-component Box WebProbe' | Out-Null
+        Invoke-Nova 'create audio-source --name Music' | Out-Null
+        Invoke-Nova 'set Music --component AudioSource --values "{\"clip\":\"Assets/TestAssets/Audio/long.mp3\",\"loop\":true,\"playOnAwake\":true,\"volume\":0.8}"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,2,-7 --rotation 10,0,0' | Out-Null
+        Invoke-Nova 'scene save --as Assets/Scenes/WebProbe.scene' | Out-Null
+        $probeOut = Join-Path $dir 'probe'
+        $ex = Invoke-NovaJson "web export --out `"$probeOut`" --scenes Assets/Scenes/WebProbe.scene"
+        Add-Result web 'export with C# (.NET player, used BCL only)' ($ex -and $ex.runtime -eq 'dotnet' -and $ex.csharp.frameworkAssembliesRemoved -gt 50 -and $ex.playerBytes -lt 26MB) `
+            $(if ($ex) { "runtime $($ex.runtime), player $([math]::Round($ex.playerBytes / 1MB, 1)) MB ($($ex.csharp.frameworkAssembliesRemoved) BCL assemblies left out), data $([math]::Round($ex.dataBytes / 1MB, 1)) MB, $($ex.seconds) s" } else { 'no result' })
+
+        # ---- 2) 브라우저
+        $r = RunScene $probeOut (Join-Path $dir 'probe.png') 170 8631
+        Add-Result web 'runs in the browser (WebGPU)' ($r -and $r.phase -eq 'running' -and $r.gpuErrors -eq 0 -and $r.fps -ge 20 -and @($r.consoleErrors).Count -eq 0 -and @($r.exceptions).Count -eq 0) `
+            $(if ($r) { "phase $($r.phase), $($r.fps) fps, draws $($r.stats.draws), WebGPU errors $($r.gpuErrors), console errors $(@($r.consoleErrors).Count) $(@($r.consoleErrors) -join ' | ')" } else { 'no result (Chrome?)' })
+        $log = if ($r) { @($r.scriptLog) -join ' ' } else { '' }
+        Add-Result web 'C# scripts run (Start, LINQ, WebGLPlayer)' ($log -match 'WebProbe start sum=385 platform=WebGLPlayer mobile=False') ((@($r.scriptLog) | Where-Object { $_ -match 'WebProbe start' }) -join ' ')
+        $y = if ($log -match 'WebProbe frames=150 y=([\-0-9.]+)') { [double]$Matches[1] } else { $null }
+        Add-Result web 'physics: the box falls and rests on the ground' ($null -ne $y -and [math]::Abs($y - 0.5) -lt 0.08) "y $y after 150 frames (expect 0.5)"
+        Add-Result web 'audio: long mp3 streams to Web Audio' ($r -and $r.audio -and $r.audio.blocks -gt 20 -and $r.audio.peak -gt 0.01) $(if ($r -and $r.audio) { "state $($r.audio.state), blocks $($r.audio.blocks), peak $([math]::Round($r.audio.peak, 3))" } else { 'no audio' })
+
+        # ---- 3) 그림 = DX11 (재질 장면 — 움직이는 것 없음)
+        $matOut = Join-Path $dir 'materials'
+        $mx = Invoke-NovaJson "web export --out `"$matOut`" --scenes Assets/Scenes/Materials.scene"
+        $m = if ($mx) { RunScene $matOut (Join-Path $dir 'materials_web.png') 60 8632 } else { $null }
+        if ($m -and $m.size)
+        {
+            Invoke-Nova 'scene open Assets/Scenes/Materials.scene --force' | Out-Null
+            Invoke-Nova 'wait 10' | Out-Null   # 조명 · 볼륨이 다음 프레임에 등록된다 (바로 그리면 해가 빠진 그림)
+            $ref = Join-Path $dir 'materials_DirectX11.png'
+            Invoke-NovaJson "android reference --out `"$ref`" --width $($m.size[0]) --height $($m.size[1]) --frames 60" | Out-Null
+            $c = if (Test-Path $ref) { [NovaImageCompare]::Compare($ref, (Join-Path $dir 'materials_web.png'), (Join-Path $dir 'materials_diff.png')) } else { $null }
+            Add-Result web 'WebGPU image = DX11 (Materials)' ($c -and $c[2] -lt 1.0) $(if ($c) { 'max {0}, mean {1:N3}, >8: {2:N2}% ({3} x {4})' -f $c[0], $c[1], $c[2], $m.size[0], $m.size[1] } else { 'no image' })
+        }
+        else { Add-Result web 'WebGPU image = DX11 (Materials)' $false 'web run failed' }
+
+        # ---- 4) Build Settings 빌드 + 미리 보기 서버
+        $buildOut = Join-Path $dir 'build'
+        $b = Invoke-NovaJson "web build --out `"$buildOut`" --run --port 8633"
+        $url = if ($b) { $b.url } else { $null }
+        $head = $null; $outside = 0
+        if ($url)
+        {
+            try { $head = Invoke-WebRequest -UseBasicParsing -Uri "$($url)_framework/dotnet.native.wasm" -Method Head -TimeoutSec 10 } catch {}
+            try { $outside = (Invoke-WebRequest -UseBasicParsing -Uri "$($url)%2e%2e/%2e%2e/Windows/win.ini" -TimeoutSec 10).StatusCode } catch { $outside = [int]$_.Exception.Response.StatusCode }
+        }
+        Add-Result web 'nova web build --run serves the game' ($head -and $head.Headers['Content-Type'] -eq 'application/wasm' -and $head.Headers['Cross-Origin-Embedder-Policy'] -eq 'require-corp' -and $outside -eq 404) `
+            "url $url, wasm $($head.Headers['Content-Type']), COEP $($head.Headers['Cross-Origin-Embedder-Policy']), outside the folder $outside, scenes $(@($b.scenes) -join ',')"
+        $page = $null
+        if ($url)
+        {
+            $o = & node (Join-Path $Root 'Tools\web\headless.mjs') $url --wait 60 --size 1280x720 --until "window.novaState && (novaState.phase=='error' || (novaState.phase=='running' && nova.frames() > 30))" `
+                --eval "JSON.stringify({phase: novaState.phase, frames: nova.frames(), gpu: novaState.gpuErrors, title: document.title})" 2>$null | Out-String
+            try { $page = ($o | ConvertFrom-Json).eval | ConvertFrom-Json } catch {}
+        }
+        Add-Result web 'built game runs from the editor server' ($page -and $page.phase -eq 'running' -and $page.gpu -eq 0) $(if ($page) { "phase $($page.phase), frames $($page.frames), title '$($page.title)'" } else { 'no result' })
+        Invoke-Nova 'web stop-server' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($settingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $settingsBefore) }
     }
 }
 
@@ -4661,6 +4788,7 @@ try
                 'model' { Suite-Model }
                 'anim2d' { Suite-Anim2D }
                 'tilemap' { Suite-Tilemap }
+                'web' { Suite-Web }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

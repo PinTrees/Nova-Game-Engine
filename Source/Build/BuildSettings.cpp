@@ -13,7 +13,7 @@ namespace
 	bool s_Development = false;
 	std::string s_LastFolder;
 	int s_Platform = 0;                 // 0 Windows, 1 Android
-	std::string s_AndroidDevice, s_LastApk;
+	std::string s_AndroidDevice, s_LastApk, s_LastWeb;
 	bool s_AppBundle = false;
 	std::string s_KeystorePass, s_KeyAliasPass;   // 메모리에만
 	bool s_HasRuntimeScenes = false;
@@ -49,9 +49,11 @@ namespace
 				s_Scenes.push_back({ s.value("path", std::string()), s.value("enabled", true) });
 		s_Development = j.value("developmentBuild", false);
 		s_LastFolder = j.value("lastBuildFolder", std::string());
-		s_Platform = j.value("activePlatform", std::string()) == "Android" ? 1 : 0;
+		const std::string platform = j.value("activePlatform", std::string());
+		s_Platform = platform == "Android" ? 1 : platform == "Web" ? 2 : 0;
 		s_AndroidDevice = j.value("androidRunDevice", std::string());
 		s_LastApk = j.value("lastAndroidApk", std::string());
+		s_LastWeb = j.value("lastWebFolder", std::string());
 		s_AppBundle = j.value("androidBuildAppBundle", false);
 	}
 
@@ -127,7 +129,8 @@ namespace BuildSettings
 		for (const SceneEntry& s : Scenes())
 			scenes.push_back({ { "path", s.Path }, { "enabled", s.Enabled } });
 		WriteJson(File(L"EditorBuildSettings.json"), json{ { "scenes", scenes }, { "developmentBuild", s_Development }, { "lastBuildFolder", s_LastFolder },
-			{ "activePlatform", s_Platform == 1 ? "Android" : "Windows" }, { "androidRunDevice", s_AndroidDevice }, { "lastAndroidApk", s_LastApk },
+			{ "activePlatform", s_Platform == 1 ? "Android" : s_Platform == 2 ? "Web" : "Windows" }, { "androidRunDevice", s_AndroidDevice }, { "lastAndroidApk", s_LastApk },
+			{ "lastWebFolder", s_LastWeb },
 			{ "androidBuildAppBundle", s_AppBundle } });
 	}
 
@@ -225,6 +228,13 @@ namespace BuildSettings
 		if (!s_ScenesLoaded)
 			LoadScenes();
 		return s_LastApk;
+	}
+
+	std::string& LastWebFolder()
+	{
+		if (!s_ScenesLoaded)
+			LoadScenes();
+		return s_LastWeb;
 	}
 
 	std::vector<std::string> RuntimeScenes()

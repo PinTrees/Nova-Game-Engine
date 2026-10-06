@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **웹 빌드 (WebGPU) 4 단계: C# 스크립트 (.NET 웹어셈블리)** (같은 5 단계 계획). **진행 중 (커밋 전)**
+- 갱신 시각: 2026년 10월 6일 — **웹 빌드 (WebGPU) 5 단계: 에디터 연결 · 검사 · 문서** (같은 5 단계 계획의 마지막). **완료 (커밋, 푸시 전)**
+  - `Source/Build/WebBuild.*`: Build Settings 의 Web (Build · Build And Run — 진행 창, 에디터 안 미리 보기 서버 127.0.0.1:8600+, wasm MIME · 교차 출처 격리 머리 · 폴더 밖 404), CLI `nova web build [--run] [--port] [--open]` · `web serve` · `web stop-server`
+  - BuildSettings: 플랫폼 2 = Web (`activePlatform: "Web"`), `lastWebFolder`. 페이지 제목 = 제품 이름 (엔진이 제목을 바꾸지 않음)
+  - 호스트 다시 링크: 엔진 .a 를 .NET 링크 입력에 넣음 (전에는 엔진만 바뀌면 옛 wasm 이 남았다)
+  - 검사 `run_tests.ps1 -Only web` 9/9: C# · 물리 · 소리 · 재질 그림 = DX11 (최대 1) · build --run 서버. 웹 UI 위치는 맞고, `nova android reference` 의 UI 가 에디터 Game 뷰 크기로 놓이는 문제는 따로 (작업 제안)
+  - 문서 `docs/WEB.md`, README (배지 · 빌드 · 그림), NOVA_CLI, `package_release.ps1` (Binaries/Web · Web/Shell · tint.exe), Showcase 245
+- 이전: 2026년 10월 6일 — **웹 빌드 (WebGPU) 4 단계: C# 스크립트 (.NET 웹어셈블리)** (같은 5 단계 계획). **완료 (커밋 10e022e, 푸시 전)**
   - `Web/Host/` (NovaWebHost.csproj — Microsoft.NET.Sdk.WebAssembly net10.0, 다듬기 끔): .NET 런타임 (Mono) + 엔진 정적 라이브러리를 wasm 하나로 링크. `Program.cs` = Bridge 진입점 주소 → `nova_web_set_managed` → `nova_web_start`
   - `Web/CMakeLists.txt`: `nova_web_host` (WebMain 을 main 없이), `NovaWebHost.props` (링크할 .a 목록), `host-modules/<모듈>.c` (엔진 · 패키지 C# 의 DllImport 이름 — .NET 의 P/Invoke 표). 패키지 Runtime C# 도 호스트에 함께 컴파일 (빌드 때 본 DllImport 만 표에 들어간다)
   - `Web/build.sh Release host` → `Web/build/Release/host/wwwroot/_framework`. `ScriptEngineAndroid.cpp` 웹 분기 (주소를 받아 쓴다), 셸: game.json `runtime: dotnet` 이면 `_framework/dotnet.js`, `window.nova` (frames · stats · audio)
@@ -8,7 +14,6 @@
   - 단일 스레드: Jolt `JobSystemSingleThreaded` (`__EMSCRIPTEN__`), 오디오 스트림은 Update 에서 채움. Web Audio 출력 진폭 (Module.novaAudioPeak) · 검사 Chrome 은 `--mute-audio`
   - 결과: AndroidScript 장면 (Start · LINQ · Update · Transform) 브라우저에서 돈다 — platform=WebGLPlayer, 60 fps, 오류 0. 물리 상자 낙하 정상. 엔진만 판도 그대로
   - 다른 담당자: 씬 파일 손대지 않음. `Source/Physics/PhysicsManager.cpp` · `Source/Audio/AudioManager.cpp` · `Source/Scripting/PlatformBindings.cpp` · `ScriptCore/Engine/Services.cs` (enum 추가) 수정
-  - 다음: 5 단계 Build Settings Web · nova web build · 웹 스위트 · 문서 · Showcase
 - 이전: 2026년 10월 6일 — **웹 빌드 (WebGPU) 2 · 3 단계: 엔진 wasm · WebGPU 백엔드 · 첫 장면** (같은 지시, 5 단계 계획 "이 대로 진행"). **완료 (커밋 5fe2da1, 푸시 전)**
   - `Web/`: CMakeLists (엔진 + 패키지 정적 · Emscripten 3.1.56 · -fwasm-exceptions -msimd128 — .NET 과 같게), `build.sh` (Ninja), `Source/WebMain.cpp` (캔버스 · 입력 · 프레임 루프 · nova_web_frames/stats),
     WebGPU Gfx 백엔드 `GfxWgpuDevice.cpp` · `GfxWgpuContext.cpp` (D3D11 즉시 컨텍스트 흉내 — 늦은 렌더 패스 · loadOp 지우기 · 파이프라인/바인드 그룹 캐시 · 링 버퍼 · 깊이 형식 → unfilterable 변형 · SV_InstanceID 시작 인스턴스 = 정점 버퍼 오프셋 · 행렬 입력 여러 위치),

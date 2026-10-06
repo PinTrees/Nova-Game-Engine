@@ -48,4 +48,11 @@
     </Reference>
   </ItemGroup>
 
+  <!-- 엔진 라이브러리는 링크 인자 (EmccExtraLDFlags) 로만 넘어가 .NET 이 바뀐 줄 모른다 → 다시 링크할 입력에 넣는다 -->
+  <Target Name="NovaEngineLinkInputs" AfterTargets="_BrowserWasmWriteRspForLinking" BeforeTargets="_BrowserWasmLinkDotNet">
+    <ItemGroup>
+      <_WasmLinkDependencies Include="$(NovaWholeLibs);$(NovaOtherLibs)" />
+    </ItemGroup>
+  </Target>
+
 </Project>

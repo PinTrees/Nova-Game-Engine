@@ -56,10 +56,11 @@ namespace BuildSettings
 
 	bool& DevelopmentBuild();
 	std::string& LastBuildFolder();
-	// Build Settings 의 플랫폼 (Unity 의 Switch Platform): 0 Windows, 1 Android
+	// Build Settings 의 플랫폼 (Unity 의 Switch Platform): 0 Windows, 1 Android, 2 Web
 	int& ActivePlatform();
 	std::string& AndroidRunDevice();     // Build And Run 장치 (adb 시리얼, 비면 첫 장치)
 	std::string& LastAndroidApk();       // 마지막 .apk 경로
+	std::string& LastWebFolder();        // 마지막 웹 빌드 폴더
 	bool& AndroidBuildAppBundle();       // Build App Bundle (Google Play) — .aab
 	std::string& AndroidKeystorePass();  // 저장하지 않는다 (에디터를 켤 때마다 다시 넣는다, Unity 와 같음)
 	std::string& AndroidKeyAliasPass();

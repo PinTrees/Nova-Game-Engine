@@ -4,6 +4,7 @@
 #include "BuildPipeline.h"
 #include "AndroidBuild.h"
 #include "AndroidTools.h"
+#include "WebBuild.h"
 #include "ProjectSettingsWindow.h"
 #include "UnityGUI.h"
 #include "Debug.h"
@@ -176,6 +177,56 @@ namespace
 		ValueLabel("Last Build", last.empty() ? "(none)" : last.c_str());
 	}
 
+	// Web: <폴더> 에 index.html · game.data · 플레이어 (Unity 의 WebGL 빌드처럼 폴더를 묻는다)
+	void BuildWeb(bool run, bool askFolder)
+	{
+		std::wstring folder = string_to_wstring(BuildSettings::LastWebFolder());
+		if (askFolder || folder.empty())
+		{
+			std::wstring start = folder.empty() ? PathManager::GetI()->GetContentPathW() : folder;
+			if (!PickFolder(start, folder))
+				return;
+		}
+		WebBuild::Options o;
+		o.OutputFolder = folder;
+		o.Run = run;
+		std::string error;
+		if (!WebBuild::Start(o, error))
+		{
+			s_LastError = error;
+			Debug::LogError("Web build failed: " + error);
+			return;
+		}
+		s_LastError.clear();
+	}
+
+	void DrawWebSettings()
+	{
+		using namespace UnityGUI;
+		ValueLabel("Graphics API", "WebGPU");
+		ValueLabel("Browsers", "Chrome / Edge 113+, Safari 26+, Firefox 141+");
+		ValueLabel("Texture Compression", "DXT (desktop browsers)");
+		// 엔진 폴더 기준 상대 경로 (창이 좁다)
+		auto shortPath = [](const std::wstring& p) {
+			const fs::path rel = fs::path(p).lexically_relative(PathManager::GetI()->GetEnginePathW());
+			return wstring_to_string((rel.empty() || rel.wstring().rfind(L"..", 0) == 0 ? fs::path(p) : rel).wstring());
+		};
+		const std::wstring engine = WebBuild::EnginePlayerDir(), dotnet = WebBuild::DotnetPlayerDir();
+		ValueLabel("Player", engine.empty() ? "Not found" : shortPath(engine).c_str());
+		ValueLabel("C# Runtime", dotnet.empty() ? "Not found - C# scripts will not run" : ".NET WebAssembly");
+		if (engine.empty() && dotnet.empty())
+			HelpBox("This engine has no web player (Binaries/Web).", true);
+		const std::string last = BuildSettings::LastWebFolder();
+		ValueLabel("Last Build", last.empty() ? "(none)" : last.c_str());
+		const std::string url = WebBuild::ServerUrl();
+		if (!url.empty())
+		{
+			ValueLabel("Preview Server", url.c_str());
+			if (ImGui::SmallButton("Stop Server"))
+				WebBuild::StopServer();
+		}
+	}
+
 	void AddScene(const std::string& path)
 	{
 		auto& scenes = BuildSettings::Scenes();
@@ -317,6 +368,8 @@ namespace BuildSettingsWindow
 	{
 		if (BuildSettings::ActivePlatform() == 1)
 			BuildAndroid(true, false);
+		else if (BuildSettings::ActivePlatform() == 2)
+			BuildWeb(true, false);
 		else
 			Build(true, false);
 	}
@@ -327,6 +380,8 @@ namespace BuildSettingsWindow
 		BuildPipeline::DrawProgress();
 		AndroidBuild::Update();
 		AndroidBuild::DrawProgress();
+		WebBuild::Update();
+		WebBuild::DrawProgress();
 
 		// (개발/검증용) NOVA_DEV_BUILD=<폴더>: 시작 후 한 번 그 폴더로 빌드 (대화상자 없이)
 		static bool s_DevBuilt = false;
@@ -368,20 +423,22 @@ namespace BuildSettingsWindow
 		int& platform = BuildSettings::ActivePlatform();
 		if (ImGui::Selectable(ICON_FA_DESKTOP "  Windows", platform == 0)) { platform = 0; BuildSettings::SaveEditorBuild(); }
 		if (ImGui::Selectable(ICON_FA_MOBILE_SCREEN "  Android", platform == 1)) { platform = 1; BuildSettings::SaveEditorBuild(); }
+		if (ImGui::Selectable(ICON_FA_GLOBE "  Web", platform == 2)) { platform = 2; BuildSettings::SaveEditorBuild(); }
 		ImGui::BeginDisabled();
 		ImGui::Selectable(ICON_FA_LAPTOP "  macOS");
 		ImGui::Selectable(ICON_FA_TERMINAL "  Linux");
-		ImGui::Selectable(ICON_FA_GLOBE "  Web");
 		ImGui::EndDisabled();
 		ImGui::EndChild();
 		ImGui::SameLine();
 		ImGui::BeginChild("##platformSettings", ImVec2(0, 200), false);
 		ImGui::PushFont(UnityGUI::BoldFont());
-		ImGui::TextUnformatted(platform == 1 ? ICON_FA_MOBILE_SCREEN "  Android" : ICON_FA_DESKTOP "  Windows");
+		ImGui::TextUnformatted(platform == 1 ? ICON_FA_MOBILE_SCREEN "  Android" : platform == 2 ? ICON_FA_GLOBE "  Web" : ICON_FA_DESKTOP "  Windows");
 		ImGui::PopFont();
 		ImGui::Spacing();
 		if (platform == 1)
 			DrawAndroidSettings();
+		else if (platform == 2)
+			DrawWebSettings();
 		else
 		{
 		UnityGUI::ValueLabel("Target Platform", "Windows");
@@ -402,12 +459,12 @@ namespace BuildSettingsWindow
 			ProjectSettingsWindow::Open("Player");
 		const float bw = 120.0f;
 		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw * 2 - 6.0f);
-		ImGui::BeginDisabled(BuildPipeline::IsRunning() || AndroidBuild::IsRunning());
+		ImGui::BeginDisabled(BuildPipeline::IsRunning() || AndroidBuild::IsRunning() || WebBuild::IsRunning());
 		if (ImGui::Button("Build", ImVec2(bw, 24)))
-			platform == 1 ? BuildAndroid(false, true) : Build(false, true);
+			platform == 1 ? BuildAndroid(false, true) : platform == 2 ? BuildWeb(false, true) : Build(false, true);
 		ImGui::SameLine();
 		if (ImGui::Button("Build And Run", ImVec2(bw, 24)))
-			platform == 1 ? BuildAndroid(true, true) : Build(true, true);
+			platform == 1 ? BuildAndroid(true, true) : platform == 2 ? BuildWeb(true, true) : Build(true, true);
 		ImGui::EndDisabled();
 
 		ImGui::End();
