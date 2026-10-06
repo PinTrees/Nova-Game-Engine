@@ -41,6 +41,9 @@ public:
 
 	template <typename VertexType>
 	void SetVertices(ComPtr<GfxDevice> device, const VertexType* vertices, uint32 count);
+	// 매 프레임 바뀌는 정점 (천): 처음 한 번 동적 버퍼로 바꾸고 덮어쓴다 (Map · Discard)
+	template <typename VertexType>
+	void UpdateVertices(GfxDevice* device, GfxContext* dc, const VertexType* vertices, uint32 count);
 
 	void SetIndices(ComPtr<GfxDevice> device, const USHORT* indices, uint32 count);
 
@@ -58,6 +61,9 @@ public:
 private:
 	ComPtr<GfxBuffer> _vb;
 	ComPtr<GfxBuffer> _ib;
+
+	bool _dynamic = false;
+	uint32 _dynamicCount = 0;
 
 	DXGI_FORMAT _indexBufferFormat; // Always 16-bit
 	uint32 _vertexStride;
@@ -82,4 +88,35 @@ void MeshGeometry::SetVertices(ComPtr<GfxDevice> device, const VertexType* verti
 	vinitData.pSysMem = vertices;
 
 	HR(device->CreateBuffer(&vbd, &vinitData, _vb.GetAddressOf()));
+	_dynamic = false;
+}
+
+template <typename VertexType>
+void MeshGeometry::UpdateVertices(GfxDevice* device, GfxContext* dc, const VertexType* vertices, uint32 count)
+{
+	if (count == 0 || device == nullptr || dc == nullptr)
+		return;
+	if (!_dynamic || _dynamicCount != count)
+	{
+		D3D11_BUFFER_DESC vbd = {};
+		vbd.Usage = D3D11_USAGE_DYNAMIC;
+		vbd.ByteWidth = sizeof(VertexType) * count;
+		vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		vbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+		D3D11_SUBRESOURCE_DATA init = {};
+		init.pSysMem = vertices;
+		ComPtr<GfxBuffer> vb;
+		if (FAILED(device->CreateBuffer(&vbd, &init, vb.GetAddressOf())))
+			return;
+		_vb = vb;
+		_vertexStride = sizeof(VertexType);
+		_dynamic = true;
+		_dynamicCount = count;
+		return;
+	}
+	D3D11_MAPPED_SUBRESOURCE mapped;
+	if (FAILED(dc->Map(_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+		return;
+	memcpy(mapped.pData, vertices, sizeof(VertexType) * count);
+	dc->Unmap(_vb.Get(), 0);
 }

@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2264,6 +2264,63 @@ function Suite-DayNight
         Write-Host "  $(Stop-TestEditor $ed)"
         if ($before) { [IO.File]::WriteAllText($manifest, $before) }
     }
+}
+
+function Suite-Cloth
+{
+    # 천 (Cloth → Jolt Soft Body): 2 x 2 m Plane 천이 구 위로 떨어져 덮인다 (자기 Mesh Collider 는 무시, 구 안 · 바닥 아래로 안 들어감),
+    #  세운 Plane 커튼 (위쪽 가장자리 고정 + 바람): 고정점은 그대로 · 아래는 바람 쪽으로, 오브젝트를 옮기면 고정점이 따라온다, C# Cloth API
+    Write-Host '[cloth]'
+    $dir = Join-Path $Out 'cloth'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        Invoke-Nova 'create sphere --name Ball --position 0,1,0' | Out-Null
+        Invoke-Nova 'create plane --name Sheet --position 0,2.2,0 --scale 0.2,1,0.2' | Out-Null
+        Invoke-Nova 'add-component Sheet Cloth --values "{\"bendingStiffness\":0.2,\"thickness\":0.03}"' | Out-Null
+        Invoke-Nova 'create plane --name Curtain --position 4,2,0 --rotation -90,0,0 --scale 0.2,1,0.2' | Out-Null   # 앞면이 카메라 쪽 (-Z)
+        # 바람 6 m/s² (감쇠 0.6 → 출렁이지 않고 바람 쪽으로 기운 채 — 한 번 재도 된다)
+        Invoke-Nova 'add-component Curtain Cloth --values "{\"pin\":1,\"damping\":0.6,\"externalAcceleration\":[0,0,6]}"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 2,2.6,-6.5 --rotation 9,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+
+        $sheetCs = Join-Path $dir 'cloth_sheet.cs'
+        'var t = GameObject.Find("Sheet").transform; var c = t.GetComponent<Cloth>(); var v = c.vertices; float minY = 99, minD = 99, centerY = 0, best = 99; foreach (var lp in v) { var p = t.TransformPoint(lp); minY = Mathf.Min(minY, p.y); minD = Mathf.Min(minD, (p - new Vector3(0, 1, 0)).magnitude); float h = new Vector2(p.x, p.z).magnitude; if (h < best) { best = h; centerY = p.y; } } return c.isSimulating + " " + v.Length + " " + centerY.ToString("F2") + " " + minY.ToString("F2") + " " + minD.ToString("F2");' | Set-Content -Encoding utf8 $sheetCs
+        $curtainCs = Join-Path $dir 'cloth_curtain.cs'
+        # 고정 줄 = 오브젝트 평면 위 (z = 오브젝트 z) 의 위쪽 가장자리 높이 (오브젝트 y + 1) 그대로인 정점, 바람 = 나머지 정점의 평균 z
+        'var t = GameObject.Find("Curtain").transform; var v = t.GetComponent<Cloth>().vertices; float topY = t.position.y + 1f; float tx = 0, tz = 0, fz = 0; int nt = 0, nf = 0; foreach (var lp in v) { var p = t.TransformPoint(lp); if (Mathf.Abs(p.y - topY) < 0.005f && Mathf.Abs(p.z - t.position.z) < 0.005f) { tx += p.x; tz += p.z; nt++; } else { fz += p.z - t.position.z; nf++; } } return nt + " " + (nt > 0 ? tx / nt : 0).ToString("F2") + " " + (nt > 0 ? tz / nt : 0).ToString("F2") + " " + (nf > 0 ? fz / nf : 0).ToString("F2") + " " + topY.ToString("F2");' | Set-Content -Encoding utf8 $curtainCs
+
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 4) { Invoke-Nova 'wait 20' | Out-Null }
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'cloth.png')`" --view game" | Out-Null
+        $s = Invoke-NovaJson "exec --file `"$sheetCs`""
+        $sv = if ($s) { "$($s.result)" -split ' ' } else { @() }
+        Add-Result cloth 'cloth drapes over the sphere (own collider ignored, not inside, not under ground)' ($sv.Count -eq 5 -and $sv[0] -eq 'True' -and [double]$sv[2] -gt 1.48 -and [double]$sv[2] -lt 1.65 -and [double]$sv[3] -gt -0.05 -and [double]$sv[4] -gt 0.44) "simulating $($sv[0]), $($sv[1]) vertices, centre y $($sv[2]) (1.5 .. 1.6), lowest $($sv[3]) (> -0.05), closest to ball centre $($sv[4]) (> 0.44)"
+        $c = Invoke-NovaJson "exec --file `"$curtainCs`""
+        $cv = if ($c) { "$($c.result)" -split ' ' } else { @() }
+        Add-Result cloth 'curtain: pinned top edge stays, wind blows the cloth (+Z)' ($cv.Count -eq 5 -and [int]$cv[0] -eq 10 -and [math]::Abs([double]$cv[1] - 4) -lt 0.05 -and [double]$cv[3] -gt 0.2) "pinned $($cv[0]) (10) at x $($cv[1]) (4), free vertices z $($cv[3]) (> 0.2)"
+        $moveCs = Join-Path $dir 'cloth_move.cs'
+        'GameObject.Find("Curtain").transform.position += new Vector3(2, 0, 0); return 1;' | Set-Content -Encoding utf8 $moveCs
+        Invoke-Nova "exec --file `"$moveCs`"" | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.5) { Invoke-Nova 'wait 10' | Out-Null }
+        $c2 = Invoke-NovaJson "exec --file `"$curtainCs`""
+        $cv2 = if ($c2) { "$($c2.result)" -split ' ' } else { @() }
+        $spanCs = Join-Path $dir 'cloth_span.cs'
+        'var t = GameObject.Find("Curtain").transform; float a = 99, b = -99; foreach (var lp in t.GetComponent<Cloth>().vertices) { var p = t.TransformPoint(lp); a = Mathf.Min(a, p.x); b = Mathf.Max(b, p.x); } return a.ToString("F2") + " " + b.ToString("F2");' | Set-Content -Encoding utf8 $spanCs
+        $span = Invoke-NovaJson "exec --file `"$spanCs`""
+        Add-Result cloth 'teleporting the object moves the cloth with it (no whip)' ($cv2.Count -eq 5 -and [int]$cv2[0] -eq 10 -and [math]::Abs([double]$cv2[1] - 6) -lt 0.05 -and "$($span.result)" -match '^(\S+) (\S+)$' -and [double]$Matches[1] -gt 4.8 -and [double]$Matches[2] -lt 7.2) "pinned $($cv2[0]) at x $($cv2[1]) (6), cloth x span $($span.result) (5 .. 7)"
+        $apiCs = Join-Path $dir 'cloth_api.cs'
+        'var c = GameObject.Find("Curtain").GetComponent<Cloth>(); c.damping = 0.3f; c.externalAcceleration = new Vector3(1, 0, 0); return c.pin + " " + c.damping.ToString("F1") + " " + c.externalAcceleration.x.ToString("F0") + " " + c.useGravity + " " + c.stretchingStiffness.ToString("F0");' | Set-Content -Encoding utf8 $apiCs
+        $api = Invoke-NovaJson "exec --file `"$apiCs`""
+        Add-Result cloth 'C# Cloth API (pin, damping, externalAcceleration, useGravity, stiffness)' ("$($api.result)" -eq 'TopEdge 0.3 1 True 1') "$($api.result)"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
 
 function Suite-Layers
@@ -5476,6 +5533,7 @@ try
                 'ragdoll' { Suite-Ragdoll }
                 'wheel' { Suite-Wheel }
                 'daynight' { Suite-DayNight }
+                'cloth' { Suite-Cloth }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

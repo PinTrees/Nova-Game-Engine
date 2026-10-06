@@ -307,6 +307,11 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, Vector3*, void> WC_SetCenter;
         public delegate* unmanaged<ulong, Vector3*, Vector4*, void> WC_GetPose;
         public delegate* unmanaged<ulong, WheelHitData*, int> WC_GetHit;
+        public delegate* unmanaged<ulong, int, float> CL_GetFloat;              // Cloth (ScriptBindings.cpp 주석의 번호)
+        public delegate* unmanaged<ulong, int, float, void> CL_SetFloat;
+        public delegate* unmanaged<ulong, int, Vector3*, void> CL_GetVector;
+        public delegate* unmanaged<ulong, int, Vector3*, void> CL_SetVector;
+        public delegate* unmanaged<ulong, Vector3*, int, int> CL_GetVertices;
     }
 
     internal static unsafe class Native

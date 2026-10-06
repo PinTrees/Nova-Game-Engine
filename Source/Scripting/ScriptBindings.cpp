@@ -32,6 +32,9 @@
 #include "Light2D.h"
 #include "Ragdoll.h"
 #include "WheelCollider.h"
+#include "Cloth.h"
+#include "Mesh.h"
+#include "MeshFilter.h"
 #include "Camera.h"
 #include "PathManager.h"
 #include "PlayerRuntime.h"
@@ -301,6 +304,13 @@ namespace
 		void(*WC_SetCenter)(uint64, Vec3*);
 		void(*WC_GetPose)(uint64, Vec3*, Vec4*);
 		int(*WC_GetHit)(uint64, WheelHitData*);       // 바닥에 닿았으면 1
+		// Cloth — float: 0 stretchingStiffness, 1 bendingStiffness, 2 useGravity, 3 damping, 4 friction, 5 thickness, 6 solverFrequency, 7 pin,
+		//   8 시뮬레이션 중 (읽기), 9 정점 수 (읽기) / vector: 0 externalAcceleration, 1 randomAcceleration
+		float(*CL_GetFloat)(uint64, int);
+		void(*CL_SetFloat)(uint64, int, float);
+		void(*CL_GetVector)(uint64, int, Vec3*);
+		void(*CL_SetVector)(uint64, int, Vec3*);
+		int(*CL_GetVertices)(uint64, Vec3*, int);      // 메시 정점마다 로컬 위치 (Unity Cloth.vertices) — 개수를 돌려준다
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1856,6 +1866,40 @@ namespace ScriptBindings
 			if (w) w->GetWorldPose(p, q);
 			if (pos) *pos = p;
 			if (rot) *rot = Vec4(q.x, q.y, q.z, q.w);
+		};
+		t.CL_GetFloat = [](uint64 id, int p) -> float {
+			Cloth* c = Get<Cloth>(id);
+			if (c == nullptr) return 0.0f;
+			switch (p)
+			{
+			case 0: return c->StretchingStiffness; case 1: return c->BendingStiffness; case 2: return c->UseGravity ? 1.0f : 0.0f; case 3: return c->Damping;
+			case 4: return c->Friction; case 5: return c->Thickness; case 6: return c->SolverFrequency; case 7: return (float)c->Pin;
+			case 8: return c->IsSimulating() ? 1.0f : 0.0f; default: return (float)c->SimVertexCount();
+			}
+		};
+		t.CL_SetFloat = [](uint64 id, int p, float v) {
+			Cloth* c = Get<Cloth>(id);
+			if (c == nullptr) return;
+			switch (p)
+			{
+			case 0: c->StretchingStiffness = std::clamp(v, 0.0f, 1.0f); break; case 1: c->BendingStiffness = std::clamp(v, 0.0f, 1.0f); break;
+			case 2: c->UseGravity = v != 0.0f; break; case 3: c->Damping = std::clamp(v, 0.0f, 1.0f); break; case 4: c->Friction = (std::max)(0.0f, v); break;
+			case 5: c->Thickness = (std::max)(0.0f, v); break; case 6: c->SolverFrequency = v; break; case 7: c->Pin = std::clamp((int)v, 0, 2); break;
+			case 20: c->ClearTransformMotion(); break;
+			default: break;
+			}
+		};
+		t.CL_GetVector = [](uint64 id, int p, Vec3* out) { Cloth* c = Get<Cloth>(id); if (out) *out = c ? (p == 0 ? c->ExternalAcceleration : c->RandomAcceleration) : Vec3::Zero; };
+		t.CL_SetVector = [](uint64 id, int p, Vec3* v) { if (Cloth* c = Get<Cloth>(id); c && v) (p == 0 ? c->ExternalAcceleration : c->RandomAcceleration) = *v; };
+		t.CL_GetVertices = [](uint64 id, Vec3* out, int max) -> int {
+			GameObject* g = Find(id);
+			MeshFilter* f = g ? g->GetComponent<MeshFilter>() : nullptr;
+			std::shared_ptr<Mesh> m = f ? f->GetMesh() : nullptr;
+			if (m == nullptr) return 0;
+			const int n = (int)m->Vertices.size();
+			for (int i = 0; i < n && i < max && out; ++i)
+				out[i] = Vec3(m->Vertices[i].pos.x, m->Vertices[i].pos.y, m->Vertices[i].pos.z);
+			return n;
 		};
 		t.WC_GetHit = [](uint64 id, WheelHitData* out) -> int {
 			WheelCollider* w = Get<WheelCollider>(id);

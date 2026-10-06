@@ -30,6 +30,10 @@
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/Constraints/SixDOFConstraint.h>
+#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+#include <Jolt/Physics/SoftBody/SoftBodyContactListener.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 
@@ -271,6 +275,23 @@ struct PhysicsManager::JoltWorld
 		void OnContactAdded(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m, JPH::ContactSettings& s) override { Handle(b1, b2, m, s); }
 		void OnContactPersisted(const JPH::Body& b1, const JPH::Body& b2, const JPH::ContactManifold& m, JPH::ContactSettings& s) override { Handle(b1, b2, m, s); }
 	};
+
+	// 천 (Soft Body): 자기 오브젝트의 콜라이더 (Plane 의 Mesh Collider 등) 와 트리거는 부딪히지 않는다
+	class SoftListener final : public JPH::SoftBodyContactListener
+	{
+	public:
+		JoltWorld* world = nullptr;
+		JPH::SoftBodyValidateResult OnSoftBodyContactValidate(const JPH::Body& soft, const JPH::Body& other, JPH::SoftBodyContactSettings& s) override;
+	};
+	SoftListener softListener;
+
+	// 천: Soft Body 하나 + 주인 오브젝트 (자기 콜라이더는 무시)
+	struct ClothRecord
+	{
+		JPH::BodyID id;
+		JPH::uint64 owner = 0;   // 주인 GameObject 의 InstanceID
+	};
+	std::unordered_map<JPH::uint32, ClothRecord> cloths;   // key: 핸들 (BodyID 의 번호 + 세대)
 
 	// 캐릭터가 부딪힐 상대를 고른다: 트리거는 막지 않고 기록만(OnTriggerXxx), Layer Overrides 의 제외 레이어는 통과
 	struct CharRecord;
@@ -1200,6 +1221,9 @@ void PhysicsManager::Start()
 	w.physics = std::make_unique<JPH::PhysicsSystem>();
 	w.physics->Init(8192, 0, 8192, 8192, w.bpLayers, w.objVsBp, w.objPair);
 	w.physics->SetContactListener(&w.listener);
+	w.softListener.world = &w;
+	w.physics->SetSoftBodyContactListener(&w.softListener);
+	++m_WorldSerial;
 	w.physics->SetGravity(ToJ(m_Gravity));
 	{
 		// 정지 접촉 시 허용하는 겹침 (Jolt 기본 2cm → 5mm). Unity 처럼 물체가 바닥에 눈에 띄게 파묻히지 않게 한다
@@ -1227,6 +1251,12 @@ void PhysicsManager::Exit()
 	JoltWorld& w = *m_World;
 	JPH::BodyInterface& bi = w.BI();
 	w.characters.clear();   // CharacterVirtual 이 안쪽 바디를 지운다 (물리 시스템이 살아 있을 때)
+	for (auto& kv : w.cloths)
+	{
+		bi.RemoveBody(kv.second.id);
+		bi.DestroyBody(kv.second.id);
+	}
+	w.cloths.clear();
 	for (auto& kv : w.joints)
 		w.physics->RemoveConstraint(kv.second.c);   // 구속은 바디보다 먼저
 	w.joints.clear();
@@ -2130,6 +2160,158 @@ void PhysicsManager::RemoveCharacter(CharacterController* cc)
 {
 	if (m_World)
 		m_World->characters.erase(cc);
+}
+
+// ====================================================================== 천 (Soft Body)
+JPH::SoftBodyValidateResult PhysicsManager::JoltWorld::SoftListener::OnSoftBodyContactValidate(const JPH::Body& soft, const JPH::Body& other, JPH::SoftBodyContactSettings&)
+{
+	if (other.IsSensor())
+		return JPH::SoftBodyValidateResult::RejectContact;
+	auto it = world->cloths.find(soft.GetID().GetIndexAndSequenceNumber());
+	if (it != world->cloths.end())
+	{
+		auto own = world->bodies.find(it->second.owner);
+		if (own != world->bodies.end() && own->second.id == other.GetID())
+			return JPH::SoftBodyValidateResult::RejectContact;
+	}
+	return JPH::SoftBodyValidateResult::AcceptContact;
+}
+
+uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s)
+{
+	if (!m_World || owner == nullptr || worldVertices.size() < 3 || triangles.size() < 3)
+		return 0;
+	// 정점은 바디 원점 (정점들의 가운데) 기준 — 바디는 움직이지 않는다 (mUpdatePosition = false, 고정 정점을 우리가 옮긴다)
+	Vec3 center = Vec3::Zero;
+	for (const Vec3& v : worldVertices)
+		center += v;
+	center /= (float)worldVertices.size();
+	JPH::Ref<JPH::SoftBodySharedSettings> shared = new JPH::SoftBodySharedSettings();
+	shared->mVertices.reserve(worldVertices.size());
+	for (size_t i = 0; i < worldVertices.size(); ++i)
+	{
+		JPH::SoftBodySharedSettings::Vertex v;
+		const Vec3 l = worldVertices[i] - center;
+		v.mPosition = JPH::Float3(l.x, l.y, l.z);
+		v.mInvMass = i < invMass.size() ? invMass[i] : 1.0f;
+		shared->mVertices.push_back(v);
+	}
+	for (size_t i = 0; i + 2 < triangles.size(); i += 3)
+		if (triangles[i] != triangles[i + 1] && triangles[i + 1] != triangles[i + 2] && triangles[i] != triangles[i + 2])
+			shared->AddFace(JPH::SoftBodySharedSettings::Face(triangles[i], triangles[i + 1], triangles[i + 2]));
+	bool anyPinned = false;
+	for (float m : invMass)
+		anyPinned |= m == 0.0f;
+	JPH::SoftBodySharedSettings::VertexAttributes attr(s.Compliance, s.ShearCompliance, s.BendCompliance,
+		s.LongRangeAttachment && anyPinned ? JPH::SoftBodySharedSettings::ELRAType::EuclideanDistance : JPH::SoftBodySharedSettings::ELRAType::None);
+	shared->CreateConstraints(&attr, 1, JPH::SoftBodySharedSettings::EBendType::Dihedral);
+	shared->Optimize();
+
+	JPH::SoftBodyCreationSettings cs(shared, ToJR(center), JPH::Quat::sIdentity(), Layers::Moving);
+	cs.mNumIterations = (std::max)(1u, s.Iterations);
+	cs.mLinearDamping = (std::max)(0.0f, s.Damping);
+	cs.mFriction = (std::max)(0.0f, s.Friction);
+	cs.mGravityFactor = s.GravityFactor;
+	cs.mVertexRadius = (std::max)(0.0f, s.Thickness);
+	cs.mUpdatePosition = false;
+	cs.mAllowSleeping = false;   // 바람 · 움직이는 고정점에 늘 반응
+	const JPH::BodyID id = m_World->BI().CreateAndAddSoftBody(cs, JPH::EActivation::Activate);
+	if (id.IsInvalid())
+		return 0;
+	World::ClothRecord rec;
+	rec.id = id;
+	rec.owner = owner->GetInstanceID();
+	const uint32 handle = id.GetIndexAndSequenceNumber();
+	m_World->cloths[handle] = rec;
+	EditorLog::Write("Physics", "cloth '%s': %zu vertices, %zu triangles", owner->GetName().c_str(), worldVertices.size(), triangles.size() / 3);
+	return handle;
+}
+
+void PhysicsManager::DestroyCloth(uint32 handle)
+{
+	if (!m_World)
+		return;
+	auto it = m_World->cloths.find(handle);
+	if (it == m_World->cloths.end())
+		return;
+	m_World->BI().RemoveBody(it->second.id);
+	m_World->BI().DestroyBody(it->second.id);
+	m_World->cloths.erase(it);
+}
+
+bool PhysicsManager::GetClothVertices(uint32 handle, std::vector<Vec3>& world)
+{
+	if (!m_World)
+		return false;
+	auto it = m_World->cloths.find(handle);
+	if (it == m_World->cloths.end())
+		return false;
+	JPH::BodyLockRead lock(m_World->physics->GetBodyLockInterface(), it->second.id);
+	if (!lock.Succeeded())
+		return false;
+	const JPH::Body& body = lock.GetBody();
+	const auto* mp = static_cast<const JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+	const JPH::RMat44 com = body.GetCenterOfMassTransform();
+	world.resize(mp->GetVertices().size());
+	for (size_t i = 0; i < world.size(); ++i)
+	{
+		const JPH::RVec3 p = com * mp->GetVertex((JPH::uint)i).mPosition;
+		world[i] = Vec3((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
+	}
+	return true;
+}
+
+void PhysicsManager::DriveCloth(uint32 handle, const std::vector<uint32>& pinned, const std::vector<Vec3>& pinnedWorld, const Vec3& acceleration, float dt)
+{
+	if (!m_World || dt <= 0.0f)
+		return;
+	auto it = m_World->cloths.find(handle);
+	if (it == m_World->cloths.end())
+		return;
+	JPH::BodyLockWrite lock(m_World->physics->GetBodyLockInterface(), it->second.id);
+	if (!lock.Succeeded())
+		return;
+	JPH::Body& body = lock.GetBody();
+	auto* mp = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+	const JPH::RMat44 inv = body.GetCenterOfMassTransform().InversedRotationTranslation();
+	const JPH::uint n = (JPH::uint)mp->GetVertices().size();
+	// 고정 정점: 새 자리로 (속도 = 옮긴 만큼 — 닿은 것을 자연스럽게 민다)
+	for (size_t k = 0; k < pinned.size() && k < pinnedWorld.size(); ++k)
+	{
+		if (pinned[k] >= n)
+			continue;
+		JPH::SoftBodyVertex& v = mp->GetVertex(pinned[k]);
+		const JPH::Vec3 target = JPH::Vec3(inv * ToJR(pinnedWorld[k]));
+		v.mVelocity = (target - v.mPosition) / dt;
+		v.mPosition = target;
+	}
+	// 바람 · 외부 가속: 움직이는 정점의 속도에
+	if (acceleration.LengthSquared() > 0.0f)
+	{
+		const JPH::Vec3 dv = ToJ(acceleration * dt);
+		for (JPH::uint i = 0; i < n; ++i)
+		{
+			JPH::SoftBodyVertex& v = mp->GetVertex(i);
+			if (v.mInvMass > 0.0f)
+				v.mVelocity += dv;
+		}
+	}
+}
+
+void PhysicsManager::ShiftCloth(uint32 handle, const Vec3& delta)
+{
+	if (!m_World)
+		return;
+	auto it = m_World->cloths.find(handle);
+	if (it == m_World->cloths.end())
+		return;
+	JPH::BodyLockWrite lock(m_World->physics->GetBodyLockInterface(), it->second.id);
+	if (!lock.Succeeded())
+		return;
+	auto* mp = static_cast<JPH::SoftBodyMotionProperties*>(lock.GetBody().GetMotionProperties());
+	const JPH::Vec3 d = ToJ(delta);   // 바디 회전 = 단위 → 로컬 이동 = 월드 이동
+	for (JPH::uint i = 0; i < (JPH::uint)mp->GetVertices().size(); ++i)
+		mp->GetVertex(i).mPosition += d;
 }
 
 // ====================================================================== IgnoreCollision

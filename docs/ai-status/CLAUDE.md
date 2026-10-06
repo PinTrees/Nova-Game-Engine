@@ -1,10 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **낮 · 밤 순환 패키지 `com.nova.daynight`** (사용자 추가 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **천 (Cloth)** (같은 지시 순서의 8 번 — 마지막). **완료 (커밋, 푸시 전)**
+  - `Source/Scene/Cloth.*`: Unity Cloth (Mesh Filter 메시 → Jolt Soft Body: 정점 묶기 · 늘어남 · 비틀림 · dihedral 접힘 · LRA, 고정 Top Edge · Top Corners · 고른 정점, 바람 · 출렁임, 순간 이동 = 천 전체 이동), 메시 사본을 동적 정점 버퍼로 (`MeshGeometry::UpdateVertices`)
+  - `PhysicsManager`: CreateCloth · DriveCloth · ShiftCloth · GetClothVertices · WorldSerial, Soft Body 접촉 거르기 (자기 콜라이더 · 트리거)
+  - C# `Cloth · ClothPinMode`, Add Component > Physics > Cloth. 검사 `-Only cloth` 4/4, 문서 `docs/CLOTH.md`, Showcase 252
+  - 사용자 지시 순서 (씬 · PlayerPrefs · 트윈 · 2D 빛 · 2D 내비 · 래그돌 · 차량 · 천) + 낮 · 밤 순환 모두 끝. 푸시는 아직 (요청 시)
+- 이전: 2026년 10월 7일 — **낮 · 밤 순환 패키지 `com.nova.daynight`** (사용자 추가 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수). **완료 (커밋, 푸시 전)**
   - 패키지: `DayNightCycle` (전역 하나 — 시각 · 하루 길이 · 단계별 Look 7 개를 섞음, Directional Light 를 해 · 달로 돌림), CLI `nova daynight status|set|phase`, C# `DayNight · DayPhase · DayNightCycle`
   - 엔진: `Source/Graphics/Common/DayNightState.*` (기본값 = 그대로), `WeatherState::SkyScale · AmbientScale` (날씨 × 낮 · 밤) 을 Sky · WeatherCover (반사) · 물 · ApplySun/Ambient 가 쓰도록, AtmospherePass 안개 색 (하늘색 모드는 하늘 밝기만큼), `21. Sky.fx` 에 그라데이션 · 노을 빛 · 해 · 달 · 별 · 은하수 (fxc 확인)
   - 검사 `-Only daynight` 8/8, weather 14/14, OpenGL · Vulkan = DX11 (노을 차이 0, 은하수 0.2 — 반짝임). 문서 `docs/DAY_NIGHT.md`, Showcase 251
-  - 다음: 천 (Cloth)
 - 이전: 2026년 10월 7일 — **차량 (Wheel Collider)** (같은 지시 순서의 7 번). **완료 (커밋, 푸시 전)**
   - `Source/Scene/WheelCollider.*`: Unity WheelCollider (레이 서스펜션 — 매달린 질량 × g + 스프링 · 댐퍼로 Target Position 에서 쉼, 슬립 곡선 타이어, 모터 · 브레이크 · 조향, 바퀴 각속도, GetWorldPose · GetGroundHit, 기즈모). Add Component > Physics > Wheel Collider, C# `WheelCollider · WheelHit · WheelFrictionCurve`
   - 안정: 마찰 반작용이 구르는 속도를 넘지 않게, 잠긴 바퀴는 브레이크가 버티면 미끄럼 마찰 그대로, 낮은 속도의 마찰은 접점의 실제 질량 (`PhysicsManager::GetEffectiveMass` — 회전 몫 포함) ÷ 바퀴 수의 절반까지 (서 있는 차가 좌우로 흔들리던 것)

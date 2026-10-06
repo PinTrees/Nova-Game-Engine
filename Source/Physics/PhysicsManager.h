@@ -47,6 +47,7 @@ private:
 	float m_FixedTimestep = 0.02f;
 	float m_MaxAllowedTimestep = 0.3333f;
 	float m_Accumulator = 0.0f;
+	uint32 m_WorldSerial = 0;
 	float m_HeartbeatTime = 0.0f;   // Play 처음 3 초: 1 초마다 Editor.log 에 스텝 수 (물리가 멈춘 세션을 진단)
 	int m_HeartbeatSteps = 0;
 	int m_StepCount = 0;
@@ -106,6 +107,25 @@ public:
 	// ---- Unity 의 Physics.IgnoreCollision: 두 오브젝트 (의 Rigidbody 바디) 끼리 접촉하지 않는다. Play 중에만 (저장하지 않는다)
 	void IgnoreCollision(GameObject* a, GameObject* b, bool ignore = true);
 	bool GetIgnoreCollision(GameObject* a, GameObject* b);
+	// ---- 천 (Cloth 컴포넌트 → Jolt Soft Body). 핸들 0 = 실패. 월드가 다시 만들어지면 (Play 시작) WorldSerial 이 바뀐다
+	struct ClothSettings
+	{
+		float Compliance = 0.0f;         // 늘어남 (0 = 늘지 않음)
+		float ShearCompliance = 0.0f;
+		float BendCompliance = 1.0f;     // 접힘 (클수록 잘 접힌다, FLT_MAX = 굽힘 없음)
+		bool LongRangeAttachment = true; // 고정 정점에서 멀어지지 않게 (늘어짐 방지)
+		float Damping = 0.1f, Friction = 0.3f, GravityFactor = 1.0f, Thickness = 0.02f;
+		uint32 Iterations = 6;
+	};
+	uint32 CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s);
+	void DestroyCloth(uint32 handle);
+	bool GetClothVertices(uint32 handle, std::vector<Vec3>& world);
+	// 스텝 전: 고정 정점 (월드) 을 옮기고 (속도 = 옮긴 만큼) 모든 정점에 가속 (바람)
+	void DriveCloth(uint32 handle, const std::vector<uint32>& pinned, const std::vector<Vec3>& pinnedWorld, const Vec3& acceleration, float dt);
+	// 천 전체를 옮긴다 (속도는 그대로) — 오브젝트가 순간 이동했을 때 (Unity 의 Cloth.ClearTransformMotion)
+	void ShiftCloth(uint32 handle, const Vec3& delta);
+	uint32 WorldSerial() const { return m_WorldSerial; }
+
 	// 한 점에 dir 방향 충격을 줄 때의 실제 질량 1 / (1/M + (r×d)·I⁻¹(r×d)) — 회전으로 빠지는 몫까지 (바퀴 마찰이 한 스텝에 넘치지 않게). 다이내믹이 아니면 0
 	float GetEffectiveMass(RigidBody* rb, const Vec3& point, const Vec3& dir);
 	float GetHingeAngle(const HingeJoint* joint, bool velocity);   // 도 / 도/초 (Play 중, 없으면 0)

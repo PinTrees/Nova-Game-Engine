@@ -363,6 +363,48 @@ namespace NovaEngine
         public void ConfigureVehicleSubsteps(float speedThreshold, int stepsBelowThreshold, int stepsAboveThreshold) { }
     }
 
+    // ------------------------------------------------------------------ Cloth (Unity 와 같은 이름)
+    public enum ClothPinMode { None = 0, TopEdge = 1, TopCorners = 2 }
+
+    /// <summary>같은 오브젝트의 메시 (Plane 등) 를 천으로 (Play 중). 장면의 콜라이더와 부딪힌다</summary>
+    [NativeComponent("Cloth")]
+    public sealed unsafe class Cloth : Component
+    {
+        internal Cloth() { }
+        float F(int p) => Native.Api.CL_GetFloat(m_Id, p);
+        void S(int p, float v) => Native.Api.CL_SetFloat(m_Id, p, v);
+        Vector3 Vec(int p) { Vector3 v; Native.Api.CL_GetVector(m_Id, p, &v); return v; }
+        void SetVec(int p, Vector3 v) => Native.Api.CL_SetVector(m_Id, p, &v);
+
+        public float stretchingStiffness { get => F(0); set => S(0, value); }
+        public float bendingStiffness { get => F(1); set => S(1, value); }
+        public bool useGravity { get => F(2) != 0; set => S(2, value ? 1f : 0f); }
+        public float damping { get => F(3); set => S(3, value); }
+        public float friction { get => F(4); set => S(4, value); }
+        /// <summary>콜라이더에서 떨어지는 거리 (m, NOVA)</summary>
+        public float thickness { get => F(5); set => S(5, value); }
+        public float clothSolverFrequency { get => F(6); set => S(6, value); }
+        public ClothPinMode pin { get => (ClothPinMode)(int)F(7); set => S(7, (int)value); }
+        public Vector3 externalAcceleration { get => Vec(0); set => SetVec(0, value); }
+        public Vector3 randomAcceleration { get => Vec(1); set => SetVec(1, value); }
+        /// <summary>시뮬레이션 중 (Play)</summary>
+        public bool isSimulating => F(8) != 0;
+        /// <summary>이번 스텝의 오브젝트 움직임을 천 전체에 그대로 (순간 이동 — 휘날리지 않게). 1 m 넘게 한 번에 옮기면 저절로</summary>
+        public void ClearTransformMotion() => S(20, 1f);
+
+        /// <summary>메시 정점마다 지금 위치 (오브젝트 로컬)</summary>
+        public Vector3[] vertices
+        {
+            get
+            {
+                int n = Native.Api.CL_GetVertices(m_Id, null, 0);
+                var a = new Vector3[n];
+                if (n > 0) fixed (Vector3* p = a) Native.Api.CL_GetVertices(m_Id, p, n);
+                return a;
+            }
+        }
+    }
+
     // OnControllerColliderHit(ControllerColliderHit hit) 로 받는 충돌 정보
     public class ControllerColliderHit
     {
