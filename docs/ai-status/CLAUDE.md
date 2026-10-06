@@ -1,12 +1,17 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **래그돌 (Character · Configurable Joint · Ragdoll Wizard)** (같은 지시 순서의 6 번). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **차량 (Wheel Collider)** (같은 지시 순서의 7 번). **완료 (커밋, 푸시 전)**
+  - `Source/Scene/WheelCollider.*`: Unity WheelCollider (레이 서스펜션 — 매달린 질량 × g + 스프링 · 댐퍼로 Target Position 에서 쉼, 슬립 곡선 타이어, 모터 · 브레이크 · 조향, 바퀴 각속도, GetWorldPose · GetGroundHit, 기즈모). Add Component > Physics > Wheel Collider, C# `WheelCollider · WheelHit · WheelFrictionCurve`
+  - 안정: 마찰 반작용이 구르는 속도를 넘지 않게, 잠긴 바퀴는 브레이크가 버티면 미끄럼 마찰 그대로, 낮은 속도의 마찰은 접점의 실제 질량 (`PhysicsManager::GetEffectiveMass` — 회전 몫 포함) ÷ 바퀴 수의 절반까지 (서 있는 차가 좌우로 흔들리던 것)
+  - 검사 `-Only wheel` 5/5, 문서 `docs/WHEEL_COLLIDER.md`, Showcase 250
+  - 지켜볼 것: `-Only ragdoll` 이 느린 세션 (90 초 컴파일 대기) 에서 두 번 물리가 통째로 멈췄다 (바디는 다이내믹, 스텝 없음 — 같은 빌드로 다시 돌리면 9/9). 원인 미확인 → Editor.log 에 `[Physics] start · exit · heartbeat` (Play 처음 3 초 스텝 수) 를 남기게 했다
+  - 다음: 낮 · 밤 순환 패키지 (사용자 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수), 그다음 천 (Cloth)
+- 이전: 2026년 10월 7일 — **래그돌 (Character · Configurable Joint · Ragdoll Wizard)** (같은 지시 순서의 6 번). **완료 (커밋, 푸시 전)**
   - `Source/Scene/Joint.*`: CharacterJoint (Jolt SwingTwist — 흔들기 1 = Swing Axis 둘레 → Jolt Normal Half Cone, 흔들기 2 → Plane Half Cone), ConfigurableJoint (SixDOF — 축마다 Locked/Limited/Free, 선 한계 스프링, X·Y·Z · Angular X/YZ · Slerp 드라이브, 목표는 Unity 처럼 반대). 처음 만든 때의 쉬는 틀을 `Joint::Rest` 로 기억 (다시 만들어도 같은 기준)
   - `Source/Scene/Ragdoll.*`: Ragdoll Wizard (휴머노이드 Skinned Mesh → 바디 11 · Unity 값) + Ragdoll 컴포넌트 (Active = 바디가 스키닝 자세를 정함 / 꺼짐 = 키네마틱으로 애니메이션 따라감). `SkinnedMeshRenderer::GetNodeGlobals`. 메뉴 3D Object > Ragdoll..., CLI `ragdoll create|info|active`, C# `Ragdoll · CharacterJoint · ConfigurableJoint · SoftJointLimit · JointDrive`
   - 엔진 수정: 다이내믹 바디를 부모 먼저 Transform 에 쓰기, `Physics.IgnoreCollision` (쉬는 자세에서 겹친 래그돌 쌍), Animator · AnimationPlayer 가 enabled 꺼지면 멈춤 (Unity), **Transform 월드 크기 기본 1** (한 번도 갱신 안 된 루트 아래 콜라이더가 1 mm 이던 버그 — 예전 씬의 0 도 고쳐 읽음)
   - 검사 `-Only ragdoll` 9/9, physics · animation 함께 33/33, 문서 `docs/RAGDOLL.md`, Showcase 249
   - 남은 것: C# `Behaviour.enabled` 가 네이티브 컴포넌트 (Animator 등) 에는 C# 쪽 값만 바꾼다 (따로 할 일)
-  - 다음: 차량 (Wheel Collider)
 - 이전: 2026년 10월 7일 — **2D 내비게이션 (NavMesh Surface Plane = 2D)** (같은 지시 순서의 5 번). **완료 (커밋, 푸시 전)**
   - 패키지 `com.nova.ai.navigation`: `NavMeshSurface` 의 Plane (3D XZ / 2D XY) — 2D 굽기 = 바닥 사각형 (콜라이더 · 스프라이트 범위 또는 Volume) + 정적 2D 콜라이더 윤곽 (귀 자르기 삼각형, Edge 는 얇은 사각형, Tilemap Collider 2D 포함, 움직이는 Rigidbody 2D · 트리거 제외)
   - `NavData`: 내비 공간 (x, 0, y), 벽 삼각형을 반 칸 키운 볼록 다각형으로 `RC_NULL_AREA` 표시 (깎기 전), `.navmesh` 버전 3 (머리 뒤 2D 플래그, 버전 2 도 읽음), 2D 기즈모

@@ -1212,14 +1212,18 @@ void PhysicsManager::Start()
 	w.physics->SetCombineRestitution([](const JPH::Body& a, const JPH::SubShapeID&, const JPH::Body& b, const JPH::SubShapeID&) { return 0.5f * (a.GetRestitution() + b.GetRestitution()); });
 	m_Accumulator = 0.0f;
 	m_StepCount = 0;
+	m_HeartbeatTime = 0.0f;
+	m_HeartbeatSteps = 0;
 
 	StepSimulation(0.0f);   // dt 0: 바디만 만든다
+	EditorLog::Write("Physics", "start: fixed %.4f s, gravity %.2f, %zu bodies", m_FixedTimestep, m_Gravity.y, w.bodies.size());
 }
 
 void PhysicsManager::Exit()
 {
 	if (!m_World)
 		return;
+	EditorLog::Write("Physics", "exit (%zu bodies, playing %d)", m_World->bodies.size(), Application::IsPlaying() ? 1 : 0);
 	JoltWorld& w = *m_World;
 	JPH::BodyInterface& bi = w.BI();
 	w.characters.clear();   // CharacterVirtual 이 안쪽 바디를 지운다 (물리 시스템이 살아 있을 때)
@@ -1258,6 +1262,22 @@ void PhysicsManager::Update(float deltaTime)
 		++steps;
 		if (!m_World)
 			return;
+	}
+	// 처음 3 초: 1 초마다 스텝 수 · 바디 수 (물리가 멈춘 세션을 로그로 가린다)
+	if (m_HeartbeatTime < 3.0f)
+	{
+		m_HeartbeatSteps += steps;
+		const float before = m_HeartbeatTime;
+		m_HeartbeatTime += deltaTime;
+		if ((int)m_HeartbeatTime != (int)before || !(m_HeartbeatTime == m_HeartbeatTime))
+		{
+			size_t dynamicCount = 0;
+			for (auto& kv : m_World->bodies)
+				dynamicCount += kv.second.dynamic ? 1 : 0;
+			EditorLog::Write("Physics", "heartbeat %.1f s: %d steps (dt %.4f, accumulator %.4f, fixed %.4f), %zu bodies, %zu dynamic",
+				m_HeartbeatTime, m_HeartbeatSteps, deltaTime, m_Accumulator, m_FixedTimestep, m_World->bodies.size(), dynamicCount);
+			m_HeartbeatSteps = 0;
+		}
 	}
 	if (steps == 8)
 		m_Accumulator = 0.0f;
@@ -1877,6 +1897,25 @@ bool PhysicsManager::AddTorque(RigidBody* rb, const Vec3& torque, ForceMode mode
 	}
 	}
 	return true;
+}
+
+float PhysicsManager::GetEffectiveMass(RigidBody* rb, const Vec3& point, const Vec3& dir)
+{
+	if (!m_World) return 0.0f;
+	auto* r = m_World->Find(rb);
+	if (!r || !r->dynamic || r->id.IsInvalid()) return 0.0f;
+	JPH::BodyLockRead lock(m_World->physics->GetBodyLockInterface(), r->id);
+	if (!lock.Succeeded()) return 0.0f;
+	const JPH::Body& body = lock.GetBody();
+	const JPH::MotionProperties* mp = body.GetMotionProperties();
+	if (mp == nullptr) return 0.0f;
+	JPH::Vec3 n = ToJ(dir);
+	if (n.LengthSq() < 1e-12f) return 0.0f;
+	n = n.Normalized();
+	const JPH::Vec3 rel = JPH::Vec3(ToJR(point) - body.GetCenterOfMassPosition());
+	const JPH::Vec3 rn = rel.Cross(n);
+	const float k = mp->GetInverseMass() + rn.Dot(body.GetInverseInertia().Multiply3x3(rn));
+	return k > 1e-12f ? 1.0f / k : 0.0f;
 }
 
 bool PhysicsManager::AddForceAtPosition(RigidBody* rb, const Vec3& force, const Vec3& position, ForceMode mode)

@@ -37,6 +37,13 @@ namespace NovaEngine.Interop
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct WheelHitData
+    {
+        public Vector3 point, normal, forwardDir, sidewaysDir;
+        public float force, forwardSlip, sidewaysSlip;
+        public ulong gameObject;
+    }
+
     internal struct ControllerHitData
     {
         public Vector3 point;
@@ -294,6 +301,12 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, float, void> RD_Set;
         public delegate* unmanaged<ulong, ulong, int, void> PH_IgnoreCollision;     // Physics.IgnoreCollision (콜라이더의 GameObject)
         public delegate* unmanaged<ulong, ulong, int> PH_GetIgnoreCollision;
+        public delegate* unmanaged<ulong, int, float> WC_GetFloat;              // WheelCollider (ScriptBindings.cpp 주석의 번호)
+        public delegate* unmanaged<ulong, int, float, void> WC_SetFloat;
+        public delegate* unmanaged<ulong, Vector3*, void> WC_GetCenter;
+        public delegate* unmanaged<ulong, Vector3*, void> WC_SetCenter;
+        public delegate* unmanaged<ulong, Vector3*, Vector4*, void> WC_GetPose;
+        public delegate* unmanaged<ulong, WheelHitData*, int> WC_GetHit;
     }
 
     internal static unsafe class Native

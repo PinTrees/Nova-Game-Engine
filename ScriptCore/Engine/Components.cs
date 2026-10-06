@@ -301,6 +301,68 @@ namespace NovaEngine
         public int bodyCount => (int)Native.Api.RD_Get(m_Id, 1);
     }
 
+    // ------------------------------------------------------------------ WheelCollider (Unity 와 같은 API)
+    public struct WheelFrictionCurve { public float extremumSlip, extremumValue, asymptoteSlip, asymptoteValue, stiffness; }
+    public struct WheelHit
+    {
+        public Collider collider;
+        public Vector3 point, normal, forwardDir, sidewaysDir;
+        public float force, forwardSlip, sidewaysSlip;
+    }
+
+    /// <summary>차량 바퀴: 레이 서스펜션 + 미끄러짐 곡선 타이어. 부모 (차체) 에 Rigidbody</summary>
+    [NativeComponent("WheelCollider")]
+    public sealed unsafe class WheelCollider : Collider
+    {
+        internal WheelCollider() { }
+        float F(int p) => Native.Api.WC_GetFloat(m_Id, p);
+        void S(int p, float v) => Native.Api.WC_SetFloat(m_Id, p, v);
+        WheelFrictionCurve Curve(int b) => new WheelFrictionCurve { extremumSlip = F(b), extremumValue = F(b + 1), asymptoteSlip = F(b + 2), asymptoteValue = F(b + 3), stiffness = F(b + 4) };
+        void SetCurve(int b, WheelFrictionCurve c) { S(b, c.extremumSlip); S(b + 1, c.extremumValue); S(b + 2, c.asymptoteSlip); S(b + 3, c.asymptoteValue); S(b + 4, c.stiffness); }
+
+        public Vector3 center { get { Vector3 v; Native.Api.WC_GetCenter(m_Id, &v); return v; } set => Native.Api.WC_SetCenter(m_Id, &value); }
+        public float mass { get => F(0); set => S(0, value); }
+        public float radius { get => F(1); set => S(1, value); }
+        public float wheelDampingRate { get => F(2); set => S(2, value); }
+        public float suspensionDistance { get => F(3); set => S(3, value); }
+        public float forceAppPointDistance { get => F(4); set => S(4, value); }
+        public JointSpring suspensionSpring
+        {
+            get => new JointSpring { spring = F(5), damper = F(6), targetPosition = F(7) };
+            set { S(5, value.spring); S(6, value.damper); S(7, value.targetPosition); }
+        }
+        public WheelFrictionCurve forwardFriction { get => Curve(10); set => SetCurve(10, value); }
+        public WheelFrictionCurve sidewaysFriction { get => Curve(20); set => SetCurve(20, value); }
+        public float motorTorque { get => F(30); set => S(30, value); }
+        public float brakeTorque { get => F(31); set => S(31, value); }
+        /// <summary>조향 (도, + = 오른쪽)</summary>
+        public float steerAngle { get => F(32); set => S(32, value); }
+        public float rpm => F(40);
+        public bool isGrounded => F(41) != 0;
+        public float sprungMass => F(42);
+
+        /// <summary>바퀴 그림이 놓일 자리 (서스펜션 · 조향 · 회전)</summary>
+        public void GetWorldPose(out Vector3 pos, out Quaternion quat)
+        {
+            Vector3 p; Vector4 q;
+            Native.Api.WC_GetPose(m_Id, &p, &q);
+            pos = p;
+            quat = new Quaternion(q.x, q.y, q.z, q.w);
+        }
+
+        public bool GetGroundHit(out WheelHit hit)
+        {
+            WheelHitData d;
+            bool ok = Native.Api.WC_GetHit(m_Id, &d) != 0;
+            hit = ok ? new WheelHit { point = d.point, normal = d.normal, forwardDir = d.forwardDir, sidewaysDir = d.sidewaysDir, force = d.force,
+                forwardSlip = d.forwardSlip, sidewaysSlip = d.sidewaysSlip, collider = d.gameObject == 0 ? null : new Collider(d.gameObject) } : default;
+            return ok;
+        }
+
+        /// <summary>Unity 호환 (NOVA 는 고정 스텝마다 계산 — 하는 일 없음)</summary>
+        public void ConfigureVehicleSubsteps(float speedThreshold, int stepsBelowThreshold, int stepsAboveThreshold) { }
+    }
+
     // OnControllerColliderHit(ControllerColliderHit hit) 로 받는 충돌 정보
     public class ControllerColliderHit
     {

@@ -31,6 +31,7 @@
 #include "Light.h"
 #include "Light2D.h"
 #include "Ragdoll.h"
+#include "WheelCollider.h"
 #include "Camera.h"
 #include "PathManager.h"
 #include "PlayerRuntime.h"
@@ -61,6 +62,14 @@ namespace
 		float fraction;
 		uint64 gameObject;
 	};
+	// WheelCollider.GetGroundHit (C# NativeApi.cs 의 WheelHitData 와 같은 배치)
+	struct WheelHitData
+	{
+		Vec3 point, normal, forwardDir, sidewaysDir;
+		float force, forwardSlip, sidewaysSlip;
+		uint64 gameObject;
+	};
+
 	struct ControllerHitData
 	{
 		Vec3 point;
@@ -283,6 +292,15 @@ namespace
 		void(*RD_Set)(uint64, int, float);
 		void(*PH_IgnoreCollision)(uint64, uint64, int);   // Physics.IgnoreCollision (콜라이더의 GameObject 둘)
 		int(*PH_GetIgnoreCollision)(uint64, uint64);
+		// WheelCollider — float: 0 mass, 1 radius, 2 wheelDampingRate, 3 suspensionDistance, 4 forceAppPointDistance, 5 spring, 6 damper, 7 targetPosition,
+		//   10~14 forwardFriction (extremumSlip, extremumValue, asymptoteSlip, asymptoteValue, stiffness), 20~24 sidewaysFriction,
+		//   30 motorTorque, 31 brakeTorque, 32 steerAngle, 40 rpm, 41 isGrounded, 42 sprungMass (읽기)
+		float(*WC_GetFloat)(uint64, int);
+		void(*WC_SetFloat)(uint64, int, float);
+		void(*WC_GetCenter)(uint64, Vec3*);
+		void(*WC_SetCenter)(uint64, Vec3*);
+		void(*WC_GetPose)(uint64, Vec3*, Vec4*);
+		int(*WC_GetHit)(uint64, WheelHitData*);       // 바닥에 닿았으면 1
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -814,6 +832,21 @@ namespace
 		Joint* j = pick(g->GetComponents());
 		return j ? j : pick(g->GetPendingComponents());
 	}
+	// WheelCollider 의 float 칸 (바인딩 표 주석 참고)
+	float* WheelFloat(WheelCollider* w, int p)
+	{
+		auto curve = [](WheelFrictionCurveData& c, int i) { float* f[5] = { &c.ExtremumSlip, &c.ExtremumValue, &c.AsymptoteSlip, &c.AsymptoteValue, &c.Stiffness }; return f[i]; };
+		switch (p)
+		{
+		case 0: return &w->Mass; case 1: return &w->Radius; case 2: return &w->WheelDampingRate; case 3: return &w->SuspensionDistance;
+		case 4: return &w->ForceAppPointDistance; case 5: return &w->SuspensionSpring.Spring; case 6: return &w->SuspensionSpring.Damper;
+		case 7: return &w->SuspensionSpring.TargetPosition; case 30: return &w->MotorTorque; case 31: return &w->BrakeTorque; case 32: return &w->SteerAngle;
+		}
+		if (p >= 10 && p <= 14) return curve(w->ForwardFriction, p - 10);
+		if (p >= 20 && p <= 24) return curve(w->SidewaysFriction, p - 20);
+		return nullptr;
+	}
+
 	// Character · Configurable 의 float 칸 (정수 · 참거짓 칸은 따로)
 	float* JointFloatField(Joint* j, int prop)
 	{
@@ -1804,6 +1837,35 @@ namespace ScriptBindings
 		t.RD_Set = [](uint64 id, int what, float v) { if (Ragdoll* r = Get<Ragdoll>(id); r && what == 0) r->Active = v != 0.0f; };
 		t.PH_IgnoreCollision = [](uint64 a, uint64 b, int ignore) { PhysicsManager::GetI()->IgnoreCollision(Find(a), Find(b), ignore != 0); };
 		t.PH_GetIgnoreCollision = [](uint64 a, uint64 b) -> int { return PhysicsManager::GetI()->GetIgnoreCollision(Find(a), Find(b)) ? 1 : 0; };
+		t.WC_GetFloat = [](uint64 id, int p) -> float {
+			WheelCollider* w = Get<WheelCollider>(id);
+			if (w == nullptr) return 0.0f;
+			if (p == 40) return w->Rpm();
+			if (p == 41) return w->IsGrounded() ? 1.0f : 0.0f;
+			if (p == 42) return w->SprungMass();
+			float* f = WheelFloat(w, p);
+			return f ? *f : 0.0f;
+		};
+		t.WC_SetFloat = [](uint64 id, int p, float v) { if (WheelCollider* w = Get<WheelCollider>(id)) if (float* f = WheelFloat(w, p)) *f = v; };
+		t.WC_GetCenter = [](uint64 id, Vec3* out) { WheelCollider* w = Get<WheelCollider>(id); if (out) *out = w ? w->Center : Vec3::Zero; };
+		t.WC_SetCenter = [](uint64 id, Vec3* v) { if (WheelCollider* w = Get<WheelCollider>(id); w && v) w->Center = *v; };
+		t.WC_GetPose = [](uint64 id, Vec3* pos, Vec4* rot) {
+			WheelCollider* w = Get<WheelCollider>(id);
+			Vec3 p = Vec3::Zero;
+			Quaternion q = Quaternion::Identity;
+			if (w) w->GetWorldPose(p, q);
+			if (pos) *pos = p;
+			if (rot) *rot = Vec4(q.x, q.y, q.z, q.w);
+		};
+		t.WC_GetHit = [](uint64 id, WheelHitData* out) -> int {
+			WheelCollider* w = Get<WheelCollider>(id);
+			WheelCollider::GroundHit h;
+			if (w == nullptr || out == nullptr || !w->GetGroundHit(h)) return 0;
+			out->point = h.Point; out->normal = h.Normal; out->forwardDir = h.ForwardDir; out->sidewaysDir = h.SidewaysDir;
+			out->force = h.Force; out->forwardSlip = h.ForwardSlip; out->sidewaysSlip = h.SidewaysSlip;
+			out->gameObject = h.Object ? h.Object->GetFileID() : 0;
+			return 1;
+		};
 		t.GO_MoveToScene = [](uint64 id, int handle) { GameObject* g = Find(id); return g && SceneManager::GetI()->MoveRootToScene(g, handle) ? 1 : 0; };
 		t.J2_Remove = [](uint64 id, int kind, int instance) {
 			SceneManager::GetI()->AddLastUpdate([id, kind, instance]() {

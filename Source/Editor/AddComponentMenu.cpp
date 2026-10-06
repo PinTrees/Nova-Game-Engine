@@ -49,6 +49,7 @@ namespace
 		{ "SpringJoint",         "Spring Joint",          "Physics",       "rigidbody",         false },
 		{ "CharacterJoint",      "Character Joint",       "Physics",       "rigidbody",         false },
 		{ "ConfigurableJoint",   "Configurable Joint",    "Physics",       "rigidbody",         false },
+		{ "WheelCollider",       "Wheel Collider",        "Physics",       "sphere_collider",   false },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Tree",                "Tree",                  "Miscellaneous", "terrain_trees",     true  },
 		{ "Rock",                "Rock",                  "Miscellaneous", "terrain_paint",     true  },

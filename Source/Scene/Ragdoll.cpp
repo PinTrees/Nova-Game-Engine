@@ -9,6 +9,7 @@
 #include "CapsuleCollider.h"
 #include "UnityGUI.h"
 #include "PhysicsManager.h"
+#include "EditorLog.h"
 
 namespace
 {
@@ -177,10 +178,16 @@ void Ragdoll::SetActiveState(bool active)
 					c->SetEnabled(true);
 		m_DisabledAnimation.clear();
 	}
+	int switched = 0;
 	for (const Part& p : Parts)
 		if (GameObject* body = scene ? scene->FindByFileID(p.Body) : nullptr)
 			if (RigidBody* rb = body->GetComponent<RigidBody>())
+			{
 				rb->SetKinematic(!active);
+				++switched;
+			}
+	EditorLog::Write("Ragdoll", "'%s' %s: %d/%zu bodies %s, %zu animation components off", m_pGameObject->GetName().c_str(), active ? "active" : "inactive",
+		switched, Parts.size(), active ? "dynamic" : "kinematic", m_DisabledAnimation.size());
 	m_Applied = true;
 	m_AppliedActive = active;
 }

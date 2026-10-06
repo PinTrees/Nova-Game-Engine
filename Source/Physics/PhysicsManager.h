@@ -47,6 +47,8 @@ private:
 	float m_FixedTimestep = 0.02f;
 	float m_MaxAllowedTimestep = 0.3333f;
 	float m_Accumulator = 0.0f;
+	float m_HeartbeatTime = 0.0f;   // Play 처음 3 초: 1 초마다 Editor.log 에 스텝 수 (물리가 멈춘 세션을 진단)
+	int m_HeartbeatSteps = 0;
 	int m_StepCount = 0;
 	bool m_EditQueryWorld = false;   // BeginEditQueries 가 만든 임시 월드
 
@@ -104,6 +106,8 @@ public:
 	// ---- Unity 의 Physics.IgnoreCollision: 두 오브젝트 (의 Rigidbody 바디) 끼리 접촉하지 않는다. Play 중에만 (저장하지 않는다)
 	void IgnoreCollision(GameObject* a, GameObject* b, bool ignore = true);
 	bool GetIgnoreCollision(GameObject* a, GameObject* b);
+	// 한 점에 dir 방향 충격을 줄 때의 실제 질량 1 / (1/M + (r×d)·I⁻¹(r×d)) — 회전으로 빠지는 몫까지 (바퀴 마찰이 한 스텝에 넘치지 않게). 다이내믹이 아니면 0
+	float GetEffectiveMass(RigidBody* rb, const Vec3& point, const Vec3& dir);
 	float GetHingeAngle(const HingeJoint* joint, bool velocity);   // 도 / 도/초 (Play 중, 없으면 0)
 
 	// Editor

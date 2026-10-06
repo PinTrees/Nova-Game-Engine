@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2090,7 +2090,10 @@ function Suite-Ragdoll
         $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 20' | Out-Null }
         $i2 = Invoke-NovaJson 'ragdoll info RCh'
         $fallY = [double](($i2.parts | Where-Object { $_.body -like '*Pelvis' }).position[1])
-        Add-Result ragdoll 'inactive = kinematic bodies follow the animation; C# active = true → falls' (-not $i.active -and $kin -eq 11 -and $standY -gt 0.7 -and "$($on.result)" -eq 'False 11' -and $fallY -lt 0.5) ("kinematic {0}, standing pelvis y {1:F2} (> 0.7), C# '{2}', after y {3:F2} (< 0.5)" -f $kin, $standY, $on.result, $fallY)
+        $kin2 = @($i2.parts | Where-Object { $_.kinematic }).Count
+        $rdLog = ((Invoke-Nova 'log -n 40 --grep "Ragdoll"') -split "?
+" | Where-Object { $_ -match 'bodies' } | Select-Object -Last 2) -join ' / '
+        Add-Result ragdoll 'inactive = kinematic bodies follow the animation; C# active = true → falls' (-not $i.active -and $kin -eq 11 -and $standY -gt 0.7 -and "$($on.result)" -eq 'False 11' -and $fallY -lt 0.5) ("kinematic {0}, standing pelvis y {1:F2} (> 0.7), C# '{2}', after y {3:F2} (< 0.5), after: active {4} kinematic {5}; {6}" -f $kin, $standY, $on.result, $fallY, $i2.active, $kin2, $rdLog)
         Invoke-Nova 'stop' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
     }
@@ -2098,6 +2101,64 @@ function Suite-Ragdoll
     {
         Write-Host "  $(Stop-TestEditor $ed)"
         if ($manifestBefore) { [IO.File]::WriteAllBytes($manifest, $manifestBefore) }
+        Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
+        Remove-Item -Force "$probeDir.meta" -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Wheel
+{
+    # 차량 (Wheel Collider): 검사 스크립트 (Tools/tests/wheel_probe.cs) 가 C# 으로 차 (1500 kg, 바퀴 4) 를 만든다 —
+    #  쉬기 (차 높이 = 반지름 + 쉬는 서스펜션, 매달린 질량 375, 하중 ≈ 375 g, 바닥 = Ground), 뒷바퀴 모터 (앞으로, 곧게, rpm = 구르는 속도),
+    #  브레이크 (멈춤), 앞바퀴 조향 25 도 (오른쪽으로 돈다, 바퀴 그림 요 = 차 + 25)
+    Write-Host '[wheel]'
+    $dir = Join-Path $Out 'wheel'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $probeDir = Join-Path $Project 'Assets\WheelProbe'
+    New-Item -ItemType Directory -Force $probeDir | Out-Null
+    $probeFile = Join-Path $probeDir 'WheelProbe.cs'
+    $ed = Start-TestEditor
+    try
+    {
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'wheel_probe.cs') $probeFile -Force
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+        $errs = @((Invoke-Nova 'log -n 300 --grep "WheelProbe.cs("') -split "\r?\n" | Where-Object { $_ -match 'error CS' })
+        Add-Result wheel 'probe compiles (WheelCollider C# API)' ($errs.Count -eq 0) "$($errs -join ' | ')"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 200,1,200' | Out-Null
+        Invoke-Nova 'create empty --name Probe' | Out-Null
+        Invoke-Nova 'add-component Probe WheelProbe' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 30' | Out-Null; $doneLine = (Invoke-Nova 'log -n 60 --grep "WheelProbe done"') -join '' }
+        while ($sw.Elapsed.TotalSeconds -lt 60 -and $doneLine -notmatch 'WheelProbe done')
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'wheel_turn.png')`" --view game" | Out-Null
+        $l = @((Invoke-Nova 'log -n 400 --grep "Log: WheelProbe"') -split "\r?\n") | Where-Object { $_ } | ForEach-Object { ($_ -replace '^.*Log: ', '') -replace '\s+\(E:.*$', '' }
+        Invoke-Nova 'stop' | Out-Null
+        function Line([string]$start) { [string]($l | Where-Object { "$_" -like "$start*" } | Select-Object -Last 1) }
+        function Num([string]$line, [string]$key) { if ($line -match "$key=(-?[\d.]+)") { [double]$Matches[1] } else { [double]::NaN } }
+
+        $x = Line 'WheelProbe rest'
+        Add-Result wheel 'rest: suspension at target, sprung mass, load, ground hit' ([math]::Abs((Num $x 'carY') - 0.55) -lt 0.03 -and (Num $x 'grounded') -eq 4 -and (Num $x 'sprung') -eq 375 -and [math]::Abs((Num $x 'load') - 3679) -lt 370 -and "$x" -match 'ground=Ground' -and [math]::Abs((Num $x 'wheelY') - 0.4) -lt 0.03) "$x (expect carY 0.55, 4, 375, ~3679 N, wheelY 0.40)"
+        $x = Line 'WheelProbe drive'
+        $rpm = Num $x 'rpm'; $exp = Num $x 'expectRpm'
+        Add-Result wheel 'motor torque drives forward, straight, wheels roll' ((Num $x 'speed') -gt 3 -and (Num $x 'side') -lt 0.3 -and $exp -gt 0 -and [math]::Abs($rpm - $exp) -lt 0.15 * $exp) "$x (expect speed > 3, side < 0.3, rpm ≈ expect)"
+        $x = Line 'WheelProbe brake'
+        Add-Result wheel 'brake torque stops the car (and it stays still)' ((Num $x 'speed') -lt 0.02 -and (Num $x 'av') -lt 0.02) "$x (expect speed, av < 0.02)"
+        $x = Line 'WheelProbe steer'
+        Add-Result wheel 'steer angle turns right, wheel pose follows the steering' ((Num $x 'heading') -gt 15 -and (Num $x 'dx') -gt 0.5 -and [math]::Abs((Num $x 'wheelYaw') - 25) -lt 2) "$x (expect heading > 15, dx > 0.5, wheelYaw 25)"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
         Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
         Remove-Item -Force "$probeDir.meta" -ErrorAction SilentlyContinue
     }
@@ -5311,6 +5372,7 @@ try
                 'light2d' { Suite-Light2D }
                 'nav2d' { Suite-Nav2D }
                 'ragdoll' { Suite-Ragdoll }
+                'wheel' { Suite-Wheel }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }
