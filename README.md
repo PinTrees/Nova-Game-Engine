@@ -86,7 +86,7 @@
 | | |
 |---|---|
 | C# | Unity 와 같은 `MonoBehaviour` API, 코루틴, 재질 · Renderer (`material` · `MaterialPropertyBlock` · `sortingOrder`), **씬 Additive · LoadSceneAsync · DontDestroyOnLoad**, **PlayerPrefs** — [MATERIAL_SCRIPTING](docs/MATERIAL_SCRIPTING.md) · [SCENE_MANAGEMENT](docs/SCENE_MANAGEMENT.md) |
-| 물리 | [Jolt](https://github.com/jrouwe/JoltPhysics) (Rigidbody · Collider · Character Controller · Joint), **2D 물리** [Box2D](https://github.com/erincatto/box2d) (Collider 2D · Joint 2D), 레이어 충돌 행렬 — [JOINTS_2D](docs/JOINTS_2D.md) |
+| 물리 | [Jolt](https://github.com/jrouwe/JoltPhysics) (Rigidbody · Collider · Character Controller · Joint · Character · Configurable Joint · 래그돌 — [RAGDOLL](docs/RAGDOLL.md)), **2D 물리** [Box2D](https://github.com/erincatto/box2d) (Collider 2D · Joint 2D), 레이어 충돌 행렬 — [JOINTS_2D](docs/JOINTS_2D.md) |
 | 애니메이션 | Animator (Blend Tree · 루트 모션 · **Humanoid 리타게팅**), BlendShape · VRM 표정, 발 · 손 · 시선 IK, Dynamic Bone |
 | UI · 오디오 | UGUI + **TextMeshPro 통합** (SDF), 자동 레이아웃, World Space Canvas · XAudio2, 3D 사운드, **Audio Mixer** (리버브 19 종), OGG · MP3 |
 | 빌드 | Windows `.exe` · **안드로이드 APK / AAB** (ASTC · ETC2, C# Mono, 터치, 서명 키) — [ANDROID](docs/ANDROID.md) · **웹 (WebGPU)** (WGSL, C# = .NET 웹어셈블리, Build And Run 미리 보기 서버) — [WEB](docs/WEB.md) |

@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1996,6 +1996,110 @@ function Suite-Nav2D
             Remove-Item (Join-Path $Project $f) -Force -ErrorAction SilentlyContinue
         }
         Remove-Item -Recurse -Force (Join-Path $Project 'Assets\Nav2DTiles') -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Ragdoll
+{
+    # 래그돌 · 3D 관절: 검사 스크립트 (Tools/tests/joints3d_probe.cs) — Character Joint 흔들기 1 · 2 · 비틀기 한계 · 끊어짐,
+    #  Configurable Joint 선 한계 · X 드라이브 · Slerp 드라이브, 겹친 다이내믹 바디 (부모 먼저 쓰기).
+    #  Ragdoll Wizard (기본 캐릭터): 바디 11 개 · 관절 연결 · 질량, Play → 쓰러져 바닥 위에, 무릎은 뒤로만, 꺼짐 = 애니메이션 따라감 (키네마틱) → C# 으로 켜면 쓰러짐
+    Write-Host '[ragdoll]'
+    $dir = Join-Path $Out 'ragdoll'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $manifestBefore = if (Test-Path $manifest) { [IO.File]::ReadAllBytes($manifest) } else { $null }
+    $probeDir = Join-Path $Project 'Assets\JointsProbe'
+    New-Item -ItemType Directory -Force $probeDir | Out-Null
+    $probeFile = Join-Path $probeDir 'Joints3DProbe.cs'
+    $ed = Start-TestEditor
+    try
+    {
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'joints3d_probe.cs') $probeFile -Force
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+        $errs = @((Invoke-Nova 'log -n 300 --grep "Joints3DProbe.cs("') -split "\r?\n" | Where-Object { $_ -match 'error CS' })
+        Add-Result ragdoll 'probe compiles (CharacterJoint, ConfigurableJoint C# API)' ($errs.Count -eq 0) "$($errs -join ' | ')"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create empty --name Probe' | Out-Null
+        Invoke-Nova 'add-component Probe Joints3DProbe' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 30' | Out-Null; $doneLine = (Invoke-Nova 'log -n 60 --grep "Joints3DProbe done"') -join '' }
+        while ($sw.Elapsed.TotalSeconds -lt 30 -and $doneLine -notmatch 'Joints3DProbe done')
+        $l = @((Invoke-Nova 'log -n 400 --grep "Log: Joints3DProbe"') -split "\r?\n") | Where-Object { $_ } | ForEach-Object { ($_ -replace '^.*Log: ', '') -replace '\s+\(E:.*$', '' }
+        Invoke-Nova 'stop' | Out-Null
+        function Line([string]$start) { [string]($l | Where-Object { "$_" -like "$start*" } | Select-Object -Last 1) }
+        function Num([string]$line, [string]$key) { if ($line -match "$key=(-?[\d.]+)") { [double]$Matches[1] } else { [double]::NaN } }
+
+        $x = Line 'Joints3DProbe swing'
+        $s1 = Num $x 'swing1'; $s2 = Num $x 'swing2'; $fr = Num $x 'free'
+        Add-Result ragdoll 'Character Joint swing 1 / swing 2 limits (free = 60)' ([math]::Abs($s1 - 30) -lt 3 -and [math]::Abs($s2 - 15) -lt 3 -and [math]::Abs($fr - 60) -lt 3) "$x (expect 30, 15, 60)"
+        $x = Line 'Joints3DProbe twist'
+        Add-Result ragdoll 'Character Joint twist limit, break force + OnJointBreak' ([math]::Abs((Num $x 'twist') - 10) -lt 3 -and "$x" -match 'break=1 jointGone=True') "$x (expect twist 10)"
+        $x = Line 'Joints3DProbe configurable'
+        $ly = Num $x 'linearY'; $lx = Num $x 'linearX'; $dx = Num $x 'driveX'; $rx = Num $x 'rotX'
+        Add-Result ragdoll 'Configurable Joint: linear limit, X drive (target inverted like Unity), slerp drive' ([math]::Abs($ly - 5.5) -lt 0.05 -and [math]::Abs($lx - 10) -lt 0.01 -and [math]::Abs($dx - 11) -lt 0.05 -and [math]::Abs($rx + 30) -lt 3) "$x (expect 5.5, 10, 11, -30)"
+        $x = Line 'Joints3DProbe nested'
+        Add-Result ragdoll 'nested dynamic bodies keep their joint gap while falling' ([math]::Abs((Num $x 'gap') - 1.5) -lt 0.05 -and "$x" -match 'parentFell=True') "$x (expect 1.5)"
+
+        # Ragdoll Wizard: 기본 캐릭터 + 바닥
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 20,1,20' | Out-Null
+        Invoke-Nova 'create character --name RCh' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $c = Invoke-NovaJson 'ragdoll create RCh'
+        $joints = @($c.parts | ForEach-Object { "$($_.bone -replace '^.*:', '')<$($_.joint)" }) -join ' '
+        $knee = $c.parts | Where-Object { $_.body -like '*Left Knee' }
+        Add-Result ragdoll 'Ragdoll Wizard: 11 bodies, 20 kg, joints chained (knee → hips → pelvis)' ($c -and $c.parts.Count -eq 11 -and [math]::Abs($c.mass - 20) -lt 0.01 -and $knee.joint -eq 'Left Hips') "bodies $($c.parts.Count), mass $($c.mass); $joints"
+        Invoke-Nova 'set "Main Camera" --position 1.9,1.3,1.9 --rotation 20,-135,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'ragdoll_stand.png')`" --view game" | Out-Null
+
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3.5) { Invoke-Nova 'wait 20' | Out-Null }
+        $i = Invoke-NovaJson 'ragdoll info RCh'
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'ragdoll_fallen.png')`" --view game" | Out-Null
+        $pelvis = $i.parts | Where-Object { $_.body -like '*Pelvis' }
+        $minY = ($i.parts | ForEach-Object { [double]$_.position[1] } | Measure-Object -Minimum).Minimum
+        $dyn = @($i.parts | Where-Object { -not $_.kinematic }).Count
+        Add-Result ragdoll 'Play: the ragdoll falls and rests on the ground' ($i.active -and $dyn -eq 11 -and [double]$pelvis.position[1] -lt 0.5 -and $minY -gt -0.05) ("pelvis y {0:F2} (< 0.5), lowest body y {1:F2} (> -0.05), dynamic {2}" -f [double]$pelvis.position[1], $minY, $dyn)
+        $kneeCs = Join-Path $dir 'ragdoll_knee.cs'
+        'float K(string a, string b) { var q = Quaternion.Inverse(GameObject.Find(a).transform.rotation) * GameObject.Find(b).transform.rotation; return Mathf.DeltaAngle(0, q.eulerAngles.x); } return K("Left Hips", "Left Knee").ToString("F1") + " " + K("Right Hips", "Right Knee").ToString("F1");' | Set-Content -Encoding utf8 $kneeCs
+        $k = Invoke-NovaJson "exec --file `"$kneeCs`""
+        $kv = if ($k) { "$($k.result)" -split ' ' } else { @() }
+        Add-Result ragdoll 'knees bend only backwards (-80 .. 0)' ($kv.Count -eq 2 -and [double]$kv[0] -le 2 -and [double]$kv[0] -ge -83 -and [double]$kv[1] -le 2 -and [double]$kv[1] -ge -83) "left $($kv[0]), right $($kv[1])"
+        Invoke-Nova 'stop' | Out-Null
+
+        # 꺼짐: 바디가 애니메이션 자세를 따라간다 (키네마틱, 서 있다) → C# 으로 켜면 쓰러진다
+        Invoke-Nova 'ragdoll active RCh --value false' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1.5) { Invoke-Nova 'wait 20' | Out-Null }
+        $i = Invoke-NovaJson 'ragdoll info RCh'
+        $pelvis = $i.parts | Where-Object { $_.body -like '*Pelvis' }
+        $kin = @($i.parts | Where-Object { $_.kinematic }).Count
+        $standY = [double]$pelvis.position[1]
+        $onCs = Join-Path $dir 'ragdoll_on.cs'
+        'var r = GameObject.Find("RCh").GetComponent<Ragdoll>(); bool before = r.active; r.active = true; return before + " " + r.bodyCount;' | Set-Content -Encoding utf8 $onCs
+        $on = Invoke-NovaJson "exec --file `"$onCs`""
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3) { Invoke-Nova 'wait 20' | Out-Null }
+        $i2 = Invoke-NovaJson 'ragdoll info RCh'
+        $fallY = [double](($i2.parts | Where-Object { $_.body -like '*Pelvis' }).position[1])
+        Add-Result ragdoll 'inactive = kinematic bodies follow the animation; C# active = true → falls' (-not $i.active -and $kin -eq 11 -and $standY -gt 0.7 -and "$($on.result)" -eq 'False 11' -and $fallY -lt 0.5) ("kinematic {0}, standing pelvis y {1:F2} (> 0.7), C# '{2}', after y {3:F2} (< 0.5)" -f $kin, $standY, $on.result, $fallY)
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($manifestBefore) { [IO.File]::WriteAllBytes($manifest, $manifestBefore) }
+        Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
+        Remove-Item -Force "$probeDir.meta" -ErrorAction SilentlyContinue
     }
 }
 
@@ -5206,6 +5310,7 @@ try
                 'tween' { Suite-Tween }
                 'light2d' { Suite-Light2D }
                 'nav2d' { Suite-Nav2D }
+                'ragdoll' { Suite-Ragdoll }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

@@ -330,3 +330,286 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SpringJoint)
 	MinDistance = j.value("minDistance", 0.0f);
 	MaxDistance = j.value("maxDistance", 0.0f);
 }
+
+// ====================================================================== Character · Configurable 공통
+namespace
+{
+	json LimitJson(const SoftJointLimitData& l) { return { { "limit", l.Limit }, { "bounciness", l.Bounciness }, { "contactDistance", l.ContactDistance } }; }
+	void ReadLimit(const json& j, const char* key, SoftJointLimitData& l)
+	{
+		if (!j.contains(key) || !j.at(key).is_object()) return;
+		const json& o = j.at(key);
+		l.Limit = o.value("limit", l.Limit);
+		l.Bounciness = o.value("bounciness", l.Bounciness);
+		l.ContactDistance = o.value("contactDistance", l.ContactDistance);
+	}
+	json SpringJson(const SoftJointLimitSpringData& s) { return { { "spring", s.Spring }, { "damper", s.Damper } }; }
+	void ReadSpring(const json& j, const char* key, SoftJointLimitSpringData& s)
+	{
+		if (!j.contains(key) || !j.at(key).is_object()) return;
+		s.Spring = j.at(key).value("spring", s.Spring);
+		s.Damper = j.at(key).value("damper", s.Damper);
+	}
+	json DriveJson(const JointDriveData& d) { return { { "positionSpring", d.PositionSpring }, { "positionDamper", d.PositionDamper }, { "maximumForce", FloatOrInf(d.MaximumForce) } }; }
+	void ReadDrive(const json& j, const char* key, JointDriveData& d)
+	{
+		if (!j.contains(key) || !j.at(key).is_object()) return;
+		const json& o = j.at(key);
+		d.PositionSpring = o.value("positionSpring", d.PositionSpring);
+		d.PositionDamper = o.value("positionDamper", d.PositionDamper);
+		d.MaximumForce = ReadFloatOrInf(o, "maximumForce", d.MaximumForce);
+	}
+	void HashLimit(size_t& h, const SoftJointLimitData& l) { HashF(h, l.Limit); HashF(h, l.Bounciness); HashF(h, l.ContactDistance); }
+	void HashSpring(size_t& h, const SoftJointLimitSpringData& s) { HashF(h, s.Spring); HashF(h, s.Damper); }
+	void HashDrive(size_t& h, const JointDriveData& d) { HashF(h, d.PositionSpring); HashF(h, d.PositionDamper); HashF(h, d.MaximumForce); }
+
+	// Unity 처럼 접는 묶음 (안의 칸 이름이 같아도 ID 가 겹치지 않게)
+	void LimitGUI(const char* label, SoftJointLimitData& l)
+	{
+		ImGui::PushID(label);
+		if (UnityGUI::FoldoutPlain(label, 0, false))
+		{
+			UnityGUI::Float("Limit", &l.Limit, 1);
+			UnityGUI::Float("Bounciness", &l.Bounciness, 1);
+			UnityGUI::Float("Contact Distance", &l.ContactDistance, 1);
+		}
+		ImGui::PopID();
+	}
+	void SpringGUI(const char* label, SoftJointLimitSpringData& s)
+	{
+		ImGui::PushID(label);
+		if (UnityGUI::FoldoutPlain(label, 0, false))
+		{
+			if (UnityGUI::Float("Spring", &s.Spring, 1)) s.Spring = (std::max)(0.0f, s.Spring);
+			if (UnityGUI::Float("Damper", &s.Damper, 1)) s.Damper = (std::max)(0.0f, s.Damper);
+		}
+		ImGui::PopID();
+	}
+	void DriveGUI(const char* label, JointDriveData& d)
+	{
+		ImGui::PushID(label);
+		if (UnityGUI::FoldoutPlain(label, 0, false))
+		{
+			if (UnityGUI::Float("Position Spring", &d.PositionSpring, 1)) d.PositionSpring = (std::max)(0.0f, d.PositionSpring);
+			if (UnityGUI::Float("Position Damper", &d.PositionDamper, 1)) d.PositionDamper = (std::max)(0.0f, d.PositionDamper);
+			InfFloat("Maximum Force", &d.MaximumForce);
+		}
+		ImGui::PopID();
+	}
+
+	// 앵커에서 축 하나를 그린다 (로컬 축 → 월드)
+	void AxisGizmo(GameObject* go, const Vec3& anchor, const Vec3& localAxis, ImU32 c, float len = 0.4f)
+	{
+		const Matrix world = go->GetTransform()->GetWorldMatrix();
+		Vec3 ax = Vec3::TransformNormal(localAxis, world);
+		if (ax.LengthSquared() < 1e-8f)
+			return;
+		ax.Normalize();
+		const Vec3 a = Vec3::Transform(anchor, world);
+		Line(a, a + ax * len, c, 2.0f);
+	}
+
+	bool SelectedIs(GameObject* go)
+	{
+		return go && SceneViewOverlay::IsActive() && SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT &&
+			SelectionManager::GetSelectedGameObject() == go;
+	}
+}
+
+// ====================================================================== CharacterJoint
+CharacterJoint::CharacterJoint()
+{
+	m_InspectorTitleName = "Character Joint";
+}
+
+size_t CharacterJoint::ParamsHash() const
+{
+	size_t h = Joint::ParamsHash();
+	HashV(h, SwingAxis);
+	HashSpring(h, TwistLimitSpring); HashLimit(h, LowTwistLimit); HashLimit(h, HighTwistLimit);
+	HashSpring(h, SwingLimitSpring); HashLimit(h, Swing1Limit); HashLimit(h, Swing2Limit);
+	return h;
+}
+
+void CharacterJoint::OnInspectorGUI()
+{
+	DrawCommonTop(true);
+	UnityGUI::Vector3("Swing Axis", &SwingAxis.x);
+	SpringGUI("Twist Limit Spring", TwistLimitSpring);
+	LimitGUI("Low Twist Limit", LowTwistLimit);
+	LimitGUI("High Twist Limit", HighTwistLimit);
+	SpringGUI("Swing Limit Spring", SwingLimitSpring);
+	LimitGUI("Swing 1 Limit", Swing1Limit);
+	LimitGUI("Swing 2 Limit", Swing2Limit);
+	UnityGUI::Toggle("Enable Projection", &EnableProjection);
+	if (EnableProjection)
+	{
+		UnityGUI::Float("Projection Distance", &ProjectionDistance, 1);
+		UnityGUI::Float("Projection Angle", &ProjectionAngle, 1);
+	}
+	DrawCommonBottom();
+}
+
+void CharacterJoint::OnDrawGizmos()
+{
+	DrawAnchorGizmo(true);
+	if (SelectedIs(m_pGameObject))
+		AxisGizmo(m_pGameObject, m_Anchor, SwingAxis, IM_COL32(90, 230, 90, 255));
+}
+
+GENERATE_COMPONENT_FUNC_TOJSON(CharacterJoint)
+{
+	json j;
+	j["type"] = "CharacterJoint";
+	SerializeCommon(j);
+	j["swingAxis"] = Vec(SwingAxis);
+	j["twistLimitSpring"] = SpringJson(TwistLimitSpring);
+	j["lowTwistLimit"] = LimitJson(LowTwistLimit);
+	j["highTwistLimit"] = LimitJson(HighTwistLimit);
+	j["swingLimitSpring"] = SpringJson(SwingLimitSpring);
+	j["swing1Limit"] = LimitJson(Swing1Limit);
+	j["swing2Limit"] = LimitJson(Swing2Limit);
+	j["enableProjection"] = EnableProjection;
+	j["projectionDistance"] = ProjectionDistance;
+	j["projectionAngle"] = ProjectionAngle;
+	return j;
+}
+
+GENERATE_COMPONENT_FUNC_FROMJSON(CharacterJoint)
+{
+	DeserializeCommon(j);
+	SwingAxis = ReadVec(j, "swingAxis", Vec3(0, 1, 0));
+	ReadSpring(j, "twistLimitSpring", TwistLimitSpring);
+	ReadLimit(j, "lowTwistLimit", LowTwistLimit);
+	ReadLimit(j, "highTwistLimit", HighTwistLimit);
+	ReadSpring(j, "swingLimitSpring", SwingLimitSpring);
+	ReadLimit(j, "swing1Limit", Swing1Limit);
+	ReadLimit(j, "swing2Limit", Swing2Limit);
+	EnableProjection = j.value("enableProjection", false);
+	ProjectionDistance = j.value("projectionDistance", 0.1f);
+	ProjectionAngle = j.value("projectionAngle", 180.0f);
+}
+
+// ====================================================================== ConfigurableJoint
+ConfigurableJoint::ConfigurableJoint()
+{
+	m_InspectorTitleName = "Configurable Joint";
+}
+
+size_t ConfigurableJoint::ParamsHash() const
+{
+	size_t h = Joint::ParamsHash();
+	HashV(h, SecondaryAxis);
+	for (int m : { XMotion, YMotion, ZMotion, AngularXMotion, AngularYMotion, AngularZMotion })
+		HashCombine(h, (size_t)m);
+	HashSpring(h, LinearLimitSpring); HashLimit(h, LinearLimit);
+	HashSpring(h, AngularXLimitSpring); HashLimit(h, LowAngularXLimit); HashLimit(h, HighAngularXLimit);
+	HashSpring(h, AngularYZLimitSpring); HashLimit(h, AngularYLimit); HashLimit(h, AngularZLimit);
+	HashDrive(h, XDrive); HashDrive(h, YDrive); HashDrive(h, ZDrive);
+	HashCombine(h, (size_t)RotationDriveMode);
+	HashDrive(h, AngularXDrive); HashDrive(h, AngularYZDrive); HashDrive(h, SlerpDrive);
+	return h;
+}
+
+void ConfigurableJoint::OnInspectorGUI()
+{
+	DrawCommonTop(true);
+	UnityGUI::Vector3("Secondary Axis", &SecondaryAxis.x);
+	static const char* kMotion[] = { "Locked", "Limited", "Free" };
+	UnityGUI::Dropdown("X Motion", &XMotion, kMotion, 3);
+	UnityGUI::Dropdown("Y Motion", &YMotion, kMotion, 3);
+	UnityGUI::Dropdown("Z Motion", &ZMotion, kMotion, 3);
+	UnityGUI::Dropdown("Angular X Motion", &AngularXMotion, kMotion, 3);
+	UnityGUI::Dropdown("Angular Y Motion", &AngularYMotion, kMotion, 3);
+	UnityGUI::Dropdown("Angular Z Motion", &AngularZMotion, kMotion, 3);
+	SpringGUI("Linear Limit Spring", LinearLimitSpring);
+	LimitGUI("Linear Limit", LinearLimit);
+	SpringGUI("Angular X Limit Spring", AngularXLimitSpring);
+	LimitGUI("Low Angular X Limit", LowAngularXLimit);
+	LimitGUI("High Angular X Limit", HighAngularXLimit);
+	SpringGUI("Angular YZ Limit Spring", AngularYZLimitSpring);
+	LimitGUI("Angular Y Limit", AngularYLimit);
+	LimitGUI("Angular Z Limit", AngularZLimit);
+	UnityGUI::Vector3("Target Position", &TargetPosition.x);
+	UnityGUI::Vector3("Target Velocity", &TargetVelocity.x);
+	DriveGUI("X Drive", XDrive);
+	DriveGUI("Y Drive", YDrive);
+	DriveGUI("Z Drive", ZDrive);
+	Vec3 euler = Transform::ToEulerAngles(TargetRotation);
+	if (UnityGUI::Vector3("Target Rotation", &euler.x))
+		TargetRotation = Transform::EulerToQuaternion(euler);
+	UnityGUI::Vector3("Target Angular Velocity", &TargetAngularVelocity.x);
+	static const char* kMode[] = { "X and YZ", "Slerp" };
+	UnityGUI::Dropdown("Rotation Drive Mode", &RotationDriveMode, kMode, 2);
+	if (RotationDriveMode == 0)
+	{
+		DriveGUI("Angular X Drive", AngularXDrive);
+		DriveGUI("Angular YZ Drive", AngularYZDrive);
+	}
+	else
+		DriveGUI("Slerp Drive", SlerpDrive);
+	DrawCommonBottom();
+}
+
+void ConfigurableJoint::OnDrawGizmos()
+{
+	DrawAnchorGizmo(true);
+	if (SelectedIs(m_pGameObject))
+		AxisGizmo(m_pGameObject, m_Anchor, SecondaryAxis, IM_COL32(90, 230, 90, 255));
+}
+
+GENERATE_COMPONENT_FUNC_TOJSON(ConfigurableJoint)
+{
+	json j;
+	j["type"] = "ConfigurableJoint";
+	SerializeCommon(j);
+	j["secondaryAxis"] = Vec(SecondaryAxis);
+	j["xMotion"] = XMotion; j["yMotion"] = YMotion; j["zMotion"] = ZMotion;
+	j["angularXMotion"] = AngularXMotion; j["angularYMotion"] = AngularYMotion; j["angularZMotion"] = AngularZMotion;
+	j["linearLimitSpring"] = SpringJson(LinearLimitSpring);
+	j["linearLimit"] = LimitJson(LinearLimit);
+	j["angularXLimitSpring"] = SpringJson(AngularXLimitSpring);
+	j["lowAngularXLimit"] = LimitJson(LowAngularXLimit);
+	j["highAngularXLimit"] = LimitJson(HighAngularXLimit);
+	j["angularYZLimitSpring"] = SpringJson(AngularYZLimitSpring);
+	j["angularYLimit"] = LimitJson(AngularYLimit);
+	j["angularZLimit"] = LimitJson(AngularZLimit);
+	j["targetPosition"] = Vec(TargetPosition);
+	j["targetVelocity"] = Vec(TargetVelocity);
+	j["xDrive"] = DriveJson(XDrive); j["yDrive"] = DriveJson(YDrive); j["zDrive"] = DriveJson(ZDrive);
+	j["targetRotation"] = { TargetRotation.x, TargetRotation.y, TargetRotation.z, TargetRotation.w };
+	j["targetAngularVelocity"] = Vec(TargetAngularVelocity);
+	j["rotationDriveMode"] = RotationDriveMode;
+	j["angularXDrive"] = DriveJson(AngularXDrive);
+	j["angularYZDrive"] = DriveJson(AngularYZDrive);
+	j["slerpDrive"] = DriveJson(SlerpDrive);
+	return j;
+}
+
+GENERATE_COMPONENT_FUNC_FROMJSON(ConfigurableJoint)
+{
+	DeserializeCommon(j);
+	SecondaryAxis = ReadVec(j, "secondaryAxis", Vec3(0, 1, 0));
+	auto motion = [&](const char* key) { return std::clamp(j.value(key, (int)Free), 0, 2); };
+	XMotion = motion("xMotion"); YMotion = motion("yMotion"); ZMotion = motion("zMotion");
+	AngularXMotion = motion("angularXMotion"); AngularYMotion = motion("angularYMotion"); AngularZMotion = motion("angularZMotion");
+	ReadSpring(j, "linearLimitSpring", LinearLimitSpring);
+	ReadLimit(j, "linearLimit", LinearLimit);
+	ReadSpring(j, "angularXLimitSpring", AngularXLimitSpring);
+	ReadLimit(j, "lowAngularXLimit", LowAngularXLimit);
+	ReadLimit(j, "highAngularXLimit", HighAngularXLimit);
+	ReadSpring(j, "angularYZLimitSpring", AngularYZLimitSpring);
+	ReadLimit(j, "angularYLimit", AngularYLimit);
+	ReadLimit(j, "angularZLimit", AngularZLimit);
+	TargetPosition = ReadVec(j, "targetPosition", Vec3::Zero);
+	TargetVelocity = ReadVec(j, "targetVelocity", Vec3::Zero);
+	ReadDrive(j, "xDrive", XDrive); ReadDrive(j, "yDrive", YDrive); ReadDrive(j, "zDrive", ZDrive);
+	TargetRotation = Quaternion::Identity;
+	if (j.contains("targetRotation") && j["targetRotation"].is_array() && j["targetRotation"].size() == 4)
+		TargetRotation = Quaternion(j["targetRotation"][0].get<float>(), j["targetRotation"][1].get<float>(), j["targetRotation"][2].get<float>(), j["targetRotation"][3].get<float>());
+	TargetAngularVelocity = ReadVec(j, "targetAngularVelocity", Vec3::Zero);
+	RotationDriveMode = std::clamp(j.value("rotationDriveMode", 0), 0, 1);
+	ReadDrive(j, "angularXDrive", AngularXDrive);
+	ReadDrive(j, "angularYZDrive", AngularYZDrive);
+	ReadDrive(j, "slerpDrive", SlerpDrive);
+}

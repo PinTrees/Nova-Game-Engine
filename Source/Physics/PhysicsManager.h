@@ -101,6 +101,9 @@ public:
 
 	// ---- Joint (Fixed / Hinge / Spring → Jolt Constraint) ----
 	void RemoveJoint(Joint* joint);
+	// ---- Unity 의 Physics.IgnoreCollision: 두 오브젝트 (의 Rigidbody 바디) 끼리 접촉하지 않는다. Play 중에만 (저장하지 않는다)
+	void IgnoreCollision(GameObject* a, GameObject* b, bool ignore = true);
+	bool GetIgnoreCollision(GameObject* a, GameObject* b);
 	float GetHingeAngle(const HingeJoint* joint, bool velocity);   // 도 / 도/초 (Play 중, 없으면 0)
 
 	// Editor

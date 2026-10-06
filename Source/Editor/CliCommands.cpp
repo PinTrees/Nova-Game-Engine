@@ -28,6 +28,9 @@
 #include "BuildSettingsWindow.h"
 #include "GraphicsSettings.h"
 #include "Light2D.h"
+#include "Ragdoll.h"
+#include "Joint.h"
+#include "RigidBody.h"
 #include "BuildSettings.h"
 #include "App.h"
 #include "ShaderCross.h"
@@ -1659,6 +1662,53 @@ namespace CliCommands
 		});
 
 		// Build Settings 의 Scenes In Build (Unity 의 EditorBuildSettings.scenes): 차례 = 빌드 번호
+		// Ragdoll Wizard: create = 휴머노이드 캐릭터에 바디 · 관절 · Ragdoll, info = 바디 목록 · 상태, active = Play 중 켜고 끄기
+		Register("ragdoll", "ragdoll {op: create|info|active, path: target, mass?, value?}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			GameObject* go = Resolve(a.value("path", json()), e);
+			if (!go) return false;
+			if (op == "create")
+			{
+				if (!RequireEditMode(e)) return false;
+				Ragdoll* rd = Ragdoll::Build(go, a.value("mass", 20.0f), e);
+				if (rd == nullptr) return false;
+				AfterEdit("Create Ragdoll", go);
+				r["bodies"] = rd->Parts.size();
+			}
+			Ragdoll* rd = go->GetComponent<Ragdoll>();
+			if (rd == nullptr) { e = "'" + go->GetName() + "' has no Ragdoll"; return false; }
+			if (op == "active")
+			{
+				const json& v = a.value("value", json(true));
+				rd->Active = v.is_boolean() ? v.get<bool>() : (v.is_string() ? v.get<std::string>() != "false" : v.get<double>() != 0.0);
+			}
+			else if (op != "create" && op != "info") { e = "unknown op '" + op + "' (create, info, active)"; return false; }
+			Scene* scene = CurrentScene();
+			json parts = json::array();
+			float mass = 0.0f;
+			for (const Ragdoll::Part& p : rd->Parts)
+			{
+				GameObject* body = scene ? scene->FindByFileID(p.Body) : nullptr;
+				json jp = { { "bone", p.Bone }, { "body", body ? PathOf(body) : std::string() } };
+				if (body)
+				{
+					const Vec3 pos = body->GetTransform()->GetPosition();
+					jp["position"] = { pos.x, pos.y, pos.z };
+					if (RigidBody* rb = body->GetComponent<RigidBody>()) { mass += rb->GetMass(); jp["mass"] = rb->GetMass(); jp["kinematic"] = rb->IsKinematic(); }
+					if (auto* cj = body->GetComponent<CharacterJoint>())
+					{
+						GameObject* other = scene->FindByFileID(cj->GetConnectedBody());
+						jp["joint"] = other ? other->GetName() : std::string();
+					}
+				}
+				parts.push_back(jp);
+			}
+			r["active"] = rd->Active;
+			r["parts"] = parts;
+			r["mass"] = mass;
+			return true;
+		});
+
 		Register("build-scenes", "Build Settings scenes {op: list|set|add|remove, scenes: \"Assets/A.scene,Assets/B.scene\"}", [](const json& a, json& r, std::string& e) {
 			const std::string op = a.value("op", std::string("list"));
 			std::vector<std::string> names;

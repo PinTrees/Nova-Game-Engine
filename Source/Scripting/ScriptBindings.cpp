@@ -30,6 +30,7 @@
 #include "PlayerPrefsStore.h"
 #include "Light.h"
 #include "Light2D.h"
+#include "Ragdoll.h"
 #include "Camera.h"
 #include "PathManager.h"
 #include "PlayerRuntime.h"
@@ -278,6 +279,10 @@ namespace
 		void(*L2D_SetColor)(uint64, Vec4*);
 		int(*SC2D_Get)(uint64, int);                      // 0 castsShadows, 1 selfShadows
 		void(*SC2D_Set)(uint64, int, int);
+		float(*RD_Get)(uint64, int);                      // Ragdoll: 0 active, 1 바디 수 (읽기)
+		void(*RD_Set)(uint64, int, float);
+		void(*PH_IgnoreCollision)(uint64, uint64, int);   // Physics.IgnoreCollision (콜라이더의 GameObject 둘)
+		int(*PH_GetIgnoreCollision)(uint64, uint64);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -789,7 +794,13 @@ namespace
 	//   Hinge: 10 useSpring, 11 spring, 12 damper, 13 targetPosition, 14 useMotor, 15 targetVelocity, 16 force, 17 freeSpin,
 	//          18 useLimits, 19 min, 20 max, 21 bounciness, 30 angle(읽기), 31 velocity(읽기)
 	//   Spring: 40 spring, 41 damper, 42 minDistance, 43 maxDistance
-	//   vector: 0 anchor, 1 axis, 2 connectedAnchor
+	//   Character: 50 · 51 twistLimitSpring, 52~54 lowTwistLimit (limit, bounciness, contactDistance), 55~57 highTwistLimit,
+	//              58 · 59 swingLimitSpring, 60~62 swing1Limit, 63~65 swing2Limit, 66 enableProjection, 67 projectionDistance, 68 projectionAngle
+	//   Configurable: 100~105 motion (x, y, z, angularX, angularY, angularZ), 106 · 107 linearLimitSpring, 108~110 linearLimit,
+	//              111 · 112 angularXLimitSpring, 113~115 lowAngularXLimit, 116~118 highAngularXLimit, 119 · 120 angularYZLimitSpring,
+	//              121~123 angularYLimit, 124~126 angularZLimit, 130 + 3 × d + (0 positionSpring, 1 positionDamper, 2 maximumForce)
+	//              (d = 0 x, 1 y, 2 z, 3 angularX, 4 angularYZ, 5 slerp), 150 rotationDriveMode, 160~163 targetRotation (x, y, z, w)
+	//   vector: 0 anchor, 1 axis, 2 connectedAnchor, 3 swingAxis · secondaryAxis, 4 targetPosition, 5 targetVelocity, 6 targetAngularVelocity
 	Joint* FindJoint(uint64 id, int kind)
 	{
 		GameObject* g = Find(id);
@@ -803,6 +814,61 @@ namespace
 		Joint* j = pick(g->GetComponents());
 		return j ? j : pick(g->GetPendingComponents());
 	}
+	// Character · Configurable 의 float 칸 (정수 · 참거짓 칸은 따로)
+	float* JointFloatField(Joint* j, int prop)
+	{
+		auto lim = [](SoftJointLimitData& l, int i) { return i == 0 ? &l.Limit : (i == 1 ? &l.Bounciness : &l.ContactDistance); };
+		auto spr = [](SoftJointLimitSpringData& s, int i) { return i == 0 ? &s.Spring : &s.Damper; };
+		if (auto* c = dynamic_cast<CharacterJoint*>(j))
+		{
+			if (prop == 50 || prop == 51) return spr(c->TwistLimitSpring, prop - 50);
+			if (prop >= 52 && prop <= 54) return lim(c->LowTwistLimit, prop - 52);
+			if (prop >= 55 && prop <= 57) return lim(c->HighTwistLimit, prop - 55);
+			if (prop == 58 || prop == 59) return spr(c->SwingLimitSpring, prop - 58);
+			if (prop >= 60 && prop <= 62) return lim(c->Swing1Limit, prop - 60);
+			if (prop >= 63 && prop <= 65) return lim(c->Swing2Limit, prop - 63);
+			if (prop == 67) return &c->ProjectionDistance;
+			if (prop == 68) return &c->ProjectionAngle;
+		}
+		if (auto* c = dynamic_cast<ConfigurableJoint*>(j))
+		{
+			if (prop == 106 || prop == 107) return spr(c->LinearLimitSpring, prop - 106);
+			if (prop >= 108 && prop <= 110) return lim(c->LinearLimit, prop - 108);
+			if (prop == 111 || prop == 112) return spr(c->AngularXLimitSpring, prop - 111);
+			if (prop >= 113 && prop <= 115) return lim(c->LowAngularXLimit, prop - 113);
+			if (prop >= 116 && prop <= 118) return lim(c->HighAngularXLimit, prop - 116);
+			if (prop == 119 || prop == 120) return spr(c->AngularYZLimitSpring, prop - 119);
+			if (prop >= 121 && prop <= 123) return lim(c->AngularYLimit, prop - 121);
+			if (prop >= 124 && prop <= 126) return lim(c->AngularZLimit, prop - 124);
+			if (prop >= 130 && prop < 148)
+			{
+				JointDriveData* drives[6] = { &c->XDrive, &c->YDrive, &c->ZDrive, &c->AngularXDrive, &c->AngularYZDrive, &c->SlerpDrive };
+				JointDriveData& d = *drives[(prop - 130) / 3];
+				const int f = (prop - 130) % 3;
+				return f == 0 ? &d.PositionSpring : (f == 1 ? &d.PositionDamper : &d.MaximumForce);
+			}
+			if (prop >= 160 && prop <= 163) return prop == 160 ? &c->TargetRotation.x : (prop == 161 ? &c->TargetRotation.y : (prop == 162 ? &c->TargetRotation.z : &c->TargetRotation.w));
+		}
+		return nullptr;
+	}
+	int* ConfigurableIntField(Joint* j, int prop)
+	{
+		auto* c = dynamic_cast<ConfigurableJoint*>(j);
+		if (c == nullptr) return nullptr;
+		int* motions[6] = { &c->XMotion, &c->YMotion, &c->ZMotion, &c->AngularXMotion, &c->AngularYMotion, &c->AngularZMotion };
+		if (prop >= 100 && prop <= 105) return motions[prop - 100];
+		if (prop == 150) return &c->RotationDriveMode;
+		return nullptr;
+	}
+	Vec3* JointVectorField(Joint* j, int prop)
+	{
+		if (auto* c = dynamic_cast<CharacterJoint*>(j))
+			return prop == 3 ? &c->SwingAxis : nullptr;
+		if (auto* c = dynamic_cast<ConfigurableJoint*>(j))
+			switch (prop) { case 3: return &c->SecondaryAxis; case 4: return &c->TargetPosition; case 5: return &c->TargetVelocity; case 6: return &c->TargetAngularVelocity; }
+		return nullptr;
+	}
+
 	float JT_GetFloat(uint64 id, int kind, int prop)
 	{
 		Joint* j = FindJoint(id, kind);
@@ -826,6 +892,9 @@ namespace
 			}
 		if (s)
 			switch (prop) { case 40: return s->SpringValue; case 41: return s->Damper; case 42: return s->MinDistance; case 43: return s->MaxDistance; }
+		if (float* f = JointFloatField(j, prop)) return *f;
+		if (int* i = ConfigurableIntField(j, prop)) return (float)*i;
+		if (auto* c = dynamic_cast<CharacterJoint*>(j); c && prop == 66) return c->EnableProjection ? 1.0f : 0.0f;
 		return 0.0f;
 	}
 	void JT_SetFloat(uint64 id, int kind, int prop, float v)
@@ -851,18 +920,23 @@ namespace
 			}
 		if (s)
 			switch (prop) { case 40: s->SpringValue = v; return; case 41: s->Damper = v; return; case 42: s->MinDistance = v; return; case 43: s->MaxDistance = v; return; }
+		if (float* f = JointFloatField(j, prop)) { *f = v; return; }
+		if (int* i = ConfigurableIntField(j, prop)) { *i = std::clamp((int)v, 0, prop == 150 ? 1 : 2); return; }
+		if (auto* c = dynamic_cast<CharacterJoint*>(j); c && prop == 66) c->EnableProjection = b;
 	}
 	void JT_GetVector(uint64 id, int kind, int prop, Vec3* out)
 	{
 		Joint* j = FindJoint(id, kind);
 		if (out == nullptr) return;
-		*out = j == nullptr ? Vec3::Zero : (prop == 0 ? j->GetAnchor() : (prop == 1 ? j->GetAxis() : j->GetConnectedAnchor()));
+		if (Vec3* f = j ? JointVectorField(j, prop) : nullptr) { *out = *f; return; }
+		*out = j == nullptr || prop > 2 ? Vec3::Zero : (prop == 0 ? j->GetAnchor() : (prop == 1 ? j->GetAxis() : j->GetConnectedAnchor()));
 	}
 	void JT_SetVector(uint64 id, int kind, int prop, Vec3* v)
 	{
 		Joint* j = FindJoint(id, kind);
 		if (j == nullptr || v == nullptr) return;
-		if (prop == 0) j->SetAnchor(*v); else if (prop == 1) j->SetAxis(*v); else j->SetConnectedAnchor(*v);
+		if (Vec3* f = JointVectorField(j, prop)) { *f = *v; return; }
+		if (prop == 0) j->SetAnchor(*v); else if (prop == 1) j->SetAxis(*v); else if (prop == 2) j->SetConnectedAnchor(*v);
 	}
 	uint64 JT_GetConnected(uint64 id, int kind) { Joint* j = FindJoint(id, kind); return j ? j->GetConnectedBody() : 0; }
 	void JT_SetConnected(uint64 id, int kind, uint64 other) { if (Joint* j = FindJoint(id, kind)) j->SetConnectedBody(other); }
@@ -1722,6 +1796,14 @@ namespace ScriptBindings
 			return s ? ((what == 0 ? s->CastsShadows : s->SelfShadows) ? 1 : 0) : 0;
 		};
 		t.SC2D_Set = [](uint64 id, int what, int v) { if (ShadowCaster2D* s = Get<ShadowCaster2D>(id)) (what == 0 ? s->CastsShadows : s->SelfShadows) = v != 0; };
+		t.RD_Get = [](uint64 id, int what) -> float {
+			Ragdoll* r = Get<Ragdoll>(id);
+			if (r == nullptr) return 0.0f;
+			return what == 0 ? (r->Active ? 1.0f : 0.0f) : (float)r->Parts.size();
+		};
+		t.RD_Set = [](uint64 id, int what, float v) { if (Ragdoll* r = Get<Ragdoll>(id); r && what == 0) r->Active = v != 0.0f; };
+		t.PH_IgnoreCollision = [](uint64 a, uint64 b, int ignore) { PhysicsManager::GetI()->IgnoreCollision(Find(a), Find(b), ignore != 0); };
+		t.PH_GetIgnoreCollision = [](uint64 a, uint64 b) -> int { return PhysicsManager::GetI()->GetIgnoreCollision(Find(a), Find(b)) ? 1 : 0; };
 		t.GO_MoveToScene = [](uint64 id, int handle) { GameObject* g = Find(id); return g && SceneManager::GetI()->MoveRootToScene(g, handle) ? 1 : 0; };
 		t.J2_Remove = [](uint64 id, int kind, int instance) {
 			SceneManager::GetI()->AddLastUpdate([id, kind, instance]() {

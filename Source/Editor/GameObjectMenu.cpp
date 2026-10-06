@@ -13,6 +13,8 @@
 #include "AdaptiveProbeVolume.h"
 #include "DecalProjector.h"
 #include "EditorExtensions.h"
+#include "Ragdoll.h"
+#include "UndoSystem.h"
 
 namespace GameObjectMenu
 {
@@ -135,7 +137,27 @@ namespace GameObjectMenu
 			Disabled("Text - TextMeshPro");
 			Disabled("Legacy");
 			ImGui::Separator();
-			Disabled("Ragdoll...");
+			// Unity 의 Ragdoll Wizard: 고른 휴머노이드 캐릭터 (또는 그 부모) 에 바디 11 개 + Character Joint + Ragdoll
+			if (ImGui::MenuItem("Ragdoll...", nullptr, false, SelectionManager::GetSelectedObjectType() == SelectionType::GAMEOBJECT && !Application::IsPlaying()))
+			{
+				std::string error, firstError;
+				Ragdoll* made = nullptr;
+				for (GameObject* g = SelectionManager::GetSelectedGameObject(); g && made == nullptr; g = g->GetParent())
+				{
+					made = Ragdoll::Build(g, 20.0f, error);
+					if (made == nullptr && firstError.empty())
+						firstError = error;
+					if (made)
+					{
+						Undo::SetActionName("Create Ragdoll");
+						Undo::Touch(g);
+						Undo::RequestCheck();
+						Debug::Log("Ragdoll: " + std::to_string(made->Parts.size()) + " bodies on '" + g->GetName() + "'");
+					}
+				}
+				if (made == nullptr)
+					Debug::LogWarning("Ragdoll: " + firstError);
+			}
 			ImGui::Separator();
 			if (ImGui::MenuItem("Terrain")) add(GameObjectFactory::CreateTerrain());   // 새 TerrainData(Assets) + Terrain + Terrain Collider
 			if (ImGui::MenuItem("Tree")) add(GameObjectFactory::CreateTree());   // 절차적 나무 (텍스처 없는 셰이더)

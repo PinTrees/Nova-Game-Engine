@@ -124,6 +124,8 @@ public:
 	// 스켈레톤 노드 전역 행렬로 본 팔레트를 계산한다
 	void ApplyPose(const vector<XMFLOAT4X4>& nodeGlobals);
 	void ResetToBindPose();
+	// 지금 그리는 자세의 노드 전역 행렬 (ApplyPose 에 준 값 — 팔레트 본은 스키닝 행렬에서 되돌리고, 나머지는 부모 아래 바인드 로컬). 래그돌이 읽는다
+	bool GetNodeGlobals(vector<XMFLOAT4X4>& out) const;
 
 	// 인스턴싱용 ID (메시 기준)
 	InstanceID GetInstanceID()

@@ -359,6 +359,9 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Transform)
 	DE_SERIALIZE_VECTOR3(j, m_EulerAngles);
 	DE_SERIALIZE_VECTOR3(j, m_Position);
 	DE_SERIALIZE_VECTOR3_D(j, m_Scale, Vec3::One);
+	// 예전 씬: 한 번도 갱신되지 않은 Transform 이 월드 크기 0 으로 저장됐다 → 로컬 크기로 (부모 아래면 UpdateTransform 이 다시 계산)
+	if (m_Scale.x == 0.0f && m_Scale.y == 0.0f && m_Scale.z == 0.0f)
+		m_Scale = m_LocalScale;
 
 	if (!j.contains("m_LocalRotation"))
 		m_LocalRotation = EulerToQuaternion(m_LocalEulerAngles);

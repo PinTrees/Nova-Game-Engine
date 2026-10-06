@@ -122,14 +122,14 @@ void AnimationPlayer::Start()
 
 void AnimationPlayer::Update()
 {
-	if (m_UpdateMode == UpdateMode::Fixed || m_AnimatePhysics)
+	if (!m_Enabled || m_UpdateMode == UpdateMode::Fixed || m_AnimatePhysics)   // Unity: animation.enabled = false 면 멈춘다
 		return;
 	Advance(m_UpdateMode == UpdateMode::UnScale ? TimeManager::GetI()->GetfDT() : DT);
 }
 
 void AnimationPlayer::FixedUpdate()
 {
-	if (m_UpdateMode == UpdateMode::Fixed || m_AnimatePhysics)
+	if (m_Enabled && (m_UpdateMode == UpdateMode::Fixed || m_AnimatePhysics))
 		Advance(PhysicsManager::GetI()->GetFixedTimestep());
 }
 

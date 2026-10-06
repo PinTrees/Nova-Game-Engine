@@ -290,6 +290,10 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, Vector4*, void> L2D_SetColor;
         public delegate* unmanaged<ulong, int, int> SC2D_Get;                   // 0 castsShadows, 1 selfShadows
         public delegate* unmanaged<ulong, int, int, void> SC2D_Set;
+        public delegate* unmanaged<ulong, int, float> RD_Get;                   // Ragdoll: 0 active, 1 바디 수
+        public delegate* unmanaged<ulong, int, float, void> RD_Set;
+        public delegate* unmanaged<ulong, ulong, int, void> PH_IgnoreCollision;     // Physics.IgnoreCollision (콜라이더의 GameObject)
+        public delegate* unmanaged<ulong, ulong, int> PH_GetIgnoreCollision;
     }
 
     internal static unsafe class Native

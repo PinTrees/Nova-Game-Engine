@@ -5,6 +5,10 @@
 struct JointSpringData { float Spring = 0.0f, Damper = 0.0f, TargetPosition = 0.0f; };
 struct JointMotorData { float TargetVelocity = 0.0f, Force = 0.0f; bool FreeSpin = false; };
 struct JointLimitsData { float Min = 0.0f, Max = 0.0f, Bounciness = 0.0f; };
+// Unity 의 SoftJointLimit / SoftJointLimitSpring / JointDrive (Character · Configurable Joint)
+struct SoftJointLimitData { float Limit = 0.0f, Bounciness = 0.0f, ContactDistance = 0.0f; };
+struct SoftJointLimitSpringData { float Spring = 0.0f, Damper = 0.0f; };
+struct JointDriveData { float PositionSpring = 0.0f, PositionDamper = 0.0f, MaximumForce = std::numeric_limits<float>::infinity(); };
 
 // Unity 의 Joint 공통 (Fixed / Hinge / Spring). Rigidbody 가 있는 GameObject 에 붙이고, Connected Body(다른 Rigidbody 의 GameObject,
 // 없으면 월드)와 잇는다. 실제 구속은 PhysicsManager 가 Play 중 Jolt Constraint 로 만든다.
@@ -32,7 +36,12 @@ protected:
 public:
 	Joint();
 
-	virtual int JointKind() const = 0;     // 0 Fixed, 1 Hinge, 2 Spring
+	virtual int JointKind() const = 0;     // 0 Fixed, 1 Hinge, 2 Spring, 3 Character, 4 Configurable
+
+	// Play 중: 처음 구속을 만들 때 이은 쪽 바디 기준의 조인트 틀 (점 · X · Y). 키네마틱 ↔ 다이내믹 전환으로 구속을 다시 만들어도
+	// 쉬는 자세가 처음 그대로다 (래그돌을 애니메이션 중에 켜도 한계가 바인드 자세 기준). 저장하지 않는다
+	struct RestFrame { bool Valid = false; Vec3 Point = Vec3::Zero, X = Vec3(1, 0, 0), Y = Vec3(0, 1, 0); };
+	RestFrame Rest;
 
 	uint64 GetConnectedBody() const { return m_ConnectedBody; }
 	void SetConnectedBody(uint64 fileID) { m_ConnectedBody = fileID; }
@@ -113,6 +122,65 @@ public:
 	GENERATE_COMPONENT_BODY(SpringJoint)
 };
 
+// Unity 의 CharacterJoint: 래그돌 관절. Axis = 비틀기 축 (Low · High Twist Limit), Swing Axis = 흔들기 1 축 (Swing 1 Limit),
+// 둘의 외적 = 흔들기 2 축 (Swing 2 Limit). Jolt SwingTwistConstraint (타원 원뿔 + 비틀기 범위)
+class CharacterJoint : public Joint
+{
+public:
+	Vec3 SwingAxis = Vec3(0, 1, 0);
+	SoftJointLimitSpringData TwistLimitSpring;
+	SoftJointLimitData LowTwistLimit{ -20.0f };
+	SoftJointLimitData HighTwistLimit{ 70.0f };
+	SoftJointLimitSpringData SwingLimitSpring;
+	SoftJointLimitData Swing1Limit{ 40.0f };
+	SoftJointLimitData Swing2Limit{ 40.0f };
+	bool EnableProjection = false;
+	float ProjectionDistance = 0.1f;
+	float ProjectionAngle = 180.0f;
+
+	CharacterJoint();
+	int JointKind() const override { return 3; }
+	size_t ParamsHash() const override;
+	void OnInspectorGUI() override;
+	void OnDrawGizmos() override;
+	const char* InspectorIconName() const override { return "rigidbody"; }
+	GENERATE_COMPONENT_BODY(CharacterJoint)
+};
+
+// Unity 의 ConfigurableJoint: 축마다 (X · Y · Z 이동, X · Y · Z 회전) Locked / Limited / Free + 한계 · 스프링 + 드라이브 (목표 위치 · 회전 · 속도).
+// 조인트 틀: X = Axis, Y = Secondary Axis, Z = X × Y. Jolt SixDOFConstraint
+class ConfigurableJoint : public Joint
+{
+public:
+	enum Motion { Locked = 0, Limited = 1, Free = 2 };   // Unity ConfigurableJointMotion
+	Vec3 SecondaryAxis = Vec3(0, 1, 0);
+	int XMotion = Free, YMotion = Free, ZMotion = Free;
+	int AngularXMotion = Free, AngularYMotion = Free, AngularZMotion = Free;
+	SoftJointLimitSpringData LinearLimitSpring;
+	SoftJointLimitData LinearLimit;
+	SoftJointLimitSpringData AngularXLimitSpring;
+	SoftJointLimitData LowAngularXLimit, HighAngularXLimit;
+	SoftJointLimitSpringData AngularYZLimitSpring;
+	SoftJointLimitData AngularYLimit, AngularZLimit;
+	Vec3 TargetPosition = Vec3::Zero;
+	Vec3 TargetVelocity = Vec3::Zero;
+	JointDriveData XDrive, YDrive, ZDrive;
+	Quaternion TargetRotation = Quaternion::Identity;
+	Vec3 TargetAngularVelocity = Vec3::Zero;
+	int RotationDriveMode = 0;          // 0 X and YZ, 1 Slerp
+	JointDriveData AngularXDrive, AngularYZDrive, SlerpDrive;
+
+	ConfigurableJoint();
+	int JointKind() const override { return 4; }
+	size_t ParamsHash() const override;     // 드라이브 목표는 넣지 않는다 (Play 중 바꾸면 구속을 그대로 두고 목표만 바꾼다)
+	void OnInspectorGUI() override;
+	void OnDrawGizmos() override;
+	const char* InspectorIconName() const override { return "rigidbody"; }
+	GENERATE_COMPONENT_BODY(ConfigurableJoint)
+};
+
 REGISTER_COMPONENT(FixedJoint)
 REGISTER_COMPONENT(HingeJoint)
 REGISTER_COMPONENT(SpringJoint)
+REGISTER_COMPONENT(CharacterJoint)
+REGISTER_COMPONENT(ConfigurableJoint)

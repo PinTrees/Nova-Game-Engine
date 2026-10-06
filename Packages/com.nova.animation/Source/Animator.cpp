@@ -787,7 +787,8 @@ void Animator::Start()
 
 void Animator::Update()
 {
-	if (m_UpdateMode == 1 || m_AnimatePhysics)
+	// Unity: animator.enabled = false 면 멈춘다 (자세 · 루트 모션 그대로 — 래그돌이 끈다)
+	if (!m_Enabled || m_UpdateMode == 1 || m_AnimatePhysics)
 		return;
 	Step(m_UpdateMode == 2 ? TimeManager::GetI()->GetfDT() : DT);
 }
@@ -804,7 +805,7 @@ void Animator::LastUpdate()
 
 void Animator::FixedUpdate()
 {
-	if (m_UpdateMode == 1 || m_AnimatePhysics)
+	if (m_Enabled && (m_UpdateMode == 1 || m_AnimatePhysics))
 		Step(PhysicsManager::GetI()->GetFixedTimestep());
 }
 

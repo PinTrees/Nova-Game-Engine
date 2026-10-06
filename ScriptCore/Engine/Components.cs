@@ -152,6 +152,12 @@ namespace NovaEngine
     public struct JointSpring { public float spring, damper, targetPosition; }
     public struct JointMotor { public float targetVelocity, force; public bool freeSpin; }
     public struct JointLimits { public float min, max, bounciness, bounceMinVelocity, contactDistance; }
+    // Character · Configurable Joint (Unity 와 같은 이름)
+    public struct SoftJointLimit { public float limit, bounciness, contactDistance; }
+    public struct SoftJointLimitSpring { public float spring, damper; }
+    public struct JointDrive { public float positionSpring, positionDamper, maximumForce; public bool useAcceleration; }
+    public enum ConfigurableJointMotion { Locked = 0, Limited = 1, Free = 2 }
+    public enum RotationDriveMode { XYAndZ = 0, Slerp = 1 }
 
     public class Joint : Component
     {
@@ -159,8 +165,12 @@ namespace NovaEngine
         internal virtual int Kind => 0;
         internal unsafe float F(int p) => Native.Api.JT_GetFloat(m_Id, Kind, p);
         internal unsafe void SetF(int p, float v) => Native.Api.JT_SetFloat(m_Id, Kind, p, v);
-        unsafe Vector3 V(int p) { Vector3 v; Native.Api.JT_GetVector(m_Id, Kind, p, &v); return v; }
-        unsafe void SetV(int p, Vector3 v) => Native.Api.JT_SetVector(m_Id, Kind, p, &v);
+        internal unsafe Vector3 V(int p) { Vector3 v; Native.Api.JT_GetVector(m_Id, Kind, p, &v); return v; }
+        internal unsafe void SetV(int p, Vector3 v) => Native.Api.JT_SetVector(m_Id, Kind, p, &v);
+        internal SoftJointLimit Lim(int p) => new SoftJointLimit { limit = F(p), bounciness = F(p + 1), contactDistance = F(p + 2) };
+        internal void SetLim(int p, SoftJointLimit l) { SetF(p, l.limit); SetF(p + 1, l.bounciness); SetF(p + 2, l.contactDistance); }
+        internal SoftJointLimitSpring Spr(int p) => new SoftJointLimitSpring { spring = F(p), damper = F(p + 1) };
+        internal void SetSpr(int p, SoftJointLimitSpring s) { SetF(p, s.spring); SetF(p + 1, s.damper); }
 
         /// <summary>이은 Rigidbody (null = 월드에 고정)</summary>
         public unsafe Rigidbody connectedBody
@@ -215,6 +225,80 @@ namespace NovaEngine
         public float damper { get => F(41); set => SetF(41, value); }
         public float minDistance { get => F(42); set => SetF(42, value); }
         public float maxDistance { get => F(43); set => SetF(43, value); }
+    }
+
+    /// <summary>래그돌 관절: axis = 비틀기 (low · highTwistLimit), swingAxis = 흔들기 1 (swing1Limit), 둘의 외적 = 흔들기 2 (swing2Limit)</summary>
+    [NativeComponent("CharacterJoint")]
+    public sealed class CharacterJoint : Joint
+    {
+        internal CharacterJoint() { }
+        internal override int Kind => 3;
+        public Vector3 swingAxis { get => V(3); set => SetV(3, value); }
+        public SoftJointLimitSpring twistLimitSpring { get => Spr(50); set => SetSpr(50, value); }
+        public SoftJointLimit lowTwistLimit { get => Lim(52); set => SetLim(52, value); }
+        public SoftJointLimit highTwistLimit { get => Lim(55); set => SetLim(55, value); }
+        public SoftJointLimitSpring swingLimitSpring { get => Spr(58); set => SetSpr(58, value); }
+        public SoftJointLimit swing1Limit { get => Lim(60); set => SetLim(60, value); }
+        public SoftJointLimit swing2Limit { get => Lim(63); set => SetLim(63, value); }
+        public bool enableProjection { get => F(66) != 0; set => SetF(66, value ? 1 : 0); }
+        public float projectionDistance { get => F(67); set => SetF(67, value); }
+        public float projectionAngle { get => F(68); set => SetF(68, value); }
+    }
+
+    /// <summary>축마다 Locked / Limited / Free + 한계 · 드라이브. 조인트 틀: X = axis, Y = secondaryAxis, Z = X × Y</summary>
+    [NativeComponent("ConfigurableJoint")]
+    public sealed class ConfigurableJoint : Joint
+    {
+        internal ConfigurableJoint() { }
+        internal override int Kind => 4;
+        ConfigurableJointMotion M(int p) => (ConfigurableJointMotion)(int)F(p);
+        void SetM(int p, ConfigurableJointMotion m) => SetF(p, (int)m);
+        JointDrive D(int d) => new JointDrive { positionSpring = F(130 + 3 * d), positionDamper = F(131 + 3 * d), maximumForce = F(132 + 3 * d) };
+        void SetD(int d, JointDrive v) { SetF(130 + 3 * d, v.positionSpring); SetF(131 + 3 * d, v.positionDamper); SetF(132 + 3 * d, v.maximumForce); }
+
+        public Vector3 secondaryAxis { get => V(3); set => SetV(3, value); }
+        public ConfigurableJointMotion xMotion { get => M(100); set => SetM(100, value); }
+        public ConfigurableJointMotion yMotion { get => M(101); set => SetM(101, value); }
+        public ConfigurableJointMotion zMotion { get => M(102); set => SetM(102, value); }
+        public ConfigurableJointMotion angularXMotion { get => M(103); set => SetM(103, value); }
+        public ConfigurableJointMotion angularYMotion { get => M(104); set => SetM(104, value); }
+        public ConfigurableJointMotion angularZMotion { get => M(105); set => SetM(105, value); }
+        public SoftJointLimitSpring linearLimitSpring { get => Spr(106); set => SetSpr(106, value); }
+        public SoftJointLimit linearLimit { get => Lim(108); set => SetLim(108, value); }
+        public SoftJointLimitSpring angularXLimitSpring { get => Spr(111); set => SetSpr(111, value); }
+        public SoftJointLimit lowAngularXLimit { get => Lim(113); set => SetLim(113, value); }
+        public SoftJointLimit highAngularXLimit { get => Lim(116); set => SetLim(116, value); }
+        public SoftJointLimitSpring angularYZLimitSpring { get => Spr(119); set => SetSpr(119, value); }
+        public SoftJointLimit angularYLimit { get => Lim(121); set => SetLim(121, value); }
+        public SoftJointLimit angularZLimit { get => Lim(124); set => SetLim(124, value); }
+        /// <summary>Unity 와 같이 이은 바디 쪽 목표 — 이 바디는 반대 방향으로 간다</summary>
+        public Vector3 targetPosition { get => V(4); set => SetV(4, value); }
+        public Vector3 targetVelocity { get => V(5); set => SetV(5, value); }
+        public JointDrive xDrive { get => D(0); set => SetD(0, value); }
+        public JointDrive yDrive { get => D(1); set => SetD(1, value); }
+        public JointDrive zDrive { get => D(2); set => SetD(2, value); }
+        public Quaternion targetRotation
+        {
+            get => new Quaternion(F(160), F(161), F(162), F(163));
+            set { SetF(160, value.x); SetF(161, value.y); SetF(162, value.z); SetF(163, value.w); }
+        }
+        public Vector3 targetAngularVelocity { get => V(6); set => SetV(6, value); }
+        public RotationDriveMode rotationDriveMode { get => (RotationDriveMode)(int)F(150); set => SetF(150, (int)value); }
+        public JointDrive angularXDrive { get => D(3); set => SetD(3, value); }
+        public JointDrive angularYZDrive { get => D(4); set => SetD(4, value); }
+        public JointDrive slerpDrive { get => D(5); set => SetD(5, value); }
+        /// <summary>아직 조인트 틀은 늘 로컬 (true 는 무시)</summary>
+        public bool configuredInWorldSpace { get; set; }
+        public bool swapBodies { get; set; }
+    }
+
+    /// <summary>NOVA 래그돌 (GameObject > 3D Object > Ragdoll 로 만든다): active = 물리가 뼈대를 움직인다 (Animator 끔), 끄면 바디가 애니메이션을 따라간다</summary>
+    [NativeComponent("Ragdoll")]
+    public sealed unsafe class Ragdoll : Component
+    {
+        internal Ragdoll() { }
+        public bool active { get => Native.Api.RD_Get(m_Id, 0) != 0; set => Native.Api.RD_Set(m_Id, 0, value ? 1f : 0f); }
+        public int bodyCount => (int)Native.Api.RD_Get(m_Id, 1);
     }
 
     // OnControllerColliderHit(ControllerColliderHit hit) 로 받는 충돌 정보
@@ -301,6 +385,14 @@ namespace NovaEngine
         /// <summary>두 레이어가 부딪히지 않게 (Layer Collision Matrix 를 실행 중에만 바꾼다 — Play 를 멈추면 설정 값으로)</summary>
         public static unsafe void IgnoreLayerCollision(int layer1, int layer2, bool ignore = true) => Native.Api.PH_IgnoreLayer(layer1, layer2, ignore ? 1 : 0);
         public static unsafe bool GetIgnoreLayerCollision(int layer1, int layer2) => Native.Api.PH_GetIgnoreLayer(layer1, layer2) != 0;
+        /// <summary>두 콜라이더 (의 Rigidbody) 끼리 부딪히지 않게 (Play 중에만)</summary>
+        public static unsafe void IgnoreCollision(Collider collider1, Collider collider2, bool ignore = true)
+        {
+            if (collider1 == null || collider2 == null) return;
+            Native.Api.PH_IgnoreCollision(collider1.m_Id, collider2.m_Id, ignore ? 1 : 0);
+        }
+        public static unsafe bool GetIgnoreCollision(Collider collider1, Collider collider2) =>
+            collider1 != null && collider2 != null && Native.Api.PH_GetIgnoreCollision(collider1.m_Id, collider2.m_Id) != 0;
     }
 
     public enum QueryTriggerInteraction { UseGlobal = 0, Ignore = 1, Collide = 2 }

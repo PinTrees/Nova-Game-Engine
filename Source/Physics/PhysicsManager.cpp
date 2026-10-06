@@ -28,6 +28,8 @@
 #include <Jolt/Physics/Constraints/FixedConstraint.h>
 #include <Jolt/Physics/Constraints/HingeConstraint.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
+#include <Jolt/Physics/Constraints/SixDOFConstraint.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayer.h>
 #include <Jolt/Physics/Collision/ObjectLayer.h>
 
@@ -317,7 +319,8 @@ struct PhysicsManager::JoltWorld
 		bool noCollide = false;        // Enable Collision 꺼짐: 두 바디끼리 접촉하지 않음
 	};
 	std::unordered_map<Joint*, JointRecord> joints;
-	std::unordered_set<JPH::uint64> jointNoCollide;   // 바디 쌍 (PairKey)
+	std::unordered_set<JPH::uint64> jointNoCollide;   // 바디 쌍 (PairKey) — Joint (Enable Collision 꺼짐) + IgnoreCollision
+	std::vector<std::pair<uint64, uint64>> ignoredPairs;   // Physics.IgnoreCollision (바디 주인 오브젝트)
 
 	std::mutex touchMutex;
 	std::unordered_map<JPH::uint64, TouchInfo> touching;             // 이번 스텝에 닿아 있는 콜라이더 쌍
@@ -746,6 +749,46 @@ namespace
 		return &(w.characters[cc] = std::move(rec));
 	}
 
+	// 접촉을 만들지 않을 바디 쌍: Joint (Enable Collision 꺼짐) + Physics.IgnoreCollision. 바디 ID 가 바뀌면 (다시 만들기) 다시 계산
+	void RebuildNoCollide(World& w)
+	{
+		w.jointNoCollide.clear();
+		for (auto& kv : w.joints)
+			if (kv.second.noCollide)
+				w.jointNoCollide.insert(PairKey(kv.second.a.GetIndexAndSequenceNumber(), kv.second.b.GetIndexAndSequenceNumber()));
+		for (const auto& [x, y] : w.ignoredPairs)
+		{
+			auto a = w.bodies.find(x), b = w.bodies.find(y);
+			if (a != w.bodies.end() && b != w.bodies.end() && !a->second.id.IsInvalid() && !b->second.id.IsInvalid())
+				w.jointNoCollide.insert(PairKey(a->second.id.GetIndexAndSequenceNumber(), b->second.id.GetIndexAndSequenceNumber()));
+		}
+	}
+
+	// 다이내믹 바디를 계층 깊이 순서로 (부모 먼저)
+	std::vector<World::BodyRecord*> DynamicByDepth(World& w)
+	{
+		std::vector<std::pair<int, World::BodyRecord*>> list;
+		bool nested = false;
+		for (auto& kv : w.bodies)
+		{
+			World::BodyRecord& r = kv.second;
+			if (!r.dynamic || r.id.IsInvalid())
+				continue;
+			int depth = 0;
+			for (GameObject* p = r.owner->GetParent(); p; p = p->GetParent())
+				++depth;
+			nested |= depth > 0;
+			list.push_back({ depth, &r });
+		}
+		if (nested)
+			std::stable_sort(list.begin(), list.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+		std::vector<World::BodyRecord*> out;
+		out.reserve(list.size());
+		for (auto& e : list)
+			out.push_back(e.second);
+		return out;
+	}
+
 	// ------------------------------------------------------------------ Joint
 	// 바디를 지우기 전에 그 바디를 쓰는 구속을 지운다 (Jolt 구속은 바디 포인터를 들고 있다). 다음 동기화에서 새 바디로 다시 만든다
 	void DropJointsOf(World& w, const JPH::BodyID& id)
@@ -769,6 +812,78 @@ namespace
 		GameObject* owner = FindRigidOwner(go);
 		auto it = w.bodies.find((owner ? owner : go)->GetInstanceID());
 		return it == w.bodies.end() ? JPH::BodyID() : it->second.id;
+	}
+
+	// 조인트 틀 (월드): 점 · X · Y (서로 수직, 단위)
+	struct JointFrame { Vec3 P, X, Y; };
+
+	JointFrame Orthonormal(const Vec3& p, Vec3 x, Vec3 y)
+	{
+		if (x.LengthSquared() < 1e-10f) x = Vec3(1, 0, 0);
+		x.Normalize();
+		y -= x * x.Dot(y);
+		if (y.LengthSquared() < 1e-10f)
+		{
+			const JPH::Vec3 perp = JPH::Vec3(x.x, x.y, x.z).GetNormalizedPerpendicular();
+			y = Vec3(perp.GetX(), perp.GetY(), perp.GetZ());
+		}
+		y.Normalize();
+		return { p, x, y };
+	}
+
+	// 이 바디 쪽 = 지금 앵커 · 축 (로컬 값), 이은 쪽 = 처음 만들 때 기억한 틀 (이은 바디 기준 — 다시 만들어도 쉬는 자세가 같다)
+	void JointFrames(Joint* jt, GameObject* go, GameObject* other, const Vec3& secondaryLocal, JointFrame& own, JointFrame& connected)
+	{
+		const Matrix world = go->GetTransform()->GetWorldMatrix();
+		own = Orthonormal(Vec3::Transform(jt->GetAnchor(), world), Vec3::TransformNormal(jt->GetAxis(), world), Vec3::TransformNormal(secondaryLocal, world));
+		const Matrix otherWorld = other ? other->GetTransform()->GetWorldMatrix() : Matrix::Identity;
+		if (!jt->Rest.Valid)
+		{
+			const Matrix inv = otherWorld.Invert();
+			jt->Rest.Point = jt->GetAutoConfigureConnectedAnchor() ? Vec3::Transform(own.P, inv) : jt->GetConnectedAnchor();
+			jt->Rest.X = Vec3::TransformNormal(own.X, inv);
+			jt->Rest.Y = Vec3::TransformNormal(own.Y, inv);
+			jt->Rest.Valid = true;
+		}
+		connected = Orthonormal(Vec3::Transform(jt->Rest.Point, otherWorld), Vec3::TransformNormal(jt->Rest.X, otherWorld), Vec3::TransformNormal(jt->Rest.Y, otherWorld));
+	}
+
+	float LimitRad(float degrees) { return JPH::DegreesToRadians(std::clamp(degrees, -177.0f, 177.0f)); }
+
+	JPH::MotorSettings DriveMotor(const JointDriveData& d)
+	{
+		JPH::MotorSettings m(JPH::ESpringMode::StiffnessAndDamping, (std::max)(0.0f, d.PositionSpring), (std::max)(0.0f, d.PositionDamper));
+		const float f = std::isinf(d.MaximumForce) ? FLT_MAX : (std::max)(0.0f, d.MaximumForce);
+		m.SetForceLimit(f);
+		m.SetTorqueLimit(f);
+		return m;
+	}
+
+	// Configurable Joint 드라이브 목표: Unity 처럼 Target Position · Rotation 은 이은 바디 쪽의 목표라 이 바디는 반대로 간다
+	void ApplyConfigurableTargets(ConfigurableJoint* cj, JPH::SixDOFConstraint* c)
+	{
+		using A = JPH::SixDOFConstraintSettings::EAxis;
+		const JointDriveData* lin[3] = { &cj->XDrive, &cj->YDrive, &cj->ZDrive };
+		for (int i = 0; i < 3; ++i)
+		{
+			const JointDriveData& d = *lin[i];
+			c->SetMotorState((A)i, d.PositionSpring > 0.0f ? JPH::EMotorState::Position : (d.PositionDamper > 0.0f ? JPH::EMotorState::Velocity : JPH::EMotorState::Off));
+		}
+		const JointDriveData* ang[3] = { cj->RotationDriveMode == 1 ? &cj->SlerpDrive : &cj->AngularXDrive,
+			cj->RotationDriveMode == 1 ? &cj->SlerpDrive : &cj->AngularYZDrive, cj->RotationDriveMode == 1 ? &cj->SlerpDrive : &cj->AngularYZDrive };
+		for (int i = 0; i < 3; ++i)
+		{
+			const JointDriveData& d = *ang[i];
+			c->SetMotorState((A)(3 + i), d.PositionSpring > 0.0f ? JPH::EMotorState::Position : (d.PositionDamper > 0.0f ? JPH::EMotorState::Velocity : JPH::EMotorState::Off));
+		}
+		c->SetTargetPositionCS(JPH::Vec3(-cj->TargetPosition.x, -cj->TargetPosition.y, -cj->TargetPosition.z));
+		c->SetTargetVelocityCS(JPH::Vec3(-cj->TargetVelocity.x, -cj->TargetVelocity.y, -cj->TargetVelocity.z));
+		Quaternion q = cj->TargetRotation;
+		if (q.LengthSquared() < 1e-8f) q = Quaternion::Identity;
+		q.Normalize();
+		c->SetTargetOrientationCS(JPH::Quat(-q.x, -q.y, -q.z, q.w));   // 역회전
+		c->SetTargetAngularVelocityCS(JPH::Vec3(JPH::DegreesToRadians(-cj->TargetAngularVelocity.x), JPH::DegreesToRadians(-cj->TargetAngularVelocity.y),
+			JPH::DegreesToRadians(-cj->TargetAngularVelocity.z)));
 	}
 
 	JPH::Ref<JPH::TwoBodyConstraint> CreateJointConstraint(World& w, Joint* jt, GameObject* go, GameObject* other, const JPH::BodyID& a, const JPH::BodyID& b)
@@ -822,6 +937,66 @@ namespace
 			settings = h;
 			break;
 		}
+		case 3:
+		{
+			// Character Joint → SwingTwist: 비틀기 = Axis (Low ~ High), 흔들기 1 = Swing Axis 둘레, 흔들기 2 = Axis × Swing Axis 둘레
+			CharacterJoint* cj = static_cast<CharacterJoint*>(jt);
+			JointFrame own, con;
+			JointFrames(jt, go, other, cj->SwingAxis, own, con);
+			JPH::SwingTwistConstraintSettings* s = new JPH::SwingTwistConstraintSettings();
+			s->mPosition1 = ToJR(con.P); s->mTwistAxis1 = ToJ(con.X); s->mPlaneAxis1 = ToJ(con.Y);
+			s->mPosition2 = ToJR(own.P); s->mTwistAxis2 = ToJ(own.X); s->mPlaneAxis2 = ToJ(own.Y);
+			s->mSwingType = JPH::ESwingType::Cone;
+			// Jolt: Plane Half Cone = 비틀기 축이 Plane 축 쪽으로 기우는 각 (= 법선 축 둘레 회전), Normal Half Cone = 법선 쪽 (= Plane 축 둘레)
+			s->mNormalHalfConeAngle = LimitRad((std::max)(0.0f, cj->Swing1Limit.Limit));   // Swing Axis 둘레
+			s->mPlaneHalfConeAngle = LimitRad((std::max)(0.0f, cj->Swing2Limit.Limit));    // Axis × Swing Axis 둘레
+			float lo = cj->LowTwistLimit.Limit, hi = cj->HighTwistLimit.Limit;
+			if (lo > hi) std::swap(lo, hi);
+			s->mTwistMinAngle = LimitRad(lo);
+			s->mTwistMaxAngle = LimitRad(hi);
+			settings = s;
+			break;
+		}
+		case 4:
+		{
+			// Configurable Joint → SixDOF: 축마다 Locked (고정) / Limited (한계 · 스프링) / Free, 드라이브 = 모터
+			ConfigurableJoint* cj = static_cast<ConfigurableJoint*>(jt);
+			JointFrame own, con;
+			JointFrames(jt, go, other, cj->SecondaryAxis, own, con);
+			using A = JPH::SixDOFConstraintSettings::EAxis;
+			JPH::SixDOFConstraintSettings* s = new JPH::SixDOFConstraintSettings();
+			s->mPosition1 = ToJR(con.P); s->mAxisX1 = ToJ(con.X); s->mAxisY1 = ToJ(con.Y);
+			s->mPosition2 = ToJR(own.P); s->mAxisX2 = ToJ(own.X); s->mAxisY2 = ToJ(own.Y);
+			s->mSwingType = JPH::ESwingType::Pyramid;
+			const int lin[3] = { cj->XMotion, cj->YMotion, cj->ZMotion };
+			const float limit = (std::max)(0.0f, cj->LinearLimit.Limit);
+			for (int i = 0; i < 3; ++i)
+			{
+				if (lin[i] == ConfigurableJoint::Locked) s->MakeFixedAxis((A)i);
+				else if (lin[i] == ConfigurableJoint::Limited) s->SetLimitedAxis((A)i, -limit, limit);
+				else s->MakeFreeAxis((A)i);
+				if (cj->LinearLimitSpring.Spring > 0.0f)
+					s->mLimitsSpringSettings[i] = JPH::SpringSettings(JPH::ESpringMode::StiffnessAndDamping, cj->LinearLimitSpring.Spring, cj->LinearLimitSpring.Damper);
+			}
+			auto rot = [&](int axis, int motion, float lo, float hi)
+			{
+				if (motion == ConfigurableJoint::Locked) s->MakeFixedAxis((A)axis);
+				else if (motion == ConfigurableJoint::Limited) s->SetLimitedAxis((A)axis, LimitRad((std::min)(lo, hi)), LimitRad((std::max)(lo, hi)));
+				else s->MakeFreeAxis((A)axis);
+			};
+			rot(A::RotationX, cj->AngularXMotion, cj->LowAngularXLimit.Limit, cj->HighAngularXLimit.Limit);
+			rot(A::RotationY, cj->AngularYMotion, -std::fabs(cj->AngularYLimit.Limit), std::fabs(cj->AngularYLimit.Limit));
+			rot(A::RotationZ, cj->AngularZMotion, -std::fabs(cj->AngularZLimit.Limit), std::fabs(cj->AngularZLimit.Limit));
+			s->mMotorSettings[A::TranslationX] = DriveMotor(cj->XDrive);
+			s->mMotorSettings[A::TranslationY] = DriveMotor(cj->YDrive);
+			s->mMotorSettings[A::TranslationZ] = DriveMotor(cj->ZDrive);
+			const bool slerp = cj->RotationDriveMode == 1;
+			s->mMotorSettings[A::RotationX] = DriveMotor(slerp ? cj->SlerpDrive : cj->AngularXDrive);
+			s->mMotorSettings[A::RotationY] = DriveMotor(slerp ? cj->SlerpDrive : cj->AngularYZDrive);
+			s->mMotorSettings[A::RotationZ] = DriveMotor(slerp ? cj->SlerpDrive : cj->AngularYZDrive);
+			settings = s;
+			break;
+		}
 		default:
 		{
 			SpringJoint* sj = static_cast<SpringJoint*>(jt);
@@ -853,6 +1028,8 @@ namespace
 				hc->SetTargetAngle(JPH::DegreesToRadians(hinge->Spring.TargetPosition));
 			}
 		}
+		if (jt->JointKind() == 4)
+			ApplyConfigurableTargets(static_cast<ConfigurableJoint*>(jt), static_cast<JPH::SixDOFConstraint*>(c));
 		return c;
 	}
 
@@ -880,7 +1057,14 @@ namespace
 				alive.insert(jt);
 				auto it = w.joints.find(jt);
 				if (it != w.joints.end() && it->second.signature == sig)
+				{
+					if (jt->JointKind() == 4)   // 목표 위치 · 회전 · 속도는 Play 중 바뀐다 (구속은 그대로)
+					{
+						ApplyConfigurableTargets(static_cast<ConfigurableJoint*>(jt), static_cast<JPH::SixDOFConstraint*>(it->second.c.GetPtr()));
+						w.BI().ActivateConstraint(it->second.c);
+					}
 					continue;
+				}
 				if (it != w.joints.end())
 				{
 					w.physics->RemoveConstraint(it->second.c);
@@ -911,10 +1095,7 @@ namespace
 				it = w.joints.erase(it);
 			}
 		}
-		w.jointNoCollide.clear();
-		for (auto& kv : w.joints)
-			if (kv.second.noCollide)
-				w.jointNoCollide.insert(PairKey(kv.second.a.GetIndexAndSequenceNumber(), kv.second.b.GetIndexAndSequenceNumber()));
+		RebuildNoCollide(w);
 	}
 
 	Collider* ColliderOfBody(World& w, const JPH::BodyID& id, const JPH::SubShapeID& sub, JPH::uint32* outId = nullptr)
@@ -1046,6 +1227,7 @@ void PhysicsManager::Exit()
 		w.physics->RemoveConstraint(kv.second.c);   // 구속은 바디보다 먼저
 	w.joints.clear();
 	w.jointNoCollide.clear();
+	w.ignoredPairs.clear();
 	for (auto& kv : w.bodies)
 	{
 		if (kv.second.rb)
@@ -1082,10 +1264,10 @@ void PhysicsManager::Update(float deltaTime)
 
 	// Interpolate: 두 스텝 사이 위치를 보간해 Transform 에 쓴다
 	const float alpha = std::clamp(m_Accumulator / m_FixedTimestep, 0.0f, 1.0f);
-	for (auto& kv : m_World->bodies)
+	for (JoltWorld::BodyRecord* rp : DynamicByDepth(*m_World))
 	{
-		JoltWorld::BodyRecord& r = kv.second;
-		if (!r.dynamic || !r.interpolate || r.id.IsInvalid())
+		JoltWorld::BodyRecord& r = *rp;
+		if (!r.interpolate)
 			continue;
 		Transform* tr = r.owner->GetTransform();
 		tr->SetPosition(Vec3::Lerp(r.prevPos, r.curPos, alpha));
@@ -1428,6 +1610,17 @@ void PhysicsManager::StepSimulation(float dt)
 			}
 			else if (auto* d = dynamic_cast<JPH::DistanceConstraint*>(kv.second.c.GetPtr()))
 				force = fabsf(d->GetTotalLambdaPosition()) / dt;
+			else if (auto* st = dynamic_cast<JPH::SwingTwistConstraint*>(kv.second.c.GetPtr()))
+			{
+				force = st->GetTotalLambdaPosition().Length() / dt;
+				const float t = st->GetTotalLambdaTwist(), sy = st->GetTotalLambdaSwingY(), sz = st->GetTotalLambdaSwingZ();
+				torque = sqrtf(t * t + sy * sy + sz * sz) / dt;
+			}
+			else if (auto* sd = dynamic_cast<JPH::SixDOFConstraint*>(kv.second.c.GetPtr()))
+			{
+				force = sd->GetTotalLambdaPosition().Length() / dt;
+				torque = sd->GetTotalLambdaRotation().Length() / dt;
+			}
 			if (force > bf)
 				broken.push_back({ jt, force });
 			else if (torque > bt)
@@ -1450,20 +1643,13 @@ void PhysicsManager::StepSimulation(float dt)
 			GameObject::Destroy(b.first);
 		}
 		if (!broken.empty())
-		{
-			w.jointNoCollide.clear();
-			for (auto& kv : w.joints)
-				if (kv.second.noCollide)
-					w.jointNoCollide.insert(PairKey(kv.second.a.GetIndexAndSequenceNumber(), kv.second.b.GetIndexAndSequenceNumber()));
-		}
+			RebuildNoCollide(w);
 	}
 
-	// 5) 바디 → Transform (Dynamic)
-	for (auto& kv : w.bodies)
+	// 5) 바디 → Transform (Dynamic). 부모 먼저 — 자식 바디를 먼저 쓰면 뒤에 부모가 움직일 때 끌려간다 (래그돌 · 사슬)
+	for (JoltWorld::BodyRecord* rp : DynamicByDepth(w))
 	{
-		JoltWorld::BodyRecord& r = kv.second;
-		if (!r.dynamic || r.id.IsInvalid())
-			continue;
+		JoltWorld::BodyRecord& r = *rp;
 		JPH::RVec3 p;
 		JPH::Quat q;
 		bi.GetPositionAndRotation(r.id, p, q);
@@ -1905,6 +2091,37 @@ void PhysicsManager::RemoveCharacter(CharacterController* cc)
 {
 	if (m_World)
 		m_World->characters.erase(cc);
+}
+
+// ====================================================================== IgnoreCollision
+void PhysicsManager::IgnoreCollision(GameObject* a, GameObject* b, bool ignore)
+{
+	if (m_World == nullptr || a == nullptr || b == nullptr)
+		return;
+	GameObject* oa = FindRigidOwner(a);
+	GameObject* ob = FindRigidOwner(b);
+	const uint64 x = (oa ? oa : a)->GetInstanceID(), y = (ob ? ob : b)->GetInstanceID();
+	if (x == y)
+		return;
+	auto& v = m_World->ignoredPairs;
+	auto same = [&](const std::pair<uint64, uint64>& p) { return (p.first == x && p.second == y) || (p.first == y && p.second == x); };
+	v.erase(std::remove_if(v.begin(), v.end(), same), v.end());
+	if (ignore)
+		v.push_back({ x, y });
+	RebuildNoCollide(*m_World);
+}
+
+bool PhysicsManager::GetIgnoreCollision(GameObject* a, GameObject* b)
+{
+	if (m_World == nullptr || a == nullptr || b == nullptr)
+		return false;
+	GameObject* oa = FindRigidOwner(a);
+	GameObject* ob = FindRigidOwner(b);
+	const uint64 x = (oa ? oa : a)->GetInstanceID(), y = (ob ? ob : b)->GetInstanceID();
+	for (const auto& p : m_World->ignoredPairs)
+		if ((p.first == x && p.second == y) || (p.first == y && p.second == x))
+			return true;
+	return false;
 }
 
 // ====================================================================== Joint

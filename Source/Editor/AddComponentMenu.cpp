@@ -47,6 +47,8 @@ namespace
 		{ "SliderJoint2D",       "Slider Joint 2D",       "Physics 2D",    "rigidbody",         false },
 		{ "HingeJoint",          "Hinge Joint",           "Physics",       "rigidbody",         false },
 		{ "SpringJoint",         "Spring Joint",          "Physics",       "rigidbody",         false },
+		{ "CharacterJoint",      "Character Joint",       "Physics",       "rigidbody",         false },
+		{ "ConfigurableJoint",   "Configurable Joint",    "Physics",       "rigidbody",         false },
 		{ "Terrain",             "Terrain",               "Miscellaneous", "terrain",           true  },
 		{ "Tree",                "Tree",                  "Miscellaneous", "terrain_trees",     true  },
 		{ "Rock",                "Rock",                  "Miscellaneous", "terrain_paint",     true  },

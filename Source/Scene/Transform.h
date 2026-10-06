@@ -21,7 +21,7 @@ private:
 	Matrix m_LocalMatrix = Matrix::Identity;
 	Matrix m_WorldMatrix = Matrix::Identity;
 
-	Vec3 m_Scale;
+	Vec3 m_Scale = Vec3::One;   // 월드 크기 (lossyScale) — UpdateTransform 전에도 1 (0 이면 자식 콜라이더가 1 mm 가 된다)
 	Vec3 m_EulerAngles;
 	Vec3 m_Position;
 	Quaternion m_Rotation;

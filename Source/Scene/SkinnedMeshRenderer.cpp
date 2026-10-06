@@ -151,6 +151,36 @@ void SkinnedMeshRenderer::ApplyPose(const vector<XMFLOAT4X4>& nodeGlobals)
 	}
 }
 
+bool SkinnedMeshRenderer::GetNodeGlobals(vector<XMFLOAT4X4>& out) const
+{
+	if (m_Mesh == nullptr || m_Skeleton == nullptr)
+		return false;
+	const SkeletonAvataData& s = *m_Skeleton;
+	const size_t n = s.BoneHierarchy.size();
+	vector<int> paletteOf(n, -1);
+	const size_t count = (std::min)(m_Mesh->BoneNames.size(), kMaxBones);
+	for (size_t k = 0; k < count && k < m_PaletteNode.size() && k < m_FinalTransforms.size(); ++k)
+		if (m_PaletteNode[k] >= 0 && m_PaletteNode[k] < (int)n)
+			paletteOf[m_PaletteNode[k]] = (int)k;
+	out.resize(n);
+	const XMMATRIX unit = XMMatrixScaling(s.UnitScale, s.UnitScale, s.UnitScale);
+	for (size_t i = 0; i < n; ++i)
+	{
+		const int k = paletteOf[i];
+		if (k >= 0)
+		{
+			// final = MeshBind · offset · global → global = (MeshBind · offset)⁻¹ · final
+			const XMMATRIX bindOffset = XMLoadFloat4x4(&m_MeshBind) * XMLoadFloat4x4(&m_Mesh->BoneOffsets[k]);
+			XMStoreFloat4x4(&out[i], XMMatrixInverse(nullptr, bindOffset) * XMLoadFloat4x4(&m_FinalTransforms[k]));
+			continue;
+		}
+		const int parent = s.BoneHierarchy[i];
+		const XMMATRIX local = i < s.BindLocal.size() ? XMLoadFloat4x4(&s.BindLocal[i]) : XMMatrixIdentity();
+		XMStoreFloat4x4(&out[i], parent >= 0 && parent < (int)i ? local * XMLoadFloat4x4(&out[parent]) : local * unit);
+	}
+	return true;
+}
+
 void SkinnedMeshRenderer::ResetToBindPose()
 {
 	if (m_Mesh == nullptr)
