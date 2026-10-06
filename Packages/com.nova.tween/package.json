@@ -1,0 +1,9 @@
+{
+  "name": "com.nova.tween",
+  "displayName": "Nova Tween",
+  "version": "1.0.0",
+  "description": "Tweening for C# scripts: animate positions, rotations, scales, colors, fades, UI, lights, cameras, audio or any value with one line (transform.DOMove(target, 1f).SetEase(Ease.OutBack)). Sequences (Append, Join, Insert, callbacks), 30 eases, loops (Restart, Yoyo, Incremental), delays, relative and From tweens, punch, shake and jump, callbacks (OnStart, OnUpdate, OnComplete ...), coroutine and async waits, and a Tween Animation component to set up tweens in the Inspector without code.",
+  "category": "Animation",
+  "author": { "name": "NOVA" },
+  "keywords": [ "tween", "tweening", "dotween", "ease", "animation", "sequence", "ui animation" ]
+}

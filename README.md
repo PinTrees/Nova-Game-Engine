@@ -64,7 +64,7 @@
 | 후처리 (Volume) | Bloom · ACES · Color Adjustments · **Depth of Field (Bokeh)** · **Motion Blur** · **SSR** · Vignette · Film Grain — [DoF](docs/DEPTH_OF_FIELD_MOTION_BLUR.md) · [SSR](docs/SCREEN_SPACE_REFLECTION.md) |
 | 안티에일리어싱 | FXAA · SMAA · **TAA** (URP 카메라 4 가지) — [ANTI_ALIASING](docs/ANTI_ALIASING.md) |
 | 성능 | **GPU 오클루전 컬링** (굽기 없는 Hi-Z), **LOD Group** (Cross Fade), GPU 인스턴싱 + MaterialPropertyBlock, 자동 묶기, 셰이더 캐시 — [OCCLUSION](docs/OCCLUSION_CULLING.md) · [LOD](docs/LOD_GROUP.md) |
-| 기타 | **Decal Projector**, Line · Trail Renderer, 2D Sprite Renderer (Sorting Layer · 시트 자르기), Culling Mask — [DECAL](docs/DECAL.md) · [LINE](docs/LINE_TRAIL_RENDERER.md) |
+| 기타 | **Decal Projector**, Line · Trail Renderer, 2D Sprite Renderer (Sorting Layer · 시트 자르기), **2D 빛** (Light 2D · Shadow Caster 2D · 노멀 맵), Culling Mask — [DECAL](docs/DECAL.md) · [LINE](docs/LINE_TRAIL_RENDERER.md) · [LIGHT_2D](docs/LIGHT_2D.md) |
 
 **이펙트**
 
@@ -101,6 +101,7 @@
 | `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결 (캐릭터 · 물도), **쌓이는 눈 · 발자국** (지형은 실제로 파인다), 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
 | `com.nova.modeling` | Blender 식 **Model Editor** (Extrude · Bevel · Subsurf · 리깅 · 가중치 붓 · 셰이프 키), FBX · GLB · VRM 내보내기, 전부 CLI — [MODEL_EDITOR](docs/MODEL_EDITOR.md) |
 | `com.nova.animation2d` | Spine 식 **2D 뼈대 애니메이션** — [ANIMATION2D](docs/ANIMATION2D.md) |
+| `com.nova.tween` | **트윈** (DOTween 같은 쓰임) — `transform.DOMove(p, 1f).SetEase(Ease.OutBack)`, Sequence, 곡선 30 종, 반복 · Yoyo, 튀기기 · 흔들기 · 뛰기, UI · 빛 · 카메라 · 소리, 코드 없는 Tween Animation 컴포넌트 — [TWEEN](docs/TWEEN.md) |
 | `com.nova.tilemap` | Unity 식 **2D Tilemap** — Grid · Tilemap · Tile Palette (붓 · 상자 · 흘려 채우기), 맞닿은 칸을 합치는 Tilemap Collider 2D — [TILEMAP](docs/TILEMAP.md) |
 | `com.nova.toon` | [lilToon](https://github.com/lilxyzw/lilToon) 툰 셰이더 (VRM MToon 자동 변환) |
 

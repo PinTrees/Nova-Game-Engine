@@ -158,6 +158,7 @@ public:
 	int GetPriority() const { return m_priority; }
 	const float* GetBackgroundColor() const { return m_backgroundColor; }
 	float GetOrthoSize() const { return m_orthoSize; }
+	void SetOrthoSize(float size) { m_orthoSize = size < 0.01f ? 0.01f : size; ProjUpdate(); }   // C# Camera.orthographicSize
 	uint32 GetCullingMask() const { return m_cullingMask; }
 	void SetCullingMask(uint32 m) { m_cullingMask = m; }
 	bool UsesOcclusionCulling() const { return m_occlusionCulling; }   // Unity Camera.useOcclusionCulling (NOVA = 굽기 없는 GPU Hi-Z)

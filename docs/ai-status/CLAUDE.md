@@ -1,12 +1,23 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **씬 Additive · LoadSceneAsync · DontDestroyOnLoad · PlayerPrefs** (사용자 지시 순서: 씬 비동기 · 추가 → PlayerPrefs → 트윈 패키지 → 2D 조명 → 2D 내비게이션 → 래그돌 · 차량 · 천). **1 · 2 완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **2D 빛 (Light 2D · Shadow Caster 2D · 노멀 맵)** (같은 지시 순서의 4 번). **완료 (커밋, 푸시 전)**
+  - `Source/Scene/Light2D.*`: Light2D (Global · Spot — 반지름 · 원뿔 · Falloff · 그림자 · 노멀 맵 거리), ShadowCaster2D (2D 콜라이더 윤곽 → 없으면 스프라이트 사각형, Self Shadows). 메뉴 Light > Global/Spot Light 2D, Add Component, CLI `create global-light-2d · spot-light-2d`, 기즈모
+  - `SpriteBatch` · `51. Sprite.fx`: 켜진 Light 2D 가 있으면 Lit 기법 (빛 32 개), 그림자 = 빛을 등진 모서리를 민 사각형을 화면 크기 RGBA 두 장의 채널에 MAX (빛 8 개), 노멀 맵 = 화면 미분 접선 틀. SpriteRenderer 에 Normal Map 칸
+  - C# `NovaEngine.Rendering.Universal.Light2D · ShadowCaster2D`, 트윈 `DOIntensity · DOColor · DOShadowIntensity · DORadius`
+  - 검사 `-Only light2d` 8/8 (값이 식과 같다), OpenGL · Vulkan 같은 값, 웹 (WebGPU) = DX11 (최대 1 — 웹 스위트에 추가, web 11/11), 안드로이드 빌드 OK. 문서 `docs/LIGHT_2D.md`, Showcase 247
+  - Web · Android CMake 의 엔진 소스 glob 에 CONFIGURE_DEPENDS (새 파일을 다시 구성 없이)
+  - 다음: 2D 내비게이션
+- 이전: 2026년 10월 7일 — **트윈 패키지 `com.nova.tween`** (같은 지시 순서의 3 번: DOTween 같은 기능, 별도 패키지). **완료 (커밋, 푸시 전)**
+  - 순수 C# (`Packages/com.nova.tween/Runtime`): Tween · TweenerCore<T> · Sequence (Append · Join · Insert · Prepend · 간격 · 콜백), 곡선 30 (Penner), 반복 Restart · Yoyo · Incremental, 지연 · Relative · From · SpeedBased · 거꾸로, 콜백 · WaitForCompletion · AsyncWaitForCompletion, 대상 지우면 조용히 끝, 숨긴 `[NovaTween]` 오브젝트가 Update · LateUpdate · FixedUpdate 로 진행
+  - 단축 메서드 (DOTween 과 같은 이름): Transform (이동 · 회전 4 방식 · LookAt · 크기 · Punch · Shake · Jump · Path), Material · SpriteRenderer · UI Graphic 색 · 투명도, FillAmount · DOText · DOCounter, RectTransform, Light · Camera · AudioSource, DOVirtual. 정적 클래스 = `NovaTween` (DOTween 이름은 쓰지 않음)
+  - `TweenAnimation` 컴포넌트 (코드 없이 Inspector 에서). 엔진 C# API 에 `Camera.fieldOfView · near · far · orthographicSize · aspect`, `Light.intensity · color · shadowStrength · range · spotAngle` 추가
+  - 검사 `-Only tween` 11/11. 문서 `docs/TWEEN.md`, Showcase 246
+- 이전: 2026년 10월 7일 — **씬 Additive · LoadSceneAsync · DontDestroyOnLoad · PlayerPrefs** (사용자 지시 순서: 씬 비동기 · 추가 → PlayerPrefs → 트윈 패키지 → 2D 조명 → 2D 내비게이션 → 래그돌 · 차량 · 천). **1 · 2 완료 (커밋 c6cc694, 푸시 전)**
   - `Source/Scene/SceneManagerRuntime.cpp`: 씬 객체는 하나, 루트마다 씬 핸들 (fileID → 핸들). Additive = 오브젝트를 지금 씬으로 옮김 (fileID 새로, 참조 함께), 비동기 = 작업 스레드에서 읽기 · 해석 (웹은 그 프레임), 프레임 끝에 요청 차례대로 바꾸기, allowSceneActivation 0.9 대기, Unload, DontDestroyOnLoad (Single 로 바꿔도 남고 Awake · Start 다시 없음)
   - C#: `SceneManager` (LoadSceneAsync · UnloadSceneAsync · GetSceneAt/ByName/ByPath/ByBuildIndex · SetActiveScene · MoveGameObjectToScene · sceneLoaded/Unloaded/activeSceneChanged), `Scene` (핸들), `AsyncOperation` (yield · completed), `CustomYieldInstruction`, `GameObject.scene`. 알림은 `AppEvents.SceneEvent` (세 호스트 모두) — Play 시작 때 지난 구독을 비운다
   - `PlayerPrefs` (`Source/Scripting/PlayerPrefsStore.*`): 에디터 Library/PlayerPrefs.json, Windows persistentDataPath, 안드로이드 파일 폴더, 웹 localStorage. `Application.persistentDataPath` 등
   - CLI `nova build-scenes list|set|add|remove`. 웹: 엔진 API 표의 호출 모양을 DllImport 로 만들어 줌 (`Tools/web/gen_native_signatures.py` — 없으면 새 모양에서 .NET 이 멈춘다). 씬 이름 찾기가 안드로이드 · 웹에서 '\\' 경로로 실패하던 것 고침
   - 검사: `-Only scenes` 11/11 (PC), 웹에서 같은 검사 스크립트 결과 같음 + localStorage 로 다음 실행에 남음, web 10/10, physics · ui 28/28. 문서 `docs/SCENE_MANAGEMENT.md`
-  - 다음: 트윈 패키지 (com.nova.tween — DOTween 같은 기능)
 - 이전: 2026년 10월 6일 — **`nova android reference` 의 UI 레이아웃 크기 고침** (사용자 지시: 웹 검사에서 찾은 작업을 이 세션에서). **완료 (커밋 5286035, 푸시함)**
   - 기준 그림이 Screen Space UI 를 Game 뷰 크기로 놓던 것 → 요청한 W x H 로 (`UISystem::LayoutForScreen` — Update 의 캔버스 레이아웃을 함수로 꺼냄), 끝나면 Game 뷰로 되돌림
   - 같은 자리의 옛 문제: 기준 그림 뒤 Game 뷰가 뷰포트 · SSAO 크기를 되찾지 못해 찌그러져 그려졌다 → 그리기 전 값으로 되돌림 (Game 뷰 전후 화소 차이 0)

@@ -343,12 +343,28 @@ namespace NovaEngine
         }
         /// <summary>이 카메라가 그리는 레이어 (비트 = 레이어, LayerMask.GetMask)</summary>
         public unsafe int cullingMask { get => Native.Api.CL_GetMask(m_Id, 0); set => Native.Api.CL_SetMask(m_Id, 0, value); }
+        /// <summary>세로 시야각 (도)</summary>
+        public unsafe float fieldOfView { get => Native.Api.Cam_GetFloat(m_Id, 0); set => Native.Api.Cam_SetFloat(m_Id, 0, value); }
+        public unsafe float nearClipPlane { get => Native.Api.Cam_GetFloat(m_Id, 1); set => Native.Api.Cam_SetFloat(m_Id, 1, value); }
+        public unsafe float farClipPlane { get => Native.Api.Cam_GetFloat(m_Id, 2); set => Native.Api.Cam_SetFloat(m_Id, 2, value); }
+        public unsafe float orthographicSize { get => Native.Api.Cam_GetFloat(m_Id, 3); set => Native.Api.Cam_SetFloat(m_Id, 3, value); }
+        public unsafe float aspect => Native.Api.Cam_GetFloat(m_Id, 4);
+        public unsafe bool orthographic => Native.Api.Cam_GetFloat(m_Id, 5) != 0f;
     }
     public sealed unsafe class Light : Behaviour
     {
         internal Light() { }
         /// <summary>이 빛이 비추는 레이어 (비트 = 레이어). 안 비추는 레이어는 이 빛의 그림자도 드리우지 않는다</summary>
         public int cullingMask { get => Native.Api.CL_GetMask(m_Id, 1); set => Native.Api.CL_SetMask(m_Id, 1, value); }
+        public float intensity { get => Native.Api.Light_GetFloat(m_Id, 0); set => Native.Api.Light_SetFloat(m_Id, 0, value); }
+        public float shadowStrength { get => Native.Api.Light_GetFloat(m_Id, 1); set => Native.Api.Light_SetFloat(m_Id, 1, value); }
+        public float range => Native.Api.Light_GetFloat(m_Id, 2);
+        public float spotAngle => Native.Api.Light_GetFloat(m_Id, 3);
+        public Color color
+        {
+            get { Vector4 v; Native.Api.Light_GetColor(m_Id, &v); return new Color(v.x, v.y, v.z, 1f); }
+            set { Vector4 v = new Vector4(value.r, value.g, value.b, 1f); Native.Api.Light_SetColor(m_Id, &v); }
+        }
     }
     /// <summary>Unity 의 MeshRenderer (material · sharedMaterial · SetPropertyBlock · enabled · bounds = Renderer.cs)</summary>
     public sealed class MeshRenderer : Renderer { internal MeshRenderer() { } internal override int Kind => 0; }

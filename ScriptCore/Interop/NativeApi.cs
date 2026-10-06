@@ -276,6 +276,20 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<byte*, void> Prefs_Delete;                   // null = 모두
         public delegate* unmanaged<void> Prefs_Save;
         public delegate* unmanaged<int, byte*> App_Path;                        // 0 persistentDataPath, 1 dataPath, 2 companyName, 3 version, 4 temporaryCachePath
+        // Camera · Light 값
+        public delegate* unmanaged<ulong, int, float> Cam_GetFloat;             // 0 fieldOfView, 1 near, 2 far, 3 orthographicSize, 4 aspect, 5 orthographic
+        public delegate* unmanaged<ulong, int, float, void> Cam_SetFloat;
+        public delegate* unmanaged<ulong, int, float> Light_GetFloat;           // 0 intensity, 1 shadowStrength, 2 range, 3 spotAngle
+        public delegate* unmanaged<ulong, int, float, void> Light_SetFloat;
+        public delegate* unmanaged<ulong, Vector4*, void> Light_GetColor;
+        public delegate* unmanaged<ulong, Vector4*, void> Light_SetColor;
+        // 2D 빛
+        public delegate* unmanaged<ulong, int, float> L2D_GetFloat;             // 0 종류, 1 intensity, 2 innerRadius, 3 outerRadius, 4 innerAngle, 5 outerAngle, 6 falloff, 7 shadows, 8 shadowStrength, 9 normalMapDistance
+        public delegate* unmanaged<ulong, int, float, void> L2D_SetFloat;
+        public delegate* unmanaged<ulong, Vector4*, void> L2D_GetColor;
+        public delegate* unmanaged<ulong, Vector4*, void> L2D_SetColor;
+        public delegate* unmanaged<ulong, int, int> SC2D_Get;                   // 0 castsShadows, 1 selfShadows
+        public delegate* unmanaged<ulong, int, int, void> SC2D_Set;
     }
 
     internal static unsafe class Native

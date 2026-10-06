@@ -63,6 +63,8 @@ namespace
 		{ "AudioListener",       "Audio Listener",        "Audio",         "audio_listener",    true  },
 		{ "Camera",              "Camera",                "Rendering",     "camera",            true  },
 		{ "SpriteRenderer",      "Sprite Renderer",       "Rendering",     "sprite_renderer",   true  },
+		{ "Light2D",             "Light 2D",              "Rendering",     "light_spot",        true  },
+		{ "ShadowCaster2D",      "Shadow Caster 2D",      "Rendering",     "scene_light",       true  },
 		{ "DecalProjector",      "Decal Projector",       "Rendering",     "material_ball",     true  },
 		{ "ReflectionProbe",     "Reflection Probe",      "Rendering",     "scene_light",       true  },
 		{ "AdaptiveProbeVolume", "Adaptive Probe Volume", "Rendering",     "light_point",       true  },

@@ -7,7 +7,7 @@
 //  - 내장 스프라이트 "builtin:Square" · "builtin:Circle" 등은 1 × 1 단위
 //  - 잘라 놓은 스프라이트 "그림.png#이름" (Sprite Mode = Multiple): 그 사각형 크기 · 기준점 · UV
 //  - Color (곱하기), Flip X / Y (기준점을 중심으로 뒤집기), Sorting Layer → Order in Layer (클수록 앞)
-//  - 그리기는 SpriteBatch (조명 없음, 투명 정렬)
+//  - 그리기는 SpriteBatch (투명 정렬). 씬에 Light 2D 가 있으면 빛을 받는다 — Normal Map (같은 배치의 노멀 그림) 이 있으면 울퉁불퉁하게
 class NOVA_API SpriteRenderer : public Component, public SpriteSource
 {
 public:
@@ -15,6 +15,8 @@ public:
 
 	const std::string& GetSprite() const { return m_Sprite; }
 	void SetSprite(const std::string& path) { m_Sprite = path; m_Resolved = false; }
+	const std::string& GetNormalMap() const { return m_NormalMap; }
+	void SetNormalMap(const std::string& path) { m_NormalMap = path; }
 	const float* GetColor() const { return m_Color; }
 	void SetColor(const float rgba[4]) { for (int i = 0; i < 4; ++i) m_Color[i] = rgba[i]; }
 	bool GetFlipX() const { return m_FlipX; }
@@ -54,6 +56,7 @@ public:
 
 private:
 	std::string m_Sprite;
+	std::string m_NormalMap;   // 2D 빛의 노멀 맵 (스프라이트와 같은 배치의 그림 — Unity 의 Secondary Texture "_NormalMap")
 	float m_Color[4] = { 1, 1, 1, 1 };
 	bool m_FlipX = false, m_FlipY = false;
 	int m_SortingOrder = 0;

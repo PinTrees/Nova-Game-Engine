@@ -9,6 +9,7 @@
 #include "EditorTheme.h"
 #include "UISystem.h"
 #include "ReflectionProbe.h"
+#include "Light2D.h"
 #include "AdaptiveProbeVolume.h"
 #include "DecalProjector.h"
 #include "EditorExtensions.h"
@@ -198,6 +199,15 @@ namespace GameObjectMenu
 			if (ImGui::MenuItem("Point Light")) add(GameObjectFactory::CreatePointLight());
 			if (ImGui::MenuItem("Spot Light")) add(GameObjectFactory::CreateSpotLight());
 			Disabled("Area Light");
+			ImGui::Separator();
+			// 2D 빛 (Unity 6 의 Light > 2D)
+			auto light2D = [&](const char* name, Light2D::Type t) {
+				GameObject* o = GameObjectFactory::CreateEmpty(name);
+				o->AddComponent<Light2D>()->LightType = t;
+				add(o);
+			};
+			if (ImGui::MenuItem("Global Light 2D")) light2D("Global Light 2D", Light2D::Type::Global);
+			if (ImGui::MenuItem("Spot Light 2D")) light2D("Spot Light 2D", Light2D::Type::Point);
 			ImGui::Separator();
 			if (ImGui::MenuItem("Reflection Probe")) { GameObject* o = GameObjectFactory::CreateEmpty("Reflection Probe"); o->AddComponent<ReflectionProbe>(); add(o); }
 			if (ImGui::MenuItem("Adaptive Probe Volume")) { GameObject* o = GameObjectFactory::CreateEmpty("Adaptive Probe Volume"); o->AddComponent<AdaptiveProbeVolume>(); add(o); }

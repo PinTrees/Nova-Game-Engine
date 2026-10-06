@@ -27,6 +27,7 @@
 #include "ProjectSettingsWindow.h"
 #include "BuildSettingsWindow.h"
 #include "GraphicsSettings.h"
+#include "Light2D.h"
 #include "BuildSettings.h"
 #include "App.h"
 #include "ShaderCross.h"
@@ -362,6 +363,14 @@ namespace
 		if (type == "directional-light") return named(GameObjectFactory::CreateDirectionalLight());
 		if (type == "point-light") return named(GameObjectFactory::CreatePointLight());
 		if (type == "spot-light") return named(GameObjectFactory::CreateSpotLight());
+		if (type == "global-light-2d" || type == "spot-light-2d")
+		{
+			// 2D 빛 (Light 2D): Global = 바탕 밝기, Spot = 반지름 · 원뿔
+			GameObject* g = GameObjectFactory::CreateEmpty(type == "global-light-2d" ? "Global Light 2D" : "Spot Light 2D");
+			auto l = g->AddComponent<Light2D>();
+			l->LightType = type == "global-light-2d" ? Light2D::Type::Global : Light2D::Type::Point;
+			return named(g);
+		}
 		if (type == "camera") return named(GameObjectFactory::CreateCamera());
 		if (type == "terrain") return named(GameObjectFactory::CreateTerrain());
 		if (type == "tree") return named(GameObjectFactory::CreateTree());
@@ -395,7 +404,7 @@ namespace
 			EditorLog::Write("CLI", "%s", note.c_str());
 			return named(g);
 		}
-		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, "
+		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, global-light-2d, spot-light-2d, "
 			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character)";
 		return nullptr;
 	}

@@ -6,6 +6,59 @@
 #include "AssetImportSettings.h"
 #include "TagsAndLayers.h"
 #include "ProjectSettingsWindow.h"
+#include "Light2D.h"
+
+namespace
+{
+	// 그림 칸 하나 (선택 창 ⊙ · Project 에서 끌어 놓기) — Normal Map
+	bool TextureField(const char* label, std::string& value, const void* owner)
+	{
+		bool changed = false;
+		const std::string text = value.empty() ? "None (Texture 2D)" : UISprites::DisplayName(value);
+		ImVec2 fmin, fmax;
+		const int pressed = UnityGUI::ObjectFieldButtons(label, text.c_str(), "texture", nullptr, 0, &fmin, &fmax);
+		const ImVec2 after = ImGui::GetCursorScreenPos();
+		const std::string key = std::string(label) + ":" + std::to_string((uintptr_t)owner);
+		if (pressed == -1)
+		{
+			ObjectPicker::Options opt;
+			opt.TypeName = "Texture 2D";
+			opt.Icon = "texture";
+			opt.Items = UISprites::FindAll2D();
+			opt.Current = value;
+			ObjectPicker::Open(key, std::move(opt));
+		}
+		std::string picked;
+		if (ObjectPicker::Poll(key, picked)) { value = picked.substr(0, picked.find('#')); changed = true; }
+		ImGui::SetCursorScreenPos(fmin);
+		ImGui::InvisibleButton((std::string("##drop") + label).c_str(), ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
+		if (ImGui::BeginDragDropTarget())
+		{
+			const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE");
+			if (payload == nullptr)
+				payload = ImGui::AcceptDragDropPayload("PNG_FILE");
+			if (payload)
+			{
+				std::string dropped(static_cast<const char*>(payload->Data));
+				const std::string root = wstring_to_string(PathManager::GetI()->GetContentPathW());
+				if (_strnicmp(dropped.c_str(), root.c_str(), root.size()) == 0)
+					dropped = dropped.substr(root.size());
+				if (UISprites::IsImagePath(dropped)) { value = dropped; changed = true; }
+			}
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::SetCursorScreenPos(after);
+		return changed;
+	}
+
+	bool AnyLight2D()
+	{
+		for (Light2D* l : Light2D::All())
+			if (l->ActiveAndEnabled())
+				return true;
+		return false;
+	}
+}
 
 SpriteRenderer::SpriteRenderer()
 {
@@ -97,6 +150,13 @@ void SpriteRenderer::CollectSprites(SpriteBatch& batch)
 		v = Vec3::Transform(v, world);
 	const Vec2 uv[4] = { Vec2(m_UV.x, m_UV.w), Vec2(m_UV.z, m_UV.w), Vec2(m_UV.z, m_UV.y), Vec2(m_UV.x, m_UV.y) };
 	batch.Begin(m_SortingLayerId, m_SortingOrder, m_pGameObject->GetTransform()->GetPosition());
+	if (!m_NormalMap.empty())
+	{
+		// 노멀 맵 = 같은 배치의 그림 (잘라 놓은 스프라이트면 같은 사각형 UV)
+		UISprites::Info n;
+		if (UISprites::Get(m_NormalMap, n) && n.Texture)
+			batch.SetNormalMap(n.Texture);
+	}
 	batch.Quad(p, uv, SpriteBatch::PackColor(m_Color), m_Texture, m_Point);
 }
 
@@ -191,7 +251,8 @@ void SpriteRenderer::OnInspectorGUI()
 	UnityGUI::Toggle("Flip X", &m_FlipX);
 	UnityGUI::Toggle("Flip Y", &m_FlipY);
 	UnityGUI::ValueLabel("Draw Mode", "Simple");
-	UnityGUI::ValueLabel("Material", "Sprites-Default");
+	UnityGUI::ValueLabel("Material", AnyLight2D() ? "Sprite-Lit-Default" : "Sprites-Default");
+	TextureField("Normal Map", m_NormalMap, this);
 	if (UnityGUI::FoldoutPlain("Additional Settings"))
 		SortingFields(m_SortingLayerId, m_SortingOrder);
 	Vec2 size, pivot;
@@ -210,6 +271,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(SpriteRenderer)
 	SERIALIZE_TYPE(j, SpriteRenderer);
 	j["enabled"] = m_Enabled;
 	j["sprite"] = m_Sprite;
+	if (!m_NormalMap.empty())
+		j["normalMap"] = m_NormalMap;
 	j["color"] = { m_Color[0], m_Color[1], m_Color[2], m_Color[3] };
 	j["flipX"] = m_FlipX;
 	j["flipY"] = m_FlipY;
@@ -222,6 +285,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SpriteRenderer)
 {
 	m_Enabled = j.value("enabled", true);
 	SetSprite(j.value("sprite", std::string()));
+	m_NormalMap = j.value("normalMap", std::string());
 	if (j.contains("color") && j["color"].is_array() && j["color"].size() == 4)
 		for (int i = 0; i < 4; ++i)
 			m_Color[i] = j["color"][i].get<float>();

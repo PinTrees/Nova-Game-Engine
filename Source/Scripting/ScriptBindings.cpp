@@ -28,6 +28,9 @@
 #include "UISystem.h"
 #include "BuildSettings.h"
 #include "PlayerPrefsStore.h"
+#include "Light.h"
+#include "Light2D.h"
+#include "Camera.h"
 #include "PathManager.h"
 #include "PlayerRuntime.h"
 #include "ParticleSystem.h"
@@ -261,6 +264,20 @@ namespace
 		void(*Prefs_Delete)(u8*);                         // nullptr = 모두
 		void(*Prefs_Save)();
 		u8* (*App_Path)(int);                             // 0 persistentDataPath, 1 dataPath, 2 companyName, 3 version, 4 temporaryCachePath
+		// Camera · Light 값 (C# 속성 · 트윈)
+		float(*Cam_GetFloat)(uint64, int);                // 0 fieldOfView (도), 1 nearClipPlane, 2 farClipPlane, 3 orthographicSize, 4 aspect, 5 orthographic
+		void(*Cam_SetFloat)(uint64, int, float);
+		float(*Light_GetFloat)(uint64, int);              // 0 intensity, 1 shadowStrength, 2 range, 3 spotAngle
+		void(*Light_SetFloat)(uint64, int, float);
+		void(*Light_GetColor)(uint64, Vec4*);
+		void(*Light_SetColor)(uint64, Vec4*);
+		// 2D 빛 (Light2D.h)
+		float(*L2D_GetFloat)(uint64, int);                // 0 종류 (0 Global · 1 Spot), 1 intensity, 2 innerRadius, 3 outerRadius, 4 innerAngle, 5 outerAngle, 6 falloff, 7 shadows, 8 shadowStrength, 9 normalMapDistance
+		void(*L2D_SetFloat)(uint64, int, float);
+		void(*L2D_GetColor)(uint64, Vec4*);
+		void(*L2D_SetColor)(uint64, Vec4*);
+		int(*SC2D_Get)(uint64, int);                      // 0 castsShadows, 1 selfShadows
+		void(*SC2D_Set)(uint64, int, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1611,6 +1628,100 @@ namespace ScriptBindings
 			}
 			}
 		};
+		t.Cam_GetFloat = [](uint64 id, int what) -> float {
+			Camera* c = Get<Camera>(id);
+			if (c == nullptr) return 0.0f;
+			switch (what)
+			{
+			case 0: return XMConvertToDegrees(c->GetFovY());
+			case 1: return c->GetNearZ();
+			case 2: return c->GetFarZ();
+			case 3: return c->GetOrthoSize();
+			case 4: return c->GetAspect();
+			case 5: return c->IsOrthographic() ? 1.0f : 0.0f;
+			}
+			return 0.0f;
+		};
+		t.Cam_SetFloat = [](uint64 id, int what, float v) {
+			Camera* c = Get<Camera>(id);
+			if (c == nullptr) return;
+			switch (what)
+			{
+			case 0: c->SetFovY(XMConvertToRadians(std::clamp(v, 0.00001f, 179.0f))); break;
+			case 1: c->SetNearZ((std::max)(v, 0.001f)); break;
+			case 2: c->SetFarZ((std::max)(v, c->GetNearZ() + 0.01f)); break;
+			case 3: c->SetOrthoSize(v); break;
+			}
+		};
+		t.Light_GetFloat = [](uint64 id, int what) -> float {
+			Light* l = Get<Light>(id);
+			if (l == nullptr) return 0.0f;
+			switch (what)
+			{
+			case 0: return l->GetIntensity();
+			case 1: return l->GetShadowStrength();
+			case 2: return l->GetRange();
+			case 3: return l->GetSpotAngle();
+			}
+			return 0.0f;
+		};
+		t.Light_SetFloat = [](uint64 id, int what, float v) {
+			Light* l = Get<Light>(id);
+			if (l == nullptr) return;
+			if (what == 0) l->SetIntensity(v);
+			else if (what == 1) l->SetShadowStrength(v);
+		};
+		t.Light_GetColor = [](uint64 id, Vec4* out) {
+			Light* l = Get<Light>(id);
+			const XMFLOAT4 c = l ? l->GetColor() : XMFLOAT4(0, 0, 0, 1);
+			if (out) *out = Vec4(c.x, c.y, c.z, 1.0f);
+		};
+		t.Light_SetColor = [](uint64 id, Vec4* c) { if (Light* l = Get<Light>(id); l && c) l->SetColor(XMFLOAT4(c->x, c->y, c->z, 1.0f)); };
+		t.L2D_GetFloat = [](uint64 id, int what) -> float {
+			Light2D* l = Get<Light2D>(id);
+			if (l == nullptr) return 0.0f;
+			switch (what)
+			{
+			case 0: return (float)(int)l->LightType;
+			case 1: return l->Intensity;
+			case 2: return l->InnerRadius;
+			case 3: return l->OuterRadius;
+			case 4: return l->InnerAngle;
+			case 5: return l->OuterAngle;
+			case 6: return l->Falloff;
+			case 7: return l->Shadows ? 1.0f : 0.0f;
+			case 8: return l->ShadowStrength;
+			case 9: return l->NormalMapDistance;
+			}
+			return 0.0f;
+		};
+		t.L2D_SetFloat = [](uint64 id, int what, float v) {
+			Light2D* l = Get<Light2D>(id);
+			if (l == nullptr) return;
+			switch (what)
+			{
+			case 0: l->LightType = v >= 0.5f ? Light2D::Type::Point : Light2D::Type::Global; break;
+			case 1: l->Intensity = (std::max)(0.0f, v); break;
+			case 2: l->InnerRadius = std::clamp(v, 0.0f, l->OuterRadius); break;
+			case 3: l->OuterRadius = (std::max)(0.01f, v); l->InnerRadius = (std::min)(l->InnerRadius, l->OuterRadius); break;
+			case 4: l->InnerAngle = std::clamp(v, 0.0f, l->OuterAngle); break;
+			case 5: l->OuterAngle = std::clamp(v, 0.0f, 360.0f); l->InnerAngle = (std::min)(l->InnerAngle, l->OuterAngle); break;
+			case 6: l->Falloff = std::clamp(v, 0.0f, 1.0f); break;
+			case 7: l->Shadows = v >= 0.5f; break;
+			case 8: l->ShadowStrength = std::clamp(v, 0.0f, 1.0f); break;
+			case 9: l->NormalMapDistance = (std::max)(0.01f, v); break;
+			}
+		};
+		t.L2D_GetColor = [](uint64 id, Vec4* out) {
+			Light2D* l = Get<Light2D>(id);
+			if (out) *out = l ? Vec4(l->Color[0], l->Color[1], l->Color[2], 1.0f) : Vec4(1, 1, 1, 1);
+		};
+		t.L2D_SetColor = [](uint64 id, Vec4* c) { if (Light2D* l = Get<Light2D>(id); l && c) { l->Color[0] = c->x; l->Color[1] = c->y; l->Color[2] = c->z; } };
+		t.SC2D_Get = [](uint64 id, int what) -> int {
+			ShadowCaster2D* s = Get<ShadowCaster2D>(id);
+			return s ? ((what == 0 ? s->CastsShadows : s->SelfShadows) ? 1 : 0) : 0;
+		};
+		t.SC2D_Set = [](uint64 id, int what, int v) { if (ShadowCaster2D* s = Get<ShadowCaster2D>(id)) (what == 0 ? s->CastsShadows : s->SelfShadows) = v != 0; };
 		t.GO_MoveToScene = [](uint64 id, int handle) { GameObject* g = Find(id); return g && SceneManager::GetI()->MoveRootToScene(g, handle) ? 1 : 0; };
 		t.J2_Remove = [](uint64 id, int kind, int instance) {
 			SceneManager::GetI()->AddLastUpdate([id, kind, instance]() {

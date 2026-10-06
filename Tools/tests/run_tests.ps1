@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1578,6 +1578,33 @@ public class WebProbe : MonoBehaviour
         }
         else { Add-Result web 'UI layout = DX11 (centre, bottom-left)' $false 'web run failed' }
 
+        # ---- 3c) 2D 빛 (Light 2D · Shadow Caster 2D) = DX11
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'delete "Global Volume"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,0,-10 --component Camera --values "{\"cameraType\":1,\"orthoSize\":5}"' | Out-Null
+        Invoke-Nova 'create empty --name Ground --position 0,0,1 --scale 30,14,1' | Out-Null
+        Invoke-Nova 'add-component Ground SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.9,0.9,0.95,1]}"' | Out-Null
+        Invoke-Nova 'create global-light-2d --name Ambient' | Out-Null
+        Invoke-Nova 'set Ambient --component Light2D --values "{\"intensity\":0.25,\"color\":[0.6,0.7,1]}"' | Out-Null
+        Invoke-Nova 'create spot-light-2d --name Spot --position -1,0.5,0' | Out-Null
+        Invoke-Nova 'set Spot --component Light2D --values "{\"outerRadius\":6,\"intensity\":1.2,\"shadows\":true,\"shadowStrength\":0.9}"' | Out-Null
+        Invoke-Nova 'create empty --name Crate --position 2,0,0' | Out-Null
+        Invoke-Nova 'add-component Crate SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.8,0.4,0.3,1],\"sortingOrder\":1}"' | Out-Null
+        Invoke-Nova 'add-component Crate ShadowCaster2D' | Out-Null
+        Invoke-Nova 'scene save --as Assets/Scenes/WebLight2D.scene' | Out-Null
+        $l2Out = Join-Path $dir 'light2d'
+        $lx = Invoke-NovaJson "web export --out `"$l2Out`" --scenes Assets/Scenes/WebLight2D.scene"
+        $l2 = if ($lx) { RunScene $l2Out (Join-Path $dir 'light2d_web.png') 30 8635 } else { $null }
+        if ($l2 -and $l2.size)
+        {
+            Invoke-Nova 'wait 10' | Out-Null
+            $lref = Join-Path $dir 'light2d_DirectX11.png'
+            Invoke-NovaJson "android reference --out `"$lref`" --width $($l2.size[0]) --height $($l2.size[1]) --frames 10" | Out-Null
+            $c = if (Test-Path $lref) { [NovaImageCompare]::Compare($lref, (Join-Path $dir 'light2d_web.png'), (Join-Path $dir 'light2d_diff.png')) } else { $null }
+            Add-Result web '2D lights + shadows = DX11' ($c -and $c[2] -lt 0.5) $(if ($c) { 'max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'no image' })
+        }
+        else { Add-Result web '2D lights + shadows = DX11' $false 'web run failed' }
+
         # ---- 4) Build Settings 빌드 + 미리 보기 서버
         $buildOut = Join-Path $dir 'build'
         $b = Invoke-NovaJson "web build --out `"$buildOut`" --run --port 8633"
@@ -1688,6 +1715,155 @@ function Suite-Scenes
         Write-Host "  $(Stop-TestEditor $ed)"
         if ($buildBefore) { [IO.File]::WriteAllBytes($buildSettings, $buildBefore) }
         if ($settingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $settingsBefore) }
+    }
+}
+
+function Suite-Tween
+{
+    # com.nova.tween (트윈 패키지): 검사 스크립트 (Tools/tests/tween_probe.cs) 로 곡선 값 · 이동 + 끝 콜백 · 시퀀스 (Append · Join · 간격 · 콜백 차례) ·
+    # Yoyo · From · Relative + Incremental · 튀기기 · 흔들기 · 뛰기 · DOVirtual · DelayedCall · async · 대상 지움 · Kill(대상) · 거꾸로 · 빛 · 카메라 · TweenAnimation 컴포넌트
+    Write-Host '[tween]'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $manifestBefore = if (Test-Path $manifest) { [IO.File]::ReadAllBytes($manifest) } else { $null }
+    $probeDir = Join-Path $Project 'Assets\TweenProbe'
+    New-Item -ItemType Directory -Force $probeDir | Out-Null
+    $probeFile = Join-Path $probeDir 'TweenProbe.cs'
+    $ed = Start-TestEditor
+    try
+    {
+        $a = Invoke-NovaJson 'package add com.nova.tween'
+        Add-Result tween 'package loads (C# only)' ($a -and $a.loaded) "loaded=$($a.loaded)"
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'tween_probe.cs') $probeFile -Force
+        $sw2 = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw2.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+        $errs = @((Invoke-Nova 'log -n 300 --grep "TweenProbe.cs("') -split "\r?\n" | Where-Object { $_ -match 'error CS' -and $_ -notmatch "'Tweening'" })
+        Add-Result tween 'probe compiles against the package' ($errs.Count -eq 0) "$($errs -join ' | ')"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create empty --name Probe' | Out-Null
+        Invoke-Nova 'add-component Probe TweenProbe' | Out-Null
+        Invoke-Nova 'create cube --name Animated' | Out-Null
+        Invoke-Nova 'add-component Animated TweenAnimation --values "{\"endValue\":[0,3,0],\"duration\":0.5}"' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw3 = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 30' | Out-Null; $doneLine = (Invoke-Nova 'log -n 60 --grep "TweenProbe done"') -join '' }
+        while ($sw3.Elapsed.TotalSeconds -lt 30 -and $doneLine -notmatch 'TweenProbe done')
+        $l = @((Invoke-Nova 'log -n 2000 --grep "Log: TweenProbe"') -split "\r?\n") | Where-Object { $_ } | ForEach-Object { ($_ -replace '^.*Log: ', '') -replace '\s+\(E:.*$', '' }
+        Invoke-Nova 'stop' | Out-Null
+        function Line([string]$start) { [string]($l | Where-Object { "$_" -like "$start*" } | Select-Object -Last 1) }
+
+        $x = Line 'TweenProbe ease'
+        Add-Result tween 'eases (OutBounce, InOutQuad, OutBack, InCubic)' ("$x" -match 'outBounce=0\.7656 inOutQuad=0\.1250 outBack1=1\.0000 inCubic=0\.1250 linear=0\.30') "$x"
+        $x = Line 'TweenProbe move'
+        Add-Result tween 'DOMoveX + OnComplete + WaitForCompletion' ("$x" -match 'x=5\.00 completes=1 .* active=False') "$x"
+        $x = Line 'TweenProbe sequence'
+        Add-Result tween 'Sequence: Append, Join, interval, callback order' ("$x" -match 'pos=0\.00,2\.00,0\.00 scale=2\.00 rotY=90\.00 order=yscr duration=0\.70') "$x"
+        $x = Line 'TweenProbe yoyo'
+        Add-Result tween 'Yoyo loops come back, OnStepComplete per loop' ("$x" -match 'z=0\.00 steps=2 mid=True') "$x"
+        $x = Line 'TweenProbe from'
+        Add-Result tween 'From + Relative Incremental loops' ("$x" -match 'start=0\.00 end=1\.00 incremental x=3\.00') "$x"
+        $x = Line 'TweenProbe punch'
+        Add-Result tween 'punch / shake return, jump lands (and goes up)' ("$x" -match 'punch end=1\.00,1\.00,1\.00 shake end=0\.00,0\.00,0\.00 moved=True jump end=4\.00,0\.00,0\.00 peak=True') "$x"
+        $x = Line 'TweenProbe virtual'
+        Add-Result tween 'DOVirtual.Float, DelayedCall, AsyncWaitForCompletion' ("$x" -match 'virtual=10\.00 delayed=True task=True') "$x"
+        $x = Line 'TweenProbe destroyedTarget'
+        Add-Result tween 'destroyed target, Kill(target), PlayBackwards' ("$x" -match 'destroyedTarget=True killByTarget=1 backwards x=0\.00') "$x"
+        $x = Line 'TweenProbe light'
+        Add-Result tween 'Light.DOIntensity, Camera.DOFieldOfView, TweenAnimation' ("$x" -match 'light=3\.00 fovFrom=60\.00 fov=30\.00 animated=0\.00,3\.00,0\.00') "$x"
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($manifestBefore) { [IO.File]::WriteAllBytes($manifest, $manifestBefore) }
+        Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Light2D
+{
+    # 2D 빛 (Light 2D · Shadow Caster 2D · 스프라이트 노멀 맵): 직교 카메라로 화면 점 = 월드 점, 흰 바탕의 밝기로 확인 (후처리 없이)
+    #  없음 = 그대로, Global 0.5 = 절반, Spot (곧게 줄어듦) = 거리별 값, 반지름 밖 = 바탕, 그림자 (상자 뒤 = 바탕, 반대쪽 = 그대로), 자기 그림자,
+    #  원뿔 (위로 90 도), 노멀 맵 (가장자리가 빛 쪽으로 밝아진다), C# Light2D API, CLI global-light-2d · spot-light-2d
+    Write-Host '[light2d]'
+    $dir = Join-Path $Out 'light2d'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $texDir = Join-Path $Project 'Assets\Light2DTest'
+    New-Item -ItemType Directory -Force $texDir | Out-Null
+    # 노멀 맵 시험 그림: 왼쪽 반 = 왼쪽을 보는 면, 오른쪽 반 = 오른쪽을 보는 면 (64 x 64)
+    Add-Type -AssemblyName System.Drawing
+    $bmp = New-Object System.Drawing.Bitmap 64, 64
+    for ($y = 0; $y -lt 64; $y++) { for ($x = 0; $x -lt 64; $x++) { $bmp.SetPixel($x, $y, $(if ($x -lt 32) { [System.Drawing.Color]::FromArgb(255, 37, 128, 218) } else { [System.Drawing.Color]::FromArgb(255, 218, 128, 218) })) } }
+    $bmp.Save((Join-Path $texDir 'split_n.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'delete "Global Volume"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,0,-10 --component Camera --values "{\"cameraType\":1,\"orthoSize\":5}"' | Out-Null
+        Invoke-Nova 'create empty --name Ground --position 0,0,1 --scale 30,14,1' | Out-Null
+        Invoke-Nova 'add-component Ground SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[1,1,1,1]}"' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        function Shot([string]$name) { Invoke-Nova 'wait 5' | Out-Null; $p = Join-Path $dir "$name.png"; Invoke-Nova "screenshot `"$p`" --view game" | Out-Null; return $p }
+        Add-Type -AssemblyName System.Drawing
+        function Px([string]$png, [double]$wx, [double]$wy, [int]$ch = 0)
+        {
+            $b = New-Object System.Drawing.Bitmap $png
+            try { $ppu = $b.Height / 10.0; $c = $b.GetPixel([int]($b.Width / 2 + $wx * $ppu), [int]($b.Height / 2 - $wy * $ppu)); return @($c.R, $c.G, $c.B)[$ch] } finally { $b.Dispose() }
+        }
+        function Near([int]$v, [int]$want, [int]$tol = 4) { [math]::Abs($v - $want) -le $tol }
+
+        $unlit = Px (Shot 'unlit') 0 0
+        Add-Result light2d 'no Light 2D = unlit sprites' (Near $unlit 255) "centre $unlit (expect 255)"
+        $c = Invoke-NovaJson 'create global-light-2d --name Ambient'
+        Invoke-Nova 'set Ambient --component Light2D --values "{\"intensity\":0.5}"' | Out-Null
+        $g = Px (Shot 'global') 0 0
+        Add-Result light2d 'Global Light 2D intensity 0.5 = half' ($c -and (Near $g 127)) "centre $g (expect 127)"
+
+        Invoke-Nova 'set Ambient --component Light2D --values "{\"intensity\":0.2}"' | Out-Null
+        Invoke-Nova 'create spot-light-2d --name Spot' | Out-Null
+        Invoke-Nova 'set Spot --component Light2D --values "{\"outerRadius\":4,\"innerRadius\":0,\"falloff\":0,\"intensity\":1,\"shadows\":true,\"shadowStrength\":1}"' | Out-Null
+        $s = Shot 'spot'
+        $v2 = Px $s 2 0.3; $v33 = Px $s 3.3 0; $v5 = Px $s 5 0
+        Add-Result light2d 'Spot Light 2D falloff (linear) and radius' ((Near $v2 178) -and (Near $v33 95) -and (Near $v5 51)) "d=2: $v2 (178), d=3.3: $v33 (95), outside: $v5 (51 = ambient)"
+
+        Invoke-Nova 'create empty --name Box --position 2,0,0' | Out-Null
+        Invoke-Nova 'add-component Box SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[1,0,0,1],\"sortingOrder\":1}"' | Out-Null
+        Invoke-Nova 'add-component Box ShadowCaster2D' | Out-Null
+        $sh = Shot 'shadow'
+        $behind = Px $sh 3.3 0; $mirror = Px $sh -3.3 0; $front = Px $sh 1.6 0
+        Add-Result light2d 'Shadow Caster 2D: shadow behind, caster itself lit' ((Near $behind 51) -and (Near $mirror 95) -and (Near $front 203)) "behind $behind (51), mirror $mirror (95), box front $front (203)"
+        Invoke-Nova 'set Box --component ShadowCaster2D --values "{\"selfShadows\":true}"' | Out-Null
+        $self = Px (Shot 'selfshadow') 1.6 0
+        Add-Result light2d 'Self Shadows darkens the caster' (Near $self 51) "box front $self (expect 51)"
+        Invoke-Nova 'delete Box' | Out-Null
+
+        Invoke-Nova 'set Spot --component Light2D --values "{\"innerAngle\":80,\"outerAngle\":90}"' | Out-Null
+        $cone = Shot 'cone'
+        $up = Px $cone 0 2; $down = Px $cone 0 -2
+        Add-Result light2d 'spot angle (cone up)' ((Near $up 178) -and (Near $down 51)) "up $up (178), down $down (51)"
+
+        # 노멀 맵: 왼쪽 반은 왼쪽 (-X) 을, 오른쪽 반은 오른쪽을 본다 → 빛이 왼쪽에 있으면 왼쪽 반이 더 밝다
+        Invoke-Nova 'set Spot --position -3,0,0 --component Light2D --values "{\"innerAngle\":360,\"outerAngle\":360,\"outerRadius\":8,\"normalMapDistance\":1,\"shadows\":false}"' | Out-Null
+        Invoke-Nova 'create empty --name Panel --position 1,0,0 --scale 2,2,1' | Out-Null
+        Invoke-Nova 'add-component Panel SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[1,1,1,1],\"sortingOrder\":2,\"normalMap\":\"Assets/Light2DTest/split_n.png\"}"' | Out-Null
+        $nm = Shot 'normalmap'
+        $left = Px $nm 0.5 0; $right = Px $nm 1.5 0
+        Add-Result light2d 'normal map faces turn toward the light' ($left -gt $right + 40) "facing light $left, facing away $right"
+
+        $cs = Join-Path $dir 'light2d_api.cs'
+        'var l = GameObject.Find("Spot").GetComponent<NovaEngine.Rendering.Universal.Light2D>(); l.intensity = 0.5f; l.color = new Color(1f, 0f, 0f, 1f); return l.lightType + " " + l.pointLightOuterRadius.ToString("F1") + " " + l.intensity.ToString("F1") + " " + l.shadowsEnabled;' | Set-Content -Encoding utf8 $cs
+        $api = Invoke-NovaJson "exec --file `"$cs`""
+        $j = Invoke-NovaJson 'get Spot --component Light2D'
+        Add-Result light2d 'C# Light2D API (lightType, radius, intensity, color)' ("$($api.result)" -eq 'Point 8.0 0.5 False' -and $j.intensity -eq 0.5 -and $j.color[1] -eq 0) "$($api.result); json intensity $($j.intensity), color $($j.color -join ',')"
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item -Recurse -Force $texDir -ErrorAction SilentlyContinue
+        Remove-Item -Force "$texDir.meta" -ErrorAction SilentlyContinue
     }
 }
 
@@ -4895,6 +5071,8 @@ try
                 'tilemap' { Suite-Tilemap }
                 'web' { Suite-Web }
                 'scenes' { Suite-Scenes }
+                'tween' { Suite-Tween }
+                'light2d' { Suite-Light2D }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

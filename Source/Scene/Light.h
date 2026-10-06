@@ -79,6 +79,12 @@ public:
 	SpotLight GetSpotLight() { SpotLight d = m_SpotDesc; ApplyIntensity(d.Diffuse); ApplyIntensity(d.Specular); return d; }
 
 	float GetRange();
+	// C# Light.intensity · color · shadowStrength (스크립트 · 트윈)
+	float GetIntensity() const { return m_Intensity; }
+	void SetIntensity(float v) { m_Intensity = v < 0.0f ? 0.0f : v; }
+	XMFLOAT4 GetColor() { return *CurrentDiffuse(); }
+	void SetColor(const XMFLOAT4& c) { XMFLOAT4* d = CurrentDiffuse(); d->x = c.x; d->y = c.y; d->z = c.z; }
+	void SetShadowStrength(float v) { m_ShadowStrength = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); }
 
 	vector<XMMATRIX> GetEditorLightViewArray() { return m_EditorLightView; }
 	XMMATRIX GetEditorLightView() { return m_EditorLightView[0]; }
