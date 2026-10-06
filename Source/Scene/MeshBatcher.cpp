@@ -316,7 +316,7 @@ namespace
 
 	// 재질 테셀레이션 값 (60. Tessellation.fx 의 cbTessellation · gHeightMap) — 본 · 깊이 · 그림자 이펙트마다 따로 넣는다
 	//  나눔은 언제나 화면 카메라 기준 (view · proj): 그림자 패스도 같은 모양을 민다
-	void SetTessellation(FxEffect* fx, const UMaterial& m, CXMMATRIX viewProj, CXMMATRIX view, CXMMATRIX proj)
+	void SetTessellation(FxEffect* fx, const UMaterial& m, CXMMATRIX viewProj, CXMMATRIX view, CXMMATRIX proj, bool cull)
 	{
 		const UMaterial::Tessellation& s = m.GetTessellation();
 		const PbrMaterial& pbr = m.GetPbr();
@@ -333,6 +333,8 @@ namespace
 		SetVector(fx, "gTessParams", params);
 		SetVector(fx, "gTessUV", uv);
 		SetVector(fx, "gTessEye", eye);
+		const float cullV[4] = { cull ? 1.0f : 0.0f, fabsf(s.Amplitude) + 0.2f, 0.0f, 0.0f };   // 화면 밖 패치 (본 · 깊이만)
+		SetVector(fx, "gTessCull", cullV);
 		if (auto* v = fx->GetVariableByName("gHeightMap")->AsShaderResource(); v && v->IsValid())
 			v->SetResource(m.GetHeightMapSRV());
 	}
@@ -793,10 +795,10 @@ namespace MeshBatcher
 					const char* tessName = pass == Pass::Main ? "TessBatchTech" :
 						(pass == Pass::Shadow ? "TessBuildShadowMapInstancingTech" : "TessNormalDepthBatchTech");
 					FxTechnique* tessTech = fx->GetTechniqueByName(tessName);
-					if (TessellationEnabled() && tessTech && tessTech->IsValid() && tessTech->GetPassByIndex(0)->IsUsable())   // 테셀레이션이 없는 기기 (일부 OpenGL ES) = 아래 POM
+					if (TessellationEnabled() && (pass != Pass::Shadow || ShadowRenderer::TessellateShadow()) && tessTech && tessTech->IsValid() && tessTech->GetPassByIndex(0)->IsUsable())   // 테셀레이션이 없는 기기 (일부 OpenGL ES) = 아래 POM
 					{
 						SetTessellation(fx, *b->Material, viewProj, editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix,
-							editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix);
+							editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix, pass != Pass::Shadow);
 						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST);
 						tessTech->GetPassByIndex(0)->Apply(0, dc);
 						drawInstances();
@@ -810,7 +812,7 @@ namespace MeshBatcher
 						if (FxTechnique* pomTech = fx->GetTechniqueByName("PomBatchTech"); pomTech && pomTech->IsValid() && pomTech->GetPassByIndex(0)->IsUsable())
 						{
 							SetTessellation(fx, *b->Material, viewProj, editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix,
-								editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix);
+								editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix, false);
 							pomTech->GetPassByIndex(0)->Apply(0, dc);
 							drawInstances();
 							++drawn;

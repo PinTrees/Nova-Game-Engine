@@ -106,8 +106,21 @@ def main(out):
     save_rgb(os.path.join(out, 'Rocks_Base.png'), np.where((best > 0.05)[..., None], stone_c, soil_c))
     with open(os.path.join(out, 'Rocks_Height.png.meta'), 'w', encoding='utf-8') as f:
         json.dump({"textureType": "Default", "sRGB": False, "compression": "HighQuality"}, f, indent=4)
+    # 돌 표면의 잔 결 (Normal Map — 높이와 따로: 금 · 거친 결). 높이의 기울기로 범프하는 것과 겹치지 않게 잔 무늬만
+    detail = noise(128, 31) * 0.6 + noise(64, 32) * 0.4
+    cracks = np.abs(noise(32, 33) - 0.5) < 0.02
+    detail = detail - 0.35 * cracks
+    gy_, gx_ = np.gradient(detail)
+    k = 6.0
+    nx, ny = -gx_ * k * N / 64, -gy_ * k * N / 64
+    nz = np.ones_like(nx)
+    ln = np.sqrt(nx * nx + ny * ny + nz * nz)
+    save_rgb(os.path.join(out, 'Rocks_Normal.png'), np.stack([nx / ln * 0.5 + 0.5, ny / ln * 0.5 + 0.5, nz / ln * 0.5 + 0.5], -1))
+    with open(os.path.join(out, 'Rocks_Normal.png.meta'), 'w', encoding='utf-8') as f:
+        json.dump({"textureType": "NormalMap", "sRGB": False, "compression": "HighQuality"}, f, indent=4)
     with open(os.path.join(out, 'Rocks.terrainlayer'), 'w', encoding='utf-8') as f:
         json.dump({"diffuse": "Assets\\TessTest\\Rocks_Base.png", "tileSize": [3, 3], "tileOffset": [0, 0], "tint": [1, 1, 1, 1],
+                   "normalMap": "Assets\\TessTest\\Rocks_Normal.png", "normalScale": 1.0,
                    "height": "Assets\\TessTest\\Rocks_Height.png", "heightAmplitude": 0.25, "heightBase": 0.3}, f, indent=4)
 
     # 지형 레이어: 고운 흙 (낮고 완만한 높이 — 높이 기반 섞기에서 돌이 그 위로 드러난다) — Soil.terrainlayer

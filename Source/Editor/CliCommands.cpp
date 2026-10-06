@@ -561,6 +561,38 @@ namespace CliCommands
 			return true;
 		});
 
+		// 지형 높이: 원 안을 그 높이로 (가장자리 soft m 부드럽게 — 작으면 절벽) — 검사 · 자동화용 (Raise / Set Height 브러시와 같은 높이맵)
+		Register("terrain-height", "set terrain height inside a circle {target, height (m), center [x,z], radius m, soft? m (1)}", [](const json& a, json& r, std::string& e) {
+			if (!RequireEditMode(e)) return false;
+			GameObject* go = Resolve(a.value("target", json()), e);
+			if (!go) return false;
+			Terrain* terrain = go->GetComponent<Terrain>();
+			std::shared_ptr<TerrainData> data = terrain ? terrain->GetTerrainData() : nullptr;
+			if (!data) { e = PathOf(go) + " has no Terrain with terrain data"; return false; }
+			TerrainData& d = *data;
+			if (!a.contains("center") || !a["center"].is_array() || a["center"].size() != 2) { e = "center [x,z] is required"; return false; }
+			const float cx = a["center"][0].get<float>(), cz = a["center"][1].get<float>();
+			const float radius = a.value("radius", 5.0f), soft = (std::max)(0.01f, a.value("soft", 1.0f));
+			const float target = std::clamp(a.value("height", 0.0f) / (std::max)(d.Size.y, 1e-3f), 0.0f, 1.0f);
+			const Vec3 origin = go->GetTransform()->GetPosition();
+			const int res = d.HeightmapResolution;
+			int x0 = res, z0 = res, x1 = -1, z1 = -1;
+			for (int z = 0; z < res; ++z)
+				for (int x = 0; x < res; ++x)
+				{
+					const float wx = origin.x + (float)x / (res - 1) * d.Size.x - cx, wz = origin.z + (float)z / (res - 1) * d.Size.z - cz;
+					const float k = std::clamp((radius - sqrtf(wx * wx + wz * wz)) / soft, 0.0f, 1.0f);
+					if (k <= 0.0f) continue;
+					float& h = d.Heights[(size_t)z * res + x];
+					h = h + (target - h) * k;
+					x0 = (std::min)(x0, x); z0 = (std::min)(z0, z); x1 = (std::max)(x1, x); z1 = (std::max)(z1, z);
+				}
+			if (x1 >= 0)
+				d.OnHeightsChanged(x0, z0, x1, z1);
+			r = { { "changed", x1 >= 0 } };
+			return true;
+		});
+
 		// Terrain Layer: 목록 · 더하기 · 바꾸기 · 칠하기 (Paint Texture 와 같은 컨트롤 맵) — 검사 · 자동화용
 		Register("terrain-layer", "terrain layers {target, add?: .terrainlayer, set?: index + layer, fill?: index [center [x,z], radius m, soft m]}: list after", [](const json& a, json& r, std::string& e) {
 			if (!RequireEditMode(e)) return false;

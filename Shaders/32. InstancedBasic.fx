@@ -1614,15 +1614,15 @@ float4 TerrainShade(TerrainVertexOut pin, bool tess)
     float4 texColor;
     [branch] if (gTerrainHeightParams.x > 0.5f && gTerrainLayerCount > 0)
     {
-        // 레이어 높이 (61): POM 으로 옮긴 자리에서 높이 기반으로 섞은 색 + 높이 범프 (모든 거리)
+        // 레이어 높이 · Normal Map (61): POM 으로 옮긴 자리 (절벽도) 에서 높이 기반으로 섞은 색 · 노멀 + 높이 범프 (모든 거리)
         const float4 c = TerrainControlWeights(pin.UV);
         float3 lp = pin.PosW.xyz - gTerrainOrigin.xyz;
-        const float2 dxTop = ddx(lp.xz), dyTop = ddy(lp.xz);
-        lp = TerrainParallax(lp, pin.PosW.xyz, gEyePosW, normalW, c, dxTop, dyTop, TerrainParallaxWeight(distToEye, normalW, tess));
+        const float3 dLx = ddx(lp), dLy = ddy(lp);
+        lp = TerrainParallax(lp, pin.PosW.xyz, gEyePosW, normalW, c, dLx, dLy, TerrainParallaxWeight(distToEye, tess));
         const TerrainTriplanar tri = TerrainTriplanarSetup(lp, normalW);   // 절벽은 triplanar
-        const TerrainPixelHeight ph = TerrainHeightsAt(c, tri);
+        const TerrainPixelHeight ph = TerrainHeightsAt(c, tri, normalW);
         texColor = TerrainAlbedoW(ph.Weights, pin.UV, tri, distToEye);
-        normalW = TerrainBumpNormal(normalW, pin.PosW.xyz, ph.D, saturate((250.0f - distToEye) / 150.0f));
+        normalW = TerrainBumpNormal(ph.Normal, pin.PosW.xyz, ph.D, saturate((250.0f - distToEye) / 150.0f));
     }
     else
         texColor = TerrainAlbedo(pin.UV, pin.PosW.xyz - gTerrainOrigin.xyz, normalW, distToEye);   // 절벽은 triplanar

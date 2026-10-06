@@ -20,6 +20,7 @@ cbuffer cbTessellation
     float4 gTessParams;       // x 높이 (m), y 가운데 (0..1), z 최대 나눔 (1..64), w 나눔이 끝나는 거리 (m)
     float4 gTessUV;           // xy 타일링, zw 오프셋 (재질과 같은 값)
     float4 gTessEye;          // xyz 나눔을 정하는 카메라 (그림자 패스도 화면 카메라), w 1 m 거리에서 원하는 변 길이 (m)
+    float4 gTessCull;         // x 1 = 화면 밖 패치 버리기 (본 · 깊이 — 그림자는 0: 화면 밖 물체도 그림자를 드리운다), y 여유 (m — 밀 수 있는 높이)
 };
 Texture2D gHeightMap;
 SamplerState samTessHeight
@@ -60,9 +61,29 @@ float TessEdge(float3 a, float3 b)
     return f;
 }
 
+// 패치가 화면 (gTessViewProj) 밖인가: 세 점이 모두 한 평면 바깥 (여유 = 밀 수 있는 높이만큼). 본 · 깊이 프리패스가 같은 값 → 같은 패치
+bool TessPatchOutside(float3 p0, float3 p1, float3 p2)
+{
+    if (gTessCull.x < 0.5f)
+        return false;
+    const float4 a = mul(float4(p0, 1.0f), gTessViewProj);
+    const float4 b = mul(float4(p1, 1.0f), gTessViewProj);
+    const float4 c = mul(float4(p2, 1.0f), gTessViewProj);
+    const float m = gTessCull.y;
+    const float3 x = float3(a.x, b.x, c.x), y = float3(a.y, b.y, c.y), w = float3(a.w, b.w, c.w) + m;
+    return all(x < -w) || all(x > w) || all(y < -w) || all(y > w) || all(w < 0.0f);
+}
+
 TessPatch TessFactors(float3 p0, float3 p1, float3 p2)
 {
     TessPatch t;
+    if (TessPatchOutside(p0, p1, p2))
+    {
+        // 나눔 0 = 그 패치를 그리지 않는다 (카메라 뒤 · 옆 — 지형 노드는 카메라 아래에서 뒤로도 넓다)
+        t.Edge[0] = t.Edge[1] = t.Edge[2] = 0.0f;
+        t.Inside = 0.0f;
+        return t;
+    }
     t.Edge[0] = TessEdge(p1, p2);
     t.Edge[1] = TessEdge(p2, p0);
     t.Edge[2] = TessEdge(p0, p1);

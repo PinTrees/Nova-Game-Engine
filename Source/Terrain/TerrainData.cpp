@@ -90,6 +90,23 @@ void TerrainLayer::SetHeight(const std::string& path)
 	m_Height = nullptr;
 }
 
+GfxShaderResourceView* TerrainLayer::NormalSRV()
+{
+	if (!m_NormalLoaded)
+	{
+		m_NormalLoaded = true;
+		m_Normal = NormalPath.empty() ? nullptr : ResourceManager::GetI()->LoadTexture(string_to_wstring(NormalPath));
+	}
+	return m_Normal.Get();
+}
+
+void TerrainLayer::SetNormal(const std::string& path)
+{
+	NormalPath = NormalizePath(path);
+	m_NormalLoaded = false;
+	m_Normal = nullptr;
+}
+
 bool TerrainLayer::Save() const
 {
 	json j;
@@ -97,6 +114,11 @@ bool TerrainLayer::Save() const
 	j["tileSize"] = { TileSize.x, TileSize.y };
 	j["tileOffset"] = { TileOffset.x, TileOffset.y };
 	j["tint"] = { Tint.x, Tint.y, Tint.z, Tint.w };
+	if (!NormalPath.empty())
+	{
+		j["normalMap"] = NormalPath;
+		j["normalScale"] = NormalScale;
+	}
 	if (!HeightPath.empty())
 	{
 		j["height"] = HeightPath;
@@ -133,6 +155,8 @@ std::shared_ptr<TerrainLayer> TerrainLayer::Load(const std::string& rawPath)
 	layer->HeightPath = NormalizePath(j.value("height", std::string()));
 	layer->HeightAmplitude = (std::max)(0.0f, j.value("heightAmplitude", layer->HeightAmplitude));
 	layer->HeightBase = std::clamp(j.value("heightBase", layer->HeightBase), 0.0f, 1.0f);
+	layer->NormalPath = NormalizePath(j.value("normalMap", std::string()));
+	layer->NormalScale = j.value("normalScale", layer->NormalScale);
 	LayerCache()[path] = layer;
 	return layer;
 }

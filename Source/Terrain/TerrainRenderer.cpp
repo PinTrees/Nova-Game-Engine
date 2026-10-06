@@ -5,6 +5,7 @@
 #include "RenderStats.h"
 #include "WeatherState.h"
 #include "MeshBatcher.h"
+#include "ShadowRenderer.h"
 #include "EditorLog.h"
 #include <unordered_map>
 
@@ -151,8 +152,9 @@ namespace
 	constexpr float kTessDistance = 40.0f;        // 이 거리 너머는 나누지 않는다 (발자국 맵 창 48 m 의 거의 끝)
 	constexpr float kPomDistance = 100.0f;        // 레이어 높이의 POM 이 끝나는 거리 (나눔 거리 끝에서 이어 받는다)
 
-	// ---- 레이어 높이 배열 (61 의 gTerrainHeights): 레이어 높이 맵 넷을 Texture2DArray 하나로 — 지형 셰이더가 샘플러 하나로 읽는다
-	//  (OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도). 레이어 높이가 바뀔 때만 다시 (62. TerrainHeightBlit.fx + GenerateMips)
+	// ---- 레이어 높이 · 노멀 배열 (61 의 gTerrainHeights): 레이어 높이 맵 · Normal Map 여덟 장을 Texture2DArray 하나로 (R10G10B10A2:
+	//  R 높이, G · B 노멀 xy) — 지형 셰이더가 샘플러 하나로 읽는다 (OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도).
+	//  레이어 높이 · 노멀이 바뀔 때만 다시 (62. TerrainHeightBlit.fx + GenerateMips)
 	constexpr UINT kHeightArrayRes = 1024;
 	struct HeightArray
 	{
@@ -168,13 +170,16 @@ namespace
 		static std::unique_ptr<Effect> s_Blit;
 		static bool s_BlitTried = false;
 		GfxShaderResourceView* src[TerrainData::kMaxLayers] = {};
+		GfxShaderResourceView* nrm[TerrainData::kMaxLayers] = {};
 		std::string key;
 		for (int i = 0; i < (std::min)((int)data.Layers.size(), TerrainData::kMaxLayers); ++i)
 		{
 			TerrainLayer& l = *data.Layers[i];
 			if (l.HasHeight())
 				src[i] = l.HeightSRV();
-			key += l.HeightPath + "#" + std::to_string((uintptr_t)src[i]) + "|";
+			if (l.HasNormal())
+				nrm[i] = l.NormalSRV();
+			key += l.HeightPath + "#" + std::to_string((uintptr_t)src[i]) + "#" + l.NormalPath + "#" + std::to_string((uintptr_t)nrm[i]) + "|";
 		}
 		HeightArray& a = s_Arrays[&data];
 		if (a.Srv && a.Key == key)
@@ -198,7 +203,7 @@ namespace
 			td.Width = td.Height = kHeightArrayRes;
 			td.MipLevels = 11;   // 1024 → 1
 			td.ArraySize = TerrainData::kMaxLayers;
-			td.Format = DXGI_FORMAT_R16_FLOAT;
+			td.Format = DXGI_FORMAT_R10G10B10A2_UNORM;   // 높이 10 비트 (0.25 m 면 0.25 mm), 노멀 xy 10 비트
 			td.SampleDesc.Count = 1;
 			td.Usage = D3D11_USAGE_DEFAULT;
 			td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
@@ -227,6 +232,7 @@ namespace
 		FxEffect* fx = s_Blit->GetFX();
 		FxTechnique* tech = fx->GetTechniqueByName("BlitTech");
 		FxVar* source = fx->GetVariableByName("gBlitSource");
+		FxVar* normal = fx->GetVariableByName("gBlitNormal");
 		FxVar* params = fx->GetVariableByName("gBlitParams");
 		if (!a.Srv || !tech || !tech->IsValid() || !source || !source->IsValid())
 			return nullptr;
@@ -250,26 +256,30 @@ namespace
 		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		const D3D11_VIEWPORT vp = { 0, 0, (float)kHeightArrayRes, (float)kHeightArrayRes, 0.0f, 1.0f };
 		ctx->RSSetViewports(1, &vp);
-		const float p[4] = { (float)kHeightArrayRes, 0, 0, 0 };
-		if (params && params->IsValid())
-			params->AsVector()->SetFloatVector(p);
 		for (int i = 0; i < TerrainData::kMaxLayers; ++i)
 		{
 			GfxRenderTargetView* rtv = a.Rtv[i].Get();
 			if (!rtv)
 				continue;
-			if (!src[i])
+			if (!src[i] && !nrm[i])
 			{
-				const float mid[4] = { 0.5f, 0.5f, 0.5f, 0.5f };   // 높이 맵 없는 레이어 = 가운데 (셰이더는 Base 를 쓴다)
+				const float mid[4] = { 0.5f, 0.5f, 0.5f, 1.0f };   // 높이 · 노멀 없는 레이어 = 가운데 · 평평 (셰이더는 Base 를 쓴다)
 				ctx->ClearRenderTargetView(rtv, mid);
 				continue;
 			}
+			const float p[4] = { (float)kHeightArrayRes, src[i] ? 1.0f : 0.0f, nrm[i] ? 1.0f : 0.0f, 0.0f };
+			if (params && params->IsValid())
+				params->AsVector()->SetFloatVector(p);
 			ctx->OMSetRenderTargets(1, &rtv, nullptr);
 			source->AsShaderResource()->SetResource(src[i]);
+			if (normal && normal->IsValid())
+				normal->AsShaderResource()->SetResource(nrm[i]);
 			tech->GetPassByIndex(0)->Apply(0, ctx);
 			ctx->Draw(3, 0);
 		}
 		source->AsShaderResource()->SetResource(nullptr);
+		if (normal && normal->IsValid())
+			normal->AsShaderResource()->SetResource(nullptr);
 		tech->GetPassByIndex(0)->Apply(0, ctx);
 		GfxRenderTargetView* restore[1] = { oldRtv.Get() };
 		ctx->OMSetRenderTargets(1, restore, oldDsv.Get());
@@ -486,7 +496,7 @@ namespace TerrainRenderer
 		v.Origin->SetFloatVector(reinterpret_cast<const float*>(&originVec));
 		v.HeightMap->SetResource(heightSRV);
 		// 레이어 타일 · 컨트롤 맵 · 높이 변위: 모든 패스 (테셀레이션의 Domain 이 깊이 · 그림자에서도 같은 높이를 읽는다)
-		bool anyHeight = false;
+		bool anyHeight = false, anyNormal = false;   // 높이 맵 (변위 · 테셀레이션) · Normal Map 이 있는 레이어
 		float maxLift = 0.0f;   // 가장 큰 높이 변위 (m) — 노드 컬링 상자를 그만큼 넓힌다
 		{
 			XMFLOAT4 st[4] = {}, tint[4] = {}, height[4] = {};
@@ -498,19 +508,21 @@ namespace TerrainRenderer
 				st[i] = XMFLOAT4(1.0f / tile.x, 1.0f / tile.y, layer ? layer->TileOffset.x / tile.x : 0.0f, layer ? layer->TileOffset.y / tile.y : 0.0f);
 				tint[i] = layer ? layer->Tint : XMFLOAT4(1, 1, 1, 1);
 				const bool has = layer && layer->HasHeight();
-				height[i] = XMFLOAT4(has ? layer->HeightAmplitude : 0.0f, layer ? layer->HeightBase : 0.5f, 0.0f, 0.0f);
+				const bool hasNormal = layer && layer->HasNormal();
+				height[i] = XMFLOAT4(has ? layer->HeightAmplitude : 0.0f, layer ? layer->HeightBase : 0.5f, hasNormal ? layer->NormalScale : 0.0f, 0.0f);
 				anyHeight |= has;
+				anyNormal |= hasNormal;
 				if (has) maxLift = (std::max)(maxLift, layer->HeightAmplitude);
 			}
 			if (v.Heights && v.Heights->IsValid())
-				v.Heights->SetResource(anyHeight ? HeightArrayFor(data) : nullptr);
+				v.Heights->SetResource(anyHeight || anyNormal ? HeightArrayFor(data) : nullptr);
 			v.LayerST->SetFloatVectorArray(reinterpret_cast<const float*>(st), 0, 4);
 			v.LayerCount->SetInt(layerCount);
 			v.Control->SetResource(data.ControlSRV());
 			if (v.LayerHeight && v.LayerHeight->IsValid())
 				v.LayerHeight->SetFloatVectorArray(reinterpret_cast<const float*>(height), 0, 4);
 			// w (나눔 거리) 는 아래에서 테셀레이션으로 그릴 때
-			const float hp[4] = { anyHeight ? 1.0f : 0.0f, (std::max)(0.0f, heightTransition), kPomDistance, 0.0f };
+			const float hp[4] = { anyHeight || anyNormal ? 1.0f : 0.0f, (std::max)(0.0f, heightTransition), kPomDistance, 0.0f };
 			if (v.HeightParams && v.HeightParams->IsValid())
 				v.HeightParams->SetFloatVector(hp);
 			if (pass == Pass::Main)
@@ -537,7 +549,7 @@ namespace TerrainRenderer
 		{
 			const WeatherState& w = WeatherState::Get();
 			const bool snow = pass == Pass::Main && w.NeedsCover() && w.SnowCover > 0.001f;
-			if ((anyHeight || snow) && MeshBatcher::TessellationEnabled() && v.TessTech && v.TessTech->IsValid() && v.TessTech->GetPassByIndex(0)->IsUsable())
+			if ((anyHeight || snow) && MeshBatcher::TessellationEnabled() && (pass != Pass::Shadow || ShadowRenderer::TessellateShadow()) && v.TessTech && v.TessTech->IsValid() && v.TessTech->GetPassByIndex(0)->IsUsable())
 			{
 				tech = v.TessTech;
 				tess = true;
@@ -547,7 +559,11 @@ namespace TerrainRenderer
 				const float eye[4] = { cameraPos.x, cameraPos.y, cameraPos.z, edge };
 				SetVector(fx, "gTessParams", params);
 				SetVector(fx, "gTessEye", eye);
-				const float hp[4] = { anyHeight ? 1.0f : 0.0f, (std::max)(0.0f, heightTransition), kPomDistance, kTessDistance };   // POM 이 나눔 거리 끝에서 이어 받게
+				// 화면 밖 패치 버리기 (본 · 깊이 — 카메라 노드는 뒤로도 넓다). 여유 = 민 높이 + 눈
+				SetMatrix(fx, "gTessViewProj", viewProj);
+				const float cullV[4] = { pass != Pass::Shadow ? 1.0f : 0.0f, maxLift + 1.0f, 0.0f, 0.0f };
+				SetVector(fx, "gTessCull", cullV);
+				const float hp[4] = { anyHeight || anyNormal ? 1.0f : 0.0f, (std::max)(0.0f, heightTransition), kPomDistance, kTessDistance };   // POM 이 나눔 거리 끝에서 이어 받게
 				if (v.HeightParams && v.HeightParams->IsValid())
 					v.HeightParams->SetFloatVector(hp);
 			}

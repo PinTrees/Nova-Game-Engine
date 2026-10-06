@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **지형 높이 3 차: 높이 배열 · 높이 기반 섞기 · 지형 POM · 픽셀 범프** (사용자 지시: "높이 기반 레이어 섞기 · 지형 POM 과 먼 거리 높이 음영"). **완료 (커밋 · 푸시함)**
+- 갱신 시각: 2026년 10월 6일 — **테셀레이션 Release 성능 · 절벽 POM · Terrain Layer Normal Map** (사용자 지시: "절벽 POM 과 레이어 Normal Map · 테셀레이션 Release 성능 측정과 최적화"). **완료 (커밋 · 푸시함)**
+  - 성능 (Release, ClaudePerfEngine, MuMu 끔, 번갈아 3 번 중앙값, 1660 SUPER Scene 뷰 1904x1001, 돌 지형): 테셀레이션 켬 2.40 → **1.72 ms** — 화면 밖 패치를 Hull 에서 버림 (60 `TessPatchOutside` · `gTessCull`, 본 · 깊이만),
+    방향광 캐스케이드 1 ~ 3 은 나누지 않음 (`ShadowRenderer::CasterPass::Cascade` · `TessellateShadow()`). Normal Map 을 더한 뒤 2.16 ms (그림자 0.38 · 깊이 0.16 · 본 1.24), 끔 (POM) 1.85, 높이 없음 0.92
+  - Normal Map: `TerrainLayer` NormalPath · NormalScale (normalMap · normalScale), 편집기 칸 + Fix Now. 배열을 R10G10B10A2 로 (R 높이, GB 노멀 xy) — 샘플러를 늘리지 않는다. 62 blit 이 두 원본. 61 `TerrainLayerHN` (삼평면 화이트아웃)
+  - 절벽 POM: 61 `TerrainParallax` 를 3D 로 (가장 큰 투영, 섞이는 비탈은 줄임). CLI `nova terrain-height` (원 안 높이 — 절벽 검사)
+  - 검사: tessellation 스위트에 Normal Map · 절벽 POM 추가. 문서 TESSELLATION.md 성능 표 · 절벽, NOVA_CLI. Showcase 242
+- 이전: 2026년 10월 6일 — **지형 높이 3 차: 높이 배열 · 높이 기반 섞기 · 지형 POM · 픽셀 범프** (사용자 지시: "높이 기반 레이어 섞기 · 지형 POM 과 먼 거리 높이 음영"). **완료 (커밋 · 푸시함)**
   - 새 `Shaders/62. TerrainHeightBlit.fx` + `TerrainRenderer.cpp` HeightArrayFor (레이어 높이 맵 넷 → Texture2DArray R16F 1024² 밉, 키가 바뀔 때만 GPU 로 모음 · 상태 되돌림)
   - `61. TerrainTessellation.fx` 다시: gTerrainHeights (배열 — 샘플러 하나), TerrainHeightBlend (HDRP 식, 색 · 변위 · 범프 같은 가중치), TerrainNoTileHeight (레벨 / 미분), TerrainParallax · Weight (위 투영 POM, 40 ~ 100 m · 테셀레이션 없으면 0 ~ 100 m),
     TerrainBumpNormal (모든 거리, 250 m 까지). Domain 법선 (TerrainDisplacedNormal) 은 뺌. 40 `TerrainControlWeights` · `TerrainAlbedoW`, 32 `TerrainShade(pin, tess)`

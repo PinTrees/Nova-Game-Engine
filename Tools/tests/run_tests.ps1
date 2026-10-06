@@ -3993,6 +3993,34 @@ function Suite-Tessellation([string]$Api = 'dx')
         $dpo = DiffRatio $pOn $pFlat; $spo = Stats $pOn
         Add-Result $sn 'Terrain without tessellation: POM + height bump from the layer height array show the rocks (vs Amplitude 0)' ($dpo -gt 0.02 -and $spo.Dark -lt 0.002) ("{0:P1} pixels differ; near-black {1:P3}" -f $dpo, $spo.Dark)
 
+        # 10 · 11. 절벽 (6 m 단 — terrain-height): Terrain Layer 의 Normal Map 이 음영을 바꾸고, 테셀레이션 없이도 절벽 면에 POM (옆 투영)
+        $td = Join-Path $Project 'Assets\TessTest'
+        $rj = Get-Content -Raw (Join-Path $td 'Rocks.terrainlayer') | ConvertFrom-Json
+        $rj.normalScale = 0; $rj | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $td 'RocksNoNormal.terrainlayer')
+        $rj = Get-Content -Raw (Join-Path $td 'Rocks.terrainlayer') | ConvertFrom-Json
+        $rj.heightAmplitude = 0; $rj | ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $td 'RocksFlat.terrainlayer')
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create terrain --name Ground --position -500,0,-500' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --add Assets\TessTest\Soil.terrainlayer' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --add Assets\TessTest\Rocks.terrainlayer' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --fill 1 --center 0,15 --radius 30 --soft 4' | Out-Null
+        Invoke-NovaJson 'terrain-height Ground --height 6 --center 0,18 --radius 8 --soft 1.5' | Out-Null
+        function CliffShot([string]$name) { Invoke-Nova 'camera --position 0,2.2,3 --target 0,2.5,10' | Out-Null; Shot $name 30 }
+        $nOn = CliffShot 'cliff_normal.png'
+        Invoke-NovaJson 'terrain-layer Ground --set 1 --layer Assets\TessTest\RocksNoNormal.terrainlayer' | Out-Null
+        $nOff = CliffShot 'cliff_nonormal.png'
+        $dn = DiffRatio $nOn $nOff; $sn2 = Stats $nOn
+        Add-Result $sn 'Terrain Layer Normal Map (packed with the heights — no extra sampler) changes the shading of rocks on the ground and the cliff' ($dn -gt 0.03 -and $sn2.Dark -lt 0.002) ("{0:P1} pixels differ from Normal Scale 0; near-black {1:P3}" -f $dn, $sn2.Dark)
+        Invoke-NovaJson 'terrain-layer Ground --set 1 --layer Assets\TessTest\Rocks.terrainlayer' | Out-Null
+        Invoke-Nova 'tessellation set --enabled false' | Out-Null
+        $cOn = CliffShot 'cliff_pom.png'
+        Invoke-NovaJson 'terrain-layer Ground --set 1 --layer Assets\TessTest\RocksFlat.terrainlayer' | Out-Null
+        $cOff = CliffShot 'cliff_pom_flat.png'
+        Invoke-Nova 'tessellation set --enabled true' | Out-Null
+        Remove-Item (Join-Path $td 'RocksNoNormal.terrainlayer'), (Join-Path $td 'RocksFlat.terrainlayer') -ErrorAction SilentlyContinue
+        $dc = DiffRatio $cOn $cOff; $sc2 = Stats $cOn
+        Add-Result $sn 'Cliff without tessellation: POM along the side projection + height bump show the rocks on the cliff face (vs Amplitude 0)' ($dc -gt 0.02 -and $sc2.Dark -lt 0.002) ("{0:P1} pixels differ; near-black {1:P3}" -f $dc, $sc2.Dark)
+
         # 4. 쌓인 눈의 지형 (날씨): 지형을 실제로 올린다 → 같은 눈 덮임에서 삼각형이 늘고, 공이 지나간 자국이 파인다 (검은 얼룩 없음)
         if ($Api -eq 'dx')
         {

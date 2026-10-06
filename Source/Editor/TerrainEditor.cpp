@@ -17,6 +17,7 @@
 #include "SelectionManager.h"
 #include "PathManager.h"
 #include "ImportSettingsInspector.h"
+#include "AssetImportSettings.h"
 #include <random>
 
 namespace
@@ -1256,6 +1257,43 @@ namespace
 			}
 			if (UnityGUI::Vector2Pair("Tile Size", "X", &layer.TileSize.x, "Y", &layer.TileSize.y, 1)) layer.Save();
 			if (UnityGUI::Vector2Pair("Tile Offset", "X", &layer.TileOffset.x, "Y", &layer.TileOffset.y, 1)) layer.Save();
+			// Normal Map + Normal Scale (Unity TerrainLayer 와 같은 칸)
+			const std::string normalName = layer.NormalPath.empty() ? "None (Texture 2D)" : std::filesystem::path(layer.NormalPath).filename().string();
+			if (UnityGUI::ObjectField("Normal Map", normalName.c_str(), 1))
+				ImGui::OpenPopup("##normalpick");
+			ImGui::SetNextWindowSizeConstraints(ImVec2(280, 0), ImVec2(520, 360));
+			if (ImGui::BeginPopup("##normalpick"))
+			{
+				static std::vector<std::string> textures;
+				if (ImGui::IsWindowAppearing())
+				{
+					textures = ScanFiles(L".png");
+					for (auto& t : ScanFiles(L".jpg")) textures.push_back(t);
+				}
+				if (ImGui::Selectable("None", layer.NormalPath.empty()))
+				{
+					layer.SetNormal(std::string());
+					layer.Save();
+				}
+				for (const std::string& t : textures)
+					if (ImGui::Selectable(t.c_str(), t == layer.NormalPath))
+					{
+						layer.SetNormal(t);
+						layer.Save();
+					}
+				ImGui::EndPopup();
+			}
+			if (!layer.NormalPath.empty())
+			{
+				if (UnityGUI::Float("Normal Scale", &layer.NormalScale, 2)) layer.Save();
+				const std::wstring full = PathManager::GetI()->GetMovePathW(string_to_wstring(layer.NormalPath));
+				if (AssetImport::AppliesTo(full) && AssetImport::LoadTexture(full).TextureType != AssetImport::TextureSettings::NormalMap)
+				{
+					UnityGUI::HelpBox("This texture is not marked as a normal map.", true, 1);
+					if (UnityGUI::CenterButton("Fix Now##terrainNormalFix", 120.0f))
+						ImportSettingsInspector::MarkAsNormalMap(full);
+				}
+			}
 			// 높이 변위 (테셀레이션): Height Map + Amplitude (m) · Base — 바위 · 자갈 · 흙길이 실제 입체로
 			const std::string heightName = layer.HeightPath.empty() ? "None (Texture 2D)" : std::filesystem::path(layer.HeightPath).filename().string();
 			if (UnityGUI::ObjectField("Height Map", heightName.c_str(), 1))

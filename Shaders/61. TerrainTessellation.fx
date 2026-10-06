@@ -15,10 +15,10 @@
 
 cbuffer cbTerrainHeight
 {
-    float4 gTerrainLayerHeight[4];   // 레이어마다 x 높이 (m, 0 = 높이 맵 없음), y Base (0..1)
+    float4 gTerrainLayerHeight[4];   // 레이어마다 x 높이 (m, 0 = 높이 맵 없음), y Base (0..1), z Normal Scale (0 = Normal Map 없음)
     float4 gTerrainHeightParams;     // x 1 = 높이 맵이 있는 레이어가 있다, y 높이 기반 섞기 전환 폭 (0 = 끔), z POM 이 끝나는 거리 (m), w 나눔 거리 (m, 0 = 테셀레이션 아님)
 };
-Texture2DArray gTerrainHeights;      // 슬라이스 = 레이어 (R16F, 높이 맵 없는 레이어 = 0.5)
+Texture2DArray gTerrainHeights;      // 슬라이스 = 레이어 (R10G10B10A2: R 높이 — 없으면 0.5, G · B Normal Map xy — 없으면 0.5)
 
 // 컨트롤 맵 가중치 (TerrainAlbedo 와 같은 정규화). 밉 0 — Domain 에서도
 float4 TerrainControlWeightsLevel(float2 uv)
@@ -98,19 +98,6 @@ float TerrainLayerHeightLevel(float slice, float4 st, float3 lp, float3 w, float
         h += w.x * gTerrainHeights.SampleLevel(samTerrainWrap, float3(float2(lp.z, -lp.y) * st.xy + st.zw, slice), mip).r;
     [branch] if (w.z > 0.0f)
         h += w.z * gTerrainHeights.SampleLevel(samTerrainWrap, float3(float2(lp.x, -lp.y) * st.xy + st.zw, slice), mip).r;
-    return h;
-}
-
-// 레이어 하나의 높이 (픽셀 — TerrainLayerSample 과 같은 투영 · 미분)
-float TerrainLayerHeightGrad(float slice, float4 st, TerrainTriplanar t)
-{
-    float h = 0.0f;
-    [branch] if (t.W.y > 0.0f)
-        h += t.W.y * TerrainNoTileHeight(slice, t.Top * st.xy + st.zw, false, 0, t.TopDx * st.xy, t.TopDy * st.xy);
-    [branch] if (t.W.x > 0.0f)
-        h += t.W.x * gTerrainHeights.SampleGrad(samTerrainWrap, float3(t.SideX * st.xy + st.zw, slice), t.XDx * st.xy, t.XDy * st.xy).r;
-    [branch] if (t.W.z > 0.0f)
-        h += t.W.z * gTerrainHeights.SampleGrad(samTerrainWrap, float3(t.SideZ * st.xy + st.zw, slice), t.ZDx * st.xy, t.ZDy * st.xy).r;
     return h;
 }
 
@@ -224,26 +211,118 @@ float3 TerrainTessPosition(TerrainCP a, TerrainCP b, TerrainCP c, float3 w, out 
     return moved;
 }
 
-// ---- 픽셀 (본 패스 PS): 섞은 가중치 · 높이 (m) — 색 · 범프가 쓴다
+// ---- 픽셀 (본 패스 PS): 섞은 가중치 · 높이 (m) · 노멀 — 색 · 범프가 쓴다
+//  배열의 G · B = 레이어 Normal Map 의 xy (0.5 = 평평). 삼평면 노멀은 투영마다 화이트아웃으로 지형 법선에 얹는다 (Golus 2017)
+
+// 타일 없애기 무늬 (TerrainNoTileHeight 와 같은 격자 · 해시) 의 높이 + 노멀 xy (미분 지정). 높이만 분산 보존
+float3 TerrainNoTileHN(float slice, float2 uv, float2 dx, float2 dy)
+{
+    const float2 skewed = mul(float2x2(1.0f, 0.0f, -0.57735027f, 1.15470054f), uv * 1.8f);
+    const float2 base = floor(skewed);
+    float3 t = float3(frac(skewed), 0.0f);
+    t.z = 1.0f - t.x - t.y;
+    float3 w;
+    float2 v1, v2, v3;
+    if (t.z > 0.0f)
+    {
+        w = float3(t.z, t.y, t.x);
+        v1 = base; v2 = base + float2(0, 1); v3 = base + float2(1, 0);
+    }
+    else
+    {
+        w = float3(-t.z, 1.0f - t.y, 1.0f - t.x);
+        v1 = base + float2(1, 1); v2 = base + float2(1, 0); v3 = base + float2(0, 1);
+    }
+    const float3 a = gTerrainHeights.SampleGrad(samTerrainWrap, float3(uv + TerrainHash2(v1) * 7.0f, slice), dx, dy).rgb;
+    const float3 b = gTerrainHeights.SampleGrad(samTerrainWrap, float3(uv + TerrainHash2(v2) * 7.0f, slice), dx, dy).rgb;
+    const float3 c = gTerrainHeights.SampleGrad(samTerrainWrap, float3(uv + TerrainHash2(v3) * 7.0f, slice), dx, dy).rgb;
+    float3 wp = w * w;
+    wp *= wp;
+    wp /= wp.x + wp.y + wp.z;
+    const float mean = gTerrainHeights.SampleLevel(samTerrainWrap, float3(0.5f, 0.5f, slice), 16).r;
+    const float3 mixed = a * wp.x + b * wp.y + c * wp.z;
+    const float k = rsqrt(max(dot(wp, wp), 1e-4f));
+    return float3(saturate(mean + (mixed.x - mean) * lerp(1.0f, k, 0.6f)), mixed.yz);
+}
+
+// 노멀 xy (0..1) → 접공간 노멀 (Normal Scale 만큼)
+float3 TerrainUnpackNormal(float2 xy, float scale)
+{
+    float2 v = (xy * 2.0f - 1.0f) * scale;
+    return float3(v, sqrt(saturate(1.0f - dot(v, v))));
+}
+
+// 레이어 하나: 높이 (0..1) 와 그 레이어의 월드 노멀 (n = 지형 법선, scale 0 = Normal Map 없음 → n)
+float TerrainLayerHN(float slice, float4 st, TerrainTriplanar t, float3 n, float scale, out float3 nW)
+{
+    float h = 0.0f;
+    float3 acc = 0.0f;
+    [branch] if (t.W.y > 0.0f)
+    {
+        const float3 s = TerrainNoTileHN(slice, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy);
+        h += t.W.y * s.x;
+        const float3 tn = TerrainUnpackNormal(s.yz, scale);
+        acc += t.W.y * float3(tn.x + n.x, abs(tn.z) * n.y, tn.y + n.z);   // 위: u = +x, v = +z
+    }
+    [branch] if (t.W.x > 0.0f)
+    {
+        const float3 s = gTerrainHeights.SampleGrad(samTerrainWrap, float3(t.SideX * st.xy + st.zw, slice), t.XDx * st.xy, t.XDy * st.xy).rgb;
+        h += t.W.x * s.x;
+        float3 tn = TerrainUnpackNormal(s.yz, scale);
+        tn.x *= n.x < 0.0f ? -1.0f : 1.0f;
+        acc += t.W.x * float3(abs(tn.z) * n.x, n.y - tn.y, tn.x + n.z);   // x 면: u = +z, v = -y
+    }
+    [branch] if (t.W.z > 0.0f)
+    {
+        const float3 s = gTerrainHeights.SampleGrad(samTerrainWrap, float3(t.SideZ * st.xy + st.zw, slice), t.ZDx * st.xy, t.ZDy * st.xy).rgb;
+        h += t.W.z * s.x;
+        float3 tn = TerrainUnpackNormal(s.yz, scale);
+        tn.x *= n.z < 0.0f ? 1.0f : -1.0f;
+        acc += t.W.z * float3(tn.x + n.x, n.y - tn.y, abs(tn.z) * n.z);   // z 면: u = +x, v = -y
+    }
+    nW = scale != 0.0f ? normalize(acc) : n;
+    return h;
+}
+
 struct TerrainPixelHeight
 {
     float4 Weights;   // 높이 기반으로 섞은 레이어 가중치
     float D;          // 변위 (m)
+    float3 Normal;    // 레이어 Normal Map 을 섞은 월드 노멀 (없으면 지형 법선)
 };
 
-TerrainPixelHeight TerrainHeightsAt(float4 c, TerrainTriplanar t)
+TerrainPixelHeight TerrainHeightsAt(float4 c, TerrainTriplanar t, float3 n)
 {
     float4 h = float4(gTerrainLayerHeight[0].y, gTerrainLayerHeight[1].y, gTerrainLayerHeight[2].y, gTerrainLayerHeight[3].y);
-    [branch] if (c.r > 0.0f && gTerrainLayerHeight[0].x > 0.0f) h.r = TerrainLayerHeightGrad(0, gTerrainLayerST[0], t);
-    [branch] if (c.g > 0.0f && gTerrainLayerHeight[1].x > 0.0f) h.g = TerrainLayerHeightGrad(1, gTerrainLayerST[1], t);
-    [branch] if (c.b > 0.0f && gTerrainLayerHeight[2].x > 0.0f) h.b = TerrainLayerHeightGrad(2, gTerrainLayerST[2], t);
-    [branch] if (c.a > 0.0f && gTerrainLayerHeight[3].x > 0.0f) h.a = TerrainLayerHeightGrad(3, gTerrainLayerST[3], t);
+    float3 n0 = n, n1 = n, n2 = n, n3 = n;
+    // 높이 (x) 또는 Normal Map (z) 이 있는 레이어만 배열을 읽는다
+    [branch] if (c.r > 0.0f && (gTerrainLayerHeight[0].x > 0.0f || gTerrainLayerHeight[0].z != 0.0f))
+    {
+        const float v = TerrainLayerHN(0, gTerrainLayerST[0], t, n, gTerrainLayerHeight[0].z, n0);
+        if (gTerrainLayerHeight[0].x > 0.0f) h.r = v;
+    }
+    [branch] if (c.g > 0.0f && (gTerrainLayerHeight[1].x > 0.0f || gTerrainLayerHeight[1].z != 0.0f))
+    {
+        const float v = TerrainLayerHN(1, gTerrainLayerST[1], t, n, gTerrainLayerHeight[1].z, n1);
+        if (gTerrainLayerHeight[1].x > 0.0f) h.g = v;
+    }
+    [branch] if (c.b > 0.0f && (gTerrainLayerHeight[2].x > 0.0f || gTerrainLayerHeight[2].z != 0.0f))
+    {
+        const float v = TerrainLayerHN(2, gTerrainLayerST[2], t, n, gTerrainLayerHeight[2].z, n2);
+        if (gTerrainLayerHeight[2].x > 0.0f) h.b = v;
+    }
+    [branch] if (c.a > 0.0f && (gTerrainLayerHeight[3].x > 0.0f || gTerrainLayerHeight[3].z != 0.0f))
+    {
+        const float v = TerrainLayerHN(3, gTerrainLayerST[3], t, n, gTerrainLayerHeight[3].z, n3);
+        if (gTerrainLayerHeight[3].x > 0.0f) h.a = v;
+    }
     TerrainPixelHeight o;
     o.D = TerrainBlendDisplacement(c, h, o.Weights);
+    o.Normal = normalize(n0 * o.Weights.r + n1 * o.Weights.g + n2 * o.Weights.b + n3 * o.Weights.a);
     return o;
 }
 
-// 범프: 높이의 화면 미분 (Mikkelsen 2010 의 surface gradient). fade = 멀어지면 0 (반짝이지 않게)
+// 범프: 높이의 화면 미분 (Mikkelsen 2010 의 surface gradient) 을 노멀 n 에 얹는다. fade = 멀어지면 0 (반짝이지 않게)
 float3 TerrainBumpNormal(float3 n, float3 posW, float d, float fade)
 {
     const float3 sx = ddx(posW), sy = ddy(posW);
@@ -255,17 +334,46 @@ float3 TerrainBumpNormal(float3 n, float3 posW, float d, float fade)
     return dot(bumped, bumped) > 1e-20f ? normalize(bumped) : n;
 }
 
-// POM (위 투영 — 평평한 땅): 시선을 높이 맨 위에서 맨 아래로 걸어 내려가며 처음 닿는 xz 로 옮긴 지형 로컬 위치.
-//  c = 컨트롤 가중치, weight 0 = 그대로. 깊이는 바꾸지 않는다
-float3 TerrainParallax(float3 lp, float3 posW, float3 eye, float3 n, float4 c, float2 dxTop, float2 dyTop, float weight)
+// 투영 하나의 좌표 (지형 로컬 위치 → 그 투영의 uv, 미터): 0 = 위 (xz), 1 = x 면 (z, -y), 2 = z 면 (x, -y) — TerrainTriplanarSetup 과 같은 축
+float2 TerrainProjUV(int proj, float3 p)
+{
+    return proj == 0 ? p.xz : (proj == 1 ? float2(p.z, -p.y) : float2(p.x, -p.y));
+}
+
+// 그 투영으로 본 섞은 높이 (m) — POM 걸음마다 (위는 타일 없애기 무늬, 옆은 그대로)
+float TerrainProjDisplacement(int proj, float3 p, float4 c, float2 gx, float2 gy)
+{
+    const float2 uv = TerrainProjUV(proj, p);
+    float4 h = float4(gTerrainLayerHeight[0].y, gTerrainLayerHeight[1].y, gTerrainLayerHeight[2].y, gTerrainLayerHeight[3].y);
+    [unroll] for (int i = 0; i < 4; ++i)
+    {
+        [branch] if (c[i] > 0.01f && gTerrainLayerHeight[i].x > 0.0f)
+        {
+            const float4 st = gTerrainLayerST[i];
+            h[i] = proj == 0 ? TerrainNoTileHeight(i, uv * st.xy + st.zw, false, 0, gx * st.xy, gy * st.xy)
+                             : gTerrainHeights.SampleGrad(samTerrainWrap, float3(uv * st.xy + st.zw, i), gx * st.xy, gy * st.xy).r;
+        }
+    }
+    float4 blended;
+    return TerrainBlendDisplacement(c, h, blended);
+}
+
+// POM: 지형 법선 쪽 높이 맨 위에서 맨 아래로 시선을 걸어 내려가며 처음 닿는 자리로 옮긴 지형 로컬 위치 (3D).
+//  가장 큰 삼평면 투영으로 (평평한 땅 = 위, 절벽 = 옆). 투영이 섞이는 곳 (가중치가 고르게 나뉜 곳) 은 줄인다. 깊이는 바꾸지 않는다
+//  dLx · dLy = 지형 로컬 위치의 화면 미분 (분기 밖에서)
+float3 TerrainParallax(float3 lp, float3 posW, float3 eye, float3 n, float4 c, float3 dLx, float3 dLy, float weight)
 {
     if (weight <= 0.001f)
         return lp;
+    float3 w = n * n;
+    w *= w;
+    w /= max(w.x + w.y + w.z, 1e-5f);
+    const int proj = w.y >= max(w.x, w.z) ? 0 : (w.x >= w.z ? 1 : 2);
+    weight *= saturate((max(w.y, max(w.x, w.z)) - 0.55f) * 4.0f);
     const float3 D = normalize(posW - eye);
     const float dz = dot(D, n);
-    if (dz > -0.05f)
+    if (weight <= 0.001f || dz > -0.05f)
         return lp;
-    // 높이 범위 (m): 레이어마다 (1 − Base) × 높이 위로, Base × 높이 아래로
     float top = 0.0f, bottom = 0.0f;
     [unroll] for (int i = 0; i < 4; ++i)
     {
@@ -275,43 +383,37 @@ float3 TerrainParallax(float3 lp, float3 posW, float3 eye, float3 n, float4 c, f
     const float range = top + bottom;
     if (range <= 1e-4f)
         return lp;
-    const float2 dxz = D.xz / -dz;   // 1 m 내려갈 때 xz 가 움직이는 양
-    const float2 xzTop = lp.xz - dxz * top;
+    const float2 gx = TerrainProjUV(proj, dLx), gy = TerrainProjUV(proj, dLy);
+    const float3 step = D / -dz;   // 법선 쪽으로 1 m 내려갈 때 옮겨 가는 자리
+    const float3 pTop = lp - step * top;
     const int steps = (int) lerp(10.0f, 5.0f, saturate(-dz));
     float prevGap = 0.0f, prevS = 0.0f;
-    float2 hit = lp.xz + dxz * bottom;
+    float3 hit = lp + step * bottom;
     [loop]
     for (int k = 0; k <= steps; ++k)
     {
         const float s = range * k / steps;
-        const float2 xz = xzTop + dxz * s;
-        float4 h = float4(gTerrainLayerHeight[0].y, gTerrainLayerHeight[1].y, gTerrainLayerHeight[2].y, gTerrainLayerHeight[3].y);
-        [branch] if (c.r > 0.01f && gTerrainLayerHeight[0].x > 0.0f) h.r = TerrainNoTileHeight(0, xz * gTerrainLayerST[0].xy + gTerrainLayerST[0].zw, false, 0, dxTop * gTerrainLayerST[0].xy, dyTop * gTerrainLayerST[0].xy);
-        [branch] if (c.g > 0.01f && gTerrainLayerHeight[1].x > 0.0f) h.g = TerrainNoTileHeight(1, xz * gTerrainLayerST[1].xy + gTerrainLayerST[1].zw, false, 0, dxTop * gTerrainLayerST[1].xy, dyTop * gTerrainLayerST[1].xy);
-        [branch] if (c.b > 0.01f && gTerrainLayerHeight[2].x > 0.0f) h.b = TerrainNoTileHeight(2, xz * gTerrainLayerST[2].xy + gTerrainLayerST[2].zw, false, 0, dxTop * gTerrainLayerST[2].xy, dyTop * gTerrainLayerST[2].xy);
-        [branch] if (c.a > 0.01f && gTerrainLayerHeight[3].x > 0.0f) h.a = TerrainNoTileHeight(3, xz * gTerrainLayerST[3].xy + gTerrainLayerST[3].zw, false, 0, dxTop * gTerrainLayerST[3].xy, dyTop * gTerrainLayerST[3].xy);
-        float4 blended;
-        const float surf = TerrainBlendDisplacement(c, h, blended);
-        const float gap = (top - s) - surf;   // > 0 = 아직 표면 위
+        const float3 p = pTop + step * s;
+        const float gap = (top - s) - TerrainProjDisplacement(proj, p, c, gx, gy);   // > 0 = 아직 표면 위
         if (gap <= 0.0f)
         {
             const float f = k == 0 ? 0.0f : prevGap / max(prevGap - gap, 1e-6f);
-            hit = xzTop + dxz * lerp(prevS, s, f);
+            hit = pTop + step * lerp(prevS, s, f);
             break;
         }
         prevGap = gap;
         prevS = s;
     }
-    return float3(lerp(lp.xz, hit, weight), lp.y).xzy;
+    return lerp(lp, hit, weight);
 }
 
-// POM 가중치: 테셀레이션 (나눔 거리 끝 1/4) 을 이어 받고 POM 거리에서 사라진다. 평평한 땅만 (위 투영)
-float TerrainParallaxWeight(float dist, float3 n, bool tess)
+// POM 가중치: 테셀레이션 (나눔 거리 끝 1/4) 을 이어 받고 POM 거리에서 사라진다
+float TerrainParallaxWeight(float dist, bool tess)
 {
     const float far = gTerrainHeightParams.w;
     const float fadeIn = tess && far > 0.0f ? saturate((dist - far * 0.75f) / (far * 0.25f)) : 1.0f;
     const float pomEnd = max(gTerrainHeightParams.z, 1.0f);
-    return fadeIn * saturate((pomEnd - dist) / (pomEnd * 0.2f)) * saturate((n.y - 0.7f) * 5.0f);
+    return fadeIn * saturate((pomEnd - dist) / (pomEnd * 0.2f));
 }
 
 #endif

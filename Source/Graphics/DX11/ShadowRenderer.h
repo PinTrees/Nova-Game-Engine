@@ -76,6 +76,10 @@ namespace ShadowRenderer
 		bool EveryFrame = false;    // 매 프레임 다시 그리는 캐스케이드 (몇 프레임 캐시하는 먼 캐스케이드는 카메라에 따라 빼면 안 된다)
 		XMFLOAT3 Direction = {};    // 빛이 나아가는 방향 (단위)
 		float Reach = 0.0f;         // 그림자가 닿을 수 있는 거리 = 캐스케이드 구의 지름 (받는 표면은 그 구 안)
+		int Cascade = -1;           // 방향광 캐스케이드 번호 (0 = 가장 가까운), 아니면 -1
 	};
 	inline CasterPass Current;
+	// 테셀레이션 (재질 · 지형 · Shader Graph) 을 이 그림자 패스에서도 하는가: 방향광의 가까운 캐스케이드 (0) · 스포트 · 점광만.
+	//  먼 캐스케이드가 받는 표면은 나눔 거리 끝이라 거의 평평하다 — 다시 나누는 비용 (캐스케이드마다) 을 아낀다
+	inline bool TessellateShadow() { return !(Current.Directional && Current.Cascade > 0); }
 }

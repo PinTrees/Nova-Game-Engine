@@ -1129,6 +1129,22 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("count")) args["count"] = std::stoi(a.Get("count"));
 		if (a.Has("clear")) args["clear"] = true;
 	}
+	else if (cmd == "terrain-height")
+	{
+		// 지형 높이: nova terrain-height <지형> --height m --center x,z --radius m [--soft m]
+		if (!need(1, "terrain-height <terrain> --height m --center x,z --radius m [--soft m]")) return 3;
+		args["target"] = a.Pos[0];
+		if (a.Has("height")) args["height"] = std::stof(a.Get("height"));
+		if (a.Has("radius")) args["radius"] = std::stof(a.Get("radius"));
+		if (a.Has("soft")) args["soft"] = std::stof(a.Get("soft"));
+		if (a.Has("center"))
+		{
+			const std::string c = a.Get("center");
+			const size_t comma = c.find(',');
+			if (comma != std::string::npos)
+				args["center"] = { std::stof(c.substr(0, comma)), std::stof(c.substr(comma + 1)) };
+		}
+	}
 	else if (cmd == "terrain-layer")
 	{
 		// Terrain Layer: nova terrain-layer <지형> [--add <.terrainlayer>] [--set i --layer <.terrainlayer>] [--fill i [--center x,z --radius m]]

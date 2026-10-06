@@ -32,9 +32,10 @@ Lit 재질 · Terrain Layer · Shader Graph 의 높이만큼 표면을 실제로
 지형 Inspector 의 **Paint Texture** 에서 레이어를 고르고 **Height Map** · **Amplitude** (m) · **Base** 를 넣는다 (`.terrainlayer` 의 `height` · `heightAmplitude` · `heightBase`). 색 (Diffuse) 과 같은 타일 · 같은 타일 없애기 무늬로 밀어 돌의 색과 모양이 맞고, 레이어마다 컨트롤 맵 가중치로 섞인다. 절벽은 색처럼 삼평면.
 
 - 가까운 40 m 는 쿼드트리를 가장 잘게 (평평한 지형도 칸이 높이맵 한 칸) + 최대 32 조각 — 높이 맵의 돌 하나하나가 솟는다
-- 레이어 높이 맵 넷은 엔진이 **배열 하나** (Texture2DArray, R16F 1024² + 밉 — 레이어 높이가 바뀔 때만 GPU 로 모은다) 로 읽는다 — 샘플러 하나라 OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도 안에서 지형 픽셀 셰이더도 높이를 쓴다
+- **Normal Map** · **Normal Scale** (Unity TerrainLayer 와 같은 칸, `.terrainlayer` 의 `normalMap` · `normalScale`): 삼평면 노멀 (투영마다 화이트아웃으로 지형 법선에 얹는다), 높이 기반 섞기와 같은 가중치. Normal map 으로 가져오지 않은 텍스처면 Fix Now
+- 레이어 높이 맵 · Normal Map 여덟 장은 엔진이 **배열 하나** (Texture2DArray R10G10B10A2 1024² + 밉: R = 높이, G · B = 노멀 xy — 바뀔 때만 GPU 로 모은다) 로 읽는다 — 샘플러 하나라 OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도 안에서 지형 픽셀 셰이더도 높이 · 노멀을 쓴다
 - 법선: 픽셀마다 높이의 화면 미분으로 범프 (모든 거리, 250 m 까지 줄어든다)
-- 나눔 거리 (40 m) 끝부터 100 m 까지 평평한 땅은 **POM** 이 깊이감을 이어 받는다. 테셀레이션이 없는 기기는 가까이서도 POM + 범프
+- 나눔 거리 (40 m) 끝부터 100 m 까지 **POM** 이 깊이감을 이어 받는다 — 평평한 땅은 위 투영, 절벽은 옆 투영 (가장 큰 삼평면 투영으로, 투영이 고르게 섞이는 비탈은 줄인다). 테셀레이션이 없는 기기는 가까이서도 POM + 범프
 - 깊이 프리패스 · 그림자 · 덮개 맵도 같은 모양. CLI: `nova terrain-layer <지형> --add <.terrainlayer>` · `--fill <번호> [--center x,z --radius m --soft m]`
 
 ![지형 — 흙에 박힌 돌 (Height Map 0.25 m): 가까이 · 중간 · 멀리](images/tessellation_terrain.webp)
@@ -44,6 +45,21 @@ Lit 재질 · Terrain Layer · Shader Graph 의 높이만큼 표면을 실제로
 지형 Inspector 의 **Terrain Settings > Height-Based Blend** (HDRP TerrainLit 과 같은 이름 · 기본 끔) 를 켜면, 레이어 경계에서 (높이 + 가중치) 가 큰 레이어부터 드러난다 — 돌이 흙 위로 또렷이 솟고 그 사이를 흙이 채운다 (선형 섞기는 경계의 돌이 유령처럼 옅다). **Height Transition** (0..1) = 전환 폭. 색 · 변위 · 범프가 같은 가중치. 높이 맵이 없는 레이어는 Base 높이로 친다. `Terrain` 값 `heightBasedBlend` · `heightTransition`.
 
 ![흙 + 돌 (3 m 부드러운 경계): 선형 섞기 · Height-Based Blend · 테셀레이션 없이 (POM + 범프)](images/tessellation_terrain_blend.webp)
+
+![절벽 (6 m 단): Normal Map 끔 · 켬 · 테셀레이션 없이 (절벽 면도 옆 투영 POM)](images/tessellation_cliff.webp)
+
+## 성능
+
+Release, GeForce GTX 1660 SUPER, Scene 뷰 1904 × 1001, 화면 가득 돌 지형 (흙 + 돌, 높이 기반 섞기 · Normal Map · 눈높이 카메라). 같은 세션에서 번갈아 세 번 잰 중앙값 (GPU ms):
+
+| | 프레임 | 그림자 | 깊이 프리패스 | 본 패스 |
+|---|---|---|---|---|
+| 높이 · 노멀 없음 | 0.92 | 0.25 | 0.04 | 0.28 |
+| Normal Map 만 | 1.09 | 0.27 | 0.04 | 0.39 |
+| 테셀레이션 끔 (POM + 범프 + 노멀) | 1.85 | 0.27 | 0.04 | 1.17 |
+| 테셀레이션 켬 | 2.16 | 0.38 | 0.16 | 1.24 |
+
+줄인 것 (테셀레이션 켬 2.40 → 1.72 ms, Normal Map 앞): 화면 밖 패치를 Hull 에서 버린다 (본 · 깊이 — 카메라 아래 지형 노드는 뒤로도 62 m 라 반이 화면 밖이었다, 그림자는 화면 밖 물체도 드리우니 그대로), 방향광의 먼 캐스케이드 (1 ~ 3) 는 나누지 않는다 (받는 표면이 나눔 거리 끝).
 
 ## POM (시차 가림)
 
@@ -88,7 +104,7 @@ Graph Settings 의 **Tessellation** 을 켜면 Master 의 Vertex 블록에 **Dis
 
 - 재질 · Shader Graph 는 MeshBatcher 로 그리는 메시만 (보통의 정적 · 움직이는 Mesh Renderer). 스킨 메시 · 투명 · Alpha Clipping (재질) 은 테셀레이션 없이
 - 높이 맵은 R 채널 (Fix Now 로 선형)
-- 지형 POM 은 위 (xz) 투영만 — 평평한 땅 (기울기 45° 미만) 에서, 절벽은 범프만. 100 m 너머는 범프만
+- 지형 POM 은 가장 큰 삼평면 투영 하나로 — 투영이 고르게 섞이는 45° 안팎 비탈은 약하다. 100 m 너머는 범프만
 
 ## 검사
 
@@ -100,5 +116,5 @@ powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1 -Only tessell
 powershell -ExecutionPolicy Bypass -File Tools\tests\android_tessellation.ps1
 ```
 
-PC 11 개 (OpenGL · Vulkan 은 눈 지형 빼고 10 개): 켬 · 끔의 표면이 다르다, 검은 얼룩 없음 (깊이 프리패스 = 본 패스), 벽면 안에서 본 벽돌 윤곽, 가까우면 잘게 · Fade Distance 너머는 그대로, 테셀레이션 없이 POM, Shader Graph 의 Displacement 물결, Terrain Layer 의 돌, 높이 기반 섞기, 테셀레이션 없는 지형의 POM · 범프, 쌓인 눈의 지형 (삼각형이 늘고 공 자국이 파인다), 테셀레이션 셰이더 오류 없음.
+PC 13 개 (OpenGL · Vulkan 은 눈 지형 빼고 12 개): 켬 · 끔의 표면이 다르다, 검은 얼룩 없음 (깊이 프리패스 = 본 패스), 벽면 안에서 본 벽돌 윤곽, 가까우면 잘게 · Fade Distance 너머는 그대로, 테셀레이션 없이 POM, Shader Graph 의 Displacement 물결, Terrain Layer 의 돌, 높이 기반 섞기, 테셀레이션 없는 지형의 POM · 범프, Terrain Layer Normal Map, 절벽 POM, 쌓인 눈의 지형 (삼각형이 늘고 공 자국이 파인다), 테셀레이션 셰이더 오류 없음.
 안드로이드: GLES 셰이더 (32 · 28 · 26 의 TCS · TES · invariant), 게임 데이터의 높이 맵, APK, 기기 그림을 DX11 기준과 비교. `-SkipBuild` = 지난 APK 로 기기만.

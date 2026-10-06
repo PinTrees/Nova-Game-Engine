@@ -6,6 +6,7 @@
 #include "Effects.h"
 #include "RenderLayers.h"
 #include "MeshBatcher.h"
+#include "ShadowRenderer.h"
 #include "SpriteBatch.h"
 #include "UnityGUI.h"
 #include "EngineTime.h"
@@ -460,7 +461,7 @@ namespace ShaderGraph
 				// 테셀레이션 (Graph Settings): 패치로 — 나눔은 화면 카메라, 그 단계가 없는 기기 · 꺼 두면 보통
 				FxTechnique* tessTech = d.Pass == CustomShaders::DrawPass::NormalDepth ? c->TessDepthBatch :
 					(d.Pass == CustomShaders::DrawPass::Shadow ? c->TessShadowBatch : c->TessBatch);
-				if (c->G.UsesTessellation() && MeshBatcher::TessellationEnabled() && tessTech && tessTech->GetPassByIndex(0)->IsUsable())
+				if (c->G.UsesTessellation() && MeshBatcher::TessellationEnabled() && (d.Pass != CustomShaders::DrawPass::Shadow || ShadowRenderer::TessellateShadow()) && tessTech && tessTech->GetPassByIndex(0)->IsUsable())
 				{
 					tech = tessTech;
 					d.Topology = D3D11_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
@@ -471,6 +472,8 @@ namespace ShaderGraph
 					const float eye[4] = { d.CameraPos.x, d.CameraPos.y, d.CameraPos.z, edge };
 					if (FxVar* v = fx->GetVariableByName("gTessParams"); v && v->IsValid()) v->AsVector()->SetFloatVector(params);
 					if (FxVar* v = fx->GetVariableByName("gTessEye"); v && v->IsValid()) v->AsVector()->SetFloatVector(eye);
+					const float cull[4] = { d.Pass != CustomShaders::DrawPass::Shadow ? 1.0f : 0.0f, 1.0f, 0.0f, 0.0f };   // 화면 밖 패치 (Displacement 1 m 여유)
+					if (FxVar* v = fx->GetVariableByName("gTessCull"); v && v->IsValid()) v->AsVector()->SetFloatVector(cull);
 				}
 				if (!tech) return;
 				Bind(*c, d.Material, d.Context, tech);

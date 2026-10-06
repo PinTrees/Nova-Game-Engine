@@ -248,7 +248,7 @@ namespace ShadowRenderer
 				{
 					PROFILE_GPU(kCascadeNames[i]);   // Profiler: 캐스케이드마다 GPU 시간·픽셀
 					RenderLayers::SetPassMask(light.GetCullingMaskBits());   // 이 빛이 비추지 않는 레이어는 그림자도 없다
-					Current = CasterPass{ true, everyFrame[i], lookDir, 2.0f * r };
+					Current = CasterPass{ true, everyFrame[i], lookDir, 2.0f * r, i };
 					drawCasters();
 					Current = CasterPass();
 					RenderLayers::SetPassMask(~0u);
