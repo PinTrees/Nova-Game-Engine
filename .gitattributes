@@ -1,2 +1,5 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# 셸 스크립트는 LF (Git Bash 가 CRLF 를 읽지 못한다)
+*.sh text eol=lf

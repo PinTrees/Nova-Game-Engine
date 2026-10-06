@@ -26,7 +26,7 @@ namespace
 {
 	// ---- 노드 편집기 id: 노드 = 그래프 id (Master = kMaster), 핀 = 노드 << 9 | 출력 << 8 | 포트 번호, 선 = 입력 핀 | kLinkBit
 	constexpr uintptr_t kMaster = 0xFFFFF;
-	constexpr uintptr_t kLinkBit = uintptr_t(1) << 40;
+	constexpr uintptr_t kLinkBit = uintptr_t(1) << (sizeof(uintptr_t) > 4 ? 40 : 30);   // 32 비트 (웹 플레이어 — 이 창은 쓰지 않는다)
 
 	uintptr_t NodeEd(int id) { return id == 0 ? kMaster : (uintptr_t)id; }
 	int NodeOf(uintptr_t edId) { return edId == kMaster ? 0 : (int)edId; }

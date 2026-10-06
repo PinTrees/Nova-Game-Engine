@@ -8,10 +8,11 @@
 //  - DirectX 11 구현(GfxDx11.cpp): 진짜 D3D11 객체를 감싸 그대로 넘긴다 (Native() = ID3D11 객체)
 //  - OpenGL 구현(GfxGL.cpp): 같은 뜻을 GL 4.5 로 (Native() = nullptr)
 //  - Vulkan 구현(Vulkan/GfxVk*.cpp): 같은 뜻을 Vulkan 1.3 으로 (Native() = nullptr, Api() = Vulkan)
+//  - WebGPU 구현(Web/Source/GfxWgpu*.cpp — 웹 플레이어): 같은 뜻을 WebGPU 로 (Api() = WebGPU)
 //  - 셰이더 효과는 RhiFx.h (FxEffect …), 새 코드에서 쓰기 쉬운 장치 API 는 Rhi.h
 //  - COM 처럼 AddRef/Release/QueryInterface 가 있어 ComPtr<GfxXxx> 를 그대로 쓴다. 만드는 함수는 참조 1 로 돌려준다
 // 객체를 만든 구현 (Native() == nullptr 만으로는 GL 과 Vulkan 을 가를 수 없다)
-enum class GfxApi { DirectX11, OpenGL, Vulkan };
+enum class GfxApi { DirectX11, OpenGL, Vulkan, WebGPU };
 
 class __declspec(uuid("4E6F7661-0001-4A00-8000-000000000001")) GfxObject : public IUnknown
 {

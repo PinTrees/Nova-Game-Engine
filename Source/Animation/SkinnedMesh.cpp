@@ -54,36 +54,36 @@ void SkinnedMesh::from_byte(ifstream& inStream)
 	}
 
 	// 1. �̸� �б� (���ڿ�)
-	size_t nameLength = 0;
-	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(size_t));
+	uint64_t nameLength = 0;
+	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(uint64_t));
 
 	Name.resize(nameLength);
 	inStream.read(&Name[0], nameLength);
 
 	// 2. Vertices �б� (PosNormalTexTanSkinned �迭)
-	size_t vertexCount = 0;
-	inStream.read(reinterpret_cast<char*>(&vertexCount), sizeof(size_t));
+	uint64_t vertexCount = 0;
+	inStream.read(reinterpret_cast<char*>(&vertexCount), sizeof(uint64_t));
 
 	Vertices.resize(vertexCount);
 	inStream.read(reinterpret_cast<char*>(Vertices.data()), vertexCount * sizeof(Vertex::PosNormalTexTanSkinned));
 
 	// 3. Indices �б� (USHORT �迭)
-	size_t indexCount = 0;
-	inStream.read(reinterpret_cast<char*>(&indexCount), sizeof(size_t));
+	uint64_t indexCount = 0;
+	inStream.read(reinterpret_cast<char*>(&indexCount), sizeof(uint64_t));
 
 	Indices.resize(indexCount);
 	inStream.read(reinterpret_cast<char*>(Indices.data()), indexCount * sizeof(USHORT));
 
 	// 4. Subsets �б�
-	size_t subsetCount = 0;
-	inStream.read(reinterpret_cast<char*>(&subsetCount), sizeof(size_t));
+	uint64_t subsetCount = 0;
+	inStream.read(reinterpret_cast<char*>(&subsetCount), sizeof(uint64_t));
 
 	Subsets.resize(subsetCount);
 	for (auto& subset : Subsets)
 	{
 		// �̸� �б� (���ڿ�)
-		size_t subsetNameLength = 0;
-		inStream.read(reinterpret_cast<char*>(&subsetNameLength), sizeof(size_t));
+		uint64_t subsetNameLength = 0;
+		inStream.read(reinterpret_cast<char*>(&subsetNameLength), sizeof(uint64_t));
 
 		subset.Name.resize(subsetNameLength);
 		inStream.read(&subset.Name[0], subsetNameLength);
@@ -152,29 +152,29 @@ void SkinnedMesh::to_byte(ofstream& outStream)
 	}
 
 	// 1. �̸� ���� (���ڿ�) 
-	size_t nameLength = Name.size(); 
-	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(size_t)); 
+	uint64_t nameLength = Name.size(); 
+	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(uint64_t)); 
 	outStream.write(Name.c_str(), nameLength); 
 
 	// 2. Vertices ���� (PosNormalTexTan2 �迭)
-	size_t vertexCount = Vertices.size(); 
-	outStream.write(reinterpret_cast<const char*>(&vertexCount), sizeof(size_t)); 
+	uint64_t vertexCount = Vertices.size(); 
+	outStream.write(reinterpret_cast<const char*>(&vertexCount), sizeof(uint64_t)); 
 	outStream.write(reinterpret_cast<const char*>(Vertices.data()), vertexCount * sizeof(Vertex::PosNormalTexTanSkinned));
 
 	// 3. Indices ���� (USHORT �迭)
-	size_t indexCount = Indices.size(); 
-	outStream.write(reinterpret_cast<const char*>(&indexCount), sizeof(size_t)); 
+	uint64_t indexCount = Indices.size(); 
+	outStream.write(reinterpret_cast<const char*>(&indexCount), sizeof(uint64_t)); 
 	outStream.write(reinterpret_cast<const char*>(Indices.data()), indexCount * sizeof(USHORT)); 
 
 	// 4. Subsets ����
-	size_t subsetCount = Subsets.size(); 
-	outStream.write(reinterpret_cast<const char*>(&subsetCount), sizeof(size_t)); 
+	uint64_t subsetCount = Subsets.size(); 
+	outStream.write(reinterpret_cast<const char*>(&subsetCount), sizeof(uint64_t)); 
 
 	for (const auto& subset : Subsets)
 	{
 		// �̸� ���� (���ڿ�)
-		size_t subsetNameLength = subset.Name.size(); 
-		outStream.write(reinterpret_cast<const char*>(&subsetNameLength), sizeof(size_t)); 
+		uint64_t subsetNameLength = subset.Name.size(); 
+		outStream.write(reinterpret_cast<const char*>(&subsetNameLength), sizeof(uint64_t)); 
 		outStream.write(subset.Name.c_str(), subsetNameLength); 
 
 		// �ٸ� �ʵ�� ���� (Id, MaterialIndex, VertexStart, VertexCount, FaceStart, FaceCount)
@@ -458,8 +458,8 @@ void MeshFile::load_mesh(ifstream& inStream)
 		return;
 	}
 
-	size_t nameLength = 0;
-	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(size_t));
+	uint64_t nameLength = 0;
+	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(uint64_t));
 
 	if (nameLength > 0) 
 	{
@@ -468,8 +468,8 @@ void MeshFile::load_mesh(ifstream& inStream)
 	} 
 
 	// Meshs ������ �а�, �� ������ŭ Mesh ��ü�� �����ϰ� �ε�
-	size_t meshCount = 0;
-	inStream.read(reinterpret_cast<char*>(&meshCount), sizeof(size_t));
+	uint64_t meshCount = 0;
+	inStream.read(reinterpret_cast<char*>(&meshCount), sizeof(uint64_t));
 
 	Meshs.resize(meshCount);
 	for (size_t i = 0; i < meshCount; ++i)
@@ -482,8 +482,8 @@ void MeshFile::load_mesh(ifstream& inStream)
 	}
 
 	// SkinnedMeshs ������ �а�, �� ������ŭ SkinnedMesh ��ü�� �����ϰ� �ε�
-	size_t skinnedMeshCount = 0;
-	inStream.read(reinterpret_cast<char*>(&skinnedMeshCount), sizeof(size_t));
+	uint64_t skinnedMeshCount = 0;
+	inStream.read(reinterpret_cast<char*>(&skinnedMeshCount), sizeof(uint64_t));
 
 	SkinnedMeshs.resize(skinnedMeshCount);
 	for (size_t i = 0; i < skinnedMeshCount; ++i)
@@ -501,20 +501,20 @@ void MeshFile::save_mesh(ofstream& outStream)
 		return;
 	}
 
-	size_t nameLength = Name.size();
-	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(size_t));
+	uint64_t nameLength = Name.size();
+	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(uint64_t));
 	outStream.write(Name.c_str(), nameLength);
 
-	size_t meshCount = Meshs.size();
-	outStream.write(reinterpret_cast<char*>(&meshCount), sizeof(size_t));
+	uint64_t meshCount = Meshs.size();
+	outStream.write(reinterpret_cast<char*>(&meshCount), sizeof(uint64_t));
 
 	for (const auto& mesh : Meshs)
 	{
 		mesh->to_byte(outStream);
 	}
 
-	size_t skinnedMeshCount = SkinnedMeshs.size();
-	outStream.write(reinterpret_cast<char*>(&skinnedMeshCount), sizeof(size_t)); 
+	uint64_t skinnedMeshCount = SkinnedMeshs.size();
+	outStream.write(reinterpret_cast<char*>(&skinnedMeshCount), sizeof(uint64_t)); 
 
 	for (const auto& skinnedMesh : SkinnedMeshs)
 	{
@@ -538,8 +538,8 @@ void MeshFile::save_skeletone(ofstream& outStream)
 	if (!outStream.is_open())
 		return;
 
-	size_t avatasSize = Avatas.size();
-	outStream.write(reinterpret_cast<const char*>(&avatasSize), sizeof(size_t));
+	uint64_t avatasSize = Avatas.size();
+	outStream.write(reinterpret_cast<const char*>(&avatasSize), sizeof(uint64_t));
 
 	for (const auto& avata : Avatas)
 	{
@@ -553,8 +553,8 @@ void MeshFile::load_skeletone(ifstream& inStream)
 
 	try
 	{
-		size_t avatasSize;
-		inStream.read(reinterpret_cast<char*>(&avatasSize), sizeof(size_t));
+		uint64_t avatasSize;
+		inStream.read(reinterpret_cast<char*>(&avatasSize), sizeof(uint64_t));
 		Avatas.resize(avatasSize);
 
 		for (size_t i = 0; i < Avatas.size(); ++i)

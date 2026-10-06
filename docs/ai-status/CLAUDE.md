@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **웹 빌드 (WebGPU) 1 단계: 도구 · 셰이더** (사용자 지시: "WebGPU 최신기능으로 가자" · Tint 받기 허락 · 5 단계 계획 "이 대로 진행"). **진행 중 (1 단계 커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 6일 — **웹 빌드 (WebGPU) 2 · 3 단계: 엔진 wasm · WebGPU 백엔드 · 첫 장면** (같은 지시, 5 단계 계획 "이 대로 진행"). **진행 중 (2 · 3 단계 커밋, 푸시 전)**
+  - `Web/`: CMakeLists (엔진 + 패키지 정적 · Emscripten 3.1.56 · -fwasm-exceptions -msimd128 — .NET 과 같게), `build.sh` (Ninja), `Source/WebMain.cpp` (캔버스 · 입력 · 프레임 루프 · nova_web_frames/stats),
+    WebGPU Gfx 백엔드 `GfxWgpuDevice.cpp` · `GfxWgpuContext.cpp` (D3D11 즉시 컨텍스트 흉내 — 늦은 렌더 패스 · loadOp 지우기 · 파이프라인/바인드 그룹 캐시 · 링 버퍼 · 깊이 형식 → unfilterable 변형 · SV_InstanceID 시작 인스턴스 = 정점 버퍼 오프셋 · 행렬 입력 여러 위치),
+    `WgpuRhi.cpp` (효과 = game/Shaders/<이름>.wgsl.json, 그림자 맵 배열 별칭), `Shell/index.html` (장치 · 기능 · 한계, game.json + game.data → MEMFS /game, 로딩 화면)
+  - 안드로이드 판 공유 (플랫폼 상관없는 것): AndroidWin32 · Application · EditorStubs · PathManager · PlayerRuntime · App (그래픽만 #ifdef) · Engine (로그 = 콘솔) · XAudio2 믹서 (출력 = Web Audio ScriptProcessor) · ScriptEngine (지금은 스크립트 없이)
+  - 엔진: GfxApi::WebGPU, Rhi.cpp 웹 분기, 메시 캐시 길이 size_t → uint64_t (wasm32 — 64 비트 형식 그대로), ShaderGraphWindow kLinkBit 32 비트
+  - CLI `nova web export --out` (안드로이드 게임 데이터 BC + WGSL → game.data 한 덩어리 + 플레이어), `Tools/web/run_scene.sh` (서버 + 창 없는 Chrome + 진단)
+  - 결과: WebCube · Materials 장면 PC DX11 과 픽셀 차이 0 (최대 1), AndroidModels (FBX 스킨 · VRM lilToon) 1 % (애니메이션 시점), 60 fps, WebGPU 오류 0. 회귀 render · tessellation 21/21, render · animation 19/19, 안드로이드 빌드 OK. Showcase 244
+  - 다음: 4 단계 C# (.NET browser-wasm 으로 다시 링크) → 5 단계 Build Settings Web · nova web build · 웹 스위트 · 문서
+- 이전: 2026년 10월 6일 — **웹 빌드 (WebGPU) 1 단계: 도구 · 셰이더** (사용자 지시: "WebGPU 최신기능으로 가자" · Tint 받기 허락 · 5 단계 계획 "이 대로 진행"). **완료 (1 단계 커밋 · 푸시함)**
   - 도구: Emscripten = .NET 10 wasm-tools 워크로드의 3.1.56 (C# 런타임과 같은 버전이라 한 wasm 으로 — `Tools/web/emenv.sh`, 캐시 ~/.nova/emcache), Tint = Dawn 얕은 복제 + 의존성 셋만 (`Tools/web/build_tint.ps1` → ~/.nova/dawn/out/tint/Release/tint.exe)
   - 확인: 3.1.56 의 USE_WEBGPU 로 Chrome (headless, NVIDIA Turing) 삼각형 + 컴퓨트, .NET browser-wasm 에서 C# → C 호출 (4.9 MB). 앱 안 브라우저는 WebGPU 어댑터가 없다 → `Tools/web/headless.mjs` (창 없는 Chrome · 별도 프로필 · CDP: 콘솔 · eval · 캡처)
   - 셰이더: `ShaderCross::CompileEffectWgsl` (NOVA_WEBGPU, Y 뒤집기 · 시작 인스턴스 보정 없음, 테셀레이션 · GS pass 는 건너뜀, Tint --allow-non-uniform-derivatives + 바인딩 정보, ShaderCache/WGSL), `WgslToJson/FromJson`, 결합 쌍 SamplerPairs,

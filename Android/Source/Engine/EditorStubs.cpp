@@ -112,7 +112,13 @@ std::wstring EditorUtility::SaveFileDialog(const std::wstring&, const std::wstri
 namespace LoadingScreen { void SetStatus(const std::wstring&) {} }
 namespace AutoSave { void OnEnterPlay() {} }
 namespace CliServer { void Register(const std::string&, const std::string&, Handler, int, bool) {} void Unregister(const std::string&) {} }
-namespace EditorExtensions { void RegisterAssetType(const AssetType&) {} void UnregisterOwner(const std::string&) {} }
+namespace EditorExtensions
+{
+	void RegisterAssetType(const AssetType&) {}
+	void UnregisterOwner(const std::string&) {}
+	void RegisterSceneTool(const std::string&, SceneTool) {}      // 패키지의 Scene 뷰 도구 (Tile Palette 붓) — 플레이어에는 Scene 뷰가 없다
+	void RegisterCreateMenu(const CreateMenuItem&) {}             // GameObject 메뉴 항목
+}
 namespace ProjectSettingsWindow { void Open(const char*) {} }
 namespace ObjectPicker
 {
@@ -202,6 +208,7 @@ const int RenderManager::SMapSize;
 #include "ModelPlacement.h"
 #include "VulkanTools.h"
 #include "AndroidTools.h"
+#include "WebTools.h"
 namespace SceneToolbar
 {
 	bool GridVisible() { return false; }
@@ -216,6 +223,7 @@ namespace CliServer { void Start() {} }
 namespace ModelPlacement { void RegisterEditor() {} }
 namespace VulkanTools { void RegisterEditor() {} }
 namespace AndroidTools { void RegisterEditor() {} }
+namespace WebTools { void RegisterEditor() {} }
 namespace LoadingScreen
 {
 	void Begin(const std::wstring&) {}

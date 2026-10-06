@@ -2,10 +2,13 @@
 #include "AndroidEngine.h"
 #include "MemoryStats.h"
 #include "ShaderCache.h"
+#if defined(__ANDROID__)
 #include <android/log.h>
+#endif
 #include <fstream>
 
-// Windows 전용 엔진 파일의 안드로이드 판: EditorLog (DbgHelp) · MemoryStats (psapi · DXGI) · ShaderCache (D3DCompile)
+// Windows 전용 엔진 파일의 안드로이드 · 웹 판: EditorLog (DbgHelp) · MemoryStats (psapi · DXGI) · ShaderCache (D3DCompile)
+//  웹 (Emscripten): 로그 = 브라우저 콘솔 (stderr), 파일 = 메모리 파일 시스템의 /Logs
 
 // ---- EditorLog: logcat (태그 NOVA) + 앱 파일 폴더의 Logs/Editor.log
 namespace
@@ -36,7 +39,11 @@ namespace EditorLog
 		va_start(ap, format);
 		vsnprintf(msg, sizeof(msg), format, ap);
 		va_end(ap);
+#if defined(__ANDROID__)
 		__android_log_print(ANDROID_LOG_INFO, "NOVA", "[%s] %s", category, msg);
+#else
+		fprintf(stderr, "[%s] %s\n", category, msg);
+#endif
 		const std::string path = LogPath();
 		if (path.empty()) return;
 		const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - s_LogStart).count();

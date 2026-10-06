@@ -101,10 +101,11 @@ namespace ShaderCross
 	struct WgslBinding
 	{
 		int Binding = 0;
-		std::string Type;      // UniformBuffer · StorageBuffer · ReadOnlyStorageBuffer · SampledTexture · DepthTexture · Sampler · ComparisonSampler · WriteOnlyStorageTexture …
-		std::string Dim;       // 1d · 2d · 2d-array · cube · cube-array · 3d
+		std::string Type;      // UniformBuffer · StorageBuffer · ReadOnlyStorageBuffer · SampledTexture · DepthTexture · Sampler · WriteOnlyStorageTexture · ReadWriteStorageTexture …
+		std::string Dim;       // 1d · 2d · 2dArray · Cube · CubeArray · 3d
 		std::string Sampled;   // Float · SInt · UInt · unknown-filterable
-		std::string Format;    // 스토리지 텍스처 형식 (r32float …)
+		std::string Format;    // 스토리지 텍스처 형식 (R32Float · Rgba8Unorm …)
+		std::string SamplerType;   // 샘플러: comparison · filtering · unknown-filtering
 	};
 
 	struct StageSpirv

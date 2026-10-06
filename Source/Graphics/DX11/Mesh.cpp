@@ -52,36 +52,36 @@ void Mesh::from_byte(ifstream& inStream)
 	}
 
 	// 1. 이름 읽기 (문자열)
-	size_t nameLength = 0;
-	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(size_t));
+	uint64_t nameLength = 0;
+	inStream.read(reinterpret_cast<char*>(&nameLength), sizeof(uint64_t));
 
 	Name.resize(nameLength);
 	inStream.read(&Name[0], nameLength);
 
 	// 2. Vertices 읽기 (PosNormalTexTan2 배열)
-	size_t vertexCount = 0;
-	inStream.read(reinterpret_cast<char*>(&vertexCount), sizeof(size_t));
+	uint64_t vertexCount = 0;
+	inStream.read(reinterpret_cast<char*>(&vertexCount), sizeof(uint64_t));
 
 	Vertices.resize(vertexCount);
 	inStream.read(reinterpret_cast<char*>(Vertices.data()), vertexCount * sizeof(Vertex::PosNormalTexTan2));
 
 	// 3. Indices 읽기 (USHORT 배열)
-	size_t indexCount = 0;
-	inStream.read(reinterpret_cast<char*>(&indexCount), sizeof(size_t));
+	uint64_t indexCount = 0;
+	inStream.read(reinterpret_cast<char*>(&indexCount), sizeof(uint64_t));
 
 	Indices.resize(indexCount);
 	inStream.read(reinterpret_cast<char*>(Indices.data()), indexCount * sizeof(USHORT));
 
 	// 4. Subsets 읽기
-	size_t subsetCount = 0;
-	inStream.read(reinterpret_cast<char*>(&subsetCount), sizeof(size_t));
+	uint64_t subsetCount = 0;
+	inStream.read(reinterpret_cast<char*>(&subsetCount), sizeof(uint64_t));
 
 	Subsets.resize(subsetCount);
 	for (auto& subset : Subsets)
 	{
 		// 이름 읽기 (문자열)
-		size_t subsetNameLength = 0;
-		inStream.read(reinterpret_cast<char*>(&subsetNameLength), sizeof(size_t));
+		uint64_t subsetNameLength = 0;
+		inStream.read(reinterpret_cast<char*>(&subsetNameLength), sizeof(uint64_t));
 
 		subset.Name.resize(subsetNameLength);
 		inStream.read(&subset.Name[0], subsetNameLength);
@@ -107,29 +107,29 @@ void Mesh::to_byte(ofstream& outStream)
 	}
 
 	// 1. 이름 저장 (문자열)
-	size_t nameLength = Name.size();
-	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(size_t));
+	uint64_t nameLength = Name.size();
+	outStream.write(reinterpret_cast<const char*>(&nameLength), sizeof(uint64_t));
 	outStream.write(Name.c_str(), nameLength);
 
 	// 2. Vertices 저장 (PosNormalTexTan2 배열)
-	size_t vertexCount = Vertices.size();
-	outStream.write(reinterpret_cast<const char*>(&vertexCount), sizeof(size_t));
+	uint64_t vertexCount = Vertices.size();
+	outStream.write(reinterpret_cast<const char*>(&vertexCount), sizeof(uint64_t));
 	outStream.write(reinterpret_cast<const char*>(Vertices.data()), vertexCount * sizeof(Vertex::PosNormalTexTan2));
 
 	// 3. Indices 저장 (USHORT 배열)
-	size_t indexCount = Indices.size();
-	outStream.write(reinterpret_cast<const char*>(&indexCount), sizeof(size_t));
+	uint64_t indexCount = Indices.size();
+	outStream.write(reinterpret_cast<const char*>(&indexCount), sizeof(uint64_t));
 	outStream.write(reinterpret_cast<const char*>(Indices.data()), indexCount * sizeof(USHORT));
 
 	// 4. Subsets 저장
-	size_t subsetCount = Subsets.size();
-	outStream.write(reinterpret_cast<const char*>(&subsetCount), sizeof(size_t));
+	uint64_t subsetCount = Subsets.size();
+	outStream.write(reinterpret_cast<const char*>(&subsetCount), sizeof(uint64_t));
 
 	for (const auto& subset : Subsets)
 	{
 		// 이름 저장 (문자열)
-		size_t subsetNameLength = subset.Name.size();
-		outStream.write(reinterpret_cast<const char*>(&subsetNameLength), sizeof(size_t));
+		uint64_t subsetNameLength = subset.Name.size();
+		outStream.write(reinterpret_cast<const char*>(&subsetNameLength), sizeof(uint64_t));
 		outStream.write(subset.Name.c_str(), subsetNameLength);
 
 		// 다른 필드들 저장 (Id, MaterialIndex, VertexStart, VertexCount, FaceStart, FaceCount)

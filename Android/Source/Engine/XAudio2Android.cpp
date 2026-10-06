@@ -4,13 +4,19 @@
 #include <xaudio2.h>
 #include <xaudio2fx.h>
 #include <xapofx.h>
+#if defined(__ANDROID__)
 #include <aaudio/AAudio.h>
 #include <android/log.h>
+#define NOVA_AUDIO_LOG(...) __android_log_print(ANDROID_LOG_INFO, "NOVA", __VA_ARGS__)
+#else
+#include <emscripten.h>
+#define NOVA_AUDIO_LOG(...) (fprintf(stderr, __VA_ARGS__), fputc('\n', stderr))
+#endif
 #include <atomic>
 #include <chrono>
 #include <mutex>
 
-// XAudio2 의 안드로이드 판: 소프트웨어 믹서 + AAudio 출력. 엔진의 AudioManager · AudioSource · AudioMixer 는 Windows 와 같은 코드를 그대로 쓴다
+// XAudio2 의 안드로이드 · 웹 판: 소프트웨어 믹서 + 출력 (안드로이드 = AAudio, 웹 = Web Audio 의 ScriptProcessor 가 믹서를 부른다 — 한 스레드). 엔진의 AudioManager · AudioSource · AudioMixer 는 Windows 와 같은 코드를 그대로 쓴다
 //  (그래픽의 GfxGLES 처럼 — 엔진이 쓰는 XAudio2 의 부분만).
 //  - 소스 보이스: PCM 8 · 16 · 24 · 32 비트 · float, 버퍼 대기열 (PlayBegin/Length · 반복 구간 · LoopCount · END_OF_STREAM), 재생 속도 (SetFrequencyRatio)
 //    와 샘플 레이트 차이는 선형 보간, 출력 행렬 (SetOutputMatrix — 팬 · 3D), 보낼 곳 (SetOutputVoices — 믹서 그룹)
@@ -361,7 +367,11 @@ namespace
 		std::atomic<ULONG> Refs{ 1 };
 		std::vector<VoiceBase*> Voices;
 		MasterVoice* Master = nullptr;
+#if defined(__ANDROID__)
 		AAudioStream* Stream = nullptr;
+#else
+		void* Stream = nullptr;   // 웹: 출력이 열렸으면 this (Web Audio 노드는 JS 쪽)
+#endif
 		bool EnginePaused = false;          // StopEngine (게임 일시 정지)
 		std::atomic<bool> AppPaused{ false };   // 앱이 뒤로 (SetAudioPaused)
 		uint32_t OutRate = 48000;
@@ -493,6 +503,7 @@ namespace
 
 	Engine* s_Engine = nullptr;
 
+#if defined(__ANDROID__)
 	aaudio_data_callback_result_t DataCallback(AAudioStream* stream, void* user, void* audioData, int32_t numFrames)
 	{
 		static_cast<Engine*>(user)->Render(static_cast<float*>(audioData), (uint32_t)numFrames, (uint32_t)AAudioStream_getChannelCount(stream));
@@ -503,6 +514,35 @@ namespace
 	{
 		__android_log_print(ANDROID_LOG_WARN, "NOVA", "[Audio] AAudio stream error %s", AAudio_convertResultToText(error));
 	}
+#else
+	// 웹 출력: AudioContext + ScriptProcessor (2 채널, 1024 프레임) — 콜백이 nova_audio_render 로 믹서를 부른다 (메인 스레드).
+	//  브라우저는 사용자 입력 (클릭 · 키 · 터치) 뒤에만 소리를 내므로 그때 resume. 반환 = 출력 레이트 (0 = 실패)
+	EM_JS(int, NovaWebAudioOpen, (void* engine), {
+		try {
+			const Ctx = window.AudioContext || window.webkitAudioContext;
+			if (!Ctx) return 0;
+			const ctx = new Ctx();
+			const frames = 1024;
+			const node = ctx.createScriptProcessor(frames, 0, 2);
+			const buf = _malloc(frames * 2 * 4);
+			node.onaudioprocess = (e) => {
+				const n = e.outputBuffer.length;
+				_nova_audio_render(engine, buf, n);
+				const f = HEAPF32.subarray(buf >> 2, (buf >> 2) + n * 2);
+				const l = e.outputBuffer.getChannelData(0), r = e.outputBuffer.getChannelData(1);
+				for (let i = 0; i < n; i++) { l[i] = f[2 * i]; r[i] = f[2 * i + 1]; }
+			};
+			node.connect(ctx.destination);
+			Module.novaAudio = ctx;
+			const resume = () => { if (ctx.state !== 'running') ctx.resume(); };
+			['pointerdown', 'keydown', 'touchstart'].forEach(ev => window.addEventListener(ev, resume, { capture: true }));
+			return ctx.sampleRate | 0;
+		} catch (err) { console.warn('NOVA audio:', err); return 0; }
+	});
+	EM_JS(void, NovaWebAudioPause, (int paused), {
+		if (Module.novaAudio) { if (paused) Module.novaAudio.suspend(); else Module.novaAudio.resume(); }
+	});
+#endif
 
 	template <class B>
 	HRESULT VoiceCommon<B>::SetOutputVoices(const XAUDIO2_VOICE_SENDS* sends)
@@ -524,6 +564,7 @@ namespace
 	HRESULT Engine::CreateMasteringVoice(IXAudio2MasteringVoice** voice, UINT32, UINT32, UINT32, const wchar_t*, const XAUDIO2_EFFECT_CHAIN* chain, int)
 	{
 		if (Master) return E_FAIL;
+#if defined(__ANDROID__)
 		AAudioStreamBuilder* b = nullptr;
 		if (AAudio_createStreamBuilder(&b) != AAUDIO_OK) return E_FAIL;
 		AAudioStreamBuilder_setFormat(b, AAUDIO_FORMAT_PCM_FLOAT);
@@ -541,6 +582,16 @@ namespace
 			return E_FAIL;
 		}
 		OutRate = (uint32_t)AAudioStream_getSampleRate(Stream);
+#else
+		const int rate = NovaWebAudioOpen(this);
+		if (rate <= 0)
+		{
+			NOVA_AUDIO_LOG("[Audio] Web Audio is not available - no sound");
+			return E_FAIL;
+		}
+		Stream = this;
+		OutRate = (uint32_t)rate;
+#endif
 		auto* m = new MasterVoice();
 		m->Owner = this;
 		m->Channels = 2;
@@ -552,10 +603,15 @@ namespace
 			Voices.push_back(m);
 			Master = m;
 		}
+#if defined(__ANDROID__)
 		if (!AppPaused) AAudioStream_requestStart(Stream);
 		*voice = m;
 		__android_log_print(ANDROID_LOG_INFO, "NOVA", "[Audio] AAudio stream: %d Hz, %d ch, burst %d frames, %s", (int)OutRate, AAudioStream_getChannelCount(Stream),
 			AAudioStream_getFramesPerBurst(Stream), AAudioStream_getPerformanceMode(Stream) == AAUDIO_PERFORMANCE_MODE_LOW_LATENCY ? "low latency" : "normal");
+#else
+		*voice = m;
+		NOVA_AUDIO_LOG("[Audio] Web Audio: %d Hz, 2 ch, 1024 frames (starts after the first click / key)", (int)OutRate);
+#endif
 		return S_OK;
 	}
 
@@ -564,7 +620,11 @@ namespace
 		const ULONG r = --Refs;
 		if (r == 0)
 		{
+#if defined(__ANDROID__)
 			if (Stream) { AAudioStream_requestStop(Stream); AAudioStream_close(Stream); Stream = nullptr; }
+#else
+			if (Stream) { NovaWebAudioPause(1); Stream = nullptr; }
+#endif
 			std::vector<VoiceBase*> left;
 			{
 				std::lock_guard<std::mutex> g(s_Lock);
@@ -578,6 +638,14 @@ namespace
 		return r;
 	}
 }
+
+#if !defined(__ANDROID__)
+// Web Audio 콜백 → 믹서 (out = 2 채널 섞어 놓은 frames 개)
+extern "C" EMSCRIPTEN_KEEPALIVE void nova_audio_render(void* engine, float* out, int frames)
+{
+	static_cast<Engine*>(engine)->Render(out, (uint32_t)frames, 2);
+}
+#endif
 
 HRESULT XAudio2Create(IXAudio2** out, UINT32, UINT32)
 {
@@ -606,8 +674,12 @@ namespace NovaAndroid
 		e->AppPaused = paused;
 		if (e->Stream)
 		{
+#if defined(__ANDROID__)
 			if (paused) AAudioStream_requestPause(e->Stream);
 			else AAudioStream_requestStart(e->Stream);
+#else
+			NovaWebAudioPause(paused ? 1 : 0);
+#endif
 		}
 	}
 

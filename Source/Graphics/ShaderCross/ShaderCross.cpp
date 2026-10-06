@@ -885,7 +885,7 @@ namespace
 	}
 
 	// ShaderCache/WGSL/<이름>_<해시>.json — 규칙이 바뀌면 올린다
-	constexpr int kWgslCacheVersion = 1;
+	constexpr int kWgslCacheVersion = 2;   // 2: 샘플러 종류 (비교)
 
 	// 창 없이 실행하고 출력 (stdout + stderr) 을 모은다
 	DWORD RunTool(const std::wstring& commandLine, std::string& output)
@@ -963,6 +963,7 @@ namespace
 			else if (key == "dim") cur->Dim = value;
 			else if (key == "sampled_kind") cur->Sampled = value;
 			else if (key == "image_format") cur->Format = value;
+			else if (key == "sampler_type") cur->SamplerType = value;
 		}
 	}
 

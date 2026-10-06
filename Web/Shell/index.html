@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>NOVA</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; overflow: hidden; }
+  #canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; outline: none; touch-action: none; }
+  #loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+            background: #111; color: #ddd; font: 14px system-ui, sans-serif; transition: opacity .3s; }
+  #bar { width: min(320px, 70vw); height: 6px; background: #2a2a2a; border-radius: 3px; overflow: hidden; }
+  #fill { width: 0; height: 100%; background: #4a8fe0; transition: width .1s; }
+  #logo { font-weight: 600; letter-spacing: .3em; color: #fff; font-size: 18px; }
+  #error { color: #f08a7a; max-width: 80vw; text-align: center; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0"></canvas>
+<div id="loader"><div id="logo">NOVA</div><div id="bar"><div id="fill"></div></div><div id="status">Loading…</div><div id="error"></div></div>
+<script>
+// NOVA 웹 플레이어 셸: WebGPU 장치를 받고 (엔진 = Module.preinitializedWebGPUDevice), 게임 데이터 (game.json 목록 + game.data 한 덩어리) 를
+//  메모리 파일 시스템의 /game 에 풀고 nova.js 를 시작한다. 검사 (Tools/web/headless.mjs): window.novaState · 콘솔
+(async () => {
+  const status = document.getElementById('status'), fill = document.getElementById('fill'), errorBox = document.getElementById('error');
+  const loader = document.getElementById('loader');
+  window.novaState = { phase: 'start', gpuErrors: 0 };
+  const fail = (msg) => { errorBox.textContent = msg; status.textContent = ''; window.novaState.phase = 'error'; window.novaState.error = msg; console.error('NOVA:', msg); };
+  if (!navigator.gpu) { fail('This browser does not support WebGPU.\nUse a recent Chrome, Edge, Safari or Firefox.'); return; }
+  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+  if (!adapter) { fail('No WebGPU adapter (GPU blocked or not available).'); return; }
+  // 엔진이 쓰는 기능 · 한계 (있으면) — 셰이더 변환 (nova web shaders) 이 이것을 가정한다
+  const wanted = ['texture-compression-bc', 'float32-filterable', 'depth32float-stencil8', 'depth-clip-control', 'texture-formats-tier1',
+    'texture-formats-tier2', 'rg11b10ufloat-renderable', 'timestamp-query', 'indirect-first-instance'];
+  const requiredFeatures = wanted.filter(f => adapter.features.has(f));
+  const requiredLimits = {};
+  for (const k of ['maxSampledTexturesPerShaderStage', 'maxSamplersPerShaderStage', 'maxStorageBuffersPerShaderStage', 'maxUniformBuffersPerShaderStage',
+    'maxBindingsPerBindGroup', 'maxDynamicUniformBuffersPerPipelineLayout', 'maxDynamicStorageBuffersPerPipelineLayout', 'maxColorAttachmentBytesPerSample',
+    'maxInterStageShaderVariables', 'maxStorageTexturesPerShaderStage', 'maxVertexAttributes', 'maxBufferSize', 'maxStorageBufferBindingSize',
+    'maxTextureArrayLayers', 'maxComputeWorkgroupStorageSize', 'maxComputeInvocationsPerWorkgroup'])
+    if (adapter.limits[k] !== undefined) requiredLimits[k] = adapter.limits[k];
+  let device;
+  try { device = await adapter.requestDevice({ requiredFeatures, requiredLimits }); }
+  catch (e) { fail('WebGPU device: ' + e.message); return; }
+  device.lost.then(info => fail('WebGPU device lost: ' + info.message));
+  device.onuncapturederror = (e) => { if (++window.novaState.gpuErrors <= 20) console.error('WebGPU:', e.error.message); };
+  window.novaState.features = requiredFeatures;
+  if (!requiredFeatures.includes('texture-compression-bc')) console.warn('NOVA: no BC texture compression on this GPU - textures may not load');
+
+  // 게임 데이터 (진행 표시)
+  const fetchBytes = async (url, onProgress) => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(url + ': HTTP ' + res.status);
+    const total = +res.headers.get('Content-Length') || 0;
+    if (!res.body || !total) return new Uint8Array(await res.arrayBuffer());
+    const out = new Uint8Array(total);
+    const reader = res.body.getReader();
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out.set(value, got);
+      got += value.length;
+      onProgress(got / total);
+    }
+    return out;
+  };
+  let manifest, data;
+  try {
+    status.textContent = 'Loading game data…';
+    manifest = await (await fetch('game.json')).json();
+    data = await fetchBytes('game.data', p => fill.style.width = (p * 90).toFixed(1) + '%');
+  } catch (e) { fail('Game data: ' + e.message); return; }
+  window.novaState.phase = 'starting';
+  status.textContent = 'Starting…';
+
+  window.Module = {
+    canvas: document.getElementById('canvas'),
+    preinitializedWebGPUDevice: device,
+    preRun: [() => {
+      const FS = Module.FS;
+      for (const [path, offset, size] of manifest.files) {
+        const full = '/game/' + path;
+        FS.mkdirTree(full.substring(0, full.lastIndexOf('/')));
+        FS.writeFile(full, data.subarray(offset, offset + size));
+      }
+      data = null;
+    }],
+    print: (t) => console.log(t),
+    printErr: (t) => console.warn(t),
+    onRuntimeInitialized: () => { fill.style.width = '100%'; },
+    onAbort: (what) => fail('Engine stopped: ' + what),
+  };
+  // 엔진이 첫 프레임을 그리면 로딩 화면을 걷는다
+  const poll = setInterval(() => {
+    if (!Module.calledRun) return;   // 런타임이 준비되기 전에는 엔진 함수를 부르지 않는다
+    if (Module._nova_web_frames && Module._nova_web_frames() > 0) {
+      clearInterval(poll);
+      loader.style.opacity = 0;
+      setTimeout(() => loader.remove(), 350);
+      window.novaState.phase = 'running';
+      document.getElementById('canvas').focus();
+    } else if (Module._nova_web_failed && Module._nova_web_failed()) {
+      clearInterval(poll);
+      fail('The engine could not start (see the browser console).');
+    }
+  }, 100);
+  const s = document.createElement('script');
+  s.src = 'nova.js';
+  s.onerror = () => fail('nova.js could not be loaded');
+  document.body.appendChild(s);
+})();
+</script>
+</body>
+</html>

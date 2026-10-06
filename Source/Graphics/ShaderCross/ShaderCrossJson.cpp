@@ -169,7 +169,7 @@ namespace ShaderCross::Json
 			{
 				json binds = json::array();
 				for (const WgslBinding& b : s.WgslBindings)
-					binds.push_back({ b.Binding, b.Type, b.Dim, b.Sampled, b.Format });
+					binds.push_back({ b.Binding, b.Type, b.Dim, b.Sampled, b.Format, b.SamplerType });
 				stages.push_back({ (int)s.StageType, s.Entry, s.WgslEntry, s.Wgsl, binds });
 			}
 			json inputs = json::array();
@@ -205,7 +205,8 @@ namespace ShaderCross::Json
 				st.WgslEntry = s[2].get<std::string>();
 				st.Wgsl = s[3].get<std::string>();
 				for (const auto& b : s[4])
-					st.WgslBindings.push_back({ b[0].get<int>(), b[1].get<std::string>(), b[2].get<std::string>(), b[3].get<std::string>(), b[4].get<std::string>() });
+					st.WgslBindings.push_back({ b[0].get<int>(), b[1].get<std::string>(), b[2].get<std::string>(), b[3].get<std::string>(), b[4].get<std::string>(),
+						b.size() > 5 ? b[5].get<std::string>() : std::string() });
 				ps.Stages.push_back(std::move(st));
 			}
 			for (const auto& i : p.at("inputs"))

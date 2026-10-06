@@ -2,7 +2,11 @@
 #include "Profiler.h"
 #include "App.h"
 #include "AndroidEngine.h"
+#if defined(__EMSCRIPTEN__)
+#include "GfxWgpu.h"
+#else
 #include "GfxGLES.h"
+#endif
 #include "Physics2DManager.h"
 #include "AudioManager.h"
 #include "ShaderGraphRuntime.h"
@@ -75,6 +79,34 @@ App::~App()
 		ImGui::DestroyContext();
 }
 
+#if defined(__EMSCRIPTEN__)
+// 웹: 페이지가 미리 받은 WebGPU 장치 (Module.preinitializedWebGPUDevice — Web/Shell 의 시작 스크립트) 위의 GfxWgpu
+bool App::InitPlatform()
+{
+	std::string error;
+	GfxDevice* dev = nullptr;
+	GfxContext* ctx = nullptr;
+	if (!GfxWgpu::CreateDevice(&dev, &ctx, error))
+	{
+		EditorLog::Write("Graphics", "WebGPU device failed: %s", error.c_str());
+		return false;
+	}
+	_device.Attach(dev);
+	_deviceContext.Attach(ctx);
+	Gfx::SetMain(_device.Get(), _deviceContext.Get());
+	std::unique_ptr<Rhi::Device> rhi = GfxWgpu::CreateRhiDevice(_device.Get(), _deviceContext.Get(), error);
+	if (!rhi)
+	{
+		EditorLog::Write("Graphics", "WebGPU RHI device failed: %s", error.c_str());
+		return false;
+	}
+	Rhi::SetMain(std::move(rhi));
+	_openGL = false;
+	EditorLog::Write("Graphics", "WebGPU %d x %d", _clientWidth, _clientHeight);
+	OnResize();
+	return true;
+}
+#else
 bool App::InitPlatform()
 {
 	std::string error;
@@ -100,6 +132,7 @@ bool App::InitPlatform()
 	OnResize();
 	return true;
 }
+#endif
 
 // 패키지 진입점을 부른 뒤 (nova_packages.cpp) 하나씩 로그로
 void NovaPackageLoaded(const char* name)

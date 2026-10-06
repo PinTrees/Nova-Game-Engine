@@ -1,8 +1,10 @@
 #include "pch.h"
 #include "Rhi.h"
 
-#ifdef __ANDROID__
+#if defined(__ANDROID__)
 std::unique_ptr<Rhi::Device> CreateGlesRhiDevice(std::string& error);   // Android/Source/GLESRhi.cpp (지금 EGL 컨텍스트)
+#elif defined(__EMSCRIPTEN__)
+// 웹: RHI 장치는 App 이 WebGPU 장치 위에 만든다 (GfxWgpu::CreateRhiDevice) — 따로 만들 장치가 없다
 #else
 std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error);   // Dx11Rhi.cpp
 std::unique_ptr<Rhi::Device> CreateGLRhiDevice(std::string& error);     // GLRhi.cpp
@@ -37,9 +39,13 @@ namespace Rhi
 
 	std::unique_ptr<Device> CreateDevice(GraphicsAPI api, std::string& error)
 	{
-#ifdef __ANDROID__
+#if defined(__ANDROID__)
 		(void)api;
 		return CreateGlesRhiDevice(error);   // 안드로이드: OpenGL ES 3.2
+#elif defined(__EMSCRIPTEN__)
+		(void)api;
+		error = "the web player has one WebGPU device (App)";
+		return nullptr;
 #else
 		switch (api)
 		{

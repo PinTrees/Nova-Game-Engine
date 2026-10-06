@@ -613,10 +613,15 @@ namespace std
 #endif
 
 #include <ctime>
-#include <android/log.h>
 inline int localtime_s(struct tm* out, const time_t* t) { return localtime_r(t, out) ? 0 : 1; }
 inline int gmtime_s(struct tm* out, const time_t* t) { return gmtime_r(t, out) ? 0 : 1; }
+#if defined(__ANDROID__)
+#include <android/log.h>
 inline void OutputDebugStringA(const char* text) { __android_log_print(ANDROID_LOG_DEBUG, "NOVA", "%s", text); }
+#else
+// 웹 (Emscripten): 브라우저 콘솔 (stderr)
+inline void OutputDebugStringA(const char* text) { fputs(text, stderr); }
+#endif
 inline LPWSTR* CommandLineToArgvW(LPCWSTR, int* argc) { *argc = 0; return nullptr; }   // 안드로이드: 명령줄 없음 (인텐트 값은 AndroidMain)
 inline LPCWSTR GetCommandLineW() { return L""; }
 inline void* LocalFree(void*) { return nullptr; }
