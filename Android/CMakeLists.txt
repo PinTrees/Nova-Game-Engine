@@ -65,6 +65,7 @@ list(APPEND ENGINE_SOURCES ${AUDIO_CODEC_SOURCES}
     "${ROOT}/Source/Scripting/CSharpScript.cpp"
     "${ROOT}/Source/Scripting/ScriptBindings.cpp"
     "${ROOT}/Source/Scripting/PlatformBindings.cpp"
+    "${ROOT}/Source/Scripting/PlayerPrefsStore.cpp"
     "${ROOT}/Source/Scripting/MonoBehaviour.cpp")
 add_library(nova_engine STATIC
     ${ENGINE_SOURCES}

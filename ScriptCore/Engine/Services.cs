@@ -76,6 +76,12 @@ namespace NovaEngine
         public static bool isFocused => true;
         public static int targetFrameRate { get; set; } = -1;
         public static unsafe string productName => Native.Str(Native.Api.App_ProductName()) ?? "NOVA Game";
+        // 저장 폴더 (Unity 와 같은 자리 — Windows: %USERPROFILE%\AppData\LocalLow\<회사>\<제품>, 안드로이드: 앱 파일 폴더)
+        public static unsafe string persistentDataPath => Native.Str(Native.Api.App_Path(0)) ?? "";
+        public static unsafe string dataPath => Native.Str(Native.Api.App_Path(1)) ?? "";
+        public static unsafe string companyName => Native.Str(Native.Api.App_Path(2)) ?? "";
+        public static unsafe string version => Native.Str(Native.Api.App_Path(3)) ?? "";
+        public static unsafe string temporaryCachePath => Native.Str(Native.Api.App_Path(4)) ?? "";
         public static RuntimePlatform platform => (RuntimePlatform)Platform.NovaApp_Platform();
         public static bool isMobilePlatform => platform == RuntimePlatform.Android;
         // Unity 와 같이 에디터에서는 무시, 빌드된 게임은 종료
@@ -85,6 +91,31 @@ namespace NovaEngine
             else Native.Api.App_Quit();
         }
     }
+    // Unity 의 PlayerPrefs: 게임을 껐다 켜도 남는 작은 값 (설정 · 최고 점수 …). 종류가 다른 키는 없는 것으로 (GetInt 로 실수 키를 읽으면 기본값)
+    //  저장 자리: 에디터 = 프로젝트의 Library/PlayerPrefs.json, Windows 게임 = persistentDataPath/PlayerPrefs.json, 안드로이드 = 앱 파일 폴더, 웹 = 브라우저 localStorage
+    public static class PlayerPrefs
+    {
+        public static unsafe void SetInt(string key, int value) { fixed (byte* k = Native.Utf8(key)) Native.Api.Prefs_SetInt(k, value); }
+        public static int GetInt(string key) => GetInt(key, 0);
+        public static unsafe int GetInt(string key, int defaultValue) { fixed (byte* k = Native.Utf8(key)) return Native.Api.Prefs_GetInt(k, defaultValue); }
+        public static unsafe void SetFloat(string key, float value) { fixed (byte* k = Native.Utf8(key)) Native.Api.Prefs_SetFloat(k, value); }
+        public static float GetFloat(string key) => GetFloat(key, 0f);
+        public static unsafe float GetFloat(string key, float defaultValue) { fixed (byte* k = Native.Utf8(key)) return Native.Api.Prefs_GetFloat(k, defaultValue); }
+        public static unsafe void SetString(string key, string value)
+        {
+            fixed (byte* k = Native.Utf8(key)) fixed (byte* v = Native.Utf8(value ?? "")) Native.Api.Prefs_SetString(k, v);
+        }
+        public static string GetString(string key) => GetString(key, "");
+        public static unsafe string GetString(string key, string defaultValue)
+        {
+            fixed (byte* k = Native.Utf8(key)) { byte* v = Native.Api.Prefs_GetString(k); return v == null ? defaultValue : Native.Str(v); }
+        }
+        public static unsafe bool HasKey(string key) { fixed (byte* k = Native.Utf8(key)) return Native.Api.Prefs_Has(k) != 0; }
+        public static unsafe void DeleteKey(string key) { if (key == null) return; fixed (byte* k = Native.Utf8(key)) Native.Api.Prefs_Delete(k); }
+        public static unsafe void DeleteAll() => Native.Api.Prefs_Delete(null);
+        public static unsafe void Save() => Native.Api.Prefs_Save();
+    }
+
     // Unity 와 같은 값
     public enum RuntimePlatform { WindowsPlayer = 2, WindowsEditor = 7, Android = 11, WebGLPlayer = 17 }
     public enum ScreenOrientation { Portrait = 1, PortraitUpsideDown = 2, LandscapeLeft = 3, LandscapeRight = 4, AutoRotation = 5 }

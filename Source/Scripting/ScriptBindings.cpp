@@ -27,6 +27,8 @@
 #include "UIScriptBindings.h"
 #include "UISystem.h"
 #include "BuildSettings.h"
+#include "PlayerPrefsStore.h"
+#include "PathManager.h"
 #include "PlayerRuntime.h"
 #include "ParticleSystem.h"
 
@@ -235,6 +237,30 @@ namespace
 		void(*J2_SetConnected)(uint64, int, int, uint64);
 		int(*J2_Find)(uint64, int, int);
 		void(*J2_Remove)(uint64, int, int);
+		// 여러 씬 (SceneManagerRuntime.cpp)
+		int(*Scene_LoadOp)(u8*, int, int, int);           // 이름 | 빌드 번호, 모드 (0 Single · 1 Additive), 비동기 → 작업 번호 (0 = 없는 씬, -1 = Play 중 아님)
+		int(*Scene_OpState)(int, float*, int*);           // 작업 → 1 끝 · 2 실패 · 4 allowSceneActivation (-1 = 모름), 진행, 씬 핸들
+		void(*Scene_OpAllow)(int, int);
+		int(*Scene_Unload)(int);                          // 핸들 → 작업 번호 (0 = 내릴 수 없음)
+		int(*Scene_LoadedCount)();
+		int(*Scene_HandleAt)(int);
+		u8* (*Scene_HandleInfo)(int, int*, int*);         // 핸들 → 경로, 읽혀 있음, 루트 수
+		int(*Scene_ActiveHandle)();
+		int(*Scene_SetActive)(int);
+		int(*Scene_Roots)(int, uint64*, int);
+		int(*GO_SceneHandle)(uint64);
+		int(*GO_MoveToScene)(uint64, int);                // 핸들 -1 = DontDestroyOnLoad
+		// PlayerPrefs (PlayerPrefsStore) · Application 경로
+		int(*Prefs_Has)(u8*);
+		void(*Prefs_SetInt)(u8*, int);
+		int(*Prefs_GetInt)(u8*, int);
+		void(*Prefs_SetFloat)(u8*, float);
+		float(*Prefs_GetFloat)(u8*, float);
+		void(*Prefs_SetString)(u8*, u8*);
+		u8* (*Prefs_GetString)(u8*);                      // 없으면 nullptr
+		void(*Prefs_Delete)(u8*);                         // nullptr = 모두
+		void(*Prefs_Save)();
+		u8* (*App_Path)(int);                             // 0 persistentDataPath, 1 dataPath, 2 companyName, 3 version, 4 temporaryCachePath
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -316,7 +342,10 @@ namespace
 			if (g->GetParent() != nullptr)
 				scene->RegisterGameObjectTree(g);
 			else
+			{
 				scene->AddRootGameObject(g);
+				SceneManager::GetI()->OnRuntimeRootCreated(g);   // 활성 씬 (SceneManager.SetActiveScene)
+			}
 			if (parent)
 				if (GameObject* p = scene->FindByFileID(parent))
 					g->SetParent(p, worldStays);
@@ -948,13 +977,15 @@ namespace
 	}
 
 	// ---------------------------------------------------------------- 씬 / 앱
+	// 비교용: 구분자를 '/' 로 (안드로이드 · 웹은 '\' 를 경로 구분자로 보지 않아 stem() 이 파일 이름을 못 뗀다 — Windows 는 둘 다)
 	std::string NormalizeScenePath(std::string s)
 	{
-		std::replace(s.begin(), s.end(), '/', '\\');
+		std::replace(s.begin(), s.end(), '\\', '/');
 		return s;
 	}
 
-	int Scene_Load(u8* name, int index)
+	// Build Settings 의 씬: Unity 처럼 이름("Level2"), 경로("Assets/Scenes/Level2.unity"), 확장자 없는 경로, 빌드 번호
+	std::string FindBuildScene(u8* name, int index)
 	{
 		const std::vector<std::string> scenes = BuildSettings::RuntimeScenes();
 		std::string path;
@@ -976,6 +1007,12 @@ namespace
 		}
 		else if (index >= 0 && index < (int)scenes.size())
 			path = scenes[index];
+		return path;
+	}
+
+	int Scene_Load(u8* name, int index)
+	{
+		const std::string path = FindBuildScene(name, index);
 		if (path.empty())
 			return 0;
 		if (Application::IsPlaying())
@@ -1005,6 +1042,48 @@ namespace
 	}
 
 	int Scene_Count() { return (int)BuildSettings::RuntimeScenes().size(); }
+
+	int Scene_LoadOp(u8* name, int index, int mode, int async)
+	{
+		const std::string path = FindBuildScene(name, index);
+		if (path.empty())
+			return 0;
+		if (!Application::IsPlaying())
+			return -1;
+		return SceneManager::GetI()->RequestSceneLoad(string_to_wstring(path), mode == 1, async != 0);
+	}
+
+	int Scene_OpState(int op, float* progress, int* handle)
+	{
+		const SceneManager::SceneOp* s = SceneManager::GetI()->GetSceneOp(op);
+		if (s == nullptr)
+			return -1;
+		if (progress) *progress = s->Progress;
+		if (handle) *handle = s->Handle;
+		return (s->Done ? 1 : 0) | (s->Failed ? 2 : 0) | (s->AllowActivation ? 4 : 0);
+	}
+
+	u8* Scene_HandleInfo(int handle, int* loaded, int* rootCount)
+	{
+		SceneManager* sm = SceneManager::GetI();
+		const std::wstring path = sm->ScenePathOfHandle(handle);
+		bool isLoaded = false;
+		for (const SceneManager::RuntimeScene& s : sm->LoadedScenes())
+			if (s.Handle == handle) isLoaded = true;
+		if (!isLoaded && handle == SceneManager::kDontDestroyOnLoadHandle)
+			isLoaded = Application::IsPlaying();
+		if (loaded) *loaded = isLoaded ? 1 : 0;
+		if (rootCount) *rootCount = (int)sm->RootsOfScene(handle).size();
+		return Ret(wstring_to_string(path));
+	}
+
+	int Scene_Roots(int handle, uint64* out, int max)
+	{
+		const std::vector<GameObject*> roots = SceneManager::GetI()->RootsOfScene(handle);
+		for (int i = 0; i < (int)roots.size() && i < max; ++i)
+			out[i] = roots[i]->GetFileID();
+		return (int)roots.size();
+	}
 	int App_Info(int what) { return what == 0 && Application::IsPlayer() ? 1 : 0; }
 	u8* App_ProductName() { return Ret(BuildSettings::ProductName()); }
 	void App_Quit()
@@ -1490,6 +1569,49 @@ namespace ScriptBindings
 		t.J2_GetConnected = [](uint64 id, int kind, int instance) -> uint64 { auto* j = FindJoint2D(id, kind, instance); return j ? j->ConnectedBody : 0; };
 		t.J2_SetConnected = [](uint64 id, int kind, int instance, uint64 other) { if (auto* j = FindJoint2D(id, kind, instance)) j->ConnectedBody = other; };
 		t.J2_Find = [](uint64 id, int kind, int index) -> int { auto* j = FindJoint2D(id, kind, 0, index); return j ? j->GetInstanceID() : 0; };
+		t.Scene_LoadOp = Scene_LoadOp;
+		t.Scene_OpState = Scene_OpState;
+		t.Scene_OpAllow = [](int op, int allow) { SceneManager::GetI()->SetSceneOpAllowActivation(op, allow != 0); };
+		t.Scene_Unload = [](int handle) { return SceneManager::GetI()->RequestSceneUnload(handle); };
+		t.Scene_LoadedCount = []() { return (int)SceneManager::GetI()->LoadedScenes().size(); };
+		t.Scene_HandleAt = [](int i) {
+			const auto scenes = SceneManager::GetI()->LoadedScenes();
+			return i >= 0 && i < (int)scenes.size() ? scenes[i].Handle : 0;
+		};
+		t.Scene_HandleInfo = Scene_HandleInfo;
+		t.Scene_ActiveHandle = []() { return SceneManager::GetI()->ActiveSceneHandle(); };
+		t.Scene_SetActive = [](int handle) { return SceneManager::GetI()->SetActiveSceneHandle(handle) ? 1 : 0; };
+		t.Scene_Roots = Scene_Roots;
+		t.GO_SceneHandle = [](uint64 id) { GameObject* g = Find(id); return g ? SceneManager::GetI()->SceneHandleOf(g) : 0; };
+		t.Prefs_Has = [](u8* k) { return k && PlayerPrefsStore::Has(k) ? 1 : 0; };
+		t.Prefs_SetInt = [](u8* k, int v) { if (k) PlayerPrefsStore::SetInt(k, v); };
+		t.Prefs_GetInt = [](u8* k, int d) { return k ? PlayerPrefsStore::GetInt(k, d) : d; };
+		t.Prefs_SetFloat = [](u8* k, float v) { if (k) PlayerPrefsStore::SetFloat(k, v); };
+		t.Prefs_GetFloat = [](u8* k, float d) { return k ? PlayerPrefsStore::GetFloat(k, d) : d; };
+		t.Prefs_SetString = [](u8* k, u8* v) { if (k) PlayerPrefsStore::SetString(k, v ? (const char*)v : ""); };
+		t.Prefs_GetString = [](u8* k) -> u8* {
+			std::string s;
+			return k && PlayerPrefsStore::GetString(k, s) ? Ret(s) : nullptr;
+		};
+		t.Prefs_Delete = [](u8* k) { if (k) PlayerPrefsStore::Delete(k); else PlayerPrefsStore::DeleteAll(); };
+		t.Prefs_Save = []() { PlayerPrefsStore::Save(); };
+		t.App_Path = [](int what) -> u8* {
+			switch (what)
+			{
+			case 0: return Ret(PlayerPrefsStore::PersistentDataPath());
+			case 1: return Ret(wstring_to_string(PathManager::GetI()->GetMovePathW(L"Assets")));
+			case 2: return Ret(BuildSettings::GetPlayer().CompanyName);
+			case 3: return Ret(BuildSettings::GetPlayer().Version);
+			default:
+			{
+				std::error_code ec;
+				const std::filesystem::path tmp = std::filesystem::temp_directory_path(ec) / BuildSettings::ProductName();
+				std::filesystem::create_directories(tmp, ec);
+				return Ret(tmp.string());
+			}
+			}
+		};
+		t.GO_MoveToScene = [](uint64 id, int handle) { GameObject* g = Find(id); return g && SceneManager::GetI()->MoveRootToScene(g, handle) ? 1 : 0; };
 		t.J2_Remove = [](uint64 id, int kind, int instance) {
 			SceneManager::GetI()->AddLastUpdate([id, kind, instance]() {
 				if (auto* j = FindJoint2D(id, kind, instance))
@@ -1515,6 +1637,7 @@ namespace ScriptBindings
 
 	void Update()
 	{
+		PlayerPrefsStore::Flush();   // 바뀐 PlayerPrefs 는 프레임마다 쓴다 (앱이 갑자기 꺼져도)
 		if (!Application::IsPlaying() || s_DelayedDestroys.empty())
 			return;
 		const float now = ScriptEngine::PlayTime();

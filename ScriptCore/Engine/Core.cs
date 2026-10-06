@@ -62,7 +62,14 @@ namespace NovaEngine
             GameObject.DestroyNative(obj.m_Id, t);
         }
         public static void DestroyImmediate(Object obj) => Destroy(obj, 0f);
-        public static void DontDestroyOnLoad(Object target) { }
+        // Unity: 루트 오브젝트 (또는 그 컴포넌트) 를 씬을 바꿔도 지우지 않는다 — "DontDestroyOnLoad" 씬으로 옮긴다
+        public static unsafe void DontDestroyOnLoad(Object target)
+        {
+            if (target is null) return;
+            ulong id = target.m_Id;
+            if (Native.Api.GO_MoveToScene(id, NovaEngine.SceneManagement.SceneManager.DontDestroyOnLoadHandle) == 0 && Application.isPlaying)
+                Debug.LogWarning("DontDestroyOnLoad only works for root GameObjects or components on root GameObjects.");
+        }
 
         public static T Instantiate<T>(T original) where T : Object => (T)InstantiateImpl(original, false, Vector3.zero, Quaternion.identity, null);
         public static T Instantiate<T>(T original, Transform parent) where T : Object => (T)InstantiateImpl(original, false, Vector3.zero, Quaternion.identity, parent);
@@ -128,6 +135,8 @@ namespace NovaEngine
 
         public GameObject gameObject => this;
         public Transform transform => new Transform(m_Id);
+        // 이 오브젝트가 있는 씬 (루트의 씬 — DontDestroyOnLoad 면 그 씬)
+        public unsafe NovaEngine.SceneManagement.Scene scene => NovaEngine.SceneManagement.Scene.FromHandle(Native.Api.GO_SceneHandle(m_Id));
         public unsafe bool activeSelf => Native.Api.GO_GetActive(m_Id, 0) != 0;
         public unsafe bool activeInHierarchy => Native.Api.GO_GetActive(m_Id, 1) != 0;
         public unsafe void SetActive(bool value) => Native.Api.GO_SetActive(m_Id, value ? 1 : 0);
@@ -471,6 +480,14 @@ namespace NovaEngine
     public sealed class WaitForFixedUpdate : YieldInstruction { }
     public sealed class WaitUntil : YieldInstruction { internal readonly Func<bool> predicate; public WaitUntil(Func<bool> predicate) { this.predicate = predicate; } }
     public sealed class WaitWhile : YieldInstruction { internal readonly Func<bool> predicate; public WaitWhile(Func<bool> predicate) { this.predicate = predicate; } }
+    // Unity 의 CustomYieldInstruction: keepWaiting 이 false 가 될 때까지 (코루틴은 IEnumerator 로 기다린다)
+    public abstract class CustomYieldInstruction : IEnumerator
+    {
+        public abstract bool keepWaiting { get; }
+        public object Current => null;
+        public bool MoveNext() => keepWaiting;
+        public virtual void Reset() { }
+    }
 
     // ------------------------------------------------------------------ MonoBehaviour
     public class MonoBehaviour : Behaviour
@@ -557,6 +574,7 @@ namespace NovaEngine
                     case WaitUntil w: c.WaitCondition = w.predicate; return;
                     case WaitWhile w: { var p = w.predicate; c.WaitCondition = () => !p(); return; }
                     case Coroutine other: c.WaitFor = other; return;
+                    case AsyncOperation op: c.WaitCondition = () => op.isDone; return;
                     case IEnumerator nested: c.Stack.Push(nested); continue;
                     default: return;   // WaitForEndOfFrame, WaitForFixedUpdate 등 = 다음 프레임
                 }

@@ -252,6 +252,30 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, int, int, ulong, void> J2_SetConnected;
         public delegate* unmanaged<ulong, int, int, int> J2_Find;
         public delegate* unmanaged<ulong, int, int, void> J2_Remove;
+        // 여러 씬 (C++ SceneManagerRuntime.cpp)
+        public delegate* unmanaged<byte*, int, int, int, int> Scene_LoadOp;      // 이름 | 빌드 번호, 모드, 비동기 → 작업 번호 (0 없는 씬, -1 Play 중 아님)
+        public delegate* unmanaged<int, float*, int*, int> Scene_OpState;        // → 1 끝 · 2 실패 · 4 allowSceneActivation (-1 모름), 진행, 핸들
+        public delegate* unmanaged<int, int, void> Scene_OpAllow;
+        public delegate* unmanaged<int, int> Scene_Unload;
+        public delegate* unmanaged<int> Scene_LoadedCount;
+        public delegate* unmanaged<int, int> Scene_HandleAt;
+        public delegate* unmanaged<int, int*, int*, byte*> Scene_HandleInfo;     // 핸들 → 경로, 읽혀 있음, 루트 수
+        public delegate* unmanaged<int> Scene_ActiveHandle;
+        public delegate* unmanaged<int, int> Scene_SetActive;
+        public delegate* unmanaged<int, ulong*, int, int> Scene_Roots;
+        public delegate* unmanaged<ulong, int> GO_SceneHandle;
+        public delegate* unmanaged<ulong, int, int> GO_MoveToScene;              // 핸들 -1 = DontDestroyOnLoad
+        // PlayerPrefs · Application 경로
+        public delegate* unmanaged<byte*, int> Prefs_Has;
+        public delegate* unmanaged<byte*, int, void> Prefs_SetInt;
+        public delegate* unmanaged<byte*, int, int> Prefs_GetInt;
+        public delegate* unmanaged<byte*, float, void> Prefs_SetFloat;
+        public delegate* unmanaged<byte*, float, float> Prefs_GetFloat;
+        public delegate* unmanaged<byte*, byte*, void> Prefs_SetString;
+        public delegate* unmanaged<byte*, byte*> Prefs_GetString;               // 없으면 null
+        public delegate* unmanaged<byte*, void> Prefs_Delete;                   // null = 모두
+        public delegate* unmanaged<void> Prefs_Save;
+        public delegate* unmanaged<int, byte*> App_Path;                        // 0 persistentDataPath, 1 dataPath, 2 companyName, 3 version, 4 temporaryCachePath
     }
 
     internal static unsafe class Native

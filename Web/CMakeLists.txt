@@ -62,6 +62,7 @@ list(APPEND ENGINE_SOURCES ${AUDIO_CODEC_SOURCES}
     "${ROOT}/Source/Scripting/CSharpScript.cpp"
     "${ROOT}/Source/Scripting/ScriptBindings.cpp"
     "${ROOT}/Source/Scripting/PlatformBindings.cpp"
+    "${ROOT}/Source/Scripting/PlayerPrefsStore.cpp"
     "${ROOT}/Source/Scripting/MonoBehaviour.cpp")
 # 안드로이드 판 중 플랫폼과 상관없는 것
 set(SHARED_PLATFORM_SOURCES

@@ -43,6 +43,8 @@
     <!-- 검사 · 셸이 부르는 엔진 함수 (Module._nova_web_frames …) -->
     <EmccExportedFunction Include="_nova_web_frames;_nova_web_failed;_nova_web_stats;_nova_audio_render" />
     <Compile Include="$(NovaRoot)Packages/*/Runtime/**/*.cs" LinkBase="Packages" />
+    <!-- 엔진 API 표의 호출 모양 (Tools/web/gen_native_signatures.py — Web/build.sh 가 만든다) -->
+    <Compile Include="$(NovaWebBuildDir)NovaWebSignatures.cs" Condition="Exists('$(NovaWebBuildDir)NovaWebSignatures.cs')" />
     <Reference Include="NovaScriptCore">
       <HintPath>$(NovaRoot)Binaries/Scripting/NovaScriptCore.dll</HintPath>
     </Reference>

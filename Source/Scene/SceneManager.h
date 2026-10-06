@@ -5,6 +5,7 @@
 #include <functional>
 
 class Scene;
+class GameObject;
 
 class NOVA_API SceneManager
 {
@@ -76,6 +77,32 @@ public:
 	void LoadSceneDuringPlay(const std::wstring& scenePath);
 	void HandleStop();
 	void CreateScene();
+
+	// ---- 실행 중 여러 씬 (Unity 의 SceneManager — LoadSceneMode.Additive · LoadSceneAsync · UnloadSceneAsync · DontDestroyOnLoad)
+	//  엔진의 씬 객체는 하나 (m_pCurrScene). 더해 읽은 씬의 오브젝트도 그 안에 넣고 루트마다 어느 씬 것인지 (핸들) 를 기억한다
+	//  — 그리기 · 물리 · 스크립트는 그대로, C# 의 Scene (핸들 · 이름 · GetRootGameObjects) 과 내리기 (Unload) 만 핸들로 나눈다
+	struct RuntimeScene { int Handle = 0; std::wstring Path; };
+	struct SceneOp { float Progress = 0.0f; bool Done = false; bool AllowActivation = true; bool Failed = false; int Handle = 0; };
+	static constexpr int kDontDestroyOnLoadHandle = -1;
+	// 씬 읽기 (Play 중, 프레임 끝에 바뀐다): additive = 지금 씬들에 더하기, async = 파일 읽기 · 해석을 작업 스레드에서
+	//  (allowSceneActivation 이 false 면 0.9 에서 멈춘다 — Unity 와 같음). 반환 = 작업 번호 (C# AsyncOperation)
+	int RequestSceneLoad(const std::wstring& scenePath, bool additive, bool async);
+	int RequestSceneUnload(int handle);   // 0 = 그런 씬이 없거나 마지막 씬 (Unity 처럼 마지막 씬은 내리지 않는다)
+	const SceneOp* GetSceneOp(int op) const;
+	void SetSceneOpAllowActivation(int op, bool allow);
+	std::vector<RuntimeScene> LoadedScenes() const;   // 읽은 순서 ([0] = Single 로 읽은 씬)
+	std::wstring ScenePathOfHandle(int handle) const;   // 이번 Play 에서 쓴 핸들 (내린 씬도 — C# sceneUnloaded 의 이름)
+	int ActiveSceneHandle() const;
+	bool SetActiveSceneHandle(int handle);
+	int SceneHandleOf(GameObject* go) const;            // 루트까지 올라가 그 루트의 씬 (DontDestroyOnLoad = -1)
+	bool MoveRootToScene(GameObject* go, int handle);   // MoveGameObjectToScene · DontDestroyOnLoad (루트 오브젝트만)
+	std::vector<GameObject*> RootsOfScene(int handle) const;
+	void OnRuntimeRootCreated(GameObject* root);        // Instantiate · new GameObject 가 루트로 들어올 때: 활성 씬으로
+	void UpdateSceneOps();                              // 프레임 끝 (LastUpdate 뒤): 작업 진행 · 바꾸기
+	void BeginRuntimeScenes();                          // Play 시작: 지금 씬 = 첫 핸들
+	void EndRuntimeScenes();                            // Play 끝: 작업 · 핸들 비우기
+	void NotifyFirstSceneLoaded();                      // Play 시작 씬의 C# sceneLoaded (Awake 뒤 Start 전)
+	friend struct SceneManagerRuntimeAccess;            // SceneManagerRuntime.cpp (씬 바꾸기)
 
 	// 에디터 시작 시 열 씬을 결정한다.
 	//  1) 마지막으로 연 씬 파일이 있으면 로드

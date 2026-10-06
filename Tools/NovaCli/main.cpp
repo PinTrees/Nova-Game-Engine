@@ -607,6 +607,7 @@ namespace
 		"  graphics [--editor DirectX11|OpenGL] [--player OpenGL,DirectX11] [--auto true|false]   graphics API settings\n"
 		"  assets [folder] [--pattern text]\n"
 		"  build <output folder> [--run]   build-status [--wait]\n"
+		"  build-scenes list|set|add|remove [--scenes Assets/Scenes/A.scene,Assets/Scenes/B.scene]   Scenes In Build (order = build index)\n"
 		"\n"
 		"  autosave [status|now|recover|discard]  auto save (Library/AutoSave) and crash recovery\n"
 		"\n"
@@ -1192,7 +1193,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

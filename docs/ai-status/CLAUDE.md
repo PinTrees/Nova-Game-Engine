@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **`nova android reference` 의 UI 레이아웃 크기 고침** (사용자 지시: 웹 검사에서 찾은 작업을 이 세션에서). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **씬 Additive · LoadSceneAsync · DontDestroyOnLoad · PlayerPrefs** (사용자 지시 순서: 씬 비동기 · 추가 → PlayerPrefs → 트윈 패키지 → 2D 조명 → 2D 내비게이션 → 래그돌 · 차량 · 천). **1 · 2 완료 (커밋, 푸시 전)**
+  - `Source/Scene/SceneManagerRuntime.cpp`: 씬 객체는 하나, 루트마다 씬 핸들 (fileID → 핸들). Additive = 오브젝트를 지금 씬으로 옮김 (fileID 새로, 참조 함께), 비동기 = 작업 스레드에서 읽기 · 해석 (웹은 그 프레임), 프레임 끝에 요청 차례대로 바꾸기, allowSceneActivation 0.9 대기, Unload, DontDestroyOnLoad (Single 로 바꿔도 남고 Awake · Start 다시 없음)
+  - C#: `SceneManager` (LoadSceneAsync · UnloadSceneAsync · GetSceneAt/ByName/ByPath/ByBuildIndex · SetActiveScene · MoveGameObjectToScene · sceneLoaded/Unloaded/activeSceneChanged), `Scene` (핸들), `AsyncOperation` (yield · completed), `CustomYieldInstruction`, `GameObject.scene`. 알림은 `AppEvents.SceneEvent` (세 호스트 모두) — Play 시작 때 지난 구독을 비운다
+  - `PlayerPrefs` (`Source/Scripting/PlayerPrefsStore.*`): 에디터 Library/PlayerPrefs.json, Windows persistentDataPath, 안드로이드 파일 폴더, 웹 localStorage. `Application.persistentDataPath` 등
+  - CLI `nova build-scenes list|set|add|remove`. 웹: 엔진 API 표의 호출 모양을 DllImport 로 만들어 줌 (`Tools/web/gen_native_signatures.py` — 없으면 새 모양에서 .NET 이 멈춘다). 씬 이름 찾기가 안드로이드 · 웹에서 '\\' 경로로 실패하던 것 고침
+  - 검사: `-Only scenes` 11/11 (PC), 웹에서 같은 검사 스크립트 결과 같음 + localStorage 로 다음 실행에 남음, web 10/10, physics · ui 28/28. 문서 `docs/SCENE_MANAGEMENT.md`
+  - 다음: 트윈 패키지 (com.nova.tween — DOTween 같은 기능)
+- 이전: 2026년 10월 6일 — **`nova android reference` 의 UI 레이아웃 크기 고침** (사용자 지시: 웹 검사에서 찾은 작업을 이 세션에서). **완료 (커밋 5286035, 푸시함)**
   - 기준 그림이 Screen Space UI 를 Game 뷰 크기로 놓던 것 → 요청한 W x H 로 (`UISystem::LayoutForScreen` — Update 의 캔버스 레이아웃을 함수로 꺼냄), 끝나면 Game 뷰로 되돌림
   - 같은 자리의 옛 문제: 기준 그림 뒤 Game 뷰가 뷰포트 · SSAO 크기를 되찾지 못해 찌그러져 그려졌다 → 그리기 전 값으로 되돌림 (Game 뷰 전후 화소 차이 0)
   - 검사: 웹 스위트에 UI 위치 = DX11 추가 (10/10), ui 15/15, 웹 빌드 OK

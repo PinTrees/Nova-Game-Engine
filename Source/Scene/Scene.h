@@ -1,5 +1,7 @@
 #pragma once
 #include <nlohmann/json.hpp>
+#include <functional>
+#include <unordered_set>
 
 using json = nlohmann::json;
 
@@ -33,7 +35,9 @@ public:
 	wstring GetName() const;
 
 public:
-	void Enter();
+	// Play 시작 · 씬 읽기: 모든 컴포넌트 Awake → 물리 바디 → afterAwake (C# sceneLoaded — Unity 처럼 Awake 뒤 Start 전) → Start
+	//  started = 이미 Awake · Start 한 오브젝트 (이전 씬에서 넘어온 DontDestroyOnLoad) — 건너뛴다
+	void Enter(const std::function<void()>& afterAwake = nullptr, const std::unordered_set<GameObject*>* started = nullptr);
 	void Exit();
 
 	void UpdateScene();
@@ -81,6 +85,10 @@ public:
 	vector<GameObject*> GetCullingGameObjects() { return m_CullingGameObjects; }
 	vector<GameObject*> GetCullingEditorGameObjects() { return m_CullingEditorGameObjects; }
 	void RemoveRootGameObjects(GameObject* gameObject);
+	// 지우지 않고 목록에서만 뺀다 (DontDestroyOnLoad 오브젝트를 새 씬으로 옮길 때): 루트 + 자손
+	void DetachTree(GameObject* root);
+	// 모든 루트를 지우지 않고 넘겨준다 (더해 읽은 씬의 오브젝트를 지금 씬으로 옮길 때) — 이 씬은 빈 채로 지워도 된다
+	vector<GameObject*> ReleaseAll();
 
 public:
 	friend void from_json(const json& j, Scene& scene);

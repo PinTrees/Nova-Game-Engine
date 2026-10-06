@@ -116,6 +116,7 @@ void SceneManager::LastUpdate()
 	actions.swap(m_Editor_LastUpdateActions);
 	for (auto& action : actions)
 		action();
+	UpdateSceneOps();   // SceneManager.LoadScene · LoadSceneAsync · UnloadSceneAsync (Play 중, 요청한 차례대로)
 }
 
 void SceneManager::HandleSceneShortcuts()
@@ -396,40 +397,18 @@ void SceneManager::HandlePlay()
 	json j = *m_pCurrScene;
 	m_PlayModeSceneSnapshot = j.dump();
 	m_PlayOriginalPath = m_pCurrScene->GetScenePath();
-	m_pCurrScene->Enter();
+	BeginRuntimeScenes();
+	m_pCurrScene->Enter([this]() { NotifyFirstSceneLoaded(); });
 }
 
 void SceneManager::LoadSceneDuringPlay(const std::wstring& scenePath)
 {
-	AddLastUpdate([this, scenePath]() {
-		Scene* next = Scene::Load(scenePath);
-		if (next == nullptr)
-		{
-			Debug::LogError("SceneManager.LoadScene: could not load '" + wstring_to_string(scenePath) + "'");
-			return;
-		}
-		next->SetScenePath(scenePath);
-		EditorLog::Write("Scene", "load during play: %s", wstring_to_string(scenePath).c_str());
-		Scene* old = m_pCurrScene;
-		if (old)
-		{
-			UISystem::OnSceneUnloading();
-			old->Exit();
-			for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
-				it = it->second == old ? m_Scenes.erase(it) : std::next(it);
-			SelectionManager::ClearSelection();
-			delete old;
-		}
-		ScriptEngine::OnSceneSwapped();
-		m_pCurrScene = next;
-		DisplayManager::GetI()->Init();
-		m_pCurrScene->Enter();   // Play 중이므로 Awake / Start (C# 포함)
-		EditorLog::Write("Scene", "entered %s (%zu objects)", wstring_to_string(scenePath).c_str(), m_pCurrScene->GetAllGameObjects().size());
-	});
+	RequestSceneLoad(scenePath, false, false);   // 프레임 끝에 (SceneManagerRuntime.cpp — DontDestroyOnLoad · 더해 읽은 씬 처리)
 }
 
 void SceneManager::HandleStop()
 {
+	EndRuntimeScenes();
 	if (m_pCurrScene == nullptr)
 		return;
 

@@ -64,6 +64,7 @@ namespace
 		void (*InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
 		void (*AppPause)(int) = nullptr;   // NovaEngine.Interop.AppEvents (없어도 된다)
 		void (*AppFocus)(int) = nullptr;
+		void (*SceneEvent)(int, int, int) = nullptr;   // AppEvents.SceneEvent (없어도 된다)
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -122,7 +123,7 @@ namespace
 	// 웹: .NET 웹어셈블리 런타임 (Mono) 이 엔진과 한 wasm 에 들어 있고 먼저 뜬다 (Web/Host). C# 의 Main 이
 	//  Bridge 진입점 주소를 nova_web_set_managed 로 넘긴 뒤 엔진을 시작한다 — 런타임을 띄우거나 찾을 일이 없다.
 	//  엔진만 있는 빌드 (Web/build.sh 의 nova) 는 주소가 없다 → 스크립트 없이 (Windows · 안드로이드 판과 같은 규칙)
-	void* s_WebEntries[17] = {};
+	void* s_WebEntries[18] = {};
 	int s_WebEntryCount = 0;
 
 	bool InitRuntime()
@@ -151,6 +152,7 @@ namespace
 		set(14, m.InvokeUIEvent);
 		set(15, m.AppPause);
 		set(16, m.AppFocus);
+		set(17, m.SceneEvent);
 		if (!InitBridge())
 			return false;
 		EditorLog::Write("Script", ".NET WebAssembly runtime ready");
@@ -263,6 +265,7 @@ namespace
 			klass = events;
 			get("Pause", 1, m.AppPause);
 			get("Focus", 1, m.AppFocus);
+			get("SceneEvent", 3, m.SceneEvent);
 			klass = k;
 			ok = true;   // 선택 진입점 — 없어도 스크립트는 돈다
 		}
@@ -394,6 +397,12 @@ namespace ScriptEngine
 	{
 		if (s_AssemblyLoaded && m.AppFocus)
 			m.AppFocus(focused ? 1 : 0);
+	}
+
+	void OnSceneEvent(int kind, int a, int b)
+	{
+		if (s_AssemblyLoaded && m.SceneEvent)
+			m.SceneEvent(kind, a, b);
 	}
 
 	void OnSceneSwapped()

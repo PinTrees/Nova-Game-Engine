@@ -12,7 +12,7 @@ public static unsafe class NovaWebHost
 
     public static int Main()
     {
-        IntPtr* e = stackalloc IntPtr[17];
+        IntPtr* e = stackalloc IntPtr[18];
         e[0] = (IntPtr)(delegate* unmanaged<IntPtr, int>)&Bridge.Initialize;
         e[1] = (IntPtr)(delegate* unmanaged<void>)&Bridge.BeginFrame;
         e[2] = (IntPtr)(delegate* unmanaged<IntPtr, void>)&Bridge.FreeString;
@@ -30,7 +30,8 @@ public static unsafe class NovaWebHost
         e[14] = (IntPtr)(delegate* unmanaged<ulong, int, float, byte*, void>)&Bridge.InvokeUIEvent;
         e[15] = (IntPtr)(delegate* unmanaged<int, void>)&AppEvents.Pause;
         e[16] = (IntPtr)(delegate* unmanaged<int, void>)&AppEvents.Focus;
-        nova_web_set_managed(e, 17);
+        e[17] = (IntPtr)(delegate* unmanaged<int, int, int, void>)&AppEvents.SceneEvent;
+        nova_web_set_managed(e, 18);
         int ok = nova_web_start();
         if (ok == 0) Console.Error.WriteLine("NOVA: the engine could not start");
         return 0;

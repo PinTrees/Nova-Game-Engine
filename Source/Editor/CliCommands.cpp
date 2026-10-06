@@ -1649,6 +1649,51 @@ namespace CliCommands
 			return true;
 		});
 
+		// Build Settings 의 Scenes In Build (Unity 의 EditorBuildSettings.scenes): 차례 = 빌드 번호
+		Register("build-scenes", "Build Settings scenes {op: list|set|add|remove, scenes: \"Assets/A.scene,Assets/B.scene\"}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("list"));
+			std::vector<std::string> names;
+			if (a.contains("scenes"))
+			{
+				const json& s = a["scenes"];
+				if (s.is_array()) { for (const json& v : s) if (v.is_string()) names.push_back(v.get<std::string>()); }
+				else if (s.is_string())
+				{
+					std::stringstream ss(s.get<std::string>());
+					for (std::string item; std::getline(ss, item, ',');)
+						if (!item.empty()) names.push_back(item);
+				}
+			}
+			for (std::string& n : names)
+				std::replace(n.begin(), n.end(), '/', '\\');
+			auto& scenes = BuildSettings::Scenes();
+			auto find = [&](const std::string& p) {
+				return std::find_if(scenes.begin(), scenes.end(), [&](const BuildSettings::SceneEntry& s) { return _stricmp(s.Path.c_str(), p.c_str()) == 0; });
+			};
+			if (op == "set" || op == "add")
+			{
+				if (op == "set") scenes.clear();
+				for (const std::string& n : names)
+				{
+					if (!std::filesystem::exists(PathManager::GetI()->GetMovePathW(string_to_wstring(n)))) { e = "scene not found: " + n; return false; }
+					if (find(n) == scenes.end()) scenes.push_back({ n, true });
+				}
+				BuildSettings::SaveScenes();
+			}
+			else if (op == "remove")
+			{
+				for (const std::string& n : names)
+					if (auto it = find(n); it != scenes.end()) scenes.erase(it);
+				BuildSettings::SaveScenes();
+			}
+			else if (op != "list") { e = "op must be list, set, add or remove"; return false; }
+			json list = json::array();
+			for (size_t i = 0; i < scenes.size(); ++i)
+				list.push_back({ { "index", i }, { "path", scenes[i].Path }, { "enabled", scenes[i].Enabled } });
+			r = { { "scenes", list } };
+			return true;
+		});
+
 		Register("build-status", "player build progress", [](const json&, json& r, std::string&) {
 			r = { { "running", BuildPipeline::IsRunning() }, { "status", BuildPipeline::Status() } };
 			return true;

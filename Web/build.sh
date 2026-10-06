@@ -19,6 +19,8 @@ if [ ! -f "$OUT/build.ninja" ]; then
 fi
 if [ "$TARGET" = "host" ]; then
     "$CMAKE" --build "$OUT" --target nova_web_host -- -k 0
+    # 엔진 API 표 (함수 포인터) 의 호출 모양 → DllImport · 빈 C 함수 (.NET 이 그 모양의 다리를 만들게)
+    python "$ROOT/Tools/web/gen_native_signatures.py" "$ROOT/ScriptCore" "$OUT/NovaWebSignatures.cs" "$OUT/host-modules/NovaWeb.c"
     # .NET 은 자기 Emscripten 환경 (같은 3.1.56 · 고정 캐시) 으로 링크한다 — 위의 환경 변수를 넘기지 않는다
     env -u EM_CACHE -u EMSDK_PATH -u FROZEN_CACHE -u DOTNET_EMSCRIPTEN_LLVM_ROOT -u DOTNET_EMSCRIPTEN_BINARYEN_ROOT -u DOTNET_EMSCRIPTEN_NODE_JS -u EMSDK_PYTHON \
         dotnet publish "$ROOT/Web/Host/NovaWebHost.csproj" -c "$CONFIG" -nologo -v:m -p:NovaWebBuildDir="$(cygpath -m "$OUT")/" -o "$OUT/host"

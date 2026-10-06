@@ -15,6 +15,14 @@ namespace NovaEngine.Interop
         [UnmanagedCallersOnly]
         public static void Focus(int focused) => Send("OnApplicationFocus", focused != 0);
 
+        // 씬 알림 (C++ ScriptEngine::OnSceneEvent): 0 sceneLoaded (핸들, 모드) · 1 sceneUnloaded (핸들) · 2 activeSceneChanged (이전, 새) · 3 AsyncOperation 끝 (작업, 성공)
+        [UnmanagedCallersOnly]
+        public static void SceneEvent(int kind, int a, int b)
+        {
+            try { NovaEngine.SceneManagement.SceneManager.OnNativeEvent(kind, a, b); }
+            catch (Exception e) { Debug.LogException(e); }
+        }
+
         static void Send(string message, bool value)
         {
             const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;

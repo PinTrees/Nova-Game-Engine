@@ -61,10 +61,12 @@ Scene::~Scene()
     m_ArrGameObjects[0].clear();
 }
 
-void Scene::Enter()
+void Scene::Enter(const std::function<void()>& afterAwake, const std::unordered_set<GameObject*>* started)
 {
     // 스크립트(Awake/Start)가 오브젝트를 만들거나 부모를 바꾸면 목록이 늘어나므로 복사본을 돈다
-    const std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    if (started)
+        objects.erase(std::remove_if(objects.begin(), objects.end(), [&](GameObject* g) { return started->count(g) != 0; }), objects.end());
     for (auto& gameObject : objects)
     {
         for (auto& component : gameObject->GetComponents())
@@ -76,6 +78,8 @@ void Scene::Enter()
     // Unity 와 같이 Start 에서 Rigidbody 를 바로 쓸 수 있도록 물리 바디를 먼저 만든다
     PhysicsManager::GetI()->Start();
     Physics2DManager::Start(this);   // 2D 물리 (Box2D) — 3D 와 따로
+    if (afterAwake)
+        afterAwake();
 
     for (auto& gameObject : objects)
     {
@@ -481,6 +485,32 @@ void Scene::RegisterGameObjectTree(GameObject* gameObject)
         m_ArrGameObjects[0].push_back(gameObject);
     for (GameObject* child : gameObject->GetChildren())
         RegisterGameObjectTree(child);
+}
+
+void Scene::DetachTree(GameObject* root)
+{
+    if (root == nullptr)
+        return;
+    RemoveRootGameObjects(root);
+    std::function<void(GameObject*)> remove = [&](GameObject* g)
+    {
+        auto it = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
+        if (it != m_ArrGameObjects[0].end())
+            m_ArrGameObjects[0].erase(it);
+        for (GameObject* child : g->GetChildren())
+            remove(child);
+    };
+    remove(root);
+}
+
+vector<GameObject*> Scene::ReleaseAll()
+{
+    vector<GameObject*> roots;
+    roots.swap(m_VecRootGameObjects);
+    m_ArrGameObjects[0].clear();
+    m_CullingGameObjects.clear();
+    m_CullingEditorGameObjects.clear();
+    return roots;
 }
 
 void Scene::RemoveRootGameObjects(GameObject* gameObject)

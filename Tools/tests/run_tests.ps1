@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1603,6 +1603,90 @@ public class WebProbe : MonoBehaviour
     finally
     {
         Write-Host "  $(Stop-TestEditor $ed)"
+        if ($settingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $settingsBefore) }
+    }
+}
+
+function Suite-Scenes
+{
+    # 여러 씬 (SceneManager): LoadSceneAsync Additive (allowSceneActivation 0.9 대기 · completed), 같은 씬 두 번, UnloadSceneAsync,
+    # SetActiveScene (새 오브젝트가 그 씬으로), DontDestroyOnLoad (Single 로 바꿔도 남고 Awake · Start 다시 없음), 알림 (sceneLoaded · Unloaded · activeSceneChanged),
+    # PlayerPrefs (종류 · 한글 · 다음 Play 에도 남음), nova build-scenes
+    Write-Host '[scenes]'
+    $buildSettings = Join-Path $Project 'ProjectSettings\EditorBuildSettings.json'
+    $editorSettings = Join-Path $Project 'Assets\EditorSettings.json'
+    $buildBefore = if (Test-Path $buildSettings) { [IO.File]::ReadAllBytes($buildSettings) } else { $null }
+    $settingsBefore = if (Test-Path $editorSettings) { [IO.File]::ReadAllBytes($editorSettings) } else { $null }
+    $probeDir = Join-Path $Project 'Assets\SceneProbe'
+    New-Item -ItemType Directory -Force $probeDir | Out-Null
+    $probeFile = Join-Path $probeDir 'SceneProbe.cs'
+    $probeBefore = if (Test-Path $probeFile) { Get-Content $probeFile -Raw } else { '' }
+    $ed = Start-TestEditor
+    try
+    {
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'scene_probe.cs') $probeFile -Force
+        $probeChanged = (Get-Content $probeFile -Raw) -ne $probeBefore
+        $sw2 = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw2.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or ($probeChanged -and $now -eq $dllBefore)))
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create empty --name Boot' | Out-Null
+        Invoke-Nova 'add-component Boot SceneProbe' | Out-Null
+        Invoke-Nova 'scene save --as Assets/Scenes/SceneProbeA.scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name BObject --position 2,0.5,0' | Out-Null
+        Invoke-Nova 'create sphere --name BMarker --position -2,0.5,0' | Out-Null
+        Invoke-Nova 'scene save --as Assets/Scenes/SceneProbeB.scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name CObject' | Out-Null
+        Invoke-Nova 'scene save --as Assets/Scenes/SceneProbeC.scene' | Out-Null
+        $bs = Invoke-NovaJson 'build-scenes set --scenes Assets/Scenes/SceneProbeA.scene,Assets/Scenes/SceneProbeB.scene,Assets/Scenes/SceneProbeC.scene'
+        Add-Result scenes 'nova build-scenes set' ($bs -and @($bs.scenes).Count -eq 3 -and $bs.scenes[1].path -match 'SceneProbeB') "$(@($bs.scenes | ForEach-Object { "$($_.index):$($_.path)" }) -join ' ')"
+        Invoke-Nova 'exec "PlayerPrefs.DeleteAll(); PlayerPrefs.Save(); return PlayerPrefs.HasKey(\"probe.runs\");"' | Out-Null
+
+        function RunProbe
+        {
+            Invoke-Nova 'scene open Assets/Scenes/SceneProbeA.scene --force' | Out-Null
+            Invoke-Nova 'play' | Out-Null
+            Invoke-Nova 'wait 240' | Out-Null
+            $lines = @((Invoke-Nova 'log -n 1500 --grep "Log: SceneProbe"') -split "\r?\n") | Where-Object { $_ } | ForEach-Object { ($_ -replace '^.*Log: ', '') -replace '\s+\(E:.*$', '' }
+            Invoke-Nova 'stop' | Out-Null
+            Invoke-Nova 'wait 10' | Out-Null
+            return $lines
+        }
+        function Line($lines, [string]$start) { [string]($lines | Where-Object { "$_" -like "$start*" } | Select-Object -Last 1) }
+
+        $l = RunProbe
+        $w = Line $l 'SceneProbe waiting'
+        Add-Result scenes 'LoadSceneAsync waits at 0.9 (allowSceneActivation = false)' ("$w" -match 'progress=0\.9 done=False count=1') "$w"
+        $a = Line $l 'SceneProbe added'
+        Add-Result scenes 'additive scene: count, name, roots, completed, object scene' ("$a" -match 'count=2 b=SceneProbeB loaded=True roots=5 completed=True objScene=SceneProbeB active=SceneProbeA') "$a"
+        $m = Line $l 'SceneProbe made'
+        Add-Result scenes 'SetActiveScene: new objects go to the active scene' ("$m" -match 'scene=SceneProbeB active=SceneProbeB') "$m"
+        $t = Line $l 'SceneProbe twice'
+        Add-Result scenes 'same scene added twice (own handle, own objects)' ("$t" -match 'count=3 handlesDiffer=True roots2=5') "$t"
+        $u = Line $l 'SceneProbe unloadedB'
+        Add-Result scenes 'UnloadSceneAsync destroys only that scene' ("$u" -match 'count=2 bLoaded=False madeAlive=False b2Roots=5 active=SceneProbeA') "$u"
+        $s = Line $l 'SceneProbe single'
+        Add-Result scenes 'Single load keeps DontDestroyOnLoad (no second Awake / Start)' ("$s" -match 'count=1 active=SceneProbeC mine=DontDestroyOnLoad awakes=1 starts=1 cObject=True bObject=False') "$s"
+        $ev = @($l | Where-Object { $_ -match '^SceneProbe (loaded|unloaded|active) ' })
+        $evText = $ev -join ' | '
+        Add-Result scenes 'sceneLoaded / sceneUnloaded / activeSceneChanged' ($evText -match 'loaded SceneProbeB Additive roots=5' -and $evText -match 'unloaded SceneProbeB' -and $evText -match 'active SceneProbeB -> SceneProbeA' -and $evText -match 'loaded SceneProbeC Single' -and $evText -match 'active SceneProbeA -> SceneProbeC') "$($ev.Count) events"
+        $p1 = Line $l 'SceneProbe prefs'
+        Add-Result scenes 'PlayerPrefs int / float / Korean string / wrong type = default' ("$p1" -match 'runs=1 f=1\.5 s=가나다 wrongType=-7 has=True path=True') "$p1"
+        $l2 = RunProbe
+        $p2 = Line $l2 'SceneProbe prefs'
+        Add-Result scenes 'PlayerPrefs survive the next Play' ("$p2" -match 'runs=2') "$p2"
+        $h = @(Invoke-Nova 'hierarchy') -join ' '
+        Add-Result scenes 'Stop restores the starting scene' ($h -match 'Boot' -and $h -notmatch 'CObject' -and $h -notmatch 'BObject') "$h"
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($buildBefore) { [IO.File]::WriteAllBytes($buildSettings, $buildBefore) }
         if ($settingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $settingsBefore) }
     }
 }
@@ -4810,6 +4894,7 @@ try
                 'anim2d' { Suite-Anim2D }
                 'tilemap' { Suite-Tilemap }
                 'web' { Suite-Web }
+                'scenes' { Suite-Scenes }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

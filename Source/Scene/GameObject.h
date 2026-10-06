@@ -65,6 +65,8 @@ public:
 	void SetFileID(uint64 id) { m_FileID = id; }
 	// 복제/붙여넣기/프리팹 배치 뒤: 자기와 자식 모두 새 ID. 복사한 묶음 안을 가리키던 참조(Component::RemapFileIDs)도 새 ID 로
 	void RegenerateFileIDs();
+	// 여러 루트를 한 묶음으로 (씬을 더해 읽을 때): 루트 사이의 참조도 새 ID 로
+	static void RegenerateFileIDs(const std::vector<GameObject*>& roots);
 private:
 	void RegenerateFileIDs(std::unordered_map<uint64, uint64>& map);
 	void RemapFileIDs(const std::unordered_map<uint64, uint64>& map);

@@ -55,6 +55,7 @@ namespace
 		void(__stdcall* InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
 		void(__stdcall* AppPause)(int) = nullptr;   // 선택 (NovaEngine.Interop.AppEvents)
 		void(__stdcall* AppFocus)(int) = nullptr;
+		void(__stdcall* SceneEvent)(int, int, int) = nullptr;   // 선택 (AppEvents.SceneEvent)
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
@@ -225,6 +226,8 @@ namespace
 			m.AppPause = nullptr;
 		if (load(dll.c_str(), appEvents, L"Focus", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.AppFocus) < 0)
 			m.AppFocus = nullptr;
+		if (load(dll.c_str(), appEvents, L"SceneEvent", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.SceneEvent) < 0)
+			m.SceneEvent = nullptr;
 
 		std::vector<uint8_t> table(ScriptBindings::TableSize());
 		ScriptBindings::Fill(table.data());
@@ -657,6 +660,12 @@ namespace ScriptEngine
 	{
 		if (s_AssemblyLoaded && m.AppFocus)
 			m.AppFocus(focused ? 1 : 0);
+	}
+
+	void OnSceneEvent(int kind, int a, int b)
+	{
+		if (s_AssemblyLoaded && m.SceneEvent)
+			m.SceneEvent(kind, a, b);
 	}
 
 	void OnPlayModeChanged(bool playing)

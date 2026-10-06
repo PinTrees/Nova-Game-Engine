@@ -66,6 +66,15 @@ void GameObject::RegenerateFileIDs()
 	RemapFileIDs(map);
 }
 
+void GameObject::RegenerateFileIDs(const std::vector<GameObject*>& roots)
+{
+	std::unordered_map<uint64, uint64> map;
+	for (GameObject* r : roots)
+		r->RegenerateFileIDs(map);
+	for (GameObject* r : roots)
+		r->RemapFileIDs(map);
+}
+
 void GameObject::RegenerateFileIDs(std::unordered_map<uint64, uint64>& map)
 {
 	const uint64 old = m_FileID;
