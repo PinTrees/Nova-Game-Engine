@@ -20,7 +20,8 @@
 <div id="loader"><div id="logo">NOVA</div><div id="bar"><div id="fill"></div></div><div id="status">Loading…</div><div id="error"></div></div>
 <script>
 // NOVA 웹 플레이어 셸: WebGPU 장치를 받고 (엔진 = Module.preinitializedWebGPUDevice), 게임 데이터 (game.json 목록 + game.data 한 덩어리) 를
-//  메모리 파일 시스템의 /game 에 풀고 nova.js 를 시작한다. 검사 (Tools/web/headless.mjs): window.novaState · 콘솔
+//  메모리 파일 시스템의 /game 에 풀고 엔진을 시작한다 — 엔진만 (nova.js) 또는 C# 이 있으면 .NET 런타임 (_framework/dotnet.js, game.json 의 runtime).
+//  검사 (Tools/web/headless.mjs): window.novaState · window.nova · 콘솔
 (async () => {
   const status = document.getElementById('status'), fill = document.getElementById('fill'), errorBox = document.getElementById('error');
   const loader = document.getElementById('loader');
@@ -74,37 +75,73 @@
   window.novaState.phase = 'starting';
   status.textContent = 'Starting…';
 
+  // 게임 파일을 메모리 파일 시스템의 /game 에 (엔진이 시작하기 전에)
+  const writeGameFiles = (FS) => {
+    for (const [path, offset, size] of manifest.files) {
+      const full = '/game/' + path;
+      FS.mkdirTree(full.substring(0, full.lastIndexOf('/')));
+      FS.writeFile(full, data.subarray(offset, offset + size));
+    }
+    data = null;
+  };
+  // 검사 (Tools/web/run_scene.sh) 와 로딩 화면이 쓰는 엔진 상태 — 두 판 (엔진만 · .NET) 이 같은 모양
+  window.nova = {
+    frames: () => (window.Module && Module._nova_web_frames) ? Module._nova_web_frames() : 0,
+    failed: () => !!(window.Module && Module._nova_web_failed && Module._nova_web_failed()),
+    stats: () => JSON.parse(Module.UTF8ToString(Module._nova_web_stats())),
+    audio: () => ({ state: Module.novaAudio ? Module.novaAudio.state : 'none', blocks: Module.novaAudioBlocks || 0, peak: Module.novaAudioPeak || 0 }),
+  };
+  // 엔진이 첫 프레임을 그리면 로딩 화면을 걷는다
+  const watch = () => {
+    const poll = setInterval(() => {
+      if (window.nova.frames() > 0) {
+        clearInterval(poll);
+        loader.style.opacity = 0;
+        setTimeout(() => loader.remove(), 350);
+        window.novaState.phase = 'running';
+        document.getElementById('canvas').focus();
+      } else if (window.nova.failed()) {
+        clearInterval(poll);
+        fail('The engine could not start (see the browser console).');
+      }
+    }, 100);
+  };
+
+  if (manifest.runtime === 'dotnet') {
+    // C# 이 있는 게임: .NET 웹어셈블리 런타임과 엔진이 한 wasm (_framework/dotnet.native.wasm — Web/Host).
+    //  런타임이 뜨면 (create) 게임 파일을 쓰고 C# Main 을 부른다 → Main 이 엔진을 시작한다
+    let dotnet;
+    try { ({ dotnet } = await import('./_framework/dotnet.js')); }
+    catch (e) { fail('.NET runtime could not be loaded: ' + e.message); return; }
+    status.textContent = 'Loading scripts…';
+    let rt;
+    try {
+      rt = await dotnet.withModuleConfig({
+        canvas: document.getElementById('canvas'),
+        preinitializedWebGPUDevice: device,
+        print: (t) => console.log(t),
+        printErr: (t) => console.warn(t),
+        onAbort: (what) => fail('Engine stopped: ' + what),
+        onDownloadResourceProgress: (loaded, total) => { if (total) fill.style.width = (90 + loaded / total * 10).toFixed(1) + '%'; },
+      }).create();
+    } catch (e) { fail('.NET runtime: ' + (e && e.message || e)); return; }
+    window.Module = rt.Module;
+    writeGameFiles(rt.Module.FS);
+    fill.style.width = '100%';
+    watch();
+    rt.runMain().catch(e => fail('C#: ' + (e && e.message || e)));
+    return;
+  }
+
   window.Module = {
     canvas: document.getElementById('canvas'),
     preinitializedWebGPUDevice: device,
-    preRun: [() => {
-      const FS = Module.FS;
-      for (const [path, offset, size] of manifest.files) {
-        const full = '/game/' + path;
-        FS.mkdirTree(full.substring(0, full.lastIndexOf('/')));
-        FS.writeFile(full, data.subarray(offset, offset + size));
-      }
-      data = null;
-    }],
+    preRun: [() => writeGameFiles(Module.FS)],
     print: (t) => console.log(t),
     printErr: (t) => console.warn(t),
-    onRuntimeInitialized: () => { fill.style.width = '100%'; },
+    onRuntimeInitialized: () => { fill.style.width = '100%'; watch(); },
     onAbort: (what) => fail('Engine stopped: ' + what),
   };
-  // 엔진이 첫 프레임을 그리면 로딩 화면을 걷는다
-  const poll = setInterval(() => {
-    if (!Module.calledRun) return;   // 런타임이 준비되기 전에는 엔진 함수를 부르지 않는다
-    if (Module._nova_web_frames && Module._nova_web_frames() > 0) {
-      clearInterval(poll);
-      loader.style.opacity = 0;
-      setTimeout(() => loader.remove(), 350);
-      window.novaState.phase = 'running';
-      document.getElementById('canvas').focus();
-    } else if (Module._nova_web_failed && Module._nova_web_failed()) {
-      clearInterval(poll);
-      fail('The engine could not start (see the browser console).');
-    }
-  }, 100);
   const s = document.createElement('script');
   s.src = 'nova.js';
   s.onerror = () => fail('nova.js could not be loaded');

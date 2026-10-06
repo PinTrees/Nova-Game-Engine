@@ -262,11 +262,13 @@ namespace AudioManager
 		ServiceStream(*s);   // 첫 버퍼들을 바로 (Start 하자마자 소리가 나게)
 		std::lock_guard<std::mutex> g(s_StreamLock);
 		s_Streams.push_back(s);
+#if !defined(__EMSCRIPTEN__)   // 웹 (단일 스레드): Update 가 매 프레임 채운다
 		if (!s_StreamThread.joinable())
 		{
 			s_StreamQuit = false;
 			s_StreamThread = std::thread(StreamThreadMain);
 		}
+#endif
 		return s;
 	}
 
@@ -479,6 +481,14 @@ namespace AudioManager
 		UpdateListener();
 		if (s_Engine == nullptr)
 			return;
+#if defined(__EMSCRIPTEN__)
+		{
+			// 스트리밍 소리 (음악 · 긴 효과음): 스레드 대신 프레임마다 버퍼를 채운다
+			std::lock_guard<std::mutex> g(s_StreamLock);
+			for (AudioStream* s : s_Streams)
+				ServiceStream(*s);
+		}
+#endif
 
 		// 편집기 일시정지 = 오디오도 멈춤 (Unity 와 같음), 미리 듣기는 Play 중이 아닐 때만 쓰이므로 영향 없음
 		const bool pause = Application::IsPlaying() && Application::IsPaused();

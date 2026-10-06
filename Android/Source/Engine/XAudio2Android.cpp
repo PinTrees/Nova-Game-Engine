@@ -530,7 +530,11 @@ namespace
 				_nova_audio_render(engine, buf, n);
 				const f = HEAPF32.subarray(buf >> 2, (buf >> 2) + n * 2);
 				const l = e.outputBuffer.getChannelData(0), r = e.outputBuffer.getChannelData(1);
-				for (let i = 0; i < n; i++) { l[i] = f[2 * i]; r[i] = f[2 * i + 1]; }
+				let peak = 0;
+				for (let i = 0; i < n; i++) { l[i] = f[2 * i]; r[i] = f[2 * i + 1]; peak = Math.max(peak, Math.abs(l[i]), Math.abs(r[i])); }
+				// 검사 (웹 스위트): 낸 블록 수 · 가장 큰 진폭 — 소리가 실제로 나갔는지 (귀 없이)
+				Module.novaAudioBlocks = (Module.novaAudioBlocks || 0) + 1;
+				Module.novaAudioPeak = Math.max(Module.novaAudioPeak || 0, peak);
 			};
 			node.connect(ctx.destination);
 			Module.novaAudio = ctx;

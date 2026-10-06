@@ -6,6 +6,7 @@
 #include "PathManager.h"
 #include "AndroidTools.h"
 #include <fstream>
+#include <set>
 
 namespace WebTools
 {
@@ -92,8 +93,74 @@ namespace WebTools
 		return {};
 	}
 
+	// C# 이 있는 게임의 플레이어: .NET 웹어셈블리 런타임 + 엔진 (Web/build.sh Release host → host/wwwroot/_framework)
+	std::filesystem::path HostFrameworkDir()
+	{
+		std::error_code ec;
+		const std::filesystem::path engine = PathManager::GetI()->GetEnginePathW();
+		for (const auto& d : { engine / L"Binaries" / L"Web" / L"_framework", engine / L"Web" / L"build" / L"Release" / L"host" / L"wwwroot" / L"_framework" })
+			if (std::filesystem::exists(d / L"dotnet.js", ec) && std::filesystem::exists(d / L"dotnet.native.wasm", ec))
+				return d;
+		return {};
+	}
+
+	// .NET 판 플레이어 (_framework) 를 게임에 맞게 줄인다: 쓰는 BCL 만 (안드로이드와 같은 규칙 — 진입 어셈블리 · 엔진 API · 게임 스크립트에서
+	//  AssemblyRef 를 따라간다). 나머지 .wasm 은 지우고 dotnet.js 안의 자원 목록 (/*json-start*/ … /*json-end*/) 에서도 뺀다. 반환 = 지운 수
+	int PruneFramework(const std::filesystem::path& fw, const std::filesystem::path& gameDll, std::string& error)
+	{
+		namespace fs = std::filesystem;
+		std::error_code ec;
+		std::string js;
+		{
+			std::ifstream in(fw / L"dotnet.js", std::ios::binary);
+			js.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		}
+		const std::string startTag = "/*json-start*/", endTag = "/*json-end*/";
+		const size_t a = js.find(startTag), b = js.find(endTag);
+		if (a == std::string::npos || b == std::string::npos || b < a) { error = "dotnet.js: no boot config"; return -1; }
+		nlohmann::json boot = nlohmann::json::parse(js.substr(a + startTag.size(), b - a - startTag.size()), nullptr, false);
+		if (boot.is_discarded() || !boot.contains("resources") || !boot["resources"].contains("assembly")) { error = "dotnet.js: unreadable boot config"; return -1; }
+		auto stem = [](const std::string& file) { return file.size() > 5 && file.substr(file.size() - 5) == ".wasm" ? file.substr(0, file.size() - 5) : file; };
+		std::set<std::string> available;
+		for (const auto& r : boot["resources"]["assembly"]) available.insert(stem(r.value("name", std::string())));
+		std::set<std::string> needed;
+		std::vector<fs::path> queue = { gameDll };
+		auto push = [&](const std::string& name) { if (available.count(name) && !needed.count(name)) queue.push_back(fw / string_to_wstring(name + ".wasm")); };
+		push(boot.value("mainAssemblyName", std::string("NovaWebHost")));
+		for (const char* always : { "NovaScriptCore", "System.Runtime", "System.Private.Uri", "System.Runtime.InteropServices", "System.Console" })
+			push(always);
+		for (const auto& r : boot["resources"].value("coreAssembly", nlohmann::json::array()))
+			queue.push_back(fw / string_to_wstring(r.value("name", std::string())));
+		while (!queue.empty())
+		{
+			const fs::path next = queue.back();
+			queue.pop_back();
+			const std::string name = stem(wstring_to_string(next.filename().wstring()));
+			if (next != gameDll && !needed.insert(name).second) continue;
+			for (const std::string& ref : AndroidTools::AssemblyReferences(next))
+				push(ref);
+		}
+		nlohmann::json kept = nlohmann::json::array();
+		int removed = 0;
+		for (const auto& r : boot["resources"]["assembly"])
+		{
+			const std::string file = r.value("name", std::string());
+			if (needed.count(stem(file))) kept.push_back(r);
+			else
+			{
+				fs::remove(fw / string_to_wstring(file), ec);
+				++removed;
+			}
+		}
+		boot["resources"]["assembly"] = kept;
+		js = js.substr(0, a + startTag.size()) + boot.dump(2) + js.substr(b);
+		std::ofstream(fw / L"dotnet.js", std::ios::binary | std::ios::trunc) << js;
+		return removed;
+	}
+
 	// 웹 게임: <out>/index.html · nova.js · nova.wasm · game.json (파일 목록 [경로, 위치, 크기]) · game.data (파일들을 이어 붙인 것)
 	//  게임 데이터 = 안드로이드 내보내기 (같은 에셋 모음 · '/' 경로 · player.json, 텍스처는 BC — PC 브라우저) + Shaders/*.wgsl.json
+	//  C# 스크립트가 있으면 플레이어 = _framework (.NET 런타임 + 엔진 한 wasm) 이고 게임 데이터에는 Managed/Assembly-CSharp.dll 만
 	bool ExportGame(const nlohmann::json& args, nlohmann::json& result, std::string& error)
 	{
 		namespace fs = std::filesystem;
@@ -109,6 +176,7 @@ namespace WebTools
 		nlohmann::json a = args;
 		a["out"] = wstring_to_string(stage.wstring());
 		if (!a.contains("texture-compression")) a["texture-compression"] = "dxt";
+		a["managed"] = "game-only";
 		nlohmann::json data;
 		if (!AndroidTools::ExportGame(a, data, error))
 			return false;
@@ -138,10 +206,36 @@ namespace WebTools
 			offset += buf.size();
 		}
 		blob.close();
-		std::ofstream(out / L"game.json", std::ios::trunc) << nlohmann::json({ { "files", files }, { "bytes", offset } }).dump();
-		// 플레이어 (엔진이 빌드해 둔 것) + 페이지
-		for (const wchar_t* f : { L"nova.js", L"nova.wasm" })
-			fs::copy_file(player / f, out / f, fs::copy_options::overwrite_existing, ec);
+		// 플레이어 (엔진이 빌드해 둔 것) + 페이지. C# 이 있으면 .NET 판 — 없으면 (빌드 안 함) 스크립트 없이 엔진만
+		nlohmann::json csharp = data.value("csharp", nlohmann::json::object());
+		const fs::path framework = csharp.value("included", false) ? HostFrameworkDir() : fs::path();
+		if (csharp.value("included", false) && framework.empty())
+			csharp["error"] = "C# web player not built (Web/build.sh Release host) - the game runs without scripts";
+		const bool dotnet = !framework.empty();
+		nlohmann::json manifest = { { "files", files }, { "bytes", offset } };
+		if (dotnet) manifest["runtime"] = "dotnet";
+		std::ofstream(out / L"game.json", std::ios::trunc) << manifest.dump();
+		uint64_t playerBytes = 0;
+		fs::remove_all(out / L"_framework", ec);
+		if (dotnet)
+		{
+			for (const wchar_t* f : { L"nova.js", L"nova.wasm" })
+				fs::remove(out / f, ec);
+			fs::copy(framework, out / L"_framework", fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+			const fs::path gameDll = PathManager::GetI()->GetMovePathW(L"Library\\ScriptAssemblies\\Assembly-CSharp.dll");
+			std::string pruneError;
+			const int removed = PruneFramework(out / L"_framework", gameDll, pruneError);
+			if (removed < 0) csharp["pruneError"] = pruneError;
+			else csharp["frameworkAssembliesRemoved"] = removed;
+			for (const auto& e : fs::recursive_directory_iterator(out / L"_framework", ec))
+				if (e.is_regular_file(ec)) playerBytes += e.file_size(ec);
+		}
+		else
+			for (const wchar_t* f : { L"nova.js", L"nova.wasm" })
+			{
+				fs::copy_file(player / f, out / f, fs::copy_options::overwrite_existing, ec);
+				playerBytes += fs::file_size(out / f, ec);
+			}
 		const fs::path shell = fs::path(PathManager::GetI()->GetEnginePathW()) / L"Web" / L"Shell" / L"index.html";
 		if (!args.value("keep-page", false) || !fs::exists(out / L"index.html", ec))
 			fs::copy_file(shell, out / L"index.html", fs::copy_options::overwrite_existing, ec);
@@ -149,9 +243,9 @@ namespace WebTools
 			fs::remove_all(stage, ec);
 		const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 		result = { { "out", wstring_to_string(out.wstring()) }, { "files", files.size() }, { "dataBytes", offset },
-			{ "wasmBytes", fs::file_size(out / L"nova.wasm", ec) }, { "scenes", data.value("scenes", nlohmann::json::array()) },
+			{ "runtime", dotnet ? "dotnet" : "engine" }, { "playerBytes", playerBytes }, { "scenes", data.value("scenes", nlohmann::json::array()) },
 			{ "textures", data.value("textures", nlohmann::json::array()).size() }, { "models", data.value("models", nlohmann::json::array()).size() },
-			{ "csharp", data.value("csharp", nlohmann::json::object()) }, { "shaderPasses", shaders.value("passes", 0) }, { "shaderPassesFailed", shaders.value("passesFailed", 0) },
+			{ "csharp", csharp }, { "shaderPasses", shaders.value("passes", 0) }, { "shaderPassesFailed", shaders.value("passesFailed", 0) },
 			{ "seconds", std::round(seconds * 10.0) / 10.0 } };
 		EditorLog::Write("Web", "exported %d files (%llu bytes) to %s", (int)files.size(), (unsigned long long)offset, outArg.c_str());
 		return true;
@@ -165,8 +259,9 @@ namespace WebTools
 			if (op == "help")
 			{
 				result = { { "ops", { "shaders --out folder [--path file.fx]: convert every .fx to WGSL for WebGPU (<name>.wgsl.json; tessellation / geometry passes are skipped)",
-					"export --out folder [--scenes a.scene,b.scene] [--texture-compression dxt|none]: web game (index.html, nova.js, nova.wasm, game.json, game.data); serve the folder (node Tools/web/serve.mjs folder)" } },
+					"export --out folder [--scenes a.scene,b.scene] [--texture-compression dxt|none]: web game (index.html, nova.js + nova.wasm or _framework/ with C#, game.json, game.data); serve the folder (node Tools/web/serve.mjs folder)" } },
 					{ "player", wstring_to_string(PlayerDir().wstring()) },
+					{ "dotnetPlayer", wstring_to_string(HostFrameworkDir().wstring()) },
 					{ "tint", wstring_to_string(ShaderCross::TintPath()) } };
 				return true;
 			}

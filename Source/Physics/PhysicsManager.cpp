@@ -5,6 +5,7 @@
 #include <Jolt/Core/Factory.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Core/JobSystemThreadPool.h>
+#include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
@@ -286,7 +287,7 @@ struct PhysicsManager::JoltWorld
 	ContactListener listener;
 
 	std::unique_ptr<JPH::TempAllocatorImpl> tempAllocator;
-	std::unique_ptr<JPH::JobSystemThreadPool> jobSystem;
+	std::unique_ptr<JPH::JobSystem> jobSystem;
 	std::unique_ptr<JPH::PhysicsSystem> physics;
 
 	std::unordered_map<JPH::uint64, BodyRecord> bodies;              // key: 소유 GameObject 의 InstanceID
@@ -1008,8 +1009,13 @@ void PhysicsManager::Start()
 	JoltWorld& w = *m_World;
 	w.listener.world = &w;
 	w.tempAllocator = std::make_unique<JPH::TempAllocatorImpl>(16 * 1024 * 1024);
+#if defined(__EMSCRIPTEN__)
+	// 웹: 스레드 없이 (C# 런타임과 같은 단일 스레드 wasm) — 작업을 부른 스레드에서 차례로
+	w.jobSystem = std::make_unique<JPH::JobSystemSingleThreaded>(JPH::cMaxPhysicsJobs);
+#else
 	int threads = (std::max)(1, (int)std::thread::hardware_concurrency() - 1);
 	w.jobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, threads);
+#endif
 	w.physics = std::make_unique<JPH::PhysicsSystem>();
 	w.physics->Init(8192, 0, 8192, 8192, w.bpLayers, w.objVsBp, w.objPair);
 	w.physics->SetContactListener(&w.listener);

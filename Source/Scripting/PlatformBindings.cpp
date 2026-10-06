@@ -28,10 +28,12 @@ namespace PlatformBindings
 	void SetOrientationHandler(void (*handler)(int)) { s_Orientation = handler; }
 }
 
-// Unity 의 RuntimePlatform 값: WindowsPlayer 2, WindowsEditor 7, Android 11
+// Unity 의 RuntimePlatform 값: WindowsPlayer 2, WindowsEditor 7, Android 11, WebGLPlayer 17 (Unity 는 WebGPU 도 이 값)
 NOVA_PACKAGE_EXPORT int NovaApp_Platform()
 {
-#if defined(NOVA_ANDROID)
+#if defined(NOVA_WEB)
+	return 17;
+#elif defined(NOVA_ANDROID)
 	return 11;
 #else
 	return Application::IsPlayer() ? 2 : 7;

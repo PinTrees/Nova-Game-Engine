@@ -11,8 +11,8 @@ trap 'kill $SERVER 2>/dev/null || true' EXIT
 for i in $(seq 1 40); do curl -s -o /dev/null "http://127.0.0.1:$PORT/game.json" && break; sleep 0.25; done
 WIN_SHOT="$(cygpath -w "$SHOT" 2>/dev/null || echo "$SHOT")"
 node "$ROOT/Tools/web/headless.mjs" "http://localhost:$PORT/" --wait 60 --size 1280x720 --shot "$WIN_SHOT" \
-  --until "window.novaState && (window.novaState.phase=='error' || (window.novaState.phase=='running' && Module._nova_web_frames() > $FRAMES))" \
-  --eval "(async()=>{ if (!window.novaState || window.novaState.phase!=='running') return JSON.stringify(window.novaState||{}); const a=Module._nova_web_frames(); await new Promise(r=>setTimeout(r,2000)); return JSON.stringify({ phase: window.novaState.phase, frames: Module._nova_web_frames(), fps: (Module._nova_web_frames()-a)/2, gpuErrors: window.novaState.gpuErrors, stats: JSON.parse(UTF8ToString(Module._nova_web_stats())) }) })()" \
+  --until "window.novaState && (window.novaState.phase=='error' || (window.novaState.phase=='running' && nova.frames() > $FRAMES))" \
+  --eval "(async()=>{ if (!window.novaState || window.novaState.phase!=='running') return JSON.stringify(window.novaState||{}); const a=nova.frames(); await new Promise(r=>setTimeout(r,2000)); return JSON.stringify({ phase: window.novaState.phase, frames: nova.frames(), fps: (nova.frames()-a)/2, gpuErrors: window.novaState.gpuErrors, stats: nova.stats(), audio: nova.audio ? nova.audio() : null }) })()" \
   | python -c "
 import sys, json
 d = json.load(sys.stdin)

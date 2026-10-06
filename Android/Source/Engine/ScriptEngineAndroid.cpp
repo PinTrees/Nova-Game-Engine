@@ -2,7 +2,11 @@
 #include "ScriptEngine.h"
 #include "ScriptBindings.h"
 #include "AndroidEngine.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <filesystem>
 
 // C# 스크립트 런타임의 안드로이드 판: Windows 는 .NET (hostfxr) 을 띄우지만 기기에는 Microsoft 의 Mono (.NET 8 의 모바일 런타임) 를 쓴다.
@@ -11,6 +15,7 @@
 //  - 진입점: Windows 와 같은 NovaEngine.Interop.Bridge 의 [UnmanagedCallersOnly] 함수 (mono_method_get_unmanaged_callers_only_ftnptr)
 //  - 엔진 API 표 (ScriptBindings::Fill) 도 Windows 와 같다. 패키지의 DllImport ("NovaAnimation" …) 는 PINVOKE_OVERRIDE 로 libnova.so 안의 함수로
 //  - 에디터 일 (컴파일 · 프로젝트 파일 · 코드 편집기) 은 없다 (빌드된 게임과 같이 Assembly-CSharp.dll 을 읽기만)
+//  - 웹 (__EMSCRIPTEN__) 도 이 파일을 쓴다: 런타임은 .NET 웹어셈블리 (같은 Mono) 가 엔진과 한 wasm 으로 — 진입점 주소를 C# 이 넘겨 준다
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
@@ -72,6 +77,7 @@ namespace
 
 	fs::path ManagedDir() { return fs::path(wstring_to_string(PathManager::GetI()->GetMovePathW(L""))) / "Managed"; }
 
+#ifndef __EMSCRIPTEN__
 	// 패키지 C# 의 DllImport: "NovaAnimation" · "NovaNavigation" … = 안드로이드에서는 libnova.so 에 함께 들어 있다
 	void* PInvokeOverride(const char* library, const char* entry)
 	{
@@ -88,6 +94,8 @@ namespace
 		return f != nullptr;
 	}
 
+#endif
+
 	std::string TakeString(void* p)
 	{
 		if (p == nullptr) return std::string();
@@ -96,6 +104,59 @@ namespace
 		return s;
 	}
 
+	// 엔진 API 표를 관리 코드에 넘긴다 (Windows 판과 같은 표 — 크기가 다르면 다른 엔진 빌드의 NovaScriptCore)
+	bool InitBridge()
+	{
+		std::vector<uint8_t> table(ScriptBindings::TableSize());
+		ScriptBindings::Fill(table.data());
+		const int r = m.Initialize(table.data());
+		if (r != 1)
+		{
+			EditorLog::Write("Script", "NativeApiTable size mismatch (managed %d, native %d) - NovaScriptCore.dll is from another engine build", -r, ScriptBindings::TableSize());
+			return false;
+		}
+		return true;
+	}
+
+#ifdef __EMSCRIPTEN__
+	// 웹: .NET 웹어셈블리 런타임 (Mono) 이 엔진과 한 wasm 에 들어 있고 먼저 뜬다 (Web/Host). C# 의 Main 이
+	//  Bridge 진입점 주소를 nova_web_set_managed 로 넘긴 뒤 엔진을 시작한다 — 런타임을 띄우거나 찾을 일이 없다.
+	//  엔진만 있는 빌드 (Web/build.sh 의 nova) 는 주소가 없다 → 스크립트 없이 (Windows · 안드로이드 판과 같은 규칙)
+	void* s_WebEntries[17] = {};
+	int s_WebEntryCount = 0;
+
+	bool InitRuntime()
+	{
+		if (s_WebEntryCount < 15)
+		{
+			EditorLog::Write("Script", "no C# runtime in this web player (engine only build) - scripts disabled");
+			return false;
+		}
+		void** e = s_WebEntries;
+		auto set = [&](int i, auto& fn) { fn = reinterpret_cast<std::remove_reference_t<decltype(fn)>>(i < s_WebEntryCount ? e[i] : nullptr); };
+		set(0, m.Initialize);
+		set(1, m.BeginFrame);
+		set(2, m.FreeString);
+		set(3, m.LoadGameAssembly);
+		set(4, m.UnloadGameAssembly);
+		set(5, m.GetClassesJson);
+		set(6, m.CreateInstance);
+		set(7, m.DestroyInstance);
+		set(8, m.Invoke);
+		set(9, m.SetEnabled);
+		set(10, m.InvokeCollision);
+		set(11, m.GetFieldsJson);
+		set(12, m.SetFieldsJson);
+		set(13, m.InvokeMethod);
+		set(14, m.InvokeUIEvent);
+		set(15, m.AppPause);
+		set(16, m.AppFocus);
+		if (!InitBridge())
+			return false;
+		EditorLog::Write("Script", ".NET WebAssembly runtime ready");
+		return true;
+	}
+#else
 	bool InitRuntime()
 	{
 		const auto t0 = std::chrono::steady_clock::now();
@@ -206,18 +267,14 @@ namespace
 			ok = true;   // 선택 진입점 — 없어도 스크립트는 돈다
 		}
 
-		std::vector<uint8_t> table(ScriptBindings::TableSize());
-		ScriptBindings::Fill(table.data());
-		const int r = m.Initialize(table.data());
-		if (r != 1)
-		{
-			EditorLog::Write("Script", "NativeApiTable size mismatch (managed %d, native %d) - NovaScriptCore.dll is from another engine build", -r, ScriptBindings::TableSize());
+		if (!InitBridge())
 			return false;
-		}
 		EditorLog::Write("Script", "Mono runtime ready (%d assemblies, %.0f ms)", (int)paths.size(),
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 		return true;
 	}
+
+#endif
 
 	void ParseClasses(const std::string& text)
 	{
@@ -265,6 +322,16 @@ namespace
 
 	bool Ready() { return s_State == ScriptEngine::State::Idle; }
 }
+
+#ifdef __EMSCRIPTEN__
+// Web/Host 의 C# Main 이 부른다 (DllImport "NovaWeb"): Bridge 의 [UnmanagedCallersOnly] 진입점 주소 (InitRuntime 의 차례)
+extern "C" EMSCRIPTEN_KEEPALIVE void nova_web_set_managed(void** entries, int count)
+{
+	s_WebEntryCount = (std::min)(count, (int)(sizeof(s_WebEntries) / sizeof(s_WebEntries[0])));
+	for (int i = 0; i < s_WebEntryCount; ++i)
+		s_WebEntries[i] = entries[i];
+}
+#endif
 
 namespace ScriptEngine
 {

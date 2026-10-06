@@ -86,7 +86,7 @@ namespace NovaEngine
         }
     }
     // Unity 와 같은 값
-    public enum RuntimePlatform { WindowsPlayer = 2, WindowsEditor = 7, Android = 11 }
+    public enum RuntimePlatform { WindowsPlayer = 2, WindowsEditor = 7, Android = 11, WebGLPlayer = 17 }
     public enum ScreenOrientation { Portrait = 1, PortraitUpsideDown = 2, LandscapeLeft = 3, LandscapeRight = 4, AutoRotation = 5 }
 
     // 엔진이 이름으로 내보낸 플랫폼 함수 (Source/Scripting/PlatformBindings.cpp — Windows 는 NovaCore.dll, 안드로이드는 libnova.so)

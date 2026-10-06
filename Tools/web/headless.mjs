@@ -26,6 +26,8 @@ const port = 9300 + Math.floor(Math.random() * 500);
 const proc = spawn(chrome, [
     '--headless=new', `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, `--window-size=${w},${h}`,
     '--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=d3d11', '--no-first-run', '--no-default-browser-check',
+    // 소리: 입력 없이 재생 (검사가 출력 진폭을 읽는다) · 스피커로는 내지 않는다 (사용자가 같은 PC 를 쓴다)
+    '--autoplay-policy=no-user-gesture-required', '--mute-audio',
     'about:blank'], { stdio: 'ignore' });
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));

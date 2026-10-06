@@ -49,33 +49,42 @@ namespace AndroidTools
 		}
 
 		// .NET 어셈블리가 참조하는 어셈블리 이름 (메타데이터의 AssemblyRef 표, ECMA-335 II.22) — 기기에 BCL 중 쓰는 것만 넣으려고.
-		//  PE → CLI 머리 → 메타데이터 루트 → #~ 스트림의 표 크기를 차례로 더해 AssemblyRef (0x23) 행의 Name 을 #Strings 에서 읽는다
-		std::vector<std::string> AssemblyReferences(const fs::path& dll)
+		//  PE → CLI 머리 → 메타데이터 루트 → #~ 스트림의 표 크기를 차례로 더해 AssemblyRef (0x23) 행의 Name 을 #Strings 에서 읽는다.
+		//  웹 (.NET 의 webcil .wasm) 은 PE 머리 대신 wasm 데이터 구역에 같은 메타데이터가 통째로 있다 → 루트 표시 (BSJB) 를 찾는다
+		std::vector<std::string> ReadAssemblyRefs(const fs::path& dll)
 		{
 			std::vector<std::string> out;
 			std::ifstream in(dll, std::ios::binary);
 			std::vector<uint8_t> d((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 			auto u16 = [&](size_t o) -> uint32_t { return o + 2 <= d.size() ? (uint32_t)d[o] | (uint32_t)d[o + 1] << 8 : 0; };
 			auto u32 = [&](size_t o) -> uint32_t { return o + 4 <= d.size() ? u16(o) | u16(o + 2) << 16 : 0; };
-			if (d.size() < 0x40 || u16(0) != 0x5A4D) return out;
-			const size_t pe = u32(0x3C);
-			if (u32(pe) != 0x00004550) return out;
-			const uint32_t sections = u16(pe + 6), optSize = u16(pe + 20);
-			const size_t opt = pe + 24;
-			const size_t dirs = opt + (u16(opt) == 0x20B ? 112 : 96);
-			const uint32_t cliRva = u32(dirs + 14 * 8);
-			auto offset = [&](uint32_t rva) -> size_t {
-				for (uint32_t s = 0; s < sections; ++s)
-				{
-					const size_t sh = opt + optSize + (size_t)s * 40;
-					const uint32_t va = u32(sh + 12), size = (std::max)(u32(sh + 8), u32(sh + 16)), raw = u32(sh + 20);
-					if (rva >= va && rva < va + size) return (size_t)raw + (rva - va);
-				}
-				return 0;
-			};
-			const size_t cli = offset(cliRva);
-			if (!cli) return out;
-			const size_t meta = offset(u32(cli + 8));
+			size_t meta = 0;
+			if (d.size() >= 0x40 && u16(0) == 0x5A4D)
+			{
+				const size_t pe = u32(0x3C);
+				if (u32(pe) != 0x00004550) return out;
+				const uint32_t sections = u16(pe + 6), optSize = u16(pe + 20);
+				const size_t opt = pe + 24;
+				const size_t dirs = opt + (u16(opt) == 0x20B ? 112 : 96);
+				const uint32_t cliRva = u32(dirs + 14 * 8);
+				auto offset = [&](uint32_t rva) -> size_t {
+					for (uint32_t s = 0; s < sections; ++s)
+					{
+						const size_t sh = opt + optSize + (size_t)s * 40;
+						const uint32_t va = u32(sh + 12), size = (std::max)(u32(sh + 8), u32(sh + 16)), raw = u32(sh + 20);
+						if (rva >= va && rva < va + size) return (size_t)raw + (rva - va);
+					}
+					return 0;
+				};
+				const size_t cli = offset(cliRva);
+				if (!cli) return out;
+				meta = offset(u32(cli + 8));
+			}
+			else if (d.size() >= 8 && u32(0) == 0x6D736100)   // wasm 모듈 머리 (0 a s m)
+			{
+				for (size_t i = 8; i + 16 <= d.size(); ++i)
+					if (u32(i) == 0x424A5342 && u16(i + 4) == 1 && u16(i + 6) == 1) { meta = i; break; }   // 루트 표시 + 판 1.1
+			}
 			if (!meta || u32(meta) != 0x424A5342) return out;
 			size_t p = meta + 16 + u32(meta + 12);
 			const uint32_t streams = u16(p + 2);
@@ -265,7 +274,17 @@ namespace AndroidTools
 				const fs::path game_cs = PathManager::GetI()->GetMovePathW(L"Library\\ScriptAssemblies\\Assembly-CSharp.dll");
 				const fs::path core = fs::path(PathManager::GetI()->GetEnginePathW()) / L"Binaries" / L"Scripting" / L"NovaScriptCore.dll";
 				std::wstring monoLib, monoNative;
-				if (fs::exists(game_cs, ec))
+				if (fs::exists(game_cs, ec) && args.value("managed", std::string()) == "game-only")
+				{
+					// 웹: 런타임 · BCL · NovaScriptCore 는 플레이어 (_framework) 에 이미 있다 → 게임 어셈블리만
+					fs::create_directories(game / L"Managed", ec);
+					fs::copy_file(game_cs, game / L"Managed" / L"Assembly-CSharp.dll", fs::copy_options::overwrite_existing, ec);
+					const uint64_t size = fs::file_size(game_cs, ec);
+					bytes += size;
+					files.push_back("Managed/Assembly-CSharp.dll");
+					csharp = { { "included", true }, { "assemblies", 1 }, { "bytes", size } };
+				}
+				else if (fs::exists(game_cs, ec))
 				{
 					if (!MonoRuntime("x86_64", monoLib, monoNative) || !fs::exists(core, ec))
 						csharp = { { "included", false }, { "error", !fs::exists(core, ec) ? "NovaScriptCore.dll missing in the engine" : "Mono runtime missing (Tools/fetch_android_mono.ps1)" } };
@@ -296,7 +315,7 @@ namespace AndroidTools
 							queue.pop_back();
 							if (!needed.insert(wstring_to_string(next.filename().wstring())).second) continue;
 							add(next);
-							for (const std::string& ref : AssemblyReferences(next))
+							for (const std::string& ref : ReadAssemblyRefs(next))
 								if (auto it = bcl.find(ref); it != bcl.end() && !needed.count(wstring_to_string(it->second.filename().wstring())))
 									queue.push_back(it->second);
 						}
@@ -467,6 +486,11 @@ namespace AndroidTools
 	bool ExportGame(const nlohmann::json& args, nlohmann::json& result, std::string& error)
 	{
 		return Export(args, result, error);
+	}
+
+	std::vector<std::string> AssemblyReferences(const std::filesystem::path& assembly)
+	{
+		return ReadAssemblyRefs(assembly);
 	}
 
 	bool MonoRuntime(const std::string& abi, std::wstring& managedDir, std::wstring& nativeDir)

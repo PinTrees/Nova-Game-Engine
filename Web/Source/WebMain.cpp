@@ -106,7 +106,9 @@ extern "C" EMSCRIPTEN_KEEPALIVE const char* nova_web_stats()
 	return s.c_str();
 }
 
-int main()
+// 엔진 시작: 게임 데이터 확인 → 입력 연결 → 엔진 초기화 → 브라우저 프레임 루프 (돌아온 뒤에도 계속 — requestAnimationFrame). 1 = 시작함
+//  C# 이 있는 빌드 (Web/Host, NOVA_WEB_DOTNET) 는 .NET 런타임이 먼저 뜨고 C# 의 Main 이 이것을 부른다 (DllImport "NovaWeb")
+extern "C" EMSCRIPTEN_KEEPALIVE int nova_web_start()
 {
 	NovaAndroid::SetFilesDir("/");   // 게임 데이터 = /game (파일 폴더 = 루트 — 빈 문자열이면 game/ 이 상대 경로가 된다)
 	EditorLog::Init();
@@ -143,5 +145,10 @@ int main()
 	}
 	EM_ASM({ document.title = 'NOVA: running'; });
 	emscripten_set_main_loop(Frame, 0, false);
-	return 0;
+	return 1;
 }
+
+#ifndef NOVA_WEB_DOTNET
+// C# 없는 빌드 (엔진만 — Web/build.sh 의 nova)
+int main() { nova_web_start(); return 0; }
+#endif

@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <!--
+    NOVA 웹 플레이어 (C# 이 있는 게임): .NET 웹어셈블리 런타임 (Mono · 인터프리터) 과 엔진 (Web/build — Emscripten 정적 라이브러리) 을
+    wasm 하나로 링크한다. 게임과 상관없다 — 게임 스크립트 (Assembly-CSharp.dll) 는 게임 데이터 (/game/Managed) 에서 바이트로 읽는다 (Bridge.LoadGameAssembly).
+    빌드: Web/build.sh Release host → Web/build/Release/host/wwwroot (_framework: dotnet.js · dotnet.native.wasm · 어셈블리)
+    - 엔진 정적 라이브러리 목록 · 패키지 DllImport 모듈 이름 = Web/CMakeLists.txt 가 만든 NovaWebHost.props · host-modules/
+    - 패키지 C# (Packages/*/Runtime) 도 여기에 함께 컴파일한다: .NET 은 빌드 때 본 DllImport 만 P/Invoke 표에 넣는다 (게임 어셈블리는 나중에 읽으므로)
+    - 다듬기 (trimming) 는 끈다: 게임 스크립트가 어떤 BCL 을 쓸지 빌드 때 모른다 (Unity 의 Managed Stripping Level = Disabled 와 같음)
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>NovaWebHost</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <WasmBuildNative>true</WasmBuildNative>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <PublishTrimmed>false</PublishTrimmed>
+    <WasmNativeDebugSymbols>false</WasmNativeDebugSymbols>
+    <WasmNativeStrip>true</WasmNativeStrip>
+    <EmccVerbose>false</EmccVerbose>
+    <WasmFingerprintAssets>false</WasmFingerprintAssets>
+    <CompressionEnabled>false</CompressionEnabled>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NovaRoot>$(MSBuildThisFileDirectory)../../</NovaRoot>
+    <NovaWebBuildDir Condition="'$(NovaWebBuildDir)' == ''">$(NovaRoot)Web/build/Release/</NovaWebBuildDir>
+    <!-- 엔진 메모리 (엔진만 있는 빌드와 같게) -->
+    <EmccInitialHeapSize>268435456</EmccInitialHeapSize>
+    <EmccMaximumHeapSize>4294967296</EmccMaximumHeapSize>
+  </PropertyGroup>
+
+  <Import Project="$(NovaWebBuildDir)NovaWebHost.props" />
+
+  <PropertyGroup>
+    <EmccExtraLDFlags>-sUSE_WEBGPU=1 -Wl,--whole-archive &quot;$(NovaWholeLibs.Replace(';', '&quot; &quot;'))&quot; -Wl,--no-whole-archive &quot;$(NovaOtherLibs.Replace(';', '&quot; &quot;'))&quot;</EmccExtraLDFlags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <NativeFileReference Include="$(NovaModulesDir)*.c" />
+    <!-- 검사 · 셸이 부르는 엔진 함수 (Module._nova_web_frames …) -->
+    <EmccExportedFunction Include="_nova_web_frames;_nova_web_failed;_nova_web_stats;_nova_audio_render" />
+    <Compile Include="$(NovaRoot)Packages/*/Runtime/**/*.cs" LinkBase="Packages" />
+    <Reference Include="NovaScriptCore">
+      <HintPath>$(NovaRoot)Binaries/Scripting/NovaScriptCore.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>
