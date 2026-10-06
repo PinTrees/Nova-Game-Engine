@@ -1,12 +1,17 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **2D 빛 (Light 2D · Shadow Caster 2D · 노멀 맵)** (같은 지시 순서의 4 번). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **2D 내비게이션 (NavMesh Surface Plane = 2D)** (같은 지시 순서의 5 번). **완료 (커밋, 푸시 전)**
+  - 패키지 `com.nova.ai.navigation`: `NavMeshSurface` 의 Plane (3D XZ / 2D XY) — 2D 굽기 = 바닥 사각형 (콜라이더 · 스프라이트 범위 또는 Volume) + 정적 2D 콜라이더 윤곽 (귀 자르기 삼각형, Edge 는 얇은 사각형, Tilemap Collider 2D 포함, 움직이는 Rigidbody 2D · 트리거 제외)
+  - `NavData`: 내비 공간 (x, 0, y), 벽 삼각형을 반 칸 키운 볼록 다각형으로 `RC_NULL_AREA` 표시 (깎기 전), `.navmesh` 버전 3 (머리 뒤 2D 플래그, 버전 2 도 읽음), 2D 기즈모
+  - `NavMeshAgent`: 2D 표면이면 XY 로 (z · 회전 그대로, 바닥 Raycast · Obstacle 밀기 없음), C# 내보내기 (destination · velocity · corners · CalculatePath · SamplePosition · 링크 점) 는 월드 좌표. 에이전트를 골라도 내비 메시 기즈모 (Unity 처럼)
+  - 검사 `-Only nav2d` 8/8, 3D 는 `-Only packages` 10/10. 문서 `docs/NAVIGATION_2D.md`, Showcase 248
+  - 다음: 래그돌 (Character · Configurable Joint)
+- 이전: 2026년 10월 7일 — **2D 빛 (Light 2D · Shadow Caster 2D · 노멀 맵)** (같은 지시 순서의 4 번). **완료 (커밋, 푸시 전)**
   - `Source/Scene/Light2D.*`: Light2D (Global · Spot — 반지름 · 원뿔 · Falloff · 그림자 · 노멀 맵 거리), ShadowCaster2D (2D 콜라이더 윤곽 → 없으면 스프라이트 사각형, Self Shadows). 메뉴 Light > Global/Spot Light 2D, Add Component, CLI `create global-light-2d · spot-light-2d`, 기즈모
   - `SpriteBatch` · `51. Sprite.fx`: 켜진 Light 2D 가 있으면 Lit 기법 (빛 32 개), 그림자 = 빛을 등진 모서리를 민 사각형을 화면 크기 RGBA 두 장의 채널에 MAX (빛 8 개), 노멀 맵 = 화면 미분 접선 틀. SpriteRenderer 에 Normal Map 칸
   - C# `NovaEngine.Rendering.Universal.Light2D · ShadowCaster2D`, 트윈 `DOIntensity · DOColor · DOShadowIntensity · DORadius`
   - 검사 `-Only light2d` 8/8 (값이 식과 같다), OpenGL · Vulkan 같은 값, 웹 (WebGPU) = DX11 (최대 1 — 웹 스위트에 추가, web 11/11), 안드로이드 빌드 OK. 문서 `docs/LIGHT_2D.md`, Showcase 247
   - Web · Android CMake 의 엔진 소스 glob 에 CONFIGURE_DEPENDS (새 파일을 다시 구성 없이)
-  - 다음: 2D 내비게이션
 - 이전: 2026년 10월 7일 — **트윈 패키지 `com.nova.tween`** (같은 지시 순서의 3 번: DOTween 같은 기능, 별도 패키지). **완료 (커밋, 푸시 전)**
   - 순수 C# (`Packages/com.nova.tween/Runtime`): Tween · TweenerCore<T> · Sequence (Append · Join · Insert · Prepend · 간격 · 콜백), 곡선 30 (Penner), 반복 Restart · Yoyo · Incremental, 지연 · Relative · From · SpeedBased · 거꾸로, 콜백 · WaitForCompletion · AsyncWaitForCompletion, 대상 지우면 조용히 끝, 숨긴 `[NovaTween]` 오브젝트가 Update · LateUpdate · FixedUpdate 로 진행
   - 단축 메서드 (DOTween 과 같은 이름): Transform (이동 · 회전 4 방식 · LookAt · 크기 · Punch · Shake · Jump · Path), Material · SpriteRenderer · UI Graphic 색 · 투명도, FillAmount · DOText · DOCounter, RectTransform, Light · Camera · AudioSource, DOVirtual. 정적 클래스 = `NovaTween` (DOTween 이름은 쓰지 않음)

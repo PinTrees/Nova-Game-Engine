@@ -19,7 +19,7 @@ public:
 
 	bool AutoTraverseOffMeshLink = true;   // 끄면 링크 시작에서 멈추고 스크립트가 옮긴 뒤 CompleteOffMeshLink
 
-	// 실행 상태
+	// 실행 상태 (Corners · Velocity · Link* 는 내비 공간 — 2D 표면이면 (x, 0, y). Destination 은 월드)
 	std::vector<Vec3> Corners;
 	std::vector<unsigned char> CornerFlags;   // NavData::CornerLinkStart
 	size_t Next = 0;
@@ -45,6 +45,10 @@ public:
 	bool IsOnNavMesh() const;
 	// Unity: 링크 이동을 끝낸다 (끝점으로 옮기고 남은 길을 이어 간다)
 	void CompleteOffMeshLink();
+	// 내비 공간 → 월드 (2D 표면 위면 (x, z) → (x, y), 아니면 그대로)
+	bool Is2D() const { return m_2D; }
+	Vec3 NavToWorld(const Vec3& nav) const { return m_2D ? Vec3(nav.x, nav.z, m_WorldZ) : nav; }
+	Vec3 NavDirToWorld(const Vec3& v) const { return m_2D ? Vec3(v.x, v.z, 0.0f) : v; }
 
 	void Update() override;
 	void OnInspectorGUI() override;
@@ -57,7 +61,12 @@ public:
 private:
 	const NavData* m_PathData = nullptr;   // 길을 찾은 내비 데이터 + 그때의 Revision (바뀌면 다시 찾는다)
 	unsigned m_PathRevision = 0;
-	Vec3 Feet() const;
+	mutable bool m_2D = false;       // 마지막으로 찾은 표면이 2D (XY)
+	mutable float m_WorldZ = 0.0f;   // 2D 일 때 지킬 월드 z
+	// 서 있는 표면과 내비 공간의 발 위치 (3D = 위치 - Base Offset, 2D = (x, 0, y))
+	const NavData* Locate(Vec3& feet) const;
+	void Place(const Vec3& feet);    // 내비 공간의 발 → Transform
+	Vec3 Feet() const { Vec3 f; Locate(f); return f; }
 };
 
 REGISTER_PACKAGE_COMPONENT(NavMeshAgent)

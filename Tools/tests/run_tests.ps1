@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1864,6 +1864,138 @@ function Suite-Light2D
         Write-Host "  $(Stop-TestEditor $ed)"
         Remove-Item -Recurse -Force $texDir -ErrorAction SilentlyContinue
         Remove-Item -Force "$texDir.meta" -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Nav2D
+{
+    # 2D 내비게이션 (NavMesh Surface 의 Plane = 2D (XY)): 바닥 스프라이트 범위 + 정적 2D 콜라이더가 벽
+    #  Box Collider 2D 벽을 돌아가는 길 (z = 0), SamplePosition (벽 안 → 벽 밖), 에이전트가 XY 로 걸어 도착 (z · 회전 그대로),
+    #  움직이는 Rigidbody 2D 는 굽지 않는다, Edge Collider 2D 선도 벽, 굽기 파일을 다시 읽어도 2D
+    Write-Host '[nav2d]'
+    $dir = Join-Path $Out 'nav2d'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $before = if (Test-Path $manifest) { Get-Content $manifest -Raw } else { $null }
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'package add com.nova.ai.navigation' | Out-Null
+        Wait-Compile
+        foreach ($l in @('scene new --force', 'delete "Global Volume"',
+                         'set "Main Camera" --position 0,0,-10 --component Camera --values "{\"cameraType\":1,\"orthoSize\":7}"',
+                         'create empty --name NGround --position 0,0,1 --scale 20,14,1',
+                         'add-component NGround SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.85,0.85,0.8,1]}"',
+                         'create empty --name NWall --position 0,0,0 --scale 0.5,8,1',
+                         'add-component NWall SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.3,0.3,0.35,1],\"sortingOrder\":1}"',
+                         'add-component NWall BoxCollider2D',
+                         'create empty --name NSurface', 'add-component NSurface NavMeshSurface --values "{\"plane\":1}"',
+                         'create empty --name NNpc --position -5,0,-0.5',
+                         'add-component NNpc SpriteRenderer --values "{\"sprite\":\"builtin:Circle\",\"color\":[0.9,0.3,0.2,1],\"sortingOrder\":2}"',
+                         'add-component NNpc NavMeshAgent --values "{\"radius\":0.3,\"speed\":4,\"acceleration\":20}"')) { Invoke-Nova $l | Out-Null }
+
+        $pathCs = Join-Path $dir 'nav2d_path.cs'
+        'GameObject.Find("NSurface").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); var p = new NovaEngine.AI.NavMeshPath(); NovaEngine.AI.NavMesh.CalculatePath(new Vector3(-5,0,0), new Vector3(5,0,0), NovaEngine.AI.NavMesh.AllAreas, p); float my = 0, mz = 0; foreach (var c in p.corners) { my = Mathf.Max(my, Mathf.Abs(c.y)); mz = Mathf.Max(mz, Mathf.Abs(c.z)); } return p.corners.Length + " " + my.ToString("F2") + " " + mz.ToString("F2");' | Set-Content -Encoding utf8 $pathCs
+        $r = Invoke-NovaJson "exec --file `"$pathCs`""
+        $v = if ($r) { "$($r.result)" -split ' ' } else { @() }
+        Add-Result nav2d '2D bake: path goes around the Box Collider 2D wall (XY)' ($v.Count -eq 3 -and [int]$v[0] -ge 3 -and [double]$v[1] -gt 4.0 -and [double]$v[2] -lt 0.01) "corners $($v[0]), max |y| $($v[1]), max |z| $($v[2]) (expect ≥ 3, > 4, 0)"
+
+        $sampleCs = Join-Path $dir 'nav2d_sample.cs'
+        'NovaEngine.AI.NavMeshHit h; bool b = NovaEngine.AI.NavMesh.SamplePosition(new Vector3(0.1f, 1, 0), out h, 3f, NovaEngine.AI.NavMesh.AllAreas); return b + " " + Mathf.Abs(h.position.x).ToString("F2") + " " + h.position.y.ToString("F2");' | Set-Content -Encoding utf8 $sampleCs
+        $s = Invoke-NovaJson "exec --file `"$sampleCs`""
+        $sv = if ($s) { "$($s.result)" -split ' ' } else { @() }
+        Add-Result nav2d 'SamplePosition inside the wall → nearest walkable point' ($sv.Count -eq 3 -and $sv[0] -eq 'True' -and [double]$sv[1] -ge 0.5 -and [math]::Abs([double]$sv[2] - 1) -lt 0.2) "hit $($sv[0]), |x| $($sv[1]) (≥ 0.25 + radius), y $($sv[2]) (≈ 1)"
+
+        # 기즈모 사진: Scene 뷰를 XY 평면 정면으로 (표면을 고르면 파란 내비 메시)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'camera --position 0,0,-17 --target 0,0,0' | Out-Null
+        Invoke-Nova 'select NSurface' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'nav2d_scene.png')`" --view editor" | Out-Null
+
+        Invoke-Nova 'play' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $goCs = Join-Path $dir 'nav2d_go.cs'
+        'return GameObject.Find("NNpc").GetComponent<NovaEngine.AI.NavMeshAgent>().SetDestination(new Vector3(5, 0, 0));' | Set-Content -Encoding utf8 $goCs
+        Invoke-Nova "exec --file `"$goCs`"" | Out-Null
+        $midCs = Join-Path $dir 'nav2d_mid.cs'
+        'var a = GameObject.Find("NNpc").GetComponent<NovaEngine.AI.NavMeshAgent>(); var v = a.velocity; return a.hasPath + " " + Mathf.Abs(v.z).ToString("F2") + " " + (new Vector2(v.x, v.y)).magnitude.ToString("F2");' | Set-Content -Encoding utf8 $midCs
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 0.6) { Invoke-Nova 'wait 5' | Out-Null }
+        $mid = Invoke-NovaJson "exec --file `"$midCs`""
+        # 걷는 중: 에이전트를 고르면 내비 메시 + 남은 길 (노랑) — 편집기 창 전체로 (기즈모는 창의 겹침 그림)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'select NNpc' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'nav2d_walk.png')`" --view editor" | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 6) { Invoke-Nova 'wait 20' | Out-Null }
+        $np = Invoke-NovaJson 'get NNpc'
+        $p = $np.position; $rot = $np.rotation
+        $mv = if ($mid) { "$($mid.result)" -split ' ' } else { @() }
+        $rotOk = $rot -and ([math]::Abs([double]$rot[0]) + [math]::Abs([double]$rot[1]) + [math]::Abs([double]$rot[2])) -lt 0.01
+        Add-Result nav2d 'agent walks on XY to the destination (z, rotation kept)' ([math]::Abs([double]$p[0] - 5) -lt 0.2 -and [math]::Abs([double]$p[1]) -lt 0.2 -and [math]::Abs([double]$p[2] + 0.5) -lt 0.001 -and $rotOk) ("NPC {0:F2}, {1:F2}, {2:F2} (expect 5, 0, -0.5), rotation {3}" -f [double]$p[0], [double]$p[1], [double]$p[2], ($rot -join ','))
+        Add-Result nav2d 'velocity is in XY while walking' ($mv.Count -eq 3 -and $mv[0] -eq 'True' -and [double]$mv[1] -lt 0.001 -and [double]$mv[2] -gt 1.0) "hasPath $($mv[0]), |vz| $($mv[1]), |vxy| $($mv[2])"
+        Invoke-Nova 'stop' | Out-Null
+
+        # 움직이는 Rigidbody 2D (Dynamic) 는 굽지 않는다 → 곧은 길
+        Invoke-Nova 'add-component NWall Rigidbody2D --values "{\"bodyType\":0,\"gravityScale\":0}"' | Out-Null
+        $r = Invoke-NovaJson "exec --file `"$pathCs`""
+        $v = if ($r) { "$($r.result)" -split ' ' } else { @() }
+        Add-Result nav2d 'dynamic Rigidbody 2D colliders are not baked' ($v.Count -eq 3 -and [int]$v[0] -eq 2) "corners $($v[0]) (expect 2)"
+        Invoke-Nova 'remove-component NWall Rigidbody2D' | Out-Null
+
+        # Edge Collider 2D 선도 벽 (상자 벽 대신) — 칸 가운데 사이 (x = 0.13) 의 얇은 선도 빠지지 않는다
+        Invoke-Nova 'remove-component NWall BoxCollider2D' | Out-Null
+        Invoke-Nova 'create empty --name NEdge' | Out-Null
+        Invoke-Nova 'add-component NEdge EdgeCollider2D --values "{\"points\":[[0.13,-4],[0.13,4]]}"' | Out-Null
+        $r = Invoke-NovaJson "exec --file `"$pathCs`""
+        $v = if ($r) { "$($r.result)" -split ' ' } else { @() }
+        Add-Result nav2d 'Edge Collider 2D line is a wall' ($v.Count -eq 3 -and [int]$v[0] -ge 3 -and [double]$v[1] -gt 4.0) "corners $($v[0]), max |y| $($v[1]) (expect ≥ 3, > 4)"
+
+        # 굽기 파일을 다시 읽어도 2D (파일 머리의 플래그): 씬 저장 → 다시 열기 → 굽지 않고 길 찾기
+        $scenePath = 'Assets/Nav2DTest.scene'
+        Invoke-Nova "scene save --as `"$scenePath`"" | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova "scene open `"$scenePath`"" | Out-Null
+        $reCs = Join-Path $dir 'nav2d_reload.cs'
+        'var p = new NovaEngine.AI.NavMeshPath(); NovaEngine.AI.NavMesh.CalculatePath(new Vector3(-5,0,0), new Vector3(5,0,0), NovaEngine.AI.NavMesh.AllAreas, p); float my = 0; foreach (var c in p.corners) my = Mathf.Max(my, Mathf.Abs(c.y)); return p.corners.Length + " " + my.ToString("F2");' | Set-Content -Encoding utf8 $reCs
+        $r = Invoke-NovaJson "exec --file `"$reCs`""
+        $v = if ($r) { "$($r.result)" -split ' ' } else { @() }
+        Add-Result nav2d 'saved 2D navmesh reloads as 2D' ($v.Count -eq 2 -and [int]$v[0] -ge 3 -and [double]$v[1] -gt 4.0) "corners $($v[0]), max |y| $($v[1]) (expect ≥ 3, > 4)"
+        # Tilemap Collider 2D 로 둘러싼 방: 안은 걸을 수 있고 (곧은 길), 밖으로 나가는 길은 없다
+        Invoke-Nova 'package add com.nova.tilemap' | Out-Null
+        $tileDir = Join-Path $Project 'Assets\Nav2DTiles'
+        New-Item -ItemType Directory -Force $tileDir | Out-Null
+        Add-Type -AssemblyName System.Drawing
+        $bmp = New-Object System.Drawing.Bitmap 16, 16
+        for ($y = 0; $y -lt 16; $y++) { for ($x = 0; $x -lt 16; $x++) { $bmp.SetPixel($x, $y, [System.Drawing.Color]::FromArgb(255, 90, 90, 100)) } }
+        $bmp.Save((Join-Path $tileDir 'Wall.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+        Invoke-Nova 'sprite-slice Assets/Nav2DTiles/Wall.png --mode grid --cell 16,16 --ppu 16 --filter point' | Out-Null
+        $ft = Invoke-NovaJson 'tilemap tile.fromtexture --texture Assets/Nav2DTiles/Wall.png --folder Assets\Nav2DTiles\Palette --collider grid'
+        $wallTile = @($ft.tiles)[0]
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'tilemap create --name Walls --collider' | Out-Null
+        Invoke-Nova "tilemap box --tilemap Walls --from -6,-4 --to 5,3 --tile `"$wallTile`"" | Out-Null
+        Invoke-Nova 'tilemap box --tilemap Walls --from -5,-3 --to 4,2' | Out-Null
+        Invoke-Nova 'create empty --name NSurface' | Out-Null
+        Invoke-Nova 'add-component NSurface NavMeshSurface --values "{\"plane\":1}"' | Out-Null
+        $roomCs = Join-Path $dir 'nav2d_room.cs'
+        'GameObject.Find("NSurface").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); var p = new NovaEngine.AI.NavMeshPath(); NovaEngine.AI.NavMesh.CalculatePath(new Vector3(-3,0,0), new Vector3(3,0,0), NovaEngine.AI.NavMesh.AllAreas, p); var q = new NovaEngine.AI.NavMeshPath(); bool o = NovaEngine.AI.NavMesh.CalculatePath(new Vector3(0,0,0), new Vector3(-6.8f,0,0), NovaEngine.AI.NavMesh.AllAreas, q); string last = o && q.corners.Length > 0 ? q.corners[q.corners.Length - 1].x.ToString("F2") : "none"; return p.corners.Length + " " + last;' | Set-Content -Encoding utf8 $roomCs
+        $r = Invoke-NovaJson "exec --file `"$roomCs`""
+        $v = if ($r) { "$($r.result)" -split ' ' } else { @() }
+        $outOk = $v.Count -eq 2 -and ($v[1] -eq 'none' -or [double]$v[1] -gt -5)
+        Add-Result nav2d 'Tilemap Collider 2D room: inside walkable, no way out' ($v.Count -eq 2 -and [int]$v[0] -eq 2 -and $outOk) "inside corners $($v[0]) (expect 2), path out ends at x $($v[1]) (expect none or > -5)"
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'package remove com.nova.tilemap' | Out-Null
+        Invoke-Nova 'package remove com.nova.ai.navigation' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        if ($before) { [IO.File]::WriteAllText($manifest, $before) }
+        foreach ($f in @('Assets\Nav2DTest.scene', 'Assets\Nav2DTest.scene.meta', 'Assets\NavMesh-NSurface.navmesh', 'Assets\NavMesh-NSurface.navmesh.meta', 'Assets\Nav2DTiles.meta'))
+        {
+            Remove-Item (Join-Path $Project $f) -Force -ErrorAction SilentlyContinue
+        }
+        Remove-Item -Recurse -Force (Join-Path $Project 'Assets\Nav2DTiles') -ErrorAction SilentlyContinue
     }
 }
 
@@ -5073,6 +5205,7 @@ try
                 'scenes' { Suite-Scenes }
                 'tween' { Suite-Tween }
                 'light2d' { Suite-Light2D }
+                'nav2d' { Suite-Nav2D }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }
                 'physics2d' { Suite-Physics2D }

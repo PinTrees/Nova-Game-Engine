@@ -5,6 +5,7 @@
 #include "UnityGUI.h"
 #include "SceneViewOverlay.h"
 #include "SelectionManager.h"
+#include "NavData.h"
 
 namespace
 {
@@ -30,21 +31,36 @@ NavMeshAgent::~NavMeshAgent()
 
 const std::vector<NavMeshAgent*>& NavMeshAgent::All() { return s_Agents; }
 
-Vec3 NavMeshAgent::Feet() const
+const NavData* NavMeshAgent::Locate(Vec3& feet) const
 {
-	return m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f);
+	const Vec3 pos = m_pGameObject->GetTransform()->GetPosition();
+	const NavData* nav = NavMeshSurface::FindData(pos);
+	m_2D = nav && nav->Plane2D;
+	if (m_2D)
+	{
+		m_WorldZ = pos.z;
+		feet = nav->ToNav(pos);   // 2D 는 Base Offset 없이 (회전 · 높이가 없다)
+	}
+	else
+		feet = pos - Vec3(0.0f, BaseOffset, 0.0f);
+	return nav;
+}
+
+void NavMeshAgent::Place(const Vec3& feet)
+{
+	m_pGameObject->GetTransform()->SetPosition(m_2D ? Vec3(feet.x, feet.z, m_WorldZ) : feet + Vec3(0.0f, BaseOffset, 0.0f));
 }
 
 bool NavMeshAgent::SetDestination(const Vec3& target)
 {
 	if (m_pGameObject == nullptr)
 		return false;
-	const Vec3 feet = Feet();
-	const NavData* nav = NavMeshSurface::FindData(feet);
+	Vec3 feet;
+	const NavData* nav = Locate(feet);
 	std::vector<Vec3> path;
 	std::vector<unsigned char> flags;
 	Destination = target;
-	if (nav == nullptr || !nav->FindPath(feet, target, path, nullptr, &flags) || path.size() < 2)
+	if (nav == nullptr || !nav->FindPath(feet, nav->ToNav(target), path, nullptr, &flags) || path.size() < 2)
 	{
 		HasPath = false;
 		Corners.clear();
@@ -76,14 +92,14 @@ bool NavMeshAgent::Warp(const Vec3& position)
 {
 	if (m_pGameObject == nullptr)
 		return false;
-	Vec3 p = position;
-	if (const NavData* nav = NavMeshSurface::FindData(p))
-	{
-		Vec3 on;
-		if (nav->Sample(p, 2.0f, on))
-			p = on;
-	}
-	m_pGameObject->GetTransform()->SetPosition(p + Vec3(0.0f, BaseOffset, 0.0f));
+	const NavData* nav = NavMeshSurface::FindData(position);
+	m_2D = nav && nav->Plane2D;
+	m_WorldZ = position.z;
+	Vec3 p = nav ? nav->ToNav(position) : position;
+	Vec3 on;
+	if (nav && nav->Sample(p, 2.0f, on))
+		p = on;
+	Place(p);
 	Velocity = Vec3::Zero;
 	ResetPath();
 	return true;
@@ -95,8 +111,8 @@ bool NavMeshAgent::IsOnNavMesh() const
 		return false;
 	if (OnLink)
 		return true;
-	const Vec3 feet = Feet();
-	const NavData* nav = NavMeshSurface::FindData(feet);
+	Vec3 feet;
+	const NavData* nav = Locate(feet);
 	Vec3 on;
 	return nav && nav->Sample(feet, (std::max)(0.3f, Radius), on);
 }
@@ -117,7 +133,7 @@ void NavMeshAgent::CompleteOffMeshLink()
 	if (!OnLink || m_pGameObject == nullptr)
 		return;
 	OnLink = false;
-	m_pGameObject->GetTransform()->SetPosition(LinkEnd + Vec3(0.0f, BaseOffset, 0.0f));
+	Place(LinkEnd);
 	// [Next] = 링크 시작, [Next+1] = 링크 끝 → 그 다음 점으로
 	if (!Corners.empty())
 		Next = (std::min)(Next + 2, Corners.size() - 1);
@@ -133,7 +149,7 @@ void NavMeshAgent::Update()
 	Transform* tr = m_pGameObject->GetTransform();
 	auto turnTowards = [&](const Vec3& dir)
 	{
-		if (dir.x * dir.x + dir.z * dir.z < 1e-6f)
+		if (m_2D || dir.x * dir.x + dir.z * dir.z < 1e-6f)   // 2D 는 돌리지 않는다 (Unity 2D 의 updateRotation = false)
 			return;
 		const float targetYaw = XMConvertToDegrees(atan2f(dir.x, dir.z));
 		Vec3 e = tr->GetEulerAngle();
@@ -150,7 +166,7 @@ void NavMeshAgent::Update()
 			return;
 		const float len = (std::max)(0.01f, Vec3::Distance(LinkStart, LinkEnd));
 		LinkProgress = (std::min)(1.0f, LinkProgress + (std::max)(0.1f, Speed) * dt / len);
-		tr->SetPosition(Vec3::Lerp(LinkStart, LinkEnd, LinkProgress) + Vec3(0.0f, BaseOffset, 0.0f));
+		Place(Vec3::Lerp(LinkStart, LinkEnd, LinkProgress));
 		Velocity = (LinkEnd - LinkStart) / len * Speed;
 		turnTowards(LinkEnd - LinkStart);
 		if (LinkProgress >= 1.0f)
@@ -158,8 +174,8 @@ void NavMeshAgent::Update()
 		return;
 	}
 
-	Vec3 feet = Feet();
-	const NavData* nav = NavMeshSurface::FindData(feet);
+	Vec3 feet;
+	const NavData* nav = Locate(feet);
 	// 내비 메시가 바뀌었다 (장애물 깎기·링크·다시 굽기) → 같은 목적지로 길을 다시 찾는다
 	if (HasPath && (nav != m_PathData || (nav && nav->Revision != m_PathRevision)))
 		SetDestination(Destination);
@@ -230,6 +246,8 @@ void NavMeshAgent::Update()
 	}
 	for (NavMeshObstacle* o : NavMeshObstacle::All())
 	{
+		if (m_2D)
+			break;   // NavMesh Obstacle 은 3D 모양 (2D 장애물은 정적 2D 콜라이더로 굽는다)
 		if (o->GetGameObject() == nullptr || !o->IsEnabled() || !o->GetGameObject()->IsActive())
 			continue;
 		Vec3 p;
@@ -252,7 +270,8 @@ void NavMeshAgent::Update()
 		Vec3 moved;
 		feet = nav && nav->MoveAlongSurface(feet, to, moved) ? moved : to;
 	}
-	// 다각형 높이는 꼭짓점 사이에서 언덕보다 뜨거나 묻힐 수 있다 → 정적 콜라이더 바닥에 붙인다 (Unity 의 Height Mesh 역할)
+	// 다각형 높이는 꼭짓점 사이에서 언덕보다 뜨거나 묻힐 수 있다 → 정적 콜라이더 바닥에 붙인다 (Unity 의 Height Mesh 역할). 2D 는 평면
+	if (!m_2D)
 	{
 		const float window = (nav ? nav->Settings.StepHeight : 0.4f) + 0.5f;
 		RaycastHit hits[4];
@@ -264,7 +283,7 @@ void NavMeshAgent::Update()
 				break;
 			}
 	}
-	tr->SetPosition(feet + Vec3(0.0f, BaseOffset, 0.0f));
+	Place(feet);
 	if (Velocity.LengthSquared() < 1e-8f)
 		return;
 
@@ -307,9 +326,10 @@ void NavMeshAgent::OnDrawGizmos()
 	const ImU32 c = IM_COL32(255, 220, 60, 255);
 	for (size_t i = (std::max)((size_t)1, Next); i < Corners.size(); ++i)
 	{
-		const Vec3 a = (i == Next) ? m_pGameObject->GetTransform()->GetPosition() - Vec3(0.0f, BaseOffset, 0.0f) : Corners[i - 1];
-		const Vec3 b = Corners[i];
-		SceneViewOverlay::DrawLine(XMFLOAT3(a.x, a.y + 0.05f, a.z), XMFLOAT3(b.x, b.y + 0.05f, b.z), c, 2.0f);
+		const Vec3 lift = m_2D ? Vec3(0.0f, 0.0f, -0.05f) : Vec3(0.0f, 0.05f, 0.0f);
+		const Vec3 a = ((i == Next) ? NavToWorld(Feet()) : NavToWorld(Corners[i - 1])) + lift;
+		const Vec3 b = NavToWorld(Corners[i]) + lift;
+		SceneViewOverlay::DrawLine(XMFLOAT3(a.x, a.y, a.z), XMFLOAT3(b.x, b.y, b.z), c, 2.0f);
 	}
 }
 

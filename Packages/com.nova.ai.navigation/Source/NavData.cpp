@@ -17,7 +17,7 @@
 namespace
 {
 	constexpr uint32_t kMagic = 0x4D4E564E;   // 'NVNM'
-	constexpr uint32_t kVersion = 2;          // 2 = TileCache 층 (1 = Detour 타일 그대로 — 다시 굽는다)
+	constexpr uint32_t kVersion = 3;          // 3 = 머리 뒤에 플래그 (1 = 2D 표면), 2 = TileCache 층 (그대로 읽는다), 1 = 다시 굽는다
 	constexpr int kTileSize = 64;             // 복셀 (장애물이 바뀌면 이 크기만큼 다시 만든다)
 	constexpr int kMaxLayersPerTile = 32;
 	constexpr int kMaxObstacles = 1024;
@@ -284,7 +284,7 @@ bool NavData::BuildAllTiles()
 
 // ---------------------------------------------------------------------- 굽기
 bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris, const Vec3& boundsMin, const Vec3& boundsMax,
-	const NavBakeSettings& s, std::string& log)
+	const NavBakeSettings& s, std::string& log, const std::vector<NavBlocker2D>* blockers2D)
 {
 	Reset();
 	const auto t0 = std::chrono::steady_clock::now();
@@ -393,6 +393,47 @@ bool NavData::Bake(const std::vector<float>& verts, const std::vector<int>& tris
 			ok = chf && rcBuildCompactHeightfield(&ctx, cfg.walkableHeight, cfg.walkableClimb, *solid, *chf);
 		}
 		rcFreeHeightField(solid);
+		// 2D 장애물: 깎기 전에 걸을 수 없게 (반지름만큼 더 물러난다).
+		// 칸 가운데만 보면 칸보다 얇은 벽 (Edge Collider 2D) 이 빠진다 → 삼각형을 반 칸 키운 볼록 다각형으로 (닿는 칸은 모두)
+		if (ok && blockers2D)
+			for (const NavBlocker2D& b : *blockers2D)
+			{
+				const float mnx = (std::min)({ b.X[0], b.X[1], b.X[2] }), mxx = (std::max)({ b.X[0], b.X[1], b.X[2] });
+				const float mnz = (std::min)({ b.Z[0], b.Z[1], b.Z[2] }), mxz = (std::max)({ b.Z[0], b.Z[1], b.Z[2] });
+				if (mxx < cfg.bmin[0] || mnx > cfg.bmax[0] || mxz < cfg.bmin[2] || mnz > cfg.bmax[2])
+					continue;
+				const float h = cfg.cs * 0.5f;
+				std::vector<std::pair<float, float>> pts;
+				for (int i = 0; i < 3; ++i)
+					for (int k = 0; k < 4; ++k)
+						pts.push_back({ b.X[i] + (k & 1 ? h : -h), b.Z[i] + (k & 2 ? h : -h) });
+				// 볼록 껍질 (단조 사슬) — 반시계
+				std::sort(pts.begin(), pts.end());
+				auto cross = [](const std::pair<float, float>& o, const std::pair<float, float>& a, const std::pair<float, float>& c)
+				{ return (a.first - o.first) * (c.second - o.second) - (a.second - o.second) * (c.first - o.first); };
+				std::vector<std::pair<float, float>> hull(pts.size() * 2);
+				size_t n = 0;
+				for (size_t i = 0; i < pts.size(); ++i)
+				{
+					while (n >= 2 && cross(hull[n - 2], hull[n - 1], pts[i]) <= 0.0f) --n;
+					hull[n++] = pts[i];
+				}
+				for (size_t i = pts.size() - 1, t = n + 1; i-- > 0;)
+				{
+					while (n >= t && cross(hull[n - 2], hull[n - 1], pts[i]) <= 0.0f) --n;
+					hull[n++] = pts[i];
+				}
+				if (n > 1) --n;   // 마지막 = 처음
+				std::vector<float> v;
+				for (size_t i = 0; i < n; ++i)
+				{
+					v.push_back(hull[i].first);
+					v.push_back(0.0f);
+					v.push_back(hull[i].second);
+				}
+				if (n >= 3)
+					rcMarkConvexPolyArea(&ctx, v.data(), (int)n, cfg.bmin[1], cfg.bmax[1], RC_NULL_AREA, *chf);
+			}
 		ok = ok && rcErodeWalkableArea(&ctx, cfg.walkableRadius, *chf);
 		if (ok)
 		{
@@ -513,6 +554,8 @@ bool NavData::Save(const std::wstring& path) const
 		if (const dtCompressedTile* t = m_Cache->getTile(i); t && t->header && t->dataSize)
 			++h.LayerCount;
 	out.write((const char*)&h, sizeof(h));
+	const uint32_t flags = Plane2D ? 1u : 0u;
+	out.write((const char*)&flags, sizeof(flags));
 	for (int i = 0; i < m_Cache->getTileCount(); ++i)
 	{
 		const dtCompressedTile* t = m_Cache->getTile(i);
@@ -533,8 +576,12 @@ bool NavData::Load(const std::wstring& path)
 		return false;
 	FileHeader h{};
 	in.read((char*)&h, sizeof(h));
-	if (!in || h.Magic != kMagic || h.Version != kVersion || h.LayerCount < 0 || h.LayerCount > 1000000)
+	if (!in || h.Magic != kMagic || (h.Version != kVersion && h.Version != 2) || h.LayerCount < 0 || h.LayerCount > 1000000)
 		return false;
+	uint32_t flags = 0;
+	if (h.Version >= 3)
+		in.read((char*)&flags, sizeof(flags));
+	Plane2D = (flags & 1u) != 0;
 	Settings = h.Settings;
 	rcVcopy(BoundsMin, h.BoundsMin);
 	rcVcopy(BoundsMax, h.BoundsMax);
@@ -736,7 +783,10 @@ void NavData::DrawGizmo(unsigned int fill, unsigned int edge, int maxTriangles) 
 	SceneViewOverlay::GetViewRect(rmin, rmax, off);
 	dl->PushClipRect(ImVec2(off.x + rmin.x, off.y + rmin.y), ImVec2(off.x + rmax.x, off.y + rmax.y), true);   // Project 는 화면 좌표
 	int drawn = 0;
-	auto project = [](const float* v, ImVec2& o) { return SceneViewOverlay::Project(XMFLOAT3(v[0], v[1] + 0.03f, v[2]), o); };
+	// 2D 표면: 내비 (x, z) → 월드 (x, y) 를 표면의 z 바로 앞에
+	auto project = [this](const float* v, ImVec2& o) {
+		return SceneViewOverlay::Project(Plane2D ? XMFLOAT3(v[0], v[2], Gizmo2DZ - 0.01f) : XMFLOAT3(v[0], v[1] + 0.03f, v[2]), o);
+	};
 	for (int ti = 0; ti < mesh->getMaxTiles() && drawn < maxTriangles; ++ti)
 	{
 		const dtMeshTile* tile = mesh->getTile(ti);

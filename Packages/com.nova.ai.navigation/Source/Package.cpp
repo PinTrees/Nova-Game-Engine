@@ -5,6 +5,7 @@
 #include "NavMeshLink.h"
 #include "NavMeshObstacle.h"
 #include "ScriptBindings.h"
+#include "NavData.h"
 
 NOVA_PACKAGE_EXPORT const char* NovaPackage_Abi() { return NOVA_PACKAGE_ABI_VERSION; }
 
@@ -64,13 +65,14 @@ NOVA_PACKAGE_EXPORT void NavAgent_GetVector(uint64 go, int prop, Vec3* out)
 {
 	NavMeshAgent* a = Find<NavMeshAgent>(go);
 	if (out == nullptr) return;
-	*out = a == nullptr ? Vec3::Zero : (prop == 0 ? a->Destination : (prop == 1 ? a->Velocity : a->SteeringTarget()));
+	// 월드 좌표로 (2D 표면 위면 내비 공간 (x, 0, y) → (x, y))
+	*out = a == nullptr ? Vec3::Zero : (prop == 0 ? a->Destination : (prop == 1 ? a->NavDirToWorld(a->Velocity) : a->NavToWorld(a->SteeringTarget())));
 }
 
 NOVA_PACKAGE_EXPORT void NavAgent_SetVelocity(uint64 go, Vec3* v)
 {
 	if (NavMeshAgent* a = Find<NavMeshAgent>(go))
-		if (v) a->Velocity = *v;
+		if (v) a->Velocity = a->Is2D() ? Vec3(v->x, 0.0f, v->y) : *v;
 }
 
 NOVA_PACKAGE_EXPORT int NavAgent_SetDestination(uint64 go, Vec3* target)
@@ -97,7 +99,7 @@ NOVA_PACKAGE_EXPORT int NavAgent_GetCorners(uint64 go, Vec3* out, int max)
 	if (a == nullptr || !a->HasPath) return 0;
 	const int n = (int)a->Corners.size();
 	for (int i = 0; i < n && i < max && out; ++i)
-		out[i] = a->Corners[i];
+		out[i] = a->NavToWorld(a->Corners[i]);
 	return n;
 }
 
@@ -107,9 +109,9 @@ NOVA_PACKAGE_EXPORT int NavMesh_CalculatePath(Vec3* start, Vec3* end, Vec3* out,
 	if (start == nullptr || end == nullptr) return -1;
 	const NavData* nav = NavMeshSurface::FindData(*start);
 	std::vector<Vec3> path;
-	if (nav == nullptr || !nav->FindPath(*start, *end, path)) return -1;
+	if (nav == nullptr || !nav->FindPath(nav->ToNav(*start), nav->ToNav(*end), path)) return -1;
 	for (int i = 0; i < (int)path.size() && i < max && out; ++i)
-		out[i] = path[i];
+		out[i] = nav->ToWorld(path[i], start->z);
 	return (int)path.size();
 }
 
@@ -118,8 +120,8 @@ NOVA_PACKAGE_EXPORT int NavMesh_SamplePosition(Vec3* p, float maxDistance, Vec3*
 	if (p == nullptr) return 0;
 	const NavData* nav = NavMeshSurface::FindData(*p);
 	Vec3 on;
-	if (nav == nullptr || !nav->Sample(*p, maxDistance, on)) return 0;
-	if (out) *out = on;
+	if (nav == nullptr || !nav->Sample(nav->ToNav(*p), maxDistance, on)) return 0;
+	if (out) *out = nav->ToWorld(on, p->z);
 	return 1;
 }
 
@@ -136,8 +138,8 @@ NOVA_PACKAGE_EXPORT int NavAgent_GetLinkData(uint64 go, Vec3* start, Vec3* end)
 {
 	NavMeshAgent* a = Find<NavMeshAgent>(go);
 	if (a == nullptr || !a->OnLink) return 0;
-	if (start) *start = a->LinkStart;
-	if (end) *end = a->LinkEnd;
+	if (start) *start = a->NavToWorld(a->LinkStart);
+	if (end) *end = a->NavToWorld(a->LinkEnd);
 	return 1;
 }
 

@@ -8,6 +8,8 @@ class NavMeshSurface : public Component
 {
 public:
 	NavBakeSettings Settings;
+	// 0 = 3D (XZ 바닥, 정적 콜라이더 삼각형), 1 = 2D (XY 평면 — 탑다운 2D: 상자 · 콜라이더 범위 전체가 바닥, 2D 콜라이더 · 타일맵 콜라이더가 벽)
+	int Plane = 0;
 	int CollectObjects = 0;            // 0 All Game Objects (모든 정적 콜라이더), 1 Volume (Center·Size 상자)
 	Vec3 Center = Vec3(0.0f, 2.0f, 0.0f);
 	Vec3 Size = Vec3(10.0f, 4.0f, 10.0f);
@@ -41,6 +43,8 @@ private:
 	std::string m_LoadedPath;
 	std::string m_LastLog;
 	std::wstring DefaultDataPath() const;
+	// 2D 굽기: 바닥 사각형 + 2D 콜라이더 윤곽 (삼각형으로) → Recast (내비 공간 (x, 0, y))
+	bool Bake2D(NavData& grid, std::string& log);
 };
 
 REGISTER_PACKAGE_COMPONENT(NavMeshSurface)

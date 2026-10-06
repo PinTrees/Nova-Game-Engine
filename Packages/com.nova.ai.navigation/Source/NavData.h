@@ -40,6 +40,9 @@ struct NavObstacleShape
 	float Height = 2.0f;        // 원기둥
 };
 
+// 2D 장애물 (XY 평면 표면): 내비 공간 (x, z) 의 볼록 삼각형 — 이 안은 걸을 수 없다
+struct NavBlocker2D { float X[3], Z[3]; };
+
 // 구운 내비게이션 메시 = Recast / Detour (Unity 의 NavMesh 와 같은 라이브러리 계열).
 //  굽기: 정적 콜라이더 삼각형 → 타일(64 복셀)마다 Recast(복셀화 → 걸을 수 있는 면 → 반지름만큼 깎기 → 높이 층(layer))
 //        → 압축(FastLZ)한 층을 Detour TileCache 에 (여러 스레드). 층 → 영역 → 윤곽 → 다각형 → Detour 타일.
@@ -53,6 +56,12 @@ public:
 	int TileCount = 0;          // 층 타일 수
 	int PolyCount = 0;
 	unsigned Revision = 0;      // 타일이 다시 만들어질 때마다 증가 (에이전트가 길을 다시 찾는다)
+	// 2D (XY 평면) 표면: 월드 (x, y, z) ↔ 내비 공간 (x, 0, y). 내비 질의 (FindPath · Sample · MoveAlongSurface) 는 늘 내비 공간
+	bool Plane2D = false;
+	float Gizmo2DZ = 0.0f;      // 2D 기즈모를 그릴 월드 z
+	Vec3 ToNav(const Vec3& world) const { return Plane2D ? Vec3(world.x, 0.0f, world.y) : world; }
+	Vec3 ToWorld(const Vec3& nav, float worldZ) const { return Plane2D ? Vec3(nav.x, nav.z, worldZ) : nav; }
+	bool ContainsWorld(const Vec3& world) const { return ContainsXZ(ToNav(world)); }
 
 	// FindPath 의 꺾이는 점 표시
 	enum CornerFlag : unsigned char { CornerLinkStart = 1 };
@@ -66,8 +75,9 @@ public:
 	bool ContainsXZ(const Vec3& p) const;
 
 	// 삼각형(verts x,y,z / tris 3 개씩)으로 굽는다. log = 결과 한 줄
+	// blockers2D = 걸을 수 없게 표시할 볼록 삼각형 (2D 표면의 콜라이더 — 반지름만큼 더 깎인다)
 	bool Bake(const std::vector<float>& verts, const std::vector<int>& tris, const Vec3& boundsMin, const Vec3& boundsMax,
-		const NavBakeSettings& settings, std::string& log);
+		const NavBakeSettings& settings, std::string& log, const std::vector<NavBlocker2D>* blockers2D = nullptr);
 	bool Save(const std::wstring& path) const;
 	bool Load(const std::wstring& path);
 
