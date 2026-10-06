@@ -1132,7 +1132,7 @@ int Run(const std::vector<std::string>& in)
 	else if (cmd == "terrain-layer")
 	{
 		// Terrain Layer: nova terrain-layer <지형> [--add <.terrainlayer>] [--set i --layer <.terrainlayer>] [--fill i [--center x,z --radius m]]
-		if (!need(1, "terrain-layer <terrain> [--add <path>] [--set i --layer <path>] [--fill i [--center x,z --radius m]]")) return 3;
+		if (!need(1, "terrain-layer <terrain> [--add <path>] [--set i --layer <path>] [--fill i [--center x,z --radius m --soft m]]")) return 3;
 		args["target"] = a.Pos[0];
 		if (a.Has("add")) args["add"] = a.Get("add");
 		if (a.Has("set")) { args["set"] = std::stoi(a.Get("set")); args["layer"] = a.Get("layer"); }
@@ -1147,6 +1147,7 @@ int Run(const std::vector<std::string>& in)
 					args["center"] = { std::stof(c.substr(0, comma)), std::stof(c.substr(comma + 1)) };
 			}
 			if (a.Has("radius")) args["radius"] = std::stof(a.Get("radius"));
+			if (a.Has("soft")) args["soft"] = std::stof(a.Get("soft"));
 		}
 	}
 	else if (cmd == "raycast")

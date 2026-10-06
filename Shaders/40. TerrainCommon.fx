@@ -163,25 +163,32 @@ float4 TerrainLayerSample(Texture2D tex, float4 st, TerrainTriplanar t)
     return c;
 }
 
+// 컨트롤 맵 가중치 (RGBA = 레이어 0~3, 레이어 수만큼, 합 1)
+float4 TerrainControlWeights(float2 uv)
+{
+    float4 w = gTerrainControl.Sample(samTerrainClamp, uv);
+    if (gTerrainLayerCount < 4) w.a = 0.0f;
+    if (gTerrainLayerCount < 3) w.b = 0.0f;
+    if (gTerrainLayerCount < 2) w.g = 0.0f;
+    const float sum = w.r + w.g + w.b + w.a;
+    return sum < 1e-4f ? float4(1, 0, 0, 0) : w / sum;
+}
+
+float4 TerrainAlbedoW(float4 w, float2 uv, TerrainTriplanar t, float viewDist);
+
 // 레이어 텍스처 혼합 (컨트롤 맵 RGBA = 레이어 0~3 가중치). localPos = 지형 로컬 위치(m), n = 월드 법선, viewDist = 카메라 거리(m)
 float4 TerrainAlbedo(float2 uv, float3 localPos, float3 n, float viewDist)
 {
     if (gTerrainLayerCount <= 0)
         return float4(0.72f, 0.72f, 0.72f, 1.0f);   // 레이어가 없으면 Unity 처럼 밝은 회색
+    return TerrainAlbedoW(TerrainControlWeights(uv), uv, TerrainTriplanarSetup(localPos, n), viewDist);
+}
 
-    float4 w = gTerrainControl.Sample(samTerrainClamp, uv);
-    if (gTerrainLayerCount < 4) w.a = 0.0f;
-    if (gTerrainLayerCount < 3) w.b = 0.0f;
-    if (gTerrainLayerCount < 2) w.g = 0.0f;
-    float sum = w.r + w.g + w.b + w.a;
-    if (sum < 1e-4f)
-    {
-        w = float4(1, 0, 0, 0);
-        sum = 1.0f;
-    }
-    w /= sum;
-
-    const TerrainTriplanar t = TerrainTriplanarSetup(localPos, n);
+// 가중치 w (높이 기반으로 섞은 것도) · 삼평면 t (POM 으로 옮긴 위치도) 로 색
+float4 TerrainAlbedoW(float4 w, float2 uv, TerrainTriplanar t, float viewDist)
+{
+    if (gTerrainLayerCount <= 0)
+        return float4(0.72f, 0.72f, 0.72f, 1.0f);
     float4 c = 0;
     [branch] if (w.r > 0.0f) c += w.r * TerrainLayerSample(gTerrainLayer0, gTerrainLayerST[0], t) * gTerrainLayerTint[0];
     [branch] if (w.g > 0.0f) c += w.g * TerrainLayerSample(gTerrainLayer1, gTerrainLayerST[1], t) * gTerrainLayerTint[1];

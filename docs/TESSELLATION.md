@@ -32,10 +32,18 @@ Lit 재질 · Terrain Layer · Shader Graph 의 높이만큼 표면을 실제로
 지형 Inspector 의 **Paint Texture** 에서 레이어를 고르고 **Height Map** · **Amplitude** (m) · **Base** 를 넣는다 (`.terrainlayer` 의 `height` · `heightAmplitude` · `heightBase`). 색 (Diffuse) 과 같은 타일 · 같은 타일 없애기 무늬로 밀어 돌의 색과 모양이 맞고, 레이어마다 컨트롤 맵 가중치로 섞인다. 절벽은 색처럼 삼평면.
 
 - 가까운 40 m 는 쿼드트리를 가장 잘게 (평평한 지형도 칸이 높이맵 한 칸) + 최대 32 조각 — 높이 맵의 돌 하나하나가 솟는다
-- 법선은 Domain 에서 변위의 기울기로 (픽셀 셰이더에 높이 맵을 더 묶지 않는다 — OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도)
-- 깊이 프리패스 · 그림자 · 덮개 맵도 같은 모양. CLI: `nova terrain-layer <지형> --add <.terrainlayer>` · `--fill <번호> [--center x,z --radius m]`
+- 레이어 높이 맵 넷은 엔진이 **배열 하나** (Texture2DArray, R16F 1024² + 밉 — 레이어 높이가 바뀔 때만 GPU 로 모은다) 로 읽는다 — 샘플러 하나라 OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도 안에서 지형 픽셀 셰이더도 높이를 쓴다
+- 법선: 픽셀마다 높이의 화면 미분으로 범프 (모든 거리, 250 m 까지 줄어든다)
+- 나눔 거리 (40 m) 끝부터 100 m 까지 평평한 땅은 **POM** 이 깊이감을 이어 받는다. 테셀레이션이 없는 기기는 가까이서도 POM + 범프
+- 깊이 프리패스 · 그림자 · 덮개 맵도 같은 모양. CLI: `nova terrain-layer <지형> --add <.terrainlayer>` · `--fill <번호> [--center x,z --radius m --soft m]`
 
 ![지형 — 흙에 박힌 돌 (Height Map 0.25 m): 가까이 · 중간 · 멀리](images/tessellation_terrain.webp)
+
+### 높이 기반 섞기 (Height-Based Blend)
+
+지형 Inspector 의 **Terrain Settings > Height-Based Blend** (HDRP TerrainLit 과 같은 이름 · 기본 끔) 를 켜면, 레이어 경계에서 (높이 + 가중치) 가 큰 레이어부터 드러난다 — 돌이 흙 위로 또렷이 솟고 그 사이를 흙이 채운다 (선형 섞기는 경계의 돌이 유령처럼 옅다). **Height Transition** (0..1) = 전환 폭. 색 · 변위 · 범프가 같은 가중치. 높이 맵이 없는 레이어는 Base 높이로 친다. `Terrain` 값 `heightBasedBlend` · `heightTransition`.
+
+![흙 + 돌 (3 m 부드러운 경계): 선형 섞기 · Height-Based Blend · 테셀레이션 없이 (POM + 범프)](images/tessellation_terrain_blend.webp)
 
 ## POM (시차 가림)
 
@@ -57,7 +65,7 @@ Graph Settings 의 **Tessellation** 을 켜면 Master 의 Vertex 블록에 **Dis
 |---|---|
 | 나눔 | 카메라에 가까울수록 잘게 (원하는 변 길이 = Triangle Size 픽셀, 거리만큼 길게). 변마다 가운데 점의 거리로 정해 이웃 삼각형과 같은 값 → 틈이 없다. Fade Distance 의 끝 1/4 에서 1 로 줄어든다 |
 | 변위 | (높이 − Base) × Amplitude 만큼 법선 쪽으로. 높이 맵의 밉은 정점 간격에 맞춘다 — 정점보다 잘게 바뀌는 높이는 흐린 밉으로 (날카로운 줄눈이 톱니가 되지 않는다) |
-| 음영 | 재질: 픽셀마다 높이 맵의 기울기로 법선 (Normal Map 을 함께 쓰면 그 위에 더한다). 지형 · Shader Graph: Domain 에서 민 면의 법선 |
+| 음영 | 재질 · 지형: 픽셀마다 높이 맵의 기울기로 법선 (재질은 Normal Map 을 함께 쓰면 그 위에 더한다). Shader Graph: Domain 에서 민 면의 법선 |
 | 깊이 · 그림자 | 깊이 프리패스 (SSAO · EQUAL 깊이 검사) · 그림자 패스도 같은 함수로 같은 자리를 민다. 자리 계산은 `precise` + 덧셈 · 곱셈만 (OpenGL 은 `invariant gl_Position`) — 셰이더마다 비트까지 같아야 본 패스가 깊이 검사를 통과한다 |
 | 그리기 | GPU 인스턴싱 (MeshBatcher) 그대로 — 같은 메시 · 재질은 한 번에. 패치 (3 정점) 로 그린다 |
 | 켜기 · 끄기 | `nova tessellation set --enabled false` = 테셀레이션 없는 기기처럼 (성능 비교 · 확인용) |
@@ -74,13 +82,13 @@ Graph Settings 의 **Tessellation** 을 켜면 Master 의 Vertex 블록에 **Dis
 |---|---|
 | DirectX 11 | hs_5_0 · ds_5_0 |
 | OpenGL 4.5 · Vulkan | 같은 .fx → DXC (hs_6_0 · ds_6_0) → SPIR-V → GLSL (TCS · TES) / Vulkan 파이프라인 |
-| OpenGL ES 3.2 (안드로이드) | 같은 GLSL ES (TCS · TES, `invariant gl_Position`). 테셀레이션이 없는 기기는 그 기법을 만들지 못한다 → 재질은 POM, 지형은 색만 (높이 음영 없음) · 눈은 시차 발자국 (`FxPass::IsUsable`) |
+| OpenGL ES 3.2 (안드로이드) | 같은 GLSL ES (TCS · TES, `invariant gl_Position`). 테셀레이션이 없는 기기는 그 기법을 만들지 못한다 → 재질 · 지형은 POM + 픽셀 높이 법선, 눈은 시차 발자국 (`FxPass::IsUsable`) |
 
 ## 한계
 
 - 재질 · Shader Graph 는 MeshBatcher 로 그리는 메시만 (보통의 정적 · 움직이는 Mesh Renderer). 스킨 메시 · 투명 · Alpha Clipping (재질) 은 테셀레이션 없이
 - 높이 맵은 R 채널 (Fix Now 로 선형)
-- 지형: 나눔 거리 (40 m) 너머 · 테셀레이션 없는 기기에서는 레이어 높이가 음영에 나타나지 않는다 (색만). 지형 POM 은 아직 없다
+- 지형 POM 은 위 (xz) 투영만 — 평평한 땅 (기울기 45° 미만) 에서, 절벽은 범프만. 100 m 너머는 범프만
 
 ## 검사
 
@@ -92,5 +100,5 @@ powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1 -Only tessell
 powershell -ExecutionPolicy Bypass -File Tools\tests\android_tessellation.ps1
 ```
 
-PC 9 개 (OpenGL · Vulkan 은 눈 지형 빼고 8 개): 켬 · 끔의 표면이 다르다, 검은 얼룩 없음 (깊이 프리패스 = 본 패스), 벽면 안에서 본 벽돌 윤곽, 가까우면 잘게 · Fade Distance 너머는 그대로, 테셀레이션 없이 POM, Shader Graph 의 Displacement 물결, Terrain Layer 의 돌, 쌓인 눈의 지형 (삼각형이 늘고 공 자국이 파인다), 테셀레이션 셰이더 오류 없음.
+PC 11 개 (OpenGL · Vulkan 은 눈 지형 빼고 10 개): 켬 · 끔의 표면이 다르다, 검은 얼룩 없음 (깊이 프리패스 = 본 패스), 벽면 안에서 본 벽돌 윤곽, 가까우면 잘게 · Fade Distance 너머는 그대로, 테셀레이션 없이 POM, Shader Graph 의 Displacement 물결, Terrain Layer 의 돌, 높이 기반 섞기, 테셀레이션 없는 지형의 POM · 범프, 쌓인 눈의 지형 (삼각형이 늘고 공 자국이 파인다), 테셀레이션 셰이더 오류 없음.
 안드로이드: GLES 셰이더 (32 · 28 · 26 의 TCS · TES · invariant), 게임 데이터의 높이 맵, APK, 기기 그림을 DX11 기준과 비교. `-SkipBuild` = 지난 APK 로 기기만.

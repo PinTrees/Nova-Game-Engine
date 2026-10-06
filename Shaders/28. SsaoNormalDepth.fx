@@ -344,8 +344,7 @@ TerrainNormalDepthOut TerrainTessNormalDepthDS(TessPatch pt, float3 w : SV_Domai
     TerrainNormalDepthOut o;
     float2 uv;
     float3 n;
-    float spacing, d;
-    const float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n, spacing, d);
+    const float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n);
     o.PosV = mul(float4(p, 1.0f), gView).xyz;
     precise const float4 posH = mul(float4(p, 1.0f), gWorldViewProj);   // 본 패스와 같은 비트 (precise)
     o.PosH = posH;

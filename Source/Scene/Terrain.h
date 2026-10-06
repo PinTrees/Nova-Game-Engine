@@ -24,6 +24,9 @@ private:
 	bool m_AutoConnect = true;
 	bool m_ShowLodNodes = false;        // (에디터) Scene 뷰에 쿼드트리 노드 경계 표시
 	ShadowCasting m_ShadowCasting = ShadowCasting::On;
+	// 높이 기반 레이어 섞기 (HDRP TerrainLit 의 Height-based Blend): 레이어 경계에서 높이 맵이 높은 쪽 (돌) 이 먼저 드러난다
+	bool m_HeightBlend = false;
+	float m_HeightTransition = 0.2f;    // 전환 폭 (높이 0..1 기준)
 
 	TerrainRenderer::Stats m_EditorStats, m_GameStats;
 
@@ -60,6 +63,8 @@ public:
 	bool& DrawRef() { return m_Draw; }
 	bool& ShowLodNodesRef() { return m_ShowLodNodes; }
 	int& ShadowCastingRef() { return reinterpret_cast<int&>(m_ShadowCasting); }
+	bool& HeightBlendRef() { return m_HeightBlend; }
+	float& HeightTransitionRef() { return m_HeightTransition; }
 	const TerrainRenderer::Stats& GetStats(bool editor) const { return editor ? m_EditorStats : m_GameStats; }
 
 	// ---- 그리기 (Scene 이 부른다) ----

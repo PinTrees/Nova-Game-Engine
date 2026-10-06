@@ -1574,7 +1574,7 @@ technique11 SkinnedTech
 // NOVA 지형 (Terrain 컴포넌트) - 본 패스
 //=============================================================================
 #include "40. TerrainCommon.fx"
-#include "61. TerrainTessellation.fx"   // 레이어 높이 변위 (테셀레이션)
+#include "61. TerrainTessellation.fx"   // 레이어 높이: 변위 · 높이 기반 섞기 · 범프 · POM
 
 DepthStencilState TerrainDepthLessEqual
 {
@@ -1603,13 +1603,29 @@ TerrainVertexOut TerrainVS(uint vid : SV_VertexID)
     return vout;
 }
 
-float4 TerrainShade(TerrainVertexOut pin, float3 normalW)
+// tess = 테셀레이션으로 그리는 중 (POM 은 나눔 거리 끝에서 이어 받는다)
+float4 TerrainShade(TerrainVertexOut pin, bool tess)
 {
+    float3 normalW = TerrainNormalUV(pin.UV);
     float3 toEye = gEyePosW - pin.PosW.xyz;
     float distToEye = length(toEye);
     toEye /= distToEye;
 
-    float4 texColor = TerrainAlbedo(pin.UV, pin.PosW.xyz - gTerrainOrigin.xyz, normalW, distance(pin.PosW.xyz, gEyePosW));   // 절벽은 triplanar
+    float4 texColor;
+    [branch] if (gTerrainHeightParams.x > 0.5f && gTerrainLayerCount > 0)
+    {
+        // 레이어 높이 (61): POM 으로 옮긴 자리에서 높이 기반으로 섞은 색 + 높이 범프 (모든 거리)
+        const float4 c = TerrainControlWeights(pin.UV);
+        float3 lp = pin.PosW.xyz - gTerrainOrigin.xyz;
+        const float2 dxTop = ddx(lp.xz), dyTop = ddy(lp.xz);
+        lp = TerrainParallax(lp, pin.PosW.xyz, gEyePosW, normalW, c, dxTop, dyTop, TerrainParallaxWeight(distToEye, normalW, tess));
+        const TerrainTriplanar tri = TerrainTriplanarSetup(lp, normalW);   // 절벽은 triplanar
+        const TerrainPixelHeight ph = TerrainHeightsAt(c, tri);
+        texColor = TerrainAlbedoW(ph.Weights, pin.UV, tri, distToEye);
+        normalW = TerrainBumpNormal(normalW, pin.PosW.xyz, ph.D, saturate((250.0f - distToEye) / 150.0f));
+    }
+    else
+        texColor = TerrainAlbedo(pin.UV, pin.PosW.xyz - gTerrainOrigin.xyz, normalW, distToEye);   // 절벽은 triplanar
 
     // 나무·바위·풀과 같은 URP Lit 조명: 해(그림자) + 하늘 큐브맵 환경광(SSAO) + 거친 반사. 흙·풀·바위는 거의 무광
     LitSurface surf;
@@ -1628,7 +1644,7 @@ float4 TerrainShade(TerrainVertexOut pin, float3 normalW)
 
 float4 TerrainPS(TerrainVertexOut pin) : SV_Target
 {
-    return TerrainShade(pin, TerrainNormalUV(pin.UV));
+    return TerrainShade(pin, false);
 }
 
 // ---- 지형 테셀레이션 (61. TerrainTessellation.fx): Terrain Layer 의 Height Map 만큼 + 날씨의 쌓인 눈만큼 지형을 실제로 올린다
@@ -1647,26 +1663,14 @@ float TerrainSnowLift(float3 posW, float3 n)
     return gWeatherSnow.y * snow * (1.0f - SnowPressAt(posW.xz));
 }
 
-// 본 패스 Domain 출력: + 민 면의 법선 (레이어 높이 변위가 있으면)
-struct TerrainTessOut
-{
-    float4 PosH : SV_POSITION;
-    float4 PosW : POSITION;
-    float2 UV : TEXCOORD0;
-    float4 SsaoPosH : TEXCOORD1;
-    float3 NormalW : NORMAL;
-};
-
 [domain("tri")]
-TerrainTessOut TerrainTessDS(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TerrainCP, 3> tri)
+TerrainVertexOut TerrainTessDS(TessPatch pt, float3 w : SV_DomainLocation, const OutputPatch<TerrainCP, 3> tri)
 {
-    TerrainTessOut o;
+    TerrainVertexOut o;
     float2 uv;
     float3 n;
-    float spacing, d;
-    float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n, spacing, d);
-    o.NormalW = TerrainDisplacedNormal(p - n * d - gTerrainOrigin.xyz, uv, n, spacing, d);
-    p.y += TerrainSnowLift(p, o.NormalW);
+    float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n);
+    p.y += TerrainSnowLift(p, n);
     o.UV = uv;
     o.PosW = float4(p, 1.0f);
     precise const float4 posH = mul(o.PosW, gViewProj);   // 깊이 프리패스와 같은 비트 (precise)
@@ -1675,16 +1679,10 @@ TerrainTessOut TerrainTessDS(TessPatch pt, float3 w : SV_DomainLocation, const O
     return o;
 }
 
-float4 TerrainTessPS(TerrainTessOut pin) : SV_Target
+float4 TerrainTessPS(TerrainVertexOut pin) : SV_Target
 {
     s_SnowDisplaced = true;
-    TerrainVertexOut v;
-    v.PosH = pin.PosH;
-    v.PosW = pin.PosW;
-    v.UV = pin.UV;
-    v.SsaoPosH = pin.SsaoPosH;
-    // 레이어 높이 변위가 있으면 Domain 이 민 면의 법선, 없으면 (눈만) 픽셀마다 높이맵 법선
-    return TerrainShade(v, gTerrainHeightParams.x > 0.5f ? normalize(pin.NormalW) : TerrainNormalUV(pin.UV));
+    return TerrainShade(pin, true);   // 법선 = 높이맵 + 레이어 높이 범프 (픽셀마다)
 }
 
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다

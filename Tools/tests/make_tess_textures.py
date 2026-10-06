@@ -110,6 +110,16 @@ def main(out):
         json.dump({"diffuse": "Assets\\TessTest\\Rocks_Base.png", "tileSize": [3, 3], "tileOffset": [0, 0], "tint": [1, 1, 1, 1],
                    "height": "Assets\\TessTest\\Rocks_Height.png", "heightAmplitude": 0.25, "heightBase": 0.3}, f, indent=4)
 
+    # 지형 레이어: 고운 흙 (낮고 완만한 높이 — 높이 기반 섞기에서 돌이 그 위로 드러난다) — Soil.terrainlayer
+    soilH = 0.35 + 0.3 * (noise(8, 21) - 0.5) + 0.15 * (noise(32, 22) - 0.5)
+    save_gray(os.path.join(out, 'Soil_Height.png'), soilH)
+    save_rgb(os.path.join(out, 'Soil_Base.png'), np.array([0.36, 0.28, 0.2]) * (0.75 + 0.35 * fbm[..., None]) * (0.85 + 0.3 * noise(64, 23)[..., None]))
+    with open(os.path.join(out, 'Soil_Height.png.meta'), 'w', encoding='utf-8') as f:
+        json.dump({"textureType": "Default", "sRGB": False, "compression": "HighQuality"}, f, indent=4)
+    with open(os.path.join(out, 'Soil.terrainlayer'), 'w', encoding='utf-8') as f:
+        json.dump({"diffuse": "Assets\\TessTest\\Soil_Base.png", "tileSize": [4, 4], "tileOffset": [0, 0], "tint": [1, 1, 1, 1],
+                   "height": "Assets\\TessTest\\Soil_Height.png", "heightAmplitude": 0.06, "heightBase": 0.35}, f, indent=4)
+
     for name, tiling, amp in (('StoneWall', [2, 1.5], 0.08), ('Cobble', [3, 3], 0.06)):
         with open(os.path.join(out, name + '.mat'), 'w', encoding='utf-8') as f:
             json.dump(material(name, tiling, amp), f, indent=4)

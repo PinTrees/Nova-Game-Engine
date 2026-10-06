@@ -1313,6 +1313,14 @@ namespace
 			static const char* kShadow[] = { "Off", "On", "Two Sided", "Shadows Only" };
 			Dropdown("Shadow Casting Mode", &terrain->ShadowCastingRef(), kShadow, 4, 1);
 			ObjectField("Material", "Default-Terrain-Standard", 1);
+			// 높이 기반 레이어 섞기 (HDRP TerrainLit): Terrain Layer 의 Height Map 이 높은 쪽이 경계에서 먼저 드러난다
+			Toggle("Height-Based Blend", &terrain->HeightBlendRef(), 1);
+			if (terrain->HeightBlendRef())
+			{
+				float& tr = terrain->HeightTransitionRef();
+				Slider("Height Transition", &tr, 0.001f, 1.0f, 2);
+				tr = std::clamp(tr, 0.001f, 1.0f);
+			}
 		}
 
 		std::string path = terrain->GetTerrainDataPath();

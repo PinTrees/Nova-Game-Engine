@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **테셀레이션 2 차: 지형 레이어 높이 · POM · Shader Graph Displacement · 높이 맵 Fix Now** (사용자 지시: 추천 목록 "지형 레이어의 높이 변위 · POM 섞어 쓰기 · Shader Graph 에 테셀레이션 연결 · 높이 맵 가져오기 설정 진행해줘"). **완료 (커밋 7119936, 푸시함)**
+- 갱신 시각: 2026년 10월 6일 — **지형 높이 3 차: 높이 배열 · 높이 기반 섞기 · 지형 POM · 픽셀 범프** (사용자 지시: "높이 기반 레이어 섞기 · 지형 POM 과 먼 거리 높이 음영"). **완료 (커밋 · 푸시함)**
+  - 새 `Shaders/62. TerrainHeightBlit.fx` + `TerrainRenderer.cpp` HeightArrayFor (레이어 높이 맵 넷 → Texture2DArray R16F 1024² 밉, 키가 바뀔 때만 GPU 로 모음 · 상태 되돌림)
+  - `61. TerrainTessellation.fx` 다시: gTerrainHeights (배열 — 샘플러 하나), TerrainHeightBlend (HDRP 식, 색 · 변위 · 범프 같은 가중치), TerrainNoTileHeight (레벨 / 미분), TerrainParallax · Weight (위 투영 POM, 40 ~ 100 m · 테셀레이션 없으면 0 ~ 100 m),
+    TerrainBumpNormal (모든 거리, 250 m 까지). Domain 법선 (TerrainDisplacedNormal) 은 뺌. 40 `TerrainControlWeights` · `TerrainAlbedoW`, 32 `TerrainShade(pin, tess)`
+  - `Terrain` 컴포넌트 Height-Based Blend · Height Transition (기본 끔 — HDRP 와 같게, heightBasedBlend · heightTransition), TerrainEditor UI, CLI `terrain-layer --fill --soft`
+  - **OpenGL 샘플러 32 개**: 지형 PS 가 정확히 32 개였다 (배열 하나로 33 → C7612, 지형이 안 그려짐). `ShaderCross.cpp` MergeNoSamplerCombos — 같은 텍스처의 빈 샘플러 결합 (`<tex>_nosampler`, 크기 · 밉 수 조회 · texelFetch) 을
+    같은 종류의 다른 결합으로 바꿔 하나 아낀다 (하늘 큐브 맵의 밉 수 조회 — 모든 Lit PS). kCacheVersion 8
+  - 검사: tessellation 스위트에 높이 기반 섞기 · 테셀레이션 없는 지형 POM 추가 — DX 11/11 · GL 10/10 · Vulkan 10/10, 회귀 render · gfx · materialgl · vfxgl · occlusiongl · shadergraph · weather · decal · lodgroup · vulkan · material · occlusion · cli · tessellation(vk) **158/158**
+- 이전: 2026년 10월 6일 — **테셀레이션 2 차: 지형 레이어 높이 · POM · Shader Graph Displacement · 높이 맵 Fix Now** (사용자 지시: 추천 목록 "지형 레이어의 높이 변위 · POM 섞어 쓰기 · Shader Graph 에 테셀레이션 연결 · 높이 맵 가져오기 설정 진행해줘"). **완료 (커밋 7119936, 푸시함)**
   - 높이 맵: `ImportSettingsInspector::MarkAsHeightMap` (sRGB 끔 + High Quality BC7) · `IsLinearHeightMap`, 재질 · Terrain Layer Inspector 의 Fix Now. `make_tess_textures.py` 가 높이 맵 .meta (선형) 도
   - 지형: 새 `Shaders/61. TerrainTessellation.fx` (cbTerrainHeight · gTerrainHeight0~3, 색과 같은 타일 없애기 무늬의 밉 지정판 TerrainNoTileLevel, 삼평면, precise, TerrainDisplacedNormal — 법선은 Domain 에서),
     32 `TerrainTessTech` (레이어 + 눈, TerrainShade 로 나눔) · 28 `TerrainTessNormalDepthTech` · 26 `TerrainTessShadowTech`. `TerrainLayer` HeightPath · HeightAmplitude · HeightBase (+ 저장), `TerrainEditor` UI,

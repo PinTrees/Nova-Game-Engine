@@ -163,6 +163,51 @@ namespace
 	// SampleCmpLevelZero(그림자 PCF)는 SPIRV-Cross 가 textureGrad(그림자 샘플러, 좌표, 0, 0) 으로 옮긴다
 	// (GLSL 4.5 에는 sampler2DArrayShadow 용 textureLod 가 없어서). NVIDIA 에서 기울기를 주는 표본은 훨씬 느려
 	// GL 본 패스(PCF 루프)가 DX11 의 5~6 배였다. 그림자 맵은 밉이 하나라 texture() 와 결과가 같다 → 바꾼다
+	// 같은 텍스처의 "빈 샘플러" 결합 (<tex>_nosampler — 크기 · 밉 수 조회, texelFetch 용) 을 같은 종류의 다른 결합으로 바꾼다:
+	//  그 연산은 샘플러 상태를 쓰지 않는다. 픽셀 단계 샘플러 한도 (OpenGL 32 · GLES 16~32) 에서 하나를 아낀다
+	//  (예: 하늘 큐브 맵의 밉 수 조회 — 지형 PS 가 레이어 높이 배열을 더하면 33 개였다). 비교 (Shadow) 샘플러는 그대로
+	void MergeNoSamplerCombos(std::string& src)
+	{
+		static const std::regex decl(R"(layout\(binding = \d+\) uniform\s+(?:(?:lowp|mediump|highp)\s+)?(sampler\w+)\s+(\w+)_nosampler\s*;\n)");
+		std::smatch m;
+		std::string::const_iterator from = src.cbegin();
+		std::vector<std::pair<std::string, std::string>> merges;   // (빈 결합 이름, 바꿀 이름)
+		std::vector<std::string> drops;
+		while (std::regex_search(from, src.cend(), m, decl))
+		{
+			const std::string type = m[1], tex = m[2];
+			from = m.suffix().first;
+			if (type.find("Shadow") != std::string::npos)
+				continue;
+			// 같은 텍스처 · 같은 종류의 다른 결합 (배열이 아닌 것)
+			const std::regex other("uniform\\s+(?:(?:lowp|mediump|highp)\\s+)?" + type + "\\s+(" + tex + "_\\w+)\\s*;");
+			std::smatch o;
+			std::string::const_iterator f2 = src.cbegin();
+			std::string target;
+			while (std::regex_search(f2, src.cend(), o, other))
+			{
+				if (o[1] != tex + "_nosampler")
+				{
+					target = o[1];
+					break;
+				}
+				f2 = o.suffix().first;
+			}
+			if (target.empty())
+				continue;
+			merges.push_back({ tex + "_nosampler", target });
+			drops.push_back(m[0]);
+		}
+		for (const std::string& d : drops)
+		{
+			const size_t at = src.find(d);
+			if (at != std::string::npos)
+				src.erase(at, d.size());
+		}
+		for (const auto& [from, to] : merges)
+			src = std::regex_replace(src, std::regex("\\b" + from + "\\b"), to);
+	}
+
 	void FastShadowSamples(std::string& src)
 	{
 		std::set<std::string> shadow;   // sampler*Shadow 로 선언된 이름
@@ -350,6 +395,7 @@ namespace
 			mapByName(res.storage_buffers, fx.Buffers, true);
 			out.Glsl = glsl.compile();
 			FastShadowSamples(out.Glsl);
+			MergeNoSamplerCombos(out.Glsl);
 			// 테셀레이션 (Domain = GL 의 TES): 깊이 프리패스와 본 패스의 gl_Position 이 비트까지 같게. GLSL 은 invariant 가 없으면
 			//  같은 식이라도 프로그램마다 다르게 계산해도 된다 (재질 테셀레이션의 EQUAL 깊이 검사가 얼룩졌다 — 정점 셰이더는 식이 짧아 같았다)
 			if (stage == Stage::Domain)
@@ -382,7 +428,7 @@ namespace
 {
 	// ---- 변환 결과 캐시 (전처리한 소스의 해시가 같으면 디스크의 결과를 쓴다: 효과 하나 변환이 1~3 초)
 	//  ShaderCache/GLSL/<이름>_<해시>.json — 변환기·이름 규칙이 바뀌면 kCacheVersion 을 올린다
-	constexpr int kCacheVersion = 7;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples), 5: OpenGL ES (NOVA_GLES · gl_InvocationID), 6: gl_InvocationID 를 고치기 전에 만든 ES 캐시 버리기, 7: TES 의 invariant gl_Position
+	constexpr int kCacheVersion = 8;   // 2: 픽셀 셰이더 -fvk-use-dx-position-w, 3: 단계 사이 값 이름에 경계 번호 (v0_, v1_ …), 4: 그림자 표본 texture() (FastShadowSamples), 5: OpenGL ES (NOVA_GLES · gl_InvocationID), 6: gl_InvocationID 를 고치기 전에 만든 ES 캐시 버리기, 7: TES 의 invariant gl_Position, 8: 빈 샘플러 결합 합치기 (MergeNoSamplerCombos)
 	using json = nlohmann::json;
 	using namespace ShaderCross::Json;
 

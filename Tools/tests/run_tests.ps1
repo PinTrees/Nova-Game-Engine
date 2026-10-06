@@ -3963,6 +3963,36 @@ function Suite-Tessellation([string]$Api = 'dx')
         $dt = DiffRatio $tOn $tOff; $st2 = Stats $tOn
         Add-Result $sn 'Terrain Layer height map: near terrain subdivided and displaced (rocks), no black speckles' ($trOn -gt $trOff * 3 -and $dt -gt 0.05 -and $st2.Dark -lt 0.002) ("terrain triangles {0:N0} vs off {1:N0}; {2:P1} pixels differ; near-black {3:P3}" -f $trOn, $trOff, $dt, $st2.Dark)
 
+        # 8. 높이 기반 섞기 (Terrain 의 Height-Based Blend): 흙 + 돌 (3 m 부드러운 경계) — 켜면 경계에서 돌이 또렷이 드러난다
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create terrain --name Ground --position -500,0,-500' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --add Assets\TessTest\Soil.terrainlayer' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --add Assets\TessTest\Rocks.terrainlayer' | Out-Null
+        Invoke-NovaJson 'terrain-layer Ground --fill 1 --center 0,5 --radius 5 --soft 3' | Out-Null
+        Invoke-Nova 'camera --position 0,2.2,-1.5 --target 0,0,4' | Out-Null
+        $bOff = Shot 'blend_off.png' 30
+        Invoke-Nova 'set Ground --component Terrain --values "{\"heightBasedBlend\":true,\"heightTransition\":0.25}"' | Out-Null
+        Invoke-Nova 'camera --position 0,2.2,-1.5 --target 0,0,4' | Out-Null
+        $bOn = Shot 'blend_on.png' 30
+        $db = DiffRatio $bOff $bOn; $sb = Stats $bOn
+        Add-Result $sn 'Height-Based Blend: at the soil / rock border the rocks show through first (differs from linear blend), no black speckles' ($db -gt 0.02 -and $sb.Dark -lt 0.002) ("{0:P1} pixels differ from linear blend; near-black {1:P3}" -f $db, $sb.Dark)
+
+        # 9. 테셀레이션 없이 (POM + 높이 범프, 높이 배열 하나 — 샘플러 한도 안): 같은 돌의 Amplitude 0 과 다르다
+        $flatLayer = Join-Path $Project 'Assets\TessTest\RocksFlat.terrainlayer'
+        $rl = Get-Content -Raw (Join-Path $Project 'Assets\TessTest\Rocks.terrainlayer') | ConvertFrom-Json
+        $rl.heightAmplitude = 0
+        $rl | ConvertTo-Json | Set-Content -Encoding utf8 $flatLayer
+        Invoke-Nova 'tessellation set --enabled false' | Out-Null
+        Invoke-Nova 'camera --position 0,2.2,-1.5 --target 0,0,4' | Out-Null
+        $pOn = Shot 'terrain_pom.png' 30
+        Invoke-NovaJson 'terrain-layer Ground --set 1 --layer Assets\TessTest\RocksFlat.terrainlayer' | Out-Null
+        Invoke-Nova 'camera --position 0,2.2,-1.5 --target 0,0,4' | Out-Null
+        $pFlat = Shot 'terrain_pom_flat.png' 30
+        Invoke-Nova 'tessellation set --enabled true' | Out-Null
+        Remove-Item $flatLayer -ErrorAction SilentlyContinue
+        $dpo = DiffRatio $pOn $pFlat; $spo = Stats $pOn
+        Add-Result $sn 'Terrain without tessellation: POM + height bump from the layer height array show the rocks (vs Amplitude 0)' ($dpo -gt 0.02 -and $spo.Dark -lt 0.002) ("{0:P1} pixels differ; near-black {1:P3}" -f $dpo, $spo.Dark)
+
         # 4. 쌓인 눈의 지형 (날씨): 지형을 실제로 올린다 → 같은 눈 덮임에서 삼각형이 늘고, 공이 지나간 자국이 파인다 (검은 얼룩 없음)
         if ($Api -eq 'dx')
         {

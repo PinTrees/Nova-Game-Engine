@@ -475,8 +475,7 @@ float4 TerrainTessShadowDS(TessPatch pt, float3 w : SV_DomainLocation, const Out
 {
     float2 uv;
     float3 n;
-    float spacing, d;
-    const float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n, spacing, d);
+    const float3 p = TerrainTessPosition(tri[0], tri[1], tri[2], w, uv, n);
     return mul(float4(ApplyShadowBias(p, n), 1.0f), gViewProj);
 }
 

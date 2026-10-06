@@ -562,7 +562,7 @@ namespace CliCommands
 		});
 
 		// Terrain Layer: 목록 · 더하기 · 바꾸기 · 칠하기 (Paint Texture 와 같은 컨트롤 맵) — 검사 · 자동화용
-		Register("terrain-layer", "terrain layers {target, add?: .terrainlayer, set?: index + layer, fill?: index [center [x,z], radius m]}: list after", [](const json& a, json& r, std::string& e) {
+		Register("terrain-layer", "terrain layers {target, add?: .terrainlayer, set?: index + layer, fill?: index [center [x,z], radius m, soft m]}: list after", [](const json& a, json& r, std::string& e) {
 			if (!RequireEditMode(e)) return false;
 			GameObject* go = Resolve(a.value("target", json()), e);
 			if (!go) return false;
@@ -592,13 +592,14 @@ namespace CliCommands
 			}
 			if (a.contains("fill"))
 			{
-				// 그 레이어 가중치 1 (원 안만 — center 는 월드 xz, 가장자리 1 m 부드럽게)
+				// 그 레이어 가중치 1 (원 안만 — center 는 월드 xz, 가장자리 soft m (기본 1) 부드럽게)
 				const int index = a["fill"].get<int>();
 				if (index < 0 || index >= (int)d.Layers.size()) { e = "no layer " + std::to_string(index); return false; }
 				const Vec3 origin = go->GetTransform()->GetPosition();
 				Vec3 c(0, 0, 0);
 				const bool circle = a.contains("center") && ReadVec3(json::array({ a["center"][0], 0, a["center"][1] }), c);
 				const float radius = a.value("radius", 1e9f);
+				const float soft = (std::max)(0.01f, a.value("soft", 1.0f));
 				const int res = d.ControlResolution;
 				for (int z = 0; z < res; ++z)
 					for (int x = 0; x < res; ++x)
@@ -607,7 +608,7 @@ namespace CliCommands
 						if (circle)
 						{
 							const float wx = origin.x + (x + 0.5f) / res * d.Size.x - c.x, wz = origin.z + (z + 0.5f) / res * d.Size.z - c.z;
-							k = std::clamp(radius - sqrtf(wx * wx + wz * wz), 0.0f, 1.0f);
+							k = std::clamp((radius - sqrtf(wx * wx + wz * wz)) / soft, 0.0f, 1.0f);
 						}
 						if (k <= 0.0f) continue;
 						uint8_t* px = &d.Control[((size_t)z * res + x) * 4];

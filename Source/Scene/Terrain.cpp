@@ -78,7 +78,8 @@ void Terrain::DrawPass(TerrainRenderer::Pass pass, bool editor)
 		return;   // Camera / Light 의 Culling Mask
 	const uint32 layerBit = 1u << ((m_pGameObject ? m_pGameObject->GetLayerIndex() : 0) & 31);
 	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), layerBit);   // Light.cullingMask
-	TerrainRenderer::Draw(*m_Data, GetPosition(), pass, m_PixelError, pass == TerrainRenderer::Pass::Main ? (editor ? &m_EditorStats : &m_GameStats) : nullptr);
+	TerrainRenderer::Draw(*m_Data, GetPosition(), pass, m_PixelError, pass == TerrainRenderer::Pass::Main ? (editor ? &m_EditorStats : &m_GameStats) : nullptr,
+		m_HeightBlend ? m_HeightTransition : 0.0f);
 	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);
 }
 
@@ -139,6 +140,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(Terrain)
 	j["autoConnect"] = m_AutoConnect;
 	j["shadowCastingMode"] = (int)m_ShadowCasting;
 	j["showLodNodes"] = m_ShowLodNodes;
+	j["heightBasedBlend"] = m_HeightBlend;
+	j["heightTransition"] = m_HeightTransition;
 	return j;
 }
 
@@ -152,5 +155,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Terrain)
 	m_AutoConnect = j.value("autoConnect", true);
 	m_ShadowCasting = (ShadowCasting)j.value("shadowCastingMode", 1);
 	m_ShowLodNodes = j.value("showLodNodes", false);
+	m_HeightBlend = j.value("heightBasedBlend", false);
+	m_HeightTransition = std::clamp(j.value("heightTransition", 0.2f), 0.001f, 1.0f);
 	SetTerrainData(j.value("terrainData", std::string()));
 }
