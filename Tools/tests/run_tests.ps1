@@ -1464,7 +1464,7 @@ function Suite-Web
     # 웹 빌드 (WebGPU + WebAssembly): 창 없는 Chrome (Tools/web — CLI 만, 화면 · 마우스를 쓰지 않는다)
     #  1) C# 검사 장면 (강체 낙하 · 긴 mp3 · 검사 스크립트) 내보내기 → .NET 판 플레이어 · 쓰는 BCL 만
     #  2) 브라우저에서 실행: WebGPU 오류 0 · C# (Start · Update · WebGLPlayer) · 물리 (상자가 바닥에 선다) · 소리 (출력 진폭)
-    #  3) 재질 장면 그림 = PC DX11 (android reference 와 같은 그리기 순서)
+    #  3) 재질 장면 그림 = PC DX11 (android reference 와 같은 그리기 순서), UI (Screen Space - Overlay 가운데 · 왼쪽 아래) 위치 = DX11
     #  4) nova web build --run: Build Settings 씬 → 에디터의 미리 보기 서버 (wasm MIME · 격리 머리 · 폴더 밖 404) → 브라우저에서 돈다
     Write-Host '[web]'
     $dir = Join-Path $Out 'web'
@@ -1556,6 +1556,27 @@ public class WebProbe : MonoBehaviour
             Add-Result web 'WebGPU image = DX11 (Materials)' ($c -and $c[2] -lt 1.0) $(if ($c) { 'max {0}, mean {1:N3}, >8: {2:N2}% ({3} x {4})' -f $c[0], $c[1], $c[2], $m.size[0], $m.size[1] } else { 'no image' })
         }
         else { Add-Result web 'WebGPU image = DX11 (Materials)' $false 'web run failed' }
+
+        # ---- 3b) UI 위치: 가운데 (초록) · 왼쪽 아래 (빨강) 그림 — 웹 캔버스 크기 = DX11 기준 그림 크기 (기준 그림도 Game 뷰가 아닌 그 크기로 레이아웃)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create ui:Image --name Center' | Out-Null
+        Invoke-Nova 'create ui:Image --name Corner' | Out-Null
+        Invoke-Nova 'set Canvas/Corner --component RectTransform --values "{\"anchorMin\":[0,0],\"anchorMax\":[0,0],\"pivot\":[0,0],\"anchoredPosition\":[0,0],\"sizeDelta\":[60,60]}"' | Out-Null
+        Invoke-Nova 'set Canvas/Corner --component UIImage --values "{\"color\":[1,0,0,1]}"' | Out-Null
+        Invoke-Nova 'set Canvas/Center --component UIImage --values "{\"color\":[0,1,0,1]}"' | Out-Null
+        Invoke-Nova 'scene save --as Assets/Scenes/WebUiProbe.scene' | Out-Null
+        $uiOut = Join-Path $dir 'ui'
+        $ux = Invoke-NovaJson "web export --out `"$uiOut`" --scenes Assets/Scenes/WebUiProbe.scene"
+        $u = if ($ux) { RunScene $uiOut (Join-Path $dir 'ui_web.png') 30 8634 } else { $null }
+        if ($u -and $u.size)
+        {
+            Invoke-Nova 'wait 10' | Out-Null
+            $uref = Join-Path $dir 'ui_DirectX11.png'
+            Invoke-NovaJson "android reference --out `"$uref`" --width $($u.size[0]) --height $($u.size[1]) --frames 10" | Out-Null
+            $c = if (Test-Path $uref) { [NovaImageCompare]::Compare($uref, (Join-Path $dir 'ui_web.png'), (Join-Path $dir 'ui_diff.png')) } else { $null }
+            Add-Result web 'UI layout = DX11 (centre, bottom-left)' ($c -and $c[2] -lt 0.5) $(if ($c) { 'max {0}, mean {1:N3}, >8: {2:N2}% ({3} x {4})' -f $c[0], $c[1], $c[2], $u.size[0], $u.size[1] } else { 'no image' })
+        }
+        else { Add-Result web 'UI layout = DX11 (centre, bottom-left)' $false 'web run failed' }
 
         # ---- 4) Build Settings 빌드 + 미리 보기 서버
         $buildOut = Join-Path $dir 'build'

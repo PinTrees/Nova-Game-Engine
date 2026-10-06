@@ -378,8 +378,11 @@ namespace AndroidTools
 			dev->CreateTexture2D(&td, nullptr, depthTex.GetAddressOf());
 			dev->CreateDepthStencilView(depthTex.Get(), nullptr, dsv.GetAddressOf());
 			GfxRenderTargetView* rtvs[1] = { rtv.Get() };
+			// 그릴 크기 (플레이어 화면) 로 바꾸고 끝나면 Game 뷰 것으로 되돌린다: 뷰포트 · SSAO 대상 · UI 레이아웃 (Game 뷰는 크기가 바뀔 때만 다시 정한다)
+			const D3D11_VIEWPORT viewportBefore = RenderManager::GetI()->Viewport;
 			RenderManager::GetI()->SetViewport(w, h);
 			PostProcessingManager::GetI()->SetSSAO(w, h, camera.get());
+			UISystem::LayoutForScreen((UINT)w, (UINT)h);
 			for (int i = 0; i < frames; ++i)
 			{
 				ctx->OMSetRenderTargets(1, rtvs, dsv.Get());
@@ -389,6 +392,10 @@ namespace AndroidTools
 				Application::GetI()->GetApp()->OnSceneRender(rtv.Get(), camera.get());
 				UISystem::RenderGameView(rtv.Get(), (UINT)w, (UINT)h, 0, camera.get(), Application::GetI()->GetApp()->SceneDepth((UINT)w, (UINT)h));
 			}
+			RenderManager::GetI()->Viewport = viewportBefore;
+			if (viewportBefore.Width >= 1.0f && viewportBefore.Height >= 1.0f)
+				PostProcessingManager::GetI()->SetSSAO((int)viewportBefore.Width, (int)viewportBefore.Height, camera.get());
+			UISystem::LayoutForScreen(0, 0);
 			DirectX::ScratchImage captured;
 			if (FAILED(Gfx::CaptureTexture(ctx, color.Get(), captured))) { error = "capture failed"; return false; }
 			const DirectX::Image* img = captured.GetImage(0, 0, 0);

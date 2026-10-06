@@ -210,6 +210,65 @@ namespace
 		h = gh > 0 ? (float)gh : 1080.0f;
 	}
 
+	// 루트 캔버스들을 화면 w x h 에 놓고 (Canvas Scaler 배율 · Overlay / Camera / World) RectTransform 트리를 레이아웃한다
+	void LayoutCanvases(const std::vector<Canvas*>& roots, float w, float h)
+	{
+		for (Canvas* c : roots)
+		{
+			GameObject* go = c->GetGameObject();
+			CanvasScaler* scaler = go->GetComponent<CanvasScaler>();
+			const float scale = scaler ? scaler->ComputeScale(w, h) : 1.0f;
+			c->SetScaleFactor(scale);
+			RectTransform* rt = go->GetComponent<RectTransform>();
+			if (rt == nullptr)
+				continue;
+			Transform* tr = go->GetTransform();
+			const Space space = SpaceOf(c);
+			if (space == Space::World)
+			{
+				// World Space: Transform 위치 · 회전 · 크기 그대로, 사각형 = Width / Height (부모 사각형 없음)
+				c->SetScaleFactor(1.0f);
+				rt->AdoptTransformPosition();
+				rt->Layout(Vec2(0, 0), Vec2(0, 0));
+			}
+			else if (space == Space::CameraSpace)
+			{
+				// Screen Space - Camera: Render Camera 앞 Plane Distance, 화면 크기 (그 거리에서 1 캔버스 단위 = 화면 1 픽셀 / 배율)
+				Camera* cam = c->FindWorldCamera();
+				rt->SetDrivenRect(Vec2(w / scale, h / scale));
+				Transform* ct = cam->GetGameObject()->GetTransform();
+				const float d = c->GetPlaneDistance();
+				const float worldH = cam->IsOrthographic() ? 2.0f * cam->GetOrthoSize() : 2.0f * d * tanf(cam->GetFovY() * 0.5f);
+				const float k = worldH / (std::max)(1.0f, h / scale);
+				Vec3 fwd = Vec3::TransformNormal(Vec3(0, 0, 1), ct->GetWorldMatrix());
+				fwd.Normalize();
+				const Vec3 pos = ct->GetPosition() + fwd * d;
+				if ((tr->GetPosition() - pos).LengthSquared() > 1e-8f)
+					tr->SetPosition(pos);
+				const Quaternion rot = ct->GetRotation();
+				if (fabsf(tr->GetRotation().Dot(rot)) < 0.999999f)
+					tr->SetRotation(rot);
+				const Vec3 s(k, k, k);
+				if ((tr->GetLocalScale() - s).LengthSquared() > 1e-14f)
+					tr->SetLocalScale(s);
+			}
+			else
+			{
+				// Screen Space - Overlay: 캔버스는 화면 가운데, 크기 = 화면 / 배율 (월드 1 단위 = 화면 1 픽셀)
+				rt->SetDrivenRect(Vec2(w / scale, h / scale));
+				const Vec3 pos(w * 0.5f, h * 0.5f, 0.0f), s(scale, scale, scale);
+				if ((tr->GetLocalPosition() - pos).LengthSquared() > 1e-6f)
+					tr->SetLocalPosition(pos);
+				if ((tr->GetLocalScale() - s).LengthSquared() > 1e-10f)
+					tr->SetLocalScale(s);
+				if (fabsf(tr->GetLocalRotation().w) < 0.999999f)
+					tr->SetLocalRotation(Quaternion::Identity);
+			}
+			LayoutTree(go, rt->GetRectMin(), rt->GetRectSize());
+			UILayout::Apply(go);   // Layout Group · Content Size Fitter · Aspect Ratio Fitter (RectTransform 레이아웃 뒤에)
+		}
+	}
+
 	// 맞은 그래픽에서 부모 쪽으로: 처음 만나는 Selectable / 끌기 / 휠 대상 (Unity 이벤트 버블링)
 	template <typename T>
 	T* FindUp(GameObject* go)
@@ -587,60 +646,7 @@ namespace UISystem
 		float w, h;
 		GameScreenSize(w, h);
 		const std::vector<Canvas*> roots = RootCanvases();
-		for (Canvas* c : roots)
-		{
-			GameObject* go = c->GetGameObject();
-			CanvasScaler* scaler = go->GetComponent<CanvasScaler>();
-			const float scale = scaler ? scaler->ComputeScale(w, h) : 1.0f;
-			c->SetScaleFactor(scale);
-			RectTransform* rt = go->GetComponent<RectTransform>();
-			if (rt == nullptr)
-				continue;
-			Transform* tr = go->GetTransform();
-			const Space space = SpaceOf(c);
-			if (space == Space::World)
-			{
-				// World Space: Transform 위치 · 회전 · 크기 그대로, 사각형 = Width / Height (부모 사각형 없음)
-				c->SetScaleFactor(1.0f);
-				rt->AdoptTransformPosition();
-				rt->Layout(Vec2(0, 0), Vec2(0, 0));
-			}
-			else if (space == Space::CameraSpace)
-			{
-				// Screen Space - Camera: Render Camera 앞 Plane Distance, 화면 크기 (그 거리에서 1 캔버스 단위 = 화면 1 픽셀 / 배율)
-				Camera* cam = c->FindWorldCamera();
-				rt->SetDrivenRect(Vec2(w / scale, h / scale));
-				Transform* ct = cam->GetGameObject()->GetTransform();
-				const float d = c->GetPlaneDistance();
-				const float worldH = cam->IsOrthographic() ? 2.0f * cam->GetOrthoSize() : 2.0f * d * tanf(cam->GetFovY() * 0.5f);
-				const float k = worldH / (std::max)(1.0f, h / scale);
-				Vec3 fwd = Vec3::TransformNormal(Vec3(0, 0, 1), ct->GetWorldMatrix());
-				fwd.Normalize();
-				const Vec3 pos = ct->GetPosition() + fwd * d;
-				if ((tr->GetPosition() - pos).LengthSquared() > 1e-8f)
-					tr->SetPosition(pos);
-				const Quaternion rot = ct->GetRotation();
-				if (fabsf(tr->GetRotation().Dot(rot)) < 0.999999f)
-					tr->SetRotation(rot);
-				const Vec3 s(k, k, k);
-				if ((tr->GetLocalScale() - s).LengthSquared() > 1e-14f)
-					tr->SetLocalScale(s);
-			}
-			else
-			{
-				// Screen Space - Overlay: 캔버스는 화면 가운데, 크기 = 화면 / 배율 (월드 1 단위 = 화면 1 픽셀)
-				rt->SetDrivenRect(Vec2(w / scale, h / scale));
-				const Vec3 pos(w * 0.5f, h * 0.5f, 0.0f), s(scale, scale, scale);
-				if ((tr->GetLocalPosition() - pos).LengthSquared() > 1e-6f)
-					tr->SetLocalPosition(pos);
-				if ((tr->GetLocalScale() - s).LengthSquared() > 1e-10f)
-					tr->SetLocalScale(s);
-				if (fabsf(tr->GetLocalRotation().w) < 0.999999f)
-					tr->SetLocalRotation(Quaternion::Identity);
-			}
-			LayoutTree(go, rt->GetRectMin(), rt->GetRectSize());
-			UILayout::Apply(go);   // Layout Group · Content Size Fitter · Aspect Ratio Fitter (RectTransform 레이아웃 뒤에)
-		}
+		LayoutCanvases(roots, w, h);
 
 		if (running && EventSystem::AnyActive())
 			ProcessInput(roots);
@@ -658,6 +664,14 @@ namespace UISystem
 		}
 		for (UISelectable* s : UISelectable::All())
 			s->UpdateVisual(dt, playing);
+	}
+
+	void LayoutForScreen(UINT width, UINT height)
+	{
+		float w = (float)width, h = (float)height;
+		if (width == 0 || height == 0)
+			GameScreenSize(w, h);
+		LayoutCanvases(RootCanvases(), w, h);
 	}
 
 	GameObject* RaycastScreen(float x, float y)

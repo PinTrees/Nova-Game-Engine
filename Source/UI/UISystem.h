@@ -17,6 +17,8 @@ namespace UISystem
 	// camera / depth = 이 화면을 그린 게임 카메라와 씬 깊이 (World · Camera 캔버스, 없으면 그리지 않음 / 가리지 않음)
 	void RenderGameView(GfxRenderTargetView* rtv, UINT width, UINT height, int display, class Camera* camera = nullptr, GfxDepthStencilView* depth = nullptr);
 	void RenderSceneView(GfxRenderTargetView* rtv, UINT width, UINT height, const Matrix& view, const Matrix& proj, const Vec3& cameraPosition);
+	// 캔버스를 화면 width x height 로 다시 레이아웃 (Game 뷰가 아닌 크기로 그릴 때 — 비교 기준 그림 등). 0 x 0 = Game 뷰 크기로 되돌림
+	void LayoutForScreen(UINT width, UINT height);
 
 	// kind: "Canvas", "EventSystem", "Image", "Text", "Button", "Panel", "Toggle", "Slider", "InputField", "ScrollView"
 	GameObject* Create(const std::string& kind, Scene* scene, GameObject* selected);

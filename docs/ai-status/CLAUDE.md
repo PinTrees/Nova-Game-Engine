@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 6일 — **웹 빌드 (WebGPU) 5 단계: 에디터 연결 · 검사 · 문서** (같은 5 단계 계획의 마지막). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 6일 — **`nova android reference` 의 UI 레이아웃 크기 고침** (사용자 지시: 웹 검사에서 찾은 작업을 이 세션에서). **완료 (커밋, 푸시 전)**
+  - 기준 그림이 Screen Space UI 를 Game 뷰 크기로 놓던 것 → 요청한 W x H 로 (`UISystem::LayoutForScreen` — Update 의 캔버스 레이아웃을 함수로 꺼냄), 끝나면 Game 뷰로 되돌림
+  - 같은 자리의 옛 문제: 기준 그림 뒤 Game 뷰가 뷰포트 · SSAO 크기를 되찾지 못해 찌그러져 그려졌다 → 그리기 전 값으로 되돌림 (Game 뷰 전후 화소 차이 0)
+  - 검사: 웹 스위트에 UI 위치 = DX11 추가 (10/10), ui 15/15, 웹 빌드 OK
+- 이전: 2026년 10월 6일 — **웹 빌드 (WebGPU) 5 단계: 에디터 연결 · 검사 · 문서** (같은 5 단계 계획의 마지막). **완료 (커밋 1f211ff, 푸시함)**
   - `Source/Build/WebBuild.*`: Build Settings 의 Web (Build · Build And Run — 진행 창, 에디터 안 미리 보기 서버 127.0.0.1:8600+, wasm MIME · 교차 출처 격리 머리 · 폴더 밖 404), CLI `nova web build [--run] [--port] [--open]` · `web serve` · `web stop-server`
   - BuildSettings: 플랫폼 2 = Web (`activePlatform: "Web"`), `lastWebFolder`. 페이지 제목 = 제품 이름 (엔진이 제목을 바꾸지 않음)
   - 호스트 다시 링크: 엔진 .a 를 .NET 링크 입력에 넣음 (전에는 엔진만 바뀌면 옛 wasm 이 남았다)
