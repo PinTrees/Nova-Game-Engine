@@ -1,6 +1,9 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **Starter Assets 2 단계: 차에 타고 내리기 · 래그돌에서 일어나기 · 데모** (사용자 지시 5 가지 중 3 번 — 다음: FBX 내장 텍스처). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **FBX 의 묻힌 그림 꺼내기** (사용자 지시 5 가지 중 4 번 — 다음: 낮밤 + APV 확산광). **완료 (커밋, 푸시 전)**
+  - `FBXLoader::ExtractMaterials`: 재질 그림이 묻힌 그림이면 (`*0` 또는 원래 파일 이름 — `aiScene::GetEmbeddedTexture`) `<파일>_FBX.Textures/<원래 이름>.<형식>` 으로 꺼내 (압축 그림 그대로, 풀린 화소 = 32 비트 TGA, 있으면 그대로) Base Map · Normal · Emission 에
+  - 검사 자료 `Tools/tests/data/EmbeddedTextures.fbx` (Blender 5.2 로 `Tools/tests/make_embedded_fbx.py`), `-Only modelplace` 7/7 (PNG 둘 · .mat 의 Base Map · 화면에 빨강 · 파랑). 문서 MODEL_PLACEMENT · NOVA_CLI, Showcase 259
+- 이전: 2026년 10월 7일 — **Starter Assets 2 단계: 차에 타고 내리기 · 래그돌에서 일어나기 · 데모** (사용자 지시 5 가지 중 3 번 — 다음: FBX 내장 텍스처). **완료 (커밋, 푸시 전)**
   - `Ragdoll`: 꺼질 때 (일어나기) 루트를 골반 자리 · 일어서는 방향 (등 = 발 쪽, 배 = 머리 쪽) 으로, 쓰러진 자세 (월드) → 애니메이션 자세로 Blend Time (0.5 초, smoothstep) 섞기. `IsFaceUp · IsBlending`, 저장 `blendTime · alignRoot`, C# `Ragdoll.blendTime · alignRoot · isFaceUp · isBlending` (RD_Get/Set 번호만 — 표는 그대로)
   - 일어나기 클립 GetUpBack (2.2 초) · GetUpFront (2.4 초) 를 모델 편집기로 (`docs/examples/anim_basic.txt`) → `Nova_Basic.glb` 다시 내보냄 (Idle · Walk · Wave 바이트 같음), `DefaultCharacter.controller` 에 두 상태 + Idle 로 가는 Exit Time 전이
   - C#: `RagdollTarget.Recover` (누운 방향의 클립 · getUpTime 뒤 조작 켜기), 새 `VehicleEnterExit` (E 로 차 타기 · 내리기, 캐릭터 숨김, Follow Camera 전환, 장면의 차는 탈 때까지 주차) — Third Person Character 에 붙음. 패키지 1.2.0

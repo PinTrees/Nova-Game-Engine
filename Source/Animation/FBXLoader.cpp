@@ -178,10 +178,65 @@ std::vector<std::wstring> FBXLoader::ExtractMaterials(const std::wstring& assetP
         for (char& c : s) if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') c = '_';
         return s.empty() ? std::string("Material") : s;
     };
-    // 그림: 절대 경로 · FBX 기준 상대 경로 · FBX 옆의 같은 파일 이름 — 프로젝트 안에 있으면 그 경로 (묻힌 그림 "*0" 은 아직 없음)
+    // 묻힌 그림 (FBX Video 의 Content — "*0" 또는 원래 파일 이름으로 가리킨다) → <이름>_FBX.Textures/ (Unity 의 Extract Textures, 있으면 그대로)
+    const fs::path texRel = rel.parent_path() / (rel.stem().wstring() + L"_FBX.Textures");
+    std::map<const aiTexture*, std::string> extracted;
+    std::set<std::string> usedTex;
+    auto extract = [&](const aiTexture* t, const std::string& fallbackName) -> std::string {
+        auto it = extracted.find(t);
+        if (it != extracted.end())
+            return it->second;
+        std::string ext;
+        if (t->mHeight == 0)
+        {
+            // 압축된 파일 그대로 (png · jpg · tga …) — 형식 힌트가 확장자
+            ext = t->achFormatHint;
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext == "jpeg") ext = "jpg";
+            if (ext.empty()) ext = "png";
+        }
+        else
+            ext = "tga";   // 풀린 BGRA 화소 → 32 비트 TGA
+        std::string name = t->mFilename.length > 0 ? fs::path(string_to_wstring(t->mFilename.C_Str())).stem().string() : std::string();
+        name = safe(name.empty() ? fallbackName : name);
+        std::string unique = name;
+        for (int n = 1; usedTex.count(unique); ++n) unique = name + "_" + std::to_string(n);
+        usedTex.insert(unique);
+        const fs::path file = texRel / string_to_wstring(unique + "." + ext);
+        const std::wstring fileFull = PathManager::GetI()->GetMovePathW(file.wstring());
+        if (!fs::exists(fileFull, ec))
+        {
+            fs::create_directories(PathManager::GetI()->GetMovePathW(texRel.wstring()), ec);
+            std::ofstream o(fileFull, std::ios::binary);
+            if (t->mHeight == 0)
+                o.write(reinterpret_cast<const char*>(t->pcData), t->mWidth);
+            else
+            {
+                uint8_t header[18] = {};
+                header[2] = 2;   // 압축 없는 트루컬러
+                header[12] = (uint8_t)(t->mWidth & 0xff); header[13] = (uint8_t)(t->mWidth >> 8);
+                header[14] = (uint8_t)(t->mHeight & 0xff); header[15] = (uint8_t)(t->mHeight >> 8);
+                header[16] = 32;
+                header[17] = 0x28;   // 위에서부터 · 알파 8 비트
+                o.write(reinterpret_cast<const char*>(header), sizeof(header));
+                o.write(reinterpret_cast<const char*>(t->pcData), (std::streamsize)t->mWidth * t->mHeight * 4);   // aiTexel = b g r a
+            }
+        }
+        const std::string r = wstring_to_string(file.wstring());
+        extracted[t] = r;
+        return r;
+    };
+    // 그림: 묻힌 그림 → 꺼낸 파일, 아니면 절대 경로 · FBX 기준 상대 경로 · FBX 옆의 같은 파일 이름 — 프로젝트 안에 있으면 그 경로
     auto texture = [&](const aiMaterial* mat, aiTextureType type) -> std::string {
         aiString path;
-        if (mat->GetTexture(type, 0, &path) != AI_SUCCESS || path.length == 0 || path.C_Str()[0] == '*')
+        if (mat->GetTexture(type, 0, &path) != AI_SUCCESS || path.length == 0)
+            return std::string();
+        if (const aiTexture* t = scene->GetEmbeddedTexture(path.C_Str()))
+        {
+            const char* kind = type == aiTextureType_NORMALS ? "_Normal" : type == aiTextureType_EMISSIVE ? "_Emission" : "_BaseMap";
+            return extract(t, std::string(mat->GetName().C_Str()) + kind);
+        }
+        if (path.C_Str()[0] == '*')
             return std::string();
         const fs::path p = fs::path(string_to_wstring(path.C_Str()));
         const fs::path dir = fs::path(full).parent_path();

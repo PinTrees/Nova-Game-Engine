@@ -56,7 +56,7 @@ NOVA Hub > **설치** 탭 > **NOVA CLI** > **설치**.
 **대상** = 이름, `부모/자식` 경로, 또는 `#id` (`hierarchy` 가 보여 주는 fileID). 같은 이름이 여럿이면 오류와 함께 후보 id 를 알려 줍니다.
 
 **만들 수 있는 종류**: empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, camera,
-terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character (기본 캐릭터: 스킨 메시 + Animator, `--model <FBX | VRM | GLB> --controller <.controller>` 로 다른 모델·컨트롤러 — 컨트롤러를 안 주면 기본 컨트롤러를 Humanoid 리타게팅. **VRM** 이면 묻힌 그림 · 재질을 `<파일>.Textures` · `<파일>.Materials` 로 꺼내 붙이고 (**FBX** 는 재질 색 · 그림을 `<파일>_FBX.Materials` 로 — 프로젝트 Assets 의 모델), 파일의 사람 본 매핑으로 Humanoid, Spring Bone → **Dynamic Bone**),
+terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, audio-source, volume, character (기본 캐릭터: 스킨 메시 + Animator, `--model <FBX | VRM | GLB> --controller <.controller>` 로 다른 모델·컨트롤러 — 컨트롤러를 안 주면 기본 컨트롤러를 Humanoid 리타게팅. **VRM** 이면 묻힌 그림 · 재질을 `<파일>.Textures` · `<파일>.Materials` 로 꺼내 붙이고 (**FBX** 는 재질 색 · 그림을 `<파일>_FBX.Materials` 로, 묻힌 그림은 `<파일>_FBX.Textures` 로 — 프로젝트 Assets 의 모델), 파일의 사람 본 매핑으로 Humanoid, Spring Bone → **Dynamic Bone**),
 third-person-character (= player: 캐릭터 + Character Controller + ThirdPersonController + Main Camera 의 Follow Camera — 패키지 Starter Assets·Cameras 가 없으면 넣는다),
 car (운전할 수 있는 차 — 처음엔 `Assets/StarterAssets/Car.prefab` 로 저장, 다음부터 그 인스턴스, Follow Camera), ragdoll-target (맞으면 래그돌로 쓰러지는 캐릭터 + Main Camera 의 RagdollShooter) — [STARTER_ASSETS](STARTER_ASSETS.md).
 

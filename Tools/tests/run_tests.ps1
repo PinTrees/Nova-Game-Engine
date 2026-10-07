@@ -4741,7 +4741,7 @@ function Suite-SSR
 
 function Suite-ModelPlace
 {
-    # 모델 끌어 놓기 (Project → Hierarchy · Scene 뷰 와 같은 길 = nova modelfile place): 노드마다 Mesh Renderer, _LODn → LOD Group
+    # 모델 끌어 놓기 (Project → Hierarchy · Scene 뷰 와 같은 길 = nova modelfile place): 노드마다 Mesh Renderer, _LODn → LOD Group, FBX 의 묻힌 그림 꺼내기
     Write-Host '[modelplace]'
     $dir = Join-Path $Out 'modelplace'
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -4750,6 +4750,8 @@ function Suite-ModelPlace
     New-Item -ItemType Directory -Force $assetDir | Out-Null
     Copy-Item (Join-Path $Root 'Resources\Meshs\SmallBoat.fbx') $assetDir
     Copy-Item (Join-Path $Root 'Resources\Meshs\Factory_04_02_closed.FBX') $assetDir
+    # 묻힌 그림 (PNG 둘) 이 있는 FBX — Tools/tests/make_embedded_fbx.py (Blender) 로 만든 검사 자료
+    Copy-Item (Join-Path $PSScriptRoot 'data\EmbeddedTextures.fbx') $assetDir
     # LOD 노드 셋 (높이 2 · 1.4 · 0.8 상자) 짜리 glTF
     & python (Join-Path $PSScriptRoot 'make_lod_gltf.py') (Join-Path $assetDir 'LodCrate.gltf') | Out-Null
     Add-Type -AssemblyName System.Drawing
@@ -4813,6 +4815,27 @@ function Suite-ModelPlace
         Invoke-Nova 'undo' | Out-Null; Invoke-Nova 'wait 3' | Out-Null
         $h2 = Invoke-Nova 'hierarchy'
         Add-Result modelplace 'Undo removes the placed model in one step' (-not ($h2 -match 'SmallBoat')) ($(if ($h2 -match 'SmallBoat') { 'still there' } else { 'gone' }))
+
+        # FBX 의 묻힌 그림 → <이름>_FBX.Textures (Unity 의 Extract Textures) + 재질의 Base Map, 화면에 체커 (빨강) · 줄무늬 (파랑)
+        Invoke-Nova 'scene new --force' | Out-Null
+        $emb = Place 'Assets/ModelTest/EmbeddedTextures.fbx --position 0,0,0'
+        $texDir = Join-Path $assetDir 'EmbeddedTextures_FBX.Textures'
+        $pngs = @(Get-ChildItem $texDir -Filter *.png -ErrorAction SilentlyContinue | Where-Object { $b = [IO.File]::ReadAllBytes($_.FullName); $b.Length -gt 8 -and $b[0] -eq 0x89 -and $b[1] -eq 0x50 })
+        $cm = Get-Content (Join-Path $assetDir 'EmbeddedTextures_FBX.Materials\CheckerMat.mat') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        $sm = Get-Content (Join-Path $assetDir 'EmbeddedTextures_FBX.Materials\StripeMat.mat') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        Invoke-Nova 'camera --position 0,1.5,-7 --target 0,1,0' | Out-Null; Invoke-Nova 'wait 5' | Out-Null
+        $p = Join-Path $dir 'embedded.png'; Invoke-Nova "screenshot $p --view scene" | Out-Null
+        $red = 0; $blue = 0; $all = 0
+        if (Test-Path $p)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($p)
+            for ($y = 0; $y -lt $bm.Height; $y += 3) { for ($x = 0; $x -lt $bm.Width; $x += 3) { $c = $bm.GetPixel($x, $y); $all++
+                if ($c.R -gt 140 -and $c.G -lt 90 -and $c.B -lt 90) { $red++ } elseif ($c.B -gt 140 -and $c.R -lt 80 -and $c.G -lt 120) { $blue++ } } }
+            $bm.Dispose()
+        }
+        $okEmb = $emb -and $pngs.Count -eq 2 -and $cm -and $cm.BaseMapPath -match 'EmbeddedTextures_FBX\.Textures[\\/]checker_red\.png$' -and $sm.BaseMapPath -match 'stripe_blue\.png$' -and
+            $cm.BaseColor[0] -eq 1 -and $red / [math]::Max(1, $all) -gt 0.005 -and $blue / [math]::Max(1, $all) -gt 0.005
+        Add-Result modelplace 'FBX embedded textures: extracted to <name>_FBX.Textures, used as Base Map, visible (red checker, blue stripes)' $okEmb ("placed {0}, {1} PNG files ({2}), checker base map '{3}' color {4}, stripe base map '{5}', red {6:P1} blue {7:P1}" -f [bool]$emb, $pngs.Count, (($pngs | ForEach-Object { $_.Name }) -join ', '), $(if ($cm) { $cm.BaseMapPath } else { 'no .mat' }), $(if ($cm) { $cm.BaseColor -join ',' } else { '' }), $(if ($sm) { $sm.BaseMapPath } else { 'no .mat' }), ($red / [math]::Max(1, $all)), ($blue / [math]::Max(1, $all)))
         Invoke-Nova 'log --errors -n 5' | Out-Null
     }
     finally

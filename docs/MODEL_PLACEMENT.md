@@ -5,7 +5,8 @@ Unity 에서 FBX 를 씬에 끌어 놓은 것과 같은 결과를 만듭니다.
 ## 결과
 
 - **정적 모델** (FBX · GLB · glTF): 파일 이름의 루트 GameObject + 모델의 **노드마다 GameObject** (노드의 로컬 위치 · 회전 · 배율), 메시가 있는 노드에 **Mesh Filter + Mesh Renderer**
-  - 재질 칸 = 파일의 재질 (Unity 의 Extract Materials). FBX 는 재질마다 `<파일>_FBX.Materials/<재질 이름>.mat` (Diffuse 색 · 그림 · 발광 · Phong 광택 → Smoothness, 이미 있으면 그대로 — 고친 값을 지킨다),
+  - 재질 칸 = 파일의 재질 (Unity 의 Extract Materials). FBX 는 재질마다 `<파일>_FBX.Materials/<재질 이름>.mat` (Diffuse 색 · 그림 · 발광 · Phong 광택 → Smoothness, 이미 있으면 그대로 — 고친 값을 지킨다).
+    FBX 에 묻힌 그림 (Video 의 Content — `*0` 또는 원래 파일 이름으로 가리킴) 은 `<파일>_FBX.Textures/<원래 이름>.png` 로 꺼내 (Unity 의 Extract Textures — 압축 그림은 그대로, 풀린 화소는 TGA) 재질의 Base Map · Normal · Emission 에,
     GLB 는 묻힌 재질 · 그림을 꺼내 (`<파일>.Materials` · `<파일>.Textures`) 붙인다. 프로젝트 `Assets` 밖의 모델 (엔진 Resources) 은 Default-Material
   - 메시 노드와 본이 같은 이름이면 (Blender 의 메시 오브젝트 `Head` · 본 `Head`) 메시 노드를 `<이름>_Mesh` 로 읽는다 — 엔진은 이름으로 노드를 찾는다
   - 노드 하나 (자식 없음) 짜리 모델은 루트에 바로 Mesh Renderer (Unity 와 같음)
