@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **FBX 의 묻힌 그림 꺼내기** (사용자 지시 5 가지 중 4 번 — 다음: 낮밤 + APV 확산광). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 8일 — **낮 · 밤 + Adaptive Probe Volume 확산광** (사용자 지시 5 가지 중 5 번 — 마지막). **완료 (커밋, 푸시 전)**
+  - APV 는 실시간이라 시각마다 다시 굽기는 필요 없음 — 대신 고친 것: 프로브 광선이 하늘에 닿으면 날씨 · 낮밤 배율 없이 스카이박스 그대로 모아, 밤에도 낮 하늘빛을 모았다 (화면에서 프로브 빛 전체에 밤 환경광 배율을 곱해 가려졌지만 가로등이 번진 빛까지 어두워짐)
+  - `55. ProbeVolume.fx`: 하늘 = WeatherSkyGrade × `gIndirect` (ProbeVolumes 가 다시 비추기 · 광선 때 `WeatherState::AmbientScale` 로). `32. InstancedBasic.fx`: 프로브 빛 × `gIndirectGI` (Volume Indirect Lighting 만, EditorApp), 하늘 몫 × `gIndirect`, 하늘 반사 가림도 같은 배율. fxc (DX11 · GLES · WebGPU) 확인
+  - `ProbeVolumes`: 발광이 서서히 바뀌는 동안 (NightLight) 매 프레임 다시 짓던 것 → 30 프레임에 한 번 + 멈춘 뒤 한 번
+  - 검사 `-Only daynight` 13/13 (자정 프로브 위쪽 빛 = 정오의 0.05 배, 환경광 0.15 배), probevolume 함께 통과. APV 없는 장면은 같은 식. 문서 ADAPTIVE_PROBE_VOLUME · DAY_NIGHT, Showcase 260
+  - 사용자 지시 5 가지 모두 끝. 푸시는 아직 (요청 시). 안드로이드 · 웹 플레이어는 이번 Ragdoll · 셰이더 변경 전 빌드
+- 이전: 2026년 10월 7일 — **FBX 의 묻힌 그림 꺼내기** (사용자 지시 5 가지 중 4 번 — 다음: 낮밤 + APV 확산광). **완료 (커밋, 푸시 전)**
   - `FBXLoader::ExtractMaterials`: 재질 그림이 묻힌 그림이면 (`*0` 또는 원래 파일 이름 — `aiScene::GetEmbeddedTexture`) `<파일>_FBX.Textures/<원래 이름>.<형식>` 으로 꺼내 (압축 그림 그대로, 풀린 화소 = 32 비트 TGA, 있으면 그대로) Base Map · Normal · Emission 에
   - 검사 자료 `Tools/tests/data/EmbeddedTextures.fbx` (Blender 5.2 로 `Tools/tests/make_embedded_fbx.py`), `-Only modelplace` 7/7 (PNG 둘 · .mat 의 Base Map · 화면에 빨강 · 파랑). 문서 MODEL_PLACEMENT · NOVA_CLI, Showcase 259
 - 이전: 2026년 10월 7일 — **Starter Assets 2 단계: 차에 타고 내리기 · 래그돌에서 일어나기 · 데모** (사용자 지시 5 가지 중 3 번 — 다음: FBX 내장 텍스처). **완료 (커밋, 푸시 전)**

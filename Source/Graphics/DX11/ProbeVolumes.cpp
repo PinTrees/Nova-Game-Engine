@@ -8,6 +8,7 @@
 #include "CliServer.h"
 #include "SpriteBatch.h"
 #include "Application.h"
+#include "WeatherState.h"
 #include "GameObject.h"
 #include "SceneCulling.h"
 #include "Scene.h"
@@ -100,6 +101,9 @@ namespace
 	int s_CaptureMode = 1;   // 1 = 알베도, 2 = 발광 (gGIParams.z)
 	int s_EmissionCaptures = 0;   // 통계: 발광 찍기 수
 	float s_EmissiveSignature = 0.0f, s_PrevEmissiveSignature = 0.0f;   // 발광 렌더러 (상자 · 세기) 가 바뀌면 다시 짓는다
+	// 발광이 서서히 바뀌는 동안 (NightLight 가 켜지고 꺼짐) 매 프레임 다시 짓지 않는다: 30 프레임에 한 번, 멈춘 뒤 마지막 값으로 한 번 더
+	uint64_t s_EmissiveRebuildFrame = 0;
+	bool s_EmissivePending = false;
 	Tex3D s_Rad, s_Nrm;                                 // 빛 · 노멀 아틀라스 (단계를 Z 로)
 	Tex3D s_Planes;   // 면 평면 아틀라스 (그리는 셰이더의 벽 검사): 칸 s · 단계 c 의 복셀 z = (s × 단계 수 + c) × kVZ + z — 텍스처 하나 (셰이더가 작다)
 	Tex3D s_SH[4], s_Old[4];                            // 프로브 SH (R · G · B · 유효도) + 옮길 때 복사본
@@ -138,6 +142,14 @@ namespace
 		return v && v->IsValid() ? v : nullptr;
 	}
 	void SetV(FxEffect* fx, const char* name, float x, float y, float z, float w) { const float f[4] = { x, y, z, w }; if (FxVar* v = Var(fx, name)) v->SetFloatVector(f); }
+
+	// 프로브 계산 (다시 비추기 · 광선) 의 환경광 배율: 하늘 = 날씨 · 낮밤 (밤 하늘은 어둡다), 프로브 빛 = 그대로 (화면에서 Volume 배율)
+	void SetProbeIndirect(FxEffect* fx)
+	{
+		const XMFLOAT3 a = WeatherState::Get().AmbientScale();
+		SetV(fx, "gIndirect", a.x, a.y, a.z, 1.0f);
+		SetV(fx, "gIndirectGI", 1.0f, 1.0f, 1.0f, 1.0f);
+	}
 	void SetM(FxEffect* fx, const char* name, CXMMATRIX m) { if (FxVar* v = Var(fx, name)) v->SetMatrix(reinterpret_cast<const float*>(&m)); }
 	void SetR(FxEffect* fx, const char* name, GfxShaderResourceView* srv) { if (FxVar* v = Var(fx, name)) v->SetResource(srv); }
 
@@ -416,6 +428,7 @@ namespace
 		ctx->IASetInputLayout(nullptr);
 		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		ProbeVolumes::Bind(s_Fx);
+		SetProbeIndirect(fx);
 		SetV(fx, "gGIBias", s_NormalBias, s_ViewBias, 0.0f, (float)kCascades);   // 진단 보기는 화면에만
 		SetR(fx, "gSsaoMap", SpriteBatch::WhiteTexture());   // 복셀에는 SSAO 없음
 		// 셰이더 설정 (보통은 재질이 그릴 때 넣는다): 그림자 켬 — 안 넣으면 그림자 없이 모든 복셀이 햇빛을 받는다 (닫힌 방이 밝아짐)
@@ -483,6 +496,7 @@ namespace
 		ctx->IASetInputLayout(nullptr);
 		ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 		ProbeVolumes::Bind(s_Fx);
+		SetProbeIndirect(fx);
 		SetVoxAll(fx);
 		SetR(fx, "gGIRadiance", s_Rad.SRV.Get());
 		SetR(fx, "gGINormals", s_Nrm.SRV.Get());
@@ -705,6 +719,17 @@ namespace ProbeVolumes
 		if (any)
 			Resample(moved, oldOrigin, oldValid);
 
+		// 발광 바뀜: 30 프레임에 한 번까지, 바뀜이 멈추면 마지막 값으로 한 번 더 (서서히 켜지는 가로등 · 창문)
+		bool emissiveRebuild = false;
+		if (fabsf(s_EmissiveSignature - s_PrevEmissiveSignature) > 1e-4f)
+			s_EmissivePending = true;
+		if (s_EmissivePending && s_Frame - s_EmissiveRebuildFrame >= 30)
+		{
+			emissiveRebuild = true;
+			s_EmissivePending = false;
+			s_EmissiveRebuildFrame = s_Frame;
+		}
+
 		// 2) 복셀 짓기: 바뀐 단계 (장면이 바뀜 · 카메라를 따라 옮겨짐 · 아직 없음) 는 빠르게, 평소엔 한 판씩 천천히
 		{
 			PROFILE_SCOPE("Probe Volume Voxelize");
@@ -725,7 +750,7 @@ namespace ProbeVolumes
 						break;
 					}
 				// 발광 재질을 켜거나 바꿈 (물체 상자는 그대로) → 다시 짓는다
-				if (fabsf(s_EmissiveSignature - s_PrevEmissiveSignature) > 1e-4f)
+				if (emissiveRebuild)
 					cs.Dirty = true;
 			}
 			if (s_BuildCascade >= s_Count)

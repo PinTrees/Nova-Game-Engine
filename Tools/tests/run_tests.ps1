@@ -2256,7 +2256,8 @@ function Suite-DayNight
 {
     # 낮 · 밤 순환 (com.nova.daynight): 시각 → 단계 이름, 해 (정오) · 달 (자정) 방향의 Directional Light,
     #  하늘: 낮 밝기, 노을 · 새벽 지평이 붉다, 밤은 어둡다, 은하수 시각에 별이 많다, Play 중 7 단계가 차례로, C# DayNight API,
-    #  거리: 구운 반사 프로브가 시각마다 다시 찍힌다 (밤 반사가 두 번 어두워지지 않는다), NightLight 가로등이 밤에만 켜진다
+    #  거리: 구운 반사 프로브가 시각마다 다시 찍힌다 (밤 반사가 두 번 어두워지지 않는다), NightLight 가로등이 밤에만 켜진다,
+    #  Adaptive Probe Volume 이 모은 하늘이 시각을 따라 어두워진다
     Write-Host '[daynight]'
     $dir = Join-Path $Out 'daynight'
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -2437,6 +2438,31 @@ function Suite-DayNight
         Invoke-Nova 'stop' | Out-Null
         Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$tdir.meta" -Force -ErrorAction SilentlyContinue
+
+        # Adaptive Probe Volume + 낮 · 밤: 프로브가 모으는 하늘에 시각의 환경광 배율 (예전: 밤에도 낮 하늘 그대로 — 프로브 빛 전체를 화면에서 줄였다)
+        #  열린 땅 위 1.5 m 프로브의 위쪽 빛 = 거의 하늘 → 자정은 정오보다 환경광 배율만큼 어둡다
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 40,1,40' | Out-Null
+        Invoke-Nova 'create empty --name TimeOfDay' | Out-Null
+        Invoke-Nova 'add-component TimeOfDay DayNightCycle' | Out-Null
+        Invoke-Nova 'create empty --name APV --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component APV AdaptiveProbeVolume' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'create point-light --name Lamp --position 1.5,2,-1' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.6,-6 --rotation 8,0,0' | Out-Null
+        function ApvUp($pos) { $j = Invoke-NovaJson "probevolume probe --position $pos"; $u = $j.cascades[0].probe.ambientUp; if ($u) { 0.2126 * $u[0] + 0.7152 * $u[1] + 0.0722 * $u[2] } else { -1 } }
+        $apvDay = Invoke-NovaJson 'daynight set --time 12'
+        Invoke-Nova 'wait 240' | Out-Null
+        $upDay = ApvUp '0,1.5,0'
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'apv_noon.png')`" --view game" | Out-Null
+        $apvNight = Invoke-NovaJson 'daynight set --time 0'
+        Invoke-Nova 'wait 240' | Out-Null
+        $upNight = ApvUp '0,1.5,0'
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'apv_night.png')`" --view game" | Out-Null   # 이 스위트는 Game 탭이 앞 (Scene 뷰는 그리지 않아 예전 그림)
+        $ambRatio = if ($apvDay -and [double]$apvDay.ambientIntensity -gt 0) { [double]$apvNight.ambientIntensity / [double]$apvDay.ambientIntensity } else { 1 }
+        $upRatio = if ($upDay -gt 0) { $upNight / $upDay } else { 1 }
+        Add-Result daynight 'Adaptive Probe Volume follows the time of day: the probes gather the night sky (dark), not the noon skybox' ($upDay -gt 0 -and $upNight -ge 0 -and $ambRatio -lt 0.6 -and $upRatio -lt [math]::Max(0.1, $ambRatio * 1.5)) ("probe up-light noon {0:N3} midnight {1:N3} (x{2:N2}), ambient intensity x{3:N2}" -f $upDay, $upNight, $upRatio, $ambRatio)
+        Invoke-Nova 'daynight set --time 12' | Out-Null
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'package remove com.nova.daynight' | Out-Null

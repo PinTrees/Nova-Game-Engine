@@ -73,6 +73,7 @@ cbuffer cbPerFrame
 
     // 하늘 환경광 (Volume > Indirect Lighting): rgb = 확산 환경광 배율 × 틴트, w = 반사 배율
     float4 gIndirect = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    float4 gIndirectGI = float4(1.0f, 1.0f, 1.0f, 1.0f);   // Adaptive Probe Volume 빛의 배율 = Volume Indirect Lighting 만 (날씨 · 낮밤은 프로브가 모은 하늘에 이미)
 
     // Light.cullingMask: 빛마다 비추는 레이어 비트 (배열 순서 = gDirLights · gSpotLights · gPointLights). RenderLayers::SetLightMasks
     uint4 gDirLightMask = uint4(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF);
@@ -1210,19 +1211,21 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     //  — 닫힌 방의 바닥 · 천장이 비스듬히 하늘을 비추지 않게
     const float3 kLum = float3(0.2126f, 0.7152f, 0.0722f);
     float3 skyR = ToLinear(gCubeMap.SampleLevel(samLinear, reflect(-V, N), max((float)mips - 3.0f, 0.0f)).rgb);
-    float skyOcclusion = lerp(1.0f, saturate(dot(giReflect, kLum) / max(dot(skyR, kLum) * giAmbient.w, 1e-3f)), giAmbient.w);
-    ambient = giAmbient.rgb + ambient * (1.0f - giAmbient.w);
+    //  (프로브 빛은 날씨 · 낮밤 하늘을 모았으니 하늘도 같은 배율로 — 밤에 바깥 반사가 다 가려지지 않게)
+    float skyOcclusion = lerp(1.0f, saturate(dot(giReflect * gIndirectGI.rgb, kLum) / max(dot(skyR * gIndirect.rgb, kLum) * giAmbient.w, 1e-3f)), giAmbient.w);
+    // 하늘 환경광만 gIndirect (Volume × 날씨 · 낮밤), 프로브 빛은 gIndirectGI — 예전엔 프로브 빛 전체에 밤 환경광 배율을 곱해 가로등이 번진 빛까지 어두웠다
+    ambient = giAmbient.rgb * gIndirectGI.rgb + ambient * (1.0f - giAmbient.w) * gIndirect.rgb;
     if (gGIBias.z > 0.5f && gGIParams.x > 0.0f)
         return gGIBias.z > 1.5f ? s_GIDebug : giAmbient.rgb * 6.0f;   // 진단 보기: 1 = 프로브 빛만 (6 배), 2 = 섞은 방법
     float NoV = saturate(dot(N, V));
     float ao = surf.Occlusion * ambientAccess;
-    color += ambient * diffuse * ao * gIndirect.rgb;
+    color += ambient * diffuse * ao;
     if (translucent)
     {
         float3 giUnused;
         float4 giBack = ProbeVolumeAmbient(posW, -N, V, -N, giUnused);
-        float3 back = giBack.rgb + ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * (1.0f - giBack.w);
-        color += back * surf.Transmission * 0.5f * ao * gIndirect.rgb;
+        float3 back = giBack.rgb * gIndirectGI.rgb + ToLinear(gCubeMap.SampleLevel(samLinear, -N, max((float)mips - 3.0f, 0.0f)).rgb) * (1.0f - giBack.w) * gIndirect.rgb;
+        color += back * surf.Transmission * 0.5f * ao;
     }
     if (surf.Reflections)
     {

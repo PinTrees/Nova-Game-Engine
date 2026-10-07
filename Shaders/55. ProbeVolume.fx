@@ -317,8 +317,8 @@ SHOut PS_Update(GIVOut pin)
             }
             t += vol.w * 0.8f;   // 한 걸음 < 한 복셀 — 한 복셀 두께의 벽을 건너뛰지 않는다
         }
-        if (!hit)
-            L = ToLinear(gCubeMap.SampleLevel(samLinear, dir, max((float)mipsSky - 3.0f, 0.0f)).rgb);
+        if (!hit)   // 하늘 × 날씨 · 낮밤 환경광 배율 (ProbeVolumes 가 gIndirect 에 — 밤 하늘은 어둡다)
+            L = WeatherSkyGrade(ToLinear(gCubeMap.SampleLevel(samLinear, dir, max((float)mipsSky - 3.0f, 0.0f)).rgb), false) * gIndirect.rgb;
         shR += float4(0.282095f, 0.488603f * dir) * L.r;
         shG += float4(0.282095f, 0.488603f * dir) * L.g;
         shB += float4(0.282095f, 0.488603f * dir) * L.b;

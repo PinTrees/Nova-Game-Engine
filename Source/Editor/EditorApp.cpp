@@ -354,6 +354,13 @@ void EditorApp::DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMF
 }
 
 // Volume 의 Indirect Lighting → 하늘 환경광·반사 배율 (InstancedBasic 의 ShadeLit)
+//  Adaptive Probe Volume 빛은 Volume 배율만 (gIndirectGI) — 날씨 · 낮밤은 프로브가 모은 하늘에 이미 들어 있다
+static XMFLOAT4 s_IndirectGI(1.0f, 1.0f, 1.0f, 1.0f);
+static void SetIndirectGI(FxEffect* fx)
+{
+	if (auto* var = fx->GetVariableByName("gIndirectGI")->AsVector(); var && var->IsValid())
+		var->SetFloatVector(&s_IndirectGI.x);
+}
 static XMFLOAT4 ApplyIndirectLighting(const VolumeStack& stack)
 {
 	XMFLOAT4 v(1.0f, 1.0f, 1.0f, 1.0f);
@@ -363,6 +370,8 @@ static XMFLOAT4 ApplyIndirectLighting(const VolumeStack& stack)
 		const float* t = c->V("ambientTint");
 		v = XMFLOAT4(d * (std::max)(t[0], 0.0f), d * (std::max)(t[1], 0.0f), d * (std::max)(t[2], 0.0f), (std::max)(c->F("reflection"), 0.0f));
 	}
+	s_IndirectGI = v;
+	SetIndirectGI(Effects::InstancedBasicFX->GetFX());
 	WeatherState::Get().ApplyAmbient(v);   // 날씨 (흐림 · 번개) — 기본값이면 그대로
 	if (auto* var = Effects::InstancedBasicFX->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 		var->SetFloatVector(&v.x);
@@ -694,6 +703,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 			ScreenSpaceReflection::Bind(fx);
 			if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 				var->SetFloatVector(&indirect.x);
+			SetIndirectGI(fx->GetFX());
 			fx->SetDirLights(dirLights.data(), dirLights.size());
 			fx->SetSpotLights(spotLights.data(), spotLights.size());
 			fx->SetPointLights(pointLights.data(), pointLights.size());
@@ -922,6 +932,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		ScreenSpaceReflection::Bind(fx);
 		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&indirect.x);
+		SetIndirectGI(fx->GetFX());
 		fx->SetDirLights(dirLights.data(), dirLights.size());
 		fx->SetSpotLights(spotLights.data(), spotLights.size());
 		fx->SetPointLights(pointLights.data(), pointLights.size());

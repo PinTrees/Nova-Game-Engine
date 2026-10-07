@@ -39,6 +39,8 @@ Glow (해 쪽 지평 빛) · Strength, Stars, Milky Way, Fog (안개 색 배율)
 
 엔진의 `DayNightState` (Source/Graphics/Common) 를 프레임마다 쓴다 — 장면에 저장되지 않고, 패키지가 없거나 꺼지면 아무것도 바뀌지 않는다.
 - 빛: 방향광 · 환경광 · 반사 (32. InstancedBasic 의 WeatherSkyGrade) · 물 · 안개 색 (하늘색 모드는 하늘처럼 어둡게) — 날씨 값에 곱한다 (`WeatherState::SkyScale · AmbientScale · ApplySun`)
+- [Adaptive Probe Volume](ADAPTIVE_PROBE_VOLUME.md) 은 굽지 않고 실시간이라 시각을 따라간다: 프로브 광선이 하늘에 닿으면 하늘 × 그 시각의 환경광 배율 (밤 하늘은 어둡다),
+  해 · 달 · 가로등 (NightLight) · 발광 창문이 바닥 · 벽에 번진 빛은 그대로 (밤 환경광 배율을 한 번 더 곱하지 않는다). 발광이 서서히 켜지는 동안은 30 프레임에 한 번 다시 짓는다
 - 하늘 (`Shaders/21. Sky.fx`): 스카이박스 위에 천정 · 지평 그라데이션, 해 쪽 지평 빛, 해 · 달 원반, 별 두 겹 (방향의 3D 칸마다 하나 — 약 1 화소, 반짝임), 은하수 (기울어진 큰 원을 따라 fbm 구름 + 먼지 띠 + 밝은 중심, 별이 더 많다). 먹구름이면 별 · 달이 가려진다
 - DirectX 11 · OpenGL · Vulkan 같은 값
 
@@ -90,4 +92,4 @@ NightLight 가로등 (낮 꺼짐 · 밤 켜짐 · 아침 꺼짐) (12 항목).
 
 ## 아직 없는 것
 
-달의 위상, 계절 · 위도 (해 길이), 별자리, 구름의 해 · 달 빛 받기 (스카이박스의 구름은 그라데이션에 섞인다), Adaptive Probe Volume (확산 환경광) 을 시각마다 다시 굽기.
+달의 위상, 계절 · 위도 (해 길이), 별자리, 구름의 해 · 달 빛 받기 (스카이박스의 구름은 그라데이션에 섞인다), (Adaptive Probe Volume 은 실시간이라 시각마다 다시 굽기가 필요 없다 — 위.)
