@@ -51,11 +51,11 @@ nova motionvectors map mv.png --rect 0.3,0.4,0.7,0.8
 `Tools/tests/run_tests.ps1 -Only motionvectors` — 검사 스크립트 `Tools/tests/motion_probe.cs` (오른쪽으로 가는 상자 · 도는 판 · 카메라 이동), 물체 영역은 카메라 투영으로 계산, Play 중에는 CLI set 이 막혀 설정마다 Play 를 다시:
 편집 중 0, Play 에서 상자는 +x · 멈춘 상자 0 · 판 · 걷는 캐릭터 (스킨) 움직임, Object Motion 끄면 0, Skinned Motion 끄면 캐릭터만 0, Force No Motion = 0, Enable 끄면 만들지 않음,
 카메라가 오른쪽으로 가면 바닥이 왼쪽으로 (−2.1 px), TAA: 움직이는 체커 상자의 대비 (TAA 없음 56.6 · 모션 벡터 53.1 · 카메라만 51.3 — 뭉개짐 약 35 % 줄어듦),
-Motion Blur Camera And Objects 가 움직이는 상자를 번지게 (가장자리 반쯤 섞인 픽셀 / 행 8.9 → 29.0), OpenGL (11 항목).
+Motion Blur Camera And Objects 가 움직이는 상자를 번지게, 타일 최대 속도로 상자 바깥 배경 위에 옅은 빨강이 번짐 (행마다 0 → 7 픽셀, 예전 방식은 0), OpenGL (12 항목).
 
 ## 아직 · 한계
 
 - 지형 · 나무 (바람에 흔들림) · 바위 · 디테일 · 입자 · 투명은 카메라 움직임만
 - BlendShape 의 변화는 속도에 들지 않는다 (같은 정점 버퍼로 그리므로 위치는 맞음)
-- Motion Blur 는 픽셀마다 자기 속도로만 모은다 — 움직이는 물체가 바깥 (배경) 으로 번지지는 않는다 (타일 최대 속도는 아직)
+- Motion Blur 는 타일 최대 속도로 모은다 (움직이는 물체가 멈춘 배경 위로 번진다 — [DEPTH_OF_FIELD_MOTION_BLUR](DEPTH_OF_FIELD_MOTION_BLUR.md))
 - C# `Renderer.motionVectorGenerationMode` · `Camera.depthTextureMode` 는 아직

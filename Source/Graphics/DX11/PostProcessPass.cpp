@@ -2,6 +2,7 @@
 #include "PostProcessPass.h"
 #include "Effects.h"
 #include "SceneCulling.h"
+#include "Profiler.h"
 
 namespace
 {
@@ -309,9 +310,11 @@ GfxShaderResourceView* PostProcessPass::TemporalAA(const CameraOptions& options,
 	return m_TaaSharp.SRV.Get();
 }
 
-// Motion Blur (카메라): 깊이로 되살린 월드 위치가 지난 프레임에 화면 어디였는지 → 그 방향으로 표본
+// Motion Blur: 속도 = 모션 벡터 (Camera And Objects) 또는 깊이로 되살린 월드 위치가 지난 프레임에 화면 어디였는지 (Camera Only)
+//  HDRP 처럼 타일 최대 속도 (32 x 32) → 이웃 3 x 3 최대 → 그 방향으로 깊이 · 속도 무게를 주며 모은다 (움직이는 물체가 멈춘 배경 위로 번진다)
 GfxShaderResourceView* PostProcessPass::MotionBlur(const VolumeComponent& mb, const CameraOptions& options, GfxShaderResourceView* src)
 {
+	PROFILE_GPU("Motion Blur");
 	if (m_Motion.W != m_Width || m_Motion.H != m_Height)
 		CreateTarget(m_Motion, m_Width, m_Height, DXGI_FORMAT_R16G16B16A16_FLOAT);
 	if (!m_Motion.RTV)
@@ -330,8 +333,25 @@ GfxShaderResourceView* PostProcessPass::MotionBlur(const VolumeComponent& mb, co
 	SetVec("gMBParams", Clamp01(mb.F("intensity")), std::clamp(mb.F("clamp"), 0.0f, 0.2f), (float)kSamples[std::clamp(mb.I("quality"), 0, 2)], objects ? 1.0f : 0.0f);
 	SetSRV("gMotionVectors", options.MotionVectors);
 	SetSRV("gDepth", options.Depth);
+
+	// 타일 최대 · 이웃 최대 (타일 수 = 화면 / 32 올림)
+	const UINT tw = (m_Width + 31) / 32, th = (m_Height + 31) / 32;
+	if (m_MBTileMax.W != tw || m_MBTileMax.H != th)
+	{
+		CreateTarget(m_MBTileMax, tw, th, DXGI_FORMAT_R16G16_FLOAT);
+		CreateTarget(m_MBNeighborMax, tw, th, DXGI_FORMAT_R16G16_FLOAT);
+	}
+	if (!m_MBTileMax.RTV || !m_MBNeighborMax.RTV)
+		return src;
+	Draw("MotionBlurTileMaxTech", m_MBTileMax.RTV.Get(), tw, th);
+	SetSRV("gMBTileMax", m_MBTileMax.SRV.Get());
+	Draw("MotionBlurNeighborMaxTech", m_MBNeighborMax.RTV.Get(), tw, th);
+	SetSRV("gMBTileMax", nullptr);
+
+	SetSRV("gMBNeighborMax", m_MBNeighborMax.SRV.Get());
 	SetSRV("gSource", src);
 	Draw("MotionBlurTech", m_Motion.RTV.Get(), m_Width, m_Height);
+	SetSRV("gMBNeighborMax", nullptr);
 	return m_Motion.SRV.Get();
 }
 

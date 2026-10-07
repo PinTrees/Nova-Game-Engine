@@ -31,6 +31,8 @@ Unity URP 의 Volume 후처리 **Depth Of Field** (Gaussian · Bokeh) 와 **Moti
 
 ## Motion Blur
 
+![Motion Blur tile max velocity](images/motion_blur_tilemax.webp)
+
 | 항목 | 뜻 |
 |------|-----|
 | Mode | **Camera Only** (기본 — 카메라 움직임만) · **Camera And Objects** ([모션 벡터](MOTION_VECTORS.md) — 움직이는 물체 · 스킨 애니메이션도) — Unity URP 와 같은 두 가지 |
@@ -43,7 +45,9 @@ Unity URP 의 Volume 후처리 **Depth Of Field** (Gaussian · Bokeh) 와 **Moti
 - 순서: **Depth Of Field → Motion Blur → Bloom → Uber (색 · 톤매핑 · 비네트 …) → FXAA**. 깊이는 깊이 프리패스의 노멀 · 깊이 (Game 뷰) / SSAO 의 것 (Scene 뷰) 을 씁니다
 - **Gaussian** (URP 와 같은 먼 곳 전용): 흐림 원 = saturate((z − Start) / (End − Start)). 반 해상도로 줄이며 흐림 원을 알파에 → 가로 · 세로 가우스 (표본마다 흐림 원으로 가중 — 초점 맞은 앞 물체가 뒤로 번지지 않게) → 전체 해상도에서 흐림 원으로 섞기
 - **Bokeh**: 얇은 렌즈 공식 흐림 원 (센서) = A · f / (P − f) · (1 − P / z), A = f / 조리개, 센서 높이 24 mm → 화면 px. 최대 반지름 1080p 기준 32 px (해상도에 비례). 반 해상도에서 가운데 + 고리 4 개 = 71 표본 gather — 표본 위치를 조리개 날 수 · 곡률 · 회전으로 다각형으로 펴서 밝은 점이 다각형 보케가 됩니다. 뒤 표본은 가운데 흐림 원으로 묶고 (초점 맞은 물체에 뒤 배경이 번져 들어오지 않게), 앞 표본은 자기 흐림 원이 닿는 만큼 덮어 초점 맞은 물체 위로 번집니다
-- **Motion Blur**: 깊이 → 뷰 위치 (원근 · 직교) → 월드 → **지난 프레임** 뷰 · 투영 → 화면 위치 차 = 속도 (x Intensity, Clamp 로 자름) → 그 선을 따라 표본 평균. 지난 프레임 카메라는 프레임 번호로 한 번만 넘겨, 스크린샷처럼 한 프레임에 다시 그려도 속도가 0 이 되지 않습니다. Game 뷰 · Scene 뷰는 후처리 상태가 따로라 서로 섞이지 않습니다
+- **Motion Blur**: 속도 = 모션 벡터 (Camera And Objects) 또는 깊이 → 뷰 위치 (원근 · 직교) → 월드 → **지난 프레임** 뷰 · 투영 → 화면 위치 차 (Camera Only), x Intensity, Clamp 로 자름.
+  HDRP 처럼 **타일 최대 속도** (McGuire 2012 재구성 필터): 1) 32 x 32 픽셀 타일마다 가장 빠른 속도 2) 이웃 3 x 3 타일 중 가장 빠른 것 3) 픽셀마다 그 방향으로 표본을 모으며 깊이 · 각 표본의 속도로 무게를 준다 —
+  앞의 빠른 물체는 멈춘 배경 위로 번지고, 움직이는 물체 자리에는 뒤 배경이 비친다 (예전에는 픽셀마다 자기 속도로만 모아 물체 윤곽이 날카롭게 남았다). 표본 자리는 픽셀마다 조금씩 어긋난다 (띠 무늬 대신 고운 노이즈 — TAA 와 함께 쓰면 고와진다). 지난 프레임 카메라는 프레임 번호로 한 번만 넘겨, 스크린샷처럼 한 프레임에 다시 그려도 속도가 0 이 되지 않습니다. Game 뷰 · Scene 뷰는 후처리 상태가 따로라 서로 섞이지 않습니다
 - 컴퓨트 없이 픽셀 셰이더만 — DirectX 11 · OpenGL 같은 결과
 - 파일: `Source/Graphics/Common/VolumeProfile.*` (필드 · 켜짐 규칙, `ShowIf` = 다른 Enum 값에 따라 보이기), `Source/Editor/VolumeEditor.cpp`, `Source/Graphics/DX11/PostProcessPass.*` (`DepthOfField` · `MotionBlur`), `Shaders/41. PostProcess.fx` (`Dof*Tech` · `MotionBlurTech`)
 
@@ -59,6 +63,6 @@ Unity URP 의 Volume 후처리 **Depth Of Field** (Gaussian · Bokeh) 와 **Moti
 
 ## 아직
 
-- Camera And Objects 는 픽셀마다 자기 속도로만 모은다 — 움직이는 물체가 배경 쪽으로 번지지는 않는다 (타일 최대 속도는 아직)
+- 타일보다 아주 긴 흐림 (32 x 1.5 픽셀 넘게 바깥으로) 은 이웃 타일까지만 번진다. 비용은 Release 에서 아직 재지 않음 (Profiler 의 GPU "Motion Blur" 구간)
 - 카메라의 Physical Camera 값 (URP 의 Focal Length · Aperture 를 카메라에서 가져오기)
 - C# 에서 Volume 값 바꾸기

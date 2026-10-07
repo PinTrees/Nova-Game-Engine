@@ -4927,6 +4927,10 @@ function Suite-MotionVectors
     $mat = (Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json).PSObject.Copy()
     $mat.BaseColor = @(1, 1, 1, 1); $mat.Metallic = 0; $mat.Smoothness = 0.3; $mat.BaseMapPath = 'Assets\MotionTest\checker.png'; $mat.ResourcePath = 'Assets\MotionTest\Checker.mat'
     $mat | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Checker.mat')
+    # 한 가지 빨강 (Motion Blur 가장자리 재기)
+    $red = (Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json).PSObject.Copy()
+    $red.ResourcePath = 'Assets\MotionTest\Red.mat'
+    $red | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Red.mat')
     function MvProfile([string]$name, [array]$comps) { @{ nova_volume_profile = 1; components = $comps } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.volumeprofile") }
     function PV($v) { @{ override = $true; value = @($v, 0, 0, 0) } }
     MvProfile 'On' @()
@@ -4994,6 +4998,28 @@ function Suite-MotionVectors
             $cnt / [math]::Max(1, $ym1 - $ym0)
         }
         function Median($a) { $s = @($a | Where-Object { $_ -ne $null } | Sort-Object); if ($s.Count -eq 0) { return -1 }; $s[[int]($s.Count / 2)] }
+        # 흐린 가장자리 바깥쪽 (빨간 기가 그 행 가장 진한 값의 6 ~ 30 % 인 픽셀 수, 상자 가운데 행들의 중앙값)
+        #  예전 Motion Blur (픽셀마다 자기 속도로만) 는 배경 픽셀이 물체를 모으지 않고 물체 안쪽 가장자리는 절반 이상 빨강 → 0 에 가깝다.
+        #  타일 최대 속도면 배경 위로 번져 가장자리마다 흐림 길이의 반쯤
+        function Fringe([string]$png)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($png)
+            $w = $bm.Width; $h = $bm.Height; $rows = @()
+            for ($y = 0; $y -lt $h; $y += 2) { for ($x = 0; $x -lt $w; $x += 3) { $c = $bm.GetPixel($x, $y); if ($c.R - [math]::Max($c.G, $c.B) -gt 60) { $rows += $y; break } } }
+            if ($rows.Count -lt 4) { $bm.Dispose(); return $null }
+            $rows = $rows[[int]($rows.Count / 4)..[int]($rows.Count * 3 / 4 - 1)]
+            $fs = @()
+            foreach ($y in $rows)
+            {
+                $t = New-Object double[] $w; $mx = 0.0
+                for ($x = 0; $x -lt $w; $x++) { $c = $bm.GetPixel($x, $y); $t[$x] = $c.R - [math]::Max($c.G, $c.B); if ($t[$x] -gt $mx) { $mx = $t[$x] } }
+                $n = 0
+                for ($x = 0; $x -lt $w; $x++) { if ($t[$x] -gt 0.06 * $mx -and $t[$x] -lt 0.3 * $mx) { $n++ } }
+                $fs += $n
+            }
+            $bm.Dispose()
+            Median $fs
+        }
         function PlayRound([double]$walkSec = 0.8) { Invoke-Nova 'play' | Out-Null; Wait-Sec 1.2; Exec 'walk' 'GameObject.Find("Walker").GetComponent<Animator>().Play("Walk"); return 1;' | Out-Null; Wait-Sec $walkSec }
 
         $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
@@ -5095,19 +5121,24 @@ function Suite-MotionVectors
 
         # Motion Blur Mode: Camera Only (카메라가 멈춰 있으니 흐림 없음) · Camera And Objects (움직이는 상자가 흐려진다) — 빠르게 (40 m/s)
         SetSpeed 40
-        $mb = @{}
+        # 흐림의 가장자리를 재기 쉽게 상자를 한 가지 빨강으로 (체커 무늬 대신)
+        Invoke-Nova 'set Mover --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/MotionTest/Red.mat\"]}"' | Out-Null
+        $mb = @{}; $mbw = @{}
         foreach ($m in @('MbCam', 'MbObj'))
         {
             Vol $m
             Invoke-Nova 'play' | Out-Null; Wait-Sec 1.0
-            $bl = @()
-            for ($k = 0; $k -lt 6; $k++) { $png = Join-Path $dir "mb_$($m)_$k.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; $bl += (EdgeBlur $png); Wait-Sec 0.11 }
+            $bl = @(); $wd = @()
+            for ($k = 0; $k -lt 6; $k++) { $png = Join-Path $dir "mb_$($m)_$k.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; $bl += (EdgeBlur $png); $wd += (Fringe $png); Wait-Sec 0.11 }
             Invoke-Nova 'stop' | Out-Null
             $mb[$m] = Median $bl
+            $mbw[$m] = Median $wd
         }
         SetSpeed 6
         Vol 'On'
         Add-Result motionvectors 'Motion Blur Mode Camera And Objects blurs the moving box, Camera Only does not (static camera)' ($mb['MbObj'] -gt $mb['MbCam'] + 2) ("half-mixed edge pixels per row: Camera Only {0:N1}, Camera And Objects {1:N1}" -f $mb['MbCam'], $mb['MbObj'])
+        # 타일 최대 속도: 멈춘 배경 픽셀도 이웃 타일의 빠른 물체를 모아 → 상자 바깥으로 옅은 빨강이 번진다
+        Add-Result motionvectors 'Motion Blur tile max velocity: the moving box smears out over the static background (faint fringe outside its outline)' ($mbw['MbObj'] -ge 6 -and $mbw['MbObj'] -ge $mbw['MbCam'] + 5) ("faint fringe pixels per row: sharp (Camera Only) {0}, Camera And Objects {1}" -f $mbw['MbCam'], $mbw['MbObj'])
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
     }

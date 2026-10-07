@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **에디터 Rendering Debugger** (사용자 요청 — Cinemachine 다음). **완료 (커밋, 푸시 전)**. 다음: Motion Blur 타일 최대 속도
+- 갱신 시각: 2026년 10월 8일 — **Motion Blur 품질: 타일 최대 속도** (사용자 요청 — Rendering Debugger 다음). **완료 (커밋, 푸시 전)**. 사용자가 이어서 요청한 세 가지 (Cinemachine · Rendering Debugger · Motion Blur) 끝
+  - `Shaders/41. PostProcess.fx`: TileMax (32 x 32) → NeighborMax (3 x 3) → McGuire 2012 재구성 (깊이 · 표본 속도 무게, 가운데와 같은 픽셀 표본은 건너뜀 — 넣으면 이웃 픽셀끼리 줄무늬). `PostProcessPass::MotionBlur` 에 R16G16F 타일 타깃 둘, GPU 구간 "Motion Blur"
+  - 검사 `-Only motionvectors` 12/12 (새 항목: 빨간 상자 바깥의 옅은 번짐 행마다 0 → 7 픽셀, 예전 방식은 구조상 0). 예전 그림으로 잰 기준: 흐린 상자가 오히려 좁았다 (89 → 83 px)
+  - Release 비용은 아직 재지 않음 (Debug 는 셰이더 최적화 꺼짐)
+- 이전: 2026년 10월 8일 — **에디터 Rendering Debugger** (사용자 요청 — Cinemachine 다음). **완료 (커밋 a06d79a, 푸시 전)**
   - `RenderingDebug` (`Source/Graphics/DX11/RenderingDebug.*`, `Shaders/64. RenderingDebug.fx`): None · Depth · Normals (World) · Ambient Occlusion · Motion Vectors · Probe Volume Lighting · Sampling — Scene · Game 뷰 함께, 후처리 뒤 전체 화면
   - Window > Analysis > Rendering Debugger (`RenderingDebuggerWindow`), Scene 뷰 툴바 bug ▾ > Debug View, CLI `debugview <mode> [--range] [--scale] | info`
   - `MotionVectors` 를 뷰마다 (Game · Scene) 따로 — Scene 뷰는 이 보기일 때만 그린다. APV 모드는 `ProbeVolumes::SetDebugView` (새 API)

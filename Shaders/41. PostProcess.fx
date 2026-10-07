@@ -526,36 +526,133 @@ float4 PS_DofBokehComposite(VertexOut pin) : SV_Target
 
 // ---------------------------------------------------------------- Motion Blur (카메라)
 // 깊이 → 월드 위치 → 지난 프레임 화면 위치: 그 차이 (x Intensity, Clamp 까지) 를 따라 표본을 모은다
-float4 PS_MotionBlur(VertexOut pin) : SV_Target
+// ---------------------------------------------------------------- Motion Blur (HDRP 처럼 타일 최대 속도 — McGuire 2012 재구성 필터)
+//  1) 타일 (32 x 32 픽셀) 마다 가장 빠른 속도  2) 이웃 3 x 3 타일 중 가장 빠른 속도  3) 픽셀마다 그 방향으로 표본을 모으며
+//     깊이 · 각 표본의 속도로 무게: 앞에 있는 빠른 물체는 뒤 (멈춘 배경) 위로 번지고, 움직이는 물체 뒤로는 배경이 비친다
+//  예전에는 픽셀마다 자기 속도로만 모아서 멈춘 배경 위로는 번지지 않았다 (물체 윤곽이 날카롭게 남음)
+static const int kMBTile = 32;
+Texture2D gMBTileMax;      // 타일 최대 속도 (픽셀) — 이웃 단계의 입력
+Texture2D gMBNeighborMax;  // 이웃 3 x 3 타일 최대 속도 (픽셀) — 모으기 단계의 입력
+
+// 픽셀 p 의 화면 속도 (픽셀, Intensity · Clamp 적용)
+float2 MBVelocityPx(int2 p)
 {
+    float2 size = gProjFlags.yz;
+    float2 uv = ((float2)p + 0.5f) / size;
     float2 vel;
     if (gMBParams.w > 0.5f)
     {
         // Camera And Objects: 모션 벡터 (움직이는 물체 · 스킨 애니메이션 포함)
-        vel = gMotionVectors.Load(int3(int2(pin.PosH.xy), 0)).xy * gMBParams.x;
+        vel = gMotionVectors.Load(int3(p, 0)).xy;
     }
     else
     {
         // Camera Only: 깊이로 되살린 위치를 지난 카메라로
-        float z = SceneDepthAt(pin.Tex);
-        float3 posV = ViewPosFromDepth(pin.Tex, z);
-        float4 posW = mul(float4(posV, 1.0f), gMBInvView);
+        float z = gDepth.Load(int3(p, 0)).w;
+        float4 posW = mul(float4(ViewPosFromDepth(uv, z), 1.0f), gMBInvView);
         float4 prev = mul(posW, gMBPrevViewProj);
-        float2 prevUV = prev.w > 1e-4f ? float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f) : pin.Tex;
-        vel = (pin.Tex - prevUV) * gMBParams.x;
+        float2 prevUV = prev.w > 1e-4f ? float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f) : uv;
+        vel = uv - prevUV;
     }
+    vel *= gMBParams.x;
     float len = length(vel);
     if (len > gMBParams.y)
         vel *= gMBParams.y / len;
+    return vel * size;
+}
+
+// 1) 타일 최대 속도 (출력 픽셀 하나 = 타일 하나)
+float4 PS_MotionBlurTileMax(VertexOut pin) : SV_Target
+{
+    int2 size = int2(gProjFlags.yz);
+    int2 origin = int2(pin.PosH.xy) * kMBTile;
+    float2 best = 0.0f;
+    float bestLen = 0.0f;
+    [loop]
+    for (int y = 0; y < kMBTile; ++y)
+    {
+        [loop]
+        for (int x = 0; x < kMBTile; ++x)
+        {
+            int2 p = min(origin + int2(x, y), size - 1);
+            float2 v = MBVelocityPx(p);
+            float l = dot(v, v);
+            if (l > bestLen)
+            {
+                bestLen = l;
+                best = v;
+            }
+        }
+    }
+    return float4(best, 0.0f, 1.0f);
+}
+
+// 2) 이웃 3 x 3 타일 중 가장 빠른 것 (번지는 거리가 타일 밖으로 나가도 이웃 타일이 안다)
+float4 PS_MotionBlurNeighborMax(VertexOut pin) : SV_Target
+{
+    int2 tiles = int2(ceil(gProjFlags.yz / (float)kMBTile));
+    int2 t = int2(pin.PosH.xy);
+    float2 best = 0.0f;
+    float bestLen = 0.0f;
+    [unroll]
+    for (int y = -1; y <= 1; ++y)
+    {
+        [unroll]
+        for (int x = -1; x <= 1; ++x)
+        {
+            float2 v = gMBTileMax.Load(int3(clamp(t + int2(x, y), int2(0, 0), tiles - 1), 0)).xy;
+            float l = dot(v, v);
+            if (l > bestLen)
+            {
+                bestLen = l;
+                best = v;
+            }
+        }
+    }
+    return float4(best, 0.0f, 1.0f);
+}
+
+float MBCone(float dist, float speed) { return saturate(1.0f - dist / speed); }
+float MBCylinder(float dist, float speed) { return 1.0f - smoothstep(0.95f * speed, 1.05f * speed, dist); }
+
+// 3) 모으기: 이웃 최대 속도 방향으로 표본 (픽셀마다 조금씩 어긋나게 — 띠 무늬 대신 고운 노이즈)
+float4 PS_MotionBlur(VertexOut pin) : SV_Target
+{
+    int2 size = int2(gProjFlags.yz);
+    int2 p = int2(pin.PosH.xy);
+    float4 center = gSource.Load(int3(p, 0));
+    float2 vN = gMBNeighborMax.Load(int3(int2(uint2(p) / (uint)kMBTile), 0)).xy;
+    float lenN = length(vN);
+    if (lenN < 0.5f)
+        return center;   // 둘레에 움직임이 없다
+
+    float lenC = max(length(MBVelocityPx(p)), 0.5f);
+    float zC = gDepth.Load(int3(p, 0)).w;
     int n = (int)gMBParams.z;
-    float3 c = 0.0f;
+    float jitter = frac(52.9829189f * frac(dot(pin.PosH.xy, float2(0.06711056f, 0.00583715f)))) - 0.5f;
+
+    float weight = 1.0f / lenC;
+    float3 sum = GammaToLinear(center.rgb) * weight;
     [loop]
     for (int i = 0; i < n; ++i)
     {
-        float t = (float)i / (float)(n - 1) - 0.5f;
-        c += GammaToLinear(gSource.SampleLevel(samLinear, pin.Tex + vel * t, 0).rgb);
+        float t = ((float)i + 0.5f + jitter) / (float)n - 0.5f;   // -0.5 .. 0.5 (속도 길이 전체)
+        float2 off = vN * t;
+        int2 q = clamp(p + int2(round(off)), int2(0, 0), size - 1);
+        if (all(q == p))
+            continue;   // 가운데와 같은 픽셀 (이미 넣었다 — 또 넣으면 이웃 픽셀끼리 무게가 들쭉날쭉해 줄무늬)
+        float dist = length((float2)(q - p));
+        float zS = gDepth.Load(int3(q, 0)).w;
+        float lenS = max(length(MBVelocityPx(q)), 0.5f);
+        float ext = 0.05f + 0.02f * min(zC, zS);              // 깊이를 같다고 볼 폭 (m)
+        float front = saturate(1.0f - (zS - zC) / ext);       // 표본이 가운데보다 앞 (같으면 1)
+        float back = saturate(1.0f - (zC - zS) / ext);        // 가운데가 표본보다 앞
+        // 앞의 표본이 자기 속도만큼 가운데를 덮는다 + 가운데가 움직여 뒤의 표본이 비친다 + 둘 다 움직이는 같은 물체
+        float w = front * MBCone(dist, lenS) + back * MBCone(dist, lenC) + MBCylinder(dist, lenS) * MBCylinder(dist, lenC) * 2.0f;
+        sum += GammaToLinear(gSource.Load(int3(q, 0)).rgb) * w;
+        weight += w;
     }
-    return float4(LinearToGamma(c / (float)n), gSource.SampleLevel(samLinear, pin.Tex, 0).a);
+    return float4(LinearToGamma(sum / weight), center.a);
 }
 
 // 단순 복사 (후처리 없이 해상도만 맞출 때)
@@ -855,3 +952,5 @@ POST_TECH(DofBokehPrefilterTech, PS_DofBokehPrefilter)
 POST_TECH(DofBokehBlurTech, PS_DofBokehBlur)
 POST_TECH(DofBokehCompositeTech, PS_DofBokehComposite)
 POST_TECH(MotionBlurTech, PS_MotionBlur)
+POST_TECH(MotionBlurTileMaxTech, PS_MotionBlurTileMax)
+POST_TECH(MotionBlurNeighborMaxTech, PS_MotionBlurNeighborMax)

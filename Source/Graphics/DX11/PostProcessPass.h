@@ -61,6 +61,7 @@ private:
 	Target m_Ldr;            // FXAA 입력 (Uber 출력)
 	std::vector<Target> m_Down, m_Up;   // Bloom 밉 체인
 	Target m_Dof, m_Motion;              // Depth Of Field · Motion Blur 결과 (전체 해상도 HDR)
+	Target m_MBTileMax, m_MBNeighborMax; // Motion Blur: 32 x 32 타일 최대 속도 · 이웃 3 x 3 최대 (R16G16F, 픽셀)
 	Target m_Half[2];                    // Depth Of Field 반 해상도 (선형 색 + CoC)
 	// TAA: 히스토리 두 장 (지난 프레임 결과 · 이번 결과), 같은 프레임에 다시 그리면 바꾸지 않는다
 	Target m_Taa[2], m_TaaSharp;
