@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **C# Behaviour.enabled → 네이티브 컴포넌트** (사용자 요청 — 래그돌 작업에서 남긴 일). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **내비게이션을 안드로이드 · 웹에서** (사용자 지시 4 가지 중 1 번 — 다음: 캐릭터 옷 · 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
+  - 패키지는 이미 플레이어 빌드에 정적으로 들어가 있었다 — 실제 기기 · 브라우저 검사를 더하고 웹의 실패를 고침
+  - 웹: NavMesh 를 읽을 때 타일 만들기가 `std::thread` 를 띄워 시작이 예외로 멈췄다 → `NavData::ParallelFor` 를 웹에서는 부른 스레드에서 차례로. `Web/Source/WebMain.cpp` 가 시작 · 프레임의 C++ 예외를 받아 로그 (`[Web] exception in init: …`)
+  - 검사: `Tools/tests/nav_player_probe.cs` (3D 벽 · 2D Box Collider 2D 벽을 돌아가는 길 · 도착), `common.ps1` 의 `New-NavPlayerScene · Test-NavPlayerLog`, 안드로이드 `Tools/tests/android_nav.ps1` (MuMu, Build And Run → logcat) 8/8, 웹 스위트에 두 항목 — web 13/13. 문서 NAVIGATION_2D · ANDROID · WEB
+- 이전: 2026년 10월 7일 — **C# Behaviour.enabled → 네이티브 컴포넌트** (사용자 요청 — 래그돌 작업에서 남긴 일). **완료 (푸시함)**
   - 바인딩 `Comp_GetEnabled · Comp_SetEnabled` (타입 이름 — 표 끝), C# `Behaviour.enabled` (MonoBehaviour · UI Graphic · Selectable 은 그대로 자기 것) · `Collider.enabled` (전에는 늘 true)
   - 네이티브가 끄면 멈추게: 빛 (`LightManager::IsLit` — 꺼짐 · 꺼진 계층, 게임 · Scene 뷰 모두), SpriteAnimator, Expressions. (오디오 · 카메라 · 콜라이더 · 2D 렌더러 · 포즈 수정자 · UI · Animator 는 이미 봄)
   - 물리: 바디를 빼거나 다시 만들 때 둘레의 잠든 바디를 깨운다 (`WakeAround` — 콜라이더를 끄면 위의 상자가 떨어진다)

@@ -175,3 +175,61 @@ function Start-MuMuHidden([string]$MuMuExe, [string]$Index, [int]$TimeoutSec = 1
     & $MuMuExe control -v $Index hide_window 2>&1 | Out-Null
     return $state
 }
+
+# 플레이어 (안드로이드 · 웹) 내비게이션 검사 장면: 3D (바닥 + 가운데 벽, NavMeshAgent 캡슐) + 2D (x 100 · y 100 둘레의 XY — 스프라이트 바닥 + Box Collider 2D 벽,
+#  NavMeshSurface Plane = 2D) + 검사 스크립트 (Tools/tests/nav_player_probe.cs). 두 NavMesh 를 편집기에서 굽고 씬과 함께 저장한다.
+#  돌려주는 값: 씬 경로 (실패하면 $null). 정리: Remove-NavPlayerScene
+function New-NavPlayerScene([string]$OutDir)
+{
+    $probeDir = Join-Path $script:Project 'Assets\NavPlayerProbe'
+    New-Item -ItemType Directory -Force $probeDir | Out-Null
+    $gameDll = Join-Path $script:Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+    $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+    Copy-Item (Join-Path $PSScriptRoot 'nav_player_probe.cs') (Join-Path $probeDir 'NavPlayerProbe.cs') -Force
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+    while ($sw.Elapsed.TotalSeconds -lt 60 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+    Invoke-Nova 'package add com.nova.ai.navigation' | Out-Null
+    foreach ($l in @('scene new --force',
+                     'create cube --name Ground --position 0,-0.5,0 --scale 20,1,20', 'create cube --name Wall --position 0,1,0 --scale 0.5,2,8',
+                     'create empty --name Surface3D', 'add-component Surface3D NavMeshSurface',
+                     'create capsule --name Npc3D --position -5,1,0', 'remove-component Npc3D CapsuleCollider', 'add-component Npc3D NavMeshAgent --values "{\"baseOffset\":1}"',
+                     'create empty --name Ground2D --position 100,100,1 --scale 20,14,1', 'add-component Ground2D SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.85,0.85,0.8,1]}"',
+                     'create empty --name Wall2D --position 100,100,0 --scale 0.5,8,1', 'add-component Wall2D SpriteRenderer --values "{\"sprite\":\"builtin:Square\",\"color\":[0.3,0.3,0.35,1],\"sortingOrder\":1}"',
+                     'add-component Wall2D BoxCollider2D',
+                     'create empty --name Surface2D --position 100,100,0', 'add-component Surface2D NavMeshSurface --values "{\"plane\":1}"',
+                     'create empty --name Npc2D --position 95,100,-0.5', 'add-component Npc2D SpriteRenderer --values "{\"sprite\":\"builtin:Circle\",\"sortingOrder\":2}"',
+                     'add-component Npc2D NavMeshAgent --values "{\"radius\":0.3}"',
+                     'create empty --name Probe', 'add-component Probe NavPlayerProbe',
+                     'set "Main Camera" --position 0,9,-9 --rotation 45,0,0')) { Invoke-Nova $l | Out-Null }
+    $bake = Join-Path $OutDir 'nav_player_bake.cs'
+    'GameObject.Find("Surface3D").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); GameObject.Find("Surface2D").GetComponent<NovaEngine.AI.NavMeshSurface>().BuildNavMesh(); return "baked";' | Set-Content -Encoding utf8 $bake
+    $b = Invoke-NovaJson "exec --file `"$bake`""
+    if (-not $b -or "$($b.result)" -ne 'baked') { return $null }
+    $scene = 'Assets/Scenes/NavPlayer.scene'
+    Invoke-Nova "scene save --as $scene" | Out-Null
+    return $scene
+}
+
+function Remove-NavPlayerScene
+{
+    foreach ($f in @('Assets\Scenes\NavPlayer.scene', 'Assets\Scenes\NavPlayer.scene.meta', 'Assets\NavMesh-Surface3D.navmesh', 'Assets\NavMesh-Surface3D.navmesh.meta',
+                     'Assets\NavMesh-Surface2D.navmesh', 'Assets\NavMesh-Surface2D.navmesh.meta', 'Assets\NavPlayerProbe.meta'))
+    {
+        Remove-Item (Join-Path $script:Project $f) -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Item -Recurse -Force (Join-Path $script:Project 'Assets\NavPlayerProbe') -ErrorAction SilentlyContinue
+}
+
+# "NavProbe start …" · "NavProbe done …" 로그 두 줄 → 검사 결과 (안드로이드 · 웹 같은 기준)
+function Test-NavPlayerLog([string[]]$lines, [string]$platform)
+{
+    $start = [string]($lines | Where-Object { $_ -match 'NavProbe start' } | Select-Object -Last 1)
+    $done = [string]($lines | Where-Object { $_ -match 'NavProbe done' } | Select-Object -Last 1)
+    $s = $start -replace '^.*NavProbe start ', ''
+    $d = $done -replace '^.*NavProbe done ', ''
+    $pathOk = $start -match "platform=$platform" -and $start -match 'path3d=True:(\d+):([\d.]+)' -and [int]$Matches[1] -ge 3 -and [double]$Matches[2] -gt 4 -and
+        $start -match 'path2d=True:(\d+):([\d.]+)' -and [int]$Matches[1] -ge 3 -and [double]$Matches[2] -gt 4 -and $start -match 'dest=True,True'
+    $walkOk = $done -match 'arrived=True,True' -and $done -match 'p2=[\d.\-]+,[\d.\-]+,(-?[\d.]+)' -and [math]::Abs([double]$Matches[1] + 0.5) -lt 0.01
+    return [pscustomobject]@{ PathOk = [bool]$pathOk; WalkOk = [bool]$walkOk; Start = $s; Done = $d }
+}

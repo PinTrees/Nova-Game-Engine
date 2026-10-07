@@ -6,6 +6,7 @@
 #include "GfxWgpuInternal.h"
 #include <emscripten.h>
 #include <emscripten/html5.h>
+#include <typeinfo>
 
 // 웹 플레이어 진입점: 게임 데이터 = 메모리 파일 시스템의 /game (페이지가 game.data 를 먼저 불러 둔다 — Web/Shell),
 //  캔버스 #canvas (CSS 크기 × 기기 픽셀 비율), 입력 = 브라우저 이벤트 → 안드로이드와 같은 입력 상태 (GetAsyncKeyState · 커서 · 터치),
@@ -35,12 +36,26 @@ namespace
 		}
 	}
 
-	void Frame()
+	// 엔진 안에서 던진 C++ 예외: 브라우저에는 "[object WebAssembly.Exception]" 만 보이므로 종류 · 내용을 로그에 남기고 멈춘다
+	void Fail(const char* where, const char* type, const char* what)
 	{
-		if (!s_App || s_Failed) return;
+		EditorLog::Write("Web", "exception in %s: %s: %s", where, type, what);
+		s_Failed = true;
+	}
+
+	void FrameBody()
+	{
 		Resize();
 		s_App->Run();
 		GfxWgpu::Present(Gfx::Device(), s_App->BackBufferTexture(), s_Width, s_Height);
+	}
+
+	void Frame()
+	{
+		if (!s_App || s_Failed) return;
+		try { FrameBody(); }
+		catch (const std::exception& e) { Fail("frame", typeid(e).name(), e.what()); return; }
+		catch (...) { Fail("frame", "unknown", ""); return; }
 		if (++s_Frames == 1)
 			EditorLog::Write("Web", "first frame %d x %d", s_Width, s_Height);
 		if (NovaAndroid::QuitRequested())
@@ -135,7 +150,11 @@ extern "C" EMSCRIPTEN_KEEPALIVE int nova_web_start()
 	Resize();
 	s_App = new EditorApp(nullptr);
 	s_App->SetScreenSize((UINT)s_Width, (UINT)s_Height);
-	if (!s_App->Init())
+	bool ok = false;
+	try { ok = s_App->Init(); }
+	catch (const std::exception& e) { Fail("init", typeid(e).name(), e.what()); return 0; }
+	catch (...) { Fail("init", "unknown", ""); return 0; }
+	if (!ok)
 	{
 		EditorLog::Write("Web", "engine init failed");
 		s_Failed = true;

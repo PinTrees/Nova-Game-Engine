@@ -1605,6 +1605,20 @@ public class WebProbe : MonoBehaviour
         }
         else { Add-Result web '2D lights + shadows = DX11' $false 'web run failed' }
 
+        # ---- 3d) 내비게이션: 3D · 2D NavMesh (엔진에 함께 넣은 com.nova.ai.navigation, C# DllImport NovaNavigation) — 구운 .navmesh 를 읽어 길 · 걷기
+        $navScene = New-NavPlayerScene $dir
+        if ($navScene)
+        {
+            $navOut = Join-Path $dir 'nav'
+            $nx = Invoke-NovaJson "web export --out `"$navOut`" --scenes $navScene"
+            $nr = if ($nx) { RunScene $navOut (Join-Path $dir 'nav_web.png') 600 8636 } else { $null }
+            $nl = if ($nr) { @($nr.scriptLog) | ForEach-Object { "$_" } } else { @() }
+            $nav = Test-NavPlayerLog $nl 'WebGLPlayer'
+            Add-Result web 'navigation paths in the browser (3D wall, 2D Box Collider 2D)' $nav.PathOk $(if ($nav.Start) { $nav.Start } else { "no NavProbe log (phase $($nr.phase), errors $(@($nr.consoleErrors) -join ' | '))" })
+            Add-Result web 'navigation agents walk there in the browser' $nav.WalkOk $(if ($nav.Done) { $nav.Done } else { 'no "NavProbe done"' })
+        }
+        else { Add-Result web 'navigation test scene (bake)' $false 'bake failed' }
+
         # ---- 4) Build Settings 빌드 + 미리 보기 서버
         $buildOut = Join-Path $dir 'build'
         $b = Invoke-NovaJson "web build --out `"$buildOut`" --run --port 8633"
@@ -1631,6 +1645,7 @@ public class WebProbe : MonoBehaviour
     {
         Write-Host "  $(Stop-TestEditor $ed)"
         if ($settingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $settingsBefore) }
+        Remove-NavPlayerScene
     }
 }
 

@@ -117,6 +117,7 @@ manifest 의 `screenOrientation` = portrait · reversePortrait · reverseLandsca
 Windows 는 공식 패키지 (`Packages/<이름>/Source`) 를 DLL 로 불러오지만 안드로이드는 **엔진에 함께 넣는다** (`Android/CMakeLists.txt` 가 패키지마다 정적 라이브러리,
 같은 이름인 진입점 `NovaPackage_OnLoad` 는 패키지 이름을 붙여 바꾸고, 만든 `nova_packages.cpp` 가 `App::Init` 에서 씬보다 먼저 차례로 부른다).
 패키지의 셰이더 (`Packages/*/Shaders/*.fx`, 예: Toon 의 lilToon) 도 `nova android shaders` 가 GLES 로 바꾼다 (기기는 이름으로 찾는다).
+내비게이션 (`com.nova.ai.navigation`, Recast · Detour) 도 함께 들어간다 — 구운 `.navmesh` 는 게임 데이터에, 검사 `powershell -File Tools/tests/android_nav.ps1` ([내비게이션](NAVIGATION_2D.md#안드로이드--웹)).
 Windows 전용 호출 (파일 대화 상자 · 모듈 경로 · PNG 저장) 은 `Android/Include` 의 대체 (`commdlg.h`, `GetModuleHandleExW`, `SaveToWICFile` = 늘 실패) 로 컴파일만.
 
 ### 컴포넌트 등록

@@ -45,6 +45,17 @@ NavMesh.SamplePosition(clickPoint, out var hit, 2f, NavMesh.AllAreas);   // 벽 
 걷는 중 속도가 XY, Dynamic Rigidbody 2D 는 굽지 않음, 칸 사이의 얇은 Edge Collider 2D 도 벽, 저장한 씬을 다시 열어도 2D, Tilemap Collider 2D 로 둘러싼 방 (안은 곧은 길 · 밖으로 나가는 길 없음) (8 항목).
 3D 는 `-Only packages` (굽기 · 에이전트 · 링크 · Carve).
 
+## 안드로이드 · 웹
+
+내비게이션 패키지는 트윈 · 날씨 · 낮밤처럼 **플레이어 빌드에 함께 들어간다** (안드로이드 `libnova.so` · 웹 wasm 에 정적 라이브러리, Detour 는 `DT_POLYREF64`).
+구운 `.navmesh` 는 게임 데이터에 들어가고 (APK · `game.data`), C# `NovaEngine.AI` 의 `DllImport("NovaNavigation")` 은 엔진 안의 함수로 간다.
+웹은 스레드가 없어 NavMesh 를 읽을 때 타일을 부른 스레드에서 차례로 만든다.
+
+검사는 같은 장면 (3D: 가운데 벽을 돌아가는 캡슐, 2D: Box Collider 2D 벽을 돌아가는 스프라이트) 으로 — 스크립트 `Tools/tests/nav_player_probe.cs` 가 길 꺾임 수 · 도착을 로그에:
+
+- 안드로이드 (MuMu): `powershell -File Tools/tests/android_nav.ps1` — 편집기의 Build And Run (`nova android build --run`) → logcat 의 `NavProbe` (8 항목)
+- 웹: `Tools/tests/run_tests.ps1 -Only web` 의 내비게이션 두 항목 — `nova web export` → 창 없는 Chrome
+
 ## 아직 없는 것
 
 2D 의 NavMesh Obstacle (지금은 3D 모양 — 2D 에서는 무시, 움직이는 벽은 Play 중 `BuildNavMesh()` 로 다시 굽기), 2D 의 NavMesh Link, 영역 (Area) 마다 비용.

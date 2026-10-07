@@ -156,6 +156,11 @@ namespace
 			for (int i = next++; i < count; i = next++)
 				f(i);
 		};
+#if defined(__EMSCRIPTEN__)
+		// 웹: 스레드 없는 wasm (C# 런타임과 같은 단일 스레드) — std::thread 를 만들 수 없다, 부른 스레드에서 차례로
+		worker();
+		return;
+#endif
 		const int threads = (std::max)(1, (std::min)((int)std::thread::hardware_concurrency() - 1, count));
 		std::vector<std::thread> pool;
 		for (int i = 0; i < threads; ++i)

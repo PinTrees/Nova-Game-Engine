@@ -58,7 +58,8 @@ PC DirectX 11 과 같은 그림 (화소 차이 최대 1).
 - 패키지 C# 의 `DllImport("NovaTilemap")` 등은 .NET 이 빌드 때 본 것만 P/Invoke 표에 넣으므로, 호스트가 패키지 `Runtime/*.cs` 를 함께 컴파일하고 모듈 이름마다 빈 네이티브 파일 (`host-modules/`) 을 둔다
 - 내보낼 때 쓰는 BCL 만 남긴다 (게임 · 엔진 어셈블리의 AssemblyRef 를 따라감 — 안드로이드와 같은 규칙, 31.9 → 19.5 MB)
 - `Application.platform` = `WebGLPlayer` (Unity 와 같은 값 — Unity 도 WebGPU 빌드를 이 값으로)
-- 단일 스레드: 물리 (Jolt) 는 `JobSystemSingleThreaded`, 긴 소리 스트리밍은 프레임마다 채운다
+- 단일 스레드: 물리 (Jolt) 는 `JobSystemSingleThreaded`, 긴 소리 스트리밍은 프레임마다 채운다, 내비게이션의 타일 다시 만들기 (NavMesh 읽기) 는 부른 스레드에서 차례로
+- 엔진 안에서 던진 C++ 예외는 브라우저에 `[object WebAssembly.Exception]` 으로만 보이므로 `WebMain.cpp` 가 시작 · 프레임에서 받아 로그에 남긴다 (`[Web] exception in init: <종류>: <내용>`) — 원인 모를 시작 실패는 이 줄부터
 
 ### 소리
 
