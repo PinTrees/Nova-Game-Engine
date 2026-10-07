@@ -1677,6 +1677,20 @@ public class WebProbe : MonoBehaviour
         }
         else { Add-Result web 'navigation test scene (bake)' $false 'bake failed' }
 
+        # ---- 3e) 기능: 스킨 천 (치마 · 망토), Starter Assets 차 · 래그돌 표적, 낮 · 밤 (밤 → NightLight) — 안드로이드 (android_player.ps1 -Check features) 와 같은 장면 · 기준
+        $featScene = New-PlayerFeatureScene $dir
+        if ($featScene)
+        {
+            $featOut = Join-Path $dir 'features'
+            $fx = Invoke-NovaJson "web export --out `"$featOut`" --scenes $featScene"
+            $fr = if ($fx) { RunScene $featOut (Join-Path $dir 'features_web.png') 900 8637 } else { $null }
+            $fl = if ($fr) { @($fr.scriptLog) | ForEach-Object { "$_" } } else { @() }
+            $feat = Test-PlayerFeatureLog $fl 'WebGLPlayer'
+            Add-Result web 'features in the browser: scripts run (cloth simulating, car, shot hits, day night)' $feat.StartOk $(if ($feat.Start) { $feat.Start } else { "no FeatureProbe log (phase $($fr.phase), errors $(@($fr.consoleErrors) -join ' | '))" })
+            Add-Result web 'features in the browser: skinned cloth, car drives, ragdoll falls, night street light' ($feat.Cloth -and $feat.Car -and $feat.Ragdoll -and $feat.Night) $(if ($feat.Done) { "cloth $($feat.Cloth) car $($feat.Car) ragdoll $($feat.Ragdoll) night $($feat.Night): $($feat.Done)" } else { 'no "FeatureProbe done"' })
+        }
+        else { Add-Result web 'features test scene' $false 'scene setup failed' }
+
         # ---- 4) Build Settings 빌드 + 미리 보기 서버
         $buildOut = Join-Path $dir 'build'
         $b = Invoke-NovaJson "web build --out `"$buildOut`" --run --port 8633"
@@ -1704,6 +1718,7 @@ public class WebProbe : MonoBehaviour
         Write-Host "  $(Stop-TestEditor $ed)"
         if ($settingsBefore) { [IO.File]::WriteAllBytes($editorSettings, $settingsBefore) }
         Remove-NavPlayerScene
+        Remove-PlayerFeatureScene
     }
 }
 
@@ -2796,17 +2811,27 @@ function Suite-Behaviour
         Invoke-Nova 'create empty --name Kid2 --parent Parent2' | Out-Null
         Invoke-Nova 'add-component Kid2 AudioSource --values "{\"clip\":\"Assets/TestAssets/Audio/long.mp3\",\"loop\":true,\"playOnAwake\":true,\"volume\":0.05}"' | Out-Null
         Invoke-Nova 'add-component Kid2 ActiveProbe' | Out-Null
+        Invoke-Nova 'create particle-system --name Sparks --parent Parent2' | Out-Null
+        Invoke-Nova 'create character --name Ch3 --parent Parent2 --position 3,0,4' | Out-Null
         Invoke-Nova 'play' | Out-Null
         $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1) { Invoke-Nova 'wait 10' | Out-Null }
         $s0 = "$(Cs 'act_0' 'return ActiveProbe.State();')" -split ' '
+        $x0 = "$(Cs 'act_x0' 'return ActiveProbe.Extra();')" -split ' '
         Cs 'act_off' 'ActiveProbe.parent.SetActive(false); return 1;' | Out-Null
         Invoke-Nova 'wait 10' | Out-Null
         $s1 = "$(Cs 'act_1' 'return ActiveProbe.State();')" -split ' '
+        $x1 = "$(Cs 'act_x1' 'return ActiveProbe.Extra();')" -split ' '
         Invoke-Nova 'wait 20' | Out-Null
         $s2 = "$(Cs 'act_2' 'return ActiveProbe.State() + " " + (GameObject.Find("Kid2") == null);')" -split ' '
+        $x2 = "$(Cs 'act_x2' 'return ActiveProbe.Extra();')" -split ' '
         Cs 'act_on' 'ActiveProbe.parent.SetActive(true); return 1;' | Out-Null
         Invoke-Nova 'wait 10' | Out-Null
         $s3 = "$(Cs 'act_3' 'return ActiveProbe.State();')" -split ' '
+        $x3 = "$(Cs 'act_x3' 'return ActiveProbe.Extra();')" -split ' '
+        # Animator: 꺼진 동안 시각이 멈춰 있고 (두 번 읽어 같다), 다시 켜면 기본 상태부터 (멈춘 시각보다 작다 — 그대로 이어 가면 더 크다)
+        $okX = $x0.Count -eq 3 -and [int]$x0[0] -gt 0 -and $x0[1] -eq 'True' -and $x1.Count -eq 3 -and [int]$x1[0] -eq 0 -and $x1[1] -eq 'False' -and
+            $x2.Count -eq 3 -and $x2[2] -eq $x1[2] -and $x3.Count -eq 3 -and $x3[1] -eq 'True' -and [double]$x3[2] -lt [double]$x2[2]
+        Add-Result behaviour 'inactive parent: particles cleared and replayed, Animator frozen then restarts from its default state' $okX "particles playing animTime — active: $($x0 -join ' '), off: $($x1 -join ' ') → $($x2 -join ' '), on again: $($x3 -join ' ')"
         $ok = $s0.Count -eq 4 -and [int]$s0[0] -gt 0 -and $s0[1] -eq '1' -and $s0[2] -eq '0' -and $s0[3] -eq 'True' -and
             $s1.Count -eq 4 -and $s1[2] -eq '1' -and $s1[3] -eq 'False' -and $s2.Count -eq 5 -and $s2[0] -eq $s1[0] -and $s2[4] -eq 'True' -and
             $s3.Count -eq 4 -and $s3[1] -eq '2' -and [int]$s3[0] -gt [int]$s2[0] -and $s3[3] -eq 'True'

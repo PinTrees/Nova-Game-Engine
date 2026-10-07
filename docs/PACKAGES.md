@@ -121,6 +121,8 @@ C++ 쪽은 `NOVA_PACKAGE_EXPORT float Spinner_GetSpeed(uint64 go)` 처럼 내보
 부모를 끄면 자식도 꺼진다 — 엔진은 꺼진 오브젝트의 `Update` · `LateUpdate` · `FixedUpdate` 를 부르지 않고 그리지 않는다 (메시 · 스킨 메시 · 지형 · 기즈모 · 그림자).
 켜짐 · 꺼짐이 바뀐 프레임에 `Component::OnHierarchyActiveChanged(bool)` (Unity 의 GameObject 활성화로 오는 OnEnable · OnDisable) — 소리 멈추기 (AudioSource) ·
 시뮬레이션 내리기 (Cloth) · C# OnDisable / OnEnable 은 여기서. 오브젝트를 모아 그리는 C++ 코드는 `IsActive()` 가 아니라 `IsActiveInHierarchy()` 로 거른다.
+Particle System 은 꺼지면 입자를 지우고 멈추며 다시 켜면 Play On Awake 로 처음부터, Animator 는 꺼진 동안 멈췄다가 다시 켜면 기본 상태부터 (`Rebind` —
+Unity 의 Keep Animator State On Disable 꺼짐과 같다). 편집기: Hierarchy 는 꺼진 오브젝트와 그 자식을 흐리게 그리고, Scene 뷰 클릭은 꺼진 오브젝트 (와 자식) 를 고르지 않는다.
 
 C# 만 있는 패키지는 `Runtime/` 에 MonoBehaviour 를 두면 된다 (예: `com.nova.starter-assets`).
 

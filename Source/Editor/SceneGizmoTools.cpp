@@ -911,8 +911,8 @@ namespace
 
 	void PickRecursive(GameObject* go, const Vec3& ro, const Vec3& rd, GameObject*& best, float& bestT)
 	{
-		if (go == nullptr)
-			return;
+		if (go == nullptr || !go->IsActive())
+			return;   // Unity: 꺼진 오브젝트 (와 그 자식 — 위에서부터 내려온다) 는 Scene 뷰에서 클릭으로 고르지 않는다
 		Transform* tr = go->GetTransform();
 		// 절차적 나무: 로컬 공간 광선으로 수피·잎 카드 삼각형 검사 (방향은 정규화하지 않아 t 가 월드와 같다)
 		if (Tree* tree = go->GetComponent<Tree>(); tree && tr)

@@ -53,7 +53,7 @@ NavMesh.SamplePosition(clickPoint, out var hit, 2f, NavMesh.AllAreas);   // 벽 
 
 검사는 같은 장면 (3D: 가운데 벽을 돌아가는 캡슐, 2D: Box Collider 2D 벽을 돌아가는 스프라이트) 으로 — 스크립트 `Tools/tests/nav_player_probe.cs` 가 길 꺾임 수 · 도착을 로그에:
 
-- 안드로이드 (MuMu): `powershell -File Tools/tests/android_nav.ps1` — 편집기의 Build And Run (`nova android build --run`) → logcat 의 `NavProbe` (8 항목)
+- 안드로이드 (MuMu): `powershell -File Tools/tests/android_player.ps1 -Check nav` — 편집기의 Build And Run (`nova android build --run`) → logcat 의 `NavProbe` (8 항목)
 - 웹: `Tools/tests/run_tests.ps1 -Only web` 의 내비게이션 두 항목 — `nova web export` → 창 없는 Chrome
 
 ## 아직 없는 것

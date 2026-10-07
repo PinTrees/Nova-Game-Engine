@@ -233,3 +233,74 @@ function Test-NavPlayerLog([string[]]$lines, [string]$platform)
     $walkOk = $done -match 'arrived=True,True' -and $done -match 'p2=[\d.\-]+,[\d.\-]+,(-?[\d.]+)' -and [math]::Abs([double]$Matches[1] + 0.5) -lt 0.01
     return [pscustomobject]@{ PathOk = [bool]$pathOk; WalkOk = [bool]$walkOk; Start = $s; Done = $d }
 }
+
+# 플레이어 (안드로이드 · 웹) 기능 검사 장면: 치마 · 망토 치비 (모델 편집기 → VRM, Cloth), Starter Assets 차 · 래그돌 표적,
+#  Day Night Cycle + NightLight 가로등 + 구운 반사 프로브, 검사 스크립트 (Tools/tests/features_player_probe.cs).
+#  돌려주는 값: 씬 경로 (실패하면 $null). 정리: Remove-PlayerFeatureScene (패키지 목록도 되돌린다)
+function New-PlayerFeatureScene([string]$OutDir)
+{
+    $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $manifest = Join-Path $script:Project 'Packages\manifest.json'
+    $script:FeatureManifest = if (Test-Path $manifest) { [IO.File]::ReadAllBytes($manifest) } else { $null }
+    $dir = Join-Path $script:Project 'Assets\PlayerFeatures'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    foreach ($p in @('com.nova.modeling', 'com.nova.starter-assets', 'com.nova.daynight')) { Invoke-Nova "package add $p" | Out-Null }
+    # 치비 + 치마 · 망토 (리깅) → VRM
+    Invoke-NovaJson 'model new' | Out-Null
+    Invoke-NovaJson "model batch $root\docs\examples\model_chibi.txt" | Out-Null
+    Invoke-NovaJson "model batch $root\docs\examples\model_chibi_cloth.txt" | Out-Null
+    Invoke-NovaJson "model export --path $dir\ClothChibi.vrm --title ClothChibi" | Out-Null
+    $gameDll = Join-Path $script:Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+    $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+    Copy-Item (Join-Path $PSScriptRoot 'features_player_probe.cs') (Join-Path $dir 'FeaturesPlayerProbe.cs') -Force
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+    while ($sw.Elapsed.TotalSeconds -lt 90 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+    foreach ($l in @('scene new --force',
+                     'create cube --name Ground --position 0,-0.5,0 --scale 60,1,60',
+                     'create character --name Girl --model Assets\PlayerFeatures\ClothChibi.vrm',
+                     'add-component Skirt Cloth --values "{\"pin\":1,\"damping\":0.2,\"bendingStiffness\":0.05}"',
+                     'add-component Cape Cloth --values "{\"pin\":1,\"damping\":0.2,\"externalAcceleration\":[0,0,-5]}"',
+                     'create car --name Car --position 6,0,-4',
+                     'create ragdoll-target --name Dummy --position -3,0,2',
+                     'create empty --name TimeOfDay', 'add-component TimeOfDay DayNightCycle --values "{\"timeOfDay\":12.0,\"dayLengthMinutes\":0.0}"',
+                     'create point-light --name Lamp --position 1.5,2.8,-1', 'add-component Lamp NightLight --values "{\"randomDelay\":0.0}"',
+                     'create empty --name Probe --position 0,1,0', 'add-component Probe ReflectionProbe --values "{\"size\":[30,10,30],\"resolution\":128}"',
+                     'create empty --name FeatureProbe', 'add-component FeatureProbe FeaturesPlayerProbe',
+                     'set "Main Camera" --position 1.5,1.6,-5 --rotation 8,-10,0')) { Invoke-Nova $l | Out-Null }
+    # Follow Camera 는 끈다 (create car 가 붙인다 — 장면을 한 자리에서 본다)
+    Invoke-Nova 'set "Main Camera" --component FollowCamera --values "{\"enabled\":false}"' | Out-Null
+    $scene = 'Assets/PlayerFeatures/PlayerFeatures.scene'
+    Invoke-Nova "scene save --as $scene" | Out-Null
+    $bake = Invoke-NovaJson 'probe bake'
+    if (-not $bake) { return $null }
+    Invoke-Nova 'scene save' | Out-Null
+    return $scene
+}
+
+function Remove-PlayerFeatureScene
+{
+    foreach ($d in @('Assets\PlayerFeatures', 'Assets\StarterAssets'))
+    {
+        Remove-Item (Join-Path $script:Project $d) -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $script:Project "$d.meta") -Force -ErrorAction SilentlyContinue
+    }
+    $manifest = Join-Path $script:Project 'Packages\manifest.json'
+    if ($script:FeatureManifest) { [IO.File]::WriteAllBytes($manifest, $script:FeatureManifest) }
+}
+
+# "FeatureProbe start …" · "FeatureProbe done …" → 검사 결과 (안드로이드 · 웹 같은 기준)
+function Test-PlayerFeatureLog([string[]]$lines, [string]$platform)
+{
+    $start = [string]($lines | Where-Object { $_ -match 'FeatureProbe start' } | Select-Object -Last 1)
+    $done = [string]($lines | Where-Object { $_ -match 'FeatureProbe done' } | Select-Object -Last 1)
+    $s = $start -replace '^.*FeatureProbe start ', ''
+    $d = $done -replace '^.*FeatureProbe done ', ''
+    $startOk = $start -match "platform=$platform" -and $start -match 'cloth=True,True' -and $start -match 'car=True' -and $start -match 'shot=True' -and $start -match 'daynight=True'
+    # 치마: 허리 (맨 위) 는 그대로 · 아래는 늘어지되 떨어지지 않음
+    $cloth = $done -match 'skirt=(-?[\d.]+)>(-?[\d.]+),(-?[\d.]+)>(-?[\d.]+)' -and [math]::Abs([double]$Matches[1] - [double]$Matches[2]) -lt 0.05 -and [double]$Matches[4] -gt 0.0 -and [double]$Matches[4] -lt [double]$Matches[3] + 0.03
+    $car = $done -match 'car=(-?[\d.]+),(\d)' -and [double]$Matches[1] -gt 3 -and [int]$Matches[2] -eq 4
+    $ragdoll = $done -match 'ragdoll=True,(-?[\d.]+)' -and [double]$Matches[1] -lt 0.5
+    $night = $done -match 'night=True,True'
+    return [pscustomobject]@{ Start = $s; Done = $d; StartOk = [bool]$startOk; Cloth = [bool]$cloth; Car = [bool]$car; Ragdoll = [bool]$ragdoll; Night = [bool]$night }
+}

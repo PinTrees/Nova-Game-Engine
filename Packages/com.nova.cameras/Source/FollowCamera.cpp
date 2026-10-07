@@ -72,8 +72,8 @@ void FollowCamera::Start()
 
 void FollowCamera::LateUpdate()
 {
-	if (!Application::IsPlaying() || m_pGameObject == nullptr)
-		return;
+	if (!Application::IsPlaying() || m_pGameObject == nullptr || !m_Enabled)
+		return;   // 끄면 (Inspector 체크 상자 · C# enabled) 카메라를 그대로 둔다
 	GameObject* target = FindTarget();
 	if (target == nullptr || target == m_pGameObject)
 		return;

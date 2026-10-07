@@ -117,7 +117,7 @@ manifest 의 `screenOrientation` = portrait · reversePortrait · reverseLandsca
 Windows 는 공식 패키지 (`Packages/<이름>/Source`) 를 DLL 로 불러오지만 안드로이드는 **엔진에 함께 넣는다** (`Android/CMakeLists.txt` 가 패키지마다 정적 라이브러리,
 같은 이름인 진입점 `NovaPackage_OnLoad` 는 패키지 이름을 붙여 바꾸고, 만든 `nova_packages.cpp` 가 `App::Init` 에서 씬보다 먼저 차례로 부른다).
 패키지의 셰이더 (`Packages/*/Shaders/*.fx`, 예: Toon 의 lilToon) 도 `nova android shaders` 가 GLES 로 바꾼다 (기기는 이름으로 찾는다).
-내비게이션 (`com.nova.ai.navigation`, Recast · Detour) 도 함께 들어간다 — 구운 `.navmesh` 는 게임 데이터에, 검사 `powershell -File Tools/tests/android_nav.ps1` ([내비게이션](NAVIGATION_2D.md#안드로이드--웹)).
+내비게이션 (`com.nova.ai.navigation`, Recast · Detour) 도 함께 들어간다 — 구운 `.navmesh` 는 게임 데이터에, 검사 `powershell -File Tools/tests/android_player.ps1` (`-Check nav`) ([내비게이션](NAVIGATION_2D.md#안드로이드--웹)).
 Windows 전용 호출 (파일 대화 상자 · 모듈 경로 · PNG 저장) 은 `Android/Include` 의 대체 (`commdlg.h`, `GetModuleHandleExW`, `SaveToWICFile` = 늘 실패) 로 컴파일만.
 
 ### 컴포넌트 등록
@@ -264,6 +264,13 @@ powershell -File Tools/tests/android.ps1
 12. 배포: 검사용 키 (무작위 비밀번호) 를 `keystore-create` 로 만들고 `--app-bundle` 로 빌드 → APK 서명 (apksigner 의 DN) · AAB 서명 (jarsigner) · 아이콘 · versionCode (aapt2 badging) ·
     bundletool `validate` · `build-apks`
 13. 에디터의 Build And Run: `nova android build --run` → 다른 패키지 이름 (`com.<회사>.<제품>`) 의 APK 가 설치 · 실행되어 엔진이 시작하는지, Build Settings 창 (Android) 캡처
+
+플레이어 기능 검사 (`powershell -File Tools/tests/android_player.ps1 -Check nav|features`) — 편집기로 검사 장면을 만들어 Build And Run → logcat 의 C# 검사 로그:
+
+- `nav`: 3D · 2D 내비게이션 ([내비게이션](NAVIGATION_2D.md#안드로이드--웹))
+- `features`: Skinned Mesh 위의 천 (치마 · 망토 — 허리는 붙어 있고 밑단은 처진다), Starter Assets 의 차 (스크립트 가속, 바퀴 4 개 접지) ·
+  맞으면 쓰러지는 래그돌 표적, 낮 · 밤 (22 시에 가로등 NightLight 켜짐), 구운 반사 프로브가 APK 에 들어갔는지. 검사 스크립트 `Tools/tests/features_player_probe.cs`,
+  장면은 `common.ps1` 의 `New-PlayerFeatureScene` (웹 스위트도 같은 장면)
 
 2026-10-04: 1 단계 **7/7** — `OpenGL ES 3.2 V132 (Adreno (TM) 640)`, 그리기 18 ~ 28 ms, DX11 과 차이 최대 1, 기기 쪽 셰이더 오류 0.
 2 단계 첫 조각 (플레이어 셸) 포함 **15/15**. Gfx 층 GLES 구현 뒤 **17/17** — Gfx 층 검사 장면 (그림자 맵 R24G8 배열 · 비교 샘플러 · 큐브맵 · 밉) 도 DX11 과 차이 최대 1.

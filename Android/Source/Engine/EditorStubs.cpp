@@ -195,6 +195,9 @@ namespace Assimp
 }
 aiReturn aiGetMaterialColor(const aiMaterial*, const char*, unsigned int, unsigned int, aiColor4D*) { return aiReturn_FAILURE; }
 aiReturn aiGetMaterialString(const aiMaterial*, const char*, unsigned int, unsigned int, aiString*) { return aiReturn_FAILURE; }
+// FBX 재질 꺼내기 (FBXLoader::ExtractMaterials — 편집기 전용, 플레이어는 ReadFile 이 없어 부르지 않는다)
+aiReturn aiGetMaterialFloatArray(const aiMaterial*, const char*, unsigned int, unsigned int, ai_real*, unsigned int*) { return aiReturn_FAILURE; }
+aiReturn aiGetMaterialTexture(const aiMaterial*, aiTextureType, unsigned int, aiString*, aiTextureMapping*, unsigned int*, ai_real*, aiTextureOp*, aiTextureMapMode*, unsigned int*) { return aiReturn_FAILURE; }
 aiString aiMaterial::GetName() const { return aiString(); }
 aiNode* aiNode::FindNode(const char*) { return nullptr; }
 

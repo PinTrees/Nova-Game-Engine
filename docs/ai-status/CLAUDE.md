@@ -1,35 +1,40 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **부모를 끄면 자식도 꺼진다 (Unity activeInHierarchy)** (사용자 요청 — FBX 작업에서 남긴 작업 칩). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **activeInHierarchy 마무리 · 안드로이드 · 웹 플레이어에서 오늘 기능 확인** (사용자 지시 5 가지 중 1 · 2 번 — 다음: Starter Assets 2 단계). **완료 (커밋, 푸시 전)**
+  - 1 번: 플레이어 다시 빌드 (안드로이드 · 웹 — Assimp 없는 플레이어에 `aiGetMaterialFloatArray · aiGetMaterialTexture` 대체 추가), 검사 장면 `common.ps1` 의 `New-PlayerFeatureScene` (천 치비 · 차 · 래그돌 표적 · 낮밤 가로등 · 구운 반사 프로브) + `Tools/tests/features_player_probe.cs`.
+    안드로이드 `Tools/tests/android_player.ps1 -Check nav|features` (android_nav.ps1 을 바꿈) 11/11, 웹 스위트 15/15. Showcase 257
+  - 함께 고침: Follow Camera 가 enabled 를 무시하고 따라가던 것 (C++ LateUpdate · C# `FollowCamera : Behaviour`)
+  - 2 번: Particle System (끄면 입자 지움 · 다시 켜면 Play On Awake), Animator (다시 켜면 기본 상태부터 — Rebind), Hierarchy 가 꺼진 오브젝트 · 자식을 흐리게, Scene 뷰 클릭이 꺼진 오브젝트를 고르지 않음. `-Only behaviour` 6/6. 문서 PACKAGES · ANDROID · WEB · NAVIGATION_2D
+- 이전: 2026년 10월 7일 — **부모를 끄면 자식도 꺼진다 (Unity activeInHierarchy)** (사용자 요청 — FBX 작업에서 남긴 작업 칩). **완료 (푸시함)**
   - `GameObject::IsActiveInHierarchy()`, `Scene::UpdateScene` 이 꺼진 오브젝트의 Update · LateUpdate 를 건너뛰고 (FixedUpdate 는 이미), 바뀐 프레임에 `Component::OnHierarchyActiveChanged`
   - 그리기: 일반 Render 루프 · 스킨 메시 · 지형 모으기 · MeshBatcher · 기즈모 · 디테일 · 나무 · 바위 · 지형 도장 · 물 · LOD Group · 발광 (APV) — 자기만 보던 곳을 hierarchy 로. 내비 에이전트 · 날씨 고르기 · UI 월드 카메라도
   - 훅: AudioSource (멈춤, 다시 켜면 Play On Awake), Cloth (물리에서 내림), C# 스크립트 (OnDisable / OnEnable)
   - 검사 `-Only behaviour` 5/5 (부모를 끄면 빈 장면과 같은 그림 0.00, 자식 스크립트 Update 멈춤 · OnDisable · 소리 멈춤 → 다시 OnEnable · 재생), audio · physics · animation · ui · cloth · sprites · lodgroup · packages · render · probevolume 함께 통과. 문서 PACKAGES
-- 이전: 2026년 10월 7일 — **모델 편집기 FBX → 엔진: 치비 머리 · 머리카락 · 색** (사용자 요청 — 천 작업에서 남긴 작업 칩). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **모델 편집기 FBX → 엔진: 치비 머리 · 머리카락 · 색** (사용자 요청 — 천 작업에서 남긴 작업 칩). **완료 (푸시함)**
   - 원인 1: 메시 `Head` 와 본 `Head` 가 같은 이름 → 엔진이 본 자리에 메시 노드 (가장 위) 를 잡아 머리에 묶인 정점이 가슴으로 (머리카락이 뻗침). 가져오기 `FBXLoader::RenameClashingMeshNodes` (본과 겹치는 메시 노드 = `<이름>_Mesh`, Blender FBX 도), 캐시 NVCC, 모델 편집기 FBX 내보내기도 `_Mesh` (VRM 과 같은 규칙)
   - 원인 2: FBX 재질 색을 쓰지 않았다 (모두 기본 재질) → `FBXLoader::ExtractMaterials` = `<파일>_FBX.Materials/*.mat` (Diffuse 색 · 그림 · 발광 · Phong → Smoothness, 있으면 그대로, 프로젝트 Assets 만 — 같은 이름 VRM 의 `<파일>.Materials` 와 겹치지 않게), 캐릭터 · 정적 모델 배치 둘 다
   - 함께 고침: 모델 파일 감시의 다시 가져오기가 장면을 프레임 가운데 다시 만들어 Scene 뷰가 지운 빛을 읽어 멈추던 것 → 프레임 끝에 (`ImportSettingsInspector::Reimport`)
   - 검사 `-Only model` 에 FBX = VRM 윤곽 (줄마다 끝 차이 2.6 px, 고치기 전 9.9 — 확인함) · Head_Mesh · Dress 색 · .mat. model · modelplace · clothskin · animation 80/80
   - 따로 남긴 일 (작업 칩): 부모 GameObject 를 꺼도 자식 렌더러가 그려진다 (activeInHierarchy 없음)
-- 이전: 2026년 10월 7일 — **낮 · 밤 마무리** (사용자 지시 4 가지 중 4 번 — 마지막). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **낮 · 밤 마무리** (사용자 지시 4 가지 중 4 번 — 마지막). **완료 (푸시함)**
   - 반사 프로브를 시각마다 다시 찍기: `DayNightState::TimeOfDay · ProbeRefreshMinutes · ProbeRefreshSerial`, `ReflectionProbes::Update` 가 시각이 그만큼 흐르면 모든 프로브를 다시 (Baked · Custom 도 실행 중의 큐브 `Relit` — DDS 는 그대로, 처음 뒤로는 한 면씩), 끄면 구운 큐브로. `probe info` 에 relit · capturedTime
   - `32. InstancedBasic.fx` `ProbeReflection`: 날씨 · 낮밤 하늘 보정을 하늘 · 구운 프로브에만 (실행 중에 찍은 프로브는 Intensity 음수로 표시 — 보정 안 함, 두 번 어두워지지 않게). fxc (DX11 · WebGPU) 확인
   - 패키지: Day Night Cycle 의 Probe Refresh (게임 분, 기본 30), C# `DayNight.probeRefreshMinutes · RefreshReflectionProbes()`, CLI `daynight set --probes` · `daynight probes`, C# `NightLight` (해 높이로 가로등 · 창문 켜기 — 히스테리시스 · 페이드 · 하나씩, 자식 Light + 발광 렌더러)
   - 데모 `docs/examples/daynight/build_street_scene.ps1` (비 오는 거리 — 건물 창문 · 가로등 · 거울 구 · 구운 프로브 · Day Night Cycle · Weather)
   - 엔진 버그 수정 (데모 중 발견): **GameObject > Light > Point / Spot Light 가 Directional 로 남던 것** (`Light::SetPointLight · SetSpotLight` 가 종류를 안 바꿈), **JSON 소수 칸에 정수 (CLI `\"range\":16`) 가 0 이 되던 것** (`DE_SERIALIZE_FLOAT` — `is_number`)
   - 검사 `-Only daynight` 12/12 (reflectionprobe · render · behaviour · weather 함께 통과). 문서 DAY_NIGHT · REFLECTION_PROBE, Showcase 256
-- 이전: 2026년 10월 7일 — **차량 · 래그돌 샘플 (Starter Assets)** (사용자 지시 4 가지 중 3 번 — 다음: 낮밤 마무리). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **차량 · 래그돌 샘플 (Starter Assets)** (사용자 지시 4 가지 중 3 번 — 다음: 낮밤 마무리). **완료 (푸시함)**
   - 패키지 `com.nova.starter-assets` 1.1.0: C# `CarController` (W/S/A/D · 브레이크 → 후진 · 속도에 따른 조향 · 손 브레이크 · R 세우기 · 다운포스, readKeyboard 끄고 throttle/steer 로 시험), `RagdollTarget` (맞으면 Ragdoll 켜고 가까운 바디를 밈, CC · TPC 끔, Recover), `RagdollShooter` (클릭 → ScreenPointToRay)
   - 엔진: `GameObjectFactory::CreateCar` (처음 = 재질 7 + `Assets/StarterAssets/Car.prefab` 저장, 다음 = 인스턴스, Follow Camera) · `CreateRagdollTarget` (기본 캐릭터 + Wizard 꺼짐 + RagdollShooter), 메뉴 3D Object > Car · Ragdoll Target, CLI `create car | ragdoll-target`. `CreatePrimitive` 공개
   - C# (Unity 이름): `Camera.ScreenPointToRay · ViewportPointToRay`, `Rigidbody.AddForceAtPosition`
   - 검사 `-Only starter` 9/9 (wheel · ragdoll 함께 23/23). 문서 `docs/STARTER_ASSETS.md` (+ WHEEL_COLLIDER · RAGDOLL · NOVA_CLI · README), Showcase 255
-- 이전: 2026년 10월 7일 — **캐릭터 옷 (Skinned Mesh 위의 천)** (사용자 지시 4 가지 중 2 번 — 다음: 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **캐릭터 옷 (Skinned Mesh 위의 천)** (사용자 지시 4 가지 중 2 번 — 다음: 차량/래그돌 샘플 · 낮밤 마무리). **완료 (푸시함)**
   - `Cloth`: Skinned Mesh Renderer 에 붙이면 Jolt skinned constraint — rest = 바인드 자세 (월드 크기), 역바인드 하나 + 본 행렬 = 팔레트 × 월드 (GPU 스키닝과 같은 값), Unity `coefficients` (maxDistance · collisionSphereDistance), Pin = maxDistance 0, 뒤 막이를 위해 삼각형 감김을 메시 법선에 맞춤, 순간 이동 = hardSkinAll. 서브메시 기준 정점 (VertexStart) 반영
   - `SkinnedMeshRenderer::SetSimulatedVertices`: 천 정점 (오브젝트 공간) 을 동적 버퍼로, 팔레트 끝 단위 본 하나에 묶음 (BlendShape 와 같은 버퍼 · `UploadDynamicVertices`). `PhysicsManager::ClothSkin · SkinCloth`
   - C# `Cloth.coefficients` · `ClothSkinningCoefficient` (바인딩 표 끝 `CL_GetCoefficients · CL_SetCoefficients` — **안드로이드 `Android/Player` · 웹 플레이어는 다시 빌드해야 표가 맞는다**, 릴리즈 때)
   - 예제 `docs/examples/model_chibi_cloth.txt` (치마 · 망토 + 리깅), 검사 `-Only clothskin` 6/6 (cloth 4/4, animation · ragdoll 20/20). 문서 CLOTH · MODEL_EDITOR, Showcase 254
   - 따로 남긴 일: 모델 편집기의 FBX 로 내보낸 치비가 엔진에서 머리카락이 뻗치고 색이 빠진다 (VRM 은 정상) — 별도 작업 칩으로 제안함
-- 이전: 2026년 10월 7일 — **내비게이션을 안드로이드 · 웹에서** (사용자 지시 4 가지 중 1 번 — 다음: 캐릭터 옷 · 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **내비게이션을 안드로이드 · 웹에서** (사용자 지시 4 가지 중 1 번 — 다음: 캐릭터 옷 · 차량/래그돌 샘플 · 낮밤 마무리). **완료 (푸시함)**
   - 패키지는 이미 플레이어 빌드에 정적으로 들어가 있었다 — 실제 기기 · 브라우저 검사를 더하고 웹의 실패를 고침
   - 웹: NavMesh 를 읽을 때 타일 만들기가 `std::thread` 를 띄워 시작이 예외로 멈췄다 → `NavData::ParallelFor` 를 웹에서는 부른 스레드에서 차례로. `Web/Source/WebMain.cpp` 가 시작 · 프레임의 C++ 예외를 받아 로그 (`[Web] exception in init: …`)
   - 검사: `Tools/tests/nav_player_probe.cs` (3D 벽 · 2D Box Collider 2D 벽을 돌아가는 길 · 도착), `common.ps1` 의 `New-NavPlayerScene · Test-NavPlayerLog`, 안드로이드 `Tools/tests/android_nav.ps1` (MuMu, Build And Run → logcat) 8/8, 웹 스위트에 두 항목 — web 13/13. 문서 NAVIGATION_2D · ANDROID · WEB
@@ -38,37 +43,37 @@
   - 네이티브가 끄면 멈추게: 빛 (`LightManager::IsLit` — 꺼짐 · 꺼진 계층, 게임 · Scene 뷰 모두), SpriteAnimator, Expressions. (오디오 · 카메라 · 콜라이더 · 2D 렌더러 · 포즈 수정자 · UI · Animator 는 이미 봄)
   - 물리: 바디를 빼거나 다시 만들 때 둘레의 잠든 바디를 깨운다 (`WakeAround` — 콜라이더를 끄면 위의 상자가 떨어진다)
   - 검사 `-Only behaviour` 3/3 (Animator 멈춤 · 다시 · Inspector 값, 빛 끄기, 콜라이더 끄기), 함께 physics · ui · audio · animation · sprites · light2d · ragdoll · cloth — 75/75. 문서 `docs/PACKAGES.md`
-- 이전: 2026년 10월 7일 — **천 (Cloth)** (같은 지시 순서의 8 번 — 마지막). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **천 (Cloth)** (같은 지시 순서의 8 번 — 마지막). **완료 (푸시함)**
   - `Source/Scene/Cloth.*`: Unity Cloth (Mesh Filter 메시 → Jolt Soft Body: 정점 묶기 · 늘어남 · 비틀림 · dihedral 접힘 · LRA, 고정 Top Edge · Top Corners · 고른 정점, 바람 · 출렁임, 순간 이동 = 천 전체 이동), 메시 사본을 동적 정점 버퍼로 (`MeshGeometry::UpdateVertices`)
   - `PhysicsManager`: CreateCloth · DriveCloth · ShiftCloth · GetClothVertices · WorldSerial, Soft Body 접촉 거르기 (자기 콜라이더 · 트리거)
   - C# `Cloth · ClothPinMode`, Add Component > Physics > Cloth. 검사 `-Only cloth` 4/4, 문서 `docs/CLOTH.md`, Showcase 252
   - 사용자 지시 순서 (씬 · PlayerPrefs · 트윈 · 2D 빛 · 2D 내비 · 래그돌 · 차량 · 천) + 낮 · 밤 순환 모두 끝. 푸시는 아직 (요청 시)
-- 이전: 2026년 10월 7일 — **낮 · 밤 순환 패키지 `com.nova.daynight`** (사용자 추가 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **낮 · 밤 순환 패키지 `com.nova.daynight`** (사용자 추가 요청 — 새벽 > 아침 > 낮 > 저녁 > 노을 > 밤 > 은하수). **완료 (푸시함)**
   - 패키지: `DayNightCycle` (전역 하나 — 시각 · 하루 길이 · 단계별 Look 7 개를 섞음, Directional Light 를 해 · 달로 돌림), CLI `nova daynight status|set|phase`, C# `DayNight · DayPhase · DayNightCycle`
   - 엔진: `Source/Graphics/Common/DayNightState.*` (기본값 = 그대로), `WeatherState::SkyScale · AmbientScale` (날씨 × 낮 · 밤) 을 Sky · WeatherCover (반사) · 물 · ApplySun/Ambient 가 쓰도록, AtmospherePass 안개 색 (하늘색 모드는 하늘 밝기만큼), `21. Sky.fx` 에 그라데이션 · 노을 빛 · 해 · 달 · 별 · 은하수 (fxc 확인)
   - 검사 `-Only daynight` 8/8, weather 14/14, OpenGL · Vulkan = DX11 (노을 차이 0, 은하수 0.2 — 반짝임). 문서 `docs/DAY_NIGHT.md`, Showcase 251
-- 이전: 2026년 10월 7일 — **차량 (Wheel Collider)** (같은 지시 순서의 7 번). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **차량 (Wheel Collider)** (같은 지시 순서의 7 번). **완료 (푸시함)**
   - `Source/Scene/WheelCollider.*`: Unity WheelCollider (레이 서스펜션 — 매달린 질량 × g + 스프링 · 댐퍼로 Target Position 에서 쉼, 슬립 곡선 타이어, 모터 · 브레이크 · 조향, 바퀴 각속도, GetWorldPose · GetGroundHit, 기즈모). Add Component > Physics > Wheel Collider, C# `WheelCollider · WheelHit · WheelFrictionCurve`
   - 안정: 마찰 반작용이 구르는 속도를 넘지 않게, 잠긴 바퀴는 브레이크가 버티면 미끄럼 마찰 그대로, 낮은 속도의 마찰은 접점의 실제 질량 (`PhysicsManager::GetEffectiveMass` — 회전 몫 포함) ÷ 바퀴 수의 절반까지 (서 있는 차가 좌우로 흔들리던 것)
   - 검사 `-Only wheel` 5/5, 문서 `docs/WHEEL_COLLIDER.md`, Showcase 250
   - 지켜볼 것: `-Only ragdoll` 이 느린 세션 (90 초 컴파일 대기) 에서 두 번 물리가 통째로 멈췄다 (바디는 다이내믹, 스텝 없음 — 같은 빌드로 다시 돌리면 9/9). 원인 미확인 → Editor.log 에 `[Physics] start · exit · heartbeat` (Play 처음 3 초 스텝 수) 를 남기게 했다
-- 이전: 2026년 10월 7일 — **래그돌 (Character · Configurable Joint · Ragdoll Wizard)** (같은 지시 순서의 6 번). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **래그돌 (Character · Configurable Joint · Ragdoll Wizard)** (같은 지시 순서의 6 번). **완료 (푸시함)**
   - `Source/Scene/Joint.*`: CharacterJoint (Jolt SwingTwist — 흔들기 1 = Swing Axis 둘레 → Jolt Normal Half Cone, 흔들기 2 → Plane Half Cone), ConfigurableJoint (SixDOF — 축마다 Locked/Limited/Free, 선 한계 스프링, X·Y·Z · Angular X/YZ · Slerp 드라이브, 목표는 Unity 처럼 반대). 처음 만든 때의 쉬는 틀을 `Joint::Rest` 로 기억 (다시 만들어도 같은 기준)
   - `Source/Scene/Ragdoll.*`: Ragdoll Wizard (휴머노이드 Skinned Mesh → 바디 11 · Unity 값) + Ragdoll 컴포넌트 (Active = 바디가 스키닝 자세를 정함 / 꺼짐 = 키네마틱으로 애니메이션 따라감). `SkinnedMeshRenderer::GetNodeGlobals`. 메뉴 3D Object > Ragdoll..., CLI `ragdoll create|info|active`, C# `Ragdoll · CharacterJoint · ConfigurableJoint · SoftJointLimit · JointDrive`
   - 엔진 수정: 다이내믹 바디를 부모 먼저 Transform 에 쓰기, `Physics.IgnoreCollision` (쉬는 자세에서 겹친 래그돌 쌍), Animator · AnimationPlayer 가 enabled 꺼지면 멈춤 (Unity), **Transform 월드 크기 기본 1** (한 번도 갱신 안 된 루트 아래 콜라이더가 1 mm 이던 버그 — 예전 씬의 0 도 고쳐 읽음)
   - 검사 `-Only ragdoll` 9/9, physics · animation 함께 33/33, 문서 `docs/RAGDOLL.md`, Showcase 249
-- 이전: 2026년 10월 7일 — **2D 내비게이션 (NavMesh Surface Plane = 2D)** (같은 지시 순서의 5 번). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **2D 내비게이션 (NavMesh Surface Plane = 2D)** (같은 지시 순서의 5 번). **완료 (푸시함)**
   - 패키지 `com.nova.ai.navigation`: `NavMeshSurface` 의 Plane (3D XZ / 2D XY) — 2D 굽기 = 바닥 사각형 (콜라이더 · 스프라이트 범위 또는 Volume) + 정적 2D 콜라이더 윤곽 (귀 자르기 삼각형, Edge 는 얇은 사각형, Tilemap Collider 2D 포함, 움직이는 Rigidbody 2D · 트리거 제외)
   - `NavData`: 내비 공간 (x, 0, y), 벽 삼각형을 반 칸 키운 볼록 다각형으로 `RC_NULL_AREA` 표시 (깎기 전), `.navmesh` 버전 3 (머리 뒤 2D 플래그, 버전 2 도 읽음), 2D 기즈모
   - `NavMeshAgent`: 2D 표면이면 XY 로 (z · 회전 그대로, 바닥 Raycast · Obstacle 밀기 없음), C# 내보내기 (destination · velocity · corners · CalculatePath · SamplePosition · 링크 점) 는 월드 좌표. 에이전트를 골라도 내비 메시 기즈모 (Unity 처럼)
   - 검사 `-Only nav2d` 8/8, 3D 는 `-Only packages` 10/10. 문서 `docs/NAVIGATION_2D.md`, Showcase 248
-- 이전: 2026년 10월 7일 — **2D 빛 (Light 2D · Shadow Caster 2D · 노멀 맵)** (같은 지시 순서의 4 번). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **2D 빛 (Light 2D · Shadow Caster 2D · 노멀 맵)** (같은 지시 순서의 4 번). **완료 (푸시함)**
   - `Source/Scene/Light2D.*`: Light2D (Global · Spot — 반지름 · 원뿔 · Falloff · 그림자 · 노멀 맵 거리), ShadowCaster2D (2D 콜라이더 윤곽 → 없으면 스프라이트 사각형, Self Shadows). 메뉴 Light > Global/Spot Light 2D, Add Component, CLI `create global-light-2d · spot-light-2d`, 기즈모
   - `SpriteBatch` · `51. Sprite.fx`: 켜진 Light 2D 가 있으면 Lit 기법 (빛 32 개), 그림자 = 빛을 등진 모서리를 민 사각형을 화면 크기 RGBA 두 장의 채널에 MAX (빛 8 개), 노멀 맵 = 화면 미분 접선 틀. SpriteRenderer 에 Normal Map 칸
   - C# `NovaEngine.Rendering.Universal.Light2D · ShadowCaster2D`, 트윈 `DOIntensity · DOColor · DOShadowIntensity · DORadius`
   - 검사 `-Only light2d` 8/8 (값이 식과 같다), OpenGL · Vulkan 같은 값, 웹 (WebGPU) = DX11 (최대 1 — 웹 스위트에 추가, web 11/11), 안드로이드 빌드 OK. 문서 `docs/LIGHT_2D.md`, Showcase 247
   - Web · Android CMake 의 엔진 소스 glob 에 CONFIGURE_DEPENDS (새 파일을 다시 구성 없이)
-- 이전: 2026년 10월 7일 — **트윈 패키지 `com.nova.tween`** (같은 지시 순서의 3 번: DOTween 같은 기능, 별도 패키지). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 7일 — **트윈 패키지 `com.nova.tween`** (같은 지시 순서의 3 번: DOTween 같은 기능, 별도 패키지). **완료 (푸시함)**
   - 순수 C# (`Packages/com.nova.tween/Runtime`): Tween · TweenerCore<T> · Sequence (Append · Join · Insert · Prepend · 간격 · 콜백), 곡선 30 (Penner), 반복 Restart · Yoyo · Incremental, 지연 · Relative · From · SpeedBased · 거꾸로, 콜백 · WaitForCompletion · AsyncWaitForCompletion, 대상 지우면 조용히 끝, 숨긴 `[NovaTween]` 오브젝트가 Update · LateUpdate · FixedUpdate 로 진행
   - 단축 메서드 (DOTween 과 같은 이름): Transform (이동 · 회전 4 방식 · LookAt · 크기 · Punch · Shake · Jump · Path), Material · SpriteRenderer · UI Graphic 색 · 투명도, FillAmount · DOText · DOCounter, RectTransform, Light · Camera · AudioSource, DOVirtual. 정적 클래스 = `NovaTween` (DOTween 이름은 쓰지 않음)
   - `TweenAnimation` 컴포넌트 (코드 없이 Inspector 에서). 엔진 C# API 에 `Camera.fieldOfView · near · far · orthographicSize · aspect`, `Light.intensity · color · shadowStrength · range · spotAngle` 추가
@@ -243,7 +248,7 @@
   - C#: `ScriptCore/Engine/VisualEffect.cs` (NovaEngine.VFX.VisualEffect), `Core.cs` 매핑
   - 검사: vfx · vfxgl · vfxvk **20/20** (run_tests), `Tools/tests/android_vfx.ps1` MuMu **11/11**, 회귀 cli · particles · linetrail **21/21**, 안드로이드 빌드. 문서 `docs/VFX_GRAPH.md` · README. Showcase 213 ~ 216
   - Assistant 실제 대화는 아직 못 해 봄: 이 PC 의 claude CLI 로그인이 만료 ("OAuth session expired") — 사용자가 터미널에서 `claude` → `/login` 하면 동작. 파이프 · stream-json · 오류 안내까지는 확인
-- 이전: 2026년 10월 5일 — **활성 카메라 찾기 · 물리 동기화 남은 비용** (사용자 지시: 추천 1 · 2 진행, "코덱스는 이제 작업 안해. 너가 다해"). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 5일 — **활성 카메라 찾기 · 물리 동기화 남은 비용** (사용자 지시: 추천 1 · 2 진행, "코덱스는 이제 작업 안해. 너가 다해"). **완료 (푸시함)**
   - 카메라 · 빛 1.1 ms (안드로이드) 의 원인 = `DisplayManager::GetCameraForDisplay` 가 부를 때마다 씬 전체 (복사 + 오브젝트마다 GetComponent_SP). `Camera::All` (생성 · 소멸 때 등록,
     복사 생성자 삭제) 에서 고른다 — 규칙 그대로 (현재 씬 · 활성 계층 · 켜짐 · 디스플레이 · 첫 Camera · Priority, 같으면 씬 순서), 지워진 오브젝트는 `GameObject::IsAlive` (Play 멈춤 때 충돌을 검사가 잡음)
   - 새 `Source/Scene/ComponentIndex.*`: 오브젝트마다 컴포넌트 분류 (콜라이더 · Rigidbody · Character Controller · Joint · 2D 콜라이더 · Rigidbody2D · Joint2D) 를 InstanceID 지문으로 기억.
@@ -251,7 +256,7 @@
   - PC Release 도시 Play A/B: 프레임 7.95 → 6.6 ms, 카메라 · 빛 1.01 → 0.08 아래, 동기화 0.64 → 0.46, 2D 0.36 → 0.08 ms. FixedUpdate 는 예전 방식이 더 싸서 그대로
   - 검사: cli (새 활성 카메라 검사) · physics · physics2d · animation · packages · ui · render · material · occlusion · audio · layers · sprites · anim2d, joints2d **42/42**, scene_lifecycle **43/43**, 안드로이드 빌드. Showcase 212
   - Codex 작업 종료 — AI_COLLABORATION.md 에 적음
-- 이전: 2026년 10월 5일 — **Renderer 마무리** (같은 지시 — 추천 3). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 5일 — **Renderer 마무리** (같은 지시 — 추천 3). **완료 (푸시함)**
   - 재질 칸 블록: `Scene/MaterialBlock.*` (SetAt · GetAt — 렌더러 블록 위에 덮음, 있으면 인스턴스 값 대신 파생 재질), `MeshRenderer.h` · `SkinnedMeshRenderer.h` (PropertyBlock()),
     `MaterialScripting.cpp` (NovaMat_SetBlock · BlockCount · BlockEntry 에 materialIndex, NovaMat_HasBlock)
   - 정렬: `MeshRenderer.*` · `SkinnedMeshRenderer.*` · `Effects/LineRenderer.*` 에 Sorting Layer · Order (저장), `MeshBatcher.cpp` 투명 패스 · `Effects/ParticleRenderer.cpp` 입자와 선 정렬 (레이어 → 순서 → 거리),
@@ -265,20 +270,20 @@
     `Scene/MeshRenderer.h`, `DX11/UMaterial.*` (InstancePropOf · EmissionToLinear · CanInstanceEmission · ScriptProp — 패키지 · 그래프 재질은 같은 이름의 속성을 SetColor/GetColor)
   - Shader Graph: `ShaderGraph.*` (InstanceSlotOf, 인스턴스 속성은 상수 버퍼 gSGm_ + static gSG_, SG_InstanceProps, 배치 VS 가 VertexIn_Batch), `ShaderGraphRuntime.*` (InstanceSlotFor, gSGm_ 바인딩)
   - 검사: material · materialgl · materialvk **12/12** (파생 재질과 픽셀 같음, Shader Graph 묶음 그대로), shadergraph **24/24**, packages · animation **21/21**, 렌더링 회귀 12 스위트 **99/99** (112 바이트), 안드로이드 빌드. Showcase 210
-- 이전: 2026년 10월 5일 — **물리 동기화 CPU** (사용자 지시 "푸시하고. 다음 작업 진행" — GLES 측정에서 찾은 물리 갱신 3.3 ms). **완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 5일 — **물리 동기화 CPU** (사용자 지시 "푸시하고. 다음 작업 진행" — GLES 측정에서 찾은 물리 갱신 3.3 ms). **완료 (푸시함)**
   - `Source/Physics/PhysicsManager.cpp`: StepSimulation 의 동기화를 한 번 훑기 (콜라이더 · Rigidbody · Character Controller · Joint), 버퍼 재사용, 콜라이더 표 제자리 갱신 (seen 번호),
     종류 기억 (KindOf · ComputeSignature 의 kinds), SyncJoints 가 모은 목록으로, 단계마다 Profiler 구간 (Physics.FixedUpdate · Sync · Characters · Joints · TransformToBody · Simulate · Events)
   - PC Release 도시 Play: 동기화/2D 물리 비율 3.7 → 1.7 (약 2 배), 캐릭터 · Joint 0.29 ms → 0. 회귀 physics · physics2d · animation · packages · cli **51/51**
   - 안드로이드 재측정은 못 했다: 그때 Unity · ChatGPT 앱이 CPU 를 많이 써서 Debug 에디터가 도시 장면을 만들다 4.3 초 멈춤 → 게임 데이터 내보내기 실패 (에디터 모드라 물리 변경과는 무관).
     `android_city_perf.ps1` 은 막 켠 VM 의 adb offline 때 ABI 를 기다리게 고침
-- 이전: 2026년 10월 5일 — **GLES 그리기 CPU** (사용자 지시 "푸시하고 진행해줘" — 추천 1 → 2 → 3 의 1). **완료 (커밋, 푸시 전)** — android **66/66**, android_occlusion **13/13**, 도시 10/10, PC material · cli **19/19**, Showcase 209
+- 이전: 2026년 10월 5일 — **GLES 그리기 CPU** (사용자 지시 "푸시하고 진행해줘" — 추천 1 → 2 → 3 의 1). **완료 (푸시함)** — android **66/66**, android_occlusion **13/13**, 도시 10/10, PC material · cli **19/19**, Showcase 209
   - `Android/Source/GLESState.*` (상태 · 바인딩 기억: 프로그램 · 상수 블록 · 텍스처 유닛 · 샘플러 · SSBO · image · VAO, Invalidate · Forget · Deleted),
     `GLESRhi.cpp` (Apply 가 기억으로, 상수 블록은 바뀐 범위만), `GfxGLES.*` (VAO 안 버퍼 기억, 지우기 · Present · RestoreState 에서 기억 버림, GlesCounters),
     `AndroidMain.cpp` (`-e profile on` → gl · scopes), `Engine/AppAndroid.cpp` (프레임 구간), `Source/Core/Profiler.cpp` (BeginFrame 스레드 = 구간 스레드 — 안드로이드에서 구간이 모두 버려졌다),
     `Tools/tests/android_city_perf.ps1` (`-Profile` · `-SkipBuild`, 결과를 파일로), `docs/ANDROID.md`
   - 프레임마다 텍스처 바인딩 3528 → 79, 샘플러 3528 → 48, 상수 블록 바인딩 1240 → 33, 프로그램 205 → 37. MuMu 켬 11.6 → 11.0 ms, 끔 13.9 → 11.6 ms (편차 큼)
   - 찾은 것: 물리 갱신 3.3 ms (`PhysicsManager::StepSimulation` 이 고정 스텝마다 모든 GameObject 를 훑어 바디 동기화를 처음부터) — 다음 작업 후보
-- 이전: 2026년 10월 5일 — **추천 2 · 3** (사용자 지시: 추천 2 "C# Renderer 공통 클래스 확장" · 3 "인스턴스별 속성 (GPU 인스턴싱 속성)" 붙여 넣기). **2 완료 (2ec9572 푸시)**, **3 완료 (커밋, 푸시 전)**
+- 이전: 2026년 10월 5일 — **추천 2 · 3** (사용자 지시: 추천 2 "C# Renderer 공통 클래스 확장" · 3 "인스턴스별 속성 (GPU 인스턴싱 속성)" 붙여 넣기). **2 완료 (2ec9572 푸시)**, **3 완료 (푸시함)**
   - 2 (**완료**) C# `Renderer` 기본 클래스: 새 `ScriptCore/Engine/Renderer.cs` (Renderer · Bounds · `NovaEngine.Rendering.ShadowCastingMode`), `Material.cs` (렌더러 부분을 Renderer.cs 로, DllImport 에 kind),
     `Components.cs` (Mesh · Skinned · Sprite 가 Renderer 를 물려받음), `Core.cs` (GetComponent<Renderer> → Mesh → Skinned → Sprite), 새 `Source/Scene/MaterialBlock.*` (블록 · 파생 재질 공용 — MeshRenderer.cpp 에서 옮김),
     `MeshRenderer.*` (MaterialBlock 사용 · SetCastShadows), `SkinnedMeshRenderer.*` (재질 · 블록 · 그림자 API, 그릴 재질 = RenderMaterials, **enabled 를 그리기 함수에서 확인** — 예전엔 꺼도 그렸다),

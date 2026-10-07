@@ -227,6 +227,8 @@ public:
 
 	virtual void Start() override;
 	virtual void OnDestroy() override;
+	// Unity: 오브젝트를 끄면 입자를 지우고 멈춘다, 다시 켜면 Play On Awake 로 처음부터
+	virtual void OnHierarchyActiveChanged(bool active) override;
 
 	// ---- Unity API ----
 	void Play(bool withChildren = true);

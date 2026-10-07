@@ -4,7 +4,7 @@ namespace NovaEngine
 {
     // com.nova.cameras: 3인칭 따라가기 카메라 (C++ 컴포넌트 FollowCamera, Plugins/NovaCameras.dll)
     [NativeComponent("FollowCamera")]
-    public sealed class FollowCamera : Component
+    public sealed class FollowCamera : Behaviour   // enabled = Inspector 체크 상자 (끄면 따라가지 않는다)
     {
         const string Dll = "NovaCameras";
         [DllImport(Dll)] static extern float NovaCameras_GetFloat(ulong go, int prop);

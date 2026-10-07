@@ -544,9 +544,11 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 		dl->AddText(ImVec2(x0 + 5.0f, ty), ImGui::GetColorU32(EditorTheme::TextDim()), open ? ICON_FA_CHEVRON_DOWN : ICON_FA_CHEVRON_RIGHT);
 	}
 
-	// 아이콘 + 이름
+	// 아이콘 + 이름 (꺼진 오브젝트 · 꺼진 부모의 자식은 흐리게 — Unity)
 	const bool isPrefab = PrefabUtility::IsPartOfPrefabInstance(gameObject);
-	dl->AddText(ImVec2(x0 + 20.0f, ty), ImGui::GetColorU32(isPrefab ? EditorTheme::Rgb(92, 160, 255) : EditorTheme::Rgb(150, 190, 230)), ICON_FA_CUBE);
+	const float fade = gameObject->IsActiveInHierarchy() ? 1.0f : 0.45f;
+	auto dim = [fade](ImVec4 c) { c.w *= fade; return c; };
+	dl->AddText(ImVec2(x0 + 20.0f, ty), ImGui::GetColorU32(dim(isPrefab ? EditorTheme::Rgb(92, 160, 255) : EditorTheme::Rgb(150, 190, 230))), ICON_FA_CUBE);
 	if (m_RenameTarget == gameObject)
 	{
 		// 이름 바꾸기 입력창: Enter/포커스 해제 시 적용, Esc 취소
@@ -570,7 +572,7 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 		}
 	}
 	else
-		dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(isPrefab ? EditorTheme::Rgb(126, 181, 255) : EditorTheme::Rgb(225, 225, 225)), gameObject->GetName().c_str());
+		dl->AddText(ImVec2(x0 + 40.0f, ty), ImGui::GetColorU32(dim(isPrefab ? EditorTheme::Rgb(126, 181, 255) : EditorTheme::Rgb(225, 225, 225))), gameObject->GetName().c_str());
 
 	// 다음 행 위치 (한 행 높이만큼 차지했다고 알린다 → 목록 가상 스크롤의 높이 계산)
 	ImGui::SetCursorScreenPos(ImVec2(p.x, p.y));

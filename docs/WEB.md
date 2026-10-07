@@ -88,6 +88,7 @@ bash Web/build.sh Release host   # C# 판 (.NET 웹어셈블리 — Binaries/Scr
 
 `Tools/tests/run_tests.ps1 -Only web` — 창 없는 Chrome (별도 프로필, 소리는 스피커로 내지 않음) 을 CDP 로 (`Tools/web/headless.mjs` · `run_scene.sh`):
 C# 검사 장면 (LINQ · `WebGLPlayer` · 강체가 바닥에 선다 · mp3 스트리밍 출력 진폭), 재질 장면 그림 = DX11 (`nova android reference`), `nova web build --run` 서버 (wasm MIME · 격리 머리 · 폴더 밖 404) 에서 실행.
+플레이어 기능 장면 (`common.ps1` 의 `New-PlayerFeatureScene`, 안드로이드 `android_player.ps1 -Check features` 와 같은 장면): Skinned Mesh 위의 천 · 차 · 래그돌 표적 · 낮밤 가로등.
 
 ## 나중
 

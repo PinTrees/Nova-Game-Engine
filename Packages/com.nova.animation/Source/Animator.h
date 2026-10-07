@@ -121,6 +121,8 @@ public:
 	void Update(float deltaTime) { Step(deltaTime); }
 	// Unity 의 Animator.Rebind(): 기본 상태로 되돌리고 포즈를 다시 계산한다
 	void Rebind() { ResetRuntime(); EvaluatePose(); }
+	// Unity: 오브젝트를 다시 켜면 기본 상태부터 (Keep Animator State On Disable 이 꺼진 기본값과 같다)
+	void OnHierarchyActiveChanged(bool active) override { if (active) Rebind(); }
 	// Unity 의 GetBoneTransform 대신: 사람 본(Humanoid::Bone)의 월드 위치·회전 (마지막 포즈, IK 포함). 없으면 false
 	bool GetHumanBoneWorld(int bone, XMFLOAT3& position, XMFLOAT4& rotation);
 

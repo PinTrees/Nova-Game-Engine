@@ -76,6 +76,17 @@ bool ParticleSystem::HasEnabledToggle() const
 	return false;   // Unity 의 Particle System 은 Behaviour 가 아니어서 헤더에 체크박스가 없다
 }
 
+void ParticleSystem::OnHierarchyActiveChanged(bool active)
+{
+	if (!active)
+	{
+		Stop(false, true);   // 자식 파티클은 각자 (같은 프레임에 그 자식도 받는다)
+		return;
+	}
+	if (PlayOnAwake && Application::IsPlaying() && !IsSubEmitterTarget())
+		Play(false);
+}
+
 void ParticleSystem::Start()
 {
 	// Play 시작: 에디터 미리보기로 남은 입자를 지우고 Play On Awake 면 재생 (자식은 각자의 Start 에서)
