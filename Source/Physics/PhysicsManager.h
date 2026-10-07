@@ -117,7 +117,21 @@ public:
 		float Damping = 0.1f, Friction = 0.3f, GravityFactor = 1.0f, Thickness = 0.02f;
 		uint32 Iterations = 6;
 	};
-	uint32 CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s);
+	// 스킨 위의 천 (Skinned Mesh Renderer): 정점마다 본 4 개 · 가중치, 피부에서 벗어날 수 있는 거리 (0 = 피부에 붙음), 뒤 막이 (피부 안쪽으로 들어가지 않게)
+	struct ClothSkin
+	{
+		std::vector<std::array<uint8, 4>> Bones;
+		std::vector<std::array<float, 4>> Weights;
+		int JointCount = 0;
+		Matrix RestToWorld;                  // 바인드 정점 → 월드 (만들 때의 rest 정점 = 바인드 정점 × 이것)
+		std::vector<float> MaxDistance;      // FLT_MAX = 자유
+		std::vector<float> BackStopDistance; // FLT_MAX = 없음
+		float BackStopRadius = 1.0f;
+	};
+	uint32 CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s,
+		const ClothSkin* skin = nullptr);
+	// 스킨 천: 본 행렬 (바인드 정점 → 월드, 행 벡터) 로 피부 자리를 다시 — hardSkinAll = 모든 정점을 피부 자리로 (시작 · 순간 이동)
+	void SkinCloth(uint32 handle, const std::vector<Matrix>& jointToWorld, bool hardSkinAll);
 	void DestroyCloth(uint32 handle);
 	bool GetClothVertices(uint32 handle, std::vector<Vec3>& world);
 	// 스텝 전: 고정 정점 (월드) 을 옮기고 (속도 = 옮긴 만큼) 모든 정점에 가속 (바람)

@@ -314,6 +314,8 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, Vector3*, int, int> CL_GetVertices;
         public delegate* unmanaged<ulong, byte*, int> Comp_GetEnabled;          // Behaviour.enabled · Collider.enabled (네이티브 타입 이름, 없으면 -1)
         public delegate* unmanaged<ulong, byte*, int, void> Comp_SetEnabled;
+        public delegate* unmanaged<ulong, float*, int, int> CL_GetCoefficients;   // Cloth.coefficients: [maxDistance, collisionSphereDistance] × 천 정점
+        public delegate* unmanaged<ulong, float*, int, void> CL_SetCoefficients;
     }
 
     internal static unsafe class Native

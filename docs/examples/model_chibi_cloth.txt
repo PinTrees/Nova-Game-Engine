@@ -1,0 +1,29 @@
+# 치비에 천 옷 (치마 · 망토) 을 입히고 리깅 — model_chibi.txt 뒤에: nova model batch docs/examples/model_chibi_cloth.txt
+#   → nova model export Assets/Models/ClothChibi.vrm --title ClothChibi → nova create character --model … → 엔진에서 Skirt · Cape 오브젝트 (Skinned Mesh Renderer) 에 Cloth (docs/CLOTH.md)
+# 천이 될 메시는 따로 오브젝트로 (Unity 처럼 Cloth 는 렌더러 하나의 메시 전체), 옆면만 (뚜껑 없음) · 행이 여럿이어야 접힌다
+
+# ---------------- 치마: 위가 좁은 원뿔대 (허리 → 무릎), 뚜껑을 지우고 4 x 4 로 나눔
+add --type cylinder --vertices 20 --radius 0.33 --radiusTop 0.2 --depth 0.3 --location 0,0.38,0 --name Skirt --smooth
+mode --mode edit --select face
+select.normal --direction 0,1,0 --angle 10
+select.normal --direction 0,-1,0 --angle 10 --extend
+delete --type faces
+select.all
+subdivide --cuts 2
+material.set --index 5 --name Skirt --color 0.95,0.55,0.66
+mode --mode object
+
+# ---------------- 망토: 등 뒤에 선 판 (어깨 → 엉덩이), 6 x 8 칸
+add --type plane --size 1 --cutsX 6 --cutsZ 8 --location 0,0.62,-0.25 --name Cape
+object.transform --rotation 90,0,0 --scale 0.42,1,0.56
+object.apply
+mode --mode edit
+material.set --index 6 --name Cape --color 0.78,0.16,0.2
+mode --mode object
+
+# ---------------- 리깅: 사람 뼈대 · 자동 가중치, 천은 한 본에 (치마 = Hips, 망토 = Chest — 천이 나머지를 맡는다)
+rig.humanoid
+rig.weights
+rig.paint --bone Hips --center 0,0.38,0 --radius 3 --weight 1 --strength 1 --object Skirt
+rig.paint --bone Chest --center 0,0.62,-0.25 --radius 3 --weight 1 --strength 1 --object Cape
+rig.check

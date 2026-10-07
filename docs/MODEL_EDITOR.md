@@ -156,6 +156,7 @@ UV 는 Subdivide · Loop Cut · Subsurf 를 거쳐도 남는다 (모서리 UV �
 내보내기 `export Chibi.vrm` = **VRM 1.0**: 본 노드 (회전 없음) + skin, `VRMC_vrm` humanoid · meta, `VRMC_springBone` (사슬 + 끝 노드, 충돌체), `VRMC_materials_mtoon` (재질 색 → 그림자 = 푸르스름하게, 외곽선). 엔진에서 `nova create character --model Assets/…/Chibi.vrm` 한 번으로 **Humanoid Idle 리타게팅 + Dynamic Bone (머리카락) + lilToon 툰** 이 붙는다. 메시 노드 이름이 본과 겹치면 `_Mesh` 를 붙인다 (메시 `Head` · 본 `Head`), 재질은 처음 쓰는 순서로 쓴다 (Assimp 가 그 순서로 읽는다).
 
 예: [examples/model_chibi_rig.txt](examples/model_chibi_rig.txt) — `model_chibi.txt` 뒤 `nova model batch docs/examples/model_chibi_rig.txt`, `nova model export Assets/Models/Chibi.vrm --title Chibi`.
+천 옷 (치마 · 망토 — 엔진의 [Cloth](CLOTH.md#캐릭터-옷-skinned-mesh-renderer)): [examples/model_chibi_cloth.txt](examples/model_chibi_cloth.txt) — `model_chibi.txt` 뒤에 (리깅까지 들어 있다).
 
 ![리깅 (CLI): 뼈대 · 가중치 보기 · 포즈](images/model_editor_rig.webp)
 

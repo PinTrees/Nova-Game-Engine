@@ -290,6 +290,7 @@ struct PhysicsManager::JoltWorld
 	{
 		JPH::BodyID id;
 		JPH::uint64 owner = 0;   // 주인 GameObject 의 InstanceID
+		bool skinned = false;    // 스킨 위의 천 (SkinCloth)
 	};
 	std::unordered_map<JPH::uint32, ClothRecord> cloths;   // key: 핸들 (BodyID 의 번호 + 세대)
 
@@ -2193,7 +2194,18 @@ JPH::SoftBodyValidateResult PhysicsManager::JoltWorld::SoftListener::OnSoftBodyC
 	return JPH::SoftBodyValidateResult::AcceptContact;
 }
 
-uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s)
+namespace
+{
+	// 행 벡터 행렬 (DirectX: p · M) → Jolt (열 벡터: M · p) = 전치 — Jolt 의 열 j = DirectX 의 행 j
+	JPH::Mat44 ToJMat(const Matrix& m)
+	{
+		return JPH::Mat44(JPH::Vec4(m._11, m._12, m._13, m._14), JPH::Vec4(m._21, m._22, m._23, m._24),
+			JPH::Vec4(m._31, m._32, m._33, m._34), JPH::Vec4(m._41, m._42, m._43, m._44));
+	}
+}
+
+uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s,
+	const ClothSkin* skin)
 {
 	if (!m_World || owner == nullptr || worldVertices.size() < 3 || triangles.size() < 3)
 		return 0;
@@ -2221,6 +2233,31 @@ uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& w
 	JPH::SoftBodySharedSettings::VertexAttributes attr(s.Compliance, s.ShearCompliance, s.BendCompliance,
 		s.LongRangeAttachment && anyPinned ? JPH::SoftBodySharedSettings::ELRAType::EuclideanDistance : JPH::SoftBodySharedSettings::ELRAType::None);
 	shared->CreateConstraints(&attr, 1, JPH::SoftBodySharedSettings::EBendType::Dihedral);
+	if (skin && skin->JointCount > 0 && skin->Weights.size() == worldVertices.size() && skin->Bones.size() == worldVertices.size())
+	{
+		// rest 정점 (바디 기준) = 바인드 정점 · RestToWorld − 가운데 → 역바인드 = 그 역행렬 (모든 본 같음), 본 행렬 = 바인드 → 월드 (SkinCloth)
+		//  피부 자리 = Σ 가중치 · 본 · 역바인드 · rest = 엔진 GPU 스키닝과 같은 선형 블렌드
+		const JPH::Mat44 restToBody = JPH::Mat44::sTranslation(-JPH::Vec3(center.x, center.y, center.z)) * ToJMat(skin->RestToWorld);
+		const JPH::Mat44 invBind = restToBody.Inversed();
+		shared->mInvBindMatrices.reserve(skin->JointCount);
+		for (int k = 0; k < skin->JointCount; ++k)
+			shared->mInvBindMatrices.push_back(JPH::SoftBodySharedSettings::InvBind((JPH::uint32)k, invBind));
+		for (size_t i = 0; i < worldVertices.size(); ++i)
+		{
+			const float maxD = i < skin->MaxDistance.size() ? skin->MaxDistance[i] : FLT_MAX;
+			const float back = i < skin->BackStopDistance.size() ? skin->BackStopDistance[i] : FLT_MAX;
+			JPH::SoftBodySharedSettings::Skinned sk((JPH::uint32)i, (std::max)(0.0f, maxD), back, skin->BackStopRadius);
+			int n = 0;
+			for (int w = 0; w < 4; ++w)
+				if (skin->Weights[i][w] > 0.0f && skin->Bones[i][w] < skin->JointCount)
+					sk.mWeights[n++] = JPH::SoftBodySharedSettings::SkinWeight(skin->Bones[i][w], skin->Weights[i][w]);
+			if (n == 0)
+				sk.mWeights[n++] = JPH::SoftBodySharedSettings::SkinWeight(0, 1.0f);
+			sk.NormalizeWeights();
+			shared->mSkinnedConstraints.push_back(sk);
+		}
+		shared->CalculateSkinnedConstraintNormals();
+	}
 	shared->Optimize();
 
 	JPH::SoftBodyCreationSettings cs(shared, ToJR(center), JPH::Quat::sIdentity(), Layers::Moving);
@@ -2237,6 +2274,7 @@ uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& w
 	World::ClothRecord rec;
 	rec.id = id;
 	rec.owner = owner->GetInstanceID();
+	rec.skinned = !shared->mSkinnedConstraints.empty();
 	const uint32 handle = id.GetIndexAndSequenceNumber();
 	m_World->cloths[handle] = rec;
 	EditorLog::Write("Physics", "cloth '%s': %zu vertices, %zu triangles", owner->GetName().c_str(), worldVertices.size(), triangles.size() / 3);
@@ -2312,6 +2350,27 @@ void PhysicsManager::DriveCloth(uint32 handle, const std::vector<uint32>& pinned
 				v.mVelocity += dv;
 		}
 	}
+}
+
+void PhysicsManager::SkinCloth(uint32 handle, const std::vector<Matrix>& jointToWorld, bool hardSkinAll)
+{
+	if (!m_World || jointToWorld.empty())
+		return;
+	auto it = m_World->cloths.find(handle);
+	if (it == m_World->cloths.end() || !it->second.skinned)
+		return;
+	JPH::BodyLockWrite lock(m_World->physics->GetBodyLockInterface(), it->second.id);
+	if (!lock.Succeeded())
+		return;
+	JPH::Body& body = lock.GetBody();
+	auto* mp = static_cast<JPH::SoftBodyMotionProperties*>(body.GetMotionProperties());
+	// 본 행렬은 바디 (질량 중심) 기준으로
+	const JPH::RMat44 com = body.GetCenterOfMassTransform();
+	const JPH::Mat44 toBody = JPH::Mat44(com.InversedRotationTranslation());
+	std::vector<JPH::Mat44> joints(jointToWorld.size());
+	for (size_t k = 0; k < joints.size(); ++k)
+		joints[k] = toBody * ToJMat(jointToWorld[k]);
+	mp->SkinVertices(com, joints.data(), (JPH::uint)joints.size(), hardSkinAll, *m_World->tempAllocator);
 }
 
 void PhysicsManager::ShiftCloth(uint32 handle, const Vec3& delta)

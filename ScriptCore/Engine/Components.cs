@@ -397,6 +397,28 @@ namespace NovaEngine
         /// <summary>이번 스텝의 오브젝트 움직임을 천 전체에 그대로 (순간 이동 — 휘날리지 않게). 1 m 넘게 한 번에 옮기면 저절로</summary>
         public void ClearTransformMotion() => S(20, 1f);
 
+        /// <summary>천 정점마다 (같은 자리 메시 정점은 하나) 스킨 제한 — maxDistance 0 = 피부 (Skinned Mesh Renderer 의 자세) 에 붙음,
+        /// float.MaxValue = 자유. collisionSphereDistance = 피부 안쪽으로 들어갈 수 있는 거리 (치마가 다리를 뚫지 않게)</summary>
+        public ClothSkinningCoefficient[] coefficients
+        {
+            get
+            {
+                int n = Native.Api.CL_GetCoefficients(m_Id, null, 0);
+                var f = new float[n * 2];
+                if (n > 0) fixed (float* p = f) Native.Api.CL_GetCoefficients(m_Id, p, n);
+                var a = new ClothSkinningCoefficient[n];
+                for (int i = 0; i < n; ++i) a[i] = new ClothSkinningCoefficient { maxDistance = f[i * 2], collisionSphereDistance = f[i * 2 + 1] };
+                return a;
+            }
+            set
+            {
+                int n = value?.Length ?? 0;
+                var f = new float[n * 2];
+                for (int i = 0; i < n; ++i) { f[i * 2] = value[i].maxDistance; f[i * 2 + 1] = value[i].collisionSphereDistance; }
+                fixed (float* p = f) Native.Api.CL_SetCoefficients(m_Id, p, n);
+            }
+        }
+
         /// <summary>메시 정점마다 지금 위치 (오브젝트 로컬)</summary>
         public Vector3[] vertices
         {
@@ -408,6 +430,13 @@ namespace NovaEngine
                 return a;
             }
         }
+    }
+
+    /// <summary>Unity 의 ClothSkinningCoefficient: 천 정점 하나의 스킨 제한</summary>
+    public struct ClothSkinningCoefficient
+    {
+        public float maxDistance;
+        public float collisionSphereDistance;
     }
 
     // OnControllerColliderHit(ControllerColliderHit hit) 로 받는 충돌 정보

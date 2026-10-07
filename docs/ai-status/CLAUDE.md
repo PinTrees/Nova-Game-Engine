@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **내비게이션을 안드로이드 · 웹에서** (사용자 지시 4 가지 중 1 번 — 다음: 캐릭터 옷 · 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **캐릭터 옷 (Skinned Mesh 위의 천)** (사용자 지시 4 가지 중 2 번 — 다음: 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
+  - `Cloth`: Skinned Mesh Renderer 에 붙이면 Jolt skinned constraint — rest = 바인드 자세 (월드 크기), 역바인드 하나 + 본 행렬 = 팔레트 × 월드 (GPU 스키닝과 같은 값), Unity `coefficients` (maxDistance · collisionSphereDistance), Pin = maxDistance 0, 뒤 막이를 위해 삼각형 감김을 메시 법선에 맞춤, 순간 이동 = hardSkinAll. 서브메시 기준 정점 (VertexStart) 반영
+  - `SkinnedMeshRenderer::SetSimulatedVertices`: 천 정점 (오브젝트 공간) 을 동적 버퍼로, 팔레트 끝 단위 본 하나에 묶음 (BlendShape 와 같은 버퍼 · `UploadDynamicVertices`). `PhysicsManager::ClothSkin · SkinCloth`
+  - C# `Cloth.coefficients` · `ClothSkinningCoefficient` (바인딩 표 끝 `CL_GetCoefficients · CL_SetCoefficients` — **안드로이드 `Android/Player` · 웹 플레이어는 다시 빌드해야 표가 맞는다**, 릴리즈 때)
+  - 예제 `docs/examples/model_chibi_cloth.txt` (치마 · 망토 + 리깅), 검사 `-Only clothskin` 6/6 (cloth 4/4, animation · ragdoll 20/20). 문서 CLOTH · MODEL_EDITOR, Showcase 254
+  - 따로 남긴 일: 모델 편집기의 FBX 로 내보낸 치비가 엔진에서 머리카락이 뻗치고 색이 빠진다 (VRM 은 정상) — 별도 작업 칩으로 제안함
+- 이전: 2026년 10월 7일 — **내비게이션을 안드로이드 · 웹에서** (사용자 지시 4 가지 중 1 번 — 다음: 캐릭터 옷 · 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
   - 패키지는 이미 플레이어 빌드에 정적으로 들어가 있었다 — 실제 기기 · 브라우저 검사를 더하고 웹의 실패를 고침
   - 웹: NavMesh 를 읽을 때 타일 만들기가 `std::thread` 를 띄워 시작이 예외로 멈췄다 → `NavData::ParallelFor` 를 웹에서는 부른 스레드에서 차례로. `Web/Source/WebMain.cpp` 가 시작 · 프레임의 C++ 예외를 받아 로그 (`[Web] exception in init: …`)
   - 검사: `Tools/tests/nav_player_probe.cs` (3D 벽 · 2D Box Collider 2D 벽을 돌아가는 길 · 도착), `common.ps1` 의 `New-NavPlayerScene · Test-NavPlayerLog`, 안드로이드 `Tools/tests/android_nav.ps1` (MuMu, Build And Run → logcat) 8/8, 웹 스위트에 두 항목 — web 13/13. 문서 NAVIGATION_2D · ANDROID · WEB

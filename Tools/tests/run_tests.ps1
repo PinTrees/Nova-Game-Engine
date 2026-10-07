@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -1308,6 +1308,7 @@ function Suite-Anim2D
         if ($null -ne $before) { Set-Content -Path $manifest -Value $before -NoNewline -Encoding utf8 }
         Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+        if ($manifestBefore) { [IO.File]::WriteAllBytes($manifest, $manifestBefore) }
     }
 }
 
@@ -2336,6 +2337,115 @@ function Suite-Cloth
         Invoke-Nova 'scene new --force' | Out-Null
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
+function Suite-ClothSkin
+{
+    # 스킨 위의 천 (Skinned Mesh Renderer + Cloth): 모델 편집기로 치마 · 망토를 입힌 치비 (docs/examples/model_chibi_cloth.txt) → FBX → 캐릭터.
+    #  (VRM 으로 내보냄 — lilToon 툰 재질. FBX 내보내기는 이 치비의 머리카락 · 색이 엔진에서 어긋나는 문제가 따로 있다)
+    #  치마 = 위 가장자리 고정 (허리 = 피부에 붙음) · 나머지는 늘어진다, 캐릭터를 옮기면 따라온다 (순간 이동 = 피부 자리로),
+    #  망토 = coefficients 의 maxDistance 로 피부 가까이 (바람이 불어도), C# coefficients API
+    Write-Host '[clothskin]'
+    $dir = Join-Path $Out 'clothskin'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $assetDir = Join-Path $Project 'Assets\ClothTest'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $manifestBefore = if (Test-Path $manifest) { [IO.File]::ReadAllBytes($manifest) } else { $null }
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-NovaJson 'package add com.nova.modeling' | Out-Null
+        function M([string]$line) { Invoke-NovaJson "model $line" }
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
+        function Exec([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file `"$f`""; if ($r) { "$($r.result)" } else { '' } }
+        M 'new' | Out-Null
+        Invoke-NovaJson "model batch $root\docs\examples\model_chibi.txt" | Out-Null
+        Invoke-NovaJson "model batch $root\docs\examples\model_chibi_cloth.txt" | Out-Null
+        $ck = M 'rig.check'
+        M "render --path $dir\model.png --views front,right --size 256 --shading toon --wire false --bones false" | Out-Null
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        $fx = M "export --path $assetDir\ClothChibi.vrm --title ClothChibi"
+        Add-Result clothskin 'model: chibi with a skirt and a cape, rigged, exported .vrm' ($fx -and $ck.ok -and (Test-Path "$assetDir\ClothChibi.vrm")) "rig.check $($ck.ok), vrm $(Test-Path "$assetDir\ClothChibi.vrm")"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        Invoke-Nova 'create character --name Girl --model Assets\ClothTest\ClothChibi.vrm' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $names = Exec 'cs_names' 'var s = ""; foreach (var r in GameObject.Find("Girl").GetComponentsInChildren<SkinnedMeshRenderer>()) s += r.gameObject.name + ","; return s;'
+        Invoke-Nova 'add-component Skirt Cloth --values "{\"pin\":1,\"damping\":0.2,\"bendingStiffness\":0.1,\"randomAcceleration\":[4,0,4]}"' | Out-Null
+        Invoke-Nova 'add-component Cape Cloth --values "{\"pin\":1,\"damping\":0.3,\"externalAcceleration\":[0,0,-8]}"' | Out-Null
+        # 망토: 모든 정점 maxDistance 3 cm (고정 줄은 Pin 으로 0) — 바람이 불어도 피부 가까이
+        $coef = Exec 'cs_coef' 'var c = GameObject.Find("Cape").GetComponent<Cloth>(); var k = c.coefficients; for (int i = 0; i < k.Length; i++) k[i].maxDistance = 0.03f; c.coefficients = k; var b = c.coefficients; return k.Length + " " + b[b.Length - 1].maxDistance.ToString("F2") + " " + (GameObject.Find("Skirt").GetComponent<Cloth>().coefficients[0].maxDistance > 1e30f);'
+        Add-Result clothskin 'C# Cloth.coefficients (one per cloth vertex, set / get, default = free)' ($coef -match '^(\d+) 0\.03 True$' -and [int]$Matches[1] -gt 20) "$coef (renderers: $names)"
+        # 치마: 뒤 막이 2 cm (collisionSphereDistance) — 흔들려도 피부 (원뿔) 안쪽으로 2 cm 넘게 들어가지 않는다 (안의 원피스가 뚫고 나오지 않게)
+        Exec 'cs_back' 'var c = GameObject.Find("Skirt").GetComponent<Cloth>(); var k = c.coefficients; for (int i = 0; i < k.Length; i++) k[i].collisionSphereDistance = 0.02f; c.coefficients = k; return k.Length;' | Out-Null
+        # 시작 자세 (월드): 치마의 가장 높은 · 낮은 y, 캐릭터에서 가장 먼 거리, 가운데 x / 망토 정점 (오브젝트 로컬)
+        $span = 'var t = GameObject.Find("Skirt").transform; var g = GameObject.Find("Girl").transform.position; float hi = -9, lo = 9, far = 0, cx = 0; var v = t.GetComponent<Cloth>().vertices; foreach (var lp in v) { var p = t.TransformPoint(lp); hi = Mathf.Max(hi, p.y); lo = Mathf.Min(lo, p.y); far = Mathf.Max(far, new Vector2(p.x - g.x, p.z - g.z).magnitude); cx += p.x; } return hi.ToString("F3") + " " + lo.ToString("F3") + " " + far.ToString("F3") + " " + (cx / v.Length - g.x).ToString("F3") + " " + t.GetComponent<Cloth>().isSimulating;'
+        $rest = Exec 'cs_span0' $span
+        $capeV = 'var v = GameObject.Find("Cape").GetComponent<Cloth>().vertices; var s = new System.Text.StringBuilder(); foreach (var p in v) s.Append(p.x.ToString("F4") + "," + p.y.ToString("F4") + "," + p.z.ToString("F4") + ";"); return s.ToString();'
+        $cape0 = Exec 'cs_cape0' $capeV
+        $skirtV = $capeV -replace '"Cape"', '"Skirt"'
+        $skirt0 = Exec 'cs_skirt0' $skirtV
+
+        Invoke-Nova 'set "Main Camera" --position 1.2,0.85,-1.3 --rotation 10,-43,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 3
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'clothskin.png')`" --view game" | Out-Null
+        $now = Exec 'cs_span1' $span
+        $log = Invoke-Nova 'log --grep "skinned cloth" -n 4'
+        $r0 = "$rest" -split ' '; $r1 = "$now" -split ' '
+        $ok = $r0.Count -eq 5 -and $r1.Count -eq 5 -and $r1[4] -eq 'True' -and [math]::Abs([double]$r1[0] - [double]$r0[0]) -lt 0.04 -and [double]$r1[1] -gt 0.0 -and [double]$r1[1] -lt [double]$r0[1] + 0.02 -and [double]$r1[2] -lt 0.6
+        Add-Result clothskin 'skirt: waist stays on the skin, the rest hangs (not under the ground, not flying away)' ($ok -and ($log -match "skinned cloth 'Skirt'")) "top $($r0[0]) → $($r1[0]), bottom $($r0[1]) → $($r1[1]), farthest $($r1[2]) (< 0.6), log $((($log | Out-String) -replace '\s+', ' ').Trim())"
+        # 망토: 바람 (−Z 8 m/s²) 이 불어도 정점마다 시작 자리에서 몇 cm 안 (maxDistance 3 cm + 숨쉬기 자세)
+        $cape1 = Exec 'cs_cape1' $capeV
+        $a = @("$cape0" -split ';' | Where-Object { $_ }); $b = @("$cape1" -split ';' | Where-Object { $_ })
+        $maxMove = -1
+        if ($a.Count -gt 0 -and $a.Count -eq $b.Count)
+        {
+            $maxMove = 0
+            for ($i = 0; $i -lt $a.Count; $i++)
+            {
+                $p = $a[$i] -split ','; $q = $b[$i] -split ','
+                $d = [math]::Sqrt([math]::Pow([double]$p[0] - [double]$q[0], 2) + [math]::Pow([double]$p[1] - [double]$q[1], 2) + [math]::Pow([double]$p[2] - [double]$q[2], 2))
+                if ($d -gt $maxMove) { $maxMove = $d }
+            }
+        }
+        Add-Result clothskin 'cape: maxDistance 3 cm keeps it on the skin against the wind' ($maxMove -ge 0 -and $maxMove -lt 0.08) ("{0} vertices, largest move {1:N3} m (< 0.08)" -f $a.Count, $maxMove)
+        # 치마: 정점마다 축에서의 거리 (오브젝트 로컬 XZ) 가 시작보다 얼마나 줄었나 — 중력이 원뿔을 안으로 당겨 뒤 막이에 기대고 (1 cm 넘게),
+        #  가장 많이 들어간 것이 뒤 막이 2 cm (+ 숨쉬기) 안
+        $skirt1 = Exec 'cs_skirt1' $skirtV
+        $a = @("$skirt0" -split ';' | Where-Object { $_ }); $b = @("$skirt1" -split ';' | Where-Object { $_ })
+        $inward = 99; $outward = -99
+        if ($a.Count -gt 0 -and $a.Count -eq $b.Count)
+        {
+            $inward = 0; $outward = 0
+            for ($i = 0; $i -lt $a.Count; $i++)
+            {
+                $p = $a[$i] -split ','; $q = $b[$i] -split ','
+                $d = [math]::Sqrt([double]$q[0] * [double]$q[0] + [double]$q[2] * [double]$q[2]) - [math]::Sqrt([double]$p[0] * [double]$p[0] + [double]$p[2] * [double]$p[2])
+                if (-$d -gt $inward) { $inward = -$d }
+                if ($d -gt $outward) { $outward = $d }
+            }
+        }
+        Add-Result clothskin 'skirt: back stop (collisionSphereDistance 2 cm) keeps the shaking skirt outside the body' ($inward -gt 0.01 -and $inward -lt 0.035) ("{0} vertices, deepest inward {1:N3} m (0.01 .. 0.035), outward up to {2:N3} m" -f $a.Count, $inward, $outward)
+        # 캐릭터를 3 m 옮기면 (순간 이동) 치마가 피부 자리로 같이 — 휘날리지 않는다
+        Exec 'cs_move' 'GameObject.Find("Girl").transform.position += new Vector3(3, 0, 0); return 1;' | Out-Null
+        Wait-Sec 1
+        $moved = Exec 'cs_span2' $span
+        $r2 = "$moved" -split ' '
+        Add-Result clothskin 'teleporting the character brings the skirt along (no whip)' ($r2.Count -eq 5 -and [double]$r2[2] -lt 0.6 -and [math]::Abs([double]$r2[3]) -lt 0.15 -and [math]::Abs([double]$r2[0] - [double]$r0[0]) -lt 0.04) "top $($r2[0]), farthest from the character $($r2[2]) (< 0.6), centre offset x $($r2[3])"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Suite-Behaviour
@@ -5615,6 +5725,7 @@ try
                 'wheel' { Suite-Wheel }
                 'daynight' { Suite-DayNight }
                 'cloth' { Suite-Cloth }
+                'clothskin' { Suite-ClothSkin }
                 'behaviour' { Suite-Behaviour }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }

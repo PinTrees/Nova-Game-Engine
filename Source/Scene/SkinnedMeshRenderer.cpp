@@ -149,6 +149,52 @@ void SkinnedMeshRenderer::ApplyPose(const vector<XMFLOAT4X4>& nodeGlobals)
 		XMMATRIX offset = XMLoadFloat4x4(&m_Mesh->BoneOffsets[k]);
 		XMStoreFloat4x4(&m_FinalTransforms[k], XMLoadFloat4x4(&m_MeshBind) * offset * XMLoadFloat4x4(&nodeGlobals[node]));
 	}
+	if (m_SimActive)   // 천 정점이 묶이는 단위 본
+	{
+		m_FinalTransforms.resize(count + 1);
+		XMStoreFloat4x4(&m_FinalTransforms[count], XMMatrixIdentity());
+	}
+}
+
+int SkinnedMeshRenderer::PaletteBoneCount() const
+{
+	return m_Mesh ? (int)(std::min)(m_Mesh->BoneNames.size(), kMaxBones) : 0;
+}
+
+XMMATRIX SkinnedMeshRenderer::BindToObject() const
+{
+	const float u = m_Skeleton ? m_Skeleton->UnitScale : 1.0f;
+	return XMLoadFloat4x4(&m_MeshBind) * XMMatrixScaling(u, u, u);
+}
+
+void SkinnedMeshRenderer::SetSimulatedVertices(const vector<Vertex::PosNormalTexTanSkinned>* vertices)
+{
+	if (vertices == nullptr || m_Mesh == nullptr || vertices->size() != m_Mesh->Vertices.size())
+	{
+		if (m_SimActive)
+		{
+			m_SimActive = false;
+			m_SimVerts.clear();
+			m_MorphDirty = true;   // BlendShape 정점 (있으면) 으로 되돌린다
+			m_MorphActive = false;
+			const size_t count = (size_t)PaletteBoneCount();
+			if (count > 0 && m_FinalTransforms.size() > count)
+				m_FinalTransforms.resize(count);
+		}
+		return;
+	}
+	m_SimActive = true;
+	m_SimVerts = *vertices;
+	m_SimDirty = true;
+	const size_t slot = (size_t)SimulatedBoneSlot();
+	if (m_FinalTransforms.size() <= slot)
+	{
+		const size_t from = m_FinalTransforms.size();
+		m_FinalTransforms.resize(slot + 1);
+		for (size_t i = from; i <= slot; ++i)
+			XMStoreFloat4x4(&m_FinalTransforms[i], XMMatrixIdentity());
+	}
+	XMStoreFloat4x4(&m_FinalTransforms[slot], XMMatrixIdentity());
 }
 
 bool SkinnedMeshRenderer::GetNodeGlobals(vector<XMFLOAT4X4>& out) const
@@ -187,7 +233,7 @@ void SkinnedMeshRenderer::ResetToBindPose()
 		return;
 	if (m_Skeleton == nullptr)
 	{
-		m_FinalTransforms.assign((std::max)(m_Mesh->BoneNames.size(), (size_t)1), XMFLOAT4X4());
+		m_FinalTransforms.assign((std::max)(m_Mesh->BoneNames.size(), (size_t)1) + (m_SimActive ? 1 : 0), XMFLOAT4X4());
 		for (auto& m : m_FinalTransforms) XMStoreFloat4x4(&m, XMMatrixIdentity());
 		return;
 	}
@@ -234,6 +280,16 @@ void SkinnedMeshRenderer::SetBlendShapeWeight(int index, float weight)
 // 가중치가 바뀐 프레임에만: 원래 정점 + Σ 가중치 × 차이 → 동적 정점 버퍼 (WRITE_DISCARD)
 void SkinnedMeshRenderer::EnsureMorph()
 {
+	if (m_SimActive)   // 천: 시뮬레이션 정점이 BlendShape 보다 먼저
+	{
+		if (m_SimDirty)
+		{
+			m_SimDirty = false;
+			m_MorphActive = UploadDynamicVertices(m_SimVerts);
+			m_MorphDirty = true;   // 천을 끄면 BlendShape 정점을 다시 올린다
+		}
+		return;
+	}
 	if (!m_Mesh || m_Mesh->BlendShapes.empty() || m_Mesh->Vertices.empty())
 	{
 		m_MorphActive = false;
@@ -266,6 +322,15 @@ void SkinnedMeshRenderer::EnsureMorph()
 			v.normal.x += sh.DNrm[j].x * w; v.normal.y += sh.DNrm[j].y * w; v.normal.z += sh.DNrm[j].z * w;
 		}
 	}
+	m_MorphActive = UploadDynamicVertices(m_MorphVerts);
+}
+
+// 동적 정점 버퍼 (BlendShape · 천 함께 씀, WRITE_DISCARD). false = 실패 (원래 정점으로 그린다)
+bool SkinnedMeshRenderer::UploadDynamicVertices(const vector<Vertex::PosNormalTexTanSkinned>& verts)
+{
+	const size_t count = verts.size();
+	if (count == 0)
+		return false;
 	GfxContext* dc = Application::GetI()->GetDeviceContext();
 	if (!m_MorphVB || m_MorphVBCount != (uint32)count)
 	{
@@ -275,21 +340,17 @@ void SkinnedMeshRenderer::EnsureMorph()
 		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 		bd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 		m_MorphVB.Reset();
+		m_MorphVBCount = 0;
 		if (FAILED(Application::GetI()->GetDevice()->CreateBuffer(&bd, nullptr, m_MorphVB.GetAddressOf())))
-		{
-			m_MorphActive = false;
-			return;
-		}
+			return false;
 		m_MorphVBCount = (uint32)count;
 	}
 	D3D11_MAPPED_SUBRESOURCE mapped;
 	if (FAILED(dc->Map(m_MorphVB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
-	{
-		m_MorphActive = false;
-		return;
-	}
-	memcpy(mapped.pData, m_MorphVerts.data(), count * sizeof(Vertex::PosNormalTexTanSkinned));
+		return false;
+	memcpy(mapped.pData, verts.data(), count * sizeof(Vertex::PosNormalTexTanSkinned));
 	dc->Unmap(m_MorphVB.Get(), 0);
+	return true;
 }
 
 void SkinnedMeshRenderer::DrawSubset(GfxContext* dc, int subset)

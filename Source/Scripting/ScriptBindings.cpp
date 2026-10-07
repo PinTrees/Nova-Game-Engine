@@ -314,6 +314,9 @@ namespace
 		// Behaviour.enabled · Collider.enabled: 네이티브 컴포넌트 (타입 이름 — GO_HasComponent 와 같다) 의 Inspector 체크 상자. 없으면 -1
 		int(*Comp_GetEnabled)(uint64, u8*);
 		void(*Comp_SetEnabled)(uint64, u8*, int);
+		// Cloth.coefficients (Unity ClothSkinningCoefficient): 천 정점마다 [maxDistance, collisionSphereDistance] — 개수를 돌려준다 (FLT_MAX = 제한 없음)
+		int(*CL_GetCoefficients)(uint64, float*, int);
+		void(*CL_SetCoefficients)(uint64, float*, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1907,14 +1910,32 @@ namespace ScriptBindings
 		t.CL_GetVector = [](uint64 id, int p, Vec3* out) { Cloth* c = Get<Cloth>(id); if (out) *out = c ? (p == 0 ? c->ExternalAcceleration : c->RandomAcceleration) : Vec3::Zero; };
 		t.CL_SetVector = [](uint64 id, int p, Vec3* v) { if (Cloth* c = Get<Cloth>(id); c && v) (p == 0 ? c->ExternalAcceleration : c->RandomAcceleration) = *v; };
 		t.CL_GetVertices = [](uint64 id, Vec3* out, int max) -> int {
-			GameObject* g = Find(id);
-			MeshFilter* f = g ? g->GetComponent<MeshFilter>() : nullptr;
-			std::shared_ptr<Mesh> m = f ? f->GetMesh() : nullptr;
-			if (m == nullptr) return 0;
-			const int n = (int)m->Vertices.size();
+			Cloth* c = Get<Cloth>(id);
+			if (c == nullptr) return 0;
+			std::vector<Vec3> v;
+			c->LocalVertices(v);
+			for (int i = 0; i < (int)v.size() && i < max && out; ++i)
+				out[i] = v[i];
+			return (int)v.size();
+		};
+		t.CL_GetCoefficients = [](uint64 id, float* out, int max) -> int {
+			Cloth* c = Get<Cloth>(id);
+			if (c == nullptr) return 0;
+			const int n = c->ClothVertexCount();
 			for (int i = 0; i < n && i < max && out; ++i)
-				out[i] = Vec3(m->Vertices[i].pos.x, m->Vertices[i].pos.y, m->Vertices[i].pos.z);
+			{
+				const bool has = i < (int)c->Coefficients.size() && (int)c->Coefficients.size() == n;
+				out[i * 2] = has ? c->Coefficients[i].MaxDistance : FLT_MAX;
+				out[i * 2 + 1] = has ? c->Coefficients[i].CollisionSphereDistance : FLT_MAX;
+			}
 			return n;
+		};
+		t.CL_SetCoefficients = [](uint64 id, float* in, int n) {
+			Cloth* c = Get<Cloth>(id);
+			if (c == nullptr) return;
+			c->Coefficients.clear();
+			for (int i = 0; i < n && in; ++i)
+				c->Coefficients.push_back({ (std::max)(0.0f, in[i * 2]), (std::max)(0.0f, in[i * 2 + 1]) });
 		};
 		t.WC_GetHit = [](uint64 id, WheelHitData* out) -> int {
 			WheelCollider* w = Get<WheelCollider>(id);
