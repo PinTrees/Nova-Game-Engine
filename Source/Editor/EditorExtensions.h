@@ -55,4 +55,5 @@ namespace EditorExtensions
 	};
 	NOVA_API void RegisterCreateMenu(const CreateMenuItem& item);
 	std::vector<const CreateMenuItem*> CreateMenuItems(const std::string& folder);   // folder = "2D Object/Tilemap" → 그 바로 아래 항목
+	std::vector<std::string> CreateMenuFolders(const std::string& folder);           // folder 바로 아래 하위 메뉴 이름 (등록 순서)
 }

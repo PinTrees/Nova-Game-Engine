@@ -24,9 +24,10 @@ function Get-VramMB
 function Start-TestEditor([switch]$OpenGL, [switch]$Vulkan, [int]$MaxGrowMB = 1500, [int]$WatchSeconds = 900)
 {
     $base = Get-VramMB
-    if ($OpenGL) { $out = & $Nova open $script:Project --background --graphics opengl --timeout 300 2>&1 | Out-String }
-    elseif ($Vulkan) { $out = & $Nova open $script:Project --background --graphics vulkan --timeout 300 2>&1 | Out-String }
-    else { $out = & $Nova open $script:Project --background --timeout 300 2>&1 | Out-String }
+    # 검사 편집기는 늘 창 없이 (--hidden) — 사용자가 같은 PC 를 쓰고 있다. 모든 조작은 CLI 로
+    if ($OpenGL) { $out = & $Nova open $script:Project --background --hidden --graphics opengl --timeout 300 2>&1 | Out-String }
+    elseif ($Vulkan) { $out = & $Nova open $script:Project --background --hidden --graphics vulkan --timeout 300 2>&1 | Out-String }
+    else { $out = & $Nova open $script:Project --background --hidden --timeout 300 2>&1 | Out-String }
     if ($out -notmatch 'pid (\d+)') { throw "editor did not open: $out" }
     $editorPid = [int]$Matches[1]
     $job = Start-Job -ArgumentList $editorPid, $base, $MaxGrowMB, $WatchSeconds, $EditorLog -ScriptBlock {

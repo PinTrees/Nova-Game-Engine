@@ -188,6 +188,8 @@ namespace LoadingScreen
 {
 	void Begin(const std::wstring& subtitle)
 	{
+		if (Application::hidden)
+			return;   // 창 없이 여는 중 (nova open --hidden)
 		if (s_Active)
 			return;
 		{

@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **모션 벡터 (Volume 의 Motion Vectors)** (사용자 요청 — 구글 시트 패키지 질문보다 먼저). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 8일 — **Cinemachine 급 카메라** (사용자 요청: 가상 카메라 여럿 · 섞기 · 흔들림) + **검사 편집기를 창 없이** (사용자 요청). **완료 (커밋, 푸시 전)**. 다음: 에디터 Rendering Debugger → Motion Blur 타일 최대 속도 (사용자가 이어서 요청)
+  - `Packages/com.nova.cameras` 1.1.0: Unity Cinemachine 3 이름의 C++ 컴포넌트 — Brain (Priority · 같으면 늦게 켜진 것, Default · Custom Blends 7 모양, 섞는 중 바뀌면 Mid-Blend), CinemachineCamera (Lens · Target · Procedural Components 드롭다운), Follow (Binding Mode 6 · Damping) · Orbital Follow (구 · 세 고리 · 축) · Third Person Follow (벽 피하기 = RaycastAll), Rotation Composer (Screen Position · Dead Zone · Hard Limits) · Hard Look At · Rotate With Follow Target, Basic Multi Channel Perlin (프로필 9), Impulse Source · Listener
+  - GameObject > Cinemachine (Camera · Follow · FreeLook · Third Person Aim — Main Camera 에 Brain), CLI `cinemachine info|create|priority|prioritize|enable|axis|blend|impulse|snap`, C# `NovaEngine.Cinemachine` (Runtime/Cinemachine.cs, 묶음 설정은 바로 쓰이는 class) + C# Cinemachine Input Axis Controller
+  - 엔진: 편집 중 컴포넌트 갱신 `Component::_Editor_Update` 를 실제로 부른다 (`Scene::EditorUpdateScene`, App 루프에서 Play 가 아닐 때 — Unity [ExecuteAlways]), GameObject 메뉴가 패키지 항목의 하위 메뉴를 일반적으로 (`EditorExtensions::CreateMenuFolders`)
+  - **창 없는 검사 편집기**: `nova open --hidden` → 엔진 `--hidden` (`Application::hidden`, 본 창 · 로딩 창을 띄우지 않음). `Tools/tests/common.ps1` 의 Start-TestEditor 가 늘 `--background --hidden`. 확인: 최상위 창 2 개 모두 보이지 않음 (편집 · Play), Game 뷰 스크린샷 됨
+  - 검사 `-Only cinemachine` 19/19 (세 고리 (−4, 2.75, 0) · 구 (−7.07, 7.57, 0) · 3 인칭 (0.5, 0.5, −2) 등 손 계산과 같음, 섞기 중간 x 5.25 · 시야각 44, 충격 −1.9, 벽 −2 → −0.9, 따라가기 0.56 m). 문서 docs/CINEMACHINE.md, README · NOVA_CLI · PACKAGES
+  - 안드로이드 · 웹 플레이어는 이 패키지 변경으로 다시 빌드하지 않음 (나중에)
+  - 회귀 cli · packages · starter · scenes · tween: 첫 실행 53/55 — starter 의 차 "steer right" (2.5 초 회전 중 뒤집힘) · 이어진 "S while driving" 실패, 다시 돌리니 starter · wheel 18/18 → 차 회전 검사가 가끔 흔들림 (이번 변경과 무관해 보임, 기록만)
+- 이전: 2026년 10월 8일 — **모션 벡터 (Volume 의 Motion Vectors)** (사용자 요청 — 구글 시트 패키지 질문보다 먼저). **완료 (푸시함)**
   - `MotionVectors` (`Source/Graphics/DX11/MotionVectors.*`, `Shaders/63. MotionVectors.fx`): 지터 뺀 uv 의 이번 − 지난, 카메라 패스 (깊이로) + 움직인 Mesh Renderer · Skinned Mesh Renderer 만 지난 월드 · 지난 팔레트로 다시 그리기 (깊이는 픽셀 셰이더에서 비교). 인스턴스 버퍼는 그대로
   - Volume `MotionVectors` (Enable · Object Motion · Skinned Motion, 분류 Rendering), Motion Blur Mode **Camera And Objects** (URP), 렌더러의 Motion Vectors · Skinned Motion Vectors 칸 (있었지만 쓰이지 않던 것) 을 실제로, Skinned Mesh Renderer 에 Motion Vectors 드롭다운 추가
   - 쓰는 곳: TAA (3 x 3 가장 가까운 깊이의 속도), Motion Blur, SSAO 시간 누적 (모션 벡터 자리 + 지터 차, 움직이는 물체는 깊이 판정 느슨히)

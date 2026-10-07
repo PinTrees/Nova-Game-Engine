@@ -41,6 +41,7 @@ public:
 	void Exit();
 
 	void UpdateScene();
+	void EditorUpdateScene();   // 편집 중 (Play 아님): 켜진 오브젝트 컴포넌트의 _Editor_Update
 	void RenderScene();
 	void RenderSceneShadow();
 	void RenderSceneCover();   // 날씨 덮개 맵 (WeatherCover): 지붕 · 나무 · 바위 · 지형 (풀 · 캐릭터는 뺀다)

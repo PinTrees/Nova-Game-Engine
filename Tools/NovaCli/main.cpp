@@ -80,7 +80,7 @@ namespace
 	// 값이 없는 플래그 (뒤 단어를 값으로 먹지 않는다)
 	bool IsFlag(const std::string& name)
 	{
-		static const char* flags[] = { "json", "components", "force", "background", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world", "float", "triggers", "clear", "keep-going" };
+		static const char* flags[] = { "json", "components", "force", "background", "hidden", "run", "follow", "errors", "none", "root", "wait", "help", "no-select", "world", "float", "triggers", "clear", "keep-going" };
 		for (const char* f : flags)
 			if (name == f) return true;
 		return false;
@@ -437,7 +437,8 @@ namespace
 			return 2;
 		}
 		std::wstring cmdLine = L"\"" + exe + L"\" --project \"" + Wide(project) + L"\"";
-		if (a.Has("background")) cmdLine += L" --no-activate";
+		if (a.Has("background") || a.Has("hidden")) cmdLine += L" --no-activate";
+		if (a.Has("hidden")) cmdLine += L" --hidden";   // 창을 아예 띄우지 않는다 (CLI 로만 다루는 검사)
 		// 이번 실행만 그래픽 API 를 정한다 (설정 파일은 그대로): --graphics opengl | d3d11 | vulkan
 		if (a.Has("graphics"))
 		{
@@ -448,10 +449,10 @@ namespace
 			else if (g == "vulkan" || g == "vk") cmdLine += L" -force-vulkan";
 		}
 		STARTUPINFOW si = { sizeof(si) };
-		if (a.Has("background"))
+		if (a.Has("background") || a.Has("hidden"))
 		{
 			si.dwFlags = STARTF_USESHOWWINDOW;
-			si.wShowWindow = SW_SHOWNOACTIVATE;
+			si.wShowWindow = a.Has("hidden") ? SW_HIDE : SW_SHOWNOACTIVATE;
 		}
 		PROCESS_INFORMATION pi = {};
 		const std::wstring workDir = fs::path(exe).parent_path().wstring();
@@ -563,7 +564,7 @@ namespace
 		"\n"
 		"editors\n"
 		"  status                                 running editors\n"
-		"  open <project> [--background] [--graphics opengl|d3d11|vulkan]   start the editor for a project and wait until it is ready\n"
+		"  open <project> [--background] [--hidden] [--graphics opengl|d3d11|vulkan]   start the editor for a project and wait until it is ready (--hidden: no window at all, drive it with the CLI)\n"
 		"  quit [--force]                         close the editor (--force discards unsaved changes)\n"
 		"  info                                   project, scene, dirty, playing, selection\n"
 		"  log [-n 40] [--grep text] [--errors] [--follow]\n"
@@ -652,6 +653,7 @@ namespace
 		"  probevolume info                       Adaptive Probe Volume (realtime GI): cascades, voxels live, probes\n"
 		"  ssao info | map <out.png> [--view game|scene]   Screen Space Ambient Occlusion (Volume): settings in use, save the AO map (white = open)\n"
 		"  motionvectors info | map <out.png> [--rect x0,y0,x1,y1]   Motion Vectors (Volume, Game view): moving objects drawn, save the velocity map + mean / max pixels\n"
+		"  cinemachine info | create --kind follow|freelook|thirdperson [--target T] | prioritize|priority|enable|axis|snap <camera> | impulse <source>   Cinemachine (package com.nova.cameras): live camera, blend, poses\n"
 		"  lod info | assign --name G --lod 1 --object O | recalc --name G   LOD Group: LOD each view picked, add renderers\n"
 		"  occlusion info | set --enabled false    GPU occlusion culling (Hi-Z, no bake): renderers tested / culled per view\n"
 		"  modelfile place <Assets/x.fbx> [--parent P] [--position x,y,z] | info <path>   put a model like a Project drop (Mesh Renderers, _LODn -> LOD Group)\n"
@@ -1197,7 +1199,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors" || cmd == "cinemachine")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

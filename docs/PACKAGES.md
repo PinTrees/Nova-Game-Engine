@@ -140,6 +140,8 @@ C# 만 있는 패키지는 `Runtime/` 에 MonoBehaviour 를 두면 된다 (예: 
 | 자체 Undo 창 | 창이 포커스인 프레임마다 `Undo::BlockShortcuts()` → Ctrl+Z / Ctrl+Y 를 씬 Undo 가 받지 않는다 | Model Editor, 2D Animator |
 | BlendShape | 엔진 `SkinnedMeshRenderer::BlendShapeCount / BlendShapeName / BlendShapeIndex / GetBlendShapeWeight / SetBlendShapeWeight (0..100)` (NOVA_API) — 가중치가 바뀐 프레임에만 CPU 로 섞어 렌더러 자기 동적 정점 버퍼에 올린다 (GPU 스키닝은 그대로) | Expressions (Animation) |
 | 재질 셰이더 | `CustomShaders::Register({Name, Owner, DrawSkinned, DrawSkinnedOutline, HasOutline, Inspector, DefaultProperties})` — 재질 Inspector 의 Shader 목록에 이름이 나오고, 그 셰이더를 고른 재질(`"Shader":"이름"`, 값은 `"Properties"` JSON)의 스킨 메시 서브셋은 엔진 대신 패키지가 그린다. 효과 파일은 `CustomShaders::LoadEffect(owner, fx)` — `#include "32. InstancedBasic.fx"` 로 엔진 빛 · 그림자 · 하늘 변수를 그대로 쓰고, 엔진이 프레임마다 그 값(눈 위치 · 빛 · 그림자 맵 · SSAO · 하늘)을 넣어 준다. 외곽선 패스 앞뒤의 래스터 · 깊이 상태는 엔진이 저장 · 복원. 값이 바뀌면 `UMaterial::PropertiesRevision()` 이 바뀐다 (재질 주소 + 이 값으로 캐시). 패키지가 없으면 재질의 `"Fallback"`(Unlit / Lit) 으로. `OnUnload` 에서 `UnregisterOwner` | `lilToon` (Toon Shader) |
+| GameObject 메뉴 | `EditorExtensions::RegisterCreateMenu({Owner, Path, Create})` — `Path` 의 폴더가 하위 메뉴 (예 `Cinemachine/Targeted Cameras/Follow Camera`). `Create(scene, parent)` 가 만든 오브젝트를 돌려준다 (고른다). `OnUnload` 에서 `UnregisterOwner` | Tilemap, Cinemachine |
+| 편집 중 갱신 | 컴포넌트의 `_Editor_Update()` — Play 가 아닐 때 프레임마다 (Unity `[ExecuteAlways]`, 켜진 오브젝트만) | Cinemachine Brain (Live 를 편집 중에도) |
 | 자동으로 넣기 | 씬을 읽다가 모르는 컴포넌트 타입이면 `PackageManager::AddForComponent(type)` 가 레지스트리 `components` 에서 찾아 넣는다 (그 뒤 C# 다시 컴파일) | Animator 가 있는 옛 씬 |
 
 패키지가 쓰는 엔진 함수·클래스는 `NOVA_API` 로 내보내져 있어야 링크된다 (없으면 엔진 쪽에 붙인다).

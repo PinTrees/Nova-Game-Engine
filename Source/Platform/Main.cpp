@@ -50,6 +50,8 @@ extern "C" NOVA_API int NovaMain(HINSTANCE hInstance, int showCmd)
 				cliInstall = -1;
 			else if (wcscmp(argv[i], L"--no-activate") == 0)
 				Application::noActivate = true;   // NOVA CLI: 백그라운드로 열기
+			else if (wcscmp(argv[i], L"--hidden") == 0)
+				Application::hidden = Application::noActivate = true;   // NOVA CLI: 창 없이 (검사)
 			else if (wcscmp(argv[i], L"--create-project") == 0 && i + 2 < argc)
 			{
 				createLocation = argv[++i];

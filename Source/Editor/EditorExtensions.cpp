@@ -97,4 +97,22 @@ namespace EditorExtensions
 				out.push_back(&e);
 		return out;
 	}
+
+	std::vector<std::string> CreateMenuFolders(const std::string& folder)
+	{
+		std::vector<std::string> out;
+		const std::string prefix = folder + "/";
+		for (const CreateMenuItem& e : MenuItems())
+		{
+			if (e.Path.rfind(prefix, 0) != 0)
+				continue;
+			const size_t slash = e.Path.find('/', prefix.size());
+			if (slash == std::string::npos)
+				continue;
+			const std::string name = e.Path.substr(prefix.size(), slash - prefix.size());
+			if (std::find(out.begin(), out.end(), name) == out.end())
+				out.push_back(name);
+		}
+		return out;
+	}
 }

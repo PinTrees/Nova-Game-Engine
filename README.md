@@ -96,6 +96,7 @@
 | 패키지 | 내용 |
 |---|---|
 | `com.nova.animation` | Animator · Legs / Hands / Look Animator · Dynamic Bone · Expressions |
+| `com.nova.cameras` | **Cinemachine** (Unity Cinemachine 3 이름): 가상 카메라 여럿 · Brain 의 Priority · 섞기 (Ease In Out · Cut · Custom Blends), Follow · Orbital Follow (FreeLook) · Third Person Follow · Rotation Composer, Perlin 흔들림 · Impulse — [CINEMACHINE](docs/CINEMACHINE.md) |
 | `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) · 운전할 수 있는 차 (프리팹) · 맞으면 래그돌로 쓰러지는 표적 — [STARTER_ASSETS](docs/STARTER_ASSETS.md) |
 | `com.nova.ai.navigation` | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) — NavMesh Surface · Agent · Link · Obstacle (Carve), 탑다운 2D (XY 평면 — [NAVIGATION_2D.md](docs/NAVIGATION_2D.md)) |
 | `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결 (캐릭터 · 물도), **쌓이는 눈 · 발자국** (지형은 실제로 파인다), 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |

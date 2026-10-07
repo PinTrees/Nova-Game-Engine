@@ -40,6 +40,7 @@ public:
 
 	// Editor Only
 	virtual void _Editor_Render() { }
+	// 편집 중 (Play 아님) 프레임마다 — Unity [ExecuteAlways] 의 Update (예: Cinemachine Brain 이 Live 가상 카메라를 바로 보여 준다)
 	virtual void _Editor_Update() { }
 
 	virtual void Reset() { }

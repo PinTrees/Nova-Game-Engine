@@ -1,13 +1,24 @@
 {
   "name": "com.nova.cameras",
   "displayName": "Cameras",
-  "version": "1.0.0",
-  "description": "Camera rigs for games: Follow Camera keeps a third-person camera behind a target (character, vehicle), smooths its motion and pulls in when walls are in the way. Works with Character Controller.",
+  "version": "1.1.0",
+  "description": "Camera rigs for games. Cinemachine (Unity Cinemachine 3 names): many virtual cameras, a Brain that picks the live one by priority and blends between them, Follow / Orbital Follow (FreeLook) / Third Person Follow, Rotation Composer / Hard Look At, Perlin noise shake and impulses (GameObject > Cinemachine). Also the simple Follow Camera (third-person follow with wall avoidance).",
   "category": "Camera",
   "author": { "name": "NOVA" },
-  "keywords": [ "camera", "follow", "third person", "cinemachine" ],
+  "keywords": [ "camera", "follow", "third person", "cinemachine", "virtual camera", "blend", "shake", "impulse", "freelook" ],
   "native": [ "NovaCameras.dll" ],
   "components": [
-    { "type": "FollowCamera", "display": "Follow Camera", "category": "Rendering", "icon": "camera", "single": true }
+    { "type": "FollowCamera", "display": "Follow Camera", "category": "Rendering", "icon": "camera", "single": true },
+    { "type": "CinemachineBrain", "display": "Cinemachine Brain", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineCamera", "display": "Cinemachine Camera", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineFollow", "display": "Cinemachine Follow", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineOrbitalFollow", "display": "Cinemachine Orbital Follow", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineThirdPersonFollow", "display": "Cinemachine Third Person Follow", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineRotationComposer", "display": "Cinemachine Rotation Composer", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineHardLookAt", "display": "Cinemachine Hard Look At", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineRotateWithFollowTarget", "display": "Cinemachine Rotate With Follow Target", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineBasicMultiChannelPerlin", "display": "Cinemachine Basic Multi Channel Perlin", "category": "Cinemachine", "icon": "camera", "single": true },
+    { "type": "CinemachineImpulseSource", "display": "Cinemachine Impulse Source", "category": "Cinemachine", "icon": "camera", "single": false },
+    { "type": "CinemachineImpulseListener", "display": "Cinemachine Impulse Listener", "category": "Cinemachine", "icon": "camera", "single": true }
   ]
 }

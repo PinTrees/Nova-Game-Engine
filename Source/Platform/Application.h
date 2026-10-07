@@ -31,6 +31,8 @@ public:
 	static inline bool isPlayer = false;
 	// --no-activate (nova open --background): 창을 띄우되 앞으로 가져오지 않는다 (작업 중인 창의 포커스를 뺏지 않게)
 	static inline bool noActivate = false;
+	// --hidden (nova open --background --hidden): 창을 아예 띄우지 않는다 (로딩 창도) — 검사 · 자동화는 CLI 로만
+	static inline bool hidden = false;
 	static bool IsPlayer() { return isPlayer; }
 	static void SetPlaying(bool active) { isPlaying = active; }
 	static bool IsPlaying() { return isPlaying; }

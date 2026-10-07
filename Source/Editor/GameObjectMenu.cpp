@@ -55,6 +55,24 @@ namespace GameObjectMenu
 			ImGui::MenuItem(label, nullptr, false, false);
 		}
 
+		// 패키지가 등록한 GameObject 메뉴 항목 (EditorExtensions::RegisterCreateMenu) — 하위 메뉴까지
+		void PackageMenu(const std::string& folder, Scene* scene, GameObject* parent)
+		{
+			for (const std::string& sub : EditorExtensions::CreateMenuFolders(folder))
+			{
+				SetMenuWidth(210.0f);
+				if (ImGui::BeginMenu(sub.c_str()))
+				{
+					PackageMenu(folder + "/" + sub, scene, parent);
+					ImGui::EndMenu();
+				}
+			}
+			for (const EditorExtensions::CreateMenuItem* it : EditorExtensions::CreateMenuItems(folder))
+				if (ImGui::MenuItem(it->Path.substr(it->Path.rfind('/') + 1).c_str()) && it->Create && scene)
+					if (GameObject* made = it->Create(scene, parent))
+						SelectionManager::SetSelectedGameObject(made);
+		}
+
 		// 서브메뉴 안의 비활성 항목들만 있는 메뉴
 		void DisabledSubMenu(const char* label, std::initializer_list<const char*> items)
 		{
@@ -303,6 +321,14 @@ namespace GameObjectMenu
 
 		if (ImGui::MenuItem("Camera"))
 			add(GameObjectFactory::CreateCamera("Camera"));
+
+		// Cinemachine (Cameras 패키지가 항목을 등록 — 없으면 회색)
+		SetMenuWidth(190.0f);
+		if (ImGui::BeginMenu("Cinemachine", !EditorExtensions::CreateMenuItems("Cinemachine").empty()))
+		{
+			PackageMenu("Cinemachine", scene, parent);
+			ImGui::EndMenu();
+		}
 
 		Disabled("Visual Scripting Scene Variables");
 		SetMenuWidth(190.0f);

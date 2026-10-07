@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -5141,6 +5141,204 @@ function Suite-MotionVectors
     }
 }
 
+function Suite-Cinemachine
+{
+    # Cinemachine (패키지 com.nova.cameras): 모두 CLI `nova cinemachine info | create | priority | axis | impulse | blend …` 로 읽고 바꾼다.
+    #  편집 중: GameObject > Cinemachine 이 Main Camera 에 Brain 을 붙이고, Brain 이 Live 가상 카메라의 모습을 바로 보여 준다 (Follow 오프셋),
+    #  같은 Priority 면 가장 늦게 켜진 것, Prioritize, Priority 가 높은 것, Orbital Follow (세 고리 · 구) · Third Person Follow 의 자리 (손으로 계산한 값),
+    #  씬 저장 · 열기. Play: Priority 를 올리면 Ease In Out 2 초로 섞기 (중간 · 끝), 흔들림 (Perlin — 출력만, 가상 카메라 Transform 은 그대로),
+    #  섞는 중에 바뀌면 지금 화면에서 다시 (Mid-Blend, 튀지 않음), Custom Blend (Cut), 충격 (Impulse Source → Listener), 벽 앞으로 당기기 (Third Person),
+    #  Follow 따라가기 (늦게), C# API (Priority · Lens · 축 · ActiveVirtualCamera · GenerateImpulse), 끄면 다음 카메라로
+    #  Play 중에는 CLI set 이 막혀 있어 Play 에서 바꾸는 것은 cinemachine 명령 · C# 로
+    Write-Host '[cinemachine]'
+    $dir = Join-Path $Out 'cinemachine'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\CinemachineTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    $ed = Start-TestEditor
+    try
+    {
+        $ic = [Globalization.CultureInfo]::InvariantCulture
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 5' | Out-Null } }
+        function Exec([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file `"$f`""; if ($r) { "$($r.result)" } else { '' } }
+        function CmInfo { Invoke-NovaJson 'cinemachine info' }
+        function Cam($info, [string]$name) { $info.cameras | Where-Object { $_.name -eq $name } | Select-Object -First 1 }
+        function Near($a, [double[]]$b, [double]$tol) { if ($null -eq $a) { return $false }; for ($i = 0; $i -lt $b.Count; $i++) { if ([math]::Abs([double]$a[$i] - $b[$i]) -gt $tol) { return $false } }; $true }
+        function Fmt($v) { if ($null -eq $v) { return 'null' }; '(' + (($v | ForEach-Object { ([double]$_).ToString('F2', $ic) }) -join ', ') + ')' }
+        function Dist($a, $b) { [math]::Sqrt(([double]$a[0] - $b[0]) * ([double]$a[0] - $b[0]) + ([double]$a[1] - $b[1]) * ([double]$a[1] - $b[1]) + ([double]$a[2] - $b[2]) * ([double]$a[2] - $b[2])) }
+        function SetCm([string]$obj, [string]$type, [string]$json) { Invoke-Nova ('set "' + $obj + '" --component ' + $type + ' --values "' + ($json -replace '"', '\"') + '"') | Out-Null }
+
+        # 패키지 + 검사 스크립트 (MotionMover)
+        Invoke-Nova 'package add com.nova.cameras' | Out-Null
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'motion_probe.cs') (Join-Path $assetDir 'MotionProbe.cs') -Force
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 60 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Target --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'cinemachine create --kind follow --target Target --name CamA' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $i = CmInfo
+        $b = $i.brains | Select-Object -First 1
+        Add-Result cinemachine 'GameObject > Cinemachine > Follow Camera adds a Cinemachine Brain to Main Camera' ($i.brains.Count -eq 1 -and $b.camera -eq 'Main Camera' -and (Cam $i 'CamA').body -eq 'CinemachineFollow' -and (Cam $i 'CamA').aim -eq 'CinemachineRotationComposer') "brains=$($i.brains.Count) camera=$($b.camera) body=$((Cam $i 'CamA').body) aim=$((Cam $i 'CamA').aim)"
+        Add-Result cinemachine 'edit mode: Main Camera shows the live camera (target + Follow Offset 0,0,-10)' ($b.live -eq 'CamA' -and (Near $b.transform.position @(0, 0.5, -10) 0.01)) "live=$($b.live) main=$(Fmt $b.transform.position)"
+
+        Invoke-Nova 'cinemachine create --kind camera --name CamB' | Out-Null
+        Invoke-Nova 'set CamB --position 10,5,0 --rotation 0,-90,0' | Out-Null
+        SetCm 'CamB' 'CinemachineCamera' '{"fieldOfView":30}'
+        Invoke-Nova 'wait 3' | Out-Null
+        $b = (CmInfo).brains[0]
+        Add-Result cinemachine 'same priority: the newest camera is live (pose + lens to Main Camera)' ($b.live -eq 'CamB' -and (Near $b.transform.position @(10, 5, 0) 0.01) -and [math]::Abs($b.cameraFov - 30) -lt 0.1) "live=$($b.live) main=$(Fmt $b.transform.position) fov=$($b.cameraFov)"
+        Invoke-Nova 'cinemachine prioritize CamA' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $l1 = (CmInfo).brains[0].live
+        SetCm 'CamB' 'CinemachineCamera' '{"priority":10}'
+        Invoke-Nova 'wait 3' | Out-Null
+        $l2 = (CmInfo).brains[0].live
+        Add-Result cinemachine 'Prioritize makes CamA live, a higher Priority wins' ($l1 -eq 'CamA' -and $l2 -eq 'CamB') "after prioritize=$l1, CamB priority 10=$l2"
+
+        # Orbital Follow (FreeLook: 세 고리, World Space) — 가로 90 도 = 대상의 -x 쪽
+        Invoke-Nova 'cinemachine create --kind freelook --target Target --name Free' | Out-Null
+        SetCm 'Free' 'CinemachineCamera' '{"priority":-10}'
+        Invoke-Nova 'cinemachine axis Free --horizontal 90' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $f1 = Cam (CmInfo) 'Free'
+        Invoke-Nova 'cinemachine axis Free --vertical 45' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $f2 = Cam (CmInfo) 'Free'
+        Add-Result cinemachine 'Orbital Follow Three Ring: center ring (-4, 2.75, 0), top ring (-2, 5.5, 0), Rotation Composer looks at the target' ((Near $f1.rawPosition @(-4, 2.75, 0) 0.02) -and (Near $f2.rawPosition @(-2, 5.5, 0) 0.02) -and (Near $f1.rawRotation @(29.36, 90, 0) 0.3)) "center=$(Fmt $f1.rawPosition) rot=$(Fmt $f1.rawRotation) top=$(Fmt $f2.rawPosition)"
+        SetCm 'Free' 'CinemachineOrbitalFollow' '{"orbitStyle":0}'
+        Invoke-Nova 'wait 3' | Out-Null
+        $f3 = Cam (CmInfo) 'Free'
+        Add-Result cinemachine 'Orbital Follow Sphere: radius 10, 45 deg up -> (-7.07, 7.57, 0), pitch 45' ((Near $f3.rawPosition @(-7.071, 7.571, 0) 0.02) -and (Near $f3.rawRotation @(45, 90, 0) 0.3)) "pos=$(Fmt $f3.rawPosition) rot=$(Fmt $f3.rawRotation)"
+
+        # Third Person Follow: 어깨 (0.5,-0.4) + 팔 0.4 + 거리 2 — 대상이 90 도 돌면 같이
+        Invoke-Nova 'cinemachine create --kind thirdperson --target Target --name Tps' | Out-Null
+        SetCm 'Tps' 'CinemachineCamera' '{"priority":-10}'
+        Invoke-Nova 'wait 3' | Out-Null
+        $t1 = Cam (CmInfo) 'Tps'
+        Invoke-Nova 'set Target --rotation 0,90,0' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $t2 = Cam (CmInfo) 'Tps'
+        Invoke-Nova 'set Target --rotation 0,0,0' | Out-Null
+        Add-Result cinemachine 'Third Person Follow: shoulder + arm + distance (0.5, 0.5, -2), target turned 90 deg -> (-2, 0.5, -0.5)' ((Near $t1.rawPosition @(0.5, 0.5, -2) 0.02) -and (Near $t2.rawPosition @(-2, 0.5, -0.5) 0.02) -and (Near $t2.rawRotation @(0, 90, 0) 0.3)) "yaw 0=$(Fmt $t1.rawPosition) yaw 90=$(Fmt $t2.rawPosition) rot=$(Fmt $t2.rawRotation)"
+
+        # 씬 저장 · 열기
+        Invoke-Nova 'scene save --as Assets/CinemachineTest/Cm.scene' | Out-Null
+        Invoke-Nova 'scene open Assets/CinemachineTest/Cm.scene --force' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $i = CmInfo
+        $names = ($i.cameras | ForEach-Object { "$($_.name):$($_.priority):$($_.body)" } | Sort-Object) -join ' '
+        Add-Result cinemachine 'scene save + open keeps the Brain, cameras, priorities and pipeline' ($i.brains.Count -eq 1 -and $i.cameras.Count -eq 4 -and $i.brains[0].live -eq 'CamB' -and $names -match 'Free:-10:CinemachineOrbitalFollow' -and $names -match 'Tps:-10:CinemachineThirdPersonFollow') "live=$($i.brains[0].live) $names"
+
+        # Play 준비 (편집 중에만 set 이 된다): 우선순위, CamB 흔들림, CamA 충격 듣기, 충격 상자, Third Person 앞의 벽, 움직이는 Runner + 따라가는 CamRun
+        SetCm 'CamA' 'CinemachineCamera' '{"priority":10}'
+        SetCm 'CamB' 'CinemachineCamera' '{"priority":0}'
+        Invoke-Nova 'add-component CamB CinemachineBasicMultiChannelPerlin' | Out-Null
+        SetCm 'CamB' 'CinemachineBasicMultiChannelPerlin' '{"noiseProfile":1}'
+        Invoke-Nova 'add-component CamA CinemachineImpulseListener' | Out-Null
+        Invoke-Nova 'create cube --name Boom --position 3,0.5,3' | Out-Null
+        Invoke-Nova 'add-component Boom CinemachineImpulseSource' | Out-Null
+        SetCm 'Boom' 'CinemachineImpulseSource' '{"impulseDuration":1.0}'
+        Invoke-Nova 'create cube --name Wall --position 0.5,0.5,-1.2 --scale 3,3,0.2' | Out-Null
+        Invoke-Nova 'create cube --name Runner --position 0,0.5,6' | Out-Null
+        Invoke-Nova 'add-component Runner MotionMover --values "{\"speed\":3,\"minX\":-40,\"maxX\":40}"' | Out-Null
+        Invoke-Nova 'cinemachine create --kind follow --target Runner --name CamRun' | Out-Null
+        SetCm 'CamRun' 'CinemachineCamera' '{"priority":-10}'
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 0.8
+        $i = CmInfo
+        $b = $i.brains[0]
+        Add-Result cinemachine 'Play: the highest priority camera is live (CamA 10)' ($b.live -eq 'CamA' -and -not $b.blending -and (Near $b.transform.position @(0, 0.5, -10) 0.05)) "live=$($b.live) blending=$($b.blending) main=$(Fmt $b.transform.position)"
+
+        # Ease In Out 2 초 섞기
+        Invoke-Nova 'cinemachine priority CamB --value 20' | Out-Null
+        Invoke-Nova 'wait 2' | Out-Null
+        $b0 = (CmInfo).brains[0]
+        Wait-Sec 0.9
+        $bm = (CmInfo).brains[0]
+        Add-Result cinemachine 'raising CamB priority starts an Ease In Out 2 s blend; halfway Main Camera is between the two (pose + FOV)' ($b0.blending -and $b0.blend.from -eq 'CamA' -and $b0.blend.to -eq 'CamB' -and $b0.blend.style -eq 'Ease In Out' -and [math]::Abs($b0.blend.duration - 2) -lt 0.01 -and $bm.blending -and $bm.transform.position[0] -gt 1 -and $bm.transform.position[0] -lt 9 -and $bm.cameraFov -gt 32 -and $bm.cameraFov -lt 58) ("start {0} -> {1} {2} {3}s, at t={4:N2}: main x={5:N2} fov={6:N1}" -f $b0.blend.from, $b0.blend.to, $b0.blend.style, $b0.blend.duration, $bm.blend.t, $bm.transform.position[0], $bm.cameraFov)
+        Wait-Sec 1.6
+        $i = CmInfo
+        $b = $i.brains[0]; $cb = Cam $i 'CamB'
+        Add-Result cinemachine 'after the blend Main Camera is exactly the live camera output (CamB, FOV 30)' (-not $b.blending -and $b.live -eq 'CamB' -and (Dist $b.transform.position $cb.position) -lt 0.01 -and [math]::Abs($b.cameraFov - 30) -lt 0.1) "main=$(Fmt $b.transform.position) CamB=$(Fmt $cb.position) fov=$($b.cameraFov)"
+        Wait-Sec 0.3
+        $cb2 = Cam (CmInfo) 'CamB'
+        $shake = [math]::Sqrt(($cb.positionCorrection | ForEach-Object { [double]$_ * $_ } | Measure-Object -Sum).Sum)
+        Add-Result cinemachine 'Perlin noise (6D Shake) moves only the output: correction changes, the virtual camera Transform stays at (10, 5, 0)' ($shake -gt 0.005 -and (Dist $cb.positionCorrection $cb2.positionCorrection) -gt 0.001 -and (Near $cb2.rawPosition @(10, 5, 0) 0.001) -and (Dist $cb2.rotation $cb2.rawRotation) -gt 0.05) ("correction {0} -> {1}, raw {2}, rotation {3} vs raw {4}" -f (Fmt $cb.positionCorrection), (Fmt $cb2.positionCorrection), (Fmt $cb2.rawPosition), (Fmt $cb2.rotation), (Fmt $cb2.rawRotation))
+
+        # 섞는 중에 바뀌면 지금 화면에서 (Linear 2 초)
+        Invoke-Nova 'cinemachine blend --style Linear --time 2' | Out-Null
+        Invoke-Nova 'cinemachine priority CamB --value 0' | Out-Null
+        Wait-Sec 0.7
+        $p1 = (CmInfo).brains[0].transform.position
+        Invoke-Nova 'cinemachine priority CamB --value 30' | Out-Null
+        Invoke-Nova 'wait 1' | Out-Null
+        $bi = (CmInfo).brains[0]
+        $jump = Dist $p1 $bi.transform.position
+        Add-Result cinemachine 'a change during a blend blends again from the current view (Mid-Blend, no jump)' ($bi.blending -and $bi.blend.from -eq 'Mid-Blend' -and $bi.blend.to -eq 'CamB' -and $bi.blend.style -eq 'Linear' -and $jump -lt 1.5) ("from={0} to={1} {2}, moved {3:N2} m between the two reads" -f $bi.blend.from, $bi.blend.to, $bi.blend.style, $jump)
+        Wait-Sec 2.2
+
+        # Custom Blend: CamB → CamA = Cut
+        Invoke-Nova 'cinemachine blend --from CamB --to CamA --style Cut' | Out-Null
+        Invoke-Nova 'cinemachine priority CamB --value 0' | Out-Null
+        Invoke-Nova 'wait 2' | Out-Null
+        $b = (CmInfo).brains[0]
+        Add-Result cinemachine 'Custom Blend CamB -> CamA = Cut: switches at once' ($b.live -eq 'CamA' -and -not $b.blending -and (Near $b.transform.position @(0, 0.5, -10) 0.05)) "live=$($b.live) blending=$($b.blending) main=$(Fmt $b.transform.position)"
+
+        # 충격: Boom (Bump, 1 초, 기본 속도 0,-1,0) × 2 → CamA (Listener, 카메라 공간) 가 아래로
+        Invoke-Nova 'cinemachine impulse Boom --force 2' | Out-Null
+        Wait-Sec 0.35
+        $ca = Cam (CmInfo) 'CamA'
+        Wait-Sec 1.3
+        $i = CmInfo; $ca2 = Cam $i 'CamA'
+        Add-Result cinemachine 'Impulse Source -> Impulse Listener: the live camera dips down, then settles' ($ca.positionCorrection[1] -lt -0.3 -and [math]::Abs($ca2.positionCorrection[1]) -lt 0.01 -and $i.impulses -eq 0) ("correction y {0:N2} at 0.35 s, {1:N3} after, active impulses {2}" -f $ca.positionCorrection[1], $ca2.positionCorrection[1], $i.impulses)
+
+        # Third Person: 벽 (가까운 면 z = -1.1) 앞으로 당긴다 (편집 중 -2)
+        $t = Cam (CmInfo) 'Tps'
+        Add-Result cinemachine 'Third Person Follow Avoid Obstacles pulls the camera in front of the wall' ($t.rawPosition[2] -gt -1.1 -and $t.rawPosition[2] -lt -0.5) "z=$(([double]$t.rawPosition[2]).ToString('F2', $ic)) (no wall: -2, wall face -1.1, radius 0.2)"
+
+        # Follow 따라가기 (Position Damping 1 초): 3 m/s 로 가는 Runner 보다 늦다 (정상 상태 약 3 / 4.6 = 0.65 m)
+        $lags = @()
+        for ($k = 0; $k -lt 3; $k++)
+        {
+            Wait-Sec 0.3
+            $r = Invoke-NovaJson 'get Runner'
+            $cr = Cam (CmInfo) 'CamRun'
+            $lags += [double]$r.position[0] - [double]$cr.rawPosition[0]
+        }
+        $lag = ($lags | Measure-Object -Average).Average
+        Add-Result cinemachine 'Follow Position Damping: the camera trails a moving target' ($lag -gt 0.3 -and $lag -lt 1.2) ("lag x {0} m" -f (($lags | ForEach-Object { $_.ToString('F2', $ic) }) -join ', '))
+
+        # C# API
+        $cs = Exec 'api' 'var cm = GameObject.Find("CamA").GetComponent<NovaEngine.Cinemachine.CinemachineCamera>(); cm.Priority = 50; cm.Lens.FieldOfView = 42f; var o = GameObject.Find("Free").GetComponent<NovaEngine.Cinemachine.CinemachineOrbitalFollow>(); o.HorizontalAxis.Value = 45f; o.HorizontalAxis.Value += 10f; return (int)cm.Priority + " " + cm.Lens.FieldOfView + " " + o.HorizontalAxis.Value + " " + cm.Follow.name;'
+        Wait-Sec 0.3
+        $cs2 = Exec 'api2' 'var b = Camera.main.GetComponent<NovaEngine.Cinemachine.CinemachineBrain>(); GameObject.Find("Boom").GetComponent<NovaEngine.Cinemachine.CinemachineImpulseSource>().GenerateImpulse(1f); return b.ActiveVirtualCamera.name + " " + b.ActiveVirtualCamera.IsLive + " " + b.DefaultBlend.Style;'
+        $imp = (CmInfo).impulses
+        Add-Result cinemachine 'C# API: Priority, Lens.FieldOfView, HorizontalAxis.Value, Follow, ActiveVirtualCamera, GenerateImpulse' ($cs -eq '50 42 55 Target' -and $cs2 -eq 'CamA True Linear' -and $imp -ge 1) "api='$cs' brain='$cs2' impulses=$imp"
+
+        # 끄면 다음 Priority 로
+        Invoke-Nova 'cinemachine enable CamA --value false' | Out-Null
+        Invoke-Nova 'wait 2' | Out-Null
+        $b = (CmInfo).brains[0]
+        Add-Result cinemachine 'disabling the live camera hands over to the next priority' ($b.live -ne 'CamA' -and $b.live -ne '') "live=$($b.live) blending=$($b.blending)"
+        Invoke-Nova ('screenshot "' + (Join-Path $dir 'game.png') + '" --view game') | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -6628,6 +6826,7 @@ try
                 'ssr' { Suite-SSR }
                 'ssao' { Suite-SSAO }
                 'motionvectors' { Suite-MotionVectors }
+                'cinemachine' { Suite-Cinemachine }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }

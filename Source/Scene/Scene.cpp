@@ -324,6 +324,18 @@ void Scene::UpdateScene()
     }
 }
 
+void Scene::EditorUpdateScene()
+{
+    const std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    for (GameObject* gameObject : objects)
+    {
+        if (!GameObject::IsAlive(gameObject) || !gameObject->IsActiveInHierarchy())
+            continue;
+        for (auto& component : gameObject->GetComponents())
+            component->_Editor_Update();
+    }
+}
+
 wstring Scene::GetName() const
 {
     if (m_ScenePath.empty())

@@ -135,6 +135,12 @@ int32 App::Run()
 					{ PROFILE_SCOPE("Physics.Update"); PhysicsManager::GetI()->Update(_timer.DeltaTime()); }
 					{ PROFILE_SCOPE("Physics2D.Update"); Physics2DManager::Update(_timer.DeltaTime()); }
 				}
+				else if (!Application::IsPlaying() && !Application::IsPlayer())
+				{
+					PROFILE_SCOPE("Scene.EditorUpdate");
+					if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+						scene->EditorUpdateScene();
+				}
 
 				// Editor Update
 				{
@@ -262,7 +268,8 @@ int32 App::Run()
 				if (_deferredShow && ++_shownFrames >= 2)
 				{
 					_deferredShow = false;
-					::ShowWindow(_hMainWnd, Application::noActivate ? SW_SHOWNOACTIVATE : (s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW));
+					if (!Application::hidden)
+						::ShowWindow(_hMainWnd, Application::noActivate ? SW_SHOWNOACTIVATE : (s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW));
 					::UpdateWindow(_hMainWnd);
 					if (!Application::noActivate)
 						::SetForegroundWindow(_hMainWnd);
@@ -988,7 +995,7 @@ bool App::InitMainWindow()
 
 	// 로딩 창이 떠 있으면 첫 프레임이 준비될 때까지 숨겨 둔다 (흰 창이 멈춘 것처럼 보이지 않게)
 	_deferredShow = LoadingScreen::IsActive();
-	if (!_deferredShow)
+	if (!_deferredShow && !Application::hidden)
 	{
 		::ShowWindow(_hMainWnd, Application::noActivate ? SW_SHOWNOACTIVATE : (s_StartMaximized ? SW_SHOWMAXIMIZED : SW_SHOW));
 		::UpdateWindow(_hMainWnd);
