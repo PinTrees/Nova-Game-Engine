@@ -282,6 +282,8 @@ void DayNightCycle::Apply()
 	s.MilkyWay = (std::max)(0.0f, L.MilkyWay * MilkyWayBrightness);
 	s.Moon = Smooth(-0.03f, 0.03f, -sun.y);
 	s.Time = (float)fmod(s_Clock, 3600.0);
+	s.TimeOfDay = t;
+	s.ProbeRefreshMinutes = (std::max)(0.0f, ProbeRefreshMinutes);
 	s_Applied = this;
 }
 
@@ -320,6 +322,10 @@ void DayNightCycle::OnInspectorGUI()
 	UnityGUI::Label("Night Sky", 0, true);
 	UnityGUI::Slider("Stars", &StarBrightness, 0.0f, 3.0f);
 	UnityGUI::Slider("Milky Way", &MilkyWayBrightness, 0.0f, 3.0f);
+	UnityGUI::Label("Reflections", 0, true);
+	if (UnityGUI::Float("Probe Refresh (game min)", &ProbeRefreshMinutes)) ProbeRefreshMinutes = (std::max)(0.0f, ProbeRefreshMinutes);
+	if (ProbeRefreshMinutes > 0.0f)
+		UnityGUI::HelpBox("Reflection Probes are captured again whenever the time of day moves this much (baked probes too, at run time - the baked file is kept), so reflections show the night sky and lit lamps.", false);
 	UnityGUI::Label("Looks", 0, true);
 	for (int i = 0; i < PhaseCount; ++i)
 	{
@@ -370,6 +376,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(DayNightCycle)
 	j["sunLight"] = SunLight;
 	j["starBrightness"] = StarBrightness;
 	j["milkyWayBrightness"] = MilkyWayBrightness;
+	j["probeRefreshMinutes"] = ProbeRefreshMinutes;
 	json looks = json::object();
 	for (int i = 0; i < PhaseCount; ++i)
 	{
@@ -394,6 +401,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(DayNightCycle)
 	SunLight = j.value("sunLight", (uint64)0);
 	StarBrightness = j.value("starBrightness", 1.0f);
 	MilkyWayBrightness = j.value("milkyWayBrightness", 1.0f);
+	ProbeRefreshMinutes = (std::max)(0.0f, j.value("probeRefreshMinutes", 30.0f));
 	ResetLooks(Looks);
 	if (j.contains("looks") && j["looks"].is_object())
 		for (int i = 0; i < PhaseCount; ++i)

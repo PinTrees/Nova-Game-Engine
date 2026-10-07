@@ -38,6 +38,8 @@ Unity 의 **Reflection Probe** 처럼 한 점에서 본 주변을 큐브맵으�
 - **찍기**: 한 면 = Game 뷰와 같은 그리기 (그림자 · 하늘 · 대기 · 물 · 입자 · 데칼) 를 90° 카메라로 6 번. SSAO · 후처리는 없고, 찍는 동안 다른 프로브 반사는 끕니다 (Unity 의 1 바운스). Realtime 프로브의 찍기는 프레임마다 뷰를 그리기 전에
 - **필터**: 뷰마다 보이는 프로브를 Importance · 크기 순으로 **최대 8 개** 골라 큐브 배열 (R16G16B16A16 float, 해상도 = 고른 것 중 가장 큰 것, 최대 512) 의 칸에 넣고, 밉마다 **GGX 중요도 샘플링** 으로 거칠기별로 흐리게 합니다 (내용이 바뀐 칸만 다시). 매끈한 면은 또렷하게, 거친 면은 흐리게
 - **셰이더** (`32. InstancedBasic.fx` 의 `ProbeReflection`): 픽셀마다 프로브를 순서대로 — 상자 안 가중치 (Blend Distance) 만큼 더하고, 남는 몫은 하늘. URP Forward+ 의 프로브 블렌드와 같은 방식이라 큰 물체도 위치마다 맞는 프로브를 씁니다
+- **낮 · 밤** ([DAY_NIGHT](DAY_NIGHT.md#반사-프로브-시각마다-다시-찍기)): Day Night Cycle 이 시각마다 프로브를 다시 찍습니다 (Baked 도 실행 중의 큐브로 — 파일은 그대로).
+  실행 중에 찍은 큐브 (Realtime · 다시 찍은 것) 는 그때의 하늘이 들어 있어 날씨 · 낮밤 하늘 보정을 하지 않고, 구운 큐브와 하늘만 보정합니다
 - **반사 (스페큘러) 만** 바꿉니다 — 확산 환경광은 [Adaptive Probe Volume](ADAPTIVE_PROBE_VOLUME.md) (없으면 하늘)
 - Mesh Renderer · Skinned Mesh · 지형 · 나무 · Shader Graph (Lit) 재질이 모두 같은 함수를 씁니다. Game · Scene 뷰, DirectX 11 · OpenGL 같은 결과
 - 파일: `Source/Scene/ReflectionProbe.*` (컴포넌트), `Source/Graphics/DX11/ReflectionProbes.*` (찍기 · 필터 · 고르기 · 굽기 · CLI), `Shaders/54. ReflectionProbe.fx` (필터)

@@ -51,6 +51,12 @@ namespace NovaEngine
         public static float starBrightness { get => DayNightNative.NovaDayNight_GetFloat(7); set => DayNightNative.NovaDayNight_SetFloat(7, value); }
         public static float milkyWayBrightness { get => DayNightNative.NovaDayNight_GetFloat(8); set => DayNightNative.NovaDayNight_SetFloat(8, value); }
 
+        /// <summary>반사 프로브를 시각이 이만큼 (게임 분) 흐를 때마다 다시 찍는다 (0 = 안 함, 기본 30)</summary>
+        public static float probeRefreshMinutes { get => DayNightNative.NovaDayNight_GetFloat(9); set => DayNightNative.NovaDayNight_SetFloat(9, value); }
+
+        /// <summary>반사 프로브를 지금 다시 찍는다 (예: 가로등을 모두 켠 뒤)</summary>
+        public static void RefreshReflectionProbes() => DayNightNative.NovaDayNight_SetFloat(20, 1f);
+
         /// <summary>단계의 가운데 시각으로</summary>
         public static void SetPhase(DayPhase p)
         {

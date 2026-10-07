@@ -27,6 +27,12 @@ struct NOVA_API DayNightState
 	float Moon = 0.0f;                     // 달 원반 세기
 	float Time = 0.0f;                     // 별 반짝임 시계 (초)
 
+	// ---- 반사 프로브 (ReflectionProbes): 시각이 ProbeRefreshMinutes (게임 분) 넘게 흐를 때마다 프로브를 다시 찍는다
+	//  (Baked · Custom 도 실행 중의 큐브로 — 파일은 그대로). 0 = 안 함. ProbeRefreshSerial 이 바뀌면 바로 다시
+	float TimeOfDay = 12.0f;               // 시 (0 ~ 24)
+	float ProbeRefreshMinutes = 0.0f;
+	uint32 ProbeRefreshSerial = 0;
+
 	static DayNightState& Get();
 	static void Reset();                   // 패키지를 내릴 때 · Day Night Cycle 이 사라지거나 꺼질 때
 };

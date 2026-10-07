@@ -88,12 +88,14 @@ void Light::SetDirLight(DirectionalLight light)
 void Light::SetPointLight(PointLight light)
 {
 	m_PointDesc = light;
+	m_LightType = LightType::Point;   // GameObject > Light > Point Light (예전에는 Directional 로 남았다)
 	m_pGameObject->GetTransform()->SetLocalPosition(light.Position);
 }
 
 void Light::SetSpotLight(SpotLight light)
 {
 	m_SpotDesc = light;
+	m_LightType = LightType::Spot;
 	m_pGameObject->GetTransform()->SetLocalRotation(LookRotation(light.Direction));
 	m_pGameObject->GetTransform()->SetLocalPosition(light.Position);
 }

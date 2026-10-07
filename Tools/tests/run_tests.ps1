@@ -2183,7 +2183,8 @@ function Suite-Wheel
 function Suite-DayNight
 {
     # 낮 · 밤 순환 (com.nova.daynight): 시각 → 단계 이름, 해 (정오) · 달 (자정) 방향의 Directional Light,
-    #  하늘: 낮 밝기, 노을 · 새벽 지평이 붉다, 밤은 어둡다, 은하수 시각에 별이 많다, Play 중 7 단계가 차례로, C# DayNight API
+    #  하늘: 낮 밝기, 노을 · 새벽 지평이 붉다, 밤은 어둡다, 은하수 시각에 별이 많다, Play 중 7 단계가 차례로, C# DayNight API,
+    #  거리: 구운 반사 프로브가 시각마다 다시 찍힌다 (밤 반사가 두 번 어두워지지 않는다), NightLight 가로등이 밤에만 켜진다
     Write-Host '[daynight]'
     $dir = Join-Path $Out 'daynight'
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -2270,7 +2271,100 @@ function Suite-DayNight
         'DayNight.paused = true; DayNight.SetPhase(DayPhase.Sunset); return DayNight.phase + " " + DayNight.timeOfDay.ToString("F2") + " " + DayNight.isNight + " " + (DayNight.sunElevation < 0);' | Set-Content -Encoding utf8 $csf
         $api = Invoke-NovaJson "exec --file `"$csf`""
         Add-Result daynight 'C# DayNight API (SetPhase, phase, timeOfDay, isNight)' ("$($api.result)" -eq 'Sunset 18.75 False True') "$($api.result)"
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
+        function Exec([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file `"$f`""; if ($r) { "$($r.result)" } else { '' } }
         Invoke-Nova 'stop' | Out-Null
+
+        # ---- 거리: 가로등 (NightLight) + 거울 구 + 구운 반사 프로브 — 밤에 가로등이 켜지고, 프로브가 그 시각으로 다시 찍힌다
+        $tdir = Join-Path $Project 'Assets\DayNightTest'
+        New-Item -ItemType Directory -Force $tdir | Out-Null
+        function TestMat([string]$name, [double[]]$c, [double]$metal, [double]$smooth, [double[]]$emis = $null)
+        {
+            $m = [ordered]@{ Shader = 'Universal Render Pipeline/Lit'; ResourcePath = "Assets\DayNightTest\$name.mat"; BaseMapPath = ''; NormalMapPath = ''; MetallicMapPath = ''; OcclusionMapPath = ''; EmissionMapPath = ''
+                BaseColor = @($c[0], $c[1], $c[2], 1); Metallic = $metal; Smoothness = $smooth; SmoothnessSource = 0; NormalScale = 1.0; OcclusionStrength = 1.0; Tiling = @(1, 1); Offset = @(0, 0)
+                AlphaClipping = 0; Cutoff = 0.5; ReceiveShadows = 1; SpecularHighlights = 1; EnvironmentReflections = 1; Emission = [bool]$emis; EmissionColor = $(if ($emis) { @($emis[0], $emis[1], $emis[2]) } else { @(0, 0, 0) })
+                EmissionIntensity = 1.0; Priority = 0; UseShadowMap = 1 }
+            $m | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $tdir "$name.mat")
+        }
+        TestMat 'Mirror' @(0.95, 0.95, 0.95) 1.0 1.0
+        TestMat 'Bulb' @(1, 0.9, 0.7) 0.0 0.5 @(4.0, 3.0, 1.8)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 4,1,4' | Out-Null
+        Invoke-Nova 'create empty --name TimeOfDay' | Out-Null
+        Invoke-Nova 'add-component TimeOfDay DayNightCycle --values "{\"dayLengthMinutes\":0}"' | Out-Null
+        Invoke-Nova 'create sphere --name MirrorBall --position 0,1,0' | Out-Null
+        Invoke-Nova 'set MirrorBall --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/DayNightTest/Mirror.mat\"]}"' | Out-Null
+        Invoke-Nova 'create cylinder --name Pole --position 1.6,1.5,1.2 --scale 0.08,1.5,0.08' | Out-Null
+        Invoke-Nova 'create sphere --name Bulb --position 1.6,3.05,1.2 --scale 0.3,0.3,0.3' | Out-Null
+        Invoke-Nova 'set Bulb --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/DayNightTest/Bulb.mat\"]}"' | Out-Null
+        Invoke-Nova 'create point-light --name Lamp --position 1.6,2.8,1.2' | Out-Null
+        Invoke-Nova 'add-component Lamp NightLight' | Out-Null
+        # create point-light = Point (예전에는 Directional 로 남았다), 소수 칸에 정수 JSON (예전에는 0) — 세기 · 거리를 정수로
+        Invoke-Nova 'set Lamp --component Light --values "{\"pointLightRange\":9,\"intensity\":1}"' | Out-Null
+        $lg = Invoke-NovaJson 'get Lamp'; $ll = @($lg.components | Where-Object { $_.type -eq 'Light' })[0]
+        Add-Result daynight 'Point Light from create point-light is a Point light; integer JSON sets a float field' ($ll -and [int]$ll.lightType -eq 2 -and [double]$ll.pointLightRange -eq 9) "lightType $($ll.lightType) (2 = Point), pointLightRange $($ll.pointLightRange) (9)"
+        Invoke-Nova 'create empty --name Probe --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component Probe ReflectionProbe --values "{\"size\":[16,8,16],\"resolution\":128}"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position -0.6,1.3,-2.6 --rotation 4,12,0' | Out-Null
+        Invoke-Nova 'scene save --as Assets/DayNightTest/Street.scene' | Out-Null
+        Invoke-Nova 'daynight set --time 12 --probes 0' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $bk = Invoke-NovaJson 'probe bake'
+        # 낮 → 밤 (자정): 프로브를 30 분마다 — 구운 프로브도 실행 중의 큐브로 다시 찍힌다
+        function ProbeState { $i = Invoke-NovaJson 'probe info'; $p = @($i.probes | Where-Object { $_.name -eq 'Probe' })[0]; return $p }
+        Invoke-Nova 'daynight set --time 12 --probes 30' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $p12 = ProbeState
+        Invoke-Nova 'daynight set --time 0' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $p0 = ProbeState
+        Add-Result daynight 'reflection probe is captured again for the time of day (baked probe → run-time cube at noon, then midnight)' ($bk -and $p12.relit -and [math]::Abs([double]$p12.capturedTime - 12) -lt 0.01 -and $p0.relit -and [math]::Abs([double]$p0.capturedTime) -lt 0.01) "baked $($bk.baked[0].bakedTexture), noon relit $($p12.relit) at $($p12.capturedTime), midnight relit $($p0.relit) at $($p0.capturedTime)"
+        # 밤 반사: 다시 찍은 프로브 = 지금의 하늘 · 빛 — 거울 구 위쪽에 밤 하늘 (어둡다), 아래쪽에 비친 바닥이 바닥만큼 밝다 (하늘 보정을 두 번 받지 않는다) /
+        #  끄면 낮에 구운 큐브를 밤 하늘만큼 어둡게 — 구 위쪽에 낮 구름이 비친다. 구 = 화면 (0.507, 0.55), 반지름 = 너비 × 0.08
+        function BallStats([string]$png)
+        {
+            $b = New-Object System.Drawing.Bitmap $png
+            try
+            {
+                function Median([double]$x0, [double]$x1, [double]$y0, [double]$y1)
+                {
+                    $v = New-Object System.Collections.Generic.List[double]
+                    for ($y = [int]$y0; $y -lt [int]$y1; $y += 2) { for ($x = [int]$x0; $x -lt [int]$x1; $x += 2) { $c = $b.GetPixel($x, $y); $v.Add(($c.R + $c.G + $c.B) / 3.0) } }
+                    $v.Sort(); return $v[[int]($v.Count / 2)]
+                }
+                $cx = $b.Width * 0.507; $cy = $b.Height * 0.55; $r = $b.Width * 0.08
+                return [pscustomobject]@{ Ball = (Median ($cx - 0.5 * $r) ($cx + 0.5 * $r) ($cy + 0.2 * $r) ($cy + 0.6 * $r)); Ground = (Median ($b.Width * 0.05) ($b.Width * 0.35) ($b.Height * 0.6) ($b.Height * 0.8))
+                    Sky = (Median ($cx - 0.8 * $r) ($cx - 0.4 * $r) ($cy - 0.6 * $r) ($cy - 0.25 * $r)) }
+            }
+            finally { $b.Dispose() }
+        }
+        $live = Join-Path $dir 'street_night_live.png'
+        Invoke-Nova "screenshot `"$live`" --view game" | Out-Null
+        Invoke-Nova 'daynight set --probes 0' | Out-Null
+        Invoke-Nova 'wait 6' | Out-Null
+        $pOff = ProbeState
+        $stale = Join-Path $dir 'street_night_baked.png'
+        Invoke-Nova "screenshot `"$stale`" --view game" | Out-Null
+        $sl = BallStats $live; $ss = BallStats $stale
+        Add-Result daynight 'night reflection: the re-captured probe shows the night sky and is not darkened twice (refresh off = the noon cube with day clouds)' ((-not $pOff.relit) -and $sl.Ball -gt $sl.Ground * 0.75 -and $sl.Sky -lt $ss.Sky * 0.7) ("sky in the ball: live {0:F0}, baked at noon {1:F0}; ground in the ball: live {2:F0} (ground {3:F0}); relit after off: {4}" -f $sl.Sky, $ss.Sky, $sl.Ball, $sl.Ground, $pOff.relit)
+
+        # 가로등 (NightLight, Play): 낮 = 꺼짐, 밤 = 켜짐 (세기 그대로), 다시 낮 = 꺼짐
+        Invoke-Nova 'daynight set --time 12 --probes 30' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 1
+        $lampCs = 'var l = GameObject.Find("Lamp"); var n = l.GetComponent<NightLight>(); var li = l.GetComponent<Light>(); return n.isOn + " " + li.enabled + " " + li.intensity.ToString("F2");'
+        $d1 = Exec 'lamp_day' $lampCs
+        Invoke-Nova 'daynight set --time 22' | Out-Null
+        Wait-Sec 3.5
+        $n1 = Exec 'lamp_night' $lampCs
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'street_night.png')`" --view game" | Out-Null
+        Invoke-Nova 'daynight set --time 9' | Out-Null
+        Wait-Sec 3.5
+        $d2 = Exec 'lamp_morning' $lampCs
+        Add-Result daynight 'NightLight: street light off by day, on at night (full intensity), off again in the morning' ($d1 -eq 'False False 0.00' -and $n1 -match '^True True (\d+\.\d+)$' -and [double]$Matches[1] -gt 0.5 -and $d2 -eq 'False False 0.00') "noon $d1 / 22:00 $n1 / 9:00 $d2"
+        Invoke-Nova 'stop' | Out-Null
+        Remove-Item $tdir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$tdir.meta" -Force -ErrorAction SilentlyContinue
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'package remove com.nova.daynight' | Out-Null

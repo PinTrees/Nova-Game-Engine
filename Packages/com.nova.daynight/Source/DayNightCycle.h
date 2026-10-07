@@ -35,6 +35,8 @@ public:
 	uint64 SunLight = 0;             // 해로 쓸 Directional Light (0 = 장면의 첫 Directional Light)
 	float StarBrightness = 1.0f;
 	float MilkyWayBrightness = 1.0f;
+	// 반사 프로브를 시각이 이만큼 (게임 분) 흐를 때마다 다시 찍는다 (Baked · Custom 도 실행 중의 큐브로, 0 = 안 함)
+	float ProbeRefreshMinutes = 30.0f;
 	Look Looks[PhaseCount];
 
 	DayNightCycle();

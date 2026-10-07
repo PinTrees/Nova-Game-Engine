@@ -10,6 +10,7 @@
 #include "Profiler.h"
 #include "CliServer.h"
 #include "Debug.h"
+#include "DayNightState.h"
 
 namespace fs = std::filesystem;
 
@@ -36,8 +37,13 @@ namespace
 		fs::file_time_type LoadedTime = {};
 		int LoadedRes = 0;
 		uint64_t Version = 1;       // 내용이 바뀔 때마다 (배열 칸을 다시 필터)
+		// 낮 · 밤: Baked · Custom 도 실행 중에 다시 찍은 큐브를 쓴다 (파일은 그대로)
+		bool Relit = false;
+		float CapturedTime = -1.0f; // 마지막으로 6 면을 다 찍은 시각 (낮 · 밤의 시, 없으면 -1)
 	};
 	std::unordered_map<const ReflectionProbe*, ProbeGpu> s_Gpu;
+	float s_DayNightLast = -1.0f;   // 마지막으로 다시 찍게 한 시각 (-1 = 낮 · 밤 다시 찍기 꺼짐)
+	uint32 s_DayNightSerial = 0;
 	std::vector<ReflectionProbe*> s_BakeRequests;
 	std::function<void(const ReflectionProbes::CaptureView&)> s_Capture;
 	bool s_Capturing = false;
@@ -170,6 +176,7 @@ namespace
 			g.NextFace = 0;
 			Gfx::Context()->GenerateMips(g.SRV.Get());
 			g.Captured = true;
+			g.CapturedTime = DayNightState::Get().Enabled ? DayNightState::Get().TimeOfDay : -1.0f;
 			++g.Version;
 		}
 		return true;
@@ -222,12 +229,22 @@ namespace
 			return g.Captured ? g.SRV.Get() : nullptr;
 		case ReflectionProbe::Mode::Custom:
 		{
+			if (g.Relit && g.Captured)
+			{
+				res = g.Res;
+				return g.SRV.Get();
+			}
 			GfxShaderResourceView* s = LoadCube(g, p->GetCustomCubemap());
 			res = g.LoadedRes;
 			return s;
 		}
 		default:
 		{
+			if (g.Relit && g.Captured)   // 낮 · 밤이 다시 찍은 큐브
+			{
+				res = g.Res;
+				return g.SRV.Get();
+			}
 			GfxShaderResourceView* s = LoadCube(g, p->GetBakedTexture());
 			res = g.LoadedRes;
 			return s;
@@ -436,24 +453,62 @@ namespace ReflectionProbes
 					Debug::LogWarning("Reflection Probe: " + error);
 			}
 		}
-		// 실시간 프로브: On Awake = 처음 한 번 (설정이 바뀌면 다시), Every Frame = 매 프레임, Via Scripting = 요청 때
+		// 낮 · 밤 (Day Night Cycle 의 Reflection Probe Refresh): 시각이 그만큼 흐르면 모든 프로브를 다시 찍는다 —
+		//  Baked · Custom 도 실행 중의 큐브로 (파일은 그대로), 처음 뒤로는 프레임마다 한 면씩. 꺼지면 구운 큐브로 되돌린다
+		const DayNightState& dn = DayNightState::Get();
+		if (dn.Enabled && dn.ProbeRefreshMinutes > 0.0f)
+		{
+			float minutes = fabsf(dn.TimeOfDay - s_DayNightLast);
+			minutes = (std::min)(minutes, 24.0f - minutes) * 60.0f;   // 자정을 넘어도
+			if (s_DayNightLast < 0.0f || minutes >= dn.ProbeRefreshMinutes || dn.ProbeRefreshSerial != s_DayNightSerial)
+			{
+				s_DayNightLast = dn.TimeOfDay;
+				s_DayNightSerial = dn.ProbeRefreshSerial;
+				for (ReflectionProbe* p : ReflectionProbe::All())
+					if (p && p->IsEnabled() && p->IsActiveInHierarchy())
+					{
+						ProbeGpu& g = s_Gpu[p];
+						g.Relit = p->GetMode() != ReflectionProbe::Mode::Realtime;
+						g.RenderRequested = true;
+					}
+			}
+		}
+		else if (s_DayNightLast >= 0.0f)
+		{
+			s_DayNightLast = -1.0f;
+			for (auto& [probe, g] : s_Gpu)
+				if (g.Relit)
+				{
+					g.Relit = false;
+					++g.Version;
+				}
+		}
+		// 실시간 프로브: On Awake = 처음 한 번 (설정이 바뀌면 다시), Every Frame = 매 프레임, Via Scripting = 요청 때. 낮 · 밤이 다시 찍는 Baked · Custom 은 요청 때
 		for (ReflectionProbe* p : ReflectionProbe::All())
 		{
-			if (!p || p->GetMode() != ReflectionProbe::Mode::Realtime || !p->IsEnabled() || !p->IsActiveInHierarchy())
+			if (!p || !p->IsEnabled() || !p->IsActiveInHierarchy())
 				continue;
+			const bool realtime = p->GetMode() == ReflectionProbe::Mode::Realtime;
 			ProbeGpu& g = s_Gpu[p];
+			if (!realtime && !g.Relit)
+				continue;
 			bool due = g.NextFace > 0;   // Individual Faces 진행 중
-			if (g.SeenSettings != p->SettingsVersion())
+			if (realtime)
 			{
-				g.SeenSettings = p->SettingsVersion();
-				due = true;
+				if (g.SeenSettings != p->SettingsVersion())
+				{
+					g.SeenSettings = p->SettingsVersion();
+					due = true;
+				}
+				if (!g.Captured || p->GetRefreshMode() == ReflectionProbe::Refresh::EveryFrame)
+					due = true;
 			}
-			if (!g.Captured || g.RenderRequested || p->GetRefreshMode() == ReflectionProbe::Refresh::EveryFrame)
+			if (g.RenderRequested)
 				due = true;
 			if (!due)
 				continue;
 			g.RenderRequested = false;
-			const bool sliced = p->GetTimeSlicing() == ReflectionProbe::TimeSlicing::IndividualFaces && g.Captured;
+			const bool sliced = g.Captured && (!realtime || p->GetTimeSlicing() == ReflectionProbe::TimeSlicing::IndividualFaces);
 			CaptureFaces(p, g, g.NextFace, sliced ? 1 : 6 - g.NextFace);
 		}
 	}
@@ -533,7 +588,9 @@ namespace ReflectionProbes
 			const Vec3 pos = c.P->CapturePosition();
 			XMFLOAT4* d = &s_Data[s_Count * 3];
 			d[0] = XMFLOAT4(c.Min.x, c.Min.y, c.Min.z, c.P->GetBlendDistance());
-			d[1] = XMFLOAT4(c.Max.x, c.Max.y, c.Max.z, c.P->GetIntensity());
+			// 실행 중에 찍은 큐브 (실시간 · 낮 · 밤이 다시 찍은 것) 는 지금의 하늘 · 빛이 이미 들어 있다 → 음수 = 셰이더가 날씨 · 낮밤 하늘 보정을 하지 않는다
+			const bool live = c.Src == g.SRV.Get();
+			d[1] = XMFLOAT4(c.Max.x, c.Max.y, c.Max.z, live ? -(std::max)(c.P->GetIntensity(), 1e-4f) : c.P->GetIntensity());
 			d[2] = XMFLOAT4(pos.x, pos.y, pos.z, (float)(s * 2 + (c.P->GetBoxProjection() ? 1 : 0)));
 			++s_Count;
 		}
@@ -659,8 +716,10 @@ namespace ReflectionProbes
 					int slot = -1;
 					for (int s = 0; s < s_ArraySlots; ++s)
 						if (s_Slots[s].Probe == p) slot = s;
+					const bool relit = it != s_Gpu.end() && it->second.Relit && it->second.Captured;
 					list.push_back({ { "name", NameOf(p) }, { "mode", ModeName(p->GetMode()) }, { "bakedTexture", p->GetBakedTexture() },
-						{ "captured", captured }, { "resolution", p->GetResolution() }, { "importance", p->GetImportance() }, { "slot", slot } });
+						{ "captured", captured }, { "resolution", p->GetResolution() }, { "importance", p->GetImportance() }, { "slot", slot },
+						{ "relit", relit }, { "capturedTime", it != s_Gpu.end() ? it->second.CapturedTime : -1.0f } });
 				}
 				result = { { "probes", list }, { "lastViewProbes", s_Count }, { "arrayResolution", s_ArrayRes }, { "arraySlots", s_ArraySlots } };
 				return true;

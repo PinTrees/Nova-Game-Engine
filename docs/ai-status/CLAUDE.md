@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **차량 · 래그돌 샘플 (Starter Assets)** (사용자 지시 4 가지 중 3 번 — 다음: 낮밤 마무리). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **낮 · 밤 마무리** (사용자 지시 4 가지 중 4 번 — 마지막). **완료 (커밋, 푸시 전)**
+  - 반사 프로브를 시각마다 다시 찍기: `DayNightState::TimeOfDay · ProbeRefreshMinutes · ProbeRefreshSerial`, `ReflectionProbes::Update` 가 시각이 그만큼 흐르면 모든 프로브를 다시 (Baked · Custom 도 실행 중의 큐브 `Relit` — DDS 는 그대로, 처음 뒤로는 한 면씩), 끄면 구운 큐브로. `probe info` 에 relit · capturedTime
+  - `32. InstancedBasic.fx` `ProbeReflection`: 날씨 · 낮밤 하늘 보정을 하늘 · 구운 프로브에만 (실행 중에 찍은 프로브는 Intensity 음수로 표시 — 보정 안 함, 두 번 어두워지지 않게). fxc (DX11 · WebGPU) 확인
+  - 패키지: Day Night Cycle 의 Probe Refresh (게임 분, 기본 30), C# `DayNight.probeRefreshMinutes · RefreshReflectionProbes()`, CLI `daynight set --probes` · `daynight probes`, C# `NightLight` (해 높이로 가로등 · 창문 켜기 — 히스테리시스 · 페이드 · 하나씩, 자식 Light + 발광 렌더러)
+  - 데모 `docs/examples/daynight/build_street_scene.ps1` (비 오는 거리 — 건물 창문 · 가로등 · 거울 구 · 구운 프로브 · Day Night Cycle · Weather)
+  - 엔진 버그 수정 (데모 중 발견): **GameObject > Light > Point / Spot Light 가 Directional 로 남던 것** (`Light::SetPointLight · SetSpotLight` 가 종류를 안 바꿈), **JSON 소수 칸에 정수 (CLI `\"range\":16`) 가 0 이 되던 것** (`DE_SERIALIZE_FLOAT` — `is_number`)
+  - 검사 `-Only daynight` 12/12 (reflectionprobe · render · behaviour · weather 함께 통과). 문서 DAY_NIGHT · REFLECTION_PROBE, Showcase 256
+- 이전: 2026년 10월 7일 — **차량 · 래그돌 샘플 (Starter Assets)** (사용자 지시 4 가지 중 3 번 — 다음: 낮밤 마무리). **완료 (커밋, 푸시 전)**
   - 패키지 `com.nova.starter-assets` 1.1.0: C# `CarController` (W/S/A/D · 브레이크 → 후진 · 속도에 따른 조향 · 손 브레이크 · R 세우기 · 다운포스, readKeyboard 끄고 throttle/steer 로 시험), `RagdollTarget` (맞으면 Ragdoll 켜고 가까운 바디를 밈, CC · TPC 끔, Recover), `RagdollShooter` (클릭 → ScreenPointToRay)
   - 엔진: `GameObjectFactory::CreateCar` (처음 = 재질 7 + `Assets/StarterAssets/Car.prefab` 저장, 다음 = 인스턴스, Follow Camera) · `CreateRagdollTarget` (기본 캐릭터 + Wizard 꺼짐 + RagdollShooter), 메뉴 3D Object > Car · Ragdoll Target, CLI `create car | ragdoll-target`. `CreatePrimitive` 공개
   - C# (Unity 이름): `Camera.ScreenPointToRay · ViewportPointToRay`, `Rigidbody.AddForceAtPosition`

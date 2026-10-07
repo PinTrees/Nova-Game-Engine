@@ -42,7 +42,8 @@ namespace
 			{ "timeOfDay", d->TimeOfDay }, { "phase", DayNightCycle::PhaseName(d->CurrentPhase()) }, { "dayLengthMinutes", d->DayLengthMinutes },
 			{ "paused", d->Paused }, { "sunElevation", d->SunElevation() }, { "sunDirection", { sun.x, sun.y, sun.z } },
 			{ "sunIntensity", s.SunIntensity }, { "ambientIntensity", s.AmbientIntensity }, { "skyBrightness", s.SkyBrightness },
-			{ "stars", s.Stars }, { "milkyWay", s.MilkyWay }, { "moon", s.Moon }, { "glow", s.Glow.w }, { "gradient", s.Zenith.w } };
+			{ "stars", s.Stars }, { "milkyWay", s.MilkyWay }, { "moon", s.Moon }, { "glow", s.Glow.w }, { "gradient", s.Zenith.w },
+			{ "probeRefreshMinutes", d->ProbeRefreshMinutes } };
 		if (GameObject* lo = d->LightObject())
 		{
 			const Matrix w = lo->GetTransform()->GetWorldMatrix();
@@ -57,7 +58,7 @@ namespace
 
 NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 {
-	CliServer::Register("daynight", "day night cycle: {op: status|set|phase, time?, minutes?, paused?, azimuth?, name?} (nova daynight status)",
+	CliServer::Register("daynight", "day night cycle: {op: status|set|phase|probes, time?, minutes?, paused?, azimuth?, probes?, name?} (nova daynight status)",
 		[](const json& args, json& result, std::string& error) {
 			const std::string op = args.value("op", std::string("status"));
 			DayNightCycle* d = DayNightCycle::Active();
@@ -68,7 +69,10 @@ NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 				if (args.contains("minutes")) d->DayLengthMinutes = (std::max)(0.0f, args["minutes"].get<float>());
 				if (args.contains("paused")) d->Paused = args["paused"].get<bool>();
 				if (args.contains("azimuth")) d->SunAzimuth = args["azimuth"].get<float>();
+				if (args.contains("probes")) d->ProbeRefreshMinutes = (std::max)(0.0f, args["probes"].get<float>());   // 반사 프로브 다시 찍기 간격 (게임 분)
 			}
+			else if (op == "probes")
+				++DayNightState::Get().ProbeRefreshSerial;   // 반사 프로브를 지금 다시 찍기
 			else if (op == "phase")
 			{
 				const int p = PhaseFromName(args.value("name", args.value("path", std::string())));
@@ -77,7 +81,7 @@ NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 			}
 			else if (op != "status")
 			{
-				error = "unknown op '" + op + "' (status, set, phase)";
+				error = "unknown op '" + op + "' (status, set, phase, probes)";
 				return false;
 			}
 			d->Apply();
@@ -96,7 +100,8 @@ NOVA_PACKAGE_EXPORT void NovaPackage_OnUnload()
 // ---- C# API (DayNight 정적 클래스): 장면의 Day Night Cycle 하나
 NOVA_PACKAGE_EXPORT int NovaDayNight_Exists() { return DayNightCycle::Active() != nullptr; }
 
-// 0 timeOfDay, 1 dayLengthMinutes, 2 paused, 3 phase (읽기), 4 sunElevation (읽기), 5 sunAzimuth, 6 maxElevation, 7 stars, 8 milkyWay
+// 0 timeOfDay, 1 dayLengthMinutes, 2 paused, 3 phase (읽기), 4 sunElevation (읽기), 5 sunAzimuth, 6 maxElevation, 7 stars, 8 milkyWay,
+//  9 probeRefreshMinutes / 쓰기만: 20 반사 프로브를 지금 다시 찍기
 NOVA_PACKAGE_EXPORT float NovaDayNight_GetFloat(int prop)
 {
 	DayNightCycle* d = DayNightCycle::Active();
@@ -111,6 +116,7 @@ NOVA_PACKAGE_EXPORT float NovaDayNight_GetFloat(int prop)
 	case 5: return d->SunAzimuth;
 	case 6: return d->MaxElevation;
 	case 7: return d->StarBrightness;
+	case 9: return d->ProbeRefreshMinutes;
 	default: return d->MilkyWayBrightness;
 	}
 }
@@ -128,6 +134,8 @@ NOVA_PACKAGE_EXPORT void NovaDayNight_SetFloat(int prop, float v)
 	case 6: d->MaxElevation = std::clamp(v, 1.0f, 90.0f); break;
 	case 7: d->StarBrightness = (std::max)(0.0f, v); break;
 	case 8: d->MilkyWayBrightness = (std::max)(0.0f, v); break;
+	case 9: d->ProbeRefreshMinutes = (std::max)(0.0f, v); break;
+	case 20: ++DayNightState::Get().ProbeRefreshSerial; break;
 	default: break;
 	}
 }

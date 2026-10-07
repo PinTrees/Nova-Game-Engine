@@ -725,6 +725,15 @@ float4 ProbeVolumeAmbient(float3 posW, float3 N, float3 V, float3 R, out float3 
 // Reflection Probe (ReflectionProbes::Select · Bind): 반사 = 프로브들 (Importance 순, 상자 안쪽 Blend Distance 로 가중)
 //  + 남는 몫은 하늘 — Unity URP Forward+ 의 프로브 블렌드. 확산 환경광은 하늘 그대로 (Unity 도 확산은 Light Probe / 하늘)
 // ---------------------------------------------------------------------------
+// 먹구름 · 낮밤 하늘 보정 (하늘에서 온 반사 · 환경광): 채도 빼기 + 색 배율
+float3 WeatherSkyGrade(float3 c, bool tint)
+{
+    c = lerp(c, dot(c, float3(0.2126f, 0.7152f, 0.0722f)).xxx, gWeatherSky.w);
+    return tint ? c * (1.0f - gWeatherSky.rgb) : c;
+}
+
+// 반사 = 프로브 (상자 안 가중치) + 남는 몫은 하늘. 하늘 · 구운 프로브에는 날씨 · 낮밤 하늘 보정 (WeatherSkyGrade),
+//  실행 중에 찍은 프로브 (Intensity 가 음수로 온다 — 실시간 · 낮밤이 다시 찍은 것) 는 지금의 하늘이 이미 들어 있어 그대로
 float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float skyMips, float skyScale)
 {
     float3 sum = 0.0f;
@@ -761,14 +770,17 @@ float3 ProbeReflection(float3 R, float3 posW, float perceptualRoughness, float s
                 float fa = min(min(rb.x, rb.y), rb.z);
                 dir = (posW - cap.xyz) + R * fa;
             }
-            sum += (w * bmax.w) * ToLinear(gProbeCubes.SampleLevel(samLinear, float4(dir, slot), probeMip).rgb);
+            float3 c = ToLinear(gProbeCubes.SampleLevel(samLinear, float4(dir, slot), probeMip).rgb);
+            if (bmax.w >= 0.0f)
+                c = WeatherSkyGrade(c, true);
+            sum += (w * abs(bmax.w)) * c;
             total += w;
         }
     }
     if (total < 0.999f)
     {
         float skyMip = perceptualRoughness * (1.7f - 0.7f * perceptualRoughness) * max(skyMips - 4.0f, 6.0f);
-        sum += (1.0f - total) * skyScale * ToLinear(gCubeMap.SampleLevel(samLinear, R, min(skyMip, skyMips - 1.0f)).rgb);
+        sum += (1.0f - total) * skyScale * WeatherSkyGrade(ToLinear(gCubeMap.SampleLevel(samLinear, R, min(skyMip, skyMips - 1.0f)).rgb), true);
     }
     return sum;
 }
@@ -915,12 +927,6 @@ float WeatherNoise(float2 p)
 }
 
 // 하늘 큐브에서 온 빛을 먹구름 하늘처럼 (Sky.fx 의 gSkyWeather 와 같은 값). tint = 밝기 · 색까지, 아니면 채도만
-float3 WeatherSkyGrade(float3 c, bool tint)
-{
-    c = lerp(c, dot(c, float3(0.2126f, 0.7152f, 0.0722f)).xxx, gWeatherSky.w);
-    return tint ? c * (1.0f - gWeatherSky.rgb) : c;
-}
-
 // 하늘 아래인 정도 (1 = 비를 맞는다, 0 = 지붕 · 처마 · 나무 아래). 덮개 맵 밖은 하늘 아래
 // 위에서 본 맨 위 표면 (덮개 맵 — 땅 · 지붕) 보다 k m 넘게 높은가 (1 = 높다: 캐릭터의 몸 · 머리). 그림자 비교 샘플러를 다시 쓴다
 //  (덮개 맵 깊이 + k 의 깊이 ≤ 맵 ⇔ 표면이 맨 위보다 k 넘게 위 — gWeatherCoverParams.z = 0.25 m 의 깊이)
@@ -1222,7 +1228,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
     {
         float3 R = reflect(-V, N);
         // Unity 는 128 큐브의 6 밉 단계. 큐브가 더 크면 그만큼 밉을 더 내려가 거친 면이 충분히 흐려지게 한다
-        float3 env = WeatherSkyGrade(ProbeReflection(R, posW, perceptualRoughness, (float)mips, skyOcclusion), true);   // 먹구름이면 파란 하늘 · 흰 구름을 비추지 않게
+        float3 env = ProbeReflection(R, posW, perceptualRoughness, (float)mips, skyOcclusion);   // 먹구름이면 파란 하늘 · 흰 구름을 비추지 않게 (보정은 안에서)
         float4 ssr = ScreenSpaceReflection(posW, N, R, surf.Smoothness, perceptualRoughness);
         env = lerp(env, ssr.rgb, ssr.a);   // 화면에서 맞은 만큼 프로브 · 하늘 대신
         float fresnel = pow(1.0f - NoV, 4.0f);

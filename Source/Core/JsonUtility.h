@@ -28,7 +28,8 @@ Quaternion SafeGetQuaternion(const json& j, const std::string& key, const Quater
 												  else VALUE = 0;															\
 
 #define SERIALIZE_FLOAT(JSON, VALUE, VALUE_NAME) JSON[VALUE_NAME] = VALUE;
-#define DE_SERIALIZE_FLOAT(JSON, VALUE, VALUE_NAME) if (JSON.contains(VALUE_NAME) && JSON.at(VALUE_NAME).is_number_float()) \
+// 수는 정수로 적어도 (CLI 의 "range":16) 받는다 — 예전에는 소수가 아니면 0 이 되었다
+#define DE_SERIALIZE_FLOAT(JSON, VALUE, VALUE_NAME) if (JSON.contains(VALUE_NAME) && JSON.at(VALUE_NAME).is_number()) \
 													  VALUE = j.at(VALUE_NAME).get<float>();								\
 												  else VALUE = 0.f;			
 
