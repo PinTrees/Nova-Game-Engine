@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **SSAO 품질 2 차: 시간 누적 · 윤곽 선 없애기 · 전체 해상도** (사용자 요청). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 8일 — **모션 벡터 (Volume 의 Motion Vectors)** (사용자 요청 — 구글 시트 패키지 질문보다 먼저). **완료 (커밋, 푸시 전)**
+  - `MotionVectors` (`Source/Graphics/DX11/MotionVectors.*`, `Shaders/63. MotionVectors.fx`): 지터 뺀 uv 의 이번 − 지난, 카메라 패스 (깊이로) + 움직인 Mesh Renderer · Skinned Mesh Renderer 만 지난 월드 · 지난 팔레트로 다시 그리기 (깊이는 픽셀 셰이더에서 비교). 인스턴스 버퍼는 그대로
+  - Volume `MotionVectors` (Enable · Object Motion · Skinned Motion, 분류 Rendering), Motion Blur Mode **Camera And Objects** (URP), 렌더러의 Motion Vectors · Skinned Motion Vectors 칸 (있었지만 쓰이지 않던 것) 을 실제로, Skinned Mesh Renderer 에 Motion Vectors 드롭다운 추가
+  - 쓰는 곳: TAA (3 x 3 가장 가까운 깊이의 속도), Motion Blur, SSAO 시간 누적 (모션 벡터 자리 + 지터 차, 움직이는 물체는 깊이 판정 느슨히)
+  - 함께 고침: `PostProcessPass::IsNeeded` 가 SSAO · 모션 벡터 (기본 켜짐) 때문에 모든 장면을 HDR 후처리 경로로 보내던 것
+  - 검사 `-Only motionvectors` 11/11 (TAA 체커 대비 51.3 → 53.1, Motion Blur 8.9 → 29.0 등, OpenGL), CLI `motionvectors info | map --rect`. 문서 MOTION_VECTORS · DEPTH_OF_FIELD_MOTION_BLUR · SSAO, Showcase 263
+  - 진단 중 실수: Play 중 CLI set 이 막혀 Volume 이 안 바뀐 줄 모르고 TAA 비교를 한 번 잘못 읽음 (1 대 290 — 실제론 같은 설정). 설정마다 Play 를 다시 하도록 고침
+- 이전: 2026년 10월 8일 — **SSAO 품질 2 차: 시간 누적 · 윤곽 선 없애기 · 전체 해상도** (사용자 요청). **완료 (푸시함)**
   - 윤곽 선 원인: AO · 흐림이 노멀 · 깊이를 선형으로 읽어 윤곽을 사이에 둔 값이 섞임 + 반 해상도 AO 를 32 가 선형으로 늘려 앞 물체가 뒤 AO 를 받음 → 점 읽기 (대표 = 2 x 2 왼쪽 위), 전체 해상도 업샘플 (깊이 · 노멀 비슷한 텍셀만)
   - 함께 찾음: 깊이를 읽은 픽셀과 방향을 구한 자리가 반 픽셀 어긋나 비스듬한 바닥 전체가 옅게 가려짐 (평균 0.993 → 0.9998)
   - 시간 누적: 표본 무늬를 프레임마다 (R2), 지난 프레임 뷰 · 투영 (TAA 지터 포함) 으로 히스토리 (AO · 뷰 깊이), 깊이 판정 + 이웃 3 x 3 범위로 자름, 값 · 크기 바뀌면 버림. Volume `temporalAccumulation` (기본 켬) · `fullResolution` (기본 끔)

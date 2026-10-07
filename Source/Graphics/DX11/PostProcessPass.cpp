@@ -105,9 +105,10 @@ bool PostProcessPass::IsNeeded(const VolumeStack& stack, const CameraOptions& op
 		return true;
 	if (!options.PostProcessing)
 		return false;
-	// 후처리(HDR 타깃 → 합성)가 필요한 효과만. 그림자·안개·대기·환경광은 장면을 그리며 적용한다
+	// 후처리(HDR 타깃 → 합성)가 필요한 효과만. 그림자·안개·대기·환경광·SSAO 는 장면을 그리며 적용하고, 모션 벡터는 다른 효과가 읽기만 한다
+	//  (SSAO · 모션 벡터는 기본 켜짐 — 넣으면 모든 장면이 쓸데없이 HDR 타깃을 거친다)
 	for (const std::string& type : VolumeComponent::Types())
-		if (type != "Shadows" && type != "Fog" && type != "Atmosphere" && type != "IndirectLighting" && stack.IsActive(type))
+		if (type != "Shadows" && type != "Fog" && type != "Atmosphere" && type != "IndirectLighting" && type != "AmbientOcclusion" && type != "MotionVectors" && stack.IsActive(type))
 			return true;
 	return false;
 }
@@ -324,7 +325,10 @@ GfxShaderResourceView* PostProcessPass::MotionBlur(const VolumeComponent& mb, co
 	if (auto* v = m_Effect->GetFX()->GetVariableByName("gMBPrevViewProj")->AsMatrix(); v && v->IsValid())
 		v->SetMatrix(reinterpret_cast<const float*>(&m_PrevViewProj));
 	static const int kSamples[3] = { 8, 12, 16 };   // Low · Medium · High
-	SetVec("gMBParams", Clamp01(mb.F("intensity")), std::clamp(mb.F("clamp"), 0.0f, 0.2f), (float)kSamples[std::clamp(mb.I("quality"), 0, 2)], 0.0f);
+	// Mode: Camera And Objects = 모션 벡터 (없으면 Camera Only 처럼)
+	const bool objects = mb.I("mode") == 1 && options.MotionVectors != nullptr;
+	SetVec("gMBParams", Clamp01(mb.F("intensity")), std::clamp(mb.F("clamp"), 0.0f, 0.2f), (float)kSamples[std::clamp(mb.I("quality"), 0, 2)], objects ? 1.0f : 0.0f);
+	SetSRV("gMotionVectors", options.MotionVectors);
 	SetSRV("gDepth", options.Depth);
 	SetSRV("gSource", src);
 	Draw("MotionBlurTech", m_Motion.RTV.Get(), m_Width, m_Height);
@@ -383,6 +387,8 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 		}
 		if (auto* v = m_Effect->GetFX()->GetVariableByName("gMBPrevViewProj")->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m_PrevViewProj));
+		SetSRV("gMotionVectors", options.MotionVectors);
+		SetVec("gMotionInfo", options.MotionVectors ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
 		if (options.Taa && !options.SceneView)
 			src = TemporalAA(options, src);
 		else

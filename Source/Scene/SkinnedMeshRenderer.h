@@ -71,6 +71,7 @@ private:
 	bool	m_StaticShadowCaster = false;
 	int		m_LightProbes = 1;
 	bool	m_SkinnedMotionVectors = true;
+	int		m_MotionVectors = 1;   // Camera Motion Only / Per Object Motion / Force No Motion (Unity)
 	bool	m_DynamicOcclusion = true;
 	int		m_RenderingLayerMask = 0;
 	int		m_MaskInteraction = 0;
@@ -108,6 +109,12 @@ public:
 	void SetShader(Shader* shader) { m_Shader = shader; }
 	void SetShader(shared_ptr<Effect> effect) { m_Effect = effect; }
 	vector<XMFLOAT4X4>& GetFinalTransforms() { return m_FinalTransforms; }
+
+	// 모션 벡터 (MotionVectors): Unity 의 Motion Vectors · Skinned Motion Vectors, 이번 본 팔레트 (준비해서), 서브셋 그리기 (셰이더 값은 부른 쪽이)
+	int GetMotionVectors() const { return m_MotionVectors; }
+	bool GetSkinnedMotionVectors() const { return m_SkinnedMotionVectors; }
+	const vector<XMFLOAT4X4>& MotionPalette();
+	void DrawForMotionVectors(GfxContext* dc, FxTechnique* tech);
 
 	shared_ptr<SkinnedMesh> GetMesh() { return m_Mesh; }
 	// Unity 의 localBounds: 바인드 포즈 상자 (메시 노드 변환 + 단위 변환 — 이 렌더러 GameObject 공간). 없으면 false

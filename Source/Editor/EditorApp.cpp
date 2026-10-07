@@ -44,6 +44,7 @@
 #include "WebTools.h"
 #include "TreeRenderer.h"
 #include "Ssao.h"
+#include "MotionVectors.h"
 #include "OcclusionCulling.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
@@ -624,13 +625,30 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 		SceneCulling::Cull(d.View * d.Proj, false);
 	}
 
+	// 모션 벡터 (Volume 의 Motion Vectors): 깊이 프리패스 뒤 — SSAO 시간 누적 · TAA · Motion Blur 가 쓴다. 프로브 · APV 찍기에는 없음
+	GfxShaderResourceView* motionVectors = nullptr;
+	if (!probe && !giCapture)
+	{
+		phase.Next("Motion Vectors");
+		MotionVectors::Frame mf;
+		XMStoreFloat4x4(&mf.View, d.View);
+		XMStoreFloat4x4(&mf.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);
+		XMStoreFloat4x4(&mf.ProjJittered, d.Proj);
+		mf.Width = (UINT)viewport.Width;
+		mf.Height = (UINT)viewport.Height;
+		mf.NormalDepth = normalDepthSRV;
+		MotionVectors::Render(mf, MotionVectors::Settings::FromStack(stack));
+		motionVectors = MotionVectors::SRV();
+		_deviceContext->RSSetViewports(1, &viewport);
+	}
+
 	// PostProcessing - SSAO
 	// 프로브: SSAO 없음 (노멀 · 깊이 타깃은 화면 크기라 프로브 크기의 화면과 맞지 않는다 — 흰 그림으로)
 	if (!probe)
 	{
 		phase.Next("SSAO");
 		const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
-		PostProcessingManager::GetI()->RenderSSAO(d.View, d.Proj, ssaoSettings);   // TAA 지터 그대로 (깊이 프리패스와 같은 투영)
+		PostProcessingManager::GetI()->RenderSSAO(d.View, d.Proj, ssaoSettings, motionVectors);   // TAA 지터 그대로 (깊이 프리패스와 같은 투영)
 		UseSsaoSettings(ssaoSettings);
 	}
 	GfxShaderResourceView* ssaoMap = probe ? SpriteBatch::WhiteTexture() : ssao->AmbientSRV().Get();
@@ -655,6 +673,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	postOptions.Dithering = !probe && d.Cam->DitheringEnabled();
 	postOptions.StopNaNs = !probe && d.Cam->StopNaNsEnabled();
 	postOptions.Depth = normalDepthSRV;   // Depth Of Field · Motion Blur
+	postOptions.MotionVectors = motionVectors;   // TAA · Motion Blur (Camera And Objects)
 	XMStoreFloat4x4(&postOptions.View, d.View);
 	XMStoreFloat4x4(&postOptions.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);   // 지난 프레임 위치는 지터 없이
 	const bool usePost = !probe && PostProcessPass::IsNeeded(stack, postOptions);

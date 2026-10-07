@@ -33,7 +33,7 @@ Unity URP 의 Volume 후처리 **Depth Of Field** (Gaussian · Bokeh) 와 **Moti
 
 | 항목 | 뜻 |
 |------|-----|
-| Mode | **Camera Only** (Unity URP 와 같이 카메라 움직임만 — 물체 움직임은 아님) |
+| Mode | **Camera Only** (기본 — 카메라 움직임만) · **Camera And Objects** ([모션 벡터](MOTION_VECTORS.md) — 움직이는 물체 · 스킨 애니메이션도) — Unity URP 와 같은 두 가지 |
 | Quality | Low · Medium · High = 표본 8 · 12 · 16 |
 | Intensity | 번짐 세기 (0 ~ 1, 0 이면 꺼짐) |
 | Clamp | 한 프레임 번짐 길이의 최대 (화면 비율, 0 ~ 0.2) |
@@ -59,6 +59,6 @@ Unity URP 의 Volume 후처리 **Depth Of Field** (Gaussian · Bokeh) 와 **Moti
 
 ## 아직
 
-- 물체 움직임 Motion Blur (URP 도 Camera Only 만 — 물체 속도 버퍼가 필요)
+- Camera And Objects 는 픽셀마다 자기 속도로만 모은다 — 움직이는 물체가 배경 쪽으로 번지지는 않는다 (타일 최대 속도는 아직)
 - 카메라의 Physical Camera 값 (URP 의 Focal Length · Aperture 를 카메라에서 가져오기)
 - C# 에서 Volume 값 바꾸기

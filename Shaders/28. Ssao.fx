@@ -24,12 +24,14 @@ cbuffer cbPerFrame
     // Temporal
     float4x4 gCurViewToPrevClip;   // 이번 뷰 공간 → 지난 프레임 클립 (그 프레임의 지터 투영)
     float4 gTemporal = float4(0.9f, 0.0f, 0.0f, 0.0f);       // x 히스토리 비중, y 히스토리 있음 (0 · 1)
+    float4 gMotionInfo = float4(0.0f, 0.0f, 0.0f, 0.0f);     // x 1 = 모션 벡터 있음, yz = 이번 − 지난 프레임 지터 (uv)
 };
 
 Texture2D gNormalDepthMap;
 Texture2D gRandomVecMap;
 Texture2D gAoRaw;          // Temporal: 이번 AO / Upsample: 흐린 AO (계산 크기)
 Texture2D gAoHistory;      // Temporal: 지난 결과 (r = AO, g = 뷰 깊이)
+Texture2D gMotionVectors;  // Temporal: 모션 벡터 (63. MotionVectors — 지터 뺀 uv 의 이번 − 지난, 전체 해상도)
 
 SamplerState samNormalDepth
 {
@@ -173,13 +175,30 @@ float4 PS_Temporal(VertexOut pin) : SV_Target
     if (gTemporal.y > 0.5f)
     {
         float3 p = pz * ViewDirAt(pix);
-        float4 prev = mul(float4(p, 1.0f), gCurViewToPrevClip);   // w = 지난 뷰의 깊이 (원근 투영)
+        float4 prev = mul(float4(p, 1.0f), gCurViewToPrevClip);   // w = 지난 뷰의 깊이 (원근 투영 — 멈춰 있던 점이면)
         float2 uv = float2(prev.x / prev.w * 0.5f + 0.5f, -prev.y / prev.w * 0.5f + 0.5f);
+        float expectZ = prev.w, tolerance = 0.03f * prev.w + 0.02f;
+        if (gMotionInfo.x > 0.5f)
+        {
+            // 모션 벡터: 대표 픽셀의 속도로 지난 래스터 자리 (= 이번 래스터 uv − 속도 − 지터 차)
+            uint w, h;
+            gNormalDepthMap.GetDimensions(w, h);
+            int2 rep = pix * (int)gAoSize.z;
+            float2 uvRep = (float2(rep) + 0.5f) / float2(w, h);
+            float2 uvObj = uvRep - gMotionVectors.Load(int3(rep, 0)).xy - gMotionInfo.yz;
+            // 카메라만 되돌린 자리와 한 픽셀 넘게 다르면 움직이는 물체 — 지난 깊이를 모르니 이번 깊이로 느슨히
+            if (any(abs(uvObj - uv) * float2(w, h) > 1.0f))
+            {
+                expectZ = pz;
+                tolerance = 0.1f * pz + 0.05f;
+            }
+            uv = uvObj;
+        }
         if (prev.w > 1e-3f && all(uv >= 0.0f) && all(uv <= 1.0f))
         {
             float2 h = gAoHistory.SampleLevel(samPointClamp, uv, 0.0f).rg;
             // 같은 면이었나 (가려졌다 드러난 곳 · 다른 물체면 버린다)
-            if (abs(h.g - prev.w) < 0.03f * prev.w + 0.02f)
+            if (abs(h.g - expectZ) < tolerance)
                 result = lerp(raw, clamp(h.r, lo, hi), gTemporal.x);
         }
     }

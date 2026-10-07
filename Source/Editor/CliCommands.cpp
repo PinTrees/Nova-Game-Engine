@@ -21,6 +21,7 @@
 #include "ScriptEngine.h"
 #include "CSharpScript.h"
 #include "PostProcessingManager.h"
+#include "MotionVectors.h"
 #include "BuildPipeline.h"
 #include "Transform.h"
 #include "EngineInfo.h"
@@ -1374,6 +1375,66 @@ namespace CliCommands
 			r["path"] = path;
 			r["mean"] = w * h > 0 ? sum / ((double)w * h) : 1.0;
 			r["min"] = lo;
+			return true;
+		});
+
+		// 모션 벡터 (Volume 의 Motion Vectors, Game 뷰): 이번 프레임 값 · 다시 그린 물체, 맵 (색 = 속도: 가운데 회색 0, 빨강 → 오른쪽, 초록 → 아래) + 영역의 속도 (픽셀)
+		Register("motionvectors", "motion vectors of the Game view {op: info | map, path?, rect?: [x0,y0,x1,y1] (0..1)} (nova motionvectors info)", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			r = MotionVectors::Info();
+			if (op == "info")
+				return true;
+			if (op != "map") { e = "op must be info or map"; return false; }
+			GfxTexture2D* tex = MotionVectors::Texture();
+			if (tex == nullptr) { e = "no motion vectors (Game view not drawn yet, or Motion Vectors disabled in the Volume)"; return false; }
+			DirectX::ScratchImage captured, converted;
+			if (FAILED(Gfx::CaptureTexture(Application::GetI()->GetDeviceContext(), tex, captured))) { e = "capture failed"; return false; }
+			const DirectX::Image* img = captured.GetImage(0, 0, 0);
+			if (img->format != DXGI_FORMAT_R32G32_FLOAT)
+			{
+				if (FAILED(DirectX::Convert(*img, DXGI_FORMAT_R32G32_FLOAT, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, converted))) { e = "format conversion failed"; return false; }
+				img = converted.GetImage(0, 0, 0);
+			}
+			const int w = (int)img->width, h = (int)img->height;
+			float rect[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+			if (a.contains("rect") && a["rect"].is_array() && a["rect"].size() == 4)
+				for (int k = 0; k < 4; ++k) rect[k] = a["rect"][k].get<float>();
+			const int x0 = std::clamp((int)(rect[0] * w), 0, w), x1 = std::clamp((int)(rect[2] * w), 0, w);
+			const int y0 = std::clamp((int)(rect[1] * h), 0, h), y1 = std::clamp((int)(rect[3] * h), 0, h);
+			std::vector<uint8_t> rgba((size_t)w * h * 4);
+			double sx = 0.0, sy = 0.0, maxLen = 0.0;
+			int n = 0, moving = 0;
+			for (int y = 0; y < h; ++y)
+			{
+				const float* row = reinterpret_cast<const float*>(img->pixels + y * img->rowPitch);
+				for (int x = 0; x < w; ++x)
+				{
+					const float vx = row[x * 2] * (float)w, vy = row[x * 2 + 1] * (float)h;   // 픽셀
+					uint8_t* p = &rgba[((size_t)y * w + x) * 4];
+					p[0] = (uint8_t)std::clamp(128.0f + vx * 8.0f, 0.0f, 255.0f);
+					p[1] = (uint8_t)std::clamp(128.0f + vy * 8.0f, 0.0f, 255.0f);
+					p[2] = 128;
+					p[3] = 255;
+					if (x >= x0 && x < x1 && y >= y0 && y < y1)
+					{
+						const double len = sqrt((double)vx * vx + (double)vy * vy);
+						sx += vx; sy += vy; ++n;
+						maxLen = (std::max)(maxLen, len);
+						if (len > 0.5) ++moving;
+					}
+				}
+			}
+			const std::string path = a.value("path", std::string());
+			if (!path.empty())
+			{
+				if (!SavePng(rgba, w, h, ProjectFile(path), e))
+					return false;
+				r["path"] = path;
+			}
+			r["mapSize"] = { w, h };
+			r["meanPixels"] = { n ? sx / n : 0.0, n ? sy / n : 0.0 };
+			r["maxPixels"] = maxLen;
+			r["movingShare"] = n ? (double)moving / n : 0.0;   // 0.5 픽셀 넘게 움직인 비율
 			return true;
 		});
 

@@ -358,6 +358,26 @@ void SkinnedMeshRenderer::DrawSubset(GfxContext* dc, int subset)
 	m_Mesh->ModelMesh.Draw(dc, (uint32)subset, m_MorphActive ? m_MorphVB.Get() : nullptr);
 }
 
+const vector<XMFLOAT4X4>& SkinnedMeshRenderer::MotionPalette()
+{
+	if (m_Mesh && !m_Mesh->Subsets.empty())
+		EnsureBones();
+	return m_FinalTransforms;
+}
+
+// 모션 벡터 패스: 깊이 프리패스와 같은 정점 (BlendShape · 천의 동적 버퍼 포함) 으로 서브셋마다
+void SkinnedMeshRenderer::DrawForMotionVectors(GfxContext* dc, FxTechnique* tech)
+{
+	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || tech == nullptr)
+		return;
+	dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
+	{
+		tech->GetPassByIndex(0)->Apply(0, dc);
+		DrawSubset(dc, i);
+	}
+}
+
 // ------------------------------------------------------------------ 그리기
 // editor = true 면 Scene 뷰 카메라, false 면 게임 카메라
 // Inspector 의 체크 상자 (C# Renderer.enabled) 가 꺼지면 본 · 그림자 · 노멀 깊이 모두 그리지 않는다
@@ -707,6 +727,8 @@ void SkinnedMeshRenderer::OnInspectorGUI()
 	}
 	if (FoldoutPlain("Additional Settings"))
 	{
+		static const char* kMotion[] = { "Camera Motion", "Per Object Motion", "Force No Motion" };
+		Dropdown("Motion Vectors", &m_MotionVectors, kMotion, 3, 0);
 		Toggle("Skinned Motion Vectors", &m_SkinnedMotionVectors);
 		Toggle("Dynamic Occlusion", &m_DynamicOcclusion);
 		Dropdown("Rendering Layer Mask", &m_RenderingLayerMask, kLayerMask, 3, 0);
@@ -747,6 +769,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(SkinnedMeshRenderer)
 	j["staticShadowCaster"] = m_StaticShadowCaster;
 	j["lightProbes"] = m_LightProbes;
 	j["skinnedMotionVectors"] = m_SkinnedMotionVectors;
+	j["motionVectors"] = m_MotionVectors;
 	j["dynamicOcclusion"] = m_DynamicOcclusion;
 	j["renderingLayerMask"] = m_RenderingLayerMask;
 	j["maskInteraction"] = m_MaskInteraction;
@@ -790,6 +813,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SkinnedMeshRenderer)
 	m_StaticShadowCaster = j.value("staticShadowCaster", false);
 	m_LightProbes = j.value("lightProbes", 1);
 	m_SkinnedMotionVectors = j.value("skinnedMotionVectors", true);
+	m_MotionVectors = j.value("motionVectors", 1);
 	m_DynamicOcclusion = j.value("dynamicOcclusion", true);
 	m_RenderingLayerMask = j.value("renderingLayerMask", 0);
 	m_MaskInteraction = j.value("maskInteraction", 0);

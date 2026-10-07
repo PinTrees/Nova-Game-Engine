@@ -45,7 +45,8 @@ public:
 	void SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv);
 
 	// 이 프레임의 뷰 · 투영 (TAA 면 지터한 것 — 깊이 프리패스와 같은 것) 으로 AO
-	void Render(CXMMATRIX view, CXMMATRIX proj, const Settings& settings);
+	// motion = 모션 벡터 (Game 뷰 — 있으면 시간 누적이 움직이는 물체도 따라간다)
+	void Render(CXMMATRIX view, CXMMATRIX proj, const Settings& settings, GfxShaderResourceView* motion = nullptr);
 	const Settings& LastSettings() const { return _last; }
 	uint32 MapWidth() const { return _renderTargetWidth; }
 	uint32 MapHeight() const { return _renderTargetHeight; }
@@ -66,7 +67,7 @@ private:
 	bool MakeTarget(Target& t, uint32 w, uint32 h, DXGI_FORMAT format);
 	void BuildAoTargets();
 	void Compute(CXMMATRIX proj, const Settings& s);
-	void Temporal(CXMMATRIX view);
+	void Temporal(CXMMATRIX view, CXMMATRIX proj, GfxShaderResourceView* motion);
 	void Blur(GfxShaderResourceView* input, GfxRenderTargetView* output, bool horzBlur);
 	void Upsample(GfxShaderResourceView* input);
 	void SetCorners(CXMMATRIX proj);

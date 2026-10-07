@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -4904,6 +4904,243 @@ function Suite-SSAO
     }
 }
 
+function Suite-MotionVectors
+{
+    # 모션 벡터 (Volume 의 Motion Vectors — Game 뷰): `nova motionvectors map --rect` 로 영역의 화면 속도 (픽셀) 를 읽는다. 영역 = 카메라 투영으로 계산.
+    #  편집 중 (멈춤) = 0, Play: 오른쪽으로 가는 상자 (+x) · 도는 판 · 걷는 캐릭터 (스킨) 는 움직이고 멈춘 상자는 0,
+    #  Volume 의 Object Motion · Skinned Motion 끄기, 렌더러의 Force No Motion, 끄면 만들지 않음, 카메라가 움직이면 멈춘 상자가 왼쪽으로,
+    #  TAA: 움직이는 체커 상자의 무늬가 덜 뭉개진다 (모션 벡터 = 물체를 따라 히스토리), Motion Blur Camera And Objects: 움직이는 상자가 흐려진다, OpenGL
+    #  Play 중에는 CLI set 이 막혀 있어 설정마다 Play 를 다시 시작한다
+    Write-Host '[motionvectors]'
+    $dir = Join-Path $Out 'motionvectors'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\MotionTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    # 체커 (빨강 · 진회색 8 px 칸) 재질 — TAA 의 무늬 뭉개짐을 잰다
+    $bmp = New-Object System.Drawing.Bitmap 64, 64
+    for ($y = 0; $y -lt 64; $y++) { for ($x = 0; $x -lt 64; $x++) {
+        $on = (([math]::Floor($x / 8) + [math]::Floor($y / 8)) % 2) -eq 0
+        $bmp.SetPixel($x, $y, $(if ($on) { [System.Drawing.Color]::FromArgb(255, 230, 30, 30) } else { [System.Drawing.Color]::FromArgb(255, 40, 40, 40) })) } }
+    $bmp.Save((Join-Path $assetDir 'checker.png'), [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+    $mat = (Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json).PSObject.Copy()
+    $mat.BaseColor = @(1, 1, 1, 1); $mat.Metallic = 0; $mat.Smoothness = 0.3; $mat.BaseMapPath = 'Assets\MotionTest\checker.png'; $mat.ResourcePath = 'Assets\MotionTest\Checker.mat'
+    $mat | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Checker.mat')
+    function MvProfile([string]$name, [array]$comps) { @{ nova_volume_profile = 1; components = $comps } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.volumeprofile") }
+    function PV($v) { @{ override = $true; value = @($v, 0, 0, 0) } }
+    MvProfile 'On' @()
+    MvProfile 'Off' @(@{ type = 'MotionVectors'; active = $true; params = @{ enabled = (PV 0) } })
+    MvProfile 'NoObject' @(@{ type = 'MotionVectors'; active = $true; params = @{ objectMotion = (PV 0) } })
+    MvProfile 'NoSkinned' @(@{ type = 'MotionVectors'; active = $true; params = @{ skinnedMotion = (PV 0) } })
+    MvProfile 'MbCam' @(@{ type = 'MotionBlur'; active = $true; params = @{ intensity = (PV 1); mode = (PV 0); quality = (PV 2) } })
+    MvProfile 'MbObj' @(@{ type = 'MotionBlur'; active = $true; params = @{ intensity = (PV 1); mode = (PV 1); quality = (PV 2) } })
+
+    $ed = Start-TestEditor
+    $glDone = $false
+    try
+    {
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
+        function Exec([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file `"$f`""; if ($r) { "$($r.result)" } else { '' } }
+        function Vol([string]$name) { Invoke-Nova ('set "Global Volume" --component Volume --values "{\"profile\":\"Assets/MotionTest/' + $name + '.volumeprofile\"}"') | Out-Null }
+        function SetCam([int]$aa) { Invoke-Nova ('set "Main Camera" --component Camera --values "{\"antiAliasing\":' + $aa + '}"') | Out-Null }
+        function SetSpeed([double]$v) { Invoke-Nova ('set Mover --component MotionMover --values "{\"speed\":' + $v.ToString([Globalization.CultureInfo]::InvariantCulture) + '}"') | Out-Null }
+        # 영역의 속도 (픽셀): meanPixels · maxPixels · movingShare
+        function MvRect([string]$name, [double[]]$r)
+        {
+            $line = 'motionvectors map "' + (Join-Path $dir "$name.png") + '" --rect ' + (($r | ForEach-Object { $_.ToString('F4', [Globalization.CultureInfo]::InvariantCulture) }) -join ',')
+            Invoke-NovaJson $line
+        }
+        # 월드 상자 → 화면 비율 영역 (Main Camera: 위치 · 아래로 숙인 각 · 세로 시야각, 화면비 = 맵 크기)
+        $script:mvAspect = 2.0
+        function Rect([double[]]$lo, [double[]]$hi)
+        {
+            $p = 8.0 * [math]::PI / 180.0; $t = [math]::Tan($script:mvFovY / 2.0)
+            $us = @(); $vs = @()
+            foreach ($x in @($lo[0], $hi[0])) { foreach ($y in @($lo[1], $hi[1])) { foreach ($z in @($lo[2], $hi[2])) {
+                $dx = $x; $dy = $y - 1.5; $dz = $z + 6.0
+                $xv = $dx; $yv = $dy * [math]::Cos($p) + $dz * [math]::Sin($p); $zv = -$dy * [math]::Sin($p) + $dz * [math]::Cos($p)
+                $us += 0.5 + 0.5 * $xv / ($zv * $t * $script:mvAspect); $vs += 0.5 - 0.5 * $yv / ($zv * $t) } } }
+            $pad = 0.01
+            # 0.0 · 1.0 (정수 0 · 1 을 주면 [math]::Max 가 정수 오버로드로 반올림한다)
+            @([math]::Max(0.0, ($us | Measure-Object -Minimum).Minimum - $pad), [math]::Max(0.0, ($vs | Measure-Object -Minimum).Minimum - $pad),
+              [math]::Min(1.0, ($us | Measure-Object -Maximum).Maximum + $pad), [math]::Min(1.0, ($vs | Measure-Object -Maximum).Maximum + $pad))
+        }
+        # 체커 상자 (빨간 칸) 안 빨강 채널 대비 · 가장자리의 반쯤 섞인 픽셀 (행마다)
+        function ShotStats([string]$png)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($png)
+            $w = $bm.Width; $h = $bm.Height; $xs = @(); $ys = @()
+            for ($y = 0; $y -lt $h; $y += 2) { for ($x = 0; $x -lt $w; $x += 2) { $c = $bm.GetPixel($x, $y); if ($c.R - $c.G -gt 80) { $xs += $x; $ys += $y } } }
+            if ($xs.Count -lt 30) { $bm.Dispose(); return $null }
+            $xs = $xs | Sort-Object; $ys = $ys | Sort-Object
+            $x0 = $xs[[int]($xs.Count * 0.05)]; $x1 = $xs[[int]($xs.Count * 0.95)]; $y0 = $ys[[int]($ys.Count * 0.05)]; $y1 = $ys[[int]($ys.Count * 0.95)]
+            $n = 0; $s = 0.0; $s2 = 0.0
+            for ($y = $y0; $y -le $y1; $y++) { for ($x = $x0; $x -le $x1; $x++) { $r = $bm.GetPixel($x, $y).R; $n++; $s += $r; $s2 += $r * $r } }
+            $mean = $s / [math]::Max(1, $n)
+            $bm.Dispose()
+            [pscustomobject]@{ Contrast = [math]::Sqrt([math]::Max(0, $s2 / [math]::Max(1, $n) - $mean * $mean)) }
+        }
+        function EdgeBlur([string]$png)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($png)
+            $w = $bm.Width; $h = $bm.Height; $xs = @(); $ys = @()
+            for ($y = 0; $y -lt $h; $y += 2) { for ($x = 0; $x -lt $w; $x += 2) { $c = $bm.GetPixel($x, $y); if ($c.R - $c.G -gt 60) { $xs += $x; $ys += $y } } }
+            if ($xs.Count -lt 30) { $bm.Dispose(); return -1 }
+            $x0 = ($xs | Measure-Object -Minimum).Minimum; $x1 = ($xs | Measure-Object -Maximum).Maximum; $y0 = ($ys | Measure-Object -Minimum).Minimum; $y1 = ($ys | Measure-Object -Maximum).Maximum
+            $ym0 = [int]($y0 + ($y1 - $y0) / 4); $ym1 = [int]($y1 - ($y1 - $y0) / 4); $cnt = 0
+            for ($y = $ym0; $y -lt $ym1; $y++) { for ($x = [math]::Max(0, $x0 - 40); $x -lt [math]::Min($w, $x1 + 40); $x++) { $c = $bm.GetPixel($x, $y); $d = $c.R - $c.G; if ($d -gt 8 -and $d -le 60) { $cnt++ } } }
+            $bm.Dispose()
+            $cnt / [math]::Max(1, $ym1 - $ym0)
+        }
+        function Median($a) { $s = @($a | Where-Object { $_ -ne $null } | Sort-Object); if ($s.Count -eq 0) { return -1 }; $s[[int]($s.Count / 2)] }
+        function PlayRound([double]$walkSec = 0.8) { Invoke-Nova 'play' | Out-Null; Wait-Sec 1.2; Exec 'walk' 'GameObject.Find("Walker").GetComponent<Animator>().Play("Walk"); return 1;' | Out-Null; Wait-Sec $walkSec }
+
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'motion_probe.cs') (Join-Path $assetDir 'MotionProbe.cs') -Force
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 60 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 120) { $t = Invoke-Nova 'log -n 400'; if ($t -match 'compiled 32\. InstancedBasic|cache hit 32\. InstancedBasic') { break }; Start-Sleep -Milliseconds 500 }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,1 --scale 20,1,20' | Out-Null
+        Invoke-Nova 'create cube --name StaticBox --position -3,0.5,1' | Out-Null
+        Invoke-Nova 'create cube --name Mover --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'set Mover --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/MotionTest/Checker.mat\"]}"' | Out-Null
+        Invoke-Nova 'add-component Mover MotionMover' | Out-Null
+        Invoke-Nova 'set Mover --component MotionMover --values "{\"minX\":-1.5,\"maxX\":0.8}"' | Out-Null   # 걷는 캐릭터 앞을 지나지 않게
+        Invoke-Nova 'create cube --name Spinner --position 3,1,1 --scale 1.5,1.5,0.2' | Out-Null
+        Invoke-Nova 'add-component Spinner MotionSpinner' | Out-Null
+        Invoke-Nova 'set Spinner --component MotionSpinner --values "{\"degreesPerSecond\":540}"' | Out-Null
+        Invoke-Nova 'create character --name Walker --position 1.6,0,2.5' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.5,-6 --rotation 8,0,0' | Out-Null
+        $cam = Invoke-NovaJson 'get "Main Camera" --component Camera'
+        $script:mvFovY = if ($cam -and $cam.fovY) { [double]$cam.fovY } else { [math]::PI / 3 }
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        SetSpeed 6
+
+        # 편집 중: 아무것도 움직이지 않는다
+        $e0 = MvRect 'edit' @(0, 0, 1, 1)
+        $script:mvAspect = if ($e0 -and $e0.mapSize) { [double]$e0.mapSize[0] / [double]$e0.mapSize[1] } else { 2.0 }
+        $rMover = Rect @(-2.0, 0.0, -0.5) @(1.3, 1.0, 0.5)
+        $rStatic = Rect @(-3.5, 0.0, 0.5) @(-2.5, 1.0, 1.5)
+        $rSpin = Rect @(2.2, 0.2, 0.2) @(3.8, 1.8, 1.8)
+        $rWalker = Rect @(1.2, 0.0, 2.1) @(2.0, 1.9, 2.9)
+        Add-Result motionvectors 'Edit mode (nothing moves): motion vectors are zero, the Volume default is on' ($e0 -and $e0.valid -and $e0.enabled -and [double]$e0.maxPixels -lt 0.05) ("valid {0}, max {1:N3} px" -f $e0.valid, $e0.maxPixels)
+
+        # Play: 물체 · 스킨
+        Vol 'On'; SetCam 0
+        PlayRound
+        $mv = MvRect 'play_mover' $rMover; $st = MvRect 'play_static' $rStatic; $sp = MvRect 'play_spinner' $rSpin; $wk = MvRect 'play_walker' $rWalker
+        $info = Invoke-NovaJson 'motionvectors info'
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'play.png')`" --view game" | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result motionvectors 'Play: the box moving right has +x screen velocity, the static box has none' ([double]$mv.meanPixels[0] -gt 0.05 -and [double]$mv.meanPixels[0] -gt 3 * [math]::Abs([double]$mv.meanPixels[1]) -and [double]$mv.maxPixels -gt 0.5 -and [double]$st.maxPixels -lt 0.1) ("mover mean {0:N2},{1:N2} max {2:N2} px; static box max {3:N3} px" -f [double]$mv.meanPixels[0], [double]$mv.meanPixels[1], $mv.maxPixels, $st.maxPixels)
+        Add-Result motionvectors 'Play: the spinning plate and the walking character (skinned bones) have motion, only moved renderers are redrawn' ([double]$sp.maxPixels -gt 0.3 -and [double]$wk.maxPixels -gt 0.1 -and [int]$info.objectsDrawn -ge 2 -and [int]$info.skinnedDrawn -ge 1) ("spinner max {0:N2} px, walker max {1:N2} px; redrawn: {2} objects, {3} skinned" -f $sp.maxPixels, $wk.maxPixels, $info.objectsDrawn, $info.skinnedDrawn)
+
+        # Volume: Object Motion 끔 (카메라만) · Skinned Motion 끔 (본 애니메이션만 빠진다)
+        Vol 'NoObject'; PlayRound
+        $mv2 = MvRect 'noobj_mover' $rMover; $sp2 = MvRect 'noobj_spinner' $rSpin; $i2 = Invoke-NovaJson 'motionvectors info'
+        Invoke-Nova 'stop' | Out-Null
+        Vol 'NoSkinned'; PlayRound
+        $wk3 = MvRect 'noskin_walker' $rWalker; $mv3 = MvRect 'noskin_mover' $rMover
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result motionvectors 'Volume Object Motion off: camera motion only (the moving box and plate read zero)' ([double]$mv2.maxPixels -lt 0.1 -and [double]$sp2.maxPixels -lt 0.1 -and [int]$i2.objectsDrawn -eq 0) ("mover max {0:N3}, spinner max {1:N3} px, redrawn {2}" -f $mv2.maxPixels, $sp2.maxPixels, $i2.objectsDrawn)
+        Add-Result motionvectors 'Volume Skinned Motion off: the walking character reads zero, the moving box still moves' ([double]$wk3.maxPixels -lt 0.1 -and [double]$mv3.maxPixels -gt 0.5) ("walker max {0:N3} px, mover max {1:N2} px" -f $wk3.maxPixels, $mv3.maxPixels)
+
+        # 렌더러의 Motion Vectors = Force No Motion (Unity): 돌아도 0
+        Vol 'On'
+        Invoke-Nova 'set Spinner --component MeshRenderer --values "{\"motionVectors\":2}"' | Out-Null
+        PlayRound
+        $sp4 = MvRect 'force_spinner' $rSpin; $i4 = Invoke-NovaJson 'motionvectors info'
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'set Spinner --component MeshRenderer --values "{\"motionVectors\":1}"' | Out-Null
+        Add-Result motionvectors 'Mesh Renderer Motion Vectors = Force No Motion: the spinning plate reads zero' ([double]$sp4.maxPixels -lt 0.05 -and [int]$i4.forcedNoMotion -ge 1) ("spinner max {0:N3} px, forced {1}" -f $sp4.maxPixels, $i4.forcedNoMotion)
+
+        # Volume Enable 끔: 만들지 않는다 (TAA · Motion Blur · SSAO 는 카메라만)
+        Vol 'Off'; PlayRound 0.3
+        $i5 = Invoke-NovaJson 'motionvectors info'
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result motionvectors 'Volume Enable off: no motion vectors are made' ($i5 -and -not $i5.enabled -and -not $i5.valid) ("enabled {0}, valid {1}" -f $i5.enabled, $i5.valid)
+
+        # 카메라가 오른쪽으로 → 멈춘 상자가 화면에서 왼쪽으로
+        Vol 'On'
+        Invoke-Nova 'add-component "Main Camera" CameraMover' | Out-Null
+        Invoke-Nova 'set "Main Camera" --component CameraMover --values "{\"speed\":3}"' | Out-Null
+        SetSpeed 0   # 움직이는 상자가 영역에 들어와 섞이지 않게
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 0.6
+        $st6 = MvRect 'camera_ground' @(0.0, 0.78, 1.0, 1.0)   # 아래쪽 바닥 (늘 보인다, 멈춰 있다)
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'remove-component "Main Camera" CameraMover' | Out-Null
+        SetSpeed 6
+        Add-Result motionvectors 'Camera motion: moving the camera right makes the static ground flow left' ([double]$st6.meanPixels[0] -lt -0.05 -and [math]::Abs([double]$st6.meanPixels[0]) -gt 2 * [math]::Abs([double]$st6.meanPixels[1])) ("ground mean {0:N3},{1:N3} px" -f [double]$st6.meanPixels[0], [double]$st6.meanPixels[1])
+
+        # TAA: 움직이는 체커 상자 — 모션 벡터가 있으면 히스토리가 물체를 따라와 무늬가 덜 뭉개진다 (TAA 없는 그림이 기준)
+        $taa = @{}
+        foreach ($cfg in @(@('ref', 'On', 0), @('mv', 'On', 3), @('nomv', 'Off', 3)))
+        {
+            Vol $cfg[1]; SetCam $cfg[2]
+            Invoke-Nova 'play' | Out-Null; Wait-Sec 1.0
+            $cs = @()
+            for ($k = 0; $k -lt 5; $k++) { $png = Join-Path $dir "taa_$($cfg[0])_$k.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; $st = ShotStats $png; if ($st) { $cs += $st.Contrast }; Wait-Sec 0.11 }
+            Invoke-Nova 'stop' | Out-Null
+            $taa[$cfg[0]] = Median $cs
+        }
+        SetCam 0
+        Add-Result motionvectors 'TAA: with motion vectors the moving checker box keeps more of its pattern (history follows the object)' ($taa['mv'] -gt $taa['nomv'] + 0.8 -and $taa['mv'] -le $taa['ref'] + 0.5) ("checker contrast: no TAA {0:N1}, TAA + motion vectors {1:N1}, TAA camera only {2:N1}" -f $taa['ref'], $taa['mv'], $taa['nomv'])
+
+        # Motion Blur Mode: Camera Only (카메라가 멈춰 있으니 흐림 없음) · Camera And Objects (움직이는 상자가 흐려진다) — 빠르게 (40 m/s)
+        SetSpeed 40
+        $mb = @{}
+        foreach ($m in @('MbCam', 'MbObj'))
+        {
+            Vol $m
+            Invoke-Nova 'play' | Out-Null; Wait-Sec 1.0
+            $bl = @()
+            for ($k = 0; $k -lt 6; $k++) { $png = Join-Path $dir "mb_$($m)_$k.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; $bl += (EdgeBlur $png); Wait-Sec 0.11 }
+            Invoke-Nova 'stop' | Out-Null
+            $mb[$m] = Median $bl
+        }
+        SetSpeed 6
+        Vol 'On'
+        Add-Result motionvectors 'Motion Blur Mode Camera And Objects blurs the moving box, Camera Only does not (static camera)' ($mb['MbObj'] -gt $mb['MbCam'] + 2) ("half-mixed edge pixels per row: Camera Only {0:N1}, Camera And Objects {1:N1}" -f $mb['MbCam'], $mb['MbObj'])
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+
+    # OpenGL: 같은 장면에서 움직이는 상자의 속도
+    $edGl = Start-TestEditor -OpenGL
+    try
+    {
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 120) { $t = Invoke-Nova 'log -n 400'; if ($t -match 'compiled 32\. InstancedBasic|cache hit 32\. InstancedBasic') { break }; Start-Sleep -Milliseconds 500 }
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,1 --scale 20,1,20' | Out-Null
+        Invoke-Nova 'create cube --name Mover --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'add-component Mover MotionMover' | Out-Null
+        Invoke-Nova 'set Mover --component MotionMover --values "{\"speed\":6}"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.5,-6 --rotation 8,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'play' | Out-Null; Wait-Sec 1.0
+        $g = Invoke-NovaJson ('motionvectors map "' + (Join-Path $dir 'gl.png') + '" --rect 0.3,0.4,0.7,0.75')
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result motionvectors 'OpenGL: motion vectors are made, the moving box has +x velocity' ($g -and $g.valid -and [int]$g.objectsDrawn -ge 1 -and [double]$g.meanPixels[0] -gt 0.02) ("valid {0}, redrawn {1}, mean x {2:N3} px" -f $g.valid, $g.objectsDrawn, $(if ($g) { [double]$g.meanPixels[0] } else { 0 }))
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $edGl)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -6390,6 +6627,7 @@ try
                 'linetrail' { Suite-LineTrail }
                 'ssr' { Suite-SSR }
                 'ssao' { Suite-SSAO }
+                'motionvectors' { Suite-MotionVectors }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }

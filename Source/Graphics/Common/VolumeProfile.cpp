@@ -107,7 +107,7 @@ const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
 		"Bloom", "ChromaticAberration", "ColorAdjustments", "DepthOfField", "FilmGrain", "MotionBlur", "Tonemapping", "Vignette", "WhiteBalance",
-		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "ScreenSpaceReflection", "AmbientOcclusion", "Exposure" };
+		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "ScreenSpaceReflection", "AmbientOcclusion", "MotionVectors", "Exposure" };
 	return kTypes;
 }
 
@@ -189,13 +189,26 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 	}
 	else if (type == "MotionBlur")
 	{
-		// Unity URP Motion Blur (카메라 움직임 — 깊이와 지난 프레임 카메라로 화면 속도를 되살림). Scene 뷰에는 없음 (Unity 와 같음)
+		// Unity URP Motion Blur: Camera Only = 깊이와 지난 프레임 카메라로 화면 속도를 되살림, Camera And Objects = 모션 벡터 (움직이는 물체도).
+		//  Scene 뷰에는 없음 (Unity 와 같음)
 		c->DisplayName = "Motion Blur";
 		c->Params = {
-			PEnum("mode", "Mode", { "Camera Only" }, 0),
+			PEnum("mode", "Mode", { "Camera Only", "Camera And Objects" }, 0),
 			PEnum("quality", "Quality", { "Low", "Medium", "High" }, 0),
 			P("intensity", "Intensity", K::Clamped, 0.0f, 0.0f, 1.0f),
 			P("clamp", "Clamp", K::Clamped, 0.05f, 0.0f, 0.2f),
+		};
+	}
+	else if (type == "MotionVectors")
+	{
+		// 모션 벡터 (화면 속도): TAA · Motion Blur (Camera And Objects) · SSAO 시간 누적이 지난 프레임 자리를 찾는다.
+		//  Unity 는 렌더러 설정 (Motion Vectors · Skinned Motion Vectors) 과 렌더러가 정하는 것 — NOVA 는 Volume 으로도 켜고 끈다. 기본 = 켜짐
+		c->DisplayName = "Motion Vectors";
+		c->Category = "Rendering";
+		c->Params = {
+			P("enabled", "Enable", K::Bool, 1.0f),
+			P("objectMotion", "Object Motion", K::Bool, 1.0f),      // 움직인 렌더러 (Motion Vectors = Per Object Motion)
+			P("skinnedMotion", "Skinned Motion", K::Bool, 1.0f),    // Skinned Mesh Renderer 의 본 애니메이션 (Skinned Motion Vectors)
 		};
 	}
 	else if (type == "ChromaticAberration")
@@ -531,6 +544,7 @@ bool VolumeStack::IsActive(const std::string& type) const
 	if (type == "ChromaticAberration") return c->F("intensity") > 0.0f;
 	if (type == "DepthOfField") return c->I("mode") != 0;
 	if (type == "MotionBlur") return c->F("intensity") > 0.0f;
+	if (type == "MotionVectors") return c->B("enabled");
 	if (type == "FilmGrain") return c->F("intensity") > 0.0f;
 	if (type == "WhiteBalance") return c->F("temperature") != 0.0f || c->F("tint") != 0.0f;
 	if (type == "Fog" || type == "Atmosphere" || type == "ScreenSpaceReflection") return c->B("enabled");

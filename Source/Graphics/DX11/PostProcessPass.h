@@ -27,6 +27,8 @@ public:
 		GfxShaderResourceView* Depth = nullptr;
 		XMFLOAT4X4 View = {}, Proj = {};
 		bool SceneView = false;   // Scene 뷰: Motion Blur 없음 (Unity 와 같음)
+		// 모션 벡터 (MotionVectors — Game 뷰, 없으면 TAA · Motion Blur 는 카메라만 되돌린다)
+		GfxShaderResourceView* MotionVectors = nullptr;
 	};
 
 	PostProcessPass();

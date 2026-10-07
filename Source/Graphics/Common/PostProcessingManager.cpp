@@ -24,9 +24,9 @@ void PostProcessingManager::_Editor_RenderSSAO(EditorCamera* camera, const Ssao:
 	m_EditorSSAO->Render(camera->View(), camera->Proj(), settings);
 }
 
-void PostProcessingManager::RenderSSAO(CXMMATRIX view, CXMMATRIX proj, const Ssao::Settings& settings)
+void PostProcessingManager::RenderSSAO(CXMMATRIX view, CXMMATRIX proj, const Ssao::Settings& settings, GfxShaderResourceView* motion)
 {
-	m_GameSSAO->Render(view, proj, settings);
+	m_GameSSAO->Render(view, proj, settings, motion);
 }
 
 // 시야각 · 화면비는 그릴 때마다 투영에서 읽는다 (여기서는 타깃 크기만)

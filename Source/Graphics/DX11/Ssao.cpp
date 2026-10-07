@@ -94,7 +94,7 @@ void Ssao::SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv)
 	_deviceContext->ClearRenderTargetView(_normalDepthRTV.Get(), clearColor);
 }
 
-void Ssao::Render(CXMMATRIX view, CXMMATRIX proj, const Settings& settings)
+void Ssao::Render(CXMMATRIX view, CXMMATRIX proj, const Settings& settings, GfxShaderResourceView* motion)
 {
 	_last = settings;
 	if (!settings.Active() || !_aoFullRTV)
@@ -121,7 +121,7 @@ void Ssao::Render(CXMMATRIX view, CXMMATRIX proj, const Settings& settings)
 	GfxShaderResourceView* src = _aoRaw.SRV.Get();
 	if (settings.TemporalAccumulation)
 	{
-		Temporal(view);
+		Temporal(view, proj, motion);
 		src = _history[_historyIndex].SRV.Get();
 	}
 	else
@@ -217,7 +217,7 @@ void Ssao::Compute(CXMMATRIX proj, const Settings& s)
 	DrawQuad(tech ? tech : Effects::SsaoFX->SsaoTech.Get());
 }
 
-void Ssao::Temporal(CXMMATRIX view)
+void Ssao::Temporal(CXMMATRIX view, CXMMATRIX proj, GfxShaderResourceView* motion)
 {
 	FxEffect* fx = Effects::SsaoFX->GetFX();
 	FxTechnique* tech = Tech(fx, "Temporal");
@@ -229,6 +229,11 @@ void Ssao::Temporal(CXMMATRIX view)
 	XMStoreFloat4x4(&m, XMMatrixInverse(nullptr, view) * XMLoadFloat4x4(&_prevView) * XMLoadFloat4x4(&_prevProj));
 	SetM(fx, "gCurViewToPrevClip", m);
 	SetV(fx, "gTemporal", 0.9f, _historyValid ? 1.0f : 0.0f, 0.0f, 0.0f);
+	// 모션 벡터는 지터를 뺀 값 → 이번 · 지난 투영의 지터 차 (uv) 를 함께 (투영 중심 이동 P31 · P32 = NDC 지터)
+	XMFLOAT4X4 P;
+	XMStoreFloat4x4(&P, proj);
+	SetV(fx, "gMotionInfo", motion ? 1.0f : 0.0f, 0.5f * (P._31 - _prevProj._31), -0.5f * (P._32 - _prevProj._32), 0.0f);
+	SetR(fx, "gMotionVectors", motion);
 	_accumulated = _historyValid ? _accumulated + 1 : 0;
 
 	GfxRenderTargetView* rtv[1] = { out.RTV.Get() };
@@ -239,6 +244,7 @@ void Ssao::Temporal(CXMMATRIX view)
 	DrawQuad(tech);
 	SetR(fx, "gAoRaw", nullptr);
 	SetR(fx, "gAoHistory", nullptr);
+	SetR(fx, "gMotionVectors", nullptr);
 	tech->GetPassByIndex(0)->Apply(0, _deviceContext.Get());
 }
 

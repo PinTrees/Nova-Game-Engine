@@ -43,10 +43,12 @@ cbuffer cbDofMotion
     float4 gProjFlags;       // x 1 = 직교, yz = 전체 해상도 (px)
     float4x4 gMBInvView;     // 이 프레임 뷰 → 월드
     float4x4 gMBPrevViewProj;// 지난 프레임 월드 → 클립
-    float4 gMBParams;        // x Intensity, y Clamp (화면 비율), z 표본 수
+    float4 gMBParams;        // x Intensity, y Clamp (화면 비율), z 표본 수, w 1 = Camera And Objects (모션 벡터)
+    float4 gMotionInfo;      // x 1 = 모션 벡터 있음 (TAA 가 히스토리 자리에 쓴다)
     float4 gDofKernel[72];   // Bokeh 표본 (가운데 + 고리 4 개 = 71): xy 단위 원 안 위치 (조리개 날 모양), z 가운데에서 거리
 };
 Texture2D gDepth;     // 뷰 노멀 + 뷰 깊이 (w, 빈 곳 1e5) — 깊이 프리패스
+Texture2D gMotionVectors;   // 모션 벡터 (63. MotionVectors): 지터 뺀 uv 의 이번 − 지난 프레임
 Texture2D gDofBlur;   // 반 해상도 흐린 결과 (선형, a = 섞는 비율 또는 CoC)
 
 SamplerState samLinear
@@ -526,12 +528,22 @@ float4 PS_DofBokehComposite(VertexOut pin) : SV_Target
 // 깊이 → 월드 위치 → 지난 프레임 화면 위치: 그 차이 (x Intensity, Clamp 까지) 를 따라 표본을 모은다
 float4 PS_MotionBlur(VertexOut pin) : SV_Target
 {
-    float z = SceneDepthAt(pin.Tex);
-    float3 posV = ViewPosFromDepth(pin.Tex, z);
-    float4 posW = mul(float4(posV, 1.0f), gMBInvView);
-    float4 prev = mul(posW, gMBPrevViewProj);
-    float2 prevUV = prev.w > 1e-4f ? float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f) : pin.Tex;
-    float2 vel = (pin.Tex - prevUV) * gMBParams.x;
+    float2 vel;
+    if (gMBParams.w > 0.5f)
+    {
+        // Camera And Objects: 모션 벡터 (움직이는 물체 · 스킨 애니메이션 포함)
+        vel = gMotionVectors.Load(int3(int2(pin.PosH.xy), 0)).xy * gMBParams.x;
+    }
+    else
+    {
+        // Camera Only: 깊이로 되살린 위치를 지난 카메라로
+        float z = SceneDepthAt(pin.Tex);
+        float3 posV = ViewPosFromDepth(pin.Tex, z);
+        float4 posW = mul(float4(posV, 1.0f), gMBInvView);
+        float4 prev = mul(posW, gMBPrevViewProj);
+        float2 prevUV = prev.w > 1e-4f ? float2(prev.x / prev.w * 0.5f + 0.5f, 0.5f - prev.y / prev.w * 0.5f) : pin.Tex;
+        vel = (pin.Tex - prevUV) * gMBParams.x;
+    }
     float len = length(vel);
     if (len > gMBParams.y)
         vel *= gMBParams.y / len;
@@ -596,10 +608,27 @@ float4 PS_Taa(VertexOut pin) : SV_Target
     float3 cur = gSource.Load(int3(p, 0)).rgb;
     if (gTaaParams.z < 0.5f)
         return float4(cur, 1.0f);
-    // 지난 프레임 위치 (카메라만 — 지터 뺀 픽셀 중심의 깊이로)
+    // 지난 프레임 위치: 모션 벡터가 있으면 그것으로 (움직이는 물체 포함) — 3 x 3 에서 가장 가까운 깊이의 픽셀 값 (윤곽에서 물체 쪽 속도를 쓴다)
     float z = SceneDepthAt(pin.Tex);
     float2 prevUV = pin.Tex;
-    if (z < 1e4f)
+    if (gMotionInfo.x > 0.5f)
+    {
+        int2 best = p;
+        float bestZ = 1e9f;
+        [unroll]
+        for (int dy = -1; dy <= 1; ++dy)
+        {
+            [unroll]
+            for (int dx = -1; dx <= 1; ++dx)
+            {
+                int2 q = clamp(p + int2(dx, dy), int2(0, 0), int2(size) - 1);
+                float qz = gDepth.Load(int3(q, 0)).w;
+                if (qz < bestZ) { bestZ = qz; best = q; }
+            }
+        }
+        prevUV = (pin.Tex - gTaaJitter.xy) - gMotionVectors.Load(int3(best, 0)).xy;
+    }
+    else if (z < 1e4f)
     {
         float4 posW = mul(float4(ViewPosFromDepth(pin.Tex - gTaaJitter.xy, z), 1.0f), gMBInvView);
         float4 prev = mul(posW, gMBPrevViewProj);

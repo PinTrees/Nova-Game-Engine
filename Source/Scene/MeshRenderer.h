@@ -90,6 +90,8 @@ void SetBuiltinMesh(const wstring& builtinPath, shared_ptr<Mesh> mesh)
 
 	shared_ptr<Mesh> GetMesh() { SyncMeshFromFilter(); if (m_Mesh) return m_Mesh; else return nullptr; }
 	int GetCastShadows() const { return m_CastShadows; }
+	// Unity Motion Vectors: 0 Camera Motion Only, 1 Per Object Motion, 2 Force No Motion (MotionVectors.cpp)
+	int GetMotionVectors() const { return m_MotionVectors; }
 
 	// 이 렌더러가 사용하는 재질들의 Inspector (컴포넌트 아래에 표시)
 	void DrawMaterialInspectors();
