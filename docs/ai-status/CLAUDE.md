@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **SSAO 를 Volume 효과로 · 제대로 검사** (사용자 요청). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 8일 — **SSAO 품질 2 차: 시간 누적 · 윤곽 선 없애기 · 전체 해상도** (사용자 요청). **완료 (커밋, 푸시 전)**
+  - 윤곽 선 원인: AO · 흐림이 노멀 · 깊이를 선형으로 읽어 윤곽을 사이에 둔 값이 섞임 + 반 해상도 AO 를 32 가 선형으로 늘려 앞 물체가 뒤 AO 를 받음 → 점 읽기 (대표 = 2 x 2 왼쪽 위), 전체 해상도 업샘플 (깊이 · 노멀 비슷한 텍셀만)
+  - 함께 찾음: 깊이를 읽은 픽셀과 방향을 구한 자리가 반 픽셀 어긋나 비스듬한 바닥 전체가 옅게 가려짐 (평균 0.993 → 0.9998)
+  - 시간 누적: 표본 무늬를 프레임마다 (R2), 지난 프레임 뷰 · 투영 (TAA 지터 포함) 으로 히스토리 (AO · 뷰 깊이), 깊이 판정 + 이웃 3 x 3 범위로 자름, 값 · 크기 바뀌면 버림. Volume `temporalAccumulation` (기본 켬) · `fullResolution` (기본 끔)
+  - 검사 `-Only ssao` 17/17 (떠 있는 상자 윤곽 · 바닥 얼룩 · 잔상 · TAA 깜빡임 0.38 → 0.15 · Full Resolution · OpenGL = DX11). 비용 반 해상도 + 누적 0.23 ms, 전체 0.55 ms (1143 x 572). 문서 SSAO, Showcase 262
+  - 처음 넣은 "누적이 표본 14 개에 더 가깝다" 검사는 성립하지 않아 (1.85 대 1.05 /255 — 흐림 횟수 차이) 빼고, 실제 이득인 TAA 깜빡임 감소로 검사
+- 이전: 2026년 10월 8일 — **SSAO 를 Volume 효과로 · 제대로 검사** (사용자 요청). **완료 (푸시함)**
   - 찾은 문제: AO 맵을 계산만 하고 어떤 재질에도 쓰지 않았다 (재질의 숨은 `UseSsaoMap` 기본 0 — 엔진 재질 · 지형 · 나무 · 바위 · 디테일 모두), 표본 1 개 (`PS(1)`) + `pow(…, 16)`, 무작위 방향 텍스처에 float 를 RGBA8 로, 방향 정규화 없음, 화면 구석 방향이 처음 시야각 · 크기로 고정, Scene 뷰는 흐림 없음, 값이 셰이더에 고정
   - Volume 효과 `AmbientOcclusion` (Screen Space Ambient Occlusion — URP 의 Enable · Intensity · Radius · Direct Lighting Strength · Samples · Falloff Distance, 기본 켜짐). `Ssao` 다시 씀 (`Render(proj, settings)` — 그 프레임 투영으로 구석 방향, 꺼지면 흰 맵), `28. Ssao.fx` 4 · 8 · 14 표본, `32` 에 Direct Lighting Strength (`gSsaoParams`)
   - CLI `ssao info | map <png> [--view]` (AO 맵을 회색 PNG 로). 검사 `-Only ssao` 10/10 (OpenGL = DX11), 그래픽 스위트 함께. 문서 `docs/SSAO.md` · README · NOVA_CLI, Showcase 261

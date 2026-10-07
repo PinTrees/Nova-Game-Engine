@@ -1333,7 +1333,12 @@ namespace CliCommands
 			r["directLightingStrength"] = st.DirectLightingStrength;
 			r["samples"] = Ssao::Settings::SampleCount(st.Samples);
 			r["falloffDistance"] = st.FalloffDistance;
+			r["temporalAccumulation"] = st.TemporalAccumulation;
+			r["fullResolution"] = st.FullResolution;
 			r["mapSize"] = { s->MapWidth(), s->MapHeight() };
+			r["aoSize"] = { s->AoWidth(), s->AoHeight() };
+			r["historyValid"] = s->HistoryValid();
+			r["accumulatedFrames"] = s->AccumulatedFrames();
 			if (op == "info")
 				return true;
 			if (op != "map") { e = "op must be info or map"; return false; }

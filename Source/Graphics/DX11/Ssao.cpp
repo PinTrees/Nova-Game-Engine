@@ -6,6 +6,24 @@
 #include "VolumeProfile.h"
 #include <random>
 
+namespace
+{
+	FxVar* Var(FxEffect* fx, const char* name)
+	{
+		FxVar* v = fx ? fx->GetVariableByName(name) : nullptr;
+		return v && v->IsValid() ? v : nullptr;
+	}
+	void SetV(FxEffect* fx, const char* name, float x, float y, float z, float w) { const float f[4] = { x, y, z, w }; if (FxVar* v = Var(fx, name)) v->SetFloatVector(f); }
+	void SetM(FxEffect* fx, const char* name, const XMFLOAT4X4& m) { if (FxVar* v = Var(fx, name)) v->SetMatrix(&m._11); }
+	void SetR(FxEffect* fx, const char* name, GfxShaderResourceView* srv) { if (FxVar* v = Var(fx, name)) v->SetResource(srv); }
+	FxTechnique* Tech(FxEffect* fx, const char* name)
+	{
+		FxTechnique* t = fx ? fx->GetTechniqueByName(name) : nullptr;
+		return t && t->IsValid() ? t : nullptr;
+	}
+	const float kWhite[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
+}
+
 Ssao::Settings Ssao::Settings::FromStack(const VolumeStack& stack)
 {
 	Settings s;
@@ -17,8 +35,16 @@ Ssao::Settings Ssao::Settings::FromStack(const VolumeStack& stack)
 		s.DirectLightingStrength = std::clamp(c->F("directLightingStrength"), 0.0f, 1.0f);
 		s.Samples = std::clamp(c->I("samples"), 0, 2);
 		s.FalloffDistance = (std::max)(0.1f, c->F("falloffDistance"));
+		s.TemporalAccumulation = c->B("temporalAccumulation");
+		s.FullResolution = c->B("fullResolution");
 	}
 	return s;
+}
+
+bool Ssao::Settings::SameHistory(const Settings& o) const
+{
+	return Enabled == o.Enabled && Intensity == o.Intensity && Radius == o.Radius && Samples == o.Samples && FalloffDistance == o.FalloffDistance
+		&& TemporalAccumulation == o.TemporalAccumulation && FullResolution == o.FullResolution;
 }
 
 Ssao::Ssao()
@@ -36,7 +62,7 @@ ComPtr<GfxShaderResourceView> Ssao::NormalDepthSRV()
 
 ComPtr<GfxShaderResourceView> Ssao::AmbientSRV()
 {
-	return _ambientSRV0;
+	return _aoFullSRV;
 }
 
 void Ssao::Init(int32 width, int32 height)
@@ -53,16 +79,9 @@ void Ssao::OnSize(int32 width, int32 height)
 {
 	_renderTargetWidth = (uint32)(std::max)(width, 2);
 	_renderTargetHeight = (uint32)(std::max)(height, 2);
-
-	// AO 는 반 해상도
-	_ambientMapViewport.TopLeftX = 0.0f;
-	_ambientMapViewport.TopLeftY = 0.0f;
-	_ambientMapViewport.Width = (float)(_renderTargetWidth / 2);
-	_ambientMapViewport.Height = (float)(_renderTargetHeight / 2);
-	_ambientMapViewport.MinDepth = 0.0f;
-	_ambientMapViewport.MaxDepth = 1.0f;
-
+	_fullViewport = { 0.0f, 0.0f, (float)_renderTargetWidth, (float)_renderTargetHeight, 0.0f, 1.0f };
 	BuildTextureViews();
+	BuildAoTargets();
 }
 
 void Ssao::SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv)
@@ -75,21 +94,59 @@ void Ssao::SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv)
 	_deviceContext->ClearRenderTargetView(_normalDepthRTV.Get(), clearColor);
 }
 
-void Ssao::Render(CXMMATRIX proj, const Settings& settings, int32 blurCount)
+void Ssao::Render(CXMMATRIX view, CXMMATRIX proj, const Settings& settings)
 {
 	_last = settings;
-	if (!settings.Active() || !_ambientRTV0)
+	if (!settings.Active() || !_aoFullRTV)
 	{
 		// 꺼짐: 흰 맵 (가림 없음) — 셰이더는 그대로 곱한다
-		const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-		_deviceContext->ClearRenderTargetView(_ambientRTV0.Get(), white);
+		_deviceContext->ClearRenderTargetView(_aoFullRTV.Get(), kWhite);
+		_historyValid = false;
 		return;
 	}
-	Compute(proj, settings);
-	for (int32 i = 0; i < blurCount; ++i)
+	const uint32 scale = settings.FullResolution ? 1u : 2u;
+	if (scale != _aoScale)
 	{
-		BlurAmbientMap(_ambientSRV0, _ambientRTV1, true);
-		BlurAmbientMap(_ambientSRV1, _ambientRTV0, false);
+		_aoScale = scale;
+		BuildAoTargets();
+	}
+	if (!settings.SameHistory(_historySettings))
+		_historyValid = false;
+	_historySettings = settings;
+	++_frame;
+
+	SetCorners(proj);
+	Compute(proj, settings);
+
+	GfxShaderResourceView* src = _aoRaw.SRV.Get();
+	if (settings.TemporalAccumulation)
+	{
+		Temporal(view);
+		src = _history[_historyIndex].SRV.Get();
+	}
+	else
+	{
+		_historyValid = false;
+		_accumulated = 0;
+	}
+
+	// 흐림: 시간 누적이면 한 번 (표본이 프레임마다 돌아 이미 고르다), 아니면 두 번
+	const int passes = settings.TemporalAccumulation ? 1 : 2;
+	for (int i = 0; i < passes; ++i)
+	{
+		Blur(src, _aoTemp.RTV.Get(), true);
+		Blur(_aoTemp.SRV.Get(), _aoBlur.RTV.Get(), false);
+		src = _aoBlur.SRV.Get();
+	}
+	Upsample(_aoBlur.SRV.Get());
+
+	// 다음 프레임: 이 뷰 · 투영 · 히스토리
+	XMStoreFloat4x4(&_prevView, view);
+	XMStoreFloat4x4(&_prevProj, proj);
+	if (settings.TemporalAccumulation)
+	{
+		_historyValid = true;
+		_historyIndex ^= 1;
 	}
 }
 
@@ -110,14 +167,26 @@ void Ssao::DrawQuad(FxTechnique* tech)
 	}
 }
 
+void Ssao::SetCorners(CXMMATRIX proj)
+{
+	// 화면 네 구석의 뷰 방향 (z = 1) — 이 프레임의 투영에서 (시야각 · 화면비 · TAA 지터가 바뀌어도 맞다). 셰이더는 p = 깊이 / z × 방향
+	XMFLOAT4X4 P;
+	XMStoreFloat4x4(&P, proj);
+	const float hw = P._11 != 0.0f ? 1.0f / P._11 : 1.0f;
+	const float hh = P._22 != 0.0f ? 1.0f / P._22 : 1.0f;
+	const float cx = P._31 * hw, cy = P._32 * hh;   // 지터 (투영 중심 이동) 만큼 방향도 옮긴다
+	const XMFLOAT4 corners[4] = { { -hw - cx, -hh - cy, 1.0f, 0.0f }, { -hw - cx, +hh - cy, 1.0f, 0.0f }, { +hw - cx, +hh - cy, 1.0f, 0.0f }, { +hw - cx, -hh - cy, 1.0f, 0.0f } };
+	Effects::SsaoFX->SetFrustumCorners(corners);
+	FxEffect* fx = Effects::SsaoFX->GetFX();
+	SetV(fx, "gAoSize", (float)_aoW, (float)_aoH, (float)_aoScale, 0.0f);
+}
+
 void Ssao::Compute(CXMMATRIX proj, const Settings& s)
 {
 	// 깊이 버퍼 없이 AO 타깃에만 (깊이 검사 없음)
-	GfxRenderTargetView* renderTargets[1] = { _ambientRTV0.Get() };
+	GfxRenderTargetView* renderTargets[1] = { _aoRaw.RTV.Get() };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, 0);
-	const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	_deviceContext->ClearRenderTargetView(_ambientRTV0.Get(), white);
-	_deviceContext->RSSetViewports(1, &_ambientMapViewport);
+	_deviceContext->RSSetViewports(1, &_aoViewport);
 
 	// NDC [-1,+1]^2 → 텍스처 [0,1]^2
 	static const XMMATRIX T(
@@ -126,14 +195,6 @@ void Ssao::Compute(CXMMATRIX proj, const Settings& s)
 		0.0f, 0.0f, 1.0f, 0.0f,
 		0.5f, 0.5f, 0.0f, 1.0f);
 	Effects::SsaoFX->SetViewToTexSpace(XMMatrixMultiply(proj, T));
-
-	// 화면 네 구석의 뷰 방향 (z = 1) — 이 프레임의 투영에서 (시야각 · 화면비가 바뀌어도 맞다). 셰이더는 p = 깊이 / z × 방향
-	XMFLOAT4X4 P;
-	XMStoreFloat4x4(&P, proj);
-	const float hw = P._11 != 0.0f ? 1.0f / P._11 : 1.0f;
-	const float hh = P._22 != 0.0f ? 1.0f / P._22 : 1.0f;
-	const XMFLOAT4 corners[4] = { { -hw, -hh, 1.0f, 0.0f }, { -hw, +hh, 1.0f, 0.0f }, { +hw, +hh, 1.0f, 0.0f }, { +hw, -hh, 1.0f, 0.0f } };
-	Effects::SsaoFX->SetFrustumCorners(corners);
 	Effects::SsaoFX->SetOffsetVectors(_offsets);
 
 	// 반지름에 맞춘 가림 곡선 (예전 고정값 0.5 m · 0.2 · 2.0 · 0.05 와 같은 비율)
@@ -141,31 +202,79 @@ void Ssao::Compute(CXMMATRIX proj, const Settings& s)
 	Effects::SsaoFX->SetOcclusionFadeStart(s.Radius * 0.4f);
 	Effects::SsaoFX->SetOcclusionFadeEnd(s.Radius * 4.0f);
 	Effects::SsaoFX->SetSurfaceEpsilon(s.Radius * 0.1f);
-	Effects::SsaoFX->SetParams(s.Intensity, s.FalloffDistance);
+	// 무작위 무늬: 시간 누적이면 프레임마다 옮긴다 (R2 수열 — 고르게 퍼진다), 아니면 고정
+	float jx = 0.0f, jy = 0.0f;
+	if (s.TemporalAccumulation)
+	{
+		jx = fmodf((float)_frame * 0.7548776662f, 1.0f);
+		jy = fmodf((float)_frame * 0.5698402910f, 1.0f);
+	}
+	SetV(Effects::SsaoFX->GetFX(), "gSsaoParams", s.Intensity, s.FalloffDistance, jx, jy);
 	Effects::SsaoFX->SetNormalDepthMap(_normalDepthSRV.Get());
 	Effects::SsaoFX->SetRandomVecMap(_randomVectorSRV.Get());
 
 	FxTechnique* tech = s.Samples <= 0 ? Effects::SsaoFX->SsaoLowTech.Get() : (s.Samples == 1 ? Effects::SsaoFX->SsaoTech.Get() : Effects::SsaoFX->SsaoHighTech.Get());
 	DrawQuad(tech ? tech : Effects::SsaoFX->SsaoTech.Get());
-	Effects::SsaoFX->SetNormalDepthMap(nullptr);
 }
 
-void Ssao::BlurAmbientMap(ComPtr<GfxShaderResourceView> inputSRV, ComPtr<GfxRenderTargetView> outputRTV, bool horzBlur)
+void Ssao::Temporal(CXMMATRIX view)
 {
-	GfxRenderTargetView* renderTargets[1] = { outputRTV.Get() };
-	_deviceContext->OMSetRenderTargets(1, renderTargets, 0);
-	_deviceContext->RSSetViewports(1, &_ambientMapViewport);
+	FxEffect* fx = Effects::SsaoFX->GetFX();
+	FxTechnique* tech = Tech(fx, "Temporal");
+	Target& out = _history[_historyIndex];
+	if (!tech || !out.RTV)
+		return;
+	// 이번 뷰 공간 → 지난 프레임 클립 = 이번 뷰의 역 × 지난 뷰 × 지난 투영
+	XMFLOAT4X4 m;
+	XMStoreFloat4x4(&m, XMMatrixInverse(nullptr, view) * XMLoadFloat4x4(&_prevView) * XMLoadFloat4x4(&_prevProj));
+	SetM(fx, "gCurViewToPrevClip", m);
+	SetV(fx, "gTemporal", 0.9f, _historyValid ? 1.0f : 0.0f, 0.0f, 0.0f);
+	_accumulated = _historyValid ? _accumulated + 1 : 0;
 
-	Effects::SsaoBlurFX->SetTexelWidth(1.0f / _ambientMapViewport.Width);
-	Effects::SsaoBlurFX->SetTexelHeight(1.0f / _ambientMapViewport.Height);
+	GfxRenderTargetView* rtv[1] = { out.RTV.Get() };
+	_deviceContext->OMSetRenderTargets(1, rtv, 0);
+	_deviceContext->RSSetViewports(1, &_aoViewport);
+	SetR(fx, "gAoRaw", _aoRaw.SRV.Get());
+	SetR(fx, "gAoHistory", _history[_historyIndex ^ 1].SRV.Get());
+	DrawQuad(tech);
+	SetR(fx, "gAoRaw", nullptr);
+	SetR(fx, "gAoHistory", nullptr);
+	tech->GetPassByIndex(0)->Apply(0, _deviceContext.Get());
+}
+
+void Ssao::Blur(GfxShaderResourceView* input, GfxRenderTargetView* output, bool horzBlur)
+{
+	GfxRenderTargetView* renderTargets[1] = { output };
+	_deviceContext->OMSetRenderTargets(1, renderTargets, 0);
+	_deviceContext->RSSetViewports(1, &_aoViewport);
+
+	Effects::SsaoBlurFX->SetTexelWidth(1.0f / (float)_aoW);
+	Effects::SsaoBlurFX->SetTexelHeight(1.0f / (float)_aoH);
+	SetV(Effects::SsaoBlurFX->GetFX(), "gBlurSize", (float)_aoW, (float)_aoH, (float)_aoScale, 0.0f);
 	Effects::SsaoBlurFX->SetNormalDepthMap(_normalDepthSRV.Get());
-	Effects::SsaoBlurFX->SetInputImage(inputSRV.Get());
+	Effects::SsaoBlurFX->SetInputImage(input);
 	FxTechnique* tech = horzBlur ? Effects::SsaoBlurFX->HorzBlurTech.Get() : Effects::SsaoBlurFX->VertBlurTech.Get();
 	DrawQuad(tech);
 
 	// 다음 흐림에서 출력이 되므로 입력을 뗀다
 	Effects::SsaoBlurFX->SetInputImage(nullptr);
-	Effects::SsaoBlurFX->SetNormalDepthMap(nullptr);
+	tech->GetPassByIndex(0)->Apply(0, _deviceContext.Get());
+}
+
+void Ssao::Upsample(GfxShaderResourceView* input)
+{
+	FxEffect* fx = Effects::SsaoFX->GetFX();
+	FxTechnique* tech = Tech(fx, "Upsample");
+	if (!tech)
+		return;
+	GfxRenderTargetView* rtv[1] = { _aoFullRTV.Get() };
+	_deviceContext->OMSetRenderTargets(1, rtv, 0);
+	_deviceContext->RSSetViewports(1, &_fullViewport);
+	SetR(fx, "gAoRaw", input);
+	Effects::SsaoFX->SetNormalDepthMap(_normalDepthSRV.Get());
+	DrawQuad(tech);
+	SetR(fx, "gAoRaw", nullptr);
+	Effects::SsaoFX->SetNormalDepthMap(nullptr);
 	tech->GetPassByIndex(0)->Apply(0, _deviceContext.Get());
 }
 
@@ -206,40 +315,53 @@ void Ssao::BuildFullScreenQuad()
 	HR(_device->CreateBuffer(&ibd, &iinitData, _screenQuadIB.GetAddressOf()));
 }
 
+bool Ssao::MakeTarget(Target& t, uint32 w, uint32 h, DXGI_FORMAT format)
+{
+	D3D11_TEXTURE2D_DESC d = {};
+	d.Width = (std::max)(w, 1u);
+	d.Height = (std::max)(h, 1u);
+	d.MipLevels = 1;
+	d.ArraySize = 1;
+	d.Format = format;
+	d.SampleDesc.Count = 1;
+	d.Usage = D3D11_USAGE_DEFAULT;
+	d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+	t = Target();
+	if (FAILED(_device->CreateTexture2D(&d, 0, t.Tex.GetAddressOf())))
+		return false;
+	return SUCCEEDED(_device->CreateShaderResourceView(t.Tex.Get(), 0, t.SRV.GetAddressOf()))
+		&& SUCCEEDED(_device->CreateRenderTargetView(t.Tex.Get(), 0, t.RTV.GetAddressOf()));
+}
+
 void Ssao::BuildTextureViews()
 {
-	D3D11_TEXTURE2D_DESC texDesc = {};
-	texDesc.Width = _renderTargetWidth;
-	texDesc.Height = _renderTargetHeight;
-	texDesc.MipLevels = 1;
-	texDesc.ArraySize = 1;
-	texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-	texDesc.SampleDesc.Count = 1;
-	texDesc.Usage = D3D11_USAGE_DEFAULT;
-	texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
-
-	ComPtr<GfxTexture2D> normalDepthTex;
-	HR(_device->CreateTexture2D(&texDesc, 0, normalDepthTex.GetAddressOf()));
-	HR(_device->CreateShaderResourceView(normalDepthTex.Get(), 0, _normalDepthSRV.ReleaseAndGetAddressOf()));
-	HR(_device->CreateRenderTargetView(normalDepthTex.Get(), 0, _normalDepthRTV.ReleaseAndGetAddressOf()));
-
-	// AO: 반 해상도
-	texDesc.Width = _renderTargetWidth / 2;
-	texDesc.Height = _renderTargetHeight / 2;
-	texDesc.Format = DXGI_FORMAT_R16_FLOAT;
-
-	HR(_device->CreateTexture2D(&texDesc, 0, _ambientTex0.ReleaseAndGetAddressOf()));
-	HR(_device->CreateShaderResourceView(_ambientTex0.Get(), 0, _ambientSRV0.ReleaseAndGetAddressOf()));
-	HR(_device->CreateRenderTargetView(_ambientTex0.Get(), 0, _ambientRTV0.ReleaseAndGetAddressOf()));
-
-	ComPtr<GfxTexture2D> ambientTex1;
-	HR(_device->CreateTexture2D(&texDesc, 0, ambientTex1.GetAddressOf()));
-	HR(_device->CreateShaderResourceView(ambientTex1.Get(), 0, _ambientSRV1.ReleaseAndGetAddressOf()));
-	HR(_device->CreateRenderTargetView(ambientTex1.Get(), 0, _ambientRTV1.ReleaseAndGetAddressOf()));
-
+	// 노멀 · 깊이 (전체 해상도) · 전체 해상도 AO (32 가 읽는다)
+	Target nd, full;
+	MakeTarget(nd, _renderTargetWidth, _renderTargetHeight, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	_normalDepthSRV = nd.SRV;
+	_normalDepthRTV = nd.RTV;
+	MakeTarget(full, _renderTargetWidth, _renderTargetHeight, DXGI_FORMAT_R16_FLOAT);
+	_aoFullTex = full.Tex;
+	_aoFullSRV = full.SRV;
+	_aoFullRTV = full.RTV;
 	// 처음 = 가림 없음 (계산 전에 그려도 어둡지 않게)
-	const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-	_deviceContext->ClearRenderTargetView(_ambientRTV0.Get(), white);
+	if (_aoFullRTV)
+		_deviceContext->ClearRenderTargetView(_aoFullRTV.Get(), kWhite);
+}
+
+void Ssao::BuildAoTargets()
+{
+	// 계산 크기 = 전체 또는 반 (반이면 2 x 2 픽셀마다 텍셀 하나)
+	_aoW = (std::max)(_renderTargetWidth / _aoScale, 1u);
+	_aoH = (std::max)(_renderTargetHeight / _aoScale, 1u);
+	_aoViewport = { 0.0f, 0.0f, (float)_aoW, (float)_aoH, 0.0f, 1.0f };
+	MakeTarget(_aoRaw, _aoW, _aoH, DXGI_FORMAT_R16_FLOAT);
+	MakeTarget(_aoTemp, _aoW, _aoH, DXGI_FORMAT_R16_FLOAT);
+	MakeTarget(_aoBlur, _aoW, _aoH, DXGI_FORMAT_R16_FLOAT);
+	MakeTarget(_history[0], _aoW, _aoH, DXGI_FORMAT_R16G16_FLOAT);
+	MakeTarget(_history[1], _aoW, _aoH, DXGI_FORMAT_R16G16_FLOAT);
+	_historyValid = false;
+	_accumulated = 0;
 }
 
 void Ssao::BuildRandomVectorTexture()

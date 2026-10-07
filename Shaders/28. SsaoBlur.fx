@@ -1,8 +1,14 @@
-
+//=============================================================================
+// 28. SsaoBlur.fx — SSAO 의 가장자리를 지키는 흐림 (가로 · 세로)
+//  AO 계산 크기의 정수 좌표로 (반 해상도면 노멀 · 깊이는 2 x 2 의 왼쪽 위 — 28. Ssao 와 같은 대표 픽셀).
+//  노멀이 다르거나 깊이가 깊이의 5 % 넘게 다르면 섞지 않는다 (예전: 선형으로 읽은 노멀 · 깊이 + 고정 0.2 m —
+//  윤곽에서 섞이고, 멀리 비스듬한 면은 흐려지지 않았다)
+//=============================================================================
 cbuffer cbPerFrame
 {
     float gTexelWidth;
     float gTexelHeight;
+    float4 gBlurSize = float4(1.0f, 1.0f, 1.0f, 0.0f);   // xy AO 계산 크기 (텍셀), z 전체 해상도 픽셀 / 계산 텍셀 (1 · 2)
 };
 
 cbuffer cbSettings
@@ -13,30 +19,10 @@ cbuffer cbSettings
     };
 };
 
-cbuffer cbFixed
-{
-    static const int gBlurRadius = 5;
-};
- 
-// Nonnumeric values cannot be added to a cbuffer.
+static const int gBlurRadius = 5;
+
 Texture2D gNormalDepthMap;
 Texture2D gInputImage;
- 
-SamplerState samNormalDepth
-{
-    Filter = MIN_MAG_LINEAR_MIP_POINT;
-
-    AddressU = CLAMP;
-    AddressV = CLAMP;
-};
-
-SamplerState samInputImage
-{
-    Filter = MIN_MAG_LINEAR_MIP_POINT;
-
-    AddressU = CLAMP;
-    AddressV = CLAMP;
-};
 
 struct VertexIn
 {
@@ -54,67 +40,41 @@ struct VertexOut
 VertexOut VS(VertexIn vin)
 {
     VertexOut vout;
-	
-	// Already in NDC space.
-    vout.PosH = float4(vin.PosL, 1.0f);
-
-	// Pass onto pixel shader.
+    vout.PosH = float4(vin.PosL, 1.0f);   // 이미 NDC
     vout.Tex = vin.Tex;
-	
     return vout;
 }
 
+float4 NormalDepthAt(int2 aoPixel)
+{
+    return gNormalDepthMap.Load(int3(aoPixel * (int)gBlurSize.z, 0));
+}
 
 float4 PS(VertexOut pin, uniform bool gHorizontalBlur) : SV_Target
 {
-    float2 texOffset;
-    if (gHorizontalBlur)
-    {
-        texOffset = float2(gTexelWidth, 0.0f);
-    }
-    else
-    {
-        texOffset = float2(0.0f, gTexelHeight);
-    }
+    int2 pix = int2(pin.PosH.xy);
+    int2 dir = gHorizontalBlur ? int2(1, 0) : int2(0, 1);
+    int2 last = int2(gBlurSize.xy) - 1;
+    float4 center = NormalDepthAt(pix);
 
-	// The center value always contributes to the sum.
-    float4 color = gWeights[5] * gInputImage.SampleLevel(samInputImage, pin.Tex, 0.0);
-    float totalWeight = gWeights[5];
-	 
-    float4 centerNormalDepth = gNormalDepthMap.SampleLevel(samNormalDepth, pin.Tex, 0.0f);
-
-    for (float i = -gBlurRadius; i <= gBlurRadius; ++i)
+    float sum = gWeights[gBlurRadius] * gInputImage.Load(int3(pix, 0)).r;
+    float totalWeight = gWeights[gBlurRadius];
+    [unroll]
+    for (int i = -gBlurRadius; i <= gBlurRadius; ++i)
     {
-		// We already added in the center weight.
         if (i == 0)
             continue;
-
-        float2 tex = pin.Tex + i * texOffset;
-
-        float4 neighborNormalDepth = gNormalDepthMap.SampleLevel(
-			samNormalDepth, tex, 0.0f);
-
-		//
-		// If the center value and neighbor values differ too much (either in 
-		// normal or depth), then we assume we are sampling across a discontinuity.
-		// We discard such samples from the blur.
-		//
-	
-        if (dot(neighborNormalDepth.xyz, centerNormalDepth.xyz) >= 0.8f &&
-		    abs(neighborNormalDepth.a - centerNormalDepth.a) <= 0.2f)
+        int2 q = clamp(pix + dir * i, int2(0, 0), last);
+        float4 nd = NormalDepthAt(q);
+        // 다른 면 (노멀 · 깊이가 다름) 은 섞지 않는다
+        if (dot(nd.xyz, center.xyz) >= 0.8f && abs(nd.w - center.w) <= 0.05f * center.w + 0.02f)
         {
-            float weight = gWeights[i + gBlurRadius];
-
-			// Add neighbor pixel to blur.
-            color += weight * gInputImage.SampleLevel(
-				samInputImage, tex, 0.0);
-		
-            totalWeight += weight;
+            float w = gWeights[i + gBlurRadius];
+            sum += w * gInputImage.Load(int3(q, 0)).r;
+            totalWeight += w;
         }
     }
-
-	// Compensate for discarded samples by making total weights sum to 1.
-    return color / totalWeight;
+    return sum / totalWeight;
 }
 
 technique11 HorzBlur
@@ -136,4 +96,3 @@ technique11 VertBlur
         SetPixelShader(CompileShader(ps_5_0, PS(false)));
     }
 }
- 

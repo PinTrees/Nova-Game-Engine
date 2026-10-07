@@ -630,7 +630,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	{
 		phase.Next("SSAO");
 		const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
-		PostProcessingManager::GetI()->RenderSSAO(d.Cam, ssaoSettings);
+		PostProcessingManager::GetI()->RenderSSAO(d.View, d.Proj, ssaoSettings);   // TAA 지터 그대로 (깊이 프리패스와 같은 투영)
 		UseSsaoSettings(ssaoSettings);
 	}
 	GfxShaderResourceView* ssaoMap = probe ? SpriteBatch::WhiteTexture() : ssao->AmbientSRV().Get();

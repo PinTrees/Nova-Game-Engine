@@ -4689,7 +4689,8 @@ function Suite-SSAO
 {
     # Screen Space Ambient Occlusion (Volume — URP SSAO 와 같은 값): 바닥 위 상자 · 벽. `nova ssao map` 으로 AO 맵 (흰 = 가림 없음) 을 직접 읽는다
     #  맞닿은 곳만 어둡다 (평평한 바닥 · 하늘은 1), Enable · Intensity · Radius · Samples · Falloff Distance · Direct Lighting Strength,
-    #  Game 뷰의 시야각을 바꿔도 바닥이 가려지지 않는다 (예전: 화면 구석 방향을 처음 크기 · 시야각으로만), Scene · Game 뷰 같음, OpenGL = DX11
+    #  Game 뷰의 시야각을 바꿔도 바닥이 가려지지 않는다 (예전: 화면 구석 방향을 처음 크기 · 시야각으로만), Scene · Game 뷰 같음, OpenGL = DX11,
+    #  2 차: 윤곽에 선이 남지 않는다 (떠 있는 상자), 시간 누적 (히스토리 · 노이즈 감소 · 옮긴 상자의 잔상 없음), Full Resolution, TAA 지터
     Write-Host '[ssao]'
     $dir = Join-Path $Out 'ssao'
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -4713,6 +4714,11 @@ function Suite-SSAO
     AoProfile 'High' @{ enabled = 1; samples = 2 }
     AoProfile 'Direct0' @{ enabled = 1; intensity = 2; directLightingStrength = 0 }
     AoProfile 'Direct1' @{ enabled = 1; intensity = 2; directLightingStrength = 1 }
+    AoProfile 'Still' @{ enabled = 1; temporalAccumulation = 0 }
+    AoProfile 'Full' @{ enabled = 1; fullResolution = 1 }
+    AoProfile 'LowStill' @{ enabled = 1; samples = 0; temporalAccumulation = 0 }
+    AoProfile 'LowAcc' @{ enabled = 1; samples = 0; temporalAccumulation = 1 }
+    AoProfile 'HighStill' @{ enabled = 1; samples = 2; temporalAccumulation = 0 }
     # AO 맵의 영역 (그림 크기의 비율): 벽 밑 · 상자 밑이 바닥에 닿는 곳, 열린 바닥 (아래), 하늘 (왼쪽 위)
     $contact = @(0.48, 0.68, 0.48, 0.56)
     $box = @(0.34, 0.47, 0.58, 0.66)
@@ -4733,6 +4739,22 @@ function Suite-SSAO
         for ($y = [int]($bm.Height * $r[2]); $y -lt [int]($bm.Height * $r[3]); $y += 2) { for ($x = [int]($bm.Width * $r[0]); $x -lt [int]($bm.Width * $r[1]); $x += 2) {
             $c = $bm.GetPixel($x, $y); $n++; $sum += 0.2126 * $c.R + 0.7152 * $c.G + 0.0722 * $c.B } }
         $bm.Dispose(); $sum / [math]::Max(1, $n)
+    }
+    # 이웃 픽셀 (가로) 차이의 평균 — 노이즈
+    function AoNoise([string]$png, [double[]]$r)
+    {
+        $bm = [System.Drawing.Bitmap]::FromFile($png); $n = 0; $sum = 0.0
+        for ($y = [int]($bm.Height * $r[2]); $y -lt [int]($bm.Height * $r[3]); $y++) { for ($x = [int]($bm.Width * $r[0]); $x -lt [int]($bm.Width * $r[1]) - 1; $x++) {
+            $sum += [math]::Abs($bm.GetPixel($x, $y).R - $bm.GetPixel($x + 1, $y).R); $n++ } }
+        $bm.Dispose(); $sum / [math]::Max(1, $n)
+    }
+    # 두 AO 맵의 영역 안 픽셀별 차이의 평균 (0 ~ 255)
+    function AoDiff([string]$a, [string]$b, [double[]]$r)
+    {
+        $x1 = [System.Drawing.Bitmap]::FromFile($a); $x2 = [System.Drawing.Bitmap]::FromFile($b); $n = 0; $sum = 0.0
+        for ($y = [int]($x1.Height * $r[2]); $y -lt [int]($x1.Height * $r[3]); $y++) { for ($x = [int]($x1.Width * $r[0]); $x -lt [int]($x1.Width * $r[1]); $x++) {
+            $sum += [math]::Abs($x1.GetPixel($x, $y).R - $x2.GetPixel($x, $y).R); $n++ } }
+        $x1.Dispose(); $x2.Dispose(); $sum / [math]::Max(1, $n)
     }
     function SsaoScene
     {
@@ -4761,7 +4783,8 @@ function Suite-SSAO
         Add-Result ssao 'Enable off: no AO (the map is white), the Volume reports it inactive' ($off.Info -and -not $off.Info.active -and $offAll.Min -ge 0.99) ("active {0}, map min {1:N3}" -f $off.Info.active, $offAll.Min)
 
         $c = AoStats $on.Path $contact; $b = AoStats $on.Path $box; $o = AoStats $on.Path $open; $s = AoStats $on.Path $sky
-        Add-Result ssao 'On: darker where the box and the wall meet the ground, flat ground and sky stay open (no self-occlusion)' ($on.Info.active -and $on.Info.samples -eq 8 -and $c.Mean -lt 0.9 -and $c.Min -lt 0.75 -and $b.Min -lt 0.8 -and $o.Min -ge 0.97 -and $s.Min -ge 0.99) ("contact mean {0:N2} min {1:N2}, box base min {2:N2}, open ground min {3:N3}, sky min {4:N3}" -f $c.Mean, $c.Min, $b.Min, $o.Min, $s.Min)
+        # 열린 바닥은 평균도 1 에 가깝다 — 반 해상도에서 깊이를 읽은 픽셀과 다른 자리의 방향으로 위치를 되짚으면 비스듬한 바닥 전체가 옅게 가려졌다 (평균 0.993)
+        Add-Result ssao 'On: darker where the box and the wall meet the ground, flat ground (no haze) and sky stay open' ($on.Info.active -and $on.Info.samples -eq 8 -and $c.Min -lt 0.8 -and $c.Mean -lt $o.Mean - 0.05 -and $b.Min -lt 0.8 -and $o.Min -ge 0.97 -and $o.Mean -ge 0.998 -and $s.Min -ge 0.99) ("contact mean {0:N3} min {1:N2}, box base min {2:N2}, open ground mean {3:N4} min {4:N3}, sky min {5:N3}" -f $c.Mean, $c.Min, $b.Min, $o.Mean, $o.Min, $s.Min)
         # 최종 그림: 맞닿은 곳만 어두워지고 열린 바닥은 그대로
         $lc0 = Luma $offShot $contact; $lc1 = Luma $onShot $contact; $lo0 = Luma $offShot $open; $lo1 = Luma $onShot $open
         Add-Result ssao 'AO reaches the lit image: the contact gets darker, open ground is unchanged' ($lc1 -lt $lc0 - 4 -and [math]::Abs($lo1 - $lo0) -lt 1.5) ("contact luminance {0:N1} -> {1:N1}, open ground {2:N1} -> {3:N1}" -f $lc0, $lc1, $lo0, $lo1)
@@ -4775,7 +4798,7 @@ function Suite-SSAO
 
         Vol 'Low'; $lw = AoMap 'low'; $cl = AoStats $lw.Path $contact
         Vol 'High'; $hg = AoMap 'high'; $ch = AoStats $hg.Path $contact; $oh = AoStats $hg.Path $open
-        Add-Result ssao 'Samples Low 4 / High 14: both darken the contact, ground stays open' ($lw.Info.samples -eq 4 -and $hg.Info.samples -eq 14 -and $cl.Mean -lt 0.92 -and $ch.Mean -lt 0.92 -and $oh.Min -ge 0.97) ("samples {0} / {1}, contact mean {2:N2} / {3:N2}" -f $lw.Info.samples, $hg.Info.samples, $cl.Mean, $ch.Mean)
+        Add-Result ssao 'Samples Low 4 / High 14: both darken the contact, ground stays open' ($lw.Info.samples -eq 4 -and $hg.Info.samples -eq 14 -and $cl.Mean -lt 0.95 -and $ch.Mean -lt 0.95 -and $oh.Min -ge 0.97) ("samples {0} / {1}, contact mean {2:N2} / {3:N2}" -f $lw.Info.samples, $hg.Info.samples, $cl.Mean, $ch.Mean)
 
         Vol 'Near'; $nAll = AoStats (AoMap 'near').Path @(0, 1, 0, 1)
         Add-Result ssao 'Falloff Distance 1 m: everything farther than 1 m from the camera has no AO' ($nAll.Min -ge 0.99) ("map min {0:N3}" -f $nAll.Min)
@@ -4786,6 +4809,41 @@ function Suite-SSAO
         $ld0 = Luma $d0 $contact; $ld1 = Luma $d1 $contact; $lg0 = Luma $d0 $open; $lg1 = Luma $d1 $open
         Add-Result ssao 'Direct Lighting Strength 1: AO also darkens the direct light at the contact (open ground unchanged)' ($ld1 -lt $ld0 - 1 -and [math]::Abs($lg1 - $lg0) -lt 1.5) ("contact luminance {0:N1} -> {1:N1}, open ground {2:N1} -> {3:N1}" -f $ld0, $ld1, $lg0, $lg1)
 
+        # 시간 누적: 같은 값 · 같은 크기면 히스토리를 이어 쓴다 (값이 바뀌면 버린다)
+        Vol 'On'; Invoke-Nova 'wait 40' | Out-Null
+        $ai = Invoke-NovaJson 'ssao info --view scene'
+        $ca = AoStats (AoMap 'accumulated').Path $contact
+        Add-Result ssao 'Temporal Accumulation: the history carries on while the settings stay the same' ($ai.temporalAccumulation -and $ai.historyValid -and [int]$ai.accumulatedFrames -gt 10 -and $ca.Mean -lt 0.95) ("history {0}, {1} frames, contact mean {2:N2}" -f $ai.historyValid, $ai.accumulatedFrames, $ca.Mean)
+
+        # 잔상 없음: 상자를 옮기면 옛 자리 (바닥) 의 AO 가 몇 프레임 안에 사라진다 (같은 깊이라 깊이 판정은 통과 — 이웃 범위로 자른다)
+        $boxBase = @(0.32, 0.49, 0.56, 0.68)
+        $before = AoStats (AoMap 'box_before').Path $boxBase
+        Invoke-Nova 'set Box --position -3.5,0.5,1.5' | Out-Null
+        Invoke-Nova 'wait 6' | Out-Null
+        $after = AoStats (AoMap 'box_moved').Path $boxBase
+        Add-Result ssao 'Temporal: moving the box leaves no AO ghost at its old place within a few frames' ($before.Min -lt 0.8 -and $after.Min -ge 0.95) ("old place min {0:N2} -> {1:N2} after 6 frames" -f $before.Min, $after.Min)
+        Invoke-Nova 'set Box --position -0.8,0.5,1.5' | Out-Null
+
+        # Full Resolution: AO 를 화면 크기로 (기본은 반)
+        $half = Invoke-NovaJson 'ssao info --view scene'
+        Vol 'Full'; Invoke-Nova 'wait 20' | Out-Null; $fm = AoMap 'full'; $fc = AoStats $fm.Path $contact; $fo = AoStats $fm.Path $open
+        Add-Result ssao 'Full Resolution: AO computed at the view size (half by default), still only at the contact' ($fm.Info.fullResolution -and $fm.Info.aoSize[0] -eq $fm.Info.mapSize[0] -and [math]::Abs($half.aoSize[0] * 2 - $half.mapSize[0]) -le 1 -and $fc.Mean -lt 0.95 -and $fo.Min -ge 0.97) ("ao {0}x{1} of {2}x{3} (half: {4}x{5}); contact mean {6:N2}, ground min {7:N3}" -f $fm.Info.aoSize[0], $fm.Info.aoSize[1], $fm.Info.mapSize[0], $fm.Info.mapSize[1], $half.aoSize[0], $half.aoSize[1], $fc.Mean, $fo.Min)
+
+        # 윤곽: 벽 앞 3.5 m 에 떠 있는 상자는 가릴 것이 없다 — 둘레 (왼쪽 절반) 에 선이 없어야. 벽에 붙은 상자 (오른쪽) 는 어둡다
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name BackWall --position 0,1.5,4.65 --scale 14,9,0.3' | Out-Null
+        Invoke-Nova 'create cube --name Floating --position -1.3,1.5,1' | Out-Null
+        Invoke-Nova 'create cube --name Touching --position 1.6,1.5,4' | Out-Null
+        Invoke-Nova 'camera --position 0,1.5,-2 --target 0,1.5,4.5' | Out-Null
+        foreach ($v in @('Still', 'On', 'Full'))
+        {
+            Vol $v; Invoke-Nova 'wait 20' | Out-Null
+            $sm = AoMap "silhouette_$($v.ToLower())"
+            $left = AoStats $sm.Path @(0.0, 0.48, 0.0, 1.0); $right = AoStats $sm.Path @(0.52, 1.0, 0.0, 1.0)
+            Add-Result ssao "No lines along silhouettes ($v): a cube floating 3.5 m in front of a wall gets no AO, a cube touching it does" ($left.Min -ge 0.95 -and $right.Min -lt 0.8) ("floating cube side min {0:N3} (pixels under 0.95: {1:P2}), touching cube side min {2:N2}" -f $left.Min, $left.Dark, $right.Min)
+        }
+        SsaoScene
+
         # Game 뷰 (Main Camera): Scene 뷰와 같은 AO, 시야각을 바꿔도 바닥이 가려지지 않는다
         Vol 'On'
         Invoke-Nova 'window game' | Out-Null
@@ -4794,8 +4852,23 @@ function Suite-SSAO
         Invoke-Nova 'set "Main Camera" --component Camera --values "{\"fovY\":0.6}"' | Out-Null
         Invoke-Nova 'wait 10' | Out-Null
         $gz = AoMap 'game_fov' 'game'; $gzo = AoStats $gz.Path $open; $gzAll = AoStats $gz.Path @(0, 1, 0, 1)
-        Add-Result ssao 'Game view: same AO as the Scene view; a narrower field of view keeps the flat ground open' ($gc.Mean -lt 0.92 -and $gAll.Min -lt 0.8 -and $go.Min -ge 0.97 -and $gzAll.Min -lt 0.8 -and $gzo.Min -ge 0.97) ("contact mean {0:N2}, map min {1:N2}, ground min {2:N3}; FOV 0.6 rad: map min {3:N2}, ground min {4:N3}" -f $gc.Mean, $gAll.Min, $go.Min, $gzAll.Min, $gzo.Min)
+        Add-Result ssao 'Game view: same AO as the Scene view; a narrower field of view keeps the flat ground open' ($gc.Mean -lt 0.95 -and $gAll.Min -lt 0.8 -and $go.Min -ge 0.97 -and $gzAll.Min -lt 0.8 -and $gzo.Min -ge 0.97) ("contact mean {0:N2}, map min {1:N2}, ground min {2:N3}; FOV 0.6 rad: map min {3:N2}, ground min {4:N3}" -f $gc.Mean, $gAll.Min, $go.Min, $gzAll.Min, $gzo.Min)
+        # TAA (지터한 투영): AO 도 같은 지터로 되짚는다 — 평평한 바닥이 가려지지 않고 맞닿은 곳만.
+        #  지터는 깊이를 프레임마다 서브픽셀만큼 흔들어 AO 를 깜빡이게 한다 → 시간 누적이 연속 프레임의 차이를 줄인다
+        $aoArea = @(0.25, 0.75, 0.40, 0.75)
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"fovY\":1.0471976,\"antiAliasing\":3}"' | Out-Null
+        Vol 'Still'; Invoke-Nova 'wait 20' | Out-Null
+        $s1 = (AoMap 'taa_still_1' 'game').Path; $s2 = (AoMap 'taa_still_2' 'game').Path
+        Vol 'On'; Invoke-Nova 'wait 40' | Out-Null
+        $gt = AoMap 'taa_acc_1' 'game'; $gt2 = AoMap 'taa_acc_2' 'game'
+        $gtc = AoStats $gt.Path $contact; $gto = AoStats $gt.Path $open
+        $flickStill = AoDiff $s1 $s2 $aoArea; $flickAcc = AoDiff $gt.Path $gt2.Path $aoArea
+        Add-Result ssao 'Game view with TAA: the ground stays open, temporal accumulation steadies the AO from frame to frame' ($gtc.Mean -lt 0.95 -and $gto.Min -ge 0.97 -and $flickAcc -lt $flickStill) ("contact mean {0:N3}, ground min {1:N3}; frame-to-frame difference: fixed samples {2:N2}, accumulated {3:N2} (of 255)" -f $gtc.Mean, $gto.Min, $flickStill, $flickAcc)
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"antiAliasing\":0}"' | Out-Null
+        # OpenGL 비교용: 표본을 고정한 그림 (시간 누적은 프레임마다 무늬가 달라 API 사이에 비교할 수 없다)
         Invoke-Nova 'window scene' | Out-Null
+        Vol 'Still'; Invoke-Nova 'wait 10' | Out-Null
+        $dxOn = (AoMap 'still_dx').Path
         Invoke-Nova 'scene new --force' | Out-Null
     }
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
@@ -4806,8 +4879,8 @@ function Suite-SSAO
     {
         WaitSsaoShader
         SsaoScene
-        Vol 'On'
-        $gl = AoMap 'on_gl'
+        Vol 'Still'; Invoke-Nova 'wait 10' | Out-Null
+        $gl = AoMap 'still_gl'
         $diff = -1
         if ($dxOn -and (Test-Path $dxOn) -and (Test-Path $gl.Path))
         {

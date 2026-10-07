@@ -287,6 +287,8 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("directLightingStrength", "Direct Lighting Strength", K::Clamped, 0.25f, 0.0f, 1.0f),
 			PEnum("samples", "Samples", { "Low", "Medium", "High" }, 1),
 			P("falloffDistance", "Falloff Distance", K::Float, 100.0f, 0.1f),
+			P("temporalAccumulation", "Temporal Accumulation", K::Bool, 1.0f),   // HDRP: 프레임마다 표본을 돌려 지난 결과와 섞는다
+			P("fullResolution", "Full Resolution", K::Bool, 0.0f),               // URP Downsample 의 반대 (기본 = 반 해상도)
 		};
 	}
 	else if (type == "ScreenSpaceReflection")
