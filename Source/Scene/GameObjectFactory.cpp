@@ -37,6 +37,7 @@
 #include "AnimationPlayer.h"
 #include "SkinnedMeshRenderer.h"
 #include "VrmImport.h"
+#include "FBXLoader.h"
 #include "SkinnedMesh.h"
 #include "GeometryGenerator.h"
 #include "Mesh.h"
@@ -590,6 +591,8 @@ void GameObjectFactory::AddSkinnedChildren(GameObject* root, const std::string& 
 					EditorLog::Write("Character", "could not add com.nova.toon: %s", error.c_str());
 			}
 		}
+		else if (_wcsicmp(std::filesystem::path(string_to_wstring(modelPath)).extension().c_str(), L".fbx") == 0)
+			vrmMaterials = FBXLoader::ExtractMaterials(string_to_wstring(modelPath));   // FBX 재질 색 · 그림 (프로젝트 Assets 의 모델만)
 		for (int i = 0; i < (int)file->SkinnedMeshs.size(); ++i)
 		{
 			const std::string childName = file->SkinnedMeshs[i]->Name.empty() ? "Mesh" + std::to_string(i) : file->SkinnedMeshs[i]->Name;

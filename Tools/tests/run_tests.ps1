@@ -1102,6 +1102,63 @@ function Suite-Model
         $fr = Invoke-NovaJson "exec --file $ff"
         $fa = if ($fr) { "$($fr.result)" -split ' ' } else { @() }
         Add-Result model 'export .fbx with armature → engine skinned Humanoid character' ($fx -and -not $fx.warning -and $fa.Count -eq 3 -and [int]$fa[0] -ge 10 -and [double]$fa[1] -gt 0.7 -and [double]$fa[1] -lt 1.1 -and [double]$fa[2] -lt 0) "skinned=$($fa[0]) head y=$($fa[1]) left hand x=$($fa[2])"
+        # FBX 와 VRM 이 같은 모양 (같은 자리의 RigChibi): 앞에서 찍은 실루엣이 겹친다 (배경만 찍은 그림과 다른 화소 = 캐릭터)
+        #  (예전: 메시 "Head" 와 본 "Head" 가 같은 이름이라 본 자리에 메시 노드를 잡아 머리가 가슴으로 내려갔다 → 이제 메시는 Head_Mesh),
+        #  재질 = FBX Diffuse 색 (ChibiRig_FBX.Materials — 예전: 모두 기본 은색)
+        Invoke-Nova 'set "Main Camera" --position 0,0.8,2.6 --rotation 4,180,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        function Snap([string]$name) { Invoke-Nova 'wait 6' | Out-Null; $png = Join-Path $dir "$name.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; return $png }
+        # 캐릭터 하나만 보이게: 자식 Skinned Mesh Renderer 를 켜고 끈다 (부모 SetActive 는 아직 자식 그리기를 숨기지 않는다)
+        function Show([bool]$fbx, [bool]$vrm)
+        {
+            $f = Join-Path $dir 'rig_show.cs'
+            ('foreach (var r in GameObject.Find("FbxChibi").GetComponentsInChildren<SkinnedMeshRenderer>()) r.enabled = ' + "$fbx".ToLower() + '; foreach (var r in GameObject.Find("RigChibi").GetComponentsInChildren<SkinnedMeshRenderer>()) r.enabled = ' + "$vrm".ToLower() + '; return 1;') | Set-Content -Encoding utf8 $f
+            Invoke-NovaJson "exec --file $f" | Out-Null
+        }
+        Show $true $false
+        $sFbx = Snap 'fbx_alone'
+        Show $false $true
+        $sVrm = Snap 'vrm_alone'
+        Show $false $false
+        $sBg = Snap 'no_character'
+        Show $true $true
+        Invoke-Nova 'window scene' | Out-Null
+        Add-Type -AssemblyName System.Drawing
+        # 윤곽 비교: 줄마다 캐릭터의 왼쪽 · 오른쪽 끝 (안쪽 색은 재질 · 하늘 반사로 배경과 비슷할 수 있다) + 맨 위 · 맨 아래 줄
+        $edge = 99.0; $topDiff = 99; $bottomDiff = 99
+        if ((Test-Path $sFbx) -and (Test-Path $sVrm) -and (Test-Path $sBg))
+        {
+            $bf = [System.Drawing.Bitmap]::FromFile($sFbx); $bv = [System.Drawing.Bitmap]::FromFile($sVrm); $bb = [System.Drawing.Bitmap]::FromFile($sBg)
+            function Span($bmp, $bg, [int]$y)
+            {
+                $lo = -1; $hi = -1
+                for ($x = 0; $x -lt $bg.Width; $x += 2)
+                {
+                    $g = $bg.GetPixel($x, $y); $c = $bmp.GetPixel($x, $y)
+                    if (([math]::Abs($c.R - $g.R) + [math]::Abs($c.G - $g.G) + [math]::Abs($c.B - $g.B)) -gt 30) { if ($lo -lt 0) { $lo = $x }; $hi = $x }
+                }
+                return @($lo, $hi)
+            }
+            $sum = 0.0; $rows = 0; $fTop = -1; $fBot = -1; $vTop = -1; $vBot = -1
+            for ($y = 0; $y -lt $bb.Height; $y += 2)
+            {
+                $fs2 = Span $bf $bb $y; $vs2 = Span $bv $bb $y
+                if ($fs2[0] -ge 0) { if ($fTop -lt 0) { $fTop = $y }; $fBot = $y }
+                if ($vs2[0] -ge 0) { if ($vTop -lt 0) { $vTop = $y }; $vBot = $y }
+                if ($fs2[0] -lt 0 -and $vs2[0] -lt 0) { continue }
+                $rows++
+                if ($fs2[0] -lt 0 -or $vs2[0] -lt 0) { $sum += 100 } else { $sum += [math]::Abs($fs2[0] - $vs2[0]) + [math]::Abs($fs2[1] - $vs2[1]) }
+            }
+            $bf.Dispose(); $bv.Dispose(); $bb.Dispose()
+            if ($rows -gt 0) { $edge = $sum / $rows; $topDiff = [math]::Abs($fTop - $vTop); $bottomDiff = [math]::Abs($fBot - $vBot) }
+        }
+        $fc = Join-Path $dir 'rig_fbx_mat.cs'
+        'string names = ""; string dress = "none"; foreach (var r in GameObject.Find("FbxChibi").GetComponentsInChildren<SkinnedMeshRenderer>()) { if (r.gameObject.name.StartsWith("Head")) names += r.gameObject.name; if (r.gameObject.name == "Body") foreach (var m in r.sharedMaterials) if (m != null && m.name.StartsWith("Dress")) dress = m.color.r.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "," + m.color.g.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "," + m.color.b.ToString("F2", System.Globalization.CultureInfo.InvariantCulture); } return names + " " + dress;' | Set-Content -Encoding utf8 $fc
+        $fs = Invoke-NovaJson "exec --file $fc"
+        $fsa = if ($fs) { "$($fs.result)" -split ' ' } else { @() }
+        $matDir = Join-Path $vrmDir 'ChibiRig_FBX.Materials'
+        $okShape = $edge -lt 4 -and $topDiff -le 4 -and $bottomDiff -le 4 -and $fsa.Count -eq 2 -and $fsa[0] -eq 'Head_Mesh' -and $fsa[1] -eq '0.35,0.38,0.62' -and (Test-Path (Join-Path $matDir 'Dress.mat'))
+        Add-Result model 'FBX character = VRM shape (same outline, Head_Mesh) + FBX Diffuse colors extracted' $okShape ("outline: edge difference {0:F1} px per row (< 4), top {1} px, bottom {2} px (<= 4); head renderer {3}, Dress color {4} (0.35,0.38,0.62), {5} .mat" -f $edge, $topDiff, $bottomDiff, $fsa[0], $fsa[1], @(Get-ChildItem $matDir -Filter *.mat -ErrorAction SilentlyContinue).Count)
         # 애니메이션 (5 단계): rig.pose + anim.key → glTF 애니메이션 → 기본 컨트롤러의 Wave (엔진 리소스 Nova_Basic.glb 와 같은 예제)
         $ab = Invoke-NovaJson "model batch $root\docs\examples\anim_basic.txt"
         $al = M 'anim.list'
@@ -2436,7 +2493,7 @@ function Suite-Cloth
 function Suite-ClothSkin
 {
     # 스킨 위의 천 (Skinned Mesh Renderer + Cloth): 모델 편집기로 치마 · 망토를 입힌 치비 (docs/examples/model_chibi_cloth.txt) → FBX → 캐릭터.
-    #  (VRM 으로 내보냄 — lilToon 툰 재질. FBX 내보내기는 이 치비의 머리카락 · 색이 엔진에서 어긋나는 문제가 따로 있다)
+    #  (VRM 으로 내보냄 — lilToon 툰 재질)
     #  치마 = 위 가장자리 고정 (허리 = 피부에 붙음) · 나머지는 늘어진다, 캐릭터를 옮기면 따라온다 (순간 이동 = 피부 자리로),
     #  망토 = coefficients 의 maxDistance 로 피부 가까이 (바람이 불어도), C# coefficients API
     Write-Host '[clothskin]'

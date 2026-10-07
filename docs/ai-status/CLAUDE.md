@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **낮 · 밤 마무리** (사용자 지시 4 가지 중 4 번 — 마지막). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **모델 편집기 FBX → 엔진: 치비 머리 · 머리카락 · 색** (사용자 요청 — 천 작업에서 남긴 작업 칩). **완료 (커밋, 푸시 전)**
+  - 원인 1: 메시 `Head` 와 본 `Head` 가 같은 이름 → 엔진이 본 자리에 메시 노드 (가장 위) 를 잡아 머리에 묶인 정점이 가슴으로 (머리카락이 뻗침). 가져오기 `FBXLoader::RenameClashingMeshNodes` (본과 겹치는 메시 노드 = `<이름>_Mesh`, Blender FBX 도), 캐시 NVCC, 모델 편집기 FBX 내보내기도 `_Mesh` (VRM 과 같은 규칙)
+  - 원인 2: FBX 재질 색을 쓰지 않았다 (모두 기본 재질) → `FBXLoader::ExtractMaterials` = `<파일>_FBX.Materials/*.mat` (Diffuse 색 · 그림 · 발광 · Phong → Smoothness, 있으면 그대로, 프로젝트 Assets 만 — 같은 이름 VRM 의 `<파일>.Materials` 와 겹치지 않게), 캐릭터 · 정적 모델 배치 둘 다
+  - 함께 고침: 모델 파일 감시의 다시 가져오기가 장면을 프레임 가운데 다시 만들어 Scene 뷰가 지운 빛을 읽어 멈추던 것 → 프레임 끝에 (`ImportSettingsInspector::Reimport`)
+  - 검사 `-Only model` 에 FBX = VRM 윤곽 (줄마다 끝 차이 2.6 px, 고치기 전 9.9 — 확인함) · Head_Mesh · Dress 색 · .mat. model · modelplace · clothskin · animation 80/80
+  - 따로 남긴 일 (작업 칩): 부모 GameObject 를 꺼도 자식 렌더러가 그려진다 (activeInHierarchy 없음)
+- 이전: 2026년 10월 7일 — **낮 · 밤 마무리** (사용자 지시 4 가지 중 4 번 — 마지막). **완료 (커밋, 푸시 전)**
   - 반사 프로브를 시각마다 다시 찍기: `DayNightState::TimeOfDay · ProbeRefreshMinutes · ProbeRefreshSerial`, `ReflectionProbes::Update` 가 시각이 그만큼 흐르면 모든 프로브를 다시 (Baked · Custom 도 실행 중의 큐브 `Relit` — DDS 는 그대로, 처음 뒤로는 한 면씩), 끄면 구운 큐브로. `probe info` 에 relit · capturedTime
   - `32. InstancedBasic.fx` `ProbeReflection`: 날씨 · 낮밤 하늘 보정을 하늘 · 구운 프로브에만 (실행 중에 찍은 프로브는 Intensity 음수로 표시 — 보정 안 함, 두 번 어두워지지 않게). fxc (DX11 · WebGPU) 확인
   - 패키지: Day Night Cycle 의 Probe Refresh (게임 분, 기본 30), C# `DayNight.probeRefreshMinutes · RefreshReflectionProbes()`, CLI `daynight set --probes` · `daynight probes`, C# `NightLight` (해 높이로 가로등 · 창문 켜기 — 히스테리시스 · 페이드 · 하나씩, 자식 Light + 발광 렌더러)

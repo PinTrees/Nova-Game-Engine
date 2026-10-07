@@ -91,6 +91,34 @@ static thread_local float s_AxisFlip = -1.0f;
 static thread_local std::vector<int> s_MaterialRemap;
 static unsigned FileMaterialIndex(unsigned i) { return i < s_MaterialRemap.size() && s_MaterialRemap[i] >= 0 ? (unsigned)s_MaterialRemap[i] : i; }
 
+// 메시를 가진 노드의 이름이 본 (메시 없는 노드) 과 같으면 "<이름>_Mesh" 로 바꾼다 — 엔진은 이름으로 노드를 찾는데
+//  (스킨 팔레트 · Humanoid · 애니메이션) 메시 "Head" 와 본 "Head" 가 함께 있으면 본 자리에 메시 노드를 잡아 머리가 어긋났다.
+//  (모델 편집기의 VRM 내보내기와 같은 규칙. Blender 도 메시 오브젝트와 본이 같은 이름일 수 있다)
+static void RenameClashingMeshNodes(aiNode* root)
+{
+    std::unordered_set<std::string> plain, taken;
+    std::vector<aiNode*> meshNodes;
+    std::function<void(aiNode*)> walk = [&](aiNode* n) {
+        taken.insert(n->mName.C_Str());
+        if (n->mNumMeshes > 0) meshNodes.push_back(n);
+        else plain.insert(n->mName.C_Str());
+        for (unsigned i = 0; i < n->mNumChildren; ++i)
+            walk(n->mChildren[i]);
+    };
+    walk(root);
+    for (aiNode* n : meshNodes)
+    {
+        const std::string name = n->mName.C_Str();
+        if (!plain.count(name))
+            continue;
+        std::string renamed = name + "_Mesh";
+        for (int k = 2; taken.count(renamed); ++k)
+            renamed = name + "_Mesh" + std::to_string(k);
+        taken.insert(renamed);
+        n->mName.Set(renamed);
+    }
+}
+
 static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string& path, bool withMeshes)
 {
     importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);   // PreRotation 등을 노드 변환·애니메이션 키에 합쳐 넣는다
@@ -108,6 +136,7 @@ static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string
         printf("ERROR::ASSIMP:: %s\n", importer.GetErrorString());
         return nullptr;
     }
+    RenameClashingMeshNodes(const_cast<aiNode*>(scene->mRootNode));
     // glTF · VRM: Assimp 는 재질 번호를 처음 만난 순서로 다시 매긴다 (LazyDict) — 이름으로 파일 순서로 되돌린다
     s_MaterialRemap.clear();
     nlohmann::json gltf;
@@ -126,6 +155,87 @@ static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string
         }
     }
     return scene;
+}
+
+std::vector<std::wstring> FBXLoader::ExtractMaterials(const std::wstring& assetPath)
+{
+    namespace fs = std::filesystem;
+    std::vector<std::wstring> result;
+    const fs::path rel(assetPath);
+    std::wstring first = rel.begin() != rel.end() ? rel.begin()->wstring() : std::wstring();
+    std::transform(first.begin(), first.end(), first.begin(), ::towlower);
+    if (rel.is_absolute() || first != L"assets")
+        return result;   // 프로젝트 Assets 의 모델만 (엔진 Resources 에는 쓰지 않는다)
+    const std::wstring full = PathManager::GetI()->GetMovePathW(assetPath);
+    Assimp::Importer importer;
+    const aiScene* scene = ReadFbxScene(importer, wstring_to_string(full), false);
+    if (scene == nullptr || scene->mNumMaterials == 0)
+        return result;
+    const fs::path matRel = rel.parent_path() / (rel.stem().wstring() + L"_FBX.Materials");   // VRM 의 <이름>.Materials 와 겹치지 않게 (같은 이름의 .fbx · .vrm)
+    std::error_code ec;
+    fs::create_directories(PathManager::GetI()->GetMovePathW(matRel.wstring()), ec);
+    auto safe = [](std::string s) {
+        for (char& c : s) if (c == '\\' || c == '/' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') c = '_';
+        return s.empty() ? std::string("Material") : s;
+    };
+    // 그림: 절대 경로 · FBX 기준 상대 경로 · FBX 옆의 같은 파일 이름 — 프로젝트 안에 있으면 그 경로 (묻힌 그림 "*0" 은 아직 없음)
+    auto texture = [&](const aiMaterial* mat, aiTextureType type) -> std::string {
+        aiString path;
+        if (mat->GetTexture(type, 0, &path) != AI_SUCCESS || path.length == 0 || path.C_Str()[0] == '*')
+            return std::string();
+        const fs::path p = fs::path(string_to_wstring(path.C_Str()));
+        const fs::path dir = fs::path(full).parent_path();
+        for (const fs::path& c : { p, dir / p, dir / p.filename() })
+            if (c.is_absolute() && fs::exists(c, ec))
+                return wstring_to_string(PathManager::GetI()->GetCutSolutionPath(c.lexically_normal().wstring()));
+        return std::string();
+    };
+    std::set<std::string> used;
+    for (unsigned m = 0; m < scene->mNumMaterials; ++m)
+    {
+        const aiMaterial* mat = scene->mMaterials[m];
+        const std::string name = safe(mat->GetName().C_Str());
+        std::string unique = name;
+        for (int n = 1; used.count(unique); ++n) unique = name + "_" + std::to_string(n);
+        used.insert(unique);
+        const fs::path file = matRel / string_to_wstring(unique + ".mat");
+        result.push_back(file.wstring());
+        if (fs::exists(PathManager::GetI()->GetMovePathW(file.wstring()), ec))
+            continue;
+        // FBX 색 = 감마 (Unity 와 같이 재질 색에 그대로)
+        aiColor3D diffuse(0.8f, 0.8f, 0.8f), emissive(0.0f, 0.0f, 0.0f);
+        mat->Get(AI_MATKEY_COLOR_DIFFUSE, diffuse);
+        mat->Get(AI_MATKEY_COLOR_EMISSIVE, emissive);
+        float opacity = 1.0f, shininess = 0.0f;
+        mat->Get(AI_MATKEY_OPACITY, opacity);
+        const bool hasShininess = mat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS && shininess > 0.0f;
+        const std::string baseMap = texture(mat, aiTextureType_DIFFUSE);
+        nlohmann::json j;
+        j["Shader"] = "Universal Render Pipeline/Lit";
+        j["ResourcePath"] = wstring_to_string(file.wstring());
+        j["BaseMapPath"] = baseMap;
+        j["NormalMapPath"] = texture(mat, aiTextureType_NORMALS);
+        j["MetallicMapPath"] = "";
+        j["OcclusionMapPath"] = "";
+        j["EmissionMapPath"] = texture(mat, aiTextureType_EMISSIVE);
+        // 그림이 있으면 색은 흰색 (Unity 의 FBX 재질처럼 그림이 색을 정한다)
+        j["BaseColor"] = baseMap.empty() ? nlohmann::json{ diffuse.r, diffuse.g, diffuse.b, std::clamp(opacity, 0.0f, 1.0f) } : nlohmann::json{ 1.0f, 1.0f, 1.0f, std::clamp(opacity, 0.0f, 1.0f) };
+        j["Metallic"] = 0.0f;
+        // Phong 지수 → 매끄러움 (없으면 무광에 가깝게: 25 → 0.5, 100 → 1)
+        j["Smoothness"] = hasShininess ? std::clamp(sqrtf(shininess) / 10.0f, 0.0f, 1.0f) : 0.2f;
+        j["AlphaClipping"] = opacity < 0.99f ? 1 : 0;
+        j["Cutoff"] = 0.5f;
+        j["ReceiveShadows"] = 1;
+        j["SpecularHighlights"] = 1;
+        j["EnvironmentReflections"] = 1;
+        const bool glow = emissive.r + emissive.g + emissive.b > 0.001f;
+        j["Emission"] = glow;
+        j["EmissionColor"] = { emissive.r, emissive.g, emissive.b };
+        j["EmissionIntensity"] = 1.0f;
+        std::ofstream o(PathManager::GetI()->GetMovePathW(file.wstring()));
+        o << j.dump(4);
+    }
+    return result;
 }
 
 static XMFLOAT4X4 ToRowMajor(const aiMatrix4x4& m)

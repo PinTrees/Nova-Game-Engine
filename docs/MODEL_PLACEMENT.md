@@ -5,7 +5,9 @@ Unity 에서 FBX 를 씬에 끌어 놓은 것과 같은 결과를 만듭니다.
 ## 결과
 
 - **정적 모델** (FBX · GLB · glTF): 파일 이름의 루트 GameObject + 모델의 **노드마다 GameObject** (노드의 로컬 위치 · 회전 · 배율), 메시가 있는 노드에 **Mesh Filter + Mesh Renderer**
-  - 재질 칸 = 서브메시 재질 수만큼 Default-Material (FBX 재질 가져오기는 아직 — 재질은 칸에 끌어 놓아 바꾼다). GLB 는 묻힌 재질 · 그림을 꺼내 (`<파일>.Materials` · `<파일>.Textures`) 붙인다
+  - 재질 칸 = 파일의 재질 (Unity 의 Extract Materials). FBX 는 재질마다 `<파일>_FBX.Materials/<재질 이름>.mat` (Diffuse 색 · 그림 · 발광 · Phong 광택 → Smoothness, 이미 있으면 그대로 — 고친 값을 지킨다),
+    GLB 는 묻힌 재질 · 그림을 꺼내 (`<파일>.Materials` · `<파일>.Textures`) 붙인다. 프로젝트 `Assets` 밖의 모델 (엔진 Resources) 은 Default-Material
+  - 메시 노드와 본이 같은 이름이면 (Blender 의 메시 오브젝트 `Head` · 본 `Head`) 메시 노드를 `<이름>_Mesh` 로 읽는다 — 엔진은 이름으로 노드를 찾는다
   - 노드 하나 (자식 없음) 짜리 모델은 루트에 바로 Mesh Renderer (Unity 와 같음)
   - 파일 단위 (FBX cm → m, Unity 의 Convert Units) 는 최상위 자식의 위치 · 배율에 들어간다 — 루트는 원점 · 배율 1
 - **LOD 노드**: 형제 노드 이름이 `이름_LOD0` · `이름_LOD1` … (둘 이상) 이면 그 부모에 **LOD Group** (LOD 0 = 60 %, 다음은 반씩, 마지막 LOD 1 %). 하나뿐인 `_LOD0` (예: 충돌용 `UCX_.._LOD0`) 은 그냥 메시

@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <set>
 
 namespace Modeling
 {
@@ -650,8 +651,20 @@ namespace Modeling
 			std::map<int, int64_t> materialIds;
 			int geometryCount = 0, modelCount = 0;
 			std::vector<std::tuple<int64_t, int64_t, const ExportMesh*>> meshIds;   // (Geometry, Model, 메시) — 스킨
+			// 메시 모델 이름은 본과 겹치면 안 된다 (엔진 · 여러 도구가 이름으로 노드를 찾는다 — 메시 "Head" 와 본 "Head") → "<이름>_Mesh" (VRM 과 같다)
+			std::set<std::string> takenNames;
+			for (const Bone& b : doc.Rig.Bones)
+				takenNames.insert(b.Name);
 			for (const ExportMesh& e : meshes)
 			{
+				std::string modelName = e.Name;
+				if (takenNames.count(modelName))
+				{
+					modelName = e.Name + "_Mesh";
+					for (int k = 2; takenNames.count(modelName); ++k)
+						modelName = e.Name + "_Mesh" + std::to_string(k);
+				}
+				takenNames.insert(modelName);
 				const int64_t geomId = nextId++, modelId = nextId++;
 				FbxNode& g = objects.Add("Geometry");
 				g.L(geomId).S(FbxName(e.Name, "Geometry")).S("Mesh");
@@ -724,7 +737,7 @@ namespace Modeling
 					element("LayerElementMaterial");
 				}
 				FbxNode& mdl = objects.Add("Model");
-				mdl.L(modelId).S(FbxName(e.Name, "Model")).S("Mesh");
+				mdl.L(modelId).S(FbxName(modelName, "Model")).S("Mesh");
 				mdl.Add("Version").I(232);
 				FbxNode& mp = mdl.Add("Properties70");
 				FbxNode::P(mp, "Lcl Translation", "Lcl Translation", "", "A", { 0.0, 0.0, 0.0 });

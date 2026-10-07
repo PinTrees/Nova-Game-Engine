@@ -490,13 +490,18 @@ namespace ImportSettingsInspector
 		default:
 			return;
 		}
-		// 씬을 그대로 다시 만들어 컴포넌트가 새로 불러오게 (Undo · 저장 표시는 그대로)
+		// 씬을 그대로 다시 만들어 컴포넌트가 새로 불러오게 (Undo · 저장 표시는 그대로) — 프레임 끝에:
+		//  이번 프레임의 그리기가 이미 모은 빛 · 렌더러를 지우면 Scene 뷰가 지운 빛을 읽는다 (모델 파일 감시의 다시 가져오기에서 멈췄다)
 		if (!Application::IsPlaying())
-			if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
-			{
-				json j = *scene;
-				SceneManager::GetI()->RestoreSceneState(j.dump());
-			}
+			SceneManager::GetI()->AddLastUpdate([]() {
+				if (Application::IsPlaying())
+					return;
+				if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+				{
+					json j = *scene;
+					SceneManager::GetI()->RestoreSceneState(j.dump());
+				}
+			});
 		// 이 모델을 고르고 있으면 Inspector 미리보기도 새로
 		if (SelectionManager::GetSelectedObjectType() == SelectionType::FILE && SelectionManager::GetSelectedFile() == fullPath)
 			SelectionManager::SetSelectedFile(fullPath);

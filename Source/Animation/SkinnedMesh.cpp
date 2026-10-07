@@ -244,7 +244,8 @@ MeshFile::~MeshFile()
 // 캐시(.mesh / .animations / .skeletons) 형식 버전. 구조가 바뀌면 값을 올린다 → 이전 캐시는 자동으로 다시 가져오기.
 // NVC8: Unity 와 같은 축(Y 180°)으로 가져오기 (FBXLoader 의 ToEngine) — 이전 캐시는 반대쪽을 본다
 // NVC9: 형식 다음에 Import Settings(.meta) 해시 — 설정을 바꾸거나 .meta 를 지우면 다시 가져온다
-static const uint32_t kMeshCacheMagic = 0x4243564E;   // "NVCB" (BlendShape)
+// NVCC: 본과 이름이 같은 메시 노드를 "<이름>_Mesh" 로 (FBXLoader 의 RenameClashingMeshNodes)
+static const uint32_t kMeshCacheMagic = 0x4343564E;   // "NVCC"
 
 // FNV-1a 64 비트 — std::hash 는 구현마다 값이 달라 (MSVC = FNV-1a, 안드로이드 libc++ = 다른 함수) PC 가 구운 캐시를 기기가 버린다.
 //  MSVC 의 std::hash<std::string> 과 같은 값이라 이미 만든 캐시도 그대로 맞는다

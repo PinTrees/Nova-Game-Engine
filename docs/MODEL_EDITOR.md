@@ -153,7 +153,8 @@ UV 는 Subdivide · Loop Cut · Subsurf 를 거쳐도 남는다 (모서리 UV �
 | `rig.paint` | `--bone <본> --center x,y,z --radius 0.05 [--weight 1] [--strength 1] [--mode add\|subtract\|smooth] [--normalize true] [--object]` | **가중치 붓**: 월드 구 안 점의 그 본 가중치를 부드러운 감쇠로 칠한다. normalize = 다른 본을 줄여 합 1 (Blender 의 Auto Normalize). 창: 본을 고르고 **Paint** → 메시 위를 왼쪽 끌기 (한 획 = Undo 하나, Add / Subtract / Smooth, 반경 px · 세기 · 값) |
 | `rig.list` · `rig.check` · `rig.clear [--weights true]` | | 본 목록 · 문제 (가중치 없는 점, 빠진 사람 본) · 지우기 |
 
-내보내기 `export Chibi.vrm` = **VRM 1.0**: 본 노드 (회전 없음) + skin, `VRMC_vrm` humanoid · meta, `VRMC_springBone` (사슬 + 끝 노드, 충돌체), `VRMC_materials_mtoon` (재질 색 → 그림자 = 푸르스름하게, 외곽선). 엔진에서 `nova create character --model Assets/…/Chibi.vrm` 한 번으로 **Humanoid Idle 리타게팅 + Dynamic Bone (머리카락) + lilToon 툰** 이 붙는다. 메시 노드 이름이 본과 겹치면 `_Mesh` 를 붙인다 (메시 `Head` · 본 `Head`), 재질은 처음 쓰는 순서로 쓴다 (Assimp 가 그 순서로 읽는다).
+내보내기 `export Chibi.vrm` = **VRM 1.0**: 본 노드 (회전 없음) + skin, `VRMC_vrm` humanoid · meta, `VRMC_springBone` (사슬 + 끝 노드, 충돌체), `VRMC_materials_mtoon` (재질 색 → 그림자 = 푸르스름하게, 외곽선). 엔진에서 `nova create character --model Assets/…/Chibi.vrm` 한 번으로 **Humanoid Idle 리타게팅 + Dynamic Bone (머리카락) + lilToon 툰** 이 붙는다. 메시 노드 이름이 본과 겹치면 `_Mesh` 를 붙인다 (메시 `Head` · 본 `Head` — FBX 도 같다), 재질은 처음 쓰는 순서로 쓴다 (Assimp 가 그 순서로 읽는다).
+`export Chibi.fbx` 도 엔진에서 같은 모양 · 재질 색으로 (`Chibi_FBX.Materials` 의 Lit 재질 — 툰 재질은 VRM).
 
 예: [examples/model_chibi_rig.txt](examples/model_chibi_rig.txt) — `model_chibi.txt` 뒤 `nova model batch docs/examples/model_chibi_rig.txt`, `nova model export Assets/Models/Chibi.vrm --title Chibi`.
 천 옷 (치마 · 망토 — 엔진의 [Cloth](CLOTH.md#캐릭터-옷-skinned-mesh-renderer)): [examples/model_chibi_cloth.txt](examples/model_chibi_cloth.txt) — `model_chibi.txt` 뒤에 (리깅까지 들어 있다).

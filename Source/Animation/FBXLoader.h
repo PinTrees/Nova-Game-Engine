@@ -48,7 +48,11 @@ public:
 
     bool LoadAnimation(
         const std::string& filename,
-        SkinnedData& skinnedData); 
+        SkinnedData& skinnedData);
+
+    // FBX 재질 → <파일 이름>_FBX.Materials/<재질 이름>.mat (Unity 의 Extract Materials: Diffuse 색 · 그림 · 발광 · 광택, 이미 있으면 그대로 — 사용자가 고친 값을 지키게).
+    //  (_FBX = 같은 이름의 VRM 이 쓰는 <이름>.Materials 와 겹치지 않게) 돌려주는 목록의 번호 = 메시 Subset 의 MaterialIndex. assetPath = 프로젝트 기준 (Assets\...) — 프로젝트 밖 (엔진 Resources 등) 은 빈 목록
+    static std::vector<std::wstring> ExtractMaterials(const std::wstring& assetPath);
 
 private:
     void ParsingMeshNode(

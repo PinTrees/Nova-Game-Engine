@@ -17,6 +17,7 @@
 #include "SelectionManager.h"
 #include "UndoSystem.h"
 #include "VrmImport.h"
+#include "FBXLoader.h"
 #include "EditorLog.h"
 #include "CliServer.h"
 #include <filesystem>
@@ -119,6 +120,8 @@ namespace
 		const std::wstring ext = std::filesystem::path(relW).extension().wstring();
 		if (_wcsicmp(ext.c_str(), L".glb") == 0)
 			materials = VrmImport::ExtractMaterials(relW);   // GLB 의 묻힌 재질 (Unity 의 Extract Materials 자리)
+		else if (_wcsicmp(ext.c_str(), L".fbx") == 0)
+			materials = FBXLoader::ExtractMaterials(relW);   // FBX 재질 색 · 그림 (프로젝트 Assets 의 모델만)
 
 		GameObject* root = new GameObject(name);
 		const SkeletonAvataData* tree = file.Avatas.empty() ? nullptr : file.Avatas[0].get();
