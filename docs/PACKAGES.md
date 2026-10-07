@@ -57,7 +57,7 @@ Unity 6 의 Features 처럼 여러 패키지를 한 번에 넣는 묶음. 코드
   "displayName": "3D Characters and Animation",
   "version": "1.0.0",
   "type": "feature",
-  "dependencies": { "com.nova.animation": "1.0.0", "com.nova.cameras": "1.0.0", "com.nova.starter-assets": "1.0.0" }
+  "dependencies": { "com.nova.animation": "1.0.0", "com.nova.cameras": "1.0.0", "com.nova.starter-assets": "1.1.0" }
 }
 ```
 

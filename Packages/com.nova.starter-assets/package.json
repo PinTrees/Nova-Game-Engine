@@ -1,10 +1,10 @@
 {
   "name": "com.nova.starter-assets",
-  "displayName": "Starter Assets - Third Person",
-  "version": "1.0.0",
-  "description": "A ready-to-play third-person character controller in C#: WASD / arrow keys move relative to the camera, Left Shift sprints, Space jumps, with acceleration, smooth turning, gravity and jump/fall timeouts. Put ThirdPersonController on a GameObject with a Character Controller and point a Follow Camera at it. Animator parameters Speed, MotionSpeed, Grounded, Jump and FreeFall are set when they exist.",
+  "displayName": "Starter Assets",
+  "version": "1.1.0",
+  "description": "A ready-to-play third-person character controller in C#: WASD / arrow keys move relative to the camera, Left Shift sprints, Space jumps, with acceleration, smooth turning, gravity and jump/fall timeouts. Put ThirdPersonController on a GameObject with a Character Controller and point a Follow Camera at it. Animator parameters Speed, MotionSpeed, Grounded, Jump and FreeFall are set when they exist. Also a drivable car (CarController on Wheel Colliders: throttle, brake then reverse, speed-sensitive steering, handbrake, flip back) and a ragdoll target that falls where it is shot (RagdollTarget + RagdollShooter).",
   "category": "Templates",
   "author": { "name": "NOVA" },
-  "keywords": [ "character", "controller", "third person", "starter", "player", "movement" ],
+  "keywords": [ "character", "controller", "third person", "starter", "player", "movement", "car", "vehicle", "ragdoll" ],
   "dependencies": { "com.nova.cameras": "1.0.0", "com.nova.animation": "1.0.0" }
 }

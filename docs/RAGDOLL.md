@@ -37,6 +37,8 @@ ragdoll.active = true;          // 맞았다 → 쓰러짐 (Animator 는 자동�
 int n = ragdoll.bodyCount;      // 11
 ```
 
+맞으면 쓰러지는 예제: **GameObject > 3D Object > Ragdoll Target** (`nova create ragdoll-target`) — 클릭으로 쏘는 `RagdollShooter` 와 함께 ([STARTER_ASSETS](STARTER_ASSETS.md)).
+
 CLI: `nova ragdoll info <대상>` (바디 · 위치 · 질량 · 키네마틱 · 관절), `nova ragdoll active <대상> --value false`.
 
 ## Character Joint

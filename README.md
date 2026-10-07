@@ -96,7 +96,7 @@
 | 패키지 | 내용 |
 |---|---|
 | `com.nova.animation` | Animator · Legs / Hands / Look Animator · Dynamic Bone · Expressions |
-| `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) |
+| `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) · 운전할 수 있는 차 (프리팹) · 맞으면 래그돌로 쓰러지는 표적 — [STARTER_ASSETS](docs/STARTER_ASSETS.md) |
 | `com.nova.ai.navigation` | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) — NavMesh Surface · Agent · Link · Obstacle (Carve), 탑다운 2D (XY 평면 — [NAVIGATION_2D.md](docs/NAVIGATION_2D.md)) |
 | `com.nova.weather` | 오픈 월드 **날씨** — 비 · 눈 (카메라를 따라가는 GPU 입자), 젖은 표면 · 웅덩이 · 빗방울 물결 (캐릭터 · 물도), **쌓이는 눈 · 발자국** (지형은 실제로 파인다), 지붕 아래는 마른다, 먹구름 · 안개 · 돌풍, 번개 + 천둥, 소리 — [WEATHER](docs/WEATHER.md) |
 | `com.nova.daynight` | **낮 · 밤 순환** — 새벽 · 아침 · 낮 · 저녁 · 노을 · 밤 · 은하수, Directional Light 가 해 · 달로 돈다, 하늘 그라데이션 · 노을 빛 · 별 · 은하수, 빛 · 환경광 · 안개 색 (날씨와 함께) — [DAY_NIGHT](docs/DAY_NIGHT.md) |

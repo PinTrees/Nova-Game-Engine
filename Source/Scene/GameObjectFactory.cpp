@@ -3,6 +3,11 @@
 #include "CharacterController.h"
 #include "CSharpScript.h"
 #include "GameObjectFactory.h"
+#include "PrefabUtility.h"
+#include "WheelCollider.h"
+#include "Rigidbody.h"
+#include "Ragdoll.h"
+#include "UMaterial.h"
 #include "GameObject.h"
 #include "Transform.h"
 #include "MeshRenderer.h"
@@ -716,6 +721,224 @@ GameObject* GameObjectFactory::CreateThirdPersonCharacter(const std::string& nam
 	else
 		msg += "No camera in the scene to follow the character. ";
 	msg += "Press Play: WASD / arrows move, Shift sprints, Space jumps, right mouse drag turns the camera.";
+	if (note)
+		*note = msg;
+	return root;
+}
+
+// ---------------------------------------------------------------- Starter Assets: 차 · 래그돌 표적
+namespace
+{
+	// Starter Assets 패키지 (C# 스크립트) 가 프로젝트에 없으면 넣는다 — 안내 문구
+	std::string EnsureStarterAssets()
+	{
+		const char* kStarter = "com.nova.starter-assets";
+		if (PackageManager::IsInProject(kStarter))
+			return "";
+		std::string error;
+		if (PackageManager::Add(kStarter, error))
+			return "Added the packages Starter Assets and Cameras to the project. ";
+		return "Could not add " + std::string(kStarter) + ": " + error + ". ";
+	}
+
+	// 장면의 Main Camera (없으면 아무 카메라)
+	GameObject* MainCameraObject()
+	{
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		GameObject* cam = nullptr;
+		if (scene)
+			for (GameObject* g : scene->GetAllGameObjects())
+				if (g->GetComponent<Camera>() && (g->GetTag() == "MainCamera" || cam == nullptr))
+					cam = g;
+		return cam;
+	}
+
+	// Main Camera 의 Follow Camera 가 target 을 따라가게 (패키지 컴포넌트라 이름으로 만들고 JSON 으로 값을 넣는다)
+	void FollowWithMainCamera(GameObject* target, float distance, float height, float lookAtHeight, bool followRotation, std::string& msg)
+	{
+		GameObject* cam = MainCameraObject();
+		if (cam == nullptr)
+		{
+			msg += "No camera in the scene to follow '" + target->GetName() + "'. ";
+			return;
+		}
+		std::shared_ptr<Component> follow;
+		for (const auto& c : cam->GetComponents())
+			if (c && c->GetType() == "FollowCamera")
+				follow = c;
+		if (!follow)
+		{
+			follow = ComponentFactory::Instance().CreateComponent("FollowCamera");
+			if (follow)
+				cam->AddComponent(follow);
+		}
+		if (!follow)
+		{
+			msg += "Follow Camera is not available (Cameras package not loaded). ";
+			return;
+		}
+		json j = follow->toJson();
+		j["target"] = target->GetFileID();
+		j["distance"] = distance;
+		j["height"] = height;
+		j["lookAtHeight"] = lookAtHeight;
+		j["followTargetRotation"] = followRotation;
+		follow->fromJson(j);
+		msg += "Main Camera follows '" + target->GetName() + "'. ";
+	}
+
+	// 프로젝트의 Assets/StarterAssets/Materials 에 색 재질 (없으면 만든다 — Unity 가 Starter Assets 를 Assets 로 가져오는 것처럼). 프로젝트 기준 경로
+	std::wstring StarterMaterial(const char* name, XMFLOAT4 color, float smoothness, float metallic, XMFLOAT4 emission = XMFLOAT4(0, 0, 0, 0))
+	{
+		const std::wstring rel = L"Assets\\StarterAssets\\Materials\\" + string_to_wstring(name) + L".mat";
+		const std::filesystem::path full = PathManager::GetI()->GetMovePathW(rel);
+		std::error_code ec;
+		if (!std::filesystem::exists(full, ec))
+		{
+			std::filesystem::create_directories(full.parent_path(), ec);
+			const std::string made = UMaterial::Create(wstring_to_string(full.parent_path().wstring()));   // "New Material.mat" → 이름 바꾸기
+			std::filesystem::rename(PathManager::GetI()->GetMovePathW(string_to_wstring(made)), full, ec);
+			std::unique_ptr<UMaterial> m(UMaterial::Load(wstring_to_string(rel)));
+			if (m)
+			{
+				m->SetColorProperty("_BaseColor", color);
+				m->SetFloatProperty("_Smoothness", smoothness);
+				m->SetFloatProperty("_Metallic", metallic);
+				if (emission.x > 0.0f || emission.y > 0.0f || emission.z > 0.0f)
+					m->SetColorProperty("_EmissionColor", emission);
+				UMaterial::Save(m.get());
+			}
+		}
+		return rel;
+	}
+
+	GameObject* Part(PrimitiveType type, const char* name, GameObject* parent, Vec3 position, Vec3 scale, const std::wstring& material,
+		bool keepCollider, Vec3 euler = Vec3::Zero)
+	{
+		GameObject* g = nullptr;
+		switch (type)
+		{
+		case PrimitiveType::Cube: g = keepCollider ? GameObjectFactory::CreateCube(name) : GameObjectFactory::CreatePrimitive(type, name); break;
+		default: g = GameObjectFactory::CreatePrimitive(type, name); break;
+		}
+		GameObjectFactory::AttachChild(g, parent);
+		g->GetTransform()->SetLocalPosition(position);
+		g->GetTransform()->SetLocalEulerAngles(euler);
+		g->GetTransform()->SetLocalScale(scale);
+		if (MeshRenderer* mr = g->GetComponent<MeshRenderer>())
+			mr->SetMaterialPath(0, material);
+		return g;
+	}
+
+	// 차 (1200 kg): 차체 · 지붕 (상자 콜라이더 — 합쳐서 하나의 Rigidbody), 범퍼 · 전조등, 바퀴 자리마다 Wheel Collider + 그림 바퀴 ("<이름> Mesh", 콜라이더 없음)
+	GameObject* BuildCar(const std::string& name)
+	{
+		const std::wstring paint = StarterMaterial("CarPaint", XMFLOAT4(0.80f, 0.10f, 0.08f, 1), 0.85f, 0.35f);
+		const std::wstring trim = StarterMaterial("CarTrim", XMFLOAT4(0.10f, 0.10f, 0.11f, 1), 0.45f, 0.0f);
+		const std::wstring glass = StarterMaterial("CarGlass", XMFLOAT4(0.08f, 0.11f, 0.15f, 1), 0.95f, 0.1f);
+		const std::wstring tire = StarterMaterial("CarTire", XMFLOAT4(0.05f, 0.05f, 0.05f, 1), 0.2f, 0.0f);
+		const std::wstring rim = StarterMaterial("CarRim", XMFLOAT4(0.75f, 0.76f, 0.78f, 1), 0.8f, 0.9f);
+		const std::wstring lamp = StarterMaterial("CarLamp", XMFLOAT4(1.0f, 0.95f, 0.8f, 1), 0.9f, 0.0f, XMFLOAT4(2.0f, 1.9f, 1.6f, 1));
+		const std::wstring tail = StarterMaterial("CarTailLamp", XMFLOAT4(0.6f, 0.02f, 0.02f, 1), 0.9f, 0.0f, XMFLOAT4(1.2f, 0.05f, 0.05f, 1));
+
+		using PT = PrimitiveType;
+		GameObject* car = new GameObject(name);
+		auto rb = car->AddComponent<RigidBody>();
+		rb->SetMass(1200.0f);
+		rb->SetLinearDamping(0.02f);
+		rb->SetAngularDamping(0.3f);
+		rb->SetInterpolation(RigidBody::Interpolation::Interpolate);
+		Part(PT::Cube, "Body", car, Vec3(0, 0.55f, 0), Vec3(1.8f, 0.5f, 4.2f), paint, true);
+		Part(PT::Cube, "Cabin", car, Vec3(0, 1.02f, -0.35f), Vec3(1.6f, 0.46f, 2.0f), glass, true);
+		Part(PT::Cube, "Roof", car, Vec3(0, 1.26f, -0.4f), Vec3(1.5f, 0.04f, 1.7f), paint, false);
+		Part(PT::Cube, "Front Bumper", car, Vec3(0, 0.38f, 2.12f), Vec3(1.94f, 0.22f, 0.14f), trim, false);
+		Part(PT::Cube, "Rear Bumper", car, Vec3(0, 0.38f, -2.12f), Vec3(1.94f, 0.22f, 0.14f), trim, false);
+		Part(PT::Cube, "Headlight L", car, Vec3(-0.62f, 0.62f, 2.1f), Vec3(0.38f, 0.14f, 0.04f), lamp, false);
+		Part(PT::Cube, "Headlight R", car, Vec3(0.62f, 0.62f, 2.1f), Vec3(0.38f, 0.14f, 0.04f), lamp, false);
+		Part(PT::Cube, "Taillight L", car, Vec3(-0.66f, 0.64f, -2.1f), Vec3(0.34f, 0.12f, 0.04f), tail, false);
+		Part(PT::Cube, "Taillight R", car, Vec3(0.66f, 0.64f, -2.1f), Vec3(0.34f, 0.12f, 0.04f), tail, false);
+
+		struct W { const char* name; float x, z; };
+		const W wheels[] = { { "Wheel FL", -0.9f, 1.32f }, { "Wheel FR", 0.9f, 1.32f }, { "Wheel RL", -0.9f, -1.32f }, { "Wheel RR", 0.9f, -1.32f } };
+		const float radius = 0.36f;
+		for (const W& w : wheels)
+		{
+			GameObject* wheel = new GameObject(w.name);
+			GameObjectFactory::AttachChild(wheel, car);
+			wheel->GetTransform()->SetLocalPosition(Vec3(w.x, 0.42f, w.z));
+			auto wc = wheel->AddComponent<WheelCollider>();
+			wc->Radius = radius;
+			wc->SuspensionDistance = 0.22f;
+			wc->SuspensionSpring = { 40000.0f, 4500.0f, 0.5f };
+			wc->Mass = 20.0f;
+			// 그림 바퀴: 차의 자식 (CarController 가 GetWorldPose 로 맞춘다) — 원기둥 (Y 축) 을 눕혀 X 축으로
+			GameObject* pivot = new GameObject(std::string(w.name) + " Mesh");
+			GameObjectFactory::AttachChild(pivot, car);
+			pivot->GetTransform()->SetLocalPosition(Vec3(w.x, 0.42f - 0.22f * 0.5f, w.z));
+			const float side = w.x < 0.0f ? -1.0f : 1.0f;
+			Part(PT::Cylinder, "Tire", pivot, Vec3::Zero, Vec3(radius * 2.0f, 0.13f, radius * 2.0f), tire, false, Vec3(0, 0, 90));   // 폭 0.26 (원기둥 높이 2 × 0.13)
+			Part(PT::Cylinder, "Rim", pivot, Vec3(side * 0.03f, 0, 0), Vec3(radius * 1.25f, 0.12f, radius * 1.25f), rim, false, Vec3(0, 0, 90));
+		}
+		car->AddComponent(CSharpScript::Create("StarterAssets.CarController"));
+		return car;
+	}
+}
+
+GameObject* GameObjectFactory::CreateCar(const std::string& name, std::string* note)
+{
+	std::string msg = EnsureStarterAssets();
+	Scene* scene = SceneManager::GetI()->GetCurrentScene();
+	if (scene == nullptr)
+		return nullptr;
+	// 프리팹 (Assets/StarterAssets/Car.prefab): 처음이면 만들어 저장, 다음부터는 그 프리팹의 인스턴스 (고친 프리팹이 모든 차에)
+	const std::string prefab = "Assets\\StarterAssets\\Car.prefab";
+	std::error_code ec;
+	GameObject* car = nullptr;
+	if (std::filesystem::exists(PathManager::GetI()->GetMovePathW(string_to_wstring(prefab)), ec))
+		car = PrefabUtility::InstantiatePrefab(prefab, scene);
+	if (car == nullptr)
+	{
+		car = BuildCar("Car");   // 에셋의 이름 = Car (인스턴스 이름은 아래에서)
+		scene->AddRootGameObject(car);
+		if (PrefabUtility::SaveAsPrefabAssetAndConnect(car, prefab))
+			msg += "Saved the prefab " + prefab + ". ";
+	}
+	car->SetName(name);
+	FollowWithMainCamera(car, 7.0f, 2.6f, 0.9f, true, msg);
+	msg += "Press Play: W / S drive and brake (S again reverses), A / D steer, Space handbrake, R flips the car back.";
+	if (note)
+		*note = msg;
+	return car;
+}
+
+GameObject* GameObjectFactory::CreateRagdollTarget(const std::string& name, std::string* note)
+{
+	std::string msg = EnsureStarterAssets();
+	Scene* scene = SceneManager::GetI()->GetCurrentScene();
+	if (scene == nullptr)
+		return nullptr;
+	// 기본 캐릭터 (애니메이션) + Ragdoll Wizard (꺼짐 = 서서 애니메이션을 따라감) + RagdollTarget (맞으면 켠다)
+	GameObject* root = CreateAnimatedCharacter(name);
+	scene->AddRootGameObject(root);   // Wizard 는 장면 안의 자세로 바디를 만든다
+	std::string error;
+	if (Ragdoll* ragdoll = Ragdoll::Build(root, 20.0f, error))
+		ragdoll->Active = false;
+	else
+		msg += "Ragdoll: " + error + ". ";
+	root->AddComponent(CSharpScript::Create("StarterAssets.RagdollTarget"));
+	// Main Camera 에 RagdollShooter (클릭 = 쏘기) — 이미 있으면 그대로
+	if (GameObject* cam = MainCameraObject())
+	{
+		bool has = false;
+		for (const auto& c : cam->GetComponents())
+			if (auto s = std::dynamic_pointer_cast<CSharpScript>(c); s && s->GetClassName() == "StarterAssets.RagdollShooter")
+				has = true;
+		if (!has)
+			cam->AddComponent(CSharpScript::Create("StarterAssets.RagdollShooter"));
+		msg += "Press Play and click '" + name + "' in the Game view: it falls as a ragdoll where it was hit. ";
+	}
+	else
+		msg += "No camera in the scene for the Ragdoll Shooter. ";
 	if (note)
 		*note = msg;
 	return root;

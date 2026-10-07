@@ -77,9 +77,16 @@ public:
 	static GameObject* CreateThirdPersonCharacter(const std::string& name = "Player", std::string* note = nullptr);
 	static GameObject* CreateAnimatedCharacter(const std::string& name = "Character",
 		const std::string& modelPath = kDefaultCharacterModel, const std::string& controllerPath = kDefaultCharacterController);
+	// Starter Assets 차: Rigidbody + Wheel Collider 4 + CarController (C#), 처음엔 Assets/StarterAssets/Car.prefab 로 저장 (재질도 그 폴더에),
+	// 다음부터는 그 프리팹의 인스턴스. Main Camera 의 Follow Camera 가 따라간다. 장면에 넣어 돌려준다
+	static GameObject* CreateCar(const std::string& name = "Car", std::string* note = nullptr);
+	// Starter Assets 래그돌 표적: 기본 캐릭터 + Ragdoll (꺼짐) + RagdollTarget (C# — 맞으면 쓰러짐), Main Camera 에 RagdollShooter (클릭 = 쏘기).
+	// 장면에 넣어 돌려준다
+	static GameObject* CreateRagdollTarget(const std::string& name = "Ragdoll Target", std::string* note = nullptr);
+	// 내장 메시 오브젝트 (MeshFilter + MeshRenderer, 콜라이더 없음)
+	static GameObject* CreatePrimitive(PrimitiveType type, const std::string& name);
 
 private:
-	static GameObject* CreatePrimitive(PrimitiveType type, const std::string& name);
 	// 모델의 스킨 메쉬마다 Skinned Mesh Renderer 자식을 만든다
 	static void AddSkinnedChildren(GameObject* root, const std::string& modelPath);
 

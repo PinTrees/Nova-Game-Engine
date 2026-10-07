@@ -10,6 +10,6 @@
   "dependencies": {
     "com.nova.animation": "1.0.0",
     "com.nova.cameras": "1.0.0",
-    "com.nova.starter-assets": "1.0.0"
+    "com.nova.starter-assets": "1.1.0"
   }
 }

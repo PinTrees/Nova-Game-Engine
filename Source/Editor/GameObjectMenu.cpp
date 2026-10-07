@@ -133,6 +133,19 @@ namespace GameObjectMenu
 				add(GameObjectFactory::CreateThirdPersonCharacter("Player", &note));
 				Debug::Log(note);
 			}
+			// Starter Assets 예제: 운전할 수 있는 차 (프리팹) · 맞으면 래그돌로 쓰러지는 표적 (Main Camera 에 클릭 = 쏘기)
+			if (ImGui::MenuItem("Car"))
+			{
+				std::string note;
+				add(GameObjectFactory::CreateCar("Car", &note));
+				Debug::Log(note);
+			}
+			if (ImGui::MenuItem("Ragdoll Target"))
+			{
+				std::string note;
+				add(GameObjectFactory::CreateRagdollTarget("Ragdoll Target", &note));
+				Debug::Log(note);
+			}
 			ImGui::Separator();
 			Disabled("Text - TextMeshPro");
 			Disabled("Legacy");

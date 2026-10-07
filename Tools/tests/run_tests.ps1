@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -2445,6 +2445,100 @@ function Suite-ClothSkin
         Write-Host "  $(Stop-TestEditor $ed)"
         Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
         Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Suite-Starter
+{
+    # Starter Assets 예제: 차 (create car — 프리팹 · 재질 · Follow Camera, CarController 를 스크립트 입력으로: 쉬기 · 가속 · 조향 · 손 브레이크 · 후진),
+    #  래그돌 표적 (create ragdoll-target — 서 있다가 RagdollShooter 의 광선에 맞으면 쓰러져 밀려남), Camera.ScreenPointToRay
+    Write-Host '[starter]'
+    $dir = Join-Path $Out 'starter'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\StarterAssets'
+    $manifest = Join-Path $Project 'Packages\manifest.json'
+    $manifestBefore = if (Test-Path $manifest) { [IO.File]::ReadAllBytes($manifest) } else { $null }
+    Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+    $ed = Start-TestEditor
+    try
+    {
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 10' | Out-Null } }
+        function Exec([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file `"$f`""; if ($r) { "$($r.result)" } else { '' } }
+        function Wait-Compile { $sw = [Diagnostics.Stopwatch]::StartNew(); do { Invoke-Nova 'wait 20' | Out-Null; $i = Invoke-NovaJson 'info' } while ($sw.Elapsed.TotalSeconds -lt 90 -and $i -and $i.compiling) }
+
+        # ---- 차
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,40 --scale 200,1,200' | Out-Null
+        # 처음 차 = 프리팹을 만든다 (세워 둘 차), 다음 차 = 프리팹 인스턴스 + Follow Camera 가 새 차로 (운전할 차)
+        Invoke-Nova 'create car --name Parked --position 8,0,0' | Out-Null
+        Invoke-Nova 'create car --name Car' | Out-Null
+        Wait-Compile
+        $prefab = Test-Path (Join-Path $assetDir 'Car.prefab')
+        $mats = @(Get-ChildItem (Join-Path $assetDir 'Materials') -Filter *.mat -ErrorAction SilentlyContinue).Count
+        $inst = Invoke-Nova 'log --grep "instantiated" -n 2'
+        Add-Result starter 'create car: prefab + materials saved in Assets/StarterAssets, the next car is an instance' ($prefab -and $mats -ge 5 -and $inst -match 'instantiated .*Car\.prefab') "prefab $prefab, materials $mats, $((($inst | Out-String) -replace '\s+', ' ').Trim())"
+
+        $state = 'var c = GameObject.Find("Car"); var k = c.GetComponent<StarterAssets.CarController>(); var cam = Camera.main.transform.position; var p = c.transform.position; return k.speed.ToString("F2") + " " + p.x.ToString("F2") + " " + p.y.ToString("F2") + " " + p.z.ToString("F2") + " " + c.transform.eulerAngles.y.ToString("F1") + " " + c.transform.up.y.ToString("F3") + " " + k.groundedWheels + " " + (cam - p).magnitude.ToString("F1") + " " + (cam.z - p.z).ToString("F1");'
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 2
+        # C# 스크립트 컴포넌트는 Play 중에 만들어진다
+        $info = Exec 'car_info' 'var c = GameObject.Find("Car"); var f = Camera.main.GetComponent<FollowCamera>(); return c.GetComponentsInChildren<WheelCollider>().Length + " " + (c.GetComponent<StarterAssets.CarController>() != null) + " " + (f != null && f.target != null ? f.target.name : "none") + " " + c.GetComponent<Rigidbody>().mass.ToString("F0");'
+        Add-Result starter 'car: 4 Wheel Colliders, CarController, Follow Camera on the Main Camera, 1200 kg' ($info -eq '4 True Car 1200') "$info (wheels, controller, camera target, mass)"
+        $s0 = (Exec 'car_s0' $state) -split ' '
+        Add-Result starter 'car rests on 4 wheels (upright, still)' ($s0.Count -eq 9 -and [int]$s0[6] -eq 4 -and [double]$s0[5] -gt 0.99 -and [math]::Abs([double]$s0[0]) -lt 0.2) "speed $($s0[0]), y $($s0[2]), up $($s0[5]), grounded $($s0[6])"
+        Exec 'car_go' 'var k = GameObject.Find("Car").GetComponent<StarterAssets.CarController>(); k.readKeyboard = false; k.throttle = 1f; return 1;' | Out-Null
+        Wait-Sec 4
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'car.png')`" --view game" | Out-Null
+        $s1 = (Exec 'car_s1' $state) -split ' '
+        Add-Result starter 'throttle: drives forward, the camera follows behind' ($s1.Count -eq 9 -and [double]$s1[0] -gt 8 -and [double]$s1[3] -gt 12 -and [math]::Abs([double]$s1[1]) -lt 1 -and [double]$s1[7] -lt 12 -and [double]$s1[8] -lt 0) "speed $($s1[0]) m/s, z $($s1[3]), x $($s1[1]), camera $($s1[7]) m away (behind: dz $($s1[8]))"
+        Exec 'car_turn' 'var k = GameObject.Find("Car").GetComponent<StarterAssets.CarController>(); k.steer = 1f; k.throttle = 0.5f; return 1;' | Out-Null
+        Wait-Sec 2.5
+        $s2 = (Exec 'car_s2' $state) -split ' '
+        $yaw = if ($s2.Count -eq 9) { [double]$s2[4] } else { 0 }
+        Add-Result starter 'steer right: turns, stays upright' ($s2.Count -eq 9 -and $yaw -gt 30 -and $yaw -lt 300 -and [double]$s2[5] -gt 0.9) "yaw $yaw°, up $($s2[5])"
+        # S (뒤로) 를 누른 채: 달리는 중엔 네 바퀴 브레이크로 멈추고, 멈추면 후진
+        #  (멈춤을 재려고 처음엔 후진 최고 속도 0 — 브레이크만)
+        Exec 'car_brake' 'var k = GameObject.Find("Car").GetComponent<StarterAssets.CarController>(); k.steer = 0f; k.throttle = -1f; k.maxReverseSpeed = 0f; return 1;' | Out-Null
+        Wait-Sec 3
+        $s3 = (Exec 'car_s3' $state) -split ' '
+        Exec 'car_rev' 'var k = GameObject.Find("Car").GetComponent<StarterAssets.CarController>(); k.maxReverseSpeed = 6f; return 1;' | Out-Null
+        Wait-Sec 2.5
+        $s4 = (Exec 'car_s4' $state) -split ' '
+        Add-Result starter 'S while driving: brakes to a stop, then reverses' ($s3.Count -eq 9 -and [math]::Abs([double]$s3[0]) -lt 0.3 -and $s4.Count -eq 9 -and [double]$s4[0] -lt -1) "stopped at $($s3[0]) m/s, then speed $($s4[0])"
+        Invoke-Nova 'stop' | Out-Null
+
+        # ---- 래그돌 표적 + 쏘기
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0.6,1.5,-4 --rotation 6,0,0' | Out-Null
+        Invoke-Nova 'create ragdoll-target --name Dummy' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 1.5
+        $rinfo = Exec 'rd_info' 'var d = GameObject.Find("Dummy"); return d.GetComponent<Ragdoll>().bodyCount + " " + d.GetComponent<Ragdoll>().active + " " + (d.GetComponent<StarterAssets.RagdollTarget>() != null) + " " + (Camera.main.GetComponent<StarterAssets.RagdollShooter>() != null);'
+        Add-Result starter 'create ragdoll-target: 11 bodies (off = standing), RagdollTarget, RagdollShooter on the Main Camera' ($rinfo -eq '11 False True True') "$rinfo"
+        $ray = Exec 'rd_ray' 'var c = Camera.main; var a = c.ScreenPointToRay(new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0)); var b = c.ViewportPointToRay(new Vector3(1, 0.5f, 0)); float half = Vector3.Angle(a.direction, b.direction); return Vector3.Dot(a.direction, c.transform.forward).ToString("F4") + " " + half.ToString("F1") + " " + (Mathf.Atan(Mathf.Tan(c.fieldOfView * 0.5f * Mathf.Deg2Rad) * c.aspect) * Mathf.Rad2Deg).ToString("F1");'
+        $rv = "$ray" -split ' '
+        Add-Result starter 'Camera.ScreenPointToRay / ViewportPointToRay (centre = forward, edge = half the horizontal FOV)' ($rv.Count -eq 3 -and [double]$rv[0] -gt 0.9999 -and [math]::Abs([double]$rv[1] - [double]$rv[2]) -lt 0.2) "centre dot $($rv[0]), right edge $($rv[1])° (expect $($rv[2])°)"
+        $before = Exec 'rd_before' 'var d = GameObject.Find("Dummy"); var p = d.GetComponent<Animator>().GetBonePosition(HumanBodyBones.Hips); return p.y.ToString("F2") + " " + p.z.ToString("F2");'
+        $shot = Exec 'rd_shoot' 'var d = GameObject.Find("Dummy"); var chest = d.GetComponent<Animator>().GetBonePosition(HumanBodyBones.Chest); var s = Camera.main.GetComponent<StarterAssets.RagdollShooter>(); s.readMouse = false; bool hit = s.ShootAt(chest); var t = d.GetComponent<StarterAssets.RagdollTarget>(); return hit + " " + t.down + " " + s.lastHit + " " + t.lastBody;'
+        Wait-Sec 2.5
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'ragdoll.png')`" --view game" | Out-Null
+        $after = Exec 'rd_after' 'var d = GameObject.Find("Dummy"); Rigidbody pelvis = null; float lo = 9; foreach (var rb in d.GetComponentsInChildren<Rigidbody>()) { if (pelvis == null || rb.gameObject.name.Contains("Pelvis")) pelvis = rb; lo = Mathf.Min(lo, rb.position.y); } var p = pelvis.position; return d.GetComponent<Ragdoll>().active + " " + p.y.ToString("F2") + " " + p.z.ToString("F2") + " " + pelvis.gameObject.name;'
+        $b = "$before" -split ' '; $a = "$after" -split ' '
+        $ok = "$shot" -match '^True True ' -and $a.Count -ge 4 -and $a[0] -eq 'True' -and $b.Count -eq 2 -and [double]$a[1] -lt [double]$b[0] - 0.3 -and [double]$a[2] -gt [double]$b[1] + 0.1
+        Add-Result starter 'shooting the target: ragdoll falls, pushed away from the camera' $ok "shot: $shot / hips before y $($b[0]) z $($b[1]) → $($a[3]) y $($a[1]) z $($a[2])"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $assetDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$assetDir.meta" -Force -ErrorAction SilentlyContinue
+        if ($manifestBefore) { [IO.File]::WriteAllBytes($manifest, $manifestBefore) }
     }
 }
 
@@ -5726,6 +5820,7 @@ try
                 'daynight' { Suite-DayNight }
                 'cloth' { Suite-Cloth }
                 'clothskin' { Suite-ClothSkin }
+                'starter' { Suite-Starter }
                 'behaviour' { Suite-Behaviour }
                 'layers' { Suite-Layers }
                 'sprites' { Suite-Sprites }

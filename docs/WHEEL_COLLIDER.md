@@ -32,6 +32,8 @@ public class Car : MonoBehaviour
 }
 ```
 
+바로 운전해 보려면 **GameObject > 3D Object > Car** (`nova create car`) — 프리팹 · `CarController` · Follow Camera 가 붙은 차 ([STARTER_ASSETS](STARTER_ASSETS.md)).
+
 ## 항목 (Unity 와 같은 기본값)
 
 | 항목 | 기본 | 내용 |

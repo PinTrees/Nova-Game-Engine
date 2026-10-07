@@ -407,8 +407,17 @@ namespace
 			EditorLog::Write("CLI", "%s", note.c_str());
 			return named(g);
 		}
+		if (type == "car" || type == "ragdoll-target")
+		{
+			// Starter Assets: 차 (프리팹 + Follow Camera) · 래그돌 표적 (+ Main Camera 의 RagdollShooter) — 장면에 넣어 돌려준다
+			std::string note;
+			GameObject* g = type == "car" ? GameObjectFactory::CreateCar(name.empty() ? "Car" : name, &note)
+				: GameObjectFactory::CreateRagdollTarget(name.empty() ? "Ragdoll Target" : name, &note);
+			EditorLog::Write("CLI", "%s", note.c_str());
+			return g;
+		}
 		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, global-light-2d, spot-light-2d, "
-			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character)";
+			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character, car, ragdoll-target)";
 		return nullptr;
 	}
 

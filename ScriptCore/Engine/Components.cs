@@ -33,6 +33,12 @@ namespace NovaEngine
         public void AddRelativeForce(Vector3 force, ForceMode mode = ForceMode.Force) => AddForce(transform.rotation * force, mode);
         public unsafe void AddTorque(Vector3 torque, ForceMode mode = ForceMode.Force) => Native.Api.RB_AddForce(m_Id, 1, &torque, Mode(mode));
         public void AddRelativeTorque(Vector3 torque, ForceMode mode = ForceMode.Force) => AddTorque(transform.rotation * torque, mode);
+        /// <summary>그 자리 (월드) 에 힘 — 질량 중심에서 벗어난 만큼 돌림힘도 (Unity 와 같다)</summary>
+        public void AddForceAtPosition(Vector3 force, Vector3 position, ForceMode mode = ForceMode.Force)
+        {
+            AddForce(force, mode);
+            AddTorque(Vector3.Cross(position - worldCenterOfMass, force), mode);
+        }
         public unsafe void MovePosition(Vector3 p) { Vector4 v = p; Native.Api.RB_Move(m_Id, 0, &v); }
         public unsafe void MoveRotation(Quaternion q) { Vector4 v = new Vector4(q.x, q.y, q.z, q.w); Native.Api.RB_Move(m_Id, 1, &v); }
         public void Sleep() { }
@@ -580,6 +586,21 @@ namespace NovaEngine
         public unsafe float orthographicSize { get => Native.Api.Cam_GetFloat(m_Id, 3); set => Native.Api.Cam_SetFloat(m_Id, 3, value); }
         public unsafe float aspect => Native.Api.Cam_GetFloat(m_Id, 4);
         public unsafe bool orthographic => Native.Api.Cam_GetFloat(m_Id, 5) != 0f;
+
+        /// <summary>화면 픽셀 (Input.mousePosition 과 같은 좌표 — 왼쪽 아래 0,0) → 월드 광선 (Unity 와 같다)</summary>
+        public Ray ScreenPointToRay(Vector3 position) =>
+            ViewportPointToRay(new Vector3(position.x / Mathf.Max(1, Screen.width), position.y / Mathf.Max(1, Screen.height), 0f));
+
+        /// <summary>뷰포트 (0 ~ 1, 왼쪽 아래 0,0) → 월드 광선. 원근 = 카메라 자리에서, 직교 = 화면 평면에서 앞으로</summary>
+        public Ray ViewportPointToRay(Vector3 position)
+        {
+            var t = transform;
+            float x = position.x * 2f - 1f, y = position.y * 2f - 1f;
+            if (orthographic)
+                return new Ray(t.position + t.right * (x * orthographicSize * aspect) + t.up * (y * orthographicSize), t.forward);
+            float h = Mathf.Tan(fieldOfView * 0.5f * Mathf.Deg2Rad);
+            return new Ray(t.position, t.forward + t.right * (x * h * aspect) + t.up * (y * h));
+        }
     }
     public sealed unsafe class Light : Behaviour
     {

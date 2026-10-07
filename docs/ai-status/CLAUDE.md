@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **캐릭터 옷 (Skinned Mesh 위의 천)** (사용자 지시 4 가지 중 2 번 — 다음: 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **차량 · 래그돌 샘플 (Starter Assets)** (사용자 지시 4 가지 중 3 번 — 다음: 낮밤 마무리). **완료 (커밋, 푸시 전)**
+  - 패키지 `com.nova.starter-assets` 1.1.0: C# `CarController` (W/S/A/D · 브레이크 → 후진 · 속도에 따른 조향 · 손 브레이크 · R 세우기 · 다운포스, readKeyboard 끄고 throttle/steer 로 시험), `RagdollTarget` (맞으면 Ragdoll 켜고 가까운 바디를 밈, CC · TPC 끔, Recover), `RagdollShooter` (클릭 → ScreenPointToRay)
+  - 엔진: `GameObjectFactory::CreateCar` (처음 = 재질 7 + `Assets/StarterAssets/Car.prefab` 저장, 다음 = 인스턴스, Follow Camera) · `CreateRagdollTarget` (기본 캐릭터 + Wizard 꺼짐 + RagdollShooter), 메뉴 3D Object > Car · Ragdoll Target, CLI `create car | ragdoll-target`. `CreatePrimitive` 공개
+  - C# (Unity 이름): `Camera.ScreenPointToRay · ViewportPointToRay`, `Rigidbody.AddForceAtPosition`
+  - 검사 `-Only starter` 9/9 (wheel · ragdoll 함께 23/23). 문서 `docs/STARTER_ASSETS.md` (+ WHEEL_COLLIDER · RAGDOLL · NOVA_CLI · README), Showcase 255
+- 이전: 2026년 10월 7일 — **캐릭터 옷 (Skinned Mesh 위의 천)** (사용자 지시 4 가지 중 2 번 — 다음: 차량/래그돌 샘플 · 낮밤 마무리). **완료 (커밋, 푸시 전)**
   - `Cloth`: Skinned Mesh Renderer 에 붙이면 Jolt skinned constraint — rest = 바인드 자세 (월드 크기), 역바인드 하나 + 본 행렬 = 팔레트 × 월드 (GPU 스키닝과 같은 값), Unity `coefficients` (maxDistance · collisionSphereDistance), Pin = maxDistance 0, 뒤 막이를 위해 삼각형 감김을 메시 법선에 맞춤, 순간 이동 = hardSkinAll. 서브메시 기준 정점 (VertexStart) 반영
   - `SkinnedMeshRenderer::SetSimulatedVertices`: 천 정점 (오브젝트 공간) 을 동적 버퍼로, 팔레트 끝 단위 본 하나에 묶음 (BlendShape 와 같은 버퍼 · `UploadDynamicVertices`). `PhysicsManager::ClothSkin · SkinCloth`
   - C# `Cloth.coefficients` · `ClothSkinningCoefficient` (바인딩 표 끝 `CL_GetCoefficients · CL_SetCoefficients` — **안드로이드 `Android/Player` · 웹 플레이어는 다시 빌드해야 표가 맞는다**, 릴리즈 때)
