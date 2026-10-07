@@ -126,6 +126,49 @@ Ragdoll::Ragdoll()
 	m_InspectorTitleName = "Ragdoll";
 }
 
+GameObject* Ragdoll::PelvisBody() const
+{
+	// Wizard 는 골반 바디를 처음에 둔다 (틀: Y = 머리 쪽, Z = 배 쪽)
+	Scene* scene = SceneManager::GetI()->GetCurrentScene();
+	return scene && !Parts.empty() ? scene->FindByFileID(Parts[0].Body) : nullptr;
+}
+
+bool Ragdoll::IsFaceUp() const
+{
+	GameObject* pelvis = PelvisBody();
+	return pelvis && Vec3::TransformNormal(Vec3(0, 0, 1), RigidOf(pelvis->GetTransform())).y > 0.0f;
+}
+
+void Ragdoll::BeginRecover()
+{
+	// 쓰러진 자세를 월드로 기억한다 (루트를 옮겨도 그 자리에서 섞는다)
+	std::vector<SkinnedMeshRenderer*> skinned;
+	CollectSkinned(m_pGameObject, skinned);
+	m_BlendFrom.clear();
+	for (SkinnedMeshRenderer* smr : skinned)
+	{
+		std::vector<XMFLOAT4X4> g;
+		smr->GetNodeGlobals(g);
+		const XMMATRIX w = smr->GetGameObject()->GetTransform()->GetWorldMatrix();
+		for (XMFLOAT4X4& m : g)
+			XMStoreFloat4x4(&m, XMLoadFloat4x4(&m) * w);
+		m_BlendFrom.push_back(std::move(g));
+	}
+	m_BlendLeft = BlendTime;
+	GameObject* pelvis = PelvisBody();
+	if (!AlignRoot || pelvis == nullptr)
+		return;
+	// 루트 = 골반 자리 (높이는 그대로), 방향 = 등을 대고 누웠으면 발 쪽 (앉았다 일어선다), 엎드렸으면 머리 쪽 (팔로 밀고 일어선다)
+	const Matrix pw = RigidOf(pelvis->GetTransform());
+	Vec3 f = Vec3::TransformNormal(Vec3(0, 1, 0), pw) * (IsFaceUp() ? -1.0f : 1.0f);
+	f.y = 0.0f;
+	Transform* t = m_pGameObject->GetTransform();
+	const Vec3 p = pw.Translation();
+	t->SetPosition(Vec3(p.x, t->GetPosition().y, p.z));
+	if (f.LengthSquared() > 1e-6f)
+		t->SetRotation(Quaternion::CreateFromYawPitchRoll(std::atan2(f.x, f.z), 0.0f, 0.0f));
+}
+
 void Ragdoll::SetActiveState(bool active)
 {
 	Scene* scene = SceneManager::GetI()->GetCurrentScene();
@@ -146,6 +189,8 @@ void Ragdoll::SetActiveState(bool active)
 	}
 	if (active)
 	{
+		m_BlendLeft = 0.0f;
+		m_BlendFrom.clear();
 		// 켤 때 자세를 기억한다: 바디가 없는 노드는 이 로컬로 부모를 따라간다
 		std::vector<SkinnedMeshRenderer*> skinned;
 		CollectSkinned(m_pGameObject, skinned);
@@ -172,6 +217,9 @@ void Ragdoll::SetActiveState(bool active)
 	}
 	else
 	{
+		// 쓰러져 있다가 꺼짐 = 일어나기 (Play 시작의 꺼짐은 아님)
+		if (m_Applied && m_AppliedActive && Application::IsPlaying())
+			BeginRecover();
 		for (Component* c : m_DisabledAnimation)
 			for (const auto& own : m_pGameObject->GetComponents())
 				if (own.get() == c)
@@ -208,6 +256,32 @@ void Ragdoll::LateUpdate()
 
 	if (!Active)
 	{
+		// 일어나는 중: 쓰러진 자세 (월드) → 이번 프레임 애니메이션 자세 (Animator 가 Update 에서 넣었다) 로 섞는다
+		if (m_BlendLeft > 0.0f)
+		{
+			const float k = BlendTime > 0.0f ? std::clamp(1.0f - m_BlendLeft / BlendTime, 0.0f, 1.0f) : 1.0f;
+			const float w = k * k * (3.0f - 2.0f * k);
+			m_BlendLeft -= DT;
+			for (size_t m = 0; m < skinned.size() && m < m_BlendFrom.size(); ++m)
+			{
+				std::vector<XMFLOAT4X4> anim;
+				if (!skinned[m]->GetNodeGlobals(anim) || anim.size() != m_BlendFrom[m].size())
+					continue;
+				const XMMATRIX toModel = XMMatrixInverse(nullptr, skinned[m]->GetGameObject()->GetTransform()->GetWorldMatrix());
+				for (size_t i = 0; i < anim.size(); ++i)
+				{
+					XMVECTOR s0, r0, t0, s1, r1, t1;
+					if (!XMMatrixDecompose(&s0, &r0, &t0, XMLoadFloat4x4(&m_BlendFrom[m][i]) * toModel) ||
+						!XMMatrixDecompose(&s1, &r1, &t1, XMLoadFloat4x4(&anim[i])))
+						continue;
+					XMStoreFloat4x4(&anim[i], XMMatrixScalingFromVector(XMVectorLerp(s0, s1, w)) * XMMatrixRotationQuaternion(XMQuaternionSlerp(r0, r1, w)) *
+						XMMatrixTranslationFromVector(XMVectorLerp(t0, t1, w)));
+				}
+				skinned[m]->ApplyPose(anim);
+			}
+			if (m_BlendLeft <= 0.0f)
+				m_BlendFrom.clear();
+		}
 		// 바디가 애니메이션 자세를 따라간다 (키네마틱 → 다음 물리 스텝에 MoveKinematic)
 		std::vector<XMFLOAT4X4> g;
 		if (!skinned[0]->GetNodeGlobals(g))
@@ -273,6 +347,9 @@ void Ragdoll::OnInspectorGUI()
 	UnityGUI::Toggle("Active", &Active);
 	UnityGUI::HelpBox(Active ? "Physics drives the skeleton (Animator off, bodies dynamic)." :
 		"Bodies follow the animation (kinematic).", false);
+	if (UnityGUI::Float("Blend Time", &BlendTime))
+		BlendTime = (std::max)(0.0f, BlendTime);
+	UnityGUI::Toggle("Align Root", &AlignRoot);
 	Scene* scene = SceneManager::GetI()->GetCurrentScene();
 	if (UnityGUI::FoldoutPlain("Bodies", 0, false))
 		for (const Part& p : Parts)
@@ -298,6 +375,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(Ragdoll)
 	j["type"] = "Ragdoll";
 	j["enabled"] = m_Enabled;
 	j["active"] = Active;
+	j["blendTime"] = BlendTime;
+	j["alignRoot"] = AlignRoot;
 	json parts = json::array();
 	for (const Part& p : Parts)
 		parts.push_back({ { "bone", p.Bone }, { "body", p.Body }, { "offset", MatJson(p.Offset) } });
@@ -309,6 +388,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Ragdoll)
 {
 	m_Enabled = j.value("enabled", true);
 	Active = j.value("active", true);
+	BlendTime = j.value("blendTime", 0.5f);
+	AlignRoot = j.value("alignRoot", true);
 	Parts.clear();
 	if (j.contains("parts") && j["parts"].is_array())
 		for (const json& p : j["parts"])

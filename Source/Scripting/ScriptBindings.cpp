@@ -291,7 +291,7 @@ namespace
 		void(*L2D_SetColor)(uint64, Vec4*);
 		int(*SC2D_Get)(uint64, int);                      // 0 castsShadows, 1 selfShadows
 		void(*SC2D_Set)(uint64, int, int);
-		float(*RD_Get)(uint64, int);                      // Ragdoll: 0 active, 1 바디 수 (읽기)
+		float(*RD_Get)(uint64, int);                      // Ragdoll: 0 active, 1 바디 수 (읽기), 2 blendTime, 3 하늘을 봄 · 4 섞는 중 (읽기), 5 alignRoot
 		void(*RD_Set)(uint64, int, float);
 		void(*PH_IgnoreCollision)(uint64, uint64, int);   // Physics.IgnoreCollision (콜라이더의 GameObject 둘)
 		int(*PH_GetIgnoreCollision)(uint64, uint64);
@@ -1858,9 +1858,23 @@ namespace ScriptBindings
 		t.RD_Get = [](uint64 id, int what) -> float {
 			Ragdoll* r = Get<Ragdoll>(id);
 			if (r == nullptr) return 0.0f;
-			return what == 0 ? (r->Active ? 1.0f : 0.0f) : (float)r->Parts.size();
+			switch (what)
+			{
+			case 0: return r->Active ? 1.0f : 0.0f;
+			case 2: return r->BlendTime;
+			case 3: return r->IsFaceUp() ? 1.0f : 0.0f;
+			case 4: return r->IsBlending() ? 1.0f : 0.0f;
+			case 5: return r->AlignRoot ? 1.0f : 0.0f;
+			default: return (float)r->Parts.size();
+			}
 		};
-		t.RD_Set = [](uint64 id, int what, float v) { if (Ragdoll* r = Get<Ragdoll>(id); r && what == 0) r->Active = v != 0.0f; };
+		t.RD_Set = [](uint64 id, int what, float v) {
+			Ragdoll* r = Get<Ragdoll>(id);
+			if (r == nullptr) return;
+			if (what == 0) r->Active = v != 0.0f;
+			else if (what == 2) r->BlendTime = (std::max)(0.0f, v);
+			else if (what == 5) r->AlignRoot = v != 0.0f;
+		};
 		t.PH_IgnoreCollision = [](uint64 a, uint64 b, int ignore) { PhysicsManager::GetI()->IgnoreCollision(Find(a), Find(b), ignore != 0); };
 		t.PH_GetIgnoreCollision = [](uint64 a, uint64 b) -> int { return PhysicsManager::GetI()->GetIgnoreCollision(Find(a), Find(b)) ? 1 : 0; };
 		t.WC_GetFloat = [](uint64 id, int p) -> float {

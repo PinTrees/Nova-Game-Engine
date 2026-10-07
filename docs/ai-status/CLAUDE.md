@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **activeInHierarchy 마무리 · 안드로이드 · 웹 플레이어에서 오늘 기능 확인** (사용자 지시 5 가지 중 1 · 2 번 — 다음: Starter Assets 2 단계). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **Starter Assets 2 단계: 차에 타고 내리기 · 래그돌에서 일어나기 · 데모** (사용자 지시 5 가지 중 3 번 — 다음: FBX 내장 텍스처). **완료 (커밋, 푸시 전)**
+  - `Ragdoll`: 꺼질 때 (일어나기) 루트를 골반 자리 · 일어서는 방향 (등 = 발 쪽, 배 = 머리 쪽) 으로, 쓰러진 자세 (월드) → 애니메이션 자세로 Blend Time (0.5 초, smoothstep) 섞기. `IsFaceUp · IsBlending`, 저장 `blendTime · alignRoot`, C# `Ragdoll.blendTime · alignRoot · isFaceUp · isBlending` (RD_Get/Set 번호만 — 표는 그대로)
+  - 일어나기 클립 GetUpBack (2.2 초) · GetUpFront (2.4 초) 를 모델 편집기로 (`docs/examples/anim_basic.txt`) → `Nova_Basic.glb` 다시 내보냄 (Idle · Walk · Wave 바이트 같음), `DefaultCharacter.controller` 에 두 상태 + Idle 로 가는 Exit Time 전이
+  - C#: `RagdollTarget.Recover` (누운 방향의 클립 · getUpTime 뒤 조작 켜기), 새 `VehicleEnterExit` (E 로 차 타기 · 내리기, 캐릭터 숨김, Follow Camera 전환, 장면의 차는 탈 때까지 주차) — Third Person Character 에 붙음. 패키지 1.2.0
+  - CLI: `set/get --component <C# 클래스 이름>` (값 = public 칸). 데모 `docs/examples/starter/build_starter_demo.ps1`, Showcase 258
+  - 검사 `-Only starter` 13/13 (일어나기 · 타기 · 운전 · 내리기 추가), starter · ragdoll · animation · model 90/90 (모델 스위트의 클립 수 3 → 5). 안드로이드 · 웹 플레이어는 Ragdoll 변경 전 빌드 (다음 플레이어 빌드 때 함께)
+  - 함께 고침 (따로 커밋): **에디터 창이 비활성이면 GameTimer 가 멈춰** CLI 로 프레임을 돌려도 물리 시간이 0 → 뒤에 띄운 검사 에디터의 물리가 통째로 멈추던 것 (`App.cpp` — 아래 래그돌 항목의 '지켜볼 것' 의 원인. heartbeat 가 아예 없던 것으로 찾음). 에디터는 Unity 처럼 계속, 플레이어만 멈춤
+- 이전: 2026년 10월 7일 — **activeInHierarchy 마무리 · 안드로이드 · 웹 플레이어에서 오늘 기능 확인** (사용자 지시 5 가지 중 1 · 2 번 — 다음: Starter Assets 2 단계). **완료 (커밋, 푸시 전)**
   - 1 번: 플레이어 다시 빌드 (안드로이드 · 웹 — Assimp 없는 플레이어에 `aiGetMaterialFloatArray · aiGetMaterialTexture` 대체 추가), 검사 장면 `common.ps1` 의 `New-PlayerFeatureScene` (천 치비 · 차 · 래그돌 표적 · 낮밤 가로등 · 구운 반사 프로브) + `Tools/tests/features_player_probe.cs`.
     안드로이드 `Tools/tests/android_player.ps1 -Check nav|features` (android_nav.ps1 을 바꿈) 11/11, 웹 스위트 15/15. Showcase 257
   - 함께 고침: Follow Camera 가 enabled 를 무시하고 따라가던 것 (C++ LateUpdate · C# `FollowCamera : Behaviour`)

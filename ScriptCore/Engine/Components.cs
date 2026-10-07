@@ -310,6 +310,14 @@ namespace NovaEngine
         internal Ragdoll() { }
         public bool active { get => Native.Api.RD_Get(m_Id, 0) != 0; set => Native.Api.RD_Set(m_Id, 0, value ? 1f : 0f); }
         public int bodyCount => (int)Native.Api.RD_Get(m_Id, 1);
+        /// <summary>끌 때 쓰러진 자세에서 애니메이션 (일어나기 클립) 으로 섞는 시간 (초)</summary>
+        public float blendTime { get => Native.Api.RD_Get(m_Id, 2); set => Native.Api.RD_Set(m_Id, 2, value); }
+        /// <summary>끌 때 루트를 골반 자리 · 일어서는 방향으로 옮긴다</summary>
+        public bool alignRoot { get => Native.Api.RD_Get(m_Id, 5) != 0; set => Native.Api.RD_Set(m_Id, 5, value ? 1f : 0f); }
+        /// <summary>쓰러진 몸이 하늘을 보는가 (등을 대고 누움) — 일어나기 클립 고르기</summary>
+        public bool isFaceUp => Native.Api.RD_Get(m_Id, 3) != 0;
+        /// <summary>쓰러진 자세에서 애니메이션으로 섞는 중</summary>
+        public bool isBlending => Native.Api.RD_Get(m_Id, 4) != 0;
     }
 
     // ------------------------------------------------------------------ WheelCollider (Unity 와 같은 API)

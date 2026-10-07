@@ -688,6 +688,7 @@ GameObject* GameObjectFactory::CreateThirdPersonCharacter(const std::string& nam
 	cc->SetHeight(1.8f);
 	root->AddComponent(cc);
 	root->AddComponent(CSharpScript::Create("StarterAssets.ThirdPersonController"));
+	root->AddComponent(CSharpScript::Create("StarterAssets.VehicleEnterExit"));   // 장면에 차가 있으면 E 로 타고 내린다
 
 	// Main Camera 에 Follow Camera (패키지 컴포넌트라 이름으로 만들고 JSON 으로 값을 넣는다)
 	Scene* scene = SceneManager::GetI()->GetCurrentScene();

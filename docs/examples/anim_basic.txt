@@ -1,4 +1,4 @@
-# 기본 애니메이션 (Idle · Walk · Wave) — 리깅한 캐릭터 (model_chibi.txt + model_chibi_rig.txt) 위에서
+# 기본 애니메이션 (Idle · Walk · Wave · GetUpBack · GetUpFront) — 리깅한 캐릭터 (model_chibi.txt + model_chibi_rig.txt) 위에서
 #   nova model batch docs/examples/anim_basic.txt → nova model export Resources/Packages/Character/Animations/Nova_Basic.glb
 # 회전 = 도 (월드 축, 부모 위에): 다리 pitch - = 앞으로, 아래팔 pitch - = 팔꿈치 앞으로 굽힘, 왼팔 roll - / 오른팔 roll + = 몸 밖으로
 # 이 치비의 팔은 쉬는 자세에서 25° 벌어져 있다 → 몸에 붙이려면 왼팔 roll +17 · 오른팔 -17 (리타게팅은 쉬는 자세 기준 회전을 옮긴다)
@@ -118,4 +118,166 @@ anim.key --time 0.6
 rig.pose --bone RightLowerArm --rotation 0,0,45
 rig.pose --bone RightHand --rotation 0,0,10
 anim.key --time 0.9
+# ---------------- GetUpBack (2.2 초, 한 번): 등을 대고 누움 → 일어나 앉기 → 무릎 당겨 쪼그려 앉기 → 서기 (끝 = Idle 첫 자세)
+#   래그돌 (Ragdoll) 이 꺼질 때 루트를 골반 자리 · 발 쪽 방향으로 옮기고 쓰러진 자세에서 이 클립으로 섞는다 (RagdollTarget.Recover)
+#   누운 자세: Hips pitch -90 (머리가 뒤 -Z, 발이 앞 +Z), 엉덩이 높이 0.39 → 0.09
+anim.new --name GetUpBack --length 2.2 --loop false
+rig.pose --bone Hips --rotation -90,0,0
+rig.pose --bone Hips --move 0,-0.3,0
+rig.pose --bone Spine --rotation 0,0,0
+rig.pose --bone Chest --rotation 0,0,0
+rig.pose --bone Neck --rotation 0,0,0
+rig.pose --bone Head --rotation 20,0,0
+rig.pose --bone LeftUpperArm --rotation 4,0,17
+rig.pose --bone RightUpperArm --rotation 4,0,-17
+rig.pose --bone LeftLowerArm --rotation 0,0,0
+rig.pose --bone RightLowerArm --rotation 0,0,0
+rig.pose --bone LeftUpperLeg --rotation 0,0,0
+rig.pose --bone RightUpperLeg --rotation 0,0,0
+rig.pose --bone LeftLowerLeg --rotation 0,0,0
+rig.pose --bone RightLowerLeg --rotation 0,0,0
+rig.pose --bone LeftFoot --rotation 0,0,0
+rig.pose --bone RightFoot --rotation 0,0,0
+anim.key --time 0
+# 몸을 말아 올리기 시작 (팔은 뒤로 땅을 짚는다)
+rig.pose --bone Spine --rotation 30,0,0
+rig.pose --bone Chest --rotation 15,0,0
+rig.pose --bone Head --rotation 10,0,0
+rig.pose --bone LeftUpperArm --rotation 40,0,17
+rig.pose --bone RightUpperArm --rotation 40,0,-17
+rig.pose --bone LeftUpperLeg --rotation -20,0,0
+rig.pose --bone RightUpperLeg --rotation -20,0,0
+rig.pose --bone LeftLowerLeg --rotation 35,0,0
+rig.pose --bone RightLowerLeg --rotation 35,0,0
+anim.key --time 0.5
+# 앉음: 몸통은 거의 세우고 무릎을 세워 발을 엉덩이 쪽으로
+rig.pose --bone Hips --rotation -15,0,0
+rig.pose --bone Hips --move 0,-0.31,0
+rig.pose --bone Spine --rotation 10,0,0
+rig.pose --bone Chest --rotation 5,0,0
+rig.pose --bone Head --rotation 0,0,0
+rig.pose --bone LeftUpperArm --rotation 35,0,17
+rig.pose --bone RightUpperArm --rotation 35,0,-17
+rig.pose --bone LeftUpperLeg --rotation -60,0,0
+rig.pose --bone RightUpperLeg --rotation -60,0,0
+rig.pose --bone LeftLowerLeg --rotation 100,0,0
+rig.pose --bone RightLowerLeg --rotation 100,0,0
+rig.pose --bone LeftFoot --rotation -25,0,0
+rig.pose --bone RightFoot --rotation -25,0,0
+anim.key --time 1.0
+# 쪼그려 앉음: 엉덩이를 발 위로 들고 몸을 앞으로, 팔은 앞으로 (균형)
+rig.pose --bone Hips --rotation 25,0,0
+rig.pose --bone Hips --move 0,-0.17,0
+rig.pose --bone Spine --rotation 10,0,0
+rig.pose --bone Chest --rotation 0,0,0
+rig.pose --bone Head --rotation -15,0,0
+rig.pose --bone LeftUpperArm --rotation -40,0,17
+rig.pose --bone RightUpperArm --rotation -40,0,-17
+rig.pose --bone LeftLowerArm --rotation -20,0,0
+rig.pose --bone RightLowerArm --rotation -20,0,0
+rig.pose --bone LeftUpperLeg --rotation -110,0,0
+rig.pose --bone RightUpperLeg --rotation -110,0,0
+rig.pose --bone LeftLowerLeg --rotation 120,0,0
+rig.pose --bone RightLowerLeg --rotation 120,0,0
+rig.pose --bone LeftFoot --rotation -35,0,0
+rig.pose --bone RightFoot --rotation -35,0,0
+anim.key --time 1.5
+# 서기 = Idle 첫 자세
+rig.pose --bone Hips --rotation 0,0,0
+rig.pose --bone Hips --move 0.004,0,0
+rig.pose --bone Spine --rotation 1,0,0
+rig.pose --bone Chest --rotation 1,0,0
+rig.pose --bone Neck --rotation -2,0,0
+rig.pose --bone Head --rotation 4,0,0
+rig.pose --bone LeftUpperArm --rotation 4,0,17
+rig.pose --bone RightUpperArm --rotation 4,0,-17
+rig.pose --bone LeftLowerArm --rotation -14,0,0
+rig.pose --bone RightLowerArm --rotation -14,0,0
+rig.pose --bone LeftHand --rotation 0,0,4
+rig.pose --bone RightHand --rotation 0,0,-4
+rig.pose --bone LeftUpperLeg --rotation 0,0,-2
+rig.pose --bone RightUpperLeg --rotation 0,0,2
+rig.pose --bone LeftLowerLeg --rotation 0,0,0
+rig.pose --bone RightLowerLeg --rotation 0,0,0
+rig.pose --bone LeftFoot --rotation 0,0,0
+rig.pose --bone RightFoot --rotation 0,0,0
+anim.key --time 2.2
+
+# ---------------- GetUpFront (2.4 초, 한 번): 엎드림 → 팔로 밀어 올리기 → 무릎 꿇고 네 발 → 쪼그려 앉기 → 서기
+#   엎드린 자세: Hips pitch +90 (머리가 앞 +Z) — 래그돌은 루트를 머리 쪽 방향으로
+anim.new --name GetUpFront --length 2.4 --loop false
+rig.pose --bone Hips --rotation 90,0,0
+rig.pose --bone Hips --move 0,-0.29,0
+rig.pose --bone Spine --rotation 0,0,0
+rig.pose --bone Chest --rotation 0,0,0
+rig.pose --bone Neck --rotation 0,0,0
+rig.pose --bone Head --rotation -20,0,0
+rig.pose --bone LeftUpperArm --rotation 4,0,17
+rig.pose --bone RightUpperArm --rotation 4,0,-17
+rig.pose --bone LeftLowerArm --rotation 0,0,0
+rig.pose --bone RightLowerArm --rotation 0,0,0
+rig.pose --bone LeftUpperLeg --rotation 0,0,0
+rig.pose --bone RightUpperLeg --rotation 0,0,0
+rig.pose --bone LeftLowerLeg --rotation 0,0,0
+rig.pose --bone RightLowerLeg --rotation 0,0,0
+rig.pose --bone LeftFoot --rotation 0,0,0
+rig.pose --bone RightFoot --rotation 0,0,0
+anim.key --time 0
+# 팔로 밀어 가슴을 든다 (팔은 땅에 수직)
+rig.pose --bone Hips --rotation 70,0,0
+rig.pose --bone Spine --rotation -20,0,0
+rig.pose --bone Head --rotation -15,0,0
+rig.pose --bone LeftUpperArm --rotation -50,0,17
+rig.pose --bone RightUpperArm --rotation -50,0,-17
+anim.key --time 0.6
+# 네 발: 무릎을 꿇어 엉덩이를 들고, 손은 땅에
+rig.pose --bone Hips --rotation 65,0,0
+rig.pose --bone Hips --move 0,-0.18,0
+rig.pose --bone Spine --rotation 0,0,0
+rig.pose --bone Head --rotation -30,0,0
+rig.pose --bone LeftUpperArm --rotation -65,0,17
+rig.pose --bone RightUpperArm --rotation -65,0,-17
+rig.pose --bone LeftUpperLeg --rotation -65,0,0
+rig.pose --bone RightUpperLeg --rotation -65,0,0
+rig.pose --bone LeftLowerLeg --rotation 90,0,0
+rig.pose --bone RightLowerLeg --rotation 90,0,0
+anim.key --time 1.2
+# 쪼그려 앉음 (GetUpBack 의 1.5 초와 같은 자세)
+rig.pose --bone Hips --rotation 25,0,0
+rig.pose --bone Hips --move 0,-0.17,0
+rig.pose --bone Spine --rotation 10,0,0
+rig.pose --bone Chest --rotation 0,0,0
+rig.pose --bone Head --rotation -15,0,0
+rig.pose --bone LeftUpperArm --rotation -40,0,17
+rig.pose --bone RightUpperArm --rotation -40,0,-17
+rig.pose --bone LeftLowerArm --rotation -20,0,0
+rig.pose --bone RightLowerArm --rotation -20,0,0
+rig.pose --bone LeftUpperLeg --rotation -110,0,0
+rig.pose --bone RightUpperLeg --rotation -110,0,0
+rig.pose --bone LeftLowerLeg --rotation 120,0,0
+rig.pose --bone RightLowerLeg --rotation 120,0,0
+rig.pose --bone LeftFoot --rotation -35,0,0
+rig.pose --bone RightFoot --rotation -35,0,0
+anim.key --time 1.8
+# 서기 = Idle 첫 자세
+rig.pose --bone Hips --rotation 0,0,0
+rig.pose --bone Hips --move 0.004,0,0
+rig.pose --bone Spine --rotation 1,0,0
+rig.pose --bone Chest --rotation 1,0,0
+rig.pose --bone Neck --rotation -2,0,0
+rig.pose --bone Head --rotation 4,0,0
+rig.pose --bone LeftUpperArm --rotation 4,0,17
+rig.pose --bone RightUpperArm --rotation 4,0,-17
+rig.pose --bone LeftLowerArm --rotation -14,0,0
+rig.pose --bone RightLowerArm --rotation -14,0,0
+rig.pose --bone LeftHand --rotation 0,0,4
+rig.pose --bone RightHand --rotation 0,0,-4
+rig.pose --bone LeftUpperLeg --rotation 0,0,-2
+rig.pose --bone RightUpperLeg --rotation 0,0,2
+rig.pose --bone LeftLowerLeg --rotation 0,0,0
+rig.pose --bone RightLowerLeg --rotation 0,0,0
+rig.pose --bone LeftFoot --rotation 0,0,0
+rig.pose --bone RightFoot --rotation 0,0,0
+anim.key --time 2.4
+
 anim.select --name Idle

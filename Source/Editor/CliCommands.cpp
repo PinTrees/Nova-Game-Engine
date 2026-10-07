@@ -240,6 +240,14 @@ namespace
 		for (const auto& c : go->GetComponents())
 			if (Lower(c->GetType()) == lt)
 				return c.get();
+		// C# 스크립트는 클래스 이름으로 (RagdollTarget · StarterAssets.RagdollTarget)
+		for (const auto& c : go->GetComponents())
+			if (auto* script = dynamic_cast<CSharpScript*>(c.get()))
+			{
+				const std::string n = Lower(script->GetClassName());
+				if (n == lt || (n.size() > lt.size() && n.compare(n.size() - lt.size() - 1, std::string::npos, "." + lt) == 0))
+					return c.get();
+			}
 		return nullptr;
 	}
 
@@ -931,7 +939,11 @@ namespace CliCommands
 				if (!c) { e = "no component '" + type + "' on " + PathOf(go); return false; }
 				if (!a.contains("values") || !a["values"].is_object()) { e = "values must be a JSON object of component fields (see nova get <target> --component " + type + ")"; return false; }
 				json merged = c->toJson();
-				merged.merge_patch(a["values"]);
+				json patch = a["values"];
+				// C# 스크립트를 클래스 이름으로 고르면 값 = Inspector 의 public 칸
+				if (dynamic_cast<CSharpScript*>(c) && Lower(type) != "csharpscript" && !patch.contains("fields"))
+					patch = json{ { "fields", patch } };
+				merged.merge_patch(patch);
 				c->fromJson(merged);
 				r["component"] = c->toJson();
 			}

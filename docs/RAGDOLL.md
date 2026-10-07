@@ -41,6 +41,23 @@ int n = ragdoll.bodyCount;      // 11
 
 CLI: `nova ragdoll info <대상>` (바디 · 위치 · 질량 · 키네마틱 · 관절), `nova ragdoll active <대상> --value false`.
 
+### 일어나기
+
+Play 중 켜져 있던 Ragdoll 을 끄면 (쓰러졌다가 일어나기):
+
+1. 루트 GameObject 를 쓰러진 골반 바디의 자리 (높이는 그대로) 로 옮기고, 등을 대고 누웠으면 **발 쪽**, 엎드렸으면 **머리 쪽** 을 보게 돌린다 (`Align Root`)
+2. 쓰러진 자세를 기억해 Animator 가 내는 자세로 **Blend Time** (기본 0.5 초, smoothstep) 동안 섞는다 — 노드마다 위치 · 회전 (slerp) · 크기. 바디는 섞인 자세를 따라간다
+
+누운 방향은 `ragdoll.isFaceUp` (골반 바디의 배 쪽이 위) — 끄기 전에 읽어 그에 맞는 일어나기 클립을 재생한다 (Unity 에서 흔한 방법, 예: `RagdollTarget.Recover`).
+기본 캐릭터 컨트롤러에 **GetUpBack** · **GetUpFront** 상태가 있다 ([STARTER_ASSETS](STARTER_ASSETS.md)).
+
+```csharp
+bool faceUp = ragdoll.isFaceUp;
+ragdoll.active = false;                                   // 이번 프레임 끝에 루트 맞추기 + 섞기 시작
+animator.Play(faceUp ? "GetUpBack" : "GetUpFront", 0, 0f);
+// ragdoll.blendTime = 0.5f; ragdoll.alignRoot = true; ragdoll.isBlending
+```
+
 ## Character Joint
 
 | 항목 | 내용 |

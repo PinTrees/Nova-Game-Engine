@@ -39,9 +39,58 @@
                     "pos": [200.0, 120.0],
                     "speed": 1.0,
                     "writeDefaults": true
+                },
+                {
+                    "clipIndex": 3,
+                    "clipPath": "Resources\\Packages\\Character\\Animations\\Nova_Basic.glb",
+                    "cycleOffset": 0.0,
+                    "footIK": false,
+                    "loop": false,
+                    "name": "GetUpBack",
+                    "pos": [-280.0, 120.0],
+                    "speed": 1.0,
+                    "writeDefaults": true
+                },
+                {
+                    "clipIndex": 4,
+                    "clipPath": "Resources\\Packages\\Character\\Animations\\Nova_Basic.glb",
+                    "cycleOffset": 0.0,
+                    "footIK": false,
+                    "loop": false,
+                    "name": "GetUpFront",
+                    "pos": [-280.0, 220.0],
+                    "speed": 1.0,
+                    "writeDefaults": true
                 }
             ],
-            "transitions": [],
+            "transitions": [
+                {
+                    "from": "GetUpBack",
+                    "to": "Idle",
+                    "hasExitTime": true,
+                    "exitTime": 0.92,
+                    "fixedDuration": true,
+                    "duration": 0.2,
+                    "offset": 0.0,
+                    "canTransitionToSelf": true,
+                    "mute": false,
+                    "solo": false,
+                    "conditions": []
+                },
+                {
+                    "from": "GetUpFront",
+                    "to": "Idle",
+                    "hasExitTime": true,
+                    "exitTime": 0.92,
+                    "fixedDuration": true,
+                    "duration": 0.2,
+                    "offset": 0.0,
+                    "canTransitionToSelf": true,
+                    "mute": false,
+                    "solo": false,
+                    "conditions": []
+                }
+            ],
             "weight": 1.0
         }
     ],

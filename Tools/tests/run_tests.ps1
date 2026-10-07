@@ -1176,12 +1176,12 @@ function Suite-Model
             for ($y = 0; $y -lt 256; $y += 2) { for ($x = 0; $x -lt 256; $x += 2) { if ($b1.GetPixel($x, $y).ToArgb() -ne $b2.GetPixel($x, $y).ToArgb()) { $wdiff++ } } }
             $b1.Dispose(); $b2.Dispose()
         }
-        Add-Result model 'anim: Idle · Walk · Wave clips keyed from poses, anim.time samples (walk frames differ)' ($ab -and @($al.clips).Count -eq 3 -and ($al.clips | Where-Object { $_.name -eq 'Walk' }).keys -gt 40 -and $wdiff -gt 100) "clips=$(($al.clips | ForEach-Object { $_.name }) -join ',') changed px=$wdiff"
+        Add-Result model 'anim: Idle · Walk · Wave clips keyed from poses, anim.time samples (walk frames differ)' ($ab -and @($al.clips).Count -eq 5 -and ($al.clips | Where-Object { $_.name -eq 'Walk' }).keys -gt 40 -and $wdiff -gt 100) "clips=$(($al.clips | ForEach-Object { $_.name }) -join ',') changed px=$wdiff"
         $ag = M "export --path $vrmDir\Anim.glb"
         $agJson = $null
         if (Test-Path "$vrmDir\Anim.glb") { $bytes = [IO.File]::ReadAllBytes("$vrmDir\Anim.glb"); $len = [BitConverter]::ToUInt32($bytes, 12); $agJson = [Text.Encoding]::UTF8.GetString($bytes, 20, $len) | ConvertFrom-Json }
         $an = if ($agJson) { @($agJson.animations | ForEach-Object { $_.name }) } else { @() }
-        Add-Result model 'export .glb: glTF animations (rotation + Hips translation) + VRMC_vrm humanoid for retargeting' ($an.Count -eq 3 -and $agJson.extensions.VRMC_vrm.humanoid -and @($agJson.animations[0].channels).Count -ge 21) "animations=$($an -join ',') channels(Idle)=$(@($agJson.animations[0].channels).Count)"
+        Add-Result model 'export .glb: glTF animations (rotation + Hips translation) + VRMC_vrm humanoid for retargeting' ($an.Count -eq 5 -and $agJson.extensions.VRMC_vrm.humanoid -and @($agJson.animations[0].channels).Count -ge 21) "animations=$($an -join ',') channels(Idle)=$(@($agJson.animations[0].channels).Count)"
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'create character --name WaveTest' | Out-Null
         Invoke-Nova 'play' | Out-Null
@@ -2617,7 +2617,8 @@ function Suite-ClothSkin
 function Suite-Starter
 {
     # Starter Assets 예제: 차 (create car — 프리팹 · 재질 · Follow Camera, CarController 를 스크립트 입력으로: 쉬기 · 가속 · 조향 · 손 브레이크 · 후진),
-    #  래그돌 표적 (create ragdoll-target — 서 있다가 RagdollShooter 의 광선에 맞으면 쓰러져 밀려남), Camera.ScreenPointToRay
+    #  래그돌 표적 (create ragdoll-target — 서 있다가 RagdollShooter 의 광선에 맞으면 쓰러져 밀려남 → 일어나기 클립 + 섞기), Camera.ScreenPointToRay,
+    #  차에 타고 내리기 (VehicleEnterExit — 숨김 · 운전 · 카메라 전환 → 운전석 쪽에 내려 다시 걷기)
     Write-Host '[starter]'
     $dir = Join-Path $Out 'starter'
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -2695,6 +2696,50 @@ function Suite-Starter
         $b = "$before" -split ' '; $a = "$after" -split ' '
         $ok = "$shot" -match '^True True ' -and $a.Count -ge 4 -and $a[0] -eq 'True' -and $b.Count -eq 2 -and [double]$a[1] -lt [double]$b[0] - 0.3 -and [double]$a[2] -gt [double]$b[1] + 0.1
         Add-Result starter 'shooting the target: ragdoll falls, pushed away from the camera' $ok "shot: $shot / hips before y $($b[0]) z $($b[1]) → $($a[3]) y $($a[1]) z $($a[2])"
+        # 일어나기: 누운 방향의 클립 (등 = GetUpBack, 배 = GetUpFront) + 쓰러진 자세에서 섞기, 루트는 골반 자리로 → 끝나면 Idle (표적에는 Character Controller 가 없다)
+        $gu = Exec 'rd_getup' 'var c = System.Globalization.CultureInfo.InvariantCulture; var d = GameObject.Find("Dummy"); var r = d.GetComponent<Ragdoll>(); Rigidbody pelvis = null; foreach (var rb in d.GetComponentsInChildren<Rigidbody>()) if (rb.gameObject.name.Contains("Pelvis")) pelvis = rb; var pp = pelvis.position; bool up = r.isFaceUp; d.GetComponent<StarterAssets.RagdollTarget>().Recover(); return up + " " + pp.x.ToString("F2", c) + " " + pp.z.ToString("F2", c);'
+        Wait-Sec 0.2
+        $guRead = 'var c = System.Globalization.CultureInfo.InvariantCulture; var d = GameObject.Find("Dummy"); var r = d.GetComponent<Ragdoll>(); var t = d.GetComponent<StarterAssets.RagdollTarget>(); var a = d.GetComponent<Animator>(); var p = d.transform.position; return a.GetCurrentAnimatorStateInfo(0).name + " " + r.isBlending + " " + t.gettingUp + " " + t.down + " " + p.x.ToString("F2", c) + " " + p.z.ToString("F2", c) + " " + a.GetBonePosition(HumanBodyBones.Head).y.ToString("F2", c) + " " + r.active;'
+        $g1 = (Exec 'rd_getup1' $guRead) -split ' '
+        Wait-Sec 0.8
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'getup.png')`" --view game" | Out-Null
+        Wait-Sec 2.5
+        $g2 = (Exec 'rd_getup2' $guRead) -split ' '
+        $gs = "$gu" -split ' '
+        $clip = if ($gs.Count -eq 3 -and $gs[0] -eq 'True') { 'GetUpBack' } else { 'GetUpFront' }
+        $okG = $gs.Count -eq 3 -and $g1.Count -eq 8 -and $g1[0] -eq $clip -and $g1[2] -eq 'True' -and $g1[3] -eq 'False' -and $g1[7] -eq 'False' -and
+            [math]::Abs([double]$g1[4] - [double]$gs[1]) -lt 0.05 -and [math]::Abs([double]$g1[5] - [double]$gs[2]) -lt 0.05 -and
+            $g2.Count -eq 8 -and $g2[0] -eq 'Idle' -and $g2[1] -eq 'False' -and $g2[2] -eq 'False' -and $g2[3] -eq 'False' -and [double]$g2[6] -gt [double]$g1[6] + 0.4
+        Add-Result starter 'get up: clip for the fallen side, root moved to the pelvis, blends from the ragdoll pose, then Idle (controls back on)' $okG "face up $($gs[0]) → $($g1[0]), blending $($g1[1]), root $($g1[4]),$($g1[5]) (pelvis $($gs[1]),$($gs[2])), head y $($g1[6]) → $($g2[6]); after: $($g2[0]) blending $($g2[1]) gettingUp $($g2[2]) down $($g2[3])"
+        Invoke-Nova 'stop' | Out-Null
+        # ---- 차에 타고 내리기 (VehicleEnterExit — create player 가 붙인다): 캐릭터를 숨기고 차를 운전, 카메라가 차 뒤로 → 운전석 쪽에 내려 다시 걷기
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,30 --scale 100,1,100' | Out-Null
+        Invoke-Nova 'create car --name Car --position 3,0,0' | Out-Null
+        Invoke-Nova 'create player' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 2
+        $veRead = 'var c = System.Globalization.CultureInfo.InvariantCulture; var pl = GameObject.Find("Player"); var v = pl.GetComponent<StarterAssets.VehicleEnterExit>(); var car = GameObject.Find("Car"); var f = Camera.main.GetComponent<FollowCamera>(); var p = pl.transform.position; var q = car.transform.position; return v.driving + " " + pl.GetComponentInChildren<SkinnedMeshRenderer>().enabled + " " + pl.GetComponent<CharacterController>().enabled + " " + (f.target != null ? f.target.name : "none") + " " + f.followTargetRotation + " " + p.x.ToString("F2", c) + " " + p.y.ToString("F2", c) + " " + p.z.ToString("F2", c) + " " + q.x.ToString("F2", c) + " " + q.z.ToString("F2", c) + " " + Camera.main.transform.position.z.ToString("F2", c);'
+        $e0 = (Exec 've_enter' 'var v = GameObject.Find("Player").GetComponent<StarterAssets.VehicleEnterExit>(); v.readKeyboard = false; var near = v.NearestCar(); return (near != null ? near.name : "none") + " " + v.Enter(near) + " " + near.readKeyboard + " " + near.handbrake;') -split ' '
+        $e1 = (Exec 've_in' $veRead) -split ' '
+        Add-Result starter 'enter car: nearest car within reach, character hidden, controller off, Follow Camera on the car' (($e0 -join ' ') -eq 'Car True False False' -and $e1.Count -eq 11 -and $e1[0] -eq 'True' -and $e1[1] -eq 'False' -and $e1[2] -eq 'False' -and $e1[3] -eq 'Car' -and $e1[4] -eq 'True') "enter: $($e0 -join ' '); driving $($e1[0]) visible $($e1[1]) controller $($e1[2]) camera $($e1[3]) turns with it $($e1[4])"
+        Exec 've_drive' 'var k = GameObject.Find("Car").GetComponent<StarterAssets.CarController>(); k.throttle = 1f; return 1;' | Out-Null
+        Wait-Sec 3
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'drive.png')`" --view game" | Out-Null
+        $e2 = (Exec 've_driving' $veRead) -split ' '
+        Add-Result starter 'driving: the car moves, the hidden character rides along, the camera follows behind' ($e2.Count -eq 11 -and [double]$e2[9] -gt 8 -and [math]::Abs([double]$e2[7] - [double]$e2[9]) -lt 1.0 -and [double]$e2[10] -lt [double]$e2[9] - 3) "car z $($e2[9]), character z $($e2[7]), camera z $($e2[10])"
+        Exec 've_stop' 'var k = GameObject.Find("Car").GetComponent<StarterAssets.CarController>(); k.throttle = 0f; k.handbrake = true; return 1;' | Out-Null
+        Wait-Sec 2
+        $x0 = Exec 've_exit' 'return GameObject.Find("Player").GetComponent<StarterAssets.VehicleEnterExit>().Exit() + "";'
+        $e3 = (Exec 've_out' $veRead) -split ' '
+        $side = if ($e3.Count -eq 11) { [math]::Sqrt([math]::Pow([double]$e3[5] - [double]$e3[8], 2) + [math]::Pow([double]$e3[7] - [double]$e3[9], 2)) } else { -1 }
+        Exec 've_walk' 'var i = GameObject.Find("Player").GetComponent<StarterAssets.StarterAssetsInputs>(); i.readKeyboard = false; i.move = new Vector2(0, 1); return 1;' | Out-Null
+        Wait-Sec 1.5
+        $e4 = (Exec 've_walked' $veRead) -split ' '
+        $okExit = $x0 -eq 'True' -and $e3.Count -eq 11 -and $e3[0] -eq 'False' -and $e3[1] -eq 'True' -and $e3[2] -eq 'True' -and $e3[3] -eq 'Player' -and $e3[4] -eq 'False' -and
+            $side -gt 1.4 -and $side -lt 2.3 -and [double]$e3[5] -lt [double]$e3[8] -and [math]::Abs([double]$e3[6]) -lt 0.3 -and $e4.Count -eq 11 -and [double]$e4[7] -gt [double]$e3[7] + 0.5
+        Add-Result starter 'exit car: on the ground at the driver side, visible, camera back on the character, walks again' $okExit "exit $x0; character x $($e3[5]) y $($e3[6]) (car x $($e3[8]), $([math]::Round($side, 2)) m to the side), camera $($e3[3]) turns $($e3[4]); walked z $($e3[7]) → $($e4[7])"
         Invoke-Nova 'stop' | Out-Null
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null

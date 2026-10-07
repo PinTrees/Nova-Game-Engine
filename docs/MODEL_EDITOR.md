@@ -195,7 +195,7 @@ Blender 의 Shape Keys: 점마다 셰이프별 위치 차이를 갖고 (버텍�
 
 회전 = 도 (월드 축, 부모 위에): 다리 `pitch −` = 앞으로, 아래팔 `pitch −` = 팔꿈치를 앞으로, 왼팔 `roll −` / 오른팔 `roll +` = 몸 밖으로, `yaw +` = 캐릭터 오른쪽으로. 리타게팅은 **쉬는 자세에서의 회전** 을 옮기므로 원본 캐릭터의 쉬는 자세 (예: 팔이 25° 벌어진 치비) 를 보고 값을 정한다.
 
-예: [examples/anim_basic.txt](examples/anim_basic.txt) — Idle (숨쉬기 · 무게 이동) · Walk (제자리 걸음) · Wave (손 흔들기). 이것을 내보낸 것이 엔진의 **기본 캐릭터 애니메이션** `Resources/Packages/Character/Animations/Nova_Basic.glb` (DefaultCharacter.controller: Idle 기본 + Walk · Wave 상태, C# `Animator.Play("Wave")`).
+예: [examples/anim_basic.txt](examples/anim_basic.txt) — Idle (숨쉬기 · 무게 이동) · Walk (제자리 걸음) · Wave (손 흔들기) · GetUpBack · GetUpFront (래그돌에서 일어나기 — 한 번 재생, `--loop false`). 이것을 내보낸 것이 엔진의 **기본 캐릭터 애니메이션** `Resources/Packages/Character/Animations/Nova_Basic.glb` (DefaultCharacter.controller: Idle 기본 + Walk · Wave 상태, C# `Animator.Play("Wave")`).
 
 ## AI 작업 순서 (권장)
 
