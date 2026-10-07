@@ -107,7 +107,7 @@ const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
 		"Bloom", "ChromaticAberration", "ColorAdjustments", "DepthOfField", "FilmGrain", "MotionBlur", "Tonemapping", "Vignette", "WhiteBalance",
-		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "ScreenSpaceReflection", "Exposure" };
+		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "ScreenSpaceReflection", "AmbientOcclusion", "Exposure" };
 	return kTypes;
 }
 
@@ -272,6 +272,21 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("indirectDiffuse", "Indirect Diffuse Intensity", K::Float, 1.0f, 0.0f),
 			P("reflection", "Reflection Intensity", K::Float, 1.0f, 0.0f),
 			PColor("ambientTint", "Ambient Tint", 1.0f, 1.0f, 1.0f),
+		};
+	}
+	else if (type == "AmbientOcclusion")
+	{
+		// Unity URP 의 Screen Space Ambient Occlusion (HDRP 는 Volume 의 Ambient Occlusion): 깊이 프리패스의 노멀 · 깊이로
+		//  모서리 · 물체가 맞닿은 곳 · 틈의 환경광을 가린다. 기본 = 켜짐 (URP 기본 렌더러처럼 — 예전부터 늘 켜져 있었다)
+		c->DisplayName = "Screen Space Ambient Occlusion";
+		c->Category = "Lighting";
+		c->Params = {
+			P("enabled", "Enable", K::Bool, 1.0f),
+			P("intensity", "Intensity", K::Clamped, 1.0f, 0.0f, 4.0f),
+			P("radius", "Radius", K::Clamped, 0.5f, 0.05f, 5.0f),
+			P("directLightingStrength", "Direct Lighting Strength", K::Clamped, 0.25f, 0.0f, 1.0f),
+			PEnum("samples", "Samples", { "Low", "Medium", "High" }, 1),
+			P("falloffDistance", "Falloff Distance", K::Float, 100.0f, 0.1f),
 		};
 	}
 	else if (type == "ScreenSpaceReflection")
@@ -517,6 +532,7 @@ bool VolumeStack::IsActive(const std::string& type) const
 	if (type == "FilmGrain") return c->F("intensity") > 0.0f;
 	if (type == "WhiteBalance") return c->F("temperature") != 0.0f || c->F("tint") != 0.0f;
 	if (type == "Fog" || type == "Atmosphere" || type == "ScreenSpaceReflection") return c->B("enabled");
+	if (type == "AmbientOcclusion") return c->B("enabled") && c->F("intensity") > 0.0f;
 	if (type == "Exposure") return c->I("mode") == 1 || c->F("compensation") != 0.0f;
 	if (type == "IndirectLighting")
 	{

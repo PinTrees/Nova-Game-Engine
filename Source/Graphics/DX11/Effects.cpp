@@ -603,6 +603,9 @@ SsaoEffect::SsaoEffect(ComPtr<GfxDevice> device, const std::wstring& filename)
 	: Effect(device, filename)
 {
 	SsaoTech = _fx->GetTechniqueByName("Ssao");
+	SsaoLowTech = _fx->GetTechniqueByName("SsaoLow");
+	SsaoHighTech = _fx->GetTechniqueByName("SsaoHigh");
+	Params = _fx->GetVariableByName("gSsaoParams")->AsVector();
 
 	SsaoPower = _fx->GetVariableByName("gSsaoPower")->AsScalar();
 	ViewToTexSpace = _fx->GetVariableByName("gViewToTexSpace")->AsMatrix();

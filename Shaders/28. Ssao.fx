@@ -9,6 +9,7 @@ cbuffer cbPerFrame
     float gOcclusionFadeStart = 0.2f;
     float gOcclusionFadeEnd = 2.0f;
     float gSurfaceEpsilon = 0.05f;
+    float4 gSsaoParams = float4(1.0f, 100.0f, 0.0f, 0.0f);   // NOVA: x 세기 (Intensity), y Falloff Distance (m — 끝 20 % 에서 사라진다)
 };
  
 // Nonnumeric values cannot be added to a cbuffer.
@@ -122,7 +123,8 @@ float4 PS(VertexOut pin, uniform int gSampleCount) : SV_Target
     float3 p = (pz / pin.ToFarPlane.z) * pin.ToFarPlane;
 	
 	// Extract random vector and map from [0,1] --> [-1, +1].
-    float3 randVec = 2.0f * gRandomVecMap.SampleLevel(samRandomVec, 4.0f * pin.Tex, 0.0f).rgb - 1.0f;
+    // NOVA: 정규화 (reflect 는 단위 노멀을 가정 — 길이가 제각각이면 표본이 반구 밖으로 늘고 줄었다)
+    float3 randVec = normalize(2.0f * gRandomVecMap.SampleLevel(samRandomVec, 4.0f * pin.Tex, 0.0f).rgb - 1.0f + 1e-4f);
 
     float occlusionSum = 0.0f;
 	
@@ -177,20 +179,41 @@ float4 PS(VertexOut pin, uniform int gSampleCount) : SV_Target
     }
 	
     occlusionSum /= gSampleCount;
-	
-    float access = 1.0f - occlusionSum;
 
-	// Sharpen the contrast of the SSAO map to make the SSAO affect more dramatic.
-    return saturate(pow(access, 16.0f));
+    // NOVA: 세기 × 가림 (예전: 표본 1 개를 pow(…, 16) 으로 — 거의 0 / 1 인 노이즈를 흐림이 뭉갰다),
+    //  카메라에서 Falloff Distance 끝 20 % 에서 사라진다 (빈 하늘 = 아주 먼 깊이 → 1)
+    float fade = saturate((gSsaoParams.y - pz) / max(gSsaoParams.y * 0.2f, 1e-3f));
+    return saturate(1.0f - occlusionSum * gSsaoParams.x * fade);
 }
 
+// NOVA: 표본 수 = Volume 의 Samples (Low 4 · Medium 8 · High 14). 예전엔 PS(1) — 표본 하나
 technique11 Ssao
 {
     pass P0
     {
         SetVertexShader(CompileShader(vs_5_0, VS()));
         SetGeometryShader(NULL);
-        SetPixelShader(CompileShader(ps_5_0, PS(1)));
+        SetPixelShader(CompileShader(ps_5_0, PS(8)));
+    }
+}
+
+technique11 SsaoLow
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(4)));
+    }
+}
+
+technique11 SsaoHigh
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(14)));
     }
 }
  

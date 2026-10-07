@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -4685,6 +4685,152 @@ public static class NovaLineMask
     }
 }
 
+function Suite-SSAO
+{
+    # Screen Space Ambient Occlusion (Volume — URP SSAO 와 같은 값): 바닥 위 상자 · 벽. `nova ssao map` 으로 AO 맵 (흰 = 가림 없음) 을 직접 읽는다
+    #  맞닿은 곳만 어둡다 (평평한 바닥 · 하늘은 1), Enable · Intensity · Radius · Samples · Falloff Distance · Direct Lighting Strength,
+    #  Game 뷰의 시야각을 바꿔도 바닥이 가려지지 않는다 (예전: 화면 구석 방향을 처음 크기 · 시야각으로만), Scene · Game 뷰 같음, OpenGL = DX11
+    Write-Host '[ssao]'
+    $dir = Join-Path $Out 'ssao'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\SsaoTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    function AoProfile([string]$name, [hashtable]$vals)
+    {
+        $params = @{}
+        foreach ($k in $vals.Keys) { $params[$k] = @{ override = $true; value = @($vals[$k], 0, 0, 0) } }
+        @{ nova_volume_profile = 1; components = @(@{ type = 'AmbientOcclusion'; active = $true; params = $params }) } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.volumeprofile")
+    }
+    AoProfile 'Off' @{ enabled = 0 }
+    AoProfile 'On' @{ enabled = 1 }
+    AoProfile 'Strong' @{ enabled = 1; intensity = 2 }
+    AoProfile 'Zero' @{ enabled = 1; intensity = 0 }
+    AoProfile 'Wide' @{ enabled = 1; radius = 1.5 }
+    AoProfile 'Near' @{ enabled = 1; falloffDistance = 1 }
+    AoProfile 'Low' @{ enabled = 1; samples = 0 }
+    AoProfile 'High' @{ enabled = 1; samples = 2 }
+    AoProfile 'Direct0' @{ enabled = 1; intensity = 2; directLightingStrength = 0 }
+    AoProfile 'Direct1' @{ enabled = 1; intensity = 2; directLightingStrength = 1 }
+    # AO 맵의 영역 (그림 크기의 비율): 벽 밑 · 상자 밑이 바닥에 닿는 곳, 열린 바닥 (아래), 하늘 (왼쪽 위)
+    $contact = @(0.48, 0.68, 0.48, 0.56)
+    $box = @(0.34, 0.47, 0.58, 0.66)
+    $open = @(0.02, 0.98, 0.80, 0.98)
+    $sky = @(0.0, 0.3, 0.0, 0.25)
+    function AoStats([string]$png, [double[]]$r)
+    {
+        if (-not (Test-Path $png)) { return [pscustomobject]@{ Mean = -1; Min = -1; Dark = -1 } }
+        $bm = [System.Drawing.Bitmap]::FromFile($png); $n = 0; $sum = 0.0; $lo = 1.0; $dark = 0
+        for ($y = [int]($bm.Height * $r[2]); $y -lt [int]($bm.Height * $r[3]); $y++) { for ($x = [int]($bm.Width * $r[0]); $x -lt [int]($bm.Width * $r[1]); $x++) {
+            $v = $bm.GetPixel($x, $y).R / 255.0; $n++; $sum += $v; if ($v -lt $lo) { $lo = $v }; if ($v -lt 0.95) { $dark++ } } }
+        $bm.Dispose(); $n = [math]::Max(1, $n)
+        [pscustomobject]@{ Mean = $sum / $n; Min = $lo; Dark = $dark / $n }
+    }
+    function Luma([string]$png, [double[]]$r)
+    {
+        $bm = [System.Drawing.Bitmap]::FromFile($png); $n = 0; $sum = 0.0
+        for ($y = [int]($bm.Height * $r[2]); $y -lt [int]($bm.Height * $r[3]); $y += 2) { for ($x = [int]($bm.Width * $r[0]); $x -lt [int]($bm.Width * $r[1]); $x += 2) {
+            $c = $bm.GetPixel($x, $y); $n++; $sum += 0.2126 * $c.R + 0.7152 * $c.G + 0.0722 * $c.B } }
+        $bm.Dispose(); $sum / [math]::Max(1, $n)
+    }
+    function SsaoScene
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name Ground --position 0,-0.5,2 --scale 30,1,30' | Out-Null
+        Invoke-Nova 'create cube --name Box --position -0.8,0.5,1.5' | Out-Null
+        Invoke-Nova 'create cube --name Wall --position 0.8,1.5,2.6 --scale 3,3,0.3' | Out-Null
+        Invoke-Nova 'camera --position 0,1.8,-2.5 --target 0,0.4,1.8' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.8,-2.5 --rotation 18.03,0,0' | Out-Null   # Scene 뷰 카메라와 같은 방향 (0,0.4,1.8 을 본다)
+    }
+    function WaitSsaoShader { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 120) { $t = Invoke-Nova 'log -n 400'; if ($t -match 'compiled 28\. Ssao\.fx|cache hit 28\. Ssao\.fx') { break }; Start-Sleep -Milliseconds 500 } }
+    function Vol([string]$name) { Invoke-Nova ('set "Global Volume" --component Volume --values "{\"profile\":\"Assets/SsaoTest/' + $name + '.volumeprofile\"}"') | Out-Null; Invoke-Nova 'wait 8' | Out-Null }
+    function AoMap([string]$name, [string]$view = 'scene') { $p = Join-Path $dir "$name.png"; $j = Invoke-NovaJson ('ssao map "' + $p + '" --view ' + $view); [pscustomobject]@{ Path = $p; Info = $j } }
+    $ed = Start-TestEditor
+    $dxOn = $null
+    try
+    {
+        WaitSsaoShader
+        SsaoScene
+
+        Vol 'Off'; $off = AoMap 'off'
+        $offAll = AoStats $off.Path @(0, 1, 0, 1)
+        $offShot = Join-Path $dir 'shot_off.png'; Invoke-Nova "screenshot `"$offShot`" --view scene" | Out-Null
+        Vol 'On'; $on = AoMap 'on'; $dxOn = $on.Path
+        $onShot = Join-Path $dir 'shot_on.png'; Invoke-Nova "screenshot `"$onShot`" --view scene" | Out-Null
+        Add-Result ssao 'Enable off: no AO (the map is white), the Volume reports it inactive' ($off.Info -and -not $off.Info.active -and $offAll.Min -ge 0.99) ("active {0}, map min {1:N3}" -f $off.Info.active, $offAll.Min)
+
+        $c = AoStats $on.Path $contact; $b = AoStats $on.Path $box; $o = AoStats $on.Path $open; $s = AoStats $on.Path $sky
+        Add-Result ssao 'On: darker where the box and the wall meet the ground, flat ground and sky stay open (no self-occlusion)' ($on.Info.active -and $on.Info.samples -eq 8 -and $c.Mean -lt 0.9 -and $c.Min -lt 0.75 -and $b.Min -lt 0.8 -and $o.Min -ge 0.97 -and $s.Min -ge 0.99) ("contact mean {0:N2} min {1:N2}, box base min {2:N2}, open ground min {3:N3}, sky min {4:N3}" -f $c.Mean, $c.Min, $b.Min, $o.Min, $s.Min)
+        # 최종 그림: 맞닿은 곳만 어두워지고 열린 바닥은 그대로
+        $lc0 = Luma $offShot $contact; $lc1 = Luma $onShot $contact; $lo0 = Luma $offShot $open; $lo1 = Luma $onShot $open
+        Add-Result ssao 'AO reaches the lit image: the contact gets darker, open ground is unchanged' ($lc1 -lt $lc0 - 4 -and [math]::Abs($lo1 - $lo0) -lt 1.5) ("contact luminance {0:N1} -> {1:N1}, open ground {2:N1} -> {3:N1}" -f $lc0, $lc1, $lo0, $lo1)
+
+        Vol 'Strong'; $c2 = AoStats (AoMap 'strong').Path $contact
+        Vol 'Zero'; $z = AoMap 'zero'; $zAll = AoStats $z.Path @(0, 1, 0, 1)
+        Add-Result ssao 'Intensity: 2 is darker than 1, 0 = no AO' ($c2.Mean -lt $c.Mean - 0.04 -and -not $z.Info.active -and $zAll.Min -ge 0.99) ("contact mean x1 {0:N3}, x2 {1:N3}; intensity 0 min {2:N3}" -f $c.Mean, $c2.Mean, $zAll.Min)
+
+        Vol 'Wide'; $wAll = AoStats (AoMap 'wide').Path @(0, 1, 0, 1); $onAll = AoStats $on.Path @(0, 1, 0, 1)
+        Add-Result ssao 'Radius 1.5 m: the occlusion reaches further than 0.5 m' ($wAll.Dark -gt $onAll.Dark * 1.5 -and $wAll.Dark -gt 0) ("pixels under 0.95: radius 0.5 {0:P1}, radius 1.5 {1:P1}" -f $onAll.Dark, $wAll.Dark)
+
+        Vol 'Low'; $lw = AoMap 'low'; $cl = AoStats $lw.Path $contact
+        Vol 'High'; $hg = AoMap 'high'; $ch = AoStats $hg.Path $contact; $oh = AoStats $hg.Path $open
+        Add-Result ssao 'Samples Low 4 / High 14: both darken the contact, ground stays open' ($lw.Info.samples -eq 4 -and $hg.Info.samples -eq 14 -and $cl.Mean -lt 0.92 -and $ch.Mean -lt 0.92 -and $oh.Min -ge 0.97) ("samples {0} / {1}, contact mean {2:N2} / {3:N2}" -f $lw.Info.samples, $hg.Info.samples, $cl.Mean, $ch.Mean)
+
+        Vol 'Near'; $nAll = AoStats (AoMap 'near').Path @(0, 1, 0, 1)
+        Add-Result ssao 'Falloff Distance 1 m: everything farther than 1 m from the camera has no AO' ($nAll.Min -ge 0.99) ("map min {0:N3}" -f $nAll.Min)
+
+        # Direct Lighting Strength: 0 = AO 는 환경광만, 1 = 직접광에도 (맞닿은 곳이 더 어둡다)
+        Vol 'Direct0'; $d0 = Join-Path $dir 'shot_direct0.png'; Invoke-Nova "screenshot `"$d0`" --view scene" | Out-Null
+        Vol 'Direct1'; $d1 = Join-Path $dir 'shot_direct1.png'; Invoke-Nova "screenshot `"$d1`" --view scene" | Out-Null
+        $ld0 = Luma $d0 $contact; $ld1 = Luma $d1 $contact; $lg0 = Luma $d0 $open; $lg1 = Luma $d1 $open
+        Add-Result ssao 'Direct Lighting Strength 1: AO also darkens the direct light at the contact (open ground unchanged)' ($ld1 -lt $ld0 - 1 -and [math]::Abs($lg1 - $lg0) -lt 1.5) ("contact luminance {0:N1} -> {1:N1}, open ground {2:N1} -> {3:N1}" -f $ld0, $ld1, $lg0, $lg1)
+
+        # Game 뷰 (Main Camera): Scene 뷰와 같은 AO, 시야각을 바꿔도 바닥이 가려지지 않는다
+        Vol 'On'
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $g = AoMap 'game_on' 'game'; $gc = AoStats $g.Path $contact; $go = AoStats $g.Path $open; $gAll = AoStats $g.Path @(0, 1, 0, 1)
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"fovY\":0.6}"' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $gz = AoMap 'game_fov' 'game'; $gzo = AoStats $gz.Path $open; $gzAll = AoStats $gz.Path @(0, 1, 0, 1)
+        Add-Result ssao 'Game view: same AO as the Scene view; a narrower field of view keeps the flat ground open' ($gc.Mean -lt 0.92 -and $gAll.Min -lt 0.8 -and $go.Min -ge 0.97 -and $gzAll.Min -lt 0.8 -and $gzo.Min -ge 0.97) ("contact mean {0:N2}, map min {1:N2}, ground min {2:N3}; FOV 0.6 rad: map min {3:N2}, ground min {4:N3}" -f $gc.Mean, $gAll.Min, $go.Min, $gzAll.Min, $gzo.Min)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+
+    # OpenGL = DX11 (같은 장면 · 같은 AO 맵)
+    $edGl = Start-TestEditor -OpenGL
+    try
+    {
+        WaitSsaoShader
+        SsaoScene
+        Vol 'On'
+        $gl = AoMap 'on_gl'
+        $diff = -1
+        if ($dxOn -and (Test-Path $dxOn) -and (Test-Path $gl.Path))
+        {
+            $a = [System.Drawing.Bitmap]::FromFile($dxOn); $bgl = [System.Drawing.Bitmap]::FromFile($gl.Path)
+            if ($a.Width -eq $bgl.Width -and $a.Height -eq $bgl.Height)
+            {
+                $sum = 0.0; $n = 0
+                for ($y = 0; $y -lt $a.Height; $y += 2) { for ($x = 0; $x -lt $a.Width; $x += 2) { $sum += [math]::Abs($a.GetPixel($x, $y).R - $bgl.GetPixel($x, $y).R); $n++ } }
+                $diff = $sum / [math]::Max(1, $n)
+            }
+            $a.Dispose(); $bgl.Dispose()
+        }
+        $glc = AoStats $gl.Path $contact
+        Add-Result ssao 'OpenGL: the same AO map as DirectX 11' ($diff -ge 0 -and $diff -lt 2.0 -and $glc.Mean -lt 0.9) ("mean difference {0:N2} / 255, contact mean {1:N2}" -f $diff, $glc.Mean)
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $edGl)"
+        Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -6170,6 +6316,7 @@ try
                 'occlusionvk' { Suite-OcclusionVK }
                 'linetrail' { Suite-LineTrail }
                 'ssr' { Suite-SSR }
+                'ssao' { Suite-SSAO }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }

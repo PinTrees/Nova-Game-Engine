@@ -361,6 +361,18 @@ static void SetIndirectGI(FxEffect* fx)
 	if (auto* var = fx->GetVariableByName("gIndirectGI")->AsVector(); var && var->IsValid())
 		var->SetFloatVector(&s_IndirectGI.x);
 }
+// Screen Space Ambient Occlusion 의 Direct Lighting Strength (꺼져 있으면 0) → ShadeLit
+static XMFLOAT4 s_SsaoParams(0.0f, 0.0f, 0.0f, 0.0f);
+static void SetSsaoParams(FxEffect* fx)
+{
+	if (auto* var = fx->GetVariableByName("gSsaoParams")->AsVector(); var && var->IsValid())
+		var->SetFloatVector(&s_SsaoParams.x);
+}
+static void UseSsaoSettings(const Ssao::Settings& s)
+{
+	s_SsaoParams = XMFLOAT4(s.Active() ? s.DirectLightingStrength : 0.0f, 0.0f, 0.0f, 0.0f);
+	SetSsaoParams(Effects::InstancedBasicFX->GetFX());
+}
 static XMFLOAT4 ApplyIndirectLighting(const VolumeStack& stack)
 {
 	XMFLOAT4 v(1.0f, 1.0f, 1.0f, 1.0f);
@@ -617,7 +629,9 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	if (!probe)
 	{
 		phase.Next("SSAO");
-		PostProcessingManager::GetI()->RenderSSAO(d.Cam);
+		const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
+		PostProcessingManager::GetI()->RenderSSAO(d.Cam, ssaoSettings);
+		UseSsaoSettings(ssaoSettings);
 	}
 	GfxShaderResourceView* ssaoMap = probe ? SpriteBatch::WhiteTexture() : ssao->AmbientSRV().Get();
 
@@ -704,6 +718,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 			if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 				var->SetFloatVector(&indirect.x);
 			SetIndirectGI(fx->GetFX());
+			SetSsaoParams(fx->GetFX());
 			fx->SetDirLights(dirLights.data(), dirLights.size());
 			fx->SetSpotLights(spotLights.data(), spotLights.size());
 			fx->SetPointLights(pointLights.data(), pointLights.size());
@@ -874,7 +889,9 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 
 	// PostProcessing - SSAO
 	phase.Next("SSAO");
-	PostProcessingManager::GetI()->_Editor_RenderSSAO(camera);
+	const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
+	PostProcessingManager::GetI()->_Editor_RenderSSAO(camera, ssaoSettings);
+	UseSsaoSettings(ssaoSettings);
 
 	// Volume 후처리 (Scene 뷰: 툴바 Effects > Post Processing 이 켜져 있을 때, 카메라 옵션은 기본)
 	auto& post = PostProcessingManager::GetI()->EditorPost();   // stack 은 그림자 패스 앞에서 섞었다
@@ -933,6 +950,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
 			var->SetFloatVector(&indirect.x);
 		SetIndirectGI(fx->GetFX());
+		SetSsaoParams(fx->GetFX());
 		fx->SetDirLights(dirLights.data(), dirLights.size());
 		fx->SetSpotLights(spotLights.data(), spotLights.size());
 		fx->SetPointLights(pointLights.data(), pointLights.size());

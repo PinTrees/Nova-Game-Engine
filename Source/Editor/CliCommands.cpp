@@ -20,6 +20,7 @@
 #include "EditorCamera.h"
 #include "ScriptEngine.h"
 #include "CSharpScript.h"
+#include "PostProcessingManager.h"
 #include "BuildPipeline.h"
 #include "Transform.h"
 #include "EngineInfo.h"
@@ -1317,6 +1318,60 @@ namespace CliCommands
 		});
 
 		// 스크린샷: 앞 명령(카메라 이동 등)이 그려진 뒤에 찍도록 3 프레임 기다린다
+		// Screen Space Ambient Occlusion (Volume): 이번 프레임에 쓴 값 · AO 맵 (흰 = 가림 없음) 을 회색 PNG 로
+		Register("ssao", "screen space ambient occlusion {op: info | map, path?, view: game | scene} (nova ssao info)", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			const std::string view = Lower(a.value("view", std::string("game")));
+			Ssao* s = view == "scene" ? PostProcessingManager::GetI()->_EditorGetSSAO() : PostProcessingManager::GetI()->GetSSAO();
+			if (s == nullptr) { e = "no SSAO for the " + view + " view yet (open the view first)"; return false; }
+			const Ssao::Settings& st = s->LastSettings();
+			r["view"] = view;
+			r["enabled"] = st.Enabled;
+			r["active"] = st.Active();
+			r["intensity"] = st.Intensity;
+			r["radius"] = st.Radius;
+			r["directLightingStrength"] = st.DirectLightingStrength;
+			r["samples"] = Ssao::Settings::SampleCount(st.Samples);
+			r["falloffDistance"] = st.FalloffDistance;
+			r["mapSize"] = { s->MapWidth(), s->MapHeight() };
+			if (op == "info")
+				return true;
+			if (op != "map") { e = "op must be info or map"; return false; }
+			const std::string path = a.value("path", std::string());
+			if (path.empty()) { e = "map needs a path (nova ssao map out.png)"; return false; }
+			DirectX::ScratchImage captured, converted;
+			if (FAILED(Gfx::CaptureTexture(Application::GetI()->GetDeviceContext(), s->AmbientTexture(), captured))) { e = "capture failed"; return false; }
+			const DirectX::Image* img = captured.GetImage(0, 0, 0);
+			if (img->format != DXGI_FORMAT_R32_FLOAT)
+			{
+				if (FAILED(DirectX::Convert(*img, DXGI_FORMAT_R32_FLOAT, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, converted))) { e = "format conversion failed"; return false; }
+				img = converted.GetImage(0, 0, 0);
+			}
+			const int w = (int)img->width, h = (int)img->height;
+			std::vector<uint8_t> rgba((size_t)w * h * 4);
+			double sum = 0.0;
+			float lo = 1.0f;
+			for (int y = 0; y < h; ++y)
+			{
+				const float* row = reinterpret_cast<const float*>(img->pixels + y * img->rowPitch);
+				for (int x = 0; x < w; ++x)
+				{
+					const float v = std::clamp(row[x], 0.0f, 1.0f);
+					sum += v;
+					lo = (std::min)(lo, v);
+					uint8_t* p = &rgba[((size_t)y * w + x) * 4];
+					p[0] = p[1] = p[2] = (uint8_t)(v * 255.0f + 0.5f);
+					p[3] = 255;
+				}
+			}
+			if (!SavePng(rgba, w, h, ProjectFile(path), e))
+				return false;
+			r["path"] = path;
+			r["mean"] = w * h > 0 ? sum / ((double)w * h) : 1.0;
+			r["min"] = lo;
+			return true;
+		});
+
 		Register("screenshot", "save the Scene or Game view to PNG/JPG {path, view: scene|game}", [](const json& a, json& r, std::string& e) {
 			const std::string view = Lower(a.value("view", std::string("scene")));
 			GfxTexture2D* tex = nullptr;

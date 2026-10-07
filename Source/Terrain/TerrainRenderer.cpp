@@ -479,6 +479,7 @@ namespace TerrainRenderer
 			Effects::InstancedBasicFX->SetMaterial(mat);
 			ShaderSetting setting = UMaterial::GetDefault()->GetShaderSetting();
 			setting.UseShadowMap = 1;
+			setting.UseSsaoMap = 1;   // SSAO (Volume 이 끄면 흰 맵)
 			Effects::InstancedBasicFX->SetShaderSetting(setting);
 		}
 		else if (pass == Pass::Shadow)

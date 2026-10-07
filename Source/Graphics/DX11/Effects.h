@@ -834,11 +834,16 @@ public:
 	void SetOcclusionFadeStart(float f) { OcclusionFadeStart->SetFloat(f); }
 	void SetOcclusionFadeEnd(float f) { OcclusionFadeEnd->SetFloat(f); }
 	void SetSurfaceEpsilon(float f) { SurfaceEpsilon->SetFloat(f); }
+	// x 세기, y Falloff Distance (Volume 의 Screen Space Ambient Occlusion)
+	void SetParams(float intensity, float falloff) { const float v[4] = { intensity, falloff, 0.0f, 0.0f }; if (Params && Params->IsValid()) Params->SetFloatVector(v); }
 
 	void SetNormalDepthMap(GfxShaderResourceView* srv) { NormalDepthMap->SetResource(srv); }
 	void SetRandomVecMap(GfxShaderResourceView* srv) { RandomVecMap->SetResource(srv); }
 
-	ComPtr<FxTechnique> SsaoTech;
+	ComPtr<FxTechnique> SsaoTech;       // Medium (표본 8)
+	ComPtr<FxTechnique> SsaoLowTech;    // Low (4)
+	ComPtr<FxTechnique> SsaoHighTech;   // High (14)
+	ComPtr<FxVar> Params;
 	ComPtr<FxVar> SsaoPower;
 	ComPtr<FxVar> ViewToTexSpace;
 	ComPtr<FxVar> OffsetVectors;

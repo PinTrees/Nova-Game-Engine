@@ -650,6 +650,7 @@ namespace
 		"  vfx batch <file | ->                   one op per line ... list: nova vfx help\n"
 		"  probe info | bake [--name X] | render  Reflection Probe: list, bake to <scene>/ReflectionProbe-<n>.dds, re-capture realtime\n"
 		"  probevolume info                       Adaptive Probe Volume (realtime GI): cascades, voxels live, probes\n"
+		"  ssao info | map <out.png> [--view game|scene]   Screen Space Ambient Occlusion (Volume): settings in use, save the AO map (white = open)\n"
 		"  lod info | assign --name G --lod 1 --object O | recalc --name G   LOD Group: LOD each view picked, add renderers\n"
 		"  occlusion info | set --enabled false    GPU occlusion culling (Hi-Z, no bake): renderers tested / culled per view\n"
 		"  modelfile place <Assets/x.fbx> [--parent P] [--position x,y,z] | info <path>   put a model like a Project drop (Mesh Renderers, _LODn -> LOD Group)\n"
@@ -1195,7 +1196,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

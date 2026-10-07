@@ -20,12 +20,13 @@ private:
 public:
 	void Init();
 
-	void RenderSSAO(Camera* camera);
+	// Volume 의 Screen Space Ambient Occlusion 값으로 (꺼져 있으면 흰 맵)
+	void RenderSSAO(Camera* camera, const Ssao::Settings& settings);
 	void SetSSAO(int32 screenWidth, int32 screenHeight, Camera* camera);
 	Ssao* GetSSAO() { return m_GameSSAO.get(); }
 
 	// Editor
-	void _Editor_RenderSSAO(EditorCamera* camera);
+	void _Editor_RenderSSAO(EditorCamera* camera, const Ssao::Settings& settings);
 	void _EditorSetSSAO(int32 screenWidth, int32 screenHeight, EditorCamera* camera);
 	Ssao* _EditorGetSSAO() { return m_EditorSSAO.get(); }
 

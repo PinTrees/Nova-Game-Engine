@@ -389,6 +389,9 @@ void UMaterial::Apply(InstancedBasicEffect* fx, bool forPreview)
 	else
 		p.EmissionColor = XMFLOAT4(0, 0, 0, 1);
 	ShaderSetting setting = m_shaderSetting;
+	// SSAO 는 모든 Lit 재질에 (Unity 와 같이 — 재질마다 켜는 칸은 없다). 예전엔 재질의 UseSsaoMap (기본 0, Inspector 에 없음) 을 따라
+	//  AO 맵을 계산해 놓고 어떤 재질에도 쓰지 않았다. 끄기는 Volume 의 Screen Space Ambient Occlusion 으로 (꺼지면 흰 맵)
+	setting.UseSsaoMap = 1;
 	if (forPreview)
 	{
 		setting.UseShadowMap = 0;
