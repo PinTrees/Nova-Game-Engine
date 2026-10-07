@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **Cinemachine 급 카메라** (사용자 요청: 가상 카메라 여럿 · 섞기 · 흔들림) + **검사 편집기를 창 없이** (사용자 요청). **완료 (커밋, 푸시 전)**. 다음: 에디터 Rendering Debugger → Motion Blur 타일 최대 속도 (사용자가 이어서 요청)
+- 갱신 시각: 2026년 10월 8일 — **에디터 Rendering Debugger** (사용자 요청 — Cinemachine 다음). **완료 (커밋, 푸시 전)**. 다음: Motion Blur 타일 최대 속도
+  - `RenderingDebug` (`Source/Graphics/DX11/RenderingDebug.*`, `Shaders/64. RenderingDebug.fx`): None · Depth · Normals (World) · Ambient Occlusion · Motion Vectors · Probe Volume Lighting · Sampling — Scene · Game 뷰 함께, 후처리 뒤 전체 화면
+  - Window > Analysis > Rendering Debugger (`RenderingDebuggerWindow`), Scene 뷰 툴바 bug ▾ > Debug View, CLI `debugview <mode> [--range] [--scale] | info`
+  - `MotionVectors` 를 뷰마다 (Game · Scene) 따로 — Scene 뷰는 이 보기일 때만 그린다. APV 모드는 `ProbeVolumes::SetDebugView` (새 API)
+  - 검사 `-Only renderingdebug` 10/10. 문서 docs/RENDERING_DEBUGGER.md, Showcase 265
+- 이전: 2026년 10월 8일 — **Cinemachine 급 카메라** (사용자 요청: 가상 카메라 여럿 · 섞기 · 흔들림) + **검사 편집기를 창 없이** (사용자 요청). **완료 (커밋 71a2dcf, 푸시 전)**
   - `Packages/com.nova.cameras` 1.1.0: Unity Cinemachine 3 이름의 C++ 컴포넌트 — Brain (Priority · 같으면 늦게 켜진 것, Default · Custom Blends 7 모양, 섞는 중 바뀌면 Mid-Blend), CinemachineCamera (Lens · Target · Procedural Components 드롭다운), Follow (Binding Mode 6 · Damping) · Orbital Follow (구 · 세 고리 · 축) · Third Person Follow (벽 피하기 = RaycastAll), Rotation Composer (Screen Position · Dead Zone · Hard Limits) · Hard Look At · Rotate With Follow Target, Basic Multi Channel Perlin (프로필 9), Impulse Source · Listener
   - GameObject > Cinemachine (Camera · Follow · FreeLook · Third Person Aim — Main Camera 에 Brain), CLI `cinemachine info|create|priority|prioritize|enable|axis|blend|impulse|snap`, C# `NovaEngine.Cinemachine` (Runtime/Cinemachine.cs, 묶음 설정은 바로 쓰이는 class) + C# Cinemachine Input Axis Controller
   - 엔진: 편집 중 컴포넌트 갱신 `Component::_Editor_Update` 를 실제로 부른다 (`Scene::EditorUpdateScene`, App 루프에서 Play 가 아닐 때 — Unity [ExecuteAlways]), GameObject 메뉴가 패키지 항목의 하위 메뉴를 일반적으로 (`EditorExtensions::CreateMenuFolders`)

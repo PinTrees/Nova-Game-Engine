@@ -4,6 +4,8 @@
 #include "EditorTheme.h"
 #include "UnityGUI.h"
 #include "GameObjectMenu.h"
+#include "RenderingDebug.h"
+#include "RenderingDebuggerWindow.h"
 
 namespace
 {
@@ -491,10 +493,18 @@ namespace SceneToolbar
 			Check("Increment Snapping", &s.autoSnap);
 			EndDrop();
 		}
-		if (BeginDrop("bug_menu", bugX, bottom, 190.0f))
+		if (BeginDrop("bug_menu", bugX, bottom, 230.0f))
 		{
 			Check("Instancing", &rm->InstancingMode);
 			Check("Wireframe", &rm->WireFrameMode);
+			// Rendering Debugger 의 전체 화면 보기 (Scene · Game 뷰 모두)
+			ImGui::Separator();
+			ImGui::TextDisabled("Debug View");
+			for (int m = 0; m < RenderingDebug::ModeCount; ++m)
+				if (ImGui::MenuItem(RenderingDebug::ModeNames()[m], nullptr, RenderingDebug::Get().Mode == m))
+					RenderingDebug::SetMode(m);
+			if (ImGui::MenuItem("Rendering Debugger..."))
+				RenderingDebuggerWindow::Toggle();
 			EndDrop();
 		}
 		if (BeginDrop("fx_menu", effectsX, bottom, 190.0f))

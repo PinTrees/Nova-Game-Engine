@@ -28,6 +28,9 @@ namespace ProbeVolumes
 	// 셰이더 값 (프로브 아틀라스 · 단계). 볼륨이 없으면 단계 수 0 (하늘)
 	NOVA_API void Bind(InstancedBasicEffect* fx);
 	NOVA_API bool Capturing();
+	// 진단 보기 (Rendering Debugger · nova probevolume debug --view): 0 끔, 1 프로브 빛만, 2 섞은 방법 색
+	NOVA_API void SetDebugView(int view);
+	NOVA_API int DebugView();
 
 	NOVA_API bool CascadeBox(int cascade, Vec3& min, Vec3& max);
 	NOVA_API std::string StatusText();

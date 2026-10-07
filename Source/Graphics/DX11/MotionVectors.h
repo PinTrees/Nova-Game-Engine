@@ -26,13 +26,15 @@ namespace MotionVectors
 		XMFLOAT4X4 ProjJittered = {};  // 깊이 프리패스가 쓴 투영 (TAA 면 지터, 아니면 Proj 와 같음)
 		UINT Width = 0, Height = 0;
 		GfxShaderResourceView* NormalDepth = nullptr;   // 깊이 프리패스 (xyz 뷰 노멀, w 뷰 깊이)
+		bool SceneView = false;   // Scene 뷰 (Rendering Debugger 의 Motion Vectors 보기) — 타깃 · 지난 프레임 기록이 Game 뷰와 따로
 	};
 
 	// Game 뷰: 깊이 프리패스 뒤, SSAO 앞. 꺼져 있으면 그리지 않고 Valid() = false
 	void Render(const Frame& frame, const Settings& settings);
-	bool Valid();
-	GfxShaderResourceView* SRV();
-	GfxTexture2D* Texture();
+	bool Valid(bool sceneView = false);
+	GfxShaderResourceView* SRV(bool sceneView = false);
+	GfxTexture2D* Texture(bool sceneView = false);
+	void Invalidate(bool sceneView);   // 이번 프레임에 그리지 않은 뷰 (지난 결과를 쓰지 않게)
 	// 진단: 켜짐 · 크기 · 이번 프레임에 다시 그린 물체 수
-	nlohmann::json Info();
+	nlohmann::json Info(bool sceneView = false);
 }

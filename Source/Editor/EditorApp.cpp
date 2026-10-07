@@ -36,6 +36,7 @@
 #include "DecalRenderer.h"
 #include "ReflectionProbes.h"
 #include "ProbeVolumes.h"
+#include "RenderingDebug.h"
 #include "LODGroup.h"
 #include "ScreenSpaceReflection.h"
 #include "ModelPlacement.h"
@@ -225,6 +226,7 @@ bool EditorApp::Init()
 	{
 		ReflectionProbes::RegisterEditor();   // nova probe
 		ProbeVolumes::RegisterEditor();       // nova probevolume
+		RenderingDebug::RegisterEditor();     // nova debugview (Window > Analysis > Rendering Debugger)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
@@ -826,6 +828,23 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
 	}
+
+	// Rendering Debugger: 깊이 · 노멀 · SSAO · 모션 벡터 전체 화면 보기 (프로브 찍기에는 없음)
+	if (!probe)
+	{
+		RenderingDebug::Inputs dbg;
+		dbg.NormalDepth = normalDepthSRV;
+		dbg.Ao = ssaoMap;
+		dbg.Motion = motionVectors;
+		XMStoreFloat4x4(&dbg.View, d.View);
+		dbg.Width = (UINT)viewport.Width;
+		dbg.Height = (UINT)viewport.Height;
+		if (RenderingDebug::Draw(dbg, renderTargetView, viewport))
+		{
+			GfxRenderTargetView* outTargets[1] = { renderTargetView };
+			_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
+		}
+	}
 }
 
 void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, EditorCamera* camera)
@@ -905,6 +924,28 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		SceneCulling::SetEditorView(true);
 		SceneCulling::Cull(camera->View() * camera->Proj(), false);   // 빛 컬링 뒤 카메라 컬링을 되돌린다
 	}
+
+	// 모션 벡터: Scene 뷰는 Rendering Debugger 의 Motion Vectors 보기에서만 (Game 뷰와 따로 기록)
+	GfxShaderResourceView* sceneMotion = nullptr;
+	if (RenderingDebug::NeedsMotionVectors())
+	{
+		phase.Next("Motion Vectors");
+		MotionVectors::Frame mf;
+		XMStoreFloat4x4(&mf.View, camera->View());
+		XMStoreFloat4x4(&mf.Proj, camera->Proj());
+		mf.ProjJittered = mf.Proj;
+		mf.Width = (UINT)viewport.Width;
+		mf.Height = (UINT)viewport.Height;
+		mf.NormalDepth = ssao->NormalDepthSRV().Get();
+		mf.SceneView = true;
+		MotionVectors::Settings ms = MotionVectors::Settings::FromStack(stack);
+		ms.Enabled = true;   // 보려고 켠 것 (Volume 이 꺼도)
+		MotionVectors::Render(mf, ms);
+		sceneMotion = MotionVectors::SRV(true);
+		_deviceContext->RSSetViewports(1, &viewport);
+	}
+	else
+		MotionVectors::Invalidate(true);
 
 	// PostProcessing - SSAO
 	phase.Next("SSAO");
@@ -1073,6 +1114,19 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		GfxRenderTargetView* outTargets[1] = { renderTargetView };
 		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
 		_deviceContext->RSSetViewports(1, &viewport);
+	}
+
+	// Rendering Debugger: 전체 화면 보기 (후처리 뒤, UI 앞)
+	{
+		RenderingDebug::Inputs dbg;
+		dbg.NormalDepth = ssao->NormalDepthSRV().Get();
+		dbg.Ao = ssao->AmbientSRV().Get();
+		dbg.Motion = sceneMotion;
+		XMStoreFloat4x4(&dbg.View, camera->View());
+		dbg.Width = (UINT)viewport.Width;
+		dbg.Height = (UINT)viewport.Height;
+		dbg.SceneView = true;
+		RenderingDebug::Draw(dbg, renderTargetView, viewport);
 	}
 
 	phase.Next("UI");

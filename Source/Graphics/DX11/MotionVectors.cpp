@@ -19,17 +19,6 @@ namespace MotionVectors
 		bool s_LoadFailed = false;
 		ComPtr<GfxInputLayout> s_ObjectLayout, s_SkinnedLayout;
 
-		ComPtr<GfxTexture2D> s_Tex;
-		ComPtr<GfxRenderTargetView> s_RTV;
-		ComPtr<GfxShaderResourceView> s_SRV;
-		UINT s_W = 0, s_H = 0;
-		bool s_Valid = false;
-
-		// 카메라: 지난 프레임 (지터 없는) 뷰 × 투영
-		XMFLOAT4X4 s_CurViewProj = {}, s_PrevViewProj = {};
-		bool s_HasPrev = false;
-		uint32_t s_Frame = 0, s_PrevFrame = 0;   // 이번 · 지난 렌더 프레임 (SceneCulling::FrameIndex)
-
 		// 물체: 렌더러마다 마지막으로 본 월드 행렬 · 본 팔레트
 		struct Track
 		{
@@ -37,9 +26,26 @@ namespace MotionVectors
 			std::vector<XMFLOAT4X4> Bones, PrevBones;
 			uint32_t Frame = 0;
 		};
-		std::unordered_map<const Component*, Track> s_Tracks;
-		int s_ObjectsDrawn = 0, s_SkinnedDrawn = 0, s_ForcedStill = 0;
-		Settings s_Last;
+
+		// 뷰마다 (0 Game 뷰, 1 Scene 뷰 — Rendering Debugger 의 Motion Vectors 보기): 타깃 · 지난 카메라 · 렌더러 기록
+		//  같은 프레임에 두 뷰가 그려도 서로의 "지난 프레임" 을 덮지 않게 따로 둔다
+		struct ViewState
+		{
+			ComPtr<GfxTexture2D> Tex;
+			ComPtr<GfxRenderTargetView> RTV;
+			ComPtr<GfxShaderResourceView> SRV;
+			UINT W = 0, H = 0;
+			bool Valid = false;
+			// 카메라: 지난 프레임 (지터 없는) 뷰 × 투영
+			XMFLOAT4X4 CurViewProj = {}, PrevViewProj = {};
+			bool HasPrev = false;
+			uint32_t Frame = 0, PrevFrame = 0;   // 이번 · 지난 렌더 프레임 (SceneCulling::FrameIndex)
+			std::unordered_map<const Component*, Track> Tracks;
+			int ObjectsDrawn = 0, SkinnedDrawn = 0, ForcedStill = 0;
+			Settings Last;
+		};
+		ViewState s_Views[2];
+		ViewState* s_V = &s_Views[0];
 
 		FxVar* Var(const char* name)
 		{
@@ -84,9 +90,9 @@ namespace MotionVectors
 
 		bool EnsureTarget(UINT w, UINT h)
 		{
-			if (s_RTV && s_W == w && s_H == h)
+			if (s_V->RTV && s_V->W == w && s_V->H == h)
 				return true;
-			s_Tex.Reset(); s_RTV.Reset(); s_SRV.Reset();
+			s_V->Tex.Reset(); s_V->RTV.Reset(); s_V->SRV.Reset();
 			D3D11_TEXTURE2D_DESC d = {};
 			d.Width = (std::max)(w, 1u);
 			d.Height = (std::max)(h, 1u);
@@ -97,12 +103,12 @@ namespace MotionVectors
 			d.Usage = D3D11_USAGE_DEFAULT;
 			d.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
 			auto device = Gfx::Device();
-			if (FAILED(device->CreateTexture2D(&d, nullptr, s_Tex.GetAddressOf()))
-				|| FAILED(device->CreateShaderResourceView(s_Tex.Get(), nullptr, s_SRV.GetAddressOf()))
-				|| FAILED(device->CreateRenderTargetView(s_Tex.Get(), nullptr, s_RTV.GetAddressOf())))
+			if (FAILED(device->CreateTexture2D(&d, nullptr, s_V->Tex.GetAddressOf()))
+				|| FAILED(device->CreateShaderResourceView(s_V->Tex.Get(), nullptr, s_V->SRV.GetAddressOf()))
+				|| FAILED(device->CreateRenderTargetView(s_V->Tex.Get(), nullptr, s_V->RTV.GetAddressOf())))
 				return false;
-			s_W = w;
-			s_H = h;
+			s_V->W = w;
+			s_V->H = h;
 			return true;
 		}
 
@@ -111,17 +117,17 @@ namespace MotionVectors
 		// 이번 값을 넣고 지난 값을 고른다: 지난 렌더 프레임에 본 렌더러만 그때 값, 처음 · 오래 안 보였으면 이번 값 (움직임 없음)
 		Track& Remember(const Component* r, const XMFLOAT4X4& world, const std::vector<XMFLOAT4X4>* bones)
 		{
-			Track& t = s_Tracks[r];
-			if (t.Frame != s_Frame)
+			Track& t = s_V->Tracks[r];
+			if (t.Frame != s_V->Frame)
 			{
-				const bool continuous = t.Frame != 0 && t.Frame == s_PrevFrame;
+				const bool continuous = t.Frame != 0 && t.Frame == s_V->PrevFrame;
 				t.PrevWorld = continuous ? t.World : world;
 				if (bones)
 					t.PrevBones = continuous && t.Bones.size() == bones->size() ? t.Bones : *bones;
 				t.World = world;
 				if (bones)
 					t.Bones = *bones;
-				t.Frame = s_Frame;
+				t.Frame = s_V->Frame;
 			}
 			return t;
 		}
@@ -141,11 +147,12 @@ namespace MotionVectors
 
 	void Render(const Frame& f, const Settings& settings)
 	{
-		s_Last = settings;
-		s_Valid = false;
+		s_V = &s_Views[f.SceneView ? 1 : 0];
+		s_V->Last = settings;
+		s_V->Valid = false;
 		if (!settings.Enabled || f.Width == 0 || f.Height == 0 || f.NormalDepth == nullptr || !Load() || !EnsureTarget(f.Width, f.Height))
 		{
-			s_HasPrev = false;
+			s_V->HasPrev = false;
 			return;
 		}
 		PROFILE_SCOPE("Motion Vectors");
@@ -155,14 +162,14 @@ namespace MotionVectors
 		const uint32_t frame = SceneCulling::FrameIndex();
 		XMFLOAT4X4 viewProj;
 		XMStoreFloat4x4(&viewProj, XMLoadFloat4x4(&f.View) * XMLoadFloat4x4(&f.Proj));
-		if (frame != s_Frame)
+		if (frame != s_V->Frame)
 		{
-			s_PrevFrame = s_Frame;
-			s_Frame = frame;
-			s_PrevViewProj = s_HasPrev ? s_CurViewProj : viewProj;
-			s_HasPrev = true;
+			s_V->PrevFrame = s_V->Frame;
+			s_V->Frame = frame;
+			s_V->PrevViewProj = s_V->HasPrev ? s_V->CurViewProj : viewProj;
+			s_V->HasPrev = true;
 		}
-		s_CurViewProj = viewProj;
+		s_V->CurViewProj = viewProj;
 
 		XMFLOAT4X4 viewProjJ, invView;
 		XMStoreFloat4x4(&viewProjJ, XMLoadFloat4x4(&f.View) * XMLoadFloat4x4(&f.ProjJittered));
@@ -170,15 +177,15 @@ namespace MotionVectors
 		const XMFLOAT4X4& pj = f.ProjJittered;
 		const bool ortho = fabsf(pj._34) < 1e-6f;
 		SetM("gViewProjJ", viewProjJ);
-		SetM("gViewProj", s_CurViewProj);
-		SetM("gPrevViewProj", s_PrevViewProj);
+		SetM("gViewProj", s_V->CurViewProj);
+		SetM("gPrevViewProj", s_V->PrevViewProj);
 		SetM("gView", f.View);
 		SetM("gInvView", invView);
 		SetV("gProjInfo", pj._11, pj._22, ortho ? pj._41 : pj._31, ortho ? pj._42 : pj._32);
 		SetR("gNormalDepth", f.NormalDepth);
 
 		const D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)f.Width, (float)f.Height, 0.0f, 1.0f };
-		GfxRenderTargetView* rtv[1] = { s_RTV.Get() };
+		GfxRenderTargetView* rtv[1] = { s_V->RTV.Get() };
 		ctx->OMSetRenderTargets(1, rtv, nullptr);
 		ctx->RSSetViewports(1, &vp);
 		ctx->OMSetDepthStencilState(nullptr, 0);
@@ -196,7 +203,7 @@ namespace MotionVectors
 		}
 
 		// 2) 물체 — 움직인 것만 다시 그린다
-		s_ObjectsDrawn = s_SkinnedDrawn = s_ForcedStill = 0;
+		s_V->ObjectsDrawn = s_V->SkinnedDrawn = s_V->ForcedStill = 0;
 		FxTechnique* objTech = Tech("ObjectMotionTech");
 		FxTechnique* skinTech = Tech("SkinnedMotionTech");
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
@@ -227,7 +234,7 @@ namespace MotionVectors
 							objTech->GetPassByIndex(0)->Apply(0, ctx);
 							mesh->ModelMesh.Draw(ctx, i, nullptr);
 						}
-						still ? ++s_ForcedStill : ++s_ObjectsDrawn;
+						still ? ++s_V->ForcedStill : ++s_V->ObjectsDrawn;
 					}
 				}
 				if (SkinnedMeshRenderer* smr = go->GetComponent<SkinnedMeshRenderer>(); smr && smr->IsEnabled() && smr->GetMesh())
@@ -253,33 +260,35 @@ namespace MotionVectors
 					SetV("gMotionFlags", ortho ? 1.0f : 0.0f, still ? 1.0f : 0.0f, 0.0f, 0.0f);
 					ctx->IASetInputLayout(s_SkinnedLayout.Get());
 					smr->DrawForMotionVectors(ctx, skinTech);
-					still ? ++s_ForcedStill : ++s_SkinnedDrawn;
+					still ? ++s_V->ForcedStill : ++s_V->SkinnedDrawn;
 				}
 			}
 		}
 
 		// 오래 안 본 렌더러는 잊는다 (지운 물체)
-		for (auto it = s_Tracks.begin(); it != s_Tracks.end();)
-			it = (it->second.Frame != s_Frame && it->second.Frame != s_PrevFrame) ? s_Tracks.erase(it) : std::next(it);
+		for (auto it = s_V->Tracks.begin(); it != s_V->Tracks.end();)
+			it = (it->second.Frame != s_V->Frame && it->second.Frame != s_V->PrevFrame) ? s_V->Tracks.erase(it) : std::next(it);
 
 		SetR("gNormalDepth", nullptr);
 		if (FxTechnique* cam = Tech("CameraMotionTech"))
 			cam->GetPassByIndex(0)->Apply(0, ctx);
 		GfxRenderTargetView* none[1] = {};
 		ctx->OMSetRenderTargets(1, none, nullptr);
-		s_Valid = true;
+		s_V->Valid = true;
 	}
 
-	bool Valid() { return s_Valid; }
-	GfxShaderResourceView* SRV() { return s_Valid ? s_SRV.Get() : nullptr; }
-	GfxTexture2D* Texture() { return s_Valid ? s_Tex.Get() : nullptr; }
+	bool Valid(bool sceneView) { return s_Views[sceneView ? 1 : 0].Valid; }
+	GfxShaderResourceView* SRV(bool sceneView) { const ViewState& v = s_Views[sceneView ? 1 : 0]; return v.Valid ? v.SRV.Get() : nullptr; }
+	GfxTexture2D* Texture(bool sceneView) { const ViewState& v = s_Views[sceneView ? 1 : 0]; return v.Valid ? v.Tex.Get() : nullptr; }
+	void Invalidate(bool sceneView) { s_Views[sceneView ? 1 : 0].Valid = false; }
 
-	nlohmann::json Info()
+	nlohmann::json Info(bool sceneView)
 	{
+		s_V = &s_Views[sceneView ? 1 : 0];
 		return {
-			{ "enabled", s_Last.Enabled }, { "objectMotion", s_Last.ObjectMotion }, { "skinnedMotion", s_Last.SkinnedMotion },
-			{ "valid", s_Valid }, { "size", { s_W, s_H } },
-			{ "objectsDrawn", s_ObjectsDrawn }, { "skinnedDrawn", s_SkinnedDrawn }, { "forcedNoMotion", s_ForcedStill },
-			{ "tracked", s_Tracks.size() }, { "loaded", s_Fx != nullptr } };
+			{ "enabled", s_V->Last.Enabled }, { "objectMotion", s_V->Last.ObjectMotion }, { "skinnedMotion", s_V->Last.SkinnedMotion },
+			{ "valid", s_V->Valid }, { "size", { s_V->W, s_V->H } },
+			{ "objectsDrawn", s_V->ObjectsDrawn }, { "skinnedDrawn", s_V->SkinnedDrawn }, { "forcedNoMotion", s_V->ForcedStill },
+			{ "tracked", s_V->Tracks.size() }, { "loaded", s_Fx != nullptr } };
 	}
 }

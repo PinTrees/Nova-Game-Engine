@@ -33,7 +33,7 @@
   - 렌더러마다 마지막으로 본 월드 행렬 · 팔레트를 기억한다 (지난 렌더 프레임에 보였을 때만 이어 쓴다 — 처음 · 오래 안 보였으면 움직임 없음)
   - Force No Motion = 0 (카메라 움직임도 없음), Camera Motion Only = 다시 그리지 않음
 - MeshBatcher 의 인스턴스 버퍼 (오클루전 컬링 · 여러 그래픽 API 와 묶인 112 바이트) 는 그대로 두고, 움직인 것만 따로 그린다 (URP 와 같은 방법)
-- Game 뷰만 (Unity 와 같이 Scene 뷰에는 TAA · Motion Blur 가 없다). 반사 프로브 · APV 찍기에는 없다
+- Game 뷰만 (Unity 와 같이 Scene 뷰에는 TAA · Motion Blur 가 없다). 반사 프로브 · APV 찍기에는 없다. Scene 뷰는 [Rendering Debugger](RENDERING_DEBUGGER.md) 의 Motion Vectors 보기일 때만 따로 그린다 (뷰마다 기록이 따로)
 - 파일: `Source/Graphics/DX11/MotionVectors.*`, `Shaders/63. MotionVectors.fx`, `Shaders/41. PostProcess.fx` (TAA · Motion Blur), `Shaders/28. Ssao.fx` (시간 누적), `Source/Graphics/Common/VolumeProfile.cpp` (효과 정의)
 
 ## CLI

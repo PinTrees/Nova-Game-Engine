@@ -835,6 +835,9 @@ namespace ProbeVolumes
 		SetR(fx, "gGIPlanes", s_Planes.SRV.Get());
 	}
 
+	void SetDebugView(int view) { s_DebugView = std::clamp(view, 0, 2); }
+	int DebugView() { return s_DebugView; }
+
 	bool CascadeBox(int c, Vec3& min, Vec3& max)
 	{
 		if (c < 0 || c >= kCascades || !s_C[c].ProbeValid || c >= s_Count)

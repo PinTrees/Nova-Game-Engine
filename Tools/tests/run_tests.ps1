@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -5339,6 +5339,162 @@ function Suite-Cinemachine
     Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+function Suite-RenderingDebug
+{
+    # Rendering Debugger (Window > Analysis > Rendering Debugger · Scene 뷰 툴바 Debug · CLI nova debugview): Scene · Game 뷰를 바꿔 본다.
+    #  화면 비율 영역의 평균 색으로 본다 — 카메라 (0, 3, -7) 가 상자 (0, 0.5, 0) 를 본다: 위 = 하늘, 아래 = 가까운 바닥, 가운데 = 상자 앞면
+    #  Depth (하늘 흰색 · 가까울수록 어둡다 · 회색 · Range), Normals (바닥 = 위 = 연두, 상자 앞 = -z = 올리브, 하늘 검정), AO (열린 바닥 흰색 · 상자 밑이 더 어둡다),
+    #  Motion Vectors (편집 중 검정, Play 에서 오른쪽으로 가는 상자만 빨강 — Scene · Game 뷰), APV (프로브 빛만 · 섞은 방법 색), None 이면 원래 그림
+    Write-Host '[renderingdebug]'
+    $dir = Join-Path $Out 'renderingdebug'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\RenderingDebugTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ed = Start-TestEditor
+    try
+    {
+        function Wait-Sec([double]$s) { $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt $s) { Invoke-Nova 'wait 5' | Out-Null } }
+        # 화면 비율 영역 (x0, y0, x1, y1) 의 평균 R, G, B
+        function Region([string]$png, [double]$x0, [double]$y0, [double]$x1, [double]$y1)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($png)
+            $w = $bm.Width; $h = $bm.Height; $n = 0; $r = 0.0; $g = 0.0; $b = 0.0
+            for ($y = [int]($y0 * $h); $y -lt [int]($y1 * $h); $y += 2) { for ($x = [int]($x0 * $w); $x -lt [int]($x1 * $w); $x += 2) { $c = $bm.GetPixel($x, $y); $r += $c.R; $g += $c.G; $b += $c.B; $n++ } }
+            $bm.Dispose()
+            $n = [math]::Max(1, $n)
+            [pscustomobject]@{ R = $r / $n; G = $g / $n; B = $b / $n; L = ($r + $g + $b) / (3 * $n) }
+        }
+        function Fmt($c) { '({0:N0}, {1:N0}, {2:N0})' -f $c.R, $c.G, $c.B }
+        function Near($c, [double]$r, [double]$g, [double]$b, [double]$tol) { [math]::Abs($c.R - $r) -le $tol -and [math]::Abs($c.G - $g) -le $tol -and [math]::Abs($c.B - $b) -le $tol }
+        function Shot([string]$name, [string]$view = 'scene') { $f = Join-Path $dir "$name.png"; Invoke-Nova ('screenshot "' + $f + '" --view ' + $view) | Out-Null; $f }
+        # 두 그림의 평균 차 (0..255)
+        function ImageDiff([string]$a, [string]$b)
+        {
+            $p = [System.Drawing.Bitmap]::FromFile($a); $q = [System.Drawing.Bitmap]::FromFile($b)
+            $s = 0.0; $n = 0
+            for ($y = 0; $y -lt [math]::Min($p.Height, $q.Height); $y += 4) { for ($x = 0; $x -lt [math]::Min($p.Width, $q.Width); $x += 4) {
+                $c = $p.GetPixel($x, $y); $d = $q.GetPixel($x, $y); $s += ([math]::Abs($c.R - $d.R) + [math]::Abs($c.G - $d.G) + [math]::Abs($c.B - $d.B)) / 3.0; $n++ } }
+            $p.Dispose(); $q.Dispose()
+            $s / [math]::Max(1, $n)
+        }
+        # 진하게 색이 든 픽셀 비율 (가장 큰 채널 − 가장 작은 채널 > 80)
+        function Colorful([string]$png)
+        {
+            $bm = [System.Drawing.Bitmap]::FromFile($png); $n = 0; $k = 0
+            for ($y = 0; $y -lt $bm.Height; $y += 4) { for ($x = 0; $x -lt $bm.Width; $x += 4) { $c = $bm.GetPixel($x, $y); $n++; if (([math]::Max($c.R, [math]::Max($c.G, $c.B)) - [math]::Min($c.R, [math]::Min($c.G, $c.B))) -gt 80) { $k++ } } }
+            $bm.Dispose(); $k / [math]::Max(1, $n)
+        }
+
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'motion_probe.cs') (Join-Path $assetDir 'MotionProbe.cs') -Force
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 60 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 3,1,3' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,3,-7 --rotation 19.65,0,0' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'camera --position 0,3,-7 --target 0,0.5,0' | Out-Null
+        Invoke-Nova 'debugview none' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $sky = @(0.3, 0.03, 0.7, 0.1); $nearG = @(0.3, 0.88, 0.7, 0.97); $farG = @(0.1, 0.36, 0.3, 0.42); $boxF = @(0.485, 0.49, 0.515, 0.54); $open = @(0.3, 0.6, 0.4, 0.66); $base = @(0.46, 0.555, 0.54, 0.575)
+        function RegionOf([string]$png, [double[]]$r) { Region $png $r[0] $r[1] $r[2] $r[3] }
+
+        $none = Shot 'scene_none'
+        $i = Invoke-NovaJson 'debugview depth'
+        Invoke-Nova 'wait 3' | Out-Null
+        $f = Shot 'scene_depth'
+        $s = RegionOf $f $sky; $n = RegionOf $f $nearG; $fa = RegionOf $f $farG
+        Add-Result renderingdebug 'Depth: sky white, gray, near ground darker than far ground' ($i.mode -eq 'depth' -and $s.L -gt 250 -and $n.L -lt $fa.L - 15 -and [math]::Abs($n.R - $n.B) -lt 2) ("sky {0:N0}, near {1}, far {2}" -f $s.L, (Fmt $n), (Fmt $fa))
+        Invoke-Nova 'debugview depth --range 5' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $fa5 = RegionOf (Shot 'scene_depth5') $farG
+        Invoke-Nova 'debugview depth --range 50' | Out-Null
+        Add-Result renderingdebug 'Depth Range 5 m: the far ground turns white' ($fa5.L -gt 250) ("far ground {0:N0} (range 50: {1:N0})" -f $fa5.L, $fa.L)
+
+        Invoke-Nova 'debugview normals' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $f = Shot 'scene_normals'
+        $g = RegionOf $f $nearG; $bx = RegionOf $f $boxF; $s = RegionOf $f $sky
+        Add-Result renderingdebug 'Normals (world): ground up = (128, 255, 128), box front -z = (128, 128, 0), sky black' ((Near $g 128 255 128 12) -and (Near $bx 128 128 0 15) -and $s.L -lt 3) ("ground {0}, box {1}, sky {2:N0}" -f (Fmt $g), (Fmt $bx), $s.L)
+
+        Invoke-Nova 'debugview ao' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $f = Shot 'scene_ao'
+        $o = RegionOf $f $open; $bs = RegionOf $f $base
+        Add-Result renderingdebug 'Ambient Occlusion: open ground white, darker at the foot of the box (gray map)' ($o.L -gt 230 -and $bs.L -lt $o.L - 8 -and [math]::Abs($o.R - $o.G) -lt 2) ("open {0:N0}, box foot {1:N0}" -f $o.L, $bs.L)
+
+        Invoke-Nova 'debugview motion' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $f = Shot 'scene_motion_edit'
+        $all = Region $f 0 0 1 1
+        $info = Invoke-NovaJson 'debugview info'
+        Add-Result renderingdebug 'Motion Vectors in the Scene view (edit mode, nothing moves): black, Scene view motion vectors rendered' ($all.L -lt 2 -and $info.sceneMotionVectors.valid) ("mean {0:N1}, scene motion valid={1}" -f $all.L, $info.sceneMotionVectors.valid)
+
+        Invoke-Nova 'debugview none' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $back = Shot 'scene_none2'
+        $d = ImageDiff $none $back
+        Add-Result renderingdebug 'None: the Scene view is the normal picture again' ($d -lt 3) ("mean difference {0:N2}" -f $d)
+
+        # Play: 오른쪽으로 가는 상자 → Scene · Game 뷰 모두 빨강 (오른쪽 = 색상환 0)
+        Invoke-Nova 'add-component Box MotionMover --values "{\"speed\":4,\"minX\":-40,\"maxX\":40}"' | Out-Null
+        Invoke-Nova 'debugview motion --scale 2' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Wait-Sec 0.6
+        $f = Shot 'scene_motion_play'
+        $red = Colorful $f
+        $bm = [System.Drawing.Bitmap]::FromFile($f); $rr = 0; $k = 0
+        for ($y = 0; $y -lt $bm.Height; $y += 3) { for ($x = 0; $x -lt $bm.Width; $x += 3) { $c = $bm.GetPixel($x, $y); if ($c.R -gt 60 -and $c.G -lt $c.R * 0.5 -and $c.B -lt $c.R * 0.5) { $rr++ }; if ($c.R + $c.G + $c.B -gt 30) { $k++ } } }
+        $bm.Dispose()
+        Add-Result renderingdebug 'Motion Vectors Play, Scene view: only the box moving right shows, in red' ($rr -gt 20 -and $rr -ge $k * 0.8) ("red pixels {0}, lit pixels {1}" -f $rr, $k)
+        Invoke-Nova 'window game' | Out-Null
+        Wait-Sec 0.4
+        $f = Shot 'game_motion_play' 'game'
+        $bm = [System.Drawing.Bitmap]::FromFile($f); $rr = 0; $k = 0
+        for ($y = 0; $y -lt $bm.Height; $y += 3) { for ($x = 0; $x -lt $bm.Width; $x += 3) { $c = $bm.GetPixel($x, $y); if ($c.R -gt 60 -and $c.G -lt $c.R * 0.5 -and $c.B -lt $c.R * 0.5) { $rr++ }; if ($c.R + $c.G + $c.B -gt 30) { $k++ } } }
+        $bm.Dispose()
+        $info = Invoke-NovaJson 'debugview info'
+        Add-Result renderingdebug 'Motion Vectors Play, Game view: the moving box in red, the rest black' ($rr -gt 20 -and $rr -ge $k * 0.8 -and $info.drawnGame -eq 'motion') ("red pixels {0}, lit pixels {1}, drawn game={2}" -f $rr, $k, $info.drawnGame)
+        Invoke-Nova 'debugview normals' | Out-Null
+        Wait-Sec 0.2
+        $f = Shot 'game_normals' 'game'
+        $g = RegionOf $f $nearG
+        Add-Result renderingdebug 'Normals in the Game view (Main Camera): ground up = (128, 255, 128)' (Near $g 128 255 128 12) ("ground {0}" -f (Fmt $g))
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+
+        # APV: 프로브 빛만 · 섞은 방법 (물체 셰이더의 진단 보기 — ProbeVolumes)
+        Invoke-Nova 'debugview none' | Out-Null
+        Invoke-Nova 'create empty --name APV --position 0,1,0' | Out-Null
+        Invoke-Nova 'add-component APV AdaptiveProbeVolume' | Out-Null
+        Invoke-Nova 'camera --position 0,3,-7 --target 0,0.5,0' | Out-Null
+        Invoke-Nova 'wait 300' | Out-Null
+        $plain = Shot 'scene_apv_none'
+        $i1 = Invoke-NovaJson 'debugview apv'
+        Invoke-Nova 'wait 3' | Out-Null
+        $lit = Shot 'scene_apv'
+        $i2 = Invoke-NovaJson 'debugview apv-sampling'
+        Invoke-Nova 'wait 3' | Out-Null
+        $smp = Shot 'scene_apv_sampling'
+        $pv = Invoke-NovaJson 'probevolume debug'
+        Invoke-Nova 'debugview none' | Out-Null
+        $pv0 = Invoke-NovaJson 'probevolume debug'
+        $dl = ImageDiff $plain $lit; $cs = Colorful $smp
+        Add-Result renderingdebug 'APV Lighting / Sampling: the objects show probe light only, then the blend-method colors; None turns the APV view off' ($i1.probeVolumeDebugView -eq 1 -and $i2.probeVolumeDebugView -eq 2 -and $pv.view -eq 2 -and $pv0.view -eq 0 -and $dl -gt 8 -and $cs -gt 0.2) ("lighting differs by {0:N1}, sampling colored {1:P0}, views {2}/{3}, after None {4}" -f $dl, $cs, $i1.probeVolumeDebugView, $i2.probeVolumeDebugView, $pv0.view)
+
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Invoke-Nova 'debugview none' | Out-Null; Write-Host "  $(Stop-TestEditor $ed)" }
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -6827,6 +6983,7 @@ try
                 'ssao' { Suite-SSAO }
                 'motionvectors' { Suite-MotionVectors }
                 'cinemachine' { Suite-Cinemachine }
+                'renderingdebug' { Suite-RenderingDebug }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }

@@ -1,6 +1,7 @@
 ﻿#include "pch.h"
 #include "UndoSystem.h"
 #include "ProfilerEditorWindow.h"
+#include "RenderingDebuggerWindow.h"
 #include "PackageManagerWindow.h"
 #include "AutoSave.h"
 #include "FrameProfiler.h"
@@ -522,7 +523,7 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::Separator();
             for (auto& window : m_pEditorWindows)
             {
-                if (window->GetTitle() == "Profiler" || window->GetTitle() == "Package Manager")
+                if (window->GetTitle() == "Profiler" || window->GetTitle() == "Package Manager" || window->GetTitle() == "Rendering Debugger")
                     continue;   // Analysis 아래 / 맨 위 Package Manager
                 bool opened = window->GetIsOpened();
                 if (ImGui::MenuItem(window->GetTitle().c_str(), nullptr, &opened))
@@ -536,6 +537,8 @@ void EditorGUIManager::RenderEditorWindows()
                 if (EditorWindow* profiler = FindWindow("Profiler"))
                     if (ImGui::MenuItem("Profiler", "Ctrl+7", profiler->GetIsOpened()))
                         ProfilerEditorWindow::Toggle();
+                if (ImGui::MenuItem("Rendering Debugger", nullptr, RenderingDebuggerWindow::IsOpen()))
+                    RenderingDebuggerWindow::Toggle();
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();
