@@ -711,7 +711,10 @@ LRESULT App::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		if( LOWORD(wParam) == WA_INACTIVE )
 		{
 			_appPaused = true;
-			_timer.Stop();
+			// 에디터는 다른 창을 봐도 시간을 멈추지 않는다 (Unity 의 Play 처럼). 멈추면 CLI 가 프레임을 돌려도 물리 시간이 0 이라
+			// 뒤에 띄운 검사 에디터의 물리가 통째로 멈췄다 (스크립트 · 카메라는 TimeManager 시간으로 돈다)
+			if (Application::IsPlayer())
+				_timer.Stop();
 		}
 		else
 		{
