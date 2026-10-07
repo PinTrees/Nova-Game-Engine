@@ -34,7 +34,7 @@ const std::vector<TerrainStamp*>& TerrainStamp::All() { return Registry(); }
 
 bool TerrainStamp::IsActiveStamp() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 const char* TerrainStamp::ShapeName(Shape s) { return kShapes[std::clamp((int)s, 0, (int)Shape::Count - 1)]; }

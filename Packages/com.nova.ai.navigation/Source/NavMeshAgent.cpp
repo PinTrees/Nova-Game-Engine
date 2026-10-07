@@ -229,7 +229,7 @@ void NavMeshAgent::Update()
 	Vec3 push = Vec3::Zero;
 	for (NavMeshAgent* other : s_Agents)
 	{
-		if (other == this || other->m_pGameObject == nullptr || !other->IsEnabled() || !other->m_pGameObject->IsActive() || other->OnLink)
+		if (other == this || other->m_pGameObject == nullptr || !other->IsEnabled() || !other->m_pGameObject->IsActiveInHierarchy() || other->OnLink)
 			continue;
 		const Vec3 op = other->Feet();
 		if (fabsf(op.y - feet.y) > (std::max)(Height, other->Height))
@@ -248,7 +248,7 @@ void NavMeshAgent::Update()
 	{
 		if (m_2D)
 			break;   // NavMesh Obstacle 은 3D 모양 (2D 장애물은 정적 2D 콜라이더로 굽는다)
-		if (o->GetGameObject() == nullptr || !o->IsEnabled() || !o->GetGameObject()->IsActive())
+		if (o->GetGameObject() == nullptr || !o->IsEnabled() || !o->GetGameObject()->IsActiveInHierarchy())
 			continue;
 		Vec3 p;
 		if (o->PushOut(feet, Radius, Height, p))

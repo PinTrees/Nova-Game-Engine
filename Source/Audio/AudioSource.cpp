@@ -23,6 +23,14 @@ void AudioSource::OnDestroy()
 	m_Playing = false;
 }
 
+void AudioSource::OnHierarchyActiveChanged(bool active)
+{
+	if (!active)
+		Stop();
+	else if (Application::IsPlaying() && m_PlayOnAwake && m_Clip && IsEnabled())
+		Play();
+}
+
 void AudioSource::SetClip(const std::string& path)
 {
 	m_ClipPath = path;

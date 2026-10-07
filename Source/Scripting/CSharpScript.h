@@ -37,6 +37,7 @@ public:
 	virtual void LateUpdate() override;
 	virtual void FixedUpdate() override;
 	virtual void OnDestroy() override;
+	virtual void OnHierarchyActiveChanged(bool active) override;   // Unity: SetActive(false/true) → OnDisable / OnEnable
 
 	virtual void OnCollisionEnter(Collider* other) override;
 	virtual void OnCollisionStay(Collider* other) override;

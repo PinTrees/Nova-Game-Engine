@@ -206,7 +206,7 @@ void LODGroup::SelectForView(Scene* scene, bool editor, bool capture)
 	for (LODGroup* g : all)
 	{
 		GameObject* owner = g->m_pGameObject;
-		if (owner == nullptr || !g->m_Enabled || !owner->IsActive() || g->m_LODs.empty() || byID.find(owner->GetFileID()) == byID.end())
+		if (owner == nullptr || !g->m_Enabled || !owner->IsActiveInHierarchy() || g->m_LODs.empty() || byID.find(owner->GetFileID()) == byID.end())
 			continue;   // 꺼진 LOD Group = 모든 LOD 를 그린다 (Unity)
 		const int n = (int)g->m_LODs.size();
 		const float h = g->ScreenRelativeHeight(view, proj);

@@ -60,7 +60,7 @@ const std::vector<TerrainSpline*>& TerrainSpline::All() { return Registry(); }
 
 bool TerrainSpline::IsActiveSpline() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 const char* TerrainSpline::ModeName(Mode m) { return kModes[std::clamp((int)m, 0, (int)Mode::Count - 1)]; }

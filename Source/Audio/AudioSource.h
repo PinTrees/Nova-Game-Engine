@@ -60,6 +60,7 @@ public:
 	virtual void Start() override;
 	virtual void Update() override;
 	virtual void OnDestroy() override;
+	virtual void OnHierarchyActiveChanged(bool active) override;   // Unity: 오브젝트를 끄면 멈추고, 다시 켜면 Play On Awake
 
 	// ---- Unity API ----
 	void Play();

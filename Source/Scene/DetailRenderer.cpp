@@ -830,7 +830,7 @@ namespace DetailRenderer
 			for (Terrain* terrain : terrains)
 			{
 				auto data = terrain->GetTerrainData();
-				if (!data || data->DetailPrototypes.empty() || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActive()))
+				if (!data || data->DetailPrototypes.empty() || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActiveInHierarchy()))
 					continue;
 				UpdateTerrain(terrain, *data, camPos, s_Pending[vi]);
 			}
@@ -857,7 +857,7 @@ namespace DetailRenderer
 			for (Terrain* terrain : terrains)
 			{
 				auto data = terrain->GetTerrainData();
-				if (!data || data->DetailPrototypes.empty() || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActive()))
+				if (!data || data->DetailPrototypes.empty() || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActiveInHierarchy()))
 					continue;
 				if (!shadow && !RenderLayers::Visible(terrain->GetGameObject()))
 					continue;   // Camera 의 Culling Mask (지형의 레이어)

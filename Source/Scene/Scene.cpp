@@ -121,6 +121,8 @@ namespace
         v.Terrains.clear();
         for (GameObject* gameObject : objects)
         {
+            if (!gameObject->IsActiveInHierarchy())
+                continue;   // 꺼진 오브젝트 (자기 또는 부모) 는 그리지 않는다 (Unity)
             if (SkinnedMeshRenderer* skinned = gameObject->GetComponent<SkinnedMeshRenderer>())
                 v.Skinned.push_back(skinned);
             if (Terrain* terrain = gameObject->GetComponent<Terrain>())
@@ -137,6 +139,8 @@ void Scene::RenderScene()
     MeshBatcher::Draw(this, MeshBatcher::Pass::Main, false);
     for (auto& gameObject : m_ArrGameObjects[0])
     {
+        if (!gameObject->IsActiveInHierarchy())
+            continue;   // 꺼진 오브젝트 (자기 또는 부모) 는 그리지 않는다 (Unity)
         for (auto& component : gameObject->GetComponents())
         {
             if (dynamic_cast<MeshRenderer*>(component.get()) != nullptr)
@@ -259,6 +263,8 @@ void Scene::RenderSceneGizmos()
 
     for (auto& gameObject : m_ArrGameObjects[0])
     {
+        if (!gameObject->IsActiveInHierarchy())
+            continue;   // Unity: 꺼진 오브젝트의 기즈모도 그리지 않는다
         for (auto& component : gameObject->GetComponents())
         {
             component->OnDrawGizmos();
@@ -283,17 +289,35 @@ void Scene::UpdateScene()
     // 스크립트의 Update 가 오브젝트를 만들거나 부모를 바꾸면(transform.SetParent) 목록이 늘어나므로 복사본을 돈다.
     // 새 오브젝트는 다음 프레임부터 업데이트된다 (Unity 와 같음)
     const std::vector<GameObject*> objects = m_ArrGameObjects[0];
-    for (auto& gameObject : objects)
+    // Unity: 꺼진 오브젝트 (자기 또는 부모) 의 컴포넌트는 업데이트하지 않는다. 켜짐 · 꺼짐이 바뀐 프레임에 OnHierarchyActiveChanged
+    std::vector<uint8_t> active(objects.size());
+    for (size_t i = 0; i < objects.size(); ++i)
     {
-        for (auto& component : gameObject->GetComponents())
+        GameObject* gameObject = objects[i];
+        const bool now = gameObject->IsActiveInHierarchy();
+        active[i] = now ? 1 : 0;
+        if (now != gameObject->m_HierarchyActiveSeen)
+        {
+            gameObject->m_HierarchyActiveSeen = now;
+            for (auto& component : gameObject->GetComponents())
+                component->OnHierarchyActiveChanged(now);
+        }
+    }
+    for (size_t i = 0; i < objects.size(); ++i)
+    {
+        if (!active[i])
+            continue;
+        for (auto& component : objects[i]->GetComponents())
         {
             component->Update();
         }
     }
 
-    for (auto& gameObject : objects)
+    for (size_t i = 0; i < objects.size(); ++i)
     {
-        for (auto& component : gameObject->GetComponents())
+        if (!active[i] || !GameObject::IsAlive(objects[i]))
+            continue;
+        for (auto& component : objects[i]->GetComponents())
         {
             component->LateUpdate();
         }

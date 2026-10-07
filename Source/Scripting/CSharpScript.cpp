@@ -165,11 +165,19 @@ void CSharpScript::FixedUpdate()
 		ScriptEngine::Invoke(m_Handle, ScriptEngine::Message::FixedUpdate);
 }
 
+void CSharpScript::OnHierarchyActiveChanged(bool active)
+{
+	// 컴포넌트가 켜져 있는 스크립트만 (꺼진 스크립트는 OnEnable 을 받지 않는다). 아직 Awake 전이면 켜질 때 Awake → OnEnable 이 함께 온다
+	if (!Application::IsPlaying() || m_Handle == nullptr || !m_InstanceEnabled)
+		return;
+	ScriptEngine::Invoke(m_Handle, active ? ScriptEngine::Message::OnEnable : ScriptEngine::Message::OnDisable);
+}
+
 void CSharpScript::OnDestroy()
 {
 	if (m_Handle)
 	{
-		if (m_InstanceEnabled)
+		if (m_InstanceEnabled && m_pGameObject && m_pGameObject->m_HierarchyActiveSeen)   // 꺼진 오브젝트는 이미 OnDisable 을 받았다
 			ScriptEngine::Invoke(m_Handle, ScriptEngine::Message::OnDisable);
 		ScriptEngine::Invoke(m_Handle, ScriptEngine::Message::OnDestroy);
 	}

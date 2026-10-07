@@ -2696,7 +2696,8 @@ function Suite-Starter
 function Suite-Behaviour
 {
     # C# Behaviour.enabled · Collider.enabled → 네이티브 컴포넌트 (Inspector 체크 상자): Animator 를 끄면 멈추고 다시 켜면 간다,
-    #  Directional Light 를 끄면 바닥이 어두워진다, 바닥 Collider 를 끄면 위의 상자가 떨어진다
+    #  Directional Light 를 끄면 바닥이 어두워진다, 바닥 Collider 를 끄면 위의 상자가 떨어진다,
+    #  activeInHierarchy: 부모를 끄면 자식 (메시 · 스킨 메시 · 그림자) 이 안 보이고, 자식 스크립트 Update 가 멈추며 OnDisable · 소리 멈춤 (다시 켜면 OnEnable · 다시 재생)
     Write-Host '[behaviour]'
     $dir = Join-Path $Out 'behaviour'
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -2753,6 +2754,66 @@ function Suite-Behaviour
         $y1 = [double](Invoke-NovaJson 'get Box').position[1]
         Add-Result behaviour 'Collider.enabled = false: the box on it falls through' ("$cres" -eq 'False' -and $y0 -gt 1.1 -and $y1 -lt 0.5) ("box y {0:F2} on the floor → {1:F2} (C# enabled {2})" -f $y0, $y1, $cres)
         Invoke-Nova 'stop' | Out-Null
+
+        # ---- activeInHierarchy (Unity): 부모를 끄면 자식도 꺼진다 — 그리기 (메시 · 스킨 메시 · 그림자) · Update · OnDisable · 소리
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 3,1,3' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,2,-6 --rotation 12,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        function Shot([string]$name) { Invoke-Nova 'wait 6' | Out-Null; $p = Join-Path $dir "$name.png"; Invoke-Nova "screenshot `"$p`" --view game" | Out-Null; return $p }
+        function MeanDiff([string]$a, [string]$b)
+        {
+            $x = New-Object System.Drawing.Bitmap $a; $y = New-Object System.Drawing.Bitmap $b
+            try
+            {
+                $s = 0.0; $n = 0
+                for ($j = 0; $j -lt $x.Height; $j += 3) { for ($i = 0; $i -lt $x.Width; $i += 3) { $c = $x.GetPixel($i, $j); $d = $y.GetPixel($i, $j); $s += [math]::Abs($c.R - $d.R) + [math]::Abs($c.G - $d.G) + [math]::Abs($c.B - $d.B); $n++ } }
+                return $s / (3 * $n)
+            }
+            finally { $x.Dispose(); $y.Dispose() }
+        }
+        $bg = Shot 'active_bg'
+        Invoke-Nova 'create empty --name Parent' | Out-Null
+        Invoke-Nova "create cube --name Kid --parent Parent --position -1.5,0.5,0" | Out-Null
+        Invoke-Nova "create character --name Ch2 --position 1.2,0,0" | Out-Null
+        $on = Shot 'active_on'
+        Invoke-Nova 'set Parent --active false' | Out-Null
+        Invoke-Nova 'set Ch2 --active false' | Out-Null
+        $off = Shot 'active_off'
+        $dOn = MeanDiff $on $bg; $dOff = MeanDiff $off $bg
+        Add-Result behaviour 'inactive parent hides its children (cube under an empty, character skinned meshes, shadows)' ($dOn -gt 0.4 -and $dOff -lt 0.2) ("difference from the empty scene: active {0:F2} (> 0.4), parent off {1:F2} (< 0.2)" -f $dOn, $dOff)
+
+        # Play: 자식의 스크립트 · 소리 — 부모를 끄면 Update 멈춤 · OnDisable · 소리 멈춤, 다시 켜면 OnEnable · Play On Awake 로 다시
+        $probeDir = Join-Path $Project 'Assets\ActiveProbe'
+        New-Item -ItemType Directory -Force $probeDir | Out-Null
+        $gameDll = Join-Path $Project 'Library\ScriptAssemblies\Assembly-CSharp.dll'
+        $dllBefore = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc
+        Copy-Item (Join-Path $PSScriptRoot 'active_probe.cs') (Join-Path $probeDir 'ActiveProbe.cs') -Force
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        do { Invoke-Nova 'wait 20' | Out-Null; $inf = Invoke-NovaJson 'info'; $now = (Get-Item $gameDll -ErrorAction SilentlyContinue).LastWriteTimeUtc }
+        while ($sw.Elapsed.TotalSeconds -lt 60 -and (($inf -and $inf.compiling) -or $now -eq $dllBefore))
+        Invoke-Nova 'create empty --name Parent2' | Out-Null
+        Invoke-Nova 'create empty --name Kid2 --parent Parent2' | Out-Null
+        Invoke-Nova 'add-component Kid2 AudioSource --values "{\"clip\":\"Assets/TestAssets/Audio/long.mp3\",\"loop\":true,\"playOnAwake\":true,\"volume\":0.05}"' | Out-Null
+        Invoke-Nova 'add-component Kid2 ActiveProbe' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 1) { Invoke-Nova 'wait 10' | Out-Null }
+        $s0 = "$(Cs 'act_0' 'return ActiveProbe.State();')" -split ' '
+        Cs 'act_off' 'ActiveProbe.parent.SetActive(false); return 1;' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $s1 = "$(Cs 'act_1' 'return ActiveProbe.State();')" -split ' '
+        Invoke-Nova 'wait 20' | Out-Null
+        $s2 = "$(Cs 'act_2' 'return ActiveProbe.State() + " " + (GameObject.Find("Kid2") == null);')" -split ' '
+        Cs 'act_on' 'ActiveProbe.parent.SetActive(true); return 1;' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $s3 = "$(Cs 'act_3' 'return ActiveProbe.State();')" -split ' '
+        $ok = $s0.Count -eq 4 -and [int]$s0[0] -gt 0 -and $s0[1] -eq '1' -and $s0[2] -eq '0' -and $s0[3] -eq 'True' -and
+            $s1.Count -eq 4 -and $s1[2] -eq '1' -and $s1[3] -eq 'False' -and $s2.Count -eq 5 -and $s2[0] -eq $s1[0] -and $s2[4] -eq 'True' -and
+            $s3.Count -eq 4 -and $s3[1] -eq '2' -and [int]$s3[0] -gt [int]$s2[0] -and $s3[3] -eq 'True'
+        Add-Result behaviour 'inactive parent: child script stops updating (OnDisable / OnEnable), its audio stops and replays' $ok "updates enables disables playing — active: $($s0 -join ' '), parent off: $($s1 -join ' ') → $($s2[0..3] -join ' ') (Find = null $($s2[4])), on again: $($s3 -join ' ')"
+        Invoke-Nova 'stop' | Out-Null
+        Remove-Item $probeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item "$probeDir.meta" -Force -ErrorAction SilentlyContinue
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
     }

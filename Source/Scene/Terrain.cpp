@@ -68,7 +68,7 @@ bool Terrain::Raycast(const Vec3& origin, const Vec3& direction, float maxDistan
 // ------------------------------------------------------------------ 그리기
 void Terrain::DrawPass(TerrainRenderer::Pass pass, bool editor)
 {
-	if (m_Data == nullptr || !m_Draw || !m_Enabled || (m_pGameObject && !m_pGameObject->IsActive()))
+	if (m_Data == nullptr || !m_Draw || !m_Enabled || (m_pGameObject && !m_pGameObject->IsActiveInHierarchy()))
 		return;
 	if (pass == TerrainRenderer::Pass::Main && m_ShadowCasting == ShadowCasting::ShadowsOnly)
 		return;

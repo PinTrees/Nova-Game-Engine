@@ -117,6 +117,11 @@ C++ 쪽은 `NOVA_PACKAGE_EXPORT float Spinner_GetSpeed(uint64 go)` 처럼 내보
 (Unity 와 같이 — Animator · Light · Camera · AudioSource 와 같은 길). 엔진은 꺼진 컴포넌트의 `Update` · `LateUpdate` 도 부르므로, C++ 컴포넌트가
 `if (!m_Enabled) return;` 으로 멈춰야 한다. `Collider.enabled` 도 같은 길 (끄면 부딪히지 않고, 그 위에 잠든 바디가 깨어 떨어진다).
 
+**GameObject 켜고 끄기** (Unity 의 activeSelf · activeInHierarchy): `GameObject::IsActive()` = 자기 체크 상자, `IsActiveInHierarchy()` = 자기와 모든 부모가 켜짐.
+부모를 끄면 자식도 꺼진다 — 엔진은 꺼진 오브젝트의 `Update` · `LateUpdate` · `FixedUpdate` 를 부르지 않고 그리지 않는다 (메시 · 스킨 메시 · 지형 · 기즈모 · 그림자).
+켜짐 · 꺼짐이 바뀐 프레임에 `Component::OnHierarchyActiveChanged(bool)` (Unity 의 GameObject 활성화로 오는 OnEnable · OnDisable) — 소리 멈추기 (AudioSource) ·
+시뮬레이션 내리기 (Cloth) · C# OnDisable / OnEnable 은 여기서. 오브젝트를 모아 그리는 C++ 코드는 `IsActive()` 가 아니라 `IsActiveInHierarchy()` 로 거른다.
+
 C# 만 있는 패키지는 `Runtime/` 에 MonoBehaviour 를 두면 된다 (예: `com.nova.starter-assets`).
 
 ## 엔진 확장 지점 (편집기 · 에셋 · 포즈)

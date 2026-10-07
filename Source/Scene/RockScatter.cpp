@@ -66,7 +66,7 @@ const std::vector<RockScatter*>& RockScatter::All() { return Registry(); }
 
 bool RockScatter::IsDrawable() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 const std::vector<RockDesc>& RockScatter::VariantDescs()

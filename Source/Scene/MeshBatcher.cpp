@@ -199,7 +199,7 @@ namespace
 		struct { const UMaterial* Material = reinterpret_cast<const UMaterial*>(1); bool Transparent = false, Clip = false, Tess = false; } memo;
 		for (GameObject* go : scene->GetAllGameObjects())
 		{
-			if (go == nullptr || !go->IsActive())
+			if (go == nullptr || !go->IsActiveInHierarchy())
 				continue;
 			MeshRenderer* mr = go->GetComponent<MeshRenderer>();
 			if (mr == nullptr || !mr->IsEnabled())

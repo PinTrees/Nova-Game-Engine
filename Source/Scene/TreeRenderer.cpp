@@ -629,7 +629,7 @@ namespace TreeRenderer
 			for (Terrain* terrain : Terrain::GetActiveTerrains())
 			{
 				auto data = terrain->GetTerrainData();
-				if (!data || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActive()))
+				if (!data || !terrain->IsEnabled() || !terrain->GetDraw() || (terrain->GetGameObject() && !terrain->GetGameObject()->IsActiveInHierarchy()))
 					continue;
 				if (data->TreeInstances.empty() || data->TreePrototypes.empty())
 					continue;

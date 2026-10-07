@@ -28,7 +28,7 @@ const std::vector<Tree*>& Tree::All() { return Registry(); }
 
 bool Tree::IsDrawable() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 void Tree::UpdateAll()

@@ -120,7 +120,7 @@ Camera* Canvas::FindWorldCamera() const
 		return nullptr;
 	Scene* scene = SceneManager::GetI()->GetCurrentScene();
 	GameObject* go = scene ? scene->FindByFileID(m_WorldCamera) : nullptr;
-	if (go == nullptr || !go->IsActive())
+	if (go == nullptr || !go->IsActiveInHierarchy())
 		return nullptr;
 	Camera* cam = go->GetComponent<Camera>();
 	return cam && cam->IsEnabled() ? cam : nullptr;

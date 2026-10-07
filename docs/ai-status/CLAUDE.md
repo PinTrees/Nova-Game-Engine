@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 7일 — **모델 편집기 FBX → 엔진: 치비 머리 · 머리카락 · 색** (사용자 요청 — 천 작업에서 남긴 작업 칩). **완료 (커밋, 푸시 전)**
+- 갱신 시각: 2026년 10월 7일 — **부모를 끄면 자식도 꺼진다 (Unity activeInHierarchy)** (사용자 요청 — FBX 작업에서 남긴 작업 칩). **완료 (커밋, 푸시 전)**
+  - `GameObject::IsActiveInHierarchy()`, `Scene::UpdateScene` 이 꺼진 오브젝트의 Update · LateUpdate 를 건너뛰고 (FixedUpdate 는 이미), 바뀐 프레임에 `Component::OnHierarchyActiveChanged`
+  - 그리기: 일반 Render 루프 · 스킨 메시 · 지형 모으기 · MeshBatcher · 기즈모 · 디테일 · 나무 · 바위 · 지형 도장 · 물 · LOD Group · 발광 (APV) — 자기만 보던 곳을 hierarchy 로. 내비 에이전트 · 날씨 고르기 · UI 월드 카메라도
+  - 훅: AudioSource (멈춤, 다시 켜면 Play On Awake), Cloth (물리에서 내림), C# 스크립트 (OnDisable / OnEnable)
+  - 검사 `-Only behaviour` 5/5 (부모를 끄면 빈 장면과 같은 그림 0.00, 자식 스크립트 Update 멈춤 · OnDisable · 소리 멈춤 → 다시 OnEnable · 재생), audio · physics · animation · ui · cloth · sprites · lodgroup · packages · render · probevolume 함께 통과. 문서 PACKAGES
+- 이전: 2026년 10월 7일 — **모델 편집기 FBX → 엔진: 치비 머리 · 머리카락 · 색** (사용자 요청 — 천 작업에서 남긴 작업 칩). **완료 (커밋, 푸시 전)**
   - 원인 1: 메시 `Head` 와 본 `Head` 가 같은 이름 → 엔진이 본 자리에 메시 노드 (가장 위) 를 잡아 머리에 묶인 정점이 가슴으로 (머리카락이 뻗침). 가져오기 `FBXLoader::RenameClashingMeshNodes` (본과 겹치는 메시 노드 = `<이름>_Mesh`, Blender FBX 도), 캐시 NVCC, 모델 편집기 FBX 내보내기도 `_Mesh` (VRM 과 같은 규칙)
   - 원인 2: FBX 재질 색을 쓰지 않았다 (모두 기본 재질) → `FBXLoader::ExtractMaterials` = `<파일>_FBX.Materials/*.mat` (Diffuse 색 · 그림 · 발광 · Phong → Smoothness, 있으면 그대로, 프로젝트 Assets 만 — 같은 이름 VRM 의 `<파일>.Materials` 와 겹치지 않게), 캐릭터 · 정적 모델 배치 둘 다
   - 함께 고침: 모델 파일 감시의 다시 가져오기가 장면을 프레임 가운데 다시 만들어 Scene 뷰가 지운 빛을 읽어 멈추던 것 → 프레임 끝에 (`ImportSettingsInspector::Reimport`)

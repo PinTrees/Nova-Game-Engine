@@ -73,8 +73,18 @@ private:
 public:
 	static uint64 NewFileID();
 	const string& GetName() { return m_Name; }
-	bool IsActive() const { return m_IsActive; }
+	bool IsActive() const { return m_IsActive; }   // Unity 의 activeSelf (Inspector 체크박스 · 저장)
 	void SetActive(bool active) { m_IsActive = active; }
+	// Unity 의 activeInHierarchy: 자기와 모든 부모가 켜졌다 — 그리기 · 업데이트 · 물리는 이것을 본다 (부모를 끄면 자식도 꺼진다)
+	bool IsActiveInHierarchy() const
+	{
+		for (const GameObject* g = this; g != nullptr; g = g->m_pParentGameObject)
+			if (!g->m_IsActive)
+				return false;
+		return true;
+	}
+	// 장면 업데이트가 지난 프레임에 본 activeInHierarchy (바뀌면 컴포넌트의 OnHierarchyActiveChanged)
+	bool m_HierarchyActiveSeen = true;
 	void SetName(const string& name) { m_Name = name; }
 	vector<GameObject*> GetChildren() { return m_pChildGameObjects; }
 	const vector<GameObject*>& Children() const { return m_pChildGameObjects; }   // 복사 없이 (자주 훑는 곳용)

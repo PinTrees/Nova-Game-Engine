@@ -633,7 +633,7 @@ namespace ProbeVolumes
 		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
 			for (GameObject* go : scene->GetAllGameObjects())
 			{
-				if (!go || !go->IsActive())
+				if (!go || !go->IsActiveInHierarchy())
 					continue;
 				MeshRenderer* mr = go->GetComponent<MeshRenderer>();
 				if (!mr || !mr->IsEnabled())

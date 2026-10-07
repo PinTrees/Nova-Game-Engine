@@ -32,7 +32,7 @@ const std::vector<TerrainBiome*>& TerrainBiome::All() { return Registry(); }
 
 bool TerrainBiome::IsActiveBiome() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 void TerrainBiome::OnInspectorGUI()

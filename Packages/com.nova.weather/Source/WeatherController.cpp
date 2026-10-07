@@ -81,7 +81,7 @@ WeatherController* WeatherController::Active()
 		GameObject* go = w->GetGameObject();
 		if (go == nullptr || scene->FindByFileID(go->GetFileID()) != go)
 			continue;
-		if (w->IsEnabled() && go->IsActive())
+		if (w->IsEnabled() && go->IsActiveInHierarchy())
 			return w;
 		if (any == nullptr)
 			any = w;

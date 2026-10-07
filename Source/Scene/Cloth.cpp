@@ -46,6 +46,12 @@ void Cloth::OnDestroy()
 	Release();
 }
 
+void Cloth::OnHierarchyActiveChanged(bool active)
+{
+	if (!active)
+		Release();
+}
+
 void Cloth::Release()
 {
 	if (m_Handle != 0)

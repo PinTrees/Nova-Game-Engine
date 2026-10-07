@@ -27,7 +27,7 @@ const std::vector<Rock*>& Rock::All() { return Registry(); }
 
 bool Rock::IsDrawable() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 bool Rock::GetLocalBounds(Vec3& bmin, Vec3& bmax)

@@ -39,6 +39,7 @@ public:
 	void FixedUpdate() override;
 	void LateUpdate() override;
 	void OnDestroy() override;
+	void OnHierarchyActiveChanged(bool active) override;   // 꺼지면 천을 물리에서 내린다 (다시 켜면 시작 자세로 새로)
 	void OnInspectorGUI() override;
 	bool UsesUnityInspector() const override { return true; }
 	const char* InspectorIconName() const override { return "mesh_renderer"; }

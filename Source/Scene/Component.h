@@ -59,6 +59,9 @@ public:
 	// 복제/프리팹 배치로 GameObject fileID 가 바뀔 때: 옛 ID → 새 ID (복사한 묶음 안을 가리키던 참조를 고친다)
 	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) { }
 	virtual void OnDestroy() { }
+	// 오브젝트 (또는 부모) 가 켜지거나 꺼졌다 — Unity 의 GameObject 활성화로 오는 OnEnable / OnDisable.
+	//  꺼진 동안은 Update · LateUpdate · FixedUpdate 가 오지 않는다 (소리 멈추기 · 시뮬레이션 내리기는 여기서)
+	virtual void OnHierarchyActiveChanged(bool active) { }
 public:
 	GameObject* GetGameObject() { return m_pGameObject; }
 

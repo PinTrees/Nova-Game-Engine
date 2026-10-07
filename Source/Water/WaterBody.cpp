@@ -73,7 +73,7 @@ const std::vector<WaterBody*>& WaterBody::All() { return Registry(); }
 
 bool WaterBody::IsActiveBody() const
 {
-	return m_Enabled && m_pGameObject && m_pGameObject->IsActive();
+	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();
 }
 
 const char* WaterBody::TypeName(Type t) { return kTypes[std::clamp((int)t, 0, (int)Type::Count - 1)]; }
