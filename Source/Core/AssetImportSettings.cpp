@@ -92,6 +92,8 @@ namespace AssetImport
 			{ "spritePixelsPerUnit", PixelsPerUnit }, { "spritePivot", { PivotX, PivotY } }, { "filterMode", kFilterMode[std::clamp(FilterMode, 0, 2)] },
 			{ "spriteMode", SpriteMode == MultipleSprites ? "Multiple" : "Single" }, { "sprites", SpritesJson() } };
 		// Android 탭 값은 켜 두었거나 바꿨을 때만 (Unity 처럼 덮어쓰기를 꺼도 값은 남는다)
+		if (VirtualTexture)
+			j["virtualTextureOnly"] = true;
 		if (AndroidOverride || AndroidMaxSize != 2048 || AndroidFormat != AndroidAutomatic)
 			j["android"] = { { "override", AndroidOverride }, { "maxSize", AndroidMaxSize }, { "format", kAndroidFormat[std::clamp(AndroidFormat, 0, 8)] } };
 		return j;
@@ -118,6 +120,7 @@ namespace AssetImport
 		Compression = IndexOf(j, "compression", kCompression, NormalQuality);
 		// Sprite (2D and UI) 는 Unity 처럼 밉 없이가 기본
 		MipMaps = j.value("mipmaps", TextureType != Sprite);
+		VirtualTexture = j.value("virtualTextureOnly", false);
 		PixelsPerUnit = (std::max)(0.01f, j.value("spritePixelsPerUnit", 100.0f));
 		if (j.contains("spritePivot") && j["spritePivot"].is_array() && j["spritePivot"].size() == 2)
 		{
@@ -180,7 +183,7 @@ namespace AssetImport
 		const TextureSettings d;
 		return TextureType == d.TextureType && SRGB == d.SRGB && MaxSize == d.MaxSize && Compression == d.Compression && MipMaps == d.MipMaps &&
 			PixelsPerUnit == d.PixelsPerUnit && PivotX == d.PivotX && PivotY == d.PivotY && FilterMode == d.FilterMode &&
-			SpriteMode == d.SpriteMode && Sprites.empty() && AndroidOverride == d.AndroidOverride && AndroidMaxSize == d.AndroidMaxSize && AndroidFormat == d.AndroidFormat;
+			SpriteMode == d.SpriteMode && Sprites.empty() && VirtualTexture == d.VirtualTexture && AndroidOverride == d.AndroidOverride && AndroidMaxSize == d.AndroidMaxSize && AndroidFormat == d.AndroidFormat;
 	}
 
 	std::string TextureSettings::CacheTag() const

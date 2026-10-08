@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6235,6 +6235,123 @@ function Suite-D3D12
     }
 }
 
+# ------------------------------------------------------------------ Streaming Virtual Texturing (docs/VIRTUAL_TEXTURING.md)
+function New-VTTestImage([string]$path, [int]$size)
+{
+    # 큰 그림: 128 px 페이지마다 다른 색 (페이지 x · y) + 8 px 체커 — 페이지가 바뀌거나 잘못된 칸이면 바로 보인다
+    if (-not ('NovaVTImage' -as [type]))
+    {
+        Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+using System; using System.Drawing; using System.Drawing.Imaging; using System.Runtime.InteropServices;
+public static class NovaVTImage
+{
+    public static void Make(string path, int size)
+    {
+        var b = new Bitmap(size, size, PixelFormat.Format32bppArgb);
+        var d = b.LockBits(new Rectangle(0, 0, size, size), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+        var row = new byte[size * 4];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                int px = x / 128, py = y / 128;
+                bool on = ((x / 8) + (y / 8)) % 2 == 0;
+                int r = 40 + (px * 53) % 200, g = 40 + (py * 71) % 200, bl = 40 + ((px + py) * 29) % 200;
+                if (!on) { r /= 2; g /= 2; bl /= 2; }
+                if (x % 128 == 0 || y % 128 == 0) { r = g = bl = 250; }
+                row[x * 4] = (byte)bl; row[x * 4 + 1] = (byte)g; row[x * 4 + 2] = (byte)r; row[x * 4 + 3] = 255;
+            }
+            Marshal.Copy(row, 0, d.Scan0 + y * d.Stride, row.Length);
+        }
+        b.UnlockBits(d);
+        b.Save(path, ImageFormat.Png);
+        b.Dispose();
+    }
+}
+"@
+    }
+    [NovaVTImage]::Make($path, $size)
+}
+
+function Suite-VirtualTexture
+{
+    Write-Host '[virtualtexture]'
+    $dir = Join-Path $Out 'virtualtexture'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\VTTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    New-VTTestImage (Join-Path $assetDir 'Big.png') 4096
+    Copy-Item (Join-Path $assetDir 'Big.png') (Join-Path $assetDir 'Ref.png')
+    foreach ($n in 'VT', 'Ref')
+    {
+        $m = (Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json).PSObject.Copy()
+        $m.BaseColor = @(1, 1, 1, 1); $m.Metallic = 0; $m.Smoothness = 0.0
+        $m.BaseMapPath = $(if ($n -eq 'VT') { 'Assets\VTTest\Big.png' } else { 'Assets\VTTest\Ref.png' })
+        $m.ResourcePath = "Assets\VTTest\$n.mat"
+        $m | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir "$n.mat")
+    }
+    function Mat([string]$n) { Invoke-Nova ('set Ground --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/VTTest/' + $n + '.mat\"]}"') | Out-Null }
+    function Shot([string]$name) { $f = Join-Path $dir "$name.png"; Invoke-Nova ('screenshot "' + $f + '" --view game') | Out-Null; $f }
+    function Settle { for ($i = 0; $i -lt 8; $i++) { Invoke-Nova 'wait 15' | Out-Null } }
+    $captures = @{}
+    foreach ($api in 'dx11', 'gl', 'vk', 'dx12')
+    {
+        $ed = Start-TestEditor -OpenGL:($api -eq 'gl') -Vulkan:($api -eq 'vk') -D3D12:($api -eq 'dx12')
+        try
+        {
+            Invoke-Nova 'autosave discard' | Out-Null
+            Invoke-Nova 'import-settings Assets/VTTest/Big.png --values "{\"virtualTextureOnly\":true,\"maxSize\":4096,\"compression\":\"None\"}"' | Out-Null
+            Invoke-Nova 'import-settings Assets/VTTest/Ref.png --values "{\"maxSize\":4096,\"compression\":\"None\"}"' | Out-Null
+            Invoke-Nova 'scene new --force' | Out-Null
+            Invoke-Nova 'create plane --name Ground --scale 10,1,10' | Out-Null
+            Invoke-Nova 'set "Main Camera" --position -40,3,-40 --rotation 30,45,0' | Out-Null
+            Invoke-Nova 'window game' | Out-Null
+            Mat 'Ref'
+            Settle
+            $ref = Shot "ref_$api"
+            Mat 'VT'
+            Settle
+            $vtShot = Shot "vt_$api"
+            $captures[$api] = $vtShot
+            $i = Invoke-NovaJson 'vt info'
+            $t = if ($i) { @($i.textures)[0] } else { $null }
+            if ($api -eq 'dx11')
+            {
+                $total = if ($t) { [int]$t.pages } else { 0 }
+                $resident = if ($t) { ($t.mips | Measure-Object -Property resident -Sum).Sum } else { 0 }
+                $mip0 = if ($t) { [int]@($t.mips)[0].resident } else { 0 }
+                Add-Result virtualtexture 'Virtual Texture Only: 4096 texture registered (6 mips, 1365 pages of 128), tile file built' ($t -and $t.size[0] -eq 4096 -and @($t.mips).Count -eq 6 -and $total -eq 1365) $(if ($t) { "size $($t.size -join 'x'), mips $(@($t.mips).Count), pages $total" } else { 'no virtual texture' })
+                Add-Result virtualtexture 'streaming: feedback requested pages, only the visible ones are resident (mip 0 near the camera, a fraction of all pages)' ($mip0 -gt 0 -and $resident -lt $total * 0.5 -and [int]$i.uploads -gt 0) ("resident {0}/{1}, mip 0 resident {2}, uploads {3}, feedback objects {4}" -f $resident, $total, $mip0, $i.uploads, $i.feedbackObjects)
+                $c = [NovaImageCompare]::Compare($ref, $vtShot, (Join-Path $dir 'vt_vs_ref_diff.png'))
+                Add-Result virtualtexture 'picture: virtual texture looks like the same texture loaded whole (mean difference small)' ($c -and $c[1] -le 6.0 -and $c[2] -le 15.0) $(if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
+                # 비우기 → 피드백이 다시 채운다
+                $fl = Invoke-NovaJson 'vt flush'
+                $after = Invoke-NovaJson 'vt info'
+                $mip0After = [int]@(@($after.textures)[0].mips)[0].resident
+                Settle
+                $re = Invoke-NovaJson 'vt info'
+                $mip0Re = [int]@(@($re.textures)[0].mips)[0].resident
+                Add-Result virtualtexture 'vt flush evicts the streamed pages, the feedback loop loads them again' ($fl.evicted -gt 0 -and $mip0After -eq 0 -and $mip0Re -gt 0) ("evicted {0}, mip 0 after flush {1}, after frames {2}" -f $fl.evicted, $mip0After, $mip0Re)
+                # 끄면 대체 (가장 거친 밉) — 그림이 흐려진다 = 가상 텍스처 길이 실제로 쓰였다
+                Invoke-Nova 'vt set --enabled false' | Out-Null
+                Settle
+                $off = Shot 'vt_off'
+                Invoke-Nova 'vt set --enabled true' | Out-Null
+                $cOff = [NovaImageCompare]::Compare($ref, $off, $null)
+                Add-Result virtualtexture 'vt set --enabled false falls back to the coarsest mip (blurry, far from the reference)' ($cOff -and $c -and $cOff[1] -gt $c[1] * 2) $(if ($cOff) { 'off: mean {0:N2} vs on: mean {1:N2}' -f $cOff[1], $c[1] } else { 'capture missing' })
+            }
+        }
+        finally { Write-Host "  $api $(Stop-TestEditor $ed)" }
+    }
+    foreach ($api in 'gl', 'vk', 'dx12')
+    {
+        $c = if ($captures[$api] -and (Test-Path $captures[$api])) { [NovaImageCompare]::Compare($captures['dx11'], $captures[$api], (Join-Path $dir "vt_dx11_vs_$api.png")) } else { $null }
+        Add-Result virtualtexture "$api virtual texture picture = DX11" ($c -and $c[1] -le 3.0) $(if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
+    }
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -7293,6 +7410,7 @@ try
                 'vfxvk' { Suite-Vfx -Api vk }
                 'vfx12' { Suite-Vfx -Api 12 }
                 'd3d12' { Suite-D3D12 }
+                'virtualtexture' { Suite-VirtualTexture }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

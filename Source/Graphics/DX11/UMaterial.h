@@ -57,6 +57,7 @@ private:
 	// URP Lit
 	ShaderKind m_Shader = ShaderKind::Lit;
 	PbrMaterial m_Pbr;
+	int m_VirtualTexture = 0;   // VirtualTexturing 번호 (Base Map 이 가상 텍스처면)
 	wstring m_HeightMapPath;
 	ComPtr<GfxShaderResourceView> HeightMapSRV;
 	bool m_EmissionEnabled = false;
@@ -124,6 +125,10 @@ public:
 	bool UsesTessellation() const;
 	ShaderSetting GetShaderSetting() { return m_shaderSetting; }
 	const PbrMaterial& GetPbr() const { return m_Pbr; }
+	XMFLOAT2 Tiling() const { return m_Pbr.Tiling; }
+	XMFLOAT2 Offset() const { return m_Pbr.Offset; }
+	// Base Map 이 가상 텍스처 (가져오기 설정 Virtual Texture Only) 면 VirtualTexturing 번호, 아니면 0
+	int VirtualTextureId() const { return m_VirtualTexture; }
 	// 발광 (선형 × Intensity, 꺼져 있으면 0) — Adaptive Probe Volume 이 발광 렌더러를 찾는다
 	XMFLOAT3 EmissionLinear() const;
 	ShaderKind GetShader() const { return m_Shader; }

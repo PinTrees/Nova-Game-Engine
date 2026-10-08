@@ -230,6 +230,8 @@ namespace
 		static const char* comps[] = { "None", "Normal Quality", "High Quality" };
 		UnityGUI::Dropdown("Compression", &t.Compression, comps, 3);
 		UnityGUI::Toggle("Generate Mip Maps", &t.MipMaps);
+		if (t.TextureType == AssetImport::TextureSettings::Default)
+			UnityGUI::Toggle("Virtual Texture Only", &t.VirtualTexture);   // Streaming Virtual Texturing (docs/VIRTUAL_TEXTURING.md)
 		static const char* filters[] = { "Point (no filter)", "Bilinear", "Trilinear" };
 		UnityGUI::Dropdown("Filter Mode", &t.FilterMode, filters, 3);   // 지금은 스프라이트 그리기에만 쓴다 (도트 그림 = Point)
 		// Android 플랫폼 (Unity 의 플랫폼 탭 "Override for Android"): 안드로이드 굽기 (nova android export) 의 크기 · 형식

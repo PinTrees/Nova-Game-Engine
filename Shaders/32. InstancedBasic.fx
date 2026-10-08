@@ -116,6 +116,8 @@ cbuffer cbPerObject
     PbrMaterial gPbr;   // URP Lit (메시 PS 가 쓰는 재질 값)
     uint gObjectLayer = 0xFFFFFFFF;   // 그리는 물체의 레이어 비트 (1 << layer). 정하지 않으면 모든 빛을 받는다
     float4 gLodFade = float4(0, 0, 0, 0);   // LOD Group 크로스페이드 (LodFadeClip)
+    float4 gVTInfo0 = float4(0, 0, 0, 0);   // Virtual Texturing (UseBaseMap == 2): x 가상 폭, y 높이, z 밉 수, w 텍스처 번호
+    float4 gVTInfo1 = float4(0, 0, 0, 0);   // x 캐시 폭 px, y 높이 px, z 타일 px (테두리 포함), w 테두리 px
 };
 
 // 이 빛이 이 물체를 비추나 (Light.cullingMask & 물체 레이어)
@@ -200,7 +202,9 @@ SamplerState samSsr
 };
 
 // object
-Texture2D gDiffuseMap;     // Base Map
+Texture2D gDiffuseMap;     // Base Map (가상 텍스처면 작은 대체 — 그림자 · 깊이 패스가 쓴다)
+Texture2D gVTPageTable;    // Virtual Texturing: 페이지 표 (밉마다 — 칸 x, y, 올라 있는 밉), VirtualTexturing.cpp
+Texture2D gVTCache;        // 모든 가상 텍스처가 함께 쓰는 물리 캐시 (136 x 136 타일)
 Texture2D gNormalMap;
 Texture2D gMetallicMap;    // R = Metallic, A = Smoothness (Unity 와 같음)
 Texture2D gOcclusionMap;   // G = Occlusion
@@ -227,6 +231,33 @@ SamplerState samLinear
     AddressU = WRAP;
     AddressV = WRAP;
 };
+
+SamplerState samVTCache
+{
+    Filter = MIN_MAG_MIP_LINEAR;
+    AddressU = CLAMP;
+    AddressV = CLAMP;
+};
+
+// Streaming Virtual Texturing (docs/VIRTUAL_TEXTURING.md): 원하는 밉의 페이지 → 페이지 표 (올라 있는 가장 가까운 밉의 캐시 칸) → 캐시에서 쌍선형.
+//  밉 = 화면 미분 (65. VirtualTexture.fx 의 피드백과 같은 식). 밉 사이를 섞지 않는다 (밉이 바뀌는 곳에 경계가 보일 수 있다)
+float4 SampleVirtual(float2 uv)
+{
+    float2 texel = uv * gVTInfo0.xy;
+    float2 dx = ddx(texel), dy = ddy(texel);
+    float mip = 0.5f * log2(max(max(dot(dx, dx), dot(dy, dy)), 1e-8f));
+    float m = clamp(floor(mip), 0.0f, gVTInfo0.z - 1.0f);
+    float2 pages = max(floor(gVTInfo0.xy / 128.0f / exp2(m)), 1.0f);
+    float2 wrapped = frac(uv);
+    int2 page = int2(min(floor(wrapped * pages), pages - 1.0f));
+    float4 e = gVTPageTable.Load(int3(page, (int)m)) * 255.0f;
+    float2 rpages = max(floor(gVTInfo0.xy / 128.0f / exp2(round(e.z))), 1.0f);   // 실제로 올라 있는 밉의 페이지 수
+    float2 inPage = frac(wrapped * rpages);
+    float2 px = round(e.xy) * gVTInfo1.z + gVTInfo1.w + inPage * 128.0f;
+    float4 cached = gVTCache.SampleLevel(samVTCache, px / gVTInfo1.xy, 0);
+    float4 fallback = gDiffuseMap.Sample(samLinear, uv);   // 아직 아무 페이지도 없다 (w = 0) — 대체
+    return e.w < 0.5f ? fallback : cached;
+}
 
 SamplerComparisonState samShadow
 {
@@ -1301,7 +1332,7 @@ float4 LitPS(VertexOut pin, float4 baseColorFactor, float metallicValue, float s
     float2 uv = pin.Tex * gPbr.Tiling + gPbr.Offset;
 
     // ---- 표면
-    float4 baseSample = gPbr.UseBaseMap ? gDiffuseMap.Sample(samLinear, uv) : float4(1, 1, 1, 1);
+    float4 baseSample = gPbr.UseBaseMap == 2 ? SampleVirtual(uv) : gPbr.UseBaseMap ? gDiffuseMap.Sample(samLinear, uv) : float4(1, 1, 1, 1);
     float4 baseColor = baseSample * baseColorFactor;
     if (gPbr.AlphaClip)
         clip(baseColor.a - gPbr.Cutoff);

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "VirtualTexturing.h"
 #include "UMaterial.h"
 #include "Effects.h"
 #include "MaterialInspector.h"
@@ -285,6 +286,7 @@ uint64 UMaterial::StateHash() const
 	mix(&m_Tess.Amplitude, sizeof(float) * 5);   // Amplitude ~ FadeDistance (붙어 있는 float 다섯)
 	const void* srv = BaseMapSRV.Get();
 	mix(&srv, sizeof(srv));
+	mix(&m_VirtualTexture, sizeof(m_VirtualTexture));
 	return h;
 }
 
@@ -337,7 +339,15 @@ void UMaterial::Save(UMaterial* material)
 
 void UMaterial::ReloadTextures()
 {
-	BaseMapSRV = LoadTex(m_BaseMapPath);
+	// Base Map 이 가상 텍스처 (Virtual Texture Only): 통째로 올리지 않고 페이지만 — 재질의 Base Map 칸에는 작은 대체 (그림자 · 깊이 패스)
+	m_VirtualTexture = 0;
+	if (!m_BaseMapPath.empty())
+	{
+		const std::wstring full = PathManager::GetI()->GetMovePathW(m_BaseMapPath);
+		if (VirtualTexturing::IsVirtual(full))
+			m_VirtualTexture = VirtualTexturing::Register(full);
+	}
+	BaseMapSRV = m_VirtualTexture ? VirtualTexturing::Fallback(m_VirtualTexture) : LoadTex(m_BaseMapPath);
 	NormalMapSRV = LoadTex(m_NormalMapPath);
 	MetallicMapSRV = LoadTex(m_MetallicMapPath);
 	OcclusionMapSRV = LoadTex(m_OcclusionMapPath);
@@ -401,6 +411,14 @@ void UMaterial::Apply(InstancedBasicEffect* fx, bool forPreview)
 	}
 	fx->SetMaterial(Mat);
 	fx->SetShaderSetting(setting);
+	VirtualTexturing::Binding vt;
+	if (m_VirtualTexture && !forPreview && VirtualTexturing::GetBinding(m_VirtualTexture, vt))
+	{
+		p.UseBaseMap = 2;
+		fx->SetVirtualTexture(vt.PageTable, vt.Cache, vt.Info0, vt.Info1);
+	}
+	else
+		fx->SetVirtualTexture(nullptr, nullptr, nullptr, nullptr);
 	fx->SetPbr(p);
 	fx->SetDiffuseMap(BaseMapSRV.Get());
 	fx->SetNormalMap(NormalMapSRV.Get());

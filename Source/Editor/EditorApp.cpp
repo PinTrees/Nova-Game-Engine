@@ -6,6 +6,7 @@
 #include "UISystem.h"
 #include "ParticleRenderer.h"
 #include "VfxRuntime.h"
+#include "VirtualTexturing.h"
 #include "WeatherState.h"
 #include "WeatherCover.h"
 #include "SpriteBatch.h"
@@ -232,6 +233,7 @@ bool EditorApp::Init()
 		RenderingDebug::RegisterEditor();     // nova debugview (Window > Analysis > Rendering Debugger)
 		ClusteredLighting::RegisterEditor();  // nova forwardplus
 		RenderGraph::RegisterEditor();        // nova rendergraph (Window > Analysis > Render Graph Viewer)
+		VirtualTexturing::RegisterEditor();   // nova vt
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
@@ -270,6 +272,7 @@ void EditorApp::RenderApplication()
 	//  간접광이 먼저 — 다시 비추기가 마지막 뷰의 그림자 맵을 쓰는데, 프로브 찍기가 그 맵을 덮어쓴다
 	ProbeVolumes::Update();
 	RenderGraph::TrimPool();   // 오래 쓰이지 않은 임시 텍스처를 놓는다 (프레임마다 한 번)
+	VirtualTexturing::Update();   // 가상 텍스처: 피드백 읽기 → 페이지 요청 · 올리기 · 페이지 표 (프레임마다 한 번)
 	ReflectionProbes::Update();
 }
 
@@ -675,6 +678,17 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 			_deviceContext->RSSetState(0);
 		});
 
+	// Virtual Texturing 피드백: 가상 텍스처 물체를 1/8 크기로 그려 필요한 페이지를 적는다 (CPU 가 2 프레임 뒤에 읽는다 — Side Effect)
+	if (!probe && !giCapture && VirtualTexturing::HasWork())
+	{
+		RenderGraph::Texture tVtFeedback = g.Import("VT Feedback", nullptr);
+		g.AddPass("VT Feedback", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tVtFeedback = b.Write(tVtFeedback); b.SideEffect(); },
+			[&](const RenderGraph::Resources&) {
+				VirtualTexturing::RenderFeedback(_deviceContext.Get(), d.View, d.Proj, (UINT)viewport.Width, (UINT)viewport.Height, normalDepthSRV, false);
+				_deviceContext->RSSetViewports(1, &viewport);
+			});
+	}
+
 	// 그림자 맵 (깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 그림자가 보이지 않는 캐스터를 뺀다). 알베도 찍기는 빛 · 그림자가 없다
 	if (!giCapture)
 		g.AddPass("Shadows", [&](RenderGraph::Builder& b) { b.Read(tDepth); tShadows = b.Write(tShadows); },
@@ -1038,6 +1052,16 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 			MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), true);
 			_deviceContext->RSSetState(0);
 		});
+
+	if (VirtualTexturing::HasWork())
+	{
+		RenderGraph::Texture tVtFeedback = g.Import("VT Feedback", nullptr);
+		g.AddPass("VT Feedback", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tVtFeedback = b.Write(tVtFeedback); b.SideEffect(); },
+			[&](const RenderGraph::Resources&) {
+				VirtualTexturing::RenderFeedback(_deviceContext.Get(), camera->View(), camera->Proj(), (UINT)viewport.Width, (UINT)viewport.Height, normalDepthSRV, true);
+				_deviceContext->RSSetViewports(1, &viewport);
+			});
+	}
 
 	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드 — 깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 캐스터를 거른다)
 	g.AddPass("Shadows", [&](RenderGraph::Builder& b) { b.Read(tDepth); tShadows = b.Write(tShadows); },

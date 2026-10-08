@@ -33,6 +33,7 @@ namespace AssetImport
 		int MaxSize = 2048;
 		int Compression = NormalQuality;   // Unity 기본. 노멀맵도 선형 BC1 (알파 = 높이가 있으면 BC3 — 셰이더가 rgb 를 그대로 읽는다), High = BC7
 		bool MipMaps = true;
+		bool VirtualTexture = false;   // Unity "Virtual Texture Only": 통째로 올리지 않고 보이는 페이지만 (Streaming Virtual Texturing — Base Map)
 		// Sprite (2D and UI): 그림 몇 픽셀이 월드 1 단위인가, 기준점 (0..1, 왼쪽 아래 = 0,0), 필터 (Point = 도트 그림)
 		enum Filter { Point = 0, Bilinear = 1, Trilinear = 2 };
 		float PixelsPerUnit = 100.0f;

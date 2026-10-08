@@ -343,10 +343,20 @@ public:
 
 	// URP Lit (PBR) 재질 값과 추가 텍스처
 	void SetPbr(const PbrMaterial& m) { Pbr->SetRawValue(&m, 0, sizeof(PbrMaterial)); }
+	// Virtual Texturing (UseBaseMap == 2): 페이지 표 · 캐시 · 정보 (VirtualTexturing::Binding). 보통 재질은 null
+	void SetVirtualTexture(GfxShaderResourceView* pageTable, GfxShaderResourceView* cache, const float info0[4], const float info1[4])
+	{
+		static const float zero[4] = {};
+		if (VTPageTable) VTPageTable->SetResource(pageTable);
+		if (VTCache) VTCache->SetResource(cache);
+		if (VTInfo0) VTInfo0->SetFloatVector(info0 ? info0 : zero);
+		if (VTInfo1) VTInfo1->SetFloatVector(info1 ? info1 : zero);
+	}
 	void SetMetallicMap(GfxShaderResourceView* tex) { MetallicMap->SetResource(tex); }
 	void SetOcclusionMap(GfxShaderResourceView* tex) { OcclusionMap->SetResource(tex); }
 	void SetEmissionMap(GfxShaderResourceView* tex) { EmissionMap->SetResource(tex); }
 	ComPtr<FxVar> Pbr;
+	ComPtr<FxVar> VTPageTable, VTCache, VTInfo0, VTInfo1;
 	ComPtr<FxVar> MetallicMap;
 	ComPtr<FxVar> OcclusionMap;
 	ComPtr<FxVar> EmissionMap;

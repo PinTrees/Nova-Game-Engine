@@ -255,6 +255,12 @@ InstancedBasicEffect::InstancedBasicEffect(ComPtr<GfxDevice> device, const std::
 
 	// URP Lit (PBR)
 	Pbr = _fx->GetVariableByName("gPbr");
+	// Virtual Texturing (셰이더가 지운 변수면 쓰지 않는다)
+	auto valid = [&](const char* n) -> FxVar* { FxVar* v = _fx->GetVariableByName(n); return v && v->IsValid() ? v : nullptr; };
+	VTPageTable = valid("gVTPageTable");
+	VTCache = valid("gVTCache");
+	VTInfo0 = valid("gVTInfo0");
+	VTInfo1 = valid("gVTInfo1");
 	MetallicMap = _fx->GetVariableByName("gMetallicMap")->AsShaderResource();
 	OcclusionMap = _fx->GetVariableByName("gOcclusionMap")->AsShaderResource();
 	EmissionMap = _fx->GetVariableByName("gEmissionMap")->AsShaderResource();
