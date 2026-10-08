@@ -43,6 +43,7 @@
 #include "NovaCodeWindow.h"
 #include "ProfilerEditorWindow.h"
 #include "RenderingDebuggerWindow.h"
+#include "RenderGraphViewerWindow.h"
 #include "MeshBatcher.h"
 #include "TreeRenderer.h"
 #include "RockRenderer.h"
@@ -362,6 +363,7 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new NovaCodeWindow);   // 스크립트를 열 때 나타남 (기본 External Script Editor)
 	EditorGUIManager::GetI()->RegisterWindow(new ProfilerEditorWindow);   // Window > Analysis > Profiler (Ctrl+7)
 	EditorGUIManager::GetI()->RegisterWindow(new RenderingDebuggerWindow);   // Window > Analysis > Rendering Debugger
+	EditorGUIManager::GetI()->RegisterWindow(new RenderGraphViewerWindow);   // Window > Analysis > Render Graph Viewer
 	EditorGUIManager::GetI()->RegisterWindow(new PackageManagerWindow);   // Window > Package Manager
 	EditorGUIManager::GetI()->RegisterWindow(new AudioMixerWindow);       // Window > Audio Mixer
 	ShaderGraph::RegisterEditor();                                         // Window > Shader Graph · .shadergraph · nova shadergraph

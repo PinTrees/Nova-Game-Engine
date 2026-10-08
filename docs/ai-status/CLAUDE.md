@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 1 단계: Forward+ (클러스터 조명)** (사용자 요청: DX12 · Vulkan · Render Graph · Async Compute · VT · 클러스터드 — 순서 · 설계는 docs/RENDERING_ROADMAP.md). **완료 (커밋, 푸시 전)**. 다음: Render Graph (코어 `Source/Graphics/Common/RenderGraph.*` 는 써 두었고 아직 빌드 · 연결 전)
+- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 2 단계: Render Graph** (사용자 요청: DX12 · Vulkan · Render Graph · Async Compute · VT · 클러스터드 — docs/RENDERING_ROADMAP.md). **완료 (커밋, 푸시 전)**. 다음: 3 단계 DirectX 12 백엔드 (진행 중 — `Source/Graphics/DX12/` 와 ShaderCross 의 DXIL 경로는 아직 빌드 · 커밋 전)
+  - `Source/Graphics/Common/RenderGraph.*`: 패스 노드 (Builder Read · Write — 쓸 때마다 새 판 · Create · SideEffect · AsyncCompute), 결과 · Side Effect 에서 거꾸로 따라가 빼기 (Frostbite refcount), 임시 텍스처 풀 (수명으로 다시 쓰기, TrimPool), 패스마다 Profiler 구간, CLI `rendergraph info [--view]`
+  - `EditorApp::RenderGameView` · `_Editor_OnSceneRender` 를 그래프로 (손으로 쓴 같은 순서 두 벌 → 패스 15 · 17 개). Motion Vectors 는 읽는 쪽 (SSAO 시간 누적 · TAA · MB Camera And Objects · 디버그 보기) 이 없으면 빠진다
+  - Window > Analysis > **Render Graph Viewer** (`RenderGraphViewerWindow` — 패스 x 자원 R/W 표, CPU ms, 풀), CLI `window render-graph-viewer [--close]`
+  - 검사 `-Only rendergraph` 5/5, 그래픽 회귀 21 스위트 196/196 (render · gfx · layers · reflectionprobe · probevolume · ssao · motionvectors · decal · vulkan · weather · ssr · depthoffield · antialiasing · renderingdebug · forwardplus · rendergraph · occlusion · material · vfx · linetrail · sprites). 문서 RENDER_GRAPH, Showcase 268
+- 이전: 2026년 10월 8일 — **렌더링 현대화 1 단계: Forward+ (클러스터 조명)**. **완료 (커밋 393303f, 푸시 전)**
   - `ClusteredLighting` (16 x 9 x 24, CPU 로 짓기 — 깊이 조각마다 구 단면 사각형, RGBA32F 텍스처 하나), `LightManager` 의 AdditionalLight (앞의 4 개 밖, 최대 1024), 입자 빛도, 셰이더 `ShadeLit` 의 클러스터 루프, Rendering Debugger Additional Light Count, CLI `forwardplus info | set --enabled`
   - 함께 고침: 카메라 절두체 (Camera · EditorCamera 의 FrustumUpdate 가 투영 x 뷰 의 행에서 평면을 뽑아 빛을 대부분 걸러 냄), 그림자 맵을 빛 종류마다 배열 하나로 (OpenGL 샘플러 32 개 한도 — 지형 셰이더가 깨졌다, 12 → 3)
   - 검사 `-Only forwardplus` 6/6 (DX11 · OpenGL · Vulkan), render · reflectionprobe 23/23 (OpenGL log clean · Forest DX = GL 포함). 문서 FORWARD_PLUS · RENDERING_ROADMAP, Showcase 267

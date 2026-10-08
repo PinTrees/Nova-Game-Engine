@@ -38,6 +38,7 @@
 #include "ProbeVolumes.h"
 #include "RenderingDebug.h"
 #include "ClusteredLighting.h"
+#include "RenderGraph.h"
 #include "LODGroup.h"
 #include "ScreenSpaceReflection.h"
 #include "ModelPlacement.h"
@@ -229,6 +230,7 @@ bool EditorApp::Init()
 		ProbeVolumes::RegisterEditor();       // nova probevolume
 		RenderingDebug::RegisterEditor();     // nova debugview (Window > Analysis > Rendering Debugger)
 		ClusteredLighting::RegisterEditor();  // nova forwardplus
+		RenderGraph::RegisterEditor();        // nova rendergraph (Window > Analysis > Render Graph Viewer)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
@@ -265,6 +267,7 @@ void EditorApp::RenderApplication()
 	// Adaptive Probe Volume (실시간 간접광) → Reflection Probe (굽기 요청 · 실시간 찍기): Game · Scene 뷰를 그리기 전, 프레임마다 한 번
 	//  간접광이 먼저 — 다시 비추기가 마지막 뷰의 그림자 맵을 쓰는데, 프로브 찍기가 그 맵을 덮어쓴다
 	ProbeVolumes::Update();
+	RenderGraph::TrimPool();   // 오래 쓰이지 않은 임시 텍스처를 놓는다 (프레임마다 한 번)
 	ReflectionProbes::Update();
 }
 
@@ -538,7 +541,6 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 {
 	const bool probe = d.Cam == nullptr;
 	const bool giCapture = d.Mode == 2;   // Adaptive Probe Volume 판 찍기 (알베도만)
-	Profiler::Phases phase;
 	// 렌더러·나무 목록은 화면마다 한 번 모아 모든 패스가 같이 쓴다 (찍기 = LOD 바로 고름).
 	//  오클루전 컬링은 카메라마다 (Camera 의 Occlusion Culling, 찍기는 끔)
 	MeshBatcher::BeginView(probe, (!probe && d.Cam && d.Cam->UsesOcclusionCulling()) ? static_cast<const void*>(d.Cam) : nullptr);
@@ -561,7 +563,6 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	std::vector<AdditionalLight> additionalLights = LightManager::GetI()->GetAdditionalLights();   // Forward+ (클러스터)
 	AddParticleLights(pointLights, additionalLights);   // Lights 모듈 (남은 점광 칸에, 다 차면 클러스터로)
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
-	//BuildShadowTransform();
 
 	RenderManager::GetI()->RenderingEditorView = false;
 	RenderLayers::SetViewMask(d.CullingMask);   // Camera.cullingMask: 이 화면에 그릴 레이어
@@ -573,7 +574,6 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	if (!giCapture)
 		ReflectionProbes::Select(d.Position, XMMatrixMultiply(d.View, d.Proj));
 
-	// 와이어프레임 제어처럼 전체 그림자맵 제어도 가능하게
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
 	const D3D11_VIEWPORT viewport = d.Viewport;
 	// 뷰(렌더 타깃) 크기의 깊이 버퍼: 창 백버퍼보다 큰 해상도(예: 1080x1920)로 그릴 때도 깊이가 맞도록
@@ -583,12 +583,8 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	// Volume 값 (Shadows · 후처리) 을 카메라 위치로 섞는다
 	auto& stack = PostProcessingManager::GetI()->GameStack();
 	VolumeManager::Update(stack, Vec3(d.Position.x, d.Position.y, d.Position.z));
-	_deviceContext->RSSetState(0);
-	_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-	_deviceContext->RSSetViewports(1, &viewport);
 
-	// PostProcessing - SSAO
-	phase.Next("Depth Prepass");
+	// 깊이 프리패스의 노멀 · 깊이 타깃
 	auto ssao = PostProcessingManager::GetI()->GetSSAO();
 	GfxShaderResourceView* normalDepthSRV = nullptr;
 	if (probe)
@@ -596,91 +592,17 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 		// 프로브: 자기 크기의 노멀 · 깊이 타깃 (SSAO 의 것은 Game 뷰 크기 — 큰 프로브 면이 잘린다)
 		if (!ProbeNormalDepth((UINT)viewport.Width, (UINT)viewport.Height))
 			return;
-		GfxRenderTargetView* nd[1] = { _probeNormalDepthRTV.Get() };
-		_deviceContext->OMSetRenderTargets(1, nd, viewDsv);
-		const float clearND[4] = { 0.0f, 0.0f, -1.0f, 1e5f };
-		_deviceContext->ClearRenderTargetView(_probeNormalDepthRTV.Get(), clearND);
 		normalDepthSRV = _probeNormalDepthSRV.Get();
 	}
 	else
 	{
 		if (!ssao)
 			return;
-		ssao->SetNormalDepthRenderTarget(viewDsv);
 		normalDepthSRV = ssao->NormalDepthSRV().Get();
 	}
 
-	if (RenderManager::GetI()->WireFrameMode)
-		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-	// Draw Scene Objects
-	// 카메라 절두체 컬링 (깊이 사전 패스와 본 패스가 같이 쓴다)
-	SceneCulling::SetEditorView(false);
-	SceneCulling::Cull(d.View * d.Proj, false);
-	SceneManager::GetI()->GetCurrentScene()->RenderSceneShadowNormal();
-	MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), false);   // 오클루전 컬링: 깊이 → Hi-Z → 새로 보인 렌더러
-
-	_deviceContext->RSSetState(0);
-
-	// 그림자 맵 (깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 그림자가 보이지 않는 캐스터를 뺀다 — 매 프레임 그리는 방향광 캐스케이드)
-	{
-		const XMFLOAT3 gameCamPos = d.Position;
-		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
-		phase.Next("Shadows");
-		ShadowRenderer::Settings shadowSettings = ShadowRenderer::Settings::FromStack(stack);
-		if (probe)
-		{
-			shadowSettings.MaxDistance = (std::max)(d.ShadowDistance, 0.01f);   // 프로브의 Shadow Distance
-			shadowSettings.FarCascadeUpdate = 0;
-		}
-		if (!giCapture)   // 알베도 찍기는 빛 · 그림자가 없다
-			ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
-				gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
-				[]() {
-					// 그림자 조각마다 빛의 절두체로 컬링
-					SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
-					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-				});
-		if (!probe)
-			Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
-		if (!probe && !giCapture)   // 날씨: 위에서 본 덮개 (지붕 아래는 젖지 않는다)
-			WeatherCover::Render(_deviceContext.Get(), 0, gameCamPos);
-		_deviceContext->RSSetState(0);
-		_deviceContext->RSSetViewports(1, &viewport);
-		// 그림자 조각마다 빛으로 컬링했다 → 카메라 컬링을 되돌린다 (본 패스 · 투명 · 스킨 메시가 따른다)
-		SceneCulling::SetEditorView(false);
-		SceneCulling::Cull(d.View * d.Proj, false);
-	}
-
-	// 모션 벡터 (Volume 의 Motion Vectors): 깊이 프리패스 뒤 — SSAO 시간 누적 · TAA · Motion Blur 가 쓴다. 프로브 · APV 찍기에는 없음
-	GfxShaderResourceView* motionVectors = nullptr;
-	if (!probe && !giCapture)
-	{
-		phase.Next("Motion Vectors");
-		MotionVectors::Frame mf;
-		XMStoreFloat4x4(&mf.View, d.View);
-		XMStoreFloat4x4(&mf.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);
-		XMStoreFloat4x4(&mf.ProjJittered, d.Proj);
-		mf.Width = (UINT)viewport.Width;
-		mf.Height = (UINT)viewport.Height;
-		mf.NormalDepth = normalDepthSRV;
-		MotionVectors::Render(mf, MotionVectors::Settings::FromStack(stack));
-		motionVectors = MotionVectors::SRV();
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
-
-	// PostProcessing - SSAO
-	// 프로브: SSAO 없음 (노멀 · 깊이 타깃은 화면 크기라 프로브 크기의 화면과 맞지 않는다 — 흰 그림으로)
-	if (!probe)
-	{
-		phase.Next("SSAO");
-		const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
-		PostProcessingManager::GetI()->RenderSSAO(d.View, d.Proj, ssaoSettings, motionVectors);   // TAA 지터 그대로 (깊이 프리패스와 같은 투영)
-		UseSsaoSettings(ssaoSettings);
-	}
-	GfxShaderResourceView* ssaoMap = probe ? SpriteBatch::WhiteTexture() : ssao->AmbientSRV().Get();
-
-	// Volume 후처리: 필요하면 씬을 HDR 타깃에 그린 뒤 마지막에 뷰 타깃으로 합성한다
+	// ---- 이 뷰의 설정 (패스를 쌓기 전에 정한다: 누가 무엇을 읽는지)
+	const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
 	auto& post = PostProcessingManager::GetI()->GamePost();   // stack 은 그림자 패스 앞에서 섞었다
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = !probe && d.Cam->PostProcessingEnabled();
@@ -700,192 +622,322 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	postOptions.Dithering = !probe && d.Cam->DitheringEnabled();
 	postOptions.StopNaNs = !probe && d.Cam->StopNaNsEnabled();
 	postOptions.Depth = normalDepthSRV;   // Depth Of Field · Motion Blur
-	postOptions.MotionVectors = motionVectors;   // TAA · Motion Blur (Camera And Objects)
 	XMStoreFloat4x4(&postOptions.View, d.View);
 	XMStoreFloat4x4(&postOptions.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);   // 지난 프레임 위치는 지터 없이
 	const bool usePost = !probe && PostProcessPass::IsNeeded(stack, postOptions);
 	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
+	// 모션 벡터를 읽는 쪽: SSAO 시간 누적 · TAA · Motion Blur (Camera And Objects) · Rendering Debugger — 아무도 읽지 않으면 그래프가 패스를 뺀다
+	const VolumeComponent* motionBlur = stack.Get("MotionBlur");
+	const bool postReadsMotion = usePost && (postOptions.Taa || (motionBlur && stack.IsActive("MotionBlur") && motionBlur->I("mode") == 1));
+	const bool ssaoReadsMotion = ssaoSettings.Enabled && ssaoSettings.TemporalAccumulation;
+	const int debugMode = probe ? RenderingDebug::None : RenderingDebug::Get().Mode;
+	const bool debugReadsMotion = debugMode == RenderingDebug::MotionVectors;
+	const AtmospherePass::Params atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
+	XMFLOAT4 indirect = XMFLOAT4(1, 1, 1, 1);
+	GfxShaderResourceView* motionVectors = nullptr;
+	GfxShaderResourceView* ssaoMap = probe ? SpriteBatch::WhiteTexture() : ssao->AmbientSRV().Get();
 
-	phase.Next("Opaque");
-	GfxRenderTargetView* renderTargets[1] = { sceneTarget };
-	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
-	_deviceContext->RSSetViewports(1, &viewport);
-	{
-		// Game 뷰: 카메라의 Background Type 이 Solid Color 이면 그 색, 아니면 Unity 기본 카메라 배경색(#314D79)
-		float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
-		if (d.BackgroundType == 1)
-			memcpy(gameClear, d.Background, sizeof(gameClear));
-		_deviceContext->ClearRenderTargetView(sceneTarget, gameClear);
-	}
+	// ---- Render Graph: 패스마다 읽기 · 쓰기를 적고, 결과 (뷰 타깃 · 다음 프레임 히스토리) 에 닿는 패스만 차례로 실행
+	RenderGraph::Graph g(giCapture ? "GI Capture" : probe ? "Reflection Probe" : "Game");
+	RenderGraph::Texture tDepth = g.Import("View Depth", nullptr, nullptr, viewDsv);
+	RenderGraph::Texture tNormalDepth = g.Import("Normal Depth", normalDepthSRV);
+	RenderGraph::Texture tShadows = g.Import("Shadow Maps", nullptr);
+	RenderGraph::Texture tMotion = g.Import("Motion Vectors", nullptr);
+	RenderGraph::Texture tAO = g.Import("SSAO", ssaoMap);
+	RenderGraph::Texture tScene = g.Import(usePost ? "Scene Color (HDR)" : "Scene Color", nullptr, sceneTarget);
+	RenderGraph::Texture tOut = usePost ? g.Import("View Target", nullptr, renderTargetView) : RenderGraph::Texture();
+	RenderGraph::Texture* out = usePost ? &tOut : &tScene;   // 뷰 타깃 (후처리가 없으면 장면 색이 곧 뷰 타깃 — 그 마지막 판)
+	RenderGraph::Texture tSsrHistory = g.Import("SSR History", nullptr);
 
-	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
-
-	float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
-
-	// cbPerFrame
-	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
-	if (giCapture)
-	{
-		// 알베도 찍기: 32 의 ShadeLit 이 빛 없이 확산 색만 돌려준다. 다른 프레임 값 (빛 · 그림자 · 눈 위치) 은 건드리지 않는다
-		//  — Adaptive Probe Volume 의 다시 비추기가 마지막 뷰의 값을 쓴다
-		ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
-		CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) { ProbeVolumes::Bind(fx); });
-	}
-	else
-	{
-		Effects::InstancedBasicFX->SetEyePosW(d.Position);
-		Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
-		Effects::InstancedBasicFX->SetSsaoMap(ssaoMap);
-		ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
-		ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
-		// Screen Space Reflection: 깊이 프리패스 + 지난 프레임 장면 색 (찍기에는 없음)
-		ScreenSpaceReflection::Prepare(stack, false, probe, normalDepthSRV, d.View, d.Proj);
-		ScreenSpaceReflection::Bind(Effects::InstancedBasicFX.get());
-
-		// lights
-		Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
-		Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
-		Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
-
-		RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
-		{
-			XMFLOAT4X4 v, p;
-			XMStoreFloat4x4(&v, d.View);
-			XMStoreFloat4x4(&p, d.Proj);
-			ClusteredLighting::Build(additionalLights, v, p);   // 이 뷰 (Game · 반사 프로브 면) 의 클러스터
-		}
-		ClusteredLighting::Bind(Effects::InstancedBasicFX.get());
-
-		// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
-		ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
-		WeatherCover::Bind(Effects::InstancedBasicFX.get(), 0);   // 젖은 표면 · 웅덩이
-		// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
-		CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
-			WeatherCover::Bind(fx, 0);
-			fx->SetEyePosW(d.Position);
-			fx->SetCubeMap(_sky->CubeMapSRV().Get());
-			fx->SetSsaoMap(ssaoMap);
-			ReflectionProbes::Bind(fx);
-			ProbeVolumes::Bind(fx);
-			ScreenSpaceReflection::Bind(fx);
-			if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
-				var->SetFloatVector(&indirect.x);
-			SetIndirectGI(fx->GetFX());
-			SetSsaoParams(fx->GetFX());
-			fx->SetDirLights(dirLights.data(), dirLights.size());
-			fx->SetSpotLights(spotLights.data(), spotLights.size());
-			fx->SetPointLights(pointLights.data(), pointLights.size());
-			ShadowRenderer::Bind(fx, *shadowMap, *d.Shadow);
-			RenderLayers::SetLightMasks(fx, scenePointLights, false);
-			ClusteredLighting::Bind(fx);
+	g.AddPass("Depth Prepass", [&](RenderGraph::Builder& b) { tNormalDepth = b.Write(tNormalDepth); tDepth = b.Write(tDepth); },
+		[&](const RenderGraph::Resources&) {
+			_deviceContext->RSSetState(0);
+			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->RSSetViewports(1, &viewport);
+			if (probe)
+			{
+				GfxRenderTargetView* nd[1] = { _probeNormalDepthRTV.Get() };
+				_deviceContext->OMSetRenderTargets(1, nd, viewDsv);
+				const float clearND[4] = { 0.0f, 0.0f, -1.0f, 1e5f };
+				_deviceContext->ClearRenderTargetView(_probeNormalDepthRTV.Get(), clearND);
+			}
+			else
+				ssao->SetNormalDepthRenderTarget(viewDsv);
+			if (RenderManager::GetI()->WireFrameMode)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+			// 카메라 절두체 컬링 (깊이 사전 패스와 본 패스가 같이 쓴다)
+			SceneCulling::SetEditorView(false);
+			SceneCulling::Cull(d.View * d.Proj, false);
+			SceneManager::GetI()->GetCurrentScene()->RenderSceneShadowNormal();
+			MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), false);   // 오클루전 컬링: 깊이 → Hi-Z → 새로 보인 렌더러
+			_deviceContext->RSSetState(0);
 		});
-	}
 
-	uint32 stride = sizeof(Vertex::PosNormalTexTan);
-	uint32 offset = 0;
+	// 그림자 맵 (깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 그림자가 보이지 않는 캐스터를 뺀다). 알베도 찍기는 빛 · 그림자가 없다
+	if (!giCapture)
+		g.AddPass("Shadows", [&](RenderGraph::Builder& b) { b.Read(tDepth); tShadows = b.Write(tShadows); },
+			[&](const RenderGraph::Resources&) {
+				const XMFLOAT3 gameCamPos = d.Position;
+				const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedLights();
+				ShadowRenderer::Settings shadowSettings = ShadowRenderer::Settings::FromStack(stack);
+				if (probe)
+				{
+					shadowSettings.MaxDistance = (std::max)(d.ShadowDistance, 0.01f);   // 프로브의 Shadow Distance
+					shadowSettings.FarCascadeUpdate = 0;
+				}
+				ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
+					gameCamPos, d.View, d.Proj, shadowSettings, *d.Shadow,
+					[]() {
+						// 그림자 조각마다 빛의 절두체로 컬링
+						SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+						SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+					});
+				if (!probe)
+				{
+					Profiler::SetStat("Game View/Shadow Cascades Redrawn", s_GameShadow.CascadesDrawn);   // 먼 캐스케이드 캐시
+					WeatherCover::Render(_deviceContext.Get(), 0, gameCamPos);   // 날씨: 위에서 본 덮개 (지붕 아래는 젖지 않는다)
+				}
+				_deviceContext->RSSetState(0);
+				_deviceContext->RSSetViewports(1, &viewport);
+				// 그림자 조각마다 빛으로 컬링했다 → 카메라 컬링을 되돌린다 (본 패스 · 투명 · 스킨 메시가 따른다)
+				SceneCulling::SetEditorView(false);
+				SceneCulling::Cull(d.View * d.Proj, false);
+			});
 
-	_deviceContext->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+	// 모션 벡터 (Volume 의 Motion Vectors): 깊이 프리패스 뒤. 읽는 패스가 없으면 그래프가 뺀다. 프로브 · APV 찍기에는 없음
+	if (!probe)
+		g.AddPass("Motion Vectors", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tMotion = b.Write(tMotion); },
+			[&](const RenderGraph::Resources&) {
+				MotionVectors::Frame mf;
+				XMStoreFloat4x4(&mf.View, d.View);
+				XMStoreFloat4x4(&mf.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);
+				XMStoreFloat4x4(&mf.ProjJittered, d.Proj);
+				mf.Width = (UINT)viewport.Width;
+				mf.Height = (UINT)viewport.Height;
+				mf.NormalDepth = normalDepthSRV;
+				MotionVectors::Render(mf, MotionVectors::Settings::FromStack(stack));
+				motionVectors = MotionVectors::SRV();
+				_deviceContext->RSSetViewports(1, &viewport);
+			});
 
-	SceneManager::GetI()->GetCurrentScene()->RenderScene();
+	// SSAO (프로브: 없음 — 노멀 · 깊이 타깃이 화면 크기라 프로브 화면과 맞지 않는다, 흰 그림으로)
+	if (!probe)
+		g.AddPass("SSAO", [&](RenderGraph::Builder& b) {
+				b.Read(tNormalDepth);
+				if (ssaoReadsMotion)
+					b.Read(tMotion);
+				tAO = b.Write(tAO);
+			},
+			[&](const RenderGraph::Resources&) {
+				PostProcessingManager::GetI()->RenderSSAO(d.View, d.Proj, ssaoSettings, ssaoReadsMotion ? motionVectors : nullptr);   // TAA 지터 그대로 (깊이 프리패스와 같은 투영)
+				UseSsaoSettings(ssaoSettings);
+			});
 
-	_deviceContext->RSSetState(0);
-	_deviceContext->OMSetDepthStencilState(0, 0);
+	g.AddPass("Opaque", [&](RenderGraph::Builder& b) {
+			b.Read(tDepth);
+			b.Read(tNormalDepth);
+			if (!giCapture)
+				b.Read(tShadows);
+			if (!probe)
+				b.Read(tAO);
+			tScene = b.Write(tScene);
+		},
+		[&](const RenderGraph::Resources&) {
+			GfxRenderTargetView* renderTargets[1] = { sceneTarget };
+			_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
+			_deviceContext->RSSetViewports(1, &viewport);
+			{
+				// Game 뷰: 카메라의 Background Type 이 Solid Color 이면 그 색, 아니면 Unity 기본 카메라 배경색(#314D79)
+				float gameClear[4] = { 49.0f / 255.0f, 77.0f / 255.0f, 121.0f / 255.0f, 1.0f };
+				if (d.BackgroundType == 1)
+					memcpy(gameClear, d.Background, sizeof(gameClear));
+				_deviceContext->ClearRenderTargetView(sceneTarget, gameClear);
+			}
+			_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
+
+			// cbPerFrame
+			indirect = ApplyIndirectLighting(stack);
+			if (giCapture)
+			{
+				// 알베도 찍기: 32 의 ShadeLit 이 빛 없이 확산 색만 돌려준다. 다른 프레임 값 (빛 · 그림자 · 눈 위치) 은 건드리지 않는다
+				//  — Adaptive Probe Volume 의 다시 비추기가 마지막 뷰의 값을 쓴다
+				ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
+				CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) { ProbeVolumes::Bind(fx); });
+			}
+			else
+			{
+				Effects::InstancedBasicFX->SetEyePosW(d.Position);
+				Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
+				Effects::InstancedBasicFX->SetSsaoMap(ssaoMap);
+				ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
+				ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
+				// Screen Space Reflection: 깊이 프리패스 + 지난 프레임 장면 색 (찍기에는 없음)
+				ScreenSpaceReflection::Prepare(stack, false, probe, normalDepthSRV, d.View, d.Proj);
+				ScreenSpaceReflection::Bind(Effects::InstancedBasicFX.get());
+
+				// lights
+				Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
+				Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
+				Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
+
+				RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
+				{
+					XMFLOAT4X4 v, p;
+					XMStoreFloat4x4(&v, d.View);
+					XMStoreFloat4x4(&p, d.Proj);
+					ClusteredLighting::Build(additionalLights, v, p);   // 이 뷰 (Game · 반사 프로브 면) 의 클러스터
+				}
+				ClusteredLighting::Bind(Effects::InstancedBasicFX.get());
+
+				// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
+				ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
+				WeatherCover::Bind(Effects::InstancedBasicFX.get(), 0);   // 젖은 표면 · 웅덩이
+				// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
+				CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+					WeatherCover::Bind(fx, 0);
+					fx->SetEyePosW(d.Position);
+					fx->SetCubeMap(_sky->CubeMapSRV().Get());
+					fx->SetSsaoMap(ssaoMap);
+					ReflectionProbes::Bind(fx);
+					ProbeVolumes::Bind(fx);
+					ScreenSpaceReflection::Bind(fx);
+					if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
+						var->SetFloatVector(&indirect.x);
+					SetIndirectGI(fx->GetFX());
+					SetSsaoParams(fx->GetFX());
+					fx->SetDirLights(dirLights.data(), dirLights.size());
+					fx->SetSpotLights(spotLights.data(), spotLights.size());
+					fx->SetPointLights(pointLights.data(), pointLights.size());
+					ShadowRenderer::Bind(fx, *shadowMap, *d.Shadow);
+					RenderLayers::SetLightMasks(fx, scenePointLights, false);
+					ClusteredLighting::Bind(fx);
+				});
+			}
+			_deviceContext->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+			SceneManager::GetI()->GetCurrentScene()->RenderScene();
+			_deviceContext->RSSetState(0);
+			_deviceContext->OMSetDepthStencilState(0, 0);
+		});
 
 	// 데칼 (Decal Projector): 불투명 다음 — 깊이 프리패스의 노멀 · 깊이로 표면을 되살려 상자 안을 칠한다 (하늘 · 투명 · 물 · 입자에는 안 묻는다)
-	phase.Next("Decals");
-	DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, d.View, d.Proj, normalDepthSRV, false);
+	g.AddPass("Decals", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); b.Read(tScene); tScene = b.Write(tScene); },
+		[&](const RenderGraph::Resources&) {
+			DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, d.View, d.Proj, normalDepthSRV, false);
+		});
 
-	// 입자 (투명): 불투명 물체 다음, 후처리 전 → Bloom 이 Additive 불꽃을 빛나게 한다
 	// Background Type = Skybox 면 불투명 물체 다음(빈 곳 깊이 = 1)에 하늘을 그린다. 입자(투명)보다는 먼저.
 	if (d.BackgroundType == 0)
+		g.AddPass("Sky", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				_sky->Draw(_deviceContext.Get(), d.Position, d.View * d.Proj);
+				_deviceContext->RSSetState(0);
+				_deviceContext->OMSetDepthStencilState(0, 0);
+			});
+
+	if (!giCapture)   // 알베도 찍기: 불투명 (+ 데칼 · 하늘) 까지만
 	{
-		phase.Next("Sky");
-		_sky->Draw(_deviceContext.Get(), d.Position, d.View * d.Proj);
-		_deviceContext->RSSetState(0);
-		_deviceContext->OMSetDepthStencilState(0, 0);
+		// 안개·대기 (Volume > Fog / Atmosphere): 불투명 + 하늘 다음, 물 전 (물은 같은 값으로 자기 표면에 입힌다)
+		if (atmosphere.Active())
+			g.AddPass("Atmosphere", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+				[&](const RenderGraph::Resources&) {
+					DrawAtmosphere(&atmosphere, d.View * d.Proj, d.Position, sceneTarget, viewDsv, viewport, d.BackgroundType == 0);
+				});
+
+		// 투명 메시 (Shader Graph 의 Surface Type = Transparent): 먼 것부터, 깊이는 읽기만
+		g.AddPass("Transparent", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				// 깊이는 읽기만 (읽기 전용 DSV — 깊이 SRV 와 같이 묶여도 된다)
+				GfxDepthStencilView* readDsv = (viewDsv == _viewDepthView.Get() && _viewDepthReadOnly) ? _viewDepthReadOnly.Get() : viewDsv;
+				_deviceContext->OMSetRenderTargets(1, &sceneTarget, readDsv);
+				_deviceContext->RSSetViewports(1, &viewport);
+				MeshBatcher::Draw(SceneManager::GetI()->GetCurrentScene(), MeshBatcher::Pass::Transparent, false);
+				_deviceContext->RSSetState(0);
+			});
+
+		// 물 (바다·호수·강): 굴절에 화면 색을 쓴다, 입자 전
+		g.AddPass("Water", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tShadows); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				DrawWater(d.View, d.Proj, d.Position, sceneTarget, viewDsv, viewport, dirLights, d.BackgroundType == 0, shadowMap.get(), d.Shadow, &atmosphere);
+			});
+
+		// 2D 스프라이트 (SpriteRenderer · 2D 뼈대): 투명 — 하늘 · 물 다음, 입자 전
+		g.AddPass("Sprites", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				_deviceContext->RSSetViewports(1, &viewport);
+				SpriteBatch::Render(d.View, d.Proj, sceneTarget, viewDsv);
+			});
+
+		g.AddPass("Particles", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, d.BackgroundType == 0);
+				ParticleRenderer::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);
+				VfxRuntime::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);   // Visual Effect (GPU 파티클 — 프레임의 첫 뷰에서 시뮬레이션)
+				_deviceContext->RSSetViewports(1, &viewport);
+				_deviceContext->RSSetState(0);
+				_deviceContext->OMSetDepthStencilState(0, 0);
+				GfxShaderResourceView* nullSRV[128] = { 0 };
+				_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+			});
+
+		// 다음 프레임 Screen Space Reflection 이 쓸 장면 색 (후처리 전 — 톤매핑 · 블룸이 두 번 들지 않게). 그래프 밖으로 나가는 결과
+		if (!probe)
+			g.AddPass("SSR History", [&](RenderGraph::Builder& b) { b.Read(tScene); tSsrHistory = b.Write(tSsrHistory); b.SideEffect(); },
+				[&](const RenderGraph::Resources&) {
+					ScreenSpaceReflection::StoreHistory(_deviceContext.Get(), sceneTarget, false);
+				});
+
+		if (usePost)
+			g.AddPass("Post Processing", [&](RenderGraph::Builder& b) {
+					b.Read(tScene);
+					b.Read(tNormalDepth);
+					if (postReadsMotion)
+						b.Read(tMotion);
+					tOut = b.Write(tOut);
+				},
+				[&](const RenderGraph::Resources&) {
+					postOptions.MotionVectors = postReadsMotion ? motionVectors : nullptr;   // TAA · Motion Blur (Camera And Objects)
+					post.Execute(stack, postOptions, renderTargetView);
+					// 이후 그리기(있다면)를 위해 원래 타깃과 뷰포트로 되돌린다
+					GfxRenderTargetView* outTargets[1] = { renderTargetView };
+					_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
+					_deviceContext->RSSetViewports(1, &viewport);
+				});
+
+		// Rendering Debugger: 깊이 · 노멀 · SSAO · 모션 벡터 · 클러스터 전체 화면 보기
+		if (debugMode != RenderingDebug::None)
+			g.AddPass("Rendering Debugger", [&](RenderGraph::Builder& b) {
+					b.Read(tNormalDepth);
+					b.Read(tAO);
+					if (debugReadsMotion)
+						b.Read(tMotion);
+					b.Read(*out);
+					*out = b.Write(*out);
+				},
+				[&](const RenderGraph::Resources&) {
+					RenderingDebug::Inputs dbg;
+					dbg.NormalDepth = normalDepthSRV;
+					dbg.Ao = ssaoMap;
+					dbg.Motion = debugReadsMotion ? motionVectors : nullptr;
+					XMStoreFloat4x4(&dbg.View, d.View);
+					dbg.Width = (UINT)viewport.Width;
+					dbg.Height = (UINT)viewport.Height;
+					if (RenderingDebug::Draw(dbg, renderTargetView, viewport))
+					{
+						GfxRenderTargetView* outTargets[1] = { renderTargetView };
+						_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
+					}
+				});
 	}
-
-	// 안개·대기 (Volume > Fog / Atmosphere): 불투명 + 하늘 다음, 물 전 (물은 같은 값으로 자기 표면에 입힌다)
-	const AtmospherePass::Params atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
-	if (giCapture)
-		return;   // 알베도 찍기: 불투명 (+ 데칼) 까지만
-	if (atmosphere.Active())
-	{
-		phase.Next("Atmosphere");
-		DrawAtmosphere(&atmosphere, d.View * d.Proj, d.Position, sceneTarget, viewDsv, viewport, d.BackgroundType == 0);
-	}
-
-	// 투명 메시 (Shader Graph 의 Surface Type = Transparent): 불투명 · 하늘 · 대기 다음, 물 전 — 먼 것부터, 깊이는 읽기만
-	phase.Next("Transparent");
-	{
-		// 깊이는 읽기만 (읽기 전용 DSV — 깊이 SRV 와 같이 묶여도 된다)
-		GfxDepthStencilView* readDsv = (viewDsv == _viewDepthView.Get() && _viewDepthReadOnly) ? _viewDepthReadOnly.Get() : viewDsv;
-		_deviceContext->OMSetRenderTargets(1, &sceneTarget, readDsv);
-	}
-	_deviceContext->RSSetViewports(1, &viewport);
-	MeshBatcher::Draw(SceneManager::GetI()->GetCurrentScene(), MeshBatcher::Pass::Transparent, false);
-	_deviceContext->RSSetState(0);
-
-	// 물 (바다·호수·강): 불투명 + 하늘 다음 (굴절에 화면 색을 쓴다), 입자 전
-	phase.Next("Water");
-	DrawWater(d.View, d.Proj, d.Position, sceneTarget, viewDsv, viewport, dirLights, d.BackgroundType == 0, shadowMap.get(), d.Shadow, &atmosphere);
-
-	// 2D 스프라이트 (SpriteRenderer · 2D 뼈대): 투명 — 하늘 · 물 다음, 입자 전
-	phase.Next("Sprites");
-	_deviceContext->RSSetViewports(1, &viewport);
-	SpriteBatch::Render(d.View, d.Proj, sceneTarget, viewDsv);
-
-	phase.Next("Particles");
-	{
-		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, d.BackgroundType == 0);
-		ParticleRenderer::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);
-		VfxRuntime::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);   // Visual Effect (GPU 파티클 — 프레임의 첫 뷰에서 시뮬레이션)
-	}
-	_deviceContext->RSSetViewports(1, &viewport);
-
-	_deviceContext->RSSetState(0);
-	_deviceContext->OMSetDepthStencilState(0, 0);
-
-	GfxShaderResourceView* nullSRV[128] = { 0 };
-	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
-	// 다음 프레임 Screen Space Reflection 이 쓸 장면 색 (후처리 전 — 톤매핑 · 블룸이 두 번 들지 않게)
-	if (!probe)
-		ScreenSpaceReflection::StoreHistory(_deviceContext.Get(), sceneTarget, false);
-
-	if (usePost)
-	{
-		phase.Next("Post Processing");
-		post.Execute(stack, postOptions, renderTargetView);
-		// 이후 그리기(있다면)를 위해 원래 타깃과 뷰포트로 되돌린다
-		GfxRenderTargetView* outTargets[1] = { renderTargetView };
-		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
-
-	// Rendering Debugger: 깊이 · 노멀 · SSAO · 모션 벡터 전체 화면 보기 (프로브 찍기에는 없음)
-	if (!probe)
-	{
-		RenderingDebug::Inputs dbg;
-		dbg.NormalDepth = normalDepthSRV;
-		dbg.Ao = ssaoMap;
-		dbg.Motion = motionVectors;
-		XMStoreFloat4x4(&dbg.View, d.View);
-		dbg.Width = (UINT)viewport.Width;
-		dbg.Height = (UINT)viewport.Height;
-		if (RenderingDebug::Draw(dbg, renderTargetView, viewport))
-		{
-			GfxRenderTargetView* outTargets[1] = { renderTargetView };
-			_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
-		}
-	}
+	g.MarkOutput(*out);
+	g.Compile();
+	g.Execute();
 }
 
 void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, EditorCamera* camera)
 {
 	FRAME_PROFILE("SceneView render");
-	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
+	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프 — Render Graph 가 패스마다)
 	PROFILE_GPU("Scene View");
-	Profiler::Phases phase;
 	MeshBatcher::BeginView(false, camera);   // Scene 뷰도 오클루전 컬링 (카메라 = 지난 프레임 기록 · Hi-Z 의 키)
 	TreeRenderer::BeginView();
 	++RenderManager::GetI()->ViewSerial;
@@ -921,265 +973,291 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	auto& stack = PostProcessingManager::GetI()->EditorStack();
 	const XMFLOAT3 camPos = camera->GetPosition();
 	VolumeManager::Update(stack, Vec3(camPos.x, camPos.y, camPos.z));
-	_deviceContext->RSSetState(0);
-	_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
-	_deviceContext->RSSetViewports(1, &viewport);
-
-	// PostProcessing - SSAO
-	phase.Next("Depth Prepass");
 	auto ssao = PostProcessingManager::GetI()->_EditorGetSSAO();
-	ssao->SetNormalDepthRenderTarget(viewDsv);
+	GfxShaderResourceView* normalDepthSRV = ssao->NormalDepthSRV().Get();
 
-	if (RenderManager::GetI()->WireFrameMode)
-		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
-
-	// Draw Scene Objects
-	SceneCulling::SetEditorView(true);
-	SceneCulling::Cull(camera->View() * camera->Proj(), false);
-	SceneManager::GetI()->GetCurrentScene()->_Editor_RenderSceneShadowNormal(); 
-	MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), true);
-
-	_deviceContext->RSSetState(0);
-
-	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드 — 깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 캐스터를 거른다)
-	{
-		const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
-		phase.Next("Shadows");
-		ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
-			camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
-			[]() {
-				SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
-				SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
-			});
-		Profiler::SetStat("Scene View/Shadow Cascades Redrawn", s_EditorShadow.CascadesDrawn);
-		WeatherCover::Render(_deviceContext.Get(), 1, XMFLOAT3(camPos.x, camPos.y, camPos.z));
-		_deviceContext->RSSetState(0);
-		_deviceContext->RSSetViewports(1, &viewport);
-		SceneCulling::SetEditorView(true);
-		SceneCulling::Cull(camera->View() * camera->Proj(), false);   // 빛 컬링 뒤 카메라 컬링을 되돌린다
-	}
-
-	// 모션 벡터: Scene 뷰는 Rendering Debugger 의 Motion Vectors 보기에서만 (Game 뷰와 따로 기록)
-	GfxShaderResourceView* sceneMotion = nullptr;
-	if (RenderingDebug::NeedsMotionVectors())
-	{
-		phase.Next("Motion Vectors");
-		MotionVectors::Frame mf;
-		XMStoreFloat4x4(&mf.View, camera->View());
-		XMStoreFloat4x4(&mf.Proj, camera->Proj());
-		mf.ProjJittered = mf.Proj;
-		mf.Width = (UINT)viewport.Width;
-		mf.Height = (UINT)viewport.Height;
-		mf.NormalDepth = ssao->NormalDepthSRV().Get();
-		mf.SceneView = true;
-		MotionVectors::Settings ms = MotionVectors::Settings::FromStack(stack);
-		ms.Enabled = true;   // 보려고 켠 것 (Volume 이 꺼도)
-		MotionVectors::Render(mf, ms);
-		sceneMotion = MotionVectors::SRV(true);
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
-	else
-		MotionVectors::Invalidate(true);
-
-	// PostProcessing - SSAO
-	phase.Next("SSAO");
+	// ---- 이 뷰의 설정 (패스를 쌓기 전에 정한다)
 	const Ssao::Settings ssaoSettings = Ssao::Settings::FromStack(stack);
-	PostProcessingManager::GetI()->_Editor_RenderSSAO(camera, ssaoSettings);
-	UseSsaoSettings(ssaoSettings);
-
 	// Volume 후처리 (Scene 뷰: 툴바 Effects > Post Processing 이 켜져 있을 때, 카메라 옵션은 기본)
-	auto& post = PostProcessingManager::GetI()->EditorPost();   // stack 은 그림자 패스 앞에서 섞었다
+	auto& post = PostProcessingManager::GetI()->EditorPost();
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = SceneToolbar::PostProcessingVisible() && !RenderManager::GetI()->WireFrameMode;
-	postOptions.Depth = ssao->NormalDepthSRV().Get();   // Depth Of Field (Motion Blur 는 Scene 뷰에 없음 — Unity 와 같음)
+	postOptions.Depth = normalDepthSRV;   // Depth Of Field (Motion Blur 는 Scene 뷰에 없음 — Unity 와 같음)
 	XMStoreFloat4x4(&postOptions.View, camera->View());
 	XMStoreFloat4x4(&postOptions.Proj, camera->Proj());
 	postOptions.SceneView = true;
 	const bool usePost = PostProcessPass::IsNeeded(stack, postOptions);
 	GfxRenderTargetView* sceneTarget = usePost ? post.Begin((UINT)viewport.Width, (UINT)viewport.Height) : renderTargetView;
+	const int debugMode = RenderingDebug::Get().Mode;
+	const bool wire = RenderManager::GetI()->WireFrameMode;
+	AtmospherePass::Params atmosphere;
+	if (SceneToolbar::FogVisible() && !wire)
+		atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
+	XMFLOAT4 indirect = XMFLOAT4(1, 1, 1, 1);
+	GfxShaderResourceView* sceneMotion = nullptr;
 
-	phase.Next("Opaque");
-	GfxRenderTargetView* renderTargets[1] = { sceneTarget };
-	_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
-	_deviceContext->RSSetViewports(1, &viewport);
-	{
-		// Scene 뷰: 투명으로 지운 뒤 SceneViewOverlay 가 뒤에 그린 하늘 그라디언트가 비쳐 보이게 한다.
-		const float sceneClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
-		_deviceContext->ClearRenderTargetView(sceneTarget, sceneClear);
-	}
+	// ---- Render Graph (Game 뷰와 같은 방법 — RenderGameView)
+	RenderGraph::Graph g("Scene");
+	RenderGraph::Texture tDepth = g.Import("View Depth", nullptr, nullptr, viewDsv);
+	RenderGraph::Texture tNormalDepth = g.Import("Normal Depth", normalDepthSRV);
+	RenderGraph::Texture tShadows = g.Import("Shadow Maps", nullptr);
+	RenderGraph::Texture tMotion = g.Import("Motion Vectors", nullptr);
+	RenderGraph::Texture tAO = g.Import("SSAO", ssao->AmbientSRV().Get());
+	RenderGraph::Texture tScene = g.Import(usePost ? "Scene Color (HDR)" : "Scene Color", nullptr, sceneTarget);
+	RenderGraph::Texture tOut = usePost ? g.Import("View Target", nullptr, renderTargetView) : RenderGraph::Texture();
+	RenderGraph::Texture* out = usePost ? &tOut : &tScene;
+	RenderGraph::Texture tSsrHistory = g.Import("SSR History", nullptr);
 
-	_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
+	g.AddPass("Depth Prepass", [&](RenderGraph::Builder& b) { tNormalDepth = b.Write(tNormalDepth); tDepth = b.Write(tDepth); },
+		[&](const RenderGraph::Resources&) {
+			_deviceContext->RSSetState(0);
+			_deviceContext->ClearDepthStencilView(viewDsv, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
+			_deviceContext->RSSetViewports(1, &viewport);
+			ssao->SetNormalDepthRenderTarget(viewDsv);
+			if (wire)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+			SceneCulling::SetEditorView(true);
+			SceneCulling::Cull(camera->View() * camera->Proj(), false);
+			SceneManager::GetI()->GetCurrentScene()->_Editor_RenderSceneShadowNormal();
+			MeshBatcher::FinishDepthPrepass(SceneManager::GetI()->GetCurrentScene(), true);
+			_deviceContext->RSSetState(0);
+		});
 
-	//float blendFactor[] = { 0.0f, 0.0f, 0.0f, 0.0f };
+	// 그림자 맵 (Scene 뷰 카메라 기준 캐스케이드 — 깊이 프리패스 뒤: 오클루전 컬링의 Hi-Z 로 캐스터를 거른다)
+	g.AddPass("Shadows", [&](RenderGraph::Builder& b) { b.Read(tDepth); tShadows = b.Write(tShadows); },
+		[&](const RenderGraph::Resources&) {
+			const vector<shared_ptr<Light>> sortedLights = LightManager::GetI()->GetSortedEditorLights();
+			ShadowRenderer::Render(_deviceContext.Get(), *shadowMap, sortedLights, (int)dirLights.size(), (int)spotLights.size(), scenePointLights,
+				camPos, camera->View(), camera->Proj(), ShadowRenderer::Settings::FromStack(stack), s_EditorShadow,
+				[]() {
+					SceneCulling::Cull(RenderManager::GetI()->LightViewProjection, true);
+					SceneManager::GetI()->GetCurrentScene()->RenderSceneShadow();
+				});
+			Profiler::SetStat("Scene View/Shadow Cascades Redrawn", s_EditorShadow.CascadesDrawn);
+			WeatherCover::Render(_deviceContext.Get(), 1, XMFLOAT3(camPos.x, camPos.y, camPos.z));
+			_deviceContext->RSSetState(0);
+			_deviceContext->RSSetViewports(1, &viewport);
+			SceneCulling::SetEditorView(true);
+			SceneCulling::Cull(camera->View() * camera->Proj(), false);   // 빛 컬링 뒤 카메라 컬링을 되돌린다
+		});
 
-	// cbPerFrame
-	Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
-	Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
-	Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
-	ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
-	ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
-	ScreenSpaceReflection::Prepare(stack, true, false, ssao->NormalDepthSRV().Get(), camera->View(), camera->Proj());
-	ScreenSpaceReflection::Bind(Effects::InstancedBasicFX.get());
-	const XMFLOAT4 indirect = ApplyIndirectLighting(stack);
+	// 모션 벡터: Scene 뷰는 Rendering Debugger 의 Motion Vectors 보기만 읽는다 → 아니면 그래프가 뺀다 (Game 뷰와 따로 기록)
+	g.AddPass("Motion Vectors", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tMotion = b.Write(tMotion); },
+		[&](const RenderGraph::Resources&) {
+			MotionVectors::Frame mf;
+			XMStoreFloat4x4(&mf.View, camera->View());
+			XMStoreFloat4x4(&mf.Proj, camera->Proj());
+			mf.ProjJittered = mf.Proj;
+			mf.Width = (UINT)viewport.Width;
+			mf.Height = (UINT)viewport.Height;
+			mf.NormalDepth = normalDepthSRV;
+			mf.SceneView = true;
+			MotionVectors::Settings ms = MotionVectors::Settings::FromStack(stack);
+			ms.Enabled = true;   // 보려고 켠 것 (Volume 이 꺼도)
+			MotionVectors::Render(mf, ms);
+			sceneMotion = MotionVectors::SRV(true);
+			_deviceContext->RSSetViewports(1, &viewport);
+		});
 
-	// lights
-	Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
-	Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
-	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
+	g.AddPass("SSAO", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tAO = b.Write(tAO); },
+		[&](const RenderGraph::Resources&) {
+			PostProcessingManager::GetI()->_Editor_RenderSSAO(camera, ssaoSettings);
+			UseSsaoSettings(ssaoSettings);
+		});
 
-	RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, true);
-	{
-		XMFLOAT4X4 v, p;
-		XMStoreFloat4x4(&v, camera->View());
-		XMStoreFloat4x4(&p, camera->Proj());
-		ClusteredLighting::Build(additionalLights, v, p);
-	}
-	ClusteredLighting::Bind(Effects::InstancedBasicFX.get());
+	g.AddPass("Opaque", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tNormalDepth); b.Read(tShadows); b.Read(tAO); tScene = b.Write(tScene); },
+		[&](const RenderGraph::Resources&) {
+			GfxRenderTargetView* renderTargets[1] = { sceneTarget };
+			_deviceContext->OMSetRenderTargets(1, renderTargets, viewDsv);
+			_deviceContext->RSSetViewports(1, &viewport);
+			{
+				// Scene 뷰: 투명으로 지운 뒤 SceneViewOverlay 가 뒤에 그린 하늘 그라디언트가 비쳐 보이게 한다.
+				const float sceneClear[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+				_deviceContext->ClearRenderTargetView(sceneTarget, sceneClear);
+			}
+			_deviceContext->OMSetDepthStencilState(RenderStates::EqualsDSS.Get(), 0);
 
-	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
-	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
-	WeatherCover::Bind(Effects::InstancedBasicFX.get(), 1);
-	// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
-	CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
-		WeatherCover::Bind(fx, 1);
-		fx->SetEyePosW(camera->GetPosition());
-		fx->SetCubeMap(_sky->CubeMapSRV().Get());
-		fx->SetSsaoMap(ssao->AmbientSRV().Get());
-		ReflectionProbes::Bind(fx);
-		ProbeVolumes::Bind(fx);
-		ScreenSpaceReflection::Bind(fx);
-		if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
-			var->SetFloatVector(&indirect.x);
-		SetIndirectGI(fx->GetFX());
-		SetSsaoParams(fx->GetFX());
-		fx->SetDirLights(dirLights.data(), dirLights.size());
-		fx->SetSpotLights(spotLights.data(), spotLights.size());
-		fx->SetPointLights(pointLights.data(), pointLights.size());
-		ShadowRenderer::Bind(fx, *shadowMap, s_EditorShadow);
-		RenderLayers::SetLightMasks(fx, scenePointLights, true);
-		ClusteredLighting::Bind(fx);
-	});
+			// cbPerFrame
+			Effects::InstancedBasicFX->SetEyePosW(camera->GetPosition());
+			Effects::InstancedBasicFX->SetCubeMap(_sky->CubeMapSRV().Get());
+			Effects::InstancedBasicFX->SetSsaoMap(ssao->AmbientSRV().Get());
+			ReflectionProbes::Bind(Effects::InstancedBasicFX.get());
+			ProbeVolumes::Bind(Effects::InstancedBasicFX.get());
+			ScreenSpaceReflection::Prepare(stack, true, false, normalDepthSRV, camera->View(), camera->Proj());
+			ScreenSpaceReflection::Bind(Effects::InstancedBasicFX.get());
+			indirect = ApplyIndirectLighting(stack);
 
-	uint32 stride = sizeof(Vertex::PosNormalTexTan);
-	uint32 offset = 0;
+			// lights
+			Effects::InstancedBasicFX->SetDirLights(dirLights.data(), dirLights.size());
+			Effects::InstancedBasicFX->SetSpotLights(spotLights.data(), spotLights.size());
+			Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
-	_deviceContext->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+			RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, true);
+			{
+				XMFLOAT4X4 v, p;
+				XMStoreFloat4x4(&v, camera->View());
+				XMStoreFloat4x4(&p, camera->Proj());
+				ClusteredLighting::Build(additionalLights, v, p);
+			}
+			ClusteredLighting::Bind(Effects::InstancedBasicFX.get());
 
-	if (RenderManager::GetI()->WireFrameMode)
-		_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+			// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
+			ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
+			WeatherCover::Bind(Effects::InstancedBasicFX.get(), 1);
+			// 패키지 셰이더 이펙트 (CustomShaders) 에도 같은 프레임 상수
+			CustomShaders::ForEachEffect([&](InstancedBasicEffect* fx) {
+				WeatherCover::Bind(fx, 1);
+				fx->SetEyePosW(camera->GetPosition());
+				fx->SetCubeMap(_sky->CubeMapSRV().Get());
+				fx->SetSsaoMap(ssao->AmbientSRV().Get());
+				ReflectionProbes::Bind(fx);
+				ProbeVolumes::Bind(fx);
+				ScreenSpaceReflection::Bind(fx);
+				if (auto* var = fx->GetFX()->GetVariableByName("gIndirect")->AsVector(); var && var->IsValid())
+					var->SetFloatVector(&indirect.x);
+				SetIndirectGI(fx->GetFX());
+				SetSsaoParams(fx->GetFX());
+				fx->SetDirLights(dirLights.data(), dirLights.size());
+				fx->SetSpotLights(spotLights.data(), spotLights.size());
+				fx->SetPointLights(pointLights.data(), pointLights.size());
+				ShadowRenderer::Bind(fx, *shadowMap, s_EditorShadow);
+				RenderLayers::SetLightMasks(fx, scenePointLights, true);
+				ClusteredLighting::Bind(fx);
+			});
 
-	SceneManager::GetI()->GetCurrentScene()->_Editor_RenderScene();
-
-	_deviceContext->RSSetState(0);
-	_deviceContext->OMSetDepthStencilState(0, 0);
+			_deviceContext->IASetInputLayout(InputLayouts::InstancedBasic.Get());
+			if (wire)
+				_deviceContext->RSSetState(RenderStates::WireframeRS.Get());
+			SceneManager::GetI()->GetCurrentScene()->_Editor_RenderScene();
+			_deviceContext->RSSetState(0);
+			_deviceContext->OMSetDepthStencilState(0, 0);
+		});
 
 	// 데칼 (Game 뷰와 같은 자리)
-	phase.Next("Decals");
-	if (!RenderManager::GetI()->WireFrameMode)
-		DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, camera->View(), camera->Proj(), ssao->NormalDepthSRV().Get(), true);
+	if (!wire)
+		g.AddPass("Decals", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				DecalRenderer::Render(_deviceContext.Get(), sceneTarget, viewport, camera->View(), camera->Proj(), normalDepthSRV, true);
+			});
 
-	// 입자 (Scene 뷰: 선택한 시스템의 미리보기 포함)
 	// 스카이박스 (툴바 Effects > Skybox). 꺼져 있으면 SceneViewOverlay 의 그라디언트가 비친다.
-	if (SceneToolbar::SkyboxVisible() && !RenderManager::GetI()->WireFrameMode)
-	{
-		phase.Next("Sky");
-		_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
-		_deviceContext->RSSetState(0);
-		_deviceContext->OMSetDepthStencilState(0, 0);
-	}
+	if (SceneToolbar::SkyboxVisible() && !wire)
+		g.AddPass("Sky", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				_sky->Draw(_deviceContext.Get(), camera->GetPosition(), camera->View() * camera->Proj());
+				_deviceContext->RSSetState(0);
+				_deviceContext->OMSetDepthStencilState(0, 0);
+			});
 
 	// 안개·대기 (Scene 뷰: 툴바 Effects > Fog 가 켜져 있을 때)
-	AtmospherePass::Params atmosphere;
-	if (SceneToolbar::FogVisible() && !RenderManager::GetI()->WireFrameMode)
-		atmosphere = AtmospherePass::FromStack(stack, dirLights.empty() ? nullptr : &dirLights[0]);
 	if (atmosphere.Active())
-	{
-		phase.Next("Atmosphere");
-		DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, SceneToolbar::SkyboxVisible());
-	}
+		g.AddPass("Atmosphere", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, SceneToolbar::SkyboxVisible());
+			});
 
 	// 투명 메시 (Game 뷰와 같은 자리)
-	phase.Next("Transparent");
-	{
-		// 깊이는 읽기만 (읽기 전용 DSV — 깊이 SRV 와 같이 묶여도 된다)
-		GfxDepthStencilView* readDsv = (viewDsv == _viewDepthView.Get() && _viewDepthReadOnly) ? _viewDepthReadOnly.Get() : viewDsv;
-		_deviceContext->OMSetRenderTargets(1, &sceneTarget, readDsv);
-	}
-	_deviceContext->RSSetViewports(1, &viewport);
-	MeshBatcher::Draw(SceneManager::GetI()->GetCurrentScene(), MeshBatcher::Pass::Transparent, true);
-	_deviceContext->RSSetState(0);
+	g.AddPass("Transparent", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+		[&](const RenderGraph::Resources&) {
+			// 깊이는 읽기만 (읽기 전용 DSV — 깊이 SRV 와 같이 묶여도 된다)
+			GfxDepthStencilView* readDsv = (viewDsv == _viewDepthView.Get() && _viewDepthReadOnly) ? _viewDepthReadOnly.Get() : viewDsv;
+			_deviceContext->OMSetRenderTargets(1, &sceneTarget, readDsv);
+			_deviceContext->RSSetViewports(1, &viewport);
+			MeshBatcher::Draw(SceneManager::GetI()->GetCurrentScene(), MeshBatcher::Pass::Transparent, true);
+			_deviceContext->RSSetState(0);
+		});
 
 	// 물 (바다·호수·강)
-	phase.Next("Water");
-	if (!RenderManager::GetI()->WireFrameMode)
-		DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow, &atmosphere);
+	if (!wire)
+		g.AddPass("Water", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tShadows); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				DrawWater(camera->View(), camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, dirLights, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow, &atmosphere);
+			});
 
 	// 다음 프레임 Screen Space Reflection 이 쓸 장면 색 (격자 · 스프라이트 · 입자 전 — 격자 선이 반사에 비치지 않게)
-	{
-		GfxShaderResourceView* none[128] = { 0 };
-		_deviceContext->PSSetShaderResources(0, 128, none);
-		ScreenSpaceReflection::StoreHistory(_deviceContext.Get(), sceneTarget, true);
-	}
+	g.AddPass("SSR History", [&](RenderGraph::Builder& b) { b.Read(tScene); tSsrHistory = b.Write(tSsrHistory); b.SideEffect(); },
+		[&](const RenderGraph::Resources&) {
+			GfxShaderResourceView* none[128] = { 0 };
+			_deviceContext->PSSetShaderResources(0, 128, none);
+			ScreenSpaceReflection::StoreHistory(_deviceContext.Get(), sceneTarget, true);
+		});
 
 	// 바닥 격자 (툴바 Grid): 불투명 물체·하늘 다음에 깊이 검사하며 → 물체 뒤의 선은 가려진다
-	phase.Next("Grid");
 	if (SceneToolbar::GridVisible())
-		SceneGrid::Draw(_deviceContext.Get(), camera->View() * camera->Proj(), camera->GetPosition());
+		g.AddPass("Grid", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				SceneGrid::Draw(_deviceContext.Get(), camera->View() * camera->Proj(), camera->GetPosition());
+			});
 
-	phase.Next("Sprites");
-	_deviceContext->RSSetViewports(1, &viewport);
-	SpriteBatch::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+	g.AddPass("Sprites", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+		[&](const RenderGraph::Resources&) {
+			_deviceContext->RSSetViewports(1, &viewport);
+			SpriteBatch::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv);
+		});
 
-	phase.Next("Particles");
 	if (SceneToolbar::ParticlesVisible())
-	{
-		const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, SceneToolbar::SkyboxVisible());
-		ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
-		VfxRuntime::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
-	}
-	_deviceContext->RSSetViewports(1, &viewport);
-
-	// (디버그) 그림자 맵을 작은 화면으로 표시하던 DrawScreenQuad 는 제거함
-	//DrawScreenQuad(ssao->AmbientSRV().Get());
-	//DrawScreenQuad(PostProcessingManager::GetI()->_EditorGetSSAO()->GetRandomVectorSRV());
-
-	_deviceContext->RSSetState(0);
-	_deviceContext->OMSetDepthStencilState(0, 0);
-
-	GfxShaderResourceView* nullSRV[128] = { 0 };
-	_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+		g.AddPass("Particles", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+			[&](const RenderGraph::Resources&) {
+				const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, SceneToolbar::SkyboxVisible());
+				ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
+				VfxRuntime::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);
+				_deviceContext->RSSetViewports(1, &viewport);
+			});
 
 	if (usePost)
-	{
-		phase.Next("Post Processing");
-		post.Execute(stack, postOptions, renderTargetView);
-		GfxRenderTargetView* outTargets[1] = { renderTargetView };
-		_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
+		g.AddPass("Post Processing", [&](RenderGraph::Builder& b) { b.Read(tScene); b.Read(tNormalDepth); tOut = b.Write(tOut); },
+			[&](const RenderGraph::Resources&) {
+				_deviceContext->RSSetState(0);
+				_deviceContext->OMSetDepthStencilState(0, 0);
+				GfxShaderResourceView* nullSRV[128] = { 0 };
+				_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+				post.Execute(stack, postOptions, renderTargetView);
+				GfxRenderTargetView* outTargets[1] = { renderTargetView };
+				_deviceContext->OMSetRenderTargets(1, outTargets, viewDsv);
+				_deviceContext->RSSetViewports(1, &viewport);
+			});
 
 	// Rendering Debugger: 전체 화면 보기 (후처리 뒤, UI 앞)
-	{
-		RenderingDebug::Inputs dbg;
-		dbg.NormalDepth = ssao->NormalDepthSRV().Get();
-		dbg.Ao = ssao->AmbientSRV().Get();
-		dbg.Motion = sceneMotion;
-		XMStoreFloat4x4(&dbg.View, camera->View());
-		dbg.Width = (UINT)viewport.Width;
-		dbg.Height = (UINT)viewport.Height;
-		dbg.SceneView = true;
-		RenderingDebug::Draw(dbg, renderTargetView, viewport);
-	}
+	if (debugMode != RenderingDebug::None)
+		g.AddPass("Rendering Debugger", [&](RenderGraph::Builder& b) {
+				b.Read(tNormalDepth);
+				b.Read(tAO);
+				if (debugMode == RenderingDebug::MotionVectors)
+					b.Read(tMotion);
+				b.Read(*out);
+				*out = b.Write(*out);
+			},
+			[&](const RenderGraph::Resources&) {
+				RenderingDebug::Inputs dbg;
+				dbg.NormalDepth = normalDepthSRV;
+				dbg.Ao = ssao->AmbientSRV().Get();
+				dbg.Motion = sceneMotion;
+				XMStoreFloat4x4(&dbg.View, camera->View());
+				dbg.Width = (UINT)viewport.Width;
+				dbg.Height = (UINT)viewport.Height;
+				dbg.SceneView = true;
+				RenderingDebug::Draw(dbg, renderTargetView, viewport);
+			});
 
-	phase.Next("UI");
 	// UI 캔버스: Unity 처럼 월드(1 픽셀 = 1 단위)에 놓인 사각형으로 (씬 깊이로 가려짐)
-	{
-		GfxRenderTargetView* uiTargets[1] = { renderTargetView };
-		_deviceContext->OMSetRenderTargets(1, uiTargets, viewDsv);
-		const XMFLOAT3 cp = camera->GetPosition();
-		UISystem::RenderSceneView(renderTargetView, (UINT)viewport.Width, (UINT)viewport.Height, camera->View(), camera->Proj(), Vec3(cp.x, cp.y, cp.z));
-		_deviceContext->RSSetViewports(1, &viewport);
-	}
+	g.AddPass("UI", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(*out); *out = b.Write(*out); },
+		[&](const RenderGraph::Resources&) {
+			_deviceContext->RSSetState(0);
+			_deviceContext->OMSetDepthStencilState(0, 0);
+			GfxShaderResourceView* nullSRV[128] = { 0 };
+			_deviceContext->PSSetShaderResources(0, 128, nullSRV);
+			GfxRenderTargetView* uiTargets[1] = { renderTargetView };
+			_deviceContext->OMSetRenderTargets(1, uiTargets, viewDsv);
+			const XMFLOAT3 cp = camera->GetPosition();
+			UISystem::RenderSceneView(renderTargetView, (UINT)viewport.Width, (UINT)viewport.Height, camera->View(), camera->Proj(), Vec3(cp.x, cp.y, cp.z));
+			_deviceContext->RSSetViewports(1, &viewport);
+		});
+
+	g.MarkOutput(*out);
+	g.Compile();
+	g.Execute();
+	if (sceneMotion == nullptr)
+		MotionVectors::Invalidate(true);   // 이번 프레임에 그리지 않았다 (지난 결과를 쓰지 않게)
 }
 
 void EditorApp::OnMouseDown(WPARAM btnState, int32 x, int32 y)

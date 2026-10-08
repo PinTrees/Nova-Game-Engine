@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -5664,6 +5664,75 @@ function Suite-ForwardPlus
     }
 }
 
+function Suite-RenderGraph
+{
+    # Render Graph: Game · Scene 뷰가 패스 노드 (읽기 · 쓰기) 로 그려진다. `nova rendergraph info --view Game|Scene` 로 패스 · 빠짐을 본다.
+    #  결과 (뷰 타깃 · SSR 히스토리) 에 닿지 않는 패스는 뺀다: 모션 벡터를 읽는 쪽 (SSAO 시간 누적 · TAA · Motion Blur Camera And Objects · Rendering Debugger) 이 없으면 Motion Vectors 가 빠진다
+    Write-Host '[rendergraph]'
+    $dir = Join-Path $Out 'rendergraph'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $assetDir = Join-Path $Project 'Assets\RenderGraphTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    function RgProfile([string]$name, [array]$comps) { @{ nova_volume_profile = 1; components = $comps } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $assetDir "$name.volumeprofile") }
+    function RgPV($v) { @{ override = $true; value = @($v, 0, 0, 0) } }
+    RgProfile 'NoTemporal' @(@{ type = 'AmbientOcclusion'; active = $true; params = @{ enabled = (RgPV 1); temporalAccumulation = (RgPV 0) } })
+    RgProfile 'MbObjects' @(@{ type = 'AmbientOcclusion'; active = $true; params = @{ enabled = (RgPV 1); temporalAccumulation = (RgPV 0) } },
+                            @{ type = 'MotionBlur'; active = $true; params = @{ intensity = (RgPV 1); mode = (RgPV 1) } })
+    $ed = Start-TestEditor
+    try
+    {
+        function Passes([string]$view) { $g = Invoke-NovaJson "rendergraph info --view $view"; if ($g) { @($g.passes) } else { @() } }
+        function Culled($passes, [string]$name) { $p = $passes | Where-Object { $_.name -eq $name } | Select-Object -First 1; if ($p) { [bool]$p.culled } else { $null } }
+        function Names($passes) { ($passes | ForEach-Object { $_.name + $(if ($_.culled) { ' (culled)' } else { '' }) }) -join ', ' }
+        function Vol([string]$name) { Invoke-Nova ('set "Global Volume" --component Volume --values "{\"profile\":\"Assets/RenderGraphTest/' + $name + '.volumeprofile\"}"') | Out-Null }
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 3,1,3' | Out-Null
+        Invoke-Nova 'create cube --name Box --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,3,-7 --rotation 19.65,0,0' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $s = Passes 'Scene'
+        $order = ($s | Where-Object { -not $_.culled } | ForEach-Object { $_.name })
+        Add-Result rendergraph 'Scene view is a Render Graph: Depth Prepass → Shadows → SSAO → Opaque … → UI, Motion Vectors culled (nobody reads it)' ($order.Count -ge 8 -and $order[0] -eq 'Depth Prepass' -and $order[-1] -eq 'UI' -and (Culled $s 'Motion Vectors') -eq $true -and (Culled $s 'Opaque') -eq $false) (Names $s)
+
+        Invoke-Nova 'debugview motion' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $s2 = Passes 'Scene'
+        Invoke-Nova 'debugview none' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $s3 = Passes 'Scene'
+        Add-Result rendergraph 'Rendering Debugger Motion Vectors reads them → the pass runs; back to None → culled again' ((Culled $s2 'Motion Vectors') -eq $false -and ($s2 | Where-Object { $_.name -eq 'Rendering Debugger' }) -and (Culled $s3 'Motion Vectors') -eq $true) ("debug: MV culled={0}, none: MV culled={1}" -f (Culled $s2 'Motion Vectors'), (Culled $s3 'Motion Vectors'))
+
+        Invoke-Nova 'window game' | Out-Null
+        Vol 'NoTemporal'
+        Invoke-Nova 'wait 10' | Out-Null
+        $g1 = Passes 'Game'
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"antiAliasing\":3}"' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $g2 = Passes 'Game'
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"antiAliasing\":0}"' | Out-Null
+        Vol 'MbObjects'
+        Invoke-Nova 'wait 5' | Out-Null
+        $g3 = Passes 'Game'
+        Add-Result rendergraph 'Game view: Motion Vectors culled without readers (no SSAO temporal, no TAA), runs with TAA, runs with Motion Blur Camera And Objects' ((Culled $g1 'Motion Vectors') -eq $true -and (Culled $g2 'Motion Vectors') -eq $false -and (Culled $g3 'Motion Vectors') -eq $false) ("plain: {0} | TAA: {1} | MB objects: {2}" -f (Culled $g1 'Motion Vectors'), (Culled $g2 'Motion Vectors'), (Culled $g3 'Motion Vectors'))
+        $post = $g3 | Where-Object { $_.name -eq 'Post Processing' } | Select-Object -First 1
+        Add-Result rendergraph 'Pass reads are recorded (Post Processing reads Scene Color + Motion Vectors, writes View Target)' ($post -and ($post.reads -join ' ') -match 'Motion Vectors' -and ($post.reads -join ' ') -match 'Scene Color' -and ($post.writes -join ' ') -match 'View Target') ("reads: {0} writes: {1}" -f ($post.reads -join ', '), ($post.writes -join ', '))
+
+        Invoke-Nova 'window render-graph-viewer' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $f = Join-Path $dir 'viewer.png'
+        Invoke-Nova ('screenshot "' + $f + '" --view editor') | Out-Null
+        Invoke-Nova 'window render-graph-viewer --close' | Out-Null
+        Add-Result rendergraph 'Window > Analysis > Render Graph Viewer opens (editor capture)' ((Test-Path $f) -and (Get-Item $f).Length -gt 50000) ("capture {0} bytes" -f $(if (Test-Path $f) { (Get-Item $f).Length } else { 0 }))
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -7154,6 +7223,7 @@ try
                 'cinemachine' { Suite-Cinemachine }
                 'renderingdebug' { Suite-RenderingDebug }
                 'forwardplus' { Suite-ForwardPlus }
+                'rendergraph' { Suite-RenderGraph }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }

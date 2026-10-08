@@ -2,6 +2,7 @@
 #include "UndoSystem.h"
 #include "ProfilerEditorWindow.h"
 #include "RenderingDebuggerWindow.h"
+#include "RenderGraphViewerWindow.h"
 #include "PackageManagerWindow.h"
 #include "AutoSave.h"
 #include "FrameProfiler.h"
@@ -523,7 +524,7 @@ void EditorGUIManager::RenderEditorWindows()
             ImGui::Separator();
             for (auto& window : m_pEditorWindows)
             {
-                if (window->GetTitle() == "Profiler" || window->GetTitle() == "Package Manager" || window->GetTitle() == "Rendering Debugger")
+                if (window->GetTitle() == "Profiler" || window->GetTitle() == "Package Manager" || window->GetTitle() == "Rendering Debugger" || window->GetTitle() == "Render Graph Viewer")
                     continue;   // Analysis 아래 / 맨 위 Package Manager
                 bool opened = window->GetIsOpened();
                 if (ImGui::MenuItem(window->GetTitle().c_str(), nullptr, &opened))
@@ -539,6 +540,8 @@ void EditorGUIManager::RenderEditorWindows()
                         ProfilerEditorWindow::Toggle();
                 if (ImGui::MenuItem("Rendering Debugger", nullptr, RenderingDebuggerWindow::IsOpen()))
                     RenderingDebuggerWindow::Toggle();
+                if (ImGui::MenuItem("Render Graph Viewer", nullptr, RenderGraphViewerWindow::IsOpen()))
+                    RenderGraphViewerWindow::Toggle();
                 ImGui::EndMenu();
             }
             ImGui::EndMenu();

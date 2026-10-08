@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "RenderingDebuggerWindow.h"
+#include "RenderGraphViewerWindow.h"
 #include "PhysicsSettings.h"
 #include "Physics2DSettings.h"
 #include "Physics2DManager.h"
@@ -1516,6 +1518,15 @@ namespace CliCommands
 				if (close) PackageManagerWindow::Close(); else PackageManagerWindow::Open(category.empty() ? nullptr : category.c_str());
 				r = { { "name", name }, { "open", PackageManagerWindow::IsOpen() } };
 			}
+			else if (name == "rendering-debugger" || name == "render-graph-viewer")
+			{
+				// Window > Analysis 의 떠 있는 창 (열기 · --close 닫기)
+				const bool rd = name == "rendering-debugger";
+				const bool open = rd ? RenderingDebuggerWindow::IsOpen() : RenderGraphViewerWindow::IsOpen();
+				if (open == close)
+					rd ? RenderingDebuggerWindow::Toggle() : RenderGraphViewerWindow::Toggle();
+				r = { { "name", name }, { "open", !close } };
+			}
 			else if (EditorWindow* w = [&]() -> EditorWindow* {
 						// 도킹 창 (scene, game, project, console, hierarchy, inspector …): 탭을 앞으로
 						for (const char* t : { "Scene", "Game", "Project", "Console", "Hierarchy", "Inspector", "Animator", "Profiler" })
@@ -1537,7 +1548,7 @@ namespace CliCommands
 			}
 			else
 			{
-				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, package-manager, audio-mixer, scene, game, project, console, hierarchy, inspector, animator)";
+				e = "unknown window '" + name + "' (preferences, project-settings, build-settings, package-manager, audio-mixer, rendering-debugger, render-graph-viewer, scene, game, project, console, hierarchy, inspector, animator)";
 				return false;
 			}
 			if (!category.empty()) r["category"] = category;

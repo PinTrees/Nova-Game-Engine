@@ -15,8 +15,8 @@
 | # | 무엇 | 왜 이 순서 | 상태 |
 |---|------|------|------|
 | 1 | **Clustered Forward+** — 4 개 밖의 빛을 클러스터로 (CPU 로 짓고 텍스처 3 개, 모든 백엔드) | 가장 눈에 띄고 다른 것에 기대지 않는다 | **완료** ([FORWARD_PLUS](FORWARD_PLUS.md)) |
-| 2 | **Render Graph** — 패스를 노드로 (읽기 · 쓰기 선언), 쓰이지 않는 패스 빼기, 수명으로 임시 텍스처 재사용, Game · Scene 두 벌을 한 그래프로 | 3 · 4 · 6 이 이 위에 선다 (큐 · 배리어 · 비동기를 그래프가 정한다) | 다음 |
-| 3 | **DirectX 12 백엔드** — Gfx 층을 D3D12 로 (Vulkan 백엔드처럼): 명령 목록 · 디스크립터 힙 · 루트 시그니처 · 리소스 상태 추적, 셰이더는 ShaderCross 에 DXC → DXIL | 명시적 API — 4 의 바탕 | |
+| 2 | **Render Graph** — 패스를 노드로 (읽기 · 쓰기 선언), 쓰이지 않는 패스 빼기, 수명으로 임시 텍스처 재사용, Game · Scene 두 벌을 한 그래프로 | 3 · 4 · 6 이 이 위에 선다 (큐 · 배리어 · 비동기를 그래프가 정한다) | **완료** ([RENDER_GRAPH](RENDER_GRAPH.md)) |
+| 3 | **DirectX 12 백엔드** — Gfx 층을 D3D12 로 (Vulkan 백엔드처럼): 명령 목록 · 디스크립터 힙 · 루트 시그니처 · 리소스 상태 추적, 셰이더는 ShaderCross 에 DXC → DXIL | 명시적 API — 4 의 바탕 | 진행 중 |
 | 4 | **Async Compute** — DX12 · Vulkan 에 컴퓨트 큐 + 펜스 / 타임라인 세마포어. Render Graph 가 컴퓨트 패스 (VFX 시뮬레이션 · Hi-Z · 클러스터 GPU 짓기 …) 를 다른 큐로, DX11 · GL 은 같은 큐로 | 2 · 3 필요 | |
 | 5 | **Virtual Texturing** (소프트웨어 — Unity Streaming Virtual Texturing 처럼): 페이지 표 + 물리 캐시 아틀라스 + 피드백 버퍼, 지형 · 큰 텍스처 | 스파스 리소스 없이 모든 백엔드 | |
 | 6 | **Clustered Deferred** — Rendering Path = Forward / Forward+ / Deferred (URP 와 같은 선택), G-Buffer + 1 단계 클러스터로 조명 패스 | 2 의 패스 · 1 의 클러스터 재사용 | |
