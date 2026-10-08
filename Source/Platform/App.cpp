@@ -57,6 +57,7 @@
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
 #include "JobSystem.h"
+#include "RenderThread.h"
 #include "UndoSystem.h"
 #include "CliServer.h"
 
@@ -255,6 +256,7 @@ int32 App::Run()
 					FRAME_PROFILE("Present");
 					if (!Application::IsPlayer())
 						CliServer::PumpBeforePresent();   // NOVA CLI: 에디터 전체 캡처 (백버퍼가 다 그려진 뒤)
+					Profiler::EndGpuFrame();   // GPU 프레임 쿼리를 이 프레임 명령 안에서 닫는다 (렌더 스레드: 명령 목록 사이에 걸치지 않게)
 					HRESULT presentHr = S_OK;
 					if (_openGL)
 						GfxGL::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
@@ -262,8 +264,13 @@ int32 App::Run()
 						GfxVk::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
 					else if (_d3d12)
 						GfxD3D12::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
+					else if (RenderThread::Enabled())
+						RenderThread::SubmitFrame(_swapChain.Get(), 0, 0);   // 렌더 스레드가 실행 · Present (앞 프레임이 끝날 때까지만 기다린다)
 					else
+					{
 						presentHr = _swapChain->Present(0, 0);
+						RenderThread::AfterPresent();
+					}
 					// 실패(장치 제거 등)는 한 번 기록한다 (Release 에서는 HR 의 assert 가 없다)
 					static bool s_PresentFailLogged = false;
 					if (FAILED(presentHr) && !s_PresentFailLogged)
@@ -316,6 +323,7 @@ int32 App::Run()
 	ResourceManager::GetI()->Destroy();
 	ResourceManager::GetI()->Dispose(); 
 
+	RenderThread::Shutdown();   // 장치를 내리기 전에 (남은 명령 실행)
 	Jobs::Shutdown();
 
 	return (int)msg.wParam;
@@ -380,6 +388,7 @@ bool App::Init()
 	VfxGraphWindow::RegisterEditor();                                      // Window > Visual Effects · .vfx · nova vfx · VFX Assistant (Claude Code)
 	}
 
+	RenderThread::InitFromSettings();   // Multithreaded Rendering (DirectX 11): 장치 · ImGui 다음
 	log << "App::Init -> ResourceManager & InputManager..." << std::endl; log.flush();
 	ResourceManager::GetI()->Init(_device);
 	InputManager::GetI()->Init();
@@ -559,6 +568,7 @@ void App::OnResize()
 	_depthStencilView.Reset();
 	_depthStencilBuffer.Reset();
 	_deviceContext->Flush();
+	RenderThread::Sync();   // 렌더 스레드가 백버퍼를 다 쓴 뒤에 (Flush 도 넘기지만 기다리지는 않는다)
 	const HRESULT resizeHr = _swapChain->ResizeBuffers(0, (UINT)_clientWidth, (UINT)_clientHeight, DXGI_FORMAT_UNKNOWN, 0);
 	{
 		DXGI_SWAP_CHAIN_DESC scd = {};

@@ -75,7 +75,9 @@ namespace
 	{
 	public:
 		ComPtr<ID3DX11Effect> Fx;
-		ID3D11DeviceContext* Ctx = nullptr;
+		// 지금 기록하는 컨텍스트를 그때그때 (렌더 스레드면 deferred — 잡아 둔 immediate 를 쓰면 그리기와 셰이더가 갈라진다)
+		GfxContext* Gc = nullptr;
+		ID3D11DeviceContext* Ctx() const { return Gc ? static_cast<ID3D11DeviceContext*>(Gc->Native()) : nullptr; }
 		std::vector<ID3DX11EffectTechnique*> Techniques;
 		std::vector<std::string> TechniqueNames;
 		std::vector<ID3DX11EffectVariable*> Vars;
@@ -170,7 +172,7 @@ namespace
 		void Apply(int technique, int pass) override
 		{
 			if (technique >= 0 && technique < (int)Techniques.size())
-				Techniques[technique]->GetPassByIndex(pass)->Apply(0, Ctx);
+				Techniques[technique]->GetPassByIndex(pass)->Apply(0, Ctx());
 		}
 	};
 
@@ -178,7 +180,9 @@ namespace
 	{
 	public:
 		ID3D11Device* Dev = nullptr;
-		ID3D11DeviceContext* Ctx = nullptr;
+		// 지금 기록하는 컨텍스트를 그때그때 (렌더 스레드면 deferred — 잡아 둔 immediate 를 쓰면 그리기와 셰이더가 갈라진다)
+		GfxContext* Gc = nullptr;
+		ID3D11DeviceContext* Ctx() const { return Gc ? static_cast<ID3D11DeviceContext*>(Gc->Native()) : nullptr; }
 		D3D11_PRIMITIVE_TOPOLOGY Topo = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
 		GraphicsAPI GetAPI() const override { return GraphicsAPI::DirectX11; }
@@ -211,7 +215,7 @@ namespace
 		{
 			auto* b = static_cast<DxBuffer*>(buffer);
 			D3D11_BOX box = { 0, 0, 0, bytes, 1, 1 };
-			Ctx->UpdateSubresource(b->Buf.Get(), 0, (b->Desc().Bind & Rhi::BindConstant) ? nullptr : &box, data, 0, 0);
+			Ctx()->UpdateSubresource(b->Buf.Get(), 0, (b->Desc().Bind & Rhi::BindConstant) ? nullptr : &box, data, 0, 0);
 		}
 
 		std::unique_ptr<Rhi::Texture> CreateTexture(const Rhi::TextureDesc& desc, const Rhi::SubresourceData* initialData) override
@@ -295,7 +299,7 @@ namespace
 				error = "D3DX11CreateEffectFromMemory failed";
 				return nullptr;
 			}
-			e->Ctx = Ctx;
+			e->Gc = Gc;
 			D3DX11_EFFECT_DESC ed;
 			e->Fx->GetDesc(&ed);
 			for (UINT i = 0; i < ed.Techniques; ++i)
@@ -337,10 +341,10 @@ namespace
 
 		void ResetState() override
 		{
-			Ctx->OMSetDepthStencilState(nullptr, 0);
-			Ctx->RSSetState(nullptr);
+			Ctx()->OMSetDepthStencilState(nullptr, 0);
+			Ctx()->RSSetState(nullptr);
 			const float zero[4] = { 0, 0, 0, 0 };
-			Ctx->OMSetBlendState(nullptr, zero, 0xFFFFFFFF);
+			Ctx()->OMSetBlendState(nullptr, zero, 0xFFFFFFFF);
 		}
 
 		void SetRenderTargets(Rhi::Texture* const* colors, uint32_t count, Rhi::Texture* depth, uint32_t depthSlice) override
@@ -351,64 +355,64 @@ namespace
 			ID3D11DepthStencilView* dsv = nullptr;
 			if (auto* d = static_cast<DxTexture*>(depth))
 				dsv = depthSlice < d->DsvSlices.size() ? d->DsvSlices[depthSlice].Get() : d->Dsv.Get();
-			Ctx->OMSetRenderTargets(count, rtvs, dsv);
+			Ctx()->OMSetRenderTargets(count, rtvs, dsv);
 		}
 
 		void SetViewport(float x, float y, float width, float height) override
 		{
 			D3D11_VIEWPORT vp = { x, y, width, height, 0.0f, 1.0f };
-			Ctx->RSSetViewports(1, &vp);
+			Ctx()->RSSetViewports(1, &vp);
 		}
 
 		void ClearColor(Rhi::Texture* target, const float rgba[4]) override
 		{
-			Ctx->ClearRenderTargetView(static_cast<DxTexture*>(target)->Rtv.Get(), rgba);
+			Ctx()->ClearRenderTargetView(static_cast<DxTexture*>(target)->Rtv.Get(), rgba);
 		}
 
 		void ClearDepth(Rhi::Texture* target, float depth) override
 		{
 			auto* t = static_cast<DxTexture*>(target);
 			if (t->DsvSlices.empty())
-				Ctx->ClearDepthStencilView(t->Dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, depth, 0);
+				Ctx()->ClearDepthStencilView(t->Dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, depth, 0);
 			for (auto& v : t->DsvSlices)
-				Ctx->ClearDepthStencilView(v.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, depth, 0);
+				Ctx()->ClearDepthStencilView(v.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, depth, 0);
 		}
 
 		void SetInputLayout(Rhi::InputLayout* layout) override
 		{
-			Ctx->IASetInputLayout(layout ? static_cast<DxInputLayout*>(layout)->Layout.Get() : nullptr);
+			Ctx()->IASetInputLayout(layout ? static_cast<DxInputLayout*>(layout)->Layout.Get() : nullptr);
 		}
 
 		void SetVertexBuffer(uint32_t slot, Rhi::Buffer* buffer, uint32_t stride, uint32_t offset) override
 		{
 			ID3D11Buffer* b = buffer ? static_cast<DxBuffer*>(buffer)->Buf.Get() : nullptr;
-			Ctx->IASetVertexBuffers(slot, 1, &b, &stride, &offset);
+			Ctx()->IASetVertexBuffers(slot, 1, &b, &stride, &offset);
 		}
 
 		void SetIndexBuffer(Rhi::Buffer* buffer, bool use32Bit) override
 		{
-			Ctx->IASetIndexBuffer(buffer ? static_cast<DxBuffer*>(buffer)->Buf.Get() : nullptr, use32Bit ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT, 0);
+			Ctx()->IASetIndexBuffer(buffer ? static_cast<DxBuffer*>(buffer)->Buf.Get() : nullptr, use32Bit ? DXGI_FORMAT_R32_UINT : DXGI_FORMAT_R16_UINT, 0);
 		}
 
 		void SetTopology(Rhi::Topology topology) override
 		{
 			static const D3D11_PRIMITIVE_TOPOLOGY map[] = { D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
 				D3D11_PRIMITIVE_TOPOLOGY_LINELIST, D3D11_PRIMITIVE_TOPOLOGY_LINESTRIP, D3D11_PRIMITIVE_TOPOLOGY_POINTLIST };
-			Ctx->IASetPrimitiveTopology(map[(int)topology]);
+			Ctx()->IASetPrimitiveTopology(map[(int)topology]);
 		}
 
-		void Draw(uint32_t vertexCount, uint32_t startVertex) override { Ctx->Draw(vertexCount, startVertex); }
-		void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) override { Ctx->DrawIndexed(indexCount, startIndex, baseVertex); }
+		void Draw(uint32_t vertexCount, uint32_t startVertex) override { Ctx()->Draw(vertexCount, startVertex); }
+		void DrawIndexed(uint32_t indexCount, uint32_t startIndex, int32_t baseVertex) override { Ctx()->DrawIndexed(indexCount, startIndex, baseVertex); }
 		void DrawIndexedInstanced(uint32_t indexCount, uint32_t instanceCount, uint32_t startIndex, int32_t baseVertex, uint32_t startInstance) override
 		{
-			Ctx->DrawIndexedInstanced(indexCount, instanceCount, startIndex, baseVertex, startInstance);
+			Ctx()->DrawIndexedInstanced(indexCount, instanceCount, startIndex, baseVertex, startInstance);
 		}
 
 		bool ReadPixels(Rhi::Texture* texture, std::vector<uint8_t>& rgba, std::string& error) override
 		{
 			auto* t = static_cast<DxTexture*>(texture);
 			DirectX::ScratchImage captured, converted;
-			if (FAILED(DirectX::CaptureTexture(Dev, Ctx, t->Tex.Get(), captured)))
+			if (FAILED(DirectX::CaptureTexture(Dev, Ctx(), t->Tex.Get(), captured)))
 			{
 				error = "capture failed";
 				return false;
@@ -429,7 +433,7 @@ namespace
 			return true;
 		}
 
-		void Finish() override { Ctx->Flush(); }
+		void Finish() override { Ctx()->Flush(); }
 	};
 }
 
@@ -437,7 +441,7 @@ std::unique_ptr<Rhi::Device> Rhi::WrapD3D11(GfxDevice* device, GfxContext* conte
 {
 	auto d = std::make_unique<Dx11Device>();
 	d->Dev = static_cast<ID3D11Device*>(device->Native());
-	d->Ctx = static_cast<ID3D11DeviceContext*>(context->Native());
+	d->Gc = context;
 	return d;
 }
 
@@ -445,8 +449,8 @@ std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error)
 {
 	auto d = std::make_unique<Dx11Device>();
 	d->Dev = static_cast<ID3D11Device*>(Application::GetI()->GetDevice()->Native());
-	d->Ctx = static_cast<ID3D11DeviceContext*>(Application::GetI()->GetDeviceContext()->Native());
-	if (!d->Dev || !d->Ctx)
+	d->Gc = Application::GetI()->GetDeviceContext();
+	if (!d->Dev || !d->Ctx())
 	{
 		error = "no Direct3D 11 device";
 		return nullptr;

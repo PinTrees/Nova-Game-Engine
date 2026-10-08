@@ -15,6 +15,7 @@ namespace
 	bool s_Loaded = false;
 	std::string s_DefaultProfile;
 	RenderPipelineSettings::RenderingPath s_Path = RenderPipelineSettings::RenderingPath::ForwardPlus;
+	bool s_Multithreaded = false;
 
 	std::wstring SettingsFile()
 	{
@@ -26,6 +27,7 @@ namespace
 		s_Loaded = true;
 		s_DefaultProfile.clear();
 		s_Path = RenderPipelineSettings::RenderingPath::ForwardPlus;
+		s_Multithreaded = false;
 		std::ifstream in(SettingsFile());
 		if (in)
 		{
@@ -34,6 +36,7 @@ namespace
 			{
 				s_DefaultProfile = j.value("defaultVolumeProfile", std::string());
 				RenderPipelineSettings::RenderingPathFromName(j.value("renderingPath", std::string("Forward+")), s_Path);
+				s_Multithreaded = j.value("multithreadedRendering", false);
 			}
 		}
 		ClusteredLighting::SetEnabled(s_Path != RenderPipelineSettings::RenderingPath::Forward);
@@ -57,6 +60,7 @@ namespace
 		}
 		j["defaultVolumeProfile"] = s_DefaultProfile;
 		j["renderingPath"] = RenderPipelineSettings::RenderingPathName(s_Path);
+		j["multithreadedRendering"] = s_Multithreaded;
 		std::ofstream os(file, std::ios::trunc);
 		if (os)
 			os << j.dump(4);
@@ -162,6 +166,21 @@ namespace RenderPipelineSettings
 		ClusteredLighting::SetEnabled(path != RenderingPath::Forward);   // Forward = 앞의 빛 4 개만 (URP 의 Forward 처럼)
 		Save();
 		EditorLog::Write("Graphics", "rendering path = %s", RenderingPathName(path));
+	}
+
+	bool MultithreadedRendering()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_Multithreaded;
+	}
+
+	void SetMultithreadedRendering(bool on)
+	{
+		if (!s_Loaded)
+			Load();
+		s_Multithreaded = on;
+		Save();
 	}
 
 	const char* RenderingPathName(RenderingPath path)

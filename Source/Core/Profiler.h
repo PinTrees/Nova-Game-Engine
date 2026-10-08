@@ -63,6 +63,9 @@ namespace Profiler
 
 	void BeginFrame();
 	void EndFrame();
+	// GPU 프레임 (TIMESTAMP_DISJOINT) 을 Present 직전에 닫는다 — 렌더 스레드 (DX11 명령 목록) 는 쿼리가 목록 사이에 걸치면 결과가 오지 않는다.
+	//  EndFrame 은 아직 안 닫혔으면 닫는다
+	void EndGpuFrame();
 
 	void Begin(const char* internedName);
 	void End();

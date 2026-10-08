@@ -69,7 +69,18 @@ private:
 	TextureMgr _texMgr;
 
 	shared_ptr<class Sky> _sky;
-	// Scene/Game 뷰를 그릴 때 쓰는 깊이 버퍼 (뷰 크기 이상, 커지기만 함)
+	// Scene/Game 뷰를 그릴 때 쓰는 깊이 버퍼 — 뷰 크기와 꼭 같게 (D3D11: 렌더 타깃과 깊이 뷰의 크기가 같아야 한다, 디버그 층 #388).
+	//  크기마다 하나씩 들고 있다 (Game · Scene · 찍기 …, 오래 안 쓴 것부터 놓는다). 아래 멤버 = ViewDepth 가 마지막으로 고른 것
+	struct ViewDepthEntry
+	{
+		UINT W = 0, H = 0;
+		uint64_t LastUsed = 0;
+		ComPtr<GfxTexture2D> Tex;
+		ComPtr<GfxDepthStencilView> Dsv, ReadOnly;
+		ComPtr<GfxShaderResourceView> Srv;
+	};
+	std::vector<ViewDepthEntry> _viewDepths;
+	uint64_t _viewDepthUse = 0;
 	ComPtr<GfxTexture2D> _viewDepthTex;
 	ComPtr<GfxDepthStencilView> _viewDepthView;
 	ComPtr<GfxDepthStencilView> _viewDepthReadOnly;    // 물: 깊이를 SRV 로 읽으면서 깊이 검사

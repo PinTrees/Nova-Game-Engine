@@ -55,6 +55,11 @@ struct VertexIn_Instancing
     float4 TangentL : TANGENT;
     // Instancing
     row_major float4x4 World : WORLD;
+    // 인스턴스 값 (BatchTech 만 읽는다): 입력 레이아웃 InstancedBasic (11 칸) 과 레지스터를 맞춘다 — 없으면 SV_InstanceID 가 v8 에 앉아
+    //  레이아웃의 INSTCOLOR (v8) 와 겹친다 (D3D11 #343: 같은 레이아웃을 쓰는 셰이더끼리 서명이 맞지 않음)
+    float4 InstBaseColor : INSTCOLOR;
+    float4 InstSurface : INSTSURFACE;
+    float4 InstEmission : INSTEMISSION;
     uint InstanceId : SV_InstanceID;
 };
 

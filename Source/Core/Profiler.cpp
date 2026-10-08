@@ -233,17 +233,24 @@ namespace Profiler
 			}
 		}
 
-		if (s_GpuCurrent && s_GpuCurrent->Disjoint)
-		{
-			Application::GetI()->GetDeviceContext()->End(s_GpuCurrent->Disjoint.Get());
-			s_GpuCurrent->Pending = s_GpuCurrent->Used > 0;
-		}
-		s_GpuCurrent = nullptr;
+		EndGpuFrame();
 
 		s_History.push_back(std::move(s_Current));
 		while (s_History.size() > kMaxFrames)
 			s_History.pop_front();
 		CollectGpu(false);
+	}
+
+	void EndGpuFrame()
+	{
+		if (!s_InFrame || s_GpuCurrent == nullptr)
+			return;
+		if (s_GpuCurrent->Disjoint)
+		{
+			Application::GetI()->GetDeviceContext()->End(s_GpuCurrent->Disjoint.Get());
+			s_GpuCurrent->Pending = s_GpuCurrent->Used > 0;
+		}
+		s_GpuCurrent = nullptr;   // 뒤의 GPU 구간은 이 프레임에 넣지 않는다
 	}
 
 	void Begin(const char* name)

@@ -9,6 +9,7 @@
 #include "VirtualTexturing.h"
 #include "RenderPipelineSettings.h"
 #include "JobSystem.h"
+#include "RenderThread.h"
 #include "DeferredRenderer.h"
 #include "WeatherState.h"
 #include "WeatherCover.h"
@@ -239,6 +240,7 @@ bool EditorApp::Init()
 		VirtualTexturing::RegisterEditor();   // nova vt
 		RenderPipelineSettings::RegisterEditor();   // nova renderpath (Rendering Path — Forward · Forward+ · Deferred)
 		Jobs::RegisterEditor();   // nova jobs (Job System — info · test · bench · set)
+		RenderThread::RegisterEditor();   // nova renderthread (Multithreaded Rendering)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
@@ -281,15 +283,65 @@ void EditorApp::RenderApplication()
 	ReflectionProbes::Update();
 }
 
+// 뷰 깊이 버퍼의 크기 = 그리는 렌더 타깃 (그 밉) 의 크기 — D3D11 은 렌더 타깃과 깊이 뷰의 크기가 같아야 한다 (#388).
+//  뷰포트가 타깃의 한 칸이어도 (APV 찍기 아틀라스 · 카메라 Viewport Rect) 뷰포트 영역을 덮는다. 타깃을 모르면 뷰포트 끝까지
+static void ViewDepthSize(GfxRenderTargetView* rtv, const D3D11_VIEWPORT& vp, UINT& w, UINT& h)
+{
+	w = (UINT)ceilf(vp.TopLeftX + vp.Width);
+	h = (UINT)ceilf(vp.TopLeftY + vp.Height);
+	if (!rtv)
+		return;
+	ComPtr<GfxResource> res;
+	rtv->GetResource(res.GetAddressOf());
+	if (!res)
+		return;
+	D3D11_RESOURCE_DIMENSION dim = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+	res->GetType(&dim);
+	if (dim != D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+		return;
+	D3D11_TEXTURE2D_DESC td = {};
+	static_cast<GfxTexture2D*>(res.Get())->GetDesc(&td);
+	D3D11_RENDER_TARGET_VIEW_DESC rd = {};
+	rtv->GetDesc(&rd);
+	UINT mip = 0;
+	if (rd.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2D) mip = rd.Texture2D.MipSlice;
+	else if (rd.ViewDimension == D3D11_RTV_DIMENSION_TEXTURE2DARRAY) mip = rd.Texture2DArray.MipSlice;
+	const UINT tw = (std::max)(1u, td.Width >> mip), th = (std::max)(1u, td.Height >> mip);
+	if (tw >= w && th >= h)
+	{
+		w = tw;
+		h = th;
+	}
+}
+
 GfxDepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 {
-	// 필요한 크기보다 작을 때만 다시 만든다 (커지기만 함). 창 백버퍼 크기 이상으로 유지
-	width = (std::max)(width, (UINT)_clientWidth);
-	height = (std::max)(height, (UINT)_clientHeight);
-	if ((_viewDepthView == nullptr && _viewDepthRetry.Ready()) || width > _viewDepthW || height > _viewDepthH)
+	// 뷰 크기와 꼭 같은 깊이 버퍼 (예전: 창 백버퍼 이상으로 커지기만 하는 하나 — 렌더 타깃보다 커서 D3D11 디버그 층 #388).
+	//  크기마다 하나씩 (오래 안 쓴 것부터 놓는다 — 4 개까지)
+	width = (std::max)(width, 1u);
+	height = (std::max)(height, 1u);
+	++_viewDepthUse;
+	for (ViewDepthEntry& e : _viewDepths)
+		if (e.W == width && e.H == height && e.Dsv)
+		{
+			e.LastUsed = _viewDepthUse;
+			_viewDepthTex = e.Tex;
+			_viewDepthView = e.Dsv;
+			_viewDepthReadOnly = e.ReadOnly;
+			_viewDepthSRV = e.Srv;
+			_viewDepthW = width;
+			_viewDepthH = height;
+			return _viewDepthView.Get();
+		}
+	// 이 크기가 아직 없다: 다른 크기를 돌려주면 렌더 타깃과 어긋난다 — 만들지 못하면 (재시도 대기) 창 깊이 버퍼로
+	_viewDepthTex.Reset();
+	_viewDepthView.Reset();
+	_viewDepthReadOnly.Reset();
+	_viewDepthSRV.Reset();
+	if (_viewDepthRetry.Ready())
 	{
-		_viewDepthW = (std::max)(width, _viewDepthW);
-		_viewDepthH = (std::max)(height, _viewDepthH);
+		_viewDepthW = width;
+		_viewDepthH = height;
 		D3D11_TEXTURE2D_DESC desc = {};
 		desc.Width = _viewDepthW;
 		desc.Height = _viewDepthH;
@@ -318,7 +370,13 @@ GfxDepthStencilView* EditorApp::ViewDepth(UINT width, UINT height)
 			_device->CreateShaderResourceView(_viewDepthTex.Get(), &srv, _viewDepthSRV.GetAddressOf());
 		}
 		if (_viewDepthView) _viewDepthRetry.Succeeded(); else _viewDepthRetry.Failed();   // 실패 → 1 초 뒤 다시
-		EditorLog::Write("View", "view depth buffer %u x %u%s", _viewDepthW, _viewDepthH, _viewDepthView ? "" : " (failed, retry in 1 s)");
+		if (_viewDepthView)
+		{
+			if (_viewDepths.size() >= 4)
+				_viewDepths.erase(std::min_element(_viewDepths.begin(), _viewDepths.end(), [](const ViewDepthEntry& a, const ViewDepthEntry& b) { return a.LastUsed < b.LastUsed; }));
+			_viewDepths.push_back({ _viewDepthW, _viewDepthH, _viewDepthUse, _viewDepthTex, _viewDepthView, _viewDepthReadOnly, _viewDepthSRV });
+		}
+		EditorLog::Write("View", "view depth buffer %u x %u%s (%zu sizes)", _viewDepthW, _viewDepthH, _viewDepthView ? "" : " (failed, retry in 1 s)", _viewDepths.size());
 	}
 	return _viewDepthView ? _viewDepthView.Get() : _depthStencilView.Get();
 }
@@ -586,8 +644,10 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 
 	auto shadowMap = RenderManager::GetI()->BaseShadowMap;
 	const D3D11_VIEWPORT viewport = d.Viewport;
-	// 뷰(렌더 타깃) 크기의 깊이 버퍼: 창 백버퍼보다 큰 해상도(예: 1080x1920)로 그릴 때도 깊이가 맞도록
-	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
+	// 렌더 타깃 크기의 깊이 버퍼 (창 백버퍼보다 큰 해상도 · 아틀라스 칸 뷰포트에도 깊이가 맞도록)
+	UINT depthW = 0, depthH = 0;
+	ViewDepthSize(renderTargetView, viewport, depthW, depthH);
+	GfxDepthStencilView* viewDsv = ViewDepth(depthW, depthH);
 	Effects::BuildShadowMapFX->SetEyePosW(d.Position);
 
 	// Volume 값 (Shadows · 후처리) 을 카메라 위치로 섞는다
@@ -1042,7 +1102,9 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 
 	auto shadowMap = RenderManager::GetI()->EditorShadowMap;
 	auto viewport = RenderManager::GetI()->EditorViewport;
-	GfxDepthStencilView* viewDsv = ViewDepth((UINT)viewport.Width, (UINT)viewport.Height);
+	UINT depthW = 0, depthH = 0;
+	ViewDepthSize(renderTargetView, viewport, depthW, depthH);
+	GfxDepthStencilView* viewDsv = ViewDepth(depthW, depthH);
 	Effects::BuildShadowMapFX->SetEyePosW(camera->GetPosition());
 
 	auto& stack = PostProcessingManager::GetI()->EditorStack();

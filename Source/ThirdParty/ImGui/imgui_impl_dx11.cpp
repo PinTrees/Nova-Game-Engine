@@ -595,6 +595,37 @@ bool    ImGui_ImplDX11_Init(ID3D11Device* device, ID3D11DeviceContext* device_co
     return true;
 }
 
+// NOVA 렌더 스레드 (RenderThread.cpp): 그리는 컨텍스트를 deferred 로 바꾸고, 뷰포트 창의 Present 는 렌더 스레드로 넘긴다
+static void (*g_NovaPresentHook)(IDXGISwapChain*) = nullptr;
+static void (*g_NovaSyncHook)() = nullptr;
+
+void ImGui_ImplDX11_SetDeviceContext(ID3D11DeviceContext* ctx)
+{
+    ImGui_ImplDX11_Data* bd = ImGui_ImplDX11_GetBackendData();
+    if (bd == nullptr || ctx == nullptr || bd->pd3dDeviceContext == ctx)
+        return;
+    ctx->AddRef();
+    if (bd->pd3dDeviceContext)
+        bd->pd3dDeviceContext->Release();
+    bd->pd3dDeviceContext = ctx;
+}
+
+void ImGui_ImplDX11_SetPresentHook(void (*present)(IDXGISwapChain*), void (*sync)())
+{
+    g_NovaPresentHook = present;
+    g_NovaSyncHook = sync;
+}
+
+// 뷰포트 창의 스왑체인을 바꾸거나 지우기 전: 기록 중인 컨텍스트가 그 창을 붙잡지 않게 풀고, 렌더 스레드가 Present 를 끝내게
+static void ImGui_ImplDX11_ReleaseForSwapChainChange()
+{
+    if (!g_NovaSyncHook)
+        return;
+    if (ImGui_ImplDX11_Data* bd = ImGui_ImplDX11_GetBackendData())
+        bd->pd3dDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+    g_NovaSyncHook();
+}
+
 void ImGui_ImplDX11_Shutdown()
 {
     ImGui_ImplDX11_Data* bd = ImGui_ImplDX11_GetBackendData();
@@ -681,6 +712,7 @@ static void ImGui_ImplDX11_DestroyWindow(ImGuiViewport* viewport)
     // The main viewport (owned by the application) will always have RendererUserData == nullptr since we didn't create the data for it.
     if (ImGui_ImplDX11_ViewportData* vd = (ImGui_ImplDX11_ViewportData*)viewport->RendererUserData)
     {
+        ImGui_ImplDX11_ReleaseForSwapChainChange();
         if (vd->SwapChain)
             vd->SwapChain->Release();
         vd->SwapChain = nullptr;
@@ -696,6 +728,7 @@ static void ImGui_ImplDX11_SetWindowSize(ImGuiViewport* viewport, ImVec2 size)
 {
     ImGui_ImplDX11_Data* bd = ImGui_ImplDX11_GetBackendData();
     ImGui_ImplDX11_ViewportData* vd = (ImGui_ImplDX11_ViewportData*)viewport->RendererUserData;
+    ImGui_ImplDX11_ReleaseForSwapChainChange();
     if (vd->RTView)
     {
         vd->RTView->Release();
@@ -726,7 +759,10 @@ static void ImGui_ImplDX11_RenderWindow(ImGuiViewport* viewport, void*)
 static void ImGui_ImplDX11_SwapBuffers(ImGuiViewport* viewport, void*)
 {
     ImGui_ImplDX11_ViewportData* vd = (ImGui_ImplDX11_ViewportData*)viewport->RendererUserData;
-    vd->SwapChain->Present(0, 0); // Present without vsync
+    if (g_NovaPresentHook)
+        g_NovaPresentHook(vd->SwapChain);   // 렌더 스레드: 이 프레임 명령을 실행한 뒤 Present
+    else
+        vd->SwapChain->Present(0, 0); // Present without vsync
 }
 
 static void ImGui_ImplDX11_InitPlatformInterface()

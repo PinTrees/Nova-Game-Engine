@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **동시성 로드맵 2 · 3 단계: 엔진에 Job System 적용 + 물리 ↔ 렌더링 겹치기**. 다음: 4 단계 렌더 스레드 (DX11 deferred context)
+- 갱신 시각: 2026년 10월 9일 — **동시성 로드맵 4 단계: 렌더 스레드 (Multithreaded Rendering, DX11)** + D3D11 디버그 층 오류 #343 · #388
+  - `Source/Graphics/DX11/RenderThread.*`: 메인 = DxContext 가 deferred context 에 기록, 프레임 끝 FinishCommandList(TRUE) → 무잠금 SPSC 링 → 렌더 스레드가 ExecuteCommandList · Present (한 프레임 핑퐁). Sync (Map READ · 캡처) · Flush, GetData 는 ID3D11Multithread 아래 immediate, Map(READ, DO_NOT_WAIT) 는 복사한 목록 번호로 (Sync 없이), DONOTFLUSH GetData 는 넘기지 않음, deferred UpdateSubresource 우회, ImGui DX11 훅 (컨텍스트 · 뷰포트 Present · 크기 바꾸기 전 Sync), Dx11Rhi 가 그때그때 컨텍스트 (예전: 잡아 둔 immediate → 장치 제거), Profiler GPU 프레임 쿼리를 Present 전에 닫음, 진단 (D3D11 디버그 메시지 · 2 초 대기 · Sync 자원) → Editor.log
+  - 설정: RenderPipelineSettings::MultithreadedRendering (GraphicsSettings.json, 기본 꺼짐), Project Settings > Graphics 토글, CLI `renderthread info|set|reset`, NOVA_RENDER_THREAD=1, NOVA_D3D11_DEBUGLOG=1
+  - 고친 것: Push 의 해제 뒤 읽기 (멈춤), rhi-test · gfx-test 는 시험 동안 렌더 스레드를 끈다
+  - D3D11 #343 (인스턴싱 VS 입력에 INSTCOLOR · INSTSURFACE · INSTEMISSION — SV_InstanceID 레지스터 맞춤, 26 · 28 · 32), #388 (뷰 깊이 버퍼를 렌더 타깃 (밉) 크기와 꼭 같게, 크기마다 캐시 4 — 뷰포트 크기로 하면 APV 아틀라스 찍기가 깨졌다) — 도시 디버그 메시지 40 → 0
+  - 검사: 새 스위트 `renderthread` 6/6, 렌더 스레드 강제 그래픽 27 스위트 274/275 (rhi-test 는 고침 → 통과), 넓은 회귀 33 스위트 337/342 → probevolume 고침 뒤 probevolume · reflectionprobe 18/18
+  - Release 측정: 렌더 스레드는 이 PC (NVIDIA, 드라이버 명령 목록) 에서 빨라지지 않는다 (도시 0.94 배 · 숲 1.07 · Materials 0.89) — 기본 꺼짐 유지, 문서에 그대로
+- 이전: 2026년 10월 9일 — **동시성 로드맵 2 · 3 단계: 엔진에 Job System 적용 + 물리 ↔ 렌더링 겹치기**. **완료 (커밋 803fb82, 푸시 전)**
   - 2 단계: Jolt 를 `JoltNovaJobSystem` 으로 (엔진 일꾼 위), MeshBatcher.Collect · SceneCulling 훑기 병렬 (읽기) + 차례로 (재질 · 캐시 · 옥트리), Forward+ 클러스터 짓기 병렬 (같은 결과), `Jobs::Async` (Background Future) 로 씬 읽기 · 지형 · 바이옴 · 셰이더 그래프, VT 페이지 읽기 = SPSC 링 둘 + 잡, `TaskSystem::Post` (MPSC), Background 동시 실행 상한. Release: 도시 프레임 1.10 배, Collect 1.42, Culling 1.46, 물리 2.18 배
   - 3 단계: `PhysicsSettings::AsyncSimulation` (Simulate During Rendering, 기본 꺼짐, NOVA_PHYSICS_ASYNC=1 로 강제), StepBegin / SimulateAndCapture (핑퐁 버퍼) / StepEnd, CompleteAsync (프레임 시작 · 물리 API 35 곳 · FlushDestroyed), 접촉 = 무잠금 MPMC 링. 스위트 `physicsasync` 4/4, physics · cloth · ragdoll · wheel 31/31 (일반 · 겹치기 둘 다)
   - 검사: jobs · virtualtexture · scenes · shadergraph 66/66, forwardplus · occlusion · lodgroup · render · material 44/44. 문서 JOB_SYSTEM (엔진 적용) · ASYNC_PHYSICS, Showcase 274

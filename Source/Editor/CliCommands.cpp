@@ -2,6 +2,7 @@
 #include "RenderingDebuggerWindow.h"
 #include "RenderGraphViewerWindow.h"
 #include "ProfilerEditorWindow.h"
+#include "RenderThread.h"
 #include "PhysicsSettings.h"
 #include "Physics2DSettings.h"
 #include "Physics2DManager.h"
@@ -1652,6 +1653,13 @@ namespace CliCommands
 			if (api == "both" || api == "directx11" || api == "d3d11" || api == "dx11") apis.push_back(GraphicsAPI::DirectX11);
 			if (api == "both" || api == "opengl" || api == "gl") apis.push_back(GraphicsAPI::OpenGL);
 			if (apis.empty()) { e = "api must be both, DirectX11 or OpenGL"; return false; }
+			// RHI 시험은 그리고 바로 읽는다 (immediate) — 렌더 스레드가 켜져 있으면 시험 동안 끈다
+			struct RenderThreadPause
+			{
+				bool On = RenderThread::Enabled();
+				RenderThreadPause() { if (On) RenderThread::SetEnabled(false); }
+				~RenderThreadPause() { if (On) RenderThread::SetEnabled(true); }
+			} pause;
 			std::vector<RhiTest::Result> results;
 			json list = json::array();
 			for (GraphicsAPI g : apis)
@@ -1709,7 +1717,14 @@ namespace CliCommands
 				if (g == GraphicsAPI::DirectX11)
 				{
 					if (!Gfx::Device() || !Gfx::Device()->Native()) err = "the engine device is not DirectX 11";
-					else ok = GfxTest::Render(Gfx::Device(), Gfx::Context(), Rhi::Main(), w, h, res, err);
+					else
+					{
+						// RHI 시험은 immediate 컨텍스트를 바로 쓴다 — 렌더 스레드가 켜져 있으면 잠깐 끈다
+						const bool rt = RenderThread::Enabled();
+						if (rt) RenderThread::SetEnabled(false);
+						ok = GfxTest::Render(Gfx::Device(), Gfx::Context(), Rhi::Main(), w, h, res, err);
+						if (rt) RenderThread::SetEnabled(true);
+					}
 				}
 				else
 				{

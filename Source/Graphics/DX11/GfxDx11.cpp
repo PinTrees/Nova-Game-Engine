@@ -5,6 +5,9 @@
 #include "GfxD3D12.h"
 #include <mutex>
 #include <dxgi1_4.h>   // IDXGIAdapter3 (VRAM 예산)
+#include <d3d11_4.h>   // ID3D11Multithread (렌더 스레드)
+#include <set>
+#include "RenderThread.h"
 
 // Gfx 의 DirectX 11 구현: 진짜 D3D11 객체를 감싸 그대로 넘긴다.
 //  - 감싸개는 D3D 객체의 private data 에 자기 주소를 적어 둔다 → 같은 D3D 객체는 늘 같은 감싸개
@@ -316,6 +319,15 @@ namespace
 	public:
 		using DxWrap::DxWrap;
 
+		// 렌더 스레드 (RenderThread.h): D = 기록하는 deferred context, Imm = 진짜 immediate (렌더 스레드가 실행).
+		//  읽기 (Map 이 DISCARD 가 아님 · GetData) 만 Imm 으로 — Map 은 Sync 뒤에, GetData 는 끝난 쿼리를 넘긴 뒤 (ID3D11Multithread 보호)
+		ComPtr<ID3D11DeviceContext> Imm;
+		bool Deferred = false;
+		bool DriverCommandLists = true;   // 아니면 deferred 의 UpdateSubresource (box) 에 알려진 어긋남이 있다 — 고쳐 넘긴다
+		std::set<std::pair<ID3D11Resource*, UINT>> ImmMapped;   // Imm 에서 Map 한 것 (Unmap 도 Imm)
+		std::set<ID3D11Query*> EndedInSegment;                  // 아직 넘기지 않은 목록에서 End 한 쿼리
+		std::unordered_map<ID3D11Resource*, uint64_t> CopySerial;   // 복사로 쓴 자원 → 그 명령 목록 번호 (DO_NOT_WAIT 읽기)
+
 		template <class N, class G>
 		static void Natives(UINT count, G* const* in, N** out)
 		{
@@ -446,20 +458,126 @@ namespace
 
 		void ClearRenderTargetView(GfxRenderTargetView* rtv, const FLOAT c[4]) override { D->ClearRenderTargetView(Nat<ID3D11RenderTargetView>(rtv), c); }
 		void ClearDepthStencilView(GfxDepthStencilView* dsv, UINT flags, FLOAT depth, UINT8 stencil) override { D->ClearDepthStencilView(Nat<ID3D11DepthStencilView>(dsv), flags, depth, stencil); }
-		HRESULT Map(GfxResource* r, UINT sub, D3D11_MAP type, UINT flags, D3D11_MAPPED_SUBRESOURCE* m) override { return D->Map(NatRes(r), sub, type, flags, m); }
-		void Unmap(GfxResource* r, UINT sub) override { D->Unmap(NatRes(r), sub); }
-		void UpdateSubresource(GfxResource* r, UINT sub, const D3D11_BOX* box, const void* data, UINT row, UINT depth) override { D->UpdateSubresource(NatRes(r), sub, box, data, row, depth); }
-		void CopyResource(GfxResource* dst, GfxResource* src) override { D->CopyResource(NatRes(dst), NatRes(src)); }
+		HRESULT Map(GfxResource* r, UINT sub, D3D11_MAP type, UINT flags, D3D11_MAPPED_SUBRESOURCE* m) override
+		{
+			if (Deferred && type == D3D11_MAP_READ && (flags & D3D11_MAP_FLAG_DO_NOT_WAIT))
+			{
+				// 지연을 견디는 읽기 (오클루전 · VFX 통계의 스테이징 고리): 복사한 목록을 렌더 스레드가 이미 실행했으면 바로 immediate 에서,
+				//  아니면 '아직 그리는 중' — 기다리지 않는다 (Sync 하면 프레임마다 겹침이 깨진다)
+				auto it = CopySerial.find(NatRes(r));
+				if (it != CopySerial.end())
+				{
+					if (it->second > RenderThread::CompletedSerial())
+						return DXGI_ERROR_WAS_STILL_DRAWING;
+					CopySerial.erase(it);
+				}
+				const HRESULT hr = Imm->Map(NatRes(r), sub, type, flags, m);
+				if (SUCCEEDED(hr))
+					ImmMapped.insert({ NatRes(r), sub });
+				return hr;
+			}
+			if (Deferred && type != D3D11_MAP_WRITE_DISCARD)
+			{
+				// 읽기 · 스테이징 쓰기: 기록한 것을 다 실행시킨 뒤 메인이 immediate 에서 (deferred 는 DISCARD 만 된다)
+				static int s_Logged = 0;
+				if (s_Logged < 12)
+				{
+					// 어떤 자원이 프레임마다 기다리게 하는지 (렌더 스레드의 겹침을 깬다) — Editor.log
+					++s_Logged;
+					D3D11_RESOURCE_DIMENSION dim;
+					NatRes(r)->GetType(&dim);
+					UINT a = 0, b = 0;
+					if (dim == D3D11_RESOURCE_DIMENSION_BUFFER) { D3D11_BUFFER_DESC d; static_cast<ID3D11Buffer*>(NatRes(r))->GetDesc(&d); a = d.ByteWidth; b = d.Usage; }
+					else if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) { D3D11_TEXTURE2D_DESC d; static_cast<ID3D11Texture2D*>(NatRes(r))->GetDesc(&d); a = d.Width; b = d.Height; }
+					char name[64] = {};
+					UINT len = sizeof(name) - 1;
+					NatRes(r)->GetPrivateData(WKPDID_D3DDebugObjectName, &len, name);
+					EditorLog::Write("RenderThread", "sync map: type %d, %s %u x %u, name '%s'", (int)type, dim == D3D11_RESOURCE_DIMENSION_BUFFER ? "buffer bytes/usage" : "texture", a, b, name);
+				}
+				RenderThread::Sync();
+				const HRESULT hr = Imm->Map(NatRes(r), sub, type, flags, m);
+				if (SUCCEEDED(hr))
+					ImmMapped.insert({ NatRes(r), sub });
+				return hr;
+			}
+			return D->Map(NatRes(r), sub, type, flags, m);
+		}
+		void Unmap(GfxResource* r, UINT sub) override
+		{
+			if (Deferred && ImmMapped.erase({ NatRes(r), sub }))
+			{
+				Imm->Unmap(NatRes(r), sub);
+				return;
+			}
+			D->Unmap(NatRes(r), sub);
+		}
+		void UpdateSubresource(GfxResource* r, UINT sub, const D3D11_BOX* box, const void* data, UINT row, UINT depth) override
+		{
+			if (Deferred && box && data && !DriverCommandLists)
+			{
+				// 드라이버가 명령 목록을 직접 지원하지 않으면 런타임이 box 의 시작을 한 번 더 더한다 — 그만큼 앞으로 (Microsoft 문서의 우회)
+				ID3D11Resource* res = NatRes(r);
+				D3D11_RESOURCE_DIMENSION dim;
+				res->GetType(&dim);
+				size_t elem = 1;
+				bool blocks = false;
+				if (dim != D3D11_RESOURCE_DIMENSION_BUFFER)
+				{
+					DXGI_FORMAT fmt = DXGI_FORMAT_UNKNOWN;
+					if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE2D) { D3D11_TEXTURE2D_DESC d; static_cast<ID3D11Texture2D*>(res)->GetDesc(&d); fmt = d.Format; }
+					else if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE3D) { D3D11_TEXTURE3D_DESC d; static_cast<ID3D11Texture3D*>(res)->GetDesc(&d); fmt = d.Format; }
+					else if (dim == D3D11_RESOURCE_DIMENSION_TEXTURE1D) { D3D11_TEXTURE1D_DESC d; static_cast<ID3D11Texture1D*>(res)->GetDesc(&d); fmt = d.Format; }
+					blocks = DirectX::IsCompressed(fmt);
+					elem = blocks ? (DirectX::BitsPerPixel(fmt) * 16) / 8 : (std::max)(size_t(1), (size_t)(DirectX::BitsPerPixel(fmt) / 8));
+				}
+				const UINT left = blocks ? box->left / 4 : box->left;
+				const UINT top = blocks ? box->top / 4 : box->top;
+				data = static_cast<const uint8_t*>(data) - (size_t)box->front * depth - (size_t)top * row - (size_t)left * elem;
+			}
+			D->UpdateSubresource(NatRes(r), sub, box, data, row, depth);
+		}
+		void CopyResource(GfxResource* dst, GfxResource* src) override
+		{
+			D->CopyResource(NatRes(dst), NatRes(src));
+			if (Deferred)
+				CopySerial[NatRes(dst)] = RenderThread::RecordingSerial();
+		}
 		void CopySubresourceRegion(GfxResource* dst, UINT dstSub, UINT x, UINT y, UINT z, GfxResource* src, UINT srcSub, const D3D11_BOX* box) override
 		{
 			D->CopySubresourceRegion(NatRes(dst), dstSub, x, y, z, NatRes(src), srcSub, box);
+			if (Deferred)
+				CopySerial[NatRes(dst)] = RenderThread::RecordingSerial();
 		}
 		void GenerateMips(GfxShaderResourceView* srv) override { D->GenerateMips(Nat<ID3D11ShaderResourceView>(srv)); }
 
 		void Begin(GfxQuery* q) override { D->Begin(Nat<ID3D11Query>(q)); }
-		void End(GfxQuery* q) override { D->End(Nat<ID3D11Query>(q)); }
-		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT flags) override { return D->GetData(Nat<ID3D11Query>(q), data, size, flags); }
-		void Flush() override { D->Flush(); }
+		void End(GfxQuery* q) override
+		{
+			D->End(Nat<ID3D11Query>(q));
+			if (Deferred)
+				EndedInSegment.insert(Nat<ID3D11Query>(q));
+		}
+		HRESULT GetData(GfxQuery* q, void* data, UINT size, UINT flags) override
+		{
+			if (!Deferred)
+				return D->GetData(Nat<ID3D11Query>(q), data, size, flags);
+			// 결과는 immediate 에서 (렌더 스레드와 같이 써도 ID3D11Multithread 가 지킨다). 아직 넘기지 않은 목록에서 끝낸 쿼리:
+			//  DONOTFLUSH (기다리지 않는 확인) 면 '아직' — 넘기지 않는다 (프레임 목록이 쪼개지면 GPU 프레임 쿼리가 깨진다), 기다리는 확인이면 넘긴다
+			if (EndedInSegment.count(Nat<ID3D11Query>(q)))
+			{
+				if (flags & D3D11_ASYNC_GETDATA_DONOTFLUSH)
+					return S_FALSE;
+				RenderThread::Flush();
+			}
+			return Imm->GetData(Nat<ID3D11Query>(q), data, size, flags);
+		}
+		void Flush() override
+		{
+			if (Deferred)
+				RenderThread::Flush();
+			else
+				D->Flush();
+		}
 		void ClearState() override { D->ClearState(); }
 
 		bool SupportsGpuDriven() const override
@@ -481,6 +599,11 @@ namespace
 			return true;
 		}
 	};
+
+	DxContext* AsDx(GfxContext* ctx)
+	{
+		return ctx && ctx->Api() == GfxApi::DirectX11 && ctx->Native() ? static_cast<DxContext*>(ctx) : nullptr;
+	}
 
 	void DxDevice::GetImmediateContext(GfxContext** out)
 	{
@@ -571,6 +694,12 @@ namespace Gfx
 		if (!context->Native())
 			return GfxGL::CaptureTexture(context, texture, out);
 		auto* ctx = static_cast<ID3D11DeviceContext*>(context->Native());
+		if (DxContext* c = AsDx(context); c && c->Deferred)
+		{
+			// 렌더 스레드: 기록한 것을 다 실행시킨 뒤 immediate 에서 읽는다 (deferred 는 Map READ 를 못 한다)
+			RenderThread::Sync();
+			ctx = c->Imm.Get();
+		}
 		ComPtr<ID3D11Device> dev;
 		ctx->GetDevice(dev.GetAddressOf());
 		return DirectX::CaptureTexture(dev.Get(), ctx, NatRes(texture), out);
@@ -581,3 +710,78 @@ namespace Gfx
 void* NovaGfx_NativeOf(void* gfxObject) { return gfxObject ? static_cast<GfxObject*>(gfxObject)->Native() : nullptr; }
 void* NovaGfx_WrapD3D11(void* d3d11Object) { return Gfx::WrapD3D11(static_cast<IUnknown*>(d3d11Object)); }
 void NovaGfx_Release(void* gfxObject) { if (gfxObject) static_cast<GfxObject*>(gfxObject)->Release(); }
+
+// ---- 렌더 스레드 (RenderThread.cpp): DxContext 를 deferred context 로 바꾼다
+namespace GfxDx11
+{
+	bool SetDeferred(GfxContext* ctx, bool on, std::string& error)
+	{
+		DxContext* c = AsDx(ctx);
+		if (!c)
+		{
+			error = "not a DirectX 11 context";
+			return false;
+		}
+		if (on == c->Deferred)
+			return true;
+		if (on)
+		{
+			ComPtr<ID3D11Device> dev;
+			c->D->GetDevice(dev.GetAddressOf());
+			ComPtr<ID3D11DeviceContext> deferred;
+			const HRESULT hr = dev ? dev->CreateDeferredContext(0, deferred.GetAddressOf()) : E_FAIL;
+			if (FAILED(hr))
+			{
+				char b[64];
+				snprintf(b, sizeof(b), "CreateDeferredContext hr=0x%08X", (unsigned)hr);
+				error = b;
+				return false;
+			}
+			D3D11_FEATURE_DATA_THREADING th = {};
+			dev->CheckFeatureSupport(D3D11_FEATURE_THREADING, &th, sizeof(th));
+			c->DriverCommandLists = th.DriverCommandLists != FALSE;
+			// 메인 (쿼리 결과) 과 렌더 스레드 (실행 · Present) 가 immediate 를 함께 쓴다 — 런타임이 호출마다 잠그게
+			ComPtr<ID3D11Multithread> mt;
+			if (SUCCEEDED(c->D.As(&mt)))
+				mt->SetMultithreadProtected(TRUE);
+			c->D->ClearState();
+			c->Imm = c->D;
+			c->D = deferred;
+			c->Deferred = true;
+			EditorLog::Write("RenderThread", "deferred context ready (driver command lists %s, concurrent creates %s)", th.DriverCommandLists ? "yes" : "no (runtime emulates)", th.DriverConcurrentCreates ? "yes" : "no");
+			return true;
+		}
+		c->D = c->Imm;
+		c->Imm.Reset();
+		c->Deferred = false;
+		c->ImmMapped.clear();
+		c->EndedInSegment.clear();
+		c->CopySerial.clear();
+		return true;
+	}
+
+	ID3D11CommandList* FinishSegment(GfxContext* ctx)
+	{
+		DxContext* c = AsDx(ctx);
+		if (!c || !c->Deferred)
+			return nullptr;
+		ID3D11CommandList* list = nullptr;
+		// TRUE = 기록 쪽 상태를 그대로 이어 간다 (메인 코드는 렌더 타깃 · 상태가 프레임을 넘어 남는다고 본다)
+		if (FAILED(c->D->FinishCommandList(TRUE, &list)))
+			list = nullptr;
+		c->EndedInSegment.clear();
+		return list;
+	}
+
+	ID3D11DeviceContext* Immediate(GfxContext* ctx)
+	{
+		DxContext* c = AsDx(ctx);
+		return c ? (c->Deferred ? c->Imm.Get() : c->D.Get()) : nullptr;
+	}
+
+	ID3D11DeviceContext* Recording(GfxContext* ctx)
+	{
+		DxContext* c = AsDx(ctx);
+		return c ? c->D.Get() : nullptr;
+	}
+}

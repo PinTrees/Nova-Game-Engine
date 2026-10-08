@@ -12,6 +12,9 @@ namespace RenderPipelineSettings
 {
 	enum class RenderingPath { Forward = 0, ForwardPlus = 1, Deferred = 2 };
 	RenderingPath GetRenderingPath();
+	// Multithreaded Rendering (Unity Player Settings 와 같은 이름): 그리기 명령을 렌더 스레드가 실행 · Present (DirectX 11, RenderThread.h)
+	bool MultithreadedRendering();
+	void SetMultithreadedRendering(bool on);   // 저장
 	void SetRenderingPath(RenderingPath path);   // 저장 + Forward+ 클러스터 켜기 · 끄기
 	const char* RenderingPathName(RenderingPath path);   // "Forward" · "Forward+" · "Deferred"
 	bool RenderingPathFromName(const std::string& name, RenderingPath& out);

@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6623,6 +6623,60 @@ function Suite-PhysicsAsync
     }
 }
 
+# ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
+function Suite-RenderThread
+{
+    # Multithreaded Rendering (DirectX 11): 메인은 deferred context 에 기록, 렌더 스레드가 실행 · Present.
+    #  같은 장면이 켬 · 끔에서 같은 그림, 읽기 (캡처 = Sync) · Profiler GPU 시간 (쿼리) 이 되고, 설정이 저장된다
+    #  (다른 그래픽 스위트는 NOVA_RENDER_THREAD=1 로 렌더 스레드 모드에서도 돌린다)
+    Write-Host '[renderthread]'
+    $dir = Join-Path $Out 'renderthread'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ed = Start-TestEditor -WatchSeconds 240
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        $r = Invoke-NovaJson 'renderthread set --enabled true'
+        $saved = Get-Content (Join-Path $Project 'ProjectSettings\GraphicsSettings.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        Invoke-Nova 'wait 20' | Out-Null
+        $i = Invoke-NovaJson 'renderthread info'
+        Add-Result renderthread 'renderthread set --enabled true: saved (Multithreaded Rendering), frames executed + presented on the render thread' ($r -and $r.enabled -and $saved.multithreadedRendering -and [int]$i.frames -ge 15 -and [int]$i.completed -ge [int]$i.frames - 1) $(if ($i) { "frames $($i.frames), command lists $($i.commandLists), completed $($i.completed), execute $('{0:N3}' -f [double]$i.executeMsPerFrame) ms, present $('{0:N2}' -f [double]$i.presentMsPerFrame) ms per frame" } else { 'no reply' })
+
+        foreach ($s in 'Materials', 'Forest', 'CityShowcase')
+        {
+            Invoke-Nova "scene open Assets/Scenes/$s.scene --force" | Out-Null
+            Invoke-Nova 'window game' | Out-Null
+            Invoke-Nova 'renderthread set --enabled true' | Out-Null
+            Invoke-Nova 'wait 40' | Out-Null
+            $on = Join-Path $dir "${s}_on.png"; Invoke-Nova ('screenshot "' + $on + '" --view game') | Out-Null
+            Invoke-Nova 'renderthread set --enabled false' | Out-Null
+            Invoke-Nova 'wait 40' | Out-Null
+            $off = Join-Path $dir "${s}_off.png"; Invoke-Nova ('screenshot "' + $off + '" --view game') | Out-Null
+            $c = if ((Test-Path $on) -and (Test-Path $off)) { [NovaImageCompare]::Compare($off, $on, (Join-Path $dir "${s}_diff.png")) } else { $null }
+            Add-Result renderthread "${s}: same picture with the render thread on and off" ($c -and $c[1] -le 1.0 -and $c[2] -le 1.0) $(if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
+        }
+
+        # 읽기 · 쿼리: 켠 채 Profiler GPU 시간 (타임스탬프 쿼리 결과) 이 오고, 캡처가 Sync 로 된다
+        Invoke-Nova 'renderthread set --enabled true' | Out-Null
+        Invoke-Nova 'renderthread reset' | Out-Null
+        $p = Invoke-NovaJson 'perf --frames 40'
+        $shot = Join-Path $dir 'readback.png'; Invoke-Nova ('screenshot "' + $shot + '" --view game') | Out-Null
+        $i = Invoke-NovaJson 'renderthread info'
+        Add-Result renderthread 'GPU timestamp queries and readbacks work with the render thread (Profiler GPU ms, capture = sync)' ($p -and [double]$p.gpuMs -gt 0 -and (Test-Path $shot) -and [int]$i.syncs -ge 1) $(if ($p) { "GPU $($p.gpuMs) ms, frame $($p.frameMs) ms, syncs $($i.syncs), flushes $($i.flushes)" } else { 'no perf' })
+
+        Invoke-Nova 'renderthread set --enabled false' | Out-Null
+        $saved = Get-Content (Join-Path $Project 'ProjectSettings\GraphicsSettings.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        Add-Result renderthread 'renderthread set --enabled false: back to the immediate context, setting saved off' (-not $saved.multithreadedRendering) "saved $($saved.multithreadedRendering)"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Invoke-Nova 'renderthread set --enabled false' | Out-Null
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -7685,6 +7739,7 @@ try
                 'deferred' { Suite-Deferred }
                 'jobs' { Suite-Jobs }
                 'physicsasync' { Suite-PhysicsAsync }
+                'renderthread' { Suite-RenderThread }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

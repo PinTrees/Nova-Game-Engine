@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "RenderThread.h"
 #include "ProjectSettingsWindow.h"
 #include "UnityGUI.h"
 #include "VolumeEditor.h"
@@ -515,6 +516,13 @@ namespace
 			int path = (int)RenderPipelineSettings::GetRenderingPath();
 			if (UnityGUI::Dropdown("Rendering Path", &path, paths, 3))
 				RenderPipelineSettings::SetRenderingPath((RenderPipelineSettings::RenderingPath)path);
+			// Unity Player Settings 의 Multithreaded Rendering (렌더 스레드 — DirectX 11)
+			bool mt = RenderThread::Enabled();
+			if (UnityGUI::Toggle("Multithreaded Rendering", &mt))
+			{
+				RenderPipelineSettings::SetMultithreadedRendering(mt);
+				RenderThread::SetEnabled(mt);
+			}
 			if (path == (int)RenderPipelineSettings::RenderingPath::Deferred)
 				UnityGUI::HelpBox("Deferred: Lit materials drawn by Mesh Renderers write a G-buffer and are lit in one full-screen pass (Forward+ clusters). Skinned meshes, terrain, trees, Shader Graph / package shaders, tessellated and transparent materials stay forward.", false);
 		}
