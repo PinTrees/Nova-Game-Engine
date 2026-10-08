@@ -81,7 +81,7 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
     auto fontPromise = make_shared<promise<ImFont*>>(); 
     future<ImFont*> fontFuture = fontPromise->get_future();
 
-    TaskSystem::mainThreadTasks.push([fontKey, fontPath, style, fontPromise, isPretendardFont, this]()
+    TaskSystem::Post([fontKey, fontPath, style, fontPromise, isPretendardFont, this]()
     {
         ImFontConfig config;
         config.MergeMode = true; // ���� ��Ʈ�� ���� ��� 

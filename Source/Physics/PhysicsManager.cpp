@@ -44,6 +44,8 @@
 #include "pch.h"
 #include "PhysicsSettings.h"
 #include "PhysicsManager.h"
+#include "JoltNovaJobSystem.h"
+#include "LockFree.h"
 #include "Profiler.h"
 #include "ComponentIndex.h"
 #include "MonoBehaviour.h"
@@ -226,13 +228,20 @@ struct PhysicsManager::JoltWorld
 					return;
 			}
 
-			std::lock_guard<std::mutex> lock(world->touchMutex);
-			TouchInfo& t = world->touching[PairKey(c1, c2)];
-			t.a = c1;
-			t.b = c2;
-			t.trigger = trigger;
-			t.bodyA = b1.GetID();
-			t.bodyB = b2.GetID();
+			JoltWorld::TouchEvent ev;
+			ev.key = PairKey(c1, c2);
+			ev.info.a = c1;
+			ev.info.b = c2;
+			ev.info.trigger = trigger;
+			ev.info.bodyA = b1.GetID();
+			ev.info.bodyB = b2.GetID();
+			if (!world->touchRing.Push(ev))
+			{
+				// 한 스텝 접촉이 링보다 많다 (드묾) — 잃지 않게 잠근 목록으로
+				std::lock_guard<std::mutex> lock(world->touchMutex);
+				world->touchOverflow.push_back(ev);
+				world->touchOverflowed.store(true, std::memory_order_release);
+			}
 		}
 
 		// Layer Overrides: 상대 레이어가 Exclude 에 있으면 접촉을 만들지 않는다.
@@ -345,8 +354,27 @@ struct PhysicsManager::JoltWorld
 	std::vector<std::pair<uint64, uint64>> ignoredPairs;   // Physics.IgnoreCollision (바디 주인 오브젝트)
 
 	std::mutex touchMutex;
-	std::unordered_map<JPH::uint64, TouchInfo> touching;             // 이번 스텝에 닿아 있는 콜라이더 쌍
+	// 이번 스텝의 접촉: Jolt 가 일꾼 스레드들에서 알린다 → 무잠금 MPMC 링 (넘치면 드물게 잠그는 목록)
+	struct TouchEvent
+	{
+		JPH::uint64 key = 0;
+		TouchInfo info;
+	};
+	LockFree::MpmcRing<TouchEvent> touchRing{ 1 << 15 };
+	std::vector<TouchEvent> touchOverflow;
+	std::atomic<bool> touchOverflowed{ false };
 	std::unordered_map<JPH::uint64, TouchInfo> prevTouching;         // 지난 스텝
+
+	// 스텝 결과 핑퐁 (동시성 로드맵 3 단계): 시뮬레이션 잡이 동적 바디의 자리 · 회전을 뒤 칸에 쓰고 front 를 바꾼다 → 메인이 앞 칸을 읽는다
+	struct BodyState
+	{
+		Vec3 pos;
+		Quaternion rot;
+	};
+	std::vector<BodyRecord*> stepBodies;   // 이 스텝의 동적 바디 (부모 먼저 — StepBegin 이 정한다)
+	std::vector<BodyState> states[2];
+	std::atomic<int> front{ 0 };
+	Jobs::Counter asyncDone;             // 렌더링과 겹치는 시뮬레이션 잡
 
 	JPH::BodyInterface& BI() { return physics->GetBodyInterface(); }
 
@@ -801,6 +829,11 @@ namespace
 	}
 
 	// 다이내믹 바디를 계층 깊이 순서로 (부모 먼저)
+	// 시뮬레이션 (메인 또는 일꾼): Jolt 스텝 + 동적 바디의 자리 · 회전을 핑퐁 버퍼 뒤 칸에 → front 를 바꾼다
+	void SimulateAndCapture(World& w, float dt);
+	// 접촉 링 (+ 넘친 목록) → out (nullptr = 버린다). 메인만
+	void DrainTouches(World& w, std::unordered_map<JPH::uint64, World::TouchInfo>* out);
+
 	std::vector<World::BodyRecord*> DynamicByDepth(World& w)
 	{
 		std::vector<std::pair<int, World::BodyRecord*>> list;
@@ -1209,6 +1242,7 @@ void PhysicsManager::Init()
 
 void PhysicsManager::SetGravity(const Vec3& gravity)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	m_Gravity = gravity;
 	if (m_World)
 		m_World->physics->SetGravity(ToJ(gravity));
@@ -1216,6 +1250,7 @@ void PhysicsManager::SetGravity(const Vec3& gravity)
 
 void PhysicsManager::Start()
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	Init();
 	Exit();
 
@@ -1230,8 +1265,8 @@ void PhysicsManager::Start()
 	// 웹: 스레드 없이 (C# 런타임과 같은 단일 스레드 wasm) — 작업을 부른 스레드에서 차례로
 	w.jobSystem = std::make_unique<JPH::JobSystemSingleThreaded>(JPH::cMaxPhysicsJobs);
 #else
-	int threads = (std::max)(1, (int)std::thread::hardware_concurrency() - 1);
-	w.jobSystem = std::make_unique<JPH::JobSystemThreadPool>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, threads);
+	// 엔진 Job System 의 일꾼 위에서 (예전: Jolt 자기 스레드 풀 코어 − 1 개를 따로 — 엔진 일꾼과 코어를 다퉜다)
+	w.jobSystem = std::make_unique<JoltNovaJobSystem>(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers);
 #endif
 	w.physics = std::make_unique<JPH::PhysicsSystem>();
 	w.physics->Init(8192, 0, 8192, 8192, w.bpLayers, w.objVsBp, w.objPair);
@@ -1260,6 +1295,7 @@ void PhysicsManager::Start()
 
 void PhysicsManager::Exit()
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 		return;
 	EditorLog::Write("Physics", "exit (%zu bodies, playing %d)", m_World->bodies.size(), Application::IsPlaying() ? 1 : 0);
@@ -1295,13 +1331,39 @@ void PhysicsManager::Exit()
 // 매 프레임: 고정 간격으로 나누어 시뮬레이션 (Unity 의 Fixed Timestep)
 void PhysicsManager::Update(float deltaTime)
 {
+	CompleteAsync();   // 지난 프레임에 겹쳐 돌린 스텝 (보통은 프레임 시작에 이미 끝냈다)
 	if (!m_World)
 		return;
 
 	m_Accumulator += (std::min)(deltaTime, m_MaxAllowedTimestep);
+	// 이번 프레임의 스텝 수 — 렌더링과 겹치기 (PhysicsSettings::AsyncSimulation) 면 마지막 스텝의 시뮬레이션을 일꾼에서
+	int planned = 0;
+	for (float acc = m_Accumulator; acc >= m_FixedTimestep && planned < 8; acc -= m_FixedTimestep)
+		++planned;
+	const bool async = PhysicsSettings::AsyncSimulation() && !Jobs::Inline();
 	int steps = 0;
 	while (m_Accumulator >= m_FixedTimestep && steps < 8)
 	{
+		if (async && steps == planned - 1)
+		{
+			if (StepBegin(m_FixedTimestep))
+			{
+				JoltWorld* w = m_World.get();
+				const float dt = m_FixedTimestep;
+				m_AsyncPending = true;
+				m_AsyncDt = dt;
+				++m_AsyncSteps;
+				Jobs::Run([w, dt]() {
+					PROFILE_SCOPE("Physics.Simulate (async)");
+					SimulateAndCapture(*w, dt);
+				}, &w->asyncDone, Jobs::Priority::High, "Physics Step");
+			}
+			m_Accumulator -= m_FixedTimestep;
+			++steps;
+			if (!m_World)
+				return;
+			continue;
+		}
 		StepSimulation(m_FixedTimestep);
 		m_Accumulator -= m_FixedTimestep;
 		++steps;
@@ -1326,8 +1388,15 @@ void PhysicsManager::Update(float deltaTime)
 	}
 	if (steps == 8)
 		m_Accumulator = 0.0f;
+	if (!m_AsyncPending)
+		Interpolate();   // 겹쳐 도는 스텝이 있으면 CompleteAsync 가 결과를 적용한 뒤에
+}
 
-	// Interpolate: 두 스텝 사이 위치를 보간해 Transform 에 쓴다
+// Interpolate: 두 스텝 사이 위치를 보간해 Transform 에 쓴다
+void PhysicsManager::Interpolate()
+{
+	if (!m_World)
+		return;
 	const float alpha = std::clamp(m_Accumulator / m_FixedTimestep, 0.0f, 1.0f);
 	for (JoltWorld::BodyRecord* rp : DynamicByDepth(*m_World))
 	{
@@ -1344,9 +1413,45 @@ void PhysicsManager::Update(float deltaTime)
 
 void PhysicsManager::StepSimulation(float dt)
 {
+	if (!StepBegin(dt))
+		return;
+	{
+		PROFILE_SCOPE("Physics.Simulate");
+		SimulateAndCapture(*m_World, dt);
+	}
+	StepEnd(dt);
+}
+
+void PhysicsManager::CompleteAsync(bool frameStart)
+{
+	if (!m_AsyncPending)
+		return;
+	m_AsyncPending = false;   // 먼저 — 적용하며 부르는 스크립트 (OnCollision …) 가 물리 API 를 써도 다시 들어오지 않게
+	if (!m_World)
+		return;
+	{
+		PROFILE_SCOPE("Physics.WaitAsync");
+		const auto t0 = std::chrono::steady_clock::now();
+		Jobs::Wait(m_World->asyncDone);
+		m_AsyncWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+	}
+	if (frameStart) ++m_AsyncWaitsAtFrameStart; else ++m_AsyncWaitsEarly;
+	StepEnd(m_AsyncDt);
+	Interpolate();
+}
+
+nlohmann::json PhysicsManager::AsyncInfo() const
+{
+	return { { "enabled", PhysicsSettings::AsyncSimulation() }, { "pending", m_AsyncPending }, { "asyncSteps", m_AsyncSteps },
+		{ "completedAtFrameStart", m_AsyncWaitsAtFrameStart }, { "completedEarly", m_AsyncWaitsEarly }, { "waitMs", m_AsyncWaitMs },
+		{ "bodies", m_World ? (int)m_World->stepBodies.size() : 0 } };
+}
+
+bool PhysicsManager::StepBegin(float dt)
+{
 	Scene* scene = SceneManager::GetI()->GetCurrentScene();
 	if (scene == nullptr || !m_World)
-		return;
+		return false;
 	JoltWorld& w = *m_World;
 	JPH::BodyInterface& bi = w.BI();
 	std::vector<GameObject*> all = scene->GetAllGameObjects();
@@ -1614,7 +1719,7 @@ void PhysicsManager::StepSimulation(float dt)
 	}
 
 	if (dt <= 0.0f)
-		return;
+		return false;
 
 	// 3) Transform → 바디 (사용자가 옮긴 경우 / 키네마틱 / 정적)
 	static const char* kPushName = Profiler::Intern("Physics.TransformToBody");
@@ -1643,15 +1748,18 @@ void PhysicsManager::StepSimulation(float dt)
 
 	if (profiling) Profiler::End();   // Physics.TransformToBody
 
-	// 4) 시뮬레이션
-	{
-		std::lock_guard<std::mutex> lock(w.touchMutex);
-		w.touching.clear();
-	}
-	{
-		PROFILE_SCOPE("Physics.Simulate");
-		w.physics->Update(dt, 1, w.tempAllocator.get(), w.jobSystem.get());
-	}
+	// 4) 시뮬레이션 준비: 지난 스텝의 남은 접촉을 비우고, 결과를 받을 동적 바디 목록 (부모 먼저)
+	DrainTouches(w, nullptr);
+	w.stepBodies = DynamicByDepth(w);
+	return true;
+}
+
+void PhysicsManager::StepEnd(float dt)
+{
+	if (!m_World)
+		return;
+	JoltWorld& w = *m_World;
+	JPH::BodyInterface& bi = w.BI();
 
 	// 4.5) Joint 끊어짐: 구속이 쓴 힘(충격량 / dt)이 Break Force / Break Torque 를 넘으면 (Unity: OnJointBreak 후 컴포넌트 삭제)
 	if (!w.joints.empty())
@@ -1714,16 +1822,15 @@ void PhysicsManager::StepSimulation(float dt)
 	}
 
 	// 5) 바디 → Transform (Dynamic). 부모 먼저 — 자식 바디를 먼저 쓰면 뒤에 부모가 움직일 때 끌려간다 (래그돌 · 사슬)
-	for (JoltWorld::BodyRecord* rp : DynamicByDepth(w))
+	//  자리 · 회전은 시뮬레이션 잡이 핑퐁 버퍼의 앞 칸에 써 두었다 (메인은 Jolt 를 다시 읽지 않는다)
+	const std::vector<JoltWorld::BodyState>& states = w.states[w.front.load(std::memory_order_acquire)];
+	for (size_t i = 0; i < w.stepBodies.size() && i < states.size(); ++i)
 	{
-		JoltWorld::BodyRecord& r = *rp;
-		JPH::RVec3 p;
-		JPH::Quat q;
-		bi.GetPositionAndRotation(r.id, p, q);
+		JoltWorld::BodyRecord& r = *w.stepBodies[i];
 		r.prevPos = r.curPos;
 		r.prevRot = r.curRot;
-		r.curPos = Vec3((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
-		r.curRot = FromJ(q);
+		r.curPos = states[i].pos;
+		r.curRot = states[i].rot;
 		if (!r.interpolate)
 		{
 			Transform* tr = r.owner->GetTransform();
@@ -1737,10 +1844,7 @@ void PhysicsManager::StepSimulation(float dt)
 	// 6) 충돌 / 트리거 이벤트 (Enter / Stay / Exit)
 	PROFILE_SCOPE("Physics.Events");
 	std::unordered_map<JPH::uint64, JoltWorld::TouchInfo> current;
-	{
-		std::lock_guard<std::mutex> lock(w.touchMutex);
-		current = w.touching;
-	}
+	DrainTouches(w, &current);
 	// 잠든 바디끼리 닿아 있던 쌍은 콜백이 오지 않으므로 그대로 유지한다 (Unity 도 잠든 동안 Stay 를 보내지 않음)
 	std::vector<JoltWorld::TouchInfo> exits;
 	for (auto& kv : w.prevTouching)
@@ -1811,6 +1915,7 @@ void PhysicsManager::StepSimulation(float dt)
 // ====================================================================== Raycast
 bool PhysicsManager::Raycast(const Vec3& origin, const Vec3& direction, RaycastHit& hit, float maxDistance, bool hitTriggers, uint32 layerMask)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 		return false;
 	Vec3 dir = direction;
@@ -1858,6 +1963,7 @@ bool PhysicsManager::Raycast(const Vec3& origin, const Vec3& direction, RaycastH
 // ====================================================================== RigidBody API
 bool PhysicsManager::GetLinearVelocity(RigidBody* rb, Vec3& out)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1867,6 +1973,7 @@ bool PhysicsManager::GetLinearVelocity(RigidBody* rb, Vec3& out)
 
 bool PhysicsManager::SetLinearVelocity(RigidBody* rb, const Vec3& v)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1877,6 +1984,7 @@ bool PhysicsManager::SetLinearVelocity(RigidBody* rb, const Vec3& v)
 
 bool PhysicsManager::GetAngularVelocity(RigidBody* rb, Vec3& out)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1886,6 +1994,7 @@ bool PhysicsManager::GetAngularVelocity(RigidBody* rb, Vec3& out)
 
 bool PhysicsManager::SetAngularVelocity(RigidBody* rb, const Vec3& wv)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1896,6 +2005,7 @@ bool PhysicsManager::SetAngularVelocity(RigidBody* rb, const Vec3& wv)
 
 bool PhysicsManager::AddForce(RigidBody* rb, const Vec3& force, ForceMode mode)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1914,6 +2024,7 @@ bool PhysicsManager::AddForce(RigidBody* rb, const Vec3& force, ForceMode mode)
 
 bool PhysicsManager::AddTorque(RigidBody* rb, const Vec3& torque, ForceMode mode)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1948,6 +2059,7 @@ bool PhysicsManager::AddTorque(RigidBody* rb, const Vec3& torque, ForceMode mode
 
 float PhysicsManager::GetEffectiveMass(RigidBody* rb, const Vec3& point, const Vec3& dir)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return 0.0f;
 	auto* r = m_World->Find(rb);
 	if (!r || !r->dynamic || r->id.IsInvalid()) return 0.0f;
@@ -1967,6 +2079,7 @@ float PhysicsManager::GetEffectiveMass(RigidBody* rb, const Vec3& point, const V
 
 bool PhysicsManager::AddForceAtPosition(RigidBody* rb, const Vec3& force, const Vec3& position, ForceMode mode)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -1985,6 +2098,7 @@ bool PhysicsManager::AddForceAtPosition(RigidBody* rb, const Vec3& force, const 
 
 bool PhysicsManager::MovePosition(RigidBody* rb, const Vec3& position)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -2002,6 +2116,7 @@ bool PhysicsManager::MovePosition(RigidBody* rb, const Vec3& position)
 
 bool PhysicsManager::MoveRotation(RigidBody* rb, const Quaternion& rotation)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	if (!r) return false;
@@ -2019,6 +2134,7 @@ bool PhysicsManager::MoveRotation(RigidBody* rb, const Quaternion& rotation)
 
 bool PhysicsManager::IsSleeping(RigidBody* rb)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return false;
 	auto* r = m_World->Find(rb);
 	return r && r->dynamic && !m_World->BI().IsActive(r->id);
@@ -2026,6 +2142,7 @@ bool PhysicsManager::IsSleeping(RigidBody* rb)
 
 void PhysicsManager::Sleep(RigidBody* rb)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return;
 	if (auto* r = m_World->Find(rb))
 		m_World->BI().DeactivateBody(r->id);
@@ -2033,6 +2150,7 @@ void PhysicsManager::Sleep(RigidBody* rb)
 
 void PhysicsManager::WakeUp(RigidBody* rb)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World) return;
 	if (auto* r = m_World->Find(rb))
 		m_World->BI().ActivateBody(r->id);
@@ -2040,6 +2158,7 @@ void PhysicsManager::WakeUp(RigidBody* rb)
 
 Vec3 PhysicsManager::GetWorldCenterOfMass(RigidBody* rb)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (m_World)
 		if (auto* r = m_World->Find(rb))
 		{
@@ -2052,6 +2171,7 @@ Vec3 PhysicsManager::GetWorldCenterOfMass(RigidBody* rb)
 // ====================================================================== Character Controller
 int PhysicsManager::MoveCharacter(CharacterController* cc, const Vec3& motion, float deltaTime)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (cc == nullptr || cc->GetGameObject() == nullptr)
 		return 0;
 	Transform* tr = cc->GetGameObject()->GetTransform();
@@ -2175,6 +2295,7 @@ int PhysicsManager::MoveCharacter(CharacterController* cc, const Vec3& motion, f
 
 void PhysicsManager::RemoveCharacter(CharacterController* cc)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (m_World)
 		m_World->characters.erase(cc);
 }
@@ -2207,6 +2328,7 @@ namespace
 uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& worldVertices, const std::vector<uint32>& triangles, const std::vector<float>& invMass, const ClothSettings& s,
 	const ClothSkin* skin)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World || owner == nullptr || worldVertices.size() < 3 || triangles.size() < 3)
 		return 0;
 	// 정점은 바디 원점 (정점들의 가운데) 기준 — 바디는 움직이지 않는다 (mUpdatePosition = false, 고정 정점을 우리가 옮긴다)
@@ -2283,6 +2405,7 @@ uint32 PhysicsManager::CreateCloth(GameObject* owner, const std::vector<Vec3>& w
 
 void PhysicsManager::DestroyCloth(uint32 handle)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 		return;
 	auto it = m_World->cloths.find(handle);
@@ -2295,6 +2418,7 @@ void PhysicsManager::DestroyCloth(uint32 handle)
 
 bool PhysicsManager::GetClothVertices(uint32 handle, std::vector<Vec3>& world)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 		return false;
 	auto it = m_World->cloths.find(handle);
@@ -2317,6 +2441,7 @@ bool PhysicsManager::GetClothVertices(uint32 handle, std::vector<Vec3>& world)
 
 void PhysicsManager::DriveCloth(uint32 handle, const std::vector<uint32>& pinned, const std::vector<Vec3>& pinnedWorld, const Vec3& acceleration, float dt)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World || dt <= 0.0f)
 		return;
 	auto it = m_World->cloths.find(handle);
@@ -2354,6 +2479,7 @@ void PhysicsManager::DriveCloth(uint32 handle, const std::vector<uint32>& pinned
 
 void PhysicsManager::SkinCloth(uint32 handle, const std::vector<Matrix>& jointToWorld, bool hardSkinAll)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World || jointToWorld.empty())
 		return;
 	auto it = m_World->cloths.find(handle);
@@ -2375,6 +2501,7 @@ void PhysicsManager::SkinCloth(uint32 handle, const std::vector<Matrix>& jointTo
 
 void PhysicsManager::ShiftCloth(uint32 handle, const Vec3& delta)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 		return;
 	auto it = m_World->cloths.find(handle);
@@ -2392,6 +2519,7 @@ void PhysicsManager::ShiftCloth(uint32 handle, const Vec3& delta)
 // ====================================================================== IgnoreCollision
 void PhysicsManager::IgnoreCollision(GameObject* a, GameObject* b, bool ignore)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (m_World == nullptr || a == nullptr || b == nullptr)
 		return;
 	GameObject* oa = FindRigidOwner(a);
@@ -2409,6 +2537,7 @@ void PhysicsManager::IgnoreCollision(GameObject* a, GameObject* b, bool ignore)
 
 bool PhysicsManager::GetIgnoreCollision(GameObject* a, GameObject* b)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (m_World == nullptr || a == nullptr || b == nullptr)
 		return false;
 	GameObject* oa = FindRigidOwner(a);
@@ -2423,6 +2552,7 @@ bool PhysicsManager::GetIgnoreCollision(GameObject* a, GameObject* b)
 // ====================================================================== Joint
 void PhysicsManager::RemoveJoint(Joint* joint)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 		return;
 	auto it = m_World->joints.find(joint);
@@ -2434,6 +2564,7 @@ void PhysicsManager::RemoveJoint(Joint* joint)
 
 float PhysicsManager::GetHingeAngle(const HingeJoint* joint, bool velocity)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World || joint == nullptr)
 		return 0.0f;
 	auto it = m_World->joints.find(const_cast<HingeJoint*>(joint));
@@ -2458,6 +2589,7 @@ float PhysicsManager::GetHingeAngle(const HingeJoint* joint, bool velocity)
 // ====================================================================== 여러 개 레이캐스트 / 편집 중 질의
 int PhysicsManager::RaycastAll(const Vec3& origin, const Vec3& direction, float maxDistance, RaycastHit* out, int maxHits, bool staticOnly)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World || out == nullptr || maxHits <= 0)
 		return 0;
 	Vec3 dir = direction;
@@ -2502,6 +2634,7 @@ int PhysicsManager::RaycastAll(const Vec3& origin, const Vec3& direction, float 
 
 bool PhysicsManager::BeginEditQueries()
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (m_World)
 	{
 		// 편집 중에도 씬을 열 때(Scene::Enter) 만든 월드가 있다 — 그 뒤 붙이거나 옮긴 콜라이더를 반영한다 (dt 0: 바디만 맞춤)
@@ -2521,6 +2654,7 @@ bool PhysicsManager::BeginEditQueries()
 
 void PhysicsManager::EndEditQueries()
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_EditQueryWorld)
 		return;
 	m_EditQueryWorld = false;
@@ -2529,6 +2663,7 @@ void PhysicsManager::EndEditQueries()
 
 bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	if (!m_World)
 	{
 		EditorLog::Write("Physics", "world bounds: no physics world");
@@ -2557,6 +2692,7 @@ bool PhysicsManager::GetWorldBounds(Vec3& outMin, Vec3& outMax)
 
 int PhysicsManager::CollectStaticTriangles(const Vec3& boundsMin, const Vec3& boundsMax, std::vector<float>& verts, std::vector<int>& tris)
 {
+	CompleteAsync();   // 렌더링과 겹쳐 도는 스텝이 있으면 먼저 끝낸다 (물리 월드를 함께 만지지 않게)
 	verts.clear();
 	tris.clear();
 	if (!m_World)
@@ -2604,4 +2740,41 @@ int PhysicsManager::CollectStaticTriangles(const Vec3& boundsMin, const Vec3& bo
 		}
 	}
 	return (int)(tris.size() / 3);
+}
+
+namespace
+{
+	void SimulateAndCapture(World& w, float dt)
+	{
+		w.physics->Update(dt, 1, w.tempAllocator.get(), w.jobSystem.get());
+		const int back = 1 - w.front.load(std::memory_order_relaxed);
+		std::vector<World::BodyState>& out = w.states[back];
+		out.resize(w.stepBodies.size());
+		const JPH::BodyInterface& bi = w.physics->GetBodyInterfaceNoLock();   // 스텝이 끝났다 — 바꾸는 쪽이 없다
+		for (size_t i = 0; i < w.stepBodies.size(); ++i)
+		{
+			JPH::RVec3 p;
+			JPH::Quat q;
+			bi.GetPositionAndRotation(w.stepBodies[i]->id, p, q);
+			out[i].pos = Vec3((float)p.GetX(), (float)p.GetY(), (float)p.GetZ());
+			out[i].rot = FromJ(q);
+		}
+		w.front.store(back, std::memory_order_release);
+	}
+
+	void DrainTouches(World& w, std::unordered_map<JPH::uint64, World::TouchInfo>* out)
+	{
+		World::TouchEvent ev;
+		while (w.touchRing.Pop(ev))
+			if (out) (*out)[ev.key] = ev.info;
+		if (w.touchOverflowed.load(std::memory_order_acquire))
+		{
+			std::lock_guard<std::mutex> lock(w.touchMutex);
+			if (out)
+				for (const World::TouchEvent& e : w.touchOverflow)
+					(*out)[e.key] = e.info;
+			w.touchOverflow.clear();
+			w.touchOverflowed.store(false, std::memory_order_release);
+		}
+	}
 }

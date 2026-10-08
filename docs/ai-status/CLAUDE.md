@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **동시성 로드맵 1 단계: Job System (작업 훔치기 · 파이버) + 무잠금 자료 구조**. 다음: 2 단계 엔진 적용 (Jolt · ParallelFor · Background)
+- 갱신 시각: 2026년 10월 9일 — **동시성 로드맵 2 · 3 단계: 엔진에 Job System 적용 + 물리 ↔ 렌더링 겹치기**. 다음: 4 단계 렌더 스레드 (DX11 deferred context)
+  - 2 단계: Jolt 를 `JoltNovaJobSystem` 으로 (엔진 일꾼 위), MeshBatcher.Collect · SceneCulling 훑기 병렬 (읽기) + 차례로 (재질 · 캐시 · 옥트리), Forward+ 클러스터 짓기 병렬 (같은 결과), `Jobs::Async` (Background Future) 로 씬 읽기 · 지형 · 바이옴 · 셰이더 그래프, VT 페이지 읽기 = SPSC 링 둘 + 잡, `TaskSystem::Post` (MPSC), Background 동시 실행 상한. Release: 도시 프레임 1.10 배, Collect 1.42, Culling 1.46, 물리 2.18 배
+  - 3 단계: `PhysicsSettings::AsyncSimulation` (Simulate During Rendering, 기본 꺼짐, NOVA_PHYSICS_ASYNC=1 로 강제), StepBegin / SimulateAndCapture (핑퐁 버퍼) / StepEnd, CompleteAsync (프레임 시작 · 물리 API 35 곳 · FlushDestroyed), 접촉 = 무잠금 MPMC 링. 스위트 `physicsasync` 4/4, physics · cloth · ragdoll · wheel 31/31 (일반 · 겹치기 둘 다)
+  - 검사: jobs · virtualtexture · scenes · shadergraph 66/66, forwardplus · occlusion · lodgroup · render · material 44/44. 문서 JOB_SYSTEM (엔진 적용) · ASYNC_PHYSICS, Showcase 274
+- 이전: 2026년 10월 8일 — **동시성 로드맵 1 단계: Job System (작업 훔치기 · 파이버) + 무잠금 자료 구조**. **완료 (커밋 15f2fe1, 푸시 전)**
   - 사용자 요청: "Task/Fiber 기반 Work-Stealing Job System, 무잠금 큐, 메인-렌더-물리 스레드 간 락 없는 데이터 핑퐁/이중 버퍼링" — docs/CONCURRENCY_ROADMAP.md (4 단계)
   - `Source/Core/LockFree.h` (SpscRing · MpmcRing (Vyukov) · WorkStealingDeque (Chase-Lev) · TripleBuffer), `Source/Core/JobSystem.*` (일꾼 = 코어 − 1, 덱 + 우선순위 공용 링, Counter (Busy 로 수명), Windows 파이버 128 — 기다리면 내려놓고 다른 일꾼이 이어 돌림, 다른 곳은 돕기, 웹 · 인라인), App 에서 Init · Shutdown · OnFrame
   - Profiler: 메인 밖 스레드 구간 (스레드마다 SPSC 링 → EndFrame), Timeline 스레드 줄 + 세로 넘기기, perf 결과 threads, 통계 Jobs/Executed · Stolen. `window profiler --category timeline|threads`

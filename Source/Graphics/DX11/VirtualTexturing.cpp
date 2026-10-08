@@ -2,10 +2,11 @@
 #include "VirtualTexturing.h"
 #include "AssetImportSettings.h"
 #include "CliServer.h"
+#include "JobSystem.h"
+#include "LockFree.h"
 #include "MeshRenderer.h"
 #include "SceneCulling.h"
 #include "RenderLayers.h"
-#include <condition_variable>
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -91,13 +92,11 @@ namespace VirtualTexturing
 			ComPtr<GfxInputLayout> Layout;
 			bool FxFailed = false;
 			FeedbackView Views[2];   // 0 Game · 1 Scene
-			// 작업 스레드 (페이지 읽기)
-			std::thread Worker;
-			std::mutex M;
-			std::condition_variable Cv;
-			std::deque<Job> Jobs;
-			std::deque<Done> Finished;
-			bool Quit = false;
+			// 페이지 읽기 (Background 잡 — DrainRequests): 무잠금 SPSC 링 둘
+			LockFree::SpscRing<Job*> Requests{ 4096 };   // 메인 → 읽는 잡 (가득하면 요청을 버린다 — 피드백이 다시 요청한다)
+			LockFree::SpscRing<Done*> Finished{ 1024 };  // 읽는 잡 → 메인 (Update 가 프레임마다 올린다)
+			std::atomic<bool> Draining{ false };         // 읽는 잡이 돌고 있다 (하나만)
+			std::map<std::wstring, std::unique_ptr<std::ifstream>> Files;   // 읽는 잡만 (한 번에 하나)
 			// 통계
 			uint64_t Uploads = 0, Evictions = 0, LastRequests = 0, LastNewRequests = 0, FeedbackPixels = 0, LastObjects = 0;
 		};
@@ -127,40 +126,44 @@ namespace VirtualTexturing
 			}
 		}
 
-		void WorkerLoop()
+		// 페이지 읽기 = Background 잡 하나 (동시성 로드맵 2 단계 — 예전: 전용 스레드 + 잠금 + 조건 변수).
+		//  요청 (메인 → 잡) · 다 읽은 페이지 (잡 → 메인) 는 무잠금 SPSC 링. 읽는 잡은 한 번에 하나만 (Draining) — 그래서 SPSC 가 맞다
+		void DrainRequests()
 		{
 			State& st = S();
-			std::map<std::wstring, std::unique_ptr<std::ifstream>> files;
 			for (;;)
 			{
-				Job job;
-				{
-					std::unique_lock<std::mutex> lock(st.M);
-					st.Cv.wait(lock, [&] { return st.Quit || !st.Jobs.empty(); });
-					if (st.Quit) return;
-					job = std::move(st.Jobs.front());
-					st.Jobs.pop_front();
-				}
-				auto& f = files[job.File];
-				if (!f) f = std::make_unique<std::ifstream>(job.File, std::ios::binary);
-				Done d;
-				d.Tex = job.Tex;
-				d.Page = job.Page;
-				d.Pixels.resize((size_t)kTileBytes);
+				// 메인이 아직 안 올린 결과가 가득하면 멈춘다 (Update 가 다시 시작한다)
+				if (st.Finished.SizeApprox() + 1 >= st.Finished.Capacity())
+					break;
+				Job* job = nullptr;
+				if (!st.Requests.Pop(job))
+					break;
+				auto& f = st.Files[job->File];
+				if (!f) f = std::make_unique<std::ifstream>(job->File, std::ios::binary);
+				Done* d = new Done();
+				d->Tex = job->Tex;
+				d->Page = job->Page;
+				d->Pixels.resize((size_t)kTileBytes);
 				f->clear();
-				f->seekg((std::streamoff)job.Offset);
-				f->read(reinterpret_cast<char*>(d.Pixels.data()), (std::streamsize)kTileBytes);
-				if (!*f) d.Pixels.clear();
-				std::lock_guard<std::mutex> lock(st.M);
-				st.Finished.push_back(std::move(d));
+				f->seekg((std::streamoff)job->Offset);
+				f->read(reinterpret_cast<char*>(d->Pixels.data()), (std::streamsize)kTileBytes);
+				if (!*f) d->Pixels.clear();
+				delete job;
+				st.Finished.Push(d);   // 위에서 자리를 확인했다
 			}
+			st.Draining.store(false, std::memory_order_release);
 		}
 
-		void StartWorker()
+		// 요청이 있고 읽는 잡이 없으면 하나 띄운다
+		void KickReader()
 		{
 			State& st = S();
-			if (!st.Worker.joinable())
-				st.Worker = std::thread(WorkerLoop);
+			if (st.Requests.SizeApprox() == 0 || st.Finished.SizeApprox() + 1 >= st.Finished.Capacity())
+				return;
+			if (st.Draining.exchange(true, std::memory_order_acq_rel))
+				return;
+			Jobs::Run([]() { DrainRequests(); }, nullptr, Jobs::Priority::Background, "VT Page Reads");
 		}
 
 		bool EnsureCache()
@@ -406,9 +409,14 @@ namespace VirtualTexturing
 			if (t.Loading[page]) return;
 			t.Loading[page] = 1;
 			++st.LastNewRequests;
-			std::lock_guard<std::mutex> lock(st.M);
-			st.Jobs.push_back({ t.Id, page, (UINT64)(sizeof(FileHeader) + page * kTileBytes), t.TileFile });
-			st.Cv.notify_one();
+			Job* job = new Job{ t.Id, page, (UINT64)(sizeof(FileHeader) + page * kTileBytes), t.TileFile };
+			if (!st.Requests.Push(job))
+			{
+				delete job;   // 요청이 밀렸다 — 다음 피드백에서 다시
+				t.Loading[page] = 0;
+				return;
+			}
+			KickReader();
 		}
 
 		bool LoadFx()
@@ -572,7 +580,6 @@ namespace VirtualTexturing
 		st.Textures.push_back(std::move(t));
 		st.ByPath[key] = ref.Id;
 		RebuildTable(ref);
-		StartWorker();
 		EditorLog::Write("VT", "registered %s as #%d (%u x %u, %u mips, %zu pages)", wstring_to_string(std::filesystem::path(fullPath).filename().wstring()).c_str(),
 			ref.Id, ref.Width, ref.Height, ref.Mips, pages);
 		return ref.Id;
@@ -681,12 +688,13 @@ namespace VirtualTexturing
 		// 다 읽은 페이지 올리기 (프레임마다 정해진 수까지 — 나머지는 다음 프레임)
 		std::deque<Done> done;
 		{
-			std::lock_guard<std::mutex> lock(st.M);
-			for (int i = 0; i < kUploadsPerFrame && !st.Finished.empty(); ++i)
+			Done* d = nullptr;
+			for (int i = 0; i < kUploadsPerFrame && st.Finished.Pop(d); ++i)
 			{
-				done.push_back(std::move(st.Finished.front()));
-				st.Finished.pop_front();
+				done.push_back(std::move(*d));
+				delete d;
 			}
+			KickReader();   // 결과 칸이 비었으니 남은 요청을 이어 읽는다
 		}
 		for (Done& d : done)
 		{
@@ -726,11 +734,10 @@ namespace VirtualTexturing
 			list.push_back({ { "id", t->Id }, { "source", wstring_to_string(t->Source) }, { "size", { t->Width, t->Height } }, { "mips", mips },
 				{ "pages", t->Pages() }, { "uploads", t->Uploads }, { "srgb", t->Srgb }, { "tileFile", wstring_to_string(t->TileFile) } });
 		}
-		std::lock_guard<std::mutex> lock(st.M);
 		return { { "enabled", st.Enabled }, { "frozen", st.Frozen }, { "cacheTiles", st.CacheTiles * st.CacheTiles }, { "cacheUsed", used },
 			{ "cacheMegabytes", st.CacheTiles * kTile * (double)st.CacheTiles * kTile * 4 / 1048576.0 }, { "uploads", st.Uploads }, { "evictions", st.Evictions },
 			{ "lastRequests", st.LastRequests }, { "lastNewRequests", st.LastNewRequests }, { "feedbackPixels", st.FeedbackPixels }, { "feedbackObjects", st.LastObjects },
-			{ "pendingLoads", st.Jobs.size() }, { "frame", st.Frame }, { "textures", list } };
+			{ "pendingLoads", st.Requests.SizeApprox() }, { "reading", st.Draining.load() }, { "frame", st.Frame }, { "textures", list } };
 	}
 
 	void RegisterEditor()

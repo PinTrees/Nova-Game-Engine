@@ -456,6 +456,12 @@ namespace
 		float gv[3] = { g.x, g.y, g.z };
 		if (UnityGUI::Vector3("Gravity", gv))
 			PhysicsSettings::SetGravity(Vec3(gv[0], gv[1], gv[2]));
+		// 동시성 로드맵 3 단계: 마지막 고정 스텝을 렌더링과 겹쳐 (Job System 일꾼)
+		bool async = PhysicsSettings::AsyncSimulation();
+		if (UnityGUI::Toggle("Simulate During Rendering", &async))
+			PhysicsSettings::SetAsyncSimulation(async);
+		if (async)
+			UnityGUI::HelpBox("The last fixed step of each frame is simulated on a job worker while the frame renders. Scripts see the same order (FixedUpdate, collision events, then Update), but the rendered image lags the physics by one step.", false);
 		UnityGUI::Spacing(8.0f);
 		if (UnityGUI::FoldoutPlain("Layer Collision Matrix"))
 		{

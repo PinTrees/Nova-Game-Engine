@@ -52,6 +52,11 @@ private:
 	int m_HeartbeatSteps = 0;
 	int m_StepCount = 0;
 	bool m_EditQueryWorld = false;   // BeginEditQueries 가 만든 임시 월드
+	// 렌더링과 겹치는 스텝 (PhysicsSettings::AsyncSimulation): 일꾼에서 시뮬레이션 중 — CompleteAsync 가 기다려 결과를 적용한다
+	bool m_AsyncPending = false;
+	float m_AsyncDt = 0.0f;
+	uint64 m_AsyncSteps = 0, m_AsyncWaitsAtFrameStart = 0, m_AsyncWaitsEarly = 0;
+	double m_AsyncWaitMs = 0.0;
 
 public:
 	void Init();
@@ -60,6 +65,12 @@ public:
 	void Exit();                   // Play 종료 (Scene::Exit)
 
 	bool IsSimulating() const { return m_World != nullptr; }
+
+	// 렌더링과 겹쳐 돌던 스텝을 끝내고 결과 (바디 → Transform · 충돌 이벤트 · 보간) 를 적용한다.
+	//  App 이 프레임 시작 (스크립트 Update 앞) 에, 물리 API 는 들어올 때마다 부른다 (진행 중인 스텝과 겹치지 않게). 없으면 아무것도 안 한다
+	void CompleteAsync(bool frameStart = false);
+	bool AsyncPending() const { return m_AsyncPending; }
+	nlohmann::json AsyncInfo() const;
 
 	// ---- 설정 (Unity: Project Settings > Physics / Time) ----
 	void SetGravity(const Vec3& gravity);
@@ -149,4 +160,7 @@ public:
 
 private:
 	void StepSimulation(float dt);
+	bool StepBegin(float dt);   // FixedUpdate · 바디 동기화 · Transform → 바디 (메인)
+	void StepEnd(float dt);     // Joint 끊어짐 · 바디 → Transform · 충돌 이벤트 (메인)
+	void Interpolate();
 };

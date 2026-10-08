@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include "JobSystem.h"
 #include <unordered_set>
 
 // 실행 중 여러 씬 (Unity 의 SceneManager): LoadSceneMode.Additive · LoadSceneAsync · UnloadSceneAsync · DontDestroyOnLoad.
@@ -40,7 +41,7 @@ namespace
 		std::shared_ptr<json> Parsed;
 		std::string Error;
 		std::atomic<float> Progress{ 0.0f };
-		std::future<void> Work;         // 마지막에 둔다: 먼저 지워지며 작업 스레드가 끝나기를 기다린다
+		Jobs::Future<void> Work;         // 마지막에 둔다: 먼저 지워지며 작업 스레드가 끝나기를 기다린다
 	};
 
 	std::vector<std::unique_ptr<PendingOp>> s_Pending;
@@ -391,7 +392,7 @@ void SceneManager::UpdateSceneOps()
 		{
 			p->Started = true;
 			PendingOp* raw = p.get();
-			p->Work = std::async(std::launch::async, [raw]() { Parse(raw); });
+			p->Work = Jobs::Async([raw]() { Parse(raw); }, Jobs::Priority::Background, "Scene Load (Parse)");
 		}
 #endif
 	for (auto& p : s_Pending)

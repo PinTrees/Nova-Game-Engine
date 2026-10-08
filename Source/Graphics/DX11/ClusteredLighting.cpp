@@ -4,6 +4,7 @@
 #include "Effects.h"
 #include "CliServer.h"
 #include <chrono>
+#include "JobSystem.h"
 
 namespace ClusteredLighting
 {
@@ -117,7 +118,27 @@ namespace ClusteredLighting
 		const XMMATRIX V = XMLoadFloat4x4(&view);
 		const XMFLOAT4X4& P = proj;
 
-		for (int i = 0; i < n; ++i)
+		// 빛마다 (클러스터 칸) 짝은 서로 기대지 않는다 → 묶음마다 일꾼에서 (Job System), 번호 매기기 · 모으기는 빛 순서대로 (차례로 짓는 것과 같은 결과)
+		struct LightOut
+		{
+			uint32 First = 0, Count = 0;   // 묶음 짝 목록 안의 범위 (번호 자리는 빛 i — 아래에서 바꾼다)
+			bool Kept = false;
+			float CosOuter = -2.0f, CosInner = -1.0f;
+		};
+		static std::vector<LightOut> s_Out;
+		static std::vector<std::vector<uint32>> s_BatchPairs;
+		constexpr int kLightBatch = 16;
+		const int batches = (n + kLightBatch - 1) / kLightBatch;
+		s_Out.assign((size_t)n, LightOut());
+		if ((int)s_BatchPairs.size() < batches)
+			s_BatchPairs.resize((size_t)batches);
+		Jobs::ParallelFor(batches, 1, [&](int b0, int b1) {
+		for (int bi = b0; bi < b1; ++bi)
+		{
+		std::vector<uint32>& pairs = s_BatchPairs[(size_t)bi];
+		pairs.clear();
+		const int iEnd = (std::min)(n, (bi + 1) * kLightBatch);
+		for (int i = bi * kLightBatch; i < iEnd; ++i)
 		{
 			const AdditionalLight& l = lights[i];
 			// 빛의 경계 구: 점광 = 자리 · 범위, 스포트광 = 원뿔을 감싸는 더 작은 구 (넓은 원뿔이면 점광과 같게)
@@ -139,16 +160,16 @@ namespace ClusteredLighting
 				}
 			}
 			const Vec3 c = Vec3::Transform(center, V);   // 뷰 공간 (왼손, +z 앞)
+			LightOut& lo = s_Out[(size_t)i];
+			lo.CosOuter = cosOuter;
+			lo.CosInner = cosInner;
 			if (radius <= 0.0f || c.z + radius < zNear || c.z - radius > zFar)
-			{
-				++s_Stats.Culled;
-				continue;
-			}
+				continue;   // 잘림 (아래에서 센다)
 
 			// 깊이 조각마다: 그 조각 안에서의 구 단면 (가장 넓은 원) 을 감싸는 상자를 투영 → 타일 사각형 (멀리 있는 빛이 화면을 넓게 차지하지 않게)
 			//  상자는 가까운 면 앞으로 자른다 (z ≥ near > 0 이라 투영이 늘 맞다)
-			const size_t firstPair = s_Pairs.size();
-			const int index = s_LightCount;
+			const size_t firstPair = pairs.size();
+			const int index = i;   // 임시 (빛 번호) — 모을 때 실제 번호로
 			const int s0 = SliceOf((std::max)(c.z - radius, zNear));
 			const int s1 = SliceOf((std::min)(c.z + radius, zFar));
 			for (int s = s0; s <= s1; ++s)
@@ -180,14 +201,30 @@ namespace ClusteredLighting
 				const int ty1 = std::clamp((int)floorf((0.5f - y0 * 0.5f) * kTilesY), 0, kTilesY - 1);
 				for (int ty = ty0; ty <= ty1; ++ty)
 					for (int tx = tx0; tx <= tx1; ++tx)
-						s_Pairs.push_back((uint32)(((s * kTilesY + ty) * kTilesX + tx) << 10) | (uint32)index);
+						pairs.push_back((uint32)(((s * kTilesY + ty) * kTilesX + tx) << 10) | (uint32)(index & 1023));
 			}
-			if (s_Pairs.size() == firstPair)
+			lo.First = (uint32)firstPair;
+			lo.Count = (uint32)(pairs.size() - firstPair);
+			lo.Kept = lo.Count > 0;   // 0 = 화면 밖
+		}
+		}
+		}, "Forward+ Cluster Build");
+
+		// 모으기: 빛 순서대로 번호를 매기고 짝의 번호 칸을 바꾼다 (차례로 지을 때와 같은 순서 · 같은 값)
+		for (int i = 0; i < n; ++i)
+		{
+			const LightOut& lo = s_Out[(size_t)i];
+			if (!lo.Kept)
 			{
-				++s_Stats.Culled;   // 화면 밖
+				++s_Stats.Culled;
 				continue;
 			}
-			++s_LightCount;
+			const int index = s_LightCount++;
+			const std::vector<uint32>& pairs = s_BatchPairs[(size_t)(i / kLightBatch)];
+			for (uint32 k = lo.First; k < lo.First + lo.Count; ++k)
+				s_Pairs.push_back((pairs[k] & ~1023u) | (uint32)index);
+			const AdditionalLight& l = lights[i];
+			const float cosOuter = lo.CosOuter, cosInner = lo.CosInner;
 			XMFLOAT4* d = &s_LightData[(size_t)index * 4];
 			d[0] = XMFLOAT4(l.Position.x, l.Position.y, l.Position.z, l.Range);
 			d[1] = XMFLOAT4(l.Color.x, l.Color.y, l.Color.z, (float)l.Type);

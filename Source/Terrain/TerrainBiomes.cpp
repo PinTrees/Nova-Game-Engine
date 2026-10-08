@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include "JobSystem.h"
 #include <map>
 
 namespace
@@ -15,7 +16,7 @@ namespace
 
 	struct Thumb
 	{
-		std::future<std::vector<uint8_t>> Job;
+		Jobs::Future<std::vector<uint8_t>> Job;   // Background 잡
 		ComPtr<GfxShaderResourceView> Srv;
 		bool Started = false;
 	};
@@ -221,7 +222,7 @@ namespace TerrainBiomes
 		{
 			t.Started = true;
 			Preset copy = preset;
-			t.Job = std::async(std::launch::async, [copy]() { return RenderThumb(copy); });
+			t.Job = Jobs::Async([copy]() { return RenderThumb(copy); }, Jobs::Priority::Background, "Biome Thumbnail");
 			return nullptr;
 		}
 		if (t.Job.valid() && t.Job.wait_for(std::chrono::seconds(0)) == std::future_status::ready)

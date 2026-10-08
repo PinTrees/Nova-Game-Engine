@@ -14,6 +14,7 @@
 #include <execution>
 #include <functional>
 #include <future>
+#include "JobSystem.h"
 #include <map>
 #include <mutex>
 #include <numeric>
@@ -1346,7 +1347,7 @@ namespace
 {
 	struct Job
 	{
-		std::future<TerrainGenerator::Output> Result;
+		Jobs::Future<TerrainGenerator::Output> Result;   // Background 잡 (지울 때 끝나기를 기다린다)
 		uint64_t Hash = 0;
 		bool Preview = false;
 		int Stamps = 0, Biomes = 0, Splines = 0;
@@ -1642,7 +1643,7 @@ namespace TerrainGenerator
 			job->Biomes = (int)in->Biomes.size();
 			job->Splines = (int)in->Splines.size();
 			job->Start = std::chrono::steady_clock::now();
-			job->Result = std::async(std::launch::async, [in]() { return Generate(*in); });
+			job->Result = Jobs::Async([in]() { return Generate(*in); }, Jobs::Priority::Background, "Terrain Generate");
 			st.Running = std::move(job);
 			st.Status.Running = true;
 		}

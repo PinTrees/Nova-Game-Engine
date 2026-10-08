@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "PhysicsManager.h"
 #include "TagsAndLayers.h"
 #include "RenderLayers.h"
 #include "Physics2DManager.h"
@@ -485,6 +486,8 @@ void Scene::FlushDestroyed()
 {
     if (m_PendingDelete.empty())
         return;
+    // 렌더링과 겹쳐 도는 물리 스텝이 있으면 먼저 결과를 적용한다 (적용이 지울 오브젝트의 Transform 을 만지기 전에)
+    PhysicsManager::GetI()->CompleteAsync();
     // 예전에는 delete 하지 않아 지운 오브젝트가 계속 메모리에 남았다 (스크립트 Destroy·Hierarchy 삭제·Undo 마다).
     // 컴포넌트는 OnDestroy 에서 이미 풀렸고, 여기서는 GameObject 자체를 지운다. 컬링 목록의 옛 포인터도 뺀다.
     std::vector<GameObject*> list;

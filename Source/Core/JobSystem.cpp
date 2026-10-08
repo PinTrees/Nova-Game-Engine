@@ -84,6 +84,8 @@ namespace Jobs
 		std::unique_ptr<LockFree::MpmcRing<FiberCtx*>> s_FreeFibers, s_Ready;
 		std::atomic<uint64_t> s_Migrations{ 0 };
 		int s_SyntheticLoad = 0;
+		std::atomic<int> s_BackgroundRunning{ 0 };
+		int s_BackgroundCap = 1;   // 일꾼의 절반 (적어도 1)
 		uint64_t s_LastExecuted = 0, s_LastStolen = 0;
 
 		// 잠들기 · 깨우기: 원자 값 위에서 기다린다 (WaitOnAddress / futex — 잠금 없음)
@@ -126,7 +128,9 @@ namespace Jobs
 		bool HasWork()
 		{
 			if (s_Ready && s_Ready->SizeApprox() > 0) return true;
-			for (auto& g : s_Global) if (g->SizeApprox() > 0) return true;
+			if (s_Global[0]->SizeApprox() > 0 || s_Global[1]->SizeApprox() > 0) return true;
+			// Background 는 동시 실행 상한 아래일 때만 일 (상한이면 끝날 때 깨운다)
+			if (s_Global[2]->SizeApprox() > 0 && s_BackgroundRunning.load(std::memory_order_relaxed) < s_BackgroundCap) return true;
 			for (auto& w : s_Workers) if (!w->Deque.EmptyApprox()) return true;
 			return false;
 		}
@@ -168,7 +172,14 @@ namespace Jobs
 			}
 			j->Destroy(j);
 			Counter* c = j->Cnt;
+			const bool slot = j->BackgroundSlot;
 			FreeJob(j);
+			if (slot)
+			{
+				s_BackgroundRunning.fetch_sub(1, std::memory_order_relaxed);
+				if (s_Global[2]->SizeApprox() > 0)
+					Wake(1);   // 기다리던 백그라운드 잡
+			}
 			if (c)
 			{
 				c->Busy.fetch_add(1, std::memory_order_relaxed);
@@ -203,8 +214,15 @@ namespace Jobs
 					}
 				}
 			}
-			if (background && s_Global[2]->Pop(j))
-				return j;
+			if (background && s_BackgroundRunning.load(std::memory_order_relaxed) < s_BackgroundCap)
+			{
+				if (s_BackgroundRunning.fetch_add(1, std::memory_order_relaxed) < s_BackgroundCap && s_Global[2]->Pop(j))
+				{
+					j->BackgroundSlot = true;
+					return j;
+				}
+				s_BackgroundRunning.fetch_sub(1, std::memory_order_relaxed);
+			}
 			return nullptr;
 		}
 
@@ -365,6 +383,7 @@ namespace Jobs
 		workers = workers < 0 ? 0 : (workers > kMaxWorkers ? kMaxWorkers : workers);
 #endif
 		s_WorkerCount = workers;
+		s_BackgroundCap = workers / 2 > 1 ? workers / 2 : 1;
 		for (auto& g : s_Global)
 			g = std::make_unique<LockFree::MpmcRing<Job*>>(kGlobalSize);
 		s_JobStore = std::make_unique<Job[]>(kJobPool);
@@ -454,6 +473,7 @@ namespace Jobs
 		if (s_FreeJobs && s_FreeJobs->Pop(j))
 		{
 			j->Pooled = true;
+			j->BackgroundSlot = false;
 			return j;
 		}
 		s_HeapJobs.fetch_add(1, std::memory_order_relaxed);
@@ -547,7 +567,7 @@ namespace Jobs
 			{ "fiberPool", s_UseFibers ? kFiberPool : 0 }, { "fibersFree", s_FreeFibers ? s_FreeFibers->SizeApprox() : 0 }, { "fibersReady", s_Ready ? s_Ready->SizeApprox() : 0 },
 			{ "fiberMigrations", s_Migrations.load() },
 			{ "queued", { { "high", s_Global[0] ? s_Global[0]->SizeApprox() : 0 }, { "normal", s_Global[1] ? s_Global[1]->SizeApprox() : 0 }, { "background", s_Global[2] ? s_Global[2]->SizeApprox() : 0 } } },
-			{ "syntheticLoad", s_SyntheticLoad }, { "jobPool", kJobPool }, { "jobsFree", s_FreeJobs ? s_FreeJobs->SizeApprox() : 0 }, { "heapJobs", s_HeapJobs.load() },
+			{ "syntheticLoad", s_SyntheticLoad }, { "backgroundRunning", s_BackgroundRunning.load() }, { "backgroundCap", s_BackgroundCap }, { "jobPool", kJobPool }, { "jobsFree", s_FreeJobs ? s_FreeJobs->SizeApprox() : 0 }, { "heapJobs", s_HeapJobs.load() },
 			{ "threads", threads } };
 	}
 

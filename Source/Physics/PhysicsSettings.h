@@ -19,5 +19,10 @@ namespace PhysicsSettings
 	NOVA_API void IgnoreLayerCollisionRuntime(int a, int b, bool ignore);
 	NOVA_API void ResetRuntime();   // 실행 중 값 = 설정 값 (Play 시작 · 끝)
 
+	// 물리 시뮬레이션을 렌더링과 겹쳐 돌린다 (동시성 로드맵 3 단계, 기본 꺼짐 — Unity 는 같은 프레임에 물리 뒤의 자리를 그린다).
+	//  켜면 프레임의 마지막 고정 스텝을 일꾼에서 돌리고 결과는 다음 프레임 시작 (스크립트 Update 앞) 에 적용 — 그림이 한 스텝 늦다
+	NOVA_API bool AsyncSimulation();
+	NOVA_API void SetAsyncSimulation(bool on);   // 저장한다
+
 	NOVA_API void Reload();
 }

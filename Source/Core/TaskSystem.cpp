@@ -1,13 +1,25 @@
 #include "pch.h"
 #include "TaskSystem.h"
+#include "LockFree.h"
 
-queue<function<void()>> TaskSystem::mainThreadTasks = {};
+namespace
+{
+    LockFree::MpscQueue<std::function<void()>>& Queue()
+    {
+        static LockFree::MpscQueue<std::function<void()>> s_Queue;
+        return s_Queue;
+    }
+}
+
+void TaskSystem::Post(std::function<void()> task)
+{
+    if (task)
+        Queue().Push(std::move(task));
+}
 
 void TaskSystem::ExecuteMainThreadTasks()
 {
-    while (!mainThreadTasks.empty())
-    {
-        mainThreadTasks.front()();  // 작업 실행
-        mainThreadTasks.pop();      // 큐에서 제거
-    }
+    std::function<void()> task;
+    while (Queue().Pop(task))
+        task();
 }

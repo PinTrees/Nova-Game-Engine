@@ -20,8 +20,8 @@
 | # | 무엇 | 왜 이 순서 | 상태 |
 |---|------|------|------|
 | 1 | **무잠금 도구 + Job System**: 작업 훔치기 덱 (Chase-Lev) · MPMC 링 (Vyukov) · SPSC 링 · 삼중 버퍼, 일꾼 = 코어 − 1 (메인도 돕는다), 우선순위 (High · Normal · Background), Counter 기다리기 = **파이버** (Windows — 기다리는 작업은 파이버를 내려놓고 일꾼은 다른 일), 다른 플랫폼은 돕기. ParallelFor. Profiler Timeline 에 일꾼 줄 | 2 ~ 4 가 이 위에 선다 | **완료** ([JOB_SYSTEM](JOB_SYSTEM.md)) |
-| 2 | **엔진에 적용**: Jolt 를 Nova 잡 위로 (스레드 풀 하나), 무거운 반복을 ParallelFor (프로파일로 고른다), 백그라운드 일 (VT 읽기 · 지형 · 씬 읽기 · 셰이더 그래프) 을 Background 잡으로, 메인 스레드 작업 큐를 MPSC 무잠금으로 | 1 필요 | |
-| 3 | **물리 ↔ 메인 핑퐁**: 마지막 고정 스텝의 시뮬레이션을 잡으로 돌려 프레임 나머지 (2D 물리 · 입자 · UI · 컬링 · 렌더) 와 겹친다. 바디 상태는 이중 버퍼 (물리가 뒤 버퍼에 쓰고 원자 교환), 다음 프레임 시작 (스크립트 Update 앞) 에 적용 · 충돌 콜백. 물리 API 는 들어올 때 진행 중인 스텝을 끝낸다 | 1 · 2 필요 | |
+| 2 | **엔진에 적용**: Jolt 를 Nova 잡 위로 (스레드 풀 하나), 무거운 반복을 ParallelFor (프로파일로 고른다), 백그라운드 일 (VT 읽기 · 지형 · 씬 읽기 · 셰이더 그래프) 을 Background 잡으로, 메인 스레드 작업 큐를 MPSC 무잠금으로 | 1 필요 | **완료** ([JOB_SYSTEM](JOB_SYSTEM.md#엔진에-적용-동시성-로드맵-2-단계)) |
+| 3 | **물리 ↔ 메인 핑퐁**: 마지막 고정 스텝의 시뮬레이션을 잡으로 돌려 프레임 나머지 (2D 물리 · 입자 · UI · 컬링 · 렌더) 와 겹친다. 바디 상태는 이중 버퍼 (물리가 뒤 버퍼에 쓰고 원자 교환), 다음 프레임 시작 (스크립트 Update 앞) 에 적용 · 충돌 콜백. 물리 API 는 들어올 때 진행 중인 스텝을 끝낸다 | 1 · 2 필요 | **완료** ([ASYNC_PHYSICS](ASYNC_PHYSICS.md)) — Project Settings > Physics > Simulate During Rendering (기본 꺼짐) |
 | 4 | **메인 ↔ 렌더 스레드** (Unity 의 Multithreaded Rendering): GfxContext 를 기록 프록시로 — 메인 스레드는 명령 스트림 (무잠금 SPSC 링, 프레임 단위 핑퐁) 에 쓰고 렌더 스레드가 진짜 컨텍스트로 실행 · Present. 읽기 (Map READ · 쿼리 결과 · 캡처) 만 기다린다. 먼저 DX11 (장치가 스레드에 안전), 그다음 DX12 · Vulkan | 1 필요, 가장 크다 | |
 
 ## 원칙

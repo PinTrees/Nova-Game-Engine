@@ -19,6 +19,7 @@
 #include "OcclusionCulling.h"
 #include "ShadowRenderer.h"
 #include "EditorLog.h"
+#include "JobSystem.h"
 #include <unordered_map>
 
 namespace
@@ -197,21 +198,47 @@ namespace
 		s_MainCount = s_DepthCount = 0;
 		s_LastMain = s_LastDepth = LastBatch();
 		struct { const UMaterial* Material = reinterpret_cast<const UMaterial*>(1); bool Transparent = false, Clip = false, Tess = false; } memo;
-		for (GameObject* go : scene->GetAllGameObjects())
+		// 1) 병렬 (읽기만): 켜진 Mesh Renderer · 메시 · 월드 행렬 · 레이어 — 2) 차례로: 재질 (MaterialPropertyBlock 파생 재질을 만들 수 있다) · 묶음 번호
+		struct Gathered
 		{
-			if (go == nullptr || !go->IsActiveInHierarchy())
+			MeshRenderer* Mr = nullptr;
+			Mesh* MeshPtr = nullptr;   // 렌더러가 잡고 있다 (이 화면 동안)
+			XMFLOAT4X4 World;
+			uint32 LayerBit = 0;
+		};
+		static std::vector<Gathered> s_Gather;
+		const std::vector<GameObject*>& gos = scene->GameObjectsView();
+		s_Gather.assign(gos.size(), Gathered());
+		Jobs::ParallelFor((int)gos.size(), 256, [&](int b, int e) {
+			for (int i = b; i < e; ++i)
+			{
+				GameObject* go = gos[(size_t)i];
+				if (go == nullptr || !go->IsActiveInHierarchy())
+					continue;
+				MeshRenderer* mr = go->GetComponent<MeshRenderer>();
+				if (mr == nullptr || !mr->IsEnabled())
+					continue;
+				Mesh* mesh = mr->GetMesh().get();
+				if (!mesh || mesh->Subsets.empty())
+					continue;
+				Gathered& g = s_Gather[(size_t)i];
+				g.Mr = mr;
+				g.MeshPtr = mesh;
+				XMStoreFloat4x4(&g.World, go->GetTransform()->GetWorldMatrix());
+				g.LayerBit = 1u << (go->GetLayerIndex() & 31);
+			}
+		}, "MeshBatcher Gather");
+		for (const Gathered& g : s_Gather)
+		{
+			if (g.Mr == nullptr)
 				continue;
-			MeshRenderer* mr = go->GetComponent<MeshRenderer>();
-			if (mr == nullptr || !mr->IsEnabled())
-				continue;
-			auto mesh = mr->GetMesh();
-			if (!mesh || mesh->Subsets.empty())
-				continue;
+			MeshRenderer* mr = g.Mr;
+			Mesh* mesh = g.MeshPtr;
 			Caster c;
 			c.Renderer = mr;
-			XMStoreFloat4x4(&c.World, go->GetTransform()->GetWorldMatrix());
+			c.World = g.World;
 			c.Cast = mr->GetCastShadows();
-			c.LayerBit = 1u << (go->GetLayerIndex() & 31);
+			c.LayerBit = g.LayerBit;
 			c.First = (uint32_t)s_MainItems.size();
 			c.Count = (uint32_t)mesh->Subsets.size();
 			// MaterialPropertyBlock: 인스턴스 값으로 되는 속성 (_BaseColor · _EmissionColor · _Metallic · _Smoothness) 뿐이고 엔진 재질이면
@@ -238,12 +265,12 @@ namespace
 					// 투명: 본 패스 · 프리패스 · 그림자에서 빼고 투명 패스로
 					s_MainItems.push_back(-1);
 					s_DepthItems.push_back(-1);
-					s_Transparent.push_back({ (int)s_Casters.size(), mesh.get(), i, mat, TagsAndLayers::SortingLayerIndex(mr->GetSortingLayerId()), mr->GetSortingOrder() });
+					s_Transparent.push_back({ (int)s_Casters.size(), mesh, i, mat, TagsAndLayers::SortingLayerIndex(mr->GetSortingLayerId()), mr->GetSortingOrder() });
 					continue;
 				}
-				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh.get(), i, mat, c.LayerBit, s_LastMain));
+				s_MainItems.push_back(BatchIndex(s_MainIndex, s_MainBatches, s_MainCount, mesh, i, mat, c.LayerBit, s_LastMain));
 				// 깊이 · 그림자: 보통은 (메시, 서브셋) 만으로, 잘라내는 · 테셀레이션 재질은 재질마다 (구멍 · 민 모양이 본 패스와 같게)
-				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh.get(), i, memo.Clip || memo.Tess ? mat : s_None, 0, s_LastDepth));
+				s_DepthItems.push_back(BatchIndex(s_DepthIndex, s_DepthBatches, s_DepthCount, mesh, i, memo.Clip || memo.Tess ? mat : s_None, 0, s_LastDepth));
 			}
 			s_Casters.push_back(c);
 		}

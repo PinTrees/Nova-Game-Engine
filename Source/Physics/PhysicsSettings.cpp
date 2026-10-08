@@ -13,6 +13,7 @@ namespace
 	constexpr int N = TagsAndLayers::kLayerCount;
 	bool s_Loaded = false;
 	Vec3 s_Gravity(0.0f, -9.81f, 0.0f);
+	bool s_Async = false;
 	uint32 s_Saved[N];                  // 설정 (행 a 의 비트 b)
 	std::atomic<uint32> s_Runtime[N];   // 실행 중 (충돌 필터가 작업 스레드에서 읽는다)
 
@@ -32,6 +33,7 @@ namespace
 		for (int i = 0; i < N; ++i)
 			s_Saved[i] = 0xFFFFFFFFu;
 		s_Gravity = Vec3(0.0f, -9.81f, 0.0f);
+		s_Async = false;
 		std::ifstream in(File());
 		if (in)
 		{
@@ -40,6 +42,7 @@ namespace
 			{
 				if (j.contains("gravity") && j["gravity"].is_array() && j["gravity"].size() == 3)
 					s_Gravity = Vec3(j["gravity"][0].get<float>(), j["gravity"][1].get<float>(), j["gravity"][2].get<float>());
+				s_Async = j.value("asyncSimulation", false);
 				// 끈 쌍만 적는다: [[a, b], ...] (레이어 번호)
 				if (j.contains("ignoredLayerPairs") && j["ignoredLayerPairs"].is_array())
 					for (const json& p : j["ignoredLayerPairs"])
@@ -69,7 +72,7 @@ namespace
 		fs::create_directories(fs::path(path).parent_path(), ec);
 		std::ofstream os(path, std::ios::trunc);
 		if (os)
-			os << json{ { "gravity", { s_Gravity.x, s_Gravity.y, s_Gravity.z } }, { "ignoredLayerPairs", pairs } }.dump(4);
+			os << json{ { "gravity", { s_Gravity.x, s_Gravity.y, s_Gravity.z } }, { "ignoredLayerPairs", pairs }, { "asyncSimulation", s_Async } }.dump(4);
 	}
 }
 
@@ -85,6 +88,21 @@ namespace PhysicsSettings
 	{
 		Ensure();
 		s_Gravity = g;
+		Save();
+	}
+
+	bool AsyncSimulation()
+	{
+		Ensure();
+		// 검사: NOVA_PHYSICS_ASYNC=1 이면 설정과 상관없이 켠다 (기존 물리 스위트를 겹치기 모드로 돌린다)
+		static const bool s_Forced = [] { char v[8] = {}; return ::GetEnvironmentVariableA("NOVA_PHYSICS_ASYNC", v, sizeof(v)) > 0 && v[0] == '1'; }();
+		return s_Async || s_Forced;
+	}
+
+	void SetAsyncSimulation(bool on)
+	{
+		Ensure();
+		s_Async = on;
 		Save();
 	}
 

@@ -1,8 +1,14 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <chrono>
 #include <cstring>
+#include <exception>
+#include <future>
+#include <memory>
 #include <new>
+#include <optional>
+#include <thread>
 #include <type_traits>
 #include <utility>
 #include <nlohmann/json.hpp>
@@ -41,6 +47,7 @@ namespace Jobs
 		const char* Name = "Job";
 		Priority Prio = Priority::Normal;
 		bool Pooled = true;
+		bool BackgroundSlot = false;   // Background 동시 실행 수에 셌다 (끝날 때 돌려준다)
 		alignas(16) unsigned char Storage[64];
 	};
 
@@ -111,6 +118,76 @@ namespace Jobs
 		}
 		fn(0, batch);   // 첫 묶음은 여기서
 		Wait(counter);
+	}
+
+	// 결과를 돌려주는 잡 (std::async 를 바꾼다 — 백그라운드 일: 씬 읽기 · 지형 생성 · 셰이더 컴파일).
+	//  std::async 의 future 와 같이 지울 때 끝나기를 기다린다 (작업이 가리키는 것이 먼저 사라지지 않게)
+	template <class R>
+	class Future
+	{
+	public:
+		struct State
+		{
+			Counter Done;
+			std::conditional_t<std::is_void_v<R>, bool, std::optional<R>> Value{};
+			std::exception_ptr Error;
+		};
+		Future() = default;
+		explicit Future(std::shared_ptr<State> s) : m_S(std::move(s)) {}
+		Future(Future&&) noexcept = default;
+		Future& operator=(Future&& o) noexcept { if (this != &o) { wait(); m_S = std::move(o.m_S); } return *this; }
+		~Future() { wait(); }
+
+		bool valid() const { return m_S != nullptr; }
+		bool Ready() const { return !m_S || m_S->Done.Done(); }
+		void wait() const
+		{
+			if (!m_S || m_S->Done.Done())
+				return;
+			// 백그라운드 잡은 일꾼만 돌린다 — 메인은 돕지 않고 잠깐씩 쉬며 기다린다 (잡이 High 면 Wait 가 돕는다)
+			while (!m_S->Done.Done())
+				Wait(m_S->Done);
+		}
+		template <class Rep, class Per>
+		std::future_status wait_for(const std::chrono::duration<Rep, Per>& d) const
+		{
+			const auto until = std::chrono::steady_clock::now() + d;
+			while (!Ready())
+			{
+				if (std::chrono::steady_clock::now() >= until)
+					return std::future_status::timeout;
+				std::this_thread::sleep_for(std::chrono::microseconds(200));
+			}
+			return std::future_status::ready;
+		}
+		R get()
+		{
+			wait();
+			std::shared_ptr<State> s = std::move(m_S);
+			if (s->Error)
+				std::rethrow_exception(s->Error);
+			if constexpr (!std::is_void_v<R>)
+				return std::move(*s->Value);
+		}
+
+	private:
+		std::shared_ptr<State> m_S;
+	};
+
+	template <class F>
+	auto Async(F&& fn, Priority prio = Priority::Background, const char* name = "Async") -> Future<std::invoke_result_t<std::decay_t<F>>>
+	{
+		using R = std::invoke_result_t<std::decay_t<F>>;
+		auto s = std::make_shared<typename Future<R>::State>();
+		Run([s, f = std::forward<F>(fn)]() mutable {
+			try
+			{
+				if constexpr (std::is_void_v<R>) f();
+				else s->Value.emplace(f());
+			}
+			catch (...) { s->Error = std::current_exception(); }
+		}, &s->Done, prio, name);
+		return Future<R>(std::move(s));
 	}
 
 	// 프레임마다 한 번 (App): 이 프레임에 돈 잡 수 → Profiler 통계 "Jobs/…", 검사용 합성 부하 (jobs set --load N)

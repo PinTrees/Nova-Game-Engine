@@ -234,6 +234,56 @@ namespace LockFree
 		alignas(kCacheLine) std::atomic<int64_t> m_Bottom{ 0 };
 	};
 
+	// ------------------------------------------------------------------ MPSC (Vyukov, 크기 제한 없음)
+	//  여러 스레드가 넣고 한 스레드 (메인) 가 꺼낸다. 넣기 = 원자 교환 하나 (기다림 없음).
+	//  넣는 쪽이 교환 뒤 연결하기 전이면 꺼내는 쪽은 잠깐 빈 것으로 본다 (다음 번에 나온다)
+	template <class T>
+	class MpscQueue
+	{
+		struct Node
+		{
+			std::atomic<Node*> Next{ nullptr };
+			T Value{};
+		};
+	public:
+		MpscQueue() : m_Head(&m_Stub), m_Tail(&m_Stub) {}
+		~MpscQueue()
+		{
+			T v;
+			while (Pop(v)) {}
+			if (m_Tail != &m_Stub)
+				delete m_Tail;
+		}
+		MpscQueue(const MpscQueue&) = delete;
+		MpscQueue& operator=(const MpscQueue&) = delete;
+
+		void Push(T v)
+		{
+			Node* n = new Node();
+			n->Value = std::move(v);
+			Node* prev = m_Head.exchange(n, std::memory_order_acq_rel);
+			prev->Next.store(n, std::memory_order_release);
+		}
+		// 꺼내는 스레드만
+		bool Pop(T& out)
+		{
+			Node* tail = m_Tail;
+			Node* next = tail->Next.load(std::memory_order_acquire);
+			if (!next)
+				return false;
+			out = std::move(next->Value);
+			m_Tail = next;   // next 가 새 꼬리 (값은 옮겨 갔다)
+			if (tail != &m_Stub)
+				delete tail;
+			return true;
+		}
+
+	private:
+		alignas(kCacheLine) std::atomic<Node*> m_Head;
+		alignas(kCacheLine) Node* m_Tail;
+		Node m_Stub;
+	};
+
 	// ------------------------------------------------------------------ 삼중 버퍼 (쓰기 1 · 읽기 1)
 	//  쓰는 쪽: Write() 칸에 다 쓰고 Publish(). 읽는 쪽: Acquire() 가 새 판이 있으면 바꿔 true, Read() 로 읽는다.
 	//  어느 쪽도 기다리지 않는다 — 읽는 쪽은 늘 다 쓴 최신 판을 본다 (중간 판은 건너뛸 수 있다)

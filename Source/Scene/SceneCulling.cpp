@@ -8,6 +8,7 @@
 #include "Transform.h"
 #include <unordered_map>
 #include "FrameProfiler.h"
+#include "JobSystem.h"
 
 namespace
 {
@@ -328,20 +329,41 @@ namespace SceneCulling
 		++s_Frame;
 		s_Changed.clear();
 		bool needRebuild = s_Nodes.empty();
+		// 1) 병렬 (읽기만): 오브젝트마다 렌더러 찾기 · 월드 행렬 — 2) 차례로: 메시 상자 캐시 · 옥트리 (자료 구조를 바꾼다)
+		struct Gathered
+		{
+			MeshRenderer* Mr = nullptr;
+			SkinnedMeshRenderer* Sr = nullptr;
+			XMFLOAT4X4 World;
+		};
+		static std::vector<Gathered> s_Gather;
+		s_Gather.clear();
 		if (scene)
-			for (GameObject* go : scene->GetAllGameObjects())
+		{
+			const std::vector<GameObject*>& gos = scene->GameObjectsView();
+			s_Gather.resize(gos.size());
+			Jobs::ParallelFor((int)gos.size(), 256, [&](int b, int e) {
+				for (int i = b; i < e; ++i)
+				{
+					Gathered& g = s_Gather[(size_t)i];
+					GameObject* go = gos[(size_t)i];
+					Transform* tr = go ? go->GetTransform() : nullptr;
+					if (tr == nullptr)
+						continue;
+					g.Mr = go->GetComponent<MeshRenderer>();
+					g.Sr = go->GetComponent<SkinnedMeshRenderer>();
+					if (g.Mr || g.Sr)
+						XMStoreFloat4x4(&g.World, tr->GetWorldMatrix());
+				}
+			}, "Culling Gather");
+		}
+		for (const Gathered& g : s_Gather)
 			{
-				if (go == nullptr)
-					continue;
-				Transform* tr = go->GetTransform();
-				if (tr == nullptr)
-					continue;
-				MeshRenderer* mr = go->GetComponent<MeshRenderer>();
-				SkinnedMeshRenderer* sr = go->GetComponent<SkinnedMeshRenderer>();
+				MeshRenderer* mr = g.Mr;
+				SkinnedMeshRenderer* sr = g.Sr;
 				if (!mr && !sr)
 					continue;
-				XMFLOAT4X4 world;
-				XMStoreFloat4x4(&world, tr->GetWorldMatrix());
+				const XMFLOAT4X4& world = g.World;
 				Box local;
 				if (mr)
 				{

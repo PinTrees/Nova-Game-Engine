@@ -2,6 +2,7 @@
 #include "ShaderGraphRuntime.h"
 #include "CustomShaders.h"
 #include "ShaderCache.h"
+#include "JobSystem.h"
 #include "UMaterial.h"
 #include "Effects.h"
 #include "RenderLayers.h"
@@ -317,10 +318,9 @@ namespace ShaderGraph
 		{
 			std::wstring FxPath;
 			std::string Content;              // 시작할 때의 파일 내용 (끝났을 때 바뀌었으면 다시)
-			std::thread Thread;
+			Jobs::Future<void> Work;          // Background 잡 (지울 때 끝나기를 기다린다 — 끝낼 때 진행 중인 컴파일)
 			std::atomic<bool> Done{ false };
 			HRESULT Hr = S_OK;
-			~Job() { if (Thread.joinable()) Thread.join(); }   // 끝낼 때 진행 중인 컴파일 (joinable thread 를 지우면 프로그램이 멈춘다)
 		};
 		std::map<std::wstring, std::unique_ptr<Job>> s_Jobs;
 
@@ -330,11 +330,11 @@ namespace ShaderGraph
 			job->FxPath = fxPath;
 			job->Content = ReadFile(fxPath);
 			Job* j = job.get();
-			j->Thread = std::thread([j]() {
+			j->Work = Jobs::Async([j]() {
 				ComPtr<ID3DBlob> blob, msgs;
 				j->Hr = ShaderCache::CompileEffect(j->FxPath, ShaderCache::DefaultFlags(), blob, msgs);
 				j->Done = true;
-			});
+			}, Jobs::Priority::Background, "Shader Graph Compile");
 			s_Jobs[fxPath] = std::move(job);
 		}
 
@@ -350,8 +350,8 @@ namespace ShaderGraph
 			int state = CompileInBackground(b.FxPath, error);
 			while (wait && state == 0)
 			{
-				if (auto j = s_Jobs.find(b.FxPath); j != s_Jobs.end() && j->second->Thread.joinable())
-					j->second->Thread.join();
+				if (auto j = s_Jobs.find(b.FxPath); j != s_Jobs.end() && j->second->Work.valid())
+					j->second->Work.wait();
 				state = CompileInBackground(b.FxPath, error);
 			}
 			if (state == 0)
@@ -626,8 +626,8 @@ namespace ShaderGraph
 		Job& j = *it->second;
 		if (!j.Done)
 			return 0;
-		if (j.Thread.joinable())
-			j.Thread.join();
+		if (j.Work.valid())
+			j.Work.wait();
 		const HRESULT hr = j.Hr;
 		const bool stale = ReadFile(fxPath) != j.Content;
 		s_Jobs.erase(it);

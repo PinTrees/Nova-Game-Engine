@@ -131,6 +131,8 @@ int32 App::Run()
 				Profiler::BeginFrame();   // Profiler 창 (Window > Analysis > Profiler)
 
 				// Update
+				// 물리: 지난 프레임에 렌더링과 겹쳐 돌린 스텝의 결과 (바디 → Transform · 충돌 이벤트) — 스크립트 Update 보다 먼저
+				{ PROFILE_SCOPE("Physics.CompleteAsync"); PhysicsManager::GetI()->CompleteAsync(true); }
 				if (Application::ShouldUpdateGame())
 				{
 					FRAME_PROFILE("GameUpdate");

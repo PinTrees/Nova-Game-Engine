@@ -107,7 +107,30 @@ Jobs::Wait(done);
 - 인라인도 같은 결과다.
 - Profiler 에 일꾼 줄이 생긴다.
 
-## 아직 (다음 단계)
+## 엔진에 적용 (동시성 로드맵 2 단계)
 
-- 엔진에 적용: Jolt 물리를 이 일꾼 위로 (스레드 풀 하나), 무거운 반복을 ParallelFor, 백그라운드 일을 Background 잡으로 — 2 단계
-- 물리 ↔ 메인 핑퐁 (3 단계), 렌더 스레드 (4 단계)
+| 어디 | 무엇 |
+|------|------|
+| Jolt 물리 | `JoltNovaJobSystem` (JobSystemWithBarrier) — 물리 잡이 엔진 일꾼에서 돈다. 예전: Jolt 자기 스레드 풀 (코어 − 1) 을 따로 띄워 코어를 다퉜다 |
+| MeshBatcher.Collect · SceneCulling | 오브젝트 훑기를 둘로: **병렬** (읽기만 — 컴포넌트 찾기 · 월드 행렬 · 메시 · 레이어) → **차례로** (재질 — MaterialPropertyBlock 파생 재질을 만들 수 있다, 묶음 번호 · 메시 상자 캐시 · 옥트리) |
+| Forward+ 클러스터 짓기 | 빛 16 개 묶음마다 병렬, 번호 매기기 · 모으기는 빛 순서대로 — 차례로 지을 때와 같은 결과 |
+| 백그라운드 일 | `Jobs::Async` (Background, `std::async` 처럼 지울 때 기다리는 Future): 씬 비동기 읽기 · 지형 생성 · 바이옴 미리 보기 · 셰이더 그래프 컴파일. 가상 텍스처 페이지 읽기 = 잠금 + 조건 변수 스레드 → SPSC 링 둘 + Background 잡 하나 |
+| 메인 스레드 작업 큐 | `TaskSystem::Post` — 무잠금 MPSC (Vyukov). 예전: 동기화 없는 `std::queue` |
+| Background 상한 | 동시에 도는 Background 잡은 일꾼의 절반까지 (긴 백그라운드 일이 프레임 잡의 일꾼을 다 차지하지 않게) |
+
+Release 측정 (12 스레드, 잡 켬 vs `jobs set --inline true`, 번갈아 3 번 중앙값):
+
+| 장면 | 항목 | 잡 | 한 스레드 | |
+|------|------|------|------|------|
+| 도시 (렌더러 수천) | 프레임 | 5.86 ms | 6.44 ms | 1.10 배 |
+| | MeshBatcher.Collect | 0.40 ms | 0.57 ms | 1.42 배 |
+| | CullingUpdate | 0.59 ms | 0.86 ms | 1.46 배 |
+| 점광 512 | 클러스터 짓기 | 0.21 ms | 0.24 ms | 1.15 배 |
+| 상자 1000 개 (Play) | Physics.Update | 0.67 ms | 1.45 ms | 2.18 배 |
+
+물리 ↔ 렌더링 겹치기 (3 단계): [ASYNC_PHYSICS](ASYNC_PHYSICS.md)
+
+## 아직
+
+- 렌더 스레드 (4 단계): 그리기 명령을 렌더 스레드로
+- MeshBatcher 패스마다의 인스턴스 쌓기 · 스키닝 · 애니메이터 평가를 잡으로

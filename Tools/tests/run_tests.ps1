@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6540,6 +6540,89 @@ function Suite-Jobs
     }
 }
 
+# ------------------------------------------------------------------ 물리 ↔ 렌더링 겹치기 (동시성 로드맵 3 단계)
+function Suite-PhysicsAsync
+{
+    # Project Settings > Physics > Simulate During Rendering: 프레임의 마지막 고정 스텝을 일꾼에서 (핑퐁 버퍼), 다음 프레임 시작에 적용.
+    #  같은 장면 (공 하나 · 상자 다섯 쌓기) 이 켬 · 끔에서 같은 자리에 멈추고, 상자 800 개가 떨어질 때 메인 스레드의 물리 시간이 준다
+    #  (기존 물리 스위트는 NOVA_PHYSICS_ASYNC=1 로 겹치기 모드에서도 돌린다 — run_tests 바깥에서)
+    Write-Host '[physicsasync]'
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        $r = Invoke-NovaJson 'physics --async true'
+        $file = Get-Content (Join-Path $Project 'ProjectSettings\PhysicsSettings.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+        Add-Result physicsasync 'nova physics --async true: Simulate During Rendering saved in Project Settings' ($r -and $r.asyncSimulation -and $file.asyncSimulation) "setting $($r.asyncSimulation), file $($file.asyncSimulation)"
+
+        function PaScene
+        {
+            Invoke-Nova 'scene new --force' | Out-Null
+            Invoke-Nova 'create cube --name PaGround --position 0,-0.5,0 --scale 30,1,30' | Out-Null
+            Invoke-Nova 'create sphere --name PaBall --position 0,6,0' | Out-Null
+            Invoke-Nova 'add-component PaBall RigidBody' | Out-Null
+            for ($i = 0; $i -lt 5; $i++)
+            {
+                $y = (0.5 + $i * 1.0).ToString($ic)
+                Invoke-Nova "create cube --name PaS$i --position 4,$y,0" | Out-Null
+                Invoke-Nova "add-component PaS$i RigidBody" | Out-Null
+            }
+        }
+        function PaRun([bool]$async)
+        {
+            Invoke-Nova ('physics --async ' + $(if ($async) { 'true' } else { 'false' })) | Out-Null
+            PaScene
+            Invoke-Nova 'play' | Out-Null
+            $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 3.0) { Invoke-Nova 'wait 20' | Out-Null }
+            $o = @{ Ball = [double](Invoke-NovaJson 'get PaBall').position[1]; Top = [double](Invoke-NovaJson 'get PaS4').position[1]; Info = (Invoke-NovaJson 'physics').async }
+            Invoke-Nova 'stop' | Out-Null
+            Invoke-Nova 'wait 5' | Out-Null
+            $o
+        }
+        $a = PaRun $true
+        $s = PaRun $false
+        Add-Result physicsasync 'same rest positions with and without overlap (ball on the ground, 5-box stack standing)' ([math]::Abs($a.Ball - 0.5) -lt 0.02 -and [math]::Abs($s.Ball - 0.5) -lt 0.02 -and [math]::Abs($a.Top - 4.5) -lt 0.05 -and [math]::Abs($a.Top - $s.Top) -lt 0.02) ("ball y {0:F3} / {1:F3}, stack top y {2:F3} / {3:F3} (overlap / main thread)" -f $a.Ball, $s.Ball, $a.Top, $s.Top)
+        $ai = $a.Info
+        Add-Result physicsasync 'steps were simulated on a worker and applied at the next frame start' ($ai -and [int]$ai.asyncSteps -gt 30 -and [int]$ai.completedAtFrameStart -gt [int]$ai.completedEarly) $(if ($ai) { "async steps $($ai.asyncSteps), applied at frame start $($ai.completedAtFrameStart), early (physics API) $($ai.completedEarly), wait $('{0:N1}' -f [double]$ai.waitMs) ms total" } else { 'no info' })
+
+        # 상자 800 개: 메인 스레드의 Physics.Update (+ 프레임 시작의 적용) 가 준다
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name PbGround --position 0,-0.5,0 --scale 60,1,60' | Out-Null
+        for ($k = 0; $k -lt 800; $k++)
+        {
+            $x = ((($k % 10) - 4.5) * 1.2).ToString($ic); $z = (([math]::Floor($k / 10) % 10 - 4.5) * 1.2).ToString($ic); $y = (1 + [math]::Floor($k / 100) * 1.3).ToString($ic)
+            Invoke-Nova "create cube --name Pb$k --position $x,$y,$z --scale 0.8,0.8,0.8" | Out-Null
+            Invoke-Nova "add-component Pb$k RigidBody" | Out-Null
+        }
+        function PbMeasure([bool]$async)
+        {
+            Invoke-Nova ('physics --async ' + $(if ($async) { 'true' } else { 'false' })) | Out-Null
+            Invoke-Nova 'wait 10' | Out-Null
+            $p = Invoke-NovaJson 'perf --frames 40 --depth 1'
+            $main = 0.0
+            foreach ($c in @($p.cpuScopes)) { if ($c.scope.TrimStart('.') -in 'Physics.Update', 'Physics.CompleteAsync') { $main += [double]$c.ms } }
+            $main
+        }
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $on = @(); $off = @()
+        for ($i = 0; $i -lt 2; $i++) { $on += PbMeasure $true; $off += PbMeasure $false }
+        Invoke-Nova 'stop' | Out-Null
+        $onM = ($on | Measure-Object -Minimum).Minimum; $offM = ($off | Measure-Object -Minimum).Minimum
+        Add-Result physicsasync '800 falling boxes: less physics time on the main thread with overlap' ($onM -lt $offM * 0.8) ("main-thread physics {0:N2} ms (overlap) vs {1:N2} ms (main thread)" -f $onM, $offM)
+
+        Invoke-Nova 'physics --async false' | Out-Null   # 설정을 되돌린다
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Invoke-Nova 'physics --async false' | Out-Null
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -7601,6 +7684,7 @@ try
                 'virtualtexture' { Suite-VirtualTexture }
                 'deferred' { Suite-Deferred }
                 'jobs' { Suite-Jobs }
+                'physicsasync' { Suite-PhysicsAsync }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

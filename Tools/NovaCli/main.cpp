@@ -1075,6 +1075,7 @@ int Run(const std::vector<std::string>& in)
 				args[key] = json::array({ Value(v.substr(0, comma)), Value(v.substr(comma + 1)) });
 			}
 		if (a.Has("all")) args["all"] = a.Get("all") == "true";
+		if (a.Has("async")) args["asyncSimulation"] = a.Get("async") != "false";   // Simulate During Rendering
 	}
 	else if (cmd == "graphics")
 	{
