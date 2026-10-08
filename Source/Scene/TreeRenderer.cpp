@@ -37,7 +37,12 @@ namespace
 	std::shared_ptr<GpuMesh> GetMesh(const TreeDesc& desc, int lod)
 	{
 		// 잎 카드 모양(잎 텍스처의 잎 길이에 따른 외곽)도 메시에 들어가므로 키에 넣는다
-		const std::string key = desc.MeshKey() + (lod ? "#1" : "#0") + "#L" + std::to_string((int)roundf(desc.LeafLength * 100.0f));
+		// 키는 다시 쓰는 버퍼에 (찾을 때마다 임시 문자열을 만들지 않게 — 나무 종류 x 패스마다 프레임당 수십 번이었다)
+		thread_local std::string key;
+		char tail[32];
+		snprintf(tail, sizeof(tail), "%s#L%d", lod ? "#1" : "#0", (int)roundf(desc.LeafLength * 100.0f));
+		key.assign(desc.MeshKey());
+		key.append(tail);
 		if (auto it = s_Meshes.find(key); it != s_Meshes.end())
 			return it->second;
 

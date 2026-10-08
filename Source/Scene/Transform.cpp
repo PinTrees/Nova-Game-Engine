@@ -107,7 +107,7 @@ void Transform::UpdateTransform()
 
 	if (HasParent())
 	{
-		m_WorldMatrix = m_LocalMatrix * _parent->GetWorldMatrix();
+		m_WorldMatrix = m_LocalMatrix * Parent()->GetWorldMatrix();
 	}
 	else
 	{
@@ -119,9 +119,9 @@ void Transform::UpdateTransform()
 	m_Position = Vec3(m_WorldMatrix._41, m_WorldMatrix._42, m_WorldMatrix._43);
 	if (HasParent())
 	{
-		m_Rotation = m_LocalRotation * _parent->GetRotation();   // 로컬 회전 → 부모 회전 순서
+		m_Rotation = m_LocalRotation * Parent()->GetRotation();   // 로컬 회전 → 부모 회전 순서
 		m_Rotation.Normalize();
-		const Vec3 ps = _parent->GetScale();
+		const Vec3 ps = Parent()->GetScale();
 		m_Scale = Vec3(m_LocalScale.x * ps.x, m_LocalScale.y * ps.y, m_LocalScale.z * ps.z);   // Unity 의 lossyScale 과 같은 근사
 	}
 	else
@@ -201,7 +201,7 @@ void Transform::SetScale(const Vec3& worldScale)
 {
 	if (HasParent())
 	{
-		Vec3 parentScale = _parent->GetScale();
+		Vec3 parentScale = Parent()->GetScale();
 		Vec3 scale = worldScale / parentScale;
 		SetLocalScale(scale);
 	}
@@ -222,7 +222,7 @@ void Transform::SetRotation(Quaternion q)
 	{
 		// world = local * parent  →  local = world * inverse(parent)
 		Quaternion parentInv;
-		_parent->GetRotation().Inverse(parentInv);
+		Parent()->GetRotation().Inverse(parentInv);
 		Quaternion local = q * parentInv;
 		local.Normalize();
 		SetLocalRotation(local);
@@ -237,7 +237,7 @@ void Transform::SetPosition(const Vec3& worldPosition)
 {
 	if (HasParent())
 	{
-		Matrix worldToParentLocalMatrix = _parent->GetWorldMatrix().Invert();
+		Matrix worldToParentLocalMatrix = Parent()->GetWorldMatrix().Invert();
 		Vec3 position = Vec3::Transform(worldPosition, worldToParentLocalMatrix);
 
 		SetLocalPosition(position);
@@ -254,11 +254,11 @@ void Transform::SetWorldPose(const Vec3& position, const Quaternion& rotation, c
 	// 행렬 분해(비균일 스케일 + 회전이면 기울어짐 때문에 실패할 수 있음) 대신 위치/회전/크기를 따로 역변환한다 (Unity 와 같은 방식)
 	if (HasParent())
 	{
-		m_LocalPosition = Vec3::Transform(position, _parent->GetWorldMatrix().Invert());
+		m_LocalPosition = Vec3::Transform(position, Parent()->GetWorldMatrix().Invert());
 		Quaternion parentInv;
-		_parent->GetRotation().Inverse(parentInv);
+		Parent()->GetRotation().Inverse(parentInv);
 		Quaternion local = rotation * parentInv;
-		const Vec3 ps = _parent->GetScale();
+		const Vec3 ps = Parent()->GetScale();
 		auto safeDiv = [](float a, float b) { return fabsf(b) > 1e-6f ? a / b : a; };
 		m_LocalScale = Vec3(safeDiv(lossyScale.x, ps.x), safeDiv(lossyScale.y, ps.y), safeDiv(lossyScale.z, ps.z));
 		SetLocalRotation(local);   // UpdateTransform 포함

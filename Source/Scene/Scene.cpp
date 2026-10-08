@@ -13,6 +13,7 @@
 #include "DetailRenderer.h"
 #include "SceneCulling.h"
 #include "MeshBatcher.h"
+#include "SceneManager.h"
 #include "SelectionManager.h"
 #include "Debug.h"
 #include <memory>
@@ -25,6 +26,16 @@ Scene::Scene()
 {
     static std::atomic<uint64> s_NextSerial = 1;
     m_Serial = s_NextSerial++;
+    // 씬 힙: 이 씬의 GameObject · 컴포넌트 (씬을 지우면 짝이 모두 합쳐져 영역째 돌려준다 — 씬 전환에 단편화가 남지 않는다)
+    m_Heap = Memory::Heaps::Create(("Scene #" + std::to_string(m_Serial)).c_str());
+    static const bool s_Resolver = [] {
+        Memory::Heaps::SetCurrentResolver([]() -> Memory::Heaps::SceneHeap* {
+            Scene* s = SceneManager::GetI() ? SceneManager::GetI()->GetCurrentScene() : nullptr;
+            return s ? s->Heap() : nullptr;
+        });
+        return true;
+    }();
+    (void)s_Resolver;
 }
 
 Scene::~Scene()
@@ -60,6 +71,10 @@ Scene::~Scene()
     m_PendingDelete.clear();
     m_VecRootGameObjects.clear();
     m_ArrGameObjects[0].clear();
+
+    // 오브젝트를 다 지웠다 — 힙이 비었으면 영역째 돌려준다 (남은 블록이 있으면 남은 힙 + Editor.log)
+    Memory::Heaps::Destroy(m_Heap);
+    m_Heap = nullptr;
 }
 
 void Scene::Enter(const std::function<void()>& afterAwake, const std::unordered_set<GameObject*>* started)
@@ -365,6 +380,8 @@ Scene* Scene::Load(wstring scenePath)
         const json j = json::parse(is);
         auto scene = std::make_unique<Scene>();
         scene->m_ScenePath = scenePath;
+        Memory::Heaps::Rename(scene->Heap(), wstring_to_string(std::filesystem::path(scenePath).stem().wstring()).c_str());
+        Memory::Heaps::ActiveScope heapScope(scene->Heap());   // 불러오는 동안 만든 오브젝트 · 컴포넌트 → 이 씬의 힙 (현재 씬이 아니어도)
         from_json(j, *scene);
         return scene.release();
     }

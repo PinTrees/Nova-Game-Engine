@@ -38,8 +38,9 @@ namespace Jobs
 	struct Job;
 	using JobFn = void (*)(Job*);
 
-	// 잡 하나: 함수 + 64 바이트 안의 람다 (더 크면 힙). 풀에서 꺼내 쓰고 돌려준다
-	struct Job
+	// 잡 하나: 함수 + 64 바이트 안의 람다 (더 크면 힙). 풀에서 꺼내 쓰고 돌려준다.
+	//  캐시 라인에 맞춘다 — 풀에서 이웃한 잡을 다른 일꾼이 동시에 돌려도 같은 줄을 다투지 않게 (거짓 공유)
+	struct alignas(64) Job
 	{
 		JobFn Invoke = nullptr;
 		JobFn Destroy = nullptr;

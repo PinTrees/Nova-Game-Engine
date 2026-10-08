@@ -510,10 +510,25 @@ void VolumeStack::Reset()
 			Components.push_back(VolumeComponent::Create(type));
 		return;
 	}
+	// 기본값은 효과마다 한 번만 만들어 두고, 값 (Override · Value) 만 되돌린다.
+	//  예전: 프레임마다 효과를 새로 만들어 매개변수 (이름 · 표시 이름 · 항목 문자열) 를 통째로 복사 — 도시 장면에서 프레임당 힙 할당 수백 번 (nova memory allocs)
+	static std::unordered_map<std::string, std::unique_ptr<VolumeComponent>> s_Defaults;
 	for (auto& c : Components)
 	{
-		auto fresh = VolumeComponent::Create(c->Type);
-		c->Params = fresh->Params;
+		auto it = s_Defaults.find(c->Type);
+		if (it == s_Defaults.end())
+			it = s_Defaults.emplace(c->Type, VolumeComponent::Create(c->Type)).first;
+		const std::vector<VolumeParameter>& def = it->second->Params;
+		if (c->Params.size() != def.size())
+		{
+			c->Params = def;   // 모양이 다르다 (드묾)
+			continue;
+		}
+		for (size_t i = 0; i < def.size(); ++i)
+		{
+			c->Params[i].Override = def[i].Override;
+			memcpy(c->Params[i].Value, def[i].Value, sizeof(def[i].Value));
+		}
 	}
 }
 

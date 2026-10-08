@@ -71,7 +71,7 @@ namespace Jobs
 		std::vector<std::unique_ptr<Worker>> s_Workers;   // [0] = 메인 스레드
 		int s_WorkerCount = 0;
 		bool s_Initialized = false;
-		std::atomic<bool> s_Quit{ false };
+		alignas(LockFree::kCacheLine) std::atomic<bool> s_Quit{ false };   // 쉬는 일꾼이 자주 읽는다 — 자주 쓰는 값과 떨어뜨린다
 		std::atomic<bool> s_Inline{ false };
 		bool s_UseFibers = false;
 
@@ -82,15 +82,16 @@ namespace Jobs
 
 		std::vector<FiberCtx> s_Fibers;
 		std::unique_ptr<LockFree::MpmcRing<FiberCtx*>> s_FreeFibers, s_Ready;
-		std::atomic<uint64_t> s_Migrations{ 0 };
+		alignas(LockFree::kCacheLine) std::atomic<uint64_t> s_Migrations{ 0 };
 		int s_SyntheticLoad = 0;
-		std::atomic<int> s_BackgroundRunning{ 0 };
+		alignas(LockFree::kCacheLine) std::atomic<int> s_BackgroundRunning{ 0 };
 		int s_BackgroundCap = 1;   // 일꾼의 절반 (적어도 1)
 		uint64_t s_LastExecuted = 0, s_LastStolen = 0;
 
-		// 잠들기 · 깨우기: 원자 값 위에서 기다린다 (WaitOnAddress / futex — 잠금 없음)
-		std::atomic<uint32_t> s_Epoch{ 0 };
-		std::atomic<int> s_Sleeping{ 0 };
+		// 잠들기 · 깨우기: 원자 값 위에서 기다린다 (WaitOnAddress / futex — 잠금 없음).
+		//  여러 스레드가 자주 쓰는 값은 캐시 라인을 따로 (거짓 공유 — 한 값을 쓸 때마다 이웃 값을 읽는 스레드의 줄이 무효가 된다)
+		alignas(LockFree::kCacheLine) std::atomic<uint32_t> s_Epoch{ 0 };
+		alignas(LockFree::kCacheLine) std::atomic<int> s_Sleeping{ 0 };
 
 		thread_local Worker* t_Worker = nullptr;
 		// 파이버가 다른 스레드에서 이어질 수 있다 → 스레드 지역 값은 늘 새로 읽는다 (컴파일러가 주소를 붙잡아 두지 않게)

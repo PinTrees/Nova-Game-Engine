@@ -20,6 +20,7 @@
 #include "ShadowRenderer.h"
 #include "EditorLog.h"
 #include "JobSystem.h"
+#include "FrameArena.h"
 #include <unordered_map>
 
 namespace
@@ -401,7 +402,7 @@ namespace MeshBatcher
 			const XMMATRIX view = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
 			const XMMATRIX viewProj = editor ? rm->EditorCameraViewProjectionMatrix : rm->CameraViewProjectionMatrix;
 			struct Item { const TransparentItem* T; float Depth; };
-			std::vector<Item> list;
+			std::pmr::vector<Item> list(FrameArena::Resource());   // 이 패스 동안만 — 프레임 아레나
 			list.reserve(s_Transparent.size());
 			for (const TransparentItem& t : s_Transparent)
 			{

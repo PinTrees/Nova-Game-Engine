@@ -317,6 +317,8 @@ namespace
 		// Cloth.coefficients (Unity ClothSkinningCoefficient): 천 정점마다 [maxDistance, collisionSphereDistance] — 개수를 돌려준다 (FLT_MAX = 제한 없음)
 		int(*CL_GetCoefficients)(uint64, float*, int);
 		void(*CL_SetCoefficients)(uint64, float*, int);
+		// Application.targetFrameRate (set != 0 이면 value 로 바꾼다) — 지금 값을 돌려준다
+		int(*App_TargetFrameRate)(int, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1444,6 +1446,11 @@ namespace ScriptBindings
 		t.App_Info = App_Info;
 		t.App_ProductName = App_ProductName;
 		t.App_Quit = App_Quit;
+		t.App_TargetFrameRate = [](int set, int value) -> int {
+			if (set)
+				Application::targetFrameRate = value;
+			return Application::targetFrameRate;
+		};
 		t.PS_Call = PS_Call;
 		t.PS_GetFloat = PS_GetFloat;
 		t.PS_SetFloat = PS_SetFloat;

@@ -63,8 +63,10 @@ namespace RenderThread
 		std::thread s_Thread;
 		std::atomic<bool> s_Quit{ false };
 		LockFree::SpscRing<Item*> s_Queue{ 256 };     // 메인 → 렌더 스레드
-		std::atomic<uint32_t> s_Wake{ 0 };            // 렌더 스레드가 잠드는 원자 값
-		std::atomic<uint64_t> s_Submitted{ 0 }, s_Completed{ 0 };
+		// 메인이 쓰는 값 · 렌더 스레드가 쓰는 값은 캐시 라인을 따로 (거짓 공유)
+		alignas(64) std::atomic<uint32_t> s_Wake{ 0 };            // 렌더 스레드가 잠드는 원자 값 (메인이 올린다)
+		alignas(64) std::atomic<uint64_t> s_Submitted{ 0 };       // 메인
+		alignas(64) std::atomic<uint64_t> s_Completed{ 0 };       // 렌더 스레드
 		uint64_t s_LastFrame = 0;                     // 메인만: 마지막으로 넘긴 프레임의 번호
 		std::vector<PresentItem> s_Pending;           // 메인만: 이번 프레임에 함께 Present 할 창 (ImGui 뷰포트)
 		ComPtr<ID3D11DeviceContext> s_Immediate;
@@ -72,7 +74,7 @@ namespace RenderThread
 		std::atomic<uint64_t> s_Frames{ 0 }, s_Syncs{ 0 }, s_Flushes{ 0 }, s_Lists{ 0 };
 		std::atomic<double> s_ExecuteMs{ 0 }, s_PresentMs{ 0 }, s_MainWaitMs{ 0 };
 		std::atomic<bool> s_PresentFailLogged{ false };
-		std::atomic<int> s_Stage{ 0 };   // 렌더 스레드가 지금 하는 일 (0 쉼, 1 실행, 2 Present) — 오래 기다리면 Editor.log 에
+		alignas(64) std::atomic<int> s_Stage{ 0 };   // 렌더 스레드가 지금 하는 일 (0 쉼, 1 실행, 2 Present) — 오래 기다리면 Editor.log 에
 
 		double MsSince(std::chrono::steady_clock::time_point t) { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count(); }
 		void Add(std::atomic<double>& a, double v) { double cur = a.load(); while (!a.compare_exchange_weak(cur, cur + v)) {} }

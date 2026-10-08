@@ -72,6 +72,8 @@ namespace Profiler
 
 	// 스레드: 메인 (BeginFrame 을 부르는 스레드) 인가. 다른 스레드는 이름을 붙여 둘 수 있다 (없으면 "Thread N")
 	bool IsMainThread();
+	// 메인 스레드의 지금 구간 이름 (할당 훅이 읽는다 — 할당 없이, 메인 스레드에서만 뜻이 있다). 구간이 없으면 "(frame)"
+	const char* CurrentScopeName();
 	void SetThreadName(const char* internedName);
 	const char* ThreadName(uint16_t thread);
 	int ThreadCount();

@@ -8,7 +8,10 @@ class NOVA_API Transform : public Component
 	using Super = Component;
 
 private:
-	shared_ptr<Transform> _parent;
+	// 부모는 약한 참조 (자식은 부모의 _children 에 강하게 잡힌다 — 둘 다 강하면 부모 ↔ 자식 순환이라 둘 다 해제되지 않는다.
+	//  씬 힙의 누수 보고가 찾았다: 도시 장면을 지운 뒤 Transform 32 개)
+	weak_ptr<Transform> _parent;
+	Transform* Parent() const { return _parent.lock().get(); }   // 부모는 그 GameObject 가 잡고 있다
 	vector<shared_ptr<Transform>> _children;
 
 	Vec3 m_LocalScale = Vec3::One;
@@ -86,9 +89,9 @@ public:
 	Matrix GetWorldMatrix() { return m_WorldMatrix; }
 
 	// ���� ����
-	bool HasParent() { return _parent != nullptr; }
+	bool HasParent() { return !_parent.expired(); }
 
-	shared_ptr<Transform> GetParent() { return _parent; }
+	shared_ptr<Transform> GetParent() { return _parent.lock(); }
 	void SetParent(shared_ptr<Transform> parent) { _parent = parent; }
 
 	const vector<shared_ptr<Transform>>& GetChildren() { return _children; }

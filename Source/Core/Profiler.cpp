@@ -19,6 +19,10 @@ namespace
 
 	struct Open { size_t Index; Clock::time_point Start; };
 	std::vector<Open> s_Stack;
+	// 지금 구간 이름 (깊이마다) — s_Stack 은 Begin 안에서 늘어나며 할당하므로 할당 훅이 읽으면 안 된다. 이 고정 배열만 읽는다
+	constexpr int kScopeNames = 64;
+	const char* s_ScopeNames[kScopeNames] = {};
+	int s_ScopeDepth = 0;
 
 	float MsSince(Clock::time_point a, Clock::time_point b) { return std::chrono::duration<float, std::milli>(b - a).count(); }
 	int64_t ToNs(Clock::time_point t) { return std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch()).count(); }
@@ -30,7 +34,7 @@ namespace
 		int64_t StartNs = 0, EndNs = 0;
 		uint16_t Depth = 0;
 	};
-	struct ThreadBuffer
+	struct alignas(64) ThreadBuffer   // 스레드마다 하나 — 이웃 스레드의 버퍼와 캐시 라인을 나누지 않게
 	{
 		LockFree::SpscRing<RawSample> Ring{ 16384 };
 		std::atomic<const char*> Name{ nullptr };
@@ -171,6 +175,7 @@ namespace Profiler
 		s_Current.Index = ++s_Index;
 		s_Current.Cpu.reserve(256);
 		s_Stack.clear();
+		s_ScopeDepth = 0;
 		s_FrameStart = Clock::now();
 		s_Current.StartNs = ToNs(s_FrameStart);
 
@@ -204,6 +209,7 @@ namespace Profiler
 			s_Current.Cpu[s_Stack.back().Index].Ms = MsSince(s_Stack.back().Start, now);
 			s_Stack.pop_back();
 		}
+		s_ScopeDepth = 0;
 		s_Current.CpuMs = MsSince(s_FrameStart, now);
 
 		// 다른 스레드의 구간: 시작 시각으로 제 프레임에 (지난 프레임에서 시작해 늦게 끝난 것은 그 프레임에)
@@ -259,6 +265,9 @@ namespace Profiler
 			return;
 		s_Stack.push_back({ s_Current.Cpu.size(), Clock::now() });
 		s_Current.Cpu.push_back({ name, (uint16_t)(s_Stack.size() - 1), MsSince(s_FrameStart, s_Stack.back().Start), 0.0f });
+		if (s_ScopeDepth < kScopeNames)
+			s_ScopeNames[s_ScopeDepth] = name;
+		++s_ScopeDepth;
 	}
 
 	void End()
@@ -267,6 +276,14 @@ namespace Profiler
 			return;
 		s_Current.Cpu[s_Stack.back().Index].Ms = MsSince(s_Stack.back().Start, Clock::now());
 		s_Stack.pop_back();
+		if (s_ScopeDepth > 0)
+			--s_ScopeDepth;
+	}
+
+	const char* CurrentScopeName()
+	{
+		const int d = s_ScopeDepth < kScopeNames ? s_ScopeDepth : kScopeNames;
+		return d > 0 && s_ScopeNames[d - 1] ? s_ScopeNames[d - 1] : "(frame)";
 	}
 
 	bool IsMainThread() { return std::this_thread::get_id() == s_MainThread; }

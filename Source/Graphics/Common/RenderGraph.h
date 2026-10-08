@@ -84,9 +84,11 @@ namespace RenderGraph
 	private:
 		friend class Builder;
 		friend struct Resources;
+		friend void Publish(Graph& graph);
+		// 이름은 부른 쪽의 문자열 상수 (프레임마다 문자열을 만들지 않는다 — nova memory allocs)
 		struct ResourceNode
 		{
-			std::string Name;
+			const char* Name = "";
 			bool Imported = false;
 			TextureDesc Desc;
 			GfxShaderResourceView* Srv = nullptr;
@@ -106,7 +108,7 @@ namespace RenderGraph
 		};
 		struct PassNode
 		{
-			std::string Name;
+			const char* Name = "";
 			std::vector<Texture> Reads, Writes;
 			std::vector<int> Creates;
 			bool SideEffect = false, Async = false, Culled = false;
@@ -121,8 +123,9 @@ namespace RenderGraph
 		bool m_Compiled = false;
 	};
 
-	// 뷰마다 마지막으로 실행한 그래프 정보 (CLI · Render Graph Viewer)
-	void Publish(const Graph& graph);
+	// 뷰마다 마지막으로 실행한 그래프 (CLI · Render Graph Viewer). 패스 · 자원 목록을 옮겨 둘 뿐 (할당 없음) —
+	//  JSON 은 LastInfo 를 부를 때만 만든다 (예전: 프레임마다 JSON 을 만들어 도시 장면에서 프레임당 힙 할당 수천 번 — nova memory allocs 가 찾았다)
+	void Publish(Graph& graph);
 	nlohmann::json LastInfo(const std::string& name);
 	std::vector<std::string> GraphNames();
 	nlohmann::json PoolInfo();

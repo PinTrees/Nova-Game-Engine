@@ -316,6 +316,7 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, byte*, int, void> Comp_SetEnabled;
         public delegate* unmanaged<ulong, float*, int, int> CL_GetCoefficients;   // Cloth.coefficients: [maxDistance, collisionSphereDistance] × 천 정점
         public delegate* unmanaged<ulong, float*, int, void> CL_SetCoefficients;
+        public delegate* unmanaged<int, int, int> App_TargetFrameRate;           // Application.targetFrameRate (set, value) → 지금 값
     }
 
     internal static unsafe class Native

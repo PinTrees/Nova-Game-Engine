@@ -10,6 +10,7 @@
 #include "RenderPipelineSettings.h"
 #include "JobSystem.h"
 #include "RenderThread.h"
+#include "MemoryHeaps.h"
 #include "DeferredRenderer.h"
 #include "WeatherState.h"
 #include "WeatherCover.h"
@@ -241,6 +242,7 @@ bool EditorApp::Init()
 		RenderPipelineSettings::RegisterEditor();   // nova renderpath (Rendering Path — Forward · Forward+ · Deferred)
 		Jobs::RegisterEditor();   // nova jobs (Job System — info · test · bench · set)
 		RenderThread::RegisterEditor();   // nova renderthread (Multithreaded Rendering)
+		Memory::Heaps::RegisterEditor();   // nova memory (알로케이터 검사 · 씬 힙 통계)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile

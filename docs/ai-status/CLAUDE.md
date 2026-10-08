@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **동시성 로드맵 4 단계: 렌더 스레드 (Multithreaded Rendering, DX11)** + D3D11 디버그 층 오류 #343 · #388
+- 갱신 시각: 2026년 10월 9일 — **메모리 알로케이터 · 씬 힙 (씬 전환 단편화 0) · 프레임 아레나 · 거짓 공유**
+  - 사용자 요청: "커스텀 메모리 알로케이터 (Linear/Stack/Pool/Buddy), 캐시 라인 (64 B) 정렬 · False Sharing 방지, 씬 전환 시 단편화 제로화 설계"
+  - `Source/Core/Allocators.*` (Region · Linear (무잠금 CAS) · Stack · Pool · ConcurrentPool · Buddy · CacheAligned · pmr 어댑터), `MemoryHeaps.*` (씬마다 256 MB Buddy + 크기별 Pool 16, 활성 힙 = 불러오는 씬 또는 현재 씬, 주소로 놓기, 남은 힙 + 꼬리표별 누수 보고), `FrameArena.*` (16 MB x 2 번갈아), `AllocTracker.*` (Debug CRT 훅 — 프레임당 할당 · 구간 · 호출 스택), `AllocatorTests.cpp` (CLI memory info|test|allocs)
+  - 연결: Scene 이 힙을 갖고 ~Scene 이 돌려준다, Scene::Load = ActiveScope, GameObject operator new/delete, AddComponent · 팩토리 = Heaps::MakeShared (allocate_shared)
+  - 찾아 고친 누수: Transform 부모 ↔ 자식 shared_ptr 순환 (→ _parent weak_ptr), LightManager::DeleteLight (정렬 목록 · 건너뛰기)
+  - 프레임당 할당 (도시, Debug) 5534 → 1164: Render Graph Publish = 목록 바꿔치기 (JSON 은 요청 때), VolumeStack::Reset = 기본값 캐시, 나무 · 디테일 메시 키 버퍼, Render Graph 이름 const char*, 프레임 아레나 (클러스터 · 투명 패스)
+  - 거짓 공유: JobSystem 전역 · Job (alignas 64) · RenderThread 번호 · Profiler 스레드 버퍼. 측정 4 배
+  - 검사: 새 스위트 `memory` 11/11 (씬 전환 8 번 매번 한 덩어리 반환 · 남은 힙 0 · 프로세스 메모리 안 자람 · Play/Stop). 문서 MEMORY_ALLOCATORS, Showcase 275
+  - 전체 회귀: 엔진이 빨라져 motionvectors 의 모션 블러 테두리 검사 (한 프레임에 움직인 거리) 가 프레임 속도에 따라 떨어졌다 → C# `Application.targetFrameRate` 를 네이티브로 (Unity 처럼: 재생 중에만 프레임을 맞춘다, Stop 하면 -1, 고해상도 타이머로 기다림) 만들고 검사가 60 fps 로 잰다. motionvectors 12/12 (테두리 29). 나머지 실패 (ssao 메모리 · DEVICE_HUNG 등) 는 다시 돌리면 통과하는 일시 오류
+- 이전: 2026년 10월 9일 — **동시성 로드맵 4 단계: 렌더 스레드 (Multithreaded Rendering, DX11)** + D3D11 디버그 층 오류 #343 · #388. **완료 (커밋 b66e1e7, 푸시함)**
   - `Source/Graphics/DX11/RenderThread.*`: 메인 = DxContext 가 deferred context 에 기록, 프레임 끝 FinishCommandList(TRUE) → 무잠금 SPSC 링 → 렌더 스레드가 ExecuteCommandList · Present (한 프레임 핑퐁). Sync (Map READ · 캡처) · Flush, GetData 는 ID3D11Multithread 아래 immediate, Map(READ, DO_NOT_WAIT) 는 복사한 목록 번호로 (Sync 없이), DONOTFLUSH GetData 는 넘기지 않음, deferred UpdateSubresource 우회, ImGui DX11 훅 (컨텍스트 · 뷰포트 Present · 크기 바꾸기 전 Sync), Dx11Rhi 가 그때그때 컨텍스트 (예전: 잡아 둔 immediate → 장치 제거), Profiler GPU 프레임 쿼리를 Present 전에 닫음, 진단 (D3D11 디버그 메시지 · 2 초 대기 · Sync 자원) → Editor.log
   - 설정: RenderPipelineSettings::MultithreadedRendering (GraphicsSettings.json, 기본 꺼짐), Project Settings > Graphics 토글, CLI `renderthread info|set|reset`, NOVA_RENDER_THREAD=1, NOVA_D3D11_DEBUGLOG=1
   - 고친 것: Push 의 해제 뒤 읽기 (멈춤), rhi-test · gfx-test 는 시험 동안 렌더 스레드를 끈다

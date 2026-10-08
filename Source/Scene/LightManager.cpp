@@ -65,11 +65,14 @@ void LightManager::Init()
 
 void LightManager::DeleteLight(InstanceID id)
 {
-	for (int i = 0; i < m_Lights.size(); i++)
-	{
-		if (m_Lights[i]->GetInstanceID() == id)
-			m_Lights.erase(m_Lights.begin() + i);
-	}
+	// 모든 목록에서 뺀다: 정렬된 목록 (그 뷰를 그릴 때만 다시 만든다) 이 지운 빛을 붙잡으면 컴포넌트가 해제되지 않는다
+	//  (씬 힙이 남은 블록으로 알려 줬다 - 도시 장면을 지운 뒤 빛 32 개). 예전 반복은 지운 다음 칸을 건너뛰었다
+	auto drop = [id](vector<shared_ptr<Light>>& v) {
+		v.erase(std::remove_if(v.begin(), v.end(), [id](const shared_ptr<Light>& l) { return !l || l->GetInstanceID() == id; }), v.end());
+	};
+	drop(m_Lights);
+	drop(m_SortedLights);
+	drop(m_SortedEditorLights);
 }
 
 void LightManager::ViewUpdates()

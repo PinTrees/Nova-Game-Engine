@@ -318,7 +318,11 @@ namespace
 
 	std::shared_ptr<GpuMesh> GetMesh(const DetailPrototype& proto, int lod)
 	{
-		const std::string key = proto.MeshKey() + "#" + std::to_string(lod);
+		thread_local std::string key;   // 다시 쓰는 버퍼 (찾을 때마다 임시 문자열을 만들지 않게)
+		char tail[16];
+		snprintf(tail, sizeof(tail), "#%d", lod);
+		key.assign(proto.MeshKey());
+		key.append(tail);
 		if (auto it = s_Meshes.find(key); it != s_Meshes.end())
 		{
 			it->second->LastUse = SceneCulling::FrameIndex();

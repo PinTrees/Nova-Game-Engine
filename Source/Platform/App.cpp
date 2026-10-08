@@ -58,6 +58,8 @@
 #include "TaskSystem.h"
 #include "JobSystem.h"
 #include "RenderThread.h"
+#include "AllocTracker.h"
+#include "FrameArena.h"
 #include "UndoSystem.h"
 #include "CliServer.h"
 
@@ -101,6 +103,46 @@ App::~App()
 		_deviceContext->ClearState();
 }
 
+// Application.targetFrameRate: 앞 프레임 시작에서 1/목표 초가 지날 때까지 기다린다 (고해상도 타이머로 자고, 남은 조금은 돈다)
+static void LimitFrameRate()
+{
+	static LARGE_INTEGER s_Freq = [] { LARGE_INTEGER f; ::QueryPerformanceFrequency(&f); return f; }();
+	static int64 s_Next = 0;
+	const int target = Application::IsPlaying() ? Application::targetFrameRate : -1;
+	LARGE_INTEGER now;
+	::QueryPerformanceCounter(&now);
+	if (target <= 0)
+	{
+		s_Next = 0;
+		return;
+	}
+	const int64 period = s_Freq.QuadPart / target;
+	if (s_Next == 0 || now.QuadPart - s_Next > period)   // 처음 · 한 프레임 넘게 늦음 → 밀린 만큼 쫓아가지 않고 지금부터
+		s_Next = now.QuadPart;
+	else
+	{
+		static HANDLE s_Timer = ::CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+		for (;;)
+		{
+			::QueryPerformanceCounter(&now);
+			const int64 left = s_Next - now.QuadPart;
+			if (left <= 0)
+				break;
+			const int64 left100ns = left * 10000000 / s_Freq.QuadPart;
+			if (s_Timer && left100ns > 20000)   // 2 ms 넘게 남으면 1 ms 앞까지 잔다
+			{
+				LARGE_INTEGER due;
+				due.QuadPart = -(left100ns - 10000);
+				if (::SetWaitableTimerEx(s_Timer, &due, 0, nullptr, nullptr, nullptr, 0))
+					::WaitForSingleObject(s_Timer, INFINITE);
+			}
+			else
+				::YieldProcessor();
+		}
+	}
+	s_Next += period;
+}
+
 int32 App::Run()
 {
 	MSG msg = {0};
@@ -116,6 +158,7 @@ int32 App::Run()
 		}
 		else
         {	
+			LimitFrameRate();
 			_timer.Tick();
 			EditorLog::Heartbeat();   // 멈춤 감시 ([HANG] 호출 스택)
 			// Global Update
@@ -129,6 +172,7 @@ int32 App::Run()
 			if (!_appPaused || _deferredShow || (!Application::IsPlayer() && CliServer::HasWork()))
 			{
 				CalculateFrameStats();
+				FrameArena::BeginFrame();   // 프레임 임시 메모리 (두 프레임 전 칸을 비운다)
 				Profiler::BeginFrame();   // Profiler 창 (Window > Analysis > Profiler)
 
 				// Update
@@ -163,7 +207,8 @@ int32 App::Run()
 				{ PROFILE_SCOPE("UI.Update"); UISystem::Update(); }       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 				++WeatherState::Get().Frame;   // 날씨: 어느 화면을 최근에 그렸는가 (Weather Controller 가 따라갈 카메라)
 				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); TrailRenderer::UpdateAll(); VisualEffect::UpdateAll(); }
-				{ PROFILE_SCOPE("Jobs"); Jobs::OnFrame(); }   // 잡 통계 (Profiler "Jobs/…"), 검사용 합성 부하   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기 (Visual Effect 는 늘)
+				{ PROFILE_SCOPE("Jobs"); Jobs::OnFrame(); }
+				Memory::AllocTracker::OnFrame();   // (nova memory allocs) 프레임당 힙 할당 수   // 잡 통계 (Profiler "Jobs/…"), 검사용 합성 부하   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기 (Visual Effect 는 늘)
 				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
 				if (!Application::IsPlayer())
 				{

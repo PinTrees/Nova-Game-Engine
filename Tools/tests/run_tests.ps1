@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread', 'memory') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -5127,7 +5127,10 @@ function Suite-MotionVectors
         foreach ($m in @('MbCam', 'MbObj'))
         {
             Vol $m
-            Invoke-Nova 'play' | Out-Null; Wait-Sec 1.0
+            Invoke-Nova 'play' | Out-Null
+            # 흐림 폭 = 한 프레임에 움직인 거리 — 엔진 속도와 상관없게 60 fps 로 (Application.targetFrameRate, Stop 하면 풀린다)
+            Exec 'mb_fps' 'Application.targetFrameRate = 60; return Application.targetFrameRate.ToString();' | Out-Null
+            Wait-Sec 1.0
             $bl = @(); $wd = @()
             for ($k = 0; $k -lt 6; $k++) { $png = Join-Path $dir "mb_$($m)_$k.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; $bl += (EdgeBlur $png); $wd += (Fringe $png); Wait-Sec 0.11 }
             Invoke-Nova 'stop' | Out-Null
@@ -6677,6 +6680,55 @@ function Suite-RenderThread
     }
 }
 
+# ------------------------------------------------------------------ 메모리 알로케이터 · 씬 힙
+function Suite-Memory
+{
+    # Linear · Stack · Pool · ConcurrentPool · Buddy 스트레스 검사, 씬 힙 (남은 힙 → 돌려줌), 거짓 공유 측정, 속도 (nova memory test).
+    Write-Host '[memory]'
+    $ed = Start-TestEditor
+    try
+    {
+        $t = Invoke-NovaJson 'memory test --kind all'
+        foreach ($r in @($t.tests)) { Add-Result memory $r.name ([bool]$r.ok) ('{0} ({1:N1} ms)' -f $r.detail, [double]$r.ms) }
+        if (-not $t) { Add-Result memory 'memory test' $false 'no reply' }
+
+        # 씬 전환: 씬마다 힙 — 전환할 때 앞 씬의 힙이 한 덩어리로 합쳐져 (단편화 0) 돌려지고, 남은 힙 (누수) 이 없다
+        Invoke-Nova 'autosave discard' | Out-Null
+        function MemInfo { Invoke-NovaJson 'memory info' }
+        $seq = @('CityShowcase', 'Forest', 'Materials', 'CityShowcase', 'Forest', 'Materials', 'CityShowcase', 'Forest')
+        $badRelease = 0; $lingering = 0; $private = @(); $released0 = [int](MemInfo).released; $cityLive = 0
+        foreach ($s in $seq)
+        {
+            Invoke-Nova "scene open Assets/Scenes/$s.scene --force" | Out-Null
+            Invoke-Nova 'wait 5' | Out-Null
+            $m = MemInfo
+            if (-not $m.lastReleased.coalescedToOneBlock -or [double]$m.lastReleased.fragmentation -ne 0) { $badRelease++ }
+            $lingering = [math]::Max($lingering, @($m.heaps | Where-Object { $_.lingering }).Count)
+            $private += [double]$m.processPrivateMB
+            if ($s -eq 'CityShowcase') { $cityLive = [int](@($m.heaps | Where-Object { $_.active })[0].liveAllocations) }
+        }
+        $m = MemInfo
+        $released = [int]$m.released - $released0
+        Add-Result memory 'scene transitions: every left scene heap coalesced to one block (fragmentation 0) and was returned, no lingering heaps' ($released -ge $seq.Count -and $badRelease -eq 0 -and $lingering -eq 0 -and $cityLive -gt 1000) ("{0} switches, {1} heaps released, bad releases {2}, max lingering heaps {3}, city heap live allocations {4}, fallbacks {5}" -f $seq.Count, $released, $badRelease, $lingering, $cityLive, $m.fallbacks)
+        # 프로세스 메모리가 전환을 거듭해도 자라지 않는다 (첫 바퀴 뒤 = 캐시가 다 찬 뒤를 기준으로)
+        $growth = $private[$private.Count - 1] - $private[2]
+        Add-Result memory 'process private memory does not grow with repeated scene switches (after the first round)' ($growth -lt 40) ("private MB per switch: {0}; growth after first round {1:N1} MB" -f (($private | ForEach-Object { '{0:N0}' -f $_ }) -join ', '), $growth)
+
+        # Play → Stop: Play 의 씬 (복제) 힙도 돌려진다
+        Invoke-Nova 'scene open Assets/Scenes/CityShowcase.scene --force' | Out-Null
+        $before = [int](MemInfo).released
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $m = MemInfo
+        Add-Result memory 'Play → Stop: the play-mode scene heap is returned, nothing lingers' (([int]$m.released -gt $before) -and @($m.heaps | Where-Object { $_.lingering }).Count -eq 0) ("released during play/stop {0}, lingering {1}, last '{2}' one block {3}" -f ([int]$m.released - $before), @($m.heaps | Where-Object { $_.lingering }).Count, $m.lastReleased.name, $m.lastReleased.coalescedToOneBlock)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -7740,6 +7792,7 @@ try
                 'jobs' { Suite-Jobs }
                 'physicsasync' { Suite-PhysicsAsync }
                 'renderthread' { Suite-RenderThread }
+                'memory' { Suite-Memory }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

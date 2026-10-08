@@ -1,4 +1,5 @@
 #pragma once
+#include "MemoryHeaps.h"
 #include <atomic>
 #include <nlohmann/json.hpp>
 #include "Component.h"
@@ -45,6 +46,9 @@ public:
 
 public:
 	GameObject();
+	// 씬 힙에서 받는다 (MemoryHeaps.h — 활성 힙, 없으면 시스템). 놓을 때는 주소로 힙을 찾는다
+	static void* operator new(size_t size);
+	static void operator delete(void* p, size_t size);
 	GameObject(const string& name);
 	~GameObject();
 
@@ -126,7 +130,7 @@ public:
 	template <class T>
 	T* AddComponent()
 	{
-		std::shared_ptr<T> component = std::make_shared<T>();
+		std::shared_ptr<T> component = Memory::Heaps::MakeShared<T>();   // 씬 힙 (컴포넌트 + 제어 블록 한 덩어리)
 		Component* baseComponent = static_cast<Component*>(component.get());
 
 		baseComponent->SetGameObject(this);

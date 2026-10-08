@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "MemoryHeaps.h"
 #include "MissingComponent.h"
 #include "PackageManager.h"
 #include "GameObject.h"
@@ -93,6 +94,10 @@ void GameObject::RemapFileIDs(const std::unordered_map<uint64, uint64>& map)
 	for (GameObject* child : m_pChildGameObjects)
 		child->RemapFileIDs(map);
 }
+
+
+void* GameObject::operator new(size_t size) { return Memory::Heaps::Allocate(size, alignof(GameObject) < 16 ? 16 : alignof(GameObject), "GameObject"); }
+void GameObject::operator delete(void* p, size_t size) { Memory::Heaps::Free(p, size); }
 
 GameObject::GameObject()
 	: m_FileID(NewFileID())

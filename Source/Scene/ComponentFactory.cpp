@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "MemoryHeaps.h"
 #include "ComponentFactory.h"
 #include "Camera.h"
 #include "Light.h"
@@ -62,21 +63,21 @@ std::vector<std::string> ComponentFactory::GetComponentTypes() const
 
 void ComponentFactory::InitBuiltInComponents()
 {
-	RegisterComponent("Camera", []() { return std::make_shared<Camera>(); });
-	RegisterComponent("Light", []() { return std::make_shared<Light>(); });
-	RegisterComponent("MeshFilter", []() { return std::make_shared<MeshFilter>(); });
-	RegisterComponent("MeshRenderer", []() { return std::make_shared<MeshRenderer>(); });
-	RegisterComponent("SkinnedMeshRenderer", []() { return std::make_shared<SkinnedMeshRenderer>(); });
-	RegisterComponent("RigidBody", []() { return std::make_shared<RigidBody>(); });
-	RegisterComponent("BoxCollider", []() { return std::make_shared<BoxCollider>(); });
-	RegisterComponent("SphereCollider", []() { return std::make_shared<SphereCollider>(); });
-	RegisterComponent("CapsuleCollider", []() { return std::make_shared<CapsuleCollider>(); });
-	RegisterComponent("MeshCollider", []() { return std::make_shared<MeshCollider>(); });
-	RegisterComponent("AnimationPlayer", []() { return std::make_shared<AnimationPlayer>(); });
-	RegisterComponent("Terrain", []() { return std::make_shared<Terrain>(); });
-	RegisterComponent("TerrainCollider", []() { return std::make_shared<TerrainCollider>(); });
-	RegisterComponent("Volume", []() { return std::make_shared<Volume>(); });
-	RegisterComponent("AudioSource", []() { return std::make_shared<AudioSource>(); });
-	RegisterComponent("AudioListener", []() { return std::make_shared<AudioListener>(); });
-	RegisterComponent("CSharpScript", []() { return std::make_shared<CSharpScript>(); });   // C# 스크립트 (씬에서 읽을 때)
+	RegisterComponent("Camera", []() { return Memory::Heaps::MakeShared<Camera>(); });
+	RegisterComponent("Light", []() { return Memory::Heaps::MakeShared<Light>(); });
+	RegisterComponent("MeshFilter", []() { return Memory::Heaps::MakeShared<MeshFilter>(); });
+	RegisterComponent("MeshRenderer", []() { return Memory::Heaps::MakeShared<MeshRenderer>(); });
+	RegisterComponent("SkinnedMeshRenderer", []() { return Memory::Heaps::MakeShared<SkinnedMeshRenderer>(); });
+	RegisterComponent("RigidBody", []() { return Memory::Heaps::MakeShared<RigidBody>(); });
+	RegisterComponent("BoxCollider", []() { return Memory::Heaps::MakeShared<BoxCollider>(); });
+	RegisterComponent("SphereCollider", []() { return Memory::Heaps::MakeShared<SphereCollider>(); });
+	RegisterComponent("CapsuleCollider", []() { return Memory::Heaps::MakeShared<CapsuleCollider>(); });
+	RegisterComponent("MeshCollider", []() { return Memory::Heaps::MakeShared<MeshCollider>(); });
+	RegisterComponent("AnimationPlayer", []() { return Memory::Heaps::MakeShared<AnimationPlayer>(); });
+	RegisterComponent("Terrain", []() { return Memory::Heaps::MakeShared<Terrain>(); });
+	RegisterComponent("TerrainCollider", []() { return Memory::Heaps::MakeShared<TerrainCollider>(); });
+	RegisterComponent("Volume", []() { return Memory::Heaps::MakeShared<Volume>(); });
+	RegisterComponent("AudioSource", []() { return Memory::Heaps::MakeShared<AudioSource>(); });
+	RegisterComponent("AudioListener", []() { return Memory::Heaps::MakeShared<AudioListener>(); });
+	RegisterComponent("CSharpScript", []() { return Memory::Heaps::MakeShared<CSharpScript>(); });   // C# 스크립트 (씬에서 읽을 때)
 }

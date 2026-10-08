@@ -27,7 +27,7 @@ namespace RenderGraph
 		uint64 s_Frame = 0;
 		bool s_Async = true;   // AsyncCompute 패스를 컴퓨트 큐로 (CLI rendergraph set --async)
 		int s_Created = 0;
-		std::map<std::string, nlohmann::json> s_LastInfo;
+		std::map<std::string, Graph> s_Last;   // 뷰마다 마지막 그래프 (목록만 — 실행 함수는 다시 부르지 않는다)
 
 		// 이름은 프로파일러가 프레임 뒤에도 읽는다 → 오래 사는 문자열로
 		const char* Intern(const std::string& name)
@@ -331,7 +331,7 @@ namespace RenderGraph
 					p.WaitsAsync = true;
 				}
 			}
-			phase.Next(Intern(p.Name));
+			phase.Next(p.Name);   // 문자열 상수 (그대로 Profiler 이름)
 			const auto t0 = std::chrono::steady_clock::now();
 			if (runAsync) ctx->BeginAsyncCompute();
 			if (p.Execute)
@@ -372,7 +372,7 @@ namespace RenderGraph
 
 	nlohmann::json Graph::Info() const
 	{
-		auto label = [this](const Texture& t) { return m_Resources[t.Id].Name + "@" + std::to_string(t.Version); };
+		auto label = [this](const Texture& t) { return std::string(m_Resources[t.Id].Name) + "@" + std::to_string(t.Version); };
 		nlohmann::json passes = nlohmann::json::array(), resources = nlohmann::json::array();
 		int culled = 0;
 		for (const PassNode& p : m_Passes)
@@ -394,8 +394,8 @@ namespace RenderGraph
 				++transient;
 				j["size"] = { r.Desc.Width, r.Desc.Height };
 				j["format"] = FormatName(r.Desc.Format);
-				j["firstPass"] = r.FirstPass >= 0 ? m_Passes[r.FirstPass].Name : std::string();
-				j["lastPass"] = r.LastPass >= 0 ? m_Passes[r.LastPass].Name : std::string();
+				j["firstPass"] = std::string(r.FirstPass >= 0 ? m_Passes[r.FirstPass].Name : "");
+				j["lastPass"] = std::string(r.LastPass >= 0 ? m_Passes[r.LastPass].Name : "");
 			}
 			resources.push_back(j);
 		}
@@ -403,21 +403,26 @@ namespace RenderGraph
 			{ "culledCount", culled }, { "transientCount", transient }, { "asyncCompute", s_Async } };
 	}
 
-	void Publish(const Graph& graph)
+	void Publish(Graph& graph)
 	{
-		s_LastInfo[graph.Name()] = graph.Info();
+		auto it = s_Last.find(graph.Name());
+		if (it == s_Last.end())
+			it = s_Last.try_emplace(graph.Name(), graph.Name().c_str()).first;   // 뷰마다 처음 한 번
+		// 바꿔치기: 그래프는 곧 사라진다 — 지난 프레임의 목록은 그래프와 함께 놓인다 (새로 받는 곳 없음)
+		it->second.m_Passes.swap(graph.m_Passes);
+		it->second.m_Resources.swap(graph.m_Resources);
 	}
 
 	nlohmann::json LastInfo(const std::string& name)
 	{
-		auto it = s_LastInfo.find(name);
-		return it != s_LastInfo.end() ? it->second : nlohmann::json();
+		auto it = s_Last.find(name);
+		return it != s_Last.end() ? it->second.Info() : nlohmann::json();
 	}
 
 	std::vector<std::string> GraphNames()
 	{
 		std::vector<std::string> out;
-		for (auto& kv : s_LastInfo)
+		for (auto& kv : s_Last)
 			out.push_back(kv.first);
 		return out;
 	}

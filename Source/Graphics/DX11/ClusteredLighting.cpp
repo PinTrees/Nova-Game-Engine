@@ -5,6 +5,7 @@
 #include "CliServer.h"
 #include <chrono>
 #include "JobSystem.h"
+#include "FrameArena.h"
 
 namespace ClusteredLighting
 {
@@ -241,11 +242,12 @@ namespace ClusteredLighting
 		s_Packed.assign((size_t)kWidth * kRows, XMFLOAT4(0, 0, 0, 0));
 		for (int i = 0; i < s_LightCount * 4; ++i)
 			s_Packed[kLightBase + i] = s_LightData[i];
-		std::vector<uint32> counts(kClusters, 0u);
+		// 이 짓기 동안만 쓰는 표 — 프레임 아레나 (힙에서 받지 않는다)
+		std::pmr::vector<uint32> counts(kClusters, 0u, FrameArena::Resource());
 		for (uint32 p : s_Pairs)
 			++counts[p >> 10];
 		uint32 offset = 0;
-		std::vector<uint32> starts(kClusters, 0u);
+		std::pmr::vector<uint32> starts(kClusters, 0u, FrameArena::Resource());
 		for (int c = 0; c < kClusters; ++c)
 		{
 			uint32 cnt = counts[c];
@@ -263,7 +265,7 @@ namespace ClusteredLighting
 			s_Stats.MaxPerCluster = (std::max)(s_Stats.MaxPerCluster, (int)cnt);
 		}
 		s_Stats.Indices = (int)offset;
-		std::vector<uint32> fill(kClusters, 0u);
+		std::pmr::vector<uint32> fill(kClusters, 0u, FrameArena::Resource());
 		for (uint32 p : s_Pairs)
 		{
 			const uint32 c = p >> 10;

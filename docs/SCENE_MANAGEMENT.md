@@ -71,6 +71,7 @@ PlayerPrefs.Save();                                          // 안 불러도 �
 | 웹 | 브라우저 `localStorage` (새로 고쳐도 남는다) |
 
 `Application.persistentDataPath` · `dataPath` · `companyName` · `version` · `temporaryCachePath` 도 있다.
+`Application.targetFrameRate` (Unity 와 같다): 0 이하 = 제한 없음 (기본 -1). 재생 중 (빌드된 게임 포함) 에 엔진이 프레임 사이를 기다려 그 속도에 맞추고, 에디터에서 Play 를 멈추면 -1 로 돌아간다.
 
 ## 검사
 

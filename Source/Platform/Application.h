@@ -34,7 +34,9 @@ public:
 	// --hidden (nova open --background --hidden): 창을 아예 띄우지 않는다 (로딩 창도) — 검사 · 자동화는 CLI 로만
 	static inline bool hidden = false;
 	static bool IsPlayer() { return isPlayer; }
-	static void SetPlaying(bool active) { isPlaying = active; }
+	// Unity Application.targetFrameRate: 0 이하 = 제한 없음 (기본 -1). 재생 중 (빌드된 게임 포함) 에만 프레임을 맞추고, Play 를 멈추면 -1 로 돌아간다
+	static inline int targetFrameRate = -1;
+	static void SetPlaying(bool active) { isPlaying = active; if (!active) targetFrameRate = -1; }
 	static bool IsPlaying() { return isPlaying; }
 
 	// Pause / Step (Unity 툴바)

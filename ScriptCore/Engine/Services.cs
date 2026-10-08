@@ -74,7 +74,12 @@ namespace NovaEngine
         // 빌드된 게임(플레이어)인지는 네이티브가 알려 준다
         public static unsafe bool isEditor => Native.Api.App_Info(0) == 0;
         public static bool isFocused => true;
-        public static int targetFrameRate { get; set; } = -1;
+        // 0 이하 = 제한 없음 (기본 -1). 엔진이 프레임 사이를 기다려 맞춘다 (재생 중에만, Play 를 멈추면 -1)
+        public static unsafe int targetFrameRate
+        {
+            get => Native.Api.App_TargetFrameRate(0, 0);
+            set => Native.Api.App_TargetFrameRate(1, value);
+        }
         public static unsafe string productName => Native.Str(Native.Api.App_ProductName()) ?? "NOVA Game";
         // 저장 폴더 (Unity 와 같은 자리 — Windows: %USERPROFILE%\AppData\LocalLow\<회사>\<제품>, 안드로이드: 앱 파일 폴더)
         public static unsafe string persistentDataPath => Native.Str(Native.Api.App_Path(0)) ?? "";
