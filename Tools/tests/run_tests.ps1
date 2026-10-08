@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6488,6 +6488,58 @@ function Suite-Deferred
     Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+# ------------------------------------------------------------------ Job System (동시성 로드맵 1 단계)
+function Suite-Jobs
+{
+    # 작업 훔치기 Job System + 무잠금 자료 구조: 편집기 안에서 C++ 스트레스 검사 (nova jobs test) —
+    #  Chase-Lev 덱 · Vyukov MPMC · SPSC · 삼중 버퍼 (정확히 한 번 · 순서 · 찢김 없음), 잡 20 만 · ParallelFor · 잡 안의 Wait (파이버) · 깊은 나무 · Background.
+    #  파이버 켬 · 끔 (NOVA_JOB_FIBERS=0 — 돕기), 인라인 (일꾼 없이) 모두. ParallelFor 가 빨라지는지 · Profiler Timeline 에 일꾼 줄
+    Write-Host '[jobs]'
+    foreach ($mode in 'fibers', 'nofibers')
+    {
+        if ($mode -eq 'nofibers') { $env:NOVA_JOB_FIBERS = '0' }
+        $ed = Start-TestEditor
+        try
+        {
+            $info = Invoke-NovaJson 'jobs info'
+            $hw = [Environment]::ProcessorCount
+            $expectFibers = $mode -eq 'fibers'
+            Add-Result jobs "${mode}: job system started (workers = cores - 1, fibers $expectFibers)" ($info -and $info.workers -eq ($hw - 1) -and [bool]$info.fibers -eq $expectFibers) $(if ($info) { "workers $($info.workers) of $hw hardware threads, fibers $($info.fibers), fiber pool $($info.fiberPool)" } else { 'no reply' })
+            $t = Invoke-NovaJson 'jobs test --kind all'
+            foreach ($r in @($t.tests))
+            {
+                Add-Result jobs ("${mode}: " + $r.name) ([bool]$r.ok) ('{0} ({1:N1} ms)' -f $r.detail, [double]$r.ms)
+            }
+            if (-not $t) { Add-Result jobs "${mode}: jobs test" $false 'no reply' }
+            if ($mode -eq 'fibers')
+            {
+                $b = Invoke-NovaJson 'jobs bench'
+                $need = [math]::Min(2.0, ($hw - 1) * 0.5)
+                Add-Result jobs 'ParallelFor is faster than a serial loop (heavy math, 400k items)' ($b -and [double]$b.speedup -ge $need) $(if ($b) { 'serial {0:N1} ms, parallel {1:N1} ms, speedup {2:N2}x on {3} threads (need {4:N1}x), empty job {5:N0} ns' -f $b.serialMs, $b.parallelMs, $b.speedup, $b.threads, $need, $b.emptyJobNs } else { 'no reply' })
+
+                # 인라인 (일꾼 없이 부른 자리에서): 결과는 같다
+                Invoke-Nova 'jobs set --inline true' | Out-Null
+                $ti = Invoke-NovaJson 'jobs test --kind jobs'
+                $tp = Invoke-NovaJson 'jobs test --kind tree'
+                Invoke-Nova 'jobs set --inline false' | Out-Null
+                Add-Result jobs 'jobs set --inline true runs every job on the caller (same results)' ($ti -and $ti.ok -and $ti.inline -and $tp -and $tp.ok) $(if ($ti) { "$(@($ti.tests)[0].detail) | $(@($tp.tests)[0].detail)" } else { 'no reply' })
+
+                # Profiler: 일꾼 스레드의 구간이 Timeline 에 (스레드 줄) — 프레임마다 합성 ParallelFor (jobs set --load)
+                Invoke-Nova 'jobs set --load 20000' | Out-Null
+                $p = Invoke-NovaJson 'perf --frames 30'
+                Invoke-Nova 'jobs set --load 0' | Out-Null
+                $workerRows = if ($p -and $p.threads) { @($p.threads | Where-Object { $_.name -like 'Job Worker*' -and $_.samples -gt 0 }).Count } else { 0 }
+                Add-Result jobs 'Profiler records job worker threads (Timeline rows)' ($workerRows -gt 0) $(if ($p -and $p.threads) { ($p.threads | ForEach-Object { "$($_.name): $($_.samples)" }) -join ', ' } else { 'no thread data' })
+            }
+        }
+        finally
+        {
+            Write-Host "  $mode $(Stop-TestEditor $ed)"
+            Remove-Item Env:NOVA_JOB_FIBERS -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -7548,6 +7600,7 @@ try
                 'd3d12' { Suite-D3D12 }
                 'virtualtexture' { Suite-VirtualTexture }
                 'deferred' { Suite-Deferred }
+                'jobs' { Suite-Jobs }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

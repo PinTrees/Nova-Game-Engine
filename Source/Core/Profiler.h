@@ -6,6 +6,8 @@
 
 // NOVA Profiler (Unity 의 Profiler 창 데이터).
 //  - CPU: 메인 스레드의 중첩 구간(PROFILE_SCOPE)을 프레임마다 시작 순서대로 기록 (깊이 + 시작/길이)
+//  - 다른 스레드 (Job Worker · 물리 · 렌더 스레드): 같은 PROFILE_SCOPE 를 스레드마다의 무잠금 링 (SPSC) 에 쌓고,
+//    메인 스레드가 EndFrame 에 모아 그 프레임의 Threads 에 넣는다 (Timeline 의 스레드 줄)
 //  - GPU: D3D11 타임스탬프 쿼리(PROFILE_GPU). 결과는 몇 프레임 뒤에 도착하므로 그 프레임 기록에 나중에 채운다
 //  - 통계: 시스템이 프레임마다 SetStat("이름", 값) 으로 알린다 (드로 콜, 묶음, 컬링 …)
 //  - Profiler 창이 열려 있고 Record 가 켜져 있을 때만 모은다 (꺼져 있으면 구간마다 bool 검사 하나)
@@ -27,6 +29,15 @@ namespace Profiler
 		uint64_t Pixels = 0;      // 픽셀 셰이더 실행 수 (PIPELINE_STATISTICS: 겹쳐 칠한 것 포함 = 실제 GPU 일)
 		uint64_t Primitives = 0;  // 래스터라이저로 간 삼각형 수
 	};
+	// 메인 밖 스레드의 구간 (Thread = RegisterThread 순서, ThreadName 으로 이름)
+	struct ThreadSample
+	{
+		const char* Name;
+		uint16_t Thread;
+		uint16_t Depth;
+		float StartMs;        // 프레임 시작 기준 (음수 = 앞 프레임에서 시작)
+		float Ms;
+	};
 	struct Stat
 	{
 		const char* Name;
@@ -40,6 +51,8 @@ namespace Profiler
 		std::vector<CpuSample> Cpu;
 		std::vector<GpuSample> Gpu;
 		std::vector<Stat> Stats;
+		std::vector<ThreadSample> Threads;
+		int64_t StartNs = 0;  // 프레임 시작 (steady_clock) — 늦게 끝난 스레드 구간을 제 프레임에 넣는다
 	};
 
 	// 모으기 켜기/끄기 (Profiler 창: 열림 && Record). 다음 BeginFrame 부터 적용 (프레임 중간에 바뀌어 구간이 어긋나지 않게)
@@ -53,6 +66,15 @@ namespace Profiler
 
 	void Begin(const char* internedName);
 	void End();
+
+	// 스레드: 메인 (BeginFrame 을 부르는 스레드) 인가. 다른 스레드는 이름을 붙여 둘 수 있다 (없으면 "Thread N")
+	bool IsMainThread();
+	void SetThreadName(const char* internedName);
+	const char* ThreadName(uint16_t thread);
+	int ThreadCount();
+	int64_t NowNs();
+	void ThreadSampleBegin(int64_t& startNs, uint16_t& depth);
+	void ThreadSampleEnd(const char* internedName, int64_t startNs, uint16_t depth);
 	const char* Intern(const std::string& name);
 
 	void GpuBegin(const char* internedName);
@@ -67,9 +89,23 @@ namespace Profiler
 
 	struct Scope
 	{
-		bool Active;
-		explicit Scope(const char* name) : Active(Collecting()) { if (Active) Begin(name); }
-		~Scope() { if (Active) End(); }
+		// 메인 스레드 = 중첩 스택, 그 밖 = 시작 시각을 들고 있다가 끝날 때 한 번에 (잡 파이버가 다른 스레드에서 끝나도 된다)
+		const char* Name;
+		int64_t StartNs = 0;
+		uint16_t Depth = 0;
+		uint8_t Mode = 0;   // 0 꺼짐, 1 메인, 2 다른 스레드
+		explicit Scope(const char* name) : Name(name)
+		{
+			if (!Collecting())
+				return;
+			if (IsMainThread()) { Mode = 1; Begin(name); }
+			else { Mode = 2; ThreadSampleBegin(StartNs, Depth); }
+		}
+		~Scope()
+		{
+			if (Mode == 1) End();
+			else if (Mode == 2) ThreadSampleEnd(Name, StartNs, Depth);
+		}
 	};
 	struct GpuScope
 	{

@@ -97,6 +97,9 @@ if(MSVC)
     # 내보낸 클래스의 STL 멤버(C4251) / 내보내지 않은 기반 클래스(C4275): 엔진과 패키지는 같은 컴파일러·런타임(/MD)이라 안전
     target_compile_options(${ENGINE_CORE} PUBLIC /wd4251 /wd4275)
     set_target_properties(${ENGINE_CORE} PROPERTIES LINK_FLAGS_RELEASE "/DEBUG /OPT:REF /OPT:ICF")
+    # Job System 파이버: 잡이 다른 스레드에서 이어질 수 있다 → 스레드 지역 변수 주소를 붙잡아 두지 않게 (/GT = fiber-safe TLS)
+    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/Source/Core/JobSystem.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/Source/Core/Profiler.cpp"
+        PROPERTIES COMPILE_OPTIONS "/GT")
 endif()
 
 # 실행 파일 (Windows GUI, 아이콘) — NovaMain(NovaCore.dll) 만 부른다

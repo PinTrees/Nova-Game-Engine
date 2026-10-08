@@ -8,6 +8,7 @@
 #include "VfxRuntime.h"
 #include "VirtualTexturing.h"
 #include "RenderPipelineSettings.h"
+#include "JobSystem.h"
 #include "DeferredRenderer.h"
 #include "WeatherState.h"
 #include "WeatherCover.h"
@@ -237,6 +238,7 @@ bool EditorApp::Init()
 		RenderGraph::RegisterEditor();        // nova rendergraph (Window > Analysis > Render Graph Viewer)
 		VirtualTexturing::RegisterEditor();   // nova vt
 		RenderPipelineSettings::RegisterEditor();   // nova renderpath (Rendering Path — Forward · Forward+ · Deferred)
+		Jobs::RegisterEditor();   // nova jobs (Job System — info · test · bench · set)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile

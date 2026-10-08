@@ -16,6 +16,8 @@ public:
 	ProfilerEditorWindow();
 
 	static void Toggle();   // 메뉴 / Ctrl+7
+	// CLI (nova window profiler --category hierarchy|timeline|threads|gpu|memory): 아래 보기를 바꾼다 (threads = Timeline + 스레드 줄로 내림)
+	static bool SetView(const std::string& name);
 
 	void Update() override;
 
@@ -54,5 +56,7 @@ private:
 	bool m_ModuleOpen[3] = { true, true, true };   // CPU / GPU / Memory (제목을 눌러 접기)
 	float m_TimelineZoom = 1.0f;
 	float m_TimelineOffset = 0.0f;   // ms
+	float m_TimelineScrollY = 0.0f;  // 줄 (메인 구간 + 스레드 줄) 이 넘치면 세로로
+	bool m_ScrollToThreads = false;  // CLI --category threads: 스레드 줄이 보이게
 	std::unordered_map<uint64_t, Summary> m_Summaries;
 };

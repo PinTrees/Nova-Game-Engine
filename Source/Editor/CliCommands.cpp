@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "RenderingDebuggerWindow.h"
 #include "RenderGraphViewerWindow.h"
+#include "ProfilerEditorWindow.h"
 #include "PhysicsSettings.h"
 #include "Physics2DSettings.h"
 #include "Physics2DManager.h"
@@ -523,6 +524,19 @@ namespace CliCommands
 			json cpuList = json::array();
 			for (size_t i = 0; i < topCpu.size() && i < 24; ++i)
 				cpuList.push_back({ { "scope", topCpu[i].second }, { "ms", std::round(topCpu[i].first * 1000.0) / 1000.0 } });
+			// 메인 밖 스레드 (Job Worker …): 프레임 평균 구간 수 · 바쁜 시간 (맨 위 구간 합)
+			std::map<uint16_t, std::pair<double, double>> threadUse;
+			for (const Profiler::Frame& f : Profiler::History())
+				if (f.Index > s_PerfFirst + 2)
+					for (const Profiler::ThreadSample& t : f.Threads)
+					{
+						auto& u = threadUse[t.Thread];
+						u.first += 1.0;
+						if (t.Depth == 0) u.second += t.Ms;
+					}
+			json threadList = json::array();
+			for (auto& [index, u] : threadUse)
+				threadList.push_back({ { "name", Profiler::ThreadName(index) }, { "samples", std::round(u.first / frames * 10.0) / 10.0 }, { "busyMs", std::round(u.second / frames * 1000.0) / 1000.0 } });
 			const double avgFrame = wallMs / (std::max)(1, ImGui::GetFrameCount() - s_PerfFrame0);   // 벽시계 (수직 동기 없음)
 			r = {
 				{ "graphicsAPI", GraphicsAPIToKey(GraphicsSettings::GetActiveAPI()) },
@@ -534,6 +548,7 @@ namespace CliCommands
 				{ "gpuMs", gpuFrames ? std::round(gpu / gpuFrames * 1000.0) / 1000.0 : -1.0 },
 				{ "gpuPasses", list },
 				{ "cpuScopes", cpuList },
+				{ "threads", threadList },   // 메인 밖 스레드 (Job Worker …) 프레임 평균
 				{ "stats", [&] {   // 프레임 평균 통계 (드로 콜·삼각형·컬링 … — RecordProfilerStats)
 					std::map<std::string, std::pair<double, int>> st;
 					for (const Profiler::Frame& f : Profiler::History())
@@ -1542,8 +1557,12 @@ namespace CliCommands
 				}
 				else
 				{
+					if (!w->GetIsOpened() && name == "profiler")
+						ProfilerEditorWindow::Toggle();   // 닫혀 있으면 연다 (Window > Analysis > Profiler 와 같다)
 					EditorGUIManager::GetI()->SelectTab(w->GetTitle());
 					r = { { "name", name }, { "selected", true } };
+					if (name == "profiler" && !category.empty())   // --category timeline|hierarchy|gpu|memory
+						r["view"] = ProfilerEditorWindow::SetView(Lower(category)) ? Lower(category) : "unknown";
 				}
 			}
 			else

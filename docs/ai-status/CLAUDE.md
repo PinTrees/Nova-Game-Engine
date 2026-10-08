@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 6 단계: Rendering Path (Forward · Forward+ · Deferred)**. 로드맵 1 ~ 6 단계 모두 끝
+- 갱신 시각: 2026년 10월 8일 — **동시성 로드맵 1 단계: Job System (작업 훔치기 · 파이버) + 무잠금 자료 구조**. 다음: 2 단계 엔진 적용 (Jolt · ParallelFor · Background)
+  - 사용자 요청: "Task/Fiber 기반 Work-Stealing Job System, 무잠금 큐, 메인-렌더-물리 스레드 간 락 없는 데이터 핑퐁/이중 버퍼링" — docs/CONCURRENCY_ROADMAP.md (4 단계)
+  - `Source/Core/LockFree.h` (SpscRing · MpmcRing (Vyukov) · WorkStealingDeque (Chase-Lev) · TripleBuffer), `Source/Core/JobSystem.*` (일꾼 = 코어 − 1, 덱 + 우선순위 공용 링, Counter (Busy 로 수명), Windows 파이버 128 — 기다리면 내려놓고 다른 일꾼이 이어 돌림, 다른 곳은 돕기, 웹 · 인라인), App 에서 Init · Shutdown · OnFrame
+  - Profiler: 메인 밖 스레드 구간 (스레드마다 SPSC 링 → EndFrame), Timeline 스레드 줄 + 세로 넘기기, perf 결과 threads, 통계 Jobs/Executed · Stolen. `window profiler --category timeline|threads`
+  - `JobSystemTests.cpp`: CLI `jobs info|test|bench|set|reset`, 새 스위트 `jobs` 23/23 (파이버 켬 · 끔). JobSystem.cpp · Profiler.cpp 는 /GT. 문서 JOB_SYSTEM · CONCURRENCY_ROADMAP, Showcase 273
+- 이전: 2026년 10월 8일 — **렌더링 현대화 6 단계: Rendering Path (Forward · Forward+ · Deferred)**. **완료 (커밋 daea8b1, 푸시함)**. 로드맵 1 ~ 6 단계 모두 끝
   - `RenderPipelineSettings` 의 Rendering Path (GraphicsSettings.json `renderingPath`, 기본 Forward+, Forward = 클러스터 끔), Project Settings > Graphics > Rendering 드롭다운, CLI `renderpath get|set --path`
   - `Source/Graphics/DX11/DeferredRenderer.*`: 뷰마다 (Game · Scene) G-버퍼 4 장 (알베도 sRGB + AO · 메탈릭 · 스무스니스 · 표시 · 레이어 · 노멀 16F · 발광 16F), 전체 화면 조명 (역 ViewProj 로 월드 자리)
   - 셰이더 `32`: LitPS 의 표면 계산을 `LitSurfaceOf` 로 나눠 포워드 · G-버퍼가 같이 쓴다. `PS_BatchGBuffer` · `PS_DeferredLight` (ShadeLit + FinishLit 그대로, 레이어 · 안개 · Receive Shadows 는 G-버퍼 표시로)

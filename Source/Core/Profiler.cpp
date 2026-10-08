@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "Profiler.h"
+#include "LockFree.h"
+#include <atomic>
 #include <chrono>
 #include <unordered_set>
 #include <thread>
@@ -19,6 +21,41 @@ namespace
 	std::vector<Open> s_Stack;
 
 	float MsSince(Clock::time_point a, Clock::time_point b) { return std::chrono::duration<float, std::milli>(b - a).count(); }
+	int64_t ToNs(Clock::time_point t) { return std::chrono::duration_cast<std::chrono::nanoseconds>(t.time_since_epoch()).count(); }
+
+	// ================================================================ 다른 스레드의 구간 (스레드마다 SPSC 링 — 쓰는 쪽 = 그 스레드, 읽는 쪽 = 메인)
+	struct RawSample
+	{
+		const char* Name = nullptr;
+		int64_t StartNs = 0, EndNs = 0;
+		uint16_t Depth = 0;
+	};
+	struct ThreadBuffer
+	{
+		LockFree::SpscRing<RawSample> Ring{ 16384 };
+		std::atomic<const char*> Name{ nullptr };
+		uint16_t Index = 0;
+		std::atomic<uint64_t> Dropped{ 0 };
+	};
+	constexpr int kMaxThreads = 128;
+	std::atomic<ThreadBuffer*> s_Threads[kMaxThreads];
+	std::atomic<int> s_ThreadCount{ 0 };
+	thread_local ThreadBuffer* t_Buffer = nullptr;
+	thread_local uint16_t t_Depth = 0;
+
+	ThreadBuffer* MyBuffer()
+	{
+		if (t_Buffer)
+			return t_Buffer;
+		const int i = s_ThreadCount.fetch_add(1, std::memory_order_relaxed);
+		if (i >= kMaxThreads)
+			return nullptr;
+		auto* b = new ThreadBuffer();   // 프로그램이 끝날 때까지 (스레드가 끝나도 메인이 남은 구간을 읽는다)
+		b->Index = (uint16_t)i;
+		s_Threads[i].store(b, std::memory_order_release);
+		t_Buffer = b;
+		return b;
+	}
 
 	// ================================================================ GPU (타임스탬프 쿼리)
 	constexpr int kGpuSlots = 6;   // 결과가 몇 프레임 늦게 오므로 고리로 돌린다
@@ -135,6 +172,7 @@ namespace Profiler
 		s_Current.Cpu.reserve(256);
 		s_Stack.clear();
 		s_FrameStart = Clock::now();
+		s_Current.StartNs = ToNs(s_FrameStart);
 
 		// GPU 슬롯
 		s_GpuStack.clear();
@@ -168,6 +206,33 @@ namespace Profiler
 		}
 		s_Current.CpuMs = MsSince(s_FrameStart, now);
 
+		// 다른 스레드의 구간: 시작 시각으로 제 프레임에 (지난 프레임에서 시작해 늦게 끝난 것은 그 프레임에)
+		const int threads = (std::min)(s_ThreadCount.load(std::memory_order_acquire), kMaxThreads);
+		for (int t = 0; t < threads; ++t)
+		{
+			ThreadBuffer* b = s_Threads[t].load(std::memory_order_acquire);
+			if (!b)
+				continue;
+			RawSample r;
+			while (b->Ring.Pop(r))
+			{
+				Profiler::Frame* target = &s_Current;
+				if (r.StartNs < s_Current.StartNs)
+				{
+					target = nullptr;
+					for (auto it = s_History.rbegin(); it != s_History.rend(); ++it)
+						if (r.StartNs >= it->StartNs)
+						{
+							target = &*it;
+							break;
+						}
+				}
+				if (!target)
+					continue;
+				target->Threads.push_back({ r.Name, b->Index, r.Depth, (float)((r.StartNs - target->StartNs) / 1e6), (float)((r.EndNs - r.StartNs) / 1e6) });
+			}
+		}
+
 		if (s_GpuCurrent && s_GpuCurrent->Disjoint)
 		{
 			Application::GetI()->GetDeviceContext()->End(s_GpuCurrent->Disjoint.Get());
@@ -195,6 +260,52 @@ namespace Profiler
 			return;
 		s_Current.Cpu[s_Stack.back().Index].Ms = MsSince(s_Stack.back().Start, Clock::now());
 		s_Stack.pop_back();
+	}
+
+	bool IsMainThread() { return std::this_thread::get_id() == s_MainThread; }
+	int64_t NowNs() { return ToNs(Clock::now()); }
+
+	void SetThreadName(const char* name)
+	{
+		if (ThreadBuffer* b = MyBuffer())
+			b->Name.store(name, std::memory_order_release);
+	}
+
+	const char* ThreadName(uint16_t thread)
+	{
+		ThreadBuffer* b = thread < kMaxThreads ? s_Threads[thread].load(std::memory_order_acquire) : nullptr;
+		const char* n = b ? b->Name.load(std::memory_order_acquire) : nullptr;
+		if (n)
+			return n;
+		static const char* s_Unnamed[kMaxThreads] = {};
+		if (thread < kMaxThreads && !s_Unnamed[thread])
+			s_Unnamed[thread] = Intern("Thread " + std::to_string(thread));
+		return thread < kMaxThreads ? s_Unnamed[thread] : "Thread";
+	}
+
+	int ThreadCount() { return (std::min)(s_ThreadCount.load(std::memory_order_acquire), kMaxThreads); }
+
+	void ThreadSampleBegin(int64_t& startNs, uint16_t& depth)
+	{
+		startNs = ToNs(Clock::now());
+		depth = t_Depth++;
+	}
+
+	void ThreadSampleEnd(const char* name, int64_t startNs, uint16_t depth)
+	{
+		// 잡 파이버가 다른 스레드에서 끝나면 그 스레드의 깊이가 어긋날 수 있다 — 0 아래로는 내리지 않는다
+		if (t_Depth > 0)
+			--t_Depth;
+		ThreadBuffer* b = MyBuffer();
+		if (!b)
+			return;
+		RawSample r;
+		r.Name = name;
+		r.StartNs = startNs;
+		r.EndNs = ToNs(Clock::now());
+		r.Depth = depth;
+		if (!b->Ring.Push(r))
+			b->Dropped.fetch_add(1, std::memory_order_relaxed);   // 메인이 오래 안 읽었다 (Profiler 를 막 켠 때) — 버린다
 	}
 
 	void GpuBegin(const char* name)
@@ -258,7 +369,7 @@ namespace Profiler
 	{
 		size_t bytes = 0;
 		for (const Frame& f : s_History)
-			bytes += sizeof(Frame) + f.Cpu.capacity() * sizeof(CpuSample) + f.Gpu.capacity() * sizeof(GpuSample) + f.Stats.capacity() * sizeof(Stat);
+			bytes += sizeof(Frame) + f.Cpu.capacity() * sizeof(CpuSample) + f.Gpu.capacity() * sizeof(GpuSample) + f.Stats.capacity() * sizeof(Stat) + f.Threads.capacity() * sizeof(ThreadSample);
 		return bytes;
 	}
 

@@ -654,6 +654,26 @@ void ProfilerEditorWindow::DrawHierarchy(const Profiler::Frame& frame, bool gpu,
 	ImGui::PopStyleVar();
 }
 
+bool ProfilerEditorWindow::SetView(const std::string& name)
+{
+	if (!s_Instance)
+		return false;
+	if (name == "threads")
+	{
+		s_Instance->m_View = 1;
+		s_Instance->m_ScrollToThreads = true;
+		return true;
+	}
+	static const char* names[4] = { "hierarchy", "timeline", "gpu", "memory" };
+	for (int i = 0; i < 4; ++i)
+		if (name == names[i])
+		{
+			s_Instance->m_View = i;
+			return true;
+		}
+	return false;
+}
+
 void ProfilerEditorWindow::DrawTimeline(ImDrawList* dl, const Profiler::Frame& frame, ImVec2 p, ImVec2 size)
 {
 	constexpr float kRulerH = 18.0f, kRowH = 19.0f;
@@ -670,7 +690,11 @@ void ProfilerEditorWindow::DrawTimeline(ImDrawList* dl, const Profiler::Frame& f
 	const bool hovered = ImGui::IsItemHovered();
 	ImGuiIO& io = ImGui::GetIO();
 	float visibleMs = frameMs / m_TimelineZoom;
-	if (hovered && io.MouseWheel != 0.0f)
+	if (hovered && io.MouseWheel != 0.0f && io.KeyShift)
+	{
+		m_TimelineScrollY -= io.MouseWheel * kRowH * 3.0f;   // Shift + 휠 = 줄 넘기기
+	}
+	else if (hovered && io.MouseWheel != 0.0f)
 	{
 		const float mouseMs = m_TimelineOffset + (io.MousePos.x - x0) / tw * visibleMs;
 		m_TimelineZoom = std::clamp(m_TimelineZoom * (io.MouseWheel > 0.0f ? 1.25f : 0.8f), 1.0f, 2000.0f);
@@ -678,7 +702,10 @@ void ProfilerEditorWindow::DrawTimeline(ImDrawList* dl, const Profiler::Frame& f
 		m_TimelineOffset = mouseMs - (io.MousePos.x - x0) / tw * visibleMs;
 	}
 	if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f))
+	{
 		m_TimelineOffset -= io.MouseDelta.x / tw * visibleMs;
+		m_TimelineScrollY -= io.MouseDelta.y;   // 위아래로 끌면 줄을 넘긴다
+	}
 	m_TimelineOffset = std::clamp(m_TimelineOffset, 0.0f, (std::max)(0.0f, frameMs - visibleMs));
 	const float pxPerMs = tw / visibleMs;
 	auto toX = [&](float ms) { return x0 + (ms - m_TimelineOffset) * pxPerMs; };
@@ -699,7 +726,10 @@ void ProfilerEditorWindow::DrawTimeline(ImDrawList* dl, const Profiler::Frame& f
 			dl->AddText(ImVec2(tx + 3.0f, p.y + 2.0f), kDim, lbl);
 		}
 	}
-	// 구간 막대
+	// 구간 막대 (눈금 아래만 — 세로로 넘긴 만큼 위로)
+	const float barsTop = p.y + kRulerH;
+	dl->PushClipRect(ImVec2(p.x, barsTop), p1, true);
+	const float scrollY = m_TimelineScrollY;
 	std::vector<int> cats;
 	std::vector<float> self;
 	Attribute(frame.Cpu, CpuRule, kCpuOthers, cats, self);
@@ -712,8 +742,8 @@ void ProfilerEditorWindow::DrawTimeline(ImDrawList* dl, const Profiler::Frame& f
 		if (bx1 < p.x || bx0 > p1.x)
 			continue;
 		bx1 = (std::max)(bx1, bx0 + 1.0f);
-		const float by0 = p.y + kRulerH + 4.0f + s.Depth * kRowH, by1 = by0 + kRowH - 2.0f;
-		if (by0 > p1.y)
+		const float by0 = barsTop + 4.0f + s.Depth * kRowH - scrollY, by1 = by0 + kRowH - 2.0f;
+		if (by0 > p1.y || by1 < barsTop)
 			continue;
 		const ImU32 col = kCpuColors[cats[i]];
 		dl->AddRectFilled(ImVec2(bx0, by0), ImVec2(bx1, by1), col);
@@ -733,6 +763,85 @@ void ProfilerEditorWindow::DrawTimeline(ImDrawList* dl, const Profiler::Frame& f
 			tipSelf = self[i];
 		}
 	}
+	// 메인 밖 스레드 (Unity 의 Job · Worker 줄): 메인 구간 아래에 스레드마다 이름 줄 + 막대
+	{
+		int mainDepth = 0;
+		for (const Profiler::CpuSample& s : frame.Cpu)
+			mainDepth = (std::max)(mainDepth, (int)s.Depth + 1);
+		std::vector<uint16_t> threads;
+		for (const Profiler::ThreadSample& t : frame.Threads)
+			if (std::find(threads.begin(), threads.end(), t.Thread) == threads.end())
+				threads.push_back(t.Thread);
+		// 이름 순, 숫자는 크기대로 (Job Worker 2 < Job Worker 10)
+		std::sort(threads.begin(), threads.end(), [](uint16_t a, uint16_t b) {
+			const char* na = Profiler::ThreadName(a);
+			const char* nb = Profiler::ThreadName(b);
+			const size_t la = strlen(na), lb = strlen(nb);
+			if (la != lb && strncmp(na, nb, (std::min)(la, lb) - 1) == 0)
+				return la < lb;
+			const int c = strcmp(na, nb);
+			return c != 0 ? c < 0 : a < b;
+		});
+		if (m_ScrollToThreads)
+		{
+			m_ScrollToThreads = false;
+			m_TimelineScrollY = mainDepth * kRowH;
+		}
+		float rowY = barsTop + 4.0f + mainDepth * kRowH + 6.0f - scrollY;
+		for (uint16_t thread : threads)
+		{
+			int depth = 0;
+			for (const Profiler::ThreadSample& t : frame.Threads)
+				if (t.Thread == thread)
+					depth = (std::max)(depth, (int)t.Depth + 1);
+			depth = (std::min)(depth, 4);
+			dl->AddLine(ImVec2(p.x, rowY), ImVec2(p1.x, rowY), IM_COL32(255, 255, 255, 30));
+			dl->AddText(ImVec2(p.x + 6.0f, rowY + 1.0f), kDim, Profiler::ThreadName(thread));
+			const float barTop = rowY + 16.0f;
+			for (const Profiler::ThreadSample& t : frame.Threads)
+			{
+				if (t.Thread != thread || t.Depth >= 4)
+					continue;
+				float bx0 = toX(t.StartMs), bx1 = toX(t.StartMs + t.Ms);
+				if (bx1 < p.x || bx0 > p1.x)
+					continue;
+				bx1 = (std::max)(bx1, bx0 + 1.0f);
+				const float by0 = barTop + t.Depth * kRowH, by1 = by0 + kRowH - 2.0f;
+				if (by0 > p1.y || by1 < barsTop)
+					continue;
+				const ImU32 col = IM_COL32(120, 190, 120, 255);   // 잡 = 초록 (Unity Timeline 의 Job 색)
+				dl->AddRectFilled(ImVec2(bx0, by0), ImVec2(bx1, by1), col);
+				dl->AddRect(ImVec2(bx0, by0), ImVec2(bx1, by1), IM_COL32(0, 0, 0, 90));
+				if (bx1 - bx0 > 28.0f)
+				{
+					char lbl[160];
+					snprintf(lbl, sizeof(lbl), "%s (%.2fms)", t.Name, t.Ms);
+					const ImVec4 clip((std::max)(bx0, p.x) + 3.0f, by0, (std::min)(bx1, p1.x) - 2.0f, by1);
+					dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2((std::max)(bx0, p.x) + 4.0f, by0 + 1.0f), IM_COL32(20, 20, 20, 255), lbl, nullptr, 0.0f, &clip);
+				}
+				if (hovered && io.MousePos.x >= bx0 && io.MousePos.x < bx1 && io.MousePos.y >= by0 && io.MousePos.y < by1)
+				{
+					tipName = t.Name;
+					tipMs = t.Ms;
+					tipStart = t.StartMs;
+					tipSelf = t.Ms;
+				}
+			}
+			rowY = barTop + (std::max)(1, depth) * kRowH + 4.0f;
+		}
+		// 넘치는 만큼만 넘길 수 있다 + 오른쪽 스크롤 막대
+		const float contentH = rowY + scrollY - barsTop;
+		const float viewH = p1.y - barsTop;
+		const float maxScroll = (std::max)(0.0f, contentH - viewH);
+		m_TimelineScrollY = std::clamp(m_TimelineScrollY, 0.0f, maxScroll);
+		if (maxScroll > 0.0f)
+		{
+			const float thumbH = (std::max)(16.0f, viewH * viewH / contentH);
+			const float thumbY = barsTop + (viewH - thumbH) * (m_TimelineScrollY / maxScroll);
+			dl->AddRectFilled(ImVec2(p1.x - 6.0f, thumbY), ImVec2(p1.x - 2.0f, thumbY + thumbH), IM_COL32(255, 255, 255, 70), 2.0f);
+		}
+	}
+	dl->PopClipRect();
 	dl->PopClipRect();
 	if (tipName)
 		ImGui::SetTooltip("%s\n%.3f ms (self %.3f ms)\nstarts at %.3f ms", tipName, tipMs, (std::max)(0.0f, tipSelf), tipStart);

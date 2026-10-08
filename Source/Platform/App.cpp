@@ -56,6 +56,7 @@
 
 #include "EditorGUIResourceManager.h"
 #include "TaskSystem.h"
+#include "JobSystem.h"
 #include "UndoSystem.h"
 #include "CliServer.h"
 
@@ -158,7 +159,8 @@ int32 App::Run()
 				AutoSave::WatchModels();   // 모델 원본이 바뀌면 다시 가져오기   // 간격마다 변경된 씬을 Library/AutoSave 에 (원본은 그대로)   // C# 스크립트 변경 감시 / 컴파일 / 다시 읽기
 				{ PROFILE_SCOPE("UI.Update"); UISystem::Update(); }       // UI 레이아웃 (RectTransform), Play 중 버튼 입력
 				++WeatherState::Get().Frame;   // 날씨: 어느 화면을 최근에 그렸는가 (Weather Controller 가 따라갈 카메라)
-				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); TrailRenderer::UpdateAll(); VisualEffect::UpdateAll(); }   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기 (Visual Effect 는 늘)
+				{ PROFILE_SCOPE("Particles.Update"); ParticleSystem::UpdateAll(); TrailRenderer::UpdateAll(); VisualEffect::UpdateAll(); }
+				{ PROFILE_SCOPE("Jobs"); Jobs::OnFrame(); }   // 잡 통계 (Profiler "Jobs/…"), 검사용 합성 부하   // 입자: Play 중이면 게임 시간, 아니면 선택한 시스템 미리보기 (Visual Effect 는 늘)
 				Tree::UpdateAll();             // 나무 바람 시간 (이 프레임의 모든 패스가 같은 값)
 				if (!Application::IsPlayer())
 				{
@@ -312,6 +314,8 @@ int32 App::Run()
 	ResourceManager::GetI()->Destroy();
 	ResourceManager::GetI()->Dispose(); 
 
+	Jobs::Shutdown();
+
 	return (int)msg.wParam;
 }
 
@@ -335,6 +339,7 @@ bool App::InitPlatform()
 bool App::Init()
 {
 	std::ofstream log(_logFileName, std::ios::app);
+	Jobs::Init();   // Job System (일꾼 = 코어 − 1) — 이 스레드가 메인
 	if (!InitPlatform())
 		return false;
 
