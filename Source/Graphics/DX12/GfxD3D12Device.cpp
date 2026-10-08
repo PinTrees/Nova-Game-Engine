@@ -315,6 +315,11 @@ float4 PS3(VSOut i) : SV_Target { return gSrc3.SampleLevel(gLinear, float3(i.uv,
 	// ============================================================ 장치
 	Dev::~Dev()
 	{
+		if (Worker)
+		{
+			Worker->Stop();   // 남은 큐 작업을 다 실행한 뒤 (아래는 메인이 직접)
+			Worker.reset();
+		}
 		if (Device)
 		{
 			if (!Lost && Queue && Fence)
@@ -684,6 +689,10 @@ float4 PS3(VSOut i) : SV_Target { return gSrc3.SampleLevel(gLinear, float3(i.uv,
 			CurrentAlloc = FreeAllocs.back();
 			FreeAllocs.pop_back();
 			CurrentAlloc.Alloc->Reset();
+			// 렌더 스레드가 실행한 목록은 할당기와 함께 돌아온다 — 지금 목록이 없으면 그것을 다시 쓴다
+			if (!List)
+				List = std::move(CurrentAlloc.List);
+			CurrentAlloc.List.Reset();
 		}
 		else
 		{
@@ -715,18 +724,34 @@ float4 PS3(VSOut i) : SV_Target { return gSrc3.SampleLevel(gLinear, float3(i.uv,
 		}
 		const HRESULT hr = cl->Close();
 		const uint64_t serial = Recording();
-		if (SUCCEEDED(hr) && !Lost)
-		{
-			ID3D12CommandList* lists[] = { cl };
-			Queue->ExecuteCommandLists(1, lists);
-		}
-		else if (FAILED(hr))
+		const bool run = SUCCEEDED(hr) && !Lost;
+		if (FAILED(hr))
 		{
 			Once("close-fail", "%s", "command list Close failed - the commands of this submit were dropped (see the debug layer messages)");
 			CheckRemoved(Device->GetDeviceRemovedReason(), "Close");
 			List = nullptr;   // 오류 상태의 목록은 다시 쓰지 않는다 (다음 Cmd 가 새로 만든다)
 		}
-		CheckRemoved(Queue->Signal(Fence.Get(), serial), "Signal");
+		if (Worker)
+		{
+			// 렌더 스레드가 실행 + 신호. 목록은 할당기 칸에 묶어 두고 (그 제출이 끝나면 다시 쓴다) 다음 기록은 다른 목록으로
+			QueueTask t;
+			t.Kind = kTaskSubmit;
+			t.List = run ? cl : nullptr;
+			t.Fence = Fence.Get();
+			t.Value = serial;
+			Worker->Push(t);
+			if (run)
+				CurrentAlloc.List = std::move(List);
+		}
+		else
+		{
+			if (run)
+			{
+				ID3D12CommandList* lists[] = { cl };
+				Queue->ExecuteCommandLists(1, lists);
+			}
+			CheckRemoved(Queue->Signal(Fence.Get(), serial), "Signal");
+		}
 		Submitted = serial;
 		ViewRing.Mark(serial, ComputeCover());
 		CurrentAlloc.Retire = serial;
@@ -744,6 +769,8 @@ float4 PS3(VSOut i) : SV_Target { return gSrc3.SampleLevel(gLinear, float3(i.uv,
 	void Dev::Poll()
 	{
 		if (!Fence) return;
+		if (!Lost && WorkerLost.load(std::memory_order_relaxed))
+			CheckRemoved(DXGI_ERROR_DEVICE_REMOVED, "render thread");
 		const UINT64 v = Fence->GetCompletedValue();
 		if (v == UINT64_MAX)
 		{
@@ -800,6 +827,73 @@ float4 PS3(VSOut i) : SV_Target { return gSrc3.SampleLevel(gLinear, float3(i.uv,
 			}
 		}
 		Poll();
+	}
+
+	// 렌더 스레드에서: 큐 작업 하나
+	void Dev::RunTask(void* owner, QueueTask& t)
+	{
+		Dev* d = static_cast<Dev*>(owner);
+		switch (t.Kind)
+		{
+		case kTaskSubmit:
+			if (t.List)
+				d->Queue->ExecuteCommandLists(1, &t.List);
+			if (FAILED(d->Queue->Signal(t.Fence, t.Value)))
+				d->WorkerLost = true;
+			break;
+		case kTaskWait:
+			d->Queue->Wait(t.Fence, t.Value);
+			break;
+		case kTaskPresent:
+		{
+			const HRESULT hr = t.Chain->Present(t.Sync, t.Flags);
+			if (FAILED(hr))
+			{
+				static std::atomic<bool> s_Logged{ false };
+				if (!s_Logged.exchange(true))
+					EditorLog::Write("DX12", "Present on the render thread failed hr=0x%08X", (unsigned)hr);
+				if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET || hr == DXGI_ERROR_DEVICE_HUNG)
+					d->WorkerLost = true;
+			}
+			t.Chain->Release();
+			break;
+		}
+		}
+	}
+
+	void Dev::QueueWait(ID3D12Fence* fence, uint64_t value)
+	{
+		if (Worker)
+		{
+			QueueTask t;
+			t.Kind = kTaskWait;
+			t.Fence = fence;
+			t.Value = value;
+			Worker->Push(t);
+		}
+		else
+			Queue->Wait(fence, value);
+	}
+
+	void Dev::SetWorker(bool on)
+	{
+		if (on == (Worker != nullptr))
+			return;
+		if (on)
+		{
+			if (Lost || !Queue)
+				return;
+			Worker = std::make_unique<SubmitThread<QueueTask>>();
+			Worker->Start("Render Thread: D3D12 queue", &Dev::RunTask, this);
+		}
+		else
+		{
+			Worker->Stop();
+			Worker.reset();
+		}
+		// 작업 번호는 렌더 스레드마다 1 부터 — 앞 스레드의 번호를 기다리지 않게 지운다 (끄고 다시 켜면 멈췄다)
+		for (auto& [wnd, s] : Swaps)
+			s->PresentTask = 0;
 	}
 
 	void Dev::WaitCompute(uint64_t serial)
@@ -2108,6 +2202,34 @@ namespace GfxD3D12
 	}
 
 	bool IsD3D12(const GfxObject* object) { return object && object->Api() == GfxApi::DirectX12; }
+
+	bool SetRenderThread(GfxDevice* device, bool on)
+	{
+		auto* d = static_cast<Dev*>(device);
+		d->SetWorker(on);
+		return (d->Worker != nullptr) == on;
+	}
+
+	void SyncRenderThread(GfxDevice* device)
+	{
+		auto* d = static_cast<Dev*>(device);
+		if (d->Worker) d->Worker->Sync();
+	}
+
+	nlohmann::json RenderThreadInfo(GfxDevice* device, bool reset)
+	{
+		auto* d = static_cast<Dev*>(device);
+		if (!d->Worker) return nlohmann::json::object();
+		auto& w = *d->Worker;
+		if (reset)
+		{
+			w.ResetStats();
+			d->WorkerFrames = 0;
+		}
+		return { { "frames", d->WorkerFrames }, { "tasks", w.Done() }, { "submits", w.Count(Dev::kTaskSubmit) }, { "queueWaits", w.Count(Dev::kTaskWait) },
+			{ "presents", w.Count(Dev::kTaskPresent) }, { "submitMs", w.Ms(Dev::kTaskSubmit) }, { "presentMs", w.Ms(Dev::kTaskPresent) },
+			{ "mainWaitMs", w.MainWaitMs() }, { "mainWaits", w.MainWaits() } };
+	}
 
 	void WaitIdle(GfxDevice* device)
 	{

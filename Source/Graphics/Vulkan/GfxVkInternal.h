@@ -3,6 +3,8 @@
 #include "VkMap.h"
 #include "GfxVk.h"
 #include "GfxVkShared.h"
+#include "SubmitThread.h"
+#include <atomic>
 #include <functional>
 
 // Gfx Vulkan 구현 내부 (GfxVkDevice.cpp · GfxVkContext.cpp 만 쓴다)
@@ -419,6 +421,8 @@ namespace GfxVkImpl
 			std::vector<VkSemaphore> Done;      // 이미지마다 (표시가 기다린다)
 			uint32_t AcquireIndex = 0;
 			bool Failed = false;
+			uint64_t PresentTask = 0;            // 렌더 스레드: 이 창의 마지막 Present 작업 번호 (다음 이미지 받기 · 다시 만들기 전에 기다린다)
+			std::atomic<bool> Outdated{ false };  // 렌더 스레드의 Present 가 OUT_OF_DATE · SUBOPTIMAL → 다음 프레임에 다시 만든다
 		};
 		std::map<HWND, std::unique_ptr<Swap>> Swaps;
 		std::deque<uint64_t> Frames;            // 본 창에 표시한 프레임의 제출 값 (2 프레임 넘게 앞서 가지 않게)
@@ -429,6 +433,32 @@ namespace GfxVkImpl
 		void DestroyAllSwapchains();
 		void ReleaseWindow(HWND wnd);
 		void PresentFrame(Swap& s, class Tex2D* backBuffer, int width, int height, int interval, bool pace);
+
+		// ---- 렌더 스레드 (docs/RENDER_THREAD.md): 켜져 있으면 그래픽 큐 작업 (vkQueueSubmit2 · vkQueuePresentKHR) 을 넣은 순서대로 렌더 스레드가 한다.
+		//  기록 · 이미지 받기 (vkAcquireNextImageKHR) 는 메인 그대로. 컴퓨트 큐는 다른 VkQueue 라 메인 (타임라인 값을 미리 기다려도 된다)
+		struct QueueTask
+		{
+			int Kind = 0;
+			uint64_t Serial = 0;
+			VkCommandBuffer Cbs[2] = {};
+			uint32_t CbCount = 0;
+			VkSemaphore WaitSem[2] = {};
+			uint64_t WaitValue[2] = {};
+			uint32_t WaitCount = 0;
+			VkSemaphore SignalSem[2] = {};
+			uint64_t SignalValue[2] = {};
+			uint32_t SignalCount = 0;
+			VkSwapchainKHR Chain = VK_NULL_HANDLE;
+			uint32_t Index = 0;
+			VkSemaphore PresentWait = VK_NULL_HANDLE;
+			Swap* Target = nullptr;
+		};
+		enum { kTaskSubmit = 0, kTaskPresent = 2 };
+		std::unique_ptr<SubmitThread<QueueTask>> Worker;
+		std::atomic<bool> WorkerLost{ false };   // 렌더 스레드가 본 장치 잃음 (메인이 Poll 에서 Lost 로)
+		uint64_t WorkerFrames = 0;               // 렌더 스레드로 넘긴 본 창 프레임 (통계)
+		static void RunTask(void* owner, QueueTask& t);
+		void SetWorker(bool on);
 
 		Ctx* Immediate = nullptr;   // 약한 참조 (컨텍스트가 장치를 잡는다)
 		std::set<std::string> Reported;

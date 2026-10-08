@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread', 'memory') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread', 'memory', 'transform') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6629,7 +6629,7 @@ function Suite-PhysicsAsync
 # ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
 function Suite-RenderThread
 {
-    # Multithreaded Rendering (DirectX 11): 메인은 deferred context 에 기록, 렌더 스레드가 실행 · Present.
+    # Multithreaded Rendering (DirectX 11 · 12 · Vulkan). DirectX 11: 메인은 deferred context 에 기록, 렌더 스레드가 실행 · Present.
     #  같은 장면이 켬 · 끔에서 같은 그림, 읽기 (캡처 = Sync) · Profiler GPU 시간 (쿼리) 이 되고, 설정이 저장된다
     #  (다른 그래픽 스위트는 NOVA_RENDER_THREAD=1 로 렌더 스레드 모드에서도 돌린다)
     Write-Host '[renderthread]'
@@ -6678,6 +6678,58 @@ function Suite-RenderThread
         Invoke-Nova 'renderthread set --enabled false' | Out-Null
         Write-Host "  $(Stop-TestEditor $ed)"
     }
+
+    # DirectX 12 · Vulkan: 기록은 메인, 그래픽 큐 작업 (제출 · 신호 · Present) 을 렌더 스레드가.
+    #  같은 그림, 프레임마다 Present 가 렌더 스레드에서, 읽기 (캡처 · GPU 시간) · Play → Stop · 켬 · 끔 반복이 된다
+    foreach ($api in 'd3d12', 'vulkan')
+    {
+        $name = if ($api -eq 'd3d12') { 'DirectX 12' } else { 'Vulkan' }
+        $ed = Start-TestEditor -WatchSeconds 240 -D3D12:($api -eq 'd3d12') -Vulkan:($api -eq 'vulkan')
+        try
+        {
+            Invoke-Nova 'autosave discard' | Out-Null
+            $r = Invoke-NovaJson 'renderthread set --enabled true'
+            Invoke-Nova 'renderthread reset' | Out-Null
+            Invoke-Nova 'wait 30' | Out-Null
+            $i = Invoke-NovaJson 'renderthread info'
+            $q = $i.queue
+            Add-Result renderthread "${name}: queue submits + present run on the render thread" ($r -and $r.enabled -and $i.mode -eq 'queue' -and [int]$q.presents -ge 25 -and [int]$q.submits -ge [int]$q.presents) $(if ($q) { "frames $($q.frames), submits $($q.submits), presents $($q.presents), per frame: submit $('{0:N3}' -f [double]$i.submitMsPerFrame) ms, present $('{0:N3}' -f [double]$i.presentMsPerFrame) ms, main waited $('{0:N3}' -f [double]$i.mainWaitMsPerFrame) ms" } else { 'no reply' })
+
+            foreach ($s in 'Materials', 'CityShowcase')
+            {
+                Invoke-Nova "scene open Assets/Scenes/$s.scene --force" | Out-Null
+                Invoke-Nova 'window game' | Out-Null
+                Invoke-Nova 'renderthread set --enabled true' | Out-Null
+                Invoke-Nova 'wait 40' | Out-Null
+                $on = Join-Path $dir "${api}_${s}_on.png"; Invoke-Nova ('screenshot "' + $on + '" --view game') | Out-Null
+                Invoke-Nova 'renderthread set --enabled false' | Out-Null
+                Invoke-Nova 'wait 40' | Out-Null
+                $off = Join-Path $dir "${api}_${s}_off.png"; Invoke-Nova ('screenshot "' + $off + '" --view game') | Out-Null
+                $c = if ((Test-Path $on) -and (Test-Path $off)) { [NovaImageCompare]::Compare($off, $on, (Join-Path $dir "${api}_${s}_diff.png")) } else { $null }
+                Add-Result renderthread "${name} ${s}: same picture with the render thread on and off" ($c -and $c[1] -le 1.0 -and $c[2] -le 1.0) $(if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
+            }
+
+            # 읽기 · 쿼리 · Play: 켠 채 GPU 시간이 오고, 캡처가 되고, Play → Stop 뒤에도 프레임이 렌더 스레드에서 나간다
+            Invoke-Nova 'renderthread set --enabled true' | Out-Null
+            $p = Invoke-NovaJson 'perf --frames 40'
+            $shot = Join-Path $dir "${api}_readback.png"; Invoke-Nova ('screenshot "' + $shot + '" --view game') | Out-Null
+            Invoke-Nova 'play' | Out-Null
+            Invoke-Nova 'wait 30' | Out-Null
+            Invoke-Nova 'stop' | Out-Null
+            Invoke-Nova 'renderthread reset' | Out-Null
+            Invoke-Nova 'wait 20' | Out-Null
+            $i = Invoke-NovaJson 'renderthread info'
+            Add-Result renderthread "${name}: GPU timestamps, capture and Play -> Stop work with the render thread" ($p -and [double]$p.gpuMs -gt 0 -and (Test-Path $shot) -and $i.enabled -and [int]$i.queue.presents -ge 10) $(if ($p) { "GPU $($p.gpuMs) ms, frame $($p.frameMs) ms, presents after stop $($i.queue.presents)" } else { 'no perf' })
+            Invoke-Nova 'renderthread set --enabled false' | Out-Null
+            Invoke-Nova 'window scene' | Out-Null
+            Invoke-Nova 'scene new --force' | Out-Null
+        }
+        finally
+        {
+            Invoke-Nova 'renderthread set --enabled false' | Out-Null
+            Write-Host "  $(Stop-TestEditor $ed)"
+        }
+    }
 }
 
 # ------------------------------------------------------------------ 메모리 알로케이터 · 씬 힙
@@ -6723,6 +6775,36 @@ function Suite-Memory
         Invoke-Nova 'wait 10' | Out-Null
         $m = MemInfo
         Add-Result memory 'Play → Stop: the play-mode scene heap is returned, nothing lingers' (([int]$m.released -gt $before) -and @($m.heaps | Where-Object { $_.lingering }).Count -eq 0) ("released during play/stop {0}, lingering {1}, last '{2}' one block {3}" -f ([int]$m.released - $before), @($m.heaps | Where-Object { $_.lingering }).Count, $m.lastReleased.name, $m.lastReleased.coalescedToOneBlock)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
+# ------------------------------------------------------------------ 데이터 지향 Transform · 컬링
+function Suite-Transform
+{
+    # Transform SoA 저장소 (늦은 계산 · 프레임마다 병렬 Flush) 와 컬링 (렌더러 목록 · 월드 번호로 건너뛰기 · 옥트리 칸 재사용 · SIMD).
+    #  nova transform test: 무작위 계층 조작이 예전 방식 (즉시 계산) 과 같은 값 · 컬링이 전부 직접 검사와 같은 결과
+    Write-Host '[transform]'
+    $ed = Start-TestEditor -WatchSeconds 600
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        $t = Invoke-NovaJson 'transform test'
+        foreach ($r in @($t.tests)) { Add-Result transform $r.name ([bool]$r.ok) ('{0} ({1:N0} ms)' -f $r.detail, [double]$r.ms) }
+        if (-not $t) { Add-Result transform 'transform test' $false 'no reply' }
+
+        $b = Invoke-NovaJson 'transform bench --roots 500 --children 9 --depth 1 --frames 10'
+        Add-Result transform 'bench (5000 cubes): still frames skip unchanged renderers — culling update far cheaper than with everything moving' ($b -and [double]$b.cullUpdateStaticMs * 3 -lt [double]$b.cullUpdateMovedMs -and [int]$b.visible -gt 0) $(if ($b) { 'move roots {0:N2} ms + flush {1:N2} ms, culling update moved {2:N2} / still {3:N2} ms, frustum test {4:N2} ms, visible {5}' -f [double]$b.moveRootsMs, [double]$b.flushMs, [double]$b.cullUpdateMovedMs, [double]$b.cullUpdateStaticMs, [double]$b.cullMs, $b.visible } else { 'no reply' })
+
+        # 실제 장면: Transform 이 저장소에 있고, 프레임마다 바뀌지 않은 렌더러는 건너뛴다
+        Invoke-Nova 'scene open Assets/Scenes/CityShowcase.scene --force' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $i = Invoke-NovaJson 'transform info'
+        Add-Result transform 'CityShowcase: transforms live in the SoA store, culling skips unchanged renderers every frame' ($i -and [int]$i.transforms -gt 100 -and [int64]$i.culling.fastSkips -gt 0 -and [int]$i.culling.tracked -gt 50) $(if ($i) { "transforms $($i.transforms), flushes $($i.flushes), culling: renderers $($i.culling.renderers), tracked $($i.culling.tracked), skipped (unchanged) $($i.culling.fastSkips), recomputed $($i.culling.updated)" } else { 'no reply' })
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
     }
@@ -7793,6 +7875,7 @@ try
                 'physicsasync' { Suite-PhysicsAsync }
                 'renderthread' { Suite-RenderThread }
                 'memory' { Suite-Memory }
+                'transform' { Suite-Transform }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

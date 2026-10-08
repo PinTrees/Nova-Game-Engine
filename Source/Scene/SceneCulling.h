@@ -19,6 +19,10 @@ namespace SceneCulling
 	inline bool ShadowPass = false; // 마지막 Cull 이 그림자 패스 (LOD 는 그림자를 따로 고른다)
 
 	void Update(Scene* scene);                          // 프레임마다 한 번 (그리기 전)
+	// Mesh Renderer · Skinned Mesh Renderer 의 생성자 · 소멸자 (프레임마다 모든 GameObject 를 훑지 않고 이 목록만 본다)
+	void RegisterRenderer(Component* renderer, bool skinned);
+	void UnregisterRenderer(Component* renderer);
+	nlohmann::json Info();   // 렌더러 수 · 추적 · 노드 · 건너뛴 (바뀌지 않은) 렌더러 · 다시 계산한 렌더러
 	void Cull(CXMMATRIX viewProj, bool shadowPass);     // 패스마다 (같은 절두체면 한 번으로 여러 패스)
 	uint32_t FrameIndex();                              // Update 마다 1 씩 (프레임 안에서만 쓰는 목록의 유효성 검사용)
 

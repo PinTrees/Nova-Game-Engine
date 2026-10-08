@@ -2,6 +2,7 @@
 #include "Gfx.h"
 #include <memory>
 #include <string>
+#include <nlohmann/json.hpp>
 
 namespace Rhi { class Device; }
 
@@ -26,6 +27,12 @@ namespace GfxVk
 	void ReleaseWindow(GfxDevice* device, HWND window);
 	// 지금까지 기록한 명령을 GPU 에 보내고 끝날 때까지 기다린다 (검사 · 종료)
 	void WaitIdle(GfxDevice* device);
+
+	// 렌더 스레드 (Multithreaded Rendering): 그래픽 큐 작업 (vkQueueSubmit2 · vkQueuePresentKHR) 을 렌더 스레드가.
+	//  기록 · 이미지 받기는 메인 그대로. Sync = 넣은 큐 작업이 다 실행될 때까지. Info = 통계 (꺼져 있으면 빈 객체)
+	bool SetRenderThread(GfxDevice* device, bool on);
+	void SyncRenderThread(GfxDevice* device);
+	nlohmann::json RenderThreadInfo(GfxDevice* device, bool reset = false);
 
 	bool IsFormatSupported(DXGI_FORMAT format);
 

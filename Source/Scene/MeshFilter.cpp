@@ -64,4 +64,5 @@ GENERATE_COMPONENT_FUNC_FROMJSON(MeshFilter)
 	DE_SERIALIZE_WSTRING(j, m_MeshPath, "meshPath");
 	if (m_MeshPath != L"")
 		m_Mesh = ResourceManager::GetI()->LoadMesh(m_MeshPath, m_MeshSubsetIndex);
+	++s_BindingSerial;
 }

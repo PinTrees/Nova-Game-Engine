@@ -23,6 +23,20 @@ namespace
 	ComPtr<IDxcCompiler3> s_Compiler;
 	ComPtr<IDxcCompiler> s_Legacy;   // Preprocess
 
+	// 프로그램 끝: 이 ComPtr 들을 정적 소멸자가 놓을 때는 dxcompiler.dll 이 이미 떼어진 뒤다 (나중에 불러온 DLL 이 먼저 정리된다).
+	//  그 안으로 Release 를 부르면 DXC 가 abort (0xc0000409) 해 DirectX 12 · Vulkan 편집기가 끝날 때마다 충돌 덤프를 남겼다.
+	//  정상 종료는 App 이 ShaderCross::Shutdown 으로 먼저 놓는다. 그러지 못했으면 여기서는 Release 없이 버린다 (프로세스가 끝나는 중).
+	//  위의 ComPtr 보다 뒤에 선언 — 그것들보다 먼저 소멸한다
+	struct ExitGuard
+	{
+		~ExitGuard()
+		{
+			s_Utils.Detach();
+			s_Compiler.Detach();
+			s_Legacy.Detach();
+		}
+	} s_ExitGuard;
+
 	bool Load()
 	{
 		if (s_Tried)
@@ -458,6 +472,15 @@ namespace ShaderCross
 		if (!ok && error)
 			*error = s_LoadError;
 		return ok;
+	}
+
+	void Shutdown()
+	{
+		s_Legacy.Reset();
+		s_Compiler.Reset();
+		s_Utils.Reset();
+		s_Tried = true;   // 다시 불러오지 않는다 (끝내는 중 — 변환은 실패로 돌려준다)
+		s_LoadError = "shader converter already shut down";
 	}
 
 	bool CompileEffect(const std::wstring& fxPath, EffectGlsl& out)

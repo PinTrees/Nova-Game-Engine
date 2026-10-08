@@ -58,11 +58,13 @@ namespace GfxD3D12Impl
 		// 그 창의 버퍼를 쓰는 명령이 다 끝난 뒤 (창 닫기는 드물다)
 		Submit(false);
 		WaitSerial(Submitted);
+		if (Worker) Worker->Sync();   // 렌더 스레드의 Present 도
 		Swaps.erase(it);
 	}
 
 	void Dev::DestroyAllSwapchains()
 	{
+		if (Worker) Worker->Sync();
 		Swaps.clear();
 	}
 
@@ -74,6 +76,12 @@ namespace GfxD3D12Impl
 		{
 			Submit(false);
 			return;
+		}
+		// 렌더 스레드: 이 창의 앞 Present 가 끝나야 지금 버퍼 번호가 맞고 크기를 바꿀 수 있다 (핑퐁 — 한 프레임까지만 앞선다)
+		if (Worker && s.PresentTask)
+		{
+			PROFILE_SCOPE("RenderThread.WaitPreviousPresent");
+			Worker->WaitFor(s.PresentTask);
 		}
 		if (s.Width != (UINT)width || s.Height != (UINT)height)
 		{
@@ -131,13 +139,28 @@ namespace GfxD3D12Impl
 		Submit(false);
 		const uint64_t serial = Submitted;
 		const UINT flags = interval <= 0 && AllowTearing ? DXGI_PRESENT_ALLOW_TEARING : 0;
-		const HRESULT hr = s.Chain->Present(interval > 0 ? 1 : 0, flags);
-		if (FAILED(hr))
+		if (Worker)
 		{
-			char buf[64];
-			snprintf(buf, sizeof(buf), "hr=0x%08X", (unsigned)hr);
-			Once(std::string("present-fail:") + buf, "Present failed: %s", buf);
-			CheckRemoved(hr, "Present");
+			// 렌더 스레드가 위 제출 다음에 Present (스왑체인은 그때까지 붙잡아 둔다)
+			QueueTask t;
+			t.Kind = kTaskPresent;
+			t.Chain = s.Chain.Get();
+			t.Chain->AddRef();
+			t.Sync = interval > 0 ? 1 : 0;
+			t.Flags = flags;
+			s.PresentTask = Worker->Push(t);
+			if (pace) ++WorkerFrames;
+		}
+		else
+		{
+			const HRESULT hr = s.Chain->Present(interval > 0 ? 1 : 0, flags);
+			if (FAILED(hr))
+			{
+				char buf[64];
+				snprintf(buf, sizeof(buf), "hr=0x%08X", (unsigned)hr);
+				Once(std::string("present-fail:") + buf, "Present failed: %s", buf);
+				CheckRemoved(hr, "Present");
+			}
 		}
 		if (!pace) return;
 		// 2 프레임 넘게 앞서 가지 않는다 (업로드 링 · 디스크립터 링이 끝없이 늘지 않게)

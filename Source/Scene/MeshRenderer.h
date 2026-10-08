@@ -68,11 +68,12 @@ public:
 	void SetSortingLayerId(int id) { m_SortingLayerId = id; }
 	int GetSortingOrder() const { return m_SortingOrder; }
 	void SetSortingOrder(int order) { m_SortingOrder = order; }
-	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; }
+	void SetMesh(shared_ptr<Mesh> mesh) { m_Mesh = mesh; ++s_BindingSerial; }
 	// 엔진 내장 메시("builtin:Cube" 등)를 지정: 경로를 저장해 두었다가 씬을 다시 열 때 복원한다
 void SetBuiltinMesh(const wstring& builtinPath, shared_ptr<Mesh> mesh)
 	{
 		m_Mesh = mesh;
+		++s_BindingSerial;
 		m_MeshPath = builtinPath;
 		m_MeshSubsetIndex = 0;
 		// Unity 기본 도형처럼 Default-Material 이 붙은 상태로 생성

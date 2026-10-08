@@ -3,6 +3,7 @@
 #include "UnityGUI.h"
 #include "EditorGUI.h"
 #include "RectTransform.h"
+#include "TransformStore.h"
 
 // Unity 와 같은 오일러 순서(Z → X → Y). 라디안 입력
 Quaternion Transform::CreateQuaternion(double x, double y, double z)
@@ -21,11 +22,12 @@ Transform::Transform()
 {
 	m_InspectorTitleName = "Transform";
 	m_InspectorIconPath = L"transform.png";
+	m_Slot = TransformStore::Allocate(this);
 }
 
 Transform::~Transform()
 {
-
+	TransformStore::Release(m_Slot);   // 이 자리를 부모로 둔 자식은 루트가 된다 (세대 번호 — 예전 weak_ptr 부모가 사라진 것과 같다)
 }
 
 void Transform::Awake()
@@ -95,52 +97,37 @@ Vec3 Transform::ToEulerAngles(Quaternion q)
 
 void Transform::UpdateTransform()
 {
-	// ���� ��ȯ ��� ���� 
-	Matrix S = Matrix::CreateScale(m_LocalScale);
-	// ���� ���Ϸ� ���� ���ʹϾ����� ��ȯ
-	// 회전의 기준 값은 쿼터니언 (오일러 → 쿼터니언 왕복 오차/짐벌 락 없음)
-	Matrix QR = Matrix::CreateFromQuaternion(m_LocalRotation);
+	// 로컬 값을 SoA 배열에 두고 이 Transform 과 아래 계층을 '더러움' 으로 — 월드 값은 읽을 때 또는 프레임마다 한 번에 계산된다
+	//  (예전: 바꿀 때마다 하위 계층 전체의 행렬 · 회전 · 오일러 각을 즉시 다시 계산)
+	TransformStore::SetLocal(m_Slot, m_LocalPosition, m_LocalRotation, m_LocalScale);
+}
 
-	Matrix T = Matrix::CreateTranslation(m_LocalPosition);
+void Transform::SetParent(shared_ptr<Transform> parent)
+{
+	_parent = parent;
+	TransformStore::SetParent(m_Slot, parent ? (int32_t)parent->m_Slot : -1);
+}
 
-	m_LocalMatrix = S * QR * T;
-
-	if (HasParent())
-	{
-		m_WorldMatrix = m_LocalMatrix * Parent()->GetWorldMatrix();
-	}
-	else
-	{
-		m_WorldMatrix = m_LocalMatrix;
-	}
-
-	// 월드 위치/회전/크기: 행렬 분해(Decompose)는 비균일 스케일 부모 아래에서 기울어진 행렬이면 실패하고
-	// 값을 갱신하지 않으므로, Unity 처럼 계층을 따라 직접 합성한다.
-	m_Position = Vec3(m_WorldMatrix._41, m_WorldMatrix._42, m_WorldMatrix._43);
-	if (HasParent())
-	{
-		m_Rotation = m_LocalRotation * Parent()->GetRotation();   // 로컬 회전 → 부모 회전 순서
-		m_Rotation.Normalize();
-		const Vec3 ps = Parent()->GetScale();
-		m_Scale = Vec3(m_LocalScale.x * ps.x, m_LocalScale.y * ps.y, m_LocalScale.z * ps.z);   // Unity 의 lossyScale 과 같은 근사
-	}
-	else
-	{
-		m_Rotation = m_LocalRotation;
-		m_Scale = m_LocalScale;
-	}
-	m_EulerAngles = ToEulerAngles(m_Rotation);
-	for (float* v : { &m_EulerAngles.x, &m_EulerAngles.y, &m_EulerAngles.z })
+Vec3 Transform::GetEulerAngle()
+{
+	// 월드 오일러 각은 요청할 때만 (월드 회전이 바뀐 뒤 처음 한 번)
+	const Quaternion rotation = GetRotation();
+	const bool fresh = !TransformStore::IsDirty(m_Slot);   // 메인이 아닌 스레드에서 더러운 값을 읽었으면 캐시하지 않는다
+	const uint32_t version = TransformStore::Version(m_Slot);
+	if (fresh && version == m_EulerVersion)
+		return m_EulerAngles;
+	Vec3 e = ToEulerAngles(rotation);
+	for (float* v : { &e.x, &e.y, &e.z })
 	{
 		if (*v < 0.0f) *v += 360.0f;
 		if (fabsf(*v) < 1e-4f || fabsf(*v - 360.0f) < 1e-4f) *v = 0.0f;
 	}
-
-	// Children
-	for (const shared_ptr<Transform>& child : _children)
+	if (fresh)
 	{
-		child->UpdateTransform();
+		m_EulerAngles = e;
+		m_EulerVersion = version;
 	}
+	return e;
 }
 
 Vec3 Transform::GetLocalEulerAngles()
@@ -248,7 +235,6 @@ void Transform::SetPosition(const Vec3& worldPosition)
 	}
 }
 
-/* ���� ��ǥ���� x, y, z �� �� �ϳ��� ���� ����ȭ�Ͽ� ��ȯ�Ѵ�. */
 void Transform::SetWorldPose(const Vec3& position, const Quaternion& rotation, const Vec3& lossyScale)
 {
 	// 행렬 분해(비균일 스케일 + 회전이면 기울어짐 때문에 실패할 수 있음) 대신 위치/회전/크기를 따로 역변환한다 (Unity 와 같은 방식)
@@ -271,22 +257,15 @@ void Transform::SetWorldPose(const Vec3& position, const Quaternion& rotation, c
 	}
 }
 
-Vec3 Transform::GetAxis(int index) const
+Vec3 Transform::GetAxis(int index)
 {
-	// �Է°� �˻�
-	if (index < 0 || index > 2)  // 3x3 �Ǵ� 4x4 ����� ��ȿ�� �� �ε����� 0, 1, 2
+	if (index < 0 || index > 2)
 	{
-		std::cout << "RigidBody::getAxis::Out of index" << std::endl;
+		std::cout << "Transform::GetAxis: index out of range" << std::endl;
 		return Vector3();
 	}
-
-	// ���� ��Ʈ�������� �� ���� ����
-	Vector3 axis(
-		m_WorldMatrix(index, 0),
-		m_WorldMatrix(index, 1),
-		m_WorldMatrix(index, 2)
-	);
-
+	const Matrix world = GetWorldMatrix();
+	Vector3 axis(world(index, 0), world(index, 1), world(index, 2));
 	axis.Normalize();  // ���͸� ����ȭ
 
 	return axis;
@@ -317,6 +296,12 @@ void Transform::OnInspectorGUI()
 GENERATE_COMPONENT_FUNC_TOJSON(Transform)
 {
 	json j;
+
+	// 월드 값의 기준은 TransformStore — 저장할 사본을 채운다
+	Transform* self = const_cast<Transform*>(this);
+	self->m_Position = self->GetPosition();
+	self->m_Scale = self->GetScale();
+	self->m_EulerAngles = self->GetEulerAngle();
 
 	SERIALIZE_TYPE(j, Transform);
 	SERIALIZE_QUATERNION(j, m_LocalRotation);
@@ -359,9 +344,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(Transform)
 	DE_SERIALIZE_VECTOR3(j, m_EulerAngles);
 	DE_SERIALIZE_VECTOR3(j, m_Position);
 	DE_SERIALIZE_VECTOR3_D(j, m_Scale, Vec3::One);
-	// 예전 씬: 한 번도 갱신되지 않은 Transform 이 월드 크기 0 으로 저장됐다 → 로컬 크기로 (부모 아래면 UpdateTransform 이 다시 계산)
-	if (m_Scale.x == 0.0f && m_Scale.y == 0.0f && m_Scale.z == 0.0f)
-		m_Scale = m_LocalScale;
+	// 월드 값 (m_Position · m_Scale · m_EulerAngles) 은 읽기만 하고 버린다 — 아래 UpdateTransform 뒤 로컬 값과 부모로 다시 계산된다
+	m_EulerVersion = UINT32_MAX;
 
 	if (!j.contains("m_LocalRotation"))
 		m_LocalRotation = EulerToQuaternion(m_LocalEulerAngles);

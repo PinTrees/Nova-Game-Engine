@@ -468,6 +468,11 @@ namespace Jobs
 	void SetInline(bool on) { s_Inline = on; }
 	bool Inline() { return s_Inline.load(std::memory_order_relaxed) || s_WorkerCount == 0 || !s_Initialized; }
 
+	namespace { alignas(64) std::atomic<int> s_ParallelSections{ 0 }; }
+	void EnterParallel() { s_ParallelSections.fetch_add(1, std::memory_order_acq_rel); }
+	void LeaveParallel() { s_ParallelSections.fetch_sub(1, std::memory_order_acq_rel); }
+	bool InParallel() { return s_ParallelSections.load(std::memory_order_acquire) > 0; }
+
 	Job* AllocateJob()
 	{
 		Job* j = nullptr;

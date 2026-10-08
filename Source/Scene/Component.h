@@ -70,6 +70,10 @@ public:
 	uint32_t CullStamp = 0;
 	bool CullTracked = false;
 	uint32_t CullSlot = 0;          // SceneCulling 의 자리 번호 (CullTracked 일 때) — 프레임마다 해시 찾기 없이
+	int32_t CullReg = -1;           // SceneCulling 렌더러 목록의 자리 (Mesh Renderer · Skinned Mesh Renderer)
+	// 컴포넌트 · 메시 연결 번호: 컴포넌트를 GameObject 에 붙이거나 MeshFilter · Mesh Renderer 의 메시를 바꿀 때 +1.
+	//  같으면 컬링이 렌더러마다 메시를 다시 찾지 않는다 (SceneCulling::Update — 놓친 경로는 돌아가며 하는 확인이 바로잡는다)
+	static uint32_t s_BindingSerial;
 	// LOD Group (LODGroup::SelectForView 가 뷰마다 매김): LodStamp == SceneCulling::LodStamp 일 때만 따른다
 	uint32_t LodStamp = 0;
 	bool LodHidden = false;         // 카메라 패스 (깊이 · 본 · 투명) 에서 안 그림
@@ -79,7 +83,7 @@ public:
 
 private:
 	friend class GameObject;
-	void SetGameObject(GameObject* gameObject) { m_pGameObject = gameObject; }
+	void SetGameObject(GameObject* gameObject) { m_pGameObject = gameObject; ++s_BindingSerial; }
 
 public:
 	virtual json toJson() const = 0;

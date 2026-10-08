@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **메모리 알로케이터 · 씬 힙 (씬 전환 단편화 0) · 프레임 아레나 · 거짓 공유**
+- 갱신 시각: 2026년 10월 9일 — **렌더 스레드 DirectX 12 · Vulkan + 데이터 지향 Transform · 컬링 (SoA · Job System · SIMD) + dxcompiler 종료 충돌**
+  - 사용자 요청: "렌더 스레드를 D3D12 · Vulkan 으로 넓히기" + "데이터 지향 Transform · 컬링 (SoA) 진행", 이어서 "Fix dxcompiler.dll crash at editor exit"
+  - 렌더 스레드: `Source/Graphics/Common/SubmitThread.h` (무잠금 SPSC 링 + 작업 번호), D3D12 (`ExecuteCommandLists` + `Signal` · `Wait` · Present — 제출한 명령 목록을 할당기 칸에 묶어 Reset 을 늦춤), Vulkan (`vkQueueSubmit2` · `vkQueuePresentKHR` — 이미지 받기는 메인, 앞 Present 를 기다린 뒤). 켜고 끌 때 창마다 Present 번호를 지운다 (끄고 다시 켜면 멈췄다). Release: Vulkan 8.88 → 5.39 ms, D3D12 5.55 → 5.19 ms
+  - Transform: `Source/Scene/TransformStore.*` (SoA — 로컬 TRS · 64 B 정렬 월드 행렬 · 월드 회전 · 크기 · 부모 + 세대 · 더러움 · 번호). Set = 배열 복사 + 아래 계층 더러움, Get = 깨끗하면 배열 · 더러우면 그 사슬만 (메인 아님 · ParallelFor 중이면 그 자리 계산), 프레임마다 Flush (겹치지 않는 하위 계층을 잡으로). 오일러 각은 요청할 때만. Transform.h/.cpp 는 UTF-8 로 정리 (공개 API 그대로)
+  - 컬링: 렌더러 목록 (생성자 · 소멸자), 씬 표시, Component::s_BindingSerial (컴포넌트 붙이기 · 메시 바꾸기) 이 같고 월드 번호가 같으면 건너뜀, 움직인 것은 잡이 로컬 상자로 새 상자, 지금 칸에 맞으면 다시 넣지 않음, SoA 상자 + SIMD 4 개씩, 큰 장면은 질의를 잡으로. 돌아가며 512 개는 메시를 실제로 확인 (놓친 경로 자가 복구, Debug 는 로그)
+  - Jobs: `EnterParallel/LeaveParallel/InParallel` (ParallelFor 구간 — 이때 Transform 늦은 계산은 배열을 고치지 않는다)
+  - dxcompiler 종료 충돌 (10월 1일부터 DX12 · Vulkan 편집기가 끝날 때마다 0xc0000409 + 26 MB 덤프): 정적 ComPtr 이 DLL 이 떼어진 뒤 Release → App 이 `ShaderCross::Shutdown` 으로 먼저 놓고, 정적 소멸 때는 Detach. 확인: 충돌 기록 · 덤프 0, 종료 4 → 1.1 초
+  - 지난 커밋의 Release 빌드 오류 고침: AllocTracker::Start 의 Release 쪽 정의 서명
+  - 검사: 새 스위트 `transform` 4/4 (계층 9300 · 잡 읽기 106200 · 컬링 60000 결정 차이 0), renderthread 14/14 (DX12 · Vulkan 각 4), Transform 에 닿는 14 스위트 139/139. 문서 TRANSFORM_SOA · RENDER_THREAD, Showcase 276
+- 이전: 2026년 10월 9일 — **메모리 알로케이터 · 씬 힙 (씬 전환 단편화 0) · 프레임 아레나 · 거짓 공유**. **완료 (커밋 776eb1a, 푸시함)**
   - 사용자 요청: "커스텀 메모리 알로케이터 (Linear/Stack/Pool/Buddy), 캐시 라인 (64 B) 정렬 · False Sharing 방지, 씬 전환 시 단편화 제로화 설계"
   - `Source/Core/Allocators.*` (Region · Linear (무잠금 CAS) · Stack · Pool · ConcurrentPool · Buddy · CacheAligned · pmr 어댑터), `MemoryHeaps.*` (씬마다 256 MB Buddy + 크기별 Pool 16, 활성 힙 = 불러오는 씬 또는 현재 씬, 주소로 놓기, 남은 힙 + 꼬리표별 누수 보고), `FrameArena.*` (16 MB x 2 번갈아), `AllocTracker.*` (Debug CRT 훅 — 프레임당 할당 · 구간 · 호출 스택), `AllocatorTests.cpp` (CLI memory info|test|allocs)
   - 연결: Scene 이 힙을 갖고 ~Scene 이 돌려준다, Scene::Load = ActiveScope, GameObject operator new/delete, AddComponent · 팩토리 = Heaps::MakeShared (allocate_shared)

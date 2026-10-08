@@ -25,6 +25,8 @@ namespace RenderThread
 #include "Profiler.h"
 #include "CliServer.h"
 #include "RenderPipelineSettings.h"
+#include "GfxD3D12.h"
+#include "GfxVk.h"
 #include <atomic>
 #include <chrono>
 #include <thread>
@@ -194,10 +196,21 @@ namespace RenderThread
 		void SyncHook() { Sync(); }
 	}
 
+	namespace
+	{
+		bool IsDx11()
+		{
+			GfxDevice* dev = Gfx::Device();
+			return dev && dev->Api() == GfxApi::DirectX11 && dev->Native() != nullptr;
+		}
+		GfxApi Api() { GfxDevice* dev = Gfx::Device(); return dev ? dev->Api() : GfxApi::DirectX11; }
+		// DirectX 12 · Vulkan: 큐 작업만 렌더 스레드로 (백엔드가 한다)
+		bool IsQueueBackend() { GfxDevice* dev = Gfx::Device(); return dev && (dev->Api() == GfxApi::DirectX12 || dev->Api() == GfxApi::Vulkan); }
+	}
+
 	bool Supported()
 	{
-		GfxDevice* dev = Gfx::Device();
-		return dev && dev->Api() == GfxApi::DirectX11 && dev->Native() != nullptr;
+		return IsDx11() || IsQueueBackend();
 	}
 
 	bool Enabled() { return s_Enabled.load(std::memory_order_acquire); }
@@ -210,11 +223,24 @@ namespace RenderThread
 			return true;
 		GfxContext* ctx = Gfx::Context();
 		std::string error;
+		if (IsQueueBackend())
+		{
+			const bool d3d12 = Api() == GfxApi::DirectX12;
+			if (!(d3d12 ? GfxD3D12::SetRenderThread(Gfx::Device(), on) : GfxVk::SetRenderThread(Gfx::Device(), on)))
+			{
+				EditorLog::Write("RenderThread", "could not %s the %s render thread (device lost?)", on ? "start" : "stop", d3d12 ? "DirectX 12" : "Vulkan");
+				return false;
+			}
+			s_Enabled = on;
+			EditorLog::Write("RenderThread", on ? "on (%s): commands recorded on the main thread, queue submits + present on the render thread" : "off (%s)",
+				d3d12 ? "DirectX 12" : "Vulkan");
+			return true;
+		}
 		if (on)
 		{
 			if (!Supported())
 			{
-				EditorLog::Write("RenderThread", "not supported on this graphics API (DirectX 11 only)");
+				EditorLog::Write("RenderThread", "not supported on this graphics API (DirectX 11 · 12 · Vulkan)");
 				return false;
 			}
 			s_Immediate = GfxDx11::Immediate(ctx);
@@ -274,7 +300,7 @@ namespace RenderThread
 		static const bool s_Env = [] { char v[8] = {}; return ::GetEnvironmentVariableA("NOVA_D3D11_DEBUGLOG", v, sizeof(v)) > 0 && v[0] == '1'; }();
 		if (!s_Env || Enabled())
 			return;   // 렌더 스레드면 SubmitFrame 이 한다
-		if (!s_Info && Supported())
+		if (!s_Info && IsDx11())
 			if (auto* dev = static_cast<ID3D11Device*>(Gfx::Device()->Native()))
 				dev->QueryInterface(IID_PPV_ARGS(s_Info.GetAddressOf()));
 		DrainDebugMessages();
@@ -316,8 +342,8 @@ namespace RenderThread
 
 	void Flush()
 	{
-		if (!Enabled())
-			return;
+		if (!Enabled() || IsQueueBackend())
+			return;   // DirectX 12 · Vulkan: 제출이 곧 넘기기
 		++s_Flushes;
 		Push(false, {});
 	}
@@ -328,6 +354,12 @@ namespace RenderThread
 			return;
 		PROFILE_SCOPE("RenderThread.Sync");
 		++s_Syncs;
+		if (IsQueueBackend())
+		{
+			if (Api() == GfxApi::DirectX12) GfxD3D12::SyncRenderThread(Gfx::Device());
+			else GfxVk::SyncRenderThread(Gfx::Device());
+			return;
+		}
 		std::vector<PresentItem> presents;
 		presents.swap(s_Pending);   // 보통 비어 있다
 		WaitFor(Push(false, std::move(presents)));
@@ -335,8 +367,26 @@ namespace RenderThread
 
 	nlohmann::json Info()
 	{
+		if (IsQueueBackend())
+		{
+			// DirectX 12 · Vulkan: 백엔드의 큐 작업 통계 + 프레임당
+			const bool d3d12 = Api() == GfxApi::DirectX12;
+			nlohmann::json q = d3d12 ? GfxD3D12::RenderThreadInfo(Gfx::Device()) : GfxVk::RenderThreadInfo(Gfx::Device());
+			nlohmann::json r = { { "supported", true }, { "enabled", Enabled() }, { "api", d3d12 ? "DirectX12" : "Vulkan" }, { "mode", "queue" },
+				{ "syncs", s_Syncs.load() } };
+			if (!q.empty())
+			{
+				const double frames = (std::max)(1.0, (double)q.value("frames", 0ull));
+				r["frames"] = q["frames"];
+				r["queue"] = q;
+				r["submitMsPerFrame"] = q.value("submitMs", 0.0) / frames;
+				r["presentMsPerFrame"] = q.value("presentMs", 0.0) / frames;
+				r["mainWaitMsPerFrame"] = q.value("mainWaitMs", 0.0) / frames;
+			}
+			return r;
+		}
 		const uint64_t frames = s_Frames.load();
-		return { { "supported", Supported() }, { "enabled", Enabled() }, { "frames", frames }, { "commandLists", s_Lists.load() },
+		return { { "supported", Supported() }, { "api", "DirectX11" }, { "mode", "deferred context" }, { "enabled", Enabled() }, { "frames", frames }, { "commandLists", s_Lists.load() },
 			{ "syncs", s_Syncs.load() }, { "flushes", s_Flushes.load() }, { "submitted", s_Submitted.load() }, { "completed", s_Completed.load() },
 			{ "executeMsPerFrame", frames ? s_ExecuteMs.load() / frames : 0.0 }, { "presentMsPerFrame", frames ? s_PresentMs.load() / frames : 0.0 },
 			{ "mainWaitMsPerFrame", frames ? s_MainWaitMs.load() / frames : 0.0 } };
@@ -344,7 +394,7 @@ namespace RenderThread
 
 	void RegisterEditor()
 	{
-		CliServer::Register("renderthread", "Render thread (Multithreaded Rendering, DirectX 11): {op: info|set|reset, enabled?: bool (saved in Project Settings)}",
+		CliServer::Register("renderthread", "Render thread (Multithreaded Rendering, DirectX 11 / 12 / Vulkan): {op: info|set|reset, enabled?: bool (saved in Project Settings)}",
 			[](const nlohmann::json& args, nlohmann::json& result, std::string& error) {
 				const std::string op = args.value("op", std::string("info"));
 				if (op == "set")
@@ -355,7 +405,7 @@ namespace RenderThread
 						RenderPipelineSettings::SetMultithreadedRendering(on);
 						if (!SetEnabled(on) && on)
 						{
-							error = "render thread could not start (DirectX 11 only — see Editor.log)";
+							error = "render thread could not start (DirectX 11 / 12 / Vulkan — see Editor.log)";
 							return false;
 						}
 					}
@@ -364,6 +414,11 @@ namespace RenderThread
 				{
 					s_Frames = 0; s_Syncs = 0; s_Flushes = 0; s_Lists = 0;
 					s_ExecuteMs = 0; s_PresentMs = 0; s_MainWaitMs = 0;
+					if (IsQueueBackend())
+					{
+						if (Api() == GfxApi::DirectX12) GfxD3D12::RenderThreadInfo(Gfx::Device(), true);
+						else GfxVk::RenderThreadInfo(Gfx::Device(), true);
+					}
 				}
 				else if (op != "info")
 				{

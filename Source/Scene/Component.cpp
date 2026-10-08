@@ -5,6 +5,8 @@
 
 int Component::nextInstanceId = 0; 
 
+uint32_t Component::s_BindingSerial = 1;
+
 Component::Component()  
 	: m_InstanceId(nextInstanceId++) 
 	, m_pGameObject(nullptr)

@@ -110,6 +110,7 @@ void MeshSelectEditorDialog::OnRender()
                     if (ImGui::IsMouseDoubleClicked(0))
                     {
                         m_SelectMesh = m_SystemSelectMesh;
+                        ++Component::s_BindingSerial;   // 컬링이 메시를 다시 본다
                         m_SelectSubsetIndex = m_SystemSelectMeshIndex;
                         m_SelectMeshFilePath = m_SystemSelectMeshFilePath;
                         Close();

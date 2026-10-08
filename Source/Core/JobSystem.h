@@ -63,6 +63,10 @@ namespace Jobs
 	bool IsWorkerThread();
 	void SetInline(bool on);   // 비교 · 문제 찾기: 모든 잡을 부른 스레드에서 바로 (일꾼을 쓰지 않는다)
 	bool Inline();
+	// ParallelFor 가 도는 중인가 (메인도 한 몫을 돈다) — 그 사이에는 공유 캐시를 고치지 말고 읽기만 (데이터 지향 Transform 의 늦은 계산)
+	void EnterParallel();
+	void LeaveParallel();
+	bool InParallel();
 
 	Job* AllocateJob();
 	void Submit(Job* job);
@@ -110,6 +114,7 @@ namespace Jobs
 			fn(0, count);
 			return;
 		}
+		struct Section { Section() { EnterParallel(); } ~Section() { LeaveParallel(); } } section;
 		Counter counter;
 		int begin = batch;
 		for (; begin < count; begin += batch)

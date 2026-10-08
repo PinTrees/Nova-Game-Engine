@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include "GfxD3D12.h"
 #include "GfxD3D12Shared.h"
+#include "SubmitThread.h"
+#include <atomic>
 
 // Gfx DirectX 12 구현 내부 (GfxD3D12*.cpp 만 쓴다). Vulkan 백엔드와 같은 생각:
 //  - 제출: 펜스 하나, 제출마다 값 +1. 명령 할당기 · 업로드 링 · 디스크립터 링 · 늦은 삭제는 "마지막으로 쓴 제출 값" 이 끝난 뒤에
@@ -332,7 +334,8 @@ namespace GfxD3D12Impl
 		uint64_t Submitted = 0;    // 마지막으로 제출한 값
 		uint64_t Completed = 0;
 		uint64_t Recording() const { return Submitted + 1; }
-		struct CmdSlot { ComPtr<ID3D12CommandAllocator> Alloc; uint64_t Retire = 0; };
+		// List: 렌더 스레드가 켜져 있으면 제출한 목록을 할당기와 함께 묶어 둔다 (렌더 스레드가 실행하기 전에 Reset 하면 안 된다)
+		struct CmdSlot { ComPtr<ID3D12CommandAllocator> Alloc; uint64_t Retire = 0; ComPtr<ID3D12GraphicsCommandList> List; };
 		std::vector<CmdSlot> FreeAllocs, InFlightAllocs;
 		CmdSlot CurrentAlloc;
 		ComPtr<ID3D12GraphicsCommandList> List;
@@ -394,6 +397,7 @@ namespace GfxD3D12Impl
 			std::vector<ComPtr<ID3D12Resource>> Buffers;
 			UINT Width = 0, Height = 0;
 			bool Failed = false;
+			uint64_t PresentTask = 0;   // 렌더 스레드: 이 창의 마지막 Present 작업 번호 (다음 버퍼 번호 · 크기 바꾸기 전에 기다린다)
 		};
 		std::map<HWND, std::unique_ptr<Swap>> Swaps;
 		std::deque<uint64_t> Frames;   // 본 창에 표시한 프레임의 제출 값 (2 프레임 넘게 앞서 가지 않게)
@@ -421,6 +425,17 @@ namespace GfxD3D12Impl
 		void Defer(std::function<void()> fn) { Deferred.push_back({ Recording(), ComputeCover(), std::move(fn) }); }
 		template <class T> void DeferRelease(ComPtr<T> r) { if (r) Defer([r]() mutable { r.Reset(); }); }
 		void CheckRemoved(HRESULT hr, const char* what);
+
+		// ---- 렌더 스레드 (docs/RENDER_THREAD.md): 켜져 있으면 그래픽 큐 작업 (실행 + 신호 · 기다림 · Present) 을 넣은 순서대로 렌더 스레드가 한다.
+		//  기록 (명령 목록 · 장벽 · 디스크립터) 은 그대로 메인. 컴퓨트 큐는 메인 (다른 큐 — 그래픽 신호를 미리 기다려도 된다)
+		struct QueueTask { int Kind = 0; uint64_t Serial = 0; ID3D12CommandList* List = nullptr; ID3D12Fence* Fence = nullptr; uint64_t Value = 0; IDXGISwapChain3* Chain = nullptr; UINT Sync = 0, Flags = 0; };
+		enum { kTaskSubmit = 0, kTaskWait = 1, kTaskPresent = 2 };
+		std::unique_ptr<SubmitThread<QueueTask>> Worker;
+		std::atomic<bool> WorkerLost{ false };   // 렌더 스레드가 본 장치 제거 (메인이 Poll 에서 Lost 로)
+		uint64_t WorkerFrames = 0;               // 렌더 스레드로 넘긴 본 창 프레임 (통계)
+		static void RunTask(void* owner, QueueTask& t);
+		void QueueWait(ID3D12Fence* fence, uint64_t value);   // 그래픽 큐가 펜스 값을 기다린다 (렌더 스레드면 순서대로)
+		void SetWorker(bool on);
 
 		// 업로드 링 (align 은 2 의 거듭제곱이 아니어도 된다 — 구조 버퍼 간격)
 		bool Upload(UINT64 size, UINT64 align, UploadLoc& loc);

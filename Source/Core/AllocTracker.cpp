@@ -244,7 +244,7 @@ namespace Memory::AllocTracker
 	}
 #else
 	bool Supported() { return false; }
-	void Start() {}
+	void Start(bool, const char*) {}
 	void Stop() {}
 	bool Running() { return false; }
 	void OnFrame() {}

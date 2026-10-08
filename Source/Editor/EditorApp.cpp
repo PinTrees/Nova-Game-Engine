@@ -56,6 +56,7 @@
 #include "Ssao.h"
 #include "MotionVectors.h"
 #include "OcclusionCulling.h"
+#include "TransformBench.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
 #include "Light.h"
@@ -243,6 +244,7 @@ bool EditorApp::Init()
 		Jobs::RegisterEditor();   // nova jobs (Job System — info · test · bench · set)
 		RenderThread::RegisterEditor();   // nova renderthread (Multithreaded Rendering)
 		Memory::Heaps::RegisterEditor();   // nova memory (알로케이터 검사 · 씬 힙 통계)
+		TransformBench::RegisterEditor();  // nova transform bench (Transform · 컬링 측정)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile

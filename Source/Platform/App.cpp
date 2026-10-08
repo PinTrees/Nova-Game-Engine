@@ -60,6 +60,10 @@
 #include "RenderThread.h"
 #include "AllocTracker.h"
 #include "FrameArena.h"
+#include "TransformStore.h"
+#if !defined(NOVA_ANDROID) && !defined(NOVA_WEB)
+#include "ShaderCross.h"
+#endif
 #include "UndoSystem.h"
 #include "CliServer.h"
 
@@ -370,6 +374,9 @@ int32 App::Run()
 
 	RenderThread::Shutdown();   // 장치를 내리기 전에 (남은 명령 실행)
 	Jobs::Shutdown();
+#if !defined(NOVA_ANDROID) && !defined(NOVA_WEB)
+	ShaderCross::Shutdown();   // DXC 객체를 dxcompiler.dll 이 떼어지기 전에 놓는다 (정적 소멸 때 놓으면 DXC 가 abort — 종료 충돌)
+#endif
 
 	return (int)msg.wParam;
 }
@@ -395,6 +402,7 @@ bool App::Init()
 {
 	std::ofstream log(_logFileName, std::ios::app);
 	Jobs::Init();   // Job System (일꾼 = 코어 − 1) — 이 스레드가 메인
+	TransformStore::SetMainThread();   // 데이터 지향 Transform: 이 스레드만 SoA 배열을 고친다 (잡은 더러운 값을 그 자리에서 계산)
 	if (!InitPlatform())
 		return false;
 

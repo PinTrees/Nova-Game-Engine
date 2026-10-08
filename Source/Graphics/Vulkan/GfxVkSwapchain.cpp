@@ -71,6 +71,7 @@ namespace GfxVkImpl
 
 	void Dev::DestroyAllSwapchains()
 	{
+		if (Worker) Worker->Sync();
 		for (auto& [w, s] : Swaps)
 			DestroySwapchain(*s, true);
 		Swaps.clear();
@@ -82,6 +83,7 @@ namespace GfxVkImpl
 		if (it == Swaps.end()) return;
 		// 그 창의 이미지를 쓰는 명령이 다 끝난 뒤 (창 닫기는 드물다)
 		Submit(false);
+		if (Worker) Worker->Sync();   // vkDeviceWaitIdle 은 큐를 혼자 써야 한다 (렌더 스레드가 쉴 때)
 		if (Device) vkDeviceWaitIdle(Device);
 		Poll();
 		DestroySwapchain(*it->second, true);
@@ -92,6 +94,7 @@ namespace GfxVkImpl
 	{
 		// 앞 스왑체인 이미지를 쓰는 명령이 모두 끝난 뒤 (창 크기 바꾸기는 드물다)
 		Submit(false);
+		if (Worker) Worker->Sync();
 		vkDeviceWaitIdle(Device);
 		Poll();
 		VkSurfaceCapabilitiesKHR caps;
@@ -172,6 +175,14 @@ namespace GfxVkImpl
 			Submit(false);
 			return;
 		}
+		// 렌더 스레드: 이 창의 앞 Present 가 끝난 뒤에 다음 이미지를 받는다 (스왑체인은 한 스레드씩 · 핑퐁 — 한 프레임까지만 앞선다)
+		if (Worker && s.PresentTask)
+		{
+			PROFILE_SCOPE("RenderThread.WaitPreviousPresent");
+			Worker->WaitFor(s.PresentTask);
+		}
+		if (s.Outdated.exchange(false))
+			s.Interval = -1;   // 렌더 스레드의 Present 가 OUT_OF_DATE · SUBOPTIMAL — 다시 만든다
 		if (!s.Chain || s.RequestW != (uint32_t)width || s.RequestH != (uint32_t)height || s.Interval != interval)
 		{
 			if (!RecreateSwapchain(s, (uint32_t)width, (uint32_t)height, interval))
@@ -241,7 +252,21 @@ namespace GfxVkImpl
 		pi.swapchainCount = 1;
 		pi.pSwapchains = &s.Chain;
 		pi.pImageIndices = &index;
-		r = vkQueuePresentKHR(Queue, &pi);
+		if (Worker)
+		{
+			// 렌더 스레드가 위 제출 다음에 표시
+			QueueTask t;
+			t.Kind = kTaskPresent;
+			t.Chain = s.Chain;
+			t.Index = index;
+			t.PresentWait = done;
+			t.Target = &s;
+			s.PresentTask = Worker->Push(t);
+			if (pace) ++WorkerFrames;
+			r = VK_SUCCESS;
+		}
+		else
+			r = vkQueuePresentKHR(Queue, &pi);
 		if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR)
 			s.Interval = -1;   // 다음 프레임에 다시 만든다
 		else if (r != VK_SUCCESS)

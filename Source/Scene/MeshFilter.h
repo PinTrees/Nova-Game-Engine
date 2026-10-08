@@ -21,6 +21,7 @@ public:
 	void SetMesh(shared_ptr<Mesh> mesh, const wstring& path, int subsetIndex = 0)
 	{
 		m_Mesh = mesh;
+		++s_BindingSerial;   // 컬링이 Mesh Renderer 의 메시를 다시 본다
 		m_MeshPath = path;
 		m_MeshSubsetIndex = subsetIndex;
 	}

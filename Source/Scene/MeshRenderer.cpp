@@ -2,6 +2,7 @@
 #include "RenderStats.h"
 #include "MeshRenderer.h"
 #include "MeshFilter.h"
+#include "SceneCulling.h"
 #include "UnityGUI.h"
 #include "GameObjectFactory.h"
 #include "Effects.h"
@@ -19,10 +20,12 @@ MeshRenderer::MeshRenderer()
 {
 	m_InspectorTitleName = "Mesh Renderer";
 	m_InspectorIconPath = L"mesh_renderer.png";
+	SceneCulling::RegisterRenderer(this, false);   // 컬링의 렌더러 목록
 }
 
 MeshRenderer::~MeshRenderer()
 {
+	SceneCulling::UnregisterRenderer(this);
 }
 
 void MeshRenderer::Render()
@@ -597,7 +600,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(MeshRenderer)
 	DE_SERIALIZE_INT(j, m_MeshSubsetIndex, "subsetIndex");
 	DE_SERIALIZE_WSTRING(j, m_MeshPath, "meshPath");
 	if (m_MeshPath != L"")
-		m_Mesh = ResourceManager::GetI()->LoadMesh(m_MeshPath, m_MeshSubsetIndex);  
+		m_Mesh = ResourceManager::GetI()->LoadMesh(m_MeshPath, m_MeshSubsetIndex);
+	++s_BindingSerial;
 	 
 	DE_SERIALIZE_WSTRING_ARRAY(j, m_MaterialPaths, "m_MaterialPaths");
 	m_pMaterials.clear();   // Undo 등으로 기존 컴포넌트에 다시 읽을 때 중복되지 않게

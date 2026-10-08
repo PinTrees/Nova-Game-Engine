@@ -235,6 +235,11 @@ namespace GfxVkImpl
 	// ============================================================ 장치
 	Dev::~Dev()
 	{
+		if (Worker)
+		{
+			Worker->Stop();   // 남은 큐 작업을 다 실행한 뒤 (vkDeviceWaitIdle 은 큐를 혼자 써야 한다)
+			Worker.reset();
+		}
 		if (Device)
 		{
 			vkDeviceWaitIdle(Device);
@@ -602,11 +607,36 @@ namespace GfxVkImpl
 		si.pSignalSemaphoreInfos = signal;
 		si.waitSemaphoreInfoCount = waits;
 		si.pWaitSemaphoreInfos = waitInfo;
-		const VkResult r = vkQueueSubmit2(Queue, 1, &si, VK_NULL_HANDLE);
-		if (r != VK_SUCCESS)
+		if (Worker)
 		{
-			Check(r, "vkQueueSubmit2");
-			if (r == VK_ERROR_DEVICE_LOST) Lost = true;
+			// 렌더 스레드가 제출 (값만 복사 — 명령 버퍼는 이 제출 값이 끝나야 다시 쓴다)
+			QueueTask t;
+			t.Kind = kTaskSubmit;
+			t.CbCount = count;
+			for (uint32_t i = 0; i < count; ++i)
+				t.Cbs[i] = cbs[i].commandBuffer;
+			t.WaitCount = waits;
+			for (uint32_t i = 0; i < waits; ++i)
+			{
+				t.WaitSem[i] = waitInfo[i].semaphore;
+				t.WaitValue[i] = waitInfo[i].value;
+			}
+			t.SignalCount = si.signalSemaphoreInfoCount;
+			for (uint32_t i = 0; i < t.SignalCount; ++i)
+			{
+				t.SignalSem[i] = signal[i].semaphore;
+				t.SignalValue[i] = signal[i].value;
+			}
+			Worker->Push(t);
+		}
+		else
+		{
+			const VkResult r = vkQueueSubmit2(Queue, 1, &si, VK_NULL_HANDLE);
+			if (r != VK_SUCCESS)
+			{
+				Check(r, "vkQueueSubmit2");
+				if (r == VK_ERROR_DEVICE_LOST) Lost = true;
+			}
 		}
 		Submitted = serial;
 		Main.Retire = serial;
@@ -629,6 +659,11 @@ namespace GfxVkImpl
 	void Dev::Poll()
 	{
 		if (!Device) return;
+		if (!Lost && WorkerLost.load(std::memory_order_relaxed))
+		{
+			EditorLog::Write("Vulkan", "%s", "render thread: device lost");
+			Lost = true;
+		}
 		uint64_t value = 0;
 		if (vkGetSemaphoreCounterValue(Device, Timeline, &value) == VK_SUCCESS)
 			Completed = (std::max)(Completed, value);
@@ -724,6 +759,93 @@ namespace GfxVkImpl
 			Compute = TakeCmd();   // 같은 패밀리라 그래픽 풀과 같은 모양 (다시 쓸 때는 컴퓨트 목록으로)
 		BeginCmd(Compute);
 		AsyncOpen = true;
+	}
+
+	// 렌더 스레드에서: 큐 작업 하나
+	void Dev::RunTask(void* owner, QueueTask& t)
+	{
+		Dev* d = static_cast<Dev*>(owner);
+		if (t.Kind == kTaskSubmit)
+		{
+			VkCommandBufferSubmitInfo cbs[2] = {};
+			VkSemaphoreSubmitInfo waits[2] = {}, signals[2] = {};
+			for (uint32_t i = 0; i < t.CbCount; ++i)
+			{
+				cbs[i].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+				cbs[i].commandBuffer = t.Cbs[i];
+			}
+			for (uint32_t i = 0; i < t.WaitCount; ++i)
+			{
+				waits[i].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+				waits[i].semaphore = t.WaitSem[i];
+				waits[i].value = t.WaitValue[i];
+				waits[i].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			}
+			for (uint32_t i = 0; i < t.SignalCount; ++i)
+			{
+				signals[i].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+				signals[i].semaphore = t.SignalSem[i];
+				signals[i].value = t.SignalValue[i];
+				signals[i].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			}
+			VkSubmitInfo2 si = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+			si.commandBufferInfoCount = t.CbCount;
+			si.pCommandBufferInfos = cbs;
+			si.waitSemaphoreInfoCount = t.WaitCount;
+			si.pWaitSemaphoreInfos = waits;
+			si.signalSemaphoreInfoCount = t.SignalCount;
+			si.pSignalSemaphoreInfos = signals;
+			const VkResult r = vkQueueSubmit2(d->Queue, 1, &si, VK_NULL_HANDLE);
+			if (r != VK_SUCCESS)
+			{
+				static std::atomic<bool> s_Logged{ false };
+				if (!s_Logged.exchange(true))
+					EditorLog::Write("Vulkan", "vkQueueSubmit2 on the render thread: %s", VkLoader::ResultName(r));
+				if (r == VK_ERROR_DEVICE_LOST)
+					d->WorkerLost = true;
+			}
+		}
+		else if (t.Kind == kTaskPresent)
+		{
+			VkPresentInfoKHR pi = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+			pi.waitSemaphoreCount = 1;
+			pi.pWaitSemaphores = &t.PresentWait;
+			pi.swapchainCount = 1;
+			pi.pSwapchains = &t.Chain;
+			pi.pImageIndices = &t.Index;
+			const VkResult r = vkQueuePresentKHR(d->Queue, &pi);
+			if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR)
+				t.Target->Outdated = true;
+			else if (r != VK_SUCCESS)
+			{
+				static std::atomic<bool> s_Logged{ false };
+				if (!s_Logged.exchange(true))
+					EditorLog::Write("Vulkan", "vkQueuePresentKHR on the render thread: %s", VkLoader::ResultName(r));
+				if (r == VK_ERROR_DEVICE_LOST)
+					d->WorkerLost = true;
+			}
+		}
+	}
+
+	void Dev::SetWorker(bool on)
+	{
+		if (on == (Worker != nullptr))
+			return;
+		if (on)
+		{
+			if (Lost || !Queue)
+				return;
+			Worker = std::make_unique<SubmitThread<QueueTask>>();
+			Worker->Start("Render Thread: Vulkan queue", &Dev::RunTask, this);
+		}
+		else
+		{
+			Worker->Stop();
+			Worker.reset();
+		}
+		// 작업 번호는 렌더 스레드마다 1 부터 — 앞 스레드의 번호를 기다리지 않게 지운다 (끄고 다시 켜면 멈췄다)
+		for (auto& [wnd, s] : Swaps)
+			s->PresentTask = 0;
 	}
 
 	void Dev::SubmitCompute()
@@ -2233,6 +2355,33 @@ namespace GfxVk
 	void ReleaseWindow(GfxDevice* device, HWND window)
 	{
 		static_cast<Dev*>(device)->ReleaseWindow(window);
+	}
+
+	bool SetRenderThread(GfxDevice* device, bool on)
+	{
+		auto* d = static_cast<Dev*>(device);
+		d->SetWorker(on);
+		return (d->Worker != nullptr) == on;
+	}
+
+	void SyncRenderThread(GfxDevice* device)
+	{
+		auto* d = static_cast<Dev*>(device);
+		if (d->Worker) d->Worker->Sync();
+	}
+
+	nlohmann::json RenderThreadInfo(GfxDevice* device, bool reset)
+	{
+		auto* d = static_cast<Dev*>(device);
+		if (!d->Worker) return nlohmann::json::object();
+		auto& w = *d->Worker;
+		if (reset)
+		{
+			w.ResetStats();
+			d->WorkerFrames = 0;
+		}
+		return { { "frames", d->WorkerFrames }, { "tasks", w.Done() }, { "submits", w.Count(Dev::kTaskSubmit) }, { "presents", w.Count(Dev::kTaskPresent) },
+			{ "submitMs", w.Ms(Dev::kTaskSubmit) }, { "presentMs", w.Ms(Dev::kTaskPresent) }, { "mainWaitMs", w.MainWaitMs() }, { "mainWaits", w.MainWaits() } };
 	}
 
 	void WaitIdle(GfxDevice* device)

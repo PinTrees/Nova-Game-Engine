@@ -72,6 +72,8 @@ namespace ShaderCross
 	};
 
 	bool Available(std::string* error = nullptr);   // dxcompiler.dll 을 불러올 수 있는지
+	// 끝낼 때 (App — 잡이 다 끝난 뒤, dxcompiler.dll 이 아직 살아 있을 때): DXC 객체를 놓는다. 그 뒤로는 변환하지 않는다
+	void Shutdown();
 	// fxPath = .fx 파일. 모든 technique 의 모든 pass 를 변환 (pass 마다 성공/실패)
 	bool CompileEffect(const std::wstring& fxPath, EffectGlsl& out);
 	// OpenGL ES 3.20 (안드로이드) 변환 — 바인딩 · 이름 규칙은 위와 같고 GLSL 만 ES. 캐시 ShaderCache/GLES

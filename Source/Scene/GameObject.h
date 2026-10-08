@@ -94,6 +94,7 @@ public:
 	const vector<GameObject*>& Children() const { return m_pChildGameObjects; }   // 복사 없이 (자주 훑는 곳용)
 	int GetChildCount() { return m_pChildGameObjects.size(); }
 	Transform* GetTransform() { return m_pTransform; }
+	uint32_t CullSceneStamp = 0;   // SceneCulling: 이번 프레임에 그리는 씬의 오브젝트이면 그 프레임 번호
 	
 	// 부모 변경. worldPositionStays = true 면 월드 위치/회전/크기를 유지한다 (Unity 의 Transform.SetParent 와 동일).
 	// 새로 만든 오브젝트를 자식으로 넣을 때는 false (로컬 값 그대로 부모 기준에 놓임).

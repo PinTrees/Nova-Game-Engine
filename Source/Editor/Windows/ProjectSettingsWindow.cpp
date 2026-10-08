@@ -516,7 +516,7 @@ namespace
 			int path = (int)RenderPipelineSettings::GetRenderingPath();
 			if (UnityGUI::Dropdown("Rendering Path", &path, paths, 3))
 				RenderPipelineSettings::SetRenderingPath((RenderPipelineSettings::RenderingPath)path);
-			// Unity Player Settings 의 Multithreaded Rendering (렌더 스레드 — DirectX 11)
+			// Unity Player Settings 의 Multithreaded Rendering (렌더 스레드 — DirectX 11 · 12 · Vulkan)
 			bool mt = RenderThread::Enabled();
 			if (UnityGUI::Toggle("Multithreaded Rendering", &mt))
 			{

@@ -192,7 +192,7 @@ namespace GfxD3D12Impl
 		if (D->ComputePending == 0) return;
 		// End 뒤에 기록한 그래픽 일은 컴퓨트와 겹쳐 돌게 먼저 보내고, 그 다음 그래픽 제출부터 컴퓨트 결과를 기다린다
 		D->Submit(false);
-		D->Queue->Wait(D->ComputeFence.Get(), D->ComputePending);
+		D->QueueWait(D->ComputeFence.Get(), D->ComputePending);
 		D->ComputePending = 0;
 	}
 

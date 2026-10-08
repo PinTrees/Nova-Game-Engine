@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "RenderLayers.h"
+#include "SceneCulling.h"
 #include "OcclusionCulling.h"
 #include "CustomShaders.h"
 #include "MaterialInspector.h"
@@ -21,10 +22,12 @@ SkinnedMeshRenderer::SkinnedMeshRenderer()
 	XMStoreFloat4x4(&m_MeshBind, XMMatrixIdentity());
 	m_InspectorTitleName = "Skinned Mesh Renderer";
 	m_InspectorIconPath = L"skinned_mesh_renderer.png";
+	SceneCulling::RegisterRenderer(this, true);   // 컬링의 렌더러 목록
 }
 
 SkinnedMeshRenderer::~SkinnedMeshRenderer()
 {
+	SceneCulling::UnregisterRenderer(this);
 }
 
 // ------------------------------------------------------------------ 메시 / 스켈레톤 / 포즈
