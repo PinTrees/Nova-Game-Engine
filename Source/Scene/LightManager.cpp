@@ -4,6 +4,50 @@
 
 SINGLE_BODY(LightManager)
 
+namespace
+{
+	// Forward+: from ë²ˆì§¸ë¶€í„°ì˜ ì ê´‘ Â· ìŠ¤í¬íŠ¸ê´‘ì„ í´ëŸ¬ìŠ¤í„° ë¹›ìœ¼ë¡œ (ê·¸ë¦¼ì ì—†ìŒ)
+	void ToAdditional(const vector<shared_ptr<Light>>& lights, size_t from, vector<AdditionalLight>& out)
+	{
+		for (size_t i = from; i < lights.size() && (int)out.size() < kMaxAdditionalLights; ++i)
+		{
+			const shared_ptr<Light>& l = lights[i];
+			AdditionalLight a;
+			a.Mask = l->GetCullingMaskBits();
+			if (l->GetLightType() == LightType::Point)
+			{
+				const PointLight d = l->GetPointLight();
+				a.Position = Vec3(d.Position.x, d.Position.y, d.Position.z);
+				a.Range = d.Range;
+				a.Color = Vec3(d.Diffuse.x, d.Diffuse.y, d.Diffuse.z);
+				a.Type = 0;
+			}
+			else if (l->GetLightType() == LightType::Spot)
+			{
+				const SpotLight d = l->GetSpotLight();
+				a.Position = Vec3(d.Position.x, d.Position.y, d.Position.z);
+				a.Range = d.Range;
+				a.Color = Vec3(d.Diffuse.x, d.Diffuse.y, d.Diffuse.z);
+				a.Type = 1;
+				a.Direction = Vec3(d.Direction.x, d.Direction.y, d.Direction.z);
+				a.SpotAngle = d.Spot;
+			}
+			else
+				continue;
+			out.push_back(a);
+		}
+	}
+
+	vector<shared_ptr<Light>> NonDirectional(const vector<shared_ptr<Light>>& lights)
+	{
+		vector<shared_ptr<Light>> out;
+		for (const auto& l : lights)
+			if (LightType::Directional != l->GetLightType())
+				out.push_back(l);
+		return out;
+	}
+}
+
 LightManager::LightManager()
 {
 
@@ -50,6 +94,7 @@ void LightManager::SortingLights(vector<shared_ptr<Light>> cullingLights, Vec3 c
 	m_PointLights.clear();
 	m_SpotLights.clear();
 	m_SortedLights.clear();
+	m_AdditionalLights.clear();
 
 	// Directional Light´Â ¸Ç ¾ÕÀ¸·Î Á¤·Ä
 	for (const auto& light : cullingLights)
@@ -68,6 +113,7 @@ void LightManager::SortingLights(vector<shared_ptr<Light>> cullingLights, Vec3 c
 		{
 			m_DirLights.push_back(light->GetDirLight());
 		}
+		ToAdditional(NonDirectional(cullingLights), 0, m_AdditionalLights);   // ë°©í–¥ê´‘ìœ¼ë¡œ ë‹¤ ì°¼ë‹¤: ì ê´‘ Â· ìŠ¤í¬íŠ¸ê´‘ì€ ëª¨ë‘ í´ëŸ¬ìŠ¤í„°ë¡œ
 		return;
 	}
 
@@ -100,6 +146,7 @@ void LightManager::SortingLights(vector<shared_ptr<Light>> cullingLights, Vec3 c
 			return distanceA < distanceB; // °Å¸®°¡ ÂªÀº ¼ø¼­·Î Á¤·Ä
 		});
 
+	ToAdditional(pointAndSpotLights, LIGHT_SIZE - m_SortedLights.size(), m_AdditionalLights);   // ë‚¨ëŠ” ë¹› = í´ëŸ¬ìŠ¤í„° (Forward+)
 	if (pointAndSpotLights.size() >= (LIGHT_SIZE - m_SortedLights.size()))
 	{
 		pointAndSpotLights.resize(LIGHT_SIZE - m_SortedLights.size());
@@ -151,6 +198,7 @@ void LightManager::SortingEditorLights(vector<shared_ptr<Light>> cullingLights, 
 	m_EditorPointLights.clear();
 	m_EditorSpotLights.clear();
 	m_SortedEditorLights.clear();
+	m_EditorAdditionalLights.clear();
 
 	// Directional Light´Â ¸Ç ¾ÕÀ¸·Î Á¤·Ä
 	for (const auto& light : cullingLights)
@@ -169,6 +217,7 @@ void LightManager::SortingEditorLights(vector<shared_ptr<Light>> cullingLights, 
 		{
 			m_EditorDirLights.push_back(light->GetDirLight());
 		}
+		ToAdditional(NonDirectional(cullingLights), 0, m_EditorAdditionalLights);
 		return;
 	}
 
@@ -201,6 +250,7 @@ void LightManager::SortingEditorLights(vector<shared_ptr<Light>> cullingLights, 
 			return distanceA < distanceB; // °Å¸®°¡ ÂªÀº ¼ø¼­·Î Á¤·Ä
 		});
 
+	ToAdditional(pointAndSpotLights, LIGHT_SIZE - m_SortedEditorLights.size(), m_EditorAdditionalLights);
 	if (pointAndSpotLights.size() >= (LIGHT_SIZE - m_SortedEditorLights.size()))
 	{
 		pointAndSpotLights.resize(LIGHT_SIZE - m_SortedEditorLights.size());

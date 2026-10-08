@@ -332,9 +332,10 @@ public:
 	
 	void SetDiffuseMap(GfxShaderResourceView* tex) { DiffuseMap->SetResource(tex); }
 	
-	void SetDirShadowMaps(GfxShaderResourceView** tex, int cnt) { DirShadowMaps->SetResourceArray(tex, 0, cnt); }
-	void SetSpotShadowMaps(GfxShaderResourceView** tex, int cnt) { SpotShadowMaps->SetResourceArray(tex, 0, cnt); }
-	void SetPointShadowMaps(GfxShaderResourceView** tex, int cnt) { PointShadowMaps->SetResourceArray(tex, 0, cnt); }
+	// 빛 종류마다 Texture2DArray 하나 (조각 = 빛 x 조각 수 + 조각 — ShadowMap)
+	void SetDirShadowMaps(GfxShaderResourceView* tex) { DirShadowMaps->SetResource(tex); }
+	void SetSpotShadowMaps(GfxShaderResourceView* tex) { SpotShadowMaps->SetResource(tex); }
+	void SetPointShadowMaps(GfxShaderResourceView* tex) { PointShadowMaps->SetResource(tex); }
 
 	void SetNormalMap(GfxShaderResourceView* tex) { NormalMap->SetResource(tex); }
 	void SetSsaoMap(GfxShaderResourceView* tex) { SsaoMap->SetResource(tex); }

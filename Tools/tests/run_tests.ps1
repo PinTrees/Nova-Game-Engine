@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -5526,6 +5526,144 @@ function Suite-RenderingDebug
     Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+function Suite-ForwardPlus
+{
+    # Forward+ (클러스터 조명): 그림자 있는 앞의 4 빛 밖의 점광 · 스포트광이 클러스터로 비친다 (예전에는 화면 전체에 빛 4 개).
+    #  6 x 6 점광 (범위 4 m, 5 m 간격) 바닥 — 빛마다 바로 아래 바닥 밝기 (Main Camera 투영으로 자리) 를 빛이 안 닿는 바닥과 비교.
+    #  Forward+ 끄면 (nova forwardplus set --enabled false) 앞의 3 개만, 켜면 36 개 · 레이어 마스크로 뺀 빛은 어둡다 · 스포트광 원뿔 (클러스터) ·
+    #  Rendering Debugger 의 Additional Light Count · OpenGL · Vulkan 에서도 같다
+    Write-Host '[forwardplus]'
+    $dir = Join-Path $Out 'forwardplus'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+
+    function FpScene
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'set "Directional Light" --component Light --values "{\"intensity\":0.05}"' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 4,1,4' | Out-Null
+        $colors = @('1,0.2,0.1,1', '0.1,1,0.2,1', '0.2,0.4,1,1', '1,0.9,0.2,1', '1,0.2,1,1', '0.2,1,1,1')
+        $k = 0
+        for ($z = 0; $z -lt 6; $z++) { for ($x = 0; $x -lt 6; $x++) {
+            $px = (($x - 2.5) * 5).ToString($ic); $pz = (($z - 2.5) * 5).ToString($ic)
+            Invoke-Nova "create point-light --name L$k --position $px,1,$pz" | Out-Null
+            Invoke-Nova ('set L' + $k + ' --component Light --values "{\"pointLightRange\":4,\"intensity\":3,\"pointLightDiffuse\":[' + $colors[$k % 6] + '],\"shadowType\":0}"') | Out-Null
+            $k++ } }
+        Invoke-Nova 'set "Main Camera" --position 0,14,-22 --rotation 38,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+    }
+    # 월드 점 → Game 뷰 그림 픽셀 (Main Camera: (0, 14, -22), 아래로 38 도)
+    function FpProject([double]$x, [double]$y, [double]$z, [int]$w, [int]$h, [double]$fovY)
+    {
+        $p = 38.0 * [math]::PI / 180.0
+        $dx = $x; $dy = $y - 14.0; $dz = $z + 22.0
+        $yv = $dy * [math]::Cos($p) + $dz * [math]::Sin($p); $zv = -$dy * [math]::Sin($p) + $dz * [math]::Cos($p)
+        $t = [math]::Tan($fovY / 2.0); $aspect = $w / [double]$h
+        @([int]((0.5 + 0.5 * $dx / ($zv * $t * $aspect)) * $w), [int]((0.5 - 0.5 * $yv / ($zv * $t)) * $h))
+    }
+    function FpMean($bm, [int]$cx, [int]$cy)
+    {
+        $s = 0.0; $n = 0
+        for ($y = $cy - 3; $y -le $cy + 3; $y++) { for ($x = $cx - 3; $x -le $cx + 3; $x++) {
+            if ($x -ge 0 -and $y -ge 0 -and $x -lt $bm.Width -and $y -lt $bm.Height) { $c = $bm.GetPixel($x, $y); $s += ($c.R + $c.G + $c.B) / 3.0; $n++ } } }
+        $s / [math]::Max(1, $n)
+    }
+    # 빛마다 바로 아래 바닥이 빛 없는 바닥보다 20 넘게 밝은 수
+    function FpLitCount([string]$png, [double]$fovY)
+    {
+        $bm = [System.Drawing.Bitmap]::FromFile($png)
+        $refs = @((FpProject 17 0 -5 $bm.Width $bm.Height $fovY), (FpProject -17 0 -5 $bm.Width $bm.Height $fovY), (FpProject 17 0 5 $bm.Width $bm.Height $fovY), (FpProject -17 0 5 $bm.Width $bm.Height $fovY))
+        $ref = ($refs | ForEach-Object { FpMean $bm $_[0] $_[1] } | Measure-Object -Average).Average
+        $lit = 0; $vals = @()
+        for ($z = 0; $z -lt 6; $z++) { for ($x = 0; $x -lt 6; $x++) {
+            $q = FpProject (($x - 2.5) * 5) 0 (($z - 2.5) * 5) $bm.Width $bm.Height $fovY
+            $v = FpMean $bm $q[0] $q[1]; $vals += $v
+            if ($v -gt $ref + 20) { $lit++ } } }
+        $bm.Dispose()
+        [pscustomobject]@{ Lit = $lit; Ref = $ref; Vals = $vals }
+    }
+    function FpShot([string]$name) { $f = Join-Path $dir "$name.png"; Invoke-Nova ('screenshot "' + $f + '" --view game') | Out-Null; $f }
+
+    $ed = Start-TestEditor
+    try
+    {
+        FpScene
+        $cam = Invoke-NovaJson 'get "Main Camera" --component Camera'
+        $fov = if ($cam -and $cam.fovY) { [double]$cam.fovY } else { [math]::PI / 3 }
+
+        # 같은 자리를 Forward+ 켬 · 끔으로: 클러스터 빛 33 개 자리는 켤 때만 밝고, 앞의 3 개 (그림자 칸) 는 둘 다 같다
+        $on = FpLitCount (FpShot 'on') $fov
+        $info = Invoke-NovaJson 'forwardplus info'
+        Invoke-Nova 'forwardplus set --enabled false' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $off = FpLitCount (FpShot 'off') $fov
+        Invoke-Nova 'forwardplus set --enabled true' | Out-Null
+        $gain = 0; $same = 0
+        for ($i = 0; $i -lt 36; $i++) { $d = $on.Vals[$i] - $off.Vals[$i]; if ($d -gt 8) { $gain++ } elseif ([math]::Abs($d) -lt 3) { $same++ } }
+        $minOn = ($on.Vals | Measure-Object -Minimum).Minimum
+        Add-Result forwardplus 'Forward+: the 33 clustered point lights light the floor (they are dark with Forward+ off); the 3 main lights are the same' ($gain -eq 33 -and $same -eq 3 -and $info.lights -eq 33 -and $info.dropped -eq 0 -and $minOn -gt $on.Ref + 5) ("brighter with Forward+ {0}, unchanged {1}, dimmest pool {2:N0} vs unlit floor {3:N0}, clustered {4}, indices {5}, max per cluster {6}, build {7:N2} ms" -f $gain, $same, $minOn, $on.Ref, $info.lights, $info.indices, $info.maxPerCluster, $info.buildMs)
+
+        # 레이어 마스크: L14 (뒤쪽 줄 — 클러스터 빛) 가 Default 레이어를 비추지 않게
+        Invoke-Nova 'set L14 --component Light --values "{\"cullingMaskBits\":4294967294}"' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $m = FpLitCount (FpShot 'mask') $fov
+        Invoke-Nova 'set L14 --component Light --values "{\"cullingMaskBits\":4294967295}"' | Out-Null
+        $others = 0
+        for ($i = 0; $i -lt 36; $i++) { if ($i -ne 14 -and [math]::Abs($m.Vals[$i] - $on.Vals[$i]) -lt 3) { $others++ } }
+        Add-Result forwardplus 'Light culling mask works for clustered lights (L14 without the Default layer goes dark, the rest unchanged)' ($on.Vals[14] - $m.Vals[14] -gt 8 -and [math]::Abs($m.Vals[14] - $off.Vals[14]) -lt 6 -and $others -eq 35) ("L14 floor {0:N0} (lit {1:N0}, Forward+ off {2:N0}), others unchanged {3}/35" -f $m.Vals[14], $on.Vals[14], $off.Vals[14], $others)
+
+        # 스포트광 (클러스터): 격자 밖 (0, 6, 17) 에서 아래로, 원뿔 40 도 — 가운데는 밝고 3.5 m 옆은 어둡다
+        Invoke-Nova 'create spot-light --name SpotA --position 0,6,17 --rotation 90,0,0' | Out-Null
+        Invoke-Nova 'set SpotA --component Light --values "{\"spotLightRange\":10,\"spotLightSpot\":40,\"intensity\":6,\"shadowType\":0}"' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $f = FpShot 'spot'
+        $bm = [System.Drawing.Bitmap]::FromFile($f)
+        $c0 = FpProject 0 0 17 $bm.Width $bm.Height $fov; $c1 = FpProject 3.5 0 17 $bm.Width $bm.Height $fov
+        $inside = FpMean $bm $c0[0] $c0[1]; $outside = FpMean $bm $c1[0] $c1[1]
+        $bm.Dispose()
+        $info = Invoke-NovaJson 'forwardplus info'
+        Add-Result forwardplus 'Spot light in the clusters: bright inside the cone, dark 3.5 m to the side' ($inside -gt $outside + 25 -and $info.lights -eq 34) ("inside {0:N0}, outside {1:N0}, clustered {2}" -f $inside, $outside, $info.lights)
+
+        Invoke-Nova 'debugview lights' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $f = FpShot 'light_count'
+        $bm = [System.Drawing.Bitmap]::FromFile($f); $n = 0; $k = 0
+        for ($y = 0; $y -lt $bm.Height; $y += 6) { for ($x = 0; $x -lt $bm.Width; $x += 6) { $c = $bm.GetPixel($x, $y); $n++; if ($c.R + $c.G + $c.B -gt 60) { $k++ } } }
+        $bm.Dispose()
+        Invoke-Nova 'debugview none' | Out-Null
+        Add-Result forwardplus 'Rendering Debugger Additional Light Count shows the clusters that have lights' (($k / $n) -gt 0.2) ("colored share {0:P0}" -f ($k / $n))
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+
+    # 다른 그래픽 API: 같은 장면에서 36 개 모두 (정수 텍스처 Load — GLSL · SPIR-V)
+    foreach ($api in @('OpenGL', 'Vulkan'))
+    {
+        $ed = if ($api -eq 'OpenGL') { Start-TestEditor -OpenGL } else { Start-TestEditor -Vulkan }
+        try
+        {
+            FpScene
+            $cam = Invoke-NovaJson 'get "Main Camera" --component Camera'
+            $fov = if ($cam -and $cam.fovY) { [double]$cam.fovY } else { [math]::PI / 3 }
+            $r = FpLitCount (FpShot ("on_" + $api.ToLower())) $fov
+            Invoke-Nova 'forwardplus set --enabled false' | Out-Null
+            Invoke-Nova 'wait 3' | Out-Null
+            $o = FpLitCount (FpShot ("off_" + $api.ToLower())) $fov
+            Invoke-Nova 'forwardplus set --enabled true' | Out-Null
+            $gain = 0
+            for ($i = 0; $i -lt 36; $i++) { if ($r.Vals[$i] - $o.Vals[$i] -gt 8) { $gain++ } }
+            $g = (Invoke-NovaJson 'info').graphicsAPI
+            Add-Result forwardplus "Forward+ on $api : the 33 clustered lights light the floor" ($gain -eq 33) ("brighter with Forward+ {0}/33 (graphics: {1})" -f $gain, $g)
+            Invoke-Nova 'window scene' | Out-Null
+            Invoke-Nova 'scene new --force' | Out-Null
+        }
+        finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    }
+}
+
 function Suite-SSR
 {
     # Screen Space Reflection (HDRP Volume): 거울 바닥 위 빨간 상자 — 바닥의 반사 자리에 상자가 비치는가
@@ -7015,6 +7153,7 @@ try
                 'motionvectors' { Suite-MotionVectors }
                 'cinemachine' { Suite-Cinemachine }
                 'renderingdebug' { Suite-RenderingDebug }
+                'forwardplus' { Suite-ForwardPlus }
                 'modelplace' { Suite-ModelPlace }
                 'antialiasing' { Suite-AntiAliasing }
                 'audio' { Suite-Audio }

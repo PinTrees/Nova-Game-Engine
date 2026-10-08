@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **Motion Blur 품질: 타일 최대 속도** (사용자 요청 — Rendering Debugger 다음). **완료 (커밋, 푸시 전)**. 사용자가 이어서 요청한 세 가지 (Cinemachine · Rendering Debugger · Motion Blur) 끝
+- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 1 단계: Forward+ (클러스터 조명)** (사용자 요청: DX12 · Vulkan · Render Graph · Async Compute · VT · 클러스터드 — 순서 · 설계는 docs/RENDERING_ROADMAP.md). **완료 (커밋, 푸시 전)**. 다음: Render Graph (코어 `Source/Graphics/Common/RenderGraph.*` 는 써 두었고 아직 빌드 · 연결 전)
+  - `ClusteredLighting` (16 x 9 x 24, CPU 로 짓기 — 깊이 조각마다 구 단면 사각형, RGBA32F 텍스처 하나), `LightManager` 의 AdditionalLight (앞의 4 개 밖, 최대 1024), 입자 빛도, 셰이더 `ShadeLit` 의 클러스터 루프, Rendering Debugger Additional Light Count, CLI `forwardplus info | set --enabled`
+  - 함께 고침: 카메라 절두체 (Camera · EditorCamera 의 FrustumUpdate 가 투영 x 뷰 의 행에서 평면을 뽑아 빛을 대부분 걸러 냄), 그림자 맵을 빛 종류마다 배열 하나로 (OpenGL 샘플러 32 개 한도 — 지형 셰이더가 깨졌다, 12 → 3)
+  - 검사 `-Only forwardplus` 6/6 (DX11 · OpenGL · Vulkan), render · reflectionprobe 23/23 (OpenGL log clean · Forest DX = GL 포함). 문서 FORWARD_PLUS · RENDERING_ROADMAP, Showcase 267
+- 이전: 2026년 10월 8일 — **Motion Blur 품질: 타일 최대 속도** (사용자 요청 — Rendering Debugger 다음). **완료 (푸시함)**. 사용자가 이어서 요청한 세 가지 (Cinemachine · Rendering Debugger · Motion Blur) 끝
   - `Shaders/41. PostProcess.fx`: TileMax (32 x 32) → NeighborMax (3 x 3) → McGuire 2012 재구성 (깊이 · 표본 속도 무게, 가운데와 같은 픽셀 표본은 건너뜀 — 넣으면 이웃 픽셀끼리 줄무늬). `PostProcessPass::MotionBlur` 에 R16G16F 타일 타깃 둘, GPU 구간 "Motion Blur"
   - 검사 `-Only motionvectors` 12/12 (새 항목: 빨간 상자 바깥의 옅은 번짐 행마다 0 → 7 픽셀, 예전 방식은 구조상 0). 예전 그림으로 잰 기준: 흐린 상자가 오히려 좁았다 (89 → 83 px)
   - Release 비용은 아직 재지 않음 (Debug 는 셰이더 최적화 꺼짐)

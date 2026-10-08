@@ -6,7 +6,7 @@
 //  편집기 전용 (게임 빌드에는 없음). 고르는 곳: Window > Analysis > Rendering Debugger, Scene 뷰 툴바의 Debug 드롭다운, CLI nova debugview
 namespace RenderingDebug
 {
-	enum Mode { None = 0, Depth, Normals, AmbientOcclusion, MotionVectors, ProbeVolumeLighting, ProbeVolumeSampling, ModeCount };
+	enum Mode { None = 0, Depth, Normals, AmbientOcclusion, MotionVectors, ProbeVolumeLighting, ProbeVolumeSampling, AdditionalLightCount, ModeCount };
 
 	struct State
 	{

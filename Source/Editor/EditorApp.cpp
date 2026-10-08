@@ -37,6 +37,7 @@
 #include "ReflectionProbes.h"
 #include "ProbeVolumes.h"
 #include "RenderingDebug.h"
+#include "ClusteredLighting.h"
 #include "LODGroup.h"
 #include "ScreenSpaceReflection.h"
 #include "ModelPlacement.h"
@@ -227,6 +228,7 @@ bool EditorApp::Init()
 		ReflectionProbes::RegisterEditor();   // nova probe
 		ProbeVolumes::RegisterEditor();       // nova probevolume
 		RenderingDebug::RegisterEditor();     // nova debugview (Window > Analysis > Rendering Debugger)
+		ClusteredLighting::RegisterEditor();  // nova forwardplus
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
@@ -332,7 +334,7 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, G
 	const auto* frame = static_cast<const ShadowRenderer::FrameData*>(shadowFrame);
 	if (shadowMap && frame && frame->DirCount > 0 && !dirLights.empty())
 	{
-		w.SunShadow = shadowMap->DepthMapSRVArray(LightType::Directional)[0];
+		w.SunShadow = shadowMap->DepthMapSRV(LightType::Directional);   // 방향광 0 = 조각 0..3
 		for (int c = 0; c < 4; ++c)
 		{
 			w.SunShadowTransforms[c] = frame->Dir[c];
@@ -414,6 +416,28 @@ ParticleRenderer::Environment EditorApp::ParticleEnvironment(GfxDepthStencilView
 }
 
 // 화면별 그림자 결과 (그림자 패스 → 받는 쪽 셰이더)
+// 입자 빛 (Particle System 의 Lights 모듈): 남은 점광 칸 (LIGHT_SIZE) 에, 다 차면 Forward+ 클러스터로 (그림자 없음)
+static void AddParticleLights(vector<PointLight>& pointLights, std::vector<AdditionalLight>& additional)
+{
+	std::vector<PointLight> particles;
+	ParticleSystem::CollectLights(particles, kMaxAdditionalLights);
+	for (const PointLight& p : particles)
+	{
+		if ((int)pointLights.size() < LIGHT_SIZE)
+		{
+			pointLights.push_back(p);
+			continue;
+		}
+		if ((int)additional.size() >= kMaxAdditionalLights)
+			break;
+		AdditionalLight a;
+		a.Position = Vec3(p.Position.x, p.Position.y, p.Position.z);
+		a.Range = p.Range;
+		a.Color = Vec3(p.Diffuse.x, p.Diffuse.y, p.Diffuse.z);
+		additional.push_back(a);
+	}
+}
+
 static ShadowRenderer::FrameData s_GameShadow;
 static ShadowRenderer::FrameData s_ProbeShadow;   // Reflection Probe 찍기 (캐시 없음)
 static ShadowRenderer::FrameData s_EditorShadow;
@@ -534,7 +558,8 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	}
 	vector<PointLight> pointLights = LightManager::GetI()->GetPointLights();
 	const int scenePointLights = (int)pointLights.size();      // 그림자는 장면의 Light 컴포넌트만 (입자 빛은 그림자 없음)
-	ParticleSystem::CollectLights(pointLights, LIGHT_SIZE);   // Lights 모듈 (남은 점광 칸에)
+	std::vector<AdditionalLight> additionalLights = LightManager::GetI()->GetAdditionalLights();   // Forward+ (클러스터)
+	AddParticleLights(pointLights, additionalLights);   // Lights 모듈 (남은 점광 칸에, 다 차면 클러스터로)
 	vector<SpotLight> spotLights = LightManager::GetI()->GetSpotLights();
 	//BuildShadowTransform();
 
@@ -723,6 +748,13 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 		Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
 		RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, false);   // Light.cullingMask
+		{
+			XMFLOAT4X4 v, p;
+			XMStoreFloat4x4(&v, d.View);
+			XMStoreFloat4x4(&p, d.Proj);
+			ClusteredLighting::Build(additionalLights, v, p);   // 이 뷰 (Game · 반사 프로브 면) 의 클러스터
+		}
+		ClusteredLighting::Bind(Effects::InstancedBasicFX.get());
 
 		// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 		ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, *d.Shadow);
@@ -745,6 +777,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 			fx->SetPointLights(pointLights.data(), pointLights.size());
 			ShadowRenderer::Bind(fx, *shadowMap, *d.Shadow);
 			RenderLayers::SetLightMasks(fx, scenePointLights, false);
+			ClusteredLighting::Bind(fx);
 		});
 	}
 
@@ -867,7 +900,8 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	}
 	vector<PointLight> pointLights = LightManager::GetI()->GetEditorPointLights();
 	const int scenePointLights = (int)pointLights.size();      // 그림자는 장면의 Light 컴포넌트만 (입자 빛은 그림자 없음)
-	ParticleSystem::CollectLights(pointLights, LIGHT_SIZE);   // Lights 모듈 (남은 점광 칸에)
+	std::vector<AdditionalLight> additionalLights = LightManager::GetI()->GetEditorAdditionalLights();
+	AddParticleLights(pointLights, additionalLights);
 	vector<SpotLight> spotLights = LightManager::GetI()->GetEditorSpotLights();
 
 	RenderManager::GetI()->RenderingEditorView = true;
@@ -994,6 +1028,13 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	Effects::InstancedBasicFX->SetPointLights(pointLights.data(), pointLights.size());
 
 	RenderLayers::SetLightMasks(Effects::InstancedBasicFX.get(), scenePointLights, true);
+	{
+		XMFLOAT4X4 v, p;
+		XMStoreFloat4x4(&v, camera->View());
+		XMStoreFloat4x4(&p, camera->Proj());
+		ClusteredLighting::Build(additionalLights, v, p);
+	}
+	ClusteredLighting::Bind(Effects::InstancedBasicFX.get());
 
 	// 그림자 맵 / 변환 / 캐스케이드 / 빛별 Strength·필터
 	ShadowRenderer::Bind(Effects::InstancedBasicFX.get(), *shadowMap, s_EditorShadow);
@@ -1016,6 +1057,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		fx->SetPointLights(pointLights.data(), pointLights.size());
 		ShadowRenderer::Bind(fx, *shadowMap, s_EditorShadow);
 		RenderLayers::SetLightMasks(fx, scenePointLights, true);
+		ClusteredLighting::Bind(fx);
 	});
 
 	uint32 stride = sizeof(Vertex::PosNormalTexTan);

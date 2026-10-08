@@ -5,9 +5,6 @@
 ShadowMap::ShadowMap(ComPtr<GfxDevice> device, uint32 width, uint32 height)
 	: m_Device(device), m_DefaultSize((std::max)(width, height))
 {
-	m_Targets[(uint32)LightType::Directional].resize(LIGHT_SIZE);
-	m_Targets[(uint32)LightType::Spot].resize(LIGHT_SIZE);
-	m_Targets[(uint32)LightType::Point].resize(LIGHT_SIZE);
 }
 
 ShadowMap::~ShadowMap()
@@ -67,19 +64,18 @@ bool ShadowMap::Ensure(Target& t, uint32 size, uint32 slices)
 	return true;
 }
 
-uint32 ShadowMap::Generation(LightType type, int lightIndex) const
+uint32 ShadowMap::Generation(LightType type, int) const
 {
-	const auto& list = m_Targets[(uint32)type];
-	return lightIndex >= 0 && lightIndex < (int)list.size() && list[lightIndex].Texture ? list[lightIndex].Generation : 0;
+	const Target& t = m_Targets[(uint32)type];
+	return t.Texture ? t.Generation : 0;
 }
 
 size_t ShadowMap::MemoryBytes() const
 {
 	size_t bytes = 0;
-	for (const auto& list : m_Targets)
-		for (const Target& t : list)
-			if (t.Texture)
-				bytes += (size_t)t.Size * t.Size * 4 * t.Slices;   // D24S8 = 4 바이트
+	for (const Target& t : m_Targets)
+		if (t.Texture)
+			bytes += (size_t)t.Size * t.Size * 4 * t.Slices;   // D24S8 = 4 바이트
 	return bytes;
 }
 
@@ -93,19 +89,31 @@ void ShadowMap::Bind(GfxContext* dc, Target& t, int slice)
 	dc->ClearDepthStencilView(t.Dsv[slice].Get(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 }
 
-void ShadowMap::BindSlice(GfxContext* dc, LightType type, int lightIndex, int slice, uint32 resolution)
+void ShadowMap::Prepare(LightType type, int count, uint32 resolution)
 {
-	const uint32 slices = type == LightType::Directional ? kMaxCascades : (type == LightType::Point ? 6 : 1);
-	Target& t = m_Targets[(uint32)type][lightIndex];
-	if (!Ensure(t, resolution, slices))
+	if (count <= 0)
 		return;
-	Bind(dc, t, slice);
+	Target& t = m_Targets[(uint32)type];
+	const uint32 need = (uint32)(count * SlicesPerLight(type));
+	const uint32 size = resolution ? resolution : m_DefaultSize;
+	// 빛이 줄면 그대로 둔다 (다시 늘 때 만들지 않게), 늘거나 해상도가 바뀌면 다시
+	if (t.Texture && t.Size == size && t.Slices >= need)
+		return;
+	Ensure(t, size, (std::max)(need, t.Size == size ? t.Slices : 0u));
 }
 
-vector<GfxShaderResourceView*> ShadowMap::DepthMapSRVArray(LightType type)
+void ShadowMap::BindSlice(GfxContext* dc, LightType type, int lightIndex, int slice, uint32 resolution)
 {
-	vector<GfxShaderResourceView*> rawSRVs;
-	for (const Target& t : m_Targets[(uint32)type])
-		rawSRVs.push_back(t.Srv.Get());
-	return rawSRVs;
+	Target& t = m_Targets[(uint32)type];
+	const uint32 at = (uint32)(lightIndex * SlicesPerLight(type) + slice);
+	if (!t.Texture || t.Size != (resolution ? resolution : m_DefaultSize) || at >= t.Slices)
+		Prepare(type, lightIndex + 1, resolution);   // Prepare 를 거치지 않은 호출 (예전 순서) 도 되게
+	if (!t.Texture || at >= t.Slices)
+		return;
+	Bind(dc, t, (int)at);
+}
+
+GfxShaderResourceView* ShadowMap::DepthMapSRV(LightType type)
+{
+	return m_Targets[(uint32)type].Srv.Get();
 }

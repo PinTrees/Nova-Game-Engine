@@ -8,6 +8,19 @@
 
 class Light;
 
+// Forward+ (클러스터 조명): 그림자 있는 앞의 빛 (LIGHT_SIZE) 밖의 점광 · 스포트광 · 입자 빛 — 그림자 없이 클러스터로 비춘다 (ClusteredLighting)
+struct AdditionalLight
+{
+	Vec3 Position;
+	float Range = 0.0f;
+	Vec3 Color;              // Diffuse (감마, 세기 곱함 — 셰이더가 선형으로)
+	int Type = 0;            // 0 점광, 1 스포트광
+	Vec3 Direction;
+	float SpotAngle = 0.0f;  // 원뿔 전체 각 (도)
+	uint32 Mask = 0xFFFFFFFFu;   // Light.cullingMask
+};
+constexpr int kMaxAdditionalLights = 1024;
+
 class NOVA_API LightManager
 {
 	SINGLE_HEADER(LightManager)
@@ -30,6 +43,10 @@ private:
 	vector<DirectionalLight> m_DirLights;
 	vector<PointLight> m_PointLights;
 	vector<SpotLight> m_SpotLights;
+
+	// Forward+: 앞의 LIGHT_SIZE 밖의 빛 (가까운 순, 최대 kMaxAdditionalLights)
+	vector<AdditionalLight> m_AdditionalLights;
+	vector<AdditionalLight> m_EditorAdditionalLights;
 public:
 	void Init();
 
@@ -60,5 +77,8 @@ public:
 	vector<DirectionalLight> GetEditorDirLights() { return m_EditorDirLights; }
 	vector<PointLight> GetEditorPointLights() { return m_EditorPointLights; }
 	vector<SpotLight> GetEditorSpotLights() { return m_EditorSpotLights; }
+
+	const vector<AdditionalLight>& GetAdditionalLights() const { return m_AdditionalLights; }
+	const vector<AdditionalLight>& GetEditorAdditionalLights() const { return m_EditorAdditionalLights; }
 };
 

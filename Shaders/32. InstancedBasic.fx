@@ -43,6 +43,20 @@ struct PbrMaterial
     int Unlit;
 };
 
+// Forward+ (클러스터 조명 — ClusteredLighting.cpp): 그림자 있는 앞의 빛 (위 배열) 밖의 점광 · 스포트광 · 입자 빛.
+//  화면 16 x 9 타일 x 24 깊이 조각 (로그). 클러스터 표 (시작 | 개수 << 16) → 번호 목록 → 빛 텍스처 (빛마다 4 텍셀)
+cbuffer cbCluster
+{
+    float4 gClusterParams;   // x 타일 가로, y 타일 세로, z 깊이 조각, w 빛 수 (0 = 없음)
+    float4 gClusterDepth;    // 조각 = log(뷰 깊이) * x + y
+    float4 gClusterView;     // xyz 카메라 앞 (월드) — 뷰 깊이 = dot(posW - 눈, 앞)
+};
+// 텍스처 하나 (OpenGL 샘플러 32 개 한도 — 무거운 셰이더가 넘지 않게): 텍셀 i → (i % 1024, i / 1024)
+//  빛 = 0 부터 (빛마다 4: (0) 자리 · 범위 (1) 색 (감마) · 종류 (2) 방향 · cos 바깥 (3) cos 안 · 마스크 아래 16 · 위 16 비트)
+//  클러스터 표 = 4096 부터 (x 시작, y 개수 — 클러스터 = 타일 x + 타일 y * 가로 + 조각 * 가로 * 세로), 번호 목록 = 8192 부터 (텍셀마다 4 개)
+Texture2D gClusterData;
+float4 ClusterTexel(uint i) { return gClusterData.Load(int3((int)(i & 1023u), (int)(i >> 10), 0)); }
+
 cbuffer cbPerFrame
 {
     DirectionalLight gDirLights[LIGHT_SIZE];
@@ -127,16 +141,11 @@ cbuffer cbSkinned
 // Nonnumeric values cannot be added to a cbuffer.
 
 // frame
-#ifdef NOVA_WEBGPU
-// WebGPU (WGSL) 에는 텍스처 배열이 없다 → 원소마다 따로 (효과가 "gDirShadowMaps" 의 i 번째를 gDirShadowMaps_i 로 묶는다). LIGHT_SIZE = 4
-Texture2DArray gDirShadowMaps_0, gDirShadowMaps_1, gDirShadowMaps_2, gDirShadowMaps_3;
-Texture2DArray gSpotShadowMaps_0, gSpotShadowMaps_1, gSpotShadowMaps_2, gSpotShadowMaps_3;
-Texture2DArray gPointShadowMaps_0, gPointShadowMaps_1, gPointShadowMaps_2, gPointShadowMaps_3;
-#else
-Texture2DArray gDirShadowMaps[LIGHT_SIZE];   // 캐스케이드 = 배열 조각
-Texture2DArray gSpotShadowMaps[LIGHT_SIZE];    // 조각 1 개
-Texture2DArray gPointShadowMaps[LIGHT_SIZE];   // 큐브 6 면 = 조각 6 개
-#endif
+// 빛 종류마다 Texture2DArray 하나 (ShadowMap): 방향광 조각 = 빛 x 4 + 캐스케이드, 스포트광 = 빛, 점광 = 빛 x 6 + 큐브 면
+//  (예전에는 빛마다 하나 = 12 장 — OpenGL 샘플러 32 개 한도에 걸려 지형 셰이더가 깨졌다)
+Texture2DArray gDirShadowMaps;
+Texture2DArray gSpotShadowMaps;
+Texture2DArray gPointShadowMaps;
 Texture2D gSsaoMap;
 TextureCube gCubeMap;
 // Adaptive Probe Volume (ProbeVolumes — 실시간): 확산 간접광 = 카메라 둘레 단계 (32 x 16 x 32 프로브) 의 L1 SH
@@ -305,12 +314,12 @@ float DirShadow(Texture2DArray map, int i, float3 posW, int cascade, float fade,
     if (data.x > 0.0f && cascade >= 0)
     {
         const float3 coord = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade]).xyz;
-        float s = ShadowPCF(map, coord, (float)cascade, (int)data.y, data.z);
+        float s = ShadowPCF(map, coord, (float)(i * 4 + cascade), (int)data.y, data.z);
         [branch]
         if (blend > 0.0f)   // 경계 구간만 다음 캐스케이드를 한 번 더 읽는다
         {
             const float3 coord2 = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade + 1]).xyz;
-            s = lerp(s, ShadowPCF(map, coord2, (float)(cascade + 1), (int)data.y, data.z), blend);
+            s = lerp(s, ShadowPCF(map, coord2, (float)(i * 4 + cascade + 1), (int)data.y, data.z), blend);
         }
         lit = lerp(1.0f, lerp(s, 1.0f, fade), data.x);
     }
@@ -329,7 +338,7 @@ float PerspectiveShadow(Texture2DArray map, float4x4 transform, float slice, flo
 
 float SpotShadow(Texture2DArray map, int i, float3 posW)
 {
-    return PerspectiveShadow(map, gSpotShadowTransforms[i], 0.0f, gSpotShadowData[i], posW);
+    return PerspectiveShadow(map, gSpotShadowTransforms[i], (float)i, gSpotShadowData[i], posW);
 }
 
 // 점광 = 큐브 6 면 (C++ 순서: +X, -X, +Y, -Y, +Z, -Z = 배열 조각). 광원에서 본 방향의 가장 큰 축으로 면을 고른다
@@ -347,7 +356,7 @@ int PointFace(float3 v)
 float PointShadow(Texture2DArray map, int i, float3 posW)
 {
     const int face = PointFace(posW - gPointLights[i].Position);
-    return PerspectiveShadow(map, gPointShadowTransforms[i * 6 + face], (float)face, gPointShadowData[i], posW);
+    return PerspectiveShadow(map, gPointShadowTransforms[i * 6 + face], (float)(i * 6 + face), gPointShadowData[i], posW);
 }
 
 struct VertexIn
@@ -1116,30 +1125,15 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         const int cascade = SelectCascade(posW);
         const float fade = ShadowFade(posW);
         const float blend = CascadeBlend(posW, cascade);
-#ifdef NOVA_WEBGPU
-        dirShadows[0] = DirShadow(gDirShadowMaps_0, 0, posW, cascade, fade, blend);
-        dirShadows[1] = DirShadow(gDirShadowMaps_1, 1, posW, cascade, fade, blend);
-        dirShadows[2] = DirShadow(gDirShadowMaps_2, 2, posW, cascade, fade, blend);
-        dirShadows[3] = DirShadow(gDirShadowMaps_3, 3, posW, cascade, fade, blend);
-        spotShadows[0] = SpotShadow(gSpotShadowMaps_0, 0, posW);
-        spotShadows[1] = SpotShadow(gSpotShadowMaps_1, 1, posW);
-        spotShadows[2] = SpotShadow(gSpotShadowMaps_2, 2, posW);
-        spotShadows[3] = SpotShadow(gSpotShadowMaps_3, 3, posW);
-        pointShadows[0] = PointShadow(gPointShadowMaps_0, 0, posW);
-        pointShadows[1] = PointShadow(gPointShadowMaps_1, 1, posW);
-        pointShadows[2] = PointShadow(gPointShadowMaps_2, 2, posW);
-        pointShadows[3] = PointShadow(gPointShadowMaps_3, 3, posW);
-#else
         [unroll]
         for (int i = 0; i < LIGHT_SIZE; i++)
-            dirShadows[i] = DirShadow(gDirShadowMaps[i], i, posW, cascade, fade, blend);
+            dirShadows[i] = DirShadow(gDirShadowMaps, i, posW, cascade, fade, blend);
         [unroll]
         for (int j = 0; j < LIGHT_SIZE; j++)
-            spotShadows[j] = SpotShadow(gSpotShadowMaps[j], j, posW);
+            spotShadows[j] = SpotShadow(gSpotShadowMaps, j, posW);
         [unroll]
         for (int l = 0; l < LIGHT_SIZE; l++)
-            pointShadows[l] = PointShadow(gPointShadowMaps[l], l, posW);
-#endif
+            pointShadows[l] = PointShadow(gPointShadowMaps, l, posW);
     }
 
     ssaoPosH /= ssaoPosH.w;
@@ -1192,6 +1186,44 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         float atten = RangeAttenuation(d, gPointLights[pi].Range);
         float NoL = saturate(dot(N, L));
         color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(gPointLights[pi].Diffuse.rgb) * (NoL * atten * pointShadows[pi]);
+    }
+    // Forward+: 이 픽셀 클러스터의 추가 빛 (그림자 없음)
+    if (gClusterParams.w > 0.5f)
+    {
+        float2 uvC = saturate(ssaoPosH.xy / ssaoPosH.w);
+        float viewZ = max(dot(posW - gEyePosW, gClusterView.xyz), 1e-3f);
+        int slice = clamp((int)floor(log(viewZ) * gClusterDepth.x + gClusterDepth.y), 0, (int)gClusterParams.z - 1);
+        int2 tile = min(int2(uvC * gClusterParams.xy), int2(gClusterParams.xy) - 1);
+        uint cluster = (uint)(tile.x + tile.y * (int)gClusterParams.x + slice * (int)(gClusterParams.x * gClusterParams.y));
+        float4 cell = ClusterTexel(4096u + cluster);
+        uint first = (uint)cell.x;
+        uint count = (uint)cell.y;
+        [loop]
+        for (uint ci = 0; ci < count; ++ci)
+        {
+            uint at = first + ci;
+            float4 packed = ClusterTexel(8192u + (at >> 2));
+            uint q = at & 3u;
+            uint li = (uint)(q == 0u ? packed.x : (q == 1u ? packed.y : (q == 2u ? packed.z : packed.w)));
+            float4 c0 = ClusterTexel(li * 4u);
+            float4 c1 = ClusterTexel(li * 4u + 1u);
+            float4 c3 = ClusterTexel(li * 4u + 3u);
+            if (!LightHits((uint)c3.y | ((uint)c3.z << 16)))
+                continue;
+            float3 toLight = c0.xyz - posW;
+            float d = length(toLight);
+            float3 L = toLight / max(d, 0.0001f);
+            float atten = RangeAttenuation(d, c0.w);
+            if (c1.w > 0.5f)
+            {
+                float4 c2 = ClusterTexel(li * 4u + 2u);
+                atten *= smoothstep(c2.w, c3.x, dot(-L, c2.xyz));   // 스포트광 원뿔 (바깥 → 안)
+            }
+            if (atten <= 0.0f)
+                continue;
+            float NoL = saturate(dot(N, L));
+            color += DirectBRDF(diffuse, specular, roughness, N, L, V, highlights) * ToLinear(c1.rgb) * (NoL * atten);
+        }
     }
 
     // SSAO 의 Direct Lighting Strength: 직접광에도 그 몫만큼 (URP 와 같음 — 0 = 환경광만)

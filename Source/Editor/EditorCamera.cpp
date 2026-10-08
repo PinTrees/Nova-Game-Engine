@@ -89,17 +89,17 @@ void EditorCamera::GetFrustumCulling()
 void EditorCamera::FrustumUpdate()
 {
 	// Å¬¸³ Çà·ÄÀ» °è»ê
-	::XMMATRIX clipMatrix = DirectX::XMMatrixMultiply(::XMLoadFloat4x4(&_proj), ::XMLoadFloat4x4(&_view));
+	// í´ë¦½ í–‰ë ¬ = ë·° x íˆ¬ì˜ (í–‰ ë²¡í„°). í‰ë©´ì€ ì—´ì—ì„œ (Gribb-Hartmann, D3D ê¹Šì´ 0..1):
+	//  ì™¼ c4+c1, ì˜¤ë¥¸ c4-c1, ì•„ë˜ c4+c2, ìœ„ c4-c2, ê°€ê¹Œìš´ c3, ë¨¼ c4-c3 â€” ì˜ˆì „ì—ëŠ” íˆ¬ì˜ x ë·° ì˜ í–‰ì—ì„œ ë½‘ì•„ ì—‰ëš±í•œ ì ˆë‘ì²´ì˜€ë‹¤ (ë¹›ì„ ëŒ€ë¶€ë¶„ ê±¸ëŸ¬ ëƒ„)
+	::XMMATRIX clipMatrix = DirectX::XMMatrixMultiply(::XMLoadFloat4x4(&_view), ::XMLoadFloat4x4(&_proj));
 	::XMFLOAT4X4 clip;
 	::XMStoreFloat4x4(&clip, clipMatrix);
-
-	// Æò¸é °è»ê (°¢ ¸éÀÇ °è¼ö °è»ê)
-	m_Frustum.planes[0] = { {clip._41 + clip._11, clip._42 + clip._12, clip._43 + clip._13}, clip._44 + clip._14 }; // left
-	m_Frustum.planes[1] = { {clip._41 - clip._11, clip._42 - clip._12, clip._43 - clip._13}, clip._44 - clip._14 }; // right
-	m_Frustum.planes[2] = { {clip._41 + clip._21, clip._42 + clip._22, clip._43 + clip._23}, clip._44 + clip._24 }; // bottom
-	m_Frustum.planes[3] = { {clip._41 - clip._21, clip._42 - clip._22, clip._43 - clip._23}, clip._44 - clip._24 }; // top
-	m_Frustum.planes[4] = { {clip._41 + clip._31, clip._42 + clip._32, clip._43 + clip._33}, clip._44 + clip._34 }; // near
-	m_Frustum.planes[5] = { {clip._41 - clip._31, clip._42 - clip._32, clip._43 - clip._33}, clip._44 - clip._34 }; // far
+	m_Frustum.planes[0] = { {clip._14 + clip._11, clip._24 + clip._21, clip._34 + clip._31}, clip._44 + clip._41 }; // left
+	m_Frustum.planes[1] = { {clip._14 - clip._11, clip._24 - clip._21, clip._34 - clip._31}, clip._44 - clip._41 }; // right
+	m_Frustum.planes[2] = { {clip._14 + clip._12, clip._24 + clip._22, clip._34 + clip._32}, clip._44 + clip._42 }; // bottom
+	m_Frustum.planes[3] = { {clip._14 - clip._12, clip._24 - clip._22, clip._34 - clip._32}, clip._44 - clip._42 }; // top
+	m_Frustum.planes[4] = { {clip._13, clip._23, clip._33}, clip._43 }; // near
+	m_Frustum.planes[5] = { {clip._14 - clip._13, clip._24 - clip._23, clip._34 - clip._33}, clip._44 - clip._43 }; // far
 
 	// °¢ Æò¸éÀÇ Á¤±ÔÈ­
 	for (int i = 0; i < 6; ++i) 

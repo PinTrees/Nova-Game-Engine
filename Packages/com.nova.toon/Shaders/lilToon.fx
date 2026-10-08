@@ -112,11 +112,7 @@ float4 PS_Lil(VertexOut pin, bool front : SV_IsFrontFace) : SV_Target
     if (gShaderSetting.gUseShadowMap && gPbr.ReceiveShadows)
     {
         const int cascade = SelectCascade(pin.PosW.xyz);
-#ifdef NOVA_WEBGPU
-        attenuation = DirShadow(gDirShadowMaps_0, 0, pin.PosW.xyz, cascade, ShadowFade(pin.PosW.xyz), CascadeBlend(pin.PosW.xyz, cascade));   // WebGPU: 그림자 맵 배열 없음 (32 번)
-#else
-        attenuation = DirShadow(gDirShadowMaps[0], 0, pin.PosW.xyz, cascade, ShadowFade(pin.PosW.xyz), CascadeBlend(pin.PosW.xyz, cascade));
-#endif
+        attenuation = DirShadow(gDirShadowMaps, 0, pin.PosW.xyz, cascade, ShadowFade(pin.PosW.xyz), CascadeBlend(pin.PosW.xyz, cascade));
     }
 
     // ---- 그림자 (lilGetShading)

@@ -2,6 +2,7 @@
 #include "RenderingDebug.h"
 #include "MotionVectors.h"
 #include "ProbeVolumes.h"
+#include "ClusteredLighting.h"
 #include "EditorLog.h"
 #include "CliServer.h"
 
@@ -14,8 +15,8 @@ namespace RenderingDebug
 		bool s_LoadFailed = false;
 		int s_Drawn[2] = {};   // 마지막으로 그린 모드 (0 Game, 1 Scene) — 정보
 
-		const char* kNames[] = { "None", "Depth", "Normals (World)", "Ambient Occlusion", "Motion Vectors", "Probe Volume: Lighting", "Probe Volume: Sampling" };
-		const char* kKeys[] = { "none", "depth", "normals", "ao", "motion", "apv", "apv-sampling" };
+		const char* kNames[] = { "None", "Depth", "Normals (World)", "Ambient Occlusion", "Motion Vectors", "Probe Volume: Lighting", "Probe Volume: Sampling", "Additional Light Count (Forward+)" };
+		const char* kKeys[] = { "none", "depth", "normals", "ao", "motion", "apv", "apv-sampling", "lights" };
 
 		FxVar* Var(const char* name)
 		{
@@ -37,7 +38,7 @@ namespace RenderingDebug
 			return s_Fx != nullptr;
 		}
 
-		bool IsFullscreen(int mode) { return mode >= Depth && mode <= MotionVectors; }
+		bool IsFullscreen(int mode) { return (mode >= Depth && mode <= MotionVectors) || mode == AdditionalLightCount; }
 		bool IsProbeVolume(int mode) { return mode == ProbeVolumeLighting || mode == ProbeVolumeSampling; }
 	}
 
@@ -80,6 +81,7 @@ namespace RenderingDebug
 		if (FxVar* v = Var("gNormalDepth")) v->SetResource(in.NormalDepth);
 		if (FxVar* v = Var("gAo")) v->SetResource(in.Ao);
 		if (FxVar* v = Var("gMotion")) v->SetResource(in.Motion);
+		ClusteredLighting::BindFx(s_Fx.Get());   // 이 뷰가 마지막으로 지은 클러스터
 
 		ctx->OMSetRenderTargets(1, &target, nullptr);
 		ctx->RSSetViewports(1, &viewport);
@@ -112,7 +114,7 @@ namespace RenderingDebug
 
 	void RegisterEditor()
 	{
-		CliServer::Register("debugview", "Rendering Debugger: {op: info | none | depth | normals | ao | motion | apv | apv-sampling, range, scale}",
+		CliServer::Register("debugview", "Rendering Debugger: {op: info | none | depth | normals | ao | motion | apv | apv-sampling | lights, range, scale}",
 			[](const nlohmann::json& args, nlohmann::json& result, std::string& error) {
 				const std::string op = args.value("op", std::string("info"));
 				if (op != "info")
@@ -123,7 +125,7 @@ namespace RenderingDebug
 							mode = i;
 					if (mode < 0)
 					{
-						error = "mode: none | depth | normals | ao | motion | apv | apv-sampling (or info)";
+						error = "mode: none | depth | normals | ao | motion | apv | apv-sampling | lights (or info)";
 						return false;
 					}
 					SetMode(mode);

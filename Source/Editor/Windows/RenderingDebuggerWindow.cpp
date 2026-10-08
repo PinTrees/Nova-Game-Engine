@@ -71,6 +71,9 @@ void RenderingDebuggerWindow::OnRender()
 	case RenderingDebug::ProbeVolumeLighting:
 		UnityGUI::HelpBox("Adaptive Probe Volume: only the light from the probes (x6). Needs an Adaptive Probe Volume in the scene.", false, 1);
 		break;
+	case RenderingDebug::AdditionalLightCount:
+		UnityGUI::HelpBox("Forward+: how many additional (clustered) lights each pixel's cluster has — black 0, blue 1, green 4, yellow 8, red 16+. The first 4 lights (with shadows) are not counted.", false, 1);
+		break;
 	case RenderingDebug::ProbeVolumeSampling:
 		UnityGUI::HelpBox("Adaptive Probe Volume sampling: green = wall test + normal, yellow = normal only, red = trilinear only, blue = larger cascade.", false, 1);
 		break;

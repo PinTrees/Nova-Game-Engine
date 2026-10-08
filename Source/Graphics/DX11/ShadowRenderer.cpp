@@ -86,6 +86,10 @@ namespace ShadowRenderer
 		out.DirCount = dirCount;
 		out.SpotCount = spotCount;
 		out.PointCount = pointCount;
+		// 종류마다 텍스처 배열 하나 — 이번 빛 수만큼 조각을 먼저 마련 (그리는 도중에 늘리면 앞 빛의 그림자가 사라진다)
+		maps.Prepare(LightType::Directional, dirCount, s.Resolution);
+		maps.Prepare(LightType::Spot, spotCount, s.Resolution);
+		maps.Prepare(LightType::Point, pointCount, (std::max)(256u, s.Resolution / 2));
 		for (int i = 0; i < LIGHT_SIZE; ++i)
 			out.DirData[i] = out.SpotData[i] = out.PointData[i] = XMFLOAT4(0, 0, 0, 0);
 
@@ -342,9 +346,9 @@ namespace ShadowRenderer
 
 	void Bind(InstancedBasicEffect* fx, ShadowMap& maps, const FrameData& data)
 	{
-		fx->SetDirShadowMaps(maps.DepthMapSRVArray(LightType::Directional).data(), LIGHT_SIZE);
-		fx->SetSpotShadowMaps(maps.DepthMapSRVArray(LightType::Spot).data(), LIGHT_SIZE);
-		fx->SetPointShadowMaps(maps.DepthMapSRVArray(LightType::Point).data(), LIGHT_SIZE);
+		fx->SetDirShadowMaps(maps.DepthMapSRV(LightType::Directional));
+		fx->SetSpotShadowMaps(maps.DepthMapSRV(LightType::Spot));
+		fx->SetPointShadowMaps(maps.DepthMapSRV(LightType::Point));
 		fx->SetDirShadowTransforms(data.Dir, LIGHT_SIZE * 4);
 		fx->SetSpotShadowTransforms(data.Spot, LIGHT_SIZE);
 		fx->SetPointShadowTransforms(data.Point, LIGHT_MAX_SIZE);

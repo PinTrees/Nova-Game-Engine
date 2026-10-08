@@ -22,6 +22,7 @@ Unity URP 의 **Window > Analysis > Rendering Debugger** 처럼, Scene 뷰와 Ga
 | Ambient Occlusion | `ao` | SSAO 맵 (흰색 = 열림, 어두움 = 가려짐) — Volume 에 SSAO 를 켜야 보인다 ([SSAO](SSAO.md)) |
 | Motion Vectors | `motion` | 화면 속도: 색 = 방향 (오른쪽 빨강 · 아래 노랑-초록 · 왼쪽 청록 · 위 파랑-보라), 밝기 = 속도 (16 픽셀 / **Motion Vector Scale** 에서 가장 밝다), 멈춤 = 검정. Scene 뷰도 이 모드일 때만 모션 벡터를 따로 그린다 ([Motion Vectors](MOTION_VECTORS.md)) |
 | Probe Volume: Lighting | `apv` | Adaptive Probe Volume 의 프로브 빛만 (x 6) — 물체 셰이더가 그린다 |
+| Additional Light Count (Forward+) | `lights` | [Forward+](FORWARD_PLUS.md) 클러스터마다 추가 빛 수 (검정 0, 파랑 1, 초록 4, 노랑 8, 빨강 16 이상) |
 | Probe Volume: Sampling | `apv-sampling` | 프로브를 섞은 방법: 초록 = 벽 검사 + 노멀, 노랑 = 노멀만, 빨강 = 삼선형만, 파랑 = 큰 단계 |
 
 ## CLI
