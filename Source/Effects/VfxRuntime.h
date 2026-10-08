@@ -9,6 +9,12 @@ namespace VfxRuntime
 {
 	// 다음 Render 에서 시뮬레이션한다 (VisualEffect::UpdateAll 이 프레임마다)
 	void MarkFrame();
+	// 이번 프레임에 아직 시뮬레이션하지 않았고 켜진 Visual Effect 가 있다
+	bool NeedsSimulation();
+	// 켜진 Visual Effect 가 장면 텍스처 (뷰 깊이 · 날씨 덮개) 를 읽는다 — 그러면 비동기 컴퓨트로 보내지 않는다 (그래픽 패스가 같은 텍스처를 쓰는 중)
+	bool ReadsSceneTextures();
+	// 시뮬레이션만 (Render Graph 의 VFX Simulation 패스 — 비동기 컴퓨트로 그림자 · 불투명과 겹쳐 돈다). 뷰 = 깊이 충돌 카메라
+	void SimulateEffects(const Matrix& view, const Matrix& proj, const ParticleRenderer::Environment* env);
 	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv, const ParticleRenderer::Environment* env = nullptr);
 	int LastDrawCalls();
 	int LastSystemCount();

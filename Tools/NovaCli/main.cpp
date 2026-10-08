@@ -439,7 +439,7 @@ namespace
 		std::wstring cmdLine = L"\"" + exe + L"\" --project \"" + Wide(project) + L"\"";
 		if (a.Has("background") || a.Has("hidden")) cmdLine += L" --no-activate";
 		if (a.Has("hidden")) cmdLine += L" --hidden";   // 창을 아예 띄우지 않는다 (CLI 로만 다루는 검사)
-		// 이번 실행만 그래픽 API 를 정한다 (설정 파일은 그대로): --graphics opengl | d3d11 | vulkan
+		// 이번 실행만 그래픽 API 를 정한다 (설정 파일은 그대로): --graphics opengl | d3d11 | d3d12 | vulkan
 		if (a.Has("graphics"))
 		{
 			std::string g = a.Get("graphics");
@@ -447,6 +447,7 @@ namespace
 			if (g == "opengl" || g == "gl") cmdLine += L" -force-opengl";
 			else if (g == "d3d11" || g == "dx11" || g == "directx11") cmdLine += L" -force-d3d11";
 			else if (g == "vulkan" || g == "vk") cmdLine += L" -force-vulkan";
+			else if (g == "d3d12" || g == "dx12" || g == "directx12") cmdLine += L" -force-d3d12";
 		}
 		STARTUPINFOW si = { sizeof(si) };
 		if (a.Has("background") || a.Has("hidden"))
@@ -1202,7 +1203,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors" || cmd == "cinemachine" || cmd == "debugview" || cmd == "forwardplus" || cmd == "rendergraph")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors" || cmd == "cinemachine" || cmd == "debugview" || cmd == "forwardplus" || cmd == "rendergraph" || cmd == "d3d12")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

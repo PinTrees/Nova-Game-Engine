@@ -751,6 +751,27 @@ bool VfxGpuBounds(VisualEffect* vfx, Vec3& mn, Vec3& mx)
 namespace VfxRuntime
 {
 	void MarkFrame() { ++s_FrameMark; }
+
+	bool ReadsSceneTextures()
+	{
+		for (VisualEffect* vfx : VisualEffect::All())
+		{
+			if (!vfx->IsEnabled() || !vfx->ActiveInHierarchy() || !vfx->GetAsset()) continue;
+			for (const Vfx::System& sys : vfx->GetAsset()->Systems)
+				if (sys.Enabled)
+					for (const Vfx::Block& b : sys.Update)
+						if (b.Enabled && (b.Type == "CollideDepth" || b.Type == "CollideCover")) return true;
+		}
+		return false;
+	}
+
+	bool NeedsSimulation()
+	{
+		if (s_SimulatedMark == s_FrameMark || VisualEffect::All().empty()) return false;
+		for (VisualEffect* vfx : VisualEffect::All())
+			if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset()) return true;
+		return false;
+	}
 	int LastDrawCalls() { return s_LastDraws; }
 	int LastSystemCount() { return s_LastSystems; }
 	int LastCulledCount() { return s_LastCulled; }
@@ -782,6 +803,61 @@ namespace VfxRuntime
 		return dc && dc->SupportsGpuDriven() && Init();
 	}
 
+	// 이번 프레임의 시뮬레이션 (한 번). 뷰 = 깊이 충돌 · 날씨 덮개가 쓰는 카메라. 렌더 타깃을 풀 수 있다 (깊이 충돌)
+	void SimulateFrame(GfxContext* dc, const Matrix& view, const Matrix& proj, const ParticleRenderer::Environment* env)
+	{
+		const Matrix camWorld = view.Invert();
+		const Matrix viewProj = view * proj;
+		s_SimulatedMark = s_FrameMark;
+		PROFILE_SCOPE("VFX.Simulate");
+		// 깊이 버퍼 충돌: 이 뷰의 장면 깊이를 compute 가 읽는다 (쓰기 깊이로 묶여 있으면 읽을 수 없어 잠깐 푼다)
+		CollisionView coll;
+		bool wantDepth = false;
+		for (VisualEffect* vfx : VisualEffect::All())
+			if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset() && UsesDepthCollision(*vfx->GetAsset()))
+				wantDepth = true;
+		coll.On = wantDepth && env && env->DepthSRV;
+		coll.Depth = coll.On ? env->DepthSRV : nullptr;
+		const float collParams[4] = { coll.On ? 1.0f : 0.0f, proj._33, proj._43, 0.0f };
+		const float collCam[4] = { camWorld._41, camWorld._42, camWorld._43, 0.0f };
+		SetM(s_V.CollViewProj, viewProj);
+		SetM(s_V.CollInvViewProj, viewProj.Invert());
+		SetV(s_V.CollParams, collParams);
+		// 날씨 덮개 맵 (Collide with Weather Cover): 이 뷰의 것 — 없으면 블록이 아무것도 하지 않는다
+		{
+			const WeatherCover::Info& cover = WeatherCover::Get(RenderManager::GetI()->RenderingEditorView ? 1 : 0);
+			const float coverParams[4] = { cover.Valid ? 1.0f : 0.0f, cover.TopY, cover.Range, cover.InvSize > 0.0f ? 1.0f / cover.InvSize : 0.0f };
+			SetV(s_V.CoverParams, coverParams);
+			SetM(s_V.CoverVP, Matrix(cover.ToTex));
+			coll.Cover = cover.Valid ? cover.Srv : nullptr;
+		}
+		SetV(s_V.CollCam, collCam);
+		D3D11_VIEWPORT vp = {};
+		UINT vpCount = 1;
+		dc->RSGetViewports(&vpCount, &vp);
+		const float collViewport[4] = { vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height };
+		SetV(s_V.CollViewport, collViewport);
+		static bool s_Logged = false;
+		if (coll.On && !s_Logged)
+		{
+			s_Logged = true;
+			EditorLog::Write("VFX", "depth collision on: viewport %.0f,%.0f %.0fx%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
+		}
+		if (coll.On)
+			dc->OMSetRenderTargets(0, nullptr, nullptr);
+		for (VisualEffect* vfx : VisualEffect::All())
+			if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset())
+				Simulate(dc, vfx, coll);
+	}
+
+	void SimulateEffects(const Matrix& view, const Matrix& proj, const ParticleRenderer::Environment* env)
+	{
+		if (!NeedsSimulation()) return;
+		GfxContext* dc = Application::GetI()->GetDeviceContext();
+		if (!dc->SupportsGpuDriven() || !Init()) return;
+		SimulateFrame(dc, view, proj, env);
+	}
+
 	void Render(const Matrix& view, const Matrix& proj, GfxRenderTargetView* rtv, GfxDepthStencilView* dsv, const ParticleRenderer::Environment* env)
 	{
 		s_LastDraws = 0;
@@ -806,51 +882,11 @@ namespace VfxRuntime
 		const Matrix viewProj = view * proj;
 		GfxRenderTargetView* rtvs[1] = { rtv };
 
-		// 프레임의 첫 뷰에서 시뮬레이션 (Game · Scene 뷰가 같은 결과를 그린다)
+		// 프레임의 첫 뷰에서 시뮬레이션 (Render Graph 의 VFX Simulation 패스가 이미 했으면 건너뜀 — Game · Scene 뷰가 같은 결과를 그린다)
 		if (s_SimulatedMark != s_FrameMark)
 		{
-			s_SimulatedMark = s_FrameMark;
-			PROFILE_SCOPE("VFX.Simulate");
-			// 깊이 버퍼 충돌: 이 뷰의 장면 깊이를 compute 가 읽는다 (쓰기 깊이로 묶여 있으면 읽을 수 없어 잠깐 푼다)
-			CollisionView coll;
-			bool wantDepth = false;
-			for (VisualEffect* vfx : VisualEffect::All())
-				if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset() && UsesDepthCollision(*vfx->GetAsset()))
-					wantDepth = true;
-			coll.On = wantDepth && env && env->DepthSRV;
-			coll.Depth = coll.On ? env->DepthSRV : nullptr;
-			const float collParams[4] = { coll.On ? 1.0f : 0.0f, proj._33, proj._43, 0.0f };
-			const float collCam[4] = { camWorld._41, camWorld._42, camWorld._43, 0.0f };
-			SetM(s_V.CollViewProj, viewProj);
-			SetM(s_V.CollInvViewProj, viewProj.Invert());
-			SetV(s_V.CollParams, collParams);
-			// 날씨 덮개 맵 (Collide with Weather Cover): 이 뷰의 것 — 없으면 블록이 아무것도 하지 않는다
-			{
-				const WeatherCover::Info& cover = WeatherCover::Get(RenderManager::GetI()->RenderingEditorView ? 1 : 0);
-				const float coverParams[4] = { cover.Valid ? 1.0f : 0.0f, cover.TopY, cover.Range, cover.InvSize > 0.0f ? 1.0f / cover.InvSize : 0.0f };
-				SetV(s_V.CoverParams, coverParams);
-				SetM(s_V.CoverVP, Matrix(cover.ToTex));
-				coll.Cover = cover.Valid ? cover.Srv : nullptr;
-			}
-			SetV(s_V.CollCam, collCam);
-			D3D11_VIEWPORT vp = {};
-			UINT vpCount = 1;
-			dc->RSGetViewports(&vpCount, &vp);
-			const float collViewport[4] = { vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height };
-			SetV(s_V.CollViewport, collViewport);
-			static bool s_Logged = false;
-			if (coll.On && !s_Logged)
-			{
-				s_Logged = true;
-				EditorLog::Write("VFX", "depth collision on: viewport %.0f,%.0f %.0fx%.0f", vp.TopLeftX, vp.TopLeftY, vp.Width, vp.Height);
-			}
-			if (coll.On)
-				dc->OMSetRenderTargets(0, nullptr, nullptr);
-			for (VisualEffect* vfx : VisualEffect::All())
-				if (vfx->IsEnabled() && vfx->ActiveInHierarchy() && vfx->GetAsset())
-					Simulate(dc, vfx, coll);
-			if (coll.On)
-				dc->OMSetRenderTargets(1, rtvs, dsv);
+			SimulateFrame(dc, view, proj, env);
+			dc->OMSetRenderTargets(1, rtvs, dsv);
 		}
 
 		const Vec3 camRight(camWorld._11, camWorld._12, camWorld._13);

@@ -66,7 +66,7 @@ void EditorGUIManager::Init(bool hubMode)
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     const bool openGL = Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL();
-    const bool vulkan = Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan();
+    const bool vulkan = Application::GetI()->GetApp() && Application::GetI()->GetApp()->UsesImGuiGfx();   // Vulkan · DirectX 12
     if (!hubMode)
     {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -203,7 +203,7 @@ void EditorGUIManager::Destroy()
 {
     if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
         ImGuiGL::Shutdown();
-    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan())
+    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->UsesImGuiGfx())
         ImGuiGfx::Shutdown();
     else
         ImGui_ImplDX11_Shutdown();  
@@ -216,7 +216,7 @@ void EditorGUIManager::Update()
     ImportSettingsInspector::Update();   // Inspector 에서 누른 Apply · Fix Now (그리기 밖에서 씬을 다시 만든다)
     if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
         ImGuiGL::NewFrame();
-    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan())
+    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->UsesImGuiGfx())
         ImGuiGfx::NewFrame();
     else
         ImGui_ImplDX11_NewFrame();

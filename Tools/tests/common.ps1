@@ -21,12 +21,14 @@ function Get-VramMB
 }
 
 # 에디터를 띄우고 감시 작업을 건다. 돌려주는 객체로 Invoke-Nova / Stop-TestEditor
-function Start-TestEditor([switch]$OpenGL, [switch]$Vulkan, [int]$MaxGrowMB = 1500, [int]$WatchSeconds = 900)
+function Start-TestEditor([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [int]$MaxGrowMB = 1500, [int]$WatchSeconds = 900)
 {
     $base = Get-VramMB
     # 검사 편집기는 늘 창 없이 (--hidden) — 사용자가 같은 PC 를 쓰고 있다. 모든 조작은 CLI 로
     if ($OpenGL) { $out = & $Nova open $script:Project --background --hidden --graphics opengl --timeout 300 2>&1 | Out-String }
     elseif ($Vulkan) { $out = & $Nova open $script:Project --background --hidden --graphics vulkan --timeout 300 2>&1 | Out-String }
+    elseif ($D3D12) { $out = & $Nova open $script:Project --background --hidden --graphics d3d12 --timeout 300 2>&1 | Out-String }
+    elseif ($env:NOVA_TEST_GRAPHICS) { $out = & $Nova open $script:Project --background --hidden --graphics $env:NOVA_TEST_GRAPHICS --timeout 300 2>&1 | Out-String }   # 스위트 전체를 다른 API 로 (예: d3d12)
     else { $out = & $Nova open $script:Project --background --hidden --timeout 300 2>&1 | Out-String }
     if ($out -notmatch 'pid (\d+)') { throw "editor did not open: $out" }
     $editorPid = [int]$Matches[1]

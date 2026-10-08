@@ -9,10 +9,11 @@
 //  - OpenGL 구현(GfxGL.cpp): 같은 뜻을 GL 4.5 로 (Native() = nullptr)
 //  - Vulkan 구현(Vulkan/GfxVk*.cpp): 같은 뜻을 Vulkan 1.3 으로 (Native() = nullptr, Api() = Vulkan)
 //  - WebGPU 구현(Web/Source/GfxWgpu*.cpp — 웹 플레이어): 같은 뜻을 WebGPU 로 (Api() = WebGPU)
+//  - DirectX 12 구현(DX12/GfxD3D12*.cpp): 같은 뜻을 D3D12 로 (Native() = nullptr, Api() = DirectX12)
 //  - 셰이더 효과는 RhiFx.h (FxEffect …), 새 코드에서 쓰기 쉬운 장치 API 는 Rhi.h
 //  - COM 처럼 AddRef/Release/QueryInterface 가 있어 ComPtr<GfxXxx> 를 그대로 쓴다. 만드는 함수는 참조 1 로 돌려준다
 // 객체를 만든 구현 (Native() == nullptr 만으로는 GL 과 Vulkan 을 가를 수 없다)
-enum class GfxApi { DirectX11, OpenGL, Vulkan, WebGPU };
+enum class GfxApi { DirectX11, OpenGL, Vulkan, WebGPU, DirectX12 };
 
 class __declspec(uuid("4E6F7661-0001-4A00-8000-000000000001")) GfxObject : public IUnknown
 {
@@ -247,6 +248,15 @@ class __declspec(uuid("4E6F7661-0001-4A00-8000-000000000013")) GfxContext : publ
 	//  (구현은 그리기를 간접 그리기로 바꿔 그 값을 InstanceCount 자리에 복사한다). nullptr = 끔
 	virtual bool SetPredicationBuffer(GfxBuffer* buffer, UINT offset) { (void)buffer; (void)offset; return false; }
 	virtual bool ClearUnorderedAccessViewUint(GfxUnorderedAccessView* uav, const UINT values[4]) { (void)uav; (void)values; return false; }
+
+	// ---- 비동기 컴퓨트 (큐가 둘인 백엔드 — DirectX 12 · Vulkan): Begin ~ End 사이의 Dispatch 를 컴퓨트 큐로 보낸다.
+	//  컴퓨트 큐는 Begin 앞의 그래픽 일이 끝난 뒤 시작하고, 그래픽은 WaitAsyncCompute 를 부른 곳부터 컴퓨트 결과를 기다린다
+	//  (End ~ Wait 사이의 그래픽 일이 컴퓨트와 겹쳐 돈다). 지원하지 않는 백엔드는 그대로 같은 큐에서 (함수는 아무 일도 안 함)
+	//  Begin ~ End 안에서는 Dispatch · ClearUnorderedAccessViewUint · UpdateSubresource(버퍼) · Map 만 쓴다 (그리기 · 복사는 그래픽으로)
+	virtual bool SupportsAsyncCompute() const { return false; }
+	virtual void BeginAsyncCompute() {}
+	virtual void EndAsyncCompute() {}
+	virtual void WaitAsyncCompute() {}
 };
 
 namespace DirectX { struct Image; struct TexMetadata; class ScratchImage; }

@@ -43,6 +43,7 @@
 #include "ScreenSpaceReflection.h"
 #include "ModelPlacement.h"
 #include "VulkanTools.h"
+#include "D3D12Tools.h"
 #include "AndroidTools.h"
 #include "WebTools.h"
 #include "TreeRenderer.h"
@@ -235,6 +236,7 @@ bool EditorApp::Init()
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile
 		VulkanTools::RegisterEditor();        // nova vulkan
+		D3D12Tools::RegisterEditor();         // nova d3d12
 		AndroidTools::RegisterEditor();       // nova android
 		WebTools::RegisterEditor();           // nova web
 		// NOVA CLI: 터미널·AI 가 이 에디터를 다룰 수 있게 (nova.exe → 이름 있는 파이프)
@@ -704,6 +706,20 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 				SceneCulling::Cull(d.View * d.Proj, false);
 			});
 
+	// Visual Effect 시뮬레이션 (GPU 파티클): 비동기 컴퓨트 — 큐가 둘인 백엔드 (DirectX 12) 에서는 모션 벡터 · SSAO · 불투명과 겹쳐 돈다.
+	//  깊이 충돌이 이 뷰의 깊이를 읽는다 (프리패스 뒤). 입자 패스가 결과를 읽는다 (그 앞에서 기다린다). 프레임의 첫 뷰에서만
+	RenderGraph::Texture tVfx;
+	if (!probe && !giCapture && VfxRuntime::NeedsSimulation())
+	{
+		tVfx = g.Import("VFX Particles", nullptr);
+		g.AddPass("VFX Simulation", [&](RenderGraph::Builder& b) { b.Read(tDepth); tVfx = b.Write(tVfx); if (!VfxRuntime::ReadsSceneTextures()) b.AsyncCompute(); },
+			[&](const RenderGraph::Resources&) {
+				_deviceContext->RSSetViewports(1, &viewport);
+				const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, d.BackgroundType == 0);
+				VfxRuntime::SimulateEffects(d.View, d.Proj, &env);
+			});
+	}
+
 	// 모션 벡터 (Volume 의 Motion Vectors): 깊이 프리패스 뒤. 읽는 패스가 없으면 그래프가 뺀다. 프로브 · APV 찍기에는 없음
 	if (!probe)
 		g.AddPass("Motion Vectors", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tMotion = b.Write(tMotion); },
@@ -867,7 +883,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 				SpriteBatch::Render(d.View, d.Proj, sceneTarget, viewDsv);
 			});
 
-		g.AddPass("Particles", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+		g.AddPass("Particles", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tVfx); b.Read(tScene); tScene = b.Write(tScene); },
 			[&](const RenderGraph::Resources&) {
 				const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, d.BackgroundType == 0);
 				ParticleRenderer::Render(d.View, d.Proj, sceneTarget, viewDsv, &env);
@@ -1042,6 +1058,18 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		});
 
 	// 모션 벡터: Scene 뷰는 Rendering Debugger 의 Motion Vectors 보기만 읽는다 → 아니면 그래프가 뺀다 (Game 뷰와 따로 기록)
+	RenderGraph::Texture tVfx;
+	if (SceneToolbar::ParticlesVisible() && VfxRuntime::NeedsSimulation())
+	{
+		tVfx = g.Import("VFX Particles", nullptr);
+		g.AddPass("VFX Simulation", [&](RenderGraph::Builder& b) { b.Read(tDepth); tVfx = b.Write(tVfx); if (!VfxRuntime::ReadsSceneTextures()) b.AsyncCompute(); },
+			[&](const RenderGraph::Resources&) {
+				_deviceContext->RSSetViewports(1, &viewport);
+				const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, SceneToolbar::SkyboxVisible());
+				VfxRuntime::SimulateEffects(camera->View(), camera->Proj(), &env);
+			});
+	}
+
 	g.AddPass("Motion Vectors", [&](RenderGraph::Builder& b) { b.Read(tNormalDepth); tMotion = b.Write(tMotion); },
 		[&](const RenderGraph::Resources&) {
 			MotionVectors::Frame mf;
@@ -1196,7 +1224,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 		});
 
 	if (SceneToolbar::ParticlesVisible())
-		g.AddPass("Particles", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
+		g.AddPass("Particles", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tVfx); b.Read(tScene); tScene = b.Write(tScene); },
 			[&](const RenderGraph::Resources&) {
 				const ParticleRenderer::Environment env = ParticleEnvironment(viewDsv, dirLights, indirect, SceneToolbar::SkyboxVisible());
 				ParticleRenderer::Render(camera->View(), camera->Proj(), sceneTarget, viewDsv, &env);

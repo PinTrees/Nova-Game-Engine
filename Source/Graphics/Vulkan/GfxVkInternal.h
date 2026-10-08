@@ -67,6 +67,7 @@ namespace GfxVkImpl
 		Allocation Mem;
 		VkDeviceSize Size = 0, Used = 0;
 		uint64_t Retire = 0;       // 이 값의 제출이 끝나야 다시 쓴다
+		uint64_t RetireCompute = 0;   // 비동기 컴퓨트 값도 (컴퓨트 큐가 읽었을 수 있다)
 		uint64_t Generation = 0;   // 다시 쓸 때마다 +1 (RingLoc 가 아직 유효한지)
 		uint64_t Id = 0;
 	};
@@ -358,19 +359,36 @@ namespace GfxVkImpl
 		uint64_t Epoch = 0;        // 새 명령 버퍼마다 +1 (컨텍스트가 묶은 상태를 다시 묶는다)
 		uint32_t DrawsSinceSubmit = 0;
 
+		// ---- 비동기 컴퓨트: 그래픽 큐 패밀리의 두 번째 큐 (같은 패밀리라 소유권 옮기기 없이). BeginAsyncCompute ~ End 의 기록은 컴퓨트 명령 버퍼로
+		VkQueue ComputeQueue = VK_NULL_HANDLE;
+		VkSemaphore ComputeTimeline = VK_NULL_HANDLE;
+		uint64_t ComputeSubmitted = 0, ComputeCompleted = 0;
+		uint64_t ComputePending = 0;       // 그래픽 큐가 아직 기다리지 않은 컴퓨트 값
+		uint64_t GraphicsWaitCompute = 0;  // 다음 그래픽 제출이 기다릴 컴퓨트 값
+		CmdSlot Compute;
+		std::vector<CmdSlot> FreeComputeCmds, InFlightComputeCmds;
+		bool AsyncOpen = false, ComputeUnsubmitted = false;
+		bool AsyncEnabled = true;          // NOVA_VK_ASYNC=0 이면 끔
+		uint64_t AsyncSubmits = 0;
+		uint64_t ComputeCover() const { return ComputeSubmitted + ((AsyncOpen || ComputeUnsubmitted) ? 1 : 0); }
+		void OpenCompute();
+		void SubmitCompute();
+		void WaitCompute(uint64_t serial);
+
 		// ---- 링
 		std::vector<std::unique_ptr<RingChunk>> Chunks;
 		RingChunk* Current = nullptr;
 		std::deque<RingChunk*> Retired;
 
 		// ---- 디스크립터 풀 (꽉 차면 은퇴, 끝나면 리셋해 다시)
-		struct Pool { VkDescriptorPool Handle = VK_NULL_HANDLE; uint64_t Retire = 0; };
+		struct Pool { VkDescriptorPool Handle = VK_NULL_HANDLE; uint64_t Retire = 0, RetireCompute = 0; };
 		std::vector<Pool> FreePools, RetiredPools;
 		VkDescriptorPool CurrentPool = VK_NULL_HANDLE;
 		uint64_t PoolGeneration = 0;   // 풀이 바뀌면 +1 (집합 캐시를 비운다)
 
 		// ---- 늦은 삭제: GPU 가 이 값까지 끝내면 지운다
-		std::deque<std::pair<uint64_t, std::function<void()>>> Deferred;
+		struct DeferredFn { uint64_t Serial, ComputeSerial; std::function<void()> Fn; };
+		std::deque<DeferredFn> Deferred;
 
 		// ---- 파이프라인
 		std::unordered_map<PipelineKey, VkPipeline, PipelineKeyHash> Pipelines;
@@ -393,6 +411,7 @@ namespace GfxVkImpl
 			VkSwapchainKHR Chain = VK_NULL_HANDLE;
 			VkFormat Format = VK_FORMAT_UNDEFINED;
 			VkExtent2D Extent = {};
+			uint32_t RequestW = 0, RequestH = 0;   // 만들 때 요청한 크기 (표면이 다른 크기를 정할 수 있다 — 숨은 창 등. 비교는 요청과)
 			VkPresentModeKHR Mode = VK_PRESENT_MODE_FIFO_KHR;
 			int Interval = -1;
 			std::vector<VkImage> Images;
@@ -419,13 +438,13 @@ namespace GfxVkImpl
 		void Once(const std::string& key, const char* fmt, const char* arg = "");
 
 		// 제출 · 대기
-		VkCommandBuffer Cmd() { return Main.Cb; }
+		VkCommandBuffer Cmd() { return AsyncOpen ? Compute.Cb : Main.Cb; }   // 지금 기록하는 명령 버퍼
 		VkCommandBuffer UploadCmd();
 		void Submit(bool wait, VkSemaphore waitSemaphore = VK_NULL_HANDLE, VkSemaphore signalSemaphore = VK_NULL_HANDLE);
 		void Poll();
 		void WaitSerial(uint64_t serial);
 		bool IsDone(uint64_t serial) { if (serial <= Completed) return true; Poll(); return serial <= Completed; }
-		void Defer(std::function<void()> fn) { Deferred.push_back({ Recording(), std::move(fn) }); }
+		void Defer(std::function<void()> fn) { Deferred.push_back({ Recording(), ComputeCover(), std::move(fn) }); }
 
 		// 링
 		uint8_t* RingAlloc(VkDeviceSize size, VkDeviceSize align, RingLoc& loc);
@@ -596,6 +615,11 @@ namespace GfxVkImpl
 		bool SetPredication(GfxQuery* predicate, BOOL value) override;
 		bool ClearUnorderedAccessViewUint(GfxUnorderedAccessView* uav, const UINT values[4]) override;
 		void CSSetShader(void*, void*, UINT) override {}
+		bool SupportsAsyncCompute() const override { return D->ComputeQueue && D->AsyncEnabled; }
+		void BeginAsyncCompute() override;
+		void EndAsyncCompute() override;
+		void WaitAsyncCompute() override;
+		void FinishAsync() { EndAsyncCompute(); WaitAsyncCompute(); }
 		void Draw(UINT vertexCount, UINT startVertex) override;
 		void DrawIndexed(UINT indexCount, UINT startIndex, INT baseVertex) override { DrawIndexedInstanced(indexCount, 1, startIndex, baseVertex, 0); }
 		void DrawInstanced(UINT vertexCountPerInstance, UINT instanceCount, UINT startVertex, UINT startInstance) override;

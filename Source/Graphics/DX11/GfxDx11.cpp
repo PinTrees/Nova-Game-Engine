@@ -2,6 +2,7 @@
 #include "Gfx.h"
 #include "GfxGL.h"
 #include "GfxVk.h"
+#include "GfxD3D12.h"
 #include <mutex>
 #include <dxgi1_4.h>   // IDXGIAdapter3 (VRAM 예산)
 
@@ -529,6 +530,8 @@ namespace Gfx
 	{
 		if (device->Api() == GfxApi::Vulkan)
 			return GfxVk::CreateTextureFromImages(device, images, count, meta, usage, bindFlags, cpuAccess, miscFlags, out);
+		if (device->Api() == GfxApi::DirectX12)
+			return GfxD3D12::CreateTextureFromImages(device, images, count, meta, usage, bindFlags, cpuAccess, miscFlags, out);
 		if (!device->Native())   // OpenGL 장치
 			return GfxGL::CreateTextureFromImages(device, images, count, meta, usage, bindFlags, cpuAccess, miscFlags, out);
 		ID3D11Resource* n = nullptr;
@@ -548,6 +551,8 @@ namespace Gfx
 			*out = nullptr;
 			HRESULT hr = device->Api() == GfxApi::Vulkan
 				? GfxVk::CreateTextureFromImages(device, images, count, meta, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, tex.GetAddressOf())
+				: device->Api() == GfxApi::DirectX12
+				? GfxD3D12::CreateTextureFromImages(device, images, count, meta, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, tex.GetAddressOf())
 				: GfxGL::CreateTextureFromImages(device, images, count, meta, D3D11_USAGE_DEFAULT, D3D11_BIND_SHADER_RESOURCE, 0, 0, tex.GetAddressOf());
 			if (FAILED(hr)) return hr;
 			return device->CreateShaderResourceView(tex.Get(), nullptr, out);
@@ -561,6 +566,8 @@ namespace Gfx
 	{
 		if (context->Api() == GfxApi::Vulkan)
 			return GfxVk::CaptureTexture(context, texture, out);
+		if (context->Api() == GfxApi::DirectX12)
+			return GfxD3D12::CaptureTexture(context, texture, out);
 		if (!context->Native())
 			return GfxGL::CaptureTexture(context, texture, out);
 		auto* ctx = static_cast<ID3D11DeviceContext*>(context->Native());

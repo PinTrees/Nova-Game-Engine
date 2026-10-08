@@ -529,9 +529,40 @@ namespace GfxVkImpl
 		return set;
 	}
 
+	// ============================================================ 비동기 컴퓨트 (DirectX 12 와 같은 규칙 — docs/ASYNC_COMPUTE.md)
+	void Ctx::BeginAsyncCompute()
+	{
+		if (!SupportsAsyncCompute() || D->AsyncOpen || D->Lost) return;
+		EndRendering();
+		FlushBarrier();   // 그래픽 명령 버퍼에
+		D->OpenCompute();
+	}
+
+	void Ctx::EndAsyncCompute()
+	{
+		if (!D->AsyncOpen) return;
+		FlushBarrier();   // 컴퓨트 명령 버퍼에 (디스패치 뒤 전역 장벽)
+		D->SubmitCompute();
+	}
+
+	void Ctx::WaitAsyncCompute()
+	{
+		if (D->AsyncOpen) EndAsyncCompute();
+		if (D->ComputePending == 0) return;
+		// End 뒤에 기록한 그래픽 일은 컴퓨트와 겹쳐 돌게 먼저 보내고, 다음 그래픽 제출부터 컴퓨트 결과를 기다린다
+		D->Submit(false);
+		D->GraphicsWaitCompute = D->ComputePending;
+		D->ComputePending = 0;
+	}
+
 	bool Ctx::PrepareDraw(bool indexed)
 	{
 		if (D->Lost) return false;
+		if (D->AsyncOpen)
+		{
+			D->Once("draw-in-async", "%s", "draw inside BeginAsyncCompute/EndAsyncCompute - the async compute block was ended here");
+			EndAsyncCompute();
+		}
 		if (!Prog)
 		{
 			D->Once("no-program", "%s", "draw without an applied effect pass - skipped");
@@ -993,6 +1024,7 @@ namespace GfxVkImpl
 	{
 		Rtv* v = AsRtv(view);
 		if (!v || !v->V.Img || D->Lost) return;
+		EndAsyncCompute();
 		Image& img = *v->V.Img;
 		float color[4] = { c[0], c[1], c[2], c[3] };
 		if (IsSrgb(v->V.Format) && !IsSrgb(img.Format))
@@ -1027,6 +1059,7 @@ namespace GfxVkImpl
 	{
 		Dsv* v = AsDsv(view);
 		if (!v || !v->V.Img || D->Lost) return;
+		EndAsyncCompute();
 		Image& img = *v->V.Img;
 		VkImageAspectFlags aspect = 0;
 		if (flags & D3D11_CLEAR_DEPTH) aspect |= VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -1313,6 +1346,7 @@ namespace GfxVkImpl
 	{
 		Srv* v = AsSrv(view);
 		if (!v || !v->V.Img || v->V.Mips < 2 || D->Lost) return;
+		EndAsyncCompute();
 		Image& img = *v->V.Img;
 		BeforeTransfer();
 		const VkFilter filter = img.Fmt.Integer || img.Fmt.Depth ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
@@ -1364,6 +1398,8 @@ namespace GfxVkImpl
 	void Ctx::Begin(GfxQuery* q)
 	{
 		Query* g = AsQuery(q);
+		if (g && !D->Lost && g->Dsc.Query != D3D11_QUERY_TIMESTAMP && g->Dsc.Query != D3D11_QUERY_TIMESTAMP_DISJOINT)
+			EndAsyncCompute();   // 오클루전 · 통계 쿼리는 그래픽 명령 버퍼에서
 		if (g && g->Pool && !D->Lost && g->Dsc.Query == D3D11_QUERY_PIPELINE_STATISTICS)
 		{
 			// 렌더링 밖에서 (쿼리가 렌더 패스를 넘을 수 있게). 바깥 쿼리의 조각을 끊는다
@@ -1399,6 +1435,8 @@ namespace GfxVkImpl
 	{
 		Query* g = AsQuery(q);
 		if (!g || D->Lost) return;
+		if (g->Dsc.Query != D3D11_QUERY_TIMESTAMP && g->Dsc.Query != D3D11_QUERY_TIMESTAMP_DISJOINT)
+			EndAsyncCompute();
 		if (g->Dsc.Query == D3D11_QUERY_PIPELINE_STATISTICS)
 		{
 			if (g->Pool && !StatStack.empty() && StatStack.back() == g)
@@ -1592,6 +1630,7 @@ namespace GfxVk
 		Dev* d = c->D.Get();
 		GfxVkImpl::Image* t = ImageOf(texture);
 		if (!t || t->Fmt.Compressed || d->Lost) return E_INVALIDARG;
+		c->FinishAsync();
 		const bool all = t->Cube || t->Layers > 1;
 		HRESULT hr = t->Type == VK_IMAGE_TYPE_3D ? E_NOTIMPL
 			: t->Cube ? out.InitializeCube(t->Dxgi, t->Width, t->Height, (std::max)(1u, t->Layers / 6), t->Mips)

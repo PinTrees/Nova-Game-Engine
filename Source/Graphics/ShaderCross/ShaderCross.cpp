@@ -3,6 +3,7 @@
 #include "pch.h"
 #include "ShaderCross.h"
 #include <dxcapi.h>
+#include <d3d12shader.h>
 #include <fstream>
 #include <regex>
 #include <set>
@@ -1156,6 +1157,313 @@ namespace ShaderCross
 		catch (const std::exception&)
 		{
 		}
+		return true;
+	}
+}
+
+// ================================================================ DirectX 12 (DXIL)
+namespace
+{
+	constexpr int kDxilCacheVersion = 1;
+
+	std::string Base64(const std::vector<uint8_t>& data)
+	{
+		static const char* t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		std::string out;
+		out.reserve((data.size() + 2) / 3 * 4);
+		for (size_t i = 0; i < data.size(); i += 3)
+		{
+			const uint32_t n = (uint32_t)data[i] << 16 | (i + 1 < data.size() ? (uint32_t)data[i + 1] << 8 : 0) | (i + 2 < data.size() ? data[i + 2] : 0);
+			out += t[(n >> 18) & 63];
+			out += t[(n >> 12) & 63];
+			out += i + 1 < data.size() ? t[(n >> 6) & 63] : '=';
+			out += i + 2 < data.size() ? t[n & 63] : '=';
+		}
+		return out;
+	}
+
+	std::vector<uint8_t> Unbase64(const std::string& s)
+	{
+		std::vector<uint8_t> out;
+		uint32_t buf = 0;
+		int bits = 0;
+		for (char c : s)
+		{
+			int v;
+			if (c >= 'A' && c <= 'Z') v = c - 'A';
+			else if (c >= 'a' && c <= 'z') v = c - 'a' + 26;
+			else if (c >= '0' && c <= '9') v = c - '0' + 52;
+			else if (c == '+') v = 62;
+			else if (c == '/') v = 63;
+			else continue;
+			buf = (buf << 6) | (uint32_t)v;
+			bits += 6;
+			if (bits >= 8)
+			{
+				bits -= 8;
+				out.push_back((uint8_t)((buf >> bits) & 0xFF));
+			}
+		}
+		return out;
+	}
+
+	// 단계 하나 → DXIL + 리플렉션 (자원 바인딩 · 픽셀 출력)
+	bool CompileDxil(const std::string& source, const std::wstring& name, const FxParser::ShaderRef& ref, StageDxil& st, uint32_t& pixelOutputs, std::string& error)
+	{
+		DxcBuffer buf = { source.data(), source.size(), DXC_CP_UTF8 };
+		const std::wstring entry = string_to_wstring(ref.Entry);
+		const std::wstring profile = ProfileFor(ref);
+		std::vector<LPCWSTR> args = { name.c_str(), L"-E", entry.c_str(), L"-T", profile.c_str(), L"-HV", L"2018", L"-O3", L"-Qstrip_debug",
+			L"-Wno-ignored-attributes", L"-Wno-conversion", L"-Wno-parentheses-equality", L"-Wno-unused-value" };
+		ComPtr<IDxcResult> result;
+		DWORD exception = 0;
+		if (FAILED(GuardedCompile(s_Compiler.Get(), &buf, args.data(), (UINT32)args.size(), result.GetAddressOf(), &exception)) || !result)
+		{
+			char b[64];
+			snprintf(b, sizeof(b), "DXC crashed (exception 0x%08X)", (unsigned)exception);
+			error = exception ? b : "compile call failed";
+			return false;
+		}
+		HRESULT status = E_FAIL;
+		result->GetStatus(&status);
+		if (FAILED(status))
+		{
+			ComPtr<IDxcBlobUtf8> errs;
+			result->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errs), nullptr);
+			error = errs && errs->GetStringLength() ? errs->GetStringPointer() : "compile failed";
+			return false;
+		}
+		ComPtr<IDxcBlob> obj, refl;
+		result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&obj), nullptr);
+		result->GetOutput(DXC_OUT_REFLECTION, IID_PPV_ARGS(&refl), nullptr);
+		if (!obj || !obj->GetBufferSize())
+		{
+			error = "no DXIL";
+			return false;
+		}
+		st.Code.assign((const uint8_t*)obj->GetBufferPointer(), (const uint8_t*)obj->GetBufferPointer() + obj->GetBufferSize());
+		if (!refl)
+		{
+			error = "no reflection";
+			return false;
+		}
+		const DxcBuffer rb = { refl->GetBufferPointer(), refl->GetBufferSize(), 0 };
+		ComPtr<ID3D12ShaderReflection> r;
+		if (FAILED(s_Utils->CreateReflection(&rb, IID_PPV_ARGS(&r))) || !r)
+		{
+			error = "CreateReflection failed";
+			return false;
+		}
+		D3D12_SHADER_DESC sd = {};
+		r->GetDesc(&sd);
+		for (UINT i = 0; i < sd.BoundResources; ++i)
+		{
+			D3D12_SHADER_INPUT_BIND_DESC b = {};
+			if (FAILED(r->GetResourceBindingDesc(i, &b)))
+				continue;
+			DxilBinding d;
+			d.Name = b.Name ? b.Name : "";
+			d.Register = (int)b.BindPoint;
+			d.Count = (int)(std::max)(1u, b.BindCount);
+			d.Dimension = (int)b.Dimension;
+			switch (b.Type)
+			{
+			case D3D_SIT_CBUFFER: d.Type = DxilBinding::Kind::Cbv; break;
+			case D3D_SIT_SAMPLER: d.Type = DxilBinding::Kind::Sampler; d.Comparison = (b.uFlags & D3D_SIF_COMPARISON_SAMPLER) != 0; break;
+			case D3D_SIT_TEXTURE: d.Type = DxilBinding::Kind::Srv; break;
+			case D3D_SIT_STRUCTURED: case D3D_SIT_BYTEADDRESS: d.Type = DxilBinding::Kind::Srv; d.Buffer = true; break;
+			case D3D_SIT_TBUFFER: d.Type = DxilBinding::Kind::Srv; d.Buffer = true; break;
+			case D3D_SIT_UAV_RWSTRUCTURED: case D3D_SIT_UAV_RWBYTEADDRESS: case D3D_SIT_UAV_APPEND_STRUCTURED: case D3D_SIT_UAV_CONSUME_STRUCTURED:
+			case D3D_SIT_UAV_RWSTRUCTURED_WITH_COUNTER:
+				d.Type = DxilBinding::Kind::Uav; d.Buffer = true; break;
+			default: d.Type = DxilBinding::Kind::Uav; break;   // RWTexture
+			}
+			st.Bindings.push_back(d);
+		}
+		if (ref.StageType == Stage::Pixel)
+			for (UINT i = 0; i < sd.OutputParameters; ++i)
+			{
+				D3D12_SIGNATURE_PARAMETER_DESC o = {};
+				if (SUCCEEDED(r->GetOutputParameterDesc(i, &o)) && o.SystemValueType == D3D_NAME_TARGET)
+					pixelOutputs |= 1u << o.Register;
+			}
+		return true;
+	}
+
+	json DxilToJson(const EffectDxil& e)
+	{
+		json passes = json::array();
+		for (const PassDxil& p : e.Passes)
+		{
+			json stages = json::array();
+			for (const StageDxil& s : p.Stages)
+			{
+				json binds = json::array();
+				for (const DxilBinding& b : s.Bindings)
+					binds.push_back({ b.Name, (int)b.Type, b.Register, b.Count, b.Dimension, b.Buffer, b.Comparison });
+				stages.push_back({ { "stage", (int)s.StageType }, { "entry", s.Entry }, { "code", Base64(s.Code) }, { "bindings", binds } });
+			}
+			passes.push_back({ { "technique", p.Technique }, { "pass", p.Pass }, { "stages", stages }, { "pixelOutputs", p.PixelOutputs }, { "error", p.Error } });
+		}
+		return { { "version", kDxilCacheVersion }, { "passes", passes } };
+	}
+
+	bool DxilFromJson(const json& j, EffectDxil& e)
+	{
+		if (j.value("version", 0) != kDxilCacheVersion || !j.contains("passes"))
+			return false;
+		for (const json& pj : j["passes"])
+		{
+			PassDxil p;
+			p.Technique = pj.value("technique", std::string());
+			p.Pass = pj.value("pass", std::string());
+			p.PixelOutputs = pj.value("pixelOutputs", 0u);
+			p.Error = pj.value("error", std::string());
+			for (const json& sj : pj["stages"])
+			{
+				StageDxil s;
+				s.StageType = (Stage)sj.value("stage", 0);
+				s.Entry = sj.value("entry", std::string());
+				s.Code = Unbase64(sj.value("code", std::string()));
+				for (const json& bj : sj["bindings"])
+				{
+					DxilBinding b;
+					b.Name = bj[0].get<std::string>();
+					b.Type = (DxilBinding::Kind)bj[1].get<int>();
+					b.Register = bj[2].get<int>();
+					b.Count = bj[3].get<int>();
+					b.Dimension = bj[4].get<int>();
+					b.Buffer = bj[5].get<bool>();
+					b.Comparison = bj[6].get<bool>();
+					s.Bindings.push_back(b);
+				}
+				p.Stages.push_back(std::move(s));
+			}
+			e.Passes.push_back(std::move(p));
+		}
+		return true;
+	}
+
+	// 리플렉션 이름 → 효과 바인딩 번호 (Meta 의 cbuffer · 자원)
+	void ResolveDxilBindings(EffectDxil& e)
+	{
+		for (PassDxil& p : e.Passes)
+			for (StageDxil& s : p.Stages)
+				for (DxilBinding& b : s.Bindings)
+				{
+					b.Binding = -1;
+					if (b.Type == DxilBinding::Kind::Cbv)
+					{
+						auto it = e.Meta.Blocks.find(b.Name);
+						if (it != e.Meta.Blocks.end())
+							b.Binding = it->second.Binding;
+					}
+					else
+					{
+						auto it = e.Meta.Resources.find(b.Name);
+						if (it != e.Meta.Resources.end())
+							b.Binding = it->second.Binding;
+					}
+				}
+	}
+}
+
+namespace ShaderCross
+{
+	int EffectDxil::PassesOk() const
+	{
+		int n = 0;
+		for (const PassDxil& p : Passes)
+			n += p.Error.empty() ? 1 : 0;
+		return n;
+	}
+
+	bool CompileEffectDxil(const std::wstring& fxPath, EffectDxil& out)
+	{
+		out = EffectDxil();
+		out.File = fxPath;
+		// 자원 배치 · 바인딩 번호 · 파싱 (SPIR-V 쪽 캐시가 있으면 빠르다)
+		if (!CompileEffectSpirv(fxPath, out.Meta) && !out.Meta.Error.empty())
+		{
+			out.Error = out.Meta.Error;
+			return false;
+		}
+		if (!Load())
+		{
+			out.Error = s_LoadError;
+			return false;
+		}
+		std::string pre;
+		if (!Preprocess(fxPath, pre, out.Error, false, false))
+			return false;
+		const uint64_t hash = Fnv1a(pre) ^ ((uint64_t)kDxilCacheVersion << 32);
+		char hex[32];
+		snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)hash);
+		const std::wstring stem = std::filesystem::path(fxPath).stem().wstring();
+		const std::filesystem::path cacheFile = std::filesystem::path(L"ShaderCache") / L"DXIL" / (stem + L"_" + string_to_wstring(hex) + L".json");
+		{
+			std::ifstream in(cacheFile, std::ios::binary);
+			if (in)
+			{
+				try
+				{
+					EffectDxil cached;
+					cached.File = fxPath;
+					cached.Meta = out.Meta;
+					if (DxilFromJson(json::parse(in), cached))
+					{
+						ResolveDxilBindings(cached);
+						out = std::move(cached);
+						EditorLog::Write("ShaderCross", "DXIL cache hit %s", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str());
+						return true;
+					}
+				}
+				catch (const std::exception&)
+				{
+				}
+			}
+		}
+		const FxParser::Effect& fx = out.Meta.Fx;
+		const std::wstring name = std::filesystem::path(fxPath).filename().wstring() + L".hlsl";
+		for (const FxParser::Technique& tech : fx.Techniques)
+			for (const FxParser::Pass& pass : tech.Passes)
+			{
+				PassDxil pd;
+				pd.Technique = tech.Name;
+				pd.Pass = pass.Name;
+				std::vector<const FxParser::ShaderRef*> refs;
+				for (const auto& s : pass.Shaders) refs.push_back(&s);
+				std::sort(refs.begin(), refs.end(), [](const FxParser::ShaderRef* a, const FxParser::ShaderRef* b) { return a->StageType < b->StageType; });
+				for (const FxParser::ShaderRef* ref : refs)
+				{
+					StageDxil st;
+					st.StageType = ref->StageType;
+					st.Entry = ref->Entry;
+					std::string error;
+					if (!CompileDxil(fx.Source, name, *ref, st, pd.PixelOutputs, error))
+					{
+						pd.Error = std::string(FxParser::StageName(ref->StageType)) + " " + ref->Entry + ": " + error;
+						break;
+					}
+					pd.Stages.push_back(std::move(st));
+				}
+				out.Passes.push_back(std::move(pd));
+			}
+		ResolveDxilBindings(out);
+		try
+		{
+			std::error_code ec;
+			std::filesystem::create_directories(cacheFile.parent_path(), ec);
+			const std::wstring prefix = stem + L"_";
+			for (const auto& f : std::filesystem::directory_iterator(cacheFile.parent_path(), ec))
+				if (f.path().filename().wstring().rfind(prefix, 0) == 0 && f.path() != cacheFile)
+					std::filesystem::remove(f.path(), ec);
+			std::ofstream(cacheFile, std::ios::binary | std::ios::trunc) << DxilToJson(out).dump();
+		}
+		catch (const std::exception&)
+		{
+		}
+		EditorLog::Write("ShaderCross", "DXIL compiled %s (%d/%d passes)", Narrow(std::filesystem::path(fxPath).filename().wstring()).c_str(), out.PassesOk(), (int)out.Passes.size());
 		return true;
 	}
 }

@@ -1313,7 +1313,7 @@ void HubApp::DrawInstallsPanel(float S, ImVec2 pos, ImVec2 size)
 		for (int i = 0; i < (int)GraphicsAPI::Count; ++i)
 		{
 			GraphicsAPI api = (GraphicsAPI)i;
-			bool supported = (api == GraphicsAPI::DirectX11 || api == GraphicsAPI::OpenGL || api == GraphicsAPI::Vulkan);
+			bool supported = (api == GraphicsAPI::DirectX11 || api == GraphicsAPI::OpenGL || api == GraphicsAPI::Vulkan || api == GraphicsAPI::DirectX12);
 			std::string label = std::string(GraphicsAPIToString(api)) + (supported ? "" : " (미구현)");
 			ImVec2 ts = ImGui::CalcTextSize(label.c_str());
 			ImVec2 b0(bx, by), b1(bx + ts.x + 18.0f * S, by + fs + 6.0f * S);

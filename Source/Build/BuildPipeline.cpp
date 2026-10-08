@@ -25,7 +25,7 @@ namespace
 		std::vector<std::string> Scenes;
 		std::map<std::string, std::string> ShaderGraphs;   // 셰이더 이름 → .shadergraph (Shader Graph 목록은 메인 스레드에서만 읽는다)
 	std::vector<std::pair<std::string, std::wstring>> Packages;   // 프로젝트에 넣은 패키지 (이름, 폴더) — 시작할 때 모아 둔다
-	bool NeedsShaderCross = true;   // 플레이어 API 에 OpenGL · Vulkan 이 있으면 HLSL → GLSL · SPIR-V 변환기(dxcompiler·dxil 23 MB)가 필요
+	bool NeedsShaderCross = true;   // 플레이어 API 에 OpenGL · Vulkan · DirectX 12 가 있으면 HLSL → GLSL · SPIR-V 변환기(dxcompiler·dxil 23 MB)가 필요
 		json PlayerJson;
 		bool Development = false, Run = false, Reveal = true;
 
@@ -255,6 +255,7 @@ namespace
 			{
 				addDir(cacheDir / L"GLSL", data / L"Binaries" / L"ShaderCache" / L"GLSL", true);
 				addDir(cacheDir / L"SPIRV", data / L"Binaries" / L"ShaderCache" / L"SPIRV", false);   // 하위 dump (검사용 .spv) 는 빼고
+				addDir(cacheDir / L"DXIL", data / L"Binaries" / L"ShaderCache" / L"DXIL", false);     // DirectX 12 (자원 정보는 SPIRV 쪽을 같이 쓴다)
 			}
 		}
 		addDir(job->BinDir / L"Scripting", data / L"Binaries" / L"Scripting", false, job->Development ? std::set<std::string>{} : std::set<std::string>{ ".pdb" });
@@ -378,8 +379,8 @@ namespace BuildPipeline
 			for (GraphicsAPI api : BuildSettings::PlayerGraphicsAPIs())
 			{
 				apis.push_back(GraphicsAPIToKey(api));
-				if (api == GraphicsAPI::OpenGL || api == GraphicsAPI::Vulkan)
-					job->NeedsShaderCross = true;
+				if (api == GraphicsAPI::OpenGL || api == GraphicsAPI::Vulkan || api == GraphicsAPI::DirectX12)
+					job->NeedsShaderCross = true;   // DirectX 12 = DXC → DXIL
 			}
 			job->PlayerJson["graphicsAPIs"] = apis;
 		}

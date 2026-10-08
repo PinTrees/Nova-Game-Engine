@@ -5,6 +5,7 @@
 #include <chrono>
 #include <map>
 #include <unordered_set>
+#include <set>
 
 namespace RenderGraph
 {
@@ -24,6 +25,7 @@ namespace RenderGraph
 		};
 		std::vector<PoolEntry> s_Pool;
 		uint64 s_Frame = 0;
+		bool s_Async = true;   // AsyncCompute 패스를 컴퓨트 큐로 (CLI rendergraph set --async)
 		int s_Created = 0;
 		std::map<std::string, nlohmann::json> s_LastInfo;
 
@@ -292,23 +294,69 @@ namespace RenderGraph
 		Resources res;
 		res.Owner = this;
 		Profiler::Phases phase;
+		// 비동기 컴퓨트: AsyncCompute 패스는 컴퓨트 큐로 (Begin ~ End), 그 패스가 쓴 판을 처음 읽는 패스 앞에서 기다린다 —
+		//  사이의 그래픽 패스 (그림자 · 불투명 …) 가 컴퓨트와 겹쳐 돈다. 큐가 하나인 백엔드는 같은 자리에서 그대로
+		GfxContext* ctx = Gfx::Context();
+		const bool async = s_Async && ctx && ctx->SupportsAsyncCompute();
+		std::set<std::pair<int, int>> pendingWrites;   // (자원, 판) — 컴퓨트 큐가 아직 쓰는 중
+		std::set<int> asyncTouched;                    // 컴퓨트 패스가 쓴 임시 텍스처 — 기다리기 전에는 풀로 돌려주지 않는다
+		auto wait = [&]() {
+			ctx->WaitAsyncCompute();
+			pendingWrites.clear();
+			for (int id : asyncTouched)
+				if (m_Resources[id].PoolSlot >= 0 && m_Resources[id].LastPass >= 0 && m_Resources[id].Released)
+					s_Pool[m_Resources[id].PoolSlot].InUse = false;
+			asyncTouched.clear();
+		};
 		for (size_t i = 0; i < m_Passes.size(); ++i)
 		{
 			PassNode& p = m_Passes[i];
+			p.RanAsync = p.WaitsAsync = false;
 			if (p.Culled)
 				continue;
 			for (ResourceNode& r : m_Resources)
 				if (!r.Imported && r.FirstPass == (int)i)
 					r.PoolSlot = Acquire(r.Desc);
+			const bool runAsync = async && p.Async;
+			if (!pendingWrites.empty() && !runAsync)
+			{
+				bool reads = false;
+				for (const Texture& t : p.Reads)
+					if (pendingWrites.count({ t.Id, t.Version })) reads = true;
+				for (const Texture& t : p.Writes)   // 같은 텍스처의 다음 판을 쓰는 것도 (쓰기 뒤 쓰기)
+					if (pendingWrites.count({ t.Id, t.Version - 1 })) reads = true;
+				if (reads)
+				{
+					wait();
+					p.WaitsAsync = true;
+				}
+			}
 			phase.Next(Intern(p.Name));
 			const auto t0 = std::chrono::steady_clock::now();
+			if (runAsync) ctx->BeginAsyncCompute();
 			if (p.Execute)
 				p.Execute(res);
+			if (runAsync)
+			{
+				ctx->EndAsyncCompute();
+				p.RanAsync = true;
+				for (const Texture& t : p.Writes)
+				{
+					pendingWrites.insert({ t.Id, t.Version });
+					if (!m_Resources[t.Id].Imported) asyncTouched.insert(t.Id);
+				}
+			}
 			p.Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
 			for (ResourceNode& r : m_Resources)
 				if (!r.Imported && r.LastPass == (int)i && r.PoolSlot >= 0)
-					s_Pool[r.PoolSlot].InUse = false;   // 뒤 패스가 같은 모양으로 다시 받는다
+				{
+					r.Released = true;
+					if (!asyncTouched.count((int)(&r - m_Resources.data())))
+						s_Pool[r.PoolSlot].InUse = false;   // 뒤 패스가 같은 모양으로 다시 받는다
+				}
 		}
+		if (async && !pendingWrites.empty())
+			wait();   // 아무도 읽지 않았어도 그래프 끝에서는 (다음 뷰 · 프레임이 같은 자원을 쓴다)
 		phase.Close();
 		for (ResourceNode& r : m_Resources)
 			if (r.PoolSlot >= 0)
@@ -318,6 +366,9 @@ namespace RenderGraph
 			}
 		Publish(*this);
 	}
+
+	void SetAsyncCompute(bool on) { s_Async = on; }
+	bool AsyncComputeEnabled() { return s_Async; }
 
 	nlohmann::json Graph::Info() const
 	{
@@ -330,6 +381,7 @@ namespace RenderGraph
 			for (const Texture& t : p.Reads) reads.push_back(label(t));
 			for (const Texture& t : p.Writes) writes.push_back(label(t));
 			passes.push_back({ { "name", p.Name }, { "culled", p.Culled }, { "sideEffect", p.SideEffect }, { "async", p.Async },
+				{ "queue", p.RanAsync ? "compute" : "graphics" }, { "waitsAsync", p.WaitsAsync },
 				{ "reads", reads }, { "writes", writes }, { "cpuMs", p.Ms } });
 			culled += p.Culled ? 1 : 0;
 		}
@@ -348,7 +400,7 @@ namespace RenderGraph
 			resources.push_back(j);
 		}
 		return { { "name", m_Name }, { "passes", passes }, { "resources", resources }, { "passCount", (int)m_Passes.size() },
-			{ "culledCount", culled }, { "transientCount", transient } };
+			{ "culledCount", culled }, { "transientCount", transient }, { "asyncCompute", s_Async } };
 	}
 
 	void Publish(const Graph& graph)
@@ -394,8 +446,16 @@ namespace RenderGraph
 
 	void RegisterEditor()
 	{
-		CliServer::Register("rendergraph", "Render Graph: {op: info, view?: Game|Scene} — passes (reads, writes, culled), transient textures, pool",
+		CliServer::Register("rendergraph", "Render Graph: {op: info|set, view?: Game|Scene, async?: bool} — passes (reads, writes, culled, queue), transient textures, pool",
 			[](const nlohmann::json& args, nlohmann::json& result, std::string& error) {
+				if (args.value("op", std::string("info")) == "set")
+				{
+					if (args.contains("async"))
+						s_Async = args["async"].is_boolean() ? args["async"].get<bool>() : args["async"].is_string() ? args["async"].get<std::string>() != "false" : args["async"].get<int>() != 0;
+					GfxContext* ctx = Gfx::Context();
+					result = { { "asyncCompute", s_Async }, { "backendSupportsAsync", ctx && ctx->SupportsAsyncCompute() } };
+					return true;
+				}
 				const std::string view = args.value("view", args.value("path", std::string()));
 				if (!view.empty())
 				{

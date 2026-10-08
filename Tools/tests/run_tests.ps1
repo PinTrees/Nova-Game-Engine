@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -4357,7 +4357,7 @@ function Suite-Material([string]$Api = 'dx')
     $matDir = Join-Path $Project 'Assets\MatTest'
     New-Item -ItemType Directory -Force $matDir | Out-Null
     Copy-Item (Join-Path $Project 'Assets\Materials\Red Plastic.mat') (Join-Path $matDir 'Shared.mat') -Force
-    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk')
+    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk') -D3D12:($Api -eq '12')
     try
     {
         function Exec([string]$code) { $f = Join-Path $dir 'exec.cs'; $code | Set-Content -Encoding utf8 $f; (Invoke-NovaJson "exec --file $f").result }
@@ -6100,10 +6100,10 @@ function Suite-Recovery
 $script:Targets = [ordered]@{ 'Trees' = @('Oak', 30); 'Forest' = @('Terrain', 80); 'Materials' = @('Gold', 12); 'Particles' = @('Campfire', 12);
     'Shadows' = @('Near Box', 15); 'Culling' = @('Obj 0_4', 25); 'SampleScene' = @('Canvas', 30) }
 
-function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [string]$dir)
+function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [string]$dir)
 {
     New-Item -ItemType Directory -Force $dir | Out-Null
-    $ed = Start-TestEditor -OpenGL:$OpenGL -Vulkan:$Vulkan
+    $ed = Start-TestEditor -OpenGL:$OpenGL -Vulkan:$Vulkan -D3D12:$D3D12
     try
     {
         Invoke-Nova 'window scene' | Out-Null; Invoke-Nova 'wait 10' | Out-Null
@@ -6193,6 +6193,45 @@ function Suite-Vulkan
         #  0.005 % (1143 x 567 에서 약 30 화소) 를 넘으면 진짜 다른 그림으로 본다
         $ok = if ($n -eq 'Trees') { $c[2] -le 6.0 } else { $c[0] -le 20 -or ($c[2] -le 0.005 -and $c[1] -le 0.05) }
         Add-Result vulkan "$n DX = Vulkan" $ok ('max {0}, mean {1:N3}, >8: {2:N4}%' -f $c[0], $c[1], $c[2])
+    }
+}
+
+# ------------------------------------------------------------------ DirectX 12 (docs/DIRECTX12_BACKEND.md): 화면 없는 DX12 장치 ↔ DX11 엔진 장치, 에디터를 DX12 로
+function Suite-D3D12
+{
+    Write-Host '[d3d12]'
+    $ed = Start-TestEditor
+    try
+    {
+        $sh = Invoke-NovaJson 'd3d12 shaders'
+        $unresolved = if ($sh) { ($sh.files | Measure-Object -Property unresolvedBindings -Sum).Sum } else { -1 }
+        Add-Result d3d12 'every .fx compiles to DXIL, every binding resolves by name' ($sh -and $sh.effectsOk -eq $sh.effects -and $sh.passesFailed -eq 0 -and $unresolved -eq 0) $(if ($sh) { "effects $($sh.effectsOk)/$($sh.effects), passes failed $($sh.passesFailed)/$($sh.passes), unresolved bindings $unresolved" } else { 'no result' })
+        foreach ($t in 'gfx-test', 'rhi-test')
+        {
+            $j = Invoke-NovaJson "d3d12 $t"
+            $d12 = if ($j) { @($j.results | Where-Object { $_.api -eq 'DirectX12' })[0] } else { $null }
+            $ok = $j -and $j.diff -and [double]$j.diff.max -le 2
+            $detail = if ($j -and $j.diff) { "diff max $($j.diff.max), mean $($j.diff.mean)" } elseif ($d12) { "DirectX12: $($d12.error)" } else { 'no result' }
+            Add-Result d3d12 $t $ok $detail
+        }
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+    Write-Host '[d3d12] scenes DirectX 11'
+    Capture-Scenes -dir (Join-Path $Out 'd3d12\dx11')
+    Write-Host '[d3d12] scenes DirectX 12'
+    Capture-Scenes -D3D12 -dir (Join-Path $Out 'd3d12\dx12')
+    # 로그: 디버그 층 오류 · 경고 · 실패 (Debug 빌드는 디버그 층이 켜져 있다)
+    $dxErrors = Get-Content $EditorLog | Where-Object { $_ -match '\[DX12\] (\[debug layer|.*failed|.*device removed|.*device lost|.*dropped)' }
+    Add-Result d3d12 'DirectX 12 log clean (debug layer)' ($dxErrors.Count -eq 0) $(if ($dxErrors) { $dxErrors[0] } else { 'no debug layer messages / failures' })
+    foreach ($n in $Targets.Keys)
+    {
+        $a = Join-Path $Out "d3d12\dx11\$n.png"; $b = Join-Path $Out "d3d12\dx12\$n.png"
+        if (-not (Test-Path $a) -or -not (Test-Path $b)) { Add-Result d3d12 "$n DX11 = DX12" $false 'capture missing'; continue }
+        $c = [NovaImageCompare]::Compare($a, $b, (Join-Path $Out "d3d12\${n}_diff.png"))
+        if (-not $c) { Add-Result d3d12 "$n DX11 = DX12" $false 'size differs'; continue }
+        # Vulkan 과 같은 기준 (DX11 = fxc, DX12 = DXC 의 마지막 자리 차이로 모서리 몇 화소가 갈린다)
+        $ok = if ($n -eq 'Trees') { $c[2] -le 6.0 } else { $c[0] -le 20 -or ($c[2] -le 0.005 -and $c[1] -le 0.05) }
+        Add-Result d3d12 "$n DX11 = DX12" $ok ('max {0}, mean {1:N3}, >8: {2:N4}%' -f $c[0], $c[1], $c[2])
     }
 }
 
@@ -6521,7 +6560,7 @@ function Suite-Tessellation([string]$Api = 'dx')
         $j.ResourcePath = "Assets\TessTest\${m}Flat.mat"
         $j | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $tessDir "${m}Flat.mat")
     }
-    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk')
+    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk') -D3D12:($Api -eq '12')
     try
     {
         function Shot([string]$name, [int]$frames = 10) { $p = Join-Path $dir $name; Invoke-Nova "wait $frames" | Out-Null; Invoke-Nova "screenshot $p --view scene" | Out-Null; $p }
@@ -6743,11 +6782,11 @@ function Suite-Tessellation([string]$Api = 'dx')
 function Suite-Vfx([string]$Api = 'dx')
 {
     # Visual Effect Graph (Unity VFX Graph): .vfx 편집 (nova vfx), GPU 시뮬레이션 (58. VFX.fx — Spawn · Update · GPU Event), 이벤트 · 속성 덮어쓰기, C# API, 그리기
-    $suite = if ($Api -eq 'dx') { 'vfx' } else { "vfx$Api" }
+    $suite = if ($Api -eq 'dx') { 'vfx' } else { "vfx$Api" }   # vfx · vfxgl · vfxvk · vfx12 (DirectX 12 — 시뮬레이션이 비동기 컴퓨트 큐에서)
     Write-Host "[$suite]"
     $dir = Join-Path $Out $suite
     New-Item -ItemType Directory -Force $dir | Out-Null
-    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk')
+    $ed = Start-TestEditor -OpenGL:($Api -eq 'gl') -Vulkan:($Api -eq 'vk') -D3D12:($Api -eq '12')
     try
     {
         function Stats { (Invoke-NovaJson 'vfx stats') }
@@ -6792,6 +6831,22 @@ function Suite-Vfx([string]$Api = 'dx')
         Add-Result $suite "${Api}: GPU spawn + update (Magic Circle systems alive)" ($s.gpu -and $outer -gt 1000 -and $pillar -gt 100) ("gpu {0}, Outer Ring {1}, Pillar {2}" -f $s.gpu, $outer, $pillar)
         $rocket = (Sys $s 'Fireworks' 'Rocket').alive; $boom = (Sys $s 'Fireworks' 'Explosion').alive; $crackle = (Sys $s 'Fireworks' 'Crackle').alive
         Add-Result $suite "${Api}: GPU events chain (Rocket dies -> Explosion -> Crackle)" ($boom -gt 100 -and $crackle -gt 0) ("Rocket {0}, Explosion {1}, Crackle {2}" -f $rocket, $boom, $crackle)
+        if ($Api -eq '12' -or $Api -eq 'vk')
+        {
+            # 비동기 컴퓨트 (렌더링 현대화 4 단계): Render Graph 의 VFX Simulation 패스가 컴퓨트 큐에서, Particles 가 그 결과를 기다린다
+            $all = Invoke-NovaJson 'rendergraph info'
+            $sim = $null; $par = $null
+            foreach ($g in $all.PSObject.Properties) { if ($g.Value.passes) { $x = @($g.Value.passes | Where-Object { $_.name -eq 'VFX Simulation' })[0]; if ($x) { $sim = $x; $par = @($g.Value.passes | Where-Object { $_.name -eq 'Particles' })[0] } } }
+            Add-Result $suite "${Api}: VFX Simulation runs on the async compute queue, Particles waits for it" ($sim -and $sim.queue -eq 'compute' -and $par -and $par.waitsAsync) ("simulation queue {0}, particles waits {1}" -f $sim.queue, $par.waitsAsync)
+            # 같은 큐로 바꿔도 같은 결과 (살아 있는 수가 0 이 아니다) — 끄고 켜기
+            Invoke-Nova 'rendergraph set --async false' | Out-Null
+            $s2 = WaitFor { param($s) (Sys $s 'Circle' 'Outer Ring').alive -gt 1000 } 10
+            $all2 = Invoke-NovaJson 'rendergraph info'
+            $q2 = $null
+            foreach ($g in $all2.PSObject.Properties) { if ($g.Value.passes) { $x = @($g.Value.passes | Where-Object { $_.name -eq 'VFX Simulation' })[0]; if ($x) { $q2 = $x.queue } } }
+            Invoke-Nova 'rendergraph set --async true' | Out-Null
+            Add-Result $suite "${Api}: rendergraph set --async false runs it on the graphics queue (same simulation)" ($q2 -eq 'graphics' -and (Sys $s2 'Circle' 'Outer Ring').alive -gt 1000) ("queue {0}, Outer Ring {1}" -f $q2, (Sys $s2 'Circle' 'Outer Ring').alive)
+        }
 
         # ---- 이벤트 · 속성: OnStop 이면 마법진이 사라진다, OnPlay 로 다시
         Invoke-Nova 'vfx event --object Circle --name OnStop' | Out-Null
@@ -7236,6 +7291,8 @@ try
                 'vfx' { Suite-Vfx }
                 'vfxgl' { Suite-Vfx -Api gl }
                 'vfxvk' { Suite-Vfx -Api vk }
+                'vfx12' { Suite-Vfx -Api 12 }
+                'd3d12' { Suite-D3D12 }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

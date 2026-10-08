@@ -240,7 +240,8 @@ namespace GfxVkImpl
 			vkDeviceWaitIdle(Device);
 			DestroyAllSwapchains();
 			Completed = Submitted;
-			for (auto& d : Deferred) d.second();
+			ComputeCompleted = ComputeSubmitted;
+			for (auto& d : Deferred) d.Fn();
 			Deferred.clear();
 			for (auto& [k, p] : Pipelines) if (p) vkDestroyPipeline(Device, p, nullptr);
 			Pipelines.clear();
@@ -267,6 +268,10 @@ namespace GfxVkImpl
 			if (UploadOpen) destroyCmd(Upload);   // 닫힌 Upload 는 이미 InFlight/Free 목록에 있다
 			for (auto& s : FreeCmds) destroyCmd(s);
 			for (auto& s : InFlightCmds) destroyCmd(s);
+			if (AsyncOpen) destroyCmd(Compute);
+			for (auto& s : FreeComputeCmds) destroyCmd(s);
+			for (auto& s : InFlightComputeCmds) destroyCmd(s);
+			if (ComputeTimeline) vkDestroySemaphore(Device, ComputeTimeline, nullptr);
 			if (CurrentPool) vkDestroyDescriptorPool(Device, CurrentPool, nullptr);
 			for (auto& p : FreePools) vkDestroyDescriptorPool(Device, p.Handle, nullptr);
 			for (auto& p : RetiredPools) vkDestroyDescriptorPool(Device, p.Handle, nullptr);
@@ -410,11 +415,12 @@ namespace GfxVkImpl
 			}
 		}
 
-		const float priority = 1.0f;
+		const float priority[2] = { 1.0f, 1.0f };
 		VkDeviceQueueCreateInfo qi = { VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO };
 		qi.queueFamilyIndex = QueueFamily;
-		qi.queueCount = 1;
-		qi.pQueuePriorities = &priority;
+		// 비동기 컴퓨트: 그래픽 패밀리의 두 번째 큐 (같은 패밀리 — 자원 소유권을 옮길 필요가 없다). 하나뿐이면 같은 큐에서
+		qi.queueCount = families[QueueFamily].queueCount >= 2 ? 2 : 1;
+		qi.pQueuePriorities = priority;
 		VkDeviceCreateInfo di = { VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO };
 		di.pNext = &e2;
 		di.queueCreateInfoCount = 1;
@@ -429,6 +435,13 @@ namespace GfxVkImpl
 			return false;
 		}
 		vkGetDeviceQueue(Device, QueueFamily, 0, &Queue);
+		if (qi.queueCount >= 2)
+			vkGetDeviceQueue(Device, QueueFamily, 1, &ComputeQueue);
+		{
+			char a[8] = {};
+			::GetEnvironmentVariableA("NOVA_VK_ASYNC", a, sizeof(a));
+			AsyncEnabled = a[0] != '0';
+		}
 		Mem.Init(Device, Phys);
 
 		VkSemaphoreTypeCreateInfo st = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
@@ -436,6 +449,11 @@ namespace GfxVkImpl
 		VkSemaphoreCreateInfo si = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
 		si.pNext = &st;
 		if (!Check(vkCreateSemaphore(Device, &si, nullptr, &Timeline), "vkCreateSemaphore(timeline)", &error)) return false;
+		if (ComputeQueue && vkCreateSemaphore(Device, &si, nullptr, &ComputeTimeline) != VK_SUCCESS)
+		{
+			ComputeQueue = VK_NULL_HANDLE;
+			ComputeTimeline = VK_NULL_HANDLE;
+		}
 		VkPipelineCacheCreateInfo pc = { VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
 		vkCreatePipelineCache(Device, &pc, nullptr, &PipelineCache);
 
@@ -462,6 +480,7 @@ namespace GfxVkImpl
 		DummySamplerId = NextId();
 		DummyCompareId = NextId();
 
+		EditorLog::Write("Vulkan", "async compute: %s", !ComputeQueue ? "no second queue in the graphics family" : AsyncEnabled ? "on (second graphics-family queue)" : "off (NOVA_VK_ASYNC=0)");
 		EditorLog::Write("Vulkan", "device: %s (Vulkan %u.%u.%u, driver %u), validation %s, D24S8 %s, swapchain %s", Props.deviceName,
 			VK_API_VERSION_MAJOR(Props.apiVersion), VK_API_VERSION_MINOR(Props.apiVersion), VK_API_VERSION_PATCH(Props.apiVersion), Props.driverVersion,
 			VkLoader::ValidationEnabled() ? "on" : "off", D24S8 ? "yes" : "no (D32S8)", enable.empty() ? "no" : "yes");
@@ -513,6 +532,9 @@ namespace GfxVkImpl
 	void Dev::Submit(bool wait, VkSemaphore waitSemaphore, VkSemaphore signalSemaphore)
 	{
 		if (Lost) return;
+		// 비동기 컴퓨트 중의 제출 (쿼리 읽기 · 기다림 등): 컴퓨트 블록을 먼저 닫는다 (아래의 장벽 · 통계 쿼리가 그래픽 명령 버퍼로 가게)
+		if (AsyncOpen && Immediate)
+			Immediate->EndAsyncCompute();
 		if (Immediate)
 		{
 			Immediate->EndRendering();
@@ -559,16 +581,27 @@ namespace GfxVkImpl
 		signal[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 		signal[1].semaphore = signalSemaphore;   // 표시 (스왑체인)
 		signal[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-		VkSemaphoreSubmitInfo waitInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-		waitInfo.semaphore = waitSemaphore;      // 스왑체인 이미지 받기
-		waitInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		VkSemaphoreSubmitInfo waitInfo[2] = { { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO }, { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO } };
+		uint32_t waits = 0;
+		if (waitSemaphore)
+		{
+			waitInfo[waits].semaphore = waitSemaphore;      // 스왑체인 이미지 받기
+			waitInfo[waits++].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		}
+		if (GraphicsWaitCompute)
+		{
+			waitInfo[waits].semaphore = ComputeTimeline;    // 비동기 컴퓨트 결과 (WaitAsyncCompute)
+			waitInfo[waits].value = GraphicsWaitCompute;
+			waitInfo[waits++].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+			GraphicsWaitCompute = 0;
+		}
 		VkSubmitInfo2 si = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
 		si.commandBufferInfoCount = count;
 		si.pCommandBufferInfos = cbs;
 		si.signalSemaphoreInfoCount = signalSemaphore ? 2 : 1;
 		si.pSignalSemaphoreInfos = signal;
-		si.waitSemaphoreInfoCount = waitSemaphore ? 1 : 0;
-		si.pWaitSemaphoreInfos = &waitInfo;
+		si.waitSemaphoreInfoCount = waits;
+		si.pWaitSemaphoreInfos = waitInfo;
 		const VkResult r = vkQueueSubmit2(Queue, 1, &si, VK_NULL_HANDLE);
 		if (r != VK_SUCCESS)
 		{
@@ -599,6 +632,17 @@ namespace GfxVkImpl
 		uint64_t value = 0;
 		if (vkGetSemaphoreCounterValue(Device, Timeline, &value) == VK_SUCCESS)
 			Completed = (std::max)(Completed, value);
+		if (ComputeTimeline && vkGetSemaphoreCounterValue(Device, ComputeTimeline, &value) == VK_SUCCESS)
+			ComputeCompleted = (std::max)(ComputeCompleted, value);
+		for (size_t i = 0; i < InFlightComputeCmds.size();)
+		{
+			if (InFlightComputeCmds[i].Retire <= ComputeCompleted)
+			{
+				FreeComputeCmds.push_back(InFlightComputeCmds[i]);
+				InFlightComputeCmds.erase(InFlightComputeCmds.begin() + i);
+			}
+			else ++i;
+		}
 		for (size_t i = 0; i < InFlightCmds.size();)
 		{
 			if (InFlightCmds[i].Retire <= Completed)
@@ -610,7 +654,7 @@ namespace GfxVkImpl
 		}
 		for (size_t i = 0; i < RetiredPools.size();)
 		{
-			if (RetiredPools[i].Retire <= Completed)
+			if (RetiredPools[i].Retire <= Completed && RetiredPools[i].RetireCompute <= ComputeCompleted)
 			{
 				vkResetDescriptorPool(Device, RetiredPools[i].Handle, 0);
 				FreePools.push_back(RetiredPools[i]);
@@ -618,9 +662,9 @@ namespace GfxVkImpl
 			}
 			else ++i;
 		}
-		while (!Deferred.empty() && Deferred.front().first <= Completed)
+		while (!Deferred.empty() && Deferred.front().Serial <= Completed && Deferred.front().ComputeSerial <= ComputeCompleted)
 		{
-			auto fn = std::move(Deferred.front().second);
+			auto fn = std::move(Deferred.front().Fn);
 			Deferred.pop_front();
 			fn();
 		}
@@ -649,6 +693,82 @@ namespace GfxVkImpl
 		Poll();
 	}
 
+	void Dev::WaitCompute(uint64_t serial)
+	{
+		if (Lost || !ComputeTimeline || serial == 0 || serial <= ComputeCompleted) return;
+		VkSemaphoreWaitInfo wi = { VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO };
+		wi.semaphoreCount = 1;
+		wi.pSemaphores = &ComputeTimeline;
+		wi.pValues = &serial;
+		const VkResult r = vkWaitSemaphores(Device, &wi, 10ull * 1000 * 1000 * 1000);
+		if (r == VK_TIMEOUT)
+		{
+			EditorLog::Write("Vulkan", "compute queue did not finish submit %llu in 10 s - treated as device lost", (unsigned long long)serial);
+			Lost = true;
+		}
+		else if (r != VK_SUCCESS && r == VK_ERROR_DEVICE_LOST)
+			Lost = true;
+		Poll();
+	}
+
+	void Dev::OpenCompute()
+	{
+		Poll();
+		if (!FreeComputeCmds.empty())
+		{
+			Compute = FreeComputeCmds.back();
+			FreeComputeCmds.pop_back();
+			vkResetCommandPool(Device, Compute.Pool, 0);
+		}
+		else
+			Compute = TakeCmd();   // 같은 패밀리라 그래픽 풀과 같은 모양 (다시 쓸 때는 컴퓨트 목록으로)
+		BeginCmd(Compute);
+		AsyncOpen = true;
+	}
+
+	void Dev::SubmitCompute()
+	{
+		// 1) 그래픽 (컴퓨트가 읽을 것을 만든 일) 을 먼저 — 컴퓨트 큐가 이 값을 기다린다
+		AsyncOpen = false;
+		ComputeUnsubmitted = true;   // 이 그래픽 제출의 링 · 풀은 곧 보낼 컴퓨트 값까지 기다리게
+		Submit(false);
+		const uint64_t graphics = Submitted;
+		// 2) 컴퓨트 명령 버퍼
+		vkEndCommandBuffer(Compute.Cb);
+		const uint64_t serial = ComputeSubmitted + 1;
+		VkCommandBufferSubmitInfo cbi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
+		cbi.commandBuffer = Compute.Cb;
+		VkSemaphoreSubmitInfo wait = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+		wait.semaphore = Timeline;
+		wait.value = graphics;
+		wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		VkSemaphoreSubmitInfo signal = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
+		signal.semaphore = ComputeTimeline;
+		signal.value = serial;
+		signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		VkSubmitInfo2 si = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
+		si.commandBufferInfoCount = 1;
+		si.pCommandBufferInfos = &cbi;
+		si.waitSemaphoreInfoCount = 1;
+		si.pWaitSemaphoreInfos = &wait;
+		si.signalSemaphoreInfoCount = 1;
+		si.pSignalSemaphoreInfos = &signal;
+		const VkResult r = Lost ? VK_ERROR_DEVICE_LOST : vkQueueSubmit2(ComputeQueue, 1, &si, VK_NULL_HANDLE);
+		if (r != VK_SUCCESS)
+		{
+			Check(r, "vkQueueSubmit2(compute)");
+			if (r == VK_ERROR_DEVICE_LOST) Lost = true;
+		}
+		else
+			++AsyncSubmits;
+		ComputeSubmitted = serial;
+		ComputePending = serial;
+		ComputeUnsubmitted = false;
+		Compute.Retire = serial;
+		InFlightComputeCmds.push_back(Compute);
+		Compute = CmdSlot();
+	}
+
 	// ============================================================ 링
 	uint8_t* Dev::RingAlloc(VkDeviceSize size, VkDeviceSize align, RingLoc& loc)
 	{
@@ -663,12 +783,13 @@ namespace GfxVkImpl
 				return Current->Mem.Mapped + at;
 			}
 			Current->Retire = Recording();
+			Current->RetireCompute = ComputeCover();
 			Retired.push_back(Current);
 			Current = nullptr;
 		}
 		Poll();
 		for (auto it = Retired.begin(); it != Retired.end(); ++it)
-			if ((*it)->Retire <= Completed && (*it)->Size >= size)
+			if ((*it)->Retire <= Completed && (*it)->RetireCompute <= ComputeCompleted && (*it)->Size >= size)
 			{
 				Current = *it;
 				Retired.erase(it);
@@ -745,7 +866,7 @@ namespace GfxVkImpl
 			VkDescriptorSet set = VK_NULL_HANDLE;
 			if (vkAllocateDescriptorSets(Device, &ai, &set) == VK_SUCCESS)
 				return set;
-			RetiredPools.push_back({ CurrentPool, Recording() });
+			RetiredPools.push_back({ CurrentPool, Recording(), ComputeCover() });
 			CurrentPool = VK_NULL_HANDLE;
 		}
 		Once("set-alloc", "%s", "descriptor set allocation failed");
@@ -2117,7 +2238,9 @@ namespace GfxVk
 	void WaitIdle(GfxDevice* device)
 	{
 		auto* d = static_cast<Dev*>(device);
+		if (d->Immediate) d->Immediate->FinishAsync();
 		d->Submit(true);
+		d->WaitCompute(d->ComputeSubmitted);
 	}
 
 	bool IsFormatSupported(DXGI_FORMAT format)

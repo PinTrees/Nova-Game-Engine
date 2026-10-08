@@ -29,6 +29,9 @@ DirectX 11 · OpenGL 4.5 에 이은 세 번째 그래픽 API. 안드로이드 �
   창 밖으로 뺀 창 (ImGui 뷰포트 = OS 창) 은 창마다 그림 텍스처 + 자기 스왑체인 (`GfxVk::PresentWindow`, 창을 닫으면 `ReleaseWindow`)
 - 빌드한 게임: Player Settings 에 Vulkan 이 있으면 셰이더 변환기 (dxcompiler) 와 `ShaderCache/SPIRV` 를 같이 넣는다
 
+- 비동기 컴퓨트: 그래픽 큐 패밀리의 두 번째 큐 ([ASYNC_COMPUTE](ASYNC_COMPUTE.md), `NOVA_VK_ASYNC=0` 으로 끔)
+- 스왑체인: 숨은 창 (검사 편집기) 은 표면이 요청과 다른 크기 (창 테두리를 뺀 1904 x 1001 등) 를 정해 매 프레임 다시 만들던 것 → 요청한 크기로 비교
+
 ## SDK 없이 빌드 · 실행
 
 - Vulkan C 헤더는 저장소의 `ThirdParty/Vulkan/include` (Khronos, Apache-2.0 OR MIT). 엔진은 `VK_NO_PROTOTYPES` 로 빌드하고

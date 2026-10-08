@@ -9,6 +9,7 @@ std::unique_ptr<Rhi::Device> CreateGlesRhiDevice(std::string& error);   // Andro
 std::unique_ptr<Rhi::Device> CreateDx11RhiDevice(std::string& error);   // Dx11Rhi.cpp
 std::unique_ptr<Rhi::Device> CreateGLRhiDevice(std::string& error);     // GLRhi.cpp
 std::unique_ptr<Rhi::Device> CreateVkRhiDeviceHeadless(std::string& error);   // VkRhi.cpp
+std::unique_ptr<Rhi::Device> CreateD3D12RhiDeviceHeadless(std::string& error);   // D3D12Rhi.cpp
 #endif
 
 namespace Rhi
@@ -52,6 +53,7 @@ namespace Rhi
 		case GraphicsAPI::DirectX11: return CreateDx11RhiDevice(error);
 		case GraphicsAPI::OpenGL: return CreateGLRhiDevice(error);
 		case GraphicsAPI::Vulkan: return CreateVkRhiDeviceHeadless(error);
+		case GraphicsAPI::DirectX12: return CreateD3D12RhiDeviceHeadless(error);
 		default: error = "unknown graphics API"; return nullptr;
 		}
 #endif

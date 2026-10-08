@@ -150,6 +150,7 @@ set(ENGINE_MODULE_DIRS
     Source/Graphics/DX11
     Source/Graphics/OpenGL
     Source/Graphics/Vulkan
+    Source/Graphics/DX12
     Source/Graphics/RHI
     Source/Animation
     Source/Physics
@@ -193,6 +194,7 @@ target_link_libraries(${ENGINE_CORE} PRIVATE
     Jolt
     box2d
     d3d11
+    d3d12
     dxgi
     d3dcompiler
     dwmapi

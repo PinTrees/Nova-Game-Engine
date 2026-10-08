@@ -44,6 +44,7 @@
 #include "ProfilerEditorWindow.h"
 #include "RenderingDebuggerWindow.h"
 #include "RenderGraphViewerWindow.h"
+#include "GfxD3D12.h"
 #include "MeshBatcher.h"
 #include "TreeRenderer.h"
 #include "RockRenderer.h"
@@ -238,7 +239,7 @@ int32 App::Run()
 					_deviceContext->OMSetRenderTargets(1, _renderTargetView.GetAddressOf(), nullptr);
 					if (_openGL)
 						ImGuiGL::RenderDrawData(ImGui::GetDrawData());
-					else if (_vulkan)
+					else if (_vulkan || _d3d12)
 						ImGuiGfx::RenderDrawData(ImGui::GetDrawData());
 					else
 						ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); 
@@ -255,6 +256,8 @@ int32 App::Run()
 						GfxGL::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
 					else if (_vulkan)
 						GfxVk::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
+					else if (_d3d12)
+						GfxD3D12::Present(_device.Get(), _backBufferTex.Get(), _clientWidth, _clientHeight, 0);
 					else
 						presentHr = _swapChain->Present(0, 0);
 					// 실패(장치 제거 등)는 한 번 기록한다 (Release 에서는 HR 의 assert 가 없다)
@@ -514,9 +517,9 @@ void App::OnResize()
 	assert(_device);
 	if (_clientWidth <= 0 || _clientHeight <= 0)
 		return;   // 최소화 등
-	if (_openGL || _vulkan)
+	if (_openGL || _vulkan || _d3d12)
 	{
-		// OpenGL · Vulkan: 백버퍼 = 창 크기 RGBA8 텍스처 (+ 깊이). Present 가 창으로 복사 (GL 은 위아래 뒤집어)
+		// OpenGL · Vulkan · DirectX 12: 백버퍼 = 창 크기 RGBA8 텍스처 (+ 깊이). Present 가 창으로 복사 (GL 은 위아래 뒤집어)
 		_deviceContext->OMSetRenderTargets(0, nullptr, nullptr);
 		_renderTargetView.Reset();
 		_backBufferTex.Reset();
@@ -534,7 +537,7 @@ void App::OnResize()
 		const HRESULT hr = _device->CreateTexture2D(&td, nullptr, _backBufferTex.GetAddressOf());
 		if (SUCCEEDED(hr))
 			_device->CreateRenderTargetView(_backBufferTex.Get(), nullptr, _renderTargetView.GetAddressOf());
-		EditorLog::Write("App", "resize backbuffer to %d x %d (%s, hr=0x%08X)", _clientWidth, _clientHeight, _vulkan ? "Vulkan" : "OpenGL", (unsigned)hr);
+		EditorLog::Write("App", "resize backbuffer to %d x %d (%s, hr=0x%08X)", _clientWidth, _clientHeight, _vulkan ? "Vulkan" : _d3d12 ? "DirectX 12" : "OpenGL", (unsigned)hr);
 		CreateDepthStencilView();
 		_deviceContext->OMSetRenderTargets(1, _renderTargetView.GetAddressOf(), _depthStencilView.Get());
 		EditorGUIManager::GetI()->OnResize(Vec2(_clientWidth, _clientHeight));
@@ -1060,8 +1063,46 @@ bool App::InitVulkan()
 	return true;
 }
 
+// DirectX 12: 본 창에 플립 스왑체인 → Gfx · RHI 장치. 화면 표시는 백버퍼 텍스처를 Present 가 스왑체인 버퍼로 복사 (Vulkan 과 같은 방식)
+bool App::InitD3D12()
+{
+	std::string error;
+	GfxDevice* dev = nullptr;
+	GfxContext* ctx = nullptr;
+	if (!GfxD3D12::CreateDevice(_hMainWnd, &dev, &ctx, error))
+	{
+		EditorLog::Write("Graphics", "DirectX 12 device failed: %s", error.c_str());
+		return false;
+	}
+	_device.Attach(dev);
+	_deviceContext.Attach(ctx);
+	Gfx::SetMain(_device.Get(), _deviceContext.Get());
+	std::unique_ptr<Rhi::Device> rhi = GfxD3D12::CreateRhiDevice(_device.Get(), _deviceContext.Get(), error);
+	if (!rhi)
+	{
+		EditorLog::Write("Graphics", "DirectX 12 RHI device failed: %s", error.c_str());
+		return false;
+	}
+	Rhi::SetMain(std::move(rhi));
+	_d3d12 = true;
+	OnResize();
+	return true;
+}
+
 bool App::InitDirect3D()
 {
+	if (GraphicsSettings::GetActiveAPI() == GraphicsAPI::DirectX12)
+	{
+		if (InitD3D12())
+			return true;
+		EditorLog::Write("Graphics", "%s", "DirectX 12 failed to start - using DirectX 11");
+		GraphicsSettings::FallBack(GraphicsAPI::DirectX11, "DirectX 12 could not start");
+		Rhi::SetMain(nullptr);
+		Gfx::SetMain(nullptr, nullptr);
+		_deviceContext.Reset();
+		_device.Reset();
+		_d3d12 = false;
+	}
 	if (GraphicsSettings::GetActiveAPI() == GraphicsAPI::Vulkan)
 	{
 		if (InitVulkan())
@@ -1127,7 +1168,7 @@ void App::CalculateFrameStats()
 		if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
 			caption = scene->GetName() + (SceneManager::GetI()->IsCurrentSceneDirty() ? L"*" : L"") + L" - " + caption;
 		// Unity 처럼 지금 렌더링 중인 그래픽 API 를 제목에 (<DX11>, <OpenGL>, <Vulkan>)
-		caption += GraphicsSettings::GetActiveAPI() == GraphicsAPI::OpenGL ? L" <OpenGL>" : GraphicsSettings::GetActiveAPI() == GraphicsAPI::Vulkan ? L" <Vulkan>" : L" <DX11>";
+		caption += GraphicsSettings::GetActiveAPI() == GraphicsAPI::OpenGL ? L" <OpenGL>" : GraphicsSettings::GetActiveAPI() == GraphicsAPI::Vulkan ? L" <Vulkan>" : GraphicsSettings::GetActiveAPI() == GraphicsAPI::DirectX12 ? L" <DX12>" : L" <DX11>";
 		outs << caption << L"    "  << L"FPS: " << fps << L"    "  << L"Frame Time: " << mspf << L" (ms)";
 
 		::SetWindowText(_hMainWnd, outs.str().c_str());

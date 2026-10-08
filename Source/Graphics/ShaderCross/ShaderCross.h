@@ -148,5 +148,49 @@ namespace ShaderCross
 	//  - 테셀레이션 · 지오메트리 단계가 있는 pass 는 Error (웹에 없다 — 셰이더가 테셀레이션 없는 기법으로 갈아탄다)
 	//  - Tint = tint.exe (TintPath). 캐시 ShaderCache/WGSL
 	bool CompileEffectWgsl(const std::wstring& fxPath, EffectSpirv& out);
+
+	// ---- DirectX 12: pass 마다 단계별 DXIL (DXC + dxil.dll 서명). 좌표 · 인스턴스 · 깊이 범위는 D3D 그대로 (바꿀 것 없음)
+	//  - 효과 전체의 자원 정보 (cbuffer 배치 · 이름마다 고정 바인딩 번호) 는 CompileEffectSpirv 의 것 (Meta) 을 같이 쓴다
+	//  - 레지스터는 DXC 가 단계마다 정한다 → 리플렉션으로 (종류, 레지스터, 개수, 이름) 을 모아 효과 바인딩 번호로 잇는다
+	//    (D3D12 백엔드는 단계마다 디스크립터 표를 따로 둔다 — 단계끼리 레지스터가 겹쳐도 된다)
+	struct DxilBinding
+	{
+		enum class Kind { Cbv, Srv, Uav, Sampler };
+		Kind Type = Kind::Srv;
+		std::string Name;
+		int Register = 0;
+		int Count = 1;
+		int Binding = -1;        // 효과 바인딩 번호 (Meta.Blocks / Meta.Resources) — -1 = 모름 (빈 칸)
+		int Dimension = 0;       // D3D_SRV_DIMENSION (빈 칸 널 디스크립터의 모양)
+		bool Buffer = false;     // 구조 · raw 버퍼 (SRV · UAV)
+		bool Comparison = false; // SamplerComparisonState
+	};
+
+	struct StageDxil
+	{
+		Stage StageType = Stage::Vertex;
+		std::string Entry;
+		std::vector<uint8_t> Code;
+		std::vector<DxilBinding> Bindings;
+	};
+
+	struct PassDxil
+	{
+		std::string Technique, Pass;
+		std::vector<StageDxil> Stages;
+		uint32_t PixelOutputs = 0;   // SV_Target 번호 (비트)
+		std::string Error;
+	};
+
+	struct EffectDxil
+	{
+		std::wstring File;
+		EffectSpirv Meta;            // cbuffer · 자원 바인딩 번호 · 파싱한 효과 (상태 블록 · 초기값)
+		std::vector<PassDxil> Passes;
+		std::string Error;
+		int PassesOk() const;
+	};
+
+	bool CompileEffectDxil(const std::wstring& fxPath, EffectDxil& out);
 	std::wstring TintPath();   // NOVA_TINT 환경 변수 → Binaries/tint.exe → %USERPROFILE%/.nova/dawn/out/tint/Release/tint.exe (없으면 "")
 }

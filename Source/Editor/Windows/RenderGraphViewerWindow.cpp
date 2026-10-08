@@ -117,9 +117,11 @@ void RenderGraphViewerWindow::OnRender()
 	for (const auto& p : passes)
 	{
 		const bool culled = p.value("culled", false);
-		snprintf(line, sizeof(line), "%s%s%s  %.3f ms", p.value("name", std::string()).c_str(), culled ? "  (culled)" : "",
-			p.value("sideEffect", false) ? "  (side effect)" : "", p.value("cpuMs", 0.0));
-		ImGui::PushStyleColor(ImGuiCol_Text, culled ? IM_COL32(120, 120, 120, 255) : IM_COL32(220, 220, 220, 255));
+		const bool compute = p.value("queue", std::string()) == "compute";
+		snprintf(line, sizeof(line), "%s%s%s%s%s  %.3f ms", p.value("name", std::string()).c_str(), culled ? "  (culled)" : "",
+			p.value("sideEffect", false) ? "  (side effect)" : "", compute ? "  [async compute queue]" : p.value("async", false) ? "  [async - same queue]" : "",
+			p.value("waitsAsync", false) ? "  (waits for async compute)" : "", p.value("cpuMs", 0.0));
+		ImGui::PushStyleColor(ImGuiCol_Text, culled ? IM_COL32(120, 120, 120, 255) : compute ? IM_COL32(150, 220, 120, 255) : IM_COL32(220, 220, 220, 255));
 		ImGui::TextUnformatted(line);
 		ImGui::PopStyleColor();
 	}

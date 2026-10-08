@@ -18,6 +18,8 @@ public:
 	IDXGISwapChain* SwapChain() { return _swapChain.Get(); }   // DirectX 11 만 (OpenGL = nullptr)
 	bool IsOpenGL() const { return _openGL; }
 	bool IsVulkan() const { return _vulkan; }
+	bool IsD3D12() const { return _d3d12; }
+	bool UsesImGuiGfx() const { return _vulkan || _d3d12; }   // ImGui 를 Gfx 층으로 (Vulkan · DirectX 12 — 백버퍼 텍스처 + Present 복사)
 	GfxTexture2D* BackBufferTexture() { return _backBufferTex.Get(); }   // OpenGL · Vulkan: 엔진이 그리는 백버퍼 텍스처 (Present 가 창으로 복사)
 
 protected:
@@ -57,6 +59,7 @@ protected:
 	bool InitDirect3D();
 	bool InitOpenGL();
 	bool InitVulkan();
+	bool InitD3D12();
 	void CalculateFrameStats();
 	void RecordProfilerStats();
 	void DevGpuProfileLog();
@@ -83,6 +86,7 @@ protected:
 	ComPtr<IDXGISwapChain> _swapChain;
 	bool _openGL = false;                     // 그래픽 API = OpenGL (GraphicsSettings 가 고른 것)
 	bool _vulkan = false;                     // 그래픽 API = Vulkan
+	bool _d3d12 = false;                      // 그래픽 API = DirectX 12
 	ComPtr<GfxTexture2D> _backBufferTex;      // OpenGL · Vulkan 백버퍼 (DirectX 11 은 스왑 체인)
 
 	// DSV

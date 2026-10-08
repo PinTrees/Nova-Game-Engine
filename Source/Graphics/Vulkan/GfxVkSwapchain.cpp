@@ -144,6 +144,8 @@ namespace GfxVkImpl
 		s.Chain = chain;
 		s.Format = fmt.format;
 		s.Extent = extent;
+		s.RequestW = width;
+		s.RequestH = height;
 		s.Mode = mode;
 		s.Interval = interval;
 		vkGetSwapchainImagesKHR(Device, chain, &n, nullptr);
@@ -164,12 +166,13 @@ namespace GfxVkImpl
 	void Dev::PresentFrame(Swap& s, Tex2D* backBuffer, int width, int height, int interval, bool pace)
 	{
 		if (Lost) return;
+		if (Immediate) Immediate->FinishAsync();   // 프레임 끝: 컴퓨트 결과를 기다린 뒤 (다음 프레임이 그 자원을 다시 쓰기 전에)
 		if (!s.Surface || !backBuffer || width <= 0 || height <= 0 || s.Failed)
 		{
 			Submit(false);
 			return;
 		}
-		if (!s.Chain || s.Extent.width != (uint32_t)width || s.Extent.height != (uint32_t)height || s.Interval != interval)
+		if (!s.Chain || s.RequestW != (uint32_t)width || s.RequestH != (uint32_t)height || s.Interval != interval)
 		{
 			if (!RecreateSwapchain(s, (uint32_t)width, (uint32_t)height, interval))
 			{

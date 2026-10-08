@@ -120,7 +120,7 @@ void EditorGUIResourceManager::LoadFontAsync(FontLoadContainer container)
                 ImGuiGL::InvalidateDeviceObjects();
                 ImGuiGL::CreateDeviceObjects();
             }
-            else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsVulkan())
+            else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->UsesImGuiGfx())
             {
                 ImGuiGfx::InvalidateDeviceObjects();
                 ImGuiGfx::CreateDeviceObjects();

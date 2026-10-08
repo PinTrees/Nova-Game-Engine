@@ -100,6 +100,7 @@ namespace RenderGraph
 			// 임시: 풀에서 받은 칸, 처음 · 마지막 패스
 			int PoolSlot = -1;
 			int FirstPass = -1, LastPass = -1;
+			bool Released = false;   // 실행: 마지막 패스가 지났다 (비동기 컴퓨트가 쓴 것은 기다린 뒤 풀로)
 			std::vector<int> Producer;   // 판마다 그 판을 쓴 패스 (판 0 = 그래프 밖 · 없음 → -1)
 			std::vector<int> Readers;    // 판마다 읽는 패스 수 (정리할 때)
 		};
@@ -109,6 +110,7 @@ namespace RenderGraph
 			std::vector<Texture> Reads, Writes;
 			std::vector<int> Creates;
 			bool SideEffect = false, Async = false, Culled = false;
+			bool RanAsync = false, WaitsAsync = false;   // 실행: 컴퓨트 큐에서 돌았다 · 이 패스 앞에서 컴퓨트 결과를 기다렸다
 			int RefCount = 0;
 			ExecuteFn Execute;
 			double Ms = 0.0;
@@ -125,5 +127,8 @@ namespace RenderGraph
 	std::vector<std::string> GraphNames();
 	nlohmann::json PoolInfo();
 	void TrimPool(int unusedFrames = 120);   // 오래 쓰이지 않은 임시 텍스처를 놓는다 (프레임마다 한 번)
+	// AsyncCompute 패스를 컴퓨트 큐로 보낼지 (켬 = 기본, 큐가 둘인 백엔드에서만 실제로) — 비교 · 문제 찾기용 (CLI rendergraph set --async)
+	void SetAsyncCompute(bool on);
+	bool AsyncComputeEnabled();
 	void RegisterEditor();   // CLI: nova rendergraph info [--view Game|Scene]
 }

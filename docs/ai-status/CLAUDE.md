@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 2 단계: Render Graph** (사용자 요청: DX12 · Vulkan · Render Graph · Async Compute · VT · 클러스터드 — docs/RENDERING_ROADMAP.md). **완료 (커밋, 푸시 전)**. 다음: 3 단계 DirectX 12 백엔드 (진행 중 — `Source/Graphics/DX12/` 와 ShaderCross 의 DXIL 경로는 아직 빌드 · 커밋 전)
+- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 3 · 4 단계: DirectX 12 백엔드 + 비동기 컴퓨트 (DX12 · Vulkan)** (사용자 요청 — docs/RENDERING_ROADMAP.md). **완료 (커밋, 푸시 전)**. 다음: 5 단계 Virtual Texturing, 6 단계 Clustered Deferred
+  - `Source/Graphics/DX12/` (Gfx 층의 D3D12 구현 — Vulkan 백엔드와 같은 구조): 직접 큐 + 펜스, 서브리소스 상태 장벽 (버퍼는 목록마다 승격 · 감쇠), CPU 전용 힙 → 셰이더에서 보이는 링 (50 만 칸) · 샘플러 표 캐시, 단계마다 디스크립터 표 루트 시그니처, 업로드 링, PSO 캐시, 플립 스왑체인, GenerateMips (2D · 배열 · 큐브 · 3D), 쿼리 · 예측 · ExecuteIndirect, 디버그 층 → Editor.log. `ShaderCross::CompileEffectDxil` (DXC → DXIL + 리플렉션 이름 → 효과 바인딩, ShaderCache/DXIL)
+  - 연결: `GraphicsAPI::DirectX12`, `-force-d3d12`, `nova open --graphics d3d12`, App `InitD3D12` (안 되면 DX11), ImGuiGfx 뷰포트, 허브 · 빌드 (DXIL 캐시 포함), `nova d3d12 shaders|gfx-test|rhi-test`, 검사 `Start-TestEditor -D3D12` · `NOVA_TEST_GRAPHICS=d3d12` (스위트 전체를 DX12 편집기로)
+  - 비동기 컴퓨트: `GfxContext::Begin/End/WaitAsyncCompute`, DX12 컴퓨트 큐 · Vulkan 그래픽 패밀리의 두 번째 큐 (타임라인), Render Graph 가 AsyncCompute 패스를 컴퓨트 큐로 + 결과를 읽는 패스 앞에서 기다림, VFX 시뮬레이션을 그리기와 나눠 `VFX Simulation` 패스 (장면 텍스처 충돌이면 그래픽 큐), `rendergraph set --async`, Render Graph Viewer 에 큐 표시
+  - 함께 고침: Vulkan 숨은 창 스왑체인을 매 프레임 다시 만들던 것 (표면 크기 ≠ 요청 크기)
+  - 검사: 새 스위트 `d3d12` (DXIL 54/54 · 528 pass, gfx/rhi-test, 렌더 7 장면 DX11 = DX12, 디버그 층 0) · `vfx12`. DX12 편집기로 그래픽 21 스위트 통과, vulkan · vfxvk · occlusionvk · materialvk 46/46, render · gfx · rendergraph · vfx · vfxgl · particles 통과. 문서 DIRECTX12_BACKEND · ASYNC_COMPUTE · 로드맵 · VULKAN_BACKEND · NOVA_CLI · README, Showcase 269 · 270
+- 이전: 2026년 10월 8일 — **렌더링 현대화 2 단계: Render Graph**. **완료 (커밋 5e95cff, 푸시 전)**
   - `Source/Graphics/Common/RenderGraph.*`: 패스 노드 (Builder Read · Write — 쓸 때마다 새 판 · Create · SideEffect · AsyncCompute), 결과 · Side Effect 에서 거꾸로 따라가 빼기 (Frostbite refcount), 임시 텍스처 풀 (수명으로 다시 쓰기, TrimPool), 패스마다 Profiler 구간, CLI `rendergraph info [--view]`
   - `EditorApp::RenderGameView` · `_Editor_OnSceneRender` 를 그래프로 (손으로 쓴 같은 순서 두 벌 → 패스 15 · 17 개). Motion Vectors 는 읽는 쪽 (SSAO 시간 누적 · TAA · MB Camera And Objects · 디버그 보기) 이 없으면 빠진다
   - Window > Analysis > **Render Graph Viewer** (`RenderGraphViewerWindow` — 패스 x 자원 R/W 표, CPU ms, 풀), CLI `window render-graph-viewer [--close]`

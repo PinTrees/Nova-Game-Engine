@@ -2,6 +2,7 @@
 #include "ImGuiGfx.h"
 #include "PathManager.h"
 #include "GfxVk.h"
+#include "GfxD3D12.h"
 
 namespace
 {
@@ -95,7 +96,7 @@ namespace ImGuiGfx
 		io.BackendRendererName = "nova_imgui_gfx";
 		io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 		s_State = new State();
-		if (GfxVk::IsVulkan(Gfx::Device()))
+		if (GfxVk::IsVulkan(Gfx::Device()) || GfxD3D12::IsD3D12(Gfx::Device()))
 		{
 			io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 			ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
@@ -109,7 +110,11 @@ namespace ImGuiGfx
 			{
 				if (auto* d = static_cast<ViewportData*>(vp->RendererUserData))
 				{
-					if (d->Wnd && Gfx::Device()) GfxVk::ReleaseWindow(Gfx::Device(), d->Wnd);
+					if (d->Wnd && Gfx::Device())
+					{
+						if (GfxD3D12::IsD3D12(Gfx::Device())) GfxD3D12::ReleaseWindow(Gfx::Device(), d->Wnd);
+						else GfxVk::ReleaseWindow(Gfx::Device(), d->Wnd);
+					}
 					IM_DELETE(d);
 				}
 				vp->RendererUserData = nullptr;
@@ -135,7 +140,10 @@ namespace ImGuiGfx
 			{
 				auto* d = static_cast<ViewportData*>(vp->RendererUserData);
 				if (d && d->Wnd && d->Tex)
-					GfxVk::PresentWindow(Gfx::Device(), d->Wnd, d->Tex.Get(), d->W, d->H, 0);
+				{
+					if (GfxD3D12::IsD3D12(Gfx::Device())) GfxD3D12::PresentWindow(Gfx::Device(), d->Wnd, d->Tex.Get(), d->W, d->H, 0);
+					else GfxVk::PresentWindow(Gfx::Device(), d->Wnd, d->Tex.Get(), d->W, d->H, 0);
+				}
 			};
 		}
 		return true;   // 효과 · 글꼴 텍스처는 첫 NewFrame 에서 (에디터가 글꼴을 다 넣고 Build 한 뒤 — DX11 백엔드와 같음)
