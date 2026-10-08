@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6325,10 +6325,12 @@ function Suite-VirtualTexture
                 Add-Result virtualtexture 'streaming: feedback requested pages, only the visible ones are resident (mip 0 near the camera, a fraction of all pages)' ($mip0 -gt 0 -and $resident -lt $total * 0.5 -and [int]$i.uploads -gt 0) ("resident {0}/{1}, mip 0 resident {2}, uploads {3}, feedback objects {4}" -f $resident, $total, $mip0, $i.uploads, $i.feedbackObjects)
                 $c = [NovaImageCompare]::Compare($ref, $vtShot, (Join-Path $dir 'vt_vs_ref_diff.png'))
                 Add-Result virtualtexture 'picture: virtual texture looks like the same texture loaded whole (mean difference small)' ($c -and $c[1] -le 6.0 -and $c[2] -le 15.0) $(if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
-                # 비우기 → 피드백이 다시 채운다
+                # 비우기 → 피드백이 다시 채운다. 비운 직후를 보려면 피드백을 멈춘다 (CLI 호출 사이 몇 프레임에 벌써 다시 올라올 수 있다)
+                Invoke-Nova 'vt set --frozen true' | Out-Null
                 $fl = Invoke-NovaJson 'vt flush'
                 $after = Invoke-NovaJson 'vt info'
                 $mip0After = [int]@(@($after.textures)[0].mips)[0].resident
+                Invoke-Nova 'vt set --frozen false' | Out-Null
                 Settle
                 $re = Invoke-NovaJson 'vt info'
                 $mip0Re = [int]@(@($re.textures)[0].mips)[0].resident
@@ -6348,6 +6350,140 @@ function Suite-VirtualTexture
     {
         $c = if ($captures[$api] -and (Test-Path $captures[$api])) { [NovaImageCompare]::Compare($captures['dx11'], $captures[$api], (Join-Path $dir "vt_dx11_vs_$api.png")) } else { $null }
         Add-Result virtualtexture "$api virtual texture picture = DX11" ($c -and $c[1] -le 3.0) $(if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
+    }
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ------------------------------------------------------------------ Rendering Path = Deferred (렌더링 현대화 6 단계)
+function Suite-Deferred
+{
+    # URP 처럼 Rendering Path (Forward · Forward+ · Deferred). 같은 장면 (Lit 상자 · 바닥 · 점광 12 개 + Unlit 상자) 을 Forward+ 와 Deferred 로 —
+    #  그림이 거의 같고 (G-버퍼 → 전체 화면 조명이 포워드와 같은 ShadeLit), Render Graph 에 GBuffer · Deferred Lighting 패스가 생기고,
+    #  Unlit (Forward Only) 상자도 그려진다. Forward = 클러스터 끔. OpenGL · Vulkan · DirectX 12 의 디퍼드 그림 = DX11
+    Write-Host '[deferred]'
+    $dir = Join-Path $Out 'deferred'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+    $assetDir = Join-Path $Project 'Assets\DeferredTest'
+    Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force $assetDir | Out-Null
+    $m = (Get-Content (Join-Path $Project 'Assets\Materials\Red Plastic.mat') -Raw | ConvertFrom-Json).PSObject.Copy()
+    $m.Shader = 'Universal Render Pipeline/Unlit'; $m.BaseColor = @(0.1, 0.9, 0.2, 1); $m.ResourcePath = 'Assets\DeferredTest\Unlit.mat'
+    $m | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $assetDir 'Unlit.mat')
+
+    function DfScene
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'set "Directional Light" --component Light --values "{\"intensity\":0.6}"' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 3,1,3' | Out-Null
+        $mats = @('Red Plastic', 'Gold', 'Glossy Blue', 'Emissive', 'Rough Copper', 'Silver')
+        for ($i = 0; $i -lt 6; $i++)
+        {
+            $px = (($i - 2.5) * 3).ToString($ic)
+            Invoke-Nova "create cube --name Box$i --position $px,0.75,0 --scale 1.5,1.5,1.5" | Out-Null
+            Invoke-Nova ('set Box' + $i + ' --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/Materials/' + $mats[$i] + '.mat\"]}"') | Out-Null
+        }
+        Invoke-Nova 'create cube --name UnlitBox --position 0,0.75,-4 --scale 1.5,1.5,1.5' | Out-Null
+        Invoke-Nova 'set UnlitBox --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/DeferredTest/Unlit.mat\"]}"' | Out-Null
+        $colors = @('1,0.3,0.2,1', '0.2,1,0.3,1', '0.3,0.5,1,1')
+        for ($k = 0; $k -lt 12; $k++)
+        {
+            $px = ((($k % 6) - 2.5) * 3).ToString($ic); $pz = $(if ($k -lt 6) { '-2' } else { '2.5' })
+            Invoke-Nova "create point-light --name L$k --position $px,1.2,$pz" | Out-Null
+            Invoke-Nova ('set L' + $k + ' --component Light --values "{\"pointLightRange\":4,\"intensity\":2,\"pointLightDiffuse\":[' + $colors[$k % 3] + '],\"shadowType\":0}"') | Out-Null
+        }
+        Invoke-Nova 'set "Main Camera" --position 0,6,-13 --rotation 25,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+    }
+    function DfShot([string]$name) { $f = Join-Path $dir "$name.png"; Invoke-Nova ('screenshot "' + $f + '" --view game') | Out-Null; $f }
+    # Scene 뷰는 탭이 보여야 그린다 — 같은 자리에서 찍고 Game 으로 되돌린다
+    function DfSceneShot([string]$name)
+    {
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'camera --position 0,6,-13 --target 0,0.75,0' | Out-Null
+        Invoke-Nova 'wait 6' | Out-Null
+        $f = Join-Path $dir "$name.png"; Invoke-Nova ('screenshot "' + $f + '" --view scene') | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 3' | Out-Null
+        $f
+    }
+    function DfPath([string]$path) { $r = Invoke-NovaJson "renderpath set --path $path"; Invoke-Nova 'wait 4' | Out-Null; $r }
+    function DfPasses([string]$view) { $g = Invoke-NovaJson "rendergraph info --view $view"; if ($g) { @($g.passes | Where-Object { -not $_.culled } | ForEach-Object { $_.name }) } else { @() } }
+    function DfCmp([string]$a, [string]$b, [string]$diff) { if ((Test-Path $a) -and (Test-Path $b)) { [NovaImageCompare]::Compare($a, $b, $diff) } else { $null } }
+    function DfFmt($c) { if ($c) { 'max {0}, mean {1:N2}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' } }
+
+    $captures = @{}
+    $apis = if ($env:NOVA_DEFERRED_APIS) { $env:NOVA_DEFERRED_APIS -split ',' } else { @('dx11', 'gl', 'vk', 'dx12') }
+    foreach ($api in $apis)
+    {
+        $ed = Start-TestEditor -OpenGL:($api -eq 'gl') -Vulkan:($api -eq 'vk') -D3D12:($api -eq 'dx12')
+        try
+        {
+            Invoke-Nova 'autosave discard' | Out-Null
+            DfPath 'Forward+' | Out-Null
+            DfScene
+            if ($api -eq 'dx11')
+            {
+                $fp = DfShot 'forwardplus'
+                $fpScene = DfSceneShot 'forwardplus_scene'
+                $passesFp = DfPasses 'Game'
+
+                $r = DfPath 'Deferred'
+                $df = DfShot 'deferred'
+                $passes = DfPasses 'Game'
+                $info = Invoke-NovaJson 'renderpath get'
+                $gameView = if ($info) { @($info.deferred.views) | Where-Object { $_.view -eq 'Game' } } else { $null }
+                $saved = Get-Content (Join-Path $Project 'ProjectSettings\GraphicsSettings.json') -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                Add-Result deferred 'renderpath set --path Deferred: saved in Project Settings (Graphics), the G-buffer (4 targets) is drawn every frame' ($r.renderingPath -eq 'Deferred' -and $saved.renderingPath -eq 'Deferred' -and $info.deferred.available -and $gameView -and [int]$gameView.frames -gt 0) ("path {0}, saved {1}, available {2}, Game G-buffer {3} frames {4}" -f $r.renderingPath, $saved.renderingPath, $info.deferred.available, $(if ($gameView) { $gameView.size -join 'x' } else { '-' }), $(if ($gameView) { $gameView.frames } else { 0 }))
+                $gi = [array]::IndexOf($passes, 'GBuffer'); $li = [array]::IndexOf($passes, 'Deferred Lighting'); $oi = [array]::IndexOf($passes, 'Opaque')
+                Add-Result deferred 'Render Graph: GBuffer → Deferred Lighting → Opaque (Forward Only) in Deferred, no G-buffer passes in Forward+' ($gi -ge 0 -and $li -gt $gi -and $oi -gt $li -and -not ($passesFp -contains 'GBuffer')) ("Deferred: {0} | Forward+: {1}" -f ($passes -join ', '), ($passesFp -join ', '))
+                $c = DfCmp $fp $df (Join-Path $dir 'deferred_vs_forwardplus_diff.png')
+                Add-Result deferred 'Deferred picture = Forward+ picture (same lighting: shadows, 12 clustered lights, probes, emission; Unlit box drawn forward)' ($c -and $c[1] -le 1.5 -and $c[2] -le 1.0) (DfFmt $c)
+                $dfScene = DfSceneShot 'deferred_scene'
+                $info = Invoke-NovaJson 'renderpath get'
+                $sceneView = if ($info) { @($info.deferred.views) | Where-Object { $_.view -eq 'Scene' } } else { $null }
+                $c = DfCmp $fpScene $dfScene (Join-Path $dir 'deferred_vs_forwardplus_scene_diff.png')
+                Add-Result deferred 'Scene view: Deferred (its own G-buffer) = Forward+' ($sceneView -and [int]$sceneView.frames -gt 0 -and $c -and $c[1] -le 1.5 -and $c[2] -le 1.0) ("Scene G-buffer frames {0}, {1}" -f $(if ($sceneView) { $sceneView.frames } else { 0 }), (DfFmt $c))
+
+                # 디퍼드에서 Unlit (Forward Only) 상자를 Lit 로 바꾸면 G-버퍼로 간다 — 그래도 그림은 Forward+ 와 같아야 (G-버퍼 길이 실제로 그린다)
+                Invoke-Nova 'set UnlitBox --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/Materials/Gold.mat\"]}"' | Out-Null
+                Invoke-Nova 'wait 4' | Out-Null
+                $dfGold = DfShot 'deferred_gold'
+                DfPath 'Forward+' | Out-Null
+                $fpGold = DfShot 'forwardplus_gold'
+                $c = DfCmp $fpGold $dfGold $null
+                $cUnlit = DfCmp $fpGold $fp $null
+                Add-Result deferred 'Unlit box (Forward Only) vs Lit box (G-buffer): both match Forward+, and they differ from each other (the forward-only object really was drawn)' ($c -and $c[1] -le 1.5 -and $cUnlit -and $cUnlit[1] -gt $c[1] + 0.3) ("Lit in deferred vs forward+: {0} | unlit vs lit picture mean {1:N2}" -f (DfFmt $c), $(if ($cUnlit) { $cUnlit[1] } else { 0 }))
+                Invoke-Nova 'set UnlitBox --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Assets/DeferredTest/Unlit.mat\"]}"' | Out-Null
+
+                # Forward = 클러스터 끔 (앞의 빛 4 개만) — 점광 12 개 중 대부분이 꺼져 그림이 달라진다
+                $r = DfPath 'Forward'
+                $fw = DfShot 'forward'
+                $fpInfo = Invoke-NovaJson 'forwardplus info'
+                $c = DfCmp $fp $fw $null
+                Add-Result deferred 'Rendering Path Forward turns the Forward+ clusters off (fewer lights, picture differs)' ($r.renderingPath -eq 'Forward' -and $fpInfo -and -not $fpInfo.enabled -and $c -and $c[1] -gt 1.5) ("path {0}, clusters enabled {1}, Forward vs Forward+ mean {2:N2}" -f $r.renderingPath, $fpInfo.enabled, $(if ($c) { $c[1] } else { 0 }))
+                DfPath 'Deferred' | Out-Null
+            }
+            else
+            {
+                DfPath 'Deferred' | Out-Null
+            }
+            Invoke-Nova 'wait 4' | Out-Null
+            $captures[$api] = DfShot "deferred_$api"
+            $passes = DfPasses 'Game'
+            if ($api -ne 'dx11') { Add-Result deferred "$api Render Graph has the G-buffer passes" (($passes -contains 'GBuffer') -and ($passes -contains 'Deferred Lighting')) ($passes -join ', ') }
+            DfPath 'Forward+' | Out-Null
+            Invoke-Nova 'window scene' | Out-Null
+            Invoke-Nova 'scene new --force' | Out-Null
+        }
+        finally { Write-Host "  $api $(Stop-TestEditor $ed)" }
+    }
+    foreach ($api in $apis | Where-Object { $_ -ne 'dx11' })
+    {
+        $c = if ($captures['dx11'] -and $captures[$api]) { DfCmp $captures['dx11'] $captures[$api] (Join-Path $dir "deferred_dx11_vs_$api.png") } else { $null }
+        Add-Result deferred "$api deferred picture = DX11" ($c -and $c[1] -le 3.0) (DfFmt $c)
     }
     Remove-Item $assetDir, "$assetDir.meta" -Recurse -Force -ErrorAction SilentlyContinue
 }
@@ -7411,6 +7547,7 @@ try
                 'vfx12' { Suite-Vfx -Api 12 }
                 'd3d12' { Suite-D3D12 }
                 'virtualtexture' { Suite-VirtualTexture }
+                'deferred' { Suite-Deferred }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

@@ -1,6 +1,12 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 5 단계: Streaming Virtual Texturing**. **완료 (커밋, 푸시 전)**. 다음: 6 단계 Clustered Deferred
+- 갱신 시각: 2026년 10월 8일 — **렌더링 현대화 6 단계: Rendering Path (Forward · Forward+ · Deferred)**. 로드맵 1 ~ 6 단계 모두 끝
+  - `RenderPipelineSettings` 의 Rendering Path (GraphicsSettings.json `renderingPath`, 기본 Forward+, Forward = 클러스터 끔), Project Settings > Graphics > Rendering 드롭다운, CLI `renderpath get|set --path`
+  - `Source/Graphics/DX11/DeferredRenderer.*`: 뷰마다 (Game · Scene) G-버퍼 4 장 (알베도 sRGB + AO · 메탈릭 · 스무스니스 · 표시 · 레이어 · 노멀 16F · 발광 16F), 전체 화면 조명 (역 ViewProj 로 월드 자리)
+  - 셰이더 `32`: LitPS 의 표면 계산을 `LitSurfaceOf` 로 나눠 포워드 · G-버퍼가 같이 쓴다. `PS_BatchGBuffer` · `PS_DeferredLight` (ShadeLit + FinishLit 그대로, 레이어 · 안개 · Receive Shadows 는 G-버퍼 표시로)
+  - `MeshBatcher::SetDeferredSplit` (GBuffer = 엔진 Lit 묶음만, ForwardOnly = 그 밖 + LOD 크로스페이드). EditorApp Game · Scene 그래프에 GBuffer · Deferred Lighting 패스 (빛 묶기를 bindFrame 람다로 — 포워드 Opaque 와 같이 씀), Opaque 는 디퍼드 장면을 읽고 그 위에
+  - 새 스위트 `deferred` 12/12 (Deferred = Forward+ 최대 차 2, Scene 뷰도, Forward Only 상자, GL · Vulkan · DX12 = DX11). 넓은 회귀 27 스위트 269/269 (virtualtexture 의 flush 검사는 피드백을 멈추고 보도록 고침 — CLI 호출 사이에 다시 올라오던 타이밍 문제). 문서 DEFERRED_RENDERING · 로드맵 · README · NOVA_CLI · FORWARD_PLUS, Showcase 272
+- 이전: 2026년 10월 8일 — **렌더링 현대화 5 단계: Streaming Virtual Texturing**. **완료 (커밋 c5ad92b, 푸시함)**
   - `Source/Graphics/DX11/VirtualTexturing.*`: 가져오기 설정 Virtual Texture Only → 타일 파일 (136² RGBA8, 테두리 4, sRGB 유지), 공용 물리 캐시 (형식 없음 + 선형 · sRGB 뷰, LRU, 가장 거친 밉 고정), 가상 텍스처마다 페이지 표 (조상 대체), 작업 스레드 읽기 · 프레임당 24 올리기
   - 피드백: Render Graph 의 VT Feedback 패스 (1/8 크기, 프리패스 깊이 비교, 지터, 2 프레임 뒤 읽기) — `Shaders/65. VirtualTexture.fx`. 셰이더 `32` 의 SampleVirtual (UseBaseMap == 2), 재질 · 효과에 VT 묶기, 대체 텍스처는 그림자 · 깊이 · 미리 보기에
   - CLI `vt info|page|flush|set`, 새 스위트 `virtualtexture` 8/8 (DX11 · GL · Vulkan · DX12 같은 그림), 넓은 회귀 23 스위트 216/216. 문서 VIRTUAL_TEXTURING, Showcase 271

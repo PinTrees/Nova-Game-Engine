@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "RenderPipelineSettings.h"
 #include "VolumeProfile.h"
+#include "ClusteredLighting.h"
+#include "DeferredRenderer.h"
+#include "CliServer.h"
 #include <filesystem>
 #include <fstream>
 
@@ -11,6 +14,7 @@ namespace
 {
 	bool s_Loaded = false;
 	std::string s_DefaultProfile;
+	RenderPipelineSettings::RenderingPath s_Path = RenderPipelineSettings::RenderingPath::ForwardPlus;
 
 	std::wstring SettingsFile()
 	{
@@ -21,12 +25,18 @@ namespace
 	{
 		s_Loaded = true;
 		s_DefaultProfile.clear();
+		s_Path = RenderPipelineSettings::RenderingPath::ForwardPlus;
 		std::ifstream in(SettingsFile());
-		if (!in)
-			return;
-		json j = json::parse(in, nullptr, false);
-		if (!j.is_discarded() && j.is_object())
-			s_DefaultProfile = j.value("defaultVolumeProfile", std::string());
+		if (in)
+		{
+			json j = json::parse(in, nullptr, false);
+			if (!j.is_discarded() && j.is_object())
+			{
+				s_DefaultProfile = j.value("defaultVolumeProfile", std::string());
+				RenderPipelineSettings::RenderingPathFromName(j.value("renderingPath", std::string("Forward+")), s_Path);
+			}
+		}
+		ClusteredLighting::SetEnabled(s_Path != RenderPipelineSettings::RenderingPath::Forward);
 	}
 
 	void Save()
@@ -46,6 +56,7 @@ namespace
 			}
 		}
 		j["defaultVolumeProfile"] = s_DefaultProfile;
+		j["renderingPath"] = RenderPipelineSettings::RenderingPathName(s_Path);
 		std::ofstream os(file, std::ios::trunc);
 		if (os)
 			os << j.dump(4);
@@ -134,5 +145,62 @@ namespace RenderPipelineSettings
 	void Reload()
 	{
 		Load();
+	}
+
+	RenderingPath GetRenderingPath()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_Path;
+	}
+
+	void SetRenderingPath(RenderingPath path)
+	{
+		if (!s_Loaded)
+			Load();
+		s_Path = path;
+		ClusteredLighting::SetEnabled(path != RenderingPath::Forward);   // Forward = 앞의 빛 4 개만 (URP 의 Forward 처럼)
+		Save();
+		EditorLog::Write("Graphics", "rendering path = %s", RenderingPathName(path));
+	}
+
+	const char* RenderingPathName(RenderingPath path)
+	{
+		switch (path)
+		{
+		case RenderingPath::Forward: return "Forward";
+		case RenderingPath::Deferred: return "Deferred";
+		default: return "Forward+";
+		}
+	}
+
+	bool RenderingPathFromName(const std::string& name, RenderingPath& out)
+	{
+		std::string n;
+		for (char c : name) if (c != ' ' && c != '_' && c != '-') n += (char)tolower((unsigned char)c);
+		if (n == "forward") { out = RenderingPath::Forward; return true; }
+		if (n == "forward+" || n == "forwardplus") { out = RenderingPath::ForwardPlus; return true; }
+		if (n == "deferred") { out = RenderingPath::Deferred; return true; }
+		return false;
+	}
+
+	void RegisterEditor()
+	{
+		CliServer::Register("renderpath", "Rendering Path (URP): {op: get|set, path?: Forward|Forward+|Deferred}",
+			[](const nlohmann::json& args, nlohmann::json& result, std::string& error) {
+				if (args.value("op", std::string("get")) == "set")
+				{
+					RenderingPath p;
+					const std::string name = args.value("path", args.value("value", std::string()));
+					if (!RenderingPathFromName(name, p))
+					{
+						error = "unknown rendering path '" + name + "' (Forward, Forward+, Deferred)";
+						return false;
+					}
+					SetRenderingPath(p);
+				}
+				result = { { "renderingPath", RenderingPathName(GetRenderingPath()) }, { "deferred", DeferredRenderer::Info() } };
+				return true;
+			});
 	}
 }

@@ -502,6 +502,18 @@ namespace
 		ImGui::PopStyleColor();
 		ImGui::Spacing();
 
+		SectionTitle("Rendering");
+		{
+			// URP Universal Renderer 의 Rendering Path
+			static const char* paths[] = { "Forward", "Forward+", "Deferred" };
+			int path = (int)RenderPipelineSettings::GetRenderingPath();
+			if (UnityGUI::Dropdown("Rendering Path", &path, paths, 3))
+				RenderPipelineSettings::SetRenderingPath((RenderPipelineSettings::RenderingPath)path);
+			if (path == (int)RenderPipelineSettings::RenderingPath::Deferred)
+				UnityGUI::HelpBox("Deferred: Lit materials drawn by Mesh Renderers write a G-buffer and are lit in one full-screen pass (Forward+ clusters). Skinned meshes, terrain, trees, Shader Graph / package shaders, tessellated and transparent materials stay forward.", false);
+		}
+		UnityGUI::Spacing(6.0f);
+
 		SectionTitle("Volume");
 		// Unity 처럼 기본 프로파일은 항상 있다: 없으면 Assets/Settings/DefaultVolumeProfile 을 만든다
 		auto profile = RenderPipelineSettings::EnsureDefaultVolumeProfile();

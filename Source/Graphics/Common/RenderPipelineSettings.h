@@ -7,8 +7,16 @@ class VolumeProfile;
 // 프로젝트별 그래픽 설정 (Unity: Project Settings > Graphics > URP).
 // <프로젝트>/ProjectSettings/GraphicsSettings.json 에 저장한다.
 //  - Default Volume Profile: 씬에 Volume 이 없어도 항상 먼저 적용되는 기본 효과 값
+//  - Rendering Path (URP Universal Renderer 와 같은 이름): Forward (빛 4 개) · Forward+ (클러스터 — 기본) · Deferred (G-버퍼 + 클러스터)
 namespace RenderPipelineSettings
 {
+	enum class RenderingPath { Forward = 0, ForwardPlus = 1, Deferred = 2 };
+	RenderingPath GetRenderingPath();
+	void SetRenderingPath(RenderingPath path);   // 저장 + Forward+ 클러스터 켜기 · 끄기
+	const char* RenderingPathName(RenderingPath path);   // "Forward" · "Forward+" · "Deferred"
+	bool RenderingPathFromName(const std::string& name, RenderingPath& out);
+	void RegisterEditor();   // CLI: nova renderpath [get|set --path Forward|Forward+|Deferred]
+
 	const std::string& DefaultVolumeProfilePath();
 	void SetDefaultVolumeProfilePath(const std::string& path);
 	std::shared_ptr<VolumeProfile> DefaultVolumeProfile();

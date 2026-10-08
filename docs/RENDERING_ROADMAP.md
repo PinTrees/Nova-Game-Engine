@@ -19,7 +19,7 @@
 | 3 | **DirectX 12 백엔드** — Gfx 층을 D3D12 로 (Vulkan 백엔드처럼): 명령 목록 · 디스크립터 힙 · 루트 시그니처 · 리소스 상태 추적, 셰이더는 ShaderCross 에 DXC → DXIL | 명시적 API — 4 의 바탕 | **완료** ([DIRECTX12_BACKEND](DIRECTX12_BACKEND.md)) |
 | 4 | **Async Compute** — DX12 · Vulkan 에 컴퓨트 큐 + 펜스 / 타임라인 세마포어. Render Graph 가 컴퓨트 패스 (VFX 시뮬레이션 · Hi-Z · 클러스터 GPU 짓기 …) 를 다른 큐로, DX11 · GL 은 같은 큐로 | 2 · 3 필요 | **완료** — DX12 · Vulkan ([ASYNC_COMPUTE](ASYNC_COMPUTE.md)) |
 | 5 | **Virtual Texturing** (소프트웨어 — Unity Streaming Virtual Texturing 처럼): 페이지 표 + 물리 캐시 아틀라스 + 피드백 버퍼, 지형 · 큰 텍스처 | 스파스 리소스 없이 모든 백엔드 | **완료** ([VIRTUAL_TEXTURING](VIRTUAL_TEXTURING.md)) |
-| 6 | **Clustered Deferred** — Rendering Path = Forward / Forward+ / Deferred (URP 와 같은 선택), G-Buffer + 1 단계 클러스터로 조명 패스 | 2 의 패스 · 1 의 클러스터 재사용 | |
+| 6 | **Clustered Deferred** — Rendering Path = Forward / Forward+ / Deferred (URP 와 같은 선택), G-Buffer + 1 단계 클러스터로 조명 패스 | 2 의 패스 · 1 의 클러스터 재사용 | **완료** ([DEFERRED_RENDERING](DEFERRED_RENDERING.md)) |
 
 ## 원칙
 

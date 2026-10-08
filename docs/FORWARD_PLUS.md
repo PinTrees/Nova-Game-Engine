@@ -26,7 +26,7 @@
 
 - **Rendering Debugger > Additional Light Count** (`nova debugview lights`): 클러스터마다 추가 빛 수 (검정 0, 파랑 1, 초록 4, 노랑 8, 빨강 16 이상)
 - `nova forwardplus info`: 마지막에 지은 뷰의 클러스터 빛 · 화면 밖으로 뺀 빛 · 목록 칸 · 클러스터당 최대 · 짓는 시간
-- `nova forwardplus set --enabled false`: 앞의 4 개만 (URP 의 Rendering Path = Forward 처럼) — 비교용
+- `nova forwardplus set --enabled false`: 앞의 4 개만 — 비교용 (저장되지 않음). 프로젝트 설정은 Rendering Path ([DEFERRED_RENDERING](DEFERRED_RENDERING.md)) — Forward 면 끈다
 
 ## 검사
 

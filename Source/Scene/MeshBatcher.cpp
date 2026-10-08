@@ -342,6 +342,19 @@ namespace
 
 namespace MeshBatcher
 {
+	namespace
+	{
+		DeferredSplit s_Split = DeferredSplit::None;
+	}
+
+	void SetDeferredSplit(DeferredSplit split) { s_Split = split; }
+
+	bool DeferredCapable(const UMaterial* m)
+	{
+		// 엔진 URP Lit (사용자 셰이더 · Unlit · 테셀레이션 · 높이 POM 밖)
+		return m && !m->IsCustom() && m->GetShader() != UMaterial::ShaderKind::Unlit && !m->UsesTessellation();
+	}
+
 	const Stats& LastStats(bool editor) { return s_Stats[editor ? 1 : 0]; }
 
 	bool& TessellationEnabled()
@@ -645,7 +658,7 @@ namespace MeshBatcher
 			{
 				static const XMMATRIX toTex(0.5f, 0.0f, 0.0f, 0.0f, 0.0f, -0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.5f, 0.5f, 0.0f, 1.0f);
 				fx = Effects::InstancedBasicFX->GetFX();
-				tech = fx->GetTechniqueByName("BatchTech");
+				tech = fx->GetTechniqueByName(s_Split == DeferredSplit::GBuffer ? "BatchGBufferTech" : "BatchTech");
 				Effects::InstancedBasicFX->SetViewProj(viewProj);
 				SetMatrix(fx, "gViewProjTex", viewProj * toTex);
 				Effects::InstancedBasicFX->SetTexTransform(XMMatrixIdentity());
@@ -676,8 +689,16 @@ namespace MeshBatcher
 			uint32 appliedLayer = 0;
 			int drawn = 0;
 			// gpu = GPU 목록의 묶음 번호 (-1 = b->Instances 를 올려 그린다)
+			bool fadingDraw = false;   // LOD 크로스페이드 묶음 (디퍼드에서는 늘 포워드)
 			auto drawBatch = [&](Batch* b, int gpu)
 			{
+				// Rendering Path = Deferred: G-버퍼 패스는 엔진 Lit 재질만, 포워드 패스는 그 밖만
+				if (pass == Pass::Main && s_Split != DeferredSplit::None)
+				{
+					const bool deferred = !fadingDraw && DeferredCapable(b->Material.get());
+					if ((s_Split == DeferredSplit::GBuffer) != deferred)
+						return;
+				}
 				GfxBuffer* inst = nullptr;
 				if (gpu < 0 && (inst = Upload(dc, b->Instances)) == nullptr)
 					return;
@@ -827,8 +848,9 @@ namespace MeshBatcher
 				drawBatch(&batches[index], gpuSet >= 0 ? index : -1);
 
 			// LOD 크로스페이드 중인 렌더러: 서브셋마다 하나씩, gLodFade 로 화면 디더 (깊이 프리패스와 본 패스가 같은 무늬 — EQUAL 깊이 검사가 맞는다)
-			if (!s_Fading.empty())
+			if (!s_Fading.empty() && !(pass == Pass::Main && s_Split == DeferredSplit::GBuffer))
 			{
+				fadingDraw = true;
 				FxEffect* fadeFx = main ? Effects::InstancedBasicFX->GetFX() : Effects::SsaoNormalDepthFX->GetFX();
 				auto* fadeVar = fadeFx->GetVariableByName("gLodFade")->AsVector();
 				Batch one;

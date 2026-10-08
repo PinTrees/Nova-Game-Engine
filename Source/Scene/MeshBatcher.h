@@ -19,6 +19,11 @@ namespace MeshBatcher
 	//  capture = 프로브 · GI 찍기 (LOD Group 이 애니메이션 크로스페이드 상태를 건드리지 않는다)
 	//  occlusionView = 오클루전 컬링 키 (카메라 — 지난 프레임 기록 · Hi-Z 가 뷰마다), nullptr = 끔 (Camera.useOcclusionCulling)
 	void BeginView(bool capture = false, const void* occlusionView = nullptr);
+	// Rendering Path = Deferred: 본 패스 (Main) 를 둘로 — GBuffer = 엔진 Lit 재질 묶음만 (BatchGBufferTech), ForwardOnly = 그 밖 (사용자 셰이더 ·
+	//  Unlit · 테셀레이션 · LOD 크로스페이드). None = 모두 (포워드). 이 패스에서 G-버퍼로 갈 수 있는 재질인가: DeferredCapable
+	enum class DeferredSplit { None, GBuffer, ForwardOnly };
+	void SetDeferredSplit(DeferredSplit split);
+	bool DeferredCapable(const class UMaterial* material);
 	void Draw(Scene* scene, Pass pass, bool editor);
 	// 깊이 프리패스의 나머지 (스킨 메시 · 지형 · 나무 …) 를 그린 뒤, 같은 깊이 타깃이 묶인 채로 부른다:
 	//  오클루전 컬링 (Hi-Z 검사) → 새로 보인 Mesh Renderer 의 깊이. 본 패스는 지금 보이는 것만 그린다

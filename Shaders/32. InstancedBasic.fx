@@ -121,7 +121,9 @@ cbuffer cbPerObject
 };
 
 // 이 빛이 이 물체를 비추나 (Light.cullingMask & 물체 레이어)
-bool LightHits(uint mask) { return (mask & gObjectLayer) != 0u; }
+//  디퍼드 조명 패스 (PS_DeferredLight) 는 픽셀마다 G-버퍼의 레이어를 sDeferredLayer 에 둔다 (0 = 포워드 — 그리는 물체의 gObjectLayer)
+static uint sDeferredLayer = 0u;
+bool LightHits(uint mask) { return (mask & (sDeferredLayer != 0u ? sDeferredLayer : gObjectLayer)) != 0u; }
 
 // LOD Group 크로스페이드 (gLodFade: x = 문턱, y = 1 이면 무늬 < x 인 픽셀만 / 0 이면 무늬 ≥ x, z = 1 켜짐)
 //  화면 픽셀마다 고정 무늬 — 깊이 프리패스 (28) 와 본 패스 (32) 가 같은 픽셀을 남긴다
@@ -1310,10 +1312,12 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
 }
 
 // 선형 색 → 감마 + 안개
+static int sDeferredFog = -1;   // 디퍼드 조명 패스: G-버퍼의 재질 안개 켜기 (-1 = 포워드 — 재질의 gFogEnabled)
 float4 FinishLit(float3 color, float alpha, float distToEye)
 {
     float4 litColor = float4(ToGamma(color), alpha);
-    if (gShaderSetting.gFogEnabled && gGIParams.z < 0.5f)
+    const bool fog = sDeferredFog >= 0 ? sDeferredFog != 0 : gShaderSetting.gFogEnabled != 0;
+    if (fog && gGIParams.z < 0.5f)
     {
         float fogLerp = saturate((distToEye - gFogStart) / gFogRange);
         litColor.rgb = lerp(litColor.rgb, gFogColor.rgb, fogLerp);
@@ -1321,30 +1325,25 @@ float4 FinishLit(float3 color, float alpha, float distToEye)
     return litColor;
 }
 
-// 재질 값 또는 인스턴스 값 (PS_Batch): baseColorFactor = _BaseColor, metallicValue · smoothnessValue = _Metallic · _Smoothness, emissionColor = 선형 _EmissionColor
-float4 LitPS(VertexOut pin, float4 baseColorFactor, float metallicValue, float smoothnessValue, float3 emissionColor)
+// 표면 (LitPS · G-버퍼 공용): 재질 값 또는 인스턴스 값 (PS_Batch) — baseColorFactor = _BaseColor, metallicValue · smoothnessValue = _Metallic · _Smoothness,
+//  emissionColor = 선형 _EmissionColor. 알파 자르기 · LOD 크로스페이드는 여기서 (픽셀을 버린다). alpha = Base Map × Base Color 의 알파
+void LitSurfaceOf(VertexOut pin, float4 baseColorFactor, float metallicValue, float smoothnessValue, float3 emissionColor,
+    out LitSurface surf, out float3 N, out float alpha)
 {
     LodFadeClip(pin.PosH.xy);
-    float3 N = normalize(pin.NormalW);
-    float3 toEye = gEyePosW - pin.PosW.xyz;
-    float distToEye = length(toEye);
-    float3 V = toEye / max(distToEye, 0.0001f);
+    N = normalize(pin.NormalW);
     float2 uv = pin.Tex * gPbr.Tiling + gPbr.Offset;
 
-    // ---- 표면
     float4 baseSample = gPbr.UseBaseMap == 2 ? SampleVirtual(uv) : gPbr.UseBaseMap ? gDiffuseMap.Sample(samLinear, uv) : float4(1, 1, 1, 1);
     float4 baseColor = baseSample * baseColorFactor;
     if (gPbr.AlphaClip)
         clip(baseColor.a - gPbr.Cutoff);
+    alpha = baseColor.a;
 
     float3 emission = emissionColor;
     if (gPbr.UseEmissionMap)
         emission *= ToLinear(gEmissionMap.Sample(samLinear, uv).rgb);
 
-    if (gPbr.Unlit)
-        return float4(ToGamma(ToLinear(baseColor.rgb) + emission), baseColor.a);
-
-    float3 albedo = ToLinear(baseColor.rgb);
     float metallic = metallicValue;
     float smoothness = smoothnessValue;
     if (gPbr.UseMetallicMap)
@@ -1364,8 +1363,7 @@ float4 LitPS(VertexOut pin, float4 baseColorFactor, float metallicValue, float s
     }
     float occlusion = gPbr.UseOcclusionMap ? lerp(1.0f, gOcclusionMap.Sample(samLinear, uv).g, gPbr.OcclusionStrength) : 1.0f;
 
-    LitSurface surf;
-    surf.Albedo = albedo;
+    surf.Albedo = ToLinear(baseColor.rgb);
     surf.Metallic = metallic;
     surf.Smoothness = smoothness;
     surf.Occlusion = occlusion;
@@ -1374,7 +1372,20 @@ float4 LitPS(VertexOut pin, float4 baseColorFactor, float metallicValue, float s
     surf.Highlights = gPbr.SpecularHighlights != 0;
     surf.Reflections = gPbr.EnvironmentReflections != 0;
     surf.ReceiveShadows = gPbr.ReceiveShadows != 0;
-    return FinishLit(ShadeLit(surf, pin.PosW.xyz, N, V, pin.SsaoPosH), baseColor.a, distToEye);
+}
+
+float4 LitPS(VertexOut pin, float4 baseColorFactor, float metallicValue, float smoothnessValue, float3 emissionColor)
+{
+    LitSurface surf;
+    float3 N;
+    float alpha;
+    LitSurfaceOf(pin, baseColorFactor, metallicValue, smoothnessValue, emissionColor, surf, N, alpha);
+    if (gPbr.Unlit)
+        return float4(ToGamma(surf.Albedo + surf.Emission), alpha);
+    float3 toEye = gEyePosW - pin.PosW.xyz;
+    float distToEye = length(toEye);
+    float3 V = toEye / max(distToEye, 0.0001f);
+    return FinishLit(ShadeLit(surf, pin.PosW.xyz, N, V, pin.SsaoPosH), alpha, distToEye);
 }
 
 float4 PS(VertexOut pin) : SV_Target
@@ -1486,6 +1497,131 @@ technique11 BatchTech
         SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS_Batch()));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering Path = Deferred (URP 와 같은 G-버퍼 — docs/DEFERRED_RENDERING.md): MeshBatcher 의 엔진 Lit 재질은 표면만 G-버퍼에 쓰고
+//  (PS_BatchGBuffer), 전체 화면 PS_DeferredLight 가 픽셀마다 같은 ShadeLit (그림자 · Forward+ 클러스터 · APV · 반사 · SSR · 날씨) + FinishLit (안개)
+//   G0 (sRGB RGBA8)  : 알베도 (선형 → sRGB 저장), a = Occlusion
+//   G1 (RGBA8)       : Metallic, Smoothness, 표시 (1 Highlights · 2 Reflections · 4 Receive Shadows · 8 있음 · 16 안개), 레이어 + 1 (33 = 모든 레이어)
+//   G2 (RGBA16F)     : 월드 노멀
+//   G3 (RGBA16F)     : 발광 (선형 HDR)
+// ---------------------------------------------------------------------------
+struct GBufferOut
+{
+    float4 G0 : SV_Target0;
+    float4 G1 : SV_Target1;
+    float4 G2 : SV_Target2;
+    float4 G3 : SV_Target3;
+};
+
+GBufferOut PS_BatchGBuffer(BatchVertexOut pin)
+{
+    VertexOut v;
+    v.PosH = pin.PosH;
+    v.PosW = pin.PosW;
+    v.NormalW = pin.NormalW;
+    v.TangentW = pin.TangentW;
+    v.Tex = pin.Tex;
+    v.SsaoPosH = pin.SsaoPosH;
+    const float4 baseColor = pin.BaseColor.w < 0.0f ? float4(pin.BaseColor.rgb, -1.0f - pin.BaseColor.w) : gPbr.BaseColor;
+    const int mask = pin.Surface.w < -0.5f ? (int)(-pin.Surface.w + 0.5f) : 0;
+    const float metallic = (mask & 1) ? pin.Surface.x : gPbr.Metallic;
+    const float smoothness = (mask & 2) ? pin.Surface.y : gPbr.Smoothness;
+    const float3 emission = pin.Emission.w < 0.0f ? pin.Emission.rgb : gPbr.EmissionColor.rgb;
+    LitSurface surf;
+    float3 N;
+    float alpha;
+    LitSurfaceOf(v, baseColor, metallic, smoothness, emission, surf, N, alpha);
+    const uint layer = gObjectLayer == 0xFFFFFFFFu ? 33u : (uint)firstbitlow(gObjectLayer) + 1u;
+    const uint flags = (surf.Highlights ? 1u : 0u) | (surf.Reflections ? 2u : 0u) | (surf.ReceiveShadows ? 4u : 0u) | 8u | (gShaderSetting.gFogEnabled ? 16u : 0u);
+    GBufferOut o;
+    o.G0 = float4(saturate(surf.Albedo), surf.Occlusion);
+    o.G1 = float4(surf.Metallic, saturate(surf.Smoothness), flags / 255.0f, layer / 255.0f);
+    o.G2 = float4(N, 1.0f);
+    o.G3 = float4(surf.Emission, 1.0f);
+    return o;
+}
+
+technique11 BatchGBufferTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_BatchGBuffer()));
+    }
+}
+
+Texture2D gGBuffer0;
+Texture2D gGBuffer1;
+Texture2D gGBuffer2;
+Texture2D gGBuffer3;
+Texture2D gDeferredDepth;    // 하드웨어 깊이 (R24 · R32 — G-버퍼와 같은 깊이 프리패스)
+cbuffer cbDeferred
+{
+    float4x4 gDeferredInvViewProj;   // G-버퍼를 그린 뷰 × 투영 (지터 포함) 의 역
+};
+
+struct DeferredOut
+{
+    float4 PosH : SV_POSITION;
+};
+
+DeferredOut VS_DeferredFull(uint id : SV_VertexID)
+{
+    DeferredOut o;
+    float2 t = float2((id << 1) & 2, id & 2);
+    o.PosH = float4(t * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
+    return o;
+}
+
+float4 PS_DeferredLight(DeferredOut pin) : SV_Target
+{
+    const int3 p = int3(int2(pin.PosH.xy), 0);
+    const float4 g1 = gGBuffer1.Load(p);
+    const uint flags = (uint)round(g1.z * 255.0f);
+    if ((flags & 8u) == 0u)
+        discard;   // G-버퍼 물체가 없는 픽셀 (하늘 · 포워드 물체 — 포워드 패스가 그린다)
+    const float4 g0 = gGBuffer0.Load(p);
+    const float4 g2 = gGBuffer2.Load(p);
+    const float4 g3 = gGBuffer3.Load(p);
+    uint dw, dh;
+    gGBuffer1.GetDimensions(dw, dh);
+    const float2 ndc = float2((pin.PosH.x / dw) * 2.0f - 1.0f, 1.0f - (pin.PosH.y / dh) * 2.0f);
+    const float z = gDeferredDepth.Load(p).r;
+    float4 w = mul(float4(ndc, z, 1.0f), gDeferredInvViewProj);
+    const float3 posW = w.xyz / w.w;
+
+    const uint layer = (uint)round(g1.w * 255.0f);
+    sDeferredLayer = layer >= 33u || layer == 0u ? 0xFFFFFFFFu : (1u << (layer - 1u));
+    sDeferredFog = (flags & 16u) != 0u ? 1 : 0;
+    LitSurface surf;
+    surf.Albedo = g0.rgb;
+    surf.Occlusion = g0.a;
+    surf.Metallic = g1.x;
+    surf.Smoothness = g1.y;
+    surf.Emission = g3.rgb;
+    surf.Transmission = float3(0, 0, 0);
+    surf.Highlights = (flags & 1u) != 0u;
+    surf.Reflections = (flags & 2u) != 0u;
+    surf.ReceiveShadows = (flags & 4u) != 0u;
+    const float3 N = normalize(g2.xyz);
+    const float3 toEye = gEyePosW - posW;
+    const float distToEye = length(toEye);
+    const float3 V = toEye / max(distToEye, 0.0001f);
+    const float4 ssaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
+    return FinishLit(ShadeLit(surf, posW, N, V, ssaoPosH), 1.0f, distToEye);
+}
+
+technique11 DeferredLightTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_DeferredFull()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_DeferredLight()));
     }
 }
 #endif
