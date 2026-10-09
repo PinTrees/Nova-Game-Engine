@@ -1,0 +1,42 @@
+{
+    "Shader": "UniversalRenderPipeline/Lit",
+    "ResourcePath": "Resources\\Packages\\Prototype\\Materials\\Prototype_Gray.mat",
+    "BaseMapPath": "Resources\\Packages\\Prototype\\Textures\\Prototype_Gray.png",
+    "NormalMapPath": "",
+    "MetallicMapPath": "",
+    "OcclusionMapPath": "",
+    "EmissionMapPath": "",
+    "BaseColor": [
+        1,
+        1,
+        1,
+        1
+    ],
+    "Metallic": 0.0,
+    "Smoothness": 0.25,
+    "SmoothnessSource": 0,
+    "NormalScale": 1.0,
+    "OcclusionStrength": 1.0,
+    "Tiling": [
+        1,
+        1
+    ],
+    "Offset": [
+        0,
+        0
+    ],
+    "AlphaClipping": 0,
+    "Cutoff": 0.5,
+    "ReceiveShadows": 1,
+    "SpecularHighlights": 1,
+    "EnvironmentReflections": 1,
+    "Emission": false,
+    "EmissionColor": [
+        0,
+        0,
+        0
+    ],
+    "EmissionIntensity": 1.0,
+    "Priority": 0,
+    "UseShadowMap": 1
+}

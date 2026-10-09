@@ -1,0 +1,83 @@
+{
+  "layerFormat": 2,
+  "nova_prefab": 1,
+  "root": {
+    "active": true,
+    "children": [],
+    "components": [
+      {
+        "m_EulerAngles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m_LocalEulerAngles": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m_LocalEulerRadians": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m_LocalPosition": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m_LocalRotation": {
+          "w": 1.0,
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "m_LocalScale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "m_Position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "m_Scale": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "type": "Transform"
+      },
+      {
+        "meshPath": "Resources/Packages/Prototype/Meshes/Nature/Rock_Small.glb",
+        "subsetIndex": 0,
+        "type": "MeshFilter"
+      },
+      {
+        "castShadows": 1,
+        "contributeGI": false,
+        "dynamicOcclusion": true,
+        "enabled": true,
+        "lightProbes": 1,
+        "m_MaterialPaths": [
+          "Resources\\Packages\\Prototype\\Materials\\Prototype_Gray.mat"
+        ],
+        "maskInteraction": 0,
+        "meshPath": "",
+        "motionVectors": 1,
+        "receiveGI": 0,
+        "renderingLayerMask": 0,
+        "shaderPath": "",
+        "staticShadowCaster": false,
+        "subsetIndex": 0,
+        "type": "MeshRenderer"
+      }
+    ],
+    "fileID": 9115837343870106631,
+    "layer": 0,
+    "name": "Rock_Small",
+    "static": false,
+    "tag": "Untagged"
+  }
+}

@@ -189,6 +189,7 @@ PublishScripts/
 # NOVA: 패키지 레지스트리(Packages/) · 패키지 매니저 소스(Source/Packages/) 는 NuGet 폴더가 아니다
 !/Packages/*
 !/Source/Packages/*
+!/Resources/Packages/*
 # Uncomment if necessary however generally it will be regenerated when needed
 #!**/[Pp]ackages/repositories.config
 # NuGet v3's project.json files produces more ignorable files
