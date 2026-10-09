@@ -6,13 +6,14 @@
 
 <p align="center">
   <b>Unity 6 에디터를 그대로 옮겨 온 C++20 게임 엔진</b><br/>
-  DirectX 11 · OpenGL 4.5 · Vulkan 1.3 · 안드로이드 (OpenGL ES 3.2) · C# 스크립팅<br/>
+  DirectX 11 · DirectX 12 · OpenGL 4.5 · Vulkan 1.3 · 안드로이드 (OpenGL ES 3.2) · 웹 (WebGPU) · C# 스크립팅<br/>
   <sub>Claude(Opus 5.5)와 함께 기능 하나하나를 Unity 와 1:1 에 가깝게 만들어 가는 프로젝트</sub>
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?logo=cplusplus&logoColor=white" alt="C++20"/>
   <img src="https://img.shields.io/badge/DirectX-11-107C10?logo=xbox&logoColor=white" alt="DirectX 11"/>
+  <img src="https://img.shields.io/badge/DirectX-12-107C10?logo=xbox&logoColor=white" alt="DirectX 12"/>
   <img src="https://img.shields.io/badge/OpenGL-4.5-5586A4?logo=opengl&logoColor=white" alt="OpenGL 4.5"/>
   <img src="https://img.shields.io/badge/Vulkan-1.3-AC162C?logo=vulkan&logoColor=white" alt="Vulkan 1.3"/>
   <img src="https://img.shields.io/badge/Android-GLES%203.2-3DDC84?logo=android&logoColor=white" alt="Android"/>
@@ -39,7 +40,8 @@
 ## 한눈에 보기
 
 - **Unity 그대로** — 창 배치 · Inspector · 단축키 · 동작, C# API (`using UnityEngine;` → `using NovaEngine;`), 저장하면 핫 리로드
-- **세 그래픽 API + 안드로이드** — 같은 렌더 코드, HLSL 하나 → GLSL · SPIR-V 자동 변환. PC 는 DX11 · OpenGL · Vulkan, 안드로이드는 GLES 3.2 APK
+- **네 그래픽 API + 안드로이드 + 웹** — 같은 렌더 코드, HLSL 하나 → GLSL · SPIR-V · DXIL · WGSL 자동 변환. PC 는 DX11 · DX12 · OpenGL · Vulkan, 안드로이드는 GLES 3.2 APK, 웹은 WebGPU
+- **멀티스레드 · 데이터 지향 코어** — Job System, 렌더 스레드, 씬마다 메모리 힙, SoA Transform · SIMD 컬링, 프레임을 멈추지 않는 씬 스트리밍
 - **수식으로 만드는 월드** — 지형 생성기 · 바이옴 · 나무 · 숲 · 바위 · 풀 · 바다 · 강, 텍스처 파일 없이
 - **터미널 · AI 가 다루는 에디터** — `nova` CLI 로 만들고 · 바꾸고 · Play 하고 · 찍고 · 잰다
 
@@ -58,13 +60,23 @@
 
 | | |
 |---|---|
-| 그래픽 API | DirectX 11 · OpenGL 4.5 · **Vulkan 1.3** (에디터 · 게임 모두, 화소 차이 최대 1) — [VULKAN_BACKEND](docs/VULKAN_BACKEND.md) |
+| 그래픽 API | DirectX 11 · **DirectX 12** (명시적 API — 명령 목록 · 디스크립터 힙 · 리소스 상태 장벽) · OpenGL 4.5 · **Vulkan 1.3** (에디터 · 게임 모두, 화소 차이 최대 1) — [DIRECTX12_BACKEND](docs/DIRECTX12_BACKEND.md) · [VULKAN_BACKEND](docs/VULKAN_BACKEND.md) |
 | 재질 · 셰이더 | URP Lit (PBR), **테셀레이션 높이 변위** (Height Map 만큼 벽 · 바닥 · 지형 레이어를 실제로 민다, Shader Graph Displacement, 먼 곳 · 테셀레이션 없는 기기는 POM — DX11 · OpenGL · Vulkan), **Shader Graph** (노드 65 종 · Vertex 단계 · Sub Graph · Custom Function) — [TESSELLATION](docs/TESSELLATION.md) · [SHADER_GRAPH](docs/SHADER_GRAPH.md) |
 | 조명 | Cascaded 그림자, **Adaptive Probe Volume** (굽지 않는 실시간 간접광), **Reflection Probe**, 높이 안개 · 대기 — [APV](docs/ADAPTIVE_PROBE_VOLUME.md) · [Probe](docs/REFLECTION_PROBE.md) |
-| 후처리 (Volume) | Bloom · ACES · Color Adjustments · **Depth of Field (Bokeh)** · **Motion Blur** · **SSR** · **SSAO** · **Motion Vectors** · Vignette · Film Grain — [DoF](docs/DEPTH_OF_FIELD_MOTION_BLUR.md) · [SSR](docs/SCREEN_SPACE_REFLECTION.md) · [SSAO](docs/SSAO.md) · [Motion Vectors](docs/MOTION_VECTORS.md). **Rendering Debugger** (깊이 · 노멀 · AO · 모션 벡터 · APV 보기) — [RENDERING_DEBUGGER](docs/RENDERING_DEBUGGER.md). **Forward+** (클러스터 조명 — 한 화면 빛 1024 개) — [FORWARD_PLUS](docs/FORWARD_PLUS.md). **Render Graph** (패스 노드 · 쓰이지 않는 패스 빼기 · 임시 텍스처 풀 · Render Graph Viewer) — [RENDER_GRAPH](docs/RENDER_GRAPH.md). **DirectX 12 백엔드** (명시적 API — 명령 목록 · 디스크립터 힙 · 리소스 상태 장벽, `-force-d3d12`) — [DIRECTX12_BACKEND](docs/DIRECTX12_BACKEND.md). **비동기 컴퓨트** (DX12 · Vulkan 두 번째 큐 — VFX 시뮬레이션이 그래픽과 겹쳐 돈다) — [ASYNC_COMPUTE](docs/ASYNC_COMPUTE.md). **Streaming Virtual Texturing** (Virtual Texture Only — 보이는 128² 페이지만 GPU 로, 피드백 · 페이지 표 · 캐시) — [VIRTUAL_TEXTURING](docs/VIRTUAL_TEXTURING.md). **Rendering Path** (URP 처럼 Forward · Forward+ · Deferred — G-버퍼 + 클러스터 조명) — [DEFERRED_RENDERING](docs/DEFERRED_RENDERING.md), 로드맵 (DX12 · Render Graph · Async Compute · VT · Deferred) — [RENDERING_ROADMAP](docs/RENDERING_ROADMAP.md). **Job System** (작업 훔치기 · 파이버 · 무잠금 큐, Profiler Timeline 일꾼 줄 — Jolt 물리 · 컬링 · 클러스터 · 백그라운드 일이 그 위에서) — [JOB_SYSTEM](docs/JOB_SYSTEM.md), **물리 ↔ 렌더링 겹치기** (Simulate During Rendering, 핑퐁 버퍼) — [ASYNC_PHYSICS](docs/ASYNC_PHYSICS.md), **렌더 스레드** (Multithreaded Rendering — DX11 deferred context · 명령 목록을 렌더 스레드가 실행 · Present, DX12 · Vulkan 은 큐 제출 · Present 를 렌더 스레드로) — [RENDER_THREAD](docs/RENDER_THREAD.md), **메모리 알로케이터** (Linear · Stack · Pool · Buddy, 씬마다 힙 — 씬 전환 단편화 0, 프레임 아레나, 캐시 라인 정렬) — [MEMORY_ALLOCATORS](docs/MEMORY_ALLOCATORS.md), **데이터 지향 Transform · 컬링** (SoA 저장소 · 늦은 계산 · Job System Flush, 바뀐 렌더러만 · SIMD 절두체 검사) — [TRANSFORM_SOA](docs/TRANSFORM_SOA.md), **씬 · 에셋 스트리밍** (LoadSceneAsync — 새 씬을 프레임마다 예산만큼 미리 짓기 · 미리 데우기 · 텍스처 디코드를 작업 스레드에서, backgroundLoadingPriority) — [SCENE_STREAMING](docs/SCENE_STREAMING.md), 동시성 로드맵 — [CONCURRENCY_ROADMAP](docs/CONCURRENCY_ROADMAP.md) |
+| 렌더 파이프라인 | **Rendering Path** (URP 처럼 Forward · Forward+ · Deferred — G-버퍼 + 클러스터 조명) — [DEFERRED_RENDERING](docs/DEFERRED_RENDERING.md), **Forward+** (클러스터 조명 — 한 화면 빛 1024 개) — [FORWARD_PLUS](docs/FORWARD_PLUS.md), **Render Graph** (패스 노드 · 쓰이지 않는 패스 빼기 · 임시 텍스처 풀 · Render Graph Viewer) — [RENDER_GRAPH](docs/RENDER_GRAPH.md), **비동기 컴퓨트** (DX12 · Vulkan 두 번째 큐 — VFX 시뮬레이션이 그래픽과 겹쳐 돈다) — [ASYNC_COMPUTE](docs/ASYNC_COMPUTE.md), **Streaming Virtual Texturing** (보이는 128² 페이지만 GPU 로 — 피드백 · 페이지 표 · 캐시) — [VIRTUAL_TEXTURING](docs/VIRTUAL_TEXTURING.md), 로드맵 — [RENDERING_ROADMAP](docs/RENDERING_ROADMAP.md) |
+| 후처리 (Volume) | Bloom · ACES · Color Adjustments · **Depth of Field (Bokeh)** · **Motion Blur** · **SSR** · **SSAO** · **Motion Vectors** · Vignette · Film Grain — [DoF](docs/DEPTH_OF_FIELD_MOTION_BLUR.md) · [SSR](docs/SCREEN_SPACE_REFLECTION.md) · [SSAO](docs/SSAO.md) · [Motion Vectors](docs/MOTION_VECTORS.md). **Rendering Debugger** (깊이 · 노멀 · AO · 모션 벡터 · APV 보기) — [RENDERING_DEBUGGER](docs/RENDERING_DEBUGGER.md) |
 | 안티에일리어싱 | FXAA · SMAA · **TAA** (URP 카메라 4 가지) — [ANTI_ALIASING](docs/ANTI_ALIASING.md) |
 | 성능 | **GPU 오클루전 컬링** (굽기 없는 Hi-Z), **LOD Group** (Cross Fade), GPU 인스턴싱 + MaterialPropertyBlock, 자동 묶기, 셰이더 캐시 — [OCCLUSION](docs/OCCLUSION_CULLING.md) · [LOD](docs/LOD_GROUP.md) |
 | 기타 | **Decal Projector**, Line · Trail Renderer, 2D Sprite Renderer (Sorting Layer · 시트 자르기), **2D 빛** (Light 2D · Shadow Caster 2D · 노멀 맵), Culling Mask — [DECAL](docs/DECAL.md) · [LINE](docs/LINE_TRAIL_RENDERER.md) · [LIGHT_2D](docs/LIGHT_2D.md) |
+
+**엔진 코어 · 성능** (숫자는 개발 PC 에서 잰 값 — 도시 장면은 오브젝트 2852 개)
+
+| | |
+|---|---|
+| 동시성 | **Job System** (작업 훔치기 · 파이버 · 무잠금 큐 — 물리 · 컬링 · 클러스터 · 백그라운드 일이 그 위에서), **물리 ↔ 렌더링 겹치기** (Simulate During Rendering, 핑퐁 버퍼), **렌더 스레드** (Multithreaded Rendering — DX11 은 deferred context, DX12 · Vulkan 은 큐 제출 · Present 를 렌더 스레드로. 도시 Vulkan 8.9 → 5.4 ms) — [JOB_SYSTEM](docs/JOB_SYSTEM.md) · [ASYNC_PHYSICS](docs/ASYNC_PHYSICS.md) · [RENDER_THREAD](docs/RENDER_THREAD.md) · [로드맵](docs/CONCURRENCY_ROADMAP.md) |
+| 메모리 | Linear · Stack · Pool · Buddy 알로케이터, **씬마다 힙** (씬을 지우면 한 덩어리로 돌려준다 — 씬 전환 단편화 0, 누수는 꼬리표로 보고), 프레임 아레나, 캐시 라인 (64 B) 정렬 · 거짓 공유 방지 (4 배) — [MEMORY_ALLOCATORS](docs/MEMORY_ALLOCATORS.md) |
+| 데이터 지향 | **Transform SoA** (늦은 계산 · 프레임마다 Job System 으로 한 번에), **컬링** (바뀐 렌더러만 · 옥트리 칸 재사용 · SIMD 4 개씩 절두체 검사) — 큐브 2 만 개를 모두 움직이는 프레임 64 → 30 ms (Debug) — [TRANSFORM_SOA](docs/TRANSFORM_SOA.md) |
+| 씬 스트리밍 | **LoadSceneAsync** — 새 씬을 프레임마다 예산 (`backgroundLoadingPriority`) 만큼 꺼진 채 미리 짓고, Humanoid 아바타 · 나무 메시 · 텍스처 디코드는 작업 스레드. 도시를 바꿔 끼우는 프레임 86 → 11 ms (Release) — [SCENE_STREAMING](docs/SCENE_STREAMING.md) |
 
 **이펙트**
 
@@ -156,7 +168,7 @@ build.bat release    :: Release (성능 측정 · 게임 빌드용)
 | 실행 | |
 |---|---|
 | `NovaEngine.exe` | NOVA Hub (프로젝트 · 설치) |
-| `NovaEngine.exe --project "<폴더>"` | 에디터로 열기 (`-force-opengl` · `-force-vulkan` · `-force-d3d11`) |
+| `NovaEngine.exe --project "<폴더>"` | 에디터로 열기 (`-force-d3d11` · `-force-d3d12` · `-force-opengl` · `-force-vulkan`) |
 
 게임 빌드: **File > Build Settings** (`Ctrl+Shift+B`) → 씬 추가 → Windows / Android / Web → **Build And Run**.
 배포 zip: `Tools\package_release.ps1`. 자동 검사: `Tools\tests\run_tests.ps1 [-Only vfx,render …]` (실행 중인 에디터를 CLI 로 확인, 결과 `TestResults\`).
@@ -178,7 +190,7 @@ public class Spinner : MonoBehaviour
 
 | | |
 |---|---|
-| [docs/](docs) | 기능별 문서 (VFX Graph · Shader Graph · 안드로이드 · Vulkan · 오클루전 · 패키지 · CLI …) |
+| [docs/](docs) | 기능별 문서 (VFX Graph · Shader Graph · 안드로이드 · Vulkan · DirectX 12 · 오클루전 · 렌더 스레드 · 씬 스트리밍 · 패키지 · CLI …) |
 | [AGENT_HANDOFF.md](AGENT_HANDOFF.md) | 구조 · 구현 설명 · 규칙 · 자체 검사 |
 | [공식 사이트](https://nova-game-engine.web.app) | 소개 · 갤러리 · 다운로드 |
 
