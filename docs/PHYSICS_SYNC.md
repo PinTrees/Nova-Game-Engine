@@ -33,6 +33,8 @@
 
 ## 측정
 
+![그리기 준비 · 물리 전후](images/physics_sync.webp)
+
 Release, CityShowcase Play (Game 뷰, 정적 콜라이더 2780 개 · 고정 스텝 50 Hz, 약 190 fps — 프레임당 스텝 0.27 번). 프레임당 평균 ms:
 
 | 구간 | 전 | 뒤 |
