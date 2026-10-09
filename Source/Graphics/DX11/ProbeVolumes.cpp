@@ -44,8 +44,11 @@ namespace
 		td.BindFlags = D3D11_BIND_SHADER_RESOURCE | (rtv ? D3D11_BIND_RENDER_TARGET : 0);
 		td.MiscFlags = mips ? D3D11_RESOURCE_MISC_GENERATE_MIPS : 0;
 		if (mips) td.BindFlags |= D3D11_BIND_RENDER_TARGET;
-		if (FAILED(dev->CreateTexture3D(&td, nullptr, t.Tex.GetAddressOf())))
+		if (const HRESULT hr = dev->CreateTexture3D(&td, nullptr, t.Tex.GetAddressOf()); FAILED(hr))
+		{
+			EditorLog::Write("ProbeVolume", "CreateTexture3D %ux%ux%u failed (hr=0x%08X)", w, h, d, (unsigned)hr);
 			return false;
+		}
 		if (FAILED(dev->CreateShaderResourceView(t.Tex.Get(), nullptr, t.SRV.GetAddressOf())))
 			return false;
 		if (!rtv)
@@ -155,10 +158,44 @@ namespace
 
 	int VoxDim(int axis) { return axis == 0 ? kVX : (axis == 1 ? kVY : kVZ); }
 
+	// 자원 실패 뒤 다시 시도 (VRAM 이 잠깐 빠듯했을 수 있다 — 예전: 한 번 실패하면 그 세션 내내 APV 가 꺼졌다. 전체 회귀 후반에 프로브가 -1)
+	int s_ResourceFailures = 0;
+	std::chrono::steady_clock::time_point s_ResourceRetryAt;
+	void ReleaseResources()
+	{
+		for (int c = 0; c < kCascades; ++c)
+			for (int b = 0; b < 2; ++b)
+			{
+				s_VoxA[c][b] = Tex3D();
+				s_VoxN[c][b] = Tex3D();
+				for (int s = 0; s < kPlaneSlots; ++s)
+					s_VoxPl[c][b][s] = Tex3D();
+				s_VoxE[c][b] = Tex3D();
+			}
+		s_Rad = Tex3D();
+		s_Nrm = Tex3D();
+		s_Planes = Tex3D();
+		for (int i = 0; i < 4; ++i)
+		{
+			s_SH[i] = Tex3D();
+			s_Old[i] = Tex3D();
+		}
+		s_CapTex.Reset();
+		s_CapRTV.Reset();
+		s_CapSRV.Reset();
+		s_CapETex.Reset();
+		s_CapERTV.Reset();
+		s_CapESRV.Reset();
+		s_BlendFactorBS.Reset();
+		s_KeepBS.Reset();
+	}
+
 	bool EnsureResources()
 	{
 		if (s_Ready) return true;
 		if (s_Failed) return false;
+		if (s_ResourceFailures > 0 && std::chrono::steady_clock::now() < s_ResourceRetryAt)
+			return false;
 		bool ok = true;
 		for (int c = 0; c < kCascades; ++c)
 			for (int b = 0; b < 2; ++b)
@@ -219,10 +256,26 @@ namespace
 		kd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
 		kd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 		ok &= SUCCEEDED(dev->CreateBlendState(&kd, s_KeepBS.GetAddressOf()));
+		// (개발 · 검사용) NOVA_DEV_APV_FAIL=N 이면 처음 N 번은 실패한 것으로 — 다시 시도 경로를 확인한다
+		static int s_ForcedFailures = [] { char v[8] = {}; return ::GetEnvironmentVariableA("NOVA_DEV_APV_FAIL", v, sizeof(v)) > 0 ? atoi(v) : 0; }();
+		if (s_ForcedFailures > 0)
+		{
+			--s_ForcedFailures;
+			ok = false;
+		}
 		if (!ok)
 		{
-			s_Failed = true;
-			EditorLog::Write("ProbeVolume", "resources failed — Adaptive Probe Volume off");
+			ReleaseResources();   // 만든 것까지 놓고 잠시 뒤 처음부터
+			++s_ResourceFailures;
+			if (s_ResourceFailures >= 5)
+			{
+				s_Failed = true;
+				EditorLog::Write("ProbeVolume", "resources failed %d times — Adaptive Probe Volume off", s_ResourceFailures);
+				return false;
+			}
+			const int waitSec = 2 * s_ResourceFailures;
+			s_ResourceRetryAt = std::chrono::steady_clock::now() + std::chrono::seconds(waitSec);
+			EditorLog::Write("ProbeVolume", "resources failed (try %d) — retrying in %d s", s_ResourceFailures, waitSec);
 			return false;
 		}
 		// 처음은 모두 0 (유효도 0 = 하늘)
@@ -971,7 +1024,7 @@ namespace ProbeVolumes
 				cascades.push_back({ { "spacing", cs.Spacing }, { "origin", { cs.ProbeOrigin.x, cs.ProbeOrigin.y, cs.ProbeOrigin.z } },
 					{ "voxelsLive", cs.VoxValid }, { "buildStep", cs.BuildStep }, { "steps", (int)s_Steps.size() } });
 			}
-			result = { { "active", s_Active != nullptr && s_Ready && s_Count > 0 }, { "failed", s_Failed },
+			result = { { "active", s_Active != nullptr && s_Ready && s_Count > 0 }, { "failed", s_Failed }, { "resourceFailures", s_ResourceFailures },
 				{ "volume", s_Active && s_Active->GetGameObject() ? s_Active->GetGameObject()->GetName() : std::string() },
 				{ "mode", s_Local ? "Local" : "Global" }, { "cascades", cascades }, { "builtCascades", s_BuiltCascades },
 				{ "frames", s_Frame }, { "raysPerProbe", s_Rays }, { "probesPerCascade", kPX * kPY * kPZ },

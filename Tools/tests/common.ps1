@@ -53,10 +53,39 @@ function Start-TestEditor([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [int
 function Test-EditorAlive($editor) { [bool](Get-Process -Id $editor.Pid -ErrorAction SilentlyContinue) }
 
 # nova 명령 한 줄 (셸처럼 "…" 로 묶기). 돌려주는 값 = 출력 글자 (오류 포함)
+#  nova.exe 를 띄우지 못하면 (Windows 의 일시적인 'Not enough memory resources' 등) 잠깐 뒤 두 번 더 — 스위트 전체가 멈추지 않게
 function Invoke-Nova([string]$line)
 {
     $parts = @($line -split ' (?=(?:[^"]*"[^"]*")*[^"]*$)' | ForEach-Object { $_.Trim('"') })
-    (& $Nova @parts --project $script:Project 2>&1 | Out-String).TrimEnd()
+    for ($try = 0; ; $try++)
+    {
+        try { return (& $Nova @parts --project $script:Project 2>&1 | Out-String).TrimEnd() }
+        catch
+        {
+            if ($try -ge 2) { throw }
+            Write-Host "  (nova '$($parts[0])' did not start: $($_.Exception.Message) — retrying)"
+            Start-Sleep -Milliseconds 1000
+        }
+    }
+}
+
+# 이 검사 프로젝트를 연 창 없는 검사 에디터가 남아 있으면 끈다 (스위트가 예외로 멈춘 뒤). 사용자의 에디터는 건드리지 않는다:
+#  명령줄에 검사 프로젝트 경로와 --hidden 이 함께 있는 NovaEngine 만. 돌려주는 값 = 끈 수
+function Stop-StrayTestEditors
+{
+    $leaf = [regex]::Escape((Split-Path -Leaf $script:Project))
+    $n = 0; $ids = @()
+    foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name = 'NovaEngine.exe'" -ErrorAction SilentlyContinue))
+    {
+        $cl = "$($p.CommandLine)"
+        if ($cl -match "NovaTest\\$leaf" -and $cl -match '--hidden')
+        {
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            $ids += [int]$p.ProcessId; $n++
+        }
+    }
+    for ($i = 0; $ids.Count -and $i -lt 40 -and @(Get-Process -Id $ids -ErrorAction SilentlyContinue).Count; $i++) { Start-Sleep -Milliseconds 250 }
+    $n
 }
 
 # JSON 결과 (--json)

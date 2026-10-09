@@ -1077,12 +1077,16 @@ function Suite-Model
         $xr = Invoke-NovaJson "exec --file $xf"
         $xa = if ($xr) { "$($xr.result)" -split ' ' } else { @() }
         Add-Result model 'engine: VRM expressions → Expressions + BlendShape (happy = 100 on the mouth)' ($xa.Count -eq 3 -and $xa[0] -eq '9' -and $xa[1] -eq '6' -and $xa[2] -eq '100') "expressions $($xa[0]) mouth shapes $($xa[1]) happy weight $($xa[2])"
-        # 원본이 바뀌면 다시 가져오기 (Unity 처럼): 같은 경로로 다시 내보낸 뒤 1 초 넘게 기다리면 로그 + 씬이 새 메시로
+        # 원본이 바뀌면 다시 가져오기 (Unity 처럼): 같은 경로로 다시 내보낸 뒤 (파일 감시가 쓰기가 끝나길 1 초 기다린다) 로그 + 씬이 새 메시로
+        #  고정 2.5 초 대신 로그가 나올 때까지 (바쁜 PC 에서 감시 · 다시 가져오기가 늦어 실패하던 검사)
         M 'object.transform --object Body --scale 1.2,1,1.2' | Out-Null
         M "export --path $vrmDir\Chibi.vrm --title Chibi" | Out-Null
-        Wait-Sec 2.5
-        $rl = Invoke-Nova 'log --grep "changed on disk" -n 3'
-        $still = Invoke-NovaJson "exec --file $rf"
+        $rl = ''
+        [void](Wait-Until { $script:rl = Invoke-Nova 'log --grep "changed on disk" -n 3'; $script:rl -match 'Chibi.vrm changed on disk' } -Seconds 20 -MinSeconds 1)
+        $rl = $script:rl
+        $still = $null
+        [void](Wait-Until { $script:still = Invoke-NovaJson "exec --file $rf"; $script:still -and "$($script:still.result)" -match '^14 ' } -Seconds 10)
+        $still = $script:still
         Add-Result model 'auto reimport: re-exported VRM reloads in the open scene' (($rl -match 'Chibi.vrm changed on disk') -and $still -and "$($still.result)" -match '^14 ') "log=$((($rl | Out-String) -replace '\s+', ' ').Trim()) after=$($still.result)"
         # 가중치 붓: 왼팔 가운데를 LeftLowerArm 100 % 로 → 그 그룹 점이 늘고 합은 1 (rig.check)
         M 'object.select --name ArmL' | Out-Null
@@ -2451,17 +2455,31 @@ function Suite-DayNight
         Invoke-Nova 'create point-light --name Lamp --position 1.5,2,-1' | Out-Null
         Invoke-Nova 'set "Main Camera" --position 0,1.6,-6 --rotation 8,0,0' | Out-Null
         function ApvUp($pos) { $j = Invoke-NovaJson "probevolume probe --position $pos"; $u = $j.cascades[0].probe.ambientUp; if ($u) { 0.2126 * $u[0] + 0.7152 * $u[1] + 0.0722 * $u[2] } else { -1 } }
+        # 프로브가 다 모일 때까지 (고정 240 프레임 대신): 볼륨이 지어지고 (-1 이 아니고) 값이 30 프레임 사이 2 % 안으로 멈출 때까지 — 바쁜 PC 에서 아직 짓는 중이라 -1 이 나오던 검사
+        function ApvSettle($pos)
+        {
+            Invoke-Nova 'wait 180' | Out-Null   # 예전 240 프레임에 가깝게 (모으기는 프레임마다 조금씩)
+            $prev = -1; $v = -1
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            while ($sw.Elapsed.TotalSeconds -lt 40)
+            {
+                $v = ApvUp $pos
+                if ($v -ge 0 -and $prev -ge 0 -and [math]::Abs($v - $prev) -le [math]::Max(0.002, 0.02 * $prev)) { return $v }
+                $prev = $v
+                Invoke-Nova 'wait 30' | Out-Null
+            }
+            $v
+        }
         $apvDay = Invoke-NovaJson 'daynight set --time 12'
-        Invoke-Nova 'wait 240' | Out-Null
-        $upDay = ApvUp '0,1.5,0'
+        $upDay = ApvSettle '0,1.5,0'
         Invoke-Nova "screenshot `"$(Join-Path $dir 'apv_noon.png')`" --view game" | Out-Null
         $apvNight = Invoke-NovaJson 'daynight set --time 0'
-        Invoke-Nova 'wait 240' | Out-Null
-        $upNight = ApvUp '0,1.5,0'
+        $upNight = ApvSettle '0,1.5,0'
+        $apvInfo = if ($upDay -lt 0 -or $upNight -lt 0) { ' | probevolume info: ' + ((Invoke-NovaJson 'probevolume info') | ConvertTo-Json -Compress -Depth 4) } else { '' }   # 프로브를 읽지 못했으면 볼륨 상태를 남긴다
         Invoke-Nova "screenshot `"$(Join-Path $dir 'apv_night.png')`" --view game" | Out-Null   # 이 스위트는 Game 탭이 앞 (Scene 뷰는 그리지 않아 예전 그림)
         $ambRatio = if ($apvDay -and [double]$apvDay.ambientIntensity -gt 0) { [double]$apvNight.ambientIntensity / [double]$apvDay.ambientIntensity } else { 1 }
         $upRatio = if ($upDay -gt 0) { $upNight / $upDay } else { 1 }
-        Add-Result daynight 'Adaptive Probe Volume follows the time of day: the probes gather the night sky (dark), not the noon skybox' ($upDay -gt 0 -and $upNight -ge 0 -and $ambRatio -lt 0.6 -and $upRatio -lt [math]::Max(0.1, $ambRatio * 1.5)) ("probe up-light noon {0:N3} midnight {1:N3} (x{2:N2}), ambient intensity x{3:N2}" -f $upDay, $upNight, $upRatio, $ambRatio)
+        Add-Result daynight 'Adaptive Probe Volume follows the time of day: the probes gather the night sky (dark), not the noon skybox' ($upDay -gt 0 -and $upNight -ge 0 -and $ambRatio -lt 0.6 -and $upRatio -lt [math]::Max(0.1, $ambRatio * 1.5)) (("probe up-light noon {0:N3} midnight {1:N3} (x{2:N2}), ambient intensity x{3:N2}" -f $upDay, $upNight, $upRatio, $ambRatio) + $apvInfo)
         Invoke-Nova 'daynight set --time 12' | Out-Null
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
@@ -8020,8 +8038,17 @@ try
 {
     foreach ($s in $suites)
     {
+      # 스위트가 예외로 멈추면 (검사 실패가 아니라 환경 — 메모리 부족 · 에디터가 뜨지 않음 · 장치 멈춤): 남은 검사 에디터를 끄고
+      #  그 스위트의 이번 결과를 지운 뒤 한 번 다시 돌린다. 다시 해도 멈추면 실패로 (어디서 멈췄는지 줄 번호와 함께)
+      #  예전: 예외 하나에 남은 에디터가 다음 스위트까지 망쳤다 (ssao 의 메모리 오류 뒤 motionvectors 가 빈 값 · DEVICE_HUNG)
+      $attempt = 0; $firstError = $null; $suiteDone = $false
+      while (-not $suiteDone)
+      {
+        $resultsBefore = $Results.Count
         try
         {
+            # (재시도 경로 검사용: NOVA_TEST_THROW_ONCE=<스위트> 면 그 스위트의 첫 시도가 시작하자마자 예외)
+            if ($env:NOVA_TEST_THROW_ONCE -eq $s -and $attempt -eq 0) { throw "injected failure (NOVA_TEST_THROW_ONCE)" }
             switch ($s)
             {
                 'cli' { Suite-Cli }
@@ -8098,8 +8125,32 @@ try
                 'keys' { Suite-Keys }
                 default { Write-Host "unknown suite $s" }
             }
+            $suiteDone = $true
         }
-        catch { Add-Result $s 'suite ran' $false $_.Exception.Message }
+        catch
+        {
+            $where = if ($_.InvocationInfo) { "$(Split-Path -Leaf "$($_.InvocationInfo.ScriptName)"):$($_.InvocationInfo.ScriptLineNumber)" } else { '?' }
+            $message = "$($_.Exception.Message) (at $where)"
+            $stray = Stop-StrayTestEditors
+            if ($attempt -eq 0)
+            {
+                Write-Host "  [RETRY] $s stopped by an exception — $message; stopped $stray leftover test editor(s), running the suite again"
+                if ($Results.Count -gt $resultsBefore) { $Results.RemoveRange($resultsBefore, $Results.Count - $resultsBefore) }
+                $firstError = $message
+                $attempt++
+                Start-Sleep -Seconds 3   # 메모리 · GPU 가 풀리게
+            }
+            else
+            {
+                Add-Result $s 'suite ran' $false "$message (first try: $firstError)"
+                $suiteDone = $true
+            }
+        }
+      }
+      if ($attempt -gt 0 -and -not ($Results | Where-Object { $_.Suite -eq $s -and $_.Test -eq 'suite ran' }))
+      {
+          Add-Result $s 'suite ran (again after an exception on the first try)' $true "first try: $firstError"
+      }
     }
 }
 finally { Restore-Layout }

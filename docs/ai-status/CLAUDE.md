@@ -10,7 +10,9 @@
   - C#: `Collider.isTrigger`, `BoxCollider.center · size`, `SphereCollider.center · radius`, `CapsuleCollider.center · radius · height · direction` (ScriptBindings COL_Get/Set)
   - 결과 (Release 도시 Play): Physics.Update 프레임당 0.519 → 0.035 ms, 씬 바꾸기의 물리 6 → 4 ms (미리 만든 형상 2780 개 모두 사용)
   - 검사: 새 스위트 `physicssync` 5/5 (바뀐 것만 = 전체 훑기와 같은 결과), physics · physicsasync · ragdoll · streaming 34/34. 문서 PHYSICS_SYNC
-  - 검사 안정성 (진행 중): `common.ps1` Wait-Until · Invoke-Nova 재시도 · Stop-StrayTestEditors, run_tests 의 스위트 예외 → 남은 검사 에디터 끄고 한 번 다시 (줄 번호 기록), VRM 다시 가져오기 로그 · APV 프로브를 조건 폴링으로
+  - 검사 안정성 (**완료, 커밋**): `common.ps1` Wait-Until · Invoke-Nova 재시도 · Stop-StrayTestEditors, run_tests 의 스위트 예외 → 남은 검사 에디터 끄고 한 번 다시 (줄 번호 기록, NOVA_TEST_THROW_ONCE 로 확인),
+    VRM 다시 가져오기 로그 · APV 프로브를 조건 폴링으로. 전체 회귀 708/709 — 실패한 APV -1 (정오 · 자정 모두) 은 폴링으로도 안 풀려 엔진을 고침: `ProbeVolumes.cpp` 자원 실패 뒤 다시 시도 (5 번, NOVA_DEV_APV_FAIL 로 확인),
+    HRESULT 로그, 검사는 실패 때 probevolume info 를 남긴다 (원인 확정은 못 함 — 다시 나면 info 로). 문서 TESTING
 - 이전: 2026년 10월 9일 — **Graphics Jobs 조사 → 그리기 준비를 데이터 지향으로** (추천 1). **완료 (커밋 ec7f678)**
   - 측정 먼저 (Release 도시 DX12, 렌더 스레드 켬): 그리기 명령 기록은 프레임당 0.12 ms 뿐 → 기록을 잡으로 나누는 대신, 메인 시간을 먹던 그리기 준비를 고쳤다 (사용자에게 알림)
   - `Scene.cpp`: 불투명 패스의 씬 전체 순회 (dynamic_cast + 가상 Render) → Skinned Mesh Renderer · 지형만 등록 목록에서 (CollectViewRenderers 가 컬링 자리 · Terrain::GetActiveTerrains)
