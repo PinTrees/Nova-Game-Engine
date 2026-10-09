@@ -16,6 +16,7 @@
 #include "AudioMixerWindow.h"
 #include "CliCommands.h"
 #include "CliServer.h"
+#include "PrefabUtility.h"
 #include "UndoSystem.h"
 #include "GameObjectFactory.h"
 #include "EditorGUIManager.h"
@@ -1013,6 +1014,43 @@ namespace CliCommands
 			AfterEdit("Create " + go->GetName(), go);
 			r = { { "path", PathOf(go) }, { "id", IdOf(go) } };
 			return true;
+		});
+
+		// 프리팹 에셋: save = 씬 오브젝트를 프리팹으로 (그 오브젝트가 인스턴스가 된다), place = 프리팹을 씬에 (위치 · 회전 · 크기 · 부모)
+		//  경로는 Assets/... 또는 엔진의 Resources/Packages/... (기본 패키지 — 예: Prototype 프리팹)
+		Register("prefab", "prefab asset op: {op: save | place, path, target? (save), parent?, name?, position?, rotation?, scale? (place)}", [](const json& a, json& r, std::string& e) {
+			if (!RequireEditMode(e)) return false;
+			const std::string op = a.value("op", std::string());
+			const std::string path = a.value("path", std::string());
+			if (path.empty()) { e = "path is required (Assets/X.prefab)"; return false; }
+			Scene* scene = CurrentScene();
+			if (!scene) { e = "no scene is open"; return false; }
+			if (op == "save")
+			{
+				GameObject* go = Resolve(a.value("target", json()), e);
+				if (!go) return false;
+				if (!PrefabUtility::SaveAsPrefabAssetAndConnect(go, path)) { e = "could not write " + path; return false; }
+				r = { { "path", path }, { "root", go->GetName() } };
+				return true;
+			}
+			if (op == "place")
+			{
+				GameObject* parent = nullptr;
+				if (a.contains("parent"))
+				{
+					parent = Resolve(a["parent"], e);
+					if (!parent) return false;
+				}
+				GameObject* go = PrefabUtility::InstantiatePrefab(path, scene, parent);
+				if (!go) { e = "could not instantiate " + path; return false; }
+				if (a.contains("name") && a["name"].is_string()) go->SetName(a["name"].get<std::string>());
+				Place(go, a);
+				AfterEdit("Place " + go->GetName(), go);
+				r = { { "path", PathOf(go) }, { "id", IdOf(go) } };
+				return true;
+			}
+			e = "unknown op '" + op + "' (save | place)";
+			return false;
 		});
 
 		Register("delete", "delete an object (and its children) {target}", [](const json& a, json& r, std::string& e) {
