@@ -446,7 +446,10 @@ namespace
 		++st.StageFrames;
 		st.StageAssetMs += ResourceManager::GetI()->Stats().TotalMs - asset0;
 		st.StageAssetLoads += AssetLoadCount() - loads0;
-		return op.NextRoot >= op.TotalRoots && op.PrewarmListed && op.NextPrewarm >= op.PrewarmObjects.size() && SceneStreaming::PrewarmJobsDone();
+		if (!(op.NextRoot >= op.TotalRoots && op.PrewarmListed && op.NextPrewarm >= op.PrewarmObjects.size() && SceneStreaming::PrewarmJobsDone()))
+			return false;
+		// 잡이 다 만든 뒤 메인의 GPU 미리 데우기 (나무 메시 올리기 · 텍스처 · 임포스터) — 남은 예산만큼, 다 하면 0.9
+		return SceneStreaming::RunMainPrewarms((std::max)(0.5, budgetMs - MsSince(t0)));
 	}
 }
 
@@ -746,7 +749,19 @@ void SceneManager::UpdateSceneOps()
 			s_JustActivated = owned->Id;
 		}
 		FinishOp(*owned, handle == 0, handle);
+		{
+			// 끝난 작업을 놓는다: 파싱한 씬 JSON (도시는 오브젝트 2852 개 — 트리 해제가 메인에서 20 ms 넘게 걸렸다) 은 작업 스레드에서.
+			//  (예전: 이 자리 — 프로파일 구간 밖 — 에서 메인이 지웠다)
+			PROFILE_SCOPE("Scene.ReleaseOp");
+			std::shared_ptr<json> parsed = std::move(owned->Parsed);
+			owned.reset();
+			if (parsed && parsed.use_count() == 1)
+				Jobs::Run([p = std::move(parsed)]() mutable { p.reset(); }, nullptr, Jobs::Priority::Background, "Scene Load (free JSON)");
+		}
 	}
 	if (s_Pending.empty())
-		Utils::ClearPrefetched();   // 불러오기가 다 끝났다 — 쓰지 않은 미리 디코드한 이미지를 버린다
+	{
+		PROFILE_SCOPE("Scene.ClearPrefetched");
+		Utils::ClearPrefetched();   // 불러오기가 다 끝났다 — 쓰지 않은 미리 디코드한 이미지를 버린다 (메모리는 작업 스레드가 놓는다)
+	}
 }

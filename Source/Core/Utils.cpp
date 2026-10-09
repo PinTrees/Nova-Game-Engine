@@ -222,15 +222,26 @@ Utils::PrefetchStats Utils::GetPrefetchStats()
 
 void Utils::ClearPrefetched()
 {
-	std::unique_lock<std::mutex> lock(s_PrefetchLock);
-	// 디코드 중인 것은 끝나기를 기다린 뒤 (잡이 entry 를 쥐고 있어 지워도 되지만, 이미지 메모리를 바로 돌려주려고)
-	for (auto it = s_Prefetch.begin(); it != s_Prefetch.end();)
+	// 버릴 항목을 모아 잠금을 푼 뒤 작업 스레드에서 놓는다 (디코드한 이미지 메모리 — 큰 장면은 수십 MB, 메인에서 놓으면 몇 ms)
+	std::vector<decltype(s_Prefetch)::mapped_type> freed;
 	{
-		if (it->second->Started && !it->second->Done)
-			++it;
-		else
-			it = s_Prefetch.erase(it);
+		std::unique_lock<std::mutex> lock(s_PrefetchLock);
+		if (s_Prefetch.empty())
+			return;
+		// 디코드 중인 것은 남긴다 (잡이 entry 를 쥐고 있다 — 다음에 버린다)
+		for (auto it = s_Prefetch.begin(); it != s_Prefetch.end();)
+		{
+			if (it->second->Started && !it->second->Done)
+				++it;
+			else
+			{
+				freed.push_back(std::move(it->second));
+				it = s_Prefetch.erase(it);
+			}
+		}
 	}
+	if (!freed.empty())
+		Jobs::Run([f = std::move(freed)]() mutable { f.clear(); }, nullptr, Jobs::Priority::Background, "Scene Load (free images)");
 }
 
 HRESULT Utils::DecodeTexture(const wstring& path, DirectX::ScratchImage& img, DirectX::TexMetadata& md, int& sourceW, int& sourceH)

@@ -50,6 +50,8 @@
 | Animator | 자기 스켈레톤 · 기본 상태 클립의 원본 스켈레톤의 **Humanoid 아바타 표** (리타깃 — 원본 하나에 약 120 ms, Debug) | 작업 스레드 (캐시에 잠금) |
 | Tree | 절차 **나무 메시** (LOD 0 · 1) · **잎 아틀라스** (잎 SDF + 밉 덮임 + RGBA8 변환) | 작업 스레드 — 처음 그리기는 GPU 로 올리기만 (111 → 0.6 ms, 37 → 0.4 ms) |
 | Terrain | 칠한 나무의 메시 · 위치 캐시 | 메시는 작업 스레드, 위치는 메인 |
+| Physics | 바디 형상 (상자 · 메시 · 합성) — 바꿔 끼운 뒤 첫 동기화가 그대로 쓰고 바디를 한 번에 넣는다 ([PHYSICS_SYNC](PHYSICS_SYNC.md)) | 작업 스레드 |
+| Tree · Terrain 나무 (GPU) | 메시 올리기 · 잎 · 껍질 텍스처 · **임포스터 굽기** — 나무 종류마다 한 번 | 메인 (`SceneStreaming::QueueMainPrewarm`) — 잡이 다 끝난 뒤 예산만큼, 다 하면 다음 프레임에 바꿔 끼운다 |
 
 ## 에셋 미리 불러오기
 
@@ -101,6 +103,22 @@
 
 `scenes` 스위트 (Additive · 0.9 대기 · DontDestroyOnLoad · 알림 순서) 도 그대로 통과한다.
 
+### 바꿔 끼운 뒤 끊김 (2026-10-10)
+
+`frameAfterMs` (바꿔 끼운 프레임의 나머지 + 다음 프레임, 벽시계) 가 50 ~ 56 ms 였다. 쪼개 보니 세 가지였다:
+
+- 바꿔 끼우는 프레임 CPU 35 ms 중 26 ms 가 **프로파일 구간 밖**이었다. 끝난 작업 (`PendingOp`) 을 놓으며 파싱한 씬 JSON (오브젝트 2852 개 트리) 을 메인이 지웠다 → 작업 스레드로 (`Scene.ReleaseOp`). 미리 디코드한 이미지 버퍼도 작업 스레드에서 놓는다.
+- 다음 프레임의 나무 7.5 ms: 처음 그리는 나무 종류의 임포스터 굽기 (5.9 ms) · 껍질 텍스처 (3.1 ms) · 잎 텍스처 · 메시 올리기 → 바꿔 끼우기 전 메인 GPU 미리 데우기 (`Scene.PrewarmGpu` — 따로 한 프레임, 그다음 프레임에 바꿔 끼운다).
+- 바꿔 끼우는 프레임의 물리 6 → 4 ms (형상 미리 만들기 — 위).
+
+| Release 도시 (2 · 3 번째 측정) | 전 | 뒤 |
+|------|------|------|
+| 바꿔 끼우는 프레임 CPU | 30 ~ 35 ms | **11 ~ 12 ms** |
+| 다음 프레임 CPU | 21 ~ 23 ms | 18 ~ 20 ms |
+| `frameAfterMs` | 50 ~ 56 ms | **28 ~ 30 ms** |
+
+다음 프레임에 남은 것은 새 씬의 첫 그리기 (오클루전 버퍼를 키우고 처음 올리기 3.8 ms, 그리기 목록 모으기 1.2 ms) 다.
+
 ## CLI — `nova scenestream`
 
 - `load --path Assets/Scenes/X.scene [--additive true] [--allow false]` — Play 중 `LoadSceneAsync`
@@ -108,10 +126,11 @@
 - `allow --id N --allow true` — `allowSceneActivation`
 - `priority [--value 0|1|2|4]` — `backgroundLoadingPriority`
 - `stats` · `reset` — 캐시에 없어 불러온 텍스처 · 재질 · 메시 파일 (수 · ms), 미리 디코드 (요청 · 쓰임 · 기다림 · 메인이 가져감)
-- `profile --on true` → `slowframes --minMs 50 --depth 3` — Profiler 기록의 긴 프레임 구간
+- `profile --on true` → `slowframes --minMs 50 --depth 3 [--scopeMs 1]` — Profiler 기록의 긴 프레임 구간 (`scopeMs` 보다 짧은 구간은 뺀다)
 
 ## 아직
 
-- 바꿔 끼우는 프레임의 물리 바디 만들기 (도시: 정적 콜라이더 약 2200 개, Debug 76 ms · Release 6 ms). 미리 짓는 동안 바디를 만들어 두고 (월드에 넣지 않고) 바꿔 끼울 때 한 번에 넣으면 된다 (Jolt `AddBodiesPrepare` · `Finalize`).
+- 바꿔 끼우는 프레임의 물리 4 ms: 미리 짓기 때 모은 소유자 묶음 · 서명을 그대로 쓰면 더 준다.
+- 다음 프레임의 오클루전 버퍼 (3.8 ms): 미리 짓기 때 새 씬의 렌더러 수만큼 키워 두기.
 - 모델 (FBX · glTF) 파일의 메시 GPU 버퍼 · 텍스처는 아직 메인에서 만든다 (파일 읽기만 미리).
 - Additive 로 미리 지은 루트의 fileID 다시 매기기는 바꿔 끼우는 프레임에 한다.

@@ -13,6 +13,8 @@ namespace SceneStreaming
 	namespace
 	{
 		std::vector<Jobs::Future<void>> s_PrewarmJobs;
+		std::vector<std::function<void()>> s_MainPrewarms;
+		size_t s_NextMainPrewarm = 0;
 		nlohmann::json OpJson(int id, const SceneManager::SceneOp& s)
 		{
 			return { { "op", id }, { "progress", s.Progress }, { "done", s.Done }, { "failed", s.Failed }, { "handle", s.Handle }, { "allowActivation", s.AllowActivation },
@@ -49,6 +51,35 @@ namespace SceneStreaming
 	void ClearPrewarmJobs()
 	{
 		s_PrewarmJobs.clear();   // Future 는 지울 때 끝나기를 기다린다
+		s_MainPrewarms.clear();
+		s_NextMainPrewarm = 0;
+	}
+
+	void QueueMainPrewarm(std::function<void()> fn)
+	{
+		s_MainPrewarms.push_back(std::move(fn));
+	}
+
+	size_t MainPrewarmPending() { return s_MainPrewarms.size() - s_NextMainPrewarm; }
+
+	bool RunMainPrewarms(double budgetMs)
+	{
+		if (s_NextMainPrewarm >= s_MainPrewarms.size())
+		{
+			s_MainPrewarms.clear();
+			s_NextMainPrewarm = 0;
+			return true;   // 앞 프레임까지 다 했다 — 이번 프레임에 바꿔 끼워도 된다
+		}
+		PROFILE_SCOPE("Scene.PrewarmGpu");
+		const auto t0 = std::chrono::steady_clock::now();
+		// 프레임마다 적어도 하나 (예산이 이미 바닥이어도 나아간다)
+		while (s_NextMainPrewarm < s_MainPrewarms.size())
+		{
+			s_MainPrewarms[s_NextMainPrewarm++]();
+			if (std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budgetMs)
+				break;
+		}
+		return false;   // 이번 프레임에 미리 데웠으면 바꿔 끼우기는 다음 프레임 (한 프레임에 겹치지 않게)
 	}
 
 	void RegisterEditor()
@@ -103,6 +134,7 @@ namespace SceneStreaming
 					// Profiler 기록에서 긴 프레임의 구간 (깊이까지) — 바꿔 끼운 뒤 첫 프레임이 무엇에 걸리나
 					const double minMs = args.value("minMs", 100.0);
 					const int depth = args.value("depth", 3);
+					const float scopeMs = args.value("scopeMs", 1.0f);   // 이보다 짧은 구간은 빼고 (기본 1 ms)
 					json frames = json::array();
 					for (const Profiler::Frame& f : Profiler::History())
 					{
@@ -110,8 +142,12 @@ namespace SceneStreaming
 							continue;
 						json scopes = json::array();
 						for (const Profiler::CpuSample& c : f.Cpu)
-							if (c.Depth <= depth && c.Ms >= 1.0f)
-								scopes.push_back(std::string(c.Depth, '.') + c.Name + " " + std::to_string((int)c.Ms));
+							if (c.Depth <= depth && c.Ms >= scopeMs)
+							{
+								char ms[16];
+								snprintf(ms, sizeof(ms), "%.2f", c.Ms);
+								scopes.push_back(std::string(c.Depth, '.') + c.Name + " " + ms);
+							}
 						frames.push_back({ { "index", f.Index }, { "cpuMs", f.CpuMs }, { "scopes", scopes } });
 					}
 					result = { { "frames", frames } };

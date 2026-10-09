@@ -5,6 +5,7 @@
 #include "SceneStreaming.h"
 #include <mutex>
 #include <unordered_set>
+#include <unordered_set>
 #include "Tree.h"
 #include "TreeTextures.h"
 #include "Terrain.h"
@@ -520,10 +521,25 @@ namespace
 		}
 	}
 
+	// 씬 스트리밍: 메인 GPU 미리 데우기를 나무 종류마다 한 번 (같은 종류의 Tree 가 수백 개여도)
+	void QueueGpuPrewarm(const TreeDesc& desc)
+	{
+		static std::unordered_set<size_t> s_Queued;
+		if (SceneStreaming::MainPrewarmPending() == 0)
+			s_Queued.clear();   // 지난 불러오기의 줄은 끝났다 (캐시에서 버려졌을 수 있어 다시 건다)
+		if (!s_Queued.insert(desc.Hash()).second)
+			return;
+		const TreeDesc* d = &desc;   // 미리 지은 씬의 컴포넌트 · 지형 데이터 — 바꿔 끼우기 전에 쓴다 (취소하면 줄을 버린다)
+		SceneStreaming::QueueMainPrewarm([d]() { TreeRenderer::PrewarmGpu(*d); });
+	}
+
 	void PrewarmTerrainImpl(const TerrainData& data, const Vec3& origin)
 	{
 		for (const TreeDesc& d : data.TreePrototypes)
+		{
 			PrewarmMeshAsync(d);
+			QueueGpuPrewarm(d);
+		}
 		if (!data.TreeInstances.empty())
 			TerrainWorlds(data, origin);
 	}
@@ -583,7 +599,17 @@ namespace TreeRenderer
 	}
 
 	void PrewarmTerrain(const TerrainData& data, const Vec3& origin) { PrewarmTerrainImpl(data, origin); }
-	void PrewarmAsync(const TreeDesc& desc) { PrewarmMeshAsync(desc); }
+	void PrewarmAsync(const TreeDesc& desc) { PrewarmMeshAsync(desc); QueueGpuPrewarm(desc); }
+
+	void PrewarmGpu(const TreeDesc& desc)
+	{
+		PROFILE_SCOPE("Trees.PrewarmGpu");
+		GetMesh(desc, 0);   // 잡이 만든 메시를 GPU 로 (없으면 여기서 만든다)
+		GetMesh(desc, 1);
+		TreeTextures::Leaf((int)desc.Params.Leaf, desc.Params.LeavesPerCard, desc.LeafLength);
+		TreeTextures::Bark();
+		GetImpostor(desc, true);   // 먼 나무 사진 (굽기 — 렌더 타깃 · 상태를 되돌린다)
+	}
 
 	bool GetMeshInfo(const TreeDesc& desc, MeshInfo& out, int lod)
 	{

@@ -28,6 +28,8 @@ namespace TreeRenderer
 	void PrewarmTerrain(const class TerrainData& data, const Vec3& origin);
 	// 씬 스트리밍: 나무 메시 데이터 (LOD 0 · 1) 를 백그라운드 잡에서 만들어 둔다 — 처음 그릴 때는 GPU 버퍼만
 	void PrewarmAsync(const TreeDesc& desc);
+	// 메인 (GPU): 메시 올리기 (LOD0 · 1) · 잎 · 껍질 텍스처 · 임포스터 굽기 — 처음 그리는 프레임에 하던 것 (씬 스트리밍의 미리 데우기)
+	void PrewarmGpu(const TreeDesc& desc);
 
 	// 프로토타입 미리보기 = 임포스터 앞면 (없으면 굽는다). uv0/uv1 = 아틀라스 안 영역
 	ImTextureID Thumbnail(const TreeDesc& desc, ImVec2& uv0, ImVec2& uv1);
