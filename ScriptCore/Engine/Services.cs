@@ -67,9 +67,18 @@ namespace NovaEngine
         }
     }
 
+    // Unity ThreadPriority: Application.backgroundLoadingPriority — LoadSceneAsync 가 프레임마다 씬을 미리 짓는 시간 (2 · 4 · 10 · 50 ms)
+    public enum ThreadPriority { Low = 0, BelowNormal = 1, Normal = 2, High = 4 }
+
     // ------------------------------------------------------------------ Application / Screen
     public static class Application
     {
+        // 비동기 씬 읽기가 프레임마다 쓰는 시간 (기본 BelowNormal = 4 ms). 높을수록 빨리 끝나고 프레임이 길어진다 (Play 를 멈추면 기본으로)
+        public static unsafe ThreadPriority backgroundLoadingPriority
+        {
+            get => (ThreadPriority)Native.Api.App_LoadingPriority(0, 0);
+            set => Native.Api.App_LoadingPriority(1, (int)value);
+        }
         public static bool isPlaying => true;
         // 빌드된 게임(플레이어)인지는 네이티브가 알려 준다
         public static unsafe bool isEditor => Native.Api.App_Info(0) == 0;

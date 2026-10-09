@@ -26,7 +26,8 @@ class NOVA_API LightManager
 	SINGLE_HEADER(LightManager)
 
 private:
-	vector<shared_ptr<Light>> m_Lights; // ¾ÀÀÇ ¸ğµç ºûµé
+	vector<shared_ptr<Light>> m_Lights;
+	vector<shared_ptr<Light>>* m_StagingLights = nullptr; // ¾ÀÀÇ ¸ğµç ºûµé
 
 	int m_SortedLightSize = 0;
 	int m_SortedEditorLightSize = 0;
@@ -50,7 +51,9 @@ private:
 public:
 	void Init();
 
-	void SetLight(shared_ptr<Light> light) { m_Lights.push_back(light); }
+	void SetLight(shared_ptr<Light> light) { if (m_StagingLights) { m_StagingLights->push_back(light); return; } m_Lights.push_back(light); }
+	// ì”¬ ìŠ¤íŠ¸ë¦¬ë°: ì•„ì§ ë°”ê¿” ë¼ìš°ì§€ ì•Šì€ ì”¬ì„ ì§“ëŠ” ë™ì•ˆì˜ Light ëŠ” ì—¬ê¸°ì— ëª¨ì€ë‹¤ (ì§€ê¸ˆ ì”¬ì„ ë¹„ì¶”ì§€ ì•Šê²Œ â€” ë°”ê¿” ë¼ìš¸ ë•Œ SetLight)
+	void SetStagingSink(vector<shared_ptr<Light>>* sink) { m_StagingLights = sink; }
 	void DeleteLight(InstanceID id);
 
 	void ViewUpdates();

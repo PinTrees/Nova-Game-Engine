@@ -35,7 +35,8 @@ private:
 	Transform* m_pTransform;
 
 	// Runtime Value
-	bool m_IsActive;  
+	bool m_IsActive;
+	bool m_Staged = false;   // 씬 스트리밍: 미리 짓는 중 (SetStaged)
 	string m_Tag = "Untagged";
 	bool m_IsStatic = false;
 
@@ -77,13 +78,17 @@ private:
 public:
 	static uint64 NewFileID();
 	const string& GetName() { return m_Name; }
-	bool IsActive() const { return m_IsActive; }   // Unity 의 activeSelf (Inspector 체크박스 · 저장)
+	bool IsActive() const { return m_IsActive && !m_Staged; }   // Unity 의 activeSelf (Inspector 체크박스 · 저장은 m_IsActive)
+	// 씬 스트리밍: LoadSceneAsync 가 미리 짓는 중인 씬의 루트 — 바꿔 끼울 때까지 꺼진 것으로 보인다
+	//  (전역 목록 — 나무 · 카메라 · 볼륨 · 파티클 … — 이 지금 씬에 끼워 그리지 않게. 저장 · 인스펙터는 그대로)
+	void SetStaged(bool staged) { m_Staged = staged; }
+	bool IsStaged() const { return m_Staged; }
 	void SetActive(bool active) { m_IsActive = active; }
 	// Unity 의 activeInHierarchy: 자기와 모든 부모가 켜졌다 — 그리기 · 업데이트 · 물리는 이것을 본다 (부모를 끄면 자식도 꺼진다)
 	bool IsActiveInHierarchy() const
 	{
 		for (const GameObject* g = this; g != nullptr; g = g->m_pParentGameObject)
-			if (!g->m_IsActive)
+			if (!g->m_IsActive || g->m_Staged)
 				return false;
 		return true;
 	}

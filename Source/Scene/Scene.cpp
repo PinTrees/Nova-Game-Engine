@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "Profiler.h"
 #include "PhysicsManager.h"
 #include "TagsAndLayers.h"
 #include "RenderLayers.h"
@@ -83,25 +84,46 @@ void Scene::Enter(const std::function<void()>& afterAwake, const std::unordered_
     std::vector<GameObject*> objects = m_ArrGameObjects[0];
     if (started)
         objects.erase(std::remove_if(objects.begin(), objects.end(), [&](GameObject* g) { return started->count(g) != 0; }), objects.end());
-    for (auto& gameObject : objects)
     {
-        for (auto& component : gameObject->GetComponents())
-        {
-            component->Awake();
-        }
+        PROFILE_SCOPE("Scene.Enter.Awake");
+        for (auto& gameObject : objects)
+            for (auto& component : gameObject->GetComponents())
+                component->Awake();
     }
 
     // Unity 와 같이 Start 에서 Rigidbody 를 바로 쓸 수 있도록 물리 바디를 먼저 만든다
-    PhysicsManager::GetI()->Start();
-    Physics2DManager::Start(this);   // 2D 물리 (Box2D) — 3D 와 따로
-    if (afterAwake)
-        afterAwake();
-
-    for (auto& gameObject : objects)
     {
-        for (auto& component : gameObject->GetComponents())
+        PROFILE_SCOPE("Scene.Enter.Physics");
+        PhysicsManager::GetI()->Start();
+        Physics2DManager::Start(this);   // 2D 물리 (Box2D) — 3D 와 따로
+    }
+    if (afterAwake)
+    {
+        PROFILE_SCOPE("Scene.Enter.sceneLoaded");
+        afterAwake();
+    }
+
+    {
+        PROFILE_SCOPE("Scene.Enter.Start");
+        // 종류별 시간 (씬 스트리밍 측정 — 오래 걸리면 Editor.log 에 위 5 종류)
+        std::unordered_map<std::string, double> byType;
+        const auto start0 = std::chrono::steady_clock::now();
+        for (auto& gameObject : objects)
+            for (auto& component : gameObject->GetComponents())
+            {
+                const auto t0 = std::chrono::steady_clock::now();
+                component->Start();
+                byType[component->GetType()] += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+            }
+        const double total = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start0).count();
+        if (total > 30.0)
         {
-            component->Start();
+            std::vector<std::pair<std::string, double>> top(byType.begin(), byType.end());
+            std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+            std::string text;
+            for (size_t i = 0; i < top.size() && i < 5; ++i)
+                text += (i ? ", " : "") + top[i].first + " " + std::to_string((int)top[i].second) + " ms";
+            EditorLog::Write("Scene", "Start took %.1f ms: %s", total, text.c_str());
         }
     }
 }
@@ -591,30 +613,43 @@ void to_json(json& j, const Scene& scene)
     }
 }
 
+bool Scene::IsSceneJson(const json& j)
+{
+    return j.is_object() && j.contains("rootGameObjects") && j.at("rootGameObjects").is_array();
+}
+
+bool Scene::UsesLegacyLayers(const json& j)
+{
+    return j.value("layerFormat", 1) < TagsAndLayers::kLayerFormat;
+}
+
+void Scene::LoadRoot(const json& gameObjectJson, bool legacyLayers)
+{
+    auto owned = std::make_unique<GameObject>();
+    GameObject* gameObject = owned.get();
+    // 복원 중 예외가 나도 Scene 소멸자가 이 루트와 이미 붙인 자손을 정리한다.
+    AddRootGameObject(gameObject);
+    owned.release();
+    if (legacyLayers)
+    {
+        json migrated = gameObjectJson;
+        TagsAndLayers::MigrateLegacyObjectJson(migrated);
+        from_json(migrated, *gameObject);
+    }
+    else
+        from_json(gameObjectJson, *gameObject);
+    RegisterGameObjectTree(gameObject);   // 복원이 끝난 자손도 렌더/업데이트 목록에 등록
+}
+
 void from_json(const json& j, Scene& scene)
 {
-    if (!j.is_object() || !j.contains("rootGameObjects") || !j.at("rootGameObjects").is_array())
+    if (!Scene::IsSceneJson(j))
         throw std::runtime_error("scene rootGameObjects must be an array");
 
     // 예전 레이어 번호 (3 Water, 4 UI) 로 저장한 씬 → Unity 번호
-    const bool legacyLayers = j.value("layerFormat", 1) < TagsAndLayers::kLayerFormat;
+    const bool legacyLayers = Scene::UsesLegacyLayers(j);
     for (const auto& gameObjectJson : j.at("rootGameObjects"))
-    {
-        auto owned = std::make_unique<GameObject>();
-        GameObject* gameObject = owned.get();
-        // 복원 중 예외가 나도 Scene 소멸자가 이 루트와 이미 붙인 자손을 정리한다.
-        scene.AddRootGameObject(gameObject);
-        owned.release();
-        if (legacyLayers)
-        {
-            json migrated = gameObjectJson;
-            TagsAndLayers::MigrateLegacyObjectJson(migrated);
-            from_json(migrated, *gameObject);
-        }
-        else
-            from_json(gameObjectJson, *gameObject);
-        scene.RegisterGameObjectTree(gameObject);   // 복원이 끝난 자손도 렌더/업데이트 목록에 등록
-    }
+        scene.LoadRoot(gameObjectJson, legacyLayers);
 }
 
 GameObject* Scene::FindByFileID(uint64 fileID) const

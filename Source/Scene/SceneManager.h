@@ -82,7 +82,16 @@ public:
 	//  엔진의 씬 객체는 하나 (m_pCurrScene). 더해 읽은 씬의 오브젝트도 그 안에 넣고 루트마다 어느 씬 것인지 (핸들) 를 기억한다
 	//  — 그리기 · 물리 · 스크립트는 그대로, C# 의 Scene (핸들 · 이름 · GetRootGameObjects) 과 내리기 (Unload) 만 핸들로 나눈다
 	struct RuntimeScene { int Handle = 0; std::wstring Path; };
-	struct SceneOp { float Progress = 0.0f; bool Done = false; bool AllowActivation = true; bool Failed = false; int Handle = 0; };
+	struct SceneOp
+	{
+		float Progress = 0.0f; bool Done = false; bool AllowActivation = true; bool Failed = false; int Handle = 0;
+		// 측정 (nova scenestream status): 바꿔 끼운 프레임의 단계별 ms, 기다리는 동안 가장 긴 프레임 · 바꾼 다음 프레임
+		double ActivateMs = 0, BuildMs = 0, AssetMs = 0, TeardownMs = 0, EnterMs = 0, MaxWaitFrameMs = 0, FrameAfterMs = 0;
+		uint32_t AssetLoads = 0, Objects = 0, WaitFrames = 0;
+		// 미리 짓기 (비동기): 프레임마다 예산만큼 지은 시간 합 · 가장 긴 한 번 · 프레임 수 · 그동안 불러온 에셋
+		double StageMs = 0, StageMaxMs = 0, StageAssetMs = 0;
+		uint32_t StageFrames = 0, StageAssetLoads = 0, Roots = 0;
+	};
 	static constexpr int kDontDestroyOnLoadHandle = -1;
 	// 씬 읽기 (Play 중, 프레임 끝에 바뀐다): additive = 지금 씬들에 더하기, async = 파일 읽기 · 해석을 작업 스레드에서
 	//  (allowSceneActivation 이 false 면 0.9 에서 멈춘다 — Unity 와 같음). 반환 = 작업 번호 (C# AsyncOperation)

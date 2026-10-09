@@ -6,6 +6,28 @@
 
 SINGLE_BODY(ResourceManager)
 
+namespace
+{
+	// 캐시에 없는 불러오기 시간 (종류별 + 맨 바깥 부름의 합)
+	int s_LoadDepth = 0;
+	struct LoadTimer
+	{
+		ResourceManager::LoadStats& Stats;
+		double& Field;
+		std::chrono::steady_clock::time_point Start = std::chrono::steady_clock::now();
+		bool Top;
+		LoadTimer(ResourceManager::LoadStats& stats, double& field) : Stats(stats), Field(field), Top(s_LoadDepth++ == 0) {}
+		~LoadTimer()
+		{
+			const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
+			Field += ms;
+			if (Top)
+				Stats.TotalMs += ms;
+			--s_LoadDepth;
+		}
+	};
+}
+
 ResourceManager::ResourceManager()
 {
 
@@ -122,7 +144,11 @@ ComPtr<GfxShaderResourceView> ResourceManager::LoadTexture(wstring filename)
 	}
 	else
 	{
-		srv = Utils::LoadTexture(m_Device, path.c_str());
+		{
+			LoadTimer timer(m_Stats, m_Stats.TextureMs);
+			++m_Stats.Textures;
+			srv = Utils::LoadTexture(m_Device, path.c_str());
+		}
 		m_TextureSRV[filename] = srv;
 		if (srv == nullptr)
 		{
@@ -147,7 +173,12 @@ shared_ptr<UMaterial> ResourceManager::LoadMaterial(string filename)
 	}
 	else
 	{
-		UMaterial* umat = UMaterial::Load(filename);
+		UMaterial* umat = nullptr;
+		{
+			LoadTimer timer(m_Stats, m_Stats.MaterialMs);
+			++m_Stats.Materials;
+			umat = UMaterial::Load(filename);
+		}
 		if (umat != nullptr)
 		{
 			shared_ptr<UMaterial> material(umat);
@@ -232,7 +263,12 @@ shared_ptr<MeshFile> ResourceManager::LoadMeshFile(string filename)
 	else
 	{
 		LoadingScreen::SetStatus(L"Importing " + std::filesystem::path(string_to_wstring(filename)).filename().wstring());
-		MeshFile* meshFile = MeshFile::LoadFromMetaFile(filename); 
+		MeshFile* meshFile = nullptr;
+		{
+			LoadTimer timer(m_Stats, m_Stats.MeshFileMs);
+			++m_Stats.MeshFiles;
+			meshFile = MeshFile::LoadFromMetaFile(filename);
+		}
 		// ��Ÿ���� �б� ����
 		if (meshFile == nullptr)
 			return nullptr;

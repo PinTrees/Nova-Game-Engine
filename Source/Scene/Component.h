@@ -29,7 +29,10 @@ public:
 	int GetInstanceID() { return m_InstanceId; }
 
 	virtual void Awake()  { }
-	virtual void Start()  { }	
+	virtual void Start()  { }
+	// 씬 스트리밍: LoadSceneAsync 가 미리 지은 씬을 바꿔 끼우기 전에 (프레임 예산 안에서) — 처음 Start · 그리기가 만드는 캐시를 미리
+	//  (Animator 의 Humanoid 표 · 나무 메시 …). 상태는 바꾸지 않는다 (Start 는 그대로 바꿔 끼울 때)
+	virtual void PrewarmStaged() { }	
 	virtual void Update() { }
 	virtual void LateUpdate()  { }
 	virtual void FixedUpdate() { }

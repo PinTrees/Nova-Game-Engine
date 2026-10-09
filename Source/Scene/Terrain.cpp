@@ -2,6 +2,7 @@
 #include "RenderLayers.h"
 #include "Effects.h"
 #include "Terrain.h"
+#include "TreeRenderer.h"
 #include "TerrainData.h"
 #include "TerrainEditor.h"
 #include "SceneViewOverlay.h"
@@ -32,6 +33,12 @@ void Terrain::SetTerrainData(std::shared_ptr<TerrainData> data)
 }
 
 // ------------------------------------------------------------------ Unity API
+void Terrain::PrewarmStaged()
+{
+	if (m_Data)
+		TreeRenderer::PrewarmTerrain(*m_Data, GetPosition());
+}
+
 Vec3 Terrain::GetPosition() const
 {
 	return m_pGameObject ? m_pGameObject->GetTransform()->GetPosition() : Vec3::Zero;

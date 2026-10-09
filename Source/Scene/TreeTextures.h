@@ -10,6 +10,8 @@ namespace TreeTextures
 {
 	// shape: 0 Broad, 1 Oval, 2 Needle. leafLength = 카드 비율
 	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength);
+	// 씬 스트리밍: 잎 아틀라스를 백그라운드 잡에서 미리 굽는다 (처음 Leaf 는 GPU 로 올리기만)
+	void PrewarmLeafAsync(int shape, int leavesPerCard, float leafLength);
 	GfxShaderResourceView* Bark();
 	void CollectMemory(std::vector<MemoryStats::Item>& items);   // Profiler 메모리
 

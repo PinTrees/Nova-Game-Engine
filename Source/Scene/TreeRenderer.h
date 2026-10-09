@@ -24,6 +24,10 @@ namespace TreeRenderer
 		const std::vector<uint32_t>* Indices = nullptr;
 	};
 	bool GetMeshInfo(const TreeDesc& desc, MeshInfo& out, int lod = 0);
+	// 씬 스트리밍: 지형에 칠한 나무의 메시 (LOD 0 · 1) 와 위치 캐시를 바꿔 끼우기 전에 (처음 그리는 프레임이 만들던 것)
+	void PrewarmTerrain(const class TerrainData& data, const Vec3& origin);
+	// 씬 스트리밍: 나무 메시 데이터 (LOD 0 · 1) 를 백그라운드 잡에서 만들어 둔다 — 처음 그릴 때는 GPU 버퍼만
+	void PrewarmAsync(const TreeDesc& desc);
 
 	// 프로토타입 미리보기 = 임포스터 앞면 (없으면 굽는다). uv0/uv1 = 아틀라스 안 영역
 	ImTextureID Thumbnail(const TreeDesc& desc, ImVec2& uv0, ImVec2& uv1);

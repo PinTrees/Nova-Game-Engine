@@ -372,7 +372,9 @@ namespace
 				Undo::Clear();
 			Track(scene);
 			s_ScenePath = path;
-			if (scene)
+			// Play 중에는 기준 스냅숏을 뜨지 않는다 — Play 중 변경은 기록하지 않아 쓰이지 않는데, 큰 씬이면 1 초 가까이 걸렸다
+			//  (Play 시작 · LoadSceneAsync 로 바꾼 뒤 첫 프레임 — 도시 2852 개 980 ms). Stop 해 편집 씬이 돌아오면 그때 뜬다
+			if (scene && !playing)
 				SetCommitted(CaptureSnap(true));
 			else
 				s_HasCommitted = false;

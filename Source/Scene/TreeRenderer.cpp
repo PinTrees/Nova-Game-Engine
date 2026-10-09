@@ -2,6 +2,9 @@
 #include "WeatherState.h"
 #include "RenderLayers.h"
 #include "TreeRenderer.h"
+#include "SceneStreaming.h"
+#include <mutex>
+#include <unordered_set>
 #include "Tree.h"
 #include "TreeTextures.h"
 #include "Terrain.h"
@@ -34,23 +37,46 @@ namespace
 	};
 	std::map<std::string, std::shared_ptr<GpuMesh>> s_Meshes;
 
-	std::shared_ptr<GpuMesh> GetMesh(const TreeDesc& desc, int lod)
+	// 잎 카드 모양(잎 텍스처의 잎 길이에 따른 외곽)도 메시에 들어가므로 키에 넣는다
+	void MakeMeshKey(const TreeDesc& desc, int lod, std::string& key)
 	{
-		// 잎 카드 모양(잎 텍스처의 잎 길이에 따른 외곽)도 메시에 들어가므로 키에 넣는다
-		// 키는 다시 쓰는 버퍼에 (찾을 때마다 임시 문자열을 만들지 않게 — 나무 종류 x 패스마다 프레임당 수십 번이었다)
-		thread_local std::string key;
 		char tail[32];
 		snprintf(tail, sizeof(tail), "%s#L%d", lod ? "#1" : "#0", (int)roundf(desc.LeafLength * 100.0f));
 		key.assign(desc.MeshKey());
 		key.append(tail);
+	}
+
+	// 씬 스트리밍: 백그라운드 잡이 미리 만든 메시 데이터 (GetMesh 는 생성 없이 GPU 버퍼만) — 잡 · 메인이 함께 쓴다
+	std::mutex s_PreLock;
+	std::unordered_map<std::string, std::shared_ptr<TreeMeshData>> s_Pregenerated;
+	std::unordered_set<std::string> s_PrePending;
+
+	std::shared_ptr<GpuMesh> GetMesh(const TreeDesc& desc, int lod)
+	{
+		// 키는 다시 쓰는 버퍼에 (찾을 때마다 임시 문자열을 만들지 않게 — 나무 종류 x 패스마다 프레임당 수십 번이었다)
+		thread_local std::string key;
+		MakeMeshKey(desc, lod, key);
 		if (auto it = s_Meshes.find(key); it != s_Meshes.end())
 			return it->second;
 
 		const auto t0 = std::chrono::steady_clock::now();
-		TreeMeshData data;
-		TreeParams params = desc.Params;
-		params.LeafLengthForHull = desc.LeafLength;
-		TreeGenerator::Generate(params, data, lod);
+		std::shared_ptr<TreeMeshData> pre;
+		{
+			std::lock_guard<std::mutex> guard(s_PreLock);
+			if (auto it = s_Pregenerated.find(key); it != s_Pregenerated.end())
+			{
+				pre = std::move(it->second);
+				s_Pregenerated.erase(it);
+			}
+		}
+		TreeMeshData generated;
+		if (!pre)
+		{
+			TreeParams params = desc.Params;
+			params.LeafLengthForHull = desc.LeafLength;
+			TreeGenerator::Generate(params, generated, lod);
+		}
+		const TreeMeshData& data = pre ? *pre : generated;
 		auto mesh = std::make_shared<GpuMesh>();
 		mesh->BarkIndexCount = data.BarkIndexCount;
 		mesh->LeafIndexCount = data.LeafIndexCount;
@@ -78,7 +104,7 @@ namespace
 			device->CreateBuffer(&bd, &init, mesh->IB.GetAddressOf());
 		}
 		const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		EditorLog::Write("Tree", "generated seed %d LOD%d: %d vertices, %u triangles, %d branches, %d leaf cards (%.1f ms)",
+		EditorLog::Write("Tree", "%s seed %d LOD%d: %d vertices, %u triangles, %d branches, %d leaf cards (%.1f ms)", pre ? "uploaded (generated in the background)" : "generated",
 			desc.Params.Seed, lod, mesh->VertexCount, (unsigned)(data.Indices.size() / 3), mesh->BranchCount, mesh->LeafCardCount, ms);
 
 		// 슬라이더를 끌면 모양이 많이 생기므로 쓰는 곳이 없는 것부터 버린다
@@ -467,6 +493,41 @@ namespace
 		return c;
 	}
 
+	// 메시 데이터 (LOD 0 · 1) 를 백그라운드 잡에서 — 이미 있거나 만드는 중이면 건너뛴다
+	void PrewarmMeshAsync(const TreeDesc& desc)
+	{
+		TreeTextures::PrewarmLeafAsync((int)desc.Params.Leaf, desc.Params.LeavesPerCard, desc.LeafLength);   // 잎 아틀라스도 (첫 그리기에 구웠다)
+		for (int lod = 0; lod < 2; ++lod)
+		{
+			std::string key;
+			MakeMeshKey(desc, lod, key);
+			if (s_Meshes.count(key))
+				continue;
+			{
+				std::lock_guard<std::mutex> guard(s_PreLock);
+				if (s_Pregenerated.count(key) || !s_PrePending.insert(key).second)
+					continue;
+			}
+			TreeParams params = desc.Params;
+			params.LeafLengthForHull = desc.LeafLength;
+			SceneStreaming::QueuePrewarmJob([params, lod, key]() {
+				auto data = std::make_shared<TreeMeshData>();
+				TreeGenerator::Generate(params, *data, lod);
+				std::lock_guard<std::mutex> guard(s_PreLock);
+				s_Pregenerated[key] = std::move(data);
+				s_PrePending.erase(key);
+			});
+		}
+	}
+
+	void PrewarmTerrainImpl(const TerrainData& data, const Vec3& origin)
+	{
+		for (const TreeDesc& d : data.TreePrototypes)
+			PrewarmMeshAsync(d);
+		if (!data.TreeInstances.empty())
+			TerrainWorlds(data, origin);
+	}
+
 	// 절두체 평면 (행 벡터 × 행렬 규약). planes 수 = 6 (그림자는 가까운 면 없이 5)
 	void ExtractPlanes(CXMMATRIX m, XMFLOAT4 planes[6])
 	{
@@ -520,6 +581,9 @@ namespace TreeRenderer
 		s_RecordsValid = false;
 		++s_ViewSerial;
 	}
+
+	void PrewarmTerrain(const TerrainData& data, const Vec3& origin) { PrewarmTerrainImpl(data, origin); }
+	void PrewarmAsync(const TreeDesc& desc) { PrewarmMeshAsync(desc); }
 
 	bool GetMeshInfo(const TreeDesc& desc, MeshInfo& out, int lod)
 	{

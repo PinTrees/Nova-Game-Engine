@@ -1,5 +1,8 @@
 #include "pch.h"
 #include "TreeTextures.h"
+#include "SceneStreaming.h"
+#include <memory>
+#include <set>
 #include <chrono>
 #include <map>
 #include <execution>
@@ -19,10 +22,10 @@ namespace
 	ComPtr<GfxShaderResourceView> s_BarkSrv;
 
 	// 밉맵 포함 RGBA8 텍스처. levels[0] = 원본, 이후 절반씩
-	ComPtr<GfxShaderResourceView> Upload(const std::vector<std::vector<Texel>>& levels, int size)
+	// 밉 단계마다 RGBA8 로 (CPU 만 — 씬 스트리밍은 백그라운드 잡에서)
+	std::vector<std::vector<uint8_t>> PackLevels(const std::vector<std::vector<Texel>>& levels, int size)
 	{
 		std::vector<std::vector<uint8_t>> bytes(levels.size());
-		std::vector<D3D11_SUBRESOURCE_DATA> init(levels.size());
 		int s = size;
 		for (size_t m = 0; m < levels.size(); ++m, s = (std::max)(1, s / 2))
 		{
@@ -35,11 +38,19 @@ namespace
 				bytes[m][i * 4 + 2] = (uint8_t)(Saturate(t.b) * 255.0f + 0.5f);
 				bytes[m][i * 4 + 3] = (uint8_t)(Saturate(t.a) * 255.0f + 0.5f);
 			}
-			init[m] = { bytes[m].data(), (UINT)(s * 4), 0 };
 		}
+		return bytes;
+	}
+
+	ComPtr<GfxShaderResourceView> UploadBytes(const std::vector<std::vector<uint8_t>>& bytes, int size)
+	{
+		std::vector<D3D11_SUBRESOURCE_DATA> init(bytes.size());
+		int s = size;
+		for (size_t m = 0; m < bytes.size(); ++m, s = (std::max)(1, s / 2))
+			init[m] = { bytes[m].data(), (UINT)(s * 4), 0 };
 		D3D11_TEXTURE2D_DESC td = {};
 		td.Width = td.Height = size;
-		td.MipLevels = (UINT)levels.size();
+		td.MipLevels = (UINT)bytes.size();
 		td.ArraySize = 1;
 		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		td.SampleDesc.Count = 1;
@@ -51,6 +62,11 @@ namespace
 		if (SUCCEEDED(device->CreateTexture2D(&td, init.data(), tex.GetAddressOf())))
 			device->CreateShaderResourceView(tex.Get(), nullptr, srv.GetAddressOf());
 		return srv;
+	}
+
+	ComPtr<GfxShaderResourceView> Upload(const std::vector<std::vector<Texel>>& levels, int size)
+	{
+		return UploadBytes(PackLevels(levels, size), size);
 	}
 
 	// 2x2 상자 필터로 한 단계 줄이기. premultiplied: rgb 는 알파 가중 평균 (투명한 곳 값이 번지지 않게)
@@ -321,27 +337,20 @@ namespace TreeTextures
 		return s_Cache[key] = hull;
 	}
 
-	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength)
+	// 잎 아틀라스 + 밉맵 (CPU 만 — 수학식 · 메모리) → 씬 스트리밍이 백그라운드 잡에서도 부른다
+	struct BakedLeaf { int Size = 0; std::vector<std::vector<Texel>> Levels; std::vector<std::vector<uint8_t>> Bytes; };
+	std::shared_ptr<BakedLeaf> BakeLeafLevels(int shape, int leavesPerCard, int lengthKey)
 	{
-		shape = std::clamp(shape, 0, 2);
-		leavesPerCard = std::clamp(leavesPerCard, 1, 16);
-		const int lengthKey = (int)roundf(std::clamp(leafLength, 0.05f, 0.6f) * 100.0f);
-		const int key = shape * 100000 + leavesPerCard * 1000 + lengthKey;
-
-		auto& cache = s_LeafCache;
-		static std::vector<int> order;
-		if (auto it = cache.find(key); it != cache.end())
-			return it->second.Get();
-
-		const auto t0 = std::chrono::steady_clock::now();
+		auto baked = std::make_shared<BakedLeaf>();
 		const int res = shape == 2 ? 512 : 256;   // 바늘잎은 가늘어 더 촘촘하게
 		const int size = res * 2;                  // 2x2 변형
+		baked->Size = size;
 		std::vector<Texel> atlas((size_t)size * size, Texel{ 0.5f, 0.0f, 0.0f, 0.0f });
 		for (int c = 0; c < 4; ++c)
 			BakeLeafCard(atlas, size, (c & 1) * res, (c >> 1) * res, res, shape, leavesPerCard, lengthKey / 100.0f, kSeeds[c]);
 
 		// 밉맵: 알파 덮임 비율(> 0.5)을 원본과 같게 맞춘다 → 멀리서도 잎이 같은 양으로 보인다
-		std::vector<std::vector<Texel>> levels;
+		std::vector<std::vector<Texel>>& levels = baked->Levels;
 		levels.push_back(atlas);
 		const float target = Coverage(atlas, 1.0f);
 		int s = size;
@@ -359,9 +368,71 @@ namespace TreeTextures
 				t.a = Saturate(t.a * hi);
 			levels.push_back(std::move(next));
 		}
-		ComPtr<GfxShaderResourceView> srv = Upload(levels, size);
+		baked->Bytes = PackLevels(levels, size);   // GPU 형식까지 (메인은 텍스처만 만든다)
+		baked->Levels.clear();
+		return baked;
+	}
+
+	// 씬 스트리밍: 백그라운드 잡이 미리 구운 잎 (Leaf 는 GPU 로 올리기만) — 잡 · 메인이 함께 쓴다
+	std::mutex s_PreLeafLock;
+	std::map<int, std::shared_ptr<BakedLeaf>> s_PreLeaf;
+	std::set<int> s_PreLeafPending;
+
+	void LeafKey(int& shape, int& leavesPerCard, float leafLength, int& lengthKey, int& key)
+	{
+		shape = std::clamp(shape, 0, 2);
+		leavesPerCard = std::clamp(leavesPerCard, 1, 16);
+		lengthKey = (int)roundf(std::clamp(leafLength, 0.05f, 0.6f) * 100.0f);
+		key = shape * 100000 + leavesPerCard * 1000 + lengthKey;
+	}
+
+	void PrewarmLeafAsync(int shape, int leavesPerCard, float leafLength)
+	{
+		int lengthKey = 0, key = 0;
+		LeafKey(shape, leavesPerCard, leafLength, lengthKey, key);
+		if (s_LeafCache.count(key))
+			return;
+		{
+			std::lock_guard<std::mutex> guard(s_PreLeafLock);
+			if (s_PreLeaf.count(key) || !s_PreLeafPending.insert(key).second)
+				return;
+		}
+		SceneStreaming::QueuePrewarmJob([shape, leavesPerCard, lengthKey, key]() {
+			auto baked = BakeLeafLevels(shape, leavesPerCard, lengthKey);
+			std::lock_guard<std::mutex> guard(s_PreLeafLock);
+			s_PreLeaf[key] = std::move(baked);
+			s_PreLeafPending.erase(key);
+		});
+	}
+
+	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength)
+	{
+		int lengthKey = 0, key = 0;
+		LeafKey(shape, leavesPerCard, leafLength, lengthKey, key);
+
+		auto& cache = s_LeafCache;
+		static std::vector<int> order;
+		if (auto it = cache.find(key); it != cache.end())
+			return it->second.Get();
+
+		const auto t0 = std::chrono::steady_clock::now();
+		std::shared_ptr<BakedLeaf> baked;
+		{
+			std::lock_guard<std::mutex> guard(s_PreLeafLock);
+			if (auto it = s_PreLeaf.find(key); it != s_PreLeaf.end())
+			{
+				baked = std::move(it->second);
+				s_PreLeaf.erase(it);
+			}
+		}
+		const bool fromBackground = baked != nullptr;
+		if (!baked)
+			baked = BakeLeafLevels(shape, leavesPerCard, lengthKey);
+		const int size = baked->Size;
+		ComPtr<GfxShaderResourceView> srv = UploadBytes(baked->Bytes, size);
 		const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		EditorLog::Write("Tree", "leaf texture baked: shape %d, %d leaves, length %.2f (%d x %d, %.1f ms)", shape, leavesPerCard, lengthKey / 100.0f, size, size, ms);
+		EditorLog::Write("Tree", "leaf texture %s: shape %d, %d leaves, length %.2f (%d x %d, %.1f ms)", fromBackground ? "uploaded (baked in the background)" : "baked",
+			shape, leavesPerCard, lengthKey / 100.0f, size, size, ms);
 
 		// 슬라이더를 끌면 조합이 많이 생기므로 오래된 것부터 버린다 (쓰는 중인 SRV 는 효과 변수가 잡고 있다)
 		cache[key] = srv;

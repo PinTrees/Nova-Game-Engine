@@ -36,7 +36,20 @@ public:
 	static bool IsPlayer() { return isPlayer; }
 	// Unity Application.targetFrameRate: 0 이하 = 제한 없음 (기본 -1). 재생 중 (빌드된 게임 포함) 에만 프레임을 맞추고, Play 를 멈추면 -1 로 돌아간다
 	static inline int targetFrameRate = -1;
-	static void SetPlaying(bool active) { isPlaying = active; if (!active) targetFrameRate = -1; }
+	// Unity Application.backgroundLoadingPriority (ThreadPriority: 0 Low, 1 BelowNormal, 2 Normal, 4 High) — LoadSceneAsync 가 프레임마다
+	//  씬을 미리 짓는 시간 (Unity 와 같이 2 · 4 · 10 · 50 ms). 기본 BelowNormal
+	static inline int backgroundLoadingPriority = 1;
+	static double BackgroundLoadingBudgetMs()
+	{
+		switch (backgroundLoadingPriority)
+		{
+		case 0: return 2.0;
+		case 2: return 10.0;
+		case 4: return 50.0;
+		default: return 4.0;
+		}
+	}
+	static void SetPlaying(bool active) { isPlaying = active; if (!active) { targetFrameRate = -1; backgroundLoadingPriority = 1; } }
 	static bool IsPlaying() { return isPlaying; }
 
 	// Pause / Step (Unity 툴바)

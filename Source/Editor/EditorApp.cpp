@@ -57,6 +57,7 @@
 #include "MotionVectors.h"
 #include "OcclusionCulling.h"
 #include "TransformBench.h"
+#include "SceneStreaming.h"
 #include "EditorCamera.h"
 #include "LightManager.h"
 #include "Light.h"
@@ -245,6 +246,7 @@ bool EditorApp::Init()
 		RenderThread::RegisterEditor();   // nova renderthread (Multithreaded Rendering)
 		Memory::Heaps::RegisterEditor();   // nova memory (알로케이터 검사 · 씬 힙 통계)
 		TransformBench::RegisterEditor();  // nova transform bench (Transform · 컬링 측정)
+		SceneStreaming::RegisterEditor();  // nova scenestream (LoadSceneAsync 스트리밍 — 불러오기 · 단계별 시간)
 		LODGroup::RegisterEditor();           // nova lod
 		OcclusionCulling::RegisterEditor();   // nova occlusion
 		ModelPlacement::RegisterEditor();     // nova modelfile

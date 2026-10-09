@@ -49,5 +49,13 @@ public:
 
 	// Profiler 메모리: 불러 둔 텍스처 / 메시(스킨 포함)의 GPU 크기
 	void CollectMemory(std::vector<MemoryStats::Item>& textures, std::vector<MemoryStats::Item>& meshes) const;
+
+	// 불러오기 통계 — 캐시에 없어 실제로 불러온 것 (씬 스트리밍 측정: nova scenestream stats)
+	//  종류별 ms 는 안에서 부른 것을 포함한다 (재질 = 그 텍스처도). TotalMs 는 맨 바깥 부름만 더한다 (겹쳐 세지 않는다)
+	struct LoadStats { uint32_t Textures = 0, Materials = 0, MeshFiles = 0; double TextureMs = 0, MaterialMs = 0, MeshFileMs = 0, TotalMs = 0; };
+	const LoadStats& Stats() const { return m_Stats; }
+	void ResetStats() { m_Stats = LoadStats(); }
+private:
+	LoadStats m_Stats;
 };
 

@@ -97,6 +97,10 @@ public:
 
 public:
 	friend void from_json(const json& j, Scene& scene);
+	// 씬 파일의 루트 하나 (와 그 아래) 를 짓는다 — from_json 과 씬 스트리밍 (프레임마다 몇 개씩) 이 같이 쓴다
+	static bool IsSceneJson(const json& j);
+	static bool UsesLegacyLayers(const json& j);
+	void LoadRoot(const json& gameObjectJson, bool legacyLayers);
 	friend void to_json(json& j, const Scene& scene);
 };
 

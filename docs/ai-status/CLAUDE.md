@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **렌더 스레드 DirectX 12 · Vulkan + 데이터 지향 Transform · 컬링 (SoA · Job System · SIMD) + dxcompiler 종료 충돌**
+- 갱신 시각: 2026년 10월 9일 — **씬 · 에셋 스트리밍 (LoadSceneAsync)**
+  - 사용자 요청: "비동기 씬 · 에셋 스트리밍 — 다음 씬을 백그라운드에서 미리, 한 프레임에 바꿔 끼우기, 텍스처 · 메시 비동기, Unity LoadSceneAsync · allowSceneActivation · progress"
+  - 측정 먼저 (nova scenestream): 도시 바꿔 끼우는 프레임 831 ms (짓기 601 · Start 220 — Animator), 다음 프레임 2364 ms (Play 중 Undo 스냅숏 980 · 나무 생성 144)
+  - `SceneManagerRuntime.cpp`: 맨 앞 비동기 작업을 프레임마다 예산 (Application.backgroundLoadingPriority — C# ThreadPriority, 2 · 4 · 10 · 50 ms) 만큼 루트 단위로 미리 짓기 (`Scene::LoadRoot`), 새 씬의 힙에 (런타임 씬이 앞 씬 힙에 지어지던 것도 고침), 루트는 `GameObject::SetStaged` (꺼진 것으로 — 나무 · 카메라 등 전역 목록이 지금 씬에 끼어들지 않게), Light 는 모았다가 바꿔 끼울 때
+  - 미리 데우기 `Component::PrewarmStaged` + `SceneStreaming::QueuePrewarmJob` (작업 스레드, 끝나야 0.9): Animator Humanoid 아바타 (캐시 잠금), Tree 메시 · 잎 아틀라스 (생성 · RGBA8 변환은 잡, GPU 올리기만 메인), Terrain 나무
+  - 에셋: 파싱 잡이 씬 · .mat 의 텍스처를 `Utils::PrefetchTexture` (디코드를 잡에서 — 메인은 끝났으면 올리기만, 디코드 중이면 기다리고, 시작 전이면 직접), 모델 캐시 파일 `PrefetchFile`
+  - Undo: Play 중에는 씬 스냅숏을 뜨지 않는다 (UndoSystem TrackScene)
+  - 결과: Release 바꿔 끼우는 프레임 86.5 · 71.9 → 10.8 · 11.0 ms, 가장 긴 프레임 105 · 91 → 29 · 30 ms. Debug 831 → 105 ms, 다음 프레임 2364 → 169 ms
+  - 검사: 새 스위트 `streaming` 8/8, scenes 11/11. 문서 SCENE_STREAMING, Showcase 277
+- 이전: 2026년 10월 9일 — **렌더 스레드 DirectX 12 · Vulkan + 데이터 지향 Transform · 컬링 (SoA · Job System · SIMD) + dxcompiler 종료 충돌**. **완료 (커밋 6b394d6, 푸시함)**
   - 사용자 요청: "렌더 스레드를 D3D12 · Vulkan 으로 넓히기" + "데이터 지향 Transform · 컬링 (SoA) 진행", 이어서 "Fix dxcompiler.dll crash at editor exit"
   - 렌더 스레드: `Source/Graphics/Common/SubmitThread.h` (무잠금 SPSC 링 + 작업 번호), D3D12 (`ExecuteCommandLists` + `Signal` · `Wait` · Present — 제출한 명령 목록을 할당기 칸에 묶어 Reset 을 늦춤), Vulkan (`vkQueueSubmit2` · `vkQueuePresentKHR` — 이미지 받기는 메인, 앞 Present 를 기다린 뒤). 켜고 끌 때 창마다 Present 번호를 지운다 (끄고 다시 켜면 멈췄다). Release: Vulkan 8.88 → 5.39 ms, D3D12 5.55 → 5.19 ms
   - Transform: `Source/Scene/TransformStore.*` (SoA — 로컬 TRS · 64 B 정렬 월드 행렬 · 월드 회전 · 크기 · 부모 + 세대 · 더러움 · 번호). Set = 배열 복사 + 아래 계층 더러움, Get = 깨끗하면 배열 · 더러우면 그 사슬만 (메인 아님 · ParallelFor 중이면 그 자리 계산), 프레임마다 Flush (겹치지 않는 하위 계층을 잡으로). 오일러 각은 요청할 때만. Transform.h/.cpp 는 UTF-8 로 정리 (공개 API 그대로)

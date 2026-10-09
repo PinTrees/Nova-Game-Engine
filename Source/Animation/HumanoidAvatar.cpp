@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <mutex>
 #include "HumanoidAvatar.h"
 #include "AnimationPose.h"
 #include "AssetImportSettings.h"
@@ -354,6 +355,12 @@ namespace Humanoid
 			static std::map<const SkeletonAvataData*, std::unique_ptr<Avatar>> cache;
 			return cache;
 		}
+		// 캐시 잠금: 씬 스트리밍이 바꿔 끼우기 전에 백그라운드 잡에서 아바타를 만든다 (메인의 Get 과 함께)
+		std::mutex& CacheLock()
+		{
+			static std::mutex lock;
+			return lock;
+		}
 	}
 
 	const char* BoneName(int bone) { return bone >= 0 && bone < BoneCount ? kNames[bone] : "?"; }
@@ -368,6 +375,7 @@ namespace Humanoid
 
 	void Forget(const SkeletonAvataData& skeleton)
 	{
+		std::lock_guard<std::mutex> guard(CacheLock());
 		static std::vector<std::unique_ptr<Avatar>> s_Retired;   // 아직 들고 있는 Animator 가 있을 수 있다
 		auto it = Cache().find(&skeleton);
 		if (it == Cache().end())
@@ -379,11 +387,20 @@ namespace Humanoid
 
 	const Avatar& Get(const SkeletonAvataData& skeleton)
 	{
+		{
+			std::lock_guard<std::mutex> guard(CacheLock());
+			auto it = Cache().find(&skeleton);
+			if (it != Cache().end() && it->second)
+				return *it->second;
+		}
+		// 잠금 밖에서 만든다 (스켈레톤은 바뀌지 않는다 — 두 스레드가 함께 만들면 먼저 넣은 것을 쓴다)
+		auto built = std::make_unique<Avatar>();
+		Build(*built, skeleton);
+		std::lock_guard<std::mutex> guard(CacheLock());
 		auto& c = Cache()[&skeleton];
 		if (c == nullptr)
 		{
-			c = std::make_unique<Avatar>();
-			Build(*c, skeleton);
+			c = std::move(built);
 			EditorLog::Write("Animation", "humanoid avatar %s: %s, %d/%d bones", skeleton.Name.c_str(), c->Valid ? "valid" : "not humanoid", c->Found, (int)BoneCount);
 		}
 		return *c;

@@ -6,6 +6,10 @@
 #include <sstream>
 #include "Debug.h"
 #include "AssetImportSettings.h"
+#include "JobSystem.h"
+#include <condition_variable>
+#include <mutex>
+#include <unordered_map>
 namespace fs = std::filesystem;
 
 namespace
@@ -114,18 +118,130 @@ namespace
 	}
 }
 
-ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const wstring& path)
+// ---- 씬 스트리밍: 텍스처 디코드를 백그라운드 잡에서 미리 (Utils.h)
+namespace
+{
+	struct Prefetched
+	{
+		bool Started = false, Done = false;
+		HRESULT Hr = E_FAIL;
+		DirectX::ScratchImage Img;
+		DirectX::TexMetadata Md = {};
+		int SourceW = 0, SourceH = 0;
+	};
+	std::mutex s_PrefetchLock;
+	std::condition_variable s_PrefetchDone;
+	std::unordered_map<std::wstring, std::shared_ptr<Prefetched>> s_Prefetch;
+	Utils::PrefetchStats s_PrefetchStats;
+
+	std::wstring PrefetchKey(std::wstring p)
+	{
+		std::replace(p.begin(), p.end(), L'/', L'\\');
+		std::transform(p.begin(), p.end(), p.begin(), ::towlower);
+		return p;
+	}
+
+	// 메인: 미리 디코드한 것이 있으면 가져간다 — 끝났으면 바로, 디코드 중이면 끝날 때까지, 아직 시작 전이면 가져가 직접 (잡은 건너뛴다)
+	std::shared_ptr<Prefetched> TakePrefetched(const std::wstring& path)
+	{
+		std::unique_lock<std::mutex> lock(s_PrefetchLock);
+		auto it = s_Prefetch.find(PrefetchKey(path));
+		if (it == s_Prefetch.end())
+			return nullptr;
+		std::shared_ptr<Prefetched> p = it->second;
+		if (!p->Started)
+		{
+			s_Prefetch.erase(it);   // 직접 디코드한다
+			++s_PrefetchStats.Claimed;
+			return nullptr;
+		}
+		if (!p->Done)
+		{
+			++s_PrefetchStats.Waited;
+			s_PrefetchDone.wait(lock, [&] { return p->Done; });
+		}
+		s_Prefetch.erase(PrefetchKey(path));
+		++s_PrefetchStats.Used;
+		return p;
+	}
+}
+
+void Utils::PrefetchTexture(const wstring& path)
+{
+	const std::wstring key = PrefetchKey(path);
+	auto entry = std::make_shared<Prefetched>();
+	{
+		std::lock_guard<std::mutex> lock(s_PrefetchLock);
+		if (s_Prefetch.count(key))
+			return;
+		s_Prefetch[key] = entry;
+		++s_PrefetchStats.Requested;
+	}
+	Jobs::Run([entry, path, key]() {
+		{
+			std::lock_guard<std::mutex> lock(s_PrefetchLock);
+			auto it = s_Prefetch.find(key);
+			if (it == s_Prefetch.end() || it->second != entry)
+				return;   // 메인이 먼저 가져가 직접 디코드했다
+			entry->Started = true;
+		}
+		const auto t0 = std::chrono::steady_clock::now();
+		const HRESULT co = ::CoInitializeEx(nullptr, COINIT_MULTITHREADED);   // WIC (PNG · JPG) 는 이 스레드에서 COM 이 열려 있어야 한다
+		entry->Hr = Utils::DecodeTexture(path, entry->Img, entry->Md, entry->SourceW, entry->SourceH);
+		if (SUCCEEDED(co))
+			::CoUninitialize();
+		{
+			std::lock_guard<std::mutex> lock(s_PrefetchLock);
+			entry->Done = true;
+			s_PrefetchStats.DecodeMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		}
+		s_PrefetchDone.notify_all();
+	}, nullptr, Jobs::Priority::Background, "Texture Prefetch");
+}
+
+void Utils::PrefetchFile(const wstring& path)
+{
+	{
+		std::lock_guard<std::mutex> lock(s_PrefetchLock);
+		++s_PrefetchStats.Files;
+	}
+	Jobs::Run([path]() {
+		std::ifstream f(fs::path(path), std::ios::binary);
+		if (!f)
+			return;
+		char buffer[1 << 16];
+		while (f.read(buffer, sizeof(buffer)) || f.gcount() > 0) {}   // 읽기만 (OS 파일 캐시)
+	}, nullptr, Jobs::Priority::Background, "File Prefetch");
+}
+
+Utils::PrefetchStats Utils::GetPrefetchStats()
+{
+	std::lock_guard<std::mutex> lock(s_PrefetchLock);
+	return s_PrefetchStats;
+}
+
+void Utils::ClearPrefetched()
+{
+	std::unique_lock<std::mutex> lock(s_PrefetchLock);
+	// 디코드 중인 것은 끝나기를 기다린 뒤 (잡이 entry 를 쥐고 있어 지워도 되지만, 이미지 메모리를 바로 돌려주려고)
+	for (auto it = s_Prefetch.begin(); it != s_Prefetch.end();)
+	{
+		if (it->second->Started && !it->second->Done)
+			++it;
+		else
+			it = s_Prefetch.erase(it);
+	}
+}
+
+HRESULT Utils::DecodeTexture(const wstring& path, DirectX::ScratchImage& img, DirectX::TexMetadata& md, int& sourceW, int& sourceH)
 {
 	// 파일 확장자 얻기
 	wstring ext = fs::path(path).extension().wstring();
-
-	DirectX::TexMetadata md = {};
-	DirectX::ScratchImage img;
-
 	HRESULT hr;
 	// 프로젝트 · 패키지 에셋만 가져오기 설정을 쓴다 (에디터 아이콘 · 엔진 내부 텍스처는 원래대로)
 	const AssetImport::TextureSettings ts = AssetImport::AppliesTo(path) ? AssetImport::LoadTexture(path) : AssetImport::TextureSettings::Raw();
-	int sourceW = 0, sourceH = 0;
+	sourceW = 0;
+	sourceH = 0;
 
 	if (ext == L".dds" || ext == L".DDS" || ext == L".tga" || ext == L".TGA")
 	{
@@ -177,6 +293,26 @@ ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const
 			}
 		}
 	}
+	return hr;
+}
+
+ComPtr<GfxShaderResourceView> Utils::LoadTexture(ComPtr<GfxDevice> device, const wstring& path)
+{
+	DirectX::TexMetadata md = {};
+	DirectX::ScratchImage img;
+	int sourceW = 0, sourceH = 0;
+	HRESULT hr;
+	// 씬 스트리밍이 미리 디코드했으면 그것을 (GPU 로 올리기만)
+	if (std::shared_ptr<Prefetched> pre = TakePrefetched(path))
+	{
+		hr = pre->Hr;
+		img = std::move(pre->Img);
+		md = pre->Md;
+		sourceW = pre->SourceW;
+		sourceH = pre->SourceH;
+	}
+	else
+		hr = DecodeTexture(path, img, md, sourceW, sourceH);
 
 	ComPtr<GfxShaderResourceView> srv;
 	if (SUCCEEDED(hr))

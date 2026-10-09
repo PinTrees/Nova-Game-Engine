@@ -27,6 +27,8 @@ public:
 	// 매 프레임 한 번 (App 루프): 바람 시간 — 같은 프레임의 모든 패스가 같은 값을 써야 깊이가 맞는다
 	static void UpdateAll();
 
+	virtual void PrewarmStaged() override;   // 씬 스트리밍: 나무 메시 (LOD 0 · 1) 를 바꿔 끼우기 전에 생성
+
 	virtual void OnInspectorGUI() override;
 	virtual bool UsesUnityInspector() const override { return true; }
 	virtual const char* InspectorIconName() const override { return "terrain_trees"; }

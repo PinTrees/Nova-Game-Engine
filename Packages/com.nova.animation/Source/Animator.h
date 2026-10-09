@@ -129,6 +129,7 @@ public:
 public:
 	virtual void Awake() override;
 	virtual void Start() override;
+	virtual void PrewarmStaged() override;   // 씬 스트리밍: 스켈레톤의 Humanoid 표 · 기본 상태 샘플링 캐시를 바꿔 끼우기 전에
 	virtual void Update() override;
 	virtual void FixedUpdate() override;
 	virtual void LastUpdate() override;

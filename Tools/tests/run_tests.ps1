@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread', 'memory', 'transform') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread', 'memory', 'transform', 'streaming') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6811,6 +6811,113 @@ function Suite-Transform
     finally { Write-Host "  $(Stop-TestEditor $ed)" }
 }
 
+# ------------------------------------------------------------------ 씬 · 에셋 스트리밍 (LoadSceneAsync)
+function Suite-Streaming
+{
+    # SceneManager.LoadSceneAsync 가 프레임을 멈추지 않게: 새 씬을 프레임마다 예산 (backgroundLoadingPriority) 만큼 미리 짓고 (꺼진 채 — 지금 씬에 끼어들지 않게),
+    #  처음 쓸 때 만드는 캐시 (Animator Humanoid · 나무 메시 · 잎 텍스처) 를 백그라운드 잡에서, 텍스처 디코드도 미리. 바꿔 끼우는 프레임은 Awake · Start · 물리만
+    Write-Host '[streaming]'
+    $dir = Join-Path $Out 'streaming'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ed = Start-TestEditor -WatchSeconds 900
+    try
+    {
+        function WaitOp([int]$op, [double]$until = 1.0)
+        {
+            $st = $null
+            for ($k = 0; $k -lt 600; $k++)
+            {
+                Invoke-Nova 'wait 2' | Out-Null
+                $st = Invoke-NovaJson "scenestream status --id $op"
+                if ($st -and (($until -ge 1.0 -and $st.done) -or ($until -lt 1.0 -and [double]$st.progress -ge $until))) { break }
+            }
+            return $st
+        }
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+
+        # 1) 텍스처 미리 디코드: 텍스처를 쓰는 씬 (Materials) 을 처음 불러올 때 — 작업 스레드가 디코드, 메인은 올리기만
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $p0 = (Invoke-NovaJson 'scenestream stats').prefetch
+        $r = Invoke-NovaJson 'scenestream load --path Assets/Scenes/Materials.scene'
+        $st = WaitOp $r.op
+        Invoke-Nova 'wait 60' | Out-Null
+        $p1 = (Invoke-NovaJson 'scenestream stats').prefetch
+        $ms = Join-Path $dir 'materials_streamed.png'; Invoke-Nova ('screenshot "' + $ms + '" --view game') | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova 'scene open Assets/Scenes/Materials.scene --force' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 40' | Out-Null
+        $before = Join-Path $dir 'before.png'; Invoke-Nova ('screenshot "' + $before + '" --view game') | Out-Null
+        $c3 = if ((Test-Path $before) -and (Test-Path $ms)) { [NovaImageCompare]::Compare($before, $ms, (Join-Path $dir 'materials_diff.png')) } else { $null }
+        $used = [int]$p1.texturesUsed - [int]$p0.texturesUsed
+        Add-Result streaming 'textures referenced by the scene and its materials are decoded on worker threads (the main thread only uploads)' ($used -ge 1 -and $c3 -and $c3[1] -le 0.2) "prefetched textures used $used (requested $([int]$p1.texturesRequested - [int]$p0.texturesRequested), decoded by the main thread instead $([int]$p1.claimedByMain - [int]$p0.claimedByMain)); streamed Materials vs opened: mean $(if ($c3) { '{0:N3}' -f $c3[1] } else { '?' })"
+
+        # 2) (Materials 를 Play 하는 중) 도시를 allowSceneActivation = false 로: 0.9 까지 미리 짓고 기다린다 — 그동안 지금 씬 (Materials) 은 그대로
+        $r = Invoke-NovaJson 'scenestream load --path Assets/Scenes/CityShowcase.scene --allow false'
+        $st = WaitOp $r.op 0.899
+        Invoke-Nova 'wait 20' | Out-Null
+        $staged = Join-Path $dir 'staged.png'; Invoke-Nova ('screenshot "' + $staged + '" --view game') | Out-Null
+        $st = Invoke-NovaJson "scenestream status --id $($r.op)"
+        $c = if ((Test-Path $before) -and (Test-Path $staged)) { [NovaImageCompare]::Compare($before, $staged, (Join-Path $dir 'staged_diff.png')) } else { $null }
+        Add-Result streaming 'LoadSceneAsync builds the next scene over many frames and waits at 0.9 (allowSceneActivation = false)' ($st -and -not $st.done -and [math]::Abs([double]$st.progress - 0.9) -lt 0.001 -and [int]$st.stageFrames -ge 10 -and [int]$st.roots -gt 1000) $(if ($st) { "progress $($st.progress), $($st.roots) roots built in $($st.stageFrames) frames ($('{0:N0}' -f [double]$st.stageMs) ms, longest $('{0:N1}' -f [double]$st.stageMaxMs) ms)" } else { 'no reply' })
+        Add-Result streaming 'while the next scene is being built the current scene is unchanged (its trees, cameras, lights stay out)' ($c -and $c[1] -le 0.1 -and $c[2] -le 0.05) $(if ($c) { 'max {0}, mean {1:N3}, >8: {2:N2}%' -f $c[0], $c[1], $c[2] } else { 'capture missing' })
+
+        # 3) 바꿔 끼우기: 짓기는 끝나 있어 그 프레임은 Awake · Start · 물리 바디만
+        Invoke-Nova "scenestream allow --id $($r.op) --allow true" | Out-Null
+        $st = WaitOp $r.op
+        Invoke-Nova 'wait 60' | Out-Null
+        $st = Invoke-NovaJson "scenestream status --id $($r.op)"
+        Add-Result streaming 'activation frame only enters the prebuilt scene (no object building, Start uses prewarmed caches)' ($st -and $st.done -and -not $st.failed -and [double]$st.buildMs -lt 1.0 -and [int]$st.objects -gt 2000 -and [double]$st.activateMs -lt 400) $(if ($st) { "activate $('{0:N1}' -f [double]$st.activateMs) ms (build $('{0:N2}' -f [double]$st.buildMs), enter $('{0:N1}' -f [double]$st.enterMs), teardown $('{0:N1}' -f [double]$st.teardownMs)), objects $($st.objects), next frame $('{0:N0}' -f [double]$st.frameAfterMs) ms" } else { 'no reply' })
+        $streamed = Join-Path $dir 'city_streamed.png'; Invoke-Nova ('screenshot "' + $streamed + '" --view game') | Out-Null
+        $mem = Invoke-NovaJson 'memory info'
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova 'scene open Assets/Scenes/CityShowcase.scene --force' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 80' | Out-Null
+        $direct = Join-Path $dir 'city_direct.png'; Invoke-Nova ('screenshot "' + $direct + '" --view game') | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $c2 = if ((Test-Path $direct) -and (Test-Path $streamed)) { [NovaImageCompare]::Compare($direct, $streamed, (Join-Path $dir 'city_diff.png')) } else { $null }
+        Add-Result streaming 'streamed city looks like the city opened directly' ($c2 -and $c2[1] -le 0.2 -and $c2[2] -le 0.5) $(if ($c2) { 'max {0}, mean {1:N3}, >8: {2:N2}%' -f $c2[0], $c2[1], $c2[2] } else { 'capture missing' })
+        Add-Result streaming 'streamed scene lives in its own heap (the old scene heap is returned, nothing lingers)' ($mem -and @($mem.heaps | Where-Object { $_.lingering }).Count -eq 0 -and @($mem.heaps | Where-Object { $_.name -eq 'CityShowcase' -and [int]$_.liveAllocations -gt 1000 }).Count -ge 1) $(if ($mem) { "heaps: $(($mem.heaps | ForEach-Object { "$($_.name) $($_.liveAllocations)" }) -join ', '); lingering $(@($mem.heaps | Where-Object { $_.lingering }).Count)" } else { 'no reply' })
+
+        # 4) Application.backgroundLoadingPriority (Play 하며)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null   # (Unity ThreadPriority) High 는 적은 프레임에, Low 는 많은 프레임에 나눠 짓는다
+        $pf = Join-Path $dir 'priority.cs'
+        'Application.backgroundLoadingPriority = ThreadPriority.High; return ((int)Application.backgroundLoadingPriority).ToString();' | Set-Content -Encoding utf8 $pf
+        $pr = Invoke-NovaJson "exec --file `"$pf`""
+        $r = Invoke-NovaJson 'scenestream load --path Assets/Scenes/Forest.scene'
+        $hi = WaitOp $r.op
+        Invoke-Nova 'scenestream priority --value 0' | Out-Null
+        $r = Invoke-NovaJson 'scenestream load --path Assets/Scenes/CityShowcase.scene'
+        $lo = WaitOp $r.op
+        Invoke-Nova 'scenestream priority --value 4' | Out-Null
+        $r = Invoke-NovaJson 'scenestream load --path Assets/Scenes/CityShowcase.scene'
+        $hi2 = WaitOp $r.op
+        Add-Result streaming 'backgroundLoadingPriority: C# property reaches the engine, High (50 ms) builds in fewer frames than Low (2 ms)' ($pr -and "$($pr.result)" -eq '4' -and $lo -and $hi2 -and [int]$hi2.stageFrames -lt [int]$lo.stageFrames) "C# set High -> $($pr.result); city build frames: Low $($lo.stageFrames) (longest $('{0:N1}' -f [double]$lo.stageMaxMs) ms), High $($hi2.stageFrames) (longest $('{0:N1}' -f [double]$hi2.stageMaxMs) ms)"
+
+        # 5) Stop 하는 중 짓던 씬은 버린다 (충돌 없음, 힙이 남지 않는다)
+        Invoke-Nova 'scenestream priority --value 0' | Out-Null
+        $r = Invoke-NovaJson 'scenestream load --path Assets/Scenes/CityShowcase.scene --allow false'
+        Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $mem = Invoke-NovaJson 'memory info'
+        $alive = Test-EditorAlive $ed
+        Add-Result streaming 'Stop while a scene is half built: the staged scene is dropped, nothing lingers' ($alive -and $mem -and @($mem.heaps | Where-Object { $_.lingering }).Count -eq 0) "editor alive $alive, lingering heaps $(if ($mem) { @($mem.heaps | Where-Object { $_.lingering }).Count } else { '?' })"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally { Write-Host "  $(Stop-TestEditor $ed)" }
+}
+
 # ------------------------------------------------------------------ 성능 (참고용 — Release 빌드에서 의미가 있다)
 function Suite-Perf
 {
@@ -7876,6 +7983,7 @@ try
                 'renderthread' { Suite-RenderThread }
                 'memory' { Suite-Memory }
                 'transform' { Suite-Transform }
+                'streaming' { Suite-Streaming }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

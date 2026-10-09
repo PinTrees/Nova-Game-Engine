@@ -319,6 +319,8 @@ namespace
 		void(*CL_SetCoefficients)(uint64, float*, int);
 		// Application.targetFrameRate (set != 0 이면 value 로 바꾼다) — 지금 값을 돌려준다
 		int(*App_TargetFrameRate)(int, int);
+		// Application.backgroundLoadingPriority (ThreadPriority 값 — set != 0 이면 바꾼다)
+		int(*App_LoadingPriority)(int, int);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -1450,6 +1452,11 @@ namespace ScriptBindings
 			if (set)
 				Application::targetFrameRate = value;
 			return Application::targetFrameRate;
+		};
+		t.App_LoadingPriority = [](int set, int value) -> int {
+			if (set)
+				Application::backgroundLoadingPriority = value;
+			return Application::backgroundLoadingPriority;
 		};
 		t.PS_Call = PS_Call;
 		t.PS_GetFloat = PS_GetFloat;

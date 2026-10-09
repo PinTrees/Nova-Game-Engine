@@ -26,6 +26,12 @@ Tree::~Tree()
 
 const std::vector<Tree*>& Tree::All() { return Registry(); }
 
+void Tree::PrewarmStaged()
+{
+	// 처음 그릴 때 만드는 절차 메시 (도시: 바꿔 끼운 뒤 첫 프레임에 나무 종류마다 생성 — 약 140 ms, Debug)
+	TreeRenderer::PrewarmAsync(Desc);   // 생성은 백그라운드 잡 (한 종류에 100 ms 가 넘기도 — Debug)
+}
+
 bool Tree::IsDrawable() const
 {
 	return m_Enabled && m_pGameObject && m_pGameObject->IsActiveInHierarchy();

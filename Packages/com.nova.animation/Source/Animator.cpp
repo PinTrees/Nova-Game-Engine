@@ -7,6 +7,7 @@
 #include "PhysicsManager.h"
 #include "CharacterController.h"
 #include "HumanoidAvatar.h"
+#include "SceneStreaming.h"
 #include "AnimatorIK.h"
 
 using namespace AnimatorTypes;
@@ -776,6 +777,41 @@ void Animator::ApplyPoseModifiers(const SkeletonAvataData& skeleton, SkinnedMesh
 // ------------------------------------------------------------------ 컴포넌트
 void Animator::Awake()
 {
+}
+
+void Animator::PrewarmStaged()
+{
+	// 처음 Start (EvaluatePose) 가 만드는 캐시 — 도시: 바꿔 끼우는 프레임의 Start 122 ms 의 대부분 (Debug). 자세는 적용하지 않는다
+	if (m_Controller == nullptr)
+		return;
+	// 아바타 표 (Humanoid) 를 만들 스켈레톤: 렌더러의 스켈레톤 + 기본 상태 클립의 원본 스켈레톤 (리타깃 — 도시: 원본 하나에 약 120 ms, Debug)
+	std::vector<shared_ptr<SkeletonAvataData>> skeletons;
+	auto add = [&](shared_ptr<SkeletonAvataData> s) {
+		if (s && std::find(skeletons.begin(), skeletons.end(), s) == skeletons.end())
+			skeletons.push_back(std::move(s));
+	};
+	std::vector<SkinnedMeshRenderer*> renderers;
+	CollectRenderers(m_pGameObject, renderers);
+	for (SkinnedMeshRenderer* renderer : renderers)
+		add(renderer->GetSkeleton());
+	for (const AnimatorLayer& layer : m_Controller->Layers)
+	{
+		const int state = layer.FindState(layer.DefaultState);
+		if (state < 0)
+			continue;
+		AnimatorState& s = const_cast<AnimatorState&>(layer.States[state]);
+		if (!s.IsBlendTree && s.Clip == nullptr && !s.ClipPath.empty())
+			s.LoadClip();   // 클립 (에셋) 은 메인에서 — ResourceManager 는 메인 스레드 것
+		if (s.Clip)
+			add(s.Clip->SourceSkeleton.lock());
+	}
+	if (skeletons.empty())
+		return;
+	// 표 만들기는 바뀌지 않는 스켈레톤만 읽는다 → 백그라운드 잡 (미리 짓기는 이 잡이 끝날 때까지 0.9 에 이르지 않는다)
+	SceneStreaming::QueuePrewarmJob([skeletons]() {
+		for (const auto& s : skeletons)
+			Humanoid::Get(*s);
+	});
 }
 
 void Animator::Start()

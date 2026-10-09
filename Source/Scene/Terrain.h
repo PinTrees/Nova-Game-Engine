@@ -69,6 +69,7 @@ public:
 
 	// ---- 그리기 (Scene 이 부른다) ----
 	virtual void Render() override;
+	virtual void PrewarmStaged() override;   // 씬 스트리밍: 칠한 나무의 메시 · 위치 캐시를 바꿔 끼우기 전에
 	virtual void _Editor_Render() override;
 	void RenderShadow();
 	void RenderShadowNormal();
