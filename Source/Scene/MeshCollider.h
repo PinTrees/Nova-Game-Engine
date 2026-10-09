@@ -19,7 +19,7 @@ public:
 
 public:
 	bool IsConvex() const { return m_Convex; }
-	void SetConvex(bool convex) { m_Convex = convex; }
+	void SetConvex(bool convex) { MarkPhysicsDirty(); m_Convex = convex; }
 	Mesh* GetMesh() const;
 	int GetSubsetIndex() const;
 

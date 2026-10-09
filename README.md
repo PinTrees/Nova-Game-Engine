@@ -75,7 +75,7 @@
 |---|---|
 | 동시성 | **Job System** (작업 훔치기 · 파이버 · 무잠금 큐 — 물리 · 컬링 · 클러스터 · 백그라운드 일이 그 위에서), **물리 ↔ 렌더링 겹치기** (Simulate During Rendering, 핑퐁 버퍼), **렌더 스레드** (Multithreaded Rendering — DX11 은 deferred context, DX12 · Vulkan 은 큐 제출 · Present 를 렌더 스레드로. 도시 Vulkan 8.9 → 5.4 ms) — [JOB_SYSTEM](docs/JOB_SYSTEM.md) · [ASYNC_PHYSICS](docs/ASYNC_PHYSICS.md) · [RENDER_THREAD](docs/RENDER_THREAD.md) · [로드맵](docs/CONCURRENCY_ROADMAP.md) |
 | 메모리 | Linear · Stack · Pool · Buddy 알로케이터, **씬마다 힙** (씬을 지우면 한 덩어리로 돌려준다 — 씬 전환 단편화 0, 누수는 꼬리표로 보고), 프레임 아레나, 캐시 라인 (64 B) 정렬 · 거짓 공유 방지 (4 배) — [MEMORY_ALLOCATORS](docs/MEMORY_ALLOCATORS.md) |
-| 데이터 지향 | **Transform SoA** (늦은 계산 · 프레임마다 Job System 으로 한 번에), **컬링** (바뀐 렌더러만 · 옥트리 칸 재사용 · SIMD 4 개씩 절두체 검사) — 큐브 2 만 개를 모두 움직이는 프레임 64 → 30 ms (Debug) — [TRANSFORM_SOA](docs/TRANSFORM_SOA.md) |
+| 데이터 지향 | **Transform SoA** (늦은 계산 · 프레임마다 Job System 으로 한 번에), **컬링** (바뀐 렌더러만 · 옥트리 칸 재사용 · SIMD 4 개씩 절두체 검사) — 큐브 2 만 개를 모두 움직이는 프레임 64 → 30 ms (Debug) — [TRANSFORM_SOA](docs/TRANSFORM_SOA.md), **그리기 준비** (씬 순회 대신 등록 목록 · 모션 벡터는 월드 번호 — 도시 DX12 CPU 7.2 → 4.5 ms) — [RENDER_THREAD](docs/RENDER_THREAD.md#graphics-jobs-조사-메인-스레드의-시간은-기록이-아니라-준비에-있었다), **물리 동기화** (물리 번호 · 월드 번호로 바뀐 바디만, 새 바디는 한 번에 넣기, 스트리밍 중 형상 미리 — 도시 물리 프레임당 0.52 → 0.035 ms) — [PHYSICS_SYNC](docs/PHYSICS_SYNC.md) |
 | 씬 스트리밍 | **LoadSceneAsync** — 새 씬을 프레임마다 예산 (`backgroundLoadingPriority`) 만큼 꺼진 채 미리 짓고, Humanoid 아바타 · 나무 메시 · 텍스처 디코드는 작업 스레드. 도시를 바꿔 끼우는 프레임 86 → 11 ms (Release) — [SCENE_STREAMING](docs/SCENE_STREAMING.md) |
 
 **이펙트**

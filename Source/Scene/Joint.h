@@ -16,6 +16,8 @@ struct JointDriveData { float PositionSpring = 0.0f, PositionDamper = 0.0f, Maxi
 class Joint
 	: public Component
 {
+public:
+	bool AffectsPhysics() const override { return true; }
 protected:
 	uint64 m_ConnectedBody = 0;            // GameObject fileID (0 = 월드)
 	Vec3 m_Anchor = Vec3::Zero;            // 내 로컬 좌표

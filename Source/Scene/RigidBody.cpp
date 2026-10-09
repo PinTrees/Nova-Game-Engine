@@ -14,6 +14,7 @@ RigidBody::~RigidBody()
 
 void RigidBody::SetMass(float mass)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	m_Mass = (std::max)(1e-7f, mass);
 }
 
@@ -173,6 +174,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(RigidBody)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(RigidBody)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	SetMass(j.value("mass", 1.0f));
 	// 이전 형식: m_LinearDamping / angularDamping 은 0.99 같은 "유지 비율"이었으므로 새 의미(감쇠 계수)로 옮기지 않는다
 	m_LinearDamping = j.value("linearDamping", 0.0f);

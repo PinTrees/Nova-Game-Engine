@@ -1076,6 +1076,7 @@ int Run(const std::vector<std::string>& in)
 			}
 		if (a.Has("all")) args["all"] = a.Get("all") == "true";
 		if (a.Has("async")) args["asyncSimulation"] = a.Get("async") != "false";   // Simulate During Rendering
+		if (a.Has("full-sync")) args["fullSync"] = a.Get("full-sync") != "false";   // 검사용: 스텝마다 전체 훑기
 	}
 	else if (cmd == "graphics")
 	{

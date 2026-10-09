@@ -16,11 +16,11 @@ public:
 
 public:
 	float GetRadius() const { return m_Radius; }
-	void SetRadius(float r) { m_Radius = (std::max)(0.0f, r); }
+	void SetRadius(float r) { MarkPhysicsDirty(); m_Radius = (std::max)(0.0f, r); }
 	float GetHeight() const { return m_Height; }
-	void SetHeight(float h) { m_Height = (std::max)(0.0f, h); }
+	void SetHeight(float h) { MarkPhysicsDirty(); m_Height = (std::max)(0.0f, h); }
 	int GetDirection() const { return m_Direction; }
-	void SetDirection(int axis) { m_Direction = std::clamp(axis, 0, 2); }
+	void SetDirection(int axis) { MarkPhysicsDirty(); m_Direction = std::clamp(axis, 0, 2); }
 
 	// 월드 스케일을 적용한 반지름 / 원통부 절반 길이 (Unity 규칙: 반지름은 축에 수직인 두 스케일 중 큰 값)
 	void GetScaledDimensions(const Vec3& lossyScale, float& radius, float& halfCylinder) const;

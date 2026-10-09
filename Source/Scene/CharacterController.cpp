@@ -109,6 +109,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(CharacterController)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(CharacterController)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	SetSlopeLimit(j.value("slopeLimit", 45.0f));
 	SetStepOffset(j.value("stepOffset", 0.3f));
 	SetSkinWidth(j.value("skinWidth", 0.08f));

@@ -12,7 +12,7 @@ public:
 	~BoxCollider();
 
 public:
-	void SetSize(Vec3 size) { m_Size = size; }
+	void SetSize(Vec3 size) { MarkPhysicsDirty(); m_Size = size; }
 	Vec3 GetSize();
 
 public:

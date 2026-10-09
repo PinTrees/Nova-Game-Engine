@@ -66,6 +66,25 @@ function Invoke-NovaJson([string]$line)
     try { $t | ConvertFrom-Json } catch { $null }
 }
 
+# 조건이 될 때까지 기다린다 (고정 대기 대신 — 느린 PC · 바쁜 GPU 에서도 같은 결과, 빠르면 바로 끝).
+#  $Condition 이 참이 아닌 값을 돌려주는 동안 에디터 프레임을 조금씩 (nova wait) 돌리며 다시 본다. 시간 안에 되면 $true
+#  $MinSeconds: 조건과 함께 최소로 지나야 하는 시간 (파일 감시 주기처럼 '그 뒤에야 의미 있는' 경우)
+function Wait-Until([scriptblock]$Condition, [double]$Seconds = 20, [double]$MinSeconds = 0, [int]$Frames = 5)
+{
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($true)
+    {
+        if ($sw.Elapsed.TotalSeconds -ge $MinSeconds)
+        {
+            $ok = $false
+            try { $ok = [bool](& $Condition) } catch { $ok = $false }
+            if ($ok) { return $true }
+        }
+        if ($sw.Elapsed.TotalSeconds -ge $Seconds) { return $false }
+        Invoke-Nova "wait $Frames" | Out-Null
+    }
+}
+
 # 에디터 닫기 (Scene 탭을 앞으로 되돌린 뒤 — 레이아웃 파일은 사용자 에디터와 공유) + 감시 결과
 function Stop-TestEditor($editor)
 {

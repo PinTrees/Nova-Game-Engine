@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'renderthread', 'memory', 'transform', 'streaming') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'renderthread', 'memory', 'transform', 'streaming') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6626,6 +6626,112 @@ function Suite-PhysicsAsync
     }
 }
 
+# ------------------------------------------------------------------ 물리 동기화 (데이터 지향 — 바뀐 것만)
+function Suite-PhysicsSync
+{
+    # 물리 번호 (Component::s_PhysicsSerial) 가 그대로면 씬을 다시 훑지 않고 Transform 월드 번호가 바뀐 소유자만 본다.
+    #  스크립트로 콜라이더 값 · 켜고 끄기 · 오브젝트 끄기 · Transform 옮기기 · 크기 · 트리거를 바꾸면 다음 스텝에 바디가 따라야 한다 (레이캐스트 · 떨어지는 공).
+    #  같은 순서를 스텝마다 전체 훑기 (예전 방식, --full-sync) 로도 돌려 결과가 같은지, 그리고 씬 스트리밍이 미리 만든 형상을 쓰는지
+    Write-Host '[physicssync]'
+    $dir = Join-Path $Out 'physicssync'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+    function Exec([string]$name, [string]$code) { $f = Join-Path $dir "$name.cs"; $code | Set-Content -Encoding utf8 $f; $r = Invoke-NovaJson "exec --file `"$f`""; if ($r) { "$($r.result)" } else { '' } }
+    $rayCs = 'RaycastHit h; return Physics.Raycast(new Vector3(5f, 10f, 0f), Vector3.down, out h, 30f) ? h.point.y.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) : "miss";'
+    $ballCs = 'return GameObject.Find("PsBall").transform.position.y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);'
+    function SyncScene
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name PsGround --position 0,-0.5,0 --scale 40,1,40' | Out-Null
+        Invoke-Nova 'create cube --name PsShelf --position 5,1,0' | Out-Null
+        Invoke-Nova 'create cube --name PsPlate --position -5,1,0' | Out-Null
+        Invoke-Nova 'create sphere --name PsBall --position -5,3,0' | Out-Null
+        Invoke-Nova 'add-component PsBall RigidBody' | Out-Null
+        # 움직이지 않는 정적 콜라이더 200 개 (도시처럼 대부분은 스텝마다 아무 일이 없다)
+        for ($k = 0; $k -lt 200; $k++)
+        {
+            $x = ((($k % 20) - 9.5) * 1.5).ToString($ic); $z = (8 + [math]::Floor($k / 20) * 1.5).ToString($ic)
+            Invoke-Nova "create cube --name PsS$k --position $x,0.5,$z --scale 0.5,1,0.5" | Out-Null
+        }
+    }
+    # 바꾸기 하나 → 레이캐스트 (또는 공 높이) 가 기대값이 될 때까지 (스텝을 기다린다 — 고정 대기 없이)
+    function Step([string]$name, [string]$code, [string]$expect, [string]$probe)
+    {
+        if ($code) { Exec $name $code | Out-Null }
+        $script:psLast = ''
+        [void](Wait-Until { $script:psLast = Exec "$name-probe" $probe; $script:psLast -eq $expect } -Seconds 8 -Frames 3)
+        $script:psLast
+    }
+    function RunSequence([bool]$full)
+    {
+        Invoke-Nova ('physics --full-sync ' + $(if ($full) { 'true' } else { 'false' })) | Out-Null
+        SyncScene
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $seq = [ordered]@{}
+        $seq.start = Step 'p0' '' '1.50' $rayCs
+        $seq.size = Step 'p1' 'GameObject.Find("PsShelf").GetComponent<BoxCollider>().size = new Vector3(1f, 3f, 1f); return 1;' '2.50' $rayCs
+        $seq.disabled = Step 'p2' 'GameObject.Find("PsShelf").GetComponent<BoxCollider>().enabled = false; return 1;' '0.00' $rayCs
+        $seq.enabled = Step 'p3' 'GameObject.Find("PsShelf").GetComponent<BoxCollider>().enabled = true; return 1;' '2.50' $rayCs
+        $seq.moved = Step 'p4' 'GameObject.Find("PsShelf").transform.position = new Vector3(5f, 2f, 0f); return 1;' '3.50' $rayCs
+        $seq.scaled = Step 'p5' 'GameObject.Find("PsShelf").transform.localScale = new Vector3(1f, 2f, 1f); return 1;' '5.00' $rayCs
+        $seq.inactive = Step 'p6' 'GameObject.Find("PsShelf").SetActive(false); return 1;' '0.00' $rayCs
+        # (꺼진 오브젝트는 Find 로 찾지 못한다 — 부모 없는 루트라 씬 루트 목록에서 찾아 다시 켠다)
+        $seq.active = Step 'p7' 'foreach (var g in NovaEngine.SceneManagement.SceneManager.GetActiveScene().GetRootGameObjects()) if (g.name == "PsShelf") g.SetActive(true); return 1;' '5.00' $rayCs
+        $seq.resting = Step 'p8' '' '2.0' $ballCs
+        $seq.trigger = Step 'p9' 'GameObject.Find("PsPlate").GetComponent<BoxCollider>().isTrigger = true; return 1;' '0.5' $ballCs
+        $stats = (Invoke-NovaJson 'physics').sync
+        Invoke-Nova 'wait 60' | Out-Null
+        $stats2 = (Invoke-NovaJson 'physics').sync
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        [pscustomobject]@{ Seq = $seq; A = $stats; B = $stats2 }
+    }
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        $fast = RunSequence $false
+        $full = RunSequence $true
+        Invoke-Nova 'physics --full-sync false' | Out-Null
+        $want = [ordered]@{ start = '1.50'; size = '2.50'; disabled = '0.00'; enabled = '2.50'; moved = '3.50'; scaled = '5.00'; inactive = '0.00'; active = '5.00'; resting = '2.0'; trigger = '0.5' }
+        $txt = { param($s) ($s.Keys | ForEach-Object { "$_ $($s[$_])" }) -join ', ' }
+        $okFast = $true; $same = $true
+        foreach ($k in $want.Keys) { if ($fast.Seq[$k] -ne $want[$k]) { $okFast = $false }; if ($fast.Seq[$k] -ne $full.Seq[$k]) { $same = $false } }
+        Add-Result physicssync 'script changes reach the bodies on the next step (size, enabled, transform move, scale, SetActive, isTrigger)' $okFast (& $txt $fast.Seq)
+        Add-Result physicssync 'same results as a full rescan every step (the old way)' $same ("full: " + (& $txt $full.Seq))
+        $a = $fast.A; $b = $fast.B
+        $dFast = [int]$b.fastSyncs - [int]$a.fastSyncs; $dFull = [int]$b.fullSyncs - [int]$a.fullSyncs; $dOwners = [int]$b.ownersChecked - [int]$a.ownersChecked
+        $perStep = if ($dFast -gt 0) { $dOwners / $dFast } else { 999 }
+        Add-Result physicssync 'idle steps skip the scene scan and only look at a few owners (moved, rotating check)' ($b -and $dFast -gt 5 * [math]::Max(1, $dFull) -and $perStep -lt [int]$b.groups / 2 -and [int]$b.verifyFixes -eq 0) ("{0} fast / {1} full steps, {2:N1} owners checked per step of {3} groups, verify fixes {4}" -f $dFast, $dFull, $perStep, $b.groups, $b.verifyFixes)
+        Add-Result physicssync 'static bodies skip Transform → body when their world version is unchanged' ($b -and [int64]$b.staticPushSkipped -gt 100) "skipped $($b.staticPushSkipped) static pushes"
+
+        # 씬 스트리밍: 미리 지은 씬의 형상을 백그라운드 잡이 만들어 두고, 바꿔 끼운 뒤 첫 동기화가 그대로 쓴다 (새 바디는 한 번에)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name PsGround --position 0,-0.5,0 --scale 40,1,40' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $op = Invoke-NovaJson 'scenestream load --path Assets/Scenes/CityShowcase.scene'
+        $id = if ($op) { [int]$op.op } else { 0 }
+        $script:psSt = $null
+        [void](Wait-Until { $script:psSt = Invoke-NovaJson "scenestream status --id $id"; $script:psSt -and $script:psSt.done } -Seconds 180 -Frames 10)
+        $script:psSync = $null
+        [void](Wait-Until { $script:psSync = (Invoke-NovaJson 'physics').sync; $script:psSync -and ([int]$script:psSync.prebuilt.used + [int]$script:psSync.prebuilt.missed) -gt 0 } -Seconds 20 -Frames 5)
+        $ps = $script:psSync
+        $used = if ($ps) { [int]$ps.prebuilt.used } else { 0 }; $missed = if ($ps) { [int]$ps.prebuilt.missed } else { 0 }
+        Add-Result physicssync 'streamed city: body shapes were prebuilt in the background and used at activation' ($id -gt 0 -and $used -gt 1000 -and $missed -le [math]::Max(5, $used * 0.05)) "op $id done $($script:psSt.done), prebuilt used $used missed $missed, bodies $($ps.bodies), added in batches $($ps.bodiesAdded)"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Invoke-Nova 'physics --full-sync false' | Out-Null
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 # ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
 function Suite-RenderThread
 {
@@ -7980,6 +8086,7 @@ try
                 'deferred' { Suite-Deferred }
                 'jobs' { Suite-Jobs }
                 'physicsasync' { Suite-PhysicsAsync }
+                'physicssync' { Suite-PhysicsSync }
                 'renderthread' { Suite-RenderThread }
                 'memory' { Suite-Memory }
                 'transform' { Suite-Transform }

@@ -158,6 +158,7 @@ void GameObject::SetParent(GameObject* parent, bool worldPositionStays)
     for (GameObject* p = parent; p != nullptr; p = p->GetParent())
         if (p == this)
             return;
+    Component::MarkPhysicsDirty();   // 바디 소유자 (Rigidbody 가 있는 조상) 가 바뀔 수 있다
 
     Transform* transform = GetTransform();
     const Vec3 worldPos = transform->GetPosition();
@@ -273,7 +274,10 @@ void GameObject::OnInspectorGUI()
     // Unity 스타일 GameObject 헤더: 아이콘 / 활성 / 이름 / Static / Tag / Layer
     {
         int layer = m_LayerIndex;
+        const bool activeBefore = m_IsActive;
         UnityGUI::GameObjectHeader(&m_IsActive, &m_Name, &m_IsStatic, &m_Tag, &layer);
+        if (m_IsActive != activeBefore || (uint8)layer != m_LayerIndex)
+            Component::MarkPhysicsDirty();   // 체크박스 · 레이어가 값을 바로 고친다
         m_LayerIndex = (uint8)layer;
     }
 
@@ -436,6 +440,7 @@ void from_json(const json& j, GameObject& obj)
     if (j.contains("fileID") && j["fileID"].is_number_unsigned())
         obj.m_FileID = j["fileID"].get<uint64>();
     obj.m_IsActive = j.value("active", true);
+    Component::MarkPhysicsDirty();
     obj.m_Tag = j.value("tag", std::string("Untagged"));
     obj.m_LayerIndex = (uint8)j.value("layer", 0);
     obj.m_IsStatic = j.value("static", false);

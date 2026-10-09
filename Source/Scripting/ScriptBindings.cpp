@@ -19,6 +19,9 @@
 #include "CharacterController.h"
 #include "Joint.h"
 #include "Collider.h"
+#include "BoxCollider.h"
+#include "SphereCollider.h"
+#include "CapsuleCollider.h"
 #include "AudioSource.h"
 #include "AudioClip.h"
 #include "AudioManager.h"
@@ -321,6 +324,10 @@ namespace
 		int(*App_TargetFrameRate)(int, int);
 		// Application.backgroundLoadingPriority (ThreadPriority 값 — set != 0 이면 바꾼다)
 		int(*App_LoadingPriority)(int, int);
+		// Collider 값 (Unity: isTrigger · center · BoxCollider.size · SphereCollider.radius · CapsuleCollider.radius · height · direction).
+		//  type = 네이티브 타입 이름, prop: 0 isTrigger 1 center 2 size 3 Sphere radius 4 Capsule radius 5 height 6 direction, 값은 float 4 개
+		void(*COL_Get)(uint64, u8*, int, float*);
+		void(*COL_Set)(uint64, u8*, int, float*);
 	};
 
 	// ---------------------------------------------------------------- 공용
@@ -585,6 +592,48 @@ namespace
 		Component* c = FindComponent(Find(id), type ? type : "");
 		return c == nullptr ? -1 : (c->IsEnabled() ? 1 : 0);
 	}
+	// Collider 값 — 설정 함수가 물리 번호를 올린다 (다음 스텝에 바디가 따른다)
+	void COL_Get(uint64 id, u8* type, int prop, float* out)
+	{
+		if (out == nullptr)
+			return;
+		out[0] = out[1] = out[2] = out[3] = 0.0f;
+		Collider* c = dynamic_cast<Collider*>(FindComponent(Find(id), type ? type : ""));
+		if (c == nullptr)
+			return;
+		Vec3 v = Vec3::Zero;
+		switch (prop)
+		{
+		case 0: v.x = c->IsTrigger() ? 1.0f : 0.0f; break;
+		case 1: v = c->GetCenter(); break;
+		case 2: if (auto* b = dynamic_cast<BoxCollider*>(c)) v = b->GetSize(); break;
+		case 3: if (auto* s = dynamic_cast<SphereCollider*>(c)) v.x = s->GetRadius(); break;
+		case 4: if (auto* k = dynamic_cast<CapsuleCollider*>(c)) v.x = k->GetRadius(); break;
+		case 5: if (auto* k = dynamic_cast<CapsuleCollider*>(c)) v.x = k->GetHeight(); break;
+		case 6: if (auto* k = dynamic_cast<CapsuleCollider*>(c)) v.x = (float)k->GetDirection(); break;
+		default: break;
+		}
+		out[0] = v.x; out[1] = v.y; out[2] = v.z;
+	}
+	void COL_Set(uint64 id, u8* type, int prop, float* in)
+	{
+		Collider* c = in ? dynamic_cast<Collider*>(FindComponent(Find(id), type ? type : "")) : nullptr;
+		if (c == nullptr)
+			return;
+		const Vec3 v(in[0], in[1], in[2]);
+		switch (prop)
+		{
+		case 0: c->SetIsTrigger(v.x != 0.0f); break;
+		case 1: c->SetCenter(v); break;
+		case 2: if (auto* b = dynamic_cast<BoxCollider*>(c)) b->SetSize(v); break;
+		case 3: if (auto* s = dynamic_cast<SphereCollider*>(c)) s->SetRadius(v.x); break;
+		case 4: if (auto* k = dynamic_cast<CapsuleCollider*>(c)) k->SetRadius(v.x); break;
+		case 5: if (auto* k = dynamic_cast<CapsuleCollider*>(c)) k->SetHeight(v.x); break;
+		case 6: if (auto* k = dynamic_cast<CapsuleCollider*>(c)) k->SetDirection((int)v.x); break;
+		default: break;
+		}
+	}
+
 	void Comp_SetEnabled(uint64 id, u8* type, int on)
 	{
 		if (Component* c = FindComponent(Find(id), type ? type : ""))
@@ -1458,6 +1507,8 @@ namespace ScriptBindings
 				Application::backgroundLoadingPriority = value;
 			return Application::backgroundLoadingPriority;
 		};
+		t.COL_Get = COL_Get;
+		t.COL_Set = COL_Set;
 		t.PS_Call = PS_Call;
 		t.PS_GetFloat = PS_GetFloat;
 		t.PS_SetFloat = PS_SetFloat;

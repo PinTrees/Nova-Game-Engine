@@ -77,6 +77,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(CapsuleCollider)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(CapsuleCollider)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	m_Radius = j.value("radius", 0.5f);
 	m_Height = j.value("height", 2.0f);
 	m_Direction = std::clamp(j.value("direction", 1), 0, 2);

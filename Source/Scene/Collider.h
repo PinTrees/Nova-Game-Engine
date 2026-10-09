@@ -32,20 +32,21 @@ public:
 	~Collider();
 
 public:
-	void SetCenter(Vec3 center) { m_Center = center; }
+	void SetCenter(Vec3 center) { MarkPhysicsDirty(); m_Center = center; }
 	Vec3 GetCenter() const { return m_Center; }
 	bool IsTrigger() const { return m_IsTrigger; }
-	void SetIsTrigger(bool trigger) { m_IsTrigger = trigger; }
+	void SetIsTrigger(bool trigger) { MarkPhysicsDirty(); m_IsTrigger = trigger; }
 	int GetLayerOverridePriority() const { return m_LayerOverridePriority; }
 	uint32 GetIncludeLayers() const { return m_IncludeLayers; }
 	uint32 GetExcludeLayers() const { return m_ExcludeLayers; }
-	void SetIncludeLayers(uint32 mask) { m_IncludeLayers = mask; }
-	void SetExcludeLayers(uint32 mask) { m_ExcludeLayers = mask; }
+	void SetIncludeLayers(uint32 mask) { MarkPhysicsDirty(); m_IncludeLayers = mask; }
+	void SetExcludeLayers(uint32 mask) { MarkPhysicsDirty(); m_ExcludeLayers = mask; }
 
 	// 로컬 Center 를 월드 좌표로 변환 (콜라이더의 중심)
 	Vec3 GetWorldCenter();
 
 	virtual bool UsesUnityInspector() const override { return true; }
+	virtual bool AffectsPhysics() const override { return true; }
 
 public:
 	GENERATE_COMPONENT_BODY(Collider)

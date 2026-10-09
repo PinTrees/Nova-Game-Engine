@@ -226,11 +226,36 @@ namespace
 		b2Body_SetBullet(rec.Id, rb->CollisionDetection == 1);
 	}
 
+	// 2D 컴포넌트가 하나도 없는 씬 (3D 게임): 구조 (물리 · 연결 번호 · 오브젝트 수) 가 그대로면 다시 훑지 않는다
+	//  (예전: 2D 몸체가 없어도 스텝마다 모든 오브젝트를 훑었다 — 도시 Release 프레임당 0.1 ms). 2D 컴포넌트를 붙이거나 켜면 번호가 오른다
+	struct EmptyCheck
+	{
+		Scene* scene = nullptr;
+		uint32_t physics = 0, binding = 0;
+		size_t objects = 0;
+		bool empty = false;
+		bool Same(Scene* s) const
+		{
+			return empty && scene == s && physics == Component::s_PhysicsSerial && binding == Component::s_BindingSerial && objects == s->GameObjectsView().size();
+		}
+		void Remember(Scene* s, bool nothing)
+		{
+			scene = s;
+			physics = Component::s_PhysicsSerial;
+			binding = Component::s_BindingSerial;
+			objects = s->GameObjectsView().size();
+			empty = nothing;
+		}
+	};
+	EmptyCheck s_SyncEmpty;
+
 	// 씬과 맞추기: 몸체 · 모양 만들기 / 지우기 / 다시, 사용자가 옮긴 Transform
 	void Sync()
 	{
 		if (!s_Scene)
 			return;
+		if (s_SyncEmpty.Same(s_Scene) && s_Bodies.empty())
+			return;   // 2D 컴포넌트가 없고 구조가 그대로다
 		std::unordered_map<GameObject*, std::vector<Collider2D*>> groups;
 		std::unordered_map<GameObject*, Rigidbody2D*> rbs;
 		s_Alive.clear();
@@ -357,6 +382,7 @@ namespace
 			it = (s_Alive.count(it->first.A) && s_Alive.count(it->first.B)) ? std::next(it) : s_Touching.erase(it);
 		for (auto it = s_Triggers.begin(); it != s_Triggers.end();)
 			it = (s_Alive.count(it->A) && s_Alive.count(it->B)) ? std::next(it) : s_Triggers.erase(it);
+		s_SyncEmpty.Remember(s_Scene, groups.empty() && s_Bodies.empty());
 	}
 
 	// C# OnCollision / OnTrigger … 2D: 콜라이더의 GameObject 와 (다르면) 그 Rigidbody2D 의 GameObject 의 스크립트에
@@ -544,6 +570,7 @@ namespace Physics2DManager
 	void Start(Scene* scene)
 	{
 		Exit();
+		s_SyncEmpty = EmptyCheck();
 		Physics2DSettings::ResetRuntime();
 		b2WorldDef wd = b2DefaultWorldDef();
 		wd.gravity = B(Physics2DSettings::Gravity());

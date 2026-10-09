@@ -51,6 +51,8 @@ public:
 	virtual void OnInspectorGUI() { }
 	// Unity 스타일 Inspector(UnityGUI)로 본문을 그리는 컴포넌트는 true (기존 스타일 push 를 생략)
 	virtual bool UsesUnityInspector() const { return false; }
+	// 물리 바디를 바꾸는 컴포넌트 (콜라이더 · Rigidbody · Joint): 인스펙터가 값을 바꾸면 물리 번호를 올린다 (RenderInspectorGUI 가 그리기 앞뒤 값을 비교)
+	virtual bool AffectsPhysics() const { return false; }
 	// 헤더 아이콘 이름(ProjectSetting/icons/svg/png/<이름>.png). nullptr 이면 타입 기본 아이콘
 	virtual const char* InspectorIconName() const { return nullptr; }
 	// 헤더 제목 (예: "Cube (Mesh Filter)"). 기본은 m_InspectorTitleName
@@ -58,7 +60,7 @@ public:
 	// 헤더에 활성 체크박스를 표시할지 (Transform 은 표시하지 않음)
 	virtual bool HasEnabledToggle() const { return true; }
 	bool IsEnabled() const { return m_Enabled; }
-	void SetEnabled(bool enabled) { m_Enabled = enabled; }
+	void SetEnabled(bool enabled) { if (m_Enabled != enabled) MarkPhysicsDirty(); m_Enabled = enabled; }
 	virtual void OnDrawGizmos() { }
 	// 복제/프리팹 배치로 GameObject fileID 가 바뀔 때: 옛 ID → 새 ID (복사한 묶음 안을 가리키던 참조를 고친다)
 	virtual void RemapFileIDs(const std::unordered_map<uint64, uint64>& map) { }
@@ -78,6 +80,10 @@ public:
 	// 컴포넌트 · 메시 연결 번호: 컴포넌트를 GameObject 에 붙이거나 MeshFilter · Mesh Renderer 의 메시를 바꿀 때 +1.
 	//  같으면 컬링이 렌더러마다 메시를 다시 찾지 않는다 (SceneCulling::Update — 놓친 경로는 돌아가며 하는 확인이 바로잡는다)
 	static uint32_t s_BindingSerial;
+	// 물리 번호: 물리 바디가 달라질 수 있는 변경 (오브젝트 만들기 · 지우기 · 켜고 끄기 · 부모 · 레이어, 컴포넌트 지우기 · 켜고 끄기,
+	//  콜라이더 · Rigidbody 값) 마다 +1. 같으면 물리 동기화가 씬을 다시 훑지 않고 Transform 이 바뀐 소유자만 본다 (PhysicsManager)
+	static uint32_t s_PhysicsSerial;
+	static void MarkPhysicsDirty();
 	// LOD Group (LODGroup::SelectForView 가 뷰마다 매김): LodStamp == SceneCulling::LodStamp 일 때만 따른다
 	uint32_t LodStamp = 0;
 	bool LodHidden = false;         // 카메라 패스 (깊이 · 본 · 투명) 에서 안 그림

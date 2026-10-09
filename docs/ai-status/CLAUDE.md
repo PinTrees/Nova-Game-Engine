@@ -1,6 +1,17 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **Graphics Jobs 조사 → 그리기 준비를 데이터 지향으로** (사용자 지시: 추천 1 "Graphics Jobs" → 2 "물리를 데이터 지향으로" → 4 "검사 안정성" 차례로 전부). **1 완료 (커밋 대기)**, 2 · 4 진행 중
+- 갱신 시각: 2026년 10월 9일 — **물리를 데이터 지향으로** (추천 2) + **검사 안정성** (추천 4). 사용자 지시: 1 → 2 → 4 차례로 전부. 1 은 커밋 ec7f678 (푸시 전)
+  - 물리 번호 `Component::s_PhysicsSerial` (`MarkPhysicsDirty`): Scene 오브젝트 목록 · SetActive · SetStaged · 부모 · 레이어 · 컴포넌트 지우기 · 켜기 (헤더 체크박스 포함) ·
+    콜라이더 · Rigidbody · Character Controller 설정 함수 · fromJson (2D 포함), 인스펙터는 그리기 앞뒤 toJson 이 다를 때만 (`AffectsPhysics` — 처음엔 그릴 때마다 올려 선택해 둔 Play 가 늘 전체 훑기였다)
+  - `PhysicsManager.cpp`: 소유자 묶음 (콜라이더 · 지켜볼 Transform 월드 번호) 을 기억하고 구조가 그대로면 바뀐 소유자만 서명, 돌아가며 64 · 50 스텝마다 전체 (안전망, `verifyFixes`),
+    `CreateBody` 를 모아 `AddBodiesPrepare/Finalize`, 빼기는 `RemoveBodies/DestroyBodies`, Transform → 바디는 Rigidbody 바디 + 움직인 정적 소유자만, 동적 바디 목록 · FixedUpdate 호출 목록 캐시,
+    `PrebuildStaged` (SceneManagerRuntime 이 루트를 다 지으면 — 형상은 미리 데우기 잡, 물리 월드 밖에 둔다: 씬을 바꾸면 월드를 새로 만든다), `nova physics` 의 sync 통계 · `--full-sync`
+  - 2D: `Physics2DManager.cpp` · `Physics2DJoints.cpp` — 2D 컴포넌트가 없는 씬은 구조가 그대로면 훑지 않는다
+  - C#: `Collider.isTrigger`, `BoxCollider.center · size`, `SphereCollider.center · radius`, `CapsuleCollider.center · radius · height · direction` (ScriptBindings COL_Get/Set)
+  - 결과 (Release 도시 Play): Physics.Update 프레임당 0.519 → 0.035 ms, 씬 바꾸기의 물리 6 → 4 ms (미리 만든 형상 2780 개 모두 사용)
+  - 검사: 새 스위트 `physicssync` 5/5 (바뀐 것만 = 전체 훑기와 같은 결과), physics · physicsasync · ragdoll · streaming 34/34. 문서 PHYSICS_SYNC
+  - 검사 안정성 (진행 중): `common.ps1` Wait-Until · Invoke-Nova 재시도 · Stop-StrayTestEditors, run_tests 의 스위트 예외 → 남은 검사 에디터 끄고 한 번 다시 (줄 번호 기록), VRM 다시 가져오기 로그 · APV 프로브를 조건 폴링으로
+- 이전: 2026년 10월 9일 — **Graphics Jobs 조사 → 그리기 준비를 데이터 지향으로** (추천 1). **완료 (커밋 ec7f678)**
   - 측정 먼저 (Release 도시 DX12, 렌더 스레드 켬): 그리기 명령 기록은 프레임당 0.12 ms 뿐 → 기록을 잡으로 나누는 대신, 메인 시간을 먹던 그리기 준비를 고쳤다 (사용자에게 알림)
   - `Scene.cpp`: 불투명 패스의 씬 전체 순회 (dynamic_cast + 가상 Render) → Skinned Mesh Renderer · 지형만 등록 목록에서 (CollectViewRenderers 가 컬링 자리 · Terrain::GetActiveTerrains)
   - `MotionVectors.cpp`: 컬링 자리를 차례로, 자리마다 뷰가 본 월드 · 번호 (번호가 같으면 비교 없음) — 1.05 → 0.09 ms

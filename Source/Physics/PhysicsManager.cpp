@@ -48,6 +48,8 @@
 #include "LockFree.h"
 #include "Profiler.h"
 #include "ComponentIndex.h"
+#include "TransformStore.h"
+#include "SceneStreaming.h"
 #include "MonoBehaviour.h"
 #include "RigidBody.h"
 #include "BoxCollider.h"
@@ -177,6 +179,50 @@ struct PhysicsManager::JoltWorld
 	std::vector<uint8_t> groupKinds;
 	uint32_t syncStamp = 0;
 
+	// 바뀐 것만 동기화: 마지막 전체 훑기의 소유자 묶음 (연속 배열). 물리 번호 · 연결 번호 · 씬 · 오브젝트 수가 그대로면 이것만 본다
+	struct Watch { Transform* tr; uint32_t slot; uint32_t version; };   // 지켜볼 Transform 과 마지막으로 본 월드 번호
+	struct OwnerGroup
+	{
+		GameObject* owner = nullptr;
+		RigidBody* rb = nullptr;
+		uint32_t colBegin = 0, colCount = 0;       // groupCols · groupKindList
+		uint32_t watchBegin = 0, watchCount = 0;   // watch
+		bool alwaysCheck = false;                  // 지형 (높이 · 나무 번호는 Transform 이 아니다)
+	};
+	std::vector<OwnerGroup> groups;
+	std::vector<Collider*> groupCols;
+	std::vector<uint8_t> groupKindList;
+	std::vector<Watch> watch;
+	Scene* groupsScene = nullptr;
+	uint32_t groupsPhysicsSerial = 0, groupsBindingSerial = 0;
+	size_t groupsObjectCount = 0;
+	uint32_t stepsSinceFull = 0;
+	size_t verifyCursor = 0;
+	// 바디를 모아 한 번에 넣기 · 빼기
+	std::vector<JPH::BodyID> addStatic, addActive, removeList;
+	uint32_t bodiesSerial = 0;   // 바디를 만들거나 지울 때 +1 (동적 바디 목록 캐시)
+	// 통계 (nova physics sync)
+	uint64_t fullSyncs = 0, fastSyncs = 0, ownersChecked = 0, verifyFixes = 0, bodiesAdded = 0, prebuiltUsed = 0, prebuiltMissed = 0, staticPushSkipped = 0;
+
+	// 씬 스트리밍: 미리 만든 형상 (PhysicsManager::PrebuildStaged — 바꿔 끼우기 전에 백그라운드 잡이). 키 = 소유 오브젝트 InstanceID
+	struct Prebuilt
+	{
+		size_t signature = 0;
+		Vec3 pos;
+		Quaternion rot;
+		bool dynamic = false;
+		std::vector<Collider*> cols;
+		JPH::RefConst<JPH::Shape> shape;
+	};
+	struct PrebuildBatch
+	{
+		std::unordered_map<JPH::uint64, Prebuilt> items;
+		std::atomic<bool> done{ false };
+		Scene* target = nullptr;   // 이 형상을 쓸 씬 (바꿔 끼운 뒤 첫 동기화가 쓰고 버린다)
+		uint32_t made = 0;         // 만든 형상 수 (잡)
+		double ms = 0.0;           // 잡이 걸린 시간
+	};
+
 	struct BodyRecord
 	{
 		GameObject* owner = nullptr;
@@ -191,9 +237,27 @@ struct PhysicsManager::JoltWorld
 
 		Vec3 lastPos;              // 마지막으로 Transform 과 동기화한 값 (사용자가 Transform 을 바꿨는지 판정)
 		Quaternion lastRot;
+		uint32_t trSlot = 0;          // 소유자 Transform 칸 · 마지막으로 바디에 맞춘 월드 번호 (정적 바디는 번호가 같으면 Transform → 바디를 건너뛴다)
+		uint32_t trVersion = ~0u;
 		Vec3 prevPos, curPos;      // Interpolate 용
 		Quaternion prevRot, curRot;
 	};
+	// 동적 바디 (부모 먼저) 캐시: 바디 · 물리 번호가 그대로면 다시 모으지 않는다 (예전: 스텝 · 프레임마다 바디 표 전체를 훑었다)
+	std::vector<BodyRecord*> dynamicByDepth;
+	uint32_t dynamicBodiesSerial = ~0u, dynamicPhysicsSerial = ~0u;
+	// Transform → 바디: 바뀐 것만 동기화한 스텝은 Rigidbody 바디 (캐시) + 이번에 움직인 정적 소유자만 본다 (바디 표 전체를 돌지 않는다)
+	std::vector<BodyRecord*> rigidBodies;
+	uint32_t rigidBodiesSerial = ~0u;
+	std::vector<BodyRecord*> pushList;
+	bool pushAll = true;
+	// FixedUpdate 호출 목록: 켜진 오브젝트마다 컴포넌트 (MonoBehaviour 는 따로 — 꺼졌으면 건너뛴다). 구조가 그대로면 다시 모으지 않는다
+	//  (예전: 스텝마다 모든 오브젝트 · 컴포넌트에 dynamic_cast — 도시 Release 스텝당 0.3 ms)
+	struct FixedObject { GameObject* go; uint32_t begin, count; };
+	std::vector<FixedObject> fixedObjects;
+	std::vector<std::pair<Component*, MonoBehaviour*>> fixedCalls;
+	Scene* fixedScene = nullptr;
+	uint32_t fixedPhysicsSerial = 0, fixedBindingSerial = 0;
+	size_t fixedObjectCount = 0;
 
 	struct TouchInfo
 	{
@@ -834,8 +898,14 @@ namespace
 	// 접촉 링 (+ 넘친 목록) → out (nullptr = 버린다). 메인만
 	void DrainTouches(World& w, std::unordered_map<JPH::uint64, World::TouchInfo>* out);
 
-	std::vector<World::BodyRecord*> DynamicByDepth(World& w)
+	//  바디를 만들거나 지우지 않았고 (bodiesSerial) 부모가 바뀌지 않았으면 (물리 번호) 지난 목록 그대로 — 바디 표 전체 (도시 2200 개) 를 훑지 않는다
+	//  (unordered_map 의 값은 지우기 전까지 자리가 그대로라 포인터를 들고 있어도 된다)
+	const std::vector<World::BodyRecord*>& DynamicByDepth(World& w)
 	{
+		if (w.dynamicBodiesSerial == w.bodiesSerial && w.dynamicPhysicsSerial == Component::s_PhysicsSerial)
+			return w.dynamicByDepth;
+		w.dynamicBodiesSerial = w.bodiesSerial;
+		w.dynamicPhysicsSerial = Component::s_PhysicsSerial;
 		std::vector<std::pair<int, World::BodyRecord*>> list;
 		bool nested = false;
 		for (auto& kv : w.bodies)
@@ -851,11 +921,51 @@ namespace
 		}
 		if (nested)
 			std::stable_sort(list.begin(), list.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
-		std::vector<World::BodyRecord*> out;
-		out.reserve(list.size());
+		w.dynamicByDepth.clear();
+		w.dynamicByDepth.reserve(list.size());
 		for (auto& e : list)
-			out.push_back(e.second);
-		return out;
+			w.dynamicByDepth.push_back(e.second);
+		return w.dynamicByDepth;
+	}
+
+	bool s_FullSyncEveryStep = false;   // 검사용: 스텝마다 전체 훑기 (nova physics --full-sync true)
+	// 미리 만든 형상은 월드 밖에 둔다: 씬을 바꿔 끼우면 물리 월드를 새로 만든다 (Exit → Start) — 새 월드의 첫 동기화가 쓴다
+	std::shared_ptr<World::PrebuildBatch> s_Prebuild;
+	uint32_t s_PrebuildAge = 0;
+
+	// 씬 스트리밍이 미리 만든 형상: 같은 소유자 · 서명 · 자리 · 동적 여부면 쓴다 (아니면 nullptr — 그 자리에서 만든다)
+	JPH::RefConst<JPH::Shape> TakePrebuiltShape(World& w, JPH::uint64 key, size_t sig, const Vec3& pos, const Quaternion& rot, bool dynamic)
+	{
+		if (!s_Prebuild || !s_Prebuild->done.load(std::memory_order_acquire))
+			return nullptr;
+		auto it = s_Prebuild->items.find(key);
+		if (it == s_Prebuild->items.end())
+			return nullptr;
+		World::Prebuilt& p = it->second;
+		JPH::RefConst<JPH::Shape> shape;
+		if (p.shape != nullptr && p.signature == sig && p.dynamic == dynamic && (p.pos - pos).LengthSquared() == 0.0f &&
+			p.rot.x == rot.x && p.rot.y == rot.y && p.rot.z == rot.z && p.rot.w == rot.w)
+		{
+			shape = p.shape;
+			++w.prebuiltUsed;
+		}
+		else
+			++w.prebuiltMissed;   // 바꿔 끼운 뒤 Awake · Start 가 옮겼거나 값을 바꿨다
+		s_Prebuild->items.erase(it);
+		return shape;
+	}
+
+	// 바꿔 끼운 씬의 첫 동기화가 끝났으면 (또는 불러오기가 취소되어 오래 남았으면) 미리 만든 형상을 버린다
+	void ReleasePrebuilt(World& w, Scene* scene)
+	{
+		if (!s_Prebuild)
+			return;
+		if ((s_Prebuild->done.load(std::memory_order_acquire) && s_Prebuild->target == scene) || ++s_PrebuildAge > 3000)
+		{
+			EditorLog::Write("Physics", "prebuilt shapes: used %llu, missed %llu, unused %zu (made %u in %.1f ms)", (unsigned long long)w.prebuiltUsed,
+				(unsigned long long)w.prebuiltMissed, s_Prebuild->items.size(), s_Prebuild->made, s_Prebuild->ms);
+			s_Prebuild.reset();
+		}
 	}
 
 	// ------------------------------------------------------------------ Joint
@@ -1313,15 +1423,20 @@ void PhysicsManager::Exit()
 	w.joints.clear();
 	w.jointNoCollide.clear();
 	w.ignoredPairs.clear();
+	// 바디를 한 번에 뺀다 (씬을 바꿀 때 수천 개 — 하나씩 빼면 브로드페이즈를 그만큼 고친다)
+	std::vector<JPH::BodyID>& ids = w.removeList;
+	ids.clear();
 	for (auto& kv : w.bodies)
 	{
 		if (kv.second.rb)
 			kv.second.rb->_SetBodyId(0xffffffff);
 		if (!kv.second.id.IsInvalid())
-		{
-			bi.RemoveBody(kv.second.id);
-			bi.DestroyBody(kv.second.id);
-		}
+			ids.push_back(kv.second.id);
+	}
+	if (!ids.empty())
+	{
+		bi.RemoveBodies(ids.data(), (int)ids.size());
+		bi.DestroyBodies(ids.data(), (int)ids.size());
 	}
 	w.bodies.clear();
 	m_World.reset();
@@ -1440,6 +1555,133 @@ void PhysicsManager::CompleteAsync(bool frameStart)
 	Interpolate();
 }
 
+void PhysicsManager::SetFullSyncEveryStep(bool on)
+{
+	s_FullSyncEveryStep = on;
+}
+
+nlohmann::json PhysicsManager::SyncInfo() const
+{
+	if (!m_World)
+		return { { "simulating", false } };
+	const JoltWorld& w = *m_World;
+	nlohmann::json prebuilt = { { "used", w.prebuiltUsed }, { "missed", w.prebuiltMissed }, { "pending", s_Prebuild ? (int)s_Prebuild->items.size() : 0 } };
+	if (s_Prebuild)
+	{
+		prebuilt["made"] = s_Prebuild->made;
+		prebuilt["jobMs"] = s_Prebuild->ms;
+		prebuilt["ready"] = s_Prebuild->done.load();
+	}
+	return { { "simulating", true }, { "fullEveryStep", s_FullSyncEveryStep }, { "fullSyncs", w.fullSyncs }, { "fastSyncs", w.fastSyncs },
+		{ "ownersChecked", w.ownersChecked }, { "verifyFixes", w.verifyFixes }, { "groups", w.groups.size() }, { "watched", w.watch.size() },
+		{ "bodies", w.bodies.size() }, { "bodiesAdded", w.bodiesAdded }, { "staticPushSkipped", w.staticPushSkipped },
+		{ "dynamic", w.dynamicByDepth.size() }, { "physicsSerial", Component::s_PhysicsSerial }, { "prebuilt", prebuilt } };
+}
+
+void PhysicsManager::PrebuildStaged(Scene* staged)
+{
+	if (staged == nullptr)
+		return;
+	PROFILE_SCOPE("Physics.PrebuildStaged");
+	auto batch = std::make_shared<JoltWorld::PrebuildBatch>();
+	batch->target = staged;
+	// 지금 씬의 전체 훑기와 같은 규칙으로 소유자 묶음 (미리 짓는 중 표시는 무시 — 바꿔 끼우면 켜진다)
+	auto activeIgnoringStaged = [](GameObject* go) {
+		for (GameObject* g = go; g != nullptr; g = g->GetParent())
+			if (!g->IsActiveSaved())
+				return false;
+		return true;
+	};
+	std::vector<JoltWorld::ScanEntry> scan;
+	for (GameObject* go : staged->GetAllGameObjects())
+	{
+		if (!activeIgnoringStaged(go))
+			continue;
+		const size_t first = scan.size();
+		const ComponentIndex::Entry& e = ComponentIndex::Of(go);
+		RigidBody* ownRb = e.Rigid;
+		for (Collider* col : e.Colliders)
+		{
+			if (col == e.Character)
+				continue;
+			const uint8_t kind = KindOf(col);
+			if (kind != KindNone && col->IsEnabled())
+				scan.push_back({ nullptr, col, nullptr, kind });
+		}
+		if (scan.size() == first)
+			continue;   // 콜라이더 없는 Rigidbody 는 빈 형상 — 미리 만들 것이 없다
+		GameObject* owner = go;
+		RigidBody* rb = ownRb;
+		if (!ownRb)
+			if (GameObject* up = FindRigidOwner(go->GetParent()))
+			{
+				owner = up;
+				rb = ComponentIndex::Of(up).Rigid;
+			}
+		for (size_t i = first; i < scan.size(); ++i)
+		{
+			scan[i].owner = owner;
+			scan[i].rb = rb;
+		}
+	}
+	std::stable_sort(scan.begin(), scan.end(), [](const JoltWorld::ScanEntry& a, const JoltWorld::ScanEntry& b) { return a.owner < b.owner; });
+	std::vector<Collider*> cols;
+	std::vector<uint8_t> kinds;
+	for (size_t g = 0; g < scan.size();)
+	{
+		GameObject* owner = scan[g].owner;
+		RigidBody* rb = scan[g].rb;
+		cols.clear();
+		kinds.clear();
+		size_t e = g;
+		for (; e < scan.size() && scan[e].owner == owner; ++e)
+		{
+			cols.push_back(scan[e].collider);
+			kinds.push_back(scan[e].kind);
+		}
+		g = e;
+		JoltWorld::Prebuilt p;
+		p.signature = ComputeSignature(owner, rb, cols, kinds.data());
+		bool frozenAll = false;
+		if (rb)
+		{
+			bool any = true;
+			for (int i = 0; i < 3; ++i)
+				any = any && rb->IsPositionFrozen(i) && rb->IsRotationFrozen(i);
+			frozenAll = any;
+		}
+		p.dynamic = rb && !(rb->IsKinematic() || frozenAll);
+		p.pos = owner->GetTransform()->GetPosition();
+		p.rot = owner->GetTransform()->GetRotation();
+		for (Collider* c : cols)
+			c->GetGameObject()->GetTransform()->GetWorldMatrix();   // 잡은 깨끗한 배열만 읽는다 (여기 메인에서 계산해 둔다)
+		p.cols = cols;
+		batch->items[(JPH::uint64)owner->GetInstanceID()] = std::move(p);
+	}
+	s_Prebuild = batch;
+	s_PrebuildAge = 0;
+	EditorLog::Write("Physics", "prebuild staged scene: %zu owners (shapes on a background job)", batch->items.size());
+	if (batch->items.empty())
+	{
+		batch->done.store(true, std::memory_order_release);
+		return;
+	}
+	// 형상 만들기 (메시 · 볼록 껍질 · 합성 — 무겁다) 는 백그라운드 잡: 미리 짓기는 이 잡이 끝나야 0.9 에 이른다
+	SceneStreaming::QueuePrewarmJob([batch]() {
+		const auto t0 = std::chrono::steady_clock::now();
+		uint32_t made = 0;
+		for (auto& kv : batch->items)
+		{
+			JoltWorld::Prebuilt& item = kv.second;
+			item.shape = BuildShape(item.cols, item.pos, item.rot, item.dynamic);
+			made += item.shape != nullptr ? 1 : 0;
+		}
+		batch->made = made;
+		batch->ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		batch->done.store(true, std::memory_order_release);
+	});
+}
+
 nlohmann::json PhysicsManager::AsyncInfo() const
 {
 	return { { "enabled", PhysicsSettings::AsyncSimulation() }, { "pending", m_AsyncPending }, { "asyncSteps", m_AsyncSteps },
@@ -1460,99 +1702,64 @@ bool PhysicsManager::StepBegin(float dt)
 	if (dt > 0.0f)
 	{
 		PROFILE_SCOPE("Physics.FixedUpdate");
-		for (GameObject* go : all)
+		// 호출 목록: 씬 · 물리 번호 (오브젝트 · 컴포넌트 만들기 · 지우기 · 켜기 · 부모) · 연결 번호 (컴포넌트 붙이기) · 오브젝트 수가 그대로면 지난 목록
+		//  (지운 컴포넌트는 ~Component 가 물리 번호를 올린다 — 목록이 지운 포인터를 들고 있지 않다)
+		if (w.fixedScene != scene || w.fixedPhysicsSerial != Component::s_PhysicsSerial || w.fixedBindingSerial != Component::s_BindingSerial ||
+			w.fixedObjectCount != all.size())
 		{
-			if (!IsActiveInHierarchy(go))
-				continue;
-			// (ComponentIndex 를 쓰면 표 조회 · 복사가 더 들었다 — 0.13 → 0.19 ms, 도시 PC Release. 여기는 그대로)
-			for (const auto& c : go->GetComponents())
+			w.fixedScene = scene;
+			w.fixedPhysicsSerial = Component::s_PhysicsSerial;
+			w.fixedBindingSerial = Component::s_BindingSerial;
+			w.fixedObjectCount = all.size();
+			w.fixedObjects.clear();
+			w.fixedCalls.clear();
+			for (GameObject* go : all)
 			{
-				if (MonoBehaviour* mb = dynamic_cast<MonoBehaviour*>(c.get()))
-					if (!mb->IsEnabled())
-						continue;
-				c->FixedUpdate();
+				if (!IsActiveInHierarchy(go))
+					continue;
+				const uint32_t begin = (uint32_t)w.fixedCalls.size();
+				for (const auto& c : go->GetComponents())
+					w.fixedCalls.push_back({ c.get(), dynamic_cast<MonoBehaviour*>(c.get()) });
+				w.fixedObjects.push_back({ go, begin, (uint32_t)w.fixedCalls.size() - begin });
+			}
+		}
+		for (const JoltWorld::FixedObject& o : w.fixedObjects)
+		{
+			// 앞 스크립트가 이 스텝에 끈 오브젝트 · 컴포넌트는 건너뛴다 (예전과 같다 — 오브젝트마다 그때 확인)
+			if (!IsActiveInHierarchy(o.go))
+				continue;
+			for (uint32_t k = o.begin; k < o.begin + o.count; ++k)
+			{
+				const auto& call = w.fixedCalls[k];
+				if (call.second && !call.second->IsEnabled())
+					continue;
+				call.first->FixedUpdate();
 			}
 		}
 		all = scene->GetAllGameObjects();
 	}
 
-	// 2) 바디 동기화: 오브젝트마다 컴포넌트를 한 번만 훑어 콜라이더 · Rigidbody · Character Controller · Joint 를 모은다.
-	//  버퍼 · 콜라이더 표는 스텝마다 새로 만들지 않고 그 자리에서 고친다 (예전: 스텝마다 소유자 맵 · id 맵 · 표를 새로 —
-	//  정적 콜라이더 2200 개의 도시에서 스텝마다 약 3 ms). 바디가 바뀌었는지는 지금처럼 서명으로
+	// 2) 바디 동기화 (데이터 지향 — 바뀐 것만)
+	//  - 전체 훑기: 오브젝트마다 컴포넌트를 한 번만 훑어 콜라이더 · Rigidbody · Character Controller · Joint 를 모으고, 소유자 묶음
+	//    (콜라이더 · 지켜볼 Transform 과 그 월드 번호) 을 기억한다. 버퍼 · 콜라이더 표는 그 자리에서 고친다
+	//  - 물리 번호 (Component::s_PhysicsSerial — 오브젝트 · 컴포넌트 만들기 · 지우기 · 켜기 · 부모 · 레이어 · 콜라이더 · Rigidbody 값) 와
+	//    연결 번호 (메시) 가 그대로면 씬을 다시 훑지 않는다: 묶음마다 Transform 월드 번호만 보고 바뀐 소유자만 서명을 다시 계산한다
+	//    (도시: 정적 콜라이더 2200 개 — 대부분 스텝마다 아무 일이 없다)
+	//  - 안전망: 스텝마다 돌아가며 64 묶음은 서명을 실제로 계산하고, 50 스텝 (1 초) 마다 전체 훑기 — 번호를 올리지 않는 경로가 있어도 바로잡힌다
+	//  - 새 바디는 모아 한 번에 넣는다 (Jolt AddBodiesPrepare · Finalize — 브로드페이즈에 하나씩 넣지 않는다), 빼는 것도 한 번에
 	static const char* kSyncName = Profiler::Intern("Physics.Sync");
 	const bool profiling = Profiler::Collecting();
 	if (profiling) Profiler::Begin(kSyncName);
 	const uint32_t stamp = ++w.syncStamp;
-	w.scan.clear();
-	w.scanCharacters.clear();
-	w.scanJoints.clear();
-	for (GameObject* go : all)
-	{
-		if (!IsActiveInHierarchy(go))
-			continue;
-		const size_t first = w.scan.size();
-		// 분류는 ComponentIndex 가 기억한다 (컴포넌트가 그대로면 dynamic_cast 없이)
-		const ComponentIndex::Entry& e = ComponentIndex::Of(go);
-		RigidBody* ownRb = e.Rigid;
-		if (e.Character)
-			w.scanCharacters.push_back(e.Character);   // 오브젝트의 첫 Character Controller (예전 GetComponent 와 같음)
-		for (Collider* col : e.Colliders)
-		{
-			if (col == e.Character)
-				continue;
-			// 형상 종류: 표에 기억한 값, 처음 보는 콜라이더면 판정 (두 번째 Character Controller 등 형상이 아니면 None)
-			auto it = w.colliders.find((JPH::uint32)col->GetInstanceID());
-			const uint8_t kind = it != w.colliders.end() && it->second.collider == col && it->second.kind != KindNone ? it->second.kind : KindOf(col);
-			if (kind != KindNone && col->IsEnabled())
-				w.scan.push_back({ nullptr, col, nullptr, kind });
-		}
-		if (ownRb)
-			for (Joint* jt : e.Joints)
-				w.scanJoints.push_back({ go, jt });   // Joint 는 Rigidbody 가 있는 오브젝트만
-		// 소유자: 자기에게 Rigidbody 가 있으면 자기, 없으면 Rigidbody 가 있는 가장 가까운 조상, 그것도 없으면 자기 (정적)
-		if (w.scan.size() == first)
-		{
-			if (ownRb)
-				w.scan.push_back({ go, nullptr, ownRb, KindNone });   // 콜라이더 없는 Rigidbody (빈 형상 바디)
-			continue;
-		}
-		GameObject* owner = go;
-		RigidBody* rb = ownRb;
-		if (!ownRb)
-			if (GameObject* up = FindRigidOwner(go->GetParent()))
-			{
-				owner = up;
-				rb = ComponentIndex::Of(up).Rigid;
-			}
-		for (size_t i = first; i < w.scan.size(); ++i)
-		{
-			w.scan[i].owner = owner;
-			w.scan[i].rb = rb;
-		}
-	}
-	// 소유자끼리 (같은 소유자 안에서는 훑은 순서 그대로 — 서명 · 형상이 스텝마다 같게)
-	std::stable_sort(w.scan.begin(), w.scan.end(), [](const JoltWorld::ScanEntry& a, const JoltWorld::ScanEntry& b) { return a.owner < b.owner; });
+	const uint32_t physicsSerial = Component::s_PhysicsSerial;
+	const uint32_t bindingSerial = Component::s_BindingSerial;
+	w.addStatic.clear();
+	w.addActive.clear();
+	w.pushList.clear();
 
-	w.rigidToOwner.clear();
-	for (size_t g = 0; g < w.scan.size();)
-	{
-		GameObject* owner = w.scan[g].owner;
-		RigidBody* rb = w.scan[g].rb;
-		std::vector<Collider*>& cols = w.groupColliders;
-		std::vector<uint8_t>& kinds = w.groupKinds;
-		cols.clear();
-		kinds.clear();
-		size_t e = g;
-		for (; e < w.scan.size() && w.scan[e].owner == owner; ++e)
-			if (w.scan[e].collider)
-			{
-				cols.push_back(w.scan[e].collider);
-				kinds.push_back(w.scan[e].kind);
-			}
-		g = e;   // 다음 소유자
+	// 소유자 하나를 맞춘다: 콜라이더 표 · 바디 (서명이 같으면 그대로, 다르면 다시 만든다). 만든 바디는 add 목록으로
+	auto syncOwner = [&](GameObject* owner, RigidBody* rb, const std::vector<Collider*>& cols, const std::vector<uint8_t>& kinds, size_t sig) {
 		const JPH::uint64 key = owner->GetInstanceID();
-		const size_t sig = ComputeSignature(owner, rb, cols, kinds.data());
-
 		for (size_t ci = 0; ci < cols.size(); ++ci)
 		{
 			Collider* c = cols[ci];
@@ -1575,7 +1782,7 @@ bool PhysicsManager::StepBegin(float dt)
 		{
 			existing->second.seen = stamp;
 			if (rb) w.rigidToOwner[rb] = key;
-			continue;
+			return;
 		}
 		Vec3 keepVel = Vec3::Zero, keepAng = Vec3::Zero;
 		if (existing != w.bodies.end())
@@ -1590,6 +1797,7 @@ bool PhysicsManager::StepBegin(float dt)
 				bi.DestroyBody(existing->second.id);
 			}
 			w.bodies.erase(existing);
+			++w.bodiesSerial;
 		}
 
 		Transform* tr = owner->GetTransform();
@@ -1610,12 +1818,14 @@ bool PhysicsManager::StepBegin(float dt)
 		const bool kinematic = rb && (rb->IsKinematic() || frozenAll);
 		const bool dynamic = rb && !kinematic;
 
-		JPH::RefConst<JPH::Shape> shape = BuildShape(cols, pos, rot, dynamic);
+		JPH::RefConst<JPH::Shape> shape = TakePrebuiltShape(w, key, sig, pos, rot, dynamic);   // 씬 스트리밍이 미리 만든 형상 (같은 서명 · 같은 자리)
+		if (shape == nullptr)
+			shape = BuildShape(cols, pos, rot, dynamic);
 		const bool emptyShape = shape == nullptr;
 		if (emptyShape)
 		{
 			if (rb == nullptr)
-				continue;   // 콜라이더 없는 정적 오브젝트는 바디가 필요 없다 (보지 못한 바디로 아래에서 빠진다)
+				return;   // 콜라이더 없는 정적 오브젝트는 바디가 필요 없다 (보지 못한 바디로 아래에서 빠진다)
 			shape = JPH::EmptyShapeSettings().Create().Get();
 		}
 
@@ -1648,12 +1858,17 @@ bool PhysicsManager::StepBegin(float dt)
 					bcs.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
 					bcs.mMassPropertiesOverride.mMass = rb->GetMass();
 				}
+				// 이어받는 속도 (다시 만든 바디) + 스크립트가 바디 전에 준 속도 — 넣기 전이라 만들 때 준다
+				bcs.mLinearVelocity = ToJ(keepVel + rb->_TakePendingVelocity());
+				bcs.mAngularVelocity = ToJ(keepAng + rb->_TakePendingAngularVelocity());
 			}
 		}
 
-		JPH::BodyID id = bi.CreateAndAddBody(bcs, dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
-		if (id.IsInvalid())
-			continue;
+		JPH::Body* body = bi.CreateBody(bcs);   // 아직 넣지 않는다 — 동기화 끝에 모아 한 번에
+		if (body == nullptr)
+			return;
+		const JPH::BodyID id = body->GetID();
+		(dynamic ? w.addActive : w.addStatic).push_back(id);
 
 		JoltWorld::BodyRecord rec;
 		rec.owner = owner;
@@ -1666,41 +1881,247 @@ bool PhysicsManager::StepBegin(float dt)
 		rec.colliders = cols;
 		rec.lastPos = rec.prevPos = rec.curPos = pos;
 		rec.lastRot = rec.prevRot = rec.curRot = rot;
+		rec.trSlot = tr->Slot();
+		rec.trVersion = tr->WorldVersion();
 		if (rb)
 		{
 			rb->_SetBodyId(id.GetIndexAndSequenceNumber());
-			if (dynamic)
-			{
-				Vec3 v = keepVel + rb->_TakePendingVelocity();
-				Vec3 a = keepAng + rb->_TakePendingAngularVelocity();
-				bi.SetLinearAndAngularVelocity(id, ToJ(v), ToJ(a));
-			}
 			w.rigidToOwner[rb] = key;
 		}
 		rec.seen = stamp;
 		w.bodies[key] = rec;
+		++w.bodiesSerial;
+	};
+
+	const bool full = w.groupsScene != scene || w.groupsPhysicsSerial != physicsSerial || w.groupsBindingSerial != bindingSerial ||
+		w.groupsObjectCount != all.size() || ++w.stepsSinceFull >= 50 || s_FullSyncEveryStep;
+	w.pushAll = full;   // 전체 훑기 스텝은 Transform → 바디도 모든 바디를
+	if (full)
+	{
+		++w.fullSyncs;
+		w.stepsSinceFull = 0;
+		w.scan.clear();
+		w.scanCharacters.clear();
+		w.scanJoints.clear();
+		for (GameObject* go : all)
+		{
+			if (!IsActiveInHierarchy(go))
+				continue;
+			const size_t first = w.scan.size();
+			// 분류는 ComponentIndex 가 기억한다 (컴포넌트가 그대로면 dynamic_cast 없이)
+			const ComponentIndex::Entry& e = ComponentIndex::Of(go);
+			RigidBody* ownRb = e.Rigid;
+			if (e.Character)
+				w.scanCharacters.push_back(e.Character);   // 오브젝트의 첫 Character Controller (예전 GetComponent 와 같음)
+			for (Collider* col : e.Colliders)
+			{
+				if (col == e.Character)
+					continue;
+				// 형상 종류: 표에 기억한 값, 처음 보는 콜라이더면 판정 (두 번째 Character Controller 등 형상이 아니면 None)
+				auto it = w.colliders.find((JPH::uint32)col->GetInstanceID());
+				const uint8_t kind = it != w.colliders.end() && it->second.collider == col && it->second.kind != KindNone ? it->second.kind : KindOf(col);
+				if (kind != KindNone && col->IsEnabled())
+					w.scan.push_back({ nullptr, col, nullptr, kind });
+			}
+			if (ownRb)
+				for (Joint* jt : e.Joints)
+					w.scanJoints.push_back({ go, jt });   // Joint 는 Rigidbody 가 있는 오브젝트만
+			// 소유자: 자기에게 Rigidbody 가 있으면 자기, 없으면 Rigidbody 가 있는 가장 가까운 조상, 그것도 없으면 자기 (정적)
+			if (w.scan.size() == first)
+			{
+				if (ownRb)
+					w.scan.push_back({ go, nullptr, ownRb, KindNone });   // 콜라이더 없는 Rigidbody (빈 형상 바디)
+				continue;
+			}
+			GameObject* owner = go;
+			RigidBody* rb = ownRb;
+			if (!ownRb)
+				if (GameObject* up = FindRigidOwner(go->GetParent()))
+				{
+					owner = up;
+					rb = ComponentIndex::Of(up).Rigid;
+				}
+			for (size_t i = first; i < w.scan.size(); ++i)
+			{
+				w.scan[i].owner = owner;
+				w.scan[i].rb = rb;
+			}
+		}
+		// 소유자끼리 (같은 소유자 안에서는 훑은 순서 그대로 — 서명 · 형상이 스텝마다 같게)
+		std::stable_sort(w.scan.begin(), w.scan.end(), [](const JoltWorld::ScanEntry& a, const JoltWorld::ScanEntry& b) { return a.owner < b.owner; });
+
+		w.rigidToOwner.clear();
+		w.groups.clear();
+		w.groupCols.clear();
+		w.groupKindList.clear();
+		w.watch.clear();
+		for (size_t g = 0; g < w.scan.size();)
+		{
+			GameObject* owner = w.scan[g].owner;
+			RigidBody* rb = w.scan[g].rb;
+			std::vector<Collider*>& cols = w.groupColliders;
+			std::vector<uint8_t>& kinds = w.groupKinds;
+			cols.clear();
+			kinds.clear();
+			size_t e = g;
+			for (; e < w.scan.size() && w.scan[e].owner == owner; ++e)
+				if (w.scan[e].collider)
+				{
+					cols.push_back(w.scan[e].collider);
+					kinds.push_back(w.scan[e].kind);
+				}
+			g = e;   // 다음 소유자
+			const size_t sig = ComputeSignature(owner, rb, cols, kinds.data());
+
+			// 묶음 기억: 콜라이더 · 종류, 지켜볼 Transform (소유자 — 크기 · 움직임, 콜라이더 오브젝트 — 소유자까지의 사슬이 바뀌면 그 월드 번호도 바뀐다)
+			JoltWorld::OwnerGroup grp;
+			grp.owner = owner;
+			grp.rb = rb;
+			grp.colBegin = (uint32_t)w.groupCols.size();
+			grp.colCount = (uint32_t)cols.size();
+			grp.watchBegin = (uint32_t)w.watch.size();
+			bool terrain = false;
+			for (size_t ci = 0; ci < cols.size(); ++ci)
+			{
+				w.groupCols.push_back(cols[ci]);
+				w.groupKindList.push_back(kinds[ci]);
+				terrain |= kinds[ci] == KindTerrain;
+			}
+			auto addWatch = [&](Transform* t) {
+				for (uint32_t k = grp.watchBegin; k < (uint32_t)w.watch.size(); ++k)
+					if (w.watch[k].tr == t)
+						return;
+				t->GetScale();   // 월드를 계산해 둔다 (번호가 깨끗한 값을 가리키게)
+				w.watch.push_back({ t, t->Slot(), t->WorldVersion() });
+			};
+			addWatch(owner->GetTransform());
+			for (Collider* c : cols)
+				addWatch(c->GetGameObject()->GetTransform());
+			grp.watchCount = (uint32_t)w.watch.size() - grp.watchBegin;
+			grp.alwaysCheck = terrain;   // 지형 높이 · 나무 번호는 Transform 이 아니다 (지형은 몇 개뿐)
+			w.groups.push_back(grp);
+
+			syncOwner(owner, rb, cols, kinds, sig);
+		}
+
+		// 이번에 보지 못한 소유자의 바디 · 콜라이더는 뺀다 (지워짐 · 꺼짐 · 콜라이더가 없어짐) — 모아 한 번에
+		std::vector<JPH::BodyID>& gone = w.removeList;
+		gone.clear();
+		for (auto it = w.bodies.begin(); it != w.bodies.end();)
+		{
+			if (it->second.seen == stamp)
+			{
+				++it;
+				continue;
+			}
+			if (!it->second.id.IsInvalid())
+			{
+				DropJointsOf(w, it->second.id);
+				gone.push_back(it->second.id);
+			}
+			it = w.bodies.erase(it);
+			++w.bodiesSerial;
+		}
+		if (!gone.empty())
+		{
+			// 둘레에서 잠든 바디를 깨운다 (Unity: 콜라이더를 끄거나 지우면 위에 놓인 것이 떨어진다). 많으면 (씬 바꾸기) 전체 상자 하나로
+			if (gone.size() <= 64)
+				for (const JPH::BodyID& id : gone)
+					WakeAround(w, id);
+			else
+			{
+				JPH::AABox box;
+				for (const JPH::BodyID& id : gone)
+				{
+					JPH::BodyLockRead lock(w.physics->GetBodyLockInterface(), id);
+					if (lock.Succeeded())
+						box.Encapsulate(lock.GetBody().GetWorldSpaceBounds());
+				}
+				if (box.IsValid())
+				{
+					box.ExpandBy(JPH::Vec3::sReplicate(0.1f));
+					bi.ActivateBodiesInAABox(box, {}, {});
+				}
+			}
+			bi.RemoveBodies(gone.data(), (int)gone.size());
+			bi.DestroyBodies(gone.data(), (int)gone.size());
+		}
+		for (auto it = w.colliders.begin(); it != w.colliders.end();)
+			it = it->second.seen == stamp ? std::next(it) : w.colliders.erase(it);   // Character Controller 항목은 아래 EnsureCharacter 가 다시 넣는다
+		ComponentIndex::EndPass();
+		w.groupsScene = scene;
+		w.groupsPhysicsSerial = physicsSerial;
+		w.groupsBindingSerial = bindingSerial;
+		w.groupsObjectCount = all.size();
+	}
+	else
+	{
+		// 바뀐 것만: 묶음마다 지켜볼 Transform 의 월드 번호 (더러우면 바뀐 것) — 바뀐 소유자 · 확인할 차례 · 지형만 서명을 계산한다
+		++w.fastSyncs;
+		const size_t n = w.groups.size();
+		const size_t verifyCount = (std::min)(n, (size_t)64);
+		const size_t verifyBegin = n ? w.verifyCursor % n : 0;
+		w.verifyCursor = verifyBegin + verifyCount;
+		for (size_t gi = 0; gi < n; ++gi)
+		{
+			JoltWorld::OwnerGroup& grp = w.groups[gi];
+			bool moved = false;
+			for (uint32_t k = 0; k < grp.watchCount && !moved; ++k)
+			{
+				const JoltWorld::Watch& wt = w.watch[grp.watchBegin + k];
+				moved = TransformStore::IsDirty(wt.slot) || TransformStore::Version(wt.slot) != wt.version;
+			}
+			const bool verify = ((gi + n - verifyBegin) % n) < verifyCount;
+			if (!moved && !verify && !grp.alwaysCheck)
+				continue;
+			++w.ownersChecked;
+			std::vector<Collider*>& cols = w.groupColliders;
+			std::vector<uint8_t>& kinds = w.groupKinds;
+			cols.assign(w.groupCols.begin() + grp.colBegin, w.groupCols.begin() + grp.colBegin + grp.colCount);
+			kinds.assign(w.groupKindList.begin() + grp.colBegin, w.groupKindList.begin() + grp.colBegin + grp.colCount);
+			const size_t sig = ComputeSignature(grp.owner, grp.rb, cols, kinds.data());
+			for (uint32_t k = 0; k < grp.watchCount; ++k)
+			{
+				JoltWorld::Watch& wt = w.watch[grp.watchBegin + k];
+				wt.tr->GetScale();   // 깨끗하게 (계산) 한 뒤 번호
+				wt.version = wt.tr->WorldVersion();
+			}
+			auto it = w.bodies.find(grp.owner->GetInstanceID());
+			if (it != w.bodies.end() && it->second.signature == sig && it->second.owner == grp.owner)
+			{
+				if (moved && grp.rb == nullptr)
+					w.pushList.push_back(&it->second);   // 움직인 정적 소유자 — 아래 Transform → 바디가 옮긴다
+				continue;
+			}
+			if (it != w.bodies.end() && !moved && !grp.alwaysCheck)
+			{
+				// 번호를 올리지 않고 콜라이더 · Rigidbody 값이 바뀐 경로 (확인 차례에 찾았다)
+				++w.verifyFixes;
+#ifdef _DEBUG
+				static bool s_Logged = false;
+				if (!s_Logged)
+				{
+					s_Logged = true;
+					EditorLog::Write("Physics", "collider/rigidbody changed without Component::MarkPhysicsDirty on '%s' (fixed by the rotating check) - add the bump to that code path",
+						grp.owner->GetName().c_str());
+				}
+#endif
+			}
+			syncOwner(grp.owner, grp.rb, cols, kinds, sig);
+		}
 	}
 
-	// 이번에 보지 못한 소유자의 바디 · 콜라이더는 뺀다 (지워짐 · 꺼짐 · 콜라이더가 없어짐)
-	for (auto it = w.bodies.begin(); it != w.bodies.end();)
-	{
-		if (it->second.seen == stamp)
-		{
-			++it;
-			continue;
-		}
-		if (!it->second.id.IsInvalid())
-		{
-			DropJointsOf(w, it->second.id);
-			WakeAround(w, it->second.id);
-			bi.RemoveBody(it->second.id);
-			bi.DestroyBody(it->second.id);
-		}
-		it = w.bodies.erase(it);
-	}
-	for (auto it = w.colliders.begin(); it != w.colliders.end();)
-		it = it->second.seen == stamp ? std::next(it) : w.colliders.erase(it);   // Character Controller 항목은 아래 EnsureCharacter 가 다시 넣는다
-	ComponentIndex::EndPass();
+	// 새 바디를 한 번에 넣는다 (브로드페이즈 트리에 묶어서 — 하나씩 넣으면 씬을 바꿀 때 수천 번)
+	auto addAll = [&](std::vector<JPH::BodyID>& ids, JPH::EActivation activation) {
+		if (ids.empty())
+			return;
+		JPH::BodyInterface::AddState state = bi.AddBodiesPrepare(ids.data(), (int)ids.size());
+		bi.AddBodiesFinalize(ids.data(), (int)ids.size(), state, activation);
+		w.bodiesAdded += ids.size();
+	};
+	addAll(w.addStatic, JPH::EActivation::DontActivate);
+	addAll(w.addActive, JPH::EActivation::Activate);
+	ReleasePrebuilt(w, scene);   // 바꿔 끼운 씬의 첫 동기화가 썼으면 (또는 오래되면) 미리 만든 형상을 버린다
 	if (profiling) Profiler::End();   // Physics.Sync
 
 	// Character Controller: 활성인 것만 CharacterVirtual 로 (없어진 것은 지운다 — 안쪽 바디도 같이)
@@ -1724,11 +2145,15 @@ bool PhysicsManager::StepBegin(float dt)
 	// 3) Transform → 바디 (사용자가 옮긴 경우 / 키네마틱 / 정적)
 	static const char* kPushName = Profiler::Intern("Physics.TransformToBody");
 	if (profiling) Profiler::Begin(kPushName);
-	for (auto& kv : w.bodies)
-	{
-		JoltWorld::BodyRecord& r = kv.second;
+	auto push = [&](JoltWorld::BodyRecord& r) {
 		if (r.id.IsInvalid())
-			continue;
+			return;
+		// 정적 바디 (도시 대부분): 마지막으로 맞춘 뒤 월드 번호가 그대로면 움직이지 않았다 — 자리 · 회전을 읽어 비교하지 않는다
+		if (r.rb == nullptr && r.trVersion == TransformStore::Version(r.trSlot) && !TransformStore::IsDirty(r.trSlot))
+		{
+			++w.staticPushSkipped;
+			return;
+		}
 		Transform* tr = r.owner->GetTransform();
 		const Vec3 pos = tr->GetPosition();
 		const Quaternion rot = tr->GetRotation();
@@ -1739,11 +2164,35 @@ bool PhysicsManager::StepBegin(float dt)
 			bi.SetPositionAndRotation(r.id, ToJR(pos), ToJ(rot), r.dynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
 		r.lastPos = pos;
 		r.lastRot = rot;
+		r.trSlot = tr->Slot();
+		r.trVersion = tr->WorldVersion();   // 위 GetPosition 이 계산했다 (깨끗한 번호)
 		if (moved)
 		{
 			r.prevPos = r.curPos = pos;
 			r.prevRot = r.curRot = rot;
 		}
+	};
+	if (w.pushAll)
+	{
+		for (auto& kv : w.bodies)
+			push(kv.second);
+	}
+	else
+	{
+		// 바뀐 것만 동기화한 스텝: Rigidbody 바디 (키네마틱 · 동적 — 바디를 만들거나 지울 때만 다시 모은다) + 움직인 정적 소유자
+		if (w.rigidBodiesSerial != w.bodiesSerial)
+		{
+			w.rigidBodiesSerial = w.bodiesSerial;
+			w.rigidBodies.clear();
+			for (auto& kv : w.bodies)
+				if (kv.second.rb != nullptr)
+					w.rigidBodies.push_back(&kv.second);
+		}
+		for (JoltWorld::BodyRecord* r : w.rigidBodies)
+			push(*r);
+		for (JoltWorld::BodyRecord* r : w.pushList)
+			push(*r);
+		w.staticPushSkipped += w.bodies.size() - w.rigidBodies.size() - w.pushList.size();   // 보지도 않은 정적 바디
 	}
 
 	if (profiling) Profiler::End();   // Physics.TransformToBody

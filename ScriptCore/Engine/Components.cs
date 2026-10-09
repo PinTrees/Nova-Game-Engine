@@ -127,10 +127,42 @@ namespace NovaEngine
             get { fixed (byte* p = Native.Utf8(NativeTypeName(GetType()) ?? "Collider")) return Native.Api.Comp_GetEnabled(m_Id, p) != 0; }
             set { fixed (byte* p = Native.Utf8(NativeTypeName(GetType()) ?? "Collider")) Native.Api.Comp_SetEnabled(m_Id, p, value ? 1 : 0); }
         }
+        /// <summary>트리거: 부딪히지 않고 OnTrigger 메시지만 (다음 물리 스텝부터)</summary>
+        public bool isTrigger { get => ColGet(0).x != 0f; set => ColSet(0, new Vector3(value ? 1f : 0f, 0f, 0f)); }
+        internal unsafe Vector3 ColGet(int prop)
+        {
+            float* f = stackalloc float[4];
+            fixed (byte* p = Native.Utf8(NativeTypeName(GetType()) ?? "Collider")) Native.Api.COL_Get(m_Id, p, prop, f);
+            return new Vector3(f[0], f[1], f[2]);
+        }
+        internal unsafe void ColSet(int prop, Vector3 v)
+        {
+            float* f = stackalloc float[4];
+            f[0] = v.x; f[1] = v.y; f[2] = v.z; f[3] = 0f;
+            fixed (byte* p = Native.Utf8(NativeTypeName(GetType()) ?? "Collider")) Native.Api.COL_Set(m_Id, p, prop, f);
+        }
     }
-    public sealed class BoxCollider : Collider { internal BoxCollider() { } }
-    public sealed class SphereCollider : Collider { internal SphereCollider() { } }
-    public sealed class CapsuleCollider : Collider { internal CapsuleCollider() { } }
+    public sealed class BoxCollider : Collider
+    {
+        internal BoxCollider() { }
+        public Vector3 center { get => ColGet(1); set => ColSet(1, value); }
+        public Vector3 size { get => ColGet(2); set => ColSet(2, value); }
+    }
+    public sealed class SphereCollider : Collider
+    {
+        internal SphereCollider() { }
+        public Vector3 center { get => ColGet(1); set => ColSet(1, value); }
+        public float radius { get => ColGet(3).x; set => ColSet(3, new Vector3(value, 0f, 0f)); }
+    }
+    public sealed class CapsuleCollider : Collider
+    {
+        internal CapsuleCollider() { }
+        public Vector3 center { get => ColGet(1); set => ColSet(1, value); }
+        public float radius { get => ColGet(4).x; set => ColSet(4, new Vector3(value, 0f, 0f)); }
+        public float height { get => ColGet(5).x; set => ColSet(5, new Vector3(value, 0f, 0f)); }
+        /// <summary>0 = X, 1 = Y, 2 = Z (Unity 와 같다)</summary>
+        public int direction { get => (int)ColGet(6).x; set => ColSet(6, new Vector3(value, 0f, 0f)); }
+    }
 
     [Flags]
     public enum CollisionFlags { None = 0, Sides = 1, Above = 2, Below = 4, CollidedSides = 1, CollidedAbove = 2, CollidedBelow = 4 }

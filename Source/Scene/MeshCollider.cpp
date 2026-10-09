@@ -101,6 +101,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(MeshCollider)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(MeshCollider)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	m_Convex = j.value("convex", false);
 	m_CookingOptions = j.value("cookingOptions", 0);
 	DeserializeCommon(j);

@@ -50,19 +50,19 @@ public:
 
 public:
 	float GetSlopeLimit() const { return m_SlopeLimit; }
-	void SetSlopeLimit(float v) { m_SlopeLimit = std::clamp(v, 0.0f, 180.0f); }
+	void SetSlopeLimit(float v) { MarkPhysicsDirty(); m_SlopeLimit = std::clamp(v, 0.0f, 180.0f); }
 	float GetStepOffset() const { return m_StepOffset; }
-	void SetStepOffset(float v) { m_StepOffset = (std::max)(0.0f, v); }
+	void SetStepOffset(float v) { MarkPhysicsDirty(); m_StepOffset = (std::max)(0.0f, v); }
 	float GetSkinWidth() const { return m_SkinWidth; }
-	void SetSkinWidth(float v) { m_SkinWidth = (std::max)(0.0001f, v); }
+	void SetSkinWidth(float v) { MarkPhysicsDirty(); m_SkinWidth = (std::max)(0.0001f, v); }
 	float GetMinMoveDistance() const { return m_MinMoveDistance; }
-	void SetMinMoveDistance(float v) { m_MinMoveDistance = (std::max)(0.0f, v); }
+	void SetMinMoveDistance(float v) { MarkPhysicsDirty(); m_MinMoveDistance = (std::max)(0.0f, v); }
 	float GetRadius() const { return m_Radius; }
-	void SetRadius(float r) { m_Radius = (std::max)(0.0f, r); }
+	void SetRadius(float r) { MarkPhysicsDirty(); m_Radius = (std::max)(0.0f, r); }
 	float GetHeight() const { return m_Height; }
-	void SetHeight(float h) { m_Height = (std::max)(0.0f, h); }
+	void SetHeight(float h) { MarkPhysicsDirty(); m_Height = (std::max)(0.0f, h); }
 	bool GetDetectCollisions() const { return m_DetectCollisions; }
-	void SetDetectCollisions(bool v) { m_DetectCollisions = v; }
+	void SetDetectCollisions(bool v) { MarkPhysicsDirty(); m_DetectCollisions = v; }
 
 	// 월드 스케일을 적용한 반지름 / 원통부 절반 길이
 	void GetScaledDimensions(const Vec3& lossyScale, float& radius, float& halfCylinder) const;

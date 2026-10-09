@@ -42,26 +42,26 @@ public:
 	void SetMass(float mass);
 	float GetMass() const { return m_Mass; }
 	float GetInverseMass() const { return m_Mass > 0.0f ? 1.0f / m_Mass : 0.0f; }
-	void SetLinearDamping(float d) { m_LinearDamping = (std::max)(0.0f, d); }
+	void SetLinearDamping(float d) { MarkPhysicsDirty(); m_LinearDamping = (std::max)(0.0f, d); }
 	float GetLinearDamping() const { return m_LinearDamping; }
-	void SetAngularDamping(float d) { m_AngularDamping = (std::max)(0.0f, d); }
+	void SetAngularDamping(float d) { MarkPhysicsDirty(); m_AngularDamping = (std::max)(0.0f, d); }
 	float GetAngularDamping() const { return m_AngularDamping; }
-	void SetUseGravity(bool use) { m_UseGravity = use; }
+	void SetUseGravity(bool use) { MarkPhysicsDirty(); m_UseGravity = use; }
 	bool GetUseGravity() const { return m_UseGravity; }
-	void SetKinematic(bool isKinematic) { m_IsKinematic = isKinematic; }
+	void SetKinematic(bool isKinematic) { MarkPhysicsDirty(); m_IsKinematic = isKinematic; }
 	bool IsKinematic() const { return m_IsKinematic; }
 	Interpolation GetInterpolation() const { return (Interpolation)m_Interpolation; }
-	void SetInterpolation(Interpolation i) { m_Interpolation = (int)i; }
+	void SetInterpolation(Interpolation i) { MarkPhysicsDirty(); m_Interpolation = (int)i; }
 	CollisionDetection GetCollisionDetection() const { return (CollisionDetection)m_CollisionDetection; }
-	void SetCollisionDetection(CollisionDetection c) { m_CollisionDetection = (int)c; }
+	void SetCollisionDetection(CollisionDetection c) { MarkPhysicsDirty(); m_CollisionDetection = (int)c; }
 	bool IsPositionFrozen(int axis) const { return m_FreezePosition[axis]; }
 	bool IsRotationFrozen(int axis) const { return m_FreezeRotation[axis]; }
-	void SetFreezePosition(int axis, bool freeze) { m_FreezePosition[axis] = freeze; }
-	void SetFreezeRotation(int axis, bool freeze) { m_FreezeRotation[axis] = freeze; }
+	void SetFreezePosition(int axis, bool freeze) { MarkPhysicsDirty(); m_FreezePosition[axis] = freeze; }
+	void SetFreezeRotation(int axis, bool freeze) { MarkPhysicsDirty(); m_FreezeRotation[axis] = freeze; }
 	uint32 GetIncludeLayers() const { return m_IncludeLayers; }
 	uint32 GetExcludeLayers() const { return m_ExcludeLayers; }
-	void SetIncludeLayers(uint32 mask) { m_IncludeLayers = mask; }
-	void SetExcludeLayers(uint32 mask) { m_ExcludeLayers = mask; }
+	void SetIncludeLayers(uint32 mask) { MarkPhysicsDirty(); m_IncludeLayers = mask; }
+	void SetExcludeLayers(uint32 mask) { MarkPhysicsDirty(); m_ExcludeLayers = mask; }
 
 	// ---- Unity API ----
 	Vec3 GetVelocity();                           // Rigidbody.linearVelocity
@@ -95,6 +95,7 @@ public:
 
 public:
 	virtual void OnInspectorGUI() override;
+	virtual bool AffectsPhysics() const override { return true; }
 	virtual bool UsesUnityInspector() const override { return true; }
 	virtual bool HasEnabledToggle() const override { return false; }
 	virtual const char* InspectorIconName() const override { return "rigidbody"; }

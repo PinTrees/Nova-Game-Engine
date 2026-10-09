@@ -347,6 +347,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(Rigidbody2D)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(Rigidbody2D)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
 	m_Enabled = j.value("enabled", true);
 	Type = (BodyType)std::clamp(j.value("bodyType", 0), 0, 2);
 	Mass = (std::max)(0.0001f, j.value("mass", 1.0f));
@@ -488,6 +489,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(BoxCollider2D)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(BoxCollider2D)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
 	CommonFromJson(j);
 	Size = ReadV2(j, "size", Vec2(1, 1));
 	EdgeRadius = j.value("edgeRadius", 0.0f);
@@ -541,6 +543,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(CircleCollider2D)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(CircleCollider2D)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
 	CommonFromJson(j);
 	Radius = j.value("radius", 0.5f);
 }
@@ -623,6 +626,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(CapsuleCollider2D)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(CapsuleCollider2D)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
 	CommonFromJson(j);
 	Size = ReadV2(j, "size", Vec2(0.5f, 1.0f));
 	Direction = j.value("direction", 0);
@@ -756,6 +760,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(PolygonCollider2D)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(PolygonCollider2D)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
 	CommonFromJson(j);
 	Paths.clear();
 	if (j.contains("paths") && j["paths"].is_array())
@@ -829,6 +834,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(EdgeCollider2D)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(EdgeCollider2D)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
 	CommonFromJson(j);
 	EdgeRadius = j.value("edgeRadius", 0.0f);
 	if (j.contains("points") && j["points"].is_array() && j["points"].size() >= 2)

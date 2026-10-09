@@ -16,6 +16,7 @@ TerrainCollider::~TerrainCollider()
 
 void TerrainCollider::SetTerrainData(const std::string& path)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	m_Data = path.empty() ? nullptr : TerrainData::Load(path);
 	m_DataPath = m_Data ? m_Data->Path : path;
 }
@@ -53,6 +54,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(TerrainCollider)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(TerrainCollider)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 	m_EnableTreeColliders = j.value("enableTreeColliders", true);
 	SetTerrainData(j.value("terrainData", std::string()));
 	DeserializeCommon(j);

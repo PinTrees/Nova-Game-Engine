@@ -193,6 +193,7 @@ json Joint2D::toJson() const
 
 void Joint2D::fromJson(const json& j)
 {
+	Component::MarkPhysicsDirty();   // 2D 물리가 다시 훑는다 (켜짐 · 값)
     m_Enabled = j.value("enabled", true);
     ConnectedBody = j.value("connectedBody", (uint64)0); EnableCollision = j.value("enableCollision", false);
     BreakForce = ReadFloat(j, "breakForce", std::numeric_limits<float>::infinity());
@@ -298,6 +299,10 @@ namespace Physics2DJointsRuntime
         auto it = Records.find(joint);
         if (it != Records.end()) { Destroy(it->second); Records.erase(it); }
     }
+    // Joint 2D 가 없는 씬: 구조 (물리 · 연결 번호 · 오브젝트 수) 가 그대로면 다시 훑지 않는다 (Physics2DManager 의 Sync 와 같은 규칙)
+    Scene* s_EmptyScene = nullptr;
+    uint32_t s_EmptyPhysics = 0, s_EmptyBinding = 0;
+    size_t s_EmptyObjects = 0;
     void Reset()
     {
         for (auto& [key, r] : Records)
@@ -306,11 +311,17 @@ namespace Physics2DJointsRuntime
             r.Component->ReactionTorque = r.Component->JointAngle = r.Component->JointSpeed = r.Component->JointTranslation = r.Component->MotorForce = 0;
         }
         Records.clear();
+        s_EmptyScene = nullptr;
         if (b2Body_IsValid(Ground)) b2DestroyBody(Ground);
         Ground = b2_nullBodyId;
     }
     void Sync(Scene* scene, b2WorldId world)
     {
+        if (scene && Records.empty() && s_EmptyScene == scene && s_EmptyPhysics == Component::s_PhysicsSerial && s_EmptyBinding == Component::s_BindingSerial &&
+            s_EmptyObjects == scene->GameObjectsView().size())
+            return;
+        s_EmptyScene = nullptr;
+        bool anyJoint = false;
         for (auto& [key, r] : Records) r.Seen = false;
         if (scene) for (auto* go : scene->GetAllGameObjects())
         {
@@ -318,6 +329,7 @@ namespace Physics2DJointsRuntime
             // 분류는 ComponentIndex 가 기억한다 (예전: 스텝마다 모든 컴포넌트를 dynamic_pointer_cast — 원자적 참조 수 증감)
             const ComponentIndex::Entry& e = ComponentIndex::Of(go);
             if (e.Joints2D.empty()) continue;
+            anyJoint = true;
             Rigidbody2D* const ownRb = e.Rigid2D;
             const std::vector<Joint2D*> joints = e.Joints2D;   // 아래에서 다른 오브젝트의 분류를 만들 수 있다
             for (Joint2D* raw : joints)
@@ -364,6 +376,13 @@ namespace Physics2DJointsRuntime
         }
         for (auto it = Records.begin(); it != Records.end();)
             if (!it->second.Seen) { Destroy(it->second); it = Records.erase(it); } else ++it;
+        if (scene && !anyJoint && Records.empty())
+        {
+            s_EmptyScene = scene;
+            s_EmptyPhysics = Component::s_PhysicsSerial;
+            s_EmptyBinding = Component::s_BindingSerial;
+            s_EmptyObjects = scene->GameObjectsView().size();
+        }
     }
     void AfterStep()
     {

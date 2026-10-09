@@ -52,6 +52,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(SphereCollider)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(SphereCollider)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
     if (j.contains("radius"))
         m_Radius = j["radius"].get<float>();
     DeserializeCommon(j);

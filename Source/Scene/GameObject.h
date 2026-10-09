@@ -81,9 +81,10 @@ public:
 	bool IsActive() const { return m_IsActive && !m_Staged; }   // Unity 의 activeSelf (Inspector 체크박스 · 저장은 m_IsActive)
 	// 씬 스트리밍: LoadSceneAsync 가 미리 짓는 중인 씬의 루트 — 바꿔 끼울 때까지 꺼진 것으로 보인다
 	//  (전역 목록 — 나무 · 카메라 · 볼륨 · 파티클 … — 이 지금 씬에 끼워 그리지 않게. 저장 · 인스펙터는 그대로)
-	void SetStaged(bool staged) { m_Staged = staged; }
+	void SetStaged(bool staged) { if (m_Staged != staged) Component::MarkPhysicsDirty(); m_Staged = staged; }
 	bool IsStaged() const { return m_Staged; }
-	void SetActive(bool active) { m_IsActive = active; }
+	bool IsActiveSaved() const { return m_IsActive; }   // 저장 · 인스펙터의 activeSelf (미리 짓는 중이어도 — 바꿔 끼운 뒤 켜질지)
+	void SetActive(bool active) { if (m_IsActive != active) Component::MarkPhysicsDirty(); m_IsActive = active; }
 	// Unity 의 activeInHierarchy: 자기와 모든 부모가 켜졌다 — 그리기 · 업데이트 · 물리는 이것을 본다 (부모를 끄면 자식도 꺼진다)
 	bool IsActiveInHierarchy() const
 	{
@@ -120,7 +121,7 @@ public:
 	bool IsStatic() const { return m_IsStatic; }
 	void SetStatic(bool isStatic) { m_IsStatic = isStatic; }
 
-	void SetLayerIndex(uint8 layer) { m_LayerIndex = layer; } 
+	void SetLayerIndex(uint8 layer) { if (m_LayerIndex != layer) Component::MarkPhysicsDirty(); m_LayerIndex = layer; } 
 	uint8 GetLayerIndex() { return m_LayerIndex; } 
 
 	void ApplyPendingComponents();
@@ -220,7 +221,7 @@ private:
 	friend class GameObjectFactory;   // Scene::DestroyGameObject 가 부모의 자식 목록을 정리한다
 	void SetChild(GameObject* child);
 	void RemoveChild(GameObject* child);
-	void SetParentImmediate(GameObject* g) { m_pParentGameObject = g; }
+	void SetParentImmediate(GameObject* g) { m_pParentGameObject = g; Component::MarkPhysicsDirty(); }
 
 public:
 	void OnInspectorGUI();

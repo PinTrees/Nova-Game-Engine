@@ -1,6 +1,7 @@
 #pragma once
 
 class GameObject;
+class Scene;
 class Collider;
 class RigidBody;
 class CharacterController;
@@ -71,6 +72,14 @@ public:
 	void CompleteAsync(bool frameStart = false);
 	bool AsyncPending() const { return m_AsyncPending; }
 	nlohmann::json AsyncInfo() const;
+
+	// 바디 동기화 (데이터 지향 — 바뀐 것만): 통계 (전체 훑기 · 바뀐 것만 · 다시 본 소유자 · 확인이 바로잡은 수 · 한 번에 넣은 바디 · 미리 만든 형상)
+	nlohmann::json SyncInfo() const;
+	// 검사용: 스텝마다 전체 훑기 (예전 방식) — 바뀐 것만 동기화와 결과가 같은지 비교한다
+	static void SetFullSyncEveryStep(bool on);
+	// 씬 스트리밍: 미리 지은 (아직 꺼진) 씬의 바디 형상을 백그라운드 잡으로 만들어 둔다 — 바꿔 끼운 뒤 첫 동기화가 같은 서명 · 자리면 그대로 쓴다.
+	//  SceneManager 가 루트를 다 지었을 때 (미리 데우기와 함께) 부른다. 잡은 SceneStreaming 의 미리 데우기 잡 (0.9 에 이르기 전에 끝난다)
+	void PrebuildStaged(Scene* staged);
 
 	// ---- 설정 (Unity: Project Settings > Physics / Time) ----
 	void SetGravity(const Vec3& gravity);

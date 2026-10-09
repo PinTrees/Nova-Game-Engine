@@ -529,7 +529,10 @@ void Scene::DestroyGameObject(GameObject* gameobject)
         g->OnDestroy();
         auto it2 = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
         if (it2 != m_ArrGameObjects[0].end())
+        {
             m_ArrGameObjects[0].erase(it2);
+            Component::MarkPhysicsDirty();   // 씬의 오브젝트가 바뀌었다 (물리 동기화가 다시 훑는다)
+        }
         if (SelectionManager::GetSelectedGameObject() == g)
             SelectionManager::ClearSelection();
         if (std::find(m_PendingDelete.begin(), m_PendingDelete.end(), g) == m_PendingDelete.end())
@@ -577,7 +580,10 @@ void Scene::RegisterGameObjectTree(GameObject* gameObject)
     if (gameObject == nullptr)
         return;
     if (std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), gameObject) == m_ArrGameObjects[0].end())
+    {
         m_ArrGameObjects[0].push_back(gameObject);
+        Component::MarkPhysicsDirty();
+    }
     for (GameObject* child : gameObject->GetChildren())
         RegisterGameObjectTree(child);
 }
@@ -591,7 +597,10 @@ void Scene::DetachTree(GameObject* root)
     {
         auto it = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
         if (it != m_ArrGameObjects[0].end())
+        {
             m_ArrGameObjects[0].erase(it);
+            Component::MarkPhysicsDirty();
+        }
         for (GameObject* child : g->GetChildren())
             remove(child);
     };
@@ -603,6 +612,7 @@ vector<GameObject*> Scene::ReleaseAll()
     vector<GameObject*> roots;
     roots.swap(m_VecRootGameObjects);
     m_ArrGameObjects[0].clear();
+    Component::MarkPhysicsDirty();
     m_CullingGameObjects.clear();
     m_CullingEditorGameObjects.clear();
     return roots;

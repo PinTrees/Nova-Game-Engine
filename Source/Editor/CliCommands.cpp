@@ -850,6 +850,8 @@ namespace CliCommands
 			if (a.contains("all")) PhysicsSettings::SetAllCollide(a["all"].get<bool>());
 			if (a.contains("asyncSimulation"))   // Simulate During Rendering (렌더링과 겹치는 물리 스텝)
 				PhysicsSettings::SetAsyncSimulation(a["asyncSimulation"].is_boolean() ? a["asyncSimulation"].get<bool>() : a["asyncSimulation"].dump() != "false");
+			if (a.contains("fullSync"))   // 검사용: 스텝마다 전체 훑기 (바뀐 것만 동기화와 비교)
+				PhysicsManager::SetFullSyncEveryStep(a["fullSync"].is_boolean() ? a["fullSync"].get<bool>() : a["fullSync"].dump() != "false");
 			const Vec3 g = PhysicsSettings::Gravity();
 			json ignored = json::array();
 			const std::vector<int> named = TagsAndLayers::NamedLayers();
@@ -857,7 +859,8 @@ namespace CliCommands
 				for (size_t k = i; k < named.size(); ++k)
 					if (!PhysicsSettings::LayersCollide(named[i], named[k]))
 						ignored.push_back({ TagsAndLayers::LayerName(named[i]), TagsAndLayers::LayerName(named[k]) });
-			r = { { "gravity", { g.x, g.y, g.z } }, { "ignoredPairs", ignored }, { "asyncSimulation", PhysicsSettings::AsyncSimulation() }, { "async", PhysicsManager::GetI()->AsyncInfo() } };
+			r = { { "gravity", { g.x, g.y, g.z } }, { "ignoredPairs", ignored }, { "asyncSimulation", PhysicsSettings::AsyncSimulation() }, { "async", PhysicsManager::GetI()->AsyncInfo() },
+				{ "sync", PhysicsManager::GetI()->SyncInfo() } };
 			return true;
 		});
 

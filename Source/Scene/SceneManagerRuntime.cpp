@@ -19,6 +19,7 @@
 #include "MemoryHeaps.h"
 #include "Profiler.h"
 #include "SceneStreaming.h"
+#include "PhysicsManager.h"
 #include "Utils.h"
 #include <set>
 #include <chrono>
@@ -419,6 +420,9 @@ namespace
 			{
 				op.PrewarmObjects = op.Staging->GetAllGameObjects();
 				op.PrewarmListed = true;
+				// 물리: 바디 형상을 백그라운드 잡으로 미리 (바꿔 끼운 뒤 첫 동기화가 같은 서명 · 자리면 쓰고, 새 바디는 한 번에 넣는다)
+				if (op.Additive == false)
+					PhysicsManager::GetI()->PrebuildStaged(op.Staging.get());
 			}
 			while (op.NextPrewarm < op.PrewarmObjects.size())
 			{

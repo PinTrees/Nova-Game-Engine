@@ -55,6 +55,7 @@ GENERATE_COMPONENT_FUNC_TOJSON(BoxCollider)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(BoxCollider)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
     if (j.contains("size"))
     {
         m_Size.x = j.at("size")[0];

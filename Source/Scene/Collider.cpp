@@ -101,5 +101,6 @@ GENERATE_COMPONENT_FUNC_TOJSON(Collider)
 
 GENERATE_COMPONENT_FUNC_FROMJSON(Collider)
 {
+	MarkPhysicsDirty();   // 물리 동기화가 이 소유자를 다시 본다
 
 }

@@ -318,6 +318,8 @@ namespace NovaEngine.Interop
         public delegate* unmanaged<ulong, float*, int, void> CL_SetCoefficients;
         public delegate* unmanaged<int, int, int> App_TargetFrameRate;           // Application.targetFrameRate (set, value) → 지금 값
         public delegate* unmanaged<int, int, int> App_LoadingPriority;           // Application.backgroundLoadingPriority (set, value) → 지금 값
+        public delegate* unmanaged<ulong, byte*, int, float*, void> COL_Get;     // Collider 값 (네이티브 타입 이름, 0 isTrigger 1 center 2 size 3 Sphere radius 4 Capsule radius 5 height 6 direction)
+        public delegate* unmanaged<ulong, byte*, int, float*, void> COL_Set;
     }
 
     internal static unsafe class Native

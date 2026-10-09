@@ -12,7 +12,7 @@ public:
 	~SphereCollider();
 
 public:
-	void SetRadius(float radius) { m_Radius = radius; }
+	void SetRadius(float radius) { MarkPhysicsDirty(); m_Radius = radius; }
 	float GetRadius();
 
 public:
