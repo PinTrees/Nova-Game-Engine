@@ -43,6 +43,7 @@ namespace
 		// 드롭다운 안의 세부 옵션 (현재는 저장만)
 		bool fxSkybox = true, fxFog = true, fxFlares = true, fxAlwaysRefresh = false, fxPost = true, fxParticles = true;
 		bool giz3DIcons = true, gizSelOutline = true, gizSelWire = true;
+		bool gizDimensions = true;   // 선택한 오브젝트의 너비 · 높이 · 깊이 (m) — 블록아웃 치수
 	} s;
 
 	// ---- 색 (Unity 다크 테마) ----
@@ -297,6 +298,8 @@ namespace SceneToolbar
 	PivotMode Pivot() { return s.pivot; }
 	HandleSpace Space() { return s.space; }
 	bool GizmosVisible() { return s.gizmos; }
+	bool DimensionsVisible() { return s.gizmos && s.gizDimensions; }
+	void SetDimensionsVisible(bool on) { s.gizDimensions = on; }
 	bool GridVisible() { return s.grid; }
 	bool SnapEnabled() { return s.gridSnap || ImGui::GetIO().KeyCtrl; }
 	float SnapIncrement() { return (std::max)(0.001f, s.snapIncrement); }
@@ -542,6 +545,7 @@ namespace SceneToolbar
 			ImGui::Separator();
 			Check("3D Icons", &s.giz3DIcons);
 			Check("Selection Outline", &s.gizSelOutline);
+			Check("Selection Dimensions", &s.gizDimensions);
 			Check("Selection Wire", &s.gizSelWire);
 			EndDrop();
 		}

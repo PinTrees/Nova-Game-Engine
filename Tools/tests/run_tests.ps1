@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'renderthread', 'memory', 'transform', 'streaming') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6750,6 +6750,119 @@ function Suite-PhysicsSync
     }
 }
 
+# ------------------------------------------------------------------ 블록아웃 (Prototype 패키지 · Prototype Shape · Spline Instantiate · 치수)
+function Suite-Blockout
+{
+    # 대규모 레벨 블록아웃: 기본 패키지 Prototype 프리팹, 월드 좌표 격자 재질 (늘려도 1 m), 크기를 숫자로 정하는 도형 (계단 단 높이 고정),
+    #  스플라인 배치 (Deform 휘기 · Repeat 반복 · Bake), 만든 조각은 저장하지 않고 다시 만든다, 충돌체로 공이 위에 선다, 치수 (nova dimensions)
+    Write-Host '[blockout]'
+    $dir = Join-Path $Out 'blockout'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $ic = [Globalization.CultureInfo]::InvariantCulture
+    $P = 'Resources/Packages/Prototype/Prefabs'
+    function Shape([string]$name, [int]$preset, [string]$pos, [string]$values)
+    {
+        Invoke-Nova "create prototype --preset $preset --name $name --position $pos" | Out-Null
+        if ($values) { Invoke-Nova ('set "' + $name + '" --component PrototypeShape --values "' + $values + '"') | Out-Null }
+    }
+    function Size([string]$name) { $d = Invoke-NovaJson "dimensions $name"; if ($d) { @($d.size | ForEach-Object { [math]::Round([double]$_, 2) }) } else { @() } }
+    function Near([double[]]$a, [double[]]$b, [double]$tol = 0.05) { if ($a.Count -ne $b.Count) { return $false }; for ($i = 0; $i -lt $a.Count; $i++) { if ([math]::Abs($a[$i] - $b[$i]) -gt $tol) { return $false } }; $true }
+    # 가로 줄의 격자 선 수: 그 줄 밝기의 중앙값보다 6 넘게 어두운 구간 (빛 · 노출과 상관없이)
+    Add-Type -AssemblyName System.Drawing
+    function GridLines([string]$png)
+    {
+        $bm = [System.Drawing.Bitmap]::FromFile($png); $y = [int]($bm.Height / 2) + 7
+        $lum = @(); for ($x = [int]($bm.Width * 0.25); $x -lt [int]($bm.Width * 0.75); $x++) { $c = $bm.GetPixel($x, $y); $lum += ($c.R + $c.G + $c.B) / 3.0 }
+        $bm.Dispose()
+        $median = ($lum | Sort-Object)[[int]($lum.Count / 2)]; $n = 0; $prev = $false
+        foreach ($l in $lum) { $dark = $l -lt $median - 6; if ($dark -and -not $prev) { $n++ }; $prev = $dark }
+        $n
+    }
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        # 1) 프리팹 57 개 — 놓이고, 재질 (World Space UV) · Mesh Collider
+        $files = @(Get-ChildItem (Join-Path $Root 'Resources\Packages\Prototype\Prefabs') -Recurse -Filter *.prefab)
+        $placed = 0
+        foreach ($f in $files) { $r = Invoke-NovaJson "prefab place --path $P/$($f.Directory.Name)/$($f.Name) --position 0,-50,0"; if ($r -and $r.path) { $placed++ } }
+        $wall = Invoke-NovaJson 'get Wall_Door_2m'
+        $types = @($wall.components | ForEach-Object { $_.type })
+        $mat = Get-Content (Join-Path $Root 'Resources\Packages\Prototype\Materials\Prototype_Gray.mat') -Raw | ConvertFrom-Json
+        Add-Result blockout 'Prototype package: every prefab places (walls, roofs, castle, stairs, props, nature) with Mesh Collider and a world-space grid material' ($files.Count -ge 57 -and $placed -eq $files.Count -and $types -contains 'MeshCollider' -and $mat.WorldSpaceUV -eq 1) "prefabs $placed / $($files.Count), Wall_Door_2m components $($types -join ' '), WorldSpaceUV $($mat.WorldSpaceUV)"
+        Invoke-Nova 'scene new --force' | Out-Null
+
+        # 2) 월드 좌표 격자: 기본 큐브 (UV 0 ~ 1) 를 12 배로 늘려도 격자 한 칸 = 1 m (켬) — 끄면 면 하나가 한 칸
+        Invoke-Nova 'create cube --name Big --position 0,0,0 --scale 12,1,12' | Out-Null
+        Invoke-Nova ('set Big --component MeshRenderer --values "{\"m_MaterialPaths\":[\"Resources\\\\Packages\\\\Prototype\\\\Materials\\\\Prototype_Light.mat\"]}"') | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,9,0 --rotation 90,0,0' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $png = Join-Path $dir 'world_grid.png'
+        Invoke-Nova "screenshot `"$png`" --view game" | Out-Null
+        $lines = GridLines $png
+        Add-Result blockout 'World Space UV: a 12 m cube scaled from the 1 m primitive still shows a 1 m grid (many lines, not one stretched tile)' ($lines -ge 6) "grid lines across the middle of the view: $lines"
+
+        # 3) Prototype Shape: 크기 그대로, 계단은 단 높이 그대로 (단 수 = 높이 / 0.2)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Shape 'PBox' 0 '0,0,0' '{\"size\":[6,2,3]}'
+        Shape 'PStairs' 1 '10,0,0' '{\"size\":[2,3,4.5],\"stepHeight\":0.2}'
+        Shape 'PArch' 5 '20,0,0' '{\"size\":[6,5,1],\"openingWidth\":3,\"openingHeight\":4}'
+        Shape 'PCurve' 6 '40,0,0' '{\"radius\":10,\"angle\":180,\"size\":[1,6,2],\"segments\":48}'
+        Shape 'PCyl' 3 '0,0,20' '{\"size\":[4,8,4]}'
+        $sb = Size 'PBox'; $ss = Size 'PStairs'; $sa = Size 'PArch'; $sc = Size 'PCurve'; $sy = Size 'PCyl'
+        $steps = ((Invoke-NovaJson 'get PStairs --component MeshFilter') | ConvertTo-Json -Depth 5)
+        Add-Result blockout 'Prototype Shape: sizes in metres (box, stairs, arch wall, curved wall half ring of radius 10 + 2 thick, cylinder)' ((Near $sb @(6, 2, 3)) -and (Near $ss @(2, 3, 4.5)) -and (Near $sa @(6, 5, 1)) -and (Near $sy @(4, 8, 4) 0.1) -and $sc.Count -eq 3 -and [math]::Abs($sc[1] - 6) -lt 0.05 -and [math]::Abs([math]::Max($sc[0], $sc[2]) - 24) -lt 0.3) ("box {0} stairs {1} arch {2} curve {3} cylinder {4}" -f ($sb -join 'x'), ($ss -join 'x'), ($sa -join 'x'), ($sc -join 'x'), ($sy -join 'x'))
+
+        # 4) 스플라인: 성벽 (Deform) · 울타리 (Repeat) — 조각 수 · 휜 정점, Bake
+        Invoke-Nova 'create spline --preset 1 --name SWall' | Out-Null
+        Invoke-Nova ('set SWall --component SplineContainer --values "{\"knots\":[[0,0,30],[10,0,36],[20,0,30],[28,0,22]]}"') | Out-Null
+        Invoke-Nova 'create spline --preset 2 --name SFence' | Out-Null
+        Invoke-Nova ('set SFence --component SplineContainer --values "{\"knots\":[[0,0,50],[6,0,53],[12,0,50]]}"') | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $iw = (Invoke-NovaJson 'spline info --target SWall').instantiate
+        $if = (Invoke-NovaJson 'spline info --target SFence').instantiate
+        $wallSize = Size 'SWall'
+        Add-Result blockout 'Spline Instantiate: castle wall bends along the curve (Deform, pieces fill the length), fence repeats rigid prefabs (Repeat)' ($iw -and [int]$iw.instances -ge 6 -and [int]$iw.deformedVertices -gt 1000 -and $if -and [int]$if.instances -ge 5 -and $wallSize.Count -eq 3 -and $wallSize[1] -gt 4) ("wall {0} pieces {1} vertices along {2:N1} m (size {3}), fence {4} pieces along {5:N1} m" -f $iw.instances, $iw.deformedVertices, [double]$iw.length, ($wallSize -join 'x'), $if.instances, [double]$if.length)
+
+        # 5) 저장: 만든 조각은 씬 파일에 없고, 다시 열면 다시 만든다
+        $scenePath = 'Assets/BlockoutTest.scene'
+        Invoke-Nova "scene save --as $scenePath" | Out-Null
+        $text = Get-Content (Join-Path $Project $scenePath) -Raw
+        Invoke-Nova "scene open $scenePath --force" | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $iw2 = (Invoke-NovaJson 'spline info --target SWall').instantiate
+        $sb2 = Size 'PBox'
+        Add-Result blockout 'generated pieces are not saved (scene keeps only the spline + settings) and come back on load; shapes rebuild from their numbers' (($text -notmatch '\(Spline \d+\)') -and $text -match 'SplineInstantiate' -and $iw2 -and [int]$iw2.instances -eq [int]$iw.instances -and (Near $sb2 @(6, 2, 3))) "saved file mentions generated pieces: $($text -match '\(Spline \d+\)'), after reload $($iw2.instances) pieces, box $($sb2 -join 'x')"
+
+        # 6) Bake (Repeat): 울타리 조각이 보통 오브젝트가 된다 (저장된다)
+        $bk = Invoke-NovaJson 'spline bake --target SFence'
+        Invoke-Nova "scene save --as $scenePath" | Out-Null
+        $text2 = Get-Content (Join-Path $Project $scenePath) -Raw
+        Add-Result blockout 'Bake Instances turns the repeated fence pieces into normal saved objects' ($bk -and [int]$bk.baked -eq [int]$if.instances -and $text2 -match 'Fence_2m \(Spline 0\)') "baked $($bk.baked), saved: $($text2 -match 'Fence_2m \(Spline 0\)')"
+
+        # 7) 충돌체: Play 에서 공이 도형 상자 위 (y = 2 + 0.5) · 휜 성벽 위 (총안 아래 벽 꼭대기 이상) 에 선다
+        Invoke-Nova 'create sphere --name BallA --position 0,6,0' | Out-Null
+        Invoke-Nova 'add-component BallA RigidBody' | Out-Null
+        Invoke-Nova 'create sphere --name BallB --position 10.2,9,35.6' | Out-Null
+        Invoke-Nova 'add-component BallB RigidBody' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $script:bA = 0; $script:bB = 0
+        [void](Wait-Until { $script:bA = [double](Invoke-NovaJson 'get BallA').position[1]; $script:bB = [double](Invoke-NovaJson 'get BallB').position[1]; [math]::Abs($script:bA - 2.5) -lt 0.05 -and $script:bB -gt 3.5 -and $script:bB -lt 6 } -Seconds 15 -Frames 10)
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result blockout 'colliders: a ball rests on a Prototype Shape box and on top of the bent castle wall' ([math]::Abs($script:bA - 2.5) -lt 0.05 -and $script:bB -gt 3.5 -and $script:bB -lt 6) ("ball on box y {0:N2} (expect 2.50), ball on wall y {1:N2}" -f $script:bA, $script:bB)
+
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Remove-Item (Join-Path $Project $scenePath), (Join-Path $Project "$scenePath.meta") -Force -ErrorAction SilentlyContinue
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 # ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
 function Suite-RenderThread
 {
@@ -8114,6 +8227,7 @@ try
                 'jobs' { Suite-Jobs }
                 'physicsasync' { Suite-PhysicsAsync }
                 'physicssync' { Suite-PhysicsSync }
+                'blockout' { Suite-Blockout }
                 'renderthread' { Suite-RenderThread }
                 'memory' { Suite-Memory }
                 'transform' { Suite-Transform }

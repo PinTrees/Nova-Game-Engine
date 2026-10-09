@@ -453,7 +453,10 @@ void SceneHierachyEditorWindow::DrawGameObject(GameObject* gameObject, int depth
 	ImGui::PushID(gameObject->GetInstanceID());
 
 	const bool isSelected = (SelectionManager::GetSelectedGameObject() == gameObject);
-	const bool hasChild = gameObject->GetChildCount() > 0;
+	// 펼치기 화살표: 보이는 자식이 있을 때만 (컴포넌트가 만든 숨은 조각 — Spline Instantiate … — 은 세지 않는다)
+	bool hasChild = false;
+	for (GameObject* c : gameObject->Children())
+		if (!c->IsHideAndDontSave()) { hasChild = true; break; }
 	ImDrawList* dl = ImGui::GetWindowDrawList();
 
 	// 선택 행 색: 포커스 있으면 Unity 파랑, 없으면 회색
@@ -586,7 +589,8 @@ void SceneHierachyEditorWindow::CollectRows(GameObject* gameObject, int depth)
 	m_Rows.push_back({ gameObject, depth });
 	if (gameObject->m_Editor_HierachOpened && gameObject->GetChildCount() > 0)
 		for (GameObject* child : gameObject->GetChildren())
-			CollectRows(child, depth + 1);
+			if (!child->IsHideAndDontSave())   // 컴포넌트가 만든 조각 (Spline Instantiate …) 은 숨긴다
+				CollectRows(child, depth + 1);
 }
 
 void SceneHierachyEditorWindow::HandleFbxFileDrop(const std::string& filePath, GameObject* parent)

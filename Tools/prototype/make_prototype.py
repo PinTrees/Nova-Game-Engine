@@ -54,6 +54,7 @@ def make_material(name):
         "NormalMapPath": "", "MetallicMapPath": "", "OcclusionMapPath": "", "EmissionMapPath": "",
         "BaseColor": [1, 1, 1, 1], "Metallic": 0.0, "Smoothness": 0.25, "SmoothnessSource": 0,
         "NormalScale": 1.0, "OcclusionStrength": 1.0, "Tiling": [1, 1], "Offset": [0, 0],
+        "WorldSpaceUV": 1,   # 월드 좌표 UV — 늘린 상자도 격자 1 m
         "AlphaClipping": 0, "Cutoff": 0.5, "ReceiveShadows": 1, "SpecularHighlights": 1, "EnvironmentReflections": 1,
         "Emission": False, "EmissionColor": [0, 0, 0], "EmissionIntensity": 1.0, "Priority": 0, "UseShadowMap": 1,
     }
@@ -392,6 +393,7 @@ def pieces():
     for s in (1, 2, 4):
         P[f'Floor/Floor_{s}x{s}'] = box((-s / 2, -0.2, -s / 2), (s / 2, 0, s / 2))
     P['Floor/Platform_4x4_1m'] = box((-2, 0, -2), (2, 1, 2))
+    P['Floor/Road_4m'] = box((-2, 0, -2), (2, 0.15, 2))   # 길 판 (X 로 4 m 씩 이어 휜다 — Spline Instantiate Deform)
 
     # 벽 (높이 3 m, 두께 0.2 m, X 를 따라)
     for w in (1, 2, 4):
@@ -455,6 +457,7 @@ def pieces():
     # 소품 · 자연 (블록아웃용 자리 표시)
     m = Mesh(); m.cylinder(0.3, 0, 0.9, 16); P['Props/Barrel'] = m
     P['Props/Crate_1m'] = box((-0.5, 0, -0.5), (0.5, 1, 0.5))
+    P['Props/Plank_2m'] = box((-1, 0, -0.12), (1, 0.06, 0.12))   # 판자 (X 2 m — 길을 가로질러, Spline Instantiate Repeat 의 앞 축 Z)
     m = Mesh(); m.box((-0.8, 0.7, -0.45), (0.8, 0.8, 0.45))
     for x in (-0.7, 0.7):
         for z in (-0.35, 0.35):

@@ -9,6 +9,8 @@
 #include "TerrainEditor.h"
 #include "WaterEditor.h"
 #include "TerrainSplineEditor.h"
+#include "SplineEditor.h"
+#include "SceneDimensions.h"
 #include "SceneViewState.h"
 #include "ParticleSystemEditor.h"
 #include "ModelPlacement.h"
@@ -209,11 +211,14 @@ void SceneEditorWindow::OnRender()
     // 바닥 격자는 3D 패스(EditorApp::_Editor_OnSceneRender → SceneGrid)에서 깊이 검사하며 그린다
     if (SceneToolbar::GizmosVisible())
         SceneManager::GetI()->GetCurrentScene()->RenderSceneGizmos();
+    if (SceneToolbar::DimensionsVisible())
+        SceneDimensions::Draw();   // 선택한 오브젝트의 너비 · 높이 · 깊이 (m)
     // Terrain 이 선택되고 Paint Terrain 도구가 켜져 있으면 브러시로 칠한다 (Unity 처럼 이동 핸들/클릭 선택은 쉰다)
     const bool terrainTool = TerrainEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
     // 물 점 편집 (Edit Points 가 켜진 Water Body)
     const bool waterTool = WaterEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
-    const bool splineTool = TerrainSplineEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);
+    const bool splineTool = TerrainSplineEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered) ||
+        SplineEditor::SceneGUI(m_Camera, imageMin, imageMax, viewHovered);   // Spline Container 매듭
     // 패키지의 Scene 뷰 도구 (Tile Palette 붓 등)
     bool packageTool = false;
     if (m_Camera)

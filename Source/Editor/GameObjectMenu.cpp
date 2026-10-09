@@ -5,6 +5,8 @@
 #include "TerrainStamp.h"
 #include "TerrainBiomes.h"
 #include "TerrainSpline.h"
+#include "Spline.h"
+#include "PrototypeShape.h"
 #include "RockDesc.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
@@ -209,6 +211,22 @@ namespace GameObjectMenu
 			{
 				for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
 					if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s))) add(GameObjectFactory::CreateTerrainStamp(s));
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Prototype"))   // 블록아웃 도형 (크기를 숫자로 — 계단 단 높이 · 벽 두께 그대로)
+			{
+				for (int s = 0; s < (int)PrototypeShape::Shape::Count; ++s)
+					if (ImGui::MenuItem(PrototypeShape::ShapeName((PrototypeShape::Shape)s))) add(GameObjectFactory::CreatePrototypeShape(s));
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Spline"))   // Spline Container (+ Spline Instantiate — 프로토타입 프리팹을 곡선에)
+			{
+				if (ImGui::MenuItem("Spline")) add(GameObjectFactory::CreateSpline(0));
+				ImGui::Separator();
+				if (ImGui::MenuItem("Castle Wall (Deform)")) add(GameObjectFactory::CreateSpline(1));
+				if (ImGui::MenuItem("Road (Deform)")) add(GameObjectFactory::CreateSpline(4));
+				if (ImGui::MenuItem("Fence (Repeat)")) add(GameObjectFactory::CreateSpline(2));
+				if (ImGui::MenuItem("Plank Path (Repeat)")) add(GameObjectFactory::CreateSpline(3));
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Terrain Spline"))   // 곡선을 따라 길·협곡·능선 (지형 생성기)

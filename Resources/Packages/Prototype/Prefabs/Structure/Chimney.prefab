@@ -72,9 +72,25 @@
         "staticShadowCaster": false,
         "subsetIndex": 0,
         "type": "MeshRenderer"
+      },
+      {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "convex": false,
+        "cookingOptions": 0,
+        "enabled": true,
+        "excludeLayers": 0,
+        "includeLayers": 0,
+        "isTrigger": false,
+        "layerOverridePriority": 0,
+        "providesContacts": false,
+        "type": "MeshCollider"
       }
     ],
-    "fileID": 6463289653164692129,
+    "fileID": 8443002898557878077,
     "layer": 0,
     "name": "Chimney",
     "static": false,

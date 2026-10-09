@@ -70,6 +70,8 @@ public:
 	static GameObject* CreateTerrainStamp(int shape);
 	static GameObject* CreateTerrainBiome(const std::string& preset);   // 바이옴 영역 (프리셋 이름)
 	static GameObject* CreateWaterBody(int type);                         // 물: 0 바다, 1 호수, 2 강
+	static GameObject* CreatePrototypeShape(int shape);                    // 블록아웃 도형 (PrototypeShape: 0 상자 1 계단 2 경사 3 원기둥 4 원뿔 5 아치 벽 6 원호 벽) + Prototype 재질 + Mesh Collider
+	static GameObject* CreateSpline(int preset);                           // Spline Container (+ Spline Instantiate): 0 빈 곡선, 1 성벽 (휘기), 2 울타리 (반복), 3 판자 길 (반복), 4 길 (휘기)
 	static GameObject* CreateTerrainSpline(int mode);                     // 지형 스플라인: 0 도로, 1 협곡, 2 능선
 	// 바로 움직일 수 있는 3인칭 캐릭터: 기본 캐릭터 + Character Controller + ThirdPersonController(C#),
 	// 씬의 Main Camera 에 Follow Camera. 필요한 패키지(com.nova.starter-assets → cameras)가 없으면 프로젝트에 넣는다.

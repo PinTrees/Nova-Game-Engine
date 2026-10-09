@@ -41,7 +41,22 @@ struct PbrMaterial
     int EnvironmentReflections;
     int ReceiveShadows;
     int Unlit;
+    int UVMode;        // 0 메시 UV, 1 월드 좌표 (면 방향 투영 — 블록아웃 격자가 크기와 상관없이 1 m)
+    int PadUV0;        // (int3 은 GLSL std140 에서 16 바이트 경계라 HLSL 배치 (오프셋 116) 와 맞지 않는다 — 정수 셋으로)
+    int PadUV1;
+    int PadUV2;
 };
+
+// 월드 좌표 UV: 법선의 가장 큰 축 방향으로 투영 (위 · 아래 = XZ, 옆 = ZY · XY). 1 m = 1. 글자가 거울처럼 뒤집히지 않게 면 방향으로 부호
+float2 WorldBoxUV(float3 p, float3 n)
+{
+    float3 a = abs(n);
+    if (a.y >= a.x && a.y >= a.z)
+        return float2(p.x, n.y >= 0.0f ? -p.z : p.z);
+    if (a.x >= a.z)
+        return float2(n.x >= 0.0f ? -p.z : p.z, -p.y);
+    return float2(n.z >= 0.0f ? p.x : -p.x, -p.y);
+}
 
 // Forward+ (클러스터 조명 — ClusteredLighting.cpp): 그림자 있는 앞의 빛 (위 배열) 밖의 점광 · 스포트광 · 입자 빛.
 //  화면 16 x 9 타일 x 24 깊이 조각 (로그). 클러스터 표 (시작 | 개수 << 16) → 번호 목록 → 빛 텍스처 (빛마다 4 텍셀)
@@ -1337,7 +1352,7 @@ void LitSurfaceOf(VertexOut pin, float4 baseColorFactor, float metallicValue, fl
 {
     LodFadeClip(pin.PosH.xy);
     N = normalize(pin.NormalW);
-    float2 uv = pin.Tex * gPbr.Tiling + gPbr.Offset;
+    float2 uv = (gPbr.UVMode == 1 ? WorldBoxUV(pin.PosW.xyz, N) : pin.Tex) * gPbr.Tiling + gPbr.Offset;
 
     float4 baseSample = gPbr.UseBaseMap == 2 ? SampleVirtual(uv) : gPbr.UseBaseMap ? gDiffuseMap.Sample(samLinear, uv) : float4(1, 1, 1, 1);
     float4 baseColor = baseSample * baseColorFactor;

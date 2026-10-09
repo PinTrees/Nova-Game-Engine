@@ -72,9 +72,25 @@
         "staticShadowCaster": false,
         "subsetIndex": 0,
         "type": "MeshRenderer"
+      },
+      {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "convex": false,
+        "cookingOptions": 0,
+        "enabled": true,
+        "excludeLayers": 0,
+        "includeLayers": 0,
+        "isTrigger": false,
+        "layerOverridePriority": 0,
+        "providesContacts": false,
+        "type": "MeshCollider"
       }
     ],
-    "fileID": 13877232026960878972,
+    "fileID": 15635897347728838888,
     "layer": 0,
     "name": "Roof_Gable_4x4",
     "static": false,

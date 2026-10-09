@@ -1,4 +1,4 @@
-# Prototype 메시 (GLB) → 프리팹 (재질 · 그림자). make_prototype.py 다음에 돌린다:
+# Prototype 메시 (GLB) → 프리팹 (재질 · 그림자 · Mesh Collider). make_prototype.py 다음에 돌린다:
 #   python Tools/prototype/make_prototype.py ; powershell -File Tools/prototype/bake_prefabs.ps1
 #  창 없는 검사 에디터 (E:\NovaTest\ScriptTest) 를 띄워 CLI 로: 놓기 → 재질 · 그림자 → 프리팹 저장 → 지우기
 param([string]$Project = 'E:\NovaTest\ScriptTest')
@@ -22,8 +22,10 @@ try
         $mesh = "Resources/Packages/Prototype/Meshes/$cat/$($glb.Name)"
         $p = Invoke-NovaJson "modelfile place $mesh"
         if (-not $p) { $failed += $name; continue }
-        $mat = "Resources\\Packages\\Prototype\\Materials\\Prototype_$($tone[$cat]).mat"
+        $t = if ($name -like "Road*") { "DarkGray" } else { $tone[$cat] }   # 길 판은 바닥보다 어둡게
+        $mat = "Resources\\Packages\\Prototype\\Materials\\Prototype_$t.mat"
         Invoke-Nova ('set "' + $p.name + '" --component MeshRenderer --values "{\"m_MaterialPaths\":[\"' + $mat + '\"],\"castShadows\":1}"') | Out-Null
+        Invoke-Nova "add-component `"$($p.name)`" MeshCollider" | Out-Null   # 캐릭터로 걸어 볼 수 있게 (정적 · 메시 그대로)
         $s = Invoke-NovaJson "prefab save --target `"$($p.name)`" --path Resources/Packages/Prototype/Prefabs/$cat/$name.prefab"
         if ($s) { $made++ } else { $failed += $name }
         Invoke-Nova "delete `"$($p.name)`"" | Out-Null

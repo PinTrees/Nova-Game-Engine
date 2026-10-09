@@ -72,9 +72,25 @@
         "staticShadowCaster": false,
         "subsetIndex": 0,
         "type": "MeshRenderer"
+      },
+      {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "convex": false,
+        "cookingOptions": 0,
+        "enabled": true,
+        "excludeLayers": 0,
+        "includeLayers": 0,
+        "isTrigger": false,
+        "layerOverridePriority": 0,
+        "providesContacts": false,
+        "type": "MeshCollider"
       }
     ],
-    "fileID": 17133882407381621193,
+    "fileID": 4418670599380019620,
     "layer": 0,
     "name": "Roof_Gable_6x8",
     "static": false,

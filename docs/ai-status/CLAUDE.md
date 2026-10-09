@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **물리를 데이터 지향으로** (추천 2) + **검사 안정성** (추천 4). 사용자 지시: 1 → 2 → 4 차례로 전부. 1 은 커밋 ec7f678 (푸시 전)
+- 갱신 시각: 2026년 10월 10일 — **대규모 레벨 블록아웃** (사용자 지시: "기본 패키지에 프로토타입 텍스쳐 (미터 격자, 흰색 ~ 어두운 회색)" → "프로토타입 패키지 — 다양한 다각형, 오픈월드 판타지 (지붕 · 창문 …)" → "성벽 · 길 스플라인 배치 (휘게 / 반복)" → 영상 Volcanic Heist 같은 거대한 규모. 그다음 성능 추천 1 · 2)
+  - `Resources/Packages/Prototype` (텍스처 · 재질 5 색, GLB 메시 + 프리팹 57 — Mesh Collider), `Tools/prototype/make_prototype.py` · `bake_prefabs.ps1`, `.gitignore` 가 엔진 Resources/Packages 를 빼던 것
+  - World Space UV: `PbrMaterial.UVMode` (112 → 128 바이트), `32. InstancedBasic.fx` WorldBoxUV, `UMaterial` "WorldSpaceUV", MaterialInspector 토글
+  - `Scene/PrototypeShape.*` (상자 · 계단 · 경사 · 원기둥 · 원뿔 · 아치 벽 · 원호 벽 — 크기를 숫자로, 메시는 저장 안 함), GameObject > Prototype
+  - `Scene/Spline.*` (SplineContainer · SplineInstantiate — Repeat / Deform, 간격 · Fit · 앞 축 · Keep Upright · 콜라이더 · Bake), `Editor/SplineEditor.*`, GameObject > Spline, `GameObject::SetHideAndDontSave` (저장 · 계층 창에서 뺌, 누르면 조상 선택)
+  - `Editor/SceneDimensions.*` (Scene 뷰 Selection Dimensions), CLI `prefab save|place` · `spline info|rebuild|bake` · `dimensions` · `create prototype|spline`
+  - 검사: 새 스위트 `blockout` 7/7. 문서 PROTOTYPE · SPLINE, Showcase 279 · 280 · 281
+- 이전: 2026년 10월 9일 — **물리를 데이터 지향으로** (추천 2) + **검사 안정성** (추천 4). 사용자 지시: 1 → 2 → 4 차례로 전부. 1 은 커밋 ec7f678 (푸시 전)
   - 물리 번호 `Component::s_PhysicsSerial` (`MarkPhysicsDirty`): Scene 오브젝트 목록 · SetActive · SetStaged · 부모 · 레이어 · 컴포넌트 지우기 · 켜기 (헤더 체크박스 포함) ·
     콜라이더 · Rigidbody · Character Controller 설정 함수 · fromJson (2D 포함), 인스펙터는 그리기 앞뒤 toJson 이 다를 때만 (`AffectsPhysics` — 처음엔 그릴 때마다 올려 선택해 둔 Play 가 늘 전체 훑기였다)
   - `PhysicsManager.cpp`: 소유자 묶음 (콜라이더 · 지켜볼 Transform 월드 번호) 을 기억하고 구조가 그대로면 바뀐 소유자만 서명, 돌아가며 64 · 50 스텝마다 전체 (안전망, `verifyFixes`),

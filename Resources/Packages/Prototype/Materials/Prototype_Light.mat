@@ -25,6 +25,7 @@
         0,
         0
     ],
+    "WorldSpaceUV": 1,
     "AlphaClipping": 0,
     "Cutoff": 0.5,
     "ReceiveShadows": 1,

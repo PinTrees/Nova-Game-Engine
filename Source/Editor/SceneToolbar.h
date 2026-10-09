@@ -35,6 +35,8 @@ namespace SceneToolbar
 	HandleSpace Space();
 
 	bool GizmosVisible();      // 툴바의 Gizmos 토글
+	bool DimensionsVisible();  // Gizmos 메뉴의 Selection Dimensions (선택한 오브젝트 치수 — 블록아웃)
+	void SetDimensionsVisible(bool on);
 	bool GridVisible();        // Grid 드롭다운의 Show Grid
 	bool SnapEnabled();        // Ctrl 누름 또는 스냅 토글
 	float SnapIncrement();     // 이동 스냅 간격(유닛)

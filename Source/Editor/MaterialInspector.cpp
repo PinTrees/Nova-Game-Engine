@@ -537,6 +537,9 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 		UnityGUI::Spacing(4.0f);
 		if (UnityGUI::Vector2Pair("Tiling", "X", &p.Tiling.x, "Y", &p.Tiling.y)) changed = true;
 		if (UnityGUI::Vector2Pair("Offset", "X", &p.Offset.x, "Y", &p.Offset.y)) changed = true;
+		// 월드 좌표 UV: 오브젝트 크기와 상관없이 텍스처 1 장 = 1 m (Tiling 으로 조절) — 블록아웃 격자 (Prototype 재질)
+		bool worldUV = p.UVMode == 1;
+		if (UnityGUI::Toggle("World Space UV", &worldUV)) { p.UVMode = worldUV ? 1 : 0; changed = true; }
 	}
 
 	// ---- 패키지 셰이더 값 (그 패키지가 그린다)

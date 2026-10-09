@@ -520,6 +520,7 @@ void from_json(const json& j, UMaterial& m)
 		p.OcclusionStrength = j.value("OcclusionStrength", p.OcclusionStrength);
 		p.Tiling = ReadF2(j, "Tiling", p.Tiling);
 		p.Offset = ReadF2(j, "Offset", p.Offset);
+		p.UVMode = j.value("WorldSpaceUV", 0);
 		p.AlphaClip = j.value("AlphaClipping", 0);
 		p.Cutoff = j.value("Cutoff", p.Cutoff);
 		p.ReceiveShadows = j.value("ReceiveShadows", 1);
@@ -570,6 +571,7 @@ void to_json(json& j, const UMaterial& m)
 		{ "OcclusionStrength", p.OcclusionStrength },
 		{ "Tiling", F2(p.Tiling) },
 		{ "Offset", F2(p.Offset) },
+		{ "WorldSpaceUV", p.UVMode },
 		{ "AlphaClipping", p.AlphaClip },
 		{ "Cutoff", p.Cutoff },
 		{ "ReceiveShadows", p.ReceiveShadows },

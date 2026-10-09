@@ -72,9 +72,25 @@
         "staticShadowCaster": false,
         "subsetIndex": 0,
         "type": "MeshRenderer"
+      },
+      {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "convex": false,
+        "cookingOptions": 0,
+        "enabled": true,
+        "excludeLayers": 0,
+        "includeLayers": 0,
+        "isTrigger": false,
+        "layerOverridePriority": 0,
+        "providesContacts": false,
+        "type": "MeshCollider"
       }
     ],
-    "fileID": 475140648627602638,
+    "fileID": 14615658496936028706,
     "layer": 0,
     "name": "Wall_Window_Arch_2m",
     "static": false,

@@ -372,7 +372,7 @@ namespace PrefabUtility
 		return true;
 	}
 
-	GameObject* InstantiatePrefab(const std::string& rawPath, Scene* scene, GameObject* parent)
+	GameObject* InstantiatePrefab(const std::string& rawPath, Scene* scene, GameObject* parent, bool log)
 	{
 		const std::string path = NormalizePath(rawPath);
 		const AssetEntry* asset = LoadAsset(path);
@@ -389,7 +389,8 @@ namespace PrefabUtility
 		scene->AddRootGameObject(go);
 		if (parent)
 			go->SetParent(parent, false);
-		EditorLog::Write("Prefab", "instantiated %s as '%s'", path.c_str(), go->GetName().c_str());
+		if (log)
+			EditorLog::Write("Prefab", "instantiated %s as '%s'", path.c_str(), go->GetName().c_str());
 		return go;
 	}
 

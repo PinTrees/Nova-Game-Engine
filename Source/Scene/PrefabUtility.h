@@ -33,7 +33,7 @@ namespace PrefabUtility
 	// 오브젝트를 새 프리팹 에셋으로 저장하고, 그 오브젝트를 인스턴스로 연결한다 (Hierarchy → Project 드래그)
 	bool SaveAsPrefabAssetAndConnect(GameObject* root, const std::string& assetPath);
 	// 프리팹 인스턴스 만들기 (Project → Hierarchy 드래그, 스크립트의 Instantiate)
-	GameObject* InstantiatePrefab(const std::string& assetPath, Scene* scene, GameObject* parent = nullptr);
+	GameObject* InstantiatePrefab(const std::string& assetPath, Scene* scene, GameObject* parent = nullptr, bool log = true);   // log = false: 많이 만드는 곳 (Spline Instantiate)
 	// 에셋 정보 (Inspector / Project 표시용)
 	int CountAssetObjects(const std::string& assetPath);
 	// 에셋의 현재 버전 번호 (파일이 바뀌거나 Apply 할 때마다 증가)

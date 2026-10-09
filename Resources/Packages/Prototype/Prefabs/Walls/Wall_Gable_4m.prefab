@@ -72,9 +72,25 @@
         "staticShadowCaster": false,
         "subsetIndex": 0,
         "type": "MeshRenderer"
+      },
+      {
+        "center": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "convex": false,
+        "cookingOptions": 0,
+        "enabled": true,
+        "excludeLayers": 0,
+        "includeLayers": 0,
+        "isTrigger": false,
+        "layerOverridePriority": 0,
+        "providesContacts": false,
+        "type": "MeshCollider"
       }
     ],
-    "fileID": 8716771829647045330,
+    "fileID": 2084379963602648016,
     "layer": 0,
     "name": "Wall_Gable_4m",
     "static": false,

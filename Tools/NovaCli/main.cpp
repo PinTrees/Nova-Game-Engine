@@ -879,6 +879,12 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("component")) args["component"] = a.Get("component");
 		if (a.Has("limit")) args["limit"] = std::stoi(a.Get("limit"));
 	}
+	else if (cmd == "dimensions")
+	{
+		// 오브젝트 (자식 포함) 의 메시 월드 크기 (m) — Scene 뷰 Selection Dimensions
+		if (!need(1, "dimensions <target>")) return 3;
+		args["target"] = a.Pos[0];
+	}
 	else if (cmd == "get")
 	{
 		if (!need(1, "get <target> [--component Type]")) return 3;

@@ -636,6 +636,8 @@ void to_json(json& j, const Scene& scene)
     };
     for (const GameObject* gameObject : scene.m_VecRootGameObjects)
     {
+        if (gameObject->IsHideAndDontSave())
+            continue;   // 컴포넌트가 다시 만드는 오브젝트
         j["rootGameObjects"].push_back(*gameObject);
     }
 }

@@ -17,6 +17,8 @@
 #include "CliCommands.h"
 #include "CliServer.h"
 #include "PrefabUtility.h"
+#include "Spline.h"
+#include "SceneDimensions.h"
 #include "UndoSystem.h"
 #include "GameObjectFactory.h"
 #include "EditorGUIManager.h"
@@ -396,6 +398,8 @@ namespace
 		if (type == "visual-effect") return named(GameObjectFactory::CreateVisualEffect(args.value("asset", std::string())));
 		if (type == "audio-source") return named(GameObjectFactory::CreateAudioSource());
 		if (type == "rock") return named(GameObjectFactory::CreateRock(args.value("preset", 2)));
+		if (type == "spline") return named(GameObjectFactory::CreateSpline(args.value("preset", 0)));
+		if (type == "prototype") return named(GameObjectFactory::CreatePrototypeShape(args.value("preset", 0)));   // 0 상자 1 계단 2 경사 3 원기둥 4 원뿔 5 아치 벽 6 원호 벽   // 0 곡선, 1 성벽, 2 울타리, 3 판자 길, 4 길
 		if (type == "rock-scatter") return named(GameObjectFactory::CreateRockScatter(args.value("preset", 2)));
 		if (type == "ocean") return named(GameObjectFactory::CreateWaterBody(0));
 		if (type == "lake") return named(GameObjectFactory::CreateWaterBody(1));
@@ -1051,6 +1055,43 @@ namespace CliCommands
 			}
 			e = "unknown op '" + op + "' (save | place)";
 			return false;
+		});
+
+		// 치수: 오브젝트 (자식 포함) 의 메시 월드 범위 — Scene 뷰 Selection Dimensions 와 같은 값 (고른다)
+		Register("dimensions", "world size of an object's meshes (children too) {target}", [](const json& a, json& r, std::string& e) {
+			GameObject* go = Resolve(a.value("target", json()), e);
+			if (!go) return false;
+			SelectionManager::SetSelectedGameObject(go);
+			Vec3 mn, mx;
+			if (!SceneDimensions::SelectionBounds(mn, mx)) { e = "no mesh under " + go->GetName(); return false; }
+			r = { { "size", { mx.x - mn.x, mx.y - mn.y, mx.z - mn.z } }, { "min", { mn.x, mn.y, mn.z } }, { "max", { mx.x, mx.y, mx.z } } };
+			return true;
+		});
+
+		// Spline Instantiate: info = 길이 · 조각 수 · 휜 정점 수, rebuild = 지금 다시, bake = 조각을 보통 오브젝트로 (Repeat)
+		Register("spline", "spline op: {op: info | rebuild | bake, target}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			GameObject* go = Resolve(a.value("target", json()), e);
+			if (!go) return false;
+			SplineContainer* c = go->GetComponent<SplineContainer>();
+			SplineInstantiate* si = go->GetComponent<SplineInstantiate>();
+			if (!c) { e = "no Spline Container on " + go->GetName(); return false; }
+			if (op == "bake")
+			{
+				if (!RequireEditMode(e)) return false;
+				if (!si) { e = "no Spline Instantiate"; return false; }
+				const int n = si->Bake();
+				if (n < 0) { e = "Bake works for the Repeat method (deformed meshes have no file)"; return false; }
+				AfterEdit("Bake Spline Instances", go);
+				r = { { "baked", n } };
+				return true;
+			}
+			if (op == "rebuild" && si)
+				si->Rebuild();
+			r = { { "length", c->Length() }, { "knots", (int)c->Knots.size() }, { "closed", c->Closed } };
+			if (si)
+				r["instantiate"] = si->Info();
+			return true;
 		});
 
 		Register("delete", "delete an object (and its children) {target}", [](const json& a, json& r, std::string& e) {

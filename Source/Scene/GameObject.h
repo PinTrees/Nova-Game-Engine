@@ -37,6 +37,7 @@ private:
 	// Runtime Value
 	bool m_IsActive;
 	bool m_Staged = false;   // 씬 스트리밍: 미리 짓는 중 (SetStaged)
+	bool m_HideAndDontSave = false;   // 컴포넌트가 다시 만드는 오브젝트 (SetHideAndDontSave)
 	string m_Tag = "Untagged";
 	bool m_IsStatic = false;
 
@@ -83,6 +84,10 @@ public:
 	//  (전역 목록 — 나무 · 카메라 · 볼륨 · 파티클 … — 이 지금 씬에 끼워 그리지 않게. 저장 · 인스펙터는 그대로)
 	void SetStaged(bool staged) { if (m_Staged != staged) Component::MarkPhysicsDirty(); m_Staged = staged; }
 	bool IsStaged() const { return m_Staged; }
+	// Unity 의 HideFlags.HideAndDontSave: 씬 · 프리팹에 저장하지 않고 계층 창에도 보이지 않는다 (Spline Instantiate 가 만든 조각처럼
+	//  컴포넌트가 다시 만드는 오브젝트). Scene 뷰에서 누르면 보이는 조상을 고른다
+	void SetHideAndDontSave(bool v) { m_HideAndDontSave = v; }
+	bool IsHideAndDontSave() const { return m_HideAndDontSave; }
 	bool IsActiveSaved() const { return m_IsActive; }   // 저장 · 인스펙터의 activeSelf (미리 짓는 중이어도 — 바꿔 끼운 뒤 켜질지)
 	void SetActive(bool active) { if (m_IsActive != active) Component::MarkPhysicsDirty(); m_IsActive = active; }
 	// Unity 의 activeInHierarchy: 자기와 모든 부모가 켜졌다 — 그리기 · 업데이트 · 물리는 이것을 본다 (부모를 끄면 자식도 꺼진다)

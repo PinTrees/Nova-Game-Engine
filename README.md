@@ -90,6 +90,7 @@
 | | |
 |---|---|
 | 지형 | 쿼드트리 LOD, 브러시, 레이어 칠하기, **지형 생성기** (노이즈 → 스탬프 → 침식), **바이옴 10 종**, 스플라인 (길 · 협곡) |
+| 레벨 블록아웃 | 기본 패키지 **Prototype** (1 m 격자 텍스처 흰색 ~ 어두운 회색 · 벽 · 창 · 문 · 아치 · 지붕 · 탑 · 성벽 조각 57 개), **World Space UV** (늘려도 격자 1 m), **Prototype Shape** (크기를 숫자로 — 계단 단 높이 고정 · 아치 벽 · 원호 벽), **Spline Instantiate** (성벽 · 길은 곡선을 따라 휘고, 울타리 · 판자는 반복), Scene 뷰 치수 — [PROTOTYPE](docs/PROTOTYPE.md) · [SPLINE](docs/SPLINE.md) |
 | 식생 · 바위 | 절차적 **나무** (Oak · Pine · Birch · Bush, 바람), **숲** (인스턴싱 + 임포스터, 1500 그루 230 FPS), **바위 · 절벽** (SDF), 풀 · 꽃 15 종 |
 | 물 | Water Body — 바다 (Gerstner) · 호수 · 강 (급류), 굴절 · SSR · 코스틱 · 수중 · Buoyancy |
 

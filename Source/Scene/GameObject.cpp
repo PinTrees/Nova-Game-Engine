@@ -404,6 +404,8 @@ void to_json(json& j, const GameObject& obj)
 
     for (const GameObject* child : obj.m_pChildGameObjects)
     {
+        if (child->m_HideAndDontSave)
+            continue;   // 컴포넌트가 다시 만드는 오브젝트 (저장하지 않는다)
         json childJson;
         to_json(childJson, *child);
         j["children"].push_back(childJson);

@@ -1037,6 +1037,9 @@ namespace
 		float bestT = FLT_MAX;
 		for (GameObject* go : scene->GetRootGameObjects())
 			PickRecursive(go, ro, rd, best, bestT);
+		// 컴포넌트가 만든 숨은 조각 (Spline Instantiate …) 을 누르면 그것을 만든 (보이는) 조상을 고른다
+		while (best != nullptr && best->IsHideAndDontSave() && best->GetParent() != nullptr)
+			best = best->GetParent();
 		if (best != nullptr)
 			SelectionManager::SetSelectedGameObject(best);
 		else

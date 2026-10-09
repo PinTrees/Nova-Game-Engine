@@ -30,6 +30,9 @@
 #include "TerrainBiome.h"
 #include "WaterBody.h"
 #include "TerrainSpline.h"
+#include "Spline.h"
+#include "PrototypeShape.h"
+#include "MeshCollider.h"
 #include "Rock.h"
 #include "RockScatter.h"
 #include "Terrain.h"
@@ -546,6 +549,75 @@ GameObject* GameObjectFactory::CreateRockScatter(int preset)
 	}
 	obj->GetTransform()->SetPosition(pos);
 	obj->GetTransform()->SetLocalScale(scale);
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreatePrototypeShape(int shape)
+{
+	shape = std::clamp(shape, 0, (int)PrototypeShape::Shape::Count - 1);
+	using S = PrototypeShape::Shape;
+	GameObject* obj = new GameObject(std::string("Prototype ") + PrototypeShape::ShapeName((S)shape));
+	obj->AddComponent<MeshFilter>();
+	MeshRenderer* mr = obj->AddComponent<MeshRenderer>();
+	// 갈래마다 Prototype 재질 (World Space UV — 늘려도 격자 1 m): 바닥 · 경사는 Gray, 벽은 Light, 원기둥은 LightGray
+	const char* tone = (S)shape == S::Stairs || (S)shape == S::Ramp ? "Gray" : (S)shape == S::Cylinder || (S)shape == S::Cone ? "LightGray" : "Light";
+	mr->SetMaterialPath(0, string_to_wstring(std::string("Resources\\Packages\\Prototype\\Materials\\Prototype_") + tone + ".mat"));
+	PrototypeShape* ps = obj->AddComponent<PrototypeShape>();
+	ps->Kind = (S)shape;
+	switch ((S)shape)
+	{
+	case S::Stairs: ps->Size = Vec3(2, 2, 3); break;
+	case S::Ramp: ps->Size = Vec3(2, 1, 4); break;
+	case S::Cylinder: ps->Size = Vec3(2, 4, 2); break;
+	case S::Cone: ps->Size = Vec3(3, 4, 3); break;
+	case S::ArchWall: ps->Size = Vec3(4, 3.5f, 0.4f); break;
+	case S::CurvedWall: ps->Size = Vec3(1, 6, 1); ps->Radius = 12.0f; ps->Angle = 90.0f; ps->Segments = 32; break;
+	default: ps->Size = Vec3(4, 3, 4); break;
+	}
+	ps->Rebuild();
+	obj->AddComponent<MeshCollider>();   // 캐릭터로 걸어 본다
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateSpline(int preset)
+{
+	// 프로토타입 패키지 (Resources/Packages/Prototype) 의 프리팹을 곡선에 — 성벽 · 길은 휘고, 울타리 · 판자는 반복
+	static const char* kNames[] = { "Spline", "Wall Spline", "Fence Spline", "Plank Path Spline", "Road Spline" };
+	preset = std::clamp(preset, 0, 4);
+	GameObject* obj = new GameObject(kNames[preset]);
+	SplineContainer* spline = obj->AddComponent<SplineContainer>();
+	if (preset == 0)
+		return obj;
+	SplineInstantiate* si = obj->AddComponent<SplineInstantiate>();
+	const char* base = "Resources/Packages/Prototype/Prefabs/";
+	SplineInstantiate::Item item;
+	switch (preset)
+	{
+	case 1:   // 성벽: 총안 벽을 휘어 잇는다 (경사에서도 세로)
+		item.Prefab = std::string(base) + "Castle/Castle_Wall_4m.prefab";
+		si->Placement = SplineInstantiate::Method::Deform;
+		si->KeepUpright = true;
+		break;
+	case 2:   // 울타리: 2 m 울타리를 그대로 반복
+		item.Prefab = std::string(base) + "Structure/Fence_2m.prefab";
+		si->Placement = SplineInstantiate::Method::Repeat;
+		break;
+	case 3:   // 판자 길: 판자를 가로로 (앞 축 Z), 경사를 따라 눕힌다
+		item.Prefab = std::string(base) + "Props/Plank_2m.prefab";
+		si->Placement = SplineInstantiate::Method::Repeat;
+		si->ForwardAxis = SplineInstantiate::Axis::Z;
+		si->Gap = 0.08f;
+		si->KeepUpright = false;
+		si->RandomYaw = 3.0f;
+		break;
+	default:  // 길: 길 판을 휘어 잇는다, 경사를 따라
+		item.Prefab = std::string(base) + "Floor/Road_4m.prefab";
+		si->Placement = SplineInstantiate::Method::Deform;
+		si->KeepUpright = false;
+		break;
+	}
+	si->Items.push_back(item);
+	(void)spline;
 	return obj;
 }
 
