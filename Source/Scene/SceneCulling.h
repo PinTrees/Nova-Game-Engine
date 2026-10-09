@@ -13,7 +13,8 @@ class Scene;
 //  - Scene 의 그리기 루프가 IsVisible 로 거른다. 지형(쿼드트리 LOD)·나무(TreeRenderer)는 따로 컬링한다
 namespace SceneCulling
 {
-	inline uint32_t Stamp = 1;   // 마지막 Cull 번호 (Component::CullStamp 와 같으면 보임)
+	inline uint32_t Stamp = 1;   // 마지막 카메라 Cull 번호 (Component::CullStamp 와 같으면 보임)
+	inline uint32_t ShadowStamp = 1;   // 마지막 그림자 (빛) Cull 번호 (Component::ShadowCullStamp) — 카메라 결과를 덮지 않는다
 	inline bool Enabled = true;  // 끄면 모두 그린다 (비교 측정용: NOVA_DEV_NOCULL=1)
 	inline uint32_t LodStamp = 1;   // LOD Group 이 이번 뷰에 매긴 번호 (Component::LodStamp 와 같으면 LOD 숨김을 따른다)
 	inline bool ShadowPass = false; // 마지막 Cull 이 그림자 패스 (LOD 는 그림자를 따로 고른다)
@@ -23,6 +24,12 @@ namespace SceneCulling
 	void RegisterRenderer(Component* renderer, bool skinned);
 	void UnregisterRenderer(Component* renderer);
 	nlohmann::json Info();   // 렌더러 수 · 추적 · 노드 · 건너뛴 (바뀌지 않은) 렌더러 · 다시 계산한 렌더러
+
+	// 추적 중인 자리 (이 씬의 렌더러 — 마지막 Update 기준). 연속 배열이라 차례로 읽어도 싸다
+	//  TrVersion = 그 Transform 의 월드 번호 (Update 때) — 바뀌었으면 움직였다
+	struct EntryView { Component* Renderer = nullptr; uint32_t TrSlot = 0; uint32_t TrVersion = 0; bool Skinned = false; };
+	size_t EntryCount();
+	bool EntryAt(size_t index, EntryView& out);   // 살아 있는 자리만 true
 	void Cull(CXMMATRIX viewProj, bool shadowPass);     // 패스마다 (같은 절두체면 한 번으로 여러 패스)
 	uint32_t FrameIndex();                              // Update 마다 1 씩 (프레임 안에서만 쓰는 목록의 유효성 검사용)
 
@@ -32,8 +39,10 @@ namespace SceneCulling
 	{
 		if (c->LodStamp == LodStamp && (ShadowPass ? c->LodShadowHidden : c->LodHidden))
 			return false;
-		return !Enabled || !c->CullTracked || c->CullStamp == Stamp;
+		return !Enabled || !c->CullTracked || (ShadowPass ? c->ShadowCullStamp == ShadowStamp : c->CullStamp == Stamp);
 	}
+	// 그림자 조각들을 다 그린 뒤: 카메라 결과로 돌아간다 (그림자는 다른 칸에 표시해 카메라 결과가 남아 있다 — 다시 컬링하지 않는다)
+	inline void EndShadowPass() { ShadowPass = false; }
 
 	struct Stats
 	{

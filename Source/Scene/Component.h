@@ -71,6 +71,7 @@ public:
 
 	// 절두체 컬링 (SceneCulling): 추적 중인 렌더러는 CullStamp == SceneCulling::Stamp 일 때만 그린다
 	uint32_t CullStamp = 0;
+	uint32_t ShadowCullStamp = 0;   // 그림자 (빛) 컬링 — 카메라 결과 (CullStamp) 를 덮지 않게 따로
 	bool CullTracked = false;
 	uint32_t CullSlot = 0;          // SceneCulling 의 자리 번호 (CullTracked 일 때) — 프레임마다 해시 찾기 없이
 	int32_t CullReg = -1;           // SceneCulling 렌더러 목록의 자리 (Mesh Renderer · Skinned Mesh Renderer)

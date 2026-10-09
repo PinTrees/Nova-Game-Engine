@@ -10,6 +10,7 @@
 #include "SceneManager.h"
 #include "GameObject.h"
 #include "Profiler.h"
+#include "TransformStore.h"
 
 namespace MotionVectors
 {
@@ -40,7 +41,12 @@ namespace MotionVectors
 			XMFLOAT4X4 CurViewProj = {}, PrevViewProj = {};
 			bool HasPrev = false;
 			uint32_t Frame = 0, PrevFrame = 0;   // 이번 · 지난 렌더 프레임 (SceneCulling::FrameIndex)
-			std::unordered_map<const Component*, Track> Tracks;
+			std::unordered_map<const Component*, Track> Tracks;   // Skinned Mesh Renderer (본 팔레트)
+			// Mesh Renderer: 컬링 자리마다 (주인 · 이 뷰가 마지막으로 본 월드 · 그 월드 번호). 번호가 그대로면 움직이지 않았다 —
+			//  씬 전체를 훑어 렌더러마다 행렬을 비교하던 것 (도시 1 ms) 대신 연속 배열의 번호만 비교한다
+			std::vector<const Component*> MeshOwner;
+			std::vector<XMFLOAT4X4> MeshWorld;
+			std::vector<uint32_t> MeshVersion;
 			int ObjectsDrawn = 0, SkinnedDrawn = 0, ForcedStill = 0;
 			Settings Last;
 		};
@@ -210,34 +216,73 @@ namespace MotionVectors
 		if (scene && objTech && skinTech)
 		{
 			ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-			for (GameObject* go : scene->GetAllGameObjects())
+			// 컬링이 추적하는 렌더러 (이 씬의 것) 를 자리 차례로 — 움직인 것 (월드 번호가 바뀜) 과 Force No Motion 만 그린다
+			const uint32_t sceneStamp = SceneCulling::FrameIndex();
+			const size_t count = SceneCulling::EntryCount();
+			if (s_V->MeshOwner.size() < count)
 			{
-				if (go == nullptr || !go->IsActiveInHierarchy() || !RenderLayers::Visible(go))
+				s_V->MeshOwner.resize(count, nullptr);
+				s_V->MeshWorld.resize(count);
+				s_V->MeshVersion.resize(count, 0);
+			}
+			auto drawable = [&](Component* r) {
+				GameObject* go = r->GetGameObject();
+				return go && go->CullSceneStamp == sceneStamp && go->IsActiveInHierarchy() && RenderLayers::Visible(go) && r->IsEnabled() && SceneCulling::IsVisible(r);
+			};
+			SceneCulling::EntryView e;
+			for (size_t index = 0; index < count; ++index)
+			{
+				if (!SceneCulling::EntryAt(index, e) || e.Skinned)
 					continue;
-				XMFLOAT4X4 world;
-				XMStoreFloat4x4(&world, go->GetTransform()->GetWorldMatrix());
-				if (MeshRenderer* mr = go->GetComponent<MeshRenderer>(); mr && mr->IsEnabled())
+				MeshRenderer* mr = static_cast<MeshRenderer*>(e.Renderer);
+				const int mode = mr->GetMotionVectors();   // 0 Camera Motion, 1 Per Object Motion, 2 Force No Motion
+				// 이 뷰가 처음 보는 자리 (새 렌더러 · 다시 쓴 자리): 지금 월드가 지난 월드 (움직임 없음 — 예전 Remember 와 같다)
+				bool versionChanged = false;
+				XMFLOAT4X4 prev;
+				if (s_V->MeshOwner[index] != mr)
 				{
-					auto mesh = mr->GetMesh();
-					const int mode = mr->GetMotionVectors();   // 0 Camera Motion, 1 Per Object Motion, 2 Force No Motion
-					Track& t = Remember(mr, world, nullptr);
-					const bool still = mode == 2;
-					const bool moved = settings.ObjectMotion && mode == 1 && !SameMatrix(t.World, t.PrevWorld);
-					if (mesh && !mesh->Subsets.empty() && (still || moved) && SceneCulling::IsVisible(mr))
-					{
-						SetM("gWorld", t.World);
-						SetM("gPrevWorld", t.PrevWorld);
-						SetV("gMotionFlags", ortho ? 1.0f : 0.0f, still ? 1.0f : 0.0f, 0.0f, 0.0f);
-						ctx->IASetInputLayout(s_ObjectLayout.Get());
-						for (uint32 i = 0; i < (uint32)mesh->Subsets.size(); ++i)
-						{
-							objTech->GetPassByIndex(0)->Apply(0, ctx);
-							mesh->ModelMesh.Draw(ctx, i, nullptr);
-						}
-						still ? ++s_V->ForcedStill : ++s_V->ObjectsDrawn;
-					}
+					s_V->MeshOwner[index] = mr;
+					s_V->MeshWorld[index] = TransformStore::WorldRef(e.TrSlot);
+					s_V->MeshVersion[index] = e.TrVersion;
 				}
-				if (SkinnedMeshRenderer* smr = go->GetComponent<SkinnedMeshRenderer>(); smr && smr->IsEnabled() && smr->GetMesh())
+				else if (s_V->MeshVersion[index] != e.TrVersion)
+				{
+					versionChanged = true;
+					prev = s_V->MeshWorld[index];   // 이 뷰가 지난번 본 월드 (그 뒤로 번호가 바뀌지 않았으면 그때 월드 그대로)
+					s_V->MeshWorld[index] = TransformStore::WorldRef(e.TrSlot);
+					s_V->MeshVersion[index] = e.TrVersion;
+				}
+				const bool still = mode == 2;
+				const bool moved = settings.ObjectMotion && mode == 1 && versionChanged && !SameMatrix(prev, s_V->MeshWorld[index]);
+				if (!still && !moved)
+					continue;
+				if (!drawable(mr))
+					continue;
+				auto mesh = mr->GetMesh();
+				if (!mesh || mesh->Subsets.empty())
+					continue;
+				SetM("gWorld", s_V->MeshWorld[index]);
+				SetM("gPrevWorld", moved ? prev : s_V->MeshWorld[index]);
+				SetV("gMotionFlags", ortho ? 1.0f : 0.0f, still ? 1.0f : 0.0f, 0.0f, 0.0f);
+				ctx->IASetInputLayout(s_ObjectLayout.Get());
+				for (uint32 i = 0; i < (uint32)mesh->Subsets.size(); ++i)
+				{
+					objTech->GetPassByIndex(0)->Apply(0, ctx);
+					mesh->ModelMesh.Draw(ctx, i, nullptr);
+				}
+				still ? ++s_V->ForcedStill : ++s_V->ObjectsDrawn;
+			}
+			// Skinned Mesh Renderer (본 팔레트가 프레임마다 바뀐다 — 드물다)
+			for (size_t index = 0; index < count; ++index)
+			{
+				if (!SceneCulling::EntryAt(index, e) || !e.Skinned)
+					continue;
+				SkinnedMeshRenderer* smr = static_cast<SkinnedMeshRenderer*>(e.Renderer);
+				GameObject* go = smr->GetGameObject();
+				if (go == nullptr || go->CullSceneStamp != sceneStamp || !go->IsActiveInHierarchy() || !RenderLayers::Visible(go))
+					continue;
+				XMFLOAT4X4 world = TransformStore::WorldRef(e.TrSlot);
+				if (smr->IsEnabled() && smr->GetMesh())
 				{
 					const int mode = smr->GetMotionVectors();
 					const std::vector<XMFLOAT4X4>& bones = smr->MotionPalette();

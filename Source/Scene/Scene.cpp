@@ -157,6 +157,26 @@ namespace
         v.Frame = SceneCulling::FrameIndex();
         v.Skinned.clear();
         v.Terrains.clear();
+        // 지금 씬이면 등록 목록에서 (씬의 모든 오브젝트를 훑지 않는다 — 도시 2852 개). 컬링이 이번 프레임에 이 씬 오브젝트에 번호를 찍었다
+        if (scene == SceneManager::GetI()->GetCurrentScene())
+        {
+            const uint32_t stamp = SceneCulling::FrameIndex();
+            SceneCulling::EntryView e;
+            for (size_t i = 0, n = SceneCulling::EntryCount(); i < n; ++i)
+                if (SceneCulling::EntryAt(i, e) && e.Skinned)
+                {
+                    GameObject* go = e.Renderer->GetGameObject();
+                    if (go && go->CullSceneStamp == stamp && go->IsActiveInHierarchy())
+                        v.Skinned.push_back(static_cast<SkinnedMeshRenderer*>(e.Renderer));
+                }
+            for (Terrain* terrain : Terrain::GetActiveTerrains())
+            {
+                GameObject* go = terrain->GetGameObject();
+                if (go && go->CullSceneStamp == stamp && go->IsActiveInHierarchy())
+                    v.Terrains.push_back(terrain);
+            }
+            return v;
+        }
         for (GameObject* gameObject : objects)
         {
             if (!gameObject->IsActiveInHierarchy())
@@ -175,18 +195,15 @@ namespace
 void Scene::RenderScene()
 {
     MeshBatcher::Draw(this, MeshBatcher::Pass::Main, false);
-    for (auto& gameObject : m_ArrGameObjects[0])
-    {
-        if (!gameObject->IsActiveInHierarchy())
-            continue;   // 꺼진 오브젝트 (자기 또는 부모) 는 그리지 않는다 (Unity)
-        for (auto& component : gameObject->GetComponents())
-        {
-            if (dynamic_cast<MeshRenderer*>(component.get()) != nullptr)
-                continue;   // MeshBatcher 가 그렸다
-            if (SceneCulling::IsVisible(component.get()) && RenderLayers::Visible(gameObject))   // 절두체 밖 · Culling Mask 밖은 건너뜀
-                component->Render();
-        }
-    }
+    // 컴포넌트마다 그리는 것은 Skinned Mesh Renderer · 지형뿐이다 (Render 를 가진 다른 컴포넌트는 Mesh Renderer — 위 — 와 빈 Light).
+    //  예전: 씬의 모든 오브젝트 · 컴포넌트에 dynamic_cast + 가상 Render (도시: 불투명 패스의 63 %, 약 0.8 ms Release)
+    const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    for (SkinnedMeshRenderer* skinned : view.Skinned)
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject()))   // 절두체 밖 · Culling Mask 밖은 건너뜀
+            skinned->Render();
+    for (Terrain* terrain : view.Terrains)
+        if (RenderLayers::Visible(terrain->GetGameObject()))
+            terrain->Render();
 
     // 나무 (Tree 컴포넌트 + 지형 나무): 인스턴싱 + LOD
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, false);

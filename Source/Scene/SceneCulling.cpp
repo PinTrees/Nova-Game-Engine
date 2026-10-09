@@ -294,9 +294,14 @@ namespace
 		return result;
 	}
 
+	bool s_MarkShadow = false;   // 이번 Cull 이 그림자 — 표시할 칸 (잡도 읽기만)
 	void Mark(int index)
 	{
-		s_Entries[index].Renderer->CullStamp = SceneCulling::Stamp;
+		Component* r = s_Entries[index].Renderer;
+		if (s_MarkShadow)
+			r->ShadowCullStamp = SceneCulling::ShadowStamp;
+		else
+			r->CullStamp = SceneCulling::Stamp;
 	}
 
 	void MarkSubtree(int node, int& visible)
@@ -719,6 +724,22 @@ namespace SceneCulling
 			Rebuild();
 	}
 
+	size_t EntryCount() { return s_Entries.size(); }
+
+	bool EntryAt(size_t index, EntryView& out)
+	{
+		if (index >= s_Entries.size())
+			return false;
+		const Entry& e = s_Entries[index];
+		if (!e.Alive || !e.Renderer)
+			return false;
+		out.Renderer = e.Renderer;
+		out.TrSlot = e.TrSlot;
+		out.TrVersion = e.TrVersion;
+		out.Skinned = e.Skinned;
+		return true;
+	}
+
 	nlohmann::json Info()
 	{
 		return { { "renderers", s_Renderers.size() }, { "tracked", s_Map.size() }, { "nodes", s_Nodes.size() }, { "fastSkips", s_FastSkips },
@@ -773,13 +794,17 @@ namespace SceneCulling
 	void Cull(CXMMATRIX viewProj, bool shadowPass)
 	{
 		PROFILE_SCOPE("Culling");
-		++Stamp;
+		if (shadowPass)
+			++ShadowStamp;
+		else
+			++Stamp;
 		ShadowPass = shadowPass;
+		s_MarkShadow = shadowPass;
 		if (s_Nodes.empty())
 			return;
 		const CullFrustum fr = MakeFrustum(viewProj, shadowPass);
 		int visible = 0, visited = 0;
-		if (s_Map.size() >= 8192 && !Jobs::Inline())
+		if (s_Map.size() >= 2048 && !Jobs::Inline())
 			QueryParallel(fr, visible, visited);   // 큰 장면: 하위 나무를 잡으로 나눠
 		else
 			Query(fr, 0, visible, visited);

@@ -1203,6 +1203,7 @@ int Run(const std::vector<std::string>& in)
 		// perf-begin 을 보낸 뒤 N 프레임 뒤에 perf (아래)
 		if (a.Has("depth")) args["depth"] = std::stoi(a.Get("depth"));
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
+		if (a.Has("top")) args["top"] = std::stoi(a.Get("top"));                    // CPU 구간 몇 개까지 (기본 24)
 	}
 	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors" || cmd == "cinemachine" || cmd == "debugview" || cmd == "forwardplus" || cmd == "rendergraph" || cmd == "d3d12" || cmd == "vt" || cmd == "renderpath" || cmd == "jobs" || cmd == "renderthread" || cmd == "memory" || cmd == "transform" || cmd == "scenestream")
 	{

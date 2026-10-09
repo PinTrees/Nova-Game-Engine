@@ -786,9 +786,9 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 				}
 				_deviceContext->RSSetState(0);
 				_deviceContext->RSSetViewports(1, &viewport);
-				// 그림자 조각마다 빛으로 컬링했다 → 카메라 컬링을 되돌린다 (본 패스 · 투명 · 스킨 메시가 따른다)
+				// 그림자 조각마다 빛으로 컬링했다 → 카메라 결과로 돌아간다 (그림자는 다른 칸에 표시해 카메라 결과가 남아 있다 — 다시 컬링하지 않는다)
 				SceneCulling::SetEditorView(false);
-				SceneCulling::Cull(d.View * d.Proj, false);
+				SceneCulling::EndShadowPass();
 			});
 
 	// Visual Effect 시뮬레이션 (GPU 파티클): 비동기 컴퓨트 — 큐가 둘인 백엔드 (DirectX 12) 에서는 모션 벡터 · SSAO · 불투명과 겹쳐 돈다.
@@ -1191,7 +1191,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 			_deviceContext->RSSetState(0);
 			_deviceContext->RSSetViewports(1, &viewport);
 			SceneCulling::SetEditorView(true);
-			SceneCulling::Cull(camera->View() * camera->Proj(), false);   // 빛 컬링 뒤 카메라 컬링을 되돌린다
+			SceneCulling::EndShadowPass();   // 빛 컬링 뒤 카메라 결과로 (다른 칸에 표시해 남아 있다)
 		});
 
 	// 모션 벡터: Scene 뷰는 Rendering Debugger 의 Motion Vectors 보기만 읽는다 → 아니면 그래프가 뺀다 (Game 뷰와 따로 기록)

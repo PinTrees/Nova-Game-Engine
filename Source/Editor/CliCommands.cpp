@@ -523,8 +523,10 @@ namespace CliCommands
 				topCpu.push_back({ p.first / frames, name });
 			std::sort(topCpu.rbegin(), topCpu.rend());
 			json cpuList = json::array();
-			for (size_t i = 0; i < topCpu.size() && i < 24; ++i)
-				cpuList.push_back({ { "scope", topCpu[i].second }, { "ms", std::round(topCpu[i].first * 1000.0) / 1000.0 } });
+			const size_t topCount = (size_t)std::clamp(a.value("top", 24), 1, 400);   // --top N (기본 24)
+			for (size_t i = 0; i < topCpu.size() && i < topCount; ++i)
+				cpuList.push_back({ { "scope", topCpu[i].second }, { "ms", std::round(topCpu[i].first * 1000.0) / 1000.0 },
+					{ "calls", std::round((double)cpuScopes[topCpu[i].second].second / frames * 100.0) / 100.0 } });   // 프레임마다 불린 수 (고정 스텝 물리 등 — 한 번에 걸린 시간 = ms / calls)
 			// 메인 밖 스레드 (Job Worker …): 프레임 평균 구간 수 · 바쁜 시간 (맨 위 구간 합)
 			std::map<uint16_t, std::pair<double, double>> threadUse;
 			for (const Profiler::Frame& f : Profiler::History())

@@ -1,6 +1,13 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 9일 — **씬 · 에셋 스트리밍 (LoadSceneAsync)**
+- 갱신 시각: 2026년 10월 9일 — **Graphics Jobs 조사 → 그리기 준비를 데이터 지향으로** (사용자 지시: 추천 1 "Graphics Jobs" → 2 "물리를 데이터 지향으로" → 4 "검사 안정성" 차례로 전부). **1 완료 (커밋 대기)**, 2 · 4 진행 중
+  - 측정 먼저 (Release 도시 DX12, 렌더 스레드 켬): 그리기 명령 기록은 프레임당 0.12 ms 뿐 → 기록을 잡으로 나누는 대신, 메인 시간을 먹던 그리기 준비를 고쳤다 (사용자에게 알림)
+  - `Scene.cpp`: 불투명 패스의 씬 전체 순회 (dynamic_cast + 가상 Render) → Skinned Mesh Renderer · 지형만 등록 목록에서 (CollectViewRenderers 가 컬링 자리 · Terrain::GetActiveTerrains)
+  - `MotionVectors.cpp`: 컬링 자리를 차례로, 자리마다 뷰가 본 월드 · 번호 (번호가 같으면 비교 없음) — 1.05 → 0.09 ms
+  - `SceneCulling.*` (EntryCount · EntryAt, ShadowStamp · EndShadowPass — 그림자는 Component::ShadowCullStamp 에 표시해 카메라 컬링을 다시 하지 않는다, 병렬 질의 2048 개부터), `EditorApp.cpp` (그림자 뒤 Cull → EndShadowPass)
+  - `nova perf --top N` (CPU 구간 수, 구간마다 calls)
+  - 결과: CPU 7.2 → 4.51 ms, 134 → 200 fps (GPU 2.8 ms 그대로). 렌더링 회귀 15 스위트 **145/145**. 문서 RENDER_THREAD (Graphics Jobs 조사) · CONCURRENCY_ROADMAP 5 단계 · TRANSFORM_SOA
+- 이전: 2026년 10월 9일 — **씬 · 에셋 스트리밍 (LoadSceneAsync)**. **완료 (커밋 f333395, 푸시함)**
   - 사용자 요청: "비동기 씬 · 에셋 스트리밍 — 다음 씬을 백그라운드에서 미리, 한 프레임에 바꿔 끼우기, 텍스처 · 메시 비동기, Unity LoadSceneAsync · allowSceneActivation · progress"
   - 측정 먼저 (nova scenestream): 도시 바꿔 끼우는 프레임 831 ms (짓기 601 · Start 220 — Animator), 다음 프레임 2364 ms (Play 중 Undo 스냅숏 980 · 나무 생성 144)
   - `SceneManagerRuntime.cpp`: 맨 앞 비동기 작업을 프레임마다 예산 (Application.backgroundLoadingPriority — C# ThreadPriority, 2 · 4 · 10 · 50 ms) 만큼 루트 단위로 미리 짓기 (`Scene::LoadRoot`), 새 씬의 힙에 (런타임 씬이 앞 씬 힙에 지어지던 것도 고침), 루트는 `GameObject::SetStaged` (꺼진 것으로 — 나무 · 카메라 등 전역 목록이 지금 씬에 끼어들지 않게), Light 는 모았다가 바꿔 끼울 때
