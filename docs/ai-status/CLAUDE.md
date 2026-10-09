@@ -7,6 +7,8 @@
   - `Scene/Spline.*` (SplineContainer · SplineInstantiate — Repeat / Deform, 간격 · Fit · 앞 축 · Keep Upright · 콜라이더 · Bake), `Editor/SplineEditor.*`, GameObject > Spline, `GameObject::SetHideAndDontSave` (저장 · 계층 창에서 뺌, 누르면 조상 선택)
   - `Editor/SceneDimensions.*` (Scene 뷰 Selection Dimensions), CLI `prefab save|place` · `spline info|rebuild|bake` · `dimensions` · `create prototype|spline`
   - 검사: 새 스위트 `blockout` 7/7. 문서 PROTOTYPE · SPLINE, Showcase 279 · 280 · 281
+  - 성능 추천 1 (씬 바꾼 뒤 끊김, 커밋 db698a8): 씬 JSON 해제 · 미리 디코드 이미지 해제를 작업 스레드로, 나무 GPU 미리 데우기 (SceneStreaming::QueueMainPrewarm) — frameAfterMs 50 ~ 56 → 28 ~ 30 ms
+  - 성능 추천 2 (렌더 준비 바뀐 것만): 쪼개 쟀으나 남은 항목이 각 0.1 ~ 0.3 ms, 안전한 변경 (Collect 를 컬링 자리로) 은 번갈아 재도 차이가 흔들림보다 작아 되돌림. 결과는 RENDER_THREAD 의 아직 절에
 - 이전: 2026년 10월 9일 — **물리를 데이터 지향으로** (추천 2) + **검사 안정성** (추천 4). 사용자 지시: 1 → 2 → 4 차례로 전부. 1 은 커밋 ec7f678 (푸시 전)
   - 물리 번호 `Component::s_PhysicsSerial` (`MarkPhysicsDirty`): Scene 오브젝트 목록 · SetActive · SetStaged · 부모 · 레이어 · 컴포넌트 지우기 · 켜기 (헤더 체크박스 포함) ·
     콜라이더 · Rigidbody · Character Controller 설정 함수 · fromJson (2D 포함), 인스펙터는 그리기 앞뒤 toJson 이 다를 때만 (`AffectsPhysics` — 처음엔 그릴 때마다 올려 선택해 둔 Play 가 늘 전체 훑기였다)
