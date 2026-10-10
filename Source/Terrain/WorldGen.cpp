@@ -136,11 +136,14 @@ namespace WorldGen
 
 	void Splat(const Biome& b, float x, float z, int seed, uint8_t out[4])
 	{
-		// 같은 바이옴 안에서도 얼룩 (숲 바닥에 이끼 · 초원에 흙길)
+		// 같은 바이옴 안에서도 얼룩 (숲 바닥에 이끼 · 초원에 흙길). 숲 바닥은 큰 이끼 덩어리 (40 m) 와 낙엽이 섞인다 — 실제 숲처럼 초록이 반쯤
 		const float n = 0.5f + 0.5f * Noise(seed + 303, x / 23.0f, z / 23.0f);
+		const float patch = 0.5f + 0.5f * Noise(seed + 517, x / 41.0f, z / 41.0f);
+		const float t = std::clamp((patch - 0.35f) / 0.3f, 0.0f, 1.0f);
+		const float moss = t * t * (3.0f - 2.0f * t) * 0.7f + 0.15f * n;
 		float w[4];
-		w[0] = b.Meadow * (0.75f + 0.25f * n) + b.Forest * 0.3f * n;
-		w[1] = b.Forest * (1.0f - 0.3f * n) + b.Meadow * 0.25f * (1.0f - n);
+		w[0] = b.Meadow * (0.75f + 0.25f * n) + b.Forest * moss;
+		w[1] = b.Forest * (1.0f - moss) + b.Meadow * 0.25f * (1.0f - n);
 		w[2] = b.Rock;
 		w[3] = b.Desert;
 		const float sum = (std::max)(w[0] + w[1] + w[2] + w[3], 1e-5f);

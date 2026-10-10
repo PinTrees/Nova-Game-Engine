@@ -426,11 +426,23 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, G
 }
 
 void EditorApp::DrawAtmosphere(const void* params, CXMMATRIX viewProj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
-	const D3D11_VIEWPORT& viewport, bool skyVisible)
+	const D3D11_VIEWPORT& viewport, bool skyVisible, ShadowMap* shadowMap, const void* shadowFrame)
 {
-	const auto& p = *static_cast<const AtmospherePass::Params*>(params);
+	AtmospherePass::Params p = *static_cast<const AtmospherePass::Params*>(params);
 	if (!p.Active() || dsv != _viewDepthView.Get() || !_viewDepthSRV)
 		return;
+	// 볼륨 안개: 해 (방향광 0) 의 캐스케이드 그림자 — 물과 같은 값
+	const auto* frame = static_cast<const ShadowRenderer::FrameData*>(shadowFrame);
+	if (p.VolumetricAlbedo.w > 0.5f && shadowMap && frame && frame->DirCount > 0 && frame->DirData[0].x > 0.0f)
+	{
+		p.SunShadow = shadowMap->DepthMapSRV(LightType::Directional);
+		for (int c = 0; c < 8; ++c)
+		{
+			p.SunShadowTransforms[c] = frame->Dir[c];
+			p.CascadeSpheres[c] = frame->Spheres[c];
+		}
+		p.ShadowInfo = XMFLOAT4(frame->Params.x, frame->DirData[0].x, 0.0f, 0.0f);
+	}
 	AtmospherePass::Draw(_deviceContext.Get(), p, target, dsv, _viewDepthSRV.Get(), viewport, viewProj, eye, skyVisible && _sky ? _sky->CubeMapSRV().Get() : nullptr);
 	_deviceContext->RSSetViewports(1, &viewport);
 }
@@ -698,6 +710,12 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 	postOptions.Dithering = !probe && d.Cam->DitheringEnabled();
 	postOptions.StopNaNs = !probe && d.Cam->StopNaNsEnabled();
 	postOptions.Depth = normalDepthSRV;   // Depth Of Field · Motion Blur
+	if (!dirLights.empty())   // Sun Shafts: 첫 방향광
+	{
+		postOptions.HasSun = true;
+		postOptions.SunDirection = dirLights[0].Direction;
+		postOptions.SunColor = XMFLOAT3(powf((std::max)(dirLights[0].Diffuse.x, 0.0f), 2.2f), powf((std::max)(dirLights[0].Diffuse.y, 0.0f), 2.2f), powf((std::max)(dirLights[0].Diffuse.z, 0.0f), 2.2f));
+	}
 	XMStoreFloat4x4(&postOptions.View, d.View);
 	XMStoreFloat4x4(&postOptions.Proj, d.Jittered ? d.UnjitteredProj : d.Proj);   // 지난 프레임 위치는 지터 없이
 	const bool usePost = !probe && PostProcessPass::IsNeeded(stack, postOptions);
@@ -981,7 +999,7 @@ void EditorApp::RenderGameView(GfxRenderTargetView* renderTargetView, const Game
 		if (atmosphere.Active())
 			g.AddPass("Atmosphere", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
 				[&](const RenderGraph::Resources&) {
-					DrawAtmosphere(&atmosphere, d.View * d.Proj, d.Position, sceneTarget, viewDsv, viewport, d.BackgroundType == 0);
+					DrawAtmosphere(&atmosphere, d.View * d.Proj, d.Position, sceneTarget, viewDsv, viewport, d.BackgroundType == 0, shadowMap.get(), d.Shadow);
 				});
 
 		// 투명 메시 (Shader Graph 의 Surface Type = Transparent): 먼 것부터, 깊이는 읽기만
@@ -1126,6 +1144,12 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	PostProcessPass::CameraOptions postOptions;
 	postOptions.PostProcessing = SceneToolbar::PostProcessingVisible() && !RenderManager::GetI()->WireFrameMode;
 	postOptions.Depth = normalDepthSRV;   // Depth Of Field (Motion Blur 는 Scene 뷰에 없음 — Unity 와 같음)
+	if (!dirLights.empty())   // Sun Shafts: 첫 방향광
+	{
+		postOptions.HasSun = true;
+		postOptions.SunDirection = dirLights[0].Direction;
+		postOptions.SunColor = XMFLOAT3(powf((std::max)(dirLights[0].Diffuse.x, 0.0f), 2.2f), powf((std::max)(dirLights[0].Diffuse.y, 0.0f), 2.2f), powf((std::max)(dirLights[0].Diffuse.z, 0.0f), 2.2f));
+	}
 	XMStoreFloat4x4(&postOptions.View, camera->View());
 	XMStoreFloat4x4(&postOptions.Proj, camera->Proj());
 	postOptions.SceneView = true;
@@ -1354,7 +1378,7 @@ void EditorApp::_Editor_OnSceneRender(GfxRenderTargetView* renderTargetView, Edi
 	if (atmosphere.Active())
 		g.AddPass("Atmosphere", [&](RenderGraph::Builder& b) { b.Read(tDepth); b.Read(tScene); tScene = b.Write(tScene); },
 			[&](const RenderGraph::Resources&) {
-				DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, SceneToolbar::SkyboxVisible());
+				DrawAtmosphere(&atmosphere, camera->View() * camera->Proj(), camera->GetPosition(), sceneTarget, viewDsv, viewport, SceneToolbar::SkyboxVisible(), shadowMap.get(), &s_EditorShadow);
 			});
 
 	// 투명 메시 (Game 뷰와 같은 자리)

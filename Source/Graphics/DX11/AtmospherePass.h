@@ -13,6 +13,13 @@ namespace AtmospherePass
 	{
 		bool Fog = false, Aerial = false;
 		XMFLOAT4 FogA = {}, FogB = {}, FogColor = {}, Rayleigh = {}, Mie = {}, SunDir = { 0, 1, 0, 0 }, SunColor = {};
+		// 볼륨 안개 (Fog > Volumetric Fog): x 거리, y Multiplier, z 걸음 수 / albedo rgb · w 켜짐
+		XMFLOAT4 Volumetric = {}, VolumetricAlbedo = {};
+		// 해 그림자 (그리는 쪽이 넣는다 — ShadowRenderer 의 방향광 0)
+		GfxShaderResourceView* SunShadow = nullptr;
+		XMMATRIX SunShadowTransforms[8];
+		XMFLOAT4 CascadeSpheres[8] = {};
+		XMFLOAT4 ShadowInfo = {};   // x 캐스케이드 수, y 세기
 		bool Active() const { return Fog || Aerial; }
 	};
 

@@ -3,6 +3,7 @@
 #include "Effects.h"
 #include "SceneCulling.h"
 #include "Profiler.h"
+#include "ResourceManager.h"
 
 namespace
 {
@@ -32,6 +33,32 @@ namespace
 		out[0] = w1[0] / w2[0];
 		out[1] = w1[1] / w2[1];
 		out[2] = w1[2] / w2[2];
+	}
+
+	float GammaToLinear(float c) { return powf((std::max)(c, 0.0f), 2.2f); }
+	float Lum(float r, float g, float b) { return r * 0.2126729f + g * 0.7151522f + b * 0.0721750f; }
+
+	// Unity ColorUtils.PrepareLiftGammaGain: 트랙볼 (감마 색 + 밝기 w) → Lift (더하기) · 1 / Gamma · Gain (곱하기)
+	void PrepareLiftGammaGain(const float* inLift, const float* inGamma, const float* inGain, XMFLOAT4& lift, XMFLOAT4& gammaInv, XMFLOAT4& gain)
+	{
+		float l[3] = { GammaToLinear(inLift[0]) * 0.15f, GammaToLinear(inLift[1]) * 0.15f, GammaToLinear(inLift[2]) * 0.15f };
+		const float lumL = Lum(l[0], l[1], l[2]);
+		lift = XMFLOAT4(l[0] - lumL + inLift[3], l[1] - lumL + inLift[3], l[2] - lumL + inLift[3], 1.0f);
+		float g[3] = { GammaToLinear(inGamma[0]) * 0.8f, GammaToLinear(inGamma[1]) * 0.8f, GammaToLinear(inGamma[2]) * 0.8f };
+		const float lumG = Lum(g[0], g[1], g[2]);
+		const float gw = inGamma[3] + 1.0f;
+		gammaInv = XMFLOAT4(1.0f / (std::max)(g[0] - lumG + gw, 1e-3f), 1.0f / (std::max)(g[1] - lumG + gw, 1e-3f), 1.0f / (std::max)(g[2] - lumG + gw, 1e-3f), 0.0f);
+		float n[3] = { GammaToLinear(inGain[0]) * 0.8f, GammaToLinear(inGain[1]) * 0.8f, GammaToLinear(inGain[2]) * 0.8f };
+		const float lumN = Lum(n[0], n[1], n[2]);
+		const float nw = inGain[3] + 1.0f;
+		gain = XMFLOAT4(n[0] - lumN + nw, n[1] - lumN + nw, n[2] - lumN + nw, 0.0f);
+	}
+
+	// Unity ColorUtils.PrepareShadowsMidtonesHighlights: 감마 색 → 선형, 밝기 w (양수는 4 배)
+	XMFLOAT4 PrepareSmh(const float* v, float on)
+	{
+		const float weight = v[3] * (v[3] < 0.0f ? 1.0f : 4.0f);
+		return XMFLOAT4((std::max)(GammaToLinear(v[0]) + weight, 0.0f), (std::max)(GammaToLinear(v[1]) + weight, 0.0f), (std::max)(GammaToLinear(v[2]) + weight, 0.0f), on);
 	}
 }
 
@@ -355,6 +382,53 @@ GfxShaderResourceView* PostProcessPass::MotionBlur(const VolumeComponent& mb, co
 	return m_Motion.SRV.Get();
 }
 
+// Sun Shafts (Unity 의 Sun Shafts 이미지 효과): 1/4 해상도에서 해 둘레 밝은 하늘 (깊이 = 하늘, 문턱 넘는 밝기, 해에서 멀수록 약하게) →
+//  해 쪽으로 방사형 흐림 몇 번 (번마다 반지름이 커진다) → Uber 가 해 색으로 더한다. 해가 카메라 뒤면 없음, 화면 밖이면 그대로 (가장자리에서 들어온다)
+GfxShaderResourceView* PostProcessPass::SunShafts(const VolumeComponent& shafts, const CameraOptions& options, GfxShaderResourceView* src)
+{
+	if (!options.HasSun || !options.Depth)
+		return nullptr;
+	const XMMATRIX view = XMLoadFloat4x4(&options.View);
+	const XMMATRIX inv = XMMatrixInverse(nullptr, view);
+	const XMVECTOR toSun = XMVector3Normalize(XMVectorNegate(XMLoadFloat3(&options.SunDirection)));
+	const float facing = XMVectorGetX(XMVector3Dot(XMVector3Normalize(inv.r[2]), toSun));
+	if (facing <= 0.05f)
+		return nullptr;   // 해가 옆 · 뒤
+	const XMVECTOR sunW = XMVectorAdd(inv.r[3], XMVectorScale(toSun, 1000.0f));
+	const XMVECTOR clip = XMVector4Transform(XMVectorSetW(sunW, 1.0f), view * XMLoadFloat4x4(&options.Proj));
+	const float w = XMVectorGetW(clip);
+	if (w <= 1e-4f)
+		return nullptr;
+	const float sx = XMVectorGetX(clip) / w * 0.5f + 0.5f, sy = -XMVectorGetY(clip) / w * 0.5f + 0.5f;
+	const UINT qw = (std::max)(1u, m_Width / 4), qh = (std::max)(1u, m_Height / 4);
+	for (Target& t : m_Shafts)
+		if (t.W != qw || t.H != qh)
+			CreateTarget(t, qw, qh, DXGI_FORMAT_R16G16B16A16_FLOAT);
+	if (!m_Shafts[0].RTV || !m_Shafts[1].RTV)
+		return nullptr;
+	PROFILE_GPU("Sun Shafts");
+	const float aspect = (float)m_Width / (float)(std::max)(1u, m_Height);
+	const float threshold = GammaToLinear(Clamp01(shafts.F("threshold")));
+	SetVec("gShaftParams", sx, sy, threshold, (std::max)(shafts.F("maxRadius"), 0.05f));
+	SetVec("gShaftParams2", aspect, std::clamp(facing * 2.0f, 0.0f, 1.0f), 0.0f, 0.0f);
+	SetSRV("gDepth", options.Depth);
+	SetSRV("gSource", src);
+	Draw("SunShaftsPrefilterTech", m_Shafts[0].RTV.Get(), qw, qh);
+	// 방사형 흐림: 번마다 해 쪽으로 더 길게 (Unity: 반지름 × 반복)
+	const int iterations = std::clamp(shafts.I("iterations"), 1, 4);
+	const float radius = std::clamp(shafts.F("blurRadius"), 0.05f, 1.0f);
+	int cur = 0;
+	for (int i = 0; i < iterations * 2; ++i)
+	{
+		const float r = radius * (1.0f + (float)i) / (float)(iterations * 2);
+		SetVec("gShaftParams2", aspect, 1.0f, r, 0.0f);
+		SetSRV("gSource", m_Shafts[cur].SRV.Get());
+		Draw("SunShaftsBlurTech", m_Shafts[cur ^ 1].RTV.Get(), qw, qh);
+		cur ^= 1;
+	}
+	return m_Shafts[cur].SRV.Get();
+}
+
 void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& options, GfxRenderTargetView* output)
 {
 	auto ctx = Application::GetI()->GetDeviceContext();
@@ -380,6 +454,8 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 	const VolumeComponent* vig = stack.Get("Vignette");
 	const VolumeComponent* ca = stack.Get("ChromaticAberration");
 	const VolumeComponent* grain = stack.Get("FilmGrain");
+	const VolumeComponent* panini = stack.Get("PaniniProjection");
+	const VolumeComponent* distortion = stack.Get("LensDistortion");
 
 	// ---------------- Depth Of Field → Motion Blur (Bloom · Uber 는 그 결과를 받는다)
 	GfxShaderResourceView* src = m_Scene.SRV.Get();
@@ -419,6 +495,21 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 		const VolumeComponent* mb = stack.Get("MotionBlur");
 		if (usePost && mb && stack.IsActive("MotionBlur") && !options.SceneView && m_PrevValid)
 			src = MotionBlur(*mb, options, src);
+	}
+
+	// ---------------- Sun Shafts (Bloom 앞의 장면에서 — Uber 가 더한다)
+	{
+		const VolumeComponent* shafts = stack.Get("SunShafts");
+		GfxShaderResourceView* shaftTex = (usePost && shafts && stack.IsActive("SunShafts")) ? SunShafts(*shafts, options, src) : nullptr;
+		if (shaftTex)
+		{
+			const float* c = shafts->V("color");
+			const float k = (std::max)(0.0f, shafts->F("intensity"));
+			SetVec("gShafts", GammaToLinear(c[0]) * options.SunColor.x * k, GammaToLinear(c[1]) * options.SunColor.y * k, GammaToLinear(c[2]) * options.SunColor.z * k, 1.0f);
+			SetSRV("gShaftTex", shaftTex);
+		}
+		else
+			SetVec("gShafts", 0, 0, 0, 0);
 	}
 
 	// ---------------- Bloom
@@ -470,12 +561,44 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 		const float intensity = (std::max)(0.0f, bloom->F("intensity"));
 		SetVec("gBloomTint", tint[0] * intensity, tint[1] * intensity, tint[2] * intensity, 1.0f);
 		SetSRV("gBloomTex", levels > 1 ? m_Up[0].SRV.Get() : m_Down[0].SRV.Get());
+
+		// ---------------- Screen Space Lens Flare (URP): Bloom 밉 (Bloom Mip) 의 밝은 곳 → 고스트 · 줄기
+		const VolumeComponent* flare = stack.Get("ScreenSpaceLensFlare");
+		if (flare && stack.IsActive("ScreenSpaceLensFlare"))
+		{
+			const int mip = std::clamp(flare->I("bloomMip"), 0, levels - 1);
+			Target& from = m_Down[mip];
+			if (m_Flare.W != from.W || m_Flare.H != from.H)
+				CreateTarget(m_Flare, from.W, from.H, DXGI_FORMAT_R16G16B16A16_FLOAT);
+			if (m_Flare.RTV)
+			{
+				const float* ws = flare->V("warpedFlareScale");
+				SetVec("gFlareA", flare->F("firstFlareIntensity"), flare->F("secondaryFlareIntensity"), flare->F("warpedFlareIntensity"), Clamp01(flare->F("vignetteEffect")));
+				SetVec("gFlareB", flare->F("startingPosition"), flare->F("scale"), (float)std::clamp(flare->I("samples"), 1, 3), Clamp01(flare->F("sampleDimmer")));
+				SetVec("gFlareC", ws[0], ws[1], Clamp01(flare->F("chromaticAbberationIntensity")), (std::max)(0.0f, flare->F("streaksIntensity")));
+				SetVec("gFlareD", Clamp01(flare->F("streaksLength")), Clamp01(flare->F("streaksThreshold")), 0.0f, 0.0f);
+				SetSRV("gSource", from.SRV.Get());
+				Draw("LensFlareTech", m_Flare.RTV.Get(), m_Flare.W, m_Flare.H);
+				const float* t = flare->V("tintColor");
+				const float k = (std::max)(0.0f, flare->F("intensity"));
+				SetVec("gFlare", GammaToLinear(t[0]) * k, GammaToLinear(t[1]) * k, GammaToLinear(t[2]) * k, 1.0f);
+				SetSRV("gFlareTex", m_Flare.SRV.Get());
+			}
+			else
+				SetVec("gFlare", 0, 0, 0, 0);
+		}
+		else
+			SetVec("gFlare", 0, 0, 0, 0);
 	}
 	else
+	{
 		SetVec("gBloomTint", 0, 0, 0, 0);
+		SetVec("gFlare", 0, 0, 0, 0);
+	}
 
 	// ---------------- Uber
-	const bool gradingOn = usePost && (stack.IsActive("ColorAdjustments") || stack.IsActive("WhiteBalance"));
+	const bool gradingOn = usePost && (stack.IsActive("ColorAdjustments") || stack.IsActive("WhiteBalance") || stack.IsActive("ChannelMixer") || stack.IsActive("LiftGammaGain")
+		|| stack.IsActive("ShadowsMidtonesHighlights") || stack.IsActive("SplitToning"));
 	{
 		const float exposure = color ? powf(2.0f, color->F("postExposure")) : 1.0f;
 		const float contrast = color ? 1.0f + color->F("contrast") / 100.0f : 1.0f;
@@ -490,7 +613,114 @@ void PostProcessPass::Execute(const VolumeStack& stack, const CameraOptions& opt
 		if (wbOn)
 			WhiteBalanceCoeffs(wb->F("temperature"), wb->F("tint"), lms);
 		SetVec("gWhiteBalance", lms[0], lms[1], lms[2], wbOn ? 1.0f : 0.0f);
+
+		// ---- URP 의 나머지 색 보정 (Uber 의 UrpGrading)
+		const VolumeComponent* mixer = stack.Get("ChannelMixer");
+		if (usePost && mixer && stack.IsActive("ChannelMixer"))
+		{
+			SetVec("gMixerR", mixer->F("redOutRedIn") / 100.0f, mixer->F("redOutGreenIn") / 100.0f, mixer->F("redOutBlueIn") / 100.0f, 1.0f);
+			SetVec("gMixerG", mixer->F("greenOutRedIn") / 100.0f, mixer->F("greenOutGreenIn") / 100.0f, mixer->F("greenOutBlueIn") / 100.0f, 1.0f);
+			SetVec("gMixerB", mixer->F("blueOutRedIn") / 100.0f, mixer->F("blueOutGreenIn") / 100.0f, mixer->F("blueOutBlueIn") / 100.0f, 1.0f);
+		}
+		else
+			SetVec("gMixerR", 1, 0, 0, 0);
+		const VolumeComponent* lgg = stack.Get("LiftGammaGain");
+		if (usePost && lgg && stack.IsActive("LiftGammaGain"))
+		{
+			XMFLOAT4 lift, gammaInv, gain;
+			PrepareLiftGammaGain(lgg->V("lift"), lgg->V("gamma"), lgg->V("gain"), lift, gammaInv, gain);
+			SetVec("gLift", lift.x, lift.y, lift.z, 1.0f);
+			SetVec("gGammaInv", gammaInv.x, gammaInv.y, gammaInv.z, 0.0f);
+			SetVec("gGain", gain.x, gain.y, gain.z, 0.0f);
+		}
+		else
+			SetVec("gLift", 0, 0, 0, 0);
+		const VolumeComponent* smh = stack.Get("ShadowsMidtonesHighlights");
+		if (usePost && smh && stack.IsActive("ShadowsMidtonesHighlights"))
+		{
+			const XMFLOAT4 s = PrepareSmh(smh->V("shadows"), 1.0f), m = PrepareSmh(smh->V("midtones"), 0.0f), h = PrepareSmh(smh->V("highlights"), 0.0f);
+			SetVec("gSmhShadows", s.x, s.y, s.z, 1.0f);
+			SetVec("gSmhMidtones", m.x, m.y, m.z, 0.0f);
+			SetVec("gSmhHighlights", h.x, h.y, h.z, 0.0f);
+			SetVec("gSmhLimits", smh->F("shadowsStart"), smh->F("shadowsEnd"), smh->F("highlightsStart"), smh->F("highlightsEnd"));
+		}
+		else
+			SetVec("gSmhShadows", 1, 1, 1, 0);
+		const VolumeComponent* split = stack.Get("SplitToning");
+		if (usePost && split && stack.IsActive("SplitToning"))
+		{
+			const float* s = split->V("shadows");
+			const float* h = split->V("highlights");
+			SetVec("gSplitShadows", s[0], s[1], s[2], std::clamp(split->F("balance"), -100.0f, 100.0f) / 100.0f);
+			SetVec("gSplitHighlights", h[0], h[1], h[2], 1.0f);
+		}
+		else
+			SetVec("gSplitHighlights", 0.5f, 0.5f, 0.5f, 0.0f);
+		// Color Lookup: LUT 텍스처 (높이 = 칸 수, 폭 = 칸 수²)
+		const VolumeComponent* lut = stack.Get("ColorLookup");
+		GfxShaderResourceView* lutSrv = nullptr;
+		float lutSize = 0.0f;
+		if (usePost && lut && stack.IsActive("ColorLookup"))
+		{
+			const VolumeParameter* tp = lut->Find("texture");
+			ComPtr<GfxShaderResourceView> srv = ResourceManager::GetI()->LoadTexture(string_to_wstring(tp->Text));
+			if (srv)
+			{
+				ComPtr<GfxResource> res;
+				srv->GetResource(res.GetAddressOf());
+				ComPtr<GfxTexture2D> tex;
+				if (SUCCEEDED(res.As(&tex)))
+				{
+					D3D11_TEXTURE2D_DESC desc;
+					tex->GetDesc(&desc);
+					if (desc.Height > 1 && desc.Width == desc.Height * desc.Height)
+					{
+						lutSrv = srv.Get();
+						lutSize = (float)desc.Height;
+					}
+					else
+					{
+						static std::string s_Warned;
+						if (s_Warned != tp->Text)
+						{
+							s_Warned = tp->Text;
+							EditorLog::Write("Volume", "Color Lookup: %s is %u x %u - a LUT strip must be N^2 x N (Unity 1024 x 32)", tp->Text.c_str(), desc.Width, desc.Height);
+						}
+					}
+				}
+			}
+		}
+		SetVec("gUserLut", lutSize, lut ? Clamp01(lut->F("contribution")) : 0.0f, lutSrv ? 1.0f : 0.0f, 0.0f);
+		SetSRV("gUserLutTex", lutSrv);
 	}
+	// ---- Panini Projection · Lens Distortion (Uber 가 읽는 자리를 옮긴다)
+	if (usePost && panini && stack.IsActive("PaniniProjection") && options.Proj._22 != 0.0f && fabsf(options.Proj._34) > 1e-6f)
+	{
+		// URP: 화면 범위 = tan(fov / 2) × (가로 비율), Crop To Fit 만큼 원통에 맞춰 줄인다
+		const float d = Clamp01(panini->F("distance"));
+		const float viewY = 1.0f / options.Proj._22, viewX = 1.0f / options.Proj._11;
+		const float projHyp = sqrtf(viewX * viewX + 1.0f);
+		const float cylDistMinusD = 1.0f / projHyp;
+		const float cylDist = cylDistMinusD + d;
+		const float cropX = viewX * cylDistMinusD * ((1.0f + d) / cylDist), cropY = viewY * cylDistMinusD * ((1.0f + d) / cylDist);
+		const float scaleF = (std::min)(cropX / viewX, cropY / viewY);
+		const float s = 1.0f + (Clamp01(scaleF) - 1.0f) * Clamp01(panini->F("cropToFit"));
+		SetVec("gPanini", viewX, viewY, d, s);
+	}
+	else
+		SetVec("gPanini", 0, 0, 0, 0);
+	if (usePost && distortion && stack.IsActive("LensDistortion"))
+	{
+		const float intensity = std::clamp(distortion->F("intensity"), -1.0f, 1.0f);
+		const float amount = 1.6f * (std::max)(fabsf(intensity * 100.0f), 1.0f);
+		const float theta = XMConvertToRadians((std::min)(160.0f, amount));
+		const float sigma = 2.0f * tanf(theta * 0.5f);
+		const float* center = distortion->V("center");
+		SetVec("gDistortion1", center[0] * 2.0f - 1.0f, center[1] * 2.0f - 1.0f, (std::max)(distortion->F("xMultiplier"), 1e-4f), (std::max)(distortion->F("yMultiplier"), 1e-4f));
+		SetVec("gDistortion2", intensity >= 0.0f ? theta : 1.0f / theta, sigma, 1.0f / (std::max)(distortion->F("scale"), 0.01f), intensity * 100.0f);
+	}
+	else
+		SetVec("gDistortion2", 0, 0, 1, 0);
 	if (usePost && stack.IsActive("Vignette"))
 	{
 		const float* c = vig->V("color");

@@ -11,7 +11,8 @@ Unreal 의 PCG (Procedural Content Generation) 와 같은 생각입니다. **규
 1. **World Terrain** — 32 × 32 km 지형 (1 km 타일 1024 개). 높이 · 바이옴 (숲 · 초원 · 사막 · 바위) 은 위치만으로 정해지는 함수라 어디서나 같은 땅
 2. **PCG Volume** — 그래프 `Assets/PCG/OpenWorld.pcg` 를 월드 전체에 적용. 그래프가 없으면 **프로젝트의 모델을 이름으로 나눠** (큰 나무 · 작은 나무 · 덤불 · 고사리 · 풀 · 숲 바닥 · 바위 · 잔해 · 버섯 · 선인장 · 마른 풀) 숲 · 초원 · 사막 · 바위 규칙 11 개를 만든다
 3. **그림자 2 km** — 같은 GameObject 에 Global Volume (Priority 10, `Assets/PCG/OpenWorldShadows.volumeprofile`): Shadows Max Distance 2000 m, **캐스케이드 8 개** (끝 12 · 30 · 70 · 150 · 300 · 600 · 1100 · 2000 m), 나무 스포너의 Shadow Distance 2000 m (멀리는 마지막 LOD — 빌보드 — 가 그림자)
-4. Main Camera 의 Far 를 20 km 로 (새 카메라는 TAA 가 기본)
+4. **숲의 화면** — Global Volume (Priority 11, `Assets/PCG/OpenWorldLook.volumeprofile`): ACES · 색 보정 · Sun Shafts · Volumetric Fog · 대기 원근 · Lens Flare … ([후처리](POST_PROCESSING.md)), 해는 낮고 따뜻하게
+5. Main Camera 의 Far 를 20 km 로 (새 카메라는 TAA 가 기본)
 
 카메라를 움직이면 그 둘레만 만들어지고 (작업 스레드), 멀어진 곳은 버립니다.
 
@@ -51,7 +52,7 @@ Unreal 의 PCG (Procedural Content Generation) 와 같은 생각입니다. **규
 | **Difference** | 다른 줄기 (Exclusions) 의 점 근처를 뺀다 — 예: 나무 밑에는 덤불 · 풀을 덜. 이웃 셀의 점까지 본다 |
 | **Transform Points** | 방향 (Yaw) · 크기 · 지형 기울기 따르기 (Align To Normal) · 기울임 · 높이 오프셋 — 점마다 무작위 (같은 점 = 같은 값) |
 | **Merge** | 여러 줄기를 하나로 |
-| **Static Mesh Spawner** | 점마다 메시 (가중치로 고른다). Cull Distance = 생성 · 그리기 반지름, Cell Size, Cast Shadows · Shadow Distance, LOD Bias |
+| **Static Mesh Spawner** | 점마다 메시 (가중치로 고른다). Cull Distance = 생성 · 그리기 반지름, Cell Size, Cast Shadows · Shadow Distance, LOD Bias. **물에 잠기는 점은 놓지 않는다** (호수 · 강 · 바다 — 물을 옮기면 그 둘레를 다시) |
 
 - 오른쪽 클릭 · Space = 노드 추가, Out 에서 In 으로 끌어 잇기, Delete = 지우기
 - 오른쪽 **Details**: 값 · 끄기 · 이름, 스포너의 메시 목록 (Project 에서 고른 모델 넣기 · 역할로 한꺼번에 · 가중치)

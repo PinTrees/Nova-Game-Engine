@@ -33,6 +33,13 @@ namespace
 		p.Items = std::move(items);
 		return p;
 	}
+	// 트랙볼 (Unity 의 Vector4Parameter — 색 rgb + 밝기 w): 기본 (1, 1, 1, 0) = 그대로
+	VolumeParameter PTrackball(const char* key, const char* label)
+	{
+		VolumeParameter p = P(key, label, VolumeParamKind::Trackball, 1.0f, -1.0f, 1.0f);
+		p.Value[1] = 1.0f; p.Value[2] = 1.0f; p.Value[3] = 0.0f;
+		return p;
+	}
 	VolumeParameter ShowIf(VolumeParameter p, const char* key, int value)
 	{
 		p.ShowIfKey = key;
@@ -106,7 +113,8 @@ const float* VolumeComponent::V(const std::string& key) const
 const std::vector<std::string>& VolumeComponent::Types()
 {
 	static const std::vector<std::string> kTypes = {
-		"Bloom", "ChromaticAberration", "ColorAdjustments", "DepthOfField", "FilmGrain", "MotionBlur", "Tonemapping", "Vignette", "WhiteBalance",
+		"Bloom", "ChannelMixer", "ChromaticAberration", "ColorAdjustments", "ColorLookup", "DepthOfField", "FilmGrain", "LensDistortion", "LiftGammaGain",
+		"MotionBlur", "PaniniProjection", "ScreenSpaceLensFlare", "ShadowsMidtonesHighlights", "SplitToning", "SunShafts", "Tonemapping", "Vignette", "WhiteBalance",
 		"Shadows", "Fog", "Atmosphere", "IndirectLighting", "ScreenSpaceReflection", "AmbientOcclusion", "MotionVectors", "Exposure" };
 	return kTypes;
 }
@@ -262,6 +270,12 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("maxOpacity", "Max Opacity", K::Clamped, 1.0f, 0.0f, 1.0f),
 			P("sunScattering", "Sun Scattering", K::Clamped, 0.5f, 0.0f, 2.0f),
 			P("anisotropy", "Anisotropy", K::Clamped, 0.6f, 0.0f, 0.95f),
+			// HDRP 의 Volumetric Fog: 해 그림자 맵을 따라 걸으며 빛이 닿는 곳만 산란 (나무 사이 빛줄기). 밀도 = 위 안개 × Multiplier
+			P("volumetric", "Volumetric Fog", K::Bool, 0.0f),
+			PColor("albedo", "Albedo", 1.0f, 1.0f, 1.0f),
+			P("volumetricDistance", "Volumetric Fog Distance", K::Float, 150.0f, 1.0f),
+			P("volumetricMultiplier", "Volumetric Multiplier", K::Clamped, 1.0f, 0.0f, 20.0f),
+			PEnum("volumetricQuality", "Volumetric Quality", { "Low", "Medium", "High" }, 1),
 		};
 	}
 	else if (type == "Atmosphere")
@@ -348,6 +362,120 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 			P("response", "Response", K::Clamped, 0.8f, 0.0f, 1.0f),
 		};
 	}
+	// ---- 색 보정 (Unity URP 의 나머지 Volume 오버라이드 — 같은 이름 · 같은 범위 · 같은 식, 41. PostProcess.fx 의 Uber)
+	else if (type == "LiftGammaGain")
+	{
+		// 트랙볼 세 개: 색 = 그 영역을 그 색으로 밀기, w = 밝기 (Lift 어두운 곳 · Gamma 중간 · Gain 밝은 곳)
+		c->DisplayName = "Lift Gamma Gain";
+		c->Params = { PTrackball("lift", "Lift"), PTrackball("gamma", "Gamma"), PTrackball("gain", "Gain") };
+	}
+	else if (type == "ShadowsMidtonesHighlights")
+	{
+		c->DisplayName = "Shadows Midtones Highlights";
+		c->Params = {
+			PTrackball("shadows", "Shadows"), PTrackball("midtones", "Midtones"), PTrackball("highlights", "Highlights"),
+			P("shadowsStart", "Shadows Start", K::Float, 0.0f, 0.0f),
+			P("shadowsEnd", "Shadows End", K::Float, 0.3f, 0.0f),
+			P("highlightsStart", "Highlights Start", K::Float, 0.55f, 0.0f),
+			P("highlightsEnd", "Highlights End", K::Float, 1.0f, 0.0f),
+		};
+	}
+	else if (type == "SplitToning")
+	{
+		// 어두운 곳 · 밝은 곳에 다른 색 (회색 0.5 = 그대로), Balance 로 경계를 옮긴다
+		c->DisplayName = "Split Toning";
+		c->Params = {
+			PColor("shadows", "Shadows", 0.5f, 0.5f, 0.5f),
+			PColor("highlights", "Highlights", 0.5f, 0.5f, 0.5f),
+			P("balance", "Balance", K::Clamped, 0.0f, -100.0f, 100.0f),
+		};
+	}
+	else if (type == "ChannelMixer")
+	{
+		// 출력 채널마다 입력 R · G · B 를 섞는 비율 (%)
+		c->DisplayName = "Channel Mixer";
+		c->Params = {
+			P("redOutRedIn", "Red Out: Red", K::Clamped, 100.0f, -200.0f, 200.0f),
+			P("redOutGreenIn", "Red Out: Green", K::Clamped, 0.0f, -200.0f, 200.0f),
+			P("redOutBlueIn", "Red Out: Blue", K::Clamped, 0.0f, -200.0f, 200.0f),
+			P("greenOutRedIn", "Green Out: Red", K::Clamped, 0.0f, -200.0f, 200.0f),
+			P("greenOutGreenIn", "Green Out: Green", K::Clamped, 100.0f, -200.0f, 200.0f),
+			P("greenOutBlueIn", "Green Out: Blue", K::Clamped, 0.0f, -200.0f, 200.0f),
+			P("blueOutRedIn", "Blue Out: Red", K::Clamped, 0.0f, -200.0f, 200.0f),
+			P("blueOutGreenIn", "Blue Out: Green", K::Clamped, 0.0f, -200.0f, 200.0f),
+			P("blueOutBlueIn", "Blue Out: Blue", K::Clamped, 100.0f, -200.0f, 200.0f),
+		};
+	}
+	else if (type == "ColorLookup")
+	{
+		// LUT 텍스처 (Unity 의 가로 띠: 32 x 32 칸 = 1024 x 32, 또는 16 칸 = 256 x 16). Contribution 만큼 섞는다
+		c->DisplayName = "Color Lookup";
+		VolumeParameter tex = P("texture", "Lookup Texture", K::Texture, 0.0f);
+		c->Params = { tex, P("contribution", "Contribution", K::Clamped, 0.0f, 0.0f, 1.0f) };
+	}
+	// ---- 렌즈 (URP Post-processing)
+	else if (type == "LensDistortion")
+	{
+		c->DisplayName = "Lens Distortion";
+		VolumeParameter center = P("center", "Center", K::Vector2, 0.5f);
+		center.Value[1] = 0.5f;
+		c->Params = {
+			P("intensity", "Intensity", K::Clamped, 0.0f, -1.0f, 1.0f),
+			P("xMultiplier", "X Multiplier", K::Clamped, 1.0f, 0.0f, 1.0f),
+			P("yMultiplier", "Y Multiplier", K::Clamped, 1.0f, 0.0f, 1.0f),
+			center,
+			P("scale", "Scale", K::Clamped, 1.0f, 0.01f, 5.0f),
+		};
+	}
+	else if (type == "PaniniProjection")
+	{
+		// 넓은 화각의 가장자리 늘어짐을 줄인다 (Distance 1 = 원통 투영)
+		c->DisplayName = "Panini Projection";
+		c->Params = {
+			P("distance", "Distance", K::Clamped, 0.0f, 0.0f, 1.0f),
+			P("cropToFit", "Crop To Fit", K::Clamped, 1.0f, 0.0f, 1.0f),
+		};
+	}
+	else if (type == "SunShafts")
+	{
+		// Unity 의 Sun Shafts (Standard Assets 이미지 효과) · Unreal 의 Light Shaft Bloom: 해 둘레의 밝은 하늘이 잎 · 가지 틈으로 새는 것을
+		//  해 쪽으로 방사형으로 번지게 — 나무 사이 빛줄기. 볼륨 안개 (Fog > Volumetric Fog) 와 같이 쓰면 공기 속 빛도
+		c->DisplayName = "Sun Shafts";
+		c->Category = "Lighting";
+		c->Params = {
+			P("intensity", "Intensity", K::Float, 0.0f, 0.0f),
+			PColor("color", "Shafts Color", 1.0f, 0.94f, 0.82f),
+			P("threshold", "Sky Threshold", K::Clamped, 0.55f, 0.0f, 1.0f),
+			P("maxRadius", "Max Radius", K::Clamped, 0.75f, 0.05f, 2.0f),
+			P("blurRadius", "Blur Radius", K::Clamped, 0.6f, 0.05f, 1.0f),
+			P("iterations", "Blur Iterations", K::Int, 2.0f, 1.0f, 4.0f),
+		};
+	}
+	else if (type == "ScreenSpaceLensFlare")
+	{
+		// URP 의 Screen Space Lens Flare: Bloom 밉의 밝은 곳을 화면 가운데 건너편에 비춘다 (첫 · 둘째 · 휜 고스트, 가로 줄기, 색수차)
+		c->DisplayName = "Screen Space Lens Flare";
+		VolumeParameter warpScale = P("warpedFlareScale", "Warped Flare Scale", K::Vector2, 1.0f);
+		warpScale.Value[1] = 1.0f;
+		c->Params = {
+			P("intensity", "Intensity", K::Float, 0.0f, 0.0f),
+			PColor("tintColor", "Tint Color", 1.0f, 1.0f, 1.0f),
+			P("bloomMip", "Bloom Mip", K::Int, 1.0f, 0.0f, 5.0f),
+			P("firstFlareIntensity", "First Flare Intensity", K::Float, 1.0f, 0.0f),
+			P("secondaryFlareIntensity", "Secondary Flare Intensity", K::Float, 1.0f, 0.0f),
+			P("warpedFlareIntensity", "Warped Flare Intensity", K::Float, 1.0f, 0.0f),
+			warpScale,
+			P("samples", "Samples", K::Int, 1.0f, 1.0f, 3.0f),
+			P("sampleDimmer", "Sample Dimmer", K::Clamped, 0.5f, 0.0f, 1.0f),
+			P("vignetteEffect", "Vignette Effect", K::Clamped, 1.0f, 0.0f, 1.0f),
+			P("startingPosition", "Starting Position", K::Clamped, 1.25f, 1.0f, 3.0f),
+			P("scale", "Scale", K::Clamped, 1.5f, 1.0f, 4.0f),
+			P("streaksIntensity", "Streaks Intensity", K::Float, 0.0f, 0.0f),
+			P("streaksLength", "Streaks Length", K::Clamped, 0.5f, 0.0f, 1.0f),
+			P("streaksThreshold", "Streaks Threshold", K::Clamped, 0.25f, 0.0f, 1.0f),
+			P("chromaticAbberationIntensity", "Chromatic Aberration Intensity", K::Clamped, 0.5f, 0.0f, 1.0f),
+		};
+	}
 	else
 		return nullptr;
 	return c;
@@ -404,7 +532,11 @@ json VolumeProfile::ToJson() const
 		jc["active"] = c->Active;
 		json params = json::object();
 		for (const VolumeParameter& p : c->Params)
+		{
 			params[p.Key] = { { "override", p.Override }, { "value", { p.Value[0], p.Value[1], p.Value[2], p.Value[3] } } };
+			if (p.Kind == VolumeParamKind::Texture)
+				params[p.Key]["text"] = p.Text;
+		}
 		jc["params"] = params;
 		comps.push_back(jc);
 	}
@@ -433,6 +565,7 @@ void VolumeProfile::FromJson(const json& j)
 				if (jp.contains("value") && jp["value"].is_array())
 					for (int i = 0; i < 4 && i < (int)jp["value"].size(); ++i)
 						p.Value[i] = jp["value"][i].get<float>();
+				p.Text = jp.value("text", p.Text);
 			}
 		Components.push_back(std::move(c));
 	}
@@ -533,6 +666,8 @@ void VolumeStack::Reset()
 		{
 			c->Params[i].Override = def[i].Override;
 			memcpy(c->Params[i].Value, def[i].Value, sizeof(def[i].Value));
+			if (def[i].Kind == VolumeParamKind::Texture)
+				c->Params[i].Text = def[i].Text;
 		}
 	}
 }
@@ -566,6 +701,28 @@ bool VolumeStack::IsActive(const std::string& type) const
 	if (type == "MotionBlur") return c->F("intensity") > 0.0f;
 	if (type == "MotionVectors") return c->B("enabled");
 	if (type == "FilmGrain") return c->F("intensity") > 0.0f;
+	auto trackballMoved = [&](const char* key) { const float* v = c->V(key); return v[0] != 1.0f || v[1] != 1.0f || v[2] != 1.0f || v[3] != 0.0f; };
+	if (type == "LiftGammaGain") return trackballMoved("lift") || trackballMoved("gamma") || trackballMoved("gain");
+	if (type == "ShadowsMidtonesHighlights") return trackballMoved("shadows") || trackballMoved("midtones") || trackballMoved("highlights");
+	if (type == "SplitToning")
+	{
+		const float* s = c->V("shadows");
+		const float* h = c->V("highlights");
+		return s[0] != 0.5f || s[1] != 0.5f || s[2] != 0.5f || h[0] != 0.5f || h[1] != 0.5f || h[2] != 0.5f;
+	}
+	if (type == "ChannelMixer")
+		return c->F("redOutRedIn") != 100.0f || c->F("redOutGreenIn") != 0.0f || c->F("redOutBlueIn") != 0.0f
+			|| c->F("greenOutRedIn") != 0.0f || c->F("greenOutGreenIn") != 100.0f || c->F("greenOutBlueIn") != 0.0f
+			|| c->F("blueOutRedIn") != 0.0f || c->F("blueOutGreenIn") != 0.0f || c->F("blueOutBlueIn") != 100.0f;
+	if (type == "ColorLookup")
+	{
+		const VolumeParameter* t = c->Find("texture");
+		return t && !t->Text.empty() && c->F("contribution") > 0.0f;
+	}
+	if (type == "LensDistortion") return c->F("intensity") != 0.0f && c->F("scale") > 0.0f;
+	if (type == "PaniniProjection") return c->F("distance") > 0.0f;
+	if (type == "ScreenSpaceLensFlare") return c->F("intensity") > 0.0f;
+	if (type == "SunShafts") return c->F("intensity") > 0.0f;
 	if (type == "WhiteBalance") return c->F("temperature") != 0.0f || c->F("tint") != 0.0f;
 	if (type == "Fog" || type == "Atmosphere" || type == "ScreenSpaceReflection") return c->B("enabled");
 	if (type == "AmbientOcclusion") return c->B("enabled") && c->F("intensity") > 0.0f;

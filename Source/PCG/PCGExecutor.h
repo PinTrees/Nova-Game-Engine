@@ -37,7 +37,22 @@ namespace PCG
 		double Ms = 0.0;
 	};
 
-	void ExecuteSpawner(const Graph& graph, int spawnerId, const WorldGen::Settings& world, const TerrainGrid& grid, int volumeSeed, const Rect& rect, CellOutput& out);
+	// 물 (Water Body — 호수 · 강 · 바다): 물에 잠기는 점은 놓지 않는다 (Unreal PCG 의 물 빼기). 메인이 만든 사본 — 작업 스레드는 읽기만
+	struct WaterMask
+	{
+		struct Lake { std::vector<XMFLOAT2> Outline; float SurfaceY = 0.0f, MinX = 0, MinZ = 0, MaxX = 0, MaxZ = 0; };
+		struct RiverPoint { float X, Y, Z, HalfWidth; };
+		std::vector<Lake> Lakes;
+		std::vector<std::vector<RiverPoint>> Rivers;
+		float OceanY = -FLT_MAX;
+		uint64_t Hash = 0;
+		bool Empty() const { return Lakes.empty() && Rivers.empty() && OceanY == -FLT_MAX; }
+		// 땅 높이 y 의 점 (x, z) 가 물 아래 (또는 물가 margin m 안) 인가
+		bool Covers(float x, float y, float z, float margin = 0.4f) const;
+	};
+
+	void ExecuteSpawner(const Graph& graph, int spawnerId, const WorldGen::Settings& world, const TerrainGrid& grid, int volumeSeed, const Rect& rect, CellOutput& out,
+		const WaterMask* water = nullptr);
 
 	// 월드 높이 (격자 삼각형 보간 — 그려진 가까운 지형과 같은 면)
 	float GroundHeight(const WorldGen::Settings& world, const TerrainGrid& grid, float x, float z);

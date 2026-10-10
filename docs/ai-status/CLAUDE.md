@@ -1,6 +1,11 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 10일 — **열린 월드 바람 · TAA 기본 · 그림자 캐스케이드 8 개 (2 km) · 임포스터 그림자** (사용자 지시: "흔들리는 효과, 기본 카메라 TAA, 쉐도우 캐스케이드 8 단계, 임포스터에도 그림자, 그림자 거리 오픈월드 고려해서 2000")
+- 갱신 시각: 2026년 10월 10일 — **Unity 후처리 전부 + 그래픽 좋은 숲** (사용자 지시: "유니티의 후처리 효과들 최대한 가져와서 그래픽 좋은 숲으로 (UE5 MAWI 숲 영상처럼)")
+  - URP Volume 오버라이드 추가: Split Toning · Channel Mixer · Shadows Midtones Highlights · Lift Gamma Gain (Unity ColorUtils 식) · Color Lookup (LUT 띠, 중립 `Resources/Textures/LUT/NeutralLUT32.png`) · Lens Distortion · Panini Projection · Screen Space Lens Flare — `VolumeProfile` (Trackball · Texture 매개변수 종류), `PostProcessPass`, `Shaders/41`
+  - 숲의 빛: Fog > Volumetric Fog (`Shaders/50` 해 캐스케이드 그림자 걷기 — `EditorApp::DrawAtmosphere` 가 그림자 넘김), Sun Shafts (1/4 해상도 방사형), PCG 식물 잎 투과 (`PS_BatchFoliage`)
+  - 열린 월드: `OpenWorldLook.volumeprofile` · 낮고 따뜻한 해, 숲 바닥 이끼 덩어리 (`WorldGen::Splat`), 하층 빽빽하게, PCG 물 빼기 (`PCG::WaterMask` — 호수 · 강 · 바다)
+  - 문서 `docs/POST_PROCESSING.md`, 검사 `postfx` 스위트 (10)
+- 이전: 2026년 10월 10일 — **열린 월드 바람 · TAA 기본 · 그림자 캐스케이드 8 개 (2 km) · 임포스터 그림자** (사용자 지시: "흔들리는 효과, 기본 카메라 TAA, 쉐도우 캐스케이드 8 단계, 임포스터에도 그림자, 그림자 거리 오픈월드 고려해서 2000")
   - 바람: `Shaders/67. BatchWind.fx` (모델 높이로 숙임 · 돌풍 물결 · 잎 떨림) — 바람 묶음만 따로 기법 (`BatchWindTech` · `BatchGBufferWindTech` · `NormalDepthWindBatchTech` · `BuildShadowMapInstancingWindTech` + Alpha Clipping 짝). 처음엔 VS_Batch 에 넣었다가 Debug (최적화 없는 셰이더) 에서 Mesh Renderer 묶음도 깊이 프리패스와 어긋나 (render 의 Culling DX = GL 실패) 되돌림, `MeshBatcher::ExternalBatch::Wind` · `WindShape`, PCG Volume Wind Strength · Direction (× 날씨 바람), `PCG::MeshAsset::Foliage` (Alpha Clipping 재질이 있는 모델만)
   - TAA: `Camera::m_antiAliasing` 기본 3 (새 카메라)
   - 그림자: 캐스케이드 1 ~ 8 (`ShadowMap::SetCascadeCount` — 조각 = 빛 × 캐스케이드 수, 셰이더 32 · 46 은 gShadowParams.x 간격), Volume Split 4 ~ 7, 먼 캐스케이드 캐시의 **뒤집힌 조건 고침** (차례가 아닌 프레임마다 다시 그리던 것), `CasterPass::Inner` (앞 캐스케이드가 맡는 구 — PCG 가 셀을 뺀다), PCG 묶음 버퍼 서명을 셀 버퍼 번호로 (가만히 있으면 복사 0 번), 캐스케이드마다 묶음 버퍼

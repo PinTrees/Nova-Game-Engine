@@ -20,6 +20,8 @@ enum class VolumeParamKind
 	Enum,
 	Color,      // HDR 가능한 색 (rgb)
 	Vector2,
+	Trackball,  // Unity 의 트랙볼 (Lift Gamma Gain · Shadows Midtones Highlights): rgb 색 + w 밝기 (-1..1)
+	Texture,    // 텍스처 경로 (Text — Color Lookup 의 LUT). 섞을 때는 비중이 큰 쪽
 };
 
 struct VolumeParameter
@@ -31,6 +33,7 @@ struct VolumeParameter
 	std::vector<std::string> Items;   // Enum 항목
 	bool Override = false;
 	float Value[4] = { 0, 0, 0, 0 };
+	std::string Text;   // Texture 종류의 경로
 	// Inspector: 같은 효과의 다른 칸 (Enum) 이 이 값일 때만 보인다 (예: Depth Of Field 의 Gaussian 칸 · Bokeh 칸)
 	std::string ShowIfKey;
 	int ShowIfValue = 0;

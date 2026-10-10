@@ -1348,6 +1348,8 @@ float4 FinishLit(float3 color, float alpha, float distToEye)
 
 // 표면 (LitPS · G-버퍼 공용): 재질 값 또는 인스턴스 값 (PS_Batch) — baseColorFactor = _BaseColor, metallicValue · smoothnessValue = _Metallic · _Smoothness,
 //  emissionColor = 선형 _EmissionColor. 알파 자르기 · LOD 크로스페이드는 여기서 (픽셀을 버린다). alpha = Base Map × Base Color 의 알파
+// 잎 투과 (PCG 식물 — BatchWindTech 의 PS_BatchFoliage 가 Alpha Clipping 재질일 때 켠다): 해를 등진 잎이 비쳐 밝게 (Unreal 의 Two Sided Foliage)
+static float sFoliageTransmission = 0.0f;
 void LitSurfaceOf(VertexOut pin, float4 baseColorFactor, float metallicValue, float smoothnessValue, float3 emissionColor,
     out LitSurface surf, out float3 N, out float alpha)
 {
@@ -1389,7 +1391,7 @@ void LitSurfaceOf(VertexOut pin, float4 baseColorFactor, float metallicValue, fl
     surf.Smoothness = smoothness;
     surf.Occlusion = occlusion;
     surf.Emission = emission;
-    surf.Transmission = float3(0, 0, 0);
+    surf.Transmission = surf.Albedo * sFoliageTransmission;
     surf.Highlights = gPbr.SpecularHighlights != 0;
     surf.Reflections = gPbr.EnvironmentReflections != 0;
     surf.ReceiveShadows = gPbr.ReceiveShadows != 0;
@@ -1554,6 +1556,14 @@ float4 PS_BatchFace(BatchVertexOut pin, bool front : SV_IsFrontFace) : SV_Target
     return PS_Batch(pin);
 }
 
+// PCG 식물 (바람 묶음): 양면 + 잎 (Alpha Clipping) 이면 투과
+float4 PS_BatchFoliage(BatchVertexOut pin, bool front : SV_IsFrontFace) : SV_Target
+{
+    if (gPbr.AlphaClip)
+        sFoliageTransmission = 0.9f;
+    return PS_BatchFace(pin, front);
+}
+
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 BatchTech
 {
@@ -1571,7 +1581,7 @@ technique11 BatchWindTech
     {
         SetVertexShader(CompileShader(vs_5_0, VS_BatchColorWind()));
         SetGeometryShader(NULL);
-        SetPixelShader(CompileShader(ps_5_0, PS_BatchFace()));
+        SetPixelShader(CompileShader(ps_5_0, PS_BatchFoliage()));
     }
 }
 

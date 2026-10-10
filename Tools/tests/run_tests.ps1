@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, pcg, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, pcg, postfx, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6930,6 +6930,132 @@ function Suite-Crowd
     }
 }
 
+# ------------------------------------------------------------------ 후처리 (Unity URP 의 나머지 Volume 오버라이드 + Sun Shafts · Volumetric Fog)
+function Suite-PostFX
+{
+    # 같은 장면 · 같은 카메라에서 효과 하나씩: 켜면 그림이 바뀌고, Unity 기본값 (트랙볼 (1,1,1,0) · 회색 0.5 · 100 %) 은 그대로, 중립 LUT 는 같은 그림,
+    #  Sun Shafts 는 해를 볼 때만, 볼륨 안개는 같은 안개보다 해 쪽이 밝게 — 프로필 파일을 바꾸면 Volume 이 다시 읽는다
+    Write-Host '[postfx]'
+    $dir = Join-Path $Out 'postfx'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $rel = 'Assets\Settings\PostFxSuite.volumeprofile'
+    $file = Join-Path $Project $rel
+    New-Item -ItemType Directory -Force (Split-Path $file) | Out-Null
+    Add-Type -AssemblyName System.Drawing
+    function Stats([string]$a, [string]$b)
+    {
+        $p = [System.Drawing.Bitmap]::FromFile($a); $q = [System.Drawing.Bitmap]::FromFile($b)
+        $d = 0.0; $n = 0; $dr = 0.0; $db = 0.0; $dl = 0.0
+        for ($y = 0; $y -lt [math]::Min($p.Height, $q.Height); $y += 3) { for ($x = 0; $x -lt [math]::Min($p.Width, $q.Width); $x += 3) {
+            $c = $p.GetPixel($x, $y); $e = $q.GetPixel($x, $y)
+            $d += ([math]::Abs($c.R - $e.R) + [math]::Abs($c.G - $e.G) + [math]::Abs($c.B - $e.B)) / 3.0
+            $dr += $e.R - $c.R; $db += $e.B - $c.B; $dl += (($e.R + $e.G + $e.B) - ($c.R + $c.G + $c.B)) / 3.0; $n++ } }
+        $p.Dispose(); $q.Dispose()
+        [pscustomobject]@{ Mean = $d / [math]::Max(1, $n); Red = $dr / [math]::Max(1, $n); Blue = $db / [math]::Max(1, $n); Light = $dl / [math]::Max(1, $n) }
+    }
+    # 프로필: @{ 'Type' = @{ key = @(v0, v1, v2, v3) 또는 숫자 } } (텍스처는 'text:경로')
+    function Profile($effects)
+    {
+        $comps = @()
+        foreach ($t in $effects.Keys)
+        {
+            $params = @{}
+            foreach ($k in $effects[$t].Keys)
+            {
+                $v = $effects[$t][$k]
+                if ($v -is [string] -and $v.StartsWith('text:')) { $params[$k] = @{ override = $true; value = @(0, 0, 0, 0); text = $v.Substring(5) } }
+                elseif ($v -is [array]) { $params[$k] = @{ override = $true; value = @($v + @(0, 0, 0, 0))[0..3] } }
+                else { $params[$k] = @{ override = $true; value = @([double]$v, 0, 0, 0) } }
+            }
+            $comps += @{ type = $t; active = $true; params = $params }
+        }
+        @{ nova_volume_profile = 1; components = $comps } | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 $file
+        Invoke-Nova 'wait 12' | Out-Null
+    }
+    function Shot([string]$name) { $png = Join-Path $dir "$name.png"; Invoke-Nova "screenshot `"$png`" --view game" | Out-Null; $png }
+    $ed = Start-TestEditor -WatchSeconds 600
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --position 0,0.5,0' | Out-Null
+        Invoke-Nova 'create sphere --position 1.6,0.5,0.8' | Out-Null
+        Invoke-Nova 'create plane --scale 3,1,3' | Out-Null
+        Invoke-Nova 'create volume --name PostFxVolume' | Out-Null
+        Profile @{}
+        Invoke-Nova ('set PostFxVolume --component Volume --values "{\"profile\":\"' + ($rel -replace '\\', '\\\\') + '\",\"priority\":50}"') | Out-Null
+        # TAA 지터 없이 (같은 그림 비교)
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"antiAliasing\":0}"' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,2.2,-6 --rotation 12,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $base = Shot 'base'
+
+        Profile @{ LiftGammaGain = @{ lift = @(1, 1, 1, 0); gamma = @(1, 1, 1, 0); gain = @(1, 1, 1, 0) }; ShadowsMidtonesHighlights = @{ shadows = @(1, 1, 1, 0); midtones = @(1, 1, 1, 0); highlights = @(1, 1, 1, 0) };
+            SplitToning = @{ shadows = @(0.5, 0.5, 0.5, 1); highlights = @(0.5, 0.5, 0.5, 1) }; ChannelMixer = @{ redOutRedIn = 100; greenOutGreenIn = 100; blueOutBlueIn = 100 } }
+        $s = Stats $base (Shot 'defaults')
+        Add-Result postfx 'Unity default values (trackballs (1,1,1,0), split toning grey, channel mixer 100 %) leave the picture unchanged' ($s.Mean -lt 0.5) ('mean diff {0:N3}' -f $s.Mean)
+
+        Profile @{ LiftGammaGain = @{ gain = @(1.0, 0.75, 0.75, 0.0) } }
+        $s = Stats $base (Shot 'lgg')
+        Add-Result postfx 'Lift Gamma Gain: a red gain pushes the picture towards red' ($s.Red -gt 2 -and $s.Red -gt $s.Blue + 2) ('red {0:N1}, blue {1:N1}, mean {2:N2}' -f $s.Red, $s.Blue, $s.Mean)
+
+        Profile @{ ShadowsMidtonesHighlights = @{ midtones = @(0.6, 0.7, 1.0, 0.0) } }
+        $s = Stats $base (Shot 'smh')
+        Add-Result postfx 'Shadows Midtones Highlights: blue midtones (this scene is mostly mid-range)' ($s.Blue -gt $s.Red + 1 -and $s.Mean -gt 1.0) ('blue {0:N1}, red {1:N1}, mean {2:N2}' -f $s.Blue, $s.Red, $s.Mean)
+
+        Profile @{ SplitToning = @{ shadows = @(0.3, 0.4, 0.7, 1); highlights = @(0.75, 0.6, 0.35, 1); balance = 0 } }
+        $s = Stats $base (Shot 'split')
+        Add-Result postfx 'Split Toning: cool shadows and warm highlights change the picture' ($s.Mean -gt 1.0) ('mean {0:N2}, red {1:N1}, blue {2:N1}' -f $s.Mean, $s.Red, $s.Blue)
+
+        Profile @{ ChannelMixer = @{ redOutRedIn = 0; redOutGreenIn = 100; greenOutRedIn = 100; greenOutGreenIn = 0 } }
+        $s = Stats $base (Shot 'mixer')
+        Add-Result postfx 'Channel Mixer: swapping red and green changes the picture' ($s.Mean -gt 1.0) ('mean {0:N2}' -f $s.Mean)
+
+        Profile @{ ColorLookup = @{ texture = 'text:Resources\Textures\LUT\NeutralLUT32.png'; contribution = 1 } }
+        $s = Stats $base (Shot 'lut')
+        Add-Result postfx 'Color Lookup: the neutral 32-cell LUT (Unity strip layout) gives the same picture' ($s.Mean -lt 1.5) ('mean diff {0:N3}' -f $s.Mean)
+
+        Profile @{ LensDistortion = @{ intensity = 0.6 } }
+        $s = Stats $base (Shot 'distort')
+        Profile @{ PaniniProjection = @{ distance = 1 } }
+        $p = Stats $base (Shot 'panini')
+        Add-Result postfx 'Lens Distortion and Panini Projection move the picture (geometry, not colour)' ($s.Mean -gt 1.0 -and $p.Mean -gt 0.3 -and [math]::Abs($s.Light) -lt 6) ('distortion mean {0:N2}, panini mean {1:N2}' -f $s.Mean, $p.Mean)
+
+        # 해를 보는 자리 (기본 Directional Light (50, -30) → 해 방위 150, 높이 50)
+        Profile @{}
+        Invoke-Nova 'set "Main Camera" --position 0,1.0,-1 --rotation -38,150,0' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $sunBase = Shot 'sun_base'
+        Profile @{ SunShafts = @{ intensity = 1.5 } }
+        $shafts = Stats $sunBase (Shot 'sun_shafts')
+        Profile @{ Bloom = @{ intensity = 1; threshold = 0.8 }; ScreenSpaceLensFlare = @{ intensity = 2 } }
+        $bloomOnly = Shot 'sun_bloomflare'
+        Profile @{ Bloom = @{ intensity = 1; threshold = 0.8 } }
+        $flare = Stats (Shot 'sun_bloom') $bloomOnly
+        Profile @{ Fog = @{ enabled = 1; meanFreePath = 200; volumetric = 0 } }
+        $fogPng = Shot 'sun_fog'
+        Profile @{ Fog = @{ enabled = 1; meanFreePath = 200; volumetric = 1; volumetricMultiplier = 6 } }
+        $vol = Stats $fogPng (Shot 'sun_volumetric')
+        Invoke-Nova 'set "Main Camera" --position 0,2.2,-6 --rotation 12,-30,0' | Out-Null
+        Profile @{}
+        Invoke-Nova 'wait 20' | Out-Null
+        $awayBase = Shot 'away_base'
+        Profile @{ SunShafts = @{ intensity = 1.5 } }
+        $away = Stats $awayBase (Shot 'away_shafts')
+        Add-Result postfx 'Sun Shafts: rays brighten the picture when looking at the sun, nothing when the sun is behind' ($shafts.Light -gt 0.5 -and $away.Mean -lt 0.2) ('towards sun +{0:N2} light, away mean {1:N3}' -f $shafts.Light, $away.Mean)
+        Add-Result postfx 'Screen Space Lens Flare adds ghosts on top of Bloom' ($flare.Mean -gt 0.1) ('mean diff {0:N3}' -f $flare.Mean)
+        Add-Result postfx 'Volumetric Fog: sunlight scattered in the fog (shadow-map raymarch) brightens the view towards the sun' ($vol.Light -gt 0.5) ('+{0:N2} light' -f $vol.Light)
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $file, "$file.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ------------------------------------------------------------------ PCG · 초대형 열린 월드 (World Terrain + PCG Graph)
 function Suite-PCG
 {
@@ -8390,6 +8516,7 @@ try
                 'streaming' { Suite-Streaming }
                 'crowd' { Suite-Crowd }
                 'pcg' { Suite-PCG }
+                'postfx' { Suite-PostFX }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

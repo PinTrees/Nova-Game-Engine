@@ -147,6 +147,11 @@ namespace
 			if (t > 0.0f)
 				dst.Value[0] = src.Value[0];
 			break;
+		case VolumeParamKind::Texture:
+			// 경로는 섞을 수 없다: 이 Volume 이 반 넘게 들어오면 그 텍스처 (비중은 Contribution 이 섞인다)
+			if (t > 0.5f || dst.Text.empty())
+				dst.Text = src.Text;
+			break;
 		case VolumeParamKind::Int:
 			dst.Value[0] = (float)(int)(dst.Value[0] + (src.Value[0] - dst.Value[0]) * t + 0.5f);
 			break;

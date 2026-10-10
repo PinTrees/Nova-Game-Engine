@@ -110,6 +110,13 @@ namespace AtmospherePass
 			const float* c = skyColor ? f->V("tint") : f->V("color");
 			p.FogColor = XMFLOAT4(skyColor ? (std::max)(c[0], 0.0f) : ToLinear(c[0]), skyColor ? (std::max)(c[1], 0.0f) : ToLinear(c[1]),
 				skyColor ? (std::max)(c[2], 0.0f) : ToLinear(c[2]), skyColor ? 1.0f : 0.0f);
+			if (f->B("volumetric"))
+			{
+				static const float kSteps[3] = { 16.0f, 32.0f, 64.0f };   // Low · Medium · High
+				const float* a = f->V("albedo");
+				p.Volumetric = XMFLOAT4((std::max)(f->F("volumetricDistance"), 1.0f), (std::max)(f->F("volumetricMultiplier"), 0.0f), kSteps[std::clamp(f->I("volumetricQuality"), 0, 2)], 0.0f);
+				p.VolumetricAlbedo = XMFLOAT4(ToLinear(a[0]), ToLinear(a[1]), ToLinear(a[2]), 1.0f);
+			}
 		}
 		// 날씨 안개 (WeatherState — 비 · 눈 · 폭풍): 장면 Volume 의 Fog 와 FogAmount 만큼 섞는다 (없으면 날씨 안개만)
 		if (const WeatherState& w = WeatherState::Get(); w.FogAmount > 0.001f)
@@ -178,6 +185,21 @@ namespace AtmospherePass
 		SetVec(fx, "gAtmSunColor", p.SunColor);
 		SetVec(fx, "gAtmEye", XMFLOAT4(eye.x, eye.y, eye.z, 1.0f));
 		SetVec(fx, "gAtmFlags", XMFLOAT4(p.Fog ? 1.0f : 0.0f, p.Aerial ? 1.0f : 0.0f, sky ? 1.0f : 0.0f, 0.0f));
+		// 볼륨 안개 (50 번만 — 물은 없다): 해 그림자가 없으면 모두 빛을 받는다 (캐스케이드 수 0)
+		const bool vol = p.VolumetricAlbedo.w > 0.5f && p.Fog;
+		static uint32_t s_Frame = 0;
+		SetVec(fx, "gAtmVol", XMFLOAT4(p.Volumetric.x, p.Volumetric.y, p.Volumetric.z, (float)(++s_Frame % 64u)));
+		SetVec(fx, "gAtmVolAlbedo", XMFLOAT4(p.VolumetricAlbedo.x, p.VolumetricAlbedo.y, p.VolumetricAlbedo.z, vol ? 1.0f : 0.0f));
+		SetVec(fx, "gAtmShadowInfo", p.SunShadow ? p.ShadowInfo : XMFLOAT4(0, 0, 0, 0));
+		if (vol && p.SunShadow)
+		{
+			if (auto* v = fx->GetVariableByName("gAtmShadowT")->AsMatrix(); v && v->IsValid())
+				v->SetMatrixArray(reinterpret_cast<const float*>(p.SunShadowTransforms), 0, 8);
+			if (auto* v = fx->GetVariableByName("gAtmCascades")->AsVector(); v && v->IsValid())
+				v->SetFloatVectorArray(&p.CascadeSpheres[0].x, 0, 8);
+		}
+		if (auto* v = fx->GetVariableByName("gAtmSunShadow")->AsShaderResource(); v && v->IsValid())
+			v->SetResource(vol ? p.SunShadow : nullptr);
 		if (auto* v = fx->GetVariableByName("gAtmSky")->AsShaderResource(); v && v->IsValid())
 			v->SetResource(sky);
 	}

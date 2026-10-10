@@ -5,7 +5,8 @@
 
 // URP 식 후처리 실행기 (뷰마다 하나: Scene 뷰 / Game 뷰).
 //  1) Begin(): 씬을 그릴 HDR(R16G16B16A16F) 타깃을 뷰 크기로 준비해 돌려준다
-//  2) Execute(): (TAA) → (Depth Of Field → Motion Blur) → Bloom 밉 체인 → Uber(색 보정/톤매핑/비네트/...) → (FXAA · SMAA) → 출력 타깃
+//  2) Execute(): (TAA) → (Depth Of Field → Motion Blur) → Bloom 밉 체인 (→ Screen Space Lens Flare) → Uber(Panini · Lens Distortion · 색 보정 (URP 의
+//     Color Adjustments · White Balance · Split Toning · Channel Mixer · Shadows Midtones Highlights · Lift Gamma Gain) · 톤매핑 · Color Lookup · 비네트/...) → (FXAA · SMAA) → 출력 타깃
 // 설정은 VolumeStack(섞인 Volume 값) + 카메라 옵션.
 class PostProcessPass
 {
@@ -29,6 +30,10 @@ public:
 		bool SceneView = false;   // Scene 뷰: Motion Blur 없음 (Unity 와 같음)
 		// 모션 벡터 (MotionVectors — Game 뷰, 없으면 TAA · Motion Blur 는 카메라만 되돌린다)
 		GfxShaderResourceView* MotionVectors = nullptr;
+		// 해 (첫 방향광 — Sun Shafts): 빛이 나아가는 방향 (월드), 선형 색
+		bool HasSun = false;
+		XMFLOAT3 SunDirection = { 0.0f, -1.0f, 0.0f };
+		XMFLOAT3 SunColor = { 1.0f, 1.0f, 1.0f };
 	};
 
 	PostProcessPass();
@@ -61,6 +66,9 @@ private:
 	Target m_Ldr;            // FXAA 입력 (Uber 출력)
 	std::vector<Target> m_Down, m_Up;   // Bloom 밉 체인
 	Target m_Dof, m_Motion;              // Depth Of Field · Motion Blur 결과 (전체 해상도 HDR)
+	Target m_Flare;                      // Screen Space Lens Flare (Bloom 밉 크기)
+	Target m_Shafts[2];                  // Sun Shafts (1/4 해상도: 밝은 하늘 → 해 쪽 방사형 흐림)
+	GfxShaderResourceView* SunShafts(const VolumeComponent& shafts, const CameraOptions& options, GfxShaderResourceView* src);
 	Target m_MBTileMax, m_MBNeighborMax; // Motion Blur: 32 x 32 타일 최대 속도 · 이웃 3 x 3 최대 (R16G16F, 픽셀)
 	Target m_Half[2];                    // Depth Of Field 반 해상도 (선형 색 + CoC)
 	// TAA: 히스토리 두 장 (지난 프레임 결과 · 이번 결과), 같은 프레임에 다시 그리면 바꾸지 않는다

@@ -148,6 +148,29 @@ namespace
 		case VolumeParamKind::Vector2:
 			changed |= UnityGUI::Vector2Pair(label, "X", &p.Value[0], "Y", &p.Value[1], 1);
 			break;
+		case VolumeParamKind::Trackball:
+		{
+			// 트랙볼: 색 (rgb) + 밝기 (w, -1..1). 오른쪽 클릭 = 되돌리기 (Unity 와 같음)
+			float rgba[4] = { p.Value[0], p.Value[1], p.Value[2], 1.0f };
+			if (UnityGUI::Color(label, rgba, 1))
+			{
+				p.Value[0] = rgba[0]; p.Value[1] = rgba[1]; p.Value[2] = rgba[2];
+				changed = true;
+			}
+			ImGui::PushID("w");
+			changed |= UnityGUI::Slider("  Brightness", &p.Value[3], -1.0f, 1.0f, 1);
+			ImGui::PopID();
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right))
+			{
+				p.Value[0] = p.Value[1] = p.Value[2] = 1.0f;
+				p.Value[3] = 0.0f;
+				changed = true;
+			}
+			break;
+		}
+		case VolumeParamKind::Texture:
+			changed |= UnityGUI::TextField(label, &p.Text, 1);
+			break;
 		}
 		ImGui::EndDisabled();
 		ImGui::PopID();

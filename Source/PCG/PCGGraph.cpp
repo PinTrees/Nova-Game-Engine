@@ -454,8 +454,9 @@ namespace PCG
 		// 그림자 거리: 나무는 2 km (열린 월드 그림자 Volume 의 Max Distance) — 멀리는 마지막 LOD (빌보드 · 임포스터) 가 그림자를 남긴다
 		const int trees = chain("Forest Trees", 0.014f, 3.0f, Forest, 0.35f, 220.0f, 6.0f, 0.8f, 1.25f, 0.0f, 32.0f, of({ "BigTree" }), 3000.0f, true, 2000.0f, 0, 0.0f);
 		const int meadowTrees = chain("Meadow Trees", 0.0012f, 4.0f, Meadow, 0.4f, 400.0f, 14.0f, 0.8f, 1.2f, 0.0f, 25.0f, of({ "BigTree", "SmallTree" }), 3000.0f, true, 2000.0f, 0, 0.0f);
-		chain("Forest Understory", 0.18f, 0.8f, Forest, 0.3f, 45.0f, 1.2f, 0.7f, 1.3f, 0.5f, 38.0f, of({ "Fern", "Bush" }), 220.0f, true, 60.0f, trees, 2.5f);
-		chain("Forest Floor", 1.4f, 0.3f, Forest, 0.3f, 18.0f, 0.0f, 0.7f, 1.3f, 0.8f, 40.0f, of({ "ForestCover", "Grass" }), 75.0f, false, 0.0f, trees, 1.5f);
+		// 숲 아래는 빽빽하게 (실제 숲처럼 땅이 거의 보이지 않게 — 고사리 · 덤불 · 풀 · 덮개)
+		chain("Forest Understory", 0.3f, 0.8f, Forest, 0.3f, 45.0f, 1.0f, 0.7f, 1.3f, 0.5f, 38.0f, of({ "Fern", "Bush" }), 220.0f, true, 60.0f, trees, 2.5f);
+		chain("Forest Floor", 2.6f, 0.3f, Forest, 0.25f, 18.0f, 0.0f, 0.7f, 1.3f, 0.8f, 40.0f, of({ "ForestCover", "Grass" }), 85.0f, false, 0.0f, trees, 1.2f);
 		chain("Forest Debris", 0.012f, 1.5f, Forest, 0.4f, 90.0f, 3.0f, 0.8f, 1.3f, 1.0f, 30.0f, of({ "Debris" }), 220.0f, true, 60.0f, trees, 3.0f);
 		chain("Mushrooms", 0.02f, 0.2f, Forest, 0.5f, 12.0f, 0.4f, 0.7f, 1.4f, 0.6f, 30.0f, of({ "Mushroom" }), 50.0f, false, 0.0f, trees, 1.0f);
 		chain("Meadow Grass", 4.0f, 0.25f, Meadow, 0.2f, 30.0f, 0.0f, 0.75f, 1.35f, 0.7f, 35.0f, of({ "Grass" }, 12), 75.0f, false, 0.0f, meadowTrees, 1.0f);

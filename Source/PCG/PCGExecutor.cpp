@@ -361,7 +361,45 @@ namespace PCG
 		return hc.Height01(x, z) * world.MaxHeight;
 	}
 
-	void ExecuteSpawner(const Graph& graph, int spawnerId, const WorldGen::Settings& world, const TerrainGrid& grid, int volumeSeed, const Rect& rect, CellOutput& out)
+	bool WaterMask::Covers(float x, float y, float z, float margin) const
+	{
+		if (y < OceanY + margin)
+			return true;
+		for (const Lake& l : Lakes)
+		{
+			if (y > l.SurfaceY + margin || x < l.MinX || x > l.MaxX || z < l.MinZ || z > l.MaxZ)
+				continue;
+			// 다각형 안 (짝홀 규칙)
+			bool inside = false;
+			const size_t n = l.Outline.size();
+			for (size_t i = 0, j = n - 1; i < n; j = i++)
+			{
+				const XMFLOAT2& a = l.Outline[i];
+				const XMFLOAT2& b = l.Outline[j];
+				if ((a.y > z) != (b.y > z) && x < (b.x - a.x) * (z - a.y) / (b.y - a.y) + a.x)
+					inside = !inside;
+			}
+			if (inside)
+				return true;
+		}
+		for (const auto& river : Rivers)
+			for (size_t i = 0; i + 1 < river.size(); ++i)
+			{
+				const RiverPoint& a = river[i];
+				const RiverPoint& b = river[i + 1];
+				const float dx = b.X - a.X, dz = b.Z - a.Z;
+				const float len2 = dx * dx + dz * dz;
+				const float t = len2 > 1e-6f ? std::clamp(((x - a.X) * dx + (z - a.Z) * dz) / len2, 0.0f, 1.0f) : 0.0f;
+				const float px = a.X + dx * t - x, pz = a.Z + dz * t - z;
+				const float half = a.HalfWidth + (b.HalfWidth - a.HalfWidth) * t + margin;
+				if (px * px + pz * pz < half * half && y < a.Y + (b.Y - a.Y) * t + 1.0f)
+					return true;
+			}
+		return false;
+	}
+
+	void ExecuteSpawner(const Graph& graph, int spawnerId, const WorldGen::Settings& world, const TerrainGrid& grid, int volumeSeed, const Rect& rect, CellOutput& out,
+		const WaterMask* water)
 	{
 		const auto t0 = std::chrono::steady_clock::now();
 		out = CellOutput();
@@ -379,8 +417,11 @@ namespace PCG
 		out.MinY = FLT_MAX;
 		out.MaxY = -FLT_MAX;
 		const uint32_t pick = (uint32_t)sp->Get("seed") * 0x632BE5ABu + (uint32_t)spawnerId;
+		const bool hasWater = water && !water->Empty();
 		for (const Point& p : points)
 		{
+			if (hasWater && water->Covers(p.X, p.Y, p.Z))
+				continue;   // 물에 잠긴다
 			// 메시: 가중치로 (점 해시)
 			float t = Rand01(Mix(p.Seed, pick)) * total;
 			size_t m = 0;

@@ -1,6 +1,7 @@
 #pragma once
 #include "Component.h"
 #include "PCGGraph.h"
+namespace PCG { struct WaterMask; }
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -76,6 +77,7 @@ private:
 	uint64_t m_GraphRevision = 0;
 	uint64_t m_Key = 0;
 	std::shared_ptr<struct PCGQueue> m_Queue;
+	std::shared_ptr<const PCG::WaterMask> m_Water;   // 물 사본 (작업 스레드가 읽는다)
 	uint32_t m_Frame = 0;
 	uint32_t m_LastTickFrame = ~0u;
 	double m_GenMs = 0.0;

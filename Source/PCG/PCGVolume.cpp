@@ -19,6 +19,7 @@
 #include "Application.h"
 #include "WeatherState.h"
 #include "ShadowRenderer.h"
+#include "WaterBody.h"
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -306,6 +307,55 @@ void PCGVolume::Tick()
 		memcpy(&u, &f, 4);
 		key = (key ^ u) * 1099511628211ull;
 	}
+	// 물 (호수 · 강 · 바다): 사본 + 해시 — 물을 옮기거나 더하면 그 둘레가 다시 채워진다
+	{
+		auto water = std::make_shared<PCG::WaterMask>();
+		uint64_t wh = 1469598103934665603ull;
+		auto mix = [&](float f) { uint32_t u; memcpy(&u, &f, 4); wh = (wh ^ u) * 1099511628211ull; };
+		for (WaterBody* b : WaterBody::All())
+		{
+			if (b == nullptr || !b->IsActiveBody())
+				continue;
+			if (b->BodyType == WaterBody::Type::Ocean)
+			{
+				water->OceanY = (std::max)(water->OceanY, b->SurfaceY());
+				mix(b->SurfaceY());
+				continue;
+			}
+			const std::vector<WaterBody::CurveSample> curve = b->Curve(4.0f);
+			if (curve.size() < 2)
+				continue;
+			if (b->BodyType == WaterBody::Type::Lake)
+			{
+				PCG::WaterMask::Lake lake;
+				lake.SurfaceY = b->SurfaceY();
+				lake.MinX = lake.MinZ = FLT_MAX;
+				lake.MaxX = lake.MaxZ = -FLT_MAX;
+				for (const auto& s : curve)
+				{
+					lake.Outline.push_back(XMFLOAT2(s.Position.x, s.Position.z));
+					lake.MinX = (std::min)(lake.MinX, s.Position.x); lake.MaxX = (std::max)(lake.MaxX, s.Position.x);
+					lake.MinZ = (std::min)(lake.MinZ, s.Position.z); lake.MaxZ = (std::max)(lake.MaxZ, s.Position.z);
+					mix(s.Position.x); mix(s.Position.z);
+				}
+				mix(lake.SurfaceY);
+				water->Lakes.push_back(std::move(lake));
+			}
+			else
+			{
+				std::vector<PCG::WaterMask::RiverPoint> river;
+				for (const auto& s : curve)
+				{
+					river.push_back({ s.Position.x, s.Position.y, s.Position.z, s.Width * 0.5f });
+					mix(s.Position.x); mix(s.Position.y); mix(s.Position.z); mix(s.Width);
+				}
+				water->Rivers.push_back(std::move(river));
+			}
+		}
+		water->Hash = water->Empty() ? 0 : wh;
+		m_Water = water;
+		key ^= water->Hash * 0xC2B2AE3D27D4EB4Full;
+	}
 	m_Key = key;
 
 	// 필요한 셀: 카메라 둘 (Scene 뷰 · Game 뷰) 에서 Cull Distance 안
@@ -378,11 +428,12 @@ void PCGVolume::Tick()
 		}
 		const CellKey ck = w.Key;
 		const WorldGen::Settings ws = world;
-		Jobs::Run([q, graph, ck, ws, grid, seed, rect, key]() {
+		std::shared_ptr<const PCG::WaterMask> water = m_Water;
+		Jobs::Run([q, graph, ck, ws, grid, seed, rect, key, water]() {
 			PCGQueue::Item item;
 			item.Key = ck;
 			item.Hash = key;
-			PCG::ExecuteSpawner(*graph, ck.Spawner, ws, grid, seed, rect, item.Out);
+			PCG::ExecuteSpawner(*graph, ck.Spawner, ws, grid, seed, rect, item.Out, water.get());
 			std::lock_guard<std::mutex> lock(q->Lock);
 			q->Done.push_back(std::move(item));
 			--q->Running;

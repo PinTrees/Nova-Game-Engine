@@ -719,6 +719,78 @@ GameObject* GameObjectFactory::CreateOpenWorld(float size)
 		shadows->SetProfile(path);
 		shadows->SetPriority(10.0f);
 	}
+	// 숲의 화면 (Unity 후처리 묶음 — 사진 같은 숲: 따뜻한 낮은 해 · 나무 사이 빛줄기 · 먼 산의 대기 · ACES · 색 보정 · Bloom · 렌즈 플레어 · 비네트).
+	//  프로필은 처음 만들 때만 값을 넣는다 (사용자가 고친 값은 그대로)
+	{
+		const std::string lookPath = "Assets\\PCG\\OpenWorldLook.volumeprofile";
+		std::string path = lookPath;
+		if (!std::filesystem::exists(PathManager::GetI()->GetMovePathW(string_to_wstring(lookPath))))
+		{
+			path = VolumeProfile::CreateAsset("Assets\\PCG", "OpenWorldLook");
+			if (std::shared_ptr<VolumeProfile> profile = VolumeProfile::Load(path))
+			{
+				auto set = [&](const char* type, const char* key, float a, float b = 0.0f, float c = 0.0f, float d = 0.0f) {
+					VolumeComponent* comp = profile->Get(type) ? profile->Get(type) : profile->Add(type);
+					if (VolumeParameter* p = comp ? comp->Find(key) : nullptr)
+					{
+						p->Override = true;
+						p->Value[0] = a; p->Value[1] = b; p->Value[2] = c; p->Value[3] = d;
+					}
+				};
+				set("Tonemapping", "mode", 2.0f);                                   // ACES
+				set("Bloom", "intensity", 0.45f);
+				set("Bloom", "threshold", 0.9f);
+				set("Bloom", "scatter", 0.7f);
+				set("Bloom", "tint", 1.0f, 0.95f, 0.86f, 1.0f);
+				set("ColorAdjustments", "postExposure", 0.2f);
+				set("ColorAdjustments", "contrast", 16.0f);
+				set("ColorAdjustments", "saturation", 22.0f);
+				set("WhiteBalance", "temperature", 2.0f);
+				set("WhiteBalance", "tint", 1.0f);
+				set("SplitToning", "shadows", 0.46f, 0.5f, 0.54f, 1.0f);           // 그늘은 차갑게
+				set("SplitToning", "highlights", 0.55f, 0.52f, 0.47f, 1.0f);        // 햇빛은 따뜻하게
+				set("SplitToning", "balance", -10.0f);
+				set("LiftGammaGain", "lift", 0.98f, 1.0f, 1.02f, -0.03f);
+				set("LiftGammaGain", "gamma", 1.0f, 1.0f, 1.0f, 0.02f);
+				set("LiftGammaGain", "gain", 1.02f, 1.0f, 0.97f, 0.03f);
+				set("ShadowsMidtonesHighlights", "midtones", 0.97f, 1.03f, 0.95f, 0.0f);   // 중간 밝기 초록을 조금
+				set("Vignette", "intensity", 0.26f);
+				set("Vignette", "smoothness", 0.45f);
+				set("ChromaticAberration", "intensity", 0.04f);
+				set("FilmGrain", "intensity", 0.08f);
+				set("ScreenSpaceLensFlare", "intensity", 0.1f);
+				set("SunShafts", "intensity", 1.2f);                                // 나무 사이 빛줄기
+				// 공기: 먼 산은 푸르게 (Atmosphere), 낮은 안개 + 볼륨 안개 (나무 사이 빛줄기)
+				set("Atmosphere", "enabled", 1.0f);
+				set("Atmosphere", "distanceScale", 1.5f);
+				set("Fog", "enabled", 1.0f);
+				set("Fog", "meanFreePath", 4000.0f);
+				set("Fog", "baseHeight", 0.0f);
+				set("Fog", "maximumHeight", 500.0f);
+				set("Fog", "sunScattering", 0.4f);
+				set("Fog", "anisotropy", 0.75f);
+				set("Fog", "volumetric", 1.0f);
+				set("Fog", "albedo", 1.0f, 0.96f, 0.88f, 1.0f);
+				set("Fog", "volumetricDistance", 160.0f);
+				set("Fog", "volumetricMultiplier", 10.0f);
+				set("ScreenSpaceReflection", "enabled", 1.0f);                     // 호수 · 젖은 바닥
+				profile->Save();
+			}
+		}
+		Volume* look = go->AddComponent<Volume>();
+		look->SetProfile(path);
+		look->SetPriority(11.0f);
+	}
+	// 해: 낮고 따뜻하게 (나무 사이로 빛이 비스듬히 — 긴 그림자 · 역광 잎). 장면의 기본 Directional Light 만
+	if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+		for (GameObject* g : scene->GameObjectsView())
+			if (g && g->GetName() == "Directional Light")
+				if (Light* sun = g->GetComponent<Light>())
+				{
+					g->GetTransform()->SetLocalEulerAngles(Vec3(28.0f, -35.0f, 0.0f));
+					sun->SetColor(XMFLOAT4(1.0f, 0.92f, 0.8f, 1.0f));
+					sun->SetIntensity(1.35f);
+				}
 	// 먼 지평선까지: Main Camera 의 Far 를 20 km
 	if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
 		for (GameObject* g : scene->GameObjectsView())

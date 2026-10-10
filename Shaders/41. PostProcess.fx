@@ -27,6 +27,35 @@ cbuffer cbPost
     float4 gAdapt;            // x = dt × 밝아질 때 속도, y = dt × 어두워질 때 속도
 };
 
+// ---- URP 의 나머지 색 보정 · 렌즈 (Uber 안 — URP LutBuilder 와 같은 차례: 대비 · 컬러 필터 → Split Toning → Channel Mixer →
+//  Shadows Midtones Highlights → Lift Gamma Gain → 색조 · 채도 → 톤매핑 → 사용자 LUT (Color Lookup))
+cbuffer cbPostGrading
+{
+    float4 gMixerR;          // Channel Mixer: 출력 R = dot(입력, xyz), w 1 = 켜짐
+    float4 gMixerG;
+    float4 gMixerB;
+    float4 gLift;            // Lift Gamma Gain (Unity ColorUtils.PrepareLiftGammaGain): xyz, w 1 = 켜짐
+    float4 gGammaInv;
+    float4 gGain;
+    float4 gSmhShadows;      // Shadows Midtones Highlights: xyz, w 1 = 켜짐
+    float4 gSmhMidtones;
+    float4 gSmhHighlights;
+    float4 gSmhLimits;       // x Shadows Start, y Shadows End, z Highlights Start, w Highlights End
+    float4 gSplitShadows;    // Split Toning: rgb 색 (감마), w Balance / 100
+    float4 gSplitHighlights; // rgb, w 1 = 켜짐
+    float4 gUserLut;         // Color Lookup: x 칸 수 (LUT 한 변), y Contribution, z 1 = 켜짐
+    float4 gDistortion1;     // Lens Distortion (URP): xy 중심, zw 축 배율
+    float4 gDistortion2;     // x theta, y sigma, z 1 / scale, w 세기 (0 = 끔)
+    float4 gPanini;          // Panini Projection: xy 화면 범위 (tan), z Distance, w Crop 배율 (0 = 끔)
+    float4 gFlare;           // Screen Space Lens Flare: rgb = tint × intensity, w 1 = 켜짐
+    float4 gShafts;          // Sun Shafts: rgb = 색 × 해 색 × intensity, w 1 = 켜짐
+    float4 gShaftParams;     // xy 해의 화면 uv, z 하늘 문턱 (선형), w 최대 반지름 (화면 높이 비율)
+    float4 gShaftParams2;    // x 가로 비율, y 세기 (해를 마주 보는 정도) / 흐림: z 반지름
+};
+Texture2D gShaftTex;         // Sun Shafts 결과 (1/4 해상도)
+Texture2D gUserLutTex;       // Color Lookup: 가로 띠 (칸 수² x 칸 수), Unity 와 같은 배치 (G 는 아래에서 위로)
+Texture2D gFlareTex;         // Screen Space Lens Flare 결과 (Bloom 밉 크기)
+
 Texture2D gSource;     // 입력 (씬 HDR 또는 이전 단계)
 Texture2D gBloomLow;   // Bloom 올리기: 한 단계 작은 밉 (이미 합성된 것)
 Texture2D gBloomTex;   // Uber: 최종 Bloom (절반 해상도)
@@ -240,9 +269,98 @@ float3 AcesTonemap(float3 c)
     return mul(ACESOutputMat, c);
 }
 
+// Soft Light (URP Split Toning)
+float3 SoftLight(float3 base, float3 blend)
+{
+    const float3 r1 = 2.0f * base * blend + base * base * (1.0f - 2.0f * blend);
+    const float3 r2 = sqrt(max(base, 0.0f)) * (2.0f * blend - 1.0f) + 2.0f * base * (1.0f - blend);
+    const float3 t = step(0.5f, blend);
+    return r2 * t + (1.0f - t) * r1;
+}
+
+// URP 의 색 보정 (선형, 대비 · 컬러 필터 다음): Split Toning → Channel Mixer → Shadows Midtones Highlights → Lift Gamma Gain
+float3 UrpGrading(float3 c)
+{
+    c = max(c, 0.0f);
+    if (gSplitHighlights.w > 0.5f)
+    {
+        float3 g = pow(c, 1.0f / 2.2f);
+        const float luma = saturate(Luminance(saturate(g)) + gSplitShadows.w);
+        g = SoftLight(g, lerp(float3(0.5f, 0.5f, 0.5f), gSplitShadows.rgb, 1.0f - luma));
+        g = SoftLight(g, lerp(float3(0.5f, 0.5f, 0.5f), gSplitHighlights.rgb, luma));
+        c = pow(max(g, 0.0f), 2.2f);
+    }
+    if (gMixerR.w > 0.5f)
+        c = float3(dot(c, gMixerR.xyz), dot(c, gMixerG.xyz), dot(c, gMixerB.xyz));
+    if (gSmhShadows.w > 0.5f)
+    {
+        const float luma = Luminance(c);
+        const float shadowsFactor = 1.0f - smoothstep(gSmhLimits.x, gSmhLimits.y, luma);
+        const float highlightsFactor = smoothstep(gSmhLimits.z, gSmhLimits.w, luma);
+        const float midtonesFactor = 1.0f - shadowsFactor - highlightsFactor;
+        c = c * gSmhShadows.xyz * shadowsFactor + c * gSmhMidtones.xyz * midtonesFactor + c * gSmhHighlights.xyz * highlightsFactor;
+    }
+    if (gLift.w > 0.5f)
+    {
+        c = c * gGain.xyz + gLift.xyz;
+        c = sign(c) * pow(abs(c), gGammaInv.xyz);
+    }
+    return c;
+}
+
+// Color Lookup: 감마 색 (0..1) → LUT (두 칸 사이를 섞는다)
+float3 ApplyUserLut(float3 g)
+{
+    const float size = gUserLut.x;
+    const float3 s = saturate(g) * (size - 1.0f);
+    const float slice = floor(s.b);
+    const float f = s.b - slice;
+    const float2 texel = float2(1.0f / (size * size), 1.0f / size);
+    const float2 uv0 = float2((s.r + 0.5f + slice * size) * texel.x, 1.0f - (s.g + 0.5f) * texel.y);
+    const float3 a = gUserLutTex.SampleLevel(samLinear, uv0, 0).rgb;
+    const float3 b = gUserLutTex.SampleLevel(samLinear, uv0 + float2(size * texel.x, 0.0f), 0).rgb;
+    return lerp(a, b, f);
+}
+
+// Panini Projection (URP PaniniProjection.shader 의 Panini_Generic)
+float2 PaniniUV(float2 uv)
+{
+    const float2 viewPos = (2.0f * uv - 1.0f) * gPanini.xy * gPanini.w;
+    const float d = gPanini.z;
+    const float viewDist = 1.0f + d;
+    const float viewHypSq = viewPos.x * viewPos.x + viewDist * viewDist;
+    const float isectD = viewPos.x * d;
+    const float discrim = viewHypSq - isectD * isectD;
+    const float cylDistMinusD = (-isectD * viewPos.x + viewDist * sqrt(max(discrim, 0.0f))) / viewHypSq;
+    const float cylDist = cylDistMinusD + d;
+    const float2 cylPos = viewPos * (cylDist / viewDist);
+    const float2 projPos = cylPos / max(cylDist - d, 1e-4f);
+    return (projPos / gPanini.xy) * 0.5f + 0.5f;
+}
+
+// Lens Distortion (URP 의 DistortUV)
+float2 DistortUV(float2 uv)
+{
+    uv = (uv - 0.5f) * gDistortion2.z + 0.5f;
+    const float2 ruv = gDistortion1.zw * (uv - 0.5f - gDistortion1.xy);
+    float ru = length(ruv);
+    if (gDistortion2.w > 0.0f)
+    {
+        const float wu = ru * gDistortion2.x;
+        ru = tan(wu) * (1.0f / max(ru * gDistortion2.y, 1e-5f));
+    }
+    else
+        ru = (1.0f / max(ru, 1e-5f)) * gDistortion2.x * atan(ru * gDistortion2.y);
+    return uv + ruv * (ru - 1.0f);
+}
+
 float4 PS_Uber(VertexOut pin) : SV_Target
 {
     float2 uv = pin.Tex;
+    if (gPanini.w > 0.0f)
+        uv = PaniniUV(uv);
+    if (gDistortion2.w != 0.0f)
+        uv = DistortUV(uv);
     float4 src = gSource.SampleLevel(samLinear, uv, 0);
 
     // 색수차: 가장자리로 갈수록 R/G/B 를 다른 위치에서 읽는다
@@ -268,6 +386,12 @@ float4 PS_Uber(VertexOut pin) : SV_Target
         c += bloom;
         bloomAlpha = saturate(Max3(bloom));
     }
+    // Sun Shafts (해 쪽 빛줄기 — 더한다)
+    if (gShafts.w > 0.5f)
+        c += gShaftTex.SampleLevel(samLinear, uv, 0).rgb * gShafts.rgb;
+    // Screen Space Lens Flare (Bloom 처럼 더한다)
+    if (gFlare.w > 0.5f)
+        c += gFlareTex.SampleLevel(samLinear, uv, 0).rgb * gFlare.rgb;
 
     // 노출 (Volume > Exposure): 고정 보정 × 자동 노출 배율
     c *= gExposure.x * (gExposure.y > 0.5f ? gExposureTex.Load(int3(0, 0, 0)).r : 1.0f);
@@ -291,6 +415,7 @@ float4 PS_Uber(VertexOut pin) : SV_Target
         }
         c = 0.18f * pow(max(c, 0.0f) / 0.18f, gGrading.y); // 대비 (중간 회색 기준, 로그 공간)
         c *= gColorFilter.rgb;
+        c = UrpGrading(c);                                 // Split Toning · Channel Mixer · Shadows Midtones Highlights · Lift Gamma Gain
         if (gGrading.z != 0.0f)
         {
             float3 hsv = RgbToHsv(max(c, 0.0f));
@@ -307,6 +432,9 @@ float4 PS_Uber(VertexOut pin) : SV_Target
     else if (gFlags.x > 0.5f)
         c = NeutralTonemap(c);
     c = LinearToGamma(saturate(c));
+    // Color Lookup (사용자 LUT — 톤매핑 뒤 감마 색, URP 와 같음)
+    if (gUserLut.z > 0.5f)
+        c = lerp(c, ApplyUserLut(c), gUserLut.y);
 
     // 필름 그레인 (밝은 곳일수록 약하게 = Response)
     if (gGrain.x > 0.0f)
@@ -324,6 +452,109 @@ float4 PS_Uber(VertexOut pin) : SV_Target
 
     // Scene 뷰는 투명으로 지운 배경 위에 그리므로, Bloom 이 번진 곳도 보이게 알파를 올린다
     return float4(saturate(c), max(src.a, bloomAlpha));
+}
+
+// ---------------------------------------------------------------- Screen Space Lens Flare (URP): Bloom 밉의 밝은 곳을 화면 가운데 건너편에
+//  첫 고스트 (Starting Position) · 둘째 고스트 (× Scale) · 휜 고스트 (가운데에서 같은 거리의 고리) 를 Samples 번 (Sample Dimmer 로 약하게),
+//  가장자리 고스트는 Vignette Effect 만큼 덜, 색수차는 고스트마다 R · B 를 반지름 방향으로 어긋나게, 줄기 = 밝은 곳의 가로 번짐
+cbuffer cbFlare
+{
+    float4 gFlareA;   // x First, y Secondary, z Warped, w Vignette Effect
+    float4 gFlareB;   // x Starting Position, y Scale, z Samples, w Sample Dimmer
+    float4 gFlareC;   // xy Warped Flare Scale, z 색수차, w 줄기 세기
+    float4 gFlareD;   // x 줄기 길이, y 줄기 문턱
+};
+
+// 고스트는 Bloom 이 뽑은 밝은 곳 중에서도 더 밝은 곳만 (입력 = Bloom 문턱을 뺀 값): 넓은 하늘이 통째로 비치지 않게 조금 더 뺀다
+static const float kFlareThreshold = 0.05f;
+float3 FlareSample(float2 uv, float2 dir, float ca)
+{
+    const float2 off = dir * ca * 0.006f;
+    const float r = gSource.SampleLevel(samLinear, uv - off, 0).r;
+    const float g = gSource.SampleLevel(samLinear, uv, 0).g;
+    const float b = gSource.SampleLevel(samLinear, uv + off, 0).b;
+    return max(float3(r, g, b) - kFlareThreshold, 0.0f);
+}
+
+float FlareVignette(float2 uv)
+{
+    const float2 d = uv - 0.5f;
+    return lerp(1.0f, saturate(1.0f - dot(d, d) * 4.0f), gFlareA.w);
+}
+
+float4 PS_LensFlare(VertexOut pin) : SV_Target
+{
+    const float2 c = pin.Tex - 0.5f;
+    const float2 dir = normalize(c + 1e-5f);
+    float3 sum = 0.0f;
+    float dim = 1.0f;
+    const int samples = (int)gFlareB.z;
+    [loop]
+    for (int i = 0; i < samples; ++i)
+    {
+        const float k = 1.0f + i * 0.35f;
+        const float2 uv1 = 0.5f - c * gFlareB.x * k;                    // 첫 고스트
+        const float2 uv2 = 0.5f - c * gFlareB.x * gFlareB.y * k;         // 둘째 (더 멀리)
+        sum += FlareSample(uv1, dir, gFlareC.z) * gFlareA.x * FlareVignette(uv1) * dim;
+        sum += FlareSample(uv2, dir, gFlareC.z) * gFlareA.y * FlareVignette(uv2) * dim * 0.6f;
+        // 휜 고스트: 가운데에서 0.35 거리 고리 (반대편)
+        const float2 uvw = 0.5f - dir * 0.35f * gFlareC.xy * k + c * 0.15f;
+        sum += FlareSample(uvw, dir, gFlareC.z) * gFlareA.z * FlareVignette(uvw) * dim * 0.4f;
+        dim *= gFlareB.w;
+    }
+    // 줄기: 밝은 곳만 가로로 번진다
+    if (gFlareC.w > 0.0f)
+    {
+        float3 streak = 0.0f;
+        const float len = gFlareD.x * 0.25f;
+        [unroll]
+        for (int s = -6; s <= 6; ++s)
+        {
+            const float3 v = gSource.SampleLevel(samLinear, pin.Tex + float2(s / 6.0f * len, 0.0f), 0).rgb;
+            streak += max(v - gFlareD.y, 0.0f) * (1.0f - abs(s) / 7.0f);
+        }
+        sum += streak * gFlareC.w * 0.15f;
+    }
+    return float4(sum, 1.0f);
+}
+
+// ---------------------------------------------------------------- Sun Shafts (Unity 의 Sun Shafts 이미지 효과)
+// 1/4 해상도: 하늘 (깊이 없음) 중 문턱 넘게 밝은 곳, 해에서 멀수록 약하게 — 잎 · 가지 뒤 하늘이 빠진 모양 그대로
+float4 PS_SunShaftsPrefilter(VertexOut pin) : SV_Target
+{
+    const float2 t = TexelSize(gSource) * 1.5f;
+    float3 c = 0.0f;
+    float sky = 0.0f;
+    [unroll]
+    for (int i = 0; i < 4; ++i)
+    {
+        const float2 o = float2((i & 1) ? t.x : -t.x, (i & 2) ? t.y : -t.y);
+        c += KillNaN(gSource.SampleLevel(samLinear, pin.Tex + o, 0).rgb);
+        sky += gDepth.SampleLevel(samLinear, pin.Tex + o, 0).w > 5e4f ? 1.0f : 0.0f;
+    }
+    c = GammaToLinear(c * 0.25f);
+    sky *= 0.25f;
+    const float2 d = (pin.Tex - gShaftParams.xy) * float2(gShaftParams2.x, 1.0f);
+    const float falloff = saturate(1.0f - length(d) / gShaftParams.w);
+    const float bright = max(Luminance(c) - gShaftParams.z, 0.0f);
+    return float4(sky * bright * falloff * falloff * gShaftParams2.y * float3(1.0f, 1.0f, 1.0f), 1.0f);
+}
+
+// 해 쪽으로 방사형 흐림 (16 표본, 해에 가까울수록 무겁게)
+float4 PS_SunShaftsBlur(VertexOut pin) : SV_Target
+{
+    const float2 toSun = (gShaftParams.xy - pin.Tex) * gShaftParams2.z;
+    float3 sum = 0.0f;
+    float wsum = 0.0f;
+    [unroll]
+    for (int i = 0; i < 16; ++i)
+    {
+        const float k = i / 16.0f;
+        const float w = 1.0f - k * 0.5f;
+        sum += gSource.SampleLevel(samLinear, pin.Tex + toSun * k, 0).rgb * w;
+        wsum += w;
+    }
+    return float4(sum / wsum, 1.0f);
 }
 
 // ---------------------------------------------------------------- FXAA
@@ -935,6 +1166,9 @@ POST_TECH(BloomPrefilterTech, PS_BloomPrefilter)
 POST_TECH(BloomDownTech, PS_BloomDown)
 POST_TECH(BloomUpTech, PS_BloomUp)
 POST_TECH(UberTech, PS_Uber)
+POST_TECH(LensFlareTech, PS_LensFlare)
+POST_TECH(SunShaftsPrefilterTech, PS_SunShaftsPrefilter)
+POST_TECH(SunShaftsBlurTech, PS_SunShaftsBlur)
 POST_TECH(FxaaTech, PS_Fxaa)
 POST_TECH(TaaTech, PS_Taa)
 POST_TECH(TaaSharpenTech, PS_TaaSharpen)
