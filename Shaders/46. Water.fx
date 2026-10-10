@@ -33,8 +33,8 @@ cbuffer cbWaterFrame
     float gHasSunShadow;
     float2 gPad0;
     // 해(방향광 0) 캐스케이드 그림자 (32. InstancedBasic.fx 와 같은 방식)
-    float4x4 gSunShadowTransforms[4];
-    float4 gCascadeSpheres[4];
+    float4x4 gSunShadowTransforms[8];
+    float4 gCascadeSpheres[8];
     float4 gShadowParams;    // x 캐스케이드 수, z 흐려지기 시작 거리, w 1/폭
     float4 gSunShadowData;   // x Strength, y 필터
     float4 gWeatherWater;    // 날씨: x 빗방울 물결 세기 (0 = 없음), y 시간 (초), z 하늘 채도 빼기, w 번개 번쩍임
@@ -123,7 +123,7 @@ float SunShadowAt(float3 posW)
         return 1.0f;
     const int count = (int)gShadowParams.x;
     int cascade = -1;
-    [unroll] for (int c = 3; c >= 0; --c)
+    [unroll] for (int c = 7; c >= 0; --c)
     {
         const float3 d = posW - gCascadeSpheres[c].xyz;
         if (c < count && dot(d, d) < gCascadeSpheres[c].w)

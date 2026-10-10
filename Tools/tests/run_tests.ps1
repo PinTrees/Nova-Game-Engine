@@ -4257,6 +4257,8 @@ function Suite-Occlusion
         # 4. Game 뷰: Camera 의 Occlusion Culling (Unity 와 같은 값) 로 켜고 끈다
         Invoke-Nova 'window game' | Out-Null
         Invoke-Nova 'set "Main Camera" --position 0,1.5,-14 --rotation 0,0,0' | Out-Null
+        # 새 카메라의 기본 TAA 는 프레임마다 지터 — 두 장 비교 (같은 그림) 를 위해 끈다 (여기서는 컬링만 본다)
+        Invoke-Nova 'set "Main Camera" --component Camera --values "{\"antiAliasing\":0}"' | Out-Null
         $pOn = Shot 'game_on.png' 'game' 10
         $o = Occ
         Invoke-Nova 'set "Main Camera" --component Camera --values "{\"occlusionCulling\":false}"' | Out-Null

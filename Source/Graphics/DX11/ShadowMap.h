@@ -1,14 +1,14 @@
 #pragma once
 
 // 그림자 깊이 맵 모음 (Game 뷰 / Scene 뷰가 하나씩 가진다). 빛 종류마다 Texture2DArray 하나:
-//  - 방향광: 조각 = 빛 x 4 + 캐스케이드, 해상도는 Volume > Shadows 의 Resolution
+//  - 방향광: 조각 = 빛 x 캐스케이드 수 (Cascade Count, 1 ~ 8) + 캐스케이드, 해상도는 Volume > Shadows 의 Resolution
 //  - 스포트광: 조각 = 빛, 점광: 조각 = 빛 x 6 + 큐브 면
 //  셰이더가 읽는 텍스처가 종류마다 하나 (예전에는 빛마다 하나 = 12 개) — OpenGL · GLES 의 샘플러 수 한도 (32) 에 여유를 둔다
 //  Prepare 로 이번 프레임 빛 수만큼 조각을 마련한다 (늘 때만 다시 만든다)
 class ShadowMap
 {
 public:
-	static constexpr int kMaxCascades = 4;
+	static constexpr int kMaxCascades = 8;
 
 	ShadowMap(ComPtr<GfxDevice> device, uint32 width, uint32 height);
 	~ShadowMap();
@@ -27,7 +27,9 @@ public:
 	// 만든 맵 전체 크기 (바이트, Profiler 메모리)
 	size_t MemoryBytes() const;
 
-	static int SlicesPerLight(LightType type) { return type == LightType::Directional ? kMaxCascades : (type == LightType::Point ? 6 : 1); }
+	// 방향광 빛마다 조각 수 = 이번 캐스케이드 수 (Prepare 전에 — 셰이더도 같은 간격으로 읽는다)
+	void SetCascadeCount(int count) { m_DirCascades = std::clamp(count, 1, kMaxCascades); }
+	int SlicesPerLight(LightType type) const { return type == LightType::Directional ? m_DirCascades : (type == LightType::Point ? 6 : 1); }
 
 private:
 	struct Target
@@ -45,5 +47,6 @@ private:
 
 	ComPtr<GfxDevice> m_Device;
 	uint32 m_DefaultSize;
+	int m_DirCascades = 4;
 	Target m_Targets[(uint32)LightType::End];
 };

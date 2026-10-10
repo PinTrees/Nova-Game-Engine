@@ -224,17 +224,22 @@ std::unique_ptr<VolumeComponent> VolumeComponent::Create(const std::string& type
 		c->Category = "Shadowing";
 		c->Params = {
 			P("maxDistance", "Max Distance", K::Float, 50.0f, 0.0f),
-			P("cascadeCount", "Cascade Count", K::Int, 4.0f, 1.0f, 4.0f),
+			// Unity 는 4 개까지 — 큰 열린 월드 (Max Distance 수 km) 를 위해 8 개까지 (Split 4 ~ 7 은 5 개 이상일 때)
+			P("cascadeCount", "Cascade Count", K::Int, 4.0f, 1.0f, 8.0f),
 			P("split1", "Split 1", K::Clamped, 0.067f, 0.0f, 1.0f),
 			P("split2", "Split 2", K::Clamped, 0.2f, 0.0f, 1.0f),
 			P("split3", "Split 3", K::Clamped, 0.467f, 0.0f, 1.0f),
+			P("split4", "Split 4", K::Clamped, 0.6f, 0.0f, 1.0f),
+			P("split5", "Split 5", K::Clamped, 0.72f, 0.0f, 1.0f),
+			P("split6", "Split 6", K::Clamped, 0.84f, 0.0f, 1.0f),
+			P("split7", "Split 7", K::Clamped, 0.92f, 0.0f, 1.0f),
 			P("lastBorder", "Last Border", K::Clamped, 0.2f, 0.0f, 1.0f),
 			PEnum("resolution", "Resolution", { "512", "1024", "2048", "4096" }, 2),
 			P("depthBias", "Depth Bias", K::Clamped, 1.0f, 0.0f, 10.0f),
 			P("normalBias", "Normal Bias", K::Clamped, 1.0f, 0.0f, 10.0f),
 			P("softShadows", "Soft Shadows", K::Bool, 1.0f),
 			PEnum("softQuality", "Quality", { "Low", "Medium", "High" }, 1),
-			// 먼 캐스케이드 캐시: Staggered = 3 번째는 2 프레임, 4 번째는 4 프레임마다 다시 그림 (Slow = 4 / 8)
+			// 먼 캐스케이드 캐시: Staggered = 3 번째는 2 프레임, 4 번째는 4, 5 · 6 번째는 8, 7 · 8 번째는 16 프레임마다 다시 그림 (Slow = 두 배)
 			PEnum("farCascadeUpdate", "Far Cascade Update", { "Every Frame", "Staggered", "Slow" }, 1),
 		};
 	}

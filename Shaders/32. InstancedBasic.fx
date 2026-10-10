@@ -82,15 +82,15 @@ cbuffer cbPerFrame
     int gPointLightCount;
     int gSpotLightCount;
     
-    // 그림자 변환 = LightV * LightP * toTexSpace. 방향광은 빛마다 캐스케이드 4개 (i * 4 + cascade)
-    float4x4 gDirShadowTransforms[LIGHT_SIZE * 4];
+    // 그림자 변환 = LightV * LightP * toTexSpace. 방향광은 빛마다 캐스케이드 수만큼 (i * 캐스케이드 수 + cascade, 최대 8)
+    float4x4 gDirShadowTransforms[LIGHT_SIZE * 8];
     float4x4 gSpotShadowTransforms[LIGHT_SIZE];
     float4x4 gPointShadowTransforms[LIGHT_MAX_SIZE];
     
     float3 gEyePosW;
 
     // 캐스케이드 그림자 (Volume > Shadows): 구 = xyz 중심, w = 반지름²
-    float4 gCascadeSpheres[4];
+    float4 gCascadeSpheres[8];
     float4 gShadowParams;                // x 캐스케이드 수, y Max Distance, z 흐려지기 시작 거리, w 1 / 흐려지는 폭
     float4 gDirShadowData[LIGHT_SIZE];   // x Strength (0 = 그림자 없음), y 필터 (0 Hard, 1 Low, 2 Medium, 3 High), z 1 / 맵 크기
     float4 gSpotShadowData[LIGHT_SIZE];
@@ -160,7 +160,7 @@ cbuffer cbSkinned
 // Nonnumeric values cannot be added to a cbuffer.
 
 // frame
-// 빛 종류마다 Texture2DArray 하나 (ShadowMap): 방향광 조각 = 빛 x 4 + 캐스케이드, 스포트광 = 빛, 점광 = 빛 x 6 + 큐브 면
+// 빛 종류마다 Texture2DArray 하나 (ShadowMap): 방향광 조각 = 빛 x 캐스케이드 수 + 캐스케이드, 스포트광 = 빛, 점광 = 빛 x 6 + 큐브 면
 //  (예전에는 빛마다 하나 = 12 장 — OpenGL 샘플러 32 개 한도에 걸려 지형 셰이더가 깨졌다)
 Texture2DArray gDirShadowMaps;
 Texture2DArray gSpotShadowMaps;
@@ -323,7 +323,7 @@ int SelectCascade(float3 posW)
     const int count = (int)gShadowParams.x;
     int cascade = -1;
     [unroll]
-    for (int c = 3; c >= 0; --c)
+    for (int c = 7; c >= 0; --c)
     {
         const float3 d = posW - gCascadeSpheres[c].xyz;
         if (c < count && dot(d, d) < gCascadeSpheres[c].w)
@@ -361,13 +361,14 @@ float DirShadow(Texture2DArray map, int i, float3 posW, int cascade, float fade,
     float lit = 1.0f;
     if (data.x > 0.0f && cascade >= 0)
     {
-        const float3 coord = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade]).xyz;
-        float s = ShadowPCF(map, coord, (float)(i * 4 + cascade), (int)data.y, data.z);
+        const int at = i * (int)gShadowParams.x + cascade;   // 빛마다 캐스케이드 수만큼 (ShadowMap 조각 순서)
+        const float3 coord = mul(float4(posW, 1.0f), gDirShadowTransforms[at]).xyz;
+        float s = ShadowPCF(map, coord, (float)at, (int)data.y, data.z);
         [branch]
         if (blend > 0.0f)   // 경계 구간만 다음 캐스케이드를 한 번 더 읽는다
         {
-            const float3 coord2 = mul(float4(posW, 1.0f), gDirShadowTransforms[i * 4 + cascade + 1]).xyz;
-            s = lerp(s, ShadowPCF(map, coord2, (float)(i * 4 + cascade + 1), (int)data.y, data.z), blend);
+            const float3 coord2 = mul(float4(posW, 1.0f), gDirShadowTransforms[at + 1]).xyz;
+            s = lerp(s, ShadowPCF(map, coord2, (float)(at + 1), (int)data.y, data.z), blend);
         }
         lit = lerp(1.0f, lerp(s, 1.0f, fade), data.x);
     }
@@ -1512,6 +1513,39 @@ float4 PS_Batch(BatchVertexOut pin) : SV_Target
     return LitPS(v, baseColor, metallic, smoothness, emission);
 }
 
+// 바람 (PCG 나무 · 풀 — 67. BatchWind.fx): VS_Batch 에 위치만 바람만큼. 바람 묶음만 이 기법 (BatchWindTech) —
+//  Mesh Renderer 묶음 · Shader Graph 는 VS_Batch 그대로 (예전과 같은 코드 — Debug 의 최적화 없는 셰이더에서도 깊이 프리패스와 어긋나지 않게)
+#include "67. BatchWind.fx"
+VertexOut VS_BatchWind(VertexIn_Instancing vin)
+{
+    VertexOut vout;
+    precise float4 posW = mul(float4(vin.PosL, 1.0f), vin.World);
+    posW.xyz += BatchWindOffset(posW.xyz, vin.World);   // 깊이 프리패스 (28 의 VS_BatchWind) · 그림자 (26) 와 같은 식
+    vout.PosW = posW;
+    vout.NormalW = BatchNormal(vin.NormalL, vin.World);
+    vout.TangentW = float4(mul(vin.TangentL.xyz, (float3x3) vin.World), vin.TangentL.w);
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    vout.SsaoPosH = mul(posW, gViewProjTex);
+    vout.PosH = mul(posW, gViewProj);
+    return vout;
+}
+
+BatchVertexOut VS_BatchColorWind(VertexIn_Batch vin)
+{
+    const VertexOut o = VS_BatchWind(BatchToInstancing(vin));
+    BatchVertexOut b;
+    b.PosH = o.PosH;
+    b.PosW = o.PosW;
+    b.NormalW = o.NormalW;
+    b.TangentW = o.TangentW;
+    b.Tex = o.Tex;
+    b.SsaoPosH = o.SsaoPosH;
+    b.BaseColor = vin.BaseColor;
+    b.Surface = vin.Surface;
+    b.Emission = vin.Emission;
+    return b;
+}
+
 // 양면 (뒷면 컬링을 끈 재질 — PCG 의 잎 · 빌보드): 뒷면이면 법선을 뒤집어 앞면처럼 비춘다 (앞면만 그리는 재질은 그대로)
 float4 PS_BatchFace(BatchVertexOut pin, bool front : SV_IsFrontFace) : SV_Target
 {
@@ -1526,6 +1560,16 @@ technique11 BatchTech
     pass P0
     {
         SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_BatchFace()));
+    }
+}
+
+technique11 BatchWindTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchColorWind()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS_BatchFace()));
     }
@@ -1587,6 +1631,16 @@ technique11 BatchGBufferTech
     pass P0
     {
         SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_BatchGBufferFace()));
+    }
+}
+
+technique11 BatchGBufferWindTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchColorWind()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS_BatchGBufferFace()));
     }

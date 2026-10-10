@@ -486,6 +486,7 @@ namespace CliCommands
 			Profiler::ForceCollecting(false);
 			int frames = 0, gpuFrames = 0;
 			double cpu = 0, gpu = 0, cpuMax = 0;
+			const Profiler::Frame* worst = nullptr;   // 가장 긴 CPU 프레임 (끊김 — 그 프레임의 구간을 따로 돌려준다)
 			std::map<std::string, std::pair<double, int>> passes, cpuScopes;
 			std::map<std::string, std::pair<double, double>> passWork;   // GPU 구간의 삼각형 · 픽셀 셰이더 수 (PIPELINE_STATISTICS — 시간과 달리 CPU 대기에 흔들리지 않는다)
 			for (const Profiler::Frame& f : Profiler::History())
@@ -494,6 +495,8 @@ namespace CliCommands
 					continue;
 				++frames;
 				cpu += f.CpuMs;
+				if (worst == nullptr || f.CpuMs > worst->CpuMs)
+					worst = &f;
 				cpuMax = (std::max)(cpuMax, (double)f.CpuMs);
 				for (const Profiler::CpuSample& c : f.Cpu)
 					if (c.Depth <= cpuDepth)
@@ -566,6 +569,23 @@ namespace CliCommands
 				{ "gpuPasses", list },
 				{ "cpuScopes", cpuList },
 				{ "threads", threadList },   // 메인 밖 스레드 (Job Worker …) 프레임 평균
+				{ "worstFrame", [&] {   // 가장 긴 CPU 프레임의 구간 (깊이 cpuDepth 까지, 긴 것부터)
+					json o = json::object();
+					if (worst == nullptr)
+						return o;
+					std::vector<std::pair<double, std::string>> w;
+					for (const Profiler::CpuSample& c : worst->Cpu)
+						if (c.Depth <= cpuDepth)
+							w.push_back({ c.Ms, std::string(c.Depth, '.') + c.Name });
+					std::sort(w.rbegin(), w.rend());
+					json scopes = json::array();
+					for (size_t i = 0; i < w.size() && i < topCount; ++i)
+						scopes.push_back({ { "scope", w[i].second }, { "ms", std::round(w[i].first * 1000.0) / 1000.0 } });
+					o["cpuMs"] = std::round(worst->CpuMs * 1000.0) / 1000.0;
+					o["gpuMs"] = std::round(worst->GpuMs * 1000.0) / 1000.0;
+					o["scopes"] = scopes;
+					return o;
+				}() },
 				{ "stats", [&] {   // 프레임 평균 통계 (드로 콜·삼각형·컬링 … — RecordProfilerStats)
 					std::map<std::string, std::pair<double, int>> st;
 					for (const Profiler::Frame& f : Profiler::History())

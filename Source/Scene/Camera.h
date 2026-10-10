@@ -46,7 +46,7 @@ private:
 	int   m_renderType = 0;          // Base / Overlay
 	int   m_renderer = 0;
 	bool  m_postProcessing = true;   // 새 카메라는 켬 (Unity URP 템플릿의 Main Camera 와 같음)
-	int   m_antiAliasing = 0;          // 0 없음, 1 FXAA, 2 SMAA, 3 TAA (URP 와 같은 순서)
+	int   m_antiAliasing = 3;          // 0 없음, 1 FXAA, 2 SMAA, 3 TAA (URP 와 같은 순서). 새 카메라는 TAA (잎 · 풀 · 먼 숲의 계단 · 반짝임). 예전 장면은 저장된 값
 	int   m_smaaQuality = 2;           // Low · Medium · High
 	int   m_taaQuality = 3;            // Very Low · Low · Medium · High · Very High
 	float m_taaBaseBlend = 0.875f;     // Base Blend Factor (히스토리 비중)

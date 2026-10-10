@@ -30,6 +30,7 @@ namespace PCG
 		std::vector<MeshLevel> Levels;
 		float Height = 1.0f;         // 모델 높이 (m) — 화면 높이 계산
 		float Radius = 1.0f;         // 바닥 반지름 (m)
+		bool Foliage = false;        // Alpha Clipping 재질 (잎 · 풀잎) 이 있다 = 바람에 흔들리는 식물 (바위 · 통나무 · 선인장은 그대로)
 		bool Failed = false;
 		// 읽기 단계: 0 = 텍스처 · 모델 캐시를 작업 스레드에서 미리 (Utils::PrefetchTexture), 1 = 다 읽음
 		int Stage = 0;

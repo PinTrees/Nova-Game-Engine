@@ -13,6 +13,7 @@
 #include "Profiler.h"
 #include "SkinnedLod.h"
 #include "SceneCulling.h"
+#include "SkinnedInstancing.h"
 
 using namespace AnimatorTypes;
 
@@ -487,8 +488,8 @@ bool Animator::PoseDueThisFrame(const std::vector<SkinnedMeshRenderer*>& rendere
 	if (r == nullptr || !r->GetAutoLod())
 		return true;
 	const int lod = r->CurrentLod();
-	// 임포스터 (4) 는 그림 대신 클립 · 시간만 쓴다 — 그림자에도 보이지 않으면 자세가 필요 없다 (메시 단계로 돌아오면 그 프레임에 바로 다시)
-	if (lod >= SkinnedLod::kImpostorLevel && SceneCulling::Enabled && r->ShadowCullStamp != SceneCulling::ShadowStamp)
+	// 임포스터 (4) 는 그림 대신 클립 · 시간만 쓴다 — 그림자도 임포스터이거나 그림자에 보이지 않으면 자세가 필요 없다 (메시 단계로 돌아오면 그 프레임에 바로 다시)
+	if (lod >= SkinnedLod::kImpostorLevel && SceneCulling::Enabled && (SkinnedInstancing::ShadowImpostors() || r->ShadowCullStamp != SceneCulling::ShadowStamp))
 	{
 		m_PoseSkipped = true;
 		return false;

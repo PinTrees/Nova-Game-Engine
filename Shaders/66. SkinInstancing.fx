@@ -29,7 +29,7 @@ cbuffer cbSkinInstancing
     uint gSkinPad2;
     float4 gSkinImpostor;    // x 방향 수, y 아틀라스 줄 수, z 칸 반폭 (m), w 칸 반높이 (m)
     float4 gSkinImpostor2;   // x 칸 중심 높이 (m), y 알파 문턱
-    float4 gSkinView;        // xyz 카메라 위치 (임포스터가 보는 방향)
+    float4 gSkinView;        // w 0: xyz = 카메라 위치 (임포스터가 보는 쪽), w 1: xyz = 보는 방향 (방향광 그림자 — 빛 쪽)
 };
 
 SamplerState samSkinImp
@@ -186,7 +186,7 @@ SkinImpostorGeom SkinImpostorVertex(uint vid, SkinInstance s)
     const float scaleXZ = length(axRaw), scaleY = length(ayRaw);
     const float3 ax = axRaw / max(scaleXZ, 1e-5f);
     const float3 az = azRaw / max(length(azRaw), 1e-5f);
-    float3 toView = gSkinView.xyz - center;
+    float3 toView = gSkinView.w > 0.5f ? gSkinView.xyz : gSkinView.xyz - center;
     toView.y = 0.0f;
     toView = dot(toView, toView) > 1e-8f ? normalize(toView) : az;
     const float yaws = gSkinImpostor.x;

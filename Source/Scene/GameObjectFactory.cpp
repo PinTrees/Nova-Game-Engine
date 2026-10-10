@@ -687,6 +687,38 @@ GameObject* GameObjectFactory::CreateOpenWorld(float size)
 		PCG::SaveGraph(graph, g);
 	}
 	v->GraphPath = graph;
+	// 열린 월드 그림자: 2 km 까지 캐스케이드 8 개 (Unity 는 4 개까지). 이 GameObject 의 Global Volume (Priority 10 — 장면의 기본 Volume 위에).
+	//  프로필은 프로젝트 에셋 하나 — 처음 만들 때만 값을 넣는다 (사용자가 고친 값은 그대로)
+	{
+		const std::string profilePath = "Assets\\PCG\\OpenWorldShadows.volumeprofile";
+		std::string path = profilePath;
+		if (!std::filesystem::exists(PathManager::GetI()->GetMovePathW(string_to_wstring(profilePath))))
+		{
+			path = VolumeProfile::CreateAsset("Assets\\PCG", "OpenWorldShadows");
+			if (std::shared_ptr<VolumeProfile> profile = VolumeProfile::Load(path))
+			{
+				VolumeComponent* c = profile->Get("Shadows") ? profile->Get("Shadows") : profile->Add("Shadows");
+				auto set = [&](const std::string& key, float value) {
+					if (VolumeParameter* p = c ? c->Find(key) : nullptr)
+					{
+						p->Override = true;
+						p->Value[0] = value;
+					}
+				};
+				set("maxDistance", 2000.0f);
+				set("cascadeCount", 8.0f);
+				// 캐스케이드 끝 12 · 30 · 70 · 150 · 300 · 600 · 1100 · 2000 m — 발밑은 촘촘히 (2048 맵에 텍셀 약 1.5 cm), 2 km 는 약 1 m
+				const float splits[7] = { 0.006f, 0.015f, 0.035f, 0.075f, 0.15f, 0.3f, 0.55f };
+				for (int i = 0; i < 7; ++i)
+					set("split" + std::to_string(i + 1), splits[i]);
+				set("lastBorder", 0.1f);
+				profile->Save();
+			}
+		}
+		Volume* shadows = go->AddComponent<Volume>();
+		shadows->SetProfile(path);
+		shadows->SetPriority(10.0f);
+	}
 	// 먼 지평선까지: Main Camera 의 Far 를 20 km
 	if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
 		for (GameObject* g : scene->GameObjectsView())

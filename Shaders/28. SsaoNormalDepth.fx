@@ -208,6 +208,42 @@ technique11 NormalDepthAlphaClipBatchTech
     }
 }
 
+// 바람 묶음 (PCG 나무 · 풀 — 67. BatchWind.fx): 본 패스 BatchWindTech (32 의 VS_BatchWind) 와 같은 식
+#include "67. BatchWind.fx"
+VertexOut VS_BatchWind(VertexIn_Instancing vin)
+{
+    VertexOut vout;
+    precise float4 posW = mul(float4(vin.PosL, 1.0f), vin.World);
+    posW.xyz += BatchWindOffset(posW.xyz, vin.World);
+    const float3 r0 = vin.World[0].xyz, r1 = vin.World[1].xyz, r2 = vin.World[2].xyz;
+    const float3 normalW = mul(vin.NormalL, float3x3(cross(r1, r2), cross(r2, r0), cross(r0, r1)));
+    vout.PosV = mul(posW, gView).xyz;
+    vout.NormalV = mul(normalW, (float3x3) gView);
+    vout.PosH = mul(posW, gWorldViewProj);
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    return vout;
+}
+
+technique11 NormalDepthWindBatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchWind()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(false)));
+    }
+}
+
+technique11 NormalDepthAlphaClipWindBatchTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_BatchWind()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(true)));
+    }
+}
+
 // 재질 테셀레이션 (60. Tessellation.fx): 본 패스 (32 의 TessBatchTech) 와 같은 함수로 같은 깊이
 #include "60. Tessellation.fx"
 

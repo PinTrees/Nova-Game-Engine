@@ -47,6 +47,9 @@ namespace MeshBatcher
 		GfxBuffer* Buffer = nullptr;          // 미리 만든 인스턴스 버퍼 (CreateInstanceBuffer — 올리지 않는다)
 		uint32_t Count = 0;
 		bool TwoSided = false;
+		// 바람 (67. BatchWind.fx — 본 · 깊이 · 그림자가 같은 식): Wind = 방향 × 세기 · 시간, WindShape = 꼭대기 흔들림 · 잎 떨림 · 모델 높이 · 켜짐 (w 0 = 그대로)
+		XMFLOAT4 Wind = XMFLOAT4(0, 0, 0, 0);
+		XMFLOAT4 WindShape = XMFLOAT4(0, 0, 0, 0);
 	};
 	// 인스턴스 버퍼 (정점 버퍼 슬롯 1, Mesh Renderer 묶음과 같은 배치): 바뀌지 않는 인스턴스 (PCG 셀) 를 한 번만 올린다
 	NOVA_API ComPtr<GfxBuffer> CreateInstanceBuffer(const XMFLOAT4X4* worlds, uint32_t count);

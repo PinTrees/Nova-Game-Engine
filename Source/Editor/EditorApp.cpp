@@ -411,8 +411,8 @@ void EditorApp::DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, G
 	const auto* frame = static_cast<const ShadowRenderer::FrameData*>(shadowFrame);
 	if (shadowMap && frame && frame->DirCount > 0 && !dirLights.empty())
 	{
-		w.SunShadow = shadowMap->DepthMapSRV(LightType::Directional);   // 방향광 0 = 조각 0..3
-		for (int c = 0; c < 4; ++c)
+		w.SunShadow = shadowMap->DepthMapSRV(LightType::Directional);   // 방향광 0 = 조각 0 .. 캐스케이드 수 - 1
+		for (int c = 0; c < 8; ++c)
 		{
 			w.SunShadowTransforms[c] = frame->Dir[c];
 			w.CascadeSpheres[c] = frame->Spheres[c];

@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 10일 — **초대형 열린 월드 (32 km) + PCG** (사용자 지시: "SeedMesh 나무 · 풀 · 식생으로 초거대 오픈월드, 반드시 PCG — 언리얼처럼 딸깍으로 규칙을 정하고 자유롭게 편집하면 자동으로 채워지게, 32 km x 32 km")
+- 갱신 시각: 2026년 10월 10일 — **열린 월드 바람 · TAA 기본 · 그림자 캐스케이드 8 개 (2 km) · 임포스터 그림자** (사용자 지시: "흔들리는 효과, 기본 카메라 TAA, 쉐도우 캐스케이드 8 단계, 임포스터에도 그림자, 그림자 거리 오픈월드 고려해서 2000")
+  - 바람: `Shaders/67. BatchWind.fx` (모델 높이로 숙임 · 돌풍 물결 · 잎 떨림) — 바람 묶음만 따로 기법 (`BatchWindTech` · `BatchGBufferWindTech` · `NormalDepthWindBatchTech` · `BuildShadowMapInstancingWindTech` + Alpha Clipping 짝). 처음엔 VS_Batch 에 넣었다가 Debug (최적화 없는 셰이더) 에서 Mesh Renderer 묶음도 깊이 프리패스와 어긋나 (render 의 Culling DX = GL 실패) 되돌림, `MeshBatcher::ExternalBatch::Wind` · `WindShape`, PCG Volume Wind Strength · Direction (× 날씨 바람), `PCG::MeshAsset::Foliage` (Alpha Clipping 재질이 있는 모델만)
+  - TAA: `Camera::m_antiAliasing` 기본 3 (새 카메라)
+  - 그림자: 캐스케이드 1 ~ 8 (`ShadowMap::SetCascadeCount` — 조각 = 빛 × 캐스케이드 수, 셰이더 32 · 46 은 gShadowParams.x 간격), Volume Split 4 ~ 7, 먼 캐스케이드 캐시의 **뒤집힌 조건 고침** (차례가 아닌 프레임마다 다시 그리던 것), `CasterPass::Inner` (앞 캐스케이드가 맡는 구 — PCG 가 셀을 뺀다), PCG 묶음 버퍼 서명을 셀 버퍼 번호로 (가만히 있으면 복사 0 번), 캐스케이드마다 묶음 버퍼
+  - 열린 월드: `OpenWorldShadows.volumeprofile` (2000 m · 8 개) Global Volume, 나무 Shadow Distance 2000 (빌보드 LOD 가 먼 그림자)
+  - 군중 임포스터 그림자: `BuildShadowMapSkinnedImpostorTech` (빛을 바라보는 사각형, `gSkinView.w` = 방향), 임포스터 단계는 그림자에 보여도 자세 · 팔레트 없음 (`SkinnedInstancing::ShadowImpostors`, Animator)
+  - 에디터 끊김: C# 스크립트 변경 확인 (매초 Assets 훑기) 을 작업 스레드로 (`ScriptEngine` — 큰 프로젝트에서 25 ~ 35 ms), `nova perf` 에 worstFrame
+  - 결과 (Release, 숲): 처음 29 ms → 14.5 ~ 15 ms (그림자 GPU 15 → 3 ms, 캐스케이드 다시 그림 6.9 → 3.1 / 프레임). Debug 셰이더 (최적화 없음) 에서 PCG 잎 가장자리 배경색 점 — 바람을 끈 기법에서도 같아 예전부터 (원인 아직), Release 0
+  - 검증: Debug 12 스위트 (pcg · crowd · antialiasing · render · deferred · behaviour · shadergraph · motionvectors · occlusion · gfx · vulkan · d3d12) — 바람 기법 분리 · occlusion 테스트의 카메라 TAA 끔 뒤 render · occlusion · shadergraph · pcg · deferred 59/59
+- 이전: 2026년 10월 10일 — **초대형 열린 월드 (32 km) + PCG** (사용자 지시: "SeedMesh 나무 · 풀 · 식생으로 초거대 오픈월드, 반드시 PCG — 언리얼처럼 딸깍으로 규칙을 정하고 자유롭게 편집하면 자동으로 채워지게, 32 km x 32 km")
   - World Terrain (`Source/Terrain/WorldGen.*` 높이 · 바이옴 함수, `WorldTerrain.*` 1 km 타일 1024 개 스트리밍 513 · 129 · 33, 작업 스레드 · 캐시 · 스커트), `TerrainData::SetGenerated`, TerrainRenderer 스커트 · 지형 전체 절두체 컬링 · 레이어 높이 배열을 레이어 조합마다 한 장 (예전 타일마다 21 MB)
   - PCG (`Source/PCG/` — PCGGraph 노드 11 종 · PCGExecutor 셀 실행 · PCGMeshAsset _LODn 모델 · PCGVolume Runtime Generation), `MeshBatcher::SetExternalSource` · `CreateInstanceBuffer` (바깥 인스턴스 · 미리 만든 버퍼), 셀 버퍼를 GPU 복사로 모아 묶음 하나, 가까운 무거운 모델은 인스턴스마다 LOD, `PS_BatchFace` (양면 잎 뒷면 법선)
   - PCG Graph 창 (`Source/Editor/Windows/PCGGraphWindow.*`, imgui-node-editor), `.pcg` 에셋, GameObject > Open World (32 km · 8 km · PCG Volume), CLI `create open-world` · `world` · `pcg`

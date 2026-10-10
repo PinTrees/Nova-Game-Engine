@@ -19,6 +19,7 @@
 #include "Profiler.h"
 #include "JobSystem.h"
 #include "EditorLog.h"
+#include "CustomShaders.h"
 
 namespace SkinnedInstancing
 {
@@ -147,6 +148,8 @@ namespace SkinnedInstancing
 			s_StatsFrame = frame;
 		}
 
+		bool PassReady(Pass pass, bool impostor);
+
 		void WritePalette(XMFLOAT4* out, const std::vector<XMFLOAT4X4>& bones)
 		{
 			// 본 행렬 (행 벡터 곱) 의 열 0 · 1 · 2 — 셰이더는 dot(float4(p, 1), 열)
@@ -205,9 +208,9 @@ namespace SkinnedInstancing
 				const std::vector<XMFLOAT4X4>& bones = r->MotionPalette();   // 처음이면 바인드 포즈로 채운다
 				if (bones.empty())
 					continue;
-				// 임포스터로만 그리는 렌더러 (그림자에도 안 보임) 는 팔레트가 필요 없다 — 자리만 (월드 · 클립 시간으로 그린다)
+				// 임포스터로만 그리는 렌더러 (그림자도 임포스터 — 또는 그림자에 안 보임) 는 팔레트가 필요 없다 — 자리만 (월드 · 클립 시간으로 그린다)
 				const bool impostorOnly = r->CurrentLod() == SkinnedLod::kImpostorLevel &&
-					!(SceneCulling::Enabled ? r->ShadowCullStamp == SceneCulling::ShadowStamp : true);
+					(PassReady(Pass::Shadow, true) || !(SceneCulling::Enabled ? r->ShadowCullStamp == SceneCulling::ShadowStamp : true));
 				const bool hadPrev = prevFrame != ~0u && r->InstPaletteFrame == prevFrame && !r->InstNoPalette;   // 지난 프레임에 팔레트를 썼다
 				r->InstPrevPalette = hadPrev && !impostorOnly ? r->InstPalette : ~0u;
 				r->InstPoseChanged = r->PoseSerial != r->InstPoseSerial;
@@ -264,19 +267,29 @@ namespace SkinnedInstancing
 			if (FxVar* v = Var(fx, "gSkinPalettes")) v->SetResource(palettes);
 			if (FxVar* v = Var(fx, "gSkinPrevPalettes")) v->SetResource(prev);
 		}
-		void BindImpostor(FxEffect* fx, const CrowdAnimation::Baked* b, CXMMATRIX view)
+		// gSkinView: 본 · 깊이 패스 = 카메라 위치 (w 0), 그림자 = 지금 그리는 조각의 빛 (방향광은 빛 쪽 방향 w 1, 스포트 · 점광은 위치 w 0)
+		void BindImpostor(FxEffect* fx, const CrowdAnimation::Baked* b, CXMMATRIX view, bool shadow)
 		{
 			if (FxVar* v = Var(fx, "gSkinImpAlbedo")) v->SetResource(b ? b->ImpostorAlbedo.Get() : nullptr);
 			if (FxVar* v = Var(fx, "gSkinImpNormal")) v->SetResource(b ? b->ImpostorNormal.Get() : nullptr);
 			if (!b)
 				return;
-			XMVECTOR det;
-			const XMMATRIX inv = XMMatrixInverse(&det, view);
-			XMFLOAT4 eye;
-			XMStoreFloat4(&eye, inv.r[3]);
+			XMFLOAT4 from;
+			if (shadow)
+			{
+				const XMFLOAT4 l = CustomShaders::CurrentShadow().Light;
+				from = XMFLOAT4(l.x, l.y, l.z, l.w > 0.5f ? 0.0f : 1.0f);
+			}
+			else
+			{
+				XMVECTOR det;
+				const XMMATRIX inv = XMMatrixInverse(&det, view);
+				XMStoreFloat4(&from, inv.r[3]);
+				from.w = 0.0f;
+			}
 			SetVec(fx, "gSkinImpostor", XMFLOAT4((float)CrowdAnimation::Baked::ImpostorYaws, (float)b->ImpostorRows, b->HalfWidth, b->Height * 0.5f));
 			SetVec(fx, "gSkinImpostor2", XMFLOAT4(b->CenterY, 0.5f, 0.0f, 0.0f));
-			SetVec(fx, "gSkinView", eye);
+			SetVec(fx, "gSkinView", from);
 		}
 
 		// 묶음: 같은 지오메트리 (또는 임포스터) · 재질 목록 · 레이어 (본 패스의 빛 Culling Mask)
@@ -355,7 +368,7 @@ namespace SkinnedInstancing
 		FxTechnique* PassTech(Pass pass, bool impostor)
 		{
 			static const char* kMesh[3] = { "SkinnedInstancedTech", "BuildShadowMapSkinnedInstancedTech", "NormalDepthSkinnedInstancedTech" };
-			static const char* kImp[3] = { "SkinnedImpostorTech", nullptr, "NormalDepthSkinnedImpostorTech" };
+			static const char* kImp[3] = { "SkinnedImpostorTech", "BuildShadowMapSkinnedImpostorTech", "NormalDepthSkinnedImpostorTech" };
 			const char* name = impostor ? kImp[(int)pass] : kMesh[(int)pass];
 			return name ? Tech(PassEffect(pass), name) : nullptr;
 		}
@@ -532,6 +545,8 @@ namespace SkinnedInstancing
 	}
 
 	// ================================================================ 패스
+	bool ShadowImpostors() { return Enabled && PassReady(Pass::Shadow, true); }
+
 	bool Add(SkinnedMeshRenderer* r, Pass pass, bool editor)
 	{
 		// 대상인지는 이번 프레임 팔레트를 매길 때 봤다 (팔레트가 있으면 대상)
@@ -546,9 +561,9 @@ namespace SkinnedInstancing
 		if (!s_PaletteOk || r->InstPaletteFrame != s_PaletteFrame)
 			return false;
 		MeshGeometry* geo = pass == Pass::Shadow ? r->ShadowGeometry() : r->PrepareLod(editor);
-		// 멀리 (화면에 작게) — 재생 중인 클립의 애니메이션 임포스터 (따로 설정 없이). 그림자는 메시 (가장 낮은 단계)
+		// 멀리 (화면에 작게) — 재생 중인 클립의 애니메이션 임포스터 (따로 설정 없이). 그림자도 임포스터 (빛을 바라보는 사각형 — 자세가 필요 없다)
 		CrowdAnimation::Baked* imp = nullptr;
-		if (pass != Pass::Shadow && r->CurrentLod() == SkinnedLod::kImpostorLevel && PassReady(pass, true))
+		if (r->CurrentLod() == SkinnedLod::kImpostorLevel && PassReady(pass, true))
 			imp = ImpostorFor(r);
 		if (r->InstNoPalette && imp == nullptr)
 			return false;   // 팔레트를 만들지 않았다 (임포스터 단계) — 이번만 렌더러마다
@@ -780,12 +795,12 @@ namespace SkinnedInstancing
 				// 재질 값 (금속성 · 매끄러움) 은 첫 서브셋 것
 				if (main)
 					UMaterial::ApplyOrDefault(!g.Materials->empty() ? (*g.Materials)[0] : nullptr, Effects::InstancedBasicFX.get());
-				BindImpostor(fx, g.Impostor, view);
+				BindImpostor(fx, g.Impostor, view, pass == Pass::Shadow);
 				dc->IASetInputLayout(nullptr);
 				impTech->GetPassByIndex(0)->Apply(0, dc);
 				RenderStats::AddDraw(6, 4, count);
 				dc->DrawInstanced(6, count, 0, 0);
-				BindImpostor(fx, nullptr, view);
+				BindImpostor(fx, nullptr, view, false);
 				dc->OMSetDepthStencilState(oldDss.Get(), oldRef);
 				dc->RSSetState(oldRs.Get());
 				++s_Cur.Draws[pi];

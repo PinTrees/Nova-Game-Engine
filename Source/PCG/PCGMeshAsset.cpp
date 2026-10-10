@@ -183,6 +183,9 @@ namespace PCG
 				return false;
 			a.Height = maxY > minY ? maxY - (std::min)(minY, 0.0f) : 1.0f;
 			a.Radius = (std::max)(0.05f, radius);
+			for (const MeshLevel& l : a.Levels)
+				for (const MeshPart& p : l.Parts)
+					a.Foliage |= std::find(p.TwoSided.begin(), p.TwoSided.end(), true) != p.TwoSided.end();
 
 			// LOD 전환 높이: <모델>.lod.json (Unity 프리팹의 LOD Group 값), 없으면 0.5 · 0.25 · …
 			std::vector<float> heights;

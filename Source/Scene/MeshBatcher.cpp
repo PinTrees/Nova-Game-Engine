@@ -747,6 +747,7 @@ namespace MeshBatcher
 			int drawn = 0;
 			// gpu = GPU 목록의 묶음 번호 (-1 = b->Instances 를 올려 그린다)
 			bool fadingDraw = false;   // LOD 크로스페이드 묶음 (디퍼드에서는 늘 포워드)
+			bool windDraw = false;     // 바람 묶음 (PCG — 바람 기법 *WindTech, 67. BatchWind.fx)
 			auto drawBatch = [&](Batch* b, int gpu)
 			{
 				// Rendering Path = Deferred: G-버퍼 패스는 엔진 Lit 재질만, 포워드 패스는 그 밖만
@@ -828,14 +829,14 @@ namespace MeshBatcher
 							Effects::BuildShadowMapFX->SetDiffuseMap(m.GetBaseMapSRV());
 							Effects::BuildShadowMapFX->SetAlphaCutoff(EngineCutoff(m));
 							Effects::BuildShadowMapFX->SetTexTransform(EngineClipTexTransform(m));
-							clipTech = Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech.Get();
+							clipTech = windDraw ? fx->GetTechniqueByName("BuildShadowMapAlphaClipInstancingWindTech") : Effects::BuildShadowMapFX->BuildShadowMapAlphaClipInstancingTech.Get();
 						}
 						else
 						{
 							Effects::SsaoNormalDepthFX->SetDiffuseMap(m.GetBaseMapSRV());
 							Effects::SsaoNormalDepthFX->SetAlphaCutoff(EngineCutoff(m));
 							SetMatrix(fx, "gTexTransform", EngineClipTexTransform(m));
-							clipTech = fx->GetTechniqueByName("NormalDepthAlphaClipBatchTech");
+							clipTech = fx->GetTechniqueByName(windDraw ? "NormalDepthAlphaClipWindBatchTech" : "NormalDepthAlphaClipBatchTech");
 						}
 						if (clipTech && clipTech->IsValid())
 						{
@@ -905,16 +906,35 @@ namespace MeshBatcher
 			for (int index : s_Order)
 				drawBatch(&batches[index], gpuSet >= 0 ? index : -1);
 
-			// 바깥 인스턴스 (PCG): 묶음 하나씩 — 양면 재질 (잎) 은 뒷면 컬링을 끄고
+			// 바깥 인스턴스 (PCG): 묶음 하나씩 — 양면 재질 (잎) 은 뒷면 컬링을 끄고, 바람 (나무 · 풀) 은 묶음마다
 			if (!s_ExternalBatches.empty())
 			{
 				static Batch ext;
 				GfxRasterizerState* prevRs = nullptr;
 				bool rsSaved = false;
+				FxVar* windVar = fx->GetVariableByName("gBatchWind");
+				FxVar* shapeVar = fx->GetVariableByName("gBatchWindShape");
+				auto setWind = [&](const XMFLOAT4& wind, const XMFLOAT4& shape) {
+					if (windVar && windVar->IsValid())
+						windVar->AsVector()->SetFloatVector(&wind.x);
+					if (shapeVar && shapeVar->IsValid())
+						shapeVar->AsVector()->SetFloatVector(&shape.x);
+				};
+				// 바람 묶음은 따로 기법 (Mesh Renderer 묶음의 VS 는 예전 그대로 — 셰이더를 다시 읽는 중이면 없다 → 바람 없이)
+				const char* windName = pass == Pass::Main ? (s_Split == DeferredSplit::GBuffer ? "BatchGBufferWindTech" : "BatchWindTech")
+					: pass == Pass::Shadow ? "BuildShadowMapInstancingWindTech" : "NormalDepthWindBatchTech";
+				FxTechnique* windTech = fx->GetTechniqueByName(windName);
+				if (windTech && !windTech->IsValid())
+					windTech = nullptr;
+				FxTechnique* const plainTech = tech;
 				for (const ExternalBatch& e : s_ExternalBatches)
 				{
 					if (e.MeshPtr == nullptr || e.Count == 0 || (e.Worlds == nullptr && e.Buffer == nullptr))
 						continue;
+					// 사용자 셰이더 재질은 그 셰이더의 깊이 · 그림자 VS 가 바람을 모른다 — 흔들지 않는다 (깊이 프리패스와 본 패스가 어긋나지 않게)
+					windDraw = windTech != nullptr && e.WindShape.w > 0.5f && !(e.Material && e.Material->IsCustom());
+					setWind(e.Wind, windDraw ? e.WindShape : XMFLOAT4(0, 0, 0, 0));
+					tech = windDraw ? windTech : plainTech;
 					ext.MeshPtr = e.MeshPtr;
 					ext.Subset = e.Subset;
 					ext.Material = e.Material;
@@ -947,6 +967,9 @@ namespace MeshBatcher
 				}
 				if (rsSaved && prevRs)
 					prevRs->Release();
+				setWind(XMFLOAT4(0, 0, 0, 0), XMFLOAT4(0, 0, 0, 0));   // 다음 묶음 · 패스 (Mesh Renderer) 는 흔들지 않는다
+				windDraw = false;
+				tech = plainTech;
 				ext.Material.reset();
 				ext.MeshPtr = nullptr;
 				ext.External = nullptr;

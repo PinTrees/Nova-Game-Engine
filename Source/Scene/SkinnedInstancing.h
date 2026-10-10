@@ -46,5 +46,8 @@ namespace SkinnedInstancing
 	// fx = 63. MotionVectors (gViewProj · gPrevViewProj 등은 부른 쪽이 넣어 둔다). 그린 렌더러 수
 	int FlushMotion(FxEffect* fx);
 
+	// 먼 (임포스터 단계) 캐릭터의 그림자도 임포스터로 그린다 (이번 프레임 그 기법이 있다) — 그림자에 보여도 자세 · 팔레트가 필요 없다
+	NOVA_API bool ShadowImpostors();
+
 	NOVA_API nlohmann::json Info();   // 지난 프레임: 팔레트 렌더러 · 패스별 인스턴스 · 그리기 수
 }

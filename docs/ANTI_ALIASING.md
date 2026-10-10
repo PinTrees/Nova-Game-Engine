@@ -7,6 +7,7 @@ Unity URP 카메라의 **Anti-aliasing** 과 같은 4 가지입니다: No Anti-a
 ## 쓰는 법
 
 Camera 컴포넌트 > Rendering > **Anti-aliasing**. Game 뷰 (플레이 · 빌드한 게임) 에 적용됩니다 — Scene 뷰는 없음 (Unity 와 같음).
+**새 카메라의 기본값은 TAA** 입니다 (Unity URP 는 No Anti-aliasing) — 잎 · 풀 · 먼 숲의 계단과 반짝임 (열린 월드). 예전 장면은 저장된 값 그대로.
 
 | 방식 | 설정 | 특징 |
 |------|------|------|

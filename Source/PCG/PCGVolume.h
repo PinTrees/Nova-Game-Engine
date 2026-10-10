@@ -19,6 +19,9 @@ public:
 	int Seed = 1;
 	bool WholeWorld = true;
 	float DistanceScale = 1.0f;     // 모든 스포너 Cull Distance 배율 (품질 · 성능)
+	// 바람: 잎 · 풀잎 (Alpha Clipping 재질) 이 있는 모델이 흔들린다 — 높이에 따라 (밑동 그대로, 꼭대기가 크게) + 잎 떨림. 날씨의 바람 세기를 곱한다
+	float WindStrength = 0.6f;      // 0 = 바람 없음
+	float WindDirection = 30.0f;    // 도 (Y 축 회전, 0 = +Z — Tree 의 Wind Direction 과 같다)
 
 	PCGVolume();
 	~PCGVolume() override;

@@ -17,6 +17,8 @@
 #include "EditorLog.h"
 #include "OcclusionCulling.h"
 #include "Application.h"
+#include "WeatherState.h"
+#include "ShadowRenderer.h"
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -39,8 +41,10 @@ struct PCGVolume::Cell
 	float MinY = 0, MaxY = 0;
 	int Points = 0;
 	std::vector<std::vector<XMFLOAT4X4>> PerMesh;
-	// GPU 인스턴스 버퍼: [메시][LOD][파트] (그 LOD 를 처음 그릴 때 만든다 — 모델 변환을 곱해서)
-	std::vector<std::vector<std::vector<ComPtr<GfxBuffer>>>> Buffers;
+	// GPU 인스턴스 버퍼: [메시][LOD][파트] (그 LOD 를 처음 그릴 때 만든다 — 모델 변환을 곱해서).
+	//  Serial = 만든 차례 번호 (묶음 버퍼의 서명 — 주소는 놓은 뒤 다른 버퍼가 다시 쓸 수 있어 번호로)
+	struct CellBuffer { ComPtr<GfxBuffer> Buffer; uint64_t Serial = 0; };
+	std::vector<std::vector<std::vector<CellBuffer>>> Buffers;
 };
 
 namespace
@@ -89,27 +93,65 @@ namespace
 
 	// 셀 버퍼를 (메시 · LOD · 파트) 마다 하나로 모은다 (GPU 복사 — CPU 는 인스턴스를 만지지 않는다) → 그리기 한 번
 	struct Segment { GfxBuffer* Buffer; uint32_t Count; };
+	uint64_t s_CellBufferSerial = 0;
 	struct Group
 	{
 		const PCG::MeshPart* Part = nullptr;
+		const PCG::MeshAsset* Asset = nullptr;
+		XMFLOAT4 Wind = XMFLOAT4(0, 0, 0, 0);   // 그 PCG Volume 의 바람 (방향 × 세기, 시간)
 		std::vector<Segment> Segments;
 		uint32_t Total = 0;
 		uint64_t Signature = 1469598103934665603ull;
 	};
+	// 가까운 무거운 모델 (인스턴스마다 LOD) 의 이번 패스 행렬
+	struct NearList
+	{
+		std::vector<XMFLOAT4X4> Worlds;
+		const PCG::MeshAsset* Asset = nullptr;
+		XMFLOAT4 Wind = XMFLOAT4(0, 0, 0, 0);
+	};
+
+	// 바람 시간 (초): 편집 중에도 흐른다. 한 시간마다 0 으로 (float 정밀도 — 그때 한 번 바뀐다).
+	//  프레임마다 한 값 — 깊이 프리패스 · 본 패스 · 그림자가 같은 시간이어야 위치가 같다 (EQUAL 깊이 검사)
+	float WindTime(uint32_t frame)
+	{
+		static const auto s_Start = std::chrono::steady_clock::now();
+		static uint32_t s_Frame = ~0u;
+		static float s_Time = 0.0f;
+		if (frame != s_Frame)
+		{
+			s_Frame = frame;
+			s_Time = (float)fmod(std::chrono::duration<double>(std::chrono::steady_clock::now() - s_Start).count(), 3600.0);
+		}
+		return s_Time;
+	}
+
+	// 모델 · 파트의 바람 모양 (67. BatchWind.fx 의 gBatchWindShape): 잎 · 풀잎이 있는 모델만. 꼭대기 흔들림 (세기 1) =
+	//  풀 · 작은 식물은 키의 25 %, 큰 나무는 덜 (15 m → 0.65 m). 잎 떨림은 Alpha Clipping 서브셋만. z = 모델 높이를 이 파트 메시 단위로 (노드 변환 · cm 단위)
+	XMFLOAT4 WindShapeOf(const PCG::MeshAsset* a, const PCG::MeshPart& part, bool leaf)
+	{
+		if (a == nullptr || !a->Foliage)
+			return XMFLOAT4(0, 0, 0, 0);
+		const float h = (std::max)(a->Height, 0.05f);
+		const float top = h < 1.0f ? 0.25f * h : 0.25f * powf(h, 0.35f);
+		const float flutter = leaf ? (h < 1.5f ? 0.015f : 0.035f) : 0.0f;
+		const float partScaleY = sqrtf(part.Model._21 * part.Model._21 + part.Model._22 * part.Model._22 + part.Model._23 * part.Model._23);
+		return XMFLOAT4(top, flutter, h / (std::max)(partScaleY, 1e-5f), 1.0f);
+	}
 	struct Merged
 	{
 		ComPtr<GfxBuffer> Buffer;
 		uint32_t Capacity = 0;
-		uint32_t FilledFrame = ~0u;
 		uint64_t FilledSignature = 0;
 		uint32_t LastUsed = 0;
 	};
+	// Pass = 0 본 · 깊이, 1 + 캐스케이드 = 방향광 그림자 조각 (조각마다 담는 셀이 달라 따로 — 같은 프레임에 덮어 복사하지 않게), 9 = 스포트 · 점광
 	struct MergedKey
 	{
-		const PCG::MeshPart* Part; bool Editor; bool Shadow;
-		bool operator==(const MergedKey& o) const { return Part == o.Part && Editor == o.Editor && Shadow == o.Shadow; }
+		const PCG::MeshPart* Part; bool Editor; int Pass;
+		bool operator==(const MergedKey& o) const { return Part == o.Part && Editor == o.Editor && Pass == o.Pass; }
 	};
-	struct MergedKeyHash { size_t operator()(const MergedKey& k) const { return std::hash<const void*>()(k.Part) ^ (k.Editor ? 0x9e37u : 0) ^ (k.Shadow ? 0x7f4au : 0); } };
+	struct MergedKeyHash { size_t operator()(const MergedKey& k) const { return std::hash<const void*>()(k.Part) ^ (k.Editor ? 0x9e37u : 0) ^ ((size_t)k.Pass * 0x7f4au); } };
 	std::unordered_map<MergedKey, Merged, MergedKeyHash> s_Merged;
 }
 
@@ -360,6 +402,19 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 	const XMMATRIX viewProj = view * proj;
 	const bool shadow = pass == MeshBatcher::Pass::Shadow;
 	const XMMATRIX cullVP = shadow ? rm->LightViewProjection : viewProj;
+	// 방향광의 먼 캐스케이드: 그림자가 모두 앞 캐스케이드 구 안에 떨어지는 셀은 그리지 않는다 (그 픽셀은 앞 캐스케이드를 읽는다)
+	const ShadowRenderer::CasterPass& caster = ShadowRenderer::Current;
+	const bool skipInner = shadow && caster.Directional && caster.Inner.w > 0.0f;
+	// 캐스터 높이 1 m 당 그림자가 옆으로 가는 거리 (해가 낮으면 길다 — 최대 10 배)
+	const float slant = skipInner ? (std::min)(sqrtf(caster.Direction.x * caster.Direction.x + caster.Direction.z * caster.Direction.z) /
+		(std::max)(fabsf(caster.Direction.y), 0.1f), 10.0f) : 0.0f;
+	auto insideInner = [&](const Cell& c, float top) {
+		const float reach = top * slant;
+		const float fx = (std::max)(fabsf(c.X0 - reach - caster.Inner.x), fabsf(c.X1 + reach - caster.Inner.x));
+		const float fy = (std::max)(fabsf(c.MinY - 2.0f - caster.Inner.y), fabsf(c.MaxY + top - caster.Inner.y));
+		const float fz = (std::max)(fabsf(c.Z0 - reach - caster.Inner.z), fabsf(c.Z1 + reach - caster.Inner.z));
+		return fx * fx + fy * fy + fz * fz < caster.Inner.w * caster.Inner.w;   // 상자의 가장 먼 모서리까지 구 안
+	};
 	const Vec3 eye = EyeOf(view);
 	XMFLOAT4X4 p;
 	XMStoreFloat4x4(&p, proj);
@@ -373,14 +428,19 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 	static std::unordered_map<const PCG::MeshPart*, Group> groups;
 	groups.clear();
 	// 가까운 무거운 모델 (나무 · 큰 바위): 인스턴스마다 LOD (셀 전체가 LOD 0 이 되지 않게) — 이번 패스의 CPU 행렬
-	static std::unordered_map<const PCG::MeshPart*, std::vector<XMFLOAT4X4>> nearWorlds;
+	static std::unordered_map<const PCG::MeshPart*, NearList> nearWorlds;
 	for (auto& kv : nearWorlds)
-		kv.second.clear();
+		kv.second.Worlds.clear();
+	const float windTime = WindTime(frame);
 	for (PCGVolume* v : Registry())
 	{
 		if (!v->IsEnabled() || v->m_pGameObject == nullptr || !v->m_pGameObject->IsActiveInHierarchy())
 			continue;
 		int drawn = 0, batches = 0;
+		// 이 Volume 의 바람 (날씨 바람 세기를 곱한다 — 돌풍 · 폭풍)
+		const float windYaw = XMConvertToRadians(v->WindDirection);
+		const float windStrength = (std::max)(v->WindStrength, 0.0f) * (std::max)(0.0f, WeatherState::Get().WindStrength);
+		const XMFLOAT4 wind(sinf(windYaw) * windStrength, 0.0f, cosf(windYaw) * windStrength, windTime);
 		for (const SpawnerInfo& s : v->m_Spawners)
 		{
 			if (shadow && (!s.Shadows || s.ShadowDistance <= 0.0f))
@@ -410,6 +470,8 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 				if (d > range)
 					continue;
 				if (OutsideFrustum(Vec3(c.X0, c.MinY - 2.0f, c.Z0), Vec3(c.X1, c.MaxY + maxHeight, c.Z1), cullVP))
+					continue;
+				if (skipInner && insideInner(c, maxHeight))
 					continue;
 				if (c.Buffers.size() != c.PerMesh.size())
 					c.Buffers.assign(c.PerMesh.size(), {});
@@ -449,7 +511,10 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 								{
 									XMFLOAT4X4 out;
 									XMStoreFloat4x4(&out, XMLoadFloat4x4(&part.Model) * iw);
-									nearWorlds[&part].push_back(out);
+									NearList& nl = nearWorlds[&part];
+									nl.Worlds.push_back(out);
+									nl.Asset = a;
+									nl.Wind = wind;
 								}
 							}
 							drawn += (int)inst.size();
@@ -471,7 +536,7 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 					if (perLevel.size() != a->Levels.size())
 						perLevel.assign(a->Levels.size(), {});
 					const PCG::MeshLevel& lv = a->Levels[(size_t)level];
-					std::vector<ComPtr<GfxBuffer>>& bufs = perLevel[(size_t)level];
+					std::vector<Cell::CellBuffer>& bufs = perLevel[(size_t)level];
 					if (bufs.size() != lv.Parts.size())
 					{
 						// 이 LOD 를 처음 그린다: 파트마다 (모델 변환 × 인스턴스) 버퍼
@@ -482,19 +547,21 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 							const XMMATRIX model = XMLoadFloat4x4(&part.Model);
 							for (size_t i = 0; i < inst.size(); ++i)
 								XMStoreFloat4x4(&worlds[i], model * XMLoadFloat4x4(&inst[i]));
-							bufs.push_back(MeshBatcher::CreateInstanceBuffer(worlds.data(), (uint32_t)worlds.size()));
+							bufs.push_back({ MeshBatcher::CreateInstanceBuffer(worlds.data(), (uint32_t)worlds.size()), ++s_CellBufferSerial });
 						}
 					}
 					for (size_t pi = 0; pi < lv.Parts.size(); ++pi)
 					{
 						const PCG::MeshPart& part = lv.Parts[pi];
-						if (!bufs[pi] || part.MeshPtr == nullptr)
+						if (!bufs[pi].Buffer || part.MeshPtr == nullptr)
 							continue;
 						Group& g = groups[&part];
 						g.Part = &part;
-						g.Segments.push_back({ bufs[pi].Get(), (uint32_t)inst.size() });
+						g.Asset = a;
+						g.Wind = wind;
+						g.Segments.push_back({ bufs[pi].Buffer.Get(), (uint32_t)inst.size() });
 						g.Total += (uint32_t)inst.size();
-						g.Signature = (g.Signature ^ (uint64_t)(uintptr_t)bufs[pi].Get()) * 1099511628211ull;
+						g.Signature = (g.Signature ^ bufs[pi].Serial) * 1099511628211ull;
 					}
 					drawn += (int)inst.size();
 				}
@@ -523,7 +590,8 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 			buffer = g.Segments[0].Buffer;   // 셀 하나 — 복사 없이
 		else
 		{
-			Merged& m = s_Merged[{ &part, editor, shadow }];
+			const int mergedPass = !shadow ? 0 : (ShadowRenderer::Current.Directional ? 1 + (std::max)(0, ShadowRenderer::Current.Cascade) : 9);
+			Merged& m = s_Merged[{ &part, editor, mergedPass }];
 			m.LastUsed = frame;
 			if (m.Capacity < g.Total)
 			{
@@ -534,11 +602,13 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 				bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 				m.Buffer.Reset();
 				device->CreateBuffer(&bd, nullptr, m.Buffer.GetAddressOf());
-				m.FilledFrame = ~0u;
+				m.FilledSignature = 0;
 			}
 			if (!m.Buffer)
 				continue;
-			if (m.FilledFrame != frame || m.FilledSignature != g.Signature)
+			// 담은 셀 버퍼들이 그대로면 (서명 = 셀 버퍼 번호의 차례) 다시 복사하지 않는다 — 가만히 있는 카메라는 복사 0 번.
+			//  예전에는 프레임마다 한 번은 다시 복사해 (셀 수천 개 = CopySubresourceRegion 수천 번) 먼 캐스케이드를 그리는 프레임이 40 ms 까지 튀었다
+			if (m.FilledSignature != g.Signature)
 			{
 				UINT offset = 0;
 				for (const Segment& seg : g.Segments)
@@ -547,7 +617,6 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 					dc->CopySubresourceRegion(m.Buffer.Get(), 0, offset, 0, 0, seg.Buffer, 0, &box);
 					offset += seg.Count * stride;
 				}
-				m.FilledFrame = frame;
 				m.FilledSignature = g.Signature;
 			}
 			buffer = m.Buffer.Get();
@@ -561,13 +630,15 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 			b.Buffer = buffer;
 			b.Count = g.Total;
 			b.TwoSided = k < part.TwoSided.size() && part.TwoSided[k];
+			b.Wind = g.Wind;
+			b.WindShape = WindShapeOf(g.Asset, part, b.TwoSided);
 			out.push_back(std::move(b));
 		}
 	}
 	// 가까운 무거운 모델 (인스턴스마다 LOD) — CPU 행렬, 이번 패스에 올린다
 	for (auto& kv : nearWorlds)
 	{
-		if (kv.second.empty())
+		if (kv.second.Worlds.empty())
 			continue;
 		const PCG::MeshPart& part = *kv.first;
 		for (size_t k = 0; k < part.MeshPtr->Subsets.size(); ++k)
@@ -576,9 +647,11 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 			b.MeshPtr = part.MeshPtr.get();
 			b.Subset = (int)k;
 			b.Material = k < part.Materials.size() ? part.Materials[k] : UMaterial::GetDefault();
-			b.Worlds = kv.second.data();
-			b.Count = (uint32_t)kv.second.size();
+			b.Worlds = kv.second.Worlds.data();
+			b.Count = (uint32_t)kv.second.Worlds.size();
 			b.TwoSided = k < part.TwoSided.size() && part.TwoSided[k];
+			b.Wind = kv.second.Wind;
+			b.WindShape = WindShapeOf(kv.second.Asset, part, b.TwoSided);
 			out.push_back(std::move(b));
 		}
 	}
@@ -621,6 +694,8 @@ void PCGVolume::OnInspectorGUI()
 	Int("Seed", &Seed);
 	Toggle("Whole World", &WholeWorld);
 	Slider("Distance Scale", &DistanceScale, 0.1f, 3.0f);
+	Slider("Wind Strength", &WindStrength, 0.0f, 2.0f);
+	Slider("Wind Direction", &WindDirection, 0.0f, 360.0f);
 	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
 	if (ImGui::Button("Open Graph", ImVec2(110, 0)) && s_OpenGraphWindow)
 		s_OpenGraphWindow(GraphPath);
@@ -658,6 +733,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(PCGVolume)
 	j["seed"] = Seed;
 	j["wholeWorld"] = WholeWorld;
 	j["distanceScale"] = DistanceScale;
+	j["windStrength"] = WindStrength;
+	j["windDirection"] = WindDirection;
 	return j;
 }
 
@@ -668,4 +745,6 @@ GENERATE_COMPONENT_FUNC_FROMJSON(PCGVolume)
 	Seed = j.value("seed", Seed);
 	WholeWorld = j.value("wholeWorld", WholeWorld);
 	DistanceScale = j.value("distanceScale", DistanceScale);
+	WindStrength = j.value("windStrength", WindStrength);
+	WindDirection = j.value("windDirection", WindDirection);
 }

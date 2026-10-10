@@ -48,17 +48,18 @@ namespace
 	// Shadows: 캐스케이드가 Max Distance 를 어떻게 나누는지 색 막대로 (Unity URP 의 Cascade 막대)
 	void DrawCascadeBar(const VolumeComponent& c)
 	{
-		const int count = std::clamp(c.I("cascadeCount"), 1, 4);
+		const int count = std::clamp(c.I("cascadeCount"), 1, 8);
 		const float maxDist = (std::max)(c.F("maxDistance"), 0.0f);
-		float ends[4] = { 1, 1, 1, 1 };
-		const float splits[3] = { c.F("split1"), c.F("split2"), c.F("split3") };
+		float ends[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+		const float splits[7] = { c.F("split1"), c.F("split2"), c.F("split3"), c.F("split4"), c.F("split5"), c.F("split6"), c.F("split7") };
 		float prev = 0.0f;
 		for (int i = 0; i < count - 1; ++i)
 		{
 			ends[i] = std::clamp(splits[i], prev + 0.001f, 1.0f);
 			prev = ends[i];
 		}
-		static const ImU32 kColors[4] = { IM_COL32(94, 145, 94, 255), IM_COL32(126, 126, 186, 255), IM_COL32(161, 128, 77, 255), IM_COL32(158, 84, 84, 255) };
+		static const ImU32 kColors[8] = { IM_COL32(94, 145, 94, 255), IM_COL32(126, 126, 186, 255), IM_COL32(161, 128, 77, 255), IM_COL32(158, 84, 84, 255),
+			IM_COL32(84, 150, 158, 255), IM_COL32(150, 98, 160, 255), IM_COL32(170, 160, 80, 255), IM_COL32(120, 120, 120, 255) };
 
 		UnityGUI::Spacing(4.0f);
 		const ImVec2 p = ImGui::GetCursorScreenPos();

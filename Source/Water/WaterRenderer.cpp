@@ -578,8 +578,8 @@ namespace WaterRenderer
 		// 해 그림자
 		var("gSunShadow")->AsShaderResource()->SetResource(v.SunShadow);
 		var("gHasSunShadow")->AsScalar()->SetFloat(v.SunShadow && v.SunShadowData.x > 0.0f ? 1.0f : 0.0f);
-		var("gSunShadowTransforms")->AsMatrix()->SetMatrixArray(reinterpret_cast<const float*>(v.SunShadowTransforms), 0, 4);
-		var("gCascadeSpheres")->AsVector()->SetFloatVectorArray(&v.CascadeSpheres[0].x, 0, 4);
+		var("gSunShadowTransforms")->AsMatrix()->SetMatrixArray(reinterpret_cast<const float*>(v.SunShadowTransforms), 0, 8);
+		var("gCascadeSpheres")->AsVector()->SetFloatVectorArray(&v.CascadeSpheres[0].x, 0, 8);
 		var("gShadowParams")->AsVector()->SetFloatVector(&v.ShadowParams.x);
 		var("gSunShadowData")->AsVector()->SetFloatVector(&v.SunShadowData.x);
 

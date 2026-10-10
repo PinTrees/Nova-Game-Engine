@@ -12,7 +12,11 @@
 
 namespace
 {
-	const char* const kCascadeNames[4] = { "Cascade 0", "Cascade 1", "Cascade 2", "Cascade 3" };
+	const char* const kCascadeNames[8] = { "Cascade 0", "Cascade 1", "Cascade 2", "Cascade 3", "Cascade 4", "Cascade 5", "Cascade 6", "Cascade 7" };
+	// 먼 캐스케이드 캐시 (Far Cascade Update = Staggered): 다시 그리는 간격 · 차례. 3 번째는 짝수 프레임, 나머지는 홀수 프레임에 흩어 한 프레임에 몰리지 않게
+	constexpr int kStaggerInterval[8] = { 1, 1, 2, 4, 8, 8, 16, 16 };
+	//  (3 번째 = 짝수 프레임, 4 ~ 6 번째 = 홀수, 7 · 8 번째 = 3 번째와 같은 짝수 프레임 — 무거운 먼 캐스케이드끼리 겹치지 않게)
+	constexpr int kStaggerPhase[8] = { 0, 0, 0, 1, 3, 7, 2, 10 };
 	// NDC → 텍스처 좌표
 	const XMMATRIX kToTex(
 		0.5f, 0.0f, 0.0f, 0.0f,
@@ -54,10 +58,10 @@ namespace ShadowRenderer
 			return s;
 		static const uint32 kRes[] = { 512, 1024, 2048, 4096 };
 		s.MaxDistance = (std::max)(c->F("maxDistance"), 0.0f);
-		s.CascadeCount = std::clamp(c->I("cascadeCount"), 1, 4);
-		s.Splits[0] = c->F("split1");
-		s.Splits[1] = c->F("split2");
-		s.Splits[2] = c->F("split3");
+		s.CascadeCount = std::clamp(c->I("cascadeCount"), 1, ShadowMap::kMaxCascades);
+		static const char* const kSplits[7] = { "split1", "split2", "split3", "split4", "split5", "split6", "split7" };
+		for (int i = 0; i < 7; ++i)
+			s.Splits[i] = c->F(kSplits[i]);
 		s.LastBorder = std::clamp(c->F("lastBorder"), 0.0f, 1.0f);
 		s.Resolution = kRes[std::clamp(c->I("resolution"), 0, 3)];
 		s.DepthBias = c->F("depthBias");
@@ -87,6 +91,9 @@ namespace ShadowRenderer
 		out.SpotCount = spotCount;
 		out.PointCount = pointCount;
 		// 종류마다 텍스처 배열 하나 — 이번 빛 수만큼 조각을 먼저 마련 (그리는 도중에 늘리면 앞 빛의 그림자가 사라진다)
+		//  방향광 조각 = 빛 × 캐스케이드 수 (셰이더도 gShadowParams.x 간격으로 읽는다)
+		const int count = std::clamp(s.CascadeCount, 1, ShadowMap::kMaxCascades);
+		maps.SetCascadeCount(count);
 		maps.Prepare(LightType::Directional, dirCount, s.Resolution);
 		maps.Prepare(LightType::Spot, spotCount, s.Resolution);
 		maps.Prepare(LightType::Point, pointCount, (std::max)(256u, s.Resolution / 2));
@@ -94,9 +101,8 @@ namespace ShadowRenderer
 			out.DirData[i] = out.SpotData[i] = out.PointData[i] = XMFLOAT4(0, 0, 0, 0);
 
 		// ---- 캐스케이드 구: 절두체 조각 [n, f] 의 8 모서리를 감싸는 가장 작은 구 (시선 축 위)
-		const int count = std::clamp(s.CascadeCount, 1, 4);
 		const float maxDist = (std::max)(s.MaxDistance, 0.01f);
-		float ends[4];
+		float ends[ShadowMap::kMaxCascades];
 		float prev = 0.0f;
 		for (int i = 0; i < count - 1; ++i)
 		{
@@ -114,9 +120,9 @@ namespace ShadowRenderer
 		const float tanX = 1.0f / p._11, tanY = 1.0f / p._22;
 		const float k2 = tanX * tanX + tanY * tanY;
 
-		XMVECTOR centers[4];
-		float radii[4];
-		for (int i = 0; i < 4; ++i)
+		XMVECTOR centers[ShadowMap::kMaxCascades];
+		float radii[ShadowMap::kMaxCascades];
+		for (int i = 0; i < ShadowMap::kMaxCascades; ++i)
 		{
 			if (i >= count)
 			{
@@ -143,9 +149,12 @@ namespace ShadowRenderer
 			if (key != s_LastKey)
 			{
 				s_LastKey = key;
-				EditorLog::Write("Shadow", "cascades=%d maxDistance=%.1f resolution=%u ends=[%.2f %.2f %.2f %.2f] radii=[%.2f %.2f %.2f %.2f] soft=%d quality=%d",
-					count, maxDist, s.Resolution, ends[0], count > 1 ? ends[1] : 0.0f, count > 2 ? ends[2] : 0.0f, count > 3 ? ends[3] : 0.0f,
-					radii[0], count > 1 ? radii[1] : 0.0f, count > 2 ? radii[2] : 0.0f, count > 3 ? radii[3] : 0.0f, s.SoftShadows ? 1 : 0, s.SoftQuality);
+				char list[256] = {};
+				int at = 0;
+				for (int i = 0; i < count && at < (int)sizeof(list) - 24; ++i)
+					at += snprintf(list + at, sizeof(list) - at, "%s%.1f/%.1f", i ? " " : "", ends[i], radii[i]);
+				EditorLog::Write("Shadow", "cascades=%d maxDistance=%.1f resolution=%u end/radius=[%s] soft=%d quality=%d",
+					count, maxDist, s.Resolution, list, s.SoftShadows ? 1 : 0, s.SoftQuality);
 			}
 		}
 		const float fadeRange = maxDist * s.LastBorder;
@@ -156,12 +165,16 @@ namespace ShadowRenderer
 		//  빛 방향·설정·맵이 바뀌거나 카메라가 구 반지름의 5% 넘게 움직이면 바로 다시 그린다
 		++out.FrameCounter;
 		out.CascadesDrawn = 0;
-		bool redraw[4] = { true, true, true, true };
-		bool everyFrame[4] = { true, true, true, true };   // 캐시하지 않는 캐스케이드 (그림자 캐스터 오클루전 컬링을 써도 된다)
+		bool redraw[ShadowMap::kMaxCascades], everyFrame[ShadowMap::kMaxCascades];   // everyFrame = 캐시하지 않는 캐스케이드 (그림자 캐스터 오클루전 컬링을 써도 된다)
+		std::fill(std::begin(redraw), std::end(redraw), true);
+		std::fill(std::begin(everyFrame), std::end(everyFrame), true);
 		{
 			uint64_t key = (uint64_t)count * 1000003ull + (uint64_t)s.Resolution;
 			auto mixF = [&](float f) { uint32_t u; memcpy(&u, &f, 4); key = key * 1099511628211ull ^ u; };
-			mixF(maxDist); mixF(s.Splits[0]); mixF(s.Splits[1]); mixF(s.Splits[2]); mixF(s.DepthBias); mixF(s.NormalBias);
+			mixF(maxDist);
+			for (float split : s.Splits)
+				mixF(split);
+			mixF(s.DepthBias); mixF(s.NormalBias);
 			key = key * 31 + (uint64_t)(s.SoftShadows ? 1 : 0) * 7 + (uint64_t)s.SoftQuality;
 			// Culling Mask (화면 · 방향광) 가 바뀌면 캐시한 캐스케이드도 다시
 			key = key * 1099511628211ull ^ RenderLayers::ViewMask();
@@ -173,12 +186,13 @@ namespace ShadowRenderer
 				int interval = 1, phase = 0;
 				if (i >= 2 && count >= 3 && s.FarCascadeUpdate > 0)
 				{
-					interval = (i == 2 ? 2 : 4) * (s.FarCascadeUpdate == 2 ? 2 : 1);
-					phase = i == 2 ? 0 : 1;   // 3·4 번째가 같은 프레임에 겹치지 않게
+					interval = kStaggerInterval[i] * (s.FarCascadeUpdate == 2 ? 2 : 1);
+					phase = kStaggerPhase[i];
 				}
 				everyFrame[i] = interval == 1;
 				const auto& c = out.Cache[i];
-				bool need = interval == 1 || !c.Valid || c.SettingsKey != key || (f % (uint64_t)interval) != (uint64_t)phase % interval;
+				// 차례인 프레임 (f % 간격 == 차례) 에만 다시 — 예전에는 조건이 뒤집혀 차례가 아닌 프레임마다 다시 그렸다 (간격 4 = 4 프레임 중 3 번)
+				bool need = interval == 1 || !c.Valid || c.SettingsKey != key || (f % (uint64_t)interval) == (uint64_t)phase % interval;
 				if (!need)
 				{
 					const float dx = c.Sphere.x - out.Spheres[i].x, dy = c.Sphere.y - out.Spheres[i].y, dz = c.Sphere.z - out.Spheres[i].z;
@@ -228,7 +242,7 @@ namespace ShadowRenderer
 				auto& cache = out.Cache[i];
 				if (!redraw[i])
 				{
-					out.Dir[d * 4 + i] = cache.Dir[d];   // 캐시한 맵 + 그린 때의 행렬
+					out.Dir[d * count + i] = cache.Dir[d];   // 캐시한 맵 + 그린 때의 행렬
 					continue;
 				}
 				const float r = radii[i];
@@ -241,7 +255,7 @@ namespace ShadowRenderer
 				const XMMATRIX lightView = XMMatrixLookToLH(lightEye, dir, up);
 				const XMMATRIX lightProj = XMMatrixOrthographicLH(2.0f * r, 2.0f * r, 0.0f, 2.0f * r + kCasterPad);
 				const XMMATRIX vp = lightView * lightProj;
-				out.Dir[d * 4 + i] = vp * kToTex;
+				out.Dir[d * count + i] = vp * kToTex;
 
 				const float scale = BiasScale(filter);
 				fx->SetShadowBias(depthBias * texel * scale, normalBias * texel * 1.4142136f * scale); { auto& cs = CustomShaders::CurrentShadow(); cs.Bias[0] = depthBias * texel * scale; cs.Bias[1] = normalBias * texel * 1.4142136f * scale; }
@@ -252,12 +266,20 @@ namespace ShadowRenderer
 				{
 					PROFILE_GPU(kCascadeNames[i]);   // Profiler: 캐스케이드마다 GPU 시간·픽셀
 					RenderLayers::SetPassMask(light.GetCullingMaskBits());   // 이 빛이 비추지 않는 레이어는 그림자도 없다
-					Current = CasterPass{ true, everyFrame[i], lookDir, 2.0f * r, i };
+					// 앞 캐스케이드가 혼자 맡는 구: 경계 섞기 구간을 빼고, 이 캐스케이드를 캐시하는 동안 카메라가 움직일 수 있는 만큼 (반지름의 5 % — 넘으면 다시 그린다) 더 줄인다
+					XMFLOAT4 inner(0, 0, 0, -1.0f);
+					if (i > 0 && out.Spheres[i - 1].w > 0.0f)
+					{
+						const float innerR = sqrtf(out.Spheres[i - 1].w) * (1.0f - kCascadeBlend) - 0.05f * r;
+						if (innerR > 0.0f)
+							inner = XMFLOAT4(out.Spheres[i - 1].x, out.Spheres[i - 1].y, out.Spheres[i - 1].z, innerR);
+					}
+					Current = CasterPass{ true, everyFrame[i], lookDir, 2.0f * r, i, inner };
 					drawCasters();
 					Current = CasterPass();
 					RenderLayers::SetPassMask(~0u);
 				}
-				cache.Dir[d] = out.Dir[d * 4 + i];
+				cache.Dir[d] = out.Dir[d * count + i];
 				cache.Lights[d] = &light;
 				cache.LightDir[d] = lookDir;
 				cache.Generation[d] = maps.Generation(LightType::Directional, d);
@@ -349,10 +371,10 @@ namespace ShadowRenderer
 		fx->SetDirShadowMaps(maps.DepthMapSRV(LightType::Directional));
 		fx->SetSpotShadowMaps(maps.DepthMapSRV(LightType::Spot));
 		fx->SetPointShadowMaps(maps.DepthMapSRV(LightType::Point));
-		fx->SetDirShadowTransforms(data.Dir, LIGHT_SIZE * 4);
+		fx->SetDirShadowTransforms(data.Dir, LIGHT_SIZE * ShadowMap::kMaxCascades);
 		fx->SetSpotShadowTransforms(data.Spot, LIGHT_SIZE);
 		fx->SetPointShadowTransforms(data.Point, LIGHT_MAX_SIZE);
-		fx->SetCascadeSpheres(data.Spheres, 4);
+		fx->SetCascadeSpheres(data.Spheres, ShadowMap::kMaxCascades);
 		fx->SetShadowParams(data.Params);
 		fx->SetDirShadowData(data.DirData, LIGHT_SIZE);
 		fx->SetSpotShadowData(data.SpotData, LIGHT_SIZE);

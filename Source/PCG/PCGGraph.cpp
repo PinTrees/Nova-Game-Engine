@@ -451,17 +451,18 @@ namespace PCG
 			return points;
 		};
 		enum { Forest = 0, Meadow = 1, Desert = 2, Rock = 3 };
-		const int trees = chain("Forest Trees", 0.014f, 3.0f, Forest, 0.35f, 220.0f, 6.0f, 0.8f, 1.25f, 0.0f, 32.0f, of({ "BigTree" }), 3000.0f, true, 250.0f, 0, 0.0f);
-		const int meadowTrees = chain("Meadow Trees", 0.0012f, 4.0f, Meadow, 0.4f, 400.0f, 14.0f, 0.8f, 1.2f, 0.0f, 25.0f, of({ "BigTree", "SmallTree" }), 3000.0f, true, 250.0f, 0, 0.0f);
+		// 그림자 거리: 나무는 2 km (열린 월드 그림자 Volume 의 Max Distance) — 멀리는 마지막 LOD (빌보드 · 임포스터) 가 그림자를 남긴다
+		const int trees = chain("Forest Trees", 0.014f, 3.0f, Forest, 0.35f, 220.0f, 6.0f, 0.8f, 1.25f, 0.0f, 32.0f, of({ "BigTree" }), 3000.0f, true, 2000.0f, 0, 0.0f);
+		const int meadowTrees = chain("Meadow Trees", 0.0012f, 4.0f, Meadow, 0.4f, 400.0f, 14.0f, 0.8f, 1.2f, 0.0f, 25.0f, of({ "BigTree", "SmallTree" }), 3000.0f, true, 2000.0f, 0, 0.0f);
 		chain("Forest Understory", 0.18f, 0.8f, Forest, 0.3f, 45.0f, 1.2f, 0.7f, 1.3f, 0.5f, 38.0f, of({ "Fern", "Bush" }), 220.0f, true, 60.0f, trees, 2.5f);
 		chain("Forest Floor", 1.4f, 0.3f, Forest, 0.3f, 18.0f, 0.0f, 0.7f, 1.3f, 0.8f, 40.0f, of({ "ForestCover", "Grass" }), 75.0f, false, 0.0f, trees, 1.5f);
 		chain("Forest Debris", 0.012f, 1.5f, Forest, 0.4f, 90.0f, 3.0f, 0.8f, 1.3f, 1.0f, 30.0f, of({ "Debris" }), 220.0f, true, 60.0f, trees, 3.0f);
 		chain("Mushrooms", 0.02f, 0.2f, Forest, 0.5f, 12.0f, 0.4f, 0.7f, 1.4f, 0.6f, 30.0f, of({ "Mushroom" }), 50.0f, false, 0.0f, trees, 1.0f);
 		chain("Meadow Grass", 4.0f, 0.25f, Meadow, 0.2f, 30.0f, 0.0f, 0.75f, 1.35f, 0.7f, 35.0f, of({ "Grass" }, 12), 75.0f, false, 0.0f, meadowTrees, 1.0f);
-		chain("Meadow Bushes", 0.012f, 1.0f, Meadow, 0.35f, 120.0f, 2.5f, 0.7f, 1.3f, 0.4f, 30.0f, of({ "Bush" }), 400.0f, true, 80.0f, meadowTrees, 3.0f);
-		chain("Desert Cactus", 0.025f, 1.5f, Desert, 0.4f, 160.0f, 3.0f, 0.7f, 1.3f, 0.0f, 25.0f, of({ "Desert" }), 1500.0f, true, 120.0f, 0, 0.0f);
+		chain("Meadow Bushes", 0.012f, 1.0f, Meadow, 0.35f, 120.0f, 2.5f, 0.7f, 1.3f, 0.4f, 30.0f, of({ "Bush" }), 400.0f, true, 200.0f, meadowTrees, 3.0f);
+		chain("Desert Cactus", 0.025f, 1.5f, Desert, 0.4f, 160.0f, 3.0f, 0.7f, 1.3f, 0.0f, 25.0f, of({ "Desert" }), 1500.0f, true, 600.0f, 0, 0.0f);
 		chain("Desert Shrubs", 0.15f, 0.6f, Desert, 0.3f, 50.0f, 1.2f, 0.7f, 1.3f, 0.6f, 30.0f, of({ "DesertGrass" }), 200.0f, false, 0.0f, 0, 0.0f);
-		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 200.0f, 0, 0.0f);
+		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 800.0f, 0, 0.0f);
 		return g;
 	}
 }

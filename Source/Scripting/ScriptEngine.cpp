@@ -251,18 +251,18 @@ namespace
 	}
 
 	// ---------------------------------------------------------------- 프로젝트 / 소스
-	std::vector<fs::path> ScriptFiles()
+	// 폴더만 받는다 (작업 스레드에서도 — PathManager · PackageManager 는 메인에서 읽어 넘긴다)
+	std::vector<fs::path> ScanScriptFiles(const fs::path& root, const std::vector<std::wstring>& packageFolders)
 	{
 		std::vector<fs::path> out;
 		std::error_code ec;
-		const fs::path root = AssetsDir();
 		if (!fs::exists(root, ec))
 			return out;
 		for (const auto& e : fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec))
 			if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().c_str(), L".cs") == 0)
 				out.push_back(e.path());
 		// 프로젝트에 넣은 패키지의 C# (Runtime) — 같은 Assembly-CSharp 로 컴파일
-		for (const std::wstring& dir : PackageManager::ScriptFolders())
+		for (const std::wstring& dir : packageFolders)
 			for (const auto& e : fs::recursive_directory_iterator(dir, fs::directory_options::skip_permission_denied, ec))
 				if (e.is_regular_file(ec) && _wcsicmp(e.path().extension().c_str(), L".cs") == 0)
 					out.push_back(e.path());
@@ -270,16 +270,30 @@ namespace
 		return out;
 	}
 
-	std::string SourcesHash()
+	std::vector<fs::path> ScriptFiles() { return ScanScriptFiles(AssetsDir(), PackageManager::ScriptFolders()); }
+
+	std::string HashOfSources(const std::vector<fs::path>& files, const std::wstring& coreDll)
 	{
 		std::ostringstream ss;
 		std::error_code ec;
 		ss << "v1|";
-		for (const fs::path& p : ScriptFiles())
+		for (const fs::path& p : files)
 			ss << p.string() << '|' << fs::last_write_time(p, ec).time_since_epoch().count() << '|' << fs::file_size(p, ec) << ';';
-		ss << fs::last_write_time(EngineScriptingDir() + L"NovaScriptCore.dll", ec).time_since_epoch().count();
+		ss << fs::last_write_time(coreDll, ec).time_since_epoch().count();
 		return std::to_string(std::hash<std::string>{}(ss.str()));
 	}
+
+	std::string SourcesHash() { return HashOfSources(ScriptFiles(), EngineScriptingDir() + L"NovaScriptCore.dll"); }
+
+	// 1 초마다 스크립트 변경 확인 — 폴더 훑기는 작업 스레드에서. 큰 프로젝트 (에셋 파일 수천 개 — 열린 월드 식생 팩) 에서는
+	//  메인이 매초 25 ~ 35 ms 멈췄다 (Scripts.Update). 결과 (지문 · 스크립트 유무) 는 다음 프레임들에 메인이 받는다
+	struct ScriptPoll
+	{
+		std::mutex Lock;
+		bool Running = false, Ready = false, Empty = false;
+		std::string Hash;
+	};
+	std::shared_ptr<ScriptPoll> s_Poll = std::make_shared<ScriptPoll>();
 
 	std::string ReadFile(const std::wstring& path)
 	{
@@ -598,16 +612,44 @@ namespace ScriptEngine
 		if (s_Job && s_Job->Done)
 			FinishCompile();
 
-		// 1초마다 스크립트 변경 확인 (Unity 는 에디터 포커스 때 확인). 빌드된 게임은 하지 않는다
+		// 1초마다 스크립트 변경 확인 (Unity 는 에디터 포커스 때 확인). 빌드된 게임은 하지 않는다. 훑기는 작업 스레드 (ScriptPoll)
 		const double now = Now();
 		if (now >= s_NextPoll && !s_Job && !Application::IsPlayer())
 		{
-			s_NextPoll = now + 1.0;
-			const std::string hash = SourcesHash();
+			std::lock_guard<std::mutex> lock(s_Poll->Lock);
+			if (!s_Poll->Running)
+			{
+				s_NextPoll = now + 1.0;
+				s_Poll->Running = true;
+				std::thread([poll = s_Poll, root = fs::path(AssetsDir()), packages = PackageManager::ScriptFolders(), core = EngineScriptingDir() + L"NovaScriptCore.dll"]() {
+					const std::vector<fs::path> files = ScanScriptFiles(root, packages);
+					const std::string hash = HashOfSources(files, core);
+					std::lock_guard<std::mutex> lock(poll->Lock);
+					poll->Hash = hash;
+					poll->Empty = files.empty();
+					poll->Ready = true;
+					poll->Running = false;
+				}).detach();
+			}
+		}
+		std::string polled;
+		bool polledEmpty = false;
+		{
+			std::lock_guard<std::mutex> lock(s_Poll->Lock);
+			if (s_Poll->Ready)
+			{
+				s_Poll->Ready = false;
+				polled = s_Poll->Hash;
+				polledEmpty = s_Poll->Empty;
+			}
+		}
+		if (!polled.empty() && !s_Job)
+		{
+			const std::string hash = polled;
 			if (hash != s_LastHash)
 			{
 				s_LastHash = hash;
-				if (ScriptFiles().empty())
+				if (polledEmpty)
 				{
 					// 스크립트를 모두 지웠다: 빈 목록
 					Debug::ClearCompileMessages();

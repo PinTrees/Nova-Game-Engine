@@ -402,6 +402,41 @@ technique11 BuildShadowMapAlphaClipInstancingTech
     }
 }
 
+// 바람 묶음 (PCG 나무 · 풀 — 67. BatchWind.fx): 본 패스 · 깊이 프리패스와 같은 바람으로 그림자도 흔들린다
+#include "67. BatchWind.fx"
+VertexOut VS_InstancingWind(VertexIn_Instancing vin)
+{
+    VertexOut vout;
+    float3 posW = mul(float4(vin.PosL, 1.0f), vin.World).xyz;
+    posW += BatchWindOffset(posW, vin.World);
+    const float3 normalW = normalize(mul(vin.NormalL, (float3x3) vin.World));
+    vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    return vout;
+}
+
+technique11 BuildShadowMapInstancingWindTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_InstancingWind()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+
+        SetRasterizerState(Depth);
+    }
+}
+
+technique11 BuildShadowMapAlphaClipInstancingWindTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_InstancingWind()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS()));
+    }
+}
+
 technique11 BuildShadowMapSkinnedTech
 {
     pass P0
@@ -458,6 +493,38 @@ technique11 BuildShadowMapAlphaClipSkinnedInstancedTech
         SetVertexShader(CompileShader(vs_5_0, SkinnedInstancedVS()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS()));
+    }
+}
+
+// 애니메이션 임포스터의 그림자: 빛을 바라보는 사각형 하나 (gSkinView = 빛 쪽 · 광원) — 먼 캐릭터는 자세 · 메시 없이 그림자를 남긴다
+//  (나무 임포스터 그림자와 같은 방식). 깊이 바이어스만 (법선 = 빛 방향)
+float4 SkinnedImpostorShadowVS(uint vid : SV_VertexID, uint iid : SV_InstanceID, out float2 uv : TEXCOORD0) : SV_POSITION
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    const SkinImpostorGeom g = SkinImpostorVertex(vid, s);
+    uv = g.UV;
+    const float3 L = gShadowLight.w > 0.5f ? normalize(gShadowLight.xyz - g.PosW) : gShadowLight.xyz;
+    return mul(float4(ApplyShadowBias(g.PosW, L), 1.0f), gViewProj);
+}
+
+void SkinnedImpostorShadowPS(float4 posH : SV_POSITION, float2 uv : TEXCOORD0)
+{
+    clip(gSkinImpAlbedo.Sample(samSkinImp, uv).a - gSkinImpostor2.y);
+}
+
+RasterizerState SkinImpShadowCullNone
+{
+    CullMode = None;
+};
+
+technique11 BuildShadowMapSkinnedImpostorTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SkinnedImpostorShadowVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, SkinnedImpostorShadowPS()));
+        SetRasterizerState(SkinImpShadowCullNone);
     }
 }
 
