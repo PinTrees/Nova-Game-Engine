@@ -97,7 +97,7 @@ namespace
 		return std::chrono::duration_cast<std::chrono::seconds>(st.time_since_epoch()).count();
 	}
 
-	bool WriteAutosave(std::string* error)
+	bool WriteAutosave(std::string* error, const std::string* sceneText = nullptr)
 	{
 		Scene* scene = SceneManager::GetI()->GetCurrentScene();
 		if (scene == nullptr)
@@ -107,8 +107,13 @@ namespace
 		}
 		std::error_code ec;
 		fs::create_directories(AutoSave::Folder(), ec);
-		json j = *scene;
-		const std::string text = j.dump();
+		std::string made;
+		if (sceneText == nullptr)
+		{
+			json j = *scene;
+			made = j.dump();
+		}
+		const std::string& text = sceneText ? *sceneText : made;
 		const std::wstring pid = MyPid();
 		if (!WriteAtomic(SceneFile(pid), text))
 		{
@@ -221,11 +226,11 @@ namespace AutoSave
 		WriteAutosave(nullptr);
 	}
 
-	void OnEnterPlay()
+	void OnEnterPlay(const std::string* sceneText)
 	{
 		// Play 중 충돌하면 Play 직전 상태를 되살린다
 		if (s_Initialized && Enabled() && SceneManager::GetI()->IsCurrentSceneDirty())
-			WriteAutosave(nullptr);
+			WriteAutosave(nullptr, sceneText);
 	}
 
 	void Shutdown()

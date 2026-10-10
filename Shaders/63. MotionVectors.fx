@@ -96,6 +96,7 @@ struct ObjectOut
     float4 Cur : TEXCOORD0;    // 이번 클립 (지터 없음)
     float4 Prev : TEXCOORD1;   // 지난 클립 (지터 없음)
     float ViewZ : TEXCOORD2;
+    float Still : TEXCOORD3;   // 1 = Force No Motion (인스턴싱 — 렌더러마다). 인스턴싱 아니면 gMotionFlags.y
 };
 
 ObjectOut Emit(float3 posL, float3 prevPosL)
@@ -107,6 +108,7 @@ ObjectOut Emit(float3 posL, float3 prevPosL)
     o.Cur = mul(posW, gViewProj);
     o.Prev = mul(prevW, gPrevViewProj);
     o.ViewZ = mul(posW, gView).z;
+    o.Still = gMotionFlags.y;
     return o;
 }
 
@@ -129,13 +131,32 @@ ObjectOut VS_Skinned(SkinnedIn vin)
     return Emit(posL, prevL);
 }
 
+// 스킨드 인스턴싱 (엔진 공용 — 66): 월드 · 지난 월드 · 팔레트 · 지난 팔레트를 구조 버퍼에서
+#include "66. SkinInstancing.fx"
+ObjectOut VS_SkinnedInstanced(SkinnedIn vin, uint iid : SV_InstanceID)
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    float3 posL, unusedN, unusedT;
+    SkinInstanceBlend(s.PalA, s.PalB, s.Lerp, vin.PosL, float3(0, 1, 0), float3(1, 0, 0), vin.Weights, vin.BoneIndices, posL, unusedN, unusedT);
+    const float3 prevL = SkinInstancePrevPosition(s, vin.PosL, vin.Weights, vin.BoneIndices);
+    const float4 posW = float4(SkinXform(s.C0, s.C1, s.C2, posL), 1.0f);
+    const float4 prevW = float4(SkinXform(s.P0, s.P1, s.P2, prevL), 1.0f);
+    ObjectOut o;
+    o.PosH = mul(posW, gViewProjJ);
+    o.Cur = mul(posW, gViewProj);
+    o.Prev = mul(prevW, gPrevViewProj);
+    o.ViewZ = mul(posW, gView).z;
+    o.Still = (s.Flags & kSkinStill) != 0u ? 1.0f : 0.0f;
+    return o;
+}
+
 float4 PS_Object(ObjectOut pin) : SV_Target
 {
     // 프리패스에 보인 면만 (앞을 가린 물체 · 잘라낸 투명 부분은 그 자리 깊이가 다르다)
     float zPre = gNormalDepth.Load(int3(int2(pin.PosH.xy), 0)).w;
     if (abs(pin.ViewZ - zPre) > 0.02f + 0.01f * zPre)
         discard;
-    if (gMotionFlags.y > 0.5f)
+    if (pin.Still > 0.5f)
         return 0.0f;   // Force No Motion
     return float4(ToUV(pin.Cur) - ToUV(pin.Prev), 0.0f, 0.0f);
 }
@@ -165,6 +186,16 @@ technique11 SkinnedMotionTech
     pass P0
     {
         SetVertexShader(CompileShader(vs_5_0, VS_Skinned()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_Object()));
+    }
+}
+
+technique11 SkinnedInstancedMotionTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_SkinnedInstanced()));
         SetGeometryShader(NULL);
         SetPixelShader(CompileShader(ps_5_0, PS_Object()));
     }

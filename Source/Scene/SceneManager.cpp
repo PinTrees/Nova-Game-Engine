@@ -316,6 +316,10 @@ bool SceneManager::IsCurrentSceneDirty()
 		m_Dirty = m_CheckedHash != m_SavedHash || TerrainData::AnyDirty();
 		return m_Dirty;
 	}
+	// 확정 기준이 아직 없다 (Stop 직후 · 씬을 바꾼 첫 프레임 — Undo 가 곧 잡는다): 큰 씬은 직접 직렬화하지 않고 지난 값
+	//  (예전: 0.25 초마다 씬 전체를 JSON 으로 — 오브젝트 5 만 개에서 몇 초씩 멈춤이 이어졌다)
+	if (m_pCurrScene->GameObjectsView().size() > 2000)
+		return m_Dirty;
 	const double now = ::GetTickCount64() / 1000.0;
 	if (m_LastDirtyCheck < 0.0 || now - m_LastDirtyCheck > 0.25)
 	{
@@ -393,12 +397,26 @@ void SceneManager::HandlePlay()
 	if (m_pCurrScene == nullptr) 
 		return;
 
-	AutoSave::OnEnterPlay();   // Play 중 충돌해도 Play 직전 상태를 되살릴 수 있게 (변경이 있을 때만)
-	json j = *m_pCurrScene;
-	m_PlayModeSceneSnapshot = j.dump();
+	using PlayClock = std::chrono::steady_clock;
+	auto t = PlayClock::now();
+	auto lap = [&t]() { const auto now = PlayClock::now(); const double ms = std::chrono::duration<double, std::milli>(now - t).count(); t = now; return ms; };
+	// Play 직전 씬 JSON: Undo 의 루트 문자열 캐시에서 (바뀐 루트만 직렬화) — 없으면 직접. 자동 저장도 같은 문자열을 쓴다
+	//  (예전: 자동 저장 · 스냅샷이 각각 씬 전체를 직렬화 — 군중 3000 명 = 오브젝트 5 만 개에서 11 초)
+	m_PlayModeSceneSnapshot.clear();
+	const bool fromUndo = Undo::CapturePlaySnapshot(m_PlayModeSceneSnapshot);
+	if (!fromUndo)
+	{
+		json j = *m_pCurrScene;
+		m_PlayModeSceneSnapshot = j.dump();
+	}
+	const double serializeMs = lap();
+	AutoSave::OnEnterPlay(&m_PlayModeSceneSnapshot);   // Play 중 충돌해도 Play 직전 상태를 되살릴 수 있게 (변경이 있을 때만)
+	const double autoSaveMs = lap();
 	m_PlayOriginalPath = m_pCurrScene->GetScenePath();
 	BeginRuntimeScenes();
 	m_pCurrScene->Enter([this]() { NotifyFirstSceneLoaded(); });
+	EditorLog::Write("Scene", "play: snapshot %.0f ms (%s), autosave %.0f ms, enter %.0f ms (%zu objects)",
+		serializeMs, fromUndo ? "undo cache" : "serialized", autoSaveMs, lap(), m_pCurrScene->GameObjectsView().size());
 }
 
 void SceneManager::LoadSceneDuringPlay(const std::wstring& scenePath)
@@ -408,11 +426,18 @@ void SceneManager::LoadSceneDuringPlay(const std::wstring& scenePath)
 
 void SceneManager::HandleStop()
 {
+	// 단계별 시간 (큰 씬 — 군중 1 만 명 = 오브젝트 17 만 개 — 에서 Stop 이 오래 걸리는 곳을 찾으려고)
+	using StopClock = std::chrono::steady_clock;
+	auto t = StopClock::now();
+	auto lap = [&t]() { const auto now = StopClock::now(); const double ms = std::chrono::duration<double, std::milli>(now - t).count(); t = now; return ms; };
+	double exitMs = 0, deleteMs = 0, parseMs = 0, loadMs = 0;
+	size_t snapshotBytes = m_PlayModeSceneSnapshot.size();
 	EndRuntimeScenes();
 	if (m_pCurrScene == nullptr)
 		return;
 
 	m_pCurrScene->Exit();
+	exitMs = lap();
 
 	if (!m_PlayModeSceneSnapshot.empty())
 	{
@@ -423,12 +448,15 @@ void SceneManager::HandleStop()
 		for (auto it = m_Scenes.begin(); it != m_Scenes.end();)
 			it = it->second == m_pCurrScene ? m_Scenes.erase(it) : std::next(it);
 		delete m_pCurrScene;
+		deleteMs = lap();
 
 		m_pCurrScene = new Scene();
 		m_pCurrScene->SetScenePath(scenePath);
 		json j = json::parse(m_PlayModeSceneSnapshot);
+		parseMs = lap();
 		from_json(j, *m_pCurrScene);
 		m_PlayModeSceneSnapshot.clear();
+		loadMs = lap();
 
 		if (!scenePath.empty())
 			m_Scenes[scenePath] = m_pCurrScene;
@@ -447,6 +475,8 @@ void SceneManager::HandleStop()
 	}
 
 	DisplayManager::GetI()->Init();
+	EditorLog::Write("Scene", "stop: exit %.0f ms, delete %.0f ms, parse %.0f ms, load %.0f ms (snapshot %zu KB, %zu objects)",
+		exitMs, deleteMs, parseMs, loadMs + lap(), snapshotBytes / 1024, m_pCurrScene ? m_pCurrScene->GameObjectsView().size() : (size_t)0);
 }
 
 void SceneManager::CreateScene()

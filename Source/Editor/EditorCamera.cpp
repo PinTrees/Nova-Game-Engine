@@ -14,43 +14,13 @@ EditorCamera::~EditorCamera()
 void EditorCamera::GetFrustumCulling()
 {
 	FrustumUpdate();
-	
-	vector<GameObject*> allObject = SceneManager::GetI()->GetCurrentScene()->GetAllGameObjects();
-	vector<GameObject*> cullingObjects;
+
+	// Scene ë·°ì˜ ë¹› ê³ ë¥´ê¸° (ì ˆë‘ì²´ ì•ˆì˜ Point Â· Spot + Directional). ë Œë”ëŸ¬ ì»¬ë§ì€ SceneCulling ì´ í•œë‹¤
+	//  (ì˜ˆì „: ì—¬ê¸°ì„œ ëª¨ë“  ì˜¤ë¸Œì íŠ¸ ëª©ë¡ì„ ë³µì‚¬í•´ Mesh Renderer ë¥¼ ì ˆë‘ì²´ë¡œ ê±¸ë €ì§€ë§Œ ê·¸ ê²°ê³¼ë¥¼ ì•„ë¬´ë„ ì½ì§€ ì•Šì•˜ë‹¤ â€” êµ°ì¤‘ 17 ë§Œ ê°œì—ì„œ í”„ë ˆì„ë§ˆë‹¤ 52 ms)
 	vector<shared_ptr<Light>> lights = LightManager::GetI()->GetLights();
 	vector<shared_ptr<Light>> cullingLights;
 
 	bool check;
-
-	for (const auto& gameObject : allObject)
-	{
-		auto meshRenderer = gameObject->GetComponent<MeshRenderer>();
-
-		// meshRenderer ÄÄÆ÷³ÍÆ®°¡ ¾ø´Â °´Ã¼ÀÌ°Å³ª mesh¸¦ Àû¿ë ¾È ½ÃÄ×À» °æ¿ì
-		if (!meshRenderer)
-			continue;
-
-		if (!(meshRenderer->GetMesh()))
-			continue;
-
-		Vec3 meshPos = meshRenderer->GetGameObject()->GetTransform()->GetPosition();
-		BouncingBall ball = meshRenderer->GetMesh()->Ball;
-		check = true;
-		for (int i = 0; i < 6; i++)
-		{
-			// Ãæµ¹Ã¼Å©
-			//plane.normal.x * center.x + plane.normal.y * center.y + plane.normal.z * center.z + plane.d;
-			float distance = m_Frustum.planes[i].normal.x * (ball.center.x + meshPos.x) +
-				m_Frustum.planes[i].normal.y * (ball.center.y + meshPos.y) +
-				m_Frustum.planes[i].normal.z * (ball.center.z + meshPos.z) +
-				m_Frustum.planes[i].d;
-			if (distance < -ball.radius)
-				check = false; // ±¸°¡ Æò¸éÀÇ ¹Û¿¡ ÀÖÀ½
-		}
-
-		if (check)
-			cullingObjects.push_back(gameObject);
-	}
 
 	// Point and Spot Light
 	for (const auto& light : lights)
@@ -82,7 +52,6 @@ void EditorCamera::GetFrustumCulling()
 			cullingLights.push_back(light);
 	}
 
-	SceneManager::GetI()->GetCurrentScene()->SetCullingEditorGameObjects(cullingObjects);
 	LightManager::GetI()->SortingEditorLights(cullingLights, _position);
 }
 

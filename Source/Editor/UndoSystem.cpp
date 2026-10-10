@@ -67,6 +67,7 @@ namespace
 	using SceneSnap = std::vector<RootSnap>;
 
 	SceneSnap s_Committed;
+	SceneSnap s_PlaySnap;   // Play 직전 스냅샷 (CapturePlaySnapshot) — Stop 뒤 되돌아온 씬의 기준
 	bool s_HasCommitted = false;
 	uint64_t s_CommittedVersion = 0;   // 확정 스냅샷이 바뀔 때마다 1 씩 (해시 다시 계산 판단)
 
@@ -82,13 +83,17 @@ namespace
 	std::unordered_set<const GameObject*> s_TouchedRoots;   // 지난 확정 뒤 선택됐던 오브젝트의 루트 (포인터 비교만, 역참조 안 함)
 	size_t s_SweepCursor = 0;
 	constexpr size_t kSweepRoots = 8;
+	// 한 번의 확정에서 돌아가며 다시 직렬화하는 오브젝트 수 한도 — 루트가 적고 크면 (군중 3000 명이 한 부모 밑) 확정마다 씬 전체를
+	//  다시 직렬화했다 (5 초). 한도보다 큰 루트는 돌아가며 보지 않는다 (서명 · 선택으로만 잡힌다)
+	constexpr size_t kSweepObjects = 4096;
 	size_t s_LastSerialized = 0, s_LastRoots = 0;   // 마지막 캡처에서 다시 직렬화한 루트 / 전체 (진단용)
 
 	uint64_t Mix(uint64_t h, uint64_t v) { return h ^ (v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2)); }
 	uint64_t Bits(float f) { uint32_t u; memcpy(&u, &f, 4); return u; }
 
-	void Signature(GameObject* go, uint64_t& h)
+	void Signature(GameObject* go, uint64_t& h, size_t& objects)
 	{
+		++objects;
 		h = Mix(h, (uint64_t)(uintptr_t)go);
 		h = Mix(h, go->GetFileID());
 		h = Mix(h, std::hash<std::string>()(go->GetName()));
@@ -106,7 +111,7 @@ namespace
 				h = Mix(h, Bits(f));
 		}
 		for (GameObject* child : go->Children())
-			Signature(child, h);
+			Signature(child, h, objects);
 	}
 
 	const GameObject* RootOf(GameObject* go)
@@ -137,15 +142,19 @@ namespace
 		s_LastRoots = n;
 		const size_t sweepBegin = n ? s_SweepCursor % n : 0;
 		const uint32_t gen = ++s_CaptureGen;
+		size_t sweptObjects = 0;
 		snap.reserve(n);
 		for (size_t i = 0; i < n; ++i)
 		{
 			GameObject* root = roots[i];
 			uint64_t sig = 1469598103934665603ull;
-			Signature(root, sig);
+			size_t objects = 0;
+			Signature(root, sig, objects);
 			RootCache& entry = s_RootCache[root];   // 제자리에서 갱신 (맵을 매번 새로 만들지 않는다)
 			entry.Seen = gen;
-			const bool swept = ((i + n - sweepBegin) % n) < kSweepRoots;
+			const bool swept = ((i + n - sweepBegin) % n) < kSweepRoots && sweptObjects + objects <= kSweepObjects;
+			if (swept)
+				sweptObjects += objects;
 			if (full || !entry.Text || entry.Signature != sig || swept || s_TouchedRoots.count(root))
 			{
 				++s_LastSerialized;
@@ -359,6 +368,38 @@ namespace
 			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 	}
 
+	// Stop 으로 되돌아온 씬: 루트가 Play 직전 스냅샷과 같은 차례 · fileID 면 그 문자열을 루트 캐시 · 확정 기준으로
+	bool AdoptPlaySnap(Scene* scene)
+	{
+		SceneSnap snap;
+		snap.swap(s_PlaySnap);
+		const auto& roots = scene->RootGameObjects();
+		if (snap.empty() || roots.size() != snap.size())
+			return false;
+		for (size_t i = 0; i < roots.size(); ++i)
+			if (roots[i] == nullptr || roots[i]->GetFileID() != snap[i].FileID)
+				return false;
+		const auto t0 = std::chrono::steady_clock::now();
+		s_RootCache.clear();
+		s_RootCacheScene = scene;
+		const uint32_t gen = ++s_CaptureGen;
+		for (size_t i = 0; i < roots.size(); ++i)
+		{
+			uint64_t sig = 1469598103934665603ull;
+			size_t objects = 0;
+			Signature(roots[i], sig, objects);
+			RootCache& entry = s_RootCache[roots[i]];
+			entry.Signature = sig;
+			entry.Text = snap[i].Text;
+			entry.Seen = gen;
+		}
+		s_TouchedRoots.clear();
+		SetCommitted(std::move(snap));
+		EditorLog::Write("Undo", "baseline from play snapshot (%zu roots, %.0f ms)", roots.size(),
+			std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
+		return true;
+	}
+
 	// 씬이 다른 것으로 바뀌었는지 (씬 열기/새 씬은 기록을 비우고, Play/Stop 이나 우리 복원은 기준만 다시 잡는다)
 	void TrackScene()
 	{
@@ -374,8 +415,18 @@ namespace
 			s_ScenePath = path;
 			// Play 중에는 기준 스냅숏을 뜨지 않는다 — Play 중 변경은 기록하지 않아 쓰이지 않는데, 큰 씬이면 1 초 가까이 걸렸다
 			//  (Play 시작 · LoadSceneAsync 로 바꾼 뒤 첫 프레임 — 도시 2852 개 980 ms). Stop 해 편집 씬이 돌아오면 그때 뜬다
-			if (scene && !playing)
+			if (scene && !playing && s_WasPlaying && AdoptPlaySnap(scene))
+			{
+				// Stop: Play 직전 스냅샷으로 되돌린 씬 — 그 문자열을 기준으로 (다시 직렬화하지 않는다)
+			}
+			else if (scene && !playing)
+			{
+				const auto t0 = std::chrono::steady_clock::now();
 				SetCommitted(CaptureSnap(true));
+				const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+				if (ms > 100.0)
+					EditorLog::Write("Undo", "baseline snapshot %.0f ms (%zu objects)", ms, scene->GameObjectsView().size());
+			}
 			else
 				s_HasCommitted = false;
 		}
@@ -473,6 +524,21 @@ namespace Undo
 	std::string UndoName() { return s_Undo.empty() ? std::string() : s_Undo.back().Name; }
 	std::string RedoName() { return s_Redo.empty() ? std::string() : s_Redo.back().Name; }
 	int HistoryCount() { return (int)s_Undo.size(); }
+
+	bool CapturePlaySnapshot(std::string& outText)
+	{
+		s_PlaySnap.clear();   // 이번 Play 의 것만 (직접 직렬화한 Play 뒤에 옛 스냅샷을 쓰지 않게)
+		Scene* scene = SceneManager::GetI()->GetCurrentScene();
+		if (scene == nullptr || !IsTracked(scene) || !s_HasCommitted)   // (Play 를 누른 쪽이 IsPlaying 을 먼저 켠다 — 보지 않는다)
+			return false;
+		for (const GameObject* root : scene->RootGameObjects())
+			if (root == nullptr || root->IsHideAndDontSave())
+				return false;   // json(scene) 은 이런 루트를 빼고 저장한다 — 직접 직렬화
+		SceneSnap snap = CaptureSnap(false);   // 바뀌었을 수 있는 루트만 다시 직렬화
+		outText = Assemble(snap);
+		s_PlaySnap = std::move(snap);
+		return true;
+	}
 
 	bool CommittedSceneHash(size_t& outHash)
 	{

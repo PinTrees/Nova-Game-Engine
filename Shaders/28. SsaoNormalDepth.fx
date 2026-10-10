@@ -291,6 +291,91 @@ technique11 NormalDepthSkinned
     }
 }
 
+// 스킨드 인스턴싱 (엔진 공용 — 66): gWorldViewProj = ViewProj (MeshBatcher 의 VS_Batch 와 같이) — 본 패스와 같은 식
+#include "66. SkinInstancing.fx"
+VertexOut SkinnedInstancedVS(SkinnedVertexIn vin, uint iid : SV_InstanceID)
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    float3 posW, normalW;
+    float4 tangentW;
+    SkinInstanceWorld(s, vin.PosL, vin.NormalL, vin.TangentL, vin.Weights, vin.BoneIndices, posW, normalW, tangentW);
+    VertexOut vout;
+    vout.PosV = mul(float4(posW, 1.0f), gView).xyz;
+    vout.NormalV = mul(normalW, (float3x3) gView);
+    precise float4 posH = mul(float4(posW, 1.0f), gWorldViewProj);   // 32 와 같은 식 (EQUAL)
+    vout.PosH = posH;
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    return vout;
+}
+
+technique11 NormalDepthSkinnedInstancedTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SkinnedInstancedVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(false)));
+    }
+}
+
+// Alpha Clipping 재질 (머리카락 · 레이스): 본 패스와 같은 기준으로 잘라 깊이를 남기지 않는다
+technique11 NormalDepthAlphaClipSkinnedInstancedTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SkinnedInstancedVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS(true)));
+    }
+}
+
+// 애니메이션 임포스터: 덮이지 않은 곳은 잘라 깊이를 남기지 않는다 (본 패스는 EQUAL)
+struct SkinImpNDOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosV : POSITION;
+    float2 UV : TEXCOORD0;
+    float3 AxisX : TEXCOORD1;
+    float3 AxisZ : TEXCOORD2;
+};
+
+SkinImpNDOut SkinnedImpostorVS(uint vid : SV_VertexID, uint iid : SV_InstanceID)
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    const SkinImpostorGeom g = SkinImpostorVertex(vid, s);
+    SkinImpNDOut o;
+    precise float4 posH = mul(float4(g.PosW, 1.0f), gWorldViewProj);
+    o.PosH = posH;
+    o.PosV = mul(float4(g.PosW, 1.0f), gView).xyz;
+    o.UV = g.UV;
+    o.AxisX = g.AxisX;
+    o.AxisZ = g.AxisZ;
+    return o;
+}
+
+float4 SkinnedImpostorPS(SkinImpNDOut pin) : SV_Target
+{
+    clip(gSkinImpAlbedo.Sample(samSkinImp, pin.UV).a - gSkinImpostor2.y);
+    const float3 n = SkinImpostorNormalW(gSkinImpNormal.Sample(samSkinImp, pin.UV).rgb, pin.AxisX, pin.AxisZ);
+    return float4(normalize(mul(n, (float3x3) gView)), pin.PosV.z);
+}
+
+RasterizerState SkinImpNDCullNone
+{
+    CullMode = NONE;
+};
+
+technique11 NormalDepthSkinnedImpostorTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SkinnedImpostorVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, SkinnedImpostorPS()));
+        SetRasterizerState(SkinImpNDCullNone);
+    }
+}
+
 technique11 NormalDepthAlphaClipSkinned
 {
     pass P0

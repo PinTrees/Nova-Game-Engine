@@ -26,6 +26,15 @@ private:
 
 	uint8 m_LayerIndex;
 	vector<shared_ptr<Component>> m_Components;
+	size_t m_UpdateScan = (size_t)-1;   // 업데이트할 컴포넌트를 마지막으로 셌을 때 컴포넌트 수 (늘거나 줄면 다시 센다)
+public:
+	// 붙이기 대기 컴포넌트 · 인스펙터 작업 (LastUpdate 에서 처리) 이 어딘가 있다 — 없으면 LastUpdate 는 업데이트 목록만 돈다.
+	//  s_PendingComponents = 아직 붙지 않은 컴포넌트 수 (붙을 때까지 남는다 — 씬 목록에 프레임 끝에 들어오는 새 오브젝트도 다음 프레임에 붙는다).
+	//  NovaCore 의 값 하나 (헤더 inline 이면 패키지 DLL 이 자기 사본을 고친다)
+	static bool s_PendingWork;
+	static int s_PendingComponents;
+private:
+	bool m_AnyUpdate = true;
 	vector<shared_ptr<Component>> m_ComponentsToAdd;	// �ӽ� �����
 
 	vector<MonoBehaviour*> m_Scripts;
@@ -59,6 +68,8 @@ public:
 	static void Destroy(GameObject* gameobject_ptr);
 	// 아직 delete 되지 않은 오브젝트인가 (프레임을 넘겨 들고 있던 포인터를 쓰기 전에 확인)
 	static bool IsAlive(const GameObject* gameobject_ptr);
+	// 오브젝트가 지워질 때마다 오른다 — 그대로면 그 사이 지운 오브젝트가 없다 (IsAlive 를 오브젝트마다 묻지 않아도 된다)
+	static uint32_t DestroyedSerial();
 	static size_t LiveCount();   // 지금 메모리에 있는 GameObject 수 (모든 씬 + 지우기 대기, CLI info)
 	// Editor Only
 	static void DestroyImmediatly(GameObject* gameobject_ptr);
@@ -106,6 +117,9 @@ public:
 	int GetChildCount() { return m_pChildGameObjects.size(); }
 	Transform* GetTransform() { return m_pTransform; }
 	uint32_t CullSceneStamp = 0;   // SceneCulling: 이번 프레임에 그리는 씬의 오브젝트이면 그 프레임 번호
+	// Scene 의 전체 오브젝트 목록 (m_ArrGameObjects[0]) 에 들어 있다 · 지우기를 기다린다 — 목록을 훑어 찾지 않게 (오브젝트 수의 제곱)
+	bool SceneListed = false;
+	bool PendingDelete = false;
 	
 	// 부모 변경. worldPositionStays = true 면 월드 위치/회전/크기를 유지한다 (Unity 의 Transform.SetParent 와 동일).
 	// 새로 만든 오브젝트를 자식으로 넣을 때는 false (로컬 값 그대로 부모 기준에 놓임).
@@ -138,6 +152,7 @@ public:
 		component->SetGameObject(this);
 		EnsureRequiredComponents(component.get(), true);
 		m_ComponentsToAdd.push_back(component);
+		++s_PendingComponents;
 	}
 	template <class T>
 	T* AddComponent()
@@ -206,6 +221,18 @@ public:
 		return nullptr;
 	}
 	vector<shared_ptr<Component>>& GetComponents() { return m_Components; }
+	// Update · LateUpdate 를 부를 컴포넌트가 있나 (모두 SkipUpdate 면 씬 업데이트가 이 오브젝트를 건너뛴다)
+	bool NeedsUpdate()
+	{
+		if (m_UpdateScan != m_Components.size())
+		{
+			m_UpdateScan = m_Components.size();
+			m_AnyUpdate = false;
+			for (const auto& c : m_Components)
+				m_AnyUpdate = m_AnyUpdate || (c && !c->SkipUpdate);
+		}
+		return m_AnyUpdate;
+	}
 	// 이번 프레임에 붙였지만 아직 목록에 들어가지 않은 컴포넌트 (스크립트의 AddComponent 직후 GetComponent 용)
 	const vector<shared_ptr<Component>>& GetPendingComponents() const { return m_ComponentsToAdd; }
 	template <class T>

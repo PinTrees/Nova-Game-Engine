@@ -18,6 +18,7 @@ MeshRenderer::MeshRenderer()
 	m_Mesh(nullptr),
 	m_MaterialPaths({})
 {
+	SkipUpdate = true;   // Update · LateUpdate 가 비어 있다
 	m_InspectorTitleName = "Mesh Renderer";
 	m_InspectorIconPath = L"mesh_renderer.png";
 	SceneCulling::RegisterRenderer(this, false);   // 컬링의 렌더러 목록

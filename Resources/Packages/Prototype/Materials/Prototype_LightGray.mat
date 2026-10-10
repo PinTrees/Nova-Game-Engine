@@ -1,5 +1,5 @@
 {
-    "Shader": "UniversalRenderPipeline/Lit",
+    "Shader": "Universal Render Pipeline/Lit",
     "ResourcePath": "Resources\\Packages\\Prototype\\Materials\\Prototype_LightGray.mat",
     "BaseMapPath": "Resources\\Packages\\Prototype\\Textures\\Prototype_LightGray.png",
     "NormalMapPath": "",

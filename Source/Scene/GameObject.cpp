@@ -30,11 +30,19 @@ namespace
 	// 살아 있는 오브젝트 목록 (IsAlive). 씬 불러오기가 작업 스레드에서 만들 수 있어 잠근다
 	std::mutex& LiveMutex() { static std::mutex m; return m; }
 	std::unordered_set<const GameObject*>& LiveSet() { static std::unordered_set<const GameObject*> s; return s; }
+	std::atomic<uint32_t> s_DestroyedSerial{ 0 };
 	void MarkLive(const GameObject* g, bool live)
 	{
 		std::lock_guard<std::mutex> lock(LiveMutex());
 		if (live) LiveSet().insert(g); else LiveSet().erase(g);
+		if (!live)
+			s_DestroyedSerial.fetch_add(1, std::memory_order_relaxed);
 	}
+}
+
+uint32_t GameObject::DestroyedSerial()
+{
+	return s_DestroyedSerial.load(std::memory_order_relaxed);
 }
 
 bool GameObject::IsAlive(const GameObject* gameobject_ptr)
@@ -124,10 +132,14 @@ GameObject::GameObject(const string& name)
     m_pTransform = AddComponent<Transform>();
 }
 
+bool GameObject::s_PendingWork = false;
+int GameObject::s_PendingComponents = 0;
+
 GameObject::~GameObject()
 {
     MarkLive(this, false);
     m_Components.clear();
+    s_PendingComponents = (std::max)(0, s_PendingComponents - (int)m_ComponentsToAdd.size());
     m_ComponentsToAdd.clear();
     m_Scripts.clear();
 }
@@ -262,11 +274,16 @@ void GameObject::OnDestroy()
 
 void GameObject::ApplyPendingComponents()
 {
-    for (const auto& component : m_ComponentsToAdd)
+    if (m_ComponentsToAdd.empty())
+        return;
+    // 붙이는 동안 새로 대기열에 들어오는 것 (필요한 컴포넌트) 은 다음 번에
+    vector<shared_ptr<Component>> list;
+    list.swap(m_ComponentsToAdd);
+    s_PendingComponents = (std::max)(0, s_PendingComponents - (int)list.size());
+    for (const auto& component : list)
     {
         AddComponent(component);
     }
-    m_ComponentsToAdd.clear();
 }
 
 void GameObject::OnInspectorGUI()
@@ -316,6 +333,7 @@ void GameObject::OnInspectorGUI()
                         int draggedIndex = std::distance(m_Components.begin(), draggedIt);
                         int targetIndex = std::distance(m_Components.begin(), it);
 
+                        s_PendingWork = true;
                         m_Editor_LastUpdateActions.push_back([this, draggedIndex, targetIndex]()
                         {
                             auto draggedIt = m_Components.begin() + draggedIndex; 
@@ -380,7 +398,7 @@ void GameObject::OnInspectorGUI()
     }
 
     // Unity 의 Add Component 팝업 (검색 + 카테고리)
-    AddComponentMenu::Draw(this, [this](std::shared_ptr<Component> c) { m_ComponentsToAdd.push_back(c); });
+    AddComponentMenu::Draw(this, [this](std::shared_ptr<Component> c) { m_ComponentsToAdd.push_back(c); ++s_PendingComponents; });
 }
 
 void to_json(json& j, const GameObject& obj)
@@ -428,7 +446,10 @@ void from_json(const json& j, GameObject& obj)
     // 프리팹 인스턴스 루트: 현재 에셋 값 + 저장된 오버라이드로 다시 조립한 JSON 으로 만든다 (에셋 변경이 반영됨)
     if (PrefabUtility::NeedsMerge(j))
     {
-        from_json(PrefabUtility::MergeWithAsset(j), obj);
+        if (const json* premerged = PrefabUtility::Premerged(&j))   // 씬 불러오기가 병렬로 미리 합친 것
+            from_json(*premerged, obj);
+        else
+            from_json(PrefabUtility::MergeWithAsset(j), obj);
         return;
     }
     if (j.contains("prefab") && j["prefab"].is_object())

@@ -32,6 +32,12 @@ target_include_directories(box2d PUBLIC "${ROOT}/ThirdParty/box2d/include" PRIVA
 set_target_properties(box2d PROPERTIES C_STANDARD 17 C_STANDARD_REQUIRED YES C_EXTENSIONS YES)
 target_compile_options(box2d PRIVATE -w)
 
+# 메시 단순화 (스킨 메시 LOD — 군중): meshoptimizer 1.3 (MIT)
+file(GLOB MESHOPT_SOURCES "${ROOT}/ThirdParty/meshoptimizer/*.cpp")
+add_library(meshoptimizer STATIC ${MESHOPT_SOURCES})
+target_include_directories(meshoptimizer PUBLIC "${ROOT}/ThirdParty/meshoptimizer")
+target_compile_options(meshoptimizer PRIVATE -w)
+
 # ImGui 코어만 (dx11 · win32 백엔드 없음) — 컴포넌트의 Inspector 코드가 링크되도록. 플레이어는 그리지 않는다
 file(GLOB IMGUI_SOURCES "${ROOT}/Source/ThirdParty/ImGui/imgui*.cpp" "${ROOT}/Source/ThirdParty/ImGui/ImGuiNodeEditor/*.cpp")
 list(FILTER IMGUI_SOURCES EXCLUDE REGEX "imgui_impl_")
@@ -98,7 +104,7 @@ target_compile_definitions(nova_engine PRIVATE NOVA_ENGINE_BUILD)
 target_compile_options(nova_engine PUBLIC -fexceptions -frtti -Wno-unused-parameter -Wno-unknown-pragmas -Wno-switch -Wno-deprecated-declarations
     -Wno-nonportable-include-path -Wno-microsoft-include -Wno-defaulted-function-deleted -Wno-invalid-offsetof -Wno-macro-redefined
     -Wno-format-security -Wno-error=format-security)
-target_link_libraries(nova_engine PUBLIC Jolt box2d imgui)
+target_link_libraries(nova_engine PUBLIC Jolt box2d imgui meshoptimizer)
 
 # ---- 공식 패키지 (Packages/<이름>/Source): Windows 는 DLL 로 불러오지만 안드로이드는 엔진에 함께 넣는다 (Animator · 카메라 · 내비게이션 …)
 #  패키지마다 같은 이름인 진입점 (NovaPackage_OnLoad 등) 은 패키지 이름을 붙여 바꾸고, 만든 nova_packages.cpp 가 차례로 부른다

@@ -1,6 +1,10 @@
 #include "pch.h"
 #include "TagsAndLayers.h"
 #include "PrefabUtility.h"
+#include "JobSystem.h"
+#include <atomic>
+#include <chrono>
+#include <mutex>
 
 namespace
 {
@@ -46,6 +50,7 @@ namespace
 	struct AssetEntry
 	{
 		std::filesystem::file_time_type Stamp;
+		std::chrono::steady_clock::time_point CheckedAt{};   // 파일 시각을 마지막으로 본 때 (1 초 안이면 다시 보지 않는다)
 		std::deque<std::unique_ptr<AssetVersion>> Versions;   // 마지막이 현재
 		int NextRevision = 1;
 		const AssetVersion& Latest() const { return *Versions.back(); }
@@ -86,17 +91,29 @@ namespace
 				Index(c, out);
 	}
 
+	// 에셋 캐시 잠금 (씬 불러오기가 프리팹 인스턴스를 병렬로 합친다 — MergeRoots). s_Frozen 이면 파일 시각을 보지 않는다 (합치는 동안 버전이 바뀌지 않게)
+	std::mutex s_AssetLock;
+	std::atomic<int> s_Frozen{ 0 };
+
 	const AssetEntry* LoadAsset(const std::string& rawPath)
 	{
+		std::lock_guard<std::mutex> lock(s_AssetLock);
 		const std::string path = NormalizePath(rawPath);
+		// 방금 본 에셋은 파일 시각을 다시 보지 않는다 (오브젝트마다 부른다 — 프리팹 인스턴스 3000 개 × 17 = 파일 시각 5 만 번이었다)
+		const auto now = std::chrono::steady_clock::now();
+		auto it = Assets().find(path);
+		if (it != Assets().end() && !it->second.Versions.empty() && (s_Frozen.load() > 0 || now - it->second.CheckedAt < std::chrono::seconds(1)))
+			return &it->second;
 		const std::wstring file = FilePath(path);
 		std::error_code ec;
 		const auto stamp = std::filesystem::last_write_time(file, ec);
 		if (ec)
 			return nullptr;
-		auto it = Assets().find(path);
 		if (it != Assets().end() && it->second.Stamp == stamp && !it->second.Versions.empty())
+		{
+			it->second.CheckedAt = now;
 			return &it->second;
+		}
 		std::ifstream in(file, std::ios::binary);
 		json j = json::parse(in, nullptr, false);
 		if (j.is_discarded() || !j.contains("root"))
@@ -112,6 +129,7 @@ namespace
 		while (e.Versions.size() > 8)
 			e.Versions.pop_front();
 		e.Stamp = stamp;
+		e.CheckedAt = now;
 		EditorLog::Write("Prefab", "loaded asset %s revision %d (%zu objects)", path.c_str(), e.Latest().Revision, e.ById().size());
 		return &e;
 	}
@@ -291,6 +309,12 @@ namespace
 		j["root"] = root;
 		os << j.dump(2);
 		os.close();
+		{
+			std::lock_guard<std::mutex> lock(s_AssetLock);
+			auto it = Assets().find(NormalizePath(path));
+			if (it != Assets().end())
+				it->second.CheckedAt = {};   // 바로 다시 본다
+		}
 		LoadAsset(path);   // 파일 시각이 바뀌었으므로 새 버전으로 추가된다
 		return true;
 	}
@@ -441,6 +465,52 @@ namespace PrefabUtility
 		const PrefabLink link = ReadLink(obj);
 		return link.IsValid() && link.Root && !obj["prefab"].value("merged", false);
 	}
+
+	std::unordered_map<const json*, json> s_Premerged;   // 메인 스레드 (씬 불러오기 동안)
+
+	void PremergeInstances(const json& rootGameObjects)
+	{
+		s_Premerged.clear();
+		std::vector<const json*> todo;
+		std::function<void(const json&)> collect = [&](const json& obj) {
+			if (!obj.is_object())
+				return;
+			if (NeedsMerge(obj))
+			{
+				todo.push_back(&obj);   // 안쪽은 합친 결과에서 (다른 인스턴스 안의 인스턴스는 그때 차례로)
+				return;
+			}
+			if (obj.contains("children") && obj["children"].is_array())
+				for (const auto& c : obj["children"])
+					collect(c);
+		};
+		for (const auto& r : rootGameObjects)
+			collect(r);
+		if (todo.size() < 32)
+			return;   // 적으면 그때그때 (from_json 이 합친다)
+		for (const json* obj : todo)
+			LoadAsset(ReadLink(*obj).Asset);   // 메인에서 먼저 읽어 둔다 (병렬 동안은 찾기만)
+		std::vector<json> merged(todo.size());
+		++s_Frozen;
+		Jobs::ParallelFor((int)todo.size(), 8, [&](int b, int e) {
+			for (int k = b; k < e; ++k)
+				merged[(size_t)k] = MergeWithAsset(*todo[(size_t)k]);
+		}, "Prefab Merge");
+		--s_Frozen;
+		s_Premerged.reserve(todo.size());
+		for (size_t k = 0; k < todo.size(); ++k)
+			s_Premerged.emplace(todo[k], std::move(merged[k]));
+	}
+
+	const json* Premerged(const json* instanceJson)
+	{
+		if (s_Premerged.empty())
+			return nullptr;
+		auto it = s_Premerged.find(instanceJson);
+		return it == s_Premerged.end() ? nullptr : &it->second;
+	}
+
+	void ClearPremerged() { s_Premerged.clear(); }
 
 	json MergeWithAsset(const json& instanceRootJson)
 	{

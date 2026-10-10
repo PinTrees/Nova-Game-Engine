@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <fstream>
 #include <shellapi.h>
+#include <crtdbg.h>
 
 // 실행 파일(Source/Launcher)의 WinMain 이 부르는 엔진 진입점
 extern "C" NOVA_API int NovaMain(HINSTANCE hInstance, int showCmd)
@@ -114,6 +115,15 @@ extern "C" NOVA_API int NovaMain(HINSTANCE hInstance, int showCmd)
 		log.flush();
 
 		EditorLog::Init();
+		// 창 없는 편집기 (CLI 검사): Debug CRT 의 assert · abort 창을 띄우지 않는다 — 사용자 화면에 뜨고 검사가 멈춘다.
+		//  assert 는 디버거 출력으로 쓰고 프로세스를 끝낸다 (검사가 실패로 본다)
+		if (Application::hidden)
+		{
+			_CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_DEBUG);
+			_CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);
+			_set_error_mode(_OUT_TO_STDERR);
+			_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+		}
 		// PNG/JPG 디코딩(WIC)에 COM 이 필요하다. 지금까지는 Hub 가 만든 텍스처 캐시(DDS)에 기대어 우연히 동작했다.
 		const HRESULT comHr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 		EditorLog::Write("App", "CoInitializeEx hr=0x%08X", (unsigned)comHr);

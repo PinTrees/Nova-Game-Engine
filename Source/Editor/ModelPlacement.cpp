@@ -270,7 +270,24 @@ namespace ModelPlacement
 				if (!file->Avatas.empty())
 					for (const auto& n : file->Avatas[0]->NodeNames)
 						nodes.push_back(n);
-				result = { { "staticMeshes", meshes }, { "skinnedMeshes", file->SkinnedMeshs.size() }, { "nodes", nodes },
+				// 스킨 메시: 서브셋마다 파일 재질 번호 (재질 칸 = 파일 재질 번호 — Unity 가져오기가 서브메시 순서를 칸으로 옮긴다)
+				nlohmann::json skinned = nlohmann::json::array();
+				for (const auto& m : file->SkinnedMeshs)
+				{
+					nlohmann::json mats = nlohmann::json::array();
+					for (const auto& s : m->Subsets)
+						mats.push_back(s.MaterialIndex);
+					nlohmann::json bounds = nlohmann::json::array();
+					if (!file->Avatas.empty() && file->Avatas[0])
+					{
+						XMFLOAT3 mn[SkinnedMesh::kBindCandidates], mx[SkinnedMesh::kBindCandidates];
+						m->BindCandidateBounds(*file->Avatas[0], mn, mx);
+						for (int c = 0; c < SkinnedMesh::kBindCandidates; ++c)
+							bounds.push_back({ mn[c].x, mn[c].y, mn[c].z, mx[c].x, mx[c].y, mx[c].z });
+					}
+					skinned.push_back({ { "name", m->Name }, { "subsetMaterials", mats }, { "vertices", m->Vertices.size() }, { "bindBounds", bounds } });
+				}
+				result = { { "staticMeshes", meshes }, { "skinnedMeshes", file->SkinnedMeshs.size() }, { "skinned", skinned }, { "nodes", nodes },
 					{ "unitScale", file->Avatas.empty() ? 1.0f : file->Avatas[0]->UnitScale } };
 				return true;
 			}

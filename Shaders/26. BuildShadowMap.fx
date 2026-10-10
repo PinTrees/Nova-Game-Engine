@@ -424,6 +424,43 @@ technique11 BuildShadowMapAlphaClipSkinnedTech
     }
 }
 
+// 스킨드 인스턴싱 (엔진 공용 — 66): 월드 · 팔레트를 구조 버퍼에서
+#include "66. SkinInstancing.fx"
+VertexOut SkinnedInstancedVS(SkinnedVertexIn vin, uint iid : SV_InstanceID)
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    float3 posW, normalW;
+    float4 tangentW;
+    SkinInstanceWorld(s, vin.PosL, vin.NormalL, vin.TangentL, vin.Weights, vin.BoneIndices, posW, normalW, tangentW);
+    VertexOut vout;
+    vout.PosH = mul(float4(ApplyShadowBias(posW, normalize(normalW)), 1.0f), gViewProj);
+    vout.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    return vout;
+}
+
+technique11 BuildShadowMapSkinnedInstancedTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SkinnedInstancedVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(NULL);
+
+        SetRasterizerState(Depth);
+    }
+}
+
+// Alpha Clipping 재질: 투명한 곳은 그림자도 지지 않는다
+technique11 BuildShadowMapAlphaClipSkinnedInstancedTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, SkinnedInstancedVS()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS()));
+    }
+}
+
 technique11 TessBuildShadowMapTech
 {
     pass P0

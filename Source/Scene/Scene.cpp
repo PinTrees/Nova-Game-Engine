@@ -14,9 +14,11 @@
 #include "DetailRenderer.h"
 #include "SceneCulling.h"
 #include "MeshBatcher.h"
+#include "SkinnedInstancing.h"
 #include "SceneManager.h"
 #include "SelectionManager.h"
 #include "Debug.h"
+#include "PrefabUtility.h"
 #include <memory>
 #include <stdexcept>
 
@@ -45,22 +47,31 @@ Scene::~Scene()
     // 예전에는 루트만 지워 자식 오브젝트가 남았다 — 자식의 컴포넌트(입자·빛 등)가 전역 목록에 그대로 남아
     // Play→Stop 이나 씬 전환 뒤에도 그려졌다 (모닥불 연기가 다른 씬에 남던 문제).
     // 루트에서 내려가며 모으므로 이 씬이 가진 오브젝트만, 한 번씩만 지운다.
+    //  (한 번씩만: 해시 집합 — 예전 std::find 는 오브젝트 수의 제곱이라 군중 17 만 개에서 Stop 이 1 분 넘게 걸렸다)
     std::vector<GameObject*> all;
-    std::function<void(GameObject*)> collect = [&](GameObject* g)
+    std::unordered_set<GameObject*> seen;
+    all.reserve(m_ArrGameObjects[0].size());
+    seen.reserve(m_ArrGameObjects[0].size());
+    std::vector<GameObject*> stack(m_VecRootGameObjects.rbegin(), m_VecRootGameObjects.rend());
+    while (!stack.empty())
     {
-        if (g == nullptr || std::find(all.begin(), all.end(), g) != all.end())
-            return;
+        GameObject* g = stack.back();
+        stack.pop_back();
+        if (g == nullptr || !seen.insert(g).second)
+            continue;
         all.push_back(g);
-        for (GameObject* child : g->GetChildren())
-            collect(child);
-    };
-    for (GameObject* g : m_VecRootGameObjects)
-        collect(g);
+        const auto& children = g->Children();
+        for (auto it = children.rbegin(); it != children.rend(); ++it)   // 깊이 우선, 예전과 같은 차례
+            stack.push_back(*it);
+    }
     // DestroyGameObject 로 이미 OnDestroy 된 채 delete 를 기다리던 것 (트리에서 떨어져 있어 위에서 모이지 않는다)
     std::vector<GameObject*> pending;
     for (GameObject* g : m_PendingDelete)
-        if (std::find(all.begin(), all.end(), g) == all.end() && std::find(pending.begin(), pending.end(), g) == pending.end())
+        if (seen.insert(g).second)
             pending.push_back(g);
+    for (GameObject* g : m_ArrGameObjects[0])
+        if (g)
+            g->SceneListed = false;
 
     // 먼저 모두 OnDestroy (컴포넌트가 다른 오브젝트를 볼 수 있으므로 지우기 전에), 그다음 delete
     for (GameObject* g : all)
@@ -198,9 +209,12 @@ void Scene::RenderScene()
     // 컴포넌트마다 그리는 것은 Skinned Mesh Renderer · 지형뿐이다 (Render 를 가진 다른 컴포넌트는 Mesh Renderer — 위 — 와 빈 Light).
     //  예전: 씬의 모든 오브젝트 · 컴포넌트에 dynamic_cast + 가상 Render (도시: 불투명 패스의 63 %, 약 0.8 ms Release)
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
+    // 군중 (Auto LOD): 같은 지오메트리 · 재질끼리 인스턴싱 (SkinnedInstancing), 나머지는 렌더러마다
     for (SkinnedMeshRenderer* skinned : view.Skinned)
         if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject()))   // 절두체 밖 · Culling Mask 밖은 건너뜀
-            skinned->Render();
+            if (!SkinnedInstancing::Add(skinned, SkinnedInstancing::Pass::Main, false))
+                skinned->Render();
+    SkinnedInstancing::Flush(SkinnedInstancing::Pass::Main, false);
     for (Terrain* terrain : view.Terrains)
         if (RenderLayers::Visible(terrain->GetGameObject()))
             terrain->Render();
@@ -216,7 +230,10 @@ void Scene::RenderSceneShadow()
     MeshBatcher::Draw(this, MeshBatcher::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->RenderShadow();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject()))
+            if (!SkinnedInstancing::Add(skinned, SkinnedInstancing::Pass::Shadow, RenderManager::GetI()->RenderingEditorView))
+                skinned->RenderShadow();
+    SkinnedInstancing::Flush(SkinnedInstancing::Pass::Shadow, RenderManager::GetI()->RenderingEditorView);
     for (Terrain* terrain : view.Terrains)
         if (RenderLayers::Visible(terrain->GetGameObject())) terrain->RenderShadow();
 
@@ -275,7 +292,10 @@ void Scene::RenderSceneShadowNormal()
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, false);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->RenderShadowNormal();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject()))
+            if (!SkinnedInstancing::Add(skinned, SkinnedInstancing::Pass::NormalDepth, false))
+                skinned->RenderShadowNormal();
+    SkinnedInstancing::Flush(SkinnedInstancing::Pass::NormalDepth, false);
     for (Terrain* terrain : view.Terrains)
         if (RenderLayers::Visible(terrain->GetGameObject())) terrain->RenderShadowNormal();
 
@@ -289,7 +309,10 @@ void Scene::_Editor_RenderScene()
     MeshBatcher::Draw(this, MeshBatcher::Pass::Main, true);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->_Editor_Render();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject()))
+            if (!SkinnedInstancing::Add(skinned, SkinnedInstancing::Pass::Main, true))
+                skinned->_Editor_Render();
+    SkinnedInstancing::Flush(SkinnedInstancing::Pass::Main, true);
     for (Terrain* terrain : view.Terrains)
         if (RenderLayers::Visible(terrain->GetGameObject())) terrain->_Editor_Render();
 
@@ -303,7 +326,10 @@ void Scene::_Editor_RenderSceneShadowNormal()
     MeshBatcher::Draw(this, MeshBatcher::Pass::NormalDepth, true);
     const ViewRenderers& view = CollectViewRenderers(this, m_ArrGameObjects[0]);
     for (SkinnedMeshRenderer* skinned : view.Skinned)
-        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject())) skinned->_Editor_RenderShadowNormal();
+        if (SceneCulling::IsVisible(skinned) && RenderLayers::Visible(skinned->GetGameObject()))
+            if (!SkinnedInstancing::Add(skinned, SkinnedInstancing::Pass::NormalDepth, true))
+                skinned->_Editor_RenderShadowNormal();
+    SkinnedInstancing::Flush(SkinnedInstancing::Pass::NormalDepth, true);
     for (Terrain* terrain : view.Terrains)
         if (RenderLayers::Visible(terrain->GetGameObject())) terrain->_Editor_RenderShadowNormal();
 
@@ -331,7 +357,11 @@ void Scene::RenderSceneGizmos()
 
 void Scene::LastFramUpdate()
 {
-    const std::vector<GameObject*> objects = m_ArrGameObjects[0];   // 편집 동작이 목록을 바꿀 수 있어 복사본
+    // 대기 작업 (컴포넌트 붙이기 · 인스펙터) 이 있으면 모든 오브젝트, 없으면 업데이트할 컴포넌트가 있는 오브젝트만 (LastUpdate)
+    //  (붙지 않은 컴포넌트가 남아 있으면 — 씬 목록에 아직 없는 새 오브젝트 — 붙을 때까지 프레임마다 모든 오브젝트)
+    const bool pending = GameObject::s_PendingWork || GameObject::s_PendingComponents > 0;
+    GameObject::s_PendingWork = false;
+    const std::vector<GameObject*> objects = pending ? m_ArrGameObjects[0] : UpdateList();   // 편집 동작이 목록을 바꿀 수 있어 복사본
     for (auto& gameObject : objects)
     {
         gameObject->LastUpdate();
@@ -339,11 +369,45 @@ void Scene::LastFramUpdate()
     }
 }
 
+namespace
+{
+    std::vector<std::pair<std::string, std::function<void()>>> s_AfterUpdateHooks;
+}
+
+void Scene::SetAfterUpdateHook(const std::string& owner, std::function<void()> fn)
+{
+    for (auto it = s_AfterUpdateHooks.begin(); it != s_AfterUpdateHooks.end(); ++it)
+        if (it->first == owner)
+        {
+            s_AfterUpdateHooks.erase(it);
+            break;
+        }
+    if (fn)
+        s_AfterUpdateHooks.emplace_back(owner, std::move(fn));
+}
+
+const std::vector<GameObject*>& Scene::UpdateList()
+{
+    const std::vector<GameObject*>& all = m_ArrGameObjects[0];
+    if (m_UpdateListCount != all.size() || m_UpdateListPhysics != Component::s_PhysicsSerial || m_UpdateListBinding != Component::s_BindingSerial)
+    {
+        m_UpdateListCount = all.size();
+        m_UpdateListPhysics = Component::s_PhysicsSerial;
+        m_UpdateListBinding = Component::s_BindingSerial;
+        m_UpdateList.clear();
+        for (GameObject* go : all)
+            if (go != nullptr && go->NeedsUpdate())
+                m_UpdateList.push_back(go);
+    }
+    return m_UpdateList;
+}
+
 void Scene::UpdateScene()
 {
     // 스크립트의 Update 가 오브젝트를 만들거나 부모를 바꾸면(transform.SetParent) 목록이 늘어나므로 복사본을 돈다.
-    // 새 오브젝트는 다음 프레임부터 업데이트된다 (Unity 와 같음)
-    const std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    // 새 오브젝트는 다음 프레임부터 업데이트된다 (Unity 와 같음). 업데이트할 컴포넌트가 없는 오브젝트는 뺀 목록 (UpdateList)
+    const std::vector<GameObject*> objects = UpdateList();
+    const uint32_t destroyedSerial = GameObject::DestroyedSerial();   // Update 가 오브젝트를 지웠는지 (LateUpdate 전에 본다)
     // Unity: 꺼진 오브젝트 (자기 또는 부모) 의 컴포넌트는 업데이트하지 않는다. 켜짐 · 꺼짐이 바뀐 프레임에 OnHierarchyActiveChanged
     std::vector<uint8_t> active(objects.size());
     for (size_t i = 0; i < objects.size(); ++i)
@@ -358,36 +422,51 @@ void Scene::UpdateScene()
                 component->OnHierarchyActiveChanged(now);
         }
     }
-    for (size_t i = 0; i < objects.size(); ++i)
     {
-        if (!active[i])
-            continue;
-        for (auto& component : objects[i]->GetComponents())
+        PROFILE_SCOPE("Scene.ComponentUpdate");
+        for (size_t i = 0; i < objects.size(); ++i)
         {
-            component->Update();
+            if (!active[i] || !objects[i]->NeedsUpdate())
+                continue;
+            for (auto& component : objects[i]->GetComponents())
+            {
+                if (!component->SkipUpdate)
+                    component->Update();
+            }
         }
     }
 
+    {
+        PROFILE_SCOPE("Scene.AfterUpdate");
+        for (auto& hook : s_AfterUpdateHooks)
+            hook.second();
+    }
+
+    PROFILE_SCOPE("Scene.LateUpdate");
+    // 지운 오브젝트가 있을 때만 살아 있는지 묻는다 (잠금 + 해시 — 군중 1 만 개 × 프레임마다 4 ms)
+    const bool anyDestroyed = GameObject::DestroyedSerial() != destroyedSerial;
     for (size_t i = 0; i < objects.size(); ++i)
     {
-        if (!active[i] || !GameObject::IsAlive(objects[i]))
+        if (!active[i] || (anyDestroyed && !GameObject::IsAlive(objects[i])) || !objects[i]->NeedsUpdate())
             continue;
         for (auto& component : objects[i]->GetComponents())
         {
-            component->LateUpdate();
+            if (!component->SkipUpdate)
+                component->LateUpdate();
         }
     }
 }
 
 void Scene::EditorUpdateScene()
 {
-    const std::vector<GameObject*> objects = m_ArrGameObjects[0];
+    const std::vector<GameObject*> objects = UpdateList();
     for (GameObject* gameObject : objects)
     {
-        if (!GameObject::IsAlive(gameObject) || !gameObject->IsActiveInHierarchy())
+        if (!GameObject::IsAlive(gameObject) || !gameObject->NeedsUpdate() || !gameObject->IsActiveInHierarchy())
             continue;
         for (auto& component : gameObject->GetComponents())
-            component->_Editor_Update();
+            if (!component->SkipUpdate)   // Transform · 렌더러 · Mesh Filter 는 _Editor_Update 도 비어 있다
+                component->_Editor_Update();
     }
 }
 
@@ -507,8 +586,7 @@ void Scene::DestroyComponent(Component* component)
 void Scene::DestroyGameObject(GameObject* gameobject)
 {
     // 이미 지웠거나 delete 를 기다리는 오브젝트면 무시 (같은 프레임에 두 번 지우기)
-    if (gameobject == nullptr || !GameObject::IsAlive(gameobject)
-        || std::find(m_PendingDelete.begin(), m_PendingDelete.end(), gameobject) != m_PendingDelete.end())
+    if (gameobject == nullptr || !GameObject::IsAlive(gameobject) || gameobject->PendingDelete)
         return;
 
     // 부모의 자식 목록에서 떼어낸다
@@ -521,24 +599,30 @@ void Scene::DestroyGameObject(GameObject* gameobject)
     if (it1 != m_VecRootGameObjects.end())
         m_VecRootGameObjects.erase(it1);
 
-    // 자손까지 모두 제거 (Unity: 부모를 지우면 자식도 함께 지워진다)
+    // 자손까지 모두 제거 (Unity: 부모를 지우면 자식도 함께 지워진다). 목록에서는 한 번에 뺀다 (오브젝트마다 찾아 지우면 제곱)
+    bool listedAny = false;
     std::function<void(GameObject*)> removeTree = [&](GameObject* g)
     {
-        for (GameObject* child : g->GetChildren())
+        for (GameObject* child : g->Children())
             removeTree(child);
         g->OnDestroy();
-        auto it2 = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
-        if (it2 != m_ArrGameObjects[0].end())
-        {
-            m_ArrGameObjects[0].erase(it2);
-            Component::MarkPhysicsDirty();   // 씬의 오브젝트가 바뀌었다 (물리 동기화가 다시 훑는다)
-        }
+        listedAny |= g->SceneListed;
+        g->SceneListed = false;
         if (SelectionManager::GetSelectedGameObject() == g)
             SelectionManager::ClearSelection();
-        if (std::find(m_PendingDelete.begin(), m_PendingDelete.end(), g) == m_PendingDelete.end())
+        if (!g->PendingDelete)
+        {
+            g->PendingDelete = true;
             m_PendingDelete.push_back(g);
+        }
     };
     removeTree(gameobject);
+    if (listedAny)
+    {
+        auto& all = m_ArrGameObjects[0];
+        all.erase(std::remove_if(all.begin(), all.end(), [](GameObject* g) { return g == nullptr || (!g->SceneListed && g->PendingDelete); }), all.end());
+        Component::MarkPhysicsDirty();   // 씬의 오브젝트가 바뀌었다 (물리 동기화가 다시 훑는다)
+    }
 }
 
 void Scene::FlushDestroyed()
@@ -553,7 +637,7 @@ void Scene::FlushDestroyed()
     list.swap(m_PendingDelete);
     auto drop = [&](vector<GameObject*>& v)
     {
-        v.erase(std::remove_if(v.begin(), v.end(), [&](GameObject* g) { return std::find(list.begin(), list.end(), g) != list.end(); }), v.end());
+        v.erase(std::remove_if(v.begin(), v.end(), [&](GameObject* g) { return g != nullptr && g->PendingDelete; }), v.end());
     };
     drop(m_CullingGameObjects);
     drop(m_CullingEditorGameObjects);
@@ -579,12 +663,13 @@ void Scene::RegisterGameObjectTree(GameObject* gameObject)
 {
     if (gameObject == nullptr)
         return;
-    if (std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), gameObject) == m_ArrGameObjects[0].end())
+    if (!gameObject->SceneListed)   // 목록을 훑지 않는다 (씬 불러오기 17 만 개 — 예전 std::find 는 제곱)
     {
+        gameObject->SceneListed = true;
         m_ArrGameObjects[0].push_back(gameObject);
         Component::MarkPhysicsDirty();
     }
-    for (GameObject* child : gameObject->GetChildren())
+    for (GameObject* child : gameObject->Children())
         RegisterGameObjectTree(child);
 }
 
@@ -593,24 +678,32 @@ void Scene::DetachTree(GameObject* root)
     if (root == nullptr)
         return;
     RemoveRootGameObjects(root);
-    std::function<void(GameObject*)> remove = [&](GameObject* g)
+    // 표시를 풀고 목록에서 한 번에 뺀다
+    std::unordered_set<GameObject*> detached;
+    std::function<void(GameObject*)> unlist = [&](GameObject* g)
     {
-        auto it = std::find(m_ArrGameObjects[0].begin(), m_ArrGameObjects[0].end(), g);
-        if (it != m_ArrGameObjects[0].end())
-        {
-            m_ArrGameObjects[0].erase(it);
-            Component::MarkPhysicsDirty();
-        }
-        for (GameObject* child : g->GetChildren())
-            remove(child);
+        if (g->SceneListed)
+            detached.insert(g);
+        g->SceneListed = false;
+        for (GameObject* child : g->Children())
+            unlist(child);
     };
-    remove(root);
+    unlist(root);
+    if (!detached.empty())
+    {
+        auto& all = m_ArrGameObjects[0];
+        all.erase(std::remove_if(all.begin(), all.end(), [&](GameObject* g) { return g == nullptr || detached.count(g) != 0; }), all.end());
+        Component::MarkPhysicsDirty();
+    }
 }
 
 vector<GameObject*> Scene::ReleaseAll()
 {
     vector<GameObject*> roots;
     roots.swap(m_VecRootGameObjects);
+    for (GameObject* g : m_ArrGameObjects[0])
+        if (g)
+            g->SceneListed = false;   // 다른 씬이 다시 등록한다
     m_ArrGameObjects[0].clear();
     Component::MarkPhysicsDirty();
     m_CullingGameObjects.clear();
@@ -677,8 +770,22 @@ void from_json(const json& j, Scene& scene)
 
     // 예전 레이어 번호 (3 Water, 4 UI) 로 저장한 씬 → Unity 번호
     const bool legacyLayers = Scene::UsesLegacyLayers(j);
-    for (const auto& gameObjectJson : j.at("rootGameObjects"))
-        scene.LoadRoot(gameObjectJson, legacyLayers);
+    const json& roots = j.at("rootGameObjects");
+    // 프리팹 인스턴스 (루트 · 부모 밑 어디든) 는 먼저 병렬로 에셋과 합친다 (JSON 만 — 오브젝트 만들기는 차례로).
+    //  군중 3000 명 (한 부모 밑): 합치기가 불러오기의 대부분이었다
+    if (!legacyLayers)
+        PrefabUtility::PremergeInstances(roots);
+    try
+    {
+        for (const auto& gameObjectJson : roots)
+            scene.LoadRoot(gameObjectJson, legacyLayers);
+    }
+    catch (...)
+    {
+        PrefabUtility::ClearPremerged();
+        throw;
+    }
+    PrefabUtility::ClearPremerged();
 }
 
 GameObject* Scene::FindByFileID(uint64 fileID) const

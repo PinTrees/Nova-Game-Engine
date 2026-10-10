@@ -9,6 +9,8 @@ class Effect;
 class UMaterial;
 class InstancingBuffer;
 class SkeletonAvataData;
+struct AnimationClip;
+namespace CrowdAnimation { struct Baked; }
 
 // Unity 의 Skinned Mesh Renderer.
 //  - 메시와 스켈레톤(노드 계층)은 같은 FBX 에서 가져온다.
@@ -28,7 +30,18 @@ private:
 
 	shared_ptr<SkeletonAvataData> m_Skeleton;     // 같은 FBX 의 노드 계층
 	vector<int>				m_PaletteNode;        // 팔레트 본 k → 스켈레톤 노드 인덱스
-	XMFLOAT4X4				m_MeshBind;           // 메시 노드의 바인드 전역 행렬 (단위 변환 제외) - 정점을 장면 공간으로
+	XMFLOAT4X4				m_MeshBind;           // 팔레트 앞에 곱하는 메시 바인드 (SkinnedMesh::PaletteMeshBind)
+	int						m_BindMode = -1;      // 메시 바인드 후보 고정 (-1 자동 — Unity 가져오기가 정답과 맞춰 넣는다)
+
+	// 부위 합치기 (모듈형 캐릭터 — Play): 같은 부모 · 같은 스켈레톤의 스킨 부위들을 메시 하나로 (첫 부위가 대표로 그린다).
+	//  같은 부위 · 재질 조합은 합친 메시를 같이 쓴다 (같은 프리팹 1 만 개 = 메시 하나 → 인스턴싱 한 묶음)
+	bool					m_Merged = false;     // 대표 렌더러에 합쳐졌다 (그리기 · 자세 계산을 건너뛴다)
+	bool					m_Combined = false;   // 대표: 합친 메시로 그린다 (메시 바인드 = 단위 — 역바인드에 미리 곱했다)
+	bool					m_CombineTried = false;
+	shared_ptr<SkinnedMesh>	m_OwnMesh;            // 합치기 전 (되돌리기)
+	vector<shared_ptr<UMaterial>> m_OwnMaterials;
+	shared_ptr<void>		m_CombinedRef;        // 합친 메시 캐시를 붙잡는다 (같은 조합의 대표가 다 사라지면 놓는다)
+	void TryCombine();
 
 	vector<shared_ptr<UMaterial>>	m_pMaterials;
 	mutable MaterialBlock			m_Block;   // C# MaterialPropertyBlock
@@ -53,6 +66,20 @@ private:
 	void EnsureMorph();
 	bool UploadDynamicVertices(const vector<Vertex::PosNormalTexTanSkinned>& verts);
 	void DrawSubset(GfxContext* dc, int subset);
+
+	// 자동 LOD (NOVA — 군중): 화면에 작게 보이면 줄인 지오메트리 (SkinnedLod). 뷰 (게임 · Scene) 마다 프레임에 한 번 고른다
+	//  — 깊이 프리패스와 본 패스 (EQUAL) 가 같은 단계로 그려야 한다. 그림자 · 모션 벡터는 마지막에 고른 것
+	bool							m_AutoLod = true;   // 기본 켬 — 캐릭터를 수천 개 놓아도 따로 설정 없이 (LOD · 인스턴싱 · 임포스터 · 애니메이션 갱신 간격)
+	int								m_LodLevel[2] = { 0, 0 };
+	uint32_t						m_LodStamp[2] = { ~0u, ~0u };
+	MeshGeometry*					m_LodGeoView[2] = { nullptr, nullptr };
+	MeshGeometry*					m_LodGeo = nullptr;   // DrawSubset 이 쓰는 것 (nullptr = 원본)
+	int								m_LodCurrent = 0;
+	// 캐릭터 크기 (스켈레톤 바인드 자세 노드 범위, 이 오브젝트 공간): 같은 스켈레톤의 부위들 (모듈형 캐릭터) 이 같은 단계를 고르게
+	Vec3							m_SkelCenter = Vec3::Zero;
+	float							m_SkelSize = 0.0f;
+	void SelectLod(bool editor);
+	void ResetLod() { m_LodStamp[0] = m_LodStamp[1] = ~0u; m_LodGeoView[0] = m_LodGeoView[1] = m_LodGeo = nullptr; m_LodCurrent = 0; }
 
 	// 천 (Cloth): 시뮬레이션한 정점 (이 오브젝트 공간) 을 동적 버퍼로 — 정점은 팔레트 끝의 단위 본 (SimulatedBoneSlot) 하나에 묶는다
 	bool							m_SimActive = false;
@@ -103,7 +130,43 @@ private:
 	// 잘라내는 사용자 셰이더 (Shader Graph Alpha Clipping): 그림자 · 깊이 패스도 그 셰이더가 그린다 (true = 그렸다)
 	bool DrawCustomClip(int subset, CustomShaders::DrawPass pass, FXMMATRIX world, CXMMATRIX viewProj, CXMMATRIX view, bool editor);
 public:
-	void SetMesh(shared_ptr<SkinnedMesh> mesh) { m_Mesh = mesh; }
+	void SetMesh(shared_ptr<SkinnedMesh> mesh) { m_Mesh = mesh; ResetLod(); }
+	bool GetAutoLod() const { return m_AutoLod; }
+	void SetAutoLod(bool on) { m_AutoLod = on; ResetLod(); }
+	int CurrentLod() const { return m_LodCurrent; }   // 마지막에 그린 단계 (0 = 원본)
+	bool GetUpdateWhenOffscreen() const { return m_UpdateWhenOffscreen; }
+	int GetBindMode() const { return m_Combined ? 1 : m_BindMode; }
+	bool IsMerged() const { return m_Merged; }
+	static uint32_t s_MergeSerial;   // 어느 렌더러가 합쳐질 때마다 1 씩 (Animator 패키지가 그릴 렌더러 목록을 다시 거른다 — NovaCore 의 값 하나)
+	bool IsCombined() const { return m_Combined; }
+	virtual void Start() override;
+
+	// ---- 스킨드 인스턴싱 (SkinnedInstancing — 군중)
+	bool CanInstance() const;                        // Auto LOD · BlendShape 없음 · 천 없음 · 패키지 셰이더 · Alpha Clipping 없음
+	int InstanceCheck() const;                       // 작업 스레드용: 0 아님, 1 됨, 2 메인에서 CanInstance (재질 블록이 있으면 파생 재질을 만든다)
+	MeshGeometry* PrepareLod(bool editor);           // 이 뷰의 LOD 를 골라 그릴 지오메트리
+	MeshGeometry* CurrentGeometry();                 // 마지막에 고른 지오메트리 (모션 벡터)
+	MeshGeometry* ShadowGeometry();                  // 그림자: 한 단계 거칠게
+	const vector<int>& PaletteNodes() const { return m_PaletteNode; }   // 팔레트 본 → 스켈레톤 노드 (Animator 가 필요한 노드만 계산)
+	const vector<shared_ptr<UMaterial>>& DrawMaterials() const { return RenderMaterials(); }
+	bool HasMaterialBlock() const { return !m_Block.Empty(); }   // 블록이 있으면 DrawMaterials 가 파생 재질을 만들 수 있다 (메인에서만)
+	uint32_t InstPaletteFrame = ~0u;                 // 이번 프레임 팔레트를 올렸으면 SceneCulling::FrameIndex
+	uint32_t InstPalette = 0;                        // 팔레트 버퍼의 시작 칸 (float4)
+	uint32_t InstPrevPalette = ~0u;                  // 지난 팔레트 버퍼의 시작 칸 (지난 프레임에 없었으면 ~0)
+	bool InstNoPalette = false;                      // 이번 프레임 팔레트를 쓰지 않았다 (임포스터로만 그린다)
+	uint32_t InstPoseSerial = 0;                     // 팔레트를 올릴 때의 PoseSerial
+	bool InstPoseChanged = false;                    // 지난 팔레트 뒤로 자세가 바뀌었나 (모션 벡터)
+	XMFLOAT4X4 InstWorld, InstPrevWorld;             // 팔레트를 올릴 때의 월드 · 지난 월드
+	uint32_t PoseSerial = 0;                         // ApplyPose 마다 1 씩
+
+	// 재생 중인 클립 (Animator · Animation 이 프레임마다 알려 준다) — 멀리서 그 클립의 애니메이션 임포스터로 그린다
+	std::shared_ptr<AnimationClip> AnimClip;
+	float AnimTime = 0.0f;                           // 클립 안 초
+	bool AnimLoop = true;
+	void SetAnimationHint(const std::shared_ptr<AnimationClip>& clip, float time, bool loop) { AnimClip = clip; AnimTime = time; AnimLoop = loop; }
+	std::shared_ptr<CrowdAnimation::Baked> InstImpostor;   // 자동 임포스터 (재생 중인 클립 · 재질로 구운 것)
+	const void* InstImpostorClip = nullptr;
+	const void* InstImpostorMats = nullptr;
 	// FBX 경로의 index 번째 스킨 메시를 쓴다 (스켈레톤, 기본 재질, 바운드, 바인드 포즈를 함께 설정)
 	void SetSkinnedMesh(const wstring& path, int index);
 	void SetShader(Shader* shader) { m_Shader = shader; }

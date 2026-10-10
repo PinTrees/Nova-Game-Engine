@@ -22,6 +22,7 @@ Transform::Transform()
 {
 	m_InspectorTitleName = "Transform";
 	m_InspectorIconPath = L"transform.png";
+	SkipUpdate = true;   // Update · LateUpdate 가 비어 있다
 	m_Slot = TransformStore::Allocate(this);
 }
 

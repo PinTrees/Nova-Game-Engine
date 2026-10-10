@@ -77,6 +77,9 @@ public:
 	bool CullTracked = false;
 	uint32_t CullSlot = 0;          // SceneCulling 의 자리 번호 (CullTracked 일 때) — 프레임마다 해시 찾기 없이
 	int32_t CullReg = -1;           // SceneCulling 렌더러 목록의 자리 (Mesh Renderer · Skinned Mesh Renderer)
+	// Update · LateUpdate 가 비어 있는 컴포넌트 (Transform · 렌더러 · Mesh Filter): 씬 업데이트가 부르지 않는다
+	//  (군중: 모듈형 캐릭터 1000 명 = 오브젝트 1 만 7 천 개 — 빈 가상 호출 3 만 4 천 번이 5 ms)
+	bool SkipUpdate = false;
 	// 컴포넌트 · 메시 연결 번호: 컴포넌트를 GameObject 에 붙이거나 MeshFilter · Mesh Renderer 의 메시를 바꿀 때 +1.
 	//  같으면 컬링이 렌더러마다 메시를 다시 찾지 않는다 (SceneCulling::Update — 놓친 경로는 돌아가며 하는 확인이 바로잡는다)
 	static uint32_t s_BindingSerial;

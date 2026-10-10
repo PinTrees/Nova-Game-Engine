@@ -67,19 +67,19 @@ namespace Profiler
 	//  EndFrame 은 아직 안 닫혔으면 닫는다
 	void EndGpuFrame();
 
-	void Begin(const char* internedName);
-	void End();
+	NOVA_API void Begin(const char* internedName);
+	NOVA_API void End();
 
 	// 스레드: 메인 (BeginFrame 을 부르는 스레드) 인가. 다른 스레드는 이름을 붙여 둘 수 있다 (없으면 "Thread N")
-	bool IsMainThread();
+	NOVA_API bool IsMainThread();
 	// 메인 스레드의 지금 구간 이름 (할당 훅이 읽는다 — 할당 없이, 메인 스레드에서만 뜻이 있다). 구간이 없으면 "(frame)"
 	const char* CurrentScopeName();
 	void SetThreadName(const char* internedName);
 	const char* ThreadName(uint16_t thread);
 	int ThreadCount();
 	int64_t NowNs();
-	void ThreadSampleBegin(int64_t& startNs, uint16_t& depth);
-	void ThreadSampleEnd(const char* internedName, int64_t startNs, uint16_t depth);
+	NOVA_API void ThreadSampleBegin(int64_t& startNs, uint16_t& depth);
+	NOVA_API void ThreadSampleEnd(const char* internedName, int64_t startNs, uint16_t depth);
 	const char* Intern(const std::string& name);
 
 	void GpuBegin(const char* internedName);

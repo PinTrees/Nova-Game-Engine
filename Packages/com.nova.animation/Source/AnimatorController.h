@@ -108,6 +108,15 @@ struct AnimatorLayer
 	float ExitX = 500.0f, ExitY = 0.0f;
 
 	int FindState(const std::string& name) const;
+
+	// 실행 캐시 (Animator 의 프레임마다 전이 검사 — 이름 대신 번호): 컨트롤러 Revision 이 바뀌면 다시 만든다
+	mutable unsigned CacheRevision = ~0u;
+	mutable std::vector<int> TFrom;                    // 전이마다 출발 상태 번호 (-1 Any State, -2 Entry, -3 없는 상태)
+	mutable std::vector<int> TTo;                      // 도착 상태 번호 (-1 Exit, -3 없는 상태)
+	mutable std::vector<std::vector<int>> TParams;     // 전이 · 조건마다 파라미터 번호
+	mutable std::vector<char> SoloFrom;                // 상태마다 Solo 전이가 있나
+	mutable bool SoloAny = false;
+	mutable int DefaultIndex = -1;
 };
 
 class AnimatorController

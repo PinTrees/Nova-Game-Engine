@@ -54,6 +54,10 @@ namespace
 	// 자리마다 월드 상자의 중심 · 반폭 (SoA) — 절두체 검사가 4 개씩 SIMD 로 읽는다
 	std::vector<float> s_CX, s_CY, s_CZ, s_HX, s_HY, s_HZ;
 	std::vector<int> s_Free;
+	// 살아 있는 자리 목록 (EntryCount · EntryAt 이 이것을 돈다): 자리를 많이 비운 뒤 (군중 — 합쳐진 부위 15 만 개를 뺐다) 빈 칸까지 돌지 않게.
+	//  자리 번호 (CullSlot) 는 그대로 — 오클루전 기록 · SlotBounds 는 진짜 번호
+	std::vector<int> s_Alive;
+	bool s_AliveDirty = true;
 	std::unordered_map<Component*, int> s_Map;
 	std::vector<Node> s_Nodes;
 	uint32_t s_Frame = 0;
@@ -443,6 +447,7 @@ namespace
 		e.Renderer = nullptr;
 		e.Tr = nullptr;
 		s_Free.push_back(index);
+		s_AliveDirty = true;
 	}
 
 	// 자리의 새 월드 상자 (같으면 아무것도) — 옥트리: 지금 칸에 그대로 들어가면 두고, 아니면 다시 넣는다
@@ -477,6 +482,7 @@ namespace
 			e = Entry();
 			e.Renderer = renderer;
 			e.Alive = true;
+			s_AliveDirty = true;
 		}
 		renderer->CullTracked = true;
 		renderer->CullSlot = (uint32_t)index;
@@ -508,6 +514,12 @@ namespace
 
 namespace SceneCulling
 {
+	uint32_t Stamp = 1;
+	uint32_t ShadowStamp = 1;
+	bool Enabled = true;
+	uint32_t LodStamp = 1;
+	bool ShadowPass = false;
+
 	void RegisterRenderer(Component* renderer, bool skinned)
 	{
 		if (ShutdownGuard::s_Dead)
@@ -724,21 +736,34 @@ namespace SceneCulling
 			Rebuild();
 	}
 
-	size_t EntryCount() { return s_Entries.size(); }
+	size_t EntryCount()
+	{
+		if (s_AliveDirty)
+		{
+			s_AliveDirty = false;
+			s_Alive.clear();
+			for (size_t i = 0; i < s_Entries.size(); ++i)
+				if (s_Entries[i].Alive && s_Entries[i].Renderer)
+					s_Alive.push_back((int)i);
+		}
+		return s_Alive.size();
+	}
 
 	bool EntryAt(size_t index, EntryView& out)
 	{
-		if (index >= s_Entries.size())
+		if (index >= s_Alive.size() || (size_t)s_Alive[index] >= s_Entries.size())
 			return false;
-		const Entry& e = s_Entries[index];
+		const Entry& e = s_Entries[(size_t)s_Alive[index]];
 		if (!e.Alive || !e.Renderer)
 			return false;
 		out.Renderer = e.Renderer;
 		out.TrSlot = e.TrSlot;
 		out.TrVersion = e.TrVersion;
+		out.Slot = (uint32_t)s_Alive[index];
 		out.Skinned = e.Skinned;
 		return true;
 	}
+
 
 	nlohmann::json Info()
 	{

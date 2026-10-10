@@ -55,6 +55,11 @@ namespace Undo
 	//  SceneManager 가 "저장 안 된 변경(*)" 판단에 쓴다 → 매 프레임 씬 전체를 직렬화하지 않는다
 	bool CommittedSceneHash(size_t& outHash);
 
+	// Play 직전 씬 JSON (json(scene).dump() 와 같은 문자열): 루트 문자열 캐시에서 바뀐 루트만 다시 직렬화해 이어 붙인다.
+	//  그 스냅샷을 기억해 두었다가 Stop 으로 씬이 되돌아오면 Undo 기준으로 그대로 쓴다 (씬 전체를 다시 직렬화하지 않는다).
+	//  씬을 추적하지 않거나 저장하지 않는 루트 (HideAndDontSave) 가 있으면 false — 부른 쪽이 직접 직렬화
+	bool CapturePlaySnapshot(std::string& outText);
+
 	// Profiler 메모리: 기록(바뀐 루트 문자열 기준 근사) / 씬 JSON 캐시(루트 문자열)
 	void MemoryUsage(size_t& history, size_t& sceneCache);
 }

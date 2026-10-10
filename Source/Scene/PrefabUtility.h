@@ -58,5 +58,10 @@ namespace PrefabUtility
 	std::vector<std::string> ComputeOverrides(const json& objectJson, const PrefabLink& link);
 	// from_json 앞: 인스턴스 루트 JSON 을 현재 에셋 값 + 오버라이드로 다시 조립해야 하면 true
 	bool NeedsMerge(const json& objectJson);
+	// 씬 불러오기: 씬 JSON 안의 프리팹 인스턴스 (루트 · 부모 밑 어디든, 다른 인스턴스 안은 빼고) 를 병렬로 에셋과 미리 합친다.
+	//  그동안 from_json(GameObject) 은 Premerged 로 그 결과를 쓴다. 다 만들면 ClearPremerged
+	void PremergeInstances(const json& rootGameObjects);
+	const json* Premerged(const json* instanceJson);
+	void ClearPremerged();
 	json MergeWithAsset(const json& instanceRootJson);
 }

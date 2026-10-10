@@ -48,7 +48,7 @@ def make_texture(name, bg, line, size=1024):
 
 def make_material(name):
     m = {
-        "Shader": "UniversalRenderPipeline/Lit",
+        "Shader": "Universal Render Pipeline/Lit",
         "ResourcePath": f"Resources\\Packages\\Prototype\\Materials\\Prototype_{name}.mat",
         "BaseMapPath": f"Resources\\Packages\\Prototype\\Textures\\Prototype_{name}.png",
         "NormalMapPath": "", "MetallicMapPath": "", "OcclusionMapPath": "", "EmissionMapPath": "",

@@ -1827,6 +1827,173 @@ technique11 SkinnedTech
     }
 }
 #endif
+
+// 스킨드 인스턴싱 (엔진 공용 — 66. SkinInstancing.fx): 같은 메시 · 재질의 스킨 메시를 한 번에.
+//  깊이 프리패스 (28 NormalDepthSkinnedInstancedTech) 와 같은 식 (posW × ViewProj) 이라 EQUAL 깊이 검사가 맞는다. 색 (Tint) 은 알베도에 곱한다
+#include "66. SkinInstancing.fx"
+struct SkinInstOut
+{
+    float4 PosH : SV_POSITION;
+    float4 PosW : POSITION;
+    float3 NormalW : NORMAL;
+    float4 TangentW : TANGENT;
+    float2 Tex : TEXCOORD0;
+    float4 SsaoPosH : TEXCOORD1;
+    float4 Tint : TEXCOORD2;
+};
+
+SkinInstOut VS_SkinnedInstanced(SkinnedVertexIn vin, uint iid : SV_InstanceID)
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    float3 posW, normalW;
+    float4 tangentW;
+    SkinInstanceWorld(s, vin.PosL, vin.NormalL, vin.TangentL, vin.Weights, vin.BoneIndices, posW, normalW, tangentW);
+    SkinInstOut o;
+    o.PosW = float4(posW, 1.0f);
+    o.NormalW = normalW;
+    o.TangentW = tangentW;
+    precise float4 posH = mul(float4(posW, 1.0f), gViewProj);   // 28 과 같은 식 (EQUAL)
+    o.PosH = posH;
+    o.Tex = mul(float4(vin.Tex, 0.0f, 1.0f), gTexTransform).xy;
+    o.SsaoPosH = mul(o.PosW, gViewProjTex);
+    o.Tint = s.Tint;
+    return o;
+}
+
+VertexOut SkinInstToVertexOut(SkinInstOut p)
+{
+    VertexOut v;
+    v.PosH = p.PosH;
+    v.PosW = p.PosW;
+    v.NormalW = p.NormalW;
+    v.TangentW = p.TangentW;
+    v.Tex = p.Tex;
+    v.SsaoPosH = p.SsaoPosH;
+    return v;
+}
+
+float4 PS_SkinnedInstanced(SkinInstOut pin) : SV_Target
+{
+    return LitPS(SkinInstToVertexOut(pin), gPbr.BaseColor * pin.Tint, gPbr.Metallic, gPbr.Smoothness, gPbr.EmissionColor.rgb);
+}
+
+// 애니메이션 임포스터 굽기 (물체 공간 = 월드, 색 없이): 알베도 (감마) · 물체 공간 법선
+struct SkinBakeOut
+{
+    float4 Albedo : SV_Target0;
+    float4 Normal : SV_Target1;
+};
+SkinBakeOut PS_SkinnedBake(SkinInstOut pin)
+{
+    LitSurface s;
+    float3 N;
+    float alpha;
+    LitSurfaceOf(SkinInstToVertexOut(pin), gPbr.BaseColor, gPbr.Metallic, gPbr.Smoothness, gPbr.EmissionColor.rgb, s, N, alpha);
+    SkinBakeOut o;
+    // 임포스터는 비금속으로 그린다 (금속성 · 매끄러움 맵을 굽지 않는다) — 금속 부분은 반사 대신 어둡게 (멀리서 보이는 정도)
+    o.Albedo = float4(ToGamma(s.Albedo * (1.0f - 0.6f * saturate(s.Metallic))), 1.0f);
+    o.Normal = float4(N * 0.5f + 0.5f, s.Occlusion);
+    return o;
+}
+
+struct SkinImpOut
+{
+    float4 PosH : SV_POSITION;
+    float3 PosW : POSITION;
+    float2 UV : TEXCOORD0;
+    float3 AxisX : TEXCOORD1;
+    float3 AxisZ : TEXCOORD2;
+    float4 SsaoPosH : TEXCOORD3;
+    float4 Tint : TEXCOORD4;
+};
+
+SkinImpOut VS_SkinnedImpostor(uint vid : SV_VertexID, uint iid : SV_InstanceID)
+{
+    const SkinInstance s = SkinInstanceLoad(gSkinInstanceBase + iid);
+    const SkinImpostorGeom g = SkinImpostorVertex(vid, s);
+    SkinImpOut o;
+    o.PosW = g.PosW;
+    precise float4 posH = mul(float4(g.PosW, 1.0f), gViewProj);   // 깊이 프리패스 (28) 와 같은 식 — EQUAL
+    o.PosH = posH;
+    o.UV = g.UV;
+    o.AxisX = g.AxisX;
+    o.AxisZ = g.AxisZ;
+    o.SsaoPosH = mul(float4(g.PosW, 1.0f), gViewProjTex);
+    o.Tint = s.Tint;
+    return o;
+}
+
+float4 PS_SkinnedImpostor(SkinImpOut pin) : SV_Target
+{
+    const float4 a = gSkinImpAlbedo.Sample(samSkinImp, pin.UV);   // 자르기는 깊이 프리패스가 (EQUAL)
+    const float4 n = gSkinImpNormal.Sample(samSkinImp, pin.UV);
+    LitSurface s;
+    s.Albedo = ToLinear(a.rgb) * pin.Tint.rgb;
+    s.Metallic = 0.0f;      // 금속성은 굽기에서 알베도에 반영 (재질 값 1 · 맵으로 정하는 HDRP 마스크 재질이 검게 나왔다)
+    s.Smoothness = 0.3f;
+    s.Occlusion = n.a;
+    s.Emission = float3(0, 0, 0);
+    s.Transmission = float3(0, 0, 0);
+    s.Highlights = true;
+    s.Reflections = false;
+    s.ReceiveShadows = true;
+    const float3 N = SkinImpostorNormalW(n.rgb, pin.AxisX, pin.AxisZ);
+    const float3 toEye = gEyePosW - pin.PosW;
+    const float dist = length(toEye);
+    return FinishLit(ShadeLit(s, pin.PosW, N, toEye / max(dist, 0.0001f), pin.SsaoPosH), 1.0f, dist);
+}
+
+DepthStencilState SkinImpDepthEqual
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ZERO;
+    DepthFunc = EQUAL;
+};
+DepthStencilState SkinBakeDepth
+{
+    DepthEnable = TRUE;
+    DepthWriteMask = ALL;
+    DepthFunc = LESS;
+};
+RasterizerState SkinImpCullNone
+{
+    CullMode = NONE;
+};
+
+#ifndef NOVA_NO_ENGINE_TECHNIQUES
+technique11 SkinnedInstancedTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_SkinnedInstanced()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_SkinnedInstanced()));
+    }
+}
+
+technique11 SkinnedBakeTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_SkinnedInstanced()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_SkinnedBake()));
+        SetDepthStencilState(SkinBakeDepth, 0);
+    }
+}
+
+technique11 SkinnedImpostorTech
+{
+    pass P0
+    {
+        SetVertexShader(CompileShader(vs_5_0, VS_SkinnedImpostor()));
+        SetGeometryShader(NULL);
+        SetPixelShader(CompileShader(ps_5_0, PS_SkinnedImpostor()));
+        SetDepthStencilState(SkinImpDepthEqual, 0);
+        SetRasterizerState(SkinImpCullNone);
+    }
+}
+#endif
 //=============================================================================
 // NOVA 지형 (Terrain 컴포넌트) - 본 패스
 //=============================================================================

@@ -272,6 +272,13 @@ target_include_directories(astcenc PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdPart
 target_compile_definitions(astcenc PUBLIC ASTCENC_SSE=41 ASTCENC_AVX=0 ASTCENC_POPCNT=1 ASTCENC_F16C=0 ASTCENC_NEON=0 ASTCENC_SVE=0)
 target_compile_options(astcenc PRIVATE /W0 /utf-8)
 target_link_libraries(${ENGINE_CORE} PRIVATE astcenc)
+
+# 메시 단순화 · 정점 캐시 최적화: meshoptimizer 1.3 (ThirdParty/meshoptimizer, MIT) — 스킨 메시 LOD 자동 생성 (군중 원거리 단순화)
+file(GLOB MESHOPT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/meshoptimizer/*.cpp")
+add_library(meshoptimizer STATIC ${MESHOPT_SOURCES})
+target_include_directories(meshoptimizer PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/meshoptimizer")
+target_compile_options(meshoptimizer PRIVATE /W0 /utf-8)
+target_link_libraries(${ENGINE_CORE} PRIVATE meshoptimizer)
 add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/runtime/dxcompiler.dll"

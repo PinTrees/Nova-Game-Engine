@@ -21,6 +21,10 @@
 #include "SceneDimensions.h"
 #include "UndoSystem.h"
 #include "GameObjectFactory.h"
+#include "SkinnedMeshRenderer.h"
+#include "SceneCulling.h"
+#include "SkinnedLod.h"
+#include "SkinnedInstancing.h"
 #include "EditorGUIManager.h"
 #include "SceneEditorWindow.h"
 #include "GameViewEditorWindow.h"
@@ -1055,6 +1059,156 @@ namespace CliCommands
 			}
 			e = "unknown op '" + op + "' (save | place)";
 			return false;
+		});
+
+		// 군중 (성능 검사): 기본 캐릭터 (스킨 메시 + Animator) 를 격자로 count 명 — 부모 "Crowd" 아래. clear 로 지운다, info 는 수 · 보이는 수
+		Register("crowd", "crowd of default characters for perf tests {op: spawn | clear | info | lod | instancing, count?, spacing?, origin?, model?, controller?, lod? (auto LOD on spawn, default true), on?, bias?, force? (-1 = by screen size)}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			Scene* scene = CurrentScene();
+			if (!scene) { e = "no scene is open"; return false; }
+			GameObject* crowd = nullptr;
+			for (GameObject* g : scene->GetRootGameObjects())
+				if (g->GetName() == "Crowd") { crowd = g; break; }
+			auto forEachSkinned = [&](const std::function<void(SkinnedMeshRenderer*)>& f) {
+				std::function<void(GameObject*)> visit = [&](GameObject* g) {
+					if (SkinnedMeshRenderer* s = g->GetComponent<SkinnedMeshRenderer>())
+						f(s);
+					for (GameObject* c : g->Children()) visit(c);
+				};
+				if (crowd) visit(crowd);
+			};
+			// 단계별 삼각형 수 (첫 메시 — 만들 때까지 기다린다)
+			auto lodTriangles = [&]() {
+				json t = json::array();
+				std::shared_ptr<SkinnedMesh> mesh;
+				forEachSkinned([&](SkinnedMeshRenderer* s) { if (!mesh) mesh = s->GetMesh(); });
+				if (mesh && SkinnedLod::WaitReady(mesh))
+					for (int l = 0; l < SkinnedLod::kLevels; ++l) t.push_back(SkinnedLod::Triangles(mesh, l));
+				return t;
+			};
+			auto lodBones = [&]() {
+				json t = json::array();
+				std::shared_ptr<SkinnedMesh> mesh;
+				forEachSkinned([&](SkinnedMeshRenderer* s) { if (!mesh && !s->IsMerged()) mesh = s->GetMesh(); });
+				if (mesh && SkinnedLod::WaitReady(mesh))
+					for (int l = 0; l < SkinnedLod::kLevels; ++l) t.push_back(SkinnedLod::Bones(mesh, l));
+				return t;
+			};
+			if (op == "instancing")
+			{
+				if (a.contains("on"))
+					SkinnedInstancing::Enabled = a["on"].is_boolean() ? a["on"].get<bool>() : a["on"].get<int>() != 0;
+				r = SkinnedInstancing::Info();
+				return true;
+			}
+			if (op == "lod")
+			{
+				if (a.contains("bias")) SkinnedLod::Bias = (std::max)(0.01f, a["bias"].get<float>());
+				if (a.contains("force")) SkinnedLod::ForceLevel = (std::min)(a["force"].get<int>(), SkinnedLod::kImpostorLevel);
+				if (a.contains("impostors")) SkinnedLod::Impostors = a["impostors"].is_boolean() ? a["impostors"].get<bool>() : a["impostors"].get<int>() != 0;
+				if (a.contains("impostorScreen")) SkinnedLod::ImpostorScreen = (std::max)(0.0f, a["impostorScreen"].get<float>());
+				int n = 0;
+				if (a.contains("on"))
+				{
+					const bool on = a["on"].is_boolean() ? a["on"].get<bool>() : a["on"].get<int>() != 0;
+					forEachSkinned([&](SkinnedMeshRenderer* s) { s->SetAutoLod(on); ++n; });
+				}
+				r = { { "renderers", n }, { "bias", SkinnedLod::Bias }, { "force", SkinnedLod::ForceLevel }, { "impostors", SkinnedLod::Impostors },
+					{ "impostorScreen", SkinnedLod::ImpostorScreen }, { "triangles", lodTriangles() } };
+				return true;
+			}
+			if (op == "clear")
+			{
+				if (!RequireEditMode(e)) return false;
+				if (crowd) scene->DestroyGameObject(crowd);
+				AfterEdit("Clear Crowd");
+				r = { { "cleared", crowd != nullptr } };
+				return true;
+			}
+			if (op == "spawn")
+			{
+				if (!RequireEditMode(e)) return false;
+				const int count = std::clamp(a.value("count", 100), 1, 20000);
+				const float spacing = a.value("spacing", 2.0f);
+				Vec3 origin(0, 0, 0);
+				if (a.contains("origin") && a["origin"].is_array() && a["origin"].size() == 3)
+					origin = Vec3(a["origin"][0].get<float>(), a["origin"][1].get<float>(), a["origin"][2].get<float>());
+				const std::string model = a.value("model", std::string(GameObjectFactory::kDefaultCharacterModel));
+				const std::string controller = a.value("controller", std::string(GameObjectFactory::kDefaultCharacterController));
+				const bool lod = a.value("lod", true);
+				// prefabs: 폴더 (그 안의 .prefab 을 돌아가며) 또는 프리팹 경로 — 없으면 기본 캐릭터
+				std::vector<std::string> prefabs;
+				if (a.contains("prefabs"))
+				{
+					const std::string spec = a["prefabs"].get<std::string>();
+					const std::wstring abs = PathManager::GetI()->GetMovePathW(string_to_wstring(spec));
+					std::error_code ec;
+					if (std::filesystem::is_directory(abs, ec))
+					{
+						for (const auto& f : std::filesystem::directory_iterator(abs, ec))
+							if (f.path().extension() == L".prefab" && f.path().stem().wstring().find(L"_Bind") == std::wstring::npos)
+								prefabs.push_back(wstring_to_string(PathManager::GetI()->GetCutSolutionPath(f.path().wstring())));
+						std::sort(prefabs.begin(), prefabs.end());
+					}
+					else
+						prefabs.push_back(spec);
+					if (prefabs.empty()) { e = "no .prefab in " + spec; return false; }
+				}
+				if (!crowd)
+				{
+					crowd = GameObjectFactory::CreateEmpty("Crowd");
+					scene->AddRootGameObject(crowd);
+				}
+				const int side = (int)ceilf(sqrtf((float)count));
+				const auto t0 = std::chrono::steady_clock::now();
+				for (int i = 0; i < count; ++i)
+				{
+					GameObject* c = nullptr;
+					if (!prefabs.empty())
+					{
+						c = PrefabUtility::InstantiatePrefab(prefabs[(size_t)i % prefabs.size()], scene, crowd);
+						if (c == nullptr) { e = "could not place " + prefabs[(size_t)i % prefabs.size()]; return false; }
+						c->SetName("Crowd_" + std::to_string(i));
+						// --controller 를 주면 프리팹의 Animator 컨트롤러를 바꾼다 (인스턴스 오버라이드)
+						if (a.contains("controller"))
+							for (const auto& comp : c->GetComponents())
+								if (comp && comp->GetType() == "Animator")
+								{
+									json aj = comp->toJson();
+									aj["controller"] = controller;
+									comp->fromJson(aj);
+								}
+					}
+					else
+					{
+						c = GameObjectFactory::CreateAnimatedCharacter("Crowd_" + std::to_string(i), model, controller);
+						scene->AddRootGameObject(c);
+						c->SetParent(crowd, false);
+					}
+					const float x = ((i % side) - (side - 1) * 0.5f) * spacing, z = ((i / side) - (side - 1) * 0.5f) * spacing;
+					c->GetTransform()->SetLocalPosition(origin + Vec3(x, 0, z));
+					c->GetTransform()->SetLocalRotation(Quaternion::CreateFromYawPitchRoll(((i * 7919) % 360) * 0.0174533f, 0, 0));
+				}
+				if (lod)
+					forEachSkinned([&](SkinnedMeshRenderer* s) { s->SetAutoLod(true); SkinnedLod::Request(s->GetMesh(), s->GetSkeleton()); });
+				AfterEdit("Spawn Crowd", crowd);
+				r = { { "spawned", count }, { "ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() }, { "side", side } };
+				return true;
+			}
+			int characters = crowd ? (int)crowd->Children().size() : 0, renderers = 0, visible = 0;
+			int lods[SkinnedLod::kImpostorLevel + 1] = {};
+			int merged = 0;
+			forEachSkinned([&](SkinnedMeshRenderer* s) {
+				++renderers;
+				if (s->IsMerged()) { ++merged; return; }   // 대표 렌더러에 합쳐진 부위 (모듈형 캐릭터)
+				if (!SceneCulling::IsVisible(s)) return;
+				++visible;
+				++lods[std::clamp(s->CurrentLod(), 0, SkinnedLod::kImpostorLevel)];
+			});
+			r = { { "characters", characters }, { "skinnedRenderers", renderers }, { "mergedParts", merged }, { "visible", visible },
+				{ "lodCounts", json(std::vector<int>(lods, lods + SkinnedLod::kImpostorLevel + 1)) }, { "lodTriangles", lodTriangles() }, { "lodBones", lodBones() },
+				{ "instancing", SkinnedInstancing::Info() } };
+			return true;
 		});
 
 		// 치수: 오브젝트 (자식 포함) 의 메시 월드 범위 — Scene 뷰 Selection Dimensions 와 같은 값 (고른다)

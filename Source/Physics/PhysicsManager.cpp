@@ -1696,7 +1696,8 @@ bool PhysicsManager::StepBegin(float dt)
 		return false;
 	JoltWorld& w = *m_World;
 	JPH::BodyInterface& bi = w.BI();
-	std::vector<GameObject*> all = scene->GetAllGameObjects();
+	// 씬의 오브젝트 목록 (복사하지 않는다 — 군중 17 만 개를 스텝마다 두 번 복사했다). FixedUpdate 의 스크립트가 바꿔도 같은 벡터를 본다
+	const std::vector<GameObject*>& all = scene->GameObjectsView();
 
 	// 1) FixedUpdate (Unity: 물리 시뮬레이션 직전)
 	if (dt > 0.0f)
@@ -1719,8 +1720,10 @@ bool PhysicsManager::StepBegin(float dt)
 					continue;
 				const uint32_t begin = (uint32_t)w.fixedCalls.size();
 				for (const auto& c : go->GetComponents())
-					w.fixedCalls.push_back({ c.get(), dynamic_cast<MonoBehaviour*>(c.get()) });
-				w.fixedObjects.push_back({ go, begin, (uint32_t)w.fixedCalls.size() - begin });
+					if (c && !c->SkipUpdate)   // Transform · 렌더러 · Mesh Filter: FixedUpdate 도 비어 있다 (군중 17 만 개 × 스텝마다)
+						w.fixedCalls.push_back({ c.get(), dynamic_cast<MonoBehaviour*>(c.get()) });
+				if ((uint32_t)w.fixedCalls.size() > begin)
+					w.fixedObjects.push_back({ go, begin, (uint32_t)w.fixedCalls.size() - begin });
 			}
 		}
 		for (const JoltWorld::FixedObject& o : w.fixedObjects)
@@ -1736,7 +1739,6 @@ bool PhysicsManager::StepBegin(float dt)
 				call.first->FixedUpdate();
 			}
 		}
-		all = scene->GetAllGameObjects();
 	}
 
 	// 2) 바디 동기화 (데이터 지향 — 바뀐 것만)
@@ -1905,7 +1907,9 @@ bool PhysicsManager::StepBegin(float dt)
 		w.scanJoints.clear();
 		for (GameObject* go : all)
 		{
-			if (!IsActiveInHierarchy(go))
+			// 컴포넌트가 모두 SkipUpdate (Transform · 렌더러 · Mesh Filter) 인 오브젝트는 콜라이더 · Rigidbody · Joint 가 없다 — 분류 표를 찾지 않는다
+			//  (군중: 오브젝트 17 만 개 중 물리 후보는 1 만 개 — 1 초마다 전체 훑기가 표 찾기 17 만 번이었다)
+			if (go == nullptr || !go->NeedsUpdate() || !IsActiveInHierarchy(go))
 				continue;
 			const size_t first = w.scan.size();
 			// 분류는 ComponentIndex 가 기억한다 (컴포넌트가 그대로면 dynamic_cast 없이)

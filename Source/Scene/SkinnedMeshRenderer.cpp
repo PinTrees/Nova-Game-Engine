@@ -11,6 +11,7 @@
 #include "Effects.h"
 #include "MathHelper.h"
 #include "AnimationPose.h"
+#include "SkinnedLod.h"
 
 namespace
 {
@@ -21,6 +22,7 @@ SkinnedMeshRenderer::SkinnedMeshRenderer()
 {
 	XMStoreFloat4x4(&m_MeshBind, XMMatrixIdentity());
 	m_InspectorTitleName = "Skinned Mesh Renderer";
+	SkipUpdate = true;   // Update · LateUpdate 가 비어 있다 (Start 는 부른다)
 	m_InspectorIconPath = L"skinned_mesh_renderer.png";
 	SceneCulling::RegisterRenderer(this, true);   // 컬링의 렌더러 목록
 }
@@ -68,6 +70,7 @@ void SkinnedMeshRenderer::SetSkinnedMesh(const wstring& path, int index)
 	m_MeshSubsetIndex = index;
 	m_Mesh = path.empty() ? nullptr : ResourceManager::GetI()->LoadSkinnedMesh(path, index);
 	m_Skeleton = nullptr;
+	ResetLod();
 	if (m_Mesh != nullptr)
 	{
 		m_Skeleton = ResourceManager::GetI()->LoadSkeletonAvata(wstring_to_string(path), 0);
@@ -84,6 +87,60 @@ void SkinnedMeshRenderer::SetSkinnedMesh(const wstring& path, int index)
 	}
 	RebuildPalette();
 	ResetToBindPose();
+}
+
+uint32_t SkinnedMeshRenderer::s_MergeSerial = 0;
+
+namespace
+{
+	// 메시 · 스켈레톤 · 바인드 방식마다 한 번: 메시 바인드 (후보 20 개 계산) · 바인드 자세 AABB (정점 전부 스키닝).
+	//  같은 부위를 쓰는 렌더러가 많다 (모듈형 캐릭터 1 만 명 × 부위 17 개 — 씬 불러오기 · Stop 마다 렌더러마다 다시 계산해 수십 초)
+	struct BindInfo
+	{
+		std::weak_ptr<SkinnedMesh> Mesh;
+		std::weak_ptr<SkeletonAvataData> Skeleton;
+		XMFLOAT4X4 MeshBind, Chain;
+		bool BoundsOk = false;
+		XMFLOAT3 Lo = {}, Hi = {};
+	};
+	struct BindKey
+	{
+		const void* Mesh;
+		const void* Skeleton;
+		int Mode;
+		bool operator==(const BindKey& o) const { return Mesh == o.Mesh && Skeleton == o.Skeleton && Mode == o.Mode; }
+	};
+	struct BindKeyHash
+	{
+		size_t operator()(const BindKey& k) const { return std::hash<const void*>()(k.Mesh) * 31u ^ std::hash<const void*>()(k.Skeleton) * 7u ^ (size_t)(k.Mode + 1); }
+	};
+	std::mutex s_BindLock;
+	std::unordered_map<BindKey, BindInfo, BindKeyHash> s_BindInfos;
+
+	const BindInfo& BindInfoOf(const shared_ptr<SkinnedMesh>& mesh, const shared_ptr<SkeletonAvataData>& sk, int mode)
+	{
+		const BindKey key{ mesh.get(), sk.get(), mode };
+		{
+			std::lock_guard<std::mutex> lock(s_BindLock);
+			auto it = s_BindInfos.find(key);
+			if (it != s_BindInfos.end() && it->second.Mesh.lock() == mesh && it->second.Skeleton.lock() == sk)
+				return it->second;
+		}
+		BindInfo info;
+		info.Mesh = mesh;
+		info.Skeleton = sk;
+		XMMATRIX chain = XMMatrixIdentity();
+		const XMMATRIX meshBind = mesh->PaletteMeshBind(*sk, &chain, mode);
+		XMStoreFloat4x4(&info.MeshBind, meshBind);
+		XMStoreFloat4x4(&info.Chain, chain);
+		info.BoundsOk = mesh->BindBounds(*sk, meshBind, info.Lo, info.Hi);
+		std::lock_guard<std::mutex> lock(s_BindLock);
+		return s_BindInfos.insert_or_assign(key, info).first->second;
+	}
+
+	// 스켈레톤마다 바인드 자세 전역 행렬 (ResetToBindPose)
+	struct BindGlobals { std::weak_ptr<SkeletonAvataData> Owner; vector<XMFLOAT4X4> Global; };
+	std::unordered_map<const SkeletonAvataData*, BindGlobals> s_BindGlobals;
 }
 
 void SkinnedMeshRenderer::RebuildPalette()
@@ -105,23 +162,62 @@ void SkinnedMeshRenderer::RebuildPalette()
 	if (best >= 0)
 		m_RootBone = m_Skeleton->NodeNames[best];
 
-	// FBX 의 스킨 역바인드(Offset)는 장면 공간 기준이라, 메시 노드에 PreRotation(예: Z-up → Y-up) 이 있으면
-	// 정점을 먼저 메시 노드의 바인드 전역 변환으로 옮겨야 한다: 최종 = MeshBind * Offset * BoneGlobal
-	XMMATRIX meshBind = XMMatrixIdentity();
-	for (int node = m_Skeleton->FindNode(m_Mesh->Name); node >= 0; node = m_Skeleton->BoneHierarchy[node])
-		meshBind = meshBind * XMLoadFloat4x4(&m_Skeleton->BindLocal[node]);
-	XMStoreFloat4x4(&m_MeshBind, meshBind);
+	// 최종 = MeshBind * Offset * BoneGlobal — 역바인드가 장면 공간 (PreRotation 이 있는 메시 노드) 이면 메시 노드의 바인드 전역,
+	//  메시 노드 공간 (Unreal 내보내기 등 — 메시 노드 변환이 이미 들어 있다) 이면 단위 행렬 (SkinnedMesh::PaletteMeshBind 가 고른다)
+	const BindInfo& bind = BindInfoOf(m_Mesh, m_Skeleton, GetBindMode());   // 메시 · 스켈레톤 · 방식마다 한 번
+	const XMMATRIX meshBind = XMLoadFloat4x4(&bind.Chain);
+	m_MeshBind = bind.MeshBind;
+	const bool boundsOk = bind.BoundsOk;
+	const XMFLOAT3 bindLo = bind.Lo, bindHi = bind.Hi;
 
-	// 바운드: 바인드 포즈 메시 AABB (메시 노드 변환 + 단위 변환 반영)
-	const XMMATRIX toModel = meshBind * XMMatrixScaling(m_Skeleton->UnitScale, m_Skeleton->UnitScale, m_Skeleton->UnitScale);
-	Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
-	for (const auto& v : m_Mesh->Vertices)
+	// 캐릭터 크기: 스켈레톤 노드 (바인드 전역 · 단위 포함) 범위 — 부위가 작아도 (지갑 · 모자) 캐릭터 단위로 LOD 를 고른다
 	{
-		Vec3 p = XMVector3TransformCoord(XMLoadFloat3(&v.pos), toModel);
-		mn = Vec3::Min(mn, p);
-		mx = Vec3::Max(mx, p);
+		// 스켈레톤마다 한 번 (모듈형 캐릭터 1 만 명 × 부위 15 개가 같은 스켈레톤을 쓴다)
+		struct SkelSize { std::weak_ptr<SkeletonAvataData> Owner; Vec3 Center; float Size = 0.0f; };
+		static std::unordered_map<const SkeletonAvataData*, SkelSize> s_SkelSizes;
+		auto it = s_SkelSizes.find(m_Skeleton.get());
+		if (it == s_SkelSizes.end() || it->second.Owner.lock() != m_Skeleton)
+		{
+			SkelSize ss;
+			ss.Owner = m_Skeleton;
+			std::vector<XMFLOAT4X4> g;
+			AnimationPose::ComputeGlobals(*m_Skeleton, m_Skeleton->BindLocal, g);
+			Vec3 lo(FLT_MAX, FLT_MAX, FLT_MAX), hi(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+			for (const auto& m : g)   // 스켈레톤 전체 (모든 노드)
+			{
+				const Vec3 p(m._41, m._42, m._43);
+				lo = Vec3::Min(lo, p);
+				hi = Vec3::Max(hi, p);
+			}
+			if (lo.x <= hi.x)
+			{
+				ss.Center = (lo + hi) * 0.5f;
+				ss.Size = (std::max)({ hi.x - lo.x, hi.y - lo.y, hi.z - lo.z }) * 1.1f;   // 머리 · 발끝은 노드보다 조금 더
+			}
+			it = s_SkelSizes.insert_or_assign(m_Skeleton.get(), ss).first;
+		}
+		m_SkelCenter = it->second.Center;
+		m_SkelSize = it->second.Size;
 	}
-	if (!m_Mesh->Vertices.empty())
+
+	// 바운드: 바인드 자세로 스키닝한 메시 AABB (고른 메시 바인드 · 단위 반영 — 메시 노드 변환을 쓰지 않는 내보내기도 맞다)
+	Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+	if (boundsOk)
+	{
+		mn = Vec3(bindLo.x, bindLo.y, bindLo.z);
+		mx = Vec3(bindHi.x, bindHi.y, bindHi.z);
+	}
+	else
+	{
+		const XMMATRIX toModel = meshBind * XMMatrixScaling(m_Skeleton->UnitScale, m_Skeleton->UnitScale, m_Skeleton->UnitScale);
+		for (const auto& v : m_Mesh->Vertices)
+		{
+			Vec3 p = XMVector3TransformCoord(XMLoadFloat3(&v.pos), toModel);
+			mn = Vec3::Min(mn, p);
+			mx = Vec3::Max(mx, p);
+		}
+	}
+	if (!m_Mesh->Vertices.empty() && mn.x <= mx.x)
 	{
 		m_BoundsCenter = (mn + mx) * 0.5f;
 		m_BoundsExtent = (mx - mn) * 0.5f;
@@ -132,8 +228,9 @@ void SkinnedMeshRenderer::RebuildPalette()
 
 void SkinnedMeshRenderer::ApplyPose(const vector<XMFLOAT4X4>& nodeGlobals)
 {
-	if (m_Mesh == nullptr)
+	if (m_Mesh == nullptr || m_Merged)   // 합쳐진 부위: 대표가 그린다
 		return;
+	++PoseSerial;
 	const size_t count = (std::min)(m_Mesh->BoneNames.size(), kMaxBones);
 	m_FinalTransforms.resize((std::max)(count, (size_t)1));
 	if (count == 0)
@@ -240,10 +337,18 @@ void SkinnedMeshRenderer::ResetToBindPose()
 		for (auto& m : m_FinalTransforms) XMStoreFloat4x4(&m, XMMatrixIdentity());
 		return;
 	}
-	vector<XMFLOAT4X4> local, global;
-	AnimationPose::SampleLocal(*m_Skeleton, nullptr, {}, 0.0f, local);
-	AnimationPose::ComputeGlobals(*m_Skeleton, local, global);
-	ApplyPose(global);
+	// 바인드 자세 전역은 스켈레톤마다 한 번 (메인 스레드 — 렌더러 만들기 · 불러오기)
+	auto it = s_BindGlobals.find(m_Skeleton.get());
+	if (it == s_BindGlobals.end() || it->second.Owner.lock() != m_Skeleton)
+	{
+		BindGlobals bg;
+		bg.Owner = m_Skeleton;
+		vector<XMFLOAT4X4> local;
+		AnimationPose::SampleLocal(*m_Skeleton, nullptr, {}, 0.0f, local);
+		AnimationPose::ComputeGlobals(*m_Skeleton, local, bg.Global);
+		it = s_BindGlobals.insert_or_assign(m_Skeleton.get(), std::move(bg)).first;
+	}
+	ApplyPose(it->second.Global);
 }
 
 void SkinnedMeshRenderer::EnsureBones()
@@ -358,7 +463,107 @@ bool SkinnedMeshRenderer::UploadDynamicVertices(const vector<Vertex::PosNormalTe
 
 void SkinnedMeshRenderer::DrawSubset(GfxContext* dc, int subset)
 {
-	m_Mesh->ModelMesh.Draw(dc, (uint32)subset, m_MorphActive ? m_MorphVB.Get() : nullptr);
+	// LOD 단계는 자기 정점 버퍼 (본 줄이기) — BlendShape 를 섞은 정점 버퍼와 맞지 않으니 그때는 원본
+	MeshGeometry& geo = m_LodGeo != nullptr && !m_SimActive && !m_MorphActive ? *m_LodGeo : m_Mesh->ModelMesh;
+	geo.Draw(dc, (uint32)subset, m_MorphActive ? m_MorphVB.Get() : nullptr);
+}
+
+bool SkinnedMeshRenderer::CanInstance() const
+{
+	if (m_Merged || !m_Enabled || !m_AutoLod || m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_MorphActive || m_SimActive
+		|| m_Mesh->BoneNames.empty() || m_Mesh->BoneNames.size() > kMaxBones)
+		return false;
+	// Alpha Clipping 재질도 된다 (깊이 · 그림자는 잘라내는 인스턴싱 기법). 패키지 셰이더는 그 패키지가 그린다
+	const auto& mats = RenderMaterials();
+	for (const auto& s : m_Mesh->Subsets)
+	{
+		const UMaterial* m = s.MaterialIndex < mats.size() ? mats[s.MaterialIndex].get() : nullptr;
+		if (m && m->IsCustom())
+			return false;
+	}
+	return true;
+}
+
+int SkinnedMeshRenderer::InstanceCheck() const
+{
+	if (!m_Block.Empty())
+		return 2;
+	return CanInstance() ? 1 : 0;   // 블록이 없으면 RenderMaterials 는 재질 목록을 그대로 (읽기만)
+}
+
+MeshGeometry* SkinnedMeshRenderer::PrepareLod(bool editor)
+{
+	SelectLod(editor);
+	return CurrentGeometry();
+}
+
+MeshGeometry* SkinnedMeshRenderer::ShadowGeometry()
+{
+	// 그림자는 한 단계 거칠게 (Unity 의 LOD Bias 처럼 그림자는 작은 차이가 안 보인다)
+	if (!m_AutoLod || m_SimActive || m_Mesh == nullptr)
+		return CurrentGeometry();
+	const int level = (std::min)(m_LodCurrent + 1, SkinnedLod::kLevels - 1);
+	MeshGeometry* g = SkinnedLod::Get(m_Mesh, level, m_Skeleton);
+	return g ? g : CurrentGeometry();
+}
+
+MeshGeometry* SkinnedMeshRenderer::CurrentGeometry()
+{
+	return m_LodGeo != nullptr && !m_SimActive ? m_LodGeo : &m_Mesh->ModelMesh;
+}
+
+// 자동 LOD: 경계 상자의 가장 긴 축이 화면 높이의 몇 % 인지 (Unity LOD Group 의 Screen Relative Height) 로 단계를 고른다
+void SkinnedMeshRenderer::SelectLod(bool editor)
+{
+	if (!m_AutoLod || m_SimActive || m_Mesh == nullptr)
+	{
+		m_LodGeo = nullptr;
+		m_LodCurrent = 0;
+		return;
+	}
+	const int v = editor ? 1 : 0;
+	const uint32_t frame = SceneCulling::FrameIndex();
+	if (m_LodStamp[v] != frame)
+	{
+		m_LodStamp[v] = frame;
+		// 크기 = 월드 상자의 가장 긴 축 (Unity LOD Group: 경계의 가장 큰 축 × 스케일).
+		//  스켈레톤이 있으면 캐릭터 전체 (스켈레톤 범위) — 모듈형 캐릭터의 부위 (지갑 · 모자) 가 몸과 같은 단계를 고른다
+		Vec3 center, mn, mx;
+		float size = 0.0f;
+		if (m_SkelSize > 0.0f)
+		{
+			Transform* tr = m_pGameObject->GetTransform();
+			const XMMATRIX w = tr->GetWorldMatrix();
+			center = Vec3(XMVector3TransformCoord(XMLoadFloat3(&m_SkelCenter), w));
+			const Vec3 s = tr->GetScale();
+			size = m_SkelSize * (std::max)({ std::abs(s.x), std::abs(s.y), std::abs(s.z) });
+		}
+		else if (CullTracked && SceneCulling::SlotBounds(CullSlot, mn, mx))
+		{
+			center = (mn + mx) * 0.5f;
+			size = (std::max)({ mx.x - mn.x, mx.y - mn.y, mx.z - mn.z });
+		}
+		else
+		{
+			Transform* tr = m_pGameObject->GetTransform();
+			center = tr->GetPosition();
+			const Vec3 s = tr->GetScale();
+			size = 2.0f * (std::max)({ m_BoundsExtent.x * std::abs(s.x), m_BoundsExtent.y * std::abs(s.y), m_BoundsExtent.z * std::abs(s.z) });
+		}
+		RenderManager* rm = RenderManager::GetI();
+		const XMMATRIX& view = editor ? rm->EditorCameraViewMatrix : rm->CameraViewMatrix;
+		const XMMATRIX& proj = editor ? rm->EditorCameraProjectionMatrix : rm->CameraProjectionMatrix;
+		const float proj11 = XMVectorGetY(proj.r[1]);
+		const bool ortho = XMVectorGetW(proj.r[2]) == 0.0f;
+		// 카메라 공간 깊이 (뷰 행렬로 바로 — 역행렬 없이)
+		const float depth = XMVectorGetZ(XMVector3TransformCoord(XMVectorSet(center.x, center.y, center.z, 1.0f), view));
+		// 보이는 화면 높이 = 2 · 깊이 / proj11 (원근), 2 / proj11 (직교)
+		const float h = ortho ? size * proj11 * 0.5f : size * proj11 * 0.5f / (std::max)(depth, 0.01f);
+		m_LodLevel[v] = SkinnedLod::SelectLevel(h, m_LodLevel[v]);
+		m_LodGeoView[v] = SkinnedLod::Get(m_Mesh, m_LodLevel[v], m_Skeleton);
+	}
+	m_LodGeo = m_LodGeoView[v];
+	m_LodCurrent = m_LodGeo != nullptr ? m_LodLevel[v] : 0;
 }
 
 const vector<XMFLOAT4X4>& SkinnedMeshRenderer::MotionPalette()
@@ -371,7 +576,7 @@ const vector<XMFLOAT4X4>& SkinnedMeshRenderer::MotionPalette()
 // 모션 벡터 패스: 깊이 프리패스와 같은 정점 (BlendShape · 천의 동적 버퍼 포함) 으로 서브셋마다
 void SkinnedMeshRenderer::DrawForMotionVectors(GfxContext* dc, FxTechnique* tech)
 {
-	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || tech == nullptr)
+	if (m_Merged || !m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || tech == nullptr)
 		return;
 	dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	for (int i = 0; i < (int)m_Mesh->Subsets.size(); ++i)
@@ -389,6 +594,7 @@ void SkinnedMeshRenderer::DrawSkinned(bool editor)
 	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 3)   // Shadows Only 는 본 패스에서 그리지 않음
 		return;
 	EnsureBones();
+	SelectLod(editor);
 
 	Transform* transform = m_pGameObject->GetTransform();
 	auto deviceContext = Application::GetI()->GetDeviceContext();
@@ -512,6 +718,8 @@ bool SkinnedMeshRenderer::DrawCustomClip(int subset, CustomShaders::DrawPass pas
 
 void SkinnedMeshRenderer::Render()
 {
+	if (m_Merged)
+		return;
 	RenderStats::AddSkinnedMesh();
 	// 오클루전 컬링: 깊이 프리패스 뒤 상자 쿼리가 있으면 그 결과로 (가려졌으면 GPU 가 건너뛴다)
 	GfxContext* dc = Application::GetI()->GetDeviceContext();
@@ -523,6 +731,8 @@ void SkinnedMeshRenderer::Render()
 
 void SkinnedMeshRenderer::_Editor_Render()
 {
+	if (m_Merged)
+		return;
 	GfxContext* dc = Application::GetI()->GetDeviceContext();
 	const bool predicated = OcclusionCulling::BeginPredicated(dc, this);
 	DrawSkinned(true);
@@ -532,7 +742,7 @@ void SkinnedMeshRenderer::_Editor_Render()
 
 void SkinnedMeshRenderer::RenderShadow()
 {
-	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 1)   // Cast Shadows Off
+	if (m_Merged || !m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty() || m_CastShadows == 1)   // Cast Shadows Off
 		return;
 	RenderStats::AddShadowCaster();
 	EnsureBones();
@@ -596,6 +806,7 @@ XMMATRIX SkinnedMeshRenderer::ClipTexTransform(const UMaterial& m)
 void SkinnedMeshRenderer::DrawSkinnedNormalDepth(bool editor)
 {
 	SkinnedMesh* mesh = m_Mesh.get();
+	SelectLod(editor);
 	Transform* transform = m_pGameObject->GetTransform();
 	const vector<XMFLOAT4X4>& bones = m_FinalTransforms;
 	auto deviceContext = Application::GetI()->GetDeviceContext();
@@ -642,7 +853,7 @@ void SkinnedMeshRenderer::DrawSkinnedNormalDepth(bool editor)
 
 void SkinnedMeshRenderer::RenderShadowNormal()
 {
-	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty())
+	if (m_Merged || !m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty())
 		return;
 	EnsureBones();
 	DrawSkinnedNormalDepth(false);
@@ -650,10 +861,176 @@ void SkinnedMeshRenderer::RenderShadowNormal()
 
 void SkinnedMeshRenderer::_Editor_RenderShadowNormal()
 {
-	if (!m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty())
+	if (m_Merged || !m_Enabled || m_Mesh == nullptr || m_Mesh->Subsets.empty())
 		return;
 	EnsureBones();
 	DrawSkinnedNormalDepth(true);
+}
+
+// ------------------------------------------------------------------ 부위 합치기 (모듈형 캐릭터)
+namespace
+{
+	struct CombinedParts
+	{
+		shared_ptr<SkinnedMesh> Mesh;
+		vector<shared_ptr<UMaterial>> Materials;
+		Vec3 Min, Max;
+	};
+	std::unordered_map<std::string, std::weak_ptr<CombinedParts>> s_Combined;   // 부위 · 재질 조합 → 합친 메시 (쓰는 대표가 없으면 놓는다)
+	constexpr size_t kMaxPaletteBones = 255;   // 정점 본 번호는 BYTE (256 번째 = 천 단위 본 자리)
+}
+
+void SkinnedMeshRenderer::Start()
+{
+	// Play 에서 한 번 (Unity 에는 없음 — NOVA 군중: 부위 15 ~ 20 개 캐릭터를 렌더러 하나로)
+	if (Application::IsPlaying() && m_AutoLod)
+		TryCombine();
+}
+
+void SkinnedMeshRenderer::TryCombine()
+{
+	if (m_CombineTried || m_pGameObject == nullptr || m_Mesh == nullptr || m_Skeleton == nullptr)
+		return;
+	m_CombineTried = true;
+	GameObject* parent = m_pGameObject->GetParent();
+	if (parent == nullptr)
+		return;
+	// 형제 부위: 부모의 직계 자식 중 켜져 있고 같은 스켈레톤 · Auto LOD · BlendShape 가중치 없음 · 천 없음
+	std::vector<SkinnedMeshRenderer*> parts;
+	for (GameObject* c : parent->Children())
+	{
+		if (c == nullptr || !c->IsActiveInHierarchy())
+			continue;
+		SkinnedMeshRenderer* s = c->GetComponent<SkinnedMeshRenderer>();
+		if (s == nullptr || !s->m_Enabled || s->m_Merged || s->m_Combined || !s->m_AutoLod || s->m_Mesh == nullptr || s->m_Skeleton != m_Skeleton
+			|| s->m_SimActive || s->m_MorphActive || s->m_FinalTransforms.size() > kMaxBones)
+			continue;
+		bool weights = false;
+		for (float w : s->m_BlendWeights) weights = weights || w != 0.0f;
+		if (weights)
+			continue;
+		parts.push_back(s);
+	}
+	if (parts.size() < 2 || parts.front() != this)
+		return;   // 대표 = 첫 부위 (다른 부위는 대표의 Start 가 맡는다)
+	for (SkinnedMeshRenderer* p : parts)
+		p->m_CombineTried = true;
+
+	// 열쇠: 스켈레톤 + 부위마다 (메시, 메시 바인드 후보, 재질)
+	std::string key = std::to_string((uintptr_t)m_Skeleton.get());
+	for (SkinnedMeshRenderer* p : parts)
+	{
+		key += "|" + std::to_string((uintptr_t)p->m_Mesh.get()) + ":" + std::to_string(p->GetBindMode());
+		for (const auto& m : p->RenderMaterials())
+			key += "," + std::to_string((uintptr_t)m.get());
+	}
+	shared_ptr<CombinedParts> combined = s_Combined[key].lock();
+	if (!combined)
+	{
+		combined = std::make_shared<CombinedParts>();
+		auto mesh = std::make_shared<SkinnedMesh>();
+		// 팔레트: (노드, 메시 바인드 · 역바인드) 가 같으면 한 칸 — 메시 바인드를 미리 곱해 합친 메시의 메시 바인드는 단위 행렬
+		struct Bone { int Node; XMFLOAT4X4 Off; };
+		std::vector<Bone> bones;
+		Vec3 mn(FLT_MAX, FLT_MAX, FLT_MAX), mx(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+		bool ok = true;
+		for (SkinnedMeshRenderer* p : parts)
+		{
+			const SkinnedMesh& m = *p->m_Mesh;
+			const XMMATRIX mb = XMLoadFloat4x4(&p->m_MeshBind);
+			std::vector<int> remap(m.BoneNames.size(), 0);
+			for (size_t k = 0; k < m.BoneNames.size() && ok; ++k)
+			{
+				const int node = k < p->m_PaletteNode.size() ? p->m_PaletteNode[k] : -1;
+				XMFLOAT4X4 off;
+				XMStoreFloat4x4(&off, mb * XMLoadFloat4x4(&m.BoneOffsets[k]));
+				int found = -1;
+				for (size_t b = 0; b < bones.size() && found < 0; ++b)
+				{
+					if (bones[b].Node != node)
+						continue;
+					float d = 0.0f;
+					for (int i = 0; i < 16; ++i)
+						d += fabsf((&bones[b].Off._11)[i] - (&off._11)[i]);
+					if (d < 1e-4f)
+						found = (int)b;
+				}
+				if (found < 0)
+				{
+					found = (int)bones.size();
+					bones.push_back({ node, off });
+				}
+				remap[k] = found;
+				ok = bones.size() <= kMaxPaletteBones;
+			}
+			if (!ok)
+				break;
+			const uint32 vertexBase = (uint32)mesh->Vertices.size();
+			for (const auto& v0 : m.Vertices)
+			{
+				auto v = v0;
+				for (int j = 0; j < 4; ++j)
+					v.boneIndices[j] = (BYTE)(v0.boneIndices[j] < remap.size() ? remap[v0.boneIndices[j]] : 0);
+				mesh->Vertices.push_back(v);
+			}
+			const auto& mats = p->RenderMaterials();
+			for (const auto& s : m.Subsets)
+			{
+				MeshGeometry::Subset ns = s;
+				ns.VertexStart = vertexBase + s.VertexStart;
+				ns.FaceStart = (uint32)(mesh->Indices.size() / 3);
+				ns.MaterialIndex = (uint32)combined->Materials.size();
+				ns.Id = (uint32)mesh->Subsets.size();
+				const size_t first = (size_t)s.FaceStart * 3, count = (size_t)s.FaceCount * 3;
+				if (first + count <= m.Indices.size())
+					mesh->Indices.insert(mesh->Indices.end(), m.Indices.begin() + first, m.Indices.begin() + first + count);   // 서브셋의 VertexStart 기준 그대로
+				else
+					ns.FaceCount = 0;
+				mesh->Subsets.push_back(ns);
+				combined->Materials.push_back(s.MaterialIndex < mats.size() && mats[s.MaterialIndex] ? mats[s.MaterialIndex] : UMaterial::GetDefault());
+			}
+			mn = Vec3::Min(mn, p->m_BoundsCenter - p->m_BoundsExtent);
+			mx = Vec3::Max(mx, p->m_BoundsCenter + p->m_BoundsExtent);
+		}
+		if (!ok || mesh->Vertices.empty() || mesh->Indices.empty())
+		{
+			EditorLog::Write("Crowd", "combine skipped (%zu parts, %zu palette bones)", parts.size(), bones.size());
+			return;
+		}
+		for (const Bone& b : bones)
+		{
+			mesh->BoneNames.push_back(b.Node >= 0 && b.Node < (int)m_Skeleton->NodeNames.size() ? m_Skeleton->NodeNames[(size_t)b.Node] : std::string());
+			mesh->BoneOffsets.push_back(b.Off);
+		}
+		mesh->Name = "Combined (" + std::to_string(parts.size()) + " parts)";
+		mesh->Path = m_Mesh->Path;
+		mesh->Setup();
+		combined->Mesh = mesh;
+		combined->Min = mn;
+		combined->Max = mx;
+		s_Combined[key] = combined;
+		EditorLog::Write("Crowd", "combined %zu parts: %zu vertices, %zu subsets, %zu palette bones", parts.size(), mesh->Vertices.size(), mesh->Subsets.size(), bones.size());
+	}
+
+	// 대표: 합친 메시로 (저장하는 경로 · 재질 경로는 그대로 — Play 에서만)
+	m_OwnMesh = m_Mesh;
+	m_OwnMaterials = m_pMaterials;
+	m_Mesh = combined->Mesh;
+	m_pMaterials = combined->Materials;
+	m_Combined = true;
+	m_CombinedRef = combined;
+	RebuildPalette();
+	m_BoundsCenter = (combined->Min + combined->Max) * 0.5f;
+	m_BoundsExtent = (combined->Max - combined->Min) * 0.5f;
+	ResetLod();
+	ResetToBindPose();
+	for (SkinnedMeshRenderer* p : parts)
+		if (p != this)
+		{
+			p->m_Merged = true;
+			++s_MergeSerial;
+			SceneCulling::UnregisterRenderer(p);   // 컬링 · 그리기 · 팔레트 · 모션 벡터 루프에서 빠진다 (1 만 명 × 부위 15 개)
+		}
 }
 
 // ------------------------------------------------------------------ Inspector (Unity 6)
@@ -735,6 +1112,12 @@ void SkinnedMeshRenderer::OnInspectorGUI()
 		Toggle("Skinned Motion Vectors", &m_SkinnedMotionVectors);
 		Toggle("Dynamic Occlusion", &m_DynamicOcclusion);
 		Dropdown("Rendering Layer Mask", &m_RenderingLayerMask, kLayerMask, 3, 0);
+		// NOVA: 멀리서 삼각형을 줄인다 (Unity 는 LOD Group 에 메시를 따로 둔다 — 군중용 자동 단순화)
+		bool autoLod = m_AutoLod;
+		if (Toggle("Auto LOD", &autoLod))
+			SetAutoLod(autoLod);
+		if (m_AutoLod)
+			ValueLabel("Current LOD", std::to_string(m_LodCurrent).c_str());
 	}
 	if (FoldoutPlain("2D"))
 		Dropdown("Mask Interaction", &m_MaskInteraction, kMask, 3, 0);
@@ -776,6 +1159,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(SkinnedMeshRenderer)
 	j["dynamicOcclusion"] = m_DynamicOcclusion;
 	j["renderingLayerMask"] = m_RenderingLayerMask;
 	j["maskInteraction"] = m_MaskInteraction;
+	if (!m_AutoLod) j["autoLod"] = false;   // 기본 켬 — 끈 것만 저장
+	if (m_BindMode >= 0) j["bindMode"] = m_BindMode;
 	bool anyWeight = false;
 	for (float w : m_BlendWeights) anyWeight = anyWeight || w != 0.0f;
 	if (anyWeight) j["blendShapeWeights"] = m_BlendWeights;
@@ -820,6 +1205,8 @@ GENERATE_COMPONENT_FUNC_FROMJSON(SkinnedMeshRenderer)
 	m_DynamicOcclusion = j.value("dynamicOcclusion", true);
 	m_RenderingLayerMask = j.value("renderingLayerMask", 0);
 	m_MaskInteraction = j.value("maskInteraction", 0);
+	m_AutoLod = j.value("autoLod", true);
+	m_BindMode = j.value("bindMode", -1);
 	m_BlendWeights = j.value("blendShapeWeights", std::vector<float>());
 	m_MorphDirty = true;
 

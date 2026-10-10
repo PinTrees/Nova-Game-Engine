@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include "NovaApi.h"
 #include <cstdint>
 #include <chrono>
 #include <cstring>
@@ -57,20 +58,20 @@ namespace Jobs
 	void Shutdown();
 	bool Initialized();
 
-	int WorkerCount();
+	NOVA_API int WorkerCount();
 	bool FibersEnabled();
 	int CurrentThread();       // 0 = 메인, 1 .. N = 일꾼, -1 = 그 밖 스레드
 	bool IsWorkerThread();
 	void SetInline(bool on);   // 비교 · 문제 찾기: 모든 잡을 부른 스레드에서 바로 (일꾼을 쓰지 않는다)
-	bool Inline();
+	NOVA_API bool Inline();
 	// ParallelFor 가 도는 중인가 (메인도 한 몫을 돈다) — 그 사이에는 공유 캐시를 고치지 말고 읽기만 (데이터 지향 Transform 의 늦은 계산)
-	void EnterParallel();
-	void LeaveParallel();
+	NOVA_API void EnterParallel();
+	NOVA_API void LeaveParallel();
 	bool InParallel();
 
-	Job* AllocateJob();
-	void Submit(Job* job);
-	void Wait(Counter& counter);
+	NOVA_API Job* AllocateJob();
+	NOVA_API void Submit(Job* job);
+	NOVA_API void Wait(Counter& counter);
 
 	// 잡 하나 넣기. counter 가 있으면 넣기 전에 1 올리고 끝나면 1 내린다
 	template <class F>

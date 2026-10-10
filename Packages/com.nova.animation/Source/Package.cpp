@@ -48,10 +48,14 @@ NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 	t.Open = [](const std::string&) { AnimatorEditorWindow::Focus(); };
 	t.Inspector = [](const std::string& path) { AnimatorInspector::DrawController(AnimatorController::Load(path)); };
 	EditorExtensions::RegisterAssetType(t);
+
+	// Animator 자세: 모든 Update 뒤 · LateUpdate 앞에 모아서 (작업 스레드)
+	Scene::SetAfterUpdateHook(kPackage, []() { Animator::FlushPendingPoses(); });
 }
 
 NOVA_PACKAGE_EXPORT void NovaPackage_OnUnload()
 {
+	Scene::SetAfterUpdateHook(kPackage, nullptr);
 	EditorExtensions::UnregisterOwner(kPackage);
 	if (SelectionManager::GetSelectedObjectType() == SelectionType::CUSTOM && SelectionManager::GetCustomSelection().Owner == "Animator")
 		SelectionManager::ClearSelection();   // 이 DLL 의 함수를 가리키는 선택은 지운다

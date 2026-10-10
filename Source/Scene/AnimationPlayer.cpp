@@ -150,7 +150,7 @@ void AnimationPlayer::CollectRenderers(GameObject* go, std::vector<SkinnedMeshRe
 		return;
 	if (SkinnedMeshRenderer* r = go->GetComponent<SkinnedMeshRenderer>())
 		out.push_back(r);
-	for (GameObject* child : go->GetChildren())
+	for (GameObject* child : go->Children())   // 복사 없이
 		CollectRenderers(child, out);
 }
 
@@ -181,6 +181,7 @@ void AnimationPlayer::Sample()
 			computedFor = skeleton.get();
 		}
 		r->ApplyPose(m_Global);
+		r->SetAnimationHint(m_Playing, m_TimePos, true);   // 멀리서 이 클립의 애니메이션 임포스터 (Wrap Mode: Loop)
 	}
 }
 

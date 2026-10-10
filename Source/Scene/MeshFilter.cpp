@@ -8,6 +8,7 @@
 MeshFilter::MeshFilter()
 {
 	m_InspectorTitleName = "Mesh Filter";
+	SkipUpdate = true;   // Update · LateUpdate 가 비어 있다
 }
 
 MeshFilter::~MeshFilter()

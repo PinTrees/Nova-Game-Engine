@@ -200,7 +200,7 @@ int32 App::Run()
 				// Editor Update
 				{
 					PROFILE_SCOPE("EditorUpdate");
-					SceneViewManager::GetI()->Update();
+					{ PROFILE_SCOPE("SceneView.Update"); SceneViewManager::GetI()->Update(); }
 					EditorGUIManager::GetI()->Update();
 				}
 				{ PROFILE_SCOPE("Audio.Update"); AudioManager::Update(); }   // 리스너 위치, 일시정지, One Shot 정리, 통계

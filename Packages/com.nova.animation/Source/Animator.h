@@ -73,6 +73,30 @@ private:
 	float m_LastDt = 0.0f;
 	const SkeletonAvataData* m_GlobalFor = nullptr;   // m_Global 을 마지막으로 계산한 스켈레톤
 
+	// 자세 평가 모으기 (Play 의 Update): 상태 머신은 Update 에서, 자세는 모든 Update 뒤 한 번에 작업 스레드로 (FlushPendingPoses)
+	bool m_PosePending = false;
+	bool m_PoseSkipped = false;   // 임포스터로만 그려 자세를 건너뛰었다 (메시 단계로 돌아오면 바로 계산)
+	std::vector<SkinnedMeshRenderer*> m_UpdateRenderers, m_EvalRenderers;
+	// 렌더러 목록 캐시: 자식 수가 바뀌거나 렌더러 컴포넌트가 사라지면 (weak_ptr) 다시 모은다 — 모듈형 캐릭터 1000 명 × 부위 17 개를 프레임마다 찾지 않게
+	std::vector<std::weak_ptr<Component>> m_RendererRefs;
+	size_t m_RendererKids = (size_t)-1;
+	uint32_t m_RendererSerial = ~0u;   // weak_ptr 를 마지막으로 본 때의 물리 번호 (컴포넌트를 지우면 오른다 — 그대로면 보지 않는다)
+	// 그리는 렌더러 (합쳐진 부위를 뺀 것 — 대표가 그린다). 힌트 · 보이는지 · 자세는 이것만 (부위 17 개 → 대표 1 ~ 2 개)
+	std::vector<SkinnedMeshRenderer*> m_DrawRenderers;
+	uint32_t m_MergeSerial = ~0u;
+	uint32_t m_RenderersFrame = ~0u;   // m_UpdateRenderers 가 이 프레임 것 (EvaluatePose 가 다시 모으지 않는다)
+	void RefreshRenderers();
+	void CollectRendererRefs(GameObject* go);
+	// 전역 행렬을 계산할 노드 (팔레트 본 · 사람 본과 그 조상 — 오름차순). 모델의 메시 노드 수백 개는 계산하지 않는다
+	std::vector<int> m_NeededNodes;
+	const SkeletonAvataData* m_NeededFor = nullptr;
+	size_t m_NeededKey = 0;
+	void UpdateNeededNodes(const SkeletonAvataData& skeleton, const std::vector<SkinnedMeshRenderer*>& renderers);
+	bool CanEvaluateOffMain();      // 클립이 다 읽혀 있고 자세 후처리 (IK 등) 가 없으면
+	bool AnyRendererVisible(const std::vector<SkinnedMeshRenderer*>& renderers);   // Culling Mode: 지난 카메라 · 그림자에 보인 렌더러가 있나
+	bool PoseDueThisFrame(const std::vector<SkinnedMeshRenderer*>& renderers);     // 자동 LOD 렌더러가 멀면 2 · 4 프레임에 한 번 (캐릭터마다 엇갈려)
+	void StepState(float dt);       // 상태 머신 + 루트 모션 (자세 계산 없이)
+
 public:
 	Animator();
 	virtual ~Animator();
@@ -105,6 +129,12 @@ public:
 
 	// 현재 포즈를 렌더러에 적용
 	void EvaluatePose();
+	// 이번 프레임 Update 가 모은 자세를 계산한다 (Scene 의 Update 뒤 훅 — Unity 의 애니메이션 평가 자리). 작업 스레드로 나눈다
+	static void FlushPendingPoses();
+	static int LastFlushCount();       // 지난 Flush 의 자세 수 (검사)
+	static int LastFlushParallel();    // 그중 작업 스레드에서 계산한 수
+	int GetCullingMode() const { return m_CullingMode; }
+	void SetCullingMode(int mode) { m_CullingMode = std::clamp(mode, 0, 2); }
 
 	// ---- Unity: speed, applyRootMotion, deltaPosition, velocity
 	void SetSpeed(float s) { m_Speed = s; }
@@ -144,6 +174,7 @@ private:
 	void Step(float dt);
 	void StepLayer(int layerIndex, float dt);
 	bool CheckConditions(const AnimatorTransition& t);
+	bool CheckConditionsCached(const AnimatorLayer& layer, int transition);   // 파라미터 번호 캐시 (EnsureLayerCache)
 	void ConsumeTriggers(const AnimatorTransition& t);
 	void StartTransition(int layerIndex, int transitionIndex, int target);
 	// Time 단위의 한 바퀴 (클립 = 초, Blend Tree = 1 — 정규화)

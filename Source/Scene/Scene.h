@@ -60,6 +60,21 @@ public:
 	void LastFramUpdate();
 
 public:
+	// 모든 Update 가 끝난 뒤 · LateUpdate 앞 (Unity 의 애니메이션 평가 자리) 에 부를 것. owner 마다 하나, fn 이 비면 뺀다 (패키지를 내릴 때)
+	//  — Animator 가 이번 프레임 자세를 모아 작업 스레드로 한 번에 계산한다
+	static void SetAfterUpdateHook(const std::string& owner, std::function<void()> fn);
+
+	// Update · LateUpdate · _Editor_Update 를 부를 오브젝트 (컴포넌트가 모두 SkipUpdate 인 오브젝트 — Transform · 렌더러뿐 — 는 뺀다).
+	//  오브젝트 수 · 물리 번호 (만들기 · 지우기 · 켜기 · 부모) · 연결 번호 (컴포넌트 붙이기) 가 바뀌면 다시 만든다.
+	//  군중: 모듈형 캐릭터 1 만 명 = 오브젝트 17 만 개 중 Animator 가 있는 1 만 개만
+	const std::vector<GameObject*>& UpdateList();
+private:
+	std::vector<GameObject*> m_UpdateList;
+	size_t m_UpdateListCount = (size_t)-1;
+	uint32_t m_UpdateListPhysics = ~0u, m_UpdateListBinding = ~0u;
+public:
+
+public:
 	static Scene* Load(wstring scenePath);
 	static bool Save(Scene* scene);          // 저장 성공 시 true
 	static bool SaveNewScene(Scene* scene);  // 파일 대화상자에서 취소하면 false

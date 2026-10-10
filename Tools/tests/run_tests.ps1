@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6863,6 +6863,71 @@ function Suite-Blockout
     }
 }
 
+# ------------------------------------------------------------------ 군중 (스킨드 메시 대량 배치 — 자동 LOD · 본 줄이기 · 임포스터 · 인스턴싱)
+function Suite-Crowd
+{
+    # 기본 캐릭터 400 명을 설정 없이 놓는다 → Play: 화면 크기로 LOD (메시 단순화 · 본 줄이기), 먼 쪽은 임포스터, 모두 GPU 인스턴싱.
+    #  강제 단계 (crowd lod --force) 로 단계마다 삼각형 · 본이 줄고 임포스터가 그려지는지, Stop 하면 같은 씬 (오브젝트 수 · Undo 기준), 지우면 오브젝트가 돌아오는지
+    Write-Host '[crowd]'
+    $dir = Join-Path $Out 'crowd'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    function Lum([string]$png)
+    {
+        Add-Type -AssemblyName System.Drawing
+        $bm = [System.Drawing.Bitmap]::FromFile($png); $sum = 0.0; $n = 0
+        for ($y = [int]($bm.Height * 0.3); $y -lt [int]($bm.Height * 0.9); $y += 4) { for ($x = [int]($bm.Width * 0.2); $x -lt [int]($bm.Width * 0.8); $x += 4) { $c = $bm.GetPixel($x, $y); $sum += ($c.R + $c.G + $c.B) / 3.0; $n++ } }
+        $bm.Dispose(); $sum / [math]::Max(1, $n)
+    }
+    $ed = Start-TestEditor -WatchSeconds 300
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        $i0 = Info
+        $sp = Invoke-NovaJson 'crowd spawn --count 400 --spacing 2'
+        Invoke-Nova 'set "Main Camera" --position 0,8,-30 --rotation 18,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $i1 = Info
+        Invoke-Nova 'play' | Out-Null
+        Wait-Until { $c = Invoke-NovaJson 'crowd info'; $c -and [int]$c.instancing.main.instances -gt 0 } 30 | Out-Null
+        Invoke-Nova 'wait 40' | Out-Null
+        $c = Invoke-NovaJson 'crowd info'
+        $lods = @($c.lodCounts | ForEach-Object { [int]$_ }); $used = @($lods | Where-Object { $_ -gt 0 }).Count
+        Add-Result crowd 'spawn 400 characters → Auto LOD on by default: the view uses several LOD levels, every visible character is GPU-instanced (no per-renderer draw)' ($sp -and [int]$sp.spawned -eq 400 -and $used -ge 2 -and [int]$c.instancing.main.instances -ge [int]$c.visible -and [int]$c.instancing.main.draws -lt [int]$c.visible) "visible $($c.visible), lod $($lods -join '/'), main instances $($c.instancing.main.instances) in $($c.instancing.main.draws) draws, palettes $($c.instancing.palettes)"
+        $tris = @($c.lodTriangles | ForEach-Object { [int]$_ }); $bones = @($c.lodBones | ForEach-Object { [int]$_ })
+        Add-Result crowd 'mesh LOD and skeletal LOD: triangles and bones fall level by level (far = few bones, one influence)' ($tris.Count -ge 4 -and $tris[0] -gt $tris[1] -and $tris[1] -gt $tris[2] -and $tris[2] -gt $tris[3] -and $bones[0] -gt $bones[2] -and $bones[3] -le 8 -and $bones[3] -gt 0) "triangles $($tris -join '/'), bones $($bones -join '/')"
+
+        Invoke-Nova 'crowd lod --force 4' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $ci = Invoke-NovaJson 'crowd info'
+        $png = Join-Path $dir 'impostors.png'
+        Invoke-Nova "screenshot `"$png`" --view game" | Out-Null
+        Invoke-Nova 'crowd lod --force 0' | Out-Null
+        Invoke-Nova 'wait 30' | Out-Null
+        $png0 = Join-Path $dir 'meshes.png'
+        Invoke-Nova "screenshot `"$png0`" --view game" | Out-Null
+        $l4 = Lum $png; $l0 = Lum $png0
+        Add-Result crowd 'impostors are automatic (no setup): forcing the far level draws every character as a baked animated impostor, and the picture stays close to the mesh one' ([int]$ci.instancing.impostors -ge [int]$ci.visible -and [int]$ci.visible -gt 0 -and [math]::Abs($l4 - $l0) -lt 25) "impostors $($ci.instancing.impostors) for $($ci.visible) visible, brightness impostor $('{0:N1}' -f $l4) vs mesh $('{0:N1}' -f $l0)"
+        Invoke-Nova 'crowd lod --force -1' | Out-Null
+
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $i2 = Info
+        Add-Result crowd 'Stop: the edit scene comes back whole (same object count, not dirty from Play)' ([int]$i2.objects -eq [int]$i1.objects) "objects before Play $($i1.objects), after Stop $($i2.objects)"
+        Invoke-Nova 'crowd clear' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $i3 = Info
+        Add-Result crowd 'crowd clear: all characters and their objects are removed (back to the empty scene)' ([int]$i3.objects -eq [int]$i0.objects) "objects empty $($i0.objects), with crowd $($i1.objects), after clear $($i3.objects)"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+    }
+}
+
 # ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
 function Suite-RenderThread
 {
@@ -8232,6 +8297,7 @@ try
                 'memory' { Suite-Memory }
                 'transform' { Suite-Transform }
                 'streaming' { Suite-Streaming }
+                'crowd' { Suite-Crowd }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

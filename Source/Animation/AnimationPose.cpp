@@ -34,6 +34,27 @@ namespace AnimationPose
 		}
 	}
 
+	void ComputeGlobals(const SkeletonAvataData& skeleton, const std::vector<XMFLOAT4X4>& local, std::vector<XMFLOAT4X4>& outGlobal,
+		const std::vector<int>& nodes)
+	{
+		const size_t n = (std::min)(local.size(), skeleton.BoneHierarchy.size());
+		if (outGlobal.size() != n)
+			outGlobal.resize(n);
+		const XMMATRIX unit = XMMatrixScaling(skeleton.UnitScale, skeleton.UnitScale, skeleton.UnitScale);
+		for (int i : nodes)
+		{
+			if (i < 0 || (size_t)i >= n)
+				continue;
+			const int parent = skeleton.BoneHierarchy[(size_t)i];
+			XMMATRIX m = XMLoadFloat4x4(&local[(size_t)i]);
+			if (parent >= 0 && parent < i)
+				m = m * XMLoadFloat4x4(&outGlobal[(size_t)parent]);
+			else
+				m = m * unit;
+			XMStoreFloat4x4(&outGlobal[(size_t)i], m);
+		}
+	}
+
 	void ComputeGlobals(const SkeletonAvataData& skeleton, const std::vector<XMFLOAT4X4>& local, std::vector<XMFLOAT4X4>& outGlobal)
 	{
 		const size_t n = (std::min)(local.size(), skeleton.BoneHierarchy.size());

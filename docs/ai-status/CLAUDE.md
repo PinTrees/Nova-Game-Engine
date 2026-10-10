@@ -1,6 +1,16 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 10일 — **대규모 레벨 블록아웃** (사용자 지시: "기본 패키지에 프로토타입 텍스쳐 (미터 격자, 흰색 ~ 어두운 회색)" → "프로토타입 패키지 — 다양한 다각형, 오픈월드 판타지 (지붕 · 창문 …)" → "성벽 · 길 스플라인 배치 (휘게 / 반복)" → 영상 Volcanic Heist 같은 거대한 규모. 그다음 성능 추천 1 · 2)
+- 갱신 시각: 2026년 10월 10일 — **군중 (스킨드 메시 · 애니메이션 대량 배치) 자동 최적화 + 큰 씬 편집기 경로 + Unity 캐릭터 · 애니메이션 가져오기** (사용자 지시: "스킨드 메쉬 · 애니메이션 임포스터 + 원거리 단순화 + 1000 명 이상 + 인스턴스" → "토탈워 같은 5 만 · 10 만 — 논문 · 최신 기술 확인, 기본 옵션으로" → "임포스터도 자동" → "전투 셰이더 말고 범용 셰이더" → "애니메이션 FBX 를 천 개 · 만 개 드래그해도 자동" → "TheTalesFactory 캐릭터로 테스트 프로젝트" → "애니메이션도 Unity 에서 정리해 가져오기 · 종류별 애니메이션 에셋 패키지로 따로" → "먼 휴머노이드는 본 개수도 줄이기")
+  - 메시 LOD · 본 줄이기 `Source/Animation/SkinnedLod.*` (meshoptimizer `ThirdParty/meshoptimizer`), 범용 스킨 인스턴싱 `Source/Scene/SkinnedInstancing.*` + `Shaders/66. SkinInstancing.fx` (32 · 26 · 28 · 63 의 기법), 자동 임포스터 · 클립 굽기 `Source/Scene/CrowdAnimation.*`, 모듈형 부위 합치기 · Auto LOD 기본 켬 (`SkinnedMeshRenderer`), Animator 자세 모으기 · 갱신 빈도 · 임포스터만이면 자세 건너뜀 (`Packages/com.nova.animation`)
+  - 큰 씬 (오브젝트 17 만 개) 경로: Update 목록 · 컬링 조밀 목록 · Mesh Batcher 렌더러 캐시 · Scene 카메라 옛 컬링 제거 · 물리 훑기 · LateUpdate IsAlive · Scene 오브젝트 목록 제곱 경로 (`GameObject::SceneListed` · `PendingDelete`) · Play 스냅숏을 Undo 루트 캐시에서 · Undo 돌아가며 직렬화 한도 · 프리팹 인스턴스 병렬 미리 합치기 · 메시 바인드 캐시 · 제목 줄 dirty 검사
+  - `SceneCulling::Stamp` 등 헤더 inline 변수 → NovaCore 하나로 내보냄 (패키지 DLL 이 사본을 봤다), SkinnedLod 정적 목록 경쟁 (LOD 만들기 잡 충돌) 고침
+  - Unity 가져오기 `Tools/unity_import/` (NovaExport.cs · unity_character_import.py · unity_anim_package.py), 애니메이션 라이브러리 패키지 `E:\NovaAssets\AnimationLibrary` (저장소 밖 — 에셋 스토어 라이선스, 4760 클립 · 13 범주), 테스트 프로젝트 `E:\NovaTest\TalesTest` (MedievalWomen 27 변형 + 군중 컨트롤러)
+  - `nova crowd spawn|clear|info|lod|instancing` (`--prefabs` 와 `--controller` 함께 — 프리팹 Animator 컨트롤러를 바꾼다)
+  - 결과 (Release): 기본 캐릭터 1000 명 64.9 → 6.5 ms, 모듈형 1 만 명 284 → 37 ms (27 fps), 편집기 1 만 명 spawn 38.6 → 16.8 s · Play 2.3 s · Stop 178 → 29 s
+  - Animator Auto: 이름이 맞아도 바인드 자세가 다르면 Humanoid 리타깃 (Unreal 마네킹 클립이 Tales 캐릭터를 눕혔다), 실행 중 만든 오브젝트의 대기 컴포넌트가 붙지 않던 것 (LastUpdate 문 — `GameObject::s_PendingComponents`)
+  - 검사: 새 스위트 `crowd` 5/5, 관련 18 스위트 (cli · animation · scenes · motionvectors · occlusion · physics · physicssync · recovery · starter · ragdoll · cloth · clothskin · memory · transform · streaming · modelplace · lodgroup · crowd) Debug 모두 통과. Showcase 282
+  - 문서 CROWD · UNITY_IMPORT
+- 이전: 2026년 10월 10일 — **대규모 레벨 블록아웃** (사용자 지시: "기본 패키지에 프로토타입 텍스쳐 (미터 격자, 흰색 ~ 어두운 회색)" → "프로토타입 패키지 — 다양한 다각형, 오픈월드 판타지 (지붕 · 창문 …)" → "성벽 · 길 스플라인 배치 (휘게 / 반복)" → 영상 Volcanic Heist 같은 거대한 규모. 그다음 성능 추천 1 · 2)
   - `Resources/Packages/Prototype` (텍스처 · 재질 5 색, GLB 메시 + 프리팹 57 — Mesh Collider), `Tools/prototype/make_prototype.py` · `bake_prefabs.ps1`, `.gitignore` 가 엔진 Resources/Packages 를 빼던 것
   - World Space UV: `PbrMaterial.UVMode` (112 → 128 바이트), `32. InstancedBasic.fx` WorldBoxUV, `UMaterial` "WorldSpaceUV", MaterialInspector 토글
   - `Scene/PrototypeShape.*` (상자 · 계단 · 경사 · 원기둥 · 원뿔 · 아치 벽 · 원호 벽 — 크기를 숫자로, 메시는 저장 안 함), GameObject > Prototype

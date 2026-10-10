@@ -13,11 +13,12 @@ class Scene;
 //  - Scene 의 그리기 루프가 IsVisible 로 거른다. 지형(쿼드트리 LOD)·나무(TreeRenderer)는 따로 컬링한다
 namespace SceneCulling
 {
-	inline uint32_t Stamp = 1;   // 마지막 카메라 Cull 번호 (Component::CullStamp 와 같으면 보임)
-	inline uint32_t ShadowStamp = 1;   // 마지막 그림자 (빛) Cull 번호 (Component::ShadowCullStamp) — 카메라 결과를 덮지 않는다
-	inline bool Enabled = true;  // 끄면 모두 그린다 (비교 측정용: NOVA_DEV_NOCULL=1)
-	inline uint32_t LodStamp = 1;   // LOD Group 이 이번 뷰에 매긴 번호 (Component::LodStamp 와 같으면 LOD 숨김을 따른다)
-	inline bool ShadowPass = false; // 마지막 Cull 이 그림자 패스 (LOD 는 그림자를 따로 고른다)
+	// NovaCore 에 하나뿐인 값 (패키지 DLL 도 같은 것을 읽는다 — 예전 헤더 inline 변수는 DLL 마다 따로라 패키지의 IsVisible 이 늘 1 을 봤다)
+	NOVA_API extern uint32_t Stamp;         // 마지막 카메라 Cull 번호 (Component::CullStamp 와 같으면 보임)
+	NOVA_API extern uint32_t ShadowStamp;   // 마지막 그림자 (빛) Cull 번호 (Component::ShadowCullStamp) — 카메라 결과를 덮지 않는다
+	NOVA_API extern bool Enabled;           // 끄면 모두 그린다 (비교 측정용: NOVA_DEV_NOCULL=1)
+	NOVA_API extern uint32_t LodStamp;      // LOD Group 이 이번 뷰에 매긴 번호 (Component::LodStamp 와 같으면 LOD 숨김을 따른다)
+	NOVA_API extern bool ShadowPass;        // 마지막 Cull 이 그림자 패스 (LOD 는 그림자를 따로 고른다)
 
 	void Update(Scene* scene);                          // 프레임마다 한 번 (그리기 전)
 	// Mesh Renderer · Skinned Mesh Renderer 의 생성자 · 소멸자 (프레임마다 모든 GameObject 를 훑지 않고 이 목록만 본다)
@@ -27,11 +28,12 @@ namespace SceneCulling
 
 	// 추적 중인 자리 (이 씬의 렌더러 — 마지막 Update 기준). 연속 배열이라 차례로 읽어도 싸다
 	//  TrVersion = 그 Transform 의 월드 번호 (Update 때) — 바뀌었으면 움직였다
-	struct EntryView { Component* Renderer = nullptr; uint32_t TrSlot = 0; uint32_t TrVersion = 0; bool Skinned = false; };
+	// Slot: 진짜 자리 번호 (렌더러가 붙어 있는 동안 그대로 — 뷰마다 기록을 자리로 둘 때). EntryAt 의 index 는 살아 있는 자리의 차례 (바뀔 수 있다)
+	struct EntryView { Component* Renderer = nullptr; uint32_t TrSlot = 0; uint32_t TrVersion = 0; uint32_t Slot = 0; bool Skinned = false; };
 	size_t EntryCount();
 	bool EntryAt(size_t index, EntryView& out);   // 살아 있는 자리만 true
 	void Cull(CXMMATRIX viewProj, bool shadowPass);     // 패스마다 (같은 절두체면 한 번으로 여러 패스)
-	uint32_t FrameIndex();                              // Update 마다 1 씩 (프레임 안에서만 쓰는 목록의 유효성 검사용)
+	NOVA_API uint32_t FrameIndex();                              // Update 마다 1 씩 (프레임 안에서만 쓰는 목록의 유효성 검사용)
 
 	// 추적하지 않는 컴포넌트(렌더러가 아니거나 메시가 없음)는 늘 보인다
 	//  LOD Group 이 이 뷰에서 숨긴 렌더러 (다른 LOD) 도 안 보인다

@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "SkinnedMesh.h"
+#include "AnimationPose.h"
 #include "FBXLoader.h"
 #include "AssetImportSettings.h"
 #include "SkinnedData.h"
@@ -8,6 +9,162 @@
 #include "File.h"
 #include "MeshUtility.h"
 #include "EditorGUI.h"
+
+// 메시 바인드 후보: 내보내기마다 정점 · 역바인드 · 메시 노드 변환의 기준이 다르다 (장면 공간 역바인드, 메시 노드 공간 역바인드,
+//  정점이 이미 모델 공간, 소켓에 붙인 단단한 부위의 본 공간 정점, 크기 ×100 이 한쪽에만 …)
+//  0 메시 노드 전역 (예전), 1 단위 행렬, 2 메시 노드 전역 · 단위 · (첫 본 Offset · 전역)⁻¹, 3 (첫 본 Offset · 전역)⁻¹, 4 첫 본 Offset⁻¹
+int SkinnedMesh::BindCandidates(const SkeletonAvataData& sk, XMMATRIX out[kBindCandidates], XMMATRIX* chainOut, std::vector<XMFLOAT4X4>* globalOut) const
+{
+	XMMATRIX chain = XMMatrixIdentity();
+	for (int node = sk.FindNode(Name); node >= 0 && node < (int)sk.BindLocal.size(); node = sk.BoneHierarchy[(size_t)node])
+		chain = chain * XMLoadFloat4x4(&sk.BindLocal[(size_t)node]);
+	if (chainOut)
+		*chainOut = chain;
+	for (int c = 0; c < kBindCandidates; ++c)
+		out[c] = chain;
+	out[1] = XMMatrixIdentity();
+	int bone = -1, node = -1;
+	for (size_t k = 0; k < BoneNames.size() && k < BoneOffsets.size(); ++k)
+		if ((node = sk.FindNode(BoneNames[k])) >= 0) { bone = (int)k; break; }
+	if (bone < 0)
+		return 0;
+	std::vector<XMFLOAT4X4> local;
+	std::vector<XMFLOAT4X4>& global = globalOut ? *globalOut : local;
+	AnimationPose::ComputeGlobals(sk, sk.BindLocal, global);
+	if (node >= (int)global.size())
+		return 0;
+	const XMMATRIX unit = XMMatrixScaling(sk.UnitScale, sk.UnitScale, sk.UnitScale);
+	const XMMATRIX off = XMLoadFloat4x4(&BoneOffsets[(size_t)bone]), g = XMLoadFloat4x4(&global[(size_t)node]);
+	XMVECTOR det;
+	const XMMATRIX inv = XMMatrixInverse(&det, off * g);
+	if (fabsf(XMVectorGetX(det)) > 1e-20f)
+	{
+		out[2] = chain * unit * inv;
+		out[3] = inv;
+	}
+	const XMMATRIX invOff = XMMatrixInverse(&det, off);
+	if (fabsf(XMVectorGetX(det)) > 1e-20f)
+		out[4] = invOff;
+	// 바인드 자세 뒤 회전: X · (Off · 전역) · Rot · (Off · 전역)⁻¹ — 바인드 자세 결과를 모델 공간에서 돌린 것 (단단한 부위는 정확,
+	//  여러 본 부위는 Off · 전역이 같을 때). Unreal 내보내기의 소품 (모자 · 머리카락) 이 X 180° 뒤집혀 있었다
+	const XMMATRIX bind = off * g;
+	const XMMATRIX invBind = XMMatrixInverse(&det, bind);
+	const bool ok = fabsf(XMVectorGetX(det)) > 1e-20f;
+	const XMMATRIX rots[3] = { XMMatrixRotationX(XM_PI), XMMatrixRotationX(XM_PIDIV2), XMMatrixRotationX(-XM_PIDIV2) };
+	for (int r = 0; r < 3; ++r)
+		for (int c = 0; c < kBindBase; ++c)
+			out[kBindBase * (r + 1) + c] = ok ? out[c] * bind * rots[r] * invBind : out[c];
+	return kBindCandidates;
+}
+
+// 바인드 자세 스키닝 (가중치 넷) 한 정점 — 후보 X
+static XMVECTOR SkinBind(const SkinnedMesh& m, const std::vector<int>& nodeOf, const std::vector<XMFLOAT4X4>& global, size_t i, CXMMATRIX x, int* heavy)
+{
+	const auto& v = m.Vertices[i];
+	const float w[4] = { v.weights.x, v.weights.y, v.weights.z, 1.0f - v.weights.x - v.weights.y - v.weights.z };
+	XMVECTOR p = XMVectorZero();
+	float used = 0.0f;
+	*heavy = -1;
+	for (int j = 0; j < 4; ++j)
+	{
+		const int k = v.boneIndices[j];
+		if (w[j] <= 0.0f || k >= (int)m.BoneOffsets.size() || nodeOf[(size_t)k] < 0 || nodeOf[(size_t)k] >= (int)global.size())
+			continue;
+		if (*heavy < 0)
+			*heavy = nodeOf[(size_t)k];
+		const XMMATRIX gk = XMLoadFloat4x4(&global[(size_t)nodeOf[(size_t)k]]);
+		p += XMVector3TransformCoord(XMLoadFloat3(&v.pos), x * XMLoadFloat4x4(&m.BoneOffsets[(size_t)k]) * gk) * w[j];
+		used += w[j];
+	}
+	return used > 1e-6f ? p / used : p;
+}
+
+void SkinnedMesh::BindCandidateBounds(const SkeletonAvataData& sk, XMFLOAT3 mn[kBindCandidates], XMFLOAT3 mx[kBindCandidates]) const
+{
+	XMMATRIX cand[kBindCandidates];
+	std::vector<XMFLOAT4X4> global;
+	BindCandidates(sk, cand, nullptr, &global);
+	std::vector<int> nodeOf(BoneNames.size(), -1);
+	for (size_t k = 0; k < BoneNames.size(); ++k)
+		nodeOf[k] = sk.FindNode(BoneNames[k]);
+	const size_t step = (std::max)((size_t)1, Vertices.size() / 512);
+	for (int c = 0; c < kBindCandidates; ++c)
+	{
+		XMVECTOR lo = XMVectorReplicate(FLT_MAX), hi = XMVectorReplicate(-FLT_MAX);
+		for (size_t i = 0; i < Vertices.size(); i += step)
+		{
+			int heavy;
+			const XMVECTOR p = SkinBind(*this, nodeOf, global, i, cand[c], &heavy);
+			lo = XMVectorMin(lo, p);
+			hi = XMVectorMax(hi, p);
+		}
+		XMStoreFloat3(&mn[c], lo);
+		XMStoreFloat3(&mx[c], hi);
+	}
+}
+
+bool SkinnedMesh::BindBounds(const SkeletonAvataData& sk, CXMMATRIX meshBind, XMFLOAT3& mn, XMFLOAT3& mx) const
+{
+	std::vector<XMFLOAT4X4> global;
+	AnimationPose::ComputeGlobals(sk, sk.BindLocal, global);
+	std::vector<int> nodeOf(BoneNames.size(), -1);
+	for (size_t k = 0; k < BoneNames.size(); ++k)
+		nodeOf[k] = sk.FindNode(BoneNames[k]);
+	const size_t step = (std::max)((size_t)1, Vertices.size() / 2048);
+	XMVECTOR lo = XMVectorReplicate(FLT_MAX), hi = XMVectorReplicate(-FLT_MAX);
+	bool any = false;
+	for (size_t i = 0; i < Vertices.size(); i += step)
+	{
+		int heavy;
+		const XMVECTOR p = SkinBind(*this, nodeOf, global, i, meshBind, &heavy);
+		if (heavy < 0)
+			continue;
+		lo = XMVectorMin(lo, p);
+		hi = XMVectorMax(hi, p);
+		any = true;
+	}
+	XMStoreFloat3(&mn, lo);
+	XMStoreFloat3(&mx, hi);
+	return any;
+}
+
+XMMATRIX SkinnedMesh::PaletteMeshBind(const SkeletonAvataData& sk, XMMATRIX* chainOut, int mode) const
+{
+	XMMATRIX cand[kBindCandidates];
+	std::vector<XMFLOAT4X4> global;
+	if (BindCandidates(sk, cand, chainOut, &global) == 0)
+		return cand[0];
+	if (mode >= 0 && mode < kBindCandidates)
+		return cand[mode];   // 가져오기가 정답 (Unity 가 구운 자리) 과 맞춰 고정한 것
+	// 자동: 바인드 자세에서 "정점이 자기 본 가까이 오는" 기본 후보 (같으면 앞 후보 — 예전 방식을 지킨다)
+	std::vector<int> nodeOf(BoneNames.size(), -1);
+	for (size_t k = 0; k < BoneNames.size(); ++k)
+		nodeOf[k] = sk.FindNode(BoneNames[k]);
+	const size_t step = (std::max)((size_t)1, Vertices.size() / 96);
+	float best = FLT_MAX;
+	int pick = 0;
+	for (int c = 0; c < kBindBase; ++c)
+	{
+		double sum = 0.0;
+		int n = 0;
+		for (size_t i = 0; i < Vertices.size(); i += step)
+		{
+			int heavy;
+			const XMVECTOR p = SkinBind(*this, nodeOf, global, i, cand[c], &heavy);
+			if (heavy < 0)
+				continue;
+			sum += XMVectorGetX(XMVector3Length(p - XMLoadFloat4x4(&global[(size_t)heavy]).r[3]));
+			++n;
+		}
+		const float avg = n > 0 ? (float)(sum / n) : FLT_MAX;
+		if (avg < best * 0.98f)
+		{
+			best = avg;
+			pick = c;
+		}
+	}
+	return cand[pick];
+}
 
 SkinnedMesh::SkinnedMesh()
 {

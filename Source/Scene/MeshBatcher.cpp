@@ -208,16 +208,33 @@ namespace
 			uint32 LayerBit = 0;
 		};
 		static std::vector<Gathered> s_Gather;
+		// Mesh Renderer 가 붙은 오브젝트 목록: 오브젝트 수 · 물리 번호 (만들기 · 지우기 · 컴포넌트 지우기) · 연결 번호 (붙이기 · 메시) 가
+		//  그대로면 다시 찾지 않는다 (군중: 오브젝트 17 만 개 중 Mesh Renderer 는 몇 개 — 매 화면 GetComponent 17 만 번이었다)
+		static std::vector<MeshRenderer*> s_Renderers;
+		static const Scene* s_RenderersScene = nullptr;
+		static size_t s_RenderersCount = (size_t)-1;
+		static uint32_t s_RenderersPhysics = ~0u, s_RenderersBinding = ~0u;
 		const std::vector<GameObject*>& gos = scene->GameObjectsView();
-		s_Gather.assign(gos.size(), Gathered());
-		Jobs::ParallelFor((int)gos.size(), 256, [&](int b, int e) {
+		if (s_RenderersScene != scene || s_RenderersCount != gos.size() ||
+			s_RenderersPhysics != Component::s_PhysicsSerial || s_RenderersBinding != Component::s_BindingSerial)
+		{
+			s_RenderersScene = scene;
+			s_RenderersCount = gos.size();
+			s_RenderersPhysics = Component::s_PhysicsSerial;
+			s_RenderersBinding = Component::s_BindingSerial;
+			s_Renderers.clear();
+			for (GameObject* go : gos)
+				if (go != nullptr)
+					if (MeshRenderer* mr = go->GetComponent<MeshRenderer>())
+						s_Renderers.push_back(mr);
+		}
+		s_Gather.assign(s_Renderers.size(), Gathered());
+		Jobs::ParallelFor((int)s_Renderers.size(), 256, [&](int b, int e) {
 			for (int i = b; i < e; ++i)
 			{
-				GameObject* go = gos[(size_t)i];
-				if (go == nullptr || !go->IsActiveInHierarchy())
-					continue;
-				MeshRenderer* mr = go->GetComponent<MeshRenderer>();
-				if (mr == nullptr || !mr->IsEnabled())
+				MeshRenderer* mr = s_Renderers[(size_t)i];
+				GameObject* go = mr->GetGameObject();
+				if (go == nullptr || !go->IsActiveInHierarchy() || !mr->IsEnabled())
 					continue;
 				Mesh* mesh = mr->GetMesh().get();
 				if (!mesh || mesh->Subsets.empty())

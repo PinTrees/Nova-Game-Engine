@@ -13,6 +13,9 @@ namespace AnimationPose
 
 	// 로컬 → 전역 (루트에 단위 변환 UnitScale 을 곱한다)
 	NOVA_API void ComputeGlobals(const SkeletonAvataData& skeleton, const std::vector<XMFLOAT4X4>& local, std::vector<XMFLOAT4X4>& outGlobal);
+	// nodes (오름차순 — 부모가 먼저) 만 계산. 나머지 칸은 그대로 (쓰지 않는 노드 — 모델의 메시 노드 수백 개)
+	NOVA_API void ComputeGlobals(const SkeletonAvataData& skeleton, const std::vector<XMFLOAT4X4>& local, std::vector<XMFLOAT4X4>& outGlobal,
+		const std::vector<int>& nodes);
 }
 
 namespace AnimationPose

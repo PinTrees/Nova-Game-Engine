@@ -213,15 +213,18 @@ void EditorGUIManager::Destroy()
 
 void EditorGUIManager::Update()
 {
-    ImportSettingsInspector::Update();   // Inspector 에서 누른 Apply · Fix Now (그리기 밖에서 씬을 다시 만든다)
-    if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
-        ImGuiGL::NewFrame();
-    else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->UsesImGuiGfx())
-        ImGuiGfx::NewFrame();
-    else
-        ImGui_ImplDX11_NewFrame();
-    ImGui_ImplWin32_NewFrame();
-    ImGui::NewFrame();
+    { PROFILE_SCOPE("ImportSettings.Update"); ImportSettingsInspector::Update(); }   // Inspector 에서 누른 Apply · Fix Now (그리기 밖에서 씬을 다시 만든다)
+    {
+        PROFILE_SCOPE("ImGui.NewFrame");
+        if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->IsOpenGL())
+            ImGuiGL::NewFrame();
+        else if (Application::GetI()->GetApp() && Application::GetI()->GetApp()->UsesImGuiGfx())
+            ImGuiGfx::NewFrame();
+        else
+            ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        ImGui::NewFrame();
+    }
 
     for (auto& window : m_pEditorWindows)
     {

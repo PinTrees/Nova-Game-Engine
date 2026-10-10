@@ -9,6 +9,10 @@
 #include "HumanoidAvatar.h"
 #include "SceneStreaming.h"
 #include "AnimatorIK.h"
+#include "JobSystem.h"
+#include "Profiler.h"
+#include "SkinnedLod.h"
+#include "SceneCulling.h"
 
 using namespace AnimatorTypes;
 
@@ -37,8 +41,16 @@ Animator::Animator()
 	m_InspectorTitleName = "Animator";
 }
 
+namespace
+{
+	std::vector<Animator*> s_PendingPoses;
+	int s_LastFlush = 0, s_LastFlushParallel = 0;
+}
+
 Animator::~Animator()
 {
+	if (m_PosePending)
+		s_PendingPoses.erase(std::remove(s_PendingPoses.begin(), s_PendingPoses.end(), this), s_PendingPoses.end());
 }
 
 // ------------------------------------------------------------------ 컨트롤러 / 파라미터
@@ -217,6 +229,63 @@ void Animator::CrossFade(const std::string& stateName, float duration, int layer
 }
 
 // ------------------------------------------------------------------ 상태 머신
+// 레이어의 전이를 번호로 (프레임마다 상태 · 파라미터 이름을 찾지 않게 — 군중 1000 명)
+static void EnsureLayerCache(const AnimatorLayer& layer, const AnimatorController& controller)
+{
+	if (layer.CacheRevision == controller.Revision && layer.TFrom.size() == layer.Transitions.size())
+		return;
+	layer.CacheRevision = controller.Revision;
+	const size_t n = layer.Transitions.size();
+	layer.TFrom.assign(n, -3);
+	layer.TTo.assign(n, -3);
+	layer.TParams.assign(n, {});
+	layer.SoloFrom.assign(layer.States.size(), 0);
+	layer.SoloAny = false;
+	for (size_t i = 0; i < n; ++i)
+	{
+		const AnimatorTransition& t = layer.Transitions[i];
+		layer.TFrom[i] = t.From == kAnyState ? -1 : t.From == kEntry ? -2 : layer.FindState(t.From);
+		if (layer.TFrom[i] == -1 && t.From != kAnyState) layer.TFrom[i] = -3;
+		layer.TTo[i] = t.To == kExit ? -1 : layer.FindState(t.To);
+		if (layer.TTo[i] < 0 && t.To != kExit) layer.TTo[i] = -3;
+		for (const auto& c : t.Conditions)
+			layer.TParams[i].push_back(controller.FindParameter(c.Parameter));
+		if (t.Solo)
+		{
+			if (layer.TFrom[i] == -1) layer.SoloAny = true;
+			else if (layer.TFrom[i] >= 0) layer.SoloFrom[(size_t)layer.TFrom[i]] = 1;
+		}
+	}
+	layer.DefaultIndex = layer.FindState(layer.DefaultState);
+}
+
+bool Animator::CheckConditionsCached(const AnimatorLayer& layer, int ti)
+{
+	const AnimatorTransition& t = layer.Transitions[(size_t)ti];
+	const std::vector<int>& params = layer.TParams[(size_t)ti];
+	for (size_t k = 0; k < t.Conditions.size(); ++k)
+	{
+		const AnimatorCondition& c = t.Conditions[k];
+		const int i = k < params.size() ? params[k] : -1;
+		if (i < 0 || i >= (int)m_Floats.size())
+			return false;
+		const float v = m_Floats[(size_t)i];
+		bool ok = false;
+		switch (c.Mode)
+		{
+		case ConditionMode::If: ok = v != 0.0f; break;
+		case ConditionMode::IfNot: ok = v == 0.0f; break;
+		case ConditionMode::Greater: ok = v > c.Threshold; break;
+		case ConditionMode::Less: ok = v < c.Threshold; break;
+		case ConditionMode::Equals: ok = (int)v == (int)c.Threshold; break;
+		case ConditionMode::NotEqual: ok = (int)v != (int)c.Threshold; break;
+		}
+		if (!ok)
+			return false;
+	}
+	return true;
+}
+
 bool Animator::CheckConditions(const AnimatorTransition& t)
 {
 	for (const auto& c : t.Conditions)
@@ -321,15 +390,11 @@ void Animator::StepLayer(int layerIndex, float dt)
 	if (rootSkeleton)
 		m_RootDeltaModel += StateRootDelta(layer, r.Current, *rootSkeleton, prevTime, r.Time);
 	const float curNorm = r.Time / duration;
-	const std::string& currentName = layer.States[r.Current].Name;
 
-	// Solo 가 하나라도 있으면 Solo 전이만 본다 (출발 상태별)
-	auto hasSolo = [&](const std::string& from) {
-		for (const auto& t : layer.Transitions)
-			if (t.From == from && t.Solo) return true;
-		return false;
-	};
-	const bool soloAny = hasSolo(kAnyState), soloCur = hasSolo(currentName);
+	// 이름 대신 번호 (EnsureLayerCache). Solo 가 하나라도 있으면 Solo 전이만 본다 (출발 상태별)
+	EnsureLayerCache(layer, *m_Controller);
+	const bool soloAny = layer.SoloAny;
+	const bool soloCur = r.Current >= 0 && r.Current < (int)layer.SoloFrom.size() && layer.SoloFrom[(size_t)r.Current];
 
 	// Any State 전이가 먼저, 그다음 현재 상태의 전이 (목록 순서 = 우선순위)
 	for (int pass = 0; pass < 2; ++pass)
@@ -337,24 +402,25 @@ void Animator::StepLayer(int layerIndex, float dt)
 		for (int i = 0; i < (int)layer.Transitions.size(); ++i)
 		{
 			const AnimatorTransition& t = layer.Transitions[i];
-			const bool fromAny = t.From == kAnyState;
+			const int from = layer.TFrom[(size_t)i];
+			const bool fromAny = from == -1;
 			if ((pass == 0) != fromAny)
 				continue;
-			if (!fromAny && t.From != currentName)
+			if (!fromAny && from != r.Current)
 				continue;
 			if (t.Mute || ((fromAny ? soloAny : soloCur) && !t.Solo))
 				continue;
 
 			int target = -1;
-			if (t.To == kExit)
+			if (layer.TTo[(size_t)i] == -1)
 			{
 				// Exit → Entry 로 돌아가 Entry 전이(조건) 또는 기본 상태
-				target = layer.FindState(layer.DefaultState);
-				for (const auto& et : layer.Transitions)
-					if (et.From == kEntry && CheckConditions(et)) { target = layer.FindState(et.To); break; }
+				target = layer.DefaultIndex;
+				for (int e = 0; e < (int)layer.Transitions.size(); ++e)
+					if (layer.TFrom[(size_t)e] == -2 && CheckConditionsCached(layer, e)) { target = layer.TTo[(size_t)e]; break; }
 			}
 			else
-				target = layer.FindState(t.To);
+				target = layer.TTo[(size_t)i];
 			if (target < 0)
 				continue;
 			if (fromAny && !t.CanTransitionToSelf && target == r.Current)
@@ -372,7 +438,7 @@ void Animator::StepLayer(int layerIndex, float dt)
 			else if (t.Conditions.empty())
 				exitOk = false;   // 조건도 Exit Time 도 없는 전이는 무시 (Unity 경고와 같은 경우)
 
-			if (exitOk && CheckConditions(t))
+			if (exitOk && CheckConditionsCached(layer, i))
 			{
 				ConsumeTriggers(t);
 				StartTransition(layerIndex, i, target);
@@ -382,18 +448,119 @@ void Animator::StepLayer(int layerIndex, float dt)
 	}
 }
 
-void Animator::Step(float dt)
+void Animator::StepState(float dt)
 {
-	if (m_Controller == nullptr)
-		return;
 	SyncWithController();
 	const float scaled = dt * m_Speed;   // Animator.speed
 	m_RootDeltaModel = Vec3::Zero;
 	for (int i = 0; i < (int)m_Layers.size(); ++i)
 		StepLayer(i, scaled);
 	ApplyRootMotion(dt);
+}
+
+void Animator::Step(float dt)
+{
+	if (m_Controller == nullptr)
+		return;
+	StepState(dt);
 	EvaluatePose();
 }
+
+// ------------------------------------------------------------------ 자세 평가 모으기 (군중)
+bool Animator::AnyRendererVisible(const std::vector<SkinnedMeshRenderer*>& renderers)
+{
+	if (renderers.empty())
+		return true;
+	for (SkinnedMeshRenderer* r : renderers)
+		if (r->IsEnabled() && (SceneCulling::IsVisible(r) || r->GetUpdateWhenOffscreen()))
+			return true;
+	return false;
+}
+
+bool Animator::PoseDueThisFrame(const std::vector<SkinnedMeshRenderer*>& renderers)
+{
+	// 자동 LOD (NOVA): 화면에 작게 보이는 캐릭터는 자세를 덜 자주 — LOD 2 는 2 프레임, LOD 3 은 4 프레임에 한 번.
+	//  상태 · 시간은 매 프레임 나아간다 (다음 계산 때 그 시간의 자세). 캐릭터마다 엇갈려 한 프레임에 몰리지 않게
+	SkinnedMeshRenderer* r = nullptr;
+	for (SkinnedMeshRenderer* c : renderers)
+		if (c->GetSkeleton()) { r = c; break; }
+	if (r == nullptr || !r->GetAutoLod())
+		return true;
+	const int lod = r->CurrentLod();
+	// 임포스터 (4) 는 그림 대신 클립 · 시간만 쓴다 — 그림자에도 보이지 않으면 자세가 필요 없다 (메시 단계로 돌아오면 그 프레임에 바로 다시)
+	if (lod >= SkinnedLod::kImpostorLevel && SceneCulling::Enabled && r->ShadowCullStamp != SceneCulling::ShadowStamp)
+	{
+		m_PoseSkipped = true;
+		return false;
+	}
+	if (m_PoseSkipped)
+	{
+		m_PoseSkipped = false;
+		return true;
+	}
+	// 그림자 (가장 낮은 메시) 용 자세만 가끔
+	const uint32_t interval = lod >= 4 ? 8u : lod == 3 ? 4u : lod == 2 ? 2u : 1u;
+	if (interval == 1)
+		return true;
+	const uint32_t phase = (uint32_t)(((uintptr_t)this >> 6) * 2654435761u >> 16);
+	return (SceneCulling::FrameIndex() + phase) % interval == 0;
+}
+
+bool Animator::CanEvaluateOffMain()
+{
+	if (m_Controller == nullptr || m_pGameObject == nullptr)
+		return true;
+	// 자세 후처리 (Legs · Look · Hands Animator · Dynamic Bone): 물리 · Transform 을 읽고 쓴다 → 메인
+	for (const auto& c : m_pGameObject->GetComponents())
+		if (c && c->IsEnabled() && dynamic_cast<IAnimatorPoseModifier*>(c.get()))
+			return false;
+	// 클립 읽기 (에셋) 는 메인 — 처음 쓰는 상태가 있으면 메인에서 읽는다
+	auto loaded = [](const AnimatorState& s) {
+		if (!s.IsBlendTree)
+			return s.Clip != nullptr || s.ClipPath.empty();
+		for (const BlendTreeChild& c : s.Tree.Children)
+			if (c.Clip == nullptr && !c.ClipPath.empty())
+				return false;
+		return true;
+	};
+	for (int li = 0; li < (int)m_Controller->Layers.size() && li < (int)m_Layers.size(); ++li)
+	{
+		const AnimatorLayer& layer = m_Controller->Layers[li];
+		for (int state : { m_Layers[li].Current, m_Layers[li].Next })
+			if (state >= 0 && state < (int)layer.States.size() && !loaded(layer.States[state]))
+				return false;
+	}
+	return true;
+}
+
+void Animator::FlushPendingPoses()
+{
+	s_LastFlush = (int)s_PendingPoses.size();
+	s_LastFlushParallel = 0;
+	if (s_PendingPoses.empty())
+		return;
+	PROFILE_SCOPE("Animator.EvaluatePoses");
+	std::vector<Animator*> pending;
+	pending.swap(s_PendingPoses);
+	std::vector<Animator*> parallel, main;
+	parallel.reserve(pending.size());
+	for (Animator* a : pending)
+	{
+		a->m_PosePending = false;
+		(a->CanEvaluateOffMain() ? parallel : main).push_back(a);
+	}
+	// 캐릭터마다 따로 (자기 캐시 · 자기 렌더러 팔레트만 쓴다). 공유하는 Humanoid 표는 잠금 · 스레드마다 임시 버퍼
+	Jobs::ParallelFor((int)parallel.size(), 8, [&](int b, int e) {
+		for (int i = b; i < e; ++i)
+			parallel[(size_t)i]->EvaluatePose();
+	}, "Animator Pose");
+	for (Animator* a : main)
+		a->EvaluatePose();
+	s_LastFlushParallel = (int)parallel.size();
+}
+
+int Animator::LastFlushCount() { return s_LastFlush; }
+int Animator::LastFlushParallel() { return s_LastFlushParallel; }
 
 // ------------------------------------------------------------------ 포즈
 namespace
@@ -424,6 +591,37 @@ namespace
 		}
 		return best;
 	}
+
+	// 이름이 맞는 두 스켈레톤의 바인드 자세가 같은가 (사람 본의 바인드 로컬 회전 + Hips 의 바인드 전역 회전이 15 도 안).
+	//  같은 모델 계열이면 이름 그대로 옮겨도 되지만, 이름만 같고 축 · 쉬는 자세가 다른 리그 (Unreal 마네킹 클립 → 다른 회사 캐릭터) 는
+	//  로컬 회전을 그대로 옮기면 누워 버린다 → Humanoid 로 옮긴다 (Unity 의 Humanoid 클립과 같게)
+	bool SameBindPose(const SkeletonAvataData& a, const Humanoid::Avatar& av, const SkeletonAvataData& b, const Humanoid::Avatar& bv)
+	{
+		auto rotationOf = [](const XMFLOAT4X4& m) {
+			XMVECTOR scale, rot, pos;
+			if (!XMMatrixDecompose(&scale, &rot, &pos, XMLoadFloat4x4(&m)))
+				return XMQuaternionIdentity();
+			return XMQuaternionNormalize(rot);
+		};
+		auto close = [](XMVECTOR p, XMVECTOR q) { return fabsf(XMVectorGetX(XMQuaternionDot(p, q))) > cosf(XMConvertToRadians(15.0f) * 0.5f); };
+		static const Humanoid::Bone kBones[] = { Humanoid::Hips, Humanoid::Spine, Humanoid::Chest, Humanoid::Head, Humanoid::LeftUpperArm, Humanoid::RightUpperArm,
+			Humanoid::LeftLowerArm, Humanoid::RightLowerArm, Humanoid::LeftUpperLeg, Humanoid::RightUpperLeg, Humanoid::LeftLowerLeg, Humanoid::RightLowerLeg };
+		for (Humanoid::Bone bone : kBones)
+		{
+			const int na = av.Node[bone], nb = bv.Node[bone];
+			if (na < 0 || nb < 0 || (size_t)na >= a.BindLocal.size() || (size_t)nb >= b.BindLocal.size())
+				continue;
+			if (!close(rotationOf(a.BindLocal[(size_t)na]), rotationOf(b.BindLocal[(size_t)nb])))
+				return false;
+		}
+		std::vector<XMFLOAT4X4> ga, gb;
+		AnimationPose::ComputeGlobals(a, a.BindLocal, ga);
+		AnimationPose::ComputeGlobals(b, b.BindLocal, gb);
+		const int ha = av.Node[Humanoid::Hips], hb = bv.Node[Humanoid::Hips];
+		if (ha >= 0 && hb >= 0 && (size_t)ha < ga.size() && (size_t)hb < gb.size() && !close(rotationOf(ga[(size_t)ha]), rotationOf(gb[(size_t)hb])))
+			return false;
+		return true;
+	}
 }
 
 Animator::ClipMap* Animator::GetClipMap(const AnimationClip* clip, const SkeletonAvataData& skeleton)
@@ -437,11 +635,13 @@ Animator::ClipMap* Animator::GetClipMap(const AnimationClip* clip, const Skeleto
 	for (int node : m.Map)
 		mapped += node >= 0;
 	auto source = clip->SourceSkeleton.lock();
-	if (m_AvatarMode == 0 && mapped * 2 < (int)clip->Channels.size() && source && source.get() != &skeleton)
+	if (m_AvatarMode == 0 && source && source.get() != &skeleton)
 	{
+		const bool namesMatch = mapped * 2 >= (int)clip->Channels.size();
 		const Humanoid::Avatar& src = Humanoid::Get(*source);
 		const Humanoid::Avatar& dst = Humanoid::Get(skeleton);
-		if (src.Valid && dst.Valid)
+		// 이름이 반 넘게 맞아도 바인드 자세가 다르면 Humanoid 로 (이름만 같은 다른 리그)
+		if (src.Valid && dst.Valid && (!namesMatch || !SameBindPose(*source, src, skeleton, dst)))
 		{
 			m.Retarget = true;
 			m.SourceSkeleton = source;
@@ -675,22 +875,137 @@ void Animator::PinRoot(const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4
 	local[node]._43 = back.z;
 }
 
+void Animator::CollectRendererRefs(GameObject* go)
+{
+	if (go == nullptr)
+		return;
+	for (const auto& c : go->GetComponents())
+		if (SkinnedMeshRenderer* s = dynamic_cast<SkinnedMeshRenderer*>(c.get()))
+		{
+			m_UpdateRenderers.push_back(s);
+			m_RendererRefs.push_back(c);
+		}
+	for (GameObject* child : go->Children())
+		CollectRendererRefs(child);
+}
+
+void Animator::RefreshRenderers()
+{
+	bool stale = m_pGameObject == nullptr || m_RendererKids != m_pGameObject->Children().size();
+	// 지운 렌더러: 컴포넌트가 지워지면 물리 번호가 오른다 — 번호가 그대로면 weak_ptr 를 보지 않는다 (1 만 명 × 부위 17 개를 프레임마다)
+	if (!stale && m_RendererSerial != Component::s_PhysicsSerial)
+		for (size_t i = 0; i < m_RendererRefs.size() && !stale; ++i)
+			stale = m_RendererRefs[i].expired();
+	m_RendererSerial = Component::s_PhysicsSerial;
+	if (stale)
+	{
+		m_UpdateRenderers.clear();
+		m_RendererRefs.clear();
+		m_RendererKids = m_pGameObject ? m_pGameObject->Children().size() : 0;
+		CollectRendererRefs(m_pGameObject);
+		m_MergeSerial = ~0u;
+	}
+	if (m_MergeSerial != SkinnedMeshRenderer::s_MergeSerial)
+	{
+		m_MergeSerial = SkinnedMeshRenderer::s_MergeSerial;
+		m_DrawRenderers.clear();
+		for (SkinnedMeshRenderer* r : m_UpdateRenderers)
+			if (!r->IsMerged())
+				m_DrawRenderers.push_back(r);
+	}
+	m_RenderersFrame = SceneCulling::FrameIndex();
+}
+
 void Animator::CollectRenderers(GameObject* go, std::vector<SkinnedMeshRenderer*>& out)
 {
 	if (go == nullptr)
 		return;
 	if (SkinnedMeshRenderer* r = go->GetComponent<SkinnedMeshRenderer>())
 		out.push_back(r);
-	for (GameObject* child : go->GetChildren())
+	for (GameObject* child : go->Children())   // 복사 없이 (프레임마다 — 군중)
 		CollectRenderers(child, out);
+}
+
+void Animator::UpdateNeededNodes(const SkeletonAvataData& skeleton, const std::vector<SkinnedMeshRenderer*>& renderers)
+{
+	// 본 줄이기 (Skeletal LOD): 렌더러가 모두 LOD 2 이상이면 그 단계 (와 그림자의 한 단계 아래) 정점이 가리키는 본만
+	int level = SkinnedLod::kImpostorLevel;
+	for (SkinnedMeshRenderer* r : renderers)
+		if (r->GetSkeleton().get() == &skeleton && !r->IsMerged())   // 합쳐진 부위는 그리지 않는다 (대표만)
+			level = (std::min)(level, r->GetAutoLod() ? r->CurrentLod() : 0);
+	const bool reduced = level >= 2 && Application::IsPlaying() && CanEvaluateOffMain();   // 자세 후처리 (IK) 가 있으면 전부
+	size_t key = (size_t)&skeleton + (reduced ? (size_t)level * 7919u : 0u);
+	for (SkinnedMeshRenderer* r : renderers)
+		key = key * 1315423911u + (size_t)r->GetMesh().get() * 31u + r->PaletteNodes().size();
+	if (m_NeededFor == &skeleton && m_NeededKey == key)
+		return;
+	if (reduced)
+	{
+		const size_t n = skeleton.BoneHierarchy.size();
+		std::vector<uint8_t> need(n, 0);
+		bool ok = true;
+		for (SkinnedMeshRenderer* r : renderers)
+		{
+			if (r->GetSkeleton().get() != &skeleton || r->IsMerged())
+				continue;
+			const std::vector<int>& pal = r->PaletteNodes();
+			const int lv = (std::min)(level, SkinnedLod::kLevels - 1);
+			for (int l : { lv, (std::min)(lv + 1, SkinnedLod::kLevels - 1) })
+			{
+				const std::vector<int>* used = SkinnedLod::UsedBones(r->GetMesh().get(), l);
+				if (used == nullptr) { ok = false; break; }
+				for (int k : *used)
+					for (int p = k < (int)pal.size() ? pal[(size_t)k] : -1; p >= 0 && (size_t)p < n && !need[(size_t)p]; p = skeleton.BoneHierarchy[(size_t)p])
+						need[(size_t)p] = 1;
+			}
+		}
+		if (ok)
+		{
+			m_NeededFor = &skeleton;
+			m_NeededKey = key;
+			m_NeededNodes.clear();
+			for (size_t i = 0; i < n; ++i)
+				if (need[i])
+					m_NeededNodes.push_back((int)i);
+			return;
+		}
+		key -= (size_t)level * 7919u;   // LOD 가 아직 없다 — 전부 (아래)
+	}
+	m_NeededFor = &skeleton;
+	m_NeededKey = key;
+	const size_t n = skeleton.BoneHierarchy.size();
+	std::vector<uint8_t> need(n, 0);
+	auto mark = [&](int node) {
+		for (int p = node; p >= 0 && (size_t)p < n && !need[(size_t)p]; p = skeleton.BoneHierarchy[(size_t)p])
+			need[(size_t)p] = 1;
+	};
+	for (SkinnedMeshRenderer* r : renderers)
+		if (r->GetSkeleton().get() == &skeleton && !r->IsMerged())
+			for (int node : r->PaletteNodes())
+				mark(node);
+	const Humanoid::Avatar& av = Humanoid::Get(skeleton);
+	if (av.Valid)
+		for (int b = 0; b < Humanoid::BoneCount; ++b)
+			mark(av.Node[b]);
+	m_NeededNodes.clear();
+	for (size_t i = 0; i < n; ++i)
+		if (need[i])
+			m_NeededNodes.push_back((int)i);
 }
 
 void Animator::EvaluatePose()
 {
 	if (m_Controller == nullptr)
 		return;
-	std::vector<SkinnedMeshRenderer*> renderers;
-	CollectRenderers(m_pGameObject, renderers);
+	// 이번 프레임 Update 가 모은 목록 (Play 의 자세 모으기) — 아니면 (편집 · Rebind · 물리 갱신) 새로 모은다
+	std::vector<SkinnedMeshRenderer*>& renderers = m_EvalRenderers;   // 작업 스레드에서도 이 Animator 것만
+	if (m_RenderersFrame == SceneCulling::FrameIndex())
+		renderers = m_DrawRenderers;   // 합쳐진 부위는 자세를 받지 않는다 (대표의 팔레트)
+	else
+	{
+		renderers.clear();
+		CollectRenderers(m_pGameObject, renderers);
+	}
 	const SkeletonAvataData* computedFor = nullptr;
 	for (SkinnedMeshRenderer* renderer : renderers)
 	{
@@ -699,7 +1014,8 @@ void Animator::EvaluatePose()
 			continue;
 		if (computedFor != skeleton.get())
 		{
-			m_LocalFinal = skeleton->BindLocal;
+			// 레이어 자세는 바꿔 끼운다 (복사하지 않는다 — 노드 수백 개 × 64 바이트)
+			bool have = false;
 			for (int li = 0; li < (int)m_Controller->Layers.size() && li < (int)m_Layers.size(); ++li)
 			{
 				const AnimatorLayer& layer = m_Controller->Layers[li];
@@ -713,20 +1029,29 @@ void Animator::EvaluatePose()
 					AnimationPose::Blend(m_LocalA, m_LocalB, r.TransitionDuration > 0.0f ? r.TransitionElapsed / r.TransitionDuration : 1.0f, m_LocalLayer);
 				}
 				else
-					m_LocalLayer = m_LocalA;
+					m_LocalLayer.swap(m_LocalA);
 				// 첫 레이어는 그대로, 다음 레이어는 Weight 만큼 덮어쓴다 (Override)
 				const float weight = li == 0 ? 1.0f : layer.Weight;
 				if (weight >= 0.999f)
-					m_LocalFinal = m_LocalLayer;
+				{
+					m_LocalFinal.swap(m_LocalLayer);
+					have = true;
+				}
 				else if (weight > 0.001f)
 				{
+					if (!have)
+						m_LocalFinal = skeleton->BindLocal;
+					have = true;
 					std::vector<XMFLOAT4X4> mixed;
 					AnimationPose::Blend(m_LocalFinal, m_LocalLayer, weight, mixed);
 					m_LocalFinal.swap(mixed);
 				}
 			}
+			if (!have)
+				m_LocalFinal = skeleton->BindLocal;
 			PinRoot(*skeleton, m_LocalFinal);
-			AnimationPose::ComputeGlobals(*skeleton, m_LocalFinal, m_Global);
+			UpdateNeededNodes(*skeleton, renderers);
+			AnimationPose::ComputeGlobals(*skeleton, m_LocalFinal, m_Global, m_NeededNodes);
 			if (Application::IsPlaying())
 				ApplyPoseModifiers(*skeleton, renderer);
 			computedFor = skeleton.get();
@@ -824,9 +1149,65 @@ void Animator::Start()
 void Animator::Update()
 {
 	// Unity: animator.enabled = false 면 멈춘다 (자세 · 루트 모션 그대로 — 래그돌이 끈다)
-	if (!m_Enabled || m_UpdateMode == 1 || m_AnimatePhysics)
+	if (!m_Enabled || m_UpdateMode == 1 || m_AnimatePhysics || m_Controller == nullptr)
 		return;
-	Step(m_UpdateMode == 2 ? TimeManager::GetI()->GetfDT() : DT);
+	const float dt = m_UpdateMode == 2 ? TimeManager::GetI()->GetfDT() : DT;
+	RefreshRenderers();
+	// Culling Mode (Unity): 렌더러가 하나도 보이지 않으면 Cull Completely 는 멈추고, Cull Update Transforms 는 상태만 나아간다
+	const bool visible = m_CullingMode == 0 || AnyRendererVisible(m_DrawRenderers);   // 합쳐진 부위는 컬링에서 빠져 늘 보인다고 나온다 — 그리는 것만
+	if (!visible && m_CullingMode == 2)
+		return;
+	StepState(dt);
+	if (!visible)
+		return;
+	// 렌더러에 재생 중인 클립 · 시간 (기본 레이어) — 멀리서 그 클립의 애니메이션 임포스터로 그린다 (자동)
+	if (!m_Layers.empty() && !m_Controller->Layers.empty())
+	{
+		const AnimatorLayer& layer = m_Controller->Layers[0];
+		const LayerRuntime& lr = m_Layers[0];
+		if (lr.Current >= 0 && lr.Current < (int)layer.States.size())
+		{
+			AnimatorState& s = const_cast<AnimatorState&>(layer.States[(size_t)lr.Current]);
+			std::shared_ptr<AnimationClip> clip;
+			float time = lr.Time;
+			if (!s.IsBlendTree)
+			{
+				if (s.Clip == nullptr && !s.ClipPath.empty())
+					s.LoadClip();
+				clip = s.Clip;
+			}
+			else
+			{
+				// Blend Tree: 가장 무거운 자식 (Time = 정규화 시간)
+				std::vector<float> w;
+				GetBlendWeights(s, w);
+				int best = -1;
+				for (int i = 0; i < (int)w.size(); ++i)
+					if (best < 0 || w[(size_t)i] > w[(size_t)best]) best = i;
+				if (best >= 0 && best < (int)s.Tree.Children.size())
+				{
+					BlendTreeChild& c = s.Tree.Children[(size_t)best];
+					if (c.Clip == nullptr && !c.ClipPath.empty())
+						c.LoadClip();
+					clip = c.Clip;
+					time = lr.Time * (clip ? clip->GetClipEndTime() : 0.0f);
+				}
+			}
+			for (SkinnedMeshRenderer* r : m_DrawRenderers)
+				r->SetAnimationHint(clip, time, s.Loop);
+		}
+	}
+	if (!Application::IsPlaying())
+	{
+		EvaluatePose();
+		return;
+	}
+	// 자세는 모든 Update 뒤에 한 번에 (Scene::SetAfterUpdateHook → FlushPendingPoses)
+	if (!m_PosePending && PoseDueThisFrame(m_DrawRenderers))
+	{
+		m_PosePending = true;
+		s_PendingPoses.push_back(this);
+	}
 }
 
 void Animator::LastUpdate()
