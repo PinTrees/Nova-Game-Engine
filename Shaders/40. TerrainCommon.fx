@@ -61,9 +61,25 @@ float3 TerrainVertexWorld(uint vid, out float2 uv)
 {
     uint side = (uint) gTerrainPatch.w;
     int step = (int) gTerrainPatch.z;
-    int2 cell = int2(gTerrainPatch.xy) + int2(vid % side, vid / side) * step;
+    uint grid = side * side;
+    int2 local;
+    float drop = 0.0f;
+    if (vid >= grid)
+    {
+        // 스커트 (월드 타일 가장자리, gTerrainOrigin.w = 깊이 m): 가장자리 격자점을 아래로 내린 정점 — 해상도가 다른 이웃 타일과의 틈을 가린다.
+        //  번호 = grid + 변 (0 -X, 1 +X, 2 -Z, 3 +Z) * side + 변 위 차례
+        uint k = vid - grid;
+        uint s = k / side;
+        int i = (int) (k % side);
+        int last = (int) side - 1;
+        local = s == 0 ? int2(0, i) : (s == 1 ? int2(last, i) : (s == 2 ? int2(i, 0) : int2(i, last)));
+        drop = gTerrainOrigin.w;
+    }
+    else
+        local = int2(vid % side, vid / side);
+    int2 cell = int2(gTerrainPatch.xy) + local * step;
     uv = (float2) cell / (gTerrainSize.w - 1.0f);
-    return gTerrainOrigin.xyz + float3(uv.x * gTerrainSize.x, TerrainHeightAt(cell), uv.y * gTerrainSize.z);
+    return gTerrainOrigin.xyz + float3(uv.x * gTerrainSize.x, TerrainHeightAt(cell) - drop, uv.y * gTerrainSize.z);
 }
 
 // 높이맵 중앙 차분 법선 (픽셀 단위로 계산해 LOD 가 낮아도 조명은 원래 해상도)

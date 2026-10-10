@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, pcg, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6928,6 +6928,95 @@ function Suite-Crowd
     }
 }
 
+# ------------------------------------------------------------------ PCG · 초대형 열린 월드 (World Terrain + PCG Graph)
+function Suite-PCG
+{
+    # GameObject > Open World: 타일 지형이 카메라 둘레부터 지어지고, PCG 그래프 (표본 → 돌리기 → 메시) 가 Cull Distance 안을 채운다.
+    #  같은 규칙 = 같은 결과 (다시 만들어도 수가 같다), 값을 바꾸면 바로 다시 채워진다 (밀도 두 배 = 수 두 배), 스포너를 끄면 사라진다
+    Write-Host '[pcg]'
+    $dir = Join-Path $Out 'pcg'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $graph = 'Assets\PCG\SuiteTest.pcg'
+    $graphFile = Join-Path $Project $graph
+    New-Item -ItemType Directory -Force (Split-Path $graphFile) | Out-Null
+    @'
+{ "nova_pcg": 1, "nextId": 4,
+  "nodes": [
+    { "id": 1, "type": "SurfaceSampler", "x": 0, "y": 0, "params": { "pointsPerSquaredMeter": 0.01, "looseness": 1, "pointExtents": 1, "seed": 0 } },
+    { "id": 2, "type": "TransformPoints", "x": 260, "y": 0, "params": { "yawMin": 0, "yawMax": 360, "scaleMin": 1, "scaleMax": 2, "alignToNormal": 1 } },
+    { "id": 3, "type": "StaticMeshSpawner", "x": 520, "y": 0, "params": { "cullDistance": 300, "castShadows": 1, "shadowDistance": 100 },
+      "meshes": [ { "path": "Resources\\Meshs\\Rock\\Mossy_rock_var8.fbx", "weight": 1 } ] } ],
+  "edges": [ { "from": 1, "to": 2, "pin": 0 }, { "from": 2, "to": 3, "pin": 0 } ] }
+'@ | Set-Content -Encoding utf8 $graphFile
+    function Pcg { (Invoke-NovaJson 'pcg info').volumes[0] }
+    Add-Type -AssemblyName System.Drawing
+    function ImageDiff([string]$a, [string]$b)
+    {
+        $p = [System.Drawing.Bitmap]::FromFile($a); $q = [System.Drawing.Bitmap]::FromFile($b)
+        $s = 0.0; $n = 0
+        for ($y = 0; $y -lt [math]::Min($p.Height, $q.Height); $y += 4) { for ($x = 0; $x -lt [math]::Min($p.Width, $q.Width); $x += 4) {
+            $c = $p.GetPixel($x, $y); $d = $q.GetPixel($x, $y); $s += ([math]::Abs($c.R - $d.R) + [math]::Abs($c.G - $d.G) + [math]::Abs($c.B - $d.B)) / 3.0; $n++ } }
+        $p.Dispose(); $q.Dispose()
+        $s / [math]::Max(1, $n)
+    }
+    function Settled { [void](Wait-Until { $v = Pcg; $v -and [int]$v.pending -eq 0 -and [int]$v.ready -eq [int]$v.cells -and [int]$v.cells -gt 0 } -Seconds 90 -MinSeconds 1 -Frames 15) }
+    $ed = Start-TestEditor -WatchSeconds 600
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create open-world --size 8192' | Out-Null
+        Invoke-Nova ('set "Open World" --component PCGVolume --values "{\"graph\":\"' + ($graph -replace '\\', '\\\\') + '\"}"') | Out-Null
+        $g = Invoke-NovaJson 'world height --x 0 --z 0'
+        Invoke-Nova ("set `"Main Camera`" --position 0,{0},-30 --rotation 12,0,0" -f ([double]$g.height + 12).ToString([Globalization.CultureInfo]::InvariantCulture)) | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        [void](Wait-Until { $w = Invoke-NovaJson 'world info'; $w -and [int]$w.built -eq [int]$w.tiles -and [int]$w.pending -eq 0 } -Seconds 120 -MinSeconds 1 -Frames 20)
+        $w = Invoke-NovaJson 'world info'
+        $h2 = Invoke-NovaJson 'world height --x 0 --z 0'
+        Add-Result pcg 'Open World 8 km: 64 tiles of 1 km built around the camera (near tiles 513, far 33), height is a pure function of position' ([int]$w.tiles -eq 64 -and [int]$w.built -eq 64 -and [int]$w.res513 -ge 1 -and [double]$h2.height -eq [double]$g.height) "tiles $($w.tiles) built $($w.built) (513: $($w.res513), 129: $($w.res129), 33: $($w.res33)), ground $([math]::Round([double]$g.height, 2)) m twice"
+
+        Settled
+        $v1 = Pcg
+        Invoke-Nova 'wait 10' | Out-Null
+        $png1 = Join-Path $dir 'rocks.png'
+        Invoke-Nova "screenshot `"$png1`" --view game" | Out-Null
+        $n1 = [int]$v1.instances
+        # 반지름 300 m 원 안 · 0.01 / m2 ≈ 2800 (셀은 사각형이라 조금 더)
+        Add-Result pcg 'PCG graph (Surface Sampler → Transform Points → Static Mesh Spawner) fills the cull radius around the camera and draws it instanced' ($n1 -gt 1500 -and $n1 -lt 9000 -and [int]$v1.drawn -gt 0 -and [int]$v1.batches -lt 40) "instances $n1 in $($v1.cells) cells, drawn $($v1.drawn) in $($v1.batches) batches, $([math]::Round([double]$v1.avgCellMs, 2)) ms per cell"
+
+        Invoke-Nova 'pcg regen' | Out-Null
+        Settled
+        $n2 = [int](Pcg).instances
+        Add-Result pcg 'same rules = same result: regenerating gives the same instances (points come from a world grid and position hashes)' ($n2 -eq $n1) "first $n1, regenerated $n2"
+
+        Invoke-Nova 'pcg set --node 1 --param pointsPerSquaredMeter --value 0.02' | Out-Null
+        Settled
+        $n3 = [int](Pcg).instances
+        $ratio = if ($n1 -gt 0) { $n3 / $n1 } else { 0 }
+        $savedJson = Get-Content $graphFile -Raw | ConvertFrom-Json
+        $savedDensity = [double](@($savedJson.nodes | Where-Object { $_.id -eq 1 })[0].params.pointsPerSquaredMeter)
+        Add-Result pcg 'editing a rule regenerates right away (density x2 → about twice the rocks) and saves the .pcg' ($ratio -gt 1.7 -and $ratio -lt 2.3 -and [math]::Abs($savedDensity - 0.02) -lt 1e-4) "instances $n1 → $n3 (x$([math]::Round($ratio, 2))), saved density $savedDensity"
+
+        Invoke-Nova 'pcg enable --node 3 --enabled false' | Out-Null
+        [void](Wait-Until { [int](Pcg).instances -eq 0 } -Seconds 30 -Frames 20)
+        $png2 = Join-Path $dir 'disabled.png'
+        Invoke-Nova "screenshot `"$png2`" --view game" | Out-Null
+        $d = ImageDiff $png1 $png2
+        Add-Result pcg 'disabling the spawner removes its instances (and they disappear from the view)' ([int](Pcg).instances -eq 0 -and $d -gt 0.5) "instances $((Pcg).instances), picture change mean $([math]::Round($d, 2))"
+
+        $gj = Invoke-NovaJson 'pcg graph'
+        $spawnerMeshes = @(@($gj.nodes | Where-Object { $_.type -eq 'StaticMeshSpawner' })[0].meshes)
+        Add-Result pcg 'graph JSON round trip (nodes · edges · meshes)' ($gj -and @($gj.nodes).Count -eq 3 -and @($gj.edges).Count -eq 2 -and $spawnerMeshes.Count -eq 1) "nodes $(@($gj.nodes).Count), edges $(@($gj.edges).Count), spawner meshes $($spawnerMeshes.Count)"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $graphFile, "$graphFile.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
 function Suite-RenderThread
 {
@@ -8298,6 +8387,7 @@ try
                 'transform' { Suite-Transform }
                 'streaming' { Suite-Streaming }
                 'crowd' { Suite-Crowd }
+                'pcg' { Suite-PCG }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

@@ -7,6 +7,7 @@
 #include "ShaderGraphRuntime.h"
 #include "ShaderGraphWindow.h"
 #include "VfxGraphWindow.h"
+#include "PCGGraphWindow.h"
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "GfxGL.h"
@@ -438,7 +439,8 @@ bool App::Init()
 	EditorGUIManager::GetI()->RegisterWindow(new PackageManagerWindow);   // Window > Package Manager
 	EditorGUIManager::GetI()->RegisterWindow(new AudioMixerWindow);       // Window > Audio Mixer
 	ShaderGraph::RegisterEditor();                                         // Window > Shader Graph · .shadergraph · nova shadergraph
-	VfxGraphWindow::RegisterEditor();                                      // Window > Visual Effects · .vfx · nova vfx · VFX Assistant (Claude Code)
+	VfxGraphWindow::RegisterEditor();
+	PCGGraphWindow::RegisterEditor();                                      // Window > PCG Graph · .pcg · PCG Volume 의 Open Graph                                      // Window > Visual Effects · .vfx · nova vfx · VFX Assistant (Claude Code)
 	}
 
 	RenderThread::InitFromSettings();   // Multithreaded Rendering (DirectX 11): 장치 · ImGui 다음

@@ -361,6 +361,11 @@ build/
 /Resources/Packages/**/*.mesh
 /Resources/Packages/**/*.animations
 /Resources/Packages/**/*.skeletons
+/Resources/Meshs/**/*.mesh
+/Resources/Meshs/**/*.animations
+/Resources/Meshs/**/*.skeletons
+# PCG: FBX 재질 칸 목록 캐시 (모델 옆)
+/Resources/**/*.materials.json
 /dist/
 /TestResults/
 

@@ -30,6 +30,7 @@ public:
 	void Destroy();
 
 	ComPtr<GfxShaderResourceView> LoadTexture(wstring filename);
+	bool HasTexture(const wstring& filename) const { return m_TextureSRV.count(filename) != 0; }   // 이미 읽었나 (미리 디코드를 건너뛴다)
 	shared_ptr<UMaterial>	LoadMaterial(string filename);
 	shared_ptr<Mesh>		LoadMesh(wstring filename, int index);
 	shared_ptr<SkinnedMesh> LoadSkinnedMesh(wstring filename, int index);

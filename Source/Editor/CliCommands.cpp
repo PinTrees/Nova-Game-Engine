@@ -1,4 +1,7 @@
 #include "pch.h"
+#include "WorldTerrain.h"
+#include "PCGVolume.h"
+#include "PCGGraph.h"
 #include "RenderingDebuggerWindow.h"
 #include "RenderGraphViewerWindow.h"
 #include "ProfilerEditorWindow.h"
@@ -405,6 +408,8 @@ namespace
 		if (type == "spline") return named(GameObjectFactory::CreateSpline(args.value("preset", 0)));
 		if (type == "prototype") return named(GameObjectFactory::CreatePrototypeShape(args.value("preset", 0)));   // 0 상자 1 계단 2 경사 3 원기둥 4 원뿔 5 아치 벽 6 원호 벽   // 0 곡선, 1 성벽, 2 울타리, 3 판자 길, 4 길
 		if (type == "rock-scatter") return named(GameObjectFactory::CreateRockScatter(args.value("preset", 2)));
+		if (type == "open-world") return named(GameObjectFactory::CreateOpenWorld(args.value("size", 32768.0f)));
+		if (type == "pcg-volume") return named(GameObjectFactory::CreatePCGVolume(args.value("graph", std::string())));
 		if (type == "ocean") return named(GameObjectFactory::CreateWaterBody(0));
 		if (type == "lake") return named(GameObjectFactory::CreateWaterBody(1));
 		if (type == "river") return named(GameObjectFactory::CreateWaterBody(2));
@@ -440,7 +445,7 @@ namespace
 			return g;
 		}
 		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, global-light-2d, spot-light-2d, "
-			"camera, terrain, tree, rock, rock-scatter, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character, car, ragdoll-target)";
+			"camera, terrain, tree, rock, rock-scatter, open-world {size}, pcg-volume {graph}, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character, car, ragdoll-target)";
 		return nullptr;
 	}
 
@@ -1212,6 +1217,84 @@ namespace CliCommands
 		});
 
 		// 치수: 오브젝트 (자식 포함) 의 메시 월드 범위 — Scene 뷰 Selection Dimensions 와 같은 값 (고른다)
+		// 초대형 월드 (World Terrain): 타일 상태 · 값 바꾸기 · 그 자리 높이 · 바이옴
+		Register("world", "open world terrain {op: info|set|height|regen, values {..}, x, z}", [](const json& a, json& r, std::string& e) {
+			WorldTerrain* w = WorldTerrain::Active();
+			if (w == nullptr) { e = "no World Terrain in the scene (nova create open-world)"; return false; }
+			const std::string op = a.value("op", std::string("info"));
+			if (op == "set")
+			{
+				json j = w->toJson();
+				for (auto it = a.value("values", json::object()).begin(); it != a.value("values", json::object()).end(); ++it)
+					j[it.key()] = it.value();
+				w->fromJson(j);
+			}
+			else if (op == "regen")
+				w->RegenerateAll();
+			else if (op == "height")
+			{
+				const float x = a.value("x", 0.0f), z = a.value("z", 0.0f);
+				const float h01 = WorldGen::Height01(w->Settings, x, z);
+				float nx, ny, nz;
+				WorldGen::Normal(w->Settings, x, z, 2.0f, nx, ny, nz);
+				const WorldGen::Biome b = WorldGen::BiomeAt(w->Settings, x, z, h01, ny);
+				r = { { "height", h01 * w->Settings.MaxHeight }, { "slope", XMConvertToDegrees(acosf(ny)) },
+					{ "biome", { { "forest", b.Forest }, { "meadow", b.Meadow }, { "desert", b.Desert }, { "rock", b.Rock } } } };
+				return true;
+			}
+			const WorldTerrain::Info i = w->GetInfo();
+			r = { { "settings", w->toJson() }, { "tiles", i.Tiles }, { "built", i.Built }, { "pending", i.Pending }, { "res513", i.Res513 }, { "res129", i.Res129 },
+				{ "res33", i.Res33 }, { "colliders", i.Colliders }, { "applyMs", i.LastApplyMs } };
+			return true;
+		});
+
+		// PCG: 볼륨 상태 · 다시 만들기 · 그래프 노드 값 (그래프 창과 같은 객체 — 바로 다시 만든다)
+		Register("pcg", "PCG volumes {op: info|regen|set|enable|save|graph|window, node, param, value, enabled, path}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("info"));
+			const auto& volumes = PCGVolume::All();
+			if (volumes.empty()) { e = "no PCG Volume in the scene"; return false; }
+			PCGVolume* v = volumes.front();
+			std::shared_ptr<PCG::Graph> g = v->GetGraph();
+			if (op == "regen")
+			{
+				for (PCGVolume* x : volumes)
+					x->Regenerate();
+			}
+			else if (op == "window")
+			{
+				if (PCGVolume::s_OpenGraphWindow)
+					PCGVolume::s_OpenGraphWindow(a.value("path", v->GraphPath));
+			}
+			else if (op == "set" || op == "enable")
+			{
+				if (!g) { e = "volume has no graph"; return false; }
+				PCG::Node* n = g->Find(a.value("node", 0));
+				if (n == nullptr) { e = "no node " + std::to_string(a.value("node", 0)); return false; }
+				if (op == "set")
+					n->Set(a.value("param", std::string()).c_str(), a.value("value", 0.0f));
+				else
+					n->Enabled = a.value("enabled", true);
+				g->Touch();
+				PCG::SaveGraph(v->GraphPath, *g);
+			}
+			else if (op == "save")
+			{
+				if (!g) { e = "volume has no graph"; return false; }
+				PCG::SaveGraph(a.value("path", v->GraphPath), *g);
+			}
+			else if (op == "graph")
+			{
+				if (!g) { e = "volume has no graph"; return false; }
+				r = json::parse(g->ToJson());
+				return true;
+			}
+			json list = json::array();
+			for (PCGVolume* x : volumes)
+				list.push_back(x->Info());
+			r = { { "volumes", list } };
+			return true;
+		});
+
 		Register("dimensions", "world size of an object's meshes (children too) {target}", [](const json& a, json& r, std::string& e) {
 			GameObject* go = Resolve(a.value("target", json()), e);
 			if (!go) return false;

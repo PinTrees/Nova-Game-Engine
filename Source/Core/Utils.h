@@ -30,6 +30,8 @@ public:
 	static HRESULT DecodeTexture(const wstring& path, DirectX::ScratchImage& img, DirectX::TexMetadata& md, int& sourceW, int& sourceH);
 	// 씬 스트리밍: 디코드를 백그라운드 잡에서 미리 (LoadTexture 는 GPU 로 올리기만). path = 디스크 전체 경로 (GetMovePathW)
 	static void PrefetchTexture(const wstring& path);
+	// 미리 디코드가 끝났거나 (또는 요청이 없거나) — 부른 쪽이 기다리지 않고 다음 프레임에 다시 볼 때 (PCG 모델 읽기)
+	static bool PrefetchReady(const wstring& path);
 	// 씬 스트리밍: 파일을 백그라운드에서 읽어 OS 캐시를 데운다 (모델 캐시 .mesh 등 — 메인이 읽을 때 디스크를 기다리지 않게)
 	static void PrefetchFile(const wstring& path);
 	struct PrefetchStats { uint64_t Requested = 0, Used = 0, Waited = 0, Claimed = 0, Files = 0; double DecodeMs = 0; };

@@ -1512,6 +1512,14 @@ float4 PS_Batch(BatchVertexOut pin) : SV_Target
     return LitPS(v, baseColor, metallic, smoothness, emission);
 }
 
+// 양면 (뒷면 컬링을 끈 재질 — PCG 의 잎 · 빌보드): 뒷면이면 법선을 뒤집어 앞면처럼 비춘다 (앞면만 그리는 재질은 그대로)
+float4 PS_BatchFace(BatchVertexOut pin, bool front : SV_IsFrontFace) : SV_Target
+{
+    if (!front)
+        pin.NormalW = -pin.NormalW;
+    return PS_Batch(pin);
+}
+
 #ifndef NOVA_NO_ENGINE_TECHNIQUES   // 데칼 등 함수만 쓰는 파일은 기법을 뺀다
 technique11 BatchTech
 {
@@ -1519,7 +1527,7 @@ technique11 BatchTech
     {
         SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
         SetGeometryShader(NULL);
-        SetPixelShader(CompileShader(ps_5_0, PS_Batch()));
+        SetPixelShader(CompileShader(ps_5_0, PS_BatchFace()));
     }
 }
 
@@ -1567,13 +1575,20 @@ GBufferOut PS_BatchGBuffer(BatchVertexOut pin)
     return o;
 }
 
+GBufferOut PS_BatchGBufferFace(BatchVertexOut pin, bool front : SV_IsFrontFace)
+{
+    if (!front)
+        pin.NormalW = -pin.NormalW;
+    return PS_BatchGBuffer(pin);
+}
+
 technique11 BatchGBufferTech
 {
     pass P0
     {
         SetVertexShader(CompileShader(vs_5_0, VS_BatchColor()));
         SetGeometryShader(NULL);
-        SetPixelShader(CompileShader(ps_5_0, PS_BatchGBuffer()));
+        SetPixelShader(CompileShader(ps_5_0, PS_BatchGBufferFace()));
     }
 }
 

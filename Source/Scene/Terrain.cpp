@@ -86,7 +86,7 @@ void Terrain::DrawPass(TerrainRenderer::Pass pass, bool editor)
 	const uint32 layerBit = 1u << ((m_pGameObject ? m_pGameObject->GetLayerIndex() : 0) & 31);
 	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), layerBit);   // Light.cullingMask
 	TerrainRenderer::Draw(*m_Data, GetPosition(), pass, m_PixelError, pass == TerrainRenderer::Pass::Main ? (editor ? &m_EditorStats : &m_GameStats) : nullptr,
-		m_HeightBlend ? m_HeightTransition : 0.0f);
+		m_HeightBlend ? m_HeightTransition : 0.0f, m_SkirtDepth);
 	RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);
 }
 

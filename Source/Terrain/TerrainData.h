@@ -135,6 +135,9 @@ public:
 	void RestoreState(int resolution, const Vec3& size, const std::vector<float>& heights, const std::vector<uint8_t>& control,
 		const std::vector<std::shared_ptr<TerrainLayer>>& layers);
 
+	// 만든 데이터로 통째로 바꾼다 (World Terrain 타일 — 파일 없이 메모리에만, 저장 안 됨). 쿼드트리 · 텍스처를 새로
+	void SetGenerated(int resolution, const Vec3& size, std::vector<float>&& heights, int controlResolution, std::vector<uint8_t>&& control);
+
 	// ---- 높이 (지형 로컬 좌표, 미터) ----
 	float GetHeightSample(int x, int z) const;     // 격자점 (정규화 0~1)
 	float GetHeight(float x, float z) const;       // 삼각형 보간 (렌더링 메시와 같은 면)

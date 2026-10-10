@@ -17,7 +17,33 @@ namespace
 	{
 		ComPtr<GfxBuffer> Buffers[16];
 		UINT Counts[16] = {};
+		ComPtr<GfxBuffer> Skirts[4];   // 변마다 스커트 (0 -X, 1 +X, 2 -Z, 3 +Z) — 가장자리 격자점과 내린 정점 (TerrainVertexWorld)
+		UINT SkirtCount = 0;
 	};
+
+	// 스커트 한 변: 가장자리 격자점 a(i) 와 내린 정점 (side² + 변 * side + i) 의 띠 — 양면 (어느 쪽에서 봐도 틈을 가린다)
+	std::vector<uint16_t> BuildSkirt(int cells, int sideIndex)
+	{
+		const int side = cells + 1;
+		auto border = [&](int i) -> uint16_t {
+			switch (sideIndex)
+			{
+			case 0: return (uint16_t)(i * side);
+			case 1: return (uint16_t)(cells + i * side);
+			case 2: return (uint16_t)i;
+			default: return (uint16_t)(cells * side + i);
+			}
+		};
+		auto skirt = [&](int i) { return (uint16_t)(side * side + sideIndex * side + i); };
+		std::vector<uint16_t> out;
+		for (int i = 0; i < cells; ++i)
+		{
+			const uint16_t a = border(i), b = border(i + 1), a2 = skirt(i), b2 = skirt(i + 1);
+			const uint16_t tris[12] = { a, b, b2, a, b2, a2, a, b2, b, a, a2, b2 };
+			out.insert(out.end(), tris, tris + 12);
+		}
+		return out;
+	}
 
 	std::vector<uint16_t> BuildIndices(int cells, int mask)
 	{
@@ -66,6 +92,17 @@ namespace
 			D3D11_SUBRESOURCE_DATA init = { idx.data(), 0, 0 };
 			device->CreateBuffer(&desc, &init, set.Buffers[m].GetAddressOf());
 			set.Counts[m] = (UINT)idx.size();
+		}
+		for (int s = 0; s < 4; ++s)
+		{
+			const std::vector<uint16_t> idx = BuildSkirt(cells, s);
+			D3D11_BUFFER_DESC desc = {};
+			desc.ByteWidth = (UINT)(idx.size() * sizeof(uint16_t));
+			desc.Usage = D3D11_USAGE_IMMUTABLE;
+			desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+			D3D11_SUBRESOURCE_DATA init = { idx.data(), 0, 0 };
+			device->CreateBuffer(&desc, &init, set.Skirts[s].GetAddressOf());
+			set.SkirtCount = (UINT)idx.size();
 		}
 		return set;
 	}
@@ -166,7 +203,8 @@ namespace
 
 	GfxShaderResourceView* HeightArrayFor(TerrainData& data)
 	{
-		static std::unordered_map<const TerrainData*, HeightArray> s_Arrays;
+		// 레이어 조합마다 하나 (지형마다가 아니다 — World Terrain 타일 1024 개가 같은 레이어면 한 장, 예전에는 타일마다 21 MB)
+		static std::unordered_map<std::string, HeightArray> s_Arrays;
 		static std::unique_ptr<Effect> s_Blit;
 		static bool s_BlitTried = false;
 		GfxShaderResourceView* src[TerrainData::kMaxLayers] = {};
@@ -181,7 +219,7 @@ namespace
 				nrm[i] = l.NormalSRV();
 			key += l.HeightPath + "#" + std::to_string((uintptr_t)src[i]) + "#" + l.NormalPath + "#" + std::to_string((uintptr_t)nrm[i]) + "|";
 		}
-		HeightArray& a = s_Arrays[&data];
+		HeightArray& a = s_Arrays[key];
 		if (a.Srv && a.Key == key)
 			return a.Srv.Get();
 		if (!s_BlitTried)
@@ -421,7 +459,7 @@ namespace
 
 namespace TerrainRenderer
 {
-	void Draw(TerrainData& data, const Vec3& origin, Pass pass, float pixelError, Stats* stats, float heightTransition)
+	void Draw(TerrainData& data, const Vec3& origin, Pass pass, float pixelError, Stats* stats, float heightTransition, float skirt)
 	{
 		TerrainVars& v = Vars(pass);
 		if (!v.Valid() || data.Heights.empty())
@@ -438,6 +476,14 @@ namespace TerrainRenderer
 		const float viewportH = editor ? rm->EditorViewport.Height : rm->Viewport.Height;
 		const XMMATRIX invView = XMMatrixInverse(nullptr, view);
 		const Vec3 cameraPos(XMVectorGetX(invView.r[3]), XMVectorGetY(invView.r[3]), XMVectorGetZ(invView.r[3]));
+		// 지형 전체가 절두체 밖이면 아무것도 하지 않는다 (World Terrain 타일 1024 개 × 패스마다)
+		{
+			const TerrainData::Node& root = data.GetNode(0, 0, 0);
+			const float pad = skirt + 1.0f;
+			if (OutsideFrustum(origin + Vec3(0.0f, root.MinHeight - pad, 0.0f), origin + Vec3(data.Size.x, root.MaxHeight + pad, data.Size.z),
+				pass == Pass::Shadow ? rm->LightViewProjection : view * proj))
+				return;
+		}
 
 		// ---- 쿼드트리 잎 노드 선택 (같은 화면의 모든 패스가 같은 카메라로 고르므로 모양이 일치한다) ----
 		XMFLOAT4X4 p;
@@ -492,7 +538,7 @@ namespace TerrainRenderer
 		}
 
 		const XMFLOAT4 sizeVec(data.Size.x, data.Size.y, data.Size.z, (float)data.HeightmapResolution);
-		const XMFLOAT4 originVec(origin.x, origin.y, origin.z, 0.0f);
+		const XMFLOAT4 originVec(origin.x, origin.y, origin.z, skirt);   // w = 스커트 깊이 (스커트 정점만 쓴다)
 		v.Size->SetFloatVector(reinterpret_cast<const float*>(&sizeVec));
 		v.Origin->SetFloatVector(reinterpret_cast<const float*>(&originVec));
 		v.HeightMap->SetResource(heightSRV);
@@ -610,6 +656,18 @@ namespace TerrainRenderer
 			dc->IASetIndexBuffer(ib, DXGI_FORMAT_R16_UINT, 0);
 			dc->DrawIndexed(count, 0, 0);
 			RenderStats::AddDraw(count, count);   // 정점 수는 인덱스 수로 근사
+			// 스커트: 지형 (타일) 가장자리에 닿는 잎만 그 변을
+			if (skirt > 0.0f && indices.SkirtCount > 0)
+			{
+				const int last = (1 << l.Depth) - 1;
+				const bool edges[4] = { l.X == 0, l.X == last, l.Z == 0, l.Z == last };
+				for (int s = 0; s < 4; ++s)
+					if (edges[s] && indices.Skirts[s])
+					{
+						dc->IASetIndexBuffer(indices.Skirts[s].Get(), DXGI_FORMAT_R16_UINT, 0);
+						dc->DrawIndexed(indices.SkirtCount, 0, 0);
+					}
+			}
 			if (stats)
 			{
 				++stats->DrawnNodes;

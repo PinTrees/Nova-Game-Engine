@@ -166,6 +166,14 @@ namespace
 	}
 }
 
+bool Utils::PrefetchReady(const wstring& path)
+{
+	const std::wstring key = PrefetchKey(path);
+	std::lock_guard<std::mutex> lock(s_PrefetchLock);
+	auto it = s_Prefetch.find(key);
+	return it == s_Prefetch.end() || it->second->Done;
+}
+
 void Utils::PrefetchTexture(const wstring& path)
 {
 	const std::wstring key = PrefetchKey(path);

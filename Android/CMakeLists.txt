@@ -52,7 +52,7 @@ add_library(native_app_glue STATIC "${GLUE_DIR}/android_native_app_glue.c")
 target_include_directories(native_app_glue PUBLIC "${GLUE_DIR}")
 
 # ---- 엔진 런타임
-set(ENGINE_DIRS Core Math Scene Graphics/RHI Graphics/Common Graphics/DX11 Animation Effects UI Water Terrain Physics Physics2D Audio ShaderGraph)
+set(ENGINE_DIRS Core Math Scene Graphics/RHI Graphics/Common Graphics/DX11 Animation Effects UI Water Terrain PCG Physics Physics2D Audio ShaderGraph)
 set(ENGINE_SOURCES)
 foreach(d ${ENGINE_DIRS})
     file(GLOB f CONFIGURE_DEPENDS "${ROOT}/Source/${d}/*.cpp")
@@ -85,7 +85,7 @@ add_library(nova_engine STATIC
 )
 # Windows 빌드처럼 모든 모듈 폴더를 include 경로에 (기존 #include "Xxx.h" 그대로). Android/Include 가 먼저 (pch.h · Windows 헤더 대체)
 set(MODULE_DIRS Source Source/Core Source/Math Source/Graphics Source/Graphics/Common Source/Physics2D Source/ShaderGraph Source/Graphics/DX11
-    Source/Graphics/OpenGL Source/Graphics/RHI Source/Animation Source/Physics Source/Scene Source/Terrain Source/Water Source/Audio
+    Source/Graphics/OpenGL Source/Graphics/RHI Source/Animation Source/Physics Source/Scene Source/Terrain Source/PCG Source/Water Source/Audio
     Source/Scripting Source/UI Source/Build Source/Effects Source/Editor Source/Editor/Windows Source/Editor/Dialogs Source/Editor/NodeEditor
     Source/ThirdParty/ImGui Source/ThirdParty/ImGui/ImGuiNodeEditor Source/Platform Source/Graphics/ShaderCross Source/Packages Source/Graphics/Vulkan)
 list(TRANSFORM MODULE_DIRS PREPEND "${ROOT}/")

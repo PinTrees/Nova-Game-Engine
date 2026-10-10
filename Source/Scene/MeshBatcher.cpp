@@ -77,6 +77,8 @@ namespace
 		shared_ptr<UMaterial> Material;
 		uint32 Layer = 0xFFFFFFFFu;   // gObjectLayer (레이어 비트)
 		std::vector<Instance> Instances;
+		GfxBuffer* External = nullptr;   // 미리 만든 인스턴스 버퍼 (바깥 묶음) — 있으면 Instances 대신
+		uint32_t ExternalCount = 0;
 	};
 
 	// 화면 하나 동안 쓰는 렌더러 목록 (BeginView 뒤 첫 Draw 가 만든다)
@@ -126,6 +128,10 @@ namespace
 		int SortingOrder;
 	};
 	std::vector<TransparentItem> s_Transparent;
+
+	// 바깥 인스턴스 (PCG 등)
+	std::vector<std::pair<std::string, MeshBatcher::ExternalSource>> s_External;
+	std::vector<MeshBatcher::ExternalBatch> s_ExternalBatches;
 
 	const CustomShaders::Shader* CustomOf(const UMaterial* m)
 	{
@@ -684,7 +690,13 @@ namespace MeshBatcher
 						return batches[a].Layer < batches[b].Layer;
 					});
 			}
-			if (s_Order.empty() && s_Fading.empty())
+			// 바깥 인스턴스: 이 패스의 묶음을 받는다 (GPU 목록 2 단계 · 그림자 GPU 목록에서는 CPU 목록 때 한 번만)
+			s_ExternalBatches.clear();
+			if (!s_External.empty() && gpuSet != OcclusionCulling::DepthPhase2)
+				for (auto& source : s_External)
+					if (source.second)
+						source.second(pass, editor, s_ExternalBatches);
+			if (s_Order.empty() && s_Fading.empty() && s_ExternalBatches.empty())
 			{
 				if (main)
 					s_Stats[editor ? 1 : 0] = Stats{ 0, 0 };
@@ -745,8 +757,9 @@ namespace MeshBatcher
 						return;
 				}
 				GfxBuffer* inst = nullptr;
-				if (gpu < 0 && (inst = Upload(dc, b->Instances)) == nullptr)
+				if (gpu < 0 && (inst = b->External ? b->External : Upload(dc, b->Instances)) == nullptr)
 					return;
+				const UINT instanceCount = b->External ? b->ExternalCount : (UINT)b->Instances.size();
 				auto drawInstances = [&]()
 				{
 					if (gpu >= 0)
@@ -755,7 +768,7 @@ namespace MeshBatcher
 					{
 						const UINT stride = sizeof(Instance), offset = 0;
 						dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
-						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, (UINT)b->Instances.size());
+						b->MeshPtr->ModelMesh.InstancingDraw(dc, b->Subset, instanceCount);
 					}
 				};
 				// 패키지 · Shader Graph 셰이더 (CustomShaders::DrawInstanced): 그 셰이더가 값을 넣고 그린다
@@ -892,6 +905,54 @@ namespace MeshBatcher
 			for (int index : s_Order)
 				drawBatch(&batches[index], gpuSet >= 0 ? index : -1);
 
+			// 바깥 인스턴스 (PCG): 묶음 하나씩 — 양면 재질 (잎) 은 뒷면 컬링을 끄고
+			if (!s_ExternalBatches.empty())
+			{
+				static Batch ext;
+				GfxRasterizerState* prevRs = nullptr;
+				bool rsSaved = false;
+				for (const ExternalBatch& e : s_ExternalBatches)
+				{
+					if (e.MeshPtr == nullptr || e.Count == 0 || (e.Worlds == nullptr && e.Buffer == nullptr))
+						continue;
+					ext.MeshPtr = e.MeshPtr;
+					ext.Subset = e.Subset;
+					ext.Material = e.Material;
+					ext.Layer = 0xFFFFFFFFu;
+					ext.External = e.Buffer;
+					ext.ExternalCount = e.Count;
+					if (e.Buffer == nullptr)
+					{
+						ext.Instances.resize(e.Count);
+						for (uint32_t i = 0; i < e.Count; ++i)
+							ext.Instances[i] = Instance{ e.Worlds[i], InstanceProps() };
+					}
+					if (e.TwoSided)
+					{
+						if (!rsSaved)
+						{
+							dc->RSGetState(&prevRs);
+							rsSaved = true;
+						}
+						dc->RSSetState(RenderStates::NoCullRS.Get());
+					}
+					drawBatch(&ext, -1);
+					if (e.TwoSided)
+						dc->RSSetState(prevRs);
+					if (main)
+						objects += (int)e.Count;
+					else if (pass == Pass::Shadow)
+						for (uint32_t i = 0; i < e.Count; ++i)
+							RenderStats::AddShadowCaster();
+				}
+				if (rsSaved && prevRs)
+					prevRs->Release();
+				ext.Material.reset();
+				ext.MeshPtr = nullptr;
+				ext.External = nullptr;
+				ext.ExternalCount = 0;
+			}
+
 			// LOD 크로스페이드 중인 렌더러: 서브셋마다 하나씩, gLodFade 로 화면 디더 (깊이 프리패스와 본 패스가 같은 무늬 — EQUAL 깊이 검사가 맞는다)
 			if (!s_Fading.empty() && !(pass == Pass::Main && s_Split == DeferredSplit::GBuffer))
 			{
@@ -930,6 +991,38 @@ namespace MeshBatcher
 				RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);   // 다른 그리기는 모든 빛
 			}
 		}
+	}
+
+	ComPtr<GfxBuffer> CreateInstanceBuffer(const XMFLOAT4X4* worlds, uint32_t count)
+	{
+		ComPtr<GfxBuffer> buffer;
+		if (worlds == nullptr || count == 0)
+			return buffer;
+		std::vector<Instance> data(count);
+		for (uint32_t i = 0; i < count; ++i)
+			data[i] = Instance{ worlds[i], InstanceProps() };
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_IMMUTABLE;
+		bd.ByteWidth = count * (UINT)sizeof(Instance);
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		D3D11_SUBRESOURCE_DATA init = { data.data(), 0, 0 };
+		Application::GetI()->GetDevice()->CreateBuffer(&bd, &init, buffer.GetAddressOf());
+		return buffer;
+	}
+
+	void SetExternalSource(const std::string& owner, ExternalSource source)
+	{
+		for (auto it = s_External.begin(); it != s_External.end(); ++it)
+			if (it->first == owner)
+			{
+				if (source)
+					it->second = std::move(source);
+				else
+					s_External.erase(it);
+				return;
+			}
+		if (source)
+			s_External.push_back({ owner, std::move(source) });
 	}
 
 	void BeginView(bool capture, const void* occlusionView)

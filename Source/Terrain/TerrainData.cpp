@@ -918,6 +918,31 @@ void TerrainData::DropUnsaved()
 		EditorLog::Write("Terrain", "dropped %d unsaved terrain data from the cache (scene closed without saving)", dropped);
 }
 
+void TerrainData::SetGenerated(int resolution, const Vec3& size, std::vector<float>&& heights, int controlResolution, std::vector<uint8_t>&& control)
+{
+	if (resolution != HeightmapResolution)
+	{
+		m_HeightTex = nullptr;
+		m_HeightSRV = nullptr;
+	}
+	if (controlResolution != ControlResolution)
+	{
+		m_ControlTex = nullptr;
+		m_ControlSRV = nullptr;
+	}
+	HeightmapResolution = resolution;
+	ControlResolution = controlResolution;
+	Size = size;
+	Heights = std::move(heights);
+	Control = std::move(control);
+	m_HeightDirty = m_HeightFullUpload = true;
+	m_ControlDirty = m_ControlFullUpload = true;
+	RebuildAllNodes();
+	++Revision;
+	++ControlRevision;
+	Dirty = false;   // 만든 것 — 저장하지 않는다
+}
+
 void TerrainData::RestoreState(int resolution, const Vec3& size, const std::vector<float>& heights, const std::vector<uint8_t>& control,
 	const std::vector<std::shared_ptr<TerrainLayer>>& layers)
 {

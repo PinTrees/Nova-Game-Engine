@@ -229,6 +229,14 @@ namespace GameObjectMenu
 				if (ImGui::MenuItem("Plank Path (Repeat)")) add(GameObjectFactory::CreateSpline(3));
 				ImGui::EndMenu();
 			}
+			if (ImGui::BeginMenu("Open World"))   // 초대형 월드: 타일 지형 (World Terrain) + PCG 규칙으로 나무 · 풀 · 바위 자동 채우기
+			{
+				if (ImGui::MenuItem("Open World 32 km (PCG)")) add(GameObjectFactory::CreateOpenWorld(32768.0f));
+				if (ImGui::MenuItem("Open World 8 km (PCG)")) add(GameObjectFactory::CreateOpenWorld(8192.0f));
+				ImGui::Separator();
+				if (ImGui::MenuItem("PCG Volume")) add(GameObjectFactory::CreatePCGVolume());
+				ImGui::EndMenu();
+			}
 			if (ImGui::BeginMenu("Terrain Spline"))   // 곡선을 따라 길·협곡·능선 (지형 생성기)
 			{
 				for (int m = 0; m < (int)TerrainSpline::Mode::Count; ++m)

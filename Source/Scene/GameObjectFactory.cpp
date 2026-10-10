@@ -44,6 +44,12 @@
 #include "SkinnedMesh.h"
 #include "GeometryGenerator.h"
 #include "Mesh.h"
+#include "WorldTerrain.h"
+#include "PCGVolume.h"
+#include "PCGGraph.h"
+#include "Camera.h"
+#include <array>
+#include <regex>
 
 std::map<PrimitiveType, std::shared_ptr<Mesh>> GameObjectFactory::s_PrimitiveMeshes;
 
@@ -619,6 +625,75 @@ GameObject* GameObjectFactory::CreateSpline(int preset)
 	si->Items.push_back(item);
 	(void)spline;
 	return obj;
+}
+
+GameObject* GameObjectFactory::CreatePCGVolume(const std::string& graphPath)
+{
+	GameObject* go = new GameObject("PCG Volume");
+	PCGVolume* v = go->AddComponent<PCGVolume>();
+	v->GraphPath = graphPath;
+	return go;
+}
+
+GameObject* GameObjectFactory::CreateOpenWorld(float size)
+{
+	GameObject* go = new GameObject("Open World");
+	WorldTerrain* wt = go->AddComponent<WorldTerrain>();
+	wt->Settings.WorldSize = size;
+	// 지형 레이어: 프로젝트에 이름이 맞는 .terrainlayer 가 있으면 (풀 · 이끼 / 낙엽 · 흙 / 바위 / 사막 흙 · 모래), 없으면 엔진 기본
+	{
+		// 칸마다 이름 후보 (앞이 더 맞다) — 이름에 낱말이 들어 있으면 (예: Mossy_Ground_rocks 는 이끼가 아니라 바위 칸)
+		static const std::vector<std::vector<std::string>> kSlots = {
+			{ "moss_surface", "grass", "meadow", "moss" },
+			{ "fallen_leaves", "dense_fallen_leaves", "forest_floor", "cedrus_dirt", "leaves", "dirt" },
+			{ "mossy_ground_rocks", "rock", "cliff", "stone" },
+			{ "dirt_layer", "sand", "desert", "dirt_rocks" } };
+		std::array<std::string, 4> found;
+		std::array<size_t, 4> rank = { SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX };
+		const std::filesystem::path root = PathManager::GetI()->GetMovePathW(L"Assets");
+		std::error_code ec;
+		for (auto it = std::filesystem::recursive_directory_iterator(root, ec); it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+		{
+			if (ec || !it->is_regular_file() || it->path().extension() != L".terrainlayer")
+				continue;
+			std::string name = it->path().stem().string();
+			std::transform(name.begin(), name.end(), name.begin(), ::tolower);
+			for (int s = 0; s < 4; ++s)
+				for (size_t r = 0; r < kSlots[(size_t)s].size() && r < rank[(size_t)s]; ++r)
+					if (name.find(kSlots[(size_t)s][r]) != std::string::npos)
+					{
+						// 다른 칸이 더 정확히 맞으면 (바위 이름이 이끼 칸에) 그 칸에 양보
+						bool better = false;
+						for (int o = 0; o < 4 && !better; ++o)
+							if (o != s)
+								for (size_t q = 0; q < kSlots[(size_t)o].size() && q < r; ++q)
+									better |= name.find(kSlots[(size_t)o][q]) != std::string::npos;
+						if (better)
+							break;
+						rank[(size_t)s] = r;
+						found[(size_t)s] = wstring_to_string(PathManager::GetI()->GetCutSolutionPath(it->path().wstring()));
+						break;
+					}
+		}
+		for (int s = 0; s < 4; ++s)
+			if (!found[(size_t)s].empty())
+				wt->LayerPaths[(size_t)s] = found[(size_t)s];
+	}
+	PCGVolume* v = go->AddComponent<PCGVolume>();
+	const std::string graph = "Assets\\PCG\\OpenWorld.pcg";
+	if (!PCG::LoadGraph(graph))
+	{
+		const PCG::Graph g = PCG::MakeOpenWorldPreset(PCG::ScanProjectModels());
+		PCG::SaveGraph(graph, g);
+	}
+	v->GraphPath = graph;
+	// 먼 지평선까지: Main Camera 의 Far 를 20 km
+	if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
+		for (GameObject* g : scene->GameObjectsView())
+			if (g && g->GetName() == "Main Camera")
+				if (Camera* cam = g->GetComponent<Camera>())
+					cam->SetFarZ((std::max)(20000.0f, size * 0.6f));
+	return go;
 }
 
 GameObject* GameObjectFactory::CreateTerrainSpline(int mode)

@@ -19,6 +19,7 @@ private:
 	std::shared_ptr<TerrainData> m_Data;
 	bool m_Draw = true;
 	float m_PixelError = 5.0f;          // Unity 기본값
+	float m_SkirtDepth = 0.0f;          // World Terrain 타일 가장자리 스커트 (m, 저장 안 함)
 	float m_BasemapDistance = 1000.0f;  // 저장만 한다
 	int m_GroupingID = 0;
 	bool m_AutoConnect = true;
@@ -53,6 +54,8 @@ public:
 
 	// ---- 설정 ----
 	bool GetDraw() const { return m_Draw; }
+	// 스커트 깊이 (m, 0 = 없음): World Terrain 타일 — 저장하지 않는다
+	void SetSkirtDepth(float depth) { m_SkirtDepth = depth; }
 	void SetDraw(bool draw) { m_Draw = draw; }
 	float GetPixelError() const { return m_PixelError; }
 	void SetPixelError(float e) { m_PixelError = std::clamp(e, 1.0f, 200.0f); }

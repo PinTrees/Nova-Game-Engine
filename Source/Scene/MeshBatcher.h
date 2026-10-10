@@ -36,6 +36,23 @@ namespace MeshBatcher
 	};
 	const Stats& LastStats(bool editor);   // 마지막 본 패스
 
+	// 바깥에서 만든 인스턴스 (PCG — GameObject 가 없는 수십만 개): 패스마다 묶음을 받아 Mesh Renderer 묶음과 같은 길로 그린다
+	//  (재질 · Alpha Clipping 깊이 · 그림자 · 디퍼드 · 사용자 셰이더). 컬링 · LOD 는 보내는 쪽이 한다. TwoSided = 뒷면도 (잎)
+	struct ExternalBatch
+	{
+		class Mesh* MeshPtr = nullptr;
+		int Subset = 0;
+		std::shared_ptr<class UMaterial> Material;
+		const XMFLOAT4X4* Worlds = nullptr;   // CPU 행렬 (패스마다 올린다) — 또는
+		GfxBuffer* Buffer = nullptr;          // 미리 만든 인스턴스 버퍼 (CreateInstanceBuffer — 올리지 않는다)
+		uint32_t Count = 0;
+		bool TwoSided = false;
+	};
+	// 인스턴스 버퍼 (정점 버퍼 슬롯 1, Mesh Renderer 묶음과 같은 배치): 바뀌지 않는 인스턴스 (PCG 셀) 를 한 번만 올린다
+	NOVA_API ComPtr<GfxBuffer> CreateInstanceBuffer(const XMFLOAT4X4* worlds, uint32_t count);
+	using ExternalSource = std::function<void(Pass pass, bool editor, std::vector<ExternalBatch>& out)>;
+	NOVA_API void SetExternalSource(const std::string& owner, ExternalSource source);   // source = nullptr 면 뺀다
+
 	// 테셀레이션 (재질 Displacement Mode · 지형 높이 · 쌓인 눈) 전체 켜기 · 끄기 — 끄면 테셀레이션이 없는 기기처럼
 	//  (재질은 POM + 픽셀 높이 법선, 지형은 픽셀 범프 · 시차 발자국). nova tessellation set --enabled false
 	NOVA_API bool& TessellationEnabled();

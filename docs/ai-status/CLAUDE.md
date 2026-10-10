@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 10일 — **군중 (스킨드 메시 · 애니메이션 대량 배치) 자동 최적화 + 큰 씬 편집기 경로 + Unity 캐릭터 · 애니메이션 가져오기** (사용자 지시: "스킨드 메쉬 · 애니메이션 임포스터 + 원거리 단순화 + 1000 명 이상 + 인스턴스" → "토탈워 같은 5 만 · 10 만 — 논문 · 최신 기술 확인, 기본 옵션으로" → "임포스터도 자동" → "전투 셰이더 말고 범용 셰이더" → "애니메이션 FBX 를 천 개 · 만 개 드래그해도 자동" → "TheTalesFactory 캐릭터로 테스트 프로젝트" → "애니메이션도 Unity 에서 정리해 가져오기 · 종류별 애니메이션 에셋 패키지로 따로" → "먼 휴머노이드는 본 개수도 줄이기")
+- 갱신 시각: 2026년 10월 10일 — **초대형 열린 월드 (32 km) + PCG** (사용자 지시: "SeedMesh 나무 · 풀 · 식생으로 초거대 오픈월드, 반드시 PCG — 언리얼처럼 딸깍으로 규칙을 정하고 자유롭게 편집하면 자동으로 채워지게, 32 km x 32 km")
+  - World Terrain (`Source/Terrain/WorldGen.*` 높이 · 바이옴 함수, `WorldTerrain.*` 1 km 타일 1024 개 스트리밍 513 · 129 · 33, 작업 스레드 · 캐시 · 스커트), `TerrainData::SetGenerated`, TerrainRenderer 스커트 · 지형 전체 절두체 컬링 · 레이어 높이 배열을 레이어 조합마다 한 장 (예전 타일마다 21 MB)
+  - PCG (`Source/PCG/` — PCGGraph 노드 11 종 · PCGExecutor 셀 실행 · PCGMeshAsset _LODn 모델 · PCGVolume Runtime Generation), `MeshBatcher::SetExternalSource` · `CreateInstanceBuffer` (바깥 인스턴스 · 미리 만든 버퍼), 셀 버퍼를 GPU 복사로 모아 묶음 하나, 가까운 무거운 모델은 인스턴스마다 LOD, `PS_BatchFace` (양면 잎 뒷면 법선)
+  - PCG Graph 창 (`Source/Editor/Windows/PCGGraphWindow.*`, imgui-node-editor), `.pcg` 에셋, GameObject > Open World (32 km · 8 km · PCG Volume), CLI `create open-world` · `world` · `pcg`
+  - Unity 환경 가져오기 `Tools/unity_import/unity_env_import.py` (FBX .meta externalObjects 재질, TIFF 의 숨은 알파 — tifffile, `.lod.json`, 지형 레이어), 테스트 프로젝트 `E:\NovaTest\OpenWorld` (SeedMesh 378 FBX)
+  - 모델 처음 읽기: 텍스처 디코드 · 모델 캐시를 작업 스레드에서 미리 (`Utils::PrefetchReady`, `ResourceManager::HasTexture`), FBX 재질 칸 `.materials.json`
+  - 결과 (Release): 숲 · 하늘 · 초원 · 사막 15 ~ 17 ms (인스턴스 16 ~ 29 만), 모델 읽기 7.9 → 0.41 s
+  - 문서 PCG (`docs/PCG.md`, 그림 `docs/images/pcg.webp`), `nova create` 가 `--size` · `--graph` 를 넘긴다
+  - 검증: Debug 회귀 15 스위트 — 새 `pcg` 스위트 (8 km 월드 64 타일 · 같은 규칙 = 같은 결과 · 밀도 두 배 = 수 두 배 · 스포너 끄기 · 그래프 JSON) 6/6, 나머지 스위트 모두 통과
+- 이전: 2026년 10월 10일 — **군중 (스킨드 메시 · 애니메이션 대량 배치) 자동 최적화 + 큰 씬 편집기 경로 + Unity 캐릭터 · 애니메이션 가져오기** (사용자 지시: "스킨드 메쉬 · 애니메이션 임포스터 + 원거리 단순화 + 1000 명 이상 + 인스턴스" → "토탈워 같은 5 만 · 10 만 — 논문 · 최신 기술 확인, 기본 옵션으로" → "임포스터도 자동" → "전투 셰이더 말고 범용 셰이더" → "애니메이션 FBX 를 천 개 · 만 개 드래그해도 자동" → "TheTalesFactory 캐릭터로 테스트 프로젝트" → "애니메이션도 Unity 에서 정리해 가져오기 · 종류별 애니메이션 에셋 패키지로 따로" → "먼 휴머노이드는 본 개수도 줄이기")
   - 메시 LOD · 본 줄이기 `Source/Animation/SkinnedLod.*` (meshoptimizer `ThirdParty/meshoptimizer`), 범용 스킨 인스턴싱 `Source/Scene/SkinnedInstancing.*` + `Shaders/66. SkinInstancing.fx` (32 · 26 · 28 · 63 의 기법), 자동 임포스터 · 클립 굽기 `Source/Scene/CrowdAnimation.*`, 모듈형 부위 합치기 · Auto LOD 기본 켬 (`SkinnedMeshRenderer`), Animator 자세 모으기 · 갱신 빈도 · 임포스터만이면 자세 건너뜀 (`Packages/com.nova.animation`)
   - 큰 씬 (오브젝트 17 만 개) 경로: Update 목록 · 컬링 조밀 목록 · Mesh Batcher 렌더러 캐시 · Scene 카메라 옛 컬링 제거 · 물리 훑기 · LateUpdate IsAlive · Scene 오브젝트 목록 제곱 경로 (`GameObject::SceneListed` · `PendingDelete`) · Play 스냅숏을 Undo 루트 캐시에서 · Undo 돌아가며 직렬화 한도 · 프리팹 인스턴스 병렬 미리 합치기 · 메시 바인드 캐시 · 제목 줄 dirty 검사
   - `SceneCulling::Stamp` 등 헤더 inline 변수 → NovaCore 하나로 내보냄 (패키지 DLL 이 사본을 봤다), SkinnedLod 정적 목록 경쟁 (LOD 만들기 잡 충돌) 고침

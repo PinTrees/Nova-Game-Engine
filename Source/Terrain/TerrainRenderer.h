@@ -25,5 +25,6 @@ namespace TerrainRenderer
 
 	// origin = 지형 월드 위치 (Unity 지형처럼 회전/크기는 쓰지 않는다)
 	// heightTransition: 높이 기반 레이어 섞기의 전환 폭 (0 = 끔 — Terrain 의 Height-Based Blend)
-	void Draw(TerrainData& data, const Vec3& origin, Pass pass, float pixelError, Stats* stats = nullptr, float heightTransition = 0.0f);
+	// skirt > 0: 지형 가장자리 잎에 그 깊이 (m) 의 스커트 — World Terrain 타일 (해상도가 다른 이웃과의 틈을 가린다)
+	void Draw(TerrainData& data, const Vec3& origin, Pass pass, float pixelError, Stats* stats = nullptr, float heightTransition = 0.0f, float skirt = 0.0f);
 }
