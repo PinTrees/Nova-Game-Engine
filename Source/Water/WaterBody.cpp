@@ -8,6 +8,60 @@
 #include "SceneViewOverlay.h"
 #include "SelectionManager.h"
 #include "Terrain.h"
+#include <mutex>
+#include <unordered_map>
+
+namespace
+{
+	// 곡선 캐시 (WaterBody 별, 4 m 간격): 키 = Revision · 점 수 · 종류 · Transform. 여러 스레드가 읽는다 (물리 · PCG) — 바뀌지 않는 사본을 shared_ptr 로
+	struct CurveEntry
+	{
+		uint64_t Key = 0;
+		std::vector<WaterBody::CurveSample> Samples;
+		float MinX = FLT_MAX, MinZ = FLT_MAX, MaxX = -FLT_MAX, MaxZ = -FLT_MAX;
+	};
+	std::mutex s_CurveLock;
+	std::unordered_map<const WaterBody*, std::shared_ptr<const CurveEntry>> s_Curves;
+
+	std::shared_ptr<const CurveEntry> CurveOf(const WaterBody& b)
+	{
+		XMFLOAT4X4 m;
+		XMStoreFloat4x4(&m, b.WorldMatrix());
+		uint64_t key = 1469598103934665603ull ^ (uint64_t)b.Revision ^ ((uint64_t)b.Points.size() << 32) ^ ((uint64_t)b.BodyType << 48);
+		for (int i = 0; i < 16; ++i)
+		{
+			uint32_t u;
+			memcpy(&u, &(&m._11)[i], 4);
+			key = (key ^ u) * 1099511628211ull;
+		}
+		{
+			std::lock_guard<std::mutex> lock(s_CurveLock);
+			auto it = s_Curves.find(&b);
+			if (it != s_Curves.end() && it->second->Key == key)
+				return it->second;
+		}
+		auto e = std::make_shared<CurveEntry>();
+		e->Key = key;
+		e->Samples = b.Curve(4.0f);
+		float pad = 0.0f;
+		for (const WaterBody::CurveSample& s : e->Samples)
+		{
+			e->MinX = (std::min)(e->MinX, s.Position.x); e->MaxX = (std::max)(e->MaxX, s.Position.x);
+			e->MinZ = (std::min)(e->MinZ, s.Position.z); e->MaxZ = (std::max)(e->MaxZ, s.Position.z);
+			pad = (std::max)(pad, s.Width);
+		}
+		e->MinX -= pad; e->MinZ -= pad; e->MaxX += pad; e->MaxZ += pad;
+		std::lock_guard<std::mutex> lock(s_CurveLock);
+		s_Curves[&b] = e;
+		return e;
+	}
+
+	void ForgetCurve(const WaterBody* b)
+	{
+		std::lock_guard<std::mutex> lock(s_CurveLock);
+		s_Curves.erase(b);
+	}
+}
 
 namespace
 {
@@ -65,6 +119,7 @@ WaterBody::WaterBody()
 
 WaterBody::~WaterBody()
 {
+	ForgetCurve(this);
 	auto& all = Registry();
 	all.erase(std::remove(all.begin(), all.end(), this), all.end());
 }
@@ -233,8 +288,12 @@ bool WaterBody::Sample(const Vec3& world, float& height, Vec3* normal, Vec3* flo
 		height = SurfaceY() + WaterWaves::Height(Waves(), world.x, world.z, time, normal);
 		return true;
 	}
-	const std::vector<CurveSample> curve = Curve(4.0f);
+	// 4 m 곡선은 점 · 모양 · Transform 이 같으면 지난 것 (긴 강 28 개를 프레임마다 다시 뽑던 것이 Water 패스 CPU 29 ms), 경계 상자 밖이면 바로
+	const std::shared_ptr<const CurveEntry> cached = CurveOf(*this);
+	const std::vector<CurveSample>& curve = cached->Samples;
 	if (curve.size() < 2)
+		return false;
+	if (world.x < cached->MinX || world.x > cached->MaxX || world.z < cached->MinZ || world.z > cached->MaxZ)
 		return false;
 	if (BodyType == Type::Lake)
 	{

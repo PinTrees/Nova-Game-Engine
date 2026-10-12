@@ -31,6 +31,11 @@ namespace TreeRenderer
 	// 메인 (GPU): 메시 올리기 (LOD0 · 1) · 잎 · 껍질 텍스처 · 임포스터 굽기 — 처음 그리는 프레임에 하던 것 (씬 스트리밍의 미리 데우기)
 	void PrewarmGpu(const TreeDesc& desc);
 
+	// 바깥 나무 (PCG 의 절차적 나무 — 바이옴 식생): 화면마다 한 번 불린다. emit(desc, worlds, count) 로 넘기면 Tree 컴포넌트 · 지형 나무와 같이
+	//  LOD · 임포스터 · 바람 · 그림자로 그린다. desc 는 그 프레임 동안 살아 있어야 한다 (캐시된 종 — 지우지 않는다)
+	using TreeEmit = std::function<void(const TreeDesc& desc, const XMFLOAT4X4* worlds, size_t count)>;
+	void SetExternalSource(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const TreeEmit& emit)> source);
+
 	// 프로토타입 미리보기 = 임포스터 앞면 (없으면 굽는다). uv0/uv1 = 아틀라스 안 영역
 	ImTextureID Thumbnail(const TreeDesc& desc, ImVec2& uv0, ImVec2& uv1);
 

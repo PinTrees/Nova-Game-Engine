@@ -1,0 +1,249 @@
+# 지형 그래프 (Terrain Graph) — Gaea 같은 노드 · 침식 지형 생성기
+
+QuadSpinner Gaea 처럼 노드를 이어 지형을 만듭니다. 흐름은 산맥 → 다듬기 → **여러 크기 침식 (Erosion2) · 골 · 퇴적** → **강 · 길** → **색 (SatMap)** 입니다. 결과는 **50 × 50 km** 같은 큰 월드에 1 km 타일 (높이맵 2049²) 로 펼칩니다.
+
+텍스처 (알베도 · 노멀 · 높이) 는 편집기에서 계산으로 만듭니다. 스플랫 맵은 높이 · 경사와 침식이 남긴 물길 · 퇴적, 그리고 길 · 강가 규칙으로 칠합니다. 나무는 트리 편집기의 절차적 나무로, 높이 띠 (바이옴) 에 맞게 자랍니다.
+
+![50 km 지형 그래프 월드](images/terrain_graph.webp)
+
+## 쓰는 법
+
+1. **GameObject > Open World > Terrain World 50 km (Graph)** 를 고르면 다음이 한 번에 만들어집니다.
+   - `Assets/Terrain/World.terraingraph` (기본 그래프 20 노드)
+   - World Terrain
+   - 바이옴 식생 PCG (`Assets/PCG/TerrainWorld.pcg`)
+   - 그림자 · 숲 화면 Volume
+
+   그래프만 만들려면 Project 창의 **Create > Terrain Graph** 를 씁니다.
+2. **Window > Terrain Graph** 로 엽니다. `.terraingraph` 를 더블클릭하거나 World Terrain 인스펙터의 *Open Terrain Graph* 를 눌러도 됩니다.
+   - 왼쪽 캔버스
+     - 오른쪽 클릭 또는 Space = 노드 추가
+     - 출력에서 입력으로 끌기 = 잇기
+     - Delete = 지우기
+     - 빈 곳 클릭 = Output 미리 보기
+   - 오른쪽 위 미리 보기
+     - **3D** (Gaea 뷰포트처럼 CPU 광선 행진): 끌기 = 돌리기, 휠 = 확대
+     - **2D** 지도
+     - 고른 노드를 미리 보기 해상도 (513²) 로 작업 스레드에서 바로 다시 계산합니다.
+     - 높이 = 음영, 마스크 = 흑백, 색 (SatMap) = 색으로 보입니다.
+   - 탭
+     - **Node**: 값
+     - **World**: 월드 · 타일 · 디테일 · 컬러 맵 세기 · 메모리 어림
+     - **Texturing**: 스플랫 규칙 4 칸 + 계산 텍스처
+     - **Build**
+3. **Build World** 를 누르면 월드 해상도 (기본 4097² = 50 km 에서 12 m 칸) 로 계산해 `<그래프>.terraingraph.build` 에 저장합니다.
+   - 작업 스레드에서 돌고, 진행 상황이 보이며 취소할 수 있습니다. Debug 에서 약 70 초입니다.
+   - World Terrain 은 빌드가 끝나면 바로 따릅니다.
+   - 빌드에 강이 있으면 **Create Rivers** 가 Water Body (River) 를 만듭니다.
+4. **Generate Layer Textures** 는 규칙 이름 (Grass · Dirt · Rock · Snow · Sand) 으로 이음매 없는 알베도 · 노멀 · 높이 PNG 와 `.terrainlayer` 를 만듭니다.
+   - 만드는 곳은 `<그래프>_Layers/` 입니다.
+   - 레이어마다 이렇게 그립니다.
+
+     | 레이어 | 그리는 것 |
+     |---|---|
+     | 풀 | 풀잎 하나하나 |
+     | 바위 | 깨진 면 · 지층 · 금 · 지의류 |
+     | 흙 | 자갈 |
+     | 눈 | 바람 결 |
+     | 모래 | 물결 |
+
+   - 오목한 곳은 어둡게 구워 넣습니다.
+
+## 노드 (30 종)
+
+| 분류 | 노드 | 하는 일 |
+|---|---|---|
+| Primitive | Constant · Gradient · Radial · Perlin · Ridged · Mountain · Voronoi | 모양. 좌표가 월드 m 이라 해상도를 바꿔도 같은 땅이 나옵니다 |
+| Primitive | **Mountain Range** | 낮은 주파수 띠를 따라 이어진 산맥입니다. 스위스 난류라서 앞 옥타브의 기울기로 다음 옥타브를 밀어, 봉우리 · 능선이 프랙탈로 갈라집니다 |
+| Adjust | Combine (Add · Subtract · Multiply · Max · Min · Blend · Difference · Screen + Ratio · Mask) · Warp · Terrace · Curve · Clamp · Normalize · Invert · Blur | 다듬기 |
+| Adjust | **Rugged** (Rugged · Crumble · Shatter) | 비탈만 거칠게 만듭니다 (리지 결 · 갈라진 금 · 깨진 덩어리) |
+| Adjust | **Stratify** | 기운 지층입니다. 단단한 턱과 무른 비탈이 생기고, Layers 출력 (층 번호) 은 색칠에 씁니다 |
+| Simulate | Erosion | 수력 침식 (물방울) |
+| Simulate | **Erosion2** | Gaea Erosion2 와 같은 값을 받습니다 (아래) |
+| Simulate | Thermal | 무너짐 (애추) |
+| Simulate | **Gullies** | 침식 필터로 칸보다 잔 골을 만듭니다 (아래) |
+| Simulate | **Sediment** | 오목한 골 바닥 · 낮은 곳을 흙으로 메웁니다 (평평한 골짜기 바닥 · 선상지) |
+| Simulate | **River** | 강 (아래) |
+| Simulate | **Road** | 길 (아래) |
+| Data | Slope · HeightMask · Curvature | 마스크 |
+| Color | **SatMap** | 값을 위성 사진에서 뽑은 듯한 색 띠 (팔레트 32 개) 로 바꿉니다 (아래) |
+| Color | **Color Blend** | 두 색을 마스크로 섞습니다. 예: 경사 마스크로 바위 색 |
+| Output | Height · Flow · Deposits · Wear · Color | 빌드에 저장되는 것 |
+
+### Erosion2
+
+- 값은 Gaea Erosion2 와 같습니다.
+  - Duration · Downcutting · Erosion Scale
+  - Suspended Load · Bed Load · Coarse Sediments 와 각자의 Discharge Angle
+  - Shape · Sharpness · Detail Scale
+  - Direction
+- **Erosion Scale** 크기의 큰 골짜기부터 반씩 작게, 여러 해상도로 물방울 침식을 합니다. 성긴 격자에서 깎고, 바뀐 양만 쌍선형으로 되돌려 더합니다. 가장 잔 단계는 칸 20 m 입니다 (12 m 칸에서는 물방울이 나란한 잔 골 커튼 무늬를 판다).
+- 흙은 퇴적물마다 그 각도까지 흘러내립니다.
+- 물방울 침식 자체에 대해:
+  - 블록을 2 × 2 색으로 나눠 동시에 돌리므로 잠금 없이 결정적입니다 (같은 그래프 = 같은 결과).
+  - 번마다 바뀐 양을 1-2-1 로 고르게 해서 한 칸짜리 구덩이 · 둔덕을 지웁니다.
+
+### Gullies
+
+- Clay John · Rune Skovbo Johansen 의 침식 필터입니다. 비탈 방향을 따라 내려가는 코사인 물결을 칸마다 겹칩니다.
+- 옥타브마다 앞 옥타브 골의 옆 비탈을 따라 가지가 갈라집니다.
+- 위치의 순수 함수라서 **타일 디테일에도 같은 함수**를 씁니다. 빌드 (12 m) 보다 잔 골이 타일 해상도 (0.5 m) 까지 이어지고, 타일 경계도 맞습니다.
+
+### River
+
+1. 웅덩이를 채웁니다 (Barnes 우선순위 채우기).
+2. D8 받는 칸으로 물을 모읍니다.
+3. Min Catchment (km²) 를 넘는 칸을 하류로 따라가 강 선을 만듭니다. 큰 강부터 그리고, 합류하면 멈춥니다.
+4. 평평한 곳의 D8 곧은 줄은 굽이 노이즈로 옆으로 밉니다 (완만할수록 크게, 끝점은 그대로 — 합류 · 하구가 맞게).
+5. 강바닥 (포물선) 과 둑을 팝니다. 물 높이는 굽은 자리의 땅에서 재고, 하류로 갈수록 낮아집니다. 다만 땅보다 6 m 넘게 낮아지지 않습니다 (턱을 넘는 곳에 협곡 벽이 생기지 않게).
+
+### Road
+
+1. 완만한 낮은 땅에 마을을 고르게 둡니다.
+2. 최소 신장 트리에 고리를 더해 이을 짝을 정합니다.
+3. 칸 사이 기울기가 Max Slope 를 넘거나 피할 곳 (강 마스크) 에 들어가면 비싸지는 A* 로 잇습니다. 이미 낸 길은 싸게 쳐서 길이 모입니다.
+4. 높이는 250 m 창으로 고르게 해서 길을 깎고 메웁니다.
+
+### SatMap
+
+- 높이 · 마스크 같은 값을 팔레트 색으로 바꿉니다.
+  - 팔레트 분류: Rock · Sand · Green · Blue · Color
+  - 손질: Autolevel / Equalize · Bias · Reverse · 색조 · 채도 · 밝기
+- Output 의 **Color** 에 이으면 지형 **컬러 맵**이 됩니다.
+  - World Settings 의 Color Strength 만큼 텍스처 색을 대신하고, 텍스처는 명암 디테일만 줍니다.
+  - 길 · 강가는 텍스처 색 그대로입니다.
+
+## 큰 월드: 용량 · RAM · VRAM
+
+50 km × 50 km 를 1 km 타일 2500 개 × 2049² 로 저장하면 높이만 42 GB 입니다. 그래서 타일은 **저장하지 않고 계산**합니다.
+
+| 무엇 | 크기 |
+|---|---|
+| 빌드 파일 (4097²): 높이 16 비트 + 물길 · 퇴적 · 깎임 8 비트 + 색 RGB + 강 · 길 선 | 약 130 MB (디스크) · 약 190 MB (메모리, 경사 · 굴곡 포함) |
+| 가까운 타일 (Near Distance 700 m 안, 2049²) | 타일마다 RAM · VRAM 각 약 25 MB (높이 + 스플랫 + 컬러 맵), 카메라 둘레 6 ~ 10 개 |
+| 중간 (4.5 km 안, 129²) · 먼 (33²) 타일 | 2490 개 합쳐 수십 MB |
+| 타일 캐시 (LRU) | 384 MB 까지 |
+| 측정 (Debug, 50 km, 카메라 둘레) | 타일 CPU 약 190 MB · GPU 약 180 MB |
+
+**타일 높이** 는 세 가지를 차례로 더하고 고칩니다.
+
+1. 빌드의 쌍삼차 보간
+2. **디테일**: 침식 결 fBm 과 Gullies 침식 필터 (빌드 비탈을 따라 가지 친 골)
+3. **강바닥 · 길 노면**: 선을 따라 타일 해상도로 날카롭게
+
+모두 월드 좌표 (double) 의 순수 함수라서 **타일 경계가 맞습니다**. 먼 타일은 표본 간격보다 잔 옥타브를 건너뜁니다.
+
+**스플랫** 은 규칙 4 칸으로 정합니다 (0 번이 바탕, 1 ~ 3 번이 위에).
+
+- 규칙이 읽는 값: 높이 · 경사 범위와 부드러운 경계, Flow (물길을 따라 흙), Deposits, Curvature, 노이즈
+- 길 · 강가는 흙 칸입니다.
+
+**PCG** 는 같은 높이 · 바이옴을 읽습니다.
+
+| 칸 | PCG 가 놓는 것 |
+|---|---|
+| 바위 | 돌무더기 |
+| 눈 | 아무것도 |
+| 길 · 강 위 | 아무것도 |
+| 나머지 | 습도 + 물길로 정한 숲 · 초원 |
+
+그 밖에:
+
+- 빌드 파일은 작업 스레드에서 읽습니다 (장면을 열 때 멈추지 않는다).
+- 물가 맵 (Water Shore) 은 높이 함수로 한 번만 만듭니다 (타일 LOD 가 바뀔 때마다 2500 개를 돌지 않는다).
+
+## 바이옴 식생 (트리 편집기의 절차적 나무)
+
+PCG Static Mesh Spawner 의 메시 칸에 `tree:Spruce` 처럼 쓰면 모델 파일 대신 트리 편집기 (Tree 컴포넌트 · TreeDesc) 의 그 종을 그립니다.
+
+- 그리는 곳은 TreeRenderer 이고, Tree 컴포넌트 · 지형 나무와 같은 길을 씁니다.
+  - LOD 0 · 1 → 8 방향 임포스터
+  - 계층 바람
+  - 그림자
+- 종마다 변형이 2 개 있고 (씨앗 · 키 · 기울기), 점 위치 해시로 고릅니다.
+
+새 종 (`TreeParams` 프리셋 12 개):
+
+| 종 | 모양 |
+|---|---|
+| Spruce (가문비) | 높고 좁은 원뿔, 처진 가지 |
+| Fir (전나무) | 고른 원뿔, 수평 가지 층 |
+| Larch (낙엽송) | 성긴 원뿔, 연두 바늘잎 |
+| Beech (너도밤나무) | 매끈한 은회색 줄기, 높은 둥근 수관 |
+| Dwarf Pine (눈잣나무) | 바람에 눌린 낮은 덤불 소나무, 수목한계선 |
+| Dead Pine | 선 채로 죽은 나무 |
+| Alder (오리나무) | 물가 |
+| Juniper (노간주) | 원뿔 덤불 |
+
+기존 종 Oak · Pine · Birch · Bush 도 그대로 있습니다.
+
+`PCG::MakeBiomeForestPreset` (Terrain World 의 PCG) 은 높이 띠마다 줄을 둡니다. 비율은 최고 높이 기준입니다.
+
+| 줄 | 높이 띠 | 종 |
+|---|---|---|
+| 저지 활엽수 | 0 ~ 34 % | 너도밤 · 참 · 자작 · 오리 |
+| 산지 침엽수 | 26 ~ 68 % | 가문비 · 전나무 · 낙엽송 |
+| 수목한계선 | 62 ~ 80 % | 눈잣 · 노간주 |
+| 죽은 나무 | 20 ~ 70 % | |
+| 초원의 외딴 나무 · 덤불 | | |
+| 아래 덮개 · 풀 · 바위 | | 프로젝트 모델 |
+
+## 성능 (Release, 편집기 Game 뷰, 숲 · 강 28 개 · 길 17 개 · PCG 인스턴스 17 ~ 22 만)
+
+| 단계 | 프레임 |
+|---|---|
+| 처음 | 87 ~ 103 ms |
+| 물 바디 곡선 캐시 (강 28 개 — 물에 잠겼나 · PCG 물 마스크가 프레임마다 4 m 곡선을 다시 뽑았다) + PCG 물 마스크 격자 | 38 ms |
+| 지형 효과 변수 이름 찾기 캐시 · 높이 배열 키 (문자열 → 해시) · 잎 + 스커트 한 번에 · 먼 타일은 테셀레이션 없이 | 30 ms |
+| 3 km 너머 타일은 깊이 · 법선 프리패스에서 뺀다 (GPU 프리패스 15.6 → 1.4 ms) | **20 ~ 34 ms** (GPU 7 ~ 15 ms — 하늘 · 다가가기 20 ms, 강가 · 길 33 ms) |
+
+지금은 CPU 가 정한다 — 지형 그리기 (타일 2500 개 × 패스) · 나무 모으기 · MeshBatcher. 먼 타일을 큰 타일로 묶는 것이 다음 차례.
+
+## 여러 지형 (Terrain 오브젝트)
+
+World Terrain 대신 보통 **Terrain** 을 쓰고 싶으면 (손으로 칠하기 · 나무 칠하기) 이렇게 합니다.
+
+- **Build > Create Terrain Tiles**: 타일 번호 (x, z) 부터 n × n 개를 `.terraindata` 로 만들어 월드 위치에 놓습니다. 높이 · 스플랫 · 레이어 · 컬러 맵도 넣습니다.
+- **Build > Apply To Scene Terrains**: 장면의 Terrain 들에 월드 위치 그대로 적용합니다. 경계가 맞습니다 (자동 검사에서 이음매 0 m).
+
+## 지형 반사
+
+지형 셰이더의 환경 반사를 지형만 0.3 배로 낮췄습니다. 풀잎 · 자갈이 비스듬한 하늘 반사를 가리기 때문이고, 이전에는 먼 비탈이 하얗게 번들거렸습니다. 매끄러움은 0.05 입니다. 젖은 땅 · 웅덩이에서는 반사가 돌아옵니다.
+
+## CLI
+
+```
+nova terraingraph new Assets/Terrain/W.terraingraph --seed 7
+nova terraingraph world Assets/Terrain/W.terraingraph --values "{\"worldSize\":50000,\"tileResolution\":2049}"
+nova terraingraph preview Assets/Terrain/W.terraingraph --res 1025 --mode color --out map.png --out3d view.png --yaw 215 --pitch 32
+nova terraingraph build Assets/Terrain/W.terraingraph
+nova terraingraph textures Assets/Terrain/W.terraingraph --size 1024
+nova terraingraph attach Assets/Terrain/W.terraingraph
+nova terraingraph rivers Assets/Terrain/W.terraingraph
+nova terraingraph grid --x 0 --z 0 --step 1000 --count 49
+nova world probe --x 100 --z 200
+```
+
+그 밖의 명령은 [NOVA_CLI.md](NOVA_CLI.md) 에 있습니다: `info` · `graph` · `set` · `enable` · `layer` · `cancel` · `height` · `apply` · `tiles` · `seams` · `window --node N`. 마지막의 `world probe` 는 높이 함수와 그려지는 타일 높이의 차를 돌려줍니다.
+
+## 검사
+
+`Tools/tests/run_tests.ps1 -Only terraingraph` 는 4 km 작은 월드로 약 1 분 걸립니다. 확인하는 것:
+
+- Gaea 식 기본 그래프
+- 계산 (침식이 높이를 바꾸고 물길을 만든다)
+- 강 · 길 · 색이 나온다
+- 같은 그래프 = 같은 결과
+- 노드 끄기
+- 빌드
+- 2 × 2 Terrain 이음매
+- 계산 텍스처
+- 빌드의 색 · 강 · 길과 Water Body
+- World Terrain 스트리밍 (같은 높이, 메모리)
+
+## 아직
+
+- 노드: Gaea 의 Snow · Lake · Fold · Shear · Dunes · Canyon 같은 것, 노드 묶음 (그룹)
+- 빌드를 타일로 나눠 더 큰 해상도 (8193² 넘게)
+- GPU 침식 (컴퓨트)
+- 길 메시 (지금은 지형을 깎고 흙으로 칠한다) · 다리

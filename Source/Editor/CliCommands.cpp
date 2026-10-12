@@ -67,6 +67,8 @@
 #include "AudioClip.h"
 #include "HumanoidAvatar.h"
 #include "SkinnedMesh.h"
+#include "TerrainGraph.h"
+#include "TerrainGraphWindow.h"
 
 namespace
 {
@@ -1245,12 +1247,24 @@ namespace CliCommands
 			if (op == "set")
 			{
 				json j = w->toJson();
-				for (auto it = a.value("values", json::object()).begin(); it != a.value("values", json::object()).end(); ++it)
+				const json values = a.value("values", json::object());
+				for (auto it = values.begin(); it != values.end(); ++it)
 					j[it.key()] = it.value();
 				w->fromJson(j);
 			}
 			else if (op == "regen")
 				w->RegenerateAll();
+			else if (op == "probe")
+			{
+				// 높이 함수 (PCG · 물리가 쓰는 값) 와 지금 그려지는 타일 높이의 차
+				const float x = a.value("x", 0.0f), z = a.value("z", 0.0f);
+				float th = 0.0f;
+				int tres = 0;
+				const bool has = w->ProbeTile(x, z, th, tres);
+				const float fh = WorldGen::Height01(w->Settings, x, z) * w->Settings.MaxHeight;
+				r = { { "function", fh }, { "tile", has ? th : 0.0f }, { "tileRes", tres }, { "diff", has ? th - fh : 0.0f }, { "maxHeight", w->Settings.MaxHeight } };
+				return true;
+			}
 			else if (op == "height")
 			{
 				const float x = a.value("x", 0.0f), z = a.value("z", 0.0f);
@@ -1264,7 +1278,8 @@ namespace CliCommands
 			}
 			const WorldTerrain::Info i = w->GetInfo();
 			r = { { "settings", w->toJson() }, { "tiles", i.Tiles }, { "built", i.Built }, { "pending", i.Pending }, { "res513", i.Res513 }, { "res129", i.Res129 },
-				{ "res33", i.Res33 }, { "colliders", i.Colliders }, { "applyMs", i.LastApplyMs } };
+				{ "res33", i.Res33 }, { "colliders", i.Colliders }, { "applyMs", i.LastApplyMs }, { "nearRes", i.NearRes }, { "nearTiles", i.Res513 },
+				{ "waitingForBuild", i.WaitingForBuild }, { "cpuMB", i.CpuBytes / 1048576.0 }, { "gpuMB", i.GpuBytes / 1048576.0 } };
 			return true;
 		});
 
@@ -1312,6 +1327,284 @@ namespace CliCommands
 			for (PCGVolume* x : volumes)
 				list.push_back(x->Info());
 			r = { { "volumes", list } };
+			return true;
+		});
+
+		// 지형 그래프 (Gaea 같은 노드 · 침식): 만들기 · 값 · 빌드 (작업 스레드) · 미리 보기 PNG + 통계 · 높이 · 여러 Terrain 에 적용 · 타일 Terrain · 텍스처 · World Terrain
+		Register("terraingraph", "terrain graph {op: new|info|graph|set|enable|world|layer|build|status|cancel|preview|height|apply|tiles|attach|textures|window|seams, path, ...}", [](const json& a, json& r, std::string& e) {
+			namespace TG = TerrainGraph;
+			const std::string op = a.value("op", std::string("info"));
+			std::string path = a.value("path", std::string());
+			if (path.empty())
+				if (WorldTerrain* w = WorldTerrain::Active())
+					path = w->GraphPath;
+			if (path.empty()) { e = "path required (.terraingraph)"; return false; }
+			if (op == "new")
+			{
+				TG::Graph g = TG::MakeDefault(a.value("seed", 1));
+				if (a.contains("world"))
+				{
+					json wj = g.World.ToJson();
+					for (auto it = a["world"].begin(); it != a["world"].end(); ++it)
+						wj[it.key()] = it.value();
+					g.World.FromJson(wj);
+				}
+				if (!TG::Save(path, g)) { e = "could not write " + path; return false; }
+			}
+			std::shared_ptr<TG::Graph> g = TG::Load(path);
+			if (!g) { e = "no graph " + path; return false; }
+			auto save = [&]() { g->Touch(); TG::Save(path, *g); };
+			if (op == "graph")
+			{
+				r = g->ToJson();
+				return true;
+			}
+			if (op == "set" || op == "enable")
+			{
+				TG::Node* n = g->Find(a.value("node", 0));
+				if (!n) { e = "no node " + std::to_string(a.value("node", 0)); return false; }
+				if (op == "set")
+					n->Set(a.value("param", std::string()).c_str(), a.value("value", 0.0f));
+				else
+					n->Enabled = a.value("enabled", true);
+				save();
+			}
+			else if (op == "world")
+			{
+				json wj = g->World.ToJson();
+				const json values = a.value("values", json::object());
+				for (auto it = values.begin(); it != values.end(); ++it)
+					wj[it.key()] = it.value();
+				g->World.FromJson(wj);
+				save();
+			}
+			else if (op == "layer")
+			{
+				const int i = std::clamp(a.value("index", 0), 0, 3);
+				json lj = g->Layers[i].ToJson();
+				const json values = a.value("values", json::object());
+				for (auto it = values.begin(); it != values.end(); ++it)
+					lj[it.key()] = it.value();
+				g->Layers[i].FromJson(lj);
+				save();
+			}
+			else if (op == "build")
+			{
+				if (!TG::StartBuild(path, a.value("resolution", 0))) { e = "build already running"; return false; }
+			}
+			else if (op == "cancel")
+				TG::CancelBuild(path);
+			else if (op == "window")
+				TerrainGraphWindow::Open(path, a.value("node", 0), a.value("pin", 0));
+			else if (op == "preview")
+			{
+				// 지금 그래프를 res 로 바로 계산 (메인 스레드) — 노드마다 통계, 침식 노드는 바꾼 양 (m)
+				TG::EvalContext ctx;
+				ctx.Res = std::clamp(a.value("res", g->World.PreviewResolution), 33, 2049);
+				ctx.WorldSize = g->World.WorldSize;
+				ctx.MaxHeight = g->World.MaxHeight;
+				ctx.Seed = g->World.Seed;
+				ctx.KeepAll = true;
+				const TG::EvalResult res = TG::Evaluate(*g, ctx);
+				if (!res.Error.empty() || !res.Height) { e = res.Error.empty() ? "no output height" : res.Error; return false; }
+				auto stats = [&](const TG::Map& m, float scale) {
+					double sum = 0.0;
+					float mn = 1e30f, mx = -1e30f;
+					for (float v : m.V) { sum += v; mn = (std::min)(mn, v); mx = (std::max)(mx, v); }
+					return json{ { "min", mn * scale }, { "max", mx * scale }, { "mean", sum / (std::max<size_t>)(1, m.V.size()) * scale } };
+				};
+				json nodes = json::array();
+				for (const TG::Node& n : g->Nodes)
+				{
+					const TG::NodeDesc* d = TG::FindDesc(n.Type);
+					auto it = res.Outputs.find({ n.Id, 0 });
+					json jn = { { "id", n.Id }, { "type", d ? d->Key : "?" }, { "ms", res.NodeMs.count(n.Id) ? res.NodeMs.at(n.Id) : 0.0 } };
+					if (it != res.Outputs.end())
+						jn["stats"] = stats(*it->second, 1.0f);
+					const bool changes = n.Type == TG::NodeType::Erosion || n.Type == TG::NodeType::Thermal || n.Type == TG::NodeType::Erosion2 || n.Type == TG::NodeType::Gullies ||
+						n.Type == TG::NodeType::Sediment || n.Type == TG::NodeType::River || n.Type == TG::NodeType::Road || n.Type == TG::NodeType::Rugged || n.Type == TG::NodeType::Stratify;
+					if (changes && it != res.Outputs.end() && it->second->Channels == 1)
+						if (const TG::Edge* in = g->InputOf(n.Id, 0))
+							if (auto src = res.Outputs.find({ in->From, in->FromPin }); src != res.Outputs.end() && src->second->V.size() == it->second->V.size())
+							{
+								double diff = 0.0, mx = 0.0;
+								for (size_t k = 0; k < it->second->V.size(); ++k)
+								{
+									const double dv = fabs((double)it->second->V[k] - src->second->V[k]);
+									diff += dv;
+									mx = (std::max)(mx, dv);
+								}
+								jn["changeMeanM"] = diff / it->second->V.size() * ctx.MaxHeight;
+								jn["changeMaxM"] = mx * ctx.MaxHeight;
+							}
+					nodes.push_back(jn);
+				}
+				r = { { "res", ctx.Res }, { "ms", res.Ms }, { "heightM", stats(*res.Height, ctx.MaxHeight) }, { "nodes", nodes },
+					{ "rivers", res.Rivers.size() }, { "roads", res.Roads.size() }, { "color", res.Color != nullptr } };
+				if (res.Flow) r["flow"] = stats(*res.Flow, 1.0f);
+				if (res.Deposits) r["deposits"] = stats(*res.Deposits, 1.0f);
+				if (a.contains("out"))
+				{
+					std::vector<uint8_t> rgba;
+					const std::string mode = a.value("mode", std::string("splat"));
+					const TG::MapPtr mask = mode == "flow" ? res.Flow : mode == "deposits" ? res.Deposits : nullptr;
+					const TG::PreviewMode pm = mode == "color" && res.Color ? TG::PreviewMode::Color : mode == "splat" ? TG::PreviewMode::Splat : mask ? TG::PreviewMode::Mask : TG::PreviewMode::Shaded;
+					TG::PreviewImage(*res.Height, mask.get(), pm, *g, res.Flow.get(), res.Deposits.get(), rgba, res.Color.get());
+					if (a.contains("out3d"))
+					{
+						std::vector<uint8_t> img;
+						const int w3 = a.value("width3d", 1024), h3 = a.value("height3d", 640);
+						TG::Render3D(*res.Height, rgba, g->World.MaxHeight, g->World.WorldSize, a.value("yaw", 215.0f), a.value("pitch", 32.0f), a.value("zoom", 1.0f), w3, h3, img);
+						if (!SavePng(img, w3, h3, ProjectFile(a["out3d"].get<std::string>()), e))
+							return false;
+						r["out3d"] = a["out3d"];
+					}
+					if (!SavePng(rgba, res.Height->Res, res.Height->Res, ProjectFile(a["out"].get<std::string>()), e))
+						return false;
+					r["out"] = a["out"];
+				}
+				return true;
+			}
+			else if (op == "height")
+			{
+				std::shared_ptr<const TG::Built> b = TG::GetBuilt(path);
+				if (!b) { e = "not built"; return false; }
+				const float x = a.value("x", 0.0f), z = a.value("z", 0.0f);
+				r = { { "height", b->Height01(x, z, a.value("footprint", 0.5f)) * b->World.MaxHeight }, { "base", b->BaseHeight01(x, z) * b->World.MaxHeight } };
+				return true;
+			}
+			else if (op == "paths")
+			{
+				// 강 · 길 선 (큰 것부터 count 개, 점은 every 마다): 장소 찾기 · 검사
+				std::shared_ptr<const TG::Built> b = TG::GetBuilt(path);
+				if (!b) { e = "not built"; return false; }
+				const int count = std::clamp(a.value("count", 5), 1, 100), every = (std::max)(1, a.value("every", 20));
+				auto list = [&](const std::vector<TG::Path>& paths) {
+					json out = json::array();
+					for (size_t i = 0; i < paths.size() && (int)i < count; ++i)
+					{
+						json pts = json::array();
+						for (size_t k = 0; k < paths[i].Points.size(); k += (size_t)every)
+						{
+							const TG::PathPoint& q = paths[i].Points[k];
+							pts.push_back({ q.X, q.Z, q.Y, q.Width });
+						}
+						out.push_back({ { "order", paths[i].Order }, { "points", paths[i].Points.size() }, { "sample", pts } });
+					}
+					return out;
+				};
+				r = { { "rivers", list(b->Rivers) }, { "roads", list(b->Roads) } };
+				return true;
+			}
+			else if (op == "grid")
+			{
+				// count x count 높이 (가운데 x, z · 간격 step) 한 번에 — 가장 높은 · 낮은 곳과 함께 (장소 찾기)
+				std::shared_ptr<const TG::Built> b = TG::GetBuilt(path);
+				if (!b) { e = "not built"; return false; }
+				const float cx = a.value("x", 0.0f), cz = a.value("z", 0.0f), step = (std::max)(1.0f, a.value("step", 1000.0f));
+				const int count = std::clamp(a.value("count", 21), 1, 257);
+				json rows = json::array();
+				float best = -1e30f, worst = 1e30f;
+				json hi, lo;
+				for (int j = 0; j < count; ++j)
+				{
+					json row = json::array();
+					for (int i = 0; i < count; ++i)
+					{
+						const float x = cx + (i - (count - 1) * 0.5f) * step, z = cz + (j - (count - 1) * 0.5f) * step;
+						const float h = b->Height01(x, z, step * 0.25f) * b->World.MaxHeight;
+						row.push_back(std::round(h * 10.0f) / 10.0f);
+						if (h > best) { best = h; hi = { x, z, h }; }
+						if (h < worst) { worst = h; lo = { x, z, h }; }
+					}
+					rows.push_back(row);
+				}
+				r = { { "heights", rows }, { "highest", hi }, { "lowest", lo } };
+				return true;
+			}
+			else if (op == "apply")
+			{
+				std::shared_ptr<const TG::Built> b = TG::GetBuilt(path);
+				if (!b) { e = "not built"; return false; }
+				std::vector<Terrain*> targets;
+				for (Terrain* t : Terrain::GetActiveTerrains())
+					if (t && t->GetGameObject() && !t->GetGameObject()->IsHideAndDontSave())
+						targets.push_back(t);
+				r = { { "applied", TG::ApplyToTerrains(*b, targets, a.value("heights", true), a.value("splat", true)) } };
+				return true;
+			}
+			else if (op == "tiles")
+			{
+				if (!RequireEditMode(e)) return false;
+				std::string msg;
+				const int n = TerrainGraphWindow::CreateTerrainTiles(path, a.value("x", 24), a.value("z", 24), a.value("count", 2), a.value("resolution", 1025), msg);
+				if (n == 0) { e = msg; return false; }
+				r = { { "created", n }, { "message", msg } };
+				return true;
+			}
+			else if (op == "rivers")
+			{
+				if (!RequireEditMode(e)) return false;
+				std::string msg;
+				const int n = TerrainGraphWindow::CreateRivers(path, msg);
+				AfterEdit("Rivers");
+				r = { { "created", n }, { "message", msg } };
+				return true;
+			}
+			else if (op == "attach")
+			{
+				if (!RequireEditMode(e)) return false;
+				const std::string name = TerrainGraphWindow::AttachToWorld(path);
+				AfterEdit("Terrain World");
+				r = { { "object", name } };
+				return true;
+			}
+			else if (op == "textures")
+			{
+				std::string msg;
+				if (!TerrainGraphWindow::GenerateLayerTextures(path, a.value("size", 1024), msg)) { e = msg; return false; }
+				r = { { "message", msg } };
+				return true;
+			}
+			else if (op == "seams")
+			{
+				// 이웃한 장면 Terrain 의 맞닿은 가장자리 높이 차 (m) — 여러 지형에 적용한 뒤 이음매 검사
+				const auto& all = Terrain::GetActiveTerrains();
+				double worst = 0.0;
+				int pairs = 0;
+				for (Terrain* ta : all)
+					for (Terrain* tb : all)
+					{
+						if (ta == tb || !ta->GetTerrainData() || !tb->GetTerrainData() || ta->GetGameObject()->IsHideAndDontSave() || tb->GetGameObject()->IsHideAndDontSave())
+							continue;
+						const TerrainData& da = *ta->GetTerrainData();
+						const TerrainData& db = *tb->GetTerrainData();
+						const Vec3 pa = ta->GetGameObject()->GetTransform()->GetPosition(), pb = tb->GetGameObject()->GetTransform()->GetPosition();
+						const bool right = fabsf(pa.x + da.Size.x - pb.x) < 0.01f && fabsf(pa.z - pb.z) < 0.01f;
+						const bool up = fabsf(pa.z + da.Size.z - pb.z) < 0.01f && fabsf(pa.x - pb.x) < 0.01f;
+						if (!right && !up)
+							continue;
+						++pairs;
+						for (int k = 0; k <= 64; ++k)
+						{
+							const float t = k / 64.0f;
+							const float ha = right ? da.GetHeight(da.Size.x, t * da.Size.z) : da.GetHeight(t * da.Size.x, da.Size.z);
+							const float hb = right ? db.GetHeight(0.0f, t * db.Size.z) : db.GetHeight(t * db.Size.x, 0.0f);
+							worst = (std::max)(worst, (double)fabsf((ha + pa.y) - (hb + pb.y)));
+						}
+					}
+				r = { { "pairs", pairs }, { "maxSeamM", worst } };
+				return true;
+			}
+			const TG::BuildStatus st = TG::GetBuildStatus(path);
+			std::shared_ptr<const TG::Built> b = TG::GetBuilt(path);
+			const int side = (int)std::lround(g->World.WorldSize / (std::max)(1.0f, g->World.TileSize));
+			r = { { "path", path }, { "nodes", g->Nodes.size() }, { "edges", g->Edges.size() }, { "world", g->World.ToJson() }, { "tilesPerSide", side }, { "tiles", side * side },
+				{ "build", { { "running", st.Running }, { "progress", st.Progress }, { "stage", st.Stage }, { "ms", st.Ms }, { "error", st.Error }, { "done", st.Done }, { "resolution", st.Resolution } } },
+				{ "built", b != nullptr } };
+			if (b)
+				r["builtInfo"] = { { "res", b->Res }, { "mb", b->Bytes() / 1048576.0 }, { "outdated", b->GraphHash != g->ContentHash() }, { "layers", b->LayerPaths() },
+					{ "rivers", b->Rivers.size() }, { "roads", b->Roads.size() }, { "color", b->ColorMap != nullptr } };
 			return true;
 		});
 

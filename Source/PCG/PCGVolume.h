@@ -62,6 +62,8 @@ public:
 
 	// 그리기 (MeshBatcher 바깥 묶음) — 모든 PCG Volume
 	static void EmitBatches(int pass, bool editor, void* out);
+	// 절차적 나무 ("tree:종" 메시 칸) → TreeRenderer (화면마다 한 번): Cull 안 셀의 점을 종 · 변형마다
+	static void EmitTrees(const Vec3& eye, const std::function<void(const class TreeDesc&, const XMFLOAT4X4*, size_t)>& emit);
 
 private:
 	void Tick();
@@ -78,6 +80,7 @@ private:
 	uint64_t m_Key = 0;
 	std::shared_ptr<struct PCGQueue> m_Queue;
 	std::shared_ptr<const PCG::WaterMask> m_Water;   // 물 사본 (작업 스레드가 읽는다)
+	uint64_t m_WaterSource = 0;                       // 물 바디 (Revision · 위치) 해시 — 같으면 m_Water 그대로
 	uint32_t m_Frame = 0;
 	uint32_t m_LastTickFrame = ~0u;
 	double m_GenMs = 0.0;

@@ -466,6 +466,129 @@ namespace PCG
 		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 800.0f, 0, 0.0f);
 		return g;
 	}
+
+	Graph MakeBiomeForestPreset(const std::vector<std::pair<std::string, std::string>>& models, float maxHeight)
+	{
+		Graph g;
+		auto of = [&](std::initializer_list<const char*> kinds, size_t max = 8) {
+			std::vector<MeshEntry> all;
+			for (const auto& m : models)
+				for (const char* k : kinds)
+					if (m.first == k)
+						all.push_back({ m.second, 1.0f });
+			if (all.size() <= max)
+				return all;
+			std::vector<MeshEntry> out;
+			for (size_t i = 0; i < max; ++i)
+				out.push_back(all[i * all.size() / max]);
+			return out;
+		};
+		auto trees = [](std::initializer_list<std::pair<const char*, float>> species) {
+			std::vector<MeshEntry> out;
+			for (const auto& [name, w] : species)
+				out.push_back({ std::string("tree:") + name, w });
+			return out;
+		};
+		float y = 0.0f;
+		struct Zone { float Min = -1.0f, Max = -1.0f; };
+		// 줄: 표본 → 바이옴 → 높이 띠 → 경사 → 밀도 노이즈 → 밀도 → (빼기) → (솎기) → 돌리기 · 크기 → 놓기
+		auto chain = [&](const char* name, float density, float extents, int biome, float minWeight, Zone zone, float noiseScale, float pruning, float scaleMin, float scaleMax,
+			float align, float maxSlope, std::vector<MeshEntry> meshes, float cull, bool shadows, float shadowDistance, int exclude, float excludeRadius) -> int {
+			if (meshes.empty())
+				return 0;
+			float x = 0.0f;
+			Node& s = g.Add(NodeType::SurfaceSampler, x, y); x += 260.0f;
+			s.Comment = name;
+			s.Set("pointsPerSquaredMeter", density);
+			s.Set("pointExtents", extents);
+			s.Set("seed", (float)(g.NextId * 37));
+			int last = s.Id;
+			if (biome >= 0)
+			{
+				Node& b = g.Add(NodeType::BiomeFilter, x, y); x += 260.0f;
+				b.Set("biome", (float)biome);
+				b.Set("minWeight", minWeight);
+				g.Connect(last, b.Id, 0);
+				last = b.Id;
+			}
+			if (zone.Max > 0.0f)
+			{
+				Node& hf = g.Add(NodeType::HeightFilter, x, y); x += 260.0f;
+				hf.Set("minHeight", (std::max)(0.0f, zone.Min));
+				hf.Set("maxHeight", zone.Max);
+				hf.Set("falloff", maxHeight * 0.04f);
+				g.Connect(last, hf.Id, 0);
+				last = hf.Id;
+			}
+			Node& sl = g.Add(NodeType::SlopeFilter, x, y); x += 260.0f;
+			sl.Set("maxAngle", maxSlope);
+			g.Connect(last, sl.Id, 0);
+			last = sl.Id;
+			if (noiseScale > 0.0f)
+			{
+				Node& nn = g.Add(NodeType::DensityNoise, x, y); x += 260.0f;
+				nn.Set("scale", noiseScale);
+				nn.Set("seed", (float)(g.NextId * 53));
+				g.Connect(last, nn.Id, 0);
+				last = nn.Id;
+			}
+			Node& df = g.Add(NodeType::DensityFilter, x, y); x += 260.0f;
+			g.Connect(last, df.Id, 0);
+			last = df.Id;
+			if (exclude > 0)
+			{
+				Node& d = g.Add(NodeType::Difference, x, y); x += 260.0f;
+				d.Set("radius", excludeRadius);
+				g.Connect(last, d.Id, 0);
+				g.Connect(exclude, d.Id, 1);
+				last = d.Id;
+			}
+			if (pruning > 0.0f)
+			{
+				Node& p = g.Add(NodeType::SelfPruning, x, y); x += 260.0f;
+				p.Set("radius", pruning);
+				g.Connect(last, p.Id, 0);
+				last = p.Id;
+			}
+			Node& t = g.Add(NodeType::TransformPoints, x, y); x += 260.0f;
+			t.Set("scaleMin", scaleMin);
+			t.Set("scaleMax", scaleMax);
+			t.Set("alignToNormal", align);
+			g.Connect(last, t.Id, 0);
+			const int points = t.Id;
+			Node& sp = g.Add(NodeType::StaticMeshSpawner, x, y);
+			sp.Comment = name;
+			sp.Meshes = std::move(meshes);
+			sp.Set("cullDistance", cull);
+			sp.Set("castShadows", shadows ? 1.0f : 0.0f);
+			sp.Set("shadowDistance", shadowDistance);
+			g.Connect(points, sp.Id, 0);
+			y += 220.0f;
+			return points;
+		};
+		enum { Forest = 0, Meadow = 1, Desert = 2, Rock = 3 };
+		const float H = (std::max)(maxHeight, 100.0f);
+		// 높이 띠 (최고 높이의 비율): 저지 활엽수 0 ~ 34 %, 산지 침엽수 26 ~ 68 %, 수목한계선 62 ~ 80 % (그 위는 바위 · 눈)
+		const int lowland = chain("Lowland Broadleaf", 0.009f, 3.5f, Forest, 0.35f, { 0.0f, H * 0.34f }, 260.0f, 7.0f, 0.8f, 1.25f, 0.0f, 30.0f,
+			trees({ { "Beech", 1.3f }, { "Oak", 1.0f }, { "Birch", 0.6f }, { "Alder", 0.35f } }), 2200.0f, true, 1500.0f, 0, 0.0f);
+		const int montane = chain("Montane Conifers", 0.013f, 2.5f, Forest, 0.3f, { H * 0.26f, H * 0.68f }, 220.0f, 5.0f, 0.75f, 1.25f, 0.0f, 36.0f,
+			trees({ { "Spruce", 1.6f }, { "Fir", 1.0f }, { "Larch", 0.5f } }), 2200.0f, true, 1500.0f, 0, 0.0f);
+		chain("Treeline Pines", 0.006f, 2.0f, -1, 0.0f, { H * 0.62f, H * 0.8f }, 140.0f, 4.0f, 0.6f, 1.2f, 0.3f, 32.0f,
+			trees({ { "Dwarf Pine", 1.0f }, { "Spruce", 0.25f }, { "Juniper", 0.5f } }), 900.0f, true, 500.0f, 0, 0.0f);
+		chain("Dead Snags", 0.0005f, 2.0f, Forest, 0.4f, { H * 0.2f, H * 0.7f }, 0.0f, 12.0f, 0.8f, 1.2f, 0.0f, 30.0f,
+			trees({ { "Dead Pine", 1.0f } }), 1500.0f, true, 800.0f, montane, 4.0f);
+		const int meadowTrees = chain("Meadow Trees", 0.0009f, 4.0f, Meadow, 0.4f, { 0.0f, H * 0.5f }, 400.0f, 16.0f, 0.8f, 1.25f, 0.0f, 25.0f,
+			trees({ { "Oak", 1.0f }, { "Birch", 0.7f }, { "Beech", 0.4f } }), 2200.0f, true, 1500.0f, 0, 0.0f);
+		chain("Meadow Shrubs", 0.006f, 1.2f, Meadow, 0.35f, { 0.0f, H * 0.72f }, 120.0f, 3.0f, 0.7f, 1.3f, 0.3f, 32.0f,
+			trees({ { "Juniper", 1.0f }, { "Bush", 1.0f } }), 600.0f, true, 250.0f, meadowTrees, 4.0f);
+		// 아래 덮개 · 풀 · 바위 (프로젝트 모델)
+		chain("Forest Understory", 0.25f, 0.8f, Forest, 0.3f, { 0.0f, H * 0.7f }, 45.0f, 1.0f, 0.7f, 1.3f, 0.5f, 38.0f, of({ "Fern", "Bush" }), 220.0f, true, 60.0f, lowland, 2.5f);
+		chain("Forest Floor", 2.4f, 0.3f, Forest, 0.25f, { 0.0f, H * 0.72f }, 18.0f, 0.0f, 0.7f, 1.3f, 0.8f, 40.0f, of({ "ForestCover", "Grass" }), 85.0f, false, 0.0f, montane, 1.2f);
+		chain("Forest Debris", 0.01f, 1.5f, Forest, 0.4f, {}, 90.0f, 3.0f, 0.8f, 1.3f, 1.0f, 30.0f, of({ "Debris" }), 220.0f, true, 60.0f, montane, 3.0f);
+		chain("Meadow Grass", 4.0f, 0.25f, Meadow, 0.2f, { 0.0f, H * 0.78f }, 30.0f, 0.0f, 0.75f, 1.35f, 0.7f, 35.0f, of({ "Grass" }, 12), 75.0f, false, 0.0f, meadowTrees, 1.0f);
+		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, {}, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 800.0f, 0, 0.0f);
+		return g;
+	}
 }
 
 #include <regex>

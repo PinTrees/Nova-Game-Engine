@@ -239,6 +239,7 @@ cbuffer cbWeather
 };
 Texture2D gWeatherCover;          // 위에서 본 깊이 (R24)
 Texture2D gSnowDeform;            // 눈 발자국 (59. WeatherSnow.fx — 고리 배치, 1 = 바닥까지 눌림)
+static float s_ReflectionScale = 1.0f;   // 환경 반사 배율: 지형은 낮게 (풀잎 · 자갈이 비스듬한 하늘 반사를 가린다 — 먼 비탈이 하얗게 번들거렸다)
 static float s_WeatherPuddles = 1.0f;   // 웅덩이 양 배율: 메시 1, 지형 0.45, 나무 · 풀 · 바위 0 (잎 · 바위 위에 웅덩이가 생기지 않게)
 static bool s_SnowDisplaced = false;    // 쌓인 눈을 정점이 실제로 올렸다 (지형 테셀레이션) — 발자국 시차를 건너뛴다 (모양이 이미 파였다)
 
@@ -1058,6 +1059,7 @@ void ApplyWeather(inout LitSurface surf, float3 posW, inout float3 N, float3 V)
     const float porosity = saturate((1.0f - surf.Smoothness) * 1.2f) * (1.0f - surf.Metallic);
     surf.Albedo *= lerp(1.0f, lerp(0.85f, 0.45f, porosity), wet);
     surf.Smoothness = lerp(surf.Smoothness, max(surf.Smoothness, lerp(0.75f, 0.5f, porosity)), wet);   // 흙 · 풀은 덜 반들
+    s_ReflectionScale = lerp(s_ReflectionScale, 1.0f, wet);   // 젖은 땅은 반사를 다시 (물막)
 
     if (s_WeatherPuddles > 0.01f && puddle0 > 0.001f && up > 0.8f)
     {
@@ -1077,6 +1079,7 @@ void ApplyWeather(inout LitSurface surf, float3 posW, inout float3 N, float3 V)
             surf.Albedo *= lerp(1.0f, 0.3f, p);
             surf.Smoothness = lerp(surf.Smoothness, 0.97f, p);
             surf.Metallic = lerp(surf.Metallic, 0.0f, p);
+            s_ReflectionScale = lerp(s_ReflectionScale, 1.0f, p);
             N = normalize(lerp(N, waterN, p));
         }
     }
@@ -1327,7 +1330,7 @@ float3 ShadeLit(LitSurface surf, float3 posW, float3 N, float3 V, float4 ssaoPos
         float fresnel = pow(1.0f - NoV, 4.0f);
         float grazing = saturate(surf.Smoothness + (1.0f - oneMinusReflectivity));
         float surfaceReduction = 1.0f / (roughness * roughness + 1.0f);
-        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao * gIndirect.w;
+        color += env * (surfaceReduction * lerp(specular, float3(grazing, grazing, grazing), fresnel)) * ao * gIndirect.w * s_ReflectionScale;
     }
     return color + surf.Emission;
 }
@@ -2134,13 +2137,14 @@ float4 TerrainShade(TerrainVertexOut pin, bool tess)
     LitSurface surf;
     surf.Albedo = ToLinear(texColor.rgb);
     surf.Metallic = 0.0f;
-    surf.Smoothness = 0.12f;
+    surf.Smoothness = 0.05f;
     surf.Occlusion = 1.0f;
     surf.Emission = float3(0, 0, 0);
     surf.Transmission = float3(0, 0, 0);
     surf.Highlights = true;
     surf.Reflections = true;
     surf.ReceiveShadows = true;
+    s_ReflectionScale = 0.3f;
     s_WeatherPuddles = 0.45f;   // 풀 · 흙 위 웅덩이는 적게
     return FinishLit(ShadeLit(surf, pin.PosW.xyz, normalW, toEye, pin.SsaoPosH), 1.0f, distToEye);
 }

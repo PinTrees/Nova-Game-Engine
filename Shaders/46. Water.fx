@@ -429,7 +429,7 @@ bool TraceReflection(float3 P, float3 R, out float3 color, out float fade)
             return false;
         const float2 pix = gViewport.xy + float2(ndc.x * 0.5f + 0.5f, 0.5f - ndc.y * 0.5f) * gViewport.zw;
         const float d = gSceneDepth.Load(int3(pix, 0));
-        const float diff = d < 0.99999f ? c.w - ViewZ(d) : -1.0f;
+        const float diff = d < 1.0f ? c.w - ViewZ(d) : -1.0f;
         const bool front = diff <= 0.0f;
         if (!front && prevFront)
         {
@@ -444,7 +444,7 @@ bool TraceReflection(float3 P, float3 R, out float3 color, out float fade)
                     const float2 nm = cm.xy / cm.w;
                     const float2 pm = gViewport.xy + float2(nm.x * 0.5f + 0.5f, 0.5f - nm.y * 0.5f) * gViewport.zw;
                     const float dm = gSceneDepth.Load(int3(pm, 0));
-                    if (dm < 0.99999f && cm.w > ViewZ(dm))
+                    if (dm < 1.0f && cm.w > ViewZ(dm))
                     {
                         b = m;
                         hitPix = pm;
@@ -526,7 +526,7 @@ float4 WaterPS(VSOut pin) : SV_Target
         rpix = pix;
         sceneZ = sceneZ0;
     }
-    const bool sky = gSceneDepth.Load(int3(rpix, 0)) >= 0.99999f;
+    const bool sky = gSceneDepth.Load(int3(rpix, 0)) >= 1.0f;   // 지운 깊이만 하늘 (먼 지형은 아니다)
     const float3 rayDir = -V;
     const float viewThick = sky ? 1e4f : max(0.0f, (sceneZ - waterZ) * dist / waterZ);   // 시선을 따라 물속을 지난 거리
     const float3 floorW = pin.PosW + rayDir * viewThick;
@@ -647,7 +647,7 @@ float4 UnderwaterPS(FullOut pin) : SV_Target
     const float4 farP = mul(float4(ndc, 1.0f, 1.0f), gInvViewProj);
     const float3 dir = normalize(farP.xyz / farP.w - gEyePos);
     float sceneDist = 1e4f;
-    if (d < 0.99999f)
+    if (d < 1.0f)
     {
         const float4 sp = mul(float4(ndc, d, 1.0f), gInvViewProj);
         sceneDist = distance(sp.xyz / sp.w, gEyePos);

@@ -172,10 +172,17 @@ float4 TerrainLayerSample(Texture2D tex, float4 st, TerrainTriplanar t)
     float4 c = 0;
     [branch] if (t.W.y > 0.0f)
         c += t.W.y * TerrainSampleNoTile(tex, t.Top * st.xy + st.zw, t.TopDx * st.xy, t.TopDy * st.xy);
+    // 절벽 (옆 투영) 도 타일 없애기 — 바위 비탈에 같은 무늬가 줄지어 보이지 않게
     [branch] if (t.W.x > 0.0f)
-        c += t.W.x * tex.SampleGrad(samTerrainWrap, t.SideX * st.xy + st.zw, t.XDx * st.xy, t.XDy * st.xy);
+        c += t.W.x * TerrainSampleNoTile(tex, t.SideX * st.xy + st.zw, t.XDx * st.xy, t.XDy * st.xy);
     [branch] if (t.W.z > 0.0f)
-        c += t.W.z * tex.SampleGrad(samTerrainWrap, t.SideZ * st.xy + st.zw, t.ZDx * st.xy, t.ZDy * st.xy);
+        c += t.W.z * TerrainSampleNoTile(tex, t.SideZ * st.xy + st.zw, t.ZDx * st.xy, t.ZDy * st.xy);
+    // 큰 얼룩 (같은 텍스처를 1/6 크기로 — 밝기 비율만): 먼 곳의 반복을 깬다
+    const float2 macroUV = (t.Top * st.xy) * 0.163f + 0.37f;
+    const float3 lumW = float3(0.299f, 0.587f, 0.114f);
+    const float macro = dot(tex.SampleGrad(samTerrainWrap, macroUV, t.TopDx * st.xy * 0.163f, t.TopDy * st.xy * 0.163f).rgb, lumW);
+    const float mean = dot(tex.SampleLevel(samTerrainWrap, float2(0.5f, 0.5f), 16).rgb, lumW);
+    c.rgb *= lerp(1.0f, clamp(macro / max(mean, 0.02f), 0.65f, 1.4f), 0.45f);
     return c;
 }
 

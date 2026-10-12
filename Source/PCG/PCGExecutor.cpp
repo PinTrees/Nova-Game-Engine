@@ -382,20 +382,72 @@ namespace PCG
 			if (inside)
 				return true;
 		}
+		auto segment = [&](const std::vector<RiverPoint>& river, size_t i) {
+			const RiverPoint& a = river[i];
+			const RiverPoint& b = river[i + 1];
+			const float dx = b.X - a.X, dz = b.Z - a.Z;
+			const float len2 = dx * dx + dz * dz;
+			const float t = len2 > 1e-6f ? std::clamp(((x - a.X) * dx + (z - a.Z) * dz) / len2, 0.0f, 1.0f) : 0.0f;
+			const float px = a.X + dx * t - x, pz = a.Z + dz * t - z;
+			const float half = a.HalfWidth + (b.HalfWidth - a.HalfWidth) * t + margin;
+			return px * px + pz * pz < half * half && y < a.Y + (b.Y - a.Y) * t + 1.0f;
+		};
+		if (!Grid.empty())
+		{
+			const int gx = (int)floorf((x - GridX0) / GridCell), gz = (int)floorf((z - GridZ0) / GridCell);
+			if (gx < 0 || gz < 0 || gx >= GridW || gz >= GridH)
+				return false;
+			for (const SegRef& r : Grid[(size_t)gz * GridW + gx])
+				if (segment(Rivers[(size_t)r.River], (size_t)r.Index))
+					return true;
+			return false;
+		}
 		for (const auto& river : Rivers)
 			for (size_t i = 0; i + 1 < river.size(); ++i)
-			{
-				const RiverPoint& a = river[i];
-				const RiverPoint& b = river[i + 1];
-				const float dx = b.X - a.X, dz = b.Z - a.Z;
-				const float len2 = dx * dx + dz * dz;
-				const float t = len2 > 1e-6f ? std::clamp(((x - a.X) * dx + (z - a.Z) * dz) / len2, 0.0f, 1.0f) : 0.0f;
-				const float px = a.X + dx * t - x, pz = a.Z + dz * t - z;
-				const float half = a.HalfWidth + (b.HalfWidth - a.HalfWidth) * t + margin;
-				if (px * px + pz * pz < half * half && y < a.Y + (b.Y - a.Y) * t + 1.0f)
+				if (segment(river, i))
 					return true;
-			}
 		return false;
+	}
+
+	void WaterMask::BuildIndex()
+	{
+		Grid.clear();
+		GridW = GridH = 0;
+		size_t segments = 0;
+		float minX = FLT_MAX, minZ = FLT_MAX, maxX = -FLT_MAX, maxZ = -FLT_MAX, maxHalf = 0.0f;
+		for (const auto& river : Rivers)
+			for (const RiverPoint& p : river)
+			{
+				minX = (std::min)(minX, p.X); maxX = (std::max)(maxX, p.X);
+				minZ = (std::min)(minZ, p.Z); maxZ = (std::max)(maxZ, p.Z);
+				maxHalf = (std::max)(maxHalf, p.HalfWidth);
+				++segments;
+			}
+		if (segments < 256)
+			return;   // 짧으면 그냥 다 본다
+		const float pad = maxHalf + 2.0f;
+		GridX0 = minX - pad;
+		GridZ0 = minZ - pad;
+		GridW = (std::max)(1, (int)ceilf((maxX - minX + 2.0f * pad) / GridCell) + 1);
+		GridH = (std::max)(1, (int)ceilf((maxZ - minZ + 2.0f * pad) / GridCell) + 1);
+		Grid.assign((size_t)GridW * GridH, {});
+		for (int ri = 0; ri < (int)Rivers.size(); ++ri)
+		{
+			const auto& river = Rivers[(size_t)ri];
+			for (int i = 0; i + 1 < (int)river.size(); ++i)
+			{
+				const RiverPoint& a = river[(size_t)i];
+				const RiverPoint& b = river[(size_t)i + 1];
+				const float r = (std::max)(a.HalfWidth, b.HalfWidth) + 2.0f;
+				const int x0 = std::clamp((int)floorf(((std::min)(a.X, b.X) - r - GridX0) / GridCell), 0, GridW - 1);
+				const int x1 = std::clamp((int)floorf(((std::max)(a.X, b.X) + r - GridX0) / GridCell), 0, GridW - 1);
+				const int z0 = std::clamp((int)floorf(((std::min)(a.Z, b.Z) - r - GridZ0) / GridCell), 0, GridH - 1);
+				const int z1 = std::clamp((int)floorf(((std::max)(a.Z, b.Z) + r - GridZ0) / GridCell), 0, GridH - 1);
+				for (int gz = z0; gz <= z1; ++gz)
+					for (int gx = x0; gx <= x1; ++gx)
+						Grid[(size_t)gz * GridW + gx].push_back({ ri, i });
+			}
+		}
 	}
 
 	void ExecuteSpawner(const Graph& graph, int spawnerId, const WorldGen::Settings& world, const TerrainGrid& grid, int volumeSeed, const Rect& rect, CellOutput& out,

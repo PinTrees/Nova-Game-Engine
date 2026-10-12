@@ -106,7 +106,8 @@ float4 AtmPS(AtmVSOut pin) : SV_Target
     const int2 pix = int2(pin.PosH.xy);
     const float4 src = gAtmSceneColor.Load(int3(pix, 0));
     const float z = gAtmDepth.Load(int3(pix, 0));
-    const bool sky = z >= 0.99999f;
+    // 하늘 = 지운 깊이 (정확히 1) 만. 0.99999 는 near 0.1 이면 10 km 너머의 실제 지형도 하늘로 보아 안개 · 대기가 빠졌다 (50 km 월드의 먼 산)
+    const bool sky = z >= 1.0f;
     if (sky && src.a < 0.5f)
         return src;   // Scene 뷰의 빈 배경 (하늘 끔): 뒤의 그라디언트가 비치게 그대로
     const float2 ndc = float2((pin.PosH.x - gAtmViewport.x) / gAtmViewport.z * 2.0f - 1.0f, 1.0f - (pin.PosH.y - gAtmViewport.y) / gAtmViewport.w * 2.0f);

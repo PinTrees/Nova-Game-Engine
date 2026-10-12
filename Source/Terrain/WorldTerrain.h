@@ -2,6 +2,8 @@
 #include "Component.h"
 #include "WorldGen.h"
 #include <array>
+#include <functional>
+#include <string>
 #include <memory>
 #include <vector>
 
@@ -10,6 +12,7 @@ class TerrainData;
 class TerrainLayer;
 
 // 초대형 월드 지형 (World Terrain): WorldGen 의 높이 · 바이옴 함수를 타일 (기본 1 km) 지형으로 보여 준다.
+//  Graph (.terraingraph — Gaea 식 지형 그래프) 를 정하면 그 빌드가 높이 · 스플랫을 정한다: 월드 크기 · 타일 크기 · 가까운 타일 해상도 (예: 50 km · 1 km · 2049)
 //  - 32 km 면 32 x 32 = 1024 타일. 카메라 (Scene 뷰 · Game 뷰 둘 다) 와의 거리로 해상도: 가까이 513 (2 m), 중간 129 (8 m), 멀리 33 (32 m)
 //  - 높이 · 스플랫은 작업 스레드에서 만들고 (같은 위치 = 같은 값 — 타일 경계가 맞는다), 메인은 프레임마다 예산만큼 바꿔 끼운다.
 //    해상도가 다른 이웃 타일과의 틈은 스커트로 가린다
@@ -20,8 +23,9 @@ class WorldTerrain : public Component
 	GENERATE_COMPONENT_BODY(WorldTerrain)
 public:
 	WorldGen::Settings Settings;
+	std::string GraphPath;            // .terraingraph (비우면 위 노이즈 월드)
 	float TileSize = 1024.0f;
-	float NearDistance = 1300.0f;     // 이 거리 (타일 사각형까지) 안 = 513
+	float NearDistance = 1300.0f;     // 이 거리 (타일 사각형까지) 안 = 가까운 해상도 (513, 그래프면 그 Tile Resolution)
 	float MidDistance = 4500.0f;      // 이 거리 안 = 129, 바깥 = 33
 	float ColliderDistance = 700.0f;  // 이 거리 안의 513 타일에 Terrain Collider (Play)
 	float PixelError = 6.0f;
@@ -44,9 +48,15 @@ public:
 	// 지금 씬의 World Terrain (없으면 nullptr) — PCG 가 높이 · 바이옴을 읽는다
 	static WorldTerrain* Active();
 
-	struct Info { int Tiles = 0, Built = 0, Pending = 0, Res513 = 0, Res129 = 0, Res33 = 0, Colliders = 0; double LastApplyMs = 0; };
+	struct Info { int Tiles = 0, Built = 0, Pending = 0, Res513 = 0, Res129 = 0, Res33 = 0, Colliders = 0, NearRes = 513; double LastApplyMs = 0; bool WaitingForBuild = false;
+		size_t CpuBytes = 0, GpuBytes = 0; };   // Res513 = 가까운 해상도 타일 수 (NearRes)
 	Info GetInfo() const;
 	void RegenerateAll();   // 캐시를 버리고 모두 다시
+	int NearResolution() const { return m_NearRes; }   // 가까운 타일 높이맵 (513 · 그래프면 2049 등)
+	// 진단: 그 자리 타일 (있으면) 의 높이 · 해상도 — 높이 함수와 견주기 (CLI world probe)
+	bool ProbeTile(float x, float z, float& tileHeight, int& tileRes) const;
+	// 그래프 창 열기 (편집기가 넣는다)
+	static std::function<void(const std::string&)> s_OpenGraphWindow;
 
 private:
 	struct Tile
@@ -77,5 +87,8 @@ private:
 	std::shared_ptr<struct WorldTerrainQueue> m_Queue;
 	double m_LastApplyMs = 0.0;
 	uint32_t m_LastTickFrame = ~0u;
+	int m_NearRes = 513;
+	bool m_WaitingForBuild = false;
+	void SyncGraph();
 };
 REGISTER_COMPONENT(WorldTerrain)

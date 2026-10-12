@@ -2,6 +2,9 @@
 #include "WaterShore.h"
 #include "Terrain.h"
 #include "TerrainData.h"
+#include "WorldTerrain.h"
+#include "WorldGen.h"
+#include "JobSystem.h"
 #include <deque>
 #include <map>
 
@@ -33,8 +36,52 @@ namespace
 
 namespace WaterShore
 {
+	// 초대형 월드 (World Terrain): 타일 2500 개를 하나씩 찾지 않고 높이 함수로 (타일 LOD 가 바뀔 때마다 다시 만들지 않게 — 월드 설정이 바뀔 때만).
+	//  예전에는 카메라가 움직여 타일 해상도가 바뀔 때마다 표본 50 만 개 × 지형 2500 개를 돌아 4 초씩 멈췄다
+	bool UpdateFromWorld()
+	{
+		WorldTerrain* wt = WorldTerrain::Active();
+		if (!wt)
+			return false;
+		const WorldGen::Settings& s = wt->Settings;
+		const uint64_t h = Mix(s.Hash(), 0x5157u);
+		if (h == s_Hash && s_Has)
+			return true;
+		s_Hash = h;
+		++s_Revision;
+		s_Masks.clear();
+		const float half = s.WorldSize * 0.5f, size = s.WorldSize;
+		const float cellSize = size / kRes;
+		std::vector<float> corners((size_t)(kRes + 1) * (kRes + 1));
+		Jobs::ParallelFor(kRes + 1, 8, [&](int z0, int z1) {
+			for (int z = z0; z < z1; ++z)
+				for (int x = 0; x <= kRes; ++x)
+					corners[(size_t)z * (kRes + 1) + x] = WorldGen::Height01(s, -half + (float)x / kRes * size, -half + (float)z / kRes * size, cellSize) * s.MaxHeight;
+		}, "Water Shore");
+		s_Heights.assign((size_t)kRes * kRes, -1e4f);
+		s_MinHeights.assign((size_t)kRes * kRes, -1e4f);
+		Jobs::ParallelFor(kRes, 8, [&](int z0, int z1) {
+			for (int z = z0; z < z1; ++z)
+				for (int x = 0; x < kRes; ++x)
+				{
+					const float c = WorldGen::Height01(s, -half + (x + 0.5f) / kRes * size, -half + (z + 0.5f) / kRes * size, cellSize) * s.MaxHeight;
+					const size_t i = (size_t)z * kRes + x;
+					s_Heights[i] = c;
+					float mn = c;
+					for (int k = 0; k < 4; ++k)
+						mn = (std::min)(mn, corners[(size_t)(z + (k >> 1)) * (kRes + 1) + x + (k & 1)]);
+					s_MinHeights[i] = mn;
+				}
+		}, "Water Shore");
+		s_Rect = XMFLOAT4(-half, -half, 1.0f / size, 1.0f / size);
+		s_Has = true;
+		return true;
+	}
+
 	void Update()
 	{
+		if (UpdateFromWorld())
+			return;
 		uint64_t h = 0;
 		float minX = FLT_MAX, minZ = FLT_MAX, maxX = -FLT_MAX, maxZ = -FLT_MAX;
 		for (Terrain* t : Terrain::GetActiveTerrains())

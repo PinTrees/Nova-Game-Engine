@@ -7,6 +7,7 @@
 #include "MeshBatcher.h"
 #include "ShadowRenderer.h"
 #include "EditorLog.h"
+#include "Profiler.h"
 #include <unordered_map>
 
 namespace
@@ -19,6 +20,11 @@ namespace
 		UINT Counts[16] = {};
 		ComPtr<GfxBuffer> Skirts[4];   // 변마다 스커트 (0 -X, 1 +X, 2 -Z, 3 +Z) — 가장자리 격자점과 내린 정점 (TerrainVertexWorld)
 		UINT SkirtCount = 0;
+		// 잎 + 그 잎이 닿은 변의 스커트를 한 버퍼로 ([LOD 이음 마스크][변 마스크], 처음 쓸 때 만든다) — 그리기 한 번
+		//  (World Terrain 의 먼 타일 2500 개는 잎 하나 + 스커트 네 변 = 그리기 다섯 번씩이었다)
+		ComPtr<GfxBuffer> Combined[16][16];
+		UINT CombinedCounts[16][16] = {};
+		int Cells = 0;
 	};
 
 	// 스커트 한 변: 가장자리 격자점 a(i) 와 내린 정점 (side² + 변 * side + i) 의 띠 — 양면 (어느 쪽에서 봐도 틈을 가린다)
@@ -74,6 +80,30 @@ namespace
 		return out;
 	}
 
+	GfxBuffer* CombinedBuffer(IndexSet& set, int mask, int edges, UINT& count)
+	{
+		ComPtr<GfxBuffer>& buf = set.Combined[mask & 15][edges & 15];
+		if (!buf)
+		{
+			std::vector<uint16_t> idx = BuildIndices(set.Cells, mask);
+			for (int s = 0; s < 4; ++s)
+				if (edges & (1 << s))
+				{
+					const std::vector<uint16_t> sk = BuildSkirt(set.Cells, s);
+					idx.insert(idx.end(), sk.begin(), sk.end());
+				}
+			D3D11_BUFFER_DESC desc = {};
+			desc.ByteWidth = (UINT)(idx.size() * sizeof(uint16_t));
+			desc.Usage = D3D11_USAGE_IMMUTABLE;
+			desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+			D3D11_SUBRESOURCE_DATA init = { idx.data(), 0, 0 };
+			Application::GetI()->GetDevice()->CreateBuffer(&desc, &init, buf.GetAddressOf());
+			set.CombinedCounts[mask & 15][edges & 15] = (UINT)idx.size();
+		}
+		count = set.CombinedCounts[mask & 15][edges & 15];
+		return buf.Get();
+	}
+
 	IndexSet& GetIndexSet(int cells)
 	{
 		static std::map<int, IndexSet> sets;
@@ -81,6 +111,7 @@ namespace
 		if (it != sets.end())
 			return it->second;
 		IndexSet& set = sets[cells];
+		set.Cells = cells;
 		GfxDevice* device = Application::GetI()->GetDevice();
 		for (int m = 0; m < 16; ++m)
 		{
@@ -171,15 +202,28 @@ namespace
 		}
 	}
 
+	// 이름 → 변수 (효과 · 문자열 상수 주소로 기억): GetVariableByName 은 효과의 변수 수백 개를 이름으로 훑는다 — 타일 2500 개 × 패스마다였다
+	FxVar* VarOf(FxEffect* fx, const char* name)
+	{
+		static std::unordered_map<uint64_t, FxVar*> s_Vars;
+		const uint64_t key = (uint64_t)(uintptr_t)fx * 0x9E3779B97F4A7C15ull ^ (uint64_t)(uintptr_t)name;
+		auto it = s_Vars.find(key);
+		if (it != s_Vars.end())
+			return it->second;
+		FxVar* v = fx->GetVariableByName(name);
+		s_Vars[key] = v;
+		return v;
+	}
+
 	void SetMatrix(FxEffect* fx, const char* name, CXMMATRIX m)
 	{
-		if (auto* v = fx->GetVariableByName(name)->AsMatrix(); v && v->IsValid())
+		if (auto* v = VarOf(fx, name)->AsMatrix(); v && v->IsValid())
 			v->SetMatrix(reinterpret_cast<const float*>(&m));
 	}
 
 	void SetVector(FxEffect* fx, const char* name, const float (&v4)[4])
 	{
-		if (auto* v = fx->GetVariableByName(name)->AsVector(); v && v->IsValid())
+		if (auto* v = VarOf(fx, name)->AsVector(); v && v->IsValid())
 			v->SetFloatVector(v4);
 	}
 
@@ -188,6 +232,7 @@ namespace
 	constexpr float kTessTriangleSize = 14.0f;     // 원하는 삼각형 변 (1080p 화면의 픽셀) — 10 에서 14 로: 본 패스 0.15 ms 덜 (Release, 돌 지형), 돌 모양은 그대로
 	constexpr float kTessDistance = 40.0f;        // 이 거리 너머는 나누지 않는다 (발자국 맵 창 48 m 의 거의 끝)
 	constexpr float kPomDistance = 100.0f;        // 레이어 높이의 POM 이 끝나는 거리 (나눔 거리 끝에서 이어 받는다)
+	constexpr float kPrepassDistance = 3000.0f;   // 이 너머 타일은 깊이 · 법선 프리패스에 그리지 않는다 (본 패스만)
 
 	// ---- 레이어 높이 · 노멀 배열 (61 의 gTerrainHeights): 레이어 높이 맵 · Normal Map 여덟 장을 Texture2DArray 하나로 (R10G10B10A2:
 	//  R 높이, G · B 노멀 xy) — 지형 셰이더가 샘플러 하나로 읽는다 (OpenGL · GLES 의 픽셀 단계 샘플러 32 개 한도).
@@ -198,18 +243,20 @@ namespace
 		ComPtr<GfxTexture2D> Tex;
 		ComPtr<GfxShaderResourceView> Srv;
 		ComPtr<GfxRenderTargetView> Rtv[TerrainData::kMaxLayers];
-		std::string Key;
+		uint64_t Key = 0;
 	};
 
 	GfxShaderResourceView* HeightArrayFor(TerrainData& data)
 	{
 		// 레이어 조합마다 하나 (지형마다가 아니다 — World Terrain 타일 1024 개가 같은 레이어면 한 장, 예전에는 타일마다 21 MB)
-		static std::unordered_map<std::string, HeightArray> s_Arrays;
+		static std::unordered_map<uint64_t, HeightArray> s_Arrays;
 		static std::unique_ptr<Effect> s_Blit;
 		static bool s_BlitTried = false;
 		GfxShaderResourceView* src[TerrainData::kMaxLayers] = {};
 		GfxShaderResourceView* nrm[TerrainData::kMaxLayers] = {};
-		std::string key;
+		// 키 = 레이어 · 텍스처 포인터 해시 (예전에는 경로 문자열을 타일 · 패스마다 이어 붙였다 — World Terrain 타일 2500 개)
+		uint64_t key = 1469598103934665603ull;
+		auto mixKey = [&](uint64_t v) { key = (key ^ v) * 1099511628211ull; };
 		for (int i = 0; i < (std::min)((int)data.Layers.size(), TerrainData::kMaxLayers); ++i)
 		{
 			TerrainLayer& l = *data.Layers[i];
@@ -217,7 +264,10 @@ namespace
 				src[i] = l.HeightSRV();
 			if (l.HasNormal())
 				nrm[i] = l.NormalSRV();
-			key += l.HeightPath + "#" + std::to_string((uintptr_t)src[i]) + "#" + l.NormalPath + "#" + std::to_string((uintptr_t)nrm[i]) + "|";
+			mixKey((uint64_t)(uintptr_t)&l);
+			mixKey((uint64_t)(uintptr_t)src[i]);
+			mixKey((uint64_t)(uintptr_t)nrm[i]);
+			mixKey((uint64_t)i + 1);
 		}
 		HeightArray& a = s_Arrays[key];
 		if (a.Srv && a.Key == key)
@@ -461,6 +511,7 @@ namespace TerrainRenderer
 {
 	void Draw(TerrainData& data, const Vec3& origin, Pass pass, float pixelError, Stats* stats, float heightTransition, float skirt)
 	{
+		PROFILE_SCOPE("Terrain.Draw");
 		TerrainVars& v = Vars(pass);
 		if (!v.Valid() || data.Heights.empty())
 			return;
@@ -476,6 +527,15 @@ namespace TerrainRenderer
 		const float viewportH = editor ? rm->EditorViewport.Height : rm->Viewport.Height;
 		const XMMATRIX invView = XMMatrixInverse(nullptr, view);
 		const Vec3 cameraPos(XMVectorGetX(invView.r[3]), XMVectorGetY(invView.r[3]), XMVectorGetZ(invView.r[3]));
+		// 깊이 · 법선 프리패스: 3 km 너머 타일은 건너뛴다 — 본 패스가 LESS_EQUAL 로 깊이를 쓰고 (프리패스 깊이에 기대지 않는다),
+		//  그 거리의 SSAO 는 보이지 않는다. 50 km 월드에서 프리패스 CPU 의 대부분이 먼 타일 수천 개였다
+		if (pass == Pass::NormalDepth)
+		{
+			const float dx = (std::max)({ origin.x - cameraPos.x, 0.0f, cameraPos.x - (origin.x + data.Size.x) });
+			const float dz = (std::max)({ origin.z - cameraPos.z, 0.0f, cameraPos.z - (origin.z + data.Size.z) });
+			if (dx * dx + dz * dz > kPrepassDistance * kPrepassDistance)
+				return;
+		}
 		// 지형 전체가 절두체 밖이면 아무것도 하지 않는다 (World Terrain 타일 1024 개 × 패스마다)
 		{
 			const TerrainData::Node& root = data.GetNode(0, 0, 0);
@@ -502,7 +562,10 @@ namespace TerrainRenderer
 			for (int i = 0; i < (std::min)((int)data.Layers.size(), TerrainData::kMaxLayers) && !fine; ++i)
 				fine = data.Layers[i]->HasHeight();
 		}
-		SelectLeaves(data, origin, cameraPos, errorPerMeter, fine ? kTessDistance : 0.0f, leaves, masks);
+		{
+			PROFILE_SCOPE("Terrain.SelectLeaves");
+			SelectLeaves(data, origin, cameraPos, errorPerMeter, fine ? kTessDistance : 0.0f, leaves, masks);
+		}
 
 		// ---- 효과 변수 ----
 		FxEffect* fx = nullptr;
@@ -596,7 +659,11 @@ namespace TerrainRenderer
 		{
 			const WeatherState& w = WeatherState::Get();
 			const bool snow = pass == Pass::Main && w.NeedsCover() && w.SnowCover > 0.001f;
-			if ((anyHeight || snow) && MeshBatcher::TessellationEnabled() && (pass != Pass::Shadow || ShadowRenderer::TessellateShadow()) && v.TessTech && v.TessTech->IsValid() && v.TessTech->GetPassByIndex(0)->IsUsable())
+			// 나눔은 카메라 kTessDistance 안만 일어난다 — 그보다 먼 타일 (World Terrain 의 먼 타일 수천 개) 은 보통 기법 (헐 · 도메인 셰이더 비용 없이)
+			const float tdx = (std::max)({ origin.x - cameraPos.x, 0.0f, cameraPos.x - (origin.x + data.Size.x) });
+			const float tdz = (std::max)({ origin.z - cameraPos.z, 0.0f, cameraPos.z - (origin.z + data.Size.z) });
+			const bool nearTile = tdx * tdx + tdz * tdz < (kTessDistance + 30.0f) * (kTessDistance + 30.0f);
+			if ((anyHeight || snow) && nearTile && MeshBatcher::TessellationEnabled() && (pass != Pass::Shadow || ShadowRenderer::TessellateShadow()) && v.TessTech && v.TessTech->IsValid() && v.TessTech->GetPassByIndex(0)->IsUsable())
 			{
 				tech = v.TessTech;
 				tess = true;
@@ -637,6 +704,7 @@ namespace TerrainRenderer
 			*stats = Stats();
 			stats->Nodes = (int)leaves.size();
 		}
+		PROFILE_SCOPE("Terrain.Leaves");
 		for (size_t i = 0; i < leaves.size(); ++i)
 		{
 			const Leaf& l = leaves[i];
@@ -653,21 +721,18 @@ namespace TerrainRenderer
 			const XMFLOAT4 patchVec((float)(l.X * cells), (float)(l.Z * cells), (float)data.NodeStep(l.Depth), (float)(grid + 1));
 			v.Patch->SetFloatVector(reinterpret_cast<const float*>(&patchVec));
 			fxPass->Apply(0, dc);
-			dc->IASetIndexBuffer(ib, DXGI_FORMAT_R16_UINT, 0);
-			dc->DrawIndexed(count, 0, 0);
-			RenderStats::AddDraw(count, count);   // 정점 수는 인덱스 수로 근사
-			// 스커트: 지형 (타일) 가장자리에 닿는 잎만 그 변을
+			// 스커트: 지형 (타일) 가장자리에 닿는 잎만 그 변을 — 잎과 같은 버퍼로 한 번에
+			int edgeMask = 0;
 			if (skirt > 0.0f && indices.SkirtCount > 0)
 			{
 				const int last = (1 << l.Depth) - 1;
-				const bool edges[4] = { l.X == 0, l.X == last, l.Z == 0, l.Z == last };
-				for (int s = 0; s < 4; ++s)
-					if (edges[s] && indices.Skirts[s])
-					{
-						dc->IASetIndexBuffer(indices.Skirts[s].Get(), DXGI_FORMAT_R16_UINT, 0);
-						dc->DrawIndexed(indices.SkirtCount, 0, 0);
-					}
+				edgeMask = (l.X == 0 ? 1 : 0) | (l.X == last ? 2 : 0) | (l.Z == 0 ? 4 : 0) | (l.Z == last ? 8 : 0);
 			}
+			UINT drawCount = count;
+			GfxBuffer* drawIb = edgeMask ? CombinedBuffer(indices, masks[i], edgeMask, drawCount) : ib;
+			dc->IASetIndexBuffer(drawIb, DXGI_FORMAT_R16_UINT, 0);
+			dc->DrawIndexed(drawCount, 0, 0);
+			RenderStats::AddDraw(drawCount, drawCount);   // 정점 수는 인덱스 수로 근사
 			if (stats)
 			{
 				++stats->DrawnNodes;

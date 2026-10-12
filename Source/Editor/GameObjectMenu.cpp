@@ -233,6 +233,8 @@ namespace GameObjectMenu
 			{
 				if (ImGui::MenuItem("Open World 32 km (PCG)")) add(GameObjectFactory::CreateOpenWorld(32768.0f));
 				if (ImGui::MenuItem("Open World 8 km (PCG)")) add(GameObjectFactory::CreateOpenWorld(8192.0f));
+				// 지형 그래프 (Gaea 같은 노드 · 침식): 50 x 50 km, 1 km 타일 2049² — 빌드는 Window > Terrain Graph
+				if (ImGui::MenuItem("Terrain World 50 km (Graph)")) add(GameObjectFactory::CreateTerrainWorld());
 				ImGui::Separator();
 				if (ImGui::MenuItem("PCG Volume")) add(GameObjectFactory::CreatePCGVolume());
 				ImGui::EndMenu();

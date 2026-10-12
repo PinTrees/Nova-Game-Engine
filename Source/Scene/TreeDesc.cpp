@@ -36,6 +36,54 @@ void TreeDesc::ApplyPreset(int preset)
 		LeafColor = { 0.2f, 0.38f, 0.11f, 1 }; LeafColor2 = { 0.34f, 0.48f, 0.13f, 1 }; LeafVariation = 0.5f; LeafTransmission = 0.55f; LeafLength = 0.36f;
 		LodDistance = 18.0f; BillboardDistance = 45.0f;
 		break;
+	case 4:   // Spruce: 짙은 청록 바늘잎, 붉은 갈색 비늘 수피
+		BarkColor = { 0.33f, 0.22f, 0.17f, 1 }; MossColor = { 0.3f, 0.36f, 0.16f, 1 }; Moss = 0.2f;
+		RidgeDepth = 0.5f; RidgeFrequency = 18.0f; BarkFleck = 0.15f;
+		LeafColor = { 0.08f, 0.2f, 0.11f, 1 }; LeafColor2 = { 0.14f, 0.28f, 0.14f, 1 }; LeafVariation = 0.3f; LeafTransmission = 0.25f; LeafLength = 0.3f;
+		LodDistance = 45.0f; BillboardDistance = 110.0f; CullDistance = 2500.0f;
+		break;
+	case 5:   // Fir: 은회색 수피, 짙은 녹색
+		BarkColor = { 0.45f, 0.43f, 0.4f, 1 }; MossColor = { 0.33f, 0.4f, 0.18f, 1 }; Moss = 0.25f;
+		RidgeDepth = 0.25f; RidgeFrequency = 12.0f; BarkFleck = 0.3f;
+		LeafColor = { 0.1f, 0.23f, 0.1f, 1 }; LeafColor2 = { 0.17f, 0.31f, 0.13f, 1 }; LeafVariation = 0.3f; LeafTransmission = 0.25f; LeafLength = 0.3f;
+		LodDistance = 45.0f; BillboardDistance = 110.0f; CullDistance = 2500.0f;
+		break;
+	case 6:   // Larch: 연두 (가을이면 노랑)
+		BarkColor = { 0.4f, 0.28f, 0.2f, 1 }; MossColor = { 0.33f, 0.4f, 0.18f, 1 }; Moss = 0.1f;
+		RidgeDepth = 0.7f; RidgeFrequency = 12.0f; BarkFleck = 0.1f;
+		LeafColor = { 0.32f, 0.45f, 0.14f, 1 }; LeafColor2 = { 0.48f, 0.55f, 0.18f, 1 }; LeafVariation = 0.4f; LeafTransmission = 0.5f; LeafLength = 0.28f;
+		LodDistance = 40.0f; BillboardDistance = 100.0f; CullDistance = 2500.0f;
+		break;
+	case 7:   // Beech: 매끈한 은회색 수피, 밝은 녹색 잎
+		BarkColor = { 0.55f, 0.53f, 0.5f, 1 }; MossColor = { 0.35f, 0.45f, 0.18f, 1 }; Moss = 0.3f;
+		RidgeDepth = 0.08f; RidgeFrequency = 10.0f; BarkFleck = 0.25f;
+		LeafColor = { 0.25f, 0.45f, 0.12f, 1 }; LeafColor2 = { 0.42f, 0.55f, 0.15f, 1 }; LeafVariation = 0.5f; LeafTransmission = 0.7f; LeafLength = 0.32f;
+		LodDistance = 40.0f; BillboardDistance = 100.0f; CullDistance = 2500.0f;
+		break;
+	case 8:   // Dwarf Pine
+		BarkColor = { 0.3f, 0.24f, 0.2f, 1 }; MossColor = { 0.4f, 0.42f, 0.25f, 1 }; Moss = 0.3f;
+		RidgeDepth = 0.6f; RidgeFrequency = 20.0f; BarkFleck = 0.2f;
+		LeafColor = { 0.1f, 0.22f, 0.1f, 1 }; LeafColor2 = { 0.18f, 0.3f, 0.12f, 1 }; LeafVariation = 0.35f; LeafTransmission = 0.3f; LeafLength = 0.3f;
+		LodDistance = 20.0f; BillboardDistance = 50.0f; CullDistance = 900.0f;
+		break;
+	case 9:   // Dead Pine: 바랜 회색 나무
+		BarkColor = { 0.52f, 0.49f, 0.45f, 1 }; MossColor = { 0.4f, 0.42f, 0.3f, 1 }; Moss = 0.2f;
+		RidgeDepth = 0.5f; RidgeFrequency = 9.0f; BarkFleck = 0.4f;
+		LeafColor = { 0.4f, 0.35f, 0.25f, 1 }; LeafColor2 = { 0.45f, 0.4f, 0.3f, 1 }; LeafVariation = 0.2f; LeafTransmission = 0.1f; LeafLength = 0.2f;
+		LodDistance = 40.0f; BillboardDistance = 100.0f; CullDistance = 2000.0f;
+		break;
+	case 10:   // Alder: 어두운 수피, 짙은 잎
+		BarkColor = { 0.3f, 0.27f, 0.24f, 1 }; MossColor = { 0.33f, 0.42f, 0.16f, 1 }; Moss = 0.4f;
+		RidgeDepth = 0.4f; RidgeFrequency = 14.0f; BarkFleck = 0.25f;
+		LeafColor = { 0.15f, 0.32f, 0.1f, 1 }; LeafColor2 = { 0.26f, 0.42f, 0.12f, 1 }; LeafVariation = 0.45f; LeafTransmission = 0.6f; LeafLength = 0.3f;
+		LodDistance = 35.0f; BillboardDistance = 90.0f; CullDistance = 2000.0f;
+		break;
+	case 11:   // Juniper: 청회색 바늘잎
+		BarkColor = { 0.38f, 0.28f, 0.22f, 1 }; MossColor = { 0.33f, 0.42f, 0.16f, 1 }; Moss = 0.05f;
+		RidgeDepth = 0.4f; RidgeFrequency = 22.0f; BarkFleck = 0.1f;
+		LeafColor = { 0.12f, 0.22f, 0.16f, 1 }; LeafColor2 = { 0.2f, 0.3f, 0.22f, 1 }; LeafVariation = 0.3f; LeafTransmission = 0.3f; LeafLength = 0.3f;
+		LodDistance = 18.0f; BillboardDistance = 45.0f; CullDistance = 600.0f;
+		break;
 	}
 	Invalidate();
 }

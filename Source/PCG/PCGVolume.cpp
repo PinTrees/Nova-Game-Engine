@@ -20,6 +20,8 @@
 #include "WeatherState.h"
 #include "ShadowRenderer.h"
 #include "WaterBody.h"
+#include "PCGTrees.h"
+#include "TreeRenderer.h"
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -169,6 +171,9 @@ PCGVolume::PCGVolume()
 		MeshBatcher::SetExternalSource("PCG", [](MeshBatcher::Pass pass, bool editor, std::vector<MeshBatcher::ExternalBatch>& out) {
 			PCGVolume::EmitBatches((int)pass, editor, &out);
 		});
+		TreeRenderer::SetExternalSource("PCG", [](const Vec3& eye, bool, const TreeRenderer::TreeEmit& emit) {
+			PCGVolume::EmitTrees(eye, emit);
+		});
 	}
 }
 
@@ -287,7 +292,7 @@ void PCGVolume::Tick()
 	const float half = world.WorldSize * 0.5f;
 	const float tile = wt ? wt->TileSize : 1024.0f;
 	grid.OriginX = grid.OriginZ = -(std::max)(1.0f, std::round(world.WorldSize / tile)) * tile * 0.5f;
-	grid.Spacing = tile / 512.0f;
+	grid.Spacing = tile / (float)((wt ? wt->NearResolution() : 513) - 1);   // 가까운 타일 높이맵과 같은 격자 (Terrain Graph 월드면 2049 → 0.49 m)
 	if (WholeWorld)
 	{
 		m_BoundsX0 = m_BoundsZ0 = -half;
@@ -308,7 +313,32 @@ void PCGVolume::Tick()
 		key = (key ^ u) * 1099511628211ull;
 	}
 	// 물 (호수 · 강 · 바다): 사본 + 해시 — 물을 옮기거나 더하면 그 둘레가 다시 채워진다
+	// 물이 바뀌었나 (점 · 모양 Revision · 위치 · 켜짐) — 같으면 지난 마스크 그대로 (긴 강 28 개의 곡선을 프레임마다 다시 뽑으면 30 ms)
+	uint64_t waterSource = 1469598103934665603ull;
+	for (WaterBody* b : WaterBody::All())
 	{
+		auto mixS = [&](uint64_t v) { waterSource = (waterSource ^ v) * 1099511628211ull; };
+		mixS((uint64_t)(uintptr_t)b);
+		mixS(b && b->IsActiveBody() ? 1u : 0u);
+		if (!b)
+			continue;
+		mixS((uint64_t)b->Revision);
+		mixS((uint64_t)b->BodyType);
+		XMFLOAT4X4 m;
+		XMStoreFloat4x4(&m, b->WorldMatrix());
+		for (int i = 0; i < 16; ++i)
+		{
+			uint32_t u;
+			memcpy(&u, &(&m._11)[i], 4);
+			mixS(u);
+		}
+		mixS((uint64_t)b->Points.size());
+	}
+	if (m_Water && waterSource == m_WaterSource)
+		key ^= m_Water->Hash * 0xC2B2AE3D27D4EB4Full;
+	else
+	{
+		m_WaterSource = waterSource;
 		auto water = std::make_shared<PCG::WaterMask>();
 		uint64_t wh = 1469598103934665603ull;
 		auto mix = [&](float f) { uint32_t u; memcpy(&u, &f, 4); wh = (wh ^ u) * 1099511628211ull; };
@@ -353,6 +383,7 @@ void PCGVolume::Tick()
 			}
 		}
 		water->Hash = water->Empty() ? 0 : wh;
+		water->BuildIndex();
 		m_Water = water;
 		key ^= water->Hash * 0xC2B2AE3D27D4EB4Full;
 	}
@@ -441,6 +472,50 @@ void PCGVolume::Tick()
 	}
 }
 
+void PCGVolume::EmitTrees(const Vec3& eye, const std::function<void(const TreeDesc&, const XMFLOAT4X4*, size_t)>& emit)
+{
+	static std::vector<XMFLOAT4X4> split[PCG::kTreeVariants];
+	for (PCGVolume* v : Registry())
+	{
+		if (!v->IsEnabled() || v->m_pGameObject == nullptr || !v->m_pGameObject->IsActiveInHierarchy())
+			continue;
+		for (const SpawnerInfo& s : v->m_Spawners)
+		{
+			bool any = false;
+			for (const std::string& m : s.Meshes)
+				any |= PCG::IsTreePath(m);
+			if (!any)
+				continue;
+			const float range = s.Cull * v->DistanceScale;
+			const TreeDesc* species[16][PCG::kTreeVariants] = {};
+			for (size_t m = 0; m < s.Meshes.size() && m < 16; ++m)
+				if (PCG::IsTreePath(s.Meshes[m]))
+					for (int k = 0; k < PCG::kTreeVariants; ++k)
+						species[m][k] = PCG::TreeSpecies(s.Meshes[m], k, range);
+			for (auto& kv : v->m_Cells)
+			{
+				if (kv.first.Spawner != s.Id)
+					continue;
+				const Cell& c = *kv.second;
+				if (!c.Ready || RectDistance(c.X0, c.Z0, c.X1, c.Z1, eye) > range)
+					continue;
+				for (size_t m = 0; m < c.PerMesh.size() && m < 16; ++m)
+				{
+					if (!species[m][0] || c.PerMesh[m].empty())
+						continue;
+					for (auto& list : split)
+						list.clear();
+					for (const XMFLOAT4X4& w : c.PerMesh[m])
+						split[PCG::TreeVariantAt(w._41, w._43)].push_back(w);
+					for (int k = 0; k < PCG::kTreeVariants; ++k)
+						if (!split[k].empty())
+							emit(*species[m][k], split[k].data(), split[k].size());
+				}
+			}
+		}
+	}
+}
+
 void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 {
 	auto& out = *static_cast<std::vector<MeshBatcher::ExternalBatch>*>(outPtr);
@@ -501,6 +576,8 @@ void PCGVolume::EmitBatches(int passIndex, bool editor, void* outPtr)
 			float maxHeight = 1.0f;
 			for (size_t m = 0; m < s.Meshes.size(); ++m)
 			{
+				if (PCG::IsTreePath(s.Meshes[m]))
+					continue;   // 절차적 나무는 TreeRenderer 가 (EmitTrees)
 				bool loaded = false;
 				PCG::MeshAsset* a = PCG::GetMeshAsset(s.Meshes[m], s_LoadsThisFrame < 2, &loaded);
 				if (loaded)

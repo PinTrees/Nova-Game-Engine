@@ -11,6 +11,7 @@
 #include "JobSystem.h"
 #include "UnityGUI.h"
 #include "Profiler.h"
+#include "TerrainGraph.h"
 #include <chrono>
 #include <map>
 #include <mutex>
@@ -19,9 +20,10 @@
 struct WorldTerrainQueue
 {
 	std::mutex Lock;
-	struct Item { int Tile; int Res; uint64_t Hash; std::vector<float> Heights; int ControlRes; std::vector<uint8_t> Control; };
+	struct Item { int Tile; int Res; uint64_t Hash; std::vector<float> Heights; int ControlRes; std::vector<uint8_t> Control; std::vector<uint8_t> Color; };
 	std::vector<Item> Done;
 	int Running = 0;
+	std::atomic<bool> Cancel{ false };   // World Terrain 이 사라졌다 — 줄 선 타일 작업은 바로 끝낸다 (끄기 · 장면 닫기가 2049 타일을 기다리지 않게)
 };
 
 namespace
@@ -38,33 +40,34 @@ namespace
 		uint64_t Hash; int Tile; int Res;
 		bool operator<(const CacheKey& o) const { return std::tie(Hash, Tile, Res) < std::tie(o.Hash, o.Tile, o.Res); }
 	};
-	struct CacheEntry { std::vector<float> Heights; int ControlRes = 0; std::vector<uint8_t> Control; uint64_t Use = 0; };
+	struct CacheEntry { std::vector<float> Heights; int ControlRes = 0; std::vector<uint8_t> Control; std::vector<uint8_t> Color; uint64_t Use = 0; };
 	std::mutex s_CacheLock;
 	std::map<CacheKey, std::shared_ptr<CacheEntry>> s_Cache;
 	uint64_t s_CacheUse = 0;
 	size_t s_CacheBytes = 0;
-	constexpr size_t kCacheBudget = 256ull << 20;   // 256 MB
+	constexpr size_t kCacheBudget = 384ull << 20;   // 384 MB (2049 타일 = 높이 16.8 + 스플랫 4 MB → 18 개쯤)
 
-	void CachePut(const CacheKey& key, const std::vector<float>& h, int controlRes, const std::vector<uint8_t>& c)
+	void CachePut(const CacheKey& key, const std::vector<float>& h, int controlRes, const std::vector<uint8_t>& c, const std::vector<uint8_t>& color)
 	{
 		auto e = std::make_shared<CacheEntry>();
 		e->Heights = h;
 		e->ControlRes = controlRes;
 		e->Control = c;
+		e->Color = color;
 		std::lock_guard<std::mutex> lock(s_CacheLock);
 		e->Use = ++s_CacheUse;
 		auto& slot = s_Cache[key];
 		if (slot)
-			s_CacheBytes -= slot->Heights.size() * 4 + slot->Control.size();
+			s_CacheBytes -= slot->Heights.size() * 4 + slot->Control.size() + slot->Color.size();
 		slot = e;
-		s_CacheBytes += h.size() * 4 + c.size();
+		s_CacheBytes += h.size() * 4 + c.size() + color.size();
 		while (s_CacheBytes > kCacheBudget && s_Cache.size() > 1)
 		{
 			auto oldest = s_Cache.begin();
 			for (auto it = s_Cache.begin(); it != s_Cache.end(); ++it)
 				if (it->second->Use < oldest->second->Use)
 					oldest = it;
-			s_CacheBytes -= oldest->second->Heights.size() * 4 + oldest->second->Control.size();
+			s_CacheBytes -= oldest->second->Heights.size() * 4 + oldest->second->Control.size() + oldest->second->Color.size();
 			s_Cache.erase(oldest);
 		}
 	}
@@ -86,19 +89,47 @@ namespace
 		return Vec3(XMVectorGetX(inv.r[3]), XMVectorGetY(inv.r[3]), XMVectorGetZ(inv.r[3]));
 	}
 
-	// 타일 하나 만들기 (작업 스레드): 높이 (정규화) + 스플랫
-	void BuildTile(const WorldGen::Settings& s, float ox, float oz, float tile, int res, std::vector<float>& heights, int& controlRes, std::vector<uint8_t>& control)
+	// 줄 범위 [b, e) 를 (큰 타일은 작업 스레드 여럿으로 — 2049 타일 하나 = 420 만 표본)
+	template <class F>
+	void ForRows(int rows, bool parallel, F&& fn)
+	{
+		if (parallel)
+			Jobs::ParallelFor(rows, 16, fn, "World Terrain Rows", Jobs::Priority::Normal);
+		else
+			fn(0, rows);
+	}
+
+	// 타일 하나 만들기 (작업 스레드): 높이 (정규화) + 스플랫. 표본 간격 (step) 보다 잔 디테일은 건너뛴다 (먼 타일)
+	bool BuildTile(const WorldGen::Settings& s, float ox, float oz, float tile, int res, std::vector<float>& heights, int& controlRes, std::vector<uint8_t>& control,
+		std::vector<uint8_t>& color, const std::atomic<bool>& cancel)
 	{
 		heights.resize((size_t)res * res);
 		const float step = tile / (res - 1);
-		for (int z = 0; z < res; ++z)
-			for (int x = 0; x < res; ++x)
-				heights[(size_t)z * res + x] = WorldGen::Height01(s, ox + x * step, oz + z * step);
+		const bool big = res >= 1025;
+		ForRows(res, big, [&](int b, int e) {
+			if (cancel)
+				return;
+			for (int z = b; z < e; ++z)
+				for (int x = 0; x < res; ++x)
+					heights[(size_t)z * res + x] = WorldGen::Height01(s, ox + x * step, oz + z * step, step);
+		});
+		if (cancel)
+			return false;
 		controlRes = (std::max)(16, (res - 1) / 2);
 		control.resize((size_t)controlRes * controlRes * 4);
+		{
+			uint8_t probe[4];
+			if (s.External && s.External->Color(ox, oz, probe))
+				color.assign((size_t)controlRes * controlRes * 4, 0);
+			else
+				color.clear();
+		}
 		const float cstep = tile / controlRes;
 		const float hstep = tile / (res - 1);
-		for (int z = 0; z < controlRes; ++z)
+		ForRows(controlRes, big, [&](int b, int e) {
+		if (cancel)
+			return;
+		for (int z = b; z < e; ++z)
 			for (int x = 0; x < controlRes; ++x)
 			{
 				const float wx = ox + (x + 0.5f) * cstep, wz = oz + (z + 0.5f) * cstep;
@@ -108,9 +139,55 @@ namespace
 				const float h00 = heights[(size_t)iz * res + ix], h10 = heights[(size_t)iz * res + ix + 1], h01 = heights[(size_t)(iz + 1) * res + ix];
 				const float dx = (h10 - h00) * s.MaxHeight / hstep, dz = (h01 - h00) * s.MaxHeight / hstep;
 				const float slopeCos = 1.0f / sqrtf(1.0f + dx * dx + dz * dz);
-				const WorldGen::Biome b = WorldGen::BiomeAt(s, wx, wz, h00, slopeCos);
-				WorldGen::Splat(b, wx, wz, s.Seed, &control[((size_t)z * controlRes + x) * 4]);
+				if (s.External)
+				{
+					s.External->Splat(wx, wz, h00, slopeCos, &control[((size_t)z * controlRes + x) * 4]);
+					// 컬러 맵 (Terrain Graph 의 SatMap) — 있는지는 위에서 한 번 (줄마다 병렬이라 여기서 바꾸지 않는다)
+					if (!color.empty())
+						s.External->Color(wx, wz, &color[((size_t)z * controlRes + x) * 4]);
+				}
+				else
+				{
+					const WorldGen::Biome bio = WorldGen::BiomeAt(s, wx, wz, h00, slopeCos);
+					WorldGen::Splat(bio, wx, wz, s.Seed, &control[((size_t)z * controlRes + x) * 4]);
+				}
 			}
+		});
+		return !cancel;
+	}
+}
+
+std::function<void(const std::string&)> WorldTerrain::s_OpenGraphWindow;
+
+// 그래프 빌드를 따른다: 월드 · 타일 크기, 가까운 해상도, 레이어. 빌드가 없으면 타일을 만들지 않는다 (빌드를 기다린다)
+void WorldTerrain::SyncGraph()
+{
+	if (GraphPath.empty())
+	{
+		if (Settings.External)
+			Settings.External.reset();
+		m_NearRes = 513;
+		m_WaitingForBuild = false;
+		return;
+	}
+	std::shared_ptr<const TerrainGraph::Built> built = TerrainGraph::GetBuilt(GraphPath, false);
+	m_WaitingForBuild = built == nullptr;
+	if (!built)
+	{
+		Settings.External.reset();
+		return;
+	}
+	if (Settings.External != built)
+	{
+		Settings.External = built;
+		Settings.WorldSize = built->World.WorldSize;
+		Settings.MaxHeight = built->World.MaxHeight;
+		TileSize = built->World.TileSize;
+		const int r = built->World.TileResolution;
+		m_NearRes = (r == 4097 || r == 2049 || r == 1025 || r == 513 || r == 257) ? r : 2049;
+		for (int i = 0; i < 4; ++i)
+			if (!built->Layers[i].Layer.empty())
+				LayerPaths[(size_t)i] = built->Layers[i].Layer;
 	}
 }
 
@@ -123,6 +200,7 @@ WorldTerrain::WorldTerrain()
 
 WorldTerrain::~WorldTerrain()
 {
+	m_Queue->Cancel = true;
 	auto& r = Registry();
 	r.erase(std::remove(r.begin(), r.end(), this), r.end());
 }
@@ -138,6 +216,20 @@ WorldTerrain* WorldTerrain::Active()
 void WorldTerrain::OnDestroy()
 {
 	DestroyTiles();
+}
+
+bool WorldTerrain::ProbeTile(float x, float z, float& tileHeight, int& tileRes) const
+{
+	for (const Tile& t : m_Tiles)
+	{
+		const Vec3 o = TileOrigin(t);
+		if (x < o.x || z < o.z || x >= o.x + TileSize || z >= o.z + TileSize || !t.Data || t.Res == 0)
+			continue;
+		tileHeight = o.y + t.Data->GetHeight(x - o.x, z - o.z);
+		tileRes = t.Res;
+		return true;
+	}
+	return false;
 }
 
 Vec3 WorldTerrain::TileOrigin(const Tile& t) const
@@ -186,7 +278,7 @@ void WorldTerrain::Schedule(Tile& t, int res)
 	if (auto e = CacheGet({ hash, index, res }))
 	{
 		std::lock_guard<std::mutex> lock(m_Queue->Lock);
-		m_Queue->Done.push_back({ index, res, hash, e->Heights, e->ControlRes, e->Control });
+		m_Queue->Done.push_back({ index, res, hash, e->Heights, e->ControlRes, e->Control, e->Color });
 		return;
 	}
 	const Vec3 o = TileOrigin(t);
@@ -202,8 +294,8 @@ void WorldTerrain::Schedule(Tile& t, int res)
 		item.Tile = index;
 		item.Res = res;
 		item.Hash = hash;
-		BuildTile(s, o.x, o.z, tile, res, item.Heights, item.ControlRes, item.Control);
-		CachePut({ hash, index, res }, item.Heights, item.ControlRes, item.Control);
+		if (!q->Cancel && BuildTile(s, o.x, o.z, tile, res, item.Heights, item.ControlRes, item.Control, item.Color, q->Cancel) && !q->Cancel)
+			CachePut({ hash, index, res }, item.Heights, item.ControlRes, item.Control, item.Color);
 		std::lock_guard<std::mutex> lock(q->Lock);
 		q->Done.push_back(std::move(item));
 		--q->Running;
@@ -263,6 +355,10 @@ void WorldTerrain::ApplyResults()
 			t.Collider = false;
 		}
 		t.Data->SetGenerated(it.Res, Vec3(TileSize, Settings.MaxHeight, TileSize), std::move(it.Heights), it.ControlRes, std::move(it.Control));
+		// 컬러 맵: 해상도가 바뀌면 텍스처를 새로 (비웠다 넣는다)
+		t.Data->SetColorMap({});
+		if (!it.Color.empty())
+			t.Data->SetColorMap(std::move(it.Color));
 		t.TerrainComp->SetPixelError(PixelError);
 		t.TerrainComp->SetSkirtDepth((std::max)(4.0f, Settings.MaxHeight * 0.02f));
 		t.Res = it.Res;
@@ -288,6 +384,12 @@ void WorldTerrain::Tick()
 	if (!IsEnabled() || m_pGameObject == nullptr)
 		return;
 	PROFILE_SCOPE("WorldTerrain.Update");
+	SyncGraph();
+	if (m_WaitingForBuild)
+	{
+		DestroyTiles();
+		return;
+	}
 	EnsureTiles();
 	ApplyResults();
 
@@ -308,12 +410,12 @@ void WorldTerrain::Tick()
 			const float dz = (std::max)({ o.z - e.z, 0.0f, e.z - (o.z + TileSize) });
 			d = (std::min)(d, sqrtf(dx * dx + dz * dz));
 		}
-		t.Wanted = d < NearDistance ? 513 : (d < MidDistance ? 129 : 33);
+		t.Wanted = d < NearDistance ? m_NearRes : (d < MidDistance ? 129 : 33);
 		if (!t.Pending && (t.Res != t.Wanted || t.Hash != hash))
 			wants.push_back({ (int)(&t - m_Tiles.data()), t.Wanted, d });
 
 		// 물리: 가까운 고해상도 타일만 Terrain Collider (Play)
-		const bool wantCollider = Application::IsPlaying() && t.Res == 513 && d < ColliderDistance && t.Object && GameObject::IsAlive(t.Object);
+		const bool wantCollider = Application::IsPlaying() && t.Res == m_NearRes && d < ColliderDistance && t.Object && GameObject::IsAlive(t.Object);
 		if (wantCollider && !t.Collider)
 		{
 			t.Object->AddComponent<TerrainCollider>();
@@ -345,11 +447,18 @@ WorldTerrain::Info WorldTerrain::GetInfo() const
 	{
 		info.Built += t.Res > 0;
 		info.Pending += t.Pending;
-		info.Res513 += t.Res == 513;
+		info.Res513 += t.Res == m_NearRes;
 		info.Res129 += t.Res == 129;
 		info.Res33 += t.Res == 33;
 		info.Colliders += t.Collider;
+		if (t.Data)
+		{
+			info.CpuBytes += t.Data->CpuBytes();
+			info.GpuBytes += t.Data->GpuBytes();
+		}
 	}
+	info.NearRes = m_NearRes;
+	info.WaitingForBuild = m_WaitingForBuild;
 	info.LastApplyMs = m_LastApplyMs;
 	return info;
 }
@@ -369,10 +478,29 @@ void WorldTerrain::OnInspectorGUI()
 {
 	using namespace UnityGUI;
 	WorldGen::Settings& s = Settings;
+	TextField("Graph", &GraphPath);
+	if (!GraphPath.empty())
+	{
+		const TerrainGraph::BuildStatus st = TerrainGraph::GetBuildStatus(GraphPath);
+		char text[256];
+		if (st.Running)
+			snprintf(text, sizeof(text), "Building %d²: %s %.0f %%", st.Resolution, st.Stage.c_str(), st.Progress * 100.0f);
+		else if (m_WaitingForBuild)
+			snprintf(text, sizeof(text), "The graph is not built yet - open it and press Build.");
+		else
+			snprintf(text, sizeof(text), "Terrain Graph world: %.0f x %.0f km, tiles %.0f m, near %d²", s.WorldSize / 1000.0f, s.WorldSize / 1000.0f, TileSize, m_NearRes);
+		HelpBox(text, false);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+		if (ImGui::Button("Open Terrain Graph", ImVec2(160, 0)) && s_OpenGraphWindow)
+			s_OpenGraphWindow(GraphPath);
+	}
+	if (!GraphPath.empty())
+		ImGui::BeginDisabled();
 	Int("Seed", &s.Seed);
 	Slider("World Size (m)", &s.WorldSize, 2048.0f, 65536.0f);
 	Slider("Max Height (m)", &s.MaxHeight, 50.0f, 4000.0f);
-	if (Foldout("Shape", 1, true, false))
+	// 노이즈 월드의 모양 · 바이옴 값 — 그래프 월드면 숨긴다 (그래프 창에서)
+	if (GraphPath.empty() && Foldout("Shape", 1, true, false))
 	{
 		Slider("Continent Scale", &s.ContinentScale, 1000.0f, 40000.0f);
 		Slider("Mountains", &s.Mountains, 0.0f, 1.0f);
@@ -383,24 +511,27 @@ void WorldTerrain::OnInspectorGUI()
 		Slider("Detail Scale", &s.DetailScale, 5.0f, 500.0f);
 		Slider("Warp", &s.Warp, 0.0f, 1.0f);
 	}
-	if (Foldout("Biomes", 2, true, false))
+	if (GraphPath.empty() && Foldout("Biomes", 2, true, false))
 	{
 		Slider("Biome Scale", &s.BiomeScale, 500.0f, 20000.0f);
 		Slider("Forest", &s.Forest, 0.0f, 1.0f);
 		Slider("Desert", &s.Desert, 0.0f, 1.0f);
 	}
+	if (!GraphPath.empty())
+		ImGui::EndDisabled();
 	if (Foldout("Streaming", 3, true, false))
 	{
 		Slider("Tile Size", &TileSize, 256.0f, 4096.0f);
-		Slider("Near (513)", &NearDistance, 200.0f, 5000.0f);
+		Slider("Near Distance", &NearDistance, 200.0f, 5000.0f);
 		Slider("Mid (129)", &MidDistance, 500.0f, 20000.0f);
 		Slider("Collider Distance", &ColliderDistance, 0.0f, 3000.0f);
 		Slider("Pixel Error", &PixelError, 1.0f, 50.0f);
 	}
 	const Info info = GetInfo();
 	char text[256];
-	snprintf(text, sizeof(text), "%d tiles (%.0f x %.0f km): built %d, generating %d — 513: %d, 129: %d, 33: %d, colliders %d",
-		info.Tiles, s.WorldSize / 1000.0f, s.WorldSize / 1000.0f, info.Built, info.Pending, info.Res513, info.Res129, info.Res33, info.Colliders);
+	snprintf(text, sizeof(text), "%d tiles (%.0f x %.0f km): built %d, generating %d — %d: %d, 129: %d, 33: %d, colliders %d. Memory %.0f MB, GPU %.0f MB",
+		info.Tiles, s.WorldSize / 1000.0f, s.WorldSize / 1000.0f, info.Built, info.Pending, info.NearRes, info.Res513, info.Res129, info.Res33, info.Colliders,
+		info.CpuBytes / 1048576.0, info.GpuBytes / 1048576.0);
 	HelpBox(text, false);
 	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
 	if (ImGui::Button("Regenerate", ImVec2(140, 0)))
@@ -433,6 +564,8 @@ GENERATE_COMPONENT_FUNC_TOJSON(WorldTerrain)
 	j["colliderDistance"] = ColliderDistance;
 	j["pixelError"] = PixelError;
 	j["layers"] = { LayerPaths[0], LayerPaths[1], LayerPaths[2], LayerPaths[3] };
+	if (!GraphPath.empty())
+		j["graph"] = GraphPath;
 	return j;
 }
 
@@ -459,6 +592,7 @@ GENERATE_COMPONENT_FUNC_FROMJSON(WorldTerrain)
 	MidDistance = j.value("midDistance", MidDistance);
 	ColliderDistance = j.value("colliderDistance", ColliderDistance);
 	PixelError = j.value("pixelError", PixelError);
+	GraphPath = j.value("graph", std::string());
 	if (j.contains("layers") && j["layers"].is_array())
 		for (size_t i = 0; i < 4 && i < j["layers"].size(); ++i)
 			LayerPaths[i] = j["layers"][i].get<std::string>();

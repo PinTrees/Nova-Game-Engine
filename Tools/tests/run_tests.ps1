@@ -3,7 +3,7 @@
 #   powershell -ExecutionPolicy Bypass -File Tools\tests\run_tests.ps1                 # quick (약 4~6 분)
 #   ... -Suite full          + 성능(DX11 대 OpenGL), 파티클 Soft · Lit
 #   ... -Interactive         + 실제 키 입력 검사 (에디터를 앞으로 띄운다 — 그동안 키보드·마우스를 쓰지 말 것)
-#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, pcg, postfx, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
+#   ... -Only cli,render     골라서 (cli, physics, animation, import, ui, packages, model, anim2d, layers, sprites, physics2d, shadergraph, decal, reflectionprobe, probevolume, depthoffield, lodgroup, ssr, modelplace, crowd, pcg, postfx, terraingraph, antialiasing, web, scenes, tween, light2d, nav2d, ragdoll, wheel, daynight, cloth, clothskin, starter, behaviour, recovery, render, gfx, vulkan, perf, particles, vfx, vfxgl, vfxvk, weather, tessellation, tessellationgl, tessellationvk, keys)
 #   ... -Project <폴더>      테스트 프로젝트 (기본 = 환경 변수 NOVA_TEST_PROJECT, 없으면 E:\NovaTest\ScriptTest)
 #
 # 결과: 표(PASS/FAIL) + <Out>\results.json, 캡처·차이 그림은 <Out>\ (기본 TestResults\<시각>). 실패가 있으면 종료 코드 1.
@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -7145,6 +7145,85 @@ function Suite-PCG
     }
 }
 
+function Suite-TerrainGraph
+{
+    # 지형 그래프 (Gaea 같은 노드): 작은 월드 (4 km, 1 km 타일) 로 — 노드 계산 · 침식이 높이를 바꾸고 물길을 만든다 · 같은 그래프 = 같은 결과,
+    #  월드 빌드 (작업 스레드) · 여러 Terrain 에 적용해도 이음매가 맞는다 · 계산 텍스처 · World Terrain 스트리밍 (가까운 타일 = 그래프 해상도, 메모리 한도)
+    Write-Host '[terraingraph]'
+    $dir = Join-Path $Out 'terraingraph'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $graph = 'Assets\Terrain\SuiteTest.terraingraph'
+    $graphFile = Join-Path $Project $graph
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Project 'Assets\Terrain\SuiteTest*')
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $ed = Start-TestEditor -WatchSeconds 600
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova "terraingraph new $graph --seed 3" | Out-Null
+        Invoke-Nova ("terraingraph world $graph --values " + '"{\"worldSize\":4000,\"tileSize\":1000,\"tileResolution\":513,\"buildResolution\":1025,\"previewResolution\":257,\"maxHeight\":800}"') | Out-Null
+        $info = Invoke-NovaJson "terraingraph info $graph"
+        Add-Result terraingraph 'new graph: Gaea-style default (Mountain Range · Rugged · Stratify · Erosion2 · Gullies · River · Road · SatMap → Output), world values saved' ($info -and [int]$info.nodes -ge 20 -and [int]$info.tiles -eq 16 -and [double]$info.world.worldSize -eq 4000 -and (Test-Path $graphFile)) "nodes $($info.nodes), edges $($info.edges), tiles $($info.tiles)"
+        $gj = Invoke-NovaJson "terraingraph graph $graph"
+        $idOf = { param($type) [int](@($gj.nodes | Where-Object { $_.type -eq $type })[0].id) }
+        $eroId = & $idOf 'erosion2'; $riverId = & $idOf 'river'; $roadId = & $idOf 'road'
+        # 4 km 월드: 강 문턱을 낮추고 마을을 적게
+        Invoke-Nova "terraingraph set $graph --node $riverId --param threshold --value 1.2" | Out-Null
+        Invoke-Nova "terraingraph set $graph --node $roadId --param towns --value 5" | Out-Null
+
+        $p1 = Invoke-NovaJson "terraingraph preview $graph --res 257 --out `"$(Join-Path $dir 'preview.png')`""
+        $p2 = Invoke-NovaJson "terraingraph preview $graph --res 257"
+        $ero = @($p1.nodes | Where-Object { $_.type -eq 'erosion2' })[0]
+        $th = @($p1.nodes | Where-Object { $_.type -eq 'Thermal' })[0]
+        Add-Result terraingraph 'evaluating the graph: relief over the range, hydraulic erosion moves material and makes flow, thermal erosion too' ([double]$p1.heightM.max - [double]$p1.heightM.min -gt 200 -and [double]$ero.changeMeanM -gt 0.05 -and [double]$th.changeMeanM -gt 0.01 -and [double]$p1.flow.max -gt 0.5) ('height {0:N0} – {1:N0} m, erosion changed {2:N2} m (max {3:N1}), thermal {4:N2} m, flow mean {5:N3}, {6:N0} ms' -f [double]$p1.heightM.min, [double]$p1.heightM.max, [double]$ero.changeMeanM, [double]$ero.changeMaxM, [double]$th.changeMeanM, [double]$p1.flow.mean, [double]$p1.ms)
+        Add-Result terraingraph 'rivers (flow routing), roads (A* between towns) and a SatMap colour map come out of the graph' ([int]$p1.rivers -gt 0 -and [int]$p1.roads -gt 0 -and $p1.color) "rivers $($p1.rivers), roads $($p1.roads), color $($p1.color)"
+        Add-Result terraingraph 'same graph = same result (erosion runs in fixed blocks, no race)' ([double]$p1.heightM.mean -eq [double]$p2.heightM.mean -and [double]$p1.flow.mean -eq [double]$p2.flow.mean) ('mean {0} / {1}' -f $p1.heightM.mean, $p2.heightM.mean)
+
+        Invoke-Nova "terraingraph enable $graph --node $eroId --enabled false" | Out-Null
+        $p3 = Invoke-NovaJson "terraingraph preview $graph --res 257"
+        Invoke-Nova "terraingraph enable $graph --node $eroId --enabled true" | Out-Null
+        Add-Result terraingraph 'disabling the Erosion node passes the height through (no flow)' ([double]$p3.heightM.mean -ne [double]$p1.heightM.mean -and [double]$p3.flow.max -lt 0.01) ('mean {0:N2} → {1:N2} m, flow max {2:N3}' -f [double]$p1.heightM.mean, [double]$p3.heightM.mean, [double]$p3.flow.max)
+
+        Invoke-Nova "terraingraph build $graph" | Out-Null
+        [void](Wait-Until { $i = Invoke-NovaJson "terraingraph info $graph"; $i -and -not $i.build.running -and ($i.build.done -or $i.build.error) } -Seconds 240 -MinSeconds 1 -Frames 5)
+        $info = Invoke-NovaJson "terraingraph info $graph"
+        Add-Result terraingraph 'world build on a worker thread (1025², saved next to the graph)' ($info.built -and [int]$info.builtInfo.res -eq 1025 -and -not $info.builtInfo.outdated -and (Test-Path ($graphFile + '.build'))) ('{0:N1} s, {1:N1} MB {2}' -f ([double]$info.build.ms / 1000), [double]$info.builtInfo.mb, $info.build.error)
+
+        $t = Invoke-NovaJson "terraingraph tiles $graph --x 1 --z 1 --count 2 --resolution 257"
+        $s = Invoke-NovaJson "terraingraph seams $graph"
+        Add-Result terraingraph 'multi-terrain: 2 x 2 Terrain objects get the heights and splat by world position, edges match' ([int]$t.created -eq 4 -and [int]$s.pairs -eq 4 -and [double]$s.maxSeamM -lt 0.05) ('created {0}, neighbour pairs {1}, worst seam {2:N4} m' -f $t.created, $s.pairs, [double]$s.maxSeamM)
+
+        $tx = Invoke-NovaJson "terraingraph textures $graph --size 256"
+        $layers = @(Get-ChildItem (Join-Path $Project 'Assets\Terrain\SuiteTest_Layers') -Filter *.terrainlayer -ErrorAction SilentlyContinue)
+        $pngs = @(Get-ChildItem (Join-Path $Project 'Assets\Terrain\SuiteTest_Layers') -Filter *.png -ErrorAction SilentlyContinue)
+        $info = Invoke-NovaJson "terraingraph info $graph"
+        Add-Result terraingraph 'procedural layer textures: albedo + normal + height per rule, set on the graph' ($layers.Count -eq 4 -and $pngs.Count -eq 12 -and @($info.builtInfo.layers | Where-Object { $_ }).Count -eq 4) "layers $($layers.Count), png $($pngs.Count): $($tx.message)"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova "terraingraph attach $graph" | Out-Null
+        $rv = Invoke-NovaJson "terraingraph rivers $graph"
+        $bi = (Invoke-NovaJson "terraingraph info $graph").builtInfo
+        Add-Result terraingraph 'the build keeps the colour map and river · road lines; rivers become Water Bodies in the scene' ($bi.color -and [int]$bi.rivers -gt 0 -and [int]$bi.roads -gt 0 -and [int]$rv.created -eq [int]$bi.rivers) "rivers $($bi.rivers) → water bodies $($rv.created), roads $($bi.roads), color $($bi.color)"
+        $g = Invoke-NovaJson "terraingraph height $graph --x 120 --z -340"
+        Invoke-Nova ("set `"Main Camera`" --position 120,{0},-360 --rotation 15,0,0" -f ([double]$g.height + 40).ToString($inv)) | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        [void](Wait-Until { $w = Invoke-NovaJson 'world info'; $w -and [int]$w.built -eq [int]$w.tiles -and [int]$w.pending -eq 0 -and [int]$w.nearTiles -ge 1 } -Seconds 120 -MinSeconds 1 -Frames 20)
+        $w = Invoke-NovaJson 'world info'
+        $wh = Invoke-NovaJson 'world height --x 120 --z -340'
+        Add-Result terraingraph 'World Terrain streams the build: 16 tiles, near ones at the graph resolution, same ground height as the graph' ([int]$w.tiles -eq 16 -and [int]$w.nearRes -eq 513 -and [int]$w.nearTiles -ge 1 -and -not $w.waitingForBuild -and [math]::Abs([double]$wh.height - [double]$g.height) -lt 1.0) ('tiles {0}, near {1} at {2}², ground {3:N2} / {4:N2} m, CPU {5:N0} MB, GPU {6:N0} MB' -f $w.tiles, $w.nearTiles, $w.nearRes, [double]$wh.height, [double]$g.height, [double]$w.cpuMB, [double]$w.gpuMB)
+        Invoke-Nova 'wait 10' | Out-Null
+        Invoke-Nova "screenshot `"$(Join-Path $dir 'world.png')`" --view game" | Out-Null
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Project 'Assets\Terrain\SuiteTest*')
+    }
+}
+
 # ------------------------------------------------------------------ 렌더 스레드 (동시성 로드맵 4 단계)
 function Suite-RenderThread
 {
@@ -8517,6 +8596,7 @@ try
                 'crowd' { Suite-Crowd }
                 'pcg' { Suite-PCG }
                 'postfx' { Suite-PostFX }
+                'terraingraph' { Suite-TerrainGraph }
                 'weather' { Suite-Weather }
                 'tessellation' { Suite-Tessellation }
                 'tessellationgl' { Suite-Tessellation -Api gl }

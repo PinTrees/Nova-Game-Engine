@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 
 // 초대형 월드의 높이 · 바이옴 함수 (World Terrain · PCG 가 같이 쓴다).
 //  - 위치 (월드 x, z — 미터) 만으로 정해지는 순수 함수 (스레드 어디서나, 같은 값). 타일 · 해상도와 상관없이 같은 땅
@@ -7,6 +8,20 @@
 //  - 바이옴 = 온도 (노이즈 − 고도) · 습도 노이즈 → 숲 · 초원 · 사막, 가파르거나 높으면 바위
 namespace WorldGen
 {
+	struct Biome;
+	// 바깥 높이 원천 (Terrain Graph 를 빌드한 월드 — Gaea 식): 있으면 높이 · 바이옴 · 스플랫을 이것이 정한다 (위 노이즈 대신).
+	//  만든 뒤 바뀌지 않는다 (작업 스레드 어디서나 읽는다). footprint = 표본 간격 (m) — 그보다 잔 디테일은 건너뛴다 (먼 타일)
+	struct Source
+	{
+		virtual ~Source() = default;
+		virtual float Height01(float x, float z, float footprint) const = 0;
+		virtual Biome BiomeAt(float x, float z, float height01, float slopeCos) const = 0;
+		virtual void Splat(float x, float z, float height01, float slopeCos, uint8_t out[4]) const = 0;
+		// 컬러 맵 (World Creator · Gaea SatMap): rgb (sRGB) + a (텍스처 색을 대신하는 정도). 없으면 false
+		virtual bool Color(float x, float z, uint8_t out[4]) const { (void)x; (void)z; (void)out; return false; }
+		virtual uint64_t Hash() const = 0;
+	};
+
 	struct Settings
 	{
 		int Seed = 1337;
@@ -24,6 +39,8 @@ namespace WorldGen
 		float Desert = 0.42f;           // 사막 비중 (0 ~ 1)
 		float Forest = 0.55f;           // 숲 비중 (0 ~ 1)
 
+		std::shared_ptr<const Source> External;   // 있으면 아래 함수들이 이것을 쓴다 (Terrain Graph 월드)
+
 		uint64_t Hash() const;          // 값이 바뀌면 다른 값 (타일 · PCG 셀 다시 만들기)
 	};
 
@@ -34,6 +51,7 @@ namespace WorldGen
 	};
 
 	float Height01(const Settings& s, float x, float z);   // 0 ~ 1
+	float Height01(const Settings& s, float x, float z, float footprint);   // 표본 간격 (m) 만큼의 디테일까지 (먼 타일)
 	inline float Height(const Settings& s, float x, float z) { return Height01(s, x, z) * s.MaxHeight; }
 	// 월드 법선 (eps = 차분 간격, m)
 	void Normal(const Settings& s, float x, float z, float eps, float& nx, float& ny, float& nz);

@@ -6,11 +6,12 @@
 using json = nlohmann::json;
 
 // ================================================================== 프리셋
-static const char* const kPresetNames[] = { "Oak", "Pine", "Birch", "Bush" };
+// 바이옴 식생 (2026-10-12): 산지 침엽수 (Spruce · Fir · Larch), 저지 활엽수 (Beech · Alder), 수목한계선 (Dwarf Pine · Juniper), 선 채로 죽은 나무
+static const char* const kPresetNames[] = { "Oak", "Pine", "Birch", "Bush", "Spruce", "Fir", "Larch", "Beech", "Dwarf Pine", "Dead Pine", "Alder", "Juniper" };
 
 const char* const* TreeParams::PresetNames(int& count)
 {
-	count = 4;
+	count = (int)(sizeof(kPresetNames) / sizeof(kPresetNames[0]));
 	return kPresetNames;
 }
 
@@ -49,6 +50,61 @@ void TreeParams::ApplyPreset(int preset)
 		L[0] = { 9, 0.05f, 48.0f, 15.0f, 1.3f, 0.25f, 0.1f, 0.15f, 0.8f, 0.4f };
 		L[1] = { 5, 0.25f, 45.0f, 15.0f, 0.5f, 0.2f, 0.15f, 0.1f, 0.6f, 0.4f };
 		Leaf = LeafShape::Broad; LeafCards = 7; LeavesPerCard = 5; LeafCardSize = 0.45f; LeafStart = 0.2f;
+		break;
+	case 4:   // Spruce (가문비): 높고 좁은 원뿔, 촘촘히 아래로 처진 가지, 짙은 바늘잎 — 산지 숲의 주인
+		Height = 22.0f; Radius = 0.36f; TipRadius = 0.05f; Flare = 0.5f; Gnarl = 0.03f; CrownShape = Crown::Conical;
+		Levels = 2;
+		L[0] = { 46, 0.07f, 96.0f, 6.0f, 0.25f, 0.12f, 0.55f, 0.0f, 0.3f, 0.05f };
+		L[1] = { 8, 0.1f, 55.0f, 10.0f, 0.42f, 0.2f, 0.4f, 0.0f, 0.5f, 0.1f };
+		Leaf = LeafShape::Needle; LeafCards = 14; LeavesPerCard = 18; LeafCardSize = 0.8f; LeafStart = 0.02f;
+		break;
+	case 5:   // Fir (전나무): 고른 원뿔, 수평 가지 층
+		Height = 18.0f; Radius = 0.32f; TipRadius = 0.06f; Flare = 0.45f; Gnarl = 0.03f; CrownShape = Crown::Conical;
+		Levels = 2;
+		L[0] = { 38, 0.1f, 88.0f, 5.0f, 0.3f, 0.1f, 0.25f, 0.05f, 0.32f, 0.05f };
+		L[1] = { 7, 0.12f, 50.0f, 10.0f, 0.45f, 0.2f, 0.2f, 0.05f, 0.5f, 0.1f };
+		Leaf = LeafShape::Needle; LeafCards = 13; LeavesPerCard = 16; LeafCardSize = 0.8f; LeafStart = 0.03f;
+		break;
+	case 6:   // Larch (낙엽송): 성긴 원뿔, 연두 바늘잎, 살짝 처진 가지
+		Height = 20.0f; Radius = 0.3f; TipRadius = 0.06f; Flare = 0.4f; Gnarl = 0.08f; CrownShape = Crown::Conical;
+		Levels = 2;
+		L[0] = { 26, 0.15f, 75.0f, 10.0f, 0.32f, 0.15f, 0.4f, 0.0f, 0.3f, 0.1f };
+		L[1] = { 7, 0.15f, 50.0f, 12.0f, 0.5f, 0.2f, 0.45f, 0.0f, 0.5f, 0.15f };
+		Leaf = LeafShape::Needle; LeafCards = 9; LeavesPerCard = 12; LeafCardSize = 0.7f; LeafStart = 0.1f;
+		break;
+	case 7:   // Beech (너도밤나무): 매끈하고 곧은 줄기, 높은 둥근 수관
+		Height = 16.0f; Radius = 0.3f; TipRadius = 0.25f; Flare = 0.5f; Gnarl = 0.1f; CrownShape = Crown::Spherical;
+		Levels = 2;
+		L[0] = { 12, 0.42f, 42.0f, 12.0f, 0.5f, 0.2f, 0.08f, 0.15f, 0.4f, 0.15f };
+		L[1] = { 7, 0.2f, 40.0f, 15.0f, 0.5f, 0.2f, 0.12f, 0.08f, 0.5f, 0.25f };
+		Leaf = LeafShape::Broad; LeafCards = 11; LeavesPerCard = 6; LeafCardSize = 0.85f; LeafStart = 0.2f;
+		break;
+	case 8:   // Dwarf Pine (눈잣나무 · 크룸홀츠): 바람에 눌린 낮고 구불구불한 덤불 소나무 — 수목한계선
+		Height = 3.2f; Radius = 0.12f; TipRadius = 0.4f; Flare = 0.4f; Gnarl = 0.45f; Lean = 8.0f; CrownShape = Crown::Hemispherical;
+		Levels = 2;
+		L[0] = { 14, 0.08f, 72.0f, 20.0f, 0.75f, 0.3f, 0.3f, 0.0f, 0.6f, 0.45f };
+		L[1] = { 6, 0.2f, 50.0f, 15.0f, 0.5f, 0.2f, 0.2f, 0.05f, 0.6f, 0.35f };
+		Leaf = LeafShape::Needle; LeafCards = 9; LeavesPerCard = 14; LeafCardSize = 0.6f; LeafStart = 0.15f;
+		break;
+	case 9:   // Dead Pine (선 채로 죽은 나무): 잎 없이 짧게 부러진 가지
+		Height = 12.0f; Radius = 0.25f; TipRadius = 0.15f; Flare = 0.35f; Gnarl = 0.2f; CrownShape = Crown::Cylindrical;
+		Levels = 1;
+		L[0] = { 16, 0.3f, 78.0f, 18.0f, 0.18f, 0.35f, 0.15f, 0.0f, 0.35f, 0.3f };
+		Leaf = LeafShape::Needle; LeafCards = 1; LeavesPerCard = 1; LeafCardSize = 0.02f; LeafStart = 0.95f;
+		break;
+	case 10:   // Alder (오리나무): 물가, 좁은 타원 수관, 늘어진 잔가지
+		Height = 10.0f; Radius = 0.2f; TipRadius = 0.2f; Flare = 0.3f; Gnarl = 0.15f; CrownShape = Crown::TaperedCylindrical;
+		Levels = 2;
+		L[0] = { 14, 0.3f, 45.0f, 12.0f, 0.45f, 0.2f, 0.25f, 0.15f, 0.45f, 0.2f };
+		L[1] = { 6, 0.2f, 42.0f, 12.0f, 0.5f, 0.2f, 0.5f, 0.0f, 0.5f, 0.25f };
+		Leaf = LeafShape::Oval; LeafCards = 9; LeavesPerCard = 6; LeafCardSize = 0.6f; LeafStart = 0.2f;
+		break;
+	case 11:   // Juniper (노간주): 원뿔 덤불
+		Height = 2.0f; Radius = 0.07f; TipRadius = 0.2f; Flare = 0.2f; Gnarl = 0.2f; CrownShape = Crown::Flame;
+		Levels = 2;
+		L[0] = { 12, 0.05f, 30.0f, 12.0f, 0.9f, 0.25f, 0.05f, 0.2f, 0.7f, 0.3f };
+		L[1] = { 5, 0.2f, 40.0f, 15.0f, 0.5f, 0.2f, 0.1f, 0.1f, 0.6f, 0.3f };
+		Leaf = LeafShape::Needle; LeafCards = 8; LeavesPerCard = 12; LeafCardSize = 0.45f; LeafStart = 0.1f;
 		break;
 	}
 }

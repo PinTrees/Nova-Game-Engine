@@ -49,6 +49,12 @@ namespace PCG
 		bool Empty() const { return Lakes.empty() && Rivers.empty() && OceanY == -FLT_MAX; }
 		// 땅 높이 y 의 점 (x, z) 가 물 아래 (또는 물가 margin m 안) 인가
 		bool Covers(float x, float y, float z, float margin = 0.4f) const;
+		// 강 선분 찾기 격자 (64 m 칸) — 긴 강이 많으면 (50 km 월드의 강 28 개 = 선분 17 만) 점마다 전부 보지 않게
+		struct SegRef { int River, Index; };
+		std::vector<std::vector<SegRef>> Grid;
+		float GridX0 = 0.0f, GridZ0 = 0.0f, GridCell = 64.0f;
+		int GridW = 0, GridH = 0;
+		void BuildIndex();
 	};
 
 	void ExecuteSpawner(const Graph& graph, int spawnerId, const WorldGen::Settings& world, const TerrainGrid& grid, int volumeSeed, const Rect& rect, CellOutput& out,

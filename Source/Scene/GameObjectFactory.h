@@ -75,6 +75,8 @@ public:
 	static GameObject* CreateTerrainSpline(int mode);
 	// 초대형 열린 월드: World Terrain (size m 정사각) + PCG Volume (Assets/PCG/OpenWorld.pcg — 없으면 프로젝트 모델로 숲 · 초원 · 사막 규칙을 만든다)
 	static GameObject* CreateOpenWorld(float size = 32768.0f);
+	// 지형 그래프 (Gaea 같은 노드 · 침식) 로 만드는 열린 월드: 그래프가 없으면 기본 그래프 (50 km, 1 km 타일 2049²) 를 만든다
+	static GameObject* CreateTerrainWorld(const std::string& graphPath = "");
 	static GameObject* CreatePCGVolume(const std::string& graphPath = "");                     // 지형 스플라인: 0 도로, 1 협곡, 2 능선
 	// 바로 움직일 수 있는 3인칭 캐릭터: 기본 캐릭터 + Character Controller + ThirdPersonController(C#),
 	// 씬의 Main Camera 에 Follow Camera. 필요한 패키지(com.nova.starter-assets → cameras)가 없으면 프로젝트에 넣는다.

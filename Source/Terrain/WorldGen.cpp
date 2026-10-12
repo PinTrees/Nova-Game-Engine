@@ -81,11 +81,22 @@ namespace WorldGen
 		h = (h ^ (uint32_t)Seed) * 1099511628211ull;
 		for (float f : { WorldSize, MaxHeight, ContinentScale, MountainScale, Mountains, HillScale, Hills, DetailScale, Detail, Warp, BiomeScale, Desert, Forest })
 			mix(f);
+		if (External)
+			h = (h ^ External->Hash()) * 1099511628211ull;
 		return h;
+	}
+
+	float Height01(const Settings& s, float x, float z, float footprint)
+	{
+		if (s.External)
+			return s.External->Height01(x, z, footprint);
+		return Height01(s, x, z);
 	}
 
 	float Height01(const Settings& s, float x, float z)
 	{
+		if (s.External)
+			return s.External->Height01(x, z, 0.0f);
 		// 도메인 휨: 큰 주파수의 노이즈 두 개로 좌표를 민다 (산맥 · 해안이 곧게 늘어서지 않게)
 		const float wscale = s.ContinentScale * 0.35f;
 		const float wx = x + s.Warp * wscale * Fbm(s.Seed + 11, x / wscale, z / wscale, 3);
@@ -119,6 +130,8 @@ namespace WorldGen
 
 	Biome BiomeAt(const Settings& s, float x, float z, float height01, float slopeCos)
 	{
+		if (s.External)
+			return s.External->BiomeAt(x, z, height01, slopeCos);
 		const float t = 0.5f + 0.5f * Fbm(s.Seed + 101, x / s.BiomeScale, z / s.BiomeScale, 4) - height01 * 0.55f;   // 온도
 		const float m = 0.5f + 0.5f * Fbm(s.Seed + 202, x / (s.BiomeScale * 0.8f) + 7.7f, z / (s.BiomeScale * 0.8f) - 3.1f, 4);   // 습도
 		Biome b;

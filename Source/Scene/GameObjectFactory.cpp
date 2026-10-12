@@ -45,6 +45,7 @@
 #include "GeometryGenerator.h"
 #include "Mesh.h"
 #include "WorldTerrain.h"
+#include "TerrainGraph.h"
 #include "PCGVolume.h"
 #include "PCGGraph.h"
 #include "Camera.h"
@@ -797,6 +798,38 @@ GameObject* GameObjectFactory::CreateOpenWorld(float size)
 			if (g && g->GetName() == "Main Camera")
 				if (Camera* cam = g->GetComponent<Camera>())
 					cam->SetFarZ((std::max)(20000.0f, size * 0.6f));
+	return go;
+}
+
+GameObject* GameObjectFactory::CreateTerrainWorld(const std::string& graphPath)
+{
+	const std::string path = graphPath.empty() ? std::string("Assets\\Terrain\\World.terraingraph") : graphPath;
+	std::shared_ptr<TerrainGraph::Graph> graph = TerrainGraph::Load(path);
+	if (!graph)
+	{
+		TerrainGraph::Save(path, TerrainGraph::MakeDefault(1));
+		graph = TerrainGraph::Load(path);
+	}
+	if (!graph)
+		return nullptr;
+	GameObject* go = CreateOpenWorld(graph->World.WorldSize);
+	go->SetName("Terrain World");
+	if (WorldTerrain* wt = go->GetComponent<WorldTerrain>())
+	{
+		wt->GraphPath = path;
+		// 가까운 타일은 2049² (1 km) — 카메라 둘레 몇 칸만 (RAM · VRAM)
+		wt->NearDistance = 700.0f;
+		// 침식 골 (깊이 5 ~ 15 m) 이 멀리서 쿼드트리 LOD 로 지워지지 않게 (지워지면 그 위 바위 · 나무가 떠 보인다)
+		wt->PixelError = 3.0f;
+	}
+	// 바이옴 식생: 트리 편집기의 절차적 나무를 높이 띠마다 (저지 활엽수 → 산지 침엽수 → 수목한계선) + 프로젝트의 풀 · 덮개 · 바위
+	if (PCGVolume* v = go->GetComponent<PCGVolume>())
+	{
+		const std::string pcg = "Assets\\PCG\\TerrainWorld.pcg";
+		if (!PCG::LoadGraph(pcg))
+			PCG::SaveGraph(pcg, PCG::MakeBiomeForestPreset(PCG::ScanProjectModels(), graph->World.MaxHeight));
+		v->GraphPath = pcg;
+	}
 	return go;
 }
 

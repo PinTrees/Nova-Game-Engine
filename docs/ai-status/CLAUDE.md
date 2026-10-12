@@ -1,6 +1,16 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 10일 — **Unity 후처리 전부 + 그래픽 좋은 숲** (사용자 지시: "유니티의 후처리 효과들 최대한 가져와서 그래픽 좋은 숲으로 (UE5 MAWI 숲 영상처럼)")
+- 갱신 시각: 2026년 10월 12일 — **지형 그래프 (Gaea 식 노드 · 침식 지형 생성기) + 50 km 월드 · 강 · 길 · 바이옴 나무** (사용자 지시: "가이아처럼 침식 · 계산 방식 지형생성기로 50 x 50 km, 높이맵 2k · 1 km 타일 50 x 50, 용량 · VRAM · RAM 문제 없게, 지형 생성기 에디터 · 다중 터레인, 텍스처 · 노멀 계산 · 스플랫" → "quadspinner.com 같은 것" → "텍스처 반사 줄이기, Witcher 4 영상처럼 디테일, 트리 에디터 기반 바이옴 식생, 산맥 프랙탈 · 침식 풍화 구조" → "강과 길도" → Gaea Erosion2 · SatMap 화면)
+  - `Source/Terrain/TerrainGraph.*` (노드 30 종: Mountain Range (스위스 난류) · Rugged · Stratify · Erosion2 (여러 해상도 물방울 + 퇴적물 각도) · Gullies (침식 필터) · Sediment · River (우선순위 채우기 + D8) · Road (마을 · MST · A*) · SatMap (팔레트 32, `TerrainGraphColor.cpp`) · Color Blend …, 기본 그래프 20 노드), `TerrainGraphBuild.cpp` (빌드 v2: 높이 · 물길 · 퇴적 · 깎임 · 색 · 강 · 길 선, 타일 = 쌍삼차 + 침식 결 + 골 필터 + 강바닥 · 길 노면 — 위치의 순수 함수, 비동기 읽기), `TerrainGraphNoise.h`, `TerrainTextureGen.*` (풀잎 · 깨진 바위 · 자갈 · 바람 결 눈, 오목 AO)
+  - World Terrain: 그래프 따르기 (`WorldGen::Source` · `Settings::External` — 컬러 맵 `Color()`), 가까운 타일 2049², 타일 작업 취소, 픽셀 오차 3, `world probe` (함수 = 타일 0.00 m 확인)
+  - 편집기: `Source/Editor/Windows/TerrainGraphWindow.*` (캔버스 · 3D 미리 보기 (CPU 광선 행진) · Node / World / Texturing / Build 탭 · 강 Water Body · 타일 Terrain · 여러 Terrain 적용), GameObject > Open World > Terrain World 50 km, CLI `terraingraph` (new · info · set · enable · world · layer · build · preview (+ out3d) · height · grid · paths · apply · tiles · attach · rivers · textures · seams · window)
+  - 바이옴 나무: 트리 프리셋 8 종 더 (Spruce · Fir · Larch · Beech · Dwarf Pine · Dead Pine · Alder · Juniper), PCG 메시 칸 `tree:종` → `TreeRenderer::SetExternalSource` (LOD · 임포스터 · 바람 · 그림자), `PCG::MakeBiomeForestPreset` (높이 띠), `Source/PCG/PCGTrees.*`
+  - 고친 것: 지형 환경 반사 0.3 배 (`s_ReflectionScale`, 젖으면 다시), 지형 옆 투영도 타일 없애기 + 큰 얼룩, 하늘 판정 깊이 0.99999 → 1 (`50. Atmosphere` · `46. Water` — near 0.1 이면 10 km 너머 지형이 하늘로 보여 안개가 빠졌다), 물가 맵이 World Terrain 타일 2500 개를 LOD 바뀔 때마다 돌던 4 초 멈춤 (`WaterShore` — 높이 함수로 한 번), CLI `world set` · `terraingraph world` 의 json 반복자 (다른 임시 객체)
+  - 결과 (50 km, 4097² 빌드 Debug 62 s · Release 26 s): 빌드 파일 129 MB · 메모리 194 MB, 타일 CPU 186 ~ 225 MB · GPU 166 ~ 205 MB (가까운 2049² 8 ~ 10 개 + 129² · 33² 2490 개), 강 28 · 길 17
+  - 성능 (Release, 숲 · 강 · 길): 87 ~ 103 → 20 ~ 34 ms — 물 바디 곡선 캐시 (`WaterBody::Sample` 이 프레임마다 4 m 곡선) · PCG 물 마스크 캐시 + 격자 (`WaterMask::BuildIndex`), 지형 `VarOf` (이름 찾기 캐시) · 높이 배열 키 해시 · 잎 + 스커트 한 번에 · 먼 타일 테셀레이션 끔 · 3 km 너머 프리패스 뺌. 다음: 먼 타일 묶기 (CPU 가 정한다)
+  - 강: 물높이 = 굽은 자리의 땅 (채운 높이로 떠 보이던 것), 하류로 낮게 · 땅보다 6 m 이상 파지 않음, 굽이 노이즈. Mountain Range 안쪽 휨 0.1 (잔 옥타브가 나란한 줄), 지층 옅게
+  - 문서 `docs/TERRAIN_GRAPH.md`, 검사 `terraingraph` 스위트 (10), 회귀 terraingraph · pcg · postfx · render 34/34 (마지막 Debug terraingraph · pcg · render 24/24), Showcase 286
+- 이전: 2026년 10월 10일 — **Unity 후처리 전부 + 그래픽 좋은 숲** (사용자 지시: "유니티의 후처리 효과들 최대한 가져와서 그래픽 좋은 숲으로 (UE5 MAWI 숲 영상처럼)")
   - URP Volume 오버라이드 추가: Split Toning · Channel Mixer · Shadows Midtones Highlights · Lift Gamma Gain (Unity ColorUtils 식) · Color Lookup (LUT 띠, 중립 `Resources/Textures/LUT/NeutralLUT32.png`) · Lens Distortion · Panini Projection · Screen Space Lens Flare — `VolumeProfile` (Trackball · Texture 매개변수 종류), `PostProcessPass`, `Shaders/41`
   - 숲의 빛: Fog > Volumetric Fog (`Shaders/50` 해 캐스케이드 그림자 걷기 — `EditorApp::DrawAtmosphere` 가 그림자 넘김), Sun Shafts (1/4 해상도 방사형), PCG 식물 잎 투과 (`PS_BatchFoliage`)
   - 열린 월드: `OpenWorldLook.volumeprofile` · 낮고 따뜻한 해, 숲 바닥 이끼 덩어리 (`WorldGen::Splat`), 하층 빽빽하게, PCG 물 빼기 (`PCG::WaterMask` — 호수 · 강 · 바다)

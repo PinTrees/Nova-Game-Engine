@@ -627,6 +627,21 @@ namespace TreeRenderer
 		return true;
 	}
 
+	std::map<std::string, std::function<void(const Vec3&, bool, const TreeEmit&)>>& ExternalSources()
+	{
+		static std::map<std::string, std::function<void(const Vec3&, bool, const TreeEmit&)>> s;
+		return s;
+	}
+
+	void SetExternalSource(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const TreeEmit& emit)> source)
+	{
+		if (source)
+			ExternalSources()[owner] = std::move(source);
+		else
+			ExternalSources().erase(owner);
+		s_RecordsValid = false;
+	}
+
 	ImTextureID Thumbnail(const TreeDesc& desc, ImVec2& uv0, ImVec2& uv1)
 	{
 		Impostor* imp = GetImpostor(desc, true);
@@ -740,6 +755,23 @@ namespace TreeRenderer
 						continue;
 					record(protos[t.Prototype], cache.Worlds[i], t.Tint, Hash2(t.X * 97.0f, t.Z * 131.0f));
 				}
+			}
+			// 바깥 나무 (PCG 바이옴 식생)
+			for (auto& [owner, source] : ExternalSources())
+			{
+				if (!source)
+					continue;
+				s_RecordLayer = 1u;
+				source(camPos, editorView, [&](const TreeDesc& desc, const XMFLOAT4X4* worlds, size_t count) {
+					const Proto proto = prepare(desc);
+					if (!proto.B)
+						return;
+					for (size_t i = 0; i < count; ++i)
+					{
+						const float h = Hash2(worlds[i]._41, worlds[i]._43);
+						record(proto, worlds[i], h, Hash2(worlds[i]._43 * 1.7f, worlds[i]._41 * 0.9f));
+					}
+				});
 			}
 			// 설정이 바뀌어 쓰이지 않는 묶음은 버린다 (TreeDesc 포인터가 사라졌을 수 있다). 다른 노드 포인터는 그대로
 			for (auto it = s_Batches.begin(); it != s_Batches.end();)

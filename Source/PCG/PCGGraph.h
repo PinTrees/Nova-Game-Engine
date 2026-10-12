@@ -113,4 +113,7 @@ namespace PCG
 
 	// 열린 월드 기본 규칙 (숲 · 초원 · 사막 · 바위): models = (종류, 모델 경로) — Tree · Bush · Fern · Grass · Rock · Cactus · Debris · Mushroom
 	Graph MakeOpenWorldPreset(const std::vector<std::pair<std::string, std::string>>& models);
+	// 바이옴 식생 (지형 그래프 월드): 트리 편집기의 절차적 나무 ("tree:종") 를 높이 띠마다 — 저지 활엽수 (참나무 · 너도밤 · 자작 · 오리) →
+	//  산지 침엽수 (가문비 · 전나무 · 낙엽송) → 수목한계선 (눈잣나무), 선 채로 죽은 나무, 초원의 외딴 나무 · 노간주. 아래 덮개 · 풀 · 바위는 프로젝트 모델
+	Graph MakeBiomeForestPreset(const std::vector<std::pair<std::string, std::string>>& models, float maxHeight);
 }
