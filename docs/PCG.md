@@ -9,7 +9,9 @@ Unreal 의 PCG (Procedural Content Generation) 와 같은 생각입니다. **규
 **GameObject > Open World > Open World 32 km (PCG)** (또는 `nova create open-world`)
 
 1. **World Terrain** — 32 × 32 km 지형 (1 km 타일 1024 개). 높이 · 바이옴 (숲 · 초원 · 사막 · 바위) 은 위치만으로 정해지는 함수라 어디서나 같은 땅
-2. **PCG Volume** — 그래프 `Assets/PCG/OpenWorld.pcg` 를 월드 전체에 적용. 그래프가 없으면 **프로젝트의 모델을 이름으로 나눠** (큰 나무 · 작은 나무 · 덤불 · 고사리 · 풀 · 숲 바닥 · 바위 · 잔해 · 버섯 · 선인장 · 마른 풀) 숲 · 초원 · 사막 · 바위 규칙 11 개를 만든다
+2. **PCG Volume** — 그래프 `Assets/PCG/OpenWorld.pcg` 를 월드 전체에 적용. 그래프가 없으면 기본 규칙을 만든다:
+   - **식생은 모두 절차적** ([절차적 식생](VEGETATION.md)) — 기후대별 종 160 개를 층마다 스포너 하나에 넣고 (숲 큰 나무 · 외딴 나무 · 작은 나무 · 덤불 · 다육 · 고사리 · 풀 · 꽃), 그 자리 기후 (기온 · 습도 · 경사 · 물가) 로 종을 고른다
+   - 바위 · 잔해만 프로젝트 모델 (있으면). 예전 그래프는 `nova pcg preset` 으로 바꾼다
 3. **그림자 2 km** — 같은 GameObject 에 Global Volume (Priority 10, `Assets/PCG/OpenWorldShadows.volumeprofile`): Shadows Max Distance 2000 m, **캐스케이드 8 개** (끝 12 · 30 · 70 · 150 · 300 · 600 · 1100 · 2000 m), 나무 스포너의 Shadow Distance 2000 m (멀리는 마지막 LOD — 빌보드 — 가 그림자)
 4. **숲의 화면** — Global Volume (Priority 11, `Assets/PCG/OpenWorldLook.volumeprofile`): ACES · 색 보정 · Sun Shafts · Volumetric Fog · 대기 원근 · Lens Flare … ([후처리](POST_PROCESSING.md)), 해는 낮고 따뜻하게
 5. Main Camera 의 Far 를 20 km 로 (새 카메라는 TAA 가 기본)
@@ -93,6 +95,8 @@ nova world info | height --x 0 --z 0 | set --values '{"seed":5,"mountains":0.7}'
 nova pcg info                                   # 셀 · 인스턴스 · 그린 수 · 묶음 · 셀마다 ms · 스포너별
 nova pcg set --node 3 --param pointsPerSquaredMeter --value 0.02   # 그래프 값 (저장 · 바로 다시 만든다)
 nova pcg enable --node 3 --enabled false | regen | graph | save
+nova pcg preset                                 # 그래프를 열린 월드 기본 규칙 (절차적 식생 · 기후로 종 고르기) 으로
+nova plants list | check | pick --temp 26 --moisture 0.1 | stats   # 식생 종 (VEGETATION.md)
 ```
 
 ## 아직

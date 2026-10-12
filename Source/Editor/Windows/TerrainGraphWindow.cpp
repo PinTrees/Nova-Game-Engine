@@ -757,6 +757,11 @@ void TerrainGraphWindow::DrawWorldTab()
 	changed |= ImGui::SliderFloat("Slope Roughness", &w.DetailSlope, 0.0f, 3.0f);
 	changed |= ImGui::SliderFloat("Smooth Deposits", &w.DetailDeposits, 0.0f, 1.0f);
 	changed |= ImGui::SliderFloat("Cliff Detail (m)", &w.CliffDetail, 0.0f, 30.0f);
+	ImGui::SeparatorText("Climate (vegetation species)");
+	changed |= ImGui::SliderFloat("Sea Level Temperature (C)", &w.ClimateTemperature, -15.0f, 32.0f);
+	changed |= ImGui::SliderFloat("South-North Difference (C)", &w.ClimateGradient, -40.0f, 40.0f);
+	changed |= ImGui::SliderFloat("Moisture", &w.ClimateMoisture, 0.0f, 1.0f);
+	changed |= ImGui::SliderFloat("West-East Moisture Difference", &w.ClimateMoistureGradient, -1.0f, 1.0f);
 	changed |= ImGui::SliderFloat("Color Map Strength", &w.ColorStrength, 0.0f, 1.0f);
 	if (changed)
 		Changed();

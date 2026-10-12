@@ -88,6 +88,11 @@ namespace TerrainGraph
 		float DetailDeposits = 0.7f;     // 퇴적된 골 · 평지는 매끈하게
 		float ColorStrength = 0.45f;
 		float CliffDetail = 6.0f;        // 가파른 곳 (24° ~ 42°) 의 깨진 바위 결 (m, 리지 — 매끈한 절벽면이 없게)      // 컬러 맵 (SatMap) 이 텍스처 색을 대신하는 정도 (텍스처는 명암 디테일)
+		// 기후 (식생 종): 해수면 연평균 기온 (°C, 높이 1 km 마다 6.5 °C 내려간다), 남 → 북 (z) 기온 차, 기본 습도 · 서 → 동 (x) 습도 차
+		float ClimateTemperature = 15.0f;
+		float ClimateGradient = 0.0f;
+		float ClimateMoisture = 0.6f;
+		float ClimateMoistureGradient = 0.0f;
 
 		uint64_t Hash() const;           // 빌드에 드는 값 (해상도 · 크기 · Seed · 높이)
 		uint64_t TileHash() const;       // 타일 계산에 드는 값 (디테일 · 타일)

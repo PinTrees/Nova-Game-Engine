@@ -36,6 +36,24 @@ namespace TreeRenderer
 	using TreeEmit = std::function<void(const TreeDesc& desc, const XMFLOAT4X4* worlds, size_t count)>;
 	void SetExternalSource(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const TreeEmit& emit)> source);
 
+	// 바깥 셀 (PCG 셀 — 풀 · 꽃 · 덤불처럼 수만 그루): 셀마다 GPU 인스턴스 버퍼를 한 번 만들고 (CreateCellBuffer), 그릴 때는 셀마다
+	//  절두체 · 거리 범위만 CPU 가 보고 LOD 단계 (LOD0 · LOD1 · 임포스터 · 사라짐) 는 정점 셰이더가 인스턴스마다 카메라 거리로 고른다
+	//  (화면 디더 섞기 그대로 — 인스턴스마다 CPU 일이 없다). 가까운 큰 나무 셀 (키 4 m 넘게, 임포스터 거리 안) 은 인스턴스마다 (CPU · 오클루전)
+	struct CellBuffer;
+	std::shared_ptr<CellBuffer> CreateCellBuffer(const XMFLOAT4X4* worlds, size_t count);
+	struct CellDraw
+	{
+		const TreeDesc* Desc = nullptr;              // 프레임 동안 살아 있어야 한다 (캐시된 종)
+		std::shared_ptr<CellBuffer> Instances;       // CreateCellBuffer
+		const XMFLOAT4X4* Worlds = nullptr;          // 같은 인스턴스 (CPU) — 가까운 큰 나무를 인스턴스마다 그릴 때
+		size_t Count = 0;
+		Vec3 Min, Max;                               // 인스턴스 뿌리 위치 범위
+		float MinScale = 1.0f, MaxScale = 1.0f;      // 인스턴스 크기 배율 범위 (LOD 거리 = 카메라 거리 / 배율)
+		float ShadowDistance = 1e9f;                 // 이 거리 (m) 너머는 그림자에 그리지 않는다 (PCG 스포너의 Shadow Distance, 0 = 그림자 없음)
+	};
+	using CellEmit = std::function<void(const CellDraw& cell)>;
+	void SetExternalCells(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const CellEmit& emit)> source);
+
 	// 프로토타입 미리보기 = 임포스터 앞면 (없으면 굽는다). uv0/uv1 = 아틀라스 안 영역
 	ImTextureID Thumbnail(const TreeDesc& desc, ImVec2& uv0, ImVec2& uv1);
 
@@ -44,6 +62,7 @@ namespace TreeRenderer
 		int Trees = 0;                      // 절두체 안 나무
 		int Lod0 = 0, Lod1 = 0, Billboards = 0;
 		int DrawCalls = 0;
+		int CellDraws = 0;                  // 셀째 그린 묶음 (정점 셰이더가 LOD)
 	};
 	const Stats& LastStats(bool editor);   // 마지막 본 패스
 

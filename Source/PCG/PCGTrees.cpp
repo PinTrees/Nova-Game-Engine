@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "PCGTrees.h"
 #include "TreeDesc.h"
+#include "PlantLibrary.h"
 #include <map>
 #include <mutex>
 
@@ -45,16 +46,26 @@ namespace PCG
 			d->Params.Lean += variant == 1 ? 3.0f : 0.0f;
 			// 그리는 거리는 스포너가 정한다 (멀리는 임포스터)
 			d->CullDistance = (std::max)(d->CullDistance, cullDistance);
+			// 변형들이 임포스터 한 장을 같이 쓴다 (멀리서는 모양 차이가 안 보인다 — 종이 100 여 개라 VRAM)
+			d->ImpostorKey = std::hash<std::string>()(path.substr(0, path.find('#')) + "|imp|" + std::to_string((int)cullDistance));
 			d->Invalidate();
 			slot = std::move(d);
 		}
 		return slot.get();
 	}
 
-	int TreeVariantAt(float x, float z)
+	int TreeVariantsOf(const std::string& path)
 	{
+		const PlantLibrary::Species* sp = PlantLibrary::At(TreePreset(path));
+		return sp && sp->Desc.Params.Height >= 4.0f ? kTreeVariants : 1;
+	}
+
+	int TreeVariantAt(float x, float z, int variants)
+	{
+		if (variants <= 1)
+			return 0;
 		uint32_t h = (uint32_t)(int32_t)floorf(x * 3.1f) * 0x27d4eb2dU ^ (uint32_t)(int32_t)floorf(z * 2.7f) * 0x165667b1U;
 		h ^= h >> 15; h *= 0x85ebca6bU; h ^= h >> 13;
-		return (int)(h % (uint32_t)kTreeVariants);
+		return (int)(h % (uint32_t)variants);
 	}
 }

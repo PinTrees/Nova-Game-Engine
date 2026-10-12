@@ -934,7 +934,13 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("position")) args["position"] = Vec(a.Get("position"));
 		if (a.Has("rotation")) args["rotation"] = Vec(a.Get("rotation"));
 		if (a.Has("scale")) args["scale"] = Vec(a.Get("scale"));
-		if (a.Has("preset")) args["preset"] = std::stoi(a.Get("preset"));
+		if (a.Has("preset"))
+		{
+			// 숫자면 번호, 아니면 이름 (tree: 식생 종 — "Kapok")
+			const std::string pv = a.Get("preset");
+			const bool number = !pv.empty() && pv.find_first_not_of("-0123456789") == std::string::npos;
+			if (number) args["preset"] = std::stoi(pv); else args["preset"] = pv;
+		}
 		if (a.Has("model")) args["model"] = a.Get("model");               // character: 모델 FBX
 		if (a.Has("controller")) args["controller"] = a.Get("controller");   // character: Animator Controller
 		if (a.Has("asset")) args["asset"] = a.Get("asset");                  // visual-effect: .vfx
@@ -1214,7 +1220,7 @@ int Run(const std::vector<std::string>& in)
 		if (a.Has("gpu-depth")) args["gpuDepth"] = std::stoi(a.Get("gpu-depth"));   // GPU 구간 깊이 (기본 1 = 뷰 + 단계)
 		if (a.Has("top")) args["top"] = std::stoi(a.Get("top"));                    // CPU 구간 몇 개까지 (기본 24)
 	}
-	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors" || cmd == "cinemachine" || cmd == "debugview" || cmd == "forwardplus" || cmd == "rendergraph" || cmd == "d3d12" || cmd == "vt" || cmd == "renderpath" || cmd == "jobs" || cmd == "renderthread" || cmd == "memory" || cmd == "transform" || cmd == "scenestream" || cmd == "prefab" || cmd == "spline" || cmd == "crowd" || cmd == "world" || cmd == "pcg" || cmd == "terraingraph")
+	else if (cmd == "model" || cmd == "anim2d" || cmd == "shadergraph" || cmd == "vfx" || cmd == "probe" || cmd == "probevolume" || cmd == "lod" || cmd == "modelfile" || cmd == "vulkan" || cmd == "android" || cmd == "occlusion" || cmd == "weather" || cmd == "tessellation" || cmd == "tilemap" || cmd == "web" || cmd == "build-scenes" || cmd == "ragdoll" || cmd == "daynight" || cmd == "ssao" || cmd == "motionvectors" || cmd == "cinemachine" || cmd == "debugview" || cmd == "forwardplus" || cmd == "rendergraph" || cmd == "d3d12" || cmd == "vt" || cmd == "renderpath" || cmd == "jobs" || cmd == "renderthread" || cmd == "memory" || cmd == "transform" || cmd == "scenestream" || cmd == "prefab" || cmd == "spline" || cmd == "crowd" || cmd == "world" || cmd == "pcg" || cmd == "terraingraph" || cmd == "plants")
 	{
 		// 모델 편집기 (com.nova.modeling) · 2D 애니메이터 (com.nova.animation2d): nova model|anim2d <op> [경로] [--이름 값 …]
 		//  값은 JSON 으로 읽히면 그대로 (숫자 · true · [1,2,3]), "1,2,3" 은 배열, 아니면 문자열. 값 없는 --이름 = true

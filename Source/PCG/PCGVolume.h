@@ -2,6 +2,7 @@
 #include "Component.h"
 #include "PCGGraph.h"
 namespace PCG { struct WaterMask; }
+namespace TreeRenderer { struct CellDraw; }
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -63,7 +64,8 @@ public:
 	// 그리기 (MeshBatcher 바깥 묶음) — 모든 PCG Volume
 	static void EmitBatches(int pass, bool editor, void* out);
 	// 절차적 나무 ("tree:종" 메시 칸) → TreeRenderer (화면마다 한 번): Cull 안 셀의 점을 종 · 변형마다
-	static void EmitTrees(const Vec3& eye, const std::function<void(const class TreeDesc&, const XMFLOAT4X4*, size_t)>& emit);
+	// 절차적 식생 (tree:종) 의 셀째 그리기 (TreeRenderer 셀 경로) — 셀마다 [메시 × 변형] 인스턴스 · GPU 버퍼를 한 번 만든다
+	static void EmitTreeCells(const Vec3& eye, const std::function<void(const TreeRenderer::CellDraw&)>& emit);
 
 private:
 	void Tick();

@@ -1,6 +1,9 @@
 #include "pch.h"
 #include "WorldTerrain.h"
 #include "PCGVolume.h"
+#include "PlantLibrary.h"
+#include "TreeRenderer.h"
+#include "Tree.h"
 #include "PCGGraph.h"
 #include "RenderingDebuggerWindow.h"
 #include "RenderGraphViewerWindow.h"
@@ -402,7 +405,22 @@ namespace
 		}
 		if (type == "camera") return named(GameObjectFactory::CreateCamera());
 		if (type == "terrain") return named(GameObjectFactory::CreateTerrain());
-		if (type == "tree") return named(GameObjectFactory::CreateTree());
+		if (type == "tree")
+		{
+			// --preset = 종 번호 또는 이름 (PlantLibrary — "Kapok", "Saguaro" …)
+			GameObject* g = GameObjectFactory::CreateTree();
+			int preset = -1;
+			if (args.contains("preset"))
+				preset = args["preset"].is_string() ? PlantLibrary::IndexOf(args["preset"].get<std::string>()) : args["preset"].get<int>();
+			if (preset >= 0)
+				if (Tree* t = g->GetComponent<Tree>())
+				{
+					t->ApplyPreset(preset);
+					if (const PlantLibrary::Species* sp = PlantLibrary::At(preset))
+						g->SetName(sp->Name);
+				}
+			return named(g);
+		}
 		if (type == "particle-system") return named(GameObjectFactory::CreateParticleSystem());
 		if (type == "visual-effect") return named(GameObjectFactory::CreateVisualEffect(args.value("asset", std::string())));
 		if (type == "audio-source") return named(GameObjectFactory::CreateAudioSource());
@@ -1016,7 +1034,87 @@ namespace CliCommands
 			return true;
 		});
 
-		Register("create", "create an object {type, name?, parent?, position?, rotation?, scale?, preset?}", [](const json& a, json& r, std::string& e) {
+		// 식생 종 (PlantLibrary): list = 이름 · 기후대 · 층 · 기후 범위, check = 종마다 메시를 만들어 정점 · 삼각형 · 크기를 본다 (빈 메시 · 이상한 크기를 찾는다)
+		Register("plants", "procedural plant species {op: list | check | pick | stats, zone?, layer?, temp?, moisture?, slope?, water?}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("list"));
+			const std::string zone = a.value("zone", std::string());
+			const std::string layer = a.value("layer", std::string());
+			if (op == "stats")
+			{
+				// 마지막 Game 뷰 본 패스의 나무 그리기 (셀째 묶음 = PCG 식생을 정점 셰이더가 LOD)
+				const TreeRenderer::Stats& st = TreeRenderer::LastStats(a.value("editor", false));
+				r = { { "trees", st.Trees }, { "lod0", st.Lod0 }, { "lod1", st.Lod1 }, { "billboards", st.Billboards }, { "drawCalls", st.DrawCalls }, { "cellDraws", st.CellDraws } };
+				return true;
+			}
+			if (op == "pick")
+			{
+				// 그 기후 (--temp °C, --moisture 0..1, --slope 도, --water 0..1) 에 맞는 종 (맞는 정도 x 흔함 순)
+				const float t = a.value("temp", 12.0f), m = a.value("moisture", 0.5f), sl = a.value("slope", 5.0f), w = a.value("water", 0.0f);
+				std::vector<std::pair<float, int>> ranked;
+				const auto& all = PlantLibrary::All();
+				for (size_t i = 0; i < all.size(); ++i)
+				{
+					if (!layer.empty() && _stricmp(layer.c_str(), PlantLibrary::LayerName(all[i].Kind)) != 0)
+						continue;
+					const float k = PlantLibrary::Suitability(all[i], t, m, sl, w) * all[i].Abundance;
+					if (k > 0.0f)
+						ranked.push_back({ k, (int)i });
+				}
+				std::sort(ranked.begin(), ranked.end(), [](const auto& x, const auto& y) { return x.first > y.first; });
+				json list = json::array();
+				for (size_t i = 0; i < ranked.size() && i < 12; ++i)
+					list.push_back({ { "name", all[(size_t)ranked[i].second].Name }, { "zone", all[(size_t)ranked[i].second].Zone }, { "weight", ranked[i].first } });
+				r = { { "count", ranked.size() }, { "species", list } };
+				return true;
+			}
+			json list = json::array();
+			int bad = 0;
+			const auto& all = PlantLibrary::All();
+			std::map<std::string, int> zones;
+			for (size_t i = 0; i < all.size(); ++i)
+			{
+				const PlantLibrary::Species& s = all[i];
+				const std::string layerName = PlantLibrary::LayerName(s.Kind);
+				if (!zone.empty() && zone != s.Zone)
+					continue;
+				if (!layer.empty() && _stricmp(layer.c_str(), layerName.c_str()) != 0)
+					continue;
+				++zones[s.Zone];
+				json j = { { "index", i }, { "name", s.Name }, { "zone", s.Zone }, { "layer", layerName },
+					{ "temp", { s.Range.TempMin, s.Range.TempMax } }, { "moisture", { s.Range.MoistMin, s.Range.MoistMax } }, { "water", s.Range.Water },
+					{ "height", s.Desc.Params.Height }, { "form", (int)s.Desc.Params.Shape }, { "leaf", (int)s.Desc.Params.Leaf }, { "flowers", s.Desc.Params.FlowerPetals > 0 } };
+				if (op == "check")
+				{
+					TreeRenderer::MeshInfo m0, m1;
+					const bool ok0 = TreeRenderer::GetMeshInfo(s.Desc, m0, 0), ok1 = TreeRenderer::GetMeshInfo(s.Desc, m1, 1);
+					const float h = m0.BoundsMax.y - m0.BoundsMin.y;
+					const float w = (std::max)(m0.BoundsMax.x - m0.BoundsMin.x, m0.BoundsMax.z - m0.BoundsMin.z);
+					const bool finite = std::isfinite(h) && std::isfinite(w);
+					// 문제: 메시 없음 · 크기가 NaN · 키가 설정의 0.2 배보다 작거나 4 배보다 큼 · LOD1 이 LOD0 보다 무거움
+					std::string issue;
+					if (!ok0 || m0.Vertices == 0 || m0.Triangles == 0) issue = "empty mesh";
+					else if (!finite) issue = "non-finite bounds";
+					else if (h < s.Desc.Params.Height * 0.2f || h > s.Desc.Params.Height * 4.0f + 0.5f) issue = "height " + std::to_string(h) + " vs " + std::to_string(s.Desc.Params.Height);
+					else if (ok1 && m1.Triangles > m0.Triangles) issue = "LOD1 heavier than LOD0";
+					j["lod0"] = { { "vertices", m0.Vertices }, { "triangles", m0.Triangles }, { "cards", m0.LeafCards }, { "branches", m0.Branches } };
+					j["lod1"] = { { "triangles", m1.Triangles } };
+					j["size"] = { w, h };
+					if (!issue.empty())
+					{
+						j["issue"] = issue;
+						++bad;
+					}
+				}
+				list.push_back(j);
+			}
+			r = { { "count", list.size() }, { "total", all.size() }, { "zones", zones }, { "species", list } };
+			if (op == "check")
+				r["problems"] = bad;
+			(void)e;
+			return true;
+		});
+
+		Register("create", "create an object {type, name?, parent?, position?, rotation?, scale?, preset? (tree: species index or name)}", [](const json& a, json& r, std::string& e) {
 			if (!RequireEditMode(e)) return false;
 			Scene* scene = CurrentScene();
 			if (!scene) { e = "no scene is open"; return false; }
@@ -1273,7 +1371,7 @@ namespace CliCommands
 				WorldGen::Normal(w->Settings, x, z, 2.0f, nx, ny, nz);
 				const WorldGen::Biome b = WorldGen::BiomeAt(w->Settings, x, z, h01, ny);
 				r = { { "height", h01 * w->Settings.MaxHeight }, { "slope", XMConvertToDegrees(acosf(ny)) },
-					{ "biome", { { "forest", b.Forest }, { "meadow", b.Meadow }, { "desert", b.Desert }, { "rock", b.Rock } } } };
+					{ "biome", { { "forest", b.Forest }, { "meadow", b.Meadow }, { "desert", b.Desert }, { "rock", b.Rock }, { "temperature", b.Temperature }, { "moisture", b.Moisture }, { "water", b.Water }, { "clear", b.Clear } } } };
 				return true;
 			}
 			const WorldTerrain::Info i = w->GetInfo();
@@ -1285,7 +1383,7 @@ namespace CliCommands
 		});
 
 		// PCG: 볼륨 상태 · 다시 만들기 · 그래프 노드 값 (그래프 창과 같은 객체 — 바로 다시 만든다)
-		Register("pcg", "PCG volumes {op: info|regen|set|enable|save|graph|window, node, param, value, enabled, path}", [](const json& a, json& r, std::string& e) {
+		Register("pcg", "PCG volumes {op: info|regen|set|enable|save|graph|window|preset, node, param, value, enabled, path}", [](const json& a, json& r, std::string& e) {
 			const std::string op = a.value("op", std::string("info"));
 			const auto& volumes = PCGVolume::All();
 			if (volumes.empty()) { e = "no PCG Volume in the scene"; return false; }
@@ -1317,6 +1415,25 @@ namespace CliCommands
 			{
 				if (!g) { e = "volume has no graph"; return false; }
 				PCG::SaveGraph(a.value("path", v->GraphPath), *g);
+			}
+			else if (op == "preset")
+			{
+				// 열린 월드 기본 규칙 (절차적 식생 · 기후로 종 고르기 + 프로젝트의 바위 · 잔해) 으로 그래프를 바꾼다 (같은 에셋 — 창 · Volume 이 바로)
+				if (!g) { e = "volume has no graph"; return false; }
+				const uint64_t revision = g->Revision;
+				*g = PCG::MakeOpenWorldPreset(PCG::ScanProjectModels());
+				g->Revision = revision;
+				g->Touch();
+				PCG::SaveGraph(v->GraphPath, *g);
+				int spawners = 0, meshes = 0;
+				for (const PCG::Node& n : g->Nodes)
+					if (n.Type == PCG::NodeType::StaticMeshSpawner)
+					{
+						++spawners;
+						meshes += (int)n.Meshes.size();
+					}
+				r = { { "graph", v->GraphPath }, { "spawners", spawners }, { "meshes", meshes } };
+				return true;
 			}
 			else if (op == "graph")
 			{

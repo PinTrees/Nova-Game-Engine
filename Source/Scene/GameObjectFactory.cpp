@@ -822,12 +822,12 @@ GameObject* GameObjectFactory::CreateTerrainWorld(const std::string& graphPath)
 		// 침식 골 (깊이 5 ~ 15 m) 이 멀리서 쿼드트리 LOD 로 지워지지 않게 (지워지면 그 위 바위 · 나무가 떠 보인다)
 		wt->PixelError = 3.0f;
 	}
-	// 바이옴 식생: 트리 편집기의 절차적 나무를 높이 띠마다 (저지 활엽수 → 산지 침엽수 → 수목한계선) + 프로젝트의 풀 · 덮개 · 바위
+	// 바이옴 식생: 절차적 종 (PlantLibrary) 을 기후 (높이에 따른 기온 · 습도 · 물가) 로 — 저지 활엽수 → 산지 침엽수 → 고산 · 툰드라, 물가 습지 식물
 	if (PCGVolume* v = go->GetComponent<PCGVolume>())
 	{
 		const std::string pcg = "Assets\\PCG\\TerrainWorld.pcg";
 		if (!PCG::LoadGraph(pcg))
-			PCG::SaveGraph(pcg, PCG::MakeBiomeForestPreset(PCG::ScanProjectModels(), graph->World.MaxHeight));
+			PCG::SaveGraph(pcg, PCG::MakeOpenWorldPreset(PCG::ScanProjectModels()));
 		v->GraphPath = pcg;
 	}
 	return go;

@@ -107,6 +107,20 @@ namespace
 		float id;
 	};
 
+	constexpr int kPetalShape = 100;   // 꽃잎 (칸 3)
+
+	// 잔가지 (카드 가운데 세로 줄) 의 끝 v — 풀잎은 잔가지가 없다 (음수)
+	float TwigTop(int shape)
+	{
+		switch (shape)
+		{
+		case 2: case 7: return 0.95f;   // Needle · Scale
+		case 3: return -1.0f;           // Blade
+		case 4: return 0.96f;           // Frond: 잎줄기
+		default: return 0.85f;
+		}
+	}
+
 	float LeafSDF(float px, float py, const Leaf& l, int shape, float& along, float& across)
 	{
 		const float dx = px - l.bx, dy = py - l.by;
@@ -114,23 +128,106 @@ namespace
 		across = dx * -l.dy + dy * l.dx;
 		const float a = Saturate(along);
 		float profile;
-		if (shape == 0)
-			profile = powf(sinf(XM_PI * powf(a, 0.8f)), 0.65f) * (1.0f - 0.15f * a);   // Broad: 넓고 끝이 뾰족
-		else if (shape == 1)
-			profile = powf(sinf(XM_PI * a), 0.9f);                                        // Oval
-		else
-			profile = 1.0f - a * 0.6f;                                                     // Needle
+		switch (shape)
+		{
+		case 0: profile = powf(sinf(XM_PI * powf(a, 0.8f)), 0.65f) * (1.0f - 0.15f * a); break;          // Broad: 넓고 끝이 뾰족
+		case 1: profile = powf(sinf(XM_PI * a), 0.9f); break;                                               // Oval
+		case 3: profile = powf(Saturate((1.0f - a) * 2.4f), 0.7f) * (1.0f - 0.12f * a); break;             // Blade: 고른 폭, 끝 1/3 에서 뾰족
+		case 4: profile = powf(sinf(XM_PI * powf(a, 0.7f)), 0.7f); break;                                  // Frond 의 작은 잎 (피침형)
+		case 5: profile = sqrtf((std::max)(0.0f, 1.0f - (2.0f * a - 1.0f) * (2.0f * a - 1.0f))); break;   // Round
+		case 6: profile = powf(sinf(XM_PI * powf(a, 0.85f)), 0.6f) * (0.7f + 0.3f * fabsf(cosf(a * 3.0f * XM_PI))); break;   // Lobed: 갈래 셋
+		case 7: profile = 1.0f - a * 0.35f; break;                                                          // Scale: 뭉툭한 비늘
+		case kPetalShape: profile = powf(sinf(XM_PI * powf(a, 0.6f)), 0.5f); break;                       // 꽃잎: 둥근 끝
+		default: profile = 1.0f - a * 0.6f; break;                                                          // Needle
+		}
+		// 잎 가장자리 톱니 (넓은 잎 · 갈래 잎 · 타원 잎): 잎 길이를 따라 삼각 물결
+		const float teeth = shape == 0 ? 0.06f : (shape == 6 ? 0.08f : (shape == 1 ? 0.03f : 0.0f));
+		if (teeth > 0.0f)
+		{
+			const float k = a * (shape == 6 ? 11.0f : 15.0f);
+			profile *= 1.0f - teeth * fabsf(k - floorf(k) - 0.5f) * 2.0f * Saturate(a * 6.0f) * Saturate((1.0f - a) * 6.0f);
+		}
 		const float dAcross = fabsf(across) - l.width * profile;
 		const float dAlong = (std::max)(-along, along - 1.0f) * l.len;
 		return (std::max)(dAcross, dAlong);
 	}
 
+	// 꽃 (칸 3): 가운데에서 꽃잎 petals 장 (+ 가운데 원은 굽기가 따로)
+	constexpr float kFlowerCenter = 0.09f;
+	std::vector<Leaf> MakePetals(int petals, float seed)
+	{
+		std::vector<Leaf> leaves;
+		const float width = std::clamp(1.6f * sinf(XM_PI / (std::max)(petals, 2)), 0.12f, 0.55f);
+		for (int i = 0; i < petals; ++i)
+		{
+			const float r = Hash11(seed * 53.1f + i * 3.7f);
+			const float th = XM_2PI * i / petals + (r - 0.5f) * 0.25f;
+			Leaf l;
+			l.dx = sinf(th);
+			l.dy = cosf(th);
+			l.len = 0.4f * (0.9f + 0.12f * r);
+			l.width = l.len * width;
+			l.bx = 0.5f + l.dx * kFlowerCenter * 0.5f;
+			l.by = 0.5f + l.dy * kFlowerCenter * 0.5f;
+			l.id = (float)i + r;
+			leaves.push_back(l);
+		}
+		return leaves;
+	}
+
 	// 카드 한 장의 잎 배치 (굽기와 카드 외곽(LeafCardHull)이 같이 쓴다)
 	std::vector<Leaf> MakeLeaves(int shape, int count, float size, float seed)
 	{
-		const bool needle = shape == 2;
-		const float twigTop = needle ? 0.95f : 0.85f;
 		std::vector<Leaf> leaves;
+		if (shape == 3)
+		{
+			// Blade: 밑동에서 부채꼴로 선 풀잎 count 장 (잔가지 없음). size = 잎 너비 비율
+			for (int i = 0; i < count; ++i)
+			{
+				const float r = Hash11(seed * 91.7f + i * 7.13f);
+				const float t = count == 1 ? 0.5f : (i + 0.5f) / count;
+				const float angle = (t - 0.5f) * 0.84f + (r - 0.5f) * 0.18f;
+				Leaf l;
+				l.dx = sinf(angle);
+				l.dy = cosf(angle);
+				l.len = (count == 1 ? 0.97f : 0.82f + 0.16f * Hash11(seed * 13.3f + i)) * (1.0f - 0.2f * fabsf(angle));
+				l.width = size * 0.1f * (count == 1 ? 5.0f : (0.8f + 0.4f * r));
+				l.bx = 0.5f + (count == 1 ? 0.0f : (r - 0.5f) * 0.14f);
+				l.by = 0.01f;
+				l.id = (float)i + r;
+				leaves.push_back(l);
+			}
+			return leaves;
+		}
+		if (shape == 4)
+		{
+			// Frond: 잎줄기 양쪽으로 마주난 작은 잎 (밑에서 끝으로 짧아진다) + 끝 잎
+			const int pairs = (std::max)(2, (count + 1) / 2);
+			for (int i = 0; i < pairs * 2; ++i)
+			{
+				const float r = Hash11(seed * 91.7f + i * 7.13f);
+				const float t = ((i >> 1) + 0.5f) / pairs;
+				const float side = (i & 1) ? 1.0f : -1.0f;
+				const float angle = side * XMConvertToRadians(Lerp(72.0f, 38.0f, t) + (r - 0.5f) * 10.0f);
+				Leaf l;
+				l.dx = sinf(angle);
+				l.dy = cosf(angle);
+				l.len = size * 1.45f * powf(1.0f - 0.72f * t, 0.8f) * (0.9f + 0.2f * r);
+				l.width = l.len * 0.17f;
+				l.bx = 0.5f;
+				l.by = Lerp(0.05f, 0.9f, t);
+				l.id = (float)i + r;
+				leaves.push_back(l);
+			}
+			Leaf tip;
+			tip.dx = 0.0f; tip.dy = 1.0f; tip.len = size * 0.4f; tip.width = tip.len * 0.18f;
+			tip.bx = 0.5f; tip.by = 0.94f - tip.len * 0.4f; tip.id = (float)pairs * 2.0f + 0.5f;
+			leaves.push_back(tip);
+			return leaves;
+		}
+		const bool needle = shape == 2 || shape == 7;
+		const float twigTop = TwigTop(shape);
+		const float widthScale = shape == 0 ? 0.34f : (shape == 5 ? 0.42f : (shape == 6 ? 0.4f : 0.2f));
 		for (int i = 0; i <= count; ++i)
 		{
 			const float r = Hash11(seed * 91.7f + i * 7.13f);
@@ -141,8 +238,8 @@ namespace
 			Leaf l;
 			l.dx = sinf(angle);
 			l.dy = cosf(angle);
-			l.len = size * (tip ? 0.9f : Lerp(1.0f, 0.78f, t)) * (0.88f + 0.24f * r) * (needle ? 0.8f : 1.0f);
-			l.width = needle ? 0.012f : size * (shape == 0 ? 0.34f : 0.2f);
+			l.len = size * (tip ? 0.9f : Lerp(1.0f, 0.78f, t)) * (0.88f + 0.24f * r) * (needle ? (shape == 7 ? 0.5f : 0.8f) : 1.0f);
+			l.width = needle ? (shape == 7 ? 0.022f : 0.012f) : size * widthScale;
 			l.bx = 0.5f;
 			l.by = tip ? twigTop : Lerp(0.1f, twigTop - 0.06f, t);
 			l.id = (float)i + r;
@@ -152,11 +249,50 @@ namespace
 	}
 
 	// 카드 한 장 (셀 해상도 res)
-	void BakeLeafCard(std::vector<Texel>& atlas, int atlasSize, int ox, int oy, int res, int shape, int count, float size, float seed)
+	// 카드 한 칸의 덮임 SDF (굽기 · 외곽이 같이 쓴다). 꽃 칸이면 꽃잎 + 가운데 원
+	float CardSDF(float u, float v, const std::vector<Leaf>& leaves, int shape, bool flower, float reachPad, float& bestAlong, float& bestAcross, float& bestId, bool& twig)
 	{
-		const bool needle = shape == 2;
-		const float twigTop = needle ? 0.95f : 0.85f;
-		const std::vector<Leaf> leaves = MakeLeaves(shape, count, size, seed);
+		const float twigTop = flower ? -1.0f : TwigTop(shape);
+		float best = twigTop > 0.0f ? (std::max)(fabsf(u - 0.5f) - Lerp(0.014f, 0.006f, Saturate(v / twigTop)), (std::max)(-v, v - twigTop)) : 1e9f;
+		twig = true;
+		bestAlong = bestAcross = bestId = 0.0f;
+		const int sdfShape = flower ? kPetalShape : shape;
+		for (const Leaf& l : leaves)
+		{
+			const float reach = l.len + l.width + reachPad;
+			if (fabsf(u - l.bx) > reach || fabsf(v - l.by) > reach)
+				continue;
+			float along, across;
+			const float d = LeafSDF(u, v, l, sdfShape, along, across);
+			if (d < best)
+			{
+				best = d;
+				bestAlong = flower ? 0.25f + 0.75f * Saturate(along) : along;
+				bestAcross = across / (std::max)(l.width, 0.001f);
+				bestId = l.id;
+				twig = false;
+			}
+		}
+		if (flower)
+		{
+			const float r = sqrtf((u - 0.5f) * (u - 0.5f) + (v - 0.5f) * (v - 0.5f));
+			const float d = r - kFlowerCenter;
+			if (d < best)
+			{
+				best = d;
+				bestAlong = 0.2f * Saturate(r / kFlowerCenter);
+				bestAcross = 0.0f;
+				bestId = 0.875f / 0.618f;   // b = 0.2 + 0.8 * frac(id * 0.618) = 0.9
+				twig = false;
+			}
+		}
+		return best;
+	}
+
+	void BakeLeafCard(std::vector<Texel>& atlas, int atlasSize, int ox, int oy, int res, int shape, int count, float size, float seed, int petals)
+	{
+		const bool flower = petals > 0;
+		const std::vector<Leaf> leaves = flower ? MakePetals(petals, seed) : MakeLeaves(shape, count, size, seed);
 		const float px1 = 1.0f / res;
 		std::vector<int> rows(res);
 		std::iota(rows.begin(), rows.end(), 0);
@@ -167,25 +303,9 @@ namespace
 				// 텍셀 중심의 카드 uv (v = 0 이 잔가지 쪽 = 텍스처 아래)
 				const float u = (x + 0.5f) * px1;
 				const float v = 1.0f - (y + 0.5f) * px1;
-				float best = (std::max)(fabsf(u - 0.5f) - Lerp(0.014f, 0.006f, Saturate(v / twigTop)), (std::max)(-v, v - twigTop));
-				float bestAlong = 0.0f, bestAcross = 0.0f, bestId = 0.0f;
-				bool twig = true;
-				for (const Leaf& l : leaves)
-				{
-					const float reach = l.len + l.width + 2.0f * px1;
-					if (fabsf(u - l.bx) > reach || fabsf(v - l.by) > reach)
-						continue;
-					float along, across;
-					const float d = LeafSDF(u, v, l, shape, along, across);
-					if (d < best)
-					{
-						best = d;
-						bestAlong = along;
-						bestAcross = across / (std::max)(l.width, 0.001f);
-						bestId = l.id;
-						twig = false;
-					}
-				}
+				float bestAlong, bestAcross, bestId;
+				bool twig;
+				const float best = CardSDF(u, v, leaves, shape, flower, 2.0f * px1, bestAlong, bestAcross, bestId, twig);
 				Texel t;
 				t.r = std::clamp(bestAcross, -1.0f, 1.0f) * 0.5f + 0.5f;
 				t.g = Saturate(bestAlong);
@@ -237,23 +357,23 @@ namespace TreeTextures
 			items.push_back({ "Bark tile", MemoryStats::ViewBytes(s_BarkSrv.Get()) });
 	}
 
-	const LeafHull& LeafCardHull(int shape, int leavesPerCard, float leafLength, int cell)
+	const LeafHull& LeafCardHull(int shape, int leavesPerCard, float leafLength, int cell, int petals)
 	{
-		shape = std::clamp(shape, 0, 2);
+		shape = std::clamp(shape, 0, 7);
 		leavesPerCard = std::clamp(leavesPerCard, 1, 16);
 		const int lengthKey = (int)roundf(std::clamp(leafLength, 0.05f, 0.6f) * 100.0f);
 		cell &= 3;
-		const int key = ((shape * 100000 + leavesPerCard * 1000 + lengthKey) << 2) | cell;
+		petals = std::clamp(petals, 0, 16);
+		const bool flower = petals > 0 && cell == 3;
+		const int64_t key = ((int64_t)(flower ? petals : 0) << 40) | ((int64_t)(shape * 100000 + leavesPerCard * 1000 + lengthKey) << 2) | cell;
 		static std::mutex s_Lock;
-		static std::map<int, LeafHull> s_Cache;
+		static std::map<int64_t, LeafHull> s_Cache;
 		std::lock_guard<std::mutex> lock(s_Lock);
 		if (auto it = s_Cache.find(key); it != s_Cache.end())
 			return it->second;
 
 		// 굽기와 같은 식으로 덮임을 낮은 해상도로 보고, 덮인 텍셀 모서리의 u, v, u+v, u-v 최솟값·최댓값 (8 방향 k-DOP)
-		const bool needle = shape == 2;
-		const float twigTop = needle ? 0.95f : 0.85f;
-		const auto leaves = MakeLeaves(shape, leavesPerCard, lengthKey / 100.0f, kSeeds[cell]);   // (이 이름공간에서 Leaf 는 함수)
+		const auto leaves = flower ? MakePetals(petals, kSeeds[cell]) : MakeLeaves(shape, leavesPerCard, lengthKey / 100.0f, kSeeds[cell]);   // (이 이름공간에서 Leaf 는 함수)
 		constexpr int R = 96;
 		const float px1 = 1.0f / R;
 		float lo[4] = { 1e9f, 1e9f, 1e9f, 1e9f }, hi[4] = { -1e9f, -1e9f, -1e9f, -1e9f };
@@ -261,12 +381,9 @@ namespace TreeTextures
 			for (int x = 0; x < R; ++x)
 			{
 				const float u = (x + 0.5f) * px1, v = (y + 0.5f) * px1;
-				float best = (std::max)(fabsf(u - 0.5f) - Lerp(0.014f, 0.006f, Saturate(v / twigTop)), (std::max)(-v, v - twigTop));
-				for (const auto& l : leaves)
-				{
-					float along, across;
-					best = (std::min)(best, LeafSDF(u, v, l, shape, along, across));
-				}
+				float ba, bc, bi;
+				bool tw;
+				const float best = CardSDF(u, v, leaves, shape, flower, 1e9f, ba, bc, bi, tw);
 				if (best > px1)   // 경계에서 한 텍셀 바깥까지 덮임으로 본다
 					continue;
 				for (int k = 0; k < 4; ++k)
@@ -333,21 +450,22 @@ namespace TreeTextures
 			area += p.x * q.y - q.x * p.y;
 		}
 		hull.Area = fabsf(area) * 0.5f;
-		EditorLog::Write("Tree", "leaf card hull: shape %d, %d leaves, length %.2f, cell %d -> %d points, %.0f%% of card", shape, leavesPerCard, lengthKey / 100.0f, cell, hull.Count, hull.Area * 100.0f);
+		EditorLog::Write("Tree", "leaf card hull: shape %d, %d leaves, length %.2f, cell %d%s -> %d points, %.0f%% of card", shape, leavesPerCard, lengthKey / 100.0f, cell, flower ? " (flower)" : "", hull.Count, hull.Area * 100.0f);
 		return s_Cache[key] = hull;
 	}
 
 	// 잎 아틀라스 + 밉맵 (CPU 만 — 수학식 · 메모리) → 씬 스트리밍이 백그라운드 잡에서도 부른다
 	struct BakedLeaf { int Size = 0; std::vector<std::vector<Texel>> Levels; std::vector<std::vector<uint8_t>> Bytes; };
-	std::shared_ptr<BakedLeaf> BakeLeafLevels(int shape, int leavesPerCard, int lengthKey)
+	std::shared_ptr<BakedLeaf> BakeLeafLevels(int shape, int leavesPerCard, int lengthKey, int petals)
 	{
 		auto baked = std::make_shared<BakedLeaf>();
-		const int res = shape == 2 ? 512 : 256;   // 바늘잎은 가늘어 더 촘촘하게
+		// 칸 해상도: 가는 바늘 · 비늘, 갈래 · 깃꼴 잎 (가장자리가 잘다), 카드 하나에 잎 하나 (바나나 · 용설란 — 큰 잎) 는 512
+		const int res = shape == 2 || shape == 7 || shape == 4 || shape == 6 || leavesPerCard == 1 ? 512 : 256;   // 바늘잎은 가늘어 더 촘촘하게
 		const int size = res * 2;                  // 2x2 변형
 		baked->Size = size;
 		std::vector<Texel> atlas((size_t)size * size, Texel{ 0.5f, 0.0f, 0.0f, 0.0f });
 		for (int c = 0; c < 4; ++c)
-			BakeLeafCard(atlas, size, (c & 1) * res, (c >> 1) * res, res, shape, leavesPerCard, lengthKey / 100.0f, kSeeds[c]);
+			BakeLeafCard(atlas, size, (c & 1) * res, (c >> 1) * res, res, shape, leavesPerCard, lengthKey / 100.0f, kSeeds[c], c == 3 ? petals : 0);
 
 		// 밉맵: 알파 덮임 비율(> 0.5)을 원본과 같게 맞춘다 → 멀리서도 잎이 같은 양으로 보인다
 		std::vector<std::vector<Texel>>& levels = baked->Levels;
@@ -378,18 +496,19 @@ namespace TreeTextures
 	std::map<int, std::shared_ptr<BakedLeaf>> s_PreLeaf;
 	std::set<int> s_PreLeafPending;
 
-	void LeafKey(int& shape, int& leavesPerCard, float leafLength, int& lengthKey, int& key)
+	void LeafKey(int& shape, int& leavesPerCard, float leafLength, int& petals, int& lengthKey, int& key)
 	{
-		shape = std::clamp(shape, 0, 2);
+		shape = std::clamp(shape, 0, 7);
 		leavesPerCard = std::clamp(leavesPerCard, 1, 16);
+		petals = std::clamp(petals, 0, 16);
 		lengthKey = (int)roundf(std::clamp(leafLength, 0.05f, 0.6f) * 100.0f);
-		key = shape * 100000 + leavesPerCard * 1000 + lengthKey;
+		key = petals * 1000000 + shape * 100000 + leavesPerCard * 1000 + lengthKey;
 	}
 
-	void PrewarmLeafAsync(int shape, int leavesPerCard, float leafLength)
+	void PrewarmLeafAsync(int shape, int leavesPerCard, float leafLength, int petals)
 	{
 		int lengthKey = 0, key = 0;
-		LeafKey(shape, leavesPerCard, leafLength, lengthKey, key);
+		LeafKey(shape, leavesPerCard, leafLength, petals, lengthKey, key);
 		if (s_LeafCache.count(key))
 			return;
 		{
@@ -397,23 +516,29 @@ namespace TreeTextures
 			if (s_PreLeaf.count(key) || !s_PreLeafPending.insert(key).second)
 				return;
 		}
-		SceneStreaming::QueuePrewarmJob([shape, leavesPerCard, lengthKey, key]() {
-			auto baked = BakeLeafLevels(shape, leavesPerCard, lengthKey);
+		SceneStreaming::QueuePrewarmJob([shape, leavesPerCard, lengthKey, petals, key]() {
+			auto baked = BakeLeafLevels(shape, leavesPerCard, lengthKey, petals);
 			std::lock_guard<std::mutex> guard(s_PreLeafLock);
 			s_PreLeaf[key] = std::move(baked);
 			s_PreLeafPending.erase(key);
 		});
 	}
 
-	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength)
+	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength, int petals)
 	{
 		int lengthKey = 0, key = 0;
-		LeafKey(shape, leavesPerCard, leafLength, lengthKey, key);
+		LeafKey(shape, leavesPerCard, leafLength, petals, lengthKey, key);
 
 		auto& cache = s_LeafCache;
-		static std::vector<int> order;
+		// 마지막으로 쓴 때 (초) — 식생 종이 100 여 개라 한 화면에 잎 아틀라스가 수십 장이다. 예전처럼 12 장에서 오래된 것을 버리면
+		//  쓰는 중인 것을 버리고 다음 프레임에 다시 굽는다 (굽기 수십 ms 가 프레임마다)
+		static std::map<int, double> lastUse;
+		const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 		if (auto it = cache.find(key); it != cache.end())
+		{
+			lastUse[key] = now;
 			return it->second.Get();
+		}
 
 		const auto t0 = std::chrono::steady_clock::now();
 		std::shared_ptr<BakedLeaf> baked;
@@ -427,21 +552,27 @@ namespace TreeTextures
 		}
 		const bool fromBackground = baked != nullptr;
 		if (!baked)
-			baked = BakeLeafLevels(shape, leavesPerCard, lengthKey);
+			baked = BakeLeafLevels(shape, leavesPerCard, lengthKey, petals);
 		const int size = baked->Size;
 		ComPtr<GfxShaderResourceView> srv = UploadBytes(baked->Bytes, size);
 		const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		EditorLog::Write("Tree", "leaf texture %s: shape %d, %d leaves, length %.2f (%d x %d, %.1f ms)", fromBackground ? "uploaded (baked in the background)" : "baked",
 			shape, leavesPerCard, lengthKey / 100.0f, size, size, ms);
 
-		// 슬라이더를 끌면 조합이 많이 생기므로 오래된 것부터 버린다 (쓰는 중인 SRV 는 효과 변수가 잡고 있다)
+		// 슬라이더를 끌면 조합이 많이 생기므로 48 장이 넘으면 30 초 넘게 안 쓴 것을 버린다 (쓰는 중인 SRV 는 효과 변수가 잡고 있다)
 		cache[key] = srv;
-		order.push_back(key);
-		if (order.size() > 12)
-		{
-			cache.erase(order.front());
-			order.erase(order.begin());
-		}
+		lastUse[key] = now;
+		if (cache.size() > 48)
+			for (auto it = cache.begin(); it != cache.end();)
+			{
+				if (it->first != key && now - lastUse[it->first] > 30.0)
+				{
+					lastUse.erase(it->first);
+					it = cache.erase(it);
+				}
+				else
+					++it;
+			}
 		return srv.Get();
 	}
 

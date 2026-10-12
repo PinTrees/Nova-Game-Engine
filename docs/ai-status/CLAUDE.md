@@ -1,6 +1,18 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 12일 — **지형 그래프 다음 단계: 노드 8 종 · 호수 · 절벽 디테일 · 먼 타일 묶기 · 길 깎은 벽** (사용자 지시: "푸시하고 다음 작업 진행" — 지난 한계 목록: Snow · Lake · Fold · Dunes 같은 노드, 큰 절벽의 매끈한 면 · 산 디테일 밀도, CPU 가 정하니 먼 타일 묶기)
+- 갱신 시각: 2026년 10월 12일 — **절차적 식생: 기후대별 종 160 개 (시드메시 식생 제거)** (사용자 지시: "시드메시 식생은 제거하고 모든 식생을 절차적으로 — 기존 트리 시스템을 고도화해 기후대별 바이옴 식생 최소 100 종류, 문제 없이 렌더링 · 최적화" → "좀 더 디테일하게, 질감 노말맵도 잘 표현되게, 대나무 · 야자수 · 대추야자나무도 추가")
+  - 종 목록 `Source/Scene/PlantLibrary.*` (기후대 13 · 층 7 · 종마다 연평균 기온 · 습도 · 경사 · 물가 · 흔함, 처음 12 개 = 예전 프리셋 번호), Tree Preset · 지형 나무 · `TreeParams::PresetNames` 가 이 목록
+  - 생성기 `TreeGenerator.*`: 꼴 (Tree · Palm · Grass · Fern · Rosette · Flower), 잎 모양 + Blade · Frond · Round · Lobed · Scale, 휘는 카드 (Card Segments · Droop), 꽃 (아틀라스 칸 3 · 꽃잎 수 · 색), 꽃대 · 이삭. 예전 종은 난수 순서가 그대로 (모양 같음)
+  - 질감: 잎 아틀라스 톱니 가장자리 · 큰 잎 512 칸 (`TreeTextures.cpp`), 셰이더 표면 기울기 범프 (`44` `TreeSurfGrad`) — 잎맥 · 풀잎 줄 · 꽃잎 줄 법선, 풀잎 끝 마름, 수피 무늬 (마디 고리 · 선인장 골 · 잎자루 비늘 — `TreeDesc::Pattern`), 균열 색 대비 = 골 깊이 (매끈한 수피에 검은 줄 없이)
+  - 대나무 · 맹종죽 · 오죽 · 조릿대, 코코넛 · 대왕 · 기름 · 피그미 대추 · 카나리아 대추 · 부채야자 · 대추야자
+  - 기후: `WorldGen::Biome` 에 기온 · 습도 · 물가 · Clear (길 · 강가 · 눈밭 — 바이옴 필터 없는 스포너도 놓지 않는다). 지형 그래프 World 의 Climate (해수면 기온 · 남북 차 · 습도 · 동서 차, 1 km 마다 -6.5 °C), `world height` 가 기온 · 습도를 준다
+  - PCG: 스포너 Climate Select (`PCGExecutor.cpp`), 기본 규칙 `MakeOpenWorldPreset` 이 층마다 절차적 종 (큰 나무 스포너 셀 256 m, 예전 MakeBiomeForestPreset 없앰), 그래프 창 Add Plants, CLI `pcg preset` · `plants list|check|pick|stats` · `create tree --preset "이름"`
+  - 그리기 (셀째): `TreeRenderer::SetExternalCells` — PCG 셀마다 [종 x 변형] GPU 버퍼 (처음 그릴 때 한 번), 정점 셰이더가 인스턴스마다 LOD (`TreeLodSelect`, 섞기 디더 · 그림자 한 단계), 종 · 단계 · 패스마다 셀 버퍼를 GPU 복사로 합쳐 그리기 한 번 (서명이 같으면 복사 0), 가까운 큰 나무 셀은 인스턴스마다. 임포스터는 변형이 한 장 · 키로 해상도 (256 · 128 · 64)
+  - 고친 것: 나무 메시 캐시가 64 개 넘으면 다 버리고 다시 만들던 것 (종이 많아 프레임마다 수백 번 → 616 ms) → 600 프레임 안 쓴 것만, 잎 아틀라스 12 장 → 48 장 (30 초), 그림자에 스포너 Shadow Distance, 셀 수천 x 종 목록마다 메시 키를 찾던 모으기 (20 ms → 2.5 ms)
+  - 테스트 프로젝트 `E:\NovaTest\OpenWorld`: 시드메시 식생 (Tree · Bush · Cactus · Fern · Grass · Mushroom) 을 `E:\NovaTest\_Removed\SeedMeshVegetation` 으로 옮김 (바위 · 잔해 · 지형 레이어는 남김), 두 월드 그래프 = 절차적 규칙, 50 km 월드 기후 (15 °C · 남북 -12 · 습도 0.55 · 동서 +0.35), 식물원 `PlantGarden.scene`, `OpenWorld32km.scene`
+  - 성능 (Release, 50 km, 풀 2 / m2 · 종 160): 다가가기 12.3 · 숲 14.3 · 길 19.2 ms (예전 시드메시 11.5 · 11.3 · 20) — 셀째 그리기 · 합치기 전 42 · 44 · 64 ms
+  - 문서 `docs/VEGETATION.md` (새), PCG · TERRAIN_GRAPH · NOVA_CLI, 검사 `plants` 스위트 (4), Debug plants · pcg · terraingraph · render 29/29
+- 이전: 2026년 10월 12일 — **지형 그래프 다음 단계: 노드 8 종 · 호수 · 절벽 디테일 · 먼 타일 묶기 · 길 깎은 벽** (사용자 지시: "푸시하고 다음 작업 진행" — 지난 한계 목록: Snow · Lake · Fold · Dunes 같은 노드, 큰 절벽의 매끈한 면 · 산 디테일 밀도, CPU 가 정하니 먼 타일 묶기)
   - 노드 38 종 (+ Snow · Lake · Fold · Dunes · Shear · Craters · Canyon · Volcano, `TerrainGraph.*`), 기본 그래프 24 노드 (Thermal 뒤 Rugged Shatter · Sediment 뒤 Lake · Road 뒤 Snow), CLI `terraingraph add --type` · `connect`
   - 호수: 우선순위 채우기 → 무리 (Min Depth · Min Area) → 바닥 메움 → 무어 경계 따라가기 → 빌드 v2 선 (Kind 2), 편집기 **Create Water** 가 Water Body (Lake) 도 만든다
   - 절벽 디테일: `WorldSettings::CliffDetail` (6 m, 45° 에서 × 2.5) — 타일 계산에서 가파른 곳에 리지 노이즈 · 비탈 따라 내려가는 낙석 홈 (침식 필터 80 m) · 16 m 지층 턱 (`TerrainGraphBuild.cpp`). 다가가기 화면의 큰 벽은 길이 아니라 Mountain Range 리지 → Warp → Erosion2 가 앞을 평평히 메운 90 m 비탈이었다 (`terraingraph preview --probe` 로 노드마다 높이를 재 찾음)

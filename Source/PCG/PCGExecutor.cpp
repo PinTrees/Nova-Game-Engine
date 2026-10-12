@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "PCGExecutor.h"
+#include "PCGTrees.h"
+#include "PlantLibrary.h"
 #include <chrono>
 #include <cmath>
 #include <map>
@@ -472,18 +474,60 @@ namespace PCG
 		out.MaxY = -FLT_MAX;
 		const uint32_t pick = (uint32_t)sp->Get("seed") * 0x632BE5ABu + (uint32_t)spawnerId;
 		const bool hasWater = water && !water->Empty();
+		// 기후로 고르기: 메시 칸마다 식생 종 (tree:이름 → PlantLibrary). 모델 칸은 기후와 상관없이 가중치 그대로
+		const bool climate = sp->Get("climateSelect") > 0.5f;
+		std::vector<const PlantLibrary::Species*> species;
+		std::vector<float> weights;
+		if (climate)
+		{
+			species.resize(sp->Meshes.size(), nullptr);
+			weights.resize(sp->Meshes.size());
+			for (size_t m = 0; m < sp->Meshes.size(); ++m)
+				if (IsTreePath(sp->Meshes[m].Path))
+					species[m] = PlantLibrary::At(TreePreset(sp->Meshes[m].Path));
+		}
 		for (const Point& p : points)
 		{
 			if (hasWater && water->Covers(p.X, p.Y, p.Z))
 				continue;   // 물에 잠긴다
-			// 메시: 가중치로 (점 해시)
-			float t = Rand01(Mix(p.Seed, pick)) * total;
+			if (p.Biome.Clear > 0.0f && Rand01(Mix(p.Seed, 0x51EA7u)) < p.Biome.Clear)
+				continue;   // 길 · 강가 · 눈밭
 			size_t m = 0;
-			for (; m + 1 < sp->Meshes.size(); ++m)
+			if (climate)
 			{
-				t -= (std::max)(0.0f, sp->Meshes[m].Weight);
-				if (t < 0.0f)
-					break;
+				// 덮임은 습도를 따른다 (사막은 듬성듬성, 우림은 빽빽이): 남길 확률 0.15 + 1.5 x 습도 (0.57 넘으면 모두)
+				if (Rand01(Mix(p.Seed, 0xC0BE5u)) > 0.15f + 1.5f * p.Biome.Moisture)
+					continue;
+				// 맞는 정도 x 가중치 x 흔함. 모두 0 이면 (이 기후에 사는 종이 없다) 놓지 않는다
+				float sum = 0.0f;
+				for (size_t k = 0; k < sp->Meshes.size(); ++k)
+				{
+					float w = (std::max)(0.0f, sp->Meshes[k].Weight);
+					if (species[k])
+						w *= PlantLibrary::Suitability(*species[k], p.Biome.Temperature, p.Biome.Moisture, p.SlopeDeg, p.Biome.Water) * species[k]->Abundance;
+					weights[k] = w;
+					sum += w;
+				}
+				if (sum < 1e-3f)
+					continue;
+				float t = Rand01(Mix(p.Seed, pick)) * sum;
+				for (m = 0; m + 1 < sp->Meshes.size(); ++m)
+				{
+					t -= weights[m];
+					if (t < 0.0f)
+						break;
+				}
+			}
+			else
+			{
+				// 메시: 가중치로 (점 해시)
+				float t = Rand01(Mix(p.Seed, pick)) * total;
+				for (; m + 1 < sp->Meshes.size(); ++m)
+				{
+					t -= (std::max)(0.0f, sp->Meshes[m].Weight);
+					if (t < 0.0f)
+						break;
+				}
 			}
 			// 위 = 법선과 (0,1,0) 사이 (Align), 기울기, 방향 (Yaw)
 			XMVECTOR up = XMVector3Normalize(XMVectorLerp(XMVectorSet(0, 1, 0, 0), XMVectorSet(p.Nx, p.Ny, p.Nz, 0), p.Align));

@@ -340,12 +340,18 @@ namespace TerrainGraph
 		}
 		b.Rock = rock * 0.6f;
 		b.Desert = sand;
+		b.Clear = std::clamp(snow * 1.3f - 0.15f, 0.0f, 1.0f);   // 눈밭 (눈 칸이 많은 곳)
 		const float veg = (std::max)(0.0f, 1.0f - rock - snow - sand);
 		const float flow = Flow ? Sample8(*Flow, x, z) : 0.0f;
 		const float moisture = 0.5f + 0.5f * N::Fbm(x / 4500.0, z / 4500.0, (uint32_t)World.Seed * 31u + 77u, 3) + flow * 0.35f;
 		const float t = std::clamp((moisture - 0.42f) / 0.16f, 0.0f, 1.0f);
 		b.Forest = veg * t * t * (3.0f - 2.0f * t);
 		b.Meadow = veg - b.Forest;
+		// 기후: 해수면 기온 - 6.5 °C/km + 남북 차 + 작은 노이즈, 습도 = 설정 + 동서 차 + (물길 · 노이즈 습도 - 0.5)
+		const float u = x / (std::max)(World.WorldSize, 1.0f), v = z / (std::max)(World.WorldSize, 1.0f);   // -0.5 ~ 0.5
+		b.Temperature = World.ClimateTemperature - 6.5f * height01 * World.MaxHeight / 1000.0f + World.ClimateGradient * v
+			+ 1.5f * N::Fbm(x / 6000.0, z / 6000.0, (uint32_t)World.Seed * 17u + 5u, 2);
+		b.Moisture = std::clamp(World.ClimateMoisture + World.ClimateMoistureGradient * u + (moisture - 0.5f) * 0.6f, 0.0f, 1.0f);
 		if (!Segments.empty())
 		{
 			Near river, road;
@@ -354,11 +360,15 @@ namespace TerrainGraph
 			if (road.Dist < 1e8f)
 				keep = (std::min)(keep, std::clamp((road.Dist - road.Width * 0.5f - 2.0f) / 6.0f, 0.0f, 1.0f));
 			if (river.Dist < 1e8f)
+			{
 				keep = (std::min)(keep, std::clamp((river.Dist - river.Width * 0.5f - 3.0f) / 8.0f, 0.0f, 1.0f));
+				b.Water = (std::max)(b.Water, std::clamp(1.0f - (river.Dist - river.Width * 0.5f) / 60.0f, 0.0f, 1.0f));   // 물가 60 m
+			}
 			b.Forest *= keep;
 			b.Meadow *= keep;
 			b.Rock *= keep;
 			b.Desert *= keep;
+			b.Clear = (std::max)(b.Clear, 1.0f - keep);   // 길 · 강가
 		}
 		return b;
 	}

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "PCGGraphWindow.h"
 #include "PCGVolume.h"
+#include "PlantLibrary.h"
 #include "EditorExtensions.h"
 #include "EditorGUIManager.h"
 #include "SelectionManager.h"
@@ -514,6 +515,44 @@ void PCGGraphWindow::DrawDetails(float width, float height)
 					for (const auto& m : m_Models)
 						if (m.first == role)
 							n->Meshes.push_back({ m.second, 1.0f });
+					changed = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		// 절차적 식생 (PlantLibrary): 층 전체 (기후로 고르려면 Climate Select) 또는 기후대 · 종 하나
+		if (ImGui::BeginCombo("Add Plants", "..."))
+		{
+			for (int l = 0; l < (int)PlantLibrary::Layer::Count; ++l)
+			{
+				int count = 0;
+				for (const PlantLibrary::Species& s : PlantLibrary::All())
+					count += (int)s.Kind == l;
+				char label[64];
+				snprintf(label, sizeof(label), "All %s (%d)", PlantLibrary::LayerName((PlantLibrary::Layer)l), count);
+				if (ImGui::Selectable(label))
+				{
+					for (const PlantLibrary::Species& s : PlantLibrary::All())
+						if ((int)s.Kind == l)
+							n->Meshes.push_back({ "tree:" + s.Name, 1.0f });
+					n->Set("climateSelect", 1.0f);
+					changed = true;
+				}
+			}
+			ImGui::Separator();
+			const char* zone = "";
+			for (const PlantLibrary::Species& s : PlantLibrary::All())
+			{
+				if (strcmp(zone, s.Zone) != 0)
+				{
+					zone = s.Zone;
+					ImGui::TextDisabled("%s", zone);
+				}
+				char label[96];
+				snprintf(label, sizeof(label), "  %s (%s)", s.Name.c_str(), PlantLibrary::LayerName(s.Kind));
+				if (ImGui::Selectable(label))
+				{
+					n->Meshes.push_back({ "tree:" + s.Name, 1.0f });
 					changed = true;
 				}
 			}

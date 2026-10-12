@@ -138,6 +138,11 @@ namespace WorldGen
 		b.Desert = Smooth(0.1f, 0.28f, t - m + (s.Desert - 0.3f) * 0.8f);
 		b.Forest = (1.0f - b.Desert) * Smooth(0.42f, 0.58f, m + (s.Forest - 0.55f) * 0.8f);
 		b.Meadow = (std::max)(0.0f, 1.0f - b.Desert - b.Forest);
+		// 기후 (식생 종): 온도 노이즈 t 는 0.1 ~ 0.65 쯤에 모여 (가운데 0.38) 넓혀서 연평균 약 -13 ~ 32 °C, 습도도 0 ~ 1 로 넓힌다.
+		//  사막 바이옴 (모래 땅) 은 마르게 (사와로 · 용설란이 서게 — 넓히기 전에는 모래 땅이 18 ~ 21 °C · 습도 0.3 ~ 0.4 라 지중해 식물이 섰다)
+		b.Temperature = std::clamp(10.0f + (t - 0.38f) * 80.0f, -20.0f, 38.0f);
+		b.Moisture = std::clamp(0.5f + (m - 0.5f) * 2.2f, 0.0f, 1.0f);
+		b.Moisture += (0.08f - b.Moisture) * b.Desert;
 		// 바위: 가파른 경사 (30 도 넘게) · 높은 곳
 		const float rock = (std::max)(Smooth(0.86f, 0.74f, slopeCos), Smooth(0.62f, 0.78f, height01));
 		b.Forest *= 1.0f - rock;

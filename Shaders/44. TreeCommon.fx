@@ -26,6 +26,12 @@ cbuffer cbTree
     float4 gTreeLeafParams;    // x = 투과(뒤에서 비치는 빛), y = smoothness, z = 카드당 잎 수, w = 잎 길이(카드 비율)
     float4 gTreeImpostor;      // x = 프레임 수, y = 프레임 한 변(m, 물체 공간), z = 프레임 중심 높이(m), w = 알파 문턱
     float4 gTreeViewPos;       // 빌보드가 바라볼 곳: w = 0 이면 xyz = 위치(카메라/광원), w = 1 이면 xyz = 그쪽 방향(방향광)
+    float4 gTreeFlowerColor;   // rgb = 꽃잎 색(감마), a = 1 이면 잎 아틀라스 칸 3 이 꽃
+    float4 gTreeFlowerCenter;  // rgb = 꽃 가운데 (꽃술) 색(감마)
+    float4 gTreeBarkPattern;   // x = 무늬 (0 균열만, 1 마디 고리, 2 세로 골, 3 잎자루 밑), y = 간격 (m) / 골 수 (둘레 1 m 당), z = 깊이
+    float4 gTreeBarkPatternColor;   // rgb = 마디 · 골 마루 · 비늘 가장자리 색(감마)
+    float4 gTreeLodRange;      // 셀째 그리기: x = 이 단계의 가까운 끝, y = 먼 끝 (카메라 거리 / 나무 크기), z · w = 가까운 · 먼 끝에서 섞는 띠 폭
+    float4 gTreeLodEye;        // xyz = LOD 를 재는 카메라, w = 0 CPU 가 고른 값 (인스턴스 Extra.zw), 1 정점 셰이더가 거리로 (디더 섞기), 2 그림자 (한 단계, 섞지 않음)
 };
 
 // 인스턴스 (나무 한 그루): 월드 행렬 + x = 색 변화(0.5 = 그대로), y = 바람 위상, z = LOD 섞기 문턱, w = 섞기 쪽(0 나가는 단계, 1 들어오는 단계)
@@ -80,6 +86,30 @@ float3 TreeWorldPos(TreeVertexIn v, TreeInstanceIn inst, out float3 normalW)
     normalW = normalize(mul(v.NormalL, (float3x3) inst.World));
     const float3 posW = mul(float4(v.PosL, 1.0f), inst.World).xyz;
     return posW + TreeWindOffset(v, normalW, inst.Extra.y * kTreeTau, length(inst.World[1].xyz));
+}
+
+// ---------------------------------------------------------------- LOD 고르기 (셀째 그리기 — PCG 셀의 풀 · 꽃 · 덤불 수만 그루)
+// CPU 는 셀 단위로 걸치는 단계만 그리고, 인스턴스마다 이 단계인지 · 디더 문턱은 여기서 (CPU 경로와 같은 경계 · 띠).
+//  false = 이 단계가 아님 → 정점을 클립 공간 밖으로 (삼각형이 버려진다). fade = (문턱, 쪽) — TreeLodClip 이 쓴다
+static const float4 kTreeCulledPos = float4(2.0f, 2.0f, 2.0f, 1.0f);
+
+bool TreeLodSelect(TreeInstanceIn inst, out float2 fade)
+{
+    fade = inst.Extra.zw;
+    if (gTreeLodEye.w < 0.5f)
+        return true;
+    const float d = distance(gTreeLodEye.xyz, inst.World[3].xyz) / max(length(inst.World[1].xyz), 0.05f);
+    const float lo = gTreeLodRange.x, hi = gTreeLodRange.y, bl = gTreeLodRange.z, bh = gTreeLodRange.w;
+    fade = float2(0.0f, 0.0f);
+    if (gTreeLodEye.w > 1.5f)
+        return d >= lo && d < hi;
+    if (d < lo - bl * 0.5f || d >= hi + bh * 0.5f)
+        return false;
+    if (bl > 0.0f && d < lo + bl * 0.5f)
+        fade = float2((d - (lo - bl * 0.5f)) / bl, 1.0f);       // 들어오는 단계
+    else if (bh > 0.0f && d > hi - bh * 0.5f)
+        fade = float2((d - (hi - bh * 0.5f)) / bh, 0.0f);       // 나가는 단계 (마지막 단계면 사라짐)
+    return true;
 }
 
 // ---------------------------------------------------------------- LOD 섞기 (화면 디더)
@@ -154,6 +184,18 @@ float3 TreeImpostorNormalW(float3 packed, float3 ax, float3 az)
     return normalize(ax * n.x + float3(0, 1, 0) * n.y + az * n.z);
 }
 
+// ---------------------------------------------------------------- 식 범프 (텍스처 없이 높이 식 → 법선)
+// 표면 기울기 (Mikkelsen 2020): 화면 미분으로 스칼라 f 의 표면 위 월드 기울기 (1/m). 탄젠트 · UV 축이 필요 없다 —
+//  잎 카드 안에서 잎마다 방향이 다른 잎맥, 수피 무늬를 같은 식으로. 픽셀 셰이더에서만 (ddx · ddy)
+float3 TreeSurfGrad(float3 posW, float3 N, float f)
+{
+    const float3 dpdx = ddx(posW), dpdy = ddy(posW);
+    const float3 r1 = cross(dpdy, N), r2 = cross(N, dpdx);
+    const float det = dot(dpdx, r1);
+    const float s = abs(det) > 1e-14f ? 1.0f / det : 0.0f;
+    return (ddx(f) * r1 + ddy(f) * r2) * s;
+}
+
 // ---------------------------------------------------------------- 노이즈
 float TreeHash11(float n)
 {
@@ -202,6 +244,12 @@ SamplerState samTreeBark
     AddressU = WRAP;
     AddressV = WRAP;
 };
+
+// 꽃 카드인가 (아틀라스 칸 3 + 꽃이 있는 종)
+bool TreeIsFlower(float seed)
+{
+    return gTreeFlowerColor.a > 0.5f && floor(frac(seed) * 4.0f) > 2.5f;
+}
 
 // 카드 uv(v = 0 이 잔가지 쪽) → 아틀라스 칸 하나. 시드로 네 변형 중 하나 + 좌우 뒤집기
 float4 TreeLeafSample(float2 uv, float seed)

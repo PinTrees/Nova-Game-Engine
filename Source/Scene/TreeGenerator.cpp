@@ -2,111 +2,22 @@
 #include "TreeGenerator.h"
 #include <random>
 #include "TreeTextures.h"
+#include "PlantLibrary.h"
 
 using json = nlohmann::json;
 
-// ================================================================== 프리셋
-// 바이옴 식생 (2026-10-12): 산지 침엽수 (Spruce · Fir · Larch), 저지 활엽수 (Beech · Alder), 수목한계선 (Dwarf Pine · Juniper), 선 채로 죽은 나무
-static const char* const kPresetNames[] = { "Oak", "Pine", "Birch", "Bush", "Spruce", "Fir", "Larch", "Beech", "Dwarf Pine", "Dead Pine", "Alder", "Juniper" };
-
+// ================================================================== 프리셋 (PlantLibrary — 기후대별 종 100 여 개, 처음 12 개는 예전 프리셋 번호 그대로)
 const char* const* TreeParams::PresetNames(int& count)
 {
-	count = (int)(sizeof(kPresetNames) / sizeof(kPresetNames[0]));
-	return kPresetNames;
+	return PlantLibrary::Names(count);
 }
 
 void TreeParams::ApplyPreset(int preset)
 {
 	const int seed = Seed;
-	*this = TreeParams();
+	const PlantLibrary::Species* sp = PlantLibrary::At(preset);
+	*this = sp ? sp->Desc.Params : TreeParams();
 	Seed = seed;
-	switch (preset)
-	{
-	default:
-	case 0:   // Oak: 굵은 줄기, 넓게 퍼진 둥근 수관, 넓은 잎
-		Height = 9.0f; Radius = 0.34f; TipRadius = 0.3f; Flare = 0.7f; Gnarl = 0.25f; CrownShape = Crown::Spherical;
-		Levels = 2;
-		L[0] = { 11, 0.32f, 55.0f, 15.0f, 0.58f, 0.2f, 0.12f, 0.1f, 0.45f, 0.3f };
-		L[1] = { 7, 0.2f, 45.0f, 15.0f, 0.5f, 0.2f, 0.2f, 0.05f, 0.5f, 0.35f };
-		Leaf = LeafShape::Broad; LeafCards = 10; LeavesPerCard = 5; LeafCardSize = 0.9f; LeafStart = 0.2f;
-		break;
-	case 1:   // Pine: 곧은 줄기가 끝까지, 원뿔 수관, 수평으로 처진 가지, 바늘잎
-		Height = 13.0f; Radius = 0.28f; TipRadius = 0.08f; Flare = 0.45f; Gnarl = 0.04f; CrownShape = Crown::Conical;
-		Levels = 2;
-		L[0] = { 30, 0.18f, 82.0f, 8.0f, 0.34f, 0.12f, 0.35f, 0.0f, 0.35f, 0.08f };
-		L[1] = { 8, 0.15f, 52.0f, 10.0f, 0.42f, 0.2f, 0.25f, 0.05f, 0.5f, 0.1f };
-		Leaf = LeafShape::Needle; LeafCards = 12; LeavesPerCard = 16; LeafCardSize = 0.75f; LeafStart = 0.05f;
-		break;
-	case 2:   // Birch: 가는 흰 줄기, 불꽃 모양 수관, 늘어진 잔가지, 작은 타원 잎
-		Height = 11.0f; Radius = 0.17f; TipRadius = 0.2f; Flare = 0.25f; Gnarl = 0.12f; CrownShape = Crown::Flame;
-		Levels = 2;
-		L[0] = { 15, 0.38f, 38.0f, 10.0f, 0.42f, 0.2f, 0.3f, 0.25f, 0.45f, 0.2f };
-		L[1] = { 6, 0.2f, 40.0f, 12.0f, 0.55f, 0.2f, 0.65f, 0.0f, 0.5f, 0.3f };
-		Leaf = LeafShape::Oval; LeafCards = 8; LeavesPerCard = 6; LeafCardSize = 0.55f; LeafStart = 0.2f;
-		break;
-	case 3:   // Bush: 밑동에서 바로 갈라지는 덤불
-		Height = 1.2f; Radius = 0.06f; TipRadius = 0.5f; Flare = 0.2f; Gnarl = 0.2f; CrownShape = Crown::Hemispherical;
-		Levels = 2;
-		L[0] = { 9, 0.05f, 48.0f, 15.0f, 1.3f, 0.25f, 0.1f, 0.15f, 0.8f, 0.4f };
-		L[1] = { 5, 0.25f, 45.0f, 15.0f, 0.5f, 0.2f, 0.15f, 0.1f, 0.6f, 0.4f };
-		Leaf = LeafShape::Broad; LeafCards = 7; LeavesPerCard = 5; LeafCardSize = 0.45f; LeafStart = 0.2f;
-		break;
-	case 4:   // Spruce (가문비): 높고 좁은 원뿔, 촘촘히 아래로 처진 가지, 짙은 바늘잎 — 산지 숲의 주인
-		Height = 22.0f; Radius = 0.36f; TipRadius = 0.05f; Flare = 0.5f; Gnarl = 0.03f; CrownShape = Crown::Conical;
-		Levels = 2;
-		L[0] = { 46, 0.07f, 96.0f, 6.0f, 0.25f, 0.12f, 0.55f, 0.0f, 0.3f, 0.05f };
-		L[1] = { 8, 0.1f, 55.0f, 10.0f, 0.42f, 0.2f, 0.4f, 0.0f, 0.5f, 0.1f };
-		Leaf = LeafShape::Needle; LeafCards = 14; LeavesPerCard = 18; LeafCardSize = 0.8f; LeafStart = 0.02f;
-		break;
-	case 5:   // Fir (전나무): 고른 원뿔, 수평 가지 층
-		Height = 18.0f; Radius = 0.32f; TipRadius = 0.06f; Flare = 0.45f; Gnarl = 0.03f; CrownShape = Crown::Conical;
-		Levels = 2;
-		L[0] = { 38, 0.1f, 88.0f, 5.0f, 0.3f, 0.1f, 0.25f, 0.05f, 0.32f, 0.05f };
-		L[1] = { 7, 0.12f, 50.0f, 10.0f, 0.45f, 0.2f, 0.2f, 0.05f, 0.5f, 0.1f };
-		Leaf = LeafShape::Needle; LeafCards = 13; LeavesPerCard = 16; LeafCardSize = 0.8f; LeafStart = 0.03f;
-		break;
-	case 6:   // Larch (낙엽송): 성긴 원뿔, 연두 바늘잎, 살짝 처진 가지
-		Height = 20.0f; Radius = 0.3f; TipRadius = 0.06f; Flare = 0.4f; Gnarl = 0.08f; CrownShape = Crown::Conical;
-		Levels = 2;
-		L[0] = { 26, 0.15f, 75.0f, 10.0f, 0.32f, 0.15f, 0.4f, 0.0f, 0.3f, 0.1f };
-		L[1] = { 7, 0.15f, 50.0f, 12.0f, 0.5f, 0.2f, 0.45f, 0.0f, 0.5f, 0.15f };
-		Leaf = LeafShape::Needle; LeafCards = 9; LeavesPerCard = 12; LeafCardSize = 0.7f; LeafStart = 0.1f;
-		break;
-	case 7:   // Beech (너도밤나무): 매끈하고 곧은 줄기, 높은 둥근 수관
-		Height = 16.0f; Radius = 0.3f; TipRadius = 0.25f; Flare = 0.5f; Gnarl = 0.1f; CrownShape = Crown::Spherical;
-		Levels = 2;
-		L[0] = { 12, 0.42f, 42.0f, 12.0f, 0.5f, 0.2f, 0.08f, 0.15f, 0.4f, 0.15f };
-		L[1] = { 7, 0.2f, 40.0f, 15.0f, 0.5f, 0.2f, 0.12f, 0.08f, 0.5f, 0.25f };
-		Leaf = LeafShape::Broad; LeafCards = 11; LeavesPerCard = 6; LeafCardSize = 0.85f; LeafStart = 0.2f;
-		break;
-	case 8:   // Dwarf Pine (눈잣나무 · 크룸홀츠): 바람에 눌린 낮고 구불구불한 덤불 소나무 — 수목한계선
-		Height = 3.2f; Radius = 0.12f; TipRadius = 0.4f; Flare = 0.4f; Gnarl = 0.45f; Lean = 8.0f; CrownShape = Crown::Hemispherical;
-		Levels = 2;
-		L[0] = { 14, 0.08f, 72.0f, 20.0f, 0.75f, 0.3f, 0.3f, 0.0f, 0.6f, 0.45f };
-		L[1] = { 6, 0.2f, 50.0f, 15.0f, 0.5f, 0.2f, 0.2f, 0.05f, 0.6f, 0.35f };
-		Leaf = LeafShape::Needle; LeafCards = 9; LeavesPerCard = 14; LeafCardSize = 0.6f; LeafStart = 0.15f;
-		break;
-	case 9:   // Dead Pine (선 채로 죽은 나무): 잎 없이 짧게 부러진 가지
-		Height = 12.0f; Radius = 0.25f; TipRadius = 0.15f; Flare = 0.35f; Gnarl = 0.2f; CrownShape = Crown::Cylindrical;
-		Levels = 1;
-		L[0] = { 16, 0.3f, 78.0f, 18.0f, 0.18f, 0.35f, 0.15f, 0.0f, 0.35f, 0.3f };
-		Leaf = LeafShape::Needle; LeafCards = 1; LeavesPerCard = 1; LeafCardSize = 0.02f; LeafStart = 0.95f;
-		break;
-	case 10:   // Alder (오리나무): 물가, 좁은 타원 수관, 늘어진 잔가지
-		Height = 10.0f; Radius = 0.2f; TipRadius = 0.2f; Flare = 0.3f; Gnarl = 0.15f; CrownShape = Crown::TaperedCylindrical;
-		Levels = 2;
-		L[0] = { 14, 0.3f, 45.0f, 12.0f, 0.45f, 0.2f, 0.25f, 0.15f, 0.45f, 0.2f };
-		L[1] = { 6, 0.2f, 42.0f, 12.0f, 0.5f, 0.2f, 0.5f, 0.0f, 0.5f, 0.25f };
-		Leaf = LeafShape::Oval; LeafCards = 9; LeavesPerCard = 6; LeafCardSize = 0.6f; LeafStart = 0.2f;
-		break;
-	case 11:   // Juniper (노간주): 원뿔 덤불
-		Height = 2.0f; Radius = 0.07f; TipRadius = 0.2f; Flare = 0.2f; Gnarl = 0.2f; CrownShape = Crown::Flame;
-		Levels = 2;
-		L[0] = { 12, 0.05f, 30.0f, 12.0f, 0.9f, 0.25f, 0.05f, 0.2f, 0.7f, 0.3f };
-		L[1] = { 5, 0.2f, 40.0f, 15.0f, 0.5f, 0.2f, 0.1f, 0.1f, 0.6f, 0.3f };
-		Leaf = LeafShape::Needle; LeafCards = 8; LeavesPerCard = 12; LeafCardSize = 0.45f; LeafStart = 0.1f;
-		break;
-	}
 }
 
 // ================================================================== 저장
@@ -125,6 +36,16 @@ json TreeParams::ToJson() const
 	j["branches"] = levels;
 	j["leafShape"] = (int)Leaf; j["leafCards"] = LeafCards; j["leavesPerCard"] = LeavesPerCard;
 	j["leafCardSize"] = LeafCardSize; j["leafStart"] = LeafStart;
+	// 새 값은 기본이 아닐 때만 (예전 나무의 MeshKey · 저장이 그대로)
+	if (Shape != Form::Tree) j["form"] = (int)Shape;
+	if (CardSegments != 1) j["cardSegments"] = CardSegments;
+	if (Droop != 0.0f) j["droop"] = Droop;
+	if (CardSpread != 45.0f) j["cardSpread"] = CardSpread;
+	if (FlowerPetals > 0)
+	{
+		j["flowerPetals"] = FlowerPetals; j["flowerCards"] = FlowerCards; j["flowerSize"] = FlowerSize;
+	}
+	if (Stems > 0) j["stems"] = Stems;
 	return j;
 }
 
@@ -148,6 +69,10 @@ void TreeParams::FromJson(const json& j)
 	Leaf = (LeafShape)j.value("leafShape", (int)Leaf); LeafCards = j.value("leafCards", LeafCards);
 	LeavesPerCard = j.value("leavesPerCard", LeavesPerCard); LeafCardSize = j.value("leafCardSize", LeafCardSize);
 	LeafStart = j.value("leafStart", LeafStart);
+	Shape = (Form)std::clamp(j.value("form", (int)Shape), 0, kForms - 1);
+	CardSegments = j.value("cardSegments", CardSegments); Droop = j.value("droop", Droop); CardSpread = j.value("cardSpread", CardSpread);
+	FlowerPetals = j.value("flowerPetals", FlowerPetals); FlowerCards = j.value("flowerCards", FlowerCards); FlowerSize = j.value("flowerSize", FlowerSize);
+	Stems = j.value("stems", Stems);
 }
 
 // ================================================================== 생성
@@ -381,8 +306,103 @@ namespace
 			}
 
 			// ---- 잎 (마지막 단계 가지)
-			if (level == P.Levels)
+			if (P.Shape == TreeParams::Form::Palm && level == 0)
+				AddCrown(nodes, segs, length);
+			else if (level == P.Levels)
 				AddLeaves(nodes, segs, level, length, wi);
+		}
+
+		// 꽃이 있는 종: 잎 카드는 아틀라스 칸 0 ~ 2, 꽃 카드는 칸 3 (꽃잎 무늬). 난수 하나로 칸 · 칸 안 값을 정한다 (난수 순서가 그대로)
+		float LeafSeed(float r) const
+		{
+			if (P.FlowerPetals <= 0)
+				return r;
+			const float s3 = r * 3.0f;
+			const float k = floorf(s3);
+			return (k + 0.04f + 0.92f * (s3 - k)) * 0.25f;
+		}
+		static float FlowerSeed(float r) { return (3.0f + 0.04f + 0.92f * r) * 0.25f; }
+
+		// 카드 한 장. p = 카드 아래 가운데 (v = 0), up = 카드 위쪽, n = 면 법선 (right = up × n).
+		//  segments == 1: 잎이 덮인 곳을 감싸는 다각형 (투명한 귀퉁이를 덜 칠한다 — 셰이더 TreeLeafSample 과 같은 시드 → 칸 · 뒤집기)
+		//  segments > 1: 길이 방향 띠, 끝으로 갈수록 droop 만큼 아래로 휜다 (면에 수직으로 — 풀잎 · 고사리 · 야자 잎)
+		void EmitCard(FXMVECTOR p, FXMVECTOR up, FXMVECTOR n, float size, float seed, int segments, float droop, float w1, float w2, const WindInfo& wi)
+		{
+			const XMVECTOR right = XMVector3Normalize(XMVector3Cross(up, n));
+			if (segments <= 1)
+			{
+				XMFLOAT2 uvs[8] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
+				int count = 4;
+				if (P.LeafLengthForHull >= 0.0f)
+				{
+					const float cellF = (seed - floorf(seed)) * 4.0f;
+					const float flipF = seed * 7.31f - floorf(seed * 7.31f);
+					const bool nearEdge = fabsf(cellF - roundf(cellF)) < 1e-3f || fabsf(flipF - 0.5f) < 1e-3f;   // 셰이더와 반올림이 갈릴 수 있으면 사각형
+					if (!nearEdge)
+					{
+						const TreeTextures::LeafHull& hull = TreeTextures::LeafCardHull((int)P.Leaf, P.LeavesPerCard, P.LeafLengthForHull, (int)floorf(cellF), P.FlowerPetals);
+						const bool flip = flipF > 0.5f;
+						count = hull.Count;
+						for (int k = 0; k < count; ++k)
+							uvs[k] = { flip ? 1.0f - hull.Points[k].x : hull.Points[k].x, hull.Points[k].y };
+					}
+				}
+				const uint32_t base = (uint32_t)LeafV.size();
+				for (int k = 0; k < count; ++k)
+				{
+					TreeVertex v = {};
+					v.Pos = F3(XMVectorAdd(XMVectorAdd(p, XMVectorScale(right, (uvs[k].x - 0.5f) * size)), XMVectorScale(up, uvs[k].y * size)));
+					v.Normal = F3(n);
+					v.UV = uvs[k];
+					v.Wind = XMFLOAT4(0.0f, w1, w2, uvs[k].y * size);
+					v.Axis = XMFLOAT4(XMVectorGetX(up), XMVectorGetY(up), XMVectorGetZ(up), 1.0f);
+					v.Phase = XMFLOAT4(wi.Phase1, wi.Phase2, seed, 0.0f);
+					LeafV.push_back(v);
+					LeafNormals.push_back(F3(n));
+				}
+				for (int k = 1; k + 1 < count; ++k)   // 볼록 다각형 = 부채꼴 삼각형
+					AddTri(LeafI, LeafV, base, base + k, base + k + 1, n);
+				M.LeafCardCount++;
+				return;
+			}
+			// 휘는 띠: 마디 i 의 방향 = up 을 (right 축으로) droop · v 만큼 돌린 것. 아래로 휘는 쪽 = 법선 반대 / 같은 쪽 중 y 가 줄어드는 쪽
+			const float sgn = XMVectorGetY(n) > 0.0f ? -1.0f : 1.0f;
+			const uint32_t base = (uint32_t)LeafV.size();
+			XMVECTOR pos = p;
+			for (int i = 0; i <= segments; ++i)
+			{
+				const float v = (float)i / segments;
+				const float th = droop * v;
+				const XMVECTOR d = XMVectorAdd(XMVectorScale(up, cosf(th)), XMVectorScale(n, sgn * sinf(th)));
+				const XMVECTOR nn = XMVectorSubtract(XMVectorScale(n, cosf(th)), XMVectorScale(up, sgn * sinf(th)));
+				for (int k = 0; k < 2; ++k)
+				{
+					TreeVertex vx = {};
+					vx.Pos = F3(XMVectorAdd(pos, XMVectorScale(right, (k - 0.5f) * size)));
+					vx.Normal = F3(nn);
+					vx.UV = XMFLOAT2((float)k, v);
+					vx.Wind = XMFLOAT4(0.0f, w1, w2, v * size);
+					vx.Axis = XMFLOAT4(XMVectorGetX(d), XMVectorGetY(d), XMVectorGetZ(d), 1.0f);
+					vx.Phase = XMFLOAT4(wi.Phase1, wi.Phase2, seed, 0.0f);
+					LeafV.push_back(vx);
+					LeafNormals.push_back(F3(nn));
+				}
+				if (i < segments)
+				{
+					// 다음 마디까지: 마디 가운데 방향으로 한 칸
+					const float thm = droop * (v + 0.5f / segments);
+					const XMVECTOR dm = XMVectorAdd(XMVectorScale(up, cosf(thm)), XMVectorScale(n, sgn * sinf(thm)));
+					pos = XMVectorAdd(pos, XMVectorScale(dm, size / segments));
+				}
+			}
+			for (int i = 0; i < segments; ++i)
+			{
+				const uint32_t a = base + i * 2, b = a + 1, c = a + 2, d = a + 3;
+				const XMVECTOR ref = XMLoadFloat3(&LeafNormals[a]);
+				AddTri(LeafI, LeafV, a, b, d, ref);
+				AddTri(LeafI, LeafV, a, d, c, ref);
+			}
+			M.LeafCardCount++;
 		}
 
 		void AddLeaves(const std::vector<Node>& nodes, int segs, int level, float length, const WindInfo& wi)
@@ -411,10 +431,9 @@ namespace
 				n = XMVector3Normalize(n);
 				const float roll = R.S() * 0.8f;
 				n = XMVector3Normalize(XMVectorAdd(XMVectorScale(n, cosf(roll)), XMVectorScale(XMVector3Cross(up, n), sinf(roll))));
-				const XMVECTOR right = XMVector3Normalize(XMVector3Cross(up, n));
 
 				float size = P.LeafCardSize * (0.8f + 0.4f * R.U());
-				const float seed = R.U();
+				const float seed = LeafSeed(R.U());
 				// LOD1: 카드 두 장 중 한 장만, 대신 크게 (난수는 모두 쓴 뒤에 건너뛴다)
 				if (Lod > 0)
 				{
@@ -424,42 +443,196 @@ namespace
 				}
 				float w1, w2;
 				Winds(level, tl, length, wi, w1, w2);
-
-				// 카드 모양: 잎이 덮인 곳을 감싸는 다각형 (투명한 귀퉁이를 덜 칠한다). 셰이더 TreeLeafSample 과 같은 식으로
-				// 시드 → 아틀라스 칸·좌우 뒤집기를 정한다
-				XMFLOAT2 uvs[8] = { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 } };
-				int count = 4;
-				if (P.LeafLengthForHull >= 0.0f)
-				{
-					const float cellF = (seed - floorf(seed)) * 4.0f;
-					const float flipF = seed * 7.31f - floorf(seed * 7.31f);
-					const bool nearEdge = fabsf(cellF - roundf(cellF)) < 1e-3f || fabsf(flipF - 0.5f) < 1e-3f;   // 셰이더와 반올림이 갈릴 수 있으면 사각형
-					if (!nearEdge)
-					{
-						const TreeTextures::LeafHull& hull = TreeTextures::LeafCardHull((int)P.Leaf, P.LeavesPerCard, P.LeafLengthForHull, (int)floorf(cellF));
-						const bool flip = flipF > 0.5f;
-						count = hull.Count;
-						for (int k = 0; k < count; ++k)
-							uvs[k] = { flip ? 1.0f - hull.Points[k].x : hull.Points[k].x, hull.Points[k].y };
-					}
-				}
-				const uint32_t base = (uint32_t)LeafV.size();
-				for (int k = 0; k < count; ++k)
-				{
-					TreeVertex v = {};
-					v.Pos = F3(XMVectorAdd(XMVectorAdd(p, XMVectorScale(right, (uvs[k].x - 0.5f) * size)), XMVectorScale(up, uvs[k].y * size)));
-					v.Normal = F3(n);
-					v.UV = uvs[k];
-					v.Wind = XMFLOAT4(0.0f, w1, w2, uvs[k].y * size);
-					v.Axis = XMFLOAT4(XMVectorGetX(up), XMVectorGetY(up), XMVectorGetZ(up), 1.0f);
-					v.Phase = XMFLOAT4(wi.Phase1, wi.Phase2, seed, 0.0f);
-					LeafV.push_back(v);
-					LeafNormals.push_back(F3(n));
-				}
-				for (int k = 1; k + 1 < count; ++k)   // 볼록 다각형 = 부채꼴 삼각형
-					AddTri(LeafI, LeafV, base, base + k, base + k + 1, n);
-				M.LeafCardCount++;
+				EmitCard(p, up, n, size, seed, P.CardSegments, P.Droop, w1, w2, wi);
 			}
+			// 꽃: 마지막 단계 가지의 끝쪽 (잎 다음 난수 — 꽃 없는 종은 모양이 그대로)
+			for (int c = 0; c < P.FlowerCards && P.FlowerPetals > 0 && M.LeafCardCount < kMaxLeafCards; ++c)
+			{
+				const float tl = 0.55f + 0.45f * R.U();
+				const float fi = tl * segs;
+				const int i0 = (std::min)((int)fi, segs - 1);
+				const float fr = fi - i0;
+				const XMVECTOR p = XMVectorLerp(XMLoadFloat3(&nodes[i0].Pos), XMLoadFloat3(&nodes[i0 + 1].Pos), fr);
+				const XMVECTOR d = XMVector3Normalize(XMVectorLerp(XMLoadFloat3(&nodes[i0].Dir), XMLoadFloat3(&nodes[i0 + 1].Dir), fr));
+				const float az = R.U() * XM_2PI;
+				const XMVECTOR n0 = Perpendicular(d);
+				const XMVECTOR side = XMVectorAdd(XMVectorScale(n0, cosf(az)), XMVectorScale(XMVector3Cross(d, n0), sinf(az)));
+				const float size = P.FlowerSize * (0.8f + 0.4f * R.U());
+				const float seed = FlowerSeed(R.U());
+				if (Lod > 0 && (c & 1))
+					continue;
+				float w1, w2;
+				Winds(level, tl, length, wi, w1, w2);
+				AddFlower(XMVectorAdd(p, XMVectorScale(side, size * 0.2f)), XMVector3Normalize(XMVectorAdd(side, XMVectorSet(0, 0.8f, 0, 0))), size, seed, w1, w2, wi);
+			}
+		}
+
+		// 꽃 한 송이: 가운데 = at, 꽃이 보는 쪽 = face (카드 면 법선)
+		void AddFlower(FXMVECTOR at, FXMVECTOR face, float size, float seed, float w1, float w2, const WindInfo& wi)
+		{
+			const XMVECTOR n = XMVector3Normalize(face);
+			XMVECTOR up = Perpendicular(n);
+			const XMVECTOR p = XMVectorSubtract(at, XMVectorScale(up, size * 0.5f));
+			EmitCard(p, up, n, size, seed, 1, 0.0f, w1, w2, wi);
+		}
+
+		// 밑동에서 잎 카드 (Grass · Fern · Rosette · Flower 잎): 황금각으로 돌며, 세로에서 CardSpread 쯤 벌어진다
+		void AddBaseCards()
+		{
+			WindInfo wi;
+			for (int c = 0; c < P.LeafCards && M.LeafCardCount < kMaxLeafCards; ++c)
+			{
+				const float az = c * 2.39996f + R.S() * 0.35f;
+				const float el = XMConvertToRadians(P.CardSpread * (0.55f + 0.6f * R.U()));
+				const XMVECTOR radial = XMVectorSet(cosf(az), 0.0f, sinf(az), 0.0f);
+				const XMVECTOR tangent = XMVectorSet(-sinf(az), 0.0f, cosf(az), 0.0f);
+				const XMVECTOR up = XMVector3Normalize(XMVectorAdd(XMVectorScale(radial, sinf(el)), XMVectorSet(0.0f, cosf(el), 0.0f, 0.0f)));
+				XMVECTOR n = XMVector3Normalize(XMVector3Cross(up, tangent));
+				if (XMVectorGetY(n) < 0.0f)
+					n = XMVectorNegate(n);
+				float size = P.LeafCardSize * (0.75f + 0.45f * R.U());
+				const XMVECTOR base = XMVectorAdd(XMVectorScale(radial, R.U() * 0.06f * size), XMVectorSet(0.0f, -0.01f * size, 0.0f, 0.0f));
+				const float seed = LeafSeed(R.U());
+				const float droop = P.Droop * (0.7f + 0.6f * R.U());
+				wi.Phase1 = R.U();
+				wi.Phase2 = R.U();
+				if (Lod > 0)
+				{
+					if (c & 1)
+						continue;
+					size *= 1.3f;
+				}
+				EmitCard(base, up, n, size, seed, P.CardSegments, droop, 0.0f, 0.0f, wi);
+			}
+		}
+
+		// 꽃대 (Flower): 가는 관 + 끝 (이삭이면 위쪽 여러 송이)
+		void AddStems()
+		{
+			for (int s = 0; s < P.Stems; ++s)
+			{
+				const float az = s * 2.39996f + R.S() * 0.5f;
+				const float tilt = XMConvertToRadians(P.CardSpread * 0.35f * R.U());
+				const float len = P.Height * (0.75f + 0.3f * R.U());
+				const float bend = R.S() * 0.25f;
+				WindInfo wi;
+				wi.Phase1 = R.U();
+				wi.Phase2 = R.U();
+				const XMVECTOR radial = XMVectorSet(cosf(az), 0.0f, sinf(az), 0.0f);
+				XMVECTOR dir = XMVector3Normalize(XMVectorAdd(XMVectorScale(radial, sinf(tilt)), XMVectorSet(0.0f, cosf(tilt), 0.0f, 0.0f)));
+				constexpr int kSegs = 4;
+				std::vector<Node> nodes(kSegs + 1);
+				XMVECTOR pos = XMVectorScale(radial, 0.02f * P.Height);
+				const float r0 = (std::max)(P.Radius, 0.002f);
+				for (int i = 0; i <= kSegs; ++i)
+				{
+					const float t = (float)i / kSegs;
+					nodes[i] = { F3(pos), F3(dir), r0 * (1.0f - 0.5f * t), t * len };
+					pos = XMVectorAdd(pos, XMVectorScale(dir, len / kSegs));
+					dir = XMVector3Normalize(XMVectorAdd(dir, XMVectorScale(radial, bend / kSegs)));
+				}
+				// 관 (4 변, 가지 1 단계처럼 흔들린다)
+				if (Lod == 0 || s % 2 == 0)
+				{
+					const int sides = Lod == 0 ? 4 : 3;
+					const uint32_t base = (uint32_t)M.Vertices.size();
+					XMVECTOR n = Perpendicular(XMLoadFloat3(&nodes[0].Dir));
+					for (int i = 0; i <= kSegs; ++i)
+					{
+						const XMVECTOR di = XMLoadFloat3(&nodes[i].Dir);
+						n = XMVector3Normalize(XMVectorSubtract(n, XMVectorScale(di, XMVectorGetX(XMVector3Dot(n, di)))));
+						const XMVECTOR b = XMVector3Cross(di, n);
+						const float t = (float)i / kSegs;
+						for (int k = 0; k <= sides; ++k)
+						{
+							const float a = XM_2PI * k / sides;
+							const XMVECTOR off = XMVectorAdd(XMVectorScale(n, cosf(a)), XMVectorScale(b, sinf(a)));
+							TreeVertex v = {};
+							v.Pos = F3(XMVectorAdd(XMLoadFloat3(&nodes[i].Pos), XMVectorScale(off, nodes[i].Radius)));
+							v.Normal = F3(off);
+							v.UV = XMFLOAT2((float)k / sides, nodes[i].Dist);
+							v.Wind = XMFLOAT4(0.0f, Weight1(t, len), 0.0f, 0.0f);
+							v.Axis = XMFLOAT4(nodes[i].Dir.x, nodes[i].Dir.y, nodes[i].Dir.z, 0.9f);
+							v.Phase = XMFLOAT4(wi.Phase1, wi.Phase2, 0.0f, r0);
+							M.Vertices.push_back(v);
+						}
+					}
+					for (int i = 0; i < kSegs; ++i)
+						for (int k = 0; k < sides; ++k)
+						{
+							const uint32_t a = base + i * (sides + 1) + k, bb = a + 1, c = a + (sides + 1), dd = c + 1;
+							const XMVECTOR ref = XMLoadFloat3(&M.Vertices[a].Normal);
+							AddTri(M.Indices, M.Vertices, a, c, bb, ref);
+							AddTri(M.Indices, M.Vertices, bb, c, dd, ref);
+						}
+					M.BranchCount++;
+				}
+				// 꽃: 하나면 끝에, 여럿이면 위쪽 30 % 에 (이삭)
+				const int flowers = (std::max)(1, P.FlowerCards);
+				for (int f = 0; f < flowers && P.FlowerPetals > 0; ++f)
+				{
+					const float t = flowers == 1 ? 1.0f : 0.7f + 0.3f * (f + 0.5f) / flowers;
+					const float fi = t * kSegs;
+					const int i0 = (std::min)((int)fi, kSegs - 1);
+					const float fr = fi - i0;
+					const XMVECTOR p = XMVectorLerp(XMLoadFloat3(&nodes[i0].Pos), XMLoadFloat3(&nodes[i0 + 1].Pos), fr);
+					const XMVECTOR d = XMLoadFloat3(&nodes[i0].Dir);
+					const float faz = R.U() * XM_2PI;
+					const float size = P.FlowerSize * (flowers == 1 ? (0.85f + 0.3f * R.U()) : (1.1f - 0.4f * t + 0.1f * R.U()));
+					const float seed = FlowerSeed(R.U());
+					if (Lod > 0 && flowers > 1 && (f & 1))
+						continue;
+					// 하나면 위 · 바깥을 보고, 이삭이면 꽃대 둘레로
+					const XMVECTOR out = XMVectorSet(cosf(faz), 0.0f, sinf(faz), 0.0f);
+					const XMVECTOR face = flowers == 1 ? XMVector3Normalize(XMVectorAdd(d, XMVectorScale(radial, 0.6f))) : XMVector3Normalize(XMVectorAdd(out, XMVectorScale(d, 0.4f)));
+					AddFlower(XMVectorAdd(p, XMVectorScale(face, size * (flowers == 1 ? 0.05f : 0.25f))), face, size, seed, Weight1(t, len), 0.0f, wi);
+				}
+			}
+		}
+
+		// 야자 · 나무고사리: 줄기 끝에서 잎 (휘는 띠) 이 사방으로 — 아래쪽 (오래된) 잎은 처지고 위쪽은 선다
+		void AddCrown(const std::vector<Node>& nodes, int segs, float length)
+		{
+			const XMVECTOR top = XMLoadFloat3(&nodes[segs].Pos);
+			const float maxUp = XMConvertToRadians(P.CardSpread);
+			for (int c = 0; c < P.LeafCards && M.LeafCardCount < kMaxLeafCards; ++c)
+			{
+				const float age = (c + 0.5f) / (std::max)(1, P.LeafCards);   // 0 = 늙은 잎 (아래)
+				const float az = c * 2.39996f + R.S() * 0.25f;
+				const float elev = XMConvertToRadians(-20.0f) + (maxUp - XMConvertToRadians(-20.0f)) * age + R.S() * 0.12f;
+				const XMVECTOR dirH = XMVectorSet(cosf(az), 0.0f, sinf(az), 0.0f);
+				const XMVECTOR tangent = XMVectorSet(-sinf(az), 0.0f, cosf(az), 0.0f);
+				const XMVECTOR up = XMVector3Normalize(XMVectorAdd(XMVectorScale(dirH, cosf(elev)), XMVectorSet(0.0f, sinf(elev), 0.0f, 0.0f)));
+				XMVECTOR n = XMVector3Normalize(XMVector3Cross(up, tangent));
+				if (XMVectorGetY(n) < 0.0f)
+					n = XMVectorNegate(n);
+				float size = P.LeafCardSize * (0.8f + 0.3f * R.U());
+				const float seed = LeafSeed(R.U());
+				const float droop = P.Droop * (0.8f + 0.5f * (1.0f - age)) * (0.8f + 0.4f * R.U());
+				WindInfo wi;
+				wi.Phase1 = R.U();
+				wi.Phase2 = R.U();
+				if (Lod > 0)
+				{
+					if (c & 1)
+						continue;
+					size *= 1.15f;
+				}
+				// 잎 밑동은 줄기 축에서 조금 바깥, 잎은 1 차 가지처럼 펄럭인다
+				const XMVECTOR p = XMVectorAdd(top, XMVectorScale(dirH, nodes[segs].Radius * 1.5f));
+				EmitCard(p, up, n, size, seed, (std::max)(2, P.CardSegments), droop, (std::min)(1.0f, size / 4.0f), 0.0f, wi);
+			}
+			// 꽃 · 열매 다발 (잎 아래)
+			for (int c = 0; c < P.FlowerCards && P.FlowerPetals > 0; ++c)
+			{
+				const float az = R.U() * XM_2PI;
+				const XMVECTOR out = XMVectorSet(cosf(az), -0.3f, sinf(az), 0.0f);
+				const float size = P.FlowerSize * (0.8f + 0.4f * R.U());
+				const float seed = FlowerSeed(R.U());
+				WindInfo wi;
+				AddFlower(XMVectorAdd(top, XMVectorScale(out, nodes[segs].Radius * 2.0f)), out, size, seed, 0.3f, 0.0f, wi);
+			}
+			(void)length;
 		}
 
 		// 잎 법선을 수관 구 쪽으로 굽혀 (SpeedTree 처럼) 덩어리가 부드럽게 빛을 받게, 안쪽 잎은 어둡게(AO)
@@ -506,11 +679,29 @@ namespace TreeGenerator
 		for (auto& l : p.L)
 			l.Count = std::clamp(l.Count, 0, 80);
 
+		p.CardSegments = std::clamp(p.CardSegments, 1, 8);
+		p.Stems = std::clamp(p.Stems, 0, 32);
+		p.FlowerCards = std::clamp(p.FlowerCards, 0, 32);
+
 		Builder b(p, out, lod);
 		const float lean = XMConvertToRadians(p.Lean);
 		const XMVECTOR dir = XMVectorSet(0.0f, cosf(lean), sinf(lean), 0.0f);
 		WindInfo wi;
-		b.Grow(0, XMVectorZero(), dir, p.Height, p.Radius, p.Radius * std::clamp(p.TipRadius, 0.01f, 1.0f), wi);
+		switch (p.Shape)
+		{
+		case TreeParams::Form::Grass:
+		case TreeParams::Form::Fern:
+		case TreeParams::Form::Rosette:
+			b.AddBaseCards();   // 줄기 없이 밑동에서 잎
+			break;
+		case TreeParams::Form::Flower:
+			b.AddBaseCards();   // 밑동 잎 + 꽃대 · 꽃
+			b.AddStems();
+			break;
+		default:
+			b.Grow(0, XMVectorZero(), dir, p.Height, p.Radius, p.Radius * std::clamp(p.TipRadius, 0.01f, 1.0f), wi);
+			break;
+		}
 		b.FinishLeaves();
 
 		// 수피 다음에 잎을 이어 붙인다
@@ -521,7 +712,14 @@ namespace TreeGenerator
 			out.Indices.push_back(i + leafBase);
 		out.LeafIndexCount = (uint32_t)out.Indices.size() - out.BarkIndexCount;
 
-		// 줄기 흔들림 가중치 = (높이 / 나무 높이)², 범위
+		// 줄기 흔들림 가중치 = (높이 / 나무 높이)², 범위. 밑동 잎 꼴 (풀 · 고사리 …) 은 실제로 가장 높은 곳이 1
+		if (p.Shape == TreeParams::Form::Grass || p.Shape == TreeParams::Form::Fern || p.Shape == TreeParams::Form::Rosette || p.Shape == TreeParams::Form::Flower)
+		{
+			float top = 0.05f;
+			for (const TreeVertex& v : out.Vertices)
+				top = (std::max)(top, v.Pos.y);
+			p.Height = top;
+		}
 		XMVECTOR mn = XMVectorReplicate(FLT_MAX), mx = XMVectorReplicate(-FLT_MAX);
 		for (TreeVertex& v : out.Vertices)
 		{

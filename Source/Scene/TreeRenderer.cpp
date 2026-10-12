@@ -17,6 +17,7 @@
 #include "Profiler.h"
 #include "SceneCulling.h"
 #include "OcclusionCulling.h"
+#include "ShadowRenderer.h"
 #include <chrono>
 #include <map>
 #include <unordered_map>
@@ -35,6 +36,7 @@ namespace
 		Vec3 BoundsMin, BoundsMax;
 		std::vector<XMFLOAT3> Positions;
 		std::vector<uint32_t> Indices;
+		uint32_t LastFrame = 0;   // 마지막으로 쓴 프레임 (캐시에서 버릴 때)
 	};
 	std::map<std::string, std::shared_ptr<GpuMesh>> s_Meshes;
 
@@ -57,8 +59,12 @@ namespace
 		// 키는 다시 쓰는 버퍼에 (찾을 때마다 임시 문자열을 만들지 않게 — 나무 종류 x 패스마다 프레임당 수십 번이었다)
 		thread_local std::string key;
 		MakeMeshKey(desc, lod, key);
+		const uint32_t frame = SceneCulling::FrameIndex();
 		if (auto it = s_Meshes.find(key); it != s_Meshes.end())
+		{
+			it->second->LastFrame = frame;
 			return it->second;
+		}
 
 		const auto t0 = std::chrono::steady_clock::now();
 		std::shared_ptr<TreeMeshData> pre;
@@ -108,10 +114,12 @@ namespace
 		EditorLog::Write("Tree", "%s seed %d LOD%d: %d vertices, %u triangles, %d branches, %d leaf cards (%.1f ms)", pre ? "uploaded (generated in the background)" : "generated",
 			desc.Params.Seed, lod, mesh->VertexCount, (unsigned)(data.Indices.size() / 3), mesh->BranchCount, mesh->LeafCardCount, ms);
 
-		// 슬라이더를 끌면 모양이 많이 생기므로 쓰는 곳이 없는 것부터 버린다
-		if (s_Meshes.size() > 64)
+		// 슬라이더를 끌면 모양이 많이 생기므로 버리되, 최근 600 프레임 안에 쓴 것은 남긴다 — 식생 종 100 여 개 x 변형 x LOD 라
+		//  예전처럼 64 개 넘으면 잡힌 곳 없는 것을 다 버리면, 프레임마다 버리고 다시 만들었다 (50 km 월드 616 ms)
+		mesh->LastFrame = frame;
+		if (s_Meshes.size() > 256)
 			for (auto it = s_Meshes.begin(); it != s_Meshes.end();)
-				it = it->second.use_count() == 1 ? s_Meshes.erase(it) : std::next(it);
+				it = it->second.use_count() == 1 && frame - it->second->LastFrame > 600u ? s_Meshes.erase(it) : std::next(it);
 		s_Meshes[key] = mesh;
 		return mesh;
 	}
@@ -139,6 +147,12 @@ namespace
 		FxVar* BarkTex = nullptr;
 		FxVar* ImpAlbedo = nullptr;
 		FxVar* ImpNormal = nullptr;
+		FxVar* FlowerColor = nullptr;
+		FxVar* FlowerCenter = nullptr;
+		FxVar* BarkPattern = nullptr;
+		FxVar* BarkPatternColor = nullptr;
+		FxVar* LodRange = nullptr;
+		FxVar* LodEye = nullptr;
 
 		void Bind(FxEffect* fx, const char* bark, const char* leaf, const char* impostor)
 		{
@@ -162,6 +176,12 @@ namespace
 			BarkTex = fx->GetVariableByName("gTreeBarkTex")->AsShaderResource();
 			ImpAlbedo = fx->GetVariableByName("gTreeImpostorAlbedo")->AsShaderResource();
 			ImpNormal = fx->GetVariableByName("gTreeImpostorNormal")->AsShaderResource();
+			FlowerColor = fx->GetVariableByName("gTreeFlowerColor")->AsVector();
+			FlowerCenter = fx->GetVariableByName("gTreeFlowerCenter")->AsVector();
+			BarkPattern = fx->GetVariableByName("gTreeBarkPattern")->AsVector();
+			BarkPatternColor = fx->GetVariableByName("gTreeBarkPatternColor")->AsVector();
+			LodRange = fx->GetVariableByName("gTreeLodRange")->AsVector();
+			LodEye = fx->GetVariableByName("gTreeLodEye")->AsVector();
 		}
 		bool Valid() const { return Bark && Bark->IsValid() && Leaf && Leaf->IsValid() && Impostor && Impostor->IsValid(); }
 	};
@@ -277,7 +297,8 @@ namespace
 	};
 	std::unordered_map<size_t, Impostor> s_Impostors;
 	constexpr int kFrames = 8;
-	constexpr int kFrameRes = 256;
+	// 프레임 해상도: 화면에서 크게 보이는 큰 나무만 256 (아틀라스 한 장 5.6 MB), 작은 나무 · 덤불은 128 · 64 — 종이 100 여 개라 VRAM
+	int FrameResOf(const TreeDesc& d) { return d.Params.Height >= 8.0f ? 256 : (d.Params.Height >= 3.0f ? 128 : 64); }
 
 	void SetLook(TreeVars& v, const TreeDesc& d, const Impostor* imp, float windScale)
 	{
@@ -292,7 +313,11 @@ namespace
 		SetVec(v.LeafColor, XMFLOAT4(d.LeafColor.x, d.LeafColor.y, d.LeafColor.z, d.LeafVariation));
 		SetVec(v.LeafColor2, XMFLOAT4(d.LeafColor2.x, d.LeafColor2.y, d.LeafColor2.z, (float)(int)d.Params.Leaf));
 		SetVec(v.LeafParams, XMFLOAT4(d.LeafTransmission, d.LeafSmoothness, (float)std::clamp(d.Params.LeavesPerCard, 1, 16), d.LeafLength));
-		SetSrv(v.LeafTex, TreeTextures::Leaf((int)d.Params.Leaf, d.Params.LeavesPerCard, d.LeafLength));
+		SetSrv(v.LeafTex, TreeTextures::Leaf((int)d.Params.Leaf, d.Params.LeavesPerCard, d.LeafLength, d.Params.FlowerPetals));
+		SetVec(v.FlowerColor, XMFLOAT4(d.FlowerColor.x, d.FlowerColor.y, d.FlowerColor.z, d.Params.FlowerPetals > 0 ? 1.0f : 0.0f));
+		SetVec(v.FlowerCenter, d.FlowerCenter);
+		SetVec(v.BarkPattern, XMFLOAT4((float)(int)d.Pattern, (std::max)(d.PatternSpacing, 0.01f), d.PatternDepth, 0.0f));
+		SetVec(v.BarkPatternColor, d.PatternColor);
 		SetSrv(v.BarkTex, TreeTextures::Bark());
 		if (imp)
 		{
@@ -314,13 +339,14 @@ namespace
 		const auto t0 = std::chrono::steady_clock::now();
 		auto device = Application::GetI()->GetDevice();
 		GfxContext* dc = Application::GetI()->GetDeviceContext();
+		const int kFrameRes = FrameResOf(desc);
 		const UINT W = kFrames * kFrameRes, H = kFrameRes;
 
 		ComPtr<GfxTexture2D> tex[2], depth;
 		ComPtr<GfxRenderTargetView> rtv[2];
 		ComPtr<GfxDepthStencilView> dsv;
 		D3D11_TEXTURE2D_DESC td = {};
-		td.Width = W; td.Height = H; td.MipLevels = 6; td.ArraySize = 1;
+		td.Width = W; td.Height = H; td.MipLevels = kFrameRes >= 256 ? 6 : (kFrameRes >= 128 ? 5 : 4); td.ArraySize = 1;
 		td.Format = DXGI_FORMAT_R8G8B8A8_UNORM; td.SampleDesc.Count = 1; td.Usage = D3D11_USAGE_DEFAULT;
 		td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 		td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
@@ -423,18 +449,40 @@ namespace
 
 	Impostor* GetImpostor(const TreeDesc& desc, bool bake)
 	{
-		Impostor& imp = s_Impostors[desc.Hash()];
+		Impostor& imp = s_Impostors[desc.ImpostorKey ? desc.ImpostorKey : desc.Hash()];
 		if (!imp.Tried && bake)
 			BakeImpostor(imp, desc);
 		return imp.Albedo ? &imp : nullptr;
 	}
 
 	// ================================================================ 모으기
+	// 셀째 그리는 묶음 한 칸: 인스턴스 버퍼 + 이 단계의 거리 범위 (정점 셰이더가 인스턴스마다 고른다)
+	struct CellSegment
+	{
+		GfxBuffer* Buffer = nullptr;
+		uint32_t Count = 0;
+		uint64_t Serial = 0;                // 셀 버퍼 번호 (합친 버퍼의 서명 — 주소는 다시 쓰일 수 있어 번호로)
+		XMFLOAT4 Range = { 0, 0, 0, 0 };   // x 가까운 끝, y 먼 끝, z · w 섞는 띠 (gTreeLodRange)
+	};
+
+	// 종 · 단계 · 패스마다 셀 버퍼들을 큰 버퍼 하나로 (GPU 복사) → 그리기 한 번. 담은 셀이 그대로면 (서명) 다시 복사하지 않는다 —
+	//  셀마다 그리면 숲 · 풀 화면에서 그리기 호출이 프레임에 1 만 번을 넘었다 (CPU 30 ~ 50 ms)
+	struct MergedCells
+	{
+		ComPtr<GfxBuffer> Buffer;
+		uint32_t Capacity = 0;
+		uint64_t Filled = 0;
+		uint32_t LastUsed = 0;
+	};
+	std::unordered_map<uint64_t, MergedCells> s_MergedCells;
+	uint64_t s_CellSerial = 0;
+
 	struct Batch
 	{
 		const TreeDesc* Desc = nullptr;
 		std::vector<InstanceData> Lists[3];   // LOD0, LOD1, 임포스터
 		std::vector<XMFLOAT4> Spheres[3];      // 같은 순서의 경계 구 (오클루전 컬링 — 본 패스에서 GPU 가 거른다)
+		std::vector<CellSegment> CellLists[3]; // 셀째 (LOD0, LOD1, 임포스터)
 		bool Used = false;
 	};
 	std::unordered_map<size_t, Batch> s_Batches;
@@ -453,6 +501,57 @@ namespace
 		uint32 LayerBit;   // 그 GameObject (Tree 또는 지형) 의 레이어 — Culling Mask
 	};
 	std::vector<TreeRecord> s_Records;
+
+	// 셀째 그리는 바깥 셀 (화면 하나 동안) — 버퍼는 shared_ptr 로 잡아 둔다 (그리는 동안 셀이 버려져도)
+	struct CellRecord
+	{
+		Batch* B = nullptr;
+		std::shared_ptr<TreeRenderer::CellBuffer> Instances;
+		uint32_t Count = 0;
+		Vec3 Min, Max;            // 식물 크기만큼 넓힌 범위
+		float MinScale = 1.0f, MaxScale = 1.0f;
+		float Radius = 1.0f;      // 식물 경계 구 반지름 (배율 1)
+		bool CastShadows = true;
+		float ShadowDistance = 1e9f;
+	};
+	std::vector<CellRecord> s_CellRecords;
+
+	float NearDistance(const Vec3& p, const Vec3& mn, const Vec3& mx)
+	{
+		const float dx = (std::max)({ mn.x - p.x, 0.0f, p.x - mx.x });
+		const float dy = (std::max)({ mn.y - p.y, 0.0f, p.y - mx.y });
+		const float dz = (std::max)({ mn.z - p.z, 0.0f, p.z - mx.z });
+		return sqrtf(dx * dx + dy * dy + dz * dz);
+	}
+	float FarDistance(const Vec3& p, const Vec3& mn, const Vec3& mx)
+	{
+		const float dx = (std::max)(fabsf(p.x - mn.x), fabsf(p.x - mx.x));
+		const float dy = (std::max)(fabsf(p.y - mn.y), fabsf(p.y - mx.y));
+		const float dz = (std::max)(fabsf(p.z - mn.z), fabsf(p.z - mx.z));
+		return sqrtf(dx * dx + dy * dy + dz * dz);
+	}
+
+	// 단계마다 거리 범위 (gTreeLodRange). CPU 경로 (인스턴스마다 디더) 와 같은 경계 · 띠: LOD0 ~ LodDistance ~ LOD1 ~ Billboard ~ 임포스터 ~ Cull (끝 5 % 에서 사라짐).
+	//  임포스터가 없는 종 (Billboard ≥ Cull) 은 LOD1 이 끝까지. 그림자 (discrete) 는 띠 없이
+	bool LodRangeOf(const TreeDesc& d, int lod, bool discrete, XMFLOAT4& out)
+	{
+		const float l1 = d.LodDistance, l2 = d.BillboardDistance, lc = d.CullDistance;
+		const bool imp = l2 < lc;
+		const float b1 = l1 * 0.1f, b2 = l2 * 0.1f, bc = lc * 0.05f;
+		if (discrete)
+		{
+			if (lod == 0) out = { 0.0f, l1, 0, 0 };
+			else if (lod == 1) out = { l1, imp ? l2 : lc, 0, 0 };
+			else if (imp) out = { l2, lc, 0, 0 };
+			else return false;
+			return true;
+		}
+		if (lod == 0) out = { 0.0f, l1, 0.0f, b1 };
+		else if (lod == 1) out = imp ? XMFLOAT4(l1, l2, b1, b2) : XMFLOAT4(l1, lc - bc * 0.5f, b1, bc);
+		else if (imp) out = { l2, lc - bc * 0.5f, b2, bc };
+		else return false;
+		return true;
+	}
 	uint32 s_RecordLayer = 0xFFFFFFFFu;
 	bool s_RecordsValid = false;
 	bool s_RecordsEditor = false;
@@ -497,7 +596,7 @@ namespace
 	// 메시 데이터 (LOD 0 · 1) 를 백그라운드 잡에서 — 이미 있거나 만드는 중이면 건너뛴다
 	void PrewarmMeshAsync(const TreeDesc& desc)
 	{
-		TreeTextures::PrewarmLeafAsync((int)desc.Params.Leaf, desc.Params.LeavesPerCard, desc.LeafLength);   // 잎 아틀라스도 (첫 그리기에 구웠다)
+		TreeTextures::PrewarmLeafAsync((int)desc.Params.Leaf, desc.Params.LeavesPerCard, desc.LeafLength, desc.Params.FlowerPetals);   // 잎 아틀라스도 (첫 그리기에 구웠다)
 		for (int lod = 0; lod < 2; ++lod)
 		{
 			std::string key;
@@ -596,6 +695,10 @@ namespace TreeRenderer
 	{
 		s_RecordsValid = false;
 		++s_ViewSerial;
+		// 300 프레임 안 쓴 합친 셀 버퍼는 놓는다 (카메라가 지나간 곳)
+		const uint32_t frame = SceneCulling::FrameIndex();
+		for (auto it = s_MergedCells.begin(); it != s_MergedCells.end();)
+			it = frame - it->second.LastUsed > 300u ? s_MergedCells.erase(it) : std::next(it);
 	}
 
 	void PrewarmTerrain(const TerrainData& data, const Vec3& origin) { PrewarmTerrainImpl(data, origin); }
@@ -606,7 +709,7 @@ namespace TreeRenderer
 		PROFILE_SCOPE("Trees.PrewarmGpu");
 		GetMesh(desc, 0);   // 잡이 만든 메시를 GPU 로 (없으면 여기서 만든다)
 		GetMesh(desc, 1);
-		TreeTextures::Leaf((int)desc.Params.Leaf, desc.Params.LeavesPerCard, desc.LeafLength);
+		TreeTextures::Leaf((int)desc.Params.Leaf, desc.Params.LeavesPerCard, desc.LeafLength, desc.Params.FlowerPetals);
 		TreeTextures::Bark();
 		GetImpostor(desc, true);   // 먼 나무 사진 (굽기 — 렌더 타깃 · 상태를 되돌린다)
 	}
@@ -631,6 +734,51 @@ namespace TreeRenderer
 	{
 		static std::map<std::string, std::function<void(const Vec3&, bool, const TreeEmit&)>> s;
 		return s;
+	}
+
+	struct CellBuffer
+	{
+		ComPtr<GfxBuffer> Buffer;
+		uint32_t Count = 0;
+		uint64_t Serial = 0;
+	};
+
+	std::shared_ptr<CellBuffer> CreateCellBuffer(const XMFLOAT4X4* worlds, size_t count)
+	{
+		auto cb = std::make_shared<CellBuffer>();
+		if (count == 0)
+			return cb;
+		std::vector<InstanceData> data(count);
+		for (size_t i = 0; i < count; ++i)
+		{
+			data[i].World = worlds[i];
+			// 색 변화 · 바람 위상 = 인스턴스마다 경로와 같은 해시 (가까이서 인스턴스마다로 바뀌어도 같은 색)
+			data[i].Extra = XMFLOAT4(Hash2(worlds[i]._41, worlds[i]._43), Hash2(worlds[i]._43 * 1.7f, worlds[i]._41 * 0.9f), 0.0f, 0.0f);
+		}
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_IMMUTABLE;
+		bd.ByteWidth = (UINT)(sizeof(InstanceData) * count);
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		D3D11_SUBRESOURCE_DATA init = { data.data(), 0, 0 };
+		Application::GetI()->GetDevice()->CreateBuffer(&bd, &init, cb->Buffer.GetAddressOf());
+		cb->Count = (uint32_t)count;
+		cb->Serial = ++s_CellSerial;
+		return cb;
+	}
+
+	std::map<std::string, std::function<void(const Vec3&, bool, const CellEmit&)>>& ExternalCellSources()
+	{
+		static std::map<std::string, std::function<void(const Vec3&, bool, const CellEmit&)>> s;
+		return s;
+	}
+
+	void SetExternalCells(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const CellEmit& emit)> source)
+	{
+		if (source)
+			ExternalCellSources()[owner] = std::move(source);
+		else
+			ExternalCellSources().erase(owner);
+		s_RecordsValid = false;
 	}
 
 	void SetExternalSource(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const TreeEmit& emit)> source)
@@ -773,6 +921,57 @@ namespace TreeRenderer
 					}
 				});
 			}
+			// 바깥 셀 (PCG): 가까운 큰 나무 셀은 인스턴스마다 (위 기록 — LOD0 정밀 · 오클루전), 나머지는 셀째 (정점 셰이더가 LOD).
+			//  종마다 준비 (메시 · 묶음) 는 한 번만 — 셀 수천 x 종 목록마다 메시 키 문자열 · 맵을 찾으면 프레임마다 20 ms 였다
+			static std::unordered_map<const TreeDesc*, Proto> protoCache;
+			protoCache.clear();
+			s_CellRecords.clear();
+			for (auto& [owner, source] : ExternalCellSources())
+			{
+				if (!source)
+					continue;
+				s_RecordLayer = 1u;
+				source(camPos, editorView, [&](const CellDraw& c) {
+					if (c.Desc == nullptr || c.Count == 0 || !c.Instances || !c.Instances->Buffer)
+						return;
+					auto pc = protoCache.find(c.Desc);
+					if (pc == protoCache.end())
+						pc = protoCache.emplace(c.Desc, prepare(*c.Desc)).first;
+					const Proto& proto = pc->second;
+					if (!proto.B)
+						return;
+					const TreeDesc& d = *c.Desc;
+					const float reach = proto.BoundsRadius * 2.0f * c.MaxScale;
+					const Vec3 mn = c.Min - Vec3(reach, 0.5f, reach), mx = c.Max + Vec3(reach, reach, reach);
+					const float dmin = NearDistance(camPos, mn, mx);
+					if (dmin / (std::max)(c.MaxScale, 0.05f) >= d.CullDistance)
+						return;
+					if (c.Worlds && d.Params.Height >= 4.0f && dmin / (std::max)(c.MaxScale, 0.05f) < d.BillboardDistance * 1.1f)
+					{
+						for (size_t i = 0; i < c.Count; ++i)
+						{
+							const XMFLOAT4X4& w = c.Worlds[i];
+							const size_t before = s_Records.size();
+							record(proto, w, Hash2(w._41, w._43), Hash2(w._43 * 1.7f, w._41 * 0.9f));
+							if (s_Records.size() > before && c.ShadowDistance < 1e8f)
+								s_Records.back().CastShadows &= (Vec3(w._41, w._42, w._43) - camPos).Length() < c.ShadowDistance;
+						}
+						return;
+					}
+					CellRecord r;
+					r.B = proto.B;
+					r.Instances = c.Instances;
+					r.Count = (uint32_t)c.Count;
+					r.Min = mn;
+					r.Max = mx;
+					r.MinScale = (std::max)(c.MinScale, 0.05f);
+					r.MaxScale = (std::max)(c.MaxScale, 0.05f);
+					r.Radius = proto.BoundsRadius;
+					r.CastShadows = d.CastShadows && c.ShadowDistance > 0.0f;
+					r.ShadowDistance = c.ShadowDistance;
+					s_CellRecords.push_back(std::move(r));
+				});
+			}
 			// 설정이 바뀌어 쓰이지 않는 묶음은 버린다 (TreeDesc 포인터가 사라졌을 수 있다). 다른 노드 포인터는 그대로
 			for (auto it = s_Batches.begin(); it != s_Batches.end();)
 				it = it->second.Used ? std::next(it) : s_Batches.erase(it);
@@ -834,6 +1033,48 @@ namespace TreeRenderer
 				else if (d < lc - bc2) emit(2, 0, 0);
 				else emit(2, (d - (lc - bc2)) / bc2, 0);   // 멀어지며 사라짐
 			}
+			// 셀: 절두체 (넓힌 상자) → 셀의 가까운 · 먼 거리 (배율로 나눈) 가 걸치는 단계마다 한 칸
+			for (auto& kv : s_Batches)
+				for (auto& list : kv.second.CellLists)
+					list.clear();
+			for (const CellRecord& c : s_CellRecords)
+			{
+				if (shadow && !c.CastShadows)
+					continue;
+				if (!(1u & RenderLayers::ActiveMask()))
+					continue;
+				const Vec3 center = (c.Min + c.Max) * 0.5f, ext = (c.Max - c.Min) * 0.5f;
+				bool inside = true;
+				for (int i = 0; i < planeCount && inside; ++i)
+					inside = planes[i].x * center.x + planes[i].y * center.y + planes[i].z * center.z + planes[i].w
+						+ fabsf(planes[i].x) * ext.x + fabsf(planes[i].y) * ext.y + fabsf(planes[i].z) * ext.z >= 0.0f;
+				if (!inside)
+					continue;
+				const TreeDesc& desc = *c.B->Desc;
+				if (shadow && NearDistance(camPos, c.Min, c.Max) > c.ShadowDistance)
+					continue;
+				const float dmin = NearDistance(camPos, c.Min, c.Max) / c.MaxScale;
+				const float dmax = FarDistance(camPos, c.Min, c.Max) / c.MinScale;
+				// 그림자: 캐스케이드 텍셀보다 작은 식물은 임포스터로 (CPU 경로와 같은 규칙)
+				const bool hasImp = desc.BillboardDistance < desc.CullDistance;
+				const bool shadowImp = shadow && hasImp && shadowTexel > 0.0f && 2.0f * c.Radius * c.MaxScale / shadowTexel <= kShadowImpostorTexels;
+				for (int lod = 0; lod < 3; ++lod)
+				{
+					XMFLOAT4 range;
+					if (shadowImp)
+					{
+						if (lod != 2)
+							continue;
+						range = { 0.0f, desc.CullDistance, 0.0f, 0.0f };
+					}
+					else if (!LodRangeOf(desc, lod, shadow, range))
+						continue;
+					if (dmax < range.x - range.z * 0.5f || dmin >= range.y + range.w * 0.5f)
+						continue;
+					c.B->CellLists[lod].push_back({ c.Instances->Buffer.Get(), c.Count, c.Instances->Serial, range });
+				}
+				stats.Trees += (int)c.Count;
+			}
 			s_ListsSerial = s_ViewSerial;
 			s_ListsEditor = editor;
 			s_ListsPass = lodPass;
@@ -842,7 +1083,7 @@ namespace TreeRenderer
 
 		// ---- 임포스터는 그리기 전에 굽는다 (굽기가 효과 변수를 바꾸므로)
 		for (auto& kv : s_Batches)
-			if (!kv.second.Lists[2].empty())
+			if (!kv.second.Lists[2].empty() || !kv.second.CellLists[2].empty())
 				GetImpostor(*kv.second.Desc, true);
 
 		// ---- 패스 공통 값
@@ -885,10 +1126,125 @@ namespace TreeRenderer
 		for (auto& kv : s_Batches)
 		{
 			Batch& b = kv.second;
-			if (b.Lists[0].empty() && b.Lists[1].empty() && b.Lists[2].empty())
+			const bool anyCells = !b.CellLists[0].empty() || !b.CellLists[1].empty() || !b.CellLists[2].empty();
+			if (b.Lists[0].empty() && b.Lists[1].empty() && b.Lists[2].empty() && !anyCells)
 				continue;
-			Impostor* imp = b.Lists[2].empty() ? nullptr : GetImpostor(*b.Desc, false);
+			Impostor* imp = b.Lists[2].empty() && b.CellLists[2].empty() ? nullptr : GetImpostor(*b.Desc, false);
 			SetLook(v, *b.Desc, imp, (std::max)(0.0f, WeatherState::Get().WindStrength));   // 날씨 바람 (돌풍) 배율
+			// ---- 셀째: 셀 버퍼를 그대로, 정점 셰이더가 인스턴스마다 이 단계인지 (거리 범위) · 디더 문턱을 고른다
+			if (anyCells)
+			{
+				SetVec(v.LodEye, XMFLOAT4(camPos.x, camPos.y, camPos.z, shadow ? 2.0f : 1.0f));
+				for (int lod = 0; lod < 3; ++lod)
+				{
+					std::vector<CellSegment>& segs = b.CellLists[lod];
+					if (segs.empty() || (lod == 2 && !imp))
+						continue;
+					std::shared_ptr<GpuMesh> mesh = lod < 2 ? GetMesh(*b.Desc, lod) : nullptr;
+					if (lod < 2 && (!mesh || !mesh->VB))
+						continue;
+					// 같은 범위 (보통 하나 — 그림자는 임포스터로 돌린 셀이 따로) 끼리 큰 버퍼 하나로 합쳐 그리기 한 번
+					std::sort(segs.begin(), segs.end(), [](const CellSegment& x, const CellSegment& y) {
+						return x.Range.x != y.Range.x ? x.Range.x < y.Range.x : x.Serial < y.Serial; });
+					std::vector<CellSegment> merged;
+					for (size_t i = 0; i < segs.size();)
+					{
+						size_t j = i;
+						uint32_t total = 0;
+						uint64_t sig = 1469598103934665603ull;
+						while (j < segs.size() && segs[j].Range.x == segs[i].Range.x && segs[j].Range.y == segs[i].Range.y && segs[j].Range.z == segs[i].Range.z && segs[j].Range.w == segs[i].Range.w)
+						{
+							total += segs[j].Count;
+							sig = (sig ^ segs[j].Serial) * 1099511628211ull;
+							++j;
+						}
+						if (j - i == 1)
+						{
+							merged.push_back(segs[i]);
+							i = j;
+							continue;
+						}
+						// 묶음 버퍼: 종 · 단계 · 범위 · 화면 · 패스 (그림자는 조각마다 담는 셀이 달라 따로 — 같은 프레임에 덮어 복사하지 않게)
+						const int mergedPass = !shadow ? 0 : (ShadowRenderer::Current.Directional ? 1 + (std::max)(0, ShadowRenderer::Current.Cascade) : 9);
+						uint64_t key = (uint64_t)b.Desc->Hash() * 1099511628211ull;
+						key = (key ^ (uint64_t)(lod * 31 + mergedPass * 997 + (editor ? 7919 : 0))) * 1099511628211ull;
+						key = (key ^ (uint64_t)(segs[i].Range.x * 16.0f) ^ ((uint64_t)(segs[i].Range.y * 16.0f) << 24)) * 1099511628211ull;
+						MergedCells& m = s_MergedCells[key];
+						m.LastUsed = SceneCulling::FrameIndex();
+						if (m.Capacity < total)
+						{
+							m.Capacity = (std::max)(total, m.Capacity + m.Capacity / 2);
+							D3D11_BUFFER_DESC bd = {};
+							bd.Usage = D3D11_USAGE_DEFAULT;
+							bd.ByteWidth = m.Capacity * (UINT)sizeof(InstanceData);
+							bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+							m.Buffer.Reset();
+							Application::GetI()->GetDevice()->CreateBuffer(&bd, nullptr, m.Buffer.GetAddressOf());
+							m.Filled = 0;
+						}
+						if (m.Buffer)
+						{
+							if (m.Filled != sig)
+							{
+								UINT offset = 0;
+								for (size_t k = i; k < j; ++k)
+								{
+									const D3D11_BOX box = { 0, 0, 0, segs[k].Count * (UINT)sizeof(InstanceData), 1, 1 };
+									dc->CopySubresourceRegion(m.Buffer.Get(), 0, offset, 0, 0, segs[k].Buffer, 0, &box);
+									offset += segs[k].Count * (UINT)sizeof(InstanceData);
+								}
+								m.Filled = sig;
+							}
+							merged.push_back({ m.Buffer.Get(), total, sig, segs[i].Range });
+						}
+						i = j;
+					}
+					XMFLOAT4 current(-1.0f, -1.0f, -1.0f, -1.0f);
+					for (const CellSegment& seg : merged)
+					{
+						if (seg.Range.x != current.x || seg.Range.y != current.y || seg.Range.z != current.z || seg.Range.w != current.w)
+						{
+							current = seg.Range;
+							SetVec(v.LodRange, current);
+						}
+						if (lod < 2)
+						{
+							const UINT strides[2] = { sizeof(TreeVertex), sizeof(InstanceData) }, offsets[2] = { 0, 0 };
+							GfxBuffer* vbs[2] = { mesh->VB.Get(), seg.Buffer };
+							dc->IASetInputLayout(s_MeshLayout.Get());
+							dc->IASetVertexBuffers(0, 2, vbs, strides, offsets);
+							dc->IASetIndexBuffer(mesh->IB.Get(), DXGI_FORMAT_R32_UINT, 0);
+							if (mesh->BarkIndexCount > 0)
+							{
+								v.Bark->GetPassByIndex(0)->Apply(0, dc);
+								dc->DrawIndexedInstanced(mesh->BarkIndexCount, seg.Count, 0, 0, 0);
+								++stats.DrawCalls;
+							}
+							if (mesh->LeafIndexCount > 0)
+							{
+								v.Leaf->GetPassByIndex(0)->Apply(0, dc);
+								dc->DrawIndexedInstanced(mesh->LeafIndexCount, seg.Count, mesh->BarkIndexCount, 0, 0);
+								++stats.DrawCalls;
+							}
+						}
+						else
+						{
+							const UINT stride = sizeof(InstanceData), offset = 0;
+							GfxBuffer* none = nullptr;
+							UINT zero = 0;
+							GfxBuffer* inst = seg.Buffer;
+							dc->IASetVertexBuffers(0, 1, &none, &zero, &zero);
+							dc->IASetVertexBuffers(1, 1, &inst, &stride, &offset);
+							dc->IASetInputLayout(s_ImpostorLayout.Get());
+							v.Impostor->GetPassByIndex(0)->Apply(0, dc);
+							dc->DrawInstanced(6, seg.Count, 0, 0);
+							++stats.DrawCalls;
+						}
+						++stats.CellDraws;
+					}
+				}
+				SetVec(v.LodEye, XMFLOAT4(camPos.x, camPos.y, camPos.z, 0.0f));   // 아래 CPU 목록은 인스턴스 값 (Extra.zw)
+			}
 			for (int lod = 0; lod < 2; ++lod)
 			{
 				if (b.Lists[lod].empty())

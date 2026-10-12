@@ -48,6 +48,17 @@ struct PCGVolume::Cell
 	//  Serial = 만든 차례 번호 (묶음 버퍼의 서명 — 주소는 놓은 뒤 다른 버퍼가 다시 쓸 수 있어 번호로)
 	struct CellBuffer { ComPtr<GfxBuffer> Buffer; uint64_t Serial = 0; };
 	std::vector<std::vector<std::vector<CellBuffer>>> Buffers;
+	// 절차적 식생 (tree:종): [메시 × 변형] 인스턴스 (처음 그릴 때 한 번 나눈다) + GPU 버퍼 — TreeRenderer 가 셀째 그린다
+	struct TreeList
+	{
+		std::vector<XMFLOAT4X4> Worlds;
+		std::shared_ptr<TreeRenderer::CellBuffer> Gpu;
+		Vec3 Min, Max;
+		float MinScale = 1.0f, MaxScale = 1.0f;
+	};
+	std::vector<TreeList> Trees;
+	std::vector<uint16_t> TreesUsed;   // 비지 않은 Trees 칸 (프레임마다 메시 x 변형 칸을 다 훑지 않게)
+	bool TreesSplit = false;
 };
 
 namespace
@@ -171,8 +182,8 @@ PCGVolume::PCGVolume()
 		MeshBatcher::SetExternalSource("PCG", [](MeshBatcher::Pass pass, bool editor, std::vector<MeshBatcher::ExternalBatch>& out) {
 			PCGVolume::EmitBatches((int)pass, editor, &out);
 		});
-		TreeRenderer::SetExternalSource("PCG", [](const Vec3& eye, bool, const TreeRenderer::TreeEmit& emit) {
-			PCGVolume::EmitTrees(eye, emit);
+		TreeRenderer::SetExternalCells("PCG", [](const Vec3& eye, bool, const TreeRenderer::CellEmit& emit) {
+			PCGVolume::EmitTreeCells(eye, emit);
 		});
 	}
 }
@@ -234,6 +245,9 @@ void PCGVolume::ApplyResults()
 		cell.MaxY = it.Out.MaxY;
 		cell.Points = it.Out.Points;
 		cell.Buffers.clear();
+		cell.Trees.clear();
+		cell.TreesUsed.clear();
+		cell.TreesSplit = false;
 		m_GenMs += it.Out.Ms;
 		++m_Generated;
 	}
@@ -475,9 +489,8 @@ void PCGVolume::Tick()
 	}
 }
 
-void PCGVolume::EmitTrees(const Vec3& eye, const std::function<void(const TreeDesc&, const XMFLOAT4X4*, size_t)>& emit)
+void PCGVolume::EmitTreeCells(const Vec3& eye, const TreeRenderer::CellEmit& emit)
 {
-	static std::vector<XMFLOAT4X4> split[PCG::kTreeVariants];
 	for (PCGVolume* v : Registry())
 	{
 		if (!v->IsEnabled() || v->m_pGameObject == nullptr || !v->m_pGameObject->IsActiveInHierarchy())
@@ -490,29 +503,75 @@ void PCGVolume::EmitTrees(const Vec3& eye, const std::function<void(const TreeDe
 			if (!any)
 				continue;
 			const float range = s.Cull * v->DistanceScale;
-			const TreeDesc* species[16][PCG::kTreeVariants] = {};
-			for (size_t m = 0; m < s.Meshes.size() && m < 16; ++m)
+			// 칸 (메시) 마다 종 · 변형 수 · 변형별 TreeDesc
+			const size_t meshes = (std::min)(s.Meshes.size(), (size_t)64);
+			const TreeDesc* species[64][PCG::kTreeVariants] = {};
+			int variants[64] = {};
+			for (size_t m = 0; m < meshes; ++m)
 				if (PCG::IsTreePath(s.Meshes[m]))
-					for (int k = 0; k < PCG::kTreeVariants; ++k)
+				{
+					variants[m] = PCG::TreeVariantsOf(s.Meshes[m]);
+					for (int k = 0; k < variants[m]; ++k)
 						species[m][k] = PCG::TreeSpecies(s.Meshes[m], k, range);
+				}
 			for (auto& kv : v->m_Cells)
 			{
 				if (kv.first.Spawner != s.Id)
 					continue;
-				const Cell& c = *kv.second;
+				Cell& c = *kv.second;
 				if (!c.Ready || RectDistance(c.X0, c.Z0, c.X1, c.Z1, eye) > range)
 					continue;
-				for (size_t m = 0; m < c.PerMesh.size() && m < 16; ++m)
+				// 처음 그릴 때 한 번: [메시 × 변형] 으로 나누고 GPU 버퍼 (예전에는 프레임마다 나눠 CPU 에서 넘겼다)
+				if (!c.TreesSplit)
 				{
-					if (!species[m][0] || c.PerMesh[m].empty())
+					c.TreesSplit = true;
+					c.Trees.assign(meshes * PCG::kTreeVariants, {});
+					for (size_t m = 0; m < c.PerMesh.size() && m < meshes; ++m)
+					{
+						if (!species[m][0])
+							continue;
+						for (const XMFLOAT4X4& w : c.PerMesh[m])
+						{
+							Cell::TreeList& list = c.Trees[m * PCG::kTreeVariants + PCG::TreeVariantAt(w._41, w._43, variants[m])];
+							const float scale = sqrtf(w._21 * w._21 + w._22 * w._22 + w._23 * w._23);
+							if (list.Worlds.empty())
+							{
+								list.Min = list.Max = Vec3(w._41, w._42, w._43);
+								list.MinScale = list.MaxScale = scale;
+							}
+							list.Min = Vec3((std::min)(list.Min.x, w._41), (std::min)(list.Min.y, w._42), (std::min)(list.Min.z, w._43));
+							list.Max = Vec3((std::max)(list.Max.x, w._41), (std::max)(list.Max.y, w._42), (std::max)(list.Max.z, w._43));
+							list.MinScale = (std::min)(list.MinScale, scale);
+							list.MaxScale = (std::max)(list.MaxScale, scale);
+							list.Worlds.push_back(w);
+						}
+					}
+					c.TreesUsed.clear();
+					for (size_t i = 0; i < c.Trees.size(); ++i)
+						if (!c.Trees[i].Worlds.empty())
+						{
+							c.Trees[i].Gpu = TreeRenderer::CreateCellBuffer(c.Trees[i].Worlds.data(), c.Trees[i].Worlds.size());
+							c.TreesUsed.push_back((uint16_t)i);
+						}
+				}
+				for (uint16_t idx : c.TreesUsed)
+				{
+					const size_t m = idx / PCG::kTreeVariants;
+					const int k = idx % PCG::kTreeVariants;
+					const Cell::TreeList& list = c.Trees[idx];
+					if (m >= meshes || k >= variants[m] || !species[m][k])
 						continue;
-					for (auto& list : split)
-						list.clear();
-					for (const XMFLOAT4X4& w : c.PerMesh[m])
-						split[PCG::TreeVariantAt(w._41, w._43)].push_back(w);
-					for (int k = 0; k < PCG::kTreeVariants; ++k)
-						if (!split[k].empty())
-							emit(*species[m][k], split[k].data(), split[k].size());
+					TreeRenderer::CellDraw d;
+					d.Desc = species[m][k];
+					d.Instances = list.Gpu;
+					d.Worlds = list.Worlds.data();
+					d.Count = list.Worlds.size();
+					d.Min = list.Min;
+					d.Max = list.Max;
+					d.MinScale = list.MinScale;
+					d.MaxScale = list.MaxScale;
+					d.ShadowDistance = s.Shadows ? s.ShadowDistance * v->DistanceScale : 0.0f;
+					emit(d);
 				}
 			}
 		}

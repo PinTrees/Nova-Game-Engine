@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "PCGGraph.h"
 #include "PathManager.h"
+#include "PlantLibrary.h"
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -71,7 +72,9 @@ namespace PCG
 				{ "castShadows", "Cast Shadows", ParamKind::Bool, 1.0f, 0.0f, 1.0f, nullptr, "" },
 				{ "shadowDistance", "Shadow Distance (m)", ParamKind::Float, 150.0f, 0.0f, 5000.0f, nullptr, "이 거리 안만 그림자" },
 				{ "lodBias", "LOD Bias", ParamKind::Float, 1.0f, 0.1f, 4.0f, nullptr, "크면 더 멀리까지 자세한 LOD" },
-				{ "seed", "Seed", ParamKind::Int, 0.0f, 0.0f, 100000.0f, nullptr, "메시 고르기" } },
+				{ "seed", "Seed", ParamKind::Int, 0.0f, 0.0f, 100000.0f, nullptr, "메시 고르기" },
+				{ "climateSelect", "Climate Select", ParamKind::Bool, 0.0f, 0.0f, 1.0f, nullptr,
+					"절차적 식생 (tree:종) 을 그 자리 기후 (기온 · 습도 · 경사 · 물가) 에 맞는 정도 x 가중치로 고른다. 맞는 종이 없으면 놓지 않는다" } },
 				"점마다 메시 하나 (가중치로 고른다). 모델의 _LODn 노드 = LOD, 인스턴싱으로 그린다" },
 		};
 		return descs;
@@ -369,7 +372,16 @@ namespace PCG
 	Graph MakeOpenWorldPreset(const std::vector<std::pair<std::string, std::string>>& models)
 	{
 		Graph g;
-		// 역할의 모델 (많으면 고르게 max 개 — 변형마다 메시 · 텍스처가 GPU 에 올라간다)
+		// 식생은 모두 절차적 (PlantLibrary 의 종 — "tree:이름"), 층마다 스포너 하나에 그 층의 모든 종을 넣고 기후로 고른다 (Climate Select).
+		//  바위 · 잔해만 프로젝트 모델 (있으면)
+		auto plants = [](std::initializer_list<PlantLibrary::Layer> layers) {
+			std::vector<MeshEntry> out;
+			for (const PlantLibrary::Species& s : PlantLibrary::All())
+				for (PlantLibrary::Layer l : layers)
+					if (s.Kind == l)
+						out.push_back({ "tree:" + s.Name, 1.0f });
+			return out;
+		};
 		auto of = [&](std::initializer_list<const char*> kinds, size_t max = 8) {
 			std::vector<MeshEntry> all;
 			for (const auto& m : models)
@@ -384,9 +396,9 @@ namespace PCG
 			return out;
 		};
 		float y = 0.0f;
-		// 줄 하나 = 표본 → 거르기 … → 놓기. 반환 = 마지막 점 노드 (Difference 의 Exclusions 로 쓴다)
+		// 줄 하나 = 표본 → (바이옴) → 경사 → 밀도 노이즈 → 밀도 → (빼기) → (솎기) → 돌리기 · 크기 → 놓기 (기후로 종 고르기)
 		auto chain = [&](const char* name, float density, float extents, int biome, float minWeight, float noiseScale, float pruning, float scaleMin, float scaleMax,
-			float align, float maxSlope, std::vector<MeshEntry> meshes, float cull, bool shadows, float shadowDistance, int exclude, float excludeRadius) -> int {
+			float align, float maxSlope, std::vector<MeshEntry> meshes, float cull, bool shadows, float shadowDistance, int exclude, float excludeRadius, bool climate) -> int {
 			if (meshes.empty())
 				return 0;
 			float x = 0.0f;
@@ -446,147 +458,28 @@ namespace PCG
 			sp.Set("cullDistance", cull);
 			sp.Set("castShadows", shadows ? 1.0f : 0.0f);
 			sp.Set("shadowDistance", shadowDistance);
+			sp.Set("climateSelect", climate ? 1.0f : 0.0f);
+			// 멀리까지 그리는 나무 스포너는 셀을 크게 (256 m) — 2.5 km 안의 셀이 수천 개면 프레임마다 셀을 훑는 CPU 가 커진다
+			if (cull >= 2000.0f)
+				sp.Set("cellSize", 256.0f);
 			g.Connect(points, sp.Id, 0);
 			y += 220.0f;
 			return points;
 		};
 		enum { Forest = 0, Meadow = 1, Desert = 2, Rock = 3 };
-		// 그림자 거리: 나무는 2 km (열린 월드 그림자 Volume 의 Max Distance) — 멀리는 마지막 LOD (빌보드 · 임포스터) 가 그림자를 남긴다
-		const int trees = chain("Forest Trees", 0.014f, 3.0f, Forest, 0.35f, 220.0f, 6.0f, 0.8f, 1.25f, 0.0f, 32.0f, of({ "BigTree" }), 3000.0f, true, 2000.0f, 0, 0.0f);
-		const int meadowTrees = chain("Meadow Trees", 0.0012f, 4.0f, Meadow, 0.4f, 400.0f, 14.0f, 0.8f, 1.2f, 0.0f, 25.0f, of({ "BigTree", "SmallTree" }), 3000.0f, true, 2000.0f, 0, 0.0f);
-		// 숲 아래는 빽빽하게 (실제 숲처럼 땅이 거의 보이지 않게 — 고사리 · 덤불 · 풀 · 덮개)
-		chain("Forest Understory", 0.3f, 0.8f, Forest, 0.3f, 45.0f, 1.0f, 0.7f, 1.3f, 0.5f, 38.0f, of({ "Fern", "Bush" }), 220.0f, true, 60.0f, trees, 2.5f);
-		chain("Forest Floor", 2.6f, 0.3f, Forest, 0.25f, 18.0f, 0.0f, 0.7f, 1.3f, 0.8f, 40.0f, of({ "ForestCover", "Grass" }), 85.0f, false, 0.0f, trees, 1.2f);
-		chain("Forest Debris", 0.012f, 1.5f, Forest, 0.4f, 90.0f, 3.0f, 0.8f, 1.3f, 1.0f, 30.0f, of({ "Debris" }), 220.0f, true, 60.0f, trees, 3.0f);
-		chain("Mushrooms", 0.02f, 0.2f, Forest, 0.5f, 12.0f, 0.4f, 0.7f, 1.4f, 0.6f, 30.0f, of({ "Mushroom" }), 50.0f, false, 0.0f, trees, 1.0f);
-		chain("Meadow Grass", 4.0f, 0.25f, Meadow, 0.2f, 30.0f, 0.0f, 0.75f, 1.35f, 0.7f, 35.0f, of({ "Grass" }, 12), 75.0f, false, 0.0f, meadowTrees, 1.0f);
-		chain("Meadow Bushes", 0.012f, 1.0f, Meadow, 0.35f, 120.0f, 2.5f, 0.7f, 1.3f, 0.4f, 30.0f, of({ "Bush" }), 400.0f, true, 200.0f, meadowTrees, 3.0f);
-		chain("Desert Cactus", 0.025f, 1.5f, Desert, 0.4f, 160.0f, 3.0f, 0.7f, 1.3f, 0.0f, 25.0f, of({ "Desert" }), 1500.0f, true, 600.0f, 0, 0.0f);
-		chain("Desert Shrubs", 0.15f, 0.6f, Desert, 0.3f, 50.0f, 1.2f, 0.7f, 1.3f, 0.6f, 30.0f, of({ "DesertGrass" }), 200.0f, false, 0.0f, 0, 0.0f);
-		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 800.0f, 0, 0.0f);
-		return g;
-	}
-
-	Graph MakeBiomeForestPreset(const std::vector<std::pair<std::string, std::string>>& models, float maxHeight)
-	{
-		Graph g;
-		auto of = [&](std::initializer_list<const char*> kinds, size_t max = 8) {
-			std::vector<MeshEntry> all;
-			for (const auto& m : models)
-				for (const char* k : kinds)
-					if (m.first == k)
-						all.push_back({ m.second, 1.0f });
-			if (all.size() <= max)
-				return all;
-			std::vector<MeshEntry> out;
-			for (size_t i = 0; i < max; ++i)
-				out.push_back(all[i * all.size() / max]);
-			return out;
-		};
-		auto trees = [](std::initializer_list<std::pair<const char*, float>> species) {
-			std::vector<MeshEntry> out;
-			for (const auto& [name, w] : species)
-				out.push_back({ std::string("tree:") + name, w });
-			return out;
-		};
-		float y = 0.0f;
-		struct Zone { float Min = -1.0f, Max = -1.0f; };
-		// 줄: 표본 → 바이옴 → 높이 띠 → 경사 → 밀도 노이즈 → 밀도 → (빼기) → (솎기) → 돌리기 · 크기 → 놓기
-		auto chain = [&](const char* name, float density, float extents, int biome, float minWeight, Zone zone, float noiseScale, float pruning, float scaleMin, float scaleMax,
-			float align, float maxSlope, std::vector<MeshEntry> meshes, float cull, bool shadows, float shadowDistance, int exclude, float excludeRadius) -> int {
-			if (meshes.empty())
-				return 0;
-			float x = 0.0f;
-			Node& s = g.Add(NodeType::SurfaceSampler, x, y); x += 260.0f;
-			s.Comment = name;
-			s.Set("pointsPerSquaredMeter", density);
-			s.Set("pointExtents", extents);
-			s.Set("seed", (float)(g.NextId * 37));
-			int last = s.Id;
-			if (biome >= 0)
-			{
-				Node& b = g.Add(NodeType::BiomeFilter, x, y); x += 260.0f;
-				b.Set("biome", (float)biome);
-				b.Set("minWeight", minWeight);
-				g.Connect(last, b.Id, 0);
-				last = b.Id;
-			}
-			if (zone.Max > 0.0f)
-			{
-				Node& hf = g.Add(NodeType::HeightFilter, x, y); x += 260.0f;
-				hf.Set("minHeight", (std::max)(0.0f, zone.Min));
-				hf.Set("maxHeight", zone.Max);
-				hf.Set("falloff", maxHeight * 0.04f);
-				g.Connect(last, hf.Id, 0);
-				last = hf.Id;
-			}
-			Node& sl = g.Add(NodeType::SlopeFilter, x, y); x += 260.0f;
-			sl.Set("maxAngle", maxSlope);
-			g.Connect(last, sl.Id, 0);
-			last = sl.Id;
-			if (noiseScale > 0.0f)
-			{
-				Node& nn = g.Add(NodeType::DensityNoise, x, y); x += 260.0f;
-				nn.Set("scale", noiseScale);
-				nn.Set("seed", (float)(g.NextId * 53));
-				g.Connect(last, nn.Id, 0);
-				last = nn.Id;
-			}
-			Node& df = g.Add(NodeType::DensityFilter, x, y); x += 260.0f;
-			g.Connect(last, df.Id, 0);
-			last = df.Id;
-			if (exclude > 0)
-			{
-				Node& d = g.Add(NodeType::Difference, x, y); x += 260.0f;
-				d.Set("radius", excludeRadius);
-				g.Connect(last, d.Id, 0);
-				g.Connect(exclude, d.Id, 1);
-				last = d.Id;
-			}
-			if (pruning > 0.0f)
-			{
-				Node& p = g.Add(NodeType::SelfPruning, x, y); x += 260.0f;
-				p.Set("radius", pruning);
-				g.Connect(last, p.Id, 0);
-				last = p.Id;
-			}
-			Node& t = g.Add(NodeType::TransformPoints, x, y); x += 260.0f;
-			t.Set("scaleMin", scaleMin);
-			t.Set("scaleMax", scaleMax);
-			t.Set("alignToNormal", align);
-			g.Connect(last, t.Id, 0);
-			const int points = t.Id;
-			Node& sp = g.Add(NodeType::StaticMeshSpawner, x, y);
-			sp.Comment = name;
-			sp.Meshes = std::move(meshes);
-			sp.Set("cullDistance", cull);
-			sp.Set("castShadows", shadows ? 1.0f : 0.0f);
-			sp.Set("shadowDistance", shadowDistance);
-			g.Connect(points, sp.Id, 0);
-			y += 220.0f;
-			return points;
-		};
-		enum { Forest = 0, Meadow = 1, Desert = 2, Rock = 3 };
-		const float H = (std::max)(maxHeight, 100.0f);
-		// 높이 띠 (최고 높이의 비율): 저지 활엽수 0 ~ 34 %, 산지 침엽수 26 ~ 68 %, 수목한계선 62 ~ 80 % (그 위는 바위 · 눈)
-		const int lowland = chain("Lowland Broadleaf", 0.009f, 3.5f, Forest, 0.35f, { 0.0f, H * 0.34f }, 260.0f, 7.0f, 0.8f, 1.25f, 0.0f, 30.0f,
-			trees({ { "Beech", 1.3f }, { "Oak", 1.0f }, { "Birch", 0.6f }, { "Alder", 0.35f } }), 2200.0f, true, 1500.0f, 0, 0.0f);
-		const int montane = chain("Montane Conifers", 0.013f, 2.5f, Forest, 0.3f, { H * 0.26f, H * 0.68f }, 220.0f, 5.0f, 0.75f, 1.25f, 0.0f, 36.0f,
-			trees({ { "Spruce", 1.6f }, { "Fir", 1.0f }, { "Larch", 0.5f } }), 2200.0f, true, 1500.0f, 0, 0.0f);
-		chain("Treeline Pines", 0.006f, 2.0f, -1, 0.0f, { H * 0.62f, H * 0.8f }, 140.0f, 4.0f, 0.6f, 1.2f, 0.3f, 32.0f,
-			trees({ { "Dwarf Pine", 1.0f }, { "Spruce", 0.25f }, { "Juniper", 0.5f } }), 900.0f, true, 500.0f, 0, 0.0f);
-		chain("Dead Snags", 0.0005f, 2.0f, Forest, 0.4f, { H * 0.2f, H * 0.7f }, 0.0f, 12.0f, 0.8f, 1.2f, 0.0f, 30.0f,
-			trees({ { "Dead Pine", 1.0f } }), 1500.0f, true, 800.0f, montane, 4.0f);
-		const int meadowTrees = chain("Meadow Trees", 0.0009f, 4.0f, Meadow, 0.4f, { 0.0f, H * 0.5f }, 400.0f, 16.0f, 0.8f, 1.25f, 0.0f, 25.0f,
-			trees({ { "Oak", 1.0f }, { "Birch", 0.7f }, { "Beech", 0.4f } }), 2200.0f, true, 1500.0f, 0, 0.0f);
-		chain("Meadow Shrubs", 0.006f, 1.2f, Meadow, 0.35f, { 0.0f, H * 0.72f }, 120.0f, 3.0f, 0.7f, 1.3f, 0.3f, 32.0f,
-			trees({ { "Juniper", 1.0f }, { "Bush", 1.0f } }), 600.0f, true, 250.0f, meadowTrees, 4.0f);
-		// 아래 덮개 · 풀 · 바위 (프로젝트 모델)
-		chain("Forest Understory", 0.25f, 0.8f, Forest, 0.3f, { 0.0f, H * 0.7f }, 45.0f, 1.0f, 0.7f, 1.3f, 0.5f, 38.0f, of({ "Fern", "Bush" }), 220.0f, true, 60.0f, lowland, 2.5f);
-		chain("Forest Floor", 2.4f, 0.3f, Forest, 0.25f, { 0.0f, H * 0.72f }, 18.0f, 0.0f, 0.7f, 1.3f, 0.8f, 40.0f, of({ "ForestCover", "Grass" }), 85.0f, false, 0.0f, montane, 1.2f);
-		chain("Forest Debris", 0.01f, 1.5f, Forest, 0.4f, {}, 90.0f, 3.0f, 0.8f, 1.3f, 1.0f, 30.0f, of({ "Debris" }), 220.0f, true, 60.0f, montane, 3.0f);
-		chain("Meadow Grass", 4.0f, 0.25f, Meadow, 0.2f, { 0.0f, H * 0.78f }, 30.0f, 0.0f, 0.75f, 1.35f, 0.7f, 35.0f, of({ "Grass" }, 12), 75.0f, false, 0.0f, meadowTrees, 1.0f);
-		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, {}, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 800.0f, 0, 0.0f);
+		using PL = PlantLibrary::Layer;
+		// 숲 (바이옴 숲 비중) — 기후대마다 그 기후의 큰 나무 (우림 케이폭 · 타이가 가문비 · 온대 너도밤 …)
+		const int canopy = chain("Forest Canopy", 0.012f, 3.0f, Forest, 0.3f, 240.0f, 5.5f, 0.75f, 1.25f, 0.0f, 36.0f, plants({ PL::Canopy }), 2500.0f, true, 1500.0f, 0, 0.0f, true);
+		// 트인 곳의 외딴 나무 (사바나 아카시아 · 사막 사와로 · 초원 참나무 …)
+		const int open = chain("Open Trees", 0.0012f, 4.0f, -1, 0.0f, 400.0f, 14.0f, 0.8f, 1.2f, 0.0f, 30.0f, plants({ PL::Canopy, PL::SmallTree }), 2500.0f, true, 1500.0f, canopy, 6.0f, true);
+		chain("Small Trees", 0.004f, 2.5f, Forest, 0.3f, 180.0f, 4.0f, 0.75f, 1.2f, 0.0f, 34.0f, plants({ PL::SmallTree }), 1200.0f, true, 600.0f, canopy, 3.0f, true);
+		const int shrubs = chain("Shrubs", 0.03f, 1.2f, -1, 0.0f, 90.0f, 2.2f, 0.7f, 1.3f, 0.3f, 38.0f, plants({ PL::Shrub }), 450.0f, true, 120.0f, canopy, 2.5f, true);
+		chain("Succulents", 0.02f, 0.8f, -1, 0.0f, 70.0f, 1.5f, 0.7f, 1.3f, 0.2f, 40.0f, plants({ PL::Succulent }), 300.0f, true, 120.0f, open, 2.0f, true);
+		chain("Ferns", 0.12f, 0.7f, Forest, 0.25f, 40.0f, 0.8f, 0.7f, 1.3f, 0.6f, 40.0f, plants({ PL::Fern }), 120.0f, false, 0.0f, canopy, 1.5f, true);
+		chain("Grass", 2.0f, 0.25f, -1, 0.0f, 30.0f, 0.0f, 0.7f, 1.3f, 0.7f, 40.0f, plants({ PL::Grass }), 80.0f, false, 0.0f, shrubs, 0.6f, true);
+		chain("Flowers", 0.25f, 0.3f, -1, 0.0f, 22.0f, 0.0f, 0.7f, 1.3f, 0.6f, 38.0f, plants({ PL::Flower }), 70.0f, false, 0.0f, shrubs, 0.6f, true);
+		chain("Forest Debris", 0.01f, 1.5f, Forest, 0.4f, 90.0f, 3.0f, 0.8f, 1.3f, 1.0f, 30.0f, of({ "Debris" }), 220.0f, true, 60.0f, canopy, 3.0f, false);
+		chain("Rocks", 0.003f, 2.5f, Rock, 0.3f, 300.0f, 6.0f, 0.6f, 2.2f, 1.0f, 70.0f, of({ "Rock" }), 1500.0f, true, 800.0f, 0, 0.0f, false);
 		return g;
 	}
 }

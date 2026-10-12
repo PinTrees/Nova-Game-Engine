@@ -8,10 +8,11 @@
 //  - 수피 (가로·세로 모두 이어지는 타일): 세로 균열 높이 → rg = 기울기, b = 높이
 namespace TreeTextures
 {
-	// shape: 0 Broad, 1 Oval, 2 Needle. leafLength = 카드 비율
-	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength);
+	// shape: TreeParams::LeafShape (0 Broad, 1 Oval, 2 Needle, 3 Blade, 4 Frond, 5 Round, 6 Lobed, 7 Scale). leafLength = 카드 비율
+	//  petals > 0: 칸 3 = 꽃 (꽃잎 petals 장 + 가운데 — g < 0.22 가 가운데, b = 0.9). 잎 카드는 칸 0 ~ 2 만 쓴다
+	GfxShaderResourceView* Leaf(int shape, int leavesPerCard, float leafLength, int petals = 0);
 	// 씬 스트리밍: 잎 아틀라스를 백그라운드 잡에서 미리 굽는다 (처음 Leaf 는 GPU 로 올리기만)
-	void PrewarmLeafAsync(int shape, int leavesPerCard, float leafLength);
+	void PrewarmLeafAsync(int shape, int leavesPerCard, float leafLength, int petals = 0);
 	GfxShaderResourceView* Bark();
 	void CollectMemory(std::vector<MemoryStats::Item>& items);   // Profiler 메모리
 
@@ -23,7 +24,7 @@ namespace TreeTextures
 		XMFLOAT2 Points[8];
 		float Area = 1.0f;   // 카드 넓이에 대한 비율
 	};
-	const LeafHull& LeafCardHull(int shape, int leavesPerCard, float leafLength, int cell);
+	const LeafHull& LeafCardHull(int shape, int leavesPerCard, float leafLength, int cell, int petals = 0);
 
 	// 수피 타일 한 장이 담는 균열 칸 수 (가로·세로). 셰이더 44. TreeCommon.fx 와 같아야 한다
 	constexpr int kBarkCells = 8;

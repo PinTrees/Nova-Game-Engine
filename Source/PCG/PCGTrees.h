@@ -13,5 +13,6 @@ namespace PCG
 	int TreePreset(const std::string& path);                // "tree:Spruce" → 프리셋 번호 (없으면 -1)
 	// 종 · 변형 · 그리는 거리 (스포너 Cull) 의 TreeDesc — 지우지 않는다 (TreeRenderer 가 프레임 동안 포인터를 쓴다)
 	const TreeDesc* TreeSpecies(const std::string& path, int variant, float cullDistance);
-	int TreeVariantAt(float x, float z);                    // 점 위치 → 변형 번호
+	int TreeVariantsOf(const std::string& path);             // 변형 수: 키 4 m 넘는 나무 kTreeVariants, 작은 식물 1 (풀 · 꽃은 크기 · 색으로 충분)
+	int TreeVariantAt(float x, float z, int variants = kTreeVariants);   // 점 위치 → 변형 번호
 }

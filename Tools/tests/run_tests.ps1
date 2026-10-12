@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -7145,6 +7145,88 @@ function Suite-PCG
     }
 }
 
+# ------------------------------------------------------------------ 절차적 식생 (PlantLibrary — 기후대별 종 · 셀째 그리기)
+function Suite-Plants
+{
+    # 기후대별 종 100 개 넘게 (나무 · 야자 · 대나무 · 선인장 · 풀 · 꽃 · 고사리), 종마다 메시가 제대로 (빈 메시 · 이상한 크기 없음),
+    #  기후에 맞는 종 고르기 (덥고 마름 = 선인장, 춥고 습함 = 침엽수, 덥고 습함 = 우림), PCG 셀을 GPU 버퍼째 그린다 (정점 셰이더가 LOD)
+    Write-Host '[plants]'
+    $dir = Join-Path $Out 'plants'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $graph = 'Assets\PCG\SuitePlants.pcg'
+    $graphFile = Join-Path $Project $graph
+    New-Item -ItemType Directory -Force (Split-Path $graphFile) | Out-Null
+    @'
+{ "nova_pcg": 1, "nextId": 4,
+  "nodes": [
+    { "id": 1, "type": "SurfaceSampler", "x": 0, "y": 0, "params": { "pointsPerSquaredMeter": 0.6, "looseness": 1, "pointExtents": 0.3, "seed": 0 } },
+    { "id": 2, "type": "TransformPoints", "x": 260, "y": 0, "params": { "yawMin": 0, "yawMax": 360, "scaleMin": 0.8, "scaleMax": 1.2, "alignToNormal": 0.7 } },
+    { "id": 3, "type": "StaticMeshSpawner", "x": 520, "y": 0, "params": { "cullDistance": 60, "castShadows": 0, "shadowDistance": 0, "climateSelect": 1 },
+      "meshes": [ { "path": "tree:Meadow Grass", "weight": 1 }, { "path": "tree:Fescue", "weight": 1 }, { "path": "tree:Desert Grass", "weight": 1 },
+                  { "path": "tree:Jungle Grass", "weight": 1 }, { "path": "tree:Alpine Grass", "weight": 1 }, { "path": "tree:Red Poppy", "weight": 0.3 } ] } ],
+  "edges": [ { "from": 1, "to": 2, "pin": 0 }, { "from": 2, "to": 3, "pin": 0 } ] }
+'@ | Set-Content -Encoding utf8 $graphFile
+    Add-Type -AssemblyName System.Drawing
+    function ImageDiffP([string]$a, [string]$b)
+    {
+        $p = [System.Drawing.Bitmap]::FromFile($a); $q = [System.Drawing.Bitmap]::FromFile($b)
+        $s = 0.0; $n = 0
+        for ($y = 0; $y -lt [math]::Min($p.Height, $q.Height); $y += 4) { for ($x = 0; $x -lt [math]::Min($p.Width, $q.Width); $x += 4) {
+            $c = $p.GetPixel($x, $y); $d = $q.GetPixel($x, $y); $s += ([math]::Abs($c.R - $d.R) + [math]::Abs($c.G - $d.G) + [math]::Abs($c.B - $d.B)) / 3.0; $n++ } }
+        $p.Dispose(); $q.Dispose()
+        $s / [math]::Max(1, $n)
+    }
+    $ed = Start-TestEditor -WatchSeconds 600
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        $list = Invoke-NovaJson 'plants list'
+        $names = @($list.species | ForEach-Object { $_.name })
+        $layers = @($list.species | Group-Object layer).Count
+        $wanted = @('Bamboo', 'Moso Bamboo', 'Black Bamboo', 'Coconut Palm', 'Date Palm', 'Canary Date Palm', 'Fan Palm', 'Royal Palm')
+        $missing = @($wanted | Where-Object { $names -notcontains $_ })
+        Add-Result plants 'library: 100+ procedural species in 13 climate zones and 7 layers (bamboo · palms · date palms included)' ([int]$list.total -ge 100 -and @($list.zones.PSObject.Properties).Count -ge 13 -and $layers -ge 7 -and $missing.Count -eq 0) "species $($list.total), zones $(@($list.zones.PSObject.Properties).Count), layers $layers, missing [$($missing -join ', ')]"
+
+        $check = Invoke-NovaJson 'plants check'
+        $issues = @($check.species | Where-Object { $_.issue } | ForEach-Object { "$($_.name): $($_.issue)" })
+        $grass = @($check.species | Where-Object { $_.layer -eq 'Grass' } | ForEach-Object { [int]$_.lod0.triangles } | Measure-Object -Maximum).Maximum
+        Add-Result plants 'every species builds a mesh (LOD0 + lighter LOD1, sane size); grass clumps stay cheap' ([int]$check.problems -eq 0 -and $grass -le 400) "problems $($check.problems) [$($issues -join '; ')], heaviest grass LOD0 $grass triangles"
+
+        $hot = Invoke-NovaJson 'plants pick --temp 26 --moisture 0.08 --layer Canopy'
+        $cold = Invoke-NovaJson 'plants pick --temp -2 --moisture 0.7 --layer Canopy'
+        $wet = Invoke-NovaJson 'plants pick --temp 27 --moisture 0.9 --layer Canopy'
+        $hotTop = @($hot.species)[0].name; $coldTop = @($cold.species | Select-Object -First 3 | ForEach-Object { $_.zone }); $wetZones = @($wet.species | Select-Object -First 3 | ForEach-Object { $_.zone })
+        Add-Result plants 'climate picks species: hot + dry = desert (saguaro · date palm), cold + wet = boreal / montane conifers, hot + wet = tropical rainforest' (@($hot.species | Select-Object -First 3 | Where-Object { $_.zone -eq 'Hot Desert' }).Count -ge 2 -and @($coldTop | Where-Object { $_ -eq 'Boreal Forest' -or $_ -eq 'Montane' }).Count -eq 3 -and @($wetZones | Where-Object { $_ -like 'Tropical*' }).Count -ge 2) "hot dry: $(@($hot.species | Select-Object -First 3 | ForEach-Object { $_.name }) -join ', '); cold wet: $(@($cold.species | Select-Object -First 3 | ForEach-Object { $_.name }) -join ', '); hot wet: $(@($wet.species | Select-Object -First 3 | ForEach-Object { $_.name }) -join ', ')"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create open-world --size 8192' | Out-Null
+        Invoke-Nova ('set "Open World" --component PCGVolume --values "{\"graph\":\"' + ($graph -replace '\\', '\\\\') + '\"}"') | Out-Null
+        $g = Invoke-NovaJson 'world height --x 0 --z 0'
+        Invoke-Nova ("set `"Main Camera`" --position 0,{0},-12 --rotation 18,0,0" -f ([double]$g.height + 3).ToString([Globalization.CultureInfo]::InvariantCulture)) | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        [void](Wait-Until { $v = (Invoke-NovaJson 'pcg info').volumes[0]; $v -and [int]$v.pending -eq 0 -and [int]$v.cells -gt 0 -and [int]$v.ready -eq [int]$v.cells } -Seconds 120 -MinSeconds 1 -Frames 20)
+        Invoke-Nova 'wait 30' | Out-Null
+        $png1 = Join-Path $dir 'grass.png'
+        Invoke-Nova "screenshot `"$png1`" --view game" | Out-Null
+        $v = (Invoke-NovaJson 'pcg info').volumes[0]
+        $st = Invoke-NovaJson 'plants stats'
+        Invoke-Nova 'pcg enable --node 3 --enabled false' | Out-Null
+        [void](Wait-Until { [int](Invoke-NovaJson 'pcg info').volumes[0].instances -eq 0 } -Seconds 30 -Frames 20)
+        Invoke-Nova 'wait 10' | Out-Null
+        $png2 = Join-Path $dir 'none.png'
+        Invoke-Nova "screenshot `"$png2`" --view game" | Out-Null
+        $d = ImageDiffP $png1 $png2
+        Add-Result plants 'PCG grass (Climate Select) draws as whole cells: GPU instance buffers, the vertex shader picks LOD per instance' ([int]$v.instances -gt 1000 -and [int]$st.cellDraws -gt 0 -and $d -gt 1.0) "instances $($v.instances), cell draws $($st.cellDraws), draw calls $($st.drawCalls), picture change mean $([math]::Round($d, 2))"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        Remove-Item $graphFile, "$graphFile.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-TerrainGraph
 {
     # 지형 그래프 (Gaea 같은 노드): 작은 월드 (4 km, 1 km 타일) 로 — 노드 계산 · 침식이 높이를 바꾸고 물길을 만든다 · 같은 그래프 = 같은 결과,
@@ -8615,6 +8697,7 @@ try
                 'streaming' { Suite-Streaming }
                 'crowd' { Suite-Crowd }
                 'pcg' { Suite-PCG }
+                'plants' { Suite-Plants }
                 'postfx' { Suite-PostFX }
                 'terraingraph' { Suite-TerrainGraph }
                 'weather' { Suite-Weather }

@@ -623,7 +623,9 @@ TreeShadowOut TreeShadowVS(TreeVertexIn vin, TreeInstanceIn inst)
     TreeShadowOut vout;
     float3 normalW;
     const float3 posW = TreeWorldPos(vin, inst, normalW);
-    vout.PosH = mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj);
+    float2 fade;
+    const bool visible = TreeLodSelect(inst, fade);
+    vout.PosH = visible ? mul(float4(ApplyShadowBias(posW, normalW), 1.0f), gViewProj) : kTreeCulledPos;
     vout.UV = vin.UV;
     vout.Seed = vin.Phase.z;
     return vout;
@@ -640,6 +642,9 @@ float4 TreeImpostorShadowVS(uint vid : SV_VertexID, TreeInstanceIn inst, out flo
     const TreeImpostorGeom g = TreeImpostorVertex(vid, inst);
     uv = g.UV;
     const float3 L = gShadowLight.w > 0.5f ? normalize(gShadowLight.xyz - g.PosW) : gShadowLight.xyz;
+    float2 fade;
+    if (!TreeLodSelect(inst, fade))
+        return kTreeCulledPos;
     return mul(float4(ApplyShadowBias(g.PosW, L), 1.0f), gViewProj);
 }
 

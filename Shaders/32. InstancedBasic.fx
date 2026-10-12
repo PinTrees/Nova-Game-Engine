@@ -2262,10 +2262,12 @@ TreeVertexOut TreeVS(TreeVertexIn vin, TreeInstanceIn inst)
     vout.AO = vin.Axis.w;
     vout.Seed = vin.Phase.z;
     vout.Tint = inst.Extra.x;
-    vout.Fade = inst.Extra.zw;
+    float2 fade;
+    const bool visible = TreeLodSelect(inst, fade);
+    vout.Fade = fade;
     // 깊이 사전 패스(SsaoNormalDepth)와 같은 식: 월드 위치 × CPU 에서 곱한 ViewProj
     precise float4 posH = mul(float4(posW, 1.0f), gViewProj);
-    vout.PosH = posH;
+    vout.PosH = visible ? posH : kTreeCulledPos;
     vout.SsaoPosH = mul(float4(posW, 1.0f), gViewProjTex);
     return vout;
 }
@@ -2295,7 +2297,8 @@ TreeSurf TreeBarkSurface(TreeVertexOut pin)
 
     // 색: 골은 어둡고 판은 밝게, 반점(밝은 / 음수면 자작나무 줄무늬), 위를 향한 면에 이끼
     const float3 barkColor = ToLinear(gTreeBarkColor.rgb);
-    float3 albedo = barkColor * lerp(0.38f, 1.08f, h0);
+    const float crackContrast = saturate(gTreeBarkParams.x / 0.02f);   // 골 깊이 0.5 이상 = 예전 그대로
+    float3 albedo = barkColor * lerp(lerp(0.92f, 0.38f, crackContrast), lerp(1.02f, 1.08f, crackContrast), h0);
     const float3 axisL = normalize(pin.AxisL);
     const float fleckAmount = abs(gTreeBarkParams.w);
     const float alongL = dot(pin.PosL, axisL);
@@ -2306,9 +2309,63 @@ TreeSurf TreeBarkSurface(TreeVertexOut pin)
     const float moss = saturate((s.N.y + 0.15f) * 1.6f) * smoothstep(0.35f, 0.75f, mossNoise + gTreeBarkColor.a * 0.5f) * gTreeBarkColor.a;
     albedo = lerp(albedo, ToLinear(gTreeMossColor.rgb) * lerp(0.7f, 1.1f, h0), moss);
 
+    // 무늬 (식 → 높이 h (m) → 표면 기울기로 법선): 마디 고리 · 세로 골 · 잎자루 밑. 무늬가 픽셀보다 잘면 옅게 (반짝임 없이)
+    const int pattern = (int)(gTreeBarkPattern.x + 0.5f);
+    float occ = 1.0f;
+    if (pattern > 0)
+    {
+        const float r0 = max(pin.BranchRadius, 0.005f);
+        const float along = pin.UV.y;              // 가지를 따라 m
+        const float around = pin.UV.x;             // 둘레 0 ~ 1
+        const float depth = gTreeBarkPattern.z;
+        float h = 0.0f, mask = 0.0f, freq = 1.0f;
+        if (pattern == 1)
+        {
+            // 마디 고리: 간격마다 도드라진 띠 (대나무 마디 · 야자 잎 자국), 마디 사이는 마디마다 색이 조금 다르다
+            const float t = along / gTreeBarkPattern.y;
+            const float f = frac(t);
+            const float dn = min(f, 1.0f - f) * gTreeBarkPattern.y;     // 마디까지 m
+            const float ridge = 1.0f - smoothstep(0.0f, 0.012f + r0 * 0.15f, dn);
+            h = depth * (ridge * (0.006f + r0 * 0.04f) - smoothstep(0.0f, 0.04f, dn) * 0.002f);
+            mask = ridge;
+            albedo *= lerp(0.88f, 1.1f, TreeHash11(floor(t) * 7.13f + pin.Seed));
+            freq = 1.0f / gTreeBarkPattern.y;
+        }
+        else if (pattern == 2)
+        {
+            // 세로 골 (선인장): 둘레 1 m 당 y 개, 마루는 밝고 골은 그늘
+            const float count = max(5.0f, round(6.2831853f * r0 * gTreeBarkPattern.y));
+            const float a = frac(around * count);
+            const float crest = pow(sin(3.14159265f * a), 0.7f);
+            h = depth * r0 * 0.09f * crest;
+            mask = crest;
+            occ = lerp(0.55f, 1.0f, crest);
+            freq = count / (6.2831853f * r0);
+        }
+        else
+        {
+            // 잎자루 밑 (대추야자 · 나무고사리): 엇갈려 쌓인 비늘 — 비늘마다 아래 가장자리가 튀어나오고 위로 갈수록 묻힌다
+            const float count = max(4.0f, round(6.2831853f * r0 / gTreeBarkPattern.y));
+            const float u = around * count;
+            const float row = along / gTreeBarkPattern.y + 0.5f * floor(u);
+            const float fu = frac(u), fv = frac(row);
+            const float cup = 1.0f - pow(abs(fu * 2.0f - 1.0f), 2.0f);
+            h = depth * gTreeBarkPattern.y * 0.55f * (1.0f - fv) * cup;
+            mask = saturate((1.0f - fv) * 1.4f) * cup;
+            occ = lerp(0.35f, 1.0f, saturate(fv * 4.0f) * saturate(cup * 2.5f));
+            albedo *= lerp(0.85f, 1.12f, TreeHash11(floor(row) * 3.1f + floor(u) * 17.3f));
+            freq = 1.0f / gTreeBarkPattern.y;
+        }
+        // 무늬 한 칸이 픽셀 4 개보다 작으면 옅게
+        const float px = length(fwidth(pin.PosW));
+        const float fade = saturate(1.0f / max(freq * px, 1e-4f) / 4.0f - 0.5f);
+        s.N = normalize(s.N - TreeSurfGrad(pin.PosW, N0, h) * fade);
+        albedo = lerp(albedo, ToLinear(gTreeBarkPatternColor.rgb) * lerp(0.85f, 1.05f, h0), saturate(mask) * 0.7f);
+    }
+
     s.Albedo = albedo * lerp(0.9f, 1.1f, pin.Tint);
     s.Smoothness = gTreeBarkParams.z * lerp(0.6f, 1.0f, h0);
-    s.Occlusion = pin.AO * lerp(0.55f, 1.0f, h0);   // 골 안쪽은 어둡게
+    s.Occlusion = pin.AO * lerp(0.55f, 1.0f, h0) * occ;   // 골 안쪽은 어둡게
     s.Transmission = float3(0, 0, 0);
     s.Reflections = true;
     return s;
@@ -2336,6 +2393,27 @@ TreeSurf TreeLeafSurface(TreeVertexOut pin, bool alphaClip)
         s.Smoothness = 0.2f;
         s.Transmission = float3(0, 0, 0);
     }
+    else if (TreeIsFlower(pin.Seed))
+    {
+        // 꽃: 가운데 (g < 0.22) = 꽃술, 꽃잎은 밑동이 조금 짙고 끝이 밝다. 꽃마다 · 꽃잎마다 조금씩 다르게
+        const float v = TreeHash11(pin.Seed * 53.7f + leaf.b * 17.0f);
+        float3 c;
+        if (along < 0.22f)
+            c = ToLinear(gTreeFlowerCenter.rgb) * lerp(0.7f, 1.05f, along / 0.22f);
+        else
+            c = ToLinear(gTreeFlowerColor.rgb) * lerp(0.78f, 1.08f, saturate((along - 0.22f) * 1.6f)) * lerp(0.9f, 1.1f, v);
+        // 꽃잎 잎맥 (가운데에서 퍼지는 가는 줄): 밝기 + 범프
+        const float pv = along < 0.22f ? 0.0f : (1.0f - smoothstep(0.0f, 0.18f, abs(frac(across * 3.5f) - 0.5f) - 0.3f)) * saturate((along - 0.25f) * 4.0f);
+        c *= 1.0f - pv * 0.12f;
+        c *= lerp(0.9f, 1.1f, pin.Tint);
+        s.Albedo = c;
+        s.Smoothness = 0.25f;
+        s.Transmission = c * gTreeLeafParams.x * 1.2f;
+        const float3 gA = TreeSurfGrad(pin.PosW, s.N, across);
+        const float halfWidth = 1.0f / max(length(gA), 1e-3f);
+        const float fade = saturate(1.0f - fwidth(across) * 3.5f);
+        s.N = normalize(s.N - TreeSurfGrad(pin.PosW, s.N, -pv * 0.03f * halfWidth) * fade);
+    }
     else
     {
         // 잎마다 두 색 사이에서 조금씩 다르게, 끝으로 갈수록 밝게, 잎맥은 연하게
@@ -2344,6 +2422,15 @@ TreeSurf TreeLeafSurface(TreeVertexOut pin, bool alphaClip)
         c *= lerp(0.8f, 1.1f, saturate(along));
         const float midrib = 1.0f - smoothstep(0.03f, 0.12f, abs(across));
         const float veins = (1.0f - smoothstep(0.0f, 0.08f, abs(frac(along * 7.0f - abs(across) * 1.6f) - 0.5f) - 0.4f)) * (1.0f - midrib) * 0.5f;
+        const int shape = (int)(gTreeLeafColor2.a + 0.5f);
+        // 풀잎 (Blade): 나란한 잎맥 + 끝이 마르고 바랜다
+        float bladeVeins = 0.0f;
+        if (shape == 3)
+        {
+            bladeVeins = 1.0f - smoothstep(0.0f, 0.2f, abs(frac(across * 2.5f + 0.5f) - 0.5f) - 0.25f);
+            const float dry = smoothstep(0.72f, 1.0f, along) * (0.5f + 0.5f * TreeHash11(pin.Seed * 91.0f + leaf.b * 13.0f));
+            c = lerp(c, c * float3(1.35f, 1.15f, 0.55f) + 0.04f, dry * 0.75f);
+        }
         c *= (1.0f + midrib * 0.35f + veins * 0.15f) * lerp(0.78f, 1.22f, pin.Tint);
         s.Albedo = c;
         s.Transmission = c * gTreeLeafParams.x * 1.6f;
@@ -2352,6 +2439,15 @@ TreeSurf TreeLeafSurface(TreeVertexOut pin, bool alphaClip)
         const float3 up = normalize(pin.AxisW);
         const float3 right = normalize(cross(up, s.N) + 1e-5f);
         s.N = normalize(s.N + right * (across * 0.35f));
+
+        // 잎맥 범프 (높이 = 잎 반폭 비율): 가운데 잎맥은 패인 골, 곁맥은 도드라진 줄, 풀잎은 나란한 줄.
+        //  잎맥 간격이 픽셀 몇 개보다 작아지면 (멀리) 옅게 — 반짝이지 않게
+        const float3 N1 = s.N;
+        const float3 gA = TreeSurfGrad(pin.PosW, N1, across);
+        const float halfWidth = 1.0f / max(length(gA), 1e-3f);
+        const float hv = shape == 3 ? bladeVeins * 0.025f - midrib * 0.03f : veins * 0.05f - midrib * 0.07f;
+        const float fade = saturate(1.0f - max(fwidth(along) * 7.0f, fwidth(across) * (shape == 3 ? 2.5f : 1.6f)) * 1.5f);
+        s.N = normalize(N1 - TreeSurfGrad(pin.PosW, N1, hv * halfWidth) * fade);
     }
     return s;
 }
@@ -2426,9 +2522,11 @@ TreeImpostorOut TreeImpostorVS(uint vid : SV_VertexID, TreeInstanceIn inst)
     vout.AxisX = g.AxisX;
     vout.AxisZ = g.AxisZ;
     vout.Tint = inst.Extra.x;
-    vout.Fade = inst.Extra.zw;
+    float2 fade;
+    const bool visible = TreeLodSelect(inst, fade);
+    vout.Fade = fade;
     precise float4 posH = mul(float4(g.PosW, 1.0f), gViewProj);
-    vout.PosH = posH;
+    vout.PosH = visible ? posH : kTreeCulledPos;
     vout.SsaoPosH = mul(float4(g.PosW, 1.0f), gViewProjTex);
     return vout;
 }

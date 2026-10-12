@@ -260,7 +260,8 @@ namespace TerrainGraph
 	{
 		uint64_t h = 7809847782465536322ull;
 		h = MixF(h, TileSize); h = Mix(h, (uint64_t)TileResolution);
-		for (float f : { DetailAmplitude, DetailScale, DetailErosion, DetailSlope, DetailDeposits, ColorStrength, CliffDetail })
+		for (float f : { DetailAmplitude, DetailScale, DetailErosion, DetailSlope, DetailDeposits, ColorStrength, CliffDetail,
+			ClimateTemperature, ClimateGradient, ClimateMoisture, ClimateMoistureGradient })
 			h = MixF(h, f);
 		return h;
 	}
@@ -271,7 +272,9 @@ namespace TerrainGraph
 			{ "buildResolution", BuildResolution }, { "previewResolution", PreviewResolution }, { "seed", Seed },
 			{ "detailAmplitude", DetailAmplitude }, { "detailScale", DetailScale }, { "detailErosion", DetailErosion },
 			{ "detailSlope", DetailSlope }, { "detailDeposits", DetailDeposits },
-			{ "colorStrength", ColorStrength }, { "cliffDetail", CliffDetail } };
+			{ "colorStrength", ColorStrength }, { "cliffDetail", CliffDetail },
+			{ "climateTemperature", ClimateTemperature }, { "climateGradient", ClimateGradient }, { "climateMoisture", ClimateMoisture },
+			{ "climateMoistureGradient", ClimateMoistureGradient } };
 	}
 
 	void WorldSettings::FromJson(const json& j)
@@ -290,6 +293,10 @@ namespace TerrainGraph
 		DetailDeposits = j.value("detailDeposits", DetailDeposits);
 		ColorStrength = j.value("colorStrength", ColorStrength);
 		CliffDetail = j.value("cliffDetail", CliffDetail);
+		ClimateTemperature = j.value("climateTemperature", ClimateTemperature);
+		ClimateGradient = j.value("climateGradient", ClimateGradient);
+		ClimateMoisture = j.value("climateMoisture", ClimateMoisture);
+		ClimateMoistureGradient = j.value("climateMoistureGradient", ClimateMoistureGradient);
 	}
 
 	json LayerRule::ToJson() const

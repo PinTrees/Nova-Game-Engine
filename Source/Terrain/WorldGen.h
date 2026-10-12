@@ -48,6 +48,10 @@ namespace WorldGen
 	struct Biome
 	{
 		float Forest = 0.0f, Meadow = 0.0f, Desert = 0.0f, Rock = 0.0f;
+		// 기후 (식생 종 고르기 — PlantLibrary · PCG Climate Select): 연평균 기온 (°C), 습도 (0 사막 ~ 1 우림), 물가 정도 (0 ~ 1)
+		float Temperature = 12.0f, Moisture = 0.5f, Water = 0.0f;
+		// 아무것도 자라지 않는 땅 (0 ~ 1): 길 노면 · 강바닥 · 눈 — 바이옴 필터가 없는 스포너 (풀 · 꽃 · 덤불) 도 여기는 놓지 않는다
+		float Clear = 0.0f;
 	};
 
 	float Height01(const Settings& s, float x, float z);   // 0 ~ 1
