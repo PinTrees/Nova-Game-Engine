@@ -7185,6 +7185,26 @@ function Suite-TerrainGraph
         Invoke-Nova "terraingraph enable $graph --node $eroId --enabled true" | Out-Null
         Add-Result terraingraph 'disabling the Erosion node passes the height through (no flow)' ([double]$p3.heightM.mean -ne [double]$p1.heightM.mean -and [double]$p3.flow.max -lt 0.01) ('mean {0:N2} → {1:N2} m, flow max {2:N3}' -f [double]$p1.heightM.mean, [double]$p3.heightM.mean, [double]$p3.flow.max)
 
+        # 새 노드 사슬 (따로 만든 그래프): 화산 + 사구 + 운석 구덩이 → 습곡 → 단층 → 협곡 → 눈 → 호수 → Output
+        $g2 = 'Assets\Terrain\SuiteNodes.terraingraph'
+        Invoke-Nova "terraingraph new $g2 --seed 5" | Out-Null
+        Invoke-Nova ("terraingraph world $g2 --values " + '"{\"worldSize\":4000,\"maxHeight\":800,\"previewResolution\":257}"') | Out-Null
+        $outId = [int](@((Invoke-NovaJson "terraingraph graph $g2").nodes | Where-Object { $_.type -eq 'output' })[0].id)
+        $add = { param($type) [int](Invoke-NovaJson "terraingraph add $g2 --type $type").id }
+        $vol = & $add 'volcano'; $dun = & $add 'dunes'; $cra = & $add 'crater'; $c1 = & $add 'combine'; $c2 = & $add 'combine'
+        $fol = & $add 'fold'; $she = & $add 'shear'; $can = & $add 'canyon'; $sno = & $add 'snow'; $lak = & $add 'lake'
+        foreach ($s in @("--node $vol --param radius --value 1600", "--node $c1 --param ratio --value 0.15", "--node $c2 --param ratio --value 0.4", "--node $fol --param wavelength --value 600",
+            "--node $fol --param amount --value 150", "--node $she --param scale --value 700", "--node $she --param offset --value 30", "--node $can --param scale --value 2500",
+            "--node $can --param depth --value 60", "--node $sno --param line --value 350", "--node $lak --param minDepth --value 1", "--node $lak --param minArea --value 0.005",
+            "--node $dun --param scale --value 80", "--node $cra --param scale --value 900"))
+        { Invoke-Nova "terraingraph set $g2 $s" | Out-Null }
+        foreach ($e in @(@($vol, 0, $c1, 0), @($dun, 0, $c1, 1), @($c1, 0, $c2, 0), @($cra, 0, $c2, 1), @($c2, 0, $fol, 0), @($fol, 0, $she, 0), @($she, 0, $can, 0), @($can, 0, $sno, 0), @($sno, 0, $lak, 0), @($lak, 0, $outId, 0)))
+        { Invoke-Nova ("terraingraph connect $g2 --from {0} --fromPin {1} --to {2} --toPin {3}" -f $e[0], $e[1], $e[2], $e[3]) | Out-Null }
+        $p4 = Invoke-NovaJson "terraingraph preview $g2 --res 257 --out `"$(Join-Path $dir 'nodes.png')`" --mode height"
+        $chg = { param($id) [double](@($p4.nodes | Where-Object { [int]$_.id -eq $id })[0].changeMeanM) }
+        $cf = & $chg $fol; $cs = & $chg $she; $cc = & $chg $can; $cw = & $chg $sno
+        Add-Result terraingraph 'new nodes: Volcano · Dunes · Craters · Fold · Shear · Canyon · Snow · Lake evaluate in a chain (each changes the height)' ($cf -gt 0.1 -and $cs -gt 0.1 -and $cc -gt 0.1 -and $cw -gt 0.01 -and [double]$p4.heightM.max -gt [double]$p4.heightM.min + 100) ('fold {0:N1} m, shear {1:N1} m, canyon {2:N1} m, snow {3:N2} m, lakes {4}, height {5:N0} – {6:N0} m' -f $cf, $cs, $cc, $cw, $p4.lakes, [double]$p4.heightM.min, [double]$p4.heightM.max)
+
         Invoke-Nova "terraingraph build $graph" | Out-Null
         [void](Wait-Until { $i = Invoke-NovaJson "terraingraph info $graph"; $i -and -not $i.build.running -and ($i.build.done -or $i.build.error) } -Seconds 240 -MinSeconds 1 -Frames 5)
         $info = Invoke-NovaJson "terraingraph info $graph"
@@ -7220,7 +7240,7 @@ function Suite-TerrainGraph
     finally
     {
         Write-Host "  $(Stop-TestEditor $ed)"
-        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Project 'Assets\Terrain\SuiteTest*')
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $Project 'Assets\Terrain\SuiteTest*'), (Join-Path $Project 'Assets\Terrain\SuiteNodes*')
     }
 }
 

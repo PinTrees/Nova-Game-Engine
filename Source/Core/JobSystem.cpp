@@ -461,6 +461,7 @@ namespace Jobs
 	}
 
 	bool Initialized() { return s_Initialized; }
+	bool ShuttingDown() { return s_Quit.load(std::memory_order_relaxed); }
 	int WorkerCount() { return s_WorkerCount; }
 	bool FibersEnabled() { return s_UseFibers; }
 	int CurrentThread() { Worker* w = CurrentWorker(); return w ? w->Index : -1; }

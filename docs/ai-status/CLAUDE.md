@@ -1,6 +1,19 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 12일 — **지형 그래프 (Gaea 식 노드 · 침식 지형 생성기) + 50 km 월드 · 강 · 길 · 바이옴 나무** (사용자 지시: "가이아처럼 침식 · 계산 방식 지형생성기로 50 x 50 km, 높이맵 2k · 1 km 타일 50 x 50, 용량 · VRAM · RAM 문제 없게, 지형 생성기 에디터 · 다중 터레인, 텍스처 · 노멀 계산 · 스플랫" → "quadspinner.com 같은 것" → "텍스처 반사 줄이기, Witcher 4 영상처럼 디테일, 트리 에디터 기반 바이옴 식생, 산맥 프랙탈 · 침식 풍화 구조" → "강과 길도" → Gaea Erosion2 · SatMap 화면)
+- 갱신 시각: 2026년 10월 12일 — **지형 그래프 다음 단계: 노드 8 종 · 호수 · 절벽 디테일 · 먼 타일 묶기 · 길 깎은 벽** (사용자 지시: "푸시하고 다음 작업 진행" — 지난 한계 목록: Snow · Lake · Fold · Dunes 같은 노드, 큰 절벽의 매끈한 면 · 산 디테일 밀도, CPU 가 정하니 먼 타일 묶기)
+  - 노드 38 종 (+ Snow · Lake · Fold · Dunes · Shear · Craters · Canyon · Volcano, `TerrainGraph.*`), 기본 그래프 24 노드 (Thermal 뒤 Rugged Shatter · Sediment 뒤 Lake · Road 뒤 Snow), CLI `terraingraph add --type` · `connect`
+  - 호수: 우선순위 채우기 → 무리 (Min Depth · Min Area) → 바닥 메움 → 무어 경계 따라가기 → 빌드 v2 선 (Kind 2), 편집기 **Create Water** 가 Water Body (Lake) 도 만든다
+  - 절벽 디테일: `WorldSettings::CliffDetail` (6 m, 45° 에서 × 2.5) — 타일 계산에서 가파른 곳에 리지 노이즈 · 비탈 따라 내려가는 낙석 홈 (침식 필터 80 m) · 16 m 지층 턱 (`TerrainGraphBuild.cpp`). 다가가기 화면의 큰 벽은 길이 아니라 Mountain Range 리지 → Warp → Erosion2 가 앞을 평평히 메운 90 m 비탈이었다 (`terraingraph preview --probe` 로 노드마다 높이를 재 찾음)
+  - 버팀벽 · 큰 골 (220 m, 깊이 = 면 높이의 22 %, 40 m 까지) — 높이 100 m 넘는 면도 갈라진다
+  - CLI `terraingraph preview --probe "[[x,z],...]"` (노드마다 그 자리 출력)
+  - 지형 LOD 최소 삼각형 (`TerrainRenderer.cpp` `kMinQuadPixels` 2.5): 절벽 결이 600 m 밖에서 0.5 m 칸을 불러 다가가기 GPU 9.6 → 19.3 ms 였다 → 6.6 ~ 10 ms. 모든 Terrain 에 적용
+  - PCG 높이 캐시를 게으르게 (`PCGExecutor.cpp` `HeightCache`): 셀 115 → 12 ms, 50 km 월드 셀 9700 개가 8 분 넘게 → 40 초. `pcg info` 에 stale · key
+  - 끄기 멈춤: `Jobs::Shutdown` 이 줄 선 지형 타일 잡을 메인 스레드에서 마저 돌아 1 분 걸렸다 → `Jobs::ShuttingDown()` 을 타일 잡이 줄마다 본다
+  - 먼 타일 묶기: `WorldTerrain` 이 G × G 타일 (50 km = 5) 을 257² 큰 타일 하나로 — 무리 전체가 Mid Distance 너머면 큰 타일만 (안 타일은 놓음), 가까워지면 안 타일이 다 될 때까지 큰 타일 유지. 인스펙터 Merge Far Tiles, `world info` groups · farTilesShown · drawn
+  - 길: 고른 높이를 땅 ± 6 m 로 묶고 다시 40 m 창 (비탈에서 땅보다 백 m 아래로 가 길가에 수직 벽이 섰다), 어깨에 높이 차 × 1.5 더함 (`MakeRoads` · `Built::ApplyPaths`)
+  - 성능 (Release, 50 km): 그리는 지형 약 2500 → 340 ~ 390 개 (큰 타일 90), 프레임 20 ~ 34 → 13 ~ 22 ms → (절벽 디테일 + LOD 최소 삼각형 + PCG 게으른 높이) 10 ~ 20 ms (하늘 9.9 · 다가가기 11.5 · 숲 11.3 · 강가 13.4 · 길 20)
+  - 문서 `docs/TERRAIN_GRAPH.md` · `docs/NOVA_CLI.md`, 검사 `terraingraph` 스위트에 새 노드 사슬 1 개, Showcase 287. Debug terraingraph · pcg · render 25/25 (Release 50 km 캡처 fin10)
+- 이전: 2026년 10월 12일 — **지형 그래프 (Gaea 식 노드 · 침식 지형 생성기) + 50 km 월드 · 강 · 길 · 바이옴 나무** (사용자 지시: "가이아처럼 침식 · 계산 방식 지형생성기로 50 x 50 km, 높이맵 2k · 1 km 타일 50 x 50, 용량 · VRAM · RAM 문제 없게, 지형 생성기 에디터 · 다중 터레인, 텍스처 · 노멀 계산 · 스플랫" → "quadspinner.com 같은 것" → "텍스처 반사 줄이기, Witcher 4 영상처럼 디테일, 트리 에디터 기반 바이옴 식생, 산맥 프랙탈 · 침식 풍화 구조" → "강과 길도" → Gaea Erosion2 · SatMap 화면)
   - `Source/Terrain/TerrainGraph.*` (노드 30 종: Mountain Range (스위스 난류) · Rugged · Stratify · Erosion2 (여러 해상도 물방울 + 퇴적물 각도) · Gullies (침식 필터) · Sediment · River (우선순위 채우기 + D8) · Road (마을 · MST · A*) · SatMap (팔레트 32, `TerrainGraphColor.cpp`) · Color Blend …, 기본 그래프 20 노드), `TerrainGraphBuild.cpp` (빌드 v2: 높이 · 물길 · 퇴적 · 깎임 · 색 · 강 · 길 선, 타일 = 쌍삼차 + 침식 결 + 골 필터 + 강바닥 · 길 노면 — 위치의 순수 함수, 비동기 읽기), `TerrainGraphNoise.h`, `TerrainTextureGen.*` (풀잎 · 깨진 바위 · 자갈 · 바람 결 눈, 오목 AO)
   - World Terrain: 그래프 따르기 (`WorldGen::Source` · `Settings::External` — 컬러 맵 `Color()`), 가까운 타일 2049², 타일 작업 취소, 픽셀 오차 3, `world probe` (함수 = 타일 0.00 m 확인)
   - 편집기: `Source/Editor/Windows/TerrainGraphWindow.*` (캔버스 · 3D 미리 보기 (CPU 광선 행진) · Node / World / Texturing / Build 탭 · 강 Water Body · 타일 Terrain · 여러 Terrain 적용), GameObject > Open World > Terrain World 50 km, CLI `terraingraph` (new · info · set · enable · world · layer · build · preview (+ out3d) · height · grid · paths · apply · tiles · attach · rivers · textures · seams · window)

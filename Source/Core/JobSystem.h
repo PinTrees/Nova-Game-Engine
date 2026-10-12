@@ -57,6 +57,8 @@ namespace Jobs
 	void Init(int workers = -1);
 	void Shutdown();
 	bool Initialized();
+	// 끄는 중 (Shutdown 이 남은 잡을 메인 스레드에서 마저 돈다) — 오래 걸리는 잡 (지형 타일 등) 은 이것을 보고 바로 끝낸다
+	NOVA_API bool ShuttingDown();
 
 	NOVA_API int WorkerCount();
 	bool FibersEnabled();

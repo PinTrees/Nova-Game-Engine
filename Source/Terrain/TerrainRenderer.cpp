@@ -407,7 +407,10 @@ namespace
 	//  절두체와 상관없이 지형 전체를 덮도록 고른 뒤 그릴 때만 컬링한다 → 화면 밖 때문에 균형/봉합이 달라지지 않는다.
 	// fineDistance > 0 (테셀레이션 — 레이어 높이 · 눈): 그 거리 안은 가장 깊은 단계까지 (평평한 지형도 칸이 높이맵 한 칸 — 나눔이 높이 맵 무늬를 담게).
 	//  거리 + 노드 크기의 1.5 배로 넓혀 이웃 단계 차이가 2:1 을 넘지 않게
-	void SelectLeaves(const TerrainData& data, const Vec3& origin, const Vec3& cameraPos, float errorPerMeter, float fineDistance, std::vector<Leaf>& leaves, std::vector<int>& masks)
+	//  pixelsPerMeter (1 m 가 거리 1 m 에서 차지하는 픽셀): 쪼갠 칸이 kMinQuadPixels 보다 작아지면 오차가 커도 쪼개지 않는다
+	//  (절벽 결 같은 잔 고주파 높이가 600 m 밖에서도 0.5 m 칸을 불러 1 픽셀 아래 삼각형 — 깊이 프리패스 1.6 → 6.3 ms 였다)
+	constexpr float kMinQuadPixels = 2.5f;
+	void SelectLeaves(const TerrainData& data, const Vec3& origin, const Vec3& cameraPos, float errorPerMeter, float pixelsPerMeter, float fineDistance, std::vector<Leaf>& leaves, std::vector<int>& masks)
 	{
 		const int maxDepth = data.MaxDepth();
 		leaves.clear();
@@ -426,7 +429,9 @@ namespace
 				const Vec3 mx = origin + Vec3((n.X + 1) * cells * data.CellSizeX(), node.MaxHeight, (n.Z + 1) * cells * data.CellSizeZ());
 				const Vec3 closest(std::clamp(cameraPos.x, mn.x, mx.x), std::clamp(cameraPos.y, mn.y, mx.y), std::clamp(cameraPos.z, mn.z, mx.z));
 				const float dist = (std::max)(0.01f, (closest - cameraPos).Length());
-				split = node.Error > errorPerMeter * dist || (fineDistance > 0.0f && dist < fineDistance + 1.5f * cells * (std::max)(data.CellSizeX(), data.CellSizeZ()));
+				const float childQuad = (float)data.NodeStep(n.Depth + 1) * (std::max)(data.CellSizeX(), data.CellSizeZ());
+				split = (node.Error > errorPerMeter * dist && childQuad * pixelsPerMeter >= kMinQuadPixels * dist) ||
+					(fineDistance > 0.0f && dist < fineDistance + 1.5f * cells * (std::max)(data.CellSizeX(), data.CellSizeZ()));
 			}
 			if (split)
 				for (int k = 0; k < 4; ++k)
@@ -564,7 +569,7 @@ namespace TerrainRenderer
 		}
 		{
 			PROFILE_SCOPE("Terrain.SelectLeaves");
-			SelectLeaves(data, origin, cameraPos, errorPerMeter, fine ? kTessDistance : 0.0f, leaves, masks);
+			SelectLeaves(data, origin, cameraPos, errorPerMeter, K, fine ? kTessDistance : 0.0f, leaves, masks);
 		}
 
 		// ---- 효과 변수 ----

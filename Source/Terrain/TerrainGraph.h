@@ -27,6 +27,8 @@ namespace TerrainGraph
 		Output,
 		// Gaea 식 더 (2026-10-12): 산맥 · 거친 비탈 · 지층 · 골 · 퇴적 · 침식 2 (여러 크기) · 강 · 길 · 색
 		MountainRange, Rugged, Stratify, Gullies, Sediment, Erosion2, River, Road, SatMap, ColorBlend,
+		// 더 (2026-10-12 2): 눈 쌓임 · 호수 · 습곡 · 사구 · 단층 · 운석 구덩이 · 협곡 · 화산
+		Snow, Lake, Fold, Dunes, Shear, Crater, Canyon, Volcano,
 		Count
 	};
 	enum class ParamKind { Float, Int, Bool, Enum };
@@ -84,7 +86,8 @@ namespace TerrainGraph
 		float DetailErosion = 0.7f;      // 침식 결 (기울기를 따라 골이 패인다, 0 = 보통 fBm)
 		float DetailSlope = 1.0f;        // 가파른 곳일수록 거칠게
 		float DetailDeposits = 0.7f;     // 퇴적된 골 · 평지는 매끈하게
-		float ColorStrength = 0.45f;      // 컬러 맵 (SatMap) 이 텍스처 색을 대신하는 정도 (텍스처는 명암 디테일)
+		float ColorStrength = 0.45f;
+		float CliffDetail = 6.0f;        // 가파른 곳 (24° ~ 42°) 의 깨진 바위 결 (m, 리지 — 매끈한 절벽면이 없게)      // 컬러 맵 (SatMap) 이 텍스처 색을 대신하는 정도 (텍스처는 명암 디테일)
 
 		uint64_t Hash() const;           // 빌드에 드는 값 (해상도 · 크기 · Seed · 높이)
 		uint64_t TileHash() const;       // 타일 계산에 드는 값 (디테일 · 타일)
@@ -164,13 +167,13 @@ namespace TerrainGraph
 	};
 	// 강 · 길의 선 (월드 m): 점마다 위치 · 높이 (m) · 너비 (m)
 	struct PathPoint { float X = 0.0f, Z = 0.0f, Y = 0.0f, Width = 0.0f; };
-	struct Path { std::vector<PathPoint> Points; int Kind = 0; float Order = 0.0f; };   // Kind 0 = 강, 1 = 길. Order = 강 크기 (0..1)
+	struct Path { std::vector<PathPoint> Points; int Kind = 0; float Order = 0.0f; };   // Kind 0 = 강, 1 = 길, 2 = 호수 (닫힌 물가 선, Y = 수면). Order = 강 크기 (0..1)
 
 	struct EvalResult
 	{
 		std::map<std::pair<int, int>, MapPtr> Outputs;   // (노드, 출력 핀) — KeepAll 일 때
 		MapPtr Height, Flow, Deposits, Wear, Color;       // Output 노드의 입력 (Color = RGB)
-		std::vector<Path> Rivers, Roads;                  // River · Road 노드가 만든 선
+		std::vector<Path> Rivers, Roads, Lakes;           // River · Road · Lake 노드가 만든 선
 		std::string Error;
 		bool Cancelled = false;
 		double Ms = 0.0;
@@ -187,7 +190,7 @@ namespace TerrainGraph
 		std::shared_ptr<const std::vector<float>> Height;     // 0..1
 		std::shared_ptr<const std::vector<uint8_t>> Flow, Deposits, Wear, Slope, Curvature;   // 0..255 (Slope = 경사 / 90°, Curvature 128 = 평평)
 		std::shared_ptr<const std::vector<uint8_t>> ColorMap;   // RGB8 (sRGB) — 없으면 nullptr (SatMap 을 Output 의 Color 에 이으면)
-		std::vector<Path> Rivers, Roads;
+		std::vector<Path> Rivers, Roads, Lakes;
 		// 선 찾기 격자 (칸 = GridCell m): 칸마다 가까운 선분 (강 · 길) 번호
 		struct Segment { float X0, Z0, Y0, W0, X1, Z1, Y1, W1; int Kind; float Order; };
 		std::vector<Segment> Segments;

@@ -756,6 +756,8 @@ void TerrainGraphWindow::DrawWorldTab()
 	changed |= ImGui::SliderFloat("Erosion", &w.DetailErosion, 0.0f, 2.0f);
 	changed |= ImGui::SliderFloat("Slope Roughness", &w.DetailSlope, 0.0f, 3.0f);
 	changed |= ImGui::SliderFloat("Smooth Deposits", &w.DetailDeposits, 0.0f, 1.0f);
+	changed |= ImGui::SliderFloat("Cliff Detail (m)", &w.CliffDetail, 0.0f, 30.0f);
+	changed |= ImGui::SliderFloat("Color Map Strength", &w.ColorStrength, 0.0f, 1.0f);
 	if (changed)
 		Changed();
 	// ---- 어림: 타일 · 메모리 · 디스크
@@ -869,15 +871,15 @@ void TerrainGraphWindow::DrawBuildTab()
 		m_Graph->World.TileResolution);
 	if (ImGui::Button("Create / Update World Terrain In Scene", ImVec2(-1.0f, 0.0f)))
 		m_Message = "World: " + AttachToWorld(m_Path);
-	if (built && !built->Rivers.empty())
+	if (built && (!built->Rivers.empty() || !built->Lakes.empty()))
 	{
 		char label[96];
-		snprintf(label, sizeof(label), "Create Rivers (%d Water Bodies)", (int)built->Rivers.size());
+		snprintf(label, sizeof(label), "Create Water (%d rivers, %d lakes)", (int)built->Rivers.size(), (int)built->Lakes.size());
 		if (ImGui::Button(label, ImVec2(-1.0f, 0.0f)))
 			CreateRivers(m_Path, m_Message);
 	}
 	if (built)
-		ImGui::TextDisabled("Rivers %d · Roads %d%s", (int)built->Rivers.size(), (int)built->Roads.size(), built->ColorMap ? " · color map" : "");
+		ImGui::TextDisabled("Rivers %d · Lakes %d · Roads %d%s", (int)built->Rivers.size(), (int)built->Lakes.size(), (int)built->Roads.size(), built->ColorMap ? " · color map" : "");
 	if (!built)
 		ImGui::BeginDisabled();
 	if (ImGui::Button("Apply To Scene Terrains (multi-terrain)", ImVec2(-1.0f, 0.0f)))
@@ -981,7 +983,7 @@ std::string TerrainGraphWindow::AttachToWorld(const std::string& graphPath)
 		name = go->GetName();
 	}
 	// 강 (빌드에 강 선이 있으면 Water Body 로)
-	if (auto built = TG::GetBuilt(graphPath); built && !built->Rivers.empty())
+	if (auto built = TG::GetBuilt(graphPath); built && (!built->Rivers.empty() || !built->Lakes.empty()))
 	{
 		std::string msg;
 		CreateRivers(graphPath, msg);
@@ -1050,9 +1052,37 @@ int TerrainGraphWindow::CreateRivers(const std::string& graphPath, std::string& 
 		go->SetParent(parent, false);
 		++made;
 	}
-	message = "Created " + std::to_string(made) + " rivers";
+	// 호수: 물가 선 (닫힌) → Water Body (Lake). 수면 = 오브젝트 높이, 점은 가운데 기준 (로컬)
+	int lakes = 0;
+	for (const TG::Path& p : built->Lakes)
+	{
+		if (p.Points.size() < 4)
+			continue;
+		float cx = 0.0f, cz = 0.0f;
+		for (const TG::PathPoint& q : p.Points) { cx += q.X; cz += q.Z; }
+		cx /= p.Points.size();
+		cz /= p.Points.size();
+		GameObject* go = new GameObject("Lake " + std::to_string(lakes + 1));
+		WaterBody* w = go->AddComponent<WaterBody>();
+		w->BodyType = WaterBody::Type::Lake;
+		w->Profile = "Calm Lake";
+		w->CarveTerrain = false;
+		w->Points.clear();
+		for (const TG::PathPoint& q : p.Points)
+		{
+			WaterBody::Point wp;
+			wp.Position = Vec3(q.X - cx, 0.0f, q.Z - cz);
+			w->Points.push_back(wp);
+		}
+		++w->Revision;
+		scene->AddRootGameObject(go);
+		go->SetParent(parent, false);
+		go->GetTransform()->SetLocalPosition(Vec3(cx, p.Points[0].Y, cz));
+		++lakes;
+	}
+	message = "Created " + std::to_string(made) + " rivers, " + std::to_string(lakes) + " lakes";
 	EditorLog::Write("TerrainGraph", "%s", message.c_str());
-	return made;
+	return made + lakes;
 }
 
 int TerrainGraphWindow::CreateTerrainTiles(const std::string& graphPath, int x0, int z0, int count, int resolution, std::string& message)

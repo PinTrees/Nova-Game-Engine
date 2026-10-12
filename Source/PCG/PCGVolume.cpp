@@ -223,7 +223,10 @@ void PCGVolume::ApplyResults()
 		Cell& cell = *c->second;
 		cell.Pending = false;
 		if (it.Hash != m_Key)
+		{
+			++m_Stale;
 			continue;   // 그사이 규칙이 바뀌었다 — 다음 Tick 이 다시
+		}
 		cell.Hash = it.Hash;
 		cell.Ready = true;
 		cell.PerMesh = std::move(it.Out.PerMesh);
@@ -810,7 +813,7 @@ nlohmann::json PCGVolume::Info() const
 		spawners.push_back({ { "id", s.Id }, { "name", s.Name }, { "cull", s.Cull }, { "cellSize", s.CellSize }, { "meshes", s.Meshes.size() },
 			{ "cells", perSpawner[s.Id].first }, { "instances", perSpawner[s.Id].second } });
 	return { { "graph", GraphPath }, { "seed", Seed }, { "cells", m_Cells.size() }, { "ready", ready }, { "pending", pending },
-		{ "instances", instances }, { "drawn", m_LastDrawn }, { "batches", m_LastBatches }, { "generated", m_Generated },
+		{ "instances", instances }, { "drawn", m_LastDrawn }, { "batches", m_LastBatches }, { "generated", m_Generated }, { "stale", m_Stale }, { "key", std::to_string(m_Key) },
 		{ "avgCellMs", m_Generated ? m_GenMs / m_Generated : 0.0 }, { "meshAssets", PCG::LoadedMeshAssets() }, { "spawners", spawners } };
 }
 

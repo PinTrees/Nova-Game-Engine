@@ -1279,7 +1279,8 @@ namespace CliCommands
 			const WorldTerrain::Info i = w->GetInfo();
 			r = { { "settings", w->toJson() }, { "tiles", i.Tiles }, { "built", i.Built }, { "pending", i.Pending }, { "res513", i.Res513 }, { "res129", i.Res129 },
 				{ "res33", i.Res33 }, { "colliders", i.Colliders }, { "applyMs", i.LastApplyMs }, { "nearRes", i.NearRes }, { "nearTiles", i.Res513 },
-				{ "waitingForBuild", i.WaitingForBuild }, { "cpuMB", i.CpuBytes / 1048576.0 }, { "gpuMB", i.GpuBytes / 1048576.0 } };
+				{ "waitingForBuild", i.WaitingForBuild }, { "cpuMB", i.CpuBytes / 1048576.0 }, { "gpuMB", i.GpuBytes / 1048576.0 },
+				{ "groups", i.Groups }, { "farTilesShown", i.SuperShown }, { "drawn", i.Drawn } };
 			return true;
 		});
 
@@ -1331,7 +1332,7 @@ namespace CliCommands
 		});
 
 		// 지형 그래프 (Gaea 같은 노드 · 침식): 만들기 · 값 · 빌드 (작업 스레드) · 미리 보기 PNG + 통계 · 높이 · 여러 Terrain 에 적용 · 타일 Terrain · 텍스처 · World Terrain
-		Register("terraingraph", "terrain graph {op: new|info|graph|set|enable|world|layer|build|status|cancel|preview|height|apply|tiles|attach|textures|window|seams, path, ...}", [](const json& a, json& r, std::string& e) {
+		Register("terraingraph", "terrain graph {op: new|info|graph|add|connect|set|enable|world|layer|build|status|cancel|preview|height|grid|paths|apply|tiles|attach|rivers|textures|window|seams, path, ...}", [](const json& a, json& r, std::string& e) {
 			namespace TG = TerrainGraph;
 			const std::string op = a.value("op", std::string("info"));
 			std::string path = a.value("path", std::string());
@@ -1367,6 +1368,26 @@ namespace CliCommands
 					n->Set(a.value("param", std::string()).c_str(), a.value("value", 0.0f));
 				else
 					n->Enabled = a.value("enabled", true);
+				save();
+			}
+			else if (op == "add")
+			{
+				// 노드 더하기 (type = 저장 이름, 예: "snow") — 새 노드 번호
+				const std::string key = a.value("type", std::string());
+				const TG::NodeDesc* found = nullptr;
+				for (const TG::NodeDesc& d : TG::NodeDescs())
+					if (key == d.Key)
+						found = &d;
+				if (!found) { e = "no node type " + key; return false; }
+				TG::Node& n = g->Add(found->Type, a.value("x", 0.0f), a.value("y", 0.0f));
+				const int id = n.Id;
+				save();
+				r = { { "id", id } };
+				return true;
+			}
+			else if (op == "connect")
+			{
+				if (!g->Connect(a.value("from", 0), a.value("fromPin", 0), a.value("to", 0), a.value("toPin", 0))) { e = "could not connect"; return false; }
 				save();
 			}
 			else if (op == "world")
@@ -1421,8 +1442,20 @@ namespace CliCommands
 					json jn = { { "id", n.Id }, { "type", d ? d->Key : "?" }, { "ms", res.NodeMs.count(n.Id) ? res.NodeMs.at(n.Id) : 0.0 } };
 					if (it != res.Outputs.end())
 						jn["stats"] = stats(*it->second, 1.0f);
+					// --probe "[[x,z],...]": 그 자리의 노드 출력 (높이 노드 = m) — 어느 노드가 모양을 만드는지 찾기
+					if (it != res.Outputs.end() && it->second->Channels == 1 && a.contains("probe"))
+					{
+						json pv = json::array();
+						for (const json& q : a["probe"])
+						{
+							const float fx = (q[0].get<float>() - ctx.X0()) / ctx.Cell(), fz = (q[1].get<float>() - ctx.X0()) / ctx.Cell();
+							pv.push_back(it->second->Bilinear(fx, fz) * ctx.MaxHeight);
+						}
+						jn["probe"] = pv;
+					}
 					const bool changes = n.Type == TG::NodeType::Erosion || n.Type == TG::NodeType::Thermal || n.Type == TG::NodeType::Erosion2 || n.Type == TG::NodeType::Gullies ||
-						n.Type == TG::NodeType::Sediment || n.Type == TG::NodeType::River || n.Type == TG::NodeType::Road || n.Type == TG::NodeType::Rugged || n.Type == TG::NodeType::Stratify;
+						n.Type == TG::NodeType::Sediment || n.Type == TG::NodeType::River || n.Type == TG::NodeType::Road || n.Type == TG::NodeType::Rugged || n.Type == TG::NodeType::Stratify ||
+						n.Type == TG::NodeType::Snow || n.Type == TG::NodeType::Lake || n.Type == TG::NodeType::Fold || n.Type == TG::NodeType::Shear || n.Type == TG::NodeType::Canyon;
 					if (changes && it != res.Outputs.end() && it->second->Channels == 1)
 						if (const TG::Edge* in = g->InputOf(n.Id, 0))
 							if (auto src = res.Outputs.find({ in->From, in->FromPin }); src != res.Outputs.end() && src->second->V.size() == it->second->V.size())
@@ -1440,7 +1473,7 @@ namespace CliCommands
 					nodes.push_back(jn);
 				}
 				r = { { "res", ctx.Res }, { "ms", res.Ms }, { "heightM", stats(*res.Height, ctx.MaxHeight) }, { "nodes", nodes },
-					{ "rivers", res.Rivers.size() }, { "roads", res.Roads.size() }, { "color", res.Color != nullptr } };
+					{ "rivers", res.Rivers.size() }, { "roads", res.Roads.size() }, { "lakes", res.Lakes.size() }, { "color", res.Color != nullptr } };
 				if (res.Flow) r["flow"] = stats(*res.Flow, 1.0f);
 				if (res.Deposits) r["deposits"] = stats(*res.Deposits, 1.0f);
 				if (a.contains("out"))
@@ -1604,7 +1637,7 @@ namespace CliCommands
 				{ "built", b != nullptr } };
 			if (b)
 				r["builtInfo"] = { { "res", b->Res }, { "mb", b->Bytes() / 1048576.0 }, { "outdated", b->GraphHash != g->ContentHash() }, { "layers", b->LayerPaths() },
-					{ "rivers", b->Rivers.size() }, { "roads", b->Roads.size() }, { "color", b->ColorMap != nullptr } };
+					{ "rivers", b->Rivers.size() }, { "roads", b->Roads.size() }, { "lakes", b->Lakes.size() }, { "color", b->ColorMap != nullptr } };
 			return true;
 		});
 

@@ -85,6 +85,7 @@ private:
 	uint32_t m_LastTickFrame = ~0u;
 	double m_GenMs = 0.0;
 	int m_Generated = 0;
+	int m_Stale = 0;   // 끝났지만 그사이 규칙 (m_Key) 이 바뀌어 버린 셀 결과 (pcg info — 계속 늘면 키가 프레임마다 흔들린다)
 	float m_BoundsX0 = 0, m_BoundsZ0 = 0, m_BoundsX1 = 0, m_BoundsZ1 = 0;
 	mutable int m_LastDrawn = 0, m_LastBatches = 0;
 };

@@ -154,6 +154,46 @@ namespace TerrainGraph
 			{ NodeType::ColorBlend, "colorBlend", "Color Blend", "Color", { "A", "B", "Mask" }, { { "Color", C } },
 				{ { "ratio", "Ratio", K::Float, 1.0f, 0.0f, 1.0f } },
 				"두 색을 마스크로 섞는다 (예: 경사 마스크로 바위 색)." },
+			// ---- 더 (2)
+			{ NodeType::Snow, "snow", "Snow", "Simulate", { "In" }, { { "Out", H }, { "Snow", M } },
+				{ { "line", "Snow Line (m)", K::Float, 1700.0f, 0.0f, 9000.0f }, { "falloff", "Line Falloff (m)", K::Float, 150.0f, 1.0f, 2000.0f },
+				  { "depth", "Depth (m)", K::Float, 2.5f, 0.0f, 30.0f }, { "slopeMax", "Max Slope (deg)", K::Float, 38.0f, 5.0f, 80.0f },
+				  { "settle", "Settle In Hollows", K::Float, 0.6f, 0.0f, 2.0f } },
+				"눈 쌓임: 눈선 위 · 덜 가파른 곳 · 오목한 곳에 더 (쌓인 만큼 높이를 둥글게 올린다). Snow = 눈 마스크 (텍스처 규칙 · 색칠)." },
+			{ NodeType::Lake, "lake", "Lake", "Simulate", { "In" }, { { "Out", H }, { "Lakes", M } },
+				{ { "minDepth", "Min Depth (m)", K::Float, 3.0f, 0.2f, 100.0f }, { "minArea", "Min Area (km2)", K::Float, 0.05f, 0.001f, 50.0f },
+				  { "fill", "Fill", K::Float, 0.7f, 0.0f, 1.0f, nullptr, "웅덩이를 수면 높이 쪽으로 얼마나 (1 = 수면까지 — 호수 바닥이 평평)" },
+				  { "count", "Max Lakes", K::Int, 40.0f, 1.0f, 400.0f } },
+				"호수: 물이 빠져나가지 못하는 웅덩이 (우선순위 채우기) 중 깊고 넓은 것. 물가 선은 World Terrain 이 Water Body (Lake) 로." },
+			{ NodeType::Fold, "fold", "Fold", "Adjust", { "In" }, { { "Out", H } },
+				{ { "direction", "Direction (deg)", K::Float, 30.0f, 0.0f, 360.0f }, { "wavelength", "Wavelength (m)", K::Float, 2500.0f, 50.0f, 50000.0f },
+				  { "amount", "Amount (m)", K::Float, 600.0f, 0.0f, 10000.0f }, { "noise", "Irregularity", K::Float, 0.5f, 0.0f, 2.0f },
+				  { "seed", "Seed", K::Int, 81.0f, 0.0f, 100000.0f } },
+				"습곡: 한 방향으로 눌린 것처럼 자리를 물결로 밀어 나란한 능선 · 골이 휘어진다 (지층과 같이 쓰면 접힌 띠)." },
+			{ NodeType::Dunes, "dunes", "Dunes", "Primitive", {}, { { "Out", H } },
+				{ { "scale", "Wavelength (m)", K::Float, 120.0f, 5.0f, 5000.0f }, { "direction", "Wind (deg)", K::Float, 60.0f, 0.0f, 360.0f },
+				  { "height", "Height", K::Float, 1.0f, 0.0f, 1.0f }, { "warp", "Warp", K::Float, 0.6f, 0.0f, 3.0f },
+				  { "seed", "Seed", K::Int, 91.0f, 0.0f, 100000.0f } },
+				"사구: 바람 쪽은 완만하고 바람 뒤는 가파른 (안식각) 모래 언덕 줄 — 휘고 갈라진다. Combine 으로 사막에 더한다." },
+			{ NodeType::Shear, "shear", "Shear", "Adjust", { "In" }, { { "Out", H } },
+				{ { "scale", "Block Size (m)", K::Float, 1800.0f, 50.0f, 30000.0f }, { "offset", "Offset (m)", K::Float, 80.0f, 0.0f, 2000.0f },
+				  { "sharpness", "Sharpness", K::Float, 0.7f, 0.0f, 1.0f }, { "seed", "Seed", K::Int, 101.0f, 0.0f, 100000.0f } },
+				"단층: 땅을 덩어리로 갈라 덩어리마다 높이를 어긋나게 (단층애 · 계단 땅)." },
+			{ NodeType::Crater, "crater", "Craters", "Primitive", {}, { { "Out", H } },
+				{ { "scale", "Spacing (m)", K::Float, 4000.0f, 50.0f, 50000.0f }, { "density", "Density", K::Float, 0.4f, 0.0f, 1.0f },
+				  { "depth", "Depth", K::Float, 0.5f, 0.0f, 1.0f }, { "rim", "Rim", K::Float, 0.4f, 0.0f, 1.0f },
+				  { "seed", "Seed", K::Int, 111.0f, 0.0f, 100000.0f } },
+				"운석 구덩이: 둥근 구덩이 + 테두리 둑 (0.5 를 가운데로). Combine 의 Add 로 땅에." },
+			{ NodeType::Canyon, "canyon", "Canyon", "Adjust", { "In" }, { { "Out", H }, { "Canyon", M } },
+				{ { "scale", "Scale (m)", K::Float, 9000.0f, 200.0f, 80000.0f }, { "depth", "Depth (m)", K::Float, 250.0f, 0.0f, 3000.0f },
+				  { "width", "Width", K::Float, 0.12f, 0.01f, 0.5f }, { "steps", "Wall Steps", K::Int, 4.0f, 0.0f, 16.0f },
+				  { "seed", "Seed", K::Int, 121.0f, 0.0f, 100000.0f } },
+				"협곡: 노이즈 0 선을 따라 굽이치는 협곡을 판다 — 평평한 바닥, 층진 벽." },
+			{ NodeType::Volcano, "volcano", "Volcano", "Primitive", {}, { { "Out", H } },
+				{ { "radius", "Radius (m)", K::Float, 6000.0f, 200.0f, 50000.0f }, { "height", "Height", K::Float, 1.0f, 0.0f, 1.0f },
+				  { "crater", "Crater", K::Float, 0.18f, 0.0f, 0.6f }, { "centerX", "Center X (m)", K::Float, 0.0f, -50000.0f, 50000.0f },
+				  { "centerZ", "Center Z (m)", K::Float, 0.0f, -50000.0f, 50000.0f }, { "seed", "Seed", K::Int, 131.0f, 0.0f, 100000.0f } },
+				"화산: 오목한 비탈의 원뿔 + 꼭대기 분화구 + 비탈을 타고 내린 용암 골." },
 		};
 		return kDescs;
 	}
@@ -220,7 +260,7 @@ namespace TerrainGraph
 	{
 		uint64_t h = 7809847782465536322ull;
 		h = MixF(h, TileSize); h = Mix(h, (uint64_t)TileResolution);
-		for (float f : { DetailAmplitude, DetailScale, DetailErosion, DetailSlope, DetailDeposits, ColorStrength })
+		for (float f : { DetailAmplitude, DetailScale, DetailErosion, DetailSlope, DetailDeposits, ColorStrength, CliffDetail })
 			h = MixF(h, f);
 		return h;
 	}
@@ -231,7 +271,7 @@ namespace TerrainGraph
 			{ "buildResolution", BuildResolution }, { "previewResolution", PreviewResolution }, { "seed", Seed },
 			{ "detailAmplitude", DetailAmplitude }, { "detailScale", DetailScale }, { "detailErosion", DetailErosion },
 			{ "detailSlope", DetailSlope }, { "detailDeposits", DetailDeposits },
-			{ "colorStrength", ColorStrength } };
+			{ "colorStrength", ColorStrength }, { "cliffDetail", CliffDetail } };
 	}
 
 	void WorldSettings::FromJson(const json& j)
@@ -249,6 +289,7 @@ namespace TerrainGraph
 		DetailSlope = j.value("detailSlope", DetailSlope);
 		DetailDeposits = j.value("detailDeposits", DetailDeposits);
 		ColorStrength = j.value("colorStrength", ColorStrength);
+		CliffDetail = j.value("cliffDetail", CliffDetail);
 	}
 
 	json LayerRule::ToJson() const
@@ -520,10 +561,14 @@ namespace TerrainGraph
 		const int strat = add(NodeType::Stratify, 1680, 260, { { "step", 35.0f }, { "strength", 0.12f }, { "sharpness", 0.35f }, { "noise", 30.0f }, { "seed", sd + 6 } });
 		const int ero = add(NodeType::Erosion2, 1920, 260, { { "duration", 0.18f }, { "downcutting", 0.25f }, { "scale", 4000.0f }, { "seed", sd + 7 } });
 		const int gully = add(NodeType::Gullies, 2200, 200, { { "depth", 35.0f }, { "scale", 900.0f }, { "branch", 1.6f }, { "seed", sd + 8 } });
-		const int thermal = add(NodeType::Thermal, 2440, 200, { { "angle", 36.0f }, { "iterations", 20.0f }, { "strength", 0.4f } });
+		const int thermal = add(NodeType::Thermal, 2440, 200, { { "angle", 38.0f }, { "iterations", 12.0f }, { "strength", 0.25f } });
+		// 무너짐 뒤 깨진 바위 (Shatter): 크고 매끈한 비탈면이 남지 않게 — 가파른 곳만
+		const int shatter = add(NodeType::Rugged, 2560, 360, { { "amount", 22.0f }, { "scale", 160.0f }, { "slopeMin", 28.0f }, { "mode", 2.0f }, { "seed", sd + 10 } }, "Shatter");
 		const int sed = add(NodeType::Sediment, 2680, 200, { { "amount", 0.5f }, { "radius", 150.0f } });
+		const int lake = add(NodeType::Lake, 2800, 380, { { "minDepth", 4.0f }, { "minArea", 0.1f } });
 		const int river = add(NodeType::River, 2920, 200, { { "threshold", 25.0f }, { "count", 40.0f } });
 		const int road = add(NodeType::Road, 3160, 200, { { "towns", 14.0f }, { "seed", sd + 9 } });
+		const int snow = add(NodeType::Snow, 3300, 200, { { "line", 1750.0f }, { "depth", 2.5f } });
 		const int satLand = add(NodeType::SatMap, 3420, 360, { { "palette", 14.0f }, { "bias", -0.05f } }, "Land Colors");
 		const int slope = add(NodeType::Slope, 3420, 560, { { "min", 33.0f }, { "falloff", 8.0f } });
 		const int satRock = add(NodeType::SatMap, 3420, 740, { { "palette", 0.0f } }, "Rock Colors");
@@ -541,17 +586,20 @@ namespace TerrainGraph
 		g.Connect(strat, 0, ero, 0);
 		g.Connect(ero, 0, gully, 0);
 		g.Connect(gully, 0, thermal, 0);
-		g.Connect(thermal, 0, sed, 0);
-		g.Connect(sed, 0, river, 0);
+		g.Connect(thermal, 0, shatter, 0);
+		g.Connect(shatter, 0, sed, 0);
+		g.Connect(sed, 0, lake, 0);
+		g.Connect(lake, 0, river, 0);
 		g.Connect(river, 0, road, 0);
 		g.Connect(river, 1, road, 1);       // 길은 강을 피한다
-		g.Connect(road, 0, satLand, 0);
-		g.Connect(road, 0, slope, 0);
-		g.Connect(road, 0, satRock, 0);
+		g.Connect(road, 0, snow, 0);
+		g.Connect(snow, 0, satLand, 0);
+		g.Connect(snow, 0, slope, 0);
+		g.Connect(snow, 0, satRock, 0);
 		g.Connect(satLand, 0, blend, 0);
 		g.Connect(satRock, 0, blend, 1);
 		g.Connect(slope, 0, blend, 2);
-		g.Connect(road, 0, out, 0);
+		g.Connect(snow, 0, out, 0);
 		g.Connect(ero, 1, out, 1);          // Flow
 		g.Connect(ero, 3, out, 2);          // Deposits
 		g.Connect(ero, 2, out, 3);          // Wear
@@ -1419,13 +1467,43 @@ namespace TerrainGraph
 					for (size_t k = 0; k < p.Points.size(); ++k)
 						p.Points[k].Y = ys[k];
 				}
+				// 땅에서 6 m 넘게 떨어지지 않게 (고른 높이가 비탈에서 땅보다 백 m 아래로 가 길가에 수직 벽이 섰다) → 다시 조금 고르게
+				{
+					std::vector<float> ground(p.Points.size());
+					for (size_t k = 0; k < p.Points.size(); ++k)
+					{
+						const PathPoint& q = p.Points[k];
+						const float fx = (q.X - x0) / cell, fz = (q.Z - x0) / cell;
+						const int ix = std::clamp((int)fx, 0, n - 2), iz = std::clamp((int)fz, 0, n - 2);
+						const float tx = fx - ix, tz = fz - iz;
+						const size_t i0 = (size_t)iz * n + ix;
+						ground[k] = ((H[i0] * (1 - tx) + H[i0 + 1] * tx) * (1 - tz) + (H[i0 + n] * (1 - tx) + H[i0 + n + 1] * tx) * tz) * c.MaxHeight;
+						p.Points[k].Y = std::clamp(p.Points[k].Y, ground[k] - 6.0f, ground[k] + 6.0f);
+					}
+					const int w2 = (std::max)(1, (int)(20.0f / (std::max)(spacing, 1.0f)));
+					std::vector<float> ys(p.Points.size());
+					for (size_t k = 0; k < p.Points.size(); ++k)
+					{
+						float sum = 0.0f;
+						int cnt = 0;
+						for (int d = -w2; d <= w2; ++d)
+						{
+							sum += p.Points[(size_t)std::clamp((int)k + d, 0, (int)p.Points.size() - 1)].Y;
+							++cnt;
+						}
+						ys[k] = std::clamp(sum / cnt, ground[k] - 6.0f, ground[k] + 6.0f);
+					}
+					for (size_t k = 0; k < p.Points.size(); ++k)
+						p.Points[k].Y = ys[k];
+				}
 				paths.push_back(std::move(p));
 			}
-			// 깎고 메운다: 노면은 길 높이, 어깨 (너비 1.5 배 + 4 m) 는 부드럽게 원래 땅으로
+			// 깎고 메운다: 노면은 길 높이, 어깨 (너비 1.5 배 + 4 m + 높이 차 × 1.5 — 비탈 1:1.5) 는 부드럽게 원래 땅으로
 			for (const Path& p : paths)
 			{
-				const float shoulder = rp.Width * 1.5f + 4.0f;
-				StampPath(p, n, c, shoulder, [&](size_t i, float d, float t, const PathPoint& a, const PathPoint& b) {
+				const float shoulder0 = rp.Width * 1.5f + 4.0f;
+				StampPath(p, n, c, shoulder0 + 10.0f, [&](size_t i, float d, float t, const PathPoint& a, const PathPoint& b) {
+					const float shoulder = shoulder0 + fabsf(H[i] * c.MaxHeight - (a.Y + (b.Y - a.Y) * t)) * 1.5f;
 					const float y = (a.Y + (b.Y - a.Y) * t) / c.MaxHeight;
 					const float hw = rp.Width * 0.5f;
 					float& h = H[i];
@@ -1436,7 +1514,7 @@ namespace TerrainGraph
 					}
 					else
 					{
-						const float u = std::clamp((d - hw) / shoulder, 0.0f, 1.0f);
+						const float u = std::clamp((d - hw) / (std::min)(shoulder, shoulder0 + 10.0f), 0.0f, 1.0f);
 						const float s2 = u * u * (3.0f - 2.0f * u);
 						const float w = 1.0f - s2;
 						// 여러 길이 겹치면 가장 가까운 길이 이긴다 (mask 로 견준다)
@@ -1449,6 +1527,155 @@ namespace TerrainGraph
 				});
 			}
 			out = std::move(paths);
+		}
+
+		// ---- 호수: 우선순위 채우기 → (채운 - 땅) > 최소 깊이 인 이어진 칸 무리 중 넓은 것 → 물가 선 (경계 따라가기) · 바닥 메우기
+		struct LakeParams { float MinDepth = 3.0f, MinAreaKm2 = 0.05f, Fill = 0.7f; int Count = 40; };
+		void MakeLakes(std::vector<float>& H, std::vector<float>& mask, int n, const EvalContext& c, const LakeParams& lp, std::vector<Path>& out)
+		{
+			int f = 1;
+			while ((n - 1) / f + 1 > 1025)
+				f *= 2;
+			const int m = (n - 1) / f + 1;
+			const float cell = c.Cell(), gcell = cell * f, x0 = c.X0();
+			std::vector<float> g((size_t)m * m);
+			for (int j = 0; j < m; ++j)
+				for (int i = 0; i < m; ++i)
+					g[(size_t)j * m + i] = H[(size_t)(j * f) * n + i * f] * c.MaxHeight;
+			std::vector<float> filled = g;
+			std::vector<uint8_t> closed((size_t)m * m, 0);
+			using QE = std::pair<float, int>;
+			std::priority_queue<QE, std::vector<QE>, std::greater<QE>> pq;
+			for (int i = 0; i < m; ++i)
+				for (int idx : { i, (m - 1) * m + i, i * m, i * m + m - 1 })
+					if (!closed[(size_t)idx]) { closed[(size_t)idx] = 1; pq.push({ filled[(size_t)idx], idx }); }
+			static const int kDx[8] = { 1, -1, 0, 0, 1, 1, -1, -1 }, kDz[8] = { 0, 0, 1, -1, 1, -1, 1, -1 };
+			while (!pq.empty())
+			{
+				const auto [h, idx] = pq.top();
+				pq.pop();
+				const int ix = idx % m, iz = idx / m;
+				for (int k = 0; k < 8; ++k)
+				{
+					const int nx = ix + kDx[k], nz = iz + kDz[k];
+					if (nx < 0 || nz < 0 || nx >= m || nz >= m)
+						continue;
+					const int ni = nz * m + nx;
+					if (closed[(size_t)ni])
+						continue;
+					closed[(size_t)ni] = 1;
+					filled[(size_t)ni] = (std::max)(filled[(size_t)ni], h);
+					pq.push({ filled[(size_t)ni], ni });
+				}
+			}
+			// 물에 잠기는 칸 (0.2 m 넘게) 을 이어 무리로 — 무리마다 가장 깊은 곳이 최소 깊이를 넘고 넓이가 되면 호수
+			std::vector<int> label((size_t)m * m, -1);
+			struct Comp { float Level = 0.0f, MaxDepth = 0.0f; int Cells = 0; int Start = -1; };
+			std::vector<Comp> comps;
+			std::vector<int> stack;
+			for (int s = 0; s < m * m; ++s)
+			{
+				if (label[(size_t)s] >= 0 || filled[(size_t)s] - g[(size_t)s] < 0.2f)
+					continue;
+				Comp cp;
+				cp.Level = filled[(size_t)s];
+				cp.Start = s;
+				const int id = (int)comps.size();
+				stack.assign(1, s);
+				label[(size_t)s] = id;
+				while (!stack.empty())
+				{
+					const int idx = stack.back();
+					stack.pop_back();
+					++cp.Cells;
+					cp.MaxDepth = (std::max)(cp.MaxDepth, filled[(size_t)idx] - g[(size_t)idx]);
+					const int ix = idx % m, iz = idx / m;
+					for (int k = 0; k < 4; ++k)
+					{
+						const int nx = ix + kDx[k], nz = iz + kDz[k];
+						if (nx < 0 || nz < 0 || nx >= m || nz >= m)
+							continue;
+						const int ni = nz * m + nx;
+						if (label[(size_t)ni] < 0 && filled[(size_t)ni] - g[(size_t)ni] >= 0.2f && fabsf(filled[(size_t)ni] - cp.Level) < 0.05f)
+						{
+							label[(size_t)ni] = id;
+							stack.push_back(ni);
+						}
+					}
+				}
+				comps.push_back(cp);
+			}
+			const float cellKm2 = gcell * gcell * 1e-6f;
+			std::vector<int> keep;
+			for (int i = 0; i < (int)comps.size(); ++i)
+				if (comps[(size_t)i].MaxDepth >= lp.MinDepth && comps[(size_t)i].Cells * cellKm2 >= lp.MinAreaKm2)
+					keep.push_back(i);
+			std::sort(keep.begin(), keep.end(), [&](int a, int b) { return comps[(size_t)a].Cells > comps[(size_t)b].Cells; });
+			if ((int)keep.size() > lp.Count)
+				keep.resize((size_t)lp.Count);
+			std::vector<char> isLake(comps.size(), 0);
+			for (int id : keep)
+				isLake[(size_t)id] = 1;
+			// 바닥 메우기 (Fill 만큼 수면 쪽으로) + 마스크 (전체 해상도, 쌍선형)
+			Jobs::ParallelFor(n, 8, [&](int b, int e) {
+				for (int z = b; z < e; ++z)
+					for (int x = 0; x < n; ++x)
+					{
+						const int gi = std::clamp((int)std::lround((float)x / f), 0, m - 1), gj = std::clamp((int)std::lround((float)z / f), 0, m - 1);
+						const int id = label[(size_t)gj * m + gi];
+						if (id < 0 || !isLake[(size_t)id])
+							continue;
+						const size_t i = (size_t)z * n + x;
+						const float level = comps[(size_t)id].Level;
+						const float hm = H[i] * c.MaxHeight;
+						if (hm < level)
+						{
+							H[i] = (hm + (level - 0.6f - hm) * lp.Fill * 0.5f) / c.MaxHeight;   // 반만 메운다 (물가는 남게)
+							mask[i] = 1.0f;
+						}
+					}
+			}, "TerrainGraph Lake");
+			// 물가 선: 무리의 경계 칸을 무어 이웃으로 따라간다 (가장 바깥 한 바퀴)
+			for (int id : keep)
+			{
+				const Comp& cp = comps[(size_t)id];
+				int start = -1;
+				for (int s = 0; s < m * m && start < 0; ++s)
+					if (label[(size_t)s] == id)
+						start = s;   // 위 → 아래, 왼쪽 → 오른쪽 첫 칸 (왼쪽이 밖)
+				if (start < 0)
+					continue;
+				auto inside = [&](int ix, int iz) { return ix >= 0 && iz >= 0 && ix < m && iz < m && label[(size_t)iz * m + ix] == id; };
+				static const int mdx[8] = { -1, -1, 0, 1, 1, 1, 0, -1 }, mdz[8] = { 0, -1, -1, -1, 0, 1, 1, 1 };
+				Path p;
+				p.Kind = 2;
+				int cx = start % m, cz = start / m, back = 0;   // back = 들어온 쪽 (왼쪽 = 밖)
+				const int sx = cx, sz = cz;
+				for (int guard = 0; guard < m * 8; ++guard)
+				{
+					p.Points.push_back({ x0 + cx * gcell, x0 + cz * gcell, cp.Level - 0.3f, 0.0f });
+					int k = (back + 1) % 8, found = -1;
+					for (int t = 0; t < 8; ++t, k = (k + 1) % 8)
+						if (inside(cx + mdx[k], cz + mdz[k])) { found = k; break; }
+					if (found < 0)
+						break;
+					cx += mdx[found];
+					cz += mdz[found];
+					back = (found + 4) % 8;
+					if (cx == sx && cz == sz)
+						break;
+				}
+				if (p.Points.size() < 6)
+					continue;
+				// 점 줄이기 (약 4 칸마다) + 매끈하게
+				std::vector<PathPoint> thin;
+				for (size_t k = 0; k < p.Points.size(); k += 4)
+					thin.push_back(p.Points[k]);
+				p.Points.swap(thin);
+				Chaikin(p.Points, 2);
+				p.Order = std::clamp(cp.Cells * cellKm2 / 5.0f, 0.0f, 1.0f);
+				out.push_back(std::move(p));
+			}
 		}
 
 		// ---- SatMap: 값 → 팔레트 색 (sRGB) → 색조 · 채도 · 밝기 → 선형
@@ -2113,6 +2340,200 @@ namespace TerrainGraph
 				}
 				return { col };
 			}
+			// ================================================================ 더 (2)
+			case NodeType::Snow:
+			{
+				MapPtr src = input(0);
+				auto mask = NewMap(res);
+				if (!src)
+					return { out, mask };
+				const float line = node.Get("line"), fall = (std::max)(1.0f, node.Get("falloff")), depth = node.Get("depth") / c.MaxHeight;
+				const float smax = node.Get("slopeMax"), settle = node.Get("settle");
+				auto blurred = NewMap(res);
+				blurred->V = src->V;
+				const int r = (std::max)(1, (int)std::lround(60.0f / cell));
+				BoxBlur(blurred->V, res, r);
+				const float k = c.MaxHeight / (2.0f * cell);
+				FillRows(*mask, c, [&](int x, int z, double, double) {
+					const size_t i = (size_t)z * res + x;
+					const float hm = src->V[i] * c.MaxHeight;
+					const float gx = (src->At(x + 1, z) - src->At(x - 1, z)) * k, gz = (src->At(x, z + 1) - src->At(x, z - 1)) * k;
+					const float deg = atanf(sqrtf(gx * gx + gz * gz)) * 57.29578f;
+					const float above = std::clamp((hm - (line - fall)) / (2.0f * fall), 0.0f, 1.0f);
+					const float flat = std::clamp((smax - deg) / 8.0f, 0.0f, 1.0f);
+					const float hollow = std::clamp((blurred->V[i] - src->V[i]) * c.MaxHeight / 5.0f, -0.5f, 1.0f);
+					return std::clamp(above * flat * (1.0f + settle * hollow), 0.0f, 1.0f);
+				});
+				auto soft = NewMap(res);
+				soft->V = mask->V;
+				BoxBlur(soft->V, res, 1);
+				for (size_t i = 0; i < out->V.size(); ++i)
+					out->V[i] = src->V[i] + depth * soft->V[i];
+				return { out, mask };
+			}
+			case NodeType::Lake:
+			{
+				auto mask = NewMap(res);
+				out = copyIn(0);
+				if (!input(0))
+					return { out, mask };
+				LakeParams lp;
+				lp.MinDepth = node.Get("minDepth");
+				lp.MinAreaKm2 = node.Get("minArea");
+				lp.Fill = node.Get("fill");
+				lp.Count = (int)node.Get("count");
+				MakeLakes(out->V, mask->V, res, c, lp, side.Lakes);
+				return { out, mask };
+			}
+			case NodeType::Fold:
+			{
+				MapPtr src = input(0);
+				if (!src)
+					break;
+				const float dir = node.Get("direction") * 0.0174533f;
+				const double wl = (std::max)(1.0f, node.Get("wavelength"));
+				const float amount = node.Get("amount"), irr = node.Get("noise");
+				const uint32_t seed = seedBase + (uint32_t)node.Get("seed") * 7919u;
+				const float dx = cosf(dir), dz = sinf(dir);
+				FillRows(*out, c, [&](int, int, double wx, double wz) {
+					const double along = wx * dx + wz * dz;
+					const double across = -wx * dz + wz * dx;
+					const float phase = (float)(along / wl * 6.2831853) + irr * 3.0f * N::Fbm(across / (wl * 4.0), along / (wl * 4.0), seed, 3);
+					const float off = amount * sinf(phase) * (0.7f + 0.3f * N::Fbm(wx / (wl * 2.0), wz / (wl * 2.0), seed + 5u, 2));
+					// 눌린 방향으로 자리를 민다 (읽는 자리)
+					const double sx = wx + dx * off, sz = wz + dz * off;
+					return src->Bilinear((float)((sx - c.X0()) / cell), (float)((sz - c.X0()) / cell));
+				});
+				break;
+			}
+			case NodeType::Dunes:
+			{
+				const double s = (std::max)(1.0f, node.Get("scale"));
+				const float dir = node.Get("direction") * 0.0174533f, height = node.Get("height"), warp = node.Get("warp");
+				const uint32_t seed = seedBase + (uint32_t)node.Get("seed") * 7919u;
+				const float dx = cosf(dir), dz = sinf(dir);
+				FillRows(*out, c, [&](int, int, double wx, double wz) {
+					const double along = wx * dx + wz * dz, across = -wx * dz + wz * dx;
+					const double w = warp * s * N::Fbm(across / (s * 3.0), along / (s * 6.0), seed, 3);
+					double t = (along + w) / s;
+					t -= std::floor(t);
+					// 바람 쪽 완만 (0.75) · 뒤 가파름 (0.25)
+					const float prof = t < 0.75 ? (float)(t / 0.75) : (float)((1.0 - t) / 0.25);
+					const float shaped = prof * prof * (3.0f - 2.0f * prof);
+					const float crest = 0.6f + 0.4f * N::Fbm(across / (s * 1.5), along / (s * 1.5), seed + 7u, 2);   // 마루가 끊기고 높낮이가 다르게
+					return height * shaped * std::clamp(crest, 0.0f, 1.0f);
+				});
+				break;
+			}
+			case NodeType::Shear:
+			{
+				MapPtr src = input(0);
+				if (!src)
+					break;
+				const double s = (std::max)(1.0f, node.Get("scale"));
+				const float offset = node.Get("offset") / c.MaxHeight, sharp = node.Get("sharpness");
+				const uint32_t seed = seedBase + (uint32_t)node.Get("seed") * 7919u;
+				FillRows(*out, c, [&](int x, int z, double wx, double wz) {
+					// 휜 좌표의 보로노이 덩어리마다 어긋남 — 경계는 sharpness 만큼 날카롭게
+					const double qx = wx / s + 0.3 * N::Fbm(wx / (s * 2.0), wz / (s * 2.0), seed + 3u, 3), qz = wz / s + 0.3 * N::Fbm(wx / (s * 2.0) + 4.1, wz / (s * 2.0), seed + 5u, 3);
+					float f1, f2;
+					uint32_t ch;
+					Voronoi(qx, qz, seed, 0.9f, f1, f2, ch);
+					const float edge = std::clamp((f2 - f1) / (0.02f + 0.3f * (1.0f - sharp)), 0.0f, 1.0f);
+					const float shift = (N::Rand01(ch) - 0.5f) * 2.0f * offset;
+					return src->At(x, z) + shift * edge;
+				});
+				break;
+			}
+			case NodeType::Crater:
+			{
+				const double s = (std::max)(1.0f, node.Get("scale"));
+				const float density = node.Get("density"), depth = node.Get("depth"), rim = node.Get("rim");
+				const uint32_t seed = seedBase + (uint32_t)node.Get("seed") * 7919u;
+				FillRows(*out, c, [&](int, int, double wx, double wz) {
+					float v = 0.5f;
+					// 두 크기의 칸 (큰 것 · 잔 것)
+					for (int level = 0; level < 2; ++level)
+					{
+						const double ss = level == 0 ? s : s * 0.35;
+						const int ix = (int)std::floor(wx / ss), iz = (int)std::floor(wz / ss);
+						for (int j = -1; j <= 1; ++j)
+							for (int i = -1; i <= 1; ++i)
+							{
+								const uint32_t h = N::Hash(ix + i, iz + j, seed + (uint32_t)level * 77u);
+								if (N::Rand01(h * 3u) > density * (level == 0 ? 1.0f : 1.6f))
+									continue;
+								const double cx = (ix + i + 0.2 + 0.6 * N::Rand01(h)) * ss, cz = (iz + j + 0.2 + 0.6 * N::Rand01(h * 7u)) * ss;
+								const double rad = ss * (0.15 + 0.3 * N::Rand01(h * 11u));
+								const float d = (float)(std::sqrt((wx - cx) * (wx - cx) + (wz - cz) * (wz - cz)) / rad);
+								if (d > 1.6f)
+									continue;
+								const float bowl = d < 1.0f ? -(1.0f - d * d) : 0.0f;
+								const float ring = expf(-(d - 1.0f) * (d - 1.0f) * 18.0f);
+								v += (bowl * depth + ring * rim * 0.6f) * (level == 0 ? 0.5f : 0.25f);
+							}
+					}
+					return std::clamp(v, 0.0f, 1.0f);
+				});
+				break;
+			}
+			case NodeType::Canyon:
+			{
+				MapPtr src = input(0);
+				auto mask = NewMap(res);
+				if (!src)
+					return { out, mask };
+				const double s = (std::max)(1.0f, node.Get("scale"));
+				const float depth = node.Get("depth") / c.MaxHeight, width = node.Get("width");
+				const int steps = (int)node.Get("steps");
+				const uint32_t seed = seedBase + (uint32_t)node.Get("seed") * 7919u;
+				Jobs::ParallelFor(res, 4, [&](int b, int e) {
+					for (int z = b; z < e; ++z)
+						for (int x = 0; x < res; ++x)
+						{
+							const size_t i = (size_t)z * res + x;
+							const double wx = c.X0() + x * (double)cell, wz = c.X0() + z * (double)cell;
+							const double qx = wx / s + 0.35 * N::Fbm(wx / (s * 0.7), wz / (s * 0.7), seed + 9u, 4);
+							const double qz = wz / s + 0.35 * N::Fbm(wx / (s * 0.7) + 3.3, wz / (s * 0.7), seed + 13u, 4);
+							const float n = fabsf(N::Fbm(qx, qz, seed, 3));
+							float t = std::clamp(1.0f - n / width, 0.0f, 1.0f);   // 1 = 협곡 가운데
+							if (steps > 0)
+							{
+								// 층진 벽: 깊이를 계단으로 (턱은 조금 기울게)
+								const float st = t * steps;
+								const float fl = floorf(st);
+								t = (fl + powf(st - fl, 4.0f)) / steps;
+							}
+							const float floorT = std::clamp(t * 1.4f, 0.0f, 1.0f);   // 바닥은 평평하게
+							out->V[i] = src->V[i] - depth * floorT;
+							mask->V[i] = floorT;
+						}
+				}, "TerrainGraph Canyon");
+				return { out, mask };
+			}
+			case NodeType::Volcano:
+			{
+				const double cx = node.Get("centerX"), cz = node.Get("centerZ"), rad = (std::max)(10.0f, node.Get("radius"));
+				const float height = node.Get("height"), crater = node.Get("crater");
+				const uint32_t seed = seedBase + (uint32_t)node.Get("seed") * 7919u;
+				FillRows(*out, c, [&](int, int, double wx, double wz) {
+					const double dx = wx - cx, dz = wz - cz;
+					const float ang = (float)std::atan2(dz, dx);
+					float d = (float)(std::sqrt(dx * dx + dz * dz) / rad);
+					d *= 1.0f + 0.12f * N::Fbm(cosf(ang) * 2.0, sinf(ang) * 2.0, seed, 3);   // 둥글지 않게
+					if (d >= 1.0f)
+						return 0.0f;
+					float cone = powf(1.0f - d, 1.8f);   // 오목한 비탈
+					// 분화구: 꼭대기를 파고 테두리
+					if (d < crater)
+						cone = powf(1.0f - crater, 1.8f) - (crater - d) / crater * 0.25f;
+					// 용암 골: 방사 방향 리지
+					const float lava = 1.0f - fabsf(N::Fbm(ang * 6.0, d * 3.0, seed + 5u, 3));
+					cone -= 0.06f * lava * lava * d * (1.0f - d) * 4.0f;
+					return height * (std::max)(0.0f, cone);
+				});
+				break;
+			}
 			case NodeType::Output:
 			default:
 				break;
@@ -2129,7 +2550,7 @@ namespace TerrainGraph
 		case NodeType::Erosion: return 6.0f;
 		case NodeType::Erosion2: return 9.0f;
 		case NodeType::Thermal: return 2.0f;
-		case NodeType::River: case NodeType::Road: case NodeType::Gullies: return 2.0f;
+		case NodeType::River: case NodeType::Road: case NodeType::Gullies: case NodeType::Lake: return 2.0f;
 		default: return 1.0f;
 		}
 	}

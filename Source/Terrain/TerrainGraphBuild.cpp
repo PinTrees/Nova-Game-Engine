@@ -110,6 +110,48 @@ namespace TerrainGraph
 		}
 		const float d = N::Eroded(x, z, seed, scale, minWl, World.DetailErosion * 4.0f);
 		float h = base * World.MaxHeight + amp * (d * (1.0f - 0.6f * steep) + gully * 1.6f);
+		// 절벽 결: 가파를수록 (기울기 0.4 ~ 0.9 = 22° ~ 42°) — 매끈한 큰 비탈면을 깬다. 산맥 리지가 만든 100 m 넘는 면도 있어
+		//  깊이는 경사에 따라 (45° = Cliff Detail × 2.5)
+		if (World.CliffDetail > 0.0f)
+		{
+			const float g = sqrtf(gx * gx + gz * gz);
+			const float c = std::clamp((g - 0.4f) / 0.5f, 0.0f, 1.0f);
+			if (c > 0.0f)
+			{
+				const float cs = c * c * (3.0f - 2.0f * c);
+				const float A = World.CliffDetail * cs * (1.0f + 1.5f * (std::min)(g, 1.5f));
+				// 1) 깨진 바위 능 · 홈 (리지 60 m)
+				const int oct = std::clamp((int)std::floor(std::log2(60.0 / (std::max)(minWl, 0.6))) + 1, 0, 6);
+				if (oct > 0)
+				{
+					const float r = N::Ridged(x / 60.0, z / 60.0, seed + 71u, oct, 0.55f, 2.2f);
+					h += A * (r - 0.35f) * 1.2f;
+				}
+				// 2) 비탈을 따라 내려가는 낙석 홈 · 바위 갈비 (침식 필터를 절벽 크기 80 m 로 — 골은 깊게, 능은 얕게)
+				const float rib = N::ErosionFilter(x, z, gx, gz, seed + 113u, 80.0, 4, minWl, A * 1.5f, 1.4f);
+				h += A * 1.4f * (rib < 0.0f ? rib : rib * 0.6f);
+				// 2b) 큰 면의 버팀벽 · 골 (220 m 간격, 비탈 따라): 깊이는 면 높이 (경사 방향 ±100 m 의 빌드 높이 차) 의 22 % (40 m 까지)
+				//  — 산맥 리지가 만든 높이 100 m 넘는 긴 면이 매끈한 벽으로 남지 않게. 작은 언덕은 면이 낮아 거의 그대로
+				{
+					const float ux = gx / g, uz = gz / g;
+					const float relief = fabsf(BaseHeight01(x + ux * 100.0f, z + uz * 100.0f) - BaseHeight01(x - ux * 100.0f, z - uz * 100.0f)) * World.MaxHeight;
+					const float B = (std::min)(relief * 0.22f, 40.0f) * cs * (World.CliffDetail / 6.0f);
+					if (B > 1.0f)
+						h += B * N::ErosionFilter(x, z, gx, gz, seed + 191u, 220.0, 2, minWl, B, 1.0f);
+				}
+				// 3) 지층 턱: 16 m 마다 평평한 턱 + 가파른 벽 (층은 300 m 물결로 기운다). 턱의 수평 간격 (16 / 경사) 이
+				//  표본보다 넉넉할 때만 (먼 타일에서는 계단이 무아레 띠가 된다)
+				const float step = 16.0f;
+				const float fade = std::clamp((float)((step / g - 3.0 * minWl) / (3.0 * minWl)), 0.0f, 1.0f);
+				if (fade > 0.0f)
+				{
+					const float wob = N::Fbm(x / 300.0, z / 300.0, seed + 151u, 3) * 6.0f;
+					const float lv = (h + wob) / step;
+					const float fr = lv - floorf(lv);
+					h += (fr * fr * fr - fr) * step * 0.6f * cs * fade;
+				}
+			}
+		}
 		ApplyPaths(x, z, footprint, h);
 		return std::clamp(h / World.MaxHeight, 0.0f, 1.0f);
 	}
@@ -139,7 +181,9 @@ namespace TerrainGraph
 		}
 		if (road.Dist < 1e8f)
 		{
-			const float hw = road.Width * 0.5f, shoulder = road.Width * 1.5f + 4.0f;
+			// 어깨 = 기본 + 높이 차 × 1.5 (비탈 1:1.5 — 깎은 면이 수직 벽이 되지 않게), 길 찾기 격자 여유 (너비 × 2 + 16) 안
+			const float hw = road.Width * 0.5f;
+			const float shoulder = (std::min)(road.Width * 1.5f + 4.0f + fabsf(h - road.Y) * 1.5f, road.Width * 1.5f + 14.0f);
 			const float d = road.Dist;
 			if (d < hw + shoulder)
 			{
@@ -449,7 +493,7 @@ namespace TerrainGraph
 						return nullptr;
 					p.Points.resize(n);
 					in.read(reinterpret_cast<char*>(p.Points.data()), (std::streamsize)(n * sizeof(PathPoint)));
-					(p.Kind == 0 ? b->Rivers : b->Roads).push_back(std::move(p));
+					(p.Kind == 0 ? b->Rivers : p.Kind == 1 ? b->Roads : b->Lakes).push_back(std::move(p));
 				}
 				if (!in)
 					return nullptr;
@@ -588,9 +632,9 @@ namespace TerrainGraph
 						rgb[i] = (uint8_t)std::clamp((int)(powf(std::clamp(r.Color->V[i], 0.0f, 1.0f), 1.0f / 2.2f) * 255.0f + 0.5f), 0, 255);
 					out.write(reinterpret_cast<const char*>(rgb.data()), (std::streamsize)rgb.size());
 				}
-				const uint32_t paths = (uint32_t)(r.Rivers.size() + r.Roads.size());
+				const uint32_t paths = (uint32_t)(r.Rivers.size() + r.Roads.size() + r.Lakes.size());
 				out.write(reinterpret_cast<const char*>(&paths), 4);
-				for (const std::vector<Path>* list : { &r.Rivers, &r.Roads })
+				for (const std::vector<Path>* list : { &r.Rivers, &r.Roads, &r.Lakes })
 					for (const Path& p : *list)
 					{
 						const uint32_t n = (uint32_t)p.Points.size();

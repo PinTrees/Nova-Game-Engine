@@ -27,13 +27,15 @@ namespace PCG
 			return t * t * (3.0f - 2.0f * t);
 		}
 
-		// 셀 안의 지형 격자 높이 (한 번 계산해 점마다 보간)
+		// 셀 안의 지형 격자 높이 — 점이 닿는 격자점만 처음 쓸 때 계산해 둔다 (게으른 캐시).
+		//  예전에는 셀 전체 격자 (0.49 m 간격, 64 m 셀 = 1.7 만 점) 를 미리 다 계산했다: 지형 그래프 월드의 Height01 (침식 결 · 절벽 결)
+		//  이 무거워 셀마다 115 ms — 50 km 월드에서 셀 9700 개가 다 차는 데 몇 분. 나무처럼 성긴 스포너는 몇백 점만 쓴다
 		struct HeightCache
 		{
 			const WorldGen::Settings* World = nullptr;
 			TerrainGrid Grid;
 			int I0 = 0, J0 = 0, W = 0, H = 0;
-			std::vector<float> H01;
+			mutable std::vector<float> H01;   // 음수 = 아직 계산 안 함 (높이는 0..1) (셀 하나는 한 스레드에서 돈다)
 			void Build(const WorldGen::Settings& w, const TerrainGrid& g, const Rect& r)
 			{
 				World = &w;
@@ -42,17 +44,17 @@ namespace PCG
 				J0 = (int)floorf((r.Z0 - g.OriginZ) / g.Spacing) - 2;
 				W = (int)ceilf((r.X1 - g.OriginX) / g.Spacing) + 3 - I0;
 				H = (int)ceilf((r.Z1 - g.OriginZ) / g.Spacing) + 3 - J0;
-				H01.resize((size_t)W * H);
-				for (int j = 0; j < H; ++j)
-					for (int i = 0; i < W; ++i)
-						H01[(size_t)j * W + i] = WorldGen::Height01(w, g.OriginX + (I0 + i) * g.Spacing, g.OriginZ + (J0 + j) * g.Spacing);
+				H01.assign((size_t)W * H, -1.0f);
 			}
 			float Sample(int i, int j) const
 			{
 				const int li = i - I0, lj = j - J0;
 				if (li < 0 || lj < 0 || li >= W || lj >= H)
 					return WorldGen::Height01(*World, Grid.OriginX + i * Grid.Spacing, Grid.OriginZ + j * Grid.Spacing);
-				return H01[(size_t)lj * W + li];
+				float& v = H01[(size_t)lj * W + li];
+				if (v < 0.0f)
+					v = WorldGen::Height01(*World, Grid.OriginX + i * Grid.Spacing, Grid.OriginZ + j * Grid.Spacing);
+				return v;
 			}
 			// TerrainData::GetHeight 와 같은 대각선 (0,0)-(1,1)
 			float Height01(float x, float z) const
