@@ -450,7 +450,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 		{
 			static const char* kDisplacement[] = { "None", "Tessellation Displacement" };
 			int mode = m.m_Tess.Enabled ? 1 : 0;
-			if (UnityGUI::Dropdown("Displacement Mode", &mode, kDisplacement, 2)) { m.m_Tess.Enabled = mode == 1; changed = true; }
+			if (UnityGUI::Dropdown("Displacement Mode", &mode, kDisplacement, 2)) { m.m_Tess.Enabled = mode == 1; m.EnsureDerivedHeight(); changed = true; }
 		}
 	}
 
@@ -462,7 +462,9 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 		if (UnityGUI::Slider("Triangle Size", &s.TriangleSize, 2.0f, 100.0f)) { s.TriangleSize = std::clamp(s.TriangleSize, 2.0f, 100.0f); changed = true; }
 		if (UnityGUI::Float("Fade Distance", &s.FadeDistance)) { s.FadeDistance = (std::max)(1.0f, s.FadeDistance); changed = true; }
 		if (!m.HeightMapSRV)
-			UnityGUI::HelpBox("Assign a Height Map in Surface Inputs to displace the surface.", true);
+			UnityGUI::HelpBox("Assign a Height Map (or a Normal Map — the height is then made from it) in Surface Inputs to displace the surface.", true);
+		else if (m.HeightFromNormalMap())
+			UnityGUI::HelpBox("No Height Map: the height is made from the Normal Map. Assign a Height Map for exact depth.", false);
 		else if (p.AlphaClip)
 			UnityGUI::HelpBox("Tessellation is not used with Alpha Clipping.", true);
 	}
@@ -488,7 +490,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 			static const char* kSource[] = { "Metallic Alpha", "Albedo Alpha" };
 			if (UnityGUI::Dropdown("Source", &p.SmoothnessFromAlbedo, kSource, 2, 2)) changed = true;
 			// Normal Map + Scale
-			changed |= TextureRow("Normal Map", &m.m_NormalMapPath, std::addressof(m.NormalMapSRV), "matNormal:" + key, row);
+			if (TextureRow("Normal Map", &m.m_NormalMapPath, std::addressof(m.NormalMapSRV), "matNormal:" + key, row)) { changed = true; if (m.HeightFromNormalMap()) { m.HeightMapSRV.Reset(); m.m_HeightFromNormal = false; } m.EnsureDerivedHeight(); }
 			if (m.NormalMapSRV)
 				changed |= UnityGUI::FloatBox("##normalScale", &p.NormalScale, ImVec2(row.fieldX, row.p.y), 60.0f);
 			UnityGUI::EndFieldRow(row);
@@ -504,7 +506,7 @@ void MaterialInspector::Draw(UMaterial& m, bool embedded)
 				}
 			}
 			// Height Map + Amplitude (m) — Displacement Mode 가 Tessellation 일 때 민다
-			changed |= TextureRow("Height Map", &m.m_HeightMapPath, std::addressof(m.HeightMapSRV), "matHeight:" + key, row);
+			if (TextureRow("Height Map", &m.m_HeightMapPath, std::addressof(m.HeightMapSRV), "matHeight:" + key, row)) { changed = true; m.EnsureDerivedHeight(); }
 			if (m.HeightMapSRV)
 				changed |= UnityGUI::FloatBox("##heightAmp", &m.m_Tess.Amplitude, ImVec2(row.fieldX, row.p.y), 60.0f);
 			UnityGUI::EndFieldRow(row);

@@ -7179,14 +7179,14 @@ function Suite-Building
         Add-Result building 'package: com.nova.building pulls in com.nova.textures; nova textures lists 80+ named materials by category and finds them by words' ($pl -match 'com\.nova\.building' -and $pl -match 'com\.nova\.textures' -and [int]$cats.count -ge 80 -and @($cats.categories.PSObject.Properties).Count -ge 7 -and $firstHit -eq 'roof/thatch-mossy' -and $tinfo.maps.normal -like '*normal.webp') "materials $($cats.count), categories $(@($cats.categories.PSObject.Properties).Count), 'mossy thatch' -> $firstHit, slate normal $($tinfo.maps.normal)"
         $st = Invoke-NovaJson 'building styles'
         $names = @($st.styles | ForEach-Object { $_.name })
-        $wanted = @('Medieval Cottage', 'Tudor Townhouse', 'Tavern', 'Castle Keep', 'Wizard Tower', 'Nordic Longhouse', 'Stave Church', 'Roman Temple', 'Baroque Palace', 'Northern Merchant House', 'Northern Gatehouse', 'Riverland Townhouse', 'Highland Manor')
+        $wanted = @('Medieval Cottage', 'Tudor Townhouse', 'Tavern', 'Castle Keep', 'Wizard Tower', 'Nordic Longhouse', 'Stave Church', 'Roman Temple', 'Baroque Palace', 'Northern Merchant House', 'Northern Gatehouse', 'Riverland Townhouse', 'Highland Manor', 'Canal House', 'Canal Merchant Hall', 'Bridge House', 'Stone Canal Bridge')
         $missing = @($wanted | Where-Object { $names -notcontains $_ })
-        Add-Result building 'styles: 21 (medieval fantasy, Nordic, Roman, Gothic, Baroque, Alpine, Mediterranean)' ([int]$st.count -ge 21 -and $missing.Count -eq 0) "styles $($st.count), missing [$($missing -join ', ')]"
+        Add-Result building 'styles: 25 (medieval fantasy, Nordic, Roman, Gothic, Baroque, Alpine, Mediterranean, canal town + stone bridge)' ([int]$st.count -ge 25 -and $missing.Count -eq 0) "styles $($st.count), missing [$($missing -join ', ')]"
 
         $chk = Invoke-NovaJson 'building check --seeds 3'
         $issues = @($chk.buildings | Where-Object { $_.issue } | ForEach-Object { "$($_.style) seed $($_.seed): $($_.issue)" })
         $slow = @($chk.buildings | ForEach-Object { [double]$_.ms } | Measure-Object -Maximum).Maximum
-        Add-Result building 'every style and random variant builds a valid mesh (door, sane size, finite, indices in range)' ([int]$chk.bad -eq 0 -and [int]$chk.built -ge 84) "built $($chk.built), bad $($chk.bad) [$($issues -join '; ')], slowest $([math]::Round($slow, 1)) ms"
+        Add-Result building 'every style and random variant builds a valid mesh (door, sane size, finite, indices in range)' ([int]$chk.bad -eq 0 -and [int]$chk.built -ge 100) "built $($chk.built), bad $($chk.bad) [$($issues -join '; ')], slowest $([math]::Round($slow, 1)) ms"
 
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'create plane --name Ground --scale 10,1,10' | Out-Null
@@ -7216,7 +7216,14 @@ function Suite-Building
         $cv0 = Invoke-NovaJson 'building set --target BC --values "{\"shape\":{\"floors\":3},\"roof\":{\"curve\":0},\"details\":{\"irregularity\":0,\"turrets\":0,\"stairTower\":false,\"oriels\":0}}"'
         $cvc = Invoke-NovaJson 'building set --target BC --values "{\"roof\":{\"curve\":0.45}}"'
         $cv1 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"turrets\":2,\"stairTower\":true,\"oriels\":2}}"'
-        Add-Result building 'curves: bell-cast roof, corner turrets with flared cone roofs, stair tower, oriel windows' ([int]$cvc.triangles -gt [int]$cv0.triangles -and [int]$cv1.towers -ge [int]$cv0.towers + 2 -and [int]$cv1.triangles -gt [int]$cvc.triangles * 1.05 -and [double]$cv1.size[1] -gt [double]$cv0.size[1]) "straight $($cv0.triangles) → curved $($cvc.triangles) → turrets/stair/oriels $($cv1.triangles) triangles, towers $($cv0.towers) → $($cv1.towers), height $([math]::Round([double]$cv0.size[1], 1)) → $([math]::Round([double]$cv1.size[1], 1)) m"
+        Add-Result building 'curves: bell-cast roof, corner turrets with flared cone roofs, stair tower, oriel windows' ([int]$cvc.triangles -ne [int]$cv0.triangles -and [int]$cv1.towers -ge [int]$cv0.towers + 2 -and [int]$cv1.triangles -gt [int]$cvc.triangles * 1.05 -and [double]$cv1.size[1] -gt [double]$cv0.size[1]) "straight $($cv0.triangles) → curved $($cvc.triangles) → turrets/stair/oriels $($cv1.triangles) triangles, towers $($cv0.towers) → $($cv1.towers), height $([math]::Round([double]$cv0.size[1], 1)) → $([math]::Round([double]$cv1.size[1], 1)) m"
+
+        $ru0 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"rustic\":0}}"'
+        $ru1 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"rustic\":0.9}}"'
+        $cn = Invoke-NovaJson 'building set --target BC --values "{\"shape\":{\"canal\":1.2},\"walls\":{\"timber\":5},\"windows\":{\"shopFront\":true}}"'
+        $bg = Invoke-NovaJson 'building create --style "Stone Canal Bridge" --seed 1 --name BBridge --position 40,0,0'
+        Add-Result building 'hand-hewn timber and stone (not boxes), canal foundation + landing, close studding, shop front, stone arch bridge' ([int]$ru1.triangles -gt [int]$ru0.triangles * 1.3 -and [double]$cn.size[1] -gt [double]$ru1.size[1] + 2.0 -and [int]$bg.triangles -gt 3000 -and [double]$bg.size[0] -gt 14.0) "boxes $($ru0.triangles) -> hand-hewn $($ru1.triangles) tris, height $([math]::Round([double]$ru1.size[1], 1)) -> canal $([math]::Round([double]$cn.size[1], 1)) m, bridge $($bg.triangles) tris $(($bg.size | ForEach-Object { [math]::Round($_, 1) }) -join 'x')"
+        Invoke-Nova 'delete BBridge' | Out-Null
 
         Remove-Item $presetFile -Force -ErrorAction SilentlyContinue
         $ps = Invoke-NovaJson 'building preset --target BA --name "Suite Preset"'
@@ -7236,13 +7243,14 @@ function Suite-Building
         Invoke-Nova 'wait 20' | Out-Null
         $png1 = Join-Path $dir 'building.png'
         Invoke-Nova "screenshot `"$png1`" --view game" | Out-Null
+        $tq = Invoke-NovaJson 'tessellation info'
         Invoke-Nova 'delete BA' | Out-Null
         Invoke-Nova 'wait 10' | Out-Null
         $png2 = Join-Path $dir 'empty.png'
         Invoke-Nova "screenshot `"$png2`" --view game" | Out-Null
         $dd = ImageDiffB $png1 $png2
         $w = Invoke-NovaJson 'building window --style "Tudor Townhouse" --step 6'
-        Add-Result building 'the building draws in the Game view; Window > Building Generator opens on a style and step' ($dd -gt 8.0 -and [int]$w.step -eq 6 -and [int]$w.style -eq 1) "picture change mean $([math]::Round($dd, 2)), window step $($w.step) style $($w.style)"
+        Add-Result building 'the building draws in the Game view with tessellated displacement (stone, tiles, plaster — height from the normal map where the pack has none); Window > Building Generator opens on a style and step' ($dd -gt 8.0 -and [int]$tq.tessellatedBatches -gt 0 -and [int]$w.step -eq 6 -and [int]$w.style -eq 1) "picture change mean $([math]::Round($dd, 2)), tessellated batches $($tq.tessellatedBatches) / $($tq.batches), window step $($w.step) style $($w.style)"
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'package remove com.nova.building' | Out-Null

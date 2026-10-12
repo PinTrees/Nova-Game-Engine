@@ -663,7 +663,8 @@ namespace CliCommands
 				e = "unknown op (info | set --enabled true|false)";
 				return false;
 			}
-			r = { { "enabled", MeshBatcher::TessellationEnabled() } };
+			r = { { "enabled", MeshBatcher::TessellationEnabled() }, { "tessellatedBatches", MeshBatcher::LastStats(false).Tessellated }, { "batches", MeshBatcher::LastStats(false).Batches },
+				{ "editorTessellatedBatches", MeshBatcher::LastStats(true).Tessellated } };
 			return true;
 		});
 

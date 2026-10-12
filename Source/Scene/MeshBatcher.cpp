@@ -744,7 +744,7 @@ namespace MeshBatcher
 			dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 			const UMaterial* applied = reinterpret_cast<const UMaterial*>(1);   // 아직 아무 재질도 적용 안 함
 			uint32 appliedLayer = 0;
-			int drawn = 0;
+			int drawn = 0, tessDrawn = 0;
 			// gpu = GPU 목록의 묶음 번호 (-1 = b->Instances 를 올려 그린다)
 			bool fadingDraw = false;   // LOD 크로스페이드 묶음 (디퍼드에서는 늘 포워드)
 			bool windDraw = false;     // 바람 묶음 (PCG — 바람 기법 *WindTech, 67. BatchWind.fx)
@@ -885,6 +885,7 @@ namespace MeshBatcher
 						dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 						dc->ClearTessellationShaders();
 						++drawn;
+						++tessDrawn;
 						return;
 					}
 					// 테셀레이션 없이: 본 패스는 POM + 픽셀 높이 법선 (깊이 · 그림자는 보통 — 깊이를 바꾸지 않아 EQUAL 그대로)
@@ -1010,7 +1011,7 @@ namespace MeshBatcher
 			dc->IASetVertexBuffers(1, 1, &none, &zero, &zero);
 			if (pass == Pass::Main)
 			{
-				s_Stats[editor ? 1 : 0] = Stats{ objects, drawn };
+				s_Stats[editor ? 1 : 0] = Stats{ objects, drawn, tessDrawn };
 				RenderLayers::SetObjectLayer(Effects::InstancedBasicFX.get(), ~0u);   // 다른 그리기는 모든 빛
 			}
 		}

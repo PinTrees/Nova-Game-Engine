@@ -10,13 +10,13 @@
 struct BuildingDesc
 {
 	// ---- 종류
-	enum class Plan { Rectangle, LShape, TShape, UShape, Courtyard, Cross, Round, Count };          // 평면
+	enum class Plan { Rectangle, LShape, TShape, UShape, Courtyard, Cross, Round, Bridge, Count };  // 평면 (Bridge = 돌 아치 다리)
 	enum class Roof { Gable, Hip, Mansard, Gambrel, Flat, Shed, Pyramid, Cone, Dome, Onion, Tiered, Count };
 	enum class WallMat { Rubble, Ashlar, Brick, Plaster, Stucco, Planks, Logs, Marble, Count };       // 벽 재질
 	enum class RoofMat { ClayTiles, Slate, Thatch, Shingles, Copper, Lead, Turf, Count };           // 지붕 재질
 	enum class Window { None, Rectangular, Arched, Gothic, Round, Mullioned, Baroque, Slit, Count };  // 창 모양
 	enum class Door { Plank, Arched, Double, Grand, Count };
-	enum class Timber { None, Grid, Cross, Chevron, Tudor, Count };                                  // 반목조 무늬
+	enum class Timber { None, Grid, Cross, Chevron, Tudor, CloseStud, Count };                       // 반목조 무늬 (CloseStud = 촘촘한 샛기둥)
 	enum class TowerShape { Round, Octagon, Square, Count };
 
 	int Style = 0;          // 마지막으로 고른 양식 (프리셋 번호 — 표시 · 무작위 범위)
@@ -106,6 +106,10 @@ struct BuildingDesc
 	int Turrets = 0;              // 앞 모서리의 둥근 내민 탑 (굽은 받침 + 마녀 모자 지붕): 0 · 1 · 2
 	bool StairTower = false;      // 뒤쪽 둥근 계단 탑
 	int Oriels = 0;               // 위층 앞의 내민 창 (세 면 · 굽은 까치발 · 작은 지붕): 0 ~ 3
+	float Rustic = 0.6f;          // 손 다듬은 나무 · 돌 (0 ~ 1): 들보 · 기둥이 휘고 굵기가 고르지 않다, 모서리를 깎는다, 돌은 모서리 · 크기가 고르지 않다 (0 = 반듯한 상자)
+	float Canal = 0.0f;           // 물 위의 집 · 다리: 길 (y 0) 아래 물 높이 (m). 0 = 땅 위. 기초 돌벽이 물 밑까지 내려가고 앞에 선착장 (물 계단 · 말뚝)
+	bool ShopFront = false;       // 1 층 앞 넓은 가게 창 (낮은 창턱 · 납틀 유리)
+	int Arches = 3;               // 다리 아치 수 (Plan::Bridge — 길이 = Width, 폭 = Depth)
 
 	// ---- 색 (감마) — 재질 텍스처 (밝은 중성 무늬) 에 곱한다
 	float WallColor[3] = { 0.62f, 0.58f, 0.52f };

@@ -2,14 +2,14 @@
 
 CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원본을 그대로 쓰고 (색 · 거칠기 · AO · 높이를 바꾸지 않는다), 파일 형식만 1024² WebP 로 바꿨습니다.
 
-- 재질마다 `Textures/<분류>/<이름>/` 에 `color.webp` · `normal.webp` (DirectX) · `roughness.webp` · `ao.webp` · `height.webp` (· `metalness.webp`)
+- 재질마다 `Textures/<분류>/<이름>/` 에 `color.webp` · `normal.webp` (DirectX) · `roughness.webp` · `ao.webp` · `height.webp` (· `metalness.webp` · 잎은 `opacity.webp`, 비율 그대로)
 - `catalog.json` = 재질 목록: **id** (`분류/이름`, 바뀌지 않는다) · 이름 · 분류 · 태그 · 설명 · 실제 크기 (`tileMeters`) · 원본 (ambientCG 자산 이름 · 주소 · 라이선스)
-- 엔진은 처음 쓸 때 GPU 형식 (BC1 · BC7 · BC3 · BC4) 으로 바꿔 프로젝트 `Library` 에 캐시합니다 — 패키지 파일은 WebP 그대로
-- 찾기 (AI · CLI): `nova textures categories` · `nova textures list --category roof` · `nova textures search --query "mossy stone wall"` · `nova textures info --id roof/slate`
-- 쓰기: Building Generator — `nova building set --target <건물> --values {"materials":{"roof":"roof/clay-tiles-mossy"}}`
+- 엔진은 처음 쓸 때 GPU 형식 (BC1 · BC7 · BC3 · BC4) 으로 바꿔 프로젝트 `Library` 에 캐시합니다 — 패키지 파일은 WebP 그대로. 높이 맵이 없으면 노멀맵에서 만든다 (테셀레이션)
+- 찾기 (AI · CLI): `nova textures categories` · `nova textures list --category ground` · `nova textures search --query "mossy stone wall"` · `nova textures info --id rock/cliff-grey`
+- 쓰기: Building Generator — `nova building set --target <건물> --values {"materials":{"roof":"roof/clay-tiles-mossy"}}` · 지형 그래프 레이어 · 바위 · 나무
 - 더하기: 폴더 하나 + `catalog.json` 한 줄 (같은 형식). 새 분류도 그대로 (id 의 앞부분)
 
-재질 85 개 · 분류 8 개.
+재질 134 개 · 분류 10 개.
 
 ## 지붕 (Roof) — 35
 
@@ -123,19 +123,74 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 | `metal/copper-dark` | Dark Copper | Darkened aged copper | 1.5 | [Metal047B](https://ambientcg.com/a/Metal047B) |
 | `metal/lead-sheet` | Lead Sheet | Matte grey lead — flat roofs, flashing, spires | 1.5 | [Metal038](https://ambientcg.com/a/Metal038) |
 
-## 땅 (Ground) — 2
+## 땅 · 길 (Ground — 지형 · 거리 · 포석) — 29
 
 | id | 이름 | 설명 | 크기 (m) | 원본 |
 |---|---|---|---|---|
 | `ground/wild-grass` | Wild Grass | Uneven grass with dry blades — turf roofs, lawns | 2.0 | [Grass004](https://ambientcg.com/a/Grass004) |
 | `ground/lush-grass` | Lush Grass | Dense green grass | 2.0 | [Grass001](https://ambientcg.com/a/Grass001) |
+| `ground/forest-floor` | Damp Forest Floor | Damp forest earth with moss and sparse grass — woodland terrain | 2.1 | [Ground037](https://ambientcg.com/a/Ground037) |
+| `ground/forest-leaves` | Leaf Litter | Brown dirt covered with fallen leaves — under trees | 2.0 | [Ground041](https://ambientcg.com/a/Ground041) |
+| `ground/autumn-forest` | Autumn Forest Floor | Autumn leaves and roots on forest soil | 2.6 | [Ground070](https://ambientcg.com/a/Ground070) |
+| `ground/soil` | Brown Soil | Plain brown soil — fields, gardens, dirt | 1.4 | [Ground048](https://ambientcg.com/a/Ground048) |
+| `ground/mud` | Dark Mud | Dark wet mud — riverbanks, swamps, puddles | 2.0 | [Ground051](https://ambientcg.com/a/Ground051) |
+| `ground/dirt-path` | Dirt Path | Trodden dirt path with pebbles and grass edges — roads, trails | 2.0 | [Ground030](https://ambientcg.com/a/Ground030) |
+| `ground/rocky-dirt` | Rocky Dirt | Brown dirt full of sharp stones — mountain slopes, scree | 2.0 | [Ground063](https://ambientcg.com/a/Ground063) |
+| `ground/mossy-forest` | Mossy Forest Ground | Moss, mud and twigs — dense forest floor | 2.0 | [Ground024](https://ambientcg.com/a/Ground024) |
+| `ground/grass-dirt` | Patchy Grass | Short grass with bare dirt patches — meadows, village greens | 2.0 | [Ground003](https://ambientcg.com/a/Ground003) |
+| `ground/meadow-grass` | Meadow Grass | Green meadow grass seen from above | 1.4 | [Grass002](https://ambientcg.com/a/Grass002) |
+| `ground/short-lawn` | Short Lawn | Short clean lawn grass — gardens, courtyards | 2.0 | [Grass005](https://ambientcg.com/a/Grass005) |
+| `ground/dry-cracked` | Dry Cracked Earth | Sun-baked cracked earth — deserts, dry plains | 2.0 | [Ground031](https://ambientcg.com/a/Ground031) |
+| `ground/sand` | Beach Sand | Smooth fine sand — beaches, dunes, shores | 2.0 | [Ground057](https://ambientcg.com/a/Ground057) |
+| `ground/wet-sand` | Wet Sand | Wet packed sand at the water line | 1.8 | [Ground059](https://ambientcg.com/a/Ground059) |
+| `ground/river-pebbles` | River Pebbles | Rounded river pebbles — riverbeds, shores, canal edges | 1.4 | [Gravel019](https://ambientcg.com/a/Gravel019) |
+| `ground/gravel` | Grey Gravel | Grey gravel with dirt — paths, yards, roads | 1.5 | [Gravel022](https://ambientcg.com/a/Gravel022) |
+| `ground/forest-gravel` | Forest Gravel | Brown gravel with sand and twigs — forest trails | 2.4 | [Gravel039](https://ambientcg.com/a/Gravel039) |
+| `ground/snow` | Fresh Snow | Fresh fluffy snow — peaks, winter | 2.0 | [Snow005](https://ambientcg.com/a/Snow005) |
+| `ground/snow-trampled` | Trampled Snow | Snow trodden by many feet — winter roads, villages | 2.0 | [Snow009C](https://ambientcg.com/a/Snow009C) |
+| `ground/dirty-snow` | Dirty Snow | Melting snow mixed with dirt | 2.0 | [Snow011](https://ambientcg.com/a/Snow011) |
+| `ground/cobblestone` | Cobblestone | Grey medieval cobblestones — town streets, bridges, squares | 1.6 | [PavingStones046](https://ambientcg.com/a/PavingStones046) |
+| `ground/cobblestone-old` | Old Paving Stones | Worn old grey paving stones — old town squares | 2.0 | [PavingStones042](https://ambientcg.com/a/PavingStones042) |
+| `ground/roman-road` | Roman Road Stones | Large worn road stones — Roman and medieval highways | 1.9 | [PavingStones054](https://ambientcg.com/a/PavingStones054) |
+| `ground/cobblestone-arches` | Fan Cobblestones | Small cobbles laid in fan arches — European old towns | 1.6 | [PavingStones048](https://ambientcg.com/a/PavingStones048) |
+| `ground/pebble-road` | Pebble Road | Rough road of set pebbles and rocks | 3.0 | [PavingStones055](https://ambientcg.com/a/PavingStones055) |
+| `ground/stone-floor` | Rough Stone Floor | Uneven medieval stone floor — courtyards, quays, castle floors | 1.9 | [Rocks025](https://ambientcg.com/a/Rocks025) |
+| `ground/rubble-floor` | Rubble Floor | Set rubble stones — old yards and lanes | 1.1 | [Ground065](https://ambientcg.com/a/Ground065) |
 
-## 자연 (Nature) — 1
+## 바위 · 절벽 (Rock) — 11
+
+| id | 이름 | 설명 | 크기 (m) | 원본 |
+|---|---|---|---|---|
+| `rock/cliff-grey` | Grey Cliff | Grey cliff rock with cracks — mountains, steep slopes, boulders | 3.0 | [Rock030](https://ambientcg.com/a/Rock030) |
+| `rock/cliff-mossy` | Mossy Cliff | Cliff rock with moss in the cracks — forests, wet climates | 3.0 | [Rock036](https://ambientcg.com/a/Rock036) |
+| `rock/cliff-dark` | Dark Mossy Cliff | Dark grey rock with moss — northern coasts, gorges | 3.0 | [Rock012](https://ambientcg.com/a/Rock012) |
+| `rock/granite-rough` | Rough Granite | Rough grey granite — boulders, highlands | 2.5 | [Rock028](https://ambientcg.com/a/Rock028) |
+| `rock/cliff-light` | Light Limestone Cliff | Pale limestone cliff face | 3.0 | [Rock017](https://ambientcg.com/a/Rock017) |
+| `rock/sandstone-cliff` | Sandstone Cliff | Beige layered sandstone — canyons, dry mountains | 3.0 | [Rock052](https://ambientcg.com/a/Rock052) |
+| `rock/red-desert` | Red Desert Rock | Red-orange desert cliff — canyons, mesas | 3.0 | [Rock029](https://ambientcg.com/a/Rock029) |
+| `rock/mountain-layered` | Layered Mountain Rock | Layered mountain rock with strata — alpine cliffs | 3.0 | [Rock006](https://ambientcg.com/a/Rock006) |
+| `rock/boulder-wall` | Boulder Face | Packed boulders — rock falls, rough walls | 2.0 | [Rocks001](https://ambientcg.com/a/Rocks001) |
+| `rock/mossy-stone` | Mossy Stone | Grey stone with moss patches — small rocks, boulders | 0.9 | [Rock046S](https://ambientcg.com/a/Rock046S) |
+| `rock/dark-rough` | Dark Rough Rock | Dark rough rock — volcanic, basalt, caves | 2.0 | [Rock047](https://ambientcg.com/a/Rock047) |
+
+## 나무껍질 (Bark) — 8
+
+| id | 이름 | 설명 | 크기 (m) | 원본 |
+|---|---|---|---|---|
+| `bark/oak` | Oak Bark | Deep-furrowed brown oak bark — oaks, elms, broadleaf trees | 1.0 | [Bark012](https://ambientcg.com/a/Bark012) |
+| `bark/fir` | Fir Bark | Scaly brown conifer bark — firs, spruces, pines | 1.2 | [Bark014](https://ambientcg.com/a/Bark014) |
+| `bark/smooth-light` | Smooth Light Bark | Smooth pale bark — beech, young trees, birch-like | 1.0 | [Bark005](https://ambientcg.com/a/Bark005) |
+| `bark/mossy` | Mossy Bark | Bark with green moss — old wet-forest trees | 1.0 | [Bark013](https://ambientcg.com/a/Bark013) |
+| `bark/dark` | Dark Bark | Dark brown rough bark — old trees, walnut, alder | 1.0 | [Bark006](https://ambientcg.com/a/Bark006) |
+| `bark/rough-brown` | Rough Brown Bark | Rough light-brown bark — poplars, willows | 1.0 | [Bark007](https://ambientcg.com/a/Bark007) |
+| `bark/smooth-dark` | Smooth Dark Bark | Smooth dark bark — cherry, young hardwoods | 1.0 | [Bark002](https://ambientcg.com/a/Bark002) |
+| `bark/lichen-grey` | Lichen Grey Bark | Grey-green bark with lichen — old, northern trees | 1.0 | [Bark011](https://ambientcg.com/a/Bark011) |
+
+## 자연 (Nature — 이끼 · 잎) — 4
 
 | id | 이름 | 설명 | 크기 (m) | 원본 |
 |---|---|---|---|---|
 | `nature/moss` | Moss | Dense green moss | 1.0 | [Moss002](https://ambientcg.com/a/Moss002) |
-
-## 라이선스
-
-모든 텍스처는 ambientCG (https://ambientcg.com) 의 CC0 1.0 (퍼블릭 도메인) 입니다 — [LICENSE.md](LICENSE.md).
+| `nature/leaf-broad` | Broad Leaf | Single green broad leaf with opacity — leaf cards | 0.2 | [Leaf001](https://ambientcg.com/a/Leaf001) |
+| `nature/leaf-oval` | Oval Leaf | Single green oval leaf with opacity — leaf cards | 0.2 | [Leaf002](https://ambientcg.com/a/Leaf002) |
+| `nature/leaf-small` | Small Leaf | Single small green leaf with opacity — leaf cards | 0.2 | [Leaf003](https://ambientcg.com/a/Leaf003) |

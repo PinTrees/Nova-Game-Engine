@@ -65,6 +65,7 @@ private:
 	float m_EmissionIntensity = 1.0f;
 	int m_Priority = 0;
 	Tessellation m_Tess;
+	bool m_HeightFromNormal = false;   // HeightMapSRV 가 노멀맵에서 만든 것
 
 	// 패키지 셰이더
 	std::string m_CustomShader;
@@ -123,6 +124,9 @@ public:
 	const Tessellation& GetTessellation() const { return m_Tess; }
 	// 테셀레이션으로 그리는가: Lit · 켜짐 · Height Map 있음 · 알파 자르기 아님 (자르는 재질은 예전 길로)
 	bool UsesTessellation() const;
+	// Displacement Mode = Tessellation 인데 Height Map 이 비었으면 Normal Map 에서 높이를 만든다 (ImageIO::HeightFromNormal — 노멀맵마다 한 번, 캐시)
+	void EnsureDerivedHeight();
+	bool HeightFromNormalMap() const { return m_HeightFromNormal; }
 	ShaderSetting GetShaderSetting() { return m_shaderSetting; }
 	const PbrMaterial& GetPbr() const { return m_Pbr; }
 	XMFLOAT2 Tiling() const { return m_Pbr.Tiling; }

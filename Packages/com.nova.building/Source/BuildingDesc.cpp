@@ -9,7 +9,8 @@ namespace
 	const char* const kStyles[] = {
 		"Medieval Cottage", "Tudor Townhouse", "Tavern", "Nordic Longhouse", "Stave Church", "Gothic Chapel", "Roman Villa", "Roman Temple",
 		"Baroque Palace", "Castle Keep", "Watchtower", "Wizard Tower", "Alpine Chalet", "Mediterranean House", "Market Hall", "Blacksmith", "Windmill",
-	"Northern Merchant House", "Northern Gatehouse", "Riverland Townhouse", "Highland Manor" };
+	"Northern Merchant House", "Northern Gatehouse", "Riverland Townhouse", "Highland Manor", "Canal House", "Canal Merchant Hall", "Bridge House",
+	"Stone Canal Bridge" };
 	const char* const kDescriptions[] = {
 		"Stone ground walls, small windows, steep thatched roof and a chimney",
 		"Stone ground floor, jettied half-timbered upper floors (Tudor bracing), steep tiled gable, dormers",
@@ -31,7 +32,11 @@ namespace
 	"Rubble ground floor with a stone-arched door, plank upper floor on heavy posts, steep shingle roof on brackets, carved and painted gables, banners",
 	"Timber gate hall over a stone archway: the road runs through, steep shingle gable to the front, carved bargeboards and banners",
 	"Tall river-town house: rubble ground floor, jettied half-timbered floors on curved braces, oriel window, corner turret, steep bellcast tile roof",
-	"Highland manor of cut stone and timber: L-plan, round corner turrets with flared witch-hat roofs, stair tower, curved slate roofs, carved gables" };
+	"Highland manor of cut stone and timber: L-plan, round corner turrets with flared witch-hat roofs, stair tower, curved slate roofs, carved gables",
+	"Narrow canal-town house standing in the water: stone base with a landing, water steps and mooring posts, close-studded jettied floors, oriel, steep mossy tiles",
+	"Wide merchant hall on a canal: big leaded shop windows, close studding over grey rubble, three jettied floors, oriels, long shakes, landing and mooring posts",
+	"Town house built over a passage: a stone arch carries the street through, close-studded floors above on brackets, oriel, steep tiled gable",
+	"Hump-backed stone bridge over a canal: three arches with voussoirs, cutwaters, parapets with coping stones, cobbled deck" };
 	constexpr int kStyleCount = (int)(sizeof(kStyles) / sizeof(kStyles[0]));
 
 	void Rgb(float* d, float r, float g, float b) { d[0] = r; d[1] = g; d[2] = b; }
@@ -289,7 +294,51 @@ void BuildingDesc::ApplyStyle(int style)
 		Rgb(RoofColor, 0.3f, 0.32f, 0.37f); Rgb(FrameColor, 0.26f, 0.18f, 0.12f); Rgb(ShutterColor, 0.2f, 0.3f, 0.26f); Rgb(DoorColor, 0.28f, 0.18f, 0.11f);
 		Rgb(MetalColor, 0.3f, 0.3f, 0.3f); Rgb(BannerColor, 0.16f, 0.24f, 0.42f);
 		break;
+	case 21:  // Canal House (물 위 도시 — 돌 기초가 물에 서고, 촘촘한 샛기둥 위층이 돌출, 가파른 이끼 기와)
+		Shape = Plan::Rectangle; Width = 6.8f; Depth = 9.5f; Floors = 3; FloorHeight = 2.75f; Plinth = 0.45f; Jetty = 0.38f; Canal = 1.1f;
+		GroundWall = WallMat::Ashlar; UpperWall = WallMat::Plaster; Frame = Timber::CloseStud; TimberWidth = 0.18f; CornerPosts = true;
+		WindowStyle = Window::Mullioned; GroundWindowStyle = Window::Mullioned; WindowWidth = 1.0f; WindowHeight = 1.15f; WindowSpacing = 2.2f; SillHeight = 0.85f; Lattice = true;
+		DoorStyle = Door::Plank; DoorWidth = 1.1f; DoorHeight = 2.15f;
+		RoofStyle = Roof::Gable; RoofMaterial = RoofMat::ClayTiles; RoofPitch = 56.0f; Overhang = 0.4f; Dormers = 0; Chimneys = 1;
+		Brackets = true; Bargeboards = 1; Oriels = 1; Lanterns = true; Props = 1; Weathering = 0.8f; Irregularity = 0.7f; Rustic = 0.85f;
+		Rgb(WallColor, 0.6f, 0.59f, 0.56f); Rgb(UpperColor, 0.8f, 0.79f, 0.75f); Rgb(TrimColor, 0.62f, 0.61f, 0.58f); Rgb(TimberColor, 0.24f, 0.2f, 0.17f);
+		Rgb(RoofColor, 0.48f, 0.36f, 0.28f); Rgb(FrameColor, 0.2f, 0.17f, 0.14f); Rgb(DoorColor, 0.26f, 0.2f, 0.15f); Rgb(MetalColor, 0.25f, 0.25f, 0.25f);
+		Materials = { { "roof", "roof/flat-tiles-red-mossy" }, { "wallLower", "stone/ashlar-weathered" }, { "wallUpper", "plaster/rough-plaster" }, { "timber", "wood/rough-beam-grey" } };
+		break;
+	case 22:  // Canal Merchant Hall (물가 상인 회관 — 넓은 가게 창, 막돌 1 층, 세 층 돌출, 내민 창 둘)
+		Shape = Plan::Rectangle; Width = 11.5f; Depth = 10.0f; Floors = 3; FloorHeight = 2.9f; Plinth = 0.5f; Jetty = 0.45f; Canal = 1.1f;
+		GroundWall = WallMat::Rubble; UpperWall = WallMat::Plaster; Frame = Timber::CloseStud; TimberWidth = 0.2f; CornerPosts = true; ShopFront = true;
+		WindowStyle = Window::Mullioned; GroundWindowStyle = Window::Mullioned; WindowWidth = 1.1f; WindowHeight = 1.2f; WindowSpacing = 2.4f; SillHeight = 0.85f; Lattice = true;
+		DoorStyle = Door::Double; DoorWidth = 1.6f; DoorHeight = 2.3f;
+		RoofStyle = Roof::Gable; RoofMaterial = RoofMat::Shingles; RoofPitch = 54.0f; Overhang = 0.5f; Dormers = 2; Chimneys = 2;
+		Brackets = true; Bargeboards = 1; Oriels = 2; Lanterns = true; ShopSign = true; Banners = 1; Props = 2; Weathering = 0.7f; Irregularity = 0.6f; Rustic = 0.85f;
+		Rgb(WallColor, 0.58f, 0.57f, 0.54f); Rgb(UpperColor, 0.82f, 0.8f, 0.74f); Rgb(TrimColor, 0.62f, 0.61f, 0.58f); Rgb(TimberColor, 0.22f, 0.18f, 0.15f);
+		Rgb(RoofColor, 0.4f, 0.33f, 0.27f); Rgb(FrameColor, 0.2f, 0.17f, 0.14f); Rgb(DoorColor, 0.28f, 0.2f, 0.14f); Rgb(MetalColor, 0.25f, 0.25f, 0.25f);
+		Rgb(BannerColor, 0.42f, 0.14f, 0.12f);
+		Materials = { { "roof", "roof/wood-shakes-long" }, { "wallLower", "stone/rubble-wall-grey" }, { "wallUpper", "plaster/patched-plaster" }, { "timber", "wood/weathered-beam" } };
+		break;
+	case 23:  // Bridge House (길 위에 걸친 집 — 돌 아치로 길이 지나가고, 위는 촘촘한 샛기둥 층)
+		Shape = Plan::Rectangle; Width = 7.5f; Depth = 8.0f; Floors = 3; FloorHeight = 2.8f; Plinth = 0.2f; Jetty = 0.4f;
+		GroundWall = WallMat::Ashlar; UpperWall = WallMat::Plaster; Frame = Timber::CloseStud; TimberWidth = 0.19f; Arcade = true; CornerPosts = true;
+		WindowStyle = Window::Mullioned; GroundWindowStyle = Window::Arched; WindowWidth = 1.0f; WindowHeight = 1.1f; WindowSpacing = 5.5f; SillHeight = 0.85f; Lattice = true;
+		DoorStyle = Door::Arched; DoorWidth = 3.2f; DoorHeight = 3.0f;
+		RoofStyle = Roof::Gable; RoofMaterial = RoofMat::ClayTiles; RoofPitch = 55.0f; Overhang = 0.45f; Dormers = 1; Chimneys = 1;
+		Brackets = true; Bargeboards = 1; Oriels = 1; Lanterns = true; Weathering = 0.65f; Irregularity = 0.55f; Rustic = 0.85f;
+		Rgb(WallColor, 0.62f, 0.61f, 0.58f); Rgb(UpperColor, 0.8f, 0.78f, 0.73f); Rgb(TrimColor, 0.64f, 0.63f, 0.6f); Rgb(TimberColor, 0.23f, 0.19f, 0.16f);
+		Rgb(RoofColor, 0.46f, 0.34f, 0.27f); Rgb(FrameColor, 0.2f, 0.17f, 0.14f); Rgb(MetalColor, 0.25f, 0.25f, 0.25f);
+		Materials = { { "roof", "roof/flat-tiles-red-weathered" }, { "wallLower", "stone/ashlar-weathered" }, { "wallUpper", "plaster/rough-plaster" }, { "timber", "wood/rough-beam-grey" } };
+		break;
+	case 24:  // Stone Canal Bridge (돌 아치 다리 — 아치 셋, 쐐기돌, 물가름돌, 난간 · 갓돌, 포석 길)
+		Shape = Plan::Bridge; Width = 15.0f; Depth = 4.6f; Floors = 1; FloorHeight = 2.0f; Plinth = 0.0f; Canal = 1.2f; Arches = 3;
+		GroundWall = WallMat::Rubble; UpperWall = WallMat::Rubble; Chimneys = 0; WindowStyle = GroundWindowStyle = Window::None;
+		Weathering = 0.6f; Irregularity = 0.0f; Rustic = 0.9f;
+		Rgb(WallColor, 0.6f, 0.59f, 0.56f); Rgb(TrimColor, 0.64f, 0.63f, 0.6f);
+		Materials = { { "wallLower", "stone/rubble-wall-grey" }, { "trim", "stone/ashlar-weathered" }, { "wallUpper", "ground/cobblestone" } };
+		break;
 	}
+	// 고전 양식 (로마 · 바로크 · 지중해) 은 반듯하게 다듬은 돌
+	if (Style == 6 || Style == 7 || Style == 8 || Style == 13)
+		Rustic = 0.3f;
 	// 한 층짜리 (같은 벽 재질) 는 박공도 벽과 같은 색
 	if (Floors == 1 && UpperWall == GroundWall)
 		Rgb(UpperColor, WallColor[0], WallColor[1], WallColor[2]);
@@ -363,6 +412,9 @@ json BuildingDesc::ToJson() const
 		{ "irregularity", Irregularity }, { "annex", Annex }, { "terrace", Terrace }, { "flowerBoxes", FlowerBoxes }, { "shopSign", ShopSign }, { "props", Props },
 		{ "turrets", Turrets }, { "stairTower", StairTower }, { "oriels", Oriels } };
 	j["roof"]["curve"] = RoofCurve;
+	j["shape"]["canal"] = Canal; j["shape"]["arches"] = Arches;
+	j["windows"]["shopFront"] = ShopFront;
+	j["details"]["rustic"] = Rustic;
 	j["colors"] = { { "wall", C(WallColor) }, { "upper", C(UpperColor) }, { "trim", C(TrimColor) }, { "timber", C(TimberColor) }, { "roof", C(RoofColor) },
 		{ "frame", C(FrameColor) }, { "shutter", C(ShutterColor) }, { "door", C(DoorColor) }, { "glass", C(GlassColor) }, { "metal", C(MetalColor) },
 		{ "ornament", C(OrnamentColor) }, { "banner", C(BannerColor) } };
@@ -391,6 +443,7 @@ void BuildingDesc::FromJson(const json& j)
 		Width = s.value("width", Width); Depth = s.value("depth", Depth); WingWidth = s.value("wingWidth", WingWidth); WingLength = s.value("wingLength", WingLength);
 		Floors = s.value("floors", Floors); FloorHeight = s.value("floorHeight", FloorHeight); Plinth = s.value("plinth", Plinth);
 		Jetty = s.value("jetty", Jetty); Taper = s.value("taper", Taper);
+		Canal = std::clamp(s.value("canal", Canal), 0.0f, 6.0f); Arches = std::clamp(s.value("arches", Arches), 1, 7);
 	}
 	if (j.contains("towers"))
 	{
@@ -414,7 +467,7 @@ void BuildingDesc::FromJson(const json& j)
 		WindowStyle = (Window)e(w, "style", (int)WindowStyle, (int)Window::Count); GroundWindowStyle = (Window)e(w, "groundStyle", (int)GroundWindowStyle, (int)Window::Count);
 		WindowWidth = w.value("width", WindowWidth); WindowHeight = w.value("height", WindowHeight); WindowSpacing = w.value("spacing", WindowSpacing);
 		SillHeight = w.value("sill", SillHeight); Shutters = w.value("shutters", Shutters); Lattice = w.value("lattice", Lattice);
-		WindowPediments = w.value("pediments", WindowPediments); RoseWindow = w.value("rose", RoseWindow);
+		WindowPediments = w.value("pediments", WindowPediments); RoseWindow = w.value("rose", RoseWindow); ShopFront = w.value("shopFront", ShopFront);
 		DoorStyle = (Door)e(w, "door", (int)DoorStyle, (int)Door::Count); DoorWidth = w.value("doorWidth", DoorWidth); DoorHeight = w.value("doorHeight", DoorHeight);
 	}
 	if (j.contains("roof"))
@@ -435,6 +488,7 @@ void BuildingDesc::FromJson(const json& j)
 		Irregularity = std::clamp(t.value("irregularity", Irregularity), 0.0f, 1.0f); Annex = t.value("annex", Annex); Terrace = t.value("terrace", Terrace);
 		FlowerBoxes = t.value("flowerBoxes", FlowerBoxes); ShopSign = t.value("shopSign", ShopSign); Props = std::clamp(t.value("props", Props), 0, 2);
 		Turrets = std::clamp(t.value("turrets", Turrets), 0, 2); StairTower = t.value("stairTower", StairTower); Oriels = std::clamp(t.value("oriels", Oriels), 0, 3);
+		Rustic = std::clamp(t.value("rustic", Rustic), 0.0f, 1.0f);
 	}
 	if (j.contains("colors"))
 	{

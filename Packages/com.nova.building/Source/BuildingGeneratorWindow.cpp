@@ -31,13 +31,13 @@ namespace
 	using BD = BuildingDesc;
 	const char* kSteps[] = { "Style", "Shape & Size", "Walls", "Windows & Doors", "Roof", "Details", "Colors", "Finish" };
 	constexpr int kStepCount = 8;
-	const char* kPlans[] = { "Rectangle", "L-Shape", "T-Shape", "U-Shape", "Courtyard", "Cross (church)", "Round (tower)" };
+	const char* kPlans[] = { "Rectangle", "L-Shape", "T-Shape", "U-Shape", "Courtyard", "Cross (church)", "Round (tower)", "Bridge (stone arches)" };
 	const char* kRoofs[] = { "Gable", "Hip", "Mansard", "Gambrel", "Flat", "Shed", "Pyramid", "Cone", "Dome", "Onion", "Tiered (stave)" };
 	const char* kWallMats[] = { "Rubble Stone", "Ashlar (cut stone)", "Brick", "Plaster", "Stucco", "Planks", "Logs", "Marble" };
 	const char* kRoofMats[] = { "Clay Tiles", "Slate", "Thatch", "Wood Shingles", "Copper", "Lead", "Turf (grass)" };
 	const char* kWindows[] = { "None", "Rectangular", "Arched", "Gothic (pointed)", "Round (oculus)", "Mullioned", "Baroque (segmental)", "Arrow Slit" };
 	const char* kDoors[] = { "Plank", "Arched", "Double", "Grand" };
-	const char* kTimber[] = { "None", "Grid", "Cross (X)", "Chevron", "Tudor (curved)" };
+	const char* kTimber[] = { "None", "Grid", "Cross (X)", "Chevron", "Tudor (curved)", "Close Studding" };
 	const char* kTowerShapes[] = { "Round", "Octagon", "Square" };
 	const char* kTowerCounts[] = { "None", "1 (front left)", "2 (front corners)", "4 (all corners)" };
 	const int kTowerCountValues[] = { 0, 1, 2, 4 };
@@ -460,12 +460,21 @@ void BuildingGeneratorWindow::DrawShapeStep()
 	}
 	if (d.Shape == BD::Plan::Round)
 		SliderF("Taper", &d.Taper, 0.0f, 0.5f);
+	if (d.Shape == BD::Plan::Bridge)
+	{
+		SliderI("Arches", &d.Arches, 1, 7);
+		SliderF("Water Below Bank (m)", &d.Canal, 0.3f, 4.0f);
+		Hint("Bridge: Width = span along X, Depth = deck width. The banks are at y = 0, the water Canal metres below.");
+		return;
+	}
 	Section("Floors");
 	SliderI("Floors", &d.Floors, 1, 8);
 	SliderF("Floor Height (m)", &d.FloorHeight, 2.2f, 8.0f, "%.2f");
 	SliderF("Plinth (m)", &d.Plinth, 0.0f, 2.5f);
 	SliderF("Jetty (m)", &d.Jetty, 0.0f, 0.8f);
 	Hint("Jetty: each upper floor overhangs the one below (Tudor and medieval town houses).");
+	SliderF("Canal Water (m)", &d.Canal, 0.0f, 3.0f);
+	Hint("Stands in water: the stone foundation goes below the water and a stone landing with water steps and mooring posts is built at the front. 0 = on land.");
 	Section("Corner Towers");
 	int tc = 0;
 	for (int i = 0; i < 4; ++i)
@@ -524,6 +533,7 @@ void BuildingGeneratorWindow::DrawWindowsStep()
 	ImGui::Checkbox("Pediments (Baroque)", &d.WindowPediments);
 	ImGui::SameLine(200.0f);
 	ImGui::Checkbox("Rose Window", &d.RoseWindow);
+	ImGui::Checkbox("Shop Front (wide ground-floor windows)", &d.ShopFront);
 	Section("Door");
 	EnumCombo("Door", &d.DoorStyle, kDoors, (int)BD::Door::Count);
 	SliderF("Door Width (m)", &d.DoorWidth, 0.8f, 4.0f);
@@ -539,6 +549,8 @@ void BuildingGeneratorWindow::DrawRoofStep()
 	EnumCombo("Covering", &d.RoofMaterial, kRoofMats, (int)BD::RoofMat::Count);
 	SliderF("Pitch (deg)", &d.RoofPitch, 5.0f, 75.0f, "%.0f");
 	SliderF("Overhang (m)", &d.Overhang, 0.0f, 1.5f);
+	SliderF("Bell Curve", &d.RoofCurve, 0.0f, 0.6f);
+	Hint("Bell-cast roof: steep at the ridge, flaring at the eaves (also flares cone roofs into witch hats).");
 	Section("Roof Details");
 	SliderI("Dormers", &d.Dormers, 0, 8);
 	SliderI("Chimneys", &d.Chimneys, 0, 4);
@@ -570,6 +582,10 @@ void BuildingGeneratorWindow::DrawDetailsStep()
 	ImGui::SameLine(200.0f);
 	ImGui::Checkbox("Painted Gables", &d.PaintedGables);
 	ImGui::Checkbox("Heavy Corner Posts", &d.CornerPosts);
+	Section("Turrets & Bays");
+	SliderI("Corner Turrets", &d.Turrets, 0, 2);
+	ImGui::Checkbox("Stair Tower (back)", &d.StairTower);
+	SliderI("Oriel Windows", &d.Oriels, 0, 3);
 	Section("Entrance & Terrace");
 	ImGui::Checkbox("Porch (roof on posts)", &d.Porch);
 	ImGui::SameLine(200.0f);
@@ -586,6 +602,8 @@ void BuildingGeneratorWindow::DrawDetailsStep()
 	SliderF("Weathering", &d.Weathering, 0.0f, 1.0f);
 	Hint("Dirt, water stains and moss rising from the ground on the ground-floor walls.");
 	SliderF("Irregularity", &d.Irregularity, 0.0f, 1.0f);
+	SliderF("Hand-Hewn", &d.Rustic, 0.0f, 1.0f);
+	Hint("Timber and stone are not perfect boxes: beams bow and taper, edges are chamfered, stones are uneven. 0 = machine-straight.");
 	Hint("Hand-built look: upper floors lean, the ridge sags, walls bow a little, windows and the door sit off the grid.");
 	ImGui::Checkbox("Side Annex (lean-to shed)", &d.Annex);
 	Section("Variation");

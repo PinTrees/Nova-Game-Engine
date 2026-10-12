@@ -197,7 +197,7 @@ namespace
 					else if (badIndex) issue = "index out of range";
 					else if (h < d.WallHeight() * 0.8f || h > d.WallHeight() * 4.0f + 40.0f) issue = "height " + std::to_string(h);
 					else if (w < (std::min)(d.Width, d.Depth) * 0.8f || w > (std::max)(d.Width, d.Depth) * 3.0f + 24.0f) issue = "width " + std::to_string(w);
-					else if (out.Doors == 0 && !d.Arcade) issue = "no door";
+					else if (out.Doors == 0 && !d.Arcade && d.Shape != BuildingDesc::Plan::Bridge) issue = "no door";
 					json j = { { "style", names[s] }, { "seed", k }, { "vertices", out.Vertices() }, { "triangles", out.Triangles() }, { "windows", out.Windows },
 						{ "doors", out.Doors }, { "size", { out.Max.x - out.Min.x, h, out.Max.z - out.Min.z } }, { "ms", ms } };
 					if (!issue.empty())

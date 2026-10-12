@@ -33,6 +33,7 @@ namespace MeshBatcher
 	{
 		int Objects = 0;     // 그린 Mesh Renderer
 		int Batches = 0;     // 그리기 호출 수
+		int Tessellated = 0; // 그중 테셀레이션 (재질 Displacement Mode) 으로 그린 묶음
 	};
 	const Stats& LastStats(bool editor);   // 마지막 본 패스
 

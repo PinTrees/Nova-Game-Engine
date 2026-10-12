@@ -28,6 +28,164 @@ namespace
 		explicit Mesher(Output& o) : O(o) {}
 		static bool Woody(int slot) { return slot == Timber || slot == Frame || slot == Door || slot == Shutter; }   // 나뭇결을 긴 축으로
 
+		// ---- 손 다듬은 나무 · 돌 (BuildingDesc::Rustic): 반듯한 상자 대신
+		float Rustic = 0.0f;
+		static float Hash01(const Vec3& p, uint32_t k)
+		{
+			uint32_t h = (uint32_t)(int32_t)floorf(p.x * 61.0f + 0.5f) * 73856093u;
+			h ^= (uint32_t)(int32_t)floorf(p.y * 61.0f + 0.5f) * 19349663u;
+			h ^= (uint32_t)(int32_t)floorf(p.z * 61.0f + 0.5f) * 83492791u;
+			h ^= k * 2654435761u;
+			h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
+			return (float)(h & 0xffffffu) / 16777215.0f;
+		}
+		// 긴 축을 따라 고리: 8 각 단면 (모서리를 깎는다) · 끝도 깎는다. 나무 (들보 · 기둥 · 판) 는 활처럼 휘고 마디마다 굵기가 고르지 않다 (손도끼),
+		//  돌 (장식 돌 칸) 은 휘지 않고 모서리 · 크기만 고르지 않다 (깨진 모서리). 가는 살 (단면 6 cm 아래 — 창살 · 창틀) 은 상자 그대로. true = 그렸다
+		bool RusticBox(int slot, const Vec3& c, const Vec3& ax, const Vec3& ay, const Vec3& az, float hx, float hy, float hz)
+		{
+			const bool wood = Woody(slot);
+			if (Rustic < 0.01f || (!wood && slot != Trim))
+				return false;
+			Vec3 L = ax, U = ay, V = az;
+			float hl = hx, a = hy, b = hz;
+			if (hy > hx && hy >= hz) { L = ay; U = az; V = ax; hl = hy; a = hz; b = hx; }
+			else if (hz > hx && hz > hy) { L = az; U = ax; V = ay; hl = hz; a = hx; b = hy; }
+			if ((std::min)(a, b) < 0.03f || hl < 0.03f)
+				return false;
+			const float r = (std::min)(1.0f, Rustic);
+			auto H = [&](uint32_t k) { return Hash01(c, k * 31u + (uint32_t)slot * 7u); };
+			const float len = hl * 2.0f;
+			const float ch = wood ? std::clamp((std::min)(a, b) * 0.3f, 0.008f, 0.045f) : std::clamp((std::min)((std::min)(a, b), hl) * 0.22f, 0.01f, 0.06f);
+			const float endB = (std::min)(ch, hl * 0.3f);
+			const int segs = wood && len > 0.8f ? std::clamp((int)(len / 0.55f), 2, 6) : 1;
+			std::vector<float> st = { -hl, -hl + endB };
+			for (int i = 1; i < segs; ++i)
+				st.push_back(-hl + len * i / segs);
+			st.push_back(hl - endB);
+			st.push_back(hl);
+			const int R = (int)st.size();
+			const float bendMax = wood ? (std::min)(0.03f, len * 0.009f) * r : 0.0f;
+			const float bu = (H(1) - 0.5f) * 2.0f * bendMax, bv = (H(2) - 0.5f) * 2.0f * bendMax;
+			const float twist = wood ? (H(3) - 0.5f) * 0.06f * r : 0.0f;
+			auto octa = [](float A, float B, float C, float* out) {
+				const float e[16] = { A, -(B - C), A, B - C, A - C, B, -(A - C), B, -A, B - C, -A, -(B - C), -(A - C), -B, A - C, -B };
+				for (int i = 0; i < 16; ++i) out[i] = e[i];
+			};
+			float base[16], perim[9];
+			octa(a, b, ch, base);
+			perim[0] = 0.0f;
+			for (int k = 0; k < 8; ++k)
+			{
+				const int k1 = (k + 1) % 8;
+				perim[k + 1] = perim[k] + sqrtf((base[k1 * 2] - base[k * 2]) * (base[k1 * 2] - base[k * 2]) + (base[k1 * 2 + 1] - base[k * 2 + 1]) * (base[k1 * 2 + 1] - base[k * 2 + 1]));
+			}
+			std::vector<Vec3> ring((size_t)R * 8), mid(R);
+			for (int i = 0; i < R; ++i)
+			{
+				const float t = (st[i] + hl) / len;
+				const bool end = i == 0 || i == R - 1;
+				const float sw = sinf(t * XM_PI);
+				const float wob = wood && i > 1 && i < R - 2 ? 0.006f * r : 0.0f;
+				const Vec3 cen = c + L * st[i] + U * (bu * sw + (H(10 + i) - 0.5f) * wob) + V * (bv * sw + (H(30 + i) - 0.5f) * wob);
+				const float sa = 1.0f + (H(50 + i) - 0.5f) * (wood ? 0.12f : 0.08f) * r;
+				const float sb = 1.0f + (H(70 + i) - 0.5f) * (wood ? 0.12f : 0.08f) * r;
+				const float inset = end ? ch * 0.75f : 0.0f;
+				float e[16];
+				octa((std::max)(0.005f, a * sa - inset), (std::max)(0.005f, b * sb - inset), end ? ch * 0.5f : ch, e);
+				const float tw = twist * (t - 0.5f);
+				const Vec3 u2 = U * cosf(tw) + V * sinf(tw), v2 = V * cosf(tw) - U * sinf(tw);
+				const float j = (wood ? 0.15f : 0.35f) * ch * r;
+				for (int k = 0; k < 8; ++k)
+					ring[(size_t)i * 8 + k] = cen + u2 * (e[k * 2] + (H(100 + i * 8 + k) - 0.5f) * j) + v2 * (e[k * 2 + 1] + (H(300 + i * 8 + k) - 0.5f) * j);
+				mid[i] = cen;
+			}
+			// u = 축 (m, 나뭇결), v = 둘레 (m). 엔진 규약 B = cross(N, T) 가 v 가 느는 쪽이 되게 v 부호를 고른다
+			const float uOff = H(7) * 3.0f, vOff = H(8) * 3.0f;
+			const float vs = Dot(VCross(U, L), V) > 0.0f ? 1.0f : -1.0f;
+			for (int i = 0; i + 1 < R; ++i)
+				for (int k = 0; k < 8; ++k)
+				{
+					const int k1 = (k + 1) % 8;
+					const Vec3 p00 = ring[(size_t)i * 8 + k], p01 = ring[(size_t)i * 8 + k1], p10 = ring[(size_t)(i + 1) * 8 + k], p11 = ring[(size_t)(i + 1) * 8 + k1];
+					Vec3 n = VCross(p10 - p00, p01 - p00) + VCross(p01 - p11, p10 - p11);
+					if (n.LengthSquared() < 1e-14f)
+						continue;
+					n = Norm(n);
+					const Vec3 q = (p00 + p01 + p10 + p11) * 0.25f;
+					if (Dot(n, q - (mid[i] + mid[i + 1]) * 0.5f) < 0.0f)
+						n = -n;
+					Vec3 T = L - n * Dot(L, n);
+					T = T.LengthSquared() > 1e-8f ? Norm(T) : TangentOf(n);
+					const float u0 = st[i] + uOff, u1 = st[i + 1] + uOff, v0 = vs * perim[k] + vOff, v1 = vs * perim[k + 1] + vOff;
+					const uint32_t i00 = Vert(slot, p00, n, T, u0, v0), i01 = Vert(slot, p01, n, T, u0, v1);
+					const uint32_t i10 = Vert(slot, p10, n, T, u1, v0), i11 = Vert(slot, p11, n, T, u1, v1);
+					Tri(slot, i00, i10, i11, n);
+					Tri(slot, i00, i11, i01, n);
+				}
+			for (int e = 0; e < 2; ++e)
+			{
+				const int i = e ? R - 1 : 0;
+				std::vector<Vec3> pts(ring.begin() + (size_t)i * 8, ring.begin() + (size_t)i * 8 + 8);
+				Poly(slot, pts, e ? L : -L);
+			}
+			return true;
+		}
+
+		// ---- 테셀레이션 변위 칸 (벽 · 지붕 · 장식 돌): 큰 면을 0.6 m 남짓으로 나눈다 — 모서리 정점의 변위 가중치가 0 (DispWeights) 이라
+		//  나누지 않은 큰 면은 안쪽까지 0 이 번진다. 칸이 있으면 모서리에서 한 칸 안으로 들어가며 높이가 차오른다
+		static bool Displaceable(int slot) { return slot == WallLower || slot == WallUpper || slot == Roof || slot == Trim; }
+		static constexpr float kCell = 0.6f;
+		static int Cells(float len) { return std::clamp((int)ceilf(len / kCell), 1, 64); }
+
+		// 네 점 사각 조각 (uv 를 직접): 변위 칸이면 격자로
+		void Patch(int slot, const Vec3 (&p)[4], const XMFLOAT2 (&uv)[4], const Vec3& n, const Vec3& t)
+		{
+			int nu = 1, nv = 1;
+			if (Displaceable(slot))
+			{
+				nu = Cells((std::max)((p[1] - p[0]).Length(), (p[2] - p[3]).Length()));
+				nv = Cells((std::max)((p[3] - p[0]).Length(), (p[2] - p[1]).Length()));
+			}
+			std::vector<uint32_t> idx((size_t)(nu + 1) * (nv + 1));
+			for (int j = 0; j <= nv; ++j)
+				for (int i = 0; i <= nu; ++i)
+				{
+					const float s = (float)i / nu, r = (float)j / nv;
+					const Vec3 q = (p[0] * (1 - s) + p[1] * s) * (1 - r) + (p[3] * (1 - s) + p[2] * s) * r;
+					const float u = (uv[0].x * (1 - s) + uv[1].x * s) * (1 - r) + (uv[3].x * (1 - s) + uv[2].x * s) * r;
+					const float v = (uv[0].y * (1 - s) + uv[1].y * s) * (1 - r) + (uv[3].y * (1 - s) + uv[2].y * s) * r;
+					idx[(size_t)j * (nu + 1) + i] = Vert(slot, q, n, t, u, v);
+				}
+			for (int j = 0; j < nv; ++j)
+				for (int i = 0; i < nu; ++i)
+				{
+					const uint32_t a = idx[(size_t)j * (nu + 1) + i], b = idx[(size_t)j * (nu + 1) + i + 1];
+					const uint32_t c = idx[(size_t)(j + 1) * (nu + 1) + i + 1], d = idx[(size_t)(j + 1) * (nu + 1) + i];
+					Tri(slot, a, b, c, n);
+					Tri(slot, a, c, d, n);
+				}
+		}
+
+		// 세모 하나를 sub × sub 로 (uv = 면 평면 투영 t · b)
+		void SubTri(int slot, const Vec3& A, const Vec3& B, const Vec3& C, const Vec3& n, const Vec3& t, const Vec3& b, int sub)
+		{
+			std::vector<uint32_t> id;
+			for (int i = 0; i <= sub; ++i)
+				for (int j = 0; j <= sub - i; ++j)
+				{
+					const Vec3 q = A + (B - A) * ((float)i / sub) + (C - A) * ((float)j / sub);
+					id.push_back(Vert(slot, q, n, t, Dot(q, t), Dot(q, b)));
+				}
+			auto at = [&](int i, int j) { return id[(size_t)(i * (sub + 1) - i * (i - 1) / 2 + j)]; };
+			for (int i = 0; i < sub; ++i)
+				for (int j = 0; j < sub - i; ++j)
+				{
+					Tri(slot, at(i, j), at(i + 1, j), at(i, j + 1), n);
+					if (j < sub - i - 1)
+						Tri(slot, at(i + 1, j), at(i + 1, j + 1), at(i, j + 1), n);
+				}
+		}
+
 		uint32_t Vert(int slot, const Vec3& p, const Vec3& n, const Vec3& t, float u, float v)
 		{
 			Vertex::PosNormalTexTan2 x;
@@ -62,6 +220,19 @@ namespace
 			if (Grain.LengthSquared() > 0.5f && fabsf(Dot(Grain, n)) < 0.95f)
 				t = Norm(Grain - n * Dot(Grain, n));
 			const Vec3 b = VCross(n, t);
+			if (Displaceable(slot))
+			{
+				float e = 0.0f;
+				for (size_t k = 1; k < pts.size(); ++k)
+					e = (std::max)(e, (std::max)((pts[k] - pts[0]).Length(), (pts[k] - pts[k - 1]).Length()));
+				const int sub = (std::min)(32, Cells(e));
+				if (sub > 1)
+				{
+					for (size_t k = 1; k + 1 < pts.size(); ++k)
+						SubTri(slot, pts[0], pts[k], pts[k + 1], n, t, b, sub);
+					return;
+				}
+			}
 			std::vector<uint32_t> idx;
 			for (const Vec3& p : pts)
 				idx.push_back(Vert(slot, p, n, t, Dot(p, t), Dot(p, b)));
@@ -80,6 +251,19 @@ namespace
 				c += p;
 			c /= (float)pts.size();
 			const Vec3 t = TangentOf(n), b = VCross(n, t);
+			if (Displaceable(slot))
+			{
+				float e = 0.0f;
+				for (size_t k = 0; k < pts.size(); ++k)
+					e = (std::max)(e, (std::max)((pts[k] - c).Length(), (pts[(k + 1) % pts.size()] - pts[k]).Length()));
+				const int sub = (std::min)(32, Cells(e));
+				if (sub > 1)
+				{
+					for (size_t k = 0; k < pts.size(); ++k)
+						SubTri(slot, c, pts[k], pts[(k + 1) % pts.size()], n, t, b, sub);
+					return;
+				}
+			}
 			const uint32_t ci = Vert(slot, c, n, t, Dot(c, t), Dot(c, b));
 			std::vector<uint32_t> idx;
 			for (const Vec3& p : pts)
@@ -92,6 +276,8 @@ namespace
 		void Box(int slot, const Vec3& mn, const Vec3& mx)
 		{
 			const float x0 = mn.x, y0 = mn.y, z0 = mn.z, x1 = mx.x, y1 = mx.y, z1 = mx.z;
+			if (RusticBox(slot, (mn + mx) * 0.5f, Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1), (x1 - x0) * 0.5f, (y1 - y0) * 0.5f, (z1 - z0) * 0.5f))
+				return;
 			const Vec3 keep = Grain;
 			const float ex = x1 - x0, ey = y1 - y0, ez = z1 - z0;
 			if (Woody(slot))
@@ -108,6 +294,8 @@ namespace
 		// 돌린 상자: 가운데 c, 축 ax · ay · az (단위), 반 크기
 		void OBox(int slot, const Vec3& c, const Vec3& ax, const Vec3& ay, const Vec3& az, float hx, float hy, float hz, bool bottom = true)
 		{
+			if (RusticBox(slot, c, ax, ay, az, hx, hy, hz))
+				return;
 			auto P = [&](float sx, float sy, float sz) { return c + ax * (sx * hx) + ay * (sy * hy) + az * (sz * hz); };
 			const Vec3 keep = Grain;
 			if (Woody(slot))
@@ -139,24 +327,31 @@ namespace
 		void Frustum(int slot, const Vec3& base, float r0, float r1, float h, int sides, bool capTop, bool capBottom = false)
 		{
 			const float slope = (r0 - r1) / (std::max)(h, 1e-4f);
-			std::vector<uint32_t> ring0, ring1;
-			for (int i = 0; i <= sides; ++i)
+			const int rings = Displaceable(slot) ? Cells(h * sqrtf(1.0f + slope * slope)) : 1;
+			std::vector<std::vector<uint32_t>> ring(rings + 1);
+			for (int j = 0; j <= rings; ++j)
 			{
-				const float a = XM_2PI * i / sides;
-				const Vec3 radial(cosf(a), 0, sinf(a));
-				const Vec3 tng(-sinf(a), 0, cosf(a));
-				const Vec3 n = Norm(radial + kUp * slope);
-				const float u = a * r0;
-				ring0.push_back(Vert(slot, base + radial * r0, n, tng, u, 0.0f));
-				ring1.push_back(Vert(slot, base + radial * r1 + kUp * h, n, tng, a * (std::max)(r1, 0.05f), -h * sqrtf(1.0f + slope * slope)));
+				const float f = (float)j / rings, rj = r0 + (r1 - r0) * f;
+				for (int i = 0; i <= sides; ++i)
+				{
+					const float a = XM_2PI * i / sides;
+					const Vec3 radial(cosf(a), 0, sinf(a));
+					const Vec3 tng(-sinf(a), 0, cosf(a));
+					const Vec3 n = Norm(radial + kUp * slope);
+					ring[j].push_back(Vert(slot, base + radial * rj + kUp * (h * f), n, tng, a * (j == 0 ? r0 : (std::max)(rj, 0.05f)), -h * f * sqrtf(1.0f + slope * slope)));
+				}
 			}
-			for (int i = 0; i < sides; ++i)
+			for (int j = 0; j < rings; ++j)
 			{
-				const float a = XM_2PI * (i + 0.5f) / sides;
-				const Vec3 want = Norm(Vec3(cosf(a), 0, sinf(a)) + kUp * slope);
-				Tri(slot, ring0[i], ring0[i + 1], ring1[i + 1], want);
-				if (r1 > 1e-4f)
-					Tri(slot, ring0[i], ring1[i + 1], ring1[i], want);
+				const float rj1 = r0 + (r1 - r0) * (float)(j + 1) / rings;
+				for (int i = 0; i < sides; ++i)
+				{
+					const float a = XM_2PI * (i + 0.5f) / sides;
+					const Vec3 want = Norm(Vec3(cosf(a), 0, sinf(a)) + kUp * slope);
+					Tri(slot, ring[j][i], ring[j][i + 1], ring[j + 1][i + 1], want);
+					if (rj1 > 1e-4f)
+						Tri(slot, ring[j][i], ring[j + 1][i + 1], ring[j + 1][i], want);
+				}
 			}
 			auto cap = [&](float y, float r, const Vec3& n) {
 				std::vector<Vec3> pts;
@@ -444,13 +639,9 @@ namespace
 		if (yd < 0.0f) yd = ya;
 		if (xb - xa < 1e-4f || ((yb - ya) < 1e-4f && (yc - yd) < 1e-4f))
 			return;
-		const Vec3 t = b.Dir;
-		const uint32_t i0 = m.Vert(slot, b.At(xa, ya), b.N, t, b.U0 + xa, -ya);
-		const uint32_t i1 = m.Vert(slot, b.At(xb, yd), b.N, t, b.U0 + xb, -yd);
-		const uint32_t i2 = m.Vert(slot, b.At(xb, yc), b.N, t, b.U0 + xb, -yc);
-		const uint32_t i3 = m.Vert(slot, b.At(xa, yb), b.N, t, b.U0 + xa, -yb);
-		m.Tri(slot, i0, i1, i2, b.N);
-		m.Tri(slot, i0, i2, i3, b.N);
+		const Vec3 p[4] = { b.At(xa, ya), b.At(xb, yd), b.At(xb, yc), b.At(xa, yb) };
+		const XMFLOAT2 uv[4] = { { b.U0 + xa, -ya }, { b.U0 + xb, -yd }, { b.U0 + xb, -yc }, { b.U0 + xa, -yb } };
+		m.Patch(slot, p, uv, b.N, b.Dir);
 	}
 
 	bool IsMasonry(BD::WallMat m) { return m == BD::WallMat::Rubble || m == BD::WallMat::Ashlar || m == BD::WallMat::Brick || m == BD::WallMat::Marble; }
@@ -615,12 +806,9 @@ namespace
 				// 위: ta → Y1 (사다리꼴 — 아래 변이 기울어짐)
 				if (b.Y1 - (std::min)(ta, tb) > 1e-4f)
 				{
-					const uint32_t i0 = m.Vert(slot, b.At(xa, ta), b.N, b.Dir, b.U0 + xa, -ta);
-					const uint32_t i1 = m.Vert(slot, b.At(xb, tb), b.N, b.Dir, b.U0 + xb, -tb);
-					const uint32_t i2 = m.Vert(slot, b.At(xb, b.Y1), b.N, b.Dir, b.U0 + xb, -b.Y1);
-					const uint32_t i3 = m.Vert(slot, b.At(xa, b.Y1), b.N, b.Dir, b.U0 + xa, -b.Y1);
-					m.Tri(slot, i0, i1, i2, b.N);
-					m.Tri(slot, i0, i2, i3, b.N);
+					const Vec3 p[4] = { b.At(xa, ta), b.At(xb, tb), b.At(xb, b.Y1), b.At(xa, b.Y1) };
+					const XMFLOAT2 uv[4] = { { b.U0 + xa, -ta }, { b.U0 + xb, -tb }, { b.U0 + xb, -b.Y1 }, { b.U0 + xa, -b.Y1 } };
+					m.Patch(slot, p, uv, b.N, b.Dir);
 				}
 			}
 			x = o.B;
@@ -811,6 +999,45 @@ namespace
 			if (top < b.Y1 - tw)
 				m.Beam(Timber, P(o.A - tw, top), P(o.B + tw, top), tw * 0.8f, td, b.N);
 		}
+		// 촘촘한 샛기둥 (영국 · 북해 도시 집): 0.4 m 남짓마다 세로 기둥 (구멍 위아래는 짧게), 창턱 높이 가로대
+		if (d.Frame == BD::Timber::CloseStud)
+		{
+			const float step = (std::max)(0.4f, tw * 2.3f), sw = tw * 0.72f;
+			const float yb = b.Y0 + tw, yt = b.Y1 - tw;
+			for (float x = step; x < b.Len - step * 0.6f; x += step)
+			{
+				bool nearPost = false;
+				for (float p : posts)
+					nearPost |= fabsf(p - x) < tw * 1.3f;
+				if (nearPost)
+					continue;
+				const Opening* hit = nullptr;
+				for (const Opening& o : hs)
+					if (x > o.A - tw * 0.9f && x < o.B + tw * 0.9f) { hit = &o; break; }
+				if (!hit)
+				{
+					m.Beam(Timber, P(x, yb), P(x, yt), sw, td * 0.9f, b.N);
+					continue;
+				}
+				if (hit->Kind != Hole::Window)
+					continue;
+				const float ys = hit->S - tw * 0.9f, yo = hit->Top(hit->Center()) + tw * 0.9f;
+				if (ys - yb > 0.25f)
+					m.Beam(Timber, P(x, yb), P(x, ys), sw, td * 0.9f, b.N);
+				if (yt - yo > 0.25f)
+					m.Beam(Timber, P(x, yo), P(x, yt), sw, td * 0.9f, b.N);
+			}
+			const float ry = b.Y0 + (std::min)(d.SillHeight - tw * 0.6f, (b.Y1 - b.Y0) * 0.42f);
+			float xa = 0.0f;
+			auto rail = [&](float r0, float r1) { if (r1 - r0 > 0.3f) m.Beam(Timber, P(r0, ry), P(r1, ry), tw * 0.8f, td, b.N); };
+			for (const Opening& o : hs)
+				if (ry > o.S - tw && ry < o.Top(o.Center()) + tw)
+				{
+					rail(xa, o.A - tw * 0.5f);
+					xa = o.B + tw * 0.5f;
+				}
+			rail(xa, b.Len);
+		}
 		// 빈 칸 (구멍 없는 칸) 의 가새
 		for (size_t i = 0; i + 1 < posts.size(); ++i)
 		{
@@ -897,6 +1124,7 @@ namespace
 		// 열린 아케이드 (시장 · 문루) 는 좁아져도 아치 하나는 (길이 지나간다)
 		const int count = arcade && s.Len > 2.5f ? (std::max)(1, (int)floorf((s.Len - 0.6f) / spacing)) : (int)floorf((s.Len - 0.6f) / spacing);
 		const float bandH = y1 - y0;
+		const bool shop = ground && d.ShopFront && !arcade && fabsf(s.Dir.z) < 0.5f && s.Dir.x > 0.0f && fabsf(s.P0.z - c.FrontZ) < 0.6f + d.Jetty;
 		for (int i = 0; i < count; ++i)
 		{
 			const float slotW = s.Len / (std::max)(count, 1);
@@ -906,7 +1134,7 @@ namespace
 			const float jx = (c.U01() - 0.5f) * irr * (std::max)(0.0f, slotW - d.WindowWidth - 0.3f) * 0.5f;
 			const float jy = (c.U01() - 0.5f) * irr * 0.16f;
 			const bool drop = !arcade && count >= 3 && c.U01() < irr * 0.12f;
-			cx += jx;
+			cx += shop ? 0.0f : jx;
 			const Vec3 wp = worldAt(cx);
 			if (c.InsideOther(wp.x, wp.z, &w) || c.NearTower(wp.x, wp.z) || c.Blocked(wp.x, wp.z) || c.TurretAt(wp.x, wp.z) || c.OrielAt(floor, wp.x, wp.z))
 				continue;
@@ -928,11 +1156,16 @@ namespace
 			float ww = d.WindowWidth, wh = d.WindowHeight;
 			if (style == BD::Window::Slit) { ww = (std::min)(ww, 0.35f); }
 			if (style == BD::Window::Round) { wh = ww; }
-			const float sill = (std::min)(d.SillHeight, bandH - wh - 0.25f);
+			if (shop)   // 가게 창: 칸 거의 다, 낮은 창턱, 높게
+			{
+				ww = std::clamp(slotW - 0.6f, d.WindowWidth, 2.8f);
+				wh = (std::max)(wh, (std::min)(1.8f, bandH - 1.0f));
+			}
+			const float sill = shop ? 0.6f : (std::min)(d.SillHeight, bandH - wh - 0.25f);
 			o.A = cx - ww * 0.5f; o.B = cx + ww * 0.5f; o.S = y0 + (std::max)(0.3f, sill + jy); o.H = (std::min)(wh, bandH - 0.3f - (o.S - y0));
 			if (o.H < 0.3f)
 				continue;
-			o.Shape = style; o.Depth = style == BD::Window::Slit ? 0.5f : 0.2f;
+			o.Shape = shop ? BD::Window::Mullioned : style; o.Depth = style == BD::Window::Slit ? 0.5f : 0.2f;
 			out.push_back(o);
 		}
 		if (doorHere && !arcade)
@@ -949,13 +1182,13 @@ namespace
 	{
 		const BD& d = c.D;
 		Mesher& m = c.M;
-		// 밑돌 (조금 밖으로)
-		if (d.Plinth > 0.01f)
+		// 밑돌 (조금 밖으로) — 물 위 집 (Canal) 이면 물 밑까지 내려간 기초
+		if (d.Plinth > 0.01f || d.Canal > 0.01f)
 		{
 			// 막돌 벽이면 밑돌도 막돌 (1 층 재질 — 때가 가장 진하다), 위는 비스듬히 (물이 흘러내리게)
 			const int ps = d.GroundWall == BD::WallMat::Rubble ? WallLower : Trim;
 			const float e = 0.12f, ch = (std::min)(0.1f, d.Plinth * 0.4f);
-			m.Box(ps, Vec3(w.X0 - e, 0.0f, w.Z0 - e), Vec3(w.X1 + e, d.Plinth - ch, w.Z1 + e));
+			m.Box(ps, Vec3(w.X0 - e, d.Canal > 0.01f ? -(d.Canal + 1.2f) : 0.0f, w.Z0 - e), Vec3(w.X1 + e, d.Plinth - ch, w.Z1 + e));
 			const float yb = d.Plinth - ch, sl = ch / e;
 			const Vec3 o0(w.X0 - e, yb, w.Z0 - e), o1(w.X1 + e, yb, w.Z0 - e), o2(w.X1 + e, yb, w.Z1 + e), o3(w.X0 - e, yb, w.Z1 + e);
 			const Vec3 i0(w.X0, d.Plinth, w.Z0), i1(w.X1, d.Plinth, w.Z0), i2(w.X1, d.Plinth, w.Z1), i3(w.X0, d.Plinth, w.Z1);
@@ -1349,20 +1582,31 @@ namespace
 				n = -n;
 			Nn[k] = n;
 		}
-		std::vector<uint32_t> top[2], bot[2];
+		std::vector<uint32_t> bot[2];
+		const int na = Mesher::Cells(2.0f * A);
+		std::vector<std::vector<uint32_t>> top(K);
 		for (int k = 0; k < K; ++k)
+		{
+			const Vec3 T = Norm(VCross(Dn[k], Nn[k]));
+			for (int j = 0; j <= na; ++j)
+			{
+				const Vec3 pos = P[k] + f.Ax * (-A + 2.0f * A * j / na);
+				top[k].push_back(m.Vert(Roof, pos, Nn[k], T, Dot(pos, T), S[k]));
+			}
 			for (int e = 0; e < 2; ++e)
 			{
 				const Vec3 pos = P[k] + f.Ax * (e ? A : -A);
-				const Vec3 T = Norm(VCross(Dn[k], Nn[k]));
-				top[e].push_back(m.Vert(Roof, pos, Nn[k], T, Dot(pos, T), S[k]));
 				bot[e].push_back(m.Vert(Timber, pos - Nn[k] * th, -Nn[k], T, Dot(pos, T), S[k]));
 			}
+		}
 		for (int k = 0; k + 1 < K; ++k)
 		{
 			const Vec3 want = Norm(Nn[k] + Nn[k + 1]);
-			m.Tri(Roof, top[0][k], top[1][k], top[1][k + 1], want);
-			m.Tri(Roof, top[0][k], top[1][k + 1], top[0][k + 1], want);
+			for (int j = 0; j < na; ++j)
+			{
+				m.Tri(Roof, top[k][j], top[k][j + 1], top[k + 1][j + 1], want);
+				m.Tri(Roof, top[k][j], top[k + 1][j + 1], top[k + 1][j], want);
+			}
 			m.Tri(Timber, bot[0][k], bot[1][k], bot[1][k + 1], -want);
 			m.Tri(Timber, bot[0][k], bot[1][k + 1], bot[0][k + 1], -want);
 			for (int e = 0; e < 2; ++e)   // 박공 끝 (판 두께)
@@ -1778,12 +2022,9 @@ namespace
 				}
 				else
 				{
-					const uint32_t i0 = m.Vert(slot, pa0, outN, Norm(pa1 - pa0), a0 * ra, -y0);
-					const uint32_t i1 = m.Vert(slot, pa1, outN, Norm(pa1 - pa0), a1 * ra, -y0);
-					const uint32_t i2 = m.Vert(slot, pb1, outN, Norm(pa1 - pa0), a1 * ra, -y1);
-					const uint32_t i3 = m.Vert(slot, pb0, outN, Norm(pa1 - pa0), a0 * ra, -y1);
-					m.Tri(slot, i0, i1, i2, outN);
-					m.Tri(slot, i0, i2, i3, outN);
+					const Vec3 p[4] = { pa0, pa1, pb1, pb0 };
+					const XMFLOAT2 uv[4] = { { a0 * ra, -y0 }, { a1 * ra, -y0 }, { a1 * ra, -y1 }, { a0 * ra, -y1 } };
+					m.Patch(slot, p, uv, outN, Norm(pa1 - pa0));
 				}
 			}
 			if (d.StringCourse && fl > 0)
@@ -2558,6 +2799,206 @@ namespace
 
 	const Wing* FrontWing(const Ctx& c);
 
+	// 물가 집 앞 돌 선착장 (Canal > 0): 앞면 너비의 돌 단 (윗면 = 길 높이 0, 몸은 물 밑까지), 갓돌, 물로 내려가는 계단 (문에서 먼 쪽), 배 매는 말뚝
+	void CanalLanding(Ctx& c, const Wing& w)
+	{
+		const BD& d = c.D;
+		Mesher& m = c.M;
+		const float bed = -(d.Canal + 1.2f);
+		const float x0 = w.X0 - 0.6f, x1 = w.X1 + 0.6f, z1 = w.Z0 - 0.12f, dq = 1.9f, z0 = z1 - dq;
+		const int body = d.GroundWall == BD::WallMat::Rubble ? WallLower : Trim;
+		const float cy = -0.24f;   // 갓돌 아래
+		m.Quad(body, Vec3(x0, bed, z0), Vec3(x1, bed, z0), Vec3(x1, cy, z0), Vec3(x0, cy, z0), Vec3(0, 0, -1));
+		m.Quad(body, Vec3(x0, bed, z0), Vec3(x0, bed, z1), Vec3(x0, cy, z1), Vec3(x0, cy, z0), Vec3(-1, 0, 0));
+		m.Quad(body, Vec3(x1, bed, z0), Vec3(x1, bed, z1), Vec3(x1, cy, z1), Vec3(x1, cy, z0), Vec3(1, 0, 0));
+		m.Quad(Trim, Vec3(x0 + 0.4f, -0.015f, z0 + 0.4f), Vec3(x1 - 0.4f, -0.015f, z0 + 0.4f), Vec3(x1 - 0.4f, -0.015f, z1), Vec3(x0 + 0.4f, -0.015f, z1), kUp);
+		// 물 계단 자리 (문에서 먼 끝)
+		const bool left = c.DoorX > (w.X0 + w.X1) * 0.5f;
+		const float sw = 1.3f, sx0 = left ? x0 + 0.42f : x1 - 0.42f - sw, sx1 = sx0 + sw;
+		// 갓돌: 앞 가장자리 (계단 자리는 비운다) · 양옆
+		for (float x = x0; x < x1 - 0.05f;)
+		{
+			const float seg = (std::min)(x1 - x, 0.62f + 0.3f * Mesher::Hash01(Vec3(x, 1.0f, z0), 5u));
+			if (!(x + seg > sx0 + 0.02f && x < sx1 - 0.02f))
+				m.Box(Trim, Vec3(x + 0.01f, cy, z0 - 0.05f), Vec3(x + seg - 0.01f, 0.0f, z0 + 0.4f));
+			x += seg;
+		}
+		for (float sx : { x0, x1 - 0.4f })
+			for (float z = z0 + 0.42f; z < z1 - 0.05f;)
+			{
+				const float seg = (std::min)(z1 - z, 0.7f);
+				m.Box(Trim, Vec3(sx, cy, z + 0.01f), Vec3(sx + 0.4f, 0.0f, z + seg - 0.01f));
+				z += seg;
+			}
+		// 계단: 돌 단 앞으로 내려가 물 밑까지
+		const int steps = (std::max)(2, (int)roundf((d.Canal + 0.2f) / 0.2f));
+		const float hs = (d.Canal + 0.2f) / steps;
+		for (int s = 0; s < steps; ++s)
+			m.Box(Trim, Vec3(sx0, bed, z0 - (s + 1) * 0.32f), Vec3(sx1, -(s + 1) * hs, z0 - s * 0.32f));
+		// 계단 옆벽 (바깥쪽)
+		const float wx = left ? sx0 - 0.3f : sx1;
+		m.Box(body == WallLower ? Trim : Trim, Vec3(wx, bed, z0 - steps * 0.32f), Vec3(wx + 0.3f, -0.1f, z0));
+		// 배 매는 말뚝 (손 다듬은 나무 — 휘고 고르지 않다) · 쇠고리
+		const float span = x1 - x0;
+		for (int i = 0; i < 2; ++i)
+		{
+			float px = x0 + span * (i == 0 ? 0.3f : 0.7f);
+			if (px > sx0 - 0.4f && px < sx1 + 0.4f)
+				px = left ? sx1 + 0.8f : sx0 - 0.8f;
+			const float top = 0.75f + 0.25f * Mesher::Hash01(Vec3(px, 0.0f, z0), 9u);
+			m.OBox(Timber, Vec3(px, (bed + top) * 0.5f, z0 - 0.32f), Vec3(1, 0, 0), kUp, Vec3(0, 0, 1), 0.12f, (top - bed) * 0.5f, 0.12f);
+			m.Frustum(Metal, Vec3(px, top - 0.35f, z0 - 0.32f), 0.135f, 0.135f, 0.06f, 8, true, true);
+		}
+	}
+
+	// 돌 아치 다리 (Plan::Bridge): 길이 = Width (X), 폭 = Depth (Z), 아치 Arches 개. 둑 = y 0, 물 = Canal m 아래.
+	//  옆면 (벽 재질 — 아치 구멍을 뺀 띠), 아치 안쪽 (둥근 천장), 교각 · 물가름돌, 쐐기돌 (장식 돌 — 손 다듬은 돌), 난간 + 갓돌, 길 (위층 벽 칸 = 포석)
+	void StoneBridge(Ctx& c)
+	{
+		const BD& d = c.D;
+		Mesher& m = c.M;
+		const float L = (std::max)(4.0f, d.Width), hw = (std::max)(1.6f, d.Depth * 0.5f);
+		const int n = std::clamp(d.Arches, 1, 7);
+		const float water = d.Canal > 0.05f ? d.Canal : 1.2f;
+		const float bed = -water - 1.2f, spring = -water + 0.35f;
+		const float hump = std::clamp(L * 0.07f, 0.3f, 2.2f);
+		const float ab = 2.0f, pt = 0.38f, ph = 0.9f;
+		auto deck = [&](float x) { const float t = std::clamp(x / (L * 0.5f), -1.0f, 1.0f); return hump * (1.0f - t * t); };
+		const float pw = n > 1 ? std::clamp(L / n * 0.2f, 0.8f, 2.2f) : 0.0f;
+		const float edge = 0.4f;
+		const float aw = (L - 2.0f * edge - pw * (n - 1)) / n;
+		struct Arch { float X0, X1, Xc, Yc, R; };
+		std::vector<Arch> arches;
+		for (int i = 0; i < n; ++i)
+		{
+			Arch a;
+			a.X0 = -L * 0.5f + edge + i * (aw + pw);
+			a.X1 = a.X0 + aw;
+			a.Xc = (a.X0 + a.X1) * 0.5f;
+			const float half = aw * 0.5f;
+			const float h = std::clamp(deck(a.Xc) - 0.8f - spring, 0.3f, half);   // 반원 또는 (낮으면) 활꼴
+			a.R = (half * half + h * h) / (2.0f * h);
+			a.Yc = spring + h - a.R;
+			arches.push_back(a);
+		}
+		auto archAt = [&](float x) -> const Arch* {
+			for (const Arch& a : arches)
+				if (x > a.X0 && x < a.X1)
+					return &a;
+			return nullptr;
+		};
+		auto intra = [&](const Arch& a, float x) { const float dx = std::clamp(x - a.Xc, -a.R, a.R); return a.Yc + sqrtf((std::max)(0.0f, a.R * a.R - dx * dx)); };
+		const float xL = -L * 0.5f - ab, xR = L * 0.5f + ab;
+		std::vector<float> xs;
+		for (float x = xL; x < xR - 0.01f; x += 0.25f)
+		{
+			bool atEnd = false;
+			for (const Arch& a : arches)
+				atEnd |= fabsf(x - a.X0) < 0.06f || fabsf(x - a.X1) < 0.06f;
+			if (!atEnd)
+				xs.push_back(x);
+		}
+		xs.push_back(xR);
+		for (const Arch& a : arches) { xs.push_back(a.X0); xs.push_back(a.X1); }
+		std::sort(xs.begin(), xs.end());
+		for (size_t i = 0; i + 1 < xs.size(); ++i)
+		{
+			const float xa = xs[i], xb = xs[i + 1], xm = (xa + xb) * 0.5f;
+			const Arch* a = archAt(xm);
+			const float ba = a ? intra(*a, xa) : bed, bb = a ? intra(*a, xb) : bed;
+			const float da = deck(xa), db = deck(xb);
+			for (float s : { -1.0f, 1.0f })
+			{
+				const float z = s * hw;
+				// 옆면 (물 밑 → 난간 위)
+				m.Quad(WallLower, Vec3(xa, ba, z), Vec3(xb, bb, z), Vec3(xb, db + ph, z), Vec3(xa, da + ph, z), Vec3(0, 0, s));
+				// 난간 안쪽 면
+				const float zi = s * (hw - pt);
+				m.Quad(WallLower, Vec3(xa, da, zi), Vec3(xb, db, zi), Vec3(xb, db + ph, zi), Vec3(xa, da + ph, zi), Vec3(0, 0, -s));
+			}
+			// 길 (포석)
+			m.Quad(WallUpper, Vec3(xa, da, -hw + pt), Vec3(xb, db, -hw + pt), Vec3(xb, db, hw - pt), Vec3(xa, da, hw - pt), Norm(Vec3(-(db - da) / (xb - xa), 1.0f, 0.0f)));
+			// 아치 안쪽 (둥근 천장)
+			if (a)
+			{
+				const float ya = intra(*a, xa), yb = intra(*a, xb);
+				const Vec3 nn = Norm(Vec3(a->Xc - xm, a->Yc - (ya + yb) * 0.5f, 0.0f));
+				m.Quad(WallLower, Vec3(xa, ya, -hw), Vec3(xb, yb, -hw), Vec3(xb, yb, hw), Vec3(xa, ya, hw), nn);
+			}
+		}
+		// 교각 옆 (물 밑 → 아치 시작) · 끝 면
+		for (const Arch& a : arches)
+		{
+			m.Quad(WallLower, Vec3(a.X0, bed, -hw), Vec3(a.X0, bed, hw), Vec3(a.X0, spring, hw), Vec3(a.X0, spring, -hw), Vec3(1, 0, 0));
+			m.Quad(WallLower, Vec3(a.X1, bed, -hw), Vec3(a.X1, bed, hw), Vec3(a.X1, spring, hw), Vec3(a.X1, spring, -hw), Vec3(-1, 0, 0));
+		}
+		for (float s : { -1.0f, 1.0f })
+		{
+			const float x = s < 0 ? xL : xR;
+			m.Quad(WallLower, Vec3(x, bed, -hw), Vec3(x, bed, hw), Vec3(x, 0.0f, hw), Vec3(x, 0.0f, -hw), Vec3(s, 0, 0));
+		}
+		// 물가름돌 (교각 앞뒤, 세모 기둥 + 비스듬한 갓)
+		for (int i = 0; i + 1 < n; ++i)
+		{
+			const float px0 = arches[i].X1, px1 = arches[i + 1].X0, pc = (px0 + px1) * 0.5f, e = pw * 0.6f, yt = spring + 0.55f;
+			for (float s : { -1.0f, 1.0f })
+			{
+				const Vec3 b0(px0, 0, s * hw), b1(px1, 0, s * hw), tip(pc, 0, s * (hw + e));
+				auto side = [&](const Vec3& p, const Vec3& q) {
+					Vec3 nn = Norm(VCross(kUp, q - p));
+					if (Dot(nn, (p + q) * 0.5f - Vec3(pc, 0, s * hw)) < 0.0f)
+						nn = -nn;
+					m.Quad(WallLower, p + kUp * bed, q + kUp * bed, q + kUp * yt, p + kUp * yt, nn);
+				};
+				side(b0, tip);
+				side(tip, b1);
+				const Vec3 apex(pc, yt + 0.55f, s * hw);
+				for (int k = 0; k < 2; ++k)
+				{
+					const Vec3 p = (k ? b1 : b0) + kUp * yt, q = tip + kUp * yt;
+					Vec3 nn = Norm(VCross(q - p, apex - p));
+					if (nn.y < 0.0f)
+						nn = -nn;
+					m.Poly(Trim, { p, q, apex }, nn);
+				}
+			}
+		}
+		// 쐐기돌 (아치 둘레, 가운데 이맛돌이 크다)
+		for (const Arch& a : arches)
+		{
+			const float a0 = atan2f(spring - a.Yc, a.X1 - a.Xc), a1 = atan2f(spring - a.Yc, a.X0 - a.Xc);
+			int k = (std::max)(5, (int)roundf(a.R * (a1 - a0) / 0.38f));
+			if (k % 2 == 0)
+				++k;
+			const float rt = 0.45f;
+			for (float s : { -1.0f, 1.0f })
+				for (int i = 0; i < k; ++i)
+				{
+					const float am = a0 + (i + 0.5f) * (a1 - a0) / k;
+					const Vec3 rad(cosf(am), sinf(am), 0.0f), tan(-sinf(am), cosf(am), 0.0f);
+					const bool key = i == k / 2;
+					const float depth = key ? 0.2f : 0.14f;
+					const Vec3 cpos = Vec3(a.Xc, a.Yc, s * (hw - 0.14f + depth)) + rad * (a.R + rt * (key ? 0.6f : 0.5f));
+					m.OBox(Trim, cpos, tan, rad, Vec3(0, 0, 1), a.R * (a1 - a0) / k * 0.48f, rt * (key ? 0.6f : 0.5f), depth);
+				}
+		}
+		// 난간 갓돌 (길을 따라 휘어 오른다) · 양 끝 기둥
+		for (float s : { -1.0f, 1.0f })
+		{
+			const float zc = s * (hw - pt * 0.5f);
+			for (float x = xL; x < xR - 0.05f;)
+			{
+				const float seg = (std::min)(xR - x, 0.62f + 0.25f * Mesher::Hash01(Vec3(x, 2.0f, zc), 3u));
+				const Vec3 p0(x, deck(x) + ph, zc), p1(x + seg, deck(x + seg) + ph, zc);
+				const Vec3 dir = Norm(p1 - p0), up(-dir.y, dir.x, 0.0f);
+				m.OBox(Trim, (p0 + p1) * 0.5f + up * 0.08f, dir, up, Vec3(0, 0, 1), seg * 0.49f, 0.09f, pt * 0.5f + 0.06f);
+				x += seg;
+			}
+			for (float x : { xL + 0.3f, xR - 0.3f })
+				m.Box(Trim, Vec3(x - 0.3f, -0.05f, zc - 0.3f), Vec3(x + 0.3f, ph + 0.42f, zc + 0.3f));
+		}
+	}
+
 	// 모서리의 둥근 내민 탑 (내쌓은 받침이 곡선으로 좁아진다, 창 셋, 처마가 들린 마녀 모자 지붕 + 쇠 꼭대기)
 	void CornerTurret(Ctx& c, const Vec3& corner, const Vec3& diag, float r, float y0, float y1)
 	{
@@ -2792,6 +3233,45 @@ namespace BuildingGenerator
 		return slot >= 0 && slot < SlotCount ? names[slot] : "";
 	}
 
+	// 테셀레이션 변위 가중치 (60. Tessellation.fx — 2 - |탄젠트 w|): 같은 자리에 법선이 다른 정점이 있으면 (면이 꺾이는 모서리 — 벽 모서리 ·
+	//  창 안쪽 · 처마 끝 · 돌 모서리) |w| = 2 → 그 자리는 밀지 않는다. 두 면이 같이 0 이라 벌어지지 않는다. 같은 평면에서 이어지는 칸은 그대로 1
+	void DispWeights(Output& out)
+	{
+		struct Ref { int Slot; uint32_t Index; };
+		std::unordered_map<uint64_t, std::vector<Ref>> at;
+		size_t total = 0;
+		for (const Part& p : out.Parts)
+			total += p.V.size();
+		at.reserve(total);
+		auto key = [](const XMFLOAT3& q) {
+			const uint64_t x = (uint64_t)((int64_t)llroundf(q.x * 1000.0f) + (1 << 20)) & 0x1fffff;
+			const uint64_t y = (uint64_t)((int64_t)llroundf(q.y * 1000.0f) + (1 << 20)) & 0x1fffff;
+			const uint64_t z = (uint64_t)((int64_t)llroundf(q.z * 1000.0f) + (1 << 20)) & 0x1fffff;
+			return (x << 42) | (y << 21) | z;
+		};
+		for (int s = 0; s < SlotCount; ++s)
+			for (uint32_t i = 0; i < (uint32_t)out.Parts[s].V.size(); ++i)
+				at[key(out.Parts[s].V[i].pos)].push_back({ s, i });
+		for (auto& kv : at)
+		{
+			if (kv.second.size() < 2)
+				continue;
+			const XMFLOAT3& n0 = out.Parts[kv.second[0].Slot].V[kv.second[0].Index].normal;
+			bool hard = false;
+			for (size_t k = 1; k < kv.second.size() && !hard; ++k)
+			{
+				const XMFLOAT3& n = out.Parts[kv.second[k].Slot].V[kv.second[k].Index].normal;
+				hard = n0.x * n.x + n0.y * n.y + n0.z * n.z < 0.97f;
+			}
+			if (hard)
+				for (const Ref& r : kv.second)
+				{
+					float& w = out.Parts[r.Slot].V[r.Index].tangentU.w;
+					w = w < 0.0f ? -2.0f : 2.0f;
+				}
+		}
+	}
+
 	void Generate(const BuildingDesc& src, Output& out)
 	{
 		out = Output();
@@ -2815,9 +3295,22 @@ namespace BuildingGenerator
 		d.RoofCurve = std::clamp(d.RoofCurve, 0.0f, 0.6f);
 		d.Turrets = std::clamp(d.Turrets, 0, 2);
 		d.Oriels = std::clamp(d.Oriels, 0, 3);
+		d.Rustic = std::clamp(d.Rustic, 0.0f, 1.0f);
+		d.Canal = std::clamp(d.Canal, 0.0f, 6.0f);
+		d.Arches = std::clamp(d.Arches, 1, 7);
 		Mesher m(out);
+		m.Rustic = d.Rustic;
 		Ctx c(d, m);
 		const float top = d.WallHeight();
+
+		// ---- 돌 아치 다리
+		if (d.Shape == BD::Plan::Bridge)
+		{
+			StoneBridge(c);
+			DispWeights(out);
+			Bounds(out);
+			return;
+		}
 
 		// ---- 둥근 몸채 (탑 · 풍차)
 		if (d.Shape == BD::Plan::Round)
@@ -2850,6 +3343,7 @@ namespace BuildingGenerator
 					Crate(m, Vec3(d.DoorWidth * 0.5f + 1.3f, 0.0f, c.FrontWallZ(d.DoorWidth * 0.5f + 1.3f) - 0.7f), 0.3f, 0.3f);
 			}
 			Deform(out, d);
+			DispWeights(out);
 			Bounds(out);
 			return;
 		}
@@ -3057,9 +3551,11 @@ namespace BuildingGenerator
 			for (float ox : c.OrielX)
 				OrielWindow(c, *fw, ox, c.OrielFloor);
 		}
-		// ---- 앞 꾸밈 (테라스 · 문 지붕 · 등 · 간판 · 깃발) · 소품 · 헛간
+		// ---- 앞 꾸밈 (선착장 · 테라스 · 문 지붕 · 등 · 간판 · 깃발) · 소품 · 헛간
 		if (const Wing* fw = FrontWing(c))
 		{
+			if (d.Canal > 0.01f)
+				CanalLanding(c, *fw);
 			if (d.Terrace && !d.Arcade && !d.Portico && !d.Peristyle)
 				TerraceFront(c, *fw);
 			else if (d.Porch && !d.Arcade && !d.Portico && !d.Peristyle)
@@ -3076,6 +3572,7 @@ namespace BuildingGenerator
 		if (annex.Side != 0)
 			AddAnnex(c, annex);
 		Deform(out, d);
+		DispWeights(out);
 		Bounds(out);
 	}
 }

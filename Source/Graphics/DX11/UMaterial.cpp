@@ -4,6 +4,9 @@
 #include "Effects.h"
 #include "MaterialInspector.h"
 #include <filesystem>
+#include <mutex>
+#include <map>
+#include "ImageIO.h"
 
 namespace
 {
@@ -353,6 +356,8 @@ void UMaterial::ReloadTextures()
 	OcclusionMapSRV = LoadTex(m_OcclusionMapPath);
 	EmissionMapSRV = LoadTex(m_EmissionMapPath);
 	HeightMapSRV = LoadTex(m_HeightMapPath);
+	m_HeightFromNormal = false;
+	EnsureDerivedHeight();
 	SyncLegacy();
 }
 
@@ -615,4 +620,94 @@ void to_json(json& j, const UMaterial& m)
 		j["Properties"] = m.m_Properties;
 		j["Fallback"] = m.m_FallbackUnlit ? "Unlit" : "Lit";
 	}
+}
+
+// ---- 노멀맵 → 높이 텍스처 (R16, 밉) — 경로마다 한 번
+namespace
+{
+	ComPtr<GfxShaderResourceView> DerivedHeightMap(const std::wstring& normalPath)
+	{
+		static std::map<std::wstring, ComPtr<GfxShaderResourceView>> s_Cache;
+		static std::mutex s_Lock;
+		std::lock_guard<std::mutex> lock(s_Lock);
+		auto it = s_Cache.find(normalPath);
+		if (it != s_Cache.end())
+			return it->second;
+		ComPtr<GfxShaderResourceView>& slot = s_Cache[normalPath];
+		DirectX::ScratchImage img, rgba;
+		if (FAILED(ImageIO::Load(normalPath.c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, img)))
+			return slot;
+		const DirectX::Image* src = img.GetImage(0, 0, 0);
+		if (src->format != DXGI_FORMAT_R8G8B8A8_UNORM)
+		{
+			if (DirectX::IsCompressed(src->format))
+			{
+				if (FAILED(DirectX::Decompress(*src, DXGI_FORMAT_R8G8B8A8_UNORM, rgba)))
+					return slot;
+			}
+			else if (FAILED(DirectX::Convert(*src, DXGI_FORMAT_R8G8B8A8_UNORM, DirectX::TEX_FILTER_DEFAULT, DirectX::TEX_THRESHOLD_DEFAULT, rgba)))
+				return slot;
+			src = rgba.GetImage(0, 0, 0);
+		}
+		std::vector<uint8_t> px((size_t)src->width * src->height * 4);
+		for (size_t y = 0; y < src->height; ++y)
+			memcpy(&px[y * src->width * 4], src->pixels + y * src->rowPitch, src->width * 4);
+		const int n = (int)(std::min)((size_t)1024, (std::max)(src->width, src->height));
+		std::vector<float> hgt;
+		if (!ImageIO::HeightFromNormal(px.data(), (int)src->width, (int)src->height, n, hgt))
+			return slot;
+		int size = 16;
+		while (size * size < (int)hgt.size())
+			size <<= 1;
+		// 밉 (2x2 평균) → R16
+		std::vector<std::vector<uint16_t>> levels;
+		std::vector<float> cur = hgt;
+		for (int s = size;; s /= 2)
+		{
+			std::vector<uint16_t> lv((size_t)s * s);
+			for (size_t i = 0; i < lv.size(); ++i)
+				lv[i] = (uint16_t)(std::clamp(cur[i], 0.0f, 1.0f) * 65535.0f + 0.5f);
+			levels.push_back(std::move(lv));
+			if (s == 1)
+				break;
+			const int hs = s / 2;
+			std::vector<float> next((size_t)hs * hs);
+			for (int y = 0; y < hs; ++y)
+				for (int x = 0; x < hs; ++x)
+					next[(size_t)y * hs + x] = (cur[(size_t)(2 * y) * s + 2 * x] + cur[(size_t)(2 * y) * s + 2 * x + 1] + cur[(size_t)(2 * y + 1) * s + 2 * x] + cur[(size_t)(2 * y + 1) * s + 2 * x + 1]) * 0.25f;
+			cur = std::move(next);
+		}
+		std::vector<D3D11_SUBRESOURCE_DATA> init(levels.size());
+		for (size_t m = 0, s = (size_t)size; m < levels.size(); ++m, s = (std::max)((size_t)1, s / 2))
+			init[m] = { levels[m].data(), (UINT)(s * 2), 0 };
+		D3D11_TEXTURE2D_DESC td = {};
+		td.Width = td.Height = (UINT)size;
+		td.MipLevels = (UINT)levels.size();
+		td.ArraySize = 1;
+		td.Format = DXGI_FORMAT_R16_UNORM;
+		td.SampleDesc.Count = 1;
+		td.Usage = D3D11_USAGE_IMMUTABLE;
+		td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		ComPtr<GfxTexture2D> tex;
+		auto device = Application::GetI()->GetDevice();
+		if (SUCCEEDED(device->CreateTexture2D(&td, init.data(), tex.GetAddressOf())))
+			device->CreateShaderResourceView(tex.Get(), nullptr, slot.GetAddressOf());
+		EditorLog::Write("Material", "height map from normal map %s (%d²)", std::filesystem::path(normalPath).filename().string().c_str(), size);
+		return slot;
+	}
+}
+
+void UMaterial::EnsureDerivedHeight()
+{
+	if (m_HeightFromNormal && (!m_Tess.Enabled || !m_HeightMapPath.empty()))
+	{
+		HeightMapSRV.Reset();   // 높이 맵을 지정했거나 테셀레이션을 껐다
+		m_HeightFromNormal = false;
+		if (!m_HeightMapPath.empty())
+			HeightMapSRV = LoadTex(m_HeightMapPath);
+	}
+	if (!m_Tess.Enabled || HeightMapSRV || !m_HeightMapPath.empty() || m_NormalMapPath.empty())
+		return;
+	HeightMapSRV = DerivedHeightMap(PathManager::GetI()->GetMovePathW(m_NormalMapPath));
+	m_HeightFromNormal = HeightMapSRV != nullptr;
 }

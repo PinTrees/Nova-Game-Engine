@@ -880,7 +880,7 @@ namespace
 		const auto t0 = std::chrono::steady_clock::now();
 		const std::wstring dir = CacheDir(), key = CacheKey(m, 0, 0);
 		const std::wstring files[4] = { dir + key + L"_base.dds", dir + key + L"_normal.dds", dir + key + L"_mask.dds", dir + key + L"_height.dds" };
-		const bool wantHeight = m.Maps.count("height") > 0;
+		const bool wantHeight = true;   // 높이 맵이 없는 재질은 노멀맵에서 만든다 (ImageIO::HeightFromNormal)
 		{
 			DirectX::ScratchImage c[4];
 			bool ok = true;
@@ -910,7 +910,34 @@ namespace
 		}
 		const int n = color.N;
 		const bool hasRough = LoadPlane(mapPath("roughness"), n, rough), hasAo = LoadPlane(mapPath("ao"), n, ao);
-		const bool hasHeight = wantHeight && LoadPlane(mapPath("height"), n, height), hasMetal = LoadPlane(mapPath("metalness"), n, metal);
+		bool hasHeight = wantHeight && LoadPlane(mapPath("height"), n, height);
+		const bool hasMetal = LoadPlane(mapPath("metalness"), n, metal);
+		std::vector<float> derived;   // 높이 맵이 없으면 노멀맵을 적분 (512² → n² 로 늘린다)
+		int dn = 0;
+		if (!hasHeight)
+		{
+			std::vector<uint8_t> px((size_t)n * n * 4);
+			for (int y = 0; y < n; ++y)
+				for (int x = 0; x < n; ++x)
+				{
+					const XMFLOAT4 t = TexelOf(normal, x, y);
+					uint8_t* q = &px[((size_t)y * n + x) * 4];
+					q[0] = (uint8_t)(Saturate(t.x) * 255.0f + 0.5f); q[1] = (uint8_t)(Saturate(t.y) * 255.0f + 0.5f); q[2] = (uint8_t)(Saturate(t.z) * 255.0f + 0.5f); q[3] = 255;
+				}
+			if (ImageIO::HeightFromNormal(px.data(), n, n, (std::min)(n, 512), derived))
+			{
+				dn = (int)sqrtf((float)derived.size());
+				hasHeight = dn > 0;
+				EditorLog::Write("Building", "texture %s: no height map — made from the normal map (%d²)", m.Id.c_str(), dn);
+			}
+		}
+		auto derivedAt = [&](int x, int y) {
+			const float fx = (x + 0.5f) * dn / n - 0.5f, fy = (y + 0.5f) * dn / n - 0.5f;
+			const int x0 = (int)floorf(fx), y0 = (int)floorf(fy);
+			const float tx = fx - x0, ty = fy - y0;
+			auto s = [&](int xx, int yy) { return derived[(size_t)Wrap(yy, dn) * dn + Wrap(xx, dn)]; };
+			return Lerp(Lerp(s(x0, y0), s(x0 + 1, y0), tx), Lerp(s(x0, y0 + 1), s(x0 + 1, y0 + 1), tx), ty);
+		};
 		std::vector<XMFLOAT4> base((size_t)n * n), nrm((size_t)n * n), mask((size_t)n * n), hgt(hasHeight ? (size_t)n * n : 0);
 		std::vector<int> lines(n);
 		std::iota(lines.begin(), lines.end(), 0);
@@ -927,7 +954,7 @@ namespace
 				mask[i] = XMFLOAT4(met, occ, 0.0f, 1.0f - r);
 				if (hasHeight)
 				{
-					const float h = TexelOf(height, x, y).x;
+					const float h = dn > 0 ? derivedAt(x, y) : TexelOf(height, x, y).x;
 					hgt[i] = XMFLOAT4(h, h, h, 1.0f);
 				}
 			}
@@ -975,22 +1002,57 @@ namespace
 		return out.Base && out.Normal && out.Mask;
 	}
 
-	// 테셀레이션 변위 (가까운 곳 — 노멀맵만으로 모자란 깊은 돌 · 기와 · 이엉): 재질 id 마다 높이 (m). 0 = 끔 (회벽 · 나무 · 금속 · 대리석)
+	// 테셀레이션 변위 높이 (m) — 붉은사막처럼 강하게: 막돌 · 이엉 · 기와 · 포석은 손바닥 깊이, 회벽 · 나무도 결이 서게. 0 = 끔 (금속 · 유리)
 	float DisplacementOf(const std::string& id)
 	{
 		auto has = [&](const char* s) { return id.find(s) != std::string::npos; };
-		if (has("cyclopean")) return 0.07f;
-		if (has("rubble") || has("fieldstone")) return 0.055f;
-		if (has("polygonal") || has("sandstone")) return 0.04f;
-		if (has("thatch")) return 0.06f;
-		if (has("barrel") || has("clay-tiles")) return 0.05f;
-		if (has("roof/flat-tiles") || has("dark-tiles") || has("glazed-tiles")) return 0.03f;
-		if (has("fish-scale") || has("stone-scale")) return 0.03f;
-		if (has("roof/slate")) return 0.02f;
-		if (has("shingles") || has("shakes")) return 0.03f;
-		if (has("ashlar")) return 0.018f;
-		if (has("brick/")) return 0.014f;
-		return 0.0f;
+		if (has("cyclopean")) return 0.18f;
+		if (has("rubble-floor") || has("stone-floor") || has("cobble") || has("paving") || has("roman-road") || has("pebble")) return 0.08f;
+		if (has("rubble") || has("fieldstone") || has("boulder")) return 0.14f;
+		if (has("polygonal") || has("sandstone")) return 0.11f;
+		if (has("thatch")) return 0.16f;
+		if (has("barrel") || has("clay-tiles")) return 0.1f;
+		if (has("roof/flat-tiles") || has("dark-tiles") || has("glazed-tiles")) return 0.07f;
+		if (has("fish-scale") || has("stone-scale")) return 0.07f;
+		if (has("shingles") || has("shakes")) return 0.07f;
+		if (has("roof/slate")) return 0.05f;
+		if (has("ashlar")) return 0.06f;
+		if (has("brick/")) return 0.045f;
+		if (has("rock/") || has("cliff")) return 0.15f;
+		if (has("bark/")) return 0.04f;
+		if (has("peeling") || has("exposed-brick")) return 0.035f;
+		if (has("plaster/")) return 0.02f;
+		if (has("boards") || has("planks")) return 0.025f;
+		if (has("wood/")) return 0.02f;
+		if (has("ground/") || has("grass") || has("moss")) return 0.05f;
+		if (has("marble")) return 0.01f;
+		if (has("metal/")) return 0.0f;
+		return 0.03f;
+	}
+
+	// 식으로 굽는 재질의 변위 (무늬 깊이 Depth 의 두 배, 판 · 유리 · 천은 끔)
+	float ProceduralDisplacement(Kind k)
+	{
+		switch (k)
+		{
+		case Kind::Glass: case Kind::LeadedGlass: case Kind::Fabric: case Kind::Banner: case Kind::Metal: case Kind::Ornament: case Kind::Copper: case Kind::Lead:
+			return 0.0f;
+		default:
+			return (std::min)(0.16f, kSpecs[(int)k].Depth * 2.0f);
+		}
+	}
+
+	// 강한 테셀레이션: 변 하나 최대 32 조각, 화면 6 px 삼각형, 40 m 안
+	UMaterial::Tessellation StrongTessellation(float amplitude)
+	{
+		UMaterial::Tessellation t;
+		t.Enabled = amplitude > 0.0f;
+		t.Amplitude = amplitude;
+		t.Base = 0.5f;
+		t.MaxFactor = 32.0f;
+		t.TriangleSize = 6.0f;
+		t.FadeDistance = 40.0f;
+		return t;
 	}
 
 	// 남은 압축 취소 (기다리지 않는다 — 다음에 그 재질을 쓸 때 다시 굽는다)
@@ -1034,7 +1096,7 @@ namespace
 		const float texelU = sp.Tile / n, texelV = sp.Tile * vr / n;
 		const float nk = PbrOf(k).Normal;
 		const float su = sp.Depth * nk / (2.0f * texelU), sv = sp.Depth * nk / (2.0f * texelV);
-		std::vector<XMFLOAT4> base((size_t)n * n), nrm((size_t)n * n), mask((size_t)n * n);
+		std::vector<XMFLOAT4> base((size_t)n * n), nrm((size_t)n * n), mask((size_t)n * n), hgt((size_t)n * n);
 		for (int y = 0; y < n; ++y)
 			for (int x = 0; x < n; ++x)
 			{
@@ -1048,11 +1110,13 @@ namespace
 				base[(size_t)y * n + x] = XMFLOAT4(Saturate(smp.R), Saturate(smp.G), Saturate(smp.B), 1.0f);
 				const float ao = smp.Ao >= 0.0f ? smp.Ao : Lerp(0.38f, 1.0f, Smooth(0.03f, 0.6f, smp.H));
 				mask[(size_t)y * n + x] = XMFLOAT4(smp.Metal, ao, 0.0f, smp.Smooth);
+				hgt[(size_t)y * n + x] = XMFLOAT4(Saturate(smp.H), Saturate(smp.H), Saturate(smp.H), 1.0f);
 			}
 		Baked b;
 		b.Base = UploadLevels(BuildMips(std::move(base), n, false), n);
 		b.Normal = UploadLevels(BuildMips(std::move(nrm), n, true), n);
 		b.Mask = UploadLevels(BuildMips(std::move(mask), n, false), n);
+		b.Height = UploadLevels(BuildMips(std::move(hgt), n, false), n);
 		const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		EditorLog::Write("Building", "baked %s textures (%d x %d + mips%s, %.1f ms)", sp.Name, n, n, rows > 0 ? ", ground-floor grime" : "", ms);
 		return s_Baked[key] = b;
@@ -1240,12 +1304,8 @@ namespace BuildingTextures
 		p.Tiling = XMFLOAT2(t, t);
 		UMaterial::Tessellation tess;
 		const float disp = DisplacementOf(lib.Id);
+		tess = StrongTessellation(disp);
 		tess.Enabled = disp > 0.0f && bt->second.Height;
-		tess.Amplitude = disp;
-		tess.Base = 0.5f;
-		tess.MaxFactor = 16.0f;
-		tess.TriangleSize = 10.0f;
-		tess.FadeDistance = 22.0f;   // 가까운 곳만 (멀리서는 노멀맵)
 		m->SetRuntime("builtin:Building/" + lib.Id, p, bt->second.Base.Get(), bt->second.Normal.Get(), bt->second.Mask.Get(), bt->second.Mask.Get(),
 			bt->second.Height.Get(), &tess);
 		if (s_Materials.size() > 512)
@@ -1278,7 +1338,10 @@ namespace BuildingTextures
 		p.Tiling = XMFLOAT2(t, t / (float)(std::max)(1, useRows));
 		if (k == Kind::Banner)
 			p.Tiling = XMFLOAT2(1.0f, 1.0f);   // 깃발은 판 하나에 한 장 (UV 0..1)
-		m->SetRuntime(std::string("builtin:Building/") + KindName(k), p, b.Base.Get(), b.Normal.Get(), b.Mask.Get(), b.Mask.Get());
+		const float disp = ProceduralDisplacement(k);
+		UMaterial::Tessellation tess = StrongTessellation(disp);
+		tess.Enabled = disp > 0.0f && b.Height;
+		m->SetRuntime(std::string("builtin:Building/") + KindName(k), p, b.Base.Get(), b.Normal.Get(), b.Mask.Get(), b.Mask.Get(), b.Height.Get(), &tess);
 		// 슬라이더로 색을 바꾸면 조합이 많아진다 — 512 개가 넘으면 비운다 (쓰는 중인 재질은 렌더러가 잡고 있다)
 		if (s_Materials.size() > 512)
 			s_Materials.clear();

@@ -225,7 +225,7 @@ float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, floa
 	// Build orthonormal basis.
     float3 N = unitNormalW;
     float3 T = normalize(tangentW.xyz - dot(tangentW.xyz, N) * N);
-    float3 B = tangentW.w * cross(N, T);
+    float3 B = (tangentW.w < 0.0f ? -1.0f : 1.0f) * cross(N, T);   // w 는 부호만 (크기 = 테셀레이션 변위 가중치, 60. Tessellation.fx)
 
     float3x3 TBN = float3x3(T, B, N);
 

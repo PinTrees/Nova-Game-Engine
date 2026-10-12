@@ -198,6 +198,10 @@ TessCP TessEvaluate(TessCP a, TessCP b, TessCP c, float3 w)
     precise const float3 n = nSum * (1.0f / sqrt(max(TESS_DOT3(nSum, nSum), 1e-20f)));
     precise const float2 uv = a.Tex * w.x + b.Tex * w.y + c.Tex * w.z;
     o.TangentW = a.TangentW * w.x + b.TangentW * w.y + c.TangentW * w.z;
+    // 변위 가중치 = 2 - |탄젠트 w| (보통 메시 |w| = 1 → 1, 모서리 정점 |w| = 2 → 0): 면이 꺾이는 모서리에서 0 으로 — 두 면이 벌어지지 않는다
+    precise const float tw4 = a.TangentW.w * w.x + b.TangentW.w * w.y + c.TangentW.w * w.z;
+    precise const float dispW = saturate(2.0f - abs(tw4));
+    o.TangentW.w = tw4 < 0.0f ? -1.0f : 1.0f;
     o.Tex = uv;
     o.NormalW = n;
 
@@ -223,7 +227,7 @@ TessCP TessEvaluate(TessCP a, TessCP b, TessCP c, float3 w)
     precise const float spacing = max(max(gTessEye.w, 0.005f) * (1.0f + dist), edge / clamp(gTessParams.z, 1.0f, 64.0f));
     precise const float mip = clamp(log2(spacing / max(texel, 1e-6f)), 0.0f, 10.0f);
     precise const float h = TessHeight(uv, mip);
-    precise const float3 moved = p + n * ((h - gTessParams.y) * gTessParams.x);
+    precise const float3 moved = p + n * ((h - gTessParams.y) * gTessParams.x * dispW);
     o.PosW = moved;
 
     // 정점 법선 (깊이 프리패스의 SSAO 법선 · 그림자 바이어스): 높이의 기울기로 다시. 본 패스는 픽셀마다 (TessPixelNormal)

@@ -314,7 +314,8 @@
         "normal": "Textures/roof/flat-tiles-red/normal.webp",
         "roughness": "Textures/roof/flat-tiles-red/roughness.webp",
         "ao": "Textures/roof/flat-tiles-red/ao.webp",
-        "height": "Textures/roof/flat-tiles-red/height.webp"
+        "height": "Textures/roof/flat-tiles-red/height.webp",
+        "opacity": "Textures/roof/flat-tiles-red/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -343,7 +344,8 @@
         "normal": "Textures/roof/flat-tiles-red-weathered/normal.webp",
         "roughness": "Textures/roof/flat-tiles-red-weathered/roughness.webp",
         "ao": "Textures/roof/flat-tiles-red-weathered/ao.webp",
-        "height": "Textures/roof/flat-tiles-red-weathered/height.webp"
+        "height": "Textures/roof/flat-tiles-red-weathered/height.webp",
+        "opacity": "Textures/roof/flat-tiles-red-weathered/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -374,7 +376,8 @@
         "normal": "Textures/roof/flat-tiles-red-mossy/normal.webp",
         "roughness": "Textures/roof/flat-tiles-red-mossy/roughness.webp",
         "ao": "Textures/roof/flat-tiles-red-mossy/ao.webp",
-        "height": "Textures/roof/flat-tiles-red-mossy/height.webp"
+        "height": "Textures/roof/flat-tiles-red-mossy/height.webp",
+        "opacity": "Textures/roof/flat-tiles-red-mossy/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -403,7 +406,8 @@
         "normal": "Textures/roof/flat-tiles-orange/normal.webp",
         "roughness": "Textures/roof/flat-tiles-orange/roughness.webp",
         "ao": "Textures/roof/flat-tiles-orange/ao.webp",
-        "height": "Textures/roof/flat-tiles-orange/height.webp"
+        "height": "Textures/roof/flat-tiles-orange/height.webp",
+        "opacity": "Textures/roof/flat-tiles-orange/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -432,7 +436,8 @@
         "normal": "Textures/roof/flat-tiles-orange-weathered/normal.webp",
         "roughness": "Textures/roof/flat-tiles-orange-weathered/roughness.webp",
         "ao": "Textures/roof/flat-tiles-orange-weathered/ao.webp",
-        "height": "Textures/roof/flat-tiles-orange-weathered/height.webp"
+        "height": "Textures/roof/flat-tiles-orange-weathered/height.webp",
+        "opacity": "Textures/roof/flat-tiles-orange-weathered/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -463,7 +468,8 @@
         "normal": "Textures/roof/flat-tiles-orange-broken/normal.webp",
         "roughness": "Textures/roof/flat-tiles-orange-broken/roughness.webp",
         "ao": "Textures/roof/flat-tiles-orange-broken/ao.webp",
-        "height": "Textures/roof/flat-tiles-orange-broken/height.webp"
+        "height": "Textures/roof/flat-tiles-orange-broken/height.webp",
+        "opacity": "Textures/roof/flat-tiles-orange-broken/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -492,7 +498,8 @@
         "normal": "Textures/roof/flat-tiles-black/normal.webp",
         "roughness": "Textures/roof/flat-tiles-black/roughness.webp",
         "ao": "Textures/roof/flat-tiles-black/ao.webp",
-        "height": "Textures/roof/flat-tiles-black/height.webp"
+        "height": "Textures/roof/flat-tiles-black/height.webp",
+        "opacity": "Textures/roof/flat-tiles-black/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -521,7 +528,8 @@
         "normal": "Textures/roof/flat-tiles-black-weathered/normal.webp",
         "roughness": "Textures/roof/flat-tiles-black-weathered/roughness.webp",
         "ao": "Textures/roof/flat-tiles-black-weathered/ao.webp",
-        "height": "Textures/roof/flat-tiles-black-weathered/height.webp"
+        "height": "Textures/roof/flat-tiles-black-weathered/height.webp",
+        "opacity": "Textures/roof/flat-tiles-black-weathered/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -551,7 +559,8 @@
         "normal": "Textures/roof/flat-tiles-black-mossy/normal.webp",
         "roughness": "Textures/roof/flat-tiles-black-mossy/roughness.webp",
         "ao": "Textures/roof/flat-tiles-black-mossy/ao.webp",
-        "height": "Textures/roof/flat-tiles-black-mossy/height.webp"
+        "height": "Textures/roof/flat-tiles-black-mossy/height.webp",
+        "opacity": "Textures/roof/flat-tiles-black-mossy/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -582,7 +591,8 @@
         "normal": "Textures/roof/flat-tiles-black-overgrown/normal.webp",
         "roughness": "Textures/roof/flat-tiles-black-overgrown/roughness.webp",
         "ao": "Textures/roof/flat-tiles-black-overgrown/ao.webp",
-        "height": "Textures/roof/flat-tiles-black-overgrown/height.webp"
+        "height": "Textures/roof/flat-tiles-black-overgrown/height.webp",
+        "opacity": "Textures/roof/flat-tiles-black-overgrown/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -612,7 +622,8 @@
         "normal": "Textures/roof/clay-barrel-tiles/normal.webp",
         "roughness": "Textures/roof/clay-barrel-tiles/roughness.webp",
         "ao": "Textures/roof/clay-barrel-tiles/ao.webp",
-        "height": "Textures/roof/clay-barrel-tiles/height.webp"
+        "height": "Textures/roof/clay-barrel-tiles/height.webp",
+        "opacity": "Textures/roof/clay-barrel-tiles/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -641,7 +652,8 @@
         "normal": "Textures/roof/clay-barrel-tiles-weathered/normal.webp",
         "roughness": "Textures/roof/clay-barrel-tiles-weathered/roughness.webp",
         "ao": "Textures/roof/clay-barrel-tiles-weathered/ao.webp",
-        "height": "Textures/roof/clay-barrel-tiles-weathered/height.webp"
+        "height": "Textures/roof/clay-barrel-tiles-weathered/height.webp",
+        "opacity": "Textures/roof/clay-barrel-tiles-weathered/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -670,7 +682,8 @@
         "normal": "Textures/roof/clay-barrel-tiles-mossy/normal.webp",
         "roughness": "Textures/roof/clay-barrel-tiles-mossy/roughness.webp",
         "ao": "Textures/roof/clay-barrel-tiles-mossy/ao.webp",
-        "height": "Textures/roof/clay-barrel-tiles-mossy/height.webp"
+        "height": "Textures/roof/clay-barrel-tiles-mossy/height.webp",
+        "opacity": "Textures/roof/clay-barrel-tiles-mossy/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -701,7 +714,8 @@
         "normal": "Textures/roof/clay-barrel-tiles-broken/normal.webp",
         "roughness": "Textures/roof/clay-barrel-tiles-broken/roughness.webp",
         "ao": "Textures/roof/clay-barrel-tiles-broken/ao.webp",
-        "height": "Textures/roof/clay-barrel-tiles-broken/height.webp"
+        "height": "Textures/roof/clay-barrel-tiles-broken/height.webp",
+        "opacity": "Textures/roof/clay-barrel-tiles-broken/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -731,7 +745,8 @@
         "normal": "Textures/roof/flat-tiles-grey/normal.webp",
         "roughness": "Textures/roof/flat-tiles-grey/roughness.webp",
         "ao": "Textures/roof/flat-tiles-grey/ao.webp",
-        "height": "Textures/roof/flat-tiles-grey/height.webp"
+        "height": "Textures/roof/flat-tiles-grey/height.webp",
+        "opacity": "Textures/roof/flat-tiles-grey/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -760,7 +775,8 @@
         "normal": "Textures/roof/flat-tiles-grey-weathered/normal.webp",
         "roughness": "Textures/roof/flat-tiles-grey-weathered/roughness.webp",
         "ao": "Textures/roof/flat-tiles-grey-weathered/ao.webp",
-        "height": "Textures/roof/flat-tiles-grey-weathered/height.webp"
+        "height": "Textures/roof/flat-tiles-grey-weathered/height.webp",
+        "opacity": "Textures/roof/flat-tiles-grey-weathered/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -790,7 +806,8 @@
         "normal": "Textures/roof/flat-tiles-grey-mossy/normal.webp",
         "roughness": "Textures/roof/flat-tiles-grey-mossy/roughness.webp",
         "ao": "Textures/roof/flat-tiles-grey-mossy/ao.webp",
-        "height": "Textures/roof/flat-tiles-grey-mossy/height.webp"
+        "height": "Textures/roof/flat-tiles-grey-mossy/height.webp",
+        "opacity": "Textures/roof/flat-tiles-grey-mossy/opacity.webp"
       },
       "source": {
         "site": "ambientCG",
@@ -2445,6 +2462,1514 @@
         "site": "ambientCG",
         "asset": "Moss002",
         "url": "https://ambientcg.com/a/Moss002",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/forest-floor",
+      "name": "Damp Forest Floor",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "forest",
+        "earth",
+        "damp",
+        "moss",
+        "grass"
+      ],
+      "description": "Damp forest earth with moss and sparse grass — woodland terrain",
+      "tileMeters": 2.1,
+      "maps": {
+        "color": "Textures/ground/forest-floor/color.webp",
+        "normal": "Textures/ground/forest-floor/normal.webp",
+        "roughness": "Textures/ground/forest-floor/roughness.webp",
+        "ao": "Textures/ground/forest-floor/ao.webp",
+        "height": "Textures/ground/forest-floor/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground037",
+        "url": "https://ambientcg.com/a/Ground037",
+        "license": "CC0 1.0",
+        "sizeCm": 210
+      }
+    },
+    {
+      "id": "ground/forest-leaves",
+      "name": "Leaf Litter",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "forest",
+        "leaves",
+        "dirt",
+        "mud",
+        "brown"
+      ],
+      "description": "Brown dirt covered with fallen leaves — under trees",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/forest-leaves/color.webp",
+        "normal": "Textures/ground/forest-leaves/normal.webp",
+        "roughness": "Textures/ground/forest-leaves/roughness.webp",
+        "ao": "Textures/ground/forest-leaves/ao.webp",
+        "height": "Textures/ground/forest-leaves/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground041",
+        "url": "https://ambientcg.com/a/Ground041",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/autumn-forest",
+      "name": "Autumn Forest Floor",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "forest",
+        "autumn",
+        "leaves",
+        "roots",
+        "brown"
+      ],
+      "description": "Autumn leaves and roots on forest soil",
+      "tileMeters": 2.6,
+      "maps": {
+        "color": "Textures/ground/autumn-forest/color.webp",
+        "normal": "Textures/ground/autumn-forest/normal.webp",
+        "roughness": "Textures/ground/autumn-forest/roughness.webp",
+        "ao": "Textures/ground/autumn-forest/ao.webp",
+        "height": "Textures/ground/autumn-forest/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground070",
+        "url": "https://ambientcg.com/a/Ground070",
+        "license": "CC0 1.0",
+        "sizeCm": 260
+      }
+    },
+    {
+      "id": "ground/soil",
+      "name": "Brown Soil",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "dirt",
+        "soil",
+        "brown",
+        "field",
+        "farm"
+      ],
+      "description": "Plain brown soil — fields, gardens, dirt",
+      "tileMeters": 1.4,
+      "maps": {
+        "color": "Textures/ground/soil/color.webp",
+        "normal": "Textures/ground/soil/normal.webp",
+        "roughness": "Textures/ground/soil/roughness.webp",
+        "ao": "Textures/ground/soil/ao.webp",
+        "height": "Textures/ground/soil/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground048",
+        "url": "https://ambientcg.com/a/Ground048",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "ground/mud",
+      "name": "Dark Mud",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "mud",
+        "wet",
+        "dark",
+        "dirt",
+        "swamp",
+        "riverbank"
+      ],
+      "description": "Dark wet mud — riverbanks, swamps, puddles",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/mud/color.webp",
+        "normal": "Textures/ground/mud/normal.webp",
+        "roughness": "Textures/ground/mud/roughness.webp",
+        "ao": "Textures/ground/mud/ao.webp",
+        "height": "Textures/ground/mud/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground051",
+        "url": "https://ambientcg.com/a/Ground051",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "ground/dirt-path",
+      "name": "Dirt Path",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "path",
+        "road",
+        "dirt",
+        "pebbles",
+        "grass",
+        "trail"
+      ],
+      "description": "Trodden dirt path with pebbles and grass edges — roads, trails",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/dirt-path/color.webp",
+        "normal": "Textures/ground/dirt-path/normal.webp",
+        "roughness": "Textures/ground/dirt-path/roughness.webp",
+        "ao": "Textures/ground/dirt-path/ao.webp",
+        "height": "Textures/ground/dirt-path/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground030",
+        "url": "https://ambientcg.com/a/Ground030",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/rocky-dirt",
+      "name": "Rocky Dirt",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "dirt",
+        "rocks",
+        "stony",
+        "mountain",
+        "scree"
+      ],
+      "description": "Brown dirt full of sharp stones — mountain slopes, scree",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/rocky-dirt/color.webp",
+        "normal": "Textures/ground/rocky-dirt/normal.webp",
+        "roughness": "Textures/ground/rocky-dirt/roughness.webp",
+        "ao": "Textures/ground/rocky-dirt/ao.webp",
+        "height": "Textures/ground/rocky-dirt/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground063",
+        "url": "https://ambientcg.com/a/Ground063",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/mossy-forest",
+      "name": "Mossy Forest Ground",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "forest",
+        "moss",
+        "mud",
+        "sticks",
+        "green"
+      ],
+      "description": "Moss, mud and twigs — dense forest floor",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/mossy-forest/color.webp",
+        "normal": "Textures/ground/mossy-forest/normal.webp",
+        "roughness": "Textures/ground/mossy-forest/roughness.webp",
+        "ao": "Textures/ground/mossy-forest/ao.webp",
+        "height": "Textures/ground/mossy-forest/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground024",
+        "url": "https://ambientcg.com/a/Ground024",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/grass-dirt",
+      "name": "Patchy Grass",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "grass",
+        "dirt",
+        "patchy",
+        "meadow",
+        "green"
+      ],
+      "description": "Short grass with bare dirt patches — meadows, village greens",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/grass-dirt/color.webp",
+        "normal": "Textures/ground/grass-dirt/normal.webp",
+        "roughness": "Textures/ground/grass-dirt/roughness.webp",
+        "height": "Textures/ground/grass-dirt/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground003",
+        "url": "https://ambientcg.com/a/Ground003",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/meadow-grass",
+      "name": "Meadow Grass",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "grass",
+        "meadow",
+        "green",
+        "field"
+      ],
+      "description": "Green meadow grass seen from above",
+      "tileMeters": 1.4,
+      "maps": {
+        "color": "Textures/ground/meadow-grass/color.webp",
+        "normal": "Textures/ground/meadow-grass/normal.webp",
+        "roughness": "Textures/ground/meadow-grass/roughness.webp",
+        "ao": "Textures/ground/meadow-grass/ao.webp",
+        "height": "Textures/ground/meadow-grass/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Grass002",
+        "url": "https://ambientcg.com/a/Grass002",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "ground/short-lawn",
+      "name": "Short Lawn",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "grass",
+        "lawn",
+        "short",
+        "green",
+        "garden"
+      ],
+      "description": "Short clean lawn grass — gardens, courtyards",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/short-lawn/color.webp",
+        "normal": "Textures/ground/short-lawn/normal.webp",
+        "roughness": "Textures/ground/short-lawn/roughness.webp",
+        "ao": "Textures/ground/short-lawn/ao.webp",
+        "height": "Textures/ground/short-lawn/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Grass005",
+        "url": "https://ambientcg.com/a/Grass005",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/dry-cracked",
+      "name": "Dry Cracked Earth",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "desert",
+        "dry",
+        "cracked",
+        "soil",
+        "sand",
+        "arid"
+      ],
+      "description": "Sun-baked cracked earth — deserts, dry plains",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/dry-cracked/color.webp",
+        "normal": "Textures/ground/dry-cracked/normal.webp",
+        "roughness": "Textures/ground/dry-cracked/roughness.webp",
+        "ao": "Textures/ground/dry-cracked/ao.webp",
+        "height": "Textures/ground/dry-cracked/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground031",
+        "url": "https://ambientcg.com/a/Ground031",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/sand",
+      "name": "Beach Sand",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "sand",
+        "beach",
+        "smooth",
+        "desert",
+        "shore"
+      ],
+      "description": "Smooth fine sand — beaches, dunes, shores",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/sand/color.webp",
+        "normal": "Textures/ground/sand/normal.webp",
+        "roughness": "Textures/ground/sand/roughness.webp",
+        "height": "Textures/ground/sand/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground057",
+        "url": "https://ambientcg.com/a/Ground057",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/wet-sand",
+      "name": "Wet Sand",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "sand",
+        "wet",
+        "beach",
+        "shore",
+        "riverbed"
+      ],
+      "description": "Wet packed sand at the water line",
+      "tileMeters": 1.8,
+      "maps": {
+        "color": "Textures/ground/wet-sand/color.webp",
+        "normal": "Textures/ground/wet-sand/normal.webp",
+        "roughness": "Textures/ground/wet-sand/roughness.webp",
+        "ao": "Textures/ground/wet-sand/ao.webp",
+        "height": "Textures/ground/wet-sand/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground059",
+        "url": "https://ambientcg.com/a/Ground059",
+        "license": "CC0 1.0",
+        "sizeCm": 180
+      }
+    },
+    {
+      "id": "ground/river-pebbles",
+      "name": "River Pebbles",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "gravel",
+        "pebbles",
+        "river",
+        "riverbed",
+        "stones",
+        "shore"
+      ],
+      "description": "Rounded river pebbles — riverbeds, shores, canal edges",
+      "tileMeters": 1.4,
+      "maps": {
+        "color": "Textures/ground/river-pebbles/color.webp",
+        "normal": "Textures/ground/river-pebbles/normal.webp",
+        "roughness": "Textures/ground/river-pebbles/roughness.webp",
+        "ao": "Textures/ground/river-pebbles/ao.webp",
+        "height": "Textures/ground/river-pebbles/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Gravel019",
+        "url": "https://ambientcg.com/a/Gravel019",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "ground/gravel",
+      "name": "Grey Gravel",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "gravel",
+        "grey",
+        "pebbles",
+        "path",
+        "road"
+      ],
+      "description": "Grey gravel with dirt — paths, yards, roads",
+      "tileMeters": 1.5,
+      "maps": {
+        "color": "Textures/ground/gravel/color.webp",
+        "normal": "Textures/ground/gravel/normal.webp",
+        "roughness": "Textures/ground/gravel/roughness.webp",
+        "ao": "Textures/ground/gravel/ao.webp",
+        "height": "Textures/ground/gravel/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Gravel022",
+        "url": "https://ambientcg.com/a/Gravel022",
+        "license": "CC0 1.0",
+        "sizeCm": 150
+      }
+    },
+    {
+      "id": "ground/forest-gravel",
+      "name": "Forest Gravel",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "gravel",
+        "forest",
+        "sand",
+        "sticks",
+        "brown",
+        "trail"
+      ],
+      "description": "Brown gravel with sand and twigs — forest trails",
+      "tileMeters": 2.4,
+      "maps": {
+        "color": "Textures/ground/forest-gravel/color.webp",
+        "normal": "Textures/ground/forest-gravel/normal.webp",
+        "roughness": "Textures/ground/forest-gravel/roughness.webp",
+        "ao": "Textures/ground/forest-gravel/ao.webp",
+        "height": "Textures/ground/forest-gravel/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Gravel039",
+        "url": "https://ambientcg.com/a/Gravel039",
+        "license": "CC0 1.0",
+        "sizeCm": 240
+      }
+    },
+    {
+      "id": "ground/snow",
+      "name": "Fresh Snow",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "snow",
+        "white",
+        "fresh",
+        "winter",
+        "mountain"
+      ],
+      "description": "Fresh fluffy snow — peaks, winter",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/snow/color.webp",
+        "normal": "Textures/ground/snow/normal.webp",
+        "roughness": "Textures/ground/snow/roughness.webp",
+        "height": "Textures/ground/snow/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Snow005",
+        "url": "https://ambientcg.com/a/Snow005",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/snow-trampled",
+      "name": "Trampled Snow",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "snow",
+        "trampled",
+        "footsteps",
+        "winter",
+        "path"
+      ],
+      "description": "Snow trodden by many feet — winter roads, villages",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/snow-trampled/color.webp",
+        "normal": "Textures/ground/snow-trampled/normal.webp",
+        "roughness": "Textures/ground/snow-trampled/roughness.webp",
+        "ao": "Textures/ground/snow-trampled/ao.webp",
+        "height": "Textures/ground/snow-trampled/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Snow009C",
+        "url": "https://ambientcg.com/a/Snow009C",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/dirty-snow",
+      "name": "Dirty Snow",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "snow",
+        "dirty",
+        "melting",
+        "mud",
+        "winter"
+      ],
+      "description": "Melting snow mixed with dirt",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/dirty-snow/color.webp",
+        "normal": "Textures/ground/dirty-snow/normal.webp",
+        "roughness": "Textures/ground/dirty-snow/roughness.webp",
+        "ao": "Textures/ground/dirty-snow/ao.webp",
+        "height": "Textures/ground/dirty-snow/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Snow011",
+        "url": "https://ambientcg.com/a/Snow011",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/cobblestone",
+      "name": "Cobblestone",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "cobblestone",
+        "cobble",
+        "street",
+        "paving",
+        "medieval",
+        "town",
+        "road"
+      ],
+      "description": "Grey medieval cobblestones — town streets, bridges, squares",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/ground/cobblestone/color.webp",
+        "normal": "Textures/ground/cobblestone/normal.webp",
+        "roughness": "Textures/ground/cobblestone/roughness.webp",
+        "ao": "Textures/ground/cobblestone/ao.webp",
+        "height": "Textures/ground/cobblestone/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PavingStones046",
+        "url": "https://ambientcg.com/a/PavingStones046",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/cobblestone-old",
+      "name": "Old Paving Stones",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "paving",
+        "stones",
+        "old",
+        "medieval",
+        "street",
+        "square"
+      ],
+      "description": "Worn old grey paving stones — old town squares",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/cobblestone-old/color.webp",
+        "normal": "Textures/ground/cobblestone-old/normal.webp",
+        "roughness": "Textures/ground/cobblestone-old/roughness.webp",
+        "ao": "Textures/ground/cobblestone-old/ao.webp",
+        "height": "Textures/ground/cobblestone-old/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PavingStones042",
+        "url": "https://ambientcg.com/a/PavingStones042",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/roman-road",
+      "name": "Roman Road Stones",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "paving",
+        "road",
+        "roman",
+        "medieval",
+        "old",
+        "flagstones"
+      ],
+      "description": "Large worn road stones — Roman and medieval highways",
+      "tileMeters": 1.9,
+      "maps": {
+        "color": "Textures/ground/roman-road/color.webp",
+        "normal": "Textures/ground/roman-road/normal.webp",
+        "roughness": "Textures/ground/roman-road/roughness.webp",
+        "ao": "Textures/ground/roman-road/ao.webp",
+        "height": "Textures/ground/roman-road/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PavingStones054",
+        "url": "https://ambientcg.com/a/PavingStones054",
+        "license": "CC0 1.0",
+        "sizeCm": 190
+      }
+    },
+    {
+      "id": "ground/cobblestone-arches",
+      "name": "Fan Cobblestones",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "cobblestone",
+        "cobble",
+        "arches",
+        "fan",
+        "street",
+        "medieval"
+      ],
+      "description": "Small cobbles laid in fan arches — European old towns",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/ground/cobblestone-arches/color.webp",
+        "normal": "Textures/ground/cobblestone-arches/normal.webp",
+        "roughness": "Textures/ground/cobblestone-arches/roughness.webp",
+        "ao": "Textures/ground/cobblestone-arches/ao.webp",
+        "height": "Textures/ground/cobblestone-arches/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PavingStones048",
+        "url": "https://ambientcg.com/a/PavingStones048",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/pebble-road",
+      "name": "Pebble Road",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "paving",
+        "pebbles",
+        "road",
+        "medieval",
+        "rough",
+        "rocks"
+      ],
+      "description": "Rough road of set pebbles and rocks",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/ground/pebble-road/color.webp",
+        "normal": "Textures/ground/pebble-road/normal.webp",
+        "roughness": "Textures/ground/pebble-road/roughness.webp",
+        "ao": "Textures/ground/pebble-road/ao.webp",
+        "height": "Textures/ground/pebble-road/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PavingStones055",
+        "url": "https://ambientcg.com/a/PavingStones055",
+        "license": "CC0 1.0",
+        "sizeCm": 300
+      }
+    },
+    {
+      "id": "ground/stone-floor",
+      "name": "Rough Stone Floor",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "floor",
+        "stone",
+        "medieval",
+        "flagstones",
+        "courtyard",
+        "quay"
+      ],
+      "description": "Uneven medieval stone floor — courtyards, quays, castle floors",
+      "tileMeters": 1.9,
+      "maps": {
+        "color": "Textures/ground/stone-floor/color.webp",
+        "normal": "Textures/ground/stone-floor/normal.webp",
+        "roughness": "Textures/ground/stone-floor/roughness.webp",
+        "ao": "Textures/ground/stone-floor/ao.webp",
+        "height": "Textures/ground/stone-floor/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rocks025",
+        "url": "https://ambientcg.com/a/Rocks025",
+        "license": "CC0 1.0",
+        "sizeCm": 190
+      }
+    },
+    {
+      "id": "ground/rubble-floor",
+      "name": "Rubble Floor",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "floor",
+        "stone",
+        "medieval",
+        "rocks",
+        "rubble"
+      ],
+      "description": "Set rubble stones — old yards and lanes",
+      "tileMeters": 1.1,
+      "maps": {
+        "color": "Textures/ground/rubble-floor/color.webp",
+        "normal": "Textures/ground/rubble-floor/normal.webp",
+        "roughness": "Textures/ground/rubble-floor/roughness.webp",
+        "ao": "Textures/ground/rubble-floor/ao.webp",
+        "height": "Textures/ground/rubble-floor/height.webp",
+        "metalness": "Textures/ground/rubble-floor/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Ground065",
+        "url": "https://ambientcg.com/a/Ground065",
+        "license": "CC0 1.0",
+        "sizeCm": 110
+      }
+    },
+    {
+      "id": "rock/cliff-grey",
+      "name": "Grey Cliff",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "grey",
+        "stone",
+        "mountain"
+      ],
+      "description": "Grey cliff rock with cracks — mountains, steep slopes, boulders",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/cliff-grey/color.webp",
+        "normal": "Textures/rock/cliff-grey/normal.webp",
+        "roughness": "Textures/rock/cliff-grey/roughness.webp",
+        "ao": "Textures/rock/cliff-grey/ao.webp",
+        "height": "Textures/rock/cliff-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock030",
+        "url": "https://ambientcg.com/a/Rock030",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/cliff-mossy",
+      "name": "Mossy Cliff",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "moss",
+        "mossy",
+        "green",
+        "forest",
+        "wet"
+      ],
+      "description": "Cliff rock with moss in the cracks — forests, wet climates",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/cliff-mossy/color.webp",
+        "normal": "Textures/rock/cliff-mossy/normal.webp",
+        "roughness": "Textures/rock/cliff-mossy/roughness.webp",
+        "ao": "Textures/rock/cliff-mossy/ao.webp",
+        "height": "Textures/rock/cliff-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock036",
+        "url": "https://ambientcg.com/a/Rock036",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/cliff-dark",
+      "name": "Dark Mossy Cliff",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "dark",
+        "grey",
+        "moss",
+        "nordic",
+        "wet"
+      ],
+      "description": "Dark grey rock with moss — northern coasts, gorges",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/cliff-dark/color.webp",
+        "normal": "Textures/rock/cliff-dark/normal.webp",
+        "roughness": "Textures/rock/cliff-dark/roughness.webp",
+        "ao": "Textures/rock/cliff-dark/ao.webp",
+        "height": "Textures/rock/cliff-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock012",
+        "url": "https://ambientcg.com/a/Rock012",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/granite-rough",
+      "name": "Rough Granite",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "granite",
+        "grey",
+        "rough",
+        "boulder"
+      ],
+      "description": "Rough grey granite — boulders, highlands",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/rock/granite-rough/color.webp",
+        "normal": "Textures/rock/granite-rough/normal.webp",
+        "roughness": "Textures/rock/granite-rough/roughness.webp",
+        "ao": "Textures/rock/granite-rough/ao.webp",
+        "height": "Textures/rock/granite-rough/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock028",
+        "url": "https://ambientcg.com/a/Rock028",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/cliff-light",
+      "name": "Light Limestone Cliff",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "light",
+        "white",
+        "limestone",
+        "chalk"
+      ],
+      "description": "Pale limestone cliff face",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/cliff-light/color.webp",
+        "normal": "Textures/rock/cliff-light/normal.webp",
+        "roughness": "Textures/rock/cliff-light/roughness.webp",
+        "ao": "Textures/rock/cliff-light/ao.webp",
+        "height": "Textures/rock/cliff-light/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock017",
+        "url": "https://ambientcg.com/a/Rock017",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/sandstone-cliff",
+      "name": "Sandstone Cliff",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "sandstone",
+        "beige",
+        "mountain",
+        "desert",
+        "layered"
+      ],
+      "description": "Beige layered sandstone — canyons, dry mountains",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/sandstone-cliff/color.webp",
+        "normal": "Textures/rock/sandstone-cliff/normal.webp",
+        "roughness": "Textures/rock/sandstone-cliff/roughness.webp",
+        "ao": "Textures/rock/sandstone-cliff/ao.webp",
+        "height": "Textures/rock/sandstone-cliff/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock052",
+        "url": "https://ambientcg.com/a/Rock052",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/red-desert",
+      "name": "Red Desert Rock",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "red",
+        "orange",
+        "desert",
+        "canyon",
+        "mesa"
+      ],
+      "description": "Red-orange desert cliff — canyons, mesas",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/red-desert/color.webp",
+        "normal": "Textures/rock/red-desert/normal.webp",
+        "roughness": "Textures/rock/red-desert/roughness.webp",
+        "ao": "Textures/rock/red-desert/ao.webp",
+        "height": "Textures/rock/red-desert/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock029",
+        "url": "https://ambientcg.com/a/Rock029",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/mountain-layered",
+      "name": "Layered Mountain Rock",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "mountain",
+        "layered",
+        "strata",
+        "grey"
+      ],
+      "description": "Layered mountain rock with strata — alpine cliffs",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/mountain-layered/color.webp",
+        "normal": "Textures/rock/mountain-layered/normal.webp",
+        "roughness": "Textures/rock/mountain-layered/roughness.webp",
+        "height": "Textures/rock/mountain-layered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock006",
+        "url": "https://ambientcg.com/a/Rock006",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/boulder-wall",
+      "name": "Boulder Face",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "boulders",
+        "stones",
+        "wall",
+        "rubble"
+      ],
+      "description": "Packed boulders — rock falls, rough walls",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/rock/boulder-wall/color.webp",
+        "normal": "Textures/rock/boulder-wall/normal.webp",
+        "roughness": "Textures/rock/boulder-wall/roughness.webp",
+        "ao": "Textures/rock/boulder-wall/ao.webp",
+        "height": "Textures/rock/boulder-wall/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rocks001",
+        "url": "https://ambientcg.com/a/Rocks001",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "rock/mossy-stone",
+      "name": "Mossy Stone",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "moss",
+        "grey",
+        "stone",
+        "small",
+        "boulder"
+      ],
+      "description": "Grey stone with moss patches — small rocks, boulders",
+      "tileMeters": 0.9,
+      "maps": {
+        "color": "Textures/rock/mossy-stone/color.webp",
+        "normal": "Textures/rock/mossy-stone/normal.webp",
+        "roughness": "Textures/rock/mossy-stone/roughness.webp",
+        "ao": "Textures/rock/mossy-stone/ao.webp",
+        "height": "Textures/rock/mossy-stone/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock046S",
+        "url": "https://ambientcg.com/a/Rock046S",
+        "license": "CC0 1.0",
+        "sizeCm": 90
+      }
+    },
+    {
+      "id": "rock/dark-rough",
+      "name": "Dark Rough Rock",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "boulder",
+        "dark",
+        "rough",
+        "volcanic",
+        "basalt"
+      ],
+      "description": "Dark rough rock — volcanic, basalt, caves",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/rock/dark-rough/color.webp",
+        "normal": "Textures/rock/dark-rough/normal.webp",
+        "roughness": "Textures/rock/dark-rough/roughness.webp",
+        "ao": "Textures/rock/dark-rough/ao.webp",
+        "height": "Textures/rock/dark-rough/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock047",
+        "url": "https://ambientcg.com/a/Rock047",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/oak",
+      "name": "Oak Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "oak",
+        "brown",
+        "deciduous",
+        "rough"
+      ],
+      "description": "Deep-furrowed brown oak bark — oaks, elms, broadleaf trees",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/oak/color.webp",
+        "normal": "Textures/bark/oak/normal.webp",
+        "roughness": "Textures/bark/oak/roughness.webp",
+        "ao": "Textures/bark/oak/ao.webp",
+        "height": "Textures/bark/oak/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark012",
+        "url": "https://ambientcg.com/a/Bark012",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/fir",
+      "name": "Fir Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "fir",
+        "pine",
+        "spruce",
+        "conifer",
+        "brown"
+      ],
+      "description": "Scaly brown conifer bark — firs, spruces, pines",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/bark/fir/color.webp",
+        "normal": "Textures/bark/fir/normal.webp",
+        "roughness": "Textures/bark/fir/roughness.webp",
+        "ao": "Textures/bark/fir/ao.webp",
+        "height": "Textures/bark/fir/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark014",
+        "url": "https://ambientcg.com/a/Bark014",
+        "license": "CC0 1.0",
+        "sizeCm": 120
+      }
+    },
+    {
+      "id": "bark/smooth-light",
+      "name": "Smooth Light Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "smooth",
+        "light",
+        "beech",
+        "birch",
+        "young"
+      ],
+      "description": "Smooth pale bark — beech, young trees, birch-like",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/smooth-light/color.webp",
+        "normal": "Textures/bark/smooth-light/normal.webp",
+        "roughness": "Textures/bark/smooth-light/roughness.webp",
+        "ao": "Textures/bark/smooth-light/ao.webp",
+        "height": "Textures/bark/smooth-light/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark005",
+        "url": "https://ambientcg.com/a/Bark005",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/mossy",
+      "name": "Mossy Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "moss",
+        "mossy",
+        "green",
+        "old",
+        "forest"
+      ],
+      "description": "Bark with green moss — old wet-forest trees",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/mossy/color.webp",
+        "normal": "Textures/bark/mossy/normal.webp",
+        "roughness": "Textures/bark/mossy/roughness.webp",
+        "ao": "Textures/bark/mossy/ao.webp",
+        "height": "Textures/bark/mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark013",
+        "url": "https://ambientcg.com/a/Bark013",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/dark",
+      "name": "Dark Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "dark",
+        "brown",
+        "rough",
+        "old"
+      ],
+      "description": "Dark brown rough bark — old trees, walnut, alder",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/dark/color.webp",
+        "normal": "Textures/bark/dark/normal.webp",
+        "roughness": "Textures/bark/dark/roughness.webp",
+        "ao": "Textures/bark/dark/ao.webp",
+        "height": "Textures/bark/dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark006",
+        "url": "https://ambientcg.com/a/Bark006",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/rough-brown",
+      "name": "Rough Brown Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "rough",
+        "brown",
+        "light",
+        "poplar",
+        "willow"
+      ],
+      "description": "Rough light-brown bark — poplars, willows",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/rough-brown/color.webp",
+        "normal": "Textures/bark/rough-brown/normal.webp",
+        "roughness": "Textures/bark/rough-brown/roughness.webp",
+        "ao": "Textures/bark/rough-brown/ao.webp",
+        "height": "Textures/bark/rough-brown/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark007",
+        "url": "https://ambientcg.com/a/Bark007",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/smooth-dark",
+      "name": "Smooth Dark Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "smooth",
+        "dark",
+        "cherry",
+        "young"
+      ],
+      "description": "Smooth dark bark — cherry, young hardwoods",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/smooth-dark/color.webp",
+        "normal": "Textures/bark/smooth-dark/normal.webp",
+        "roughness": "Textures/bark/smooth-dark/roughness.webp",
+        "ao": "Textures/bark/smooth-dark/ao.webp",
+        "height": "Textures/bark/smooth-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark002",
+        "url": "https://ambientcg.com/a/Bark002",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "bark/lichen-grey",
+      "name": "Lichen Grey Bark",
+      "category": "bark",
+      "tags": [
+        "bark",
+        "tree",
+        "trunk",
+        "wood",
+        "grey",
+        "green",
+        "lichen",
+        "moss",
+        "old"
+      ],
+      "description": "Grey-green bark with lichen — old, northern trees",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/bark/lichen-grey/color.webp",
+        "normal": "Textures/bark/lichen-grey/normal.webp",
+        "roughness": "Textures/bark/lichen-grey/roughness.webp",
+        "ao": "Textures/bark/lichen-grey/ao.webp",
+        "height": "Textures/bark/lichen-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bark011",
+        "url": "https://ambientcg.com/a/Bark011",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "nature/leaf-broad",
+      "name": "Broad Leaf",
+      "category": "nature",
+      "tags": [
+        "nature",
+        "leaf",
+        "leaves",
+        "green",
+        "single",
+        "foliage",
+        "tree"
+      ],
+      "description": "Single green broad leaf with opacity — leaf cards",
+      "tileMeters": 0.2,
+      "maps": {
+        "color": "Textures/nature/leaf-broad/color.webp",
+        "normal": "Textures/nature/leaf-broad/normal.webp",
+        "roughness": "Textures/nature/leaf-broad/roughness.webp",
+        "ao": "Textures/nature/leaf-broad/ao.webp",
+        "height": "Textures/nature/leaf-broad/height.webp",
+        "opacity": "Textures/nature/leaf-broad/opacity.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Leaf001",
+        "url": "https://ambientcg.com/a/Leaf001",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "nature/leaf-oval",
+      "name": "Oval Leaf",
+      "category": "nature",
+      "tags": [
+        "nature",
+        "leaf",
+        "leaves",
+        "green",
+        "single",
+        "foliage",
+        "tree"
+      ],
+      "description": "Single green oval leaf with opacity — leaf cards",
+      "tileMeters": 0.2,
+      "maps": {
+        "color": "Textures/nature/leaf-oval/color.webp",
+        "normal": "Textures/nature/leaf-oval/normal.webp",
+        "roughness": "Textures/nature/leaf-oval/roughness.webp",
+        "height": "Textures/nature/leaf-oval/height.webp",
+        "opacity": "Textures/nature/leaf-oval/opacity.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Leaf002",
+        "url": "https://ambientcg.com/a/Leaf002",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "nature/leaf-small",
+      "name": "Small Leaf",
+      "category": "nature",
+      "tags": [
+        "nature",
+        "leaf",
+        "leaves",
+        "green",
+        "single",
+        "foliage",
+        "tree"
+      ],
+      "description": "Single small green leaf with opacity — leaf cards",
+      "tileMeters": 0.2,
+      "maps": {
+        "color": "Textures/nature/leaf-small/color.webp",
+        "normal": "Textures/nature/leaf-small/normal.webp",
+        "roughness": "Textures/nature/leaf-small/roughness.webp",
+        "ao": "Textures/nature/leaf-small/ao.webp",
+        "height": "Textures/nature/leaf-small/height.webp",
+        "opacity": "Textures/nature/leaf-small/opacity.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Leaf003",
+        "url": "https://ambientcg.com/a/Leaf003",
         "license": "CC0 1.0",
         "sizeCm": 0
       }
