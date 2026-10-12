@@ -2,6 +2,7 @@
 #include "TerrainData.h"
 #include "MemoryStats.h"
 #include "Terrain.h"
+#include "TextureLibrary.h"
 
 namespace
 {
@@ -107,22 +108,62 @@ void TerrainLayer::SetNormal(const std::string& path)
 	m_Normal = nullptr;
 }
 
+bool TerrainLayer::ResolveMaterial()
+{
+	if (Material.empty())
+		return false;
+	const TextureLibrary::Material* m = TextureLibrary::Find(Material);
+	if (!m)
+		return false;
+	if (!m_PackActive)
+	{
+		m_FileDiffuse = DiffusePath; m_FileNormal = NormalPath; m_FileHeight = HeightPath;
+		m_FileTile = TileSize; m_FileAmp = HeightAmplitude;
+	}
+	auto map = [&](const char* k) { auto it = m->Maps.find(k); return it == m->Maps.end() ? std::string() : wstring_to_string(it->second); };
+	SetDiffuse(map("color"));
+	if (!map("normal").empty())
+		SetNormal(map("normal"));
+	if (!map("height").empty())
+		SetHeight(map("height"));
+	if (PackTileSize.x > 0.0f)
+		TileSize = PackTileSize;
+	if (PackHeightAmplitude > 0.0f)
+		HeightAmplitude = PackHeightAmplitude;
+	m_PackActive = true;
+	return true;
+}
+
 bool TerrainLayer::Save() const
 {
 	json j;
-	j["diffuse"] = DiffusePath;
-	j["tileSize"] = { TileSize.x, TileSize.y };
+	const bool pack = m_PackActive;
+	// 팩 재질을 쓰는 중: 맵 경로 (팩 폴더) 는 저장하지 않고 재질 id + 파일 (팩이 없을 때) 값
+	j["diffuse"] = pack ? m_FileDiffuse : DiffusePath;
+	const Vec2 tile = pack && PackTileSize.x > 0.0f ? m_FileTile : TileSize;
+	j["tileSize"] = { tile.x, tile.y };
 	j["tileOffset"] = { TileOffset.x, TileOffset.y };
 	j["tint"] = { Tint.x, Tint.y, Tint.z, Tint.w };
-	if (!NormalPath.empty())
+	if (!Material.empty())
 	{
-		j["normalMap"] = NormalPath;
+		j["material"] = Material;
+		if (PackTileSize.x > 0.0f)
+			j["packTileSize"] = pack ? json{ TileSize.x, TileSize.y } : json{ PackTileSize.x, PackTileSize.y };
+		if (PackHeightAmplitude > 0.0f)
+			j["packHeightAmplitude"] = pack ? HeightAmplitude : PackHeightAmplitude;
+	}
+	const std::string normalPath = pack ? m_FileNormal : NormalPath, heightPath = pack ? m_FileHeight : HeightPath;
+	if (!normalPath.empty() || pack)
+	{
+		if (!normalPath.empty())
+			j["normalMap"] = normalPath;
 		j["normalScale"] = NormalScale;
 	}
-	if (!HeightPath.empty())
+	if (!heightPath.empty() || pack)
 	{
-		j["height"] = HeightPath;
-		j["heightAmplitude"] = HeightAmplitude;
+		if (!heightPath.empty())
+			j["height"] = heightPath;
+		j["heightAmplitude"] = pack && PackHeightAmplitude > 0.0f ? m_FileAmp : HeightAmplitude;
 		j["heightBase"] = HeightBase;
 	}
 	std::ofstream os(FilePath(Path), std::ios::binary | std::ios::trunc);
@@ -157,6 +198,10 @@ std::shared_ptr<TerrainLayer> TerrainLayer::Load(const std::string& rawPath)
 	layer->HeightBase = std::clamp(j.value("heightBase", layer->HeightBase), 0.0f, 1.0f);
 	layer->NormalPath = NormalizePath(j.value("normalMap", std::string()));
 	layer->NormalScale = j.value("normalScale", layer->NormalScale);
+	layer->Material = j.value("material", std::string());
+	if (j.contains("packTileSize")) layer->PackTileSize = Vec2(j["packTileSize"][0], j["packTileSize"][1]);
+	layer->PackHeightAmplitude = j.value("packHeightAmplitude", 0.0f);
+	layer->ResolveMaterial();
 	LayerCache()[path] = layer;
 	return layer;
 }

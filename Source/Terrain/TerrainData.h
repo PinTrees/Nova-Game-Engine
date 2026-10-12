@@ -22,6 +22,13 @@ public:
 	// Normal Map (Unity TerrainLayer 의 normalMapTexture · normalScale) — 높이와 같은 배열에 (샘플러를 늘리지 않는다)
 	std::string NormalPath;
 	float NormalScale = 1.0f;
+	// 텍스처 팩 재질 (id, 예 "ground/forest-floor"): 프로젝트에 텍스처 팩 (com.nova.textures) 이 있으면 색 · 노멀 · 높이를 그 사진 PBR 재질에서,
+	//  없으면 파일의 diffuse · normalMap · height 그대로. packTileSize · packHeightAmplitude = 팩 재질일 때만 쓰는 타일 · 높이 (0 = 파일 값)
+	std::string Material;
+	Vec2 PackTileSize = Vec2(0.0f, 0.0f);
+	float PackHeightAmplitude = 0.0f;
+	bool ResolveMaterial();          // Material 을 팩에서 찾아 맵을 바꾼다 (Load 가 부른다). 찾았으면 true
+	bool PackActive() const { return m_PackActive; }
 
 	std::string Name() const;
 	GfxShaderResourceView* DiffuseSRV();
@@ -46,6 +53,11 @@ private:
 	bool m_HeightLoaded = false;
 	ComPtr<GfxShaderResourceView> m_Normal;
 	bool m_NormalLoaded = false;
+	// 팩 재질을 쓰는 중이면 파일의 값 (저장은 이것으로)
+	bool m_PackActive = false;
+	std::string m_FileDiffuse, m_FileNormal, m_FileHeight;
+	Vec2 m_FileTile = Vec2(15.0f, 15.0f);
+	float m_FileAmp = 0.15f;
 };
 
 // 지형에 칠한 나무 한 그루 (Unity 의 TreeInstance). 위치는 지형 기준 0~1, 높이는 그릴 때 지형에서 읽는다

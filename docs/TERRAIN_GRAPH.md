@@ -264,6 +264,10 @@ World Terrain 대신 보통 **Terrain** 을 쓰고 싶으면 (손으로 칠하�
 
 지형 셰이더의 환경 반사를 지형만 0.3 배로 낮췄습니다. 풀잎 · 자갈이 비스듬한 하늘 반사를 가리기 때문이고, 이전에는 먼 비탈이 하얗게 번들거렸습니다. 매끄러움은 0.05 입니다. 젖은 땅 · 웅덩이에서는 반사가 돌아옵니다.
 
+## 사진 레이어 (텍스처 팩)
+
+`terraingraph textures <g>` (창의 Generate Layer Textures) 는 프로젝트에 텍스처 팩 (com.nova.textures) 이 있으면 레이어마다 **사진 PBR 재질** 을 고른다: 규칙 이름 낱말로 땅 · 바위 분류를 찾고 (예 "Forest Floor" → `ground/forest-floor`, "Cliff" → `rock/…`), 없으면 종류의 기본 (풀 `ground/wild-grass` · 흙 `ground/forest-floor` · 바위 `rock/cliff-grey` · 눈 `ground/snow` · 모래 `ground/sand`). 레이어 파일에는 재질 id 만 (`"material"`), 타일 3 ~ 6 m, 높이 변위 6 ~ 35 cm (바위는 30 cm 넘게 — 붉은사막처럼). `--source procedural` = 예전처럼 식으로 굽는 PNG.
+
 ## CLI
 
 ```

@@ -13,5 +13,14 @@
         1.0,
         1.0,
         1.0
-    ]
+    ],
+    "material": "ground/sand",
+    "packTileSize": [
+        3.5,
+        3.5
+    ],
+    "packHeightAmplitude": 0.06,
+    "normalScale": 1.0,
+    "heightAmplitude": 0.15,
+    "heightBase": 0.5
 }

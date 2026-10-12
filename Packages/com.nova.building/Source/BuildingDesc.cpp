@@ -333,7 +333,7 @@ void BuildingDesc::ApplyStyle(int style)
 		GroundWall = WallMat::Rubble; UpperWall = WallMat::Rubble; Chimneys = 0; WindowStyle = GroundWindowStyle = Window::None;
 		Weathering = 0.6f; Irregularity = 0.0f; Rustic = 0.9f;
 		Rgb(WallColor, 0.6f, 0.59f, 0.56f); Rgb(TrimColor, 0.64f, 0.63f, 0.6f);
-		Materials = { { "wallLower", "stone/rubble-wall-grey" }, { "trim", "stone/ashlar-weathered" }, { "wallUpper", "ground/cobblestone" } };
+		Materials = { { "wallLower", "stone/rubble-wall-grey" }, { "trim", "stone/dressed-granite" }, { "wallUpper", "ground/cobblestone" } };
 		break;
 	}
 	// 고전 양식 (로마 · 바로크 · 지중해) 은 반듯하게 다듬은 돌

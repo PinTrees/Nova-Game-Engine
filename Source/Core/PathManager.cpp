@@ -113,6 +113,8 @@ string PathManager::GetContentPathS()
 
 wstring PathManager::GetMovePathW(wstring movePath)
 {
+	if (movePath.size() > 2 && movePath[1] == L':' && (movePath[2] == L'\\' || movePath[2] == L'/'))
+		return movePath;   // 절대 경로 (텍스처 팩 · 패키지 폴더의 파일) 는 그대로
 	wstring path = IsEngineRelative(movePath) ? _szEnginePath : _szContentPath;
 	path += movePath;
 
@@ -125,6 +127,8 @@ wstring PathManager::GetMovePathW(wstring movePath)
 
 string PathManager::GetMovePathS(string movePath)
 {
+	if (movePath.size() > 2 && movePath[1] == ':' && (movePath[2] == '\\' || movePath[2] == '/'))
+		return movePath;
 	wstring wide = string_to_wstring(movePath);
 	wstring path = IsEngineRelative(wide) ? _szEnginePath : _szContentPath;
 	path += wide;

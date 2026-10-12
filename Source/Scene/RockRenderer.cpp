@@ -9,6 +9,7 @@
 #include "ResourceManager.h"
 #include "UMaterial.h"
 #include "Profiler.h"
+#include "TextureLibrary.h"
 #include <unordered_map>
 
 namespace
@@ -83,6 +84,7 @@ namespace
 		FxTechnique* Tech = nullptr;
 		FxVar *Base = nullptr, *Strata = nullptr, *Moss = nullptr, *Params = nullptr, *Params2 = nullptr;
 		FxVar* Detail = nullptr;
+		FxVar *PhotoColor = nullptr, *PhotoNormal = nullptr, *PhotoRough = nullptr, *PhotoAo = nullptr, *Photo = nullptr;
 		void Bind(FxEffect* fx, const char* tech)
 		{
 			Fx = fx;
@@ -93,6 +95,11 @@ namespace
 			Params = fx->GetVariableByName("gRockParams")->AsVector();
 			Params2 = fx->GetVariableByName("gRockParams2")->AsVector();
 			Detail = fx->GetVariableByName("gRockDetail")->AsShaderResource();
+			PhotoColor = fx->GetVariableByName("gRockPhotoColor")->AsShaderResource();
+			PhotoNormal = fx->GetVariableByName("gRockPhotoNormal")->AsShaderResource();
+			PhotoRough = fx->GetVariableByName("gRockPhotoRough")->AsShaderResource();
+			PhotoAo = fx->GetVariableByName("gRockPhotoAo")->AsShaderResource();
+			Photo = fx->GetVariableByName("gRockPhoto")->AsVector();
 		}
 		bool Valid() const { return Tech && Tech->IsValid(); }
 	};
@@ -137,6 +144,36 @@ namespace
 				EditorLog::Write("Rock", "RockDetail.png missing");
 		}
 		return s_Tex.Get();
+	}
+
+	// 텍스처 팩 사진 재질 (id 마다 한 번 — WebP 를 엔진 텍스처로)
+	struct PhotoMaps { ComPtr<GfxShaderResourceView> Color, Normal, Rough, Ao; float Tile = 2.0f; bool Ok = false; };
+	const PhotoMaps* Photo(const std::string& id)
+	{
+		static std::map<std::string, PhotoMaps> s_Photo;
+		if (id.empty())
+			return nullptr;
+		auto it = s_Photo.find(id);
+		if (it == s_Photo.end())
+		{
+			PhotoMaps p;
+			if (const TextureLibrary::Material* m = TextureLibrary::Find(id))
+			{
+				auto load = [&](const char* k) {
+					auto mi = m->Maps.find(k);
+					return mi == m->Maps.end() ? ComPtr<GfxShaderResourceView>() : ResourceManager::GetI()->LoadTexture(mi->second);
+				};
+				p.Color = load("color");
+				p.Normal = load("normal");
+				p.Rough = load("roughness");
+				p.Ao = load("ao");
+				p.Tile = m->TileMeters;
+				p.Ok = p.Color && p.Normal;
+				EditorLog::Write("Rock", "photo material %s: %s", id.c_str(), p.Ok ? "loaded" : "missing maps");
+			}
+			it = s_Photo.emplace(id, p).first;
+		}
+		return it->second.Ok ? &it->second : nullptr;
 	}
 
 	// ================================================================ 입력 배치 / 인스턴스
@@ -370,6 +407,19 @@ namespace RockRenderer
 			SetVec(v.Moss, d.MossColor);
 			SetVec(v.Params, XMFLOAT4(d.StrataContrast, d.Moss, d.DetailStrength, d.DetailScale));
 			SetVec(v.Params2, XMFLOAT4(d.Smoothness, d.ColorVariation, (float)(std::max)(d.Params.Strata, 3), d.Params.SizeY));
+			if (v.Photo && v.Photo->IsValid())
+			{
+				const PhotoMaps* ph = pass == Pass::Main ? Photo(d.Material) : nullptr;
+				const float tile = ph ? (d.PhotoScale > 0.01f ? d.PhotoScale : ph->Tile) : 1.0f;
+				SetVec(v.Photo, XMFLOAT4(ph ? 1.0f : 0.0f, 1.0f / (std::max)(0.05f, tile), d.DetailStrength, (ph && ph->Rough) ? 1.0f : 0.0f));
+				if (ph)
+				{
+					v.PhotoColor->SetResource(ph->Color.Get());
+					v.PhotoNormal->SetResource(ph->Normal.Get());
+					v.PhotoRough->SetResource(ph->Rough ? ph->Rough.Get() : ph->Color.Get());
+					v.PhotoAo->SetResource(ph->Ao ? ph->Ao.Get() : ph->Color.Get());
+				}
+			}
 			for (int lod = 0; lod < 3; ++lod)
 			{
 				if (b.Lists[lod].empty())

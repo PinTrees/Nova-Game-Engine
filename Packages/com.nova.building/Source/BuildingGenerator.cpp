@@ -2811,7 +2811,20 @@ namespace
 		m.Quad(body, Vec3(x0, bed, z0), Vec3(x1, bed, z0), Vec3(x1, cy, z0), Vec3(x0, cy, z0), Vec3(0, 0, -1));
 		m.Quad(body, Vec3(x0, bed, z0), Vec3(x0, bed, z1), Vec3(x0, cy, z1), Vec3(x0, cy, z0), Vec3(-1, 0, 0));
 		m.Quad(body, Vec3(x1, bed, z0), Vec3(x1, bed, z1), Vec3(x1, cy, z1), Vec3(x1, cy, z0), Vec3(1, 0, 0));
-		m.Quad(Trim, Vec3(x0 + 0.4f, -0.015f, z0 + 0.4f), Vec3(x1 - 0.4f, -0.015f, z0 + 0.4f), Vec3(x1 - 0.4f, -0.015f, z1), Vec3(x0 + 0.4f, -0.015f, z1), kUp);
+		// 윗면: 고르지 않은 판석 (줄마다 길이 · 높이가 조금씩 — 손 다듬은 돌), 틈 아래는 줄눈 바닥
+		m.Quad(body, Vec3(x0 + 0.4f, -0.11f, z0 + 0.4f), Vec3(x1 - 0.4f, -0.11f, z0 + 0.4f), Vec3(x1 - 0.4f, -0.11f, z1), Vec3(x0 + 0.4f, -0.11f, z1), kUp);
+		for (float z = z0 + 0.42f; z < z1 - 0.05f;)
+		{
+			const float dz = (std::min)(z1 - z, 0.5f + 0.3f * Mesher::Hash01(Vec3(0.0f, 3.0f, z), 11u));
+			for (float x = x0 + 0.42f; x < x1 - 0.45f;)
+			{
+				const float dx = (std::min)(x1 - 0.42f - x, 0.55f + 0.5f * Mesher::Hash01(Vec3(x, 4.0f, z), 13u));
+				const float top = -0.004f - 0.014f * Mesher::Hash01(Vec3(x, 5.0f, z), 17u);
+				m.Box(Trim, Vec3(x + 0.01f, -0.12f, z + 0.01f), Vec3(x + dx - 0.01f, top, z + dz - 0.01f));
+				x += dx;
+			}
+			z += dz;
+		}
 		// 물 계단 자리 (문에서 먼 끝)
 		const bool left = c.DoorX > (w.X0 + w.X1) * 0.5f;
 		const float sw = 1.3f, sx0 = left ? x0 + 0.42f : x1 - 0.42f - sw, sx1 = sx0 + sw;

@@ -3286,6 +3286,72 @@
       }
     },
     {
+      "id": "stone/dressed-limestone",
+      "name": "Dressed Limestone",
+      "category": "stone",
+      "tags": [
+        "stone",
+        "dressed",
+        "cut",
+        "limestone",
+        "beige",
+        "block",
+        "trim",
+        "step",
+        "voussoir",
+        "coping"
+      ],
+      "description": "Weathered beige limestone face without joints — single cut stones: door and window surrounds, steps, copings, voussoirs, quoins",
+      "tileMeters": 0.9,
+      "maps": {
+        "color": "Textures/stone/dressed-limestone/color.webp",
+        "normal": "Textures/stone/dressed-limestone/normal.webp",
+        "roughness": "Textures/stone/dressed-limestone/roughness.webp",
+        "ao": "Textures/stone/dressed-limestone/ao.webp",
+        "height": "Textures/stone/dressed-limestone/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock042S",
+        "url": "https://ambientcg.com/a/Rock042S",
+        "license": "CC0 1.0",
+        "sizeCm": 120
+      }
+    },
+    {
+      "id": "stone/dressed-granite",
+      "name": "Dressed Grey Granite",
+      "category": "stone",
+      "tags": [
+        "stone",
+        "dressed",
+        "cut",
+        "granite",
+        "grey",
+        "lichen",
+        "block",
+        "trim",
+        "step",
+        "quay"
+      ],
+      "description": "Grey lichen-spotted granite face without joints — single cut stones in cold grey towns: quays, steps, copings, surrounds",
+      "tileMeters": 0.9,
+      "maps": {
+        "color": "Textures/stone/dressed-granite/color.webp",
+        "normal": "Textures/stone/dressed-granite/normal.webp",
+        "roughness": "Textures/stone/dressed-granite/roughness.webp",
+        "ao": "Textures/stone/dressed-granite/ao.webp",
+        "height": "Textures/stone/dressed-granite/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Rock043S",
+        "url": "https://ambientcg.com/a/Rock043S",
+        "license": "CC0 1.0",
+        "sizeCm": 90
+      }
+    },
+    {
       "id": "rock/cliff-grey",
       "name": "Grey Cliff",
       "category": "rock",

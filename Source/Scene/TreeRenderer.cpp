@@ -18,6 +18,9 @@
 #include "SceneCulling.h"
 #include "OcclusionCulling.h"
 #include "ShadowRenderer.h"
+#include "TextureLibrary.h"
+#include "ImageIO.h"
+#include "ResourceManager.h"
 #include <chrono>
 #include <map>
 #include <unordered_map>
@@ -153,6 +156,7 @@ namespace
 		FxVar* BarkPatternColor = nullptr;
 		FxVar* LodRange = nullptr;
 		FxVar* LodEye = nullptr;
+		FxVar *Photo = nullptr, *PhotoTint = nullptr, *PhotoColor = nullptr, *PhotoNormal = nullptr;
 
 		void Bind(FxEffect* fx, const char* bark, const char* leaf, const char* impostor)
 		{
@@ -182,6 +186,10 @@ namespace
 			BarkPatternColor = fx->GetVariableByName("gTreeBarkPatternColor")->AsVector();
 			LodRange = fx->GetVariableByName("gTreeLodRange")->AsVector();
 			LodEye = fx->GetVariableByName("gTreeLodEye")->AsVector();
+			Photo = fx->GetVariableByName("gTreePhoto")->AsVector();
+			PhotoTint = fx->GetVariableByName("gTreePhotoTint")->AsVector();
+			PhotoColor = fx->GetVariableByName("gTreePhotoColor")->AsShaderResource();
+			PhotoNormal = fx->GetVariableByName("gTreePhotoNormal")->AsShaderResource();
 		}
 		bool Valid() const { return Bark && Bark->IsValid() && Leaf && Leaf->IsValid() && Impostor && Impostor->IsValid(); }
 	};
@@ -300,8 +308,97 @@ namespace
 	// 프레임 해상도: 화면에서 크게 보이는 큰 나무만 256 (아틀라스 한 장 5.6 MB), 작은 나무 · 덤불은 128 · 64 — 종이 100 여 개라 VRAM
 	int FrameResOf(const TreeDesc& d) { return d.Params.Height >= 8.0f ? 256 : (d.Params.Height >= 3.0f ? 128 : 64); }
 
+	// ---- 수피 사진 (텍스처 팩 bark/…): id 마다 색 · 노멀 텍스처 + 평균 색 (종 색으로 물들일 때 나눈다)
+	struct BarkPhoto { ComPtr<GfxShaderResourceView> Color, Normal; XMFLOAT3 Mean = { 0.2f, 0.15f, 0.1f }; float Tile = 1.0f; bool Ok = false; };
+	float SrgbToLinear(float c) { return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f); }
+	const BarkPhoto* BarkPhotoOf(const std::string& id)
+	{
+		static std::map<std::string, BarkPhoto> s_Photos;
+		auto it = s_Photos.find(id);
+		if (it == s_Photos.end())
+		{
+			BarkPhoto p;
+			if (const TextureLibrary::Material* m = TextureLibrary::Find(id))
+			{
+				auto path = [&](const char* k) { auto mi = m->Maps.find(k); return mi == m->Maps.end() ? std::wstring() : mi->second; };
+				if (!path("color").empty() && !path("normal").empty())
+				{
+					p.Color = ResourceManager::GetI()->LoadTexture(path("color"));
+					p.Normal = ResourceManager::GetI()->LoadTexture(path("normal"));
+					p.Tile = m->TileMeters;
+					// 평균 색 (선형): 64 칸마다 하나
+					DirectX::ScratchImage img;
+					if (SUCCEEDED(ImageIO::Load(path("color").c_str(), DirectX::WIC_FLAGS_NONE, nullptr, img)) && img.GetImage(0, 0, 0)->format == DXGI_FORMAT_R8G8B8A8_UNORM)
+					{
+						const DirectX::Image* im = img.GetImage(0, 0, 0);
+						double s[3] = { 0, 0, 0 };
+						size_t n = 0;
+						for (size_t y = 0; y < im->height; y += 8)
+							for (size_t x = 0; x < im->width; x += 8, ++n)
+								for (int c = 0; c < 3; ++c)
+									s[c] += SrgbToLinear(im->pixels[y * im->rowPitch + x * 4 + c] / 255.0f);
+						if (n)
+							p.Mean = XMFLOAT3((float)(s[0] / n), (float)(s[1] / n), (float)(s[2] / n));
+					}
+					p.Ok = p.Color && p.Normal;
+				}
+			}
+			it = s_Photos.emplace(id, p).first;
+		}
+		return it->second.Ok ? &it->second : nullptr;
+	}
+
+	// 종 → 수피 사진 id ("" = 쓰지 않음)
+	std::string BarkPhotoId(const TreeDesc& d)
+	{
+		if (d.BarkMaterial == "procedural" || d.Pattern != TreeDesc::BarkPattern::Cracks || d.Params.Shape != TreeParams::Form::Tree)
+			return "";
+		if (!d.BarkMaterial.empty())
+			return d.BarkMaterial;
+		const float lum = d.BarkColor.x * 0.3f + d.BarkColor.y * 0.59f + d.BarkColor.z * 0.11f;
+		const float sat = (std::max)({ d.BarkColor.x, d.BarkColor.y, d.BarkColor.z }) - (std::min)({ d.BarkColor.x, d.BarkColor.y, d.BarkColor.z });
+		if (d.BarkFleck < -0.05f)
+			return "bark/smooth-light";   // 자작 (어두운 가로 줄)
+		if (d.Params.Leaf == TreeParams::LeafShape::Needle || d.Params.Leaf == TreeParams::LeafShape::Scale)
+			return "bark/fir";
+		if (d.Moss > 0.55f)
+			return "bark/mossy";
+		if (d.RidgeDepth < 0.3f)
+			return lum > 0.45f ? "bark/smooth-light" : "bark/smooth-dark";
+		if (sat < 0.06f && lum > 0.3f)
+			return "bark/lichen-grey";
+		if (d.RidgeDepth > 1.0f)
+			return "bark/oak";
+		if (lum < 0.22f)
+			return "bark/dark";
+		if (lum > 0.4f)
+			return "bark/rough-brown";
+		return "bark/oak";
+	}
+
+	void SetPhotoBark(TreeVars& v, const TreeDesc& d)
+	{
+		if (!v.Photo || !v.Photo->IsValid())
+			return;
+		const std::string id = BarkPhotoId(d);
+		const BarkPhoto* p = id.empty() ? nullptr : BarkPhotoOf(id);
+		if (!p)
+		{
+			SetVec(v.Photo, XMFLOAT4(0, 0, 0, 0));
+			return;
+		}
+		// 종 색 ÷ 사진 평균 (선형) — 자작은 희게, 소나무는 붉게: 사진 무늬는 그대로, 색만 종에 맞춘다
+		const XMFLOAT3 want(SrgbToLinear(d.BarkColor.x), SrgbToLinear(d.BarkColor.y), SrgbToLinear(d.BarkColor.z));
+		auto ratio = [](float a, float b) { return std::clamp(a / (std::max)(b, 0.005f), 0.35f, 3.0f); };
+		SetVec(v.Photo, XMFLOAT4(1.0f, 1.0f / (std::max)(0.2f, p->Tile), std::clamp(0.6f + d.RidgeDepth * 0.5f, 0.6f, 1.4f), 0.7f));
+		SetVec(v.PhotoTint, XMFLOAT4(ratio(want.x, p->Mean.x), ratio(want.y, p->Mean.y), ratio(want.z, p->Mean.z), 1.0f));
+		SetSrv(v.PhotoColor, p->Color.Get());
+		SetSrv(v.PhotoNormal, p->Normal.Get());
+	}
+
 	void SetLook(TreeVars& v, const TreeDesc& d, const Impostor* imp, float windScale)
 	{
+		SetPhotoBark(v, d);
 		const float yaw = XMConvertToRadians(d.WindDirection);
 		const float strength = std::clamp(d.WindStrength, 0.0f, 2.0f) * windScale;
 		const float h = (std::max)(d.Params.Height, 0.1f);

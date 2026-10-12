@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "TerrainGraphWindow.h"
 #include "TerrainTextureGen.h"
+#include "TextureLibrary.h"
 #include "TerrainData.h"
 #include "Terrain.h"
 #include "WorldTerrain.h"
@@ -913,7 +914,35 @@ void TerrainGraphWindow::DrawBuildTab()
 }
 
 // ================================================================ 기능 (창 · CLI 공용)
-bool TerrainGraphWindow::GenerateLayerTextures(const std::string& graphPath, int size, std::string& message)
+namespace
+{
+	// 지형 레이어 → 텍스처 팩 재질: 규칙 이름 낱말 (땅 · 바위 분류) 로 먼저, 없으면 종류의 기본. 타일 (m) · 변위 높이 (m — 붉은사막처럼 강하게)
+	struct PhotoPick { const TextureLibrary::Material* M = nullptr; float Tile = 3.0f, Amp = 0.08f; };
+	PhotoPick PickTerrainMaterial(TerrainTextureGen::Kind kind, const std::string& name)
+	{
+		using K = TerrainTextureGen::Kind;
+		static const char* kDefault[] = { "ground/wild-grass", "ground/forest-floor", "rock/cliff-grey", "ground/snow", "ground/sand" };
+		static const float kTile[] = { 3.0f, 3.0f, 6.0f, 4.0f, 3.5f };
+		static const float kAmp[] = { 0.06f, 0.12f, 0.35f, 0.1f, 0.06f };
+		PhotoPick p;
+		const int ki = std::clamp((int)kind, 0, 4);
+		p.Tile = kTile[ki];
+		p.Amp = kAmp[ki];
+		if (!name.empty())
+		{
+			const auto hits = TextureLibrary::Search(name, kind == K::Rock ? "rock" : "ground");
+			if (!hits.empty())
+				p.M = hits[0];
+		}
+		if (!p.M)
+			p.M = TextureLibrary::Find(kDefault[ki]);
+		if (p.M && p.M->Category == "rock")
+			p.Amp = (std::max)(p.Amp, 0.3f);
+		return p;
+	}
+}
+
+bool TerrainGraphWindow::GenerateLayerTextures(const std::string& graphPath, int size, std::string& message, bool photo)
 {
 	std::shared_ptr<TG::Graph> g = TG::Load(graphPath);
 	if (!g)
@@ -929,8 +958,39 @@ bool TerrainGraphWindow::GenerateLayerTextures(const std::string& graphPath, int
 		TG::LayerRule& r = g->Layers[i];
 		const TerrainTextureGen::Kind kind = TerrainTextureGen::KindFromName(r.Name.empty() ? std::to_string(i) : r.Name);
 		const char* kname = TerrainTextureGen::KindName(kind);
-		TerrainTextureGen::Result t = TerrainTextureGen::Generate(kind, size, g->World.Seed * 13 + i);
 		const std::string base = folder + "\\" + kname;
+		// 텍스처 팩 사진 재질 (원본 그대로 — 색 · 노멀 · 높이), 레이어 파일은 재질 id 만
+		if (photo)
+		{
+			const PhotoPick pick = PickTerrainMaterial(kind, r.Name);
+			if (pick.M)
+			{
+				std::error_code ec;
+				std::filesystem::create_directories(PathManager::GetI()->GetMovePathW(string_to_wstring(folder)), ec);
+				const std::string layerPath = base + ".terrainlayer";
+				std::shared_ptr<TerrainLayer> layer = TerrainLayer::Load(layerPath);
+				if (!layer)
+					layer = TerrainLayer::Create(layerPath, "");
+				if (!layer)
+				{
+					message = "could not create " + layerPath;
+					return false;
+				}
+				layer->Material = pick.M->Id;
+				layer->PackTileSize = Vec2(0.0f, 0.0f);
+				layer->PackHeightAmplitude = 0.0f;
+				layer->ResolveMaterial();
+				layer->TileSize = Vec2(pick.Tile, pick.Tile);
+				layer->HeightAmplitude = pick.Amp;
+				layer->HeightBase = 0.5f;
+				layer->NormalScale = 1.0f;
+				layer->Save();
+				r.Layer = layerPath;
+				++made;
+				continue;
+			}
+		}
+		TerrainTextureGen::Result t = TerrainTextureGen::Generate(kind, size, g->World.Seed * 13 + i);
 		const std::string albedo = base + "_Albedo.png", normal = base + "_Normal.png", height = base + "_Height.png";
 		auto abs = [](const std::string& p) { return PathManager::GetI()->GetMovePathW(string_to_wstring(p)); };
 		if (!SaveRgbaPng(t.Albedo, t.Size, t.Size, abs(albedo), true) || !SaveRgbaPng(t.Normal, t.Size, t.Size, abs(normal), false) ||
@@ -960,7 +1020,7 @@ bool TerrainGraphWindow::GenerateLayerTextures(const std::string& graphPath, int
 	}
 	g->Touch();
 	TG::Save(graphPath, *g);
-	message = "Generated " + std::to_string(made) + " layers (" + std::to_string(size) + "²) in " + folder;
+	message = "Generated " + std::to_string(made) + " layers (" + (photo && !TextureLibrary::All().empty() ? std::string("texture pack photo materials") : std::to_string(size) + "²") + ") in " + folder;
 	EditorLog::Write("TerrainGraph", "%s", message.c_str());
 	return true;
 }

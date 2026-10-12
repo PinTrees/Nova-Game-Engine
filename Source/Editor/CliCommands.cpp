@@ -1756,7 +1756,7 @@ namespace CliCommands
 			else if (op == "textures")
 			{
 				std::string msg;
-				if (!TerrainGraphWindow::GenerateLayerTextures(path, a.value("size", 1024), msg)) { e = msg; return false; }
+				if (!TerrainGraphWindow::GenerateLayerTextures(path, a.value("size", 1024), msg, a.value("source", std::string("photo")) != "procedural")) { e = msg; return false; }
 				r = { { "message", msg } };
 				return true;
 			}

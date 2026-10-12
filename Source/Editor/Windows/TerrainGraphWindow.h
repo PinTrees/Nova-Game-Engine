@@ -23,7 +23,8 @@ public:
 	void OnRender() override;
 
 	// 계산으로 만든 레이어 텍스처 (알베도 · 노멀 · 높이 PNG + .terrainlayer) 를 그래프 옆 폴더에 만들고 규칙 4 칸에 넣는다 (CLI 도)
-	static bool GenerateLayerTextures(const std::string& graphPath, int size, std::string& message);
+	// photo = 프로젝트에 텍스처 팩이 있으면 사진 PBR 재질 (규칙 이름으로 찾는다 — "Forest Floor" · "Cliff" …), 없으면 식으로 굽는 PNG
+	static bool GenerateLayerTextures(const std::string& graphPath, int size, std::string& message, bool photo = true);
 	// 장면에 World Terrain (이 그래프) — 없으면 Open World 로 만든다 (PCG · 그림자 · 숲 화면 포함). 만든 / 고친 GameObject 이름
 	static std::string AttachToWorld(const std::string& graphPath);
 	// 타일 Terrain 오브젝트 만들기 (x0, z0 = 타일 번호, count x count) + 적용

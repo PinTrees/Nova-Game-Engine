@@ -1018,6 +1018,7 @@ namespace
 		if (has("roof/slate")) return 0.05f;
 		if (has("ashlar")) return 0.06f;
 		if (has("brick/")) return 0.045f;
+		if (has("dressed")) return 0.04f;   // 다듬은 돌 (장식 돌 칸) — 낱개 돌 면은 얕게
 		if (has("rock/") || has("cliff")) return 0.15f;
 		if (has("bark/")) return 0.04f;
 		if (has("peeling") || has("exposed-brick")) return 0.035f;
@@ -1231,8 +1232,13 @@ namespace BuildingTextures
 		auto it = d.Materials.find(SlotKey(slot));
 		if (it != d.Materials.end() && !it->second.empty())
 			return it->second;
-		if (slot == Trim)
-			return SlotKind(d, slot) == Kind::Marble ? "stone/marble-white" : "stone/ashlar-grey";
+		if (slot == Trim)   // 낱개 돌 (문틀 · 계단 · 갓돌 · 쐐기돌 · 모서리 돌): 줄눈 무늬 없는 다듬은 돌 (벽 무늬가 돌마다 다시 그려지지 않게)
+		{
+			if (SlotKind(d, slot) == Kind::Marble)
+				return "stone/marble-white";
+			// 따뜻한 돌 색 (양식 색) = 석회암, 차가운 회색 = 화강암
+			return d.TrimColor[0] - d.TrimColor[2] > 0.05f ? "stone/dressed-limestone" : "stone/dressed-granite";
+		}
 		if (slot == Frame)
 			return "wood/weathered-beam";
 		return DefaultMaterialId(SlotKind(d, slot));
@@ -1243,8 +1249,8 @@ namespace BuildingTextures
 		using namespace BuildingGenerator;
 		switch (slot)
 		{
-		case WallLower: case WallUpper: return { "stone", "brick", "plaster", "wood" };
-		case Trim: return { "stone", "brick" };
+		case WallLower: case WallUpper: return { "stone", "brick", "plaster", "wood", "rock" };
+		case Trim: return { "rock", "stone", "brick" };
 		case Timber: case Frame: case Shutter: case Door: return { "wood" };
 		case Roof: return { "roof", "metal", "ground" };
 		case Metal: return { "metal" };

@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "RockDesc.h"
 #include "UnityGUI.h"
+#include "TextureLibrary.h"
 
 namespace
 {
@@ -85,6 +86,10 @@ void RockDesc::ApplyPreset(int preset)
 		break;
 	}
 	Params = p;
+	// 사진 재질 (텍스처 팩): 석회암 절벽 · 다듬은 석회암 · 이끼 낀 화강암 · 사암 · 현무암 (어두운 층) · 강돌
+	static const char* kPhoto[PresetCount] = { "rock/cliff-light", "stone/dressed-limestone", "stone/dressed-granite", "rock/sandstone-cliff", "rock/mountain-layered", "rock/cliff-grey" };
+	Material = kPhoto[PresetIndex];
+	PhotoScale = 0.0f;
 	Invalidate();
 }
 
@@ -108,6 +113,8 @@ nlohmann::json RockDesc::ToJson() const
 	j["colorVariation"] = ColorVariation;
 	j["lodBias"] = LodBias;
 	j["castShadows"] = CastShadows;
+	j["material"] = Material;
+	j["photoScale"] = PhotoScale;
 	return j;
 }
 
@@ -153,6 +160,8 @@ void RockDesc::FromJson(const nlohmann::json& j)
 	ColorVariation = j.value("colorVariation", ColorVariation);
 	LodBias = j.value("lodBias", LodBias);
 	CastShadows = j.value("castShadows", CastShadows);
+	Material = j.value("material", Material);
+	PhotoScale = j.value("photoScale", PhotoScale);
 	Invalidate();
 }
 
@@ -201,6 +210,31 @@ bool RockDesc::DrawInspector(const char* statsText)
 	Slider("Roughness Scale", &p.NoiseScale, 0.1f, 10.0f, 1);
 	Slider("Mesh Detail", &p.Detail, 0.25f, 2.0f, 1);
 	Label("Material", 0, true);
+	{
+		// 텍스처 팩 사진 재질 (바위 · 돌 분류) 또는 식으로 (Procedural)
+		std::vector<std::string> ids = { "" };
+		for (const auto& m : TextureLibrary::All())
+			if (m.Category == "rock" || m.Category == "stone")
+				ids.push_back(m.Id);
+		if (!Material.empty() && std::find(ids.begin(), ids.end(), Material) == ids.end())
+			ids.push_back(Material);
+		std::vector<const char*> names;
+		int cur = 0;
+		for (size_t i = 0; i < ids.size(); ++i)
+		{
+			names.push_back(ids[i].empty() ? "Procedural" : ids[i].c_str());
+			if (ids[i] == Material)
+				cur = (int)i;
+		}
+		if (Dropdown("Photo Material", &cur, names.data(), (int)names.size()))
+			Material = ids[(size_t)cur];
+		if (!Material.empty())
+		{
+			Slider("Photo Scale (m, 0 = real)", &PhotoScale, 0.0f, 10.0f, 1);
+			if (!TextureLibrary::Find(Material))
+				HelpBox("The texture pack (com.nova.textures) is not in this project - the procedural colors are used.", true);
+		}
+	}
 	ColorRow("Base Color", BaseColor);
 	ColorRow("Strata Color", StrataColor);
 	Slider("Strata Contrast", &StrataContrast, 0.0f, 1.0f, 1);

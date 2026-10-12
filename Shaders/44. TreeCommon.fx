@@ -32,6 +32,8 @@ cbuffer cbTree
     float4 gTreeBarkPatternColor;   // rgb = 마디 · 골 마루 · 비늘 가장자리 색(감마)
     float4 gTreeLodRange;      // 셀째 그리기: x = 이 단계의 가까운 끝, y = 먼 끝 (카메라 거리 / 나무 크기), z · w = 가까운 · 먼 끝에서 섞는 띠 폭
     float4 gTreeLodEye;        // xyz = LOD 를 재는 카메라, w = 0 CPU 가 고른 값 (인스턴스 Extra.zw), 1 정점 셰이더가 거리로 (디더 섞기), 2 그림자 (한 단계, 섞지 않음)
+    float4 gTreePhoto;         // 수피 사진 (텍스처 팩): x 1 = 쓴다, y 1 / 한 장 크기 (m), z 노멀 세기, w 종 색으로 물들이는 양
+    float4 gTreePhotoTint;     // rgb = 종의 수피 색 ÷ 사진 평균 색 (선형)
 };
 
 // 인스턴스 (나무 한 그루): 월드 행렬 + x = 색 변화(0.5 = 그대로), y = 바람 위상, z = LOD 섞기 문턱, w = 섞기 쪽(0 나가는 단계, 1 들어오는 단계)
@@ -228,6 +230,9 @@ Texture2D gTreeLeafTex;
 // 수피 타일 (가로·세로 kBarkCells = 8 칸): rg = 기울기 / 16 + 0.5 (칸 단위), b = 높이
 Texture2D gTreeBarkTex;
 static const float kTreeBarkCells = 8.0f;
+// 수피 사진 (텍스처 팩 bark/…): 색 (감마) · DirectX 노멀
+Texture2D gTreePhotoColor;
+Texture2D gTreePhotoNormal;
 
 SamplerState samTreeLeaf
 {

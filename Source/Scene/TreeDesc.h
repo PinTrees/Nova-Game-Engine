@@ -25,6 +25,9 @@ struct TreeDesc
 	float PatternSpacing = 0.3f;   // 고리 간격 · 비늘 높이 (m) / 골 수 (둘레 1 m 당)
 	float PatternDepth = 0.5f;     // 깊이 (0 ~ 1)
 	XMFLOAT4 PatternColor = { 0.6f, 0.6f, 0.5f, 1.0f };   // 마디 · 골 · 비늘 가장자리 색 (감마)
+	// 수피 사진 재질 (텍스처 팩 bark/…): "" = 자동 (종에 맞게 — 침엽수 fir · 자작 smooth-light · 이끼 mossy · 매끈 smooth · 그 밖 oak …),
+	//  "procedural" = 식으로 구운 균열만. 무늬 (고리 · 골 · 비늘) 가 있는 종 (대나무 · 선인장 · 야자) 은 늘 식으로
+	std::string BarkMaterial;
 
 	// ---- 잎 (감마 색)
 	XMFLOAT4 LeafColor = { 0.24f, 0.42f, 0.11f, 1.0f };

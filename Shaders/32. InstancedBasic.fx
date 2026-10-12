@@ -2299,6 +2299,18 @@ TreeSurf TreeBarkSurface(TreeVertexOut pin)
     const float3 barkColor = ToLinear(gTreeBarkColor.rgb);
     const float crackContrast = saturate(gTreeBarkParams.x / 0.02f);   // 골 깊이 0.5 이상 = 예전 그대로
     float3 albedo = barkColor * lerp(lerp(0.92f, 0.38f, crackContrast), lerp(1.02f, 1.08f, crackContrast), h0);
+    // 사진 수피 (텍스처 팩): 둘레에 정수 번 둘러 이음매 없이, 가지를 따라 같은 크기 (정사각 텍셀). 무늬 종 (대나무 · 선인장 · 야자) 은 식 그대로
+    if (gTreePhoto.x > 0.5f && (int)(gTreeBarkPattern.x + 0.5f) == 0)
+    {
+        const float r0 = max(pin.BranchRadius, 0.005f);
+        const float circ = 6.2831853f * r0;
+        const float around = max(1.0f, round(circ * gTreePhoto.y));
+        const float2 puv = float2(pin.UV.x * around, pin.UV.y * around / circ);
+        const float3 photoCol = ToLinear(gTreePhotoColor.Sample(samTreeBark, puv).rgb);
+        albedo = photoCol * lerp(float3(1.0f, 1.0f, 1.0f), gTreePhotoTint.rgb, gTreePhoto.w);
+        const float2 pn = (gTreePhotoNormal.Sample(samTreeBark, puv).xy * 2.0f - 1.0f) * gTreePhoto.z;
+        s.N = normalize(N0 + T * pn.x + B * pn.y);
+    }
     const float3 axisL = normalize(pin.AxisL);
     const float fleckAmount = abs(gTreeBarkParams.w);
     const float alongL = dot(pin.PosL, axisL);
@@ -2681,7 +2693,28 @@ float4 RockPS(RockVertexOut pin) : SV_Target
     const float4 tx = gRockDetail.Sample(samRock, pin.PosL.zy * scale + 0.37f);
     const float4 ty = gRockDetail.Sample(samRock, pin.PosL.xz * scale);
     const float4 tz = gRockDetail.Sample(samRock, pin.PosL.xy * scale + 0.71f);
-    const float2 dx = (tx.xy * 2.0f - 1.0f) * gRockParams.z, dy = (ty.xy * 2.0f - 1.0f) * gRockParams.z, dz = (tz.xy * 2.0f - 1.0f) * gRockParams.z;
+    float2 dx = (tx.xy * 2.0f - 1.0f) * gRockParams.z, dy = (ty.xy * 2.0f - 1.0f) * gRockParams.z, dz = (tz.xy * 2.0f - 1.0f) * gRockParams.z;
+    // ---- 사진 재질 (텍스처 팩): 같은 triplanar 로 색 · 노멀 · 거칠기 · AO
+    const bool photo = gRockPhoto.x > 0.5f;
+    float3 photoCol = float3(1, 1, 1);
+    float photoRough = 0.8f, photoAo = 1.0f;
+    {
+        const float ps = gRockPhoto.y;
+        const float2 ux = pin.PosL.zy * ps + 0.37f, uy = pin.PosL.xz * ps, uz = pin.PosL.xy * ps + 0.71f;
+        if (photo)
+        {
+            photoCol = ToLinear(gRockPhotoColor.Sample(samRock, ux).rgb) * w.x + ToLinear(gRockPhotoColor.Sample(samRock, uy).rgb) * w.y + ToLinear(gRockPhotoColor.Sample(samRock, uz).rgb) * w.z;
+            const float s = gRockPhoto.z;
+            dx = dx * 0.35f + (gRockPhotoNormal.Sample(samRock, ux).xy * 2.0f - 1.0f) * s;
+            dy = dy * 0.35f + (gRockPhotoNormal.Sample(samRock, uy).xy * 2.0f - 1.0f) * s;
+            dz = dz * 0.35f + (gRockPhotoNormal.Sample(samRock, uz).xy * 2.0f - 1.0f) * s;
+            if (gRockPhoto.w > 0.5f)
+            {
+                photoRough = gRockPhotoRough.Sample(samRock, ux).r * w.x + gRockPhotoRough.Sample(samRock, uy).r * w.y + gRockPhotoRough.Sample(samRock, uz).r * w.z;
+                photoAo = gRockPhotoAo.Sample(samRock, ux).r * w.x + gRockPhotoAo.Sample(samRock, uy).r * w.y + gRockPhotoAo.Sample(samRock, uz).r * w.z;
+            }
+        }
+    }
     float3 nDetailL = normalize(float3(0.0f, dx.y, dx.x) * w.x + float3(dy.x, 0.0f, dy.y) * w.y + float3(dz.x, dz.y, 0.0f) * w.z + nL);
     const float height = tx.a * w.x + ty.a * w.y + tz.a * w.z;
     // 물체 공간 → 월드 (비균등 크기도 대략 맞게: 축을 크기로 나눔)
@@ -2701,7 +2734,14 @@ float4 RockPS(RockVertexOut pin) : SV_Target
     float3 albedo = lerp(ToLinear(gRockBaseColor.rgb), ToLinear(gRockStrataColor.rgb), band);
     // 큰 얼룩(풍화·물 자국) + 디테일 높이 밝기
     const float stain = RockValueNoise(pin.PosL * 0.12f + 11.0f) * 0.65f + RockValueNoise(pin.PosL * 0.5f + 3.0f) * 0.35f;
-    albedo *= lerp(0.62f, 1.1f, stain) * lerp(0.6f, 1.12f, height);
+    if (photo)
+    {
+        // 사진 색 그대로 + 지층 띠는 색 비율로 살짝, 큰 얼룩은 약하게
+        const float3 b = max(ToLinear(gRockBaseColor.rgb), 0.02f), st = ToLinear(gRockStrataColor.rgb);
+        albedo = photoCol * lerp(float3(1, 1, 1), clamp(st / b, 0.5f, 1.6f), band * 0.5f) * lerp(0.82f, 1.06f, stain);
+    }
+    else
+        albedo *= lerp(0.62f, 1.1f, stain) * lerp(0.6f, 1.12f, height);
     // 세로 물 자국 (빗물이 흘러내린 어두운 줄)
     const float streak = RockValueNoise(float3(pin.PosL.x * 1.3f, pin.PosL.y * 0.08f, pin.PosL.z * 1.3f));
     albedo *= lerp(1.0f, lerp(0.58f, 1.0f, smoothstep(0.2f, 0.8f, streak)), saturate(1.0f - abs(N0.y) * 1.5f));
@@ -2723,8 +2763,8 @@ float4 RockPS(RockVertexOut pin) : SV_Target
     LitSurface surf;
     surf.Albedo = albedo;
     surf.Metallic = 0.0f;
-    surf.Smoothness = gRockParams2.x * (1.0f - moss * 0.7f) * lerp(0.7f, 1.2f, height);
-    surf.Occlusion = pin.AoCavity.x * lerp(0.55f, 1.0f, height);
+    surf.Smoothness = photo && gRockPhoto.w > 0.5f ? (1.0f - photoRough) * (1.0f - moss * 0.7f) : gRockParams2.x * (1.0f - moss * 0.7f) * lerp(0.7f, 1.2f, height);
+    surf.Occlusion = pin.AoCavity.x * (photo ? photoAo : lerp(0.55f, 1.0f, height));
     surf.Emission = float3(0, 0, 0);
     surf.Transmission = float3(0, 0, 0);
     surf.Highlights = true;

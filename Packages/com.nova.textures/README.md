@@ -9,7 +9,7 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 - 쓰기: Building Generator — `nova building set --target <건물> --values {"materials":{"roof":"roof/clay-tiles-mossy"}}` · 지형 그래프 레이어 · 바위 · 나무
 - 더하기: 폴더 하나 + `catalog.json` 한 줄 (같은 형식). 새 분류도 그대로 (id 의 앞부분)
 
-재질 134 개 · 분류 10 개.
+재질 136 개 · 분류 10 개.
 
 ## 지붕 (Roof) — 35
 
@@ -51,7 +51,7 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 | `roof/wood-shingles-dark` | Dark Wood Shingles | Dark tarred wooden shakes | 2.0 | [WoodSiding012](https://ambientcg.com/a/WoodSiding012) |
 | `roof/wood-shakes-long` | Long Wood Shakes | Long rough split shakes in deep courses | 2.0 | [WoodSiding013](https://ambientcg.com/a/WoodSiding013) |
 
-## 돌 (Stone) — 19
+## 돌 (Stone) — 21
 
 | id | 이름 | 설명 | 크기 (m) | 원본 |
 |---|---|---|---|---|
@@ -74,6 +74,8 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 | `stone/ashlar-cream` | Cream Cut Stone | Pale limestone blocks with dark stains | 2.4 | [Bricks041](https://ambientcg.com/a/Bricks041) |
 | `stone/marble-white` | White Marble | Polished white marble with fine veins — temples, columns, floors | 2.0 | [Marble019](https://ambientcg.com/a/Marble019) |
 | `stone/marble-grey` | Grey Veined Marble | Grey-blue marble with strong veins | 2.0 | [Marble012](https://ambientcg.com/a/Marble012) |
+| `stone/dressed-limestone` | Dressed Limestone | Weathered beige limestone face without joints — single cut stones: door and window surrounds, steps, copings, voussoirs, quoins | 0.9 | [Rock042S](https://ambientcg.com/a/Rock042S) |
+| `stone/dressed-granite` | Dressed Grey Granite | Grey lichen-spotted granite face without joints — single cut stones in cold grey towns: quays, steps, copings, surrounds | 0.9 | [Rock043S](https://ambientcg.com/a/Rock043S) |
 
 ## 벽돌 (Brick) — 5
 

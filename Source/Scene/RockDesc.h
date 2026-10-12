@@ -21,6 +21,10 @@ struct RockDesc
 	float DetailScale = 2.5f;        // m (디테일 텍스처 한 장)
 	float Smoothness = 0.18f;
 	float ColorVariation = 0.15f;    // 바위마다 밝기·색 차이
+	// 텍스처 팩 사진 재질 (id, 예 "rock/cliff-grey"): 물체 공간 triplanar 로 색 · 노멀 · 거칠기 · AO. 비면 (또는 팩이 없으면) 식으로 만든 색
+	//  사진 위에도 오목한 곳 · 이끼 · 땅 닿는 곳 · 지층 색 띠 · 바위마다 차이는 그대로 얹는다
+	std::string Material;
+	float PhotoScale = 0.0f;         // 사진 한 장 크기 (m) — 0 = 재질의 실제 크기
 
 	// ---- LOD: 화면 크기(바위 크기 / 거리)로. 클수록 먼 곳까지 고운 단계
 	float LodBias = 1.0f;

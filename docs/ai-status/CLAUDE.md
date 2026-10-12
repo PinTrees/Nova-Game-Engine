@@ -1,6 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 13일 — **건축물 생성기 곡선 · 위쳐 / 붉은사막 풍 세부** (사용자 지시: "좀 더 디테일하게, 곡선도 많이, 위쳐 양식 · 붉은사막 건축 양식 참고")
+- 갱신 시각: 2026년 10월 13일 — **물 위 도시 양식 · 손 다듬은 나무 · 돌 · 강한 테셀레이션 · 사진 지형 · 바위 · 수피** (사용자 지시: "나무 · 모델을 완벽하게 사각으로 만들지 말고", "Unity 에셋 Modular Medieval Town on Water 양식으로 리얼하게", "받은 텍스처로 지형 · 나무 · 바위 퀄리티", "테셀레이션이 안 된다 — 높이 맵이 없으면 노멀맵으로 만들어 기본으로 켜고, 붉은사막처럼 매우 강하게", "반듯한 벽돌 텍스처를 낱개 돌에 쓰지 말라")
+  - 건축물 (패키지): Rustic (8 각 · 휜 들보, 고르지 않은 돌), 양식 25 (Canal House · Canal Merchant Hall · Bridge House · Stone Canal Bridge), CloseStud · ShopFront · Canal (기초 + 선착장) · Plan::Bridge, 편집기 조절 (곡선 · 탑 · 내민 창 포함), 낱개 돌 재질 dressed-limestone / dressed-granite, 강한 테셀레이션 (`StrongTessellation`, `DisplacementOf`), 식 재질도 높이 맵, `DispWeights` + 0.6 m 칸 (`Patch` · `SubTri`)
+  - 코어: `60. Tessellation.fx` 변위 가중치 (2 - |탄젠트 w|), `07. LightHelper.fx` (w 부호만), `ImageIO::HeightFromNormal` (FFT 적분) + `UMaterial::EnsureDerivedHeight` (높이 맵이 없으면 노멀맵에서, Inspector 안내), `MeshBatcher::Stats::Tessellated` + CLI `tessellation info` (tessellatedBatches), `PathManager` 절대 경로 그대로
+  - 지형: `TerrainLayer::Material` (+ packTileSize · packHeightAmplitude, `ResolveMaterial`), 엔진 기본 레이어 4 개가 사진 재질, 지형 그래프 `textures` 기본 사진 (`--source procedural`)
+  - 바위: `RockDesc::Material` · `PhotoScale` (프리셋마다 사진 재질), `47. RockCommon.fx` · RockPS 사진 triplanar (색 · 노멀 · 거칠기 · AO) + 이끼 · 오목 · 지층 그대로. 나무: `TreeDesc::BarkMaterial` (자동 — 종에 맞게), TreeBarkSurface 사진 수피 (둘레 정수 번, 종 색으로 물들임)
+  - 텍스처 팩 136 재질 (+51: 땅 · 포석 29 · 바위 11 · 수피 8 · 잎 3 · 다듬은 돌 2) 92 MB, README 다시
+  - 검사: building 13 · tessellation 13 (위 커밋 때), 마지막 묶음 building · tessellation · terraingraph · plants · pcg (결과는 커밋 메시지)
+  - 다른 담당자: Shaders 07 · 32 · 44 · 47 · 60, Source/Core/ImageIO · PathManager, Graphics/DX11/UMaterial, Terrain/TerrainData, Scene/Rock* · Tree* · MeshBatcher 를 고쳤다
+- 이전: 2026년 10월 13일 — **건축물 생성기 곡선 · 위쳐 / 붉은사막 풍 세부** (사용자 지시: "좀 더 디테일하게, 곡선도 많이, 위쳐 양식 · 붉은사막 건축 양식 참고")
   - `Packages/com.nova.building/Source/BuildingGenerator.cpp`: 종 모양 박공 지붕 (`GableY` · `CurvedGableSide` — 띠 11 장, v = 비탈 길이), 박공벽 · 칠한 무늬 · 박공 판 (`BargeBoardPath`) · 박공 도리 · 처마 까치발 · 지붕창이 곡선을 따름, 둥근 용마루 덮개 (이엉 · 잔디 말이 + 처마 말이), 원뿔 탑 지붕 들린 곡선, 모서리 탑 (`PlanTurrets` · `CornerTurret`), 계단 탑 (`PlanStair`), 내민 창 (`PlanOriels` · `OrielWindow` — 그 층 자리 창 막기 `OrielAt`), 돌출 층 밑 굽은 까치발. 값은 이전 항목의 `roof.curve` · `details.turrets|stairTower|oriels`
   - 검사: building 12/12 (새 시험: 곧은 → 곡선 → 탑 · 계단 탑 · 내민 창 — 삼각형 · 탑 수 · 높이). Riverland Townhouse · Highland Manor 화면 확인 (탑이 모서리에 붙고, 내민 창 · 까치발이 보임)
   - 다른 담당자: 없음 (패키지 안만)

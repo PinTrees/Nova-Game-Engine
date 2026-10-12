@@ -59,6 +59,8 @@ json TreeDesc::ToJson() const
 		{ "ridgeFrequency", RidgeFrequency }, { "smoothness", BarkSmoothness }, { "fleck", BarkFleck } };
 	if (Pattern != BarkPattern::Cracks)
 		j["bark"]["pattern"] = { { "kind", (int)Pattern }, { "spacing", PatternSpacing }, { "depth", PatternDepth }, { "color", Color4(PatternColor) } };
+	if (!BarkMaterial.empty())
+		j["bark"]["material"] = BarkMaterial;
 	j["leaves"] = { { "color", Color4(LeafColor) }, { "color2", Color4(LeafColor2) }, { "variation", LeafVariation },
 		{ "transmission", LeafTransmission }, { "smoothness", LeafSmoothness }, { "length", LeafLength } };
 	if (Params.FlowerPetals > 0)
@@ -86,6 +88,7 @@ void TreeDesc::FromJson(const json& j)
 		const json& b = j["bark"];
 		ReadColor(b, "color", BarkColor); ReadColor(b, "mossColor", MossColor);
 		Moss = b.value("moss", Moss); RidgeDepth = b.value("ridgeDepth", RidgeDepth); RidgeFrequency = b.value("ridgeFrequency", RidgeFrequency);
+		BarkMaterial = b.value("material", BarkMaterial);
 		BarkSmoothness = b.value("smoothness", BarkSmoothness); BarkFleck = b.value("fleck", BarkFleck);
 		if (b.contains("pattern"))
 		{

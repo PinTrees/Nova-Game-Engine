@@ -25,9 +25,15 @@ Lit 재질 · Terrain Layer · Shader Graph 의 높이만큼 표면을 실제로
 | `TessellationTriangleSize` | 12 | 픽셀 |
 | `TessellationFadeDistance` | 50 | m |
 
+**높이 맵이 없으면 노멀맵에서**: Displacement Mode = Tessellation 인데 Height Map 칸이 비어 있으면 Normal Map 을 적분해 높이를 만든다 (`ImageIO::HeightFromNormal` — DirectX 노멀의 기울기를 푸리에로 적분 (Frankot-Chellappa), 타일 텍스처라 주기 경계가 맞다, 타일에 두 번 미만인 아주 낮은 주파수는 줄여 돌 · 줄눈 같은 무늬가 높이가 된다, 1 % · 99 % → 0 · 1). 노멀맵마다 한 번 (R16 + 밉), Inspector 에 "height is made from the Normal Map". 정확한 깊이가 필요하면 Height Map 을 넣는다.
+
+**모서리 가중치 (틈 없애기)**: 변위 = (높이 - Base) × Amplitude × **가중치**, 가중치 = 2 - |탄젠트 w| (60. Tessellation.fx). 보통 메시는 |w| = 1 → 1 (그대로). 메시를 만드는 쪽이 면이 꺾이는 모서리 정점의 탄젠트 w 를 ±2 로 두면 그 자리는 밀지 않아 두 면이 벌어지지 않는다 (w 의 부호는 그대로 바이탄젠트 방향 — `NormalSampleToWorldSpace` 는 부호만 쓴다). 건축물 생성기는 같은 자리에 법선이 다른 정점이 있으면 (벽 모서리 · 창 안쪽 · 처마 끝 · 돌 모서리) 그렇게 하고, 큰 면을 0.6 m 칸으로 나눠 모서리에서 한 칸 안으로 높이가 차오른다.
+
 메시는 너무 거칠면 안 된다: 삼각형 하나가 최대 나눔 (16 이면 변 하나 16 조각) 보다 훨씬 크면 높이 맵을 다 담지 못한다. 벽 · 바닥은 Unity 의 Plane (10 × 10 칸) 처럼 몇 m 마다 정점이 있으면 된다. 메시의 모서리가 갈라진 곳 (Cube 의 면 경계처럼 정점이 따로인 곳) 은 면마다 다른 법선으로 밀려 틈이 생긴다 — HDRP 와 같다.
 
 ## 지형 (Terrain Layer)
+
+**텍스처 팩 사진 레이어**: `.terrainlayer` 에 `"material": "ground/forest-floor"` (텍스처 팩 id) 를 쓰면 프로젝트에 텍스처 팩 (com.nova.textures) 이 있을 때 색 · 노멀 · 높이를 그 사진 재질에서 쓴다 (없으면 파일의 diffuse 그대로). `packTileSize` · `packHeightAmplitude` = 팩 재질일 때만의 타일 · 높이. 엔진 기본 레이어 (Grass · Dirt · Rock · Sand) 가 그렇다 — wild-grass 3 m 6 cm · forest-floor 3 m 12 cm · cliff-grey 6 m 35 cm · sand 3.5 m 6 cm. 지형 그래프의 `textures` 도 기본으로 사진 재질 (규칙 이름으로 찾는다).
 
 지형 Inspector 의 **Paint Texture** 에서 레이어를 고르고 **Height Map** · **Amplitude** (m) · **Base** 를 넣는다 (`.terrainlayer` 의 `height` · `heightAmplitude` · `heightBase`). 색 (Diffuse) 과 같은 타일 · 같은 타일 없애기 무늬로 밀어 돌의 색과 모양이 맞고, 레이어마다 컨트롤 맵 가중치로 섞인다. 절벽은 색처럼 삼평면.
 

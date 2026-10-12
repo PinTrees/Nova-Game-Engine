@@ -13,5 +13,14 @@
         1.0,
         1.0,
         1.0
-    ]
+    ],
+    "material": "ground/wild-grass",
+    "packTileSize": [
+        3.0,
+        3.0
+    ],
+    "packHeightAmplitude": 0.06,
+    "normalScale": 1.0,
+    "heightAmplitude": 0.15,
+    "heightBase": 0.5
 }

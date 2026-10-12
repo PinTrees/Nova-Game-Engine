@@ -18,6 +18,16 @@ cbuffer cbRock
 
 Texture2D gRockDetail;          // rgb = 탄젠트 노멀, a = 높이
 
+// 텍스처 팩 사진 재질 (본 패스만): 색 (감마) · DirectX 노멀 · 거칠기 · AO
+cbuffer cbRockPhoto
+{
+    float4 gRockPhoto;          // x 1 = 사진, y 1 / 한 장 크기 (m), z 노멀 세기, w 1 = 거칠기 · AO 맵 있음
+};
+Texture2D gRockPhotoColor;
+Texture2D gRockPhotoNormal;
+Texture2D gRockPhotoRough;
+Texture2D gRockPhotoAo;
+
 SamplerState samRock
 {
     Filter = ANISOTROPIC;
