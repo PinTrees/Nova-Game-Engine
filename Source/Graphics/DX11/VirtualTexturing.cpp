@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "ImageIO.h"
 #include "VirtualTexturing.h"
 #include "AssetImportSettings.h"
 #include "CliServer.h"
@@ -233,7 +234,7 @@ namespace VirtualTexturing
 				HRESULT hr;
 				if (_wcsicmp(ext.c_str(), L".dds") == 0) hr = DirectX::LoadFromDDSFile(src.c_str(), DirectX::DDS_FLAGS_NONE, &md, img);
 				else if (_wcsicmp(ext.c_str(), L".tga") == 0) hr = DirectX::LoadFromTGAFile(src.c_str(), &md, img);
-				else hr = DirectX::LoadFromWICFile(src.c_str(), DirectX::WIC_FLAGS_NONE, &md, img);
+				else hr = ImageIO::Load(src.c_str(), DirectX::WIC_FLAGS_NONE, &md, img);
 				if (FAILED(hr)) { error = "cannot read the source image"; return false; }
 				// 색 공간: 보통 텍스처 (Utils::ApplyTextureImport) 와 같이 — 원본이 sRGB 이고 가져오기 설정 sRGB 이면 하드웨어가 감마를 푼다.
 				//  sRGB 면 sRGB 형식 그대로 줄이기 · 밉 (감마를 고려한 거르기 — 보통 텍스처와 같은 값), 끄면 같은 바이트를 선형으로

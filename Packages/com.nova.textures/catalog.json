@@ -1,0 +1,2453 @@
+{
+  "version": 1,
+  "name": "com.nova.textures",
+  "materials": [
+    {
+      "id": "roof/stone-fish-scale",
+      "name": "Fish-Scale Stone Roof",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "stone",
+        "scale",
+        "fish scale",
+        "round",
+        "turret",
+        "tower",
+        "fantasy"
+      ],
+      "description": "Grey round-cut stone shingles — turrets, towers, wizard roofs",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/stone-fish-scale/color.webp",
+        "normal": "Textures/roof/stone-fish-scale/normal.webp",
+        "roughness": "Textures/roof/stone-fish-scale/roughness.webp",
+        "height": "Textures/roof/stone-fish-scale/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles001",
+        "url": "https://ambientcg.com/a/RoofingTiles001",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/stone-fish-scale-weathered",
+      "name": "Weathered Fish-Scale Stone Roof",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "stone",
+        "scale",
+        "fish scale",
+        "lichen",
+        "old",
+        "turret"
+      ],
+      "description": "Old round-cut stone shingles with lichen",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/stone-fish-scale-weathered/color.webp",
+        "normal": "Textures/roof/stone-fish-scale-weathered/normal.webp",
+        "roughness": "Textures/roof/stone-fish-scale-weathered/roughness.webp",
+        "height": "Textures/roof/stone-fish-scale-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles002",
+        "url": "https://ambientcg.com/a/RoofingTiles002",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/slate",
+      "name": "Slate Roof",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "slate",
+        "grey",
+        "castle",
+        "church",
+        "manor"
+      ],
+      "description": "Grey slate in staggered courses — castles, chapels, manors",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/slate/color.webp",
+        "normal": "Textures/roof/slate/normal.webp",
+        "roughness": "Textures/roof/slate/roughness.webp",
+        "height": "Textures/roof/slate/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles003",
+        "url": "https://ambientcg.com/a/RoofingTiles003",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/stone-scale-weathered",
+      "name": "Weathered Stone Scales",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "stone",
+        "scale",
+        "grey",
+        "old"
+      ],
+      "description": "Small worn stone scales, pale grey",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/stone-scale-weathered/color.webp",
+        "normal": "Textures/roof/stone-scale-weathered/normal.webp",
+        "roughness": "Textures/roof/stone-scale-weathered/roughness.webp",
+        "height": "Textures/roof/stone-scale-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles004",
+        "url": "https://ambientcg.com/a/RoofingTiles004",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/slate-small",
+      "name": "Small Slates",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "slate",
+        "small",
+        "grey",
+        "fine"
+      ],
+      "description": "Fine small slates in many thin courses",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/slate-small/color.webp",
+        "normal": "Textures/roof/slate-small/normal.webp",
+        "roughness": "Textures/roof/slate-small/roughness.webp",
+        "height": "Textures/roof/slate-small/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles005",
+        "url": "https://ambientcg.com/a/RoofingTiles005",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/clay-tiles-weathered",
+      "name": "Weathered Clay Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "terracotta",
+        "barrel",
+        "old",
+        "medieval"
+      ],
+      "description": "Old terracotta barrel tiles with dirt streaks — town houses, inns",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-tiles-weathered/color.webp",
+        "normal": "Textures/roof/clay-tiles-weathered/normal.webp",
+        "roughness": "Textures/roof/clay-tiles-weathered/roughness.webp",
+        "ao": "Textures/roof/clay-tiles-weathered/ao.webp",
+        "height": "Textures/roof/clay-tiles-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles006",
+        "url": "https://ambientcg.com/a/RoofingTiles006",
+        "license": "CC0 1.0",
+        "sizeCm": 320
+      }
+    },
+    {
+      "id": "roof/clay-tiles-mossy",
+      "name": "Mossy Clay Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "terracotta",
+        "barrel",
+        "moss",
+        "green",
+        "old"
+      ],
+      "description": "Terracotta barrel tiles with green moss streaks",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-tiles-mossy/color.webp",
+        "normal": "Textures/roof/clay-tiles-mossy/normal.webp",
+        "roughness": "Textures/roof/clay-tiles-mossy/roughness.webp",
+        "ao": "Textures/roof/clay-tiles-mossy/ao.webp",
+        "height": "Textures/roof/clay-tiles-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles007",
+        "url": "https://ambientcg.com/a/RoofingTiles007",
+        "license": "CC0 1.0",
+        "sizeCm": 320
+      }
+    },
+    {
+      "id": "roof/clay-tiles-dirty",
+      "name": "Dirty Clay Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "terracotta",
+        "barrel",
+        "soot",
+        "dark",
+        "old"
+      ],
+      "description": "Terracotta barrel tiles stained dark by soot and rain",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-tiles-dirty/color.webp",
+        "normal": "Textures/roof/clay-tiles-dirty/normal.webp",
+        "roughness": "Textures/roof/clay-tiles-dirty/roughness.webp",
+        "ao": "Textures/roof/clay-tiles-dirty/ao.webp",
+        "height": "Textures/roof/clay-tiles-dirty/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles008",
+        "url": "https://ambientcg.com/a/RoofingTiles008",
+        "license": "CC0 1.0",
+        "sizeCm": 320
+      }
+    },
+    {
+      "id": "roof/dark-tiles-mossy",
+      "name": "Dark Mossy Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "dark",
+        "grey",
+        "moss",
+        "old",
+        "nordic"
+      ],
+      "description": "Dark grey tiles with moss — cold, wet towns",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/dark-tiles-mossy/color.webp",
+        "normal": "Textures/roof/dark-tiles-mossy/normal.webp",
+        "roughness": "Textures/roof/dark-tiles-mossy/roughness.webp",
+        "ao": "Textures/roof/dark-tiles-mossy/ao.webp",
+        "height": "Textures/roof/dark-tiles-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles009",
+        "url": "https://ambientcg.com/a/RoofingTiles009",
+        "license": "CC0 1.0",
+        "sizeCm": 320
+      }
+    },
+    {
+      "id": "roof/glazed-tiles-mossy",
+      "name": "Glazed Mossy Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "glazed",
+        "blue",
+        "grey",
+        "moss",
+        "shiny"
+      ],
+      "description": "Blue-grey glazed tiles with moss",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/glazed-tiles-mossy/color.webp",
+        "normal": "Textures/roof/glazed-tiles-mossy/normal.webp",
+        "roughness": "Textures/roof/glazed-tiles-mossy/roughness.webp",
+        "ao": "Textures/roof/glazed-tiles-mossy/ao.webp",
+        "height": "Textures/roof/glazed-tiles-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles010",
+        "url": "https://ambientcg.com/a/RoofingTiles010",
+        "license": "CC0 1.0",
+        "sizeCm": 320
+      }
+    },
+    {
+      "id": "roof/flat-tiles-red",
+      "name": "Red Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "red",
+        "clean"
+      ],
+      "description": "Flat red plain tiles, even courses",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-red/color.webp",
+        "normal": "Textures/roof/flat-tiles-red/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-red/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-red/ao.webp",
+        "height": "Textures/roof/flat-tiles-red/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles011A",
+        "url": "https://ambientcg.com/a/RoofingTiles011A",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-red-weathered",
+      "name": "Weathered Red Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "red",
+        "old"
+      ],
+      "description": "Flat red plain tiles, faded and stained",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-red-weathered/color.webp",
+        "normal": "Textures/roof/flat-tiles-red-weathered/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-red-weathered/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-red-weathered/ao.webp",
+        "height": "Textures/roof/flat-tiles-red-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles011B",
+        "url": "https://ambientcg.com/a/RoofingTiles011B",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-red-mossy",
+      "name": "Mossy Red Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "red",
+        "moss",
+        "broken",
+        "old"
+      ],
+      "description": "Flat red tiles with moss and broken pieces",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-red-mossy/color.webp",
+        "normal": "Textures/roof/flat-tiles-red-mossy/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-red-mossy/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-red-mossy/ao.webp",
+        "height": "Textures/roof/flat-tiles-red-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles011C",
+        "url": "https://ambientcg.com/a/RoofingTiles011C",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-orange",
+      "name": "Orange Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "orange",
+        "clean"
+      ],
+      "description": "Flat orange clay tiles",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-orange/color.webp",
+        "normal": "Textures/roof/flat-tiles-orange/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-orange/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-orange/ao.webp",
+        "height": "Textures/roof/flat-tiles-orange/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles012A",
+        "url": "https://ambientcg.com/a/RoofingTiles012A",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-orange-weathered",
+      "name": "Weathered Orange Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "orange",
+        "old"
+      ],
+      "description": "Flat orange tiles, worn",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-orange-weathered/color.webp",
+        "normal": "Textures/roof/flat-tiles-orange-weathered/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-orange-weathered/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-orange-weathered/ao.webp",
+        "height": "Textures/roof/flat-tiles-orange-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles012B",
+        "url": "https://ambientcg.com/a/RoofingTiles012B",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-orange-broken",
+      "name": "Broken Orange Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "orange",
+        "broken",
+        "ruin",
+        "moss"
+      ],
+      "description": "Cracked and missing orange tiles — ruins, poor quarters",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-orange-broken/color.webp",
+        "normal": "Textures/roof/flat-tiles-orange-broken/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-orange-broken/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-orange-broken/ao.webp",
+        "height": "Textures/roof/flat-tiles-orange-broken/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles012C",
+        "url": "https://ambientcg.com/a/RoofingTiles012C",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-black",
+      "name": "Black Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "black",
+        "clean"
+      ],
+      "description": "Flat black glazed tiles",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-black/color.webp",
+        "normal": "Textures/roof/flat-tiles-black/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-black/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-black/ao.webp",
+        "height": "Textures/roof/flat-tiles-black/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles013A",
+        "url": "https://ambientcg.com/a/RoofingTiles013A",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-black-weathered",
+      "name": "Weathered Black Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "black",
+        "old"
+      ],
+      "description": "Flat black tiles, dull and stained",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-black-weathered/color.webp",
+        "normal": "Textures/roof/flat-tiles-black-weathered/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-black-weathered/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-black-weathered/ao.webp",
+        "height": "Textures/roof/flat-tiles-black-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles013B",
+        "url": "https://ambientcg.com/a/RoofingTiles013B",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-black-mossy",
+      "name": "Mossy Black Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "black",
+        "moss",
+        "old"
+      ],
+      "description": "Black tiles with moss patches",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-black-mossy/color.webp",
+        "normal": "Textures/roof/flat-tiles-black-mossy/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-black-mossy/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-black-mossy/ao.webp",
+        "height": "Textures/roof/flat-tiles-black-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles013C",
+        "url": "https://ambientcg.com/a/RoofingTiles013C",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-black-overgrown",
+      "name": "Overgrown Black Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "black",
+        "moss",
+        "overgrown",
+        "ruin"
+      ],
+      "description": "Black tiles covered in moss and lichen",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-black-overgrown/color.webp",
+        "normal": "Textures/roof/flat-tiles-black-overgrown/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-black-overgrown/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-black-overgrown/ao.webp",
+        "height": "Textures/roof/flat-tiles-black-overgrown/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles013D",
+        "url": "https://ambientcg.com/a/RoofingTiles013D",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/clay-barrel-tiles",
+      "name": "Clay Barrel Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "barrel",
+        "mediterranean",
+        "roman",
+        "clean"
+      ],
+      "description": "Rounded clay tiles in long rows — Mediterranean, Roman",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-barrel-tiles/color.webp",
+        "normal": "Textures/roof/clay-barrel-tiles/normal.webp",
+        "roughness": "Textures/roof/clay-barrel-tiles/roughness.webp",
+        "ao": "Textures/roof/clay-barrel-tiles/ao.webp",
+        "height": "Textures/roof/clay-barrel-tiles/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles014A",
+        "url": "https://ambientcg.com/a/RoofingTiles014A",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/clay-barrel-tiles-weathered",
+      "name": "Weathered Clay Barrel Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "barrel",
+        "mediterranean",
+        "old"
+      ],
+      "description": "Rounded clay tiles, sun-faded and stained",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-barrel-tiles-weathered/color.webp",
+        "normal": "Textures/roof/clay-barrel-tiles-weathered/normal.webp",
+        "roughness": "Textures/roof/clay-barrel-tiles-weathered/roughness.webp",
+        "ao": "Textures/roof/clay-barrel-tiles-weathered/ao.webp",
+        "height": "Textures/roof/clay-barrel-tiles-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles014B",
+        "url": "https://ambientcg.com/a/RoofingTiles014B",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/clay-barrel-tiles-mossy",
+      "name": "Mossy Clay Barrel Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "barrel",
+        "moss",
+        "old"
+      ],
+      "description": "Rounded clay tiles with moss between the rows",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-barrel-tiles-mossy/color.webp",
+        "normal": "Textures/roof/clay-barrel-tiles-mossy/normal.webp",
+        "roughness": "Textures/roof/clay-barrel-tiles-mossy/roughness.webp",
+        "ao": "Textures/roof/clay-barrel-tiles-mossy/ao.webp",
+        "height": "Textures/roof/clay-barrel-tiles-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles014C",
+        "url": "https://ambientcg.com/a/RoofingTiles014C",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/clay-barrel-tiles-broken",
+      "name": "Broken Clay Barrel Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "clay",
+        "tiles",
+        "barrel",
+        "broken",
+        "holes",
+        "ruin",
+        "moss"
+      ],
+      "description": "Rounded clay tiles with gaps and moss — ruins",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/roof/clay-barrel-tiles-broken/color.webp",
+        "normal": "Textures/roof/clay-barrel-tiles-broken/normal.webp",
+        "roughness": "Textures/roof/clay-barrel-tiles-broken/roughness.webp",
+        "ao": "Textures/roof/clay-barrel-tiles-broken/ao.webp",
+        "height": "Textures/roof/clay-barrel-tiles-broken/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles014D",
+        "url": "https://ambientcg.com/a/RoofingTiles014D",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-grey",
+      "name": "Grey Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "grey",
+        "violet",
+        "clean"
+      ],
+      "description": "Flat violet-grey tiles",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-grey/color.webp",
+        "normal": "Textures/roof/flat-tiles-grey/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-grey/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-grey/ao.webp",
+        "height": "Textures/roof/flat-tiles-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles015A",
+        "url": "https://ambientcg.com/a/RoofingTiles015A",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-grey-weathered",
+      "name": "Weathered Grey Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "grey",
+        "old"
+      ],
+      "description": "Flat violet-grey tiles, worn",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-grey-weathered/color.webp",
+        "normal": "Textures/roof/flat-tiles-grey-weathered/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-grey-weathered/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-grey-weathered/ao.webp",
+        "height": "Textures/roof/flat-tiles-grey-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles015B",
+        "url": "https://ambientcg.com/a/RoofingTiles015B",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/flat-tiles-grey-mossy",
+      "name": "Mossy Grey Plain Tiles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "tiles",
+        "plain",
+        "flat",
+        "grey",
+        "moss",
+        "old"
+      ],
+      "description": "Flat grey tiles with moss",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/flat-tiles-grey-mossy/color.webp",
+        "normal": "Textures/roof/flat-tiles-grey-mossy/normal.webp",
+        "roughness": "Textures/roof/flat-tiles-grey-mossy/roughness.webp",
+        "ao": "Textures/roof/flat-tiles-grey-mossy/ao.webp",
+        "height": "Textures/roof/flat-tiles-grey-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "RoofingTiles015C",
+        "url": "https://ambientcg.com/a/RoofingTiles015C",
+        "license": "CC0 1.0",
+        "sizeCm": 290
+      }
+    },
+    {
+      "id": "roof/thatch",
+      "name": "Thatch",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "thatch",
+        "straw",
+        "reed",
+        "cottage"
+      ],
+      "description": "Combed straw thatch — cottages, barns",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/thatch/color.webp",
+        "normal": "Textures/roof/thatch/normal.webp",
+        "roughness": "Textures/roof/thatch/roughness.webp",
+        "ao": "Textures/roof/thatch/ao.webp",
+        "height": "Textures/roof/thatch/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "ThatchedRoof001A",
+        "url": "https://ambientcg.com/a/ThatchedRoof001A",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/thatch-dark",
+      "name": "Dark Old Thatch",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "thatch",
+        "straw",
+        "dark",
+        "old",
+        "cottage"
+      ],
+      "description": "Old darkened straw thatch",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/thatch-dark/color.webp",
+        "normal": "Textures/roof/thatch-dark/normal.webp",
+        "roughness": "Textures/roof/thatch-dark/roughness.webp",
+        "ao": "Textures/roof/thatch-dark/ao.webp",
+        "height": "Textures/roof/thatch-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "ThatchedRoof001B",
+        "url": "https://ambientcg.com/a/ThatchedRoof001B",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/thatch-pale",
+      "name": "Pale Reed Thatch",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "thatch",
+        "reed",
+        "pale",
+        "new"
+      ],
+      "description": "Fresh pale reed thatch",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/thatch-pale/color.webp",
+        "normal": "Textures/roof/thatch-pale/normal.webp",
+        "roughness": "Textures/roof/thatch-pale/roughness.webp",
+        "ao": "Textures/roof/thatch-pale/ao.webp",
+        "height": "Textures/roof/thatch-pale/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "ThatchedRoof002A",
+        "url": "https://ambientcg.com/a/ThatchedRoof002A",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/thatch-mossy",
+      "name": "Mossy Thatch",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "thatch",
+        "straw",
+        "moss",
+        "old",
+        "cottage"
+      ],
+      "description": "Old thatch with green moss",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/thatch-mossy/color.webp",
+        "normal": "Textures/roof/thatch-mossy/normal.webp",
+        "roughness": "Textures/roof/thatch-mossy/roughness.webp",
+        "ao": "Textures/roof/thatch-mossy/ao.webp",
+        "height": "Textures/roof/thatch-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "ThatchedRoof002B",
+        "url": "https://ambientcg.com/a/ThatchedRoof002B",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "roof/wood-shingles",
+      "name": "Wood Shingles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "wood",
+        "shingles",
+        "shakes",
+        "grey",
+        "nordic",
+        "stave church"
+      ],
+      "description": "Split wooden shakes, grey with age — Nordic halls, stave churches",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/wood-shingles/color.webp",
+        "normal": "Textures/roof/wood-shingles/normal.webp",
+        "height": "Textures/roof/wood-shingles/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "WoodSiding011",
+        "url": "https://ambientcg.com/a/WoodSiding011",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "roof/wood-shingles-mossy",
+      "name": "Mossy Wood Shingles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "wood",
+        "shingles",
+        "shakes",
+        "moss",
+        "old"
+      ],
+      "description": "Wooden shakes with moss",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/wood-shingles-mossy/color.webp",
+        "normal": "Textures/roof/wood-shingles-mossy/normal.webp",
+        "roughness": "Textures/roof/wood-shingles-mossy/roughness.webp",
+        "ao": "Textures/roof/wood-shingles-mossy/ao.webp",
+        "height": "Textures/roof/wood-shingles-mossy/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "WoodSiding010",
+        "url": "https://ambientcg.com/a/WoodSiding010",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "roof/wood-shingles-dark",
+      "name": "Dark Wood Shingles",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "wood",
+        "shingles",
+        "shakes",
+        "dark",
+        "tar",
+        "stave church"
+      ],
+      "description": "Dark tarred wooden shakes",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/wood-shingles-dark/color.webp",
+        "normal": "Textures/roof/wood-shingles-dark/normal.webp",
+        "roughness": "Textures/roof/wood-shingles-dark/roughness.webp",
+        "ao": "Textures/roof/wood-shingles-dark/ao.webp",
+        "height": "Textures/roof/wood-shingles-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "WoodSiding012",
+        "url": "https://ambientcg.com/a/WoodSiding012",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "roof/wood-shakes-long",
+      "name": "Long Wood Shakes",
+      "category": "roof",
+      "tags": [
+        "roof",
+        "wood",
+        "shingles",
+        "shakes",
+        "long",
+        "rustic"
+      ],
+      "description": "Long rough split shakes in deep courses",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/roof/wood-shakes-long/color.webp",
+        "normal": "Textures/roof/wood-shakes-long/normal.webp",
+        "roughness": "Textures/roof/wood-shakes-long/roughness.webp",
+        "ao": "Textures/roof/wood-shakes-long/ao.webp",
+        "height": "Textures/roof/wood-shakes-long/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "WoodSiding013",
+        "url": "https://ambientcg.com/a/WoodSiding013",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "stone/rubble-wall",
+      "name": "Rubble Stone Wall",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "rubble",
+        "mortar",
+        "medieval",
+        "rustic"
+      ],
+      "description": "Rounded field stones set in lime mortar — cottage and town ground floors",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/rubble-wall/color.webp",
+        "normal": "Textures/stone/rubble-wall/normal.webp",
+        "roughness": "Textures/stone/rubble-wall/roughness.webp",
+        "ao": "Textures/stone/rubble-wall/ao.webp",
+        "height": "Textures/stone/rubble-wall/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks089",
+        "url": "https://ambientcg.com/a/Bricks089",
+        "license": "CC0 1.0",
+        "sizeCm": 220
+      }
+    },
+    {
+      "id": "stone/rubble-wall-dark",
+      "name": "Dark Rubble Wall",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "rubble",
+        "dark",
+        "castle",
+        "medieval"
+      ],
+      "description": "Large dark rough stones with deep joints — keeps, towers, foundations",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/stone/rubble-wall-dark/color.webp",
+        "normal": "Textures/stone/rubble-wall-dark/normal.webp",
+        "roughness": "Textures/stone/rubble-wall-dark/roughness.webp",
+        "ao": "Textures/stone/rubble-wall-dark/ao.webp",
+        "height": "Textures/stone/rubble-wall-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks076A",
+        "url": "https://ambientcg.com/a/Bricks076A",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "stone/rubble-wall-dark-blocks",
+      "name": "Dark Rubble Blocks",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "rubble",
+        "dark",
+        "blocks",
+        "castle"
+      ],
+      "description": "Dark squared rubble in rough courses",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/stone/rubble-wall-dark-blocks/color.webp",
+        "normal": "Textures/stone/rubble-wall-dark-blocks/normal.webp",
+        "roughness": "Textures/stone/rubble-wall-dark-blocks/roughness.webp",
+        "ao": "Textures/stone/rubble-wall-dark-blocks/ao.webp",
+        "height": "Textures/stone/rubble-wall-dark-blocks/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks076B",
+        "url": "https://ambientcg.com/a/Bricks076B",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "stone/rubble-wall-black",
+      "name": "Black Rubble Wall",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "rubble",
+        "black",
+        "wet",
+        "dungeon"
+      ],
+      "description": "Very dark wet stones with pale mortar — dungeons, sea walls",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/stone/rubble-wall-black/color.webp",
+        "normal": "Textures/stone/rubble-wall-black/normal.webp",
+        "roughness": "Textures/stone/rubble-wall-black/roughness.webp",
+        "ao": "Textures/stone/rubble-wall-black/ao.webp",
+        "height": "Textures/stone/rubble-wall-black/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks076C",
+        "url": "https://ambientcg.com/a/Bricks076C",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "stone/fieldstone-stacked",
+      "name": "Stacked Fieldstone",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "dry stone",
+        "stacked",
+        "rustic",
+        "nordic"
+      ],
+      "description": "Flat stones stacked with thin joints — barns, walls, plinths",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/fieldstone-stacked/color.webp",
+        "normal": "Textures/stone/fieldstone-stacked/normal.webp",
+        "roughness": "Textures/stone/fieldstone-stacked/roughness.webp",
+        "ao": "Textures/stone/fieldstone-stacked/ao.webp",
+        "height": "Textures/stone/fieldstone-stacked/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks102",
+        "url": "https://ambientcg.com/a/Bricks102",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/polygonal-wall",
+      "name": "Polygonal Stone Wall",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "polygonal",
+        "flagstone",
+        "light"
+      ],
+      "description": "Light irregular polygonal stones — southern and coastal houses",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/polygonal-wall/color.webp",
+        "normal": "Textures/stone/polygonal-wall/normal.webp",
+        "roughness": "Textures/stone/polygonal-wall/roughness.webp",
+        "ao": "Textures/stone/polygonal-wall/ao.webp",
+        "height": "Textures/stone/polygonal-wall/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks075A",
+        "url": "https://ambientcg.com/a/Bricks075A",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "stone/polygonal-wall-dark",
+      "name": "Dark Polygonal Wall",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "polygonal",
+        "dark",
+        "flagstone"
+      ],
+      "description": "Dark irregular polygonal stones",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/polygonal-wall-dark/color.webp",
+        "normal": "Textures/stone/polygonal-wall-dark/normal.webp",
+        "roughness": "Textures/stone/polygonal-wall-dark/roughness.webp",
+        "ao": "Textures/stone/polygonal-wall-dark/ao.webp",
+        "height": "Textures/stone/polygonal-wall-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks075B",
+        "url": "https://ambientcg.com/a/Bricks075B",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "stone/sandstone-rubble",
+      "name": "Sandstone Rubble",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "sandstone",
+        "rubble",
+        "warm",
+        "desert"
+      ],
+      "description": "Warm sandstone rubble in thick mortar",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/sandstone-rubble/color.webp",
+        "normal": "Textures/stone/sandstone-rubble/normal.webp",
+        "roughness": "Textures/stone/sandstone-rubble/roughness.webp",
+        "ao": "Textures/stone/sandstone-rubble/ao.webp",
+        "height": "Textures/stone/sandstone-rubble/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks078",
+        "url": "https://ambientcg.com/a/Bricks078",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/sandstone-layered",
+      "name": "Layered Sandstone",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "sandstone",
+        "layered",
+        "dry stone"
+      ],
+      "description": "Thin layered sandstone slabs",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/sandstone-layered/color.webp",
+        "normal": "Textures/stone/sandstone-layered/normal.webp",
+        "roughness": "Textures/stone/sandstone-layered/roughness.webp",
+        "ao": "Textures/stone/sandstone-layered/ao.webp",
+        "height": "Textures/stone/sandstone-layered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks083",
+        "url": "https://ambientcg.com/a/Bricks083",
+        "license": "CC0 1.0",
+        "sizeCm": 300
+      }
+    },
+    {
+      "id": "stone/sandstone-courses",
+      "name": "Sandstone Courses",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "sandstone",
+        "courses",
+        "old"
+      ],
+      "description": "Weathered sandstone blocks in long courses",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/stone/sandstone-courses/color.webp",
+        "normal": "Textures/stone/sandstone-courses/normal.webp",
+        "roughness": "Textures/stone/sandstone-courses/roughness.webp",
+        "ao": "Textures/stone/sandstone-courses/ao.webp",
+        "height": "Textures/stone/sandstone-courses/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks091",
+        "url": "https://ambientcg.com/a/Bricks091",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/rough-sandstone",
+      "name": "Rough Sandstone",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "sandstone",
+        "rough",
+        "eroded"
+      ],
+      "description": "Eroded sandstone wall, soft edges",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/stone/rough-sandstone/color.webp",
+        "normal": "Textures/stone/rough-sandstone/normal.webp",
+        "roughness": "Textures/stone/rough-sandstone/roughness.webp",
+        "ao": "Textures/stone/rough-sandstone/ao.webp",
+        "height": "Textures/stone/rough-sandstone/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks095",
+        "url": "https://ambientcg.com/a/Bricks095",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/rubble-wall-grey",
+      "name": "Grey Rubble Wall",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "rubble",
+        "grey",
+        "old"
+      ],
+      "description": "Grey rubble with dirty mortar",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/stone/rubble-wall-grey/color.webp",
+        "normal": "Textures/stone/rubble-wall-grey/normal.webp",
+        "roughness": "Textures/stone/rubble-wall-grey/roughness.webp",
+        "ao": "Textures/stone/rubble-wall-grey/ao.webp",
+        "height": "Textures/stone/rubble-wall-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks096",
+        "url": "https://ambientcg.com/a/Bricks096",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/cyclopean-blocks",
+      "name": "Cyclopean Blocks",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "large",
+        "blocks",
+        "ancient",
+        "fortress"
+      ],
+      "description": "Huge irregular sandstone blocks — ancient walls, fortresses",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/stone/cyclopean-blocks/color.webp",
+        "normal": "Textures/stone/cyclopean-blocks/normal.webp",
+        "roughness": "Textures/stone/cyclopean-blocks/roughness.webp",
+        "ao": "Textures/stone/cyclopean-blocks/ao.webp",
+        "height": "Textures/stone/cyclopean-blocks/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks100",
+        "url": "https://ambientcg.com/a/Bricks100",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/ashlar-weathered",
+      "name": "Weathered Ashlar",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "ashlar",
+        "cut stone",
+        "blocks",
+        "castle",
+        "church"
+      ],
+      "description": "Large cut stone blocks, worn and stained — castles, chapels, gates",
+      "tileMeters": 2.4,
+      "maps": {
+        "color": "Textures/stone/ashlar-weathered/color.webp",
+        "normal": "Textures/stone/ashlar-weathered/normal.webp",
+        "roughness": "Textures/stone/ashlar-weathered/roughness.webp",
+        "ao": "Textures/stone/ashlar-weathered/ao.webp",
+        "height": "Textures/stone/ashlar-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks043",
+        "url": "https://ambientcg.com/a/Bricks043",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/ashlar-grey",
+      "name": "Grey Cut Stone",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "ashlar",
+        "cut stone",
+        "clean",
+        "palace"
+      ],
+      "description": "Clean grey cut blocks with fine joints — palaces, trim, columns",
+      "tileMeters": 2.4,
+      "maps": {
+        "color": "Textures/stone/ashlar-grey/color.webp",
+        "normal": "Textures/stone/ashlar-grey/normal.webp",
+        "roughness": "Textures/stone/ashlar-grey/roughness.webp",
+        "ao": "Textures/stone/ashlar-grey/ao.webp",
+        "height": "Textures/stone/ashlar-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks064",
+        "url": "https://ambientcg.com/a/Bricks064",
+        "license": "CC0 1.0",
+        "sizeCm": 240
+      }
+    },
+    {
+      "id": "stone/ashlar-dark",
+      "name": "Dark Cut Stone",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "ashlar",
+        "cut stone",
+        "dark"
+      ],
+      "description": "Dark grey cut blocks",
+      "tileMeters": 2.4,
+      "maps": {
+        "color": "Textures/stone/ashlar-dark/color.webp",
+        "normal": "Textures/stone/ashlar-dark/normal.webp",
+        "roughness": "Textures/stone/ashlar-dark/roughness.webp",
+        "ao": "Textures/stone/ashlar-dark/ao.webp",
+        "height": "Textures/stone/ashlar-dark/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks066",
+        "url": "https://ambientcg.com/a/Bricks066",
+        "license": "CC0 1.0",
+        "sizeCm": 240
+      }
+    },
+    {
+      "id": "stone/ashlar-cream",
+      "name": "Cream Cut Stone",
+      "category": "stone",
+      "tags": [
+        "wall",
+        "stone",
+        "ashlar",
+        "cream",
+        "limestone"
+      ],
+      "description": "Pale limestone blocks with dark stains",
+      "tileMeters": 2.4,
+      "maps": {
+        "color": "Textures/stone/ashlar-cream/color.webp",
+        "normal": "Textures/stone/ashlar-cream/normal.webp",
+        "roughness": "Textures/stone/ashlar-cream/roughness.webp",
+        "ao": "Textures/stone/ashlar-cream/ao.webp",
+        "height": "Textures/stone/ashlar-cream/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks041",
+        "url": "https://ambientcg.com/a/Bricks041",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/marble-white",
+      "name": "White Marble",
+      "category": "stone",
+      "tags": [
+        "marble",
+        "stone",
+        "polished",
+        "white",
+        "roman",
+        "temple"
+      ],
+      "description": "Polished white marble with fine veins — temples, columns, floors",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/marble-white/color.webp",
+        "normal": "Textures/stone/marble-white/normal.webp",
+        "roughness": "Textures/stone/marble-white/roughness.webp",
+        "height": "Textures/stone/marble-white/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Marble019",
+        "url": "https://ambientcg.com/a/Marble019",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "stone/marble-grey",
+      "name": "Grey Veined Marble",
+      "category": "stone",
+      "tags": [
+        "marble",
+        "stone",
+        "polished",
+        "grey",
+        "veins"
+      ],
+      "description": "Grey-blue marble with strong veins",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/stone/marble-grey/color.webp",
+        "normal": "Textures/stone/marble-grey/normal.webp",
+        "roughness": "Textures/stone/marble-grey/roughness.webp",
+        "height": "Textures/stone/marble-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Marble012",
+        "url": "https://ambientcg.com/a/Marble012",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "brick/old-red-brick",
+      "name": "Old Red Brick",
+      "category": "brick",
+      "tags": [
+        "wall",
+        "brick",
+        "red",
+        "old",
+        "weathered"
+      ],
+      "description": "Weathered red-brown brick, uneven mortar",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/brick/old-red-brick/color.webp",
+        "normal": "Textures/brick/old-red-brick/normal.webp",
+        "roughness": "Textures/brick/old-red-brick/roughness.webp",
+        "ao": "Textures/brick/old-red-brick/ao.webp",
+        "height": "Textures/brick/old-red-brick/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks097",
+        "url": "https://ambientcg.com/a/Bricks097",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "brick/red-brick",
+      "name": "Red Brick",
+      "category": "brick",
+      "tags": [
+        "wall",
+        "brick",
+        "red",
+        "clean"
+      ],
+      "description": "Even red brick in running bond",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/brick/red-brick/color.webp",
+        "normal": "Textures/brick/red-brick/normal.webp",
+        "roughness": "Textures/brick/red-brick/roughness.webp",
+        "ao": "Textures/brick/red-brick/ao.webp",
+        "height": "Textures/brick/red-brick/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks082A",
+        "url": "https://ambientcg.com/a/Bricks082A",
+        "license": "CC0 1.0",
+        "sizeCm": 150
+      }
+    },
+    {
+      "id": "brick/dark-brick",
+      "name": "Dark Brick",
+      "category": "brick",
+      "tags": [
+        "wall",
+        "brick",
+        "dark",
+        "soot",
+        "old"
+      ],
+      "description": "Soot-dark brick — industrial quarters",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/brick/dark-brick/color.webp",
+        "normal": "Textures/brick/dark-brick/normal.webp",
+        "roughness": "Textures/brick/dark-brick/roughness.webp",
+        "ao": "Textures/brick/dark-brick/ao.webp",
+        "height": "Textures/brick/dark-brick/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks073C",
+        "url": "https://ambientcg.com/a/Bricks073C",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "brick/brown-brick",
+      "name": "Brown Brick",
+      "category": "brick",
+      "tags": [
+        "wall",
+        "brick",
+        "brown",
+        "old"
+      ],
+      "description": "Brown brick with pale mortar",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/brick/brown-brick/color.webp",
+        "normal": "Textures/brick/brown-brick/normal.webp",
+        "roughness": "Textures/brick/brown-brick/roughness.webp",
+        "ao": "Textures/brick/brown-brick/ao.webp",
+        "height": "Textures/brick/brown-brick/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks054",
+        "url": "https://ambientcg.com/a/Bricks054",
+        "license": "CC0 1.0",
+        "sizeCm": 105
+      }
+    },
+    {
+      "id": "brick/pale-old-brick",
+      "name": "Pale Old Brick",
+      "category": "brick",
+      "tags": [
+        "wall",
+        "brick",
+        "pale",
+        "old",
+        "faded"
+      ],
+      "description": "Faded pale brick, worn faces",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/brick/pale-old-brick/color.webp",
+        "normal": "Textures/brick/pale-old-brick/normal.webp",
+        "roughness": "Textures/brick/pale-old-brick/roughness.webp",
+        "ao": "Textures/brick/pale-old-brick/ao.webp",
+        "height": "Textures/brick/pale-old-brick/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Bricks030",
+        "url": "https://ambientcg.com/a/Bricks030",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/lime-plaster",
+      "name": "Lime Plaster",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "plaster",
+        "lime",
+        "white",
+        "half-timber",
+        "infill"
+      ],
+      "description": "Hand-applied lime plaster with soft stains — half-timber infill, cottages",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/lime-plaster/color.webp",
+        "normal": "Textures/plaster/lime-plaster/normal.webp",
+        "roughness": "Textures/plaster/lime-plaster/roughness.webp",
+        "height": "Textures/plaster/lime-plaster/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Plaster005",
+        "url": "https://ambientcg.com/a/Plaster005",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/rough-plaster",
+      "name": "Rough Plaster",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "plaster",
+        "rough",
+        "white",
+        "rustic"
+      ],
+      "description": "Coarse rough-cast plaster",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/rough-plaster/color.webp",
+        "normal": "Textures/plaster/rough-plaster/normal.webp",
+        "roughness": "Textures/plaster/rough-plaster/roughness.webp",
+        "height": "Textures/plaster/rough-plaster/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Plaster003",
+        "url": "https://ambientcg.com/a/Plaster003",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/plaster-exposed-brick",
+      "name": "Peeling Plaster over Brick",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "plaster",
+        "peeling",
+        "old",
+        "brick",
+        "ruin"
+      ],
+      "description": "Old white plaster falling off to show brick — poor quarters, ruins",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/plaster-exposed-brick/color.webp",
+        "normal": "Textures/plaster/plaster-exposed-brick/normal.webp",
+        "roughness": "Textures/plaster/plaster-exposed-brick/roughness.webp",
+        "ao": "Textures/plaster/plaster-exposed-brick/ao.webp",
+        "height": "Textures/plaster/plaster-exposed-brick/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedPlaster014",
+        "url": "https://ambientcg.com/a/PaintedPlaster014",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/peeling-plaster-stone",
+      "name": "Peeling Plaster over Stone",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "plaster",
+        "peeling",
+        "old",
+        "stone",
+        "dirty"
+      ],
+      "description": "Dirty plaster coming away from stone",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/peeling-plaster-stone/color.webp",
+        "normal": "Textures/plaster/peeling-plaster-stone/normal.webp",
+        "roughness": "Textures/plaster/peeling-plaster-stone/roughness.webp",
+        "ao": "Textures/plaster/peeling-plaster-stone/ao.webp",
+        "height": "Textures/plaster/peeling-plaster-stone/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedPlaster016",
+        "url": "https://ambientcg.com/a/PaintedPlaster016",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/patched-plaster",
+      "name": "Patched Plaster",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "plaster",
+        "patched",
+        "white",
+        "old"
+      ],
+      "description": "White plaster with patched repairs",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/patched-plaster/color.webp",
+        "normal": "Textures/plaster/patched-plaster/normal.webp",
+        "roughness": "Textures/plaster/patched-plaster/roughness.webp",
+        "ao": "Textures/plaster/patched-plaster/ao.webp",
+        "height": "Textures/plaster/patched-plaster/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedPlaster006",
+        "url": "https://ambientcg.com/a/PaintedPlaster006",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/cracked-plaster",
+      "name": "Cracked Plaster",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "plaster",
+        "cracked",
+        "white",
+        "old"
+      ],
+      "description": "White plaster with hairline cracks",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/cracked-plaster/color.webp",
+        "normal": "Textures/plaster/cracked-plaster/normal.webp",
+        "roughness": "Textures/plaster/cracked-plaster/roughness.webp",
+        "height": "Textures/plaster/cracked-plaster/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedPlaster017",
+        "url": "https://ambientcg.com/a/PaintedPlaster017",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "plaster/smooth-stucco",
+      "name": "Smooth Stucco",
+      "category": "plaster",
+      "tags": [
+        "wall",
+        "stucco",
+        "smooth",
+        "mediterranean",
+        "baroque"
+      ],
+      "description": "Fine smooth render — Mediterranean and Baroque walls",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/plaster/smooth-stucco/color.webp",
+        "normal": "Textures/plaster/smooth-stucco/normal.webp",
+        "roughness": "Textures/plaster/smooth-stucco/roughness.webp",
+        "height": "Textures/plaster/smooth-stucco/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Plaster001",
+        "url": "https://ambientcg.com/a/Plaster001",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/vertical-boards-weathered",
+      "name": "Weathered Vertical Boards",
+      "category": "wood",
+      "tags": [
+        "wall",
+        "wood",
+        "boards",
+        "planks",
+        "vertical",
+        "grey",
+        "nordic",
+        "barn"
+      ],
+      "description": "Sun-greyed vertical boards — Nordic houses, barns, upper floors",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/wood/vertical-boards-weathered/color.webp",
+        "normal": "Textures/wood/vertical-boards-weathered/normal.webp",
+        "roughness": "Textures/wood/vertical-boards-weathered/roughness.webp",
+        "height": "Textures/wood/vertical-boards-weathered/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Planks001",
+        "url": "https://ambientcg.com/a/Planks001",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/vertical-boards-light",
+      "name": "Light Vertical Boards",
+      "category": "wood",
+      "tags": [
+        "wall",
+        "wood",
+        "boards",
+        "planks",
+        "vertical",
+        "light"
+      ],
+      "description": "Pale vertical boards with nail heads",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/wood/vertical-boards-light/color.webp",
+        "normal": "Textures/wood/vertical-boards-light/normal.webp",
+        "roughness": "Textures/wood/vertical-boards-light/roughness.webp",
+        "height": "Textures/wood/vertical-boards-light/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Planks002",
+        "url": "https://ambientcg.com/a/Planks002",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/vertical-boards-warm",
+      "name": "Warm Vertical Boards",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "boards",
+        "planks",
+        "vertical",
+        "door",
+        "shutter"
+      ],
+      "description": "Warm brown vertical boards — doors, shutters, gables",
+      "tileMeters": 1.4,
+      "maps": {
+        "color": "Textures/wood/vertical-boards-warm/color.webp",
+        "normal": "Textures/wood/vertical-boards-warm/normal.webp",
+        "roughness": "Textures/wood/vertical-boards-warm/roughness.webp",
+        "ao": "Textures/wood/vertical-boards-warm/ao.webp",
+        "height": "Textures/wood/vertical-boards-warm/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Planks004",
+        "url": "https://ambientcg.com/a/Planks004",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/dark-boards",
+      "name": "Dark Weathered Boards",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "boards",
+        "planks",
+        "horizontal",
+        "dark",
+        "old",
+        "deck"
+      ],
+      "description": "Dark weathered horizontal boards — decks, barns, docks",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/wood/dark-boards/color.webp",
+        "normal": "Textures/wood/dark-boards/normal.webp",
+        "roughness": "Textures/wood/dark-boards/roughness.webp",
+        "ao": "Textures/wood/dark-boards/ao.webp",
+        "height": "Textures/wood/dark-boards/height.webp",
+        "metalness": "Textures/wood/dark-boards/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Planks023A",
+        "url": "https://ambientcg.com/a/Planks023A",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/grey-boards",
+      "name": "Grey Weathered Boards",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "boards",
+        "planks",
+        "horizontal",
+        "grey",
+        "old"
+      ],
+      "description": "Grey bleached horizontal boards",
+      "tileMeters": 1.6,
+      "maps": {
+        "color": "Textures/wood/grey-boards/color.webp",
+        "normal": "Textures/wood/grey-boards/normal.webp",
+        "roughness": "Textures/wood/grey-boards/roughness.webp",
+        "ao": "Textures/wood/grey-boards/ao.webp",
+        "height": "Textures/wood/grey-boards/height.webp",
+        "metalness": "Textures/wood/grey-boards/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Planks027B",
+        "url": "https://ambientcg.com/a/Planks027B",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/weathered-beam",
+      "name": "Weathered Oak Beam",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "timber",
+        "beam",
+        "oak",
+        "grain",
+        "half-timber",
+        "frame"
+      ],
+      "description": "Dark weathered oak with open grain — half-timber frames, posts, brackets",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/wood/weathered-beam/color.webp",
+        "normal": "Textures/wood/weathered-beam/normal.webp",
+        "roughness": "Textures/wood/weathered-beam/roughness.webp",
+        "ao": "Textures/wood/weathered-beam/ao.webp",
+        "height": "Textures/wood/weathered-beam/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Wood062",
+        "url": "https://ambientcg.com/a/Wood062",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/rough-beam-grey",
+      "name": "Rough Grey Beam",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "timber",
+        "beam",
+        "grey",
+        "rough",
+        "knots"
+      ],
+      "description": "Rough grey timber with knots",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/wood/rough-beam-grey/color.webp",
+        "normal": "Textures/wood/rough-beam-grey/normal.webp",
+        "roughness": "Textures/wood/rough-beam-grey/roughness.webp",
+        "ao": "Textures/wood/rough-beam-grey/ao.webp",
+        "height": "Textures/wood/rough-beam-grey/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Wood073",
+        "url": "https://ambientcg.com/a/Wood073",
+        "license": "CC0 1.0",
+        "sizeCm": 70
+      }
+    },
+    {
+      "id": "wood/grey-old-wood",
+      "name": "Grey Old Wood",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "grey",
+        "old",
+        "weathered",
+        "fence"
+      ],
+      "description": "Silver-grey long-weathered wood",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/wood/grey-old-wood/color.webp",
+        "normal": "Textures/wood/grey-old-wood/normal.webp",
+        "roughness": "Textures/wood/grey-old-wood/roughness.webp",
+        "ao": "Textures/wood/grey-old-wood/ao.webp",
+        "height": "Textures/wood/grey-old-wood/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Wood011",
+        "url": "https://ambientcg.com/a/Wood011",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/painted-blue-worn",
+      "name": "Worn Blue Paint",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "painted",
+        "blue",
+        "worn",
+        "shutter",
+        "door"
+      ],
+      "description": "Blue paint worn through to wood — shutters, doors",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/wood/painted-blue-worn/color.webp",
+        "normal": "Textures/wood/painted-blue-worn/normal.webp",
+        "roughness": "Textures/wood/painted-blue-worn/roughness.webp",
+        "ao": "Textures/wood/painted-blue-worn/ao.webp",
+        "height": "Textures/wood/painted-blue-worn/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedWood008B",
+        "url": "https://ambientcg.com/a/PaintedWood008B",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/painted-green-worn",
+      "name": "Worn Green Paint",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "painted",
+        "green",
+        "worn",
+        "shutter",
+        "door"
+      ],
+      "description": "Green paint worn through to wood",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/wood/painted-green-worn/color.webp",
+        "normal": "Textures/wood/painted-green-worn/normal.webp",
+        "roughness": "Textures/wood/painted-green-worn/roughness.webp",
+        "ao": "Textures/wood/painted-green-worn/ao.webp",
+        "height": "Textures/wood/painted-green-worn/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedWood009B",
+        "url": "https://ambientcg.com/a/PaintedWood009B",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "wood/painted-cream-worn",
+      "name": "Worn Cream Paint",
+      "category": "wood",
+      "tags": [
+        "wood",
+        "painted",
+        "cream",
+        "worn",
+        "frame"
+      ],
+      "description": "Cream paint, chipped — window frames",
+      "tileMeters": 1.2,
+      "maps": {
+        "color": "Textures/wood/painted-cream-worn/color.webp",
+        "normal": "Textures/wood/painted-cream-worn/normal.webp",
+        "roughness": "Textures/wood/painted-cream-worn/roughness.webp",
+        "ao": "Textures/wood/painted-cream-worn/ao.webp",
+        "height": "Textures/wood/painted-cream-worn/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "PaintedWood006C",
+        "url": "https://ambientcg.com/a/PaintedWood006C",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "metal/black-iron",
+      "name": "Black Forged Iron",
+      "category": "metal",
+      "tags": [
+        "metal",
+        "iron",
+        "forged",
+        "black",
+        "hinge",
+        "lantern",
+        "bracket"
+      ],
+      "description": "Dark hand-forged iron — hinges, straps, lanterns, sign brackets",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/metal/black-iron/color.webp",
+        "normal": "Textures/metal/black-iron/normal.webp",
+        "roughness": "Textures/metal/black-iron/roughness.webp",
+        "height": "Textures/metal/black-iron/height.webp",
+        "metalness": "Textures/metal/black-iron/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Metal046A",
+        "url": "https://ambientcg.com/a/Metal046A",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "metal/rusty-iron",
+      "name": "Rusty Iron",
+      "category": "metal",
+      "tags": [
+        "metal",
+        "iron",
+        "rust",
+        "old"
+      ],
+      "description": "Iron with heavy orange rust",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/metal/rusty-iron/color.webp",
+        "normal": "Textures/metal/rusty-iron/normal.webp",
+        "roughness": "Textures/metal/rusty-iron/roughness.webp",
+        "height": "Textures/metal/rusty-iron/height.webp",
+        "metalness": "Textures/metal/rusty-iron/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Metal053C",
+        "url": "https://ambientcg.com/a/Metal053C",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "metal/copper-verdigris",
+      "name": "Copper Verdigris",
+      "category": "metal",
+      "tags": [
+        "metal",
+        "copper",
+        "verdigris",
+        "patina",
+        "green",
+        "dome",
+        "roof"
+      ],
+      "description": "Weathered copper turned green — domes, spires, roof sheets",
+      "tileMeters": 1.5,
+      "maps": {
+        "color": "Textures/metal/copper-verdigris/color.webp",
+        "normal": "Textures/metal/copper-verdigris/normal.webp",
+        "roughness": "Textures/metal/copper-verdigris/roughness.webp",
+        "height": "Textures/metal/copper-verdigris/height.webp",
+        "metalness": "Textures/metal/copper-verdigris/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Metal058C",
+        "url": "https://ambientcg.com/a/Metal058C",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "metal/copper-dark",
+      "name": "Dark Copper",
+      "category": "metal",
+      "tags": [
+        "metal",
+        "copper",
+        "dark",
+        "aged"
+      ],
+      "description": "Darkened aged copper",
+      "tileMeters": 1.5,
+      "maps": {
+        "color": "Textures/metal/copper-dark/color.webp",
+        "normal": "Textures/metal/copper-dark/normal.webp",
+        "roughness": "Textures/metal/copper-dark/roughness.webp",
+        "height": "Textures/metal/copper-dark/height.webp",
+        "metalness": "Textures/metal/copper-dark/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Metal047B",
+        "url": "https://ambientcg.com/a/Metal047B",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "metal/lead-sheet",
+      "name": "Lead Sheet",
+      "category": "metal",
+      "tags": [
+        "metal",
+        "lead",
+        "grey",
+        "roof",
+        "flashing"
+      ],
+      "description": "Matte grey lead — flat roofs, flashing, spires",
+      "tileMeters": 1.5,
+      "maps": {
+        "color": "Textures/metal/lead-sheet/color.webp",
+        "normal": "Textures/metal/lead-sheet/normal.webp",
+        "roughness": "Textures/metal/lead-sheet/roughness.webp",
+        "height": "Textures/metal/lead-sheet/height.webp",
+        "metalness": "Textures/metal/lead-sheet/metalness.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Metal038",
+        "url": "https://ambientcg.com/a/Metal038",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    },
+    {
+      "id": "ground/wild-grass",
+      "name": "Wild Grass",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "grass",
+        "turf",
+        "meadow",
+        "roof"
+      ],
+      "description": "Uneven grass with dry blades — turf roofs, lawns",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/wild-grass/color.webp",
+        "normal": "Textures/ground/wild-grass/normal.webp",
+        "roughness": "Textures/ground/wild-grass/roughness.webp",
+        "ao": "Textures/ground/wild-grass/ao.webp",
+        "height": "Textures/ground/wild-grass/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Grass004",
+        "url": "https://ambientcg.com/a/Grass004",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "ground/lush-grass",
+      "name": "Lush Grass",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "grass",
+        "green",
+        "lawn"
+      ],
+      "description": "Dense green grass",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/lush-grass/color.webp",
+        "normal": "Textures/ground/lush-grass/normal.webp",
+        "roughness": "Textures/ground/lush-grass/roughness.webp",
+        "ao": "Textures/ground/lush-grass/ao.webp",
+        "height": "Textures/ground/lush-grass/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Grass001",
+        "url": "https://ambientcg.com/a/Grass001",
+        "license": "CC0 1.0",
+        "sizeCm": 140
+      }
+    },
+    {
+      "id": "nature/moss",
+      "name": "Moss",
+      "category": "nature",
+      "tags": [
+        "moss",
+        "green",
+        "nature",
+        "overgrown"
+      ],
+      "description": "Dense green moss",
+      "tileMeters": 1.0,
+      "maps": {
+        "color": "Textures/nature/moss/color.webp",
+        "normal": "Textures/nature/moss/normal.webp",
+        "roughness": "Textures/nature/moss/roughness.webp",
+        "ao": "Textures/nature/moss/ao.webp",
+        "height": "Textures/nature/moss/height.webp"
+      },
+      "source": {
+        "site": "ambientCG",
+        "asset": "Moss002",
+        "url": "https://ambientcg.com/a/Moss002",
+        "license": "CC0 1.0",
+        "sizeCm": 0
+      }
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 class Mesh;
 
 // Unity 의 Mesh Filter: 렌더링할 메시를 보관한다. MeshRenderer 는 같은 GameObject 의 MeshFilter 에서 메시를 가져온다.
-class MeshFilter : public Component
+class NOVA_API MeshFilter : public Component
 {
 private:
 	shared_ptr<Mesh> m_Mesh;

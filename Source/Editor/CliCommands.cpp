@@ -72,9 +72,7 @@
 #include "SkinnedMesh.h"
 #include "TerrainGraph.h"
 #include "TerrainGraphWindow.h"
-#include "BuildingGeneratorWindow.h"
-#include "Building.h"
-#include "BuildingGenerator.h"
+#include "TextureLibrary.h"
 
 namespace
 {
@@ -429,15 +427,6 @@ namespace
 		if (type == "audio-source") return named(GameObjectFactory::CreateAudioSource());
 		if (type == "rock") return named(GameObjectFactory::CreateRock(args.value("preset", 2)));
 		if (type == "spline") return named(GameObjectFactory::CreateSpline(args.value("preset", 0)));
-		if (type == "building")
-		{
-			// --preset = 양식 번호 또는 이름 ("Tudor Townhouse", "Castle Keep" …), --seed > 0 = 같은 양식에서 조금씩 다르게
-			int style = 0;
-			if (args.contains("preset"))
-				style = args["preset"].is_string() ? BuildingDesc::FindStyle(args["preset"].get<std::string>()) : args["preset"].get<int>();
-			if (style < 0) { error = "unknown building style (nova building styles)"; return nullptr; }
-			return named(GameObjectFactory::CreateBuilding(style, args.value("seed", 0)));
-		}
 		if (type == "prototype") return named(GameObjectFactory::CreatePrototypeShape(args.value("preset", 0)));   // 0 상자 1 계단 2 경사 3 원기둥 4 원뿔 5 아치 벽 6 원호 벽   // 0 곡선, 1 성벽, 2 울타리, 3 판자 길, 4 길
 		if (type == "rock-scatter") return named(GameObjectFactory::CreateRockScatter(args.value("preset", 2)));
 		if (type == "open-world") return named(GameObjectFactory::CreateOpenWorld(args.value("size", 32768.0f)));
@@ -477,7 +466,7 @@ namespace
 			return g;
 		}
 		error = "unknown type '" + typeIn + "' (empty, cube, sphere, capsule, cylinder, plane, quad, directional-light, point-light, spot-light, global-light-2d, spot-light-2d, "
-			"camera, terrain, tree, rock, building {preset, seed}, rock-scatter, open-world {size}, pcg-volume {graph}, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character, car, ragdoll-target)";
+			"camera, terrain, tree, rock, rock-scatter, open-world {size}, pcg-volume {graph}, ocean, lake, river, particle-system, visual-effect, audio-source, volume, character, third-person-character, car, ragdoll-target)";
 		return nullptr;
 	}
 
@@ -1046,218 +1035,46 @@ namespace CliCommands
 			return true;
 		});
 
-		// 건축물 생성기 (Building · BuildingDesc): styles = 양식 목록, check = 양식마다 지어 정점 · 창 · 크기를 본다 (빈 메시 · NaN · 이상한 크기),
-		//  create = 장면에 만들기, set = 값 바꾸기 (values = BuildingDesc JSON 일부 — 묶음 shape · towers · walls · windows · roof · colors), info = 값 + 통계,
-		//  window = Window > Building Generator (style · step · yaw · pitch · zoom · target), preset = 저장 · 불러오기 (Assets/Buildings/*.building)
-		Register("building", "building generator {op: styles | check | create | set | info | window | preset, style?, seed?, target?, values?, step?, name?, path?}", [](const json& a, json& r, std::string& e) {
-			const std::string op = a.value("op", std::string("styles"));
-			int count = 0;
-			const char* const* names = BuildingDesc::StyleNames(count);
-			auto styleArg = [&](int fallback) {
-				if (!a.contains("style")) return fallback;
-				return a["style"].is_string() ? BuildingDesc::FindStyle(a["style"].get<std::string>()) : a["style"].get<int>();
-			};
-			auto info = [&](Building* b) {
-				const Building::Stats& st = b->GetStats();
-				return json{ { "object", b->GetGameObject()->GetName() }, { "style", b->Desc.Style >= 0 && b->Desc.Style < count ? names[b->Desc.Style] : "Custom" },
-					{ "vertices", st.Vertices }, { "triangles", st.Triangles }, { "subsets", st.Subsets }, { "windows", st.Windows }, { "doors", st.Doors },
-					{ "wings", st.Wings }, { "towers", st.Towers }, { "size", { st.Size.x, st.Size.y, st.Size.z } }, { "ms", st.Ms }, { "desc", b->Desc.ToJson() } };
-			};
-			// 값 덮어쓰기 (묶음 안 키만 — 나머지는 그대로). {"style": 이름} 만 있으면 그 양식으로
-			auto merge = [](BuildingDesc& d, const json& values) {
-				if (values.contains("style") && !values.contains("shape") && values.size() <= 2)
-				{
-					BuildingDesc n;
-					n.Seed = values.value("seed", d.Seed);
-					n.ApplyStyle(values["style"].is_string() ? (std::max)(0, BuildingDesc::FindStyle(values["style"].get<std::string>())) : values["style"].get<int>());
-					d = n;
-					return;
-				}
-				json j = d.ToJson();
-				for (auto it = values.begin(); it != values.end(); ++it)
-				{
-					if (it.value().is_object() && j.contains(it.key()) && j[it.key()].is_object())
-						for (auto k = it.value().begin(); k != it.value().end(); ++k)
-							j[it.key()][k.key()] = k.value();
-					else
-						j[it.key()] = it.value();
-				}
-				d.FromJson(j);
-			};
-			if (op == "styles")
+		// 텍스처 팩 재질 (TextureLibrary — 프로젝트에 들어간 패키지의 catalog.json): AI 가 이름 · 분류 · 태그로 찾는다
+		//  list [--category roof] · search --query "mossy stone wall" [--category stone] · info --id roof/slate · categories
+		Register("textures", "texture pack materials {op: list | search | info | categories | reload, category?, query?, id?}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("list"));
+			const std::string category = a.value("category", std::string());
+			if (op == "reload")
 			{
-				json list = json::array();
-				for (int s = 0; s < count; ++s)
-					list.push_back({ { "index", s }, { "name", names[s] }, { "description", BuildingDesc::StyleDescription(s) } });
-				r = { { "count", count }, { "styles", list } };
+				TextureLibrary::Reload();
+				r = { { "count", TextureLibrary::All().size() } };
 				return true;
 			}
-			if (op == "check")
+			if (op == "categories")
 			{
-				// 양식마다 (기본 + 무작위 seeds 개) 짓기 — 문제: 빈 메시 · NaN · 잘못된 인덱스 · 크기 · 문 없음
-				json list = json::array();
-				int bad = 0, built = 0;
-				const int seeds = a.value("seeds", 3);
-				for (int s = 0; s < count; ++s)
-					for (int k = 0; k <= seeds; ++k)
-					{
-						BuildingDesc d;
-						d.ApplyStyle(s);
-						if (k > 0)
-							d.Randomize(k * 101 + s);
-						const auto t0 = std::chrono::steady_clock::now();
-						BuildingGenerator::Output out;
-						BuildingGenerator::Generate(d, out);
-						const float ms = std::chrono::duration<float, std::milli>(std::chrono::steady_clock::now() - t0).count();
-						++built;
-						bool finite = true;
-						size_t badIndex = 0;
-						for (const auto& part : out.Parts)
-						{
-							for (const auto& v : part.V)
-								finite &= std::isfinite(v.pos.x) && std::isfinite(v.pos.y) && std::isfinite(v.pos.z) && std::isfinite(v.normal.x) && std::isfinite(v.tex.x) && std::isfinite(v.tex.y);
-							for (uint32_t i : part.I)
-								badIndex += i >= part.V.size();
-						}
-						const float h = out.Max.y - out.Min.y, w = (std::max)(out.Max.x - out.Min.x, out.Max.z - out.Min.z);
-						std::string issue;
-						if (out.Triangles() == 0) issue = "empty mesh";
-						else if (!finite) issue = "non-finite vertex";
-						else if (badIndex) issue = "index out of range";
-						else if (h < d.WallHeight() * 0.8f || h > d.WallHeight() * 4.0f + 40.0f) issue = "height " + std::to_string(h);
-						else if (w < (std::min)(d.Width, d.Depth) * 0.8f || w > (std::max)(d.Width, d.Depth) * 3.0f + 24.0f) issue = "width " + std::to_string(w);
-						else if (out.Doors == 0 && !d.Arcade) issue = "no door";   // 열린 아케이드 (시장) = 문 대신 아치
-						json j = { { "style", names[s] }, { "seed", k }, { "vertices", out.Vertices() }, { "triangles", out.Triangles() }, { "windows", out.Windows },
-							{ "doors", out.Doors }, { "size", { out.Max.x - out.Min.x, h, out.Max.z - out.Min.z } }, { "ms", ms } };
-						if (!issue.empty())
-						{
-							j["issue"] = issue;
-							++bad;
-						}
-						if (k == 0 || !issue.empty())
-							list.push_back(j);
-					}
-				r = { { "count", count }, { "built", built }, { "bad", bad }, { "buildings", list } };
-				return true;
-			}
-			if (op == "window")
-			{
-				if (!BuildingGeneratorWindow::Instance()) { e = "the Building Generator window is not registered"; return false; }
-				Building* target = nullptr;
-				if (a.contains("target"))
+				json cats = json::object();
+				for (const std::string& c : TextureLibrary::Categories())
 				{
-					GameObject* go = Resolve(a["target"], e);
-					if (!go) return false;
-					target = go->GetComponent<Building>();
-					if (!target) { e = "'" + go->GetName() + "' has no Building"; return false; }
+					int n = 0;
+					for (const auto& m : TextureLibrary::All())
+						n += m.Category == c;
+					cats[c] = n;
 				}
-				BuildingGeneratorWindow::Open(target, a.value("step", -1));
-				BuildingGeneratorWindow* w = BuildingGeneratorWindow::Instance();
-				const int style = styleArg(-1);
-				if (style >= 0)
-				{
-					w->Desc().ApplyStyle(style);
-					if (a.value("seed", 0) > 0)
-						w->Desc().Randomize(a.value("seed", 0));
-				}
-				if (a.contains("values"))
-					merge(w->Desc(), a["values"]);
-				w->Changed();
-				w->SetView(a.value("yaw", -32.0f), a.value("pitch", 18.0f), a.value("zoom", 1.0f));
-				r = { { "step", w->Step() }, { "style", w->Desc().Style }, { "desc", w->Desc().ToJson() } };
-				return true;
-			}
-			if (op == "preset")
-			{
-				const std::string path = a.value("path", std::string());
-				if (a.contains("target"))
-				{
-					GameObject* go = Resolve(a["target"], e);
-					if (!go) return false;
-					Building* b = go->GetComponent<Building>();
-					if (!b) { e = "'" + go->GetName() + "' has no Building"; return false; }
-					if (!path.empty())
-					{
-						// 불러오기 → 이 건물에
-						if (!RequireEditMode(e)) return false;
-						BuildingDesc d = b->Desc;
-						if (!BuildingGeneratorWindow::LoadPreset(path, d)) { e = "cannot read " + path; return false; }
-						b->SetDesc(d);
-						b->Rebuild();
-						AfterEdit("Load Building Preset", go);
-						r = info(b);
-						r.erase("desc");
-						return true;
-					}
-					std::string saved;
-					if (!BuildingGeneratorWindow::SavePreset(a.value("name", go->GetName()), b->Desc, saved)) { e = "cannot save the preset"; return false; }
-					r = { { "path", saved } };
-					return true;
-				}
-				json list = json::array();
-				for (const std::string& p : BuildingGeneratorWindow::ListPresets())
-					list.push_back(p);
-				r = { { "presets", list } };
-				return true;
-			}
-			if (op == "create")
-			{
-				if (!RequireEditMode(e)) return false;
-				Scene* scene = CurrentScene();
-				if (!scene) { e = "no scene is open"; return false; }
-				const int style = styleArg(0);
-				if (style < 0 || style >= count) { e = "unknown style (nova building styles)"; return false; }
-				BuildingDesc d;
-				d.ApplyStyle(style);
-				if (a.value("seed", 0) > 0)
-					d.Randomize(a.value("seed", 0));
-				if (a.contains("values"))
-					merge(d, a["values"]);
-				GameObject* go = GameObjectFactory::CreateBuilding(style, 0, &d);
-				if (a.contains("name") && a["name"].is_string())
-					go->SetName(a["name"].get<std::string>());
-				scene->AddRootGameObject(go);
-				Place(go, a);
-				if (a.value("select", true))
-					SelectionManager::SetSelectedGameObject(go);
-				AfterEdit("Create " + go->GetName(), go);
-				r = info(go->GetComponent<Building>());
-				r["path"] = PathOf(go);
-				r["id"] = IdOf(go);
-				r.erase("desc");
-				return true;
-			}
-			// set · info: 대상 건물
-			if (!a.contains("target")) { e = "--target is required"; return false; }
-			GameObject* go = Resolve(a["target"], e);
-			if (!go) return false;
-			Building* b = go->GetComponent<Building>();
-			if (!b) { e = "'" + go->GetName() + "' has no Building"; return false; }
-			if (op == "set")
-			{
-				if (!RequireEditMode(e)) return false;
-				BuildingDesc d = b->Desc;
-				const int style = styleArg(-1);
-				if (style >= 0)
-					d.ApplyStyle(style);
-				if (a.value("seed", 0) > 0)
-					d.Randomize(a.value("seed", 0));
-				if (a.contains("values"))
-					merge(d, a["values"]);
-				b->SetDesc(d);
-				b->Rebuild();
-				AfterEdit("Set Building " + go->GetName(), go);
-				r = info(b);
-				r.erase("desc");
+				r = { { "count", TextureLibrary::All().size() }, { "categories", cats } };
 				return true;
 			}
 			if (op == "info")
 			{
-				r = info(b);
+				const std::string id = a.value("id", a.value("path", std::string()));
+				const TextureLibrary::Material* m = TextureLibrary::Find(id);
+				if (!m) { e = "no texture material '" + id + "' (nova textures search --query <words>)"; return false; }
+				r = TextureLibrary::ToJson(*m, true);
 				return true;
 			}
-			e = "unknown op '" + op + "' (styles, check, create, set, info, window, preset)";
-			return false;
+			const std::string query = op == "search" ? a.value("query", a.value("path", std::string())) : std::string();
+			json list = json::array();
+			for (const TextureLibrary::Material* m : TextureLibrary::Search(query, category))
+				list.push_back(TextureLibrary::ToJson(*m, false));
+			r = { { "count", list.size() }, { "materials", list } };
+			if (TextureLibrary::All().empty())
+				r["note"] = "no texture pack in the project (nova package add com.nova.textures)";
+			return true;
 		});
 
 		// 식생 종 (PlantLibrary): list = 이름 · 기후대 · 층 · 기후 범위, check = 종마다 메시를 만들어 정점 · 삼각형 · 크기를 본다 (빈 메시 · 이상한 크기를 찾는다)

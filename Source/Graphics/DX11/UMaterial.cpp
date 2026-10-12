@@ -367,9 +367,11 @@ void UMaterial::SetNormalMap(TextureMgr texMgr, wstring fullPath)
 }
 
 void UMaterial::SetRuntime(const std::string& path, const PbrMaterial& pbr, GfxShaderResourceView* baseMap, GfxShaderResourceView* normalMap,
-	GfxShaderResourceView* metallicMap, GfxShaderResourceView* occlusionMap)
+	GfxShaderResourceView* metallicMap, GfxShaderResourceView* occlusionMap, GfxShaderResourceView* heightMap, const Tessellation* tess)
 {
 	m_ResourcePath = path;
+	HeightMapSRV = heightMap;
+	m_Tess = tess ? *tess : Tessellation();
 	m_Shader = ShaderKind::Lit;
 	m_Pbr = pbr;
 	BaseMapSRV = baseMap;

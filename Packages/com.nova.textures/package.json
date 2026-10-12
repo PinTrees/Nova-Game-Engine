@@ -1,0 +1,10 @@
+{
+  "name": "com.nova.textures",
+  "displayName": "Texture Pack — Materials",
+  "version": "1.0.0",
+  "date": "2026-10-13",
+  "description": "High-quality CC0 PBR materials (ambientCG) sorted by category: stone walls (rubble, fieldstone, ashlar, marble), brick, plaster, wood (boards, beams), roofs (clay tiles, slate, fish-scale stone, wood shingles, thatch), metal (forged iron, rust, copper verdigris, lead) and ground. Each material has color, DirectX normal, roughness, ambient occlusion and height maps as 1024 WebP (about 0.6 MB a material) plus a catalog entry with a stable id (category/name), tags, a description and its real-world size. Packages such as the Building Generator use them by id; AI agents find them with nova textures list | search | info.",
+  "category": "Textures",
+  "author": { "name": "NOVA" },
+  "keywords": [ "textures", "materials", "pbr", "stone", "brick", "plaster", "wood", "roof", "tiles", "slate", "thatch", "metal", "cc0", "ambientcg", "webp" ]
+}

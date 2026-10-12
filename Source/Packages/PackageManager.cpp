@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "Debug.h"
 #include "PackageManager.h"
+#include "TextureLibrary.h"
 #include "AddComponentMenu.h"
 #include "MissingComponent.h"
 #include "ScriptEngine.h"
@@ -133,6 +134,7 @@ namespace
 	void ReadManifest()
 	{
 		s_Manifest.clear();
+		TextureLibrary::Reload();   // 텍스처 팩이 들고 나면 재질 목록을 다시
 		json j = json::parse(ReadText(PackageManager::ManifestPath()), nullptr, false);
 		if (j.is_discarded() || !j.is_object() || !j.contains("dependencies") || !j["dependencies"].is_object())
 			return;
@@ -142,6 +144,7 @@ namespace
 
 	bool WriteManifest(std::string& error)
 	{
+		TextureLibrary::Reload();
 		json j = json::object();
 		json deps = json::object();
 		for (const auto& kv : s_Manifest)

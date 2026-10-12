@@ -159,8 +159,9 @@ public:
 	std::shared_ptr<UMaterial> CloneInstance() const;
 	bool IsInstance() const { return m_Instance; }
 	// 코드로 만든 재질 (건축물 생성기): 이름 · 값 · 메모리 텍스처를 바로 넣는다 (파일 없음 — "builtin:" 경로라 저장하지 않는다)
+	//  heightMap + tess = 가까운 곳 테셀레이션 변위 (Height Map 의 r, Tiling 그대로)
 	void SetRuntime(const std::string& path, const PbrMaterial& pbr, GfxShaderResourceView* baseMap, GfxShaderResourceView* normalMap,
-		GfxShaderResourceView* metallicMap, GfxShaderResourceView* occlusionMap);
+		GfxShaderResourceView* metallicMap, GfxShaderResourceView* occlusionMap, GfxShaderResourceView* heightMap = nullptr, const Tessellation* tess = nullptr);
 	std::string ScriptName() const;   // C# Material.name
 	// 값이 바뀌었는지 (MaterialPropertyBlock 의 파생 재질을 다시 만들지) — 엔진 값 + 패키지 속성 수정 번호
 	uint64 StateHash() const;

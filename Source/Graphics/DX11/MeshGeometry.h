@@ -10,7 +10,7 @@ struct BlendShapeData
 	std::vector<XMFLOAT3> DNrm;     // 법선 차이
 };
 
-class MeshGeometry
+class NOVA_API MeshGeometry
 {
 public:
 	struct Subset

@@ -9,7 +9,7 @@ class Effect;
 class UMaterial;
 class InstancingBuffer;
 
-class MeshRenderer : public Component
+class NOVA_API MeshRenderer : public Component
 {
 	using Super = Component;
 

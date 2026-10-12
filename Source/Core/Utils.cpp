@@ -1,4 +1,5 @@
 ﻿#include "pch.h"
+#include "ImageIO.h"
 #include "Utils.h"
 #include "MathHelper.h"
 #include <filesystem>
@@ -275,7 +276,7 @@ HRESULT Utils::DecodeTexture(const wstring& path, DirectX::ScratchImage& img, Di
 			ApplyTextureImport(img, md, ts, path);
 		}
 	}
-	else // png, jpg, jpeg, bmp
+	else // png, jpg, jpeg, bmp, webp
 	{
 		// 디코딩 + 가져오기 설정을 적용한 텍스처를 밉맵 포함 DDS로 캐시해 다음 실행의 PNG 디코딩을 생략
 		// (이름에 설정 태그 — 설정을 바꾸면 다른 캐시. v2 = Import Settings 이전 캐시는 쓰지 않음)
@@ -292,7 +293,7 @@ HRESULT Utils::DecodeTexture(const wstring& path, DirectX::ScratchImage& img, Di
 		{
 			hr = ::LoadFromDDSFile(cacheFile.c_str(), DDS_FLAGS_NONE, &md, img);
 			TexMetadata src = {};
-			if (SUCCEEDED(hr) && SUCCEEDED(::GetMetadataFromWICFile(path.c_str(), WIC_FLAGS_NONE, src)))
+			if (SUCCEEDED(hr) && SUCCEEDED(ImageIO::GetMetadata(path.c_str(), WIC_FLAGS_NONE, src)))
 			{
 				sourceW = (int)src.width;
 				sourceH = (int)src.height;
@@ -301,7 +302,7 @@ HRESULT Utils::DecodeTexture(const wstring& path, DirectX::ScratchImage& img, Di
 
 		if (FAILED(hr))
 		{
-			hr = ::LoadFromWICFile(path.c_str(), WIC_FLAGS_NONE, &md, img);
+			hr = ImageIO::Load(path.c_str(), WIC_FLAGS_NONE, &md, img);   // png · jpg · webp …
 			if (SUCCEEDED(hr))
 			{
 				sourceW = (int)md.width;

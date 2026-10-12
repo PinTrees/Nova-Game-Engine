@@ -135,7 +135,7 @@ namespace UISprites
 	{
 		std::string ext = fs::path(path).extension().string();
 		std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-		return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".dds";
+		return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp" || ext == ".dds" || ext == ".webp";
 	}
 
 	std::string DisplayName(const std::string& path)

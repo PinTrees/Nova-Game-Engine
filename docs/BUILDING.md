@@ -1,6 +1,31 @@
 # 건축물 생성기 (Building Generator)
 
-NOVA 의 건물은 모델 파일 · 텍스처 없이 **식으로** 짓습니다. 값 한 벌 (`BuildingDesc`) 에서 메시를 만들고, 재질 텍스처 (알베도 · 노멀 · 마스크) 도 실행 중에 굽습니다. 장면에는 값만 저장하고, 열 때 다시 짓습니다.
+NOVA 의 건물은 모델 파일 없이 **식으로** 짓습니다. 값 한 벌 (`BuildingDesc`) 에서 메시를 만들고, 재질은 **텍스처 팩** (사진 PBR 재질) 을 그대로 씁니다. 장면에는 값만 저장하고, 열 때 다시 짓습니다.
+
+## 패키지
+
+| 패키지 | 내용 |
+|---|---|
+| `com.nova.building` (Building Generator) | `NovaBuilding.dll` — Building 컴포넌트 · Window > Building Generator · GameObject > 3D Object > Building · `.building` 프리셋 · CLI `nova building`. 종속: `com.nova.textures` |
+| `com.nova.textures` (Texture Pack — Materials) | CC0 PBR 재질 85 개 (ambientCG) — 지붕 35 (RoofingTiles 전부 · 이엉 · 너와) · 돌 19 · 벽돌 5 · 회벽 7 · 나무 11 · 금속 5 · 땅 · 자연. 1024² WebP 48 MB, `catalog.json` 의 id 로 찾는다 — [목록](../Packages/com.nova.textures/README.md) |
+
+Window > Package Manager 또는 `nova package add com.nova.building` (텍스처 팩도 같이 들어온다).
+
+## 텍스처 팩 재질 (그대로)
+
+- 재질 칸마다 텍스처 팩 id (예 `roof/clay-tiles-mossy`). 고르지 않으면 벽 · 지붕 재질 종류의 기본 id (막돌 → `stone/rubble-wall`, 이엉 → `roof/thatch` …). `procedural` = 식으로 굽는 재질 (유리 · 깃발 · 칠한 무늬 · 꽃 — 팩에 없는 것)
+- **사진 원본을 바꾸지 않는다**: 색 · DirectX 노멀 · 거칠기 (Smoothness = 1 - 거칠기) · AO · 금속 · 높이 그대로. 양식 색은 식으로 굽는 재질에만 곱한다
+- **형식만 바꾼다**: 엔진이 WebP 를 직접 읽고 (libwebp — `ImageIO`), 처음 쓸 때 RGBA8 로 바로 올린 뒤 뒤에서 BC 압축 (색 BC1 · 노멀 BC7 · 마스크 BC3 · 높이 BC4) 해 프로젝트 `Library/NovaBuilding/TextureCache` 에 캐시 — 다음부터 캐시 (VRAM 1/4). 편집기를 닫으면 남은 압축은 취소 (기다리지 않는다)
+- **가까운 곳 테셀레이션**: 높이 맵이 있는 깊은 재질 (막돌 5.5 cm · 기와 5 cm · 이엉 6 cm · 슬레이트 · 너와 · 마름돌 · 벽돌) 은 22 m 안에서 삼각형을 나눠 높이만큼 민다 (엔진 Tessellation — 노멀맵만으로 모자란 깊이)
+- 재질 칸 · 분류 (편집기 7 단계 Materials, CLI `nova building materials`):
+
+| 칸 (key) | 어울리는 분류 |
+|---|---|
+| wallLower · wallUpper | stone · brick · plaster · wood |
+| trim | stone · brick |
+| roof | roof · metal · ground |
+| timber · frame · door · shutter | wood |
+| metal | metal |
 
 ![건축물 생성기](images/building_generator.webp)
 
@@ -46,7 +71,7 @@ NOVA 의 건물은 모델 파일 · 텍스처 없이 **식으로** 짓습니다.
 - **불규칙**: 다 지은 뒤 모든 정점을 같은 매끈한 식으로 옮긴다 (위층 기울기 · 용마루 처짐 · 낮은 주파수 흔들림) — 틈이 생기지 않는다. 둥근 탑은 위로 갈수록 휜다 (마법사 탑).
 - **메시**: 재질 칸 14 개 (1 층 벽 · 위층 벽 · 장식 돌 · 들보 · 지붕 · 유리 · 창틀 · 덧창 · 문 · 금속 · 천 · 칠한 무늬 · 깃발 · 잎) 마다 서브셋, 정점 65535 개마다 나눈다 (16 비트 인덱스 + VertexStart).
 
-## 재질 텍스처 (BuildingTextures)
+## 식으로 굽는 재질 (BuildingTextures — 팩에 없을 때)
 
 종류 24 개 (막돌 · 마름돌 · 벽돌 · 회벽 · 스투코 · 판자 · 통나무 · 대리석 · 기와 · 슬레이트 · 이엉 · 너와 · 구리 · 납 · 잔디 · 들보 · 유리 · 납틀 유리 · 문 판자 · 금속 · 천 · 칠한 무늬 판 · 깃발 · 잎) 를 이어지는 타일로 굽는다. 벽 · 지붕 · 들보는 1024², 나머지 512² (밉맵 포함).
 
@@ -69,7 +94,9 @@ nova building set --target "Northern Merchant House" --values '{"shape":{"floors
 nova building info --target "Northern Merchant House"
 nova building window --style "Tudor Townhouse" --step 5
 nova building preset --target "Northern Merchant House" --name "My House"
-nova create building --preset "Castle Keep" --seed 3
+nova building materials --target "Northern Merchant House"
+nova building set --target "Northern Merchant House" --values '{"materials":{"roof":"roof/thatch-mossy","wallLower":"stone/rubble-wall-dark"}}'
+nova textures search --query "mossy roof tiles"
 ```
 
 - `check` — 양식마다 기본 + 무작위 변형을 지어 빈 메시 · NaN · 잘못된 인덱스 · 크기 · 문 없음을 찾는다.

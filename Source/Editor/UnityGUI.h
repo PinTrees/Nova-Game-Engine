@@ -74,7 +74,7 @@ namespace UnityGUI
 
 	// ---- 섹션 ----
 	// SRP 스타일 접이식 서브 섹션 (예: Projection, Rendering). 열려 있으면 true.
-bool Foldout(const char* label, int indent = 0, bool defaultOpen = true, bool help = true);
+	NOVA_API bool Foldout(const char* label, int indent = 0, bool defaultOpen = true, bool help = true);
 	// 배경 밴드 없이 화살표 + 굵은 글자만 있는 폴드아웃 (MeshRenderer 의 Lighting / Probes 등)
 	NOVA_API bool FoldoutPlain(const char* label, int indent = 0, bool defaultOpen = true);
 	// "Materials" 폴드아웃 + 오른쪽 크기 입력 필드

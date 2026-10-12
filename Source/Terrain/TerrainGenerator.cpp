@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "ImageIO.h"
 #include "TerrainGenerator.h"
 #include "TerrainData.h"
 #include "Terrain.h"
@@ -1320,7 +1321,7 @@ namespace TerrainGenerator
 		else if (_wcsicmp(ext.c_str(), L".tga") == 0)
 			hr = DirectX::LoadFromTGAFile(path.c_str(), nullptr, loaded);
 		else
-			hr = DirectX::LoadFromWICFile(path.c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, loaded);
+			hr = ImageIO::Load(path.c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, loaded);
 		if (SUCCEEDED(hr))
 		{
 			DirectX::ScratchImage converted;

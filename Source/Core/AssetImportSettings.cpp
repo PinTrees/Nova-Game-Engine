@@ -232,7 +232,7 @@ namespace AssetImport
 	Kind KindOf(const std::wstring& path)
 	{
 		const std::string ext = Lower(fs::path(path).extension().string());
-		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tga" || ext == ".dds")
+		if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" || ext == ".tga" || ext == ".dds" || ext == ".webp")
 			return Kind::Texture;
 		if (ext == ".fbx" || ext == ".vrm" || ext == ".glb" || ext == ".gltf")
 			return Kind::Model;

@@ -7169,16 +7169,24 @@ function Suite-Building
     try
     {
         Invoke-Nova 'autosave discard' | Out-Null
+        # 패키지 (Building Generator) → 종속 텍스처 팩도 같이 들어온다
+        $pa = Invoke-NovaJson 'package add com.nova.building'
+        $pl = Invoke-Nova 'package list' | Out-String
+        $cats = Invoke-NovaJson 'textures categories'
+        $srch = Invoke-NovaJson 'textures search --query "mossy thatch"'
+        $tinfo = Invoke-NovaJson 'textures info --id roof/slate'
+        $firstHit = @($srch.materials)[0].id
+        Add-Result building 'package: com.nova.building pulls in com.nova.textures; nova textures lists 80+ named materials by category and finds them by words' ($pl -match 'com\.nova\.building' -and $pl -match 'com\.nova\.textures' -and [int]$cats.count -ge 80 -and @($cats.categories.PSObject.Properties).Count -ge 7 -and $firstHit -eq 'roof/thatch-mossy' -and $tinfo.maps.normal -like '*normal.webp') "materials $($cats.count), categories $(@($cats.categories.PSObject.Properties).Count), 'mossy thatch' -> $firstHit, slate normal $($tinfo.maps.normal)"
         $st = Invoke-NovaJson 'building styles'
         $names = @($st.styles | ForEach-Object { $_.name })
-        $wanted = @('Medieval Cottage', 'Tudor Townhouse', 'Tavern', 'Castle Keep', 'Wizard Tower', 'Nordic Longhouse', 'Stave Church', 'Roman Temple', 'Baroque Palace', 'Northern Merchant House', 'Northern Gatehouse')
+        $wanted = @('Medieval Cottage', 'Tudor Townhouse', 'Tavern', 'Castle Keep', 'Wizard Tower', 'Nordic Longhouse', 'Stave Church', 'Roman Temple', 'Baroque Palace', 'Northern Merchant House', 'Northern Gatehouse', 'Riverland Townhouse', 'Highland Manor')
         $missing = @($wanted | Where-Object { $names -notcontains $_ })
-        Add-Result building 'styles: 19 (medieval fantasy, Nordic, Roman, Gothic, Baroque, Alpine, Mediterranean)' ([int]$st.count -ge 19 -and $missing.Count -eq 0) "styles $($st.count), missing [$($missing -join ', ')]"
+        Add-Result building 'styles: 21 (medieval fantasy, Nordic, Roman, Gothic, Baroque, Alpine, Mediterranean)' ([int]$st.count -ge 21 -and $missing.Count -eq 0) "styles $($st.count), missing [$($missing -join ', ')]"
 
         $chk = Invoke-NovaJson 'building check --seeds 3'
         $issues = @($chk.buildings | Where-Object { $_.issue } | ForEach-Object { "$($_.style) seed $($_.seed): $($_.issue)" })
         $slow = @($chk.buildings | ForEach-Object { [double]$_.ms } | Measure-Object -Maximum).Maximum
-        Add-Result building 'every style and random variant builds a valid mesh (door, sane size, finite, indices in range)' ([int]$chk.bad -eq 0 -and [int]$chk.built -ge 76) "built $($chk.built), bad $($chk.bad) [$($issues -join '; ')], slowest $([math]::Round($slow, 1)) ms"
+        Add-Result building 'every style and random variant builds a valid mesh (door, sane size, finite, indices in range)' ([int]$chk.bad -eq 0 -and [int]$chk.built -ge 84) "built $($chk.built), bad $($chk.bad) [$($issues -join '; ')], slowest $([math]::Round($slow, 1)) ms"
 
         Invoke-Nova 'scene new --force' | Out-Null
         Invoke-Nova 'create plane --name Ground --scale 10,1,10' | Out-Null
@@ -7195,6 +7203,10 @@ function Suite-Building
         $rich = Invoke-NovaJson 'building set --target BC --values "{\"roof\":{\"brackets\":true,\"bargeboards\":2,\"finials\":true,\"paintedGables\":true},\"details\":{\"terrace\":true,\"lanterns\":true,\"banners\":2,\"props\":2,\"flowerBoxes\":true,\"shopSign\":true,\"cornerPosts\":true}}"'
         Add-Result building 'details (brackets, carved bargeboards, terrace, banners, props, flower boxes) add geometry' ([int]$rich.triangles -gt [int]$plain.triangles * 1.3) "plain $($plain.triangles) → detailed $($rich.triangles) triangles"
 
+        $mt = Invoke-NovaJson 'building set --target BC --values "{\"materials\":{\"roof\":\"roof/thatch-mossy\",\"wallLower\":\"stone/rubble-wall-dark\"}}"'
+        $mi = Invoke-NovaJson 'building materials --target BC'
+        Add-Result building 'materials: each part takes a texture-pack id (roof = mossy thatch, ground floor = dark rubble), defaults come from the wall / roof kind' ($mi.materials.roof -eq 'roof/thatch-mossy' -and $mi.materials.wallLower -eq 'stone/rubble-wall-dark' -and $mi.materials.timber -eq 'wood/weathered-beam') "roof $($mi.materials.roof), wallLower $($mi.materials.wallLower), timber $($mi.materials.timber)"
+        Invoke-Nova 'building set --target BC --values "{\"materials\":{\"roof\":\"\",\"wallLower\":\"\"}}"' | Out-Null
         $i0 = Invoke-NovaJson 'building info --target BC'
         $i1 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"irregularity\":1}}"'
         $i2 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"irregularity\":1}}"'
@@ -7228,6 +7240,8 @@ function Suite-Building
         Add-Result building 'the building draws in the Game view; Window > Building Generator opens on a style and step' ($dd -gt 8.0 -and [int]$w.step -eq 6 -and [int]$w.style -eq 1) "picture change mean $([math]::Round($dd, 2)), window step $($w.step) style $($w.style)"
         Invoke-Nova 'window scene' | Out-Null
         Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'package remove com.nova.building' | Out-Null
+        Invoke-Nova 'package remove com.nova.textures' | Out-Null
     }
     finally
     {

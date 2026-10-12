@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "ImageIO.h"
 #include "TextureCompressor.h"
 #include "Etc2Codec.h"
 #include "MobileTextureFormats.h"
@@ -87,7 +88,7 @@ namespace TextureCompressor
 			HRESULT hr;
 			if (ext == L".dds") hr = DirectX::LoadFromDDSFile(source.c_str(), DirectX::DDS_FLAGS_NONE, &md, img);
 			else if (ext == L".tga") hr = DirectX::LoadFromTGAFile(source.c_str(), &md, img);
-			else hr = DirectX::LoadFromWICFile(source.c_str(), DirectX::WIC_FLAGS_NONE, &md, img);
+			else hr = ImageIO::Load(source.c_str(), DirectX::WIC_FLAGS_NONE, &md, img);
 			if (FAILED(hr)) { error = "could not read the image"; return false; }
 			if (md.dimension != DirectX::TEX_DIMENSION_TEXTURE2D || md.arraySize != 1 || md.depth != 1) { error = "only 2D textures"; return false; }
 			const bool linear = ts.TextureType == AssetImport::TextureSettings::NormalMap || !ts.SRGB;

@@ -42,7 +42,7 @@ namespace
 		if (ext == L".prefab") return Kind::Prefab;
 		if (ext == L".mat") return Kind::Material;
 		if (ext == L".fbx" || ext == L".obj" || ext == L".vrm" || ext == L".glb" || ext == L".gltf") return Kind::Model;
-		if (ext == L".png" || ext == L".jpg" || ext == L".jpeg" || ext == L".tga" || ext == L".dds" || ext == L".bmp") return Kind::Texture;
+		if (ext == L".png" || ext == L".jpg" || ext == L".jpeg" || ext == L".tga" || ext == L".dds" || ext == L".bmp" || ext == L".webp") return Kind::Texture;
 		if (ext == L".controller") return Kind::Controller;
 		if (ext == L".terraindata") return Kind::TerrainData;
 		if (ext == L".terrainlayer") return Kind::TerrainLayer;

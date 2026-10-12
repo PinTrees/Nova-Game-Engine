@@ -1,0 +1,15 @@
+{
+  "name": "com.nova.building",
+  "displayName": "Building Generator",
+  "version": "1.0.0",
+  "date": "2026-10-13",
+  "description": "Procedural buildings for medieval fantasy and European worlds: 21 styles (cottage, Tudor town house, tavern, castle keep, watchtower, wizard tower, Nordic longhouse, stave church, northern merchant house and gatehouse, river-town house, highland manor, Roman villa and temple, Gothic chapel, Baroque palace, Alpine chalet, Mediterranean house, market hall, smithy, windmill). Every value can be changed — plan, size, floors, jetties, wall and roof materials, half-timbering, windows and doors, eight roof shapes with bellcast curves, corner turrets, stair towers, oriels, eave brackets, carved bargeboards, terraces, porches, lanterns, signs, banners, flower boxes, props, weathering and hand-built irregularity. Window > Building Generator is a step-by-step dialog with a live 3D preview and presets (.building). Materials come from the Texture Pack (by id, per part) and are converted on first use to compressed GPU textures cached in Library. Every operation is also a CLI command (nova building <op>).",
+  "category": "World Building",
+  "author": { "name": "NOVA" },
+  "keywords": [ "building", "house", "architecture", "medieval", "fantasy", "castle", "village", "procedural", "generator", "roof", "nordic", "roman", "gothic", "baroque", "cli" ],
+  "native": [ "NovaBuilding.dll" ],
+  "dependencies": { "com.nova.textures": "1.0.0" },
+  "components": [
+    { "type": "Building", "display": "Building", "category": "Mesh", "icon": "mesh_filter", "single": true }
+  ]
+}

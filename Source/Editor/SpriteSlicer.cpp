@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "ImageIO.h"
 #include "SpriteSlicer.h"
 #include <filesystem>
 #include <fstream>
@@ -11,7 +12,7 @@ namespace SpriteSlicer
 	bool Pixels::Load(const std::wstring& fullPath)
 	{
 		DirectX::ScratchImage img;
-		if (FAILED(DirectX::LoadFromWICFile(fullPath.c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, img)))
+		if (FAILED(ImageIO::Load(fullPath.c_str(), DirectX::WIC_FLAGS_IGNORE_SRGB, nullptr, img)))
 			return false;
 		const DirectX::Image* src = img.GetImage(0, 0, 0);
 		DirectX::ScratchImage conv;

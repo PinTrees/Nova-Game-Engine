@@ -4,7 +4,7 @@
 #include "Vertex.h"
 #include "LightHelper.h"
 
-class Mesh
+class NOVA_API Mesh
 {
 public:
 	Mesh();

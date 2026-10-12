@@ -280,6 +280,15 @@ add_library(meshoptimizer STATIC ${MESHOPT_SOURCES})
 target_include_directories(meshoptimizer PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/meshoptimizer")
 target_compile_options(meshoptimizer PRIVATE /W0 /utf-8)
 target_link_libraries(${ENGINE_CORE} PRIVATE meshoptimizer)
+
+# WebP 디코더: libwebp 1.4.0 (ThirdParty/libwebp, BSD-3 — Google) — 디코더만 (src/dec · dsp · utils). 엔진 이미지 읽기 (ImageIO) 가 .webp 를 푼다
+#  (텍스처 팩은 WebP 로 작게 넣고, 처음 쓸 때 DDS 캐시 · GPU 형식으로 바꾼다)
+file(GLOB WEBPDEC_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libwebp/src/dec/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libwebp/src/dsp/*.c" "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libwebp/src/utils/*.c")
+add_library(webpdec STATIC ${WEBPDEC_SOURCES})
+target_include_directories(webpdec PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libwebp" "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/libwebp/src")
+target_compile_options(webpdec PRIVATE /W0 /utf-8)
+set_target_properties(webpdec PROPERTIES FOLDER "ThirdParty")
+target_link_libraries(${ENGINE_CORE} PRIVATE webpdec)
 add_custom_command(TARGET ${ENGINE_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/ThirdParty/DXC/runtime/dxcompiler.dll"
