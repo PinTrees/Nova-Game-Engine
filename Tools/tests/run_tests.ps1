@@ -7213,6 +7213,11 @@ function Suite-Building
         $moved = [math]::Abs([double]$i1.size[0] - [double]$i0.size[0]) + [math]::Abs([double]$i1.size[1] - [double]$i0.size[1]) + [math]::Abs([double]$i1.size[2] - [double]$i0.size[2])
         Add-Result building 'irregularity: upper floors lean, the ridge sags, windows and the door move off the grid (same values = same building)' ($moved -gt 0.02 -and [int]$i1.triangles -eq [int]$i2.triangles -and [double]$i1.size[1] -eq [double]$i2.size[1]) "size $(($i0.size | ForEach-Object { [math]::Round($_, 2) }) -join 'x') → $(($i1.size | ForEach-Object { [math]::Round($_, 2) }) -join 'x'), triangles $($i0.triangles) → $($i1.triangles) (again $($i2.triangles))"
 
+        $cv0 = Invoke-NovaJson 'building set --target BC --values "{\"shape\":{\"floors\":3},\"roof\":{\"curve\":0},\"details\":{\"irregularity\":0,\"turrets\":0,\"stairTower\":false,\"oriels\":0}}"'
+        $cvc = Invoke-NovaJson 'building set --target BC --values "{\"roof\":{\"curve\":0.45}}"'
+        $cv1 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"turrets\":2,\"stairTower\":true,\"oriels\":2}}"'
+        Add-Result building 'curves: bell-cast roof, corner turrets with flared cone roofs, stair tower, oriel windows' ([int]$cvc.triangles -gt [int]$cv0.triangles -and [int]$cv1.towers -ge [int]$cv0.towers + 2 -and [int]$cv1.triangles -gt [int]$cvc.triangles * 1.05 -and [double]$cv1.size[1] -gt [double]$cv0.size[1]) "straight $($cv0.triangles) → curved $($cvc.triangles) → turrets/stair/oriels $($cv1.triangles) triangles, towers $($cv0.towers) → $($cv1.towers), height $([math]::Round([double]$cv0.size[1], 1)) → $([math]::Round([double]$cv1.size[1], 1)) m"
+
         Remove-Item $presetFile -Force -ErrorAction SilentlyContinue
         $ps = Invoke-NovaJson 'building preset --target BA --name "Suite Preset"'
         $pl = Invoke-NovaJson 'building preset'
