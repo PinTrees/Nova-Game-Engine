@@ -70,6 +70,7 @@ public:
 	static GameObject* CreateTerrainStamp(int shape);
 	static GameObject* CreateTerrainBiome(const std::string& preset);   // 바이옴 영역 (프리셋 이름)
 	static GameObject* CreateWaterBody(int type);                         // 물: 0 바다, 1 호수, 2 강
+	static GameObject* CreateBuilding(int style, int seed = 0, const struct BuildingDesc* desc = nullptr);   // 건축물 생성기 (Building: 양식 번호 — BuildingDesc::StyleNames, seed > 0 = 같은 양식에서 조금씩 다르게)
 	static GameObject* CreatePrototypeShape(int shape);                    // 블록아웃 도형 (PrototypeShape: 0 상자 1 계단 2 경사 3 원기둥 4 원뿔 5 아치 벽 6 원호 벽) + Prototype 재질 + Mesh Collider
 	static GameObject* CreateSpline(int preset);                           // Spline Container (+ Spline Instantiate): 0 빈 곡선, 1 성벽 (휘기), 2 울타리 (반복), 3 판자 길 (반복), 4 길 (휘기)
 	static GameObject* CreateTerrainSpline(int mode);

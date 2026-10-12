@@ -1,6 +1,15 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 12일 — **절차적 식생: 기후대별 종 160 개 (시드메시 식생 제거)** (사용자 지시: "시드메시 식생은 제거하고 모든 식생을 절차적으로 — 기존 트리 시스템을 고도화해 기후대별 바이옴 식생 최소 100 종류, 문제 없이 렌더링 · 최적화" → "좀 더 디테일하게, 질감 노말맵도 잘 표현되게, 대나무 · 야자수 · 대추야자나무도 추가")
+- 갱신 시각: 2026년 10월 13일 — **건축물 생성기 (Building Generator) — 양식 19 개, 단계 대화상자 편집기** (사용자 지시: "건축물 생성 에디터 — 바로크 · 로마 등 유럽 · 북유럽 양식, 지붕 · 크기 · 모양 · 색까지 대화상자 방식으로, 중세 판타지 고려" → 기준 영상 The Witcher 4 UE5 데모 8 분 (북쪽 상업 도시) 수준, "텍스처 노이즈 + 노말로 낡은 느낌", "불규칙 · 비대칭 변주", "장식품 · 테라스 적극적으로")
+  - 값 `Source/Scene/BuildingDesc.*` (양식 19: 중세 판타지 9 · 북유럽 4 (Northern Merchant House · Northern Gatehouse 새) · 로마 2 · 고딕 · 바로크 · 알프스 · 지중해, Randomize, JSON 묶음 shape · towers · walls · windows · roof · details · colors)
+  - 메시 `Source/Scene/BuildingGenerator.*`: 날개 (L · T · U · 안뜰 · 십자 · 원) · 층 띠를 구멍 둘레 열로 잘라 (아치 · 첨두 · 활꼴 · 원), 석조 쐐기돌 · 문설주 돌 · 상인방, 목조 문틀 · 칠한 창틀, 반목조 5 무늬, 지붕 11 종 (판 두께 · 처마 · 박공 · 계단 박공 · 지붕창 · 굴뚝 · 용머리 · 첨탑 · 돔), 처마 까치발 · 서까래 끝 · 도리 끝 · 조각 박공 판 · 꼭대기 장식 · 칠한 박공, 모서리 기둥 · 통나무 끝, 문 지붕 · 테라스 · 등 · 간판 · 깃발 · 꽃 상자 · 통 · 상자 · 장작, 헛간 (생성기를 한 번 더 돌려 돌려 붙임), 불규칙 (모든 정점을 같은 식으로 — 기울기 · 용마루 처짐 · 흔들림, 문 · 창 자리), 재질 칸 14 · 정점 65535 마다 서브셋
+  - 재질 `Source/Scene/BuildingTextures.*`: 종류 24 (1024² 벽 · 지붕 · 들보), 알베도 · 노멀 · 마스크 (Metallic r · Occlusion g · Smoothness a), 낡음 (잔 표면 · 깨짐 · 큰 얼룩 · 틈 때 · 빗물 줄, 노멀 1.6 배), 1 층 때 (텍스처 한 장 = 1 층 높이 — 흙 튐 · 물 얼룩 · 이끼), 칠한 무늬 · 깃발 · 잎. `UMaterial::SetRuntime` (메모리 텍스처 재질, builtin: 경로 — 저장하지 않음, ScriptName 은 경로 이름)
+  - 컴포넌트 `Source/Scene/Building.*` (PrototypeShape 와 같은 길 — 값만 저장, 열 때 다시 짓고 재질 칸을 채움), GameObject > 3D Object > Building > 양식 · Add Component > Mesh > Building, `GameObjectFactory::CreateBuilding`
+  - 편집기 `Source/Editor/Windows/BuildingGeneratorWindow.*` (Window > Building Generator): 8 단계 (양식 갤러리 썸네일 → 형태 → 벽 → 창 · 문 → 지붕 → 장식 → 색 (묶음 8) → 완성), 3D 미리 보기 (렌더 타깃 2 배 · 땅 · 해), Create · Apply · Live (Undo), 프리셋 `.building` (Assets/Buildings, Project Create · 열기 · 인스펙터)
+  - CLI `building styles|check|create|set|info|window|preset`, `create building --preset 이름` (`Tools/NovaCli/main.cpp` 연산 목록), 문서 `docs/BUILDING.md` (새) · `NOVA_CLI.md`, 검사 `building` 스위트 (9), Showcase 289
+  - 결과: 건물 하나 2 만 ~ 6 만 삼각형, Debug 짓기 5 ~ 150 ms, Release 1024² 굽기 약 0.2 초 (종류마다 처음 한 번 — 1 층 때 변형은 따로), 거리 건물 11 채 Release 2 ms
+  - 한계: 굽기가 메인 스레드 (처음 건물 1 ~ 2 초 멈칫 — 백그라운드로 옮길 것), 실내 없음, LOD 없음 (먼 마을은 삼각형이 많다), 지붕 위 눈 · 덩굴 없음
+- 이전: 2026년 10월 12일 — **절차적 식생: 기후대별 종 160 개 (시드메시 식생 제거)** (사용자 지시: "시드메시 식생은 제거하고 모든 식생을 절차적으로 — 기존 트리 시스템을 고도화해 기후대별 바이옴 식생 최소 100 종류, 문제 없이 렌더링 · 최적화" → "좀 더 디테일하게, 질감 노말맵도 잘 표현되게, 대나무 · 야자수 · 대추야자나무도 추가")
   - 종 목록 `Source/Scene/PlantLibrary.*` (기후대 13 · 층 7 · 종마다 연평균 기온 · 습도 · 경사 · 물가 · 흔함, 처음 12 개 = 예전 프리셋 번호), Tree Preset · 지형 나무 · `TreeParams::PresetNames` 가 이 목록
   - 생성기 `TreeGenerator.*`: 꼴 (Tree · Palm · Grass · Fern · Rosette · Flower), 잎 모양 + Blade · Frond · Round · Lobed · Scale, 휘는 카드 (Card Segments · Droop), 꽃 (아틀라스 칸 3 · 꽃잎 수 · 색), 꽃대 · 이삭. 예전 종은 난수 순서가 그대로 (모양 같음)
   - 질감: 잎 아틀라스 톱니 가장자리 · 큰 잎 512 칸 (`TreeTextures.cpp`), 셰이더 표면 기울기 범프 (`44` `TreeSurfGrad`) — 잎맥 · 풀잎 줄 · 꽃잎 줄 법선, 풀잎 끝 마름, 수피 무늬 (마디 고리 · 선인장 골 · 잎자루 비늘 — `TreeDesc::Pattern`), 균열 색 대비 = 골 깊이 (매끈한 수피에 검은 줄 없이)

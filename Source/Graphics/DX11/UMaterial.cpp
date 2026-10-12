@@ -84,7 +84,7 @@ string UMaterial::GetName()
 std::string UMaterial::ScriptName() const
 {
 	// Unity 의 Material.name: 확장자 없는 이름, 런타임 사본은 " (Instance)"
-	std::string name = IsBuiltinPath(m_ResourcePath) ? std::string("Default-Material") : filesystem::path(m_ResourcePath).stem().string();
+	std::string name = IsBuiltinPath(m_ResourcePath) ? filesystem::path(m_ResourcePath.substr(8)).stem().string() : filesystem::path(m_ResourcePath).stem().string();
 	return m_Instance ? name + " (Instance)" : name;
 }
 
@@ -364,6 +364,20 @@ void UMaterial::SetBaseMap(TextureMgr texMgr, wstring fullPath)
 void UMaterial::SetNormalMap(TextureMgr texMgr, wstring fullPath)
 {
 	NormalMapSRV = texMgr.CreateTexture(fullPath);
+}
+
+void UMaterial::SetRuntime(const std::string& path, const PbrMaterial& pbr, GfxShaderResourceView* baseMap, GfxShaderResourceView* normalMap,
+	GfxShaderResourceView* metallicMap, GfxShaderResourceView* occlusionMap)
+{
+	m_ResourcePath = path;
+	m_Shader = ShaderKind::Lit;
+	m_Pbr = pbr;
+	BaseMapSRV = baseMap;
+	NormalMapSRV = normalMap;
+	MetallicMapSRV = metallicMap;
+	OcclusionMapSRV = occlusionMap;
+	SyncLegacy();
+	m_PropertiesRevision = NextRevision();
 }
 
 void UMaterial::SyncLegacy()

@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -7146,6 +7146,97 @@ function Suite-PCG
 }
 
 # ------------------------------------------------------------------ 절차적 식생 (PlantLibrary — 기후대별 종 · 셀째 그리기)
+function Suite-Building
+{
+    # 건축물 생성기: 양식 19 개 (중세 판타지 · 유럽) 가 모두 지어지고 (빈 메시 · NaN · 잘못된 인덱스 · 크기 · 문 없음 없음, 무작위 변형 포함),
+    #  같은 seed = 같은 결과, 값 (층 · 세부 · 불규칙) 이 메시를 바꾸고, 장면 저장 → 열기, 프리셋, 화면에 그려지는지
+    Write-Host '[building]'
+    $dir = Join-Path $Out 'building'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $scene = 'Assets/Scenes/SuiteBuilding.scene'
+    $presetFile = Join-Path $Project 'Assets\Buildings\Suite Preset.building'
+    Add-Type -AssemblyName System.Drawing
+    function ImageDiffB([string]$a, [string]$b)
+    {
+        $p = [System.Drawing.Bitmap]::FromFile($a); $q = [System.Drawing.Bitmap]::FromFile($b)
+        $sum = 0.0; $n = 0
+        for ($y = 0; $y -lt [math]::Min($p.Height, $q.Height); $y += 4) { for ($x = 0; $x -lt [math]::Min($p.Width, $q.Width); $x += 4) {
+            $c = $p.GetPixel($x, $y); $d = $q.GetPixel($x, $y); $sum += ([math]::Abs($c.R - $d.R) + [math]::Abs($c.G - $d.G) + [math]::Abs($c.B - $d.B)) / 3.0; $n++ } }
+        $p.Dispose(); $q.Dispose()
+        $sum / [math]::Max(1, $n)
+    }
+    $ed = Start-TestEditor -WatchSeconds 900 -MaxGrowMB 3500
+    try
+    {
+        Invoke-Nova 'autosave discard' | Out-Null
+        $st = Invoke-NovaJson 'building styles'
+        $names = @($st.styles | ForEach-Object { $_.name })
+        $wanted = @('Medieval Cottage', 'Tudor Townhouse', 'Tavern', 'Castle Keep', 'Wizard Tower', 'Nordic Longhouse', 'Stave Church', 'Roman Temple', 'Baroque Palace', 'Northern Merchant House', 'Northern Gatehouse')
+        $missing = @($wanted | Where-Object { $names -notcontains $_ })
+        Add-Result building 'styles: 19 (medieval fantasy, Nordic, Roman, Gothic, Baroque, Alpine, Mediterranean)' ([int]$st.count -ge 19 -and $missing.Count -eq 0) "styles $($st.count), missing [$($missing -join ', ')]"
+
+        $chk = Invoke-NovaJson 'building check --seeds 3'
+        $issues = @($chk.buildings | Where-Object { $_.issue } | ForEach-Object { "$($_.style) seed $($_.seed): $($_.issue)" })
+        $slow = @($chk.buildings | ForEach-Object { [double]$_.ms } | Measure-Object -Maximum).Maximum
+        Add-Result building 'every style and random variant builds a valid mesh (door, sane size, finite, indices in range)' ([int]$chk.bad -eq 0 -and [int]$chk.built -ge 76) "built $($chk.built), bad $($chk.bad) [$($issues -join '; ')], slowest $([math]::Round($slow, 1)) ms"
+
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create plane --name Ground --scale 10,1,10' | Out-Null
+        $a = Invoke-NovaJson 'building create --style "Northern Merchant House" --seed 7 --name BA --position -8,0,0'
+        $b = Invoke-NovaJson 'building create --style "Northern Merchant House" --seed 7 --name BB --position 8,0,0'
+        $c = Invoke-NovaJson 'building create --style "Northern Merchant House" --seed 8 --name BC --position 0,0,20'
+        Add-Result building 'same style + seed = same building, another seed = a different one' ([int]$a.triangles -eq [int]$b.triangles -and [int]$a.vertices -eq [int]$b.vertices -and ([int]$c.triangles -ne [int]$a.triangles -or [double]$c.size[1] -ne [double]$a.size[1])) "seed 7: $($a.triangles) / $($b.triangles) tris, seed 8: $($c.triangles) tris"
+
+        $f2 = Invoke-NovaJson 'building set --target BC --values "{\"shape\":{\"floors\":2},\"details\":{\"irregularity\":0}}"'
+        $f4 = Invoke-NovaJson 'building set --target BC --values "{\"shape\":{\"floors\":4}}"'
+        Add-Result building 'floors raise the building (2 → 4 floors)' ([double]$f4.size[1] -gt [double]$f2.size[1] + 4.0 -and [int]$f4.windows -gt [int]$f2.windows) "height $([math]::Round([double]$f2.size[1], 1)) → $([math]::Round([double]$f4.size[1], 1)) m, windows $($f2.windows) → $($f4.windows)"
+
+        $plain = Invoke-NovaJson 'building set --target BC --values "{\"shape\":{\"floors\":2},\"roof\":{\"brackets\":false,\"bargeboards\":0,\"finials\":false,\"paintedGables\":false},\"details\":{\"terrace\":false,\"lanterns\":false,\"banners\":0,\"props\":0,\"flowerBoxes\":false,\"shopSign\":false,\"cornerPosts\":false}}"'
+        $rich = Invoke-NovaJson 'building set --target BC --values "{\"roof\":{\"brackets\":true,\"bargeboards\":2,\"finials\":true,\"paintedGables\":true},\"details\":{\"terrace\":true,\"lanterns\":true,\"banners\":2,\"props\":2,\"flowerBoxes\":true,\"shopSign\":true,\"cornerPosts\":true}}"'
+        Add-Result building 'details (brackets, carved bargeboards, terrace, banners, props, flower boxes) add geometry' ([int]$rich.triangles -gt [int]$plain.triangles * 1.3) "plain $($plain.triangles) → detailed $($rich.triangles) triangles"
+
+        $i0 = Invoke-NovaJson 'building info --target BC'
+        $i1 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"irregularity\":1}}"'
+        $i2 = Invoke-NovaJson 'building set --target BC --values "{\"details\":{\"irregularity\":1}}"'
+        $moved = [math]::Abs([double]$i1.size[0] - [double]$i0.size[0]) + [math]::Abs([double]$i1.size[1] - [double]$i0.size[1]) + [math]::Abs([double]$i1.size[2] - [double]$i0.size[2])
+        Add-Result building 'irregularity: upper floors lean, the ridge sags, windows and the door move off the grid (same values = same building)' ($moved -gt 0.02 -and [int]$i1.triangles -eq [int]$i2.triangles -and [double]$i1.size[1] -eq [double]$i2.size[1]) "size $(($i0.size | ForEach-Object { [math]::Round($_, 2) }) -join 'x') → $(($i1.size | ForEach-Object { [math]::Round($_, 2) }) -join 'x'), triangles $($i0.triangles) → $($i1.triangles) (again $($i2.triangles))"
+
+        Remove-Item $presetFile -Force -ErrorAction SilentlyContinue
+        $ps = Invoke-NovaJson 'building preset --target BA --name "Suite Preset"'
+        $pl = Invoke-NovaJson 'building preset'
+        $ld = Invoke-NovaJson 'building preset --target BC --path "Assets\Buildings\Suite Preset.building"'
+        Add-Result building 'preset: save a building as .building, list it, load it onto another building' ((Test-Path $presetFile) -and @($pl.presets | Where-Object { $_ -like '*Suite Preset.building' }).Count -eq 1 -and [int]$ld.triangles -eq [int]$a.triangles) "saved $($ps.path), loaded $($ld.triangles) vs $($a.triangles) triangles"
+
+        Invoke-Nova "scene save --as $scene" | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova "scene open $scene --force" | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $ra = Invoke-NovaJson 'building info --target BA'
+        Add-Result building 'scene save → open rebuilds the building from its values (mesh and 14 material slots are not stored)' ($ra -and [int]$ra.triangles -eq [int]$a.triangles -and $ra.style -eq 'Northern Merchant House' -and [int]$ra.subsets -ge 10) "triangles $($ra.triangles) vs $($a.triangles), subsets $($ra.subsets)"
+
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position -8,4,-16 --rotation 10,0,0' | Out-Null
+        Invoke-Nova 'wait 20' | Out-Null
+        $png1 = Join-Path $dir 'building.png'
+        Invoke-Nova "screenshot `"$png1`" --view game" | Out-Null
+        Invoke-Nova 'delete BA' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $png2 = Join-Path $dir 'empty.png'
+        Invoke-Nova "screenshot `"$png2`" --view game" | Out-Null
+        $dd = ImageDiffB $png1 $png2
+        $w = Invoke-NovaJson 'building window --style "Tudor Townhouse" --step 6'
+        Add-Result building 'the building draws in the Game view; Window > Building Generator opens on a style and step' ($dd -gt 8.0 -and [int]$w.step -eq 6 -and [int]$w.style -eq 1) "picture change mean $([math]::Round($dd, 2)), window step $($w.step) style $($w.style)"
+        Invoke-Nova 'window scene' | Out-Null
+        Invoke-Nova 'scene new --force' | Out-Null
+    }
+    finally
+    {
+        Write-Host "  $(Stop-TestEditor $ed)"
+        $sf = Join-Path $Project ($scene -replace '/', '\')
+        Remove-Item $sf, "$sf.meta", $presetFile, "$presetFile.meta" -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Suite-Plants
 {
     # 기후대별 종 100 개 넘게 (나무 · 야자 · 대나무 · 선인장 · 풀 · 꽃 · 고사리), 종마다 메시가 제대로 (빈 메시 · 이상한 크기 없음),
@@ -8698,6 +8789,7 @@ try
                 'crowd' { Suite-Crowd }
                 'pcg' { Suite-PCG }
                 'plants' { Suite-Plants }
+                'building' { Suite-Building }
                 'postfx' { Suite-PostFX }
                 'terraingraph' { Suite-TerrainGraph }
                 'weather' { Suite-Weather }

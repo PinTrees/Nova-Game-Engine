@@ -7,6 +7,8 @@
 #include "TerrainSpline.h"
 #include "Spline.h"
 #include "PrototypeShape.h"
+#include "BuildingDesc.h"
+#include "Building.h"
 #include "RockDesc.h"
 #include "EditorTheme.h"
 #include "UISystem.h"
@@ -211,6 +213,16 @@ namespace GameObjectMenu
 			{
 				for (int s = 0; s < (int)TerrainStamp::Shape::Count; ++s)
 					if (ImGui::MenuItem(TerrainStamp::ShapeName((TerrainStamp::Shape)s))) add(GameObjectFactory::CreateTerrainStamp(s));
+				ImGui::EndMenu();
+			}
+			if (ImGui::BeginMenu("Building"))   // 건축물 생성기: 양식 (중세 판타지 · 유럽) — 값은 Window > Building Generator
+			{
+				int count = 0;
+				const char* const* styles = BuildingDesc::StyleNames(count);
+				for (int s = 0; s < count; ++s)
+					if (ImGui::MenuItem(styles[s])) add(GameObjectFactory::CreateBuilding(s));
+				ImGui::Separator();
+				if (ImGui::MenuItem("Building Generator...") && Building::s_OpenGenerator) Building::s_OpenGenerator(nullptr);
 				ImGui::EndMenu();
 			}
 			if (ImGui::BeginMenu("Prototype"))   // 블록아웃 도형 (크기를 숫자로 — 계단 단 높이 · 벽 두께 그대로)

@@ -9,6 +9,7 @@
 #include "VfxGraphWindow.h"
 #include "PCGGraphWindow.h"
 #include "TerrainGraphWindow.h"
+#include "BuildingGeneratorWindow.h"
 #include "App.h"
 #include "GraphicsSettings.h"
 #include "GfxGL.h"
@@ -442,6 +443,7 @@ bool App::Init()
 	ShaderGraph::RegisterEditor();                                         // Window > Shader Graph · .shadergraph · nova shadergraph
 	VfxGraphWindow::RegisterEditor();
 	TerrainGraphWindow::RegisterEditor();                                  // Window > Terrain Graph · .terraingraph · World Terrain 의 Open Terrain Graph
+	BuildingGeneratorWindow::RegisterEditor();                             // Window > Building Generator · .building · Building 의 Open Building Generator
 	PCGGraphWindow::RegisterEditor();                                      // Window > PCG Graph · .pcg · PCG Volume 의 Open Graph                                      // Window > Visual Effects · .vfx · nova vfx · VFX Assistant (Claude Code)
 	}
 

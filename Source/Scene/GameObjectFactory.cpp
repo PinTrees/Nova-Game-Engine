@@ -32,6 +32,7 @@
 #include "TerrainSpline.h"
 #include "Spline.h"
 #include "PrototypeShape.h"
+#include "Building.h"
 #include "MeshCollider.h"
 #include "Rock.h"
 #include "RockScatter.h"
@@ -583,6 +584,31 @@ GameObject* GameObjectFactory::CreatePrototypeShape(int shape)
 	}
 	ps->Rebuild();
 	obj->AddComponent<MeshCollider>();   // 캐릭터로 걸어 본다
+	return obj;
+}
+
+GameObject* GameObjectFactory::CreateBuilding(int style, int seed, const BuildingDesc* desc)
+{
+	// 건축물 생성기: 양식 (또는 값 한 벌) 으로 메시 · 재질을 식으로 — Mesh Collider 로 걸어 들어간다 (문 · 아치)
+	int count = 0;
+	const char* const* names = BuildingDesc::StyleNames(count);
+	BuildingDesc d;
+	if (desc)
+		d = *desc;
+	else
+	{
+		d.ApplyStyle(std::clamp(style, 0, count - 1));
+		if (seed > 0)
+			d.Randomize(seed);
+	}
+	const std::string name = d.Style >= 0 && d.Style < count ? names[d.Style] : "Building";
+	GameObject* obj = new GameObject(name);
+	obj->AddComponent<MeshFilter>();
+	obj->AddComponent<MeshRenderer>();
+	Building* b = obj->AddComponent<Building>();
+	b->SetDesc(d);
+	b->Rebuild();
+	obj->AddComponent<MeshCollider>();
 	return obj;
 }
 

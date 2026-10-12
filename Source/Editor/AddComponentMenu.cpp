@@ -62,6 +62,7 @@ namespace
 		{ "TerrainSpline",       "Terrain Spline",        "Miscellaneous", "terrain_paint",     true  },
 		{ "SplineContainer",     "Spline Container",      "Spline",        "terrain_paint",     true  },
 		{ "PrototypeShape",      "Prototype Shape",       "Mesh",          "mesh_filter",       true  },
+		{ "Building",            "Building",              "Mesh",          "mesh_filter",       true  },
 		{ "SplineInstantiate",   "Spline Instantiate",    "Spline",        "terrain_trees",     false },
 		{ "Buoyancy",            "Buoyancy",              "Water",         "terrain_paint",     true  },
 		{ "ParticleSystem",      "Particle System",       "Effects",       "particle_system",   true  },
