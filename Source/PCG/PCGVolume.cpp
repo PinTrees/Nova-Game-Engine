@@ -201,11 +201,13 @@ void PCGVolume::OnDestroy() { Clear(); }
 void PCGVolume::Clear()
 {
 	m_Cells.clear();
+	TreeRenderer::MarkExternalCellsDirty();
 }
 
 void PCGVolume::Regenerate()
 {
 	m_Cells.clear();
+	TreeRenderer::MarkExternalCellsDirty();
 	m_GraphRevision = 0;
 }
 
@@ -217,6 +219,19 @@ std::shared_ptr<PCG::Graph> PCGVolume::GetGraph() const
 bool PCGVolume::InBounds(float x0, float z0, float x1, float z1) const
 {
 	return x1 > m_BoundsX0 && x0 < m_BoundsX1 && z1 > m_BoundsZ0 && z0 < m_BoundsZ1;
+}
+
+bool PCGVolume::SpawnerHasTrees(int spawnerId) const
+{
+	for (const SpawnerInfo& s : m_Spawners)
+		if (s.Id == spawnerId)
+		{
+			for (const std::string& m : s.Meshes)
+				if (PCG::IsTreePath(m))
+					return true;
+			return false;
+		}
+	return false;
 }
 
 void PCGVolume::ApplyResults()
@@ -248,6 +263,8 @@ void PCGVolume::ApplyResults()
 		cell.Trees.clear();
 		cell.TreesUsed.clear();
 		cell.TreesSplit = false;
+		if (SpawnerHasTrees(it.Key.Spawner))
+			TreeRenderer::MarkExternalCellsDirty();   // 나무 셀 목록을 다시 모은다 (풀 · 바위 스포너는 나무 목록과 상관없다)
 		m_GenMs += it.Out.Ms;
 		++m_Generated;
 	}
@@ -446,7 +463,11 @@ void PCGVolume::Tick()
 	for (auto it = m_Cells.begin(); it != m_Cells.end();)
 	{
 		if (!it->second->Pending && frame - it->second->LastNeeded > 90u)
+		{
+			if (!it->second->TreesUsed.empty())
+				TreeRenderer::MarkExternalCellsDirty();
 			it = m_Cells.erase(it);
+		}
 		else
 			++it;
 	}
@@ -503,6 +524,8 @@ void PCGVolume::EmitTreeCells(const Vec3& eye, const TreeRenderer::CellEmit& emi
 			if (!any)
 				continue;
 			const float range = s.Cull * v->DistanceScale;
+			std::optional<Profiler::Scope> speciesScope;
+			speciesScope.emplace("PCG.TreeSpecies");
 			// 칸 (메시) 마다 종 · 변형 수 · 변형별 TreeDesc
 			const size_t meshes = (std::min)(s.Meshes.size(), (size_t)64);
 			const TreeDesc* species[64][PCG::kTreeVariants] = {};
@@ -514,6 +537,7 @@ void PCGVolume::EmitTreeCells(const Vec3& eye, const TreeRenderer::CellEmit& emi
 					for (int k = 0; k < variants[m]; ++k)
 						species[m][k] = PCG::TreeSpecies(s.Meshes[m], k, range);
 				}
+			speciesScope.reset();
 			for (auto& kv : v->m_Cells)
 			{
 				if (kv.first.Spawner != s.Id)

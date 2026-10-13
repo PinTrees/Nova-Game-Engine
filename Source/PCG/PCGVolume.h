@@ -58,6 +58,8 @@ public:
 		std::vector<std::string> Meshes;
 	};
 
+	bool SpawnerHasTrees(int spawnerId) const;
+
 	// 그래프 창 열기 (편집기가 넣는다 — 게임 빌드에는 없음)
 	static std::function<void(const std::string&)> s_OpenGraphWindow;
 

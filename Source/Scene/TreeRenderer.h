@@ -53,6 +53,8 @@ namespace TreeRenderer
 	};
 	using CellEmit = std::function<void(const CellDraw& cell)>;
 	void SetExternalCells(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const CellEmit& emit)> source);
+	// 바깥 셀 목록이 바뀌었다 (셀이 새로 준비 · 버려짐 · 규칙 바뀜) — 셀 목록은 카메라가 2 m 넘게 움직이거나 20 프레임마다 다시 모으고, 그 사이는 지난 목록을 쓴다
+	void MarkExternalCellsDirty();
 
 	// 프로토타입 미리보기 = 임포스터 앞면 (없으면 굽는다). uv0/uv1 = 아틀라스 안 영역
 	ImTextureID Thumbnail(const TreeDesc& desc, ImVec2& uv0, ImVec2& uv1);

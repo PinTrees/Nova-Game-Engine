@@ -613,6 +613,22 @@ namespace
 	};
 	std::vector<CellRecord> s_CellRecords;
 
+	// 바깥 셀 목록 캐시 (화면 종류마다 — Game · Scene 뷰). 셀 수천 x 종을 프레임마다 모으면 Release 6 ms 였다.
+	//  카메라가 kCellCacheMove 넘게 움직이거나 kCellCacheFrames 프레임 지나거나 셀이 바뀌면 (MarkExternalCellsDirty) 다시 모은다.
+	//  가까운 큰 나무 (인스턴스마다 기록) 도 같이 보관 — 기록은 행렬을 복사하고 셀 버퍼는 shared_ptr 라 셀이 버려져도 안전
+	constexpr float kCellCacheMove = 2.0f;
+	constexpr uint32_t kCellCacheFrames = 20;
+	struct CellCache
+	{
+		bool Valid = false, Dirty = true;
+		Vec3 Eye;
+		uint32_t Frame = 0;
+		std::vector<CellRecord> Cells;
+		std::vector<TreeRecord> Near;
+	};
+	CellCache s_CellCache[2];
+	const std::vector<CellRecord>* s_ActiveCells = &s_CellRecords;
+
 	float NearDistance(const Vec3& p, const Vec3& mn, const Vec3& mx)
 	{
 		const float dx = (std::max)({ mn.x - p.x, 0.0f, p.x - mx.x });
@@ -868,6 +884,11 @@ namespace TreeRenderer
 		static std::map<std::string, std::function<void(const Vec3&, bool, const CellEmit&)>> s;
 		return s;
 	}
+	std::map<std::string, std::function<void(const Vec3&, bool, const CellEmit&)>>& NoCellSources()
+	{
+		static std::map<std::string, std::function<void(const Vec3&, bool, const CellEmit&)>> s;
+		return s;
+	}
 
 	void SetExternalCells(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const CellEmit& emit)> source)
 	{
@@ -876,6 +897,12 @@ namespace TreeRenderer
 		else
 			ExternalCellSources().erase(owner);
 		s_RecordsValid = false;
+		MarkExternalCellsDirty();
+	}
+
+	void MarkExternalCellsDirty()
+	{
+		s_CellCache[0].Dirty = s_CellCache[1].Dirty = true;
 	}
 
 	void SetExternalSource(const std::string& owner, std::function<void(const Vec3& eye, bool editor, const TreeEmit& emit)> source)
@@ -971,6 +998,8 @@ namespace TreeRenderer
 				s_Records.push_back(r);
 			};
 			// Tree 컴포넌트
+			std::optional<Profiler::Scope> collectRecords;
+			collectRecords.emplace("Trees.Collect.Records");
 			for (Tree* tree : Tree::All())
 			{
 				if (!tree->IsDrawable())
@@ -1020,10 +1049,29 @@ namespace TreeRenderer
 			}
 			// 바깥 셀 (PCG): 가까운 큰 나무 셀은 인스턴스마다 (위 기록 — LOD0 정밀 · 오클루전), 나머지는 셀째 (정점 셰이더가 LOD).
 			//  종마다 준비 (메시 · 묶음) 는 한 번만 — 셀 수천 x 종 목록마다 메시 키 문자열 · 맵을 찾으면 프레임마다 20 ms 였다
+			collectRecords.reset();
+			CellCache& cache = s_CellCache[editorView ? 1 : 0];
+			const uint32_t frameNow = SceneCulling::FrameIndex();
+			// 셀이 바뀌었으면 (불러오는 중엔 거의 매 프레임) 4 프레임에 한 번만
+			const bool rebuildCells = !cache.Valid || (cache.Dirty && frameNow - cache.Frame >= 4) || (camPos - cache.Eye).Length() > kCellCacheMove
+				|| frameNow - cache.Frame > kCellCacheFrames;
+			if (!rebuildCells)
+			{
+				// 지난 목록: 묶음이 버려지지 않게 표시하고 가까운 나무 기록을 붙인다
+				for (const CellRecord& c : cache.Cells)
+					c.B->Used = true;
+				for (const TreeRecord& r : cache.Near)
+					r.B->Used = true;
+				s_Records.insert(s_Records.end(), cache.Near.begin(), cache.Near.end());
+			}
+			std::optional<Profiler::Scope> cellsScope;
+			if (rebuildCells)
+				cellsScope.emplace("Trees.Collect.Cells");
 			static std::unordered_map<const TreeDesc*, Proto> protoCache;
 			protoCache.clear();
 			s_CellRecords.clear();
-			for (auto& [owner, source] : ExternalCellSources())
+			const size_t nearBegin = s_Records.size();
+			for (auto& [owner, source] : (rebuildCells ? ExternalCellSources() : NoCellSources()))
 			{
 				if (!source)
 					continue;
@@ -1045,6 +1093,7 @@ namespace TreeRenderer
 						return;
 					if (c.Worlds && d.Params.Height >= 4.0f && dmin / (std::max)(c.MaxScale, 0.05f) < d.BillboardDistance * 1.1f)
 					{
+						PROFILE_SCOPE("Trees.Collect.Near");
 						for (size_t i = 0; i < c.Count; ++i)
 						{
 							const XMFLOAT4X4& w = c.Worlds[i];
@@ -1069,6 +1118,21 @@ namespace TreeRenderer
 					s_CellRecords.push_back(std::move(r));
 				});
 			}
+			if (rebuildCells)
+			{
+				cache.Cells.swap(s_CellRecords);
+				cache.Near.assign(s_Records.begin() + (ptrdiff_t)nearBegin, s_Records.end());
+				cache.Eye = camPos;
+				cache.Frame = frameNow;
+				cache.Valid = true;
+				cache.Dirty = false;
+			}
+			s_ActiveCells = &cache.Cells;
+			// 다른 화면 종류의 캐시가 가리키는 묶음도 지킨다 (곧 다시 쓴다)
+			for (const CellRecord& c : s_CellCache[editorView ? 0 : 1].Cells)
+				c.B->Used = true;
+			for (const TreeRecord& r : s_CellCache[editorView ? 0 : 1].Near)
+				r.B->Used = true;
 			// 설정이 바뀌어 쓰이지 않는 묶음은 버린다 (TreeDesc 포인터가 사라졌을 수 있다). 다른 노드 포인터는 그대로
 			for (auto it = s_Batches.begin(); it != s_Batches.end();)
 				it = it->second.Used ? std::next(it) : s_Batches.erase(it);
@@ -1084,6 +1148,7 @@ namespace TreeRenderer
 			stats.Trees = s_ListsTrees;
 		else
 		{
+			PROFILE_SCOPE("Trees.Cull");
 			for (auto& kv : s_Batches)
 			{
 				for (auto& list : kv.second.Lists)
@@ -1134,7 +1199,7 @@ namespace TreeRenderer
 			for (auto& kv : s_Batches)
 				for (auto& list : kv.second.CellLists)
 					list.clear();
-			for (const CellRecord& c : s_CellRecords)
+			for (const CellRecord& c : *s_ActiveCells)
 			{
 				if (shadow && !c.CastShadows)
 					continue;
@@ -1218,6 +1283,7 @@ namespace TreeRenderer
 		dc->RSGetState(prevRS.GetAddressOf());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+		PROFILE_SCOPE("Trees.Draw");
 		// 본 패스 + 이 뷰의 Hi-Z 가 있으면 (오클루전 컬링) 가려진 나무를 GPU 가 뺀다
 		const bool occlusion = pass == Pass::Main && OcclusionCulling::HasHiZ();
 		for (auto& kv : s_Batches)
