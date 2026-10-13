@@ -12,6 +12,7 @@
 #include "TreeRenderer.h"
 #include "RockRenderer.h"
 #include "DetailRenderer.h"
+#include "GrassField.h"
 #include "SceneCulling.h"
 #include "MeshBatcher.h"
 #include "SkinnedInstancing.h"
@@ -223,6 +224,7 @@ void Scene::RenderScene()
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, false);
     RockRenderer::DrawAll(RockRenderer::Pass::Main, false);   // 바위: 인스턴싱 + LOD
     DetailRenderer::DrawAll(DetailRenderer::Pass::Main, false);
+    GrassField::DrawMain(false);   // World Terrain 의 빽빽한 풀밭 (바이옴)
 }
 
 void Scene::RenderSceneShadow()
@@ -319,6 +321,7 @@ void Scene::_Editor_RenderScene()
     TreeRenderer::DrawAll(TreeRenderer::Pass::Main, true);
     RockRenderer::DrawAll(RockRenderer::Pass::Main, true);
     DetailRenderer::DrawAll(DetailRenderer::Pass::Main, true);
+    GrassField::DrawMain(true);
 }
 
 void Scene::_Editor_RenderSceneShadowNormal()

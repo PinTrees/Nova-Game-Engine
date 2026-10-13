@@ -4039,6 +4039,327 @@
         "license": "CC0 1.0",
         "sizeCm": 0
       }
+    },
+    {
+      "id": "ground/dry-grass",
+      "name": "Dry Grass",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "grass",
+        "dry",
+        "withered",
+        "savanna",
+        "steppe",
+        "straw",
+        "yellow",
+        "mediterranean"
+      ],
+      "description": "Pale withered grass — savanna, steppe, dry summer meadows",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/dry-grass/color.webp",
+        "normal": "Textures/ground/dry-grass/normal.webp",
+        "roughness": "Textures/ground/dry-grass/roughness.webp",
+        "ao": "Textures/ground/dry-grass/ao.webp",
+        "height": "Textures/ground/dry-grass/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "withered_grass",
+        "url": "https://polyhaven.com/a/withered_grass",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "ground/sparse-grass",
+      "name": "Sparse Grass",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "grass",
+        "sparse",
+        "steppe",
+        "tundra",
+        "patchy",
+        "green",
+        "brown"
+      ],
+      "description": "Thin green-brown grass over soil — steppe, tundra, highland pasture",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/sparse-grass/color.webp",
+        "normal": "Textures/ground/sparse-grass/normal.webp",
+        "roughness": "Textures/ground/sparse-grass/roughness.webp",
+        "ao": "Textures/ground/sparse-grass/ao.webp",
+        "height": "Textures/ground/sparse-grass/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "sparse_grass",
+        "url": "https://polyhaven.com/a/sparse_grass",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "ground/dry-ground",
+      "name": "Dry Cracked Clay",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "desert",
+        "dry",
+        "cracked",
+        "clay",
+        "pan",
+        "arid",
+        "salt flat"
+      ],
+      "description": "Pale sun-cracked clay pan — deserts, dry lake beds",
+      "tileMeters": 4.0,
+      "maps": {
+        "color": "Textures/ground/dry-ground/color.webp",
+        "normal": "Textures/ground/dry-ground/normal.webp",
+        "roughness": "Textures/ground/dry-ground/roughness.webp",
+        "ao": "Textures/ground/dry-ground/ao.webp",
+        "height": "Textures/ground/dry-ground/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "dry_ground_01",
+        "url": "https://polyhaven.com/a/dry_ground_01",
+        "license": "CC0 1.0",
+        "sizeCm": 400
+      }
+    },
+    {
+      "id": "ground/red-laterite",
+      "name": "Red Laterite Soil",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "soil",
+        "red",
+        "laterite",
+        "tropical",
+        "savanna",
+        "dirt",
+        "stones"
+      ],
+      "description": "Red tropical soil with small stones — savanna and tropical dirt",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/red-laterite/color.webp",
+        "normal": "Textures/ground/red-laterite/normal.webp",
+        "roughness": "Textures/ground/red-laterite/roughness.webp",
+        "ao": "Textures/ground/red-laterite/ao.webp",
+        "height": "Textures/ground/red-laterite/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "red_laterite_soil_stones",
+        "url": "https://polyhaven.com/a/red_laterite_soil_stones",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "ground/pine-needles",
+      "name": "Pine Needle Floor",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "forest",
+        "pine",
+        "needles",
+        "conifer",
+        "boreal",
+        "taiga",
+        "dirt"
+      ],
+      "description": "Sandy soil covered in pine needles — boreal and conifer forests",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/ground/pine-needles/color.webp",
+        "normal": "Textures/ground/pine-needles/normal.webp",
+        "roughness": "Textures/ground/pine-needles/roughness.webp",
+        "ao": "Textures/ground/pine-needles/ao.webp",
+        "height": "Textures/ground/pine-needles/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "forrest_ground_03",
+        "url": "https://polyhaven.com/a/forrest_ground_03",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "rock/lichen-rock",
+      "name": "Lichen Rock",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "lichen",
+        "dark",
+        "tundra",
+        "boreal",
+        "nordic",
+        "cold"
+      ],
+      "description": "Dark rock with pale lichen crusts — tundra, northern coasts, cold uplands",
+      "tileMeters": 2.0,
+      "maps": {
+        "color": "Textures/rock/lichen-rock/color.webp",
+        "normal": "Textures/rock/lichen-rock/normal.webp",
+        "roughness": "Textures/rock/lichen-rock/roughness.webp",
+        "ao": "Textures/rock/lichen-rock/ao.webp",
+        "height": "Textures/rock/lichen-rock/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "lichen_rock",
+        "url": "https://polyhaven.com/a/lichen_rock",
+        "license": "CC0 1.0",
+        "sizeCm": 200
+      }
+    },
+    {
+      "id": "rock/mossy-rock",
+      "name": "Mossy Granite",
+      "category": "rock",
+      "tags": [
+        "rock",
+        "cliff",
+        "terrain",
+        "moss",
+        "mossy",
+        "granite",
+        "green",
+        "wet",
+        "rainforest",
+        "wetland"
+      ],
+      "description": "Grey granite covered in green moss and lichen — wet temperate forests",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/rock/mossy-rock/color.webp",
+        "normal": "Textures/rock/mossy-rock/normal.webp",
+        "roughness": "Textures/rock/mossy-rock/roughness.webp",
+        "ao": "Textures/rock/mossy-rock/ao.webp",
+        "height": "Textures/rock/mossy-rock/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "mossy_rock",
+        "url": "https://polyhaven.com/a/mossy_rock",
+        "license": "CC0 1.0",
+        "sizeCm": 300
+      }
+    },
+    {
+      "id": "ground/forest-leaves-green",
+      "name": "Leaves and Moss",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "forest",
+        "leaves",
+        "moss",
+        "tropical",
+        "jungle",
+        "rainforest",
+        "litter"
+      ],
+      "description": "Fallen leaves, twigs and moss — rainforest and lush broadleaf forest floor",
+      "tileMeters": 3.0,
+      "maps": {
+        "color": "Textures/ground/forest-leaves-green/color.webp",
+        "normal": "Textures/ground/forest-leaves-green/normal.webp",
+        "roughness": "Textures/ground/forest-leaves-green/roughness.webp",
+        "ao": "Textures/ground/forest-leaves-green/ao.webp",
+        "height": "Textures/ground/forest-leaves-green/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "forest_leaves_02",
+        "url": "https://polyhaven.com/a/forest_leaves_02",
+        "license": "CC0 1.0",
+        "sizeCm": 300
+      }
+    },
+    {
+      "id": "ground/desert-sand-gravel",
+      "name": "Desert Sand Gravel",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "desert",
+        "sand",
+        "gravel",
+        "orange",
+        "arid",
+        "dune"
+      ],
+      "description": "Orange sand with fine gravel — hot deserts, dry riverbeds",
+      "tileMeters": 2.5,
+      "maps": {
+        "color": "Textures/ground/desert-sand-gravel/color.webp",
+        "normal": "Textures/ground/desert-sand-gravel/normal.webp",
+        "roughness": "Textures/ground/desert-sand-gravel/roughness.webp",
+        "ao": "Textures/ground/desert-sand-gravel/ao.webp",
+        "height": "Textures/ground/desert-sand-gravel/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "sandy_gravel_02",
+        "url": "https://polyhaven.com/a/sandy_gravel_02",
+        "license": "CC0 1.0",
+        "sizeCm": 250
+      }
+    },
+    {
+      "id": "ground/mud-clover",
+      "name": "Muddy Ground with Clover",
+      "category": "ground",
+      "tags": [
+        "ground",
+        "terrain",
+        "mud",
+        "wet",
+        "clover",
+        "wetland",
+        "swamp",
+        "marsh",
+        "green"
+      ],
+      "description": "Brown mud with clover and small leaves — wetlands, marsh edges",
+      "tileMeters": 1.3,
+      "maps": {
+        "color": "Textures/ground/mud-clover/color.webp",
+        "normal": "Textures/ground/mud-clover/normal.webp",
+        "roughness": "Textures/ground/mud-clover/roughness.webp",
+        "ao": "Textures/ground/mud-clover/ao.webp",
+        "height": "Textures/ground/mud-clover/height.webp"
+      },
+      "source": {
+        "site": "Poly Haven",
+        "asset": "brown_mud_leaves_01",
+        "url": "https://polyhaven.com/a/brown_mud_leaves_01",
+        "license": "CC0 1.0",
+        "sizeCm": 130
+      }
     }
   ]
 }

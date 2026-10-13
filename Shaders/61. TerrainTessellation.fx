@@ -146,6 +146,72 @@ float TerrainDisplacement(float3 lp, float2 uv, float3 n, float spacing)
     return d;
 }
 
+// ---- 바이옴 (가상 레이어 8 = 역할 4 × 바이옴 2): 높이 기반 섞기 · 변위
+void TerrainHeightBlendBiome(float4 cA, float4 cB, float4 hA, float4 hB, out float4 bA, out float4 bB)
+{
+    const float T = gTerrainHeightParams.y;
+    if (T <= 0.0f)
+    {
+        bA = cA;
+        bB = cB;
+        return;
+    }
+    precise const float4 sA = hA + cA, sB = hB + cB;
+    precise float top = -1.0f;
+    [unroll] for (int i = 0; i < 4; ++i)
+    {
+        top = max(top, cA[i] > 0.0f ? sA[i] : -1.0f);
+        top = max(top, cB[i] > 0.0f ? sB[i] : -1.0f);
+    }
+    precise float4 xA = max(sA - (top - T), 0.0f), xB = max(sB - (top - T), 0.0f);
+    xA = float4(cA.r > 0.0f ? xA.r : 0.0f, cA.g > 0.0f ? xA.g : 0.0f, cA.b > 0.0f ? xA.b : 0.0f, cA.a > 0.0f ? xA.a : 0.0f);
+    xB = float4(cB.r > 0.0f ? xB.r : 0.0f, cB.g > 0.0f ? xB.g : 0.0f, cB.b > 0.0f ? xB.b : 0.0f, cB.a > 0.0f ? xB.a : 0.0f);
+    precise const float sum = xA.r + xA.g + xA.b + xA.a + xB.r + xB.g + xB.b + xB.a;
+    bA = sum > 1e-6f ? xA / sum : cA;
+    bB = sum > 1e-6f ? xB / sum : cB;
+}
+
+float TerrainBlendDisplacementBiome(float4 cA, float4 cB, float4 hA, float4 hB, TerrainBiomePick p, out float4 bA, out float4 bB)
+{
+    TerrainHeightBlendBiome(cA, cB, hA, hB, bA, bB);
+    precise float d = 0.0f;
+    [unroll] for (int i = 0; i < 4; ++i)
+    {
+        const float4 qa = gTerrainSliceParams[(int) p.SA[i]], qb = gTerrainSliceParams[(int) p.SB[i]];
+        d += bA[i] * (hA[i] - qa.z) * qa.y + bB[i] * (hB[i] - qb.z) * qb.y;
+    }
+    return d;
+}
+
+// 그 자리의 변위 (Domain) — 바이옴
+float TerrainDisplacementBiome(float3 lp, float2 uv, float3 n, float spacing, float2 worldXZ)
+{
+    const float4 c = TerrainControlWeightsLevel(uv);
+    const TerrainBiomePick p = TerrainBiomeAt(uv, worldXZ);
+    precise const float4 cA = c * (1.0f - p.T);
+    precise const float4 cB = p.T > 0.01f ? c * p.T : float4(0, 0, 0, 0);
+    precise float3 n2 = n * n;
+    precise float3 w = n2 * n2;
+    w = w / max(w.x + w.y + w.z, 1e-5f);
+    w.x = w.x < 0.02f ? 0.0f : w.x;
+    w.z = w.z < 0.02f ? 0.0f : w.z;
+    w = w / max(w.x + w.y + w.z, 1e-5f);
+    precise float4 hA, hB;
+    [unroll] for (int i = 0; i < 4; ++i)
+    {
+        const float4 qa = gTerrainSliceParams[(int) p.SA[i]], qb = gTerrainSliceParams[(int) p.SB[i]];
+        hA[i] = qa.z;
+        hB[i] = qb.z;
+        [branch] if (cA[i] > 0.0f && qa.y > 0.0f)
+            hA[i] = TerrainLayerHeightLevel(p.SA[i], float4(qa.x, qa.x, 0, 0), lp, w, TerrainHeightMip(float4(qa.x, qa.x, 0, 0), spacing));
+        [branch] if (cB[i] > 0.0f && qb.y > 0.0f)
+            hB[i] = TerrainLayerHeightLevel(p.SB[i], float4(qb.x, qb.x, 0, 0), lp, w, TerrainHeightMip(float4(qb.x, qb.x, 0, 0), spacing));
+    }
+    float4 bA, bB;
+    precise const float d = TerrainBlendDisplacementBiome(cA, cB, hA, hB, p, bA, bB);
+    return d;
+}
+
 // 높이맵 중앙 차분 법선 (TerrainNormalUV 와 같은 값 — 덧셈 · 곱셈만)
 float3 TerrainNormalPrecise(float2 uv)
 {
@@ -206,7 +272,7 @@ float3 TerrainTessPosition(TerrainCP a, TerrainCP b, TerrainCP c, float3 w, out 
     precise const float3 e3 = c.PosW - b.PosW;
     precise const float edge = sqrt(max(max(TESS_DOT3(e1, e1), TESS_DOT3(e2, e2)), TESS_DOT3(e3, e3)));
     precise const float spacing = max(max(gTessEye.w, 0.005f) * (1.0f + dist), edge / clamp(gTessParams.z, 1.0f, 64.0f));
-    precise const float d = TerrainDisplacement(p - gTerrainOrigin.xyz, t, n, spacing);
+    precise const float d = gTerrainBiome.x > 0.5f ? TerrainDisplacementBiome(p - gTerrainOrigin.xyz, t, n, spacing, p.xz) : TerrainDisplacement(p - gTerrainOrigin.xyz, t, n, spacing);
     precise const float3 moved = p + n * d;
     return moved;
 }
@@ -322,6 +388,49 @@ TerrainPixelHeight TerrainHeightsAt(float4 c, TerrainTriplanar t, float3 n, bool
     TerrainPixelHeight o;
     o.D = TerrainBlendDisplacement(c, h, o.Weights);
     o.Normal = normalize(n0 * o.Weights.r + n1 * o.Weights.g + n2 * o.Weights.b + n3 * o.Weights.a);
+    return o;
+}
+
+// 바이옴 픽셀: 가상 레이어 8 의 높이 · 노멀 → 섞은 가중치 (A · B) · 변위 · 노멀
+struct TerrainPixelHeightBiome
+{
+    float4 WA, WB;
+    float D;
+    float3 Normal;
+};
+
+TerrainPixelHeightBiome TerrainHeightsAtBiome(float4 cA, float4 cB, TerrainBiomePick p, TerrainTriplanar t, float3 n, bool noTile)
+{
+    float4 hA, hB;
+    float3 nA[4], nB[4];
+    [unroll] for (int i = 0; i < 4; ++i)
+    {
+        const float4 qa = gTerrainSliceParams[(int) p.SA[i]], qb = gTerrainSliceParams[(int) p.SB[i]];
+        hA[i] = qa.z;
+        hB[i] = qb.z;
+        nA[i] = n;
+        nB[i] = n;
+        [branch] if (cA[i] > 0.03f)
+        {
+            float3 nn;
+            const float v = TerrainLayerHN(p.SA[i], float4(qa.x, qa.x, 0, 0), t, n, qa.w, noTile, nn);
+            nA[i] = nn;
+            if (qa.y > 0.0f) hA[i] = v;
+        }
+        [branch] if (cB[i] > 0.03f)
+        {
+            float3 nn;
+            const float v = TerrainLayerHN(p.SB[i], float4(qb.x, qb.x, 0, 0), t, n, qb.w, noTile, nn);
+            nB[i] = nn;
+            if (qb.y > 0.0f) hB[i] = v;
+        }
+    }
+    TerrainPixelHeightBiome o;
+    o.D = TerrainBlendDisplacementBiome(cA, cB, hA, hB, p, o.WA, o.WB);
+    float3 nsum = 0;
+    [unroll] for (int k = 0; k < 4; ++k)
+        nsum += nA[k] * o.WA[k] + nB[k] * o.WB[k];
+    o.Normal = normalize(nsum);
     return o;
 }
 

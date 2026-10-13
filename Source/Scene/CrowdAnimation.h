@@ -50,8 +50,9 @@ namespace CrowdAnimation
 		// 임포스터: 가로 = 방향 (ImpostorYaws), 세로 = 클립마다 ImpostorFrames 줄
 		static constexpr int ImpostorYaws = 8;
 		static constexpr int ImpostorFrames = 8;
-		static constexpr int CellW = 64, CellH = 128;
-		uint32_t ImpostorRows = 0;
+		static constexpr int CellW = 64, CellH = 128;   // 사람 크기 (1.8 m) 의 칸 — 작은 부위는 크기에 맞춰 줄인다 (ImpostorCellW · H)
+		uint32_t ImpostorRows = 0, ImpostorCellW = CellW, ImpostorCellH = CellH;
+		bool ImpostorSkip = false;   // 멀리서 한 픽셀도 안 되는 작은 부위 (모듈 캐릭터의 단추 · 띠 · 주머니) — 임포스터 단계에서 그리지 않는다
 		ComPtr<GfxShaderResourceView> ImpostorAlbedo, ImpostorNormal;
 		bool ImpostorTried = false;
 

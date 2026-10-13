@@ -387,6 +387,8 @@ namespace SkinnedInstancing
 			return s_Ready[k][(int)pass];
 		}
 
+		constexpr float kTinyImpostorSize = 0.25f;   // m — 이보다 작은 부위는 임포스터 단계에서 그리지 않는다
+
 		// 자동 임포스터: 렌더러가 재생 중인 클립 (없으면 지금 자세 대신 바인드 포즈) 의 아틀라스. 렌더러마다 마지막 것을 기억 (프레임마다 찾지 않게)
 		CrowdAnimation::Baked* ImpostorFor(SkinnedMeshRenderer* r)
 		{
@@ -405,7 +407,18 @@ namespace SkinnedInstancing
 			if (!baked)
 				return nullptr;
 			if (!baked->ImpostorTried)
-				BakeImpostor(*baked);
+			{
+				// 모듈 캐릭터 (부위마다 렌더러 — 부위 수백 개) 의 작은 부위는 굽지 않고 임포스터 거리에서 뺀다 (부위마다 아틀라스 5.6 MB 였다)
+				const float size = (std::max)(baked->Height, baked->HalfWidth * 2.0f);
+				// 바인드 자세에서 납작한 부위 (높이 · 폭 0 — 정사영 크기 0 은 DirectXMath assert) 도 뺀다
+				if (size < kTinyImpostorSize || baked->Height < 0.01f || baked->HalfWidth < 0.005f)
+				{
+					baked->ImpostorTried = true;
+					baked->ImpostorSkip = true;
+				}
+				else
+					BakeImpostor(*baked);
+			}
 			return baked->ImpostorAlbedo ? baked.get() : nullptr;
 		}
 	}
@@ -425,7 +438,13 @@ namespace SkinnedInstancing
 		GfxDevice* device = Application::GetI()->GetDevice();
 		GfxContext* dc = Application::GetI()->GetDeviceContext();
 		const UINT cols = Baked::ImpostorYaws, rows = (UINT)baked.Clips.size() * Baked::ImpostorFrames;
-		const UINT W = cols * Baked::CellW, H = rows * Baked::CellH;
+		// 칸 크기 = 부위 크기에 비례 (사람 1.8 m = 64 x 128, 0.9 m = 32 x 64 … 최소 8 x 16) — 같은 화면 밀도
+		const float size = (std::max)(baked.Height, baked.HalfWidth * 2.0f);
+		UINT cellH = Baked::CellH;
+		while (cellH > 16 && (float)(cellH / 2) >= (float)Baked::CellH * size / 1.8f)
+			cellH /= 2;
+		const UINT cellW = (std::max)(8u, cellH * Baked::CellW / Baked::CellH);
+		const UINT W = cols * cellW, H = rows * cellH;
 
 		ComPtr<GfxTexture2D> tex[2], depth;
 		ComPtr<GfxRenderTargetView> rtv[2];
@@ -498,7 +517,7 @@ namespace SkinnedInstancing
 		dc->IASetInputLayout(InputLayouts::PosNormalTexTanSkinned.Get());
 		dc->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-		const float halfW = baked.HalfWidth, halfH = baked.Height * 0.5f, cy = baked.CenterY;
+		const float halfW = (std::max)(baked.HalfWidth, 0.005f), halfH = (std::max)(baked.Height * 0.5f, 0.005f), cy = baked.CenterY;
 		const float dist = (std::max)(halfW, halfH) * 4.0f;
 		const auto& subsets = baked.Mesh->Subsets;
 		for (UINT r = 0; r < rows; ++r)
@@ -506,7 +525,7 @@ namespace SkinnedInstancing
 			SetBase(fx, r);
 			for (UINT k = 0; k < cols; ++k)
 			{
-				const D3D11_VIEWPORT vp = { (float)(k * Baked::CellW), (float)(r * Baked::CellH), (float)Baked::CellW, (float)Baked::CellH, 0.0f, 1.0f };
+				const D3D11_VIEWPORT vp = { (float)(k * cellW), (float)(r * cellH), (float)cellW, (float)cellH, 0.0f, 1.0f };
 				dc->RSSetViewports(1, &vp);
 				const float a = XM_2PI * k / cols;   // 0 = 물체 +Z 쪽에서 봄 (셰이더 SkinImpostorVertex 와 같음)
 				const XMVECTOR eye = XMVectorSet(sinf(a) * dist, cy, cosf(a) * dist, 1.0f);
@@ -539,6 +558,8 @@ namespace SkinnedInstancing
 		baked.ImpostorAlbedo = srv[0];
 		baked.ImpostorNormal = srv[1];
 		baked.ImpostorRows = rows;
+		baked.ImpostorCellW = cellW;
+		baked.ImpostorCellH = cellH;
 		EditorLog::Write("Crowd", "impostor baked %s: %u x %u (%u rows, %u yaws), cell %.2f x %.2f m (%.1f ms)", baked.Mesh->Name.c_str(), W, H, rows, cols,
 			halfW * 2.0f, halfH * 2.0f, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 		return true;
@@ -564,7 +585,11 @@ namespace SkinnedInstancing
 		// 멀리 (화면에 작게) — 재생 중인 클립의 애니메이션 임포스터 (따로 설정 없이). 그림자도 임포스터 (빛을 바라보는 사각형 — 자세가 필요 없다)
 		CrowdAnimation::Baked* imp = nullptr;
 		if (r->CurrentLod() == SkinnedLod::kImpostorLevel && PassReady(pass, true))
+		{
 			imp = ImpostorFor(r);
+			if (imp == nullptr && r->InstImpostor && r->InstImpostor->ImpostorSkip)
+				return true;   // 작은 부위: 이 거리에서는 그리지 않는다 (부른 쪽도 그리지 않는다)
+		}
 		if (r->InstNoPalette && imp == nullptr)
 			return false;   // 팔레트를 만들지 않았다 (임포스터 단계) — 이번만 렌더러마다
 		s_Items[(int)pass].push_back({ r, geo, imp });

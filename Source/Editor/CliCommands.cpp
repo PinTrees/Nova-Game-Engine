@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "TerrainBiomeTextures.h"
+#include "GrassField.h"
 #include "WorldTerrain.h"
 #include "PCGVolume.h"
 #include "PlantLibrary.h"
@@ -1421,7 +1423,9 @@ namespace CliCommands
 			const WorldTerrain::Info i = w->GetInfo();
 			r = { { "settings", w->toJson() }, { "tiles", i.Tiles }, { "built", i.Built }, { "pending", i.Pending }, { "res513", i.Res513 }, { "res129", i.Res129 },
 				{ "res33", i.Res33 }, { "colliders", i.Colliders }, { "applyMs", i.LastApplyMs }, { "nearRes", i.NearRes }, { "nearTiles", i.Res513 },
-				{ "waitingForBuild", i.WaitingForBuild }, { "cpuMB", i.CpuBytes / 1048576.0 }, { "gpuMB", i.GpuBytes / 1048576.0 },
+				{ "waitingForBuild", i.WaitingForBuild }, { "biomeTextures", TerrainBiomeTextures::Status() },
+				{ "grass", { { "patches", GrassField::LastStats(false).Patches }, { "points", GrassField::LastStats(false).Points }, { "vertices", GrassField::LastStats(false).Vertices },
+					{ "culled", GrassField::LastStats(false).Culled }, { "cpuMs", GrassField::LastStats(false).CpuMs } } }, { "cpuMB", i.CpuBytes / 1048576.0 }, { "gpuMB", i.GpuBytes / 1048576.0 },
 				{ "groups", i.Groups }, { "farTilesShown", i.SuperShown }, { "drawn", i.Drawn } };
 			return true;
 		});

@@ -264,6 +264,41 @@ World Terrain 대신 보통 **Terrain** 을 쓰고 싶으면 (손으로 칠하�
 
 지형 셰이더의 환경 반사를 지형만 0.3 배로 낮췄습니다. 풀잎 · 자갈이 비스듬한 하늘 반사를 가리기 때문이고, 이전에는 먼 비탈이 하얗게 번들거렸습니다. 매끄러움은 0.05 입니다. 젖은 땅 · 웅덩이에서는 반사가 돌아옵니다.
 
+## 바이옴 텍스처 (World Terrain — 50 km)
+
+지형 레이어는 넷 (풀 · 흙 · 바위 · 눈 — 레이어 이름이 역할) 이지만 큰 월드는 사막부터 툰드라까지 기후가 다르다. World Terrain 의 **Biome Textures** (기본 켬) 는 역할마다 **바이옴에 맞는 텍스처 팩 사진 재질** 을 쓴다.
+
+- 타일마다 **기후 맵** (64², 가장자리 포함 — 이웃 타일과 같은 값): 그래프의 `BiomeAt` 의 기온 (해발 −6.5 °C/km) · 습도 · 물가. 타일 작업 스레드가 만들고 캐시에 함께
+- 셰이더가 기후 (± 14 m · 90 m 노이즈로 경계를 흔든다) 로 가장 가까운 **바이옴 둘** 을 골라 섞는다 — 역할 4 × 바이옴 2 = 가상 레이어 8, 높이 기반 섞기 (경계에서 돌 · 흙이 먼저 드러난다) · 테셀레이션 변위 · 범프 · 거칠기 (사진의 roughness — 진흙 · 젖은 모래 · 눈이 반들). 깊이 · 그림자 패스도 같은 식
+- 컬러 맵 (SatMap) 은 멀리서만 (180 m → 900 m 에서 다 들어온다) — 가까이는 사진 그대로
+- 재질은 배열 둘 (색 RGBA8 — a 거칠기 · 높이 + 노멀 RGBA8, 높이는 색의 절반 크기), 쓰는 재질만 (기본 월드 24 장, 1024² ≈ 170 MB · 512² ≈ 42 MB — **Texture Size**). 처음엔 작업 스레드가 사진을 읽는 동안 레이어 텍스처 그대로
+- 텍스처 팩이 없거나 꺼지면 예전처럼 레이어 텍스처
+
+| 바이옴 | 기온 · 습도 | 풀 | 흙 | 바위 | 모래 |
+|---|---|---|---|---|---|
+| Temperate Forest | 9 °C · 0.6 | wild-grass | forest-floor | cliff-grey | river-pebbles |
+| Boreal | −1 · 0.55 | mossy-forest | pine-needles | cliff-dark | gravel |
+| Tundra / Alpine | −9 · 0.45 | sparse-grass | rocky-dirt | lichen-rock | gravel |
+| Hot Desert | 27 · 0.08 | dry-ground | desert-sand-gravel | red-desert | sand |
+| Savanna / Steppe | 22 · 0.3 | dry-grass | red-laterite | sandstone-cliff | desert-sand-gravel |
+| Tropical Rainforest | 25 · 0.85 | forest-leaves-green | mud | cliff-mossy | wet-sand |
+| Mediterranean | 16 · 0.32 | grass-dirt | soil | cliff-light | sand |
+| Wetland | 11 · 0.95 | mud-clover | mud | mossy-rock | wet-sand |
+
+눈 역할은 모든 바이옴에서 `ground/snow`. 표는 [TerrainBiomeTextures.cpp](../Source/Terrain/TerrainBiomeTextures.cpp). `nova world info` 의 `biomeTextures` = 상태 (재질 수 · GPU MB).
+
+## 풀밭 (World Terrain — 빽빽한 풀 · 낮은 풀)
+
+World Terrain 의 바이옴 지형 위에 카메라 둘레를 풀로 덮는다 (`Source/Scene/GrassField.*`, `Shaders/49. GrassField.fx`). 메시 · 인스턴스 버퍼 없이 **정점 셰이더가 풀잎을 만든다** (SV_VertexID · SV_InstanceID).
+
+- **월드에 붙은 겹 격자**: 점 간격 0.4 m. 점 번호의 끝 0 비트 수 = 단계 — 거리 d 에서 `L(d) = 0.75 · log2(d / 10)` 보다 낮은 단계의 점은 사라지고, 남은 점의 덩어리는 2^L 배 넓어진다. 카메라가 움직여도 점이 제자리라 깜빡이지 않는다
+- **패치**: 월드 타일마다 쿼드트리 (16 m 까지). CPU 가 조절 맵 (32 × 32) 으로 길 · 강 · 바위 · 눈 · 모래 · 비탈을 먼저 빼고, 가까운 것부터 그린다. 한 프레임 1600 만 정점 예산
+- **풀잎**: 가까운 단계 9 잎 · 3 마디 → 멀면 4 잎 · 1 마디. 분수처럼 벌어지고 바람 (날씨의 바람 세기 · 방향) 에 흔들린다. 색은 바이옴 풀 재질 (지형 albedo 배열의 밉 5), 일부는 마른 잎
+- **바이옴별**: 밀도 · 키 · 마름 · 너비 (열대 우림 · 습지는 빽빽하고 키 크게, 사막 · 툰드라는 드물게). 표는 `GrassField.cpp` 의 `kBiomeGrass`
+- **그리기**: 메인 패스만 (깊이 LESS_EQUAL), 그림자 · 프리패스 없음 — 50 km 월드 (Debug) 약 8 만 점 · 450 만 정점 · GPU 약 3 ms
+
+Inspector (World Terrain → Grass): `Dense Grass` · `Density` (1 = 가까운 곳 약 10 덩어리 / m²) · `Distance` (기본 320 m) · `Height`. 저장 키 `grass{enabled, density, distance, height}`. `nova world info` 의 `grass` = 패치 · 점 · 정점 · 빠진 패치 · CPU ms.
+
 ## 사진 레이어 (텍스처 팩)
 
 `terraingraph textures <g>` (창의 Generate Layer Textures) 는 프로젝트에 텍스처 팩 (com.nova.textures) 이 있으면 레이어마다 **사진 PBR 재질** 을 고른다: 규칙 이름 낱말로 땅 · 바위 분류를 찾고 (예 "Forest Floor" → `ground/forest-floor`, "Cliff" → `rock/…`), 없으면 종류의 기본 (풀 `ground/wild-grass` · 흙 `ground/forest-floor` · 바위 `rock/cliff-grey` · 눈 `ground/snow` · 모래 `ground/sand`). 레이어 파일에는 재질 id 만 (`"material"`), 타일 3 ~ 6 m, 높이 변위 6 ~ 35 cm (바위는 30 cm 넘게 — 붉은사막처럼). `--source procedural` = 예전처럼 식으로 굽는 PNG.

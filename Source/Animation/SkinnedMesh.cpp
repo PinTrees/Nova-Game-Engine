@@ -50,10 +50,18 @@ int SkinnedMesh::BindCandidates(const SkeletonAvataData& sk, XMMATRIX out[kBindC
 	const XMMATRIX bind = off * g;
 	const XMMATRIX invBind = XMMatrixInverse(&det, bind);
 	const bool ok = fabsf(XMVectorGetX(det)) > 1e-20f;
-	const XMMATRIX rots[3] = { XMMatrixRotationX(XM_PI), XMMatrixRotationX(XM_PIDIV2), XMMatrixRotationX(-XM_PIDIV2) };
-	for (int r = 0; r < 3; ++r)
-		for (int c = 0; c < kBindBase; ++c)
-			out[kBindBase * (r + 1) + c] = ok ? out[c] * bind * rots[r] * invBind : out[c];
+	//  크기도 같은 식 (모델 원점 기준 ×UnitScale · ×1/UnitScale — 부위만 단위가 다른 FBX). 번호 = 20 × 크기 + 5 × 회전 + 기본 (0 ~ 19 는 예전 그대로)
+	const float us = sk.UnitScale > 1e-6f ? sk.UnitScale : 1.0f;
+	const XMMATRIX rots[4] = { XMMatrixIdentity(), XMMatrixRotationX(XM_PI), XMMatrixRotationX(XM_PIDIV2), XMMatrixRotationX(-XM_PIDIV2) };
+	const XMMATRIX scales[3] = { XMMatrixIdentity(), XMMatrixScaling(us, us, us), XMMatrixScaling(1.0f / us, 1.0f / us, 1.0f / us) };
+	for (int s = 0; s < 3; ++s)
+		for (int r = 0; r < 4; ++r)
+		{
+			if (s == 0 && r == 0)
+				continue;
+			for (int c = 0; c < kBindBase; ++c)
+				out[kBindBase * (4 * s + r) + c] = ok ? out[c] * bind * rots[r] * scales[s] * invBind : out[c];
+		}
 	return kBindCandidates;
 }
 

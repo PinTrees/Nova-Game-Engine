@@ -26,6 +26,19 @@ Texture2D gTerrainLayer1;
 Texture2D gTerrainLayer2;
 Texture2D gTerrainLayer3;
 
+// ---- 바이옴 텍스처 (World Terrain — TerrainBiomeTextures.cpp): 타일의 기후 맵 (기온 · 습도 · 물가) 으로 가장 가까운 바이옴 둘을 골라
+//  레이어 역할 (0..3) 마다 사진 재질 배열의 슬라이스를 섞는다. 기후 맵은 가장자리 포함 격자 (이웃 타일과 같은 값) — 높이맵처럼 읽는다
+cbuffer cbTerrainBiome
+{
+    float4 gTerrainBiome;               // x 1 = 바이옴 텍스처, y 바이옴 수, z 경계 섞기 폭 (비율), w 컬러 맵이 다 들어오는 거리 (m)
+    float4 gTerrainBiomeClimate[8];     // x 기온 (°C), y 습도, z 1 / 기온 폭, w 1 / 습도 폭
+    float4 gTerrainBiomeSlices[8];      // 역할 0..3 의 배열 슬라이스
+    float4 gTerrainSliceParams[32];     // x 1 / 타일 (m), y 높이 (m), z Base, w Normal Scale
+    float4 gTerrainClimateRes;          // x 기후 맵 한 변
+};
+Texture2D gTerrainClimate;              // r = (기온 + 30) / 70, g = 습도, b = 물가
+Texture2DArray gTerrainAlbedos;         // rgb = 색 (sRGB), a = 거칠기
+
 SamplerState samTerrainClamp
 {
     Filter = MIN_MAG_MIP_LINEAR;
@@ -165,6 +178,156 @@ float4 TerrainSampleNoTile(Texture2D tex, float2 uv, float2 dx, float2 dy)
     const float4 mixed = a * wp.x + b * wp.y + c * wp.z;
     const float k = rsqrt(max(dot(wp, wp), 1e-4f));
     return saturate(mean + (mixed - mean) * lerp(1.0f, k, 0.6f));
+}
+
+// 값 노이즈 (바이옴 경계를 흔든다)
+float TerrainValueNoise(float2 p)
+{
+    const float2 i = floor(p), f = frac(p);
+    const float2 u = f * f * (3.0f - 2.0f * f);
+    const float a = TerrainHash2(i).x, b = TerrainHash2(i + float2(1, 0)).x, c = TerrainHash2(i + float2(0, 1)).x, d = TerrainHash2(i + float2(1, 1)).x;
+    return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+}
+
+struct TerrainBiomePick
+{
+    float4 SA, SB;   // 역할 0..3 의 슬라이스 (바이옴 A · B)
+    float T;         // B 의 몫 (0 ~ 0.5)
+};
+
+// 가장 가까운 바이옴 둘 (a · b) 과 b 의 몫 t (0 ~ 0.5) — 지형 · 풀밭 (49) 이 같은 식
+void TerrainBiomeIndex(float2 uv, float2 worldXZ, out int a, out int b, out float t)
+{
+    const float res = max(gTerrainClimateRes.x, 2.0f);
+    const float2 tc = (uv * (res - 1.0f) + 0.5f) / res;
+    precise const float3 c = gTerrainClimate.SampleLevel(samTerrainClamp, tc, 0).rgb;
+    precise const float n = TerrainValueNoise(worldXZ * (1.0f / 14.0f)) * 0.55f + TerrainValueNoise(worldXZ * (1.0f / 90.0f)) * 0.45f - 0.5f;
+    precise const float temp = c.r * 70.0f - 30.0f + n * 3.5f;
+    precise const float moist = saturate(c.g + c.b * 0.45f + n * 0.09f);
+    float wa = -1.0f, wb = -1.0f;
+    a = 0;
+    b = 0;
+    const int count = (int) gTerrainBiome.y;
+    [loop]
+    for (int i = 0; i < count; ++i)
+    {
+        const float4 k = gTerrainBiomeClimate[i];
+        precise const float dt = (temp - k.x) * k.z;
+        precise const float dm = (moist - k.y) * k.w;
+        precise const float w = exp(-(dt * dt + dm * dm));
+        if (w > wa)
+        {
+            b = a; wb = wa; a = i; wa = w;
+        }
+        else if (w > wb)
+        {
+            b = i; wb = w;
+        }
+    }
+    wb = max(wb, 0.0f);
+    precise const float r = wb / max(wa + wb, 1e-6f);   // 0 .. 0.5
+    const float width = max(gTerrainBiome.z, 0.01f);
+    t = saturate((r - (0.5f - width)) / width) * 0.5f;
+}
+
+// uv = 지형 0..1, worldXZ = 월드 위치 (경계 노이즈). 본 · 깊이 · 그림자 · Domain 이 같은 식 (precise)
+TerrainBiomePick TerrainBiomeAt(float2 uv, float2 worldXZ)
+{
+    TerrainBiomePick o;
+    int a, b;
+    TerrainBiomeIndex(uv, worldXZ, a, b, o.T);
+    o.SA = gTerrainBiomeSlices[a];
+    o.SB = gTerrainBiomeSlices[b];
+    return o;
+}
+
+// 배열 슬라이스 하나 (TerrainSampleNoTile 과 같은 격자 · 해시 · 섞기)
+float4 TerrainSampleNoTileArr(float slice, float2 uv, float2 dx, float2 dy)
+{
+    const float2 skewed = mul(float2x2(1.0f, 0.0f, -0.57735027f, 1.15470054f), uv * 1.8f);
+    const float2 base = floor(skewed);
+    float3 t = float3(frac(skewed), 0.0f);
+    t.z = 1.0f - t.x - t.y;
+    float3 w;
+    float2 v1, v2, v3;
+    if (t.z > 0.0f)
+    {
+        w = float3(t.z, t.y, t.x);
+        v1 = base; v2 = base + float2(0, 1); v3 = base + float2(1, 0);
+    }
+    else
+    {
+        w = float3(-t.z, 1.0f - t.y, 1.0f - t.x);
+        v1 = base + float2(1, 1); v2 = base + float2(1, 0); v3 = base + float2(0, 1);
+    }
+    const float4 a = gTerrainAlbedos.SampleGrad(samTerrainWrap, float3(uv + TerrainHash2(v1) * 7.0f, slice), dx, dy);
+    const float4 b = gTerrainAlbedos.SampleGrad(samTerrainWrap, float3(uv + TerrainHash2(v2) * 7.0f, slice), dx, dy);
+    const float4 c = gTerrainAlbedos.SampleGrad(samTerrainWrap, float3(uv + TerrainHash2(v3) * 7.0f, slice), dx, dy);
+    float3 wp = w * w;
+    wp *= wp;
+    wp /= wp.x + wp.y + wp.z;
+    const float4 mean = gTerrainAlbedos.SampleLevel(samTerrainWrap, float3(0.5f, 0.5f, slice), 16);
+    const float4 mixed = a * wp.x + b * wp.y + c * wp.z;
+    const float k = rsqrt(max(dot(wp, wp), 1e-4f));
+    return saturate(mean + (mixed - mean) * lerp(1.0f, k, 0.6f));
+}
+
+// 슬라이스의 색 (+ a 거칠기): TerrainLayerSample 과 같은 삼평면 · 큰 얼룩
+float4 TerrainSliceSample(float slice, TerrainTriplanar t)
+{
+    const float s = gTerrainSliceParams[(int) slice].x;
+    const float2 st = float2(s, s);
+    float4 c = 0;
+    [branch] if (t.W.y > 0.0f)
+        c += t.W.y * TerrainSampleNoTileArr(slice, t.Top * st, t.TopDx * st, t.TopDy * st);
+    [branch] if (t.W.x > 0.0f)
+        c += t.W.x * TerrainSampleNoTileArr(slice, t.SideX * st, t.XDx * st, t.XDy * st);
+    [branch] if (t.W.z > 0.0f)
+        c += t.W.z * TerrainSampleNoTileArr(slice, t.SideZ * st, t.ZDx * st, t.ZDy * st);
+    const float2 macroUV = (t.Top * st) * 0.163f + 0.37f;
+    const float3 lumW = float3(0.299f, 0.587f, 0.114f);
+    const float macro = dot(gTerrainAlbedos.SampleGrad(samTerrainWrap, float3(macroUV, slice), t.TopDx * st * 0.163f, t.TopDy * st * 0.163f).rgb, lumW);
+    const float mean = dot(gTerrainAlbedos.SampleLevel(samTerrainWrap, float3(0.5f, 0.5f, slice), 16).rgb, lumW);
+    c.rgb *= lerp(1.0f, clamp(macro / max(mean, 0.02f), 0.65f, 1.4f), 0.45f);
+    return c;
+}
+
+// 바이옴 색: 가중치 wA (바이옴 A 의 역할 0..3) · wB (바이옴 B) → 색, rough = 섞은 거칠기.
+//  컬러 맵 (SatMap) 은 멀리서만 (가까이는 사진 재질 그대로, gTerrainBiome.w 에서 다 들어온다)
+float4 TerrainAlbedoBiomeW(float4 wA, float4 wB, TerrainBiomePick b, TerrainTriplanar t, float2 uv, float viewDist, out float rough)
+{
+    float4 c = 0;
+    float3 avg = 0;
+    [unroll]
+    for (int i = 0; i < 4; ++i)
+    {
+        [branch] if (wA[i] > 0.0f)
+        {
+            c += wA[i] * TerrainSliceSample(b.SA[i], t);
+            avg += wA[i] * gTerrainAlbedos.SampleLevel(samTerrainWrap, float3(0.5f, 0.5f, b.SA[i]), 16).rgb;
+        }
+        [branch] if (wB[i] > 0.0f)
+        {
+            c += wB[i] * TerrainSliceSample(b.SB[i], t);
+            avg += wB[i] * gTerrainAlbedos.SampleLevel(samTerrainWrap, float3(0.5f, 0.5f, b.SB[i]), 16).rgb;
+        }
+    }
+    rough = c.a;
+    c.a = 1.0f;
+    [branch] if (gTerrainUseColorMap != 0)
+    {
+        const float4 cm = gTerrainColorMap.Sample(samTerrainClamp, uv);
+        const float far = saturate((viewDist - gTerrainBiome.w * 0.2f) / (gTerrainBiome.w * 0.8f));
+        const float a = cm.a * far;
+        [branch] if (a > 0.003f)
+        {
+            const float3 lumW = float3(0.299f, 0.587f, 0.114f);
+            float detail = clamp(dot(c.rgb, lumW) / max(dot(avg, lumW), 0.03f), 0.35f, 1.9f);
+            detail = lerp(detail, 1.0f, 0.75f * saturate((viewDist - 60.0f) / 400.0f));
+            c.rgb = lerp(c.rgb, cm.rgb * detail, a);
+        }
+    }
+    return c;
 }
 
 float4 TerrainLayerSample(Texture2D tex, float4 st, TerrainTriplanar t)

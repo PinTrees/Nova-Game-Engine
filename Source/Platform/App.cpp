@@ -188,9 +188,11 @@ int32 App::Run()
 				{
 					FRAME_PROFILE("GameUpdate");
 					{ PROFILE_SCOPE("Scripts.BeginFrame"); ScriptEngine::BeginFrame(); }   // C# 입력 상태 / 시간
-					{ PROFILE_SCOPE("Scene.Update"); UpdateScene(_timer.DeltaTime()); SceneManager::GetI()->UpdateScene(); }
-					{ PROFILE_SCOPE("Physics.Update"); PhysicsManager::GetI()->Update(_timer.DeltaTime()); }
-					{ PROFILE_SCOPE("Physics2D.Update"); Physics2DManager::Update(_timer.DeltaTime()); }
+					// Unity 의 Time.maximumDeltaTime (1/3 초): 긴 프레임 뒤 게임 시간 (스크립트 · 물리) 을 같이 줄인다 — C# Time.deltaTime 도 같은 값 (ScriptBindings)
+					const float gameDt = (std::min)(_timer.DeltaTime(), 1.0f / 3.0f);
+					{ PROFILE_SCOPE("Scene.Update"); UpdateScene(gameDt); SceneManager::GetI()->UpdateScene(); }
+					{ PROFILE_SCOPE("Physics.Update"); PhysicsManager::GetI()->Update(gameDt); }
+					{ PROFILE_SCOPE("Physics2D.Update"); Physics2DManager::Update(gameDt); }
 				}
 				else if (!Application::IsPlaying() && !Application::IsPlayer())
 				{

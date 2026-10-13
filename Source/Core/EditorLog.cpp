@@ -18,11 +18,38 @@ namespace
 	ULONGLONG s_Start = 0;
 	DWORD s_MainThread = 0;
 
-	// C++ 런타임 assert/오류 보고를 로그에 남긴다 (대화 상자는 그대로 뜬다)
+	int CaptureStack(HANDLE thread, CONTEXT ctx, DWORD64* out, int max);
+	void WriteStack(const char* tag, const DWORD64* pcs, int count);
+
+	// BeginThirdParty ~ EndThirdParty 사이 (이 스레드): CRT assert 를 넘긴다
+	thread_local int t_ThirdParty = 0;
+	thread_local int t_ThirdPartyReports = 0;
+	thread_local const char* t_ThirdPartyWhat = "";
+	thread_local _invalid_parameter_handler t_PrevInvalidParam = nullptr;
+	void __cdecl IgnoreInvalidParameter(const wchar_t*, const wchar_t*, const wchar_t*, unsigned int, uintptr_t) {}
+
+	// C++ 런타임 assert/오류 보고를 로그에 남긴다 (대화 상자는 그대로 뜬다) — assert · 오류는 호출 스택도
 	int __cdecl CrtReportHook(int reportType, wchar_t* message, int* returnValue)
 	{
 		const char* kind = reportType == _CRT_ASSERT ? "ASSERT" : (reportType == _CRT_ERROR ? "CRT ERROR" : "CRT WARN");
+		if (t_ThirdParty > 0 && reportType != _CRT_WARN)
+		{
+			if (t_ThirdPartyReports++ < 3)
+				EditorLog::Write("ThirdParty", "%s: debug CRT check ignored (Release reads the same data): %s", t_ThirdPartyWhat,
+					message ? wstring_to_string(message).c_str() : "(no message)");
+			if (returnValue)
+				*returnValue = 0;
+			return TRUE;   // 대화 상자 · 중단 없이 계속 (뒤따르는 invalid parameter 도 IgnoreInvalidParameter 가 받는다)
+		}
 		EditorLog::Write(kind, "%s", message ? wstring_to_string(message).c_str() : "(no message)");
+		if (reportType != _CRT_WARN)
+		{
+			CONTEXT ctx = {};
+			::RtlCaptureContext(&ctx);
+			DWORD64 pcs[24];
+			const int count = CaptureStack(::GetCurrentThread(), ctx, pcs, 24);
+			WriteStack(kind, pcs, count);
+		}
 		if (returnValue)
 			*returnValue = 0;
 		return FALSE;   // 기본 처리(대화 상자) 계속
@@ -190,6 +217,26 @@ namespace EditorLog
 			::GetLocalTime(&t);
 			fwprintf(s_File, L"NOVA Editor log  %04d-%02d-%02d %02d:%02d:%02d\n", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
 			fflush(s_File);
+		}
+	}
+
+	void BeginThirdParty(const char* what)
+	{
+		if (t_ThirdParty++ == 0)
+		{
+			t_ThirdPartyWhat = what ? what : "";
+			t_ThirdPartyReports = 0;
+			t_PrevInvalidParam = _set_thread_local_invalid_parameter_handler(IgnoreInvalidParameter);
+		}
+	}
+
+	void EndThirdParty()
+	{
+		if (t_ThirdParty > 0 && --t_ThirdParty == 0)
+		{
+			_set_thread_local_invalid_parameter_handler(t_PrevInvalidParam);
+			if (t_ThirdPartyReports > 3)
+				Write("ThirdParty", "%s: %d debug CRT checks ignored in total", t_ThirdPartyWhat, t_ThirdPartyReports);
 		}
 	}
 

@@ -1,4 +1,5 @@
 #include "pch.h"
+#include "TerrainBiomeTextures.h"
 #include "WorldTerrain.h"
 #include "Terrain.h"
 #include "TerrainData.h"
@@ -20,7 +21,7 @@
 struct WorldTerrainQueue
 {
 	std::mutex Lock;
-	struct Item { int Tile; int Res; uint64_t Hash; std::vector<float> Heights; int ControlRes; std::vector<uint8_t> Control; std::vector<uint8_t> Color; };
+	struct Item { int Tile; int Res; uint64_t Hash; std::vector<float> Heights; int ControlRes; std::vector<uint8_t> Control; std::vector<uint8_t> Color; std::vector<uint8_t> Climate; };
 	std::vector<Item> Done;
 	int Running = 0;
 	std::atomic<bool> Cancel{ false };   // World Terrain 이 사라졌다 — 줄 선 타일 작업은 바로 끝낸다 (끄기 · 장면 닫기가 2049 타일을 기다리지 않게)
@@ -40,20 +41,22 @@ namespace
 		uint64_t Hash; int Tile; int Res;
 		bool operator<(const CacheKey& o) const { return std::tie(Hash, Tile, Res) < std::tie(o.Hash, o.Tile, o.Res); }
 	};
-	struct CacheEntry { std::vector<float> Heights; int ControlRes = 0; std::vector<uint8_t> Control; std::vector<uint8_t> Color; uint64_t Use = 0; };
+	struct CacheEntry { std::vector<float> Heights; int ControlRes = 0; std::vector<uint8_t> Control; std::vector<uint8_t> Color; std::vector<uint8_t> Climate; uint64_t Use = 0; };
+	constexpr int kClimateRes = 64;   // 타일마다 기후 맵 한 변 (가장자리 포함)
 	std::mutex s_CacheLock;
 	std::map<CacheKey, std::shared_ptr<CacheEntry>> s_Cache;
 	uint64_t s_CacheUse = 0;
 	size_t s_CacheBytes = 0;
 	constexpr size_t kCacheBudget = 384ull << 20;   // 384 MB (2049 타일 = 높이 16.8 + 스플랫 4 MB → 18 개쯤)
 
-	void CachePut(const CacheKey& key, const std::vector<float>& h, int controlRes, const std::vector<uint8_t>& c, const std::vector<uint8_t>& color)
+	void CachePut(const CacheKey& key, const std::vector<float>& h, int controlRes, const std::vector<uint8_t>& c, const std::vector<uint8_t>& color, const std::vector<uint8_t>& climate)
 	{
 		auto e = std::make_shared<CacheEntry>();
 		e->Heights = h;
 		e->ControlRes = controlRes;
 		e->Control = c;
 		e->Color = color;
+		e->Climate = climate;
 		std::lock_guard<std::mutex> lock(s_CacheLock);
 		e->Use = ++s_CacheUse;
 		auto& slot = s_Cache[key];
@@ -101,7 +104,7 @@ namespace
 
 	// 타일 하나 만들기 (작업 스레드): 높이 (정규화) + 스플랫. 표본 간격 (step) 보다 잔 디테일은 건너뛴다 (먼 타일)
 	bool BuildTile(const WorldGen::Settings& s, float ox, float oz, float tile, int res, std::vector<float>& heights, int& controlRes, std::vector<uint8_t>& control,
-		std::vector<uint8_t>& color, const std::atomic<bool>& cancel)
+		std::vector<uint8_t>& color, std::vector<uint8_t>& climate, const std::atomic<bool>& cancel)
 	{
 		heights.resize((size_t)res * res);
 		const float step = tile / (res - 1);
@@ -156,6 +159,26 @@ namespace
 				}
 			}
 		});
+		if (cancel)
+			return false;
+		// 기후 맵 (바이옴 텍스처): 가장자리 포함 격자 (이웃 타일과 같은 자리 · 같은 값) — 기온 · 습도 · 물가
+		climate.resize((size_t)kClimateRes * kClimateRes * 4);
+		const float kstep = tile / (kClimateRes - 1);
+		for (int z = 0; z < kClimateRes; ++z)
+			for (int x = 0; x < kClimateRes; ++x)
+			{
+				const float wx = ox + x * kstep, wz = oz + z * kstep;
+				const int ix = std::clamp((int)(x * kstep / hstep), 0, res - 2), iz = std::clamp((int)(z * kstep / hstep), 0, res - 2);
+				const float h00 = heights[(size_t)iz * res + ix], h10 = heights[(size_t)iz * res + ix + 1], h01 = heights[(size_t)(iz + 1) * res + ix];
+				const float dx = (h10 - h00) * s.MaxHeight / hstep, dz = (h01 - h00) * s.MaxHeight / hstep;
+				const float slopeCos = 1.0f / sqrtf(1.0f + dx * dx + dz * dz);
+				const WorldGen::Biome bio = s.External ? s.External->BiomeAt(wx, wz, h00, slopeCos) : WorldGen::BiomeAt(s, wx, wz, h00, slopeCos);
+				uint8_t* p = &climate[((size_t)z * kClimateRes + x) * 4];
+				p[0] = (uint8_t)std::clamp((int)lroundf((bio.Temperature + 30.0f) / 70.0f * 255.0f), 0, 255);
+				p[1] = (uint8_t)std::clamp((int)lroundf(bio.Moisture * 255.0f), 0, 255);
+				p[2] = (uint8_t)std::clamp((int)lroundf(bio.Water * 255.0f), 0, 255);
+				p[3] = 255;
+			}
 		return !cancel;
 	}
 }
@@ -233,6 +256,22 @@ bool WorldTerrain::ProbeTile(float x, float z, float& tileHeight, int& tileRes) 
 		return true;
 	}
 	return false;
+}
+
+void WorldTerrain::NearTiles(float x, float z, float radius, std::vector<TileView>& out) const
+{
+	const int n = (std::min)((int)m_Tiles.size(), m_SuperBase > 0 ? m_SuperBase : (int)m_Tiles.size());
+	for (int i = 0; i < n; ++i)
+	{
+		const Tile& t = m_Tiles[(size_t)i];
+		if (!t.Data || t.Res == 0 || t.Super)
+			continue;
+		const Vec3 o = TileOrigin(t);
+		const float dx = (std::max)({ o.x - x, 0.0f, x - (o.x + t.Size) }), dz = (std::max)({ o.z - z, 0.0f, z - (o.z + t.Size) });
+		if (dx * dx + dz * dz > radius * radius)
+			continue;
+		out.push_back({ t.Data.get(), o, t.Size, t.Res });
+	}
 }
 
 Vec3 WorldTerrain::TileOrigin(const Tile& t) const
@@ -318,7 +357,7 @@ void WorldTerrain::Schedule(Tile& t, int res)
 	if (auto e = CacheGet({ hash, index, res }))
 	{
 		std::lock_guard<std::mutex> lock(m_Queue->Lock);
-		m_Queue->Done.push_back({ index, res, hash, e->Heights, e->ControlRes, e->Control, e->Color });
+		m_Queue->Done.push_back({ index, res, hash, e->Heights, e->ControlRes, e->Control, e->Color, e->Climate });
 		return;
 	}
 	const Vec3 o = TileOrigin(t);
@@ -334,8 +373,8 @@ void WorldTerrain::Schedule(Tile& t, int res)
 		item.Tile = index;
 		item.Res = res;
 		item.Hash = hash;
-		if (!q->Cancel && !Jobs::ShuttingDown() && BuildTile(s, o.x, o.z, tile, res, item.Heights, item.ControlRes, item.Control, item.Color, q->Cancel) && !q->Cancel)
-			CachePut({ hash, index, res }, item.Heights, item.ControlRes, item.Control, item.Color);
+		if (!q->Cancel && !Jobs::ShuttingDown() && BuildTile(s, o.x, o.z, tile, res, item.Heights, item.ControlRes, item.Control, item.Color, item.Climate, q->Cancel) && !q->Cancel)
+			CachePut({ hash, index, res }, item.Heights, item.ControlRes, item.Control, item.Color, item.Climate);
 		std::lock_guard<std::mutex> lock(q->Lock);
 		q->Done.push_back(std::move(item));
 		--q->Running;
@@ -401,6 +440,9 @@ void WorldTerrain::ApplyResults()
 		t.Data->SetColorMap({});
 		if (!it.Color.empty())
 			t.Data->SetColorMap(std::move(it.Color));
+		t.Data->SetClimate(kClimateRes, std::move(it.Climate));
+		t.Data->BiomeTextures = BiomeTextures;
+		t.Data->BiomeTextureSize = BiomeTextureSize;
 		t.TerrainComp->SetPixelError(PixelError);
 		t.TerrainComp->SetSkirtDepth((std::max)(4.0f, Settings.MaxHeight * 0.02f));
 		t.Res = it.Res;
@@ -646,6 +688,29 @@ void WorldTerrain::OnInspectorGUI()
 		Slider("Pixel Error", &PixelError, 1.0f, 50.0f);
 		Toggle("Merge Far Tiles", &MergeFarTiles);   // 먼 무리 = 큰 타일 하나
 	}
+	if (Foldout("Biome Textures", 3, true, false))
+	{
+		if (Toggle("Biome Textures", &BiomeTextures))
+			for (Tile& t : m_Tiles)
+				if (t.Data)
+					t.Data->BiomeTextures = BiomeTextures;
+		int size = BiomeTextureSize;
+		if (Int("Texture Size", &size))
+		{
+			BiomeTextureSize = size <= 512 ? 512 : (size >= 2048 ? 2048 : 1024);
+			for (Tile& t : m_Tiles)
+				if (t.Data)
+					t.Data->BiomeTextureSize = BiomeTextureSize;
+		}
+		HelpBox(TerrainBiomeTextures::Status().c_str(), false);
+	}
+	if (Foldout("Grass", 3, true, false))
+	{
+		Toggle("Dense Grass", &Grass);
+		Slider("Density", &GrassDensity, 0.1f, 4.0f);
+		Slider("Distance (m)", &GrassDistance, 20.0f, 1500.0f);
+		Slider("Height", &GrassHeight, 0.2f, 3.0f);
+	}
 	const Info info = GetInfo();
 	char text[256];
 	snprintf(text, sizeof(text), "%d tiles (%.0f x %.0f km): built %d, generating %d — %d: %d, 129: %d, 33: %d, colliders %d. Memory %.0f MB, GPU %.0f MB",
@@ -683,6 +748,9 @@ GENERATE_COMPONENT_FUNC_TOJSON(WorldTerrain)
 	j["colliderDistance"] = ColliderDistance;
 	j["pixelError"] = PixelError;
 	j["mergeFarTiles"] = MergeFarTiles;
+	j["biomeTextures"] = BiomeTextures;
+	j["biomeTextureSize"] = BiomeTextureSize;
+	j["grass"] = { { "enabled", Grass }, { "density", GrassDensity }, { "distance", GrassDistance }, { "height", GrassHeight } };
 	j["layers"] = { LayerPaths[0], LayerPaths[1], LayerPaths[2], LayerPaths[3] };
 	if (!GraphPath.empty())
 		j["graph"] = GraphPath;
@@ -713,6 +781,16 @@ GENERATE_COMPONENT_FUNC_FROMJSON(WorldTerrain)
 	ColliderDistance = j.value("colliderDistance", ColliderDistance);
 	PixelError = j.value("pixelError", PixelError);
 	MergeFarTiles = j.value("mergeFarTiles", MergeFarTiles);
+	BiomeTextures = j.value("biomeTextures", BiomeTextures);
+	BiomeTextureSize = j.value("biomeTextureSize", BiomeTextureSize);
+	if (j.contains("grass") && j["grass"].is_object())
+	{
+		const auto& g = j["grass"];
+		Grass = g.value("enabled", Grass);
+		GrassDensity = g.value("density", GrassDensity);
+		GrassDistance = g.value("distance", GrassDistance);
+		GrassHeight = g.value("height", GrassHeight);
+	}
 	GraphPath = j.value("graph", std::string());
 	if (j.contains("layers") && j["layers"].is_array())
 		for (size_t i = 0; i < 4 && i < j["layers"].size(); ++i)

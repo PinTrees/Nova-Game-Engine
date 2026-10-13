@@ -9,7 +9,7 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 - 쓰기: Building Generator — `nova building set --target <건물> --values {"materials":{"roof":"roof/clay-tiles-mossy"}}` · 지형 그래프 레이어 · 바위 · 나무
 - 더하기: 폴더 하나 + `catalog.json` 한 줄 (같은 형식). 새 분류도 그대로 (id 의 앞부분)
 
-재질 136 개 · 분류 10 개.
+재질 146 개 · 분류 10 개.
 
 ## 지붕 (Roof) — 35
 
@@ -125,7 +125,7 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 | `metal/copper-dark` | Dark Copper | Darkened aged copper | 1.5 | [Metal047B](https://ambientcg.com/a/Metal047B) |
 | `metal/lead-sheet` | Lead Sheet | Matte grey lead — flat roofs, flashing, spires | 1.5 | [Metal038](https://ambientcg.com/a/Metal038) |
 
-## 땅 · 길 (Ground — 지형 · 거리 · 포석) — 29
+## 땅 · 길 (Ground — 지형 · 거리 · 포석) — 37
 
 | id | 이름 | 설명 | 크기 (m) | 원본 |
 |---|---|---|---|---|
@@ -158,8 +158,16 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 | `ground/pebble-road` | Pebble Road | Rough road of set pebbles and rocks | 3.0 | [PavingStones055](https://ambientcg.com/a/PavingStones055) |
 | `ground/stone-floor` | Rough Stone Floor | Uneven medieval stone floor — courtyards, quays, castle floors | 1.9 | [Rocks025](https://ambientcg.com/a/Rocks025) |
 | `ground/rubble-floor` | Rubble Floor | Set rubble stones — old yards and lanes | 1.1 | [Ground065](https://ambientcg.com/a/Ground065) |
+| `ground/dry-grass` | Dry Grass | Pale withered grass — savanna, steppe, dry summer meadows | 2.0 | [withered_grass](https://ambientcg.com/a/withered_grass) |
+| `ground/sparse-grass` | Sparse Grass | Thin green-brown grass over soil — steppe, tundra, highland pasture | 2.0 | [sparse_grass](https://ambientcg.com/a/sparse_grass) |
+| `ground/dry-ground` | Dry Cracked Clay | Pale sun-cracked clay pan — deserts, dry lake beds | 4.0 | [dry_ground_01](https://ambientcg.com/a/dry_ground_01) |
+| `ground/red-laterite` | Red Laterite Soil | Red tropical soil with small stones — savanna and tropical dirt | 2.0 | [red_laterite_soil_stones](https://ambientcg.com/a/red_laterite_soil_stones) |
+| `ground/pine-needles` | Pine Needle Floor | Sandy soil covered in pine needles — boreal and conifer forests | 2.0 | [forrest_ground_03](https://ambientcg.com/a/forrest_ground_03) |
+| `ground/forest-leaves-green` | Leaves and Moss | Fallen leaves, twigs and moss — rainforest and lush broadleaf forest floor | 3.0 | [forest_leaves_02](https://ambientcg.com/a/forest_leaves_02) |
+| `ground/desert-sand-gravel` | Desert Sand Gravel | Orange sand with fine gravel — hot deserts, dry riverbeds | 2.5 | [sandy_gravel_02](https://ambientcg.com/a/sandy_gravel_02) |
+| `ground/mud-clover` | Muddy Ground with Clover | Brown mud with clover and small leaves — wetlands, marsh edges | 1.3 | [brown_mud_leaves_01](https://ambientcg.com/a/brown_mud_leaves_01) |
 
-## 바위 · 절벽 (Rock) — 11
+## 바위 · 절벽 (Rock) — 13
 
 | id | 이름 | 설명 | 크기 (m) | 원본 |
 |---|---|---|---|---|
@@ -174,6 +182,8 @@ CC0 PBR 재질 (ambientCG) 을 분류별로 모은 텍스처 팩입니다. 원�
 | `rock/boulder-wall` | Boulder Face | Packed boulders — rock falls, rough walls | 2.0 | [Rocks001](https://ambientcg.com/a/Rocks001) |
 | `rock/mossy-stone` | Mossy Stone | Grey stone with moss patches — small rocks, boulders | 0.9 | [Rock046S](https://ambientcg.com/a/Rock046S) |
 | `rock/dark-rough` | Dark Rough Rock | Dark rough rock — volcanic, basalt, caves | 2.0 | [Rock047](https://ambientcg.com/a/Rock047) |
+| `rock/lichen-rock` | Lichen Rock | Dark rock with pale lichen crusts — tundra, northern coasts, cold uplands | 2.0 | [lichen_rock](https://ambientcg.com/a/lichen_rock) |
+| `rock/mossy-rock` | Mossy Granite | Grey granite covered in green moss and lichen — wet temperate forests | 3.0 | [mossy_rock](https://ambientcg.com/a/mossy_rock) |
 
 ## 나무껍질 (Bark) — 8
 

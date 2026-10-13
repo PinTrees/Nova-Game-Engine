@@ -694,6 +694,45 @@ void TerrainData::SetColorMap(std::vector<uint8_t> colorMap)
 	Dirty = true;
 }
 
+void TerrainData::SetClimate(int res, std::vector<uint8_t> climate)
+{
+	if (res <= 1 || climate.size() != (size_t)res * res * 4)
+	{
+		Climate.clear();
+		ClimateResolution = 0;
+	}
+	else
+	{
+		Climate.swap(climate);
+		ClimateResolution = res;
+	}
+	m_ClimateDirty = true;
+}
+
+GfxShaderResourceView* TerrainData::ClimateSRV()
+{
+	if (Climate.empty())
+		return nullptr;
+	if (!m_ClimateSRV || m_ClimateDirty)
+	{
+		m_ClimateSRV.Reset();
+		D3D11_TEXTURE2D_DESC desc = {};
+		desc.Width = desc.Height = (UINT)ClimateResolution;
+		desc.MipLevels = desc.ArraySize = 1;
+		desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		desc.SampleDesc.Count = 1;
+		desc.Usage = D3D11_USAGE_IMMUTABLE;
+		desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+		D3D11_SUBRESOURCE_DATA init = { Climate.data(), (UINT)(ClimateResolution * 4), 0 };
+		ComPtr<GfxTexture2D> tex;
+		GfxDevice* device = Application::GetI()->GetDevice();
+		if (FAILED(device->CreateTexture2D(&desc, &init, tex.GetAddressOf())) || FAILED(device->CreateShaderResourceView(tex.Get(), nullptr, m_ClimateSRV.GetAddressOf())))
+			return nullptr;
+		m_ClimateDirty = false;
+	}
+	return m_ClimateSRV.Get();
+}
+
 GfxShaderResourceView* TerrainData::ColorMapSRV()
 {
 	if (ColorMap.empty())

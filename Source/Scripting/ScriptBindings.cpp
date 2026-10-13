@@ -747,7 +747,9 @@ namespace
 		::QueryPerformanceFrequency(&f);
 		::QueryPerformanceCounter(&c);
 		const double now = (double)c.QuadPart / (double)f.QuadPart;
-		const float dt = Application::IsPaused() ? 0.0f : (float)DT;
+		// Unity 의 Time.maximumDeltaTime (기본 1/3 초): 긴 프레임 (Play 시작 · 로딩 · 디버거) 뒤 스크립트가 한 번에 멀리 움직이지 않게
+		constexpr float kMaximumDeltaTime = 1.0f / 3.0f;
+		const float dt = Application::IsPaused() ? 0.0f : (std::min)((float)DT, kMaximumDeltaTime);
 		t->deltaTime = dt;
 		t->unscaledDeltaTime = (float)DT;
 		t->time = ScriptEngine::PlayTime();

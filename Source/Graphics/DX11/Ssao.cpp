@@ -88,6 +88,8 @@ void Ssao::SetNormalDepthRenderTarget(ComPtr<GfxDepthStencilView> dsv)
 {
 	GfxRenderTargetView* renderTargets[1] = { _normalDepthRTV.Get() };
 	_deviceContext->OMSetRenderTargets(1, renderTargets, dsv.Get());
+	if (!_normalDepthRTV)
+		return;   // 대상을 못 만들었다 (VRAM 예산) — 깊이만 쓴다
 
 	// 비운 자리 = 뷰 노멀 (0,0,-1) · 아주 먼 깊이 (가리지도 가려지지도 않는다)
 	const float clearColor[] = { 0.0f, 0.0f, -1.0f, 1e5f };

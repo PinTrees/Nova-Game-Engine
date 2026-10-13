@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "TerrainBiomeTextures.h"
+#include "TerrainTextureGen.h"
 #include "TerrainRenderer.h"
 #include "TerrainData.h"
 #include "Effects.h"
@@ -158,6 +160,8 @@ namespace
 		FxVar* LayerHeight = nullptr;
 		FxVar* HeightParams = nullptr;
 		FxTechnique* TessTech = nullptr;
+		// 바이옴 텍스처 (World Terrain)
+		FxVar *Biome = nullptr, *BiomeClimate = nullptr, *BiomeSlices = nullptr, *SliceParams = nullptr, *ClimateRes = nullptr, *Climate = nullptr, *Albedos = nullptr;
 
 		void Bind(FxEffect* fx, const char* tech, const char* tessTech)
 		{
@@ -165,6 +169,13 @@ namespace
 			LayerHeight = fx->GetVariableByName("gTerrainLayerHeight")->AsVector();
 			HeightParams = fx->GetVariableByName("gTerrainHeightParams")->AsVector();
 			Heights = fx->GetVariableByName("gTerrainHeights")->AsShaderResource();
+			Biome = fx->GetVariableByName("gTerrainBiome")->AsVector();
+			BiomeClimate = fx->GetVariableByName("gTerrainBiomeClimate")->AsVector();
+			BiomeSlices = fx->GetVariableByName("gTerrainBiomeSlices")->AsVector();
+			SliceParams = fx->GetVariableByName("gTerrainSliceParams")->AsVector();
+			ClimateRes = fx->GetVariableByName("gTerrainClimateRes")->AsVector();
+			Climate = fx->GetVariableByName("gTerrainClimate")->AsShaderResource();
+			Albedos = fx->GetVariableByName("gTerrainAlbedos")->AsShaderResource();
 			Tech = fx->GetTechniqueByName(tech);
 			Patch = fx->GetVariableByName("gTerrainPatch")->AsVector();
 			Size = fx->GetVariableByName("gTerrainSize")->AsVector();
@@ -645,6 +656,46 @@ namespace TerrainRenderer
 				v.LayerTint->SetFloatVectorArray(reinterpret_cast<const float*>(tint), 0, 4);
 				for (int i = 0; i < 4; ++i)
 					v.Layers[i]->SetResource(i < layerCount ? data.Layers[i]->DiffuseSRV() : nullptr);
+			}
+		}
+		// ---- 바이옴 텍스처 (World Terrain — 기후 맵 + 텍스처 팩 사진 재질 배열): 모든 패스 (Domain 이 깊이 · 그림자에서도 같은 높이)
+		{
+			const TerrainBiomeTextures::Set* biome = nullptr;
+			if (data.BiomeTextures && data.ClimateSRV())
+			{
+				std::array<int, 4> kinds = { -1, -1, -1, -1 };
+				const int layerCount = (std::min)((int)data.Layers.size(), TerrainData::kMaxLayers);
+				for (int i = 0; i < layerCount; ++i)
+					kinds[(size_t)i] = data.Layers[i] ? (int)TerrainTextureGen::KindFromName(data.Layers[i]->Name()) : -1;
+				biome = TerrainBiomeTextures::Get(kinds, data.BiomeTextureSize);
+			}
+			if (v.Biome && v.Biome->IsValid())
+			{
+				// x 켬, y 바이옴 수, z 경계 섞기 폭 (비율), w 컬러 맵이 다 들어오는 거리 (m)
+				const float b[4] = { biome ? 1.0f : 0.0f, (float)TerrainBiomeTextures::kBiomes, 0.2f, 900.0f };
+				v.Biome->SetFloatVector(b);
+			}
+			if (biome && v.Biome && v.Biome->IsValid())
+			{
+				XMFLOAT4 climate[TerrainBiomeTextures::kBiomes];
+				const TerrainBiomeTextures::Biome* bs = TerrainBiomeTextures::Biomes();
+				for (int i = 0; i < TerrainBiomeTextures::kBiomes; ++i)
+					climate[i] = XMFLOAT4(bs[i].Temperature, bs[i].Moisture, 1.0f / bs[i].TempWidth, 1.0f / bs[i].MoistWidth);
+				v.BiomeClimate->SetFloatVectorArray(reinterpret_cast<const float*>(climate), 0, TerrainBiomeTextures::kBiomes);
+				v.BiomeSlices->SetFloatVectorArray(&biome->Slices[0][0], 0, TerrainBiomeTextures::kBiomes);
+				v.SliceParams->SetFloatVectorArray(&biome->Params[0][0], 0, TerrainBiomeTextures::kMaxSlices);
+				const float cr[4] = { (float)data.ClimateResolution, 0.0f, 0.0f, 0.0f };
+				v.ClimateRes->SetFloatVector(cr);
+				v.Climate->SetResource(data.ClimateSRV());
+				if (v.Heights && v.Heights->IsValid())
+					v.Heights->SetResource(biome->Heights);
+				if (pass == Pass::Main && v.Albedos && v.Albedos->IsValid())
+					v.Albedos->SetResource(biome->Albedo);
+				anyHeight = true;
+				maxLift = (std::max)(maxLift, biome->MaxAmplitude);
+				const float hp[4] = { 1.0f, (std::max)(0.0f, heightTransition), kPomDistance, 0.0f };
+				if (v.HeightParams && v.HeightParams->IsValid())
+					v.HeightParams->SetFloatVector(hp);
 			}
 		}
 		if (pass == Pass::Main)

@@ -2118,7 +2118,28 @@ float4 TerrainShade(TerrainVertexOut pin, bool tess)
     toEye /= distToEye;
 
     float4 texColor;
-    [branch] if (gTerrainHeightParams.x > 0.5f && gTerrainLayerCount > 0 && distToEye < 250.0f)   // 250 m 너머 = 범프 0 → 높이 · 노멀을 읽지 않는다
+    float smooth = 0.05f;
+    [branch] if (gTerrainBiome.x > 0.5f && gTerrainLayerCount > 0)
+    {
+        // 바이옴 텍스처 (World Terrain): 기후 맵으로 바이옴 둘 → 역할마다 사진 재질 슬라이스 (가상 레이어 8), 높이 기반 섞기 · 범프 · 거칠기
+        const float4 c = TerrainControlWeights(pin.UV);
+        const TerrainBiomePick bp = TerrainBiomeAt(pin.UV, pin.PosW.xz);
+        const float4 cA = c * (1.0f - bp.T);
+        const float4 cB = bp.T > 0.01f ? c * bp.T : float4(0, 0, 0, 0);
+        const float3 lp = pin.PosW.xyz - gTerrainOrigin.xyz;
+        const TerrainTriplanar tri = TerrainTriplanarSetup(lp, normalW);
+        float rough = 0.85f;
+        [branch] if (distToEye < 250.0f)
+        {
+            const TerrainPixelHeightBiome ph = TerrainHeightsAtBiome(cA, cB, bp, tri, normalW, distToEye < 30.0f);
+            texColor = TerrainAlbedoBiomeW(ph.WA, ph.WB, bp, tri, pin.UV, distToEye, rough);
+            normalW = TerrainBumpNormal(ph.Normal, pin.PosW.xyz, ph.D, saturate((250.0f - distToEye) / 150.0f));
+        }
+        else
+            texColor = TerrainAlbedoBiomeW(cA, cB, bp, tri, pin.UV, distToEye, rough);
+        smooth = saturate(1.0f - rough) * 0.8f;
+    }
+    else if (gTerrainHeightParams.x > 0.5f && gTerrainLayerCount > 0 && distToEye < 250.0f)   // 250 m 너머 = 범프 0 → 높이 · 노멀을 읽지 않는다
     {
         // 레이어 높이 · Normal Map (61): POM 으로 옮긴 자리 (절벽도) 에서 높이 기반으로 섞은 색 · 노멀 + 높이 범프 (모든 거리)
         const float4 c = TerrainControlWeights(pin.UV);
@@ -2137,7 +2158,7 @@ float4 TerrainShade(TerrainVertexOut pin, bool tess)
     LitSurface surf;
     surf.Albedo = ToLinear(texColor.rgb);
     surf.Metallic = 0.0f;
-    surf.Smoothness = 0.05f;
+    surf.Smoothness = smooth;
     surf.Occlusion = 1.0f;
     surf.Emission = float3(0, 0, 0);
     surf.Transmission = float3(0, 0, 0);
@@ -2930,3 +2951,8 @@ technique11 DetailTech
     }
 }
 #endif
+
+// =============================================================================
+// 월드 풀밭 (49. GrassField.fx — GrassField 가 패치마다 정점 셰이더로 만든다)
+// =============================================================================
+#include "49. GrassField.fx"

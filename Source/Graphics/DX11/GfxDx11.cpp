@@ -178,7 +178,12 @@ namespace
 				ComPtr<IDXGIDevice> dxgi;
 				ComPtr<IDXGIAdapter> adapter;
 				if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(dxgi.GetAddressOf()))) && SUCCEEDED(dxgi->GetAdapter(adapter.GetAddressOf())))
+				{
 					adapter.As(&_adapter);
+					DXGI_ADAPTER_DESC desc = {};
+					if (SUCCEEDED(adapter->GetDesc(&desc)))
+						_dedicated = desc.DedicatedVideoMemory;
+				}
 			}
 			if (!_adapter)
 				return true;
@@ -191,6 +196,10 @@ namespace
 				char buf[32] = {};
 				_testBudget = ::GetEnvironmentVariableA("NOVA_GFX_VRAM_BUDGET_MB", buf, sizeof(buf)) ? (int64_t)atoll(buf) << 20 : 0;
 			}
+			// 뒤 (창이 뒤 · 숨긴 편집기) 프로세스는 Windows 가 예산을 작게 준다 (6 GB 카드에서 500 MB 남짓 — GPU 는 거의 비어 있어도).
+			//  넘으면 OS 가 내려 놓을 뿐 만들기가 실패하지는 않으므로, 전용 메모리의 70 % 보다 작게는 막지 않는다 (진짜 바닥만 막는다)
+			if (_dedicated > 0)
+				info.Budget = (std::max<UINT64>)(info.Budget, (UINT64)(_dedicated / 100 * 70));
 			if (_testBudget > 0)
 				info.Budget = (std::min<UINT64>)(info.Budget, (UINT64)_testBudget);
 			if (info.CurrentUsage + bytes <= info.Budget / 100 * 95)
@@ -205,6 +214,7 @@ namespace
 	private:
 		bool _tried = false;
 		int64_t _testBudget = -1;
+		uint64_t _dedicated = 0;
 		ComPtr<IDXGIAdapter3> _adapter;
 		std::atomic<int> _refused{ 0 };
 	};

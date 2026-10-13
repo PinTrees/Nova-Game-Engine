@@ -39,7 +39,13 @@ Unity 프로젝트의 캐릭터 패키지 (모듈형 프리팹 · HDRP / URP / S
 
 - 재질 칸 = FBX 의 파일 재질 번호 (서브셋의 `MaterialIndex`) — Unity 의 재질 슬롯 순서와 다를 수 있어 모델 정보로 맞춘다
 - 텍스처는 쓰는 것만, 가장 긴 변 `--max-texture` 로 줄여 PNG 로
-- **메시 바인드**: 부위마다 FBX 의 메시 노드 변환이 다르게 들어 있다 (Unreal · Unity 내보내기). NOVA 는 후보 20 개 (기본 5 × 뒤 회전 4) 중 Unity 가 구운 상자 (`bakedMin/Max`) 와 가장 가까운 것을 골라 렌더러에 `bindMode` 로 고정한다. 0.25 m 넘게 다르면 알린다
+- **메시 바인드**: 부위마다 FBX 의 메시 노드 변환이 다르게 들어 있다 (Unreal · Unity 내보내기). NOVA 는 후보 60 개 (기본 5 × 뒤 회전 4 × 크기 3 — 1 · UnitScale · 1/UnitScale) 중 Unity 가 구운 상자 (`bakedMin/Max`) 와 가장 가까운 것을 골라 렌더러에 `bindMode` 로 고정한다 (0 ~ 19 번은 예전 그대로). 0.25 m 넘게 다르면 알린다
+- **Unity 로 다시 내보내기**: 수백 m 씩 어긋나는 부위가 많으면 원본 FBX 의 스킨 바인드 자세 (TransformLink) 가 노드와 맞지 않는 것이다 (예: TheTalesFactory Medieval Civil & Soldier — Body · Shoes · Gloves). Assimp 는 그 부위를 바로잡지 못한다.
+  임시 Unity 프로젝트에 `Tools/unity_import/NovaFbxReexport.cs` 와 `com.unity.formats.fbx` 를 넣고 모든 부위 프리팹을 표준 FBX 로 다시 내보낸 뒤, 그 FBX 로 2 · 3 단계를 한다
+  ```
+  Unity.exe -batchmode -nographics -projectPath <임시> -executeMethod NovaFbxReexport.Run -quit -novaPrefab "Assets/<패키지>/.../_AllParts.prefab" -novaOut Export/<이름>_Reexport.fbx
+  ```
+- Debug 에디터의 assimp DLL 은 일부 FBX 에서 안쪽 범위 검사 (`&v[size]` — 해 없음) 에 걸린다. 가져오는 동안은 로그 `[ThirdParty]` 만 남기고 계속한다 (Release 와 같은 결과)
 
 ## 애니메이션 라이브러리 (종류별 정리 · 별도 패키지)
 
@@ -70,3 +76,29 @@ AnimationLibrary/
 - 클립 정보는 FBX 옆 Unity `.meta` 의 `clipAnimations` (Unity 에서 설정한 이름 · 구간 · Loop Time · 루트 고정)
 - `install --pick` 은 범주 (예 `Idle,Locomotion/Walk,Reaction/Hit`) 또는 `[{"file": "Animations/...", "as": "Walk"}]` 목록 — 프로젝트의 `Assets/Animations/<범주>/` 로 복사
 - 다른 스켈레톤의 클립은 Animator (Avatar = Auto) 가 Humanoid 리타깃으로 옮긴다: 본 이름이 반도 안 맞을 때, 그리고 **이름은 맞아도 바인드 자세가 다를 때** (사람 본의 바인드 로컬 회전 · Hips 전역 회전이 15 도 넘게 — 예: Unreal 마네킹 클립 → TheTalesFactory 캐릭터, 둘 다 pelvis · spine_01 … 이름). 예전에는 이름만 맞으면 로컬 회전을 그대로 옮겨 캐릭터가 누웠다. 같은 리그 (바인드가 같다) 는 이름 그대로 (Generic)
+
+## 휴머노이드 공용 세트 (플레이어 · NPC 가 함께 쓰는 Animator Controller)
+
+라이브러리에서 종류마다 대표 클립을 골라 프로젝트에 넣고, 플레이어와 NPC 가 함께 쓰는 상태 머신 하나와 C# 도우미를 만듭니다.
+
+```
+python -I Tools/unity_import/humanoid_set.py --package E:/NovaAssets/AnimationLibrary --project <NOVA 프로젝트> [--dry-run]
+```
+
+- 결과: `Assets/Animations/Humanoid/<묶음>/<상태 이름>.fbx` (클립 260 개, 540 MB) · `HumanoidShared.controller` (상태 222 · 전이 282) ·
+  `HumanoidShared.actions.json` (상태 · 묶음 · 무기 · 원본) · `Assets/Scripts/Humanoid/HumanoidAnim.cs` (`HumanoidWeapon` · `HumanoidDir` · 상태 이름 상수 · 트리거 도우미)
+- 다시 돌리면 같은 크기 파일은 건너뛰고, 표에서 뺀 클립은 세트 폴더에서 지운다. 없는 클립은 이름을 알리고 건너뛴다
+- 컨트롤러는 불러올 때 모든 클립을 읽는다. 라이브러리를 통째로 (4760 개 · 7.4 GB) 넣으면 로딩이 수 분이라 종류마다 대표만 넣는다. 더 쓰려면 도구의 `WEAPONS` · `EXTRA` 표에 더한다
+
+| 상태 | 매개변수 · 동작 |
+|---|---|
+| `Locomotion` (1D: Idle 0 · Walk 2 · Run 3.8 · Sprint 5.335) | `Speed` · `Grounded` · `Jump` · `FreeFall` — Starter Assets 의 `ThirdPersonController` 가 그대로 움직인다 |
+| `Crouch` · `Strafe` (2D: 8 방향 걷기 · 달리기) | `Crouch` · `Strafe` + `MoveX` · `MoveY` (몸 기준 m/s) |
+| `Loco_<무기>` | `Weapon` (0 None · 1 SwordShield · 2 Greatsword · 3 Katana · 4 SpearShield · 5 Staff · 6 Bow · 7 Unarmed) |
+| `<무기>_Attack1..4` · `_Heavy` · `_Block` · `_BlockHit` | `Attack` 트리거 연타 = 연속기 (앞 공격 55 % 뒤 다음으로, 미리 누른 트리거는 남는다) · `HeavyAttack` · `Block` · `BlockHit` (활은 한 번에 당기기 → 쏘기) |
+| `JumpStart` → `InAir` → `JumpLand` | Starter Assets 와 같은 흐름 |
+| Any State: `Hit_F/B/L/R` · `HitHard_*` · `Dodge_*` · `Death_*` | `Hit` · `HitHard` · `Dodge` 트리거, `Dead` 불 — 방향은 `Direction` (0 앞 · 1 뒤 · 2 왼 · 3 오른) |
+| 그 밖 (무기 기술 · 꺼내기 · 넘어짐 · 기절 · 대화 · 거래 · 줍기 · 넘기 · 오르기 · 사다리 · 수영) | 연결 없음 — `HumanoidAnim.Play(animator, "Talk1")` (= CrossFade). 끝나면 `Locomotion` 으로, 반복 동작은 다른 동작을 틀 때까지 |
+
+- 이동 클립은 제자리 (`_IPC` · `_Inplace`) 를 먼저 고른다. 루트가 움직이는 클립도 Apply Root Motion 이 꺼져 있으면 엉덩이 수평 위치를 바인드 자리에 고정한다 (Unity Humanoid 기본값)
+- 예 (OpenWorld): `HumanoidPlayerCombat` (왼쪽 버튼 공격 · E 강공격 · Q 막기 · Ctrl 구르기 · C 앉기 · Tab 옆걸음 · 1~7 무기) · `HumanoidNpc` (Civilian · Guard · Trainee · Talker)

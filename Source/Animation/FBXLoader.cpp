@@ -130,7 +130,11 @@ static const aiScene* ReadFbxScene(Assimp::Importer& importer, const std::string
     if (withMeshes)
         flags |= aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace | aiProcess_JoinIdenticalVertices |
                  aiProcess_SplitLargeMeshes | aiProcess_ImproveCacheLocality | aiProcess_SortByPType | aiProcess_ValidateDataStructure;
-    const aiScene* scene = importer.ReadFile(path, flags);
+    const aiScene* scene = nullptr;
+    {
+        EditorLog::ThirdPartyScope guard("assimp");   // Debug assimp DLL 의 안쪽 범위 검사가 에디터를 끝내지 않게 (Release 와 같은 결과)
+        scene = importer.ReadFile(path, flags);
+    }
     if (!scene || !scene->mRootNode)
     {
         printf("ERROR::ASSIMP:: %s\n", importer.GetErrorString());

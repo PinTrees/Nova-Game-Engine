@@ -61,7 +61,9 @@ public:
 	//  바인드 자세에서 어느 쪽이 정점을 메시 노드 자리로 옮기는지 계산해 고른다. chainBind = 메시 노드의 바인드 전역 (바운드용)
 	//  mode 0 ~ 4 = 후보를 고정 (Unity 가져오기가 Unity 가 구운 자리와 맞춘 것), -1 = 자동
 	static constexpr int kBindBase = 5;                    // 기본 후보 (자동 판정은 이것만)
-	static constexpr int kBindCandidates = kBindBase * 4;  // × 바인드 자세 뒤 회전 (없음 · X 180° · X 90° · X -90°) — 가져오기가 정답과 맞출 때
+	// × 바인드 자세 뒤 변환 (회전 4: 없음 · X 180° · X 90° · X -90°) × (크기 3: 1 · UnitScale · 1/UnitScale) — 가져오기가 정답과 맞출 때.
+	//  크기 둘: 정점 · 역바인드의 단위가 부위마다 다른 FBX (TheTalesFactory Civil & Soldier — 일부 부위만 cm 로 ×100)
+	static constexpr int kBindCandidates = kBindBase * 12;
 	XMMATRIX PaletteMeshBind(const SkeletonAvataData& skeleton, XMMATRIX* chainBind = nullptr, int mode = -1) const;
 	int BindCandidates(const SkeletonAvataData& skeleton, XMMATRIX out[kBindCandidates], XMMATRIX* chainBind, std::vector<XMFLOAT4X4>* global) const;
 	// 후보마다 바인드 자세 스키닝 범위 (모델 공간 — 가져오기 대조용, nova modelfile info)

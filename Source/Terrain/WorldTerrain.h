@@ -32,6 +32,17 @@ public:
 	// 먼 타일 묶기: 모든 타일이 Mid Distance 너머인 무리 (G x G 타일 — 50 km 면 5 x 5 km) 는 큰 타일 하나 (257²) 로 그린다.
 	//  50 km 월드에서 그리는 지형이 2500 개 → 300 개쯤 (CPU — 타일 · 패스마다 준비). 무리 안 타일은 만들지도 않는다
 	bool MergeFarTiles = true;
+	// 바이옴 텍스처: 타일마다 기후 맵 (기온 · 습도 · 물가) 으로 레이어 역할마다 바이옴에 맞는 텍스처 팩 사진 재질 (사막 = 붉은 바위 · 마른 땅, 북방림 = 솔잎 · 이끼 …)
+	bool BiomeTextures = true;
+	int BiomeTextureSize = 1024;      // 색 배열 한 변 (높이 · 노멀은 절반)
+	// 풀밭 (GrassField — 49. GrassField.fx): 바이옴 지형 위 카메라 둘레를 빽빽한 풀로 (길 · 강 · 바위 · 눈 · 사막은 비운다)
+	bool Grass = true;
+	float GrassDensity = 1.0f;        // 1 = 약 10 덩어리 / m² (가까운 곳)
+	float GrassDistance = 320.0f;     // m
+	float GrassHeight = 1.0f;         // 바이옴 키에 곱한다
+	struct TileView { TerrainData* Data = nullptr; Vec3 Origin; float Size = 0.0f; int Res = 0; };
+	// 카메라 (x, z) 둘레 radius 안의 만든 타일 (보통 타일 — 큰 타일 빼고)
+	void NearTiles(float x, float z, float radius, std::vector<TileView>& out) const;
 	int SuperResolution = 257;
 	std::array<std::string, 4> LayerPaths = { "Resources\\Packages\\Terrain\\Layers\\Grass.terrainlayer", "Resources\\Packages\\Terrain\\Layers\\Dirt.terrainlayer",
 		"Resources\\Packages\\Terrain\\Layers\\Rock.terrainlayer", "Resources\\Packages\\Terrain\\Layers\\Sand.terrainlayer" };

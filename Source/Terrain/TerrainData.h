@@ -125,6 +125,14 @@ public:
 	//  (텍스처는 명암 디테일만). 비어 있으면 쓰지 않는다. 생성기의 색·그라디언트 규칙이 만든다
 	std::vector<uint8_t> ColorMap;
 	void SetColorMap(std::vector<uint8_t> colorMap);
+	// 기후 맵 (World Terrain — 바이옴 텍스처, TerrainBiomeTextures): RGBA8 한 변 ClimateResolution, 가장자리 포함 (이웃 타일과 같은 값),
+	//  r = (기온 °C + 30) / 70, g = 습도, b = 물가. 저장하지 않는다. BiomeTextures = 이 지형은 바이옴 텍스처로 그린다
+	std::vector<uint8_t> Climate;
+	int ClimateResolution = 0;
+	bool BiomeTextures = false;
+	int BiomeTextureSize = 1024;
+	void SetClimate(int res, std::vector<uint8_t> climate);
+	GfxShaderResourceView* ClimateSRV();
 
 	unsigned Revision = 0;      // 높이가 바뀔 때마다 증가 (물리 형상 재생성 판단)
 	unsigned ControlRevision = 0;   // 컨트롤(스플랫) 맵이 바뀔 때마다 증가
@@ -197,6 +205,8 @@ private:
 	ComPtr<GfxTexture2D> m_ColorTex;
 	ComPtr<GfxShaderResourceView> m_ColorSRV;
 	bool m_ColorDirty = false;
+	ComPtr<GfxShaderResourceView> m_ClimateSRV;
+	bool m_ClimateDirty = false;
 	bool m_HeightDirty = true, m_ControlDirty = true;
 	int m_HeightDirtyRect[4] = { 0, 0, 0, 0 };
 	int m_ControlDirtyRect[4] = { 0, 0, 0, 0 };

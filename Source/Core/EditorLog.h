@@ -16,6 +16,17 @@ namespace EditorLog
 	NOVA_API std::wstring GetFilePath();
 	// 파일을 기본 텍스트 편집기로 연다 (Console 의 "Open Editor Log")
 	NOVA_API void OpenInEditor();
+	// 외부 라이브러리 (assimp 등) 를 부르는 동안: Debug CRT 의 범위 검사 assert 를 로그만 남기고 넘긴다 (Release 와 같은 동작).
+	// Debug 용 assimp DLL 은 일부 FBX 에서 안쪽 범위 검사에 걸려 에디터를 끝내지만 Release 는 같은 파일을 문제없이 읽는다
+	NOVA_API void BeginThirdParty(const char* what);
+	NOVA_API void EndThirdParty();
+	struct ThirdPartyScope
+	{
+		explicit ThirdPartyScope(const char* what) { BeginThirdParty(what); }
+		~ThirdPartyScope() { EndThirdParty(); }
+		ThirdPartyScope(const ThirdPartyScope&) = delete;
+		ThirdPartyScope& operator=(const ThirdPartyScope&) = delete;
+	};
 }
 
 #define EDITOR_LOG(category, ...) EditorLog::Write(category, __VA_ARGS__)
