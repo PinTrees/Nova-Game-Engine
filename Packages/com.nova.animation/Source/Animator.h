@@ -28,7 +28,15 @@ public:
 		float TransitionElapsed = 0.0f;
 		float TransitionDuration = 0.0f;
 		int ActiveTransition = -1;   // 진행 중인 전이의 인덱스 (레이어 Transitions 안)
+		float Weight = -1.0f;        // SetLayerWeight 값 (-1 = 컨트롤러의 Weight)
+		std::shared_ptr<class AvatarMask> Mask;   // 레이어의 Avatar Mask (메인 스레드가 Step 에서 읽어 둔다)
 	};
+	// Unity Animator.SetLayerWeight · GetLayerWeight · GetLayerIndex (이 Animator 만 — 컨트롤러는 그대로)
+	void SetLayerWeight(int layerIndex, float weight);
+	float GetLayerWeight(int layerIndex) const;
+	int GetLayerIndex(const std::string& name) const;
+	// 이 이름의 상태가 있는 첫 레이어 (Unity Play · CrossFade 의 layer = -1). 없으면 0
+	int LayerOfState(const std::string& state) const;
 
 private:
 	std::string m_ControllerPath;
@@ -62,7 +70,7 @@ private:
 		int SourceRootChannel = -1;
 	};
 	std::deque<ClipMap> m_ClipMaps;   // deque: 새로 넣어도 앞의 포인터가 그대로
-	std::vector<XMFLOAT4X4> m_LocalA, m_LocalB, m_LocalLayer, m_LocalFinal, m_Global, m_TreeTmp, m_TreeMix;
+	std::vector<XMFLOAT4X4> m_LocalA, m_LocalB, m_LocalLayer, m_LocalFinal, m_Global, m_TreeTmp, m_TreeMix, m_LocalRef;
 
 	// 루트 모션
 	struct RootSkeleton { const SkeletonAvataData* Skeleton = nullptr; std::vector<XMFLOAT4X4> BindGlobal; int Node = -1; };
@@ -185,6 +193,16 @@ private:
 	float TimeRate(const AnimatorLayer& layer, int state) const;
 	float BlendTreeDuration(const AnimatorState& state) const;
 	void SampleState(const AnimatorLayer& layer, int state, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out);
+	static bool IsEmptyState(const AnimatorLayer& layer, int state);
+	static void EnsureStateClips(const AnimatorLayer& layer, int state);
+	// 애니메이션 이벤트: 상태의 클립 시간이 t0 → t1 (상태 시간 — 클립은 초, Blend Tree 는 정규화) 로 지나며 넘은 이벤트를 모은다
+	void CollectEvents(int layerIndex, int state, float t0, float t1, float stateWeight);
+	void DispatchEvents();
+	struct PendingEvent { std::string Function, String, Clip, State; float Float = 0.0f, Time = 0.0f, Weight = 1.0f; int Int = 0, Layer = 0; };
+	std::vector<PendingEvent> m_PendingEvents;
+	static void OverrideLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& layer, float weight, const std::vector<float>* mask);
+	static void AddLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& reference, const std::vector<XMFLOAT4X4>& layer, float weight,
+		const std::vector<float>* mask);
 	void SampleClip(const AnimationClip* clip, bool loop, float t, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out);
 	ClipMap* GetClipMap(const AnimationClip* clip, const SkeletonAvataData& skeleton);
 	RootSkeleton* GetRootSkeleton(const SkeletonAvataData& skeleton);

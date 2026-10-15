@@ -14,6 +14,9 @@ namespace NovaEngine
         [DllImport(Dll)] internal static extern void AN_GetVector(ulong go, int prop, Vector3* v);
         [DllImport(Dll)] internal static extern byte* AN_GetState(ulong go, int layer, float* outValues);
         [DllImport(Dll)] internal static extern int AN_GetBone(ulong go, int bone, float* outValues);
+        [DllImport(Dll)] internal static extern void AN_SetLayerWeight(ulong go, int layer, float weight);
+        [DllImport(Dll)] internal static extern float AN_GetLayerWeight(ulong go, int layer);
+        [DllImport(Dll)] internal static extern int AN_GetLayerIndex(ulong go, byte* name);
 
         internal static byte[] Utf8(string s) => System.Text.Encoding.UTF8.GetBytes((s ?? string.Empty) + "\0");
         internal static string Str(byte* p) => p == null ? null : Marshal.PtrToStringUTF8((System.IntPtr)p);
@@ -34,6 +37,11 @@ namespace NovaEngine
         public float GetFloat(string name) => Get(name, 0);
         public int GetInteger(string name) => (int)Get(name, 1);
         public bool GetBool(string name) => Get(name, 2) != 0;
+
+        /// <summary>레이어 Weight (이 Animator 만 — 0 번 레이어는 늘 1)</summary>
+        public void SetLayerWeight(int layerIndex, float weight) => AnimatorNative.AN_SetLayerWeight(nativeId, layerIndex, weight);
+        public float GetLayerWeight(int layerIndex) => AnimatorNative.AN_GetLayerWeight(nativeId, layerIndex);
+        public unsafe int GetLayerIndex(string layerName) { fixed (byte* p = AnimatorNative.Utf8(layerName)) return AnimatorNative.AN_GetLayerIndex(nativeId, p); }
 
         /// <summary>재생 속도 배율 (1 = 보통)</summary>
         public float speed { get => AnimatorNative.AN_GetFloat(nativeId, 0); set => AnimatorNative.AN_SetFloat(nativeId, 0, value); }

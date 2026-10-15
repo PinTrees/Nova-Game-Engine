@@ -53,6 +53,7 @@ namespace
 		int(__stdcall* InvokeMethod)(uint64_t, const char*, const char*, const char*) = nullptr;   // UI Button
 		void* (__stdcall* ExecAssembly)(const char*) = nullptr;   // nova exec (선택)
 		void(__stdcall* InvokeUIEvent)(uint64_t, int, float, const char*) = nullptr;
+		int(__stdcall* InvokeAnimationEvent)(uint64_t, const char*, const char*, float, int, float, const char*, const char*, int, float) = nullptr;   // 선택
 		void(__stdcall* AppPause)(int) = nullptr;   // 선택 (NovaEngine.Interop.AppEvents)
 		void(__stdcall* AppFocus)(int) = nullptr;
 		void(__stdcall* SceneEvent)(int, int, int) = nullptr;   // 선택 (AppEvents.SceneEvent)
@@ -219,6 +220,8 @@ namespace
 			m.InvokeMethod = nullptr;
 		if (load(dll.c_str(), type, L"InvokeUIEvent", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.InvokeUIEvent) < 0)
 			m.InvokeUIEvent = nullptr;
+		if (load(dll.c_str(), type, L"InvokeAnimationEvent", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.InvokeAnimationEvent) < 0)
+			m.InvokeAnimationEvent = nullptr;
 		if (load(dll.c_str(), type, L"ExecAssembly", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.ExecAssembly) < 0)
 			m.ExecAssembly = nullptr;
 		const wchar_t* appEvents = L"NovaEngine.Interop.AppEvents, NovaScriptCore";
@@ -1006,6 +1009,15 @@ namespace ScriptEngine
 		if (r.rfind("ok:", 0) == 0) { result = r.substr(3); return true; }
 		error = r.rfind("error:", 0) == 0 ? r.substr(6) : r;
 		return false;
+	}
+
+	int InvokeAnimationEvent(uint64_t gameObjectId, const std::string& functionName, const std::string& stringParameter, float floatParameter,
+		int intParameter, float time, const std::string& clipName, const std::string& stateName, int layer, float weight)
+	{
+		if (!s_AssemblyLoaded || m.InvokeAnimationEvent == nullptr)
+			return 0;
+		return m.InvokeAnimationEvent(gameObjectId, functionName.c_str(), stringParameter.c_str(), floatParameter, intParameter, time,
+			clipName.c_str(), stateName.c_str(), layer, weight);
 	}
 
 	void InvokeUIEvent(uint64_t gameObjectId, int kind, float number, const std::string& text)

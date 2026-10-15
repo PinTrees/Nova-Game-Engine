@@ -278,6 +278,50 @@ namespace NovaEngine.Interop
             return null;
         }
 
+        // 애니메이션 이벤트 (Unity 와 같이 이 GameObject 의 모든 MonoBehaviour 에서 이름이 같은 메서드):
+        //  인자 없음 · AnimationEvent · float (floatParameter) · int / enum (intParameter) · string (stringParameter) · bool (intParameter != 0)
+        [UnmanagedCallersOnly]
+        public static int InvokeAnimationEvent(ulong gameObjectId, byte* functionUtf8, byte* stringUtf8, float floatParameter, int intParameter, float time,
+            byte* clipUtf8, byte* stateUtf8, int layer, float weight)
+        {
+            string function = Native.Str(functionUtf8) ?? "";
+            AnimationEvent ev = null;
+            int received = 0;
+            foreach (MonoBehaviour mb in ScriptRegistry.Get(gameObjectId).ToArray())
+            {
+                foreach (MethodInfo mi in mb.GetType().GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    if (mi.Name != function) continue;
+                    var ps = mi.GetParameters();
+                    object[] args = null;
+                    if (ps.Length == 1)
+                    {
+                        Type pt = ps[0].ParameterType;
+                        if (pt == typeof(AnimationEvent))
+                        {
+                            ev ??= new AnimationEvent { functionName = function, stringParameter = Native.Str(stringUtf8) ?? "", floatParameter = floatParameter,
+                                intParameter = intParameter, time = time, clipName = Native.Str(clipUtf8) ?? "", stateName = Native.Str(stateUtf8) ?? "",
+                                layer = layer, weight = weight, isFiredByAnimator = true };
+                            args = new object[] { ev };
+                        }
+                        else if (pt == typeof(float)) args = new object[] { floatParameter };
+                        else if (pt == typeof(int)) args = new object[] { intParameter };
+                        else if (pt.IsEnum) args = new object[] { Enum.ToObject(pt, intParameter) };
+                        else if (pt == typeof(string)) args = new object[] { Native.Str(stringUtf8) ?? "" };
+                        else if (pt == typeof(bool)) args = new object[] { intParameter != 0 };
+                        else continue;
+                    }
+                    else if (ps.Length > 1) continue;
+                    try { mi.Invoke(mb, args); }
+                    catch (TargetInvocationException e) { LogException(e.InnerException ?? e); }
+                    catch (Exception e) { LogException(e); }
+                    received++;
+                    break;
+                }
+            }
+            return received;
+        }
+
         // Button On Click (): GameObject 의 스크립트 className 에서 method(argument) 호출. 1 = 찾아서 호출함
         [UnmanagedCallersOnly]
         public static int InvokeMethod(ulong gameObjectId, byte* classNameUtf8, byte* methodUtf8, byte* argumentUtf8)

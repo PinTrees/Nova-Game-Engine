@@ -4,6 +4,9 @@
 #include "AnimatorController.h"
 #include "AnimatorEditorWindow.h"
 #include "AnimatorInspector.h"
+#include "AvatarMask.h"
+#include "AnimationEventStore.h"
+#include "CliServer.h"
 #include "EditorExtensions.h"
 #include "EditorGUIManager.h"
 #include "ScriptBindings.h"
@@ -49,12 +52,69 @@ NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 	t.Inspector = [](const std::string& path) { AnimatorInspector::DrawController(AnimatorController::Load(path)); };
 	EditorExtensions::RegisterAssetType(t);
 
+	// Create > Avatar Mask (.mask) — 레이어가 움직일 몸 부위
+	EditorExtensions::AssetType m;
+	m.Owner = kPackage;
+	m.Extension = ".mask";
+	m.Icon = "avatar_mask";
+	m.CreateMenu = "Avatar Mask";
+	m.DefaultName = "New Avatar Mask";
+	m.Create = [](const std::string& path) { AvatarMask::Create(path); };
+	m.Inspector = [](const std::string& path) { AnimatorInspector::DrawAvatarMask(path); };
+	EditorExtensions::RegisterAssetType(m);
+
+	// nova animevent list|add|clear --model <fbx> --clip N [--time s --function F --string --float --int]
+	CliServer::Register("animevent", "animation events {op: list | add | clear, model, clip, time, function, string, float, int} (stored in <model>.animevents)",
+		[](const nlohmann::json& a, nlohmann::json& r, std::string& e) -> bool {
+			const std::string op = a.value("op", std::string("list"));
+			const std::string model = a.value("model", std::string());
+			if (model.empty()) { e = "model is required (--model Assets/x.fbx)"; return false; }
+			auto num = [&](const char* k, double d) -> double {
+				if (!a.contains(k)) return d;
+				const auto& v = a[k];
+				return v.is_number() ? v.get<double>() : (v.is_string() ? atof(v.get<std::string>().c_str()) : d);
+			};
+			auto str = [&](const char* k) -> std::string {
+				if (!a.contains(k)) return std::string();
+				const auto& v = a[k];
+				return v.is_string() ? v.get<std::string>() : v.dump();
+			};
+			const int clip = (int)num("clip", 0);
+			auto current = AnimationEventStore::Get(model, clip);
+			AnimationEventStore::EventList list = current ? *current : AnimationEventStore::EventList();
+			if (op == "add")
+			{
+				AnimationEventStore::Event ev;
+				ev.Time = (float)num("time", 0.0);
+				ev.Function = str("function");
+				ev.String = str("string");
+				ev.Float = (float)num("float", 0.0);
+				ev.Int = (int)num("int", 0);
+				if (ev.Function.empty()) { e = "function is required (--function OnHit)"; return false; }
+				list.push_back(ev);
+				if (!AnimationEventStore::Set(model, clip, list)) { e = "could not write " + AnimationEventStore::FilePath(model); return false; }
+			}
+			else if (op == "clear")
+			{
+				list.clear();
+				if (!AnimationEventStore::Set(model, clip, list)) { e = "could not write " + AnimationEventStore::FilePath(model); return false; }
+			}
+			else if (op != "list") { e = "unknown op '" + op + "' (list | add | clear)"; return false; }
+			std::sort(list.begin(), list.end(), [](const auto& x, const auto& y) { return x.Time < y.Time; });
+			nlohmann::json events = nlohmann::json::array();
+			for (const auto& ev : list)
+				events.push_back({ { "time", ev.Time }, { "function", ev.Function }, { "string", ev.String }, { "float", ev.Float }, { "int", ev.Int } });
+			r = { { "model", model }, { "clip", clip }, { "file", AnimationEventStore::FilePath(model) }, { "events", events } };
+			return true;
+		});
+
 	// Animator 자세: 모든 Update 뒤 · LateUpdate 앞에 모아서 (작업 스레드)
 	Scene::SetAfterUpdateHook(kPackage, []() { Animator::FlushPendingPoses(); });
 }
 
 NOVA_PACKAGE_EXPORT void NovaPackage_OnUnload()
 {
+	CliServer::Unregister("animevent");
 	Scene::SetAfterUpdateHook(kPackage, nullptr);
 	EditorExtensions::UnregisterOwner(kPackage);
 	if (SelectionManager::GetSelectedObjectType() == SelectionType::CUSTOM && SelectionManager::GetCustomSelection().Owner == "Animator")
@@ -93,9 +153,25 @@ NOVA_PACKAGE_EXPORT void AN_Play(uint64 id, const char* state, int layer, float 
 {
 	Animator* an = Find(id);
 	if (an == nullptr || state == nullptr) return;
-	if (layer < 0) layer = 0;
+	if (layer < 0) layer = an->LayerOfState(state);   // Unity: -1 = 그 이름의 상태가 있는 첫 레이어
 	if (fade < 0.0f) an->Play(state, layer, std::isfinite(normalizedTime) ? normalizedTime : 0.0f);
 	else an->CrossFade(state, fade, layer);
+}
+
+// 레이어 Weight (이 Animator 만) · 이름 → 번호
+NOVA_PACKAGE_EXPORT void AN_SetLayerWeight(uint64 id, int layer, float weight)
+{
+	if (Animator* an = Find(id)) an->SetLayerWeight(layer, weight);
+}
+NOVA_PACKAGE_EXPORT float AN_GetLayerWeight(uint64 id, int layer)
+{
+	Animator* an = Find(id);
+	return an ? an->GetLayerWeight(layer) : 0.0f;
+}
+NOVA_PACKAGE_EXPORT int AN_GetLayerIndex(uint64 id, const char* name)
+{
+	Animator* an = Find(id);
+	return an && name ? an->GetLayerIndex(name) : -1;
 }
 
 // float: 0 speed, 1 applyRootMotion (0/1)

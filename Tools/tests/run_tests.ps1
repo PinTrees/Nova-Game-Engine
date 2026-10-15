@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6123,6 +6123,111 @@ function Suite-Recovery
 $script:Targets = [ordered]@{ 'Trees' = @('Oak', 30); 'Forest' = @('Terrain', 80); 'Materials' = @('Gold', 12); 'Particles' = @('Campfire', 12);
     'Shadows' = @('Near Box', 15); 'Culling' = @('Obj 0_4', 25); 'SampleScene' = @('Canvas', 30) }
 
+# Animator 레이어: Avatar Mask (상체만) · Additive · 빈 상태 · SetLayerWeight (Unity 와 같은 동작)
+function Suite-AnimLayers
+{
+    Write-Host '[animlayers]'
+    $dir = Join-Path $Project 'Assets\AnimLayerTest'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    $clip = 'Resources\Packages\Character\Animations\Nova_Basic.glb'
+    @{ humanoid = @{ Root = $false; Body = $true; Head = $true; LeftLeg = $false; RightLeg = $false; LeftArm = $true; RightArm = $true; LeftFingers = $true; RightFingers = $true;
+        LeftFootIK = $false; RightFootIK = $false; LeftHandIK = $true; RightHandIK = $true }; transforms = @() } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $dir 'Upper.mask')
+    function St([string]$n, [int]$i) { @{ name = $n; clipPath = $(if ($i -ge 0) { $clip } else { '' }); clipIndex = [math]::Max($i, 0); loop = $true; speed = 1.0 } }
+    $ctrl = @{ parameters = @(); layers = @(
+        @{ name = 'Base Layer'; weight = 1.0; defaultState = 'Walk'; states = @((St 'Walk' 1)); transitions = @() },
+        @{ name = 'Upper'; weight = 1.0; defaultState = 'Empty'; avatarMask = 'Assets\AnimLayerTest\Upper.mask'; blending = 'Override'; states = @((St 'Empty' -1), (St 'Wave' 2)); transitions = @() },
+        @{ name = 'Add'; weight = 0.0; defaultState = 'AddWalk'; blending = 'Additive'; states = @((St 'AddWalk' 1)); transitions = @() }) }
+    $ctrl | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $dir 'Layers.controller')
+
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name ACh --controller Assets/AnimLayerTest/Layers.controller' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $cs = Join-Path $Out 'animlayers.cs'
+        # body = 상태 설정 (C#), 3 프레임 뒤 발 · 손 · 머리 위치
+        function Pose([string]$body)
+        {
+            "var a = GameObject.Find(`"ACh`").GetComponent<Animator>(); a.speed = 0; $body return 1;" | Set-Content -Encoding utf8 $cs
+            Invoke-Nova "exec --file $cs" | Out-Null
+            Invoke-Nova 'wait 3' | Out-Null
+            'var a = GameObject.Find("ACh").GetComponent<Animator>(); var b = new[] { HumanBodyBones.LeftFoot, HumanBodyBones.RightFoot, HumanBodyBones.LeftHand, HumanBodyBones.RightHand, HumanBodyBones.Head }; var s = ""; foreach (var x in b) { var p = a.GetBonePosition(x); s += p.x.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + p.y.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " " + p.z.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) + " "; } return s.Trim();' | Set-Content -Encoding utf8 $cs
+            $m = Invoke-NovaJson "exec --file $cs"
+            if ($m) { @("$($m.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() }
+        }
+        function Dist($a, $b, [int]$bone) { $i = $bone * 3; [math]::Sqrt([math]::Pow($a[$i] - $b[$i], 2) + [math]::Pow($a[$i + 1] - $b[$i + 1], 2) + [math]::Pow($a[$i + 2] - $b[$i + 2], 2)) }
+        function Feet($a, $b) { [math]::Max((Dist $a $b 0), (Dist $a $b 1)) }
+        function Hands($a, $b) { [math]::Max((Dist $a $b 2), (Dist $a $b 3)) }
+
+        $base = Pose 'a.Play("Walk", 0, 0.3f); a.Play("Empty", 1, 0f); a.SetLayerWeight(1, 1f); a.SetLayerWeight(2, 0f);'
+        $wave = Pose 'a.Play("Wave", 1, 0.5f);'
+        $off = Pose 'a.SetLayerWeight(1, 0f);'
+        $add0 = Pose 'a.SetLayerWeight(1, 0f); a.SetLayerWeight(2, 1f); a.Play("AddWalk", 2, 0f);'
+        $add5 = Pose 'a.Play("AddWalk", 2, 0.5f);'
+        "var a = GameObject.Find(`"ACh`").GetComponent<Animator>(); return a.GetLayerIndex(`"Upper`") + `" `" + a.GetLayerWeight(2).ToString(System.Globalization.CultureInfo.InvariantCulture);" | Set-Content -Encoding utf8 $cs
+        $idx = Invoke-NovaJson "exec --file $cs"
+        Invoke-Nova 'stop' | Out-Null
+        if ($base.Count -ne 15 -or $wave.Count -ne 15 -or $off.Count -ne 15 -or $add0.Count -ne 15 -or $add5.Count -ne 15)
+        {
+            Add-Result animlayers 'read bone positions' $false "counts $($base.Count) $($wave.Count) $($off.Count) $($add0.Count) $($add5.Count)"
+            return
+        }
+        Add-Result animlayers 'empty state on a weight-1 override layer = the base pose (same as the layer off)' ((Feet $base $off) -lt 0.002 -and (Hands $base $off) -lt 0.002) ("feet {0:F4} hands {1:F4} m" -f (Feet $base $off), (Hands $base $off))
+        Add-Result animlayers 'Avatar Mask (upper body): the wave moves the hands, the feet stay on the walk' ((Feet $wave $base) -lt 0.002 -and (Hands $wave $base) -gt 0.05) ("feet moved {0:F4} m (expect 0), hands moved {1:F3} m" -f (Feet $wave $base), (Hands $wave $base))
+        Add-Result animlayers 'SetLayerWeight(1, 0): the layer stops (same as the base)' ((Feet $off $base) -lt 0.002 -and (Hands $off $base) -lt 0.002) ("feet {0:F4} hands {1:F4} m" -f (Feet $off $base), (Hands $off $base))
+        Add-Result animlayers 'Additive at the reference frame (clip start) adds nothing' ((Feet $add0 $base) -lt 0.002 -and (Hands $add0 $base) -lt 0.002) ("feet {0:F4} hands {1:F4} m" -f (Feet $add0 $base), (Hands $add0 $base))
+        Add-Result animlayers 'Additive later in the clip adds the difference on top of the walk' ([math]::Max((Hands $add5 $base), (Feet $add5 $base)) -gt 0.03) ("hands {0:F3} m, feet {1:F3} m" -f (Hands $add5 $base), (Feet $add5 $base))
+        Add-Result animlayers 'GetLayerIndex / GetLayerWeight' ("$($idx.result)" -eq '1 1') "$($idx.result)"
+
+        # ---- 애니메이션 이벤트 (Unity AnimationEvent): 프로젝트로 복사한 모델의 Walk 클립에 이벤트 셋
+        Copy-Item (Join-Path $Root 'Resources\Packages\Character\Animations\Nova_Basic.glb') (Join-Path $dir 'Basic.glb') -Force
+        Remove-Item (Join-Path $dir 'Basic.glb.animevents') -ErrorAction SilentlyContinue
+        $ev = @{ parameters = @(); layers = @(@{ name = 'Base Layer'; weight = 1.0; defaultState = 'Walk'; states = @(@{ name = 'Walk'; clipPath = 'Assets\AnimLayerTest\Basic.glb'; clipIndex = 1; loop = $true; speed = 1.0 }); transitions = @() }) }
+        $ev | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $dir 'Events.controller')
+        @'
+using NovaEngine;
+public class AnimEventProbe : MonoBehaviour
+{
+    public int steps, lastInt, events;
+    public string last = "";
+    public float lastFloat, first = -1f, lastTime;
+    void OnStep(int i) { steps++; lastInt = i; if (first < 0) first = Time.time; lastTime = Time.time; }
+    void OnStepEvent(AnimationEvent e) { events++; last = e.stringParameter + "|" + e.clipName + "|" + e.stateName + "|" + e.functionName; lastFloat = e.floatParameter; }
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $dir 'AnimEventProbe.cs')
+        $m = 'Assets/AnimLayerTest/Basic.glb'
+        Invoke-Nova "animevent add --model $m --clip 1 --time 0.1 --function OnStep --int 7" | Out-Null
+        Invoke-Nova "animevent add --model $m --clip 1 --time 0.5 --function OnStepEvent --string L --float 2.5" | Out-Null
+        $list = Invoke-NovaJson "animevent add --model $m --clip 1 --time 0.3 --function OnNoReceiver"
+        Add-Result animlayers 'nova animevent add / list (stored in <model>.animevents, sorted by time)' ($list -and $list.events.Count -eq 3 -and $list.events[0].function -eq 'OnStep' -and $list.events[1].function -eq 'OnNoReceiver') ("{0} events: {1}" -f $list.events.Count, (($list.events | ForEach-Object { "$($_.time) $($_.function)" }) -join ', '))
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name ECh --controller Assets/AnimLayerTest/Events.controller' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'add-component ECh AnimEventProbe' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 4) { Invoke-Nova 'wait 10' | Out-Null }
+        'var p = GameObject.Find("ECh").GetComponent<AnimEventProbe>(); var a = GameObject.Find("ECh").GetComponent<Animator>(); var inv = System.Globalization.CultureInfo.InvariantCulture; return p.steps + " " + p.events + " " + p.lastInt + " " + p.lastFloat.ToString(inv) + " " + Time.time.ToString("F3", inv) + " " + a.GetCurrentAnimatorStateInfo(0).length.ToString("F3", inv) + " " + p.last;' | Set-Content -Encoding utf8 $cs
+        $r = Invoke-NovaJson "exec --file $cs"
+        Invoke-Nova 'stop' | Out-Null
+        $v = "$($r.result)" -split ' '
+        $ok = $v.Count -ge 7
+        if ($ok)
+        {
+            $steps = [int]$v[0]; $events = [int]$v[1]; $now = [double]$v[4]; $len = [double]$v[5]
+            $expect = [math]::Floor(($now - 0.1) / [math]::Max($len, 0.01)) + 1   # 0.1 s · 0.1 + 길이 · … 가운데 지금까지 지난 것
+            Add-Result animlayers 'events fire once per loop crossing (int parameter)' ($steps -ge 2 -and ($steps -eq $expect -or $steps -eq $expect - 1) -and $v[2] -eq '7') ("OnStep {0} times by Time.time {1:F2} s (clip {2:F2} s, expect {3}), int {4}" -f $steps, $now, $len, $expect, $v[2])
+            Add-Result animlayers 'AnimationEvent parameter: string · float · clip · state · function' ($events -ge 2 -and [math]::Abs($events - $steps) -le 1 -and $v[3] -eq '2.5' -and $v[6] -match '^L\|.+\|Walk\|OnStepEvent$') ("OnStepEvent {0} times, float {1}, '{2}'" -f $events, $v[3], $v[6])
+        }
+        else { Add-Result animlayers 'events fire (probe read)' $false "$($r | ConvertTo-Json -Compress)" }
+        $warn = Get-Content (Join-Path $Root 'Binaries\Logs\Editor.log') -ErrorAction SilentlyContinue | Select-String "AnimationEvent 'OnNoReceiver'" | Select-Object -First 1
+        Add-Result animlayers 'an event with no receiver warns once (Unity: has no receiver!)' ([bool]$warn) "$($warn.Line)"
+    }
+    finally { Stop-TestEditor $ed | Out-Null }
+}
+
 function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [string]$dir)
 {
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -8748,6 +8853,7 @@ try
                 'cli' { Suite-Cli }
                 'physics' { Suite-Physics }
                 'animation' { Suite-Animation }
+                'animlayers' { Suite-AnimLayers }
                 'import' { Suite-Import }
                 'ui' { Suite-UI }
                 'packages' { Suite-Packages }

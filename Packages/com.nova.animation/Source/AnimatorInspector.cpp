@@ -5,8 +5,13 @@
 #include "SkinnedData.h"
 #include "UnityGUI.h"
 #include "UndoSystem.h"
+#include "AvatarMask.h"
+#include "AnimationEventStore.h"
 
 using namespace AnimatorTypes;
+
+namespace AnimatorInspector { void DrawClipEvents(const std::string& modelPath, int clipIndex, float length); }
+using AnimatorInspector::DrawClipEvents;
 
 namespace
 {
@@ -431,6 +436,7 @@ namespace
 			char info[128];
 			sprintf_s(info, "%.2f s", s.Clip->GetClipEndTime());
 			ValueLabel("Length", info);
+			DrawClipEvents(s.ClipPath, s.ClipIndex, s.Clip->GetClipEndTime());
 		}
 		Spacing(6);
 
@@ -492,6 +498,148 @@ namespace
 
 namespace AnimatorInspector
 {
+	// 클립의 애니메이션 이벤트 (Unity 의 모델 Import Settings > Animation > Events) — <모델>.animevents
+	void DrawClipEvents(const std::string& modelPath, int clipIndex, float length)
+	{
+		using namespace UnityGUI;
+		if (!Foldout("Events", 0, false, false))
+			return;
+		auto current = AnimationEventStore::Get(modelPath, clipIndex);
+		AnimationEventStore::EventList list = current ? *current : AnimationEventStore::EventList();
+		bool changed = false;
+		int remove = -1;
+		for (size_t i = 0; i < list.size(); ++i)
+		{
+			AnimationEventStore::Event& ev = list[i];
+			ImGui::PushID((int)i);
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+			ImGui::SetNextItemWidth(70);
+			changed |= ImGui::DragFloat("##t", &ev.Time, 0.01f, 0.0f, (std::max)(length, 0.01f), "%.2f s");
+			ImGui::SameLine();
+			char fn[128];
+			strncpy_s(fn, ev.Function.c_str(), _TRUNCATE);
+			ImGui::SetNextItemWidth(120);
+			if (ImGui::InputText("##f", fn, sizeof(fn))) { ev.Function = fn; changed = true; }
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(50);
+			changed |= ImGui::DragFloat("##fl", &ev.Float, 0.05f);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(40);
+			changed |= ImGui::DragInt("##i", &ev.Int);
+			ImGui::SameLine();
+			char sp[128];
+			strncpy_s(sp, ev.String.c_str(), _TRUNCATE);
+			ImGui::SetNextItemWidth(80);
+			if (ImGui::InputText("##s", sp, sizeof(sp))) { ev.String = sp; changed = true; }
+			ImGui::SameLine();
+			if (ImGui::SmallButton("-"))
+				remove = (int)i;
+			ImGui::PopID();
+		}
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+		if (ImGui::SmallButton("Add Event"))
+		{
+			AnimationEventStore::Event ev;
+			ev.Function = "OnAnimationEvent";
+			list.push_back(ev);
+			changed = true;
+		}
+		if (list.empty())
+			HelpBox("Time (s) · Function · float · int · string. The Animator calls the method with that name on the scripts of its GameObject.", false);
+		if (remove >= 0)
+		{
+			list.erase(list.begin() + remove);
+			changed = true;
+		}
+		if (changed)
+			AnimationEventStore::Set(modelPath, clipIndex, list);
+	}
+
+	void DrawAvatarMask(const std::string& path)
+	{
+		using namespace UnityGUI;
+		std::shared_ptr<AvatarMask> m = AvatarMask::Load(path);
+		if (!m)
+		{
+			HelpBox("Could not read the Avatar Mask.", true);
+			return;
+		}
+		Label(std::filesystem::path(path).stem().string().c_str(), 0, true);
+		Spacing(4);
+		bool changed = false;
+		if (Foldout("Humanoid", 0, true, false))
+		{
+			for (int i = 0; i < AvatarMask::PartCount; ++i)
+				changed |= ToggleLeft(AvatarMask::PartName(i), &m->Parts[i], 1);
+			ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 14);
+			if (ImGui::SmallButton("Upper Body"))
+			{
+				AvatarMask::SetUpperBody(*m);
+				changed = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("All"))
+			{
+				for (bool& p : m->Parts) p = true;
+				changed = true;
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("None"))
+			{
+				for (bool& p : m->Parts) p = false;
+				changed = true;
+			}
+		}
+		if (Foldout("Transform", 0, false, false))
+		{
+			for (size_t i = 0; i < m->Transforms.size(); ++i)
+			{
+				ImGui::PushID((int)i);
+				changed |= ToggleLeft(m->Transforms[i].Path.c_str(), &m->Transforms[i].Active, 1);
+				ImGui::PopID();
+			}
+			if (m->Transforms.empty())
+				HelpBox("No transforms: humanoid body parts decide (node names listed here override them).", false);
+		}
+		if (changed)
+			m->Commit();
+	}
+
+	bool AvatarMaskPicker(const char* label, std::string& maskPath)
+	{
+		using namespace UnityGUI;
+		const std::string shown = maskPath.empty() ? "None (Avatar Mask)" : std::filesystem::path(maskPath).stem().string();
+		if (ObjectField(label, shown.c_str(), 0, maskPath.empty() ? nullptr : "avatar_mask"))
+			ImGui::OpenPopup("##maskpicker");
+		bool changed = false;
+		if (ImGui::BeginPopup("##maskpicker"))
+		{
+			if (ImGui::Selectable("None", maskPath.empty()))
+			{
+				maskPath.clear();
+				changed = true;
+			}
+			// 프로젝트의 .mask
+			std::error_code ec;
+			const std::filesystem::path root = PathManager::GetI()->GetMovePathW(L"Assets\\");
+			const std::filesystem::path project = root.parent_path().parent_path();
+			for (auto it = std::filesystem::recursive_directory_iterator(root, std::filesystem::directory_options::skip_permission_denied, ec);
+				!ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+			{
+				if (!it->is_regular_file(ec) || _wcsicmp(it->path().extension().c_str(), L".mask") != 0)
+					continue;
+				std::string rel = wstring_to_string(std::filesystem::relative(it->path(), project, ec).wstring());
+				if (ImGui::Selectable(rel.c_str(), rel == maskPath))
+				{
+					maskPath = rel;
+					changed = true;
+				}
+			}
+			ImGui::EndPopup();
+		}
+		return changed;
+	}
+
 	void Select(const std::shared_ptr<AnimatorController>& controller, int layer, int state, int transition)
 	{
 		auto sel = std::make_shared<AnimatorSelection>();

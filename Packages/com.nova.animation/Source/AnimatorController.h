@@ -100,6 +100,8 @@ struct AnimatorLayer
 {
 	std::string Name = "Base Layer";
 	float Weight = 1.0f;
+	std::string MaskPath;             // Avatar Mask (.mask) — 비우면 모든 본
+	int Blending = 0;                 // 0 Override (덮어쓰기), 1 Additive (첫 프레임과의 차이를 더하기)
 	std::string DefaultState;
 	std::vector<AnimatorState> States;
 	std::vector<AnimatorTransition> Transitions;

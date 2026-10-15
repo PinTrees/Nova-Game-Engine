@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "AnimatorEditorWindow.h"
+#include "AnimatorInspector.h"
 #include "AnimatorController.h"
 #include "Animator.h"
 #include "UnityGUI.h"
@@ -572,6 +573,32 @@ void AnimatorEditorWindow::DrawLayersTab(ImVec2 pos, ImVec2 size)
 			ImGui::SliderFloat("##weight", &layer.Weight, 0.0f, 1.0f, "%.2f");
 			if (ImGui::IsItemDeactivatedAfterEdit())
 				m_Controller->Commit();
+			// 톱니: Unity 의 레이어 설정 (Weight · Mask · Blending)
+			ImGui::SetCursorScreenPos(ImVec2(b.x - 24, a.y + 6));
+			if (ImGui::InvisibleButton("##layergear", ImVec2(18, 18)))
+				ImGui::OpenPopup("##layersettings");
+			UnityGUI::DrawIcon(dl, "settings", ImVec2(b.x - 22, a.y + 8), 14.0f, ImGui::IsItemHovered() ? IM_COL32_WHITE : IM_COL32(170, 170, 170, 255));
+			if (!layer.MaskPath.empty() || layer.Blending == 1)
+			{
+				const std::string tag = std::string(layer.Blending == 1 ? "A " : "") + (layer.MaskPath.empty() ? "" : "M");
+				dl->AddText(ImVec2(b.x - 48, a.y + 10), kTextDim, tag.c_str());
+			}
+			PushPopupStyle();
+			if (ImGui::BeginPopup("##layersettings"))
+			{
+				ImGui::SetNextItemWidth(160);
+				ImGui::SliderFloat("Weight", &layer.Weight, 0.0f, 1.0f, "%.2f");
+				if (ImGui::IsItemDeactivatedAfterEdit())
+					m_Controller->Commit();
+				if (AnimatorInspector::AvatarMaskPicker("Mask", layer.MaskPath))
+					m_Controller->Commit();
+				const char* modes[] = { "Override", "Additive" };
+				ImGui::SetNextItemWidth(160);
+				if (ImGui::Combo("Blending", &layer.Blending, modes, 2))
+					m_Controller->Commit();
+				ImGui::EndPopup();
+			}
+			PopPopupStyle();
 		}
 		ImGui::PopID();
 		y += h + 4.0f;

@@ -94,6 +94,10 @@ namespace ScriptEngine
 	void SetFieldsJson(void* handle, const std::string& json);
 	// UI: 이 GameObject 의 스크립트(className)에서 메서드 호출 (Button On Click 의 저장된 호출). 찾으면 true
 	bool InvokeMethod(uint64_t gameObjectId, const std::string& className, const std::string& method, const std::string& argument);
+	// 애니메이션 이벤트 (Unity AnimationEvent): 이 GameObject 의 모든 스크립트에서 functionName 메서드를 부른다
+	//  (인자 없음 · AnimationEvent · float · int · string · bool). 받은 스크립트 수 (0 = 받는 곳 없음)
+	NOVA_API int InvokeAnimationEvent(uint64_t gameObjectId, const std::string& functionName, const std::string& stringParameter, float floatParameter,
+		int intParameter, float time, const std::string& clipName, const std::string& stateName, int layer, float weight);
 	// NOVA CLI (nova exec): C# 코드 조각을 빌드해 에디터 안에서 실행 (식이면 값, 문장이면 마지막 return). 메인 스레드에서 빌드를 기다린다
 	bool Exec(const std::string& code, std::string& result, std::string& error);
 	// UI: C# 에서 AddListener 로 등록한 이벤트 실행

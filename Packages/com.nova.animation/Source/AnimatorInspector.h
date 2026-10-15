@@ -17,6 +17,10 @@ namespace AnimatorInspector
 {
 	void DrawSelection(const AnimatorSelection& selection);
 	void DrawController(const std::shared_ptr<AnimatorController>& controller);
+	// Project 에서 고른 Avatar Mask (.mask)
+	void DrawAvatarMask(const std::string& path);
+	// 레이어 마스크 고르기 (프로젝트의 .mask 목록 + None). 바꾸면 true
+	bool AvatarMaskPicker(const char* label, std::string& maskPath);
 	// 고르기 = 엔진의 "사용자 정의 선택" (Inspector 가 DrawSelection 으로 그린다, 되돌리기 감시 포함)
 	void Select(const std::shared_ptr<AnimatorController>& controller, int layer, int state, int transition);
 	// 지금 선택이 Animator 창 것이면 (아니면 nullptr)

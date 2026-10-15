@@ -1,5 +1,9 @@
 #include "pch.h"
 #include "Animator.h"
+#include "AvatarMask.h"
+#include "AnimationEventStore.h"
+#include "ScriptEngine.h"
+#include "Debug.h"
 #include "UnityGUI.h"
 #include "AnimationPose.h"
 #include "SkinnedMeshRenderer.h"
@@ -203,6 +207,7 @@ void Animator::Play(const std::string& stateName, int layerIndex, float normaliz
 		return;
 	LayerRuntime& r = m_Layers[layerIndex];
 	r.Current = s;
+	EnsureStateClips(layer, s);   // 처음 트는 상태: 길이를 알아야 정규화 시간이 맞다
 	r.Time = normalizedTime * StateDuration(layer, s);
 	r.Next = -1;
 	r.ActiveTransition = -1;
@@ -222,6 +227,7 @@ void Animator::CrossFade(const std::string& stateName, float duration, int layer
 		Play(stateName, layerIndex);
 		return;
 	}
+	EnsureStateClips(m_Controller->Layers[layerIndex], s);
 	r.Next = s;
 	r.NextTime = 0.0f;
 	r.TransitionElapsed = 0.0f;
@@ -368,6 +374,12 @@ void Animator::StepLayer(int layerIndex, float dt)
 		r.Time += dt * speedOf(r.Current);
 		r.NextTime += dt * speedOf(r.Next);
 		r.TransitionElapsed += dt;
+		{
+			// 이벤트: 전이 중에는 두 상태 모두 (Unity 와 같음 — 무게는 AnimationEvent.weight)
+			const float w = r.TransitionDuration > 0.0f ? std::clamp(r.TransitionElapsed / r.TransitionDuration, 0.0f, 1.0f) : 1.0f;
+			CollectEvents(layerIndex, r.Current, a0, r.Time, 1.0f - w);
+			CollectEvents(layerIndex, r.Next, b0, r.NextTime, w);
+		}
 		if (rootSkeleton)
 		{
 			const float w = r.TransitionDuration > 0.0f ? std::clamp(r.TransitionElapsed / r.TransitionDuration, 0.0f, 1.0f) : 1.0f;
@@ -390,6 +402,7 @@ void Animator::StepLayer(int layerIndex, float dt)
 	r.Time += dt * speedOf(r.Current);
 	if (rootSkeleton)
 		m_RootDeltaModel += StateRootDelta(layer, r.Current, *rootSkeleton, prevTime, r.Time);
+	CollectEvents(layerIndex, r.Current, prevTime, r.Time, 1.0f);
 	const float curNorm = r.Time / duration;
 
 	// 이름 대신 번호 (EnsureLayerCache). Solo 가 하나라도 있으면 Solo 전이만 본다 (출발 상태별)
@@ -455,8 +468,13 @@ void Animator::StepState(float dt)
 	const float scaled = dt * m_Speed;   // Animator.speed
 	m_RootDeltaModel = Vec3::Zero;
 	for (int i = 0; i < (int)m_Layers.size(); ++i)
+	{
 		StepLayer(i, scaled);
+		const std::string& maskPath = m_Controller->Layers[(size_t)i].MaskPath;
+		m_Layers[(size_t)i].Mask = maskPath.empty() ? nullptr : AvatarMask::Load(maskPath);
+	}
 	ApplyRootMotion(dt);
+	DispatchEvents();
 }
 
 void Animator::Step(float dt)
@@ -686,6 +704,191 @@ void Animator::SampleClip(const AnimationClip* clip, bool loop, float time, cons
 		Humanoid::Retarget(*map->Source, *map->Target, *clip, map->SourceMap, t, out);
 	else
 		AnimationPose::SampleLocal(skeleton, clip, map->Map, t, out);
+}
+
+void Animator::CollectEvents(int layerIndex, int state, float t0, float t1, float stateWeight)
+{
+	if (!Application::IsPlaying() || m_pGameObject == nullptr || !(t1 > t0) || stateWeight <= 0.0f)
+		return;
+	const AnimatorLayer& layer = m_Controller->Layers[(size_t)layerIndex];
+	if (state < 0 || state >= (int)layer.States.size())
+		return;
+	const LayerRuntime& r = m_Layers[(size_t)layerIndex];
+	const float layerWeight = layerIndex == 0 ? 1.0f : (r.Weight >= 0.0f ? r.Weight : layer.Weight);
+	if (layerWeight <= 0.0f)
+		return;
+	AnimatorState& s = const_cast<AnimatorState&>(layer.States[(size_t)state]);
+	// 클립 하나 (Blend Tree 는 가장 무거운 자식 — 발소리가 두 번 나지 않게)
+	const std::string* path = &s.ClipPath;
+	int index = s.ClipIndex;
+	AnimationClip* clip = nullptr;
+	float c0 = t0, c1 = t1;
+	if (s.IsBlendTree)
+	{
+		std::vector<float> w;
+		GetBlendWeights(s, w);
+		int best = -1;
+		for (int i = 0; i < (int)w.size(); ++i)
+			if (best < 0 || w[(size_t)i] > w[(size_t)best]) best = i;
+		if (best < 0 || best >= (int)s.Tree.Children.size())
+			return;
+		BlendTreeChild& c = s.Tree.Children[(size_t)best];
+		if (c.Clip == nullptr && !c.ClipPath.empty())
+			c.LoadClip();
+		path = &c.ClipPath;
+		index = c.ClipIndex;
+		clip = c.Clip.get();
+		const float d = clip ? clip->GetClipEndTime() : 1.0f;
+		c0 = t0 * d;
+		c1 = t1 * d;
+	}
+	else
+	{
+		if (s.Clip == nullptr && !s.ClipPath.empty())
+			s.LoadClip();
+		clip = s.Clip.get();
+	}
+	if (path->empty())
+		return;
+	std::shared_ptr<const AnimationEventStore::EventList> events = AnimationEventStore::Get(*path, index);
+	if (!events)
+		return;
+	const float d = clip ? clip->GetClipEndTime() : 0.0f;
+	if (c0 <= 0.0f)
+		c0 = -1e-5f;   // 상태를 막 시작했다: 0 초의 이벤트도
+	for (const AnimationEventStore::Event& e : *events)
+	{
+		int count = 0;
+		if (s.Loop && d > 1e-4f)
+			count = (int)(floorf((c1 - e.Time) / d) - floorf((c0 - e.Time) / d));
+		else
+			count = (c0 < e.Time && e.Time <= c1 && (d <= 1e-4f || e.Time <= d + 1e-4f)) ? 1 : 0;
+		for (int k = 0; k < (std::min)(count, 3); ++k)
+			m_PendingEvents.push_back({ e.Function, e.String, clip ? clip->Name : std::string(), s.Name, e.Float, e.Time, stateWeight * layerWeight, e.Int, layerIndex });
+	}
+}
+
+void Animator::DispatchEvents()
+{
+	if (m_PendingEvents.empty())
+		return;
+	std::vector<PendingEvent> events;
+	events.swap(m_PendingEvents);   // 받는 스크립트가 Play · CrossFade 를 불러도 된다
+	const uint64 id = m_pGameObject ? m_pGameObject->GetFileID() : 0;
+	for (const PendingEvent& e : events)
+	{
+		const int received = ScriptEngine::InvokeAnimationEvent(id, e.Function, e.String, e.Float, e.Int, e.Time, e.Clip, e.State, e.Layer, e.Weight);
+		if (received == 0)
+		{
+			// Unity: "AnimationEvent 'X' on animation 'Y' has no receiver!" — 같은 이름은 한 번만
+			static std::set<std::string> warned;
+			if (warned.insert(e.Function + "|" + e.Clip).second)
+				Debug::LogWarning("AnimationEvent '" + e.Function + "' on animation '" + e.Clip + "' has no receiver! (" + (m_pGameObject ? m_pGameObject->GetName() : std::string("?")) + ")");
+		}
+	}
+}
+
+void Animator::EnsureStateClips(const AnimatorLayer& layer, int state)
+{
+	if (state < 0 || state >= (int)layer.States.size())
+		return;
+	AnimatorState& s = const_cast<AnimatorState&>(layer.States[(size_t)state]);
+	if (!s.IsBlendTree && s.Clip == nullptr && !s.ClipPath.empty())
+		s.LoadClip();
+}
+
+bool Animator::IsEmptyState(const AnimatorLayer& layer, int state)
+{
+	if (state < 0 || state >= (int)layer.States.size())
+		return true;
+	const AnimatorState& s = layer.States[(size_t)state];
+	return s.IsBlendTree ? s.Tree.Children.empty() : s.ClipPath.empty();
+}
+
+// Override: 노드마다 weight × 마스크 만큼 레이어 자세로 (마스크 0 인 노드는 그대로)
+void Animator::OverrideLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& layer, float weight, const std::vector<float>* mask)
+{
+	const size_t n = (std::min)(base.size(), layer.size());
+	for (size_t i = 0; i < n; ++i)
+	{
+		const float w = weight * (mask && i < mask->size() ? (*mask)[i] : 1.0f);
+		if (w <= 0.001f)
+			continue;
+		if (w >= 0.999f)
+		{
+			base[i] = layer[i];
+			continue;
+		}
+		XMVECTOR sa, ra, ta, sb, rb, tb;
+		if (!XMMatrixDecompose(&sa, &ra, &ta, XMLoadFloat4x4(&base[i])) || !XMMatrixDecompose(&sb, &rb, &tb, XMLoadFloat4x4(&layer[i])))
+		{
+			if (w >= 0.5f)
+				base[i] = layer[i];
+			continue;
+		}
+		XMStoreFloat4x4(&base[i], XMMatrixScalingFromVector(XMVectorLerp(sa, sb, w)) * XMMatrixRotationQuaternion(XMQuaternionSlerp(ra, rb, w))
+			* XMMatrixTranslationFromVector(XMVectorLerp(ta, tb, w)));
+	}
+}
+
+// Additive: 회전 = 아래 · (기준⁻¹ · 레이어) 를 weight 만큼, 이동 = (레이어 − 기준) × weight 를 더한다. 크기는 아래 그대로
+void Animator::AddLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& reference, const std::vector<XMFLOAT4X4>& layer, float weight,
+	const std::vector<float>* mask)
+{
+	const size_t n = (std::min)({ base.size(), layer.size(), reference.size() });
+	for (size_t i = 0; i < n; ++i)
+	{
+		const float w = weight * (mask && i < mask->size() ? (*mask)[i] : 1.0f);
+		if (w <= 0.001f)
+			continue;
+		XMVECTOR s0, r0, t0, s1, r1, t1, s2, r2, t2;
+		if (!XMMatrixDecompose(&s0, &r0, &t0, XMLoadFloat4x4(&base[i])) || !XMMatrixDecompose(&s1, &r1, &t1, XMLoadFloat4x4(&reference[i]))
+			|| !XMMatrixDecompose(&s2, &r2, &t2, XMLoadFloat4x4(&layer[i])))
+			continue;
+		// XMQuaternionMultiply(a, b) = a 다음 b. 차이 = 기준⁻¹ 다음 레이어, 결과 = 차이 다음 아래 (부모 쪽 회전이 바깥)
+		XMVECTOR delta = XMQuaternionNormalize(XMQuaternionMultiply(XMQuaternionInverse(r1), r2));
+		if (w < 0.999f)
+			delta = XMQuaternionSlerp(XMQuaternionIdentity(), delta, w);
+		const XMVECTOR r = XMQuaternionNormalize(XMQuaternionMultiply(delta, r0));
+		const XMVECTOR t = XMVectorAdd(t0, XMVectorScale(XMVectorSubtract(t2, t1), w));
+		XMStoreFloat4x4(&base[i], XMMatrixScalingFromVector(s0) * XMMatrixRotationQuaternion(r) * XMMatrixTranslationFromVector(t));
+	}
+}
+
+void Animator::SetLayerWeight(int layerIndex, float weight)
+{
+	SyncWithController();
+	if (layerIndex >= 0 && layerIndex < (int)m_Layers.size())
+		m_Layers[(size_t)layerIndex].Weight = std::clamp(weight, 0.0f, 1.0f);
+}
+
+float Animator::GetLayerWeight(int layerIndex) const
+{
+	if (m_Controller == nullptr || layerIndex < 0 || layerIndex >= (int)m_Controller->Layers.size())
+		return 0.0f;
+	if (layerIndex == 0)
+		return 1.0f;
+	if (layerIndex < (int)m_Layers.size() && m_Layers[(size_t)layerIndex].Weight >= 0.0f)
+		return m_Layers[(size_t)layerIndex].Weight;
+	return m_Controller->Layers[(size_t)layerIndex].Weight;
+}
+
+int Animator::LayerOfState(const std::string& state) const
+{
+	if (m_Controller)
+		for (int i = 0; i < (int)m_Controller->Layers.size(); ++i)
+			if (m_Controller->Layers[(size_t)i].FindState(state) >= 0)
+				return i;
+	return 0;
+}
+
+int Animator::GetLayerIndex(const std::string& name) const
+{
+	if (m_Controller)
+		for (int i = 0; i < (int)m_Controller->Layers.size(); ++i)
+			if (m_Controller->Layers[(size_t)i].Name == name)
+				return i;
+	return -1;
 }
 
 void Animator::SampleState(const AnimatorLayer& layer, int state, float time, const SkeletonAvataData& skeleton, std::vector<XMFLOAT4X4>& out)
@@ -1023,30 +1226,57 @@ void Animator::EvaluatePose()
 				const LayerRuntime& r = m_Layers[li];
 				if (r.Current < 0)
 					continue;
-				SampleState(layer, r.Current, r.Time, *skeleton, m_LocalA);
-				if (r.Next >= 0)
+				float weight = li == 0 ? 1.0f : (r.Weight >= 0.0f ? r.Weight : layer.Weight);
+				if (li > 0 && weight <= 0.001f)
+					continue;
+				// 빈 상태 (클립 · Blend Tree 없음): 그 레이어는 아래 레이어를 그대로 둔다 (Unity 와 같음 — 상체 레이어의 기본 상태)
+				const bool curEmpty = li > 0 && IsEmptyState(layer, r.Current);
+				const bool nextEmpty = li > 0 && r.Next >= 0 && IsEmptyState(layer, r.Next);
+				const float t = r.Next >= 0 ? (r.TransitionDuration > 0.0f ? std::clamp(r.TransitionElapsed / r.TransitionDuration, 0.0f, 1.0f) : 1.0f) : 0.0f;
+				if (curEmpty && (r.Next < 0 || nextEmpty))
+					continue;
+				int refState = r.Current;
+				if (curEmpty)
 				{
-					SampleState(layer, r.Next, r.NextTime, *skeleton, m_LocalB);
-					AnimationPose::Blend(m_LocalA, m_LocalB, r.TransitionDuration > 0.0f ? r.TransitionElapsed / r.TransitionDuration : 1.0f, m_LocalLayer);
+					SampleState(layer, r.Next, r.NextTime, *skeleton, m_LocalLayer);   // 빈 → 동작: 동작이 t 만큼
+					weight *= t;
+					refState = r.Next;
 				}
 				else
-					m_LocalLayer.swap(m_LocalA);
-				// 첫 레이어는 그대로, 다음 레이어는 Weight 만큼 덮어쓴다 (Override)
-				const float weight = li == 0 ? 1.0f : layer.Weight;
-				if (weight >= 0.999f)
 				{
+					SampleState(layer, r.Current, r.Time, *skeleton, m_LocalA);
+					if (r.Next >= 0 && !nextEmpty)
+					{
+						SampleState(layer, r.Next, r.NextTime, *skeleton, m_LocalB);
+						AnimationPose::Blend(m_LocalA, m_LocalB, t, m_LocalLayer);
+					}
+					else
+					{
+						m_LocalLayer.swap(m_LocalA);
+						if (r.Next >= 0)
+							weight *= 1.0f - t;   // 동작 → 빈: 동작이 1 - t 만큼
+					}
+				}
+				if (li == 0)
+				{
+					m_LocalFinal.swap(m_LocalLayer);   // 첫 레이어는 그대로
+					have = true;
+					continue;
+				}
+				if (!have)
+					m_LocalFinal = skeleton->BindLocal;
+				have = true;
+				const std::vector<float>* mask = r.Mask ? &r.Mask->NodeWeights(*skeleton) : nullptr;
+				if (layer.Blending == 1)
+				{
+					// Additive: 클립 첫 프레임 (기준) 과의 차이를 아래 자세에 더한다
+					SampleState(layer, refState, 0.0f, *skeleton, m_LocalRef);
+					AddLayer(m_LocalFinal, m_LocalRef, m_LocalLayer, weight, mask);
+				}
+				else if (mask == nullptr && weight >= 0.999f)
 					m_LocalFinal.swap(m_LocalLayer);
-					have = true;
-				}
-				else if (weight > 0.001f)
-				{
-					if (!have)
-						m_LocalFinal = skeleton->BindLocal;
-					have = true;
-					std::vector<XMFLOAT4X4> mixed;
-					AnimationPose::Blend(m_LocalFinal, m_LocalLayer, weight, mixed);
-					m_LocalFinal.swap(mixed);
-				}
+				else
+					OverrideLayer(m_LocalFinal, m_LocalLayer, weight, mask);
 			}
 			if (!have)
 				m_LocalFinal = skeleton->BindLocal;
