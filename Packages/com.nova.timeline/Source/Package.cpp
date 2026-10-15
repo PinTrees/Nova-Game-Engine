@@ -82,7 +82,8 @@ namespace
 				"add-clip --path P --track T --start s --duration s [--asset file --clip i --clip-in s --speed x --ease-in s --ease-out s --loop --object GO]",
 				"add-marker --path P --track T --time s --method M [--string --float --int --retroactive]",
 				"director --director GO [--path P] [--play-on-awake true] [--wrap Hold|Loop|None]",
-				"bind --director GO --track T --target GO", "play|pause|resume|stop --director GO", "time --director GO --value s (sets and evaluates)" } } };
+				"bind --director GO --track T --target GO", "play|pause|resume|stop --director GO", "time --director GO --value s (sets and evaluates)",
+				"window [--director GO] (open the Timeline window on that director)" } } };
 			return true;
 		}
 		PlayableDirector* d = nullptr;
@@ -98,6 +99,14 @@ namespace
 				d = c.get();
 			}
 			if (d == nullptr) { e = "no Playable Director on " + go->GetName(); return false; }
+		}
+		if (op == "window")
+		{
+			// 창 열기 (편집기에서만): 고른 디렉터를 보여 준다
+			if (s_Window == nullptr) { e = "no Timeline window (player)"; return false; }
+			TimelineWindow::Focus(d);
+			r = { { "open", true }, { "director", d && d->GetGameObject() ? d->GetGameObject()->GetName() : std::string() } };
+			return true;
 		}
 		std::string path = Str(a, "path");
 		if (op == "create")
@@ -193,7 +202,7 @@ namespace
 
 NOVA_PACKAGE_EXPORT void NovaPackage_OnLoad()
 {
-	CliServer::Register("timeline", "Timeline {op: help | create | info | add-track | add-clip | add-marker | director | bind | play | pause | resume | stop | time} (nova timeline help)",
+	CliServer::Register("timeline", "Timeline {op: help | create | info | add-track | add-clip | add-marker | director | bind | play | pause | resume | stop | time | window} (nova timeline help)",
 		[](const nlohmann::json& a, nlohmann::json& r, std::string& e) { return RunCli(a, r, e); });
 	if (Application::IsPlayer())
 		return;

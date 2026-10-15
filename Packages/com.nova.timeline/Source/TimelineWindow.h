@@ -19,6 +19,7 @@ public:
 	static TimelineWindow* Instance() { return s_Instance; }
 
 	void Update() override;
+	void BeforeBegin() override;
 	void OnRender() override;
 
 private:

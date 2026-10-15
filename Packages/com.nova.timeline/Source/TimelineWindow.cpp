@@ -4,6 +4,8 @@
 #include "TimelineAsset.h"
 #include "SelectionManager.h"
 #include "UnityGUI.h"
+#include "EditorGUIManager.h"
+#include "ImGui/imgui_internal.h"
 
 TimelineWindow* TimelineWindow::s_Instance = nullptr;
 
@@ -108,6 +110,15 @@ void TimelineWindow::Preview(PlayableDirector* d)
 		d->Evaluate();
 }
 
+void TimelineWindow::BeforeBegin()
+{
+	// 처음 열면 아래 Project · Console · Animator 탭 옆에 (Unity 도 보통 아래에 둔다)
+	ImGui::SetNextWindowSize(ImVec2(1100.0f, 380.0f), ImGuiCond_FirstUseEver);
+	if (EditorWindow* project = EditorGUIManager::GetI()->FindWindow("Project"))
+		if (ImGuiWindow* w = ImGui::FindWindowByName(project->GetImGuiName().c_str()); w && w->DockId)
+			ImGui::SetNextWindowDockID(w->DockId, ImGuiCond_FirstUseEver);
+}
+
 void TimelineWindow::OnRender()
 {
 	PlayableDirector* d = Director();
@@ -129,10 +140,12 @@ void TimelineWindow::OnRender()
 	}
 	DrawToolbar(d, asset.get());
 	const ImVec2 avail = ImGui::GetContentRegionAvail();
-	const float propsH = 150.0f;
+	// 트랙은 모두 보이게 (좁으면 아래 속성 칸이 줄어든다)
+	const float tracksMin = kRuler + kRow * (float)(std::max)((size_t)1, asset->Tracks.size()) + 8.0f;
+	const float tracksH = (std::min)(avail.y - 40.0f, (std::max)(tracksMin, avail.y - 150.0f));
 	const ImVec2 pos = ImGui::GetCursorScreenPos();
-	DrawTracks(d, asset.get(), pos, ImVec2(avail.x, (std::max)(80.0f, avail.y - propsH)));
-	ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + (std::max)(80.0f, avail.y - propsH) + 4));
+	DrawTracks(d, asset.get(), pos, ImVec2(avail.x, (std::max)(80.0f, tracksH)));
+	ImGui::SetCursorScreenPos(ImVec2(pos.x, pos.y + (std::max)(80.0f, tracksH) + 4));
 	ImGui::BeginChild("##tlprops", ImVec2(0, 0), false);
 	DrawProperties(d, asset.get());
 	ImGui::EndChild();

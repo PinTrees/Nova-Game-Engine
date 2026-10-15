@@ -107,7 +107,7 @@ nova timeline time --director Director --value 0.6
 nova timeline info --director Director
 ```
 
-`add-track --type`: `Animation | Activation | Audio | Signal | Cinemachine`. `add-clip --object GO` 는 Cinemachine Shot 의 카메라. `play | pause | resume | stop --director GO`. `nova timeline help` 가 모든 연산을 보여 줍니다.
+`add-track --type`: `Animation | Activation | Audio | Signal | Cinemachine`. `add-clip --object GO` 는 Cinemachine Shot 의 카메라. `play | pause | resume | stop --director GO`, `window --director GO` (창을 그 디렉터로 연다). `nova timeline help` 가 모든 연산을 보여 줍니다.
 
 ## 구조
 
