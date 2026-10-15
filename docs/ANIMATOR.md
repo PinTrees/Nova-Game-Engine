@@ -1,7 +1,7 @@
-# Animator — 레이어 · Avatar Mask · 애니메이션 이벤트
+# Animator — 레이어 · Avatar Mask · 애니메이션 이벤트 · IK
 
 패키지 `com.nova.animation`. Unity Mecanim 과 같은 이름 · 동작 · 저장 꼴 (컨트롤러 `.controller` JSON).
-로드맵: [ENGINE_ROADMAP](ENGINE_ROADMAP.md) P0-1 · P0-2.
+로드맵: [ENGINE_ROADMAP](ENGINE_ROADMAP.md) P0-1 · P0-2 · P1-7.
 
 ## 레이어 (Weight · Mask · Blending)
 
@@ -45,6 +45,34 @@ void OnAttackHit(AnimationEvent e) { … }               // e.functionName · st
 - 받는 곳이 없으면 Console 경고 한 번 (`AnimationEvent 'X' on animation 'Y' has no receiver!`)
 - 순서: 모든 레이어의 시간을 진행한 뒤 모아서 보낸다 — 받는 스크립트가 `Play` · `CrossFade` 를 불러도 된다
 
+## IK
+
+### Animator IK (Unity `OnAnimatorIK`)
+
+레이어 톱니의 **IK Pass** 를 켜면 Play 중 프레임마다 Animator 가 같은 GameObject 스크립트의 `OnAnimatorIK(int layerIndex)` 를 부른다 (상태 진행 · 이벤트 뒤, 메인 스레드). 무게는 그 전에 0 으로 돌아가므로 그 안에서 정한다 (Unity 와 같음).
+
+```csharp
+void OnAnimatorIK(int layer)
+{
+    var a = GetComponent<Animator>();
+    a.SetIKPositionWeight(AvatarIKGoal.LeftHand, 1f);  a.SetIKPosition(AvatarIKGoal.LeftHand, grip.position);
+    a.SetIKRotationWeight(AvatarIKGoal.LeftHand, 1f);  a.SetIKRotation(AvatarIKGoal.LeftHand, grip.rotation);   // 항등 = T-포즈의 손
+    a.SetIKHintPositionWeight(AvatarIKHint.LeftElbow, 1f); a.SetIKHintPosition(AvatarIKHint.LeftElbow, elbowHint);
+    a.SetLookAtWeight(1f, 0.3f, 1f, 0f, 0.5f);  a.SetLookAtPosition(enemy.position);   // 전체 · 몸 · 머리 · 눈 · 제한 (0.5 = 90°)
+}
+```
+
+- 손 · 발: 두 뼈 (위팔 → 아래팔 → 손, 넓적다리 → 종아리 → 발), 위치 무게만큼 지금 자리에서 목표 쪽으로, 힌트 쪽으로 굽힘. 시선: 척추 · 가슴 (body) 다음 목 · 머리 (head), 제한 각
+- 순서: Animator IK → Hands Animator (5) → Two Bone IK Constraint (20) → Look Animator … (`IAnimatorPoseModifier::PoseOrder`)
+
+### Two Bone IK Constraint (Unity Animation Rigging)
+
+Animator 와 같은 GameObject 에 붙이는 컴포넌트 (Unity 는 Rig 아래 오브젝트 — NOVA 는 같은 오브젝트에 여러 개). Root → Mid → Tip (노드 이름 — Humanoid 가 아닌 리그도), Target · Hint 오브젝트,
+Weight · Target Position / Rotation Weight · Hint Weight, Maintain Target Position / Rotation Offset (켜질 때의 차이를 지킨다). Tip 회전 = Target 의 월드 회전.
+Inspector **Auto Setup** (Left/Right Foot · Hand) 또는 C# `constraint.AutoSetup(AvatarIKGoal.RightHand)`.
+
+손 IK 가 처음부터 쓸 수 있는 길은 셋이다: Animator IK (스크립트), Hands Animator (손마다 목표 · 힌트 오브젝트, 부드럽게 켜고 끄기), Two Bone IK Constraint (아무 뼈 셋).
+
 ## 검사
 
-`Tools/tests/run_tests.ps1 -Only animlayers` — 빈 상태 = 아래 레이어, 상체 마스크 (손은 흔들고 발은 걷기 그대로, 발 이동 0 mm), SetLayerWeight 0, Additive 기준 프레임 = 변화 없음 · 뒤 프레임 = 차이, GetLayerIndex, animevent CLI (정렬), 반복마다 한 번 (int), AnimationEvent 인자, 받는 곳 없음 경고.
+`Tools/tests/run_tests.ps1 -Only animlayers` — 빈 상태 = 아래 레이어, 상체 마스크 (손은 흔들고 발은 걷기 그대로, 발 이동 0 mm), SetLayerWeight 0, Additive 기준 프레임 = 변화 없음 · 뒤 프레임 = 차이, GetLayerIndex, animevent CLI (정렬), 반복마다 한 번 (int), AnimationEvent 인자, 받는 곳 없음 경고, OnAnimatorIK 왼손 목표 (0 mm) · LookAt 머리, Two Bone IK Constraint 오른손 목표 (0 mm).

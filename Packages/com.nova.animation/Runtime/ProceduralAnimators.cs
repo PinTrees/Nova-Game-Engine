@@ -15,6 +15,13 @@ namespace NovaEngine
         [DllImport(Dll)] internal static extern void LOOK_SetTarget(ulong go, ulong target);
         [DllImport(Dll)] internal static extern void LOOK_SetPosition(ulong go, Vector3* p, int use);
         [DllImport(Dll)] internal static extern float HANDS_GetFloat(ulong go, int prop);
+        [DllImport(Dll)] internal static extern float TBIK_GetFloat(ulong go, int prop);
+        [DllImport(Dll)] internal static extern void TBIK_SetFloat(ulong go, int prop, float v);
+        [DllImport(Dll)] internal static extern ulong TBIK_GetObject(ulong go, int which);
+        [DllImport(Dll)] internal static extern void TBIK_SetObject(ulong go, int which, ulong target);
+        [DllImport(Dll)] internal static extern byte* TBIK_GetBone(ulong go, int which);
+        [DllImport(Dll)] internal static extern void TBIK_SetBone(ulong go, int which, byte* name);
+        [DllImport(Dll)] internal static extern int TBIK_AutoSetup(ulong go, int limb);
         [DllImport(Dll)] internal static extern void HANDS_SetFloat(ulong go, int prop, float v);
         [DllImport(Dll)] internal static extern ulong HANDS_GetObject(ulong go, int hand, int which);
         [DllImport(Dll)] internal static extern void HANDS_SetObject(ulong go, int hand, int which, ulong target);
@@ -62,6 +69,28 @@ namespace NovaEngine
 
     /// <summary>Unity 의 AvatarIKGoal</summary>
     public enum AvatarIKGoal { LeftFoot = 0, RightFoot = 1, LeftHand = 2, RightHand = 3 }
+    /// <summary>Unity 의 AvatarIKHint (무릎 · 팔꿈치)</summary>
+    public enum AvatarIKHint { LeftKnee = 0, RightKnee = 1, LeftElbow = 2, RightElbow = 3 }
+
+    /// <summary>
+    /// Unity Animation Rigging 의 Two Bone IK Constraint: Root → Mid → Tip 의 끝이 target 에, 가운데 관절은 hint 쪽으로 (본 = 노드 이름 — Humanoid 가 아니어도).
+    /// </summary>
+    [NativeComponent("TwoBoneIKConstraint")]
+    public sealed class TwoBoneIKConstraint : Behaviour
+    {
+        internal TwoBoneIKConstraint() { }
+        public float weight { get => ProceduralNative.TBIK_GetFloat(nativeId, 0); set => ProceduralNative.TBIK_SetFloat(nativeId, 0, value); }
+        public float targetPositionWeight { get => ProceduralNative.TBIK_GetFloat(nativeId, 1); set => ProceduralNative.TBIK_SetFloat(nativeId, 1, value); }
+        public float targetRotationWeight { get => ProceduralNative.TBIK_GetFloat(nativeId, 2); set => ProceduralNative.TBIK_SetFloat(nativeId, 2, value); }
+        public float hintWeight { get => ProceduralNative.TBIK_GetFloat(nativeId, 3); set => ProceduralNative.TBIK_SetFloat(nativeId, 3, value); }
+        public GameObject target { get => FromNativeId(ProceduralNative.TBIK_GetObject(nativeId, 0)); set => ProceduralNative.TBIK_SetObject(nativeId, 0, GetNativeId(value)); }
+        public GameObject hint { get => FromNativeId(ProceduralNative.TBIK_GetObject(nativeId, 1)); set => ProceduralNative.TBIK_SetObject(nativeId, 1, GetNativeId(value)); }
+        public unsafe string root { get => AnimatorNative.Str(ProceduralNative.TBIK_GetBone(nativeId, 0)); set { fixed (byte* p = AnimatorNative.Utf8(value)) ProceduralNative.TBIK_SetBone(nativeId, 0, p); } }
+        public unsafe string mid { get => AnimatorNative.Str(ProceduralNative.TBIK_GetBone(nativeId, 1)); set { fixed (byte* p = AnimatorNative.Utf8(value)) ProceduralNative.TBIK_SetBone(nativeId, 1, p); } }
+        public unsafe string tip { get => AnimatorNative.Str(ProceduralNative.TBIK_GetBone(nativeId, 2)); set { fixed (byte* p = AnimatorNative.Utf8(value)) ProceduralNative.TBIK_SetBone(nativeId, 2, p); } }
+        /// <summary>Humanoid 팔 · 다리로 root · mid · tip 채우기 (AvatarIKGoal)</summary>
+        public bool AutoSetup(AvatarIKGoal limb) => ProceduralNative.TBIK_AutoSetup(nativeId, (int)limb) != 0;
+    }
 
     /// <summary>
     /// Hands Animator: 손을 목표에 (무기 손잡이 · 벽 짚기). 목표 오브젝트 또는 SetIKPosition / SetIKRotation (Unity 의 Animator.SetIKPosition 과 같은 생각).

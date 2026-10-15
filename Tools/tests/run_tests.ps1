@@ -6138,6 +6138,22 @@ function Suite-AnimLayers
         @{ name = 'Upper'; weight = 1.0; defaultState = 'Empty'; avatarMask = 'Assets\AnimLayerTest\Upper.mask'; blending = 'Override'; states = @((St 'Empty' -1), (St 'Wave' 2)); transitions = @() },
         @{ name = 'Add'; weight = 0.0; defaultState = 'AddWalk'; blending = 'Additive'; states = @((St 'AddWalk' 1)); transitions = @() }) }
     $ctrl | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $dir 'Layers.controller')
+    @'
+using NovaEngine;
+public class IKProbe : MonoBehaviour
+{
+    public bool on, look;
+    public Vector3 target, lookAt;
+    public int calls, lastLayer = -1;
+    void OnAnimatorIK(int layerIndex)
+    {
+        calls++; lastLayer = layerIndex;
+        var a = GetComponent<Animator>();
+        if (on) { a.SetIKPositionWeight(AvatarIKGoal.LeftHand, 1f); a.SetIKPosition(AvatarIKGoal.LeftHand, target); }
+        if (look) { a.SetLookAtWeight(1f, 0f, 1f, 0f, 0f); a.SetLookAtPosition(lookAt); }
+    }
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $dir 'IKProbe.cs')
 
     $ed = Start-TestEditor
     try
@@ -6224,6 +6240,39 @@ public class AnimEventProbe : MonoBehaviour
         else { Add-Result animlayers 'events fire (probe read)' $false "$($r | ConvertTo-Json -Compress)" }
         $warn = Get-Content (Join-Path $Root 'Binaries\Logs\Editor.log') -ErrorAction SilentlyContinue | Select-String "AnimationEvent 'OnNoReceiver'" | Select-Object -First 1
         Add-Result animlayers 'an event with no receiver warns once (Unity: has no receiver!)' ([bool]$warn) "$($warn.Line)"
+
+        # ---- Animator IK (Unity OnAnimatorIK · SetIKPosition · SetLookAt) + Two Bone IK Constraint (Animation Rigging)
+        $ikc = @{ parameters = @(); layers = @(@{ name = 'Base Layer'; weight = 1.0; defaultState = 'Idle'; ikPass = $true; states = @(@{ name = 'Idle'; clipPath = 'Assets\AnimLayerTest\Basic.glb'; clipIndex = 0; loop = $true; speed = 1.0 }); transitions = @() }) }
+        $ikc | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $dir 'IK.controller')
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name KCh --controller Assets/AnimLayerTest/IK.controller' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'add-component KCh IKProbe' | Out-Null
+        Invoke-Nova 'add-component KCh TwoBoneIKConstraint' | Out-Null
+        Invoke-Nova 'create sphere --name RTarget --position 0,-5,0 --scale 0.05,0.05,0.05' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $rd = 'var a = GameObject.Find("KCh").GetComponent<Animator>(); a.speed = 0; var inv = System.Globalization.CultureInfo.InvariantCulture; string F(Vector3 v) => v.x.ToString("F4", inv) + " " + v.y.ToString("F4", inv) + " " + v.z.ToString("F4", inv); var q = a.GetBoneRotation(HumanBodyBones.Head); return F(a.GetBonePosition(HumanBodyBones.LeftHand)) + " " + F(a.GetBonePosition(HumanBodyBones.RightHand)) + " " + q.x.ToString("F4", inv) + " " + q.y.ToString("F4", inv) + " " + q.z.ToString("F4", inv) + " " + q.w.ToString("F4", inv) + " " + GameObject.Find("KCh").GetComponent<IKProbe>().calls + " " + GameObject.Find("KCh").GetComponent<IKProbe>().lastLayer;'
+        function ReadIK { $rd | Set-Content -Encoding utf8 $cs; Invoke-Nova 'wait 3' | Out-Null; $m = Invoke-NovaJson "exec --file $cs"; if ($m) { @("$($m.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() } }
+        $k0 = ReadIK
+        if ($k0.Count -ne 12) { Add-Result animlayers 'IK: read bones' $false "$($k0.Count)"; Invoke-Nova 'stop' | Out-Null; return }
+        $inv = [Globalization.CultureInfo]::InvariantCulture
+        $tx = $k0[0] + 0.12; $ty = $k0[1] + 0.15; $tz = $k0[2] + 0.18
+        ('var p = GameObject.Find("KCh").GetComponent<IKProbe>(); p.target = new Vector3({0}f, {1}f, {2}f); p.on = true; p.look = true; p.lookAt = new Vector3({3}f, {4}f, {5}f); return 1;' -f $tx.ToString($inv), $ty.ToString($inv), $tz.ToString($inv), ($k0[0] + 3).ToString($inv), ($k0[1] + 0.5).ToString($inv), ($k0[2]).ToString($inv)) | Set-Content -Encoding utf8 $cs
+        Invoke-Nova "exec --file $cs" | Out-Null
+        $k1 = ReadIK
+        $dl = [math]::Sqrt([math]::Pow($k1[0] - $tx, 2) + [math]::Pow($k1[1] - $ty, 2) + [math]::Pow($k1[2] - $tz, 2))
+        Add-Result animlayers 'Animator IK: OnAnimatorIK(layer) each frame, SetIKPosition puts the left hand on the target' ($k1[10] -gt 5 -and $k1[11] -eq 0 -and $dl -lt 0.02) ("hand {0:F3} m from the target (moved {1:F3} m), OnAnimatorIK calls {2}, layer {3}" -f $dl, ([math]::Sqrt([math]::Pow($k1[0] - $k0[0], 2) + [math]::Pow($k1[1] - $k0[1], 2) + [math]::Pow($k1[2] - $k0[2], 2))), $k1[10], $k1[11])
+        $dot = [math]::Abs($k0[6] * $k1[6] + $k0[7] * $k1[7] + $k0[8] * $k1[8] + $k0[9] * $k1[9])
+        $ang = 2 * [math]::Acos([math]::Min(1.0, $dot)) * 180 / [math]::PI
+        Add-Result animlayers 'Animator IK: SetLookAtPosition turns the head toward a point aside' ($ang -gt 20) ("head turned {0:F1}°" -f $ang)
+        # Two Bone IK Constraint: 오른손 자동 설정 + 목표 구
+        ('var g = GameObject.Find("KCh"); var c = g.GetComponent<TwoBoneIKConstraint>(); bool ok = c.AutoSetup(AvatarIKGoal.RightHand); var t = GameObject.Find("RTarget"); t.transform.position = new Vector3({0}f, {1}f, {2}f); c.target = t; return ok + " " + c.tip;' -f ($k0[3] - 0.1).ToString($inv), ($k0[4] + 0.2).ToString($inv), ($k0[5] + 0.15).ToString($inv)) | Set-Content -Encoding utf8 $cs
+        $setup = Invoke-NovaJson "exec --file $cs"
+        $k2 = ReadIK
+        Invoke-Nova 'stop' | Out-Null
+        $dr = [math]::Sqrt([math]::Pow($k2[3] - ($k0[3] - 0.1), 2) + [math]::Pow($k2[4] - ($k0[4] + 0.2), 2) + [math]::Pow($k2[5] - ($k0[5] + 0.15), 2))
+        Add-Result animlayers 'Two Bone IK Constraint: AutoSetup(RightHand) + target puts the right hand on the target' ("$($setup.result)" -match '^True ' -and $dr -lt 0.02) ("hand {0:F3} m from the target, setup '{1}'" -f $dr, $setup.result)
     }
     finally { Stop-TestEditor $ed | Out-Null }
 }

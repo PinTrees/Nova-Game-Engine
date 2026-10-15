@@ -35,6 +35,14 @@ namespace AnimatorIK
 	XMVECTOR FromTo(FXMVECTOR from, FXMVECTOR to);
 	// 두 뼈 IK: upper → lower → end 가 target 에 닿게 (무릎·팔꿈치는 지금 굽은 쪽으로)
 	void SolveTwoBone(AnimatorPose& pose, int upper, int lower, int end, FXMVECTOR target);
+	// 두 뼈 + 무게 + 힌트 (모델 공간): 끝을 지금 자리에서 goal 쪽으로 posWeight 만큼, 굽는 쪽은 hint 쪽으로 hintWeight 만큼 (없으면 지금 굽은 쪽)
+	void SolveTwoBoneHint(AnimatorPose& pose, int upper, int lower, int end, FXMVECTOR goal, float posWeight, const XMVECTOR* hint, float hintWeight);
+	// 본의 모델 공간 회전을 desired 쪽으로 weight 만큼 (자손이 따라온다)
+	void RotateToward(AnimatorPose& pose, int bone, FXMVECTOR desired, float weight);
+	// 행렬의 회전 (크기 · 이동 뺌)
+	XMVECTOR MatrixRotation(FXMMATRIX m);
+	// 시선 (Unity SetLookAtWeight): 척추 · 가슴 (body) 다음 머리 (head) 가 target (모델 공간) 쪽으로. clamp 0 = 제한 없음, 1 = 0°, 0.5 = 90°
+	void LookAt(AnimatorPose& pose, FXMVECTOR target, float weight, float body, float head, float clamp);
 	// 손 · 팔 IK 등 (Hands Animator) — 다리(0) → 손(5) → 시선(10)
 	// 스크립트·컴포넌트가 프레임마다 쓰는 지수 감쇠 (speed = 1/초)
 	inline float Damp(float current, float target, float speed, float dt) { return current + (target - current) * (1.0f - expf(-speed * dt)); }

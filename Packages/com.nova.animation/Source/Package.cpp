@@ -13,6 +13,7 @@
 #include "LegsAnimator.h"
 #include "LookAnimator.h"
 #include "HandsAnimator.h"
+#include "TwoBoneIKConstraint.h"
 #include "DynamicBone.h"
 #include "Expressions.h"
 
@@ -156,6 +157,99 @@ NOVA_PACKAGE_EXPORT void AN_Play(uint64 id, const char* state, int layer, float 
 	if (layer < 0) layer = an->LayerOfState(state);   // Unity: -1 = 그 이름의 상태가 있는 첫 레이어
 	if (fade < 0.0f) an->Play(state, layer, std::isfinite(normalizedTime) ? normalizedTime : 0.0f);
 	else an->CrossFade(state, fade, layer);
+}
+
+// Animator IK (Unity): goal 0 왼발 · 1 오른발 · 2 왼손 · 3 오른손. kind 0 위치 (3), 1 회전 (4), 2 위치 무게, 3 회전 무게, 4 힌트 위치 (3), 5 힌트 무게
+NOVA_PACKAGE_EXPORT void AN_SetIK(uint64 id, int goal, int kind, const float* v)
+{
+	Animator* an = Find(id);
+	if (an == nullptr || v == nullptr || goal < 0 || goal > 3) return;
+	Animator::IKGoal& g = an->IKGoalAt(goal);
+	switch (kind)
+	{
+	case 0: g.Position = Vec3(v[0], v[1], v[2]); break;
+	case 1: g.Rotation = Quaternion(v[0], v[1], v[2], v[3]); break;
+	case 2: g.PositionWeight = std::clamp(v[0], 0.0f, 1.0f); break;
+	case 3: g.RotationWeight = std::clamp(v[0], 0.0f, 1.0f); break;
+	case 4: g.Hint = Vec3(v[0], v[1], v[2]); break;
+	case 5: g.HintWeight = std::clamp(v[0], 0.0f, 1.0f); break;
+	}
+}
+NOVA_PACKAGE_EXPORT void AN_GetIK(uint64 id, int goal, int kind, float* out)
+{
+	Animator* an = Find(id);
+	if (out == nullptr) return;
+	out[0] = out[1] = out[2] = 0.0f; out[3] = 1.0f;
+	if (an == nullptr || goal < 0 || goal > 3) return;
+	const Animator::IKGoal& g = an->IKGoalAt(goal);
+	switch (kind)
+	{
+	case 0: out[0] = g.Position.x; out[1] = g.Position.y; out[2] = g.Position.z; break;
+	case 1: out[0] = g.Rotation.x; out[1] = g.Rotation.y; out[2] = g.Rotation.z; out[3] = g.Rotation.w; break;
+	case 2: out[0] = g.PositionWeight; break;
+	case 3: out[0] = g.RotationWeight; break;
+	case 4: out[0] = g.Hint.x; out[1] = g.Hint.y; out[2] = g.Hint.z; break;
+	case 5: out[0] = g.HintWeight; break;
+	}
+}
+// 시선: kind 0 위치 (3), 1 무게 (weight, body, head, eyes, clamp)
+NOVA_PACKAGE_EXPORT void AN_SetLookAt(uint64 id, int kind, const float* v)
+{
+	Animator* an = Find(id);
+	if (an == nullptr || v == nullptr) return;
+	Animator::LookAtGoal& l = an->LookAtState();
+	if (kind == 0) l.Position = Vec3(v[0], v[1], v[2]);
+	else { l.Weight = std::clamp(v[0], 0.0f, 1.0f); l.Body = std::clamp(v[1], 0.0f, 1.0f); l.Head = std::clamp(v[2], 0.0f, 1.0f); l.Eyes = v[3]; l.Clamp = std::clamp(v[4], 0.0f, 1.0f); }
+}
+
+// Two Bone IK Constraint: float 0 weight, 1 target position weight, 2 target rotation weight, 3 hint weight
+namespace
+{
+	TwoBoneIKConstraint* FindTwoBone(uint64 id)
+	{
+		GameObject* go = ScriptBindings::FindObject(id);
+		return go ? go->GetComponentIncludingPending<TwoBoneIKConstraint>() : nullptr;
+	}
+}
+NOVA_PACKAGE_EXPORT float TBIK_GetFloat(uint64 id, int prop)
+{
+	TwoBoneIKConstraint* c = FindTwoBone(id);
+	if (c == nullptr) return 0.0f;
+	const float v[4] = { c->Weight, c->TargetPositionWeight, c->TargetRotationWeight, c->HintWeight };
+	return prop >= 0 && prop < 4 ? v[prop] : 0.0f;
+}
+NOVA_PACKAGE_EXPORT void TBIK_SetFloat(uint64 id, int prop, float value)
+{
+	TwoBoneIKConstraint* c = FindTwoBone(id);
+	if (c == nullptr) return;
+	float* v[4] = { &c->Weight, &c->TargetPositionWeight, &c->TargetRotationWeight, &c->HintWeight };
+	if (prop >= 0 && prop < 4) *v[prop] = std::clamp(value, 0.0f, 1.0f);
+}
+NOVA_PACKAGE_EXPORT uint64 TBIK_GetObject(uint64 id, int which)
+{
+	TwoBoneIKConstraint* c = FindTwoBone(id);
+	return c ? (which == 0 ? c->Target : c->Hint) : 0;
+}
+NOVA_PACKAGE_EXPORT void TBIK_SetObject(uint64 id, int which, uint64 target)
+{
+	if (TwoBoneIKConstraint* c = FindTwoBone(id)) (which == 0 ? c->Target : c->Hint) = target;
+}
+// 본: which 0 Root, 1 Mid, 2 Tip
+NOVA_PACKAGE_EXPORT const char* TBIK_GetBone(uint64 id, int which)
+{
+	TwoBoneIKConstraint* c = FindTwoBone(id);
+	return ScriptBindings::ReturnString(c == nullptr ? std::string() : (which == 0 ? c->Root : which == 1 ? c->Mid : c->Tip));
+}
+NOVA_PACKAGE_EXPORT void TBIK_SetBone(uint64 id, int which, const char* name)
+{
+	TwoBoneIKConstraint* c = FindTwoBone(id);
+	if (c == nullptr || name == nullptr) return;
+	(which == 0 ? c->Root : which == 1 ? c->Mid : c->Tip) = name;
+}
+NOVA_PACKAGE_EXPORT int TBIK_AutoSetup(uint64 id, int limb)
+{
+	TwoBoneIKConstraint* c = FindTwoBone(id);
+	return c && c->AutoSetup(limb) ? 1 : 0;
 }
 
 // 레이어 Weight (이 Animator 만) · 이름 → 번호

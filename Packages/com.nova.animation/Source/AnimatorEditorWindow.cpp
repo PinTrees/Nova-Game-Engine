@@ -596,6 +596,8 @@ void AnimatorEditorWindow::DrawLayersTab(ImVec2 pos, ImVec2 size)
 				ImGui::SetNextItemWidth(160);
 				if (ImGui::Combo("Blending", &layer.Blending, modes, 2))
 					m_Controller->Commit();
+				if (ImGui::Checkbox("IK Pass", &layer.IKPass))
+					m_Controller->Commit();
 				ImGui::EndPopup();
 			}
 			PopPopupStyle();

@@ -57,9 +57,9 @@
 |---|---|---|
 | 상태 머신 · 블렌드 트리 · 루트 모션 · 리타깃 | ● | Animator (Unity Mecanim 과 같은 JSON), Humanoid 리타깃 |
 | 블렌드 셰이프 | ● | |
-| **레이어 마스크 (Avatar Mask) · 덧셈 레이어** | ◐ | 레이어는 있지만 본 마스크가 없다 — **걸으며 상체만 공격** 이 안 된다 |
-| **애니메이션 이벤트 · 메서드 · 소리 트랙** | ○ | 타격 프레임 · 발소리 · 이펙트를 시간에 맞출 길이 없다 |
-| 역운동학 (IK) | ◐ | Foot IK · Look · Legs Animator. 손 IK (Two Bone) · 일반 IK 체인 없음 |
+| 레이어 마스크 (Avatar Mask) · 덧셈 레이어 | ● | Avatar Mask · Override · Additive · SetLayerWeight ([ANIMATOR](ANIMATOR.md)) |
+| 애니메이션 이벤트 | ● | AnimationEvent · `<모델>.animevents` · `nova animevent` ([ANIMATOR](ANIMATOR.md)) |
+| 역운동학 (IK) | ● | Animator IK (OnAnimatorIK · SetIKPosition · SetLookAt), Two Bone IK Constraint, Hands · Legs · Look Animator ([ANIMATOR](ANIMATOR.md)) |
 | 아무 속성이나 애니메이션 (곡선) | ◐ | Transform · 블렌드 셰이프 위주. 재질 · 컴포넌트 값 곡선은 확인 필요 |
 | **시네마틱 (Unity Timeline)** | ○ | 컷신 · 연출 도구 없음 |
 

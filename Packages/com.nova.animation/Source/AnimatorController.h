@@ -102,6 +102,7 @@ struct AnimatorLayer
 	float Weight = 1.0f;
 	std::string MaskPath;             // Avatar Mask (.mask) — 비우면 모든 본
 	int Blending = 0;                 // 0 Override (덮어쓰기), 1 Additive (첫 프레임과의 차이를 더하기)
+	bool IKPass = false;              // 켜면 같은 GameObject 스크립트의 OnAnimatorIK(layerIndex) 를 부른다 (Unity 의 IK Pass)
 	std::string DefaultState;
 	std::vector<AnimatorState> States;
 	std::vector<AnimatorTransition> Transitions;

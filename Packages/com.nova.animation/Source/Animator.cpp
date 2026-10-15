@@ -2,6 +2,7 @@
 #include "Animator.h"
 #include "AvatarMask.h"
 #include "AnimationEventStore.h"
+#include "AnimatorIK.h"
 #include "ScriptEngine.h"
 #include "Debug.h"
 #include "UnityGUI.h"
@@ -475,6 +476,7 @@ void Animator::StepState(float dt)
 	}
 	ApplyRootMotion(dt);
 	DispatchEvents();
+	CallAnimatorIK();
 }
 
 void Animator::Step(float dt)
@@ -765,6 +767,61 @@ void Animator::CollectEvents(int layerIndex, int state, float t0, float t1, floa
 			count = (c0 < e.Time && e.Time <= c1 && (d <= 1e-4f || e.Time <= d + 1e-4f)) ? 1 : 0;
 		for (int k = 0; k < (std::min)(count, 3); ++k)
 			m_PendingEvents.push_back({ e.Function, e.String, clip ? clip->Name : std::string(), s.Name, e.Float, e.Time, stateWeight * layerWeight, e.Int, layerIndex });
+	}
+}
+
+void Animator::CallAnimatorIK()
+{
+	if (!Application::IsPlaying() || m_pGameObject == nullptr || m_Controller == nullptr)
+		return;
+	bool any = false;
+	for (const AnimatorLayer& l : m_Controller->Layers)
+		any |= l.IKPass;
+	if (!any)
+		return;
+	// Unity: 무게는 프레임마다 OnAnimatorIK 안에서 정한다 (정하지 않으면 IK 없음)
+	for (IKGoal& g : m_IK)
+		g.PositionWeight = g.RotationWeight = g.HintWeight = 0.0f;
+	m_LookAt.Weight = 0.0f;
+	const uint64 id = m_pGameObject->GetFileID();
+	for (int i = 0; i < (int)m_Controller->Layers.size(); ++i)
+		if (m_Controller->Layers[(size_t)i].IKPass)
+			ScriptEngine::InvokeAnimationEvent(id, "OnAnimatorIK", std::string(), 0.0f, i, 0.0f, std::string(), std::string(), i, 1.0f);
+}
+
+void Animator::ApplyAnimatorIK(AnimatorPose& pose)
+{
+	const Humanoid::Avatar& av = pose.Avatar;
+	if (!av.Valid)
+		return;
+	using namespace Humanoid;
+	const int bones[4][3] = { { LeftUpperLeg, LeftLowerLeg, LeftFoot }, { RightUpperLeg, RightLowerLeg, RightFoot },
+		{ LeftUpperArm, LeftLowerArm, LeftHand }, { RightUpperArm, RightLowerArm, RightHand } };
+	const XMVECTOR worldToModelRot = AnimatorIK::MatrixRotation(pose.WorldToModel);
+	for (int g = 0; g < 4; ++g)
+	{
+		const IKGoal& goal = m_IK[g];
+		const int upper = av.Node[bones[g][0]], lower = av.Node[bones[g][1]], end = av.Node[bones[g][2]];
+		if (upper < 0 || lower < 0 || end < 0)
+			continue;
+		if (goal.PositionWeight > 1e-4f)
+		{
+			const XMVECTOR target = XMVector3TransformCoord(XMVectorSet(goal.Position.x, goal.Position.y, goal.Position.z, 1.0f), pose.WorldToModel);
+			const XMVECTOR hint = XMVector3TransformCoord(XMVectorSet(goal.Hint.x, goal.Hint.y, goal.Hint.z, 1.0f), pose.WorldToModel);
+			AnimatorIK::SolveTwoBoneHint(pose, upper, lower, end, target, goal.PositionWeight, goal.HintWeight > 1e-4f ? &hint : nullptr, goal.HintWeight);
+		}
+		if (goal.RotationWeight > 1e-4f)
+		{
+			// Unity Humanoid: 회전 항등 = T-포즈의 손 · 발. 목표 (월드) → 모델, 그다음 T-포즈 방향
+			const XMVECTOR targetModel = XMQuaternionMultiply(XMVectorSet(goal.Rotation.x, goal.Rotation.y, goal.Rotation.z, goal.Rotation.w), worldToModelRot);
+			const XMVECTOR desired = XMQuaternionNormalize(XMQuaternionMultiply(XMLoadFloat4(&av.TPose[bones[g][2]]), targetModel));
+			AnimatorIK::RotateToward(pose, end, desired, goal.RotationWeight);
+		}
+	}
+	if (m_LookAt.Weight > 1e-4f)
+	{
+		const XMVECTOR target = XMVector3TransformCoord(XMVectorSet(m_LookAt.Position.x, m_LookAt.Position.y, m_LookAt.Position.z, 1.0f), pose.WorldToModel);
+		AnimatorIK::LookAt(pose, target, m_LookAt.Weight, m_LookAt.Body, m_LookAt.Head, m_LookAt.Clamp);
 	}
 }
 
@@ -1320,12 +1377,17 @@ void Animator::ApplyPoseModifiers(const SkeletonAvataData& skeleton, SkinnedMesh
 		if (c && c->IsEnabled())
 			if (auto* m = dynamic_cast<IAnimatorPoseModifier*>(c.get()))
 				mods.push_back(m);
-	if (mods.empty())
+	bool ik = m_LookAt.Weight > 1e-4f;
+	for (const IKGoal& g : m_IK)
+		ik |= g.PositionWeight > 1e-4f || g.RotationWeight > 1e-4f;
+	if (mods.empty() && !ik)
 		return;
 	std::stable_sort(mods.begin(), mods.end(), [](auto* a, auto* b) { return a->PoseOrder() < b->PoseOrder(); });
 	const XMMATRIX toWorld = renderer->GetGameObject()->GetTransform()->GetWorldMatrix();
 	XMVECTOR det;
 	AnimatorPose pose{ skeleton, Humanoid::Get(skeleton), m_LocalFinal, m_Global, toWorld, XMMatrixInverse(&det, toWorld), m_LastDt };
+	if (ik)
+		ApplyAnimatorIK(pose);   // Unity: Animator 의 IK 가 먼저, 그다음 Rigging · 절차적 애니메이터
 	for (IAnimatorPoseModifier* m : mods)
 		m->ModifyPose(pose);
 }

@@ -199,6 +199,8 @@ std::string AnimatorController::ToJsonString() const
 		if (!l.MaskPath.empty())
 			lj["avatarMask"] = l.MaskPath;
 		lj["blending"] = l.Blending == 1 ? "Additive" : "Override";
+		if (l.IKPass)
+			lj["ikPass"] = true;
 		lj["defaultState"] = l.DefaultState;
 		lj["entry"] = { l.EntryX, l.EntryY };
 		lj["any"] = { l.AnyX, l.AnyY };
@@ -300,6 +302,7 @@ void AnimatorController::ApplyJson(const std::string& text)
 			l.Weight = lj.value("weight", 1.0f);
 			l.MaskPath = lj.value("avatarMask", std::string());
 			l.Blending = lj.value("blending", std::string("Override")) == "Additive" ? 1 : 0;
+			l.IKPass = lj.value("ikPass", false);
 			l.DefaultState = lj.value("defaultState", std::string());
 			if (lj.contains("entry")) { l.EntryX = lj["entry"][0]; l.EntryY = lj["entry"][1]; }
 			if (lj.contains("any")) { l.AnyX = lj["any"][0]; l.AnyY = lj["any"][1]; }

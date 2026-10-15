@@ -38,6 +38,13 @@ public:
 	// 이 이름의 상태가 있는 첫 레이어 (Unity Play · CrossFade 의 layer = -1). 없으면 0
 	int LayerOfState(const std::string& state) const;
 
+	// Unity 의 Animator IK (AvatarIKGoal 0 왼발 · 1 오른발 · 2 왼손 · 3 오른손, AvatarIKHint 같은 순서 무릎 · 팔꿈치).
+	//  레이어 IK Pass 가 켜져 있으면 프레임마다 무게를 0 으로 하고 OnAnimatorIK(layerIndex) 를 부른다 — 스크립트가 그 안에서 정한다. 위치 · 회전은 월드
+	struct IKGoal { Vec3 Position = Vec3::Zero; Quaternion Rotation = Quaternion::Identity; Vec3 Hint = Vec3::Zero; float PositionWeight = 0.0f, RotationWeight = 0.0f, HintWeight = 0.0f; };
+	struct LookAtGoal { Vec3 Position = Vec3::Zero; float Weight = 0.0f, Body = 0.0f, Head = 1.0f, Eyes = 0.0f, Clamp = 0.5f; };
+	IKGoal& IKGoalAt(int goal) { return m_IK[(size_t)std::clamp(goal, 0, 3)]; }
+	LookAtGoal& LookAtState() { return m_LookAt; }
+
 private:
 	std::string m_ControllerPath;
 	std::shared_ptr<AnimatorController> m_Controller;
@@ -200,6 +207,10 @@ private:
 	void DispatchEvents();
 	struct PendingEvent { std::string Function, String, Clip, State; float Float = 0.0f, Time = 0.0f, Weight = 1.0f; int Int = 0, Layer = 0; };
 	std::vector<PendingEvent> m_PendingEvents;
+	IKGoal m_IK[4];
+	LookAtGoal m_LookAt;
+	void CallAnimatorIK();                       // 메인 스레드 (Step 뒤)
+	void ApplyAnimatorIK(struct AnimatorPose& pose);
 	static void OverrideLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& layer, float weight, const std::vector<float>* mask);
 	static void AddLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& reference, const std::vector<XMFLOAT4X4>& layer, float weight,
 		const std::vector<float>* mask);
