@@ -2,6 +2,7 @@
 #include "Animator.h"
 #include "AvatarMask.h"
 #include "AnimationEventStore.h"
+#include "AnimationOverrides.h"
 #include "AnimatorIK.h"
 #include "ScriptEngine.h"
 #include "Debug.h"
@@ -854,6 +855,36 @@ void Animator::EnsureStateClips(const AnimatorLayer& layer, int state)
 		s.LoadClip();
 }
 
+// Timeline 의 Animation Track: 클립들을 무게대로 섞고 (합 > 1 이면 1 로) 그 합만큼 컨트롤러 자세 위에
+void Animator::ApplyOverrides(const std::vector<AnimationOverrides::Clip>& clips, const SkeletonAvataData& skeleton)
+{
+	float total = 0.0f;
+	bool first = true;
+	for (const AnimationOverrides::Clip& c : clips)
+	{
+		if (!c.Source || c.Weight <= 1e-4f)
+			continue;
+		SampleClip(c.Source.get(), c.Loop, c.Time, skeleton, m_LocalB);
+		if (first)
+		{
+			m_LocalRef.swap(m_LocalB);
+			total = c.Weight;
+			first = false;
+			continue;
+		}
+		total += c.Weight;
+		AnimationPose::Blend(m_LocalRef, m_LocalB, c.Weight / total, m_TreeMix);
+		m_LocalRef.swap(m_TreeMix);
+	}
+	if (first)
+		return;
+	const float w = (std::min)(total, 1.0f);
+	if (w >= 0.999f)
+		m_LocalFinal.swap(m_LocalRef);
+	else
+		OverrideLayer(m_LocalFinal, m_LocalRef, w, nullptr);
+}
+
 bool Animator::IsEmptyState(const AnimatorLayer& layer, int state)
 {
 	if (state < 0 || state >= (int)layer.States.size())
@@ -1256,7 +1287,9 @@ void Animator::UpdateNeededNodes(const SkeletonAvataData& skeleton, const std::v
 
 void Animator::EvaluatePose()
 {
-	if (m_Controller == nullptr)
+	std::vector<AnimationOverrides::Clip> overrides;
+	const bool overridden = AnimationOverrides::Get(m_pGameObject, overrides);
+	if (m_Controller == nullptr && !overridden)
 		return;
 	// 이번 프레임 Update 가 모은 목록 (Play 의 자세 모으기) — 아니면 (편집 · Rebind · 물리 갱신) 새로 모은다
 	std::vector<SkinnedMeshRenderer*>& renderers = m_EvalRenderers;   // 작업 스레드에서도 이 Animator 것만
@@ -1277,7 +1310,7 @@ void Animator::EvaluatePose()
 		{
 			// 레이어 자세는 바꿔 끼운다 (복사하지 않는다 — 노드 수백 개 × 64 바이트)
 			bool have = false;
-			for (int li = 0; li < (int)m_Controller->Layers.size() && li < (int)m_Layers.size(); ++li)
+			for (int li = 0; m_Controller && li < (int)m_Controller->Layers.size() && li < (int)m_Layers.size(); ++li)
 			{
 				const AnimatorLayer& layer = m_Controller->Layers[li];
 				const LayerRuntime& r = m_Layers[li];
@@ -1337,6 +1370,8 @@ void Animator::EvaluatePose()
 			}
 			if (!have)
 				m_LocalFinal = skeleton->BindLocal;
+			if (overridden)
+				ApplyOverrides(overrides, *skeleton);
 			PinRoot(*skeleton, m_LocalFinal);
 			UpdateNeededNodes(*skeleton, renderers);
 			AnimationPose::ComputeGlobals(*skeleton, m_LocalFinal, m_Global, m_NeededNodes);
@@ -1442,8 +1477,23 @@ void Animator::Start()
 void Animator::Update()
 {
 	// Unity: animator.enabled = false 면 멈춘다 (자세 · 루트 모션 그대로 — 래그돌이 끈다)
-	if (!m_Enabled || m_UpdateMode == 1 || m_AnimatePhysics || m_Controller == nullptr)
+	if (!m_Enabled || m_UpdateMode == 1 || m_AnimatePhysics)
 		return;
+	if (m_Controller == nullptr)
+	{
+		// 컨트롤러 없이 Timeline (Animation Track) 만 — 상태 진행 없이 덮는 클립으로 자세
+		if (!AnimationOverrides::Has(m_pGameObject))
+			return;
+		RefreshRenderers();
+		if (!Application::IsPlaying())
+			EvaluatePose();
+		else if (!m_PosePending && PoseDueThisFrame(m_DrawRenderers))
+		{
+			m_PosePending = true;
+			s_PendingPoses.push_back(this);
+		}
+		return;
+	}
 	const float dt = m_UpdateMode == 2 ? TimeManager::GetI()->GetfDT() : DT;
 	RefreshRenderers();
 	// Culling Mode (Unity): 렌더러가 하나도 보이지 않으면 Cull Completely 는 멈추고, Cull Update Transforms 는 상태만 나아간다
@@ -1501,6 +1551,18 @@ void Animator::Update()
 		m_PosePending = true;
 		s_PendingPoses.push_back(this);
 	}
+}
+
+void Animator::_Editor_Update()
+{
+	if (Application::IsPlaying() || m_pGameObject == nullptr)
+		return;
+	const unsigned rev = AnimationOverrides::Revision(m_pGameObject);
+	if (rev == m_OverrideRevision)
+		return;
+	m_OverrideRevision = rev;
+	RefreshRenderers();
+	EvaluatePose();   // Timeline 미리 보기 (또는 끝난 뒤 컨트롤러 자세로)
 }
 
 void Animator::LastUpdate()

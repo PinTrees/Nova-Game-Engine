@@ -61,7 +61,7 @@
 | 애니메이션 이벤트 | ● | AnimationEvent · `<모델>.animevents` · `nova animevent` ([ANIMATOR](ANIMATOR.md)) |
 | 역운동학 (IK) | ● | Animator IK (OnAnimatorIK · SetIKPosition · SetLookAt), Two Bone IK Constraint, Hands · Legs · Look Animator ([ANIMATOR](ANIMATOR.md)) |
 | 아무 속성이나 애니메이션 (곡선) | ◐ | Transform · 블렌드 셰이프 위주. 재질 · 컴포넌트 값 곡선은 확인 필요 |
-| **시네마틱 (Unity Timeline)** | ○ | 컷신 · 연출 도구 없음 |
+| 시네마틱 (Unity Timeline) | ● | `com.nova.timeline` — Animation · Activation · Audio · Signal · Cinemachine 트랙, Playable Director ([TIMELINE](TIMELINE.md)) |
 
 ### 오디오
 
@@ -124,8 +124,8 @@ VFX Graph · Shader Graph · Terrain Graph (Gaea 식) · PCG · 절차적 식생
 
 | # | 무엇 | Godot 에서 참고 | NOVA 이름 (Unity) | 규모 |
 |---|---|---|---|---|
-| 0-1 | **Avatar Mask + 레이어 블렌딩 (Override · Additive)** — 하체는 이동, 상체는 공격 · 막기 · 활 조준 | AnimationNodeBlend2 의 filter (본 필터), AnimationTree 의 OneShot (filter) | Avatar Mask 에셋 · Animator Layer 의 Mask · Blending · Weight · Sync | M |
-| 0-2 | **애니메이션 이벤트** — 클립 시간에 함수 · 소리 · 이펙트 (타격 판정 · 발소리) | Animation 의 Call Method · Audio Playback 트랙 | AnimationEvent (클립 `.meta` 에 저장), `OnAnimationEvent` · 수신 MonoBehaviour 메서드 | M |
+| 0-1 | **Avatar Mask + 레이어 블렌딩 (Override · Additive)** (2026-10-16 완료) — 하체는 이동, 상체는 공격 · 막기 · 활 조준 | AnimationNodeBlend2 의 filter (본 필터), AnimationTree 의 OneShot (filter) | Avatar Mask 에셋 · Animator Layer 의 Mask · Blending · Weight · Sync | M |
+| 0-2 | **애니메이션 이벤트** (2026-10-16 완료) — 클립 시간에 함수 · 소리 · 이펙트 (타격 판정 · 발소리) | Animation 의 Call Method · Audio Playback 트랙 | AnimationEvent (`<모델>.animevents` 에 저장), `OnAnimationEvent` · 수신 MonoBehaviour 메서드 | M |
 | 0-3 | **Input Actions** — 행동 이름 · 키 / 패드 묶기 · 재지정 · 데드존 · 저장 | InputMap · InputEventAction · 데드존 | Input Action Asset · PlayerInput · `action.WasPressedThisFrame()` | M |
 | 0-4 | **전투 기반 (게임플레이 프레임워크)** — 히트박스 · 허트박스, 피해 · 경직 · 넉백, 무기 장착 (손 본에 붙이기) | Area3D · 그룹 · 신호 | 트리거 콜라이더 + 0-2 이벤트, `Animator.GetBoneTransform` 소켓, 샘플 패키지 `com.nova.combat` | M |
 | 0-5 | **세이브 · 로드** — 월드 상태 · 인벤토리 · 위치 · 퀘스트 값을 JSON (+ 이진) 으로, 버전 · 비동기 | ConfigFile · ResourceSaver · `var_to_bytes` | `SaveSystem` (JsonUtility 식 직렬화) + 슬롯 | M |
@@ -140,9 +140,9 @@ VFX Graph · Shader Graph · Terrain Graph (Gaea 식) · PCG · 절차적 식생
 | 1-2 | 국소 **Fog Volume** (상자 · 구 · 밀도 텍스처 — 늪 · 동굴 · 성 안) | FogVolume · FogMaterial | Local Volumetric Fog (HDRP) | M |
 | 1-3 | **면광** (사각형 · 원판, LTC) — 실내 · 횃불 · 창 | 사각형 면광 | Area Light (Rectangle · Disc) | M |
 | 1-4 | **Render Scale + FSR 1 / 2 업스케일** — 고해상도에서 GPU 아끼기 | 해상도 배율 · FSR 2.2 | URP Render Scale · Upscaling Filter | M |
-| 1-5 | **시네마틱 Timeline** — 애니메이션 · 카메라 (Cinemachine) · 소리 · 이벤트 트랙, 컷신 재생 | Animation 트랙 (메서드 · 소리 · Bézier) | Timeline · PlayableDirector · Signal | L |
+| 1-5 | **시네마틱 Timeline** (2026-10-16 완료) — 애니메이션 · 카메라 (Cinemachine) · 소리 · 이벤트 트랙, 컷신 재생 | Animation 트랙 (메서드 · 소리 · Bézier) | Timeline · PlayableDirector · Signal | L |
 | 1-6 | **오디오 컨테이너** — 무작위 · 연속 · 반복 막기 · 음높이 · 볼륨 흔들기, 동시 재생 수 | AudioStreamRandomizer · polyphony | Audio Random Container (Unity 6) | S |
-| 1-7 | 손 **IK (Two Bone) · 일반 IK 체인** — 무기 쥐기 · 문 열기 · 사다리 | Skeleton IK · SkeletonModifier3D | Animation Rigging (Two Bone IK · Multi-Aim) | M |
+| 1-7 | 손 **IK (Two Bone) · 일반 IK 체인** (2026-10-16 완료) — 무기 쥐기 · 문 열기 · 사다리 | Skeleton IK · SkeletonModifier3D | Animation Rigging (Two Bone IK · Multi-Aim) | M |
 | 1-8 | **현지화** — 문자열 표 (CSV · PO), `tr`, 복수형, 글꼴 폴백 | TranslationServer · CSV · gettext | Localization (String Table · Locale) | M |
 | 1-9 | 동영상 재생 (컷신 · 메뉴 배경) | VideoStreamPlayer (Theora) | Video Player | M |
 

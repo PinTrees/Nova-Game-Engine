@@ -1,0 +1,14 @@
+{
+  "name": "com.nova.timeline",
+  "displayName": "Timeline",
+  "version": "1.0.0",
+  "description": "Cinematics and sequences (Unity Timeline): a Timeline asset (.playable) with Animation, Activation, Audio, Signal and Cinemachine shot tracks, played by a Playable Director (Play On Awake, Wrap Mode Hold / Loop / None, bindings). Animation clips blend with ease in / out and overlaps on top of the Animator. Timeline window: tracks, clips (drag, trim), playhead scrubbing with preview, Play / Pause / Stop. CLI nova timeline.",
+  "category": "Animation",
+  "author": { "name": "NOVA" },
+  "keywords": [ "timeline", "cinematic", "cutscene", "sequence", "playable director", "animation track", "signal" ],
+  "dependencies": { "com.nova.animation": "1.2.0" },
+  "native": [ "NovaTimeline.dll" ],
+  "components": [
+    { "type": "PlayableDirector", "display": "Playable Director", "category": "Miscellaneous", "icon": "timeline", "single": true }
+  ]
+}

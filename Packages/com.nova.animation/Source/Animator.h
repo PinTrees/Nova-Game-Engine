@@ -1,4 +1,5 @@
 #pragma once
+#include "AnimationOverrides.h"
 #include "Component.h"
 #include "AnimatorController.h"
 #include <deque>
@@ -211,6 +212,12 @@ private:
 	LookAtGoal m_LookAt;
 	void CallAnimatorIK();                       // 메인 스레드 (Step 뒤)
 	void ApplyAnimatorIK(struct AnimatorPose& pose);
+	unsigned m_OverrideRevision = 0;
+public:
+	// 편집 중: Timeline 이 덮는 클립을 바꾸면 (재생 헤드) 자세를 다시
+	void _Editor_Update() override;
+private:
+	void ApplyOverrides(const std::vector<AnimationOverrides::Clip>& clips, const SkeletonAvataData& skeleton);
 	static void OverrideLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& layer, float weight, const std::vector<float>* mask);
 	static void AddLayer(std::vector<XMFLOAT4X4>& base, const std::vector<XMFLOAT4X4>& reference, const std::vector<XMFLOAT4X4>& layer, float weight,
 		const std::vector<float>* mask);

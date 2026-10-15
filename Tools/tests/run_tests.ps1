@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'timeline', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6277,6 +6277,78 @@ public class AnimEventProbe : MonoBehaviour
     finally { Stop-TestEditor $ed | Out-Null }
 }
 
+# Timeline (com.nova.timeline — Unity Timeline): Animation · Activation · Signal 트랙, Playable Director (편집 중 미리 보기 · Play On Awake · Hold)
+function Suite-Timeline
+{
+    Write-Host '[timeline]'
+    $dir = Join-Path $Project 'Assets\TimelineTest'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Copy-Item (Join-Path $Root 'Resources\Packages\Character\Animations\Nova_Basic.glb') (Join-Path $dir 'Basic.glb') -Force
+    Remove-Item (Join-Path $dir 'Cut.playable') -ErrorAction SilentlyContinue
+    @'
+using NovaEngine;
+public class SignalProbe : MonoBehaviour
+{
+    public int count; public string last = "";
+    void OnCutSignal(string s) { count++; last = s + "@" + Time.time.ToString("F2", System.Globalization.CultureInfo.InvariantCulture); }
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $dir 'SignalProbe.cs')
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'package add com.nova.timeline' | Out-Null
+        Wait-Compile
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create character --name TCh' | Out-Null
+        Invoke-Nova 'create cube --name TBox --position 3,0.5,0' | Out-Null
+        Invoke-Nova 'create empty --name TProbe' | Out-Null
+        Invoke-Nova 'create empty --name TDir' | Out-Null
+        Invoke-Nova 'add-component TProbe SignalProbe' | Out-Null
+        $p = 'Assets/TimelineTest/Cut.playable'
+        Invoke-Nova "timeline create --path $p" | Out-Null
+        $ta = Invoke-NovaJson "timeline add-track --path $p --type Animation --name Hero"
+        $tb = Invoke-NovaJson "timeline add-track --path $p --type Activation --name Box"
+        $ts = Invoke-NovaJson "timeline add-track --path $p --type Signal --name Cues"
+        Invoke-Nova "timeline add-clip --path $p --track Hero --start 0 --duration 1.2 --asset Assets/TimelineTest/Basic.glb --clip 2 --ease-out 0.2" | Out-Null
+        Invoke-Nova "timeline add-clip --path $p --track Box --start 1 --duration 1" | Out-Null
+        Invoke-Nova "timeline add-marker --path $p --track Cues --time 1.5 --method OnCutSignal --string go" | Out-Null
+        Invoke-Nova "timeline director --director TDir --path $p --wrap Hold" | Out-Null
+        Invoke-Nova 'timeline bind --director TDir --track Hero --target TCh' | Out-Null
+        Invoke-Nova 'timeline bind --director TDir --track Box --target TBox' | Out-Null
+        $info = Invoke-NovaJson 'timeline bind --director TDir --track Cues --target TProbe'
+        Add-Result timeline 'nova timeline: asset with 3 tracks (ids), clips, marker, director bindings' ($info -and $info.tracks.Count -eq 3 -and $info.tracks[0].binding -eq 'TCh' -and $info.tracks[1].binding -eq 'TBox' -and [math]::Abs($info.duration - 2.0) -lt 0.01) ("tracks {0}, duration {1}, bindings {2}" -f $info.tracks.Count, $info.duration, (($info.tracks | ForEach-Object { "$($_.id)=$($_.binding)" }) -join ' '))
+
+        # 편집 중 미리 보기: 재생 헤드를 옮기면 손이 Wave 자세 (컨트롤러는 Idle), Box 는 1 ~ 2 초만 켜짐
+        $cs = Join-Path $Out 'timeline.cs'
+        'var a = GameObject.Find("TCh").GetComponent<Animator>(); var p = a.GetBonePosition(HumanBodyBones.RightHand); var inv = System.Globalization.CultureInfo.InvariantCulture; return p.x.ToString("F4", inv) + " " + p.y.ToString("F4", inv) + " " + p.z.ToString("F4", inv);' | Set-Content -Encoding utf8 $cs
+        function Hand { Invoke-Nova 'wait 4' | Out-Null; $m = Invoke-NovaJson "exec --file $cs"; if ($m) { @("$($m.result)" -split ' ' | ForEach-Object { [double]$_ }) } else { @() } }
+        function BoxActive { $g = Invoke-NovaJson 'get TBox'; [bool]$g.active }
+        Invoke-Nova 'timeline time --director TDir --value 1.9' | Out-Null
+        $hIdle = Hand; $boxIn = BoxActive
+        Invoke-Nova 'timeline time --director TDir --value 0.6' | Out-Null
+        $hWave = Hand; $boxOut = BoxActive
+        $dh = if ($hIdle.Count -eq 3 -and $hWave.Count -eq 3) { [math]::Sqrt([math]::Pow($hWave[0] - $hIdle[0], 2) + [math]::Pow($hWave[1] - $hIdle[1], 2) + [math]::Pow($hWave[2] - $hIdle[2], 2)) } else { -1 }
+        Add-Result timeline 'Animation track preview: the clip overrides the Animator while the playhead is on it' ($dh -gt 0.2) ("right hand moved {0:F3} m between 1.9 s (no clip, controller) and 0.6 s (Wave clip)" -f $dh)
+        Add-Result timeline 'Activation track: the object is on only inside the clip (1 - 2 s)' ($boxIn -and -not $boxOut) "at 1.9 s active $boxIn, at 0.6 s active $boxOut"
+        Invoke-Nova 'timeline stop --director TDir' | Out-Null
+        $hStop = Hand; $boxStop = BoxActive
+        $ds = if ($hStop.Count -eq 3) { [math]::Sqrt([math]::Pow($hStop[0] - $hIdle[0], 2) + [math]::Pow($hStop[1] - $hIdle[1], 2) + [math]::Pow($hStop[2] - $hIdle[2], 2)) } else { -1 }
+        Add-Result timeline 'Stop reverts: the Animator is free again, the object is back on' ($boxStop -and $ds -ge 0 -and $ds -lt 0.05) ("box active $boxStop, hand vs controller pose {0:F3} m" -f $ds)
+
+        # Play: Play On Awake → 1.5 초 신호, Hold 면 끝 (2 초) 에서 멈춰 있다
+        Invoke-Nova 'scene save --as Assets/TimelineTest/TimelineTest.scene' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        $sw = [Diagnostics.Stopwatch]::StartNew(); while ($sw.Elapsed.TotalSeconds -lt 4) { Invoke-Nova 'wait 10' | Out-Null }
+        'var p = GameObject.Find("TProbe").GetComponent<SignalProbe>(); var d = GameObject.Find("TDir").GetComponent<PlayableDirector>(); var inv = System.Globalization.CultureInfo.InvariantCulture; return p.count + " " + p.last + " " + d.time.ToString("F2", inv) + " " + d.state + " " + d.duration.ToString("F2", inv);' | Set-Content -Encoding utf8 $cs
+        $r = Invoke-NovaJson "exec --file $cs"
+        Invoke-Nova 'stop' | Out-Null
+        $v = "$($r.result)" -split ' '
+        Add-Result timeline 'Play On Awake + Signal marker calls the method once with the string' ($v.Count -ge 5 -and $v[0] -eq '1' -and $v[1] -like 'go@*') "$($r.result)"
+        Add-Result timeline 'Wrap Mode Hold: stays at the end (time = duration), still playing' ($v.Count -ge 5 -and $v[2] -eq $v[4] -and $v[3] -eq 'Playing') "time $($v[2]) / $($v[4]), $($v[3])"
+    }
+    finally { Stop-TestEditor $ed | Out-Null }
+}
+
 function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [string]$dir)
 {
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -8903,6 +8975,7 @@ try
                 'physics' { Suite-Physics }
                 'animation' { Suite-Animation }
                 'animlayers' { Suite-AnimLayers }
+                'timeline' { Suite-Timeline }
                 'import' { Suite-Import }
                 'ui' { Suite-UI }
                 'packages' { Suite-Packages }
