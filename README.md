@@ -29,6 +29,7 @@
   <a href="#주요-기능"><b>주요 기능</b></a> ·
   <a href="#스크린샷"><b>스크린샷</b></a> ·
   <a href="docs/NOVA_CLI.md"><b>CLI</b></a> ·
+  <a href="docs/ENGINE_ROADMAP.md"><b>로드맵</b></a> ·
   <a href="AGENT_HANDOFF.md"><b>개발 문서</b></a>
 </p>
 
@@ -42,8 +43,9 @@
 - **Unity 그대로** — 창 배치 · Inspector · 단축키 · 동작, C# API (`using UnityEngine;` → `using NovaEngine;`), 저장하면 핫 리로드
 - **네 그래픽 API + 안드로이드 + 웹** — 같은 렌더 코드, HLSL 하나 → GLSL · SPIR-V · DXIL · WGSL 자동 변환. PC 는 DX11 · DX12 · OpenGL · Vulkan, 안드로이드는 GLES 3.2 APK, 웹은 WebGPU
 - **멀티스레드 · 데이터 지향 코어** — Job System, 렌더 스레드, 씬마다 메모리 힙, SoA Transform · SIMD 컬링, 프레임을 멈추지 않는 씬 스트리밍
-- **수식으로 만드는 월드** — 지형 생성기 · 바이옴 · 나무 · 숲 · 바위 · 풀 · 바다 · 강, 텍스처 파일 없이
-- **터미널 · AI 가 다루는 에디터** — `nova` CLI 로 만들고 · 바꾸고 · Play 하고 · 찍고 · 잰다
+- **50 km 열린 월드를 규칙으로** — 노드 지형 그래프 (침식 · 강 · 길) · PCG 로 채우는 기후대별 식생 160 종 · 바위 · 풀밭, 건물까지 모델 파일 없이 식으로 짓는다
+- **게임을 만드는 데 필요한 Unity 기능** — Animator (레이어 · Avatar Mask · 애니메이션 이벤트 · IK) · Timeline 컷신 · Cinemachine · ScriptableObject 데이터 에셋 · NavMesh · 래그돌 · 천
+- **터미널 · AI 가 다루는 에디터** — `nova` CLI 로 만들고 · 바꾸고 · Play 하고 · 찍고 · 잰다. 기능마다 자동 검사 스위트
 
 ## 주요 기능
 
@@ -65,7 +67,7 @@
 | 조명 | Cascaded 그림자, **Adaptive Probe Volume** (굽지 않는 실시간 간접광), **Reflection Probe**, 높이 안개 · 대기 — [APV](docs/ADAPTIVE_PROBE_VOLUME.md) · [Probe](docs/REFLECTION_PROBE.md) |
 | 렌더 파이프라인 | **Rendering Path** (URP 처럼 Forward · Forward+ · Deferred — G-버퍼 + 클러스터 조명) — [DEFERRED_RENDERING](docs/DEFERRED_RENDERING.md), **Forward+** (클러스터 조명 — 한 화면 빛 1024 개) — [FORWARD_PLUS](docs/FORWARD_PLUS.md), **Render Graph** (패스 노드 · 쓰이지 않는 패스 빼기 · 임시 텍스처 풀 · Render Graph Viewer) — [RENDER_GRAPH](docs/RENDER_GRAPH.md), **비동기 컴퓨트** (DX12 · Vulkan 두 번째 큐 — VFX 시뮬레이션이 그래픽과 겹쳐 돈다) — [ASYNC_COMPUTE](docs/ASYNC_COMPUTE.md), **Streaming Virtual Texturing** (보이는 128² 페이지만 GPU 로 — 피드백 · 페이지 표 · 캐시) — [VIRTUAL_TEXTURING](docs/VIRTUAL_TEXTURING.md), 로드맵 — [RENDERING_ROADMAP](docs/RENDERING_ROADMAP.md) |
 | 후처리 (Volume) | Bloom · ACES · Color Adjustments · **Depth of Field (Bokeh)** · **Motion Blur** · **SSR** · **SSAO** · **Motion Vectors** · Vignette · Film Grain — [DoF](docs/DEPTH_OF_FIELD_MOTION_BLUR.md) · [SSR](docs/SCREEN_SPACE_REFLECTION.md) · [SSAO](docs/SSAO.md) · [Motion Vectors](docs/MOTION_VECTORS.md). **Rendering Debugger** (깊이 · 노멀 · AO · 모션 벡터 · APV 보기) — [RENDERING_DEBUGGER](docs/RENDERING_DEBUGGER.md) |
-| 안티에일리어싱 | FXAA · SMAA · **TAA** (URP 카메라 4 가지) — [ANTI_ALIASING](docs/ANTI_ALIASING.md) |
+| 안티에일리어싱 · 해상도 | FXAA · SMAA · **TAA** (URP 카메라 4 가지) — [ANTI_ALIASING](docs/ANTI_ALIASING.md), **Render Scale + 업스케일** (Bilinear · Nearest · **AMD FSR 1.0** EASU + RCAS — 절반 해상도로 그려도 경계가 또렷, UI 는 출력 해상도) — [RENDER_SCALE](docs/RENDER_SCALE.md) |
 | 성능 | **GPU 오클루전 컬링** (굽기 없는 Hi-Z), **LOD Group** (Cross Fade), GPU 인스턴싱 + MaterialPropertyBlock, 자동 묶기, 셰이더 캐시 — [OCCLUSION](docs/OCCLUSION_CULLING.md) · [LOD](docs/LOD_GROUP.md) |
 | 기타 | **Decal Projector**, Line · Trail Renderer, 2D Sprite Renderer (Sorting Layer · 시트 자르기), **2D 빛** (Light 2D · Shadow Caster 2D · 노멀 맵), Culling Mask — [DECAL](docs/DECAL.md) · [LINE](docs/LINE_TRAIL_RENDERER.md) · [LIGHT_2D](docs/LIGHT_2D.md) |
 
@@ -89,18 +91,22 @@
 
 | | |
 |---|---|
-| 지형 | 쿼드트리 LOD, 브러시, 레이어 칠하기, **지형 생성기** (노이즈 → 스탬프 → 침식), **바이옴 10 종**, 스플라인 (길 · 협곡) |
+| 지형 | 쿼드트리 LOD, 브러시, 레이어 칠하기, **지형 생성기** (노이즈 → 스탬프 → 침식), **바이옴 10 종**, 스플라인 (길 · 협곡), 바이옴에 맞는 사진 지형 재질 · 강한 테셀레이션 |
+| 지형 그래프 · 열린 월드 | **Terrain Graph** (Gaea 식 노드 38 종 — 산맥 · 침식 · 강 · 길 · 호수 · 절벽 디테일), **50 × 50 km 월드** (1 km 타일 스트리밍, 먼 타일 묶기), **PCG** (규칙 그래프로 숲 · 초원 · 바위를 채우고, 규칙을 고치면 바로 다시) — [TERRAIN_GRAPH](docs/TERRAIN_GRAPH.md) · [PCG](docs/PCG.md) |
 | 레벨 블록아웃 | 기본 패키지 **Prototype** (1 m 격자 텍스처 흰색 ~ 어두운 회색 · 벽 · 창 · 문 · 아치 · 지붕 · 탑 · 성벽 조각 57 개), **World Space UV** (늘려도 격자 1 m), **Prototype Shape** (크기를 숫자로 — 계단 단 높이 고정 · 아치 벽 · 원호 벽), **Spline Instantiate** (성벽 · 길은 곡선을 따라 휘고, 울타리 · 판자는 반복), Scene 뷰 치수 — [PROTOTYPE](docs/PROTOTYPE.md) · [SPLINE](docs/SPLINE.md) |
-| 식생 · 바위 | 절차적 **나무** (Oak · Pine · Birch · Bush, 바람), **숲** (인스턴싱 + 임포스터, 1500 그루 230 FPS), **바위 · 절벽** (SDF), 풀 · 꽃 15 종 |
+| 식생 · 바위 | 절차적 **식생 160 종 · 기후대 13** (나무 · 야자 · 대나무 · 선인장 · 고사리 · 꽃 — 모델 · 텍스처 파일 없이, 바람), **숲** (인스턴싱 + 임포스터), **빽빽한 풀밭** (정점 셰이더가 만드는 풀잎, 길 · 강은 비움), **바위 · 절벽** (SDF + 사진 재질) — [VEGETATION](docs/VEGETATION.md) |
+| 건물 | **Building Generator** (패키지) — 중세 판타지 · 북유럽 · 로마 · 고딕 · 바로크 등 양식 25 개, 단계 대화상자 편집기, 곡선 지붕 · 모서리 탑 · 내민 창 · 반목조, 사진 PBR 텍스처 팩 (ambientCG CC0 146 재질) — [BUILDING](docs/BUILDING.md) |
 | 물 | Water Body — 바다 (Gerstner) · 호수 · 강 (급류), 굴절 · SSR · 코스틱 · 수중 · Buoyancy |
 
 **게임플레이**
 
 | | |
 |---|---|
-| C# | Unity 와 같은 `MonoBehaviour` API, 코루틴, 재질 · Renderer (`material` · `MaterialPropertyBlock` · `sortingOrder`), **씬 Additive · LoadSceneAsync · DontDestroyOnLoad**, **PlayerPrefs** — [MATERIAL_SCRIPTING](docs/MATERIAL_SCRIPTING.md) · [SCENE_MANAGEMENT](docs/SCENE_MANAGEMENT.md) |
+| C# | Unity 와 같은 `MonoBehaviour` API, 코루틴, 재질 · Renderer (`material` · `MaterialPropertyBlock` · `sortingOrder`), **씬 Additive · LoadSceneAsync · DontDestroyOnLoad**, **PlayerPrefs**, **ScriptableObject** 데이터 에셋 (`[CreateAssetMenu]` · `Resources.Load` · 배열 · `List<T>` · `[Serializable]` 필드) — [MATERIAL_SCRIPTING](docs/MATERIAL_SCRIPTING.md) · [SCENE_MANAGEMENT](docs/SCENE_MANAGEMENT.md) · [SCRIPTABLE_OBJECT](docs/SCRIPTABLE_OBJECT.md) |
 | 물리 | [Jolt](https://github.com/jrouwe/JoltPhysics) (Rigidbody · Collider · Character Controller · Joint · Character · Configurable Joint · 래그돌 — [RAGDOLL](docs/RAGDOLL.md) · 차량 Wheel Collider — [WHEEL_COLLIDER](docs/WHEEL_COLLIDER.md) · 천 Cloth (치마 · 망토 같은 캐릭터 옷도) — [CLOTH](docs/CLOTH.md)), **2D 물리** [Box2D](https://github.com/erincatto/box2d) (Collider 2D · Joint 2D), 레이어 충돌 행렬 — [JOINTS_2D](docs/JOINTS_2D.md) |
-| 애니메이션 | Animator (Blend Tree · 루트 모션 · **Humanoid 리타게팅**), BlendShape · VRM 표정, 발 · 손 · 시선 IK, Dynamic Bone |
+| 애니메이션 | Animator (Blend Tree · 루트 모션 · **Humanoid 리타게팅** · **레이어 + Avatar Mask** (걸으며 상체만 휘두르기) · Additive · **애니메이션 이벤트** (타격 프레임 · 발소리) · **Animator IK** (`OnAnimatorIK` · `SetIKPosition` · `SetLookAtPosition`) · Two Bone IK Constraint), BlendShape · VRM 표정, 발 · 손 · 시선 IK, Dynamic Bone — [ANIMATOR](docs/ANIMATOR.md) |
+| 시네마틱 | **Timeline** (패키지) — Animation · Activation · Audio · Signal · Cinemachine 트랙, Playable Director, 재생 헤드를 끌면 편집 중 미리 보기 — [TIMELINE](docs/TIMELINE.md) |
+| 군중 | 애니메이션 캐릭터 1 만 명 — Auto LOD · 본 줄이기 · GPU 스키닝 인스턴싱 · 임포스터가 설정 없이 — [CROWD](docs/CROWD.md) |
 | UI · 오디오 | UGUI + **TextMeshPro 통합** (SDF), 자동 레이아웃, World Space Canvas · XAudio2, 3D 사운드, **Audio Mixer** (리버브 19 종), OGG · MP3 |
 | 빌드 | Windows `.exe` · **안드로이드 APK / AAB** (ASTC · ETC2, C# Mono, 터치, 서명 키) — [ANDROID](docs/ANDROID.md) · **웹 (WebGPU)** (WGSL, C# = .NET 웹어셈블리, Build And Run 미리 보기 서버) — [WEB](docs/WEB.md) |
 
@@ -108,7 +114,9 @@
 
 | 패키지 | 내용 |
 |---|---|
-| `com.nova.animation` | Animator · Legs / Hands / Look Animator · Dynamic Bone · Expressions |
+| `com.nova.animation` | Animator (레이어 · Avatar Mask · 애니메이션 이벤트 · Animator IK) · Two Bone IK Constraint · Legs / Hands / Look Animator · Dynamic Bone · Expressions — [ANIMATOR](docs/ANIMATOR.md) |
+| `com.nova.timeline` | **Timeline** — `.playable` 에셋 · Playable Director · Timeline 창 (트랙 · 클립 끌기 · 재생 헤드 미리 보기) — [TIMELINE](docs/TIMELINE.md) |
+| `com.nova.building` · `com.nova.textures` | **건물 생성기** (양식 25 · 단계 편집기 · CLI) + **텍스처 팩** (CC0 사진 PBR 재질, WebP → BC 압축, `nova textures search`) — [BUILDING](docs/BUILDING.md) |
 | `com.nova.cameras` | **Cinemachine** (Unity Cinemachine 3 이름): 가상 카메라 여럿 · Brain 의 Priority · 섞기 (Ease In Out · Cut · Custom Blends), Follow · Orbital Follow (FreeLook) · Third Person Follow · Rotation Composer, Perlin 흔들림 · Impulse — [CINEMACHINE](docs/CINEMACHINE.md) |
 | `com.nova.cameras` · `com.nova.starter-assets` | Follow Camera · Third Person Controller (WASD · 달리기 · 점프) · 운전할 수 있는 차 (프리팹) · 맞으면 래그돌로 쓰러지는 표적 — [STARTER_ASSETS](docs/STARTER_ASSETS.md) |
 | `com.nova.ai.navigation` | [Recast · Detour](https://github.com/recastnavigation/recastnavigation) — NavMesh Surface · Agent · Link · Obstacle (Carve), 탑다운 2D (XY 평면 — [NAVIGATION_2D.md](docs/NAVIGATION_2D.md)) |
@@ -144,6 +152,9 @@ nova exec "GameObject.Find(\"Box\").transform.position"
 | <img src="docs/images/occlusion_city.webp" width="440"/><br/>GPU 오클루전 컬링 — DX11 · GL · Vulkan | <img src="docs/images/biome_areas.webp" width="440"/><br/>지형 생성기 · 바이옴 |
 | <img src="docs/images/model_editor.webp" width="440"/><br/>Model Editor (패키지) | <img src="docs/images/animator2d.webp" width="440"/><br/>2D Animator (패키지) |
 | <img src="docs/images/ai_navigation.webp" width="440"/><br/>AI Navigation — NavMesh Link · Obstacle | <img src="docs/images/profiler.webp" width="440"/><br/>Profiler |
+| <img src="docs/images/terrain_graph.webp" width="440"/><br/>Terrain Graph — 50 km 침식 · 강 · 길 | <img src="docs/images/pcg.webp" width="440"/><br/>PCG — 규칙으로 채우는 열린 월드 |
+| <img src="docs/images/building_generator.webp" width="440"/><br/>Building Generator (패키지) | <img src="docs/images/crowd.webp" width="440"/><br/>군중 1 만 명 |
+| <img src="docs/images/cinemachine.webp" width="440"/><br/>Cinemachine (패키지) | <img src="docs/images/render_scale.webp" width="440"/><br/>Render Scale — FSR 1.0 업스케일 |
 
 <p align="center"><img src="docs/images/weather_demo_scenes.webp" width="900"/><br/><sub>날씨 (패키지) — 숲속 오두막: 맑음 → 비 → 폭풍 (젖은 돌 마당) → 눈 → 눈보라 (발자국) → 갠 뒤</sub></p>
 
@@ -192,14 +203,15 @@ public class Spinner : MonoBehaviour
 | | |
 |---|---|
 | [docs/](docs) | 기능별 문서 (VFX Graph · Shader Graph · 안드로이드 · Vulkan · DirectX 12 · 오클루전 · 렌더 스레드 · 씬 스트리밍 · 패키지 · CLI …) |
+| [docs/ENGINE_ROADMAP.md](docs/ENGINE_ROADMAP.md) | 앞으로 할 일 — Godot 4.7 기능 목록과 대조한 분야별 표, 단계 P0 ~ P3 |
 | [AGENT_HANDOFF.md](AGENT_HANDOFF.md) | 구조 · 구현 설명 · 규칙 · 자체 검사 |
 | [공식 사이트](https://nova-game-engine.web.app) | 소개 · 갤러리 · 다운로드 |
 
 ## 사용한 오픈소스
 
-[Dear ImGui](https://github.com/ocornut/imgui) · [imgui-node-editor](https://github.com/thedmd/imgui-node-editor) · [Jolt Physics](https://github.com/jrouwe/JoltPhysics) · [Box2D v3](https://github.com/erincatto/box2d) · [Assimp](https://github.com/assimp/assimp) · [DirectXTex](https://github.com/microsoft/DirectXTex) · [Effects11](https://github.com/microsoft/FX11) · [DXC](https://github.com/microsoft/DirectXShaderCompiler) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) · [nlohmann/json](https://github.com/nlohmann/json) · [stb_vorbis](https://github.com/nothings/stb) · [dr_mp3](https://github.com/mackron/dr_libs) · [Recast & Detour](https://github.com/recastnavigation/recastnavigation) · [FastLZ](https://github.com/ariya/FastLZ) · [lilToon](https://github.com/lilxyzw/lilToon) (MIT, © lilxyzw — `Packages/com.nova.toon/LICENSE-lilToon.txt`) · [Pretendard](https://github.com/orioncactus/pretendard) · [Font Awesome](https://fontawesome.com)
+[Dear ImGui](https://github.com/ocornut/imgui) · [imgui-node-editor](https://github.com/thedmd/imgui-node-editor) · [Jolt Physics](https://github.com/jrouwe/JoltPhysics) · [Box2D v3](https://github.com/erincatto/box2d) · [Assimp](https://github.com/assimp/assimp) · [DirectXTex](https://github.com/microsoft/DirectXTex) · [Effects11](https://github.com/microsoft/FX11) · [DXC](https://github.com/microsoft/DirectXShaderCompiler) · [SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross) · [nlohmann/json](https://github.com/nlohmann/json) · [stb_vorbis](https://github.com/nothings/stb) · [dr_mp3](https://github.com/mackron/dr_libs) · [Recast & Detour](https://github.com/recastnavigation/recastnavigation) · [FastLZ](https://github.com/ariya/FastLZ) · [meshoptimizer](https://github.com/zeux/meshoptimizer) · [libwebp](https://chromium.googlesource.com/webm/libwebp) · [astc-encoder](https://github.com/ARM-software/astc-encoder) · [AMD FidelityFX FSR 1.0](https://github.com/GPUOpen-Effects/FidelityFX-FSR) (MIT) · [lilToon](https://github.com/lilxyzw/lilToon) (MIT, © lilxyzw — `Packages/com.nova.toon/LICENSE-lilToon.txt`) · [Pretendard](https://github.com/orioncactus/pretendard) · [Font Awesome](https://fontawesome.com)
 
 그림 속 캐릭터: **Seed-san** © VirtualCast, Inc. ([VRM Public License 1.0](https://vrm.dev/licenses/1.0/)), **VRoid AvatarSample_A · B** (pixiv Inc.) — 모델 파일은 저장소에 없음 (테스트 프로젝트에만).
-기본 스카이박스: [Poly Haven](https://polyhaven.com) CC0 HDRI. 에디터 아이콘 · 효과음은 `Tools/` 스크립트로 직접 만든 것 (Unity 에셋 사용 안 함).
+기본 스카이박스: [Poly Haven](https://polyhaven.com) CC0 HDRI. 텍스처 팩 재질: [ambientCG](https://ambientcg.com) CC0. 에디터 아이콘 · 효과음은 `Tools/` 스크립트로 직접 만든 것 (Unity 에셋 사용 안 함).
 
 <p align="center"><a href="https://nova-game-engine.web.app"><b>nova-game-engine.web.app</b></a></p>

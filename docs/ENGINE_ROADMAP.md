@@ -146,6 +146,21 @@ VFX Graph · Shader Graph · Terrain Graph (Gaea 식) · PCG · 절차적 식생
 | 1-8 | **현지화** — 문자열 표 (CSV · PO), `tr`, 복수형, 글꼴 폴백 | TranslationServer · CSV · gettext | Localization (String Table · Locale) | M |
 | 1-9 | 동영상 재생 (컷신 · 메뉴 배경) | VideoStreamPlayer (Theora) | Video Player | M |
 
+### P1+ — C# 고성능 경로 (Unity Burst · Job System · Mathematics)
+
+2026-10-16 사용자 요청: "유니티의 Burst 처럼 겁나 빠른 처리". Unity 는 세 가지를 묶어 쓴다 — **Job System** (C# 작업을 모든 코어에), **Collections · Mathematics** (GC 없는 `NativeArray` · SIMD 로 바로 가는 `float3` · `math`), **Burst** (`[BurstCompile]` 이 붙은 작업을 LLVM 으로 SIMD 네이티브 코드로). 빠른 이유는 ① 멀티코어 ② GC · 참조 없는 struct 데이터 ③ 자동 벡터화 · 범위 검사 제거 — NOVA 는 엔진 Job System (작업 훔치기 · 파이버) 과 .NET 8 (RyuJIT · `Vector128/256`) 이 이미 있어 같은 이름 · 같은 코드로 따라간다.
+
+| # | 무엇 | NOVA 이름 (Unity 와 같게) | 규모 |
+|---|---|---|---|
+| B-1 | **Collections · Mathematics** — `NativeArray<T>` · `NativeList` · `NativeHashMap` (비관리 메모리, `Allocator.Temp/TempJob/Persistent`, 편집기에서 Dispose · 동시 쓰기 검사), `float2/3/4` · `quaternion` · `float4x4` · `math.*` (`Vector128` 로 구현해 JIT 가 SIMD 로) | `Unity.Collections` · `Unity.Mathematics` (네임스페이스는 `NovaEngine.Collections` · `NovaEngine.Mathematics`) | M |
+| B-2 | **C# Job System** — `IJob` · `IJobFor` · `IJobParallelFor` · `JobHandle` (의존성 · `Complete` · `CombineDependencies`), 엔진 작업 스레드에서 실행 (CoreCLR 에 붙은 작업자, 함수 포인터 호출), Profiler 에 작업 표시 | `Unity.Jobs` | M |
+| B-3 | **`[BurstCompile]` 1 단계** — 같은 특성을 받아 HPC# 규칙 (참조형 · `new class` · 관리 배열 금지) 을 Roslyn 분석기가 컴파일 때 검사 → GC 없음 보장, `AggressiveOptimization` 으로 처음부터 최적 JIT | `Unity.Burst` | S |
+| B-4 | **`[BurstCompile]` 2 단계 (진짜 네이티브)** — HPC# 작업만 IL → C++ 로 옮겨 프로젝트별 네이티브 DLL (MSVC · clang `-O2 -mavx2`, 안드로이드 arm64 NEON) 로 빌드, 범위 검사 · 별칭 없는 벡터화. 못 옮기는 작업은 JIT 로 (경고) | Burst Compiler | L |
+| B-5 | 엔진과 잇기 — `IJobParallelForTransform` (`TransformAccessArray` → 엔진 Transform SoA 에 바로), `RaycastCommand` · `SpherecastCommand` (Jolt 묶음 질의), `MeshData` 쓰기 | `UnityEngine.Jobs` · `Physics` 명령 | M |
+
+- 검사: 같은 일 (보이드 10 만 · 지형 높이 100 만 점 · 파티클 갱신) 을 MonoBehaviour 반복 · `IJobParallelFor` · `[BurstCompile]` 로 재서 배수를 Release 에서 기록 (목표: 8 코어에서 작업 ~6 배, Burst 2 단계에서 SIMD 로 2 ~ 4 배 더)
+- 순서: P1 그래픽 (면광 · Fog Volume · 동적 GI) 다음에 B-1 → B-2 → B-3 → B-5 → B-4. ECS (Entities) 는 그 뒤 따로 판단
+
 ### P2 — 엔진 완성도 · 개발 도구
 
 | # | 무엇 | Godot 참고 | NOVA 이름 | 규모 |
