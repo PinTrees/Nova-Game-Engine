@@ -90,4 +90,15 @@ PROJECT_ICONS = {
     "prefab": _svg('''<polygon points="8,1.5 14.5,4.8 8,8.1 1.5,4.8" fill="#8CC4FF"/>
   <polygon points="1.5,4.8 8,8.1 8,14.8 1.5,11.4" fill="#4B93E8"/>
   <polygon points="14.5,4.8 8,8.1 8,14.8 14.5,11.4" fill="#2F6FC4"/>'''),
+    # ScriptableObject 데이터 에셋 (.asset) — 문서 + 중괄호
+    "scriptable_object": _svg('''<path d="M3 1.5 H10 L13 4.5 V14.5 H3 Z" fill="#E6E6E6"/>
+  <polygon points="10,1.5 13,4.5 10,4.5" fill="#B0B0B0"/>
+  <path d="M7 6.5 Q5.6 6.5 5.6 7.8 V8.6 Q5.6 9.3 4.9 9.5 Q5.6 9.7 5.6 10.4 V11.2 Q5.6 12.5 7 12.5" fill="none" stroke="#3F78C0" stroke-width="1.2"/>
+  <path d="M9 6.5 Q10.4 6.5 10.4 7.8 V8.6 Q10.4 9.3 11.1 9.5 Q10.4 9.7 10.4 10.4 V11.2 Q10.4 12.5 9 12.5" fill="none" stroke="#3F78C0" stroke-width="1.2"/>'''),
+    # Timeline (.playable · Playable Director) — 트랙 클립 + 재생 헤드
+    "timeline": _svg('''<rect x="1.5" y="2.5" width="13" height="11" rx="1" fill="#3C3C3C" stroke="#9A9A9A" stroke-width="1"/>
+  <rect x="3" y="4.5" width="6" height="2" rx="0.5" fill="#4A90D9"/>
+  <rect x="6" y="7.5" width="6.5" height="2" rx="0.5" fill="#4CAF50"/>
+  <rect x="4" y="10.5" width="4" height="1.6" rx="0.5" fill="#E0A030"/>
+  <line x1="10.5" y1="3" x2="10.5" y2="13" stroke="#E04040" stroke-width="1"/>'''),
 }

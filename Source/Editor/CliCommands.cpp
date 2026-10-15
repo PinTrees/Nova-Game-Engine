@@ -38,6 +38,7 @@
 #include "GameViewEditorWindow.h"
 #include "EditorCamera.h"
 #include "ScriptEngine.h"
+#include "ScriptableAssets.h"
 #include "CSharpScript.h"
 #include "PostProcessingManager.h"
 #include "MotionVectors.h"
@@ -1035,6 +1036,85 @@ namespace CliCommands
 			AfterEdit("Set " + go->GetName(), go);
 			r["object"] = ObjectDetails(go);
 			r["object"].erase("components");
+			return true;
+		});
+
+		// ScriptableObject 데이터 에셋 (.asset — Unity 의 ScriptableObject · CreateAssetMenu): AI 가 클래스 · 에셋 · 값을 다룬다
+		//  classes · list [--class C] · create --class C [--path Assets/Data[/X.asset]] [--values {...}] · get --path P · set --path P --values {...} · resources --path p [--all]
+		Register("scriptable", "ScriptableObject data assets {op: classes | list | create | get | set | resources, class?, path?, values?, all?}", [](const json& a, json& r, std::string& e) {
+			const std::string op = a.value("op", std::string("list"));
+			auto describeFields = [](const std::vector<ScriptEngine::FieldInfo>& fields) {
+				std::function<json(const ScriptEngine::FieldInfo&)> one = [&](const ScriptEngine::FieldInfo& f) {
+					json j = { { "name", f.Name }, { "type", f.Type } };
+					if (!f.TypeName.empty()) j["typeName"] = f.TypeName;
+					if (f.Element) j["element"] = one(*f.Element);
+					if (!f.Children.empty()) { j["fields"] = json::array(); for (const auto& c : f.Children) j["fields"].push_back(one(c)); }
+					if (!f.Options.empty()) j["options"] = f.Options;
+					return j;
+				};
+				json out = json::array();
+				for (const auto& f : fields) out.push_back(one(f));
+				return out;
+			};
+			if (op == "classes")
+			{
+				r["classes"] = json::array();
+				for (const ScriptEngine::ClassInfo& c : ScriptEngine::ScriptableClasses())
+				{
+					json j = { { "name", c.Name }, { "fullName", c.FullName }, { "abstract", c.Abstract }, { "fields", describeFields(c.Fields) } };
+					if (c.HasCreateMenu) j["createAssetMenu"] = { { "menuName", c.MenuName }, { "fileName", c.FileName }, { "order", c.MenuOrder } };
+					if (!c.Bases.empty()) j["bases"] = c.Bases;
+					r["classes"].push_back(j);
+				}
+				return true;
+			}
+			if (op == "list")
+			{
+				r["assets"] = json::array();
+				for (const std::string& p : ScriptableAssets::FindAll(a.value("class", std::string())))
+				{
+					std::string cls;
+					json fields;
+					ScriptableAssets::Read(p, cls, fields);
+					r["assets"].push_back({ { "path", p }, { "class", cls } });
+				}
+				return true;
+			}
+			if (op == "resources")
+			{
+				const bool all = a.contains("all") && (a["all"].is_boolean() ? a["all"].get<bool>() : (!a["all"].is_number() || a["all"].get<double>() != 0.0));
+				r["files"] = ScriptableAssets::FindResources(a.value("path", std::string()), all);
+				return true;
+			}
+			std::string path = a.value("path", std::string());
+			if (op == "create")
+			{
+				const std::string cls = a.value("class", std::string());
+				path = ScriptableAssets::Create(path, cls, &e);
+				if (path.empty())
+					return false;
+			}
+			else if (op != "get" && op != "set")
+			{
+				e = "unknown op (classes, list, create, get, set, resources)";
+				return false;
+			}
+			std::string cls;
+			json fields;
+			if (path.empty() || !ScriptableAssets::Read(path, cls, fields))
+			{
+				e = "not a ScriptableObject asset: " + path;
+				return false;
+			}
+			json values = ScriptableAssets::ResolvedFields(cls, fields);
+			if (a.contains("values"))
+			{
+				if (!a["values"].is_object()) { e = "values must be a JSON object of fields"; return false; }
+				for (auto it = a["values"].begin(); it != a["values"].end(); ++it)
+					values[it.key()] = it.value();
+				if (!ScriptableAssets::Write(path, cls, values)) { e = "could not write " + path; return false; }
+			}
+			r = { { "path", path }, { "class", cls }, { "fields", values } };
 			return true;
 		});
 

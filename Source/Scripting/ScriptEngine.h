@@ -15,8 +15,10 @@ namespace ScriptEngine
 	{
 		std::string Name;
 		std::string Label;
-		std::string Type;            // int, float, bool, string, Vector2, Vector3, Vector4, Color, enum, GameObject, Transform, AudioClip, unsupported
-		std::string TypeName;        // unsupported 일 때 C# 타입 이름
+		std::string Type;            // int, float, bool, string, Vector2, Vector3, Vector4, Color, enum, GameObject, Transform, AudioClip,
+		                             // ScriptableObject (값 = 에셋 경로), array (Element), struct ([Serializable], Children), unsupported
+		std::string TypeName;        // unsupported · ScriptableObject · struct 의 C# 타입 이름
+		std::string TypeFullName;    // ScriptableObject: 전체 이름 (고르기 창이 하위 클래스까지)
 		nlohmann::json Default;
 		std::string Header, Tooltip;
 		float Space = 0.0f;
@@ -24,6 +26,8 @@ namespace ScriptEngine
 		float RangeMin = 0.0f, RangeMax = 0.0f;
 		std::vector<std::string> Options;   // enum 표시 이름
 		std::vector<long long> OptionValues;
+		std::shared_ptr<FieldInfo> Element;   // array: 원소 형식 (Name 없음, Default = 새 원소 값)
+		std::vector<FieldInfo> Children;      // struct: 안 필드들
 	};
 
 	// Button 의 On Click () 에서 고를 수 있는 public 메서드 (반환 void, 인자 없음 또는 int/float/string/bool 하나)
@@ -39,6 +43,12 @@ namespace ScriptEngine
 		std::string FullName;
 		std::vector<FieldInfo> Fields;
 		std::vector<MethodInfo> Methods;
+		// ScriptableObject 만
+		bool Abstract = false;
+		std::vector<std::string> Bases;   // 부모 클래스 전체 이름들 (ScriptableObject 바로 아래까지)
+		bool HasCreateMenu = false;       // [CreateAssetMenu]
+		std::string MenuName, FileName;
+		int MenuOrder = 0;
 	};
 
 	enum class State { NotStarted, Unavailable, Idle, Compiling };
@@ -67,10 +77,19 @@ namespace ScriptEngine
 
 	const std::vector<ClassInfo>& Classes();
 	const ClassInfo* FindClass(const std::string& name);   // 이름 또는 전체 이름
+	// ScriptableObject 하위 클래스 (데이터 에셋 — Create 메뉴 · .asset Inspector)
+	const std::vector<ClassInfo>& ScriptableClasses();
+	const ClassInfo* FindScriptableClass(const std::string& name);
+	// className 이 baseName (이름 또는 전체 이름) 이거나 그 하위 클래스인가
+	bool IsScriptableSubclass(const std::string& className, const std::string& baseName);
+	// 데이터 에셋 파일이 바뀜 (Inspector · CLI): Play 중이면 읽어 둔 인스턴스에 새 값을 (OnValidate)
+	void NotifyAssetChanged(const std::string& relPath);
 	// 클래스 이름과 같은 이름의 .cs 파일 (Assets 아래, 절대 경로, 없으면 빈 문자열)
 	std::wstring FindScriptFile(const std::string& className);
 	// 새 스크립트 파일 (Unity 의 MonoBehaviour Script 템플릿). 만든 절대 경로
 	std::wstring CreateScriptAsset(const std::wstring& directory, const std::string& className = "NewMonoBehaviourScript");
+	// Unity 6 의 Create > Scripting > ScriptableObject Script 템플릿 ([CreateAssetMenu] 포함)
+	std::wstring CreateScriptableObjectScript(const std::wstring& directory, const std::string& className = "NewScriptableObjectScript");
 	// .cs 이름을 바꾼 뒤: 파일 안의 클래스 이름도 새 이름으로 (Unity 가 새 스크립트를 이름 지을 때와 같음)
 	void RenameScriptClass(const std::wstring& newPath, const std::string& oldClassName);
 	// 코드 편집기에서 열기 (Preferences > External Tools 에서 고른 편집기, 기본은 내장 NOVA Code)

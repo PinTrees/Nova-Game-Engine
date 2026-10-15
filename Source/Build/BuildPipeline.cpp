@@ -163,6 +163,26 @@ namespace
 		std::set<std::wstring> m_Seen;
 	};
 
+
+	// Unity 와 같이 프로젝트의 모든 "Resources" 폴더는 통째로 넣는다 (스크립트가 Resources.Load 로 이름만으로 읽는다)
+	void AddProjectResources(DependencyCollector& deps, const fs::path& project)
+	{
+		std::error_code ec;
+		const fs::path assets = project / L"Assets";
+		for (fs::recursive_directory_iterator it(assets, fs::directory_options::skip_permission_denied, ec), end; it != end; it.increment(ec))
+		{
+			if (ec)
+				break;
+			if (!it->is_regular_file(ec) || _wcsicmp(it->path().extension().c_str(), L".meta") == 0)
+				continue;
+			bool inResources = false;
+			for (const fs::path& part : fs::relative(it->path().parent_path(), assets, ec))
+				inResources |= _wcsicmp(part.c_str(), L"Resources") == 0;
+			if (inResources)
+				deps.AddRelative(L"Assets\\" + fs::relative(it->path(), assets, ec).wstring());
+		}
+	}
+
 	void RunJob(std::shared_ptr<Job> job)
 	{
 		const auto t0 = std::chrono::steady_clock::now();
@@ -205,6 +225,7 @@ namespace
 				};
 				if (!j.is_discarded()) walk(j);
 			}
+		AddProjectResources(deps, job->ProjectRoot);
 		deps.AddRelative(L"Resources\\Textures\\Skybox\\KloofendalPureSky.dds");   // 하늘 (코드에서 직접 읽음)
 		for (const auto& f : deps.Files)
 			copies.push_back({ f.second, data / f.first });
@@ -437,6 +458,7 @@ namespace BuildPipeline
 				};
 				if (!j.is_discarded()) walk(j);
 			}
+		AddProjectResources(deps, project);
 		deps.AddRelative(L"Resources\\Textures\\Skybox\\KloofendalPureSky.dds");
 		for (const auto& e : fs::directory_iterator(engine / L"ProjectSetting" / L"fonts", ec))
 			if (e.is_regular_file(ec))

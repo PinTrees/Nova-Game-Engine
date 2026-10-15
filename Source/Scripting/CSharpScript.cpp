@@ -3,6 +3,7 @@
 #include "CSharpScript.h"
 #include "CharacterController.h"
 #include "ScriptEngine.h"
+#include "ScriptFieldGUI.h"
 #include "UnityGUI.h"
 #include "ObjectPicker.h"
 #include "AudioClip.h"
@@ -36,15 +37,6 @@ namespace
 			out += c == '_' ? ' ' : c;
 		}
 		return out;
-	}
-
-	std::string ObjectName(uint64 id, const char* noneText)
-	{
-		if (id == 0)
-			return noneText;
-		Scene* scene = SceneManager::GetI()->GetCurrentScene();
-		GameObject* go = scene ? scene->FindByFileID(id) : nullptr;
-		return go ? go->GetName() : std::string("Missing");
 	}
 }
 
@@ -277,167 +269,21 @@ void CSharpScript::OnInspectorGUI()
 	}
 	json& values = live ? m_LiveCache : m_FieldValues;
 
+	const std::string key = "script:" + std::to_string((uintptr_t)this) + ":";
 	for (const ScriptEngine::FieldInfo& f : ci->Fields)
 	{
-		if (!f.Header.empty())
-		{
-			UnityGUI::Spacing(6.0f);
-			UnityGUI::Label(f.Header.c_str(), 0, true);
-		}
-		if (f.Space > 0.0f)
-			UnityGUI::Spacing(f.Space);
-		ImGui::PushID(f.Name.c_str());
 		json v = values.contains(f.Name) ? values[f.Name] : f.Default;
-		bool changed = false;
-		const char* label = f.Label.c_str();
-
-		if (f.Type == "float")
+		if (!ScriptFieldGUI::Field(f, v, key))
+			continue;
+		if (live)
 		{
-			float x = v.is_number() ? v.get<float>() : 0.0f;
-			changed = f.HasRange ? UnityGUI::Slider(label, &x, f.RangeMin, f.RangeMax) : UnityGUI::Float(label, &x);
-			if (f.HasRange) x = std::clamp(x, f.RangeMin, f.RangeMax);
-			if (changed) v = x;
-		}
-		else if (f.Type == "int")
-		{
-			int x = v.is_number() ? v.get<int>() : 0;
-			if (f.HasRange)
-			{
-				float fx = (float)x;
-				changed = UnityGUI::Slider(label, &fx, f.RangeMin, f.RangeMax);
-				x = (int)std::lround(std::clamp(fx, f.RangeMin, f.RangeMax));
-			}
-			else
-				changed = UnityGUI::Int(label, &x);
-			if (changed) v = x;
-		}
-		else if (f.Type == "bool")
-		{
-			bool x = v.is_boolean() && v.get<bool>();
-			if ((changed = UnityGUI::Toggle(label, &x))) v = x;
-		}
-		else if (f.Type == "string")
-		{
-			std::string x = v.is_string() ? v.get<std::string>() : std::string();
-			if ((changed = UnityGUI::TextField(label, &x))) v = x;
-		}
-		else if (f.Type == "Vector2" || f.Type == "Vector3" || f.Type == "Vector4" || f.Type == "Color")
-		{
-			float xyzw[4] = { 0, 0, 0, f.Type == "Color" ? 1.0f : 0.0f };
-			if (v.is_array())
-				for (size_t i = 0; i < v.size() && i < 4; ++i) xyzw[i] = v[i].get<float>();
-			if (f.Type == "Vector2")
-				changed = UnityGUI::Vector2Pair(label, "X", &xyzw[0], "Y", &xyzw[1]);
-			else if (f.Type == "Vector3")
-				changed = UnityGUI::Vector3(label, xyzw);
-			else if (f.Type == "Vector4")
-			{
-				changed = UnityGUI::Vector2Pair(label, "X", &xyzw[0], "Y", &xyzw[1]);
-				changed |= UnityGUI::Vector2Pair("", "Z", &xyzw[2], "W", &xyzw[3]);
-			}
-			else
-				changed = UnityGUI::Color(label, xyzw);
-			if (changed)
-			{
-				const int n = f.Type == "Vector2" ? 2 : (f.Type == "Vector3" ? 3 : 4);
-				v = json::array();
-				for (int i = 0; i < n; ++i) v.push_back(xyzw[i]);
-			}
-		}
-		else if (f.Type == "enum")
-		{
-			const long long cur = v.is_number() ? v.get<long long>() : 0;
-			int index = 0;
-			for (size_t i = 0; i < f.OptionValues.size(); ++i)
-				if (f.OptionValues[i] == cur) index = (int)i;
-			std::vector<const char*> items;
-			for (const std::string& s : f.Options) items.push_back(s.c_str());
-			if (!items.empty() && (changed = UnityGUI::Dropdown(label, &index, items.data(), (int)items.size())))
-				v = f.OptionValues[index];
-		}
-		else if (f.Type == "GameObject" || f.Type == "Transform")
-		{
-			// 오브젝트 참조: Hierarchy 에서 끌어 놓기 (값 = fileID)
-			const uint64 id = v.is_number_unsigned() || v.is_number_integer() ? v.get<uint64>() : 0;
-			const bool isGo = f.Type == "GameObject";
-			const std::string text = id ? ObjectName(id, "") + (isGo ? "" : " (Transform)") : (isGo ? "None (Game Object)" : "None (Transform)");
-			ImVec2 fmin, fmax;
-			const int pressed = UnityGUI::ObjectFieldButtons(label, text.c_str(), isGo ? "gameobject" : "transform", nullptr, 0, &fmin, &fmax);
-			const ImVec2 after = ImGui::GetCursorScreenPos();
-			ImGui::SetCursorScreenPos(fmin);
-			ImGui::InvisibleButton("##ref", ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("GAME_OBJECT"))
-				{
-					GameObject* go = *(GameObject**)payload->Data;
-					if (go) { v = go->GetFileID(); changed = true; }
-				}
-				ImGui::EndDragDropTarget();
-			}
-			if (ImGui::IsItemClicked() && id)
-				if (Scene* scene = SceneManager::GetI()->GetCurrentScene())
-					if (GameObject* target = scene->FindByFileID(id))
-						SelectionManager::SetSelectedGameObject(target);
-			if (pressed == -1 && id)
-			{
-				v = 0;   // ⊙ = 비우기 (씬 오브젝트 선택 창은 아직 없음)
-				changed = true;
-			}
-			ImGui::SetCursorScreenPos(after);
-		}
-		else if (f.Type == "AudioClip")
-		{
-			const std::string path = v.is_string() ? v.get<std::string>() : std::string();
-			const std::string text = path.empty() ? "None (Audio Clip)" : std::filesystem::path(path).stem().string();
-			ImVec2 fmin, fmax;
-			const int pressed = UnityGUI::ObjectFieldButtons(label, text.c_str(), "audio_clip", nullptr, 0, &fmin, &fmax);
-			const ImVec2 after = ImGui::GetCursorScreenPos();
-			const std::string key = "scriptclip:" + std::to_string((uintptr_t)this) + ":" + f.Name;
-			if (pressed == -1)
-			{
-				ObjectPicker::Options opt;
-				opt.TypeName = "AudioClip";
-				opt.Icon = "audio_clip";
-				opt.Items = AudioClip::FindAll();
-				opt.Current = path;
-				opt.Preview = [](const std::string& p) { AudioManager::PlayPreview(AudioClip::Load(p)); };
-				ObjectPicker::Open(key, std::move(opt));
-			}
-			std::string picked;
-			if (ObjectPicker::Poll(key, picked)) { v = picked; changed = true; }
-			ImGui::SetCursorScreenPos(fmin);
-			ImGui::InvisibleButton("##clipdrop", ImVec2((std::max)(1.0f, fmax.x - fmin.x - 22.0f), fmax.y - fmin.y));
-			if (ImGui::BeginDragDropTarget())
-			{
-				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_FILE"))
-				{
-					const std::string dropped(static_cast<const char*>(payload->Data));
-					if (AudioClip::IsAudioPath(dropped)) { v = dropped; changed = true; }
-				}
-				ImGui::EndDragDropTarget();
-			}
-			ImGui::SetCursorScreenPos(after);
+			m_LiveCache[f.Name] = v;
+			json one = json::object();
+			one[f.Name] = v;
+			ScriptEngine::SetFieldsJson(m_Handle, one.dump());   // Play 중 변경은 Play 가 끝나면 사라진다 (Unity)
 		}
 		else
-			UnityGUI::ValueLabel(label, (f.TypeName + " (not supported in Inspector yet)").c_str());
-
-		if (!f.Tooltip.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-			ImGui::SetTooltip("%s", f.Tooltip.c_str());
-
-		if (changed)
-		{
-			if (live)
-			{
-				m_LiveCache[f.Name] = v;
-				json one = json::object();
-				one[f.Name] = v;
-				ScriptEngine::SetFieldsJson(m_Handle, one.dump());   // Play 중 변경은 Play 가 끝나면 사라진다 (Unity)
-			}
-			else
-				m_FieldValues[f.Name] = v;
-		}
-		ImGui::PopID();
+			m_FieldValues[f.Name] = v;
 	}
 }
 

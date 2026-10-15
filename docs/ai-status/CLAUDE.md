@@ -1,12 +1,14 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 16일 — **애니메이션 레이어 · 이벤트 · IK · Timeline** (사용자 지시: "Avatar Mask 가 없어 걸으며 상체만 휘두르기가 안 된다, 애니메이션 이벤트 · 손 IK · 시네마틱 (Timeline) 도 없다 — 먼저 진행. ScriptableObject, 큰 월드 동적 GI · Fog Volume · 면광 · Render Scale / FSR 도 진행")
+- 갱신 시각: 2026년 10월 16일 — **애니메이션 레이어 · 이벤트 · IK · Timeline · ScriptableObject** (사용자 지시: "Avatar Mask 가 없어 걸으며 상체만 휘두르기가 안 된다, 애니메이션 이벤트 · 손 IK · 시네마틱 (Timeline) 도 없다 — 먼저 진행. ScriptableObject, 큰 월드 동적 GI · Fog Volume · 면광 · Render Scale / FSR 도 진행")
   - 커밋 9138a4e: Avatar Mask (`.mask`, Unity 13 부위 + 본 목록, Hips → Root), 레이어 Override · Additive · `SetLayerWeight`, AnimationEvent (`<모델>.animevents`, CLI `animevent`, `ScriptEngine::InvokeAnimationEvent`)
   - 커밋 17a0f2d: Animator IK (`OnAnimatorIK` · `SetIKPosition/Rotation` · `SetLookAtPosition`), Two Bone IK Constraint
   - 이번: `Packages/com.nova.timeline` (NovaTimeline.dll — `.playable` 에셋, Playable Director, Animation · Activation · Audio · Signal · Cinemachine 트랙, Timeline 창, CLI `timeline`, C# `PlayableDirector`), 코어 `Source/Animation/AnimationOverrides` (Animator 자세 덮기 — 패키지끼리 링크 없이, 편집 중 Revision 으로 다시 계산), Animator `_Editor_Update` · `ApplyOverrides`. 문서 `docs/TIMELINE.md`
   - 검사: timeline 6/6, animlayers 13/13, animation 11/11
-  - 다음: ScriptableObject → Render Scale · FSR → 면광 → Fog Volume → 동적 GI
-  - 다른 담당자: Source/Animation (새 파일), Source/Scripting/ScriptEngine, Tools/NovaCli/main.cpp, Tools/tests/run_tests.ps1 를 고쳤다
+  - ScriptableObject (데이터 에셋): C# `ScriptCore/Engine/ScriptableObject.cs` (ScriptableObject · CreateAssetMenu · TextAsset · Resources.Load/LoadAll), 필드 직렬화를 `ScriptCore/Interop/BridgeFields.cs` 로 옮겨 배열 · List · [Serializable] 클래스 · 구조체 · ScriptableObject 참조 (MonoBehaviour 도), C++ `Source/Scripting/ScriptableAssets` (.asset JSON · Inspector · Resources 목록 · `NovaAsset_*`) · `ScriptFieldGUI` (CSharpScript Inspector 를 옮김), Project 창 Create 메뉴 (CreateAssetMenu · ScriptableObject Script 템플릿), CLI `scriptable`, 빌드가 Resources 폴더를 넣는다. 문서 `docs/SCRIPTABLE_OBJECT.md`
+  - 검사: scriptable 9/9, 회귀 cli · behaviour · ui 31/31
+  - 다음: Render Scale · FSR → 면광 → Fog Volume → 동적 GI
+  - 다른 담당자: Source/Animation (새 파일), Source/Scripting (ScriptEngine · CSharpScript · 새 파일), ScriptCore (Bridge · Core), Source/Editor (CliCommands · ProjectEditorWindow), Source/Build/BuildPipeline, Tools/NovaCli/main.cpp, Tools/tests/run_tests.ps1, Tools/icons_project.py 를 고쳤다
 - 이전: 2026년 10월 16일 — **엔진 로드맵 (Godot 4.7 기능 목록과 대조)** (사용자 지시: "Godot 오픈소스도 참고해서 기능적인 부분만, 앞으로 나아가야 할 부분을 잡아 달라")
   - `docs/ENGINE_ROADMAP.md`: 분야별 대조표 (● · ◐ · ○), NOVA 가 앞선 것, 단계 P0 (Avatar Mask · 애니메이션 이벤트 · Input Actions · 전투 기반 · 세이브 · ScriptableObject · 오픈월드 성능) → P1 (동적 GI · Fog Volume · 면광 · FSR · Timeline · 오디오 컨테이너 · IK · 현지화 · 동영상) → P2 (C# 디버거 · 무비 메이커 · 프리팹 변형 · 원격 인스펙터 …) → P3 (네트워크 · 멀티플레이 · XR)
   - 이름 · 동작은 계속 Unity 와 같게, Godot 는 체크리스트 · 설계 참고 (MIT — 코드를 가져오면 ThirdParty + 라이선스)

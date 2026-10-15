@@ -5,6 +5,7 @@
 #include "ScriptBindings.h"
 #include "GameViewEditorWindow.h"
 #include "ExternalScriptEditor.h"
+#include "ScriptableAssets.h"
 #include <DotNet/hostfxr.h>
 #include <DotNet/coreclr_delegates.h>
 #include <filesystem>
@@ -57,11 +58,13 @@ namespace
 		void(__stdcall* AppPause)(int) = nullptr;   // 선택 (NovaEngine.Interop.AppEvents)
 		void(__stdcall* AppFocus)(int) = nullptr;
 		void(__stdcall* SceneEvent)(int, int, int) = nullptr;   // 선택 (AppEvents.SceneEvent)
+		void(__stdcall* AssetEvent)(int, const char*) = nullptr;   // 선택 (데이터 에셋 캐시)
 	} m;
 
 	ScriptEngine::State s_State = ScriptEngine::State::NotStarted;
 	std::string s_StatusText;
 	std::vector<ScriptEngine::ClassInfo> s_Classes;
+	std::vector<ScriptEngine::ClassInfo> s_ScriptableClasses;
 	bool s_HasErrors = false;
 	bool s_AssemblyLoaded = false;
 	bool s_PendingReload = false;
@@ -224,6 +227,8 @@ namespace
 			m.InvokeAnimationEvent = nullptr;
 		if (load(dll.c_str(), type, L"ExecAssembly", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.ExecAssembly) < 0)
 			m.ExecAssembly = nullptr;
+		if (load(dll.c_str(), type, L"AssetEvent", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.AssetEvent) < 0)
+			m.AssetEvent = nullptr;
 		const wchar_t* appEvents = L"NovaEngine.Interop.AppEvents, NovaScriptCore";
 		if (load(dll.c_str(), appEvents, L"Pause", UNMANAGEDCALLERSONLY_METHOD, nullptr, (void**)&m.AppPause) < 0)
 			m.AppPause = nullptr;
@@ -474,45 +479,73 @@ namespace
 	}
 
 	// ---------------------------------------------------------------- 어셈블리 읽기
+	ScriptEngine::FieldInfo ParseField(const json& f)
+	{
+		ScriptEngine::FieldInfo fi;
+		fi.Name = f.value("name", std::string());
+		fi.Label = f.value("label", fi.Name);
+		fi.Type = f.value("type", std::string("unsupported"));
+		fi.TypeName = f.value("typeName", std::string());
+		fi.TypeFullName = f.value("typeFullName", fi.TypeName);
+		fi.Default = f.contains("value") ? f["value"] : json();
+		fi.Header = f.value("header", std::string());
+		fi.Tooltip = f.value("tooltip", std::string());
+		fi.Space = f.value("space", 0.0f);
+		if (f.contains("range") && f["range"].is_array() && f["range"].size() == 2)
+		{
+			fi.HasRange = true;
+			fi.RangeMin = f["range"][0].get<float>();
+			fi.RangeMax = f["range"][1].get<float>();
+		}
+		if (f.contains("options"))
+			for (const json& o : f["options"]) fi.Options.push_back(o.get<std::string>());
+		if (f.contains("optionValues"))
+			for (const json& o : f["optionValues"]) fi.OptionValues.push_back(o.get<long long>());
+		if (f.contains("element") && f["element"].is_object())
+			fi.Element = std::make_shared<ScriptEngine::FieldInfo>(ParseField(f["element"]));
+		if (f.contains("fields") && f["fields"].is_array())
+			for (const json& c : f["fields"])
+				fi.Children.push_back(ParseField(c));
+		return fi;
+	}
+
+	ScriptEngine::ClassInfo ParseClass(const json& c)
+	{
+		ScriptEngine::ClassInfo ci;
+		ci.Name = c.value("name", std::string());
+		ci.FullName = c.value("fullName", std::string());
+		if (c.contains("fields") && c["fields"].is_array())
+			for (const json& f : c["fields"])
+				ci.Fields.push_back(ParseField(f));
+		if (c.contains("methods") && c["methods"].is_array())
+			for (const json& mt : c["methods"])
+				ci.Methods.push_back({ mt.value("name", std::string()), mt.value("param", std::string()) });
+		ci.Abstract = c.value("abstract", false);
+		if (c.contains("bases") && c["bases"].is_array())
+			for (const json& b : c["bases"])
+				ci.Bases.push_back(b.get<std::string>());
+		if (c.contains("menuName"))
+		{
+			ci.HasCreateMenu = true;
+			ci.MenuName = c.value("menuName", ci.Name);
+			ci.FileName = c.value("fileName", "New " + ci.Name);
+			ci.MenuOrder = c.value("order", 0);
+		}
+		return ci;
+	}
+
 	void ParseClasses(const std::string& text)
 	{
 		s_Classes.clear();
+		s_ScriptableClasses.clear();
 		json j = json::parse(text, nullptr, false);
 		if (j.is_discarded() || !j.contains("classes"))
 			return;
 		for (const json& c : j["classes"])
-		{
-			ScriptEngine::ClassInfo ci;
-			ci.Name = c.value("name", std::string());
-			ci.FullName = c.value("fullName", std::string());
-			for (const json& f : c["fields"])
-			{
-				ScriptEngine::FieldInfo fi;
-				fi.Name = f.value("name", std::string());
-				fi.Label = f.value("label", fi.Name);
-				fi.Type = f.value("type", std::string("unsupported"));
-				fi.TypeName = f.value("typeName", std::string());
-				fi.Default = f.contains("value") ? f["value"] : json();
-				fi.Header = f.value("header", std::string());
-				fi.Tooltip = f.value("tooltip", std::string());
-				fi.Space = f.value("space", 0.0f);
-				if (f.contains("range") && f["range"].is_array() && f["range"].size() == 2)
-				{
-					fi.HasRange = true;
-					fi.RangeMin = f["range"][0].get<float>();
-					fi.RangeMax = f["range"][1].get<float>();
-				}
-				if (f.contains("options"))
-					for (const json& o : f["options"]) fi.Options.push_back(o.get<std::string>());
-				if (f.contains("optionValues"))
-					for (const json& o : f["optionValues"]) fi.OptionValues.push_back(o.get<long long>());
-				ci.Fields.push_back(std::move(fi));
-			}
-			if (c.contains("methods") && c["methods"].is_array())
-				for (const json& mt : c["methods"])
-					ci.Methods.push_back({ mt.value("name", std::string()), mt.value("param", std::string()) });
-			s_Classes.push_back(std::move(ci));
-		}
+			s_Classes.push_back(ParseClass(c));
+		if (j.contains("scriptableObjects") && j["scriptableObjects"].is_array())
+			for (const json& c : j["scriptableObjects"])
+				s_ScriptableClasses.push_back(ParseClass(c));
 	}
 
 	void LoadAssembly()
@@ -579,6 +612,7 @@ namespace ScriptEngine
 			LoadAssembly();
 			return;
 		}
+		ScriptableAssets::RegisterEditor();   // .asset Inspector
 		const std::vector<fs::path> files = ScriptFiles();
 		if (!files.empty())
 			WriteCsproj();
@@ -722,6 +756,8 @@ namespace ScriptEngine
 		ScriptBindings::Reset();
 		if (s_AssemblyLoaded && m.InvokeUIEvent)
 			m.InvokeUIEvent(0, -1, 0.0f, "");   // 이전 Play 의 UI 리스너(onClick, onValueChanged ...) 정리
+		if (s_AssemblyLoaded && m.AssetEvent)
+			m.AssetEvent(0, "");   // 데이터 에셋은 Play 마다 파일에서 새로 (Play 중 스크립트가 바꾼 값은 남지 않는다)
 		if (!playing && s_PendingReload && IsAvailable())
 			LoadAssembly();
 	}
@@ -774,6 +810,37 @@ namespace ScriptEngine
 	}
 
 	const std::vector<ClassInfo>& Classes() { return s_Classes; }
+	const std::vector<ClassInfo>& ScriptableClasses() { return s_ScriptableClasses; }
+
+	const ClassInfo* FindScriptableClass(const std::string& name)
+	{
+		for (const ClassInfo& c : s_ScriptableClasses)
+			if (c.FullName == name)
+				return &c;
+		for (const ClassInfo& c : s_ScriptableClasses)
+			if (c.Name == name)
+				return &c;
+		return nullptr;
+	}
+
+	bool IsScriptableSubclass(const std::string& className, const std::string& baseName)
+	{
+		const ClassInfo* c = FindScriptableClass(className);
+		if (c == nullptr)
+			return false;
+		if (baseName.empty() || baseName == "ScriptableObject" || baseName == "NovaEngine.ScriptableObject" || c->Name == baseName || c->FullName == baseName)
+			return true;
+		for (const std::string& b : c->Bases)
+			if (b == baseName || (b.size() > baseName.size() && b.compare(b.size() - baseName.size(), baseName.size(), baseName) == 0 && b[b.size() - baseName.size() - 1] == '.'))
+				return true;
+		return false;
+	}
+
+	void NotifyAssetChanged(const std::string& relPath)
+	{
+		if (s_AssemblyLoaded && m.AssetEvent)
+			m.AssetEvent(1, relPath.c_str());
+	}
 
 	const ClassInfo* FindClass(const std::string& name)
 	{
@@ -841,6 +908,29 @@ namespace ScriptEngine
 		return file.wstring();
 	}
 
+	std::wstring CreateScriptableObjectScript(const std::wstring& directory, const std::string& className)
+	{
+		fs::path dir(directory);
+		fs::path file = dir / (string_to_wstring(className) + L".cs");
+		for (int i = 1; fs::exists(file); ++i)
+			file = dir / (string_to_wstring(className) + std::to_wstring(i) + L".cs");
+		const std::string cls = SanitizeClassName(file.stem().string());
+		std::ostringstream s;
+		s << "using NovaEngine;\n"
+			<< "\n"
+			<< "[CreateAssetMenu(fileName = \"" << cls << "\", menuName = \"Scriptable Objects/" << cls << "\")]\n"
+			<< "public class " << cls << " : ScriptableObject\n"
+			<< "{\n"
+			<< "    \n"
+			<< "}\n";
+		std::ofstream out(file, std::ios::binary);
+		out << s.str();
+		out.close();
+		EditorLog::Write("Script", "created script %s", ToUtf8(file.wstring()).c_str());
+		s_NextPoll = 0.0;
+		return file.wstring();
+	}
+
 	void RenameScriptClass(const std::wstring& newPath, const std::string& oldClassName)
 	{
 		std::string text = ReadFile(newPath);
@@ -854,6 +944,20 @@ namespace ScriptEngine
 		if (end < text.size() && (isalnum((unsigned char)text[end]) || text[end] == '_'))
 			return;
 		text.replace(at, from.size(), "class " + newName);
+		// ScriptableObject 템플릿: [CreateAssetMenu(fileName = "Old", menuName = "Scriptable Objects/Old")] 도 새 이름으로
+		if (const size_t menu = text.find("[CreateAssetMenu("); menu != std::string::npos)
+		{
+			const size_t lineEnd = (std::min)(text.find('\n', menu), text.size());
+			std::string line = text.substr(menu, lineEnd - menu);
+			for (const std::string& pat : { "\"" + oldClassName + "\"", "/" + oldClassName + "\"" })
+				for (size_t q = line.find(pat); q != std::string::npos; q = line.find(pat, q))
+				{
+					const std::string rep = (pat[0] == '/' ? "/" : "\"") + newName + "\"";
+					line.replace(q, pat.size(), rep);
+					q += rep.size();
+				}
+			text.replace(menu, lineEnd - menu, line);
+		}
 		std::ofstream out(newPath, std::ios::binary | std::ios::trunc);
 		out << text;
 		EditorLog::Write("Script", "renamed class %s -> %s", oldClassName.c_str(), newName.c_str());

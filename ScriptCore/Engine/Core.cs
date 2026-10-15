@@ -56,6 +56,7 @@ namespace NovaEngine
         public static void Destroy(Object obj, float t = 0f)
         {
             if (obj is null) return;
+            if (obj is ScriptableObject so) { so.DestroyInternal(); return; }
             if (obj is Joint2D joint) { joint.RemoveJoint(); return; }
             if (obj is MonoBehaviour mb) { mb.RequestDestroyComponent(); return; }
             if (obj is Component c && !(obj is Transform)) { c.RemoveNative(); return; }
@@ -79,6 +80,7 @@ namespace NovaEngine
         static unsafe Object InstantiateImpl(Object original, bool hasPose, Vector3 pos, Quaternion rot, Transform parent)
         {
             if (original == null) throw new ArgumentException("The Object you want to instantiate is null.");
+            if (original is ScriptableObject so) return ScriptableAssets.Clone(so);   // 데이터 에셋의 사본 (저장되지 않는다)
             ulong id = Native.Api.GO_Instantiate(original.m_Id, hasPose ? 1 : 0, &pos, &rot, parent is null ? 0 : parent.m_Id);
             if (id == 0) return null;
             var go = new GameObject(id);

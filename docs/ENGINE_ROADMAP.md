@@ -93,7 +93,7 @@
 | **원격 인스펙터 (빌드한 게임의 장면 보기)** | ○ | 빌드된 플레이어 · 안드로이드 디버깅이 로그뿐 |
 | 여러 인스턴스 실행 (서버/클라 검사) | ○ | 네트워크가 생기면 |
 | 장면 상속 · 중첩 | ◐ | 프리팹 오버라이드는 있다. **프리팹 변형 (Variant) · 중첩 프리팹** 없음 |
-| 데이터 리소스 (Resource) | ○ | Unity ScriptableObject 가 없다 — 무기 · 아이템 · 스탯 데이터를 둘 곳 |
+| 데이터 리소스 (Resource) | ● | ScriptableObject · CreateAssetMenu · `Resources.Load` · 배열 · List · Serializable 필드 ([SCRIPTABLE_OBJECT](SCRIPTABLE_OBJECT.md)) |
 | 편집기용 스크립트 · 플러그인 | ◐ | EditorExtensions · 패키지. 스크립트 Gizmos API 없음 |
 | **무비 메이커 (프레임 고정 녹화 + 소리)** | ○ | 쇼케이스 · 유튜브 영상에 바로 쓸 수 있다 |
 | CLI 자동화 · CI | ● | `nova` CLI (Godot 보다 넓다 — AI 가 편집기를 다룬다) |
@@ -129,7 +129,7 @@ VFX Graph · Shader Graph · Terrain Graph (Gaea 식) · PCG · 절차적 식생
 | 0-3 | **Input Actions** — 행동 이름 · 키 / 패드 묶기 · 재지정 · 데드존 · 저장 | InputMap · InputEventAction · 데드존 | Input Action Asset · PlayerInput · `action.WasPressedThisFrame()` | M |
 | 0-4 | **전투 기반 (게임플레이 프레임워크)** — 히트박스 · 허트박스, 피해 · 경직 · 넉백, 무기 장착 (손 본에 붙이기) | Area3D · 그룹 · 신호 | 트리거 콜라이더 + 0-2 이벤트, `Animator.GetBoneTransform` 소켓, 샘플 패키지 `com.nova.combat` | M |
 | 0-5 | **세이브 · 로드** — 월드 상태 · 인벤토리 · 위치 · 퀘스트 값을 JSON (+ 이진) 으로, 버전 · 비동기 | ConfigFile · ResourceSaver · `var_to_bytes` | `SaveSystem` (JsonUtility 식 직렬화) + 슬롯 | M |
-| 0-6 | **데이터 에셋 (ScriptableObject)** — 무기 · 아이템 · 적 스탯 | Resource · 사용자 Resource 클래스 | ScriptableObject · `CreateAssetMenu` | M |
+| 0-6 | **데이터 에셋 (ScriptableObject)** (2026-10-16 완료) — 무기 · 아이템 · 적 스탯 | Resource · 사용자 Resource 클래스 | ScriptableObject · `CreateAssetMenu` | M |
 | 0-7 | **오픈월드 성능 마무리** — 먼 풀 (지형 표면 풀결로 이어 보이기), 나무 GPU (임포스터 거리 · 그림자 컬링), 모듈 캐릭터 부위 합치기 · 캐릭터 단위 임포스터, HLOD | 가시 범위 (visibility range) · HLOD · MultiMesh | Auto LOD · LOD Group · HLOD 묶음 | L |
 
 ### P1 — 오픈월드 품질 (붉은사막 수준의 화면 · 소리 · 연출)

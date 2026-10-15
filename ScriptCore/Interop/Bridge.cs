@@ -45,18 +45,13 @@ namespace NovaEngine.Interop
         }
     }
 
-    internal sealed class FieldMeta
-    {
-        public FieldInfo Field;
-        public string Kind;   // int, float, bool, string, Vector2, Vector3, Vector4, Color, enum, GameObject, Transform, AudioClip, unsupported
-    }
-
-    public static unsafe class Bridge
+    public static unsafe partial class Bridge
     {
         internal static int FrameIndex;
         static GameLoadContext s_Context;
         static Assembly s_Game;
         static readonly Dictionary<string, Type> s_Types = new Dictionary<string, Type>();
+        static readonly Dictionary<string, Type> s_ScriptableTypes = new Dictionary<string, Type>();   // ScriptableObject 하위 (데이터 에셋)
         static readonly Dictionary<Type, List<FieldMeta>> s_Fields = new Dictionary<Type, List<FieldMeta>>();
         static readonly string[] kMessages = { "Awake", "OnEnable", "Start", "Update", "LateUpdate", "FixedUpdate", "OnDisable", "OnDestroy" };
 
@@ -90,7 +85,15 @@ namespace NovaEngine.Interop
                 s_Game = pdb != null ? s_Context.LoadFromStream(new MemoryStream(dll), new MemoryStream(pdb)) : s_Context.LoadFromStream(new MemoryStream(dll));
                 foreach (Type t in SafeTypes(s_Game))
                 {
-                    if (!t.IsClass || t.IsAbstract || t.IsGenericTypeDefinition || !typeof(MonoBehaviour).IsAssignableFrom(t)) continue;
+                    if (!t.IsClass || t.IsGenericTypeDefinition) continue;
+                    if (typeof(ScriptableObject).IsAssignableFrom(t))
+                    {
+                        // 추상 클래스도 둔다 (필드 형식 · 고르기 창의 바탕 클래스), 만들 때만 막는다
+                        s_ScriptableTypes[t.FullName] = t;
+                        if (!s_ScriptableTypes.ContainsKey(t.Name)) s_ScriptableTypes[t.Name] = t;
+                        continue;
+                    }
+                    if (t.IsAbstract || !typeof(MonoBehaviour).IsAssignableFrom(t)) continue;
                     s_Types[t.FullName] = t;
                     if (!s_Types.ContainsKey(t.Name)) s_Types[t.Name] = t;
                 }
@@ -166,7 +169,9 @@ namespace NovaEngine.Interop
         {
             ScriptRegistry.Clear();
             NovaEngine.UI.UIEvents.Clear();   // 리스너가 게임 어셈블리를 붙잡지 않게
+            ScriptableAssets.Clear();
             s_Types.Clear();
+            s_ScriptableTypes.Clear();
             s_Fields.Clear();
             s_Game = null;
             if (s_Context != null)
@@ -201,35 +206,7 @@ namespace NovaEngine.Interop
                         w.WriteString("fullName", t.FullName);
                         object defaults = null;
                         try { defaults = Activator.CreateInstance(t, true); } catch { }
-                        w.WriteStartArray("fields");
-                        foreach (FieldMeta f in FieldsOf(t))
-                        {
-                            w.WriteStartObject();
-                            w.WriteString("name", f.Field.Name);
-                            w.WriteString("label", Nicify(f.Field.Name));
-                            w.WriteString("type", f.Kind);
-                            if (f.Kind == "unsupported") w.WriteString("typeName", f.Field.FieldType.Name);
-                            w.WritePropertyName("value");
-                            WriteValue(w, f, defaults != null ? f.Field.GetValue(defaults) : null);
-                            if (f.Field.GetCustomAttribute<HeaderAttribute>() is HeaderAttribute h) w.WriteString("header", h.header);
-                            if (f.Field.GetCustomAttribute<TooltipAttribute>() is TooltipAttribute tip) w.WriteString("tooltip", tip.tooltip);
-                            if (f.Field.GetCustomAttribute<SpaceAttribute>() is SpaceAttribute sp) w.WriteNumber("space", sp.height);
-                            if (f.Field.GetCustomAttribute<RangeAttribute>() is RangeAttribute r)
-                            {
-                                w.WriteStartArray("range"); w.WriteNumberValue(r.min); w.WriteNumberValue(r.max); w.WriteEndArray();
-                            }
-                            if (f.Kind == "enum")
-                            {
-                                w.WriteStartArray("options");
-                                foreach (string n in Enum.GetNames(f.Field.FieldType)) w.WriteStringValue(Nicify(n));
-                                w.WriteEndArray();
-                                w.WriteStartArray("optionValues");
-                                foreach (object v in Enum.GetValues(f.Field.FieldType)) w.WriteNumberValue(Convert.ToInt64(v));
-                                w.WriteEndArray();
-                            }
-                            w.WriteEndObject();
-                        }
-                        w.WriteEndArray();
+                        WriteFieldList(w, "fields", FieldsOf(t), defaults);
                         // Button On Click () 에서 고를 수 있는 메서드
                         w.WriteStartArray("methods");
                         foreach (MethodInfo mi in UIMethodsOf(t))
@@ -244,6 +221,29 @@ namespace NovaEngine.Interop
                         w.WriteEndObject();
                     }
                     w.WriteEndArray();
+                    // ScriptableObject (데이터 에셋): Inspector · Create 메뉴 (CreateAssetMenu) · 고르기 창
+                    w.WriteStartArray("scriptableObjects");
+                    foreach (Type t in s_ScriptableTypes.Values.Distinct().OrderBy(t => t.FullName))
+                    {
+                        w.WriteStartObject();
+                        w.WriteString("name", t.Name);
+                        w.WriteString("fullName", t.FullName);
+                        w.WriteBoolean("abstract", t.IsAbstract);
+                        w.WriteStartArray("bases");
+                        for (Type c = t.BaseType; c != null && c != typeof(ScriptableObject); c = c.BaseType) w.WriteStringValue(c.FullName);
+                        w.WriteEndArray();
+                        if (t.GetCustomAttribute<CreateAssetMenuAttribute>(false) is CreateAssetMenuAttribute menu)
+                        {
+                            w.WriteString("menuName", string.IsNullOrEmpty(menu.menuName) ? t.Name : menu.menuName);
+                            w.WriteString("fileName", string.IsNullOrEmpty(menu.fileName) ? "New " + t.Name : menu.fileName);
+                            w.WriteNumber("order", menu.order);
+                        }
+                        object defaults = null;
+                        if (!t.IsAbstract) try { defaults = Activator.CreateInstance(t, true); } catch { }
+                        WriteFieldList(w, "fields", FieldsOf(t), defaults);
+                        w.WriteEndObject();
+                    }
+                    w.WriteEndArray();
                     w.WriteEndObject();
                 }
                 return Marshal.StringToCoTaskMemUTF8(Encoding.UTF8.GetString(ms.ToArray()));
@@ -253,6 +253,24 @@ namespace NovaEngine.Interop
                 LogException(e);
                 return IntPtr.Zero;
             }
+        }
+
+        internal static Type FindScriptableType(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            return s_ScriptableTypes.TryGetValue(name, out Type t) ? t : null;
+        }
+
+        // 데이터 에셋 알림: kind 0 = 캐시 비우기 (Play 시작 · 끝), 1 = 파일이 바뀜 (Inspector 편집 → 읽은 인스턴스에 다시)
+        [UnmanagedCallersOnly]
+        public static void AssetEvent(int kind, byte* pathUtf8)
+        {
+            try
+            {
+                if (kind == 0) ScriptableAssets.Clear();
+                else if (kind == 1) ScriptableAssets.Reload(Native.Str(pathUtf8));
+            }
+            catch (Exception e) { LogException(e); }
         }
 
         // Unity UnityEvent 가 Inspector 에서 고를 수 있는 것과 같은 조건: public, void, 인자 0개 또는 int/float/string/bool 하나
@@ -584,103 +602,6 @@ namespace NovaEngine.Interop
             if (mb == null) return;
             try { ApplyFields(mb, Native.Str(jsonUtf8)); }
             catch (Exception e) { LogException(e); }
-        }
-
-        // ================================================================== 필드
-        internal static List<FieldMeta> FieldsOf(Type t)
-        {
-            if (s_Fields.TryGetValue(t, out var list)) return list;
-            list = new List<FieldMeta>();
-            // 부모 클래스 필드부터 (Unity 와 같은 순서)
-            var chain = new List<Type>();
-            for (Type c = t; c != null && c != typeof(MonoBehaviour); c = c.BaseType) chain.Insert(0, c);
-            foreach (Type c in chain)
-                foreach (FieldInfo f in c.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-                {
-                    if (f.IsInitOnly || f.IsLiteral || f.GetCustomAttribute<NonSerializedAttribute>() != null) continue;
-                    if (!f.IsPublic && f.GetCustomAttribute<SerializeField>() == null) continue;
-                    if (f.GetCustomAttribute<HideInInspector>() != null) continue;
-                    if (f.GetCustomAttribute<CompilerGeneratedAttribute>() != null) continue;
-                    list.Add(new FieldMeta { Field = f, Kind = KindOf(f.FieldType) });
-                }
-            s_Fields[t] = list;
-            return list;
-        }
-
-        static string KindOf(Type t)
-        {
-            if (t == typeof(int) || t == typeof(long) || t == typeof(short) || t == typeof(byte) || t == typeof(uint)) return "int";
-            if (t == typeof(float) || t == typeof(double)) return "float";
-            if (t == typeof(bool)) return "bool";
-            if (t == typeof(string)) return "string";
-            if (t == typeof(Vector2)) return "Vector2";
-            if (t == typeof(Vector3)) return "Vector3";
-            if (t == typeof(Vector4)) return "Vector4";
-            if (t == typeof(Color)) return "Color";
-            if (t.IsEnum) return "enum";
-            if (t == typeof(GameObject)) return "GameObject";
-            if (t == typeof(Transform)) return "Transform";
-            if (t == typeof(AudioClip)) return "AudioClip";
-            return "unsupported";
-        }
-
-        static void WriteValue(Utf8JsonWriter w, FieldMeta f, object v)
-        {
-            switch (f.Kind)
-            {
-                case "int": w.WriteNumberValue(v == null ? 0 : Convert.ToInt64(v)); break;
-                case "float": w.WriteNumberValue(v == null ? 0.0 : Convert.ToDouble(v)); break;
-                case "bool": w.WriteBooleanValue(v is bool b && b); break;
-                case "string": w.WriteStringValue(v as string ?? string.Empty); break;
-                case "Vector2": { var x = v is Vector2 q ? q : default; w.WriteStartArray(); w.WriteNumberValue(x.x); w.WriteNumberValue(x.y); w.WriteEndArray(); break; }
-                case "Vector3": { var x = v is Vector3 q ? q : default; w.WriteStartArray(); w.WriteNumberValue(x.x); w.WriteNumberValue(x.y); w.WriteNumberValue(x.z); w.WriteEndArray(); break; }
-                case "Vector4": { var x = v is Vector4 q ? q : default; w.WriteStartArray(); w.WriteNumberValue(x.x); w.WriteNumberValue(x.y); w.WriteNumberValue(x.z); w.WriteNumberValue(x.w); w.WriteEndArray(); break; }
-                case "Color": { var x = v is Color q ? q : new Color(1, 1, 1, 1); w.WriteStartArray(); w.WriteNumberValue(x.r); w.WriteNumberValue(x.g); w.WriteNumberValue(x.b); w.WriteNumberValue(x.a); w.WriteEndArray(); break; }
-                case "enum": w.WriteNumberValue(v == null ? 0 : Convert.ToInt64(v)); break;
-                case "GameObject":
-                case "Transform": w.WriteNumberValue(v is Object o && !(o is null) ? o.m_Id : 0UL); break;
-                case "AudioClip": w.WriteStringValue(v is AudioClip c ? c.m_Path ?? "" : ""); break;
-                default: w.WriteNullValue(); break;
-            }
-        }
-
-        static void ApplyFields(MonoBehaviour mb, string json)
-        {
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return;
-            foreach (FieldMeta f in FieldsOf(mb.GetType()))
-            {
-                if (!doc.RootElement.TryGetProperty(f.Field.Name, out JsonElement e)) continue;
-                try
-                {
-                    object v = ReadValue(f, e);
-                    if (v != null || !f.Field.FieldType.IsValueType) f.Field.SetValue(mb, v);
-                }
-                catch { /* 형식이 바뀐 필드는 기본값 유지 (Unity 와 같음) */ }
-            }
-        }
-
-        static float F(JsonElement a, int i) => a.GetArrayLength() > i ? a[i].GetSingle() : 0f;
-
-        static object ReadValue(FieldMeta f, JsonElement e)
-        {
-            Type t = f.Field.FieldType;
-            switch (f.Kind)
-            {
-                case "int": return Convert.ChangeType(e.GetInt64(), t);
-                case "float": return Convert.ChangeType(e.GetDouble(), t);
-                case "bool": return e.ValueKind == JsonValueKind.True;
-                case "string": return e.ValueKind == JsonValueKind.String ? e.GetString() : "";
-                case "Vector2": return new Vector2(F(e, 0), F(e, 1));
-                case "Vector3": return new Vector3(F(e, 0), F(e, 1), F(e, 2));
-                case "Vector4": return new Vector4(F(e, 0), F(e, 1), F(e, 2), F(e, 3));
-                case "Color": return new Color(F(e, 0), F(e, 1), F(e, 2), e.GetArrayLength() > 3 ? F(e, 3) : 1f);
-                case "enum": return Enum.ToObject(t, e.GetInt64());
-                case "GameObject": { ulong id = e.GetUInt64(); return id == 0 ? null : new GameObject(id); }
-                case "Transform": { ulong id = e.GetUInt64(); return id == 0 ? null : new Transform(id); }
-                case "AudioClip": { string p = e.GetString(); return string.IsNullOrEmpty(p) ? null : new AudioClip(p); }
-            }
-            return null;
         }
 
         // "moveSpeed" → "Move Speed", "m_Health" → "Health" (Unity 의 ObjectNames.NicifyVariableName)

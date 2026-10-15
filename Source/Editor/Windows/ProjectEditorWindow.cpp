@@ -1,4 +1,6 @@
 #include "pch.h"
+#include "ScriptableAssets.h"
+#include "Debug.h"
 #include "ProjectEditorWindow.h"
 #include "Utils.h"
 #include "EditorGUI.h"
@@ -381,7 +383,63 @@ void ProjectEditorWindow::DrawCreateMenu(const fs::path& dir)
 			m_RenameFrames = 0;
 			SelectionManager::SetSelectedFile(p);
 		}
+		if (ImGui::MenuItem("ScriptableObject Script"))
+		{
+			const std::wstring p = ScriptEngine::CreateScriptableObjectScript(dir.wstring());
+			InvalidateCache();
+			m_RenamePath = p;
+			strncpy_s(m_RenameBuffer, wstring_to_string(fs::path(p).stem().wstring()).c_str(), _TRUNCATE);
+			m_RenameFrames = 0;
+			SelectionManager::SetSelectedFile(p);
+		}
 		ImGui::EndMenu();
+	}
+	// 스크립트의 [CreateAssetMenu] (Unity 와 같이 Create 메뉴 맨 위 — order 순, "Game/Weapon Data" 는 하위 메뉴)
+	{
+		std::vector<const ScriptEngine::ClassInfo*> menus;
+		for (const ScriptEngine::ClassInfo& c : ScriptEngine::ScriptableClasses())
+			if (c.HasCreateMenu && !c.Abstract)
+				menus.push_back(&c);
+		std::sort(menus.begin(), menus.end(), [](const ScriptEngine::ClassInfo* a, const ScriptEngine::ClassInfo* b) {
+			return a->MenuOrder != b->MenuOrder ? a->MenuOrder < b->MenuOrder : a->MenuName < b->MenuName;
+		});
+		for (const ScriptEngine::ClassInfo* c : menus)
+		{
+			std::vector<std::string> parts;
+			for (size_t at = 0; at <= c->MenuName.size(); )
+			{
+				const size_t slash = c->MenuName.find('/', at);
+				const std::string part = c->MenuName.substr(at, slash == std::string::npos ? std::string::npos : slash - at);
+				if (!part.empty()) parts.push_back(part);
+				if (slash == std::string::npos) break;
+				at = slash + 1;
+			}
+			if (parts.empty())
+				continue;
+			int opened = 0;
+			bool visible = true;
+			for (size_t i = 0; i + 1 < parts.size() && visible; ++i)
+				if (ImGui::BeginMenu(parts[i].c_str())) ++opened;   // 같은 이름 하위 메뉴는 ImGui 가 이어 붙인다
+				else visible = false;
+			if (visible && ImGui::MenuItem(parts.back().c_str()))
+			{
+				std::string error;
+				const std::string rel = ScriptableAssets::Create(PathManager::GetI()->GetCutSolutionPath(wstring_to_string(dir.wstring())), c->FullName, &error);
+				if (rel.empty())
+					Debug::LogWarning("Create " + c->Name + ": " + error);
+				else
+				{
+					const std::wstring p = PathManager::GetI()->GetMovePathW(string_to_wstring(rel));
+					InvalidateCache();
+					m_RenamePath = p;   // Unity 처럼 바로 이름 바꾸기
+					strncpy_s(m_RenameBuffer, wstring_to_string(fs::path(p).stem().wstring()).c_str(), _TRUNCATE);
+					m_RenameFrames = 0;
+					SelectionManager::SetSelectedFile(p);
+				}
+			}
+			for (int i = 0; i < opened; ++i)
+				ImGui::EndMenu();
+		}
 	}
 	ImGui::Separator();
 	if (ImGui::MenuItem("Material"))

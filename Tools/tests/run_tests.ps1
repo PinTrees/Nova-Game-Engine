@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'timeline', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'timeline', 'scriptable', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6349,6 +6349,128 @@ public class SignalProbe : MonoBehaviour
     finally { Stop-TestEditor $ed | Out-Null }
 }
 
+# ScriptableObject (Unity 와 같게): .asset 데이터 에셋, CreateAssetMenu, 필드 참조 (같은 인스턴스 · 배열 · List · Serializable · 하위 클래스), Resources.Load, Play 중 Inspector 편집
+function Suite-Scriptable
+{
+    Write-Host '[scriptable]'
+    $dir = Join-Path $Project 'Assets\SOTest'
+    if (Test-Path $dir) { Remove-Item $dir -Recurse -Force }
+    New-Item -ItemType Directory -Force (Join-Path $dir 'Resources\Items') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $dir 'Resources\Text') | Out-Null
+    'hello resources' | Set-Content -Encoding utf8 (Join-Path $dir 'Resources\Text\hello.txt')
+    @'
+using System;
+using System.Collections.Generic;
+using NovaEngine;
+
+public enum SORarity { Common, Rare, Epic }
+
+[Serializable]
+public struct SODrop { public string item; public int count; public float chance; }
+
+[CreateAssetMenu(fileName = "NewWeapon", menuName = "Game/Weapon Data", order = 5)]
+public class SOWeapon : ScriptableObject
+{
+    public string displayName = "Sword";
+    [Range(0, 100)] public int damage = 10;
+    public float cooldown = 0.5f;
+    public SORarity rarity = SORarity.Common;
+    public int[] combo = { 1, 2 };
+    public List<SODrop> drops = new List<SODrop>();
+    public SOWeapon upgrade;
+    [NonSerialized] public int enableCalls;
+    void OnEnable() { enableCalls++; }
+}
+
+public abstract class SOItem : ScriptableObject { public int price = 1; }
+
+[CreateAssetMenu(menuName = "Game/Potion")]
+public class SOPotion : SOItem { public int heal = 20; }
+
+public class SOUser : MonoBehaviour
+{
+    public SOWeapon weapon;
+    public SOItem item;
+    public SOWeapon[] arsenal;
+    public string report = "";
+    void Start()
+    {
+        var d = weapon.drops.Count > 0 ? weapon.drops[0] : default;
+        report = weapon.name + "|" + weapon.damage + "|" + weapon.combo.Length + "|" + weapon.drops.Count + ":" + d.item + "x" + d.count
+            + "|" + (weapon.upgrade != null ? weapon.upgrade.name + ":" + weapon.upgrade.damage : "none")
+            + "|" + (item is SOPotion p ? p.heal : -1) + ":" + item.price
+            + "|" + ReferenceEquals(arsenal[0], weapon) + "|" + weapon.enableCalls + "|" + weapon.rarity;
+    }
+}
+'@ | Set-Content -Encoding utf8 (Join-Path $dir 'SOTypes.cs')
+    $ed = Start-TestEditor
+    try
+    {
+        Wait-Compile
+        $cls = Invoke-NovaJson 'scriptable classes'
+        $w = $cls.classes | Where-Object { $_.name -eq 'SOWeapon' }
+        $it = $cls.classes | Where-Object { $_.name -eq 'SOItem' }
+        $po = $cls.classes | Where-Object { $_.name -eq 'SOPotion' }
+        $drops = $w.fields | Where-Object { $_.name -eq 'drops' }
+        $ok = $w -and $w.createAssetMenu.menuName -eq 'Game/Weapon Data' -and $w.createAssetMenu.fileName -eq 'NewWeapon' -and $it.abstract -and ($po.bases -contains 'SOItem') -and
+            $drops.type -eq 'array' -and $drops.element.type -eq 'struct' -and $drops.element.fields.Count -eq 3 -and (($w.fields | Where-Object { $_.name -eq 'upgrade' }).type -eq 'ScriptableObject')
+        Add-Result scriptable 'classes: CreateAssetMenu, abstract base, List<[Serializable] struct>, ScriptableObject field' $ok ("weapon menu '{0}' file '{1}', item abstract {2}, potion bases {3}, drops {4}<{5}:{6}>" -f $w.createAssetMenu.menuName, $w.createAssetMenu.fileName, $it.abstract, ($po.bases -join ','), $drops.type, $drops.element.type, $drops.element.fields.Count)
+
+        # 에셋 만들기 (기본값) → 값 바꾸기
+        $c1 = Invoke-NovaJson 'scriptable create --class SOWeapon --path Assets/SOTest'
+        Add-Result scriptable 'create: CreateAssetMenu fileName + class defaults' ($c1 -and $c1.path -like '*SOTest*NewWeapon.asset' -and $c1.fields.damage -eq 10 -and $c1.fields.combo.Count -eq 2 -and $c1.fields.displayName -eq 'Sword') ("{0}: damage {1}, combo {2}" -f $c1.path, $c1.fields.damage, ($c1.fields.combo -join ','))
+        Invoke-Nova 'scriptable create --class SOWeapon --path Assets/SOTest/Great.asset --values "{\"displayName\":\"Excalibur\",\"damage\":99}"' | Out-Null
+        Invoke-Nova 'scriptable create --class SOWeapon --path Assets/SOTest/Sword.asset --values "{\"damage\":42,\"rarity\":2,\"drops\":[{\"item\":\"Gem\",\"count\":2,\"chance\":0.5}],\"upgrade\":\"Assets/SOTest/Great.asset\"}"' | Out-Null
+        Invoke-Nova 'scriptable create --class SOPotion --path Assets/SOTest/Potion.asset --values "{\"heal\":35,\"price\":7}"' | Out-Null
+        Invoke-Nova 'scriptable create --class SOPotion --path Assets/SOTest/Resources/Items/Elixir.asset --values "{\"heal\":50}"' | Out-Null
+        $abs = Invoke-Nova 'scriptable create --class SOItem --path Assets/SOTest'
+        $list = Invoke-NovaJson 'scriptable list --class SOItem'
+        Add-Result scriptable 'list --class base finds subclasses; an abstract class cannot be created' ($list.assets.Count -eq 2 -and "$abs" -match 'abstract') ("SOItem assets {0}, abstract create: {1}" -f $list.assets.Count, ("$abs".Trim() -split "`r?`n")[0])
+
+        # 씬: MonoBehaviour 필드가 에셋을 가리킨다 (같은 에셋 = 같은 인스턴스, 하위 클래스, 배열)
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create empty --name SOU' | Out-Null
+        Invoke-Nova 'add-component SOU SOUser' | Out-Null
+        Invoke-Nova 'set SOU --component SOUser --values "{\"weapon\":\"Assets/SOTest/Sword.asset\",\"item\":\"Assets/SOTest/Potion.asset\",\"arsenal\":[\"Assets/SOTest/Sword.asset\",\"Assets/SOTest/Great.asset\"]}"' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        $cs = Join-Path $Out 'scriptable.cs'
+        'return GameObject.Find("SOU").GetComponent<SOUser>().report;' | Set-Content -Encoding utf8 $cs
+        $rep = "$((Invoke-NovaJson "exec --file $cs").result)"
+        Add-Result scriptable 'MonoBehaviour fields load the assets: values, int[], List<struct>, nested asset, subclass, same instance, OnEnable once' ($rep -eq 'Sword|42|2|1:Gemx2|Great:99|35:7|True|1|Epic') $rep
+
+        # Resources.Load · LoadAll · TextAsset (아무 Resources 폴더 기준 경로)
+        'var inv = System.Globalization.CultureInfo.InvariantCulture; var e = Resources.Load<SOPotion>("Items/Elixir"); var t = Resources.Load<TextAsset>("Text/hello"); return (e != null ? e.heal : -1) + "|" + (t != null ? t.text.Trim() : "null") + "|" + Resources.LoadAll<SOItem>("Items").Length + "|" + (Resources.Load<SOWeapon>("Items/Elixir") == null) + "|" + ReferenceEquals(e, Resources.Load<SOPotion>("Items/Elixir"));' | Set-Content -Encoding utf8 $cs
+        $res = "$((Invoke-NovaJson "exec --file $cs").result)"
+        Add-Result scriptable 'Resources.Load<T> / LoadAll / TextAsset (wrong type = null, cached instance)' ($res -eq '50|hello resources|1|True|True') $res
+
+        # CreateInstance · Instantiate (사본은 따로, 원본 그대로)
+        'var u = GameObject.Find("SOU").GetComponent<SOUser>(); var n = ScriptableObject.CreateInstance<SOWeapon>(); var c = NovaEngine.Object.Instantiate(u.weapon); c.damage = 1; return n.damage + "|" + n.enableCalls + "|" + c.damage + "|" + c.name + "|" + u.weapon.damage + "|" + c.drops.Count;' | Set-Content -Encoding utf8 $cs
+        $ci = "$((Invoke-NovaJson "exec --file $cs").result)"
+        Add-Result scriptable 'CreateInstance (defaults, OnEnable) and Instantiate (copy, original unchanged)' ($ci -eq '10|1|1|Sword(Clone)|42|1') $ci
+
+        # Play 중 에셋 편집 (Inspector · CLI) → 읽어 둔 인스턴스에 바로. 스크립트가 바꾼 값은 다음 Play 에 남지 않는다
+        Invoke-Nova 'scriptable set --path Assets/SOTest/Sword.asset --values "{\"damage\":77}"' | Out-Null
+        'var u = GameObject.Find("SOU").GetComponent<SOUser>(); var d = u.weapon.damage; u.weapon.cooldown = 9f; return d.ToString();' | Set-Content -Encoding utf8 $cs
+        $live = "$((Invoke-NovaJson "exec --file $cs").result)"
+        Invoke-Nova 'stop' | Out-Null
+        Invoke-Nova 'play' | Out-Null
+        Invoke-Nova 'wait 10' | Out-Null
+        'var w = GameObject.Find("SOU").GetComponent<SOUser>().weapon; return w.damage + "|" + w.cooldown.ToString(System.Globalization.CultureInfo.InvariantCulture);' | Set-Content -Encoding utf8 $cs
+        $next = "$((Invoke-NovaJson "exec --file $cs").result)"
+        Invoke-Nova 'stop' | Out-Null
+        Add-Result scriptable 'editing the asset during Play updates the loaded instance; script changes reset on the next Play' ($live -eq '77' -and $next -eq '77|0.5') "during play $live, next play $next"
+
+        # 저장된 씬 값 (경로 문자열) — 빌드가 따라가 넣는다
+        $g = Invoke-NovaJson 'get SOU --component SOUser'
+        $f = $g.fields
+        Add-Result scriptable 'scene stores asset paths (build follows them), arrays as lists' ($f.weapon -like '*Sword.asset' -and $f.arsenal.Count -eq 2) ("weapon {0}, arsenal {1}" -f $f.weapon, $f.arsenal.Count)
+        $rf = Invoke-NovaJson 'scriptable resources --path Items --all'
+        Add-Result scriptable 'Resources index (nova scriptable resources)' ($rf.files.Count -eq 1 -and $rf.files[0] -like '*Resources/Items/Elixir.asset') (($rf.files) -join ', ')
+    }
+    finally { Stop-TestEditor $ed | Out-Null }
+}
+
 function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [string]$dir)
 {
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -8976,6 +9098,7 @@ try
                 'animation' { Suite-Animation }
                 'animlayers' { Suite-AnimLayers }
                 'timeline' { Suite-Timeline }
+                'scriptable' { Suite-Scriptable }
                 'import' { Suite-Import }
                 'ui' { Suite-UI }
                 'packages' { Suite-Packages }
