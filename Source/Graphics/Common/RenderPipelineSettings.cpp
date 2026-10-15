@@ -4,6 +4,7 @@
 #include "ClusteredLighting.h"
 #include "DeferredRenderer.h"
 #include "CliServer.h"
+#include "Upscaler.h"
 #include <filesystem>
 #include <fstream>
 
@@ -16,6 +17,10 @@ namespace
 	std::string s_DefaultProfile;
 	RenderPipelineSettings::RenderingPath s_Path = RenderPipelineSettings::RenderingPath::ForwardPlus;
 	bool s_Multithreaded = false;
+	float s_RenderScale = 1.0f;
+	RenderPipelineSettings::UpscalingFilter s_Filter = RenderPipelineSettings::UpscalingFilter::Automatic;
+	bool s_FsrOverride = false;
+	float s_FsrSharpness = 0.92f;   // URP 기본 (1 - 0.2 / 2.5)
 
 	std::wstring SettingsFile()
 	{
@@ -28,6 +33,10 @@ namespace
 		s_DefaultProfile.clear();
 		s_Path = RenderPipelineSettings::RenderingPath::ForwardPlus;
 		s_Multithreaded = false;
+		s_RenderScale = 1.0f;
+		s_Filter = RenderPipelineSettings::UpscalingFilter::Automatic;
+		s_FsrOverride = false;
+		s_FsrSharpness = 0.92f;
 		std::ifstream in(SettingsFile());
 		if (in)
 		{
@@ -37,6 +46,10 @@ namespace
 				s_DefaultProfile = j.value("defaultVolumeProfile", std::string());
 				RenderPipelineSettings::RenderingPathFromName(j.value("renderingPath", std::string("Forward+")), s_Path);
 				s_Multithreaded = j.value("multithreadedRendering", false);
+				s_RenderScale = std::clamp(j.value("renderScale", 1.0f), 0.1f, 2.0f);
+				RenderPipelineSettings::UpscalingFilterFromName(j.value("upscalingFilter", std::string("Automatic")), s_Filter);
+				s_FsrOverride = j.value("fsrOverrideSharpness", false);
+				s_FsrSharpness = std::clamp(j.value("fsrSharpness", 0.92f), 0.0f, 1.0f);
 			}
 		}
 		ClusteredLighting::SetEnabled(s_Path != RenderPipelineSettings::RenderingPath::Forward);
@@ -61,6 +74,10 @@ namespace
 		j["defaultVolumeProfile"] = s_DefaultProfile;
 		j["renderingPath"] = RenderPipelineSettings::RenderingPathName(s_Path);
 		j["multithreadedRendering"] = s_Multithreaded;
+		j["renderScale"] = s_RenderScale;
+		j["upscalingFilter"] = RenderPipelineSettings::UpscalingFilterName(s_Filter);
+		j["fsrOverrideSharpness"] = s_FsrOverride;
+		j["fsrSharpness"] = s_FsrSharpness;
 		std::ofstream os(file, std::ios::trunc);
 		if (os)
 			os << j.dump(4);
@@ -203,8 +220,112 @@ namespace RenderPipelineSettings
 		return false;
 	}
 
+	float RenderScale()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_RenderScale;
+	}
+
+	void SetRenderScale(float scale)
+	{
+		if (!s_Loaded)
+			Load();
+		s_RenderScale = std::clamp(scale, 0.1f, 2.0f);
+		Save();
+	}
+
+	UpscalingFilter GetUpscalingFilter()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_Filter;
+	}
+
+	void SetUpscalingFilter(UpscalingFilter f)
+	{
+		if (!s_Loaded)
+			Load();
+		s_Filter = f;
+		Save();
+	}
+
+	const char* UpscalingFilterName(UpscalingFilter f)
+	{
+		switch (f)
+		{
+		case UpscalingFilter::Bilinear: return "Bilinear";
+		case UpscalingFilter::NearestNeighbor: return "Nearest-Neighbor";
+		case UpscalingFilter::FSR: return "FidelityFX Super Resolution 1.0";
+		default: return "Automatic";
+		}
+	}
+
+	bool UpscalingFilterFromName(const std::string& name, UpscalingFilter& out)
+	{
+		std::string n;
+		for (char c : name) if (c != ' ' && c != '_' && c != '-' && c != '.') n += (char)tolower((unsigned char)c);
+		if (n == "automatic" || n == "auto" || n == "0") { out = UpscalingFilter::Automatic; return true; }
+		if (n == "bilinear" || n == "1") { out = UpscalingFilter::Bilinear; return true; }
+		if (n == "nearestneighbor" || n == "nearest" || n == "point" || n == "2") { out = UpscalingFilter::NearestNeighbor; return true; }
+		if (n == "fsr" || n == "fsr1" || n == "fsr10" || n == "fidelityfxsuperresolution10" || n == "fidelityfxsuperresolution" || n == "3") { out = UpscalingFilter::FSR; return true; }
+		return false;
+	}
+
+	bool FsrOverrideSharpness()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_FsrOverride;
+	}
+
+	float FsrSharpness()
+	{
+		if (!s_Loaded)
+			Load();
+		return s_FsrSharpness;
+	}
+
+	void SetFsrSharpness(bool overrideOn, float sharpness)
+	{
+		if (!s_Loaded)
+			Load();
+		s_FsrOverride = overrideOn;
+		s_FsrSharpness = std::clamp(sharpness, 0.0f, 1.0f);
+		Save();
+	}
+
+	float EffectiveFsrSharpness()
+	{
+		return FsrOverrideSharpness() ? FsrSharpness() : 0.92f;
+	}
+
 	void RegisterEditor()
 	{
+		CliServer::Register("renderscale", "Render Scale + Upscaling Filter (URP): {scale?: 0.1-2, filter?: Automatic|Bilinear|Nearest|FSR, sharpness?: 0-1 (overrides), override?: bool}",
+			[](const nlohmann::json& args, nlohmann::json& result, std::string& error) {
+				if (args.contains("scale"))
+				{
+					if (!args["scale"].is_number()) { error = "scale must be a number (0.1 - 2)"; return false; }
+					SetRenderScale(args["scale"].get<float>());
+				}
+				if (args.contains("filter"))
+				{
+					UpscalingFilter f;
+					const std::string name = args["filter"].is_string() ? args["filter"].get<std::string>() : args["filter"].dump();
+					if (!UpscalingFilterFromName(name, f)) { error = "unknown filter '" + name + "' (Automatic, Bilinear, Nearest, FSR)"; return false; }
+					SetUpscalingFilter(f);
+				}
+				if (args.contains("sharpness") || args.contains("override"))
+				{
+					const bool on = args.contains("override") ? (args["override"].is_boolean() ? args["override"].get<bool>() : args["override"].dump() != "0") : true;
+					SetFsrSharpness(on, args.contains("sharpness") && args["sharpness"].is_number() ? args["sharpness"].get<float>() : FsrSharpness());
+				}
+				result = { { "renderScale", RenderScale() }, { "upscalingFilter", UpscalingFilterName(GetUpscalingFilter()) },
+					{ "fsrOverrideSharpness", FsrOverrideSharpness() }, { "fsrSharpness", FsrSharpness() }, { "effectiveSharpness", EffectiveFsrSharpness() },
+					{ "lastFrame", Upscaler::Info() } };
+				return true;
+			});
 		CliServer::Register("renderpath", "Rendering Path (URP): {op: get|set, path?: Forward|Forward+|Deferred}",
 			[](const nlohmann::json& args, nlohmann::json& result, std::string& error) {
 				if (args.value("op", std::string("get")) == "set")

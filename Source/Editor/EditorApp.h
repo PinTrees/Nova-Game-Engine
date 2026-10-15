@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "App.h"
+#include "Upscaler.h"
 #include "Waves.h"
 #include "LightHelper.h"
 #include "RetryGate.h"
@@ -58,6 +59,8 @@ private:
 		XMFLOAT2 JitterUV = {};
 	};
 	void RenderGameView(GfxRenderTargetView* renderTargetView, const GameViewDesc& d);
+	// Game 카메라 한 장 (OnSceneRender 가 Render Scale 대로 배율 타깃 · 뷰포트를 정한 뒤 부른다)
+	void RenderCamera(GfxRenderTargetView* renderTargetView, Camera* camera);
 	void CaptureProbeFace(const ReflectionProbes::CaptureView& v);
 	GfxShaderResourceView* CaptureGIView(const ProbeVolumes::CaptureView& v);
 	bool ProbeNormalDepth(UINT width, UINT height);
@@ -88,7 +91,8 @@ private:
 	UINT _viewDepthW = 0, _viewDepthH = 0;
 	RetryGate _viewDepthRetry;   // 깊이 버퍼 만들기 실패 → 1 초 뒤 다시
 	GfxDepthStencilView* ViewDepth(UINT width, UINT height);
-	virtual GfxDepthStencilView* SceneDepth(UINT width, UINT height) override { return ViewDepth(width, height); }
+	// Game UI 의 World · Camera 캔버스가 깊이 시험에 쓴다. Render Scale 로 배율 해상도에 그린 프레임은 출력 크기 깊이가 없다 → 시험 없이
+	virtual GfxDepthStencilView* SceneDepth(UINT width, UINT height) override { return Upscaler::Active() ? nullptr : ViewDepth(width, height); }
 	void DrawWater(CXMMATRIX view, CXMMATRIX proj, const XMFLOAT3& eye, GfxRenderTargetView* target, GfxDepthStencilView* dsv,
 		const D3D11_VIEWPORT& viewport, const vector<DirectionalLight>& dirLights, bool skyVisible, class ShadowMap* shadowMap, const void* shadowFrame,
 		const void* atmosphere);

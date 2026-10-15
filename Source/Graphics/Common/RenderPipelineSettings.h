@@ -18,7 +18,22 @@ namespace RenderPipelineSettings
 	void SetRenderingPath(RenderingPath path);   // 저장 + Forward+ 클러스터 켜기 · 끄기
 	const char* RenderingPathName(RenderingPath path);   // "Forward" · "Forward+" · "Deferred"
 	bool RenderingPathFromName(const std::string& name, RenderingPath& out);
-	void RegisterEditor();   // CLI: nova renderpath [get|set --path Forward|Forward+|Deferred]
+	void RegisterEditor();   // CLI: nova renderpath [get|set --path Forward|Forward+|Deferred], nova renderscale
+
+	// Render Scale · Upscaling Filter (URP Asset > Quality 와 같은 이름): Game 카메라 (화면으로 그리는 것) 를 이 배율 해상도로 그리고
+	//  출력 크기로 늘린다 (UI 는 출력 해상도). Scene 뷰는 늘 1
+	enum class UpscalingFilter { Automatic = 0, Bilinear = 1, NearestNeighbor = 2, FSR = 3 };
+	float RenderScale();                    // 0.1 ~ 2 (기본 1)
+	void SetRenderScale(float scale);       // 저장
+	UpscalingFilter GetUpscalingFilter();
+	void SetUpscalingFilter(UpscalingFilter f);
+	const char* UpscalingFilterName(UpscalingFilter f);   // "Automatic" · "Bilinear" · "Nearest-Neighbor" · "FidelityFX Super Resolution 1.0"
+	bool UpscalingFilterFromName(const std::string& name, UpscalingFilter& out);
+	// FSR 1.0 의 RCAS 날카로움 (URP: Override FSR Sharpness 를 켜야 FSR Sharpness 값을, 아니면 기본 0.92)
+	bool FsrOverrideSharpness();
+	float FsrSharpness();                   // 0 ~ 1
+	void SetFsrSharpness(bool overrideOn, float sharpness);
+	float EffectiveFsrSharpness();
 
 	const std::string& DefaultVolumeProfilePath();
 	void SetDefaultVolumeProfilePath(const std::string& path);

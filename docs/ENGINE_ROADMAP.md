@@ -28,7 +28,7 @@
 | GPU 입자 (서브 이미터 · 트레일 · 끌개 · 충돌) | ● | VFX Graph · Particle System ([VFX_GRAPH](VFX_GRAPH.md)) — 깊이 · SDF 충돌은 확인 필요 |
 | 후처리 (톤매핑 · 노출 · DoF · SSAO · 블룸 · LUT) | ● | URP Volume 오버라이드 전부 |
 | AA (TAA · FXAA · MSAA · SMAA) | ● | [ANTI_ALIASING](ANTI_ALIASING.md) |
-| **해상도 배율 · 업스케일 (FSR 1/2)** | ○ | Render Scale · FSR 없음 |
+| 해상도 배율 · 업스케일 (FSR 1/2) | ◐ | Render Scale · Bilinear · Nearest · FSR 1.0 (EASU + RCAS) ([RENDER_SCALE](RENDER_SCALE.md)). 시간 업스케일 (FSR 2 · STP) 은 아직 |
 | VRAM 압축 (BC · ASTC · ETC2 · Basis) | ◐ | BC · ASTC (안드로이드). Basis 없음 |
 | 가상 텍스처링 | ● | Godot 에 없음 |
 | 메시 LOD · 가시 범위 (HLOD) | ◐ | LOD Group · Auto LOD · 임포스터 있음. **HLOD (멀리서 여러 오브젝트를 한 메시로)** 없음 |
@@ -139,7 +139,7 @@ VFX Graph · Shader Graph · Terrain Graph (Gaea 식) · PCG · 절차적 식생
 | 1-1 | **큰 월드 동적 GI** — 먼저 화면 공간 (SSGI / SSIL), 다음 카메라 둘레 계단식 SDF · 복셀 GI | SSIL · SDFGI (캐스케이드, 굽기 없음) | Screen Space Global Illumination · (HDRP 식) | L |
 | 1-2 | 국소 **Fog Volume** (상자 · 구 · 밀도 텍스처 — 늪 · 동굴 · 성 안) | FogVolume · FogMaterial | Local Volumetric Fog (HDRP) | M |
 | 1-3 | **면광** (사각형 · 원판, LTC) — 실내 · 횃불 · 창 | 사각형 면광 | Area Light (Rectangle · Disc) | M |
-| 1-4 | **Render Scale + FSR 1 / 2 업스케일** — 고해상도에서 GPU 아끼기 | 해상도 배율 · FSR 2.2 | URP Render Scale · Upscaling Filter | M |
+| 1-4 | **Render Scale + FSR 1 / 2 업스케일** (2026-10-16 FSR 1 완료) — 고해상도에서 GPU 아끼기 | 해상도 배율 · FSR 2.2 | URP Render Scale · Upscaling Filter | M |
 | 1-5 | **시네마틱 Timeline** (2026-10-16 완료) — 애니메이션 · 카메라 (Cinemachine) · 소리 · 이벤트 트랙, 컷신 재생 | Animation 트랙 (메서드 · 소리 · Bézier) | Timeline · PlayableDirector · Signal | L |
 | 1-6 | **오디오 컨테이너** — 무작위 · 연속 · 반복 막기 · 음높이 · 볼륨 흔들기, 동시 재생 수 | AudioStreamRandomizer · polyphony | Audio Random Container (Unity 6) | S |
 | 1-7 | 손 **IK (Two Bone) · 일반 IK 체인** (2026-10-16 완료) — 무기 쥐기 · 문 열기 · 사다리 | Skeleton IK · SkeletonModifier3D | Animation Rigging (Two Bone IK · Multi-Aim) | M |

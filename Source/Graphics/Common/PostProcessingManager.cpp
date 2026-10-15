@@ -34,6 +34,14 @@ void PostProcessingManager::SetSSAO(int32 screenWidth, int32 screenHeight, Camer
 {
 	m_GameSSAO = std::make_unique<Ssao>();
 	m_GameSSAO->Init(screenWidth, screenHeight);
+	m_GameSSAOWidth = screenWidth;
+	m_GameSSAOHeight = screenHeight;
+}
+
+void PostProcessingManager::EnsureSSAO(int32 width, int32 height, Camera* camera)
+{
+	if (m_GameSSAO == nullptr || m_GameSSAOWidth != width || m_GameSSAOHeight != height)
+		SetSSAO(width, height, camera);
 }
 
 void PostProcessingManager::_EditorSetSSAO(int32 screenWidth, int32 screenHeight, EditorCamera* camera)

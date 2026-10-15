@@ -12,6 +12,7 @@ class PostProcessingManager
 private:
 	std::unique_ptr<Ssao> m_EditorSSAO;
 	std::unique_ptr<Ssao> m_GameSSAO;
+	int32 m_GameSSAOWidth = 0, m_GameSSAOHeight = 0;
 
 	// Volume 후처리 (뷰마다 타깃과 섞인 값이 따로)
 	PostProcessPass m_EditorPost, m_GamePost;
@@ -23,6 +24,8 @@ public:
 	// Volume 의 Screen Space Ambient Occlusion 값으로 (꺼져 있으면 흰 맵)
 	void RenderSSAO(CXMMATRIX view, CXMMATRIX proj, const Ssao::Settings& settings, GfxShaderResourceView* motion = nullptr);   // TAA 면 지터한 투영 (깊이 프리패스와 같은 것)
 	void SetSSAO(int32 screenWidth, int32 screenHeight, Camera* camera);
+	// 크기가 다를 때만 다시 만든다 (Render Scale: Game 카메라는 배율 해상도로 그린다)
+	void EnsureSSAO(int32 width, int32 height, Camera* camera);
 	Ssao* GetSSAO() { return m_GameSSAO.get(); }
 
 	// Editor

@@ -528,6 +528,31 @@ namespace
 		}
 		UnityGUI::Spacing(6.0f);
 
+		// URP Asset > Quality 의 Render Scale · Upscaling Filter (Game 카메라만, UI 는 출력 해상도)
+		SectionTitle("Quality");
+		{
+			float scale = RenderPipelineSettings::RenderScale();
+			if (UnityGUI::Slider("Render Scale", &scale, 0.1f, 2.0f))
+				RenderPipelineSettings::SetRenderScale(std::round(scale * 100.0f) / 100.0f);
+			static const char* filters[] = { "Automatic", "Bilinear", "Nearest-Neighbor", "FidelityFX Super Resolution 1.0" };
+			int filter = (int)RenderPipelineSettings::GetUpscalingFilter();
+			if (UnityGUI::Dropdown("Upscaling Filter", &filter, filters, 4))
+				RenderPipelineSettings::SetUpscalingFilter((RenderPipelineSettings::UpscalingFilter)filter);
+			if (filter == (int)RenderPipelineSettings::UpscalingFilter::FSR)
+			{
+				bool over = RenderPipelineSettings::FsrOverrideSharpness();
+				float sharp = RenderPipelineSettings::FsrSharpness();
+				bool changed = UnityGUI::Toggle("Override FSR Sharpness", &over, 1);
+				if (over)
+					changed |= UnityGUI::Slider("FSR Sharpness", &sharp, 0.0f, 1.0f, 1);
+				if (changed)
+					RenderPipelineSettings::SetFsrSharpness(over, sharp);
+				if (scale >= 1.0f)
+					UnityGUI::HelpBox("FSR only upscales: with Render Scale 1 or more the Game view uses Bilinear.", false);
+			}
+		}
+		UnityGUI::Spacing(6.0f);
+
 		SectionTitle("Volume");
 		// Unity 처럼 기본 프로파일은 항상 있다: 없으면 Assets/Settings/DefaultVolumeProfile 을 만든다
 		auto profile = RenderPipelineSettings::EnsureDefaultVolumeProfile();

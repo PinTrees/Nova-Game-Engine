@@ -55,6 +55,7 @@
 #include "TreeRenderer.h"
 #include "Ssao.h"
 #include "MotionVectors.h"
+#include "Upscaler.h"
 #include "OcclusionCulling.h"
 #include "TransformBench.h"
 #include "SceneStreaming.h"
@@ -536,6 +537,42 @@ void EditorApp::OnSceneRender(GfxRenderTargetView* renderTargetView, Camera* cam
 	FRAME_PROFILE("GameView render");
 	// Profiler 창: 이 화면의 GPU 시간 + 단계별 (CPU + GPU 타임스탬프)
 	PROFILE_GPU("Game View");
+	// Render Scale (URP): 배율 해상도 타깃에 그리고 (뷰포트 · SSAO · 깊이 · 후처리 모두 그 크기) 출력 크기로 늘린다. UI 는 그 뒤 출력 해상도
+	RenderManager* rm = RenderManager::GetI();
+	const D3D11_VIEWPORT full = rm->Viewport;
+	const UINT outW = (UINT)full.Width, outH = (UINT)full.Height;
+	const float scale = RenderPipelineSettings::RenderScale();
+	UINT w = outW, h = outH;
+	if (std::abs(scale - 1.0f) > 0.001f && outW > 0 && outH > 0)
+	{
+		w = (std::max)(1u, (UINT)std::lround(outW * scale));
+		h = (std::max)(1u, (UINT)std::lround(outH * scale));
+	}
+	GfxRenderTargetView* target = renderTargetView;
+	if (w != outW || h != outH)
+	{
+		target = Upscaler::Target(w, h);
+		if (target == nullptr)
+		{
+			target = renderTargetView;
+			w = outW;
+			h = outH;
+		}
+	}
+	if (outW > 0 && outH > 0)
+		PostProcessingManager::GetI()->EnsureSSAO((int32)w, (int32)h, camera);
+	rm->Viewport.Width = (float)w;
+	rm->Viewport.Height = (float)h;
+	RenderCamera(target, camera);
+	rm->Viewport = full;
+	if (target != renderTargetView)
+		Upscaler::Resolve(renderTargetView, outW, outH);
+	else
+		Upscaler::NoteNative(outW, outH);
+}
+
+void EditorApp::RenderCamera(GfxRenderTargetView* renderTargetView, Camera* camera)
+{
 	GameViewDesc d;
 	d.Cam = camera;
 	d.View = camera->View();

@@ -36,7 +36,7 @@ if (-not $Out)
 }
 New-Item -ItemType Directory -Force $Out | Out-Null
 
-$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'timeline', 'scriptable', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
+$suites = if ($Only.Count) { $Only } else { @('cli', 'physics', 'animation', 'animlayers', 'timeline', 'scriptable', 'renderscale', 'import', 'ui', 'packages', 'model', 'anim2d', 'tilemap', 'layers', 'sprites', 'physics2d', 'shadergraph', 'decal', 'reflectionprobe', 'probevolume', 'depthoffield', 'lodgroup', 'occlusion', 'occlusiongl', 'occlusionvk', 'linetrail', 'material', 'vfx', 'vfxgl', 'vfxvk', 'weather', 'tessellation', 'ssr', 'ssao', 'motionvectors', 'cinemachine', 'renderingdebug', 'forwardplus', 'rendergraph', 'modelplace', 'antialiasing', 'audio', 'web', 'scenes', 'tween', 'light2d', 'nav2d', 'ragdoll', 'wheel', 'daynight', 'cloth', 'clothskin', 'starter', 'behaviour', 'recovery', 'render', 'gfx', 'vulkan', 'd3d12', 'vfx12', 'virtualtexture', 'deferred', 'jobs', 'physicsasync', 'physicssync', 'blockout', 'renderthread', 'memory', 'transform', 'streaming', 'crowd', 'pcg', 'postfx', 'terraingraph', 'plants', 'building') + $(if ($Suite -eq 'full') { @('perf', 'particles') } else { @() }) + $(if ($Interactive) { @('keys') } else { @() }) }
 Write-Host "NOVA tests: $($suites -join ', ')  (project $Project, out $Out)"
 Backup-Layout
 
@@ -6471,6 +6471,136 @@ public class SOUser : MonoBehaviour
     finally { Stop-TestEditor $ed | Out-Null }
 }
 
+# Render Scale + Upscaling Filter (URP): Game 카메라를 배율 해상도로 그리고 출력 크기로 (Bilinear · Nearest · FSR 1.0 EASU + RCAS)
+function Suite-RenderScale
+{
+    Write-Host '[renderscale]'
+    Add-Type -AssemblyName System.Drawing
+    # 기준 (scale 1) 의 경계 픽셀 (밝기 기울기가 큰 곳) 에서만 평균 차이 — 늘린 영상이 경계를 얼마나 되살렸나
+    if (-not ('NovaEdgeSharp' -as [type]))
+    {
+        Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @"
+using System; using System.Drawing; using System.Drawing.Imaging; using System.Runtime.InteropServices;
+public static class NovaEdgeSharp
+{
+    static double[] Luma(string path, out int w, out int h)
+    {
+        using (var bmp = new Bitmap(path))
+        {
+            w = bmp.Width; h = bmp.Height;
+            var d = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+            var bytes = new byte[d.Stride * h];
+            Marshal.Copy(d.Scan0, bytes, 0, bytes.Length);
+            bmp.UnlockBits(d);
+            var l = new double[w * h];
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) { int i = y * d.Stride + x * 4; l[y * w + x] = 0.114 * bytes[i] + 0.587 * bytes[i + 1] + 0.299 * bytes[i + 2]; }
+            return l;
+        }
+    }
+    static double[] Grad(double[] l, int w, int h)
+    {
+        var g = new double[w * h];
+        for (int y = 1; y < h - 1; y++) for (int x = 1; x < w - 1; x++) { int i = y * w + x; g[i] = Math.Abs(l[i + 1] - l[i - 1]) + Math.Abs(l[i + w] - l[i - w]); }
+        return g;
+    }
+    // 기준 영상의 경계 픽셀 (기울기 > 30) 둘레 5x5 에서 이 영상의 가장 큰 기울기 평균 = 경계가 얼마나 또렷한가 (위치가 반 픽셀 어긋나도)
+    public static double[] Sharpness(string refPath, string imgPath)
+    {
+        int w, h, w2, h2;
+        var r = Luma(refPath, out w, out h); var m = Luma(imgPath, out w2, out h2);
+        if (w != w2 || h != h2) return new double[] { -1, 0 };
+        var gr = Grad(r, w, h); var gm = Grad(m, w, h);
+        double sum = 0; int n = 0;
+        for (int y = 3; y < h - 3; y++) for (int x = 3; x < w - 3; x++)
+        {
+            if (gr[y * w + x] <= 30) continue;
+            double best = 0;
+            for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) best = Math.Max(best, gm[(y + dy) * w + x + dx]);
+            sum += best; n++;
+        }
+        return new double[] { sum / Math.Max(1, n), n };
+    }
+}
+"@
+    }
+    function Edge-Sharp([string]$refPath, [string]$imgPath) { $v = [NovaEdgeSharp]::Sharpness($refPath, $imgPath); return @{ Value = $v[0]; Count = [int]$v[1] } }
+    $settingsFile = Join-Path $Project 'ProjectSettings\GraphicsSettings.json'
+    $shots = @{}
+    $ed = Start-TestEditor
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name C1 --position 0,0.5,0 --rotation 0,30,0' | Out-Null
+        Invoke-Nova 'create sphere --name S1 --position 1.6,0.6,0.5' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.4,-3.2 --rotation 12,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'wait 5' | Out-Null
+        $info = @{}
+        foreach ($cfg in @(@('1', 'Automatic', 'full'), @('0.5', 'Bilinear', 'bilinear'), @('0.5', 'Nearest', 'nearest'), @('0.5', 'FSR', 'fsr'), @('1.5', 'FSR', 'super')))
+        {
+            Invoke-Nova "renderscale set --scale $($cfg[0]) --filter $($cfg[1])" | Out-Null
+            Invoke-Nova 'wait 8' | Out-Null
+            $shots[$cfg[2]] = Join-Path $Out "renderscale_$($cfg[2]).png"
+            $sh = Invoke-NovaJson ('screenshot "' + $shots[$cfg[2]] + '" --view game')
+            $g = $null
+            for ($k = 0; $k -lt 3 -and -not ($g -and $g.lastFrame -and $g.lastFrame.input); $k++) { $g = Invoke-NovaJson 'renderscale get'; if (-not ($g -and $g.lastFrame)) { Invoke-Nova 'wait 2' | Out-Null } }
+            if (-not ($g -and $g.lastFrame)) { Write-Host "  renderscale get failed for $($cfg[2]): $(Invoke-Nova 'renderscale get')" }
+            $info[$cfg[2]] = @{ shot = $sh; frame = $g.lastFrame }
+        }
+        $f = $info['full']; $b = $info['bilinear']; $n = $info['nearest']; $r = $info['fsr']; $u = $info['super']
+        $ow = $f.shot.width; $oh = $f.shot.height
+        Add-Result renderscale 'scale 1: no upscale, the camera renders at the output size' (-not $f.frame.active -and $f.frame.input[0] -eq $ow) ("active {0}, input {1}x{2}, output {3}x{4}" -f $f.frame.active, $f.frame.input[0], $f.frame.input[1], $ow, $oh)
+        $hw = [math]::Round($ow * 0.5, [MidpointRounding]::AwayFromZero); $hh = [math]::Round($oh * 0.5, [MidpointRounding]::AwayFromZero)
+        Add-Result renderscale 'scale 0.5: the camera renders at half size, the Game view stays at the output size' ($b.frame.active -and $b.frame.input[0] -eq $hw -and $b.frame.input[1] -eq $hh -and $b.shot.width -eq $ow -and $b.shot.height -eq $oh) ("input {0}x{1} (expect {2}x{3}), screenshot {4}x{5}" -f $b.frame.input[0], $b.frame.input[1], $hw, $hh, $b.shot.width, $b.shot.height)
+        Add-Result renderscale 'filters: Bilinear, Nearest-Neighbor, FidelityFX Super Resolution 1.0 (RCAS sharpness 0.92); FSR above scale 1 falls back to Bilinear' ($b.frame.filter -eq 'Bilinear' -and $n.frame.filter -eq 'Nearest-Neighbor' -and $r.frame.filter -like 'FidelityFX*' -and [math]::Abs($r.frame.sharpness - 0.92) -lt 0.01 -and $u.frame.filter -eq 'Bilinear' -and $u.frame.input[0] -gt $ow) ("{0} | {1} | {2} {3:F2} | x1.5 {4} input {5}" -f $b.frame.filter, $n.frame.filter, $r.frame.filter, $r.frame.sharpness, $u.frame.filter, $u.frame.input[0])
+        $sF = Edge-Sharp $shots['full'] $shots['full']; $sB = Edge-Sharp $shots['full'] $shots['bilinear']; $sR = Edge-Sharp $shots['full'] $shots['fsr']; $sN = Edge-Sharp $shots['full'] $shots['nearest']
+        Add-Result renderscale 'FSR 1.0 keeps edges sharp (close to native, well above Bilinear)' ($sR.Count -gt 200 -and $sR.Value -gt $sB.Value * 1.25 -and $sR.Value -gt $sF.Value * 0.8) ("edge sharpness on {0} native edge pixels: native {1:F1}, FSR {2:F1}, Bilinear {3:F1}, Nearest {4:F1}" -f $sR.Count, $sF.Value, $sR.Value, $sB.Value, $sN.Value)
+        $j = Get-Content $settingsFile -Raw | ConvertFrom-Json
+        Add-Result renderscale 'saved in ProjectSettings/GraphicsSettings.json (renderScale, upscalingFilter)' ([math]::Abs($j.renderScale - 1.5) -lt 0.01 -and $j.upscalingFilter -like 'FidelityFX*') ("renderScale {0}, upscalingFilter {1}" -f $j.renderScale, $j.upscalingFilter)
+        Invoke-Nova 'renderscale set --scale 0.5 --filter FSR --sharpness 0.2' | Out-Null
+        Invoke-Nova 'wait 6' | Out-Null
+        $soft = Invoke-NovaJson 'renderscale get'
+        Add-Result renderscale 'Override FSR Sharpness' ($soft.fsrOverrideSharpness -and [math]::Abs($soft.lastFrame.sharpness - 0.2) -lt 0.01) ("override {0}, frame sharpness {1:F2}" -f $soft.fsrOverrideSharpness, $soft.lastFrame.sharpness)
+    }
+    finally
+    {
+        Invoke-Nova 'renderscale set --scale 1 --filter Automatic --override false --sharpness 0.92' | Out-Null
+        Stop-TestEditor $ed | Out-Null
+    }
+
+    # OpenGL: 같은 셰이더 (DXC → SPIR-V → GLSL) 로 FSR
+    $ed = Start-TestEditor -OpenGL
+    try
+    {
+        Invoke-Nova 'scene new --force' | Out-Null
+        Invoke-Nova 'create cube --name C1 --position 0,0.5,0 --rotation 0,30,0' | Out-Null
+        Invoke-Nova 'set "Main Camera" --position 0,1.4,-3.2 --rotation 12,0,0' | Out-Null
+        Invoke-Nova 'window game' | Out-Null
+        Invoke-Nova 'renderscale set --scale 0.5 --filter FSR' | Out-Null
+        # 처음에는 셰이더 변환 (DXC → GLSL) 이 오래 걸린다 — 장면 셰이더 · 68 번이 준비될 때까지
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while ($sw.Elapsed.TotalSeconds -lt 600)
+        {
+            $t = Invoke-Nova 'log -n 2000'
+            if ($t -match '(compiled|cache hit) 32\. InstancedBasic' -and $t -match '(compiled|cache hit) 68\. Upscale') { break }
+            Start-Sleep -Milliseconds 1000
+        }
+        Invoke-Nova 'wait 10' | Out-Null
+        $glShot = Join-Path $Out 'renderscale_gl.png'
+        $sh = Invoke-NovaJson ('screenshot "' + $glShot + '" --view game')
+        $g = Invoke-NovaJson 'renderscale get'
+        $bmp = [System.Drawing.Bitmap]::FromFile($glShot)
+        $c = $bmp.GetPixel([int]($bmp.Width * 0.5), [int]($bmp.Height * 0.55)); $sky = $bmp.GetPixel([int]($bmp.Width * 0.5), 10); $bmp.Dispose()
+        $lit = ($c.R + $c.G + $c.B) -gt 60 -and ($sky.R + $sky.G + $sky.B) -gt 60
+        Add-Result renderscale 'OpenGL: FSR upscale draws the scene (cross-compiled shader)' ($g.lastFrame.filter -like 'FidelityFX*' -and $lit) ("filter {0}, center {1},{2},{3}, sky {4},{5},{6}" -f $g.lastFrame.filter, $c.R, $c.G, $c.B, $sky.R, $sky.G, $sky.B)
+    }
+    finally
+    {
+        Invoke-Nova 'renderscale set --scale 1 --filter Automatic' | Out-Null
+        Stop-TestEditor $ed | Out-Null
+    }
+}
+
 function Capture-Scenes([switch]$OpenGL, [switch]$Vulkan, [switch]$D3D12, [string]$dir)
 {
     New-Item -ItemType Directory -Force $dir | Out-Null
@@ -9099,6 +9229,7 @@ try
                 'animlayers' { Suite-AnimLayers }
                 'timeline' { Suite-Timeline }
                 'scriptable' { Suite-Scriptable }
+                'renderscale' { Suite-RenderScale }
                 'import' { Suite-Import }
                 'ui' { Suite-UI }
                 'packages' { Suite-Packages }
