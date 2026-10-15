@@ -1,6 +1,10 @@
 # NOVA Claude 작업 상태
 
-- 갱신 시각: 2026년 10월 13일 — **50 km 월드: 바이옴 지형 텍스처 · 빽빽한 풀밭 · 휴머노이드 공용 애니메이션 · 플레이어 · NPC** (사용자 지시: "50 km 지형 · 노드 지형 생성에 바이옴에 맞는 고품질 텍스처, 없으면 받아 오기", "다크 판타지 오픈월드 (붉은사막) — 초목 · 잔디 · 낮은 풀이 길을 빼고 빼곡히, 멀리까지, 최적화", "테일즈 팩토리 캐릭터로 돌아다닐 수 있는 플레이어", "가진 애니메이션으로 NPC · 플레이어 공용 휴머노이드 애니메이션을 이 프로젝트 전용으로")
+- 갱신 시각: 2026년 10월 16일 — **엔진 로드맵 (Godot 4.7 기능 목록과 대조)** (사용자 지시: "Godot 오픈소스도 참고해서 기능적인 부분만, 앞으로 나아가야 할 부분을 잡아 달라")
+  - `docs/ENGINE_ROADMAP.md`: 분야별 대조표 (● · ◐ · ○), NOVA 가 앞선 것, 단계 P0 (Avatar Mask · 애니메이션 이벤트 · Input Actions · 전투 기반 · 세이브 · ScriptableObject · 오픈월드 성능) → P1 (동적 GI · Fog Volume · 면광 · FSR · Timeline · 오디오 컨테이너 · IK · 현지화 · 동영상) → P2 (C# 디버거 · 무비 메이커 · 프리팹 변형 · 원격 인스펙터 …) → P3 (네트워크 · 멀티플레이 · XR)
+  - 이름 · 동작은 계속 Unity 와 같게, Godot 는 체크리스트 · 설계 참고 (MIT — 코드를 가져오면 ThirdParty + 라이선스)
+  - 코드 변경 없음
+- 이전: 2026년 10월 13일 — **50 km 월드: 바이옴 지형 텍스처 · 빽빽한 풀밭 · 휴머노이드 공용 애니메이션 · 플레이어 · NPC** (사용자 지시: "50 km 지형 · 노드 지형 생성에 바이옴에 맞는 고품질 텍스처, 없으면 받아 오기", "다크 판타지 오픈월드 (붉은사막) — 초목 · 잔디 · 낮은 풀이 길을 빼고 빼곡히, 멀리까지, 최적화", "테일즈 팩토리 캐릭터로 돌아다닐 수 있는 플레이어", "가진 애니메이션으로 NPC · 플레이어 공용 휴머노이드 애니메이션을 이 프로젝트 전용으로")
   - 지형: `Source/Terrain/TerrainBiomeTextures.*` (바이옴 8 × 역할 5 — 사진 재질 배열, Library DDS 캐시), 타일마다 64² 기후 맵 (`TerrainData::Climate`), `40. TerrainCommon.fx` 바이옴 둘 고르기 + 높이 섞기, `61. TerrainTessellation.fx` 바이옴 변위, 텍스처 팩 146 재질 (+10 땅 · 바위)
   - 풀: `Source/Scene/GrassField.*` + `49. GrassField.fx` (정점 셰이더가 만드는 풀잎, 월드에 붙은 겹 격자, 조절 맵으로 길 · 강 · 바위 비우기, 바이옴별 밀도 · 키 · 마름), World Terrain Inspector Grass · JSON `grass`, `world info` 의 `grass`
   - 애니메이션: `Tools/unity_import/humanoid_set.py` — 라이브러리에서 260 클립을 골라 `HumanoidShared.controller` (상태 222 · 전이 282: Locomotion · Crouch · Strafe 2D · 무기 7 종 이동 · 연속기 · 강공격 · 막기, 점프, Any State 맞음 · 피하기 · 죽음 방향별, 그 밖 동작) + `HumanoidAnim.cs` (상수 · 도우미)
